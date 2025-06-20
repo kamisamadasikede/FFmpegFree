@@ -17,6 +17,7 @@ func main() {
 	go router.InitRouter()
 
 	app := NewApp()
+
 	// Create application with options
 	err := wails.Run(&options.App{
 		Title:     "FFmpegFree",
