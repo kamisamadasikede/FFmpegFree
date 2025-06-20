@@ -19,3 +19,7 @@ app.use(ElementPlus)
 app.mount('#app')
 // 可以将 api 挂载到全局，方便在组件中使用
 app.config.globalProperties.$api = api;
+app.config.errorHandler = (err, vm, info) => {
+    console.error("Vue error:", err, info);
+    // 可以弹窗提示用户或记录日志
+};
