@@ -64,3 +64,10 @@ export const deletesteamVideo = async (row:VideoInfo) => {
 
   return  api.post('/api/deletesteamVideo',{...row})
 }
+export const GetConvertingFiles = async () => {
+  return api.get('/api/GetConvertingFiles')
+}
+export const RemoveConvertingTask = async (row:VideoInfo) => {
+
+  return  api.post('/api/RemoveConvertingTask',{...row})
+}
