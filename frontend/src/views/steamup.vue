@@ -1,11 +1,13 @@
 <template>
+  <el-alert title="推流请勿使用同一个流地址，否则会使之前的推流自动终止。" type="primary" />
   <el-upload
-    class="upload-demo"
-    drag
-    :http-request="customUpload"
-    :auto-upload="true"
-    multiple
-    style="width: 100%;min-width: 600px"
+      class="upload-demo"
+      drag
+      :http-request="customUpload"
+      :auto-upload="true"
+      :before-upload="beforeUpload"
+      multiple
+      style="width: 100%;min-width: 600px"
   >
     <el-icon class="el-icon--upload">
       <upload-filled />
@@ -45,7 +47,7 @@
             type=""
             @click="handlereload(scope.$index, scope.row)"
         >
-          转换
+          推流
         </el-button>
         <el-button
             size="small"
@@ -67,17 +69,11 @@
       ></video>
     </div>
   </el-dialog>
-  <el-dialog v-model="isConvertDialogVisible" title="选择转换格式">
+  <el-dialog v-model="isConvertDialogVisible" title="输入推流地址">
     <el-form @submit.prevent="submitConversion">
       <el-form-item label="目标格式">
-        <el-select v-model="targetFormat" placeholder="请选择">
-          <el-option
-              v-for="format in supportedFormats"
-              :key="format"
-              :label="format.toUpperCase()"
-              :value="format"
-          />
-        </el-select>
+        <el-input v-model="steamurl" placeholder="输入推流地址">
+        </el-input>
       </el-form-item>
       <el-button type="primary" native-type="submit">提交</el-button>
     </el-form>
@@ -88,9 +84,18 @@
 <script setup lang="ts">
 import {computed, onMounted, ref} from "vue";
 import {ElUpload, ElButton, ElProgress, ElMessage} from 'element-plus'
+import * as wails from '../../wailsjs/runtime'
 import { UploadFilled } from '@element-plus/icons-vue'
-import { uploadFile } from '@/api/upload/upload'
-import {convertreload, deleteUp, deleteUpsc, getConvertingFiles} from "@/api/video/video";
+import { uploadFileSteame} from '@/api/upload/upload'
+import {
+  convertreload,
+  deletesteamVideo,
+  deleteUp,
+  deleteUpsc,
+  getConvertingFiles,
+  getSteamFiles,
+  steamload
+} from "@/api/video/video";
 interface VideoInfo {
   name: string
   url: string
@@ -99,11 +104,21 @@ interface VideoInfo {
   steamurl: string
   targetFormat: string
 }
+interface StreamEventData {
+  filename: string
+  streamUrl: string
+  status: 'completed' | 'failed'
+  error?: string
+}
+// 校验是否是合法的 rtmp 或 rtsp 地址
+const isValidStreamUrl = (url: string): boolean => {
+  const pattern = /^(rtmp|rtsp):\/\/.+/
+  return pattern.test(url)
+}
 const tableDataLoaded = ref(false)
 const isConvertDialogVisible = ref(false)
-const targetFormat = ref<string>('')
+const steamurl = ref<string>('')
 const selectedVideoForConvert = ref<VideoInfo | null>(null)
-const supportedFormats = ['avi', 'mkv', 'mov', 'flv','mp4','gif','webm']
 const search = ref('')
 const tableData = ref<VideoInfo[]>([])
 const isVideoDialogVisible = ref(false)
@@ -127,43 +142,48 @@ const customUpload = async (options:UploadRequestOptions) => {
   const { file } = options
   formData.append('file', file)
 
-    uploadProgress.value = 0 // 重置进度条
+  uploadProgress.value = 0 // 重置进度条
 
-    const response = await uploadFile(formData, (percent : number) => {
-      uploadProgress.value = percent
-    })
-    if (response.data.code === 200) {
-      fetchData()
-      uploadRef.value.clearFiles()
-    }else {
-      alert('上传失败')
-    }
+  const response = await uploadFileSteame(formData, (percent : number) => {
+    uploadProgress.value = percent
+  })
+  if (response.data.code === 200) {
+    fetchData()
+    uploadRef.value.clearFiles()
+  }else {
+    alert('上传失败')
+  }
 
 }
 const submitConversion = async () => {
-  if (!selectedVideoForConvert.value || !targetFormat.value) {
-    alert('请选择目标格式')
+  if (!selectedVideoForConvert.value) {
+    ElMessage.error('请选择一个视频文件')
+    return
+  }
+
+  if (!steamurl.value || !isValidStreamUrl(steamurl.value)) {
+    ElMessage.error('请输入有效的 RTMP 或 RTSP 地址（如：rtmp://xxx 或 rtsp://xxx）')
     return
   }
 
   try {
     const videoInfo = {
       ...selectedVideoForConvert.value,
-      targetFormat: targetFormat.value
+      steamurl: steamurl.value
     }
 
-    const res = await convertreload(videoInfo)
+    const res = await steamload(videoInfo)
 
     if (res.data.code === 200) {
-      ElMessage.success('转换任务提交成功')
+      ElMessage.success('推流任务已提交')
       isConvertDialogVisible.value = false
       fetchData() // 刷新表格数据
     } else {
-      alert('转换任务提交失败，请重试。')
+      ElMessage.error('推流任务提交失败，请重试。')
     }
   } catch (error) {
-    console.error('转换错误:', error)
-    alert('提交转换时发生错误')
+    console.error('推流错误:', error)
+    ElMessage.error('提交推流任务时发生错误')
   }
 }
 
@@ -174,19 +194,18 @@ const handlereload = (index: number, row: VideoInfo) => {
 
 }
 const handleDelete = async (index: number, row: VideoInfo) => {
-  const res = await deleteUp(row)
+  const res = await deletesteamVideo(row)
 
   if (res.data.code === 200) {
     // ✅ 直接从 tableData 中过滤掉当前 row
     tableData.value = tableData.value.filter(item => item.name !== row.name)
-
     ElMessage.success('删除成功')
   } else {
-    ElMessage.error('删除失败')
+    ElMessage.error('删除失败：'+res.data.error)
   }
 }
 const beforeUpload = (file :File) => {
-  const isValidType = ['image/jpeg', 'image/png', 'video/mp4'].includes(file.type)
+  const isValidType = ['video/mp4'].includes(file.type)
   if (!isValidType) {
     alert('只能上传图片或视频!')
     return false
@@ -196,7 +215,7 @@ const beforeUpload = (file :File) => {
 
 
 const fetchData = async () => {
-  const response = await getConvertingFiles()
+  const response = await getSteamFiles()
   if (response.data.code === 200) {
     tableData.value = response.data.data
   } else {
@@ -208,5 +227,6 @@ onMounted(() => {
   fetchData().finally(() => {
     tableDataLoaded.value = true
   })
+
 })
 </script>

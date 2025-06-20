@@ -6,15 +6,28 @@ interface VideoInfo {
   url: string
   duration: string
   date: string
+  steamurl: string
   targetFormat: string
 }
 
 export const getConvertingFiles = async () => {
   return api.get('/api/selectvideofile')
 }
+export const getSteamFiles = async () => {
+  return api.get('/api/getSteamFiles')
+}
 export const convertreload = async (videoInfo: VideoInfo) => {
   try {
     const response   = await api.post('/api/convert', videoInfo)
+    return response
+  } catch (error) {
+    console.error('视频转换请求失败:', error)
+    throw error
+  }
+}
+export const steamload = async (videoInfo: VideoInfo) => {
+  try {
+    const response   = await api.post('/api/steamload', videoInfo)
     return response
   } catch (error) {
     console.error('视频转换请求失败:', error)
@@ -46,4 +59,8 @@ export const deleteUpsc = async (row:VideoInfo) => {
 export const deleteUp = async (row:VideoInfo) => {
 
   return  api.post('/api/deleteUp',{...row})
+}
+export const deletesteamVideo = async (row:VideoInfo) => {
+
+  return  api.post('/api/deletesteamVideo',{...row})
 }

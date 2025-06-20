@@ -13,7 +13,7 @@
     <el-table-column label="名称" prop="name" />
     <el-table-column label="时长" prop="duration" />
     <el-table-column label="修改时间" prop="date" />
-    <el-table-column label="转换格式" prop="targetFormat" />
+    <el-table-column label="拉流地址" prop="steamurl" />
     <el-table-column align="right">
       <template #header>
         <el-input v-model="search" size="small" placeholder="搜索名称" />
@@ -24,7 +24,7 @@
             type="danger"
             @click="handleDelete(scope.$index, scope.row)"
         >
-          删除
+          停止推流
         </el-button>
       </template>
     </el-table-column>
@@ -32,8 +32,10 @@
   <el-dialog v-model="isVideoDialogVisible" fullscreen>
     <div class="fullscreen-video-container">
       <video
-          :src="selectedVideoUrl"
+          id="flvVideo"
           autoplay
+          muted
+          playsinline
           controls
           class="fullscreen-video"
       ></video>
@@ -41,9 +43,10 @@
   </el-dialog>
 </template>
 <script setup lang="ts">
-import {computed, onMounted, ref} from "vue";
+import {computed, nextTick, onMounted, ref} from "vue";
 import axios from "axios";
 import {ElMessage} from "element-plus";
+import flvjs from 'flv.js'
 interface VideoInfo {
   name: string
   url: string
@@ -68,10 +71,9 @@ const playFullScreenVideo = (url: string) => {
   selectedVideoUrl.value = url
   isVideoDialogVisible.value = true
 }
-
 const handleDelete = (index: number, row: VideoInfo) => {
   console.log(index, row)
-  axios.post('http://localhost:8000/api/RemoveConvertingTask', {
+  axios.post('http://localhost:8000/api/StopStream', {
     ...row
   })
       .then(response => {
@@ -83,22 +85,22 @@ const handleDelete = (index: number, row: VideoInfo) => {
           fetchData()
         } else {
           ElMessage({
-            message: '删除失败',
+            message: '停止失败',
             type: 'error',
           })
         }
-        console.log('转换响应:', response.data)
       })
       .catch(error => {
 
-        console.error('转换错误:', error)
+        console.error('停止错误:', error)
       })
 }
+
 const fetchData = async () => {
   try {
-    const response = await axios.get('http://localhost:8000/api/GetConvertingFiles') // 替换为你的 API 地址
+    const response = await axios.get('http://localhost:8000/api/GetStreamingFiles') // 替换为你的 API 地址
     // ✅ 确保即使为空也返回数组
-    tableData.value = response.data.data || []
+    tableData.value = response.data.streams || []
     console.log(response.data.data)
   } catch (error) {
     tableData.value = []

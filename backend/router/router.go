@@ -2,6 +2,8 @@ package router
 
 import (
 	"FFmpegFree/backend/contollers"
+	"FFmpegFree/backend/sse"
+	"FFmpegFree/backend/ws"
 	"github.com/gin-gonic/gin"
 	"github.com/rs/cors"
 	"net/http"
@@ -29,14 +31,24 @@ func SetupRouter() *gin.Engine {
 	// 注册路由
 	api := r.Group("/api")
 
+	// WebSocket 推流入口
+	r.GET("/ws", ws.HandleWebSocket)
+
 	api.POST("/upload", contollers.Upload)
+	api.POST("/uploadSteamup", contollers.UploadSteamup)
 	api.GET("/GetConvertingFiles", contollers.GetConvertingFiles)
 	api.GET("/selectvideofile", contollers.Selectvideofile)
+	api.GET("/getSteamFiles", contollers.GetSteamFiles)
 	api.POST("/convert", contollers.Convert)
+	api.POST("/steamload", contollers.Steamload)
+	api.POST("/StopStream", contollers.StopStream)
 	api.GET("/convertup", contollers.Convertup)
 	api.GET("/download", contollers.Download)
 	api.POST("/deleteUpsc", contollers.DeleteUpsc)
 	api.POST("/deleteUp", contollers.DeleteUp)
+	api.POST("/deletesteamVideo", contollers.DeletesteamVideo)
+	r.GET("/api/sse", sse.SseHandler)
+	r.GET("/api/GetStreamingFiles", contollers.GetStreamingFiles)
 	return r
 }
 

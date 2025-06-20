@@ -55,6 +55,7 @@ interface VideoInfo {
   url: string
   duration: string
   date: string
+  steamurl: string
   targetFormat: string
 }
 const tableDataLoaded = ref(false)

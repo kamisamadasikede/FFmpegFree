@@ -11,6 +11,7 @@ type VideoInfo struct {
 	Duration     string `json:"duration"`     // 可以用 time.Duration 或 string 格式
 	Date         string `json:"date"`         // 文件修改时间
 	TargetFormat string `json:"targetFormat"` // 文件修改时间
+	SteamUrl     string `json:"steamurl"`
 }
 type ConvertingTask struct {
 	VideoInfo  VideoInfo

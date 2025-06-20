@@ -20,6 +20,22 @@ const routes: Array<RouteRecordRaw> = [
     name: 'Convertup',
     component:() => import('../views/convertup.vue')
   },
+  { path: '/steamup',
+    name: 'steamup',
+    component:() => import('../views/steamup.vue')
+  },
+  { path: '/steamlist',
+    name: 'steamlist',
+    component:() => import('../views/steamlist.vue')
+  },
+  { path: '/MediaRecorder',
+    name: 'MediaRecorder',
+    component:() => import('../views/MediaRecorder.vue')
+  },
+  { path: '/LivePlayer',
+    name: 'LivePlayer',
+    component:() => import('../views/LivePlayer.vue')
+  },
 ]
 
 const router = createRouter({
