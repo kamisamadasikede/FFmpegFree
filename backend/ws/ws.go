@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os/exec"
 	"sync"
+	"syscall"
 )
 
 var upgrader = websocket.Upgrader{
@@ -65,13 +66,16 @@ func HandleWebSocket(c *gin.Context) {
 			if err := json.Unmarshal(data, &payload); err == nil {
 				if url, ok := payload["url"]; ok && session == nil {
 					// 创建 FFmpeg 推流命令
-					cmd := exec.Command("./build/ffmpeg/ffmpeg.exe",
+					cmd := exec.Command("./ffmpeg/ffmpeg",
 						"-f", "matroska", "-i", "pipe:0",
 						"-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
 						"-pix_fmt", "yuv420p",
 						"-f", "flv",
 						url,
 					)
+					cmd.SysProcAttr = &syscall.SysProcAttr{
+						HideWindow: true,
+					}
 
 					stdin, _ := cmd.StdinPipe()
 					done := make(chan struct{})

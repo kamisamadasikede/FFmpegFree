@@ -84,15 +84,12 @@
 <script setup lang="ts">
 import {computed, onMounted, ref} from "vue";
 import {ElUpload, ElButton, ElProgress, ElMessage} from 'element-plus'
-import * as wails from '../../wailsjs/runtime'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { uploadFileSteame} from '@/api/upload/upload'
 import {
   convertreload,
   deletesteamVideo,
-  deleteUp,
-  deleteUpsc,
-  getConvertingFiles,
+
   getSteamFiles,
   steamload
 } from "@/api/video/video";
