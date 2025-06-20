@@ -223,23 +223,23 @@ func Convert(c *gin.Context) {
 	switch videoInfo.TargetFormat {
 	case "mp4":
 		outputFilename = base + ".mp4"
-		cmd = exec.Command("./ffmpeg/ffmpeg", "-i", inputPath, "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-c:a", "aac", filepath.Join(outputDir, outputFilename))
+		cmd = exec.Command("./build/ffmpeg/ffmpeg.exe", "-i", inputPath, "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-c:a", "aac", filepath.Join(outputDir, outputFilename))
 	case "avi":
 		outputFilename = base + ".avi"
-		cmd = exec.Command("./ffmpeg/ffmpeg", "-i", inputPath, "-c:v", "mpeg4", "-vtag", "DIVX", "-c:a", "ac3", filepath.Join(outputDir, outputFilename))
+		cmd = exec.Command("./build/ffmpeg/ffmpeg.exe", "-i", inputPath, "-c:v", "mpeg4", "-vtag", "DIVX", "-c:a", "ac3", filepath.Join(outputDir, outputFilename))
 	case "mkv":
 		outputFilename = base + ".mkv"
-		cmd = exec.Command("./ffmpeg/ffmpeg", "-i", inputPath, "-c:v", "libx264", "-c:a", "copy", filepath.Join(outputDir, outputFilename))
+		cmd = exec.Command("./build/ffmpeg/ffmpeg.exe", "-i", inputPath, "-c:v", "libx264", "-c:a", "copy", filepath.Join(outputDir, outputFilename))
 	case "mov":
 		outputFilename = base + ".mov"
-		cmd = exec.Command("./ffmpeg/ffmpeg", "-i", inputPath, "-c:v", "libx264", "-f", "mov", filepath.Join(outputDir, outputFilename))
+		cmd = exec.Command("./build/ffmpeg/ffmpeg.exe", "-i", inputPath, "-c:v", "libx264", "-f", "mov", filepath.Join(outputDir, outputFilename))
 	case "flv":
 		outputFilename = base + ".flv"
-		cmd = exec.Command("./ffmpeg/ffmpeg", "-i", inputPath, "-c:v", "flv", "-b:v", "1M", "-c:a", "libmp3lame", filepath.Join(outputDir, outputFilename))
+		cmd = exec.Command("./build/ffmpeg/ffmpeg.exe", "-i", inputPath, "-c:v", "flv", "-b:v", "1M", "-c:a", "libmp3lame", filepath.Join(outputDir, outputFilename))
 	case "gif":
 		palettePath := filepath.Join(outputDir, base+".png")
 		paletteCmd := exec.Command(
-			"./ffmpeg/ffmpeg",
+			"./build/ffmpeg/ffmpeg.exe",
 			"-i", inputPath,
 			"-vf", "fps=10,scale=320:-1,palettegen",
 			palettePath,
@@ -253,7 +253,7 @@ func Convert(c *gin.Context) {
 
 		outputFilename = base + ".gif"
 		cmd = exec.Command(
-			"./ffmpeg/ffmpeg",
+			"./build/ffmpeg/ffmpeg.exe",
 			"-i", inputPath,
 			"-i", palettePath,
 			"-lavfi", "fps=10,scale=320:-1 [x]; [x][1]paletteuse",
@@ -262,7 +262,7 @@ func Convert(c *gin.Context) {
 	case "webm":
 		outputFilename = base + ".webm"
 		cmd = exec.Command(
-			"./ffmpeg/ffmpeg",
+			"./build/ffmpeg/ffmpeg.exe",
 			"-i", inputPath,
 			"-c:v", "libvpx-vp9",
 			"-b:v", "1M",
@@ -343,7 +343,7 @@ func Steamload(c *gin.Context) {
 
 	// 构建 ffmpeg 命令
 	cmd := exec.Command(
-		"./ffmpeg/ffmpeg",
+		"./build/ffmpeg/ffmpeg.exe",
 		"-re", "-i", inputPath,
 		"-c:v", "copy",
 		"-c:a", "aac",
