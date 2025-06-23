@@ -13,6 +13,7 @@
 - **桌面端打包**：Wails
 - **构建工具**：Vite + Go Modules
 - **通信协议**：HTTP + JSON+SSE+WEBSOKET
+- **必备工具**：FFmpeg(windows文件包已在ffmpeg目录下，构建时请复制到buildbin目录下或者执行copy-resources.ps1文件)
 
 ## 🔄 支持的格式（持续更新中）
 
