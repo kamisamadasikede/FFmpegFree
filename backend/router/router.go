@@ -46,6 +46,7 @@ func SetupRouter() *gin.Engine {
 	api.GET("/download", contollers.Download)
 	api.POST("/deleteUpsc", contollers.DeleteUpsc)
 	api.POST("/deleteUp", contollers.DeleteUp)
+	api.POST("/RemoveConvertingTask", contollers.RemoveConvertingTask)
 	api.POST("/deletesteamVideo", contollers.DeletesteamVideo)
 	r.GET("/api/sse", sse.SseHandler)
 	r.GET("/api/GetStreamingFiles", contollers.GetStreamingFiles)

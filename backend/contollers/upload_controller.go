@@ -316,6 +316,40 @@ func Convert(c *gin.Context) {
 		"status":  "processing",
 	}))
 }
+func RemoveConvertingTask(c *gin.Context) {
+	var videoInfo vo.VideoInfo
+	if err := c.ShouldBindJSON(&videoInfo); err != nil {
+		c.JSON(200, utils.Fail(500, "参数解析失败"))
+		return
+	}
+
+	streamsMutex.Lock()
+	defer streamsMutex.Unlock()
+
+	// 查找是否正在转换的文件
+	cmd, exists := convertingFiles[videoInfo]
+	if !exists {
+		c.JSON(200, utils.Fail(500, "查找失败"))
+		return
+	}
+
+	// 终止进程
+	if cmd.Process != nil {
+		if err := cmd.Process.Kill(); err != nil {
+			c.JSON(200, utils.Fail(500, "终止失败"))
+			return
+		}
+	}
+
+	// 从 map 中移除
+	delete(streams, videoInfo)
+
+	c.JSON(http.StatusOK, utils.Success(gin.H{
+		"message": "终止转换成功",
+		"file":    videoInfo.Name,
+	}))
+
+}
 func Steamload(c *gin.Context) {
 	var videoInfo vo.VideoInfo
 

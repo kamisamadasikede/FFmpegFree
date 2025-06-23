@@ -44,6 +44,7 @@
 import {computed, onMounted, ref} from "vue";
 import axios from "axios";
 import {ElMessage} from "element-plus";
+import {deletesteamVideo, GetConvertingFiles, RemoveConvertingTask} from "@/api/video/video";
 interface VideoInfo {
   name: string
   url: string
@@ -69,34 +70,19 @@ const playFullScreenVideo = (url: string) => {
   isVideoDialogVisible.value = true
 }
 
-const handleDelete = (index: number, row: VideoInfo) => {
-  console.log(index, row)
-  axios.post('http://localhost:8000/api/RemoveConvertingTask', {
-    ...row
-  })
-      .then(response => {
-        if  (response.data.code === 200) {
-          ElMessage({
-            message: response.data.data.message,
-            type: 'success',
-          })
-          fetchData()
-        } else {
-          ElMessage({
-            message: '删除失败',
-            type: 'error',
-          })
-        }
-        console.log('转换响应:', response.data)
-      })
-      .catch(error => {
-
-        console.error('转换错误:', error)
-      })
+// 删除操作
+const handleDelete = async (index: number, row: VideoInfo) => {
+  const res = await RemoveConvertingTask(row)
+  if (res.data.code === 200) {
+    tableData.value = tableData.value.filter((item) => item.name !== row.name)
+    ElMessage.success('删除成功')
+  } else {
+    ElMessage.error('删除失败：' + (res.data.message || '未知错误'))
+  }
 }
 const fetchData = async () => {
   try {
-    const response = await axios.get('http://localhost:8000/api/GetConvertingFiles') // 替换为你的 API 地址
+    const response = await GetConvertingFiles() // 替换为你的 API 地址
     // ✅ 确保即使为空也返回数组
     tableData.value = response.data.data || []
     console.log(response.data.data)
