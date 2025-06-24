@@ -59,7 +59,7 @@ func Upload(c *gin.Context) {
 	m := make(map[string]string)
 	m["fileName"] = newFilename
 	m["code"] = "200"
-	m["url"] = "http://localhost:8000/" + dst
+	m["url"] = "http://localhost:19200/" + dst
 	c.JSON(200, utils.Success(m))
 }
 func UploadSteamup(c *gin.Context) {
@@ -100,7 +100,7 @@ func UploadSteamup(c *gin.Context) {
 	m := make(map[string]string)
 	m["fileName"] = newFilename
 	m["code"] = "200"
-	m["url"] = "http://localhost:8000/" + dst
+	m["url"] = "http://localhost:19200/" + dst
 	c.JSON(200, utils.Success(m))
 }
 func GetConvertingFiles(c *gin.Context) {
@@ -130,7 +130,7 @@ func GetSteamFiles(c *gin.Context) {
 			fileInfo, _ := os.Stat(filePath)
 			videoInfo := vo.VideoInfo{
 				Name:     file.Name(),
-				Url:      "http://localhost:8000/" + filePath,
+				Url:      "http://localhost:19200/" + filePath,
 				Date:     fileInfo.ModTime().Format("2006-01-02 15:04:05"),
 				Duration: getVideoDuration(filePath), // 自定义函数获取视频时长
 			}
@@ -157,7 +157,7 @@ func Selectvideofile(c *gin.Context) {
 			fileInfo, _ := os.Stat(filePath)
 			videoInfo := vo.VideoInfo{
 				Name:     file.Name(),
-				Url:      "http://localhost:8000/" + filePath,
+				Url:      "http://localhost:19200/" + filePath,
 				Date:     fileInfo.ModTime().Format("2006-01-02 15:04:05"),
 				Duration: getVideoDuration(filePath), // 自定义函数获取视频时长
 			}
@@ -169,7 +169,7 @@ func Selectvideofile(c *gin.Context) {
 }
 func getVideoDuration(filePath string) string {
 	fmt.Println(filePath)
-	cmd := exec.Command("ffmpeg", "-i", "./"+filePath)
+	cmd := exec.Command("./ffmpeg/ffmpeg", "-i", "./"+filePath)
 	fmt.Print(cmd)
 	var out bytes.Buffer
 	cmd.Stderr = &out
@@ -519,7 +519,7 @@ func Convertup(c *gin.Context) {
 			fileInfo, _ := os.Stat(filePath)
 			videoInfo := vo.VideoInfo{
 				Name:     file.Name(),
-				Url:      "http://localhost:8000/" + filePath,
+				Url:      "http://localhost:19200/" + filePath,
 				Date:     fileInfo.ModTime().Format("2006-01-02 15:04:05"),
 				Duration: getVideoDuration(filePath), // 自定义函数获取视频时长
 			}
