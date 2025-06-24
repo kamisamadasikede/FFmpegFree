@@ -31,7 +31,7 @@ export const useStreamStore = defineStore('stream', () => {
             mediaStream.value = stream
 
             // 创建 WebSocket 连接
-            const socket = new WebSocket('ws://localhost:8000/ws')
+            const socket = new WebSocket('ws://localhost:19200/ws')
             ws.value = socket
 
             socket.onopen = () => {
@@ -45,14 +45,25 @@ export const useStreamStore = defineStore('stream', () => {
                 })
                 mediaRecorder.value = recorder
 
-                // 每秒发送一次数据块
+                // stores/useStreamStore.ts
+
                 recorder.ondataavailable = (event) => {
                     if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
-                        socket.send(event.data)
+                        const reader = new FileReader()
+
+                        // ✅ 使用 readAsArrayBuffer 替代默认的 readAsBinaryString 等方式
+                        reader.readAsArrayBuffer(event.data)
+
+                        reader.onloadend = () => {
+                            const arrayBuffer = reader.result as ArrayBuffer
+
+                            // ✅ 直接发送二进制数据
+                            socket.send(arrayBuffer)
+                        }
                     }
                 }
 
-                recorder.start(1000)
+                recorder.start(200)
                 isStreaming.value = true
                 statusMessage.value = '正在推流中...'
             }

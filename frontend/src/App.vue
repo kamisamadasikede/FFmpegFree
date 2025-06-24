@@ -3,6 +3,7 @@
 import {onMounted, onUnmounted, ref} from 'vue';
 import {ElMenu, ElMenuItem, ElMessage} from 'element-plus';
 import MenuComponent from './components/MenuComponent.vue';
+
 const handleResize = () => {
   // 触发某些布局更新逻辑（例如通知图表重绘、刷新容器宽高）
   console.log('窗口大小改变:', window.innerWidth, window.innerHeight)
@@ -10,7 +11,7 @@ const handleResize = () => {
 }
 onMounted(() => {
   window.addEventListener('resize', handleResize)
-  const eventSource = new EventSource('http://localhost:8000/api/sse')
+  const eventSource = new EventSource('http://localhost:19200/api/sse')
 
   eventSource.onmessage = (event) => {
     const data = JSON.parse(event.data)

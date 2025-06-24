@@ -38,7 +38,20 @@ const initPlayer = () => {
       plugins: [FlvPlugin],
       url: videoUrl.value,
       fluid: true,
-      playbackRate: [0.5, 0.75, 1, 1.5, 2]
+      playbackRate: [0.5, 0.75, 1, 1.5, 2],
+      customConfig: {
+        isLive: true,               // 强制开启直播模式
+        lazyLoad: true,             // 延迟加载
+        lazyLoadMaxDuration: 3,     // 最多缓存 3 秒
+        reuseRedirectHTTP: true,    // 复用连接
+        autoCleanupSourceBuffer: true,
+        liveBufferLatencyChasing: true, // 追逐实时延迟
+        liveSyncTargetLatency: 1,   // 目标同步延迟为 1 秒
+        liveMaxBufferSize: 10 * 1024 * 1024, // 最大缓存 10MB
+        enableWorker: true,         // 启用 worker 提升性能
+        enableStashBuffer: false,   // 禁用 stash buffer
+        stashInitialSize: 128       // 减少初始缓冲区大小
+      }
     });
   }
 };

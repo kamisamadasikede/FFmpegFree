@@ -47,6 +47,7 @@ import {computed, nextTick, onMounted, ref} from "vue";
 import axios from "axios";
 import {ElMessage} from "element-plus";
 import flvjs from 'flv.js'
+import {GetStreamingFiles, StopStream} from "@/api/steam/steam";
 interface VideoInfo {
   name: string
   url: string
@@ -73,32 +74,27 @@ const playFullScreenVideo = (url: string) => {
 }
 const handleDelete = (index: number, row: VideoInfo) => {
   console.log(index, row)
-  axios.post('http://localhost:8000/api/StopStream', {
-    ...row
+  const response = StopStream(row);
+  response.then(response => {
+    if (response.data.code === 200) {
+      ElMessage({
+        message: response.data.data.message,
+        type: 'success',
+      })
+      fetchData()
+    } else {
+      ElMessage({
+        message: '停止失败',
+        type: 'error',
+      })
+    }
   })
-      .then(response => {
-        if  (response.data.code === 200) {
-          ElMessage({
-            message: response.data.data.message,
-            type: 'success',
-          })
-          fetchData()
-        } else {
-          ElMessage({
-            message: '停止失败',
-            type: 'error',
-          })
-        }
-      })
-      .catch(error => {
-
-        console.error('停止错误:', error)
-      })
 }
 
 const fetchData = async () => {
   try {
-    const response = await axios.get('http://localhost:8000/api/GetStreamingFiles') // 替换为你的 API 地址
+    const response = await GetStreamingFiles()
+
     // ✅ 确保即使为空也返回数组
     tableData.value = response.data.streams || []
     console.log(response.data.data)

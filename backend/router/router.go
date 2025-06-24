@@ -49,11 +49,11 @@ func SetupRouter() *gin.Engine {
 	api.POST("/RemoveConvertingTask", contollers.RemoveConvertingTask)
 	api.POST("/deletesteamVideo", contollers.DeletesteamVideo)
 	r.GET("/api/sse", sse.SseHandler)
-	r.GET("/api/GetStreamingFiles", contollers.GetStreamingFiles)
+	api.GET("/GetStreamingFiles", contollers.GetStreamingFiles)
 	return r
 }
 
 func InitRouter() {
 	r := SetupRouter()
-	r.Run(":8000")
+	r.Run(":19200")
 }
