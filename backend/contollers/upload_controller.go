@@ -6,14 +6,15 @@ import (
 	"FFmpegFree/backend/vo"
 	"bytes"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/goccy/go-json"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
 	"syscall"
+
+	"github.com/gin-gonic/gin"
+	"github.com/goccy/go-json"
 )
 
 var convertingMutex = &sync.Mutex{}
@@ -224,16 +225,38 @@ func Convert(c *gin.Context) {
 	switch videoInfo.TargetFormat {
 	case "mp4":
 		outputFilename = base + ".mp4"
-		cmd = exec.Command("./ffmpeg/ffmpeg", "-i", inputPath, "-c:v", "libx264", "-preset", "fast", "-crf", "23", "-c:a", "aac", filepath.Join(outputDir, outputFilename))
+		cmd = exec.Command("./ffmpeg/ffmpeg", "-i", inputPath,
+			"-c:v", "libx264",
+			"-preset", "ultrafast",
+			"-tune", "zerolatency",
+			"-threads", "0",
+			"-g", "20", "-keyint_min", "20", "-sc_threshold", "0",
+			"-crf", "23",
+			"-c:a", "aac",
+			filepath.Join(outputDir, outputFilename))
 	case "avi":
 		outputFilename = base + ".avi"
 		cmd = exec.Command("./ffmpeg/ffmpeg", "-i", inputPath, "-c:v", "mpeg4", "-vtag", "DIVX", "-c:a", "ac3", filepath.Join(outputDir, outputFilename))
 	case "mkv":
 		outputFilename = base + ".mkv"
-		cmd = exec.Command("./ffmpeg/ffmpeg", "-i", inputPath, "-c:v", "libx264", "-c:a", "copy", filepath.Join(outputDir, outputFilename))
+		cmd = exec.Command("./ffmpeg/ffmpeg", "-i", inputPath,
+			"-c:v", "libx264",
+			"-preset", "ultrafast",
+			"-tune", "zerolatency",
+			"-threads", "0",
+			"-g", "20", "-keyint_min", "20", "-sc_threshold", "0",
+			"-c:a", "copy",
+			filepath.Join(outputDir, outputFilename))
 	case "mov":
 		outputFilename = base + ".mov"
-		cmd = exec.Command("./ffmpeg/ffmpeg", "-i", inputPath, "-c:v", "libx264", "-f", "mov", filepath.Join(outputDir, outputFilename))
+		cmd = exec.Command("./ffmpeg/ffmpeg", "-i", inputPath,
+			"-c:v", "libx264",
+			"-preset", "ultrafast",
+			"-tune", "zerolatency",
+			"-threads", "0",
+			"-g", "20", "-keyint_min", "20", "-sc_threshold", "0",
+			"-f", "mov",
+			filepath.Join(outputDir, outputFilename))
 	case "flv":
 		outputFilename = base + ".flv"
 		cmd = exec.Command("./ffmpeg/ffmpeg", "-i", inputPath, "-c:v", "flv", "-b:v", "1M", "-c:a", "libmp3lame", filepath.Join(outputDir, outputFilename))
@@ -243,6 +266,7 @@ func Convert(c *gin.Context) {
 			"./ffmpeg/ffmpeg",
 			"-i", inputPath,
 			"-vf", "fps=10,scale=320:-1,palettegen",
+			"-threads", "0",
 			palettePath,
 		)
 
@@ -258,6 +282,7 @@ func Convert(c *gin.Context) {
 			"-i", inputPath,
 			"-i", palettePath,
 			"-lavfi", "fps=10,scale=320:-1 [x]; [x][1]paletteuse",
+			"-threads", "0",
 			filepath.Join(outputDir, outputFilename),
 		)
 	case "webm":
@@ -267,6 +292,10 @@ func Convert(c *gin.Context) {
 			"-i", inputPath,
 			"-c:v", "libvpx-vp9",
 			"-b:v", "1M",
+			"-cpu-used", "8",
+			"-deadline", "realtime",
+			"-row-mt", "1",
+			"-threads", "0",
 			"-c:a", "libopus",
 			filepath.Join(outputDir, outputFilename),
 		)
@@ -644,4 +673,23 @@ func DeletesteamVideo(c *gin.Context) {
 		"message": "文件删除成功",
 		"file":    videoInfo.Name,
 	}))
+}
+
+// 程序退出时销毁所有 ffmpeg 进程
+func KillAllFFmpegProcesses() {
+	convertingMutex.Lock()
+	for _, cmd := range convertingFiles {
+		if cmd != nil && cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	}
+	convertingMutex.Unlock()
+
+	streamsMutex.Lock()
+	for _, cmd := range streams {
+		if cmd != nil && cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+	}
+	streamsMutex.Unlock()
 }

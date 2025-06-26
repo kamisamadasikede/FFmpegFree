@@ -1,15 +1,16 @@
 package ws
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/goccy/go-json"
-	"github.com/gorilla/websocket"
 	"io"
 	"log"
 	"net/http"
 	"os/exec"
 	"sync"
 	"syscall"
+
+	"github.com/gin-gonic/gin"
+	"github.com/goccy/go-json"
+	"github.com/gorilla/websocket"
 )
 
 var upgrader = websocket.Upgrader{
@@ -70,6 +71,10 @@ func HandleWebSocket(c *gin.Context) {
 						"-f", "matroska", "-i", "pipe:0",
 						"-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
 						"-pix_fmt", "yuv420p",
+						"-g", "20", // 关键帧间隔（GOP），20帧一I帧
+						"-keyint_min", "20", // 最小关键帧间隔
+						"-sc_threshold", "0", // 禁用场景切换触发I帧
+						"-threads", "0",
 						"-f", "flv",
 						url,
 					)

@@ -26,8 +26,11 @@ export const useStreamStore = defineStore('stream', () => {
         }
 
         try {
-            // 获取屏幕流
-            const stream = await navigator.mediaDevices.getDisplayMedia({ video: true })
+            // 获取屏幕流，设置分辨率和帧率
+            const stream = await navigator.mediaDevices.getDisplayMedia({
+                video: { frameRate: 20, width: 1280, height: 720 },
+                audio: true
+            })
             mediaStream.value = stream
 
             // 创建 WebSocket 连接
@@ -41,29 +44,22 @@ export const useStreamStore = defineStore('stream', () => {
 
                 // 初始化 MediaRecorder
                 const recorder = new MediaRecorder(stream, {
-                    mimeType: 'video/webm;codecs=vp9',
+                    mimeType: 'video/webm;codecs=vp8',
                 })
                 mediaRecorder.value = recorder
-
-                // stores/useStreamStore.ts
 
                 recorder.ondataavailable = (event) => {
                     if (event.data.size > 0 && socket.readyState === WebSocket.OPEN) {
                         const reader = new FileReader()
-
-                        // ✅ 使用 readAsArrayBuffer 替代默认的 readAsBinaryString 等方式
                         reader.readAsArrayBuffer(event.data)
-
                         reader.onloadend = () => {
                             const arrayBuffer = reader.result as ArrayBuffer
-
-                            // ✅ 直接发送二进制数据
                             socket.send(arrayBuffer)
                         }
                     }
                 }
 
-                recorder.start(200)
+                recorder.start(80) // 80ms一包，低延迟
                 isStreaming.value = true
                 statusMessage.value = '正在推流中...'
             }
