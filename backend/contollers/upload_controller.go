@@ -689,8 +689,6 @@ func KillAllFFmpegProcesses() {
 	for _, cmd := range streams {
 		if cmd != nil && cmd.Process != nil {
 			_ = cmd.Process.Kill()
-			fmt.Printf("停止 ffmpeg 进程失败: %v")
-
 		}
 	}
 	streamsMutex.Unlock()
