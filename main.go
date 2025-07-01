@@ -1,14 +1,8 @@
 package main
 
 import (
-	"FFmpegFree/backend/contollers"
 	"FFmpegFree/backend/router"
 	"embed"
-	"log"
-	"os"
-	"os/signal"
-	"syscall"
-
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
