@@ -1,8 +1,10 @@
 package main
 
 import (
+	"FFmpegFree/backend/contollers"
 	"context"
 	"fmt"
+
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -20,6 +22,10 @@ func NewApp() *App {
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+}
+func (a *App) OnShutdown(ctx context.Context) {
+	a.ctx = ctx
+	contollers.KillAllFFmpegProcesses()
 }
 
 // Greet returns a greeting for the given name

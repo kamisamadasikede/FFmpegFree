@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
@@ -20,16 +21,7 @@ func main() {
 	// Create an instance of the app structure
 
 	go router.InitRouter()
-	// 信号监听
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
-	go func() {
-		<-sigs
-		log.Println("收到退出信号，正在清理所有转码/推流进程...")
-		contollers.KillAllFFmpegProcesses()
-		os.Exit(0)
-	}()
 	app := NewApp()
 
 	// Create application with options
@@ -49,6 +41,7 @@ func main() {
 		Bind: []interface{}{
 			app,
 		},
+		OnShutdown: app.OnShutdown,
 	})
 
 	if err != nil {

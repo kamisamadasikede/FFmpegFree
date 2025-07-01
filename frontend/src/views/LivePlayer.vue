@@ -3,13 +3,15 @@
     <div class="controls">
       <input v-model="videoUrl" type="text" placeholder="Enter video URL (e.g., http://127.0.0.1:8080/live/test110.flv)" />
       <button @click="initPlayer">Play</button>
+      <button @click="stopPlayer">Stop</button>
     </div>
     <div id="mse" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, onUnmounted } from "vue";
+import { useFlvPlayerStore } from "@/stores/useFlvPlayerStore";
 import Player from "xgplayer";
 import "xgplayer/dist/index.min.css";
 import FlvPlugin from 'xgplayer-flv'
@@ -18,8 +20,9 @@ defineOptions({
   name: "VideoPage"
 });
 
-const videoUrl = ref("http://127.0.0.1:8080/live/test110.flv");
+const videoUrl = ref("http://localhost:8080/live/livestream.flv");
 let player: Player | null = null;
+const flvPlayerStore = useFlvPlayerStore();
 
 const initPlayer = () => {
   // Destroy previous player if exists
@@ -29,6 +32,7 @@ const initPlayer = () => {
   }
 
   if (videoUrl.value) {
+    flvPlayerStore.setFlvUrl(videoUrl.value);
     player = new Player({
       id: "mse",
       lang: "zh",
@@ -55,6 +59,20 @@ const initPlayer = () => {
     });
   }
 };
+
+const stopPlayer = () => {
+  if (player) {
+    player.destroy();
+    player = null;
+  }
+};
+
+onUnmounted(() => {
+  if (player) {
+    player.destroy();
+    player = null;
+  }
+});
 </script>
 
 <style scoped>

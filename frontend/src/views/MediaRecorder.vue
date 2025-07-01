@@ -25,7 +25,7 @@
       <div class="preview-box">
         <video ref="videoRef" autoplay playsinline style="width: 100%; height: auto;"></video>
       </div>
-    </el-main> nhj
+    </el-main>
 </template>
 
 <script setup lang="ts">
