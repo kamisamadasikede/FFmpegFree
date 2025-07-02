@@ -15,7 +15,6 @@ func main() {
 	// Create an instance of the app structure
 
 	go router.InitRouter()
-
 	app := NewApp()
 
 	// Create application with options
@@ -35,7 +34,6 @@ func main() {
 		Bind: []interface{}{
 			app,
 		},
-		OnShutdown: app.OnShutdown,
 	})
 
 	if err != nil {

@@ -1,12 +1,15 @@
 package ws
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os/exec"
 	"sync"
 	"syscall"
+
+	"FFmpegFree/backend/sse"
 
 	"github.com/gin-gonic/gin"
 	"github.com/goccy/go-json"
@@ -98,14 +101,37 @@ func HandleWebSocket(c *gin.Context) {
 					mutex.Unlock()
 
 					// 启动 FFmpeg
-					go func() {
+					go func(url string, session *StreamSession) {
 						log.Printf("Starting FFmpeg push to %s", url)
 						err := cmd.Run()
+						var status string
+						var errorMsg string
+
 						if err != nil {
-							log.Printf("FFmpeg exited with error: %v", err)
+							status = "failed"
+							errorMsg = fmt.Sprintf("推流意外终止：%s，错误：%v", url, err)
+						} else {
+							status = "completed"
+							errorMsg = fmt.Sprintf("推流正常结束：%s", url)
 						}
+
+						// 构造事件数据
+						eventData := map[string]interface{}{
+							"filename":  "",
+							"streamUrl": url,
+							"status":    status,
+						}
+
+						if errorMsg != "" {
+							eventData["error"] = errorMsg
+						}
+
+						// 使用 SSE 广播事件
+						jsonData, _ := json.Marshal(eventData)
+						sse.BroadcastMessage(string(jsonData))
+
 						close(done)
-					}()
+					}(url, session)
 				}
 			}
 		} else if msgType == websocket.BinaryMessage {
