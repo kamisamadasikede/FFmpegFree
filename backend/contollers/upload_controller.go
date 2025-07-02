@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"syscall"
 
@@ -171,6 +172,9 @@ func Selectvideofile(c *gin.Context) {
 func getVideoDuration(filePath string) string {
 	fmt.Println(filePath)
 	cmd := exec.Command("./ffmpeg/ffmpeg", "-i", "./"+filePath)
+	if runtime.GOOS == "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	}
 	fmt.Print(cmd)
 	var out bytes.Buffer
 	cmd.Stderr = &out

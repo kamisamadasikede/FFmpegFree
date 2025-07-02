@@ -149,13 +149,18 @@ const isValidStreamUrl = (url: string): boolean => {
 const fetchData = async () => {
   try {
     const response = await getSteamFiles()
-    if (response.data.code === 200) {
+    if (response.data && response.data.code === 200) {
       tableData.value = response.data.data
     } else {
+      console.error('获取推流文件列表失败，响应数据异常:', response)
       tableData.value = []
     }
   } catch (error) {
-    console.error('获取推流文件列表失败:', error)
+    if (error instanceof Error) {
+      console.error('获取推流文件列表失败，错误详情:', error.message, error.stack)
+    } else {
+      console.error('获取推流文件列表失败，未知错误:', error)
+    }
     tableData.value = []
   }
 }
