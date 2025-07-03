@@ -134,9 +134,17 @@ project/
 
 ## 项目截图：
 
-## ![](C:\Users\Administrator\AppData\Roaming\marktext\images\2025-06-23-11-07-41-image.png)=![](C:\Users\Administrator\AppData\Roaming\marktext\images\2025-06-23-11-07-31-image.png)![](C:\Users\Administrator\AppData\Roaming\marktext\images\2025-06-23-11-08-14-image.png)![](C:\Users\Administrator\AppData\Roaming\marktext\images\2025-06-23-11-08-24-image.png)![](C:\Users\Administrator\AppData\Roaming\marktext\images\2025-06-23-11-08-33-image.png)
+![wechat_2025-07-03_163332_152.png](D:\goproject\ffmpeg-free\img\wechat_2025-07-03_163332_152.png)
 
-### 🧩 后续计划（可选）
+![wechat_2025-07-03_163413_525.png](D:\goproject\ffmpeg-free\img\wechat_2025-07-03_163413_525.png)
+
+![wechat_2025-07-03_163434_577.png](D:\goproject\ffmpeg-free\img\wechat_2025-07-03_163434_577.png)
+
+![wechat_2025-07-03_163442_201.png](D:\goproject\ffmpeg-free\img\wechat_2025-07-03_163442_201.png)
+
+
+
+## ### 🧩 后续计划（可选）
 
 - 支持更多拉流格式（HLS、RTMP、RTSP 等）。
 - 添加推流日志查看与性能监控面板。
