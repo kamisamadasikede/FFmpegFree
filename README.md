@@ -134,15 +134,13 @@ project/
 
 ## 项目截图：
 
-![wechat_2025-07-03_163332_152.png](D:\goproject\ffmpeg-free\img\wechat_2025-07-03_163332_152.png)
+![wechat_2025-07-03_163332_152.png](https://gitee.com/bmcbdt/FFmpegFree/raw/master/img/wechat_2025-07-03_163332_152.png)
 
-![wechat_2025-07-03_163413_525.png](D:\goproject\ffmpeg-free\img\wechat_2025-07-03_163413_525.png)
+![wechat_2025-07-03_163413_525.png](	https://gitee.com/bmcbdt/FFmpegFree/raw/master/img/wechat_2025-07-03_163413_525.png)
 
-![wechat_2025-07-03_163434_577.png](D:\goproject\ffmpeg-free\img\wechat_2025-07-03_163434_577.png)
+![wechat_2025-07-03_163434_577.png](https://gitee.com/bmcbdt/FFmpegFree/raw/master/img/wechat_2025-07-03_163434_577.png)
 
-![wechat_2025-07-03_163442_201.png](D:\goproject\ffmpeg-free\img\wechat_2025-07-03_163442_201.png)
-
-
+![wechat_2025-07-03_163442_201.png](	https://gitee.com/bmcbdt/FFmpegFree/raw/master/img/wechat_2025-07-03_163442_201.png)
 
 ## ### 🧩 后续计划（可选）
 
