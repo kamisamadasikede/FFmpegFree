@@ -4,14 +4,15 @@ import (
 	"FFmpegFree/backend/contollers"
 	"FFmpegFree/backend/sse"
 	"FFmpegFree/backend/ws"
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 	"github.com/rs/cors"
-	"net/http"
 )
 
 func SetupRouter() *gin.Engine {
 	r := gin.Default()
-	r.Static("/public", "./public")
+
 	r.MaxMultipartMemory = 1024 << 20 // 1 GB
 	// 添加 CORS 中间件
 	corsMiddleware := cors.New(cors.Options{
@@ -27,7 +28,7 @@ func SetupRouter() *gin.Engine {
 			c.Next()
 		})
 	})
-
+	r.Static("/public", "./public")
 	// 注册路由
 	api := r.Group("/api")
 

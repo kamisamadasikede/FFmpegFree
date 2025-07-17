@@ -26,6 +26,14 @@
       <el-menu-item route="/MediaRecorder" index="/MediaRecorder">屏幕录制推流</el-menu-item>
       <el-menu-item route="/LivePlayer" index="/LivePlayer">直播拉流(只支持flv拉流)</el-menu-item>
     </el-sub-menu>
+        <el-sub-menu index="3">
+      <template #title>
+        <el-icon><VideoCamera /></el-icon>
+        <span>pdf</span>
+      </template>
+      <el-menu-item route="/pdf-preview" index="/pdf-preview">pdf预览</el-menu-item>
+   
+    </el-sub-menu>
   </el-menu>
 </template>
 
