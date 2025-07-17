@@ -5,7 +5,7 @@ import { ElMessage } from 'element-plus'
 
 // 当前页码
 const page = ref(1)
-//懒加载页码
+// 懒加载页码
 const lazyPage = ref(5)
 // PDF 地址输入框
 const pdfUrl = ref('http://localhost:19200/public/pdf/ppt1.pdf')
@@ -66,9 +66,12 @@ const loadNewPDF = () => {
   }
   console.log(pages.value);
   
+  // 重置参数
+  page.value = 1
+  lazyPage.value = 5
+  
   // 设置 loadUrl，触发 usePDF 加载
   loadUrl.value = pdfUrl.value
-  page.value = 1
 }
 
 // 监听 page 变化，自动滚动到当前缩略图
