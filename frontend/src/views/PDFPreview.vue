@@ -1,11 +1,12 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { VuePDF, usePDF } from '@tato30/vue-pdf'
 import { ElMessage } from 'element-plus'
 
 // 当前页码
 const page = ref(1)
-
+//懒加载页码
+const lazyPage = ref(5)
 // PDF 地址输入框
 const pdfUrl = ref('http://localhost:19200/public/pdf/ppt1.pdf')
 
@@ -22,8 +23,35 @@ const prevPage = () => {
 
 // 下一页
 const nextPage = () => {
+  console.log(page.value, lazyPage.value);
+
+  if(lazyPage.value - page.value < 5 && pages.value - lazyPage.value  > 0) {
+     if  (pages.value - lazyPage.value  < 10){
+          lazyPage.value += pages.value - lazyPage.value
+     } else {
+          lazyPage.value += 10
+     }
+     lazyPage.value = Math.min(lazyPage.value, pages.value)
+   }
   if (page.value < pages.value) page.value++
+
 }
+
+// 点击缩略图时加载更多页面
+const handleThumbnailClick = (pageNum) => {
+  page.value = pageNum
+  if(lazyPage.value - pageNum < 5 && pages.value - lazyPage.value  > 0) {
+     if  (pages.value - lazyPage.value  < 10){
+          lazyPage.value += pages.value - lazyPage.value
+     } else {
+          lazyPage.value += 10
+     }
+     lazyPage.value = Math.min(lazyPage.value, pages.value)
+   }
+}
+
+// 左侧缩略图容器 ref
+const thumbContainer = ref(null)
 
 // 加载新 PDF
 const loadNewPDF = () => {
@@ -36,11 +64,28 @@ const loadNewPDF = () => {
     ElMessage.error('请输入有效的 PDF 文件地址（以 .pdf 结尾）')
     return
   }
-
+  console.log(pages.value);
+  
   // 设置 loadUrl，触发 usePDF 加载
   loadUrl.value = pdfUrl.value
   page.value = 1
 }
+
+// 监听 page 变化，自动滚动到当前缩略图
+watch(page, (newPage) => {
+  if (!thumbContainer.value) return
+
+  // 获取所有缩略图项
+  const items = thumbContainer.value.querySelectorAll('.thumbnail-item')
+
+  if (items.length >= newPage) {
+    const currentEl = items[newPage - 1]
+    currentEl.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center' // 居中显示
+    })
+  }
+})
 </script>
 
 <template>
@@ -57,11 +102,11 @@ const loadNewPDF = () => {
     <!-- 左侧：缩略图列表 -->
     <el-aside class="thumbnail-list" width="210px">
       <div
-        v-for="pageNum in pages"
+        v-for="pageNum in lazyPage"
         :key="pageNum"
         class="thumbnail-item"
         :class="{ active: pageNum === page }"
-        @click="page = pageNum"
+        @click="handleThumbnailClick(pageNum)"
       >
         <VuePDF fit-parent :pdf="pdf" :page="pageNum" :zoom="0.3" />
       </div>
