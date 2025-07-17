@@ -28,11 +28,10 @@
     </el-sub-menu>
         <el-sub-menu index="3">
       <template #title>
-        <el-icon><VideoCamera /></el-icon>
-        <span>pdf</span>
+        <el-icon><MessageBox /></el-icon>
+        <span>ppt,pdf转换预览</span>
       </template>
       <el-menu-item route="/pdf-preview" index="/pdf-preview">pdf预览</el-menu-item>
-   
     </el-sub-menu>
   </el-menu>
 </template>

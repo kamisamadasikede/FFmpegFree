@@ -3,22 +3,30 @@ import { ref } from 'vue'
 import { VuePDF, usePDF } from '@tato30/vue-pdf'
 import { ElMessage } from 'element-plus'
 
+// 当前页码
 const page = ref(1)
+
+// PDF 地址输入框
 const pdfUrl = ref('http://localhost:19200/public/pdf/ppt1.pdf')
 
-// 加载 PDF 的逻辑
-const { pdf, pages } = usePDF(pdfUrl)
+// 实际用于加载的地址（初始为空）
+const loadUrl = ref('')
 
+// 使用 usePDF 加载 PDF（初始为空地址，不加载）
+const { pdf, pages } = usePDF(loadUrl)
+
+// 上一页
 const prevPage = () => {
   if (page.value > 1) page.value--
 }
 
+// 下一页
 const nextPage = () => {
   if (page.value < pages.value) page.value++
 }
 
-// 加载新 PDF 的方法
-function loadNewPDF() {
+// 加载新 PDF
+const loadNewPDF = () => {
   if (!pdfUrl.value) {
     ElMessage.warning('请输入 PDF 地址')
     return
@@ -29,12 +37,22 @@ function loadNewPDF() {
     return
   }
 
-  // 重新加载 PDF（Vue 会自动响应 ref 的变化）
-  // 不需要手动赋值 pdf，usePDF 会自动处理
+  // 设置 loadUrl，触发 usePDF 加载
+  loadUrl.value = pdfUrl.value
+  page.value = 1
 }
 </script>
 
 <template>
+  <!-- 输入框区域 -->
+  <div style="text-align: center; padding: 20px;">
+    <el-input
+      v-model="pdfUrl"
+      placeholder="请输入 PDF 文件的网络地址"
+      style="width: 600px; margin-right: 10px;"
+    />
+    <el-button type="primary" @click="loadNewPDF">加载 PDF</el-button>
+      <!-- PDF 查看器主体 -->
   <div class="pdf-viewer">
     <!-- 左侧：缩略图列表 -->
     <el-aside class="thumbnail-list" width="210px">
@@ -50,7 +68,7 @@ function loadNewPDF() {
     </el-aside>
 
     <!-- 右侧：当前页放大显示 -->
-    <el-main class="main-preview">
+    <div class="main-preview">
       <VuePDF fit-parent :pdf="pdf" :page="page" />
 
       <!-- 悬浮按钮 -->
@@ -62,7 +80,8 @@ function loadNewPDF() {
           <el-icon><ArrowRight /></el-icon>
         </el-button>
       </div>
-    </el-main>
+    </div>
+  </div>
   </div>
 </template>
 
@@ -70,7 +89,7 @@ function loadNewPDF() {
 .pdf-viewer {
   display: flex;
   margin: 2rem auto;
-  max-width: px;
+  max-width: 2000px;
   font-family: 'Segoe UI', sans-serif;
   background-color: #f9f9f9;
   border-radius: 10px;
@@ -81,7 +100,7 @@ function loadNewPDF() {
 .thumbnail-list {
   padding: 10px;
   border-right: 1px solid #ddd;
-  height: 90vh;
+  height: 80vh;
   overflow-y: auto;
   background-color: #fff;
 }
@@ -100,12 +119,27 @@ function loadNewPDF() {
 }
 
 .main-preview {
-  width: 1190 px;
+  width: 1240;
+  max-width: 1240;
+  min-width: 1240;
   position: relative;
   flex: 1;
-  padding: 10px;
   background-color: white;
 }
 
+.nav-buttons {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  transform: translateY(-50%);
+  display: flex;
+  justify-content: space-between;
+  pointer-events: none; /* 避免遮挡内容点击 */
+}
 
+.nav-buttons .el-button {
+  pointer-events: auto;
+  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+}
 </style>
