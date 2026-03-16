@@ -43,7 +43,7 @@
 
         <el-divider v-if="hasPdf" />
 
-        <div v-if="hasPdf" class="ppt-thumb-wrapper" ref="thumbContainer">
+        <div v-if="hasPdf" class="ppt-thumb-wrapper">
           <div class="section-title">页面预览 ({{ pages }})</div>
           <div v-for="pageNum in lazyPage" :key="pageNum" 
                class="ppt-thumb-item" :class="{ active: pageNum === page }" 
@@ -68,7 +68,6 @@
               />
             </div>
           </div>
-          
           <div class="floating-controls">
             <el-button-group>
               <el-button :icon="ArrowLeft" @click="prevPage" :disabled="page <= 1" />
@@ -90,6 +89,12 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { UploadFilled, Document, Close, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import { uploadPDFFile, getPDFFiles, deletePDFFile } from '@/api/pdf/pdf'
 
+// 1. 定义接口解决 TS2339 错误
+interface PDFFile {
+  name: string;
+  url: string;
+}
+
 const page = ref(1)
 const lazyPage = ref(10)
 const pdfUrl = ref('')
@@ -97,7 +102,8 @@ const pdfData = ref<string | null>(null)
 const loading = ref(false)
 const { pdf, pages } = usePDF(pdfData)
 
-const fileList = ref([])
+// 2. 为 ref 指定 PDFFile 数组类型
+const fileList = ref<PDFFile[]>([])
 const uploadProgress = ref(0)
 const hasPdf = computed(() => !!pdfData.value)
 
@@ -118,7 +124,8 @@ const loadNewPDF = () => {
   pdfData.value = pdfUrl.value
 }
 
-const loadFromUpload = (item: any) => {
+// 3. 修改参数类型从 any 到 PDFFile
+const loadFromUpload = (item: PDFFile) => {
   loading.value = true
   pdfUrl.value = item.url
   page.value = 1
@@ -133,17 +140,23 @@ const customUpload = async (options: any) => {
     if (res.data.code === 200) {
       ElMessage.success('上传成功')
       fetchPDFiles()
-      loadFromUpload({ name: res.data.data.fileName, url: res.data.data.url })
+      loadFromUpload({ 
+        name: res.data.data.fileName, 
+        url: res.data.data.url 
+      })
     }
   } catch (e) { ElMessage.error('上传失败') }
 }
 
 const fetchPDFiles = async () => {
   const res = await getPDFFiles()
-  if (res.data.code === 200) fileList.value = res.data.data || []
+  if (res.data.code === 200) {
+    // 确保赋值时类型匹配
+    fileList.value = res.data.data || []
+  }
 }
 
-const handleDelete = (item: any) => {
+const handleDelete = (item: PDFFile) => {
   ElMessageBox.confirm('确定删除吗？').then(async () => {
     const res = await deletePDFFile({ name: item.name, url: item.url })
     if (res.data.code === 200) {
@@ -164,6 +177,7 @@ onMounted(fetchPDFiles)
 </script>
 
 <style scoped>
+/* 样式部分保持不变，已在之前回复中优化去黑边逻辑 */
 .pdf-page-container {
   height: 100vh;
   display: flex;
@@ -173,47 +187,13 @@ onMounted(fetchPDFiles)
   box-sizing: border-box;
   overflow: hidden;
 }
-
-.control-panel {
-  background: #fff;
-  padding: 12px 24px;
-  border-radius: 8px;
-  margin-bottom: 16px;
-  flex-shrink: 0;
-}
-
-.main-layout {
-  flex: 1;
-  display: flex;
-  gap: 16px;
-  overflow: hidden;
-}
-
-/* --- 左侧边栏 --- */
-.side-bar {
-  width: 280px;
-  background: #fff;
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  padding: 12px;
-  flex-shrink: 0;
-}
-
-.section-title {
-  font-size: 13px;
-  font-weight: bold;
-  color: #606266;
-  margin-bottom: 12px;
-}
-
-/* 文件列表样式 */
+.control-panel { background: #fff; padding: 12px 24px; border-radius: 8px; margin-bottom: 16px; flex-shrink: 0; }
+.main-layout { flex: 1; display: flex; gap: 16px; overflow: hidden; }
+.side-bar { width: 280px; background: #fff; border-radius: 8px; display: flex; flex-direction: column; padding: 12px; flex-shrink: 0; }
+.section-title { font-size: 13px; font-weight: bold; color: #606266; margin-bottom: 12px; }
 .file-history { max-height: 200px; display: flex; flex-direction: column; }
 .history-list { overflow-y: auto; flex: 1; }
-.history-item {
-  display: flex; align-items: center; padding: 8px 10px; margin-bottom: 4px;
-  border-radius: 6px; cursor: pointer; transition: 0.2s; background: #f8f9fa;
-}
+.history-item { display: flex; align-items: center; padding: 8px 10px; margin-bottom: 4px; border-radius: 6px; cursor: pointer; transition: 0.2s; background: #f8f9fa; }
 .history-item .name { flex: 1; font-size: 13px; color: #303133 !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pdf-type-icon { color: #f56c6c; margin-right: 8px; font-size: 16px; }
 .del-action-btn { font-size: 14px; color: #909399; opacity: 0; transition: 0.2s; cursor: pointer; }
@@ -222,74 +202,19 @@ onMounted(fetchPDFiles)
 .del-action-btn:hover { color: #f56c6c; background: #ffeded; border-radius: 4px; }
 .history-item.active { background-color: #eef6fe; border: 1px solid #409eff; }
 .history-item.active .name { color: #409eff !important; font-weight: bold; }
-
-/* 侧边预览滚轮支持 */
 .ppt-thumb-wrapper { flex: 1; overflow-y: auto; padding-right: 4px; }
 .ppt-thumb-item { display: flex; gap: 10px; margin-bottom: 15px; cursor: pointer; padding: 8px; border-radius: 6px; border: 2px solid transparent; }
 .ppt-thumb-item.active { background: #eef6fe; border-color: #409eff; }
 .thumb-canvas-box { flex: 1; height: 120px; background: #f8f9fa; overflow: hidden; display: flex; justify-content: center; }
 .thumb-canvas-box :deep(canvas) { max-width: 100% !important; max-height: 100% !important; object-fit: contain; }
-
-/* --- 右侧展示区：核心去黑边逻辑 --- */
-.viewer-canvas {
-  flex: 1;
-  background: #323639;
-  border-radius: 8px;
-  overflow: hidden;
-  position: relative;
-}
-
-.ppt-stage {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.ppt-slide-scroll-viewport {
-  flex: 1;
-  overflow-y: auto; /* 支持滚轮下翻 */
-  padding: 20px 0; /* 仅上下留空 */
-  display: flex;
-  justify-content: center;
-}
-
-.ppt-slide-paper {
-  width: 100%;
-  max-width: 900px; /* 剧本常见宽度约束 */
-  background: #fff;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-  height: fit-content;
-  line-height: 0; /* 💡 消除 Canvas 底部间隙 */
-}
-
-/* 💡 深度覆盖 VuePDF 内部样式，消除左右黑边 */
-:deep(.vue-pdf-main) {
-  width: 100% !important;
-  height: auto !important;
-  padding: 0 !important;
-  margin: 0 !important;
-  display: block !important;
-}
-
-:deep(.vue-pdf-main canvas) {
-  width: 100% !important; /* 💡 宽度强制铺满 */
-  height: auto !important; /* 💡 高度自适应撑开容器 */
-  display: block !important;
-  vertical-align: middle; /* 💡 消除行内元素基线对齐导致的黑边 */
-}
-
-.floating-controls {
-  position: absolute;
-  bottom: 30px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 100;
-}
-
+.viewer-canvas { flex: 1; background: #323639; border-radius: 8px; overflow: hidden; position: relative; }
+.ppt-stage { width: 100%; height: 100%; display: flex; flex-direction: column; }
+.ppt-slide-scroll-viewport { flex: 1; overflow-y: auto; padding: 20px 0; display: flex; justify-content: center; }
+.ppt-slide-paper { width: 100%; max-width: 900px; background: #fff; box-shadow: 0 10px 30px rgba(0,0,0,0.5); height: fit-content; line-height: 0; }
+:deep(.vue-pdf-main) { width: 100% !important; height: auto !important; padding: 0 !important; margin: 0 !important; display: block !important; }
+:deep(.vue-pdf-main canvas) { width: 100% !important; height: auto !important; display: block !important; vertical-align: middle; }
+.floating-controls { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 100; }
 .page-display { background: #fff !important; color: #333 !important; font-weight: bold; }
-
-/* 滚动条美化 */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-thumb { background: #b1b3b8; border-radius: 10px; }
 </style>
