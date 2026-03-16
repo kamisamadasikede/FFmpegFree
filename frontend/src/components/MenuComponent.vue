@@ -29,15 +29,27 @@
         <el-sub-menu index="3">
       <template #title>
         <el-icon><MessageBox /></el-icon>
-        <span>ppt,pdf转换预览</span>
+        <span>文档转换</span>
       </template>
-      <el-menu-item route="/pdf-preview" index="/pdf-preview">pdf预览</el-menu-item>
+      <el-menu-item route="/pdf-preview" index="/pdf-preview">PDF预览</el-menu-item>
+      <el-menu-item route="/office-convert" index="/office-convert">Office转PDF</el-menu-item>
     </el-sub-menu>
+    <el-sub-menu index="4">
+      <template #title>
+        <el-icon><Tools /></el-icon>
+        <span>工具</span>
+      </template>
+      <el-menu-item route="/json-tools" index="/json-tools">JSON工具</el-menu-item>
+    </el-sub-menu>
+    <el-menu-item route="/about" index="/about">
+      <el-icon><InfoFilled /></el-icon>
+      <span>关于</span>
+    </el-menu-item>
   </el-menu>
 </template>
 
 <script lang="ts" setup>
-import { Location } from '@element-plus/icons-vue'
+import { Location, InfoFilled, Tools } from '@element-plus/icons-vue'
 const handleOpen = (key: string, keyPath: string[]) => {
   console.log(key, keyPath)
 }

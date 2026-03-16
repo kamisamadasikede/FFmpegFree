@@ -51,6 +51,18 @@ func SetupRouter() *gin.Engine {
 	api.POST("/deletesteamVideo", contollers.DeletesteamVideo)
 	r.GET("/api/sse", sse.SseHandler)
 	api.GET("/GetStreamingFiles", contollers.GetStreamingFiles)
+	api.POST("/uploadOffice", contollers.UploadOffice)
+	api.POST("/convertOfficeToPDF", contollers.ConvertOfficeToPDF)
+	api.GET("/getOfficeFiles", contollers.GetOfficeFiles)
+	api.GET("/getConvertedPDFiles", contollers.GetConvertedPDFiles)
+	api.GET("/downloadOfficePDF", contollers.DownloadOfficePDF)
+	api.POST("/deleteOfficeFile", contollers.DeleteOfficeFile)
+	api.POST("/deleteOfficePDF", contollers.DeleteOfficePDF)
+	api.POST("/stopOfficeConversion", contollers.StopOfficeConversion)
+
+	api.POST("/json/format", contollers.JsonFormat)
+	api.POST("/json/compare", contollers.JsonCompare)
+	api.POST("/json/validate", contollers.JsonValidate)
 	return r
 }
 
