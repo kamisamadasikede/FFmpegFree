@@ -13,6 +13,15 @@ export default defineConfig({
     }
   },
   optimizeDeps: {
-    include: ['monaco-editor']
+    exclude: ['pdfjs-dist']
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          pdfjs: ['pdfjs-dist']
+        }
+      }
+    }
   }
 })

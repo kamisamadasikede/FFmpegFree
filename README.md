@@ -13,7 +13,8 @@
 - **桌面端打包**：Wails
 - **构建工具**：Vite + Go Modules
 - **通信协议**：HTTP + JSON+SSE+WEBSOKET
-- **必备工具**：FFmpeg(windows文件包已在ffmpeg目录下，构建时请复制到buildbin目录下或者执行copy-resources.ps1文件)
+- **必备工具**：FFmpeg (windows文件包已在ffmpeg目录下，构建时请复制到buildbin目录下或者执行copy-resources.ps1文件)
+- **可选工具**：LibreOffice (用于Office转PDF功能)
 
 ## 🔄 支持的格式（持续更新中）
 
@@ -35,7 +36,9 @@
 
 - Node.js >= 18.x
 - Go >= 1.20
-- Wails CLI 已安装（可通过 `go install github.com/wailsapp/wails/v2/cmd/wails@latest` 安装）
+- Wails CLI 已安装（可通过 `go install github.com/wailsapp/wails/v2/cmd/wails@latest` 安装）
+- FFmpeg (windows文件包已在ffmpeg目录下，构建时请复制到buildbin目录下或者执行copy-resources.ps1文件)
+- LibreOffice (可选，用于Office转PDF功能)
 
 ### 启动开发环境
 
@@ -132,6 +135,38 @@ project/
 
 ---
 
+## 📄 Office 文件转 PDF 模块
+
+本模块支持将 Office 文件（Word、Excel、PowerPoint）转换为 PDF 格式。
+
+### 🔧 支持功能
+
+#### 1. **文件上传**
+- 支持拖拽上传或点击选择文件
+- 支持格式：`.doc`, `.docx`, `.xls`, `.xlsx`, `.ppt`, `.pptx`
+
+#### 2. **转换为 PDF**
+- 异步转换处理，不阻塞界面
+- 支持 Word、Excel、PowerPoint 文件转换
+
+#### 3. **转换记录**
+- 查看已转换完成的 PDF 文件列表
+- 支持在线预览和下载
+
+### ⚙️ LibreOffice 配置
+
+Office 转 PDF 功能依赖 LibreOffice，请确保以下任一方式可用：
+
+| 方式 | 路径 |
+|------|------|
+| 项目目录 | `./libreoffice/bin/soffice.exe` |
+| 默认安装 | `C:/Program Files/LibreOffice/program/soffice.exe` |
+| 32位安装 | `C:/Program Files (x86)/LibreOffice/program/soffice.exe` |
+
+> **注意**：如果未安装 LibreOffice，该功能会返回友好提示，但不影响其他功能使用。
+
+---
+
 ## 项目截图：
 
 ![wechat_2025-07-03_163332_152.png](https://gitee.com/bmcbdt/FFmpegFree/raw/master/img/wechat_2025-07-03_163332_152.png)
@@ -142,12 +177,12 @@ project/
 
 ![wechat_2025-07-03_163442_201.png](	https://gitee.com/bmcbdt/FFmpegFree/raw/master/img/wechat_2025-07-03_163442_201.png)
 
-## ### 🧩 后续计划（可选）
+## 🧩 后续计划（可选）
+
 - 支持更多拉流格式（HLS、RTMP、RTSP 等）。
 - 添加推流日志查看与性能监控面板。
 - 支持多路并发推流与负载均衡。
 - 提供简单的流媒体服务器搭建向导（如 Nginx-RTMP 一键配置）。
-- 增加 office 文件转换 pdf 功能。
 
 ## 🤝 贡献指南
 
