@@ -1,6 +1,6 @@
 <template>
   <div class="json-tools-container">
-    <el-tabs v-model="activeTab" type="border-card">
+    <el-tabs v-model="activeTab" type="border-card" class="json-tabs">
       <el-tab-pane label="JSON 格式化" name="format">
         <div class="format-section">
           <el-row :gutter="20">
@@ -147,7 +147,6 @@ const activeTab = ref('format')
 
 // 格式化相关
 const formatInput = ref('')
-const formatOutput = ref('')
 const formatError = ref('')
 const formatErrorPos = ref({ line: 1, column: 1 })
 const compactMode = ref(false)
@@ -821,8 +820,23 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .json-tools-container {
-  padding: 20px;
-  min-height: 100vh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.json-tabs {
+  flex: 1;
+}
+
+.format-section,
+.compare-section {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--panel-radius);
+  padding: 12px;
+  box-shadow: var(--shadow-2);
+  animation: fadeIn 0.25s ease;
 }
 
 .editor-outer {
@@ -836,7 +850,7 @@ onBeforeUnmount(() => {
 
 .editor-container {
   width: 100%;
-  height: calc(100vh - 180px);
+  height: min(62vh, 680px);
   background: #fff;
 }
 
@@ -858,8 +872,8 @@ onBeforeUnmount(() => {
 }
 
 .format-options {
-  margin-top: 20px;
-  padding: 15px;
+  margin-top: 14px;
+  padding: 12px;
   background: var(--surface);
   border-radius: 14px;
   display: flex;
@@ -887,7 +901,7 @@ onBeforeUnmount(() => {
 .compare-actions {
   display: flex;
   justify-content: center;
-  margin-top: 25px;
+  margin-top: 18px;
 }
 
 .compare-actions :deep(.el-button--primary) {
@@ -933,28 +947,8 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(22, 163, 74, 0.4);
 }
 
-.panel-elevated {
-  background: var(--surface);
-  border-radius: 16px;
-  padding: 16px;
-  box-shadow: var(--shadow-2);
-  border: 1px solid var(--border-soft);
-  animation: panelIn 0.35s ease;
-}
-
 .fade-in {
   animation: fadeIn 0.3s ease;
-}
-
-@keyframes panelIn {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 @keyframes fadeIn {
@@ -963,6 +957,22 @@ onBeforeUnmount(() => {
   }
   to {
     opacity: 1;
+  }
+}
+
+@media (max-width: 1200px) {
+  .editor-container {
+    height: 420px;
+  }
+
+  .format-options {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .tips {
+    width: 100%;
+    margin-left: 0;
   }
 }
 </style>

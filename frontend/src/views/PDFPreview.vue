@@ -291,49 +291,87 @@ onMounted(fetchPDFiles)
 <style scoped>
 /* 样式部分保持不变，已在之前回复中优化去黑边逻辑 */
 .pdf-page-container {
-  height: 100vh;
+  height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  background-color: #f0f2f5;
-  padding: 16px;
+  background-color: transparent;
+  padding: 0;
   box-sizing: border-box;
   overflow: hidden;
+  gap: 10px;
 }
-.control-panel { background: #fff; padding: 12px 24px; border-radius: 8px; margin-bottom: 16px; flex-shrink: 0; }
+.control-panel {
+  background: var(--surface);
+  padding: 12px 14px;
+  border-radius: var(--panel-radius);
+  border: 1px solid var(--border-soft);
+  box-shadow: var(--shadow-2);
+  flex-shrink: 0;
+}
 .viewer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 12px; flex-wrap: wrap; }
 .file-meta { display: flex; flex-direction: column; gap: 4px; min-width: 220px; }
-.file-name { font-weight: 600; color: #303133; }
-.file-info { font-size: 12px; color: #909399; display: flex; gap: 12px; }
+.file-name { font-weight: 600; color: var(--text-primary); }
+.file-info { font-size: 12px; color: var(--text-muted); display: flex; gap: 12px; }
 .zoom-controls { display: flex; align-items: center; gap: 12px; }
 .zoom-slider { width: 160px; }
 .zoom-display { min-width: 70px; text-align: center; }
 .main-layout { flex: 1; display: flex; gap: 16px; overflow: hidden; }
-.side-bar { width: 280px; background: #fff; border-radius: 8px; display: flex; flex-direction: column; padding: 12px; flex-shrink: 0; }
-.section-title { font-size: 13px; font-weight: bold; color: #606266; margin-bottom: 12px; }
+.side-bar {
+  width: 280px;
+  background: var(--surface);
+  border-radius: var(--panel-radius);
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  flex-shrink: 0;
+  border: 1px solid var(--border-soft);
+  box-shadow: var(--shadow-2);
+}
+.section-title { font-size: 13px; font-weight: bold; color: var(--text-muted); margin-bottom: 12px; }
 .file-history { max-height: 200px; display: flex; flex-direction: column; }
 .history-list { overflow-y: auto; flex: 1; }
-.history-item { display: flex; align-items: center; padding: 8px 10px; margin-bottom: 4px; border-radius: 6px; cursor: pointer; transition: 0.2s; background: #f8f9fa; }
-.history-item .name { flex: 1; font-size: 13px; color: #303133 !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-item { display: flex; align-items: center; padding: 8px 10px; margin-bottom: 4px; border-radius: 8px; cursor: pointer; transition: 0.2s; background: var(--surface-muted); }
+.history-item .name { flex: 1; font-size: 13px; color: var(--text-primary) !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pdf-type-icon { color: #f56c6c; margin-right: 8px; font-size: 16px; }
-.del-action-btn { font-size: 14px; color: #909399; opacity: 0; transition: 0.2s; cursor: pointer; }
-.history-item:hover { background-color: #ecf5ff; }
+.del-action-btn { font-size: 14px; color: var(--text-soft); opacity: 0; transition: 0.2s; cursor: pointer; }
+.history-item:hover { background-color: var(--surface-hover); }
 .history-item:hover .del-action-btn { opacity: 1; }
 .del-action-btn:hover { color: #f56c6c; background: #ffeded; border-radius: 4px; }
-.history-item.active { background-color: #eef6fe; border: 1px solid #409eff; }
-.history-item.active .name { color: #409eff !important; font-weight: bold; }
+.history-item.active { background-color: var(--surface-hover); border: 1px solid var(--el-color-primary); }
+.history-item.active .name { color: var(--el-color-primary) !important; font-weight: bold; }
 .ppt-thumb-wrapper { flex: 1; overflow-y: auto; padding-right: 4px; }
-.ppt-thumb-item { display: flex; gap: 10px; margin-bottom: 15px; cursor: pointer; padding: 8px; border-radius: 6px; border: 2px solid transparent; }
-.ppt-thumb-item.active { background: #eef6fe; border-color: #409eff; }
-.thumb-canvas-box { flex: 1; height: 120px; background: #f8f9fa; overflow: hidden; display: flex; justify-content: center; }
+.ppt-thumb-item { display: flex; gap: 10px; margin-bottom: 10px; cursor: pointer; padding: 8px; border-radius: 8px; border: 1px solid transparent; transition: all 0.2s ease; }
+.ppt-thumb-item.active { background: var(--surface-hover); border-color: var(--el-color-primary); }
+.thumb-canvas-box { flex: 1; height: 120px; background: var(--surface-muted); overflow: hidden; display: flex; justify-content: center; border-radius: 6px; }
 .thumb-canvas-box :deep(canvas) { max-width: 100% !important; max-height: 100% !important; object-fit: contain; }
-.viewer-canvas { flex: 1; background: #323639; border-radius: 8px; overflow: hidden; position: relative; }
+.viewer-canvas {
+  flex: 1;
+  background: #1f2937;
+  border-radius: var(--panel-radius);
+  overflow: hidden;
+  position: relative;
+  border: 1px solid rgba(15, 23, 42, 0.2);
+  box-shadow: var(--shadow-2);
+}
 .ppt-stage { width: 100%; height: 100%; display: flex; flex-direction: column; }
 .ppt-slide-scroll-viewport { flex: 1; overflow-y: auto; padding: 20px 0; display: flex; justify-content: center; }
-.ppt-slide-paper { width: 100%; max-width: 900px; background: #fff; box-shadow: 0 10px 30px rgba(0,0,0,0.5); height: fit-content; line-height: 0; }
+.ppt-slide-paper { width: 100%; max-width: 900px; background: #fff; box-shadow: 0 10px 30px rgba(0,0,0,0.35); height: fit-content; line-height: 0; border-radius: 8px; overflow: hidden; }
 :deep(.vue-pdf-main) { width: 100% !important; height: auto !important; padding: 0 !important; margin: 0 !important; display: block !important; }
 :deep(.vue-pdf-main canvas) { width: 100% !important; height: auto !important; display: block !important; vertical-align: middle; }
 .floating-controls { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 100; }
 .page-display { background: #fff !important; color: #333 !important; font-weight: bold; }
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-thumb { background: #b1b3b8; border-radius: 10px; }
+
+@media (max-width: 980px) {
+  .main-layout {
+    flex-direction: column;
+  }
+
+  .side-bar {
+    width: 100%;
+    max-height: 260px;
+  }
+}
 </style>

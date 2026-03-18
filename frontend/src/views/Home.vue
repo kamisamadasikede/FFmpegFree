@@ -1,35 +1,35 @@
 <template>
   <div class="video-table-container">
-    <!-- 文件上传 -->
-    <el-upload
-        class="upload-demo app-upload"
-        drag
-        :http-request="customUpload"
-        :auto-upload="true"
-        multiple
-    >
-      <el-icon class="el-icon--upload">
-        <upload-filled />
-      </el-icon>
-      <div class="el-upload__text">
-        文件拖动此处 或 <em>点击上传</em>
-      </div>
-    </el-upload>
+    <div class="panel upload-panel">
+      <el-upload
+          class="upload-demo app-upload"
+          drag
+          :http-request="customUpload"
+          :auto-upload="true"
+          multiple
+      >
+        <el-icon class="el-icon--upload">
+          <upload-filled />
+        </el-icon>
+        <div class="el-upload__text">
+          文件拖动此处 或 <em>点击上传</em>
+        </div>
+      </el-upload>
 
-    <!-- 上传进度条 -->
-    <el-progress
-        v-if="uploadProgress > 0"
-        :percentage="uploadProgress"
-        :status="uploadProgress === 100 ? 'success' : ''"
-    />
+      <el-progress
+          v-if="uploadProgress > 0"
+          :percentage="uploadProgress"
+          :status="uploadProgress === 100 ? 'success' : ''"
+      />
+    </div>
 
-    <!-- 视频表格 -->
-    <el-table
-        :data="filterTableData"
-        style="width: 100%; height: 70vh"
-        :highlight-current-row="true"
-        row-key="name"
-    >
+    <div class="panel table-panel">
+      <el-table
+          :data="filterTableData"
+          style="width: 100%; height: 70vh"
+          :highlight-current-row="true"
+          row-key="name"
+      >
       <!-- 略缩图列 -->
       <el-table-column label="略缩图">
         <template #default="scope">
@@ -71,7 +71,8 @@
       <template #empty>
         <span>暂无数据</span>
       </template>
-    </el-table>
+      </el-table>
+    </div>
 
     <MediaPreviewDialog
         v-model="isVideoDialogVisible"
@@ -260,14 +261,24 @@ const submitConversion = async () => {
 
 <style scoped>
 .video-table-container {
-  padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 .app-upload {
   width: 100%;
+}
+
+.upload-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.table-panel {
+  padding: 0;
+  overflow: hidden;
 }
 
 .arg-hint {

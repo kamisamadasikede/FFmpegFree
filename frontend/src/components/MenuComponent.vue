@@ -69,24 +69,25 @@ const handleClose = (key: string, keyPath: string[]) => {
 .menu-shell {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   height: 100%;
 }
 
 .menu-brand {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 12px;
-  border-radius: 16px;
-  background: rgba(37, 99, 235, 0.08);
-  border: 1px solid rgba(37, 99, 235, 0.18);
+  gap: 10px;
+  padding: 10px 10px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.14), rgba(37, 99, 235, 0.06));
+  border: 1px solid rgba(37, 99, 235, 0.22);
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.14);
 }
 
 .brand-mark {
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -98,12 +99,12 @@ const handleClose = (key: string, keyPath: string[]) => {
 
 .brand-title {
   font-weight: 700;
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .brand-subtitle {
   color: #6b7280;
-  font-size: 12px;
+  font-size: 11px;
   margin-top: 2px;
 }
 </style>

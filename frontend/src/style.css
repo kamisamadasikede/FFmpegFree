@@ -1,16 +1,18 @@
 :root {
   color-scheme: light;
-  --app-bg: #f7f7f8;
-  --app-bg-accent: #eef1f4;
+  --app-bg: #f6f8fb;
+  --app-bg-accent: #eef3f9;
   --surface: #ffffff;
-  --surface-muted: #f3f4f6;
-  --surface-strong: #e5e7eb;
-  --text-primary: #111827;
-  --text-muted: #6b7280;
-  --text-soft: #9ca3af;
-  --border-soft: rgba(17, 24, 39, 0.08);
-  --shadow-1: 0 18px 40px rgba(17, 24, 39, 0.08);
-  --shadow-2: 0 8px 18px rgba(17, 24, 39, 0.06);
+  --surface-muted: #f5f7fb;
+  --surface-strong: #e6ebf2;
+  --surface-hover: #edf3ff;
+  --text-primary: #0f172a;
+  --text-muted: #5f6d83;
+  --text-soft: #94a3b8;
+  --border-soft: rgba(15, 23, 42, 0.1);
+  --border-strong: rgba(37, 99, 235, 0.2);
+  --shadow-1: 0 16px 32px rgba(15, 23, 42, 0.08);
+  --shadow-2: 0 6px 16px rgba(15, 23, 42, 0.06);
   --el-color-primary: #2563eb;
   --el-color-success: #16a34a;
   --el-color-warning: #f59e0b;
@@ -19,6 +21,9 @@
   --el-border-radius-small: 10px;
   --el-border-radius-round: 999px;
   --el-font-size-base: 14px;
+  --panel-radius: 14px;
+  --motion-fast: 0.2s ease;
+  --motion-base: 0.28s ease;
 }
 
 @font-face {
@@ -43,7 +48,9 @@ body {
   margin: 0;
   color: var(--text-primary);
   font-family: "Nunito", "Poppins", "Montserrat", sans-serif;
-  background: linear-gradient(180deg, #fafafa 0%, #f1f5f9 100%);
+  background:
+    radial-gradient(1200px 520px at 0% -10%, rgba(37, 99, 235, 0.08), transparent 65%),
+    linear-gradient(180deg, #f9fbff 0%, #f2f6fb 100%);
   background-attachment: fixed;
 }
 
@@ -60,15 +67,15 @@ a {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: 228px 1fr;
   min-height: 100dvh;
 }
 
 .app-sidebar {
-  padding: 18px 12px;
-  background: rgba(255, 255, 255, 0.82);
+  padding: 12px 10px;
+  background: rgba(255, 255, 255, 0.86);
   border-right: 1px solid var(--border-soft);
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(10px);
   position: sticky;
   top: 0;
   height: 100dvh;
@@ -85,16 +92,23 @@ a {
   padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 12px;
   min-height: 0;
+  animation: pageEnter var(--motion-base);
 }
 
 .panel {
   background: var(--surface);
   border: 1px solid var(--border-soft);
-  border-radius: 18px;
+  border-radius: var(--panel-radius);
   box-shadow: var(--shadow-2);
-  padding: 18px;
+  padding: 14px;
+  transition: transform var(--motion-fast), box-shadow var(--motion-fast), border-color var(--motion-fast);
+}
+
+.panel:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-1);
 }
 
 .preview-video {
@@ -110,16 +124,17 @@ a {
 .app-menu {
   background: transparent;
   border-right: none;
-  padding: 6px 8px 12px;
+  padding: 2px 4px 10px;
 }
 
 .app-menu .el-menu-item,
 .app-menu .el-sub-menu__title {
-  border-radius: 12px;
-  margin: 6px 8px;
-  height: 44px;
-  line-height: 44px;
+  border-radius: 10px;
+  margin: 5px 6px;
+  height: 42px;
+  line-height: 42px;
   color: var(--text-muted);
+  transition: background var(--motion-fast), color var(--motion-fast), transform var(--motion-fast);
 }
 
 .app-menu .el-sub-menu__title {
@@ -128,24 +143,25 @@ a {
 
 .app-menu .el-menu-item:hover,
 .app-menu .el-sub-menu__title:hover {
-  background: rgba(37, 99, 235, 0.08);
+  background: rgba(37, 99, 235, 0.1);
   color: var(--text-primary);
+  transform: translateX(1px);
 }
 
 .app-menu .el-menu-item.is-active {
-  background: rgba(37, 99, 235, 0.14);
+  background: rgba(37, 99, 235, 0.16);
   color: var(--text-primary);
   font-weight: 700;
 }
 
 .el-card {
-  border-radius: 18px;
+  border-radius: var(--panel-radius);
   border: 1px solid var(--border-soft);
   box-shadow: var(--shadow-2);
 }
 
 .el-table {
-  border-radius: 18px;
+  border-radius: var(--panel-radius);
   overflow: hidden;
   background-color: var(--surface);
   box-shadow: var(--shadow-2);
@@ -162,7 +178,7 @@ a {
 }
 
 .el-dialog {
-  border-radius: 18px;
+  border-radius: var(--panel-radius);
   overflow: hidden;
 }
 
@@ -175,14 +191,38 @@ a {
 }
 
 .el-upload {
-  border-radius: 16px;
+  border-radius: var(--panel-radius);
   border: 1px dashed var(--border-soft);
   background: rgba(255, 255, 255, 0.7);
+  transition: border-color var(--motion-fast), background var(--motion-fast);
+}
+
+.el-upload:hover {
+  border-color: var(--el-color-primary);
+  background: rgba(37, 99, 235, 0.05);
 }
 
 .el-upload-dragger {
   background: transparent;
   border: none;
+}
+
+.el-button,
+.el-input__wrapper,
+.el-select__wrapper,
+.el-radio-button__inner {
+  transition: all var(--motion-fast);
+}
+
+@keyframes pageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @media (max-width: 900px) {
