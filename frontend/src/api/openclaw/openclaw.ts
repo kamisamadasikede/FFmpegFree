@@ -53,8 +53,11 @@ export interface OpenClawAuthCheckResult {
 }
 
 export interface OpenClawQuickConfigRequest {
-  provider: 'anthropic' | 'openai' | 'openrouter'
+  provider: 'anthropic' | 'openai' | 'openrouter' | 'custom'
   apiKey: string
+  apiBase: string
+  apiKeyEnv: string
+  apiBaseEnv: string
   defaultModel: string
   useGuestMode: boolean
   persistEnv: boolean

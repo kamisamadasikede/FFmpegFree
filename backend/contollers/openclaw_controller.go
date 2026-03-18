@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -218,6 +219,17 @@ func (m *openClawInstallManager) run(ctx context.Context, packageName string, re
 	}
 
 	if err := m.runStep(4, func() (string, bool, error) {
+		installed, version, checkErr := m.checkGlobalPackageInstalled(ctx, packageName)
+		if checkErr != nil {
+			return "", false, checkErr
+		}
+		if installed {
+			if version != "" {
+				return fmt.Sprintf("package already installed, version: %s", version), true, nil
+			}
+			return "package already installed", true, nil
+		}
+
 		args := []string{"install", "-g", packageName}
 		if registry != "" {
 			args = append(args, "--registry", registry)
@@ -248,6 +260,25 @@ func (m *openClawInstallManager) run(ctx context.Context, packageName string, re
 	}); err != nil {
 		return
 	}
+}
+
+func (m *openClawInstallManager) checkGlobalPackageInstalled(ctx context.Context, packageName string) (bool, string, error) {
+	output, err := m.runner.Run(ctx, "npm", "list", "-g", packageName, "--depth=0")
+	normalized := strings.ToLower(output)
+	installed := strings.Contains(normalized, strings.ToLower(packageName)+"@") || strings.Contains(normalized, strings.ToLower(packageName))
+	if err != nil && !installed {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return false, "", nil
+		}
+		return false, "", fmt.Errorf("check package install status failed: %w", err)
+	}
+
+	versionOutput, versionErr := m.runner.Run(ctx, packageName, "--version")
+	if versionErr != nil {
+		return installed, "", nil
+	}
+	return installed, strings.TrimSpace(versionOutput), nil
 }
 
 func (m *openClawInstallManager) runStep(index int, fn func() (detail string, skip bool, err error)) error {
@@ -836,9 +867,72 @@ func providerToEnvVar(provider string) string {
 		return "OPENAI_API_KEY"
 	case "openrouter":
 		return "OPENROUTER_API_KEY"
+	case "custom":
+		return "OPENAI_API_KEY"
 	default:
 		return ""
 	}
+}
+
+var envNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+func sanitizeEnvName(raw string) (string, error) {
+	name := strings.TrimSpace(raw)
+	if name == "" {
+		return "", nil
+	}
+	if !envNamePattern.MatchString(name) {
+		return "", fmt.Errorf("invalid env var name: %s", raw)
+	}
+	return name, nil
+}
+
+func resolveProviderEnvConfig(req vo.OpenClawQuickConfigRequest, provider string) (string, string, error) {
+	defaultKeyEnv := providerToEnvVar(provider)
+	if defaultKeyEnv == "" {
+		return "", "", fmt.Errorf("unsupported provider, use anthropic/openai/openrouter/custom")
+	}
+
+	customKeyEnv, err := sanitizeEnvName(req.APIKeyEnv)
+	if err != nil {
+		return "", "", err
+	}
+	if customKeyEnv != "" {
+		defaultKeyEnv = customKeyEnv
+	}
+
+	keyEnv := defaultKeyEnv
+	baseEnv := ""
+
+	if provider == "custom" {
+		if strings.TrimSpace(req.APIBase) == "" {
+			return "", "", fmt.Errorf("custom provider requires api base url")
+		}
+		customBaseEnv, envErr := sanitizeEnvName(req.APIBaseEnv)
+		if envErr != nil {
+			return "", "", envErr
+		}
+		if customBaseEnv == "" {
+			baseEnv = "OPENAI_BASE_URL"
+		} else {
+			baseEnv = customBaseEnv
+		}
+		return keyEnv, baseEnv, nil
+	}
+
+	if strings.TrimSpace(req.APIBase) != "" {
+		customBaseEnv, envErr := sanitizeEnvName(req.APIBaseEnv)
+		if envErr != nil {
+			return "", "", envErr
+		}
+		if customBaseEnv == "" {
+			baseEnv = "OPENAI_BASE_URL"
+		} else {
+			baseEnv = customBaseEnv
+		}
+	}
+
+	return keyEnv, baseEnv, nil
 }
 
 func isGuestModel(model vo.OpenClawModelItem) bool {
@@ -909,32 +1003,56 @@ func ConfigureOpenClawAndQueryModels(c *gin.Context) {
 	}
 	result.Steps = append(result.Steps, "checked openclaw command")
 
-	envVarName := providerToEnvVar(result.Provider)
-	if envVarName == "" {
-		result.Error = "unsupported provider, use anthropic/openai/openrouter"
+	apiKeyEnv, apiBaseEnv, envErr := resolveProviderEnvConfig(req, result.Provider)
+	if envErr != nil {
+		result.Error = envErr.Error()
 		c.JSON(http.StatusOK, utils.Success(result))
 		return
+	}
+	result.Steps = append(result.Steps, fmt.Sprintf("provider env binding resolved: api_key=%s", apiKeyEnv))
+	if apiBaseEnv != "" {
+		result.Steps = append(result.Steps, fmt.Sprintf("provider env binding resolved: api_base=%s", apiBaseEnv))
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
 	envOverrides := map[string]string{}
+	persistedEnvKeys := make([]string, 0, 2)
 	apiKey := strings.TrimSpace(req.APIKey)
 	if apiKey != "" {
-		envOverrides[envVarName] = apiKey
-		result.Steps = append(result.Steps, fmt.Sprintf("loaded api key from request (%s)", envVarName))
-		if req.PersistEnv && runtime.GOOS == "windows" {
-			if err := persistEnvVarWindows(envVarName, apiKey); err == nil {
-				result.Steps = append(result.Steps, fmt.Sprintf("persisted env var by setx: %s", envVarName))
-			} else {
-				result.Steps = append(result.Steps, fmt.Sprintf("persist env failed: %v", err))
-			}
-		} else if req.PersistEnv {
-			result.Steps = append(result.Steps, "persist env is only supported on windows currently")
-		}
+		envOverrides[apiKeyEnv] = apiKey
+		result.Steps = append(result.Steps, fmt.Sprintf("loaded api key from request (%s)", apiKeyEnv))
 	} else {
-		result.Steps = append(result.Steps, fmt.Sprintf("api key not provided, using current environment: %s", envVarName))
+		result.Steps = append(result.Steps, fmt.Sprintf("api key not provided, using current environment: %s", apiKeyEnv))
+	}
+
+	apiBase := strings.TrimSpace(req.APIBase)
+	if apiBase != "" && apiBaseEnv != "" {
+		envOverrides[apiBaseEnv] = apiBase
+		result.Steps = append(result.Steps, fmt.Sprintf("loaded api base from request (%s)", apiBaseEnv))
+	}
+
+	if req.PersistEnv && runtime.GOOS == "windows" {
+		if apiKey != "" {
+			if err := persistEnvVarWindows(apiKeyEnv, apiKey); err == nil {
+				persistedEnvKeys = append(persistedEnvKeys, apiKeyEnv)
+			} else {
+				result.Steps = append(result.Steps, fmt.Sprintf("persist env failed for %s: %v", apiKeyEnv, err))
+			}
+		}
+		if apiBase != "" && apiBaseEnv != "" {
+			if err := persistEnvVarWindows(apiBaseEnv, apiBase); err == nil {
+				persistedEnvKeys = append(persistedEnvKeys, apiBaseEnv)
+			} else {
+				result.Steps = append(result.Steps, fmt.Sprintf("persist env failed for %s: %v", apiBaseEnv, err))
+			}
+		}
+		if len(persistedEnvKeys) > 0 {
+			result.Steps = append(result.Steps, "persisted env vars by setx: "+strings.Join(persistedEnvKeys, ", "))
+		}
+	} else if req.PersistEnv {
+		result.Steps = append(result.Steps, "persist env is only supported on windows currently")
 	}
 
 	listRaw, listErr := runOpenClawCommand(ctx, []string{"models", "list", "--json", "--all"}, envOverrides)

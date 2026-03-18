@@ -8,6 +8,9 @@ type OpenClawInstallRequest struct {
 type OpenClawQuickConfigRequest struct {
 	Provider     string `json:"provider"`
 	APIKey       string `json:"apiKey"`
+	APIBase      string `json:"apiBase"`
+	APIKeyEnv    string `json:"apiKeyEnv"`
+	APIBaseEnv   string `json:"apiBaseEnv"`
 	DefaultModel string `json:"defaultModel"`
 	UseGuestMode bool   `json:"useGuestMode"`
 	PersistEnv   bool   `json:"persistEnv"`

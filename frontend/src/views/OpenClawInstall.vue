@@ -44,7 +44,7 @@
       <div class="panel-title-row">
         <div>
           <h2>配置并查询模型</h2>
-          <p>前端输入环境后自动配置 OpenClaw，查询可用模型并标记游客模型是否可用。</p>
+          <p>支持官方 Provider 与自定义第三方 API/Key 接入，执行后自动查询可用模型。</p>
         </div>
         <el-tag :type="quickConfigDone ? 'success' : 'info'">
           {{ quickConfigDone ? '已完成' : '待执行' }}
@@ -59,6 +59,7 @@
                 <el-option label="Anthropic" value="anthropic" />
                 <el-option label="OpenAI" value="openai" />
                 <el-option label="OpenRouter" value="openrouter" />
+                <el-option label="自定义第三方 (OpenAI 兼容)" value="custom" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -67,7 +68,7 @@
               <el-input
                 v-model="quickConfig.apiKey"
                 show-password
-                placeholder="可留空，留空时仅用系统现有环境变量"
+                placeholder="可留空，留空时使用系统已有环境变量"
               />
             </el-form-item>
           </el-col>
@@ -85,6 +86,32 @@
             </el-form-item>
           </el-col>
         </el-row>
+
+        <el-row v-if="quickConfig.provider === 'custom'" :gutter="12" class="custom-env-row">
+          <el-col :xs="24" :md="12">
+            <el-form-item label="第三方 API Base">
+              <el-input v-model="quickConfig.apiBase" placeholder="https://api.example.com/v1" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :md="6">
+            <el-form-item label="Key 变量名">
+              <el-input v-model="quickConfig.apiKeyEnv" placeholder="OPENAI_API_KEY" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :md="6">
+            <el-form-item label="Base 变量名">
+              <el-input v-model="quickConfig.apiBaseEnv" placeholder="OPENAI_BASE_URL" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="24">
+            <el-alert
+              type="info"
+              :closable="false"
+              title="自定义第三方会把你填写的 API Key/API Base 注入到环境变量后再执行 openclaw models。"
+            />
+          </el-col>
+        </el-row>
+
         <el-form-item>
           <div class="action-row">
             <el-button type="primary" :loading="quickConfigLoading" @click="runQuickConfig">
@@ -277,8 +304,11 @@ const installForm = reactive({
 })
 
 const quickConfig = reactive({
-  provider: 'anthropic' as 'anthropic' | 'openai' | 'openrouter',
+  provider: 'anthropic' as 'anthropic' | 'openai' | 'openrouter' | 'custom',
   apiKey: '',
+  apiBase: '',
+  apiKeyEnv: '',
+  apiBaseEnv: '',
   defaultModel: '',
   useGuestMode: true,
   persistEnv: false
@@ -387,9 +417,7 @@ const stepTagType = (status: OpenClawStepStatus) => {
 const formatTime = (value: string) => {
   if (!value) return '--'
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return value
-  }
+  if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString()
 }
 
@@ -409,9 +437,7 @@ const copyText = async (text: string) => {
 const fetchStatus = async () => {
   try {
     const res = await getOpenClawInstallStatus()
-    if (res.data.code === 200) {
-      installStatus.value = res.data.data
-    }
+    if (res.data.code === 200) installStatus.value = res.data.data
   } catch (error: any) {
     if (error?.response?.status === 404) {
       ElMessage.error('安装状态接口未加载(404)，请重启应用')
@@ -464,6 +490,11 @@ const startInstall = async () => {
 }
 
 const runQuickConfig = async () => {
+  if (quickConfig.provider === 'custom' && !quickConfig.apiBase.trim()) {
+    ElMessage.warning('自定义第三方模式需要填写 API Base URL')
+    return
+  }
+
   quickConfigLoading.value = true
   quickConfigDone.value = false
   quickConfigResult.value = null
@@ -471,6 +502,9 @@ const runQuickConfig = async () => {
     const res = await configureOpenClawAndQueryModels({
       provider: quickConfig.provider,
       apiKey: quickConfig.apiKey.trim(),
+      apiBase: quickConfig.apiBase.trim(),
+      apiKeyEnv: quickConfig.apiKeyEnv.trim(),
+      apiBaseEnv: quickConfig.apiBaseEnv.trim(),
       defaultModel: quickConfig.defaultModel.trim(),
       useGuestMode: quickConfig.useGuestMode,
       persistEnv: quickConfig.persistEnv
@@ -525,9 +559,7 @@ const startPolling = () => {
   if (pollTimer) return
   pollTimer = setInterval(async () => {
     await fetchStatus()
-    if (installStatus.value.state !== 'running') {
-      stopPolling()
-    }
+    if (installStatus.value.state !== 'running') stopPolling()
   }, 1500)
 }
 
@@ -536,6 +568,21 @@ const stopPolling = () => {
   clearInterval(pollTimer)
   pollTimer = null
 }
+
+watch(
+  () => quickConfig.provider,
+  (provider) => {
+    if (provider === 'custom') {
+      if (!quickConfig.apiKeyEnv.trim()) quickConfig.apiKeyEnv = 'OPENAI_API_KEY'
+      if (!quickConfig.apiBaseEnv.trim()) quickConfig.apiBaseEnv = 'OPENAI_BASE_URL'
+      return
+    }
+    quickConfig.apiBase = ''
+    quickConfig.apiKeyEnv = ''
+    quickConfig.apiBaseEnv = ''
+  },
+  { immediate: true }
+)
 
 watch(
   () => installStatus.value.state,
@@ -560,9 +607,7 @@ watch(
 onMounted(async () => {
   await fetchStatus()
   await checkAuth()
-  if (installStatus.value.state === 'running') {
-    startPolling()
-  }
+  if (installStatus.value.state === 'running') startPolling()
 })
 
 onUnmounted(() => {
@@ -600,6 +645,10 @@ onUnmounted(() => {
 .install-form,
 .quick-form {
   margin-bottom: 10px;
+}
+
+.custom-env-row {
+  margin-bottom: 8px;
 }
 
 .switch-row {
