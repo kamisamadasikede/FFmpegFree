@@ -4,65 +4,67 @@
       <div class="brand-mark">FF</div>
       <div>
         <div class="brand-title">FFmpegFree</div>
-        <div class="brand-subtitle">多媒体桌面工具</div>
+        <div class="brand-subtitle">音视频工具箱</div>
       </div>
     </div>
+
     <el-menu
       :default-active="$route.path"
       class="app-menu"
+      router
       @open="handleOpen"
       @close="handleClose"
-      router
     >
-    <el-sub-menu index="1">
-      <template #title>
-        <el-icon><Camera /></el-icon>
-        <span>视频</span>
-      </template>
-      <el-menu-item route="/" index="/">转换</el-menu-item>
-      <el-menu-item route="/convert" index="/convert">正在转换中</el-menu-item>
-      <el-menu-item route="/convertup" index="/convertup">已完成</el-menu-item>
-    </el-sub-menu>
-    <el-sub-menu index="2">
-      <template #title>
-        <el-icon><VideoCamera /></el-icon>
-        <span>流媒体工具</span>
-      </template>
-      <el-menu-item route="/steamup" index="/steamup">推流</el-menu-item>
-      <el-menu-item route="/steamlist" index="/steamlist">正在推流中</el-menu-item>
-      <el-menu-item route="/MediaRecorder" index="/MediaRecorder">屏幕录制推流</el-menu-item>
-      <el-menu-item route="/LivePlayer" index="/LivePlayer">直播拉流(只支持flv拉流)</el-menu-item>
-    </el-sub-menu>
-        <el-sub-menu index="3">
-      <template #title>
-        <el-icon><MessageBox /></el-icon>
-        <span>文档转换</span>
-      </template>
-      <el-menu-item route="/pdf-preview" index="/pdf-preview">PDF预览</el-menu-item>
-      <el-menu-item route="/office-convert" index="/office-convert">Office转PDF</el-menu-item>
-    </el-sub-menu>
-    <el-sub-menu index="4">
-      <template #title>
-        <el-icon><Tools /></el-icon>
-        <span>工具</span>
-      </template>
-      <el-menu-item route="/json-tools" index="/json-tools">JSON工具</el-menu-item>
-    </el-sub-menu>
-    <el-menu-item route="/about" index="/about">
-      <el-icon><InfoFilled /></el-icon>
-      <span>关于</span>
-    </el-menu-item>
+      <el-sub-menu index="1">
+        <template #title>
+          <el-icon><Camera /></el-icon>
+          <span>视频</span>
+        </template>
+        <el-menu-item route="/" index="/">转换</el-menu-item>
+        <el-menu-item route="/convert" index="/convert">正在转换中</el-menu-item>
+        <el-menu-item route="/convertup" index="/convertup">已完成</el-menu-item>
+      </el-sub-menu>
+
+      <el-sub-menu index="2">
+        <template #title>
+          <el-icon><VideoCamera /></el-icon>
+          <span>流媒体工具</span>
+        </template>
+        <el-menu-item route="/steamup" index="/steamup">推流</el-menu-item>
+        <el-menu-item route="/steamlist" index="/steamlist">正在推流中</el-menu-item>
+        <el-menu-item route="/MediaRecorder" index="/MediaRecorder">屏幕录制推流</el-menu-item>
+        <el-menu-item route="/LivePlayer" index="/LivePlayer">直播拉流（FLV）</el-menu-item>
+      </el-sub-menu>
+
+      <el-sub-menu index="3">
+        <template #title>
+          <el-icon><MessageBox /></el-icon>
+          <span>文档转换</span>
+        </template>
+        <el-menu-item route="/pdf-preview" index="/pdf-preview">PDF 预览</el-menu-item>
+        <el-menu-item route="/office-convert" index="/office-convert">Office 转 PDF</el-menu-item>
+      </el-sub-menu>
+
+      <el-sub-menu index="4">
+        <template #title>
+          <el-icon><Tools /></el-icon>
+          <span>工具</span>
+        </template>
+        <el-menu-item route="/json-tools" index="/json-tools">JSON 工具</el-menu-item>
+        <el-menu-item route="/openclaw-install" index="/openclaw-install">OpenClaw 一键安装</el-menu-item>
+      </el-sub-menu>
+
+      <el-menu-item route="/about" index="/about">
+        <el-icon><InfoFilled /></el-icon>
+        <span>关于</span>
+      </el-menu-item>
     </el-menu>
   </div>
 </template>
 
 <script lang="ts" setup>
-const handleOpen = (key: string, keyPath: string[]) => {
-  console.log(key, keyPath)
-}
-const handleClose = (key: string, keyPath: string[]) => {
-  console.log(key, keyPath)
-}
+const handleOpen = () => {}
+const handleClose = () => {}
 </script>
 
 <style scoped>
@@ -77,7 +79,7 @@ const handleClose = (key: string, keyPath: string[]) => {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 10px;
+  padding: 10px;
   border-radius: 12px;
   background: linear-gradient(135deg, rgba(37, 99, 235, 0.14), rgba(37, 99, 235, 0.06));
   border: 1px solid rgba(37, 99, 235, 0.22);

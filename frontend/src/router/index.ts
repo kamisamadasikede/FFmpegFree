@@ -13,6 +13,7 @@ const routes: Array<RouteRecordRaw> = [
   { path: '/pdf-preview', name: 'PDFPreview', component: () => import('../views/PDFPreview.vue') },
   { path: '/office-convert', name: 'OfficeConvert', component: () => import('../views/OfficeConvert.vue') },
   { path: '/json-tools', name: 'JsonTools', component: () => import('../views/JsonTools.vue') },
+  { path: '/openclaw-install', name: 'OpenClawInstall', component: () => import('../views/OpenClawInstall.vue') },
 ]
 
 const router = createRouter({

@@ -67,6 +67,9 @@ func SetupRouter() *gin.Engine {
 	api.POST("/json/format", contollers.JsonFormat)
 	api.POST("/json/compare", contollers.JsonCompare)
 	api.POST("/json/validate", contollers.JsonValidate)
+	api.POST("/openclaw/install/start", contollers.StartOpenClawInstall)
+	api.GET("/openclaw/install/status", contollers.GetOpenClawInstallStatus)
+	api.GET("/openclaw/auth/check", contollers.CheckOpenClawAuth)
 	return r
 }
 

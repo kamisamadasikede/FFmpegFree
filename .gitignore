@@ -6,3 +6,4 @@ build
 app.exe
 FFmpegFree.zip
 FFmpegFree/
+.gocache/
