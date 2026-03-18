@@ -48,12 +48,6 @@ onUnmounted(() => {
       <MenuComponent />
     </aside>
     <main class="app-main">
-      <header class="app-header">
-        <div>
-          <div class="app-title">FFmpegFree</div>
-          <div class="app-subtitle">音视频 / 文档 / 流媒体工具箱</div>
-        </div>
-      </header>
       <div class="page-shell">
         <router-view></router-view>
       </div>

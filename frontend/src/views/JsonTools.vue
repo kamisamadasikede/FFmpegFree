@@ -11,9 +11,7 @@
                   <el-button size="small" type="danger" plain @click="clearFormatInput">清空</el-button>
                 </div>
               </div>
-              <div class="editor-outer">
-                <div class="editor-container" ref="formatInputEditorRef"></div>
-              </div>
+              <div class="editor-outer editor-container" ref="formatInputEditorRef"></div>
               <div v-if="formatError" class="error-info">
                 <el-alert 
                   :title="`JSON 语法错误: 第 ${formatErrorPos.line} 行, 第 ${formatErrorPos.column} 列`" 
@@ -98,7 +96,7 @@
             </el-button>
           </div>
           
-          <div v-if="compareResult" class="compare-result">
+          <div v-if="compareResult" class="compare-result fade-in">
             <el-alert
               v-if="compareResult.identical"
               title="✅ 两个 JSON 完全相同"
@@ -140,10 +138,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as monaco from 'monaco-editor'
-import { formatJson, compareJson, JsonFormatResponse, JsonCompareResponse, JsonCompareRequest, JsonValidateResponse } from '@/api/json/json'
+import { formatJson, compareJson, JsonFormatResponse, JsonCompareResponse } from '@/api/json/json'
 
 const activeTab = ref('format')
 
@@ -190,7 +188,7 @@ const createJsonEditor = (container: HTMLElement, readOnly: boolean = false, onC
   const editor = monaco.editor.create(container, {
     value: '',
     language: 'json',
-    theme: 'vs-dark',
+    theme: 'vs',
     readOnly: readOnly,
     automaticLayout: true,
     tabSize: indentSize.value,
@@ -199,7 +197,7 @@ const createJsonEditor = (container: HTMLElement, readOnly: boolean = false, onC
     fontSize: 14,
     fontFamily: "'Cascadia Code', 'Consolas', 'Monaco', monospace",
     fixedOverflowWidgets: true,
-    renderLineHighlight: 'all',
+    renderLineHighlight: 'line',
     folding: true,
     lineNumbers: 'on',
     minimap: { enabled: false },
@@ -328,6 +326,16 @@ watch(indentSize, (val) => {
   })
 })
 
+watch([compactMode, indentSize], () => {
+  if (formatInput.value.trim() && !formatError.value) {
+    triggerAutoFormat(formatInput.value)
+  }
+})
+
+watch([compareInput1, compareInput2], () => {
+  compareResult.value = null
+})
+
 onMounted(async () => {
   await nextTick()
   
@@ -340,7 +348,7 @@ onMounted(async () => {
   }
   
   if (formatOutputEditorRef.value) {
-    formatOutputEditor = createJsonEditor(formatOutputEditorRef.value, false)
+    formatOutputEditor = createJsonEditor(formatOutputEditorRef.value, true)
   }
   
   if (compareInput1EditorRef.value) {
@@ -379,12 +387,12 @@ onMounted(async () => {
   }
 })
 
-const canCompare = () => {
+const canCompare = computed(() => {
   return compareInput1.value.trim() !== '' && 
          compareInput2.value.trim() !== '' && 
          !compareError1.value && 
          !compareError2.value
-}
+})
 
 const doFormat = async (isAuto: boolean = false) => {
   if (!formatInput.value.trim()) {
@@ -416,7 +424,9 @@ const doFormat = async (isAuto: boolean = false) => {
         if (!isAuto) ElMessage.error('JSON 格式有误')
       } else {
         formatError.value = ''
-        formatOutputEditor?.setValue(result.formatted)
+        if (formatOutputEditor?.getValue() !== result.formatted) {
+          formatOutputEditor?.setValue(result.formatted)
+        }
         
         setTimeout(() => {
           formatOutputEditor?.getAction('editor.action.formatDocument')?.run()
@@ -477,11 +487,13 @@ const triggerCompareAutoFormat = (editor: monaco.editor.IStandaloneCodeEditor | 
   
   const newTimer = setTimeout(() => {
     if (!value.trim() || !editor) return
+    if (isFirst ? compareError1.value : compareError2.value) return
     
     try {
       const obj = JSON.parse(value)
       editor.setValue(JSON.stringify(obj, null, indentSize.value))
       setLastValue(editor.getValue())
+      compareResult.value = null
       setTimeout(() => {
         editor.getAction('editor.unfoldAll')?.run()
       }, 50)
@@ -494,7 +506,7 @@ const triggerCompareAutoFormat = (editor: monaco.editor.IStandaloneCodeEditor | 
 }
 
 const handleCompare = async () => {
-  if (!canCompare()) {
+  if (!canCompare.value) {
     ElMessage.warning('请确保两个 JSON 都没有语法错误')
     return
   }
@@ -767,6 +779,8 @@ const copyFormatOutput = () => {
   if (val) {
     navigator.clipboard.writeText(val)
     ElMessage.success('复制成功')
+  } else {
+    ElMessage.warning('暂无可复制内容')
   }
 }
 
@@ -808,22 +822,22 @@ onBeforeUnmount(() => {
 <style scoped>
 .json-tools-container {
   padding: 20px;
-  background-color: #f5f7fa;
   min-height: 100vh;
 }
 
 .editor-outer {
   width: 100%;
-  border: 1px solid #333;
-  border-radius: 0 0 8px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 0 0 14px 14px;
   overflow: hidden;
   text-align: left;
+  background: #fff;
 }
 
 .editor-container {
   width: 100%;
   height: calc(100vh - 180px);
-  background: #1e1e1e;
+  background: #fff;
 }
 
 .panel-header {
@@ -831,35 +845,38 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: center;
   padding: 10px 15px;
-  background: #333;
-  color: #fff;
+  background: var(--surface-muted);
+  color: var(--text-primary);
   font-weight: bold;
-  border-radius: 8px 8px 0 0;
+  border-radius: 14px 14px 0 0;
+  border: 1px solid var(--border-soft);
+  border-bottom: none;
 }
 
 .res-header {
-  background: #2d5a27;
+  background: rgba(37, 99, 235, 0.08);
 }
 
 .format-options {
   margin-top: 20px;
   padding: 15px;
-  background: #fff;
-  border-radius: 8px;
+  background: var(--surface);
+  border-radius: 14px;
   display: flex;
   align-items: center;
   gap: 15px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+  border: 1px solid var(--border-soft);
+  box-shadow: var(--shadow-2);
 }
 
 .label {
   font-size: 14px;
-  color: #666;
+  color: var(--text-muted);
 }
 
 .tips {
   font-size: 12px;
-  color: #999;
+  color: var(--text-soft);
   margin-left: auto;
 }
 
@@ -883,13 +900,13 @@ onBeforeUnmount(() => {
 }
 
 .old-value {
-  color: #f56c6c;
+  color: #dc2626;
   font-family: 'Consolas', 'Monaco', monospace;
   font-size: 12px;
 }
 
 .new-value {
-  color: #67c23a;
+  color: #16a34a;
   font-family: 'Consolas', 'Monaco', monospace;
   font-size: 12px;
 }
@@ -902,17 +919,50 @@ onBeforeUnmount(() => {
 }
 
 :deep(.el-table th) {
-  background: #409eff;
-  color: #fff;
+  background: var(--surface-muted);
+  color: var(--text-muted);
 }
 
 :deep(.diff-highlight-removed) {
-  background: rgba(245, 108, 108, 0.3) !important;
-  border: 1px solid #f56c6c;
+  background: rgba(220, 38, 38, 0.2) !important;
+  border: 1px solid rgba(220, 38, 38, 0.4);
 }
 
 :deep(.diff-highlight-added) {
-  background: rgba(103, 194, 58, 0.3) !important;
-  border: 1px solid #67c23a;
+  background: rgba(22, 163, 74, 0.2) !important;
+  border: 1px solid rgba(22, 163, 74, 0.4);
+}
+
+.panel-elevated {
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: var(--shadow-2);
+  border: 1px solid var(--border-soft);
+  animation: panelIn 0.35s ease;
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes panelIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 </style>

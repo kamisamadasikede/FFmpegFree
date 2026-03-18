@@ -71,7 +71,7 @@
 
         <div v-if="hasPdf" class="ppt-thumb-wrapper">
           <div class="section-title">页面预览 ({{ pages }})</div>
-          <div v-for="pageNum in lazyPage" :key="pageNum" 
+          <div v-for="pageNum in Math.min(lazyPage, pages)" :key="pageNum"
                class="ppt-thumb-item" :class="{ active: pageNum === page }" 
                @click="page = pageNum">
             <span class="thumb-number">{{ pageNum }}</span>
@@ -136,7 +136,7 @@ const maxScale = 2.2
 // 2. 为 ref 指定 PDFFile 数组类型
 const fileList = ref<PDFFile[]>([])
 const uploadProgress = ref(0)
-const hasPdf = computed(() => !!pdfData.value)
+const hasPdf = computed(() => !!pdf.value && pages.value > 0)
 const currentFile = computed(() => fileList.value.find((item) => item.url === pdfUrl.value))
 const currentFileSize = computed(() => formatSize(currentFile.value?.size))
 const pageSizeText = ref('')
@@ -262,6 +262,19 @@ watch(page, () => {
   if (activeThumb) activeThumb.scrollIntoView({ behavior: 'smooth', block: 'center' })
   const viewer = document.querySelector('.ppt-slide-scroll-viewport')
   if (viewer) viewer.scrollTop = 0
+  updatePageSize()
+})
+
+watch(pages, (value) => {
+  if (!value || value <= 0) {
+    page.value = 1
+    pageSizeText.value = ''
+    return
+  }
+  if (page.value > value) {
+    page.value = value
+  }
+  lazyPage.value = Math.min(Math.max(10, page.value + 9), value)
   updatePageSize()
 })
 
