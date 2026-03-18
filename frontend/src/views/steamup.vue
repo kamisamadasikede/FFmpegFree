@@ -5,13 +5,12 @@
 
     <!-- 文件上传 -->
     <el-upload
-        class="upload-demo"
+        class="upload-demo app-upload"
         drag
         :http-request="customUpload"
         :auto-upload="true"
         :before-upload="beforeUpload"
         multiple
-        style="width: 100%; min-width: 600px"
     >
       <el-icon class="el-icon--upload">
         <upload-filled />
@@ -36,15 +35,17 @@
         row-key="name"
     >
       <!-- 略缩图列 -->
-      <el-table-column label="略缩图">
-        <template #default="scope">
-          <video
-              :src="scope.row.url"
-              style="width: 260px; cursor: pointer"
-              @click="playFullScreenVideo(scope.row.url)"
-          ></video>
-        </template>
-      </el-table-column>
+    <el-table-column label="略缩图">
+      <template #default="scope">
+        <MediaThumb
+            :url="scope.row.url"
+            :name="scope.row.name"
+            :cover="scope.row.cover"
+            :clickable="isPreviewable(scope.row.name)"
+            @preview="(url) => playFullScreenVideo(url, scope.row.name)"
+        />
+      </template>
+    </el-table-column>
 
       <!-- 名称列 -->
       <el-table-column label="名称" prop="name" />
@@ -76,17 +77,11 @@
       </template>
     </el-table>
 
-    <!-- 全屏播放视频对话框 -->
-    <el-dialog v-model="isVideoDialogVisible" fullscreen>
-      <div class="fullscreen-video-container">
-        <video
-            :src="selectedVideoUrl"
-            autoplay
-            controls
-            class="fullscreen-video"
-        ></video>
-      </div>
-    </el-dialog>
+    <MediaPreviewDialog
+        v-model="isVideoDialogVisible"
+        :url="selectedVideoUrl"
+        :name="selectedVideoName"
+    />
 
     <!-- 推流地址对话框 -->
     <el-dialog v-model="isConvertDialogVisible" title="输入推流地址">
@@ -104,6 +99,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, UploadRequestOptions } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
+import MediaThumb from '@/components/MediaThumb.vue'
+import MediaPreviewDialog from '@/components/MediaPreviewDialog.vue'
 
 import { uploadFileSteame } from '@/api/upload/upload'
 import {
@@ -120,6 +117,7 @@ interface VideoInfo {
   date: string
   steamurl: string
   targetFormat: string
+  cover?: string
 }
 
 // 数据定义
@@ -127,10 +125,14 @@ const search = ref('')
 const tableData = ref<VideoInfo[]>([])
 const isVideoDialogVisible = ref(false)
 const selectedVideoUrl = ref('')
+const selectedVideoName = ref('')
 const isConvertDialogVisible = ref(false)
 const steamurl = ref<string>('')
 const selectedVideoForConvert = ref<VideoInfo | null>(null)
 const uploadProgress = ref(0)
+const previewableExts = ['.mp4', '.mov', '.webm', '.mkv', '.avi', '.flv']
+const isPreviewable = (name: string) =>
+  previewableExts.some((ext) => name.toLowerCase().endsWith(ext))
 
 // 过滤后的表格数据
 const filterTableData = computed(() =>
@@ -190,8 +192,9 @@ const customUpload = async (options: UploadRequestOptions) => {
 }
 
 // 播放全屏视频
-const playFullScreenVideo = (url: string) => {
+const playFullScreenVideo = (url: string, name?: string) => {
   selectedVideoUrl.value = url
+  selectedVideoName.value = name || ''
   isVideoDialogVisible.value = true
 }
 
@@ -259,6 +262,13 @@ const beforeUpload = (file: File): boolean => {
 <style scoped>
 .stream-table-container {
   padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.app-upload {
+  width: 100%;
 }
 .fullscreen-video {
   width: 100%;

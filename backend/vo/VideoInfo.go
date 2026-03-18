@@ -12,6 +12,9 @@ type VideoInfo struct {
 	Date         string `json:"date"`         // 文件修改时间
 	TargetFormat string `json:"targetFormat"` // 文件修改时间
 	SteamUrl     string `json:"steamurl"`
+	Preset       string `json:"preset"`
+	Cover        string `json:"cover"`
+	Progress     int    `json:"progress"`
 }
 type ConvertingTask struct {
 	VideoInfo  VideoInfo

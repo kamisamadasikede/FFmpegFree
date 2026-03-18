@@ -8,6 +8,9 @@ interface VideoInfo {
   date: string
   steamurl: string
   targetFormat: string
+  preset?: string
+  cover?: string
+  progress?: number
 }
 
 export const getConvertingFiles = async () => {

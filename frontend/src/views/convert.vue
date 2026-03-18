@@ -2,18 +2,29 @@
   <el-table :data="filterTableData" style="width: 100%;height: 70vh"
             :highlight-current-row="true"
   >
-    <el-table-column label="略缩图"  >
+    <el-table-column label="略缩图">
       <template #default="scope">
-        <video
-            :src="scope.row.url"      style="width: 260px;"
-            @click="playFullScreenVideo(scope.row.url)"
-        ></video>
+        <MediaThumb
+            :url="scope.row.url"
+            :name="scope.row.name"
+            :cover="scope.row.cover"
+            :clickable="isPreviewable(scope.row.name)"
+            @preview="(url) => playFullScreenVideo(url, scope.row.name)"
+        />
       </template>
     </el-table-column>
     <el-table-column label="名称" prop="name" />
     <el-table-column label="时长" prop="duration" />
     <el-table-column label="修改时间" prop="date" />
     <el-table-column label="转换格式" prop="targetFormat" />
+    <el-table-column label="进度" width="180">
+      <template #default="scope">
+        <el-progress
+            :percentage="scope.row.progress || 0"
+            :status="scope.row.progress >= 100 ? 'success' : ''"
+        />
+      </template>
+    </el-table-column>
     <el-table-column align="right">
       <template #header>
         <el-input v-model="search" size="small" placeholder="搜索名称" />
@@ -29,22 +40,18 @@
       </template>
     </el-table-column>
   </el-table>
-  <el-dialog v-model="isVideoDialogVisible" fullscreen>
-    <div class="fullscreen-video-container">
-      <video
-          :src="selectedVideoUrl"
-          autoplay
-          controls
-          class="fullscreen-video"
-      ></video>
-    </div>
-  </el-dialog>
+  <MediaPreviewDialog
+      v-model="isVideoDialogVisible"
+      :url="selectedVideoUrl"
+      :name="selectedVideoName"
+  />
 </template>
 <script setup lang="ts">
-import {computed, onMounted, ref} from "vue";
-import axios from "axios";
-import {ElMessage} from "element-plus";
-import {deletesteamVideo, GetConvertingFiles, RemoveConvertingTask} from "@/api/video/video";
+import { computed, onMounted, onUnmounted, ref } from "vue";
+import { ElMessage } from "element-plus";
+import { GetConvertingFiles, RemoveConvertingTask } from "@/api/video/video";
+import MediaThumb from "@/components/MediaThumb.vue";
+import MediaPreviewDialog from "@/components/MediaPreviewDialog.vue";
 interface VideoInfo {
   name: string
   url: string
@@ -52,11 +59,19 @@ interface VideoInfo {
   date: string
   steamurl: string
   targetFormat: string
+  preset?: string
+  cover?: string
+  progress?: number
 }
 const isVideoDialogVisible = ref(false)
 const selectedVideoUrl = ref('')
+const selectedVideoName = ref('')
 const search = ref('')
 const tableData = ref<VideoInfo[]>([])
+let pollTimer: ReturnType<typeof setInterval> | null = null
+const previewableExts = ['.mp4', '.mov', '.webm', '.mkv', '.avi', '.flv']
+const isPreviewable = (name: string) =>
+  previewableExts.some((ext) => name.toLowerCase().endsWith(ext))
 
 const filterTableData = computed(() =>
     tableData.value.filter(data =>
@@ -65,8 +80,9 @@ const filterTableData = computed(() =>
     )
 )
 // 点击视频时触发的方法
-const playFullScreenVideo = (url: string) => {
+const playFullScreenVideo = (url: string, name?: string) => {
   selectedVideoUrl.value = url
+  selectedVideoName.value = name || ''
   isVideoDialogVisible.value = true
 }
 
@@ -92,7 +108,14 @@ const fetchData = async () => {
 }
 onMounted(() => {
   fetchData()
-  setInterval(fetchData, 5000)
+  pollTimer = setInterval(fetchData, 5000)
+})
+
+onUnmounted(() => {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
 })
 </script>
 <style>

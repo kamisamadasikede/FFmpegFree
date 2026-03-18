@@ -3,13 +3,15 @@
             :highlight-current-row="true"
             row-key="name"
             v-if="tableDataLoaded">
-  >
-    <el-table-column label="略缩图"  >
+    <el-table-column label="略缩图">
       <template #default="scope">
-        <video
-            :src="scope.row.url"      style="width: 260px;"
-            @click="playFullScreenVideo(scope.row.url)"
-        ></video>
+        <MediaThumb
+            :url="scope.row.url"
+            :name="scope.row.name"
+            :cover="scope.row.cover"
+            :clickable="isPreviewable(scope.row.name)"
+            @preview="(url) => playFullScreenVideo(url, scope.row.name)"
+        />
       </template>
     </el-table-column>
     <el-table-column label="名称" prop="name" />
@@ -33,22 +35,19 @@
       </template>
     </el-table-column>
   </el-table>
-  <el-dialog v-model="isVideoDialogVisible" fullscreen>
-    <div class="fullscreen-video-container">
-      <video
-          :src="selectedVideoUrl"
-          autoplay
-          controls
-          class="fullscreen-video"
-      ></video>
-    </div>
-  </el-dialog>
+  <MediaPreviewDialog
+      v-model="isVideoDialogVisible"
+      :url="selectedVideoUrl"
+      :name="selectedVideoName"
+  />
 </template>
 <script setup lang="ts">
-import {computed, onMounted, ref} from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 
 import {ElMessage} from "element-plus";
 import {convertUp, deleteUpsc, downloadVideo} from "@/api/video/video";
+import MediaThumb from "@/components/MediaThumb.vue";
+import MediaPreviewDialog from "@/components/MediaPreviewDialog.vue";
 
 interface VideoInfo {
   name: string
@@ -57,12 +56,19 @@ interface VideoInfo {
   date: string
   steamurl: string
   targetFormat: string
+  preset?: string
+  cover?: string
 }
 const tableDataLoaded = ref(false)
 const isVideoDialogVisible = ref(false)
 const selectedVideoUrl = ref('')
+const selectedVideoName = ref('')
 const search = ref('')
 const tableData = ref<VideoInfo[]>([])
+let pollTimer: ReturnType<typeof setInterval> | null = null
+const previewableExts = ['.mp4', '.mov', '.webm', '.mkv', '.avi', '.flv']
+const isPreviewable = (name: string) =>
+  previewableExts.some((ext) => name.toLowerCase().endsWith(ext))
 
 const filterTableData = computed(() =>
     tableData.value.filter(data =>
@@ -71,8 +77,9 @@ const filterTableData = computed(() =>
     )
 )
 // 点击视频时触发的方法
-const playFullScreenVideo = (url: string) => {
+const playFullScreenVideo = (url: string, name?: string) => {
   selectedVideoUrl.value = url
+  selectedVideoName.value = name || ''
   isVideoDialogVisible.value = true
 }
 
@@ -128,7 +135,14 @@ onMounted(() => {
   fetchData().finally(() => {
     tableDataLoaded.value = true
   })
-  setInterval(fetchData, 10000)
+  pollTimer = setInterval(fetchData, 10000)
+})
+
+onUnmounted(() => {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
 })
 </script>
 <style>

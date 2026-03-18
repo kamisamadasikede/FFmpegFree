@@ -1,26 +1,229 @@
-html {
-    background-color: rgba(255, 255, 255, 1);
-    text-align: center;
-    color: white;
-}
-
-body {
-    margin: 0;
-    color: white;
-    font-family: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
-    "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
-    sans-serif;
+:root {
+  color-scheme: light;
+  --app-bg: #f7f7f8;
+  --app-bg-accent: #eef1f4;
+  --surface: #ffffff;
+  --surface-muted: #f3f4f6;
+  --surface-strong: #e5e7eb;
+  --text-primary: #111827;
+  --text-muted: #6b7280;
+  --text-soft: #9ca3af;
+  --border-soft: rgba(17, 24, 39, 0.08);
+  --shadow-1: 0 18px 40px rgba(17, 24, 39, 0.08);
+  --shadow-2: 0 8px 18px rgba(17, 24, 39, 0.06);
+  --el-color-primary: #2563eb;
+  --el-color-success: #16a34a;
+  --el-color-warning: #f59e0b;
+  --el-color-danger: #dc2626;
+  --el-border-radius-base: 12px;
+  --el-border-radius-small: 10px;
+  --el-border-radius-round: 999px;
+  --el-font-size-base: 14px;
 }
 
 @font-face {
-    font-family: "Nunito";
-    font-style: normal;
-    font-weight: 400;
-    src: local(""),
+  font-family: "Nunito";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: local(""),
     url("assets/fonts/nunito-v16-latin-regular.woff2") format("woff2");
 }
 
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: "Nunito", "Poppins", "Montserrat", sans-serif;
+  background: linear-gradient(180deg, #fafafa 0%, #f1f5f9 100%);
+  background-attachment: fixed;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
 #app {
-    height: 100vh;
-    text-align: center;
+  min-height: 100%;
+  position: relative;
+  z-index: 1;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  min-height: 100dvh;
+}
+
+.app-sidebar {
+  padding: 18px 12px;
+  background: rgba(255, 255, 255, 0.82);
+  border-right: 1px solid var(--border-soft);
+  backdrop-filter: blur(12px);
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+}
+
+.app-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 28px 10px;
+}
+
+.app-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+}
+
+.app-subtitle {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.page-shell {
+  flex: 1;
+  padding: 20px 28px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 18px;
+  box-shadow: var(--shadow-2);
+  padding: 18px;
+}
+
+.preview-video {
+  width: 260px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 14px;
+  box-shadow: var(--shadow-2);
+  background: #111;
+  cursor: pointer;
+}
+
+.app-menu {
+  background: transparent;
+  border-right: none;
+  padding: 6px 8px 12px;
+}
+
+.app-menu .el-menu-item,
+.app-menu .el-sub-menu__title {
+  border-radius: 12px;
+  margin: 6px 8px;
+  height: 44px;
+  line-height: 44px;
+  color: var(--text-muted);
+}
+
+.app-menu .el-sub-menu__title {
+  font-weight: 600;
+}
+
+.app-menu .el-menu-item:hover,
+.app-menu .el-sub-menu__title:hover {
+  background: rgba(37, 99, 235, 0.08);
+  color: var(--text-primary);
+}
+
+.app-menu .el-menu-item.is-active {
+  background: rgba(37, 99, 235, 0.14);
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.el-card {
+  border-radius: 18px;
+  border: 1px solid var(--border-soft);
+  box-shadow: var(--shadow-2);
+}
+
+.el-table {
+  border-radius: 18px;
+  overflow: hidden;
+  background-color: var(--surface);
+  box-shadow: var(--shadow-2);
+}
+
+.el-table th.el-table__cell {
+  background-color: var(--surface-muted);
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.el-table td.el-table__cell {
+  border-bottom: 1px solid rgba(30, 26, 22, 0.08);
+}
+
+.el-dialog {
+  border-radius: 18px;
+  overflow: hidden;
+}
+
+.el-dialog__header {
+  padding: 20px 24px 0;
+}
+
+.el-dialog__body {
+  padding: 16px 24px 24px;
+}
+
+.el-upload {
+  border-radius: 16px;
+  border: 1px dashed var(--border-soft);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.el-upload-dragger {
+  background: transparent;
+  border: none;
+}
+
+@media (max-width: 900px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .app-sidebar {
+    position: static;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border-soft);
+  }
+
+  .app-header {
+    padding: 18px 20px 6px;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .page-shell {
+    padding: 16px 20px 24px;
+  }
 }

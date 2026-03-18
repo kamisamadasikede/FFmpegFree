@@ -1,12 +1,19 @@
 <template>
-  <el-menu
+  <div class="menu-shell">
+    <div class="menu-brand">
+      <div class="brand-mark">FF</div>
+      <div>
+        <div class="brand-title">FFmpegFree</div>
+        <div class="brand-subtitle">多媒体桌面工具</div>
+      </div>
+    </div>
+    <el-menu
       :default-active="$route.path"
-      class="el-menu-vertical-demo"
+      class="app-menu"
       @open="handleOpen"
       @close="handleClose"
       router
-      style="height: 100vh; width: 200px"
-  >
+    >
     <el-sub-menu index="1">
       <template #title>
         <el-icon><Camera /></el-icon>
@@ -45,11 +52,11 @@
       <el-icon><InfoFilled /></el-icon>
       <span>关于</span>
     </el-menu-item>
-  </el-menu>
+    </el-menu>
+  </div>
 </template>
 
 <script lang="ts" setup>
-import { Location, InfoFilled, Tools } from '@element-plus/icons-vue'
 const handleOpen = (key: string, keyPath: string[]) => {
   console.log(key, keyPath)
 }
@@ -57,3 +64,46 @@ const handleClose = (key: string, keyPath: string[]) => {
   console.log(key, keyPath)
 }
 </script>
+
+<style scoped>
+.menu-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+}
+
+.menu-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 12px;
+  border-radius: 16px;
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.18);
+}
+
+.brand-mark {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #2563eb;
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.brand-title {
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.brand-subtitle {
+  color: #6b7280;
+  font-size: 12px;
+  margin-top: 2px;
+}
+</style>
