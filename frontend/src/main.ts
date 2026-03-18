@@ -9,6 +9,27 @@ import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import { createPinia } from 'pinia'
 const app = createApp(App)
 const pinia = createPinia()
+
+// Polyfill for pdf.js in environments without URL.parse (e.g., Wails WebView)
+if (typeof (URL as any).parse !== 'function') {
+    ;(URL as any).parse = (input: string, base?: string) => {
+        const resolved = base ? new URL(input, base) : new URL(input, window.location.href)
+        return {
+            href: resolved.href,
+            protocol: resolved.protocol,
+            slashes: true,
+            auth: null,
+            host: resolved.host,
+            port: resolved.port,
+            hostname: resolved.hostname,
+            hash: resolved.hash,
+            search: resolved.search,
+            query: resolved.search ? resolved.search.substring(1) : '',
+            pathname: resolved.pathname,
+            path: resolved.pathname + resolved.search,
+        }
+    }
+}
 for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
     app.component(key, component)
 }

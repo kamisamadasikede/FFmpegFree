@@ -46,11 +46,12 @@ func UploadPDF(c *gin.Context) {
 		return
 	}
 
-	m := make(map[string]string)
-	m["fileName"] = newFilename
-	m["code"] = "200"
-	m["url"] = "http://localhost:19200/" + dst
-	c.JSON(http.StatusOK, utils.Success(m))
+	c.JSON(http.StatusOK, utils.Success(gin.H{
+		"fileName": newFilename,
+		"code":     "200",
+		"url":      "http://localhost:19200/" + filepath.ToSlash(dst),
+		"size":     file.Size,
+	}))
 }
 
 func GetPDFFiles(c *gin.Context) {
@@ -67,9 +68,15 @@ func GetPDFFiles(c *gin.Context) {
 	for _, file := range files {
 		if filepath.Ext(file.Name()) == ".pdf" {
 			filePath := filepath.Join(dir, file.Name())
+			fileInfo, _ := os.Stat(filePath)
+			size := int64(0)
+			if fileInfo != nil {
+				size = fileInfo.Size()
+			}
 			pdfInfo := vo.PDFInfo{
 				Name: file.Name(),
-				Url:  "http://localhost:19200/" + filePath,
+				Url:  "http://localhost:19200/" + filepath.ToSlash(filePath),
+				Size: size,
 			}
 			pdfs = append(pdfs, pdfInfo)
 		}
@@ -101,6 +108,6 @@ func DeletePDFFile(c *gin.Context) {
 
 	c.JSON(http.StatusOK, utils.Success(gin.H{
 		"message": "文件删除成功",
-		"name":   pdfInfo.Name,
+		"name":    pdfInfo.Name,
 	}))
 }

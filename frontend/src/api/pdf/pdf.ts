@@ -3,6 +3,7 @@ import api from '../index'
 export interface PDFInfo {
   name: string
   url: string
+  size?: number
 }
 
 export const uploadPDFFile = (formData: FormData, onProgress?: (percent: number) => void) => {

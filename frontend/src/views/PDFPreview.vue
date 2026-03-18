@@ -10,7 +10,7 @@
             :show-file-list="false"
             :before-upload="beforeUploadCheck"
           >
-            <el-button type="primary" :icon="UploadFilled">上传剧本 PDF</el-button>
+            <el-button type="primary" :icon="UploadFilled">上传 PDF</el-button>
           </el-upload>
         </el-col>
         <el-col :span="14">
@@ -23,6 +23,32 @@
           </div>
         </el-col>
       </el-row>
+
+      <div class="viewer-toolbar">
+        <div class="file-meta">
+          <div class="file-name">{{ currentFile?.name || '未选择文件' }}</div>
+          <div class="file-info">
+            <span>大小：{{ currentFileSize }}</span>
+            <span v-if="pageSizeText">页面：{{ pageSizeText }}</span>
+          </div>
+        </div>
+        <div class="zoom-controls">
+          <el-button-group>
+            <el-button @click="zoomOut" :disabled="scale <= minScale">-</el-button>
+            <el-button class="zoom-display">{{ Math.round(scale * 100) }}%</el-button>
+            <el-button @click="zoomIn" :disabled="scale >= maxScale">+</el-button>
+          </el-button-group>
+          <el-slider
+            v-model="scale"
+            :min="minScale"
+            :max="maxScale"
+            :step="0.1"
+            :show-tooltip="false"
+            class="zoom-slider"
+          />
+        </div>
+      </div>
+
       <el-progress v-if="uploadProgress > 0 && uploadProgress < 100" :percentage="uploadProgress" />
     </div>
 
@@ -60,11 +86,12 @@
         <div v-if="hasPdf" class="ppt-stage">
           <div class="ppt-slide-scroll-viewport">
             <div class="ppt-slide-paper">
-              <VuePDF 
-                :pdf="pdf" 
-                :page="page" 
-                :fit-parent="true"
-                @loaded="loading = false" 
+              <VuePDF
+                :pdf="pdf"
+                :page="page"
+                :scale="scale"
+                @loaded="handleLoaded"
+                @error="handlePdfError"
               />
             </div>
           </div>
@@ -93,6 +120,7 @@ import { uploadPDFFile, getPDFFiles, deletePDFFile } from '@/api/pdf/pdf'
 interface PDFFile {
   name: string;
   url: string;
+  size?: number;
 }
 
 const page = ref(1)
@@ -101,11 +129,17 @@ const pdfUrl = ref('')
 const pdfData = ref<string | null>(null)
 const loading = ref(false)
 const { pdf, pages } = usePDF(pdfData)
+const scale = ref(1)
+const minScale = 0.6
+const maxScale = 2.2
 
 // 2. 为 ref 指定 PDFFile 数组类型
 const fileList = ref<PDFFile[]>([])
 const uploadProgress = ref(0)
 const hasPdf = computed(() => !!pdfData.value)
+const currentFile = computed(() => fileList.value.find((item) => item.url === pdfUrl.value))
+const currentFileSize = computed(() => formatSize(currentFile.value?.size))
+const pageSizeText = ref('')
 
 const prevPage = () => { if (page.value > 1) page.value-- }
 const nextPage = () => {
@@ -115,12 +149,20 @@ const nextPage = () => {
   }
 }
 
-const beforeUploadCheck = (file: File) => file.name.toLowerCase().endsWith('.pdf')
+const beforeUploadCheck = (file: File) => {
+  const ok = file.name.toLowerCase().endsWith('.pdf')
+  if (!ok) {
+    ElMessage.error('仅支持 PDF 文件')
+  }
+  return ok
+}
 
 const loadNewPDF = () => {
   if (!pdfUrl.value) return
   loading.value = true
   page.value = 1
+  lazyPage.value = 10
+  scale.value = 1
   pdfData.value = pdfUrl.value
 }
 
@@ -129,6 +171,8 @@ const loadFromUpload = (item: PDFFile) => {
   loading.value = true
   pdfUrl.value = item.url
   page.value = 1
+  lazyPage.value = 10
+  scale.value = 1
   pdfData.value = item.url
 }
 
@@ -142,10 +186,12 @@ const customUpload = async (options: any) => {
       fetchPDFiles()
       loadFromUpload({ 
         name: res.data.data.fileName, 
-        url: res.data.data.url 
+        url: res.data.data.url,
+        size: res.data.data.size
       })
     }
   } catch (e) { ElMessage.error('上传失败') }
+  finally { uploadProgress.value = 0 }
 }
 
 const fetchPDFiles = async () => {
@@ -166,11 +212,64 @@ const handleDelete = (item: PDFFile) => {
   })
 }
 
+const zoomIn = () => {
+  scale.value = Math.min(maxScale, +(scale.value + 0.1).toFixed(1))
+}
+const zoomOut = () => {
+  scale.value = Math.max(minScale, +(scale.value - 0.1).toFixed(1))
+}
+
+const handleLoaded = () => {
+  loading.value = false
+  updatePageSize()
+}
+
+const handlePdfError = () => {
+  loading.value = false
+  ElMessage.error('PDF 加载失败，请检查文件或地址')
+}
+
+const updatePageSize = async () => {
+  if (!pdf.value) {
+    pageSizeText.value = ''
+    return
+  }
+  try {
+    const pageRef: any = await (pdf.value as any).getPage(page.value)
+    const viewport = pageRef.getViewport({ scale: 1 })
+    const widthMm = Math.round((viewport.width * 25.4) / 72)
+    const heightMm = Math.round((viewport.height * 25.4) / 72)
+    pageSizeText.value = `${widthMm} × ${heightMm} mm`
+  } catch {
+    pageSizeText.value = ''
+  }
+}
+
+const formatSize = (size?: number) => {
+  if (!size || size <= 0) return '--'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let value = size
+  let idx = 0
+  while (value >= 1024 && idx < units.length - 1) {
+    value /= 1024
+    idx++
+  }
+  return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[idx]}`
+}
+
 watch(page, () => {
   const activeThumb = document.querySelector('.ppt-thumb-item.active')
   if (activeThumb) activeThumb.scrollIntoView({ behavior: 'smooth', block: 'center' })
   const viewer = document.querySelector('.ppt-slide-scroll-viewport')
   if (viewer) viewer.scrollTop = 0
+  updatePageSize()
+})
+
+watch(pdfData, (value) => {
+  if (!value) {
+    loading.value = false
+    pageSizeText.value = ''
+  }
 })
 
 onMounted(fetchPDFiles)
@@ -188,6 +287,13 @@ onMounted(fetchPDFiles)
   overflow: hidden;
 }
 .control-panel { background: #fff; padding: 12px 24px; border-radius: 8px; margin-bottom: 16px; flex-shrink: 0; }
+.viewer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 12px; flex-wrap: wrap; }
+.file-meta { display: flex; flex-direction: column; gap: 4px; min-width: 220px; }
+.file-name { font-weight: 600; color: #303133; }
+.file-info { font-size: 12px; color: #909399; display: flex; gap: 12px; }
+.zoom-controls { display: flex; align-items: center; gap: 12px; }
+.zoom-slider { width: 160px; }
+.zoom-display { min-width: 70px; text-align: center; }
 .main-layout { flex: 1; display: flex; gap: 16px; overflow: hidden; }
 .side-bar { width: 280px; background: #fff; border-radius: 8px; display: flex; flex-direction: column; padding: 12px; flex-shrink: 0; }
 .section-title { font-size: 13px; font-weight: bold; color: #606266; margin-bottom: 12px; }
