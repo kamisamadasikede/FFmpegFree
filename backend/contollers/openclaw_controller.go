@@ -5,9 +5,11 @@ import (
 	"FFmpegFree/backend/vo"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -229,7 +231,7 @@ func (m *openClawInstallManager) run(ctx context.Context, packageName string, re
 		return
 	}
 
-	_ = m.runStep(5, func() (string, bool, error) {
+	if err := m.runStep(5, func() (string, bool, error) {
 		verifyOutput, err := m.runCommand(ctx, 5, "npm", "list", "-g", packageName, "--depth=0")
 		if err != nil {
 			return trimOutput(verifyOutput), false, fmt.Errorf("package verification failed: %w", err)
@@ -243,7 +245,9 @@ func (m *openClawInstallManager) run(ctx context.Context, packageName string, re
 			return fmt.Sprintf("package verified, version: %s", strings.TrimSpace(versionOutput)), false, nil
 		}
 		return "package verified via npm list", false, nil
-	})
+	}); err != nil {
+		return
+	}
 }
 
 func (m *openClawInstallManager) runStep(index int, fn func() (detail string, skip bool, err error)) error {
@@ -629,4 +633,380 @@ func trimModelOutput(output string) string {
 		return text[:8000] + "...(truncated)"
 	}
 	return text
+}
+
+type openClawListPayload struct {
+	Count  int                    `json:"count"`
+	Models []vo.OpenClawModelItem `json:"models"`
+}
+
+func parseModelItemsFromAny(payload any) []vo.OpenClawModelItem {
+	switch typed := payload.(type) {
+	case []any:
+		models := make([]vo.OpenClawModelItem, 0, len(typed))
+		for _, item := range typed {
+			model, ok := parseSingleModelItem(item)
+			if ok {
+				models = append(models, model)
+			}
+		}
+		return models
+	case map[string]any:
+		if modelsRaw, ok := typed["models"]; ok {
+			return parseModelItemsFromAny(modelsRaw)
+		}
+	}
+	return []vo.OpenClawModelItem{}
+}
+
+func parseSingleModelItem(payload any) (vo.OpenClawModelItem, bool) {
+	obj, ok := payload.(map[string]any)
+	if !ok {
+		return vo.OpenClawModelItem{}, false
+	}
+
+	key := stringFromAny(obj["key"])
+	if key == "" {
+		key = stringFromAny(obj["id"])
+	}
+	if key == "" {
+		return vo.OpenClawModelItem{}, false
+	}
+
+	name := stringFromAny(obj["name"])
+	if name == "" {
+		name = key
+	}
+
+	local := boolFromAny(obj["local"])
+	available := boolFromAny(obj["available"])
+	tags := stringArrayFromAny(obj["tags"])
+
+	if provider := strings.TrimSpace(stringFromAny(obj["provider"])); provider != "" && !strings.Contains(key, "/") {
+		key = provider + "/" + key
+	}
+
+	return vo.OpenClawModelItem{
+		Key:       key,
+		Name:      name,
+		Available: available,
+		Local:     local,
+		Tags:      tags,
+	}, true
+}
+
+func stringFromAny(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case float64:
+		return strings.TrimSpace(fmt.Sprintf("%v", typed))
+	case bool:
+		if typed {
+			return "true"
+		}
+		return "false"
+	default:
+		return ""
+	}
+}
+
+func boolFromAny(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		text := strings.TrimSpace(strings.ToLower(typed))
+		return text == "true" || text == "1" || text == "yes"
+	case float64:
+		return typed != 0
+	default:
+		return false
+	}
+}
+
+func stringArrayFromAny(value any) []string {
+	typed, ok := value.([]any)
+	if !ok {
+		return []string{}
+	}
+	result := make([]string, 0, len(typed))
+	for _, item := range typed {
+		if text := strings.TrimSpace(stringFromAny(item)); text != "" {
+			result = append(result, text)
+		}
+	}
+	return result
+}
+
+func parseModelItems(raw string) ([]vo.OpenClawModelItem, error) {
+	jsonPayload := extractJSONPayload(raw)
+	if jsonPayload == "" {
+		return nil, fmt.Errorf("model list output is not json")
+	}
+
+	var arrayPayload []vo.OpenClawModelItem
+	if err := json.Unmarshal([]byte(jsonPayload), &arrayPayload); err == nil {
+		return arrayPayload, nil
+	}
+
+	var typedPayload openClawListPayload
+	if err := json.Unmarshal([]byte(jsonPayload), &typedPayload); err == nil && len(typedPayload.Models) > 0 {
+		return typedPayload.Models, nil
+	}
+
+	var dynamicPayload any
+	if err := json.Unmarshal([]byte(jsonPayload), &dynamicPayload); err != nil {
+		return nil, fmt.Errorf("unmarshal model list json failed: %w", err)
+	}
+	models := parseModelItemsFromAny(dynamicPayload)
+	if len(models) == 0 {
+		return nil, fmt.Errorf("no models found in model list")
+	}
+	return models, nil
+}
+
+func extractJSONPayload(output string) string {
+	trimmed := strings.TrimSpace(output)
+	if trimmed == "" {
+		return ""
+	}
+	if json.Valid([]byte(trimmed)) {
+		return trimmed
+	}
+
+	firstObj := strings.Index(trimmed, "{")
+	lastObj := strings.LastIndex(trimmed, "}")
+	if firstObj >= 0 && lastObj > firstObj {
+		candidate := strings.TrimSpace(trimmed[firstObj : lastObj+1])
+		if json.Valid([]byte(candidate)) {
+			return candidate
+		}
+	}
+
+	firstArr := strings.Index(trimmed, "[")
+	lastArr := strings.LastIndex(trimmed, "]")
+	if firstArr >= 0 && lastArr > firstArr {
+		candidate := strings.TrimSpace(trimmed[firstArr : lastArr+1])
+		if json.Valid([]byte(candidate)) {
+			return candidate
+		}
+	}
+
+	return ""
+}
+
+func runOpenClawCommand(ctx context.Context, args []string, envVars map[string]string) (string, error) {
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		baseArgs := make([]string, 0, len(args)+2)
+		baseArgs = append(baseArgs, "/c", "openclaw")
+		baseArgs = append(baseArgs, args...)
+		cmd = exec.CommandContext(ctx, "cmd", baseArgs...)
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	} else {
+		cmd = exec.CommandContext(ctx, "openclaw", args...)
+	}
+
+	env := os.Environ()
+	for key, value := range envVars {
+		env = append(env, key+"="+value)
+	}
+	cmd.Env = env
+
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	err := cmd.Run()
+	output := strings.TrimSpace(out.String())
+	if err != nil {
+		if output == "" {
+			return "", err
+		}
+		return output, fmt.Errorf("%w: %s", err, output)
+	}
+	return output, nil
+}
+
+func providerToEnvVar(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "anthropic":
+		return "ANTHROPIC_API_KEY"
+	case "openai":
+		return "OPENAI_API_KEY"
+	case "openrouter":
+		return "OPENROUTER_API_KEY"
+	default:
+		return ""
+	}
+}
+
+func isGuestModel(model vo.OpenClawModelItem) bool {
+	key := strings.ToLower(model.Key)
+	name := strings.ToLower(model.Name)
+	if strings.Contains(key, ":free") || strings.Contains(name, "free") {
+		return true
+	}
+	for _, tag := range model.Tags {
+		if strings.EqualFold(strings.TrimSpace(tag), "free") {
+			return true
+		}
+	}
+	return false
+}
+
+func pickGuestModel(models []vo.OpenClawModelItem) string {
+	for _, model := range models {
+		if isGuestModel(model) {
+			return model.Key
+		}
+	}
+	return ""
+}
+
+func persistEnvVarWindows(key string, value string) error {
+	cmd := exec.Command("setx", key, value)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Run(); err != nil {
+		text := strings.TrimSpace(out.String())
+		if text == "" {
+			return err
+		}
+		return fmt.Errorf("%w: %s", err, text)
+	}
+	return nil
+}
+
+func ConfigureOpenClawAndQueryModels(c *gin.Context) {
+	var req vo.OpenClawQuickConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, utils.Fail(400, "invalid request payload"))
+		return
+	}
+
+	result := vo.OpenClawQuickConfigResult{
+		Success:         false,
+		Provider:        strings.ToLower(strings.TrimSpace(req.Provider)),
+		DefaultModel:    strings.TrimSpace(req.DefaultModel),
+		AvailableModels: make([]vo.OpenClawModelItem, 0),
+		GuestModels:     make([]vo.OpenClawModelItem, 0),
+		Steps:           make([]string, 0, 8),
+		CheckedAt:       nowRFC3339(),
+	}
+
+	if result.Provider == "" {
+		result.Provider = "anthropic"
+	}
+
+	if _, err := openClawInstaller.runner.LookPath("openclaw"); err != nil {
+		result.Error = "openclaw not found in PATH"
+		result.Message = "please install openclaw first"
+		c.JSON(http.StatusOK, utils.Success(result))
+		return
+	}
+	result.Steps = append(result.Steps, "checked openclaw command")
+
+	envVarName := providerToEnvVar(result.Provider)
+	if envVarName == "" {
+		result.Error = "unsupported provider, use anthropic/openai/openrouter"
+		c.JSON(http.StatusOK, utils.Success(result))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	envOverrides := map[string]string{}
+	apiKey := strings.TrimSpace(req.APIKey)
+	if apiKey != "" {
+		envOverrides[envVarName] = apiKey
+		result.Steps = append(result.Steps, fmt.Sprintf("loaded api key from request (%s)", envVarName))
+		if req.PersistEnv && runtime.GOOS == "windows" {
+			if err := persistEnvVarWindows(envVarName, apiKey); err == nil {
+				result.Steps = append(result.Steps, fmt.Sprintf("persisted env var by setx: %s", envVarName))
+			} else {
+				result.Steps = append(result.Steps, fmt.Sprintf("persist env failed: %v", err))
+			}
+		} else if req.PersistEnv {
+			result.Steps = append(result.Steps, "persist env is only supported on windows currently")
+		}
+	} else {
+		result.Steps = append(result.Steps, fmt.Sprintf("api key not provided, using current environment: %s", envVarName))
+	}
+
+	listRaw, listErr := runOpenClawCommand(ctx, []string{"models", "list", "--json", "--all"}, envOverrides)
+	result.RawListJSON = trimModelOutput(listRaw)
+	if listErr != nil {
+		result.Error = listErr.Error()
+		result.Message = "failed to query model list"
+		c.JSON(http.StatusOK, utils.Success(result))
+		return
+	}
+	result.Steps = append(result.Steps, "queried model list")
+
+	modelItems, err := parseModelItems(listRaw)
+	if err != nil {
+		result.Error = fmt.Sprintf("failed to parse model list: %v", err)
+		result.Message = "failed to parse model list"
+		c.JSON(http.StatusOK, utils.Success(result))
+		return
+	}
+
+	available := make([]vo.OpenClawModelItem, 0, len(modelItems))
+	guest := make([]vo.OpenClawModelItem, 0, len(modelItems))
+	for _, model := range modelItems {
+		if model.Available {
+			available = append(available, model)
+			if isGuestModel(model) {
+				guest = append(guest, model)
+			}
+		}
+	}
+	result.AvailableCount = len(available)
+	result.GuestModelCount = len(guest)
+	result.GuestModelReady = len(guest) > 0
+	if len(available) > 100 {
+		result.AvailableModels = available[:100]
+	} else {
+		result.AvailableModels = available
+	}
+	if len(guest) > 100 {
+		result.GuestModels = guest[:100]
+	} else {
+		result.GuestModels = guest
+	}
+
+	defaultModel := result.DefaultModel
+	if req.UseGuestMode && defaultModel == "" {
+		defaultModel = pickGuestModel(guest)
+		if defaultModel != "" {
+			result.Steps = append(result.Steps, fmt.Sprintf("picked guest model: %s", defaultModel))
+		}
+	}
+
+	if defaultModel != "" {
+		if _, err := runOpenClawCommand(ctx, []string{"models", "set", defaultModel}, envOverrides); err != nil {
+			result.Error = fmt.Sprintf("set default model failed: %v", err)
+			result.Message = "model set failed"
+			c.JSON(http.StatusOK, utils.Success(result))
+			return
+		}
+		result.DefaultModel = defaultModel
+		result.Steps = append(result.Steps, "set default model: "+defaultModel)
+	}
+
+	statusRaw, statusErr := runOpenClawCommand(ctx, []string{"models", "status", "--json"}, envOverrides)
+	result.RawStatusJSON = trimModelOutput(statusRaw)
+	if statusErr != nil {
+		result.Steps = append(result.Steps, fmt.Sprintf("query models status skipped: %v", statusErr))
+	} else {
+		result.Steps = append(result.Steps, "queried models status")
+	}
+
+	result.Success = true
+	result.Message = "configured and queried models successfully"
+	c.JSON(http.StatusOK, utils.Success(result))
 }

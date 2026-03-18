@@ -5,6 +5,14 @@ type OpenClawInstallRequest struct {
 	Registry    string `json:"registry"`
 }
 
+type OpenClawQuickConfigRequest struct {
+	Provider     string `json:"provider"`
+	APIKey       string `json:"apiKey"`
+	DefaultModel string `json:"defaultModel"`
+	UseGuestMode bool   `json:"useGuestMode"`
+	PersistEnv   bool   `json:"persistEnv"`
+}
+
 type OpenClawInstallStep struct {
 	ID        string `json:"id"`
 	Title     string `json:"title"`
@@ -48,4 +56,29 @@ type OpenClawAuthCheckResult struct {
 	ModelsOutput   string   `json:"modelsOutput"`
 	Error          string   `json:"error"`
 	CheckedAt      string   `json:"checkedAt"`
+}
+
+type OpenClawModelItem struct {
+	Key       string   `json:"key"`
+	Name      string   `json:"name"`
+	Available bool     `json:"available"`
+	Local     bool     `json:"local"`
+	Tags      []string `json:"tags"`
+}
+
+type OpenClawQuickConfigResult struct {
+	Success         bool                `json:"success"`
+	Message         string              `json:"message"`
+	Provider        string              `json:"provider"`
+	DefaultModel    string              `json:"defaultModel"`
+	AvailableCount  int                 `json:"availableCount"`
+	GuestModelCount int                 `json:"guestModelCount"`
+	GuestModelReady bool                `json:"guestModelReady"`
+	AvailableModels []OpenClawModelItem `json:"availableModels"`
+	GuestModels     []OpenClawModelItem `json:"guestModels"`
+	RawStatusJSON   string              `json:"rawStatusJson"`
+	RawListJSON     string              `json:"rawListJson"`
+	Steps           []string            `json:"steps"`
+	Error           string              `json:"error"`
+	CheckedAt       string              `json:"checkedAt"`
 }

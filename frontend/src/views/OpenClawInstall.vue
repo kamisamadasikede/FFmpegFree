@@ -1,24 +1,32 @@
 <template>
   <div class="openclaw-page">
-    <section class="panel install-panel">
+    <section class="panel">
       <div class="panel-title-row">
         <div>
           <h2>OpenClaw 一键安装</h2>
-          <p>自动检测环境并执行安装，实时显示步骤状态和执行日志。</p>
+          <p>自动检测环境并安装，实时显示安装进度和执行日志。</p>
         </div>
         <el-tag :type="stateTagType">{{ stateLabel }}</el-tag>
       </div>
 
-      <el-form label-width="120px" class="install-form" @submit.prevent>
-        <el-form-item label="包名">
-          <el-input v-model="form.packageName" placeholder="openclaw" />
-        </el-form-item>
-        <el-form-item label="NPM 源(可选)">
-          <el-input v-model="form.registry" placeholder="https://registry.npmmirror.com" />
-        </el-form-item>
+      <el-form label-width="108px" class="install-form" @submit.prevent>
+        <el-row :gutter="12">
+          <el-col :xs="24" :md="10">
+            <el-form-item label="包名">
+              <el-input v-model="installForm.packageName" placeholder="openclaw" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :md="14">
+            <el-form-item label="NPM 源(可选)">
+              <el-input v-model="installForm.registry" placeholder="https://registry.npmmirror.com" />
+            </el-form-item>
+          </el-col>
+        </el-row>
         <el-form-item>
           <div class="action-row">
-            <el-button type="primary" :loading="starting" :disabled="isRunning" @click="startInstall">一键安装</el-button>
+            <el-button type="primary" :loading="startingInstall" :disabled="isRunning" @click="startInstall">
+              一键安装
+            </el-button>
             <el-button @click="fetchStatus">刷新状态</el-button>
           </div>
         </el-form-item>
@@ -26,165 +34,196 @@
 
       <el-progress :percentage="installStatus.progress || 0" :status="progressStatus" />
       <div class="meta-line">
-        <span>当前步骤：{{ installStatus.current || '--' }}</span>
-        <span v-if="installStatus.updatedAt">更新时间：{{ formatTime(installStatus.updatedAt) }}</span>
+        <span>当前步骤: {{ installStatus.current || '--' }}</span>
+        <span v-if="installStatus.updatedAt">更新时间: {{ formatTime(installStatus.updatedAt) }}</span>
       </div>
       <div v-if="installStatus.error" class="error-box">{{ installStatus.error }}</div>
     </section>
 
-    <section class="panel guide-panel">
-      <div class="panel-title-row guide-title-row">
+    <section class="panel">
+      <div class="panel-title-row">
         <div>
-          <h3>OpenClaw 配置引导</h3>
-          <p>包含 API 环境引导和认证引导，帮助用户一步步完成可用配置。</p>
+          <h2>配置并查询模型</h2>
+          <p>前端输入环境后自动配置 OpenClaw，查询可用模型并标记游客模型是否可用。</p>
+        </div>
+        <el-tag :type="quickConfigDone ? 'success' : 'info'">
+          {{ quickConfigDone ? '已完成' : '待执行' }}
+        </el-tag>
+      </div>
+
+      <el-form label-width="120px" class="quick-form" @submit.prevent>
+        <el-row :gutter="12">
+          <el-col :xs="24" :md="8">
+            <el-form-item label="Provider">
+              <el-select v-model="quickConfig.provider">
+                <el-option label="Anthropic" value="anthropic" />
+                <el-option label="OpenAI" value="openai" />
+                <el-option label="OpenRouter" value="openrouter" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :md="16">
+            <el-form-item label="API Key">
+              <el-input
+                v-model="quickConfig.apiKey"
+                show-password
+                placeholder="可留空，留空时仅用系统现有环境变量"
+              />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :md="12">
+            <el-form-item label="默认模型(可选)">
+              <el-input v-model="quickConfig.defaultModel" placeholder="例如: openrouter/openai/gpt-4o-mini" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :md="12">
+            <el-form-item label="配置选项">
+              <div class="switch-row">
+                <el-switch v-model="quickConfig.useGuestMode" inline-prompt active-text="游客优先" inactive-text="手动指定" />
+                <el-switch v-model="quickConfig.persistEnv" inline-prompt active-text="写入环境" inactive-text="仅本次" />
+              </div>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item>
+          <div class="action-row">
+            <el-button type="primary" :loading="quickConfigLoading" @click="runQuickConfig">
+              一键配置并查询
+            </el-button>
+            <el-button :disabled="!quickConfigResult" @click="copyQuickConfigSteps">复制执行信息</el-button>
+          </div>
+        </el-form-item>
+      </el-form>
+
+      <div v-if="quickConfigResult" class="quick-result">
+        <el-alert
+          :type="quickConfigResult.success ? 'success' : 'error'"
+          :closable="false"
+          :title="quickConfigResult.success ? '配置完成' : `执行失败: ${quickConfigResult.error || quickConfigResult.message}`"
+        />
+
+        <div class="result-card-grid">
+          <article class="result-card">
+            <div class="result-label">可用模型</div>
+            <div class="result-value">{{ quickConfigResult.availableCount }}</div>
+          </article>
+          <article class="result-card">
+            <div class="result-label">游客模型</div>
+            <div class="result-value">{{ quickConfigResult.guestModelCount }}</div>
+          </article>
+          <article class="result-card">
+            <div class="result-label">默认模型</div>
+            <div class="result-text">{{ quickConfigResult.defaultModel || '--' }}</div>
+          </article>
+          <article class="result-card">
+            <div class="result-label">游客模型可用</div>
+            <el-tag :type="quickConfigResult.guestModelReady ? 'success' : 'danger'">
+              {{ quickConfigResult.guestModelReady ? '已完成' : '未完成' }}
+            </el-tag>
+          </article>
+        </div>
+
+        <div class="steps-box">
+          <div class="steps-box-title">执行步骤</div>
+          <ol>
+            <li v-for="(step, idx) in quickConfigResult.steps" :key="`${idx}-${step}`">
+              {{ step }}
+            </li>
+          </ol>
+        </div>
+
+        <div class="model-table-grid">
+          <div class="table-box">
+            <div class="table-title">可用模型 (最多100条)</div>
+            <el-table :data="quickConfigResult.availableModels" size="small" max-height="300" empty-text="暂无可用模型">
+              <el-table-column label="模型Key" prop="key" min-width="250" show-overflow-tooltip />
+              <el-table-column label="名称" prop="name" min-width="180" show-overflow-tooltip />
+              <el-table-column label="标签" min-width="120">
+                <template #default="{ row }">
+                  <span>{{ row.tags?.join(', ') || '--' }}</span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+          <div class="table-box">
+            <div class="table-title">游客模型 (可直接使用)</div>
+            <el-table :data="quickConfigResult.guestModels" size="small" max-height="300" empty-text="暂无可用游客模型">
+              <el-table-column label="模型Key" prop="key" min-width="250" show-overflow-tooltip />
+              <el-table-column label="名称" prop="name" min-width="180" show-overflow-tooltip />
+              <el-table-column label="标签" min-width="120">
+                <template #default="{ row }">
+                  <span>{{ row.tags?.join(', ') || '--' }}</span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </div>
+
+        <el-collapse class="debug-collapse">
+          <el-collapse-item title="调试输出: models list 原始结果">
+            <pre class="command-box">{{ quickConfigResult.rawListJson || '--' }}</pre>
+          </el-collapse-item>
+          <el-collapse-item title="调试输出: models status 原始结果">
+            <pre class="command-box">{{ quickConfigResult.rawStatusJson || '--' }}</pre>
+          </el-collapse-item>
+        </el-collapse>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title-row">
+        <div>
+          <h2>认证检查</h2>
+          <p>用于排查模型不可用时的授权问题。</p>
         </div>
       </div>
 
-      <el-tabs v-model="guideTab" class="guide-tabs">
-        <el-tab-pane label="API 环境引导" name="api">
-          <el-steps :active="guideStep" finish-status="success" simple>
-            <el-step title="选择提供方" />
-            <el-step title="填写 API 参数" />
-            <el-step title="生成配置命令" />
-            <el-step title="执行与验证" />
-          </el-steps>
+      <div class="action-row">
+        <el-button type="primary" @click="checkAuth">检测认证状态</el-button>
+        <el-button @click="copyText('openclaw configure')">复制 openclaw configure</el-button>
+      </div>
 
-          <div class="guide-body">
-            <div v-if="guideStep === 0" class="guide-block">
-              <el-form label-width="120px">
-                <el-form-item label="API 类型">
-                  <el-select v-model="guideForm.provider" style="width: 320px">
-                    <el-option label="OpenAI Compatible" value="openai" />
-                    <el-option label="Azure OpenAI" value="azure" />
-                    <el-option label="自定义网关" value="custom" />
-                  </el-select>
-                </el-form-item>
-                <el-alert type="info" :closable="false" title="建议先确认 API 服务可访问，再继续配置密钥与模型。" />
-              </el-form>
-            </div>
+      <el-alert
+        v-if="authStatus.error"
+        type="error"
+        :closable="false"
+        :title="`认证检测失败: ${authStatus.error}`"
+        class="auth-alert"
+      />
+      <el-alert
+        v-else-if="authChecked && authStatus.needAuth"
+        type="warning"
+        :closable="false"
+        :title="`缺少认证: ${authStatus.missingAuth.join(', ')}`"
+        class="auth-alert"
+      />
+      <el-alert
+        v-else-if="authChecked && !authStatus.needAuth"
+        type="success"
+        :closable="false"
+        title="认证状态正常"
+        class="auth-alert"
+      />
 
-            <div v-else-if="guideStep === 1" class="guide-block">
-              <el-form label-width="140px" class="api-form">
-                <el-form-item label="API Base URL">
-                  <el-input v-model="guideForm.baseUrl" placeholder="https://api.example.com/v1" />
-                </el-form-item>
-                <el-form-item label="API Key">
-                  <el-input v-model="guideForm.apiKey" show-password placeholder="sk-xxxx" />
-                </el-form-item>
-                <el-form-item label="默认模型">
-                  <el-input v-model="guideForm.model" placeholder="gpt-4.1-mini" />
-                </el-form-item>
-                <el-form-item label="组织ID(可选)">
-                  <el-input v-model="guideForm.orgId" placeholder="org_xxx" />
-                </el-form-item>
-                <el-form-item label="超时(ms)">
-                  <el-input-number v-model="guideForm.timeoutMs" :min="1000" :max="180000" :step="1000" />
-                </el-form-item>
-                <el-form-item v-if="guideForm.provider === 'azure'" label="API Version">
-                  <el-input v-model="guideForm.apiVersion" placeholder="2024-10-21" />
-                </el-form-item>
-              </el-form>
-            </div>
-
-            <div v-else-if="guideStep === 2" class="guide-block">
-              <div class="command-head">
-                <span>PowerShell 配置命令</span>
-                <el-button size="small" @click="copyText(powershellScript)">复制</el-button>
-              </div>
-              <pre class="command-box">{{ powershellScript }}</pre>
-
-              <div class="command-head">
-                <span>.env 配置内容</span>
-                <el-button size="small" @click="copyText(envFileContent)">复制</el-button>
-              </div>
-              <pre class="command-box">{{ envFileContent }}</pre>
-            </div>
-
-            <div v-else class="guide-block">
-              <el-alert type="success" :closable="false" title="按顺序执行并勾选完成项" />
-              <el-checkbox-group v-model="guideChecklist" class="check-list">
-                <el-checkbox label="已执行环境变量命令" value="env" />
-                <el-checkbox label="已重启终端或应用" value="restart" />
-                <el-checkbox label="已执行 openclaw --version 验证" value="verify" />
-              </el-checkbox-group>
-              <el-button type="primary" :disabled="guideChecklist.length < 3" @click="finishGuide">完成引导</el-button>
-            </div>
-          </div>
-
-          <div class="guide-actions">
-            <el-button :disabled="guideStep === 0" @click="prevGuideStep">上一步</el-button>
-            <el-button type="primary" :disabled="guideStep === 3" @click="nextGuideStep">下一步</el-button>
-          </div>
-        </el-tab-pane>
-
-        <el-tab-pane label="认证引导" name="auth">
-          <div class="auth-toolbar">
-            <el-button type="primary" @click="checkAuth">检测认证状态</el-button>
-            <el-button @click="copyText('openclaw configure')">复制 openclaw configure</el-button>
-          </div>
-
-          <el-alert
-            v-if="authStatus.error"
-            type="error"
-            :closable="false"
-            :title="`认证检测失败：${authStatus.error}`"
-            class="auth-alert"
-          />
-
-          <el-alert
-            v-else-if="authChecked && authStatus.needAuth"
-            type="warning"
-            :closable="false"
-            :title="`检测到未认证 Provider：${authStatus.missingAuth.join(', ')}`"
-            class="auth-alert"
-          />
-
-          <el-alert
-            v-else-if="authChecked && !authStatus.needAuth"
-            type="success"
-            :closable="false"
-            title="认证状态正常，可直接使用 OpenClaw。"
-            class="auth-alert"
-          />
-
-          <div class="auth-grid">
-            <article class="auth-card">
-              <h4>步骤 1：通用配置</h4>
-              <p>优先执行官方引导配置，按提示填写 Provider、Token、默认模型。</p>
-              <pre class="command-box small">openclaw configure</pre>
-              <el-button size="small" @click="copyText('openclaw configure')">复制命令</el-button>
-            </article>
-
-            <article class="auth-card" v-if="authStatus.missingAuth.includes('anthropic') || !authChecked">
-              <h4>步骤 2：Anthropic Token（如需）</h4>
-              <p>如果缺少 anthropic 认证，执行下面两条命令。</p>
-              <pre class="command-box small">claude setup-token
+      <div class="command-head">
+        <span>建议命令</span>
+      </div>
+      <pre class="command-box">openclaw configure
+openclaw models
+claude setup-token
 openclaw models auth setup-token</pre>
-              <div class="action-row">
-                <el-button size="small" @click="copyText('claude setup-token')">复制命令1</el-button>
-                <el-button size="small" @click="copyText('openclaw models auth setup-token')">复制命令2</el-button>
-              </div>
-            </article>
 
-            <article class="auth-card">
-              <h4>步骤 3：验证结果</h4>
-              <p>执行后用 models 命令确认 Missing auth 已消失。</p>
-              <pre class="command-box small">openclaw models</pre>
-              <el-button size="small" @click="copyText('openclaw models')">复制命令</el-button>
-            </article>
-          </div>
-
-          <div v-if="authStatus.modelsOutput" class="command-head">
-            <span>最近一次检测输出</span>
-            <el-button size="small" @click="copyText(authStatus.modelsOutput)">复制输出</el-button>
-          </div>
-          <pre v-if="authStatus.modelsOutput" class="command-box">{{ authStatus.modelsOutput }}</pre>
-        </el-tab-pane>
-      </el-tabs>
+      <div v-if="authStatus.modelsOutput" class="command-head">
+        <span>最近一次检测输出</span>
+        <el-button size="small" @click="copyText(authStatus.modelsOutput)">复制</el-button>
+      </div>
+      <pre v-if="authStatus.modelsOutput" class="command-box">{{ authStatus.modelsOutput }}</pre>
     </section>
 
-    <section class="panel steps-panel">
-      <div class="steps-title">安装执行节点</div>
+    <section class="panel">
+      <div class="logs-head">
+        <div class="steps-title">安装执行节点</div>
+      </div>
       <div class="step-list">
         <article v-for="(step, idx) in installStatus.steps" :key="step.id" class="step-item" :class="`status-${step.status}`">
           <div class="step-head">
@@ -193,14 +232,14 @@ openclaw models auth setup-token</pre>
           </div>
           <div class="step-detail">{{ step.detail || '等待执行' }}</div>
           <div class="step-time">
-            <span v-if="step.startedAt">开始：{{ formatTime(step.startedAt) }}</span>
-            <span v-if="step.endedAt">结束：{{ formatTime(step.endedAt) }}</span>
+            <span v-if="step.startedAt">开始: {{ formatTime(step.startedAt) }}</span>
+            <span v-if="step.endedAt">结束: {{ formatTime(step.endedAt) }}</span>
           </div>
         </article>
       </div>
     </section>
 
-    <section class="panel logs-panel">
+    <section class="panel">
       <div class="logs-head">
         <div class="steps-title">执行信息</div>
         <el-button size="small" @click="copyLogs" :disabled="!installStatus.logs?.length">复制日志</el-button>
@@ -223,32 +262,27 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { ElMessage } from 'element-plus'
 import {
   checkOpenClawAuth,
+  configureOpenClawAndQueryModels,
   getOpenClawInstallStatus,
   OpenClawAuthCheckResult,
   OpenClawInstallStatus,
+  OpenClawQuickConfigResult,
   OpenClawStepStatus,
   startOpenClawInstall
 } from '@/api/openclaw/openclaw'
 
-const form = reactive({
+const installForm = reactive({
   packageName: 'openclaw',
   registry: ''
 })
 
-const guideTab = ref<'api' | 'auth'>('api')
-
-const guideForm = reactive({
-  provider: 'openai',
-  baseUrl: 'https://api.openai.com/v1',
+const quickConfig = reactive({
+  provider: 'anthropic' as 'anthropic' | 'openai' | 'openrouter',
   apiKey: '',
-  model: 'gpt-4.1-mini',
-  orgId: '',
-  timeoutMs: 60000,
-  apiVersion: '2024-10-21'
+  defaultModel: '',
+  useGuestMode: true,
+  persistEnv: false
 })
-
-const guideStep = ref(0)
-const guideChecklist = ref<string[]>([])
 
 const installStatus = ref<OpenClawInstallStatus>({
   state: 'idle',
@@ -277,41 +311,16 @@ const authStatus = ref<OpenClawAuthCheckResult>({
   error: '',
   checkedAt: ''
 })
-const authChecked = ref(false)
 
-const starting = ref(false)
+const startingInstall = ref(false)
+const quickConfigLoading = ref(false)
+const quickConfigDone = ref(false)
+const quickConfigResult = ref<OpenClawQuickConfigResult | null>(null)
+const authChecked = ref(false)
 const logContainerRef = ref<HTMLElement | null>(null)
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const isRunning = computed(() => installStatus.value.state === 'running')
-
-const envPairs = computed(() => {
-  const pairs: Array<{ key: string; value: string }> = [
-    { key: 'OPENCLAW_API_BASE', value: guideForm.baseUrl.trim() },
-    { key: 'OPENCLAW_API_KEY', value: guideForm.apiKey.trim() },
-    { key: 'OPENCLAW_MODEL', value: guideForm.model.trim() },
-    { key: 'OPENCLAW_TIMEOUT_MS', value: String(guideForm.timeoutMs) }
-  ]
-
-  if (guideForm.orgId.trim()) {
-    pairs.push({ key: 'OPENCLAW_ORG_ID', value: guideForm.orgId.trim() })
-  }
-  if (guideForm.provider === 'azure') {
-    pairs.push({ key: 'OPENCLAW_AZURE_API_VERSION', value: guideForm.apiVersion.trim() })
-  }
-  pairs.push({ key: 'OPENCLAW_PROVIDER', value: guideForm.provider })
-
-  return pairs
-})
-
-const envFileContent = computed(() => envPairs.value.map((item) => `${item.key}=${item.value}`).join('\n'))
-
-const powershellScript = computed(() => {
-  const lines = envPairs.value.map((item) => `setx ${item.key} "${item.value.replace(/"/g, '\\"')}"`)
-  lines.push('')
-  lines.push('openclaw --version')
-  return lines.join('\n')
-})
 
 const stateLabel = computed(() => {
   switch (installStatus.value.state) {
@@ -377,34 +386,11 @@ const stepTagType = (status: OpenClawStepStatus) => {
 
 const formatTime = (value: string) => {
   if (!value) return '--'
-  return new Date(value).toLocaleString()
-}
-
-const validateGuideStep = () => {
-  if (guideStep.value === 1) {
-    if (!guideForm.baseUrl.trim() || !guideForm.apiKey.trim() || !guideForm.model.trim()) {
-      ElMessage.warning('请先完整填写 API Base URL、API Key、默认模型')
-      return false
-    }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value
   }
-  return true
-}
-
-const nextGuideStep = () => {
-  if (!validateGuideStep()) return
-  if (guideStep.value < 3) {
-    guideStep.value += 1
-  }
-}
-
-const prevGuideStep = () => {
-  if (guideStep.value > 0) {
-    guideStep.value -= 1
-  }
-}
-
-const finishGuide = () => {
-  ElMessage.success('API 环境引导完成')
+  return date.toLocaleString()
 }
 
 const copyText = async (text: string) => {
@@ -412,8 +398,12 @@ const copyText = async (text: string) => {
     ElMessage.warning('没有可复制内容')
     return
   }
-  await navigator.clipboard.writeText(text)
-  ElMessage.success('已复制到剪贴板')
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success('已复制到剪贴板')
+  } catch {
+    ElMessage.error('复制失败，请手动复制')
+  }
 }
 
 const fetchStatus = async () => {
@@ -424,7 +414,7 @@ const fetchStatus = async () => {
     }
   } catch (error: any) {
     if (error?.response?.status === 404) {
-      ElMessage.error('后端接口未加载（404），请重启应用后再试')
+      ElMessage.error('安装状态接口未加载(404)，请重启应用')
       stopPolling()
       return
     }
@@ -438,17 +428,10 @@ const checkAuth = async () => {
     if (res.data.code === 200) {
       authStatus.value = res.data.data
       authChecked.value = true
-      if (!authStatus.value.installed) {
-        ElMessage.warning('未检测到 openclaw，请先安装')
-      } else if (authStatus.value.needAuth) {
-        ElMessage.warning('检测到认证缺失，请按认证引导操作')
-      } else {
-        ElMessage.success('认证状态正常')
-      }
     }
   } catch (error: any) {
     if (error?.response?.status === 404) {
-      ElMessage.error('认证检测接口 404，请重启后端/应用')
+      ElMessage.error('认证接口 404，请重启应用')
       return
     }
     ElMessage.error('认证检测失败')
@@ -456,11 +439,11 @@ const checkAuth = async () => {
 }
 
 const startInstall = async () => {
-  starting.value = true
+  startingInstall.value = true
   try {
     const res = await startOpenClawInstall({
-      packageName: form.packageName.trim() || 'openclaw',
-      registry: form.registry.trim()
+      packageName: installForm.packageName.trim() || 'openclaw',
+      registry: installForm.registry.trim()
     })
     if (res.data.code !== 200) {
       ElMessage.error(res.data.message || '启动安装失败')
@@ -471,13 +454,71 @@ const startInstall = async () => {
     startPolling()
   } catch (error: any) {
     if (error?.response?.status === 404) {
-      ElMessage.error('安装接口 404：请先重启后端/应用以加载新接口')
+      ElMessage.error('安装接口 404，请重启应用')
       return
     }
     ElMessage.error('启动安装失败')
   } finally {
-    starting.value = false
+    startingInstall.value = false
   }
+}
+
+const runQuickConfig = async () => {
+  quickConfigLoading.value = true
+  quickConfigDone.value = false
+  quickConfigResult.value = null
+  try {
+    const res = await configureOpenClawAndQueryModels({
+      provider: quickConfig.provider,
+      apiKey: quickConfig.apiKey.trim(),
+      defaultModel: quickConfig.defaultModel.trim(),
+      useGuestMode: quickConfig.useGuestMode,
+      persistEnv: quickConfig.persistEnv
+    })
+    if (res.data.code !== 200) {
+      ElMessage.error(res.data.message || '配置失败')
+      return
+    }
+    quickConfigResult.value = res.data.data
+    quickConfigDone.value = !!res.data.data?.guestModelReady
+    if (res.data.data?.success) {
+      ElMessage.success('配置成功，模型列表已更新')
+    } else {
+      ElMessage.warning(res.data.data?.error || res.data.data?.message || '配置未完成')
+    }
+  } catch (error: any) {
+    if (error?.response?.status === 404) {
+      ElMessage.error('配置接口 404，请确认后端已重启并加载新路由')
+      return
+    }
+    ElMessage.error('配置失败，请检查执行日志')
+  } finally {
+    quickConfigLoading.value = false
+  }
+}
+
+const copyQuickConfigSteps = async () => {
+  if (!quickConfigResult.value) return
+  const lines = [
+    `执行结果: ${quickConfigResult.value.success ? '成功' : '失败'}`,
+    `提示: ${quickConfigResult.value.message || '--'}`,
+    `错误: ${quickConfigResult.value.error || '--'}`,
+    `可用模型: ${quickConfigResult.value.availableCount}`,
+    `游客模型: ${quickConfigResult.value.guestModelCount}`,
+    `游客模型可用: ${quickConfigResult.value.guestModelReady ? '是' : '否'}`,
+    '',
+    '步骤:',
+    ...(quickConfigResult.value.steps || []).map((step, index) => `${index + 1}. ${step}`)
+  ]
+  await copyText(lines.join('\n'))
+}
+
+const copyLogs = async () => {
+  if (!installStatus.value.logs?.length) return
+  const content = installStatus.value.logs
+    .map((log) => `${formatTime(log.time)} [${log.level.toUpperCase()}]${log.step ? ` [${log.step}]` : ''} ${log.message}`)
+    .join('\n')
+  await copyText(content)
 }
 
 const startPolling = () => {
@@ -496,23 +537,14 @@ const stopPolling = () => {
   pollTimer = null
 }
 
-const copyLogs = async () => {
-  if (!installStatus.value.logs?.length) return
-  const content = installStatus.value.logs
-    .map((log) => `${formatTime(log.time)} [${log.level.toUpperCase()}]${log.step ? ` [${log.step}]` : ''} ${log.message}`)
-    .join('\n')
-  await navigator.clipboard.writeText(content)
-  ElMessage.success('执行日志已复制')
-}
-
 watch(
   () => installStatus.value.state,
   (state) => {
     if (state === 'running') {
       startPolling()
-    } else {
-      stopPolling()
+      return
     }
+    stopPolling()
   }
 )
 
@@ -548,13 +580,12 @@ onUnmounted(() => {
 .panel-title-row {
   display: flex;
   justify-content: space-between;
+  gap: 12px;
   align-items: flex-start;
-  gap: 10px;
   margin-bottom: 10px;
 }
 
-.panel-title-row h2,
-.panel-title-row h3 {
+.panel-title-row h2 {
   margin: 0;
   font-size: 20px;
   line-height: 1.2;
@@ -566,12 +597,15 @@ onUnmounted(() => {
   font-size: 13px;
 }
 
-.guide-title-row h3 {
-  font-size: 18px;
+.install-form,
+.quick-form {
+  margin-bottom: 10px;
 }
 
-.install-form {
-  margin-bottom: 10px;
+.switch-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .action-row {
@@ -582,38 +616,112 @@ onUnmounted(() => {
 
 .meta-line {
   margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
   font-size: 12px;
   color: var(--text-muted);
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
 }
 
 .error-box {
   margin-top: 10px;
+  border-radius: 10px;
   border: 1px solid rgba(220, 38, 38, 0.35);
   background: rgba(220, 38, 38, 0.1);
   color: #b91c1c;
   padding: 10px;
-  border-radius: 10px;
   font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
-.guide-tabs {
-  margin-top: 8px;
-}
-
-.guide-body {
+.quick-result {
   margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.guide-block {
-  margin-top: 12px;
+.result-card-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
 }
 
-.api-form {
-  max-width: 760px;
+.result-card {
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: var(--surface-muted);
+  padding: 10px;
+}
+
+.result-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.result-value {
+  margin-top: 6px;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.result-text {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.steps-box {
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: var(--surface-muted);
+  padding: 10px 12px;
+}
+
+.steps-box-title {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.steps-box ol {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.model-table-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.table-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.table-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.debug-collapse {
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.auth-alert {
+  margin-top: 10px;
 }
 
 .command-head {
@@ -638,61 +746,6 @@ onUnmounted(() => {
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
-}
-
-.command-box.small {
-  margin-bottom: 10px;
-}
-
-.check-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 14px 0;
-}
-
-.guide-actions {
-  margin-top: 14px;
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.auth-toolbar {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 8px;
-}
-
-.auth-alert {
-  margin-top: 10px;
-}
-
-.auth-grid {
-  margin-top: 12px;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.auth-card {
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
-  background: var(--surface-muted);
-  padding: 10px;
-}
-
-.auth-card h4 {
-  margin: 0;
-  font-size: 14px;
-}
-
-.auth-card p {
-  margin: 8px 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--text-muted);
 }
 
 .logs-head {
@@ -730,7 +783,6 @@ onUnmounted(() => {
 .step-name {
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-primary);
 }
 
 .step-detail {
@@ -755,7 +807,7 @@ onUnmounted(() => {
 }
 
 .status-success {
-  border-color: rgba(22, 163, 74, 0.4);
+  border-color: rgba(22, 163, 74, 0.45);
 }
 
 .status-failed {
@@ -821,7 +873,11 @@ onUnmounted(() => {
 }
 
 @media (max-width: 1080px) {
-  .auth-grid {
+  .result-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .model-table-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -831,8 +887,8 @@ onUnmounted(() => {
     flex-direction: column;
   }
 
-  .guide-actions {
-    justify-content: flex-start;
+  .result-card-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

@@ -52,6 +52,39 @@ export interface OpenClawAuthCheckResult {
   checkedAt: string
 }
 
+export interface OpenClawQuickConfigRequest {
+  provider: 'anthropic' | 'openai' | 'openrouter'
+  apiKey: string
+  defaultModel: string
+  useGuestMode: boolean
+  persistEnv: boolean
+}
+
+export interface OpenClawModelItem {
+  key: string
+  name: string
+  available: boolean
+  local: boolean
+  tags: string[]
+}
+
+export interface OpenClawQuickConfigResult {
+  success: boolean
+  message: string
+  provider: string
+  defaultModel: string
+  availableCount: number
+  guestModelCount: number
+  guestModelReady: boolean
+  availableModels: OpenClawModelItem[]
+  guestModels: OpenClawModelItem[]
+  rawStatusJson: string
+  rawListJson: string
+  steps: string[]
+  error: string
+  checkedAt: string
+}
+
 export const startOpenClawInstall = (data: OpenClawInstallRequest) => {
   return api.post('/api/openclaw/install/start', data)
 }
@@ -62,4 +95,8 @@ export const getOpenClawInstallStatus = () => {
 
 export const checkOpenClawAuth = () => {
   return api.get('/api/openclaw/auth/check')
+}
+
+export const configureOpenClawAndQueryModels = (data: OpenClawQuickConfigRequest) => {
+  return api.post('/api/openclaw/configure/query-models', data)
 }
