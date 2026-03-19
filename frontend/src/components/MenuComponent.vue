@@ -4,7 +4,7 @@
       <div class="brand-mark">FF</div>
       <div>
         <div class="brand-title">FFmpegFree</div>
-        <div class="brand-subtitle">闊宠棰戝伐鍏风</div>
+        <div class="brand-subtitle">音视频工具箱</div>
       </div>
     </div>
 
@@ -18,46 +18,46 @@
       <el-sub-menu index="1">
         <template #title>
           <el-icon><Camera /></el-icon>
-          <span>瑙嗛</span>
+          <span>视频</span>
         </template>
-        <el-menu-item route="/" index="/">杞崲</el-menu-item>
-        <el-menu-item route="/convert" index="/convert">姝ｅ湪杞崲涓?/el-menu-item>
-        <el-menu-item route="/convertup" index="/convertup">宸插畬鎴?/el-menu-item>
+        <el-menu-item route="/" index="/">转换</el-menu-item>
+        <el-menu-item route="/convert" index="/convert">正在转换</el-menu-item>
+        <el-menu-item route="/convertup" index="/convertup">已完成</el-menu-item>
       </el-sub-menu>
 
       <el-sub-menu index="2">
         <template #title>
           <el-icon><VideoCamera /></el-icon>
-          <span>娴佸獟浣撳伐鍏?/span>
+          <span>流媒体工具</span>
         </template>
-        <el-menu-item route="/steamup" index="/steamup">鎺ㄦ祦</el-menu-item>
-        <el-menu-item route="/steamlist" index="/steamlist">姝ｅ湪鎺ㄦ祦涓?/el-menu-item>
+        <el-menu-item route="/steamup" index="/steamup">推流</el-menu-item>
+        <el-menu-item route="/steamlist" index="/steamlist">正在推流</el-menu-item>
         <el-menu-item route="/live-ops" index="/live-ops">直播运维面板</el-menu-item>
-        <el-menu-item route="/MediaRecorder" index="/MediaRecorder">灞忓箷褰曞埗鎺ㄦ祦</el-menu-item>
-        <el-menu-item route="/LivePlayer" index="/LivePlayer">鐩存挱鎷夋祦锛團LV锛?/el-menu-item>
+        <el-menu-item route="/MediaRecorder" index="/MediaRecorder">屏幕录制推流</el-menu-item>
+        <el-menu-item route="/LivePlayer" index="/LivePlayer">直播拉流(FLV)</el-menu-item>
       </el-sub-menu>
 
       <el-sub-menu index="3">
         <template #title>
           <el-icon><MessageBox /></el-icon>
-          <span>鏂囨。杞崲</span>
+          <span>文档转换</span>
         </template>
-        <el-menu-item route="/pdf-preview" index="/pdf-preview">PDF 棰勮</el-menu-item>
-        <el-menu-item route="/office-convert" index="/office-convert">Office 杞?PDF</el-menu-item>
+        <el-menu-item route="/pdf-preview" index="/pdf-preview">PDF 预览</el-menu-item>
+        <el-menu-item route="/office-convert" index="/office-convert">Office 转 PDF</el-menu-item>
       </el-sub-menu>
 
       <el-sub-menu index="4">
         <template #title>
           <el-icon><Tools /></el-icon>
-          <span>宸ュ叿</span>
+          <span>工具</span>
         </template>
-        <el-menu-item route="/json-tools" index="/json-tools">JSON 宸ュ叿</el-menu-item>
-        <el-menu-item route="/openclaw-install" index="/openclaw-install">OpenClaw 涓€閿畨瑁?/el-menu-item>
+        <el-menu-item route="/json-tools" index="/json-tools">JSON 工具</el-menu-item>
+        <el-menu-item route="/openclaw-install" index="/openclaw-install">OpenClaw 一键安装</el-menu-item>
       </el-sub-menu>
 
       <el-menu-item route="/about" index="/about">
         <el-icon><InfoFilled /></el-icon>
-        <span>鍏充簬</span>
+        <span>关于</span>
       </el-menu-item>
     </el-menu>
   </div>
@@ -111,4 +111,3 @@ const handleClose = () => {}
   margin-top: 2px;
 }
 </style>
-

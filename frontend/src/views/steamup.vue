@@ -1,100 +1,75 @@
 ﻿<template>
   <div class="stream-table-container">
-    <!-- 鎻愮ず -->
-    <el-alert title="鎺ㄦ祦璇峰嬁浣跨敤鍚屼竴涓祦鍦板潃锛屽惁鍒欎細浣夸箣鍓嶇殑鎺ㄦ祦鑷姩缁堟銆? type="primary" />
+    <el-alert title="推流时请避免复用同一个推流地址，否则旧会话可能被覆盖。" type="primary" />
 
-    <!-- 鏂囦欢涓婁紶 -->
     <el-upload
-        class="upload-demo app-upload"
-        drag
-        :http-request="customUpload"
-        :auto-upload="true"
-        :before-upload="beforeUpload"
-        multiple
+      class="upload-demo app-upload"
+      drag
+      :http-request="customUpload"
+      :auto-upload="true"
+      :before-upload="beforeUpload"
+      multiple
     >
       <el-icon class="el-icon--upload">
         <upload-filled />
       </el-icon>
-      <div class="el-upload__text">
-        鏂囦欢鎷栧姩姝ゅ 鎴?<em>鐐瑰嚮涓婁紶</em>
-      </div>
+      <div class="el-upload__text">文件拖拽到此处或 <em>点击上传</em></div>
     </el-upload>
 
-    <!-- 涓婁紶杩涘害鏉?-->
     <el-progress
-        v-if="uploadProgress > 0"
-        :percentage="uploadProgress"
-        :status="uploadProgress === 100 ? 'success' : ''"
+      v-if="uploadProgress > 0"
+      :percentage="uploadProgress"
+      :status="uploadProgress === 100 ? 'success' : ''"
     />
 
-    <!-- 瑙嗛琛ㄦ牸 -->
-    <el-table
-        :data="filterTableData"
-        style="width: 100%; height: 70vh"
-        :highlight-current-row="true"
-        row-key="name"
-    >
-      <!-- 鐣ョ缉鍥惧垪 -->
-    <el-table-column label="鐣ョ缉鍥?>
-      <template #default="scope">
-        <MediaThumb
+    <el-table :data="filterTableData" style="width: 100%; height: 70vh" :highlight-current-row="true" row-key="name">
+      <el-table-column label="缩略图">
+        <template #default="scope">
+          <MediaThumb
             :url="scope.row.url"
             :name="scope.row.name"
             :cover="scope.row.cover"
             :clickable="isPreviewable(scope.row.name)"
             @preview="(url) => playFullScreenVideo(url, scope.row.name)"
-        />
-      </template>
-    </el-table-column>
-
-      <!-- 鍚嶇О鍒?-->
-      <el-table-column label="鍚嶇О" prop="name" />
-
-      <!-- 鏃堕暱鍒?-->
-      <el-table-column label="鏃堕暱" prop="duration" />
-
-      <!-- 淇敼鏃堕棿鍒?-->
-      <el-table-column label="淇敼鏃堕棿" prop="date" />
-
-      <!-- 鎿嶄綔鍒?-->
-      <el-table-column align="right">
-        <template #header>
-          <el-input v-model="search" size="small" placeholder="鎼滅储鍚嶇О" />
-        </template>
-        <template #default="scope">
-          <el-button size="small" @click="handlereload(scope.$index, scope.row)">
-            鎺ㄦ祦
-          </el-button>
-          <el-button size="small" type="danger" @click="handleDelete(scope.$index, scope.row)">
-            鍒犻櫎
-          </el-button>
+          />
         </template>
       </el-table-column>
 
-      <!-- 绌烘暟鎹彁绀?-->
+      <el-table-column label="名称" prop="name" />
+      <el-table-column label="时长" prop="duration" />
+      <el-table-column label="修改时间" prop="date" />
+
+      <el-table-column align="right">
+        <template #header>
+          <el-input v-model="search" size="small" placeholder="搜索名称" />
+        </template>
+        <template #default="scope">
+          <el-button size="small" @click="handlereload(scope.$index, scope.row)">推流</el-button>
+          <el-button size="small" type="danger" @click="handleDelete(scope.$index, scope.row)">删除</el-button>
+        </template>
+      </el-table-column>
+
       <template #empty>
-        <span>鏆傛棤鏁版嵁</span>
+        <span>暂无数据</span>
       </template>
     </el-table>
 
-    <MediaPreviewDialog
-        v-model="isVideoDialogVisible"
-        :url="selectedVideoUrl"
-        :name="selectedVideoName"
-    />
+    <MediaPreviewDialog v-model="isVideoDialogVisible" :url="selectedVideoUrl" :name="selectedVideoName" />
 
-    <!-- 鎺ㄦ祦鍦板潃瀵硅瘽妗?-->
-    <el-dialog v-model="isConvertDialogVisible" title="杈撳叆鎺ㄦ祦鍦板潃">
+    <el-dialog v-model="isConvertDialogVisible" title="输入推流参数">
       <el-form @submit.prevent="submitConversion">
-        <el-form-item label="鎺ㄦ祦鍦板潃">
-          <el-input v-model="steamurl" placeholder="渚嬪锛歳tmp://live.example.com/stream" />
+        <el-form-item label="推流地址">
+          <el-input v-model="steamurl" placeholder="例如：rtmp://live.example.com/stream" />
         </el-form-item>
+
         <el-form-item label="自动录制分段">
           <el-switch v-model="archiveEnabled" />
         </el-form-item>
+
         <el-form-item label="分段秒数">
           <el-input-number v-model="segmentSeconds" :min="30" :max="3600" :step="30" />
         </el-form-item>
+
         <el-form-item label="额外转推目标（每行一个）">
           <el-input
             v-model="relayTargetsText"
@@ -103,7 +78,8 @@
             placeholder="rtmp://backup.example.com/live/stream1&#10;rtmp://backup2.example.com/live/stream1"
           />
         </el-form-item>
-        <el-button type="primary" native-type="submit">鎻愪氦</el-button>
+
+        <el-button type="primary" native-type="submit">提交</el-button>
       </el-form>
     </el-dialog>
   </div>
@@ -117,12 +93,7 @@ import MediaThumb from '@/components/MediaThumb.vue'
 import MediaPreviewDialog from '@/components/MediaPreviewDialog.vue'
 
 import { uploadFileSteame } from '@/api/upload/upload'
-import {
-  convertreload,
-  deletesteamVideo,
-  getSteamFiles,
-  steamload
-} from '@/api/video/video'
+import { deletesteamVideo, getSteamFiles, steamload } from '@/api/video/video'
 
 interface VideoInfo {
   name: string
@@ -138,7 +109,6 @@ interface VideoInfo {
   cover?: string
 }
 
-// 鏁版嵁瀹氫箟
 const search = ref('')
 const tableData = ref<VideoInfo[]>([])
 const isVideoDialogVisible = ref(false)
@@ -151,39 +121,27 @@ const segmentSeconds = ref(300)
 const relayTargetsText = ref('')
 const selectedVideoForConvert = ref<VideoInfo | null>(null)
 const uploadProgress = ref(0)
-const previewableExts = ['.mp4', '.mov', '.webm', '.mkv', '.avi', '.flv']
-const isPreviewable = (name: string) =>
-  previewableExts.some((ext) => name.toLowerCase().endsWith(ext))
 
-// 杩囨护鍚庣殑琛ㄦ牸鏁版嵁
+const previewableExts = ['.mp4', '.mov', '.webm', '.mkv', '.avi', '.flv']
+const isPreviewable = (name: string) => previewableExts.some((ext) => name.toLowerCase().endsWith(ext))
+
+// 列表层面的本地搜索，避免每次搜索都请求后端。
 const filterTableData = computed(() =>
-    tableData.value.filter((data) =>
-        !search.value || data.name.toLowerCase().includes(search.value.toLowerCase())
-    )
+  tableData.value.filter((data) => !search.value || data.name.toLowerCase().includes(search.value.toLowerCase())),
 )
 
-// 鏍￠獙鏄惁鏄悎娉曠殑 rtmp 鎴?rtsp 鍦板潃
-const isValidStreamUrl = (url: string): boolean => {
-  const pattern = /^(rtmp|rtsp):\/\/.+/
-  return pattern.test(url)
-}
+const isValidStreamUrl = (url: string): boolean => /^(rtmp|rtsp):\/\/.+/.test(url)
 
-// 鑾峰彇鏁版嵁
 const fetchData = async () => {
   try {
     const response = await getSteamFiles()
     if (response.data && response.data.code === 200) {
       tableData.value = response.data.data
-    } else {
-      console.error('鑾峰彇鎺ㄦ祦鏂囦欢鍒楄〃澶辫触锛屽搷搴旀暟鎹紓甯?', response)
-      tableData.value = []
+      return
     }
+    tableData.value = []
   } catch (error) {
-    if (error instanceof Error) {
-      console.error('鑾峰彇鎺ㄦ祦鏂囦欢鍒楄〃澶辫触锛岄敊璇鎯?', error.message, error.stack)
-    } else {
-      console.error('鑾峰彇鎺ㄦ祦鏂囦欢鍒楄〃澶辫触锛屾湭鐭ラ敊璇?', error)
-    }
+    console.error('加载推流素材失败:', error)
     tableData.value = []
   }
 }
@@ -192,46 +150,39 @@ onMounted(async () => {
   await fetchData()
 })
 
-// 鑷畾涔変笂浼犳柟娉?
 const customUpload = async (options: UploadRequestOptions) => {
   const formData = new FormData()
-  const { file } = options
-  formData.append('file', file)
+  formData.append('file', options.file)
 
-  uploadProgress.value = 0 // 閲嶇疆杩涘害鏉?
-
+  uploadProgress.value = 0
   const response = await uploadFileSteame(formData, (percent: number) => {
     uploadProgress.value = percent
   })
 
   if (response.data.code === 200) {
     await fetchData()
-    ElMessage.success('涓婁紶鎴愬姛')
+    ElMessage.success('上传成功')
   } else {
-    ElMessage.error('涓婁紶澶辫触')
+    ElMessage.error('上传失败')
   }
 }
 
-// 鎾斁鍏ㄥ睆瑙嗛
 const playFullScreenVideo = (url: string, name?: string) => {
   selectedVideoUrl.value = url
   selectedVideoName.value = name || ''
   isVideoDialogVisible.value = true
 }
 
-// 鍒犻櫎鎿嶄綔
 const handleDelete = async (index: number, row: VideoInfo) => {
   const res = await deletesteamVideo(row)
-
   if (res.data.code === 200) {
     tableData.value = tableData.value.filter((item) => item.name !== row.name)
-    ElMessage.success('鍒犻櫎鎴愬姛')
-  } else {
-    ElMessage.error('鍒犻櫎澶辫触锛? + (res.data.message || '鏈煡閿欒'))
+    ElMessage.success('删除成功')
+    return
   }
+  ElMessage.error(`删除失败: ${res.data.message || '未知错误'}`)
 }
 
-// 鎺ㄦ祦鎿嶄綔
 const handlereload = (index: number, row: VideoInfo) => {
   selectedVideoForConvert.value = row
   isConvertDialogVisible.value = true
@@ -242,49 +193,54 @@ const handlereload = (index: number, row: VideoInfo) => {
 
 const submitConversion = async () => {
   if (!selectedVideoForConvert.value) {
-    ElMessage.warning('璇烽€夋嫨涓€涓棰戞枃浠?)
+    ElMessage.warning('请先选择一个视频文件')
     return
   }
 
   if (!steamurl.value || !isValidStreamUrl(steamurl.value)) {
-    ElMessage.warning('璇疯緭鍏ユ湁鏁堢殑 RTMP 鎴?RTSP 鍦板潃锛堝锛歳tmp://xxx 鎴?rtsp://xxx锛?)
+    ElMessage.warning('请输入有效的 RTMP 或 RTSP 地址')
     return
   }
 
   try {
+    // 按行拆分一键转推目标，前后空格会被自动清理。
     const relayTargets = relayTargetsText.value
-        .split('\n')
-        .map((item) => item.trim())
-        .filter((item) => item.length > 0)
+      .split('\n')
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0)
 
+    // 与后端增强推流接口字段保持一致：
+    // - archiveEnabled: 是否开启自动录制
+    // - segmentSeconds: 分段切片时长
+    // - relayTargets: 额外转推目标
     const videoInfo = {
       ...selectedVideoForConvert.value,
       steamurl: steamurl.value,
       archiveEnabled: archiveEnabled.value,
       segmentSeconds: segmentSeconds.value,
-      relayTargets
+      relayTargets,
     }
 
     const res = await steamload(videoInfo)
 
     if (res.data.code === 200) {
-      ElMessage.success('鎺ㄦ祦浠诲姟宸叉彁浜?)
+      ElMessage.success('推流任务已提交')
       isConvertDialogVisible.value = false
-      await fetchData() // 鍒锋柊琛ㄦ牸鏁版嵁
+      steamurl.value = ''
+      await fetchData()
     } else {
-      ElMessage.error('鎺ㄦ祦浠诲姟鎻愪氦澶辫触锛岃閲嶈瘯銆?)
+      ElMessage.error(`推流任务提交失败: ${res.data.message || '未知错误'}`)
     }
   } catch (error) {
-    console.error('鎺ㄦ祦閿欒:', error)
-    ElMessage.error('鎻愪氦鎺ㄦ祦浠诲姟鏃跺彂鐢熼敊璇?)
+    console.error('推流请求失败:', error)
+    ElMessage.error('提交推流任务时发生错误')
   }
 }
 
-// 涓婁紶鍓嶆鏌?
 const beforeUpload = (file: File): boolean => {
   const isValidType = ['video/mp4'].includes(file.type)
   if (!isValidType) {
-    ElMessage.error('鍙兘涓婁紶 MP4 瑙嗛!')
+    ElMessage.error('只支持上传 MP4 视频')
     return false
   }
   return true
@@ -302,10 +258,10 @@ const beforeUpload = (file: File): boolean => {
 .app-upload {
   width: 100%;
 }
+
 .fullscreen-video {
   width: 100%;
   height: 100%;
   object-fit: contain;
 }
 </style>
-
