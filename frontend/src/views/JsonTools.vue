@@ -2,7 +2,6 @@
   <div class="json-tools-container">
     <el-tabs v-model="activeTab" type="border-card" class="json-tabs">
       <el-tab-pane label="JSON 格式化" name="format">
-        <div class="format-section">
           <el-row :gutter="20">
             <el-col :span="7">
               <div class="panel-header">
@@ -42,11 +41,10 @@
             <el-input-number v-model="indentSize" :min="2" :max="8" :step="2" size="small" />
             <span class="tips">自动格式化：停止输入 800ms 后自动格式化</span>
           </div>
-        </div>
+
       </el-tab-pane>
 
       <el-tab-pane label="JSON 比对" name="compare">
-        <div class="compare-section">
           <el-row :gutter="20">
             <el-col :span="7">
               <div class="panel-header">
@@ -131,7 +129,6 @@
               </el-table>
             </div>
           </div>
-        </div>
       </el-tab-pane>
     </el-tabs>
   </div>
