@@ -26,6 +26,7 @@ func (a *App) startup(ctx context.Context) {
 func (a *App) OnShutdown(ctx context.Context) {
 	a.ctx = ctx
 	contollers.KillAllFFmpegProcesses()
+	contollers.KillLiveOpsProcesses()
 }
 
 // Greet returns a greeting for the given name

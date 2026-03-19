@@ -50,7 +50,11 @@ interface VideoInfo {
   duration: string
   date: string
   steamurl: string
+  streamId?: string
   targetFormat: string
+  archiveEnabled?: boolean
+  segmentSeconds?: number
+  relayTargets?: string[]
   cover?: string
 }
 const isVideoDialogVisible = ref(false)

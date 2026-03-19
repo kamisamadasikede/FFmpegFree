@@ -10,6 +10,7 @@ const routes: Array<RouteRecordRaw> = [
   { path: '/steamlist', name: 'steamlist', component: () => import('../views/steamlist.vue') },
   { path: '/MediaRecorder', name: 'MediaRecorder', component: () => import('../views/MediaRecorder.vue') },
   { path: '/LivePlayer', name: 'LivePlayer', component: () => import('../views/LivePlayer.vue') },
+  { path: '/live-ops', name: 'LiveOps', component: () => import('../views/LiveOps.vue') },
   { path: '/pdf-preview', name: 'PDFPreview', component: () => import('../views/PDFPreview.vue') },
   { path: '/office-convert', name: 'OfficeConvert', component: () => import('../views/OfficeConvert.vue') },
   { path: '/json-tools', name: 'JsonTools', component: () => import('../views/JsonTools.vue') },

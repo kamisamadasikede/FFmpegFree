@@ -1,31 +1,43 @@
-<template>
-    <el-main>
+﻿<template>
+  <el-main>
+    <el-form label-position="top" :model="form" label-width="120px">
+      <el-form-item label="推流地址 (RTMP)">
+        <el-input v-model="form.streamUrl" placeholder="rtmp://live.example.com/live/streamkey" />
+      </el-form-item>
 
-      <!-- 推流地址输入 -->
-      <el-form label-position="top" :model="form" label-width="120px">
-        <el-form-item label="推流地址 (RTMP)">
-          <el-input v-model="form.streamUrl" placeholder="rtmp://live.example.com/live/streamkey" />
-        </el-form-item>
-      </el-form>
+      <el-form-item label="自动录制分段">
+        <el-switch v-model="form.archiveEnabled" />
+      </el-form-item>
 
-      <!-- 控制按钮 -->
-      <div style="margin-bottom: 20px;">
-        <el-button type="primary" @click="startCapture" :disabled="!form.streamUrl || streamStore.isStreaming">
-          开始推流
-        </el-button>
-        <el-button @click="stopCapture" :disabled="!streamStore.isStreaming">停止推流</el-button>
-      </div>
+      <el-form-item label="分段秒数">
+        <el-input-number v-model="form.segmentSeconds" :min="30" :max="3600" :step="30" />
+      </el-form-item>
 
-      <!-- 状态提示 -->
-      <div v-if="streamStore.statusMessage" style="color: green; margin-bottom: 10px;">
-        {{ streamStore.statusMessage }}
-      </div>
+      <el-form-item label="额外转推目标（每行一个）">
+        <el-input
+          v-model="form.relayTargetsText"
+          type="textarea"
+          :rows="4"
+          placeholder="rtmp://backup.example.com/live/stream1&#10;rtmp://backup2.example.com/live/stream1"
+        />
+      </el-form-item>
+    </el-form>
 
-      <!-- 视频预览 -->
-      <div class="preview-box">
-        <video ref="videoRef" autoplay playsinline style="width: 100%; height: auto;"></video>
-      </div>
-    </el-main>
+    <div style="margin-bottom: 20px;">
+      <el-button type="primary" @click="startCapture" :disabled="!form.streamUrl || streamStore.isStreaming">
+        开始推流
+      </el-button>
+      <el-button @click="stopCapture" :disabled="!streamStore.isStreaming">停止推流</el-button>
+    </div>
+
+    <div v-if="streamStore.statusMessage" style="color: green; margin-bottom: 10px;">
+      {{ streamStore.statusMessage }}
+    </div>
+
+    <div class="preview-box">
+      <video ref="videoRef" autoplay playsinline style="width: 100%; height: auto;"></video>
+    </div>
+  </el-main>
 </template>
 
 <script setup lang="ts">
@@ -34,47 +46,56 @@ import { useStreamStore } from '@/stores/useStreamStore'
 
 const streamStore = useStreamStore()
 
-// 表单数据初始化为 Store 中的值
 const form = ref({
   streamUrl: streamStore.streamUrl,
+  archiveEnabled: false,
+  segmentSeconds: 300,
+  relayTargetsText: '',
 })
 
-// 双向绑定表单与 Store
 watch(
-    () => form.value.streamUrl,
-    (newVal) => {
-      streamStore.setStreamUrl(newVal)
-    }
+  () => form.value.streamUrl,
+  (newVal) => {
+    streamStore.setStreamUrl(newVal)
+  },
 )
 
 watch(
-    () => streamStore.streamUrl,
-    (newVal) => {
-      form.value.streamUrl = newVal
-    }
+  () => streamStore.streamUrl,
+  (newVal) => {
+    form.value.streamUrl = newVal
+  },
 )
 
 const videoRef = ref<HTMLVideoElement | null>(null)
 
-// 页面加载时恢复视频预览
 onMounted(() => {
   if (streamStore.mediaStream && videoRef.value) {
     videoRef.value.srcObject = streamStore.mediaStream
   }
 })
 
-// 实时监听 mediaStream 变化
 watch(
-    () => streamStore.mediaStream,
-    (newStream) => {
-      if (videoRef.value) {
-        videoRef.value.srcObject = newStream || null
-      }
+  () => streamStore.mediaStream,
+  (newStream) => {
+    if (videoRef.value) {
+      videoRef.value.srcObject = newStream || null
     }
+  },
 )
 
 function startCapture() {
-  streamStore.startCapture(form.value.streamUrl)
+  // 每行一个转推目标，和后端 relayTargets 对齐。
+  const relayTargets = form.value.relayTargetsText
+    .split('\n')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+
+  streamStore.startCapture(form.value.streamUrl, {
+    archiveEnabled: form.value.archiveEnabled,
+    segmentSeconds: form.value.segmentSeconds,
+    relayTargets,
+  })
 }
 
 function stopCapture() {
@@ -92,3 +113,4 @@ function stopCapture() {
   margin-top: 10px;
 }
 </style>
+

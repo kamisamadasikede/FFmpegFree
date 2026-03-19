@@ -7,8 +7,12 @@ interface VideoInfo {
   duration: string
   date: string
   steamurl: string
+  streamId?: string
   targetFormat: string
   preset?: string
+  archiveEnabled?: boolean
+  segmentSeconds?: number
+  relayTargets?: string[]
   cover?: string
   progress?: number
 }
@@ -30,7 +34,7 @@ export const convertreload = async (videoInfo: VideoInfo) => {
 }
 export const steamload = async (videoInfo: VideoInfo) => {
   try {
-    const response   = await api.post('/api/steamload', videoInfo)
+    const response   = await api.post('/api/live/stream/start', videoInfo)
     return response
   } catch (error) {
     console.error('视频转换请求失败:', error)
