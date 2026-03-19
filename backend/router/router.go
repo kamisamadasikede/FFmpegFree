@@ -79,6 +79,9 @@ func SetupRouter() *gin.Engine {
 	api.GET("/openclaw/install/status", contollers.GetOpenClawInstallStatus)
 	api.GET("/openclaw/auth/check", contollers.CheckOpenClawAuth)
 	api.POST("/openclaw/configure/query-models", contollers.ConfigureOpenClawAndQueryModels)
+	api.GET("/edit/sources", contollers.GetEditSources)
+	api.POST("/edit/probe", contollers.ProbeEditSource)
+	api.POST("/edit/render", contollers.RenderEditProject)
 	return r
 }
 

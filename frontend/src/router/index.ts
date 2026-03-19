@@ -6,6 +6,7 @@ const routes: Array<RouteRecordRaw> = [
   { path: '/about', name: 'About', component: () => import('../views/About.vue') },
   { path: '/convert', name: 'Convert', component: () => import('../views/convert.vue') },
   { path: '/convertup', name: 'Convertup', component: () => import('../views/convertup.vue') },
+  { path: '/video-editor', name: 'VideoEditor', component: () => import('../views/VideoEditor.vue') },
   { path: '/steamup', name: 'steamup', component: () => import('../views/steamup.vue') },
   { path: '/steamlist', name: 'steamlist', component: () => import('../views/steamlist.vue') },
   { path: '/MediaRecorder', name: 'MediaRecorder', component: () => import('../views/MediaRecorder.vue') },

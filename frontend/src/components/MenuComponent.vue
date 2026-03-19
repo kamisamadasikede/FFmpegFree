@@ -23,6 +23,7 @@
         <el-menu-item route="/" index="/">转换</el-menu-item>
         <el-menu-item route="/convert" index="/convert">正在转换</el-menu-item>
         <el-menu-item route="/convertup" index="/convertup">已完成</el-menu-item>
+        <el-menu-item route="/video-editor" index="/video-editor">视频剪辑</el-menu-item>
       </el-sub-menu>
 
       <el-sub-menu index="2">
