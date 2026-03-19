@@ -83,7 +83,7 @@
 
         <div class="preview-wrap">
           <canvas ref="monitorCanvasRef" class="preview-canvas" :style="previewVideoStyle"></canvas>
-          <video ref="decoderVideoRef" class="decoder-video" muted playsinline preload="auto"></video>
+          <div ref="decoderHostRef" class="decoder-host"></div>
           <div class="safe-area">Safe Area</div>
           <div class="badge">
             {{
@@ -216,7 +216,7 @@
           <el-button @click="addVideoTrackSlot">+ 视频轨</el-button>
           <el-button @click="addAudioTrackSlot">+ 音轨</el-button>
           <span>缩放</span>
-          <el-slider v-model="timelineScale" :min="24" :max="100" :step="2" style="width: 150px" />
+          <el-slider v-model="timelineScale" :min="8" :max="260" :step="1" style="width: 220px" />
         </div>
       </div>
 
@@ -225,7 +225,7 @@
           <div class="ruler-row">
             <div class="track-label">时间</div>
             <div class="ruler-lane" :style="{ width: `${timelineContentWidth}px` }" @click="onRulerClick" @mousedown.left.prevent="beginScrub">
-              <div v-for="tick in timelineTicks" :key="tick.time" class="tick" :style="{ left: `${tick.time * timelineScale}px` }">
+              <div v-for="tick in timelineTicks" :key="tick.key" class="tick" :style="{ left: `${tick.time * timelineScale}px` }">
                 <span v-if="tick.major">{{ formatTime(tick.time) }}</span>
               </div>
             </div>
@@ -233,7 +233,7 @@
 
           <div class="track-row" v-for="track in videoTracks" :key="track.id">
             <div class="track-label" :class="{ active: activeVideoTrackId === track.id }" @click="activeVideoTrackId = track.id">{{ track.id }}</div>
-            <div class="track-lane" :style="{ width: `${timelineContentWidth}px` }" :data-kind="'video'" :data-track-id="track.id" @click="onLaneClick($event, 'video', track.id)" @mousedown.left.prevent="beginScrub">
+            <div class="track-lane" :style="trackLaneStyle" :data-kind="'video'" :data-track-id="track.id" @click="onLaneClick($event, 'video', track.id)" @mousedown.left.prevent="beginScrub">
               <div
                 v-for="segment in videoSegmentsByTrack(track.id)"
                 :key="`v-${segment.index}-${segment.startSec}`"
@@ -253,7 +253,7 @@
 
           <div class="track-row audio" v-for="track in audioTracks" :key="track.id">
             <div class="track-label" :class="{ active: activeAudioTrackId === track.id }" @click="activeAudioTrackId = track.id">{{ track.id }}</div>
-            <div class="track-lane" :style="{ width: `${timelineContentWidth}px` }" :data-kind="'audio'" :data-track-id="track.id" @click="onLaneClick($event, 'audio', track.id)" @mousedown.left.prevent="beginScrub">
+            <div class="track-lane" :style="trackLaneStyle" :data-kind="'audio'" :data-track-id="track.id" @click="onLaneClick($event, 'audio', track.id)" @mousedown.left.prevent="beginScrub">
               <div
                 v-for="segment in audioSegmentsByTrack(track.id)"
                 :key="`a-${segment.index}-${segment.startSec}`"
@@ -331,6 +331,8 @@ interface DragState {
   index: number
   mode: 'move' | 'trim-left' | 'trim-right'
   startClientX: number
+  // grabOffsetSec 记录鼠标在片段内部抓取点，拖拽时用于推断探针位置。
+  grabOffsetSec: number
   initialStart: number
   initialIn: number
   initialOut: number
@@ -338,6 +340,23 @@ interface DragState {
   sourceDuration: number
 }
 interface MonitorCheckItem { label: string; pass: boolean; detail: string }
+interface ClipRange {
+  inSec: number
+  outSec: number
+  speed: number
+  duration: number
+}
+interface ActiveVideoLayer {
+  segment: VideoSegment
+  range: ClipRange
+  targetMediaTime: number
+}
+interface DecoderState {
+  sourceURL: string
+  video: HTMLVideoElement
+  metaReady: boolean
+  loadingPromise: Promise<boolean> | null
+}
 
 const TRACK_LABEL_WIDTH = 88
 const RULER_HEIGHT = 34
@@ -370,8 +389,7 @@ const activeAudioTrackId = ref('A1')
 const resultUrl = ref('')
 const monitorChecks = ref<MonitorCheckItem[]>([])
 const monitorCanvasRef = ref<HTMLCanvasElement | null>(null)
-const decoderVideoRef = ref<HTMLVideoElement | null>(null)
-const previewSourceUrl = ref('')
+const decoderHostRef = ref<HTMLDivElement | null>(null)
 const isPlaying = ref(false)
 const playheadSec = ref(0)
 const timelineScale = ref(44)
@@ -382,11 +400,14 @@ const rafId = ref<number | null>(null)
 const lastActiveVideoIndex = ref(-1)
 const dragState = ref<DragState | null>(null)
 const isScrubbing = ref(false)
-const decoderMetaReady = ref(false)
 const renderTaskID = ref(0)
 const lastUiSyncTs = ref(0)
 const lastFollowScrollTs = ref(0)
-const lastDrawMediaSec = ref(-1)
+const lastDrawFrameKey = ref('')
+const lastPlaybackTs = ref<number | null>(null)
+const lastLayerSignature = ref('')
+const decoderStateMap = new Map<string, DecoderState>()
+const dragPreviewRAF = ref<number | null>(null)
 
 const renderConfig = reactive<EditRenderRequest>({
   outputName: 'timeline_cut',
@@ -610,34 +631,55 @@ const timelineStatsText = computed(() => `视频轨 ${videoTracks.value.length} 
 const timelineContentWidth = computed(() => Math.max(900, Math.ceil(totalDurationSec.value * timelineScale.value) + 120))
 const timelineCanvasWidth = computed(() => TRACK_LABEL_WIDTH + timelineContentWidth.value)
 const playheadHeight = computed(() => RULER_HEIGHT + videoTracks.value.length * VIDEO_ROW_HEIGHT + audioTracks.value.length * AUDIO_ROW_HEIGHT + 8)
+const trackLaneStyle = computed(() => ({
+  width: `${timelineContentWidth.value}px`,
+  '--grid-step': `${Math.max(6, timelineScale.value)}px`,
+}))
 
 const timelineTicks = computed(() => {
-  const ticks: Array<{ time: number; major: boolean }> = []
-  for (let t = 0; t <= Math.ceil(totalDurationSec.value); t += 1) ticks.push({ time: t, major: t % 5 === 0 })
+  // 根据当前缩放动态选择刻度步长，避免缩放一步后刻度视觉“翻倍”。
+  const candidates = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300]
+  const targetPx = 68
+  let stepSec = candidates[candidates.length - 1]
+  for (const value of candidates) {
+    stepSec = value
+    if (value * timelineScale.value >= targetPx) break
+  }
+
+  const ticks: Array<{ key: string; time: number; major: boolean }> = []
+  const majorEvery = 5
+  const maxCount = Math.ceil(totalDurationSec.value / stepSec)
+  for (let i = 0; i <= maxCount; i += 1) {
+    const timeSec = roundSec(i * stepSec)
+    if (timeSec > totalDurationSec.value + stepSec * 0.001) break
+    ticks.push({ key: `tick-${i}-${timeSec.toFixed(3)}`, time: timeSec, major: i % majorEvery === 0 })
+  }
+  const endSec = roundSec(totalDurationSec.value)
+  if (ticks.length === 0 || Math.abs(ticks[ticks.length - 1].time - endSec) > stepSec * 0.4) {
+    ticks.push({ key: `tick-end-${endSec.toFixed(3)}`, time: endSec, major: true })
+  }
   return ticks
 })
 
-const activeVideoSegment = computed(() => {
-  let winner: VideoSegment | null = null
-  const currentPlayhead = playheadSec.value
+// getActiveVideoLayers 返回某一时刻所有可见视频层，按轨道从低到高排序用于画布叠加。
+const getActiveVideoLayers = (timelineSec: number): ActiveVideoLayer[] => {
+  const layers: ActiveVideoLayer[] = []
   for (const segment of videoSegments.value) {
-    if (currentPlayhead < segment.startSec || currentPlayhead >= segment.endSec) continue
-    if (!winner) {
-      winner = segment
-      continue
-    }
-    // 优先返回可解析 source 的片段，其次高轨优先，再按更晚起点兜底。
-    const sourceDiff = Number(!!segment.source) - Number(!!winner.source)
-    if (sourceDiff > 0) {
-      winner = segment
-      continue
-    }
-    if (sourceDiff < 0) continue
-    if (segment.trackOrder > winner.trackOrder || (segment.trackOrder === winner.trackOrder && segment.startSec > winner.startSec)) {
-      winner = segment
-    }
+    if (!segment.source) continue
+    if (timelineSec < segment.startSec || timelineSec >= segment.endSec) continue
+    const range = effectiveVideoRange(segment.clip)
+    const localTimelineSec = timelineSec - segment.startSec
+    const targetMediaTime = Math.max(range.inSec, Math.min(range.outSec, range.inSec + localTimelineSec * range.speed))
+    layers.push({ segment, range, targetMediaTime })
   }
-  return winner
+  layers.sort((a, b) => a.segment.trackOrder - b.segment.trackOrder || a.segment.startSec - b.segment.startSec || a.segment.index - b.segment.index)
+  return layers
+}
+
+const activeVideoLayers = computed(() => getActiveVideoLayers(playheadSec.value))
+const activeVideoSegment = computed(() => {
+  const layers = activeVideoLayers.value
+  return layers.length > 0 ? layers[layers.length - 1].segment : null
 })
 
 const selectedVideoClip = computed(() => (selectedType.value === 'video' && selectedIndex.value >= 0 ? renderConfig.videoTrack[selectedIndex.value] || null : null))
@@ -651,20 +693,21 @@ const presetToCssFilter = (preset: VideoTrackClip['effectPreset']) => {
   return 'none'
 }
 
-const previewVideoStyle = computed(() => {
-  const active = activeVideoSegment.value
+// buildLayerFilter 按“全局调色 + 片段特效”生成单层滤镜，供多轨逐层绘制。
+const buildLayerFilter = (clip: VideoTrackClip) => {
   const filters = [
     `brightness(${Math.max(0.2, 1 + renderConfig.effects.brightness).toFixed(3)})`,
     `contrast(${Math.max(0.2, renderConfig.effects.contrast).toFixed(3)})`,
     `saturate(${Math.max(0, renderConfig.effects.saturation).toFixed(3)})`,
   ]
-  if (active) {
-    const preset = presetToCssFilter(active.clip.effectPreset)
-    if (preset !== 'none') filters.push(preset)
-    if (active.clip.blur > 0) filters.push(`blur(${(active.clip.blur * 1.3).toFixed(2)}px)`)
-  }
-  return { filter: filters.join(' ') }
-})
+  const preset = presetToCssFilter(clip.effectPreset)
+  if (preset !== 'none') filters.push(preset)
+  if (clip.blur > 0) filters.push(`blur(${(clip.blur * 1.3).toFixed(2)}px)`)
+  return filters.join(' ')
+}
+
+// 预览滤镜已在 canvas draw 阶段逐轨处理，这里不再给 canvas 叠加整体滤镜。
+const previewVideoStyle = computed(() => ({}))
 
 const clipStyle = (startSec: number, durationSec: number) => ({ left: `${startSec * timelineScale.value}px`, width: `${Math.max(56, durationSec * timelineScale.value)}px` })
 
@@ -739,24 +782,42 @@ const fetchSources = async () => {
   }
 }
 
-const previewSource = (item: EditSourceItem) => {
-  previewSourceUrl.value = item.url
+const previewSource = async (item: EditSourceItem) => {
   stopPlayback()
+  const sourceURL = item.url || ''
+  if (!sourceURL) {
+    clearMonitorCanvas()
+    return
+  }
+  const state = getOrCreateDecoderState(sourceURL)
+  const ready = await ensureDecoderReady(state)
+  if (!ready) {
+    clearMonitorCanvas()
+    ElMessage.warning('素材预览失败：无法读取视频元数据')
+    return
+  }
+  await seekDecoderTo(state, 0, 0.05)
+  pauseInactiveDecoders(new Set([sourceURL]))
+  const previewClip: VideoTrackClip = {
+    fileName: item.name,
+    scope: normalizeSourceScope(item.scope),
+    trackId: 'V1',
+    startSec: 0,
+    inSec: 0,
+    outSec: parseDurationToSec(item.duration),
+    speed: 1,
+    effectPreset: 'none',
+    transitionToNext: 'none',
+    transitionDurationSec: 0,
+    blur: 0,
+  }
+  drawVideoToMonitor(state.video, buildLayerFilter(previewClip))
 }
 
 const findAppendStart = (kind: TrackKind, trackId: string) => {
   const list = kind === 'video' ? videoSegmentsByTrack(trackId) : audioSegmentsByTrack(trackId)
   let maxEnd = 0
   for (const item of list) {
-    maxEnd = Math.max(maxEnd, item.endSec)
-  }
-  return maxEnd
-}
-
-// findGlobalVideoAppendStart 在全时间线上追加视频，保证新增视频默认按顺序拼接。
-const findGlobalVideoAppendStart = () => {
-  let maxEnd = 0
-  for (const item of videoSegments.value) {
     maxEnd = Math.max(maxEnd, item.endSec)
   }
   return maxEnd
@@ -774,8 +835,8 @@ const addToVideoTrack = (item: EditSourceItem) => {
     fileName: item.name,
     scope: item.scope,
     trackId,
-    // 视频默认按全局时间线尾部追加，满足“第二个视频=总时长累加拼接”。
-    startSec: snapSec(findGlobalVideoAppendStart()),
+    // 视频默认追加到当前轨尾部，不同轨道可天然形成重叠层叠播放。
+    startSec: snapSec(findAppendStart('video', trackId)),
     inSec: 0,
     outSec: parseDurationToSec(item.duration),
     speed: 1,
@@ -852,16 +913,105 @@ const addAudioTrackSlot = () => {
   activeAudioTrackId.value = id
 }
 
+const buildLayerSignature = (layers: ActiveVideoLayer[]) => layers.map((layer) => `${layer.segment.index}@${layer.segment.trackOrder}`).join('|')
+
+// getOrCreateDecoderState 为每个素材 URL 维护独立解码器，支持多轨同屏叠加。
+const getOrCreateDecoderState = (sourceURL: string) => {
+  let state = decoderStateMap.get(sourceURL)
+  if (state) return state
+  const video = document.createElement('video')
+  video.className = 'decoder-video'
+  video.muted = true
+  video.playsInline = true
+  video.preload = 'auto'
+  video.src = sourceURL
+  decoderHostRef.value?.appendChild(video)
+  state = { sourceURL, video, metaReady: false, loadingPromise: null }
+  decoderStateMap.set(sourceURL, state)
+  return state
+}
+
+const ensureDecoderReady = async (state: DecoderState) => {
+  if (state.metaReady && state.video.readyState >= 1) return true
+  if (state.loadingPromise) return state.loadingPromise
+
+  state.metaReady = false
+  state.loadingPromise = new Promise<boolean>((resolve) => {
+    let done = false
+    const finish = (ok: boolean) => {
+      if (done) return
+      done = true
+      window.clearTimeout(timer)
+      state.video.removeEventListener('loadedmetadata', onLoaded)
+      state.video.removeEventListener('error', onError)
+      state.metaReady = ok
+      resolve(ok)
+    }
+    const onLoaded = () => finish(true)
+    const onError = () => finish(false)
+    const timer = window.setTimeout(() => finish(false), 2000)
+    state.video.addEventListener('loadedmetadata', onLoaded, { once: true })
+    state.video.addEventListener('error', onError, { once: true })
+    if (state.video.src !== state.sourceURL) state.video.src = state.sourceURL
+    if (state.video.readyState >= 1) finish(true)
+    else state.video.load()
+  }).finally(() => {
+    state.loadingPromise = null
+  })
+
+  return state.loadingPromise
+}
+
+const seekDecoderTo = async (state: DecoderState, targetTime: number, toleranceSec: number) => {
+  if (!Number.isFinite(targetTime)) return false
+  const duration = Number.isFinite(state.video.duration) ? state.video.duration : 0
+  const maxTime = duration > 0 ? Math.max(0, duration - 0.001) : targetTime
+  const clamped = Math.max(0, Math.min(maxTime, targetTime))
+  if (Math.abs(state.video.currentTime - clamped) <= toleranceSec) return true
+
+  return new Promise<boolean>((resolve) => {
+    let done = false
+    const finish = (ok: boolean) => {
+      if (done) return
+      done = true
+      window.clearTimeout(timer)
+      state.video.removeEventListener('seeked', onSeeked)
+      state.video.removeEventListener('error', onError)
+      resolve(ok)
+    }
+    const onSeeked = () => finish(true)
+    const onError = () => finish(false)
+    const timer = window.setTimeout(() => finish(false), 1200)
+    state.video.addEventListener('seeked', onSeeked, { once: true })
+    state.video.addEventListener('error', onError, { once: true })
+    try {
+      state.video.currentTime = clamped
+    } catch (_error) {
+      finish(false)
+    }
+  })
+}
+
+const pauseInactiveDecoders = (activeSourceSet: Set<string>) => {
+  for (const [sourceURL, state] of decoderStateMap.entries()) {
+    if (activeSourceSet.has(sourceURL)) continue
+    state.video.pause()
+    state.video.playbackRate = 1
+  }
+}
+
 const startPlaybackLoop = () => {
   if (rafId.value !== null) return
   lastUiSyncTs.value = 0
   lastFollowScrollTs.value = 0
+  lastPlaybackTs.value = null
   rafId.value = requestAnimationFrame(playbackTick)
 }
 
 const stopPlaybackLoop = () => {
   if (rafId.value !== null) cancelAnimationFrame(rafId.value)
   rafId.value = null
+  lastPlaybackTs.value = null
 }
 
 const stopPlayback = () => {
@@ -869,7 +1019,8 @@ const stopPlayback = () => {
   stopPlaybackLoop()
   lastUiSyncTs.value = 0
   lastFollowScrollTs.value = 0
-  decoderVideoRef.value?.pause()
+  lastLayerSignature.value = ''
+  pauseInactiveDecoders(new Set())
 }
 
 // keepPlayheadVisible 保证播放头在时间线可视区域内，播放时自动跟随滚动。
@@ -903,27 +1054,39 @@ const jumpBy = (delta: number) => {
   syncPreviewByPlayhead(isPlaying.value)
 }
 
+const getTimelineFromMasterLayer = (master: ActiveVideoLayer, masterVideo: HTMLVideoElement) => {
+  const localSec = Math.max(0, (masterVideo.currentTime - master.range.inSec) / master.range.speed)
+  return Math.min(totalDurationSec.value, Math.max(master.segment.startSec, master.segment.startSec + localSec))
+}
+
 const playbackTick = (ts: number) => {
   if (!isPlaying.value) return
-  const decoder = decoderVideoRef.value
-  const active = activeVideoSegment.value
-  if (!decoder || !active || !active.source) {
+  const elapsedMs = lastPlaybackTs.value === null ? 0 : Math.max(0, ts - lastPlaybackTs.value)
+  lastPlaybackTs.value = ts
+  const uiTimelineSec = playheadSec.value
+  const layers = getActiveVideoLayers(uiTimelineSec)
+  if (layers.length === 0) {
     stopPlayback()
     return
   }
 
-  const sourceReady = decoderMetaReady.value && previewSourceUrl.value === active.source.url
-  if (!sourceReady) {
+  const master = layers[layers.length - 1]
+  const masterURL = master.segment.source?.url || ''
+  if (!masterURL) {
+    stopPlayback()
+    return
+  }
+  const masterState = getOrCreateDecoderState(masterURL)
+  if (!masterState.metaReady || masterState.video.readyState < 1) {
     syncPreviewByPlayhead(true).finally(() => {
       if (isPlaying.value) rafId.value = requestAnimationFrame(playbackTick)
     })
     return
   }
 
-  const range = effectiveVideoRange(active.clip)
-  if (Math.abs(decoder.playbackRate-range.speed) > 0.001) decoder.playbackRate = range.speed
-  if (decoder.paused) {
-    decoder.play().catch(() => {
+  if (Math.abs(masterState.video.playbackRate - master.range.speed) > 0.001) masterState.video.playbackRate = master.range.speed
+  if (masterState.video.paused) {
+    masterState.video.play().catch(() => {
       stopPlayback()
     }).finally(() => {
       if (isPlaying.value) rafId.value = requestAnimationFrame(playbackTick)
@@ -931,20 +1094,21 @@ const playbackTick = (ts: number) => {
     return
   }
 
-  // 以解码器当前时间反推时间线，避免每帧 seek 导致卡顿。
-  const localSec = Math.max(0, (decoder.currentTime - range.inSec) / range.speed)
-  const nextTimelineSec = Math.min(totalDurationSec.value, Math.max(active.startSec, active.startSec + localSec))
-  const shouldSyncUI = (ts - lastUiSyncTs.value >= uiSyncIntervalMs.value) || Math.abs(nextTimelineSec - playheadSec.value) >= 0.2
+  const nextTimelineSec = getTimelineFromMasterLayer(master, masterState.video)
+  const nextLayers = getActiveVideoLayers(nextTimelineSec)
+  const nextSignature = buildLayerSignature(nextLayers)
+  const layerChanged = nextSignature !== lastLayerSignature.value
+  const shouldSyncUI = (elapsedMs >= uiSyncIntervalMs.value && ts - lastUiSyncTs.value >= uiSyncIntervalMs.value) || Math.abs(nextTimelineSec - playheadSec.value) >= 0.2
   if (shouldSyncUI) {
     playheadSec.value = snapSec(nextTimelineSec)
     lastUiSyncTs.value = ts
     keepPlayheadVisibleThrottled(ts)
   }
 
-  drawDecoderFrameIfNeeded(decoder.currentTime)
+  drawCompositedFrame(nextLayers)
 
-  if (nextTimelineSec >= active.endSec - frameStepSec.value / 2) {
-    playheadSec.value = snapSec(Math.min(totalDurationSec.value, active.endSec + frameStepSec.value))
+  if (layerChanged) {
+    playheadSec.value = snapSec(nextTimelineSec)
     lastUiSyncTs.value = ts
     syncPreviewByPlayhead(true).finally(() => {
       if (isPlaying.value) rafId.value = requestAnimationFrame(playbackTick)
@@ -952,6 +1116,8 @@ const playbackTick = (ts: number) => {
     return
   }
   if (nextTimelineSec >= totalDurationSec.value - frameStepSec.value / 2) {
+    playheadSec.value = snapSec(totalDurationSec.value)
+    lastUiSyncTs.value = ts
     stopPlayback()
     return
   }
@@ -990,168 +1156,153 @@ const clearMonitorCanvas = () => {
   if (!ctx) return
   ctx.fillStyle = '#000'
   ctx.fillRect(0, 0, canvas.width, canvas.height)
-  lastDrawMediaSec.value = -1
+  lastDrawFrameKey.value = ''
 }
 
-// drawDecoderFrame 将当前解码帧绘制到监看器画布（非 video 组件显示）。
-const drawDecoderFrame = () => {
+// drawVideoToMonitor 用于素材单条预览，不依赖时间线片段结构。
+const drawVideoToMonitor = (video: HTMLVideoElement, filter = 'none') => {
   ensureMonitorCanvasSize()
   const canvas = monitorCanvasRef.value
-  const decoder = decoderVideoRef.value
-  if (!canvas || !decoder) return false
+  if (!canvas) return false
   const ctx = canvas.getContext('2d')
   if (!ctx) return false
 
-  ctx.fillStyle = '#000'
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-  const sourceWidth = decoder.videoWidth
-  const sourceHeight = decoder.videoHeight
+  const sourceWidth = video.videoWidth
+  const sourceHeight = video.videoHeight
   if (sourceWidth <= 0 || sourceHeight <= 0) return false
-
   const scale = Math.min(canvas.width / sourceWidth, canvas.height / sourceHeight)
   const drawWidth = Math.max(1, Math.floor(sourceWidth * scale))
   const drawHeight = Math.max(1, Math.floor(sourceHeight * scale))
   const offsetX = Math.floor((canvas.width - drawWidth) / 2)
   const offsetY = Math.floor((canvas.height - drawHeight) / 2)
-  ctx.drawImage(decoder, offsetX, offsetY, drawWidth, drawHeight)
+  ctx.fillStyle = '#000'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.save()
+  ctx.filter = filter
+  ctx.drawImage(video, offsetX, offsetY, drawWidth, drawHeight)
+  ctx.restore()
+  lastDrawFrameKey.value = `single:${Math.floor(video.currentTime * 1000)}`
   return true
 }
 
-// drawDecoderFrameIfNeeded 对同一帧跳过重复 drawImage，降低播放时 canvas 开销。
-const drawDecoderFrameIfNeeded = (mediaSec: number, force = false) => {
-  if (!force && lastDrawMediaSec.value >= 0 && Math.abs(mediaSec - lastDrawMediaSec.value) < frameStepSec.value * 0.55) return true
-  const ok = drawDecoderFrame()
-  if (ok) lastDrawMediaSec.value = mediaSec
-  return ok
+const drawLayerToCanvas = (ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, video: HTMLVideoElement, clip: VideoTrackClip) => {
+  const sourceWidth = video.videoWidth
+  const sourceHeight = video.videoHeight
+  if (sourceWidth <= 0 || sourceHeight <= 0) return false
+  const scale = Math.min(canvas.width / sourceWidth, canvas.height / sourceHeight)
+  const drawWidth = Math.max(1, Math.floor(sourceWidth * scale))
+  const drawHeight = Math.max(1, Math.floor(sourceHeight * scale))
+  const offsetX = Math.floor((canvas.width - drawWidth) / 2)
+  const offsetY = Math.floor((canvas.height - drawHeight) / 2)
+  ctx.save()
+  ctx.filter = buildLayerFilter(clip)
+  ctx.globalCompositeOperation = 'source-over'
+  ctx.globalAlpha = 1
+  ctx.drawImage(video, offsetX, offsetY, drawWidth, drawHeight)
+  ctx.restore()
+  return true
 }
 
-const ensureDecoderSource = async (sourceURL: string) => {
-  const decoder = decoderVideoRef.value
-  if (!decoder) return false
+// drawCompositedFrame 按轨道顺序渲染所有激活层，低轨先画、高轨覆盖。
+const drawCompositedFrame = (layers: ActiveVideoLayer[], force = false) => {
+  ensureMonitorCanvasSize()
+  const canvas = monitorCanvasRef.value
+  if (!canvas) return false
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return false
+
+  const frameKey = layers
+    .map((layer) => {
+      const sourceURL = layer.segment.source?.url || ''
+      const state = sourceURL ? decoderStateMap.get(sourceURL) : null
+      const mediaTime = state ? state.video.currentTime : 0
+      return `${layer.segment.index}:${Math.floor(mediaTime * 1000)}`
+    })
+    .join('|')
+  if (!force && frameKey === lastDrawFrameKey.value) return true
+
+  ctx.fillStyle = '#000'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  let drawn = 0
+  for (const layer of layers) {
+    const sourceURL = layer.segment.source?.url || ''
+    if (!sourceURL) continue
+    const state = decoderStateMap.get(sourceURL)
+    if (!state || !state.metaReady || state.video.readyState < 2) continue
+    if (drawLayerToCanvas(ctx, canvas, state.video, layer.segment.clip)) drawn += 1
+  }
+  if (drawn > 0) lastDrawFrameKey.value = frameKey
+  return drawn > 0
+}
+
+const syncLayerDecoder = async (layer: ActiveVideoLayer, allowPlay: boolean) => {
+  const sourceURL = layer.segment.source?.url || ''
   if (!sourceURL) return false
+  const state = getOrCreateDecoderState(sourceURL)
+  const ready = await ensureDecoderReady(state)
+  if (!ready) return false
 
-  if (previewSourceUrl.value === sourceURL && decoderMetaReady.value && decoder.readyState >= 1) return true
-
-  decoderMetaReady.value = false
-  previewSourceUrl.value = sourceURL
-  lastDrawMediaSec.value = -1
-
-  await new Promise<void>((resolve) => {
-    let done = false
-    const finish = () => {
-      if (done) return
-      done = true
-      window.clearTimeout(timer)
-      decoder.removeEventListener('loadedmetadata', onLoaded)
-      decoder.removeEventListener('error', onError)
-      resolve()
-    }
-    const onLoaded = () => {
-      decoderMetaReady.value = true
-      finish()
-    }
-    const onError = () => finish()
-    const timer = window.setTimeout(() => finish(), 2000)
-    decoder.addEventListener('loadedmetadata', onLoaded, { once: true })
-    decoder.addEventListener('error', onError, { once: true })
-
-    if (decoder.src !== sourceURL) {
-      decoder.src = sourceURL
-      decoder.load()
-    } else if (decoder.readyState >= 1) {
-      decoderMetaReady.value = true
-      finish()
-    }
-  })
-
-  return decoderMetaReady.value
-}
-
-const seekDecoderFrame = async (targetTime: number) => {
-  const decoder = decoderVideoRef.value
-  if (!decoder) return false
-  if (!Number.isFinite(targetTime)) return false
-
-  const duration = Number.isFinite(decoder.duration) ? decoder.duration : 0
-  const maxTime = duration > 0 ? Math.max(0, duration-0.001) : targetTime
-  const clamped = Math.max(0, Math.min(maxTime, targetTime))
-  if (Math.abs(decoder.currentTime - clamped) <= frameStepSec.value / 2) return true
-
-  return new Promise<boolean>((resolve) => {
-    let done = false
-    const finish = (ok: boolean) => {
-      if (done) return
-      done = true
-      window.clearTimeout(timer)
-      decoder.removeEventListener('seeked', onSeeked)
-      decoder.removeEventListener('error', onError)
-      resolve(ok)
-    }
-    const onSeeked = () => finish(true)
-    const onError = () => finish(false)
-    const timer = window.setTimeout(() => finish(false), 1200)
-    decoder.addEventListener('seeked', onSeeked, { once: true })
-    decoder.addEventListener('error', onError, { once: true })
-    try {
-      decoder.currentTime = clamped
-    } catch (_error) {
-      finish(false)
-    }
-  })
-}
-
-// syncPreviewByPlayhead 是实时预览核心：根据播放头定位片段并将帧渲染到 canvas。
-const syncPreviewByPlayhead = async (allowPlay = false) => {
-  const currentTaskID = ++renderTaskID.value
-  const active = activeVideoSegment.value
-  if (!active || !active.source) {
-    previewSourceUrl.value = ''
-    lastActiveVideoIndex.value = -1
-    clearMonitorCanvas()
-    return
-  }
-
-  const range = effectiveVideoRange(active.clip)
-  const localTimelineSec = playheadSec.value - active.startSec
-  const targetMediaTime = Math.max(range.inSec, Math.min(range.outSec, range.inSec + localTimelineSec * range.speed))
-  const decoder = decoderVideoRef.value
-  if (!decoder) {
-    clearMonitorCanvas()
-    return
-  }
-
-  const sourceReady = await ensureDecoderSource(active.source.url)
-  if (currentTaskID !== renderTaskID.value) return
-  if (!sourceReady) {
-    clearMonitorCanvas()
-    return
-  }
-
-  lastActiveVideoIndex.value = active.index
-  const needSeek = Math.abs(decoder.currentTime - targetMediaTime) > (allowPlay ? 0.18 : frameStepSec.value / 2)
+  const tolerance = allowPlay ? 0.2 : frameStepSec.value / 2
+  const needSeek = Math.abs(state.video.currentTime - layer.targetMediaTime) > tolerance
   if (needSeek) {
-    const seekOK = await seekDecoderFrame(targetMediaTime)
-    if (currentTaskID !== renderTaskID.value) return
-    if (!seekOK) {
-      clearMonitorCanvas()
-      return
-    }
+    const seekOK = await seekDecoderTo(state, layer.targetMediaTime, tolerance)
+    if (!seekOK) return false
   }
 
-  decoder.playbackRate = range.speed
-  drawDecoderFrameIfNeeded(decoder.currentTime, !allowPlay || needSeek)
+  if (Math.abs(state.video.playbackRate - layer.range.speed) > 0.001) state.video.playbackRate = layer.range.speed
   if (allowPlay) {
     try {
-      if (decoder.paused) await decoder.play()
-      isPlaying.value = true
-      startPlaybackLoop()
+      if (state.video.paused) await state.video.play()
     } catch (_error) {
-      stopPlayback()
+      return false
     }
   } else {
-    decoder.pause()
+    state.video.pause()
   }
+  return true
+}
+
+// syncPreviewByPlayhead 根据播放头同步所有激活层解码器，并在画布合成预览。
+const syncPreviewByPlayhead = async (allowPlay = false) => {
+  const currentTaskID = ++renderTaskID.value
+  const layers = getActiveVideoLayers(playheadSec.value)
+  if (layers.length === 0) {
+    lastActiveVideoIndex.value = -1
+    clearMonitorCanvas()
+    pauseInactiveDecoders(new Set())
+    return
+  }
+
+  const activeSourceSet = new Set<string>()
+  for (const layer of layers) {
+    if (layer.segment.source?.url) activeSourceSet.add(layer.segment.source.url)
+  }
+  pauseInactiveDecoders(activeSourceSet)
+
+  let syncedCount = 0
+  for (const layer of layers) {
+    const ok = await syncLayerDecoder(layer, allowPlay)
+    if (currentTaskID !== renderTaskID.value) return
+    if (ok) syncedCount += 1
+  }
+  if (syncedCount === 0) {
+    clearMonitorCanvas()
+    if (allowPlay) stopPlayback()
+    return
+  }
+
+  const topLayer = layers[layers.length - 1]
+  lastActiveVideoIndex.value = topLayer.segment.index
+  lastLayerSignature.value = buildLayerSignature(layers)
+  drawCompositedFrame(layers, true)
+
+  if (allowPlay) {
+    isPlaying.value = true
+    startPlaybackLoop()
+    return
+  }
+  stopPlaybackLoop()
+  isPlaying.value = false
 }
 
 const updatePlayheadByClientX = (clientX: number) => {
@@ -1204,16 +1355,35 @@ const onLaneClick = (event: MouseEvent, kind: TrackKind, trackId: string) => {
 
 const getVideoClip = (index: number) => renderConfig.videoTrack[index] || null
 const getAudioClip = (index: number) => renderConfig.audioTrack[index] || null
+const clampPlayhead = (value: number) => snapSec(Math.min(totalDurationSec.value, Math.max(0, value)))
+
+// scheduleDragPreviewSync 在拖拽高频 mousemove 中合并预览刷新，降低抖动和卡顿。
+const scheduleDragPreviewSync = () => {
+  if (dragPreviewRAF.value !== null) cancelAnimationFrame(dragPreviewRAF.value)
+  dragPreviewRAF.value = requestAnimationFrame(() => {
+    dragPreviewRAF.value = null
+    if (!isPlaying.value) syncPreviewByPlayhead(false)
+  })
+}
 
 // beginMove 开始拖动片段，更新 startSec。
 const beginMove = (kind: TrackKind, index: number, event: MouseEvent) => {
   const clip = kind === 'video' ? getVideoClip(index) : getAudioClip(index)
   if (!clip) return
+  const clipDuration = kind === 'video' ? effectiveVideoRange(clip as VideoTrackClip).duration : effectiveAudioRange(clip as AudioTrackClip).duration
+  const node = event.currentTarget as HTMLElement | null
+  let grabOffsetSec = Math.max(0, Math.min(clipDuration, playheadSec.value - clip.startSec))
+  if (node) {
+    const rect = node.getBoundingClientRect()
+    const offsetSec = (event.clientX - rect.left) / timelineScale.value
+    grabOffsetSec = Math.max(0, Math.min(clipDuration, offsetSec))
+  }
   dragState.value = {
     kind,
     index,
     mode: 'move',
     startClientX: event.clientX,
+    grabOffsetSec,
     initialStart: clip.startSec,
     initialIn: clip.inSec,
     initialOut: clip.outSec,
@@ -1233,6 +1403,7 @@ const beginTrim = (kind: TrackKind, index: number, side: TrimSide, event: MouseE
     index,
     mode: side === 'left' ? 'trim-left' : 'trim-right',
     startClientX: event.clientX,
+    grabOffsetSec: 0,
     initialStart: clip.startSec,
     initialIn: clip.inSec,
     initialOut: clip.outSec,
@@ -1264,6 +1435,8 @@ const handleDragMove = (event: MouseEvent) => {
         else activeAudioTrackId.value = laneTrackID
       }
     }
+    // 推断探针位置：探针跟随鼠标在片段内的抓取点，避免“片段跳到探针”错位感。
+    if (state.kind === 'video') playheadSec.value = clampPlayhead(clip.startSec + state.grabOffsetSec)
   }
   if (state.mode === 'trim-left') {
     const targetIn = state.initialIn + deltaSec * state.speed
@@ -1285,11 +1458,16 @@ const handleDragMove = (event: MouseEvent) => {
   }
 
   keepPlayheadVisible(isPlaying.value)
-  syncPreviewByPlayhead(isPlaying.value)
+  if (!isPlaying.value) scheduleDragPreviewSync()
 }
 
 const handleDragEnd = () => {
   dragState.value = null
+  if (dragPreviewRAF.value !== null) {
+    cancelAnimationFrame(dragPreviewRAF.value)
+    dragPreviewRAF.value = null
+  }
+  if (!isPlaying.value) syncPreviewByPlayhead(false)
   window.removeEventListener('mousemove', handleDragMove)
   window.removeEventListener('mouseup', handleDragEnd)
 }
@@ -1299,16 +1477,15 @@ const runMonitorDiagnostics = async () => {
   stopPlayback()
   const checks: MonitorCheckItem[] = []
   const canvas = monitorCanvasRef.value
-  const decoder = decoderVideoRef.value
-  if (!canvas || !decoder) {
-    checks.push({ label: '监看器节点', pass: false, detail: '未找到 canvas 或 decoder 节点' })
+  if (!canvas) {
+    checks.push({ label: '监看器节点', pass: false, detail: '未找到 canvas 节点' })
     monitorChecks.value = checks
     return
   }
 
   // 自检前先自动跳到最近可播放片段，避免“当前播放头无片段”造成连锁失败。
-  let active = activeVideoSegment.value
-  if (!active && videoSegments.value.length > 0) {
+  let layers = activeVideoLayers.value
+  if (layers.length === 0 && videoSegments.value.length > 0) {
     const sorted = videoSegments.value
       .slice()
       .sort((a, b) => a.startSec - b.startSec || b.trackOrder - a.trackOrder)
@@ -1316,44 +1493,54 @@ const runMonitorDiagnostics = async () => {
     playheadSec.value = snapSec(target.startSec)
     await syncPreviewByPlayhead(false)
     await nextTick()
-    active = activeVideoSegment.value
+    layers = activeVideoLayers.value
   }
 
-  if (active && !previewSourceUrl.value && active.source?.url) {
-    previewSourceUrl.value = active.source.url
-    await nextTick()
-  }
+  const topLayer = layers.length > 0 ? layers[layers.length - 1] : null
+  const boundSources = new Set(layers.map((layer) => layer.segment.source?.url || '').filter((url) => !!url))
+  checks.push({ label: '激活片段', pass: !!topLayer, detail: topLayer ? `${topLayer.segment.clip.trackId} / ${topLayer.segment.clip.fileName}` : '未找到可播放片段' })
+  checks.push({ label: '视频源绑定', pass: boundSources.size > 0, detail: boundSources.size > 0 ? `已绑定 ${boundSources.size} 路 source` : '未找到可用 source URL' })
 
-  const hasSource = !!previewSourceUrl.value
-  checks.push({ label: '激活片段', pass: !!active, detail: active ? `${active.clip.trackId} / ${active.clip.fileName}` : '未找到可播放片段' })
-  checks.push({ label: '视频源绑定', pass: hasSource, detail: hasSource ? '已绑定 source URL' : '未找到可用 source URL' })
-
-  if (!hasSource) {
+  if (!topLayer || boundSources.size === 0) {
     checks.push({ label: '元数据加载', pass: false, detail: '无视频源，跳过元数据检测' })
     checks.push({ label: 'Seek 定位', pass: false, detail: '无视频源，跳过 seek 检测' })
     checks.push({ label: '帧渲染', pass: false, detail: '无视频源，跳过逐帧渲染' })
+    checks.push({ label: '播放/暂停', pass: false, detail: '无视频源，跳过播放检测' })
     monitorChecks.value = checks
     return
   }
 
-  const metadataReady = await ensureDecoderSource(previewSourceUrl.value)
+  const masterURL = topLayer.segment.source?.url || ''
+  const masterState = getOrCreateDecoderState(masterURL)
+  const metadataReady = await ensureDecoderReady(masterState)
   checks.push({ label: '元数据加载', pass: metadataReady, detail: metadataReady ? 'loadedmetadata 已触发' : '超时未触发' })
 
-  const segment = activeVideoSegment.value
-  const range = segment ? effectiveVideoRange(segment.clip) : null
-  const targetMediaTime = range ? Math.max(range.inSec, Math.min(range.outSec, range.inSec + (playheadSec.value - (segment?.startSec || 0)) * range.speed)) : 0
-  const seekOK = metadataReady ? await seekDecoderFrame(targetMediaTime) : false
+  const targetMediaTime = topLayer.targetMediaTime
+  const seekOK = metadataReady ? await seekDecoderTo(masterState, targetMediaTime, frameStepSec.value / 2) : false
   checks.push({ label: 'Seek 定位', pass: seekOK, detail: seekOK ? `定位到 ${targetMediaTime.toFixed(3)}s` : 'seek 失败' })
 
-  const drawOK = seekOK ? drawDecoderFrame() : false
-  checks.push({ label: '帧渲染', pass: drawOK, detail: drawOK ? '画布已完成 drawImage' : '未成功绘制视频帧' })
+  const drawOK = seekOK ? drawCompositedFrame(layers, true) : false
+  checks.push({ label: '帧渲染', pass: drawOK, detail: drawOK ? '画布已完成多轨合成绘制' : '未成功绘制视频帧' })
+
+  let playPauseOK = false
+  if (metadataReady) {
+    try {
+      await masterState.video.play()
+      masterState.video.pause()
+      playPauseOK = true
+    } catch (error: any) {
+      playPauseOK = false
+      checks.push({ label: '播放/暂停', pass: false, detail: error?.message || '播放失败' })
+    }
+  }
+  if (metadataReady && playPauseOK) checks.push({ label: '播放/暂停', pass: true, detail: '主轨解码器可正常播放和暂停' })
 
   try {
     const prev = playheadSec.value
     playheadSec.value = snapSec(Math.min(totalDurationSec.value, prev + frameStepSec.value))
     await syncPreviewByPlayhead(false)
     const moved = playheadSec.value > prev
-    checks.push({ label: '时间线联动', pass: moved, detail: moved ? '播放头推进后画布已同步' : '播放头未推进' })
+    checks.push({ label: '时间线联动', pass: moved, detail: moved ? '播放头推进后多轨画布已同步' : '播放头未推进' })
   } catch (error: any) {
     checks.push({ label: '时间线联动', pass: false, detail: error?.message || '联动校验异常' })
   }
@@ -1523,14 +1710,14 @@ watch(
 )
 
 watch(playheadSec, () => {
-  if (isPlaying.value) return
+  if (isPlaying.value || dragState.value) return
   keepPlayheadVisible(false)
   syncPreviewByPlayhead(false)
 })
 
 const handleWindowResize = () => {
   ensureMonitorCanvasSize()
-  if (previewSourceUrl.value) {
+  if (activeVideoLayers.value.length > 0) {
     syncPreviewByPlayhead(false)
     return
   }
@@ -1549,6 +1736,17 @@ onMounted(async () => {
 onUnmounted(() => {
   stopPlayback()
   endScrub()
+  if (dragPreviewRAF.value !== null) {
+    cancelAnimationFrame(dragPreviewRAF.value)
+    dragPreviewRAF.value = null
+  }
+  for (const state of decoderStateMap.values()) {
+    state.video.pause()
+    state.video.removeAttribute('src')
+    state.video.load()
+    state.video.remove()
+  }
+  decoderStateMap.clear()
   window.removeEventListener('mousemove', handleDragMove)
   window.removeEventListener('mouseup', handleDragEnd)
   window.removeEventListener('keydown', handleGlobalKeydown)
@@ -1589,6 +1787,7 @@ onUnmounted(() => {
 .monitor-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .preview-wrap { position: relative; width: 100%; aspect-ratio: 16/9; border-radius: 10px; overflow: hidden; border: 1px solid #2e3545; background: #0d1017; }
 .preview-canvas { width: 100%; height: 100%; display: block; background: #000; }
+.decoder-host { display: none; }
 .decoder-video { display: none; }
 .safe-area { position: absolute; inset: 8% 10%; border: 1px dashed rgba(255,255,255,.5); pointer-events: none; color: rgba(255,255,255,.8); font-size: 11px; padding: 4px; }
 .badge { position: absolute; left: 10px; bottom: 10px; background: rgba(0,0,0,.58); color: #fff; border-radius: 8px; padding: 4px 8px; font-size: 12px; }
@@ -1610,7 +1809,7 @@ onUnmounted(() => {
 .ruler-lane, .track-lane { position: relative; cursor: pointer; }
 .tick { position: absolute; top: 0; width: 1px; height: 100%; background: rgba(255,255,255,.2); }
 .tick span { position: absolute; top: 2px; left: 4px; font-size: 10px; color: rgba(255,255,255,.78); }
-.track-lane::before { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(255,255,255,.03) 1px, transparent 1px); background-size: 44px 100%; pointer-events: none; }
+.track-lane::before { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(255,255,255,.03) 1px, transparent 1px); background-size: var(--grid-step, 44px) 100%; pointer-events: none; }
 .clip { position: absolute; top: 10px; height: 50px; border-radius: 8px; padding: 6px 12px; cursor: grab; overflow: hidden; border: 1px solid transparent; user-select: none; }
 .track-row.audio .clip { top: 7px; height: 46px; }
 .clip.video { background: linear-gradient(145deg, rgba(22,169,255,.38), rgba(26,121,255,.25)); }

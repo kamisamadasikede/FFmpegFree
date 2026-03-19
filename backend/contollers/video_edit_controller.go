@@ -409,7 +409,8 @@ func buildEditFFmpegArgs(request EditRenderRequest) ([]string, string, error) {
 	}
 
 	filters := make([]string, 0, len(videos)*4+len(audios)+16)
-	filters = append(filters, fmt.Sprintf("color=c=black:s=%d:%d:r=%d:d=%.3f[base]", request.Width, request.Height, request.FPS, timelineDuration))
+	// color 滤镜的尺寸参数必须是 WxH（例如 1280x720），不能写成 1280:720。
+	filters = append(filters, fmt.Sprintf("color=c=black:s=%dx%d:r=%d:d=%.3f[base]", request.Width, request.Height, request.FPS, timelineDuration))
 
 	sort.Slice(videos, func(i, j int) bool {
 		if videos[i].TrackOrder != videos[j].TrackOrder {
