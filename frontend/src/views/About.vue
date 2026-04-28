@@ -1,12 +1,12 @@
-<template>
+﻿<template>
   <div class="about-layout">
     <section class="panel hero-card">
       <div class="hero-main">
         <el-tag class="hero-badge" effect="plain">Desktop Toolkit</el-tag>
         <h1>FFmpegFree</h1>
         <p>
-          一个面向桌面的音视频与文档处理工具箱，提供转码、推流、文档转换、JSON
-          工具等核心能力，聚焦稳定性和处理效率。
+          面向直播与音视频生产的桌面工具集，提供直播诊断、自动录制归档、一键转推、多轨剪辑与导出等核心能力，
+          聚焦稳定性、实时性和工程效率。
         </p>
         <div class="hero-actions">
           <el-button type="primary" @click="openGitHub">GitHub 仓库</el-button>
@@ -90,28 +90,43 @@ import {
 const quickFacts = [
   { label: '版本', value: 'v1.0.0' },
   { label: '核心引擎', value: 'FFmpeg' },
-  { label: '后端能力', value: 'Go + Wails' },
+  { label: '后端能力', value: 'Go + Gin' },
   { label: '前端框架', value: 'Vue3 + TS' }
 ]
 
 const metrics = [
   { value: '7+', label: '视频格式', icon: VideoCamera },
-  { value: '4', label: '核心模块', icon: Grid },
+  { value: '4', label: '核心能力', icon: Grid },
   { value: '2', label: '文档能力', icon: Document },
   { value: '实时', label: '状态同步', icon: Promotion }
 ]
 
 const features = [
-  { title: '视频转码', desc: '按场景选择预设命令，兼顾画质、体积和速度。', icon: VideoCamera },
-  { title: '流媒体处理', desc: '支持推流、拉流与屏幕采集，任务状态实时可见。', icon: VideoPlay },
-  { title: '文档工具', desc: '支持 PDF 预览与 Office 转 PDF 的统一流程。', icon: Document },
-  { title: 'JSON 工具', desc: '支持格式化、错误定位与内容对比，提高调试效率。', icon: Monitor }
+  {
+    title: '直播健康诊断面板',
+    desc: '实时监看 FPS、延迟、丢帧和状态波动，快速定位卡顿与异常。',
+    icon: Monitor
+  },
+  {
+    title: '自动录制与分段归档',
+    desc: '直播自动落盘并按策略切片归档，便于回放、检索与素材沉淀。',
+    icon: VideoCamera
+  },
+  {
+    title: '一键转推工具',
+    desc: '支持多平台分发推流，减少重复操作并提升内容覆盖效率。',
+    icon: Promotion
+  },
+  {
+    title: '多轨剪辑与导出',
+    desc: '支持视频轨/音轨时间线编辑、监看器预览、转场特效与 FFmpeg 导出。',
+    icon: VideoPlay
+  }
 ]
-
 const stacks = [
   { title: '前端', lines: ['Vue3 + TypeScript', 'Element Plus', 'Monaco Editor'] },
-  { title: '后端', lines: ['Go + Gin', 'Wails 桌面端', 'REST + SSE'] },
-  { title: '媒体链路', lines: ['FFmpeg 转码与推流', '任务进度追踪', '预览与结果输出'] }
+  { title: '后端', lines: ['Go + Gin', 'REST + SSE', '任务编排与控制'] },
+  { title: '媒体链路', lines: ['FFmpeg 转码与合成', '多轨时间线渲染', '导出与归档输出'] }
 ]
 
 const formats = ['.mp4', '.avi', '.mkv', '.mov', '.flv', '.gif', '.webm']
@@ -347,3 +362,5 @@ const scrollToTech = () => {
   }
 }
 </style>
+
+
