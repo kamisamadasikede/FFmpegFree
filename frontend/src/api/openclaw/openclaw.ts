@@ -53,7 +53,7 @@ export interface OpenClawAuthCheckResult {
 }
 
 export interface OpenClawQuickConfigRequest {
-  provider: 'anthropic' | 'openai' | 'openrouter' | 'custom'
+  provider: 'anthropic' | 'openai' | 'openrouter' | 'orcarouter' | 'custom'
   apiKey: string
   apiBase: string
   apiKeyEnv: string

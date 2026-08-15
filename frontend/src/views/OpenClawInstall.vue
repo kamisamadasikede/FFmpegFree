@@ -59,6 +59,7 @@
                 <el-option label="Anthropic" value="anthropic" />
                 <el-option label="OpenAI" value="openai" />
                 <el-option label="OpenRouter" value="openrouter" />
+                <el-option label="OrcaRouter" value="orcarouter" />
                 <el-option label="自定义第三方 (OpenAI 兼容)" value="custom" />
               </el-select>
             </el-form-item>
@@ -304,7 +305,7 @@ const installForm = reactive({
 })
 
 const quickConfig = reactive({
-  provider: 'anthropic' as 'anthropic' | 'openai' | 'openrouter' | 'custom',
+  provider: 'anthropic' as 'anthropic' | 'openai' | 'openrouter' | 'orcarouter' | 'custom',
   apiKey: '',
   apiBase: '',
   apiKeyEnv: '',
@@ -575,6 +576,12 @@ watch(
     if (provider === 'custom') {
       if (!quickConfig.apiKeyEnv.trim()) quickConfig.apiKeyEnv = 'OPENAI_API_KEY'
       if (!quickConfig.apiBaseEnv.trim()) quickConfig.apiBaseEnv = 'OPENAI_BASE_URL'
+      return
+    }
+    if (provider === 'orcarouter') {
+      quickConfig.apiBase = 'https://api.orcarouter.ai/v1'
+      quickConfig.apiKeyEnv = 'ORCAROUTER_API_KEY'
+      quickConfig.apiBaseEnv = 'ORCAROUTER_BASE_URL'
       return
     }
     quickConfig.apiBase = ''

@@ -867,6 +867,8 @@ func providerToEnvVar(provider string) string {
 		return "OPENAI_API_KEY"
 	case "openrouter":
 		return "OPENROUTER_API_KEY"
+	case "orcarouter":
+		return "ORCAROUTER_API_KEY"
 	case "custom":
 		return "OPENAI_API_KEY"
 	default:
@@ -890,7 +892,7 @@ func sanitizeEnvName(raw string) (string, error) {
 func resolveProviderEnvConfig(req vo.OpenClawQuickConfigRequest, provider string) (string, string, error) {
 	defaultKeyEnv := providerToEnvVar(provider)
 	if defaultKeyEnv == "" {
-		return "", "", fmt.Errorf("unsupported provider, use anthropic/openai/openrouter/custom")
+		return "", "", fmt.Errorf("unsupported provider, use anthropic/openai/openrouter/orcarouter/custom")
 	}
 
 	customKeyEnv, err := sanitizeEnvName(req.APIKeyEnv)
