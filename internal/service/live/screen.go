@@ -94,9 +94,6 @@ func (s *Service) capabilities() CaptureCapabilities {
 }
 
 func (s *Service) unsupportedErr(c CaptureCapabilities) error {
-	if c.Platform != "windows" && c.Platform != "darwin" && c.Platform != "linux" {
-		return apperr.New(apperr.UnsupportedPlatform, c.Reason)
-	}
 	return apperr.New(apperr.UnsupportedPlatform, c.Reason)
 }
 
