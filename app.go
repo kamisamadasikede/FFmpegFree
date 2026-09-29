@@ -4,6 +4,7 @@ import (
 	"FFmpegFree/app"
 	"FFmpegFree/backend/contollers"
 	"FFmpegFree/internal/ffmpeg"
+	"FFmpegFree/internal/localassets"
 	"FFmpegFree/internal/paths"
 	"FFmpegFree/internal/service/convert"
 	"FFmpegFree/internal/service/media"
@@ -31,7 +32,12 @@ type App struct {
 	tasks      atomic.Pointer[task.Manager]
 	media      atomic.Pointer[media.Service]
 	conv       atomic.Pointer[convert.Service]
+	// local 是 /local/<token> 预览登记表，Edit 与 Doc 共用；main.go 把它的 Handler 挂到 AssetServer。
+	local *localassets.Registry
 }
+
+// localAssets 返回 /local/<token> 登记表（NewApp 时创建，永不为 nil）。小写，不会被 Wails 暴露。
+func (a *App) localAssets() *localassets.Registry { return a.local }
 
 // taskManager 返回任务管理器；OnStartup 完成前（或存储初始化失败时）为 nil。
 // 首字母小写，不会被 Wails 当作绑定方法暴露给前端。
@@ -47,7 +53,7 @@ func (a *App) convertService() *convert.Service { return a.conv.Load() }
 func NewApp(sys *system.Manager) *App {
 	// 根 ctx 在构造时就创建，保证绑定方法在 OnStartup 之前被调用也拿到有效的 ctx。
 	ctx, cancel := context.WithCancel(context.Background())
-	return &App{sys: sys, rootCtx: ctx, rootCancel: cancel}
+	return &App{sys: sys, rootCtx: ctx, rootCancel: cancel, local: localassets.New(localassets.Config{})}
 }
 
 // appContext 返回应用根 ctx，shutdown 时被取消。小写，不会被 Wails 暴露。
