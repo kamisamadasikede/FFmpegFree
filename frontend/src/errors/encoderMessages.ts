@@ -32,6 +32,8 @@ export const ENCODER_FALLBACK_TASK_ROW = '硬件编码失败，已自动改用 C
 export const ENCODER_FALLBACK_SETTINGS_LINK = '编码设置'
 export const ENCODER_FALLBACK_LOG_LINK = '查看日志'
 export const ENCODER_FALLBACK_CLOSE = '关闭提示'
+/** 嵌在剪辑导出条里的回退提示，关闭按钮的读屏名（外层导出条已有一个“关闭提示”，避免读屏读到两个同名按钮；只是无障碍标签，不显示） */
+export const ENCODER_FALLBACK_CLOSE_INNER = '关闭回退提示'
 /** 剪辑导出的提示条（设计稿没有，新增，待确认） */
 export const ENCODER_FALLBACK_EXPORT = '硬件编码失败，已自动改用 CPU 完成导出。'
 

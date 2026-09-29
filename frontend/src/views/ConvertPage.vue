@@ -3,7 +3,7 @@
     <!-- 左：待转换文件 -->
     <section class="col">
       <!-- 硬件编码失败已自动改用 CPU（契约 9.7）：整批只提示一条（批量时每个文件都回退也不刷屏） -->
-      <EncoderFallbackNotice v-if="fallbackShown" variant="convert" class="fbnote" @settings="router.push('/settings/general')" />
+      <EncoderFallbackNotice v-if="fallbackShown" variant="convert" class="fbnote" @settings="router.push(encoderSettingsLocation())" />
       <!-- 转换中：整体进度（设计稿 ?state=running 的 rprog） -->
       <div v-if="cv.mode === 'running'" class="panel rprog">
         <div class="top">
@@ -15,7 +15,7 @@
         <div class="meta">
           <span>速度<b>{{ cv.overall.speed || '—' }}</b></span>
           <span>当前文件剩余<b>{{ formatEta(cv.overall.etaSec) || '—' }}</b></span>
-          <span v-if="deviceText">{{ ENCODER_DEVICE_LABEL }}<b>{{ deviceText }}</b></span>
+          <span v-if="deviceText" class="dev" :title="`${ENCODER_DEVICE_LABEL} ${deviceText}`">{{ ENCODER_DEVICE_LABEL }}<b>{{ deviceText }}</b></span>
         </div>
       </div>
       <div v-else-if="cv.mode === 'done'" class="okline" role="status">
@@ -207,7 +207,7 @@ import { toAppError } from '@/api/call'
 import { hasWailsBackend } from '@/services/wails'
 import { useRouter } from 'vue-router'
 import EncoderFallbackNotice from '@/components/encoder/EncoderFallbackNotice.vue'
-import { showFallbackNotice, usedDeviceText, useEncoderDeviceList } from '@/api/encoderTask'
+import { encoderSettingsLocation, showFallbackNotice, usedDeviceText, useEncoderDeviceList } from '@/api/encoderTask'
 import { ENCODER_DEVICE_LABEL } from '@/errors/encoderMessages'
 import { actionErrorText } from '@/errors/errorMessages'
 import { PREVIEW_CONVERT, splitPresetName, useConvertStore, type ConvertRow } from '@/stores/convert'
@@ -767,6 +767,15 @@ void hasWailsBackend
   margin-top: var(--ff-space-2);
   font-size: var(--ff-fs-xs);
   color: var(--ff-text-2);
+}
+.rprog .meta span {
+  white-space: nowrap;
+}
+/* 设备名太长（如“NVIDIA GeForce RTX 4060 Laptop GPU”）时只截自己，不把“当前文件剩余”挤成两行；全名在 title 里 */
+.rprog .meta .dev {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .rprog .meta b {
   font-weight: 500;
