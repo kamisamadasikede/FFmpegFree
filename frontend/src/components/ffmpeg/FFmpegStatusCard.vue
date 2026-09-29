@@ -1,8 +1,8 @@
 <template>
-  <!-- 侧栏左下角的 ffmpeg 状态（设计说明 编码设备-v0.1 第一节）：整块外层 role="status"，一个 8px 状态点加一句 13px 的话。
+  <!-- 侧栏左下角的 ffmpeg 状态（设计说明 编码设备-v0.1 第一节 + 设计师定稿）：整块外层 role="status"，一个状态点加一句 13px 的话。
        版本、来源、路径、手动指定入口都在设置页的 ffmpeg 区域。 -->
-  <div class="ffst" :class="[view.tone, { collapsed }]" role="status" :aria-label="view.label" :data-tip="view.text">
-    <button v-if="clickable" type="button" class="ffr" :aria-label="`${view.label}，点击打开安装对话框`" @click="ffmpeg.dialogOpen = true">
+  <div class="ffst" :class="[view.tone, { collapsed }]" role="status" :aria-label="view.label" :title="view.label" :data-tip="collapsed ? view.label : view.text">
+    <button v-if="view.clickable" type="button" class="ffr" :aria-label="view.actionLabel" :title="view.actionLabel" @click="ffmpeg.dialogOpen = true">
       <i class="ffd" aria-hidden="true" />
       <span v-if="!collapsed" class="fft">{{ view.text }}</span>
     </button>
@@ -16,31 +16,17 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useFFmpegStore } from '@/stores/ffmpeg'
+import { ffmpegStatusView } from './statusView'
 
 defineProps<{ collapsed?: boolean }>()
 
 const ffmpeg = useFFmpegStore()
 
 /**
- * 只有三种表达：已就绪 / 未就绪 / 安装中。
- * 缺失、过旧、安装失败都归为“未就绪”（点开安装对话框后在对话框里看失败原因）。
- * 检测中（启动瞬间）设计稿没有这一态：仍显示“未就绪”，但用中性色且不可点，避免启动瞬间闪一下警告色。
+ * 四种表达：已就绪 / 检测中（启动瞬间，中性灰点，不可点）/ 未就绪（缺失、过旧、失败）/ 安装中。
+ * 未就绪和安装中整行可点，都是打开安装对话框（安装中的对话框里已有进度，不跳任务中心）；#53 的 dialogVisible 逻辑不动。
  */
-const view = computed(() => {
-  switch (ffmpeg.status.state) {
-    case 'ready':
-      return { tone: 'ok', text: 'ffmpeg 已就绪', label: 'ffmpeg 已就绪' }
-    case 'installing':
-      return { tone: 'run', text: 'ffmpeg 安装中…', label: 'ffmpeg 安装中…' }
-    case 'checking':
-      return { tone: 'q', text: 'ffmpeg 未就绪', label: 'ffmpeg 未就绪' }
-    default:
-      return { tone: 'warn', text: 'ffmpeg 未就绪', label: 'ffmpeg 未就绪' }
-  }
-})
-
-// 未就绪（缺失、过旧、失败）时整行可点，打开安装对话框；已就绪、检测中、安装中不可点（安装进度看顶部提示条 / 任务中心）
-const clickable = computed(() => view.value.tone === 'warn')
+const view = computed(() => ffmpegStatusView(ffmpeg.status.state))
 </script>
 
 <style scoped>
@@ -90,12 +76,14 @@ const clickable = computed(() => view.value.tone === 'warn')
 }
 .warn .ffr {
   color: var(--ff-warning-text);
+}
+button.ffr {
   cursor: pointer;
 }
-.warn .ffr:hover {
+button.ffr:hover {
   background: var(--ff-bg-hover);
 }
-.warn .ffr:focus-visible {
+button.ffr:focus-visible {
   outline: 2px solid var(--ff-primary);
   outline-offset: 2px;
 }
