@@ -1,6 +1,6 @@
 <template>
   <div class="row-wrap" :class="{ haserr: !!errorLine }">
-    <div ref="el" class="row" :class="`s-${state}`">
+    <div ref="el" class="row" :class="[`s-${state}`, { selectable, sel: selected }]" @click="onRowClick">
       <div class="thumb" :class="{ audio: isAudio }" aria-hidden="true">
         <img v-if="row.thumb" :src="row.thumb" alt="" />
         <FIcon v-else :name="isAudio ? 'music' : 'play'" :size="18" />
@@ -8,11 +8,10 @@
       </div>
 
       <div class="fmeta">
-        <div class="fname" :title="row.path">{{ row.name }}</div>
+        <button v-if="selectable" type="button" class="fname fbtn" :title="row.path" :aria-pressed="selected" :aria-label="`${row.name}，查看文件信息`" @click.stop="emit('select')">{{ row.name }}</button>
+        <div v-else class="fname" :title="row.path">{{ row.name }}</div>
         <div class="finfo">
-          <span v-if="infoText" class="ellip">{{ infoText }}</span>
-          <span v-else-if="state === 'invalid'" class="ellip">无法读取这个文件</span>
-          <span v-else class="ellip">正在读取文件信息…</span>
+          <span class="ellip" :title="state === 'invalid' ? row.path : undefined">{{ infoLine }}</span>
           <span v-if="toText" class="to">{{ toText }}</span>
         </div>
       </div>
@@ -46,7 +45,7 @@
         :description="errorLine.description"
         :show-retry="errorLine.retry"
         :busy="busy"
-       
+        announce
         :show-log="errorLine.log"
         @retry="emit('retry')"
         @change-output="emit('changeOutput')"
@@ -69,7 +68,8 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import ErrorLine from '@/components/common/ErrorLine.vue'
 import type { IconName } from '@/components/icon/icons'
-import { fileBaseName, formatBytes, formatEta, formatShortClock } from '@/utils/format'
+import { dirName, fileBaseName, formatBytes, formatEta, formatShortClock } from '@/utils/format'
+import { isAudioInfo, rowInfoText } from '@/utils/mediaText'
 import { probeErrorText, PROBE_ERROR_TITLE, SUBMIT_ERROR_TITLE } from '@/errors/errorMessages'
 import type { ConvertRow, RowState, RowTask } from '@/stores/convert'
 
@@ -83,6 +83,11 @@ const props = defineProps<{
   presetShort: string
   /** 展开日志时的文本；null = 未展开 */
   logText: string | null
+  /** ffmpeg 是否就绪：没就绪时“还没读取”的行显示“等待 ffmpeg” */
+  ffmpegReady?: boolean
+  /** 多个文件时可点选这一行查看文件信息卡 */
+  selectable?: boolean
+  selected?: boolean
   /** 该行的重试 / 更换输出位置正在处理：对应链接禁用（aria-busy），点击被忽略 */
   busy?: boolean
 }>()
@@ -96,6 +101,7 @@ const emit = defineEmits<{
   closeLog: []
   reveal: []
   visible: []
+  select: []
 }>()
 
 const el = ref<HTMLElement | null>(null)
@@ -112,25 +118,29 @@ onMounted(() => {
 })
 onUnmounted(() => io?.disconnect())
 
-const isAudio = computed(() => props.row.probe === 'ok' && props.row.info?.hasVideo === false)
+const isAudio = computed(() => props.row.probe === 'ok' && isAudioInfo(props.row.info))
 const durationText = computed(() => formatShortClock(props.row.info?.duration ?? 0))
-
-const CODEC: Record<string, string> = { h264: 'H.264', hevc: 'HEVC', h265: 'H.265', vp9: 'VP9', vp8: 'VP8', av1: 'AV1', mpeg4: 'MPEG-4', aac: 'AAC', mp3: 'MP3', opus: 'Opus', vorbis: 'Vorbis', flac: 'FLAC', ac3: 'AC-3', wmav2: 'WMA' }
-const codecName = (c?: string) => (c ? CODEC[c.toLowerCase()] ?? (c.startsWith('pcm') ? 'PCM' : c.toUpperCase()) : '')
 
 const infoText = computed(() => {
   const i = props.row.info
-  if (props.row.probe !== 'ok' || !i) return ''
-  const parts: string[] = []
-  if (i.hasVideo !== false && i.width) parts.push(`${i.width}×${i.height}`, codecName(i.videoCodec))
-  else {
-    if (i.sampleRate) parts.push(`${+(i.sampleRate / 1000).toFixed(1)} kHz`)
-    if (i.channels) parts.push(i.channels === 1 ? '单声道' : i.channels === 2 ? '立体声' : `${i.channels} 声道`)
-    if (!i.sampleRate && !i.channels && i.audioCodec) parts.push(codecName(i.audioCodec))
-  }
-  parts.push(formatBytes(i.size))
-  return parts.filter(Boolean).join(' · ')
+  return props.row.probe === 'ok' && i ? rowInfoText(i) : ''
 })
+/**
+ * 第二行：读取成功 = 分辨率 · 编码 · 大小；读取失败 = 文件所在文件夹（原因只在标签和下面的说明里写一遍，
+ * 文件名在上一行；读取失败拿不到大小）；还没读取 = 等待 ffmpeg / 正在读取。
+ */
+const infoLine = computed(() => {
+  if (infoText.value) return infoText.value
+  if (props.state === 'invalid') return dirName(props.row.path)
+  if (props.state === 'waiting' && props.ffmpegReady === false) return '装好 ffmpeg 后读取文件信息'
+  return '正在读取文件信息…'
+})
+
+function onRowClick(e: MouseEvent) {
+  if (!props.selectable) return
+  if ((e.target as HTMLElement).closest('button, a, pre')) return
+  emit('select')
+}
 
 const toText = computed(() => {
   if (props.state === 'invalid' || props.state === 'probing' || props.state === 'waiting') return ''
@@ -143,7 +153,7 @@ const showBar = computed(() => ['running', 'failed', 'interrupted'].includes(pro
 const barClass = computed(() => ({ run: props.state === 'running', fail: props.state === 'failed', int: props.state === 'interrupted' }))
 
 const TAGS: Record<RowState, { label: string; cls: string; icon?: IconName }> = {
-  waiting: { label: '读取中', cls: 'q' },
+  waiting: { label: '读取中', cls: 'q' }, // ffmpeg 未就绪时改成“等待 ffmpeg”，见 tag
   probing: { label: '读取中', cls: 'q' },
   invalid: { label: '无法读取', cls: 'fail', icon: 'warn' },
   conflict: { label: '不兼容', cls: 'fail', icon: 'warn' },
@@ -155,7 +165,7 @@ const TAGS: Record<RowState, { label: string; cls: string; icon?: IconName }> = 
   interrupted: { label: '已中断', cls: 'int', icon: 'warn' },
   canceled: { label: '已取消', cls: 'cx' },
 }
-const tag = computed(() => TAGS[props.state])
+const tag = computed(() => (props.state === 'waiting' && props.ffmpegReady === false ? { label: '等待 ffmpeg', cls: 'q' } : TAGS[props.state]))
 
 const progressText = computed(() => {
   switch (props.state) {
@@ -200,19 +210,26 @@ const errorLine = computed<ErrLine | null>(() => {
 <style scoped>
 .row-wrap {
   border-radius: var(--ff-radius-lg);
+  container-type: inline-size;
 }
 .row {
   display: flex;
   align-items: center;
   gap: var(--ff-space-3);
-  padding: 10px var(--ff-space-2);
+  padding: var(--ff-space-3) var(--ff-space-2);
   border-radius: 8px;
 }
 .row:hover {
   background: var(--ff-bg-hover);
 }
+.row.selectable {
+  cursor: pointer;
+}
+.row.sel {
+  background: var(--ff-primary-soft);
+}
 .row-wrap.haserr .row {
-  padding-bottom: 6px;
+  padding-bottom: var(--ff-space-2);
 }
 .thumb {
   width: 56px;
@@ -222,7 +239,7 @@ const errorLine = computed<ErrLine | null>(() => {
   position: relative;
   overflow: hidden;
   background: var(--ff-bg-hover);
-  color: var(--ff-text-3);
+  color: var(--ff-text-2);
   display: grid;
   place-items: center;
 }
@@ -239,12 +256,12 @@ const errorLine = computed<ErrLine | null>(() => {
 }
 .dur {
   position: absolute;
-  right: 3px;
+  right: 2px;
   bottom: 2px;
-  font-size: 10px;
-  line-height: 14px;
-  padding: 0 3px;
-  border-radius: 3px;
+  font-size: var(--ff-fs-xs);
+  line-height: 16px;
+  padding: 0 4px;
+  border-radius: var(--ff-radius-sm);
   color: var(--ff-text-1);
   background: color-mix(in srgb, var(--ff-bg-surface) 82%, transparent);
 }
@@ -258,9 +275,26 @@ const errorLine = computed<ErrLine | null>(() => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.fbtn {
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-weight: 500;
+  color: var(--ff-text-1);
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--ff-radius-sm);
+}
+.fbtn:focus-visible {
+  outline: 2px solid var(--ff-primary);
+  outline-offset: 2px;
+}
 .finfo {
   font-size: var(--ff-fs-xs);
-  color: var(--ff-text-3);
+  color: var(--ff-text-2);
   display: flex;
   gap: var(--ff-space-2);
   align-items: center;
@@ -278,6 +312,7 @@ const errorLine = computed<ErrLine | null>(() => {
 }
 .prog {
   width: 160px;
+  order: 0;
   flex: none;
   display: flex;
   flex-direction: column;
@@ -296,7 +331,7 @@ const errorLine = computed<ErrLine | null>(() => {
 }
 .tag {
   height: 20px;
-  padding: 0 7px;
+  padding: 0 8px;
   border-radius: var(--ff-radius-sm);
   font-size: var(--ff-fs-xs);
   display: inline-flex;
@@ -332,7 +367,7 @@ const errorLine = computed<ErrLine | null>(() => {
 .ops {
   display: flex;
   gap: 2px;
-  color: var(--ff-text-3);
+  color: var(--ff-text-2);
   min-width: 28px;
   justify-content: flex-end;
   flex: none;
@@ -373,6 +408,36 @@ const errorLine = computed<ErrLine | null>(() => {
 .btn.sm:hover {
   background: var(--ff-bg-hover);
 }
+/* 列表较窄时（窗口最小 1024 宽：列表约 440px）进度区换到第二行，文件名不再被挤成几个字 */
+@container (max-width: 520px) {
+  .row {
+    flex-wrap: wrap;
+    row-gap: var(--ff-space-2);
+  }
+  .fmeta {
+    flex: 1 1 0;
+  }
+  .ops {
+    order: 2;
+  }
+  .prog {
+    order: 3;
+    width: auto;
+    flex: 1 1 100%;
+    margin-left: 68px; /* 缩略图 56 + 间距 12，与文件名对齐 */
+  }
+  .finfo {
+    flex-wrap: wrap;
+    column-gap: var(--ff-space-2);
+  }
+  .prog .pline {
+    justify-content: flex-start;
+  }
+  .prog .ptxt {
+    text-align: left;
+    flex: 1;
+  }
+}
 .errwrap {
   padding: 0 var(--ff-space-2) var(--ff-space-3);
 }
@@ -386,7 +451,7 @@ const errorLine = computed<ErrLine | null>(() => {
   display: flex;
   align-items: center;
   gap: var(--ff-space-2);
-  padding: 6px 10px;
+  padding: var(--ff-space-2) var(--ff-space-3);
   font-size: var(--ff-fs-xs);
   color: var(--ff-text-2);
   border-bottom: 1px solid var(--ff-border);
@@ -400,7 +465,7 @@ const errorLine = computed<ErrLine | null>(() => {
   font-size: var(--ff-fs-xs);
   color: var(--ff-text-2);
   background: var(--ff-bg-app);
-  padding: 10px 12px;
+  padding: var(--ff-space-3);
   line-height: 1.7;
   white-space: pre;
   max-height: 150px;
