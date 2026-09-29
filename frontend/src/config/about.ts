@@ -13,9 +13,11 @@ export const LICENSE_SUMMARY = '本应用以木兰宽松许可证第 2 版发布
 export interface FontLicense {
   /** GetLicenseText 的参数（后端白名单） */
   name: 'OFL' | 'OFL-Nunito'
+  /** 字体名（渲染时加粗，600 / --ff-text-1） */
   font: string
-  /** 面板里的一行说明（12px --ff-text-2），「查看许可文本」链接跟在末尾 */
-  desc: string
+  /** 面板里一段说明（12px --ff-text-2）= before + 加粗的 font + after，「查看许可文本」链接跟在末尾（设计说明 §5、§8.5） */
+  before: string
+  after: string
   /** 弹窗标题 */
   dialogTitle: string
 }
@@ -24,14 +26,16 @@ export const FONT_LICENSES: readonly FontLicense[] = [
   {
     name: 'OFL',
     font: 'Noto Sans SC',
-    desc: 'Noto Sans SC 子集，遵循 SIL Open Font License 1.1，许可全文已内置在应用中。',
+    before: '文档页 Office 转 PDF 内置 ',
+    after: ' 子集字体，遵循 SIL Open Font License 1.1，许可全文已内置在应用中。',
     dialogTitle: '字体许可：Noto Sans SC（SIL Open Font License 1.1）',
   },
   {
-    // 后端 #36 合入前 GetLicenseText("OFL-Nunito") 会返回 INVALID_ARGUMENT，弹窗显示读取失败；文案待设计师定稿
+    // 文案按设计定稿。注意：v2 界面目前并没有使用 Nunito（--ff-font 里没有、没有 @font-face），这一条待产品经理二选一（接入 Nunito 或改文案/去掉本条）
     name: 'OFL-Nunito',
     font: 'Nunito',
-    desc: 'Nunito，遵循 SIL Open Font License 1.1，许可全文已内置在应用中。',
+    before: '界面字体 ',
+    after: '，遵循 SIL Open Font License 1.1，许可全文已内置在应用中。',
     dialogTitle: '字体许可：Nunito（SIL Open Font License 1.1）',
   },
 ]

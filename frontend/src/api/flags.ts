@@ -5,7 +5,9 @@
  */
 /** 直播：后端 LiveService（#31）已合入，联调打开。纯浏览器环境（无 window.go）仍走模拟，见 api/live.ts 的 liveIsReal() */
 export const LIVE_BACKEND_READY: boolean = true
-export const EDIT_BACKEND_READY: boolean = false
+/** 剪辑：后端 EditService（#30）已合入、契约已冻结，联调打开。纯浏览器环境（无 window.go）仍走模拟，见 api/edit.ts 的 editIsReal() */
+export const EDIT_BACKEND_READY: boolean = true
+/** 文档：后端 DocService（#29）已合入，联调打开。纯浏览器环境（无 window.go）仍走模拟，见 api/doc.ts 的 isDocSim() */
 export const DOC_BACKEND_READY: boolean = true
 /**
  * 关于页：GetAppVersion / GetLicenseText（后端 #34，绑定在 wailsjs/go/main/App）。

@@ -237,9 +237,23 @@ func (m *Manager) Submit(spec Spec, r Runner) (Task, error) {
 	return created, nil
 }
 
+// NeverRanner 是 Runner 可选实现的接口：任务在 Run 没有执行的情况下就结束（排队中被取消、提交后立即被取消、退出时还在排队）时，
+// 管理器在发终态事件之前调用一次 NeverRan，返回值作为该任务的输出路径（同 Run 的返回值，可以是 ClearOutputPath）。
+// 直播存档用它清理已经创建的空占位文件。
+type NeverRanner interface {
+	NeverRan() string
+}
+
+func neverRanOutput(r Runner) string {
+	if n, ok := r.(NeverRanner); ok {
+		return n.NeverRan()
+	}
+	return ""
+}
+
 // finishNeverRan 结束一个从未开始执行的任务（排队中被取消、退出时还在排队）：落库、发 task:status、调用 OnFinish。
 func (m *Manager) finishNeverRan(e *entry, st Status) {
-	e.finish(m, st, nil, "")
+	e.finish(m, st, nil, neverRanOutput(e.runner))
 	m.mu.Lock()
 	delete(m.entries, e.task.ID)
 	m.mu.Unlock()
@@ -325,7 +339,7 @@ func (m *Manager) launch(e *entry, countBatch bool) {
 
 func (m *Manager) execute(e *entry) {
 	if e.ctx.Err() != nil { // 出队前后被取消
-		m.finishAfterRun(e, e.ctx.Err(), "")
+		m.finishAfterRun(e, e.ctx.Err(), neverRanOutput(e.runner))
 		return
 	}
 	e.start()

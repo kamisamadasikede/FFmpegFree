@@ -96,7 +96,7 @@
   - `max_sessions`：“最多同时推 4 路”
 - **屏幕推流首版**（原 8 的其余部分，架构师已决）：不做区域选择，只推整块屏幕，可选来源以契约为准（`ListScreens`），契约没写的不加。
 - **屏幕推流两个错误码文案**（产品经理已定，两者不混用）：`SCREEN_PERMISSION_DENIED`：“没有获得屏幕录制权限，请在系统设置中允许 FFmpegFree 录制屏幕后重试”；`UNSUPPORTED_PLATFORM`：“当前系统暂不支持屏幕推流”（`errorMessages` 里新增了 `UNSUPPORTED_PLATFORM`）。
-- **剪辑**（产品经理已定）：默认导出分辨率 **1920×1080**（前端提交时显式写宽高，`newEditProject` / `VideoEditor.vue` 已改；后端兜底值也改为 1920×1080）；素材库上限 **100**（`checkSaveLimits` 已改）；一次删除 **≥5 个片段**才二次确认。
+- **剪辑**（产品经理已定）：默认导出分辨率 **1920×1080**（前端提交时显式写宽高，`newEditProject` / `VideoEditor.vue` 已改；后端兜底值也改为 1920×1080）；素材库上限 **100 个素材文件（sources）**、片段总数上限 100，均已定稿，后端超过返回 `INVALID_ARGUMENT`；前端上限集中在 `api/edit.ts` 的 `MAX_SOURCES`（界面计数 x/100、导入拦截、`checkSaveLimits` 都读它）；一次删除 **≥5 个片段**才二次确认。
 
 ### 产品经理直播错误文案定稿（已落地，逐字）
 

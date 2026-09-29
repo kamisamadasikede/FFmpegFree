@@ -130,7 +130,8 @@
   border: 1px solid var(--ff-border);
   border-radius: var(--ff-radius-md);
   background: var(--ff-bg-surface);
-  font-size: var(--ff-fs-sm);
+  font-family: var(--ff-font-mono); /* 设计说明：路径框等宽 12px（设置页共用） */
+  font-size: var(--ff-fs-xs);
   color: var(--ff-text-1);
   overflow: hidden;
   white-space: nowrap;

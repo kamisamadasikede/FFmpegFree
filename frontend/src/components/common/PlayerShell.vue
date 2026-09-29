@@ -1,5 +1,5 @@
 <template>
-  <div class="ff-player" :class="{ fill }">
+  <div class="ff-player" :class="{ fill, off: disabled }">
     <div class="stage">
       <!-- 16:9 画面区。放 <video> / mpegts 的 video 元素 / 预览画面，默认铺满 -->
       <div class="frame"><slot /></div>
@@ -9,11 +9,11 @@
 
     <div class="ctrl">
       <template v-if="mode === 'vod'">
-        <button type="button" class="ci" aria-label="上一帧" @click="emit('step', -1)"><FIcon name="left" :size="17" /></button>
-        <button type="button" class="pb" :aria-label="playing ? '暂停' : '播放'" @click="togglePlay">
+        <button type="button" class="ci step" :aria-label="labels.prev ?? '上一帧'" :aria-disabled="disabled || undefined" @click="!disabled && emit('step', -1)"><FIcon name="left" :size="17" /></button>
+        <button type="button" class="pb" :aria-label="playing ? (labels.pause ?? '暂停') : (labels.play ?? '播放')" :aria-disabled="disabled || undefined" @click="!disabled && togglePlay()">
           <FIcon :name="playing ? 'pause' : 'play'" :size="14" style="fill: #111" />
         </button>
-        <button type="button" class="ci" aria-label="下一帧" @click="emit('step', 1)"><FIcon name="right" :size="17" /></button>
+        <button type="button" class="ci step" :aria-label="labels.next ?? '下一帧'" :aria-disabled="disabled || undefined" @click="!disabled && emit('step', 1)"><FIcon name="right" :size="17" /></button>
         <span class="tc">{{ fmt(current) }} <em>/ {{ fmt(duration) }}</em></span>
         <div
           ref="seekEl"
@@ -21,12 +21,13 @@
           role="slider"
           tabindex="0"
           aria-label="播放进度"
+          :aria-disabled="disabled || undefined"
           :aria-valuemin="0"
           :aria-valuemax="duration"
           :aria-valuenow="current"
-          @pointerdown="onSeekDown"
-          @keydown.left.prevent="seekBy(-5)"
-          @keydown.right.prevent="seekBy(5)"
+          @pointerdown="!disabled && onSeekDown($event)"
+          @keydown.left.prevent="!disabled && seekBy(-5)"
+          @keydown.right.prevent="!disabled && seekBy(5)"
         >
           <i :style="{ width: pct + '%' }"></i><b :style="{ left: pct + '%' }"></b>
         </div>
@@ -70,8 +71,14 @@ const props = withDefaults(
     statusIcon?: IconName
     /** 撑满父容器高度：画面 16:9 居中留黑边（直播页用）；默认按宽度算 16:9 高度（编辑页用） */
     fill?: boolean
+    /** 控制条的播放 / 上一帧 / 下一帧 / 进度条置为 aria-disabled（40% 不透明度，仍可聚焦）；剪辑页预览失败时用 */
+    disabled?: boolean
+    /** 控制条按钮的读屏名称；不传用默认（剪辑页要“停止播放”而不是“暂停”） */
+    labels?: { play?: string; pause?: string; prev?: string; next?: string }
+    /** 时间码格式：hms = 00:01:12.08（默认）；ms = 00:12.08，满 1 小时才带小时（剪辑页） */
+    timeFormat?: 'hms' | 'ms'
   }>(),
-  { mode: 'vod', fps: 25, statusIcon: 'rec', fill: false },
+  { mode: 'vod', fps: 25, statusIcon: 'rec', fill: false, disabled: false, labels: () => ({}), timeFormat: 'hms' },
 )
 
 const playing = defineModel<boolean>('playing', { default: false })
@@ -104,7 +111,9 @@ function fmt(sec: number) {
   const whole = Math.floor(s)
   const frames = Math.min(props.fps - 1, Math.floor((s - whole) * props.fps + 1e-6)) // 加 1e-6 防止 72.32*25 这类浮点误差少算一帧
   const p = (n: number) => String(n).padStart(2, '0')
-  return `${p(Math.floor(whole / 3600))}:${p(Math.floor((whole % 3600) / 60))}:${p(whole % 60)}.${p(frames)}`
+  const h = Math.floor(whole / 3600)
+  const hh = props.timeFormat === 'ms' && !h ? '' : `${p(h)}:`
+  return `${hh}${p(Math.floor((whole % 3600) / 60))}:${p(whole % 60)}.${p(frames)}`
 }
 
 function seekTo(t: number) {
@@ -284,6 +293,13 @@ function onSeekDown(e: PointerEvent) {
   align-items: center;
   color: #d6d9de;
   flex: none;
+}
+/* 预览失败等：只有播放 / 上一帧 / 下一帧 / 进度条变灰，静音和全屏仍可用 */
+.off .pb,
+.off .seek,
+.off .ci[aria-disabled='true'] {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 .ctrl button:focus-visible,
 .seek:focus-visible {

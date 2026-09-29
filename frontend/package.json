@@ -8,7 +8,8 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "check:json": "node scripts/check-json-text.mjs",
-    "check:api": "node scripts/check-api.mjs"
+    "check:api": "node scripts/check-api.mjs",
+    "check:edit": "node scripts/check-edit.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",

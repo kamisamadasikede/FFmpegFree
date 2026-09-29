@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.12）
+# FFmpegFree v2 接口契约（v0.13）
+
+v0.13 变更（EditService 素材上限，随实现回改的小修订，见 6.11 节）：`EditProject.sources`（素材库）上限由 200 改为 100（产品经理定稿：素材 100）；`SaveProject` / `ValidateProject` / `Export` 超过 100 个返回 `INVALID_ARGUMENT`（message「素材库最多 100 个文件」，detail 第一行 `project`、第二行 `sources=<实际个数>`）。clip 总数（视频 + 音频）上限不变，仍是 100——**素材 100 / 片段 100 都是 100，是两个独立上限**。无接口签名变化。
 
 v0.12 变更（DocService 契约定稿，**只有契约，尚无实现**，见 6.12 节）：`ConvertToPDF` 保持签名，格式范围如实收窄为 `docx` / `xlsx` / `pptx` **纯文本版**（与 v1 一致：无图片、表格线、样式；旧版 `doc` / `xls` / `ppt` 及其他格式一律 `UNSUPPORTED`）；`GetPDFURL` 替换为 `OpenPDF`（返回 `PDFSource`）+ `ReadPDFChunk`（分块读，走 Wails Bind，不依赖 AssetServer 行为）；新增 `GetDocCapabilities` / `ListRecentPDFs` / `RemoveRecentPDFs`；新增表 `doc_recent`；任务类型 `office_pdf` 保持不变；PDF 渲染、页数、缩略图、搜索全部在前端 pdf.js（`@tato30/vue-pdf`）完成，后端不渲染、不提供合并 / 拆分 / 旋转（v1 也没有）。
 
@@ -633,7 +635,7 @@ type EditProject struct {
     SchemaVersion int          `json:"schemaVersion"` // 当前 1；大于 1 的工程 LoadProject 返回 UNSUPPORTED
     ID            string       `json:"id"`            // 新建时空
     Name          string       `json:"name"`          // 去首尾空白后 1~80 字
-    Sources       []string     `json:"sources"`       // 素材库：绝对路径，去重，最多 200 个，只是列表，不保证存在
+    Sources       []string     `json:"sources"`       // 素材库：绝对路径，去重，最多 100 个（v0.13 由 200 改为 100，产品经理定：素材 100），只是列表，不保证存在
     Output        EditOutput   `json:"output"`
     VideoTrack    []VideoClip  `json:"videoTrack"`    // 沿用 v1 的平铺结构，用 trackId 区分轨道
     AudioTrack    []AudioClip  `json:"audioTrack"`
@@ -710,7 +712,7 @@ type PreviewURL struct {
 **顺序（决定"第一个校验失败的片段"是谁，实现必须按此顺序，测试逐条断言）**：0 环境 → 1 工程级 → 2 逐 clip 字段（先 `videoTrack` 再 `audioTrack`，各自按数组顺序）→ 3 逐 clip 路径与探测（同上顺序；同一素材的失败记在按顺序第一个用到它的 clip 上）→ 4 同轨重叠（A）→ 5 输出（名字、目录、路径长度，见 6.11.3）。第一个失败就返回，不累计。
 
 0. **环境**：ffmpeg / ffprobe 就绪，否则 `FFMPEG_NOT_FOUND`；**filtergraph 文件选项的功能探测**（导出方式依赖它，见 6.11.3「命令行长度」）。**背景（实测）**：项目默认安装的是 **ffmpeg 9.0.2**（`internal/ffmpeg/manifest.json`），**9.0 已移除 `-filter_complex_script`**（`Unrecognized option 'filter_complex_script'`，退出码 8）；同一份滤镜文件用 **`-/filter_complex <file>`** 在 9.0.2 和 7.1.5 上都是退出码 0。所以**功能探测择一、先新后旧**：① **先探 `-/filter_complex`**（7.0 起）；② 不支持再探 `-filter_complex_script`（6.x）；③ **两个都不支持才返回 `UNSUPPORTED`**，`detail` 第一行 `project`、第二行 **`missing=filter_complex`**（不再是 `missing=filter_complex_script`），**不落 `PROCESS_FAILED`**。探测方式是功能探测而不是解析帮助文本或按版本号判断：`ffmpeg -hide_banner -nostdin -loglevel error -f lavfi -i nullsrc=s=32x32:r=5:d=0.4 <选项> <临时文件，内容 [0:v]scale=16:16[v]> -map [v] -f null -`，`<选项>` 依次是 `-/filter_complex`、`-filter_complex_script`；退出码 0 = 可用；不认识的选项退出码 8、stderr `Unrecognized option`。**实测**：9.0.2（martin-riedl 静态构建，SHA-256 与 manifest 一致）`-/filter_complex` 退出码 0（约 0.01 秒）、`-filter_complex_script` 退出码 8；7.1.5 两个都是 0；滤镜文件含换行（`scale=16:16,\nsetsar=1`）时 `-/filter_complex` 在 9.0.2 和 7.1.5 上也是 0。**探测结果（选中了哪个选项，或都不支持）按 ffmpeg 二进制缓存到进程内，key = 路径 + 文件大小 + 修改时间**（换 ffmpeg 即失效）；`Export` 用探测选中的那个选项。**未验证**：6.x 上 `-/filter_complex` 不可用、`-filter_complex_script` 可用（架构师给的版本边界，箱子上没有 6.x）；8.x 两个选项各自的状态未测。
-1. **工程级**：`videoTrack` 不能为空（v1 同）；clip 总数（视频 + 音频）≤ 100；`sources` ≤ 200 且都是绝对路径；名称 1~80 字；序列化后 ≤ 1 MiB；`schemaVersion` = 1；输出参数范围；时间线总长 ≤ 6 小时（**按 clip 自填值 `max(startSec + (outSec − inSec) / speed)` 检查，不扣转场、不探测素材**，见 E）。
+1. **工程级**：`videoTrack` 不能为空（v1 同）；clip 总数（视频 + 音频）≤ 100；`sources` ≤ 100 且都是绝对路径；名称 1~80 字；序列化后 ≤ 1 MiB；`schemaVersion` = 1；输出参数范围；时间线总长 ≤ 6 小时（**按 clip 自填值 `max(startSec + (outSec − inSec) / speed)` 检查，不扣转场、不探测素材**，见 E）。
 2. **逐 clip 字段**（数值越界一律 `INVALID_ARGUMENT`，v1 是悄悄截断，v2 改为报错）：`id` 匹配 `^[A-Za-z0-9_-]{1,64}$` 且工程内唯一；`trackId` 匹配 `V1~V8`（视频）/ `A1~A8`（音频）；所有数值必须是有限数（拒绝 NaN / Inf）；`startSec ≥ 0`；`inSec ≥ 0`；**`outSec > inSec`，`outSec = 0` 或 `outSec ≤ inSec` 一律 `INVALID_ARGUMENT`**；`speed` 0.25~4（空(0)= 1）；`volume` 0~4；`blur` 0~4；`effectPreset` / `transitionToNext` 不在枚举内；`transitionDurationSec`：**显式设置**（> 0）时范围 0.1~2，且不超过相邻两个 clip 中较短者的一半（clip 时长 = `(outSec − inSec) / speed`），越界 `INVALID_ARGUMENT`；**空(0)= 默认 0.5 秒**，默认值超过较短者的一半时**不报错**：① **静默缩短到较短者时长的一半**；② 一半**不足 0.1 秒**（即较短者 < 0.2 秒）则该转场**不生效**（这两个 clip 直接 `concat`），并给警告 `transition_ignored`（6.11.2 D）。显式值不做缩短，也不因为"一半不足 0.1 秒"放行（显式 0.1 起步，超限就是超限）。**clip 折算后的时长（`(outSec − inSec) / speed`）不足 0.04 秒 → `INVALID_ARGUMENT`**（否则导出 0 帧；素材截断到素材时长之后再算一次，见第 3 条）。
 3. **逐 clip 路径**：必须绝对路径且不含控制字符（含换行，否则会破坏 `detail` 的行格式）——**含控制字符的路径直接 `INVALID_ARGUMENT`，不探测、不访问文件系统**（`detail` 第一行的 `path=` 里控制字符一律替换成 `?`，保证仍是单行）；不存在 `NOT_FOUND`；是目录 `INVALID_ARGUMENT`；无读权限 `IO_ERROR`；ffprobe 失败 `PROBE_FAILED`。视频 clip 的素材必须有视频流，音频 clip 的素材必须有音频流，否则 `INVALID_ARGUMENT`。`inSec ≥ 素材时长` → `INVALID_ARGUMENT`；`outSec` 超过素材时长 **0.05 秒以内静默取整到素材时长，不报警告**（浮点 / 毫秒吸附误差，不值得打扰用户）；更大则截断到素材时长并记警告 `out_truncated`。截断 / 取整之后 clip 时长仍要满足第 2 条的 ≥ 0.04 秒，否则 `INVALID_ARGUMENT`。素材探测复用 `MediaService` 的探测实现与缓存（超时 30 秒、根 ctx 取消返回 `CANCELED`）；**探测结果缓存的 key 含路径、文件大小和修改时间**（文件被替换或改动即失效，不会拿旧的时长去校验）。
 
@@ -812,7 +814,7 @@ type PreviewURL struct {
 ### 6.11.5 工程存取
 
 - **`EditProjectMeta.durationSec`**：`SaveProject` 返回（以及 `ListProjects` 列表）的时长是**按 clip 自填值估算的**，即 `max(startSec + (outSec − inSec) / speed)`，**不探测素材、不扣转场**（6.11.2 E）；精确时长以 `ValidateProject` 的 `EditPlan.durationSec` 为准。
-- 表 `edit_projects(id, name, project JSON, updated_at)` 已在第 6 节。`SaveProject`：`id` 空 = 新建（ULID），否则更新（不存在 `NOT_FOUND`）；名称重复允许。**只校验数量上限（架构师定）**：名称去首尾空白后 1~80 字、clip 总数 ≤ 100、`sources` ≤ 200、序列化后 ≤ 1 MiB、`schemaVersion` ≤ 1，超了 `INVALID_ARGUMENT`。**不校验**同轨重叠、`outSec`、`speed` 等取值范围、路径是否存在（草稿可以保存，比如正在拖动中的时间线）；这些只在 `ValidateProject` 和 `Export` 报。所以 `LoadProject` 可能读出不合法的草稿，前端要能显示，导出前再调 `ValidateProject`。
+- 表 `edit_projects(id, name, project JSON, updated_at)` 已在第 6 节。`SaveProject`：`id` 空 = 新建（ULID），否则更新（不存在 `NOT_FOUND`）；名称重复允许。**只校验数量上限（架构师定）**：名称去首尾空白后 1~80 字、clip 总数 ≤ 100、`sources` ≤ 100、序列化后 ≤ 1 MiB、`schemaVersion` ≤ 1，超了 `INVALID_ARGUMENT`。**不校验**同轨重叠、`outSec`、`speed` 等取值范围、路径是否存在（草稿可以保存，比如正在拖动中的时间线）；这些只在 `ValidateProject` 和 `Export` 报。所以 `LoadProject` 可能读出不合法的草稿，前端要能显示，导出前再调 `ValidateProject`。
 - `LoadProject` 不因素材丢失而失败，缺失路径放 `missingPaths`；`SchemaVersion` 大于 1 → `UNSUPPORTED`。
 - 后端不做自动保存，也不做撤销栈；前端需要时自行防抖调用 `SaveProject`。
 

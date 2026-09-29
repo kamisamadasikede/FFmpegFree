@@ -29,11 +29,11 @@
     <!-- 第三方许可 -->
     <section class="panel group" aria-labelledby="h-third">
       <div class="phead"><h2 id="h-third">第三方许可</h2></div>
-      <div v-for="lic in FONT_LICENSES" :key="lic.name" class="srow lic">
+      <div class="srow lic">
         <div class="l">
-          <b>字体来源和许可<template v-if="FONT_LICENSES.length > 1">：{{ lic.font }}</template></b>
-          <!-- 一个 <p>，链接跟在末尾；允许在窄窗口下折成两行，不截断、不 nowrap -->
-          <p>{{ lic.desc }}<a class="lnk sm" role="button" tabindex="0" @click.prevent="openLicense(lic, $event)" @keydown.enter.prevent="openLicense(lic, $event)" @keydown.space.prevent="openLicense(lic, $event)">查看许可文本</a></p>
+          <b>字体来源和许可</b>
+          <!-- 每条一个 <p>，链接跟在末尾；允许在窄窗口下折成两行，不截断、不 nowrap -->
+          <p v-for="lic in FONT_LICENSES" :key="lic.name">{{ lic.before }}<b class="fn">{{ lic.font }}</b>{{ lic.after }}<a class="lnk sm" role="button" tabindex="0" :aria-label="`查看许可文本：${lic.font}`" @click.prevent="openLicense(lic)" @keydown.enter.prevent="openLicense(lic)" @keydown.space.prevent="openLicense(lic)">查看许可文本</a></p>
         </div>
       </div>
     </section>
@@ -52,10 +52,10 @@ import { getAppVersion, DEV_VERSION } from '@/api/about'
 import { FONT_LICENSES, LICENSE_SUMMARY, LICENSE_URL, PROJECT_URL, type FontLicense } from '@/config/about'
 import { openExternal } from '@/utils/openExternal'
 
-const version = ref('')
+const version = ref(DEV_VERSION)
 onMounted(async () => {
   try {
-    version.value = await getAppVersion()
+    version.value = (await getAppVersion()).trim() || DEV_VERSION
   } catch (e) {
     console.error('读取版本号失败', e)
     version.value = DEV_VERSION
@@ -64,7 +64,7 @@ onMounted(async () => {
 
 const current = ref<FontLicense | null>(null)
 const dialogOpen = ref(false)
-function openLicense(lic: FontLicense, _e: Event) {
+function openLicense(lic: FontLicense) {
   current.value = lic
   dialogOpen.value = true
 }
@@ -135,7 +135,16 @@ function openLicense(lic: FontLicense, _e: Event) {
   line-height: 1.5;
   color: var(--ff-text-2);
 }
+.srow.lic .l p + p {
+  margin-top: var(--ff-space-2);
+}
 .srow.lic .l p .lnk {
   margin-left: var(--ff-space-2);
+}
+/* 字体名：同字号加粗，--ff-text-1（.srow .l b 是 display:block，这里要行内） */
+.srow.lic .l p .fn {
+  display: inline;
+  font-weight: 600;
+  color: var(--ff-text-1);
 }
 </style>
