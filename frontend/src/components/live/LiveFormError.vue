@@ -2,6 +2,7 @@
   <div :id="errorId" class="lv-err" role="alert">
     <FIcon name="warn" :size="14" />
     <span>{{ text }}</span>
+    <slot />
   </div>
 </template>
 

@@ -269,6 +269,28 @@ export async function runApiChecks(): Promise<string[]> {
   eq('来源消失：刷新后该窗口不在列表里，其他窗口和屏幕还在', [after.some((x) => x.id === 'window:65890'), after.length], [false, 3])
   win.location.search = ''
   live.resetSimSources()
+  // Windows 分组下拉的纯函数：标题中间省略（尾部固定 10 个字符）、选择器形态判断（不靠“列表为空”）
+  {
+    const { splitSourceTitle, sourcePickerMode } = await import('@/utils/liveSource')
+    eq('中间省略：短标题不拆', splitSourceTitle('会议纪要.txt - 记事本'), { head: '会议纪要.txt - 记事本', tail: '' })
+    const long = '2026年第三季度经营分析汇报（终稿·第12版）- 演示文稿'
+    const sp = splitSourceTitle(long)
+    eq('中间省略：长标题尾部保留最后 10 个字符，头 + 尾 = 全名', [Array.from(sp.tail).length, sp.head + sp.tail === long, sp.tail], [10, true, '（终稿·第12版）- 演示文稿'.slice(-10)])
+    eq('中间省略：按码点，不劈开 emoji', splitSourceTitle('😀'.repeat(30)).tail, '😀'.repeat(10))
+    eq('选择器形态：Windows → 下拉；列表里有窗口 → 下拉；macOS / Linux 仅屏幕 → 单选列表；空列表不改变判断', [sourcePickerMode('windows', []), sourcePickerMode('', [{ kind: 'window' }]), sourcePickerMode('darwin', [{ kind: 'screen' }]), sourcePickerMode('linux', []), sourcePickerMode('', [])], ['dropdown', 'dropdown', 'list', 'list', 'list'])
+    win.location.search = '?sim_os=linux&sim_sources=screens'
+    eq('模拟 Linux：平台 linux、三块屏、主屏名“屏幕 1（主显示器）”、没有窗口', [(await live.getCaptureCapabilities()).platform, (await live.listCaptureSources()).map((x) => x.title)], ['linux', ['屏幕 1（主显示器）', '屏幕 2', '屏幕 3']])
+    win.location.search = ''
+    eq('模拟 Windows（默认）：平台 windows；主屏名“屏幕 1（主显示器）”，不再用“（主）”', [(await live.getCaptureCapabilities()).platform, (await live.listCaptureSources())[0].title, JSON.stringify(await live.listCaptureSources()).includes('（主）')], ['windows', '屏幕 1（主显示器）', false])
+    win.location.search = '?sim_sources=stale'
+    live.resetSimSources()
+    await live.listCaptureSources()
+    eq('刷新失败保留旧列表：第一次成功，之后刷新失败', (await rejects(live.listCaptureSources()))?.code, 'INTERNAL')
+    win.location.search = '?sim_sources=nowin'
+    eq('Windows 没有窗口：只有屏幕', (await live.listCaptureSources()).map((x) => x.kind), ['screen', 'screen'])
+    win.location.search = ''
+    live.resetSimSources()
+  }
   // 表单错误映射：LIVE_SOURCE_GONE 显示在来源选择器下方（where=source），窗口 / 屏幕文案，INVALID_ARGUMENT 沿用通用文案
   eq('表单错误：窗口消失', pushErrorToForm(new AppError('LIVE_SOURCE_GONE', 'm', 'kind=window')), { where: 'source', text: '所选窗口已不可用，请重新选择' })
   eq('表单错误：屏幕消失', pushErrorToForm(new AppError('LIVE_SOURCE_GONE', 'm', 'kind=screen')), { where: 'source', text: '所选屏幕已不可用，请重新选择' })
@@ -831,6 +853,12 @@ export async function runApiChecks(): Promise<string[]> {
       eq('提示：startedAt=0（从未运行：排队中取消 / 退出时还在排队，字段仍是提交时的值）→ 不显示提示、不显示设备', [encTask.showFallbackNotice({ ...fb, startedAt: 0 }, on), encTask.usedDeviceText({ ...fb, startedAt: 0 }, devs, on)], [false, ''])
       eq('提示：startedAt 缺省同样不显示', [encTask.showFallbackNotice({ ...fb, startedAt: undefined }, on), encTask.usedDeviceText({ ...fb, startedAt: undefined }, devs, on)], [false, ''])
       eq('提示：没有任务 / 没有编码器字段 → 不显示', [encTask.showFallbackNotice(undefined, on), encTask.showFallbackNotice({ startedAt: 1000 }, on), encTask.usedDeviceText({ startedAt: 1000 }, devs, on)], [false, false, ''])
+      // 直播页提示条（推流页）：live_* 任务里有 startedAt>0 且 hwFallback 才显示；startedAt 为 0 / 缺失、非直播任务、功能未启用都不显示
+      const liveFb = { ...fb, type: 'live_file_push' }
+      eq('直播提示条：运行过的直播任务回退 → 显示（文件 / 屏幕推流都算）', [encTask.liveFallbackShown([liveFb], on), encTask.liveFallbackShown([{ ...liveFb, type: 'live_screen_push' }], on)], [true, true])
+      eq('直播提示条：startedAt=0 / 缺失 → 不显示', [encTask.liveFallbackShown([{ ...liveFb, startedAt: 0 }], on), encTask.liveFallbackShown([{ ...liveFb, startedAt: undefined }], on)], [false, false])
+      eq('直播提示条：没回退 / 非直播任务回退 / 功能未启用 / 空列表 → 不显示', [encTask.liveFallbackShown([{ ...liveFb, hwFallback: false }], on), encTask.liveFallbackShown([{ ...fb, type: 'convert' }], on), encTask.liveFallbackShown([liveFb], false), encTask.liveFallbackShown([], on)], [false, false, false, false])
+      eq('直播提示条：列表里只要有一个满足就显示', encTask.liveFallbackShown([{ ...liveFb, hwFallback: false }, { ...liveFb, startedAt: 0 }, liveFb], on), true)
       // 标志：ENCODER_BACKEND_READY=true → Wails 里整体启用；纯浏览器只有 ?enc= 启用（仅开发）
       eq('标志：ENCODER_BACKEND_READY 为 true', encApi.ENCODER_BACKEND_READY, true)
       win.location.search = ''
@@ -864,7 +892,7 @@ export async function runApiChecks(): Promise<string[]> {
       eq('encoderMessages 全部文案（含原因句）不含编码器名', texts.filter((t) => banned.test(t)), [])
       const fs = await import('node:fs')
       const root = `${process.cwd()}/` // npm run check:api 在 frontend/ 下运行
-      const tplFiles = ['src/views/ConvertPage.vue', 'src/views/TaskCenter.vue', 'src/components/edit/ExportStrip.vue', 'src/components/encoder/EncoderFallbackNotice.vue']
+      const tplFiles = ['src/views/ConvertPage.vue', 'src/views/TaskCenter.vue', 'src/components/edit/ExportStrip.vue', 'src/components/encoder/EncoderFallbackNotice.vue', 'src/components/live/LiveFallbackNotice.vue']
       const tplHits: string[] = []
       for (const f of tplFiles) {
         const src = fs.readFileSync(root + f, 'utf8')

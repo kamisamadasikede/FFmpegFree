@@ -1,14 +1,28 @@
 <template>
   <LiveTabFrame>
     <template #main>
+      <LiveFallbackNotice />
       <LivePushPreview />
-      <LiveSessionList empty-hint="选择屏幕并填写推流地址，点击“开始推流”" />
+      <LiveSessionList :empty-hint="pickerMode === 'dropdown' ? LIVE_RECORD_EMPTY_HINT_WIN : LIVE_RECORD_EMPTY_HINT" />
     </template>
     <template #panel>
       <LivePanel title="推流设置">
-        <LiveField :label="LIVE_SOURCE_FIELD_LABEL" :control="false">
-          <CaptureSourcePicker v-model="sourceId" :sources="sources" :state="srcState" :invalid="err?.where === 'source'" @update:model-value="onPick" @refresh="loadSources" />
-          <LiveFormError v-if="err?.where === 'source'" :text="err.text" />
+        <LiveField :label="pickerMode === 'dropdown' ? LIVE_SOURCE_FIELD_LABEL : LIVE_SOURCE_FIELD_LABEL_SCREEN" :control="false">
+          <CaptureSourcePicker
+            ref="picker"
+            v-model="sourceId"
+            :sources="sources"
+            :state="srcState"
+            :mode="pickerMode"
+            :invalid="err?.where === 'source'"
+            :gone="goneShown"
+            :gone-item="goneItem"
+            @update:model-value="onPick"
+            @refresh="loadSources(true)"
+          />
+          <LiveFormError v-if="err?.where === 'source'" :text="err.text">
+            <button type="button" class="lk" @click="refreshFromError">{{ LIVE_SOURCE_REFRESH }}</button>
+          </LiveFormError>
           <p v-if="sourceId" class="note"><FIcon name="info" :size="14" />{{ LIVE_SCREEN_NO_AUDIO_TEXT }}</p>
         </LiveField>
         <LiveField label="推流地址">
@@ -54,12 +68,14 @@ import LiveInput from '@/components/live/LiveInput.vue'
 import LiveButton from '@/components/live/LiveButton.vue'
 import LiveFormError from '@/components/live/LiveFormError.vue'
 import CaptureSourcePicker from '@/components/live/CaptureSourcePicker.vue'
+import LiveFallbackNotice from '@/components/live/LiveFallbackNotice.vue'
 import LivePushPreview from '@/components/live/LivePushPreview.vue'
 import PreviewSwitch from '@/components/live/PreviewSwitch.vue'
 import LiveSessionList from '@/components/live/LiveSessionList.vue'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { useLiveSessionsStore } from '@/stores/liveSessions'
-import { LIVE_SCREEN_NO_AUDIO_TEXT, LIVE_SOURCE_FIELD_LABEL, LIVE_SRT_PASSPHRASE_TEXT, liveSourceGoneText } from '@/errors/errorMessages'
+import { sourcePickerMode } from '@/utils/liveSource'
+import { LIVE_RECORD_EMPTY_HINT, LIVE_RECORD_EMPTY_HINT_WIN, LIVE_SCREEN_NO_AUDIO_TEXT, LIVE_SOURCE_FIELD_LABEL, LIVE_SOURCE_FIELD_LABEL_SCREEN, LIVE_SOURCE_REFRESH, LIVE_SRT_PASSPHRASE_TEXT, liveSourceGoneText } from '@/errors/errorMessages'
 import { PREVIEW_SWITCH_NOTE_STARTING } from '@/errors/livePreviewMessages'
 import { composePushUrl, parsePushUrl } from '@/utils/liveUrl'
 import * as liveApi from '@/api/live'
@@ -79,6 +95,13 @@ const sources = ref<liveApi.CaptureSource[]>([])
 const sourceId = ref('')
 const srcState = ref<'loading' | 'ready' | 'empty' | 'failed'>('loading')
 let srcSeq = 0
+const picker = ref<InstanceType<typeof CaptureSourcePicker> | null>(null)
+/** 平台（GetCaptureCapabilities.platform）：windows → 分组下拉；其他 → 屏幕单选列表。读不到就靠列表里有没有窗口判断，不靠“列表为空” */
+const platform = ref('')
+const pickerMode = computed(() => sourcePickerMode(platform.value, sources.value))
+/** LIVE_SOURCE_GONE：选择器红边 + 名称保留（尺寸位置显示“已不可用”）。重选后 err 清掉即恢复 */
+const goneItem = ref<liveApi.CaptureSource | null>(null)
+const goneShown = computed(() => err.value?.where === 'source' && !!goneItem.value && !sourceId.value)
 /** 预览开关：会话启动参数，默认开；产品经理已定：不记住上次选择，每次打开表单默认开 */
 const previewOn = ref(true)
 const baseUrl = ref('')
@@ -118,12 +141,17 @@ async function loadSources(keep = true) {
       return
     }
     srcState.value = 'ready'
+    // 来源已失效（红边 + 错误行）时刷新不自动改选，等用户重选
+    if (goneShown.value) return
     if (!(keep && list.some((x) => x.id === sourceId.value))) sourceId.value = (list.find((x) => x.kind === 'screen') ?? list[0]).id
   } catch {
     if (my !== srcSeq) return
-    sources.value = []
-    sourceId.value = ''
     srcState.value = 'failed'
+    // 刷新失败且已有旧列表：保留旧列表和已选项（“刷新失败，列表可能已过期”）；首次失败：清空
+    if (!sources.value.length || !keep) {
+      sources.value = []
+      if (!goneShown.value) sourceId.value = ''
+    }
   }
 }
 function pickedSource(id: string) {
@@ -133,15 +161,20 @@ function pickedSource(id: string) {
 /** 换了来源就清掉来源错误 */
 function onPick() {
   if (err.value?.where === 'source') err.value = null
+  goneItem.value = null
+}
+/** 错误行的“刷新列表”：展开选择器并立即刷新（Windows）；屏幕单选列表只刷新 */
+function refreshFromError() {
+  if (pickerMode.value === 'dropdown') picker.value?.openPop()
+  else void loadSources(true)
 }
 /** 表单错误统一入口：LIVE_SOURCE_GONE → 取消已选来源 + 自动刷新列表，错误留在来源选择器下方 */
 function showError(e: Pick<AppError, 'code' | 'message' | 'detail' | 'reason' | 'scheme' | 'kind'>, scheme: string) {
   err.value = pushErrorToForm(e, scheme)
   if (e.code === 'LIVE_SOURCE_GONE') {
-    sourceId.value = ''
-    void loadSources(false).then(() => {
-      sourceId.value = '' // 已不可用的来源要用户重新选，不自动改选
-    })
+    goneItem.value = sources.value.find((x) => x.id === sourceId.value) ?? goneItem.value
+    sourceId.value = '' // 已不可用的来源要用户重新选，不自动改选
+    void loadSources(true)
   }
 }
 
@@ -183,6 +216,7 @@ async function start() {
 
 onMounted(async () => {
   void store.recover()
+  platform.value = (await liveApi.getCaptureCapabilities().catch(() => null))?.platform ?? ''
   await loadSources(false)
   const f = formPreview
   if (f === 'window') sourceId.value = sources.value.find((x) => x.kind === 'window')?.id ?? sourceId.value
@@ -202,12 +236,24 @@ onMounted(async () => {
     screen1: pushErrorToForm({ code: 'TASK_CONFLICT', message: '', reason: 'screen_busy' } as never),
     srcgone: { where: 'source', text: liveSourceGoneText('window') },
     srcgonescreen: { where: 'source', text: liveSourceGoneText('screen') },
+    srcgoneopen: { where: 'source', text: liveSourceGoneText('window') },
     perm: pushErrorToForm({ code: 'SCREEN_PERMISSION_DENIED', message: '' } as never),
     unsupported: pushErrorToForm({ code: 'UNSUPPORTED_PLATFORM', message: '' } as never),
     nosrt: pushErrorToForm({ code: 'UNSUPPORTED', message: '', detail: 'missing=srt' } as never),
     noproto: pushErrorToForm({ code: 'UNSUPPORTED', message: '' } as never),
   }
-  if (f === 'srcgone' || f === 'srcgonescreen') sourceId.value = ''
+  if (f === 'srcgone' || f === 'srcgonescreen') {
+    goneItem.value = { id: 'window:0', kind: f === 'srcgone' ? 'window' : 'screen', title: f === 'srcgone' ? '会议纪要.txt - 记事本' : '屏幕 2', width: 1280, height: 720 }
+    sourceId.value = ''
+  }
+  if (f === 'srcgoneopen') {
+    // 设计稿 213：点“刷新列表”后展开、失效窗口已从列表消失
+    goneItem.value = { id: 'window:0', kind: 'window', title: '会议纪要.txt - 记事本', width: 1280, height: 720 }
+    sourceId.value = ''
+    err.value = { where: 'source', text: liveSourceGoneText('window') }
+    await nextTick()
+    picker.value?.openPop()
+  }
   if (f === 'srtpass' || f === 'connfailsrt' || f === 'nosrt') baseUrl.value = 'srt://srt.example.com:9000'
   if (f === 'same') baseUrl.value = 'rtmp://push.example.com/live'
   await nextTick() // 上面改地址 / 口令会触发“清错误”的 watch，等它跑完再放预览错误
@@ -216,6 +262,20 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.lk {
+  border: 0;
+  background: none;
+  padding: 0 0 0 8px;
+  font: inherit;
+  color: var(--ff-primary-text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.lk:focus-visible {
+  outline: 2px solid var(--ff-primary);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
 .note {
   margin: 8px 0 0;
   display: flex;

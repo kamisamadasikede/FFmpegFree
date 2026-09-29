@@ -354,6 +354,10 @@ export async function getCaptureCapabilities(): Promise<CaptureCapabilities> {
   if (code === 'UNSUPPORTED_PLATFORM') {
     return { supported: false, platform: 'linux', backend: '', sessionType: 'wayland', permission: 'notRequired', audioCapture: false, reason: '当前是 Wayland 会话，暂不支持屏幕采集，请切换到 X11 会话' }
   }
+  // 模拟平台：默认 Windows（分组下拉，可选窗口）；?sim_sources=screens 或 ?sim_os=mac|linux → macOS / Linux（屏幕单选列表）
+  const os = simParam('sim_os') ?? (simParam('sim_sources') === 'screens' ? 'mac' : 'win')
+  if (os === 'linux') return { supported: true, platform: 'linux', backend: 'x11grab', sessionType: 'x11', permission: 'notRequired', audioCapture: false, reason: '' }
+  if (os === 'win') return { supported: true, platform: 'windows', backend: 'gdigrab', sessionType: '', permission: 'notRequired', audioCapture: false, reason: '' }
   return {
     supported: true, platform: 'darwin', backend: 'avfoundation', sessionType: '', audioCapture: false, reason: '',
     permission: code === 'SCREEN_PERMISSION_DENIED' ? 'denied' : 'granted',
@@ -376,9 +380,13 @@ export async function listCaptureSources(): Promise<CaptureSource[]> {
   await simDelay(120)
   if (mode === 'fail') simError('INTERNAL', '获取采集来源失败')
   if (mode === 'empty') return []
+  // stale：第一次成功，之后刷新都失败（有旧列表时的“刷新失败”）；refreshing：第一次成功，之后刷新一直在途（“刷新中”）
+  if (mode === 'stale' && simListCalls >= 1) simError('INTERNAL', '获取采集来源失败')
+  if (mode === 'refreshing' && simListCalls >= 1) return new Promise(() => undefined)
   const list = simSources()
   simListCalls++
-  return mode === 'screens' ? list.filter((s) => s.kind === 'screen') : list
+  // screens：只有屏幕（macOS / Linux）；nowin：Windows 但没有可选窗口
+  return mode === 'screens' || mode === 'nowin' ? list.filter((s) => s.kind === 'screen') : list
 }
 
 let simListCalls = 0
@@ -393,10 +401,27 @@ function simSources(): CaptureSource[] {
   const windows: CaptureSource[] = [
     ...(gone ? [] : [{ id: 'window:65890', kind: 'window' as const, title: '演示文稿.pptx - PowerPoint', width: 1600, height: 900 }]),
     { id: 'window:131426', kind: 'window', title: '记事本', width: 800, height: 600 },
+    // ?sim_win=many：设计稿里的 5 个窗口（含长标题，看中间省略）
+    ...(simParam('sim_win') === 'many'
+      ? [
+          { id: 'window:200001', kind: 'window' as const, title: '会议纪要.txt - 记事本', width: 1280, height: 720 },
+          { id: 'window:200002', kind: 'window' as const, title: '产品原型 - 设计工具', width: 1600, height: 900 },
+          { id: 'window:200003', kind: 'window' as const, title: '直播中控台 - 浏览器', width: 1440, height: 900 },
+          { id: 'window:200004', kind: 'window' as const, title: '2026年第三季度经营分析汇报（终稿·第12版）- 演示文稿', width: 1920, height: 1080 },
+          { id: 'window:200005', kind: 'window' as const, title: '概念片_终版.mp4 - 视频播放器', width: 1280, height: 720 },
+        ]
+      : []),
   ]
   return [...screens, ...windows]
 }
 function simScreenList(): ScreenInfo[] {
+  if (simParam('sim_os') === 'linux') {
+    return [
+      { id: 'x11:0', name: '屏幕 1（主显示器）', primary: true, x: 0, y: 0, width: 1920, height: 1080, scale: 1 },
+      { id: 'x11:1', name: '屏幕 2', primary: false, x: 1920, y: 0, width: 2560, height: 1440, scale: 1 },
+      { id: 'x11:2', name: '屏幕 3', primary: false, x: -1280, y: 0, width: 1280, height: 720, scale: 1 },
+    ]
+  }
   return [
     { id: 'avf:0', name: '屏幕 1（主显示器）', primary: true, x: 0, y: 0, width: 1920, height: 1080, scale: 2 },
     { id: 'avf:1', name: '屏幕 2', primary: false, x: 1920, y: 0, width: 2560, height: 1440, scale: 1 },

@@ -305,6 +305,7 @@ export const LIVE_SCREEN_NO_AUDIO_TEXT = '屏幕推流暂不包含声音'
 
 // ---- 直播 v1.1 采集来源选择器文案（设计稿未出，先按 v0.2 风格；**全部待产品经理确认**，改字只改这里）----
 export const LIVE_SOURCE_FIELD_LABEL = '采集来源'
+export const LIVE_SOURCE_FIELD_LABEL_SCREEN = '屏幕来源' // macOS / Linux 屏幕单选列表的标签（设计说明 §4.7）
 export const LIVE_SOURCE_GROUP_SCREEN = '屏幕'
 export const LIVE_SOURCE_GROUP_WINDOW = '应用窗口'
 export const LIVE_SOURCE_REFRESH = '刷新列表'
@@ -312,6 +313,22 @@ export const LIVE_SOURCE_LOADING = '正在获取采集来源…'
 export const LIVE_SOURCE_EMPTY = '没有可用的采集来源'
 export const LIVE_SOURCE_FAILED = '无法获取采集来源，请稍后重试'
 export const LIVE_SOURCE_RETRY = '重试'
+// Windows 分组下拉（设计说明 §4，文案表 §8；未注明“定稿”的均待产品经理确认）
+export const LIVE_SOURCE_PLACEHOLDER = '选择要推流的屏幕或窗口'
+export const LIVE_SOURCE_PLACEHOLDER_LOADING = '正在获取来源…'
+export const LIVE_SOURCE_REFRESH_SHORT = '刷新'
+export const LIVE_SOURCE_REFRESH_ARIA = '刷新窗口列表'
+export const LIVE_SOURCE_REFRESHING = '正在刷新…'
+export const LIVE_SOURCE_GONE_TAG = '已不可用'
+export const LIVE_SOURCE_NO_WINDOW_TITLE = '没有可选的应用窗口'
+export const LIVE_SOURCE_NO_WINDOW_HINT = '打开要推流的应用并保持在桌面上（不要最小化），再点“刷新”'
+export const LIVE_SOURCE_FAIL_TITLE = '无法获取可选来源'
+export const LIVE_SOURCE_FAIL_HINT = '请稍后重试'
+export const LIVE_SOURCE_STALE = '刷新失败，列表可能已过期'
+export const liveSourceWindowCount = (n: number): string => `共 ${n} 个窗口`
+/** 会话列表空状态：Windows 加“或应用窗口”，macOS / Linux 保持 v0.2 原文 */
+export const LIVE_RECORD_EMPTY_HINT_WIN = '选择屏幕或应用窗口并填写推流地址，点击“开始推流”'
+export const LIVE_RECORD_EMPTY_HINT = '选择屏幕并填写推流地址，点击“开始推流”'
 /** LIVE_SOURCE_GONE：窗口版由产品经理给出（待确认）；屏幕版（kind=screen）用通用说法，待确认 */
 export const LIVE_SOURCE_GONE_WINDOW_TEXT = '所选窗口已不可用，请重新选择'
 export const LIVE_SOURCE_GONE_SCREEN_TEXT = '所选屏幕已不可用，请重新选择'

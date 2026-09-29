@@ -212,6 +212,11 @@ export function createSimTask(spec: SimTaskSpec): ApiTask {
     // 场景里“运行中才回退”的：一开始记显卡，到 fallbackAt 再改成 CPU 并补发 running；其余从头就是最终样子
     spec = { ...spec, encoder: sc.gpuStart ? { ...sc.gpuStart } : { encoder: sc.encoder, encoderDevice: sc.encoderDevice, ...(sc.hwFallback ? { hwFallback: true, hwFallbackReason: sc.hwFallbackReason } : {}) }, ...(sc.fallbackAt ? { fallbackAt: sc.fallbackAt, fallbackTo: sc } : {}) } as SimTaskSpec
   }
+  // ?enc=fb-nvenc / fb-unavail / fb-unknown：直播任务也带“硬件回退”字段（一开始就是 CPU + hwFallback；startedAt 仍是 0，running 之后才显示提示条）
+  if (live && !spec.encoder) {
+    const lsc = simEncoderScenario()
+    if (lsc?.hwFallback) spec = { ...spec, encoder: { encoder: lsc.encoder, encoderDevice: lsc.encoderDevice, hwFallback: true, hwFallbackReason: lsc.hwFallbackReason } } as SimTaskSpec
+  }
   const enc = spec.encoder ?? (spec.type === 'convert' || spec.type === 'edit_export' || live ? { encoder: 'libx264', encoderDevice: 'cpu' } : undefined)
   if (enc) Object.assign(task, { encoder: enc.encoder, encoderDevice: enc.encoderDevice, ...(enc.hwFallback ? { hwFallback: true } : {}), ...(enc.hwFallbackReason ? { hwFallbackReason: enc.hwFallbackReason } : {}) })
   const e: Entry = { task, spec, stopping: false, firstProgressAt: 0 }

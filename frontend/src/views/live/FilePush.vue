@@ -1,6 +1,7 @@
 <template>
   <LiveTabFrame>
     <template #main>
+      <LiveFallbackNotice />
       <LivePushPreview />
       <LiveSessionList empty-hint="选择文件并填写推流地址，点击“开始推流”" />
     </template>
@@ -43,6 +44,7 @@ import LiveField from '@/components/live/LiveField.vue'
 import LiveInput from '@/components/live/LiveInput.vue'
 import LiveButton from '@/components/live/LiveButton.vue'
 import LiveFormError from '@/components/live/LiveFormError.vue'
+import LiveFallbackNotice from '@/components/live/LiveFallbackNotice.vue'
 import LivePushPreview from '@/components/live/LivePushPreview.vue'
 import PreviewSwitch from '@/components/live/PreviewSwitch.vue'
 import LiveSessionList from '@/components/live/LiveSessionList.vue'
