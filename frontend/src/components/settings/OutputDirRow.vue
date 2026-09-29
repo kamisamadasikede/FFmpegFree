@@ -13,9 +13,9 @@
         aria-label="默认输出位置"
         aria-describedby="od-desc"
         :aria-invalid="!!error"
-        :title="saved || undefined"
+        :title="shown || undefined"
       >
-        <span v-if="!saved" class="ph">与源文件相同的文件夹</span>
+        <span v-if="!shown" class="ph">与源文件相同的文件夹</span>
         <template v-else>
           <span class="h">{{ pathParts.head }}</span><span class="t">{{ pathParts.tail }}</span>
         </template>
@@ -26,7 +26,7 @@
     </div>
 
     <div class="odb">
-      <button v-if="!saved" type="button" class="btn" :disabled="busy" @click="choose"><FIcon name="folder" :size="15" />选择文件夹…</button>
+      <button v-if="!shown" type="button" class="btn" :disabled="busy" @click="choose"><FIcon name="folder" :size="15" />选择文件夹…</button>
       <template v-else>
         <button type="button" class="btn" :disabled="busy" @click="choose">更改…</button>
         <button type="button" class="btn text" :disabled="busy" @click="restore">恢复默认</button>
@@ -39,7 +39,8 @@
 // 设置页「转换」分组里的「默认输出位置」（设计稿 proto/pages.html ?page=settings&outdir=empty|set|error）。
 // 值就是 Settings.defaultOutputDir：空字符串 = 保存到源文件所在文件夹。
 // 选择用 SystemService.PickDirectory，保存用 UpdateSettings；后端对不存在 / 不可写 / 非绝对路径返回 INVALID_ARGUMENT，
-// 此时页面上仍显示上一次保存成功的值（saved 不变），只把红框和行内错误亮出来，直到下一次操作。
+// 此时红框里显示被拒绝的那个路径（shown），saved 仍是后端确认过的最后一个值；下一次成功保存后红框消失。
+// 挂载时会对已保存的路径再校验一次（外接硬盘拔掉了 / 文件夹被删了 → 直接进入错误态）。
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
@@ -47,20 +48,24 @@ import { toAppError } from '@/api/call'
 import { getDefaultOutputDir, pickDirectory, setDefaultOutputDir } from '@/api/system'
 import { hasWailsBackend, previewParams } from '@/services/wails'
 
-/** 已保存的值（后端确认过的）；界面永远显示它 */
+/** 已保存的值（后端确认过的） */
 const saved = ref('')
+/** 被拒绝的路径：保存失败 / 挂载校验失败时显示在红框里（不回退到上一个成功值） */
+const rejected = ref('')
 const error = ref(false)
+/** 输入框里显示的路径：出错时是被拒绝的路径，否则是已保存的值 */
+const shown = computed(() => (error.value ? rejected.value : saved.value))
 const busy = ref(false)
 
 // 浏览器预览（没有 window.go）：?outdir=empty|set|error 直接摆出对应状态，按钮只在本地模拟
 const preview = !hasWailsBackend() ? previewParams.get('outdir') : null
 const PREVIEW_DIR = '/Users/me/Movies/客户项目/2026 秋季发布会/成片输出/final'
 
-const state = computed(() => (error.value ? 'error' : saved.value ? 'set' : 'empty'))
+const state = computed(() => (error.value ? 'error' : shown.value ? 'set' : 'empty'))
 
 /** 路径中间省略：最后一级文件夹名单独一段（不被省略），前面的部分放不下时用省略号 */
 const pathParts = computed(() => {
-  const p = saved.value.replace(/[\\/]+$/, '')
+  const p = shown.value.replace(/[\\/]+$/, '')
   const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))
   return i < 0 ? { head: '', tail: p } : { head: p.slice(0, i + 1), tail: p.slice(i + 1) }
 })
@@ -70,6 +75,7 @@ onMounted(async () => {
     if (preview === 'set') saved.value = PREVIEW_DIR
     else if (preview === 'error') {
       saved.value = '/Users/me/Movies/成片输出'
+      rejected.value = saved.value
       error.value = true
     }
     return
@@ -78,6 +84,19 @@ onMounted(async () => {
     saved.value = await getDefaultOutputDir()
   } catch (e) {
     ElMessage.error(toAppError(e).message)
+    return
+  }
+  // 已保存的路径可能已经失效（外接硬盘拔了 / 文件夹被删）：用保存时同一条校验路径（UpdateSettings）再验一次
+  if (saved.value) {
+    try {
+      await setDefaultOutputDir(saved.value)
+    } catch (e) {
+      if (toAppError(e).code === 'INVALID_ARGUMENT') {
+        rejected.value = saved.value
+        error.value = true
+      }
+      // 其他错误（IO 等）不打扰：只是启动时的静默校验
+    }
   }
 })
 
@@ -92,11 +111,14 @@ async function save(dir: string) {
     await setDefaultOutputDir(dir)
     saved.value = dir // 后端保存的是清理后的路径，这里再读一次以显示真实值
     error.value = false
+    rejected.value = ''
     saved.value = await getDefaultOutputDir()
   } catch (e) {
     const err = toAppError(e)
-    if (err.code === 'INVALID_ARGUMENT') error.value = true // saved 保持上一次的值
-    else ElMessage.error(err.message)
+    if (err.code === 'INVALID_ARGUMENT') {
+      rejected.value = dir // 红框显示被拒绝的路径；saved 仍是上一次成功的值
+      error.value = true
+    } else ElMessage.error(err.message)
   }
 }
 
@@ -139,7 +161,7 @@ async function restore() {
   font-weight: 500;
 }
 .row-desc {
-  color: var(--ff-text-3);
+  color: var(--ff-text-2);
   font-size: var(--ff-fs-xs);
 }
 .odc {
@@ -181,7 +203,7 @@ async function restore() {
   display: flex;
   align-items: flex-start;
   gap: var(--ff-space-2);
-  margin-top: 6px;
+  margin-top: 4px;
   font-size: var(--ff-fs-xs);
   line-height: 1.5;
   color: var(--ff-danger-text);
@@ -204,7 +226,7 @@ async function restore() {
   color: var(--ff-text-1);
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   font: inherit;
   font-size: var(--ff-fs-sm);
   white-space: nowrap;
@@ -221,6 +243,6 @@ async function restore() {
   border-color: transparent;
   background: transparent;
   color: var(--ff-primary-text);
-  padding: 0 6px;
+  padding: 0 8px;
 }
 </style>

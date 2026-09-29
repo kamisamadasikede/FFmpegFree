@@ -6,26 +6,17 @@
 
         <template v-if="!installing">
           <h3>需要安装 ffmpeg</h3>
-          <p>转换、剪辑和直播功能依赖 ffmpeg。我们会自动下载适合你电脑的版本，安装到应用目录，不会修改系统环境变量。文档和 JSON 工具不受影响，可以照常使用。</p>
-          <div class="dinfo">
-            <div><span>系统</span><b>{{ platformText }}</b></div>
-            <div>
-              <span>下载源</span>
-              <span>
-                <el-select v-model="mirror" size="small" class="mirror" :disabled="!ffmpeg.installAvailable">
-                  <el-option label="默认源（GitHub）" value="default" />
-                  <el-option label="国内镜像" value="cn" />
-                </el-select>
-              </span>
-            </div>
-          </div>
+          <p>应用需要 ffmpeg 才能转换、剪辑和直播。可以现在自动下载安装到应用数据目录，也可以稍后再说。</p>
           <div v-if="ffmpeg.status.state === 'failed' && ffmpeg.status.error" class="perr fail" role="alert">
             <FIcon name="warn" :size="14" />
-            <span>上次安装失败：{{ ffmpeg.status.error.message }}<template v-if="ffmpeg.status.error.detail"><br /><small>{{ ffmpeg.status.error.detail }}</small></template></span>
+            <span>
+              下载失败：{{ ffmpeg.status.error.message }}<template v-if="ffmpeg.status.error.detail"><br /><small>{{ ffmpeg.status.error.detail }}</small></template>
+              <button v-if="ffmpeg.canSwitchMirror" type="button" class="ff-link" @click="safe(ffmpeg.retryWithOtherMirror)">换下载源重试</button>
+            </span>
           </div>
           <div v-if="!ffmpeg.installAvailable" class="soon" role="status">
             <FIcon name="warn" :size="14" />
-            <span>安装功能即将上线。已经装过 ffmpeg 的话，可以手动指定路径，或安装到系统后点“重新检测”。</span>
+            <span>安装功能即将上线。已经装过 ffmpeg 的话，可以手动指定位置。</span>
           </div>
           <div v-if="ffmpeg.manualInputOpen && !ffmpeg.canPickDirectory" class="manual">
             <el-input v-model="manualDir" size="default" placeholder="ffmpeg 所在目录，例如 /usr/local/bin" :class="{ 'ff-input-bad': pathError }" @keyup.enter="applyManual" />
@@ -36,17 +27,17 @@
             <span>{{ pathError.message }}<template v-if="pathError.detail"><br /><small>{{ pathError.detail }}</small></template></span>
           </div>
           <div class="dfoot">
-            <el-button link type="primary" @click="onManual">手动指定路径</el-button>
-            <el-button link type="primary" :loading="rechecking" @click="safe(recheck)">重新检测</el-button>
-            <span class="sp" />
             <el-button size="default" @click="safe(ffmpeg.dismissPrompt)">稍后</el-button>
             <el-button
               size="default"
               type="primary"
               :disabled="!ffmpeg.installAvailable"
               :title="ffmpeg.installAvailable ? undefined : '安装功能即将上线'"
-              @click="safe(() => ffmpeg.startInstall(mirror === 'default' ? '' : mirror))"
-            >{{ ffmpeg.installAvailable ? '安装' : '安装（即将上线）' }}</el-button>
+              @click="safe(() => ffmpeg.startInstall(ffmpeg.status.state === 'failed' ? undefined : ffmpeg.sources[0]))"
+            >{{ ffmpeg.installAvailable ? '下载' : '下载（即将上线）' }}</el-button>
+          </div>
+          <div class="manual-link">
+            <button type="button" class="ff-link" @click="onManual">手动指定 ffmpeg 位置</button>
           </div>
         </template>
 
@@ -77,18 +68,13 @@ import { useFFmpegStore } from '@/stores/ffmpeg'
 import { toAppError, type AppError } from '@/api/call'
 
 const ffmpeg = useFFmpegStore()
-const mirror = ref('default')
 const installing = computed(() => ffmpeg.status.state === 'installing')
 const percent = computed(() => Math.round((ffmpeg.install?.progress ?? 0) * 100))
 const STAGES = { download: '正在下载', verify: '正在校验', extract: '正在解压', validate: '正在验证' }
 const stageText = computed(() => (ffmpeg.install ? STAGES[ffmpeg.install.stage] : '正在准备'))
 
-const ua = navigator.userAgent
-const platformText = ua.includes('Mac') ? 'macOS' : ua.includes('Windows') ? 'Windows' : 'Linux'
-
 const manualDir = ref('')
 const busy = ref(false)
-const rechecking = ref(false)
 const canceling = ref(false)
 
 async function cancelInstall() {
@@ -110,19 +96,10 @@ async function safe(fn: () => Promise<unknown>) {
   }
 }
 
-async function recheck() {
-  rechecking.value = true
-  try {
-    await ffmpeg.recheck()
-  } finally {
-    rechecking.value = false
-  }
-}
-
 function onManual() {
   pathError.value = null
   if (ffmpeg.canPickDirectory) {
-    safe(() => ffmpeg.pickPath()) // 系统目录选择器
+    safe(() => ffmpeg.pickPath()) // 系统目录选择器（标题「选择 ffmpeg 所在文件夹」在 store 里传入）
   } else {
     ffmpeg.manualInputOpen = !ffmpeg.manualInputOpen
   }
@@ -181,35 +158,13 @@ h3 {
   font-weight: 600;
 }
 p {
-  margin: 0 0 16px;
+  margin: 0;
   color: var(--ff-text-2);
-}
-.dinfo {
-  background: var(--ff-bg-hover);
-  border-radius: var(--ff-radius-md);
-  padding: 10px 12px;
-  font-size: var(--ff-fs-xs);
-  color: var(--ff-text-2);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 24px;
-}
-.dinfo div {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.dinfo b {
-  color: var(--ff-text-1);
-  font-weight: 500;
-}
-.mirror {
-  width: 150px;
 }
 .progress {
-  height: 6px;
-  border-radius: 3px;
+  margin-top: 16px;
+  height: 8px;
+  border-radius: 4px;
   background: var(--ff-border);
   overflow: hidden;
 }
@@ -217,7 +172,7 @@ p {
   display: block;
   height: 100%;
   background: var(--ff-primary);
-  border-radius: 3px;
+  border-radius: 4px;
   transition: width var(--ff-dur-base) var(--ff-ease);
 }
 .pmeta {
@@ -232,8 +187,8 @@ p {
   display: flex;
   gap: 8px;
   align-items: flex-start;
-  margin: -12px 0 16px;
-  padding: 8px 10px;
+  margin: 16px 0 0;
+  padding: 8px 12px;
   border-radius: var(--ff-radius-md);
   font-size: var(--ff-fs-xs);
   line-height: 1.5;
@@ -243,29 +198,47 @@ p {
   color: var(--ff-text-1);
 }
 .soon > :first-child {
-  color: var(--ff-warning);
+  color: var(--ff-warning-text);
   margin-top: 2px;
 }
 .perr {
-  margin-top: -12px;
-  color: var(--ff-danger);
-}
-.perr.fail {
-  margin-top: -12px;
+  color: var(--ff-danger-text);
 }
 .perr small {
-  color: var(--ff-text-3);
+  color: var(--ff-text-2);
   white-space: pre-line;
 }
 .manual {
   display: flex;
   gap: 8px;
-  margin: -12px 0 16px;
+  margin-top: 16px;
 }
 .dfoot {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
+  margin-top: 24px;
+}
+.manual-link {
+  margin-top: 16px;
+  text-align: center;
+  font-size: var(--ff-fs-xs);
+}
+.ff-link {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: var(--ff-primary-text);
+  cursor: pointer;
+  border-radius: 2px;
+}
+.ff-link:hover {
+  text-decoration: underline;
+}
+.perr .ff-link {
+  margin-left: 12px;
 }
 .sp {
   flex: 1;

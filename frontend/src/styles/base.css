@@ -100,6 +100,19 @@ a {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+  .bar i.run::after {
+    animation: none;
+    display: none;
+  }
+}
+/* 设置里的「减少动效」开关会给 <html> 加 reduce-motion（设置页还没有该开关，钩子先留好），效果与上面一致 */
+html.reduce-motion * {
+  animation-duration: 0.01ms !important;
+  transition-duration: 0.01ms !important;
+}
+html.reduce-motion .bar i.run::after {
+  animation: none;
+  display: none;
 }
 
 /* 键盘焦点：统一 2px 主色描边（图标按钮、按钮、页签、链接） */

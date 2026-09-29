@@ -64,6 +64,14 @@ const PREVIEW: Record<string, { status: FFmpegStatus; install?: InstallProgress 
   failed: { status: { state: 'failed', error: { code: 'IO_ERROR', message: '下载超时，请检查网络' } } },
 }
 
+/** 与契约 9.4 InstallOptions 对齐。mirrors 不含默认源（契约：「可用镜像（不含默认源）」）；defaultMirror 是后端将来可能补的字段，没有时默认源就是 "" */
+export interface InstallOptions {
+  platform: string
+  supported: boolean
+  mirrors: string[]
+  defaultMirror?: string
+}
+
 // ?convert=…（转换页预览）没带 ff 时默认 ready
 const previewFf = previewParams.get('ff') ?? (previewParams.has('convert') ? 'ready' : null)
 const previewMode = !hasWailsBackend() && !!previewFf && !!PREVIEW[previewFf]
@@ -78,6 +86,35 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
   const manualInputOpen = ref(false) // 没有目录选择器时，对话框里显示路径输入框
 
   /** 安装功能可用（绑定已有 InstallFFmpeg）；只有浏览器预览里 ?noinstall 会关闭，用来看"即将上线"样式 */
+  const installOptions = ref<InstallOptions | null>(null)
+  /** 默认下载源（GetInstallOptions 返回；契约里默认源是 ""）。不写死镜像名 */
+  const defaultMirror = computed(() => installOptions.value?.defaultMirror ?? '')
+  /**
+   * 可选下载源：默认源在前，后面是 GetInstallOptions().mirrors（去重）。
+   * 契约的 mirrors 不含默认源，所以 Windows（有 cn 镜像）是 2 个来源、macOS / Linux 只有 1 个。
+   */
+  const sources = computed(() => {
+    const o = installOptions.value
+    return o ? [...new Set([defaultMirror.value, ...(o.mirrors ?? [])])] : [defaultMirror.value]
+  })
+  /** 有可切换的下载源（sources.length > 1）：失败行才显示「换下载源重试」 */
+  const canSwitchMirror = computed(() => sources.value.length > 1)
+
+  async function loadInstallOptions() {
+    if (previewMode) {
+      // ?mirrors=2 → 有一个镜像（两个来源，Windows 形态）；不带则只有默认源
+      installOptions.value = { platform: 'preview', supported: true, mirrors: previewParams.get('mirrors') === '2' ? ['cn'] : [] }
+      return
+    }
+    if (!hasWailsBackend()) return
+    try {
+      const o = await call(SystemBinding.GetInstallOptions())
+      installOptions.value = { platform: o?.platform ?? '', supported: !!o?.supported, mirrors: o?.mirrors ?? [], defaultMirror: (o as any)?.defaultMirror || undefined }
+    } catch (e) {
+      console.error('GetInstallOptions failed', e) // 拿不到就按只有默认源处理
+    }
+  }
+
   const installAvailable = !(previewMode && previewParams.has('noinstall'))
   /** 有系统目录选择器（PickDirectory 已在绑定里）；只有浏览器预览里 ?nopicker 会关闭，用来看"手动输入路径"的样式 */
   const canPickDirectory = !(previewMode && previewParams.has('nopicker'))
@@ -131,12 +168,14 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
         setStatus(PREVIEW[preview].status)
         install.value = PREVIEW[preview].install ?? null
         dialogOpen.value = previewParams.has('dlg')
+        await loadInstallOptions()
       }
       return // 浏览器里没有后端，保持 checking
     }
 
     // 先订阅再查询：查询期间到达的事件一定比查询结果新
     onEvent<system.FFmpegStatus>('ffmpeg:status', applyEvent)
+    loadInstallOptions() // 不阻塞状态查询
     try {
       const seqAtStart = eventSeq
       const st = await call(SystemBinding.GetFFmpegStatus())
@@ -154,9 +193,10 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
     maybePrompt()
   }
 
-  let lastMirror: '' | 'cn' = '' // 上次选的下载源，横幅上的"重试"沿用
+  let lastMirror: string | null = null // 上次实际使用的下载源；null = 还没装过，用默认源
   /**
-   * 安装：调用 InstallFFmpeg(mirror)，mirror 只能是 '' 或 'cn'（后端对其他值返回 INVALID_ARGUMENT）。
+   * 安装：调用 InstallFFmpeg(mirror)。mirror 省略 = 上次用的源（第一次是 GetInstallOptions 的默认源）；
+   * 只能传 '' 或 GetInstallOptions().mirrors 里的名字（后端对其他值返回 INVALID_ARGUMENT）。
    * 幂等：已有进行中的安装时后端直接返回该任务。进度由任务 store 通过 updateInstall() 推进。
    * 预览模式（浏览器里没有 window.go）只切到 installing 的静态样子。
    */
@@ -168,11 +208,22 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
       return
     }
     if (!hasWailsBackend()) return
-    if (mirror !== undefined) lastMirror = mirror === 'cn' ? 'cn' : ''
-    const task = await call(SystemBinding.InstallFFmpeg(lastMirror))
+    if (!installOptions.value) await loadInstallOptions()
+    if (mirror !== undefined) lastMirror = mirror
+    const use = lastMirror ?? defaultMirror.value
+    lastMirror = use
+    const task = await call(SystemBinding.InstallFFmpeg(use))
     // 后端随后会推 ffmpeg:status(installing)；这里先本地切换，避免按钮空档
     setStatus({ ...status.value, state: 'installing', taskId: task?.id })
     install.value = toInstallProgress(task?.progress ?? 0, task?.speed ?? '', task?.etaSec ?? 0)
+  }
+
+  /** 换另一个下载源重试（仅 canSwitchMirror 时有意义）：在 sources 里取上次用的源之后的下一个 */
+  async function retryWithOtherMirror() {
+    const list = sources.value
+    const cur = lastMirror ?? defaultMirror.value
+    const next = list[(Math.max(0, list.indexOf(cur)) + 1) % list.length]
+    await startInstall(next)
   }
 
   /** 取消进行中的安装（保留已下载部分）；没有安装在进行时后端无操作。取消后后端会重新检测并推 ffmpeg:status */
@@ -230,7 +281,7 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
 
   return {
     status, install, promptDismissed, bannerClosed, dialogOpen, justBecameReady,
-    installAvailable, canPickDirectory, manualInputOpen,
-    ready, needsAttention, featuresBlocked, init, startInstall, cancelInstall, pickPath, clearCustomPath, recheck, dismissPrompt, updateInstall,
+    installAvailable, canPickDirectory, manualInputOpen, installOptions, sources, canSwitchMirror,
+    ready, needsAttention, featuresBlocked, init, startInstall, retryWithOtherMirror, cancelInstall, pickPath, clearCustomPath, recheck, dismissPrompt, updateInstall,
   }
 })
