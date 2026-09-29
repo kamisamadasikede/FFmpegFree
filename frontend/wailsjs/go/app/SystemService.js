@@ -26,6 +26,10 @@ export function PickDirectory(arg1) {
   return window['go']['app']['SystemService']['PickDirectory'](arg1);
 }
 
+export function PickFiles(arg1, arg2) {
+  return window['go']['app']['SystemService']['PickFiles'](arg1, arg2);
+}
+
 export function RecheckFFmpeg() {
   return window['go']['app']['SystemService']['RecheckFFmpeg']();
 }

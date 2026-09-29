@@ -361,6 +361,20 @@ export namespace system {
 		    return a;
 		}
 	}
+	export class FileFilter {
+	    name: string;
+	    patterns: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new FileFilter(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.patterns = source["patterns"];
+	    }
+	}
 	export class InstallOptions {
 	    platform: string;
 	    supported: boolean;
