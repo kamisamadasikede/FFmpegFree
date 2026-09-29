@@ -145,3 +145,156 @@ func TestFFmpegRunnerLiveGracefulStop(t *testing.T) {
 	}
 	_ = context.Background()
 }
+
+// 两遍编码 + out_time=N/A 的假 ffmpeg：第一个参数是模式。
+func fakeTwoPassBin(t *testing.T) string {
+	p := filepath.Join(t.TempDir(), "ffmpeg")
+	script := `#!/bin/sh
+# ffmpeg.Run 会在参数前加 -hide_banner ... -progress pipe:1：先丢掉这些
+while [ "$1" != "pipe:1" ]; do shift; done
+shift
+mode="$1"
+last=""
+for a in "$@"; do last="$a"; done
+case "$mode" in
+  pass1)
+    # $2 是 passlogfile 前缀：写一个日志文件证明目录存在
+    echo "log" > "$2.log"
+    echo "out_time_us=4000000"; echo "progress=continue"
+    echo "out_time_us=N/A"; echo "progress=continue"
+    echo "out_time_us=8000000"; echo "progress=end"
+    exit 0 ;;
+  pass2)
+    [ -f "$2.log" ] || { echo "no passlog" >&2; exit 2; }
+    echo "out_time_us=N/A"; echo "progress=continue"
+    echo "out_time_us=5000000"; echo "progress=continue"
+    echo "out_time_us=N/A"; echo "progress=continue"
+    echo "final" > "$last"
+    echo "out_time_us=8000000"; echo "progress=end"
+    exit 0 ;;
+esac
+`
+	os.WriteFile(p, []byte(script), 0o755)
+	return p
+}
+
+func TestFFmpegRunnerTwoPassInOneTask(t *testing.T) {
+	f := newFx(t, 1)
+	out := filepath.Join(f.dir, "tp", "v.mp4")
+	tmpBase := filepath.Join(f.dir, "tmp")
+	var passLogs []string
+	var parts []string
+	r := &FFmpegRunner{Exe: fakeTwoPassBin(t), Output: out, DurationSec: 8, TempDir: tmpBase,
+		BuildPassArgs: func(pass int, part, passLog string) []string {
+			passLogs = append(passLogs, passLog)
+			if pass == 1 {
+				if part != "" {
+					t.Errorf("第一遍不应有输出文件: %q", part)
+				}
+				return []string{"pass1", passLog, "-f", "null", "-"}
+			}
+			parts = append(parts, part)
+			return []string{"pass2", passLog, part}
+		}}
+	tk, err := f.m.Submit(Spec{Type: TypeConvert, OutputPath: out}, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := waitTask(t, f.m, tk.ID)
+	if d.Status != StatusSucceeded || d.OutputPath != out {
+		t.Fatalf("%+v", d)
+	}
+	if b, _ := os.ReadFile(out); !strings.Contains(string(b), "final") {
+		t.Fatal("输出内容不对")
+	}
+	if len(passLogs) != 2 || passLogs[0] != passLogs[1] || filepath.Dir(passLogs[0]) == tmpBase || !strings.HasPrefix(filepath.Dir(passLogs[0]), tmpBase) {
+		t.Fatalf("-passlogfile 应在任务专属临时目录里: %v", passLogs)
+	}
+	if !strings.Contains(filepath.Base(filepath.Dir(passLogs[0])), tk.ID) {
+		t.Fatalf("临时目录名应带任务 ID: %v", passLogs)
+	}
+	if _, err := os.Stat(filepath.Dir(passLogs[0])); !os.IsNotExist(err) {
+		t.Fatal("任务结束后应删除临时目录")
+	}
+	if parts[0] != PartPath(out) {
+		t.Fatalf("第二遍应写 .part: %v", parts)
+	}
+	// 进度：第一遍映射到 0~0.5，第二遍 0.5~1；N/A 不回退
+	var fr []float64
+	for _, e := range f.em.all() {
+		if p, ok := e.payload.(ProgressEvent); ok && p.ID == tk.ID {
+			fr = append(fr, p.Progress)
+		}
+	}
+	if len(fr) < 6 {
+		t.Fatalf("%v", fr)
+	}
+	for i := 1; i < len(fr); i++ {
+		if fr[i] < fr[i-1] {
+			t.Fatalf("进度回退: %v", fr)
+		}
+	}
+	var sawFirstHalf, sawSecondHalf bool
+	for _, v := range fr {
+		if v > 0 && v <= 0.5 {
+			sawFirstHalf = true
+		}
+		if v > 0.5 {
+			sawSecondHalf = true
+		}
+	}
+	if !sawFirstHalf || !sawSecondHalf || fr[len(fr)-1] < 0.99 {
+		t.Fatalf("两遍进度映射不对: %v", fr)
+	}
+}
+
+func TestFFmpegRunnerTwoPassFailureCleansUp(t *testing.T) {
+	f := newFx(t, 1)
+	out := filepath.Join(f.dir, "tp2.mp4")
+	tmpBase := filepath.Join(f.dir, "tmp")
+	r := &FFmpegRunner{Exe: fakeTwoPassBin(t), Output: out, DurationSec: 8, TempDir: tmpBase,
+		BuildPassArgs: func(pass int, part, passLog string) []string {
+			if pass == 1 {
+				return []string{"nonsense-mode", passLog}
+			}
+			return []string{"pass2", passLog, part}
+		}}
+	tk, _ := f.m.Submit(Spec{Type: TypeConvert}, r)
+	// 第一遍的假 ffmpeg 什么都不做直接成功；第二遍缺 passlog → 失败
+	d := waitTask(t, f.m, tk.ID)
+	if d.Status != StatusFailed {
+		t.Fatalf("%+v", d)
+	}
+	if ents, _ := os.ReadDir(tmpBase); len(ents) != 0 {
+		t.Fatalf("失败后应清理任务临时目录: %v", ents)
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Fatal("失败不应产生输出")
+	}
+	if _, err := os.Stat(PartPath(out)); !os.IsNotExist(err) {
+		t.Fatal("失败不应残留 .part")
+	}
+}
+
+func TestFFmpegRunnerProgressIgnoresNA(t *testing.T) {
+	f := newFx(t, 1)
+	out := filepath.Join(f.dir, "na.mp4")
+	r := &FFmpegRunner{Exe: fakeTwoPassBin(t), Output: out, DurationSec: 8,
+		BuildArgs: func(part string) []string { return []string{"pass2", filepath.Join(f.dir, "nolog"), part} }}
+	// pass2 需要 $2.log
+	os.WriteFile(filepath.Join(f.dir, "nolog.log"), nil, 0o644)
+	tk, _ := f.m.Submit(Spec{Type: TypeConvert}, r)
+	d := waitTask(t, f.m, tk.ID)
+	if d.Status != StatusSucceeded {
+		t.Fatalf("%+v", d)
+	}
+	last := 0.0
+	for _, e := range f.em.all() {
+		if p, ok := e.payload.(ProgressEvent); ok {
+			if p.Progress < last {
+				t.Fatalf("N/A 导致进度回退: %v -> %v", last, p.Progress)
+			}
+			last = p.Progress
+		}
+	}
+}

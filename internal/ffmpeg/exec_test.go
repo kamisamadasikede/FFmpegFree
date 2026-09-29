@@ -165,3 +165,32 @@ func TestRunStartFailure(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+func TestRunAlwaysAddsYAndNostdin(t *testing.T) {
+	dir := t.TempDir()
+	rec := filepath.Join(dir, "args")
+	p := filepath.Join(dir, "ffmpeg")
+	os.WriteFile(p, []byte("#!/bin/sh\necho \"$@\" > "+rec+"\necho progress=end\nexit 0\n"), 0o755)
+	get := func() string { b, _ := os.ReadFile(rec); return strings.TrimSpace(string(b)) }
+
+	if _, err := Run(context.Background(), RunOptions{Exe: p, Args: []string{"-i", "file:x", "out"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := get(); got != "-hide_banner -nostats -y -nostdin -progress pipe:1 -i file:x out" {
+		t.Fatalf("普通任务应带 -y -nostdin: %q", got)
+	}
+	// 直播优雅停止需要 stdin 发 q：不能加 -nostdin，但仍有 -y
+	if _, err := Run(context.Background(), RunOptions{Exe: p, Args: []string{"x"}, GracefulStop: true}); err != nil {
+		t.Fatal(err)
+	}
+	if got := get(); strings.Contains(got, "-nostdin") || !strings.Contains(got, " -y ") {
+		t.Fatalf("GracefulStop 不应加 -nostdin: %q", got)
+	}
+	// 调用方自带 stdin（录屏）：同样不能加 -nostdin
+	if _, err := Run(context.Background(), RunOptions{Exe: p, Args: []string{"x"}, Stdin: strings.NewReader("")}); err != nil {
+		t.Fatal(err)
+	}
+	if got := get(); strings.Contains(got, "-nostdin") || !strings.Contains(got, " -y ") {
+		t.Fatalf("自带 stdin 不应加 -nostdin: %q", got)
+	}
+}

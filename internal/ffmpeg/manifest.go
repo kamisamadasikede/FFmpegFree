@@ -3,21 +3,23 @@ package ffmpeg
 import (
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"runtime"
+	"sort"
 	"strings"
 )
 
 //go:embed manifest.json
 var defaultManifestJSON []byte
 
-// 镜像名。安装接口的 mirror 参数只接受空串（默认源）和这里列出的名字。
+// 镜像名。安装接口的 mirror 参数只接受空串（默认源）和当前平台清单里真正有的镜像。
 const (
 	MirrorDefault = ""
 	MirrorCN      = "cn"
 )
 
-// ValidMirror 判断 mirror 参数是否合法：只接受 "" 和 "cn"。
+// ValidMirror 判断镜像名是否是已知的名字（"" 和 "cn"）。名字合法不代表当前平台有该镜像，见 AvailableMirrors。
 func ValidMirror(m string) bool { return m == MirrorDefault || m == MirrorCN }
 
 // Manifest 是下载清单（契约 9.3）：按 "<goos>-<goarch>" 分平台。
@@ -109,35 +111,85 @@ type Plan struct {
 	Platform string
 	Version  string
 	Sources  []Source
-	// MirrorFallback 为 true 表示请求了镜像，但清单里没有可用的镜像条目，实际用默认源。
-	MirrorFallback bool
 }
 
-// Resolve 选出平台条目并展开镜像。mirror 必须是 "" 或 "cn"。
-// 镜像地址排在前面，默认地址始终作为最后的兜底。
-func (m *Manifest) Resolve(platform, mirror string) (Plan, error) {
-	if !ValidMirror(mirror) {
-		return Plan{}, fmt.Errorf("不支持的镜像: %q", mirror)
+// MirrorError 表示请求的镜像不可用：名字不认识，或当前平台的清单里没有这个镜像。
+// 不会悄悄退回默认源；Available 列出当前平台真正可选的镜像名（不含默认源 ""，可能为空）。
+type MirrorError struct {
+	Mirror    string
+	Platform  string
+	Available []string
+}
+
+func (e *MirrorError) Error() string {
+	if len(e.Available) == 0 {
+		return fmt.Sprintf("平台 %s 没有可用的镜像 %q，只能使用默认源（mirror 传空字符串）", e.Platform, e.Mirror)
 	}
+	return fmt.Sprintf("平台 %s 不支持镜像 %q，可选的镜像：%s（或传空字符串使用默认源）", e.Platform, e.Mirror, strings.Join(e.Available, "、"))
+}
+
+// IsMirrorError 判断 err 是否是 *MirrorError。
+func IsMirrorError(err error) bool {
+	var me *MirrorError
+	return errors.As(err, &me)
+}
+
+// AvailableMirrors 返回某平台真正可用的镜像名（每个压缩包都有该镜像才算；不含默认源），按字母排序。
+// 平台不存在或不可用时返回空。
+func (m *Manifest) AvailableMirrors(platform string) []string {
+	p, ok := m.Platforms[platform]
+	if !ok || !p.Available || len(p.Archives) == 0 {
+		return []string{}
+	}
+	out := []string{}
+	for name := range p.Archives[0].Mirrors {
+		if !ValidMirror(name) {
+			continue
+		}
+		all := true
+		for _, a := range p.Archives {
+			if len(a.Mirrors[name]) == 0 {
+				all = false
+				break
+			}
+		}
+		if all {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Resolve 选出平台条目并展开镜像。mirror 必须是 "" 或该平台 AvailableMirrors 里的名字，
+// 否则返回 *MirrorError（不悄悄退回默认源）。镜像地址排在前面，默认地址始终作为最后的兜底。
+func (m *Manifest) Resolve(platform, mirror string) (Plan, error) {
 	p, ok := m.Platforms[platform]
 	if !ok || !p.Available {
 		return Plan{}, &UnavailableError{Platform: platform, Note: p.Note}
 	}
+	if mirror != MirrorDefault && !contains(m.AvailableMirrors(platform), mirror) {
+		return Plan{}, &MirrorError{Mirror: mirror, Platform: platform, Available: m.AvailableMirrors(platform)}
+	}
 	plan := Plan{Platform: platform, Version: p.Version}
-	usedMirror := false
 	for _, a := range p.Archives {
 		var urls []string
 		if mirror != MirrorDefault {
 			urls = append(urls, a.Mirrors[mirror]...)
 		}
-		if len(urls) > 0 {
-			usedMirror = true
-		}
 		urls = append(urls, a.URL)
 		plan.Sources = append(plan.Sources, Source{Archive: a, URLs: urls})
 	}
-	plan.MirrorFallback = mirror != MirrorDefault && !usedMirror
 	return plan, nil
+}
+
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 // UnavailableError 表示当前平台没有可用的下载源。

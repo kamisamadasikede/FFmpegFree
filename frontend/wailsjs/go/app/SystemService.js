@@ -10,6 +10,10 @@ export function GetFFmpegStatus() {
   return window['go']['app']['SystemService']['GetFFmpegStatus']();
 }
 
+export function GetInstallOptions() {
+  return window['go']['app']['SystemService']['GetInstallOptions']();
+}
+
 export function GetSettings() {
   return window['go']['app']['SystemService']['GetSettings']();
 }

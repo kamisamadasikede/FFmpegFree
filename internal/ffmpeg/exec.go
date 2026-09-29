@@ -24,7 +24,7 @@ type RunOptions struct {
 	// Exe 是 ffmpeg 的绝对路径（来自 ffmpeg.Require()）。
 	Exe string
 	// Args 是 ffmpeg 参数（不含可执行文件本身）。Run 会在最前面加上
-	// -hide_banner -nostats -progress pipe:1，调用方不要重复添加。
+	// -hide_banner -nostats -y [-nostdin] -progress pipe:1，调用方不要重复添加。
 	Args []string
 	// Stdin 不为空时接到 ffmpeg 的标准输入（录屏分片写入等）。此时无法通过 stdin 发 q，
 	// 优雅停止改为发中断信号（Windows 不支持信号，直接结束进程）。
@@ -62,7 +62,15 @@ func Run(ctx context.Context, opts RunOptions) (RunResult, error) {
 	if opts.Exe == "" {
 		return RunResult{}, apperr.New(apperr.FFmpegNotFound, "未指定 ffmpeg 路径")
 	}
-	args := append([]string{"-hide_banner", "-nostats", "-progress", "pipe:1"}, opts.Args...)
+	// -y：输出是任务自己选好名字的 .part 临时文件，遇到上次残留直接覆盖，绝不能停下来问 y/N；
+	// -nostdin：不需要 stdin 的任务禁止 ffmpeg 读键盘（否则后台运行时可能被 SIGTTIN 挂起或吞掉输入）。
+	// 直播优雅停止要通过 stdin 发 q、录屏由调用方给 stdin，这两种情况不加 -nostdin。
+	pre := []string{"-hide_banner", "-nostats", "-y"}
+	if !opts.GracefulStop && opts.Stdin == nil {
+		pre = append(pre, "-nostdin")
+	}
+	pre = append(pre, "-progress", "pipe:1")
+	args := append(pre, opts.Args...)
 
 	// 进程自身的生命周期与调用方 ctx 解耦：优雅停止时 ctx 已经取消，但进程还要活一小会儿。
 	procCtx, killProc := context.WithCancel(context.Background())

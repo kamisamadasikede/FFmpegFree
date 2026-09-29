@@ -24,6 +24,8 @@ const (
 
 	// PROBE_FAILED：文件存在但 ffprobe 无法解析（损坏、不是媒体文件、无可读流）。v0.8 新增。
 	ProbeFailed Code = "PROBE_FAILED"
+	// Unsupported：该操作不支持这个对象（如没有注册重试工厂的任务类型不能 Retry）。v0.7.1 新增。
+	Unsupported Code = "UNSUPPORTED"
 
 	// 直播 / 录屏相关，后端返回（契约第 2 节）。
 	// LIVE_PLAY_FAILED、LIVE_CORS_BLOCKED 是前端播放器自己产生的，不在这里定义。

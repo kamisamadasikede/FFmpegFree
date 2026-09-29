@@ -85,18 +85,26 @@ func (in *Installer) downloader() *downloader {
 	return d
 }
 
-// Preflight 在真正开始前同步检查：mirror 合法、当前平台有下载源。
-// 返回 *UnavailableError 表示平台不支持；其他错误表示参数不合法。
+// Preflight 在真正开始前同步检查：当前平台有下载源、mirror 在该平台可用。
+// 返回 *UnavailableError 表示平台不支持；*MirrorError 表示镜像不可用（不会悄悄退回默认源）。
 func (in *Installer) Preflight(mirror string) error {
 	_, err := in.Manifest.Resolve(in.platform(), mirror)
 	return err
 }
 
-// MirrorFallsBack 报告请求的镜像在当前平台是否会退回默认源（清单里没有该镜像的条目）。
-func (in *Installer) MirrorFallsBack(mirror string) bool {
-	plan, err := in.Manifest.Resolve(in.platform(), mirror)
-	return err == nil && plan.MirrorFallback
+// AvailableMirrors 返回当前平台可用的镜像名（不含默认源）。
+func (in *Installer) AvailableMirrors() []string {
+	return in.Manifest.AvailableMirrors(in.platform())
 }
+
+// Supported 报告当前平台是否有可用的下载源。
+func (in *Installer) Supported() bool {
+	_, err := in.Manifest.Resolve(in.platform(), MirrorDefault)
+	return err == nil
+}
+
+// PlatformName 返回清单键，如 linux-amd64。
+func (in *Installer) PlatformName() string { return in.platform() }
 
 // throttle 限制进度回调频率（契约：每任务最多 4 次/秒），阶段切换和结束一定放行。
 type throttle struct {
