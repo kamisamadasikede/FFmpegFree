@@ -521,7 +521,7 @@ func TestRetry(t *testing.T) {
 	}
 	// 进行中不能重试；未注册类型不能重试；不存在
 	gate := make(chan struct{})
-	act, _ := f.m.Submit(Spec{Type: TypeEditRender}, RunnerFunc(func(ctx context.Context, _ func(Progress)) (string, error) { <-gate; return "", nil }))
+	act, _ := f.m.Submit(Spec{Type: TypeEditExport}, RunnerFunc(func(ctx context.Context, _ func(Progress)) (string, error) { <-gate; return "", nil }))
 	eventually(t, func() bool { return f.m.mustGet(t, act.ID).Status == StatusRunning })
 	if _, err := f.m.Retry(act.ID); !apperr.Is(err, apperr.TaskConflict) {
 		t.Fatalf("%v", err)

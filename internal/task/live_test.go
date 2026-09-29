@@ -181,7 +181,7 @@ func TestLegacyTypeIDsAreNotFoundEverywhere(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(f.dir, "logs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	legacy := []store.TaskType{store.TypeLiveRelay, store.TypeLiveRecordPush}
+	legacy := []store.TaskType{store.TypeLiveRelay, store.TypeLiveRecordPush, store.TypeEditRender}
 	type rec struct{ id, log, out string }
 	var recs []rec
 	for i, typ := range legacy {
