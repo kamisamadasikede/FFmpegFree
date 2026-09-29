@@ -280,7 +280,7 @@ func validTaskID(s string) bool {
 
 func validType(t Type) bool {
 	switch t {
-	case TypeConvert, TypeEditRender, TypeOfficePDF, TypeLiveFilePush, TypeLiveRelay, TypeLiveRecordPush, TypeFFmpegInstall:
+	case TypeConvert, TypeEditExport, TypeOfficePDF, TypeLiveFilePush, TypeLiveScreenPush, TypeFFmpegInstall:
 		return true
 	}
 	return false

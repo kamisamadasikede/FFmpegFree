@@ -11,7 +11,7 @@ import { buildPreviewActive, buildPreviewHistory, PREVIEW_LOG } from '@/stores/t
 export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'interrupted'
 export type TaskType =
   | 'convert'
-  | 'edit_render'
+  | 'edit_export'
   | 'office_pdf'
   | 'live_file_push'
   | 'live_relay'

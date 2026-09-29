@@ -53,7 +53,7 @@ export function buildPreviewHistory(n: number): TaskItem[] {
       },
       { type: 'convert', status: 'canceled', title: 'vlog_杭州西湖.mkv' },
       { type: 'convert', status: 'interrupted', title: '婚礼现场_全程4K.mp4', params: '{"container":"mp4","targetSizeMb":500}', progress: 0.42, error: null },
-      { type: 'edit_render', status: 'succeeded', title: '周报剪辑.fproj', outputPath: '/Users/me/Movies/FFmpegFree/周报剪辑.mp4' },
+      { type: 'edit_export', status: 'succeeded', title: '周报剪辑.fproj', outputPath: '/Users/me/Movies/FFmpegFree/周报剪辑.mp4' },
     ]
     const k = kinds[i % kinds.length]
     const started = t - (i + 1) * 47 * min

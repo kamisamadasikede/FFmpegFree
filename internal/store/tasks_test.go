@@ -62,7 +62,7 @@ func TestTaskRoundTrip(t *testing.T) {
 func TestListTasksFilterAndPaging(t *testing.T) {
 	ctx := context.Background()
 	s, _ := openTemp(t)
-	types := []TaskType{TypeConvert, TypeEditRender, TypeConvert}
+	types := []TaskType{TypeConvert, TypeEditExport, TypeConvert}
 	statuses := []TaskStatus{StatusSucceeded, StatusFailed, StatusQueued}
 	for i := 0; i < 30; i++ {
 		s.InsertTask(ctx, mkTask(fmt.Sprintf("T%02d", i), types[i%3], statuses[i%3], int64(1000+i)))
@@ -75,7 +75,7 @@ func TestListTasksFilterAndPaging(t *testing.T) {
 	if len(p.Items) != 5 || p.Items[0].ID != "T04" {
 		t.Fatalf("%d %s", len(p.Items), p.Items[0].ID)
 	}
-	p, _ = s.ListTasks(ctx, TaskFilter{Types: []TaskType{TypeEditRender}})
+	p, _ = s.ListTasks(ctx, TaskFilter{Types: []TaskType{TypeEditExport}})
 	if p.Total != 10 {
 		t.Fatalf("按类型: %d", p.Total)
 	}

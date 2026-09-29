@@ -17,11 +17,10 @@ type TaskStatus string
 
 const (
 	TypeConvert        TaskType = "convert"
-	TypeEditRender     TaskType = "edit_render"
+	TypeEditExport     TaskType = "edit_export"
 	TypeOfficePDF      TaskType = "office_pdf"
 	TypeLiveFilePush   TaskType = "live_file_push"
-	TypeLiveRelay      TaskType = "live_relay"
-	TypeLiveRecordPush TaskType = "live_record_push"
+	TypeLiveScreenPush TaskType = "live_screen_push"
 	TypeFFmpegInstall  TaskType = "ffmpeg_install"
 )
 
