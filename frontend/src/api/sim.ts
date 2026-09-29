@@ -22,7 +22,7 @@ export const simParam = (name: string): string | null => new URLSearchParams(glo
  *   ?sim_detail=<文本>       附加到 detail 第二行
  *   ?sim_kill=1              直播：停止时模拟 5 秒内没退出被强杀（canceled）
  *   ?sim_end=<秒>            直播：推满 N 秒后自然结束（succeeded）
- *   ?sim_missing=srt|rtmps   直播：UNSUPPORTED，detail 写缺哪个协议
+ *   ?sim_missing=rtmp|rtmps|srt   直播：地址 scheme 与之相同时 UNSUPPORTED，detail 是契约 §6.10 的单独一行 `missing=<协议名>`（没有第二行）
  *   ?sim_err=LIVE_URL_INVALID&sim_reason=<值>  直播：detail 首行 reason=<值>（scheme_unsupported|malformed|missing_host|param_not_allowed；unknown=未知值；不带 sim_reason=没有 reason 行）。不注入时，地址本身有问题会按实际原因给 reason
  *   ?sim_scheme=missing      直播：LIVE_CONNECT_FAILED 的 detail 不带 scheme= 首行（测兜底）
  */

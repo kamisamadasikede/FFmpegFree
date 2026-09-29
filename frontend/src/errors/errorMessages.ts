@@ -275,16 +275,22 @@ export function liveUrlInvalidText(reason?: string | null): string {
 /** ffmpeg 缺推流协议、detail 里没有认得出的协议名（产品经理定稿） */
 export const LIVE_FFMPEG_PROTOCOL_MISSING_TEXT = '当前 ffmpeg 不支持这种推流协议，请在设置的 ffmpeg 页面重新安装或更新'
 /**
- * 开始前 ffmpeg 缺协议（Start* 同步返回 UNSUPPORTED）。契约没有规定 detail 的写法（见 api/README“缺协议”），按最保守的规则：
- * 后端实际写法（internal/service/live/service.go checkProtocols）：detail = `missing=<协议名>`（srt / rtmps / rtmp / tee）；契约文档没有写这一条。
- * 只在 detail 里出现“missing= / 缺少协议 / missing protocol / protocol not found / protocol=”后面紧跟白名单协议名（rtmp / rtmps / srt，大小写不敏感）时才显示协议名，
- * 名字以白名单里的写法为准（大写）；其余情况（没写、写了别的、带地址的 ffmpeg 原文）一律用不带协议名的文案。detail 原文永远不进文案。
+ * 开始前 ffmpeg 缺协议（Start* 同步返回 UNSUPPORTED）。格式以契约 §6.10（2.2 错误码 detail 约定表）为准：
+ * detail 是单独一行 `missing=<协议名>`，协议名只取 `rtmp` / `rtmps` / `srt`；带本地存档的会话另需 tee，缺时是 `missing=tee`；CheckPushURL 不返回它。
+ * 识别规则（严格）：detail 按行拆开，某一行**严格等于** `missing=rtmp` / `missing=rtmps` / `missing=srt` 才带协议名（协议名大写显示）；
+ * 其余一律用不带协议名的通用句，包括 `missing=tee`、大小写不同、带空格、别的写法、ffmpeg 原文；detail 原文永远不进文案。
  */
 export const LIVE_PROTOCOL_NAMES: Record<string, string> = { rtmp: 'RTMP', rtmps: 'RTMPS', srt: 'SRT' }
-const MISSING_PROTOCOL_RE = /(?:missing|缺少协议|缺少\s*协议|missing\s+protocol|protocol\s+not\s+found|protocol)\s*[:：=]\s*(rtmps|rtmp|srt)(?![A-Za-z0-9])/i
+/** detail 里是否有 `missing=` 开头的行（契约里这是缺 ffmpeg 组件的标记；没有 = 别的原因的 UNSUPPORTED，如屏幕推流存档未实现） */
+export function hasMissingLine(detail?: string | null): boolean {
+  return (detail ?? '').split(/\r?\n/).some((l) => l.startsWith('missing='))
+}
 export function liveMissingProtocolName(detail?: string | null): string | undefined {
-  const m = MISSING_PROTOCOL_RE.exec(detail ?? '')
-  return m ? LIVE_PROTOCOL_NAMES[m[1].toLowerCase()] : undefined
+  for (const line of (detail ?? '').split(/\r?\n/)) {
+    const m = /^missing=(rtmps|rtmp|srt)$/.exec(line)
+    if (m) return LIVE_PROTOCOL_NAMES[m[1]]
+  }
+  return undefined
 }
 export function liveFfmpegProtocolMissingText(detail?: string | null): string {
   const name = liveMissingProtocolName(detail)
@@ -304,8 +310,9 @@ export function liveStartErrorLine(e: { code: string; message?: string; reason?:
     case 'TASK_CONFLICT':
       return { title: '无法开始推流', description: taskConflictText(e.reason) }
     case 'UNSUPPORTED':
-      // 屏幕推流带存档时后端暂返回 UNSUPPORTED（本地存档暂未实现，detail 没有 missing=）：提示“暂不支持存档”，不能说成缺协议
-      if (opts.archive && !/(^|\n)\s*missing\s*=/.test(e.detail ?? '')) return { title: '无法开始推流', description: LIVE_ARCHIVE_UNSUPPORTED_TEXT }
+      // 屏幕推流带存档时后端暂返回 UNSUPPORTED（本地存档暂未实现，契约 §6.10：这种 UNSUPPORTED 没有 missing= 行）：提示“暂不支持存档”，不能说成缺协议
+      // 有 missing= 行（含 missing=tee）的是缺 ffmpeg 组件，走 liveFfmpegProtocolMissingText（tee 用通用句）；后端存档 PR 合入前不放开存档提示
+      if (opts.archive && !hasMissingLine(e.detail)) return { title: '无法开始推流', description: LIVE_ARCHIVE_UNSUPPORTED_TEXT }
       return { title: '无法开始推流', description: liveFfmpegProtocolMissingText(e.detail) }
     case 'LIVE_CONNECT_FAILED': {
       // scheme 优先取 detail 首行（AppError.scheme），拿不到才用页面上地址的 scheme 兜底；都没有 → RTMP 那句

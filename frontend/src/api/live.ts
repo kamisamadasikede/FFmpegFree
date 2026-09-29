@@ -203,6 +203,7 @@ function simValidateStart(url: string, options: PushOptions, screen = false): { 
   // detail 只带脱敏后的地址，绝不回显原文
   if (!u.ok) return simError('LIVE_URL_INVALID', u.message, urlInvalidDetail(u.reason, url))
   const missing = simParam('sim_missing')
+  // 契约 §6.10：缺协议时 detail 是单独一行 missing=<协议名>（rtmp / rtmps / srt），没有第二行
   if (missing && missing === u.info.scheme) simError('UNSUPPORTED', simMsg('UNSUPPORTED'), `missing=${missing}`)
   const live = activeSimEntries().filter((e) => e.task.type === 'live_file_push' || e.task.type === 'live_screen_push')
   // 后端两种冲突用 detail 第一行 reason=<值> 区分，detail 里不带任何地址片段
@@ -256,7 +257,7 @@ export async function startScreenPush(req: ScreenPushRequest): Promise<ApiTask> 
   assertSrtPassphrase(req.url)
   if (liveIsReal()) return toApiTask(await call(LiveBinding.StartScreenPush(goLive.ScreenPushRequest.createFrom(req))))
   await simDelay(150)
-  // 与真实后端一致：本地存档暂未实现，archiveDir 非空 → UNSUPPORTED（detail 没有 missing=，页面据此显示“暂不支持存档”而不是缺协议）
+  // 与真实后端一致：本地存档暂未实现，archiveDir 非空 → UNSUPPORTED（契约 §6.10：这种 UNSUPPORTED 没有 missing= 行，页面据此显示“暂不支持存档”而不是缺协议）
   if (req.archiveDir) simError('UNSUPPORTED', '屏幕推流的本地存档暂未实现')
   const caps = await getCaptureCapabilities()
   if (!caps.supported) simError('UNSUPPORTED_PLATFORM', caps.reason || simMsg('UNSUPPORTED_PLATFORM'))
