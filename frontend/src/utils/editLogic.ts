@@ -52,6 +52,9 @@ export const TEXT = {
   saveEmptyTip: '没有可保存的内容',
   ffmpegTip: '需要先安装 ffmpeg',
   warningGeneric: '有一处会被自动调整，不影响导出。',
+  transitionOver: '转场不能超过较短片段的一半',
+  transitionTooShort: '相邻片段太短，放不下转场',
+  transitionIgnored: '部分转场因片段太短未生效',
 } as const
 
 export const rangeText = (min: number, max: number) => `请输入 ${min} 到 ${max} 之间的数`
@@ -101,6 +104,19 @@ export function nextTouching<T extends AnyClip>(clips: readonly T[], clip: T): T
 export function maxTransitionSec(clip: AnyClip, next: AnyClip): number {
   return Math.min(2, Math.floor((Math.min(clipLen(clip), clipLen(next)) / 2) * 100) / 100)
 }
+export const MIN_TRANSITION_SEC = 0.1
+/** 上限不足 0.1 秒：放不下转场，“转场”下拉 aria-disabled */
+export const transitionFits = (max: number) => max >= MIN_TRANSITION_SEC - 1e-9
+/**
+ * 用户手动输入的转场时长：超过上限直接限制为上限（不回退旧值），over = 是否触发“转场不能超过较短片段的一半”提示；
+ * 小于 0.1 秒取 0.1。默认时长 / 拖动导致的超限用 clampSilently，不提示。
+ */
+export function clampTransitionInput(v: number, max: number): { value: number; over: boolean } {
+  const m = Math.max(MIN_TRANSITION_SEC, max)
+  if (v > m + 1e-9) return { value: m, over: true }
+  return { value: Math.max(MIN_TRANSITION_SEC, Math.round(v * 100) / 100), over: false }
+}
+export const clampSilently = (v: number, max: number) => Math.min(v || 0.5, Math.max(MIN_TRANSITION_SEC, max))
 
 // ───────── 重叠 / 限制判断（拖动、放置、改数值都走这里）─────────
 /** candidate 放到位后与同轨其它片段的冲突（返回冲突片段 id，没有 null），直接用接口层的 wouldOverlap */
@@ -254,12 +270,18 @@ export const WARNING_TEXT: Record<string, (label: string) => string> = {
  * 规范化 warnings。结构化形式 {code, clipId?, message} 原样接收；
  * 接口层模拟目前还返回旧的字符串形式（"clip <id> outSec 超过素材时长，已截断"），这里按同一句式解析出 code / clipId，其余字符串按未知 code 处理。
  */
+/** 导出时按空隙补黑场 / 静音的提示码：界面不提示（设计说明 2.14），只在校验提示里过滤掉 */
+export const SILENT_WARNING_CODES = ['CLIP_GAP', 'LEADING_GAP']
+export const isSilentWarning = (w: EditWarning) => SILENT_WARNING_CODES.includes(w.code.toUpperCase())
+export const hasTransitionIgnored = (ws: readonly EditWarning[]) => ws.some((w) => w.code.toUpperCase() === 'TRANSITION_IGNORED')
 export function normalizeWarnings(raw: unknown): EditWarning[] {
   if (!Array.isArray(raw)) return []
   return raw.map((w): EditWarning => {
     if (typeof w === 'string') {
       const m = /^clip (\S+) outSec 超过素材时长/.exec(w)
-      return m ? { code: 'OUT_EXCEEDS_DURATION', clipId: m[1], message: w } : { code: 'UNKNOWN', message: w }
+      if (m) return { code: 'OUT_EXCEEDS_DURATION', clipId: m[1], message: w }
+      const t = /^(transition_ignored|clip_gap|leading_gap)\b\s*(?:clip (\S+))?/i.exec(w)
+      return t ? { code: t[1].toUpperCase(), clipId: t[2], message: w } : { code: 'UNKNOWN', message: w }
     }
     const o = (w ?? {}) as Partial<EditWarning>
     return { code: String(o.code ?? 'UNKNOWN'), clipId: o.clipId || undefined, message: String(o.message ?? '') }

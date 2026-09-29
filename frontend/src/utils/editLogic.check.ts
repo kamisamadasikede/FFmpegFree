@@ -1,9 +1,9 @@
 // 不引入测试框架的自检：npm run check:edit（scripts/check-edit.mjs 用 esbuild 打包后在 node 里跑）。
-import { newAudioClip, newVideoClip, type VideoClip } from '@/api/edit'
+import { newAudioClip, newEditProject, newVideoClip, type VideoClip } from '@/api/edit'
 import {
   DELETE_CONFIRM_MIN, MAX_CLIPS, MAX_TIMELINE_SEC, clipEnd, deleteNeedsConfirm, exceedsTimeline, exportErrorView, exportNameError, formatClock, formatTC, gapKind,
   maxTransitionSec, nameLength, nextTouching, normalizeWarnings, overlapWith, parseTC, pathTooLong, placeProblem, resolveSplitTarget, snapStart, splitBlockReason, splitClip,
-  timelineDuration, warningText, TEXT, LIMIT_TEXT, MAX_SOURCES,
+  timelineDuration, warningText, TEXT, LIMIT_TEXT, MAX_SOURCES, clampTransitionInput, clampSilently, transitionFits, hasTransitionIgnored, isSilentWarning,
 } from './editLogic'
 
 export function runEditChecks(): string[] {
@@ -21,6 +21,17 @@ export function runEditChecks(): string[] {
   eq('片段上限 100', MAX_CLIPS, 100)
   eq('素材库上限先按 100', MAX_SOURCES, 100)
   eq('6 小时', MAX_TIMELINE_SEC, 21600)
+  {
+    const d = newEditProject('x').output
+    eq('新建工程默认 1920×1080、30fps', [d.width, d.height, d.fps], [1920, 1080, 30])
+    eq('转场输入超限：限制为上限并提示', clampTransitionInput(1.0, 0.8), { value: 0.8, over: true })
+    eq('转场输入合法：不提示', clampTransitionInput(0.5, 0.8), { value: 0.5, over: false })
+    eq('默认 0.5 超上限：静默缩短', clampSilently(0.5, 0.3), 0.3)
+    eq('上限不足 0.1：放不下', [transitionFits(0.09), transitionFits(0.1)], [false, true])
+    eq('transition_ignored 字符串与结构化都识别', [hasTransitionIgnored(normalizeWarnings(['transition_ignored'])), hasTransitionIgnored(normalizeWarnings([{ code: 'transition_ignored', message: 'x' }]))], [true, true])
+    eq('clip_gap / leading_gap 不提示', normalizeWarnings(['clip_gap', { code: 'leading_gap', message: '' }]).map(isSilentWarning), [true, true])
+    eq('间隙 0.12 相接、0.13 空隙', [gapKind(10, 10.12), gapKind(10, 10.13)], ['touch', 'gap'])
+  }
   eq('限制小字', LIMIT_TEXT, '限制：视频轨 8 条、音频轨 8 条，片段 100 个，时间线 6 小时')
   eq('删除 5 个才确认', [deleteNeedsConfirm(4), deleteNeedsConfirm(DELETE_CONFIRM_MIN), deleteNeedsConfirm(9)], [false, true, true])
 
