@@ -138,7 +138,7 @@
 import { ref, onMounted, onBeforeUnmount, nextTick, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as monaco from 'monaco-editor'
-import { formatJson, compareJson, JsonFormatResponse, JsonCompareResponse } from '@/api/json/json'
+import { formatJson, compareJson, type JsonCompareResponse } from '@/api/json/json'
 
 const activeTab = ref('format')
 
@@ -405,41 +405,27 @@ const doFormat = async (isAuto: boolean = false) => {
   }
   
   try {
-    const response = await formatJson({
+    const result = await formatJson({
       json: formatInput.value,
       indent: indentSize.value,
       compact: compactMode.value
     })
-    
-    const data = response.data as any
-    if (data.code === 200) {
-      const result = data.data as JsonFormatResponse
-      if (result.error) {
-        formatError.value = result.error
-        formatErrorPos.value = result.errorPos
-        if (!isAuto) ElMessage.error('JSON 格式有误')
-      } else {
-        formatError.value = ''
-        if (formatOutputEditor?.getValue() !== result.formatted) {
-          formatOutputEditor?.setValue(result.formatted)
-        }
-        
-        setTimeout(() => {
-          formatOutputEditor?.getAction('editor.action.formatDocument')?.run()
-          formatOutputEditor?.getAction('editor.unfoldAll')?.run()
-        }, 50)
-        
-        if (!isAuto) ElMessage.success('格式化成功')
+    if (result.error) {
+      formatError.value = result.error
+      formatErrorPos.value = result.errorPos
+      if (!isAuto) ElMessage.error('JSON 格式有误')
+    } else {
+      formatError.value = ''
+      if (formatOutputEditor?.getValue() !== result.formatted) {
+        formatOutputEditor?.setValue(result.formatted)
       }
+      setTimeout(() => {
+        formatOutputEditor?.getAction('editor.unfoldAll')?.run()
+      }, 50)
+      if (!isAuto) ElMessage.success('格式化成功')
     }
-  } catch (err) {
-    try {
-      const obj = JSON.parse(formatInput.value)
-      formatOutputEditor?.setValue(JSON.stringify(obj, null, indentSize.value))
-      if (!isAuto) ElMessage.info('后端接口异常，已通过前端对齐')
-    } catch (e) {
-      if (!isAuto) ElMessage.error('无效的 JSON')
-    }
+  } catch (err: any) {
+    if (!isAuto) ElMessage.error('格式化失败: ' + (err?.message || '未知错误'))
   }
 }
 
@@ -508,26 +494,20 @@ const handleCompare = async () => {
   }
   
   try {
-    const response = await compareJson({
+    const result = await compareJson({
       json1: compareInput1.value,
       json2: compareInput2.value
     })
-    
-    const data = response.data as any
-    if (data.code === 200) {
-      const result = data.data as JsonCompareResponse
-      compareResult.value = result
-      
-      clearCompareDecorations()
-      
-      if (result.error) {
-        ElMessage.error(result.error)
-      } else if (result.identical) {
-        ElMessage.success('两个 JSON 完全相同')
-      } else {
-        highlightDifferences(result.differences)
-        ElMessage.warning(`发现 ${result.differences.length} 处差异`)
-      }
+    compareResult.value = result
+    clearCompareDecorations()
+    if (result.error) {
+      ElMessage.error(result.error)
+    } else if (result.identical) {
+      ElMessage.success('两个 JSON 完全相同')
+    } else {
+      const diffs = result.differences ?? []
+      highlightDifferences(diffs)
+      ElMessage.warning(`发现 ${diffs.length} 处差异`)
     }
   } catch (error: any) {
     ElMessage.error('比对失败: ' + (error.message || '未知错误'))
