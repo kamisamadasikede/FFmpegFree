@@ -1,6 +1,7 @@
 // 错误文案表：产品经理定稿、老板冻结，改文案要先走评审。
 // 展示形态见设计原型 proto/errors.html：overlay 用于播放器区域，inline 用于表单，任务中心失败行用 ErrorLine。
 import type { IconName } from '../components/icon/icons'
+import { parseDetailHead } from '../api/call'
 
 export type ErrorStyle = 'overlay' | 'inline'
 
@@ -90,8 +91,9 @@ export function isKnownErrorCode(code: unknown): code is ErrorCode {
 export function resolveError(code?: string | null, fallbackMessage?: string | null): ResolvedError {
   if (isKnownErrorCode(code)) {
     // SRT 连接失败：后端统一判 LIVE_CONNECT_FAILED，页面把产品文案作为 message 传进来时替换说明
-    if (code === 'LIVE_CONNECT_FAILED' && fallbackMessage === LIVE_SRT_CONNECT_FAILED_TEXT) {
-      return { ...errorMessages[code], description: LIVE_SRT_CONNECT_FAILED_TEXT, code, known: true }
+    // 直播连接失败：页面按 detail 首行 scheme= 选好文案（liveConnectFailedText）后作为 message 传进来，替换说明
+    if (code === 'LIVE_CONNECT_FAILED' && isLiveConnectFailedText(fallbackMessage)) {
+      return { ...errorMessages[code], description: fallbackMessage as string, code, known: true }
     }
     return { ...errorMessages[code], code, known: true }
   }
@@ -171,8 +173,8 @@ export function resolveTaskError(code?: string | null, fallbackMessage?: string 
   }
   if (isKnownErrorCode(code)) {
     const m = errorMessages[code]
-    const srt = code === 'LIVE_CONNECT_FAILED' && fallbackMessage === LIVE_SRT_CONNECT_FAILED_TEXT
-    return { code, title: m.title, description: srt ? LIVE_SRT_CONNECT_FAILED_TEXT : m.description, actions: DEFAULT_TASK_ACTIONS, known: true }
+    const byScheme = code === 'LIVE_CONNECT_FAILED' && isLiveConnectFailedText(fallbackMessage)
+    return { code, title: m.title, description: byScheme ? (fallbackMessage as string) : m.description, actions: DEFAULT_TASK_ACTIONS, known: true }
   }
   const message = (fallbackMessage ?? '').trim()
   return {
@@ -218,8 +220,57 @@ export function taskConflictText(reason?: string | null): string {
 export const LIVE_STOP_TEXT = { succeeded: '已结束推流', canceled: '已强制停止' } as const
 /** SRT 连接失败：后端统一判 LIVE_CONNECT_FAILED（无法区分服务器未开与口令错误），文案由前端负责 */
 export const LIVE_SRT_CONNECT_FAILED_TEXT = '连接失败，请检查地址和口令是否正确'
-/** 地址协议不支持（后端 LIVE_URL_INVALID）；也用于地址框失焦校验 */
+/** RTMP / RTMPS 连接失败。⚠ 待产品定稿（架构师决定 3：先用这句） */
+export const LIVE_RTMP_CONNECT_FAILED_TEXT = '连接失败，请检查推流地址是否正确、服务器是否在线'
+
+/** LIVE_CONNECT_FAILED 的文案：scheme 来自 detail 首行 `scheme=rtmp|rtmps|srt`（AppError.scheme）。scheme 缺失 / 不认识返回 undefined，调用方用后端 message / 表里的通用说明 */
+export const LIVE_CONNECT_FAILED_TEXT_BY_SCHEME: Record<string, string> = {
+  srt: LIVE_SRT_CONNECT_FAILED_TEXT,
+  rtmp: LIVE_RTMP_CONNECT_FAILED_TEXT,
+  rtmps: LIVE_RTMP_CONNECT_FAILED_TEXT,
+}
+export function liveConnectFailedText(scheme?: string | null): string | undefined {
+  return scheme && Object.prototype.hasOwnProperty.call(LIVE_CONNECT_FAILED_TEXT_BY_SCHEME, scheme) ? LIVE_CONNECT_FAILED_TEXT_BY_SCHEME[scheme] : undefined
+}
+function isLiveConnectFailedText(text?: string | null): boolean {
+  return !!text && Object.values(LIVE_CONNECT_FAILED_TEXT_BY_SCHEME).includes(text)
+}
+
+/**
+ * 直播任务 / 调用失败 → 遮罩和任务行上显示的说明（作为 message 传给 ErrorOverlay / ErrorLine）。
+ * LIVE_CONNECT_FAILED：按 detail 首行 scheme= 选 SRT / RTMP 文案；detail 没有 scheme 时用 fallbackScheme（脱敏 params.url 或页面地址的 scheme，只是兜底）。
+ * 其余码原样返回后端 message。
+ */
+export function liveFailureMessage(err: { code?: string | null; message?: string | null; detail?: string | null }, fallbackScheme?: string | null): string {
+  if (err.code === 'LIVE_CONNECT_FAILED') {
+    const text = liveConnectFailedText(parseDetailHead(err.detail ?? undefined).scheme ?? fallbackScheme)
+    if (text) return text
+  }
+  return err.message ?? ''
+}
+
+/** 从任务 params 里取脱敏地址的 scheme（兜底用；架构师决定 3：不再作为主要依据） */
+export function schemeFromParams(params?: string | null): string | undefined {
+  const m = /"url"\s*:\s*"(rtmps?|srt):\/\//i.exec(params ?? '')
+  return m ? m[1].toLowerCase() : undefined
+}
+
+// ---- LIVE_URL_INVALID 的 reason → 文案（契约 6.10：detail 首行 `reason=<值>`，稳定枚举，只追加不改名）----
+// 追加新 reason 只需要在这张表里加一行。未知值、缺失 reason 一律走 LIVE_URL_INVALID_GENERIC。
 export const LIVE_PROTOCOL_UNSUPPORTED_TEXT = '暂不支持这种推流地址，请使用 rtmp、rtmps 或 srt'
+/** ⚠ malformed / missing_host / param_not_allowed 的文案待产品定稿，先共用这一句 */
+export const LIVE_URL_MALFORMED_TEXT = '推流地址格式不正确'
+export const LIVE_URL_INVALID_GENERIC = '推流地址不正确'
+export const LIVE_URL_INVALID_REASON_TEXT: Record<string, string> = {
+  scheme_unsupported: LIVE_PROTOCOL_UNSUPPORTED_TEXT,
+  malformed: LIVE_URL_MALFORMED_TEXT,
+  missing_host: LIVE_URL_MALFORMED_TEXT,
+  param_not_allowed: LIVE_URL_MALFORMED_TEXT,
+}
+/** LIVE_URL_INVALID 的用户文案；reason 取自 AppError.reason（api/call.ts 解析）；地址框失焦校验也用它 */
+export function liveUrlInvalidText(reason?: string | null): string {
+  return (reason && Object.prototype.hasOwnProperty.call(LIVE_URL_INVALID_REASON_TEXT, reason) && LIVE_URL_INVALID_REASON_TEXT[reason]) || LIVE_URL_INVALID_GENERIC
+}
 /** 开始前 ffmpeg 缺 srt / rtmps 协议：后端 UNSUPPORTED，detail 写缺哪个。文案待产品定稿 */
 export const LIVE_FFMPEG_PROTOCOL_MISSING_TEXT = '当前 ffmpeg 不支持这种推流协议'
 /** 选中屏幕推流时来源下方常驻的说明（12px、--ff-text-2、前置信息图标，不弹窗） */
@@ -229,14 +280,17 @@ export const LIVE_SCREEN_NO_AUDIO_TEXT = '屏幕推流暂不包含声音'
  * 直播 Start* 同步返回的错误 → 页面上展示的一句话（走 ErrorLine，点“开始”之后才出现，不提前置灰按钮）。
  * 返回 null 表示不属于这里处理的情形（调用方走原来的遮罩 / 行内错误）。
  */
-export function liveStartErrorLine(e: { code: string; message?: string; reason?: string; detail?: string }, opts: { scheme?: string } = {}): { title: string; description: string } | null {
+export function liveStartErrorLine(e: { code: string; message?: string; reason?: string; scheme?: string; detail?: string }, opts: { scheme?: string } = {}): { title: string; description: string } | null {
   switch (e.code) {
     case 'TASK_CONFLICT':
       return { title: '无法开始推流', description: taskConflictText(e.reason) }
     case 'UNSUPPORTED':
       return { title: '无法开始推流', description: LIVE_FFMPEG_PROTOCOL_MISSING_TEXT }
-    case 'LIVE_CONNECT_FAILED':
-      return opts.scheme === 'srt' ? { title: '无法连接流服务器', description: LIVE_SRT_CONNECT_FAILED_TEXT } : null
+    case 'LIVE_CONNECT_FAILED': {
+      // scheme 优先取 detail 首行（AppError.scheme），拿不到才用页面上地址的 scheme 兜底
+      const text = liveConnectFailedText(e.scheme ?? opts.scheme)
+      return text ? { title: '无法连接流服务器', description: text } : null
+    }
     default:
       return null
   }

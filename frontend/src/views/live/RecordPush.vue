@@ -90,7 +90,7 @@ import LiveOverlays from '@/components/live/LiveOverlays.vue'
 import LiveLogDialog from '@/components/live/LiveLogDialog.vue'
 import { livePreview, useLiveSession } from '@/composables/useLiveSession'
 import { useFFmpegStore } from '@/stores/ffmpeg'
-import { LIVE_SCREEN_NO_AUDIO_TEXT, LIVE_SRT_CONNECT_FAILED_TEXT, LIVE_STOP_TEXT, liveStartErrorLine } from '@/errors/errorMessages'
+import { LIVE_SCREEN_NO_AUDIO_TEXT, liveFailureMessage, liveUrlInvalidText, LIVE_STOP_TEXT, liveStartErrorLine } from '@/errors/errorMessages'
 import { joinPushUrl, parsePushUrl } from '@/utils/liveUrl'
 import * as liveApi from '@/api/live'
 import { toAppError } from '@/api/call'
@@ -188,13 +188,13 @@ function watchTask(id: string) {
         session.setIdle()
         session.log('应用退出，推流已中断')
       } else {
-        onFailed(e.error?.code ?? 'INTERNAL', e.error?.message)
+        onFailed(e.error?.code ?? 'INTERNAL', e.error ?? undefined)
       }
     },
   })
 }
 
-function onFailed(code: string, message?: string) {
+function onFailed(code: string, error?: { message?: string; detail?: string }) {
   if (!userStopped && autoReconnect.value && code === 'LIVE_PUSH_INTERRUPTED' && reconnects < MAX_RECONNECT) {
     reconnects++
     session.log(`断线，3 秒后自动重连（${reconnects}/${MAX_RECONNECT}）`)
@@ -202,8 +202,8 @@ function onFailed(code: string, message?: string) {
     return
   }
   const r = parsePushUrl(joinPushUrl(baseUrl.value, streamKey.value))
-  const srt = code === 'LIVE_CONNECT_FAILED' && r.ok && r.info.scheme === 'srt'
-  session.fail(code, '', srt ? LIVE_SRT_CONNECT_FAILED_TEXT : message ?? '')
+  // scheme 以 detail 首行 scheme= 为准，页面上的地址只是兜底
+  session.fail(code, '', liveFailureMessage({ code, ...error }, r.ok ? r.info.scheme : ''))
 }
 
 async function ensureArchiveDir(): Promise<string | null> {
@@ -273,11 +273,11 @@ function onStartFailed(err: liveApi.LiveError, scheme: string) {
   if (err.code === 'LIVE_URL_INVALID') {
     session.setIdle()
     urlInvalid.value = true
-    urlMessage.value = err.message
+    urlMessage.value = liveUrlInvalidText(err.reason) // detail 首行 reason=；未知 / 缺失 → 通用文案
     return
   }
   // UNSUPPORTED_PLATFORM / SCREEN_PERMISSION_DENIED / FFMPEG_NOT_FOUND 等走遮罩
-  session.fail(err.code, '', err.code === 'LIVE_CONNECT_FAILED' && scheme === 'srt' ? LIVE_SRT_CONNECT_FAILED_TEXT : err.message)
+  session.fail(err.code, '', liveFailureMessage(err, scheme))
 }
 
 async function stop() {
@@ -330,7 +330,7 @@ onBeforeUnmount(() => {
 .hint {
   margin-top: -6px;
   font-size: 12px;
-  color: var(--ff-text-3);
+  color: var(--ff-text-2);
   word-break: break-all;
 }
 .note-inline {

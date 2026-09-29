@@ -38,22 +38,27 @@ export const BACKEND_ERROR_CODES: readonly AppErrorCode[] = [
 ]
 
 export interface DetailHead {
-  /** detail 首行 `reason=<值>`（整行只有这一个键值对）；TASK_CONFLICT 用，未知值 / 没有时为 undefined */
+  /** detail 首行 `reason=<值>`（整行只有这一个键值对）；TASK_CONFLICT、LIVE_URL_INVALID 用，未知值 / 没有时为 undefined */
   reason?: string
+  /** detail 首行 `scheme=rtmp|rtmps|srt`（整行只有这一个键值对）；LIVE_CONNECT_FAILED 用，没有时为 undefined */
+  scheme?: string
   /** detail 首行 `clip=<id> path=<path>`（Edit 的 clip 级错误）；结构性错误首行是 `project`，两者都为 undefined */
   clipId?: string
   path?: string
 }
 
 const REASON_RE = /^reason=([A-Za-z0-9_-]+)$/
+const SCHEME_RE = /^scheme=([A-Za-z0-9+.-]+)$/
 const CLIP_RE = /^clip=(\S+) path=(.*)$/
 
-/** 解析 AppError.detail 的第一行（契约：TASK_CONFLICT 的 reason、Edit 的 clip 定位）。只看第一行，解析不了就什么都不返回。 */
+/** 解析 AppError.detail 的第一行（契约：TASK_CONFLICT / LIVE_URL_INVALID 的 reason、LIVE_CONNECT_FAILED 的 scheme、Edit 的 clip 定位）。只看第一行，解析不了就什么都不返回。 */
 export function parseDetailHead(detail?: string): DetailHead {
   if (!detail) return {}
   const first = detail.split(/\r?\n/, 1)[0].trim()
   const r = REASON_RE.exec(first)
   if (r) return { reason: r[1] }
+  const sc = SCHEME_RE.exec(first)
+  if (sc) return { scheme: sc[1].toLowerCase() }
   const c = CLIP_RE.exec(first)
   if (c) return { clipId: c[1], path: c[2] }
   return {}
@@ -64,6 +69,7 @@ export class AppError extends Error {
   detail?: string
   /** 见 parseDetailHead */
   reason?: string
+  scheme?: string
   clipId?: string
   path?: string
   constructor(code: AppErrorCode, message: string, detail?: string) {
@@ -73,6 +79,7 @@ export class AppError extends Error {
     this.detail = detail
     const head = parseDetailHead(detail)
     this.reason = head.reason
+    this.scheme = head.scheme
     this.clipId = head.clipId
     this.path = head.path
   }
@@ -107,7 +114,16 @@ export async function call<T>(p: Promise<T>): Promise<T> {
  * 绑定不存在时抛 UNSUPPORTED，而不是悄悄走模拟。绑定落地后可以改成 import 生成文件，调用方不用动。
  */
 export async function callService<T>(service: string, method: string, ...args: unknown[]): Promise<T> {
-  const fn = (globalThis as any).window?.go?.app?.[service]?.[method]
-  if (typeof fn !== 'function') throw new AppError('UNSUPPORTED', `后端还没有提供 ${service}.${method}`)
-  return await call<T>(fn(...args))
+  const fn = lookupBinding(service, method)
+  if (!fn) throw new AppError('UNSUPPORTED', `后端还没有提供 ${service}.${method}`)
+  return await call<T>(fn(...args) as Promise<T>)
+}
+
+/** window.go.app.<service>.<method>；任何一级不是期望的形状都返回 null */
+function lookupBinding(service: string, method: string): ((...args: unknown[]) => unknown) | null {
+  const root: unknown = (globalThis as { window?: unknown }).window
+  const step = (v: unknown, key: string): unknown => (typeof v === 'object' && v !== null ? (v as Record<string, unknown>)[key] : undefined)
+  const fn = step(step(step(root, 'go'), 'app'), service)
+  const m = step(fn, method)
+  return typeof m === 'function' ? (m as (...args: unknown[]) => unknown).bind(fn) : null
 }

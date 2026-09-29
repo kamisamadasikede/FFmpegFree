@@ -8,7 +8,9 @@
  *
  * 契约要点（前端相关）：
  * - Render → Export，edit_render → edit_export。数值 / 枚举越界一律 INVALID_ARGUMENT（不再静默截断）。
- * - 同一轨道上 clip 时间重叠 → INVALID_ARGUMENT（前端在拖拽 / 放置时就要拦住：见 findTrackOverlap；画中画用不同轨道）。
+ * - 同一轨道上 clip 时间重叠 → INVALID_ARGUMENT，但只在 ValidateProject 和 Export 里报；SaveProject 只校验数量上限，草稿可以带重叠保存（架构师决定 5）。
+ *   前端在拖拽 / 放置时就要拦住：见 findTrackOverlap；画中画用不同轨道。
+ * - outSec 必须 > inSec，0 不表示“到结尾”，outSec=0 一律 INVALID_ARGUMENT：素材加入 clip 时用探测到的时长填实际值（见 newVideoClip / newAudioClip / fillOutSec）。
  * - clip 级错误的 detail 第一行 `clip=<id> path=<path>`（结构性错误是 `project`）；AppError.clipId / .path 已解析（api/call.ts），clip id 字符集 [A-Za-z0-9_-]。
  * - 预览：GetPreviewURL 返回 /local/<token>（进程内有效，重启失效）。遇到 404（token 失效 / 文件被删）要重新调用 GetPreviewURL：见 createPreviewSource。
  */
@@ -45,7 +47,7 @@ export interface VideoClip {
   trackId: string
   startSec: number
   inSec: number
-  /** 0 = 到素材结尾；否则必须 > inSec */
+  /** 必须 > inSec；0 不表示到结尾（一律 INVALID_ARGUMENT），加入 clip 时填探测到的素材时长 */
   outSec: number
   /** 0.25~4，0 = 1 */
   speed: number
@@ -154,6 +156,30 @@ export function newEditProject(name = '未命名工程'): EditProject {
   }
 }
 
+/** 素材时长（探测所得，秒）必须是正的有限数，否则没法给 outSec 填实际值 */
+function requireDuration(durationSec: number): number {
+  if (!(Number.isFinite(durationSec) && durationSec > 0)) throw new AppError('INVALID_ARGUMENT', '素材时长未知，先探测素材再加入时间线')
+  return durationSec
+}
+
+/** 素材加入视频轨：outSec 填探测到的时长（不能是 0）。durationSec 未知（≤0）时抛 INVALID_ARGUMENT，调用方应先 MediaService.Probe */
+export function newVideoClip(o: { path: string; durationSec: number; trackId?: string; startSec?: number; id?: string }): VideoClip {
+  return {
+    id: o.id ?? newClipId('v'), path: o.path, trackId: o.trackId ?? 'V1', startSec: o.startSec ?? 0, inSec: 0, outSec: requireDuration(o.durationSec),
+    speed: 1, effectPreset: 'none', transitionToNext: 'none', transitionDurationSec: 0, blur: 0,
+  }
+}
+
+/** 素材加入音轨：同 newVideoClip；volume 显式 1（0 = 静音，空值不可区分） */
+export function newAudioClip(o: { path: string; durationSec: number; trackId?: string; startSec?: number; id?: string }): AudioClip {
+  return { id: o.id ?? newClipId('a'), path: o.path, trackId: o.trackId ?? 'A1', startSec: o.startSec ?? 0, inSec: 0, outSec: requireDuration(o.durationSec), speed: 1, volume: 1 }
+}
+
+/** 旧数据 / 手改后 outSec ≤ inSec（含 0）时，用探测到的时长补成实际值；已合法的不动 */
+export function fillOutSec<T extends AnyClip>(clip: T, durationSec: number): T {
+  return clip.outSec > clip.inSec ? clip : { ...clip, outSec: Math.max(requireDuration(durationSec), clip.inSec + 0.05) }
+}
+
 /** 生成合法的 clip id（[A-Za-z0-9_-]，≤ 64） */
 export function newClipId(prefix = 'c'): string {
   return `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
@@ -162,9 +188,9 @@ export function newClipId(prefix = 'c'): string {
 // ───────────── 前端校验（拖拽 / 放置时用；模拟层和后端共用同一规则）─────────────
 
 type AnyClip = VideoClip | AudioClip
-/** clip 在时间线上占的长度（秒）：(outSec - inSec) / speed；outSec = 0（到素材结尾）时需要传 mediaDuration */
-export function clipTimelineLength(c: AnyClip, mediaDuration = 0): number {
-  const out = c.outSec > 0 ? c.outSec : mediaDuration
+/** clip 在时间线上占的长度（秒）：(outSec - inSec) / speed。outSec 必须 > inSec（0 不再表示到结尾），不合法的按 0 长度算 */
+export function clipTimelineLength(c: AnyClip): number {
+  const out = c.outSec
   const speed = c.speed > 0 ? c.speed : 1
   return Math.max(0, (out - c.inSec) / speed)
 }
@@ -177,13 +203,12 @@ export interface TrackOverlap {
 
 /**
  * 同一轨道上的 clip 时间重叠检测（后端判 INVALID_ARGUMENT）。首尾相接（end == start，容差 1ms）不算重叠。
- * durationOf 提供 outSec = 0 的 clip 的素材时长（不知道时按 0 算，即不参与重叠判断）。
- * 前端在拖拽和放置 clip 时调用它拦住，画中画请放到不同轨道。
+ * outSec 已经是实际值，不再需要素材时长。前端在拖拽和放置 clip 时调用它拦住，画中画请放到不同轨道。
  */
-export function findTrackOverlap(clips: AnyClip[], durationOf: (path: string) => number = () => 0): TrackOverlap | null {
+export function findTrackOverlap(clips: AnyClip[]): TrackOverlap | null {
   const byTrack = new Map<string, { id: string; start: number; end: number }[]>()
   for (const c of clips) {
-    const len = clipTimelineLength(c, durationOf(c.path))
+    const len = clipTimelineLength(c)
     const list = byTrack.get(c.trackId) ?? []
     list.push({ id: c.id, start: c.startSec, end: c.startSec + len })
     byTrack.set(c.trackId, list)
@@ -198,14 +223,14 @@ export function findTrackOverlap(clips: AnyClip[], durationOf: (path: string) =>
 }
 
 /** 放置 / 拖动 candidate 后是否会与同轨道其他 clip 重叠（忽略自己）。返回冲突的 clip id，没有返回 null */
-export function wouldOverlap(clips: AnyClip[], candidate: AnyClip, durationOf: (path: string) => number = () => 0): string | null {
+export function wouldOverlap(clips: AnyClip[], candidate: AnyClip): string | null {
   const others = clips.filter((c) => c.id !== candidate.id)
-  const r = findTrackOverlap([...others, candidate], durationOf)
+  const r = findTrackOverlap([...others, candidate])
   if (!r) return null
   return r.a === candidate.id ? r.b : r.b === candidate.id ? r.a : null
 }
 
-// ───────────── 结构校验（ValidateProject / Export / SaveProject 共用的前两条，§6.11.2）─────────────
+// ───────────── 结构校验（ValidateProject / Export 用；SaveProject 只校验数量上限，见 checkSaveLimits）─────────────
 
 const MAX_CLIPS = 100
 const MAX_TIMELINE_SEC = 6 * 3600
@@ -222,7 +247,14 @@ function bad(head: string, why: string): never {
   return simError('INVALID_ARGUMENT', why, `${head}\n${why}`)
 }
 
-/** 结构与范围校验（不探测素材、不要求文件存在）。SaveProject 只做这一步；模拟层的 Validate / Export 在此基础上再做素材检查 */
+/** SaveProject 的校验：只查数量上限（素材库 200、clip 总数 100、序列化后 1 MiB），其余（范围、同轨重叠）都不查，草稿可以保存 */
+export function checkSaveLimits(p: EditProject): void {
+  if (p.sources.length > 200) bad('project', '素材库最多 200 个')
+  if (p.videoTrack.length + p.audioTrack.length > MAX_CLIPS) bad('project', `clip 总数最多 ${MAX_CLIPS} 个`)
+  if (new TextEncoder().encode(JSON.stringify(p)).length > MAX_PROJECT_BYTES) bad('project', '工程超过 1 MiB')
+}
+
+/** 结构与范围校验（不探测素材、不要求文件存在），含同轨重叠。Validate / Export 用；模拟层在此基础上再做素材检查 */
 export function checkStructure(p: EditProject, opts: { requireVideo: boolean }): void {
   if (p.schemaVersion !== EDIT_SCHEMA_VERSION && p.schemaVersion !== 0) bad('project', 'schemaVersion 不是 1')
   const name = p.name.trim()
@@ -248,7 +280,7 @@ export function checkStructure(p: EditProject, opts: { requireVideo: boolean }):
     ids.add(c.id)
     if (c.startSec < 0) bad(h, 'startSec 不能为负')
     if (c.inSec < 0) bad(h, 'inSec 不能为负')
-    if (c.outSec < 0 || (c.outSec > 0 && c.outSec <= c.inSec)) bad(h, 'outSec 必须为 0（到素材结尾）或大于 inSec')
+    if (!(c.outSec > c.inSec)) bad(h, 'outSec 必须大于 inSec（0 不表示到素材结尾，请填探测到的时长）')
     if (c.speed !== 0 && (c.speed < 0.25 || c.speed > 4)) bad(h, 'speed 需要在 0.25~4 之间')
   }
   for (const c of p.videoTrack) {
@@ -266,7 +298,7 @@ export function checkStructure(p: EditProject, opts: { requireVideo: boolean }):
     if (!AUDIO_TRACK_RE.test(c.trackId)) bad(h, 'trackId 需要是 A1~A8')
     if (c.volume < 0 || c.volume > 4) bad(h, 'volume 需要在 0~4 之间')
   }
-  // 同一轨道时间重叠 → INVALID_ARGUMENT（outSec = 0 的 clip 在这里按 0 长度算，素材探测后模拟层再查一遍）
+  // 同一轨道时间重叠 → INVALID_ARGUMENT（只在 Validate / Export 报，Save 不查）
   for (const list of [p.videoTrack, p.audioTrack] as AnyClip[][]) {
     const r = findTrackOverlap(list)
     if (r) bad(`clip=${r.b} path=${list.find((c) => c.id === r.b)?.path ?? ''}`, `轨道 ${r.trackId} 上的 clip ${r.a} 与 ${r.b} 时间重叠`)
@@ -319,12 +351,8 @@ function simCheckMaterials(p: EditProject): EditPlan {
   }
   p.videoTrack.forEach((c) => each(c, 'video'))
   p.audioTrack.forEach((c) => each(c, 'audio'))
-  for (const list of [p.videoTrack, p.audioTrack] as AnyClip[][]) {
-    const r = findTrackOverlap(list, durOf)
-    if (r) bad(`clip=${r.b} path=${list.find((c) => c.id === r.b)?.path ?? ''}`, `轨道 ${r.trackId} 上的 clip ${r.a} 与 ${r.b} 时间重叠`)
-  }
   const all = [...p.videoTrack, ...p.audioTrack]
-  const duration = Math.max(0, ...all.map((c) => c.startSec + clipTimelineLength(c, durOf(c.path))))
+  const duration = Math.max(0, ...all.map((c) => c.startSec + clipTimelineLength(c)))
   if (duration > MAX_TIMELINE_SEC) bad('project', '时间线总长不能超过 6 小时')
   return { durationSec: duration, clipCount: all.length, inputs, hasAudio: p.audioTrack.length > 0, warnings }
 }
@@ -437,12 +465,12 @@ export function createPreviewSource(path: string): PreviewSource {
   return src
 }
 
-/** 保存工程。id 空 = 新建；只做结构与范围校验，不探测素材、不要求文件存在。后端不做自动保存，前端需要时自行防抖调用 */
+/** 保存工程。id 空 = 新建；只校验数量上限，不校验同轨重叠和范围，不探测素材、不要求文件存在。后端不做自动保存，前端需要时自行防抖调用 */
 export async function saveProject(project: EditProject): Promise<EditProjectMeta> {
   if (EDIT_BACKEND_READY) return await callService<EditProjectMeta>('EditService', 'SaveProject', project)
   await simDelay(100)
   simInject()
-  checkStructure(project, { requireVideo: false })
+  checkSaveLimits(project) // 只查数量上限；同轨重叠、范围问题草稿也能保存，Validate / Export 才报
   let id = project.id
   if (!id) id = `sim-proj-${(++simSeq).toString(36)}`
   else if (!simProjects.has(id)) simError('NOT_FOUND', '工程不存在')
@@ -455,7 +483,7 @@ function metaOf(p: EditProject): EditProjectMeta {
   const all = [...p.videoTrack, ...p.audioTrack]
   return {
     id: p.id, name: p.name, clipCount: all.length, updatedAt: p.updatedAt,
-    durationSec: Math.max(0, ...all.map((c) => c.startSec + clipTimelineLength(c, simDuration(c.path)))),
+    durationSec: Math.max(0, ...all.map((c) => c.startSec + clipTimelineLength(c))),
   }
 }
 

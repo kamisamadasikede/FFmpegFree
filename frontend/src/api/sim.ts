@@ -23,6 +23,8 @@ export const simParam = (name: string): string | null => new URLSearchParams(glo
  *   ?sim_kill=1              直播：停止时模拟 5 秒内没退出被强杀（canceled）
  *   ?sim_end=<秒>            直播：推满 N 秒后自然结束（succeeded）
  *   ?sim_missing=srt|rtmps   直播：UNSUPPORTED，detail 写缺哪个协议
+ *   ?sim_err=LIVE_URL_INVALID&sim_reason=<值>  直播：detail 首行 reason=<值>（scheme_unsupported|malformed|missing_host|param_not_allowed；unknown=未知值；不带 sim_reason=没有 reason 行）。不注入时，地址本身有问题会按实际原因给 reason
+ *   ?sim_scheme=missing      直播：LIVE_CONNECT_FAILED 的 detail 不带 scheme= 首行（测兜底）
  */
 export interface SimInjection {
   code: AppErrorCode
@@ -41,10 +43,10 @@ export function simInjection(): SimInjection | null {
   return { code, when, reason: simParam('sim_reason') ?? undefined, detail: simParam('sim_detail') ?? undefined }
 }
 
-/** 由注入构造 detail：TASK_CONFLICT 的首行是 reason=<值>（契约 6.10），其余直接用 sim_detail */
+/** 由注入构造 detail：TASK_CONFLICT / LIVE_URL_INVALID 的首行是 reason=<值>（契约 6.10），其余直接用 sim_detail */
 export function injectionDetail(inj: SimInjection): string | undefined {
   const lines: string[] = []
-  if (inj.code === 'TASK_CONFLICT' && inj.reason) lines.push(`reason=${inj.reason === 'unknown' ? 'future_reason' : inj.reason}`)
+  if ((inj.code === 'TASK_CONFLICT' || inj.code === 'LIVE_URL_INVALID') && inj.reason) lines.push(`reason=${inj.reason === 'unknown' ? 'future_reason' : inj.reason}`)
   if (inj.detail) lines.push(inj.detail)
   return lines.length ? lines.join('\n') : undefined
 }
@@ -158,11 +160,14 @@ function progress(e: Entry, over: Partial<TaskProgressPayload>) {
 }
 
 /** 创建并启动一个模拟任务：立即发 task:created（queued, version 1），300ms 后 running，然后定时推进 */
+/** 模拟任务的标题前缀：所有出现标题的地方（任务中心、日志面板、通知）都能看出是演示数据；任务中心会把它换成“演示”标签 */
+export const SIM_TITLE_PREFIX = '【演示】'
+
 export function createSimTask(spec: SimTaskSpec): ApiTask {
   const id = `sim${Date.now().toString(36)}${(++seq).toString(36)}`
   const live = !!spec.live
   const task: ApiTask = {
-    id, type: spec.type, status: 'queued', title: spec.title, inputPaths: [...spec.inputPaths], outputPath: spec.outputPath,
+    id, type: spec.type, status: 'queued', title: SIM_TITLE_PREFIX + spec.title, inputPaths: [...spec.inputPaths], outputPath: spec.outputPath,
     progress: live ? -1 : 0, speed: '', etaSec: 0, params: spec.params, version: 1, error: null, createdAt: Date.now(), startedAt: 0, finishedAt: 0,
   }
   const e: Entry = { task, spec, stopping: false, firstProgressAt: 0 }

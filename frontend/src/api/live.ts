@@ -144,6 +144,11 @@ function checkOptions(o: PushOptions) {
   if (o.audioBitrateKbps !== 0 && (o.audioBitrateKbps < 32 || o.audioBitrateKbps > 512)) bad('audioBitrateKbps（32~512）')
 }
 
+/** LIVE_URL_INVALID 的 detail：首行 `reason=<值>`（契约稳定枚举），第二行是脱敏后的地址，绝不回显原文 */
+function urlInvalidDetail(reason: string, url: string): string {
+  return `reason=${reason}\n${redactPushUrl(url)}`
+}
+
 /** 模拟：Start* 的同步校验（契约“Start* 同步返回的错误”），返回标准化地址 */
 function simValidateStart(url: string, options: PushOptions): { normalized: string; redacted: string; scheme: string } {
   const inj = simInjection()
@@ -151,7 +156,7 @@ function simValidateStart(url: string, options: PushOptions): { normalized: stri
   checkOptions(options)
   const u = parsePushUrl(url)
   // detail 只带脱敏后的地址，绝不回显原文
-  if (!u.ok) return simError('LIVE_URL_INVALID', u.message, redactPushUrl(url))
+  if (!u.ok) return simError('LIVE_URL_INVALID', u.message, urlInvalidDetail(u.reason, url))
   const missing = simParam('sim_missing')
   if (missing && missing === u.info.scheme) simError('UNSUPPORTED', simMsg('UNSUPPORTED'), `ffmpeg 缺少协议：${missing}`)
   const live = activeSimEntries().filter((e) => e.task.type === 'live_file_push' || e.task.type === 'live_screen_push')
@@ -161,13 +166,21 @@ function simValidateStart(url: string, options: PushOptions): { normalized: stri
   return { normalized: u.normalized, redacted: u.info.redacted, scheme: u.info.scheme }
 }
 
+/** LIVE_CONNECT_FAILED 的 detail 首行固定 `scheme=rtmp|rtmps|srt`（架构师决定 3）；?sim_detail 附加为后面的行。?sim_scheme=missing 让首行缺失（测兜底） */
+function connectFailedDetail(inj: NonNullable<ReturnType<typeof simInjection>>, scheme: string): string | undefined {
+  if (inj.code !== 'LIVE_CONNECT_FAILED') return injectionDetail(inj)
+  const head = simParam('sim_scheme') === 'missing' ? [] : [`scheme=${scheme}`]
+  const rest = inj.detail ?? (scheme === 'srt' ? 'Connection to srt://***@host:9000?streamid=*** failed: Input/output error' : 'Connection to rtmp://host:1935 failed: Connection refused')
+  return [...head, rest].join('\n')
+}
+
 function simLiveSpec(scheme: string): SimLiveSpec {
   const inj = simInjection()
   const live: SimLiveSpec = { forceKill: simParam('sim_kill') === '1' }
   const end = Number(simParam('sim_end'))
   if (end > 0) live.endAfterSec = end
   if (inj && inj.when === 'task') {
-    live.fail = { code: inj.code, message: simMsg(inj.code), detail: injectionDetail(inj) ?? (scheme === 'srt' && inj.code === 'LIVE_CONNECT_FAILED' ? 'Connection to srt://***@host:9000?streamid=*** failed: Input/output error' : undefined), afterSec: 4 }
+    live.fail = { code: inj.code, message: simMsg(inj.code), detail: connectFailedDetail(inj, scheme), afterSec: 4 }
   }
   return live
 }
@@ -238,7 +251,7 @@ export async function listScreens(): Promise<ScreenInfo[]> {
 export async function checkPushURL(url: string): Promise<PushURLInfo> {
   if (LIVE_BACKEND_READY) return await callService<PushURLInfo>('LiveService', 'CheckPushURL', url)
   const u = parsePushUrl(url)
-  if (!u.ok) return simError('LIVE_URL_INVALID', u.message, redactPushUrl(url))
+  if (!u.ok) return simError('LIVE_URL_INVALID', u.message, urlInvalidDetail(u.reason, url))
   return u.info
 }
 

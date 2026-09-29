@@ -70,7 +70,7 @@ import LiveOverlays from '@/components/live/LiveOverlays.vue'
 import LiveLogDialog from '@/components/live/LiveLogDialog.vue'
 import { livePreview, useLiveSession } from '@/composables/useLiveSession'
 import { useFFmpegStore } from '@/stores/ffmpeg'
-import { LIVE_SRT_CONNECT_FAILED_TEXT, LIVE_STOP_TEXT, liveStartErrorLine } from '@/errors/errorMessages'
+import { liveFailureMessage, liveUrlInvalidText, LIVE_STOP_TEXT, liveStartErrorLine } from '@/errors/errorMessages'
 import { joinPushUrl, parsePushUrl } from '@/utils/liveUrl'
 import * as liveApi from '@/api/live'
 import { LIVE_BACKEND_READY } from '@/api/live'
@@ -191,13 +191,13 @@ function watchTask(id: string) {
         session.setIdle()
         session.log('应用退出，推流已中断')
       } else {
-        onFailed(e.error?.code ?? 'INTERNAL', e.error?.message)
+        onFailed(e.error?.code ?? 'INTERNAL', e.error ?? undefined)
       }
     },
   })
 }
 
-function onFailed(code: string, message?: string) {
+function onFailed(code: string, error?: { message?: string; detail?: string }) {
   // 只有推流已开始后被中断（LIVE_PUSH_INTERRUPTED）才自动重连；开始前的连接失败 / 被拒绝重连也不会好
   if (!userStopped && autoReconnect.value && code === 'LIVE_PUSH_INTERRUPTED' && reconnects < MAX_RECONNECT) {
     reconnects++
@@ -205,9 +205,8 @@ function onFailed(code: string, message?: string) {
     setTimeout(() => !userStopped && start(true), 3000)
     return
   }
-  const scheme = currentScheme()
-  const srt = code === 'LIVE_CONNECT_FAILED' && scheme === 'srt'
-  session.fail(code, '', srt ? LIVE_SRT_CONNECT_FAILED_TEXT : message ?? '')
+  // scheme 以 detail 首行 scheme= 为准，页面上的地址只是兜底
+  session.fail(code, '', liveFailureMessage({ code, ...error }, currentScheme()))
 }
 
 function currentScheme(): string {
@@ -264,10 +263,10 @@ function onStartFailed(err: liveApi.LiveError, scheme: string) {
   if (err.code === 'LIVE_URL_INVALID') {
     session.setIdle()
     urlInvalid.value = true
-    urlMessage.value = err.message
+    urlMessage.value = liveUrlInvalidText(err.reason) // detail 首行 reason=；未知 / 缺失 → 通用文案
     return
   }
-  session.fail(err.code, '', err.code === 'LIVE_CONNECT_FAILED' && scheme === 'srt' ? LIVE_SRT_CONNECT_FAILED_TEXT : err.message)
+  session.fail(err.code, '', liveFailureMessage(err, scheme))
 }
 
 async function stop() {
@@ -341,7 +340,7 @@ onBeforeUnmount(cleanup)
 .hint {
   margin-top: 6px;
   font-size: 12px;
-  color: var(--ff-text-3);
+  color: var(--ff-text-2);
   line-height: 1.5;
 }
 .del {

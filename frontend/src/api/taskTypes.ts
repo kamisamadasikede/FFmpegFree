@@ -56,26 +56,34 @@ export interface TaskStatusPayload {
 }
 
 /** Wails 生成的 store.Task（或事件里的对象）→ ApiTask：error 为 null / 缺省统一成 null，数值缺省补 0 */
-export function toApiTask(raw: any): ApiTask {
-  const e = raw?.error
+export function toApiTask(raw: unknown): ApiTask {
+  const r = asRecord(raw)
+  const e = asRecord(r.error)
+  const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+  const str = (v: unknown): string => (typeof v === 'string' ? v : '')
+  const opt = (k: 'fps' | 'bitrateKbps' | 'droppedFrames') => (typeof r[k] === 'number' ? { [k]: r[k] as number } : {})
   return {
-    id: raw.id,
-    type: raw.type,
-    status: raw.status,
-    title: raw.title ?? '',
-    inputPaths: raw.inputPaths ?? [],
-    outputPath: raw.outputPath ?? '',
-    progress: typeof raw.progress === 'number' ? raw.progress : 0,
-    speed: raw.speed ?? '',
-    etaSec: raw.etaSec ?? 0,
-    params: raw.params ?? '',
-    version: raw.version ?? 0,
-    error: e && e.code ? { code: e.code, message: e.message ?? '', detail: e.detail || undefined } : null,
-    createdAt: raw.createdAt ?? 0,
-    startedAt: raw.startedAt ?? 0,
-    finishedAt: raw.finishedAt ?? 0,
-    ...(raw.fps !== undefined ? { fps: raw.fps } : {}),
-    ...(raw.bitrateKbps !== undefined ? { bitrateKbps: raw.bitrateKbps } : {}),
-    ...(raw.droppedFrames !== undefined ? { droppedFrames: raw.droppedFrames } : {}),
+    id: str(r.id),
+    type: str(r.type) as ApiTask['type'],
+    status: str(r.status) as ApiTask['status'],
+    title: str(r.title),
+    inputPaths: Array.isArray(r.inputPaths) ? r.inputPaths.filter((x): x is string => typeof x === 'string') : [],
+    outputPath: str(r.outputPath),
+    progress: typeof r.progress === 'number' ? r.progress : 0,
+    speed: str(r.speed),
+    etaSec: num(r.etaSec),
+    params: str(r.params),
+    version: num(r.version),
+    error: typeof e.code === 'string' && e.code ? { code: e.code, message: str(e.message), detail: str(e.detail) || undefined } : null,
+    createdAt: num(r.createdAt),
+    startedAt: num(r.startedAt),
+    finishedAt: num(r.finishedAt),
+    ...opt('fps'),
+    ...opt('bitrateKbps'),
+    ...opt('droppedFrames'),
   }
+}
+
+function asRecord(v: unknown): Record<string, unknown> {
+  return typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : {}
 }

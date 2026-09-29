@@ -67,7 +67,7 @@
             <template v-for="t in rows" :key="t.id">
               <tr :class="{ sel: logId === t.id, haserr: hasErrLine(t) }">
                 <td>
-                  <div class="fname" :title="t.title">{{ t.title || fileBaseName(t.outputPath) }}</div>
+                  <div class="fname" :title="isSim(t) ? `演示任务（模拟数据） · ${t.title}` : t.title"><span v-if="isSim(t)" class="simtag">演示</span>{{ shownTitle(t) }}</div>
                   <div class="finfo">{{ subInfo(t) }}</div>
                 </td>
                 <td>
@@ -194,7 +194,8 @@ import ErrorLine from '@/components/common/ErrorLine.vue'
 import { isLiveType, isTerminal, useTaskStore, type TaskItem, type TaskStatus } from '@/stores/tasks'
 import type { IconName } from '@/components/icon/icons'
 import { toAppError } from '@/api/call'
-import { actionErrorText, docUnsupportedText, LIVE_SRT_CONNECT_FAILED_TEXT, LIVE_STOP_TEXT } from '@/errors/errorMessages'
+import { isSimTask, SIM_TITLE_PREFIX } from '@/api/sim'
+import { actionErrorText, docUnsupportedText, liveFailureMessage, LIVE_STOP_TEXT, schemeFromParams } from '@/errors/errorMessages'
 import { pickDirectory, revealInFolder } from '@/api/system'
 import { parseConvertParams, resubmitToDir } from '@/api/convert'
 import { fileBaseName, formatClock, formatDuration, formatEta, formatStart } from '@/utils/format'
@@ -310,10 +311,15 @@ function statusLabel(t: TaskItem): string {
 /** 失败行的说明：office_pdf 的 UNSUPPORTED 用产品文案（“暂不支持这种格式，请先另存为 docx、xlsx 或 pptx”），其余沿用后端 message */
 function errMessage(t: TaskItem): string | undefined {
   if (t.type === 'office_pdf' && t.error?.code === 'UNSUPPORTED') return docUnsupportedText(t.error.message, t.error.detail)
-  // SRT 连接失败：后端统一判 LIVE_CONNECT_FAILED，文案由前端给（任务 params 已脱敏，但 scheme 还在）
-  if (isLiveType(t.type) && t.error?.code === 'LIVE_CONNECT_FAILED' && /"url":"srt:\/\//.test(t.params)) return LIVE_SRT_CONNECT_FAILED_TEXT
+  // 连接失败：按 detail 首行 scheme=（srt 一句、rtmp/rtmps 一句）；detail 没有时才用脱敏 params.url 的 scheme 兜底
+  if (isLiveType(t.type) && t.error?.code === 'LIVE_CONNECT_FAILED') return liveFailureMessage(t.error, schemeFromParams(t.params))
   return t.error?.message
 }
+
+/** 接口层模拟出来的任务（后端还没接入时的演示数据），任务中心里加“演示”标记，避免被当成真实任务 */
+const isSim = (t: TaskItem) => isSimTask(t.id)
+/** 演示任务的标题去掉“【演示】”前缀（由标签代替） */
+const shownTitle = (t: TaskItem) => (isSim(t) && t.title.startsWith(SIM_TITLE_PREFIX) ? t.title.slice(SIM_TITLE_PREFIX.length) : t.title) || fileBaseName(t.outputPath)
 
 const percent = (t: TaskItem) => Math.round(Math.min(1, Math.max(0, t.progress)) * 100)
 const liveSeconds = (t: TaskItem) => (t.outTimeSec > 0 ? t.outTimeSec : t.startedAt ? (Date.now() - t.startedAt) / 1000 : 0)
@@ -678,6 +684,18 @@ tr.haserr > td {
 }
 tr.errrow > td {
   padding: 0 16px 12px;
+}
+.simtag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border: 1px solid var(--ff-border);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 18px;
+  color: var(--ff-text-2);
+  vertical-align: 1px;
 }
 .fname {
   font-weight: 500;
