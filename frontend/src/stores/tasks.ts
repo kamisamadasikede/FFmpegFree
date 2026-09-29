@@ -3,7 +3,8 @@ import { computed, reactive, ref } from 'vue'
 import * as TaskBinding from '../../wailsjs/go/app/TaskService'
 import { store as goStore } from '../../wailsjs/go/models'
 import { call, toAppError } from '@/api/call'
-import { hasWailsBackend, onEvent, previewParams } from '@/services/wails'
+import { hasWailsBackend, onEvent, onSimEvent, previewParams } from '@/services/wails'
+import { cancelSimTask, isSimTask, listSimFinished, removeSimTasks, retrySimTask } from '@/api/sim'
 import { toInstallProgress, useFFmpegStore } from '@/stores/ffmpeg'
 import { buildPreviewActive, buildPreviewHistory, PREVIEW_LOG } from '@/stores/tasks.preview'
 
@@ -11,12 +12,18 @@ import { buildPreviewActive, buildPreviewHistory, PREVIEW_LOG } from '@/stores/t
 export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'interrupted'
 export type TaskType =
   | 'convert'
-  | 'edit_render'
+  | 'edit_export'
   | 'office_pdf'
   | 'live_file_push'
-  | 'live_relay'
-  | 'live_record_push'
+  | 'live_screen_push'
   | 'ffmpeg_install'
+
+/**
+ * 任务中心认识的类型（契约 v0.10~v0.12）。live_relay / live_record_push 是保留但不再产生的旧类型，edit_render 是 Edit 改名前的旧名，
+ * 库里若还有这些记录、或将来出现新类型，一律忽略（不展示、不报错、不影响其他任务）。
+ */
+export const KNOWN_TASK_TYPES: readonly string[] = ['convert', 'edit_export', 'office_pdf', 'live_file_push', 'live_screen_push', 'ffmpeg_install']
+export const isKnownTaskType = (t: unknown): boolean => typeof t === 'string' && KNOWN_TASK_TYPES.includes(t)
 
 export interface TaskError {
   code: string
@@ -43,6 +50,10 @@ export interface TaskItem {
   createdAt: number
   startedAt: number
   finishedAt: number
+  /** 直播任务运行中才有（契约 v0.10）：当前输出帧率 / 近 5 秒码率 kbit/s / 累计丢帧 */
+  fps?: number
+  bitrateKbps?: number
+  droppedFrames?: number
 }
 
 /** 终态任务的快照（见 useTaskStore 的 finalById） */
@@ -73,7 +84,17 @@ export const isTerminal = (s: string): boolean => TERMINAL.includes(s as TaskSta
 export const isLiveType = (t: string): boolean => t.startsWith('live_')
 
 // ---- 事件 payload（契约第 5 节） ----
-interface ProgressPayload { id: string; version: number; progress: number; speed: string; etaSec: number; outTimeSec: number }
+interface ProgressPayload {
+  id: string
+  version: number
+  progress: number
+  speed: string
+  etaSec: number
+  outTimeSec: number
+  fps?: number
+  bitrateKbps?: number
+  droppedFrames?: number
+}
 interface StatusPayload {
   id: string
   version: number
@@ -113,6 +134,9 @@ export function normalizeTask(raw: goStore.Task | TaskItem): TaskItem {
     createdAt: r.createdAt ?? 0,
     startedAt: r.startedAt ?? 0,
     finishedAt: r.finishedAt ?? 0,
+    ...(r.fps !== undefined ? { fps: r.fps } : {}),
+    ...(r.bitrateKbps !== undefined ? { bitrateKbps: r.bitrateKbps } : {}),
+    ...(r.droppedFrames !== undefined ? { droppedFrames: r.droppedFrames } : {}),
   }
 }
 
@@ -224,6 +248,11 @@ export const useTaskStore = defineStore('tasks', () => {
   const previewHistory = ref<TaskItem[]>([])
 
   let historySeq = 0
+  function historyMatches(t: TaskItem): boolean {
+    if (!isKnownTaskType(t.type)) return false
+    if (!GROUP_STATUSES[historyFilter.group].includes(t.status)) return false
+    return !historyFilter.types.length || historyFilter.types.includes(t.type)
+  }
   async function loadHistory() {
     historyLoaded.value = true
     if (previewMode) {
@@ -232,7 +261,13 @@ export const useTaskStore = defineStore('tasks', () => {
       history.value = all.slice((historyFilter.page - 1) * historyFilter.pageSize, historyFilter.page * historyFilter.pageSize)
       return
     }
-    if (!hasWailsBackend()) return
+    if (!hasWailsBackend()) {
+      // 浏览器里没有后端：显示接口层模拟任务（api/sim.ts）产生的历史
+      const all = listSimFinished().map((t) => normalizeTask(t as unknown as goStore.Task)).filter((t) => historyMatches(t))
+      historyTotal.value = all.length
+      history.value = all.slice((historyFilter.page - 1) * historyFilter.pageSize, historyFilter.page * historyFilter.pageSize)
+      return
+    }
     const seq = ++historySeq
     historyLoading.value = true
     try {
@@ -244,7 +279,7 @@ export const useTaskStore = defineStore('tasks', () => {
       })
       const page = await call(TaskBinding.List(filter))
       if (seq !== historySeq) return // 更晚的请求已发出
-      history.value = (page.items ?? []).map(normalizeTask)
+      history.value = (page.items ?? []).map(normalizeTask).filter((t) => isKnownTaskType(t.type)) // 旧 / 未知类型忽略
       historyTotal.value = page.total ?? 0
       historyError.value = null
       // 删除后当前页可能已经没数据了，退回最后一页
@@ -336,7 +371,7 @@ export const useTaskStore = defineStore('tasks', () => {
     try {
       const t = normalizeTask(await call(TaskBinding.Get(id)))
       // Get 期间可能收到了 task:removed，此时结果作废
-      if (!removedIds.has(id) && !isTerminal(t.status) && !byId[id]) {
+      if (!removedIds.has(id) && !isTerminal(t.status) && !byId[id] && isKnownTaskType(t.type)) {
         byId[id] = t
         syncInstall(t)
       }
@@ -350,6 +385,7 @@ export const useTaskStore = defineStore('tasks', () => {
   function applyCreated(raw: goStore.Task) {
     const t = normalizeTask(raw)
     if (removedIds.has(t.id)) return
+    if (!isKnownTaskType(t.type)) return // 旧 / 未知类型：忽略，不报错
     const cur = byId[t.id]
     if (cur && cur.version >= t.version) return
     if ((finishedVersions.get(t.id) ?? -1) >= t.version) return
@@ -371,6 +407,9 @@ export const useTaskStore = defineStore('tasks', () => {
     cur.speed = p.speed ?? ''
     cur.etaSec = p.etaSec ?? 0
     cur.outTimeSec = p.outTimeSec ?? 0
+    if (p.fps !== undefined) cur.fps = p.fps
+    if (p.bitrateKbps !== undefined) cur.bitrateKbps = p.bitrateKbps
+    if (p.droppedFrames !== undefined) cur.droppedFrames = p.droppedFrames
     syncInstall(cur)
   }
 
@@ -457,7 +496,7 @@ export const useTaskStore = defineStore('tasks', () => {
       const seen = new Set<string>()
       for (const raw of list ?? []) {
         const t = normalizeTask(raw)
-        if (removedIds.has(t.id)) continue
+        if (removedIds.has(t.id) || !isKnownTaskType(t.type)) continue
         seen.add(t.id)
         const cur = byId[t.id]
         if (!cur || cur.version < t.version) byId[t.id] = t
@@ -484,6 +523,11 @@ export const useTaskStore = defineStore('tasks', () => {
   async function init() {
     if (started) return
     started = true
+    // 接口层模拟（api/sim.ts）发的事件，形状与后端事件一致；真实后端就绪后总线上不会再有事件
+    onSimEvent<goStore.Task>('task:created', (p) => handle({ kind: 'created', version: p.version, payload: p }))
+    onSimEvent<ProgressPayload>('task:progress', (p) => handle({ kind: 'progress', version: p.version, payload: p }))
+    onSimEvent<StatusPayload>('task:status', (p) => handle({ kind: 'status', version: p.version, payload: p }))
+    onSimEvent<RemovedPayload>('task:removed', (p) => handle({ kind: 'removed', version: Infinity, payload: p }))
     if (!hasWailsBackend()) {
       // 浏览器预览：?tasks=N 生成 N 个假的进行中任务，同时生成假历史（?hist=M 调数量）
       if (previewMode) {
@@ -515,6 +559,7 @@ export const useTaskStore = defineStore('tasks', () => {
       scheduleRefresh()
       return
     }
+    if (isSimTask(id)) return cancelSimTask(id)
     await call(TaskBinding.Cancel(id))
   }
 
@@ -549,6 +594,11 @@ export const useTaskStore = defineStore('tasks', () => {
       byId[t.id] = t
       return t
     }
+    if (isSimTask(id)) {
+      const nt = normalizeTask(retrySimTask(id) as unknown as goStore.Task)
+      scheduleRefresh()
+      return nt
+    }
     const t = normalizeTask(await call(TaskBinding.Retry(id)))
     // task:created 事件会带来同一个对象；先放进去让界面立刻有反馈，版本判断保证不重复
     applyCreated(t as unknown as goStore.Task)
@@ -564,7 +614,8 @@ export const useTaskStore = defineStore('tasks', () => {
       await loadStats()
       return
     }
-    await call(TaskBinding.Remove(ids, deleteOutput))
+    if (ids.every(isSimTask)) removeSimTasks(ids)
+    else await call(TaskBinding.Remove(ids, deleteOutput))
     markRemoved(ids)
     // task:removed 事件也会到；本地先更新，避免界面等一个来回
     applyRemoved({ ids })
