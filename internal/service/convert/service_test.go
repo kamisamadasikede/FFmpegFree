@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -486,5 +487,54 @@ func TestPresetsCRUD(t *testing.T) {
 	}
 	if _, err := e.svc.SavePreset(ctx, Preset{Name: "多一个", Options: ffmpeg.ConvertOptions{Container: "mp4", VideoCodec: "h264"}}); !apperr.Is(err, apperr.InvalidArgument) {
 		t.Errorf("超过上限: %v", err)
+	}
+}
+
+// M5：ctx 被取消（应用退出）时 Submit 返回 CANCELED，不是 INTERNAL。
+func TestSubmitCanceledContext(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(context.Background(), filepath.Join(dir, "app.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	tm := task.NewManager(task.Config{Store: st, LogDir: filepath.Join(dir, "logs"), BatchConcurrency: 1,
+		ProgressInterval: -1, Logf: func(string, ...any) {}})
+	t.Cleanup(func() { tm.Shutdown(2 * time.Second) })
+	slow := filepath.Join(dir, "ffprobe")
+	os.WriteFile(slow, []byte("#!/bin/sh\nsleep 30\n"), 0o755) // Windows 上文件不可执行，只跑下面的"已取消"用例
+	bin := ffmpeg.Binaries{FFmpeg: filepath.Join(dir, "ffmpeg"), FFprobe: slow}
+	req := func() (ffmpeg.Binaries, error) { return bin, nil }
+	svc, err := New(context.Background(), Config{Presets: st, Media: media.New(media.Config{Require: req, ThumbsDir: filepath.Join(dir, "thumbs")}), Tasks: tm, Require: req})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := filepath.Join(dir, "a.mp4")
+	os.WriteFile(in, []byte("x"), 0o644)
+	opts := ffmpeg.ConvertOptions{Container: "mp4", VideoCodec: "h264"}
+
+	// 已取消的 ctx：立即返回，不提交任务
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	out, err := svc.Submit(ctx, []string{in}, opts, "")
+	if !apperr.Is(err, apperr.Canceled) || len(out) != 0 {
+		t.Fatalf("已取消应 CANCELED: %v out=%v", err, out)
+	}
+	if p, _ := tm.List(task.Filter{}); p.Total != 0 {
+		t.Fatalf("不应提交任务: %d", p.Total)
+	}
+	if runtime.GOOS == "windows" {
+		return
+	}
+	// 探测进行中取消（应用退出）：结束 ffprobe 并返回 CANCELED
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	time.AfterFunc(300*time.Millisecond, cancel2)
+	start := time.Now()
+	_, err = svc.Submit(ctx2, []string{in}, opts, "")
+	if !apperr.Is(err, apperr.Canceled) {
+		t.Fatalf("探测中取消应 CANCELED: %v", err)
+	}
+	if time.Since(start) > 10*time.Second {
+		t.Fatal("取消后没有及时返回")
 	}
 }

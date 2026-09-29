@@ -174,6 +174,15 @@ type params struct {
 // outputDir 为空时用设置里的默认输出目录，仍为空则输出到各自源文件所在的文件夹；输出名为 <源文件名>.<新扩展名>，
 // 重名自动追加 (1)、(2)，绝不覆盖已有文件。
 func (s *Service) Submit(ctx context.Context, inputs []string, opts ffmpeg.ConvertOptions, outputDir string) ([]task.Task, error) {
+	out, err := s.submit(ctx, inputs, opts, outputDir)
+	if err != nil && ctx.Err() != nil {
+		// ctx 被取消（应用退出等）：不要报 INTERNAL，统一返回 CANCELED；已提交的任务仍随 out 返回。
+		return out, apperr.Wrap(apperr.Canceled, "操作已取消", ctx.Err())
+	}
+	return out, err
+}
+
+func (s *Service) submit(ctx context.Context, inputs []string, opts ffmpeg.ConvertOptions, outputDir string) ([]task.Task, error) {
 	if s.cfg.Tasks == nil || s.cfg.Media == nil {
 		return nil, apperr.New(apperr.Internal, "转换服务尚未初始化")
 	}
@@ -203,6 +212,9 @@ func (s *Service) Submit(ctx context.Context, inputs []string, opts ffmpeg.Conve
 	}
 	jobs := make([]job, len(inputs))
 	for i, raw := range inputs {
+		if err := ctx.Err(); err != nil {
+			return nil, apperr.Wrap(apperr.Canceled, "操作已取消", err)
+		}
 		in, _, err := paths.Normalize(raw)
 		if err != nil {
 			return nil, apperr.Wrap(apperr.InvalidArgument, "路径不合法", err).WithDetail(raw)
