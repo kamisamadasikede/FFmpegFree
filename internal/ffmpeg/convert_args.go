@@ -210,6 +210,56 @@ func defaultAudioBitrate(codec string) int64 {
 // 输入输出都会加 `file:` 前缀，以 - 开头、含冒号或空格的路径都安全；
 // 输入是文件名带 % 的图片时在 -i 前加 -pattern_type none，避免被当成序列模板。
 func PlanConvert(in, out string, o ConvertOptions, src ConvertSource) (ConvertPlan, error) {
+	return PlanConvertHW(in, out, o, src, "")
+}
+
+// ConvertHWCodec 返回这次转换里"可以用硬件编码"的编码：真正重编码 H.264 / H.265 的视频输出返回 "h264" / "hevc"，
+// 其余（-c copy、VP9、GIF、纯音频、无视频、按目标大小的两遍编码）返回 ""，一律走 CPU（契约 9.7）。
+func ConvertHWCodec(o ConvertOptions) string {
+	spec, ok := containers[o.Container]
+	if !ok || spec.audioOnly || o.Container == "gif" || o.TargetSizeMB > 0 {
+		return ""
+	}
+	var c string
+	switch o.VideoCodec {
+	case "h264":
+		c = "h264"
+	case "h265":
+		c = "hevc"
+	default:
+		return ""
+	}
+	if !HWDimsOK(c, o.Width, o.Height) {
+		return ""
+	}
+	return c
+}
+
+// ConvertEncoderName 返回这次转换的 CPU 侧视频编码器名（写进任务的 encoder 字段）：libx264 / libx265 / libvpx-vp9 / gif / copy；
+// 没有视频输出（纯音频、丢弃视频）返回 ""。
+func ConvertEncoderName(o ConvertOptions) string {
+	spec, ok := containers[o.Container]
+	if !ok || spec.audioOnly {
+		return ""
+	}
+	if o.Container == "gif" {
+		return "gif"
+	}
+	switch o.VideoCodec {
+	case "copy":
+		return "copy"
+	case "h264":
+		return "libx264"
+	case "h265":
+		return "libx265"
+	case "vp9":
+		return "libvpx-vp9"
+	}
+	return ""
+}
+
+// PlanConvertHW 同 PlanConvert，hw 非空（硬件编码器名，如 h264_nvenc）且 o 是 H.264 / H.265 重编码时，视频用该硬件编码器。
+func PlanConvertHW(in, out string, o ConvertOptions, src ConvertSource, hw string) (ConvertPlan, error) {
 	if err := ValidateConvertOptions(o); err != nil {
 		return ConvertPlan{}, err
 	}
@@ -288,7 +338,10 @@ func PlanConvert(in, out string, o ConvertOptions, src ConvertSource) (ConvertPl
 		maps = append(maps, "-an")
 	}
 
-	vargs := videoArgs(o, videoBitrate, wantVideo)
+	if ConvertHWCodec(o) == "" {
+		hw = "" // copy / VP9 / GIF / 两遍编码 / 超出硬件尺寸：一律 CPU
+	}
+	vargs := videoArgs(o, videoBitrate, wantVideo, hw)
 	aargs := audioArgs(audio, audioBitrate, wantAudio, spec.audioOnly)
 
 	tail := []string{"-map_metadata", "0"}
@@ -344,7 +397,7 @@ func videoFilters(o ConvertOptions) (filters []string, scaled bool) {
 	return filters, scaled
 }
 
-func videoArgs(o ConvertOptions, bitrate int64, want bool) []string {
+func videoArgs(o ConvertOptions, bitrate int64, want bool, hw string) []string {
 	if !want {
 		return nil
 	}
@@ -380,6 +433,21 @@ func videoArgs(o ConvertOptions, bitrate int64, want bool) []string {
 			return []string{"-crf", strconv.Itoa(o.Crf)}
 		}
 		return []string{"-crf", strconv.Itoa(defCrf)}
+	}
+	if hw != "" && (o.VideoCodec == "h264" || o.VideoCodec == "h265") {
+		codec, defCrf := "h264", 23
+		if o.VideoCodec == "h265" {
+			codec, defCrf = "hevc", 28
+		}
+		crf := o.Crf
+		if crf <= 0 {
+			crf = defCrf
+		}
+		a = append(a, HWRateArgs(hw, codec, crf, bitrate)...)
+		if codec == "hevc" && (o.Container == "mp4" || o.Container == "mov") {
+			a = append(a, "-tag:v", "hvc1")
+		}
+		return a
 	}
 	switch o.VideoCodec {
 	case "h264":

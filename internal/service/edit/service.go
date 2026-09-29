@@ -74,6 +74,8 @@ type Config struct {
 	// 两个都不支持返回 UNSUPPORTED。默认 probeFilterScript，结果按 ffmpeg 二进制（路径 + 大小 + 修改时间）缓存。
 	SupportsScript func(ctx context.Context, exe string) (option string, err error)
 	Now            func() time.Time
+	// Encoder 按用户偏好与设备缓存解析 H.264 编码器（契约 9.7）；nil = 一律 CPU。每次导出（含重试）解析一次。
+	Encoder ffmpeg.EncoderResolver
 }
 
 // Service 实现 EditService，无后台协程。

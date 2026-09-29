@@ -149,6 +149,7 @@ func (a *App) startConvert(ctx context.Context) {
 		Media:            med,
 		Tasks:            tm,
 		DefaultOutputDir: a.sys.DefaultOutputDir,
+		Encoder:          a.sys.EncoderResolver(),
 	})
 	if err != nil {
 		log.Printf("启动转换服务失败: %v", err)
@@ -173,6 +174,7 @@ func (a *App) startEdit() {
 		Preview:          a.editLocal,
 		DefaultOutputDir: a.sys.DefaultOutputDir,
 		TempDir:          a.dirs.Temp,
+		Encoder:          a.sys.EncoderResolver(),
 	})
 	if n := svc.CleanupInterruptedParts(a.rootCtx); n > 0 {
 		log.Printf("已清理 %d 个中断的剪辑导出临时文件", n)
@@ -209,7 +211,7 @@ func (a *App) startLive() {
 		log.Printf("直播服务未启动：任务管理器或媒体服务不可用")
 		return
 	}
-	a.live.Store(live.New(live.Config{Tasks: tm, Media: med}))
+	a.live.Store(live.New(live.Config{Tasks: tm, Media: med, Encoder: a.sys.EncoderResolver()}))
 }
 
 // startFFmpegDetect 在后台检测 ffmpeg，不阻塞界面；状态变化通过 ffmpeg:status 事件推送。

@@ -59,15 +59,21 @@ type Task struct {
 	Speed      string     `json:"speed"`    // 如 "2.3x"
 	EtaSec     float64    `json:"etaSec"`
 	// 以下三项只有直播任务在运行中才有值（契约 v0.10），只在内存里、不落库，和 Speed / EtaSec 一样。
-	Fps           float64          `json:"fps,omitempty"`           // 当前输出帧率
-	BitrateKbps   float64          `json:"bitrateKbps,omitempty"`   // 近 5 秒的输出码率（kbit/s）
-	DroppedFrames int64            `json:"droppedFrames,omitempty"` // ffmpeg 累计丢帧数（不是网络丢包）
-	Params        string           `json:"params"`                  // 原始参数 JSON，用于重试
-	Version       int64            `json:"version"`                 // 每次变更 +1，前端据此丢弃旧事件
-	Error         *apperr.AppError `json:"error,omitempty"`
-	CreatedAt     int64            `json:"createdAt"`
-	StartedAt     int64            `json:"startedAt"`
-	FinishedAt    int64            `json:"finishedAt"`
+	Fps           float64 `json:"fps,omitempty"`           // 当前输出帧率
+	BitrateKbps   float64 `json:"bitrateKbps,omitempty"`   // 近 5 秒的输出码率（kbit/s）
+	DroppedFrames int64   `json:"droppedFrames,omitempty"` // ffmpeg 累计丢帧数（不是网络丢包）
+	// 以下四项是硬件编码接入（契约 v0.17，9.7）：任务实际使用的视频编码器与设备。没有视频编码（纯音频转换、非重编码任务）或还没确定时省略。
+	// 会落库（迁移 0004），刷新 / 重启后仍能看到；Retry 生成的新任务重新解析。
+	Encoder          string           `json:"encoder,omitempty"`          // 如 h264_nvenc、libx264、libx265、libvpx-vp9、gif、copy
+	EncoderDevice    string           `json:"encoderDevice,omitempty"`    // 设备 id（nvidia / intel / amd / apple 等）；CPU 编码为 "cpu"；copy 时省略
+	HWFallback       bool             `json:"hwFallback,omitempty"`       // 想用硬件但实际用了 CPU（设备不可用，或硬件编码启动失败后自动用 CPU 重试）
+	HWFallbackReason string           `json:"hwFallbackReason,omitempty"` // 一行短原因（固定枚举，不含路径），见契约 9.7
+	Params           string           `json:"params"`                     // 原始参数 JSON，用于重试
+	Version          int64            `json:"version"`                    // 每次变更 +1，前端据此丢弃旧事件
+	Error            *apperr.AppError `json:"error,omitempty"`
+	CreatedAt        int64            `json:"createdAt"`
+	StartedAt        int64            `json:"startedAt"`
+	FinishedAt       int64            `json:"finishedAt"`
 
 	// LogPath 不暴露给前端，前端通过 TaskService.GetLog 读取。
 	LogPath string `json:"-"`
@@ -94,7 +100,7 @@ const (
 )
 
 const taskColumns = `id, type, status, title, input_paths, output_path, params, progress, error,
-	log_path, version, created_at, started_at, finished_at`
+	log_path, version, created_at, started_at, finished_at, encoder, encoder_device, hw_fallback, hw_fallback_reason`
 
 // InsertTask 新建任务记录。
 func (s *Store) InsertTask(ctx context.Context, t Task) error {
@@ -111,9 +117,10 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 		params = "{}"
 	}
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO tasks (`+taskColumns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		INSERT INTO tasks (`+taskColumns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		t.ID, string(t.Type), string(t.Status), t.Title, string(inputs), t.OutputPath, params, t.Progress,
-		errJSON, t.LogPath, t.Version, t.CreatedAt, t.StartedAt, t.FinishedAt)
+		errJSON, t.LogPath, t.Version, t.CreatedAt, t.StartedAt, t.FinishedAt,
+		t.Encoder, t.EncoderDevice, boolInt(t.HWFallback), t.HWFallbackReason)
 	if err != nil {
 		return fmt.Errorf("写入任务失败: %w", err)
 	}
@@ -128,10 +135,12 @@ func (s *Store) UpdateTask(ctx context.Context, t Task) error {
 	}
 	res, err := s.db.ExecContext(ctx, `
 		UPDATE tasks SET status=?, title=?, output_path=?, progress=?, error=?, log_path=?,
-		       version=?, started_at=?, finished_at=?
+		       version=?, started_at=?, finished_at=?,
+		       encoder=?, encoder_device=?, hw_fallback=?, hw_fallback_reason=?
 		WHERE id=?`,
 		string(t.Status), t.Title, t.OutputPath, t.Progress, errJSON, t.LogPath,
-		t.Version, t.StartedAt, t.FinishedAt, t.ID)
+		t.Version, t.StartedAt, t.FinishedAt,
+		t.Encoder, t.EncoderDevice, boolInt(t.HWFallback), t.HWFallbackReason, t.ID)
 	if err != nil {
 		return fmt.Errorf("更新任务失败: %w", err)
 	}
@@ -343,14 +352,17 @@ func scanTask(r rowScanner) (Task, error) {
 	var t Task
 	var typ, status, inputs string
 	var errJSON sql.NullString
+	var hwFallback int
 	if err := r.Scan(&t.ID, &typ, &status, &t.Title, &inputs, &t.OutputPath, &t.Params, &t.Progress, &errJSON,
-		&t.LogPath, &t.Version, &t.CreatedAt, &t.StartedAt, &t.FinishedAt); err != nil {
+		&t.LogPath, &t.Version, &t.CreatedAt, &t.StartedAt, &t.FinishedAt,
+		&t.Encoder, &t.EncoderDevice, &hwFallback, &t.HWFallbackReason); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Task{}, err
 		}
 		return Task{}, fmt.Errorf("读取任务失败: %w", err)
 	}
 	t.Type, t.Status = TaskType(typ), TaskStatus(status)
+	t.HWFallback = hwFallback != 0
 	if err := json.Unmarshal([]byte(inputs), &t.InputPaths); err != nil || t.InputPaths == nil {
 		t.InputPaths = []string{}
 	}
@@ -379,4 +391,11 @@ func nonNil(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

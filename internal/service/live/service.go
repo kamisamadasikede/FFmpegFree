@@ -63,6 +63,8 @@ type Config struct {
 	Monitors    func() ([]ScreenInfo, error)
 	// Grace 覆盖优雅停止的等待时间（测试用）；0 用默认（无存档 5 秒、有存档 15 秒）。
 	Grace time.Duration
+	// Encoder 按用户偏好与设备缓存解析 H.264 编码器（契约 9.7）；nil = 一律 CPU（libx264）。每次开始推流解析一次。
+	Encoder ffmpeg.EncoderResolver
 	// Logf 记录内部信息；只会收到脱敏内容。为空时不记录。
 	Logf func(format string, args ...any)
 }
@@ -304,6 +306,9 @@ func (r *runner) Run(ctx context.Context, report func(task.Progress)) (string, e
 	return r.inner.Run(ctx, report)
 }
 
+// EncoderInfo 实现 task.EncoderReporter。
+func (r *runner) EncoderInfo() ffmpeg.EncoderInfo { return r.inner.Encoding }
+
 // OnFinish 实现 task.Finalizer：排队中被取消的任务不会执行 Run，也要释放。
 func (r *runner) OnFinish(task.Task) { r.s.release(r.id) }
 
@@ -313,7 +318,10 @@ const (
 )
 
 // newRunner 构造直播 Runner。started 由 ReportGate 置位：第一个 progress=continue 且 out_time_us>0。
-func (s *Service) newRunner(taskID string, bin ffmpeg.Binaries, u livepkg.PushURL, rawURL string, args []string, screen, archive bool) *runner {
+//
+// enc 是这次推流的编码器决策（resolveLiveEncoder）：硬件编码时 args 已是硬件参数，enc.cpuArgs 是同一推流的 CPU 参数，
+// 只在"推流尚未建立"（还没有第一个输出进度）时硬件编码启动失败才会自动用 CPU 重试一次；推流中途失败不重试。
+func (s *Service) newRunner(taskID string, bin ffmpeg.Binaries, u livepkg.PushURL, rawURL string, args []string, enc liveEncoding, screen, archive bool) *runner {
 	redact := chainRedact(livepkg.NewRedactor(rawURL), livepkg.NewRedactor(u.FFmpeg))
 	var started atomic.Bool
 	grace := graceNoArchive
@@ -327,6 +335,7 @@ func (s *Service) newRunner(taskID string, bin ffmpeg.Binaries, u livepkg.PushUR
 		Exe:                       bin.FFmpeg,
 		BuildArgs:                 func(string) []string { return args },
 		Live:                      true,
+		Encoding:                  enc.info,
 		Redact:                    redact,
 		GracePeriod:               grace,
 		GracefulOnlyAfterProgress: true,
@@ -343,7 +352,34 @@ func (s *Service) newRunner(taskID string, bin ffmpeg.Binaries, u livepkg.PushUR
 			return ffmpeg.ClassifyLiveError(ffmpeg.LiveClassifyInput{Tail: tail, Scheme: u.Scheme, Started: started.Load(), Screen: screen})
 		},
 	}
+	if enc.hw != "" {
+		inner.HWEncoder, inner.CPUEncoding = enc.hw, enc.cpuInfo
+		inner.BuildCPUArgs = func(string) []string { return enc.cpuArgs }
+	}
 	return &runner{inner: inner, s: s, id: taskID}
+}
+
+// liveEncoding 是一次直播推流的编码器决策。
+type liveEncoding struct {
+	hw      string             // 硬件 H.264 编码器名，CPU 为 ""
+	info    ffmpeg.EncoderInfo // 开始时的编码器信息
+	cpuInfo ffmpeg.EncoderInfo // 回退 CPU 后的编码器信息
+	cpuArgs []string           // 硬件编码时的 CPU 参数（回退用）
+}
+
+// resolveLiveEncoder 解析直播编码器并生成参数：build 用给定的 LiveEncode 生成完整 ffmpeg 参数。
+// 直播恒为 H.264 重编码，所以总是"可用硬件"（受尺寸限制）。
+func (s *Service) resolveLiveEncoder(ctx context.Context, enc ffmpeg.LiveEncode, build func(ffmpeg.LiveEncode) []string) ([]string, liveEncoding) {
+	hw, info := ffmpeg.DecideEncoding(ctx, s.cfg.Encoder, "h264", ffmpeg.HWDimsOK("h264", enc.Width, enc.Height))
+	le := liveEncoding{hw: hw, info: info, cpuInfo: ffmpeg.EncoderInfo{Encoder: "libx264", Device: "cpu"}}
+	enc.HW = ""
+	cpuArgs := build(enc)
+	if hw == "" {
+		return cpuArgs, le
+	}
+	le.cpuArgs = cpuArgs
+	enc.HW = hw
+	return build(enc), le
 }
 
 func chainRedact(fs ...func(string) string) func(string) string {
@@ -417,12 +453,13 @@ func (s *Service) startFilePush(ctx context.Context, req FilePushRequest) (task.
 	if gop <= 0 || gop > 240 {
 		gop = 30
 	}
-	args := ffmpeg.BuildFilePushArgs(ffmpeg.FilePushPlan{
-		Input: in, Loop: req.Loop, HasAudio: info.HasAudio, Scheme: u.Scheme, URL: u.FFmpeg,
-		Enc: ffmpeg.LiveEncode{
-			Width: req.Options.Width, Height: req.Options.Height, Fps: req.Options.Fps, GOPFps: gop,
-			VideoKbps: req.Options.videoKbps(), AudioKbps: req.Options.audioKbps(),
-		},
+	args, encoding := s.resolveLiveEncoder(ctx, ffmpeg.LiveEncode{
+		Width: req.Options.Width, Height: req.Options.Height, Fps: req.Options.Fps, GOPFps: gop,
+		VideoKbps: req.Options.videoKbps(), AudioKbps: req.Options.audioKbps(),
+	}, func(e ffmpeg.LiveEncode) []string {
+		return ffmpeg.BuildFilePushArgs(ffmpeg.FilePushPlan{
+			Input: in, Loop: req.Loop, HasAudio: info.HasAudio, Scheme: u.Scheme, URL: u.FFmpeg, Enc: e,
+		})
 	})
 	taskID := id.New()
 	if err := s.reserve(taskID, u.Key, false, false); err != nil {
@@ -436,7 +473,7 @@ func (s *Service) startFilePush(ctx context.Context, req FilePushRequest) (task.
 		InputPaths: []string{in},
 		Params:     string(pj),
 	}
-	t, err := s.cfg.Tasks.Submit(spec, s.newRunner(taskID, bin, u, req.URL, args, false, false))
+	t, err := s.cfg.Tasks.Submit(spec, s.newRunner(taskID, bin, u, req.URL, args, encoding, false, false))
 	if err != nil {
 		s.release(taskID)
 		return task.Task{}, err
