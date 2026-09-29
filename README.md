@@ -87,6 +87,18 @@ wails dev
 wails build -platform windows/amd64
 ```
 
+### 注入版本号
+
+“关于”页显示的版本号（绑定 `GetAppVersion`）在构建时用 `-ldflags` 写入 `internal/about.Version`；不注入（空串）则显示“开发版”。目前仓库里没有别处注入版本号，`wails.json`、`scripts/build.ps1` 也没有版本相关配置：
+
+```bash
+# wails 构建
+wails build -platform windows/amd64 -ldflags "-X FFmpegFree/internal/about.Version=1.2.3"
+
+# 纯 go 构建（需要先构建前端，见下方注意事项）
+go build -ldflags "-X FFmpegFree/internal/about.Version=1.2.3" .
+```
+
 测试与检查：
 
 ```bash

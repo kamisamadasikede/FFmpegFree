@@ -161,6 +161,12 @@ GetSettings() (Settings, error)
 UpdateSettings(s Settings) error      // defaultOutputDir（空=与源文件同目录）、maxConcurrent（0=自动，1~8）、主题、语言、ffmpegPromptDismissed、ffmpegPath
 ```
 
+### App（main 包，非 Service）
+```go
+GetLicenseText(name string) (string, error) // 内嵌第三方许可全文；白名单仅 "OFL"（Noto Sans SC 的 SIL OFL 1.1），其它名称（含空串、带路径、大小写不同）→ INVALID_ARGUMENT
+GetAppVersion() string                      // 构建时 -ldflags "-X FFmpegFree/internal/about.Version=..." 注入；未注入返回 "开发版"
+```
+
 ### MediaService
 ```go
 Probe(paths []string) ([]MediaInfo, error)   // 批量探测（最多 500 个），结果写入 media 表；返回值与入参一一对应，单个失败时该项 error 有值
