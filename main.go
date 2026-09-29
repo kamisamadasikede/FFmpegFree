@@ -22,6 +22,7 @@ func main() {
 	mainApp := NewApp(sysManager)
 	jsonService := app.NewJsonService()
 	systemService := app.NewSystemService(sysManager)
+	taskService := app.NewTaskService(mainApp.taskManager)
 
 	// Create application with options
 	err := wails.Run(&options.App{
@@ -42,6 +43,7 @@ func main() {
 			mainApp,
 			jsonService,
 			systemService,
+			taskService,
 		},
 	})
 

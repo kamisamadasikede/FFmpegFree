@@ -5,73 +5,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/ffmpeg"
-	"FFmpegFree/internal/id"
+	"FFmpegFree/internal/task"
 )
 
-// 任务事件名（契约第 5 节）。安装任务在任务管理器（internal/task）出现之前由 Manager 自己发这些事件，
-// payload 与契约一致，任务管理器接手后只需要把 InstallFFmpeg 换成提交 ffmpeg_install 任务。
-const (
-	EventTaskCreated  = "task:created"
-	EventTaskProgress = "task:progress"
-	EventTaskStatus   = "task:status"
-)
+// 安装任务由任务管理器（internal/task）调度：类型 ffmpeg_install，进 batch 池，
+// task:created / task:progress / task:status 事件由任务管理器统一发送（契约第 5 节）。
+// 这里负责把任务的生命周期映射成 ffmpeg 状态机：
+// 提交 → installing（TaskID 为任务 ID）→ ready | failed；取消 / 中断 → 重新检测。
 
-// TaskTypeFFmpegInstall 是契约 TaskType 中的 ffmpeg_install。
-const TaskTypeFFmpegInstall = "ffmpeg_install"
-
-// 契约 TaskStatus 取值（本文件只用到其中几个）。
-const (
-	TaskQueued    = "queued"
-	TaskRunning   = "running"
-	TaskSucceeded = "succeeded"
-	TaskFailed    = "failed"
-	TaskCanceled  = "canceled"
-)
-
-// InstallTask 是契约第 3 节 Task 的轻量版，字段与 JSON 名完全一致，任务管理器 PR 可直接换成 task.Task。
-type InstallTask struct {
-	ID         string           `json:"id"`
-	Type       string           `json:"type"`   // 固定 ffmpeg_install
-	Status     string           `json:"status"` // running | succeeded | failed | canceled
-	Title      string           `json:"title"`
-	InputPaths []string         `json:"inputPaths"` // 下载地址不是本地路径，恒为空数组
-	OutputPath string           `json:"outputPath"` // <数据目录>/bin
-	Progress   float64          `json:"progress"`   // 0~1
-	Speed      string           `json:"speed"`      // 如 "3.2 MB/s"
-	EtaSec     float64          `json:"etaSec"`
-	Params     string           `json:"params"`  // {"mirror":"..."}，用于重试
-	Version    int64            `json:"version"` // 每次变更 +1
-	Error      *apperr.AppError `json:"error,omitempty"`
-	CreatedAt  int64            `json:"createdAt"`
-	StartedAt  int64            `json:"startedAt"`
-	FinishedAt int64            `json:"finishedAt"`
-}
-
-type taskProgressPayload struct {
-	ID         string  `json:"id"`
-	Version    int64   `json:"version"`
-	Progress   float64 `json:"progress"`
-	Speed      string  `json:"speed"`
-	EtaSec     float64 `json:"etaSec"`
-	OutTimeSec float64 `json:"outTimeSec"`
-}
-
-type taskStatusPayload struct {
-	ID         string           `json:"id"`
-	Version    int64            `json:"version"`
-	Status     string           `json:"status"`
-	Error      *apperr.AppError `json:"error,omitempty"`
-	OutputPath string           `json:"outputPath,omitempty"`
-	FinishedAt int64            `json:"finishedAt,omitempty"`
-}
-
+// installRun 是进行中的安装（从提交到任务结束）。
 type installRun struct {
-	task   InstallTask
-	cancel context.CancelFunc
+	taskID string
 }
 
 func (m *Manager) installingStatus() (FFmpegStatus, bool) {
@@ -83,132 +30,174 @@ func (m *Manager) installingStatus() (FFmpegStatus, bool) {
 	return m.status, true
 }
 
-func (m *Manager) emit(event string, payload any) {
+// beginInstallLocked 进入 installing 状态。调用方持有 m.mu。已经在同一个任务上安装时无操作。
+func (m *Manager) beginInstallLocked(taskID string) {
+	if m.install != nil && m.install.taskID == taskID {
+		return
+	}
+	m.install = &installRun{taskID: taskID}
+	st := FFmpegStatus{State: ffmpeg.StateInstalling, TaskID: taskID}
+	m.status = st
+	ffmpeg.SetCurrent(nil) // 安装期间不放行依赖 ffmpeg 的功能，避免与替换文件冲突
 	if m.cfg.Emitter != nil {
-		m.cfg.Emitter.Emit(event, payload)
+		m.cfg.Emitter.Emit(EventFFmpegStatus, st)
 	}
 }
 
-// Install 启动 ffmpeg 下载安装（契约 9.3），立即返回任务信息，实际工作在后台 goroutine。
+// Install 启动 ffmpeg 下载安装（契约 9.3），立即返回任务，实际工作在任务管理器的 batch 池里进行。
 //
-//   - 幂等：已有进行中的安装时直接返回该任务，不开第二个下载；
+//   - 幂等：已有进行中（排队或运行）的安装时直接返回该任务，不开第二个下载；
 //   - mirror 只接受 "" 和 "cn"，其他值返回 INVALID_ARGUMENT；
 //   - 当前平台没有下载源返回 UNSUPPORTED_PLATFORM；
-//   - 状态：任意 -> installing（TaskID 为任务 ID）-> ready | failed；取消后重新检测。
+//   - 状态：任意 → installing（TaskID 为任务 ID）→ ready | failed；取消后重新检测。
 //     每次状态变化推送 ffmpeg:status，进度通过 task:progress 推送，不塞进 ffmpeg:status。
-func (m *Manager) Install(ctx context.Context, mirror string) (InstallTask, error) {
+func (m *Manager) Install(ctx context.Context, mirror string) (task.Task, error) {
 	cfg, err := m.ready()
 	if err != nil {
-		return InstallTask{}, err
+		return task.Task{}, err
 	}
-	m.mu.Lock()
-	if m.install != nil {
-		t := m.install.task
-		m.mu.Unlock()
+	if t, ok := m.currentInstallTask(); ok {
 		return t, nil
 	}
-	m.mu.Unlock()
-
 	if !ffmpeg.ValidMirror(mirror) {
-		return InstallTask{}, apperr.New(apperr.InvalidArgument, fmt.Sprintf("不支持的镜像 %q，只能是空字符串（默认源）或 \"cn\"", mirror))
+		return task.Task{}, apperr.New(apperr.InvalidArgument, fmt.Sprintf("不支持的镜像 %q，只能是空字符串（默认源）或 \"cn\"", mirror))
 	}
 	if cfg.Installer == nil {
-		return InstallTask{}, apperr.New(apperr.Internal, "安装功能未初始化")
+		return task.Task{}, apperr.New(apperr.Internal, "安装功能未初始化")
+	}
+	if cfg.Tasks == nil {
+		return task.Task{}, apperr.New(apperr.Internal, "任务管理器未初始化")
 	}
 	if err := cfg.Installer.Preflight(mirror); err != nil {
 		if ffmpeg.IsUnavailable(err) {
-			return InstallTask{}, apperr.Wrap(apperr.UnsupportedPlatform, "当前系统暂无可用的 ffmpeg 下载源，请手动指定 ffmpeg 所在位置", err)
+			return task.Task{}, apperr.Wrap(apperr.UnsupportedPlatform, "当前系统暂无可用的 ffmpeg 下载源，请手动指定 ffmpeg 所在位置", err)
 		}
-		return InstallTask{}, apperr.Wrap(apperr.InvalidArgument, "安装参数不合法", err)
+		return task.Task{}, apperr.Wrap(apperr.InvalidArgument, "安装参数不合法", err)
 	}
 
-	params, _ := json.Marshal(map[string]string{"mirror": mirror})
-	now := time.Now().UnixMilli()
+	params, _ := json.Marshal(installParams{Mirror: mirror})
 
 	m.mu.Lock()
-	if m.install != nil { // 上面到这里之间可能有并发调用抢先了
-		t := m.install.task
-		m.mu.Unlock()
-		return t, nil
+	defer m.mu.Unlock()
+	if m.install != nil { // 检查之后有并发调用抢先提交了
+		return m.installTaskLocked(), nil
 	}
-	runCtx, cancel := context.WithCancel(m.appCtx)
-	run := &installRun{cancel: cancel, task: InstallTask{
-		ID: id.New(), Type: TaskTypeFFmpegInstall, Status: TaskRunning, Title: "安装 ffmpeg",
-		InputPaths: []string{}, OutputPath: cfg.Installer.BinDir, Params: string(params),
-		Version: 1, CreatedAt: now, StartedAt: now,
-	}}
-	m.install = run
-	task := run.task
-	st := FFmpegStatus{State: ffmpeg.StateInstalling, TaskID: task.ID}
-	m.status = st
-	ffmpeg.SetCurrent(nil) // 安装期间不放行依赖 ffmpeg 的功能，避免与替换文件冲突
-	m.emit(EventTaskCreated, task)
-	m.emit(EventFFmpegStatus, st)
-	m.mu.Unlock()
-
-	go m.runInstall(runCtx, cfg, run, mirror)
-	return task, nil
+	t, err := cfg.Tasks.Submit(task.Spec{
+		Type: task.TypeFFmpegInstall, Title: "安装 ffmpeg", OutputPath: cfg.Installer.BinDir, Params: string(params),
+	}, m.newInstallRunner(cfg, mirror))
+	if err != nil {
+		return task.Task{}, err
+	}
+	m.beginInstallLocked(t.ID)
+	return t, nil
 }
 
-func (m *Manager) runInstall(ctx context.Context, cfg Config, run *installRun, mirror string) {
-	info, err := cfg.Installer.Install(ctx, mirror, func(p ffmpeg.Progress) {
-		m.mu.Lock()
-		defer m.mu.Unlock()
-		if m.install != run {
-			return
-		}
-		run.task.Version++
-		run.task.Progress = p.Fraction
-		run.task.Speed = formatSpeed(p.Speed)
-		run.task.EtaSec = p.EtaSec
-		m.emit(EventTaskProgress, taskProgressPayload{
-			ID: run.task.ID, Version: run.task.Version, Progress: p.Fraction, Speed: run.task.Speed, EtaSec: p.EtaSec,
-		})
-	})
-
-	// 用应用 ctx 收尾（run 的 ctx 可能已被取消）。
-	fin := m.appCtx
-	if fin == nil {
-		fin = context.Background()
-	}
-	m.finishInstall(fin, cfg, run, info, err)
+type installParams struct {
+	Mirror string `json:"mirror"`
 }
 
-func (m *Manager) finishInstall(ctx context.Context, cfg Config, run *installRun, info ffmpeg.Info, err error) {
-	now := time.Now().UnixMilli()
-	canceled := err != nil && errors.Is(err, context.Canceled)
-
+// currentInstallTask 返回进行中的安装任务。
+func (m *Manager) currentInstallTask() (task.Task, bool) {
 	m.mu.Lock()
-	run.task.Version++
-	run.task.FinishedAt = now
-	switch {
-	case err == nil:
-		run.task.Status, run.task.Progress, run.task.Speed, run.task.EtaSec = TaskSucceeded, 1, "", 0
-	case canceled:
-		run.task.Status = TaskCanceled
-	default:
-		run.task.Status = TaskFailed
-		run.task.Error = installError(err)
+	defer m.mu.Unlock()
+	if m.install == nil {
+		return task.Task{}, false
 	}
-	final := run.task
-	m.emit(EventTaskStatus, taskStatusPayload{
-		ID: final.ID, Version: final.Version, Status: final.Status, Error: final.Error,
-		OutputPath: final.OutputPath, FinishedAt: final.FinishedAt,
+	return m.installTaskLocked(), true
+}
+
+func (m *Manager) installTaskLocked() task.Task {
+	if m.cfg.Tasks != nil {
+		if t, err := m.cfg.Tasks.Get(m.install.taskID); err == nil {
+			return t
+		}
+	}
+	return task.Task{ID: m.install.taskID, Type: task.TypeFFmpegInstall, Status: task.StatusRunning, InputPaths: []string{}}
+}
+
+// installRunner 实现 task.Runner 和 task.Finalizer。
+type installRunner struct {
+	m      *Manager
+	cfg    Config
+	mirror string
+	info   ffmpeg.Info // Run 成功后的安装结果
+}
+
+func (m *Manager) newInstallRunner(cfg Config, mirror string) *installRunner {
+	return &installRunner{m: m, cfg: cfg, mirror: mirror}
+}
+
+// registerInstallFactory 让 TaskService.Retry 能重新提交 ffmpeg_install 任务（用 Params 里的 mirror）。
+// 已有安装在进行时返回 TASK_CONFLICT。
+func (m *Manager) registerInstallFactory(cfg Config) {
+	cfg.Tasks.RegisterFactory(task.TypeFFmpegInstall, func(old task.Task) (task.Runner, error) {
+		var p installParams
+		if old.Params != "" {
+			if err := json.Unmarshal([]byte(old.Params), &p); err != nil {
+				return nil, apperr.Wrap(apperr.InvalidArgument, "安装任务参数无效", err)
+			}
+		}
+		if !ffmpeg.ValidMirror(p.Mirror) {
+			return nil, apperr.New(apperr.InvalidArgument, "安装任务参数无效")
+		}
+		if err := cfg.Installer.Preflight(p.Mirror); err != nil {
+			return nil, apperr.Wrap(apperr.UnsupportedPlatform, "当前系统暂无可用的 ffmpeg 下载源", err)
+		}
+		if _, busy := m.installingStatus(); busy {
+			return nil, apperr.New(apperr.TaskConflict, "已有 ffmpeg 安装在进行")
+		}
+		return m.newInstallRunner(cfg, p.Mirror), nil
 	})
-	m.install = nil
-	run.cancel()
+}
+
+func (r *installRunner) Run(ctx context.Context, report func(task.Progress)) (string, error) {
+	// 通过 Retry 提交的任务没有走 Install()，在真正开始时补上 installing 状态。
+	if info, ok := task.InfoFrom(ctx); ok {
+		r.m.mu.Lock()
+		r.m.beginInstallLocked(info.ID)
+		r.m.mu.Unlock()
+	}
+	logw := task.LogWriter(ctx)
+	fmt.Fprintf(logw, "开始安装 ffmpeg（镜像=%q）\n", r.mirror)
+	info, err := r.cfg.Installer.Install(ctx, r.mirror, func(p ffmpeg.Progress) {
+		report(task.Progress{Fraction: p.Fraction, Speed: formatSpeed(p.Speed), EtaSec: p.EtaSec})
+	})
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			fmt.Fprintln(logw, "安装已取消，已下载的部分保留以便继续")
+			return "", err
+		}
+		fmt.Fprintf(logw, "安装失败: %v\n", err)
+		return "", installError(err)
+	}
+	r.info = info
+	fmt.Fprintf(logw, "安装完成: %s (%s)\n", info.FFmpeg, info.Version)
+	return r.cfg.Installer.BinDir, nil
+}
+
+// OnFinish 在任务进入终态后调用（task.Finalizer）：把结果映射成 ffmpeg 状态。
+func (r *installRunner) OnFinish(t task.Task) {
+	m := r.m
+	m.mu.Lock()
+	if m.install != nil && m.install.taskID == t.ID {
+		m.install = nil
+	}
 	m.mu.Unlock()
 
-	switch {
-	case err == nil:
-		b := info.Binaries
-		m.set(ctx, FFmpegStatus{State: ffmpeg.StateReady, Path: b.FFmpeg, Version: info.Version, Source: info.Source}, &b)
-	case canceled:
-		// 取消后回到安装前的真实状态，重新检测（保留 .part，下次继续）。
-		_, _ = m.Recheck(ctx)
-	default:
+	ctx := m.appCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	switch t.Status {
+	case task.StatusSucceeded:
+		b := r.info.Binaries
+		m.set(ctx, FFmpegStatus{State: ffmpeg.StateReady, Path: b.FFmpeg, Version: r.info.Version, Source: r.info.Source}, &b)
+	case task.StatusFailed:
 		// 失败保留 .part；状态 failed 带错误，用户可重试或手动指定路径。
-		m.set(ctx, FFmpegStatus{State: ffmpeg.StateFailed, TaskID: final.ID, Error: final.Error}, nil)
+		m.set(ctx, FFmpegStatus{State: ffmpeg.StateFailed, TaskID: t.ID, Error: t.Error}, nil)
+	default:
+		// 取消 / 中断：回到安装前的真实状态，重新检测（保留 .part，下次继续）。
+		_, _ = m.Recheck(ctx)
 	}
 }
 
@@ -233,14 +222,18 @@ func formatSpeed(bps float64) string {
 	}
 }
 
-// CancelInstall 取消进行中的安装。没有进行中的安装时什么也不做（返回 nil），
+// CancelInstall 取消进行中的安装（排队或运行）。没有进行中的安装时什么也不做（返回 nil），
 // 这样前端点"取消"与安装刚好结束的竞态不会报错。已下载的部分保留在 <数据目录>/tmp，下次安装继续。
 func (m *Manager) CancelInstall() error {
 	m.mu.Lock()
 	run := m.install
+	tasks := m.cfg.Tasks
 	m.mu.Unlock()
-	if run != nil {
-		run.cancel()
+	if run == nil || tasks == nil {
+		return nil
+	}
+	if err := tasks.Cancel(run.taskID); err != nil && !apperr.Is(err, apperr.TaskConflict) && !apperr.Is(err, apperr.NotFound) {
+		return err
 	}
 	return nil
 }

@@ -204,6 +204,119 @@ export namespace jsontool {
 
 }
 
+export namespace store {
+	
+	export class Task {
+	    id: string;
+	    type: string;
+	    status: string;
+	    title: string;
+	    inputPaths: string[];
+	    outputPath: string;
+	    progress: number;
+	    speed: string;
+	    etaSec: number;
+	    params: string;
+	    version: number;
+	    error?: apperr.AppError;
+	    createdAt: number;
+	    startedAt: number;
+	    finishedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Task(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.type = source["type"];
+	        this.status = source["status"];
+	        this.title = source["title"];
+	        this.inputPaths = source["inputPaths"];
+	        this.outputPath = source["outputPath"];
+	        this.progress = source["progress"];
+	        this.speed = source["speed"];
+	        this.etaSec = source["etaSec"];
+	        this.params = source["params"];
+	        this.version = source["version"];
+	        this.error = this.convertValues(source["error"], apperr.AppError);
+	        this.createdAt = source["createdAt"];
+	        this.startedAt = source["startedAt"];
+	        this.finishedAt = source["finishedAt"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class TaskFilter {
+	    types: string[];
+	    statuses: string[];
+	    limit: number;
+	    offset: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TaskFilter(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.types = source["types"];
+	        this.statuses = source["statuses"];
+	        this.limit = source["limit"];
+	        this.offset = source["offset"];
+	    }
+	}
+	export class TaskPage {
+	    items: Task[];
+	    total: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TaskPage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.items = this.convertValues(source["items"], Task);
+	        this.total = source["total"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace system {
 	
 	export class FFmpegStatus {
@@ -228,64 +341,6 @@ export namespace system {
 	        this.taskId = source["taskId"];
 	        this.ffprobeMissing = source["ffprobeMissing"];
 	        this.error = this.convertValues(source["error"], apperr.AppError);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class InstallTask {
-	    id: string;
-	    type: string;
-	    status: string;
-	    title: string;
-	    inputPaths: string[];
-	    outputPath: string;
-	    progress: number;
-	    speed: string;
-	    etaSec: number;
-	    params: string;
-	    version: number;
-	    error?: apperr.AppError;
-	    createdAt: number;
-	    startedAt: number;
-	    finishedAt: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new InstallTask(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.type = source["type"];
-	        this.status = source["status"];
-	        this.title = source["title"];
-	        this.inputPaths = source["inputPaths"];
-	        this.outputPath = source["outputPath"];
-	        this.progress = source["progress"];
-	        this.speed = source["speed"];
-	        this.etaSec = source["etaSec"];
-	        this.params = source["params"];
-	        this.version = source["version"];
-	        this.error = this.convertValues(source["error"], apperr.AppError);
-	        this.createdAt = source["createdAt"];
-	        this.startedAt = source["startedAt"];
-	        this.finishedAt = source["finishedAt"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
