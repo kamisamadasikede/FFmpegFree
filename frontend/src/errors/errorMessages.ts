@@ -276,11 +276,12 @@ export function liveUrlInvalidText(reason?: string | null): string {
 export const LIVE_FFMPEG_PROTOCOL_MISSING_TEXT = '当前 ffmpeg 不支持这种推流协议，请在设置的 ffmpeg 页面重新安装或更新'
 /**
  * 开始前 ffmpeg 缺协议（Start* 同步返回 UNSUPPORTED）。契约没有规定 detail 的写法（见 api/README“缺协议”），按最保守的规则：
- * 只在 detail 里出现“缺少协议 / missing protocol / protocol not found / protocol=”后面紧跟白名单协议名（rtmp / rtmps / srt，大小写不敏感）时才显示协议名，
+ * 后端实际写法（internal/service/live/service.go checkProtocols）：detail = `missing=<协议名>`（srt / rtmps / rtmp / tee）；契约文档没有写这一条。
+ * 只在 detail 里出现“missing= / 缺少协议 / missing protocol / protocol not found / protocol=”后面紧跟白名单协议名（rtmp / rtmps / srt，大小写不敏感）时才显示协议名，
  * 名字以白名单里的写法为准（大写）；其余情况（没写、写了别的、带地址的 ffmpeg 原文）一律用不带协议名的文案。detail 原文永远不进文案。
  */
 export const LIVE_PROTOCOL_NAMES: Record<string, string> = { rtmp: 'RTMP', rtmps: 'RTMPS', srt: 'SRT' }
-const MISSING_PROTOCOL_RE = /(?:缺少协议|缺少\s*协议|missing\s+protocol|protocol\s+not\s+found|protocol)\s*[:：=]\s*(rtmps|rtmp|srt)(?![A-Za-z0-9])/i
+const MISSING_PROTOCOL_RE = /(?:missing|缺少协议|缺少\s*协议|missing\s+protocol|protocol\s+not\s+found|protocol)\s*[:：=]\s*(rtmps|rtmp|srt)(?![A-Za-z0-9])/i
 export function liveMissingProtocolName(detail?: string | null): string | undefined {
   const m = MISSING_PROTOCOL_RE.exec(detail ?? '')
   return m ? LIVE_PROTOCOL_NAMES[m[1].toLowerCase()] : undefined

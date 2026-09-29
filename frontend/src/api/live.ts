@@ -196,7 +196,7 @@ function simValidateStart(url: string, options: PushOptions, screen = false): { 
   // detail 只带脱敏后的地址，绝不回显原文
   if (!u.ok) return simError('LIVE_URL_INVALID', u.message, urlInvalidDetail(u.reason, url))
   const missing = simParam('sim_missing')
-  if (missing && missing === u.info.scheme) simError('UNSUPPORTED', simMsg('UNSUPPORTED'), `ffmpeg 缺少协议：${missing}`)
+  if (missing && missing === u.info.scheme) simError('UNSUPPORTED', simMsg('UNSUPPORTED'), `missing=${missing}`)
   const live = activeSimEntries().filter((e) => e.task.type === 'live_file_push' || e.task.type === 'live_screen_push')
   // 后端两种冲突用 detail 第一行 reason=<值> 区分，detail 里不带任何地址片段
   // 判断顺序（后端统一）：duplicate_url → screen_busy → max_sessions

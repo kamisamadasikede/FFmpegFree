@@ -32,7 +32,7 @@
 
 - `?sim_err=<错误码>`：触发该错误码。Start\* / Export / ConvertToPDF / OpenPDF 等同步校验类的码由方法直接抛出；`LIVE_CONNECT_FAILED`、`LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`CONVERT_DISK_FULL`、`PROCESS_FAILED`（Doc 还有 `IO_ERROR` / `INTERNAL` / `UNSUPPORTED`）让**任务**在模拟中途失败。`&sim_when=call|task` 可强制。
 - `&sim_reason=max_sessions|duplicate_url|unknown`：`sim_err=TASK_CONFLICT` 时 detail 首行 `reason=<值>`（`unknown` = 一个前端不认识的值；不带 `sim_reason` = 缺 reason）。不带参数时，模拟层本来就会在“已有 4 路”“同地址重复”时抛这两种。
-- Live：`?sim_err=LIVE_URL_INVALID&sim_reason=scheme_unsupported|malformed|missing_host|param_not_allowed|unknown`（不带 `sim_reason` = 缺 reason 行；不注入时地址本身的问题会按实际原因给 reason）；`?sim_err=LIVE_CONNECT_FAILED`（任务失败，detail 首行 `scheme=rtmp|rtmps|srt`，按地址协议给；`&sim_scheme=missing` = 缺首行，测兜底）；`?sim_missing=srt|rtmps`（UNSUPPORTED，detail 写缺哪个）、`?sim_kill=1`（停止时 5 秒强杀 → canceled）、`?sim_end=<秒>`（推满自然结束）、`?sim_err=UNSUPPORTED_PLATFORM`（Wayland）/ `SCREEN_PERMISSION_DENIED`（macOS 未授权）。
+- Live：`?sim_err=LIVE_URL_INVALID&sim_reason=scheme_unsupported|malformed|missing_host|param_not_allowed|unknown`（不带 `sim_reason` = 缺 reason 行；不注入时地址本身的问题会按实际原因给 reason）；`?sim_err=LIVE_CONNECT_FAILED`（任务失败，detail 首行 `scheme=rtmp|rtmps|srt`，按地址协议给；`&sim_scheme=missing` = 缺首行，测兜底）；`?sim_missing=srt|rtmps`（UNSUPPORTED，detail `missing=<协议>`）、`?sim_kill=1`（停止时 5 秒强杀 → canceled）、`?sim_end=<秒>`（推满自然结束）、`?sim_err=UNSUPPORTED_PLATFORM`（Wayland）/ `SCREEN_PERMISSION_DENIED`（macOS 未授权）。
 - Edit：素材文件名以 `缺失`/`missing` 开头 → NOT_FOUND，`损坏`/`broken` → PROBE_FAILED，`无声…` 放音轨 → INVALID_ARGUMENT；同轨重叠 / 越界值 / `outSec ≤ inSec`（含 0）→ INVALID_ARGUMENT，detail 首行 `clip=<id> path=<path>`（只在 Validate / Export 报；**Save 只查数量上限**）；`?sim_preview_404=1` 让第一个预览 token 立即失效。
 - Doc：文件名 `加密…`、扩展名 doc/xls/ppt/csv/txt/odt/rtf → UNSUPPORTED；`损坏…` → INVALID_ARGUMENT；`缺失…` → NOT_FOUND；`超大…` → 超限；整体校验，一个不通过整批失败（detail 第一行是出错文件）。
 - 模拟任务的标题带“【演示】”前缀，任务中心里显示为“演示”标签（`api/sim.ts` 的 `SIM_TITLE_PREFIX`）；开关为 false 且有 Wails 时，任务中心的活动列表 / 历史都会合并模拟任务，不会被 `ListActive` 刷新清掉。
@@ -113,12 +113,11 @@
 
 等**后端 / 架构师**：
 
-- **缺协议的 UNSUPPORTED**（原 6）：契约（docs/architecture/contract.md）只说 `UNSUPPORTED` = “该操作不支持这个对象”，**没有**规定缺协议时 detail 的写法，也没有 reason 约定；且与直播会话 Retry 的 UNSUPPORTED 同码。前端按最保守写法（`liveFfmpegProtocolMissingText`）：detail 里出现“缺少协议 / missing protocol / protocol not found / protocol”加 `:`/`：`/`=` 再紧跟白名单协议名 rtmp / rtmps / srt 才显示协议名，其余一律用不带协议名的文案；detail 原文永不进文案。待后端 / 架构师在契约里写清（建议首行 `reason=protocol_missing` + `protocol=srt`），之后收紧解析。
+- **缺协议的 UNSUPPORTED**（原 6）：契约（docs/architecture/contract.md）只说 `UNSUPPORTED` = “该操作不支持这个对象”，**没有**规定缺协议时 detail 的写法，也没有 reason 约定；且与直播会话 Retry 的 UNSUPPORTED 同码。后端实现（`internal/service/live/service.go` 的 `checkProtocols`，PR #31）实际写 detail=`missing=<协议名>`（srt / rtmps / rtmp / tee，无 reason 行、message 是“当前 ffmpeg 不支持 xxx，请安装完整版 ffmpeg”，前端不显示该 message）。前端按最保守写法（`liveFfmpegProtocolMissingText`）：detail 里出现“missing / 缺少协议 / missing protocol / protocol not found / protocol”加 `:`/`：`/`=` 再紧跟白名单协议名 rtmp / rtmps / srt 才显示协议名，其余一律用不带协议名的文案；detail 原文永不进文案。`missing=tee` 等不是推流协议名的值走无协议名文案。待架构师把 `missing=<协议名>` 写进契约后可收紧解析；模拟层 `?sim_missing=` 已改成同样的 `missing=<协议名>`。
 - **Edit 多素材预览**（原 10）：同时预览 N 个素材占 N 个 token（登记表 256 项 LRU），是否提供批量 `GetPreviewURL`。限长 206（4 MiB）的 seek 体验待 Windows 真机验证。
 - **Doc 转换产物不自动进 PDF 历史**（原 15）：预览时才 `OpenPDF`，请确认是预期。
 - **错误码表**（原 17）：`UNSUPPORTED_PLATFORM` 文案已定（见上）；`LIVE_PLAY_FAILED` / `LIVE_CORS_BLOCKED` 只由前端播放器产生。契约 §2 的清单是 17 个后端码。
 - **敏感信息**（原 20）：前端已保证完整推流地址和口令只在输入框和调用参数里，不写 localStorage / 日志 / console，列表和标题用脱敏形式；后端 `Task.title` / `params` 已脱敏。无需契约改动，仅记录。
 
-等**产品经理**：
+（关于页三项已由产品经理确认：项目地址用 GitHub、许可证句“本应用以木兰宽松许可证第 2 版发布”、许可证链接指向 `blob/master/LICENSE`，常量在 `src/config/about.ts`。）
 
-- 关于页两项：许可证那句话、项目地址用 GitHub 还是 gitee 镜像（集中在 `src/config/about.ts`，先按稿面写）。

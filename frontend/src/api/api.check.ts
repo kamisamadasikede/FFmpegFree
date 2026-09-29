@@ -187,7 +187,7 @@ export async function runApiChecks(): Promise<string[]> {
   const req = (url: string): live.FilePushRequest => ({ inputPath: '/m/a.mp4', url, loop: true, options: live.defaultPushOptions() })
   win.location.search = '?sim_missing=srt'
   err = await rejects(live.startFilePush(req('srt://h9.example:9000?streamid=a')))
-  eq('缺 srt 协议 → UNSUPPORTED + detail', [err?.code, err?.detail], ['UNSUPPORTED', 'ffmpeg 缺少协议：srt'])
+  eq('缺 srt 协议 → UNSUPPORTED + detail', [err?.code, err?.detail], ['UNSUPPORTED', 'missing=srt'])
   win.location.search = ''
   const first = await live.startFilePush(req('rtmp://h1.example/live/secretkey1'))
   eq('Start 返回入队快照', [first.status, first.version, first.progress], ['queued', 1, -1])
@@ -356,6 +356,8 @@ export async function runApiChecks(): Promise<string[]> {
   eq('口令 10 位放行', okPass.status, 'queued')
   await live.stopPush(okPass.id)
   const PROTO_GENERIC = '当前 ffmpeg 不支持这种推流协议，请在设置的 ffmpeg 页面重新安装或更新'
+  eq('缺协议：后端实际写法 missing=srt', [liveFfmpegProtocolMissingText('missing=srt'), liveFfmpegProtocolMissingText('missing=rtmps')], ['当前的 ffmpeg 不支持 SRT，请在设置的 ffmpeg 页面重新安装或更新', '当前的 ffmpeg 不支持 RTMPS，请在设置的 ffmpeg 页面重新安装或更新'])
+  eq('缺协议：missing=tee（不是推流协议名）→ 通用', liveFfmpegProtocolMissingText('missing=tee'), PROTO_GENERIC)
   eq('缺协议：SRT', liveFfmpegProtocolMissingText('ffmpeg 缺少协议：srt'), '当前的 ffmpeg 不支持 SRT，请在设置的 ffmpeg 页面重新安装或更新')
   eq('缺协议：RTMPS（大小写、英文写法）', [liveFfmpegProtocolMissingText('missing protocol: RTMPS'), liveFfmpegProtocolMissingText('protocol=rtmp\nx')], ['当前的 ffmpeg 不支持 RTMPS，请在设置的 ffmpeg 页面重新安装或更新', '当前的 ffmpeg 不支持 RTMP，请在设置的 ffmpeg 页面重新安装或更新'])
   eq('缺协议：没有具体协议名 → 通用', [liveFfmpegProtocolMissingText(undefined), liveFfmpegProtocolMissingText(''), liveFfmpegProtocolMissingText('ffmpeg 缺少协议'), liveFfmpegProtocolMissingText('缺少协议：quic'), liveFfmpegProtocolMissingText('缺少协议：srtx')], [PROTO_GENERIC, PROTO_GENERIC, PROTO_GENERIC, PROTO_GENERIC, PROTO_GENERIC])
