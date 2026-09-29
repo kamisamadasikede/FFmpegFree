@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 
+	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/service/system"
 	"FFmpegFree/internal/store"
 
@@ -10,7 +11,7 @@ import (
 )
 
 // SystemService 是系统相关能力的 Wails 绑定（契约第 4、9 节）。
-// 目前包含 ffmpeg 检测与设置里和 ffmpeg 相关的两项；PickFiles、GetEnv 等后续 PR 补充。
+// 目前包含 ffmpeg 检测、设置里和 ffmpeg 相关的两项、RevealInFolder 与 PickDirectory；PickFiles、GetEnv 等后续 PR 补充。
 //
 // 检测状态机在 system.Manager 里，由 App.startup 调用 Manager.Start 在后台启动，
 // 所以这里的方法都只是转发。
@@ -53,6 +54,30 @@ func (s *SystemService) GetInstallOptions() (system.InstallOptions, error) {
 // CancelFFmpegInstall 取消进行中的安装，已下载的部分保留以便下次续传。没有安装在进行时什么也不做。
 func (s *SystemService) CancelFFmpegInstall() error {
 	return s.mgr.CancelInstall()
+}
+
+// RevealInFolder 在系统文件管理器里显示 path（Windows 选中文件，macOS `open -R`，Linux 打开所在文件夹）；
+// path 是文件夹时直接打开它。path 必须是绝对路径：空或相对路径返回 INVALID_ARGUMENT，不存在返回 NOT_FOUND，
+// 无法启动文件管理器返回 PROCESS_FAILED。命令启动后立即返回。
+func (s *SystemService) RevealInFolder(path string) error {
+	return s.mgr.RevealInFolder(path)
+}
+
+// PickDirectory 弹出系统"选择文件夹"对话框，返回所选目录的绝对路径；用户取消返回空字符串（不是错误）。
+// title 为空用默认标题。应用还没启动完成时返回 INTERNAL。
+func (s *SystemService) PickDirectory(title string) (string, error) {
+	ctx := s.mgr.AppContext()
+	if ctx == nil {
+		return "", apperr.New(apperr.Internal, "应用尚未初始化")
+	}
+	if title == "" {
+		title = "选择文件夹"
+	}
+	dir, err := runtime.OpenDirectoryDialog(ctx, runtime.OpenDialogOptions{Title: title, CanCreateDirectories: true})
+	if err != nil {
+		return "", apperr.Wrap(apperr.Internal, "打开文件夹选择对话框失败", err)
+	}
+	return dir, nil // 取消时 Wails 返回 ""
 }
 
 // GetSettings 返回设置。目前只有 ffmpegPath 和 ffmpegPromptDismissed，其余字段后续补充。
