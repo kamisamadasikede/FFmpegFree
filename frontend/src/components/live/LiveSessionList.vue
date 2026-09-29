@@ -12,6 +12,7 @@
         <div v-for="r in store.rows" :key="r.id" class="lv-r" :data-status="r.status">
           <div class="m">
             <div class="ad" :title="r.url"><FIcon :name="r.kind === 'screen' ? 'monitor' : 'film'" :size="14" /><span class="hd">{{ r.url }}</span></div>
+            <div v-if="r.source" class="src" :title="r.source.title"><FIcon :name="r.source.kind === 'window' ? 'window' : 'monitor'" :size="12" /><span>{{ r.source.title }}</span></div>
             <div v-if="r.status === 'run'" class="lv-s run"><i class="dot" />运行中</div>
             <div v-else-if="r.status === 'stp'" class="lv-s stp" role="status" aria-live="polite"><i class="lv-spin" />{{ LIVE_STOPPING_TEXT }}</div>
             <div v-else-if="r.status === 'ok'" class="lv-s ok"><FIcon name="check" :size="14" />{{ LIVE_STOP_TEXT.succeeded }}</div>
@@ -93,7 +94,25 @@ const showFolder = (r: LiveRow) => (r.status === 'ok' || r.status === 'cnl') && 
 }
 .lv-th span:nth-child(2),
 .lv-th span:nth-child(3),
-.lv-r .nu {
+.lv-r .src {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--ff-fs-xs);
+  line-height: 18px;
+  color: var(--ff-text-2);
+}
+.src svg {
+  flex: none;
+}
+.src span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nu {
   text-align: right;
 }
 .lv-rows {

@@ -19,7 +19,7 @@
 
 ## 方法清单
 
-**Live**（`live.ts`）：`startFilePush(FilePushRequest)→Task`、`startScreenPush(ScreenPushRequest)→Task`、`getCaptureCapabilities()`、`listScreens()`、`listCaptureSources()`（v0.14，屏幕 + Windows 窗口；`ScreenPushRequest.captureSourceId` 可选，失效 → `LIVE_SOURCE_GONE`，`?sim_source_gone=1` 让模拟窗口消失，`?sim_err=LIVE_SOURCE_GONE&sim_reason=window|screen` 注入）、`checkPushURL(url)→PushURLInfo`；停止 `stopPush(taskId)`（= `TaskService.Cancel`）；`listRunning()`（`TaskService.ListActive` 里的 live_*）；`watchLiveTask(id, handlers)`（`task:progress` / `task:status`）；素材 `pickMaterial()`（`SystemService.PickFiles` + `MediaService.Probe`）。任务类型 `live_file_push` / `live_screen_push`，Task 新增 `fps` / `bitrateKbps` / `droppedFrames`。
+**Live**（`live.ts`）：`startFilePush(FilePushRequest)→Task`、`startScreenPush(ScreenPushRequest)→Task`、`getCaptureCapabilities()`、`listScreens()`、`listCaptureSources()`（v0.14，屏幕 + Windows 窗口；`ScreenPushRequest.captureSourceId` 可选，失效 → `LIVE_SOURCE_GONE`，`?sim_source_gone=1` 让「演示文稿」窗口在列表被拉过一次之后消失（页面选中它 → 开始 → LIVE_SOURCE_GONE → 自动刷新后它不在了），`?sim_sources=loading|fail|empty|screens` 模拟加载中 / 失败 / 空 / 仅屏幕，`?sim_err=LIVE_SOURCE_GONE&sim_reason=window|screen` 注入）、`checkPushURL(url)→PushURLInfo`；停止 `stopPush(taskId)`（= `TaskService.Cancel`）；`listRunning()`（`TaskService.ListActive` 里的 live_*）；`watchLiveTask(id, handlers)`（`task:progress` / `task:status`）；素材 `pickMaterial()`（`SystemService.PickFiles` + `MediaService.Probe`）。任务类型 `live_file_push` / `live_screen_push`，Task 新增 `fps` / `bitrateKbps` / `droppedFrames`。
 
 **Edit**（`edit.ts`）：`validateProject`、`exportProject(EditProject, EditExportOptions)→Task`（契约名 `Export`）、`getPreviewURL(path)`、`saveProject`、`loadProject`、`listProjects(limit)`、`deleteProject`；辅助 `createPreviewSource`（404 后 HEAD 探测、重新取地址）、`findTrackOverlap` / `wouldOverlap`（拖拽 / 放置时拦同轨重叠）、`newVideoClip` / `newAudioClip` / `fillOutSec`（素材加入 clip 时用探测到的时长填 `outSec`，不能是 0）、`checkStructure`（Validate / Export）、`checkSaveLimits`（Save，只查数量上限）、`sanitizeOutputName`。素材用 `system.ts` 的 `pickFiles` 和 `media.ts` 的 `probeFiles` / `thumbnailOf`。任务类型 `edit_export`。
 
@@ -140,3 +140,7 @@
 
 - 根因在前端：`stores/ffmpeg.ts` 的 `dialogOpen` 在点"下载"后一直为 true，安装完成收到 `ffmpeg:status(ready)` 时没有复位；安装对话框 `v-if` 只看 `dialogOpen`，`installing` 视图消失后就退回"需要安装 ffmpeg / 下载"视图。现在 ready 时复位 `dialogOpen`，对话框改用 `dialogVisible = dialogOpen && needsAttention`；`startInstall` / `pickPath` / `clearCustomPath` 的返回值也按事件序号丢弃过期结果。
 - 自检：`npm run check:ffmpeg`（`src/stores/ffmpeg.check.ts`，假的 `window.go` 驱动真实 store）。
+
+### 直播 v1.1 采集来源选择器（2026-09-30，设计稿未出，按 v0.2 风格先做）
+
+`views/live/RecordPush.vue` 用 `listCaptureSources()` 取代 `listScreens()`，组件 `components/live/CaptureSourcePicker.vue`（“屏幕 / 应用窗口”两个分组，仅屏幕时不出“应用窗口”标题；加载中 / 空 / 失败三态 + “刷新列表”；名称过长省略，title 带完整名称和分辨率）。默认选第一个屏幕；开始推流传 `captureSourceId`（`screenId` 传空，后端以 captureSourceId 为准）。`LIVE_SOURCE_GONE`（detail 首行 `kind=window|screen`）→ 来源选择器下方显示错误（`liveSourceGoneText`），取消已选来源并自动刷新列表；`INVALID_ARGUMENT` 沿用通用文案。会话行显示这一路的来源名（`LiveRow.source`），不脱敏但只在本机界面显示，不写日志、不进错误 detail；刷新后接回的会话取不到来源名。文案集中在 `errors/errorMessages.ts`（`LIVE_SOURCE_*`，**全部待产品经理确认**）。预览参数：`?sim_sources=…`、`?form=window|srcgone|srcgonescreen`、`?src=window`（会话行窗口来源）。预览（`GetPreview`）后端未合，本版不做。

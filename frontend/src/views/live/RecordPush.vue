@@ -3,22 +3,10 @@
     <template #main><LiveSessionList empty-hint="选择屏幕并填写推流地址，点击“开始推流”" /></template>
     <template #panel>
       <LivePanel title="推流设置">
-        <LiveField label="屏幕来源" :control="false">
-          <div class="scr" role="radiogroup" aria-label="屏幕来源">
-            <button
-              v-for="sc in screens"
-              :key="sc.id"
-              type="button"
-              class="so"
-              :class="{ on: screenId === sc.id }"
-              role="radio"
-              :aria-checked="screenId === sc.id"
-              @click="screenId = sc.id"
-            >
-              <i class="rd" /><FIcon name="monitor" :size="14" /><span>{{ sc.name }}{{ sc.primary ? '（主显示器）' : '' }}</span><em>{{ sc.width }}×{{ sc.height }}</em>
-            </button>
-          </div>
-          <p v-if="screenId" class="note"><FIcon name="info" :size="14" />{{ LIVE_SCREEN_NO_AUDIO_TEXT }}</p>
+        <LiveField :label="LIVE_SOURCE_FIELD_LABEL" :control="false">
+          <CaptureSourcePicker v-model="sourceId" :sources="sources" :state="srcState" :invalid="err?.where === 'source'" @update:model-value="onPick" @refresh="loadSources" />
+          <LiveFormError v-if="err?.where === 'source'" :text="err.text" />
+          <p v-if="sourceId" class="note"><FIcon name="info" :size="14" />{{ LIVE_SCREEN_NO_AUDIO_TEXT }}</p>
         </LiveField>
         <LiveField label="推流地址">
           <LiveInput v-model="baseUrl" :bad="err?.where === 'addr'" placeholder="rtmp://、rtmps:// 或 srt://" @enter="start" />
@@ -48,9 +36,9 @@
 </template>
 
 <script setup lang="ts">
-// 录屏推流（设计稿 v0.2）：屏幕来源单选 → 无声音说明 → 推流地址 → 推流码 / 口令 → 保存存档（MP4，目录只读 + 更改）→ 表单级错误 → 开始推流。
+// 录屏推流（设计稿 v0.2 + 直播 v1.1 采集来源选择器，后者设计稿未出）：采集来源（屏幕 / 应用窗口） → 无声音说明 → 推流地址 → 推流码 / 口令 → 保存存档（MP4，目录只读 + 更改）→ 表单级错误 → 开始推流。
 // 后端 #47 已支持带存档：archiveDir 非空时任务的 outputPath = 存档路径，终态事件里的 outputPath 决定“打开所在文件夹”。屏幕推流没有声音（audio 恒为 none）。
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import LiveTabFrame from '@/components/live/LiveTabFrame.vue'
@@ -59,13 +47,14 @@ import LiveField from '@/components/live/LiveField.vue'
 import LiveInput from '@/components/live/LiveInput.vue'
 import LiveButton from '@/components/live/LiveButton.vue'
 import LiveFormError from '@/components/live/LiveFormError.vue'
+import CaptureSourcePicker from '@/components/live/CaptureSourcePicker.vue'
 import LiveSessionList from '@/components/live/LiveSessionList.vue'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { useLiveSessionsStore } from '@/stores/liveSessions'
-import { LIVE_SCREEN_NO_AUDIO_TEXT, LIVE_SRT_PASSPHRASE_TEXT } from '@/errors/errorMessages'
+import { LIVE_SCREEN_NO_AUDIO_TEXT, LIVE_SOURCE_FIELD_LABEL, LIVE_SRT_PASSPHRASE_TEXT, liveSourceGoneText } from '@/errors/errorMessages'
 import { composePushUrl, parsePushUrl } from '@/utils/liveUrl'
 import * as liveApi from '@/api/live'
-import { toAppError } from '@/api/call'
+import { toAppError, type AppError } from '@/api/call'
 import { getDefaultOutputDir, pickDirectory } from '@/api/system'
 import { formPreview } from './pushPreview'
 import { pushErrorToForm, type PushFormError } from './pushErrors'
@@ -77,15 +66,17 @@ const store = useLiveSessionsStore()
 const blocked = computed(() => ffmpeg.featuresBlocked)
 const DEMO_ARCHIVE_DIR = '~/Movies/FFmpegFree/直播存档'
 
-const screens = ref<liveApi.ScreenInfo[]>([])
-const screenId = ref('')
+const sources = ref<liveApi.CaptureSource[]>([])
+const sourceId = ref('')
+const srcState = ref<'loading' | 'ready' | 'empty' | 'failed'>('loading')
+let srcSeq = 0
 const baseUrl = ref('')
 const key = ref('')
 const archiveOn = ref(false)
 const archiveDir = ref('')
 const err = ref<PushFormError | null>(null)
 const starting = ref(false)
-const canStart = computed(() => !blocked.value && !starting.value && !!screenId.value && !!baseUrl.value.trim())
+const canStart = computed(() => !blocked.value && !starting.value && !!sourceId.value && srcState.value === 'ready' && !!baseUrl.value.trim())
 
 watch([baseUrl, key], () => (err.value = null))
 watch(archiveOn, async (on) => {
@@ -99,6 +90,47 @@ async function changeDir() {
     if (d) archiveDir.value = d
   } catch (e) {
     ElMessage.error(toAppError(e).message)
+  }
+}
+
+/** 拉采集来源列表。keep=true（刷新）保留仍在列表里的已选项；否则默认选第一个屏幕。窗口标题只放在界面里，不打日志 */
+async function loadSources(keep = true) {
+  const my = ++srcSeq
+  srcState.value = 'loading'
+  try {
+    const list = await liveApi.listCaptureSources()
+    if (my !== srcSeq) return
+    sources.value = list
+    if (!list.length) {
+      sourceId.value = ''
+      srcState.value = 'empty'
+      return
+    }
+    srcState.value = 'ready'
+    if (!(keep && list.some((x) => x.id === sourceId.value))) sourceId.value = (list.find((x) => x.kind === 'screen') ?? list[0]).id
+  } catch {
+    if (my !== srcSeq) return
+    sources.value = []
+    sourceId.value = ''
+    srcState.value = 'failed'
+  }
+}
+function pickedSource(id: string) {
+  const x = sources.value.find((v) => v.id === id)
+  return x ? { title: x.title, kind: x.kind } : undefined
+}
+/** 换了来源就清掉来源错误 */
+function onPick() {
+  if (err.value?.where === 'source') err.value = null
+}
+/** 表单错误统一入口：LIVE_SOURCE_GONE → 取消已选来源 + 自动刷新列表，错误留在来源选择器下方 */
+function showError(e: Pick<AppError, 'code' | 'message' | 'detail' | 'reason' | 'scheme' | 'kind'>, scheme: string) {
+  err.value = pushErrorToForm(e, scheme)
+  if (e.code === 'LIVE_SOURCE_GONE') {
+    sourceId.value = ''
+    void loadSources(false).then(() => {
+      sourceId.value = '' // 已不可用的来源要用户重新选，不自动改选
+    })
   }
 }
 
@@ -127,12 +159,12 @@ async function start() {
   }
   starting.value = true
   try {
-    const task = await liveApi.startScreenPush({ url: full, screenId: screenId.value, hideCursor: false, audio: 'none', archiveDir: dir, options: liveApi.defaultPushOptions() })
-    const r = await store.begin(task, { kind: 'screen', redactedUrl: check.info.redacted, archive: !!dir })
-    if (!r.ok) err.value = pushErrorToForm(r.error, check.info.scheme)
+    const task = await liveApi.startScreenPush({ url: full, screenId: '', captureSourceId: sourceId.value, hideCursor: false, audio: 'none', archiveDir: dir, options: liveApi.defaultPushOptions() })
+    const r = await store.begin(task, { kind: 'screen', redactedUrl: check.info.redacted, archive: !!dir, source: pickedSource(sourceId.value) })
+    if (!r.ok) showError(r.error, check.info.scheme)
     else key.value = ''
   } catch (e) {
-    err.value = pushErrorToForm(toAppError(e), check.info.scheme)
+    showError(toAppError(e), check.info.scheme)
   } finally {
     starting.value = false
   }
@@ -140,14 +172,9 @@ async function start() {
 
 onMounted(async () => {
   void store.recover()
-  try {
-    screens.value = await liveApi.listScreens()
-  } catch {
-    screens.value = []
-  }
+  await loadSources(false)
   const f = formPreview
-  if (f === 'empty') return
-  screenId.value = screens.value.find((s) => s.primary)?.id ?? screens.value[0]?.id ?? ''
+  if (f === 'window') sourceId.value = sources.value.find((x) => x.kind === 'window')?.id ?? sourceId.value
   if (!f) return
   baseUrl.value = 'rtmp://live-push.example.com/live'
   key.value = '••••••••••••'
@@ -162,73 +189,22 @@ onMounted(async () => {
     same: pushErrorToForm({ code: 'TASK_CONFLICT', message: '', reason: 'duplicate_url' } as never),
     max4: pushErrorToForm({ code: 'TASK_CONFLICT', message: '', reason: 'max_sessions' } as never),
     screen1: pushErrorToForm({ code: 'TASK_CONFLICT', message: '', reason: 'screen_busy' } as never),
+    srcgone: { where: 'source', text: liveSourceGoneText('window') },
+    srcgonescreen: { where: 'source', text: liveSourceGoneText('screen') },
     perm: pushErrorToForm({ code: 'SCREEN_PERMISSION_DENIED', message: '' } as never),
     unsupported: pushErrorToForm({ code: 'UNSUPPORTED_PLATFORM', message: '' } as never),
     nosrt: pushErrorToForm({ code: 'UNSUPPORTED', message: '', detail: 'missing=srt' } as never),
     noproto: pushErrorToForm({ code: 'UNSUPPORTED', message: '' } as never),
   }
-  if (E[f]) err.value = E[f]
+  if (f === 'srcgone' || f === 'srcgonescreen') sourceId.value = ''
   if (f === 'srtpass' || f === 'connfailsrt' || f === 'nosrt') baseUrl.value = 'srt://srt.example.com:9000'
   if (f === 'same') baseUrl.value = 'rtmp://push.example.com/live'
+  await nextTick() // 上面改地址 / 口令会触发“清错误”的 watch，等它跑完再放预览错误
+  if (E[f]) err.value = E[f]
 })
 </script>
 
 <style scoped>
-.scr {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.so {
-  height: 32px;
-  border: 1px solid var(--ff-border);
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 10px;
-  font: inherit;
-  font-size: var(--ff-fs-sm);
-  color: var(--ff-text-1);
-  background: var(--ff-bg-surface);
-  cursor: pointer;
-  text-align: left;
-}
-.so svg {
-  color: var(--ff-text-2);
-}
-.so em {
-  margin-left: auto;
-  font-style: normal;
-  font-size: var(--ff-fs-xs);
-  color: var(--ff-text-2);
-}
-.so .rd {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 1.5px solid var(--ff-text-2);
-  flex: none;
-  position: relative;
-}
-.so.on {
-  border-color: var(--ff-primary);
-  background: var(--ff-primary-soft);
-}
-.so.on .rd {
-  border-color: var(--ff-primary);
-}
-.so.on .rd::after {
-  content: '';
-  position: absolute;
-  inset: 2px;
-  border-radius: 50%;
-  background: var(--ff-primary);
-}
-.so:focus-visible {
-  outline: 2px solid var(--ff-primary);
-  outline-offset: 2px;
-}
 .note {
   margin: 8px 0 0;
   display: flex;

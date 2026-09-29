@@ -18,6 +18,7 @@ import { retrySimTask, SIM_TITLE_PREFIX } from './sim'
 import * as encApi from './encoder'
 import { deriveEncoderView } from './encoderView'
 import * as encMsg from '@/errors/encoderMessages'
+import { pushErrorToForm } from '@/views/live/pushErrors'
 import { elapsedMs, isKnownTaskType, isLegacyTaskType } from '@/stores/tasks'
 
 const fails: string[] = []
@@ -217,6 +218,33 @@ export async function runApiChecks(): Promise<string[]> {
   err = await rejects(live.startScreenPush({ ...screenReq('rtmp://g1.example/live/g1'), captureSourceId: 'window:0x10' }))
   eq('captureSourceId 格式不对', err?.code, 'INVALID_ARGUMENT')
   eq('来源失败不占会话', (await live.listRunning()).length, runningBefore)
+
+  // 来源选择器（RecordPush 用）：多屏 / 含窗口 / 仅屏幕 / 空 / 列表失败 / 来源消失后刷新
+  eq('选择器：默认选第一个屏幕（屏幕在前）', (sources.find((x) => x.kind === 'screen') ?? sources[0]).id, 'screen:0')
+  eq('选择器：多屏 + 含窗口 → 两个分组都有', ['screen', 'window'].map((k) => sources.filter((x) => x.kind === k).length), [2, 2])
+  win.location.search = '?sim_sources=screens'
+  const onlyScreens = await live.listCaptureSources()
+  eq('仅屏幕（平台不返回 window）→ 没有 window 项，分组标题不出现', [onlyScreens.length, onlyScreens.some((x) => x.kind === 'window')], [2, false])
+  win.location.search = '?sim_sources=empty'
+  eq('列表为空', (await live.listCaptureSources()).length, 0)
+  win.location.search = '?sim_sources=fail'
+  eq('列表失败 → 抛错', (await rejects(live.listCaptureSources()))?.code, 'INTERNAL')
+  win.location.search = '?sim_source_gone=1'
+  live.resetSimSources()
+  const before = await live.listCaptureSources()
+  eq('来源消失：第一次拉取时窗口还在', before.some((x) => x.id === 'window:65890'), true)
+  const goneErr = await rejects(live.startScreenPush({ ...screenReq('rtmp://gone.example/live/k'), captureSourceId: 'window:65890' }))
+  eq('来源消失：开始推流 → LIVE_SOURCE_GONE(kind=window)', [goneErr?.code, goneErr?.kind, goneErr?.detail], ['LIVE_SOURCE_GONE', 'window', 'kind=window'])
+  eq('LIVE_SOURCE_GONE 的错误 detail / message 不含窗口标题', /演示文稿|PowerPoint/.test(`${goneErr?.detail}${goneErr?.message}`), false)
+  const after = await live.listCaptureSources()
+  eq('来源消失：刷新后该窗口不在列表里，其他窗口和屏幕还在', [after.some((x) => x.id === 'window:65890'), after.length], [false, 3])
+  win.location.search = ''
+  live.resetSimSources()
+  // 表单错误映射：LIVE_SOURCE_GONE 显示在来源选择器下方（where=source），窗口 / 屏幕文案，INVALID_ARGUMENT 沿用通用文案
+  eq('表单错误：窗口消失', pushErrorToForm(new AppError('LIVE_SOURCE_GONE', 'm', 'kind=window')), { where: 'source', text: '所选窗口已不可用，请重新选择' })
+  eq('表单错误：屏幕消失', pushErrorToForm(new AppError('LIVE_SOURCE_GONE', 'm', 'kind=screen')), { where: 'source', text: '所选屏幕已不可用，请重新选择' })
+  eq('表单错误：缺 kind → 窗口版', pushErrorToForm(new AppError('LIVE_SOURCE_GONE', 'm')).text, '所选窗口已不可用，请重新选择')
+  eq('表单错误：INVALID_ARGUMENT 沿用通用（form 级，不指向来源）', pushErrorToForm(new AppError('INVALID_ARGUMENT', 'captureSourceId 格式不对')).where, 'form')
   const gt = await live.startScreenPush({ ...screenReq('rtmp://g2.example/live/g2'), captureSourceId: 'window:131426' })
   eq('窗口来源的任务标题与 params', [gt.title.includes('记事本'), JSON.parse(gt.params).captureSourceId], [true, 'window:131426'])
   await live.stopPush(gt.id)
