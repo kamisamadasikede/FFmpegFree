@@ -15,7 +15,7 @@
         <div class="meta">
           <span>速度<b>{{ cv.overall.speed || '—' }}</b></span>
           <span>当前文件剩余<b>{{ formatEta(cv.overall.etaSec) || '—' }}</b></span>
-          <span v-if="deviceText" class="dev" :title="`${ENCODER_DEVICE_LABEL} ${deviceText}`">{{ ENCODER_DEVICE_LABEL }}<b>{{ deviceText }}</b></span>
+          <span v-if="deviceText" class="dev" :title="deviceFb ? ENCODER_DEVICE_CPU_FALLBACK_TITLE : `${ENCODER_DEVICE_LABEL} ${deviceText}`">{{ ENCODER_DEVICE_LABEL }}<b :class="{ 'dev-fb': deviceFb }">{{ deviceText }}</b></span>
         </div>
       </div>
       <div v-else-if="cv.mode === 'done'" class="okline" role="status">
@@ -208,7 +208,7 @@ import { hasWailsBackend } from '@/services/wails'
 import { useRouter } from 'vue-router'
 import EncoderFallbackNotice from '@/components/encoder/EncoderFallbackNotice.vue'
 import { encoderSettingsLocation, showFallbackNotice, usedDeviceText, useEncoderDeviceList } from '@/api/encoderTask'
-import { ENCODER_DEVICE_LABEL } from '@/errors/encoderMessages'
+import { ENCODER_DEVICE_CPU_FALLBACK_NAME, ENCODER_DEVICE_CPU_FALLBACK_TITLE, ENCODER_DEVICE_LABEL } from '@/errors/encoderMessages'
 import { actionErrorText } from '@/errors/errorMessages'
 import { PREVIEW_CONVERT, splitPresetName, useConvertStore, type ConvertRow } from '@/stores/convert'
 import { useFFmpegStore } from '@/stores/ffmpeg'
@@ -322,6 +322,7 @@ const encDevices = useEncoderDeviceList()
 /** 有任务回退了 CPU（且真的运行过）就显示一条提示 */
 const fallbackShown = computed(() => cv.rows.some((r) => showFallbackNotice(cv.rowTask(r))))
 /** 转换中 / 完成后显示“设备”：正在运行（完成后：已成功）的任务用的设备名（多个设备时按出现顺序用“、”连接；没有就不显示） */
+const deviceFb = computed(() => deviceText.value === ENCODER_DEVICE_CPU_FALLBACK_NAME)
 const deviceText = computed(() => {
   const names: string[] = []
   for (const r of cv.rows) {
@@ -781,6 +782,9 @@ void hasWailsBackend
   font-weight: 500;
   color: var(--ff-text-1);
   margin-left: 4px;
+}
+.rprog .meta b.dev-fb {
+  color: var(--ff-warning-text);
 }
 .okline {
   flex: none;

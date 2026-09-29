@@ -25,7 +25,3 @@ export function recordStartEnabled(p: { blocked: boolean; starting: boolean; has
   if (p.gone) return false
   return p.state === 'failed' || p.state === 'empty'
 }
-/** 没选来源、将默认推主屏时，表单里显示一句轻提示（true 时才显示） */
-export function defaultMainScreenHint(p: { sourceId: string; state: SourceLoadState; gone: boolean }): boolean {
-  return !p.sourceId && !p.gone && (p.state === 'failed' || p.state === 'empty')
-}

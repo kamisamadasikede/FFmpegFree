@@ -292,18 +292,18 @@ export async function runApiChecks(): Promise<string[]> {
     live.resetSimSources()
     // 小修订包 12：开始推流可用性矩阵、没选来源时请求不带 captureSourceId、previewOn 复位、提示条位置
     {
-      const { recordStartEnabled, defaultMainScreenHint } = await import('@/utils/liveSource')
+      const { recordStartEnabled } = await import('@/utils/liveSource')
       const base: Parameters<typeof recordStartEnabled>[0] = { blocked: false, starting: false, hasUrl: true, sourceId: 'window:1', state: 'ready', gone: false }
       const en = (o: Partial<typeof base>) => recordStartEnabled({ ...base, ...o })
       eq('开始推流可用：列表正常且已选来源', en({}), true)
       eq('开始推流可用：刷新中（保留旧列表 + 已选项）不置灰', en({ state: 'loading' }), true)
       eq('开始推流可用：刷新失败但旧列表里还有已选项不置灰', en({ state: 'failed' }), true)
+      eq('开始推流可用：刷新失败有旧列表（有已选项）→ 按钮可用；另一路：ffmpeg 就绪、地址有、刷新失败（LIVE_SOURCE_STALE）', [en({ state: 'failed', sourceId: 'screen:0' }), en({ state: 'failed', sourceId: 'window:1', gone: false })], [true, true])
       eq('开始推流可用：首次加载中且没有已选项 → 置灰', en({ sourceId: '', state: 'loading' }), false)
       eq('开始推流可用：首次失败 / 空列表且没有已选项 → 可用（不传来源，后端默认推主屏）', [en({ sourceId: '', state: 'failed' }), en({ sourceId: '', state: 'empty' })], [true, true])
       eq('开始推流可用：来源失效（GONE）等待重选 → 置灰', en({ sourceId: '', state: 'ready', gone: true }), false)
       eq('开始推流可用：失效后刷新又失败仍置灰（不悄悄改推主屏）', en({ sourceId: '', state: 'failed', gone: true }), false)
       eq('开始推流可用：ffmpeg 未就绪 / 正在开始 / 地址为空 → 置灰（优先于一切）', [en({ blocked: true }), en({ starting: true }), en({ hasUrl: false }), en({ blocked: true, sourceId: '', state: 'failed' })], [false, false, false, false])
-      eq('轻提示“未选择来源，将推送主屏”：只在没选来源且失败 / 空列表时出现', [defaultMainScreenHint({ sourceId: '', state: 'failed', gone: false }), defaultMainScreenHint({ sourceId: '', state: 'empty', gone: false }), defaultMainScreenHint({ sourceId: 'screen:0', state: 'failed', gone: false }), defaultMainScreenHint({ sourceId: '', state: 'ready', gone: true }), defaultMainScreenHint({ sourceId: '', state: 'loading', gone: false })], [true, true, false, false, false])
       const noSrc = live.buildScreenPushRequest({ url: 'rtmp://main.example/live/m', sourceId: '', archiveDir: '', preview: true })
       eq('没选来源：请求里不带 captureSourceId（连键都没有），screenId 为空 = 主显示器', ['captureSourceId' in noSrc, JSON.stringify(noSrc).includes('captureSourceId'), noSrc.screenId], [false, false, ''])
       const withSrc = live.buildScreenPushRequest({ url: 'rtmp://main.example/live/m2', sourceId: 'window:131426', archiveDir: '', preview: false })
@@ -311,6 +311,8 @@ export async function runApiChecks(): Promise<string[]> {
       // previewOn 复位（组件不能在 node 里挂载，按源码断言）：开始成功后复位为开；拉流在播放结束（busy 变 false）后复位
       const fsx = await import('node:fs')
       const rd = (f: string) => fsx.readFileSync(`${process.cwd()}/${f}`, 'utf8')
+      eq('没选来源：触发器显示“屏幕 1（主显示器）”，表单里不再有“未选择来源，将推送主屏”', [(await import('@/errors/errorMessages')).LIVE_SOURCE_DEFAULT_MAIN_NAME, 'defaultMainScreenHint' in (await import('@/utils/liveSource')), /LIVE_SOURCE_DEFAULT_MAIN_NAME/.test(rd('src/components/live/CaptureSourcePicker.vue')), /未选择来源|推送主屏|DEFAULT_MAIN_HINT/.test(rd('src/views/live/RecordPush.vue') + rd('src/errors/errorMessages.ts'))], ['屏幕 1（主显示器）', false, true, false])
+      eq('触发器主屏名的条件：没选来源、非失效、非首次加载中才显示（源码）', /const showDefaultMain = computed\(\(\) => !current\.value && !props\.gone && props\.state !== 'loading'\)/.test(rd('src/components/live/CaptureSourcePicker.vue')), true)
       const okReset = /else \{\s*key\.value = ''\s*previewOn\.value = true/
       eq('previewOn 复位：文件推流 / 录屏推流开始成功后 previewOn = true', [okReset.test(rd('src/views/live/FilePush.vue')), okReset.test(rd('src/views/live/RecordPush.vue'))], [true, true])
       eq('previewOn 复位：拉流页在会话结束（busy 变 false）后 previewOn = true', /watch\(\(\) => session\.busy\.value, \(b\) => \{\s*if \(!b\) previewOn\.value = true/.test(rd('src/views/live/PullPlay.vue')), true)
@@ -901,11 +903,11 @@ export async function runApiChecks(): Promise<string[]> {
       win.location.search = ''
       eq('纯浏览器且无 ?enc= → 编码设备界面关闭：不显示提示、不显示设备', [encTask.encoderTaskUiEnabled(), encTask.showFallbackNotice(fb), encTask.usedDeviceText(fb, devs)], [false, false, ''])
       win.location.search = '?enc=fb-nvenc'
-      eq('纯浏览器 ?enc= 预览 → 界面启用（仅开发用）', [encTask.encoderTaskUiEnabled(), encTask.showFallbackNotice(fb), encTask.usedDeviceText(fb, devs)], [true, true, 'CPU'])
+      eq('纯浏览器 ?enc= 预览 → 界面启用（仅开发用）', [encTask.encoderTaskUiEnabled(), encTask.showFallbackNotice(fb), encTask.usedDeviceText(fb, devs)], [true, true, 'CPU（已回退）'])
       win.location.search = ''
       ;(win as unknown as Record<string, unknown>).go = { app: {} }
       ;(win as unknown as Record<string, unknown>).runtime = {}
-      eq('Wails 里（标志 true）→ 界面启用：hwFallback 显示提示、设备显示名', [encTask.encoderTaskUiEnabled(), encTask.showFallbackNotice(fb), encTask.usedDeviceText(fb, devs)], [true, true, 'CPU'])
+      eq('Wails 里（标志 true）→ 界面启用：hwFallback 显示提示、设备显示名', [encTask.encoderTaskUiEnabled(), encTask.showFallbackNotice(fb), encTask.usedDeviceText(fb, devs)], [true, true, 'CPU（已回退）'])
       win.location.search = '?enc=none'
       eq('Wails 里 ?enc= 无效但界面照常启用', encTask.encoderTaskUiEnabled(), true)
       eq('Wails 里：startedAt=0 仍不显示提示和设备', [encTask.showFallbackNotice({ ...fb, startedAt: 0 }), encTask.usedDeviceText({ ...fb, startedAt: 0 }, devs)], [false, ''])
@@ -914,6 +916,7 @@ export async function runApiChecks(): Promise<string[]> {
       delete (win as unknown as Record<string, unknown>).runtime
       // 设备名：只取 name；cpu → CPU；查不到 → 显卡；永不显示 id
       eq('设备名：显卡取列表里的 name', encTask.deviceDisplayName('nvidia-0', devs), 'NVIDIA GeForce RTX 4060')
+      eq('设备栏：回退到 CPU → “CPU（已回退）”；没回退的 CPU 任务仍是“CPU”', [encTask.usedDeviceText({ encoder: 'libx264', encoderDevice: 'cpu', hwFallback: true, startedAt: 1 }, devs, true), encTask.usedDeviceText({ encoder: 'libx264', encoderDevice: 'cpu', startedAt: 1 }, devs, true)], ['CPU（已回退）', 'CPU'])
       eq('设备名：cpu → CPU（不取后端的“CPU（软件编码）”）', encTask.deviceDisplayName('cpu', devs), 'CPU')
       eq('设备名：查不到 / 列表没读到 → 显卡，不显示 id', [encTask.deviceDisplayName('nvidia-9', devs), encTask.deviceDisplayName('nvidia-9', null), encTask.deviceDisplayName('nvidia-9', [])], ['显卡', '显卡', '显卡'])
       eq('设备文字：显卡任务 → 设备名，encoder（h264_nvenc）不出现', encTask.usedDeviceText({ encoder: 'h264_nvenc', encoderDevice: 'nvidia-0', startedAt: 1 }, devs, true), 'NVIDIA GeForce RTX 4060')
@@ -927,6 +930,39 @@ export async function runApiChecks(): Promise<string[]> {
       const banned = /nvenc|qsv|amf|videotoolbox|libx26|h264_|hevc_|x264|x265|encoderDevice|nvidia-0/i
       const texts = Object.values(encMsg).flatMap((x) => (typeof x === 'function' ? [(x as (...a: unknown[]) => string)(2, 'GPU')] : typeof x === 'string' ? [x] : Object.values(x as Record<string, string>)))
       eq('encoderMessages 全部文案（含原因句）不含编码器名', texts.filter((t) => banned.test(t)), [])
+      // 产品经理定稿（小修订包 12）：用词统一，界面文案不含“硬件编码”“转码”和编码器名
+      eq('encoderMessages 全部文案不含“硬件编码”“转码”', texts.filter((t) => /硬件编码|转码/.test(t)), [])
+      const enumTexts = Object.fromEntries(ENUM.map((r) => [r, encMsg.encoderFallbackReasonText(r)]))
+      const START_FAILED = '显卡编码器启动失败，已改用 CPU。'
+      eq('七个原因码 → 定稿文案', enumTexts, { device_unavailable: '所选显卡当时不可用，已改用 CPU。', nvenc_init_failed: START_FAILED, qsv_init_failed: START_FAILED, amf_init_failed: START_FAILED, videotoolbox_failed: START_FAILED, encoder_unavailable: '没有可用的显卡编码器，已改用 CPU。', encoder_start_failed: START_FAILED })
+      eq('未知原因兜底句', encMsg.ENCODER_FALLBACK_REASON_GENERIC, '未能确定具体原因，详情见下方日志。')
+      eq('定稿文案：回退提示（转换 / 已完成历史任务 / 导出 / 直播）+ 设备栏 + 无设备句号', [encMsg.ENCODER_FALLBACK_CONVERT, encMsg.ENCODER_FALLBACK_TASK_ROW_DONE, encMsg.ENCODER_FALLBACK_EXPORT, encMsg.ENCODER_FALLBACK_LIVE, encMsg.ENCODER_DEVICE_CPU_FALLBACK_NAME, encMsg.ENCODER_NONE_NOTE], ['显卡编码失败，已自动改用 CPU 转换。', '已自动改用 CPU 完成转换。', '显卡编码失败，已自动改用 CPU 完成导出。', '显卡编码启动失败，已自动改用 CPU 推流。', 'CPU（已回退）', '未检测到可用的显卡，将使用 CPU。'])
+      eq('回退文案都不写“继续转换”', [encMsg.ENCODER_FALLBACK_CONVERT, encMsg.ENCODER_FALLBACK_TASK_ROW, encMsg.ENCODER_FALLBACK_TASK_ROW_DONE, encMsg.ENCODER_FALLBACK_EXPORT, encMsg.ENCODER_FALLBACK_LIVE].filter((t) => /继续/.test(t)), [])
+      {
+        // 源码里用户可见字符串（去掉注释后的 .vue 模板 / .ts 字符串字面量）不含旧用词和编码器名
+        const fsu = await import('node:fs')
+        const rootu = `${process.cwd()}/src/`
+        const walk = (d: string): string[] => fsu.readdirSync(rootu + d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(`${d}${e.name}/`) : [`${d}${e.name}`]))
+        const files = walk('').filter((f) => /\.(vue|ts)$/.test(f) && !/\.check\.ts$/.test(f))
+        const stripComments = (code: string) => code.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1')
+        const strLits = (code: string): string[] => [...code.matchAll(/'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"|`((?:[^`\\]|\\.)*)`/g)].map((m) => m[1] ?? m[2] ?? m[3] ?? '')
+        const tplText = (src: string): string[] => {
+          const t = src.includes('<template>') ? src.slice(src.indexOf('<template>'), src.lastIndexOf('</template>') + 11) : ''
+          return [...t.matchAll(/>([^<]+)</g)].map((m) => m[1])
+        }
+        const bad: string[] = []
+        for (const f of files) {
+          const raw = fsu.readFileSync(rootu + f, 'utf8')
+          const noCmt = stripComments(f.endsWith('.vue') ? raw.replace(/<style[\s\S]*?<\/style>/g, '') : raw)
+          const visible = [...strLits(noCmt), ...(f.endsWith('.vue') ? tplText(noCmt) : [])]
+          for (const v of visible) {
+            if (/硬件编码|转码/.test(v)) bad.push(`${f}: ${v.slice(0, 40)}`)
+            // 编码器名：只查带中文的字符串（内部枚举 / encoder 字段值如 h264_nvenc、nvenc_init_failed 是协议值，不是界面文字）
+            if (/[\u4e00-\u9fff]/.test(v) && /NVENC|QSV|AMF|VideoToolbox/i.test(v)) bad.push(`${f}: ${v.slice(0, 40)}`)
+          }
+        }
+        eq('源码里用户可见字符串（不含注释）不含“硬件编码”“转码”和 NVENC / QSV / AMF / VideoToolbox', bad, [])
+      }
       const fs = await import('node:fs')
       const root = `${process.cwd()}/` // npm run check:api 在 frontend/ 下运行
       const tplFiles = ['src/views/ConvertPage.vue', 'src/views/TaskCenter.vue', 'src/components/edit/ExportStrip.vue', 'src/components/encoder/EncoderFallbackNotice.vue', 'src/components/live/LiveFallbackNotice.vue']
@@ -960,9 +996,10 @@ export async function runApiChecks(): Promise<string[]> {
       gw.document = oldDoc
       // G1 / D1：设备名过长只截自己，并有 title 显示全名
       const cvSrc = readSrc('src/views/ConvertPage.vue')
-      eq('转换页进度条设备名：有 title 全名', /class="dev" :title="`\$\{ENCODER_DEVICE_LABEL\} \$\{deviceText\}`"/.test(cvSrc), true)
+      eq('转换页进度条设备名：有 title 全名', /class="dev" :title="deviceFb \? ENCODER_DEVICE_CPU_FALLBACK_TITLE : `\$\{ENCODER_DEVICE_LABEL\} \$\{deviceText\}`"/.test(cvSrc), true)
       eq('转换页进度条：meta 各段 nowrap，设备名段 min-width:0 + 省略号', [/\.rprog \.meta span \{\s*white-space: nowrap/.test(cvSrc), /\.rprog \.meta \.dev \{[^}]*min-width: 0[^}]*text-overflow: ellipsis/.test(cvSrc)], [true, true])
       eq('剪辑导出条设备名：有 title + 省略号', [/class="ed-dev" :title=/.test(readSrc('src/components/edit/ExportStrip.vue')), /\.ed-dev \{[^}]*text-overflow: ellipsis/.test(readSrc('src/components/edit/edit.css'))], [true, true])
+      eq('设备一栏回退短标：转换页 / 导出条 / 日志头都用 dev-fb（警告色），样式在 base.css', [/class="dev-fb"|'dev-fb': deviceFb/.test(readSrc('src/views/ConvertPage.vue')), /class="dev-fb"/.test(readSrc('src/components/edit/ExportStrip.vue')), /class="dev-fb"/.test(readSrc('src/views/TaskCenter.vue')), /\.dev-fb \{[^}]*--ff-warning-text[^}]*\}/.test(readSrc('src/styles/base.css'))], [true, true, true, true])
       eq('任务中心日志头设备名：有 title + 省略号', [/class="dv" :title=/.test(readSrc('src/views/TaskCenter.vue')), /\.logdev \.dv \{[^}]*text-overflow: ellipsis/.test(readSrc('src/views/TaskCenter.vue'))], [true, true])
       // G6：查看日志后滚动到日志面板（尊重减少动效）、焦点到面板
       const tcSrc = readSrc('src/views/TaskCenter.vue')
@@ -982,7 +1019,13 @@ export async function runApiChecks(): Promise<string[]> {
       win.location.search = ''
       // D2：导出条内嵌提示的关闭按钮有区别于外层的读屏名
       const stripSrc = readSrc('src/components/edit/ExportStrip.vue')
-      eq('导出条内嵌回退提示：关闭按钮 aria-label 与外层“关闭提示”不同', [(stripSrc.match(/:close-label="ENCODER_FALLBACK_CLOSE_INNER"/g) ?? []).length, (encMsg.ENCODER_FALLBACK_CLOSE_INNER as string) !== (encMsg.ENCODER_FALLBACK_CLOSE as string), /:aria-label="closeLabel \?\? ENCODER_FALLBACK_CLOSE"/.test(readSrc('src/components/encoder/EncoderFallbackNotice.vue'))], [2, true, true])
+      eq('导出条：内嵌回退提示不带关闭按钮（no-close），只剩外层一个“关闭提示”', [(stripSrc.match(/<EncoderFallbackNotice[^>]* no-close/g) ?? []).length, /noClose/.test(readSrc('src/components/encoder/EncoderFallbackNotice.vue')), 'ENCODER_FALLBACK_CLOSE_INNER' in encMsg], [2, true, false])
+      const stripTpl = stripSrc.slice(stripSrc.indexOf('<template>'), stripSrc.indexOf('</template>\n\n<script') + 11)
+      const closeLabels = [...stripTpl.matchAll(/aria-label="(关闭[^"]*)"/g)].map((m) => m[1])
+      eq('导出条：aria-label 里“关闭…”只有“关闭提示”（外层的完成条 / 失败条各一个，同一时刻只渲染一个），不出现“关闭回退提示”等第二种', [...new Set(closeLabels)], ['关闭提示'])
+      const branches = stripTpl.split(/<template v-(?:if|else-if|else)/).slice(1)
+      const closeCount = branches.map((b) => (b.match(/class="x"/g) ?? []).length + (b.match(/<EncoderFallbackNotice(?![^>]* no-close)/g) ?? []).length)
+      eq('导出条：每种状态（进行中 / 完成 / 已取消 / 出错）最多一个关闭按钮（内嵌回退提示不算第二个）', [branches.length >= 4, closeCount.every((n) => n <= 1), closeCount.reduce((a, b) => a + b, 0)], [true, true, 2])
       // 模拟层（?enc=）：回退场景
       const s1 = simEncoderScenarioFor('fb-nvenc'); const s2 = simEncoderScenarioFor('gpu-task'); const s3 = simEncoderScenarioFor('copy-task'); const s4 = simEncoderScenarioFor('found')
       eq('?enc= 任务场景：fb-nvenc 回退 / gpu-task 不回退 / copy-task 无设备 / 设备列表场景不改任务', [s1?.hwFallback, s2?.hwFallback, s3?.encoder, s3?.encoderDevice, s4], [true, undefined, 'copy', '', undefined])

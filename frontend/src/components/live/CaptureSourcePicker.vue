@@ -6,7 +6,7 @@
       ref="trigger"
       type="button"
       class="tg"
-      :class="{ bad: invalid, ph: !current, open }"
+      :class="{ bad: invalid, ph: !current && !showDefaultMain, open }"
       role="combobox"
       aria-haspopup="listbox"
       :aria-expanded="open"
@@ -25,6 +25,10 @@
         <em v-if="gone" class="gn">{{ LIVE_SOURCE_GONE_TAG }}</em>
         <em v-else-if="current.width > 0 && current.height > 0">{{ current.width }}×{{ current.height }}</em>
       </template>
+      <template v-else-if="showDefaultMain">
+        <FIcon name="monitor" :size="14" />
+        <span class="nm"><span class="hd">{{ LIVE_SOURCE_DEFAULT_MAIN_NAME }}</span></span>
+      </template>
       <span v-else class="nm ph">{{ state === 'loading' ? LIVE_SOURCE_PLACEHOLDER_LOADING : LIVE_SOURCE_PLACEHOLDER }}</span>
       <FIcon name="down" :size="14" class="ar" />
     </button>
@@ -32,9 +36,7 @@
       <div v-if="open" ref="pop" class="pop" :style="popStyle" @keydown="onPopKey" @mousedown.stop>
         <div v-if="state === 'failed' && !sources.length" class="fl" role="alert">
           <FIcon name="warn" :size="20" />
-          <b>{{ LIVE_SOURCE_FAIL_TITLE }}</b>
-          <span>{{ LIVE_SOURCE_FAIL_HINT }}</span>
-          <LiveButton sm @click="emit('refresh')">{{ LIVE_SOURCE_RETRY }}</LiveButton>
+          <span>{{ LIVE_SOURCE_FAIL_TEXT }}</span>
         </div>
         <template v-else>
           <div :id="listId" ref="listEl" class="ls" role="listbox" :aria-labelledby="labelId" :aria-busy="state === 'loading' || undefined" @scroll="hover = ''">
@@ -81,7 +83,7 @@
         </template>
         <div class="ft">
           <span v-if="state === 'loading'" class="ftl"><i class="spin" aria-hidden="true" />{{ sources.length ? LIVE_SOURCE_REFRESHING : LIVE_SOURCE_PLACEHOLDER_LOADING }}</span>
-          <span v-else-if="state === 'failed'" class="ftl bad" role="alert">{{ LIVE_SOURCE_STALE }}</span>
+          <span v-else-if="state === 'failed'" class="ftl bad" :role="sources.length ? 'alert' : undefined">{{ sources.length ? LIVE_SOURCE_STALE : '' }}</span>
           <span v-else class="ftl">{{ liveSourceWindowCount(windowCount) }}</span>
           <button type="button" class="rf" :aria-label="LIVE_SOURCE_REFRESH_ARIA" :aria-disabled="state === 'loading' || undefined" @click="state !== 'loading' && emit('refresh')">
             <FIcon name="refresh" :size="12" />{{ state === 'failed' && sources.length ? LIVE_SOURCE_RETRY : LIVE_SOURCE_REFRESH_SHORT }}
@@ -132,7 +134,7 @@ import LiveButton from './LiveButton.vue'
 import type { CaptureSource } from '@/api/live'
 import { splitSourceTitle } from '@/utils/liveSource'
 import {
-  LIVE_SOURCE_EMPTY, LIVE_SOURCE_FAIL_HINT, LIVE_SOURCE_FAIL_TITLE, LIVE_SOURCE_FAILED, LIVE_SOURCE_GONE_TAG, LIVE_SOURCE_GROUP_SCREEN, LIVE_SOURCE_GROUP_WINDOW, LIVE_SOURCE_LOADING,
+  LIVE_SOURCE_EMPTY, LIVE_SOURCE_FAIL_TEXT, LIVE_SOURCE_DEFAULT_MAIN_NAME, LIVE_SOURCE_FAILED, LIVE_SOURCE_GONE_TAG, LIVE_SOURCE_GROUP_SCREEN, LIVE_SOURCE_GROUP_WINDOW, LIVE_SOURCE_LOADING,
   LIVE_SOURCE_NO_WINDOW_HINT, LIVE_SOURCE_NO_WINDOW_TITLE, LIVE_SOURCE_PLACEHOLDER, LIVE_SOURCE_PLACEHOLDER_LOADING, LIVE_SOURCE_REFRESH, LIVE_SOURCE_REFRESH_ARIA, LIVE_SOURCE_REFRESH_SHORT,
   LIVE_SOURCE_REFRESHING, LIVE_SOURCE_RETRY, LIVE_SOURCE_STALE, liveSourceWindowCount,
 } from '@/errors/errorMessages'
@@ -168,6 +170,8 @@ const groupsAll = computed(() => [
 ])
 const flat = computed(() => [...screens.value, ...windows.value])
 const current = computed<CaptureSource | undefined>(() => props.sources.find((s) => s.id === props.modelValue) ?? (props.gone ? props.goneItem ?? undefined : undefined))
+// 没选来源（也不是来源失效等重选）且不在首次加载中：触发器直接显示主屏名，后端默认推主显示器（请求不带 captureSourceId）
+const showDefaultMain = computed(() => !current.value && !props.gone && props.state !== 'loading')
 const tip = (s: CaptureSource) => (s.width > 0 && s.height > 0 ? `${s.title}（${s.width}×${s.height}）` : s.title)
 
 // ── 弹层 ──
@@ -591,12 +595,9 @@ function hoverOff() {
 .fl svg {
   color: var(--ff-warning-text);
 }
-.fl b {
+.fl span {
   font-size: var(--ff-fs-sm);
   color: var(--ff-text-1);
-}
-.fl .lbtn {
-  margin-top: 6px;
 }
 .ft {
   height: 36px;

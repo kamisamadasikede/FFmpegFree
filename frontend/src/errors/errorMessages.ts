@@ -314,18 +314,18 @@ export const LIVE_SOURCE_EMPTY = '没有可用的采集来源'
 export const LIVE_SOURCE_FAILED = '无法获取采集来源，请稍后重试'
 export const LIVE_SOURCE_RETRY = '重试'
 // Windows 分组下拉（设计说明 §4，文案表 §8；未注明“定稿”的均待产品经理确认）
-export const LIVE_SOURCE_PLACEHOLDER = '选择要推流的屏幕或窗口'
+export const LIVE_SOURCE_PLACEHOLDER = '选择屏幕或应用窗口'
 export const LIVE_SOURCE_PLACEHOLDER_LOADING = '正在获取来源…'
 export const LIVE_SOURCE_REFRESH_SHORT = '刷新'
 export const LIVE_SOURCE_REFRESH_ARIA = '刷新窗口列表'
 export const LIVE_SOURCE_REFRESHING = '正在刷新…'
 export const LIVE_SOURCE_GONE_TAG = '已不可用'
-export const LIVE_SOURCE_NO_WINDOW_TITLE = '没有可选的应用窗口'
+export const LIVE_SOURCE_NO_WINDOW_TITLE = '没有可选择的窗口'
 export const LIVE_SOURCE_NO_WINDOW_HINT = '打开要推流的应用并保持在桌面上（不要最小化），再点“刷新”'
-export const LIVE_SOURCE_FAIL_TITLE = '无法获取可选来源'
-export const LIVE_SOURCE_FAIL_HINT = '请稍后重试'
-/** 没选来源（列表加载失败 / 没有可选项）时的轻提示：后端默认推主显示器。待产品经理确认 */
-export const LIVE_SOURCE_DEFAULT_MAIN_HINT = '未选择来源，将推送主屏'
+/** 首次加载失败（没有旧列表）：一句话，指向下方“刷新”按钮（产品经理定稿） */
+export const LIVE_SOURCE_FAIL_TEXT = '无法获取窗口列表，请点“刷新”重试'
+/** 没选来源时触发器直接显示的名字（后端默认推主显示器；表单里不再另加提示，产品经理定稿） */
+export const LIVE_SOURCE_DEFAULT_MAIN_NAME = '屏幕 1（主显示器）'
 export const LIVE_SOURCE_STALE = '刷新失败，列表可能已过期'
 export const liveSourceWindowCount = (n: number): string => `共 ${n} 个窗口`
 /** 会话列表空状态：Windows 加“或应用窗口”，macOS / Linux 保持 v0.2 原文 */
