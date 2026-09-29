@@ -828,6 +828,10 @@ td:first-child {
   background: color-mix(in srgb, var(--ff-danger) 88%, #000);
   border-color: transparent;
 }
+/* 暗色下 --ff-on-danger 是近黑字，把底色压暗会让对比度掉到 4.15:1，所以暗色改为向白色提亮 12%（≈5.6:1） */
+:global(html.dark) .btn.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ff-danger) 88%, #fff);
+}
 .btn svg {
   width: 15px;
   height: 15px;
