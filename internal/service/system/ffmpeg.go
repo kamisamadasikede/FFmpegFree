@@ -74,11 +74,15 @@ type Manager struct {
 
 	detectMu sync.Mutex // 串行化检测，避免并发 Recheck 互相覆盖
 
-	memMu   sync.Mutex // 保护下面两个内存兜底值（Settings 为 nil 时使用）
-	memPath string
-	memDism bool
-	memOut  string
-	memConc int
+	memMu      sync.Mutex // 保护下面两个内存兜底值（Settings 为 nil 时使用）
+	memPath    string
+	memDism    bool
+	memOut     string
+	memConc    int
+	memEnc     string // 编码器偏好的内存兜底（Settings 为 nil 时使用）
+	memEncName string
+
+	enc encoderState // 硬件编码器检测缓存（encoders.go）
 
 	launch launcher // 打开文件管理器的函数；nil 用 startDetached（测试里替换）
 }
@@ -131,6 +135,7 @@ func (m *Manager) setIf(ctx context.Context, s FFmpegStatus, bins *ffmpeg.Binari
 		return false
 	}
 	m.status = s
+	m.invalidateEncoders() // ffmpeg 路径 / 版本 / 就绪状态变化，硬件编码器检测结果作废
 	if s.State == ffmpeg.StateReady {
 		ffmpeg.SetCurrent(bins)
 	} else {

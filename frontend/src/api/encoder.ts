@@ -27,6 +27,8 @@ export interface EncoderDevice {
   vendor: EncoderVendor
   kind: 'gpu' | 'cpu'
   available: boolean
+  /** 独立显卡（后端字段；auto 选择时独显优先）。界面暂不使用 */
+  discrete?: boolean
   /** available=false 时的原因（后端给的，可能偏技术，界面不直接显示） */
   reason?: string
 }
@@ -34,6 +36,14 @@ export interface EncoderDevice {
 export interface EncoderDeviceList {
   ffmpegReady: boolean
   devices: EncoderDevice[]
+}
+
+/** 偏好的可显示形式（后端 GetEncoderPreferenceInfo）：id = auto | cpu | 设备 id；name = "自动" / "CPU（软件编码）" / 显卡名（设备不可用时也带上保存时记下的名字） */
+export interface EncoderPreferenceInfo {
+  id: string
+  name: string
+  available: boolean
+  reason?: string
 }
 
 /** 偏好值：'auto' | 'cpu' | 设备 id */
@@ -110,6 +120,30 @@ export async function setEncoderPreference(id: EncoderPreference): Promise<void>
   }
   await simDelay(150)
   simPref = id
+}
+
+/** 重新检测（装了驱动 / 换了显卡后手动刷新）；模拟层等同 listEncoderDevices */
+export async function refreshEncoderDevices(): Promise<EncoderDeviceList> {
+  if (encoderIsReal()) return normalizeList(await callService<unknown>(SERVICE, 'RefreshEncoderDevices'))
+  return listEncoderDevices()
+}
+
+/** 偏好 + 显示名 + 当前是否可用，设置页显示“自动 / CPU / 具体显卡名”用；模拟层按列表推出 */
+export async function getEncoderPreferenceInfo(): Promise<EncoderPreferenceInfo> {
+  if (encoderIsReal()) {
+    const r = (await callService<Record<string, unknown>>(SERVICE, 'GetEncoderPreferenceInfo')) ?? {}
+    return {
+      id: String(r.id || PREF_AUTO),
+      name: String(r.name ?? ''),
+      available: r.available !== false,
+      ...(typeof r.reason === 'string' && r.reason ? { reason: r.reason } : {}),
+    }
+  }
+  const id = await getEncoderPreference()
+  if (id === PREF_AUTO) return { id, name: '自动', available: true }
+  const d = (await listEncoderDevices()).devices.find((x) => x.id === id)
+  if (id === PREF_CPU) return { id, name: d?.name ?? 'CPU（软件编码）', available: true }
+  return d ? { id, name: d.name, available: d.available, ...(d.reason ? { reason: d.reason } : {}) } : { id, name: '', available: false, reason: '没有检测到这个设备' }
 }
 
 /** 只给自检用：重置模拟层的偏好 */

@@ -303,6 +303,23 @@ export const LIVE_STOPPING_TEXT = '正在停止…'
 /** 选中屏幕推流时来源下方常驻的说明（12px、--ff-text-2、前置信息图标，不弹窗） */
 export const LIVE_SCREEN_NO_AUDIO_TEXT = '屏幕推流暂不包含声音'
 
+// ---- 直播 v1.1 采集来源选择器文案（设计稿未出，先按 v0.2 风格；**全部待产品经理确认**，改字只改这里）----
+export const LIVE_SOURCE_FIELD_LABEL = '采集来源'
+export const LIVE_SOURCE_GROUP_SCREEN = '屏幕'
+export const LIVE_SOURCE_GROUP_WINDOW = '应用窗口'
+export const LIVE_SOURCE_REFRESH = '刷新列表'
+export const LIVE_SOURCE_LOADING = '正在获取采集来源…'
+export const LIVE_SOURCE_EMPTY = '没有可用的采集来源'
+export const LIVE_SOURCE_FAILED = '无法获取采集来源，请稍后重试'
+export const LIVE_SOURCE_RETRY = '重试'
+/** LIVE_SOURCE_GONE：窗口版由产品经理给出（待确认）；屏幕版（kind=screen）用通用说法，待确认 */
+export const LIVE_SOURCE_GONE_WINDOW_TEXT = '所选窗口已不可用，请重新选择'
+export const LIVE_SOURCE_GONE_SCREEN_TEXT = '所选屏幕已不可用，请重新选择'
+/** detail 首行 kind=window|screen；没有 / 未知 → 按契约用窗口版（码本身就表示“所选窗口已不可用”）。文案里不带窗口标题 */
+export function liveSourceGoneText(kind?: string): string {
+  return kind === 'screen' ? LIVE_SOURCE_GONE_SCREEN_TEXT : LIVE_SOURCE_GONE_WINDOW_TEXT
+}
+
 /**
  * 直播 Start* 同步返回的错误 → 页面上展示的一句话（走 ErrorLine，点“开始”之后才出现，不提前置灰按钮）。
  * 返回 null 表示不属于这里处理的情形（调用方走原来的遮罩 / 行内错误）。
@@ -493,11 +510,11 @@ export function pdfErrorView(code: string, backendMessage?: string, maxPdfBytes 
 /** 浏览器里的模拟环境（没有 window.go）才显示的说明 */
 export const DOC_DEMO_NOTE = '当前是演示数据：不会真的转换或读取文件'
 
-// ---- 文档页其他文案（设计说明第 5 节；标题「最近生成的 PDF」与现状不符，见设计说明 8 节问题 1，待架构师 / 设计师确认）----
-/** 待确认：现状列表只含「打开过预览」的 PDF（OpenPDF 是唯一写入点），转换产物不自动进列表 */
-export const DOC_RECENT_TITLE = '最近生成的 PDF'
-export const DOC_RECENT_EMPTY_TITLE = '还没有生成过 PDF'
-export const DOC_RECENT_EMPTY_HINT = '转换完成后，PDF 会显示在这里'
+// ---- 文档页其他文案（设计说明第 5 节；最近列表标题已由架构师定为「最近打开的 PDF」，与现状一致）----
+/** 架构师已定：列表只含「打开过预览」的 PDF（OpenPDF 是唯一写入点），转换产物不自动进列表 */
+export const DOC_RECENT_TITLE = '最近打开的 PDF'
+export const DOC_RECENT_EMPTY_TITLE = '还没有打开过 PDF'
+export const DOC_RECENT_EMPTY_HINT = '打开过的 PDF 会显示在这里'
 export const DOC_RECENT_REMOVE_TIP = '从列表移除（不删除文件）'
 export const DOC_RECENT_MISSING = '文件已被移动或删除'
 export const DOC_RECENT_LIMIT_NOTE = '仅显示最近 200 条'

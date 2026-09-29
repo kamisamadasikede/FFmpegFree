@@ -5,6 +5,10 @@ import {store} from '../models';
 
 export function CancelFFmpegInstall():Promise<void>;
 
+export function GetEncoderPreference():Promise<string>;
+
+export function GetEncoderPreferenceInfo():Promise<system.EncoderPreferenceInfo>;
+
 export function GetFFmpegStatus():Promise<system.FFmpegStatus>;
 
 export function GetInstallOptions():Promise<system.InstallOptions>;
@@ -13,13 +17,19 @@ export function GetSettings():Promise<system.Settings>;
 
 export function InstallFFmpeg(arg1:string):Promise<store.Task>;
 
+export function ListEncoderDevices():Promise<system.EncoderDeviceList>;
+
 export function PickDirectory(arg1:string):Promise<string>;
 
 export function PickFiles(arg1:system.FileFilter,arg2:boolean):Promise<Array<string>>;
 
 export function RecheckFFmpeg():Promise<system.FFmpegStatus>;
 
+export function RefreshEncoderDevices():Promise<system.EncoderDeviceList>;
+
 export function RevealInFolder(arg1:string):Promise<void>;
+
+export function SetEncoderPreference(arg1:string):Promise<void>;
 
 export function SetFFmpegPath(arg1:string):Promise<system.FFmpegStatus>;
 

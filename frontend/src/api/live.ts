@@ -319,7 +319,7 @@ export async function startScreenPush(req: ScreenPushRequest): Promise<ApiTask> 
   if (req.captureSourceId) {
     // 与真实后端一致：格式不对 INVALID_ARGUMENT；来源不在当前列表里（窗口已关闭 / 最小化，屏幕序号不存在）→ LIVE_SOURCE_GONE，detail 只有 kind=<值>
     if (!/^(screen|window):(0|[1-9][0-9]*)$/.test(req.captureSourceId)) simError('INVALID_ARGUMENT', 'captureSourceId 格式不对')
-    const src = (await listCaptureSources()).find((s) => s.id === req.captureSourceId)
+    const src = simSources().find((s) => s.id === req.captureSourceId)
     if (!src) {
       const kind = req.captureSourceId.startsWith('window:') ? 'window' : 'screen'
       simError('LIVE_SOURCE_GONE', kind === 'window' ? '所选窗口已不可用，请重新选择' : '所选屏幕已不可用，请重新选择', `kind=${kind}`)
@@ -362,10 +362,7 @@ export async function getCaptureCapabilities(): Promise<CaptureCapabilities> {
 
 export async function listScreens(): Promise<ScreenInfo[]> {
   if (liveIsReal()) return (await call(LiveBinding.ListScreens())) ?? []
-  return [
-    { id: 'avf:0', name: '屏幕 1', primary: true, x: 0, y: 0, width: 1920, height: 1080, scale: 2 },
-    { id: 'avf:1', name: '屏幕 2', primary: false, x: 1920, y: 0, width: 2560, height: 1440, scale: 1 },
-  ]
+  return simScreenList()
 }
 
 /**
@@ -374,12 +371,36 @@ export async function listScreens(): Promise<ScreenInfo[]> {
  */
 export async function listCaptureSources(): Promise<CaptureSource[]> {
   if (liveIsReal()) return ((await call(LiveBinding.ListCaptureSources())) ?? []) as CaptureSource[]
-  const screens = (await listScreens()).map((s, i): CaptureSource => ({ id: `screen:${i}`, kind: 'screen', title: s.name, width: s.width, height: s.height }))
-  const windows: CaptureSource[] = simParam('sim_source_gone') === '1' ? [] : [
-    { id: 'window:65890', kind: 'window', title: '演示文稿.pptx - PowerPoint', width: 1600, height: 900 },
+  const mode = simParam('sim_sources') // loading（一直加载）| fail（列表失败）| empty（空）| screens（只有屏幕，像 macOS / Linux）
+  if (mode === 'loading') return new Promise(() => undefined)
+  await simDelay(120)
+  if (mode === 'fail') simError('INTERNAL', '获取采集来源失败')
+  if (mode === 'empty') return []
+  const list = simSources()
+  simListCalls++
+  return mode === 'screens' ? list.filter((s) => s.kind === 'screen') : list
+}
+
+let simListCalls = 0
+/** 只给自检用：重置“窗口消失”的计数 */
+export function resetSimSources(): void {
+  simListCalls = 0
+}
+/** 2 屏 + 2 窗。`?sim_source_gone=1`：列表被拉过一次之后「演示文稿」窗口消失（页面先看到它、选中、点开始 → LIVE_SOURCE_GONE → 刷新后它不在了） */
+function simSources(): CaptureSource[] {
+  const screens = simScreenList().map((s, i): CaptureSource => ({ id: `screen:${i}`, kind: 'screen', title: s.name, width: s.width, height: s.height }))
+  const gone = simParam('sim_source_gone') === '1' && simListCalls >= 1
+  const windows: CaptureSource[] = [
+    ...(gone ? [] : [{ id: 'window:65890', kind: 'window' as const, title: '演示文稿.pptx - PowerPoint', width: 1600, height: 900 }]),
     { id: 'window:131426', kind: 'window', title: '记事本', width: 800, height: 600 },
   ]
   return [...screens, ...windows]
+}
+function simScreenList(): ScreenInfo[] {
+  return [
+    { id: 'avf:0', name: '屏幕 1', primary: true, x: 0, y: 0, width: 1920, height: 1080, scale: 2 },
+    { id: 'avf:1', name: '屏幕 2', primary: false, x: 1920, y: 0, width: 2560, height: 1440, scale: 1 },
+  ]
 }
 
 /** 只校验地址并返回脱敏后的显示文本，不联网。不通过 LIVE_URL_INVALID */

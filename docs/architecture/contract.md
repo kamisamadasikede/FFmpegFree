@@ -1,6 +1,8 @@
-# FFmpegFree v2 接口契约（v0.15）
+# FFmpegFree v2 接口契约（v0.16）
 
-v0.15 变更（LiveService 推流 / 拉流真实预览画面，见第 4 节 LiveService 和 6.10「预览画面」）：新增 `LiveService.GetPreview(sessionId) (Preview, error)`（最新一帧 base64 JPEG + 毫秒时间戳，没有画面返回空、不是错误）、`StartPullPreview(PullPreviewRequest) (PullSession, error)` / `StopPullPreview(sessionId) error`（拉流预览会话：后端 ffmpeg 读远端流只出预览，播放仍由前端播放器直接拉地址）；`FilePushRequest` / `ScreenPushRequest` 新增可选字段 `preview`（`*bool`，缺省 = true，false = 不加预览输出）；预览输出是主输出之外**独立**的一路 image2 输出（`fps=2,scale=640:-2`、`-q:v 5`、`-update 1`、`-atomic_writing 1`），不放进 tee；临时文件放 `<数据目录>/tmp/live-preview/<会话 id>.jpg`，会话结束清理，应用启动清空该目录。新增类型 `Preview`、`PullPreviewRequest`、`PullSession`；不新增错误码、不新增事件。**有硬字幕 / 视频复制（`-c copy`）的推流场景预览输出需要单独解码（额外占少量 CPU）**；当前直播主输出始终重编码，预览输出复用同一路解码结果不增加解码次数，见 6.10「预览画面」。
+v0.16 变更（LiveService 推流 / 拉流真实预览画面，见第 4 节 LiveService 和 6.10「预览画面」）：新增 `LiveService.GetPreview(sessionId) (Preview, error)`（最新一帧 base64 JPEG + 毫秒时间戳，没有画面返回空、不是错误）、`StartPullPreview(PullPreviewRequest) (PullSession, error)` / `StopPullPreview(sessionId) error`（拉流预览会话：后端 ffmpeg 读远端流只出预览，播放仍由前端播放器直接拉地址）；`FilePushRequest` / `ScreenPushRequest` 新增可选字段 `preview`（`*bool`，缺省 = true，false = 不加预览输出）；预览输出是主输出之外**独立**的一路 image2 输出（`fps=2,scale=640:-2`、`-q:v 5`、`-update 1`、`-atomic_writing 1`），不放进 tee；临时文件放 `<数据目录>/tmp/live-preview/<会话 id>.jpg`，会话结束清理，应用启动清空该目录。新增类型 `Preview`、`PullPreviewRequest`、`PullSession`；不新增错误码、不新增事件。**有硬字幕 / 视频复制（`-c copy`）的推流场景预览输出需要单独解码（额外占少量 CPU）**；当前直播主输出始终重编码，预览输出复用同一路解码结果不增加解码次数，见 6.10「预览画面」。
+
+v0.15 变更（SystemService 硬件编码器检测与偏好，见第 4 节 SystemService 和 9.6；**契约按架构师口头方案起草，如有出入以架构师为准**）：新增 `ListEncoderDevices()`（返回 `EncoderDeviceList{ffmpegReady, devices[]}`，第一项永远是 CPU）、`RefreshEncoderDevices()`、`GetEncoderPreference()`（`"auto" | "cpu" | 设备 id`，默认 `"auto"`）、`GetEncoderPreferenceInfo()`（`{id, name, available, reason?}`，设置页显示「自动 / CPU / 具体显卡名」用）、`SetEncoderPreference(id)`；新增设置键 `encoderPreference`、`encoderPreferenceName`；新增纯函数 `ResolveEncoder(pref, devices, codec)`（Go 内部，不是绑定方法）。检测 = `ffmpeg -encoders` + 逐个硬件编码器实际试跑一帧（5 秒超时）+ 显卡名称枚举；结果缓存，ffmpeg 变为 ready 时失效。**本版只做检测、偏好和解析函数，转换 / 剪辑 / 直播的编码参数暂不使用它（下一版接入）**。无新增错误码。
 
 v0.14 变更（LiveService 屏幕推流可选采集来源，见第 4 节 LiveService 和 6.10「采集来源」）：新增 `LiveService.ListCaptureSources() ([]CaptureSource, error)`；`ScreenPushRequest` 新增可选字段 `captureSourceId`（不传 = 原行为，向后兼容）；新增错误码 `LIVE_SOURCE_GONE`（`internal/apperr` 现在 18 个码，第 2.1 节清单同步），`detail` 第一行 `kind=window|screen`（2.2 表新增一行）。新增类型 `CaptureSource`。`ScreenInfo` / `ListScreens` / `GetCaptureCapabilities` 不变。
 
@@ -224,6 +226,11 @@ RevealInFolder(path string) error
 GetEnv() (EnvInfo, error)            // 系统、ffmpeg 版本、数据目录
 GetSettings() (Settings, error)
 UpdateSettings(s Settings) error      // defaultOutputDir（空=与源文件同目录）、maxConcurrent（0=自动，1~8）、主题、语言、ffmpegPromptDismissed、ffmpegPath
+ListEncoderDevices() (EncoderDeviceList, error)      // 硬件编码设备（9.6）：第一项永远是 cpu；ffmpeg 未就绪时只有 cpu 且 ffmpegReady=false，不报错
+RefreshEncoderDevices() (EncoderDeviceList, error)   // 丢弃缓存重新检测
+GetEncoderPreference() (string, error)               // "auto" | "cpu" | 设备 id，默认 "auto"；所选设备不可用时保持原值
+GetEncoderPreferenceInfo() (EncoderPreferenceInfo, error) // {id, name, available, reason?}
+SetEncoderPreference(id string) error                // 只接受 auto、cpu、ListEncoderDevices 里存在的设备 id，否则 INVALID_ARGUMENT
 ```
 
 ### App（main 包，非 Service）
@@ -288,9 +295,9 @@ StartFilePush(req FilePushRequest) (Task, error)       // 文件推流（可循�
 StartScreenPush(req ScreenPushRequest) (Task, error)   // 屏幕推流（可同时本地存档）；同一时间最多 1 路：已有进行中的 live_screen_push 返回 TASK_CONFLICT（detail 首行 reason=screen_busy）
 GetCaptureCapabilities() (CaptureCapabilities, error)  // 屏幕采集能不能用、为什么不能用（Linux 读 XDG_SESSION_TYPE 和 DISPLAY，见 6.10「采集能力检测」）
 ListCaptureSources() ([]CaptureSource, error)          // （v0.14）屏幕推流可选的采集来源：屏幕（所有平台）+ 应用窗口（只有 Windows）；不能采集屏幕的平台 / 会话返回 UNSUPPORTED_PLATFORM（同 ListScreens），见 6.10「采集来源」
-GetPreview(sessionID string) (Preview, error)          // （v0.15）会话（推流任务 id 或拉流预览会话 id）最新一帧预览：{data: base64 JPEG, ts: 毫秒时间戳, active}；没有画面（会话不存在 / 已结束、preview=false、还没出第一帧）返回空 data、ts=0，不是错误。前端约 500 毫秒轮询，见 6.10「预览画面」
-StartPullPreview(req PullPreviewRequest) (PullSession, error) // （v0.15）拉流预览会话：后端 ffmpeg 读 rtmp / rtmps / srt / http(s) 远端流，只输出预览；同一地址幂等；同时最多 4 路
-StopPullPreview(sessionID string) error                // （v0.15）停止拉流预览会话并清理预览文件；会话不存在（已结束）无操作
+GetPreview(sessionID string) (Preview, error)          // （v0.16）会话（推流任务 id 或拉流预览会话 id）最新一帧预览：{data: base64 JPEG, ts: 毫秒时间戳, active}；没有画面（会话不存在 / 已结束、preview=false、还没出第一帧）返回空 data、ts=0，不是错误。前端约 500 毫秒轮询，见 6.10「预览画面」
+StartPullPreview(req PullPreviewRequest) (PullSession, error) // （v0.16）拉流预览会话：后端 ffmpeg 读 rtmp / rtmps / srt / http(s) 远端流，只输出预览；同一地址幂等；同时最多 4 路
+StopPullPreview(sessionID string) error                // （v0.16）停止拉流预览会话并清理预览文件；会话不存在（已结束）无操作
 ListScreens() ([]ScreenInfo, error)                    // 可采集的显示器（Linux 用 xrandr --display $DISPLAY --query，必须带 --display，见 6.10「采集能力检测」）
 CheckPushURL(url string) (PushURLInfo, error)          // 只校验地址并返回脱敏后的显示文本，不联网
 // 停止：TaskService.Cancel(taskID)，没有单独的 StopPush（理由见下）
@@ -310,7 +317,7 @@ type PushOptions struct {
 type FilePushRequest struct {
     InputPath  string      `json:"inputPath"`  // 绝对路径的普通文件，必须有视频画面（否则 INVALID_ARGUMENT）
     URL        string      `json:"url"`        // 推流地址，规则见下
-    Preview    *bool       `json:"preview"`    // （v0.15）可选：nil / true = 带预览画面（GetPreview）；false = 不加预览输出。只在开始时决定（ffmpeg 已启动无法动态改输出）
+    Preview    *bool       `json:"preview"`    // （v0.16）可选：nil / true = 带预览画面（GetPreview）；false = 不加预览输出。只在开始时决定（ffmpeg 已启动无法动态改输出）
     Loop       bool        `json:"loop"`       // true = 循环播放直到用户停止；false = 播完自然结束（任务 succeeded）
     Options    PushOptions `json:"options"`
 }
@@ -320,7 +327,7 @@ type ScreenPushRequest struct {
     ScreenID   string      `json:"screenId"`   // ListScreens 返回的 id；"" = 主显示器；不存在 INVALID_ARGUMENT
     HideCursor bool        `json:"hideCursor"` // 零值 = 画面里带鼠标指针
     Audio      string      `json:"audio"`      // "none"（默认，视频流里没有音轨）| "silent"（补一路静音音轨，给要求必须有音频的服务器）；采集声音 v1 不做
-    Preview    *bool       `json:"preview"`    // （v0.15）同 FilePushRequest.preview
+    Preview    *bool       `json:"preview"`    // （v0.16）同 FilePushRequest.preview
     CaptureSourceID string `json:"captureSourceId"` // （v0.14）可选：ListCaptureSources 返回的 id（screen:<序号> | window:<hwnd 十进制>）；"" = 不传，行为同 v0.13（按 ScreenID）；非空时以它为准，ScreenID 被忽略；格式不对 INVALID_ARGUMENT；来源已不可用 LIVE_SOURCE_GONE
     ArchiveDir string      `json:"archiveDir"` // 非空 = 同时在本地存一份 mp4（绝对路径，不存在会创建；存档规则见 6.10）；"" = 不存档
     Options    PushOptions `json:"options"`
@@ -336,7 +343,7 @@ type CaptureCapabilities struct {
     Reason       string `json:"reason"`       // 不支持时给用户看的中文原因，支持时 ""
 }
 
-// v0.15：GetPreview 的返回。没有画面时 data 为 ""、ts 为 0（不是错误）。
+// v0.16：GetPreview 的返回。没有画面时 data 为 ""、ts 为 0（不是错误）。
 type Preview struct {
     Data   string `json:"data"`   // 最新一帧 JPEG 的 base64（标准编码，不带 data: 前缀）；没有画面 ""
     TS     int64  `json:"ts"`     // 这一帧写入的时间（毫秒时间戳，取文件修改时间）；没有画面 0。前端可据此判断画面是否停滞
@@ -629,7 +636,7 @@ schema_migrations(version PK, applied_at)
     - **(c) 前端规则**：前端遇到**未知的 `reason` 值或没有 `reason` 行**时，显示通用冲突提示（如"操作冲突，请稍后再试"，文案由前端定），不得猜测含义、不得报错崩溃。
   - `LIVE_URL_INVALID`：协议不是 rtmp / rtmps / srt 时**后端已经是这个码**，`detail` 第一行 `reason=scheme_unsupported`，前端提示"暂不支持这种推流地址，请使用 rtmp、rtmps 或 srt"。同一个码的其他原因用 `reason=malformed` / `missing_host` / `param_not_allowed` 区分（枚举和规则见 2.2，未知值走通用文案），**不要靠 `message` 文本区分**。
 
-- **预览画面（v0.15，架构师定；实现：`internal/ffmpeg/live_preview.go`、`internal/service/live/preview.go`）**：
+- **预览画面（v0.16，架构师定；实现：`internal/ffmpeg/live_preview.go`、`internal/service/live/preview.go`）**：
   - **预览输出**：推流命令在**主输出之后**追加一路独立输出 `-map 0:v:0 -an -sn -dn -vf fps=2,scale=640:-2 -q:v 5 -protocol_whitelist file -f image2 -update 1 -atomic_writing 1 file:<预览路径>`。有自己的 `-vf`（不复用主输出的滤镜链，宽 640、高按比例取偶数、每秒 2 帧）；不影响主输出的编码参数、`-progress` 与码率统计。**带存档的屏幕推流：预览输出在 tee 之外**，仍是主输出（`-f tee`）之后单独的一路，不写进 tee 描述（测试断言 tee 描述里没有预览、且只有网络与存档两路）。文件推流、屏幕推流（含 Windows gdigrab 窗口采集、存档）用同一个 `PreviewOutputArgs`。
   - **CPU 说明**：预览输出与主输出共享同一路解码（ffmpeg 的输出端只多一个 fps + scale + mjpeg 编码，每秒 2 帧，开销很小）。当前直播主输出始终重编码（不用 `-c copy`），所以没有额外的解码次数；**如果以后加入"视频流复制（`-c copy`）"或"硬字幕"的推流场景，主输出不解码时预览输出需要单独解码（ffmpeg 会为预览输出自己起解码器），会额外占少量 CPU，那时按需要再评估默认是否关预览。** **【未验证】**高分辨率（4K）屏幕采集、Windows 真机上的预览耗时与 CPU 占用。
   - **读取与半帧**：`-atomic_writing 1` 让 ffmpeg 先写 `<路径>.tmp` 再改名，读取端不会读到半帧；`GetPreview` 读取时仍校验 JPEG：以 SOI（`FF D8`）开头、以 EOI（`FF D9`）结尾（允许末尾少量 0 填充），大小 4 字节~4 MiB，不合格（半帧、空文件、不是 JPEG）一律当没有画面返回空，不返回错误。`ts` 取文件修改时间。
@@ -666,7 +673,7 @@ schema_migrations(version PK, applied_at)
 | 8 | Windows：`EnumWindows` 过滤后的窗口列表是否合理（无任务栏 / 桌面 / 输入法 / 系统浮层，UWP 应用与最大化窗口能列出）；FFmpegFree 自己的窗口不出现 | 6.10「采集来源」 | Windows 上调 `ListCaptureSources`，与任务栏里的窗口对照 | 调整 `filterCaptureWindows` 的类名 / 样式过滤（不改契约结构） |
 | 9 | Windows：gdigrab `title=` 采窗口——被其他窗口遮挡时内容是否正常、最小化后行为（黑屏 / 报错 / 冻结）、窗口移到副屏 / 高 DPI（125%~200% 缩放）时画面尺寸和清晰度；同标题多窗口命中哪一个；标题含引号、`&`、中文时能否找到窗口 | 同上 | 各推一次，观察播放端画面 | 遮挡 / 高 DPI 问题另出契约变更（如改用 `hwnd=`、DPI 感知清单）；同标题问题在前端提示或后端过滤 |
 | 10 | Windows 多显示器：副屏在主屏左侧 / 上方（负偏移）、两块屏缩放不同时，`offset_x` / `offset_y` / `video_size` 是否对准该显示器（进程是否 DPI 感知影响 `GetMonitorInfoW` 的坐标口径） | 同上、6.10「采集能力检测」 | 双屏各选一块推流 | 改用物理像素坐标（进程声明 DPI 感知）或按缩放换算 |
-| 11 | （v0.15）Windows 上预览输出的耗时（首帧时间、`GetPreview` 单次读取耗时）；高分辨率（4K）采集 / 硬字幕 / `-c copy` 场景下预览额外占用的 CPU；WebView 里每 500ms 轮询 `GetPreview`（base64 JPEG 经 IPC）的开销 | 6.10「预览画面」 | Windows 真机推流 1080p / 4K 屏幕，观察任务管理器 CPU、`GetPreview` 耗时、前端轮询时界面是否卡顿 | 降低 `fps` / 宽度常量、前端降低轮询频率，或在开销过大时默认 `preview=false`（需另出契约变更） |
+| 11 | （v0.16）Windows 上预览输出的耗时（首帧时间、`GetPreview` 单次读取耗时）；高分辨率（4K）采集 / 硬字幕 / `-c copy` 场景下预览额外占用的 CPU；WebView 里每 500ms 轮询 `GetPreview`（base64 JPEG 经 IPC）的开销 | 6.10「预览画面」 | Windows 真机推流 1080p / 4K 屏幕，观察任务管理器 CPU、`GetPreview` 耗时、前端轮询时界面是否卡顿 | 降低 `fps` / 宽度常量、前端降低轮询频率，或在开销过大时默认 `preview=false`（需另出契约变更） |
 
 ### 6.10.2 实现清单（给 #31 / #30 对照；不是新接口；"现状"列已按 `origin/v2` 的 `2f0c0a4`（含已合并的 #31 第一部分）更新）
 
@@ -1248,3 +1255,52 @@ RecheckFFmpeg() (FFmpegStatus, error)
 - 不依赖 ffmpeg 的：Office 转 PDF、PDF 预览、JSON 工具，始终可用（DocService 任何方法都不返回 `FFMPEG_NOT_FOUND`）。
 - 首次启动检测到 `missing` 时弹一次确认框（"安装"或"稍后"），选"稍后"后写入 `Settings.ffmpegPromptDismissed = true`，之后只保留提示条，不再弹窗；ffmpeg 变为 ready 后该标记重置。
 - 前端不轮询：检测完成、安装进度导致的 state 变化、手动指定路径、重新检测，都会推送 `ffmpeg:status`，payload 为完整 `FFmpegStatus`。
+
+### 9.6 硬件编码器检测与偏好（v0.15，契约按架构师口头方案起草，如有出入以架构师为准）
+
+```go
+type EncoderNames struct {
+    H264 string `json:"h264"` // 该设备上的 h264 编码器名，如 "h264_nvenc"；不支持为 ""
+    HEVC string `json:"hevc"` // 如 "hevc_nvenc"；不支持为 ""
+}
+type EncoderDevice struct {
+    ID        string       `json:"id"`        // "cpu"，或 "<vendor>-<序号>"，如 nvidia-0、intel-0、amd-0、apple-0；偏好里存它
+    Name      string       `json:"name"`      // 给人看的名字，CPU 是 "CPU（软件编码）"
+    Vendor    string       `json:"vendor"`    // nvidia | intel | amd | apple | unknown
+    Kind      string       `json:"kind"`      // gpu | cpu
+    Discrete  bool         `json:"discrete"`  // 独立显卡（auto 时独显优先于集显）；CPU 恒为 false
+    Encoders  EncoderNames `json:"encoders"`
+    Available bool         `json:"available"` // 试跑成功才为 true
+    Reason    string       `json:"reason,omitempty"` // available=false 时的一行原因（可能偏技术，界面不必直接显示）
+}
+type EncoderDeviceList struct {
+    FFmpegReady bool            `json:"ffmpegReady"` // false = ffmpeg 未就绪，没有做检测，devices 只有 cpu
+    Devices     []EncoderDevice `json:"devices"`     // 第一项永远是 cpu（id "cpu"，encoders 为 libx264 / libx265，available=true）
+}
+type EncoderPreferenceInfo struct {
+    ID        string `json:"id"`                // auto | cpu | 设备 id
+    Name      string `json:"name"`              // "自动" | "CPU（软件编码）" | 设备名；设备不可用 / 不存在时用保存偏好时记下的名字（没记过为 ""）
+    Available bool   `json:"available"`         // auto、cpu 恒为 true
+    Reason    string `json:"reason,omitempty"`
+}
+```
+
+**检测流程**（`ListEncoderDevices`）：
+1. ffmpeg 状态不是 `ready`：直接返回 `{ffmpegReady:false, devices:[cpu]}`，不检测、不报错。
+2. `ffmpeg -hide_banner -encoders`，解析出视频编码器集合。这一步失败（命令失败且没有输出）：返回仅 cpu，**不缓存**、不报错。
+3. 枚举显卡名称（失败一律降级为空列表，不报错）：Windows 用 PowerShell `Get-CimInstance Win32_VideoController | Select-Object Name,PNPDeviceID | ConvertTo-Json`（wmic 已废弃）；macOS 用 `system_profiler SPDisplaysDataType -json`；Linux 先 `lspci -nn`，没有或没输出时读 `/sys/class/drm/card*/device/vendor`（只有厂商名）。虚拟适配器（Microsoft Basic Display / Remote Display、Hyper-V、VMware、VirtualBox、QXL 等）忽略。独显判定：NVIDIA 恒为独显；AMD 的 `Radeon Graphics` / `Vega N` / `xxxM` 是集显，其余（RX、Pro）是独显；Intel 只有 Arc 是独显。
+4. 试跑：平台上每个厂商的编码器（nvidia：`h264_nvenc` / `hevc_nvenc`；intel：`h264_qsv` / `hevc_qsv`；amd：`h264_amf` / `hevc_amf`；macOS：`h264_videotoolbox` / `hevc_videotoolbox`；Linux vaapi 本版不做），**只试 ffmpeg 里存在的**；显卡枚举到了就只试有对应显卡的厂商，枚举不出来就全试（试跑才是真相）。命令：`ffmpeg -hide_banner -loglevel error -nostdin -f lavfi -i color=c=black:s=256x256:d=0.1 -frames:v 1 -c:v <enc> -f null -`，**每个编码器 5 秒超时**，同时最多 2 个试跑。某厂商任一编码器试跑成功即 `available=true`，`encoders` 只填成功的那个（h264 成功、hevc 失败则 `hevc` 为 `""`）；都失败则 `available=false`、`reason` 是归类后的一行原因（ffmpeg 不含该编码器 / 无可用显卡或驱动缺失 / 试跑超时 / 其他）。
+5. 组装：`devices[0]` 是 cpu；随后按厂商顺序（nvidia、amd、intel；macOS 只有 apple）每张显卡一项，同厂商多张 id 序号递增。试跑成功但没枚举到名字（lspci 缺失等）给一个只有厂商名的设备（如 `NVIDIA GPU`）。枚举到但厂商没有硬件编码器支持的显卡（如 unknown）也列出，`available=false`。
+6. 探测子进程一律经 `ffmpeg.NewCommand`（Windows 隐藏控制台窗口、单独进程组），不占用任务管理器的槽位，不影响正在运行的任务。应用根 ctx 取消时中断并返回 `CANCELED`。
+
+**缓存**：按 `ffmpeg 路径 + 版本` 缓存整个结果。ffmpeg 状态每次变化（安装完成 / 手动指定 / 重新检测，即每次 `ffmpeg:status`）都使缓存失效；检测过程中发生失效，这次结果不写入缓存。`RefreshEncoderDevices()` 强制重测。有编码器试跑超时的结果**不缓存**（驱动可能只是一时没响应）。没有显卡的机器：`devices` 只有 cpu，不报错，也不试跑。
+
+**偏好**：`"auto" | "cpu" | 设备 id`，存 settings 表键 `encoderPreference`，默认 `"auto"`；同时把设备名记在 `encoderPreferenceName`（设备之后不可用时，设置页仍能显示选的是哪张卡）。`SetEncoderPreference(id)`：`auto`、`cpu` 直接保存；其他值必须符合 `^[a-z0-9][a-z0-9_-]{0,31}$` 且在当前 `ListEncoderDevices` 里存在（存在但 `available=false` 的允许保存），否则 `INVALID_ARGUMENT` 且不改动原值。`GetEncoderPreference` 永远返回保存的原值，不因设备消失而改写；设备不存在或不可用时，`ListEncoderDevices` 在列表**末尾**追加一项 `available=false` 的占位（`id` 为偏好值，`name` 为记下的名字，`reason` 说明），偏好为 `auto` / `cpu` 时不追加。
+
+**`ResolveEncoder(pref, devices, codec) (encoderName, deviceID string, fallback bool)`**（Go 纯函数，`internal/service/system`）：`codec` 为 `h264` 或 `hevc`（接受 `h265`）。
+- `auto`（或空）：从 `available` 且有该 codec 编码器的显卡里选第一张，排序为 **独显优先于集显**，同为独显时 nvidia、amd 在前，其后 intel Arc，同级保持列表顺序；没有则 cpu。auto 落到 cpu **不算回退**（`fallback=false`）。
+- `cpu`：cpu，`fallback=false`。
+- 设备 id：该设备存在、`available` 且有该 codec 编码器则用它；否则回退 cpu，`fallback=true`。
+- 不认识的 `codec`：返回 `("", "", false)`。
+
+**本版不接入**：`ConvertService` / `EditService` / `LiveService` 的编码参数仍是软件编码；`ResolveEncoder` 只是提供给下一版接入用。**未在真机验证**：真实 NVIDIA / Intel / AMD / VideoToolbox 试跑、Windows 显卡名称枚举（PowerShell 输出格式按文档与常见样例解析，用纯函数表驱动测试覆盖）。
