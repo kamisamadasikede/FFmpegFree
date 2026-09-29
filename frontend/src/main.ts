@@ -7,6 +7,7 @@ import router from './router'
 import './styles/tokens.css'
 import './styles/element-override.css'
 import './styles/base.css'
+import './styles/settings-panels.css'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import { createPinia } from 'pinia'
 const app = createApp(App)

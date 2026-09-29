@@ -30,9 +30,9 @@ export type TransitionName = 'none' | 'fade' | 'wipeleft' | 'wiperight' | 'slide
 export interface EditOutput {
   /** mp4 | mov | mkv | webm，空 = mp4 */
   format: EditFormat | ''
-  /** 16~7680，0 = 1280；导出时向下取偶数 */
+  /** 16~7680，0 = 1920（后端兜底值）；导出时向下取偶数。提交时前端显式写宽高，不依赖 0 */
   width: number
-  /** 16~4320，0 = 720 */
+  /** 16~4320，0 = 1080（后端兜底值） */
   height: number
   /** (0,120]，0 = 30 */
   fps: number
@@ -91,7 +91,7 @@ export interface EditProject {
   id: string
   /** 去首尾空白后 1~80 字 */
   name: string
-  /** 素材库：绝对路径，去重，最多 200 个，只是列表，不保证存在 */
+  /** 素材库：绝对路径，去重，最多 100 个（已定），只是列表，不保证存在 */
   sources: string[]
   output: EditOutput
   videoTrack: VideoClip[]
@@ -149,7 +149,7 @@ const AUDIO_ONLY_EXTS = ['mp3', 'wav', 'aac', 'm4a', 'flac', 'ogg']
 export function newEditProject(name = '未命名工程'): EditProject {
   return {
     schemaVersion: EDIT_SCHEMA_VERSION, id: '', name, sources: [],
-    output: { format: 'mp4', width: 1280, height: 720, fps: 30 },
+    output: { format: 'mp4', width: 1920, height: 1080, fps: 30 },
     videoTrack: [], audioTrack: [],
     effects: { brightness: 0, contrast: 1, saturation: 1, sharpen: 0 },
     updatedAt: 0,
@@ -233,6 +233,8 @@ export function wouldOverlap(clips: AnyClip[], candidate: AnyClip): string | nul
 // ───────────── 结构校验（ValidateProject / Export 用；SaveProject 只校验数量上限，见 checkSaveLimits）─────────────
 
 const MAX_CLIPS = 100
+/** 素材库上限（产品经理已定） */
+const MAX_SOURCES = 100
 const MAX_TIMELINE_SEC = 6 * 3600
 const MAX_PROJECT_BYTES = 1024 * 1024
 const TRANSITIONS: readonly string[] = ['none', 'fade', 'wipeleft', 'wiperight', 'slideleft', 'slideright', 'circleopen', 'circleclose', 'dissolve']
@@ -247,9 +249,9 @@ function bad(head: string, why: string): never {
   return simError('INVALID_ARGUMENT', why, `${head}\n${why}`)
 }
 
-/** SaveProject 的校验：只查数量上限（素材库 200、clip 总数 100、序列化后 1 MiB），其余（范围、同轨重叠）都不查，草稿可以保存 */
+/** SaveProject 的校验：只查数量上限（素材库 100、clip 总数 100、序列化后 1 MiB），其余（范围、同轨重叠）都不查，草稿可以保存 */
 export function checkSaveLimits(p: EditProject): void {
-  if (p.sources.length > 200) bad('project', '素材库最多 200 个')
+  if (p.sources.length > MAX_SOURCES) bad('project', `素材库最多 ${MAX_SOURCES} 个`)
   if (p.videoTrack.length + p.audioTrack.length > MAX_CLIPS) bad('project', `clip 总数最多 ${MAX_CLIPS} 个`)
   if (new TextEncoder().encode(JSON.stringify(p)).length > MAX_PROJECT_BYTES) bad('project', '工程超过 1 MiB')
 }
@@ -259,7 +261,7 @@ export function checkStructure(p: EditProject, opts: { requireVideo: boolean }):
   if (p.schemaVersion !== EDIT_SCHEMA_VERSION && p.schemaVersion !== 0) bad('project', 'schemaVersion 不是 1')
   const name = p.name.trim()
   if (name.length < 1 || [...name].length > 80) bad('project', '工程名需要 1~80 个字')
-  if (p.sources.length > 200) bad('project', '素材库最多 200 个')
+  if (p.sources.length > MAX_SOURCES) bad('project', `素材库最多 ${MAX_SOURCES} 个`)
   const o = p.output
   if (o.format && !FORMATS.includes(o.format)) bad('project', `输出格式只能是 ${FORMATS.join(' / ')}`)
   if (o.width !== 0 && (o.width < 16 || o.width > 7680)) bad('project', '输出宽度需要在 16~7680 之间')
