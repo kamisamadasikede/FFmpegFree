@@ -3,6 +3,7 @@ package doc
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"math"
 	"net/http"
@@ -143,10 +144,10 @@ func TestReadPDFChunk(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if c.Offset != off || c.Length != len(c.Data) {
+		if c.Offset != off || c.Length != len(chunkBytes(t, c)) {
 			t.Fatalf("%+v", c)
 		}
-		got = append(got, c.Data...)
+		got = append(got, chunkBytes(t, c)...)
 		off += int64(c.Length)
 		if c.EOF {
 			break
@@ -172,7 +173,7 @@ func TestReadPDFChunk(t *testing.T) {
 		t.Fatalf("差一个字节 eof=false: %+v", c)
 	}
 	c, err = e.svc.ReadPDFChunk(src.ID, size, 10)
-	if err != nil || c.Length != 0 || !c.EOF || c.Data == nil || c.Size != size {
+	if err != nil || c.Length != 0 || !c.EOF || c.Data != "" || c.Size != size {
 		t.Fatalf("offset==size: %+v %v", c, err)
 	}
 	// offset > MaxInt64-length 一律 INVALID_ARGUMENT（防 offset+length 溢出）
@@ -266,12 +267,25 @@ func TestReadPDFChunkRevalidatesEachCall(t *testing.T) {
 	}
 }
 
+// chunkBytes 解码 PDFChunk.Data（标准 base64，含填充），并断言编码规范（再编码结果相同）。
+func chunkBytes(t *testing.T, c PDFChunk) []byte {
+	t.Helper()
+	b, err := base64.StdEncoding.DecodeString(c.Data)
+	if err != nil {
+		t.Fatalf("data 不是标准 base64: %v", err)
+	}
+	if base64.StdEncoding.EncodeToString(b) != c.Data {
+		t.Fatal("base64 不规范（缺填充？）")
+	}
+	return b
+}
+
 func TestChunkDataIsBase64InJSON(t *testing.T) {
-	b := mustJSON(t, PDFChunk{Offset: 1, Length: 3, EOF: true, Data: []byte("abc")})
+	b := mustJSON(t, PDFChunk{Offset: 1, Length: 3, EOF: true, Data: base64.StdEncoding.EncodeToString([]byte("abc"))})
 	if !strings.Contains(b, `"data":"YWJj"`) {
 		t.Fatal(b)
 	}
-	if b := mustJSON(t, PDFChunk{Data: []byte{}}); !strings.Contains(b, `"data":""`) {
+	if b := mustJSON(t, PDFChunk{Data: ""}); !strings.Contains(b, `"data":""`) {
 		t.Fatal(b)
 	}
 }
@@ -449,7 +463,7 @@ func TestConvertThenOpenPDF(t *testing.T) {
 		t.Fatal(err)
 	}
 	c, err := e.svc.ReadPDFChunk(src.ID, 0, 8)
-	if err != nil || string(c.Data) != "%PDF-1.3" && !strings.HasPrefix(string(c.Data), "%PDF-") {
+	if err != nil || !strings.HasPrefix(string(chunkBytes(t, c)), "%PDF-") || c.Length != 8 {
 		t.Fatalf("%q %v", c.Data, err)
 	}
 }

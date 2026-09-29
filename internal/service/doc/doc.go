@@ -83,7 +83,7 @@ type PDFChunk struct {
 	Length int    `json:"length"` // 实际读到的字节数
 	EOF    bool   `json:"eof"`    // offset+length >= 文件当前大小
 	Size   int64  `json:"size"`   // 本次读取时文件的当前大小；与 OpenPDF 返回的 size 不同说明文件读取期间被改动，前端应重新 OpenPDF
-	Data   []byte `json:"data"`   // JSON / Wails TS 里是 base64 字符串
+	Data   string `json:"data"`   // 后端显式编码的标准 base64（含填充）；Length 是解码后的原始字节数
 }
 
 // PDFFile 是最近打开列表的一项。

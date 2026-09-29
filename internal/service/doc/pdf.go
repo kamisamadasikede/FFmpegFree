@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -283,7 +284,7 @@ func (s *Service) ReadPDFChunk(hid string, offset int64, length int) (PDFChunk, 
 		return PDFChunk{}, apperr.New(apperr.InvalidArgument, "文件超过 512 MiB").WithDetail(fmt.Sprintf("%d 字节", size))
 	}
 	if offset >= size {
-		return PDFChunk{Offset: offset, Length: 0, EOF: true, Size: size, Data: []byte{}}, nil
+		return PDFChunk{Offset: offset, Length: 0, EOF: true, Size: size, Data: ""}, nil
 	}
 	n := int64(length)
 	if remain := size - offset; n > remain { // offset < size，不会溢出
@@ -295,9 +296,9 @@ func (s *Service) ReadPDFChunk(hid string, offset int64, length int) (PDFChunk, 
 		return PDFChunk{}, apperr.Wrap(apperr.IOError, "读取文件失败", err)
 	}
 	if got == 0 { // 文件在 stat 之后被截短
-		return PDFChunk{Offset: offset, Length: 0, EOF: true, Size: size, Data: []byte{}}, nil
+		return PDFChunk{Offset: offset, Length: 0, EOF: true, Size: size, Data: ""}, nil
 	}
-	return PDFChunk{Offset: offset, Length: got, EOF: offset+int64(got) >= size, Size: size, Data: buf[:got]}, nil
+	return PDFChunk{Offset: offset, Length: got, EOF: offset+int64(got) >= size, Size: size, Data: base64.StdEncoding.EncodeToString(buf[:got])}, nil
 }
 
 // ListRecentPDFs 按打开时间倒序返回最近打开的 PDF（默认 20，最大 200）；文件已删除的 exists=false，记录保留。

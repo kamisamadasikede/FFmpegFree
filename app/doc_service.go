@@ -72,7 +72,7 @@ func (s *DocService) OpenPDF(path string) (doc.PDFSource, error) {
 	return c.OpenPDF(s.rootCtx(), path)
 }
 
-// ReadPDFChunk 按句柄读一段 PDF 字节（length 1~1 MiB）。返回的 data 在生成的 TypeScript 里是 base64 字符串。
+// ReadPDFChunk 按句柄读一段 PDF 字节（length 1~1 MiB）。返回的 data 是后端显式编码的标准 base64 字符串（含填充），length 仍是原始字节数（上限 1 MiB）。
 func (s *DocService) ReadPDFChunk(id string, offset int64, length int) (doc.PDFChunk, error) {
 	c, err := s.svc()
 	if err != nil {

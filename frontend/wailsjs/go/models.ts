@@ -162,7 +162,7 @@ export namespace doc {
 	    length: number;
 	    eof: boolean;
 	    size: number;
-	    data: number[];
+	    data: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new PDFChunk(source);
