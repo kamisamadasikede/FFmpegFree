@@ -351,7 +351,7 @@ schema_migrations(version PK, applied_at)
 
 > **合并顺序（架构师最新决定，三个 PR 说明一致）**：**#22 先合**，然后 #19、#23；本节引用的 6.13 由 #22 引入，所以 #23 必须在 #22 之后合入。
 
-> **架构师新增决定（写死，逐条对应下文）**：① `DocCapabilities` 增加 `experimental`（bool，后端给出，前端据此显示"实验性"，6.12.2）；② `ReadPDFChunk` 的 `Data []byte` 在 Wails 生成的 TS 里是 **base64 字符串**，前端按 base64 解码（6.12.4 第 2 点）；③ `TaskType` 与 #19 / #22 统一（第 3 节）；④ `/local/<token>` 的共用规则移到中立章节 6.13，本节引用；⑤ 字体合规：子集 name 表改名、CI 断言、字体目录 README（6.12.1）。
+> **架构师新增决定（写死，逐条对应下文）**：① `DocCapabilities` 增加 `experimental`（bool，后端给出，前端据此显示"实验性"，6.12.2）；② `ReadPDFChunk` 的 `Data []byte`：运行时 JSON 值是 **base64 字符串**，但 Wails 生成的 `models.ts` 里类型标注是 **`number[]`**，前端 api 层要先 `as unknown as string` 再 `atob`（6.12.4 第 2 点；**未验证**，见 6.12.8）；③ `TaskType` 与 #19 / #22 统一（第 3 节）；④ `/local/<token>` 的共用规则移到中立章节 6.13，本节引用；⑤ 字体合规：子集 name 表改名、CI 断言、字体目录 README（6.12.1）。
 
 > **架构师已确认（v0.12 定稿）**：内嵌 Noto Sans SC `.ttf` 子集为主路径（6.12.1）；大文件预览的 Windows 验证与回退（6.12.4 第 3 点）；Office 转 PDF 标"实验性"；CSV / TXT 首版不支持。
 
@@ -360,7 +360,7 @@ schema_migrations(version PK, applied_at)
 | 扩展名（不区分大小写） | v2 行为 |
 |---|---|
 | `.docx` | 支持，**仅文本**：`word/document.xml` 里每个 `<w:p>` 的 `<w:t>` 拼成一段，按顺序输出，自动换行分页 |
-| `.xlsx` | 支持，**仅单元格文本**：每个工作表先输出 `Sheet: <名称>` 标题，再逐行输出（`excelize.GetRows`，即单元格的显示文本，公式取缓存值），单元格间 4 个空格分隔；每个工作表后换页 |
+| `.xlsx` | 支持，**仅单元格文本**：每个工作表先输出 `Sheet: <名称>` 标题，再**按行流式读取**逐行输出（`excelize.OpenReader` + `Rows()` 迭代器，一次只读一行，`rows.Columns()` 取单元格的显示文本，公式取缓存值；**不用 `GetRows`**——它会把整个工作表一次读进内存），单元格间 4 个空格分隔；每个工作表后换页 |
 | `.pptx` | 支持，**仅文本**：每张幻灯片一个标题 `Slide <n>` + 该页所有 `<a:t>` 文本按段落输出，每页幻灯片换页；按数字顺序处理（v1 按字符串排序会把 slide10 排在 slide2 前，v2 修正） |
 | `.doc` `.xls` `.ppt`（旧二进制格式）、`.odt` `.ods` `.odp` `.rtf` `.pages` `.numbers` `.key`、其他 | `UNSUPPORTED`，detail 写明原因；旧格式提示"请先另存为 docx / xlsx / pptx" |
 | `.csv` `.txt` | **首版不支持**（架构师定，v1 也没有），`UNSUPPORTED`，detail "暂不支持该格式"；以后要加走增量契约版本 |
@@ -372,15 +372,15 @@ schema_migrations(version PK, applied_at)
 - **内嵌字体（主路径）**：程序用 `go:embed` 内嵌 **Noto Sans SC 子集，必须是 `.ttf`（TrueType 轮廓 `glyf`，不得使用 `.otf` / `.ttc`，也不得是可变字体——`fvar` 表要实例化掉）**，字重 Regular（wght 400），通过 `fpdf.AddUTF8FontFromBytes` 加载，不落盘、不依赖系统。文件放 `internal/service/doc/fonts/NotoSansSC-Regular-subset.ttf`，**同目录必须随包带 SIL OFL 1.1 协议文件 `OFL.txt`（原样，不改一个字节）**，并在应用的"关于 / 开源许可"里列出。
 - **字体合规（保守做法，不是法律结论）**：下载到的 `OFL.txt` 声明 `Copyright 2014-2021 Adobe … with Reserved Font Name 'Source'`，子集化 / 实例化算修改，所以**子集文件里除版权声明外不得出现 `Source`**：
   1. **name 表**：保留 nameID **0**（版权，仍含 `Reserved Font Name 'Source'` 原文）和 nameID **13 / 14**（OFL 许可文本与 URL）原样；把 nameID **1 / 4 / 6 / 16 / 17** 改成不含 `Source` 的名字（家族名 `FFmpegFree CJK Subset`，全名 `FFmpegFree CJK Subset Regular`，PostScript 名 `FFmpegFreeCJKSubset-Regular`；16 / 17 在样品里本来就不存在，规则是"有就改、没有不加"）；nameID **5 / 7 / 10** 清理（版本串改为 `Version 1.0; subset of Noto Sans SC 2.004 wght=400`，商标 / 描述删除）；nameID 3 改为 `FFmpegFreeCJKSubset-Regular;subset`；nameID 8 / 9 / 11 / 12（厂商 / 设计师 / URL）随子集化一并删除，**设计者署名靠 nameID 0 的版权声明保留**。只保留 Windows 平台英文（platformID 3，langID 1033）记录，去掉 Mac 平台记录。
-  2. **CI 单测**（必须写）：读取嵌入的字体，断言 nameID 1 / 4 / 6 / 16 / 17 以及 5 / 7 / 10 里（不区分大小写）不含 `source`；断言 nameID 0 仍含原版权声明和 `Reserved Font Name 'Source'`；断言 nameID 13 存在；断言无 `fvar`、有 `glyf`、无 `CFF `；断言文件 SHA-256 与 README 里记录的一致。Go 侧读 name 表可以用 `golang.org/x/image/font/sfnt`（**需要新增依赖，未拍板**）或自写几十行的 sfnt 解析（只读 `name` 表）；这一选择留给实现 PR。
+  2. **CI 单测**（必须写）：读取嵌入的字体，断言 nameID 1 / 4 / 6 / 16 / 17 以及 5 / 7 / 10 里（不区分大小写）不含 `source`；断言 nameID 0 仍含原版权声明和 `Reserved Font Name 'Source'`；断言 nameID 13 存在；断言无 `fvar`、有 `glyf`、无 `CFF `；断言文件 SHA-256 与 README 里记录的一致。Go 侧**不新增 `golang.org/x/image` 依赖**（架构师采纳 #29 实现方案）：由实现自写的最小只读 sfnt 解析读 `name` 表和 `cmap` 表（只读、不写字体、不依赖第三方库；`go.mod` 不因字体而变），CI 单测和缺字统计共用这份解析。解析必须对越界偏移、表长度、`numTables` 等做边界检查，遇到损坏字体返回错误而不是 panic（嵌入字体是构建时固定的，运行时加载的系统字体来自外部文件，更要防）。
   3. **字体目录 README**（必须写，`internal/service/doc/fonts/README.md`）：记录来源文件、来源仓库的**提交 SHA**、来源文件和产物的 SHA-256、fontTools 版本、生成命令 / 脚本、码点集、包体大小、`OFL.txt` 的来源与 SHA-256。**下面是我在箱子上实际做过的，如实记录，实现 PR 直接照抄并复测**：
      - 来源：`https://github.com/google/fonts`，文件 `ofl/notosanssc/NotoSansSC[wght].ttf`，最后修改该文件的提交 `2894aab31764f10f29c421bdfd2340d3b382d384`（2022-12-09，`Noto Sans SC hotfix2 (#5533)`；用 `gh api` 查得）；在该提交下载的文件 SHA-256 = `a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da`（17 772 300 字节，与 `main` 上下载的一致）；`OFL.txt` SHA-256 = `1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9`（4 388 字节，两处一致）。
      - 工具：Python 3.13.5，**fontTools 4.66.0**，brotli 1.2.0（`python3 -m venv v && v/bin/pip install fonttools brotli`）。
      - 命令：`v/bin/python mkfont.py NotoSansSC[wght].ttf NotoSansSC-Regular-subset.ttf`，`mkfont.py` 的做法：`instancer.instantiateVariableFont(f, {"wght": 400}, updateFontNames=False)` → `subset.Subsetter`（`layout_features=["kern","vert"]`、`hinting=False`、`notdef_outline=True`、`desubroutinize=True`、`name_IDs` 保留 0~14/16/17，码点集见下条）→ 改 name 表（上面第 1 条）→ `save`。**脚本本身要随 README 一起提交**，不能只写"用 fontTools 做过"。
-     - 产物（本次样品）：`NotoSansSC-Regular-subset.ttf` = **2 355 692 字节**，SHA-256 = `48c44ed1f9f6413ce5741baab88b266bac10423da8b7510d97e5e3daf52276c3`；`glyf`、无 `fvar`、无 `CFF `；name 表里含 `Source` 的只有 nameID 0（脚本内断言实测：`{0}`）。fpdf v0.9.0 加载并输出 `Hello 你好，世界！こんにちは Àé`，`pdftotext` 取回一致。
+     - 产物（本次样品）：`NotoSansSC-Regular-subset.ttf` = **2 355 692 字节**，SHA-256 = `48c44ed1f9f6413ce5741baab88b266bac10423da8b7510d97e5e3daf52276c3`（**仅供参考，以字体目录 README 记录的 SHA-256 为准**：实现 PR #29 重新生成的产物 SHA-256 = `7907e8b2fde2b1868fc5b8ab911af84fdf3cef5d946a828af7cee788b6908ea3`，大小同为 2 355 692 字节，与本样品只差 `head.modified` 时间戳；CI 单测断言的是 README 里的值，不是这里的值）；`glyf`、无 `fvar`、无 `CFF `；name 表里含 `Source` 的只有 nameID 0（脚本内断言实测：`{0}`）。fpdf v0.9.0 加载并输出 `Hello 你好，世界！こんにちは Àé`，`pdftotext` 取回一致。
 - **子集范围**（箱子上已做出样品，见下方实测）：GB2312 全部 6763 个汉字 + GB2312 符号区 + ASCII + Latin-1 + 通用标点（U+2000~206F）+ CJK 标点（U+3000~303F）+ 平假名 / 片假名（U+3040~30FF）+ 全角形式（U+FF00~FFEF）+ 箭头 / 数学符号 / 几何图形（U+2190~21FF、2200~22FF、25A0~25FF），保留 `kern` / `vert` 特性，去 hinting。**不覆盖**：繁体中文专用字、GB2312 之外的生僻字、谚文、emoji。**字体里没有的字符输出为该字体的 `.notdef` 方框，不视为失败**（实测：GB2312 之外的字确实显示为方框）。
 - **包体增量（实测）**：`NotoSansSC-Regular-subset.ttf` = **2 355 692 字节（约 2.25 MiB）**（改 name 表之后的最终样品），`OFL.txt` = 4 388 字节；`go:embed` 不压缩，所以可执行文件增加约 **2.25 MiB**（安装包会压缩，前一版样品 gzip -9 后约 1.4 MiB；7z / NSIS 压缩率**未测**）。**实际提交的字体文件和最终大小以实现 PR 为准**，实现 PR 描述里必须再报一次包体增量。
-- **缺字统计（建议，已写入）**：转换时统计"文档里出现、但当前主用字体没有的字符"（按去重码点计数），任务日志（`task.LogWriter`）末尾写一行 `missing_glyphs=<去重码点数> total=<出现次数> sample=U+XXXX,U+XXXX,…（最多 20 个）`，**只记码点，不记文档文字内容**（避免把用户文档内容写进日志）；没有缺字不写这一行。判断"有没有这个字"以嵌入字体的 cmap 为准（实现方式——`x/image/font/sfnt`、或由子集脚本同时生成覆盖表——留给实现 PR）。缺字仍输出 `.notdef` 方框，不视为失败。
+- **缺字统计（建议，已写入）**：转换时统计"文档里出现、但当前主用字体没有的字符"（按去重码点计数），任务日志（`task.LogWriter`）末尾写一行 `missing_glyphs=<去重码点数> total=<出现次数> sample=U+XXXX,U+XXXX,…（最多 20 个）`，**只记码点，不记文档文字内容**（避免把用户文档内容写进日志）；没有缺字不写这一行。判断"有没有这个字"以嵌入字体的 cmap 为准（用上面自写的只读 `cmap` 解析，不引入 `x/image/font/sfnt`）。缺字仍输出 `.notdef` 方框，不视为失败。
 - **系统字体（补充）**：后端按顺序找第一个存在且可加载的 `.ttf`：Windows `C:/Windows/Fonts/simhei.ttf`、`simsun.ttf`（`msyh.ttf` 仅在旧系统存在；新版 Windows 自带的雅黑通常是 `msyh.ttc`，`fpdf` 加载不了，**未在 Windows 真机验证**），macOS `/Library/Fonts/Arial Unicode.ttf`，Linux `/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf`。**按文档选字体、不做逐字回退**（`fpdf` 一份文档一个当前字体）：先用内嵌字体；若文档含内嵌字体 cmap 未覆盖的字符，且系统字体 cmap 覆盖了这些字符（如繁体字用 Arial Unicode），则整份文档改用该系统字体；否则仍用内嵌字体（缺字为方框）。
 - **`UNSUPPORTED` 规则保留**：内嵌字体加载失败（构建错误才会发生）**且**没有可用系统 `.ttf`，而文档又含 U+00FF 以上的字符 → 该文件 `UNSUPPORTED`，detail "没有可用的 Unicode 字体"（不输出乱码 PDF）；纯 Latin-1 文档可用内置字体。正常构建下内嵌字体总是可用，该分支基本不会触发，但校验和单元测试要覆盖。
 - DejaVu Sans 不含 CJK 字形，只作为系统补充里的拉丁 / 希腊 / 西里尔备选，不再是 CJK 的判据。`GetDocCapabilities.font` 的语义相应调整：`available` = 内嵌字体或系统字体至少一个可用；`name` = 主用字体（`noto-sans-sc-embedded` 或系统字体名）；`cjk` = 主用字体是否覆盖 GB2312 汉字（内嵌字体为 `true`）。
@@ -425,7 +425,7 @@ type PDFChunk struct {
     Length int    `json:"length"` // 实际读到的字节数
     EOF    bool   `json:"eof"`    // offset+length >= 文件当前大小
     Size   int64  `json:"size"`   // 本次读取时文件的当前大小；与 OpenPDF 返回的 size 不同说明文件读取期间被改动，前端应重新 OpenPDF
-    Data   []byte `json:"data"`   // Go 侧是 []byte，JSON 里是 base64 字符串，Wails 生成的 TS 里类型是 string（见 6.12.4 第 2 点）
+    Data   []byte `json:"data"`   // Go 侧是 []byte，运行时 JSON 里是 base64 字符串；Wails 生成的 models.ts 标注为 number[]（类型标注与运行时值不一致，见 6.12.4 第 2 点，未验证）
 }
 type PDFFile struct {
     ID       string `json:"id"`       // doc_recent.id（ULID）
@@ -440,12 +440,12 @@ type PDFFile struct {
 
 ### 6.12.3 `ConvertToPDF`：任务 `office_pdf`
 
-- 参数校验与 6.9 同一套规则：`inputs` 非空且 ≤ 50，路径必须绝对（`INVALID_ARGUMENT`），文件不存在 `NOT_FOUND`，是目录 `INVALID_ARGUMENT`，无读权限 `IO_ERROR`；`outputDir` 规则同 6.9（空 = `Settings.defaultOutputDir`，仍空 = 源文件所在文件夹），并在**提交时**同步校验（不放到任务里失败）：必须是绝对路径；**拒绝以 `\\?\`、`\\.\` 开头的路径**（`INVALID_ARGUMENT`）；**拒绝位于应用数据目录之内（含其本身）的路径**（`os.UserConfigDir()/FFmpegFree/`，防止把输出写进 `app.db`、`thumbs/`、`logs/` 旁边并被清理逻辑误伤，`INVALID_ARGUMENT`，`detail` 写 `outputDir 不能在应用数据目录内`；比较前对两边做 `EvalSymlinks` + 大小写按平台规则规范化）；已存在必须是可写目录（`IO_ERROR`），不存在则最近的已存在上级必须是可写目录。**先整体校验再提交**，任何一个不通过整体失败、不提交任何任务，`detail` 第一行是出错文件路径。
+- 参数校验与 6.9 同一套规则：`inputs` 非空且 ≤ 50，路径必须绝对（`INVALID_ARGUMENT`），文件不存在 `NOT_FOUND`，是目录 `INVALID_ARGUMENT`，无读权限 `IO_ERROR`；`outputDir` 规则同 6.9（空 = `Settings.defaultOutputDir`，仍空 = 源文件所在文件夹），并在**提交时**同步校验（不放到任务里失败）：必须是绝对路径；**拒绝以 `\\?\`、`\\.\` 开头的路径**（`INVALID_ARGUMENT`）；**拒绝位于应用数据目录之内（含其本身）的路径**（`os.UserConfigDir()/FFmpegFree/`，防止把输出写进 `app.db`、`thumbs/`、`logs/` 旁边并被清理逻辑误伤，`INVALID_ARGUMENT`，`detail` 写 `outputDir 不能在应用数据目录内`；比较前对两边做 `EvalSymlinks` + 大小写按平台规则规范化）；已存在必须是目录且可写，不存在则最近的已存在上级必须是可写目录。**"可写"的判断方式（#29 实现反馈）**：在该目录里**创建一个探测文件**（`os.CreateTemp(dir, ".ffmpegfree-probe-*")`，创建成功后立即关闭并删除），**不用**权限位或 `access()` 推断（Windows 的 ACL、只读挂载、网络盘上权限位不可靠）；创建失败（含权限不足、只读、磁盘满）一律返回 `IO_ERROR`，`detail` 写系统错误文本；探测文件删除失败只记日志，不影响结果。**先整体校验再提交**，任何一个不通过整体失败、不提交任何任务，`detail` 第一行是出错文件路径。
 - 整体校验里额外检查：扩展名在支持表内（否则 `UNSUPPORTED`）；文件 ≤ 100 MiB（否则 `INVALID_ARGUMENT`）；能作为 zip 打开且含必需部件（docx `word/document.xml`，xlsx `xl/workbook.xml`，pptx 至少一张 `ppt/slides/slide<n>.xml`），打不开或缺部件 `INVALID_ARGUMENT`（detail "不是有效的 OOXML 文件"）；不是 zip 而是 OLE 头（`D0 CF 11 E0`）→ `UNSUPPORTED`（加密或旧格式改了扩展名）；单个 zip 条目解压后 > 256 MiB `INVALID_ARGUMENT`（防 zip 炸弹）；字体规则见 6.12.1（需要 Unicode 字体而没有 → `UNSUPPORTED`，此项在提交时对文本做一次快速扫描，不通过整体失败）。
 - **不依赖 ffmpeg**（不做 `FFMPEG_NOT_FOUND` 门控）。走 batch 池（与转换共用并发数）；`GoFuncRunner` 实际是 `task.RunnerFunc`。
 - 任务：`type=office_pdf`，`title` 形如 `a.docx → PDF`，`inputPaths=[源]`，`outputPath` 为预期输出，`params={input, outputDir}` JSON。输出 `<源文件名去扩展名>.pdf`，重名追加 `(1)`、`(2)`，不覆盖，走 6.6 `RunWithPart`（`.part.pdf` → 原子改名）；取消或失败不留 `.part`。
 - **进度**：按处理单元计数（docx 段落、xlsx 行、pptx 幻灯片）占总数的比例，0~1 单调，完成为 1；每处理约 100 个单元检查一次 ctx，取消响应 ≤ 1 秒（超大文件除外）。`task:progress` 载荷不变，`speed` / `etaSec` 为空。
-- 页数上限 5000：超过时任务失败 `UNSUPPORTED`，detail "超过 5000 页"；xlsx 一个工作表所有行都算；xlsx 单元格文本每格最多 32 767 字符（Excel 自身上限），超出截断。
+- 页数上限 5000：**输出页数超过 5000（生成过程中累计到第 5001 页时立即停止）返回 `UNSUPPORTED`**，detail "超过 5000 页"，不产生输出文件（`.part` 删除）；xlsx 一个工作表所有行都算；xlsx 单元格文本每格最多 32 767 字符（Excel 自身上限），超出截断。
 - 错误码（任务的 `error`）：`IO_ERROR`（读写失败，没有权限）、`CONVERT_DISK_FULL`（输出写盘失败且是磁盘满，判定规则同 6.9 的系统错误文本匹配；Office 转换也用这个码，前端标题相同）、`UNSUPPORTED`、`INVALID_ARGUMENT`（运行时才发现的损坏）、`INTERNAL`（fpdf / excelize 意外错误，`detail` 是错误文本）；取消是任务状态 `canceled`。
 - `Retry`：注册 `office_pdf` 的重试工厂，用 `params` 重建并重新校验（输入被删除 `NOT_FOUND`，不产生新任务）。
 - v1 的"按文件名防重复转换"（`officeConvertingFiles`）取消：两个任务转同一个输入是允许的，输出各自取不冲突的名字。
@@ -456,7 +456,7 @@ type PDFFile struct {
 
 1. `OpenPDF(path)`：路径必须绝对（`INVALID_ARGUMENT`）、存在（`NOT_FOUND`）、是文件（否则 `INVALID_ARGUMENT`）、可读（`IO_ERROR`）、扩展名 `.pdf`（不区分大小写，否则 `INVALID_ARGUMENT`）、前 1024 字节内含 `%PDF-`（否则 `INVALID_ARGUMENT`，detail "不是 PDF 文件"）、大小 ≤ 512 MiB（否则 `INVALID_ARGUMENT`）。成功后登记句柄并写入 / 更新 `doc_recent`。加密 PDF 也能打开，密码由前端 pdf.js 的 `onPassword` 弹窗处理，后端不接触密码。
 2. **主路径（size ≤ 64 MiB）：`ReadPDFChunk` 读整份**。前端循环调用 `ReadPDFChunk(id, offset, chunk)` 直到 `eof`，拼成 `Uint8Array` 交给 `usePDF`。只用 Wails Bind，**不依赖 AssetServer 在 Windows 上缓冲响应的行为**（见 6.13 第 9 点）。`chunk` 取 `min(GetDocCapabilities().limits.chunkBytes, 1 MiB)`（1 MiB 的 base64 约 1.4 MiB；Windows 上 Bind 返回值大小是否有上限**未验证**，需要时后端把 `chunkBytes` 调小，前端不用改）。
-   - **`Data` 的解码（架构师定）**：Go 侧 `Data []byte`，JSON 序列化是 **base64 字符串**（标准字母表，带 `=` 填充），Wails 生成的 `models.ts` 里 `PDFChunk.data` 的类型是 **`string`**（Wails 2.11.0 `internal/binding/generate_test.go` 的类型映射 `[]byte → string`）。前端**按 base64 解码**：`const bin = atob(chunk.data); const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)`（不要用 `Uint8Array.fromBase64`，WebView2 / WebKit 版本不一定有）。**实现 PR 以生成出来的 `frontend/wailsjs/go/models.ts` 为准**核对字段类型，与这里不一致要回来改契约。
+   - **`Data` 的解码（架构师定，#29 实现反馈修订）**：Go 侧 `Data []byte`，运行时 JSON 序列化是 **base64 字符串**（标准字母表，带 `=` 填充）。**Wails 生成的 `frontend/wailsjs/go/models.ts` 里 `PDFChunk.data` 的类型标注是 `number[]`**（Wails 对 `[]byte` 的类型标注，与运行时值不一致；此前契约写的 `string` 有误，已更正）。前端 api 层必须写成：`const b64 = chunk.data as unknown as string; const bin = atob(b64); const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)`（不要把它当 `number[]` 用，不要用 `Uint8Array.fromBase64`，WebView2 / WebKit 版本不一定有）。**【未验证】**：这一点没有在真实 Wails 环境里抓过 JSON，只是按 Wails 的类型映射和 `encoding/json` 对 `[]byte` 的行为推断；实现 PR 联调时要抓一次真实的 `ReadPDFChunk` 返回值确认是字符串，结果不同就回来改契约。已列入 6.12.8 联调项。
    - `ReadPDFChunk` 每次调用的校验（顺序即优先级，架构师定）：
      1. `length` 范围 1~`chunkBytes`（≤ 1 MiB），越界 `INVALID_ARGUMENT`；`offset < 0` `INVALID_ARGUMENT`；**`offset > math.MaxInt64 − length` 一律 `INVALID_ARGUMENT`**（防 `offset+length` 的 int64 溢出，比较写成减法形式，不写 `offset+length > x`）。
      2. **`id` 只查登记表，不拼路径**：`id` 必须是 `OpenPDF` 返回的句柄（32 位十六进制）；格式不对 / 查不到（重启后失效、被 `RemoveRecentPDFs` 撤销）→ `NOT_FOUND`。真实路径只来自登记表里 `OpenPDF` 时记录的值，任何来自前端的字符串都不参与路径拼接。
@@ -477,7 +477,7 @@ type PDFFile struct {
            if (retried) throw new AppError('IO_ERROR', 'PDF 在读取时被修改')
            retried = true; return loadPdf(path)                    // 只重来一次
          }
-         const bytes = b64ToBytes(c.data)
+         const bytes = b64ToBytes(c.data as unknown as string)
          if (bytes.length !== c.length) throw new AppError('INTERNAL', '分块长度不一致')
          out.set(bytes, offset); offset += c.length
          if (c.eof) break
@@ -489,7 +489,7 @@ type PDFFile struct {
      }
      ```
      `NOT_FOUND`（句柄失效）时前端重新 `OpenPDF(path)` 换句柄，**只重试一次**。
-3. **大文件（64 MiB < size ≤ 512 MiB）**：前端用 `PDFSource.url`（`/local/<token>`）交给 pdf.js 按 Range 加载；协议、限长、`HEAD` 探测和失效重试都按 **6.13**（每个 Range 响应 ≤ 4 MiB；无 Range 的整体请求 ≤ 32 MiB，更大 413，因此大文件必须走 Range）。**此路径在 Windows 上未经验证**（箱子是 Linux），**Windows 真机 Range 续传由用户在预览包里验证**（架构师定）。**验证不通过时的回退方案（首版不实现，不新增方法或错误码）**：大文件上限降为 64 MiB，即 `OpenPDF` 对 size > 64 MiB 的文件返回 `INVALID_ARGUMENT`（detail "文件超过 64 MiB"），`PDFSource.url` 恒为空；`WholeLoadBytes` 与 `MaxPDFBytes` 都变成 64 MiB。该降级只改 `OpenPDF` 的一个阈值和文档，不改方法签名。`url` 在 size ≤ 64 MiB 时也会返回，但前端不应使用。
+3. **大文件（64 MiB < size ≤ 512 MiB）**：前端用 `PDFSource.url`（`/local/<token>`）交给 pdf.js 按 Range 加载；协议、限长、`HEAD` 探测和失效重试都按 **6.13**（每个 Range 响应 ≤ 4 MiB；无 Range 的整体请求 ≤ 32 MiB，更大 413，因此大文件必须走 Range）。**此路径在 Windows 上未经验证**（箱子是 Linux），**Windows 真机 Range 续传由用户在预览包里验证**（架构师定）。**Doc 的具体行为（#29 已有测试覆盖，这里写死）**：size > 64 MiB 的 PDF，`OpenPDF` 返回的 `PDFSource.url` 非空；对该 URL 的 **`HEAD` 返回 `200`，带完整的 `Content-Length`（等于文件大小，不是 4 MiB 截断值）、`Accept-Ranges: bytes`、`Content-Type: application/pdf`，没有正文**；`RemoveRecentPDFs` 撤销该 id 之后，**`GET` 和 `HEAD` 都返回 `404`**（token 同时作废，不是只作废句柄）；文件被替换或不再是同一个普通文件时同样 `404`。前端遇到 `404` 重新 `OpenPDF` 取新 `url`。**验证不通过时的回退方案（首版不实现，不新增方法或错误码）**：大文件上限降为 64 MiB，即 `OpenPDF` 对 size > 64 MiB 的文件返回 `INVALID_ARGUMENT`（detail "文件超过 64 MiB"），`PDFSource.url` 恒为空；`WholeLoadBytes` 与 `MaxPDFBytes` 都变成 64 MiB。该降级只改 `OpenPDF` 的一个阈值和文档，不改方法签名。`url` 在 size ≤ 64 MiB 时也会返回，但前端不应使用。
 4. 不用 `file://`（WebView 拒绝，同 6.13）；不把整份 PDF 作为 base64 一次返回（会撞 IPC 体积与内存峰值）。
 5. 内存：主路径峰值 = 文件大小 × 约 2（分块拼接 + pdf.js 解析），64 MiB 上限据此设定，**阈值是估计值，需真机调**。
 6. 历史列表：`ListRecentPDFs` 取代 v1 的"服务器上传目录列表"；不再复制 PDF 到应用目录（v1 上传会拷贝），列表只存路径，文件被移动 / 删除时 `exists=false`。`OpenPDF` 是唯一的写入点；转换产出的 PDF 不自动进历史，前端在转换完成后需要预览时调用 `OpenPDF(outputPath)`。只保留最近 1000 条（6.12.2）。
@@ -563,6 +563,7 @@ AppError（句柄失效）：
 | 2 | 大文件（> 64 MiB）经 `/local/<token>` 的 Range 续传：WebView2 收到被截短的 `206` 后是否继续请求；`HEAD` 探测与失效重试 | 6.12.4 第 3 点、6.13 | 预览包里打开 100 MiB 左右的 PDF 并翻页 | **验证不通过时的回退方案（首版不实现）**：大文件限 64 MiB，超过返回 `INVALID_ARGUMENT`（不新增方法、错误码） |
 | 3 | 64 MiB 整份读入阈值（峰值内存约文件大小 × 2）是估计值 | 6.12.4 第 5 点 | 真机打开 60 MiB 左右的 PDF，看内存和耗时 | 调整阈值（契约变更） |
 | 4 | Windows 上 `outputDir` 拒绝 `\\?\` / `\\.\` 与数据目录内路径的判断；输出的 `.part` 原子改名（`os.Link` 失败回退到不带 `REPLACE_EXISTING` 的 `MoveFileEx`，同 6.11.3） | 6.12.3、6.12.6 | Windows 上把输出目录设到 U 盘（FAT/exFAT）、网络盘、数据目录内 | 保持 `os.Rename`，接受残余竞态并记录 |
+| 5 | **联调项**：`ReadPDFChunk` 返回的 `data` 在真实 Wails 运行时确实是 base64 **字符串**（`models.ts` 标注为 `number[]`，与运行时值不一致；契约按"字符串，前端 `as unknown as string` 后 `atob`"写，没有在真实 Wails 环境抓过 JSON） | 6.12.4 第 2 点 | 在 Wails 开发模式下打开一份 PDF，在 devtools 里看 `ReadPDFChunk` 的返回值类型与首字符，并核对拼出的字节以 `%PDF-` 开头 | 若运行时是数字数组，前端 api 层按数组处理并回来改契约（IPC 体积会膨胀数倍，则同时把 `chunkBytes` 调小） |
 
 ### 6.12.6 错误码对照（全部沿用现有码，无新增）
 
