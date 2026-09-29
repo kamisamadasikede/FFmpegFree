@@ -1,3 +1,5 @@
+import { simEncoderScenario } from '@/api/sim'
+import { pickEncoderFields } from '@/api/encoderTask'
 // 浏览器预览专用（!hasWailsBackend()）：?edit=<状态> 直接摆出设计稿里的各个状态，用来截图和自查。真实运行（Wails 里）不读取，也不会打包进任何数据流。
 // 状态：empty | media | probefail | timeline | export | exporting | done | canceled | fail | previewfail | limit
 // 变体：kind=noaudio|name（export）、kind=disk|short（fail）、kind=time（limit）、warn=1（done）、trans=over（timeline）
@@ -16,6 +18,12 @@ const M: { n: string; d: number; h: number; a?: boolean }[] = [
 ]
 const src = (m: (typeof M)[number]): SourceItem => ({ path: `${DIR}/${m.n}`, name: m.n, state: 'ok', duration: m.d, hasVideo: !m.a, hasAudio: true, height: m.h, channels: 2, thumb: '' })
 const P = (n: string) => `${DIR}/${n}`
+
+/** ?enc=<任务场景> 时预览状态条带的编码器信息（api/sim.ts simEncoderScenario） */
+function previewEnc() {
+  const sc = simEncoderScenario()
+  return sc ? { ...pickEncoderFields({ encoder: sc.encoder, encoderDevice: sc.encoderDevice, hwFallback: sc.hwFallback, hwFallbackReason: sc.hwFallbackReason }), startedAt: 1 } : undefined
+}
 
 export async function applyPreviewState(state: string, q: URLSearchParams) {
   const ed = useEditor()
@@ -89,8 +97,8 @@ export async function applyPreviewState(state: string, q: URLSearchParams) {
     if (kind === 'name') fl.form.name = '我的旅行短片'.repeat(17).slice(0, 101)
     if (q.get('warn') !== '0' && kind !== 'noaudio' && kind !== 'name') fl.warnings.value = [{ code: 'OUT_TRUNCATED', clipId: 'v2', message: '' }]
   }
-  if (state === 'exporting') fl.forced.value = { kind: 'run', name: '旅行短片.mp4', pct: 42, speedText: '2.3x', etaText: '剩余约 00:31' }
-  if (state === 'done') fl.forced.value = { kind: 'ok', name: '旅行短片 (1).mp4', meta: '1920×1080 · 00:52 · 38.6 MB', ignoredTransitions: q.get('warn') === '1', outputPath: '/Users/me/Movies/FFmpegFree/旅行短片 (1).mp4' }
+  if (state === 'exporting') fl.forced.value = { kind: 'run', name: '旅行短片.mp4', pct: 42, speedText: '2.3x', etaText: '剩余约 00:31', enc: previewEnc() }
+  if (state === 'done') fl.forced.value = { kind: 'ok', name: '旅行短片 (1).mp4', meta: '1920×1080 · 00:52 · 38.6 MB', ignoredTransitions: q.get('warn') === '1', outputPath: '/Users/me/Movies/FFmpegFree/旅行短片 (1).mp4', enc: previewEnc() }
   if (state === 'canceled') fl.forced.value = { kind: 'cx' }
   if (state === 'fail') {
     const p = ed.project

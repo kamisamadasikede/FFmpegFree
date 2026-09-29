@@ -11,6 +11,14 @@ import { normalizeTask, useTaskStore, type TaskError, type TaskItem, type TaskSt
 import { dirName, fileBaseName } from '@/utils/format'
 import { codecName } from '@/utils/mediaText'
 import { actionErrorText } from '@/errors/errorMessages'
+import { pickEncoderFields } from '@/api/encoderTask'
+import { simEncoderScenario } from '@/api/sim'
+
+/** 仅浏览器预览：?enc=<任务场景> 时预览任务带的编码器字段（api/sim.ts simEncoderScenario） */
+const simEncFields = (): Partial<TaskItem> => {
+  const sc = simEncoderScenario()
+  return sc ? pickEncoderFields({ encoder: sc.encoder, encoderDevice: sc.encoderDevice, hwFallback: sc.hwFallback, hwFallbackReason: sc.hwFallbackReason }) : {}
+}
 
 /** 文件行在页面上的状态（探测 → 待转换 → 排队 / 转换中 → 结果） */
 export type RowState = 'waiting' | 'probing' | 'invalid' | 'conflict' | 'ready' | 'queued' | 'running' | 'succeeded' | 'failed' | 'interrupted' | 'canceled'
@@ -50,6 +58,11 @@ export interface RowTask {
   /** 开始 / 结束时间（ms）：完成态“用时”由前端用它们相减；0 或缺省 = 未知 */
   startedAt?: number
   finishedAt?: number
+  /** 契约 9.7 的编码器字段（可缺省） */
+  encoder?: string
+  encoderDevice?: string
+  hwFallback?: boolean
+  hwFallbackReason?: string
 }
 
 const VIDEO_CONTAINERS = ['mp4', 'mkv', 'mov', 'webm', 'avi', 'flv', 'gif']
@@ -533,7 +546,7 @@ export const useConvertStore = defineStore('convert', () => {
   // ---------------- 浏览器预览（无 window.go）：?convert=idle|files|probefail|running|done|failed ----------------
   function seedPreview(kind: string) {
     const mkTask = (id: string, status: TaskStatus, progress: number, extra: Partial<TaskItem> = {}) => normalizeTask({
-      id, type: 'convert', status, title: '', inputPaths: [], outputPath: '', progress, speed: '', etaSec: 0, params: '', version: 5, createdAt: Date.now() - 60000, startedAt: Date.now() - 30000, finishedAt: 0, ...extra,
+      id, type: 'convert', status, title: '', inputPaths: [], outputPath: '', progress, speed: '', etaSec: 0, params: '', version: 5, createdAt: Date.now() - 60000, startedAt: Date.now() - 30000, finishedAt: 0, ...simEncFields(), ...extra,
     } as TaskItem)
     const names = ['产品发布会_完整版.mov', 'vlog_杭州西湖.mkv', '访谈录音_第三期.wav', 'screen_record_0928.flv']
     const dir = '/Users/me/Movies/素材'
@@ -555,7 +568,7 @@ export const useConvertStore = defineStore('convert', () => {
         r.taskId = t.id
         r.label = presetShort.value
         if (fin) {
-          tasks.seedFinal({ id: t.id, status: t.status, error: t.error, outputPath: t.outputPath, progress: t.status === 'succeeded' ? 1 : t.progress, speed: '', etaSec: 0, startedAt: t.startedAt, finishedAt: Date.now(), params: t.params })
+          tasks.seedFinal({ id: t.id, status: t.status, error: t.error, outputPath: t.outputPath, progress: t.status === 'succeeded' ? 1 : t.progress, speed: '', etaSec: 0, startedAt: t.startedAt, finishedAt: Date.now(), params: t.params, ...pickEncoderFields(t) })
         } else tasks.track([t] as unknown as goStore.Task[])
       }
       const ok = (i: number, out: string) => put(i, mkTask(`pv${i}`, 'succeeded', 1, { outputPath: `${dir}/输出/${out}`, ...(kind === 'singledone' ? { startedAt: Date.now() - 302_000 } : {}) }), true)

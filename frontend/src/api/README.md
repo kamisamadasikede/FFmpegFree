@@ -29,7 +29,13 @@
 
 **编码设备显示规则**：`ENCODER_BACKEND_READY=false`时正式包（不论是否在 Wails 里）不渲染整块，也不出现模拟显卡名；`?enc=` 只在纯浏览器（没有 window.go）里有效。浏览器演示用 `?enc=<场景>`：`found`（默认）| `found-open` | `found-gpu` | `multi` / `multi-open`（多显卡：Intel 集显故意排在后端顺序前面，验证前端把独显排前）| `none` | `none-open` | `unavail` | `fail` | `noff` | `detecting`；`&fb=1` 额外显示“回退提示”三种展示的预览（仅展示）。
 
-**编码设备 · 回退提示接入点**（**本版只做展示组件，没有接线；留到后端第二个 PR 合入后与打开开关一起做，字段名暂定 `encoder` / `encoderDevice` / `hwFallback` / `hwFallbackReason`**）：`components/encoder/EncoderFallbackNotice.vue`，`variant`：`convert`（转换页进度面板上方）、`live`（直播页 Tab 条下方）、`row`（任务中心该任务行下方，末尾“查看日志”）；事件 `settings`（跳设置页 `#/settings/general`）、`log`、`close`（只影响本次会话）。接线需要后端提供：任务级标记（如任务事件 / `Task` 字段 `hwFallback`，**名字待契约**）表示“硬件编码失败已自动改用 CPU”，最好带原因供日志；直播需要在推流已回退时给出同样标记；回退是每任务提示一次还是每会话一次待产品确认。接线时只在 `ENCODER_BACKEND_READY` 为 true 且事件到达时才挂载，不改现有逻辑。
+**编码设备 · 回退提示与设备名（契约 v0.18 §9.7 / v0.19，已接线；`ENCODER_BACKEND_READY` 为 false 时整体不显示，PR B 才翻开关）**：
+- 字段：`Task` / `task:progress` / `task:status` 的 `encoder`（不展示）、`encoderDevice`、`hwFallback`、`hwFallbackReason`，全部 omitempty。合并在 `api/encoderTask.ts` 的 `mergeEncoderFields`：**逐字段、缺省不覆盖**（`hwFallback` 只有 true 才写，后端 false 不会出现在事件里）；回退时后端补发的 `running` status 带全四个字段，据此更新。终态快照（`FinalState`）也带这四个字段，转换页 / 剪辑导出结果处要用。
+- 显示规则（`encoderTask.ts`，自检在 `api.check.ts`）：只有 `startedAt > 0`（真的运行过）才显示回退提示和“使用的设备”——契约 v0.19：从未运行的任务（排队中取消、退出时还在排队）四字段仍是提交时解析的值，不能据此显示；`hwFallback=true` 才显示提示，`-c copy`（`encoder="copy"`）、两遍编码、VP9/GIF、宽或高超 4096 走 CPU 后端都不置 `hwFallback`，前端不猜。
+- 设备名：`encoderDevice` 在 `ListEncoderDevices` 里查 `name`；`cpu` → “CPU”；查不到 → “显卡”；**不显示 id，不显示 `encoder`，界面任何位置不出现编码器名**。
+- 接入点：转换页（`ConvertPage.vue` 进度面板上方的 `variant="convert"` 提示条，整批一条；进度面板 / 完成条里的“编码设备 xxx”）、剪辑导出（`ExportStrip.vue` 的提示条 + “编码设备 xxx”，文案 `ENCODER_FALLBACK_EXPORT`）、任务中心（该行下方 `variant="row"` 一行，“查看日志”打开日志面板；日志面板头显示设备名，回退时加 `hwFallbackReason` 对应的一句次要说明，未知枚举用通用兜底句）。文案在 `errors/encoderMessages.ts`（**待产品经理确认**），枚举与契约 9.7、后端 `hwenc.go` 一一对应。
+- **直播变体（`variant="live"`，`views/live/*`）暂未接线**：`v2-fe-live-preview` 分支另有人在改 `views/live/*`，等预览合入后再接（数据已就绪：直播任务的 `hwFallback` 在 store 里，直播只在第一条 progress 之前回退；任务中心行里直播任务的提示已用直播文案）。
+- 开发预览：`?enc=gpu-task | fb-nvenc | fb-unavail | fb-unknown | gpu-gone | copy-task | cpu-task`（仅纯浏览器，配合 `?convert=running` / `?tasks=5` / 剪辑导出）；设备列表场景（`found` / `multi` / …）不改任务。
 
 公共：`call.ts`（`AppError` 含 `reason` / `scheme` / `clipId` / `path`，`AppErrorCode` 全集，`BACKEND_ERROR_CODES`）、`taskTypes.ts`（Task / 事件载荷类型）、`sim.ts`（模拟任务引擎，走 `services/wails.ts` 的模拟事件总线，任务 store 已订阅，任务中心 / 角标能看到模拟任务）。
 

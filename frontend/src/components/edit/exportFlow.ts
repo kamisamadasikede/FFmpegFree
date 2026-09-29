@@ -8,7 +8,8 @@ import {
   TEXT, exportErrorView, exportNameError, formatClock, hasTransitionIgnored, isSilentWarning, isWindowsPlatform, normalizeWarnings, sanitizeNameInput, type EditWarning, type ExportErrorView,
 } from '@/utils/editLogic'
 import { fileBaseName } from '@/utils/format'
-import { useEditor, type StripView } from './editor'
+import { useEditor, type StripEncoder, type StripView } from './editor'
+import { pickEncoderFields } from '@/api/encoderTask'
 
 const PREVIEW_DIR = '/Users/me/Movies/FFmpegFree'
 
@@ -139,6 +140,10 @@ function create() {
     const c = current.value
     return !!c && (c.status === 'queued' || c.status === 'running')
   })
+  /** 状态条上的编码器信息（原始字段；是否显示、设备名怎么取由 ExportStrip 决定） */
+  function encOf(c: TaskItem | FinalState): StripEncoder {
+    return { ...pickEncoderFields(c), startedAt: c.startedAt }
+  }
   const strip = computed<StripView | null>(() => {
     if (forced.value) return dismissed.value && forced.value.kind !== 'run' ? null : forced.value
     if (localErr.value) return { kind: 'err', view: localErr.value, taskId: taskId.value }
@@ -147,10 +152,10 @@ function create() {
     const name = outName.value ? `${outName.value}.${(snap.value?.output.format || 'mp4')}` : fileBaseName(c.outputPath || '')
     if (c.status === 'queued' || c.status === 'running') {
       const pct = Math.max(0, Math.min(100, Math.round((c.progress > 0 ? c.progress : 0) * 100)))
-      return { kind: 'run', name, pct, speedText: c.speed || '', etaText: c.etaSec > 0 ? `剩余约 ${formatClock(c.etaSec)}` : '' }
+      return { kind: 'run', name, pct, speedText: c.speed || '', etaText: c.etaSec > 0 ? `剩余约 ${formatClock(c.etaSec)}` : '', enc: encOf(c) }
     }
     if (c.status === 'succeeded') {
-      return { kind: 'ok', name: fileBaseName(c.outputPath) || name, meta: meta.value, ignoredTransitions: hasTransitionIgnored(savedWarnings.value), outputPath: c.outputPath }
+      return { kind: 'ok', name: fileBaseName(c.outputPath) || name, meta: meta.value, ignoredTransitions: hasTransitionIgnored(savedWarnings.value), outputPath: c.outputPath, enc: encOf(c) }
     }
     if (c.status === 'canceled') return { kind: 'cx' }
     const err = ('error' in c ? c.error : null) ?? { code: 'INTERNAL', message: '', detail: '' }

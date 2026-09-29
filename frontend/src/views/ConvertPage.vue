@@ -2,6 +2,8 @@
   <div class="cv">
     <!-- 左：待转换文件 -->
     <section class="col">
+      <!-- 硬件编码失败已自动改用 CPU（契约 9.7）：整批只提示一条（批量时每个文件都回退也不刷屏） -->
+      <EncoderFallbackNotice v-if="fallbackShown" variant="convert" class="fbnote" @settings="router.push('/settings/general')" />
       <!-- 转换中：整体进度（设计稿 ?state=running 的 rprog） -->
       <div v-if="cv.mode === 'running'" class="panel rprog">
         <div class="top">
@@ -13,11 +15,12 @@
         <div class="meta">
           <span>速度<b>{{ cv.overall.speed || '—' }}</b></span>
           <span>当前文件剩余<b>{{ formatEta(cv.overall.etaSec) || '—' }}</b></span>
+          <span v-if="deviceText">{{ ENCODER_DEVICE_LABEL }}<b>{{ deviceText }}</b></span>
         </div>
       </div>
       <div v-else-if="cv.mode === 'done'" class="okline" role="status">
         <FIcon name="check" :size="16" />
-        <div class="okbody"><b>转换完成</b>{{ cv.succeededRows.length }} 个文件已保存<template v-if="elapsedText"> · 用时 {{ elapsedText }}</template><template v-if="cv.outputFolder"> · <span class="okdir" :title="cv.outputFolder">{{ cv.outputFolder }}</span></template><template v-else-if="cv.outputFolders.length > 1"> · <span :title="cv.outputFolders.join('\n')">{{ cv.outputFolders.length }} 个文件夹</span></template></div>
+        <div class="okbody"><b>转换完成</b>{{ cv.succeededRows.length }} 个文件已保存<template v-if="elapsedText"> · 用时 {{ elapsedText }}</template><template v-if="deviceText"> · {{ ENCODER_DEVICE_LABEL }} {{ deviceText }}</template><template v-if="cv.outputFolder"> · <span class="okdir" :title="cv.outputFolder">{{ cv.outputFolder }}</span></template><template v-else-if="cv.outputFolders.length > 1"> · <span :title="cv.outputFolders.join('\n')">{{ cv.outputFolders.length }} 个文件夹</span></template></div>
       </div>
 
       <div class="panel list-panel" :style="dropStyle">
@@ -202,6 +205,10 @@ import { MAX_SUBMIT, type PresetItem } from '@/api/convert'
 import { onFilesDropped } from '@/api/fileDrop'
 import { toAppError } from '@/api/call'
 import { hasWailsBackend } from '@/services/wails'
+import { useRouter } from 'vue-router'
+import EncoderFallbackNotice from '@/components/encoder/EncoderFallbackNotice.vue'
+import { showFallbackNotice, usedDeviceText, useEncoderDeviceList } from '@/api/encoderTask'
+import { ENCODER_DEVICE_LABEL } from '@/errors/encoderMessages'
 import { actionErrorText } from '@/errors/errorMessages'
 import { PREVIEW_CONVERT, splitPresetName, useConvertStore, type ConvertRow } from '@/stores/convert'
 import { useFFmpegStore } from '@/stores/ffmpeg'
@@ -310,6 +317,21 @@ const startLabel = computed(() => {
 // ---- 单文件完成态“用时” ----
 // 用时由前端自己算：任务开始到结束时间（startedAt → finishedAt）。只在整个列表就 1 个文件且已成功时显示；
 // 体积变化（源大小 → 输出大小）需要任务对象里有输出文件大小，目前没有，所以不做（也不向后端要字段）。
+const router = useRouter()
+const encDevices = useEncoderDeviceList()
+/** 有任务回退了 CPU（且真的运行过）就显示一条提示 */
+const fallbackShown = computed(() => cv.rows.some((r) => showFallbackNotice(cv.rowTask(r))))
+/** 转换中 / 完成后显示“设备”：正在运行（完成后：已成功）的任务用的设备名（多个设备时按出现顺序用“、”连接；没有就不显示） */
+const deviceText = computed(() => {
+  const names: string[] = []
+  for (const r of cv.rows) {
+    const t = cv.rowTask(r)
+    if (!t || t.status !== (cv.mode === 'done' ? 'succeeded' : 'running')) continue
+    const n = usedDeviceText(t, encDevices.value)
+    if (n && !names.includes(n)) names.push(n)
+  }
+  return names.join('、')
+})
 const elapsedText = computed(() => {
   if (cv.rows.length !== 1 || cv.succeededRows.length !== 1) return ''
   const t = cv.rowTask(cv.succeededRows[0])
@@ -702,6 +724,9 @@ void hasWailsBackend
 }
 
 /* 整体进度 / 完成提示 */
+.fbnote {
+  flex: none;
+}
 .rprog {
   padding: var(--ff-space-4);
   flex: none;
