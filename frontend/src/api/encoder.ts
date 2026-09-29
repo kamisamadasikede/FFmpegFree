@@ -7,10 +7,10 @@
  * 设备字段：id、name、vendor、kind、discrete（独显）、available、reason?，另有 encoders{h264,hevc}（内部编码器名，本文件丢弃，界面不显示 NVENC 这类名字）。
  * 偏好指向的设备不可用 / 不存在时，后端在列表**末尾**追加一项 available=false 的占位（id=偏好值，name=记下的名字）。
  *
- * 开关 ENCODER_BACKEND_READY（flags.ts，**保持 false**，等后端第二个 PR——转换 / 剪辑 / 直播真正使用所选设备——合入后再打开，见 flags.ts 与 api/README.md）：
- *   - false（不论在不在 Wails 里）：正式包设置页完全不显示“编码设备”。
- *   - false 且纯浏览器：默认也不显示；地址加 `?enc=` 才显示模拟层（仅开发 / 设计走查用；模拟的显卡名不给正式用户看）。在 Wails 里 `?enc=` 无效。
- *   - true 且在 Wails 里：调用真实绑定。
+ * 开关 ENCODER_BACKEND_READY（flags.ts，**已为 true**：后端第二个 PR #67 / #68 已合入，回退提示和设备名已接线 #69）：
+ *   - true 且在 Wails 里：设置页显示“编码设备”，调用真实绑定；`?enc=` 无效。
+ *   - 纯浏览器（没有 window.go）：默认不显示；地址加 `?enc=` 才显示模拟层（仅开发 / 设计走查用；模拟的显卡名不给正式用户看）。
+ *   - 开关改回 false（应急回滚）：不论在不在 Wails 里，正式包设置页和任务里都完全不显示编码设备相关界面。
  */
 import { callService } from '@/api/call'
 import { ENCODER_BACKEND_READY } from '@/api/flags'

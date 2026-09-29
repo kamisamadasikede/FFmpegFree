@@ -15,12 +15,12 @@ export const DOC_BACKEND_READY: boolean = true
  */
 export const ABOUT_BACKEND_READY: boolean = true
 /**
- * 编码设备（GPU 加速）。后端第一个 PR（#60，SystemService.ListEncoderDevices / RefreshEncoderDevices / GetEncoderPreference /
- * GetEncoderPreferenceInfo / SetEncoderPreference）已合入，设置页面板（components/encoder/EncoderDevicePanel.vue）已对着真实绑定写好，
- * **但本开关必须保持 false**：#60 只做检测和偏好，转换 / 剪辑 / 直播的编码参数还没用上所选设备，
- * 现在打开会让用户看到“能选显卡”却没有实际加速。
- * 打开条件：后端第二个 PR（转换、剪辑、直播真正按偏好使用硬件编码器，含任务的 encoder / encoderDevice / hwFallback / hwFallbackReason 字段）合入后，
- *   1) 核对 api/encoder.ts 与生成绑定；2) 接线回退提示（EncoderFallbackNotice）与任务详情里的编码器展示；3) 再把本开关改成 true。
- * false 时（不论在不在 Wails 里）正式包设置页完全不显示“编码设备”一块；仅开发 / 走查：纯浏览器（没有 window.go）地址加 `?enc=`（见 api/encoder.ts）看模拟层。
+ * 编码设备（GPU 加速）。**已打开（true）**：后端第一个 PR（#60，SystemService.ListEncoderDevices / RefreshEncoderDevices / GetEncoderPreference /
+ * GetEncoderPreferenceInfo / SetEncoderPreference）和第二个 PR（#67 / #68，契约 v0.18 / v0.19 §9.7：转换 / 剪辑 / 直播按偏好真正使用硬件编码器，
+ * 任务带 encoder / encoderDevice / hwFallback / hwFallbackReason）都已合入；设置页面板（components/encoder/EncoderDevicePanel.vue）、
+ * 回退提示与任务里的设备名（EncoderFallbackNotice、api/encoderTask.ts）都已对着真实绑定 / 事件接好（#64、#69）。
+ * true 且在 Wails 里：设置页显示“编码设备”一块，调用真实绑定，任务里显示回退提示和使用的设备名。
+ * 纯浏览器（没有 window.go）：默认仍不显示；地址加 `?enc=` 才显示模拟层（仅开发 / 走查用，见 api/encoder.ts）；在 Wails 里 `?enc=` 无效。
+ * 直播页的回退提示变体待 v2-fe-live-preview 合入后再接（见 api/README.md）。
  */
-export const ENCODER_BACKEND_READY: boolean = false
+export const ENCODER_BACKEND_READY: boolean = true
