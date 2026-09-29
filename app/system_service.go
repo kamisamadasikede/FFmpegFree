@@ -139,6 +139,12 @@ func (s *SystemService) GetEncoderPreference() (string, error) {
 	return s.mgr.GetEncoderPreference(s.encCtx()), nil
 }
 
+// GetEncoderPreferenceInfo 返回偏好的 {id, name, available, reason?}：设置页据此显示"自动 / CPU（软件编码） / 具体显卡名"。
+// 偏好指向的设备即使现在不可用或已不存在，也会带上保存偏好时记下的名字和不可用原因（此时实际编码会回退 CPU）。
+func (s *SystemService) GetEncoderPreferenceInfo() (system.EncoderPreferenceInfo, error) {
+	return s.mgr.GetEncoderPreferenceInfo(s.encCtx())
+}
+
 // SetEncoderPreference 保存编码器偏好。只接受 "auto"、"cpu" 和 ListEncoderDevices 里存在的设备 id，其他值 INVALID_ARGUMENT。
 // 本 PR 只保存偏好，转换 / 剪辑 / 直播的编码参数暂不使用它。
 func (s *SystemService) SetEncoderPreference(id string) error {

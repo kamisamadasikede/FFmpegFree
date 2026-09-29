@@ -23,7 +23,7 @@ var encoderLineRe = regexp.MustCompile(`^\s*V[A-Z.]{5}\s+(\S+)`)
 func parseEncodersList(out string) map[string]bool {
 	set := map[string]bool{}
 	for _, line := range strings.Split(out, "\n") {
-		if m := encoderLineRe.FindStringSubmatch(strings.TrimRight(line, "\r")); m != nil {
+		if m := encoderLineRe.FindStringSubmatch(strings.TrimRight(line, "\r")); m != nil && m[1] != "=" { // 图例行 "V..... = Video"
 			set[m[1]] = true
 		}
 	}

@@ -74,12 +74,13 @@ type Manager struct {
 
 	detectMu sync.Mutex // 串行化检测，避免并发 Recheck 互相覆盖
 
-	memMu   sync.Mutex // 保护下面两个内存兜底值（Settings 为 nil 时使用）
-	memPath string
-	memDism bool
-	memOut  string
-	memConc int
-	memEnc  string // 编码器偏好的内存兜底（Settings 为 nil 时使用）
+	memMu      sync.Mutex // 保护下面两个内存兜底值（Settings 为 nil 时使用）
+	memPath    string
+	memDism    bool
+	memOut     string
+	memConc    int
+	memEnc     string // 编码器偏好的内存兜底（Settings 为 nil 时使用）
+	memEncName string
 
 	enc encoderState // 硬件编码器检测缓存（encoders.go）
 

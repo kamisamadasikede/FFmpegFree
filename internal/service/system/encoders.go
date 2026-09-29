@@ -19,6 +19,9 @@ import (
 // SettingEncoderPreference 是 settings 表里保存编码器偏好的键。
 const SettingEncoderPreference = "encoderPreference"
 
+// SettingEncoderPreferenceName 记住偏好指向的设备名：显卡拔掉 / 驱动坏了之后，设置页仍能显示"选的是哪张卡"。
+const SettingEncoderPreferenceName = "encoderPreferenceName"
+
 // 偏好的两个固定值；其余取值必须是 ListEncoderDevices 返回的设备 id。
 const (
 	EncoderAuto = "auto"
@@ -194,6 +197,7 @@ func (m *Manager) GetEncoderPreference(ctx context.Context) string {
 // 校验设备 id 会用到检测结果：有缓存直接用，没有缓存时先检测一次（每个编码器最多 5 秒）。
 func (m *Manager) SetEncoderPreference(ctx context.Context, id string) error {
 	id = strings.TrimSpace(id)
+	name := ""
 	if id != EncoderAuto && id != EncoderCPU {
 		if !validEncoderID.MatchString(id) {
 			return apperr.New(apperr.InvalidArgument, "编码器偏好必须是 auto、cpu 或设备 id").WithDetail(id)
@@ -205,7 +209,7 @@ func (m *Manager) SetEncoderPreference(ctx context.Context, id string) error {
 		found := false
 		for _, d := range list.Devices {
 			if d.ID == id {
-				found = true
+				found, name = true, d.Name
 				break
 			}
 		}
@@ -218,14 +222,74 @@ func (m *Manager) SetEncoderPreference(ctx context.Context, id string) error {
 	m.mu.Unlock()
 	if st == nil {
 		m.memMu.Lock()
-		m.memEnc = id
+		m.memEnc, m.memEncName = id, name
 		m.memMu.Unlock()
 		return nil
 	}
 	if err := st.SetSetting(ctx, SettingEncoderPreference, id); err != nil {
 		return apperr.Wrap(apperr.IOError, "保存设置失败", err)
 	}
+	if err := st.SetSetting(ctx, SettingEncoderPreferenceName, name); err != nil {
+		return apperr.Wrap(apperr.IOError, "保存设置失败", err)
+	}
 	return nil
+}
+
+// EncoderPreferenceInfo 是当前偏好的可显示形式：设置页据此显示"自动 / CPU / 具体显卡名"。
+type EncoderPreferenceInfo struct {
+	ID string `json:"id"` // auto | cpu | 设备 id（与 GetEncoderPreference 一致）
+	// Name 是给人看的名字："自动"、"CPU（软件编码）"，或设备名。设备已不在列表里时用保存偏好时记下的名字；从没记过则为空。
+	Name string `json:"name"`
+	// Available 为 false 表示偏好指向的设备现在不可用（不存在 / 试跑失败），实际编码会回退 CPU。auto 和 cpu 恒为 true。
+	Available bool   `json:"available"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+// GetEncoderPreferenceInfo 返回偏好的 id、显示名和当前是否可用。ffmpeg 未就绪时没法判断可用性，
+// 设备偏好按 available=false、reason 说明处理，名字用保存的那个。
+func (m *Manager) GetEncoderPreferenceInfo(ctx context.Context) (EncoderPreferenceInfo, error) {
+	pref := m.GetEncoderPreference(ctx)
+	switch pref {
+	case EncoderAuto:
+		return EncoderPreferenceInfo{ID: pref, Name: "自动", Available: true}, nil
+	case EncoderCPU:
+		return EncoderPreferenceInfo{ID: pref, Name: cpuDevice().Name, Available: true}, nil
+	}
+	info := EncoderPreferenceInfo{ID: pref, Name: m.savedEncoderName(ctx)}
+	list, err := m.listEncoderDevices(ctx, false, false)
+	if err != nil {
+		return EncoderPreferenceInfo{}, err
+	}
+	if !list.FFmpegReady {
+		info.Reason = "ffmpeg 还没有就绪，暂时无法确认这个设备"
+		return info, nil
+	}
+	for _, d := range list.Devices {
+		if d.ID == pref {
+			info.Name, info.Available, info.Reason = d.Name, d.Available, d.Reason
+			return info, nil
+		}
+	}
+	info.Reason = missingDeviceReason
+	return info, nil
+}
+
+const missingDeviceReason = "没有检测到这个设备（可能已拔掉、驱动变化，或 ffmpeg 已更换）"
+
+func (m *Manager) savedEncoderName(ctx context.Context) string {
+	m.mu.Lock()
+	st := m.cfg.Settings
+	m.mu.Unlock()
+	if st == nil {
+		m.memMu.Lock()
+		defer m.memMu.Unlock()
+		return m.memEncName
+	}
+	var n string
+	if _, err := st.GetSetting(ctx, SettingEncoderPreferenceName, &n); err != nil {
+		return ""
+	}
+	return n
 }
 
 // ---------- ListEncoderDevices（带缓存） ----------
@@ -317,9 +381,13 @@ func (m *Manager) applyEncoderPref(ctx context.Context, devices []EncoderDevice,
 			return out
 		}
 	}
+	name := m.savedEncoderName(ctx)
+	if name == "" {
+		name = pref
+	}
 	return append(out, EncoderDevice{
-		ID: pref, Name: pref, Vendor: VendorUnknown, Kind: KindGPU,
-		Available: false, Reason: "没有检测到这个设备（可能已拔掉、驱动变化，或 ffmpeg 已更换）",
+		ID: pref, Name: name, Vendor: vendorFromID(pref), Kind: KindGPU,
+		Available: false, Reason: missingDeviceReason,
 	})
 }
 
@@ -374,4 +442,13 @@ func (e encoderEnv) run(ctx context.Context, timeout time.Duration, exe string, 
 // String 只为调试输出。
 func (d EncoderDevice) String() string {
 	return fmt.Sprintf("%s(%s,%s,available=%v,h264=%q,hevc=%q)", d.ID, d.Name, d.Vendor, d.Available, d.Encoders.H264, d.Encoders.HEVC)
+}
+
+// vendorFromID 从 "<vendor>-<n>" 形式的设备 id 推断厂商，认不出来是 unknown。
+func vendorFromID(id string) string {
+	v, _, _ := strings.Cut(id, "-")
+	if _, ok := vendorOrder[v]; ok {
+		return v
+	}
+	return VendorUnknown
 }
