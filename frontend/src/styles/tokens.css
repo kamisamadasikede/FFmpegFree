@@ -20,9 +20,10 @@
   --ff-on-primary: #ffffff; /* 主色底上的文字（主按钮等） */
   --ff-badge-bg: #2f5cd9; /* 白字 4.44:1 不够，浅色主题角标用 primary-hover（≈5.0:1） */
   --ff-on-danger: #ffffff; /* 危险色底上的文字（删除 / 清除按钮） */
+  --ff-switch-knob: #ffffff; /* 开关滑块，两个主题都是白色（--ff-on-primary 在暗色下是近黑） */
 
   /* JSON 语法色（工具页代码 / 树形共用），来源：设计原型 extra.css */
-  --ff-syntax-key: #2f5cd9;
+  --ff-syntax-key: var(--ff-primary-text);
   --ff-syntax-string: #15803d;
   --ff-syntax-number: #c2410c;
   --ff-syntax-bool: #7c3aed;
@@ -90,8 +91,9 @@ html.dark,
   --ff-on-primary: #0b0c0e; /* 白字在 #5b8cff 上只有 3.16:1 */
   --ff-badge-bg: #5b8cff; /* 配近黑字 6.2:1 */
   --ff-on-danger: #0b0c0e; /* 白字在 #ef4444 上只有 3.76:1 */
+  --ff-switch-knob: #ffffff;
 
-  --ff-syntax-key: #7aa2ff;
+  --ff-syntax-key: var(--ff-primary-text);
   --ff-syntax-string: #7ec699;
   --ff-syntax-number: #f5a860;
   --ff-syntax-bool: #c792ea;
