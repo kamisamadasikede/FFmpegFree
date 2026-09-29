@@ -51,7 +51,7 @@ export const TEXT = {
   exportEmptyTip: '先把素材加到时间线才能导出',
   saveEmptyTip: '没有可保存的内容',
   ffmpegTip: '需要先安装 ffmpeg',
-  warningGeneric: '有一处会被自动调整，不影响导出。',
+  warningGeneric: '存在提示',
   transitionOver: '转场不能超过较短片段的一半',
   transitionTooShort: '相邻片段太短，放不下转场',
   transitionIgnored: '有片段太短，转场没有生效',
@@ -248,6 +248,8 @@ export function parseTC(text: string): number | null {
 }
 
 // ───────── 文件名 / 路径 ─────────
+/** 文件名输入框预填 / 净化前的整理：去首尾空白，最多 100 字符（输入时非法字符不阻止，导出前后端净化） */
+export const sanitizeNameInput = (name: string) => [...name.trim()].slice(0, MAX_NAME_CHARS + 20).join('')
 export const nameLength = (name: string) => [...name].length
 export const nameTooLong = (name: string) => nameLength(name) > MAX_NAME_CHARS
 /** 整条输出路径（含扩展名和最坏情况的 " (1)" 后缀）是否超过 Windows 的 259；只在 Windows 计算 */
@@ -272,6 +274,7 @@ export interface EditWarning {
 }
 /** 已知 code → 文案（按 code 出文案；未知 code 用通用文案）。label 是“片段 3”/“V1 片段 3”，找不到片段时为空 */
 export const WARNING_TEXT: Record<string, (label: string) => string> = {
+  TRANSITION_IGNORED: () => TEXT.transitionIgnored,
   OUT_TRUNCATED: (label) => `${label || '有一个片段'} 的出点超过素材时长，导出时会截到素材结尾。`,
 }
 /**

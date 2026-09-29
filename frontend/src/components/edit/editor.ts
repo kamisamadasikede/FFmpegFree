@@ -32,7 +32,7 @@ export type DialogState =
   | null
   | { kind: 'removeSource'; path: string; n: number }
   | { kind: 'deleteClips'; ids: string[] }
-  | { kind: 'unsaved'; then: () => void }
+  | { kind: 'unsaved'; then: () => void; cancel?: () => void }
 
 export interface ToastState {
   text: string
@@ -351,6 +351,8 @@ function create() {
   const playing = ref(false)
   const muted = ref(false)
   const previewError = ref(false)
+  /** 浏览器预览钩子：锁定预览失败态（点“重新加载”解锁） */
+  const previewLocked = ref(false)
   const previewUrl = ref('')
   let previewSrc: PreviewSource | null = null
   let previewSrcPath = ''
@@ -371,6 +373,7 @@ function create() {
   })
   const previewPath = computed(() => (previewMode.value === 'source' ? previewSource.value?.path : selected.value?.path ?? clipAtPlayhead.value?.path) ?? '')
   async function loadPreview(force = false) {
+    if (previewLocked.value && !force) return
     const path = previewPath.value
     if (!path) {
       previewError.value = false
@@ -401,6 +404,7 @@ function create() {
     previewError.value = true
   }
   async function reloadPreview() {
+    previewLocked.value = false
     await loadPreview(true)
   }
   async function revealPreviewFile() {
@@ -545,7 +549,7 @@ function create() {
       const n = nextTouching(allClips.value, c)
       return n ? maxTransitionSec(c, n) : 0
     },
-    sourceDrag, hooks, previewMode, previewTime, playing, muted, previewError, previewUrl, previewSource, previewDuration, previewCurrent, clipAtPlayhead, previewPath, loadPreview, onMediaError, reloadPreview,
+    sourceDrag, hooks, previewMode, previewTime, playing, muted, previewError, previewLocked, previewUrl, previewSource, previewDuration, previewCurrent, clipAtPlayhead, previewPath, loadPreview, onMediaError, reloadPreview,
     revealPreviewFile, play, stop, togglePlay, selectClip, previewSourceRow, stepFrame, saving, currentProject, save, refreshProjects, openProject, newProject,
     clipLen, formatClock,
   }

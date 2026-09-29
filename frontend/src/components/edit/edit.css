@@ -274,8 +274,7 @@
 .ed-list { overflow-y: auto; }
 .ed-list .ed-note-inline { font-size: 12px; color: var(--ff-text-2); padding: 4px 8px; }
 .ed-drop.over { border-color: var(--ff-primary); background: var(--ff-primary-soft); }
-.ed-bin { --wails-drop-target: drop; }
-.ed-hero { --wails-drop-target: drop; }
+.ed-root { --wails-drop-target: drop; }
 .ed-player.ed-preview { background: var(--ff-player-bg); }
 .ed-preview :deep(.stage) { container-type: size; padding: 12px; }
 .ed-hero .ed-btn.pri { margin-top: 4px; }
@@ -388,3 +387,14 @@ select.ed-in { padding-right: 24px; background-image: linear-gradient(45deg, tra
 .ed-lanes-hint { z-index: 1; }
 .ed-limitline { z-index: 4; }
 .ed-empty-tip { position: absolute; }
+.ed-scene { position: absolute; inset: 0; width: auto; height: auto; aspect-ratio: auto; border-radius: 0; }
+.ed-preview-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; position: relative; }
+.ed-preview-wrap > .ff-player { min-width: 0; }
+.ed-preview-wrap .ed-chip { pointer-events: none; }
+.ed-perr { background: var(--ff-player-scrim); }
+.ed-buffering { position: absolute; right: 12px; bottom: 8px; z-index: 2; font-size: 12px; color: var(--ff-player-fg); background: var(--ff-player-scrim); padding: 0 8px; height: 20px; border-radius: 4px; display: flex; align-items: center; }
+
+.ed-top-hero { flex: 1; min-width: 0; }
+.ed-pbar .ed-name { max-width: 100%; }
+.ed-name .ed-cnt2 { font-size: 12px; font-weight: 400; color: var(--ff-text-2); flex: none; }
+.ed-hero { border-radius: 10px; }

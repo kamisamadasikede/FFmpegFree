@@ -2,7 +2,7 @@
   <section class="ed-panel ed-tl" aria-label="时间线">
     <!-- 工具栏：切割 / 删除 | 吸附 / 轨道 | 缩放 -->
     <div class="ed-tb" role="toolbar" aria-label="时间线工具栏">
-      <button type="button" class="ed-tbtn" :class="{ tp: splitOff && ed.clipsFull.value }" aria-label="在播放头处切割（S）" :title="splitOff ? undefined : '在播放头处切割（S）'" :aria-disabled="splitOff ? 'true' : undefined" :data-tip="splitOff || undefined" @click="doSplit">
+      <button type="button" class="ed-tbtn" aria-label="在播放头处切割（S）" :title="splitOff ? undefined : '在播放头处切割（S）'" :aria-disabled="splitOff ? 'true' : undefined" :data-tip="splitOff || undefined" @click="doSplit">
         <FIcon name="split" :size="16" /><span class="tx">切割</span>
       </button>
       <button type="button" class="ed-tbtn" aria-label="删除所选片段（Delete）" :title="delOff ? undefined : '删除所选片段（Delete）'" :aria-disabled="delOff ? 'true' : undefined" :data-tip="delOff || undefined" @click="doDelete">

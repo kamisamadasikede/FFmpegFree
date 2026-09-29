@@ -28,8 +28,8 @@ export { EDIT_BACKEND_READY }
 export const editIsReal = (): boolean => EDIT_BACKEND_READY && hasWailsBackend()
 
 /**
- * 素材库上限（个）。产品经理先定 100；后端现状 sources ≤ 200、片段总数 ≤ 100，“100”指素材文件还是片段还没最终答复。
- * 全站（界面计数 x/100、导入拦截、提示文案、SaveProject 模拟校验）都读这个常量，结论出来只改这一行。
+ * 素材库上限（个）：产品经理已定“素材文件数（sources）最多 100，片段总数最多 100”，后端超过时返回 INVALID_ARGUMENT。
+ * 全站（界面计数 x/100、导入拦截、提示文案、SaveProject 模拟校验）都读这个常量，口径变化只改这一行。
  */
 export const MAX_SOURCES = 100
 // ───────────── 契约类型（§6.11.1，字段一一对应）─────────────
