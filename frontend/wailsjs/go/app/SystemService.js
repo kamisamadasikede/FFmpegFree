@@ -6,6 +6,14 @@ export function CancelFFmpegInstall() {
   return window['go']['app']['SystemService']['CancelFFmpegInstall']();
 }
 
+export function GetEncoderPreference() {
+  return window['go']['app']['SystemService']['GetEncoderPreference']();
+}
+
+export function GetEncoderPreferenceInfo() {
+  return window['go']['app']['SystemService']['GetEncoderPreferenceInfo']();
+}
+
 export function GetFFmpegStatus() {
   return window['go']['app']['SystemService']['GetFFmpegStatus']();
 }
@@ -22,6 +30,10 @@ export function InstallFFmpeg(arg1) {
   return window['go']['app']['SystemService']['InstallFFmpeg'](arg1);
 }
 
+export function ListEncoderDevices() {
+  return window['go']['app']['SystemService']['ListEncoderDevices']();
+}
+
 export function PickDirectory(arg1) {
   return window['go']['app']['SystemService']['PickDirectory'](arg1);
 }
@@ -34,8 +46,16 @@ export function RecheckFFmpeg() {
   return window['go']['app']['SystemService']['RecheckFFmpeg']();
 }
 
+export function RefreshEncoderDevices() {
+  return window['go']['app']['SystemService']['RefreshEncoderDevices']();
+}
+
 export function RevealInFolder(arg1) {
   return window['go']['app']['SystemService']['RevealInFolder'](arg1);
+}
+
+export function SetEncoderPreference(arg1) {
+  return window['go']['app']['SystemService']['SetEncoderPreference'](arg1);
 }
 
 export function SetFFmpegPath(arg1) {
