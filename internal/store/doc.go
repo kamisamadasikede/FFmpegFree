@@ -25,12 +25,17 @@ const (
 )
 
 // UpsertDocRecent 按 path_key 写入：同一个文件再次打开保留原来的 id，只更新名称、大小和打开时间。
-// pathKey 由调用方用 paths.Normalize 生成。写入后只保留最近 DefaultDocRecentKeep 条。
+// pathKey 由调用方用 paths.Normalize 生成。写入与清理在同一事务里，只保留最近 DefaultDocRecentKeep 条。
 func (s *Store) UpsertDocRecent(ctx context.Context, pathKey string, r DocRecent) (DocRecent, error) {
 	if r.OpenedAt == 0 {
 		r.OpenedAt = time.Now().UnixMilli()
 	}
-	err := s.db.QueryRowContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return DocRecent{}, err
+	}
+	defer tx.Rollback()
+	err = tx.QueryRowContext(ctx, `
 		INSERT INTO doc_recent (id, path, path_key, name, size, opened_at) VALUES (?,?,?,?,?,?)
 		ON CONFLICT(path_key) DO UPDATE SET
 			path=excluded.path, name=excluded.name, size=excluded.size, opened_at=excluded.opened_at
@@ -43,10 +48,13 @@ func (s *Store) UpsertDocRecent(ctx context.Context, pathKey string, r DocRecent
 	if keep <= 0 {
 		keep = DefaultDocRecentKeep
 	}
-	if _, err := s.db.ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM doc_recent WHERE id NOT IN (
 			SELECT id FROM doc_recent ORDER BY opened_at DESC, id DESC LIMIT ?)`, keep); err != nil {
 		return DocRecent{}, fmt.Errorf("清理旧的最近 PDF 记录失败: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return DocRecent{}, err
 	}
 	return r, nil
 }

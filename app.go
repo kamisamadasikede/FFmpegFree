@@ -7,6 +7,7 @@ import (
 	"FFmpegFree/internal/localassets"
 	"FFmpegFree/internal/paths"
 	"FFmpegFree/internal/service/convert"
+	"FFmpegFree/internal/service/doc"
 	"FFmpegFree/internal/service/media"
 	"FFmpegFree/internal/service/system"
 	"FFmpegFree/internal/store"
@@ -32,12 +33,16 @@ type App struct {
 	tasks      atomic.Pointer[task.Manager]
 	media      atomic.Pointer[media.Service]
 	conv       atomic.Pointer[convert.Service]
+	docs       atomic.Pointer[doc.Service]
 	// local 是 /local/<token> 预览登记表，Edit 与 Doc 共用；main.go 把它的 Handler 挂到 AssetServer。
 	local *localassets.Registry
 }
 
 // localAssets 返回 /local/<token> 登记表（NewApp 时创建，永不为 nil）。小写，不会被 Wails 暴露。
 func (a *App) localAssets() *localassets.Registry { return a.local }
+
+// docService 返回文档服务；OnStartup 完成前为 nil。小写，不会被 Wails 暴露。
+func (a *App) docService() *doc.Service { return a.docs.Load() }
 
 // taskManager 返回任务管理器；OnStartup 完成前（或存储初始化失败时）为 nil。
 // 首字母小写，不会被 Wails 当作绑定方法暴露给前端。
@@ -70,6 +75,7 @@ func (a *App) startup(ctx context.Context) {
 	a.startTasks(ctx)
 	a.startMedia()
 	a.startConvert(ctx)
+	a.startDoc()
 	a.startFFmpegDetect(ctx)
 }
 
@@ -126,6 +132,23 @@ func (a *App) startConvert(ctx context.Context) {
 		return
 	}
 	a.conv.Store(svc)
+}
+
+// startDoc 创建文档服务（Office 转 PDF、PDF 预览）：不依赖 ffmpeg；需要任务管理器才能提交转换，
+// 存储不可用时 OpenPDF 仍可用，只是不记录最近打开。
+func (a *App) startDoc() {
+	cfg := doc.Config{
+		Local:            a.localAssets(),
+		DefaultOutputDir: a.sys.DefaultOutputDir,
+		DataDir:          a.dirs.Root,
+	}
+	if a.store != nil { // 避免把 nil *Store 装进接口
+		cfg.Recent = a.store
+	}
+	if tm := a.taskManager(); tm != nil {
+		cfg.Tasks = tm
+	}
+	a.docs.Store(doc.New(cfg))
 }
 
 // startFFmpegDetect 在后台检测 ffmpeg，不阻塞界面；状态变化通过 ffmpeg:status 事件推送。
