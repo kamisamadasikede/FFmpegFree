@@ -118,6 +118,22 @@ export const useTaskStore = defineStore('tasks', () => {
     if (finishedVersions.size > 500) finishedVersions.delete(finishedVersions.keys().next().value as string)
   }
 
+  /**
+   * 已收到 task:removed（或本地 remove()/clearFinished 已删除）的任务 id。
+   * 任务 id 不复用，task:removed 又没有 version，所以之后到达的该 id 的 created/status/progress 一律丢弃，
+   * 包括缓冲回放和 Get 补齐。Set 按插入顺序保存，超过上限时淘汰最旧的。
+   */
+  const REMOVED_CAP = 2000
+  const removedIds = new Set<string>()
+  function markRemoved(ids: Iterable<string>) {
+    for (const id of ids) {
+      removedIds.delete(id) // 重新插入，刷新它在淘汰顺序里的位置
+      removedIds.add(id)
+      finishedVersions.delete(id)
+    }
+    while (removedIds.size > REMOVED_CAP) removedIds.delete(removedIds.values().next().value as string)
+  }
+
   // 活动列表：运行中在前（新开始的在前，与原型一致），排队的在后（先提交的在前 = 队列顺序）
   const active = computed<TaskItem[]>(() =>
     Object.values(byId).sort((a, b) => {
@@ -260,11 +276,12 @@ export const useTaskStore = defineStore('tasks', () => {
   const recovering = new Set<string>()
   /** 收到未知任务的非终态事件时，用 Get 补齐（正常订阅顺序下极少发生） */
   async function recover(id: string) {
-    if (recovering.has(id) || !hasWailsBackend()) return
+    if (recovering.has(id) || removedIds.has(id) || !hasWailsBackend()) return
     recovering.add(id)
     try {
       const t = normalizeTask(await call(TaskBinding.Get(id)))
-      if (!isTerminal(t.status) && !byId[id]) {
+      // Get 期间可能收到了 task:removed，此时结果作废
+      if (!removedIds.has(id) && !isTerminal(t.status) && !byId[id]) {
         byId[id] = t
         syncInstall(t)
       }
@@ -277,6 +294,7 @@ export const useTaskStore = defineStore('tasks', () => {
 
   function applyCreated(raw: goStore.Task) {
     const t = normalizeTask(raw)
+    if (removedIds.has(t.id)) return
     const cur = byId[t.id]
     if (cur && cur.version >= t.version) return
     if ((finishedVersions.get(t.id) ?? -1) >= t.version) return
@@ -286,6 +304,7 @@ export const useTaskStore = defineStore('tasks', () => {
   }
 
   function applyProgress(p: ProgressPayload) {
+    if (removedIds.has(p.id)) return
     const cur = byId[p.id]
     if (!cur) {
       if (!finishedVersions.has(p.id)) recover(p.id)
@@ -301,6 +320,7 @@ export const useTaskStore = defineStore('tasks', () => {
   }
 
   function applyStatus(p: StatusPayload) {
+    if (removedIds.has(p.id)) return
     const cur = byId[p.id]
     if (!cur) {
       if (isTerminal(p.status)) {
@@ -333,6 +353,7 @@ export const useTaskStore = defineStore('tasks', () => {
 
   function applyRemoved(p: RemovedPayload) {
     const ids = new Set(p.ids ?? [])
+    markRemoved(ids)
     for (const id of ids) delete byId[id]
     if (history.value.some((t) => ids.has(t.id))) scheduleRefresh()
     else if (statsLoaded) scheduleRefresh()
@@ -351,6 +372,8 @@ export const useTaskStore = defineStore('tasks', () => {
   let buffer: BufferedEvent[] | null = null
   let started = false
   function handle(ev: BufferedEvent) {
+    // removed 没有 version，缓冲期间也立刻登记，保证回放时该 id 的 created/status/progress 被丢弃
+    if (ev.kind === 'removed') markRemoved(ev.payload.ids ?? [])
     if (buffer) buffer.push(ev)
     else apply(ev)
   }
@@ -368,6 +391,7 @@ export const useTaskStore = defineStore('tasks', () => {
       const seen = new Set<string>()
       for (const raw of list ?? []) {
         const t = normalizeTask(raw)
+        if (removedIds.has(t.id)) continue
         seen.add(t.id)
         const cur = byId[t.id]
         if (!cur || cur.version < t.version) byId[t.id] = t
@@ -453,6 +477,7 @@ export const useTaskStore = defineStore('tasks', () => {
       return
     }
     await call(TaskBinding.Remove(ids, deleteOutput))
+    markRemoved(ids)
     // task:removed 事件也会到；本地先更新，避免界面等一个来回
     applyRemoved({ ids })
     history.value = history.value.filter((t) => !ids.includes(t.id))
@@ -466,6 +491,8 @@ export const useTaskStore = defineStore('tasks', () => {
       return
     }
     await call(TaskBinding.ClearFinished())
+    // 已加载的历史都是终态任务，全部被清除；没加载的靠后端发来的 task:removed 登记
+    markRemoved(history.value.map((t) => t.id))
     history.value = []
     historyTotal.value = 0
     historyFilter.page = 1
