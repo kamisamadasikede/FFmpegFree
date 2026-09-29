@@ -279,8 +279,11 @@ export const useTaskStore = defineStore('tasks', () => {
       })
       const page = await call(TaskBinding.List(filter))
       if (seq !== historySeq) return // 更晚的请求已发出
-      history.value = (page.items ?? []).map(normalizeTask).filter((t) => isKnownTaskType(t.type)) // 旧 / 未知类型忽略
-      historyTotal.value = page.total ?? 0
+      const real = (page.items ?? []).map(normalizeTask).filter((t) => isKnownTaskType(t.type)) // 旧 / 未知类型忽略
+      // 合并接口层模拟的历史（新的在前）：第一页放在最前面；总数加上模拟条数，翻页时后端 offset 不变，只是第一页多几行
+      const sim = listSimFinished().map((t) => normalizeTask(t as unknown as goStore.Task)).filter((t) => historyMatches(t))
+      history.value = historyFilter.page === 1 ? [...sim, ...real] : real
+      historyTotal.value = (page.total ?? 0) + sim.length
       historyError.value = null
       // 删除后当前页可能已经没数据了，退回最后一页
       if (!history.value.length && historyTotal.value > 0 && historyFilter.page > 1) {
@@ -503,7 +506,8 @@ export const useTaskStore = defineStore('tasks', () => {
         syncInstall(byId[t.id])
       }
       // 本地有、服务端已经没有的（期间结束了）：终态由缓冲里的 task:status 或历史刷新处理
-      for (const id of Object.keys(byId)) if (!seen.has(id)) delete byId[id]
+      // 接口层模拟任务（开关为 false 时的直播 / 剪辑 / 文档）不在后端的 ListActive 里，不能清掉
+      for (const id of Object.keys(byId)) if (!seen.has(id) && !isSimTask(id)) delete byId[id]
     } catch (e) {
       loadError.value = normalizeError(toAppError(e))
       console.error('TaskService.ListActive failed', e)
