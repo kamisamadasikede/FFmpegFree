@@ -666,6 +666,7 @@ schema_migrations(version PK, applied_at)
 | 8 | Windows：`EnumWindows` 过滤后的窗口列表是否合理（无任务栏 / 桌面 / 输入法 / 系统浮层，UWP 应用与最大化窗口能列出）；FFmpegFree 自己的窗口不出现 | 6.10「采集来源」 | Windows 上调 `ListCaptureSources`，与任务栏里的窗口对照 | 调整 `filterCaptureWindows` 的类名 / 样式过滤（不改契约结构） |
 | 9 | Windows：gdigrab `title=` 采窗口——被其他窗口遮挡时内容是否正常、最小化后行为（黑屏 / 报错 / 冻结）、窗口移到副屏 / 高 DPI（125%~200% 缩放）时画面尺寸和清晰度；同标题多窗口命中哪一个；标题含引号、`&`、中文时能否找到窗口 | 同上 | 各推一次，观察播放端画面 | 遮挡 / 高 DPI 问题另出契约变更（如改用 `hwnd=`、DPI 感知清单）；同标题问题在前端提示或后端过滤 |
 | 10 | Windows 多显示器：副屏在主屏左侧 / 上方（负偏移）、两块屏缩放不同时，`offset_x` / `offset_y` / `video_size` 是否对准该显示器（进程是否 DPI 感知影响 `GetMonitorInfoW` 的坐标口径） | 同上、6.10「采集能力检测」 | 双屏各选一块推流 | 改用物理像素坐标（进程声明 DPI 感知）或按缩放换算 |
+| 11 | （v0.15）Windows 上预览输出的耗时（首帧时间、`GetPreview` 单次读取耗时）；高分辨率（4K）采集 / 硬字幕 / `-c copy` 场景下预览额外占用的 CPU；WebView 里每 500ms 轮询 `GetPreview`（base64 JPEG 经 IPC）的开销 | 6.10「预览画面」 | Windows 真机推流 1080p / 4K 屏幕，观察任务管理器 CPU、`GetPreview` 耗时、前端轮询时界面是否卡顿 | 降低 `fps` / 宽度常量、前端降低轮询频率，或在开销过大时默认 `preview=false`（需另出契约变更） |
 
 ### 6.10.2 实现清单（给 #31 / #30 对照；不是新接口；"现状"列已按 `origin/v2` 的 `2f0c0a4`（含已合并的 #31 第一部分）更新）
 

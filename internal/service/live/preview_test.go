@@ -306,7 +306,7 @@ func TestStartPullPreviewValidationAndLimits(t *testing.T) {
 	}
 	// 同一地址幂等。
 	s1, err := f.svc.StartPullPreview(context.Background(), PullPreviewRequest{URL: "http://127.0.0.1:9/live/a.flv"})
-	if err != nil || !s1.Preview || s1.Redacted == "" || strings.Contains(s1.Redacted, "a.flv") && false {
+	if err != nil || !s1.Preview || s1.Redacted == "" {
 		t.Fatalf("%+v %v", s1, err)
 	}
 	s2, err := f.svc.StartPullPreview(context.Background(), PullPreviewRequest{URL: "http://127.0.0.1:9/live/a.flv"})
@@ -315,7 +315,7 @@ func TestStartPullPreviewValidationAndLimits(t *testing.T) {
 	}
 	f.waitPullArgs(t)
 	args := f.args(t)
-	if !strings.Contains(strings.Join(args, " "), "-nostdin -progress pipe:1 -protocol_whitelist http,https,tcp,tls,crypto -i http://127.0.0.1:9/live/a.flv") || previewArg(args) == "" {
+	if !strings.Contains(strings.Join(args, " "), "-nostdin -progress pipe:1 -protocol_whitelist http,https,tcp,tls,crypto -fflags +nobuffer -analyzeduration 1000000 -probesize 1000000 -i http://127.0.0.1:9/live/a.flv") || previewArg(args) == "" {
 		t.Fatalf("拉流预览参数: %v", args)
 	}
 	if got := previewArg(args); got != filepath.Join(f.svc.cfg.PreviewDir, s1.ID+".jpg") {
