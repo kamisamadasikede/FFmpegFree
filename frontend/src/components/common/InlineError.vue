@@ -1,18 +1,21 @@
 <template>
-  <div class="ff-inline-error" role="alert">
+  <div :id="errorId" class="ff-inline-error" role="alert">
     <FIcon name="warn" :size="14" />
-    <span>{{ resolved.title }}。{{ resolved.description }}</span>
+    <span>{{ resolved.title }}。{{ description ?? resolved.description }}</span>
   </div>
 </template>
 
 <script setup lang="ts">
 // 表单行内错误：一行红字，样式来自 proto/errors.html 的 .ferr。
 // 输入框变红请给输入框（或 el-input）加 class "ff-input-bad"，样式见下方全局部分。
-import { computed } from 'vue'
+import { computed, inject } from 'vue'
 import FIcon from '../icon/FIcon.vue'
 import { resolveError } from '../../errors/errorMessages'
 
-const props = defineProps<{ code: string; message?: string }>()
+const props = defineProps<{ code: string; message?: string; id?: string; description?: string }>()
+// 放在表单项（LiveField）里时自动取它提供的错误行 id，供输入框 aria-describedby 关联
+const fieldErrorId = inject<string | undefined>('ff-field-error-id', undefined)
+const errorId = computed(() => props.id ?? fieldErrorId)
 const resolved = computed(() => resolveError(props.code, props.message))
 </script>
 

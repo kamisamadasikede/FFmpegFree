@@ -1,5 +1,5 @@
 <template>
-  <div class="ff-player">
+  <div class="ff-player" :class="{ fill }">
     <div class="stage">
       <!-- 16:9 画面区。放 <video> / mpegts 的 video 元素 / 预览画面，默认铺满 -->
       <div class="frame"><slot /></div>
@@ -33,7 +33,7 @@
       </template>
       <template v-else>
         <!-- 状态模式（录屏推流）：没有进度条，左侧是状态，右侧是音量 / 开关 / 全屏 -->
-        <span class="ci rec"><FIcon name="rec" :size="17" /></span>
+        <span class="ci" :class="{ rec: statusIcon === 'rec' }"><FIcon :name="statusIcon" :size="17" /></span>
         <span class="tc"><slot name="status">{{ statusText }}</slot> <em v-if="statusHint">· {{ statusHint }}</em></span>
         <span class="grow"></span>
       </template>
@@ -53,6 +53,7 @@
 // 样式来自 proto/extra.css 的 .player / .stage / .ctrl。
 import { computed, ref } from 'vue'
 import FIcon from '../icon/FIcon.vue'
+import type { IconName } from '../icon/icons'
 
 const props = withDefaults(
   defineProps<{
@@ -65,8 +66,12 @@ const props = withDefaults(
     statusHint?: string
     /** 时间码里“帧”的进制，原型的 00:01:12.08 是 25fps 的帧号 */
     fps?: number
+    /** status 模式左侧图标，默认录制红点；拉流播放用 play */
+    statusIcon?: IconName
+    /** 撑满父容器高度：画面 16:9 居中留黑边（直播页用）；默认按宽度算 16:9 高度（编辑页用） */
+    fill?: boolean
   }>(),
-  { mode: 'vod', fps: 25 },
+  { mode: 'vod', fps: 25, statusIcon: 'rec', fill: false },
 )
 
 const playing = defineModel<boolean>('playing', { default: false })
@@ -129,6 +134,25 @@ function onSeekDown(e: PointerEvent) {
 </script>
 
 <style scoped>
+/* fill：对应原型直播页的 .player{flex:1} + .stage{display:grid;place-items:center} + .frame{aspect-ratio:16/9} */
+.ff-player.fill {
+  flex: 1;
+  min-height: 0;
+}
+.fill .stage {
+  aspect-ratio: auto;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+}
+.fill .frame {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  max-height: 100%;
+  aspect-ratio: 16 / 9;
+}
 /* 播放器区域固定深色，不跟主题 */
 .ff-player {
   background: #0b0c0e;
@@ -164,7 +188,7 @@ function onSeekDown(e: PointerEvent) {
   background: linear-gradient(0deg, #16171b, #131417);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--ff-space-3);
   padding: 0 14px;
   color: #d6d9de;
   flex: none;
@@ -190,6 +214,9 @@ function onSeekDown(e: PointerEvent) {
   stroke: #111;
 }
 .ci {
+  /* 点击热区 28×28，图标视觉尺寸（17px）不变 */
+  width: 28px;
+  height: 28px;
   color: #aeb3bb;
   display: grid;
   place-items: center;
@@ -247,7 +274,7 @@ function onSeekDown(e: PointerEvent) {
   background: #fff;
   box-shadow: 0 0 0 3px rgba(91, 140, 255, 0.35);
 }
-.chip {
+.ctrl .chip {
   height: 22px;
   padding: 0 var(--ff-space-2) !important;
   border-radius: var(--ff-radius-sm);

@@ -1,5 +1,6 @@
 <template>
   <div class="pdf-page-container">
+    <MigrationNotice class="mig" text="PDF 上传和历史文件正在迁移到 v2，暂不可用；仍可输入网络地址远程加载。" />
     <div class="control-panel">
       <el-row :gutter="20" align="middle">
         <el-col :span="10">
@@ -9,8 +10,9 @@
             :http-request="customUpload"
             :show-file-list="false"
             :before-upload="beforeUploadCheck"
+            :disabled="!V1_API_READY"
           >
-            <el-button type="primary" :icon="UploadFilled">上传 PDF</el-button>
+            <el-button type="primary" :icon="UploadFilled" :disabled="!V1_API_READY">上传 PDF</el-button>
           </el-upload>
         </el-col>
         <el-col :span="14">
@@ -111,6 +113,8 @@
 
 <script setup lang="ts">
 import { ref, watch, onMounted, computed } from 'vue'
+import MigrationNotice from '@/components/common/MigrationNotice.vue'
+import { V1_API_READY } from '@/api'
 import { VuePDF, usePDF } from '@tato30/vue-pdf'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { UploadFilled, Document, Close, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
@@ -195,6 +199,7 @@ const customUpload = async (options: any) => {
 }
 
 const fetchPDFiles = async () => {
+  if (!V1_API_READY) return
   const res = await getPDFFiles()
   if (res.data.code === 200) {
     // 确保赋值时类型匹配
@@ -285,10 +290,15 @@ watch(pdfData, (value) => {
   }
 })
 
-onMounted(fetchPDFiles)
+onMounted(() => {
+  if (V1_API_READY) fetchPDFiles()
+})
 </script>
 
 <style scoped>
+.mig {
+  margin-bottom: 12px;
+}
 /* 样式部分保持不变，已在之前回复中优化去黑边逻辑 */
 .pdf-page-container {
   height: 100%;
