@@ -43,8 +43,8 @@ type EditProject struct {
 
 type EditOutput struct {
 	Format string  `json:"format"` // mp4 | mov | mkv | webm，空 = mp4
-	Width  int     `json:"width"`  // 16~7680，0 = 1280；导出时向下取偶数
-	Height int     `json:"height"` // 16~4320，0 = 720
+	Width  int     `json:"width"`  // 16~7680，0 = 1920；导出时向下取偶数
+	Height int     `json:"height"` // 16~4320，0 = 1080
 	Fps    float64 `json:"fps"`    // (0,120]，0 = 30
 }
 

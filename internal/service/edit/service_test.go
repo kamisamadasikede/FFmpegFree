@@ -614,3 +614,57 @@ func TestPreviewRejectsDevicePrefix(t *testing.T) {
 		}
 	}
 }
+
+// 宽高为 0 时兜底 1920×1080（产品经理定；前端会显式写宽高，兜底只给绕过前端的调用）。
+func TestDefaultOutputSize1080p(t *testing.T) {
+	s := fakeSvc(base)
+	pl, err := s.build(context.Background(), proj(vclip("c1", pV, "V1", 0, 0, 2)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pl.w != 1920 || pl.h != 1080 {
+		t.Fatalf("默认输出尺寸 = %dx%d，want 1920x1080", pl.w, pl.h)
+	}
+	g := buildFilterGraph(pl)
+	for _, want := range []string{"color=c=black:s=1920x1080:r=30:d=", "scale=1920:1080:force_original_aspect_ratio=decrease", "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black"} {
+		if !strings.Contains(g, want) {
+			t.Errorf("filtergraph 缺 %q\n%s", want, g)
+		}
+	}
+	if strings.Contains(g, "1280") || strings.Contains(g, "720") {
+		t.Errorf("默认值不应再出现 1280/720:\n%s", g)
+	}
+	// 只给宽：高仍兜底 1080；只给高：宽仍兜底 1920
+	p := proj(vclip("c1", pV, "V1", 0, 0, 2))
+	p.Output = EditOutput{Width: 640}
+	if pl, err = s.build(context.Background(), p); err != nil || pl.w != 640 || pl.h != 1080 {
+		t.Fatalf("只给宽: %+v %v", pl, err)
+	}
+	p.Output = EditOutput{Height: 360}
+	if pl, err = s.build(context.Background(), p); err != nil || pl.w != 1920 || pl.h != 360 {
+		t.Fatalf("只给高: %+v %v", pl, err)
+	}
+}
+
+// 显式传 1280×720 仍然生效（不被默认值覆盖）。
+func TestExplicit720pStillHonored(t *testing.T) {
+	s := fakeSvc(base)
+	p := proj(vclip("c1", pV, "V1", 0, 0, 2))
+	p.Output = EditOutput{Width: 1280, Height: 720, Fps: 30}
+	pl, err := s.build(context.Background(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pl.w != 1280 || pl.h != 720 {
+		t.Fatalf("显式 1280x720 被改写为 %dx%d", pl.w, pl.h)
+	}
+	g := buildFilterGraph(pl)
+	for _, want := range []string{"color=c=black:s=1280x720:r=30:d=", "scale=1280:720:force_original_aspect_ratio=decrease", "pad=1280:720:(ow-iw)/2:(oh-ih)/2:black"} {
+		if !strings.Contains(g, want) {
+			t.Errorf("filtergraph 缺 %q\n%s", want, g)
+		}
+	}
+	if strings.Contains(g, "1920") || strings.Contains(g, "1080") {
+		t.Errorf("显式 720p 不应出现 1920/1080:\n%s", g)
+	}
+}

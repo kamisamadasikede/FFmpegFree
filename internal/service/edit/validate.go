@@ -314,10 +314,10 @@ func (s *Service) build(ctx context.Context, p EditProject) (*plan, error) {
 		pl.format = "mp4"
 	}
 	if pl.w == 0 {
-		pl.w = 1280
+		pl.w = 1920
 	}
 	if pl.h == 0 {
-		pl.h = 720
+		pl.h = 1080
 	}
 	if pl.fps == 0 {
 		pl.fps = 30
