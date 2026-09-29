@@ -3,6 +3,7 @@ package contollers
 import (
 	"FFmpegFree/backend/live"
 	"FFmpegFree/backend/utils"
+	"FFmpegFree/internal/proc"
 	"bytes"
 	"fmt"
 	"math"
@@ -11,11 +12,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -196,9 +195,7 @@ func RenderEditProject(c *gin.Context) {
 	}
 
 	cmd := exec.Command(live.FFmpegBinaryPath(), args...)
-	if runtime.GOOS == "windows" {
-		cmd.SysProcAttr = hideWindowProcAttr()
-	}
+	proc.Configure(cmd)
 
 	output, runErr := cmd.CombinedOutput()
 	if runErr != nil {
@@ -834,9 +831,7 @@ func clipSourceDurationSec(path string) float64 {
 
 func probeMediaMeta(path string) (gin.H, error) {
 	cmd := exec.Command(live.FFmpegBinaryPath(), "-i", path)
-	if runtime.GOOS == "windows" {
-		cmd.SysProcAttr = hideWindowProcAttr()
-	}
+	proc.Configure(cmd)
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -881,8 +876,4 @@ func probeMediaMeta(path string) (gin.H, error) {
 		"hasAudio":   hasAudio,
 		"ffmpegInfo": output,
 	}, nil
-}
-
-func hideWindowProcAttr() *syscall.SysProcAttr {
-	return &syscall.SysProcAttr{HideWindow: true}
 }

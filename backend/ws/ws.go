@@ -3,16 +3,15 @@ package ws
 import (
 	"FFmpegFree/backend/live"
 	"FFmpegFree/backend/sse"
+	"FFmpegFree/internal/proc"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os/exec"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -168,9 +167,7 @@ func startSession(payload streamStartPayload) (*StreamSession, error) {
 		teeOutput,
 	}
 	cmd := exec.Command(live.FFmpegBinaryPath(), args...)
-	if runtime.GOOS == "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	}
+	proc.Configure(cmd)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
