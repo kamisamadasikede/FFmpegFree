@@ -497,7 +497,7 @@ type PreviewURL struct {
 { "project": { "...": "同上" }, "options": { "outputName": "旅行 vlog", "outputDir": "C:\\Users\\me\\Videos\\FFmpegFree" } }
 { "id": "01J9Z7A1B2C3D4E5F6G7H8J9K0", "type": "edit_export", "status": "queued", "title": "旅行 vlog.mp4",
   "inputPaths": ["C:\\Videos\\a.mp4"], "outputPath": "C:\\Users\\me\\Videos\\FFmpegFree\\旅行 vlog.mp4",
-  "progress": 0, "version": 1, "error": null }
+  "progress": 0, "version": 1 }
 ```
 ```json
 // task:progress（edit_export，没有 fps / bitrateKbps / droppedFrames）
