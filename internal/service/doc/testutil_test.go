@@ -67,7 +67,7 @@ func newEnv(t *testing.T, opts ...envOpt) *env {
 	e.tm = task.NewManager(task.Config{Store: st, Emitter: e.em, LogDir: filepath.Join(data, "logs"), BatchConcurrency: 2,
 		ProgressInterval: -1, Logf: func(string, ...any) {}})
 	t.Cleanup(func() { e.tm.Shutdown(3 * time.Second) })
-	cfg := Config{Recent: st, Tasks: e.tm, Local: e.reg, DataDir: data,
+	cfg := Config{Recent: st, Lister: st, Tasks: e.tm, Local: e.reg, DataDir: data,
 		DefaultOutputDir: func(context.Context) string { return e.defOD }}
 	for _, o := range opts {
 		o(&cfg)
