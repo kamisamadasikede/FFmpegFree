@@ -117,13 +117,18 @@ export interface TaskErrorMessage {
   actions: TaskErrorAction[]
 }
 
-export type TaskErrorCode = 'CONVERT_DISK_FULL'
+export type TaskErrorCode = 'CONVERT_DISK_FULL' | 'PROBE_FAILED'
 
 export const taskErrorMessages: Record<TaskErrorCode, TaskErrorMessage> = {
   CONVERT_DISK_FULL: {
     title: '磁盘空间不足',
     description: '输出位置的可用空间不够，请清理空间或换一个输出文件夹。',
     actions: ['retry', 'changeOutput', 'viewLog'],
+  },
+  PROBE_FAILED: {
+    title: '无法读取输入文件',
+    description: '文件可能已损坏，或不是音视频文件。',
+    actions: ['retry', 'viewLog'],
   },
 }
 

@@ -99,7 +99,7 @@ p {
 .code {
   display: block;
   font-family: var(--ff-font-mono);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.75; /* 原型里 .code 继承了 1.75 的行高，保持一致 */
   color: #6b717b;
 }

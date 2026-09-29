@@ -547,8 +547,8 @@ onMounted(async () => {
 .stat .note {
   display: block;
   margin-top: 2px;
-  font-size: 11px;
-  color: var(--ff-text-3);
+  font-size: 12px;
+  color: var(--ff-text-2);
   line-height: 1.4;
 }
 .main {
@@ -659,7 +659,7 @@ td:first-child {
 }
 .finfo {
   font-size: 12px;
-  color: var(--ff-text-3);
+  color: var(--ff-text-2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -731,23 +731,7 @@ td:first-child {
 @keyframes ff-shimmer {
   to { transform: translateX(100%); }
 }
-@media (prefers-reduced-motion: reduce) {
-  .bar i.run::after {
-    animation: none;
-    display: none;
-  }
-  .bar i {
-    transition: none;
-  }
-}
-/* 设置里的「减少动效」开关会给 <html> 加 reduce-motion（设置页还没有该开关，钩子先留好） */
-:global(html.reduce-motion) .bar i.run::after {
-  animation: none;
-  display: none;
-}
-:global(html.reduce-motion) .bar i {
-  transition: none;
-}
+/* 减少动效：prefers-reduced-motion 与 html.reduce-motion 钩子统一放在 styles/base.css */
 .plain {
   color: var(--ff-text-2);
   font-size: 12px;
@@ -838,6 +822,11 @@ td:first-child {
   background: var(--ff-danger);
   border-color: var(--ff-danger);
   color: var(--ff-on-danger);
+}
+/* 必须写在 .btn:hover 之后：否则通用悬停底色 bg-hover 会盖住危险按钮，文字几乎看不见 */
+.btn.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ff-danger) 88%, #000);
+  border-color: transparent;
 }
 .btn svg {
   width: 15px;

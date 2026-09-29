@@ -78,9 +78,9 @@ const showCode = computed(() => !props.hideCode)
 .ff-error-line {
   --tone: var(--ff-danger);
   display: flex;
-  gap: 10px;
+  gap: 12px;
   align-items: flex-start;
-  padding: 10px var(--ff-space-3);
+  padding: 8px var(--ff-space-3);
   border-radius: 8px;
   background: color-mix(in srgb, var(--tone) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--tone) 28%, transparent);
@@ -120,8 +120,8 @@ b {
 }
 .code {
   font-family: var(--ff-font-mono);
-  font-size: 11px;
-  color: var(--ff-text-3);
+  font-size: 12px;
+  color: var(--ff-text-2);
 }
 /* 横排紧凑版 */
 .compact {
