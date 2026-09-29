@@ -182,11 +182,17 @@ func validateOOXML(path, ext string) error {
 	if n == 4 && bytes.Equal(head, []byte{0xD0, 0xCF, 0x11, 0xE0}) {
 		return apperr.New(apperr.Unsupported, "暂不支持这种格式").WithDetail("加密文档不支持（或旧版格式改了扩展名），请先另存为未加密的 docx、xlsx 或 pptx")
 	}
+	if err := checkZipEntries(path); err != nil {
+		return err
+	}
 	zr, err := zip.OpenReader(path)
 	if err != nil {
 		return openErr(err)
 	}
 	defer zr.Close()
+	if len(zr.File) > MaxZipEntries {
+		return errTooManyEntries(uint64(len(zr.File)))
+	}
 	var need bool
 	for _, e := range zr.File {
 		if e.UncompressedSize64 > uint64(maxEntryBytes) {

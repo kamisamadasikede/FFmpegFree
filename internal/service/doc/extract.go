@@ -175,6 +175,9 @@ func findEntry(zr *zip.ReadCloser, name string) *zip.File {
 }
 
 func extractDocx(ctx context.Context, path string) (*docModel, error) {
+	if err := checkZipEntries(path); err != nil {
+		return nil, err
+	}
 	zr, err := zip.OpenReader(path)
 	if err != nil {
 		return nil, openErr(err)
@@ -204,6 +207,9 @@ func extractDocx(ctx context.Context, path string) (*docModel, error) {
 var slideRe = regexp.MustCompile(`^ppt/slides/slide(\d+)\.xml$`)
 
 func extractPptx(ctx context.Context, path string) (*docModel, error) {
+	if err := checkZipEntries(path); err != nil {
+		return nil, err
+	}
 	zr, err := zip.OpenReader(path)
 	if err != nil {
 		return nil, openErr(err)
@@ -259,6 +265,9 @@ func extractPptx(ctx context.Context, path string) (*docModel, error) {
 }
 
 func extractXlsx(ctx context.Context, path string) (*docModel, error) {
+	if err := checkZipEntries(path); err != nil {
+		return nil, err
+	}
 	book, err := excelize.OpenFile(path, excelize.Options{UnzipXMLSizeLimit: maxEntryBytes, UnzipSizeLimit: 4 * maxEntryBytes})
 	if err != nil {
 		return nil, invalidOOXML(err)
