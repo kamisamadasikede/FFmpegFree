@@ -351,7 +351,7 @@ schema_migrations(version PK, applied_at)
 
 > **合并顺序（架构师最新决定，三个 PR 说明一致）**：**#22 先合**，然后 #19、#23；本节引用的 6.13 由 #22 引入，所以 #23 必须在 #22 之后合入。
 
-> **架构师新增决定（写死，逐条对应下文）**：① `DocCapabilities` 增加 `experimental`（bool，后端给出，前端据此显示"实验性"，6.12.2）；② `ReadPDFChunk` 的 `Data []byte`：运行时 JSON 值是 **base64 字符串**，但 Wails 生成的 `models.ts` 里类型标注是 **`number[]`**，前端 api 层要先 `as unknown as string` 再 `atob`（6.12.4 第 2 点；**未验证**，见 6.12.8）；③ `TaskType` 与 #19 / #22 统一（第 3 节）；④ `/local/<token>` 的共用规则移到中立章节 6.13，本节引用；⑤ 字体合规：子集 name 表改名、CI 断言、字体目录 README（6.12.1）。
+> **架构师新增决定（写死，逐条对应下文）**：① `DocCapabilities` 增加 `experimental`（bool，后端给出，前端据此显示"实验性"，6.12.2）；② `PDFChunk.data` 的 Go 字段类型就是 `string`，由后端显式 base64 编码，生成的 `models.ts` 里也是 `string`，前端直接 `atob`（6.12.4 第 2 点）；③ `TaskType` 与 #19 / #22 统一（第 3 节）；④ `/local/<token>` 的共用规则移到中立章节 6.13，本节引用；⑤ 字体合规：子集 name 表改名、CI 断言、字体目录 README（6.12.1）。
 
 > **架构师已确认（v0.12 定稿）**：内嵌 Noto Sans SC `.ttf` 子集为主路径（6.12.1）；大文件预览的 Windows 验证与回退（6.12.4 第 3 点）；Office 转 PDF 标"实验性"；CSV / TXT 首版不支持。
 
@@ -410,7 +410,7 @@ type DocLimits struct {
     MaxInputBytes      int64 `json:"maxInputBytes"`      // 100 MiB
     MaxPages           int   `json:"maxPages"`           // 5000
     MaxPDFBytes        int64 `json:"maxPdfBytes"`        // 512 MiB（OpenPDF）
-    ChunkBytes         int   `json:"chunkBytes"`         // 1 MiB（ReadPDFChunk 上限）
+    ChunkBytes         int   `json:"chunkBytes"`         // 1 MiB（ReadPDFChunk 的 length 上限，按**原始字节**计；base64 编码后一块约 1.4 MiB）
     WholeLoadBytes     int64 `json:"wholeLoadBytes"`     // 64 MiB（前端整份读入内存的上限，见 6.12.4）
 }
 type PDFSource struct {
@@ -425,7 +425,7 @@ type PDFChunk struct {
     Length int    `json:"length"` // 实际读到的字节数
     EOF    bool   `json:"eof"`    // offset+length >= 文件当前大小
     Size   int64  `json:"size"`   // 本次读取时文件的当前大小；与 OpenPDF 返回的 size 不同说明文件读取期间被改动，前端应重新 OpenPDF
-    Data   []byte `json:"data"`   // Go 侧是 []byte，运行时 JSON 里是 base64 字符串；Wails 生成的 models.ts 标注为 number[]（类型标注与运行时值不一致，见 6.12.4 第 2 点，未验证）
+    Data   string `json:"data"`   // Go 字段类型就是 string：后端对读到的原始字节显式 base64 编码（标准字母表 base64.StdEncoding，含 = 填充）；models.ts 里同为 string，前端直接 atob。Length 是原始字节数，不是 Data 的字符数
 }
 type PDFFile struct {
     ID       string `json:"id"`       // doc_recent.id（ULID）
@@ -456,7 +456,7 @@ type PDFFile struct {
 
 1. `OpenPDF(path)`：路径必须绝对（`INVALID_ARGUMENT`）、存在（`NOT_FOUND`）、是文件（否则 `INVALID_ARGUMENT`）、可读（`IO_ERROR`）、扩展名 `.pdf`（不区分大小写，否则 `INVALID_ARGUMENT`）、前 1024 字节内含 `%PDF-`（否则 `INVALID_ARGUMENT`，detail "不是 PDF 文件"）、大小 ≤ 512 MiB（否则 `INVALID_ARGUMENT`）。成功后登记句柄并写入 / 更新 `doc_recent`。加密 PDF 也能打开，密码由前端 pdf.js 的 `onPassword` 弹窗处理，后端不接触密码。
 2. **主路径（size ≤ 64 MiB）：`ReadPDFChunk` 读整份**。前端循环调用 `ReadPDFChunk(id, offset, chunk)` 直到 `eof`，拼成 `Uint8Array` 交给 `usePDF`。只用 Wails Bind，**不依赖 AssetServer 在 Windows 上缓冲响应的行为**（见 6.13 第 9 点）。`chunk` 取 `min(GetDocCapabilities().limits.chunkBytes, 1 MiB)`（1 MiB 的 base64 约 1.4 MiB；Windows 上 Bind 返回值大小是否有上限**未验证**，需要时后端把 `chunkBytes` 调小，前端不用改）。
-   - **`Data` 的解码（架构师定，#29 实现反馈修订）**：Go 侧 `Data []byte`，运行时 JSON 序列化是 **base64 字符串**（标准字母表，带 `=` 填充）。**Wails 生成的 `frontend/wailsjs/go/models.ts` 里 `PDFChunk.data` 的类型标注是 `number[]`**（Wails 对 `[]byte` 的类型标注，与运行时值不一致；此前契约写的 `string` 有误，已更正）。前端 api 层必须写成：`const b64 = chunk.data as unknown as string; const bin = atob(b64); const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)`（不要把它当 `number[]` 用，不要用 `Uint8Array.fromBase64`，WebView2 / WebKit 版本不一定有）。**【未验证】**：这一点没有在真实 Wails 环境里抓过 JSON，只是按 Wails 的类型映射和 `encoding/json` 对 `[]byte` 的行为推断；实现 PR 联调时要抓一次真实的 `ReadPDFChunk` 返回值确认是字符串，结果不同就回来改契约。已列入 6.12.8 联调项。
+   - **`Data` 的编码与解码（架构师定）**：`PDFChunk.data` 在 Go 结构体里**直接是 `string`**（不再是 `[]byte`），由后端**显式 `base64.StdEncoding.EncodeToString`**（标准字母表，含 `=` 填充）；因此 Wails 生成的 `frontend/wailsjs/go/models.ts` 里 `PDFChunk.data` 就是 `string`，**前端拿到后直接 `atob`，不需要类型断言**：`const bin = atob(chunk.data); const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)`（不要用 `Uint8Array.fromBase64`，WebView2 / WebKit 版本不一定有）。**大小口径**：`length` 参数、`chunkBytes`（1 MiB）、`PDFChunk.length` 都按**原始字节**计；base64 编码后 `data` 约为原始的 4/3，一块最多约 **1.4 MiB**（1 MiB → 1 398 104 个字符）。`bytes.length` 必须等于 `chunk.length`（前端校验，见伪代码）。**【未验证】**：没有在真实 Wails 环境里跑过，见 6.12.8 联调项。**实现 PR 仍以生成出来的 `models.ts` 为准**核对字段类型，与这里不一致要回来改契约。
    - `ReadPDFChunk` 每次调用的校验（顺序即优先级，架构师定）：
      1. `length` 范围 1~`chunkBytes`（≤ 1 MiB），越界 `INVALID_ARGUMENT`；`offset < 0` `INVALID_ARGUMENT`；**`offset > math.MaxInt64 − length` 一律 `INVALID_ARGUMENT`**（防 `offset+length` 的 int64 溢出，比较写成减法形式，不写 `offset+length > x`）。
      2. **`id` 只查登记表，不拼路径**：`id` 必须是 `OpenPDF` 返回的句柄（32 位十六进制）；格式不对 / 查不到（重启后失效、被 `RemoveRecentPDFs` 撤销）→ `NOT_FOUND`。真实路径只来自登记表里 `OpenPDF` 时记录的值，任何来自前端的字符串都不参与路径拼接。
@@ -477,7 +477,7 @@ type PDFFile struct {
            if (retried) throw new AppError('IO_ERROR', 'PDF 在读取时被修改')
            retried = true; return loadPdf(path)                    // 只重来一次
          }
-         const bytes = b64ToBytes(c.data as unknown as string)
+         const bytes = b64ToBytes(c.data)
          if (bytes.length !== c.length) throw new AppError('INTERNAL', '分块长度不一致')
          out.set(bytes, offset); offset += c.length
          if (c.eof) break
@@ -563,7 +563,7 @@ AppError（句柄失效）：
 | 2 | 大文件（> 64 MiB）经 `/local/<token>` 的 Range 续传：WebView2 收到被截短的 `206` 后是否继续请求；`HEAD` 探测与失效重试 | 6.12.4 第 3 点、6.13 | 预览包里打开 100 MiB 左右的 PDF 并翻页 | **验证不通过时的回退方案（首版不实现）**：大文件限 64 MiB，超过返回 `INVALID_ARGUMENT`（不新增方法、错误码） |
 | 3 | 64 MiB 整份读入阈值（峰值内存约文件大小 × 2）是估计值 | 6.12.4 第 5 点 | 真机打开 60 MiB 左右的 PDF，看内存和耗时 | 调整阈值（契约变更） |
 | 4 | Windows 上 `outputDir` 拒绝 `\\?\` / `\\.\` 与数据目录内路径的判断；输出的 `.part` 原子改名（`os.Link` 失败回退到不带 `REPLACE_EXISTING` 的 `MoveFileEx`，同 6.11.3） | 6.12.3、6.12.6 | Windows 上把输出目录设到 U 盘（FAT/exFAT）、网络盘、数据目录内 | 保持 `os.Rename`，接受残余竞态并记录 |
-| 5 | **联调项**：`ReadPDFChunk` 返回的 `data` 在真实 Wails 运行时确实是 base64 **字符串**（`models.ts` 标注为 `number[]`，与运行时值不一致；契约按"字符串，前端 `as unknown as string` 后 `atob`"写，没有在真实 Wails 环境抓过 JSON） | 6.12.4 第 2 点 | 在 Wails 开发模式下打开一份 PDF，在 devtools 里看 `ReadPDFChunk` 的返回值类型与首字符，并核对拼出的字节以 `%PDF-` 开头 | 若运行时是数字数组，前端 api 层按数组处理并回来改契约（IPC 体积会膨胀数倍，则同时把 `chunkBytes` 调小） |
+| 5 | **联调项**：`ReadPDFChunk` 的 `data`（Go 字段 `string`，后端 base64 编码）在真实 Wails 运行时经前端 `atob` 解码后字节正确（**未验证**，没有在真实 Wails 环境跑过） | 6.12.4 第 2 点 | 在 Wails 开发模式下打开一份 PDF，核对拼出的字节以 `%PDF-` 开头即可 | 不符则回来改契约（例如 `models.ts` 的类型与预期不一致） |
 
 ### 6.12.6 错误码对照（全部沿用现有码，无新增）
 
