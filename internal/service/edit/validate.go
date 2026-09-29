@@ -385,8 +385,9 @@ func (s *Service) build(ctx context.Context, p EditProject) (*plan, error) {
 		return nil, err
 	}
 
-	for _, c := range pl.videos {
-		pl.duration = math.Max(pl.duration, c.end())
+	// 时间线总长：视频取"实际画面段"的末尾（有转场时后一个 clip 会和前一个重叠，整段变短），音频取声明的结束。
+	for _, sg := range videoSegments(pl) {
+		pl.duration = math.Max(pl.duration, sg.end)
 	}
 	for _, c := range pl.audios {
 		pl.duration = math.Max(pl.duration, c.end())
@@ -480,18 +481,48 @@ func resolveTransitions(pl *plan) error {
 	return nil
 }
 
+// vseg 是同一轨道上首尾相接、拼成一段的画面。
+type vseg struct {
+	firstID    string
+	start, end float64
+}
+
+// videoSegments 计算实际画面段：同轨首尾相接（间隙 ≤ 0.12 秒）的 clip 连成一段；
+// 段内每个转场让后一个 clip 与前一个重叠 transDur 秒，所以段长 = 各 clip 时长之和 - 各转场时长之和（与 filtergraph 一致）。
+func videoSegments(pl *plan) []vseg {
+	var out []vseg
+	for _, g := range byTrack(pl.videos) {
+		cur := vseg{firstID: g[0].id, start: g[0].start, end: g[0].start + g[0].dur}
+		for i := 1; i < len(g); i++ {
+			prev, c := g[i-1], g[i]
+			if !isContiguous(prev, c) {
+				out = append(out, cur)
+				cur = vseg{firstID: c.id, start: c.start, end: c.start + c.dur}
+				continue
+			}
+			d := c.dur
+			if prev.transition != "none" && prev.transDur > 0 {
+				d -= prev.transDur
+			}
+			cur.end += d
+		}
+		out = append(out, cur)
+	}
+	return out
+}
+
 // videoGapWarnings 找出时间线上没有任何画面的空隙（> 0.12 秒；跨轨合并后计算），导出时这些位置是黑场。
 func videoGapWarnings(pl *plan) []EditWarning {
-	cs := append([]rclip(nil), pl.videos...)
-	sort.SliceStable(cs, func(i, j int) bool { return cs[i].start < cs[j].start })
+	segs := videoSegments(pl)
+	sort.SliceStable(segs, func(i, j int) bool { return segs[i].start < segs[j].start })
 	var out []EditWarning
 	covered := 0.0
-	for _, c := range cs {
-		if c.start-covered > ContiguousGapSec+1e-9 {
-			out = append(out, EditWarning{Code: WarnVideoGap, ClipID: c.id,
-				Message: fmt.Sprintf("时间线 %.2f~%.2f 秒没有画面，导出时补黑场", covered, c.start)})
+	for _, sg := range segs {
+		if sg.start-covered > ContiguousGapSec+1e-9 {
+			out = append(out, EditWarning{Code: WarnVideoGap, ClipID: sg.firstID,
+				Message: fmt.Sprintf("时间线 %.2f~%.2f 秒没有画面，导出时补黑场", covered, sg.start)})
 		}
-		covered = math.Max(covered, c.end())
+		covered = math.Max(covered, sg.end)
 	}
 	if pl.duration-covered > ContiguousGapSec+1e-9 {
 		out = append(out, EditWarning{Code: WarnVideoGap,

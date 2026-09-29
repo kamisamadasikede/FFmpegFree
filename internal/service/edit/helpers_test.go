@@ -3,6 +3,8 @@ package edit
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -185,4 +187,10 @@ func firstLine(err error) string {
 		}
 	}
 	return d
+}
+
+func headReq(h http.Handler, url string) int {
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("HEAD", url, nil))
+	return rec.Code
 }

@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"FFmpegFree/internal/apperr"
@@ -229,6 +230,9 @@ func checkWritableDir(dir string) error {
 				return apperr.New(apperr.InvalidArgument, "输出位置不是文件夹").WithDetail("project\n" + cleanLine(probe))
 			}
 			break
+		}
+		if errors.Is(err, syscall.ENOTDIR) { // 上级路径里有一段是文件
+			return apperr.New(apperr.InvalidArgument, "输出位置的上级不是文件夹").WithDetail("project\n" + cleanLine(dir))
 		}
 		if !errors.Is(err, os.ErrNotExist) {
 			return apperr.Wrap(apperr.IOError, "无法访问输出目录", err)
