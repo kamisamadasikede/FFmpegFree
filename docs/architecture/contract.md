@@ -497,6 +497,24 @@ type PDFFile struct {
 7. **`RemoveRecentPDFs(ids)`**：`ids` 是 `PDFFile.id`（`doc_recent.id`，ULID）；**一次最多 500 个**，超过 `INVALID_ARGUMENT`；空列表直接返回 nil；**不存在的 id 忽略，不报错**（重复调用幂等）；只删记录，不删文件。**同时撤销对应的句柄（`ReadPDFChunk` 用的 `PDFSource.id`）和 `/local/<token>`（6.13 的 doc 登记表里同一路径的项）**——按记录的 `path_key` 找到并删除，撤销后 `ReadPDFChunk` 返回 `NOT_FOUND`、`/local/<token>` 返回 404；正在进行中的 HTTP 请求不强制中断。
 8. **共用规则**：`PDFSource.url` 走 6.13 的 `doc` 登记表（512 项 LRU、`crypto/rand` token、登记与每次请求都 `EvalSymlinks` + 普通文件 + `SameFile` 校验、支持 `HEAD`、Range 单段 + 4 MiB 限长、`pdf → application/pdf`、token 失效 404）。本节不再重复。
 
+### 6.12.5 事件
+
+不新增事件。转换进度走 `task:created` / `task:progress` / `task:status`，与转换、剪辑一致；预览没有事件。
+
+### 6.12.6 错误码对照（全部沿用现有码，无新增）
+
+| 场景 | code |
+|---|---|
+| 参数不合法、路径非绝对、`outputDir` 是 `\\?\` / `\\.\` 或在应用数据目录内、目录当文件、不是 PDF、不是有效 OOXML、文件超限（含读取期间变大）、`length` / `offset` 越界或溢出、`RemoveRecentPDFs` 超过 500 个 | `INVALID_ARGUMENT` |
+| 输入 / PDF / 句柄不存在或已失效（含被 `RemoveRecentPDFs` 撤销、文件被替换） | `NOT_FOUND` |
+| 不支持的格式（旧版 Office、odt、rtf、加密文档）、缺 Unicode 字体、超过 5000 页 | `UNSUPPORTED` |
+| 读写失败、无权限 | `IO_ERROR` |
+| 输出磁盘满（任务错误） | `CONVERT_DISK_FULL` |
+| 应用退出导致调用中断 | `CANCELED` |
+| 库内部意外错误 | `INTERNAL` |
+
+`FFMPEG_NOT_FOUND` / `PROBE_FAILED` / `PROCESS_FAILED` 不会由 DocService 返回。
+
 ### 6.12.7 示例（JSON 数值是示意；`data` 为节选）
 
 `GetDocCapabilities` 返回：
@@ -550,10 +568,6 @@ AppError（句柄失效）：
 { "code": "NOT_FOUND", "message": "PDF 句柄已失效，请重新打开" }
 ```
 
-### 6.12.5 事件
-
-不新增事件。转换进度走 `task:created` / `task:progress` / `task:status`，与转换、剪辑一致；预览没有事件。
-
 ### 6.12.8 真机试用清单（Doc，未验证项汇总）
 
 以下项目**没有在真机上验证**（箱子是 Linux），契约里已就地标"未验证"。**不阻塞实现**：实现按契约写，试用包出来后由用户逐项确认。
@@ -565,20 +579,6 @@ AppError（句柄失效）：
 | 3 | 64 MiB 整份读入阈值（峰值内存约文件大小 × 2）是估计值 | 6.12.4 第 5 点 | 真机打开 60 MiB 左右的 PDF，看内存和耗时 | 调整阈值（契约变更） |
 | 4 | Windows 上 `outputDir` 拒绝 `\\?\` / `\\.\` 与数据目录内路径的判断；输出的 `.part` 原子改名（`os.Link` 失败回退到不带 `REPLACE_EXISTING` 的 `MoveFileEx`，同 6.11.3） | 6.12.3、6.12.6 | Windows 上把输出目录设到 U 盘（FAT/exFAT）、网络盘、数据目录内 | 保持 `os.Rename`，接受残余竞态并记录 |
 | 5 | **联调项**：`ReadPDFChunk` 的 `data`（Go 字段 `string`，后端 base64 编码）在真实 Wails 运行时经前端 `atob` 解码后字节正确（**未验证**，没有在真实 Wails 环境跑过） | 6.12.4 第 2 点 | 在 Wails 开发模式下打开一份 PDF，核对拼出的字节以 `%PDF-` 开头即可 | 不符则回来改契约（例如 `models.ts` 的类型与预期不一致） |
-
-### 6.12.6 错误码对照（全部沿用现有码，无新增）
-
-| 场景 | code |
-|---|---|
-| 参数不合法、路径非绝对、`outputDir` 是 `\\?\` / `\\.\` 或在应用数据目录内、目录当文件、不是 PDF、不是有效 OOXML、文件超限（含读取期间变大）、`length` / `offset` 越界或溢出、`RemoveRecentPDFs` 超过 500 个 | `INVALID_ARGUMENT` |
-| 输入 / PDF / 句柄不存在或已失效（含被 `RemoveRecentPDFs` 撤销、文件被替换） | `NOT_FOUND` |
-| 不支持的格式（旧版 Office、odt、rtf、加密文档）、缺 Unicode 字体、超过 5000 页 | `UNSUPPORTED` |
-| 读写失败、无权限 | `IO_ERROR` |
-| 输出磁盘满（任务错误） | `CONVERT_DISK_FULL` |
-| 应用退出导致调用中断 | `CANCELED` |
-| 库内部意外错误 | `INTERNAL` |
-
-`FFMPEG_NOT_FOUND` / `PROBE_FAILED` / `PROCESS_FAILED` 不会由 DocService 返回。
 
 ## 7. 本地流服务（唯一保留的 HTTP）
 
