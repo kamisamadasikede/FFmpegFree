@@ -130,7 +130,7 @@ func (s *Service) OpenPDF(ctx context.Context, path string) (PDFSource, error) {
 		return PDFSource{}, apperr.Wrap(apperr.InvalidArgument, "路径不合法", err)
 	}
 	if !strings.EqualFold(filepath.Ext(p), ".pdf") {
-		return PDFSource{}, apperr.New(apperr.InvalidArgument, "只支持 .pdf 文件").WithDetail(p)
+		return PDFSource{}, reasonErr(apperr.InvalidArgument, "只支持 .pdf 文件", reasonFormat, p)
 	}
 	f, fi, err := openRegular(p)
 	if err != nil {
@@ -138,7 +138,7 @@ func (s *Service) OpenPDF(ctx context.Context, path string) (PDFSource, error) {
 	}
 	defer f.Close()
 	if fi.Size() > MaxPDFBytes {
-		return PDFSource{}, apperr.New(apperr.InvalidArgument, "文件超过 512 MiB").WithDetail(fmt.Sprintf("%d 字节", fi.Size()))
+		return PDFSource{}, reasonErr(apperr.InvalidArgument, "文件超过 512 MiB", reasonTooLarge, fmt.Sprintf("%d 字节", fi.Size()))
 	}
 	head := make([]byte, 1024)
 	n, rerr := io.ReadFull(f, head)
@@ -146,7 +146,7 @@ func (s *Service) OpenPDF(ctx context.Context, path string) (PDFSource, error) {
 		return PDFSource{}, apperr.Wrap(apperr.IOError, "读取文件失败", rerr)
 	}
 	if !bytes.Contains(head[:n], []byte("%PDF-")) {
-		return PDFSource{}, apperr.New(apperr.InvalidArgument, "不是 PDF 文件").WithDetail(p)
+		return PDFSource{}, reasonErr(apperr.InvalidArgument, "不是 PDF 文件", reasonFormat, p)
 	}
 
 	real, err := filepath.EvalSymlinks(p)
@@ -281,7 +281,7 @@ func (s *Service) ReadPDFChunk(hid string, offset int64, length int) (PDFChunk, 
 	}
 	size := fi.Size()
 	if size > MaxPDFBytes {
-		return PDFChunk{}, apperr.New(apperr.InvalidArgument, "文件超过 512 MiB").WithDetail(fmt.Sprintf("%d 字节", size))
+		return PDFChunk{}, reasonErr(apperr.InvalidArgument, "文件超过 512 MiB", reasonTooLarge, fmt.Sprintf("%d 字节", size))
 	}
 	if offset >= size {
 		return PDFChunk{Offset: offset, Length: 0, EOF: true, Size: size, Data: ""}, nil

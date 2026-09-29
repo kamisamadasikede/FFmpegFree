@@ -20,15 +20,15 @@ const MaxZipEntries = 100_000
 const MaxZipDirBytes = MaxZipEntries * 96
 
 func errDirTooLarge() error {
-	return apperr.New(apperr.InvalidArgument, "不是有效的 OOXML 文件").WithDetail("压缩包中央目录超过 9600000 字节")
+	return reasonErr(apperr.InvalidArgument, "不是有效的 OOXML 文件", reasonTooLarge, "压缩包中央目录超过 9600000 字节")
 }
 
 func errBadDirectory() error {
-	return apperr.New(apperr.InvalidArgument, "不是有效的 OOXML 文件").WithDetail("压缩包目录信息无效（zip64 记录缺失或损坏）")
+	return reasonErr(apperr.InvalidArgument, "不是有效的 OOXML 文件", reasonInvalidOOXML, "压缩包目录信息无效（zip64 记录缺失或损坏）")
 }
 
 func errTooManyEntries(_ uint64) error {
-	return apperr.New(apperr.InvalidArgument, "不是有效的 OOXML 文件").WithDetail("压缩包条目数超过 100000")
+	return reasonErr(apperr.InvalidArgument, "不是有效的 OOXML 文件", reasonTooLarge, "压缩包条目数超过 100000")
 }
 
 // zipDir 是从 EOCD（必要时加 zip64 记录）读出的中央目录概况。
