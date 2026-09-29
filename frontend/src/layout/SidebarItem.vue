@@ -1,11 +1,8 @@
 <template>
   <RouterLink :to="item.path" class="nav-item" :class="{ active: isActive }" :title="collapsed ? item.label : undefined">
-    <span class="icon-wrap">
-      <el-icon :size="20"><component :is="item.icon" /></el-icon>
-      <!-- ffmpeg 缺失警告点：下一步接上 ffmpeg 状态 store 后启用 -->
-      <span v-if="warn" class="warn-dot" />
-    </span>
+    <FIcon :name="item.icon" />
     <span v-show="!collapsed" class="label">{{ item.label }}</span>
+    <span v-if="warn" class="dot" />
     <span v-if="badge && !collapsed" class="badge">{{ badge }}</span>
   </RouterLink>
 </template>
@@ -13,6 +10,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
+import FIcon from '@/components/icon/FIcon.vue'
 import type { NavItem } from './navigation'
 
 const props = defineProps<{ item: NavItem; collapsed: boolean; warn?: boolean; badge?: number }>()
@@ -25,11 +23,12 @@ const isActive = computed(() =>
 
 <style scoped>
 .nav-item {
+  position: relative;
   height: 36px;
   display: flex;
   align-items: center;
-  gap: var(--ff-space-2);
-  padding: 0 var(--ff-space-2);
+  gap: 10px;
+  padding: 0 10px;
   border-radius: var(--ff-radius-md);
   color: var(--ff-text-2);
   font-size: var(--ff-fs-sm);
@@ -38,28 +37,21 @@ const isActive = computed(() =>
 }
 .nav-item:hover {
   background: var(--ff-bg-hover);
-  color: var(--ff-text-1);
 }
 .nav-item.active {
   background: var(--ff-primary-soft);
   color: var(--ff-primary);
   font-weight: 500;
 }
-.icon-wrap {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 20px;
-  flex-shrink: 0;
-}
-.warn-dot {
+.dot {
   position: absolute;
-  top: -1px;
-  right: -2px;
+  left: 24px;
+  top: 8px;
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--ff-warning);
+  box-shadow: 0 0 0 2px var(--ff-bg-sidebar);
 }
 .badge {
   margin-left: auto;
@@ -70,7 +62,8 @@ const isActive = computed(() =>
   background: var(--ff-primary);
   color: #fff;
   font-size: 11px;
-  line-height: 18px;
-  text-align: center;
+  font-weight: 600;
+  display: grid;
+  place-items: center;
 }
 </style>

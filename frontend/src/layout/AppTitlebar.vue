@@ -1,47 +1,76 @@
 <template>
-  <header class="titlebar" :class="{ 'is-mac-frameless': isMac && frameless }">
-    <span class="title">{{ title }}</span>
-    <div class="actions"><slot /></div>
+  <header class="titlebar">
+    <h1>{{ meta.title }}</h1>
+    <span v-if="meta.subtitle" class="crumb">{{ meta.subtitle }}</span>
+    <span class="sp" />
+    <button class="iconbtn" title="搜索" @click="onSearch"><FIcon name="search" /></button>
+    <button class="iconbtn" :title="isDark ? '切换到浅色' : '切换到暗色'" @click="toggleTheme">
+      <FIcon :name="isDark ? 'sun' : 'moon'" />
+    </button>
   </header>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import FIcon from '@/components/icon/FIcon.vue'
+import { useTheme } from '@/composables/useTheme'
 
-// 目前窗口仍用系统标题栏；改成无边框窗口后把 frameless 置为 true，macOS 会留出红绿灯位置
-const frameless = false
-const isMac = navigator.userAgent.includes('Mac')
 const route = useRoute()
-const title = computed(() => {
-  const titled = [...route.matched].reverse().find((r) => r.meta?.title)
-  return (titled?.meta?.title as string) || 'FFmpegFree'
+const { mode, isDark } = useTheme()
+
+const meta = computed(() => {
+  const top = route.matched[0]?.meta ?? {}
+  return { title: (top.title as string) || 'FFmpegFree', subtitle: top.subtitle as string | undefined }
 })
+
+function toggleTheme() {
+  mode.value = isDark.value ? 'light' : 'dark'
+}
+
+function onSearch() {
+  // TODO: 全局搜索（文件、任务、预设）待产品定义
+  ElMessage.info('搜索功能开发中')
+}
 </script>
 
 <style scoped>
 .titlebar {
   height: var(--ff-titlebar-h);
-  flex-shrink: 0;
+  flex: none;
   display: flex;
   align-items: center;
-  gap: var(--ff-space-3);
-  padding: 0 var(--ff-space-6);
+  gap: 12px;
+  padding: 0 16px 0 24px;
   border-bottom: 1px solid var(--ff-border);
-  background: var(--ff-bg-surface);
   --wails-draggable: drag;
 }
-.titlebar.is-mac-frameless {
-  padding-left: 76px;
-}
-.title {
+h1 {
+  margin: 0;
   font-size: var(--ff-fs-md);
   font-weight: 600;
 }
-.actions {
-  margin-left: auto;
-  display: flex;
-  gap: var(--ff-space-2);
+.crumb {
+  color: var(--ff-text-3);
+  font-size: var(--ff-fs-xs);
+}
+.sp {
+  flex: 1;
+}
+.iconbtn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: var(--ff-radius-md);
+  display: grid;
+  place-items: center;
+  color: var(--ff-text-2);
+  cursor: pointer;
   --wails-draggable: no-drag;
+}
+.iconbtn:hover {
+  background: var(--ff-bg-hover);
 }
 </style>

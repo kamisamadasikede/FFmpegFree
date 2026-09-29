@@ -4,11 +4,11 @@ const SectionTabs = () => import('../views/sections/SectionTabs.vue')
 
 // 七个一级入口（PRD / 设计规范第 6 节）。有多个子页面的入口用 SectionTabs 渲染页签。
 const routes: RouteRecordRaw[] = [
-  { path: '/', name: 'Convert', meta: { title: '转换' }, component: () => import('../views/Home.vue') },
-  { path: '/edit', name: 'Edit', meta: { title: '剪辑' }, component: () => import('../views/VideoEditor.vue') },
+  { path: '/', name: 'Convert', meta: { title: '格式转换', subtitle: '视频 · 音频 · 批量' }, component: () => import('../views/Home.vue') },
+  { path: '/edit', name: 'Edit', meta: { title: '视频剪辑', subtitle: '多轨时间线 · 转场 · 调色' }, component: () => import('../views/VideoEditor.vue') },
   {
     path: '/live',
-    meta: { title: '直播' },
+    meta: { title: '直播工具', subtitle: '推流 · 录屏 · 拉流' },
     component: SectionTabs,
     redirect: '/live/push',
     children: [
@@ -21,7 +21,7 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/docs',
-    meta: { title: '文档' },
+    meta: { title: '文档', subtitle: 'Office 转 PDF · PDF 预览' },
     component: SectionTabs,
     redirect: '/docs/office',
     children: [
@@ -31,14 +31,14 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/tools',
-    meta: { title: '工具' },
+    meta: { title: '工具', subtitle: 'JSON 格式化 · 对比 · 校验' },
     component: SectionTabs,
     redirect: '/tools/json',
     children: [{ path: 'json', meta: { tab: 'JSON 工具' }, component: () => import('../views/JsonTools.vue') }],
   },
   {
     path: '/tasks',
-    meta: { title: '任务中心' },
+    meta: { title: '任务中心', subtitle: '进度 · 历史 · 失败重试' },
     component: SectionTabs,
     redirect: '/tasks/running',
     // 过渡期沿用 v1 的两个列表页，任务 store 接上后换成统一的任务中心

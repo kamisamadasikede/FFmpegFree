@@ -3,10 +3,12 @@
     <AppSidebar />
     <div class="app-main">
       <AppTitlebar />
+      <FFmpegBanner />
       <main class="app-content">
         <RouterView />
       </main>
     </div>
+    <FFmpegInstallDialog />
   </div>
 </template>
 
@@ -15,9 +17,13 @@ import { onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import AppSidebar from './layout/AppSidebar.vue'
 import AppTitlebar from './layout/AppTitlebar.vue'
+import FFmpegBanner from './components/ffmpeg/FFmpegBanner.vue'
+import FFmpegInstallDialog from './components/ffmpeg/FFmpegInstallDialog.vue'
 import { useTheme } from './composables/useTheme'
+import { useFFmpegStore } from './stores/ffmpeg'
 
 useTheme()
+useFFmpegStore().init()
 
 // 过渡期：推流结果仍走 v1 的 SSE，任务 store 接上 task:status 事件后删除
 let eventSource: EventSource | null = null
@@ -63,6 +69,6 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: var(--ff-space-6);
+  padding: 20px 24px 24px;
 }
 </style>
