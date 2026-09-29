@@ -152,9 +152,19 @@ func newInstFixture(t *testing.T, ffmpegBody string) *instFixture {
 		ProgressInterval: -1, Logf: func(string, ...any) {}})
 	t.Cleanup(func() { tasks.Shutdown(2 * time.Second) })
 	f.tasks = tasks
+	// Start 会把设置里的 maxConcurrent 应用到任务管理器（0 = 自动 = NumCPU/2，限制在 1~3），
+	// 会覆盖上面 BatchConcurrency: 1。这里把设置也钉成 1，让 batch 池在任何核数的机器上都只有 1 个名额，
+	// "占满 batch 池让安装排队"的用例才有确定的前提（否则 4 核以上的机器上安装任务会直接开始运行）。
+	settings := newMemSettings()
+	if err := settings.SetSetting(context.Background(), SettingMaxConcurrent, 1); err != nil {
+		t.Fatal(err)
+	}
 	f.mgr = NewManager()
-	f.mgr.Start(context.Background(), Config{Locator: loc, Settings: newMemSettings(), Emitter: f.em, Installer: inst, Tasks: tasks})
+	f.mgr.Start(context.Background(), Config{Locator: loc, Settings: settings, Emitter: f.em, Installer: inst, Tasks: tasks})
 	waitFor(t, func() bool { return f.mgr.Status().State == ffmpeg.StateMissing })
+	if n := tasks.BatchConcurrency(); n != 1 {
+		t.Fatalf("测试夹具要求 batch 池并发数为 1, 实际 %d", n)
+	}
 	return f
 }
 
@@ -513,11 +523,21 @@ func TestInstallCancelWhileQueued(t *testing.T) {
 	if tk.Status != task.StatusQueued || f.mgr.Status().State != ffmpeg.StateInstalling {
 		t.Fatalf("%+v %+v", tk, f.mgr.Status())
 	}
+	// Submit 返回的是入队前的快照，恒为 queued，不能证明任务此刻真的在排队；
+	// 以任务管理器里的实时状态为准：占位任务在运行，安装任务确实还在排队、没有开始。
+	if cur, err := f.tasks.Get(tk.ID); err != nil || cur.Status != task.StatusQueued || cur.StartedAt != 0 {
+		t.Fatalf("取消前安装任务应仍在排队: %+v %v", cur, err)
+	}
 	if err := f.mgr.CancelInstall(); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, func() bool { return f.mgr.Status().State == ffmpeg.StateMissing })
 	close(block)
+	// 终态是 canceled，且从未进入 running（没有 Run，也就不会发起下载）。
+	got, err := f.tasks.Wait(context.Background(), tk.ID)
+	if err != nil || got.Status != task.StatusCanceled || got.StartedAt != 0 {
+		t.Fatalf("排队中取消应直接 canceled 且从未开始: %+v %v", got, err)
+	}
 	f.hitMu.Lock()
 	defer f.hitMu.Unlock()
 	if f.hits != 0 {
