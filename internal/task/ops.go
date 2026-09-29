@@ -13,6 +13,13 @@ import (
 	"FFmpegFree/internal/store"
 )
 
+// LegacyFinder 由能识别旧类型记录的 Store 实现（*store.Store）。
+type LegacyFinder interface {
+	LegacyTaskIDs(ctx context.Context, ids []string) ([]string, error)
+}
+
+var _ LegacyFinder = (*store.Store)(nil)
+
 // Remove 删除已结束任务的记录（同时清理日志文件），发 task:removed。deleteOutput 为 true 时
 // 还会删除成功任务的输出文件。只要 ids 里有一个仍在排队或运行，整个调用失败（TASK_CONFLICT），什么也不删。
 // 不存在的 ID 静默忽略。
@@ -21,6 +28,17 @@ func (m *Manager) Remove(ids []string, deleteOutput bool) error {
 		return nil
 	}
 	ctx := context.Background()
+	// 旧类型（"保留但不再产生"）的记录按不存在处理：整体 NOT_FOUND，什么也不删（记录、日志、输出都不碰）。
+	// 真正不存在的 id 仍然忽略，这里只拦库里有记录、类型是旧类型的 id。
+	if lf, ok := m.cfg.Store.(LegacyFinder); ok {
+		legacy, err := lf.LegacyTaskIDs(ctx, ids)
+		if err != nil {
+			return apperr.Wrap(apperr.IOError, "读取任务失败", err)
+		}
+		if len(legacy) > 0 {
+			return apperr.New(apperr.NotFound, "任务不存在")
+		}
+	}
 	m.mu.Lock()
 	for _, id := range ids {
 		if _, active := m.entries[id]; active {

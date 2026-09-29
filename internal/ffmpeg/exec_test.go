@@ -44,6 +44,15 @@ case "$mode" in
     trap '' INT
     echo "started" >&2
     sleep 30 ;;
+  qexit224)
+    # 收到 q 后以非零码退出（模拟取消之后连接断开、Broken pipe 等）
+    echo "out_time_us=1000000"; echo "progress=continue"
+    read -r x
+    echo "Broken pipe" >&2
+    exit 224 ;;
+  secretfail)
+    echo "Error opening output rtmp://h/live/topsecretkey: Connection refused" >&2
+    exit 3 ;;
   sigint)
     trap 'echo "got sigint" >&2; exit 130' INT
     echo "ready" >&2
@@ -192,5 +201,80 @@ func TestRunAlwaysAddsYAndNostdin(t *testing.T) {
 	}
 	if got := get(); strings.Contains(got, "-nostdin") || !strings.Contains(got, " -y ") {
 		t.Fatalf("自带 stdin 不应加 -nostdin: %q", got)
+	}
+}
+
+// 已请求取消之后 ffmpeg 无论怎样非零退出，Run 都返回 ctx 错误（任务落 canceled，不做分类）。
+func TestRunStrictGracefulNonzeroExitAfterCancelIsCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(200 * time.Millisecond); cancel() }()
+	classified := false
+	res, err := Run(ctx, RunOptions{Exe: fakeFFmpeg(t), Args: []string{"qexit224"}, GracefulStop: true, StrictGracefulExit: true,
+		Classify: func(string, error) *apperr.AppError {
+			classified = true
+			return apperr.New(apperr.LivePushInterrupted, "x")
+		}})
+	if !errors.Is(err, context.Canceled) || !res.Stopped || classified {
+		t.Fatalf("取消后非零退出应是 ctx 错误且不分类: err=%v res=%+v classified=%v", err, res, classified)
+	}
+	// 不严格时沿用旧语义：q 之后退出即成功。
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	go func() { time.Sleep(200 * time.Millisecond); cancel2() }()
+	if _, err := Run(ctx2, RunOptions{Exe: fakeFFmpeg(t), Args: []string{"qexit224"}, GracefulStop: true}); err != nil {
+		t.Fatalf("默认语义 q 后退出即成功: %v", err)
+	}
+}
+
+// 连接阶段（CanGraceful=false）取消直接强杀：不发 q、不等宽限期。
+func TestRunCanGracefulFalseKillsImmediately(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(200 * time.Millisecond); cancel() }()
+	begin := time.Now()
+	res, err := Run(ctx, RunOptions{Exe: fakeFFmpeg(t), Args: []string{"ignoreq"}, GracefulStop: true, GracePeriod: 10 * time.Second,
+		CanGraceful: func() bool { return false }})
+	if !errors.Is(err, context.Canceled) || !res.Stopped {
+		t.Fatalf("%v %+v", err, res)
+	}
+	if d := time.Since(begin); d > 3*time.Second {
+		t.Fatalf("连接阶段取消应直接强杀，实际 %v", d)
+	}
+}
+
+// Redact 在 stderr 进入尾部缓冲、OnStderr、Classify 之前生效。
+func TestRunRedactsBeforeTailLogAndClassify(t *testing.T) {
+	redact := func(l string) string { return strings.ReplaceAll(l, "topsecretkey", "***") }
+	var logged []string
+	var classifiedTail string
+	_, err := Run(context.Background(), RunOptions{Exe: fakeFFmpeg(t), Args: []string{"secretfail"}, Redact: redact,
+		OnStderr: func(l string) { logged = append(logged, l) },
+		Classify: func(tail string, _ error) *apperr.AppError {
+			classifiedTail = tail
+			return apperr.New(apperr.LiveConnectFailed, "x").WithDetail("scheme=rtmp\n" + tail)
+		}})
+	all := strings.Join(logged, "\n") + classifiedTail
+	if err == nil || strings.Contains(all, "topsecretkey") || strings.Contains(err.Error(), "topsecretkey") || !strings.Contains(all, "rtmp://h/live/***") {
+		t.Fatalf("脱敏未生效: err=%v all=%q", err, all)
+	}
+	// 分类器自己写的 detail（固定首行）保留，不被 tail 覆盖。
+	var ae *apperr.AppError
+	if !errors.As(err, &ae) || !strings.HasPrefix(ae.Detail, "scheme=rtmp\n") {
+		t.Fatalf("%v", err)
+	}
+}
+
+// 严格模式下：q 之后退出码 0 才算成功（返回 nil、Stopped=true）；宽限期超时被强杀仍是 ctx 错误。
+// 非严格（默认，除直播外的调用方）行为不变：见 TestRunGracefulStopViaQ / TestRunStrictGracefulNonzeroExitAfterCancelIsCanceled 的第二段。
+func TestRunStrictGracefulExitZeroIsSuccess(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(200 * time.Millisecond); cancel() }()
+	res, err := Run(ctx, RunOptions{Exe: fakeFFmpeg(t), Args: []string{"waitq"}, GracefulStop: true, StrictGracefulExit: true})
+	if err != nil || !res.Stopped || !strings.Contains(res.StderrTail, "trailer written") {
+		t.Fatalf("q 后退出码 0 应成功: %v %+v", err, res)
+	}
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	go func() { time.Sleep(200 * time.Millisecond); cancel2() }()
+	_, err = Run(ctx2, RunOptions{Exe: fakeFFmpeg(t), Args: []string{"ignoreq"}, GracefulStop: true, StrictGracefulExit: true, GracePeriod: 300 * time.Millisecond})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("超时强杀应是 ctx 错误: %v", err)
 	}
 }

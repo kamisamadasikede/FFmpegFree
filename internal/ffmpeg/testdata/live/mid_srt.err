@@ -1,0 +1,65 @@
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from '/tmp/live_src.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf61.7.103
+  Duration: 00:00:20.00, start: 0.000000, bitrate: 118 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High 4:4:4 Predictive) (avc1 / 0x31637661), yuv444p(progressive), 640x360 [SAR 1:1 DAR 16:9], 42 kb/s, 25 fps, 25 tbr, 12800 tbn (default)
+      Metadata:
+        handler_name    : VideoHandler
+        vendor_id       : [0][0][0][0]
+        encoder         : Lavc61.19.101 libx264
+  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, mono, fltp, 69 kb/s (default)
+      Metadata:
+        handler_name    : SoundHandler
+        vendor_id       : [0][0][0][0]
+Stream mapping:
+  Stream #0:0 -> #0:0 (h264 (native) -> h264 (libx264))
+  Stream #0:1 -> #0:1 (aac (native) -> aac (native))
+Press [q] to stop, [?] for help
+[libx264 @ 0x56058b30a800] using SAR=1/1
+[libx264 @ 0x56058b30a800] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2 AVX512
+[libx264 @ 0x56058b30a800] profile High, level 3.0, 4:2:0, 8-bit
+Output #0, mpegts, to 'srt://127.0.0.1:2890?streamid=publish:live/k3:pubuser:pubpass':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf61.7.103
+  Stream #0:0(und): Video: h264, yuv420p(tv, progressive), 640x360 [SAR 1:1 DAR 16:9], q=2-31, 1000 kb/s, 25 fps, 90k tbn (default)
+      Metadata:
+        handler_name    : VideoHandler
+        vendor_id       : [0][0][0][0]
+        encoder         : Lavc61.19.101 libx264
+      Side data:
+        cpb: bitrate max/min/avg: 0/0/1000000 buffer size: 0 vbv_delay: N/A
+  Stream #0:1(und): Audio: aac (LC), 44100 Hz, mono, fltp, 69 kb/s (default)
+      Metadata:
+        handler_name    : SoundHandler
+        vendor_id       : [0][0][0][0]
+        encoder         : Lavc61.19.101 aac
+[vost#0:0/libx264 @ 0x56058b36d700] Error submitting a packet to the muxer: Input/output error
+    Last message repeated 1 times
+[out#0/mpegts @ 0x56058b3b17c0] Error muxing a packet
+[out#0/mpegts @ 0x56058b3b17c0] Task finished with error code: -5 (Input/output error)
+[out#0/mpegts @ 0x56058b3b17c0] Terminating thread with return code -5 (Input/output error)
+[out#0/mpegts @ 0x56058b3b17c0] Error writing trailer: Input/output error
+[out#0/mpegts @ 0x56058b3b17c0] Error closing file: Input/output error
+[out#0/mpegts @ 0x56058b3b17c0] video:1099KiB audio:80KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 6.804824%
+frame=  231 fps= 26 q=6.0 Lsize=    1259KiB time=00:00:09.24 bitrate=1116.6kbits/s speed=1.02x    
+[libx264 @ 0x56058b30a800] frame I:1     Avg QP:10.46  size:  6968
+[libx264 @ 0x56058b30a800] frame P:240   Avg QP: 2.33  size:  4865
+[libx264 @ 0x56058b30a800] mb I  I16..4: 75.2%  8.2% 16.6%
+[libx264 @ 0x56058b30a800] mb P  I16..4:  1.7%  1.1%  1.4%  P16..4:  9.1%  5.0%  1.6%  0.0%  0.0%    skip:80.0%
+[libx264 @ 0x56058b30a800] final ratefactor: 10.82
+[libx264 @ 0x56058b30a800] 8x8 transform intra:24.8% inter:19.0%
+[libx264 @ 0x56058b30a800] coded y,uvDC,uvAC intra: 47.5% 84.6% 84.2% inter: 10.2% 15.4% 14.5%
+[libx264 @ 0x56058b30a800] i16 v,h,dc,p: 50% 38%  5%  7%
+[libx264 @ 0x56058b30a800] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 85%  2% 10%  0%  0%  0%  0%  1%  0%
+[libx264 @ 0x56058b30a800] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 78%  6% 10%  1%  0%  1%  0%  2%  1%
+[libx264 @ 0x56058b30a800] i8c dc,h,v,p: 15% 23% 20% 42%
+[libx264 @ 0x56058b30a800] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x56058b30a800] kb/s:974.79
+[aac @ 0x56058bb62f80] Qavg: 119.451
+Conversion failed!

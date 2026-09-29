@@ -99,7 +99,10 @@ func (e *entry) finish(m *Manager, st Status, aerr *apperr.AppError, output stri
 	e.task.Error = aerr
 	e.task.FinishedAt = time.Now().UnixMilli()
 	e.task.Speed, e.task.EtaSec = "", 0
-	if output != "" {
+	e.task.Fps, e.task.BitrateKbps, e.task.DroppedFrames = 0, 0, 0
+	if output == ClearOutputPath {
+		e.task.OutputPath = ""
+	} else if output != "" {
 		if filepath.IsAbs(output) {
 			e.task.OutputPath = output
 		} else {
@@ -142,6 +145,7 @@ func (e *entry) report(p Progress) {
 		e.task.Progress = f
 	}
 	e.task.Speed, e.task.EtaSec = p.Speed, p.EtaSec
+	e.task.Fps, e.task.BitrateKbps, e.task.DroppedFrames = p.Fps, p.BitrateKbps, p.DroppedFrames
 	if p.OutTimeSec > e.outTime {
 		e.outTime = p.OutTimeSec
 	}
@@ -184,6 +188,7 @@ func (e *entry) emitProgressLocked() {
 	e.m.emit(EventProgress, ProgressEvent{
 		ID: e.task.ID, Version: e.task.Version, Progress: e.task.Progress,
 		Speed: e.task.Speed, EtaSec: e.task.EtaSec, OutTimeSec: e.outTime,
+		Fps: e.task.Fps, BitrateKbps: e.task.BitrateKbps, DroppedFrames: e.task.DroppedFrames,
 	})
 }
 
