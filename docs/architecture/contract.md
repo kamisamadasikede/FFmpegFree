@@ -108,7 +108,7 @@ type MediaInfo struct {
 }
 
 type TaskType string // convert | edit_render | office_pdf | live_file_push | live_screen_push | ffmpeg_install
-                     // （v0.10：live_relay、live_record_push 取消；库里已有的旧类型记录只读展示，不能再提交）
+                     // （v0.10：live_relay、live_record_push 保留但不再产生：不能提交，任务中心不展示，库里的旧记录按未知类型忽略、不报错，见 6.10）
 type TaskStatus string // queued | running | succeeded | failed | canceled | interrupted
 
 type Task struct {
@@ -283,7 +283,7 @@ type PushURLInfo struct {
 **停止 = `TaskService.Cancel(taskID)`，不设 `StopPush`**。理由：
 1. 状态机、落库、`task:status`、应用退出（`Shutdown`）走的就是同一条取消路径，直播任务的 Runner 本来就是"取消 → 先发 `q`，最多等 5 秒让 ffmpeg 收尾，超时再强杀"（6.5、6.6）；再包一层 `StopPush` 只会多一个和 `Cancel` 语义重复、还要保持同步的入口。
 2. 任务中心、通知条等所有能看到任务的地方本来就有"停止"按钮，直播会话不用特殊处理。
-3. 结果语义（前端文案要区分）：优雅停止成功 → Runner 返回 nil → 任务是 **`succeeded`**（不是 `canceled`；用户点"停止直播"是直播的正常结束，存档完整）；5 秒内没退出被强杀 → `canceled`，存档不保证可用。`Cancel` 本身立即返回，不等 ffmpeg 退出；前端以 `task:status` 为准。已结束的会话 `Cancel` 返回 `TASK_CONFLICT`，重复点击（正在停止中）返回 nil。
+3. 结果语义（前端文案要区分）：优雅停止成功 → Runner 返回 nil → 任务是 **`succeeded`**（不是 `canceled`；用户点"停止直播"是直播的正常结束，存档完整）；5 秒内没退出被强杀 → `canceled`，存档不保证可用。`Cancel` 本身立即返回，不等 ffmpeg 退出；前端以 `task:status` 为准。**硬性规则（架构师定）：优雅停止记 `succeeded` 时任务的 `error` 必须为空；强杀记 `canceled` 时同样不带错误码（`error` 为空）；前端只看 `status` 区分"已结束推流"（`succeeded`）和"已强制停止"（`canceled`），不看 `error`。**测试必须断言这两种终态的 `Task.error == nil`，且 `task:status` 载荷不带 `error`。已结束的会话 `Cancel` 返回 `TASK_CONFLICT`，重复点击（正在停止中）返回 nil。
 4. `Retry` 对直播任务返回 `UNSUPPORTED`（没有注册重试工厂，且 params 已脱敏、拿不到密钥）；前端"重新开始"就是用表单里的值再调一次 `Start*`。
 
 **推流地址校验规则**（`Start*` 和 `CheckPushURL` 共用，不通过一律 `LIVE_URL_INVALID`，`message` 说明原因，`detail` 只带脱敏后的地址，绝不回显原文）：
@@ -444,12 +444,18 @@ schema_migrations(version PK, applied_at)
   - **测试要求**：URL 表驱动（各协议、userinfo、多段路径、IPv6、非法串）；行脱敏用真实 ffmpeg 输出样本；端到端用假 ffmpeg 脚本把完整 URL 打到 stderr 并失败，断言 `Task.title` / `Task.params` / `error.message` / `error.detail` / 日志文件 / 全部事件 payload 里都搜不到任何秘密片段。
   - **已知限制**：ffmpeg 命令行里必须有完整 URL，同一台机器上的其他进程（任务管理器、`ps`）能看到；应用不能规避，文档里说明。
 - **指标**：`task.Progress` 增加 `Fps float64`、`BitrateKbps float64`、`DroppedFrames int64`，`task.ProgressEvent` 和 `Task` 增加同名字段（`omitempty`）；`FFmpegRunner` 从 `ffmpeg.ProgressUpdate`（已有 `Fps`、`Dropped`、`TotalSize`、`OutTimeSec`）填充，`BitrateKbps` 用相邻两次 progress 的 `total_size` / `out_time` 增量做 5 秒滑动平均（`out_time` 不增长时沿用上一个值，不出现 NaN / Inf）。其余节流、`version`、丢弃旧事件规则不变。
-- **会话与任务管理器**：新增 `TypeLiveScreenPush`，`IsLive` 包含它；旧的 `TypeLiveRelay`、`TypeLiveRecordPush` 常量保留（读旧记录、`IsLive` 仍为 true），但 `Submit` 不再接受。不注册重试工厂，`Retry` 得到 `UNSUPPORTED`（message：直播会话不能重试，请重新开始推流）。进行中的会话同时最多 4 个；同一个标准化推流地址同时只能有一个会话（都是 `TASK_CONFLICT`）。应用退出：`Shutdown` 取消 → 优雅停止最多 5 秒 → 状态 `interrupted`；应用崩溃时 ffmpeg 子进程由操作系统回收（Windows 见 Job Object 修订）。
+- **会话与任务管理器**：新增 `TypeLiveScreenPush`，`IsLive` 包含它；旧的 `TypeLiveRelay`、`TypeLiveRecordPush` 常量**保留但不再产生**（架构师定，见下方确认项 ⑧）：`Submit` 不再接受，`IsLive` 对它们仍为 true 只是为了常量兼容。不注册重试工厂，`Retry` 得到 `UNSUPPORTED`（message：直播会话不能重试，请重新开始推流）。进行中的会话同时最多 4 个；同一个标准化推流地址同时只能有一个会话（都是 `TASK_CONFLICT`）。应用退出：`Shutdown` 取消 → 优雅停止最多 5 秒 → 状态 `interrupted`；应用崩溃时 ffmpeg 子进程由操作系统回收（Windows 见 Job Object 修订）。
 - **未验证（设计稿的已知风险，实现时要真机验证）**：macOS 屏幕录制授权的检测方式（不用 cgo 时只能靠 ffmpeg 报错或首帧内容判断）；Windows gdigrab 在多显示器 / 非 100% 缩放下偏移和尺寸是否等于物理像素；`x11grab` 在各桌面环境下的表现；上面所有 ffmpeg 报错关键词；RTMP / SRT 在不同服务器（nginx-rtmp、SRS、MediaMTX、常见直播平台）上的兼容性。
 
 - **合并顺序（架构师定）**：#19（Live，本节）→ #22（Edit，6.11）→ #23（Doc，6.12），三份合并后的最终契约版本是 **v0.12**；每个 PR 的头部版本号只在合并时按"保留最高版本号、各自 vX 变更段和小节都保留"处理，本 PR 头部保持 v0.10。
-- **架构师对 Edit / Doc 的 8 项拍板不涉及 Live**，下面 ①~⑨ 仍是待定项，**尚无结论**，实现前需要架构师逐条确认。
-- **待架构师 / 前端拍板**：① 同时进行的直播会话上限 4 个、同一地址只允许一个会话，是否合适；② 屏幕推流 v1 不采集声音（只有 `none` / `silent`），是否接受；③ 始终重编码（不支持 `-c copy` 直推文件），是否接受；④ 允许推到回环 / 内网地址；⑤ 只支持 rtmp / rtmps / srt，不含 rtsp / whip / http-flv 推流；⑥ 存档只用 mp4，且只有屏幕推流有存档，文件推流不需要；⑦ 优雅停止成功记 `succeeded`、强杀记 `canceled`，前端文案按此区分；⑧ 旧的 `live_relay` / `live_record_push` 类型是否还要在任务中心里展示（目前没有代码产生过这两种记录）；⑨ 前端 `AppErrorCode` 需要补 `CANCELED`、直播相关码、`PROBE_FAILED`、`UNSUPPORTED`、`CONVERT_DISK_FULL`。
+- **已确认项**（原待定项 ①~⑨，不再待定）：
+  - ①~⑦ **产品经理和架构师已正式确认**：① 同时进行的直播会话上限 4 个、同一标准化地址只允许一个会话；② 屏幕推流首版不采集声音（只有 `none` / `silent`）；③ 始终重编码（不支持 `-c copy` 直推文件）；④ 允许推到回环 / 内网地址；⑤ 只支持 rtmp / rtmps / srt，不含 rtsp / whip / http-flv 推流；⑥ 存档只用 mp4，且只有屏幕推流有存档；⑦ 优雅停止成功记 `succeeded`、强杀记 `canceled`，前端文案按此区分（硬性规则见 6.10 前文「结果语义」）。
+  - ⑧ **架构师定**：任务中心**不展示** `live_relay` 和 `live_record_push`；这两个旧类型在契约里标为"保留但不再产生"（`Submit` 不接受）；数据库里若有旧记录，一律按未知类型**忽略、不报错**（`List` / `ListActive` / `Get` 等读取路径遇到类型不在当前枚举内的行时跳过，不返回错误、不影响其他记录）。目前没有任何代码产生过这两种记录。
+  - ⑨ **前端负责**：由前端在 `v2-fe-api-contracts` 里补全 `AppErrorCode`（`CANCELED`、八个 `LIVE_*` 相关码、`PROBE_FAILED`、`UNSUPPORTED`、`CONVERT_DISK_FULL`），并对照第 2 节契约错误码表逐项核对。后端不改动。
+- **SRT 说明（架构师 / 产品定）**：SRT 连接失败**统一判 `LIVE_CONNECT_FAILED`**（原因见上文实测：服务器未开与被拒绝在 ffmpeg stderr 里无法区分）。产品文案"连接失败，请检查地址和口令是否正确"由**前端负责**，后端 `message` **不承载该文案**（后端 `message` 只描述技术原因，`detail` 是脱敏后的 stderr 尾部）。
+- **用户可见提示（来自产品经理，仅供前端参考；后端只保证错误码和触发条件，不返回这些文案）**：
+  - `TASK_CONFLICT`：进行中的直播会话已达 4 个 → 前端提示"最多同时推 4 路"；同一标准化地址已有进行中的会话 → "这个地址已经在推流"。两种触发共用同一个错误码 `TASK_CONFLICT`。**（建议，待架构师确认，非已拍板）**：为方便前端区分文案，`detail` 第一行固定写 `reason=max_sessions`（达到上限）或 `reason=duplicate_url`（地址重复），其后才是脱敏说明；不确认则前端只能按 `message` 文本区分，不稳定。
+  - `LIVE_URL_INVALID`：协议不是 rtmp / rtmps / srt 时**后端已经是这个码**（第 2 节错误码表与本节「推流地址校验规则」第 2 条一致：scheme 只允许 `rtmp`、`rtmps`、`srt`，其余一律 `LIVE_URL_INVALID`），前端提示"暂不支持这种推流地址，请使用 rtmp、rtmps 或 srt"。同一个码还覆盖地址格式不合法、端口越界、srt listener / rendezvous 模式等，前端如需区分靠 `message`，不要靠猜测。
 
 ## 7. 本地流服务（已取消）
 
