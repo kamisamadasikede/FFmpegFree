@@ -345,3 +345,69 @@ func TestClassifyConvertError(t *testing.T) {
 		t.Error("不认识的应返回 nil")
 	}
 }
+
+// H1：文件名 / 标题 / 元数据里出现关键词，但失败原因无关，不得误分类。
+func TestClassifyIgnoresUserDataInStderr(t *testing.T) {
+	stderr := func(tail ...string) string { return strings.Join(tail, "\n") }
+	header := []string{
+		"Input #0, mov,mp4,m4a,3gp,3g2,mj2, from '/videos/ENOSPC 磁盘空间不足 end of file permission denied no such file.mp4':",
+		"  Metadata:",
+		"    title           : No space left on device / Permission denied / end of file",
+		"    artist          : Invalid data found when processing input",
+		"  Duration: 00:01:00.00, start: 0.000000, bitrate: 1000 kb/s",
+		"  Stream #0:0[0x1](und): Video: h264, yuv420p, 1280x720",
+		"    Metadata:",
+		"      handler_name    : ENOSPC no such file or directory",
+		"Stream mapping:",
+		"  Stream #0:0 -> #0:0 (h264 (native) -> hevc (libx265))",
+		"Output #0, mp4, to '/out/enospc.mp4':",
+		"  Metadata:",
+		"    title           : Error writing trailer: No space left on device",
+	}
+	cases := map[string][]string{
+		// 输出编码中途出错（不是磁盘满、也不是输入损坏）→ 不能因为 end of file 变成 PROBE_FAILED
+		"encode error":   {"[libx265 @ 0x1] Error while encoding frame: end of file", "Conversion failed!"},
+		"unrelated exit": {"Conversion failed!"},
+		"filter error":   {"[Parsed_scale_0 @ 0x2] Unable to parse option value \"abc\"", "Error initializing filters"},
+	}
+	for name, body := range cases {
+		if e := ClassifyConvertError(stderr(append(append([]string{}, header...), body...)...), nil); e != nil && name != "encode error" {
+			t.Errorf("%s: 不应被分类, got %+v", name, e)
+		} else if name == "encode error" && e != nil && e.Code == apperr.ProbeFailed {
+			t.Errorf("%s: end of file 不应误判为 PROBE_FAILED: %+v", name, e)
+		}
+	}
+	// 只有头部（文件名 / 标题里有关键词）+ 失败原因无关 → nil
+	if e := ClassifyConvertError(stderr(header...), nil); e != nil {
+		t.Errorf("头部里的关键词不应触发分类: %+v", e)
+	}
+	// 文件名里的 ENOSPC 出现在写入句式之外 → 不是磁盘满
+	if e := ClassifyConvertError("Error opening output file /x/ENOSPC.mp4: Permission denied", nil); e == nil || e.Code != apperr.IOError {
+		t.Errorf("应为 IO_ERROR: %+v", e)
+	}
+	if e := ClassifyConvertError("/x/No space left on device.mp4: Invalid data found when processing input", nil); e == nil || e.Code != apperr.ProbeFailed {
+		t.Errorf("文件名带磁盘满字样不应误报 CONVERT_DISK_FULL: %+v", e)
+	}
+	// 磁盘满必须限定在写入句式上：孤立一行 ENOSPC 文件名不算
+	if e := ClassifyConvertError("Could not open /x/ENOSPC", nil); e != nil && e.Code == apperr.ConvertDiskFull {
+		t.Errorf("不应误报磁盘满: %+v", e)
+	}
+	// 真实磁盘满：完整 stderr（含头部）仍能识别
+	real := stderr(append(append([]string{}, header...),
+		"frame= 1200 fps= 60 q=28.0 size=  102400kB time=00:00:40.00",
+		"[out#0/mp4 @ 0x3] Error muxing a packet",
+		"av_interleaved_write_frame(): No space left on device",
+		"Error writing trailer of /out/enospc.mp4: No space left on device",
+		"Conversion failed!")...)
+	if e := ClassifyConvertError(real, nil); e == nil || e.Code != apperr.ConvertDiskFull {
+		t.Errorf("真实磁盘满应识别: %+v", e)
+	}
+	// Windows 措辞
+	if e := ClassifyConvertError("[out#0 @ 0x1] Error muxing a packet\nav_interleaved_write_frame(): There is not enough space on the disk.", nil); e == nil || e.Code != apperr.ConvertDiskFull {
+		t.Errorf("Windows 磁盘满应识别: %+v", e)
+	}
+	// tail 从元数据块中间开始（只保留最后 50 行）
+	if e := ClassifyConvertError("    title : ENOSPC\n    artist : Permission denied\nConversion failed!", nil); e != nil {
+		t.Errorf("块中间开头的元数据行应被忽略: %+v", e)
+	}
+}
