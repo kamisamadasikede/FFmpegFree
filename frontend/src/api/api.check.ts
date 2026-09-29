@@ -290,6 +290,36 @@ export async function runApiChecks(): Promise<string[]> {
     eq('Windows 没有窗口：只有屏幕', (await live.listCaptureSources()).map((x) => x.kind), ['screen', 'screen'])
     win.location.search = ''
     live.resetSimSources()
+    // 小修订包 12：开始推流可用性矩阵、没选来源时请求不带 captureSourceId、previewOn 复位、提示条位置
+    {
+      const { recordStartEnabled, defaultMainScreenHint } = await import('@/utils/liveSource')
+      const base: Parameters<typeof recordStartEnabled>[0] = { blocked: false, starting: false, hasUrl: true, sourceId: 'window:1', state: 'ready', gone: false }
+      const en = (o: Partial<typeof base>) => recordStartEnabled({ ...base, ...o })
+      eq('开始推流可用：列表正常且已选来源', en({}), true)
+      eq('开始推流可用：刷新中（保留旧列表 + 已选项）不置灰', en({ state: 'loading' }), true)
+      eq('开始推流可用：刷新失败但旧列表里还有已选项不置灰', en({ state: 'failed' }), true)
+      eq('开始推流可用：首次加载中且没有已选项 → 置灰', en({ sourceId: '', state: 'loading' }), false)
+      eq('开始推流可用：首次失败 / 空列表且没有已选项 → 可用（不传来源，后端默认推主屏）', [en({ sourceId: '', state: 'failed' }), en({ sourceId: '', state: 'empty' })], [true, true])
+      eq('开始推流可用：来源失效（GONE）等待重选 → 置灰', en({ sourceId: '', state: 'ready', gone: true }), false)
+      eq('开始推流可用：失效后刷新又失败仍置灰（不悄悄改推主屏）', en({ sourceId: '', state: 'failed', gone: true }), false)
+      eq('开始推流可用：ffmpeg 未就绪 / 正在开始 / 地址为空 → 置灰（优先于一切）', [en({ blocked: true }), en({ starting: true }), en({ hasUrl: false }), en({ blocked: true, sourceId: '', state: 'failed' })], [false, false, false, false])
+      eq('轻提示“未选择来源，将推送主屏”：只在没选来源且失败 / 空列表时出现', [defaultMainScreenHint({ sourceId: '', state: 'failed', gone: false }), defaultMainScreenHint({ sourceId: '', state: 'empty', gone: false }), defaultMainScreenHint({ sourceId: 'screen:0', state: 'failed', gone: false }), defaultMainScreenHint({ sourceId: '', state: 'ready', gone: true }), defaultMainScreenHint({ sourceId: '', state: 'loading', gone: false })], [true, true, false, false, false])
+      const noSrc = live.buildScreenPushRequest({ url: 'rtmp://main.example/live/m', sourceId: '', archiveDir: '', preview: true })
+      eq('没选来源：请求里不带 captureSourceId（连键都没有），screenId 为空 = 主显示器', ['captureSourceId' in noSrc, JSON.stringify(noSrc).includes('captureSourceId'), noSrc.screenId], [false, false, ''])
+      const withSrc = live.buildScreenPushRequest({ url: 'rtmp://main.example/live/m2', sourceId: 'window:131426', archiveDir: '', preview: false })
+      eq('选了来源：原样带 captureSourceId，preview 原样带', [withSrc.captureSourceId, withSrc.preview], ['window:131426', false])
+      // previewOn 复位（组件不能在 node 里挂载，按源码断言）：开始成功后复位为开；拉流在播放结束（busy 变 false）后复位
+      const fsx = await import('node:fs')
+      const rd = (f: string) => fsx.readFileSync(`${process.cwd()}/${f}`, 'utf8')
+      const okReset = /else \{\s*key\.value = ''\s*previewOn\.value = true/
+      eq('previewOn 复位：文件推流 / 录屏推流开始成功后 previewOn = true', [okReset.test(rd('src/views/live/FilePush.vue')), okReset.test(rd('src/views/live/RecordPush.vue'))], [true, true])
+      eq('previewOn 复位：拉流页在会话结束（busy 变 false）后 previewOn = true', /watch\(\(\) => session\.busy\.value, \(b\) => \{\s*if \(!b\) previewOn\.value = true/.test(rd('src/views/live/PullPlay.vue')), true)
+      // 回退提示条：Tab 条下方通栏（LiveLayout），不再在推流页左列里
+      const lay = rd('src/views/live/LiveLayout.vue')
+      eq('回退提示条在 LiveLayout 的 Tab 条（nav）之后、RouterView 之前；两个推流页里不再有', [lay.indexOf('</nav>') < lay.indexOf('<LiveFallbackNotice') && lay.indexOf('<LiveFallbackNotice') < lay.indexOf('<RouterView'), rd('src/views/live/FilePush.vue').includes('LiveFallbackNotice'), rd('src/views/live/RecordPush.vue').includes('LiveFallbackNotice')], [true, false, false])
+      // 预览舞台网格轨道必须 minmax(0,1fr)，否则图片撑开轨道被裁（走查 S1）
+      eq('预览舞台：grid-template 用 minmax(0,1fr)', /grid-template:\s*minmax\(0,\s*1fr\)\s*\/\s*minmax\(0,\s*1fr\)/.test(rd('src/components/live/PreviewStage.vue')), true)
+    }
   }
   // 表单错误映射：LIVE_SOURCE_GONE 显示在来源选择器下方（where=source），窗口 / 屏幕文案，INVALID_ARGUMENT 沿用通用文案
   eq('表单错误：窗口消失', pushErrorToForm(new AppError('LIVE_SOURCE_GONE', 'm', 'kind=window')), { where: 'source', text: '所选窗口已不可用，请重新选择' })
@@ -299,6 +329,13 @@ export async function runApiChecks(): Promise<string[]> {
   const gt = await live.startScreenPush({ ...screenReq('rtmp://g2.example/live/g2'), captureSourceId: 'window:131426' })
   eq('窗口来源的任务标题与 params', [gt.title.includes('记事本'), JSON.parse(gt.params).captureSourceId], [true, 'window:131426'])
   await live.stopPush(gt.id)
+  await new Promise((r) => setTimeout(r, 1700)) // 模拟层停止需要一小会儿，之后才能再开屏幕推流
+  {
+    const noSrc = live.buildScreenPushRequest({ url: 'rtmp://main.example/live/m', sourceId: '', archiveDir: '', preview: true })
+    const mt = await live.startScreenPush(noSrc)
+    eq('没选来源也能开始（模拟层默认推主屏），params 里没有 captureSourceId', [mt.title.includes('屏幕 1'), JSON.parse(mt.params).captureSourceId], [true, undefined])
+    await live.stopPush(mt.id)
+  }
   await new Promise((r) => setTimeout(r, 1700)) // 模拟层停止需要一小会儿，之后才能再开屏幕推流
   await live.startScreenPush(screenReq('rtmp://s1.example/live/sk1'))
   err = await rejects(live.startScreenPush(screenReq('rtmp://s2.example/live/sk2')))

@@ -1,7 +1,6 @@
 <template>
   <LiveTabFrame>
     <template #main>
-      <LiveFallbackNotice />
       <LivePushPreview />
       <LiveSessionList :empty-hint="pickerMode === 'dropdown' ? LIVE_RECORD_EMPTY_HINT_WIN : LIVE_RECORD_EMPTY_HINT" />
     </template>
@@ -23,6 +22,7 @@
           <LiveFormError v-if="err?.where === 'source'" :text="err.text">
             <button type="button" class="lk" @click="refreshFromError">{{ LIVE_SOURCE_REFRESH }}</button>
           </LiveFormError>
+          <p v-if="defaultMain" class="note" role="status"><FIcon name="info" :size="14" />{{ LIVE_SOURCE_DEFAULT_MAIN_HINT }}</p>
           <p v-if="sourceId" class="note"><FIcon name="info" :size="14" />{{ LIVE_SCREEN_NO_AUDIO_TEXT }}</p>
         </LiveField>
         <LiveField label="推流地址">
@@ -68,14 +68,13 @@ import LiveInput from '@/components/live/LiveInput.vue'
 import LiveButton from '@/components/live/LiveButton.vue'
 import LiveFormError from '@/components/live/LiveFormError.vue'
 import CaptureSourcePicker from '@/components/live/CaptureSourcePicker.vue'
-import LiveFallbackNotice from '@/components/live/LiveFallbackNotice.vue'
 import LivePushPreview from '@/components/live/LivePushPreview.vue'
 import PreviewSwitch from '@/components/live/PreviewSwitch.vue'
 import LiveSessionList from '@/components/live/LiveSessionList.vue'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { useLiveSessionsStore } from '@/stores/liveSessions'
-import { sourcePickerMode } from '@/utils/liveSource'
-import { LIVE_RECORD_EMPTY_HINT, LIVE_RECORD_EMPTY_HINT_WIN, LIVE_SCREEN_NO_AUDIO_TEXT, LIVE_SOURCE_FIELD_LABEL, LIVE_SOURCE_FIELD_LABEL_SCREEN, LIVE_SOURCE_REFRESH, LIVE_SRT_PASSPHRASE_TEXT, liveSourceGoneText } from '@/errors/errorMessages'
+import { defaultMainScreenHint, recordStartEnabled, sourcePickerMode } from '@/utils/liveSource'
+import { LIVE_RECORD_EMPTY_HINT, LIVE_RECORD_EMPTY_HINT_WIN, LIVE_SCREEN_NO_AUDIO_TEXT, LIVE_SOURCE_DEFAULT_MAIN_HINT, LIVE_SOURCE_FIELD_LABEL, LIVE_SOURCE_FIELD_LABEL_SCREEN, LIVE_SOURCE_REFRESH, LIVE_SRT_PASSPHRASE_TEXT, liveSourceGoneText } from '@/errors/errorMessages'
 import { PREVIEW_SWITCH_NOTE_STARTING } from '@/errors/livePreviewMessages'
 import { composePushUrl, parsePushUrl } from '@/utils/liveUrl'
 import * as liveApi from '@/api/live'
@@ -110,7 +109,9 @@ const archiveOn = ref(false)
 const archiveDir = ref('')
 const err = ref<PushFormError | null>(null)
 const starting = ref(false)
-const canStart = computed(() => !blocked.value && !starting.value && !!sourceId.value && srcState.value === 'ready' && !!baseUrl.value.trim())
+const canStart = computed(() => recordStartEnabled({ blocked: blocked.value, starting: starting.value, hasUrl: !!baseUrl.value.trim(), sourceId: sourceId.value, state: srcState.value, gone: goneShown.value }))
+/** 没选来源（列表加载失败 / 没有可选项）时不传来源，后端默认推主屏：表单里给一句轻提示 */
+const defaultMain = computed(() => defaultMainScreenHint({ sourceId: sourceId.value, state: srcState.value, gone: goneShown.value }))
 
 watch([baseUrl, key], () => (err.value = null))
 watch(archiveOn, async (on) => {
@@ -203,10 +204,13 @@ async function start() {
   }
   starting.value = true
   try {
-    const task = await liveApi.startScreenPush({ url: full, screenId: '', captureSourceId: sourceId.value, hideCursor: false, audio: 'none', archiveDir: dir, options: liveApi.defaultPushOptions(), preview: previewOn.value })
+    const task = await liveApi.startScreenPush(liveApi.buildScreenPushRequest({ url: full, sourceId: sourceId.value, archiveDir: dir, preview: previewOn.value }))
     const r = await store.begin(task, { kind: 'screen', redactedUrl: check.info.redacted, archive: !!dir, source: pickedSource(sourceId.value), preview: previewOn.value })
     if (!r.ok) showError(r.error, check.info.scheme)
-    else key.value = ''
+    else {
+      key.value = ''
+      previewOn.value = true // 产品经理已定：不记住上次选择，每次开始推流后复位为开（页面被 KeepAlive 保留时也一样）；没开始成功（报错）时保留用户当前选择
+    }
   } catch (e) {
     showError(toAppError(e), check.info.scheme)
   } finally {

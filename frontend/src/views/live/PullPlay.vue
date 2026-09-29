@@ -135,6 +135,10 @@ const hudLines = computed(() => {
 })
 
 watch(url, () => (urlInvalid.value = false))
+// 产品经理已定：预览开关不记住上次选择。播放期间开关置灰并显示本次的值，播放结束（停止 / 出错）后复位为开（页面被 KeepAlive 保留时也一样）
+watch(() => session.busy.value, (b) => {
+  if (!b) previewOn.value = true
+})
 watch(muted, (m) => {
   if (videoRef.value) videoRef.value.muted = m
 })
