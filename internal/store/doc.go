@@ -27,7 +27,8 @@ const (
 // UpsertDocRecent 按 path_key 写入：同一个文件再次打开保留原来的 id，只更新名称、大小和打开时间。
 // pathKey 由调用方用 paths.Normalize 生成。写入与清理在同一事务里，只保留最近 DefaultDocRecentKeep 条。
 func (s *Store) UpsertDocRecent(ctx context.Context, pathKey string, r DocRecent) (DocRecent, error) {
-	if r.OpenedAt == 0 {
+	auto := r.OpenedAt == 0
+	if auto {
 		r.OpenedAt = time.Now().UnixMilli()
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -35,6 +36,16 @@ func (s *Store) UpsertDocRecent(ctx context.Context, pathKey string, r DocRecent
 		return DocRecent{}, err
 	}
 	defer tx.Rollback()
+	if auto {
+		// 默认时间戳保证严格递增：同一毫秒内连续打开多个文件时，"最近"的顺序不能靠随机 id 决定。
+		var mx int64
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(opened_at), 0) FROM doc_recent`).Scan(&mx); err != nil {
+			return DocRecent{}, err
+		}
+		if r.OpenedAt <= mx {
+			r.OpenedAt = mx + 1
+		}
+	}
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO doc_recent (id, path, path_key, name, size, opened_at) VALUES (?,?,?,?,?,?)
 		ON CONFLICT(path_key) DO UPDATE SET
