@@ -1,6 +1,6 @@
 // 剪辑页纯逻辑（不依赖 Vue / 浏览器）：限制、同轨重叠与 0.12 秒相接、切割、吸附、时间码、文件名长度、导出错误定位。
 // 自检：npm run check:edit（见 scripts/check-edit.mjs，不引入测试框架）。
-import { clipTimelineLength, findTrackOverlap, wouldOverlap, type AudioClip, type VideoClip } from '@/api/edit'
+import { MAX_SOURCES, clipTimelineLength, findTrackOverlap, wouldOverlap, type AudioClip, type VideoClip } from '@/api/edit'
 import { FALLBACK_DESCRIPTION, taskErrorMessages } from '@/errors/errorMessages'
 import { parseDetailHead } from '@/api/call'
 
@@ -11,7 +11,7 @@ export const MAX_VIDEO_TRACKS = 8
 export const MAX_AUDIO_TRACKS = 8
 export const MAX_CLIPS = 100
 /** 素材库上限：先按 100（产品经理尚未最终确认，原型写的是 200；契约 EditProject.sources 上限 200） */
-export const MAX_SOURCES = 100
+export { MAX_SOURCES }
 export const MAX_TIMELINE_SEC = 6 * 3600
 /** 片段最短 0.1 秒（契约只要求 outSec > inSec，前端定 0.1） */
 export const MIN_CLIP_SEC = 0.1
@@ -272,14 +272,14 @@ export interface EditWarning {
 }
 /** 已知 code → 文案（按 code 出文案；未知 code 用通用文案）。label 是“片段 3”/“V1 片段 3”，找不到片段时为空 */
 export const WARNING_TEXT: Record<string, (label: string) => string> = {
-  OUT_EXCEEDS_DURATION: (label) => `${label || '有一个片段'} 的出点超过素材时长，导出时会截到素材结尾。`,
+  OUT_TRUNCATED: (label) => `${label || '有一个片段'} 的出点超过素材时长，导出时会截到素材结尾。`,
 }
 /**
  * 规范化 warnings。结构化形式 {code, clipId?, message} 原样接收；
  * 接口层模拟目前还返回旧的字符串形式（"clip <id> outSec 超过素材时长，已截断"），这里按同一句式解析出 code / clipId，其余字符串按未知 code 处理。
  */
 /** 导出时按空隙补黑场 / 静音的提示码：界面不提示（设计说明 2.14），只在校验提示里过滤掉 */
-export const SILENT_WARNING_CODES = ['CLIP_GAP', 'LEADING_GAP']
+export const SILENT_WARNING_CODES = ['CLIP_GAP', 'LEADING_GAP', 'NO_AUDIO_TRACK']
 export const isSilentWarning = (w: EditWarning) => SILENT_WARNING_CODES.includes(w.code.toUpperCase())
 export const hasTransitionIgnored = (ws: readonly EditWarning[]) => ws.some((w) => w.code.toUpperCase() === 'TRANSITION_IGNORED')
 export function normalizeWarnings(raw: unknown): EditWarning[] {
@@ -287,7 +287,7 @@ export function normalizeWarnings(raw: unknown): EditWarning[] {
   return raw.map((w): EditWarning => {
     if (typeof w === 'string') {
       const m = /^clip (\S+) outSec 超过素材时长/.exec(w)
-      if (m) return { code: 'OUT_EXCEEDS_DURATION', clipId: m[1], message: w }
+      if (m) return { code: 'OUT_TRUNCATED', clipId: m[1], message: w }
       const t = /^(transition_ignored|clip_gap|leading_gap)\b\s*(?:clip (\S+))?/i.exec(w)
       return t ? { code: t[1].toUpperCase(), clipId: t[2], message: w } : { code: 'UNKNOWN', message: w }
     }

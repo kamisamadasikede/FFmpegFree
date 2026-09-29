@@ -122,8 +122,8 @@ export function runEditChecks(): string[] {
   eq('Windows 路径错误标红保存位置', exportNameError('x', 'C:\\' + 'a'.repeat(300), 'mp4', true)?.path, true)
 
   // 校验提示：按 code 出文案，未知 code 用通用文案
-  const ws = normalizeWarnings([{ code: 'OUT_EXCEEDS_DURATION', clipId: 'c3', message: 'x' }, { code: 'FUTURE_CODE', message: '后端新增' }, 'clip k1 outSec 超过素材时长，已截断', '别的话'])
-  eq('warnings 结构', ws.map((w) => [w.code, w.clipId]), [['OUT_EXCEEDS_DURATION', 'c3'], ['FUTURE_CODE', undefined], ['OUT_EXCEEDS_DURATION', 'k1'], ['UNKNOWN', undefined]])
+  const ws = normalizeWarnings([{ code: 'OUT_TRUNCATED', clipId: 'c3', message: 'x' }, { code: 'FUTURE_CODE', message: '后端新增' }, 'clip k1 outSec 超过素材时长，已截断', '别的话'])
+  eq('warnings 结构', ws.map((w) => [w.code, w.clipId]), [['OUT_TRUNCATED', 'c3'], ['FUTURE_CODE', undefined], ['OUT_TRUNCATED', 'k1'], ['UNKNOWN', undefined]])
   eq('已知 code 文案', warningText(ws[0], '片段 3'), '片段 3 的出点超过素材时长，导出时会截到素材结尾。')
   eq('未知 code 通用文案', warningText(ws[1]), TEXT.warningGeneric)
 

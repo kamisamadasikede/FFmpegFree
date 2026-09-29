@@ -1,8 +1,8 @@
 /**
  * EditService 接口层（契约 v0.11 / 6.11，#22 最新提交为准，尚未冻结）。
  *
- * EDIT_BACKEND_READY（api/flags.ts）= false：本地模拟（内存里的工程库 + api/sim.ts 的定时器导出任务）；
- * = true：window.go.app.EditService.*（callService；绑定不存在抛 UNSUPPORTED）。
+ * EDIT_BACKEND_READY（api/flags.ts）= true 且运行在 Wails 里（editIsReal()）：直接调用生成的绑定 wailsjs/go/app/EditService（类型来自 wailsjs/go/models.ts 的 edit 命名空间）；
+ * 开关为 false，或纯浏览器环境（没有 window.go，npm run dev / check:api）：本地模拟（内存里的工程库 + api/sim.ts 的定时器导出任务）。
  * 素材不在 EditService：选文件 SystemService.PickFiles（api/system.ts 的 pickFiles）、探测 MediaService.Probe（api/media.ts 的 probeFiles）、缩略图 thumbnailOf。
  * 取消导出 = TaskService.Cancel（tasks store 的 cancel）；重试 = TaskService.Retry（edit_export 注册了重试工厂）。
  *
@@ -14,13 +14,24 @@
  * - clip 级错误的 detail 第一行 `clip=<id> path=<path>`（结构性错误是 `project`）；AppError.clipId / .path 已解析（api/call.ts），clip id 字符集 [A-Za-z0-9_-]。
  * - 预览：GetPreviewURL 返回 /local/<token>（进程内有效，重启失效）。遇到 404（token 失效 / 文件被删）要重新调用 GetPreviewURL：见 createPreviewSource。
  */
-import { AppError, callService, toAppError } from '@/api/call'
+import * as EditBinding from '../../wailsjs/go/app/EditService'
+import { edit as goEdit } from '../../wailsjs/go/models'
+import { AppError, call, toAppError } from '@/api/call'
 import { EDIT_BACKEND_READY } from '@/api/flags'
+import { hasWailsBackend } from '@/services/wails'
 import { createSimTask, injectionDetail, simDelay, simError, simInjection, simParam } from '@/api/sim'
 import { toApiTask, type ApiTask } from '@/api/taskTypes'
 
 export { EDIT_BACKEND_READY }
 
+/** 开关为 true 且运行在 Wails 里才调用真实绑定；纯浏览器（没有 window.go，npm run dev / check:api）仍走本地模拟。页面用它判断“演示提示”是否显示 */
+export const editIsReal = (): boolean => EDIT_BACKEND_READY && hasWailsBackend()
+
+/**
+ * 素材库上限（个）。产品经理先定 100；后端现状 sources ≤ 200、片段总数 ≤ 100，“100”指素材文件还是片段还没最终答复。
+ * 全站（界面计数 x/100、导入拦截、提示文案、SaveProject 模拟校验）都读这个常量，结论出来只改这一行。
+ */
+export const MAX_SOURCES = 100
 // ───────────── 契约类型（§6.11.1，字段一一对应）─────────────
 
 export type EditFormat = 'mp4' | 'mov' | 'mkv' | 'webm'
@@ -113,7 +124,14 @@ export interface EditPlan {
   clipCount: number
   inputs: string[]
   hasAudio: boolean
-  warnings: string[]
+  warnings: EditWarning[]
+}
+
+/** ValidateProject 的警告（契约 6.11.2 D，code 稳定枚举只追加）：clip_gap / leading_gap / no_audio_track / out_truncated / transition_ignored */
+export interface EditWarning {
+  code: string
+  clipId?: string
+  message: string
 }
 
 export interface EditProjectMeta {
@@ -145,11 +163,20 @@ export const AUDIO_TRACK_RE = /^A[1-8]$/
 export const PREVIEW_EXTS = ['mp4', 'mov', 'avi', 'mkv', 'flv', 'webm', 'm4v', 'mp3', 'wav', 'aac', 'm4a', 'flac', 'ogg']
 const AUDIO_ONLY_EXTS = ['mp3', 'wav', 'aac', 'm4a', 'flac', 'ogg']
 
+/** 默认导出参数（产品定稿 1920×1080、30fps）。提交时前端显式写宽高帧率，不依赖后端兜底；1280×720 等仍是可选项 */
+export const DEFAULT_OUTPUT: Readonly<EditOutput> = { format: 'mp4', width: 1920, height: 1080, fps: 30 }
+
+/** 提交给后端前把 output 里的 0 / 空值补成明确的值（宽、高、帧率、格式），返回副本 */
+export function withExplicitOutput(p: EditProject): EditProject {
+  const o = p.output ?? ({} as EditOutput)
+  return { ...p, output: { format: o.format || DEFAULT_OUTPUT.format, width: o.width || DEFAULT_OUTPUT.width, height: o.height || DEFAULT_OUTPUT.height, fps: o.fps || DEFAULT_OUTPUT.fps } }
+}
+
 /** 新建一个空工程（视频轨不能为空才能 Export/Validate；Save 只做结构与范围校验） */
 export function newEditProject(name = '未命名工程'): EditProject {
   return {
     schemaVersion: EDIT_SCHEMA_VERSION, id: '', name, sources: [],
-    output: { format: 'mp4', width: 1920, height: 1080, fps: 30 },
+    output: { ...DEFAULT_OUTPUT },
     videoTrack: [], audioTrack: [],
     effects: { brightness: 0, contrast: 1, saturation: 1, sharpen: 0 },
     updatedAt: 0,
@@ -234,7 +261,6 @@ export function wouldOverlap(clips: AnyClip[], candidate: AnyClip): string | nul
 
 const MAX_CLIPS = 100
 /** 素材库上限（产品经理已定） */
-const MAX_SOURCES = 100
 const MAX_TIMELINE_SEC = 6 * 3600
 const MAX_PROJECT_BYTES = 1024 * 1024
 const TRANSITIONS: readonly string[] = ['none', 'fade', 'wipeleft', 'wiperight', 'slideleft', 'slideright', 'circleopen', 'circleclose', 'dissolve']
@@ -333,7 +359,7 @@ let simSeq = 0
 const simDuration = (path: string) => 60 + (baseName(path).length % 7) * 10
 
 function simCheckMaterials(p: EditProject): EditPlan {
-  const warnings: string[] = []
+  const warnings: EditWarning[] = []
   const inputs: string[] = []
   const durOf = (path: string) => simDuration(path)
   const each = (c: AnyClip, kind: 'video' | 'audio') => {
@@ -348,7 +374,7 @@ function simCheckMaterials(p: EditProject): EditPlan {
     if (kind === 'audio' && name.startsWith('无声')) bad(h, '音频 clip 的素材必须有音频流')
     const d = durOf(c.path)
     if (c.inSec >= d) bad(h, `inSec 不能超过素材时长（${d} 秒）`)
-    if (c.outSec > d + 0.05) warnings.push(`clip ${c.id} outSec 超过素材时长，已截断`)
+    if (c.outSec > d + 0.05) warnings.push({ code: 'out_truncated', clipId: c.id, message: `clip ${c.id} outSec 超过素材时长，已截断` })
     if (!inputs.includes(c.path)) inputs.push(c.path)
   }
   p.videoTrack.forEach((c) => each(c, 'video'))
@@ -368,7 +394,7 @@ function simInject(): void {
 
 /** 不落盘、不启动导出；探测素材并做全部校验，返回规范化后的时长与警告 */
 export async function validateProject(project: EditProject): Promise<EditPlan> {
-  if (EDIT_BACKEND_READY) return await callService<EditPlan>('EditService', 'ValidateProject', project)
+  if (editIsReal()) return await call(EditBinding.ValidateProject(goEdit.EditProject.createFrom(withExplicitOutput(project)))) as unknown as EditPlan
   await simDelay(200)
   simInject()
   checkStructure(project, { requireVideo: true })
@@ -380,7 +406,7 @@ export async function validateProject(project: EditProject): Promise<EditPlan> {
  * 进度走 task:progress，取消走 TaskService.Cancel。模拟：?sim_err=PROCESS_FAILED / CONVERT_DISK_FULL 让导出中途失败。
  */
 export async function exportProject(project: EditProject, opts: EditExportOptions): Promise<ApiTask> {
-  if (EDIT_BACKEND_READY) return toApiTask(await callService('EditService', 'Export', project, opts))
+  if (editIsReal()) return toApiTask(await call(EditBinding.Export(goEdit.EditProject.createFrom(withExplicitOutput(project)), goEdit.EditExportOptions.createFrom(opts))))
   await simDelay(200)
   simInject()
   if (opts.outputDir && !isAbs(opts.outputDir)) simError('INVALID_ARGUMENT', 'outputDir 必须是绝对路径', 'project\noutputDir 必须是绝对路径')
@@ -404,7 +430,7 @@ export async function exportProject(project: EditProject, opts: EditExportOption
 
 /** 预览用的 /local/<token>。校验：绝对路径、存在、是文件、扩展名在允许列表内，否则 INVALID_ARGUMENT / NOT_FOUND */
 export async function getPreviewURL(path: string): Promise<PreviewURL> {
-  if (EDIT_BACKEND_READY) return await callService<PreviewURL>('EditService', 'GetPreviewURL', path)
+  if (editIsReal()) return await call(EditBinding.GetPreviewURL(path)) as unknown as PreviewURL
   await simDelay(60)
   simInject()
   if (!isAbs(path)) simError('INVALID_ARGUMENT', '路径必须是绝对路径')
@@ -424,7 +450,7 @@ let simPreview404Done = false
 
 /** 这个预览地址是否已经失效（404）。真实：HEAD 请求；模拟：token 表 */
 export async function isPreviewGone(url: string): Promise<boolean> {
-  if (!EDIT_BACKEND_READY) return !simTokens.has(url.replace(/^\/local\//, ''))
+  if (!editIsReal()) return !simTokens.has(url.replace(/^\/local\//, ''))
   try {
     return (await fetch(url, { method: 'HEAD' })).status === 404
   } catch {
@@ -469,7 +495,7 @@ export function createPreviewSource(path: string): PreviewSource {
 
 /** 保存工程。id 空 = 新建；只校验数量上限，不校验同轨重叠和范围，不探测素材、不要求文件存在。后端不做自动保存，前端需要时自行防抖调用 */
 export async function saveProject(project: EditProject): Promise<EditProjectMeta> {
-  if (EDIT_BACKEND_READY) return await callService<EditProjectMeta>('EditService', 'SaveProject', project)
+  if (editIsReal()) return await call(EditBinding.SaveProject(goEdit.EditProject.createFrom(withExplicitOutput(project)))) as unknown as EditProjectMeta
   await simDelay(100)
   simInject()
   checkSaveLimits(project) // 只查数量上限；同轨重叠、范围问题草稿也能保存，Validate / Export 才报
@@ -491,7 +517,7 @@ function metaOf(p: EditProject): EditProjectMeta {
 
 /** 载入工程。不因素材丢失而失败，缺失路径放 missingPaths；schemaVersion 过新 → UNSUPPORTED */
 export async function loadProject(id: string): Promise<LoadedProject> {
-  if (EDIT_BACKEND_READY) return await callService<LoadedProject>('EditService', 'LoadProject', id)
+  if (editIsReal()) return await call(EditBinding.LoadProject(id)) as unknown as LoadedProject
   await simDelay(100)
   simInject()
   const p = simProjects.get(id)
@@ -504,15 +530,15 @@ export async function loadProject(id: string): Promise<LoadedProject> {
 
 /** 最近的工程，按 updatedAt 倒序。limit 默认 50，最大 200（0 = 默认，越界 INVALID_ARGUMENT） */
 export async function listProjects(limit = 0): Promise<EditProjectMeta[]> {
-  if (EDIT_BACKEND_READY) return (await callService<EditProjectMeta[] | null>('EditService', 'ListProjects', limit)) ?? []
+  if (editIsReal()) return ((await call(EditBinding.ListProjects(limit))) as unknown as EditProjectMeta[] | null) ?? []
   if (limit < 0 || limit > 200) simError('INVALID_ARGUMENT', 'limit 范围 0~200')
   return [...simProjects.values()].map(metaOf).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, limit || 50)
 }
 
 /** 删除工程记录，不删素材和导出文件；不存在 NOT_FOUND */
 export async function deleteProject(id: string): Promise<void> {
-  if (EDIT_BACKEND_READY) {
-    await callService('EditService', 'DeleteProject', id)
+  if (editIsReal()) {
+    await call(EditBinding.DeleteProject(id))
     return
   }
   simInject()
