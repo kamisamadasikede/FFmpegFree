@@ -1,4 +1,7 @@
-# FFmpegFree v2 接口契约（v0.9.2）
+# FFmpegFree v2 接口契约（v0.11）
+
+v0.11 变更（EditService 契约定稿，**只有契约，尚无实现**，见 6.11 节）：`Render` 改名 `Export`，任务类型 `edit_render` 改名 `edit_export`（旧名从未产生过任务，无迁移问题）；新增 `ValidateProject` / `DeleteProject` / `GetPreviewURL`；`SaveProject` 返回 `EditProjectMeta`，`LoadProject` 返回 `LoadedProject`；`EditProject` 字段与校验范围、导出参数、错误码、预览方案全部写死；预览走 AssetServer 的 `/local/<token>`（不做本地流服务，不用 `file://`），并明确 Windows 上 AssetServer 不支持流式响应、单次响应必须限长。
+
 
 v0.9.2 变更（Windows 子进程回收，见 6.6 节）：Windows 上 ffmpeg / ffprobe 子进程改为放进 Job Object（`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`），应用崩溃或被强制结束时系统会回收 ffmpeg 及其子孙进程；结束进程树先终结 Job，失败退回 `taskkill /T /F`，再退回只结束主进程；其他平台行为不变。无接口变化。
 
@@ -48,7 +51,7 @@ v0.2 变更：新增 ffmpeg 环境检测与自动安装（第 9 节）；合入�
 - 除二进制流以外，前后端一律通过 Wails Bind 调用，不再有 `localhost:19200`。
 - 所有文件用**本地绝对路径**传递，选择文件用 `SystemService.PickFiles`，不再上传拷贝。
 - 应用数据目录：`os.UserConfigDir()/FFmpegFree/`，下设 `app.db`、`thumbs/`、`logs/`；输出目录默认是系统"视频"目录下的 `FFmpegFree`：Windows 为 `%USERPROFILE%\Videos`，macOS 为 `~/Movies`，Linux 读 `XDG_VIDEOS_DIR`（读不到用 `~/Videos`），可在设置里改。
-- 前端预览本地文件：通过 Wails AssetServer 的 `Handler` 挂 `/local/<token>`，由后端按 `media_id` 映射真实路径，不暴露任意路径读取。
+- 前端预览本地文件：通过 Wails AssetServer 的 `Handler` 挂 `/local/<token>`，由后端按 token 映射真实路径，不暴露任意路径读取；单次响应限长与 Windows 限制见 6.11.4。
 - 时间一律 Unix 毫秒（int64），时长一律秒（float64），大小一律字节（int64）。
 - ID 一律 ULID 字符串。
 - 拖拽文件：前端直接使用 Wails 运行时（`OnFileDrop`）拿到绝对路径，后端不转发事件；前端不从 WebView 的 File 对象取路径。
@@ -105,7 +108,7 @@ type MediaInfo struct {
     // probedAt, error?(批量探测时该文件的错误)
 }
 
-type TaskType string // convert | edit_render | office_pdf | live_file_push | live_relay | live_record_push | ffmpeg_install
+type TaskType string // convert | edit_export | office_pdf | live_file_push | live_relay | live_record_push | ffmpeg_install
 type TaskStatus string // queued | running | succeeded | failed | canceled | interrupted
 
 type Task struct {
@@ -177,14 +180,17 @@ DeletePreset(id string) error
 Submit(inputs []string, opts ConvertOptions, outputDir string) ([]Task, error) // 批量，一个文件一个任务
 ```
 
-### EditService（保留现有多轨时间线能力）
+### EditService（多轨时间线，v0.11 契约，详见 6.11）
 ```go
-Render(project EditProject) (Task, error)    // EditProject 沿用现有 VideoClip/AudioClip/GlobalEffects 结构，
-                                             // 把 fileName+scope 换成绝对 path
-SaveProject(project EditProject) (string, error)
-LoadProject(id string) (EditProject, error)
-ListProjects() ([]EditProjectMeta, error)
+ValidateProject(project EditProject) (EditPlan, error)                  // 不落盘、不启动导出；探测素材并做全部校验，返回规范化后的时长与警告
+Export(project EditProject, opts EditExportOptions) (Task, error)       // 提交一个 edit_export 任务；进度走 task:progress，取消走 TaskService.Cancel
+GetPreviewURL(path string) (PreviewURL, error)                          // 预览用的 /local/<token>，见 6.11.4
+SaveProject(project EditProject) (EditProjectMeta, error)               // id 空 = 新建；不做后端自动保存
+LoadProject(id string) (LoadedProject, error)                           // 返回工程 + 已丢失的素材路径
+ListProjects(limit int) ([]EditProjectMeta, error)                      // 默认 50，最大 200，按 updatedAt 倒序
+DeleteProject(id string) error                                          // 不存在 NOT_FOUND；不删素材和导出文件
 ```
+素材管理不在 EditService：选文件 `SystemService.PickFiles`，探测 `MediaService.Probe`，缩略图 `MediaService.Thumbnail`，最近素材 `MediaService.ListRecent`。素材列表随工程保存在 `EditProject.sources`。
 
 ### DocService（Office 转 PDF + PDF 预览）
 ```go
@@ -334,6 +340,135 @@ schema_migrations(version PK, applied_at)
 - **提交阶段失败会保留已提交的任务**：`Submit` 校验全部通过之后才开始逐个提交；若中途某个 `Submit` 失败（例如任务管理器出错），返回值里带着已成功提交的任务列表和错误，这些任务**不回滚**，会照常运行。ctx 被取消时返回 `CANCELED`。
 - 输入是文件名带 `%` 的图片（如 `a%03d.jpg`）时，命令里在 `-i` 前加 `-pattern_type none`（与缩略图 / 探测同一规则，只对 image2 图片扩展名），避免被当成序列模板。
 - 所有 ffmpeg 输入输出路径都带 `file:` 前缀，以 `-` 开头、含空格、冒号、中日韩字符的文件名都安全。
+
+## 6.11 EditService 契约（v0.11，只有契约，架构师冻结前不实现）
+
+依据：v1 `master` 上 `backend/contollers/video_edit_controller.go`（`/api/edit/sources`、`/api/edit/probe`、`/api/edit/render`）与 `frontend/src/views/VideoEditor.vue`。v1 **没有**：撤销 / 重做、工程保存 / 打开、自动保存、切割（blade）工具、字幕、转场之外的关键帧；v2 首版也不做撤销 / 重做和切割（切割 = 前端把一个 clip 拆成两个 `inSec` / `outSec` 不同的 clip，不需要后端方法）。v1 有的：素材列表（按视频 / 音频过滤）、多视频轨 + 多音轨时间线、拖动 / 边缘裁剪 / 吸附 / 逐帧、按 clip 的速度 / 滤镜预设 / 模糊 / 转场、全局亮度对比度饱和度锐化、canvas 多 `<video>` 合成监视器、导出 mp4 / mov / mkv / webm。
+
+### 6.11.1 数据结构
+
+```go
+type EditProject struct {
+    SchemaVersion int          `json:"schemaVersion"` // 当前 1；大于 1 的工程 LoadProject 返回 UNSUPPORTED
+    ID            string       `json:"id"`            // 新建时空
+    Name          string       `json:"name"`          // 去首尾空白后 1~80 字
+    Sources       []string     `json:"sources"`       // 素材库：绝对路径，去重，最多 200 个，只是列表，不保证存在
+    Output        EditOutput   `json:"output"`
+    VideoTrack    []VideoClip  `json:"videoTrack"`    // 沿用 v1 的平铺结构，用 trackId 区分轨道
+    AudioTrack    []AudioClip  `json:"audioTrack"`
+    Effects       GlobalEffects `json:"effects"`
+    UpdatedAt     int64        `json:"updatedAt"`     // 只读，Save 时由后端写
+}
+type EditOutput struct {
+    Format string  `json:"format"` // mp4 | mov | mkv | webm，空 = mp4
+    Width  int     `json:"width"`  // 16~7680，空(0) = 1280；导出时向下取偶数
+    Height int     `json:"height"` // 16~4320，空(0) = 720
+    Fps    float64 `json:"fps"`    // (0,120]，空(0) = 30
+}
+type VideoClip struct {
+    ID                    string  `json:"id"`      // 前端生成的唯一串（1~64 字符），错误 detail 用它定位；同一工程内唯一
+    Path                  string  `json:"path"`    // 绝对路径（v1 的 fileName + scope 在 v2 删除）
+    TrackID               string  `json:"trackId"` // V1~V8，编号大的盖在上面
+    StartSec              float64 `json:"startSec"`
+    InSec                 float64 `json:"inSec"`
+    OutSec                float64 `json:"outSec"`  // 0 = 到素材结尾；否则必须 > inSec
+    Speed                 float64 `json:"speed"`   // 0.25~4，空(0) = 1
+    EffectPreset          string  `json:"effectPreset"`          // none | grayscale | sepia | vintage | cinematic，空 = none
+    TransitionToNext      string  `json:"transitionToNext"`      // none | fade | wipeleft | wiperight | slideleft | slideright | circleopen | circleclose | dissolve，空 = none
+    TransitionDurationSec float64 `json:"transitionDurationSec"` // 0 = 0.5；范围 0.1~2，且不超过相邻两个 clip 中较短者的一半
+    Blur                  float64 `json:"blur"`    // 0~4
+}
+type AudioClip struct {
+    ID       string  `json:"id"`
+    Path     string  `json:"path"`
+    TrackID  string  `json:"trackId"` // A1~A8
+    StartSec float64 `json:"startSec"`
+    InSec    float64 `json:"inSec"`
+    OutSec   float64 `json:"outSec"`
+    Speed    float64 `json:"speed"`   // 0.25~4
+    Volume   float64 `json:"volume"`  // 0~4，0 = 静音；空值不可区分，前端必须显式传 1
+}
+type GlobalEffects struct {
+    Brightness float64 `json:"brightness"` // -0.5~0.5
+    Contrast   float64 `json:"contrast"`   // 0.5~2，0 视为 1
+    Saturation float64 `json:"saturation"` // 0~2，0 视为 1（v1 行为；要完全去色用 clip 的 grayscale）
+    Sharpen    float64 `json:"sharpen"`    // 0~2
+}
+type EditExportOptions struct {
+    OutputName string `json:"outputName"` // 不含扩展名；空 = 工程名；后端去掉路径分隔符、控制字符、Windows 非法字符 \/:*?"<>|，最长 80 字符，净化后为空则用 "edit"（v1 只允许 [a-zA-Z0-9_-]，v2 放开中日韩文件名）
+    OutputDir  string `json:"outputDir"`  // 规则同 6.9：空 = Settings.defaultOutputDir，仍空 = 第一个 clip 所在文件夹；必须是绝对路径
+}
+type EditPlan struct {
+    DurationSec float64  `json:"durationSec"` // 时间线总长 = max(startSec + (outSec-inSec)/speed)，视频与音频一起算
+    ClipCount   int      `json:"clipCount"`
+    Inputs      []string `json:"inputs"`      // 去重后的素材路径
+    HasAudio    bool     `json:"hasAudio"`    // 音轨是否非空；false 时导出静音音轨
+    Warnings    []string `json:"warnings"`    // 如 "clip <id> outSec 超过素材时长，已截断"
+}
+type EditProjectMeta struct {
+    ID string `json:"id"`; Name string `json:"name"`; DurationSec float64 `json:"durationSec"`; ClipCount int `json:"clipCount"`; UpdatedAt int64 `json:"updatedAt"`
+}
+type LoadedProject struct {
+    Project      EditProject `json:"project"`
+    MissingPaths []string    `json:"missingPaths"` // 工程里引用但磁盘上已不存在的素材（sources 与 clip 的并集）
+}
+type PreviewURL struct {
+    URL  string `json:"url"`  // 形如 /local/<token>，直接给 <video src> / <audio src>
+    Mime string `json:"mime"`
+    Size int64  `json:"size"`
+}
+```
+
+### 6.11.2 校验（`ValidateProject` 与 `Export` 共用，先整体校验再提交，任何一项失败不产生任务）
+
+- ffmpeg / ffprobe 就绪，否则 `FFMPEG_NOT_FOUND`。
+- 结构：`videoTrack` 不能为空（v1 同）；clip 总数 ≤ 100；`trackId` 必须匹配 V1~V8 / A1~A8；`id` 唯一；数值越界一律 `INVALID_ARGUMENT`（v1 是悄悄截断，v2 改为报错，包括 `speed` 越界、`volume` 为负）；`startSec ≥ 0`；`outSec > 0` 时必须 `> inSec`；转场名不在枚举里 `INVALID_ARGUMENT`；序列化后的工程 ≤ 1 MiB；时间线总长 ≤ 6 小时。
+- 路径：必须绝对路径；不存在 `NOT_FOUND`；是目录 `INVALID_ARGUMENT`；无读权限 `IO_ERROR`；ffprobe 失败 `PROBE_FAILED`。视频 clip 的素材必须有视频流，音频 clip 的素材必须有音频流，否则 `INVALID_ARGUMENT`。
+- 素材时长：`inSec ≥ 素材时长` → `INVALID_ARGUMENT`；`outSec` 超过素材时长在 0.05 秒以内静默取整，更大则截断到素材时长并记 `warnings`。
+- 错误 `detail` 第一行固定 `clip=<clip.id> path=<path>`（结构性错误没有 clip 时写 `project`），之后是原因，前端据此高亮时间线上的 clip。
+- 素材探测复用 `MediaService` 的探测实现与缓存（超时 30 秒、根 ctx 取消返回 `CANCELED`）。
+
+### 6.11.3 导出任务 `edit_export`
+
+- 走 batch 池（与转换共用并发数），不占 live 池。`title` 形如 `<outputName>.mp4`；`inputPaths` = 去重后的素材路径（按首次出现顺序）；`outputPath` = 预期输出；`params` = `{project, options, outputDir}` 的 JSON。
+- 输出：`<outputDir>/<outputName>.<format>`，重名追加 `(1)`、`(2)`，绝不覆盖，走 6.6 的 `RunWithPart`（`.part.<ext>` → 原子改名）；取消 / 失败删除 `.part`。
+- 命令：一个 `-filter_complex` 图，语义**沿用 v1**：黑色底画布 → 每个 clip `trim` + `setpts=(PTS-STARTPTS)/speed` + `fps` + `scale`（等比缩进 + 黑边）+ 预设 / 全局效果 + `boxblur` → 同轨且首尾相接（间隙 ≤ 0.12 秒）的 clip 用 `xfade`（有转场）或 `concat`（无转场），其余按 `startSec` 平移后 `overlay` 到画布，轨道编号大的在上；音频：`atrim` + `atempo`（速度 > 2 或 < 0.5 链式拆分）+ `volume` + `adelay` → `amix`（`normalize=0`）→ 截到时间线总长；音轨为空时导出静音（`anullsrc`），**不会**回退使用视频自带音频（v1 行为；想用视频原声，前端把同一素材再加进音轨）。
+- **命令行长度**：filtergraph 写入任务专属临时目录里的 UTF-8 文本文件再传给 ffmpeg（ffmpeg ≥ 7.0 用 `-/filter_complex <file>`，更低版本用 `-filter_complex_script <file>`，按 `ffmpeg -version` 判断；箱子里的 7.1.5 两种写法都能识别，低版本未验证），避免 Windows 命令行 32 K 上限；任务结束后删除该目录。素材路径仍按 6.9 规则写成 `file:<路径>`。
+- 编码：mp4 / mov / mkv = `libx264 -preset medium -crf 20` + `aac 192k`（mp4 加 `+faststart`）；webm = `libvpx-vp9 -b:v 2M` + `libopus 128k`。缺少编码器由 ffmpeg 报错，按 6.9 归为 `PROCESS_FAILED`。
+- 进度：`outTimeSec / durationSec`，0~1 单调，完成为 1；`task:progress` 载荷不变（`progress / speed / etaSec / outTimeSec`）。**不新增事件**。
+- 任务失败错误码：`CONVERT_DISK_FULL`、`IO_ERROR`、`PROCESS_FAILED`（detail 带 ffmpeg 最后 50 行，分类规则同 6.9 / v0.9.1）、`PROBE_FAILED`、`CANCELED` 走任务状态 `canceled`。
+- `Retry`：注册 `edit_export` 的重试工厂，用 `params` 重建：重新做 6.11.2 的校验（素材已删除 → `NOT_FOUND`，不产生新任务），输出目录沿用原来解析好的那个。
+- 任务创建后再改工程不影响已提交的任务（`params` 已经是快照）。
+
+### 6.11.4 预览方案（不做本地流服务）
+
+1. **不用 `file://`**：Wails WebView 的页面源是 `wails://` / `http://wails.localhost`，`<video src="file:///...">` 会被 WebView 拒绝（Wails 官方 issue #292）。
+2. **视频 / 音频预览 = AssetServer `Handler` 挂 `/local/<token>`**（第 1 节的既有约定）。`GetPreviewURL(path)` 校验路径（绝对、存在、是文件、扩展名在 v1 允许列表 `mp4 mov avi mkv flv webm m4v mp3 wav aac m4a flac ogg` 内，否则 `INVALID_ARGUMENT`）后登记并返回 `/local/<token>`；token 为 128 位随机数，同一路径复用同一 token，进程内有效（重启失效），登记表最多 256 项（LRU）。Handler 只按 token 查表，每次请求重新 `stat`（文件被删返回 404），只允许 GET / HEAD，`Content-Type` 按扩展名，`Cache-Control: no-store`，不接受任何路径参数。用 `http.ServeContent` 支持 Range，保证可拖动进度。
+3. **必须限长**：Wails v2.11.0 源码（`pkg/assetserver/webview/responsewriter_windows.go`，`body *bytes.Buffer`，在 `Finish` 才一次性交给 WebView2）和官方 Options 文档（"Response Body Streaming：Windows ❌，macOS ✅，Linux ✅"）都表明：**Windows 上响应体会整个缓冲进内存**。所以 Handler 对**每个 Range 响应最多返回 4 MiB**（实现方式：Handler 在交给 `http.ServeContent` 之前把请求的 `Range` 改写为不超过 4 MiB 的区间，`206` + 正确的 `Content-Range`，实际长度小于请求长度是 HTTP 允许的，播放器会继续发下一段请求）；没有 `Range` 头的请求，文件 ≤ 32 MiB 返回 200 整体，更大返回 413。
+4. **未验证项（需要 Windows 真机）**：WebView2 在收到被截短的 206 之后是否会继续发下一段 Range 请求（社区反馈过 Wails + WebView2 只发第一段的情况，见 wailsapp/wails#5047，该 issue 没有结论）。箱子是 Linux，无法验证。**若真机验证不通过**，回退方案：① 所有平台都可用的缩略图逐帧预览（`MediaService.Thumbnail`，定位 / 拖动播放头时按 `atSec` 取图，宽度 160~480，箱内已有缓存与并发限制）；② 追加 `edit_proxy` 任务（生成 ≤ 480p 低码率 mp4 缓存，小于 32 MiB 时整体 200 返回），作为 v0.11.x 的增量变更，本版不包含。
+5. 监视器合成（多个 `<video>` + canvas）与 clip 滤镜的预览（CSS filter / canvas 像素处理）全在前端，和导出的 ffmpeg 效果只是近似，不保证逐像素一致（v1 同）。
+6. Linux / macOS 的 AssetServer 支持流式响应，限长后行为一致，不额外处理。
+
+### 6.11.5 工程存取
+
+- 表 `edit_projects(id, name, project JSON, updated_at)` 已在第 6 节。`SaveProject`：`id` 空 = 新建（ULID），否则更新（不存在 `NOT_FOUND`）；只做结构与范围校验（6.11.2 的前两条，不探测素材、不要求文件存在），名称重复允许；序列化后 > 1 MiB `INVALID_ARGUMENT`。
+- `LoadProject` 不因素材丢失而失败，缺失路径放 `missingPaths`；`SchemaVersion` 大于 1 → `UNSUPPORTED`。
+- 后端不做自动保存，也不做撤销栈；前端需要时自行防抖调用 `SaveProject`。
+
+### 6.11.6 错误码对照（EditService 全部沿用现有码，无新增）
+
+| 场景 | code |
+|---|---|
+| 参数 / 范围 / 枚举不合法、clip 与素材流不匹配、目录当文件、`outputDir` 非绝对 | `INVALID_ARGUMENT` |
+| 素材文件或工程 id 不存在 | `NOT_FOUND` |
+| ffmpeg / ffprobe 缺失 | `FFMPEG_NOT_FOUND` |
+| 素材无法解析 | `PROBE_FAILED` |
+| 读写文件失败、无权限 | `IO_ERROR` |
+| 输出磁盘满（任务错误） | `CONVERT_DISK_FULL` |
+| ffmpeg 非零退出、缺编码器 / 滤镜 | `PROCESS_FAILED` |
+| 工程 `schemaVersion` 过新 | `UNSUPPORTED` |
+| 应用退出导致调用中断 | `CANCELED` |
+| 其他 | `INTERNAL` |
 
 ## 7. 本地流服务（唯一保留的 HTTP）
 
