@@ -35,9 +35,13 @@ const (
 	TypeEditRender     = store.TypeEditRender
 	TypeOfficePDF      = store.TypeOfficePDF
 	TypeLiveFilePush   = store.TypeLiveFilePush
-	TypeLiveRelay      = store.TypeLiveRelay
-	TypeLiveRecordPush = store.TypeLiveRecordPush
+	TypeLiveScreenPush = store.TypeLiveScreenPush
 	TypeFFmpegInstall  = store.TypeFFmpegInstall
+
+	// Deprecated: 只为读旧数据保留，不再产生，Submit 不接受（契约 v0.10）。
+	TypeLiveRelay = store.TypeLiveRelay
+	// Deprecated: 同 TypeLiveRelay。
+	TypeLiveRecordPush = store.TypeLiveRecordPush
 
 	StatusQueued      = store.StatusQueued
 	StatusRunning     = store.StatusRunning
@@ -56,9 +60,10 @@ const (
 )
 
 // IsLive 判断任务类型是否属于 live 池（直播类：不排队，不占 batch 名额）。
+// 旧的 live_relay / live_record_push 仍返回 true，只是为了常量兼容；它们不再产生，Submit 不接受。
 func IsLive(t Type) bool {
 	switch t {
-	case TypeLiveFilePush, TypeLiveRelay, TypeLiveRecordPush:
+	case TypeLiveFilePush, TypeLiveScreenPush, TypeLiveRelay, TypeLiveRecordPush:
 		return true
 	}
 	return false
@@ -70,6 +75,10 @@ type Progress struct {
 	Speed      string  // 如 "2.3x"、"3.2 MB/s"
 	EtaSec     float64
 	OutTimeSec float64 // 已输出的媒体时长，非媒体任务为 0
+	// 以下三项只有直播任务用（契约 v0.10）。
+	Fps           float64 // 当前输出帧率
+	BitrateKbps   float64 // 近 5 秒的输出码率（kbit/s），算不出来为 0
+	DroppedFrames int64   // ffmpeg 累计丢帧数
 }
 
 // Runner 是任务的执行体（契约 6.5）。
@@ -130,6 +139,10 @@ type ProgressEvent struct {
 	Speed      string  `json:"speed"`
 	EtaSec     float64 `json:"etaSec"`
 	OutTimeSec float64 `json:"outTimeSec"`
+	// 只有直播任务才有（契约 v0.10）。
+	Fps           float64 `json:"fps,omitempty"`
+	BitrateKbps   float64 `json:"bitrateKbps,omitempty"`
+	DroppedFrames int64   `json:"droppedFrames,omitempty"`
 }
 
 // StatusEvent 是 task:status 的 payload。

@@ -280,7 +280,7 @@ func validTaskID(s string) bool {
 
 func validType(t Type) bool {
 	switch t {
-	case TypeConvert, TypeEditRender, TypeOfficePDF, TypeLiveFilePush, TypeLiveRelay, TypeLiveRecordPush, TypeFFmpegInstall:
+	case TypeConvert, TypeEditRender, TypeOfficePDF, TypeLiveFilePush, TypeLiveScreenPush, TypeFFmpegInstall:
 		return true
 	}
 	return false
@@ -510,6 +510,9 @@ func (m *Manager) Retry(taskID string) (Task, error) {
 	f := m.factories[old.Type]
 	m.mu.Unlock()
 	if f == nil {
+		if IsLive(old.Type) {
+			return Task{}, apperr.New(apperr.Unsupported, "直播会话不能重试，请重新开始推流")
+		}
 		return Task{}, apperr.New(apperr.Unsupported, fmt.Sprintf("%s 类型的任务不支持重试", old.Type))
 	}
 	r, err := f(old)

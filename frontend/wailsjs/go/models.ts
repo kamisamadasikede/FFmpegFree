@@ -284,6 +284,86 @@ export namespace jsontool {
 
 }
 
+export namespace live {
+	
+	export class PushOptions {
+	    width: number;
+	    height: number;
+	    fps: number;
+	    videoBitrateKbps: number;
+	    audioBitrateKbps: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new PushOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.width = source["width"];
+	        this.height = source["height"];
+	        this.fps = source["fps"];
+	        this.videoBitrateKbps = source["videoBitrateKbps"];
+	        this.audioBitrateKbps = source["audioBitrateKbps"];
+	    }
+	}
+	export class FilePushRequest {
+	    inputPath: string;
+	    url: string;
+	    loop: boolean;
+	    options: PushOptions;
+	
+	    static createFrom(source: any = {}) {
+	        return new FilePushRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.inputPath = source["inputPath"];
+	        this.url = source["url"];
+	        this.loop = source["loop"];
+	        this.options = this.convertValues(source["options"], PushOptions);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class PushURLInfo {
+	    scheme: string;
+	    host: string;
+	    port: number;
+	    redacted: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PushURLInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.scheme = source["scheme"];
+	        this.host = source["host"];
+	        this.port = source["port"];
+	        this.redacted = source["redacted"];
+	    }
+	}
+
+}
+
 export namespace media {
 	
 	export class Thumb {
@@ -432,6 +512,9 @@ export namespace store {
 	    progress: number;
 	    speed: string;
 	    etaSec: number;
+	    fps?: number;
+	    bitrateKbps?: number;
+	    droppedFrames?: number;
 	    params: string;
 	    version: number;
 	    error?: apperr.AppError;
@@ -454,6 +537,9 @@ export namespace store {
 	        this.progress = source["progress"];
 	        this.speed = source["speed"];
 	        this.etaSec = source["etaSec"];
+	        this.fps = source["fps"];
+	        this.bitrateKbps = source["bitrateKbps"];
+	        this.droppedFrames = source["droppedFrames"];
 	        this.params = source["params"];
 	        this.version = source["version"];
 	        this.error = this.convertValues(source["error"], apperr.AppError);
