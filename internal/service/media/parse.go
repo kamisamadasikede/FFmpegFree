@@ -124,6 +124,10 @@ func ParseProbe(data []byte, path string) (store.MediaInfo, error) {
 			}
 		}
 	}
+	// 只有字幕 / 数据流（.srt 等）或只有封面图的文件不是可用的媒体文件。
+	if video == nil && audio == nil {
+		return store.MediaInfo{}, apperr.New(apperr.ProbeFailed, "没有找到音频或视频流（只有字幕、数据流或封面图）")
+	}
 	if m.Duration <= 0 {
 		m.Duration = streamDur
 	}
