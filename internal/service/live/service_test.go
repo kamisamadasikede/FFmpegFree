@@ -37,6 +37,18 @@ func (r *evRec) Emit(name string, p any) {
 }
 
 // jsonAll 把全部事件 payload 序列化，用来搜秘密片段。
+func (r *evRec) allStatusEvents() []task.StatusEvent {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []task.StatusEvent
+	for _, e := range r.evts {
+		if se, ok := e.payload.(task.StatusEvent); ok {
+			out = append(out, se)
+		}
+	}
+	return out
+}
+
 func (r *evRec) jsonAll() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -97,6 +109,11 @@ case "$mode" in
     prog 5000 1000000
     read -r x
     echo "trailer written" >&2
+    exit 0 ;;
+  live2)       # 两条 progress（有 total_size 数值），等 q
+    prog 5000 1000000
+    prog 15000 2000000
+    read -r x
     exit 0 ;;
   live_slow_q) # 已开始，收到 q 后 0.5 秒才退
     prog 5000 1000000
@@ -208,7 +225,7 @@ func (f *fixture) waitProgress(t *testing.T, id string) {
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		tk, _ := f.mgr.Get(id)
-		if tk.Status == task.StatusRunning && tk.OutputPath == "" && f.progressed(id) {
+		if tk.Status == task.StatusRunning && f.progressed(id) {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)

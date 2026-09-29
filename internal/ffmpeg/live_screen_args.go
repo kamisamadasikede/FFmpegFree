@@ -24,6 +24,8 @@ type ScreenPushPlan struct {
 	URL        string
 	FPS        float64 // 采集帧率
 	Enc        LiveEncode
+	// ArchiveTee 不为空时同时存档：是 TeePath 的结果（`file:` + 转义后的路径），命令改用 tee 复合输出。
+	ArchiveTee string
 }
 
 // ScreenInputArgs 生成屏幕采集输入参数（各平台）。
@@ -56,7 +58,8 @@ func ScreenInputArgs(p ScreenPushPlan) []string {
 	}
 }
 
-// BuildScreenPushArgs 生成无存档的屏幕推流参数。
+// BuildScreenPushArgs 生成屏幕推流的参数。无存档时输出侧与文件推流一致；有存档（ArchiveTee 非空）时用 tee 一次编码写两路
+// （契约 6.10）：`-flags +global_header -f tee "[网络一路]<url>|[f=mp4:...]<存档>"`，两路都写 onfail=abort，白名单写进每个 slave。
 func BuildScreenPushArgs(p ScreenPushPlan) []string {
 	a := ScreenInputArgs(p)
 	audioMap := ""
@@ -69,9 +72,20 @@ func BuildScreenPushArgs(p ScreenPushPlan) []string {
 		a = append(a, "-map", audioMap) // 屏幕采集是无限流，不需要 -shortest
 	}
 	a = append(a, liveEncodeArgs(p.Enc, p.Silent)...)
+	if p.ArchiveTee != "" {
+		return append(a, "-flags", "+global_header", "-f", "tee", TeeDescription(p.Scheme, p.URL, p.ArchiveTee))
+	}
 	a = append(a, "-protocol_whitelist", ProtocolWhitelist(p.Scheme), "-f", OutputFormat(p.Scheme))
 	if p.Scheme != "srt" {
 		a = append(a, "-flvflags", "no_duration_filesize")
 	}
 	return append(a, p.URL)
+}
+
+// TeeDescription 返回 tee 的输出描述。网络一路写 onfail=abort（默认 continue 会在连接失败时仍然退出码 0），
+// 存档一路是分片 mp4（强杀后仍可播放），也写 onfail=abort；protocol_whitelist 对 tee 的 slave 必须写在 slave 选项里。
+func TeeDescription(scheme, url, archiveTee string) string {
+	net := "[f=" + OutputFormat(scheme) + ":onfail=abort:protocol_whitelist=" + ProtocolWhitelist(scheme) + "]" + TeeEscape(url)
+	arc := "[f=mp4:onfail=abort:movflags=+frag_keyframe+empty_moov:flush_packets=1:protocol_whitelist=file]" + archiveTee
+	return net + "|" + arc
 }

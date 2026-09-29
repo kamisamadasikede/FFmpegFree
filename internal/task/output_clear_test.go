@@ -103,3 +103,54 @@ func TestClearOutputPathSingleTerminalEvent(t *testing.T) {
 		t.Fatalf("终态事件应只有 1 条: %d", n)
 	}
 }
+
+type neverRanRunner struct {
+	ran    bool
+	called int
+}
+
+func (r *neverRanRunner) Run(ctx context.Context, _ func(Progress)) (string, error) {
+	r.ran = true
+	<-ctx.Done()
+	return "", ctx.Err()
+}
+func (r *neverRanRunner) NeverRan() string { r.called++; return ClearOutputPath }
+
+// Run 没有执行就结束（Shutdown 时还在排队）：管理器在发终态事件之前调用 NeverRan，返回值同 Run 的输出路径。
+// 没有实现 NeverRanner 的 Runner 行为不变（保留预期路径）。
+func TestNeverRannerClearsOutputBeforeTerminalEvent(t *testing.T) {
+	f := newFx(t, 1)
+	gate := make(chan struct{})
+	blocker, _ := f.m.Submit(Spec{Type: TypeConvert}, RunnerFunc(func(ctx context.Context, _ func(Progress)) (string, error) {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+		}
+		return "", nil
+	}))
+	exp := filepath.Join(f.dir, "q.mp4")
+	nr := &neverRanRunner{}
+	queued, err := f.m.Submit(Spec{Type: TypeConvert, OutputPath: exp}, nr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, _ := f.m.Submit(Spec{Type: TypeConvert, OutputPath: filepath.Join(f.dir, "p.mp4")}, RunnerFunc(func(ctx context.Context, _ func(Progress)) (string, error) { return "", nil }))
+	if err := f.m.Cancel(queued.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.Cancel(plain.ID); err != nil {
+		t.Fatal(err)
+	}
+	d := waitTask(t, f.m, queued.ID)
+	if d.Status != StatusCanceled || d.OutputPath != "" || nr.ran || nr.called != 1 {
+		t.Fatalf("%+v ran=%v called=%d", d, nr.ran, nr.called)
+	}
+	if ev := lastStatusEvent(f, queued.ID); ev.OutputPath != "" || ev.Status != StatusCanceled {
+		t.Fatalf("%+v", ev)
+	}
+	if p := waitTask(t, f.m, plain.ID); p.Status != StatusCanceled || p.OutputPath != filepath.Join(f.dir, "p.mp4") {
+		t.Fatalf("旧行为：不实现 NeverRanner 的保留预期路径: %+v", p)
+	}
+	close(gate)
+	waitTask(t, f.m, blocker.ID)
+}
