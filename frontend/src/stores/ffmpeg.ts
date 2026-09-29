@@ -4,6 +4,7 @@ import * as SystemBinding from '../../wailsjs/go/app/SystemService'
 import { system } from '../../wailsjs/go/models'
 import { call } from '@/api/call'
 import { hasWailsBackend, onEvent, previewParams } from '@/services/wails'
+import { formatEta } from '@/utils/format'
 
 /** 与契约 9.4 FFmpegStatus 对齐。生成的类型里 state/source 是 string、error 可能为 null，这里收窄后使用 */
 export interface FFmpegStatus {
@@ -12,6 +13,7 @@ export interface FFmpegStatus {
   version?: string
   source?: 'custom' | 'bundled' | 'system' | 'legacy'
   taskId?: string
+  ffprobeMissing?: boolean
   error?: { code: string; message: string; detail?: string } | null
 }
 
@@ -20,6 +22,21 @@ export interface InstallProgress {
   stage: 'download' | 'verify' | 'extract' | 'validate'
   speedText?: string
   remainText?: string
+}
+
+/**
+ * ffmpeg_install 任务的进度 → 安装对话框 / 提示条用的形态。
+ * 契约 9.3：progress 0~1 覆盖整个流程，下载占 0~0.9，解压 0.9~0.94，校验 0.94~0.98，安装完成 1。
+ * task.speed 后端已经格式化好（如 "3.2 MB/s"）；etaSec 为 0 表示未知。
+ */
+export function toInstallProgress(progress: number, speed: string, etaSec: number): InstallProgress {
+  const p = Math.min(1, Math.max(0, progress))
+  return {
+    progress: p,
+    stage: p < 0.9 ? 'download' : p < 0.94 ? 'extract' : 'validate',
+    speedText: speed || undefined,
+    remainText: etaSec > 0 ? `剩余 ${formatEta(etaSec)}` : undefined,
+  }
 }
 
 /** 后端事件 / 调用返回的原始状态 → 前端状态（空串字段归一为 undefined） */
@@ -31,6 +48,7 @@ function normalize(raw: system.FFmpegStatus | FFmpegStatus): FFmpegStatus {
     version: r.version || undefined,
     source: r.source || undefined,
     taskId: r.taskId || undefined,
+    ffprobeMissing: !!r.ffprobeMissing,
     error: r.error ? { code: r.error.code, message: r.error.message, detail: r.error.detail } : null,
   }
 }
@@ -46,8 +64,8 @@ const PREVIEW: Record<string, { status: FFmpegStatus; install?: InstallProgress 
   failed: { status: { state: 'failed', error: { code: 'IO_ERROR', message: '下载超时，请检查网络' } } },
 }
 
-// 生成的绑定里可能还没有的方法（InstallFFmpeg / PickDirectory）：用命名空间对象探测，
-// 后端补上并重新生成绑定后自动生效，不需要改这里。
+// PickDirectory 还不在生成的绑定里（契约 4 节 SystemService 已列出，后端未实现）：用命名空间对象探测，
+// 后端补上并重新生成绑定后自动生效。InstallFFmpeg / CancelFFmpegInstall 已在绑定里，直接调用。
 type OptionalFn = ((...args: any[]) => Promise<any>) | undefined
 const optional = SystemBinding as unknown as Record<string, OptionalFn>
 const previewMode = !hasWailsBackend() && previewParams.has('ff') && !!PREVIEW[previewParams.get('ff')!]
@@ -61,10 +79,8 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
   const justBecameReady = ref(false)
   const manualInputOpen = ref(false) // 没有目录选择器时，对话框里显示路径输入框
 
-  /** 后端有 InstallFFmpeg（预览模式下用 ?noinstall 关闭）；false 时界面显示"安装功能即将上线" */
-  const installAvailable = previewMode
-    ? !previewParams.has('noinstall')
-    : typeof optional.InstallFFmpeg === 'function'
+  /** 安装功能可用（绑定已有 InstallFFmpeg）；只有浏览器预览里 ?noinstall 会关闭，用来看"即将上线"样式 */
+  const installAvailable = !(previewMode && previewParams.has('noinstall'))
   /** 后端有 PickDirectory；false 时手动指定路径改为文本框 */
   const canPickDirectory = previewMode
     ? !previewParams.has('nopicker')
@@ -136,17 +152,35 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
     maybePrompt()
   }
 
-  /** 安装：后端没有 InstallFFmpeg 时不做任何事（界面已禁用），预览模式只切到 installing 的静态样子 */
-  async function startInstall(mirror = '') {
+  let lastMirror: '' | 'cn' = '' // 上次选的下载源，横幅上的"重试"沿用
+  /**
+   * 安装：调用 InstallFFmpeg(mirror)，mirror 只能是 '' 或 'cn'（后端对其他值返回 INVALID_ARGUMENT）。
+   * 幂等：已有进行中的安装时后端直接返回该任务。进度由任务 store 通过 updateInstall() 推进。
+   * 预览模式（浏览器里没有 window.go）只切到 installing 的静态样子。
+   */
+  async function startInstall(mirror?: string) {
     if (!installAvailable) return
     if (previewMode) {
       setStatus(PREVIEW.installing.status)
       install.value = PREVIEW.installing.install!
       return
     }
-    const task = await call(optional.InstallFFmpeg!(mirror))
+    if (!hasWailsBackend()) return
+    if (mirror !== undefined) lastMirror = mirror === 'cn' ? 'cn' : ''
+    const task = await call(SystemBinding.InstallFFmpeg(lastMirror))
     // 后端随后会推 ffmpeg:status(installing)；这里先本地切换，避免按钮空档
     setStatus({ ...status.value, state: 'installing', taskId: task?.id })
+    install.value = toInstallProgress(task?.progress ?? 0, task?.speed ?? '', task?.etaSec ?? 0)
+  }
+
+  /** 取消进行中的安装（保留已下载部分）；没有安装在进行时后端无操作。取消后后端会重新检测并推 ffmpeg:status */
+  async function cancelInstall() {
+    if (previewMode) {
+      setStatus(PREVIEW.missing.status)
+      return
+    }
+    if (!hasWailsBackend()) return
+    await call(SystemBinding.CancelFFmpegInstall())
   }
 
   /** 手动指定目录。dir 省略时用系统目录选择器（PickDirectory）；没有选择器时调用方必须传 dir */
@@ -195,6 +229,6 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
   return {
     status, install, promptDismissed, bannerClosed, dialogOpen, justBecameReady,
     installAvailable, canPickDirectory, manualInputOpen,
-    ready, needsAttention, init, startInstall, pickPath, clearCustomPath, recheck, dismissPrompt, updateInstall,
+    ready, needsAttention, init, startInstall, cancelInstall, pickPath, clearCustomPath, recheck, dismissPrompt, updateInstall,
   }
 })

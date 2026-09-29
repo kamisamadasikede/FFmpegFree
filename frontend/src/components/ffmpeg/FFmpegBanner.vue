@@ -16,6 +16,7 @@
       <div class="bar"><i :style="{ width: percent + '%' }" /></div>
       <span v-if="ffmpeg.install?.speedText" class="meta">{{ ffmpeg.install.speedText }} · {{ ffmpeg.install.remainText }}</span>
       <span class="sp" />
+      <el-button link type="primary" @click="safe(ffmpeg.cancelInstall)">取消</el-button>
       <el-button link type="primary" @click="router.push('/tasks')">查看详情</el-button>
     </template>
 

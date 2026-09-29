@@ -19,6 +19,10 @@
               </span>
             </div>
           </div>
+          <div v-if="ffmpeg.status.state === 'failed' && ffmpeg.status.error" class="perr fail" role="alert">
+            <FIcon name="warn" :size="14" />
+            <span>上次安装失败：{{ ffmpeg.status.error.message }}<template v-if="ffmpeg.status.error.detail"><br /><small>{{ ffmpeg.status.error.detail }}</small></template></span>
+          </div>
           <div v-if="!ffmpeg.installAvailable" class="soon" role="status">
             <FIcon name="warn" :size="14" />
             <span>安装功能即将上线。已经装过 ffmpeg 的话，可以手动指定路径，或安装到系统后点“重新检测”。</span>
@@ -56,6 +60,7 @@
           </div>
           <div class="dfoot">
             <span class="sp" />
+            <el-button size="default" :loading="canceling" @click="cancelInstall">取消安装</el-button>
             <el-button size="default" @click="ffmpeg.dialogOpen = false">后台安装</el-button>
           </div>
         </template>
@@ -84,6 +89,17 @@ const platformText = ua.includes('Mac') ? 'macOS' : ua.includes('Windows') ? 'Wi
 const manualDir = ref('')
 const busy = ref(false)
 const rechecking = ref(false)
+const canceling = ref(false)
+
+async function cancelInstall() {
+  canceling.value = true
+  try {
+    await safe(ffmpeg.cancelInstall)
+    ffmpeg.dialogOpen = false
+  } finally {
+    canceling.value = false
+  }
+}
 const pathError = ref<AppError | null>(null)
 
 async function safe(fn: () => Promise<unknown>) {
@@ -233,6 +249,9 @@ p {
 .perr {
   margin-top: -12px;
   color: var(--ff-danger);
+}
+.perr.fail {
+  margin-top: -12px;
 }
 .perr small {
   color: var(--ff-text-3);
