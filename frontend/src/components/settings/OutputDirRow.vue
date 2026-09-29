@@ -184,7 +184,7 @@ async function restore() {
   white-space: nowrap;
 }
 .odp .ph {
-  color: var(--ff-text-3);
+  color: var(--ff-text-2); /* text-3 在浅色底上只有 2.6:1，占位文字也要 ≥4.5:1 */
 }
 .odp .h {
   flex: 0 1 auto;
