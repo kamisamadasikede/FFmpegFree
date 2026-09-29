@@ -196,19 +196,23 @@ const simRecent = new Map<string, PDFFile>()
 const simHandles = new Map<string, PDFSource>()
 let simSeq = 0
 
-/** 模拟用的最小 PDF 字节（一页，带一行“演示 PDF”文字；pdf.js 能重建缺失的 xref，所以不写 xref 表） */
-function simPdfBytes(size: number): Uint8Array {
-  const content = 'BT /F1 28 Tf 72 720 Td (Demo PDF - simulated data) Tj ET'
-  const head = new TextEncoder().encode(
-    `%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n` +
-      `3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n` +
-      `4 0 obj<</Length ${content.length}>>stream\n${content}\nendstream endobj\n5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n` +
-      `trailer<</Root 1 0 R>>\n%%EOF\n`,
-  )
+/** 模拟用的最小 PDF 字节（每页一行“演示 PDF”文字；pdf.js 能重建缺失的 xref，所以不写 xref 表）。pages 缺省 1 页 */
+function simPdfBytes(size: number, pages = 1): Uint8Array {
+  const kids = Array.from({ length: pages }, (_, i) => `${6 + i * 2} 0 R`).join(' ')
+  let body = `%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[${kids}]/Count ${pages}>>endobj\n5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n`
+  for (let i = 0; i < pages; i++) {
+    const content = `BT /F1 28 Tf 72 720 Td (Demo PDF - simulated data - page ${i + 1}) Tj ET`
+    body += `${6 + i * 2} 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Contents ${7 + i * 2} 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n`
+    body += `${7 + i * 2} 0 obj<</Length ${content.length}>>stream\n${content}\nendstream endobj\n`
+  }
+  body += `trailer<</Root 1 0 R>>\n%%EOF\n`
+  const head = new TextEncoder().encode(body)
   const out = new Uint8Array(Math.max(size, head.length))
   out.set(head)
   return out
 }
+/** 模拟文件的页数：文件名含“多页”= 12 页，其余 1 页；名字以“解析失败”开头的返回一份不是 PDF 的字节（让 pdf.js 报解析失败） */
+const simPages = (name: string) => (name.includes('多页') ? 12 : 1)
 
 /** 校验并登记一个 PDF，返回句柄；同时写入最近列表（OpenPDF 是唯一的写入点）。转换产出的 PDF 不自动进历史，需要预览时对 outputPath 调用它 */
 export async function openPDF(path: string): Promise<PDFSource> {
@@ -219,6 +223,8 @@ export async function openPDF(path: string): Promise<PDFSource> {
   if (!isAbs(path)) simError('INVALID_ARGUMENT', '路径必须是绝对路径')
   const name = baseName(path)
   if (name.startsWith('缺失') || name.startsWith('missing')) simError('NOT_FOUND', '文件不存在')
+  if (name.startsWith('无权限')) simError('IO_ERROR', '读取文件失败')
+  if (name.startsWith('被修改')) simError('IO_ERROR', '文件在读取时被替换，请重试', path)
   if (extOf(path) !== 'pdf' || name.startsWith('非pdf')) simError('INVALID_ARGUMENT', '不是 PDF 文件', '不是 PDF 文件')
   const size = name.startsWith('超大') ? 600 * MIB : name.startsWith('大文件') ? 100 * MIB : 2 * MIB
   if (size > DEFAULT_DOC_LIMITS.maxPdfBytes) simError('INVALID_ARGUMENT', '文件超过 512 MiB', '文件超过 512 MiB')
@@ -239,7 +245,8 @@ export async function readPDFChunk(id: string, offset: number, length: number): 
   if (!h) return simError('NOT_FOUND', '句柄不存在，请重新打开')
   if (offset >= h.size) return { offset, length: 0, eof: true, size: h.size, data: '' }
   const n = Math.min(length, h.size - offset)
-  const bytes = simPdfBytes(h.size).subarray(offset, offset + n)
+  const raw = h.name.startsWith('解析失败') ? new Uint8Array(h.size).fill(65) : simPdfBytes(h.size, simPages(h.name))
+  const bytes = raw.subarray(offset, offset + n)
   let bin = ''
   for (const b of bytes) bin += String.fromCharCode(b)
   return { offset, length: n, eof: offset + n >= h.size, size: h.size, data: btoa(bin) }
@@ -332,7 +339,24 @@ export async function listRecentPDFs(limit = 0): Promise<PDFFile[]> {
   // 契约：limit ≤ 0 取默认 20，> 200 后端静默截到 200（不报错）；前端不传超过 200 的值
   const n = Math.min(Math.max(0, Math.trunc(limit) || 0), MAX_RECENT_LIMIT)
   if (live()) return (await call(DocBinding.ListRecentPDFs(n))) ?? []
+  const mode = simParam('sim_recent') // 仅模拟环境的预览参数：sample = 8 条示例（含一条已被移动），full = 200 条，none = 空
+  if (mode === 'none') return []
+  if (mode === 'sample' || mode === 'full') return simRecentSample(mode === 'full' ? 200 : 8).slice(0, n || 20)
   return [...simRecent.values()].sort((a, b) => b.openedAt - a.openedAt).slice(0, n || 20)
+}
+
+function simRecentSample(count: number): PDFFile[] {
+  const d = '/Users/me/Documents/'
+  const names = ['2026 Q3 产品回顾.pdf', '用户调研报告.pdf', '渠道数据汇总.pdf', '2026年第三季度华东区域渠道商务拓展与用户增长复盘汇报材料（终稿-已审阅-v12）.pdf', '合同扫描件-乙方留存.pdf', '培训手册.pdf', '会议纪要.pdf', '费用明细.pdf']
+  const sizes = [86 * KIB, 1.4 * MIB, 620 * KIB, 12.4 * MIB, 3.2 * MIB, 5.1 * MIB, 210 * KIB, 940 * KIB]
+  const now = new Date()
+  const at = (dayOffset: number, h: number, m: number) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + dayOffset, h, m).getTime()
+  const times = [at(0, 22, 41), at(0, 21, 5), at(0, 19, 30), at(-1, 18, 5), at(-1, 10, 12), at(-3, 16, 40), at(-4, 9, 8), at(-6, 14, 2)]
+  return Array.from({ length: count }, (_, i) => {
+    const j = i % names.length
+    const name = i < names.length ? names[j] : `批量样例-${i + 1}.pdf`
+    return { id: `sim-sample-${i}`, path: d + name, name, size: Math.round(sizes[j]), openedAt: i < times.length ? times[i] : times[times.length - 1] - i * 3600_000, exists: !name.startsWith('合同扫描件') }
+  })
 }
 
 /** 只删记录，不删文件；一次最多 500 个 id */
