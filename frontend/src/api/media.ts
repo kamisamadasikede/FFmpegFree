@@ -3,8 +3,8 @@ import { store as goStore } from '../../wailsjs/go/models'
 import { AppError, call, toAppError } from '@/api/call'
 import { hasWailsBackend } from '@/services/wails'
 
-/** Probe 一次最多 500 个（契约），转换页按 50 个一批，避免一批太久没有反馈 */
-export const PROBE_BATCH = 50
+/** Probe 一次最多 500 个（契约）；转换页每 8 个一批回调一次，大列表读取时能看到 12/50 这样的进度 */
+export const PROBE_BATCH = 8
 
 /** 一个文件的探测结果：要么有 info，要么有 error（单个文件失败不影响整批） */
 export interface ProbeResult {
@@ -23,7 +23,7 @@ export async function probeFiles(paths: string[], onBatch?: (results: ProbeResul
     const chunk = paths.slice(i, i + PROBE_BATCH)
     let results: ProbeResult[]
     try {
-      const infos = hasWailsBackend() ? await call(MediaBinding.Probe(chunk)) : previewProbe(chunk)
+      const infos = hasWailsBackend() ? await call(MediaBinding.Probe(chunk)) : await previewProbe(chunk)
       results = chunk.map((path, k) => {
         const info = infos?.[k]
         if (!info) return { path, error: { code: 'INTERNAL', message: '没有拿到这个文件的信息' } }
@@ -63,7 +63,10 @@ const KNOWN: Record<string, Partial<goStore.MediaInfo>> = {
 function baseName(p: string) {
   return p.split(/[\\/]/).pop() ?? p
 }
-function previewProbe(paths: string[]): goStore.MediaInfo[] {
+async function previewProbe(paths: string[]): Promise<goStore.MediaInfo[]> {
+  // ?slowprobe=毫秒：预览里模拟每批的探测耗时，用来看“正在读取文件信息（12/50）”
+  const delay = Number(new URLSearchParams(window.location.search).get('slowprobe')) || 0
+  if (delay) await new Promise((r) => setTimeout(r, delay))
   return paths.map((p) => {
     const name = baseName(p)
     if (name.startsWith('损坏')) {

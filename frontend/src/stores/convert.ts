@@ -3,12 +3,13 @@ import { computed, reactive, ref } from 'vue'
 import { store as goStore } from '../../wailsjs/go/models'
 import { call, toAppError } from '@/api/call'
 import { listPresets, MAX_SUBMIT, parseConvertParams, resubmitToDir, submitConvert, type PresetItem } from '@/api/convert'
-import { probeFiles, thumbnailOf } from '@/api/media'
+import { PROBE_BATCH, probeFiles, thumbnailOf } from '@/api/media'
 import { canPickFiles, pickDirectory, pickFiles, revealInFolder, getDefaultOutputDir } from '@/api/system'
 import { hasWailsBackend, previewParams } from '@/services/wails'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { normalizeTask, useTaskStore, type TaskError, type TaskItem, type TaskStatus } from '@/stores/tasks'
 import { dirName, fileBaseName } from '@/utils/format'
+import { codecName } from '@/utils/mediaText'
 import { actionErrorText } from '@/errors/errorMessages'
 
 /** 文件行在页面上的状态（探测 → 待转换 → 排队 / 转换中 → 结果） */
@@ -27,6 +28,9 @@ export interface ConvertRow {
   probeError?: RowError
   thumb: string
   thumbState: 'idle' | 'loading' | 'done'
+  /** 信息卡用的大封面（宽 640）；选中 / 单文件时才取 */
+  cover: string
+  coverState: 'idle' | 'loading' | 'done'
   /** 提交后对应的任务 id（按 Submit 返回顺序绑定） */
   taskId: string
   /** 提交时的预设短名快照，用来显示「转为 MP4」；提交前跟随当前所选预设 */
@@ -77,7 +81,27 @@ export const useConvertStore = defineStore('convert', () => {
 
   // ---------------- 预设 ----------------
   const selectedPreset = computed(() => presets.value.find((p) => p.id === selectedPresetId.value))
-  const presetShort = computed(() => (selectedPreset.value ? splitPresetName(selectedPreset.value.name).title : ''))
+  /**
+   * 预设标题：名字里括号前的部分。标题重名（「MP4（H.264…）」和「MP4（H.265…）」都是 MP4）时追加编码简称，
+   * 如「MP4 · H.265」；行上的「转为 X」、页脚提示都用这个标题。
+   */
+  const presetTitles = computed(() => {
+    const count = new Map<string, number>()
+    for (const p of presets.value) {
+      const t = splitPresetName(p.name).title
+      count.set(t, (count.get(t) ?? 0) + 1)
+    }
+    const m = new Map<string, string>()
+    for (const p of presets.value) {
+      const t = splitPresetName(p.name).title
+      const o = p.options
+      const codec = (count.get(t) ?? 0) > 1 ? codecName(o.videoCodec || o.audioCodec) : ''
+      m.set(p.id, codec ? `${t} · ${codec}` : t)
+    }
+    return m
+  })
+  const presetTitle = (p: PresetItem) => presetTitles.value.get(p.id) ?? splitPresetName(p.name).title
+  const presetShort = computed(() => (selectedPreset.value ? presetTitle(selectedPreset.value) : ''))
 
   async function loadPresets() {
     try {
@@ -144,6 +168,7 @@ export const useConvertStore = defineStore('convert', () => {
   const pendingRows = computed(() => states.value.filter((x) => !x.r.taskId || tasks.wasRemoved(x.r.taskId)).map((x) => x.r))
   const submittableRows = computed(() => states.value.filter((x) => x.s === 'ready').map((x) => x.r))
   const blockedCount = computed(() => states.value.filter((x) => x.s === 'invalid' || x.s === 'conflict').length)
+  const canceledCount = computed(() => states.value.filter((x) => x.s === 'canceled').length)
   const busyProbing = computed(() => states.value.some((x) => x.s === 'probing' || x.s === 'waiting'))
 
   const mode = computed<PageMode>(() => {
@@ -179,7 +204,7 @@ export const useConvertStore = defineStore('convert', () => {
     if (!ffmpeg.ready) return 'ffmpeg'
     if (!selectedPreset.value) return 'preset'
     if (busyProbing.value) return 'probing'
-    if (blockedCount.value > 0) return 'blocked'
+    // 坏文件（读取失败 / 与预设不兼容）不挡整批：submit() 只提交可转换的行，页面上提示“已跳过 N 个”
     if (!submittableRows.value.length) return 'empty'
     return ''
   })
@@ -205,7 +230,7 @@ export const useConvertStore = defineStore('convert', () => {
       }
       have.add(p)
       added.push(reactive<ConvertRow>({
-        key: newKey(), path: p, name: fileBaseName(p), probe: 'waiting', thumb: '', thumbState: 'idle', taskId: '', label: '',
+        key: newKey(), path: p, name: fileBaseName(p), probe: 'waiting', thumb: '', thumbState: 'idle', cover: '', coverState: 'idle', taskId: '', label: '',
       }))
     }
     rows.value.push(...added)
@@ -217,12 +242,20 @@ export const useConvertStore = defineStore('convert', () => {
   }
 
   let probing = false
+  /** 本轮读取已完成的个数；总数 = 已完成 + 还没读完的行（读取中途又加文件时总数跟着变） */
+  const probeDone = ref(0)
+  const probeProgress = computed(() => {
+    const left = rows.value.filter((r) => r.probe === 'waiting' || r.probe === 'probing').length
+    return { done: probeDone.value, total: probeDone.value + left }
+  })
   /** 探测所有还没探测的行（分批，每批之后立刻更新界面）；ffmpeg 未就绪时等待，就绪后由 watch 再调用 */
   async function probePending() {
     if (probing || !ffmpeg.ready) return
     probing = true
+    probeDone.value = 0
     try {
       for (;;) {
+        // probeFiles 内部每 PROBE_BATCH（8）个一批回调一次，界面上能看到“正在读取文件信息（12/50）…”
         const batch = rows.value.filter((r) => r.probe === 'waiting').slice(0, 50)
         if (!batch.length) break
         for (const r of batch) r.probe = 'probing'
@@ -233,11 +266,13 @@ export const useConvertStore = defineStore('convert', () => {
             if (res.info) {
               r.info = res.info
               r.probe = 'ok'
+              probeDone.value++
             } else if (res.error?.code === 'FFMPEG_NOT_FOUND') {
               r.probe = 'waiting' // ffmpeg 又不可用了：等它就绪
             } else {
               r.probe = 'error'
               r.probeError = res.error
+              probeDone.value++
             }
           })
         })
@@ -245,6 +280,7 @@ export const useConvertStore = defineStore('convert', () => {
       }
     } finally {
       probing = false
+      probeDone.value = 0
     }
   }
 
@@ -302,13 +338,52 @@ export const useConvertStore = defineStore('convert', () => {
     pumpThumbs()
   }
 
+  // ---------------- 文件信息卡（单文件 / 点击某行） ----------------
+  /** 多个文件时被点选的行；列表里只有 1 行时信息卡直接显示它 */
+  const focusKey = ref('')
+  const focusRow = computed<ConvertRow | undefined>(() => {
+    if (rows.value.length === 1) return rows.value[0]
+    return rows.value.find((r) => r.key === focusKey.value)
+  })
+  function focusOn(r: ConvertRow) {
+    focusKey.value = focusKey.value === r.key ? '' : r.key
+  }
+  const coverQueue = new Set<string>()
+  /** 信息卡的 16:9 封面：Thumbnail(path, at, 640)；纯音频没有封面 */
+  function ensureCover(r: ConvertRow | undefined) {
+    if (!r || r.coverState !== 'idle' || r.probe !== 'ok' || !r.info) return
+    if (r.info.hasVideo === false || !r.info.width) {
+      r.coverState = 'done'
+      return
+    }
+    r.coverState = 'loading'
+    coverQueue.add(r.key)
+    const at = Math.min(10, (r.info.duration ?? 0) * 0.1)
+    thumbnailOf(r.path, at, 640)
+      .then((url) => {
+        r.cover = url
+      })
+      .finally(() => {
+        r.coverState = 'done'
+        coverQueue.delete(r.key)
+      })
+  }
+
   // ---------------- 行操作 ----------------
   function removeRow(key: string) {
     rows.value = rows.value.filter((r) => r.key !== key)
     notice.value = ''
   }
+  /** 把读取失败 / 不兼容的行一次全部移出（“已跳过 N 个无法转换的文件 · 移出”） */
+  function removeBlocked() {
+    const drop = new Set(states.value.filter((x) => x.s === 'invalid' || x.s === 'conflict').map((x) => x.r.key))
+    if (!drop.size) return
+    rows.value = rows.value.filter((r) => !drop.has(r.key))
+    notice.value = ''
+  }
   function clear() {
     rows.value = []
+    focusKey.value = ''
     notice.value = ''
     submitError.value = null
     pickSoon.value = ''
@@ -430,16 +505,21 @@ export const useConvertStore = defineStore('convert', () => {
     if (!t?.outputPath) return
     await revealInFolder(t.outputPath)
   }
-  /** 打开输出位置：第一个成功文件所在处（文件管理器里选中它；Linux 只打开所在文件夹） */
+  /** 打开输出位置：第一个成功文件所在处（文件管理器里选中它；Linux 只打开所在文件夹）。输出在多个文件夹时只打开第一个 */
   async function revealOutput() {
     const r = succeededRows.value[0]
     if (r) await reveal(r)
   }
-  /** 完成后输出所在的文件夹（显示用） */
-  const outputFolder = computed(() => {
-    const t = succeededRows.value.map((r) => rowTask(r)).find((x) => x?.outputPath)
-    return t ? dirName(t.outputPath) : ''
+  /** 完成后输出所在的文件夹（去重）；不唯一时界面写“N 个文件夹” */
+  const outputFolders = computed(() => {
+    const set = new Set<string>()
+    for (const r of succeededRows.value) {
+      const t = rowTask(r)
+      if (t?.outputPath) set.add(dirName(t.outputPath))
+    }
+    return [...set]
   })
+  const outputFolder = computed(() => (outputFolders.value.length === 1 ? outputFolders.value[0] : ''))
 
   // ---------------- 浏览器预览（无 window.go）：?convert=idle|files|probefail|running|done|failed ----------------
   function seedPreview(kind: string) {
@@ -451,6 +531,9 @@ export const useConvertStore = defineStore('convert', () => {
     let paths = names.map((n) => `${dir}/${n}`)
     // files：三个视频文件（干净的待转换状态）；probefail：再加一个损坏文件和一个纯音频（不兼容 MP4 预设）
     if (kind === 'files') paths = [paths[0], paths[1], paths[3]]
+    if (kind === 'single') paths = [paths[0]]
+    if (kind === 'audio') paths = [paths[2]]
+    if (kind === 'many') paths = Array.from({ length: 50 }, (_, i) => `${dir}/素材_${String(i + 1).padStart(2, '0')}.mp4`)
     if (kind === 'probefail') paths = [paths[0], paths[1], `${dir}/损坏_采访素材.mp4`, paths[2]]
     addPaths(paths)
     // 预览里 Probe 是同步假数据，但仍走 probePending；这里等它跑完再绑定任务
@@ -472,8 +555,10 @@ export const useConvertStore = defineStore('convert', () => {
         put(1, mkTask('pv1', 'running', 0.31, { speed: '1.8x', etaSec: 140 }))
         put(2, mkTask('pv2', 'queued', 0, { startedAt: 0 }))
         ok(3, 'screen_record_0928.mp4')
-      } else if (kind === 'done') {
+      } else if (kind === 'done' || kind === 'donemulti') {
         ok(0, '产品发布会_完整版.mp4'); ok(1, 'vlog_杭州西湖.mp4'); ok(2, '访谈录音_第三期.mp4'); ok(3, 'screen_record_0928.mp4')
+        // donemulti：输出在两个文件夹里（每个文件保存在各自源文件夹）
+        if (kind === 'donemulti') put(3, mkTask('pv3', 'succeeded', 1, { outputPath: '/Users/me/Desktop/录屏/screen_record_0928.mp4' }), true)
       } else if (kind === 'failed') {
         ok(0, '产品发布会_完整版.mp4')
         put(1, mkTask('pv1', 'failed', 0.31, { error: { code: 'CONVERT_DISK_FULL', message: '磁盘空间不足', detail: 'write /Volumes/Backup/输出/vlog_杭州西湖.mp4.part.mp4: no space left on device' }, params: JSON.stringify({ input: `${dir}/${names[1]}`, options: { container: 'mp4', videoCodec: 'h264', audioCodec: 'aac' }, outputDir: '/Volumes/Backup/输出' }) }), true)
@@ -486,8 +571,8 @@ export const useConvertStore = defineStore('convert', () => {
 
   return {
     rows, presets, presetsLoaded, presetsError, selectedPresetId, selectedPreset, presetShort,
-    outputOverride, defaultOutputDir, effectiveOutputDir, outputFolder, submitting, retryingAll, submitError, notice, pickSoon,
-    mode, overall, totalBytes, startBlockReason, blockedCount, activeRows, failedRows, succeededRows, pendingRows, submittableRows,
+    outputOverride, defaultOutputDir, effectiveOutputDir, outputFolder, outputFolders, submitting, retryingAll, submitError, notice, pickSoon,
+    mode, overall, totalBytes, startBlockReason, blockedCount, canceledCount, probeProgress, presetTitle, focusRow, focusOn, ensureCover, removeBlocked, activeRows, failedRows, succeededRows, pendingRows, submittableRows,
     init, refreshDefaultDir, loadPresets, addPaths, probePending, chooseFiles, ensureThumb, removeRow, clear, unbind,
     chooseOutputDir, submit, cancelRow, cancelAll, retryRow, retryAllFailed, changeOutputAndResubmit, reveal, revealOutput,
     stateOf, rowTask, conflictOf, seedPreview,
