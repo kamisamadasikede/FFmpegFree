@@ -641,7 +641,7 @@ export async function runApiChecks(): Promise<string[]> {
     eq('normalizeList：结果不含编码器名字段（encoders）', Object.keys(n.devices[1]).sort(), ['available', 'discrete', 'id', 'kind', 'name', 'vendor'])
     eq('normalizeList：后端 encoders{h264,hevc} 被丢弃', JSON.stringify(encApi.normalizeList({ ffmpegReady: true, devices: [{ ...nv, discrete: true, encoders: { h264: 'h264_nvenc', hevc: 'hevc_nvenc' } }] })).includes('nvenc'), false)
 
-    // 显示规则：ENCODER_BACKEND_READY=false（默认）+ 纯浏览器 → 没有 ?enc= 完全不显示；有 ?enc= 才显示模拟层
+    // 显示规则：纯浏览器（无 Wails）→ 没有 ?enc= 完全不显示；有 ?enc= 才显示模拟层（标志为 true 时 Wails 里另见下面）
     win.location.search = ''
     eq('面板显示：默认（无 ?enc=）→ 不显示', encApi.encoderPanelVisible(), false)
     win.location.search = '?ff=ready'
@@ -733,16 +733,26 @@ export async function runApiChecks(): Promise<string[]> {
       GetEncoderPreferenceInfo: async () => (calls.push('Info'), { id: 'nvidia-0', name: 'NVIDIA GeForce RTX 4060', available: false, reason: '驱动异常' }),
       SetEncoderPreference: async (id: string) => (calls.push('Set:' + id), undefined),
     }
+    // 标志为 true：Wails 里显示并走真实绑定；?enc= 只在纯浏览器生效
+    delete (win as unknown as Record<string, unknown>).go // 先当纯浏览器
+    delete (win as unknown as Record<string, unknown>).runtime
+    eq('标志值：ENCODER_BACKEND_READY 为 true（后端第二个 PR #67 / #68 已合入）', encApi.ENCODER_BACKEND_READY, true)
+    eq('纯浏览器（无 Wails）+ 标志 true：没有 ?enc= 仍不显示（encoderIsReal=false）', [encApi.encoderPanelVisible(), encApi.encoderIsReal()], [false, false])
+    win.location.search = '?enc=found'
+    eq('纯浏览器 + ?enc=：显示模拟层（仅开发用），不调用绑定', [encApi.encoderPanelVisible(), encApi.encoderIsReal(), (await encApi.listEncoderDevices()).devices.length, calls.length], [true, false, 3, 0])
+    win.location.search = ''
     ;(win as unknown as Record<string, unknown>).go = { app: { SystemService: svc } }
     ;(win as unknown as Record<string, unknown>).runtime = {}
-    eq('标志为 false（正式包）+ 有 Wails：面板不显示', encApi.encoderPanelVisible(), false)
-    win.location.search = '?enc=found'
-    eq('标志为 false + 有 Wails：?enc= 无效，仍不显示', encApi.encoderPanelVisible(), false)
-    eq('标志为 false + 有 Wails：走模拟层（不调用真实绑定）', [encApi.encoderIsReal(), (await encApi.listEncoderDevices()).devices.length, calls.length], [false, 3, 0])
+    eq('标志为 true + 有 Wails：面板显示、走真实绑定', [encApi.encoderPanelVisible(), encApi.encoderIsReal()], [true, true])
+    win.location.search = '?enc=none'
+    eq('标志为 true + 有 Wails：?enc= 无效（仍走真实绑定，不用模拟场景）', [encApi.encoderPanelVisible(), encApi.encoderIsReal(), (await encApi.listEncoderDevices()).devices.map((d) => d.id), calls.includes('List')], [true, true, ['cpu', 'nvidia-0', 'intel-0'], true])
+    eq('标志为 true + 有 Wails：偏好走真实绑定', [await encApi.getEncoderPreference(), (await encApi.getEncoderPreferenceInfo()).name], ['nvidia-0', 'NVIDIA GeForce RTX 4060'])
+    await encApi.setEncoderPreference('cpu')
+    eq('标志为 true + 有 Wails：Set 调用真实绑定', calls.includes('Set:cpu'), true)
+    eq('标志为 true + 有 Wails：刷新走真实绑定', [(await encApi.refreshEncoderDevices()).ffmpegReady, calls.includes('Refresh')], [false, true])
     win.location.search = ''
     delete (win as unknown as Record<string, unknown>).go
     delete (win as unknown as Record<string, unknown>).runtime
-    eq('标志值：ENCODER_BACKEND_READY 保持 false（第二个后端 PR 合入后再打开）', encApi.ENCODER_BACKEND_READY, false)
     // 真实绑定形状：直接对 normalizeList / normalizeInfo 喂后端返回（标志为 false 时 API 函数不走绑定，这里验字段对齐）
     const realList = encApi.normalizeList(await svc.ListEncoderDevices())
     eq('真实绑定形状：排序后 cpu / nvidia（独显）/ intel（集显），无编码器名', [realList.devices.map((d) => d.id), JSON.stringify(realList).includes('nvenc') || JSON.stringify(realList).includes('qsv') || JSON.stringify(realList).includes('libx264')], [['cpu', 'nvidia-0', 'intel-0'], false])
@@ -818,13 +828,22 @@ export async function runApiChecks(): Promise<string[]> {
       eq('提示：startedAt=0（从未运行：排队中取消 / 退出时还在排队，字段仍是提交时的值）→ 不显示提示、不显示设备', [encTask.showFallbackNotice({ ...fb, startedAt: 0 }, on), encTask.usedDeviceText({ ...fb, startedAt: 0 }, devs, on)], [false, ''])
       eq('提示：startedAt 缺省同样不显示', [encTask.showFallbackNotice({ ...fb, startedAt: undefined }, on), encTask.usedDeviceText({ ...fb, startedAt: undefined }, devs, on)], [false, ''])
       eq('提示：没有任务 / 没有编码器字段 → 不显示', [encTask.showFallbackNotice(undefined, on), encTask.showFallbackNotice({ startedAt: 1000 }, on), encTask.usedDeviceText({ startedAt: 1000 }, devs, on)], [false, false, ''])
-      // 标志：ENCODER_BACKEND_READY=false 且不在纯浏览器 ?enc= 预览 → 整体不显示（此 PR 内标志仍为 false）
-      eq('标志：ENCODER_BACKEND_READY 仍为 false', encApi.ENCODER_BACKEND_READY, false)
+      // 标志：ENCODER_BACKEND_READY=true → Wails 里整体启用；纯浏览器只有 ?enc= 启用（仅开发）
+      eq('标志：ENCODER_BACKEND_READY 为 true', encApi.ENCODER_BACKEND_READY, true)
       win.location.search = ''
-      eq('标志为 false 且无 ?enc= → 编码设备界面整体关闭：不显示提示、不显示设备', [encTask.encoderTaskUiEnabled(), encTask.showFallbackNotice(fb), encTask.usedDeviceText(fb, devs)], [false, false, ''])
+      eq('纯浏览器且无 ?enc= → 编码设备界面关闭：不显示提示、不显示设备', [encTask.encoderTaskUiEnabled(), encTask.showFallbackNotice(fb), encTask.usedDeviceText(fb, devs)], [false, false, ''])
       win.location.search = '?enc=fb-nvenc'
       eq('纯浏览器 ?enc= 预览 → 界面启用（仅开发用）', [encTask.encoderTaskUiEnabled(), encTask.showFallbackNotice(fb), encTask.usedDeviceText(fb, devs)], [true, true, 'CPU'])
       win.location.search = ''
+      ;(win as unknown as Record<string, unknown>).go = { app: {} }
+      ;(win as unknown as Record<string, unknown>).runtime = {}
+      eq('Wails 里（标志 true）→ 界面启用：hwFallback 显示提示、设备显示名', [encTask.encoderTaskUiEnabled(), encTask.showFallbackNotice(fb), encTask.usedDeviceText(fb, devs)], [true, true, 'CPU'])
+      win.location.search = '?enc=none'
+      eq('Wails 里 ?enc= 无效但界面照常启用', encTask.encoderTaskUiEnabled(), true)
+      eq('Wails 里：startedAt=0 仍不显示提示和设备', [encTask.showFallbackNotice({ ...fb, startedAt: 0 }), encTask.usedDeviceText({ ...fb, startedAt: 0 }, devs)], [false, ''])
+      win.location.search = ''
+      delete (win as unknown as Record<string, unknown>).go
+      delete (win as unknown as Record<string, unknown>).runtime
       // 设备名：只取 name；cpu → CPU；查不到 → 显卡；永不显示 id
       eq('设备名：显卡取列表里的 name', encTask.deviceDisplayName('nvidia-0', devs), 'NVIDIA GeForce RTX 4060')
       eq('设备名：cpu → CPU（不取后端的“CPU（软件编码）”）', encTask.deviceDisplayName('cpu', devs), 'CPU')
