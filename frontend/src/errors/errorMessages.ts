@@ -296,8 +296,10 @@ export function liveFfmpegProtocolMissingText(detail?: string | null): string {
   const name = liveMissingProtocolName(detail)
   return name ? `当前的 ffmpeg 不支持 ${name}，请在设置的 ffmpeg 页面重新安装或更新` : LIVE_FFMPEG_PROTOCOL_MISSING_TEXT
 }
-/** 屏幕推流“同时保存本地存档”后端暂未实现（archiveDir 非空 → UNSUPPORTED） */
-export const LIVE_ARCHIVE_UNSUPPORTED_TEXT = '暂不支持同时保存本地存档，请关闭“同时保存本地存档”后重试'
+/** 带存档的会话被强杀且存档保留（status=canceled 且 outputPath 非空）时状态行的文案（设计稿 v0.2 §6.8，产品定稿） */
+export const LIVE_CANCELED_ARCHIVE_KEPT_TEXT = '已强制停止，存档已保留，文件可能不完整'
+/** 正在停止（已发停止、等后端事件；有存档最多等 16 秒，界面不做超时处理） */
+export const LIVE_STOPPING_TEXT = '正在停止…'
 /** 选中屏幕推流时来源下方常驻的说明（12px、--ff-text-2、前置信息图标，不弹窗） */
 export const LIVE_SCREEN_NO_AUDIO_TEXT = '屏幕推流暂不包含声音'
 
@@ -305,14 +307,13 @@ export const LIVE_SCREEN_NO_AUDIO_TEXT = '屏幕推流暂不包含声音'
  * 直播 Start* 同步返回的错误 → 页面上展示的一句话（走 ErrorLine，点“开始”之后才出现，不提前置灰按钮）。
  * 返回 null 表示不属于这里处理的情形（调用方走原来的遮罩 / 行内错误）。
  */
-export function liveStartErrorLine(e: { code: string; message?: string; reason?: string; scheme?: string; detail?: string }, opts: { scheme?: string; archive?: boolean } = {}): { title: string; description: string } | null {
+export function liveStartErrorLine(e: { code: string; message?: string; reason?: string; scheme?: string; detail?: string }, opts: { scheme?: string } = {}): { title: string; description: string } | null {
   switch (e.code) {
     case 'TASK_CONFLICT':
       return { title: '无法开始推流', description: taskConflictText(e.reason) }
     case 'UNSUPPORTED':
-      // 屏幕推流带存档时后端暂返回 UNSUPPORTED（本地存档暂未实现，契约 §6.10：这种 UNSUPPORTED 没有 missing= 行）：提示“暂不支持存档”，不能说成缺协议
-      // 有 missing= 行（含 missing=tee）的是缺 ffmpeg 组件，走 liveFfmpegProtocolMissingText（tee 用通用句）；后端存档 PR 合入前不放开存档提示
-      if (opts.archive && !hasMissingLine(e.detail)) return { title: '无法开始推流', description: LIVE_ARCHIVE_UNSUPPORTED_TEXT }
+      // 后端 #47 已实现存档，页面不再对存档显示“暂不支持”。UNSUPPORTED 一律按缺 ffmpeg 组件处理：
+      // detail 某一行严格等于 missing=rtmp|rtmps|srt 才带协议名；missing=tee（带存档时缺 tee muxer）和其余情形用不带协议名的通用句
       return { title: '无法开始推流', description: liveFfmpegProtocolMissingText(e.detail) }
     case 'LIVE_CONNECT_FAILED': {
       // scheme 优先取 detail 首行（AppError.scheme），拿不到才用页面上地址的 scheme 兜底；都没有 → RTMP 那句
