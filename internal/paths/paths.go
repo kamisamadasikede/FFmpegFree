@@ -52,13 +52,68 @@ func (d Dirs) Ensure() error {
 	return nil
 }
 
-// DefaultOutputDir 返回默认输出目录 ~/Videos/FFmpegFree。
+// DefaultOutputDir 返回系统"视频"目录下的 FFmpegFree 子目录：
+// Windows 为 %USERPROFILE%\Videos，macOS 为 ~/Movies，
+// Linux 优先读 XDG_VIDEOS_DIR（环境变量或 ~/.config/user-dirs.dirs），读不到用 ~/Videos。
 func DefaultOutputDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, "Videos", appDirName), nil
+	return filepath.Join(videosDir(runtime.GOOS, home, os.Getenv), appDirName), nil
+}
+
+func videosDir(goos, home string, getenv func(string) string) string {
+	switch goos {
+	case "darwin":
+		return filepath.Join(home, "Movies")
+	case "windows":
+		return filepath.Join(home, "Videos")
+	}
+	if v := expandXDG(getenv("XDG_VIDEOS_DIR"), home); v != "" {
+		return v
+	}
+	cfg := getenv("XDG_CONFIG_HOME")
+	if cfg == "" {
+		cfg = filepath.Join(home, ".config")
+	}
+	if data, err := os.ReadFile(filepath.Join(cfg, "user-dirs.dirs")); err == nil {
+		if v := parseUserDirs(string(data), "XDG_VIDEOS_DIR", home); v != "" {
+			return v
+		}
+	}
+	return filepath.Join(home, "Videos")
+}
+
+// parseUserDirs 解析 xdg-user-dirs 生成的文件，格式如 XDG_VIDEOS_DIR="$HOME/视频"。
+func parseUserDirs(content, key, home string) string {
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok || strings.TrimSpace(k) != key {
+			continue
+		}
+		return expandXDG(strings.Trim(strings.TrimSpace(v), `"`), home)
+	}
+	return ""
+}
+
+func expandXDG(v, home string) string {
+	if v == "" {
+		return ""
+	}
+	v = strings.Replace(v, "$HOME", home, 1)
+	if !filepath.IsAbs(v) {
+		return ""
+	}
+	// xdg 规范：值等于 $HOME 表示该目录被禁用。
+	if filepath.Clean(v) == filepath.Clean(home) {
+		return ""
+	}
+	return filepath.Clean(v)
 }
 
 // caseInsensitiveFS 表示当前平台默认文件系统大小写不敏感。

@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（草案 v0.3）
+# FFmpegFree v2 接口契约（v0.4）
+
+v0.4 变更：默认输出目录按平台区分；`.part` 改为 `<name>.part.<原扩展名>`；进度不落库；直播存档优雅停止。
 
 v0.3 变更：`InstallFFmpeg` 幂等；macOS ad-hoc 签名；`Settings.ffmpegPromptDismissed`；录屏 native 采集补 Windows gdigrab、macOS 授权和 Wayland 限制。
 
@@ -11,7 +13,7 @@ v0.2 变更：新增 ffmpeg 环境检测与自动安装（第 9 节）；合入�
 
 - 除二进制流以外，前后端一律通过 Wails Bind 调用，不再有 `localhost:19200`。
 - 所有文件用**本地绝对路径**传递，选择文件用 `SystemService.PickFiles`，不再上传拷贝。
-- 应用数据目录：`os.UserConfigDir()/FFmpegFree/`，下设 `app.db`、`thumbs/`、`logs/`；输出目录默认 `~/Videos/FFmpegFree`（可在设置里改）。
+- 应用数据目录：`os.UserConfigDir()/FFmpegFree/`，下设 `app.db`、`thumbs/`、`logs/`；输出目录默认是系统"视频"目录下的 `FFmpegFree`：Windows 为 `%USERPROFILE%\Videos`，macOS 为 `~/Movies`，Linux 读 `XDG_VIDEOS_DIR`（读不到用 `~/Videos`），可在设置里改。
 - 前端预览本地文件：通过 Wails AssetServer 的 `Handler` 挂 `/local/<token>`，由后端按 `media_id` 映射真实路径，不暴露任意路径读取。
 - 时间一律 Unix 毫秒（int64），时长一律秒（float64），大小一律字节（int64）。
 - ID 一律 ULID 字符串。
@@ -208,7 +210,9 @@ schema_migrations(version PK, applied_at)
   ffmpeg 类任务用 `FFmpegRunner`，Office 转 PDF 用 `GoFuncRunner`，ffmpeg 下载用 `DownloadRunner`。
 - 两个调度池：`batch` 池（转换、剪辑、Office、ffmpeg 下载）按设置里的并发数排队；`live` 池（三类直播任务）不排队、不占 batch 名额。
 - 两遍编码：每个任务用 `-passlogfile <任务临时目录>/pass`，进度第一遍映射到 0~0.5，第二遍映射到 0.5~1，结束后删临时目录。
-- 输出文件先写 `<name>.part`，成功后改名；目标重名时自动追加 `(1)`、`(2)`；取消或失败删除 `.part`。
+- 输出文件先写 `<name>.part.<原扩展名>`（例如 `a.part.mp4`，保留扩展名让 ffmpeg 能识别封装格式），成功后改名；目标重名时自动追加 `(1)`、`(2)`；取消或失败删除 `.part`。
+- 进度只保存在内存并通过 `task:progress` 推送，不写库；只有状态变化（开始、成功、失败、取消）时落库，避免单连接下进度写入阻塞任务中心的列表查询。
+- 取消转换类任务直接强制结束进程；直播录制存档要先向 ffmpeg 发 `q`（或 SIGINT），等待最多 5 秒让它写完文件尾，超时再强制结束，否则 mp4 存档无法打开。
 - `/local/<token>` 用 `http.ServeContent` 输出，支持 Range 请求，保证视频可拖动进度。
 
 ## 7. 本地流服务（唯一保留的 HTTP）

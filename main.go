@@ -1,6 +1,7 @@
 package main
 
 import (
+	"FFmpegFree/app"
 	"FFmpegFree/backend/router"
 	"embed"
 
@@ -16,7 +17,8 @@ func main() {
 	// Create an instance of the app structure
 
 	go router.InitRouter()
-	app := NewApp()
+	mainApp := NewApp()
+	jsonService := app.NewJsonService()
 
 	// Create application with options
 	err := wails.Run(&options.App{
@@ -31,10 +33,11 @@ func main() {
 			Assets: assets,
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
-		OnStartup:        app.startup,
-		OnShutdown:       app.shutdown,
+		OnStartup:        mainApp.startup,
+		OnShutdown:       mainApp.shutdown,
 		Bind: []interface{}{
-			app,
+			mainApp,
+			jsonService,
 		},
 	})
 
