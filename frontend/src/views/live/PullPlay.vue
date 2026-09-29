@@ -30,7 +30,7 @@
       <LivePanel title="拉流设置" note="不经过本地服务">
         <LiveField label="流地址">
           <LiveInput v-model="url" :bad="urlInvalid" :disabled="session.busy.value" placeholder="http://live.example.com/live/room.flv" copyable @enter="start" />
-          <InlineError v-if="urlInvalid" code="LIVE_URL_INVALID" description="请输入 http:// 或 ws:// 开头的流地址" />
+          <InlineError v-if="urlInvalid" code="LIVE_URL_INVALID" description="请输入 http:// 或 ws:// 开头的流地址。" />
         </LiveField>
         <div class="tip">支持 HTTP-FLV（http:// 或 https://）和 WS-FLV（ws:// 或 wss://）。</div>
         <div class="chk">低延迟追帧<el-switch v-model="lowLatency" size="small" aria-label="低延迟追帧" :disabled="session.busy.value" /></div>
