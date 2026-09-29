@@ -107,3 +107,41 @@ func TestClassifyLiveErrorScreen(t *testing.T) {
 		t.Fatalf("文件推流不做采集分类: %+v", e)
 	}
 }
+
+// 脱敏之后的真实样本：任务日志和 Classify 看到的都是 *** 形式（ffmpeg 7.1.5 + MediaMTX 1.21.1，集成测试里抓取，源路径与口令已替换）。
+// 覆盖鉴权失败、推流中途服务器被杀（Broken pipe，进程退出码 224，退出码由 ffmpeg.Run 的测试覆盖）、SRT 连接被拒。
+func TestClassifyLiveErrorRedactedRealSamples(t *testing.T) {
+	tests := []struct {
+		file, scheme string
+		started      bool
+		code         apperr.Code
+		first        string
+	}{
+		{"rej_rtmp_redacted.err", "rtmp", false, apperr.LivePushRejected, ""},
+		{"mid_rtmp_redacted.err", "rtmp", true, apperr.LivePushInterrupted, ""},
+		{"off_srt_redacted.err", "srt", false, apperr.LiveConnectFailed, "scheme=srt"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.file, func(t *testing.T) {
+			sample := liveSample(t, tc.file)
+			if !strings.Contains(sample, "***") && tc.file != "mid_rtmp_redacted.err" {
+				t.Fatal("样本应已脱敏")
+			}
+			for _, leak := range []string{"secret", "wrong", "WRONG", "passphrase"} {
+				if strings.Contains(sample, leak) {
+					t.Fatalf("样本含敏感词 %q", leak)
+				}
+			}
+			e := ClassifyLiveError(LiveClassifyInput{Tail: sample, Scheme: tc.scheme, Started: tc.started})
+			if e == nil || e.Code != tc.code {
+				t.Fatalf("got %+v want %s", e, tc.code)
+			}
+			if tc.first != "" && firstLine(e.Detail) != tc.first {
+				t.Fatalf("detail 首行=%q want %q", firstLine(e.Detail), tc.first)
+			}
+			if strings.Contains(e.Detail, "127.0.0.1:1") && strings.Contains(e.Detail, "live/ok") {
+				t.Fatalf("detail 不应带原始地址: %s", e.Detail)
+			}
+		})
+	}
+}
