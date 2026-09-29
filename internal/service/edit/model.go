@@ -4,7 +4,7 @@ package edit
 // 限制（契约 6.11.2 与架构师确认的决定）。越界一律 INVALID_ARGUMENT，不再静默截断。
 const (
 	MaxClips        = 100      // 视频 + 音频 clip 总数
-	MaxSources      = 200      // 素材库条目
+	MaxSources      = 100      // 素材库条目（产品经理定：素材 100；与 MaxClips 的 100 是两个独立上限，只是数值相同）
 	MaxProjectBytes = 1 << 20  // 序列化后的工程
 	MaxTimelineSec  = 6 * 3600 // 时间线总长
 	MaxNameRunes    = 80       // 工程名
