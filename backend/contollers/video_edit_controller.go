@@ -222,10 +222,10 @@ func normalizeEditRequest(request *EditRenderRequest) {
 		request.OutputFormat = "mp4"
 	}
 	if request.Width <= 0 {
-		request.Width = 1280
+		request.Width = 1920
 	}
 	if request.Height <= 0 {
-		request.Height = 720
+		request.Height = 1080
 	}
 	if request.FPS <= 0 {
 		request.FPS = 30

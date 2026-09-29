@@ -209,7 +209,7 @@ function onFailed(code: string, error?: { message?: string; detail?: string }) {
 async function ensureArchiveDir(): Promise<string | null> {
   if (!archiveEnabled.value) return ''
   if (archiveDir.value) return archiveDir.value
-  const dir = preview || !liveApi.LIVE_BACKEND_READY ? await getDefaultOutputDir().catch(() => '') || '/Users/me/Movies/FFmpegFree' : await getDefaultOutputDir()
+  const dir = preview || !liveApi.liveIsReal() ? await getDefaultOutputDir().catch(() => '') || '/Users/me/Movies/FFmpegFree' : await getDefaultOutputDir()
   if (dir) return (archiveDir.value = dir)
   const picked = await pickDirectory('选择存档文件夹')
   if (!picked) return null // 用户取消
@@ -263,7 +263,7 @@ async function start(isReconnect: unknown = false) {
 }
 
 function onStartFailed(err: liveApi.LiveError, scheme: string) {
-  const line = liveStartErrorLine(err, { scheme })
+  const line = liveStartErrorLine(err, { scheme, archive: archiveEnabled.value })
   if (line && (err.code === 'TASK_CONFLICT' || err.code === 'UNSUPPORTED')) {
     session.setIdle()
     startError.value = line
@@ -302,6 +302,21 @@ function fullscreen() {
   document.querySelector<HTMLElement>('.ff-player')?.requestFullscreen?.().catch(() => undefined)
 }
 
+/** 页面刷新后接回还在推的屏幕推流：先 ListActive（TaskService）重建状态，再订阅 task:*（架构师决定，不做专门重连逻辑；params 已脱敏，拿不到完整地址） */
+async function recover() {
+  try {
+    const r = (await liveApi.listRunning()).find((x) => x.type === 'live_screen_push')
+    if (!r) return
+    session.setStarting()
+    session.setRunning()
+    session.startClock(r.startedAt ? Math.max(0, (Date.now() - r.startedAt) / 1000) : 0)
+    watchTask(r.streamId)
+    session.log(`已接回正在推流的任务：${r.title}`)
+  } catch {
+    /* 后端没起就算了 */
+  }
+}
+
 onMounted(async () => {
   if (preview) session.initPreview()
   try {
@@ -311,6 +326,7 @@ onMounted(async () => {
     const err = toAppError(e)
     if (err.code === 'UNSUPPORTED_PLATFORM') session.log(err.message)
   }
+  if (!preview && !session.busy.value) await recover()
 })
 onBeforeUnmount(() => {
   userStopped = true

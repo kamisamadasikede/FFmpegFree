@@ -16,13 +16,22 @@ type TaskType string
 type TaskStatus string
 
 const (
-	TypeConvert        TaskType = "convert"
+	TypeConvert    TaskType = "convert"
+	TypeEditExport TaskType = "edit_export"
+	// TypeEditRender 是 v0.11 之前的旧名，只为读取旧数据保留，不再产生任务。
+	//
+	// Deprecated: 用 TypeEditExport。
 	TypeEditRender     TaskType = "edit_render"
 	TypeOfficePDF      TaskType = "office_pdf"
 	TypeLiveFilePush   TaskType = "live_file_push"
-	TypeLiveRelay      TaskType = "live_relay"
-	TypeLiveRecordPush TaskType = "live_record_push"
+	TypeLiveScreenPush TaskType = "live_screen_push"
 	TypeFFmpegInstall  TaskType = "ffmpeg_install"
+
+	// Deprecated: TypeLiveRelay 只为读旧数据保留（契约 v0.10），不再产生，Submit 不接受；
+	// 库里这类旧记录在所有读取路径上按未知类型忽略（不报错）。
+	TypeLiveRelay TaskType = "live_relay"
+	// Deprecated: TypeLiveRecordPush 同 TypeLiveRelay，只为读旧数据保留。
+	TypeLiveRecordPush TaskType = "live_record_push"
 )
 
 const (
@@ -40,21 +49,25 @@ func (s TaskStatus) Active() bool { return s == StatusQueued || s == StatusRunni
 // Task 是契约第 3 节的 Task。Progress、Speed、EtaSec 只在内存里实时更新，
 // 落库只在状态变化时发生（契约 6.5），所以从库里读出来的 Speed、EtaSec 恒为空。
 type Task struct {
-	ID         string           `json:"id"`
-	Type       TaskType         `json:"type"`
-	Status     TaskStatus       `json:"status"`
-	Title      string           `json:"title"`
-	InputPaths []string         `json:"inputPaths"`
-	OutputPath string           `json:"outputPath"`
-	Progress   float64          `json:"progress"` // 0~1，直播类任务恒为 -1
-	Speed      string           `json:"speed"`    // 如 "2.3x"
-	EtaSec     float64          `json:"etaSec"`
-	Params     string           `json:"params"`  // 原始参数 JSON，用于重试
-	Version    int64            `json:"version"` // 每次变更 +1，前端据此丢弃旧事件
-	Error      *apperr.AppError `json:"error,omitempty"`
-	CreatedAt  int64            `json:"createdAt"`
-	StartedAt  int64            `json:"startedAt"`
-	FinishedAt int64            `json:"finishedAt"`
+	ID         string     `json:"id"`
+	Type       TaskType   `json:"type"`
+	Status     TaskStatus `json:"status"`
+	Title      string     `json:"title"`
+	InputPaths []string   `json:"inputPaths"`
+	OutputPath string     `json:"outputPath"`
+	Progress   float64    `json:"progress"` // 0~1，直播类任务恒为 -1
+	Speed      string     `json:"speed"`    // 如 "2.3x"
+	EtaSec     float64    `json:"etaSec"`
+	// 以下三项只有直播任务在运行中才有值（契约 v0.10），只在内存里、不落库，和 Speed / EtaSec 一样。
+	Fps           float64          `json:"fps,omitempty"`           // 当前输出帧率
+	BitrateKbps   float64          `json:"bitrateKbps,omitempty"`   // 近 5 秒的输出码率（kbit/s）
+	DroppedFrames int64            `json:"droppedFrames,omitempty"` // ffmpeg 累计丢帧数（不是网络丢包）
+	Params        string           `json:"params"`                  // 原始参数 JSON，用于重试
+	Version       int64            `json:"version"`                 // 每次变更 +1，前端据此丢弃旧事件
+	Error         *apperr.AppError `json:"error,omitempty"`
+	CreatedAt     int64            `json:"createdAt"`
+	StartedAt     int64            `json:"startedAt"`
+	FinishedAt    int64            `json:"finishedAt"`
 
 	// LogPath 不暴露给前端，前端通过 TaskService.GetLog 读取。
 	LogPath string `json:"-"`
@@ -130,7 +143,7 @@ func (s *Store) UpdateTask(ctx context.Context, t Task) error {
 
 // GetTask 按 ID 读取任务，不存在返回 sql.ErrNoRows。
 func (s *Store) GetTask(ctx context.Context, id string) (Task, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT `+taskColumns+` FROM tasks WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT `+taskColumns+` FROM tasks WHERE id = ? AND type NOT IN `+legacyTypesSQL, id)
 	return scanTask(row)
 }
 
@@ -198,7 +211,7 @@ func (s *Store) DeleteTasks(ctx context.Context, ids []string) ([]string, error)
 	}
 	defer tx.Rollback()
 	for _, id := range ids {
-		res, err := tx.ExecContext(ctx, `DELETE FROM tasks WHERE id = ? AND status NOT IN ('queued','running')`, id)
+		res, err := tx.ExecContext(ctx, `DELETE FROM tasks WHERE id = ? AND status NOT IN ('queued','running') AND type NOT IN `+legacyTypesSQL, id)
 		if err != nil {
 			return nil, fmt.Errorf("删除任务失败: %w", err)
 		}
@@ -241,7 +254,7 @@ func (s *Store) DeleteFinishedTasks(ctx context.Context) ([]Task, error) {
 		return nil, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `SELECT `+taskColumns+` FROM tasks WHERE status NOT IN ('queued','running')`)
+	rows, err := tx.QueryContext(ctx, `SELECT `+taskColumns+` FROM tasks WHERE status NOT IN ('queued','running') AND type NOT IN `+legacyTypesSQL)
 	if err != nil {
 		return nil, err
 	}
@@ -255,14 +268,55 @@ func (s *Store) DeleteFinishedTasks(ctx context.Context) ([]Task, error) {
 		gone = append(gone, t)
 	}
 	rows.Close()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM tasks WHERE status NOT IN ('queued','running')`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM tasks WHERE status NOT IN ('queued','running') AND type NOT IN `+legacyTypesSQL); err != nil {
 		return nil, fmt.Errorf("清理任务失败: %w", err)
 	}
 	return gone, tx.Commit()
 }
 
+// legacyTypes 是"保留但不再产生"的旧任务类型（契约 v0.10 确认项 ⑧）：库里这类记录在所有读取 / 按 id 操作的入口按不存在处理。
+// 新增旧类型只改这一处。edit_render 是 edit_export 的旧名，同样只读旧数据、不再产生。
+var legacyTypes = []TaskType{TypeLiveRelay, TypeLiveRecordPush, TypeEditRender}
+
+// legacyTypesSQL 是 legacyTypes 的 SQL 列表，如 ('live_relay','live_record_push','edit_render')。
+var legacyTypesSQL = func() string {
+	q := make([]string, len(legacyTypes))
+	for i, t := range legacyTypes {
+		q[i] = "'" + string(t) + "'"
+	}
+	return "(" + strings.Join(q, ",") + ")"
+}()
+
+// LegacyTaskIDs 返回 ids 中"库里有这条记录、但类型是旧类型"的 id（真正不存在的 id 不在其中）。
+// Manager.Remove 用它实现"旧类型按不存在处理并整体失败"（契约 v0.10 确认项 ⑧）。
+func (s *Store) LegacyTaskIDs(ctx context.Context, ids []string) ([]string, error) {
+	var out []string
+	for _, id := range ids {
+		var found string
+		err := s.db.QueryRowContext(ctx, `SELECT id FROM tasks WHERE id = ? AND type IN `+legacyTypesSQL, id).Scan(&found)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("查询旧类型任务失败: %w", err)
+		}
+		out = append(out, found)
+	}
+	return out, nil
+}
+
+// IsLegacyType 判断任务类型是否是"保留但不再产生"的旧类型；库里这类记录在 List / ListActive / Get 里按不存在处理，不报错。
+func IsLegacyType(t TaskType) bool {
+	for _, l := range legacyTypes {
+		if t == l {
+			return true
+		}
+	}
+	return false
+}
+
 func taskWhere(f TaskFilter) (string, []any) {
-	var conds []string
+	conds := []string{"type NOT IN " + legacyTypesSQL}
 	var args []any
 	if len(f.Types) > 0 {
 		conds = append(conds, "type IN ("+placeholders(len(f.Types))+")")
@@ -275,9 +329,6 @@ func taskWhere(f TaskFilter) (string, []any) {
 		for _, s := range f.Statuses {
 			args = append(args, string(s))
 		}
-	}
-	if len(conds) == 0 {
-		return "", nil
 	}
 	return " WHERE " + strings.Join(conds, " AND "), args
 }

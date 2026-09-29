@@ -104,7 +104,7 @@ var errTargetExists = errors.New("目标文件已存在")
 var (
 	mkdirAll   = os.MkdirAll
 	linkFile   = os.Link
-	renameFile = os.Rename
+	renameFile = renameNoReplace // 见 part_windows.go / part_other.go
 )
 
 // commitPart 把 part 提交为 final，绝不覆盖已存在的文件：

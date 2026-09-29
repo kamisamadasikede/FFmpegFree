@@ -62,7 +62,7 @@ func TestTaskRoundTrip(t *testing.T) {
 func TestListTasksFilterAndPaging(t *testing.T) {
 	ctx := context.Background()
 	s, _ := openTemp(t)
-	types := []TaskType{TypeConvert, TypeEditRender, TypeConvert}
+	types := []TaskType{TypeConvert, TypeEditExport, TypeConvert}
 	statuses := []TaskStatus{StatusSucceeded, StatusFailed, StatusQueued}
 	for i := 0; i < 30; i++ {
 		s.InsertTask(ctx, mkTask(fmt.Sprintf("T%02d", i), types[i%3], statuses[i%3], int64(1000+i)))
@@ -75,7 +75,7 @@ func TestListTasksFilterAndPaging(t *testing.T) {
 	if len(p.Items) != 5 || p.Items[0].ID != "T04" {
 		t.Fatalf("%d %s", len(p.Items), p.Items[0].ID)
 	}
-	p, _ = s.ListTasks(ctx, TaskFilter{Types: []TaskType{TypeEditRender}})
+	p, _ = s.ListTasks(ctx, TaskFilter{Types: []TaskType{TypeEditExport}})
 	if p.Total != 10 {
 		t.Fatalf("按类型: %d", p.Total)
 	}
@@ -166,5 +166,35 @@ func TestTaskOutputsByBase(t *testing.T) {
 	}
 	if got, _ := s.TaskOutputsByBase(ctx, ""); got != nil {
 		t.Fatalf("空文件名应返回 nil: %v", got)
+	}
+}
+
+// 旧类型记录：DeleteTasks / DeleteFinishedTasks 不删，LegacyTaskIDs 只报库里有记录的旧类型 id。
+func TestLegacyTypeRowsUntouchedByDeletes(t *testing.T) {
+	s, _ := openTemp(t)
+	ctx := context.Background()
+	for i, typ := range []TaskType{TypeLiveRelay, TypeLiveRecordPush, TypeEditRender, TypeConvert, TypeLiveScreenPush, TypeEditExport} {
+		tk := Task{ID: fmt.Sprintf("T%d", i), Type: typ, Status: StatusSucceeded, Title: "x", InputPaths: []string{}, Version: 1, CreatedAt: int64(i + 1)}
+		if err := s.InsertTask(ctx, tk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ids, err := s.LegacyTaskIDs(ctx, []string{"T0", "T1", "T2", "T3", "T4", "T5", "nope"})
+	if err != nil || len(ids) != 3 || ids[0] != "T0" || ids[1] != "T1" || ids[2] != "T2" {
+		t.Fatalf("%v %v", ids, err)
+	}
+	if got, err := s.DeleteTasks(ctx, []string{"T0", "T1", "T2", "T3"}); err != nil || len(got) != 1 || got[0] != "T3" {
+		t.Fatalf("DeleteTasks 不应删旧类型: %v %v", got, err)
+	}
+	gone, err := s.DeleteFinishedTasks(ctx)
+	if err != nil || len(gone) != 2 || gone[0].ID+gone[1].ID != "T4T5" && gone[0].ID+gone[1].ID != "T5T4" {
+		t.Fatalf("DeleteFinishedTasks 不应删旧类型: %+v %v", gone, err)
+	}
+	var n int
+	if err := s.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM tasks`).Scan(&n); err != nil || n != 3 {
+		t.Fatalf("库里应剩 3 条旧记录: %d %v", n, err)
+	}
+	if !IsLegacyType(TypeLiveRelay) || !IsLegacyType(TypeLiveRecordPush) || !IsLegacyType(TypeEditRender) || IsLegacyType(TypeLiveScreenPush) || IsLegacyType(TypeEditExport) || IsLegacyType(TypeConvert) {
+		t.Fatal("IsLegacyType")
 	}
 }

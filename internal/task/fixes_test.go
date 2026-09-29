@@ -528,7 +528,7 @@ func TestShutdownMarksGracefullyStoppedRunningTaskInterrupted(t *testing.T) {
 	f := newFx(t, 1)
 	started := make(chan struct{})
 	// 模拟直播优雅停止：收到取消后正常返回 nil
-	tk, _ := f.m.Submit(Spec{Type: TypeLiveRelay}, RunnerFunc(func(ctx context.Context, _ func(Progress)) (string, error) {
+	tk, _ := f.m.Submit(Spec{Type: TypeLiveScreenPush}, RunnerFunc(func(ctx context.Context, _ func(Progress)) (string, error) {
 		close(started)
 		<-ctx.Done()
 		return "/archive/a.mp4", nil
@@ -832,5 +832,18 @@ func TestIsDiskFull(t *testing.T) {
 	}
 	if isDiskFull(syscall.EPERM) || isDiskFull(nil) {
 		t.Fatal("其它错误不是磁盘满")
+	}
+}
+
+// 类型枚举：edit_export 可提交，旧名 edit_render 只为读旧数据保留、不能再提交。
+func TestEditTaskTypeNames(t *testing.T) {
+	if TypeEditExport != "edit_export" || TypeEditRender != "edit_render" {
+		t.Fatal("常量值不对")
+	}
+	if !validType(TypeEditExport) {
+		t.Fatal("edit_export 应可提交")
+	}
+	if validType(TypeEditRender) {
+		t.Fatal("edit_render 不应再可提交")
 	}
 }

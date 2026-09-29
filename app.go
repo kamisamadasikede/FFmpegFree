@@ -5,8 +5,11 @@ import (
 	"FFmpegFree/backend/contollers"
 	"FFmpegFree/internal/about"
 	"FFmpegFree/internal/ffmpeg"
+	"FFmpegFree/internal/localassets"
 	"FFmpegFree/internal/paths"
 	"FFmpegFree/internal/service/convert"
+	"FFmpegFree/internal/service/edit"
+	"FFmpegFree/internal/service/live"
 	"FFmpegFree/internal/service/media"
 	"FFmpegFree/internal/service/system"
 	"FFmpegFree/internal/store"
@@ -14,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"sync/atomic"
 	"time"
 
@@ -32,7 +36,20 @@ type App struct {
 	tasks      atomic.Pointer[task.Manager]
 	media      atomic.Pointer[media.Service]
 	conv       atomic.Pointer[convert.Service]
+	edt        atomic.Pointer[edit.Service]
+	// /local/<token> 预览登记表（契约 6.13）：edit 与 doc 分表，各 512 项，互不挤占；main.go 用 localHandler 挂到 AssetServer。
+	editLocal *localassets.Registry
+	docLocal  *localassets.Registry
+	live      atomic.Pointer[live.Service]
 }
+
+// editAssets / docAssets 返回两张 /local/<token> 登记表（NewApp 时创建，永不为 nil）。小写，不会被 Wails 暴露。
+// DocService 用 docAssets().Register(path)。
+func (a *App) editAssets() *localassets.Registry { return a.editLocal }
+func (a *App) docAssets() *localassets.Registry  { return a.docLocal }
+
+// localHandler 是挂在 Wails AssetServer.Handler 上的处理器，按 token 在两张表里查。
+func (a *App) localHandler() http.Handler { return localassets.MultiHandler(a.editLocal, a.docLocal) }
 
 // taskManager 返回任务管理器；OnStartup 完成前（或存储初始化失败时）为 nil。
 // 首字母小写，不会被 Wails 当作绑定方法暴露给前端。
@@ -44,11 +61,17 @@ func (a *App) mediaService() *media.Service { return a.media.Load() }
 // convertService 返回转换服务；OnStartup 完成前（或存储 / 任务管理器不可用时）为 nil。小写，不会被 Wails 暴露。
 func (a *App) convertService() *convert.Service { return a.conv.Load() }
 
+// editService 返回剪辑服务；OnStartup 完成前（或存储 / 任务管理器 / 媒体服务不可用时）为 nil。小写，不会被 Wails 暴露。
+func (a *App) editService() *edit.Service { return a.edt.Load() }
+
+// liveService 返回直播服务；OnStartup 完成前（或任务管理器 / 媒体服务不可用时）为 nil。小写，不会被 Wails 暴露。
+func (a *App) liveService() *live.Service { return a.live.Load() }
+
 // NewApp creates a new App application struct
 func NewApp(sys *system.Manager) *App {
 	// 根 ctx 在构造时就创建，保证绑定方法在 OnStartup 之前被调用也拿到有效的 ctx。
 	ctx, cancel := context.WithCancel(context.Background())
-	return &App{sys: sys, rootCtx: ctx, rootCancel: cancel}
+	return &App{sys: sys, rootCtx: ctx, rootCancel: cancel, editLocal: localassets.New(localassets.Config{}), docLocal: localassets.New(localassets.Config{})}
 }
 
 // appContext 返回应用根 ctx，shutdown 时被取消。小写，不会被 Wails 暴露。
@@ -65,6 +88,8 @@ func (a *App) startup(ctx context.Context) {
 	a.startTasks(ctx)
 	a.startMedia()
 	a.startConvert(ctx)
+	a.startEdit()
+	a.startLive()
 	a.startFFmpegDetect(ctx)
 }
 
@@ -94,7 +119,11 @@ func (a *App) startMedia() {
 		}
 		thumbs = d.Thumbs
 	}
-	cfg := media.Config{ThumbsDir: thumbs}
+	cfg := media.Config{ThumbsDir: thumbs, OnRemoved: func(ps []string) {
+		for _, p := range ps { // RemoveRecent 联动：撤销这些文件的 edit 预览 token（契约 6.13）
+			a.editLocal.RevokePath(p)
+		}
+	}}
 	if a.store != nil { // 避免把 nil *Store 装进接口
 		cfg.Store = a.store
 	}
@@ -121,6 +150,39 @@ func (a *App) startConvert(ctx context.Context) {
 		return
 	}
 	a.conv.Store(svc)
+}
+
+// startEdit 创建剪辑服务：需要存储（工程）、任务管理器和媒体服务，缺一个就不启动（此时 EditService 返回 INTERNAL）。
+// 启动时顺带清理 interrupted 的导出任务遗留的 .part 文件。
+func (a *App) startEdit() {
+	tm, med := a.taskManager(), a.mediaService()
+	if a.store == nil || tm == nil || med == nil {
+		log.Printf("剪辑服务未启动：存储、任务管理器或媒体服务不可用")
+		return
+	}
+	svc := edit.New(edit.Config{
+		Projects:         a.store,
+		Lister:           a.store,
+		Tasks:            tm,
+		Media:            med,
+		Preview:          a.editLocal,
+		DefaultOutputDir: a.sys.DefaultOutputDir,
+		TempDir:          a.dirs.Temp,
+	})
+	if n := svc.CleanupInterruptedParts(a.rootCtx); n > 0 {
+		log.Printf("已清理 %d 个中断的剪辑导出临时文件", n)
+	}
+	a.edt.Store(svc)
+}
+
+// startLive 创建直播服务：需要任务管理器和媒体服务，缺一个就不启动（此时 LiveService 返回 INTERNAL）。
+func (a *App) startLive() {
+	tm, med := a.taskManager(), a.mediaService()
+	if tm == nil || med == nil {
+		log.Printf("直播服务未启动：任务管理器或媒体服务不可用")
+		return
+	}
+	a.live.Store(live.New(live.Config{Tasks: tm, Media: med}))
 }
 
 // startFFmpegDetect 在后台检测 ffmpeg，不阻塞界面；状态变化通过 ffmpeg:status 事件推送。
@@ -185,7 +247,14 @@ func (a *App) shutdown(ctx context.Context) {
 	contollers.KillLiveOpsProcesses()
 	if m := a.taskManager(); m != nil {
 		// 先停任务再关数据库：运行中的任务被取消并落库为 interrupted。
-		m.Shutdown(8 * time.Second)
+		// 有带存档的直播会话时要多等：优雅停止最多 15 秒写完存档尾（契约 6.10：总等待 16 秒，超时强杀）。
+		wait := 8 * time.Second
+		if l := a.liveService(); l != nil {
+			if _, archive := l.ActiveSessions(); archive {
+				wait = 16 * time.Second
+			}
+		}
+		m.Shutdown(wait)
 	}
 	if a.store != nil {
 		if err := a.store.Close(); err != nil {

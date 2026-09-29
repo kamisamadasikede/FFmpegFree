@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -137,6 +139,23 @@ func (s *Store) DeleteMedia(ctx context.Context, ids []string) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// MediaPaths 返回给定 id 对应的媒体路径（不存在的 id 忽略）。
+func (s *Store) MediaPaths(ctx context.Context, ids []string) ([]string, error) {
+	var out []string
+	for _, id := range ids {
+		var p string
+		err := s.db.QueryRowContext(ctx, `SELECT path FROM media WHERE id = ?`, id).Scan(&p)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("查询媒体路径失败: %w", err)
+		}
+		out = append(out, p)
+	}
+	return out, nil
 }
 
 // SetMediaKeep 修改 media 表保留的记录数（默认 DefaultMediaKeep，<=0 恢复默认）。测试用。

@@ -3,6 +3,9 @@ package task
 import (
 	"context"
 	"io"
+	"math"
+	"sync/atomic"
+	"time"
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/ffmpeg"
@@ -33,6 +36,24 @@ type FFmpegRunner struct {
 	Classify func(stderrTail string, exitErr error) *apperr.AppError
 	// TailLines 见 ffmpeg.RunOptions.TailLines。
 	TailLines int
+
+	// 以下是直播任务用的扩展（契约 6.10），其他任务留空即可。
+
+	// Redact 见 ffmpeg.RunOptions.Redact：stderr 每行先脱敏，再进入日志、尾部缓冲和 Classify。
+	Redact func(string) string
+	// GracePeriod 见 ffmpeg.RunOptions.GracePeriod；0 用默认 5 秒（有存档的直播会话设 15 秒）。
+	GracePeriod time.Duration
+	// GracefulOnlyAfterProgress 为 true 时，"推流已开始"之前取消直接强杀（连接阶段没有需要收尾的东西）。
+	// "已开始"由 ReportGate 判定；ReportGate 为空时以第一条 progress 为准。
+	GracefulOnlyAfterProgress bool
+	// StrictGracefulExit 见 ffmpeg.RunOptions.StrictGracefulExit。
+	StrictGracefulExit bool
+	// ReportGate 不为空时，只有它对某条 progress 返回 true（此后一直上报）才向任务管理器 report：
+	// 直播用它把"已开始"定义为第一条 total_size>0 的 progress，之前的 progress 不上报，
+	// 这样前端"收到第一条 task:progress = 已经在推"的判断与 Runner 的错误分类一致。同步调用，要快速返回。
+	ReportGate func(u ffmpeg.ProgressUpdate) bool
+	// NoBitrate 为 true 时不计算 bitrateKbps（走 tee 时 ffmpeg 的 total_size 恒为 N/A，契约 6.10：有存档时没有 bitrateKbps）。
+	NoBitrate bool
 }
 
 // Run 实现 Runner。ffmpeg 的 stderr 会写入任务日志。
@@ -44,15 +65,27 @@ func (r *FFmpegRunner) Run(ctx context.Context, report func(Progress)) (string, 
 			scale = 1
 		}
 		var lastOut float64
-		_, err := ffmpeg.Run(ctx, ffmpeg.RunOptions{
+		var rate rateWindow
+		var started atomic.Bool
+		opts := ffmpeg.RunOptions{
 			Exe:          r.Exe,
 			Args:         args,
 			Stdin:        r.Stdin,
 			GracefulStop: r.Live,
+			GracePeriod:  r.GracePeriod,
 			TailLines:    r.TailLines,
 			Classify:     r.Classify,
-			OnStderr:     func(line string) { io.WriteString(logw, line+"\n") },
+			Redact:       r.Redact,
+
+			StrictGracefulExit: r.StrictGracefulExit,
+			OnStderr:           func(line string) { io.WriteString(logw, line+"\n") },
 			OnProgress: func(u ffmpeg.ProgressUpdate) {
+				if !started.Load() {
+					if r.ReportGate != nil && !r.ReportGate(u) {
+						return
+					}
+					started.Store(true)
+				}
 				out := u.OutTimeSec
 				if out <= 0 && !u.End {
 					out = lastOut // out_time=N/A：沿用上一次的值，进度不回退
@@ -64,6 +97,10 @@ func (r *FFmpegRunner) Run(ctx context.Context, report func(Progress)) (string, 
 				switch {
 				case r.Live:
 					p.Fraction = -1
+					p.Fps, p.DroppedFrames = u.Fps, u.Dropped
+					if !r.NoBitrate {
+						p.BitrateKbps = rate.add(out, u.TotalSize)
+					}
 				case r.DurationSec > 0:
 					f := out / r.DurationSec
 					if u.End {
@@ -81,7 +118,11 @@ func (r *FFmpegRunner) Run(ctx context.Context, report func(Progress)) (string, 
 				}
 				report(p)
 			},
-		})
+		}
+		if r.GracefulOnlyAfterProgress {
+			opts.CanGraceful = started.Load
+		}
+		_, err := ffmpeg.Run(ctx, opts)
 		return err
 	}
 
@@ -90,4 +131,46 @@ func (r *FFmpegRunner) Run(ctx context.Context, report func(Progress)) (string, 
 		return "", run("")
 	}
 	return RunWithPart(ctx, r.Output, run)
+}
+
+// bitrateWindowSec 是直播码率滑动均值的窗口（秒，媒体时间）。
+const bitrateWindowSec = 5
+
+// rateWindow 用相邻 progress 的 total_size / out_time 增量算近 5 秒的输出码率（kbit/s）。
+// out_time 不增长、total_size 未知（N/A，如 tee 输出）或回退时沿用上一个值，永远不会产生 NaN / Inf。
+type rateWindow struct {
+	pts  []ratePoint
+	last float64
+}
+
+type ratePoint struct {
+	out  float64
+	size int64
+}
+
+func (w *rateWindow) add(out float64, size int64) float64 {
+	if size <= 0 || out <= 0 {
+		return w.last
+	}
+	if n := len(w.pts); n > 0 && (out <= w.pts[n-1].out || size < w.pts[n-1].size) {
+		return w.last
+	}
+	w.pts = append(w.pts, ratePoint{out, size})
+	// 丢掉窗口之外的旧点，但保留窗口起点之前最近的一个，让窗口覆盖满 5 秒。
+	i := 0
+	for i+1 < len(w.pts) && w.pts[i+1].out <= out-bitrateWindowSec {
+		i++
+	}
+	w.pts = w.pts[i:]
+	first := w.pts[0]
+	dt := out - first.out
+	if dt <= 0 {
+		return w.last
+	}
+	v := float64(size-first.size) * 8 / dt / 1000
+	if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
+		return w.last
+	}
+	w.last = v
+	return v
 }
