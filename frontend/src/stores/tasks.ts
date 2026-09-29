@@ -518,8 +518,30 @@ export const useTaskStore = defineStore('tasks', () => {
     await call(TaskBinding.Cancel(id))
   }
 
-  /** 重试：用原参数生成新任务，原任务保留在历史里 */
-  async function retry(id: string): Promise<TaskItem | undefined> {
+  /**
+   * 正在「重试 / 换输出位置重新提交」的任务 id（在途集合）。按原任务 id 记：同一个失败任务的两种再提交互斥，
+   * 快速连点、或两个组件（任务中心 / 转换页）同时点，都只会发出一次调用（后端 M4：重复 Retry 会产生重复任务）。
+   */
+  const busyIds = reactive(new Set<string>())
+  function isBusy(id: string | undefined | null): boolean {
+    return !!id && busyIds.has(id)
+  }
+  /** 在 id 的在途保护下运行 fn；已有在途调用时忽略本次（返回 undefined）。成功或失败都会释放。 */
+  async function exclusive<T>(id: string, fn: () => Promise<T>): Promise<T | undefined> {
+    if (!id || busyIds.has(id)) return undefined
+    busyIds.add(id)
+    try {
+      return await fn()
+    } finally {
+      busyIds.delete(id)
+    }
+  }
+
+  /** 重试：用原参数生成新任务，原任务保留在历史里。同一任务已有重试在途时忽略（返回 undefined） */
+  function retry(id: string): Promise<TaskItem | undefined> {
+    return exclusive(id, () => doRetry(id)).then((t) => t ?? undefined)
+  }
+  async function doRetry(id: string): Promise<TaskItem | undefined> {
     if (previewMode) {
       const old = previewHistory.value.find((t) => t.id === id)
       if (!old) return
@@ -602,6 +624,6 @@ export const useTaskStore = defineStore('tasks', () => {
     todayDone, todayDoneCapped, failedTotal, finishedTotal,
     // 方法
     init, refreshActive, loadHistory, setHistoryGroup, setHistoryTypes, setHistoryPage, loadStats,
-    cancel, retry, remove, clearFinished, getLog, track, fetchFinal, taskById, seedFinal, wasRemoved,
+    cancel, retry, isBusy, exclusive, remove, clearFinished, getLog, track, fetchFinal, taskById, seedFinal, wasRemoved,
   }
 })

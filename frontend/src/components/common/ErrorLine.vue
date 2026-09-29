@@ -9,16 +9,16 @@
     <div class="body">
       <b v-if="shownTitle">{{ shownTitle }}</b>{{ shownDescription }}<span v-if="compact && showCode" class="code">{{ resolved.code }}</span>
       <template v-if="!compact">
-        <button v-if="retryVisible" type="button" class="ff-link" @click="emit('retry')">重试</button>
-        <button v-if="showChange" type="button" class="ff-link" @click="emit('changeOutput')">更换输出位置</button>
+        <button v-if="retryVisible" type="button" class="ff-link" :class="{ busy }" :disabled="busy" :aria-busy="busy" @click="onRetry">重试</button>
+        <button v-if="showChange" type="button" class="ff-link" :class="{ busy }" :disabled="busy" :aria-busy="busy" @click="onChange">更换输出位置</button>
         <button v-if="showLog" type="button" class="ff-link" @click="emit('viewLog')">查看日志</button>
         <br v-if="showCode" />
         <span v-if="showCode" class="code">{{ resolved.code }}</span>
       </template>
     </div>
     <div v-if="compact && (retryVisible || showChange || showLog)" class="actions">
-      <button v-if="retryVisible" type="button" class="ff-link" @click="emit('retry')">重试</button>
-      <button v-if="showChange" type="button" class="ff-link" @click="emit('changeOutput')">更换输出位置</button>
+      <button v-if="retryVisible" type="button" class="ff-link" :class="{ busy }" :disabled="busy" :aria-busy="busy" @click="onRetry">重试</button>
+      <button v-if="showChange" type="button" class="ff-link" :class="{ busy }" :disabled="busy" :aria-busy="busy" @click="onChange">更换输出位置</button>
       <button v-if="showLog" type="button" class="ff-link" @click="emit('viewLog')">查看日志</button>
     </div>
   </div>
@@ -55,10 +55,19 @@ const props = withDefaults(
     description?: string
     /** 不显示错误码（没有错误对象时） */
     hideCode?: boolean
+    /** 重试 / 更换输出位置正在处理：这两个链接禁用（aria-busy），忽略点击直到调用返回 */
+    busy?: boolean
   }>(),
-  { showLog: true, showRetry: false, announce: false, compact: false, tone: 'danger', hideCode: false },
+  { busy: false, showLog: true, showRetry: false, announce: false, compact: false, tone: 'danger', hideCode: false },
 )
 const emit = defineEmits<{ viewLog: []; retry: []; changeOutput: [] }>()
+
+function onRetry() {
+  if (!props.busy) emit('retry')
+}
+function onChange() {
+  if (!props.busy) emit('changeOutput')
+}
 
 function lastLine(text?: string): string {
   const lines = (text ?? '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
@@ -117,6 +126,11 @@ b {
 }
 .ff-link:hover {
   text-decoration: underline;
+}
+.ff-link:disabled {
+  cursor: progress;
+  opacity: 0.55;
+  text-decoration: none;
 }
 .code {
   font-family: var(--ff-font-mono);

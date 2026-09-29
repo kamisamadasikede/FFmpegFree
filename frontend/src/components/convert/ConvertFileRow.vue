@@ -45,6 +45,7 @@
         :title="errorLine.title"
         :description="errorLine.description"
         :show-retry="errorLine.retry"
+        :busy="busy"
        
         :show-log="errorLine.log"
         @retry="emit('retry')"
@@ -82,6 +83,8 @@ const props = defineProps<{
   presetShort: string
   /** 展开日志时的文本；null = 未展开 */
   logText: string | null
+  /** 该行的重试 / 更换输出位置正在处理：对应链接禁用（aria-busy），点击被忽略 */
+  busy?: boolean
 }>()
 const emit = defineEmits<{
   remove: []

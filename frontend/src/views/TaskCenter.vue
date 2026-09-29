@@ -91,7 +91,7 @@
                 <td class="when" :class="{ dim: !t.startedAt && !isTerminal(t.status) }">{{ formatStart(startTime(t)) }}</td>
                 <td>
                   <div class="ops">
-                    <button v-if="t.status === 'failed' || t.status === 'interrupted'" type="button" class="btn sm" @click="doRetry(t)"><FIcon name="retry" />重试</button>
+                    <button v-if="t.status === 'failed' || t.status === 'interrupted'" type="button" class="btn sm" :disabled="tasks.isBusy(t.id)" :aria-busy="tasks.isBusy(t.id)" @click="doRetry(t)"><FIcon name="retry" />重试</button>
                     <button v-if="t.status === 'queued' || t.status === 'running'" type="button" class="iconbtn" :title="`取消 ${t.title}`" :aria-label="`取消 ${t.title}`" @click="act(() => tasks.cancel(t.id))"><FIcon name="x" /></button>
                     <button v-if="t.status === 'succeeded' && t.outputPath" type="button" class="iconbtn" :title="`打开输出 ${t.title}`" :aria-label="`打开输出 ${t.title}`" @click="openOutput(t)"><FIcon name="folder" /></button>
                     <button type="button" class="iconbtn" :class="{ on: logId === t.id }" :title="`查看日志 ${t.title}`" :aria-label="`查看日志 ${t.title}`" :aria-pressed="logId === t.id" @click="toggleLog(t.id)"><FIcon name="doc" /></button>
@@ -111,6 +111,7 @@
                     :detail="t.error.detail"
                     :announce="isFresh(t)"
                     show-retry
+                    :busy="tasks.isBusy(t.id)"
                     :hide-retry="t.status === 'interrupted'"
                     @retry="doRetry(t)"
                     @change-output="changeOutput(t)"
@@ -126,6 +127,7 @@
                     hide-code
                     :announce="isFresh(t)"
                     hide-retry
+                    :busy="tasks.isBusy(t.id)"
                     @retry="doRetry(t)"
                     @view-log="toggleLog(t.id, true)"
                   />
@@ -366,8 +368,10 @@ async function act(fn: () => Promise<unknown>) {
   }
 }
 async function doRetry(t: TaskItem) {
+  if (tasks.isBusy(t.id)) return // 该任务已有重试 / 换输出位置在途：忽略连点
   await act(async () => {
-    await tasks.retry(t.id)
+    const nt = await tasks.retry(t.id)
+    if (!nt) return // 被 store 的在途保护忽略
     ElMessage.success('已重新提交')
     if (tab.value === 'failed') setTab('active')
   })
@@ -391,13 +395,17 @@ async function changeOutput(t: TaskItem) {
     ElMessage.info('没能读到这个任务的原始参数，暂时不能换输出位置。请先清理磁盘空间后点“重试”。')
     return
   }
+  if (tasks.isBusy(t.id)) return
   await act(async () => {
-    const chosenDir = await pickDirectory('选择这次转换的输出文件夹')
-    if (!chosenDir) return // 用户取消
-    const nt = await resubmitToDir(params, chosenDir)
-    tasks.track([nt])
-    ElMessage.success('已用新的输出位置重新提交')
-    if (tab.value === 'failed') setTab('active')
+    // 与「重试」共用同一个在途保护（按原任务 id）：选目录的对话框开着、或提交未返回时，重试 / 换位置都被忽略
+    await tasks.exclusive(t.id, async () => {
+      const chosenDir = await pickDirectory('选择这次转换的输出文件夹')
+      if (!chosenDir) return // 用户取消
+      const nt = await resubmitToDir(params, chosenDir)
+      tasks.track([nt])
+      ElMessage.success('已用新的输出位置重新提交')
+      if (tab.value === 'failed') setTab('active')
+    })
   })
 }
 async function openOutput(t: TaskItem) {

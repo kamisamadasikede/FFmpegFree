@@ -57,6 +57,7 @@
               :conflict="cv.conflictOf(r)"
               :preset-short="cv.presetShort"
               :log-text="logKey === r.key ? logText : null"
+              :busy="tasks.isBusy(r.taskId)"
               @visible="cv.ensureThumb(r)"
               @remove="onRemove(r)"
               @cancel="cv.cancelRow(r)"
@@ -138,12 +139,12 @@
           <template v-else-if="cv.mode === 'failed'">
             <button type="button" class="btn lg" @click="cv.clear()">再转一个</button>
             <span class="sp" />
-            <button type="button" class="btn pri lg" @click="cv.retryAllFailed()"><FIcon name="retry" :size="15" />重试失败项</button>
+            <button type="button" class="btn pri lg" :disabled="cv.retryingAll" :aria-busy="cv.retryingAll" @click="cv.retryAllFailed()"><FIcon name="retry" :size="15" />重试失败项</button>
           </template>
           <template v-else>
             <small>{{ footHint }}</small>
             <span class="sp" />
-            <button type="button" class="btn pri lg" :disabled="!!cv.startBlockReason || cv.submitting" @click="cv.submit()"><FIcon name="play" :size="15" />开始转换</button>
+            <button type="button" class="btn pri lg" :disabled="!!cv.startBlockReason || cv.submitting" :aria-busy="cv.submitting" @click="cv.submit()"><FIcon name="play" :size="15" />开始转换</button>
           </template>
         </div>
       </div>
@@ -258,6 +259,7 @@ async function onChangeOutput(r: ConvertRow) {
   await guard(async () => {
     const res = await cv.changeOutputAndResubmit(r)
     if (res === 'ok') ElMessage.success('已用新的输出位置重新提交')
+    else if (res === 'busy') return
     else if (res === 'no-params') ElMessage.info('没能读到这个任务的原始参数，请先清理磁盘空间后点“重试”。')
   })
 }

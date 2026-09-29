@@ -374,9 +374,9 @@ export const useConvertStore = defineStore('convert', () => {
   }
 
   async function retryRow(r: ConvertRow) {
-    if (!r.taskId) return
+    if (!r.taskId || tasks.isBusy(r.taskId)) return
     try {
-      const t = await tasks.retry(r.taskId)
+      const t = await tasks.retry(r.taskId) // store 里有在途保护：任务中心同时点也只发一次
       if (t) r.taskId = t.id
     } catch (e) {
       // Retry 会重新探测输入：文件已被删除等情况在这里如实提示，原失败行保留
@@ -384,15 +384,28 @@ export const useConvertStore = defineStore('convert', () => {
       notice.value = actionErrorText(err.code, err.message)
     }
   }
+  const retryingAll = ref(false)
   async function retryAllFailed() {
-    for (const r of failedRows.value.slice()) await retryRow(r)
+    if (retryingAll.value) return
+    retryingAll.value = true
+    try {
+      for (const r of failedRows.value.slice()) await retryRow(r)
+    } finally {
+      retryingAll.value = false
+    }
   }
 
   /**
    * 「更换输出位置」（失败行，磁盘空间不足）：选新文件夹 → 用原输入和参数重新提交。
    * 参数取自任务 params（{input, options, outputDir}）；解析不出来就不猜，返回 false 由调用方保留原提示。
    */
-  async function changeOutputAndResubmit(r: ConvertRow): Promise<'ok' | 'cancelled' | 'no-params'> {
+  async function changeOutputAndResubmit(r: ConvertRow): Promise<'ok' | 'cancelled' | 'no-params' | 'busy'> {
+    // 与 Retry 共用按任务 id 的在途保护：选目录对话框开着或提交未返回时忽略再次点击
+    if (!r.taskId) return 'no-params'
+    const res = await tasks.exclusive(r.taskId, () => changeOutputInner(r))
+    return res ?? 'busy'
+  }
+  async function changeOutputInner(r: ConvertRow): Promise<'ok' | 'cancelled' | 'no-params'> {
     const t = rowTask(r)
     let params = parseConvertParams((t as TaskItem | undefined)?.params)
     if (!params && r.taskId && hasWailsBackend()) {
@@ -473,7 +486,7 @@ export const useConvertStore = defineStore('convert', () => {
 
   return {
     rows, presets, presetsLoaded, presetsError, selectedPresetId, selectedPreset, presetShort,
-    outputOverride, defaultOutputDir, effectiveOutputDir, outputFolder, submitting, submitError, notice, pickSoon,
+    outputOverride, defaultOutputDir, effectiveOutputDir, outputFolder, submitting, retryingAll, submitError, notice, pickSoon,
     mode, overall, totalBytes, startBlockReason, blockedCount, activeRows, failedRows, succeededRows, pendingRows, submittableRows,
     init, refreshDefaultDir, loadPresets, addPaths, probePending, chooseFiles, ensureThumb, removeRow, clear, unbind,
     chooseOutputDir, submit, cancelRow, cancelAll, retryRow, retryAllFailed, changeOutputAndResubmit, reveal, revealOutput,
