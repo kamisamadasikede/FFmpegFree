@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div v-if="modelValue" class="mask" @mousedown.self="close">
+    <div v-if="modelValue" class="mask" @mousedown.self.prevent="close">
       <div ref="dlgRef" class="dlg lic" role="dialog" aria-modal="true" :aria-labelledby="titleId">
         <h3 :id="titleId">{{ title }}</h3>
         <div class="lic-slot">
@@ -47,7 +47,10 @@ let loadingTimer: ReturnType<typeof setTimeout> | undefined
 
 async function load() {
   const seq = ++loadSeq
+  // 点“重试”时那个链接会被卸载，焦点会丢到 body：先记下焦点是否在弹窗内，重试后收回到“关闭”按钮
+  const keepFocus = !!dlgRef.value?.contains(document.activeElement)
   state.value = 'loading'
+  if (keepFocus) closeRef.value?.focus()
   showLoading.value = false
   clearTimeout(loadingTimer)
   loadingTimer = setTimeout(() => (showLoading.value = true), 150)
