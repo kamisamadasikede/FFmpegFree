@@ -79,6 +79,8 @@ type Manager struct {
 	memDism bool
 	memOut  string
 	memConc int
+
+	launch launcher // 打开文件管理器的函数；nil 用 startDetached（测试里替换）
 }
 
 // NewManager 创建 Manager，初始状态 checking。真正的检测由 Start 触发。
