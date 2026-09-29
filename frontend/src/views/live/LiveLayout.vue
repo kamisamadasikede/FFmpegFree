@@ -5,7 +5,7 @@
         {{ t.label }}
       </RouterLink>
     </nav>
-    <MigrationNotice text="直播功能仍在开发中，当前页面为演示，尚未连接真实推流。" />
+    <MigrationNotice v-if="!liveIsReal()" text="直播功能仍在开发中，当前页面为演示，尚未连接真实推流。" />
     <!-- KeepAlive：切换页签不打断进行中的推流 / 播放 -->
     <RouterView v-slot="{ Component }">
       <KeepAlive>
@@ -17,6 +17,7 @@
 
 <script setup lang="ts">
 import MigrationNotice from '@/components/common/MigrationNotice.vue'
+import { liveIsReal } from '@/api/live'
 // 直播页外壳：三个页签（原型 pages.html 的 .seg，宽 360）+ 页签内容。
 const tabs = [
   { label: '文件推流', to: '/live/push' },

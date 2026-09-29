@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/ffmpeg"
@@ -271,6 +272,18 @@ func TestCleanupInterruptedParts(t *testing.T) {
 			t.Fatalf("%s 不应被删", f)
 		}
 	}
+	// 修改时间不早于本次启动的（本次运行里刚写出的）不删
+	fresh := filepath.Join(out, "cut(1).part.mp4")
+	os.WriteFile(fresh, []byte("x"), 0o644)
+	future := time.Now().Add(time.Hour)
+	os.Chtimes(fresh, future, future)
+	if s.CleanupInterruptedParts(ctx) != 0 {
+		t.Fatal("启动之后修改过的 .part 不应被删")
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Fatal("被误删")
+	}
+	os.Remove(fresh)
 	// 只删普通文件：.part 位置是目录 / 符号链接时不动
 	if runtime.GOOS != "windows" {
 		os.Symlink(keep, part)
@@ -285,6 +298,14 @@ func TestCleanupInterruptedParts(t *testing.T) {
 
 func TestClassifyExportError(t *testing.T) {
 	dep := "-filter_complex_script is deprecated, use -/filter_complex instead"
+	// 两个选项都认：Unrecognized option → UNSUPPORTED（detail project\nmissing=filter_complex）
+	for _, msg := range []string{"Unrecognized option '/filter_complex'.\nError splitting the argument list: Option not found",
+		"Unrecognized option 'filter_complex_script'.\nError splitting the argument list: Option not found"} {
+		e := classifyExportError(msg, nil)
+		if e == nil || e.Code != apperr.Unsupported || e.Detail != "project\nmissing=filter_complex" {
+			t.Fatalf("%q → %+v", msg, e)
+		}
+	}
 	// deprecated 行不参与分类；其他内容照旧
 	if e := classifyExportError(dep+"\nError writing trailer: No space left on device\nError while writing", nil); e == nil || e.Code != apperr.ConvertDiskFull {
 		t.Fatalf("%+v", e)
@@ -307,27 +328,116 @@ func TestClassifyExportError(t *testing.T) {
 	}
 }
 
-// ffmpeg 不支持 -filter_complex_script：Export 提交前探测，返回 UNSUPPORTED（不落 PROCESS_FAILED），不产生任务。
-func TestUnsupportedFilterScriptProbe(t *testing.T) {
+// fakeFFmpeg 写一个假 ffmpeg（shell 脚本）：只接受 accept 里的选项，其余打印 `Unrecognized option` 并退出 8（和真 ffmpeg 一致）；
+// 每次调用把参数追加到 <dir>/calls.log。accept 为空 = 什么都不支持。
+func fakeFFmpeg(t *testing.T, dir string, accept ...string) string {
+	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("用 shell 脚本伪造 ffmpeg")
 	}
-	dir := t.TempDir()
 	fake := filepath.Join(dir, "ffmpeg")
-	os.WriteFile(fake, []byte("#!/bin/sh\necho \"Unrecognized option 'filter_complex_script'.\" >&2\necho 'Error splitting the argument list: Option not found' >&2\nexit 1\n"), 0o755)
-	ft := &fakeTasks{}
-	s := New(Config{Media: fakeMedia{base}, Tasks: ft, TempDir: dir,
+	script := "#!/bin/sh\necho \"$*\" >> '" + filepath.Join(dir, "calls.log") + "'\n"
+	script += "for a in \"$@\"; do\n  case \"$a\" in\n"
+	for _, o := range accept {
+		script += "    " + o + ") ok=1;;\n"
+	}
+	script += "    -/filter_complex) echo \"Unrecognized option '/filter_complex'.\" >&2; echo 'Error splitting the argument list: Option not found' >&2; exit 8;;\n"
+	script += "    -filter_complex_script) echo \"Unrecognized option 'filter_complex_script'.\" >&2; echo 'Error splitting the argument list: Option not found' >&2; exit 8;;\n"
+	script += "  esac\ndone\nexit 0\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return fake
+}
+
+func calls(dir string) []string {
+	b, _ := os.ReadFile(filepath.Join(dir, "calls.log"))
+	return strings.Split(strings.TrimSpace(string(b)), "\n")
+}
+
+func svcWith(fake, dir string, ft *fakeTasks) *Service {
+	return New(Config{Media: fakeMedia{base}, Tasks: ft, TempDir: dir,
 		Require: func() (ffmpeg.Binaries, error) { return ffmpeg.Binaries{FFmpeg: fake, FFprobe: "y"}, nil }})
-	out := t.TempDir()
-	_, err := s.Export(context.Background(), proj(vclip("c1", pV, "V1", 0, 0, 1)), EditExportOptions{OutputDir: out})
+}
+
+// 只支持新选项 -/filter_complex：一次探测就选中，不再探旧的；导出命令用 -/filter_complex。
+func TestProbeOnlyNewOption(t *testing.T) {
+	dir := t.TempDir()
+	fake := fakeFFmpeg(t, dir, "-/filter_complex")
+	s := svcWith(fake, dir, &fakeTasks{})
+	opt, err := s.probeFilterScript(context.Background(), fake)
+	if err != nil || opt != OptFilterFile {
+		t.Fatalf("%q %v", opt, err)
+	}
+	if c := calls(dir); len(c) != 1 || !strings.Contains(c[0], "-/filter_complex ") || strings.Contains(c[0], "-filter_complex_script") {
+		t.Fatalf("应只探测新选项一次: %v", c)
+	}
+	pl, err := s.build(context.Background(), proj(vclip("c1", pV, "V1", 0, 0, 2)))
+	if err != nil || pl.filterOpt != OptFilterFile {
+		t.Fatalf("%v %q", err, pl.filterOpt)
+	}
+	j := " " + strings.Join(exportArgs(pl, "/tmp/g.txt", "/o/x.part.mp4"), " ") + " "
+	if !strings.Contains(j, " -/filter_complex /tmp/g.txt ") || strings.Contains(j, "-filter_complex_script") {
+		t.Fatal(j)
+	}
+}
+
+// 只支持旧选项 -filter_complex_script（ffmpeg 6.x）：先探新的被拒，再探旧的成功；导出命令用旧选项。
+func TestProbeOnlyOldOption(t *testing.T) {
+	dir := t.TempDir()
+	fake := fakeFFmpeg(t, dir, "-filter_complex_script")
+	ft := &fakeTasks{}
+	s := svcWith(fake, dir, ft)
+	opt, err := s.probeFilterScript(context.Background(), fake)
+	if err != nil || opt != OptFilterScript {
+		t.Fatalf("%q %v", opt, err)
+	}
+	c := calls(dir)
+	if len(c) != 2 || !strings.Contains(c[0], "-/filter_complex ") || !strings.Contains(c[1], "-filter_complex_script ") {
+		t.Fatalf("应先探新再探旧: %v", c)
+	}
+	pl, err := s.build(context.Background(), proj(vclip("c1", pV, "V1", 0, 0, 2)))
+	if err != nil || pl.filterOpt != OptFilterScript {
+		t.Fatalf("%v %q", err, pl.filterOpt)
+	}
+	j := " " + strings.Join(exportArgs(pl, "/tmp/g.txt", "/o/x.part.mp4"), " ") + " "
+	if !strings.Contains(j, " -filter_complex_script /tmp/g.txt ") || strings.Contains(j, "-/filter_complex") || strings.Contains(j, " -filter_complex ") {
+		t.Fatal(j)
+	}
+	// Export 走完整链路：任务的 Runner 用旧选项（提交成功，产生 1 个任务）
+	if _, err := s.Export(context.Background(), proj(vclip("c1", pV, "V1", 0, 0, 1)), EditExportOptions{OutputDir: t.TempDir()}); err != nil || ft.n != 1 {
+		t.Fatalf("%v n=%d", err, ft.n)
+	}
+	if r := ft.last.(*exportRunner); r.pl.filterOpt != OptFilterScript {
+		t.Fatalf("Runner 的选项 %q", r.pl.filterOpt)
+	}
+}
+
+// 两个都不支持（ffmpeg 9.0 之后又移除了新选项的假想、或非常老的版本）：UNSUPPORTED，detail 为 project\nmissing=filter_complex，不产生任务。
+func TestProbeNeitherOption(t *testing.T) {
+	dir := t.TempDir()
+	fake := fakeFFmpeg(t, dir)
+	ft := &fakeTasks{}
+	s := svcWith(fake, dir, ft)
+	_, err := s.Export(context.Background(), proj(vclip("c1", pV, "V1", 0, 0, 1)), EditExportOptions{OutputDir: t.TempDir()})
 	if code(t, err) != apperr.Unsupported || ft.n != 0 {
 		t.Fatalf("%v n=%d", err, ft.n)
 	}
-	// 别的失败（如脚本语法错）不是 UNSUPPORTED
+	if ae := apperr.From(err); ae.Detail != "project\nmissing=filter_complex" {
+		t.Fatalf("detail=%q", ae.Detail)
+	}
+	// ValidateProject 也在第 0 步报同样的 UNSUPPORTED（先于工程级校验）
+	if _, err := s.ValidateProject(context.Background(), EditProject{}); code(t, err) != apperr.Unsupported || apperr.From(err).Detail != "project\nmissing=filter_complex" {
+		t.Fatalf("Validate 应先探测环境: %v", err)
+	}
+	// 失败不缓存：再来一次仍然探测（2 次调用/轮）
+	if n := len(calls(dir)); n != 4 {
+		t.Fatalf("两个选项各探一次，两轮共 4 次: %d", n)
+	}
+	// 别的失败（崩溃 / 未知错误，不含 Unrecognized option）不是 UNSUPPORTED，也不继续探下一个选项
 	os.WriteFile(fake, []byte("#!/bin/sh\necho 'boom' >&2\nexit 1\n"), 0o755)
-	s2 := New(Config{Media: fakeMedia{base}, Tasks: ft, TempDir: dir,
-		Require: func() (ffmpeg.Binaries, error) { return ffmpeg.Binaries{FFmpeg: fake, FFprobe: "y"}, nil }})
-	_, err = s2.Export(context.Background(), proj(vclip("c1", pV, "V1", 0, 0, 1)), EditExportOptions{OutputDir: out})
+	s2 := svcWith(fake, dir, ft)
+	_, err = s2.Export(context.Background(), proj(vclip("c1", pV, "V1", 0, 0, 1)), EditExportOptions{OutputDir: t.TempDir()})
 	if code(t, err) != apperr.ProcessFailed {
 		t.Fatalf("%v", err)
 	}
@@ -340,18 +450,76 @@ func TestUnsupportedFilterScriptProbe(t *testing.T) {
 	}
 }
 
+// 缓存按 ffmpeg 二进制区分，且记住选项：同一路径换成另一个 ffmpeg（大小 / mtime 变了）要重新探测并可能选另一个选项。
+func TestProbeCacheKeyedByBinary(t *testing.T) {
+	dir := t.TempDir()
+	fake := fakeFFmpeg(t, dir, "-/filter_complex")
+	s := svcWith(fake, dir, &fakeTasks{})
+	ctx := context.Background()
+	if opt, err := s.probeFilterScript(ctx, fake); err != nil || opt != OptFilterFile {
+		t.Fatalf("%q %v", opt, err)
+	}
+	if opt, _ := s.probeFilterScript(ctx, fake); opt != OptFilterFile || len(calls(dir)) != 1 {
+		t.Fatalf("第二次应命中缓存: %q %v", opt, calls(dir))
+	}
+	// 同一路径换成只支持旧选项的 ffmpeg（内容不同 → 大小 / mtime 变化）
+	fakeFFmpeg(t, dir, "-filter_complex_script")
+	future := time.Now().Add(time.Hour)
+	os.Chtimes(fake, future, future)
+	if opt, err := s.probeFilterScript(ctx, fake); err != nil || opt != OptFilterScript {
+		t.Fatalf("换了二进制应重新探测并选旧选项: %q %v", opt, err)
+	}
+	// 缓存里有两条不同 key，各自记住自己的选项
+	got := map[string]string{}
+	s.scriptOK.Range(func(k, v any) bool {
+		if !strings.HasPrefix(k.(string), fake+"|") {
+			t.Errorf("key 应为 路径|大小|mtime: %v", k)
+		}
+		got[k.(string)] = v.(string)
+		return true
+	})
+	if len(got) != 2 {
+		t.Fatalf("%v", got)
+	}
+	seen := map[string]bool{}
+	for _, v := range got {
+		seen[v] = true
+	}
+	if !seen[OptFilterFile] || !seen[OptFilterScript] {
+		t.Fatalf("%v", got)
+	}
+	// 再次调用两个二进制状态：当前二进制命中缓存，不再多跑
+	n := len(calls(dir))
+	if opt, _ := s.probeFilterScript(ctx, fake); opt != OptFilterScript || len(calls(dir)) != n {
+		t.Fatal("当前二进制应命中缓存")
+	}
+}
+
 // 真 ffmpeg：探测成功且缓存。
 func TestRealFilterScriptProbeCached(t *testing.T) {
 	bin := realBins(t)
 	s := New(Config{TempDir: t.TempDir()})
-	if err := s.probeFilterScript(context.Background(), bin.FFmpeg); err != nil {
+	opt, err := s.probeFilterScript(context.Background(), bin.FFmpeg)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := s.scriptOK.Load(bin.FFmpeg); !ok {
+	t.Logf("真实 ffmpeg %s 选中的选项: %s", bin.FFmpeg, opt)
+	if opt != OptFilterFile { // 7.0 起都支持 -/filter_complex，所以应优先选它
+		t.Fatalf("真实 ffmpeg 应选 %s，实际 %s", OptFilterFile, opt)
+	}
+	n := 0
+	s.scriptOK.Range(func(k, v any) bool {
+		n++
+		if !strings.HasPrefix(k.(string), bin.FFmpeg+"|") || v.(string) != opt { // key = 路径|大小|修改时间
+			t.Fatalf("缓存: %v=%v", k, v)
+		}
+		return true
+	})
+	if n != 1 {
 		t.Fatal("应缓存")
 	}
 	// 不存在的可执行文件 → 失败但不是 UNSUPPORTED
-	err := s.probeFilterScript(context.Background(), filepath.Join(t.TempDir(), "nope"))
+	_, err = s.probeFilterScript(context.Background(), filepath.Join(t.TempDir(), "nope"))
 	if err == nil || apperr.Is(err, apperr.Unsupported) {
 		t.Fatalf("%v", err)
 	}
@@ -417,7 +585,8 @@ func TestExportArgsUseScriptOnly(t *testing.T) {
 		pl.format = f
 		args := exportArgs(pl, "/tmp/g.txt", "/o/x.part."+f)
 		j := " " + strings.Join(args, " ") + " "
-		if !strings.Contains(j, " -filter_complex_script /tmp/g.txt ") || strings.Contains(j, "-/filter_complex") || strings.Contains(j, " -filter_complex ") {
+		// 滤镜图永远走文件（-/filter_complex <file> 或 -filter_complex_script <file>），不走命令行内联的 -filter_complex
+		if !strings.Contains(j, " -/filter_complex /tmp/g.txt ") || strings.Contains(j, "-filter_complex_script") || strings.Contains(j, " -filter_complex ") {
 			t.Errorf("%s: %s", f, j)
 		}
 		if args[len(args)-1] != "file:/o/x.part."+f || !strings.Contains(j, " -i file:"+pV+" ") {
@@ -434,5 +603,68 @@ func TestFmtNum(t *testing.T) {
 		if got := num(in); got != want {
 			t.Errorf("num(%v)=%q want %q", in, got, want)
 		}
+	}
+}
+
+func TestPreviewRejectsDevicePrefix(t *testing.T) {
+	s := New(Config{Preview: localassets.New(localassets.Config{})})
+	for _, p := range []string{`\\?\C:\a.mp4`, `\\.\C:\a.mp4`} {
+		if _, err := s.GetPreviewURL(p); code(t, err) != apperr.InvalidArgument {
+			t.Fatalf("%s: %v", p, err)
+		}
+	}
+}
+
+// 宽高为 0 时兜底 1920×1080（产品经理定；前端会显式写宽高，兜底只给绕过前端的调用）。
+func TestDefaultOutputSize1080p(t *testing.T) {
+	s := fakeSvc(base)
+	pl, err := s.build(context.Background(), proj(vclip("c1", pV, "V1", 0, 0, 2)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pl.w != 1920 || pl.h != 1080 {
+		t.Fatalf("默认输出尺寸 = %dx%d，want 1920x1080", pl.w, pl.h)
+	}
+	g := buildFilterGraph(pl)
+	for _, want := range []string{"color=c=black:s=1920x1080:r=30:d=", "scale=1920:1080:force_original_aspect_ratio=decrease", "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black"} {
+		if !strings.Contains(g, want) {
+			t.Errorf("filtergraph 缺 %q\n%s", want, g)
+		}
+	}
+	if strings.Contains(g, "1280") || strings.Contains(g, "720") {
+		t.Errorf("默认值不应再出现 1280/720:\n%s", g)
+	}
+	// 只给宽：高仍兜底 1080；只给高：宽仍兜底 1920
+	p := proj(vclip("c1", pV, "V1", 0, 0, 2))
+	p.Output = EditOutput{Width: 640}
+	if pl, err = s.build(context.Background(), p); err != nil || pl.w != 640 || pl.h != 1080 {
+		t.Fatalf("只给宽: %+v %v", pl, err)
+	}
+	p.Output = EditOutput{Height: 360}
+	if pl, err = s.build(context.Background(), p); err != nil || pl.w != 1920 || pl.h != 360 {
+		t.Fatalf("只给高: %+v %v", pl, err)
+	}
+}
+
+// 显式传 1280×720 仍然生效（不被默认值覆盖）。
+func TestExplicit720pStillHonored(t *testing.T) {
+	s := fakeSvc(base)
+	p := proj(vclip("c1", pV, "V1", 0, 0, 2))
+	p.Output = EditOutput{Width: 1280, Height: 720, Fps: 30}
+	pl, err := s.build(context.Background(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pl.w != 1280 || pl.h != 720 {
+		t.Fatalf("显式 1280x720 被改写为 %dx%d", pl.w, pl.h)
+	}
+	g := buildFilterGraph(pl)
+	for _, want := range []string{"color=c=black:s=1280x720:r=30:d=", "scale=1280:720:force_original_aspect_ratio=decrease", "pad=1280:720:(ow-iw)/2:(oh-ih)/2:black"} {
+		if !strings.Contains(g, want) {
+			t.Errorf("filtergraph 缺 %q\n%s", want, g)
+		}
+	}
+	if strings.Contains(g, "1920") || strings.Contains(g, "1080") {
+		t.Errorf("显式 720p 不应出现 1920/1080:\n%s", g)
 	}
 }

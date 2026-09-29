@@ -37,9 +37,13 @@ const (
 	TypeEditRender     = store.TypeEditRender
 	TypeOfficePDF      = store.TypeOfficePDF
 	TypeLiveFilePush   = store.TypeLiveFilePush
-	TypeLiveRelay      = store.TypeLiveRelay
-	TypeLiveRecordPush = store.TypeLiveRecordPush
+	TypeLiveScreenPush = store.TypeLiveScreenPush
 	TypeFFmpegInstall  = store.TypeFFmpegInstall
+
+	// Deprecated: 只为读旧数据保留，不再产生，Submit 不接受（契约 v0.10）。
+	TypeLiveRelay = store.TypeLiveRelay
+	// Deprecated: 同 TypeLiveRelay。
+	TypeLiveRecordPush = store.TypeLiveRecordPush
 
 	StatusQueued      = store.StatusQueued
 	StatusRunning     = store.StatusRunning
@@ -58,9 +62,10 @@ const (
 )
 
 // IsLive 判断任务类型是否属于 live 池（直播类：不排队，不占 batch 名额）。
+// 旧的 live_relay / live_record_push 仍返回 true，只是为了常量兼容；它们不再产生，Submit 不接受。
 func IsLive(t Type) bool {
 	switch t {
-	case TypeLiveFilePush, TypeLiveRelay, TypeLiveRecordPush:
+	case TypeLiveFilePush, TypeLiveScreenPush, TypeLiveRelay, TypeLiveRecordPush:
 		return true
 	}
 	return false
@@ -72,6 +77,10 @@ type Progress struct {
 	Speed      string  // 如 "2.3x"、"3.2 MB/s"
 	EtaSec     float64
 	OutTimeSec float64 // 已输出的媒体时长，非媒体任务为 0
+	// 以下三项只有直播任务用（契约 v0.10）。
+	Fps           float64 // 当前输出帧率
+	BitrateKbps   float64 // 近 5 秒的输出码率（kbit/s），算不出来为 0
+	DroppedFrames int64   // ffmpeg 累计丢帧数
 }
 
 // Runner 是任务的执行体（契约 6.5）。
@@ -132,15 +141,32 @@ type ProgressEvent struct {
 	Speed      string  `json:"speed"`
 	EtaSec     float64 `json:"etaSec"`
 	OutTimeSec float64 `json:"outTimeSec"`
+	// 只有直播任务才有（契约 v0.10）。
+	Fps           float64 `json:"fps,omitempty"`
+	BitrateKbps   float64 `json:"bitrateKbps,omitempty"`
+	DroppedFrames int64   `json:"droppedFrames,omitempty"`
 }
 
+// ClearOutputPath 是 Runner.Run 可以返回的特殊输出路径：表示任务没有输出了，把 outputPath 清空
+// （直播存档是空壳被删除时用）。清空在发终态事件之前完成并落库，事件和库里一致（都是空）。
+// 普通的空串仍然是没有变化，保留提交时的预期路径。
+const ClearOutputPath = "\x00clear-output"
+
 // StatusEvent 是 task:status 的 payload。
+//
+// 时间字段（Unix 毫秒，为 0 时省略）：
+//   - running 事件带 StartedAt，不带 FinishedAt；
+//   - 所有终态事件（succeeded / failed / canceled / interrupted）带 FinishedAt，
+//     跑过的任务同时带 StartedAt（与 Task.StartedAt / Task.FinishedAt 及落库值一致）；
+//   - 从未进入 running 就结束的任务（排队中被取消、退出时还在排队而被中断）没有 StartedAt，
+//     事件里省略该字段（Task.StartedAt 为 0），这是正常的。
 type StatusEvent struct {
 	ID         string           `json:"id"`
 	Version    int64            `json:"version"`
 	Status     Status           `json:"status"`
 	Error      *apperr.AppError `json:"error,omitempty"`
 	OutputPath string           `json:"outputPath,omitempty"`
+	StartedAt  int64            `json:"startedAt,omitempty"`
 	FinishedAt int64            `json:"finishedAt,omitempty"`
 }
 

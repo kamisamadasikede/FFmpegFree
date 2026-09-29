@@ -17,17 +17,15 @@ const (
 	MinClipDurSec = 0.04
 	// snapSec：outSec 超过素材时长在此范围内静默取整，更大则截断并记 warning。
 	snapSec = 0.05
-	// overlapEpsSec：判断同轨重叠时的浮点容差（前端拖拽产生的 3.3000000000000003 之类不算重叠）。
-	overlapEpsSec = 1e-6
 )
 
-// 警告码：只追加，不改名、不删除（前端按 code 做本地化 / 高亮）。
+// 警告码（契约 6.11.2 D）：稳定枚举，只追加，不改名、不改含义、不删除；前端按 code 出文案。
 const (
-	WarnOutTruncated      = "OUT_TRUNCATED"      // clip.outSec 超过素材时长，已截断（clipId 有值）
-	WarnVideoGap          = "VIDEO_GAP"          // 时间线上一段没有任何画面，导出时补黑场（clipId 是空隙后的第一个 clip，末尾空隙为空）
-	WarnTransitionIgnored = "TRANSITION_IGNORED" // clip 设了转场但与下一个 clip 不首尾相接（或没有下一个），转场被忽略（clipId 有值）
-	WarnTransitionClamped = "TRANSITION_CLAMPED" // 默认转场时长（0.5 秒）超过相邻片段较短者的一半，已缩短（clipId 有值）
-	WarnNoAudioTrack      = "NO_AUDIO_TRACK"     // 音轨为空，导出静音音轨
+	WarnClipGap           = "clip_gap"           // 同一轨道相邻两个 clip 之间的空隙 > 0.12 秒（clipId = 后一个 clip；导出补黑场 / 静音）
+	WarnLeadingGap        = "leading_gap"        // 视频轨或音频轨上第一个 clip 的 startSec > 0.12 秒（clipId = 该 clip；片头黑场 / 静音）
+	WarnNoAudioTrack      = "no_audio_track"     // audioTrack 为空，导出静音音轨（无 clipId）
+	WarnOutTruncated      = "out_truncated"      // outSec 超过素材时长 0.05 秒以上，已截断（clipId = 该 clip）
+	WarnTransitionIgnored = "transition_ignored" // 设了转场但后面没有同轨首尾相接的 clip，转场不生效（clipId = 该 clip）
 )
 
 // EditProject 是工程（契约 6.11.1）。
@@ -45,8 +43,8 @@ type EditProject struct {
 
 type EditOutput struct {
 	Format string  `json:"format"` // mp4 | mov | mkv | webm，空 = mp4
-	Width  int     `json:"width"`  // 16~7680，0 = 1280；导出时向下取偶数
-	Height int     `json:"height"` // 16~4320，0 = 720
+	Width  int     `json:"width"`  // 16~7680，0 = 1920；导出时向下取偶数
+	Height int     `json:"height"` // 16~4320，0 = 1080
 	Fps    float64 `json:"fps"`    // (0,120]，0 = 30
 }
 

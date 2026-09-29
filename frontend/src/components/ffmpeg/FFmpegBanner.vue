@@ -16,13 +16,13 @@
       <el-button link type="primary" @click="safe(ffmpeg.pickPath)">手动指定</el-button>
       <el-button link type="primary" @click="safe(ffmpeg.recheck)">重新检测</el-button>
       <el-button type="primary" :disabled="!ffmpeg.installAvailable" @click="safe(() => ffmpeg.startInstall())">{{ ffmpeg.installAvailable ? '立即安装' : '安装功能即将上线' }}</el-button>
-      <button class="iconbtn" title="本次不再显示" @click="ffmpeg.bannerClosed = true"><FIcon name="x" :size="16" /></button>
+      <button type="button" class="iconbtn" title="本次不再显示" aria-label="关闭提示" @click="ffmpeg.bannerClosed = true"><FIcon name="x" :size="16" /></button>
     </template>
 
     <template v-else-if="state === 'installing'">
       <span>正在安装 ffmpeg… {{ percent }}%</span>
       <div class="bar"><i :style="{ width: percent + '%' }" /></div>
-      <span class="meta">{{ stageText }}<template v-if="ffmpeg.install?.speedText"> · {{ ffmpeg.install.speedText }} · {{ ffmpeg.install.remainText }}</template></span>
+      <span class="meta" :title="metaText">{{ metaText }}</span>
       <span class="sp" />
       <el-button link type="primary" @click="safe(ffmpeg.cancelInstall)">取消</el-button>
       <el-button link type="primary" @click="router.push('/tasks')">查看详情</el-button>
@@ -65,6 +65,7 @@ const kind = computed(() => {
 const percent = computed(() => Math.round((ffmpeg.install?.progress ?? 0) * 100))
 const STAGES = { download: '下载中', verify: '校验中', extract: '解压中', validate: '验证中' }
 const stageText = computed(() => (ffmpeg.install ? STAGES[ffmpeg.install.stage] : '准备中'))
+const metaText = computed(() => (ffmpeg.install?.speedText ? `${stageText.value} · ${ffmpeg.install.speedText} · ${ffmpeg.install.remainText}` : stageText.value))
 
 async function safe(fn: () => Promise<unknown>) {
   try {
@@ -114,7 +115,7 @@ async function safe(fn: () => Promise<unknown>) {
 .banner.ok::before { background: var(--ff-success); }
 .banner.ok > .f-icon { color: var(--ff-success); }
 .sp { flex: 1; }
-.meta { color: var(--ff-text-2); font-size: var(--ff-fs-xs); }
+.meta { color: var(--ff-text-2); font-size: var(--ff-fs-xs); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bar {
   width: 120px;
   height: 4px;

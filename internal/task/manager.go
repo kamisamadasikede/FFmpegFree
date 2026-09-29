@@ -280,7 +280,7 @@ func validTaskID(s string) bool {
 
 func validType(t Type) bool {
 	switch t {
-	case TypeConvert, TypeEditExport, TypeOfficePDF, TypeLiveFilePush, TypeLiveRelay, TypeLiveRecordPush, TypeFFmpegInstall:
+	case TypeConvert, TypeEditExport, TypeOfficePDF, TypeLiveFilePush, TypeLiveScreenPush, TypeFFmpegInstall:
 		return true
 	}
 	return false
@@ -349,19 +349,27 @@ func safeRun(ctx context.Context, r Runner, report func(Progress)) (out string, 
 //   - 成功 → succeeded（即使期间收到过用户的取消请求：直播优雅停止就是这种情况，存档已完整）；
 //   - 被取消 → canceled；
 //   - 其他 → failed。
+//
+// Runner 返回的输出路径：成功时一律采信；直播任务在 canceled / failed / interrupted 时也采信
+// （本地存档在强杀、断流后仍然保留，契约 6.10），其他类型失败 / 取消时不带输出（沿用旧行为）。
+// 返回 ClearOutputPath 表示清空 outputPath（存档是空壳被删了）。
 func (m *Manager) finishAfterRun(e *entry, err error, out string) {
 	m.mu.Lock()
 	closing := m.closing
 	m.mu.Unlock()
+	carry := out
+	if err != nil && !IsLive(e.task.Type) {
+		carry = ""
+	}
 	switch {
 	case closing && e.ctx.Err() != nil && !e.cancelRequested() && (err == nil || errors.Is(err, context.Canceled)):
-		e.finish(m, StatusInterrupted, nil, "")
+		e.finish(m, StatusInterrupted, nil, carry)
 	case err == nil:
 		e.finish(m, StatusSucceeded, nil, out)
 	case e.ctx.Err() != nil && (errors.Is(err, context.Canceled) || e.cancelRequested()):
-		e.finish(m, StatusCanceled, nil, "")
+		e.finish(m, StatusCanceled, nil, carry)
 	default:
-		e.finish(m, StatusFailed, apperr.From(err), "")
+		e.finish(m, StatusFailed, apperr.From(err), carry)
 	}
 }
 
@@ -510,6 +518,9 @@ func (m *Manager) Retry(taskID string) (Task, error) {
 	f := m.factories[old.Type]
 	m.mu.Unlock()
 	if f == nil {
+		if IsLive(old.Type) {
+			return Task{}, apperr.New(apperr.Unsupported, "直播会话不能重试，请重新开始推流")
+		}
 		return Task{}, apperr.New(apperr.Unsupported, fmt.Sprintf("%s 类型的任务不支持重试", old.Type))
 	}
 	r, err := f(old)

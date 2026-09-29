@@ -1,7 +1,9 @@
 package edit
 
 import (
+	"FFmpegFree/internal/fsutil"
 	"context"
+	"fmt"
 	"math"
 	"os"
 	"os/exec"
@@ -191,7 +193,7 @@ func TestExportGapFillsBlackAndSilence(t *testing.T) {
 	p.Output = EditOutput{Width: 320, Height: 240, Fps: 25}
 	p.AudioTrack = []AudioClip{aclip("a1", au, "A1", 2.5, 0, 1)}
 	pl, err := e.svc.ValidateProject(context.Background(), p)
-	if err != nil || !near(pl.DurationSec, 3.5, 1e-9) || !hasWarn(pl, WarnVideoGap) {
+	if err != nil || !near(pl.DurationSec, 3.5, 1e-9) || !hasWarn(pl, WarnClipGap) {
 		t.Fatalf("%+v %v", pl, err)
 	}
 	tk := e.export(t, p, EditExportOptions{OutputDir: filepath.Join(e.dir, "o")})
@@ -342,7 +344,7 @@ func TestExportOutputNameSanitized(t *testing.T) {
 		"../../evil/x": "....evilx.mkv", // 分隔符被删掉；中间的点合法，不会逃出输出目录
 		"CON":          "_CON.mkv",
 		"a:b*c":        "abc.mkv",
-		"   ":          "工程名.mkv", // 空白 → 净化后为空 → 用工程名？见下：outputName 非空白才优先
+		"   ":          "工程名.mkv", // 纯空白 = 未填 → 用工程名
 		"":             "工程名.mkv",
 		"日本語 name..":   "日本語 name.mkv",
 	}
@@ -358,8 +360,7 @@ func TestExportOutputNameSanitized(t *testing.T) {
 			t.Errorf("%q 逃出了输出目录: %s", in, tk.OutputPath)
 		}
 	}
-	// 工程名也空 → edit
-	p.Name = ""
+	// 净化后为空（不是原本为空）→ edit，不回退工程名
 	tk, err := e.svc.Export(context.Background(), p, EditExportOptions{OutputName: "///", OutputDir: out})
 	if err != nil || filepath.Base(tk.OutputPath) != "edit.mkv" {
 		t.Fatalf("%v %v", tk.OutputPath, err)
@@ -370,7 +371,7 @@ func TestExportPathTooLongOnWindows(t *testing.T) {
 	// 在任意平台上把 GOOS 设成 windows 验证：超长在提交时同步 INVALID_ARGUMENT，不产生任务；用假的探测让它不依赖真实 ffmpeg。
 	s := New(Config{Media: fakeMedia{base}, Tasks: &fakeTasks{}, GOOS: "windows",
 		Require:        func() (ffmpeg.Binaries, error) { return ffmpeg.Binaries{FFmpeg: "x", FFprobe: "y"}, nil },
-		SupportsScript: func(context.Context, string) error { return nil }})
+		SupportsScript: func(context.Context, string) (string, error) { return OptFilterFile, nil }})
 	dir := t.TempDir()
 	long := dir
 	for len(long) < 240 {
@@ -381,6 +382,18 @@ func TestExportPathTooLongOnWindows(t *testing.T) {
 	_, err := s.Export(context.Background(), p, EditExportOptions{OutputDir: long, OutputName: "x"})
 	if code(t, err) != apperr.InvalidArgument || !strings.Contains(apperr.From(err).Message, "259") {
 		t.Fatalf("%v", err)
+	}
+	// detail：第一行 project，第二行 path_length=<n> limit=259（n = fsutil.OutputPathLength，含 (99) 与 .part 预留）
+	want := fmt.Sprintf("project\npath_length=%d limit=259", fsutil.OutputPathLength(long, "x", ".mp4"))
+	if d := apperr.From(err).Detail; d != want || fsutil.OutputPathLength(long, "x", ".mp4") <= 259 {
+		t.Fatalf("detail=%q want %q", d, want)
+	}
+	// \\?\ 与 \\.\ 开头的 outputDir 一律拒绝（不看平台）
+	for _, d := range []string{`\\?\C:\out`, `\\.\C:\out`} {
+		_, err := s.Export(context.Background(), p, EditExportOptions{OutputDir: d, OutputName: "x"})
+		if code(t, err) != apperr.InvalidArgument || firstLine(err) != "project" {
+			t.Fatalf("%s: %v", d, err)
+		}
 	}
 	if s.cfg.Tasks.(*fakeTasks).n != 0 {
 		t.Fatal("不应产生任务")
@@ -540,10 +553,14 @@ func TestParamsAreSnapshot(t *testing.T) {
 
 // ---------- 辅助 ----------
 
-type fakeTasks struct{ n int }
+type fakeTasks struct {
+	n    int
+	last task.Runner
+}
 
 func (f *fakeTasks) Submit(spec task.Spec, r task.Runner) (task.Task, error) {
 	f.n++
+	f.last = r
 	return task.Task{ID: "fake", Type: spec.Type, Title: spec.Title, OutputPath: spec.OutputPath}, nil
 }
 func (f *fakeTasks) RegisterFactory(task.Type, task.Factory) {}
@@ -576,4 +593,63 @@ func (r *badRunner) Run(ctx context.Context, report func(task.Progress)) (string
 	fr := &task.FFmpegRunner{Exe: r.bin.FFmpeg, Output: r.out, DurationSec: 1, Classify: classifyExportError,
 		BuildArgs: func(part string) []string { return exportArgs(r.pl, script, part) }}
 	return fr.Run(ctx, report)
+}
+
+// 真 ffmpeg：导出走探测选中的 -/filter_complex（7.0 起；9.x 唯一可用），输出能被 ffprobe 读取。
+// 用 EDIT_TEST_FFMPEG_DIR 指向别的 ffmpeg 目录可在 9.x 上重跑。
+func TestExportRealUsesFileOption(t *testing.T) {
+	e := newEnv(t)
+	v := e.genVideo(t, "a.mp4", 3, "320x240")
+	au := e.genAudio(t, "m.mp3", 3)
+	p := proj(vclip("c1", v, "V1", 0, 0, 2), vclip("c2", v, "V2", 1, 0, 2))
+	p.Output = EditOutput{Width: 320, Height: 240, Fps: 25}
+	p.AudioTrack = []AudioClip{aclip("a1", au, "A1", 0, 0, 3)}
+	r, _, err := e.svc.prepareExport(context.Background(), p, EditExportOptions{OutputDir: filepath.Join(e.dir, "o")}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pl := r.(*exportRunner).pl
+	if pl.filterOpt != OptFilterFile {
+		t.Fatalf("选项 %q", pl.filterOpt)
+	}
+	tk := e.export(t, p, EditExportOptions{OutputDir: filepath.Join(e.dir, "o")})
+	done := e.wait(t, tk.ID)
+	if done.Status != task.StatusSucceeded {
+		t.Fatalf("%+v", done.Error)
+	}
+	res := e.probe(t, done.OutputPath)
+	t.Logf("ffmpeg=%s 输出 %s：时长 %.2fs，视频流 %d，音频流 %d", e.bin.FFmpeg, filepath.Base(done.OutputPath), res.dur(), res.count("video"), res.count("audio"))
+	if !near(res.dur(), 3, 0.2) || res.count("video") != 1 || res.count("audio") != 1 {
+		t.Fatalf("%+v", res.Streams)
+	}
+}
+
+// 真 ffmpeg 6.x/7.x：强制走旧选项 -filter_complex_script 也能导出（9.x 已移除该选项，自动跳过）。
+func TestExportRealOldOptionFallback(t *testing.T) {
+	e := newEnv(t)
+	if opt, err := e.svc.probeFilterScript(context.Background(), e.bin.FFmpeg); err != nil {
+		t.Fatal(err)
+	} else if ok, _ := e.svc.tryFilterOption(context.Background(), e.bin.FFmpeg, OptFilterScript, writeProbe(t)); !ok {
+		t.Skipf("该 ffmpeg 不支持 %s（探测选中 %s）", OptFilterScript, opt)
+	}
+	e.svc.cfg.SupportsScript = func(context.Context, string) (string, error) { return OptFilterScript, nil }
+	v := e.genVideo(t, "a.mp4", 2, "320x240")
+	p := proj(vclip("c1", v, "V1", 0, 0, 2))
+	p.Output = EditOutput{Width: 320, Height: 240, Fps: 25}
+	tk := e.export(t, p, EditExportOptions{OutputDir: filepath.Join(e.dir, "o")})
+	done := e.wait(t, tk.ID)
+	if done.Status != task.StatusSucceeded {
+		t.Fatalf("%+v", done.Error)
+	}
+	res := e.probe(t, done.OutputPath)
+	if !near(res.dur(), 2, 0.2) || res.count("video") != 1 || res.count("audio") != 1 {
+		t.Fatalf("%+v", res.Streams)
+	}
+	t.Logf("旧选项导出 OK：%.2fs", res.dur())
+}
+
+func writeProbe(t *testing.T) string {
+	p := filepath.Join(t.TempDir(), "p.txt")
+	os.WriteFile(p, []byte("[0:v]scale=16:16[v]\n"), 0o600)
+	return p
 }

@@ -3,12 +3,14 @@ package main
 import (
 	"FFmpegFree/app"
 	"FFmpegFree/backend/contollers"
+	"FFmpegFree/internal/about"
 	"FFmpegFree/internal/ffmpeg"
 	"FFmpegFree/internal/localassets"
 	"FFmpegFree/internal/paths"
 	"FFmpegFree/internal/service/convert"
 	"FFmpegFree/internal/service/doc"
 	"FFmpegFree/internal/service/edit"
+	"FFmpegFree/internal/service/live"
 	"FFmpegFree/internal/service/media"
 	"FFmpegFree/internal/service/system"
 	"FFmpegFree/internal/store"
@@ -40,6 +42,7 @@ type App struct {
 	// /local/<token> 预览登记表（契约 6.13）：edit 与 doc 分表，各 512 项，互不挤占；main.go 用 localHandler 挂到 AssetServer。
 	editLocal *localassets.Registry
 	docLocal  *localassets.Registry
+	live      atomic.Pointer[live.Service]
 }
 
 // editAssets / docAssets 返回两张 /local/<token> 登记表（NewApp 时创建，永不为 nil）。小写，不会被 Wails 暴露。
@@ -66,6 +69,9 @@ func (a *App) convertService() *convert.Service { return a.conv.Load() }
 // editService 返回剪辑服务；OnStartup 完成前（或存储 / 任务管理器 / 媒体服务不可用时）为 nil。小写，不会被 Wails 暴露。
 func (a *App) editService() *edit.Service { return a.edt.Load() }
 
+// liveService 返回直播服务；OnStartup 完成前（或任务管理器 / 媒体服务不可用时）为 nil。小写，不会被 Wails 暴露。
+func (a *App) liveService() *live.Service { return a.live.Load() }
+
 // NewApp creates a new App application struct
 func NewApp(sys *system.Manager) *App {
 	// 根 ctx 在构造时就创建，保证绑定方法在 OnStartup 之前被调用也拿到有效的 ctx。
@@ -89,6 +95,7 @@ func (a *App) startup(ctx context.Context) {
 	a.startConvert(ctx)
 	a.startEdit()
 	a.startDoc()
+	a.startLive()
 	a.startFFmpegDetect(ctx)
 }
 
@@ -118,7 +125,11 @@ func (a *App) startMedia() {
 		}
 		thumbs = d.Thumbs
 	}
-	cfg := media.Config{ThumbsDir: thumbs}
+	cfg := media.Config{ThumbsDir: thumbs, OnRemoved: func(ps []string) {
+		for _, p := range ps { // RemoveRecent 联动：撤销这些文件的 edit 预览 token（契约 6.13）
+			a.editLocal.RevokePath(p)
+		}
+	}}
 	if a.store != nil { // 避免把 nil *Store 装进接口
 		cfg.Store = a.store
 	}
@@ -192,6 +203,16 @@ func (a *App) startDoc() {
 	a.docs.Store(svc)
 }
 
+// startLive 创建直播服务：需要任务管理器和媒体服务，缺一个就不启动（此时 LiveService 返回 INTERNAL）。
+func (a *App) startLive() {
+	tm, med := a.taskManager(), a.mediaService()
+	if tm == nil || med == nil {
+		log.Printf("直播服务未启动：任务管理器或媒体服务不可用")
+		return
+	}
+	a.live.Store(live.New(live.Config{Tasks: tm, Media: med}))
+}
+
 // startFFmpegDetect 在后台检测 ffmpeg，不阻塞界面；状态变化通过 ffmpeg:status 事件推送。
 func (a *App) startFFmpegDetect(ctx context.Context) {
 	binDir := a.dirs.Bin
@@ -254,13 +275,31 @@ func (a *App) shutdown(ctx context.Context) {
 	contollers.KillLiveOpsProcesses()
 	if m := a.taskManager(); m != nil {
 		// 先停任务再关数据库：运行中的任务被取消并落库为 interrupted。
-		m.Shutdown(8 * time.Second)
+		// 有带存档的直播会话时要多等：优雅停止最多 15 秒写完存档尾（契约 6.10：总等待 16 秒，超时强杀）。
+		wait := 8 * time.Second
+		if l := a.liveService(); l != nil {
+			if _, archive := l.ActiveSessions(); archive {
+				wait = 16 * time.Second
+			}
+		}
+		m.Shutdown(wait)
 	}
 	if a.store != nil {
 		if err := a.store.Close(); err != nil {
 			log.Printf("关闭数据库失败: %v", err)
 		}
 	}
+}
+
+// GetLicenseText 返回内嵌的第三方许可全文。白名单："OFL"（Noto Sans SC 的 SIL Open Font License 1.1）、"OFL-Nunito"（Nunito 的 SIL OFL 1.1）；
+// 其它名称（含空串、带路径、大小写不同）返回 INVALID_ARGUMENT。
+func (a *App) GetLicenseText(name string) (string, error) {
+	return about.LicenseText(name)
+}
+
+// GetAppVersion 返回应用版本号；构建时未用 -ldflags 注入则返回“开发版”。
+func (a *App) GetAppVersion() string {
+	return about.AppVersion()
 }
 
 // Greet returns a greeting for the given name

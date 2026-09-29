@@ -1,0 +1,149 @@
+/* 设置页与关于页共用的面板样式（.group 面板 / .phead 面板头 / .srow 设置行 / .tag / .btn / .pathbox）。
+   两个页面的根节点加 class="spanels"，规则都限定在它下面，不影响其他页面。 */
+.spanels .group {
+  padding: 0; /* 面板内边距由 phead / srow 提供，与原型一致 */
+  scroll-margin-top: var(--ff-space-2);
+}
+.spanels .phead {
+  display: flex;
+  align-items: center;
+  gap: var(--ff-space-2);
+  padding: var(--ff-space-3) var(--ff-space-4);
+  border-bottom: 1px solid var(--ff-border);
+}
+.spanels .phead h2 {
+  margin: 0;
+  font-size: var(--ff-fs-md);
+  font-weight: 600;
+}
+.spanels .srow {
+  display: flex;
+  align-items: center;
+  gap: var(--ff-space-4);
+  padding: var(--ff-space-3) var(--ff-space-4);
+  border-bottom: 1px solid var(--ff-border);
+}
+.spanels .srow.od {
+  align-items: flex-start; /* 输出位置行带错误提示时高度会变，控件顶对齐（原型 .srow.od） */
+}
+.spanels .srow:last-child {
+  border-bottom: none;
+}
+/* OutputDirRow（.srow.od）有自己的 .l 样式，这里不覆盖 */
+.spanels .srow:not(.od) > .l {
+  flex: 1;
+  min-width: 0;
+}
+.spanels .srow:not(.od) > .l b {
+  display: block;
+  font-weight: 500;
+}
+.spanels .srow:not(.od) > .l small {
+  display: block;
+  font-size: var(--ff-fs-xs);
+  color: var(--ff-text-2);
+}
+
+/* 状态标签：文字色取 *-text token（14% 着色底上 ≥4.5:1） */
+.spanels .tag {
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--ff-radius-sm);
+  font-size: var(--ff-fs-xs);
+  display: inline-flex;
+  align-items: center;
+}
+.spanels .tag.ok {
+  background: color-mix(in srgb, var(--ff-success) 14%, transparent);
+  color: var(--ff-success-text);
+}
+.spanels .tag.warn {
+  background: color-mix(in srgb, var(--ff-warning) 14%, transparent);
+  color: var(--ff-warning-text);
+}
+.spanels .tag.fail {
+  background: color-mix(in srgb, var(--ff-danger) 14%, transparent);
+  color: var(--ff-danger-text);
+}
+.spanels .tag.run {
+  background: var(--ff-primary-soft);
+  color: var(--ff-primary-text);
+}
+.spanels .tag.q {
+  background: var(--ff-bg-hover);
+  color: var(--ff-text-2);
+}
+
+/* 按钮：与 OutputDirRow 同一套（28px 高，边框 / 文字色取 token） */
+.spanels .btn {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--ff-radius-md);
+  border: 1px solid var(--ff-border);
+  background: var(--ff-bg-surface);
+  color: var(--ff-text-1);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: var(--ff-fs-sm);
+  white-space: nowrap;
+  cursor: pointer;
+  flex: none;
+  transition: background var(--ff-dur-fast) var(--ff-ease);
+}
+.spanels .btn:hover:not(:disabled) {
+  background: var(--ff-bg-hover);
+}
+.spanels .btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.spanels .btn:focus-visible {
+  outline: 2px solid var(--ff-primary);
+  outline-offset: 2px;
+}
+.spanels .btn.pri {
+  background: var(--ff-badge-bg);
+  border-color: var(--ff-badge-bg);
+  color: var(--ff-on-primary);
+}
+.spanels .btn.pri:hover:not(:disabled) {
+  background: var(--ff-primary-hover);
+  border-color: var(--ff-primary-hover);
+}
+.spanels .btn.text {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ff-primary-text);
+  padding: 0 8px;
+}
+
+/* ffmpeg 路径：只读展示，最后一级单独一段不被省略 */
+.spanels .pathbox {
+  width: 360px;
+  flex: none;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid var(--ff-border);
+  border-radius: var(--ff-radius-md);
+  background: var(--ff-bg-surface);
+  font-size: var(--ff-fs-sm);
+  color: var(--ff-text-1);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.spanels .pathbox .ph {
+  color: var(--ff-text-2);
+}
+.spanels .pathbox .h {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.spanels .pathbox .t {
+  flex: none;
+}

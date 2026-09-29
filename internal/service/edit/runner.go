@@ -49,7 +49,7 @@ func outputErr(msg string, err error) error {
 	return apperr.Wrap(apperr.IOError, msg, err)
 }
 
-// exportArgs 生成 ffmpeg 参数（不含 -y / -progress 等，由 ffmpeg.Run 添加）。filtergraph 只走 -filter_complex_script。
+// exportArgs 生成 ffmpeg 参数（不含 -y / -progress 等，由 ffmpeg.Run 添加）。filtergraph 写文件，用探测选中的选项（pl.filterOpt：-/filter_complex 或 -filter_complex_script）传入，不走命令行。
 func exportArgs(pl *plan, script, part string) []string {
 	var a []string
 	// 每个 clip 一个输入，序号 = clip.idx（视频 clip 在前，音频 clip 在后）。
@@ -60,7 +60,11 @@ func exportArgs(pl *plan, script, part string) []string {
 		a = append(a, ffmpeg.ImagePatternArgs(c.path)...)
 		a = append(a, "-i", "file:"+c.path)
 	}
-	a = append(a, "-filter_complex_script", script, "-map", "[vout]", "-map", "[aout]", "-t", num(pl.duration))
+	opt := pl.filterOpt
+	if opt == "" {
+		opt = OptFilterFile
+	}
+	a = append(a, opt, script, "-map", "[vout]", "-map", "[aout]", "-t", num(pl.duration))
 	if pl.format == "webm" {
 		a = append(a, "-c:v", "libvpx-vp9", "-b:v", "2M", "-pix_fmt", "yuv420p", "-c:a", "libopus", "-b:a", "128k")
 	} else {
@@ -72,7 +76,7 @@ func exportArgs(pl *plan, script, part string) []string {
 	return append(a, "file:"+part)
 }
 
-// classifyExportError 在转换的分类上加两条：ffmpeg 不认识 -filter_complex_script → UNSUPPORTED；
+// classifyExportError 在转换的分类上加两条：ffmpeg 不认识 -/filter_complex 或 -filter_complex_script → UNSUPPORTED；
 // `-filter_complex_script is deprecated` 那一行（7.1.5 会打）不参与分类，但仍在 detail / 日志里。
 func classifyExportError(tail string, exitErr error) *apperr.AppError {
 	var kept []string
@@ -84,9 +88,9 @@ func classifyExportError(tail string, exitErr error) *apperr.AppError {
 	}
 	filtered := strings.Join(kept, "\n")
 	low := strings.ToLower(filtered)
-	if strings.Contains(low, "unrecognized option 'filter_complex_script'") ||
-		(strings.Contains(low, "option filter_complex_script not found")) {
-		return apperr.New(apperr.Unsupported, "当前 ffmpeg 版本不支持 -filter_complex_script，无法导出多轨剪辑")
+	if strings.Contains(low, "unrecognized option 'filter_complex_script'") || strings.Contains(low, "unrecognized option '/filter_complex'") ||
+		strings.Contains(low, "option filter_complex_script not found") || strings.Contains(low, "option /filter_complex not found") {
+		return apperr.New(apperr.Unsupported, "当前 ffmpeg 版本不支持从文件读取滤镜图，无法导出多轨剪辑").WithDetail("project\nmissing=filter_complex")
 	}
 	if strings.Contains(low, "invalid data found when processing input") || strings.Contains(low, "moov atom not found") {
 		return apperr.New(apperr.ProbeFailed, "某个素材文件已损坏或不是有效的音视频文件")

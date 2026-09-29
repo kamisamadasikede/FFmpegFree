@@ -156,6 +156,26 @@ func (r *Registry) Revoke(token string) {
 	}
 }
 
+// RevokePath 使指向 path 的登记失效（按登记时的路径、真实路径匹配；文件已不存在时按登记时的路径匹配）。返回撤销的个数。
+// 供 RemoveRecent 之类"从列表里移除文件"的操作联动：撤销后旧 URL 一律 404。
+func (r *Registry) RevokePath(path string) int {
+	if path == "" {
+		return 0
+	}
+	clean := filepath.Clean(path)
+	real, _ := filepath.EvalSymlinks(clean)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, it := range r.byTok {
+		if it.path == clean || it.resolved == clean || (real != "" && it.resolved == real) {
+			r.removeLocked(it)
+			n++
+		}
+	}
+	return n
+}
+
 // Len 返回当前登记数（测试 / 诊断用）。
 func (r *Registry) Len() int {
 	r.mu.Lock()

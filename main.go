@@ -27,6 +27,7 @@ func main() {
 	convertService := app.NewConvertService(mainApp.convertService, mainApp.appContext)
 	docService := app.NewDocService(mainApp.docService, mainApp.appContext)
 	editService := app.NewEditService(mainApp.editService, mainApp.appContext)
+	liveService := app.NewLiveService(mainApp.liveService, mainApp.appContext)
 
 	// /local/<token> 本地文件预览（契约 6.13）：edit / doc 两张登记表，Handler 挂在 AssetServer 上。
 
@@ -57,6 +58,7 @@ func main() {
 			convertService,
 			docService,
 			editService,
+			liveService,
 		},
 	})
 
