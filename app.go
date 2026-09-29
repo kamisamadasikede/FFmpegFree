@@ -8,6 +8,7 @@ import (
 	"FFmpegFree/internal/localassets"
 	"FFmpegFree/internal/paths"
 	"FFmpegFree/internal/service/convert"
+	"FFmpegFree/internal/service/doc"
 	"FFmpegFree/internal/service/edit"
 	"FFmpegFree/internal/service/live"
 	"FFmpegFree/internal/service/media"
@@ -36,6 +37,7 @@ type App struct {
 	tasks      atomic.Pointer[task.Manager]
 	media      atomic.Pointer[media.Service]
 	conv       atomic.Pointer[convert.Service]
+	docs       atomic.Pointer[doc.Service]
 	edt        atomic.Pointer[edit.Service]
 	// /local/<token> 预览登记表（契约 6.13）：edit 与 doc 分表，各 512 项，互不挤占；main.go 用 localHandler 挂到 AssetServer。
 	editLocal *localassets.Registry
@@ -50,6 +52,9 @@ func (a *App) docAssets() *localassets.Registry  { return a.docLocal }
 
 // localHandler 是挂在 Wails AssetServer.Handler 上的处理器，按 token 在两张表里查。
 func (a *App) localHandler() http.Handler { return localassets.MultiHandler(a.editLocal, a.docLocal) }
+
+// docService 返回文档服务；OnStartup 完成前为 nil。小写，不会被 Wails 暴露。
+func (a *App) docService() *doc.Service { return a.docs.Load() }
 
 // taskManager 返回任务管理器；OnStartup 完成前（或存储初始化失败时）为 nil。
 // 首字母小写，不会被 Wails 当作绑定方法暴露给前端。
@@ -89,6 +94,7 @@ func (a *App) startup(ctx context.Context) {
 	a.startMedia()
 	a.startConvert(ctx)
 	a.startEdit()
+	a.startDoc()
 	a.startLive()
 	a.startFFmpegDetect(ctx)
 }
@@ -173,6 +179,28 @@ func (a *App) startEdit() {
 		log.Printf("已清理 %d 个中断的剪辑导出临时文件", n)
 	}
 	a.edt.Store(svc)
+}
+
+// startDoc 创建文档服务（Office 转 PDF、PDF 预览）：不依赖 ffmpeg；需要任务管理器才能提交转换，
+// 存储不可用时 OpenPDF 仍可用，只是不记录最近打开。
+func (a *App) startDoc() {
+	cfg := doc.Config{
+		Local:            a.docAssets(),
+		DefaultOutputDir: a.sys.DefaultOutputDir,
+		DataDir:          a.dirs.Root,
+	}
+	if a.store != nil { // 避免把 nil *Store 装进接口
+		cfg.Recent = a.store
+		cfg.Lister = a.store
+	}
+	if tm := a.taskManager(); tm != nil {
+		cfg.Tasks = tm
+	}
+	svc := doc.New(cfg)
+	if n := svc.CleanupInterruptedParts(a.rootCtx); n > 0 {
+		log.Printf("已清理 %d 个中断的 Office 转 PDF 临时文件", n)
+	}
+	a.docs.Store(svc)
 }
 
 // startLive 创建直播服务：需要任务管理器和媒体服务，缺一个就不启动（此时 LiveService 返回 INTERNAL）。
