@@ -14,6 +14,8 @@ func configure(cmd *exec.Cmd) {
 	cmd.SysProcAttr.Setpgid = true
 }
 
+func start(cmd *exec.Cmd) error { return cmd.Start() }
+
 func kill(cmd *exec.Cmd) error {
 	// 负数 pid 表示整个进程组。
 	if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err == nil {

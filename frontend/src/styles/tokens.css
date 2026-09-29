@@ -14,7 +14,7 @@
   --ff-interrupted: #8f5a1e; /* 已中断状态（任务中心） */
   /* 状态标签文字色：浅色主题下在 14% 着色底上 ≥4.5:1（success/warning/danger 本色只有 2.8~3.9） */
   --ff-success-text: #137535;
-  --ff-warning-text: #985006;
+  --ff-warning-text: #985006; /* 浅色横幅（warning 10% 混合底）上图标/文字 ≥3:1、正文 ≥4.5:1 */
   --ff-danger-text: #b91c1c;
   --ff-primary-text: #2f5cd9; /* 主色浅底（primary-soft）上的文字色，4.5:1 以上 */
   --ff-on-primary: #ffffff; /* 主色底上的文字（主按钮等） */

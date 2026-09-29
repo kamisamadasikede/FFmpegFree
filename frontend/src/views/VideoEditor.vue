@@ -1,5 +1,6 @@
 ﻿<template>
   <div class="editor-workbench">
+    <MigrationNotice />
     <section class="panel topbar">
       <div class="title-wrap">
         <div class="logo">剪</div>
@@ -12,8 +13,8 @@
         <button class="tool-btn" :class="{ active: activeTopTool === item }" v-for="item in topTools" :key="item" @click="onTopToolClick(item)">{{ item }}</button>
       </div>
       <div class="actions">
-        <el-button :loading="loadingSources" @click="fetchSources">刷新素材</el-button>
-        <el-button type="primary" :loading="rendering" @click="renderProject">导出</el-button>
+        <el-button :loading="loadingSources" :disabled="!V1_API_READY" @click="fetchSources">刷新素材</el-button>
+        <el-button type="primary" :loading="rendering" :disabled="!V1_API_READY" @click="renderProject">导出</el-button>
       </div>
     </section>
 
@@ -295,6 +296,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import MigrationNotice from '@/components/common/MigrationNotice.vue'
+import { V1_API_READY } from '@/api'
 import {
   getEditSources,
   renderEditProject,
@@ -769,6 +772,7 @@ const onTopToolClick = async (tool: TopTool) => {
 }
 
 const fetchSources = async () => {
+  if (!V1_API_READY) return
   loadingSources.value = true
   try {
     const response = await getEditSources()
@@ -1618,6 +1622,7 @@ const sanitizeClipsBeforeRender = () => {
 }
 
 const renderProject = async () => {
+  if (!V1_API_READY) return
   sanitizeClipsBeforeRender()
   const validateMessage = validateTimelineBeforeRender()
   if (validateMessage) {
@@ -1725,7 +1730,7 @@ const handleWindowResize = () => {
 }
 
 onMounted(async () => {
-  await fetchSources()
+  if (V1_API_READY) await fetchSources()
   ensureTrackSlotsFromClips()
   ensureMonitorCanvasSize()
   clearMonitorCanvas()

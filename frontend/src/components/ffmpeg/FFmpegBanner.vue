@@ -5,8 +5,8 @@
     <template v-if="state === 'missing'">
       <span>未检测到 ffmpeg，转换、剪辑和直播暂时不能用。</span>
       <span class="sp" />
-      <el-button type="primary" :disabled="!ffmpeg.installAvailable" @click="safe(() => ffmpeg.startInstall())">{{ ffmpeg.installAvailable ? '下载安装' : '安装功能即将上线' }}</el-button>
-      <el-button @click="ffmpeg.bannerClosed = true">稍后</el-button>
+      <el-button type="primary" size="small" :disabled="!ffmpeg.installAvailable" @click="safe(() => ffmpeg.startInstall())">{{ ffmpeg.installAvailable ? '下载安装' : '安装功能即将上线' }}</el-button>
+      <el-button link class="later" @click="ffmpeg.bannerClosed = true">稍后</el-button>
     </template>
 
     <template v-else-if="state === 'outdated'">
@@ -31,7 +31,7 @@
       <span>ffmpeg 安装失败：{{ ffmpeg.status.error?.message || '未知错误' }}</span>
       <span class="sp" />
       <el-button link type="primary" @click="safe(ffmpeg.pickPath)">手动指定</el-button>
-      <el-button link type="primary" @click="ffmpeg.dialogOpen = true">更换下载源</el-button>
+      <el-button v-if="ffmpeg.canSwitchMirror" link type="primary" @click="safe(ffmpeg.retryWithOtherMirror)">换下载源重试</el-button>
       <el-button type="primary" :disabled="!ffmpeg.installAvailable" @click="safe(() => ffmpeg.startInstall())">重试</el-button>
     </template>
 
@@ -81,8 +81,8 @@ async function safe(fn: () => Promise<unknown>) {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 16px 0 21px;
+  gap: 12px;
+  padding: 0 16px;
   border-bottom: 1px solid var(--ff-border);
   font-size: var(--ff-fs-sm);
 }
@@ -94,9 +94,17 @@ async function safe(fn: () => Promise<unknown>) {
   bottom: 0;
   width: 3px;
 }
-.banner.warn { background: var(--ff-warning-soft); }
-.banner.warn::before { background: var(--ff-warning); }
-.banner.warn > .f-icon { color: var(--ff-warning); }
+/* 缺失横幅（原型 .banner.miss）：warning 10% 混合底 + 28% 混合边，无左侧色条，40px 高 */
+.banner.warn {
+  height: 40px;
+  color: var(--ff-text-1);
+  background: color-mix(in srgb, var(--ff-warning) 10%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--ff-warning) 28%, transparent);
+}
+.banner.warn::before { display: none; }
+.banner.warn > .f-icon { color: var(--ff-warning-text); }
+.banner .later { color: var(--ff-text-2); }
+.banner .later:hover { color: var(--ff-text-1); }
 .banner.info { background: var(--ff-primary-soft); }
 .banner.info::before { background: var(--ff-primary); }
 .banner.info > .f-icon { color: var(--ff-primary); }
@@ -107,7 +115,7 @@ async function safe(fn: () => Promise<unknown>) {
 .banner.ok::before { background: var(--ff-success); }
 .banner.ok > .f-icon { color: var(--ff-success); }
 .sp { flex: 1; }
-.meta { color: var(--ff-text-3); font-size: var(--ff-fs-xs); }
+.meta { color: var(--ff-text-2); font-size: var(--ff-fs-xs); }
 .bar {
   width: 120px;
   height: 4px;

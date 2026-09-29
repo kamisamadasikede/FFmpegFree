@@ -18,7 +18,6 @@
         <SidebarItem
           :item="item"
           :collapsed="collapsed"
-          :warn="item.needsFFmpeg && ffmpeg.needsAttention"
           :badge="item.key === 'tasks' ? tasks.runningCount : 0"
         />
       </template>
@@ -109,7 +108,7 @@ watch(collapsed, (v) => localStorage.setItem(KEY, v ? '1' : '0'))
 }
 .brand-text small {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--ff-text-3);
   line-height: 1.2;
 }

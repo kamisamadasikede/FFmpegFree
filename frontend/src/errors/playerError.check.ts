@@ -1,5 +1,5 @@
 // 不引入测试框架的自检：在 /dev/components 页面运行，也可以用 esbuild 打包后在 node 里跑。
-import { mapPlayerError, isValidStreamUrl, isCrossOrigin, type PlayerErrorInput } from './playerError'
+import { mapPlayerError, isValidStreamUrl, isValidPullUrl, isPersistentPlayerError, isCrossOrigin, type PlayerErrorInput } from './playerError'
 import { resolveError, errorMessages, resolveTaskError, taskErrorMessages } from './errorMessages'
 
 const PAGE = 'http://localhost:5173'
@@ -29,6 +29,16 @@ export function runErrorChecks(): string[] {
 
   eq('rtmp 地址合法', isValidStreamUrl('rtmp://live.example/app/key'), true)
   eq('srt 地址合法', isValidStreamUrl('srt://1.2.3.4:9000?mode=caller'), true)
+  eq('拉流：http 合法', isValidPullUrl('http://a.b/x.flv'), true)
+  eq('拉流：wss 合法', isValidPullUrl('wss://a.b/x'), true)
+  eq('拉流：rtmp 不合法', isValidPullUrl('rtmp://a.b/x'), false)
+  eq('拉流：srt 不合法', isValidPullUrl('srt://1.2.3.4:9000'), false)
+  eq('持久：跨域', isPersistentPlayerError('LIVE_CORS_BLOCKED'), true)
+  eq('持久：连接失败', isPersistentPlayerError('LIVE_CONNECT_FAILED'), true)
+  eq('持久：403', isPersistentPlayerError('LIVE_PLAY_FAILED', 403), true)
+  eq('持久：404', isPersistentPlayerError('LIVE_PLAY_FAILED', 404), true)
+  eq('暂时：无状态码', isPersistentPlayerError('LIVE_PLAY_FAILED'), false)
+  eq('暂时：503', isPersistentPlayerError('LIVE_PLAY_FAILED', 503), false)
   eq('空串不合法', isValidStreamUrl(''), false)
   eq('同源', isCrossOrigin(PAGE + '/a', PAGE), false)
   eq('端口不同即跨域', isCrossOrigin('http://localhost:8080/a', PAGE), true)

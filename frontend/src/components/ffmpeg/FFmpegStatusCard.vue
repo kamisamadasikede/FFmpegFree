@@ -1,10 +1,8 @@
 <template>
-  <div class="ffst" :title="ffmpeg.status.path || undefined">
-    <div class="txt">
-      <b><i :style="{ background: view.color }" />{{ view.title }}</b>
-      <span>{{ view.sub }}</span>
-    </div>
-    <el-button v-if="ffmpeg.status.state === 'missing'" size="small" type="primary" class="act" @click="ffmpeg.dialogOpen = true">安装</el-button>
+  <div class="ffst" :class="{ miss: ffmpeg.status.state === 'missing' }" :title="ffmpeg.status.path || undefined">
+    <b><i :style="{ background: view.color }" />{{ view.title }}</b>
+    <el-button v-if="ffmpeg.status.state === 'missing'" link type="primary" class="act" @click="ffmpeg.dialogOpen = true">安装</el-button>
+    <span class="sub">{{ view.sub }}</span>
   </div>
 </template>
 
@@ -40,36 +38,46 @@ const view = computed(() => {
 
 <style scoped>
 .ffst {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   margin: 0 2px 8px;
-  padding: 10px;
+  padding: 8px 12px;
   border: 1px solid var(--ff-border);
   border-radius: 8px;
   background: var(--ff-bg-surface);
   font-size: var(--ff-fs-xs);
   color: var(--ff-text-2);
 }
-.txt {
-  flex: 1;
-  min-width: 0;
-}
-.act {
-  flex: none;
-}
 .ffst b {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   color: var(--ff-text-1);
   font-weight: 500;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
 }
 .ffst i {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   display: block;
+}
+/* 缺失状态（原型 .ffst.miss）：标题 + 右侧文字按钮一行，副文案独占一整行，整体高 58px */
+.ffst.miss {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  column-gap: 8px;
+  padding: 8px 8px 8px 12px;
+}
+.ffst.miss b {
+  margin-bottom: 0;
+}
+.ffst.miss .sub {
+  grid-column: 1 / -1;
+}
+.ffst.miss .act {
+  height: 24px;
+  padding: 0 8px;
+  font-size: var(--ff-fs-xs);
+  --el-button-text-color: var(--ff-primary-text);
 }
 </style>
