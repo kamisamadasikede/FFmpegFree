@@ -32,7 +32,7 @@
 
 - `?sim_err=<错误码>`：触发该错误码。Start\* / Export / ConvertToPDF / OpenPDF 等同步校验类的码由方法直接抛出；`LIVE_CONNECT_FAILED`、`LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`CONVERT_DISK_FULL`、`PROCESS_FAILED`（Doc 还有 `IO_ERROR` / `INTERNAL` / `UNSUPPORTED`）让**任务**在模拟中途失败。`&sim_when=call|task` 可强制。
 - `&sim_reason=max_sessions|duplicate_url|unknown`：`sim_err=TASK_CONFLICT` 时 detail 首行 `reason=<值>`（`unknown` = 一个前端不认识的值；不带 `sim_reason` = 缺 reason）。不带参数时，模拟层本来就会在“已有 4 路”“同地址重复”时抛这两种。
-- Live：`?sim_err=LIVE_URL_INVALID&sim_reason=scheme_unsupported|malformed|missing_host|param_not_allowed|unknown`（不带 `sim_reason` = 缺 reason 行；不注入时地址本身的问题会按实际原因给 reason）；`?sim_err=LIVE_CONNECT_FAILED`（任务失败，detail 首行 `scheme=rtmp|rtmps|srt`，按地址协议给；`&sim_scheme=missing` = 缺首行，测兜底）；`?sim_missing=srt|rtmps`（UNSUPPORTED，detail `missing=<协议>`）、`?sim_kill=1`（停止时 5 秒强杀 → canceled）、`?sim_end=<秒>`（推满自然结束）、`?sim_err=UNSUPPORTED_PLATFORM`（Wayland）/ `SCREEN_PERMISSION_DENIED`（macOS 未授权）。
+- Live：`?sim_err=LIVE_URL_INVALID&sim_reason=scheme_unsupported|malformed|missing_host|param_not_allowed|unknown`（不带 `sim_reason` = 缺 reason 行；不注入时地址本身的问题会按实际原因给 reason）；`?sim_err=LIVE_CONNECT_FAILED`（任务失败，detail 首行 `scheme=rtmp|rtmps|srt`，按地址协议给；`&sim_scheme=missing` = 缺首行，测兜底）；`?sim_missing=rtmp|rtmps|srt`（UNSUPPORTED，detail 单独一行 `missing=<协议名>`）、`?sim_kill=1`（停止时 5 秒强杀 → canceled）、`?sim_end=<秒>`（推满自然结束）、`?sim_err=UNSUPPORTED_PLATFORM`（Wayland）/ `SCREEN_PERMISSION_DENIED`（macOS 未授权）。
 - Edit：素材文件名以 `缺失`/`missing` 开头 → NOT_FOUND，`损坏`/`broken` → PROBE_FAILED，`无声…` 放音轨 → INVALID_ARGUMENT；同轨重叠 / 越界值 / `outSec ≤ inSec`（含 0）→ INVALID_ARGUMENT，detail 首行 `clip=<id> path=<path>`（只在 Validate / Export 报；**Save 只查数量上限**）；`?sim_preview_404=1` 让第一个预览 token 立即失效。
 - Doc：文件名 `加密…`、扩展名 doc/xls/ppt/csv/txt/odt/rtf → UNSUPPORTED；`损坏…` → INVALID_ARGUMENT；`缺失…` → NOT_FOUND；`超大…` → 超限；整体校验，一个不通过整批失败（detail 第一行是出错文件）。
 - 模拟任务的标题带“【演示】”前缀，任务中心里显示为“演示”标签（`api/sim.ts` 的 `SIM_TITLE_PREFIX`）；开关为 false 且有 Wails 时，任务中心的活动列表 / 历史都会合并模拟任务，不会被 `ListActive` 刷新清掉。
@@ -96,7 +96,7 @@
   - `max_sessions`：“最多同时推 4 路”
 - **屏幕推流首版**（原 8 的其余部分，架构师已决）：不做区域选择，只推整块屏幕，可选来源以契约为准（`ListScreens`），契约没写的不加。
 - **屏幕推流两个错误码文案**（产品经理已定，两者不混用）：`SCREEN_PERMISSION_DENIED`：“没有获得屏幕录制权限，请在系统设置中允许 FFmpegFree 录制屏幕后重试”；`UNSUPPORTED_PLATFORM`：“当前系统暂不支持屏幕推流”（`errorMessages` 里新增了 `UNSUPPORTED_PLATFORM`）。
-- **剪辑**（产品经理已定）：默认导出分辨率 **1920×1080**（前端提交时显式写宽高，`newEditProject` / `VideoEditor.vue` 已改；后端兜底值也改为 1920×1080）；素材库上限 **100**（`checkSaveLimits` 已改）；一次删除 **≥5 个片段**才二次确认。
+- **剪辑**（产品经理已定）：默认导出分辨率 **1920×1080**（前端提交时显式写宽高，`newEditProject` / `VideoEditor.vue` 已改；后端兜底值也改为 1920×1080）；素材库上限 **100 个素材文件（sources）**、片段总数上限 100，均已定稿，后端超过返回 `INVALID_ARGUMENT`；前端上限集中在 `api/edit.ts` 的 `MAX_SOURCES`（界面计数 x/100、导入拦截、`checkSaveLimits` 都读它）；一次删除 **≥5 个片段**才二次确认。
 
 ### 产品经理直播错误文案定稿（已落地，逐字）
 
@@ -106,15 +106,15 @@
 - `LIVE_PUSH_REJECTED`：“服务器拒绝了推流，请检查推流码是否有效，或是否已被其他推流占用”。
 - `LIVE_URL_INVALID`（按 `reason=`）：`scheme_unsupported` “暂不支持这种推流地址，请使用 rtmp、rtmps 或 srt”；`malformed` “推流地址格式不正确，请检查后重新输入”；`missing_host` “推流地址里缺少服务器地址，请检查后重新输入”；`param_not_allowed` “推流地址里有不支持的参数，请去掉后重试”；未知 / 缺失 “推流地址不可用，请检查后重新输入”。
 - SRT 口令不是 10 到 79 个字符：前端先拦，“SRT 口令需要 10 到 79 个字符”，不发给后端。校验在 `api/live.ts` 的 `isValidSrtPassphrase` / `assertSrtPassphrase`（两个 Start* 调后端和模拟之前先调；空口令 = 不加密，放行；按字符数算）。抛 `INVALID_ARGUMENT`，detail 首行 `reason=srt_passphrase_length`，message 是产品文案。页面目前没有单独的口令输入框（口令在地址的 `passphrase=` 参数里），页面把它当普通 INVALID_ARGUMENT 显示 message。
-- 缺协议（UNSUPPORTED）：有具体协议名 “当前的 ffmpeg 不支持 SRT，请在设置的 ffmpeg 页面重新安装或更新”（协议名替换）；没有 “当前 ffmpeg 不支持这种推流协议，请在设置的 ffmpeg 页面重新安装或更新”。判断依据见“仍未决”里的缺协议条目（契约没写清，采用最保守写法）。
+- 缺协议（UNSUPPORTED）：有具体协议名 “当前的 ffmpeg 不支持 SRT，请在设置的 ffmpeg 页面重新安装或更新”（协议名替换）；没有 “当前 ffmpeg 不支持这种推流协议，请在设置的 ffmpeg 页面重新安装或更新”。判断依据是契约 §6.10：detail 单独一行 `missing=<协议名>`（`rtmp` / `rtmps` / `srt`），严格匹配才带协议名，`missing=tee` 等其余情况用通用句（详见下方“缺协议的 UNSUPPORTED”条目，契约已冻结）。
 - 已确认在映射里：`TASK_CONFLICT`（max_sessions / duplicate_url / screen_busy / 其他），`SCREEN_PERMISSION_DENIED`，`UNSUPPORTED_PLATFORM`（文案见上一节）。
 
 ### 仍未决
 
 等**后端 / 架构师**：
 
-- **屏幕推流本地存档**：后端暂未实现，`archiveDir` 非空 → `UNSUPPORTED`（detail 没有 `missing=`，message“屏幕推流的本地存档暂未实现”）。前端保留存档开关，提交后若返回该错误显示“暂不支持同时保存本地存档，请关闭‘同时保存本地存档’后重试”（`LIVE_ARCHIVE_UNSUPPORTED_TEXT`，只在开着存档且 detail 没有 `missing=` 时用，缺协议照旧）；模拟层与后端一致。后端实现存档后去掉这个分支。
-- **缺协议的 UNSUPPORTED**（原 6）：契约（docs/architecture/contract.md）只说 `UNSUPPORTED` = “该操作不支持这个对象”，**没有**规定缺协议时 detail 的写法，也没有 reason 约定；且与直播会话 Retry 的 UNSUPPORTED 同码。后端实现（`internal/service/live/service.go` 的 `checkProtocols`，PR #31）实际写 detail=`missing=<协议名>`（srt / rtmps / rtmp / tee，无 reason 行、message 是“当前 ffmpeg 不支持 xxx，请安装完整版 ffmpeg”，前端不显示该 message）。前端按最保守写法（`liveFfmpegProtocolMissingText`）：detail 里出现“missing / 缺少协议 / missing protocol / protocol not found / protocol”加 `:`/`：`/`=` 再紧跟白名单协议名 rtmp / rtmps / srt 才显示协议名，其余一律用不带协议名的文案；detail 原文永不进文案。`missing=tee` 等不是推流协议名的值走无协议名文案。待架构师把 `missing=<协议名>` 写进契约后可收紧解析；模拟层 `?sim_missing=` 已改成同样的 `missing=<协议名>`。
+- **屏幕推流本地存档**：后端暂未实现，`archiveDir` 非空 → `UNSUPPORTED`（契约 §6.10：detail 没有 `missing=` 行，message“屏幕推流的本地存档暂未实现”）。前端保留存档开关，提交后若返回该错误显示“暂不支持同时保存本地存档，请关闭‘同时保存本地存档’后重试”（`LIVE_ARCHIVE_UNSUPPORTED_TEXT`，只在开着存档且 detail 没有 `missing=` 行时用；有 `missing=` 行（含 `missing=tee`）的按缺组件处理，`tee` 用通用句，不当成存档提示；后端存档 PR 合入前不放开）；模拟层与后端一致。后端实现存档后去掉这个分支。
+- **缺协议的 UNSUPPORTED**（原 6，**契约已冻结，见契约 §6.10 与 2.2 的 detail 约定表**）：本机 ffmpeg 缺推流协议时 `Start*` 返回 `UNSUPPORTED`，`detail` 是**单独一行** `missing=<协议名>`，协议名只取 `rtmp` / `rtmps` / `srt`（对应地址 scheme，`rtmp` 是除 `rtmps` / `srt` 以外的默认）；带本地存档的会话另需 tee，缺时是 `missing=tee`；`CheckPushURL` 不返回它；`message` 是“当前 ffmpeg 不支持 <协议名>，请安装完整版 ffmpeg”（前端不显示）。其他原因的 `UNSUPPORTED`（`Retry` 直播任务、屏幕推流存档未实现）没有这一行。前端按契约严格识别（`liveMissingProtocolName` / `liveFfmpegProtocolMissingText`）：detail 按行拆开，某一行**严格等于** `missing=rtmp` / `missing=rtmps` / `missing=srt` 才显示协议名（大写）；其余一律用不带协议名的通用句，包括 `missing=tee`、大小写 / 空格不同、别的写法。`hasMissingLine` 判断有没有 `missing=` 行，用来把“缺组件的 UNSUPPORTED”和“存档未实现的 UNSUPPORTED”分开。模拟层 `?sim_missing=rtmp|rtmps|srt` 产出的 detail 就是这一行。
 - **Edit 多素材预览**（原 10）：同时预览 N 个素材占 N 个 token（登记表 256 项 LRU），是否提供批量 `GetPreviewURL`。限长 206（4 MiB）的 seek 体验待 Windows 真机验证。
 - **Doc 转换产物不自动进 PDF 历史**（原 15）：预览时才 `OpenPDF`，请确认是预期。
 - **错误码表**（原 17）：`UNSUPPORTED_PLATFORM` 文案已定（见上）；`LIVE_PLAY_FAILED` / `LIVE_CORS_BLOCKED` 只由前端播放器产生。契约 §2 的清单是 17 个后端码。

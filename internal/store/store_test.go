@@ -22,10 +22,14 @@ func TestOpenAppliesMigrationsOnce(t *testing.T) {
 	ctx := context.Background()
 	s, p := openTemp(t)
 	v, err := s.SchemaVersion(ctx)
-	if err != nil || v != 2 {
-		t.Fatalf("期望迁移版本 2，实际 %d, err=%v", v, err)
+	ms, lerr := loadMigrations()
+	if lerr != nil {
+		t.Fatal(lerr)
 	}
-	for _, table := range []string{"media", "tasks", "presets", "edit_projects", "settings"} {
+	if err != nil || v != ms[len(ms)-1].version {
+		t.Fatalf("期望迁移版本 %d，实际 %d, err=%v", ms[len(ms)-1].version, v, err)
+	}
+	for _, table := range []string{"media", "tasks", "presets", "edit_projects", "settings", "doc_recent"} {
 		var n int
 		if err := s.DB().QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&n); err != nil || n != 1 {
 			t.Fatalf("缺少表 %s", table)
@@ -41,8 +45,8 @@ func TestOpenAppliesMigrationsOnce(t *testing.T) {
 	defer s2.Close()
 	var rows int
 	s2.DB().QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&rows)
-	if rows != 2 {
-		t.Fatalf("schema_migrations 应有 2 行（每个迁移一行），实际 %d", rows)
+	if rows != len(ms) {
+		t.Fatalf("schema_migrations 应有 %d 行（每个迁移一行），实际 %d", len(ms), rows)
 	}
 }
 

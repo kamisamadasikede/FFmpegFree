@@ -22,6 +22,19 @@
   --ff-on-danger: #ffffff; /* 危险色底上的文字（删除 / 清除按钮） */
   --ff-switch-knob: #ffffff; /* 开关滑块，两个主题都是白色（--ff-on-primary 在暗色下是近黑） */
 
+  /* 剪辑页语义色（设计规范第 10 节）。片段白字对比度：视频 7.9:1、音频 5.5:1；播放头是图形，非文字 */
+  --ff-clip-video: #4338ca;
+  --ff-clip-audio: #0f766e;
+  --ff-on-clip: #ffffff;
+  --ff-playhead: #dc2626;
+  /* 预览区的黑色播放器外观：深色固定，两个主题相同（文字 ≥4.5:1） */
+  --ff-player-bg: #0b0c0e;
+  --ff-player-bar: #16171b;
+  --ff-player-fg: #e8eaed;
+  --ff-player-fg-2: #a0a6b0;
+  --ff-player-line: #33363d;
+  --ff-player-scrim: rgba(11, 12, 14, 0.9); /* 预览失败态遮罩 */
+
   /* JSON 语法色（工具页代码 / 树形共用），来源：设计原型 extra.css */
   --ff-syntax-key: var(--ff-primary-text);
   --ff-syntax-string: #15803d;
@@ -92,6 +105,17 @@ html.dark,
   --ff-badge-bg: #5b8cff; /* 配近黑字 6.2:1 */
   --ff-on-danger: #0b0c0e; /* 白字在 #ef4444 上只有 3.76:1 */
   --ff-switch-knob: #ffffff;
+
+  --ff-clip-video: #4f46e5;
+  --ff-clip-audio: #0f766e;
+  --ff-on-clip: #ffffff;
+  --ff-playhead: #ef4444;
+  --ff-player-bg: #0b0c0e;
+  --ff-player-bar: #16171b;
+  --ff-player-fg: #e8eaed;
+  --ff-player-fg-2: #a0a6b0;
+  --ff-player-line: #33363d;
+  --ff-player-scrim: rgba(11, 12, 14, 0.9);
 
   --ff-syntax-key: var(--ff-primary-text);
   --ff-syntax-string: #7ec699;

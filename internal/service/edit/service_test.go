@@ -668,3 +668,26 @@ func TestExplicit720pStillHonored(t *testing.T) {
 		t.Errorf("显式 720p 不应出现 1920/1080:\n%s", g)
 	}
 }
+
+// SaveProject 也只查数量上限：素材库恰好 100 可保存，101 → INVALID_ARGUMENT 且不落库。
+func TestSaveProjectMaxSources100(t *testing.T) {
+	s, _, _ := storeSvc(t)
+	ctx := context.Background()
+	mk := func(n int) EditProject {
+		p := EditProject{Name: "多素材"}
+		for i := 0; i < n; i++ {
+			p.Sources = append(p.Sources, filepath.Join(string(filepath.Separator), "m", "s"+itoa(i)+".mp4"))
+		}
+		return p
+	}
+	if _, err := s.SaveProject(ctx, mk(100)); err != nil {
+		t.Fatalf("100 个素材应可保存: %v", err)
+	}
+	_, err := s.SaveProject(ctx, mk(101))
+	if code(t, err) != apperr.InvalidArgument || !strings.Contains(apperr.From(err).Detail, "sources=101") {
+		t.Fatalf("101 个素材: %v", err)
+	}
+	if ms, err := s.ListProjects(ctx, 0); err != nil || len(ms) != 1 {
+		t.Fatalf("超限的不应落库: %v %v", ms, err)
+	}
+}

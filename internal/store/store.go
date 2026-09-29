@@ -29,6 +29,7 @@ var migrationFS embed.FS
 type Store struct {
 	db        *sql.DB
 	mediaKeep atomic.Int64 // media 表保留条数，0 表示默认
+	docKeep   atomic.Int64 // doc_recent 表保留条数，0 表示默认
 }
 
 // Open 打开（或创建）数据库并执行未应用的迁移。
