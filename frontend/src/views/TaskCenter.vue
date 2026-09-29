@@ -91,7 +91,7 @@
                 <td class="when" :class="{ dim: !t.startedAt && !isTerminal(t.status) }">{{ formatStart(startTime(t)) }}</td>
                 <td>
                   <div class="ops">
-                    <button v-if="t.status === 'failed' || t.status === 'interrupted' || t.status === 'canceled'" type="button" class="btn sm" @click="doRetry(t)"><FIcon name="retry" />重试</button>
+                    <button v-if="t.status === 'failed' || t.status === 'interrupted'" type="button" class="btn sm" @click="doRetry(t)"><FIcon name="retry" />重试</button>
                     <button v-if="t.status === 'queued' || t.status === 'running'" type="button" class="iconbtn" :title="`取消 ${t.title}`" :aria-label="`取消 ${t.title}`" @click="act(() => tasks.cancel(t.id))"><FIcon name="x" /></button>
                     <button v-if="t.status === 'succeeded' && t.outputPath" type="button" class="iconbtn" :title="`打开输出 ${t.title}`" :aria-label="`打开输出 ${t.title}`" @click="openOutput(t)"><FIcon name="folder" /></button>
                     <button type="button" class="iconbtn" :class="{ on: logId === t.id }" :title="`查看日志 ${t.title}`" :aria-label="`查看日志 ${t.title}`" :aria-pressed="logId === t.id" @click="toggleLog(t.id)"><FIcon name="doc" /></button>
@@ -111,6 +111,7 @@
                     :detail="t.error.detail"
                     :announce="isFresh(t)"
                     show-retry
+                    :hide-retry="t.status === 'interrupted'"
                     @retry="doRetry(t)"
                     @change-output="changeOutput"
                     @view-log="toggleLog(t.id, true)"
@@ -120,11 +121,11 @@
                     compact
                     tone="interrupted"
                     code="INTERRUPTED"
-                    title="任务被中断"
-                    description="应用退出时这个任务还没有结束，不会自动继续。"
+                    title=""
+                    description="应用退出时这个任务被中断，可以重试。"
                     hide-code
                     :announce="isFresh(t)"
-                    show-retry
+                    hide-retry
                     @retry="doRetry(t)"
                     @view-log="toggleLog(t.id, true)"
                   />
@@ -283,7 +284,7 @@ const TYPE_LABEL: Record<string, string> = {
 }
 const typeLabel = (t: string) => TYPE_LABEL[t] ?? t
 
-// 类型标签一律中性色；颜色只出现在状态列。canceled 是无底色 1px 描边，和 queued 的灰底区分开
+// 类型标签默认中性色，颜色主要出现在状态列；唯一例外是「● 直播」标签用危险色（设计稿如此）。canceled 是无底色 1px 描边，和 queued 的灰底区分开
 const STATUS_TAG: Record<TaskStatus, { label: string; cls: string; icon?: IconName }> = {
   queued: { label: '排队中', cls: 'q' },
   running: { label: '运行中', cls: 'run' },
@@ -650,7 +651,7 @@ td:first-child {
   gap: 4px;
   white-space: nowrap;
 }
-/* 类型标签一律中性；只有状态列有颜色。文字色用 *-text 变量，浅色主题下在着色底上 ≥4.5:1 */
+/* 类型标签默认中性（直播标签是设计稿里的红色例外）；状态列有颜色。文字色用 *-text 变量，浅色主题下在着色底上 ≥4.5:1 */
 .tag.type { background: var(--ff-bg-hover); color: var(--ff-text-2); }
 .tag.live { background: color-mix(in srgb, var(--ff-danger) 14%, transparent); color: var(--ff-danger-text); }
 .tag.run { background: var(--ff-primary-soft); color: var(--ff-primary-text); }
@@ -715,6 +716,14 @@ td:first-child {
   .bar i {
     transition: none;
   }
+}
+/* 设置里的「减少动效」开关会给 <html> 加 reduce-motion（设置页还没有该开关，钩子先留好） */
+:global(html.reduce-motion) .bar i.run::after {
+  animation: none;
+  display: none;
+}
+:global(html.reduce-motion) .bar i {
+  transition: none;
 }
 .plain {
   color: var(--ff-text-2);
@@ -805,7 +814,7 @@ td:first-child {
 .btn.danger {
   background: var(--ff-danger);
   border-color: var(--ff-danger);
-  color: #fff;
+  color: var(--ff-on-danger);
 }
 .btn svg {
   width: 15px;

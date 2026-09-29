@@ -3,21 +3,21 @@
     class="ff-error-line"
     :class="[`tone-${tone}`, { compact }]"
     :role="announce ? 'alert' : 'group'"
-    :aria-label="announce ? undefined : `错误：${shownTitle}`"
+    :aria-label="announce ? undefined : `${shownTitle || shownDescription}`"
   >
     <FIcon name="warn" :size="16" />
     <div class="body">
-      <b>{{ shownTitle }}</b>{{ shownDescription }}<span v-if="compact && showCode" class="code">{{ resolved.code }}</span>
+      <b v-if="shownTitle">{{ shownTitle }}</b>{{ shownDescription }}<span v-if="compact && showCode" class="code">{{ resolved.code }}</span>
       <template v-if="!compact">
-        <button v-if="showRetry" type="button" class="ff-link" @click="emit('retry')">重试</button>
+        <button v-if="retryVisible" type="button" class="ff-link" @click="emit('retry')">重试</button>
         <button v-if="showChange" type="button" class="ff-link" @click="emit('changeOutput')">更换输出位置</button>
         <button v-if="showLog" type="button" class="ff-link" @click="emit('viewLog')">查看日志</button>
         <br v-if="showCode" />
         <span v-if="showCode" class="code">{{ resolved.code }}</span>
       </template>
     </div>
-    <div v-if="compact && (showRetry || showChange || showLog)" class="actions">
-      <button v-if="showRetry" type="button" class="ff-link" @click="emit('retry')">重试</button>
+    <div v-if="compact && (retryVisible || showChange || showLog)" class="actions">
+      <button v-if="retryVisible" type="button" class="ff-link" @click="emit('retry')">重试</button>
       <button v-if="showChange" type="button" class="ff-link" @click="emit('changeOutput')">更换输出位置</button>
       <button v-if="showLog" type="button" class="ff-link" @click="emit('viewLog')">查看日志</button>
     </div>
@@ -40,6 +40,8 @@ const props = withDefaults(
     detail?: string
     showLog?: boolean
     showRetry?: boolean
+    /** 不显示重试链接（已中断的行：重试按钮在行内，这里只保留说明和查看日志） */
+    hideRetry?: boolean
     /** 新出现的错误：role="alert"，读屏软件会立即播报 */
     announce?: boolean
     /** 横排紧凑版：标题、说明、错误码在一行，操作靠右 */
@@ -48,7 +50,7 @@ const props = withDefaults(
     tone?: 'danger' | 'interrupted'
     /** 没有专属文案的错误码的标题，默认「转换失败」；非任务错误（如列表加载失败）可改成别的，但不会是「出错了」 */
     fallbackTitle?: string
-    /** 覆盖标题 / 说明（interrupted 且后端没给 error 时用） */
+    /** 覆盖标题 / 说明（interrupted 且后端没给 error 时用）；title 传空串 = 不显示标题，只有一行说明 */
     title?: string
     description?: string
     /** 不显示错误码（没有错误对象时） */
@@ -66,6 +68,7 @@ function lastLine(text?: string): string {
 const resolved = computed(() => resolveTaskError(props.code, props.message || lastLine(props.detail)))
 /** 该错误码是否带「更换输出位置」（磁盘空间不足） */
 const showChange = computed(() => !props.title && resolved.value.actions.includes('changeOutput'))
+const retryVisible = computed(() => props.showRetry && !props.hideRetry)
 const shownTitle = computed(() => props.title ?? (!resolved.value.known && props.fallbackTitle ? props.fallbackTitle : resolved.value.title))
 const shownDescription = computed(() => props.description ?? resolved.value.description)
 const showCode = computed(() => !props.hideCode)
@@ -108,7 +111,7 @@ b {
   border: none;
   background: transparent;
   font: inherit;
-  color: var(--ff-primary);
+  color: var(--ff-primary-text);
   cursor: pointer;
   border-radius: 2px;
 }
@@ -135,7 +138,7 @@ b {
 }
 .compact .actions {
   display: flex;
-  gap: 4px;
+  gap: 0; /* 链接间距只由 .ff-link 的 margin-left 12px 提供 */
   flex: none;
 }
 </style>

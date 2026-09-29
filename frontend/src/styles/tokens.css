@@ -17,7 +17,9 @@
   --ff-warning-text: #985006;
   --ff-danger-text: #b91c1c;
   --ff-primary-text: #2f5cd9; /* 主色浅底（primary-soft）上的文字色，4.5:1 以上 */
-  --ff-on-primary: #ffffff; /* 主色底上的文字（侧边栏角标、主按钮） */
+  --ff-on-primary: #ffffff; /* 主色底上的文字（主按钮等） */
+  --ff-badge-bg: #2f5cd9; /* 白字 4.44:1 不够，浅色主题角标用 primary-hover（≈5.0:1） */
+  --ff-on-danger: #ffffff; /* 危险色底上的文字（删除 / 清除按钮） */
 
   --ff-bg-app: #f5f6f8;
   --ff-bg-sidebar: #eef0f3;
@@ -79,6 +81,8 @@ html.dark,
   --ff-danger-text: #f87171; /* #ef4444 在 14% 着色底上只有 3.75:1 */
   --ff-primary-text: #7aa2ff;
   --ff-on-primary: #0b0c0e; /* 白字在 #5b8cff 上只有 3.16:1 */
+  --ff-badge-bg: #5b8cff; /* 配近黑字 6.2:1 */
+  --ff-on-danger: #0b0c0e; /* 白字在 #ef4444 上只有 3.76:1 */
 
   --ff-bg-app: #141518;
   --ff-bg-sidebar: #1a1b1f;
