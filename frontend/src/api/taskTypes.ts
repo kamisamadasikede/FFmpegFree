@@ -52,6 +52,8 @@ export interface TaskStatusPayload {
   status: TaskStatus
   error?: ApiTaskError | null
   outputPath?: string
+  /** running 与四种终态事件都带；排队中被取消则缺省 */
+  startedAt?: number
   finishedAt?: number
 }
 

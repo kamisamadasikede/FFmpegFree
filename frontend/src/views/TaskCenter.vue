@@ -191,7 +191,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import ErrorLine from '@/components/common/ErrorLine.vue'
-import { isLiveType, isTerminal, useTaskStore, type TaskItem, type TaskStatus } from '@/stores/tasks'
+import { elapsedMs, isLiveType, isTerminal, useTaskStore, type TaskItem, type TaskStatus } from '@/stores/tasks'
 import type { IconName } from '@/components/icon/icons'
 import { toAppError } from '@/api/call'
 import { isSimTask, SIM_TITLE_PREFIX } from '@/api/sim'
@@ -349,8 +349,11 @@ function progressText(t: TaskItem): string {
       return pos > 0 ? `排队中（第 ${pos} 位）` : '排队中'
     }
     case 'succeeded':
-      if (isLiveType(t.type)) return t.startedAt && t.finishedAt ? `推流 ${formatDuration(t.finishedAt - t.startedAt)}` : '推流已结束'
-      return t.startedAt && t.finishedAt ? `用时 ${formatDuration(t.finishedAt - t.startedAt)}` : '已完成'
+      {
+        const ms = elapsedMs(t.startedAt, t.finishedAt)
+        if (isLiveType(t.type)) return ms !== null ? `推流 ${formatDuration(ms)}` : '推流已结束'
+        return ms !== null ? `用时 ${formatDuration(ms)}` : '已完成'
+      }
     case 'failed':
       return '失败'
     case 'interrupted':

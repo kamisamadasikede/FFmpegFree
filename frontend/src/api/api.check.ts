@@ -13,7 +13,7 @@ import * as edit from './edit'
 import * as doc from './doc'
 import { onSimEvent } from '@/services/wails'
 import { retrySimTask, SIM_TITLE_PREFIX } from './sim'
-import { isKnownTaskType } from '@/stores/tasks'
+import { elapsedMs, isKnownTaskType, isLegacyTaskType } from '@/stores/tasks'
 
 const fails: string[] = []
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -62,6 +62,12 @@ export async function runApiChecks(): Promise<string[]> {
   eq('live_record_push 忽略', isKnownTaskType('live_record_push'), false)
   eq('edit_render 忽略', isKnownTaskType('edit_render'), false)
   eq('未知类型忽略', isKnownTaskType('whatever'), false)
+  eq('旧类型识别', ['live_relay', 'live_record_push', 'edit_render'].every(isLegacyTaskType), true)
+  eq('用时：正常', elapsedMs(1000, 4000), 3000)
+  eq('用时：缺 startedAt', elapsedMs(undefined, 4000), null)
+  eq('用时：startedAt=0', elapsedMs(0, 4000), null)
+  eq('用时：结束早于开始', elapsedMs(5000, 4000), null)
+  eq('用时：NaN', elapsedMs(NaN, 4000), null)
   eq('live_screen_push 认识', isKnownTaskType('live_screen_push'), true)
   eq('edit_export 认识', isKnownTaskType('edit_export'), true)
 
