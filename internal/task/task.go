@@ -135,12 +135,20 @@ type ProgressEvent struct {
 }
 
 // StatusEvent 是 task:status 的 payload。
+//
+// 时间字段（Unix 毫秒，为 0 时省略）：
+//   - running 事件带 StartedAt，不带 FinishedAt；
+//   - 所有终态事件（succeeded / failed / canceled / interrupted）带 FinishedAt，
+//     跑过的任务同时带 StartedAt（与 Task.StartedAt / Task.FinishedAt 及落库值一致）；
+//   - 从未进入 running 就结束的任务（排队中被取消、退出时还在排队而被中断）没有 StartedAt，
+//     事件里省略该字段（Task.StartedAt 为 0），这是正常的。
 type StatusEvent struct {
 	ID         string           `json:"id"`
 	Version    int64            `json:"version"`
 	Status     Status           `json:"status"`
 	Error      *apperr.AppError `json:"error,omitempty"`
 	OutputPath string           `json:"outputPath,omitempty"`
+	StartedAt  int64            `json:"startedAt,omitempty"`
 	FinishedAt int64            `json:"finishedAt,omitempty"`
 }
 
