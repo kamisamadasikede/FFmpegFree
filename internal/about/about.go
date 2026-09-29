@@ -34,9 +34,17 @@ func AppVersion() string {
 //go:embed OFL.txt
 var oflText string
 
+// oflNunitoText 是 Nunito 字体（前端 UI 字体）的 SIL Open Font License 1.1 全文，与 oflText（Noto Sans SC）内容不同。
+// 原样拷贝自 frontend/src/assets/fonts/OFL.txt（go:embed 不能跨出包目录，所以在本包里放一份；
+// TestNunitoLicenseMatchesFrontend 会在前端那份变化时提示同步）。
+//
+//go:embed OFL-Nunito.txt
+var oflNunitoText string
+
 // licenses 是可读取的许可白名单，key 必须与传入的名字完全一致（区分大小写、不带扩展名）。
 var licenses = map[string]string{
-	"OFL": oflText,
+	"OFL":        oflText,
+	"OFL-Nunito": oflNunitoText,
 }
 
 // maxEchoRunes 是错误详情里回显用户输入的最大字符数。
@@ -48,7 +56,7 @@ func LicenseText(name string) (string, error) {
 		return text, nil
 	}
 	return "", apperr.New(apperr.InvalidArgument, "未知的许可名称").
-		WithDetail(fmt.Sprintf("name=%s，可用: OFL", echo(name)))
+		WithDetail(fmt.Sprintf("name=%s，可用: OFL, OFL-Nunito", echo(name)))
 }
 
 // echo 把用户输入截断并加引号（转义换行等控制字符），避免错误详情里出现超长或多行的原样输入。
