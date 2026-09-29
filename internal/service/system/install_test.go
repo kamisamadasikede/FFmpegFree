@@ -510,3 +510,80 @@ func TestInstallCancelWhileQueued(t *testing.T) {
 		t.Fatal("排队中取消不应发起下载")
 	}
 }
+
+func TestRetryClaimsInstallingWhileQueued(t *testing.T) {
+	f := newInstFixture(t, "BAD-not-runnable")
+	tk, err := f.mgr.Install(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.release()
+	waitFor(t, func() bool { return f.mgr.Status().State == ffmpeg.StateFailed })
+
+	// 占满 batch 池，让重试的安装任务排队
+	block := make(chan struct{})
+	f.mgr.cfg.Tasks.Submit(task.Spec{Type: task.TypeConvert}, task.RunnerFunc(func(ctx context.Context, _ func(task.Progress)) (string, error) {
+		<-block
+		return "", nil
+	}))
+	nt, err := f.mgr.cfg.Tasks.Retry(tk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nt.Status != task.StatusQueued {
+		t.Fatalf("重试的任务应在排队: %+v", nt)
+	}
+	// 排队期间：已经处于 installing，第二个 Install 返回同一个任务，不会再提交
+	if st := f.mgr.Status(); st.State != ffmpeg.StateInstalling || st.TaskID != nt.ID {
+		t.Fatalf("Retry 应立刻占住 installing: %+v", st)
+	}
+	again, err := f.mgr.Install(context.Background(), "")
+	if err != nil || again.ID != nt.ID {
+		t.Fatalf("排队期间再次 Install 应返回同一个任务: %+v %v", again, err)
+	}
+	// 再 Retry 一次原任务：TASK_CONFLICT
+	if _, err := f.mgr.cfg.Tasks.Retry(tk.ID); !apperr.Is(err, apperr.TaskConflict) {
+		t.Fatalf("已有安装时 Retry 应 TASK_CONFLICT: %v", err)
+	}
+	if p, _ := f.mgr.cfg.Tasks.List(task.Filter{Types: []task.Type{task.TypeFFmpegInstall}}); p.Total != 2 {
+		t.Fatalf("不应产生第三个安装任务: %d", p.Total)
+	}
+	// 取消排队中的重试 → 释放占位，可以重新安装
+	if err := f.mgr.CancelInstall(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return f.mgr.Status().State != ffmpeg.StateInstalling })
+	close(block)
+	if _, err := f.mgr.Install(context.Background(), ""); err != nil {
+		t.Fatalf("释放后应能再次安装: %v", err)
+	}
+}
+
+func TestInstallConcurrentCallsShareOneTask(t *testing.T) {
+	f := newInstFixture(t, "GOOD-ffmpeg")
+	var wg sync.WaitGroup
+	ids := make([]string, 12)
+	for i := range ids {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			tk, err := f.mgr.Install(context.Background(), "")
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			ids[i] = tk.ID
+		}(i)
+	}
+	wg.Wait()
+	for _, id := range ids {
+		if id != ids[0] || id == "" {
+			t.Fatalf("并发 Install 应返回同一个任务: %v", ids)
+		}
+	}
+	f.release()
+	waitFor(t, func() bool { return f.mgr.Status().State == ffmpeg.StateReady })
+	if p, _ := f.mgr.cfg.Tasks.List(task.Filter{Types: []task.Type{task.TypeFFmpegInstall}}); p.Total != 1 {
+		t.Fatalf("只应有一个安装任务: %d", p.Total)
+	}
+}
