@@ -67,22 +67,22 @@ Bind 方法返回 `(T, error)`。error 的 message 是 JSON 字符串，前端 `
 | INVALID_ARGUMENT | 参数不合法 |
 | NOT_FOUND | 记录或文件不存在 |
 | FFMPEG_NOT_FOUND | ffmpeg 缺失 |
-| TASK_CONFLICT | 任务状态不允许该操作（如取消已完成任务） |
+| TASK_CONFLICT | 任务状态不允许该操作（如取消已完成任务）；直播（v0.10）：同一推流地址已有进行中的会话，或进行中的直播会话已达 4 个上限 |
 | IO_ERROR | 读写文件失败 |
 | PROBE_FAILED | 文件存在但 ffprobe 无法解析（损坏、不是音视频文件、没有可识别的流） |
 | CANCELED | 调用因应用退出（根 ctx 取消）而被取消，结果作废；前端不需要提示用户（`ConvertService.Submit`、`LiveService.Start*` 等） |
-| UNSUPPORTED | 该操作不支持这个对象（如没有重试工厂的任务类型不能 Retry） |
+| UNSUPPORTED | 该操作不支持这个对象（如没有重试工厂的任务类型不能 Retry；直播会话 Retry 也是它） |
 | CONVERT_DISK_FULL | 转换写输出文件时磁盘空间不足（前端标题「磁盘空间不足」，可引导用户换输出目录） |
 | PROCESS_FAILED | 子进程非零退出，detail 带最后 50 行日志 |
-| UNSUPPORTED_PLATFORM | 当前系统或会话不支持该功能（如 Linux Wayland 下的屏幕采集） |
-| LIVE_URL_INVALID | 直播地址格式不合法或协议不支持 |
-| LIVE_CONNECT_FAILED | 连接推流 / 拉流目标失败（DNS、拒绝连接、超时） |
-| LIVE_PUSH_REJECTED | 目标服务器拒绝推流（鉴权失败、流名冲突等） |
-| LIVE_PUSH_INTERRUPTED | 推流过程中被目标服务器或网络中断 |
-| SCREEN_PERMISSION_DENIED | 没有屏幕录制权限（macOS 系统授权） |
-| INTERNAL | 其他；ffmpeg 异常退出时 detail 带 ffmpeg stderr 的最后若干行 |
+| UNSUPPORTED_PLATFORM | 当前系统或会话不支持该功能（如 Linux Wayland 下的屏幕采集、Linux 没有 `DISPLAY`、x11grab 打不开显示） |
+| LIVE_URL_INVALID | 推流地址格式不合法或协议不支持（只允许 rtmp / rtmps / srt，规则见第 4 节 LiveService） |
+| LIVE_CONNECT_FAILED | 推流**开始前**连接目标失败（DNS、拒绝连接、超时、网络不可达）：任务在收到第一条 `task:progress` 之前就失败 |
+| LIVE_PUSH_REJECTED | 目标服务器明确拒绝推流（鉴权失败、流名冲突、握手被拒等），推流开始前 |
+| LIVE_PUSH_INTERRUPTED | 推流**已经开始**（收到过 `task:progress`）后被目标服务器或网络中断 |
+| SCREEN_PERMISSION_DENIED | 没有屏幕录制权限（macOS 系统授权），`StartScreenPush` 同步返回或任务失败 |
+| INTERNAL | 其他；直播任务里认不出的 ffmpeg 非零退出也是它（不是 `PROCESS_FAILED`），detail 带（已脱敏的）stderr 最后若干行 |
 
-后端返回的直播 / 录屏错误码就是上表这些。`LIVE_PLAY_FAILED`（播放器加载或解码失败）和 `LIVE_CORS_BLOCKED`（拉流地址跨域被浏览器拦截）**只在前端由播放器产生**，后端不会返回，也不在 `apperr` 里定义。
+**直播 / 录屏（v0.10）用到的后端码正好是冻结的这八个：`LIVE_URL_INVALID`、`LIVE_CONNECT_FAILED`、`LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`SCREEN_PERMISSION_DENIED`、`FFMPEG_NOT_FOUND`、`UNSUPPORTED_PLATFORM`、`INTERNAL`**；此外复用已有的 `INVALID_ARGUMENT`、`NOT_FOUND`、`PROBE_FAILED`（输入文件问题）、`TASK_CONFLICT`（会话上限 / 同地址冲突）、`UNSUPPORTED`（Retry）、`CANCELED`（`Start*` 因应用退出被取消，#10 已加）。**v0.10 没有新增任何错误码**，也没有 `LIVE_START_FAILED` 之类的同义码。用户主动停止不产生错误码（优雅停止成功 = `succeeded`，超时强杀 = `canceled` 状态，`error` 为空）。`LIVE_PLAY_FAILED`（播放器加载或解码失败）和 `LIVE_CORS_BLOCKED`（拉流地址跨域被浏览器拦截）**只在前端由播放器产生**，后端不会返回，也不在 `apperr` 里定义。
 
 ## 3. 数据模型（Go struct，Wails 自动生成 models.ts）
 
