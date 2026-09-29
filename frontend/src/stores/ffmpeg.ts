@@ -128,9 +128,31 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
    */
   const featuresBlocked = computed(() => needsAttention.value)
 
+  // 路由守卫用：首次导航时状态可能还在 checking，守卫要等它出结果（或超时）再判断
+  let settleWaiters: Array<() => void> = []
+  /** 是否会有真实（或预览）状态到来；浏览器里没有后端也没有 ?ff= 时状态永远是 checking，不该等 */
+  const statusExpected = hasWailsBackend() || previewMode
+  /** 等状态离开 checking，最多等 timeoutMs；超时也 resolve（守卫按当时的状态放行，不卡住导航） */
+  function whenSettled(timeoutMs = 1500): Promise<void> {
+    if (status.value.state !== 'checking' || !statusExpected) return Promise.resolve()
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(timer)
+        resolve()
+      }
+      const timer = setTimeout(done, timeoutMs)
+      settleWaiters.push(done)
+    })
+  }
+
   function setStatus(next: FFmpegStatus) {
     const was = status.value.state
     status.value = next
+    if (next.state !== 'checking' && settleWaiters.length) {
+      const ws = settleWaiters
+      settleWaiters = []
+      ws.forEach((w) => w())
+    }
     if (next.state === 'ready') {
       // 契约 9.5：ready 后后端重置 ffmpegPromptDismissed，本地保持一致
       promptDismissed.value = false
@@ -282,6 +304,6 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
   return {
     status, install, promptDismissed, bannerClosed, dialogOpen, justBecameReady,
     installAvailable, canPickDirectory, manualInputOpen, installOptions, sources, canSwitchMirror,
-    ready, needsAttention, featuresBlocked, init, startInstall, retryWithOtherMirror, cancelInstall, pickPath, clearCustomPath, recheck, dismissPrompt, updateInstall,
+    ready, needsAttention, featuresBlocked, whenSettled, init, startInstall, retryWithOtherMirror, cancelInstall, pickPath, clearCustomPath, recheck, dismissPrompt, updateInstall,
   }
 })
