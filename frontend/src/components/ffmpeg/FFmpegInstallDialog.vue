@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div v-if="ffmpeg.dialogOpen" class="mask">
+    <div v-if="ffmpeg.dialogVisible" class="mask">
       <div class="dlg" role="dialog" aria-modal="true">
         <div class="big"><FIcon name="download" :size="24" /></div>
 

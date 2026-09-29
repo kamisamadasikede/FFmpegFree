@@ -127,6 +127,11 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
    * checking（启动检测中）不置灰，避免每次启动闪一下灰。
    */
   const featuresBlocked = computed(() => needsAttention.value)
+  /**
+   * 安装对话框是否显示：用户/守卫要求打开（dialogOpen）且 ffmpeg 确实需要处理。
+   * 已经 ready（含安装刚完成）时无论 dialogOpen 是什么都不显示，不会再冒出"需要安装 ffmpeg"。
+   */
+  const dialogVisible = computed(() => dialogOpen.value && needsAttention.value)
 
   // 路由守卫用：首次导航时状态可能还在 checking，守卫要等它出结果（或超时）再判断
   let settleWaiters: Array<() => void> = []
@@ -157,6 +162,11 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
       // 契约 9.5：ready 后后端重置 ffmpegPromptDismissed，本地保持一致
       promptDismissed.value = false
       promptShown = false
+      // 可用了就不该再有"需要安装"对话框：安装对话框在 installing 时也是开着的（进度视图），
+      // ready 后 dialogOpen 若还是 true，installing 视图一消失就会退回"需要安装 ffmpeg / 下载"视图，等于让用户重复下载。
+      // 手动指定路径成功（pickPath）走的也是这里。
+      dialogOpen.value = false
+      manualInputOpen.value = false
       if (was !== 'ready' && was !== 'checking') {
         justBecameReady.value = true
         setTimeout(() => (justBecameReady.value = false), 3000)
@@ -234,8 +244,11 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
     if (mirror !== undefined) lastMirror = mirror
     const use = lastMirror ?? defaultMirror.value
     lastMirror = use
+    const seqAtStart = eventSeq
     const task = await call(SystemBinding.InstallFFmpeg(use))
-    // 后端随后会推 ffmpeg:status(installing)；这里先本地切换，避免按钮空档
+    // 后端随后会推 ffmpeg:status(installing)；这里先本地切换，避免按钮空档。
+    // 调用返回前已经收到过状态事件（例如安装已经完成推了 ready），说明事件比这个返回值新，不能再把状态改回 installing。
+    if (eventSeq !== seqAtStart) return
     setStatus({ ...status.value, state: 'installing', taskId: task?.id })
     install.value = toInstallProgress(task?.progress ?? 0, task?.speed ?? '', task?.etaSec ?? 0)
   }
@@ -271,13 +284,18 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
       if (!dir) return // 用户取消
     }
     if (previewMode) return
-    setStatus(normalize(await call(SystemBinding.SetFFmpegPath(dir))))
+    const seqAtStart = eventSeq
+    const st = normalize(await call(SystemBinding.SetFFmpegPath(dir)))
+    // SetFFmpegPath 成功时后端同时推 ffmpeg:status(ready)，事件已应用过就不用再用返回值覆盖
+    if (eventSeq === seqAtStart) setStatus(st)
   }
 
   /** 清除手动指定并重新检测（SetFFmpegPath('')） */
   async function clearCustomPath() {
     if (previewMode) return
-    setStatus(normalize(await call(SystemBinding.SetFFmpegPath(''))))
+    const seqAtStart = eventSeq
+    const st = normalize(await call(SystemBinding.SetFFmpegPath('')))
+    if (eventSeq === seqAtStart) setStatus(st)
   }
 
   /** 重新检测：后端先推 checking 再推结果，返回值就是最终结果 */
@@ -304,6 +322,6 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
   return {
     status, install, promptDismissed, bannerClosed, dialogOpen, justBecameReady,
     installAvailable, canPickDirectory, manualInputOpen, installOptions, sources, canSwitchMirror,
-    ready, needsAttention, featuresBlocked, whenSettled, init, startInstall, retryWithOtherMirror, cancelInstall, pickPath, clearCustomPath, recheck, dismissPrompt, updateInstall,
+    ready, needsAttention, featuresBlocked, dialogVisible, whenSettled, init, startInstall, retryWithOtherMirror, cancelInstall, pickPath, clearCustomPath, recheck, dismissPrompt, updateInstall,
   }
 })

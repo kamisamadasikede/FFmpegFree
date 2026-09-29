@@ -128,3 +128,8 @@
 - 布局按旧稿 `07-文档-浅色.png` 与现有设计令牌：Office 转 PDF = 标题 +“实验性”标签 + 常驻说明 12px `--ff-text-2`“仅提取文字，不保留图片和样式”、拖入区、转换记录；PDF 预览 = 缩略图 + 阅读区 + 最近打开。完整稿（含暗色、标签与说明）由设计师稍后补，出来后走查差异。
 - **待产品经理确认的自拟文案**（`errors/errorMessages.ts`，已标注）：超过 5000 页 `DOC_TOO_MANY_PAGES_TEXT`、文件损坏（INVALID_ARGUMENT + OOXML）`DOC_FILE_BROKEN_TEXT`。
 - 未在真实 Wails 里验证：`atob` 解码后字节与 `length` 一致（前端已校验，不一致抛 INTERNAL）；> 64 MiB 的 `/local/<token>` Range 加载与 HEAD 探测；真实 Office 转换与超 5000 页；加密 PDF 的 `onPassword` 弹出；拖入（`OnFileDrop`）落在文档页；刷新后 `ListActive` / `List` 接回进度。
+
+### ffmpeg 安装完成后重复弹"需要安装"（2026-09-29 修复）
+
+- 根因在前端：`stores/ffmpeg.ts` 的 `dialogOpen` 在点"下载"后一直为 true，安装完成收到 `ffmpeg:status(ready)` 时没有复位；安装对话框 `v-if` 只看 `dialogOpen`，`installing` 视图消失后就退回"需要安装 ffmpeg / 下载"视图。现在 ready 时复位 `dialogOpen`，对话框改用 `dialogVisible = dialogOpen && needsAttention`；`startInstall` / `pickPath` / `clearCustomPath` 的返回值也按事件序号丢弃过期结果。
+- 自检：`npm run check:ffmpeg`（`src/stores/ffmpeg.check.ts`，假的 `window.go` 驱动真实 store）。
