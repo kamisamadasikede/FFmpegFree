@@ -1,0 +1,319 @@
+package media
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"math"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"FFmpegFree/internal/apperr"
+	"FFmpegFree/internal/ffmpeg"
+	"FFmpegFree/internal/id"
+	"FFmpegFree/internal/paths"
+	"FFmpegFree/internal/store"
+)
+
+const (
+	defaultProbeTimeout = 30 * time.Second
+	maxProbeBatch       = 500
+	probeConcurrency    = 4
+	thumbConcurrency    = 2
+	// 每生成这么多张新缩略图顺带清理一次缓存。
+	cleanupEvery = 50
+)
+
+// Store 是 MediaService 用到的持久化能力，*store.Store 实现它。
+type Store interface {
+	UpsertMedia(ctx context.Context, pathKey string, m store.MediaInfo) (store.MediaInfo, error)
+	ListRecentMedia(ctx context.Context, limit int) ([]store.MediaInfo, error)
+	DeleteMedia(ctx context.Context, ids []string) error
+}
+
+// Config 是 Service 的依赖。测试可以替换 Require 和 Now。
+type Config struct {
+	Store     Store
+	ThumbsDir string // <数据目录>/thumbs
+
+	// Require 返回当前 ffmpeg / ffprobe，默认 ffmpeg.RequireProbe（未就绪返回 FFMPEG_NOT_FOUND）。
+	Require func() (ffmpeg.Binaries, error)
+
+	ProbeTimeout  time.Duration
+	ThumbTimeout  time.Duration
+	CacheMaxFiles int
+	CacheMaxBytes int64
+	Now           func() time.Time
+}
+
+// Service 实现媒体探测和缩略图。它没有后台协程，可以随意创建多个。
+type Service struct {
+	cfg        Config
+	cache      *thumbCache
+	thumbSem   chan struct{}
+	generated  atomic.Int64
+	ensureOnce sync.Once
+}
+
+// New 创建 Service。
+func New(cfg Config) *Service {
+	if cfg.Require == nil {
+		cfg.Require = ffmpeg.RequireProbe
+	}
+	if cfg.ProbeTimeout <= 0 {
+		cfg.ProbeTimeout = defaultProbeTimeout
+	}
+	if cfg.ThumbTimeout <= 0 {
+		cfg.ThumbTimeout = defaultThumbTimeout
+	}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
+	return &Service{
+		cfg:      cfg,
+		cache:    newThumbCache(cfg.ThumbsDir, cfg.CacheMaxFiles, cfg.CacheMaxBytes, cfg.Now),
+		thumbSem: make(chan struct{}, thumbConcurrency),
+	}
+}
+
+// CleanupCache 立即清理一次缩略图缓存（应用启动时调用一次）。
+func (s *Service) CleanupCache() { s.cache.cleanup() }
+
+// Probe 批量探测。返回值与入参一一对应：单个文件失败时该项的 Error 有值（NOT_FOUND / PROBE_FAILED / IO_ERROR …），
+// 不影响其他文件，失败的文件不写入 media 表。只有整个调用无法进行（参数为空、超过 500 个、ffmpeg / ffprobe 缺失）才返回 error。
+// 成功的项写入 media 表（同一文件再次探测保留原 id），并附带默认位置的缩略图（ThumbURL，失败时为空，不算错误）。
+func (s *Service) Probe(ctx context.Context, in []string) ([]store.MediaInfo, error) {
+	if len(in) == 0 {
+		return nil, apperr.New(apperr.InvalidArgument, "没有要探测的文件")
+	}
+	if len(in) > maxProbeBatch {
+		return nil, apperr.New(apperr.InvalidArgument, "一次最多探测 500 个文件")
+	}
+	bin, err := s.cfg.Require()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]store.MediaInfo, len(in))
+	sem := make(chan struct{}, probeConcurrency)
+	var wg sync.WaitGroup
+	for i, p := range in {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, p string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			m, err := s.probeOne(ctx, bin, p)
+			if err != nil {
+				m = store.MediaInfo{Path: p, Name: filepath.Base(p), Error: apperr.From(err)}
+			}
+			out[i] = m
+		}(i, p)
+	}
+	wg.Wait()
+	if err := ctx.Err(); err != nil {
+		return nil, apperr.Wrap(apperr.Internal, "探测被取消", err)
+	}
+	return out, nil
+}
+
+// ProbeOne 探测单个文件，失败直接返回 error。
+func (s *Service) ProbeOne(ctx context.Context, path string) (store.MediaInfo, error) {
+	bin, err := s.cfg.Require()
+	if err != nil {
+		return store.MediaInfo{}, err
+	}
+	return s.probeOne(ctx, bin, path)
+}
+
+func (s *Service) probeOne(ctx context.Context, bin ffmpeg.Binaries, raw string) (store.MediaInfo, error) {
+	p, key, fi, err := statMedia(raw)
+	if err != nil {
+		return store.MediaInfo{}, err
+	}
+	data, err := runProbe(ctx, bin.FFprobe, p, s.cfg.ProbeTimeout)
+	if err != nil {
+		return store.MediaInfo{}, err
+	}
+	m, err := ParseProbe(data, p)
+	if err != nil {
+		return store.MediaInfo{}, err
+	}
+	m.ID, m.Path, m.Name, m.Size = id.New(), p, filepath.Base(p), fi.Size()
+	m.ProbedAt = s.cfg.Now().UnixMilli()
+	if s.cfg.Store != nil {
+		saved, err := s.cfg.Store.UpsertMedia(ctx, key, m)
+		if err != nil {
+			return store.MediaInfo{}, apperr.Wrap(apperr.IOError, "保存媒体记录失败", err)
+		}
+		m.ID = saved.ID
+	}
+	if m.HasVideo {
+		if t, err := s.thumbnail(ctx, bin, p, key, fi, defaultThumbAt(m.Duration), DefaultThumbWidth); err == nil {
+			m.ThumbURL = t.DataURL
+		}
+	}
+	return m, nil
+}
+
+// statMedia 规范化路径并检查文件：不存在 NOT_FOUND，是目录 INVALID_ARGUMENT，打不开 IO_ERROR。
+func statMedia(raw string) (p, key string, fi os.FileInfo, err error) {
+	p, key, err = paths.Normalize(raw)
+	if err != nil {
+		return "", "", nil, apperr.Wrap(apperr.InvalidArgument, "路径不合法", err)
+	}
+	fi, err = os.Stat(p)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return "", "", nil, apperr.New(apperr.NotFound, "文件不存在").WithDetail(p)
+	case err != nil:
+		return "", "", nil, apperr.Wrap(apperr.IOError, "无法读取文件信息", err)
+	case fi.IsDir():
+		return "", "", nil, apperr.New(apperr.InvalidArgument, "这是一个文件夹，不是媒体文件").WithDetail(p)
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		return "", "", nil, apperr.Wrap(apperr.IOError, "无法打开文件（没有读取权限？）", err)
+	}
+	f.Close()
+	return p, key, fi, nil
+}
+
+// probeArgs 生成 ffprobe 命令行。输入带 file: 前缀，文件名以 - 开头、含冒号、空格或中日韩字符都安全。
+func probeArgs(path string) []string {
+	return []string{"-v", "error", "-print_format", "json", "-show_format", "-show_streams", "-i", "file:" + path}
+}
+
+func runProbe(ctx context.Context, ffprobeExe, path string, timeout time.Duration) ([]byte, error) {
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := ffmpeg.NewCommand(cctx, ffprobeExe, probeArgs(path)...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	err := cmd.Run()
+	if ctx.Err() != nil {
+		return nil, apperr.Wrap(apperr.Internal, "探测被取消", ctx.Err())
+	}
+	if cctx.Err() == context.DeadlineExceeded {
+		return nil, apperr.New(apperr.ProbeFailed, "探测超时").WithDetail(path)
+	}
+	if err != nil {
+		tail := lastLines(stderr.String(), 50)
+		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
+			return nil, apperr.Wrap(apperr.FFmpegNotFound, "无法运行 ffprobe", err)
+		}
+		return nil, apperr.New(apperr.ProbeFailed, "无法解析这个文件，可能已损坏或不是音视频文件").WithDetail(tail)
+	}
+	return stdout.Bytes(), nil
+}
+
+// Thumbnail 返回 path 在 atSec 秒处的缩略图（jpg，最大宽度 width，不放大，保持比例并按旋转元数据转正）。
+// 结果缓存在 <数据目录>/thumbs，命中缓存不启动 ffmpeg。atSec 超出视频长度时退回第 0 秒。
+// 没有视频画面的文件返回 INVALID_ARGUMENT。width<=0 用 320，范围限制在 16~1920。
+func (s *Service) Thumbnail(ctx context.Context, path string, atSec float64, width int) (Thumb, error) {
+	if math.IsNaN(atSec) || math.IsInf(atSec, 0) || atSec < 0 {
+		return Thumb{}, apperr.New(apperr.InvalidArgument, "atSec 必须是不小于 0 的数字")
+	}
+	bin, err := s.cfg.Require()
+	if err != nil {
+		return Thumb{}, err
+	}
+	p, key, fi, err := statMedia(path)
+	if err != nil {
+		return Thumb{}, err
+	}
+	return s.thumbnail(ctx, bin, p, key, fi, atSec, clampWidth(width))
+}
+
+func (s *Service) thumbnail(ctx context.Context, bin ffmpeg.Binaries, p, key string, fi os.FileInfo, atSec float64, width int) (Thumb, error) {
+	if err := os.MkdirAll(s.cache.dir, 0o755); err != nil {
+		return Thumb{}, apperr.Wrap(apperr.IOError, "创建缩略图目录失败", err)
+	}
+	name := cacheName(key, fi.ModTime(), fi.Size(), atSec, width)
+	res := Thumb{AtSec: atSec, Width: width}
+	fill := func(path string) (Thumb, error) {
+		u, err := dataURL(path)
+		if err != nil {
+			return Thumb{}, apperr.Wrap(apperr.IOError, "读取缩略图失败", err)
+		}
+		res.Path, res.DataURL = path, u
+		return res, nil
+	}
+	if hit, ok := s.cache.lookup(name); ok {
+		return fill(hit)
+	}
+	unlock := s.cache.lock(name)
+	defer unlock()
+	if hit, ok := s.cache.lookup(name); ok { // 等锁期间别人已经生成
+		return fill(hit)
+	}
+	select {
+	case s.thumbSem <- struct{}{}:
+		defer func() { <-s.thumbSem }()
+	case <-ctx.Done():
+		return Thumb{}, apperr.Wrap(apperr.Internal, "已取消", ctx.Err())
+	}
+	final := s.cache.path(name)
+	part := strings.TrimSuffix(final, ".jpg") + ".part.jpg"
+	if err := runThumb(ctx, bin.FFmpeg, p, part, atSec, width, s.cfg.ThumbTimeout); err != nil {
+		_ = os.Remove(part)
+		return Thumb{}, apperr.From(err)
+	}
+	if err := os.Rename(part, final); err != nil {
+		_ = os.Remove(part)
+		return Thumb{}, apperr.Wrap(apperr.IOError, "保存缩略图失败", err)
+	}
+	if s.generated.Add(1)%cleanupEvery == 0 {
+		go s.cache.cleanup()
+	}
+	return fill(final)
+}
+
+// ListRecent 返回最近探测过的媒体（按探测时间倒序，limit 默认 20，最大 200）。
+// 记录只包含 media 表里的列；文件已经不存在的记录照常返回（前端可提示"文件丢失"），
+// ThumbURL 只在缩略图缓存命中时有值，不会为此启动 ffmpeg。
+func (s *Service) ListRecent(ctx context.Context, limit int) ([]store.MediaInfo, error) {
+	if s.cfg.Store == nil {
+		return []store.MediaInfo{}, nil
+	}
+	items, err := s.cfg.Store.ListRecentMedia(ctx, limit)
+	if err != nil {
+		return nil, apperr.Wrap(apperr.IOError, "读取最近媒体失败", err)
+	}
+	for i := range items {
+		it := &items[i]
+		if !it.HasVideo {
+			continue
+		}
+		_, key, err := paths.Normalize(it.Path)
+		if err != nil {
+			continue
+		}
+		fi, err := os.Stat(it.Path)
+		if err != nil {
+			continue
+		}
+		name := cacheName(key, fi.ModTime(), fi.Size(), defaultThumbAt(it.Duration), DefaultThumbWidth)
+		if hit, ok := s.cache.lookup(name); ok {
+			if u, err := dataURL(hit); err == nil {
+				it.ThumbURL = u
+			}
+		}
+	}
+	return items, nil
+}
+
+// RemoveRecent 只删 media 记录，不删文件，也不删缩略图缓存（由容量上限回收）。
+func (s *Service) RemoveRecent(ctx context.Context, ids []string) error {
+	if s.cfg.Store == nil {
+		return nil
+	}
+	if err := s.cfg.Store.DeleteMedia(ctx, ids); err != nil {
+		return apperr.Wrap(apperr.IOError, "删除媒体记录失败", err)
+	}
+	return nil
+}
