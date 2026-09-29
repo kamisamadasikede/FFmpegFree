@@ -48,9 +48,21 @@ func (a *App) startFFmpegDetect(ctx context.Context) {
 			binDir = d.Bin
 		}
 	}
+	loc := ffmpeg.NewLocator(binDir)
 	cfg := system.Config{
-		Locator: ffmpeg.NewLocator(binDir),
+		Locator: loc,
 		Emitter: app.NewWailsEmitter(ctx),
+	}
+	if manifest, err := ffmpeg.DefaultManifest(); err != nil {
+		log.Printf("加载 ffmpeg 下载清单失败: %v", err)
+	} else {
+		tmpDir := a.dirs.Temp
+		if tmpDir == "" {
+			if d, err := paths.Resolve(""); err == nil {
+				tmpDir = d.Temp
+			}
+		}
+		cfg.Installer = ffmpeg.NewInstaller(manifest, loc, binDir, tmpDir)
 	}
 	if a.store != nil { // 避免把 nil *Store 装进接口
 		cfg.Settings = a.store

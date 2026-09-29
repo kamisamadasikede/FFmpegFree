@@ -173,7 +173,7 @@ func TestStartDetectsInBackgroundAndEmits(t *testing.T) {
 	raw, _ := json.Marshal(st)
 	var m map[string]any
 	json.Unmarshal(raw, &m)
-	for _, k := range []string{"state", "path", "version", "source", "taskId", "error"} {
+	for _, k := range []string{"state", "path", "version", "source", "ffprobeMissing"} {
 		if _, ok := m[k]; !ok {
 			t.Fatalf("JSON 缺字段 %s: %s", k, raw)
 		}
