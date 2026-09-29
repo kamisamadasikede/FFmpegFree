@@ -1,189 +1,124 @@
-# 🎥 音视频格式转换工具
+# FFmpegFree
 
-> 一个基于 Vue3 + TypeScript + Go 的跨平台桌面端音视频格式转换工具。
+FFmpegFree 是一个基于 ffmpeg 的桌面工具，技术栈为 **Wails v2 + Vue 3 + Go**。目前提供格式转换、任务中心、JSON 工具等功能；视频剪辑、直播推流、Office 转 PDF、PDF 预览仍在开发合入中（见下文“功能与当前状态”）。
 
-## 📌 简介
+> **分支说明**：`master` 是 v1，保持不动；v2 的开发集成在 `v2` 分支，本 README 描述 v2。v1 的原始说明归档在 [docs/v1.md](docs/v1.md)。
 
-本项目实现了一个简单但功能齐全的音视频格式转换工具，支持多种主流音视频格式之间的相互转换。前端采用 Vue3 + TypeScript + Element Plus 构建，后端使用 Go + Gin 框架提供服务，通过 Wails 实现桌面应用打包，前后端通过 Axios 进行通信,流媒体工具实现屏幕获取拉流推流。同时支持 PDF 仿制 PPT 预览功能。
+## v2 相对 v1 的变化
 
-## ⚙️ 技术栈
+- **去掉 OpenClaw**：相关后端、页面、接口和菜单项已删除。
+- **去掉 Gin 与本地 HTTP 中间层（进行中）**：前端通过 Wails 直接绑定调用 Go 的 Service，不再走 Axios + 本地 HTTP。已迁移的功能（转换、JSON 工具、系统与 ffmpeg、任务、媒体探测）都已走 Wails 绑定；剪辑、直播、Office/PDF 的后端尚未合入，v2 上还保留着 v1 的 `backend/`（Gin 路由与控制器）给这些功能占位，随对应后端 PR 合入后再删除。
+- **SQLite 存任务和设置**：任务记录、设置、最近文件等保存在用户数据目录下的 SQLite（`app.db`），应用退出或崩溃时未结束的任务在下次启动被标记为“已中断”。
+- **ffmpeg 不再内置**：启动时后台检测；缺失时经用户确认后自动下载安装到数据目录，不修改系统 PATH；检测不到（或版本过旧）时，依赖 ffmpeg 的功能被禁用并给出提示。
+- **统一的任务管理器与任务中心**：转换等耗时操作都作为任务提交，有排队、并发上限、进度、取消、重试和日志，界面里可在任务中心统一查看。
 
-- **前端**：Vue3 + TypeScript + Vite + Element Plus + Axios
-- **后端**：Go + Gin
-- **桌面端打包**：Wails
-- **构建工具**：Vite + Go Modules
-- **通信协议**：HTTP + JSON+SSE+WEBSOKET
-- **必备工具**：FFmpeg (windows文件包已在ffmpeg目录下，构建时请复制到buildbin目录下或者执行copy-resources.ps1文件)
-- **可选工具**：LibreOffice (用于Office转PDF功能)
+## 功能与当前状态
 
-## 🔄 支持的格式（持续更新中）
+以下按 v2 分支上**实际已合入的代码**填写（截至本 README 提交时）。
 
-当前已支持的音视频格式互转：
+| 功能 | 状态 | 说明 |
+|---|---|---|
+| 格式转换 | ✅ 已完成 | `ConvertService` + `MediaService`（探测、缩略图）已合入，转换页已接入真实后端 |
+| 任务中心 | ✅ 已完成 | `TaskService` + `internal/task`，界面为“任务中心”页 |
+| ffmpeg 检测与安装 | ✅ 已完成 | `SystemService`：检测、手动指定、下载安装、下载源切换 |
+| 设置 | ✅ 已完成 | 输出位置、同时转换数量、ffmpeg 路径等 |
+| JSON 工具 | ✅ 已完成 | `JsonService` |
+| 视频剪辑 | ⏳ 待合入 | 后端 EditService 在审查中（契约 #22，实现 #30）；界面接口层已就绪，暂用演示数据，页面按钮当前禁用 |
+| 直播推流 | ⏳ 待合入 | 后端 LiveService 在审查中（契约 #19，实现 #31）；界面接口层已就绪，页面暂用演示数据 |
+| Office 转 PDF | ⏳ 待合入 | 后端 DocService 在审查中（契约 #23，实现 #29）；页面暂不可用 |
+| PDF 预览 | ⏳ 待合入 | 同上（DocService） |
 
-| 格式      | 类型    | 备注                          |
-| ------- | ----- | --------------------------- |
-| `.avi`  | 视频    | Audio Video Interleave      |
-| `.mkv`  | 视频    | Matroska Video File         |
-| `.mov`  | 视频    | QuickTime Movie             |
-| `.flv`  | 视频    | Flash Video                 |
-| `.mp4`  | 视频    | MPEG-4 Part 14              |
-| `.gif`  | 视频/动画 | Graphics Interchange Format |
-| `.webm` | 视频    | Web Media File              |
-
-## 📦 安装与运行
-
-### 前提条件
-
-- Node.js >= 18.x
-- Go >= 1.20
-- Wails CLI 已安装（可通过 `go install github.com/wailsapp/wails/v2/cmd/wails@latest` 安装）
-- FFmpeg (windows文件包已在ffmpeg目录下，构建时请复制到buildbin目录下或者执行copy-resources.ps1文件)
-- LibreOffice (可选，用于Office转PDF功能)
-
-### 启动开发环境
+## 架构与目录
 
 ```
-# 在项目根目录下运行
+app/                 Wails 绑定层：按领域拆分的 Service（convert / media / system / task / json），
+                     只做参数校验与转发。新增 Service 后在 main.go 的 Bind 列表注册
+internal/
+  service/           业务逻辑（convert、media、system、jsontool）
+  task/              统一任务管理器（调度、并发、取消、重试、日志、事件）
+  store/             SQLite 存储与迁移（任务、设置、媒体记录、预设）
+  ffmpeg/            ffmpeg 定位与校验、下载安装、参数生成、进度解析
+  proc/              子进程启动与回收（含 Windows Job Object）
+  apperr/            统一错误码与错误类型
+  paths/ id/         数据目录与 ID 工具
+frontend/            Vue 3 + TypeScript + Vite + Element Plus + Pinia
+  src/api/           前端接口封装层（见下）
+  wailsjs/           Wails 生成的绑定（wails generate module）
+docs/architecture/   接口契约
+backend/ ffmpeg/     v1 遗留：Gin 后端与内置 ffmpeg（Windows），待清理
+```
+
+**前端接口层**位于 `frontend/src/api`，页面和 store 只调用这一层。其中有三个“后端就绪开关”（`frontend/src/api/flags.ts`）：
+
+| 开关 | 对应后端 | 默认 |
+|---|---|---|
+| `LIVE_BACKEND_READY` | LiveService（直播） | `false`：走本地模拟 |
+| `EDIT_BACKEND_READY` | EditService（剪辑） | `false`：走本地模拟 |
+| `DOC_BACKEND_READY` | DocService（Office / PDF） | `false`：走本地模拟 |
+
+对应后端合入并生成绑定后，把开关改成 `true` 即可联调；细节见 [frontend/src/api/README.md](frontend/src/api/README.md)。
+
+## ffmpeg 检测顺序
+
+启动时依次查找，第一个通过校验（ffmpeg 与 ffprobe 可运行、主版本不低于 6、含 libx264 与 aac）的为准：
+
+1. 设置里手动指定的路径
+2. `<数据目录>/bin`（自动安装的位置）
+3. 系统 `PATH`
+4. 程序同级的 `ffmpeg/` 目录（兼容 v1）
+
+数据目录为系统用户配置目录下的 `FFmpegFree`（Windows `%AppData%\FFmpegFree`，macOS `~/Library/Application Support/FFmpegFree`，Linux `~/.config/FFmpegFree`）。详见契约第 9 节。
+
+## 开发与构建
+
+依赖：
+
+- Go（`go.mod` 声明 1.24）
+- Node.js（Vite 5，建议 18 及以上）与 npm
+- [Wails CLI](https://wails.io/)：`go install github.com/wailsapp/wails/v2/cmd/wails@latest`
+
+常用命令：
+
+```bash
+# 开发（热重载）
 wails dev
+
+# 构建 Windows 版本
+wails build -platform windows/amd64
 ```
 
-### 打包为桌面程序
+测试与检查：
 
-bash
-
-打包为桌面程序
-
-```
-# 在项目根目录下运行
-wails build
-```
-
-生成的可执行文件会位于 `build/bin/` 目录下。
-
-## 🧪 使用说明
-
-1. 启动程序后，点击“选择文件”按钮上传需要转换的音视频文件。
-2. 选择目标格式。
-3. 点击“开始转换”，等待进度条完成即可下载或打开输出文件。
-
-## 📁 项目结构
-
-深色版本
-
-```
-project/
-├── backend/          # Go + Gin 后端代码
-│   └── main.go
-├── frontend/         # Vue3 + TS 前端代码
-│   ├── src/
-│   └── ...
-├── build/            # 构建输出目录
-└── README.md
+```bash
+go test ./...                 # Go 单元测试
+cd frontend
+npm run check:api             # 接口层自检
+npm run check:json            # JSON 工具文本处理自检
+npx vue-tsc --noEmit          # 类型检查
 ```
 
-## 📡 流媒体工具模块
+> **注意**：根包用 `//go:embed all:frontend/dist` 嵌入前端产物，`frontend/dist` 不在版本库里。直接 `go build ./...`、`go vet ./...` 或 `go test ./...` 之前，需要先构建前端：
+> `cd frontend && npm ci && npx vite build`。`wails dev` / `wails build` 会自动构建前端。
 
-本模块为应用新增了强大的流媒体处理能力，支持文件推流、屏幕录制推流、直播拉流等多种音视频流操作，适用于直播、远程教学、会议分享等场景。
+## 接口契约文档
 
----
+- v2 已合入的契约：[docs/architecture/contract.md](docs/architecture/contract.md)（数据模型、Service 方法、事件、SQLite 表、任务管理器、ffmpeg 检测与安装等）。
+- Live / Edit / Doc 三份契约尚未合入 v2，合入后位于同一文件 `docs/architecture/contract.md` 中；在此之前见对应 PR：直播 #19（分支 `feat/live-contract`）、剪辑 #22（`feat/edit-contract`）、Office/PDF #23（`feat/doc-contract`）。
 
-### 🔧 支持功能
+## 已知限制
 
-#### 1. **文件推流上传**
+- Windows / macOS 真机上尚未验证的项，见各契约的“真机试用清单”（如 Live 契约的“真机试用清单”一节，以及 v2 契约中标注“未验证”的部分）。目前主要在 Linux 上做了测试和交叉编译。
+- 剪辑、直播、Office 转 PDF、PDF 预览暂不可用或仅为演示（见上表）。
+- 转换暂不支持“按目标体积压缩”（两遍编码已暂缓，见契约 v0.7.2）。
+- 仓库里仍保留 v1 遗留的 Gin 后端与 `ffmpeg/` 目录，待相关功能迁移完成后清理。
 
-- 用户可以选择本地音视频文件（支持主流格式），将其通过 RTMP、HLS、SRT 等协议推流到指定地址。
-- 可配置目标流地址（如：`rtmp://live.example.com/stream`）。
-- 支持断点续传与错误重试机制（视实现情况而定）。
+## 许可与第三方
 
-#### 2. **查询当前推流任务**
+- 本项目使用木兰宽松许可证第 2 版，见 [LICENSE](LICENSE)。
+- **ffmpeg 不随安装包分发**：由用户机器上已有的 ffmpeg，或应用在用户确认后从清单中的下载源下载安装（清单见 `internal/ffmpeg/manifest.json`）。ffmpeg 自身的许可证与使用条款请以其官方说明为准。
+- 前端已内置 Nunito 字体，随附许可文本见 `frontend/src/assets/fonts/OFL.txt`。
+- DocService 计划内嵌 Noto Sans SC 子集字体，遵循 SIL OFL；该字体尚未合入 v2，合入后见 `fonts/README.md` 与 `OFL.txt`（位置以合入后的实际路径为准）。
 
-- 实时展示当前正在进行的所有推流任务。
-- 包括文件名、推流地址、状态（进行中/失败/完成）、进度条、开始时间等信息。
-- 提供停止推流按钮，允许用户手动中断任务。
+## 贡献
 
-#### 3. **屏幕录制推流**
-
-- 支持选择屏幕区域或全屏录制并实时推流。
-- 可设置帧率、编码器参数等选项。
-- 推流地址可自定义，便于接入第三方直播平台或私有流媒体服务器。
-
-#### 4. **直播拉流播放（支持 FLV 格式）**
-
-- 在应用内集成简易播放器，支持拉取并播放远程直播流。
-- 完整支持 FLV 格式的实时播放，兼容 HTTP-FLV 和 WebSocket-FLV。
-- 可选自动重连、缓冲控制、播放暂停等功能。
-
----
-
-### 🖥️ 使用场景示例
-
-| 场景      | 描述                             |
-| ------- | ------------------------------ |
-| 直播转码推流  | 将本地视频文件推送到抖音、B站、YouTube 等直播平台。 |
-| 远程教学演示  | 屏幕录制 + 推流，将讲解过程实时传输至内部系统或直播服务。 |
-| 监控中心查看  | 拉取多个摄像头的 FLV 流，集中显示在客户端界面。     |
-| 私有流媒体测试 | 快速测试本地推流和拉流功能，调试流媒体服务器连接。      |
-
----
-
-### ⚙️ 技术说明（简要）
-
-- 推流功能基于 `ffmpeg` 命令行调用或原生 Go 音视频库实现。
-- 屏幕录制使用操作系统 API（如 Windows GDI、macOS AVFoundation）捕获画面。
-- FLV 拉流播放依赖于浏览器 `<video>` 标签配合 MSE（前端）或使用原生播放器组件（如通过 WebAssembly 或桌面端插件）。
-- 所有流媒体操作均通过后端管理生命周期，并向前端提供状态更新接口。
-
----
-
-## 📄 Office 文件转 PDF 模块
-
-本模块支持将 Office 文件（Word、Excel、PowerPoint）转换为 PDF 格式。
-
-### 🔧 支持功能
-
-#### 1. **文件上传**
-- 支持拖拽上传或点击选择文件
-- 支持格式：`.doc`, `.docx`, `.xls`, `.xlsx`, `.ppt`, `.pptx`
-
-#### 2. **转换为 PDF**
-- 异步转换处理，不阻塞界面
-- 支持 Word、Excel、PowerPoint 文件转换
-
-#### 3. **转换记录**
-- 查看已转换完成的 PDF 文件列表
-- 支持在线预览和下载
-
-### ⚙️ LibreOffice 配置
-
-Office 转 PDF 功能依赖 LibreOffice，请确保以下任一方式可用：
-
-| 方式 | 路径 |
-|------|------|
-| 项目目录 | `./libreoffice/bin/soffice.exe` |
-| 默认安装 | `C:/Program Files/LibreOffice/program/soffice.exe` |
-| 32位安装 | `C:/Program Files (x86)/LibreOffice/program/soffice.exe` |
-
-> **注意**：如果未安装 LibreOffice，该功能会返回友好提示，但不影响其他功能使用。
-
----
-
-## 项目截图：
-
-![wechat_2025-07-03_163332_152.png](https://gitee.com/bmcbdt/FFmpegFree/raw/master/img/wechat_2025-07-03_163332_152.png)
-
-![wechat_2025-07-03_163413_525.png](	https://gitee.com/bmcbdt/FFmpegFree/raw/master/img/wechat_2025-07-03_163413_525.png)
-
-![wechat_2025-07-03_163434_577.png](https://gitee.com/bmcbdt/FFmpegFree/raw/master/img/wechat_2025-07-03_163434_577.png)
-
-![wechat_2025-07-03_163442_201.png](	https://gitee.com/bmcbdt/FFmpegFree/raw/master/img/wechat_2025-07-03_163442_201.png)
-
-## 🧩 后续计划（可选）
-
-- 支持更多拉流格式（HLS、RTMP、RTSP 等）。
-- 添加推流日志查看与性能监控面板。
-- 支持多路并发推流与负载均衡。
-- 提供简单的流媒体服务器搭建向导（如 Nginx-RTMP 一键配置）。
-
-## 🤝 贡献指南
-
-欢迎提交 Issue 和 Pull Request！如果你有兴趣添加更多格式的支持，请 Fork 本仓库并提交你的修改。
+欢迎提交 Issue 和 Pull Request。v2 相关的 PR 请以 `v2` 分支为目标。
