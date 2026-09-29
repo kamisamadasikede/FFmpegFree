@@ -4,7 +4,11 @@ export type ThemeMode = 'light' | 'dark' | 'system'
 
 const STORAGE_KEY = 'ff-theme'
 // TODO(v2): 接上 SettingsService 后改为读写 Settings.theme，localStorage 只作首屏兜底
-const mode = ref<ThemeMode>((localStorage.getItem(STORAGE_KEY) as ThemeMode) || 'system')
+// 浏览器预览（没有 window.go）时地址里的 ?theme=dark|light 优先，方便截图；真实运行不读取
+const previewTheme = !(window as any).go ? new URLSearchParams(window.location.search).get('theme') : null
+const mode = ref<ThemeMode>(
+  previewTheme === 'dark' || previewTheme === 'light' ? previewTheme : (localStorage.getItem(STORAGE_KEY) as ThemeMode) || 'system',
+)
 const media = window.matchMedia('(prefers-color-scheme: dark)')
 const systemDark = ref(media.matches)
 const isDark = computed(() => mode.value === 'dark' || (mode.value === 'system' && systemDark.value))
@@ -21,7 +25,7 @@ function start() {
   apply()
   media.addEventListener('change', apply)
   watch(mode, (m) => {
-    localStorage.setItem(STORAGE_KEY, m)
+    if (!previewTheme) localStorage.setItem(STORAGE_KEY, m)
     apply()
   })
 }

@@ -118,13 +118,13 @@ export const useTaskStore = defineStore('tasks', () => {
     if (finishedVersions.size > 500) finishedVersions.delete(finishedVersions.keys().next().value as string)
   }
 
-  // 活动列表：运行中在前（开始时间早的在前），排队的在后（先提交的在前 = 队列顺序）
+  // 活动列表：运行中在前（新开始的在前，与原型一致），排队的在后（先提交的在前 = 队列顺序）
   const active = computed<TaskItem[]>(() =>
     Object.values(byId).sort((a, b) => {
       const ra = a.status === 'running' ? 0 : 1
       const rb = b.status === 'running' ? 0 : 1
       if (ra !== rb) return ra - rb
-      return ra === 0 ? a.startedAt - b.startedAt || a.createdAt - b.createdAt : a.createdAt - b.createdAt
+      return ra === 0 ? b.startedAt - a.startedAt || b.createdAt - a.createdAt : a.createdAt - b.createdAt
     }),
   )
   /** 侧边栏"任务中心"角标 = 进行中的任务数（运行中 + 排队中），与原型 "进行中 3" 一致 */
@@ -207,6 +207,7 @@ export const useTaskStore = defineStore('tasks', () => {
   const todayDone = ref(0)
   const todayDoneCapped = ref(false) // List 单页最多 200，今日完成超过时显示 200+
   const failedTotal = ref(0)
+  const finishedTotal = ref(0) // 全部已结束任务数（历史页签角标）
   let statsLoaded = false
   async function loadStats() {
     statsLoaded = true
@@ -214,15 +215,18 @@ export const useTaskStore = defineStore('tasks', () => {
       const midnight = new Date().setHours(0, 0, 0, 0)
       todayDone.value = previewHistory.value.filter((t) => t.status === 'succeeded' && t.finishedAt >= midnight).length
       failedTotal.value = previewHistory.value.filter((t) => t.status === 'failed' || t.status === 'interrupted').length
+      finishedTotal.value = previewHistory.value.length
       return
     }
     if (!hasWailsBackend()) return
     try {
       const midnight = new Date().setHours(0, 0, 0, 0)
-      const [done, failed] = await Promise.all([
+      const [done, failed, all] = await Promise.all([
         call(TaskBinding.List(goStore.TaskFilter.createFrom({ types: [], statuses: ['succeeded'], limit: 200, offset: 0 }))),
         call(TaskBinding.List(goStore.TaskFilter.createFrom({ types: [], statuses: ['failed', 'interrupted'], limit: 1, offset: 0 }))),
+        call(TaskBinding.List(goStore.TaskFilter.createFrom({ types: [], statuses: TERMINAL, limit: 1, offset: 0 }))),
       ])
+      finishedTotal.value = all.total ?? 0
       const items = done.items ?? []
       todayDone.value = items.filter((t) => t.finishedAt >= midnight).length
       todayDoneCapped.value = items.length >= 200 && items.every((t) => t.finishedAt >= midnight)
@@ -477,7 +481,7 @@ export const useTaskStore = defineStore('tasks', () => {
     // 状态
     ready, loadError, active, runningCount, hasRunning, runningOnly, queuedCount, queuePosition,
     history, historyTotal, historyLoading, historyLoaded, historyError, historyFilter,
-    todayDone, todayDoneCapped, failedTotal,
+    todayDone, todayDoneCapped, failedTotal, finishedTotal,
     // 方法
     init, refreshActive, loadHistory, setHistoryGroup, setHistoryTypes, setHistoryPage, loadStats,
     cancel, retry, remove, clearFinished, getLog,
