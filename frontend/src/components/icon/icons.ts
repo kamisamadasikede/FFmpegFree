@@ -37,6 +37,7 @@ export const iconPaths = {
   // 以下来自原型 pages.html 的直播页
   'copy': "<rect x=\"9\" y=\"9\" width=\"12\" height=\"12\" rx=\"2\"/><path d=\"M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1\"/>",
   'eye': "<path d=\"M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>",
+  'window': "<rect x=\"3\" y=\"4\" width=\"18\" height=\"16\" rx=\"2\"/><path d=\"M3 9h18M7 6.5h.01M10 6.5h.01\"/>",
   'monitor': "<rect x=\"2\" y=\"3\" width=\"20\" height=\"14\" rx=\"2\"/><path d=\"M8 21h8M12 17v4\"/>",
   'film': "<rect x=\"2\" y=\"3\" width=\"20\" height=\"18\" rx=\"2\"/><path d=\"M7 3v18M17 3v18M2 8h5M2 16h5M17 8h5M17 16h5\"/>",
   'cam': "<path d=\"m23 7-7 5 7 5z\"/><rect x=\"1\" y=\"5\" width=\"15\" height=\"14\" rx=\"2\"/>",
