@@ -46,7 +46,7 @@
 
 ## 契约未冻结、可能要改的点
 
-- Live：方法名、`PushOptions` 字段、`TASK_CONFLICT` 的 `reason` 取值（现有 `max_sessions` / `duplicate_url`，屏幕推流“同时最多 1 路”的 reason 待产品定）、缺 srt/rtmps 协议时 UNSUPPORTED 的 detail 写法与文案、`LIVE_*` 错误分类关键词（未用真实服务器验证）、RTMP 连接失败与 `malformed` / `missing_host` / `param_not_allowed` 的文案（待产品定稿）。
+- Live：方法名、`PushOptions` 字段、`TASK_CONFLICT` 的 `reason` 取值（`max_sessions` / `duplicate_url` 已定；屏幕推流“同时最多 1 路”的 reason 待产品经理定）、缺 srt/rtmps 协议时 UNSUPPORTED 的 detail 写法与文案、`LIVE_*` 错误分类关键词（未用真实服务器验证）、RTMP 连接失败与 `malformed` / `missing_host` / `param_not_allowed` 的文案（待产品定稿）。
 - Edit：`Export` 命名（已确认）、`EditExportOptions`、`GetPreviewURL` 的限长 206 在 Windows/WebView2 上是否可用（未验证，回退是 `edit_proxy`，接口不变）、clip 错误 detail 首行格式。
 - Doc：大文件（> 64 MiB）路径在 Windows 未验证（验证不通过则 `OpenPDF` 对 > 64 MiB 返回 INVALID_ARGUMENT、`url` 恒空）；字体子集范围与 OFL 保留名。
 
@@ -54,7 +54,7 @@
 
 ### 已决（架构师 5 条决定，后端会写进契约新提交，前端已按此实现）
 
-1. **TaskType 统一**：`convert | edit_export | office_pdf | live_file_push | live_screen_push | ffmpeg_install`；`live_relay`、`live_record_push`、`edit_render` 只是“保留但不再产生”的旧类型，任务中心继续忽略、不报错。（原疑问 19）
+1. **TaskType 统一**：`convert | edit_export | office_pdf | live_file_push | live_screen_push | ffmpeg_install`。三个旧类型 id（见 `stores/tasks.ts` 的 `isLegacyTaskType`）后端保留但不再产生，任务中心一律忽略、不显示、不报错；旧类型 id 调 `Get` / `Cancel` / `Retry` / `Remove` 一律 `NOT_FOUND`（后端约定）。（原疑问 19）
 2. **停止语义**：优雅停止和自然播完都是 `succeeded`，都显示“已结束推流”，不区分；停止中 5 秒内刷新看到 `running` 可接受，不加字段。（原疑问 1、2）
 3. **连接失败 / 地址不合法的稳定首行**（原疑问 4、5）：
    - `LIVE_CONNECT_FAILED` 的 detail 第一行固定 `scheme=rtmp|rtmps|srt`。`AppError.scheme` 解析它；SRT 文案“连接失败，请检查地址和口令是否正确”，RTMP / RTMPS 文案“连接失败，请检查推流地址是否正确、服务器是否在线”（**待产品定稿**）。脱敏 `params.url` 的 scheme、页面上地址的 scheme 只作首行缺失时的兜底。
@@ -62,15 +62,42 @@
 4. **`DocCapabilities.experimental`**（布尔，字段名与前端一致）；`ReadPDFChunk` 的 `Data` 按 base64 字符串解码。（原疑问 14、16）
 5. **Edit**（原疑问 9、11、12、13）：预览 `/local/<token>` 支持 HEAD，token 失效返回 404，前端 HEAD 探测后重新调用 `GetPreviewURL`（`isPreviewGone` / `createPreviewSource`，已符合）；`SaveProject` 只校验数量上限、**不校验同轨重叠**（草稿可保存），重叠只在 `ValidateProject` 和 `Export` 报；`outSec` 必须大于 `inSec`，**0 不表示到结尾**，`outSec=0` 一律 `INVALID_ARGUMENT`，前端用探测到的时长填实际值（`newVideoClip` / `newAudioClip` / `fillOutSec`，素材时长未知时不能加入时间线）。
 
+### 2026-09-29 补充决定（本轮关掉的疑问）
+
+- **“已经在推”的判定**（原 3，已关）：**“已开始” = 第一次 `progress=continue` 且 `out_time_us>0`**。有存档时没有 `bitrateKbps`，码率列显示“—”，所以不能再用“`bitrateKbps` 有值”当已在推的依据。
+- **停止 / 强杀 / 存档**（补充原 1、2，已关）：
+  - 优雅停止或自然播完 = `succeeded`（“已结束推流”，不加提示）；强杀 = `canceled`（“已强制停止”）。
+  - 有存档时优雅停止最多等 **16 秒**，界面显示“正在停止…”且停止按钮禁用；超时后端强杀。
+  - **强杀且存档已保留** = `status=canceled` 且 `outputPath` 非空：显示“已强制停止，存档已保留，文件可能不完整”和“打开所在文件夹”。`canceled` 且 `outputPath` 为空只显示“已强制停止”。
+  - 后端会先删空壳存档并清空 `outputPath`，再发终态事件。
+- **SRT passphrase 长度 10–79**（新增约束，已定）。
+- **`TASK_CONFLICT` 的 `reason`**（原 18，已关）：`max_sessions`=“最多同时推 4 路”，`duplicate_url`=“这个地址已经在推流”，其他 / 缺失 / Edit、Doc 的冲突=“操作冲突，请稍后再试”。屏幕推流“同时最多 1 路”是否限制、reason 叫什么，仍等产品经理（见下）。
+- **带存档的屏幕推流**（原 8 的一部分）：后端暂返回 `UNSUPPORTED`，等 Edit 合入后补。
+- **Doc**（无对应旧疑问，仅记录）：`PDFChunk.Data` 是 Go `string`（标准 base64，含 `=` 填充），前端直接 `atob`，不做类型转换；`Length` / `chunkBytes` 是原始字节数；超 5000 页返回 `UNSUPPORTED`；Office 转 PDF 页面显示“实验性”标签和常驻说明“仅提取文字，不保留图片和样式”；`/local/<token>` 支持 `HEAD`，失效 404。
+- **Edit**（无对应旧疑问，仅记录）：
+  - 转场：默认 0.5s 超过相邻较短片段一半时后端静默缩到一半，不足 0.1s 忽略并给 `transition_ignored` 警告；显式超限 `INVALID_ARGUMENT`。`EditPlan.durationSec` 已扣除转场重叠。
+  - `SaveProject` 只查数量上限（素材库、100 片段、1 MiB），不查重叠；重叠只由 `ValidateProject` / `Export` 报。
+  - `outSec` 必须大于 `inSec`，`outSec=0` 是 `INVALID_ARGUMENT`；小于 0.04s 的片段 `INVALID_ARGUMENT`。
+  - 同轨间隙 ≤0.12s 视为相接，更大间隙导出时补黑场 / 静音。
+- **task:status 事件的 `startedAt`**（后端 PR #32）：`running` 事件带 `startedAt`，四种终态事件带 `startedAt` 与 `finishedAt`，均为可选（排队中被取消则 `startedAt` 缺省）。前端优先用事件值，没有则沿用本地已记录值，仍没有就不显示“用时”。
+
 ### 仍未决
 
-- **“已经在推”的判定**（原 3）：刷新后 `ListActive` 返回的 Task 里 `fps` / `bitrateKbps` 有值即视为已在推；running 但这三项都缺省时无法区分“连接中”和“刚开始”。建议契约写明：首条 progress 之前 `bitrateKbps` 缺省。
+等**后端 / 架构师**：
+
 - **刷新后重连**（原 4 的后半）：`params` 已脱敏，刷新后拿不到完整地址，“断线自动重连”只能在页面不刷新时用。可接受的话请确认。
 - **缺协议的 UNSUPPORTED**（原 6）：detail 写“缺哪个”，格式没定，模拟层暂按 `ffmpeg 缺少协议：srt`；且与直播会话 Retry 的 UNSUPPORTED 同码，建议也用 `reason=` 首行区分。
 - **`CheckPushURL` 是否做会话冲突检查**（原 7）：前端当纯校验用。
-- **屏幕推流**（原 8）：没有区域 / 窗口选择；`ArchiveDir` 是否需要 `Settings.archiveDir` 默认值。
+- **屏幕推流**（原 8 的其余部分）：没有区域 / 窗口选择；`ArchiveDir` 是否需要 `Settings.archiveDir` 默认值（带存档的屏幕推流本身等 Edit 合入后补，见上）。
 - **Edit 多素材预览**（原 10）：同时预览 N 个素材占 N 个 token（登记表 256 项 LRU），是否提供批量 `GetPreviewURL`。限长 206（4 MiB）的 seek 体验待 Windows 真机验证。
 - **Doc 转换产物不自动进 PDF 历史**（原 15）：预览时才 `OpenPDF`，请确认是预期。
 - **错误码表**（原 17）：`UNSUPPORTED_PLATFORM` 没有专属用户文案，走兜底；`LIVE_PLAY_FAILED` / `LIVE_CORS_BLOCKED` 只由前端播放器产生。契约 §2 的清单是 17 个后端码。
-- **`TASK_CONFLICT` 的 reason**（原 18）：Edit / Doc 没有定义，统一“操作冲突，请稍后再试”；屏幕推流“同时最多 1 路”的 reason 待产品定，文案表里留了追加位。
 - **敏感信息**（原 20）：前端已保证完整推流地址和口令只在输入框和调用参数里，不写 localStorage / 日志 / console，列表和标题用脱敏形式；后端 `Task.title` / `params` 已脱敏。无需契约改动，仅记录。
+
+等**产品经理**（当前暂用值，未最终确认）：
+
+- 剪辑默认导出分辨率：暂用 1280×720。
+- 素材库上限：暂用 100。
+- 删除片段的确认：≥5 个片段时才确认（暂定）。
+- 屏幕推流是否限 1 路（及对应 `TASK_CONFLICT` 的 reason 与文案）。
+- `LIVE_CONNECT_FAILED` / `LIVE_URL_INVALID` 各 reason 的文案定稿（见上“待产品定稿”）。

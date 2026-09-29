@@ -225,7 +225,8 @@ const errorLine = computed<ErrLine | null>(() => {
 .row {
   display: flex;
   align-items: center;
-  gap: var(--ff-space-3);
+  /* 列间距 8px（原 12px）：1280 宽下 .prog 固定 200px，“访谈录音”行第二行会多出 2-3px 省略；收紧列间距让出 12px，不动 .prog 的 200px */
+  column-gap: var(--ff-space-2);
   padding: var(--ff-space-3) var(--ff-space-2);
   border-radius: var(--ff-radius-lg);
 }
@@ -435,6 +436,7 @@ const errorLine = computed<ErrLine | null>(() => {
   .row {
     flex-wrap: wrap;
     row-gap: var(--ff-space-2);
+    column-gap: var(--ff-space-3); /* 窄布局下缩略图与文件名仍是 12px，.prog 的 margin-left 68px 与之对齐 */
   }
   .fmeta {
     flex: 1 1 0;

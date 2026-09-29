@@ -19,11 +19,20 @@ export type TaskType =
   | 'ffmpeg_install'
 
 /**
- * 任务中心认识的类型（契约 v0.10~v0.12）。live_relay / live_record_push 是保留但不再产生的旧类型，edit_render 是 Edit 改名前的旧名，
- * 库里若还有这些记录、或将来出现新类型，一律忽略（不展示、不报错、不影响其他任务）。
+ * 任务中心认识的类型（契约 v0.10~v0.12）。库里若还有旧类型记录（后端保留但不再产生）、或将来出现新类型，
+ * 一律忽略（不展示、不报错、不影响其他任务）。旧类型 id 只允许出现在 isLegacyTaskType 里。
  */
 export const KNOWN_TASK_TYPES: readonly string[] = ['convert', 'edit_export', 'office_pdf', 'live_file_push', 'live_screen_push', 'ffmpeg_install']
-export const isKnownTaskType = (t: unknown): boolean => typeof t === 'string' && KNOWN_TASK_TYPES.includes(t)
+const LEGACY_TASK_TYPES: readonly string[] = ['live_relay', 'live_record_push', 'edit_render']
+export const isLegacyTaskType = (t: unknown): boolean => typeof t === 'string' && LEGACY_TASK_TYPES.includes(t)
+export const isKnownTaskType = (t: unknown): boolean => typeof t === 'string' && !isLegacyTaskType(t) && KNOWN_TASK_TYPES.includes(t)
+
+/** “用时”毫秒数：两端都有值且结束不早于开始才返回，否则 null（不显示，绝不出现 NaN / 负数） */
+export function elapsedMs(startedAt?: number, finishedAt?: number): number | null {
+  if (typeof startedAt !== 'number' || typeof finishedAt !== 'number') return null
+  if (!Number.isFinite(startedAt) || !Number.isFinite(finishedAt) || startedAt <= 0 || finishedAt <= 0 || finishedAt < startedAt) return null
+  return finishedAt - startedAt
+}
 
 export interface TaskError {
   code: string
@@ -103,6 +112,8 @@ interface StatusPayload {
   status: TaskStatus
   error?: TaskError | null
   outputPath?: string
+  /** 后端 PR #32：running 事件与四种终态事件都带；排队中被取消则缺省 */
+  startedAt?: number
   finishedAt?: number
 }
 interface RemovedPayload { ids: string[] }
@@ -428,7 +439,7 @@ export const useTaskStore = defineStore('tasks', () => {
           rememberFinished(p.id, p.version)
           recordFinal({
             id: p.id, status: p.status, error: normalizeError(p.error), outputPath: p.outputPath ?? '',
-            progress: p.status === 'succeeded' ? 1 : 0, speed: '', etaSec: 0, finishedAt: p.finishedAt ?? Date.now(), params: '',
+            progress: p.status === 'succeeded' ? 1 : 0, speed: '', etaSec: 0, startedAt: p.startedAt || undefined, finishedAt: p.finishedAt ?? Date.now(), params: '',
           })
           scheduleRefresh()
         }
@@ -443,7 +454,9 @@ export const useTaskStore = defineStore('tasks', () => {
     if (p.error) cur.error = normalizeError(p.error)
     if (p.outputPath) cur.outputPath = p.outputPath
     if (p.finishedAt) cur.finishedAt = p.finishedAt
-    if (p.status === 'running' && !cur.startedAt) cur.startedAt = Date.now()
+    // 事件带的 startedAt 优先；没有就沿用本地已记录值（running 时本地第一次见到才记当前时间）
+    if (p.startedAt) cur.startedAt = p.startedAt
+    else if (p.status === 'running' && !cur.startedAt) cur.startedAt = Date.now()
     if (isTerminal(p.status)) {
       if (p.status === 'succeeded') cur.progress = 1
       recordFinal({
