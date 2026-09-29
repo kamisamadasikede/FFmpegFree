@@ -28,7 +28,7 @@
 </template>
 
 <script setup lang="ts">
-// 「最近生成的 PDF」（两个 Tab 共用，设计说明 2.4）：点一行 = 用 PDF 预览打开（切到 PDF 预览 Tab）；× 只删记录不删文件；exists=false 仍可点，点开走「找不到文件」失败态。
+// 「最近打开的 PDF」（两个 Tab 共用，设计说明 2.4）：点一行 = 用 PDF 预览打开（切到 PDF 预览 Tab）；× 只删记录不删文件；exists=false 仍可点，点开走「找不到文件」失败态。
 import { useRouter } from 'vue-router'
 import FIcon from '@/components/icon/FIcon.vue'
 import MiddleEllipsis from '@/components/docs/MiddleEllipsis.vue'

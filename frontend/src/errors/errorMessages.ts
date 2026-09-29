@@ -493,11 +493,11 @@ export function pdfErrorView(code: string, backendMessage?: string, maxPdfBytes 
 /** 浏览器里的模拟环境（没有 window.go）才显示的说明 */
 export const DOC_DEMO_NOTE = '当前是演示数据：不会真的转换或读取文件'
 
-// ---- 文档页其他文案（设计说明第 5 节；标题「最近生成的 PDF」与现状不符，见设计说明 8 节问题 1，待架构师 / 设计师确认）----
-/** 待确认：现状列表只含「打开过预览」的 PDF（OpenPDF 是唯一写入点），转换产物不自动进列表 */
-export const DOC_RECENT_TITLE = '最近生成的 PDF'
-export const DOC_RECENT_EMPTY_TITLE = '还没有生成过 PDF'
-export const DOC_RECENT_EMPTY_HINT = '转换完成后，PDF 会显示在这里'
+// ---- 文档页其他文案（设计说明第 5 节；最近列表标题已由架构师定为「最近打开的 PDF」，与现状一致）----
+/** 架构师已定：列表只含「打开过预览」的 PDF（OpenPDF 是唯一写入点），转换产物不自动进列表 */
+export const DOC_RECENT_TITLE = '最近打开的 PDF'
+export const DOC_RECENT_EMPTY_TITLE = '还没有打开过 PDF'
+export const DOC_RECENT_EMPTY_HINT = '打开过的 PDF 会显示在这里'
 export const DOC_RECENT_REMOVE_TIP = '从列表移除（不删除文件）'
 export const DOC_RECENT_MISSING = '文件已被移动或删除'
 export const DOC_RECENT_LIMIT_NOTE = '仅显示最近 200 条'

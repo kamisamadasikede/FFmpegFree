@@ -16,7 +16,7 @@
 </template>
 
 <script setup lang="ts">
-// 文档页外壳（设计说明 2）：分段控件 240×28（同直播页 .seg）+ 两个 Tab + 两个 Tab 共用的右侧「最近生成的 PDF」。
+// 文档页外壳（设计说明 2）：分段控件 240×28（同直播页 .seg）+ 两个 Tab + 两个 Tab 共用的右侧「最近打开的 PDF」。
 import { onBeforeUnmount, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import RecentPanel from '@/components/docs/RecentPanel.vue'
