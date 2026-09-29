@@ -155,13 +155,8 @@ func (s *Service) DeletePreset(ctx context.Context, presetID string) error {
 	return nil
 }
 
-// validateOptions 校验转换参数；按目标大小压缩（两遍编码）暂缓，传 >0 直接拒绝。
-func validateOptions(o ffmpeg.ConvertOptions) error {
-	if o.TargetSizeMB != 0 {
-		return apperr.New(apperr.InvalidArgument, "暂不支持按目标大小压缩")
-	}
-	return ffmpeg.ValidateConvertOptions(o)
-}
+// validateOptions 校验转换参数；按目标大小压缩（两遍编码）暂缓，ValidateConvertOptions 对 TargetSizeMB != 0 直接拒绝。
+func validateOptions(o ffmpeg.ConvertOptions) error { return ffmpeg.ValidateConvertOptions(o) }
 
 // ---------- 提交 ----------
 
@@ -179,6 +174,15 @@ type params struct {
 // outputDir 为空时用设置里的默认输出目录，仍为空则输出到各自源文件所在的文件夹；输出名为 <源文件名>.<新扩展名>，
 // 重名自动追加 (1)、(2)，绝不覆盖已有文件。
 func (s *Service) Submit(ctx context.Context, inputs []string, opts ffmpeg.ConvertOptions, outputDir string) ([]task.Task, error) {
+	out, err := s.submit(ctx, inputs, opts, outputDir)
+	if err != nil && ctx.Err() != nil {
+		// ctx 被取消（应用退出等）：不要报 INTERNAL，统一返回 CANCELED；已提交的任务仍随 out 返回。
+		return out, apperr.Wrap(apperr.Canceled, "操作已取消", ctx.Err())
+	}
+	return out, err
+}
+
+func (s *Service) submit(ctx context.Context, inputs []string, opts ffmpeg.ConvertOptions, outputDir string) ([]task.Task, error) {
 	if s.cfg.Tasks == nil || s.cfg.Media == nil {
 		return nil, apperr.New(apperr.Internal, "转换服务尚未初始化")
 	}
@@ -208,6 +212,9 @@ func (s *Service) Submit(ctx context.Context, inputs []string, opts ffmpeg.Conve
 	}
 	jobs := make([]job, len(inputs))
 	for i, raw := range inputs {
+		if err := ctx.Err(); err != nil {
+			return nil, apperr.Wrap(apperr.Canceled, "操作已取消", err)
+		}
 		in, _, err := paths.Normalize(raw)
 		if err != nil {
 			return nil, apperr.Wrap(apperr.InvalidArgument, "路径不合法", err).WithDetail(raw)
@@ -252,7 +259,7 @@ func (s *Service) prepare(ctx context.Context, in string, opts ffmpeg.ConvertOpt
 	}
 	stem := strings.TrimSuffix(filepath.Base(in), filepath.Ext(in))
 	out := filepath.Join(outDir, stem+"."+opts.Container)
-	plan, err := ffmpeg.PlanConvert(in, out, "", opts, src)
+	plan, err := ffmpeg.PlanConvert(in, out, opts, src)
 	if err != nil {
 		return prepared{}, err
 	}
@@ -305,7 +312,7 @@ func (s *Service) newRunner(bin ffmpeg.Binaries, in, out string, opts ffmpeg.Con
 		DurationSec: dur,
 		Classify:    ffmpeg.ClassifyConvertError,
 		BuildArgs: func(part string) []string {
-			plan, err := ffmpeg.PlanConvert(in, part, "", opts, src)
+			plan, err := ffmpeg.PlanConvert(in, part, opts, src)
 			if err != nil {
 				return nil // prepare 已经用同样的参数验证过，不会走到这里；ffmpeg 会因缺少输出而失败
 			}

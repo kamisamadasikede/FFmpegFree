@@ -100,11 +100,18 @@ func exists(p string) bool {
 // errTargetExists 表示提交 .part 时最终路径已被别人占用。
 var errTargetExists = errors.New("目标文件已存在")
 
+// 文件系统操作的入口，测试里替换以模拟磁盘满等错误。
+var (
+	mkdirAll   = os.MkdirAll
+	linkFile   = os.Link
+	renameFile = os.Rename
+)
+
 // commitPart 把 part 提交为 final，绝不覆盖已存在的文件：
 // 先用 os.Link 创建硬链接（目标已存在会失败），成功后删除 .part；
 // 文件系统不支持硬链接（FAT / exFAT / 部分网络盘）时退回"先检查再 Rename"。
 func commitPart(part, final string) error {
-	err := os.Link(part, final)
+	err := linkFile(part, final)
 	if err == nil {
 		os.Remove(part)
 		return nil
@@ -115,7 +122,7 @@ func commitPart(part, final string) error {
 	if exists(final) {
 		return errTargetExists
 	}
-	return os.Rename(part, final)
+	return renameFile(part, final)
 }
 
 // RunWithPart 为写文件的任务提供统一的输出流程：
@@ -134,8 +141,8 @@ func RunWithPart(ctx context.Context, desired string, produce func(partPath stri
 	final := n.reserve(desired, owner)
 	release := func() { n.release(final) }
 	defer func() { release() }()
-	if err := os.MkdirAll(filepath.Dir(final), 0o755); err != nil {
-		return "", fmt.Errorf("创建输出目录失败: %w", err)
+	if err := mkdirAll(filepath.Dir(final), 0o755); err != nil {
+		return "", outputIOError("创建输出目录失败", err)
 	}
 	part := PartPath(final)
 	// produce 发生 panic 时也要清理 .part（panic 会继续向上传播，由 Manager 的 safeRun 转成任务失败）。
@@ -156,15 +163,15 @@ func RunWithPart(ctx context.Context, desired string, produce func(partPath stri
 		}
 		if !errors.Is(err, errTargetExists) {
 			os.Remove(part)
-			return "", fmt.Errorf("重命名输出文件失败: %w", err)
+			return "", outputIOError("保存输出文件失败", err)
 		}
 		// 目标被别的程序抢先创建：换下一个名字，把 .part 改名过去。
 		next := n.reserve(desired, owner)
 		nextPart := PartPath(next)
-		if err := os.Rename(part, nextPart); err != nil {
+		if err := renameFile(part, nextPart); err != nil {
 			n.release(next)
 			os.Remove(part)
-			return "", fmt.Errorf("重命名输出文件失败: %w", err)
+			return "", outputIOError("保存输出文件失败", err)
 		}
 		n.release(final)
 		final, part = next, nextPart

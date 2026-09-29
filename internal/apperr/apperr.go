@@ -27,6 +27,8 @@ const (
 
 	// ConvertDiskFull：转换写输出文件时磁盘空间不足（ffmpeg 报 No space left on device / ENOSPC 等）。v0.9 新增。
 	ConvertDiskFull Code = "CONVERT_DISK_FULL"
+	// Canceled：调用因应用退出（根 ctx 取消）或调用方取消而中断。v0.9.1 新增。
+	Canceled Code = "CANCELED"
 	// Unsupported：该操作不支持这个对象（如没有注册重试工厂的任务类型不能 Retry）。v0.7.1 新增。
 	Unsupported Code = "UNSUPPORTED"
 
