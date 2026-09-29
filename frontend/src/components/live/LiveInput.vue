@@ -11,6 +11,7 @@
       spellcheck="false"
       autocomplete="off"
       @keyup.enter="emit('enter')"
+      @blur="emit('blur')"
     />
     <button v-if="secret" type="button" class="ic" :title="revealed ? '隐藏' : '显示'" @click="revealed = !revealed">
       <FIcon :name="revealed ? 'eyeoff' : 'eye'" :size="14" />
@@ -30,7 +31,7 @@ import FIcon from '../icon/FIcon.vue'
 
 const model = defineModel<string>({ default: '' })
 withDefaults(defineProps<{ placeholder?: string; secret?: boolean; copyable?: boolean; bad?: boolean; disabled?: boolean }>(), {})
-const emit = defineEmits<{ enter: [] }>()
+const emit = defineEmits<{ enter: []; blur: [] }>()
 const revealed = ref(false)
 // 由外层 LiveField 提供：label[for] 指向输入框，错误行通过 aria-describedby 关联
 const inputId = inject<string | undefined>('ff-field-input-id', undefined)

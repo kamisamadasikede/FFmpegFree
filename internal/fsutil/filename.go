@@ -40,20 +40,20 @@ func isFormatChar(r rune) bool {
 	return true
 }
 
-// SanitizeFileName 按契约净化文件名（不含扩展名）：
+// SanitizeFileName 按契约 6.11.3「输出文件名」净化文件名（不含扩展名）：
 //
-//  1. 丢弃非法 UTF-8；删除控制字符（U+0000~001F、007F~009F）、路径分隔符和 Windows 非法字符 \ / : * ? " < > |、
-//     Unicode 格式类字符（U+200B–200F、202A–202E、2066–2069、FEFF）；做 NFC；
+//  1. 丢弃非法 UTF-8，先做 Unicode NFC，再删除：控制字符（U+0000~001F、007F~009F）、Unicode 格式类字符
+//     （U+200B–200F、202A–202E、2066–2069、FEFF）、路径分隔符和 Windows 非法字符 \ / : * ? " < > |；
 //  2. 去掉首尾空白和尾部的点与空格（Windows 会静默吞掉它们）；
-//  3. Windows 保留设备名（CON PRN AUX NUL COM0~9 LPT0~9，含 ¹²³ 与全角数字变体，取第一个 "." 之前的部分、不分大小写）前加 "_"；
-//  4. 按字符数截到 100（UTF-8 字节 ≤200），截断后再做一遍 1~3。
+//  3. Windows 保留设备名（CON PRN AUX NUL COM0~9 LPT0~9，含 ¹²³ 变体；取第一个 "." 之前的部分、不分大小写）在整个名字前加 "_"；
+//  4. 先按字符数截到 100，再保证 UTF-8 字节 ≤200（从末尾逐个字符删，不切开字符），然后再做一遍 2、3（不再重复 1）。
 //
 // 放开中日韩。全部去掉后返回 ""，由调用方决定兜底（见 SanitizeFileNameOr）。
-func SanitizeFileName(s string) string {
-	s = sanitizeOnce(s)
-	s = truncate(s, MaxNameRunes, MaxNameBytes)
-	return sanitizeOnce(s)
-}
+func SanitizeFileName(s string) string { return sanitize(s, "") }
+
+// SanitizeArchiveName 是直播存档用的变体（契约 6.10）：在 SanitizeFileName 的基础上，把 | ' [ ] 替换为 _
+// （这些字符在 ffmpeg 输出名 / 各种 shell、播放列表里容易出问题）。
+func SanitizeArchiveName(s string) string { return sanitize(s, "|'[]") }
 
 // SanitizeFileNameOr 净化后为空时返回 fallback（fallback 本身不再净化，调用方给常量）。
 func SanitizeFileNameOr(s, fallback string) string {
@@ -63,15 +63,25 @@ func SanitizeFileNameOr(s, fallback string) string {
 	return fallback
 }
 
-func sanitizeOnce(s string) string {
+func sanitize(s, underscore string) string {
 	s = strings.ToValidUTF8(s, "")
+	s = norm.NFC.String(s)
 	s = strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) || isFormatChar(r) || strings.ContainsRune(illegalChars, r) {
+		switch {
+		case underscore != "" && strings.ContainsRune(underscore, r):
+			return '_'
+		case unicode.IsControl(r), isFormatChar(r), strings.ContainsRune(illegalChars, r):
 			return -1
 		}
 		return r
 	}, s)
-	s = norm.NFC.String(s)
+	s = finish(s)
+	s = truncate(s, MaxNameRunes, MaxNameBytes)
+	return finish(s)
+}
+
+// finish 是第 2、3 步：去首尾空白和尾部的点 / 空格，避开保留名。
+func finish(s string) string {
 	s = strings.TrimFunc(s, unicode.IsSpace)
 	s = strings.TrimRightFunc(s, func(r rune) bool { return r == '.' || unicode.IsSpace(r) })
 	if IsReservedName(s) {

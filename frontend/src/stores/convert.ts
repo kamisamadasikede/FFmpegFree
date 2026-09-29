@@ -3,7 +3,7 @@ import { computed, reactive, ref } from 'vue'
 import { store as goStore } from '../../wailsjs/go/models'
 import { call, toAppError } from '@/api/call'
 import { listPresets, MAX_SUBMIT, parseConvertParams, resubmitToDir, submitConvert, type PresetItem } from '@/api/convert'
-import { PROBE_BATCH, probeFiles, thumbnailOf } from '@/api/media'
+import { probeFiles, thumbnailOf } from '@/api/media'
 import { canPickFiles, pickDirectory, pickFiles, revealInFolder, getDefaultOutputDir } from '@/api/system'
 import { hasWailsBackend, previewParams } from '@/services/wails'
 import { useFFmpegStore } from '@/stores/ffmpeg'
@@ -57,6 +57,12 @@ export function splitPresetName(name: string): { title: string; sub: string } {
   const m = name.match(/^(.*?)[（(](.*)[）)]\s*$/)
   return m ? { title: m[1].trim(), sub: m[2].trim() } : { title: name, sub: '' }
 }
+
+/**
+ * 每一轮 probePending 最多取多少个还没读取的行去探测。列表本身最多 MAX_SUBMIT（50）个，所以这里只是兜底上限，
+ * 与列表上限保持一致；分成小批（PROBE_BATCH）回调由 probeFiles 负责。
+ */
+const PROBE_ROUND_MAX = MAX_SUBMIT
 
 let seq = 0
 const newKey = () => `cf${Date.now().toString(36)}${(seq++).toString(36)}`
@@ -256,7 +262,7 @@ export const useConvertStore = defineStore('convert', () => {
     try {
       for (;;) {
         // probeFiles 内部每 PROBE_BATCH（8）个一批回调一次，界面上能看到“正在读取文件信息（12/50）…”
-        const batch = rows.value.filter((r) => r.probe === 'waiting').slice(0, 50)
+        const batch = rows.value.filter((r) => r.probe === 'waiting').slice(0, PROBE_ROUND_MAX)
         if (!batch.length) break
         for (const r of batch) r.probe = 'probing'
         await probeFiles(batch.map((r) => r.path), (results) => {
@@ -348,7 +354,6 @@ export const useConvertStore = defineStore('convert', () => {
   function focusOn(r: ConvertRow) {
     focusKey.value = focusKey.value === r.key ? '' : r.key
   }
-  const coverQueue = new Set<string>()
   /** 信息卡的 16:9 封面：Thumbnail(path, at, 640)；纯音频没有封面 */
   function ensureCover(r: ConvertRow | undefined) {
     if (!r || r.coverState !== 'idle' || r.probe !== 'ok' || !r.info) return
@@ -357,15 +362,16 @@ export const useConvertStore = defineStore('convert', () => {
       return
     }
     r.coverState = 'loading'
-    coverQueue.add(r.key)
     const at = Math.min(10, (r.info.duration ?? 0) * 0.1)
     thumbnailOf(r.path, at, 640)
       .then((url) => {
         r.cover = url
       })
+      .catch((e) => {
+        console.warn('load cover failed', r.path, e) // 封面只是装饰：失败就保持占位图标
+      })
       .finally(() => {
         r.coverState = 'done'
-        coverQueue.delete(r.key)
       })
   }
 
@@ -544,7 +550,7 @@ export const useConvertStore = defineStore('convert', () => {
         const r = list[i]
         if (!r) return
         r.taskId = t.id
-        r.label = 'MP4'
+        r.label = presetShort.value
         if (fin) {
           tasks.seedFinal({ id: t.id, status: t.status, error: t.error, outputPath: t.outputPath, progress: t.status === 'succeeded' ? 1 : t.progress, speed: '', etaSec: 0, finishedAt: Date.now(), params: t.params })
         } else tasks.track([t] as unknown as goStore.Task[])

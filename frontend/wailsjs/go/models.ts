@@ -222,6 +222,289 @@ export namespace doc {
 
 }
 
+export namespace edit {
+	
+	export class AudioClip {
+	    id: string;
+	    path: string;
+	    trackId: string;
+	    startSec: number;
+	    inSec: number;
+	    outSec: number;
+	    speed: number;
+	    volume: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new AudioClip(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.path = source["path"];
+	        this.trackId = source["trackId"];
+	        this.startSec = source["startSec"];
+	        this.inSec = source["inSec"];
+	        this.outSec = source["outSec"];
+	        this.speed = source["speed"];
+	        this.volume = source["volume"];
+	    }
+	}
+	export class EditExportOptions {
+	    outputName: string;
+	    outputDir: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new EditExportOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.outputName = source["outputName"];
+	        this.outputDir = source["outputDir"];
+	    }
+	}
+	export class EditOutput {
+	    format: string;
+	    width: number;
+	    height: number;
+	    fps: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new EditOutput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.format = source["format"];
+	        this.width = source["width"];
+	        this.height = source["height"];
+	        this.fps = source["fps"];
+	    }
+	}
+	export class EditWarning {
+	    code: string;
+	    clipId?: string;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new EditWarning(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.clipId = source["clipId"];
+	        this.message = source["message"];
+	    }
+	}
+	export class EditPlan {
+	    durationSec: number;
+	    clipCount: number;
+	    inputs: string[];
+	    hasAudio: boolean;
+	    warnings: EditWarning[];
+	
+	    static createFrom(source: any = {}) {
+	        return new EditPlan(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.durationSec = source["durationSec"];
+	        this.clipCount = source["clipCount"];
+	        this.inputs = source["inputs"];
+	        this.hasAudio = source["hasAudio"];
+	        this.warnings = this.convertValues(source["warnings"], EditWarning);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class GlobalEffects {
+	    brightness: number;
+	    contrast: number;
+	    saturation: number;
+	    sharpen: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new GlobalEffects(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.brightness = source["brightness"];
+	        this.contrast = source["contrast"];
+	        this.saturation = source["saturation"];
+	        this.sharpen = source["sharpen"];
+	    }
+	}
+	export class VideoClip {
+	    id: string;
+	    path: string;
+	    trackId: string;
+	    startSec: number;
+	    inSec: number;
+	    outSec: number;
+	    speed: number;
+	    effectPreset: string;
+	    transitionToNext: string;
+	    transitionDurationSec: number;
+	    blur: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new VideoClip(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.path = source["path"];
+	        this.trackId = source["trackId"];
+	        this.startSec = source["startSec"];
+	        this.inSec = source["inSec"];
+	        this.outSec = source["outSec"];
+	        this.speed = source["speed"];
+	        this.effectPreset = source["effectPreset"];
+	        this.transitionToNext = source["transitionToNext"];
+	        this.transitionDurationSec = source["transitionDurationSec"];
+	        this.blur = source["blur"];
+	    }
+	}
+	export class EditProject {
+	    schemaVersion: number;
+	    id: string;
+	    name: string;
+	    sources: string[];
+	    output: EditOutput;
+	    videoTrack: VideoClip[];
+	    audioTrack: AudioClip[];
+	    effects: GlobalEffects;
+	    updatedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new EditProject(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.schemaVersion = source["schemaVersion"];
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.sources = source["sources"];
+	        this.output = this.convertValues(source["output"], EditOutput);
+	        this.videoTrack = this.convertValues(source["videoTrack"], VideoClip);
+	        this.audioTrack = this.convertValues(source["audioTrack"], AudioClip);
+	        this.effects = this.convertValues(source["effects"], GlobalEffects);
+	        this.updatedAt = source["updatedAt"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class EditProjectMeta {
+	    id: string;
+	    name: string;
+	    durationSec: number;
+	    clipCount: number;
+	    updatedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new EditProjectMeta(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.durationSec = source["durationSec"];
+	        this.clipCount = source["clipCount"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	}
+	
+	
+	export class LoadedProject {
+	    project: EditProject;
+	    missingPaths: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new LoadedProject(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.project = this.convertValues(source["project"], EditProject);
+	        this.missingPaths = source["missingPaths"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class PreviewURL {
+	    url: string;
+	    mime: string;
+	    size: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new PreviewURL(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.url = source["url"];
+	        this.mime = source["mime"];
+	        this.size = source["size"];
+	    }
+	}
+
+}
+
 export namespace ffmpeg {
 	
 	export class ConvertOptions {

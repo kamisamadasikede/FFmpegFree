@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -361,8 +362,8 @@ func TestRemoveRecentRevokesLocalToken(t *testing.T) {
 	if w := do("GET", "bytes=0-99"); w.Code != http.StatusPartialContent || w.Body.Len() != 100 || !bytes.HasPrefix(w.Body.Bytes(), []byte("%PDF-1.4")) {
 		t.Fatalf("Range: %d len=%d", w.Code, w.Body.Len())
 	}
-	if w := do("HEAD", ""); w.Code == http.StatusNotFound || w.Code >= 500 {
-		t.Fatalf("HEAD 应被支持: %d", w.Code)
+	if w := do("HEAD", ""); w.Code != http.StatusOK || w.Header().Get("Content-Length") != strconv.FormatInt(WholeLoadBytes+4096, 10) || w.Body.Len() != 0 {
+		t.Fatalf("HEAD 应 200 且带完整 Content-Length（不受 32 MiB 限制）: %d %q", w.Code, w.Header().Get("Content-Length"))
 	}
 	if w := do("GET", ""); w.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("大文件无 Range 应 413: %d", w.Code)
