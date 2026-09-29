@@ -7,9 +7,11 @@ import (
 	"FFmpegFree/internal/paths"
 	"FFmpegFree/internal/service/system"
 	"FFmpegFree/internal/store"
+	"FFmpegFree/internal/task"
 	"context"
 	"fmt"
 	"log"
+	"sync/atomic"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -21,7 +23,12 @@ type App struct {
 	dirs  paths.Dirs
 	store *store.Store
 	sys   *system.Manager
+	tasks atomic.Pointer[task.Manager]
 }
+
+// taskManager 返回任务管理器；OnStartup 完成前（或存储初始化失败时）为 nil。
+// 首字母小写，不会被 Wails 当作绑定方法暴露给前端。
+func (a *App) taskManager() *task.Manager { return a.tasks.Load() }
 
 // NewApp creates a new App application struct
 func NewApp(sys *system.Manager) *App {
@@ -36,7 +43,23 @@ func (a *App) startup(ctx context.Context) {
 		// v2 迁移期间旧的 gin 接口仍在工作，存储层初始化失败先记录日志，不阻止应用启动。
 		log.Printf("初始化本地存储失败: %v", err)
 	}
+	a.startTasks(ctx)
 	a.startFFmpegDetect(ctx)
+}
+
+// startTasks 创建任务管理器。initStore 已经把上次未结束的任务标记为 interrupted，
+// 所以这里启动时内存里没有任何活动任务，也不会自动恢复执行。
+func (a *App) startTasks(ctx context.Context) {
+	if a.store == nil {
+		log.Printf("本地存储不可用，任务管理器未启动")
+		return
+	}
+	a.tasks.Store(task.NewManager(task.Config{
+		Store:   a.store,
+		Emitter: app.NewWailsEmitter(ctx),
+		LogDir:  a.dirs.Logs,
+		Logf:    log.Printf,
+	}))
 }
 
 // startFFmpegDetect 在后台检测 ffmpeg，不阻塞界面；状态变化通过 ffmpeg:status 事件推送。
@@ -67,6 +90,7 @@ func (a *App) startFFmpegDetect(ctx context.Context) {
 	if a.store != nil { // 避免把 nil *Store 装进接口
 		cfg.Settings = a.store
 	}
+	cfg.Tasks = a.taskManager()
 	a.sys.Start(ctx, cfg)
 }
 
@@ -95,6 +119,10 @@ func (a *App) initStore(ctx context.Context) error {
 func (a *App) shutdown(ctx context.Context) {
 	contollers.KillAllFFmpegProcesses()
 	contollers.KillLiveOpsProcesses()
+	if m := a.taskManager(); m != nil {
+		// 先停任务再关数据库：运行中的任务被取消并落库为 interrupted。
+		m.Shutdown(8 * time.Second)
+	}
 	if a.store != nil {
 		if err := a.store.Close(); err != nil {
 			log.Printf("关闭数据库失败: %v", err)

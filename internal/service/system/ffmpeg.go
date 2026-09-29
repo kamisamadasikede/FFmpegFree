@@ -10,6 +10,7 @@ import (
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/ffmpeg"
+	"FFmpegFree/internal/task"
 )
 
 // EventFFmpegStatus 是 ffmpeg 状态变化事件名，payload 为完整的 FFmpegStatus。
@@ -55,6 +56,7 @@ type Config struct {
 	Settings  SettingsStore     // 可为 nil（存储初始化失败时降级为不持久化）
 	Emitter   Emitter           // 可为 nil
 	Installer *ffmpeg.Installer // 可为 nil（此时 InstallFFmpeg 返回 INTERNAL）
+	Tasks     *task.Manager     // 可为 nil（此时 InstallFFmpeg 返回 INTERNAL）
 }
 
 // Manager 持有 ffmpeg 检测状态。所有方法并发安全。
@@ -84,6 +86,9 @@ func (m *Manager) Start(ctx context.Context, cfg Config) {
 	m.cfg = cfg
 	m.appCtx = ctx
 	m.started = true
+	if cfg.Tasks != nil && cfg.Installer != nil {
+		m.registerInstallFactory(cfg)
+	}
 	m.mu.Unlock()
 	go func() {
 		if _, err := m.Recheck(ctx); err != nil {
