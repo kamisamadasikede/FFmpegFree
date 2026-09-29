@@ -1,7 +1,7 @@
 // 接口层自检（不引入测试框架）：node scripts/check-api.mjs 用 esbuild 打包后运行，失败退出码 1。
 // 覆盖：AppError 的 reason / clipId 解析、TASK_CONFLICT 文案表、推流地址校验与脱敏、Edit 同轨道重叠 / 输出名净化 / 结构校验、
 // 模拟层（Live 两种 TASK_CONFLICT、停止语义、Doc 的 UNSUPPORTED、Edit 的 clip 错误）。
-import { AppError, parseDetailHead, toAppError, BACKEND_ERROR_CODES, callService } from './call'
+import { AppError, parseDetailHead, toAppError, BACKEND_ERROR_CODES, callService, docErrorReason, DOC_ERROR_REASONS } from './call'
 import { toApiTask, type TaskProgressPayload, type TaskStatusPayload, type ApiTask } from './taskTypes'
 import {
   taskConflictText, TASK_CONFLICT_GENERIC, actionErrorText, liveStartErrorLine, LIVE_STOP_TEXT, docUnsupportedText, errorMessages, taskErrorMessages,
@@ -46,6 +46,12 @@ export async function runApiChecks(): Promise<string[]> {
   eq('reason=duplicate_url', new AppError('TASK_CONFLICT', 'x', 'reason=duplicate_url').reason, 'duplicate_url')
   eq('没有 reason', new AppError('TASK_CONFLICT', 'x', '任务已经结束').reason, undefined)
   eq('reason 不在首行不算', new AppError('TASK_CONFLICT', 'x', '说明\nreason=max_sessions').reason, undefined)
+  // Doc 错误：detail 首行 reason=<枚举>，其后可以有路径行 / 说明行
+  eq('Doc reason 枚举', [...DOC_ERROR_REASONS], ['too_many_pages', 'format', 'encrypted', 'no_font', 'invalid_ooxml', 'too_large'])
+  eq('Doc reason 首行', new AppError('UNSUPPORTED', '超过 5000 页', 'reason=too_many_pages\n已排到第 5001 页仍未结束').reason, 'too_many_pages')
+  eq('Doc reason 后跟路径行', docErrorReason(new AppError('INVALID_ARGUMENT', '不是有效的 OOXML 文件', 'reason=invalid_ooxml\n/d/a.docx\nzip: not a valid zip file').reason), 'invalid_ooxml')
+  eq('docErrorReason 不认识的值', [docErrorReason('screen_busy'), docErrorReason(undefined), docErrorReason('')], [undefined, undefined, undefined])
+  eq('Doc reason 不在首行不算', docErrorReason(new AppError('UNSUPPORTED', 'x', '/d/a.doc\nreason=format').reason), undefined)
   eq('clip 首行', parseDetailHead('clip=c_1-a path=/a b/中文.mp4\n原因'), { clipId: 'c_1-a', path: '/a b/中文.mp4' })
   eq('project 首行没有 clip', parseDetailHead('project\n视频轨不能为空'), {})
   eq('toAppError 解析 JSON 的 detail', toAppError('{"code":"TASK_CONFLICT","message":"m","detail":"reason=duplicate_url"}').reason, 'duplicate_url')

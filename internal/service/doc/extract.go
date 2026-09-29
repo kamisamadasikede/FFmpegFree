@@ -46,7 +46,7 @@ type docModel struct {
 // maxTextBytes 是一份文档提取出的文字总量上限。5000 页放不下这么多字，超过按“超过 5000 页”处理，避免超大 XML 吃光内存。
 const maxTextBytes = 64 << 20
 
-var errTooLong = apperr.New(apperr.Unsupported, "超过 5000 页").WithDetail("文档文字量超过上限")
+var errTooLong = reasonErr(apperr.Unsupported, "超过 5000 页", reasonTooManyPages, "文档文字量超过上限")
 
 func newModel(bodySize float64) *docModel {
 	return &docModel{bodySize: bodySize, runes: map[rune]int{}}
@@ -114,13 +114,13 @@ func readEntry(f *zip.File) ([]byte, error) {
 		return nil, err
 	}
 	if int64(len(data)) > maxEntryBytes {
-		return nil, fmt.Errorf("%s 解压后超过 256 MiB", f.Name)
+		return nil, reasonErr(apperr.InvalidArgument, "不是有效的 OOXML 文件", reasonTooLarge, f.Name+" 解压后超过 256 MiB")
 	}
 	return data, nil
 }
 
 func invalidOOXML(err error) error {
-	return apperr.New(apperr.InvalidArgument, "不是有效的 OOXML 文件").WithDetail(err.Error())
+	return reasonErr(apperr.InvalidArgument, "不是有效的 OOXML 文件", reasonInvalidOOXML, err.Error())
 }
 
 // extractParagraphs 按 v1 的 extractTextRuns：每个 <t> 的文本拼进当前段，遇到结束标签 </p> 输出一段（去首尾空白，空段跳过）。
@@ -337,5 +337,5 @@ func (s *Service) extract(ctx context.Context, path, ext string) (*docModel, err
 	case "pptx":
 		return extractPptx(ctx, path)
 	}
-	return nil, apperr.New(apperr.Unsupported, "暂不支持这种格式")
+	return nil, reasonErr(apperr.Unsupported, "暂不支持这种格式", reasonFormat, "."+ext)
 }

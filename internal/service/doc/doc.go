@@ -193,6 +193,27 @@ func (s *Service) internalNotReady(what string) error {
 	return apperr.New(apperr.Internal, what+"尚未初始化")
 }
 
+// detail 首行的 reason 枚举（契约 2.2 / 6.12.6）：Doc 面向前端的“文件本身有问题”类错误，detail 首行严格是 `reason=<值>`，
+// 其后可以有自由文本行（原因说明、出错文件路径）；code 和 message 不变（前端精确匹配 message）。
+// 映射不到这六个值的错误（取消、磁盘满、读写失败、参数不合法、路径 / 句柄问题等）不带 reason 行。
+const (
+	reasonTooManyPages = "too_many_pages" // 超过 5000 页（含文字量超限）
+	reasonFormat       = "format"         // 格式不受支持 / 不是支持的文件类型
+	reasonEncrypted    = "encrypted"      // 加密文档（OLE 容器）
+	reasonNoFont       = "no_font"        // 缺 Unicode 字体
+	reasonInvalidOOXML = "invalid_ooxml"  // 不是有效的 OOXML（不是 zip、缺必需部件、XML 损坏、zip 目录信息无效）
+	reasonTooLarge     = "too_large"      // 超大小 / 超 zip 条目数 / 超 zip 目录 / 条目解压后过大
+)
+
+// reasonErr 构造 detail 首行是 reason=<值> 的错误；extra 非空时作为第二行起的自由文本。
+func reasonErr(code apperr.Code, message, reason, extra string) *apperr.AppError {
+	d := "reason=" + reason
+	if extra != "" {
+		d += "\n" + extra
+	}
+	return apperr.New(code, message).WithDetail(d)
+}
+
 // readErr 把打开 / stat 文件的系统错误转成契约错误码：不存在 NOT_FOUND，其余 IO_ERROR。
 func readErr(msg string, err error) *apperr.AppError {
 	if os.IsNotExist(err) {
@@ -204,9 +225,17 @@ func readErr(msg string, err error) *apperr.AppError {
 func withPath(err error, path string) error {
 	ae := apperr.From(err)
 	cp := *ae
-	if cp.Detail == "" {
+	switch {
+	case cp.Detail == "":
 		cp.Detail = path
-	} else {
+	case strings.HasPrefix(cp.Detail, "reason="):
+		// reason 行必须留在首行，路径插在它后面
+		first, rest, _ := strings.Cut(cp.Detail, "\n")
+		cp.Detail = first + "\n" + path
+		if rest != "" {
+			cp.Detail += "\n" + rest
+		}
+	default:
 		cp.Detail = path + "\n" + cp.Detail
 	}
 	return &cp

@@ -30,7 +30,7 @@ func openErr(err error) error {
 	case os.IsNotExist(err):
 		return apperr.Wrap(apperr.NotFound, "文件不存在", err)
 	case errors.Is(err, zip.ErrFormat), errors.Is(err, zip.ErrInsecurePath), errors.Is(err, zip.ErrAlgorithm), errors.Is(err, zip.ErrChecksum), errors.Is(err, io.ErrUnexpectedEOF):
-		return apperr.New(apperr.InvalidArgument, "不是有效的 OOXML 文件").WithDetail(err.Error())
+		return invalidOOXML(err)
 	}
 	return apperr.Wrap(apperr.IOError, "读取文件失败", err)
 }
@@ -43,15 +43,15 @@ func entryErr(err error) error {
 	if errors.As(err, &ae) {
 		return err
 	}
-	if errors.Is(err, zip.ErrFormat) || errors.Is(err, zip.ErrChecksum) || errors.Is(err, zip.ErrAlgorithm) || errors.Is(err, io.ErrUnexpectedEOF) || strings.Contains(err.Error(), "超过 256 MiB") || strings.Contains(err.Error(), "flate") {
-		return apperr.New(apperr.InvalidArgument, "不是有效的 OOXML 文件").WithDetail(err.Error())
+	if errors.Is(err, zip.ErrFormat) || errors.Is(err, zip.ErrChecksum) || errors.Is(err, zip.ErrAlgorithm) || errors.Is(err, io.ErrUnexpectedEOF) || strings.Contains(err.Error(), "flate") {
+		return invalidOOXML(err)
 	}
 	return apperr.Wrap(apperr.IOError, "读取文件失败", err)
 }
 
 // ConvertToPDF 为每个输入文件提交一个 office_pdf 任务（进入 batch 池排队），返回的任务与 inputs 一一对应。
 //
-// 先整体校验再提交：任何一个不通过整体失败、不提交任何任务，错误 detail 第一行是出错文件的路径。
+// 先整体校验再提交：任何一个不通过整体失败、不提交任何任务，错误 detail：有 reason 的错误首行是 reason=<枚举>、第二行是出错文件的路径，其余首行是出错文件的路径。
 // outputDir 为空用 Settings.defaultOutputDir，仍为空则输出到各自源文件所在文件夹；输出名 <源文件名去扩展名>.pdf（经净化），重名追加 (1)、(2)。
 func (s *Service) ConvertToPDF(ctx context.Context, inputs []string, outputDir string) ([]task.Task, error) {
 	out, err := s.convert(ctx, inputs, outputDir)
@@ -125,7 +125,7 @@ func (s *Service) prepare(ctx context.Context, raw, dir string) (job, error) {
 		return job{}, apperr.New(apperr.InvalidArgument, "不是普通文件")
 	}
 	if fi.Size() > MaxInputBytes {
-		return job{}, apperr.New(apperr.InvalidArgument, "文件超过 100 MiB").WithDetail(fmt.Sprintf("%d 字节", fi.Size()))
+		return job{}, reasonErr(apperr.InvalidArgument, "文件超过 100 MiB", reasonTooLarge, fmt.Sprintf("%d 字节", fi.Size()))
 	}
 	if err := validateOOXML(in, ext); err != nil {
 		return job{}, err
@@ -151,7 +151,7 @@ func (s *Service) prepare(ctx context.Context, raw, dir string) (job, error) {
 	return job{in: in, ext: ext, out: desired, dir: dir}, nil
 }
 
-var errNoFont = apperr.New(apperr.Unsupported, "没有可用的 Unicode 字体").WithDetail("文档含有 Latin-1 以外的字符，但没有可用的字体")
+var errNoFont = reasonErr(apperr.Unsupported, "没有可用的 Unicode 字体", reasonNoFont, "文档含有 Latin-1 以外的字符，但没有可用的字体")
 
 func checkExt(ext string) error {
 	switch ext {
@@ -160,13 +160,13 @@ func checkExt(ext string) error {
 	}
 	for _, u := range unsupportedFormats {
 		if u.ext == ext {
-			return apperr.New(apperr.Unsupported, "暂不支持这种格式").WithDetail("." + ext + "：" + u.reason)
+			return reasonErr(apperr.Unsupported, "暂不支持这种格式", reasonFormat, "."+ext+"："+u.reason)
 		}
 	}
 	if ext == "" {
-		return apperr.New(apperr.Unsupported, "暂不支持这种格式").WithDetail("文件没有扩展名")
+		return reasonErr(apperr.Unsupported, "暂不支持这种格式", reasonFormat, "文件没有扩展名")
 	}
-	return apperr.New(apperr.Unsupported, "暂不支持这种格式").WithDetail("." + ext)
+	return reasonErr(apperr.Unsupported, "暂不支持这种格式", reasonFormat, "."+ext)
 }
 
 // validateOOXML 检查文件确实是含必需部件的 OOXML：OLE 头（加密或旧格式改了扩展名）UNSUPPORTED，
@@ -180,7 +180,7 @@ func validateOOXML(path, ext string) error {
 	head := make([]byte, 4)
 	n, _ := io.ReadFull(f, head)
 	if n == 4 && bytes.Equal(head, []byte{0xD0, 0xCF, 0x11, 0xE0}) {
-		return apperr.New(apperr.Unsupported, "暂不支持这种格式").WithDetail("加密文档不支持（或旧版格式改了扩展名），请先另存为未加密的 docx、xlsx 或 pptx")
+		return reasonErr(apperr.Unsupported, "暂不支持这种格式", reasonEncrypted, "加密文档不支持（或旧版格式改了扩展名），请先另存为未加密的 docx、xlsx 或 pptx")
 	}
 	if err := checkZipEntries(path); err != nil {
 		return err
@@ -196,7 +196,7 @@ func validateOOXML(path, ext string) error {
 	var need bool
 	for _, e := range zr.File {
 		if e.UncompressedSize64 > uint64(maxEntryBytes) {
-			return apperr.New(apperr.InvalidArgument, "不是有效的 OOXML 文件").WithDetail(e.Name + " 解压后超过 256 MiB")
+			return reasonErr(apperr.InvalidArgument, "不是有效的 OOXML 文件", reasonTooLarge, e.Name+" 解压后超过 256 MiB")
 		}
 		switch ext {
 		case "docx":
@@ -208,7 +208,7 @@ func validateOOXML(path, ext string) error {
 		}
 	}
 	if !need {
-		return apperr.New(apperr.InvalidArgument, "不是有效的 OOXML 文件").WithDetail("缺少 " + requiredPart(ext))
+		return reasonErr(apperr.InvalidArgument, "不是有效的 OOXML 文件", reasonInvalidOOXML, "缺少 "+requiredPart(ext))
 	}
 	return nil
 }

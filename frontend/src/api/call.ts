@@ -39,7 +39,7 @@ export const BACKEND_ERROR_CODES: readonly AppErrorCode[] = [
 ]
 
 export interface DetailHead {
-  /** detail 首行 `reason=<值>`（整行只有这一个键值对）；TASK_CONFLICT、LIVE_URL_INVALID 用，未知值 / 没有时为 undefined */
+  /** detail 首行 `reason=<值>`（整行只有这一个键值对）；TASK_CONFLICT、LIVE_URL_INVALID、DocService 错误（DocErrorReason）用，没有时为 undefined */
   reason?: string
   /** detail 首行 `scheme=rtmp|rtmps|srt`（整行只有这一个键值对）；LIVE_CONNECT_FAILED 用，没有时为 undefined */
   scheme?: string
@@ -48,6 +48,20 @@ export interface DetailHead {
   /** detail 首行 `clip=<id> path=<path>`（Edit 的 clip 级错误）；结构性错误首行是 `project`，两者都为 undefined */
   clipId?: string
   path?: string
+}
+
+/**
+ * DocService 错误的 detail 首行 `reason=<值>` 稳定枚举（契约 2.2 / 6.12.6，只追加）：
+ * too_many_pages（UNSUPPORTED，超过 5000 页）、format（UNSUPPORTED / INVALID_ARGUMENT，格式不受支持）、encrypted（UNSUPPORTED，加密 Office 文档）、
+ * no_font（UNSUPPORTED，缺 Unicode 字体）、invalid_ooxml（INVALID_ARGUMENT，不是有效的 OOXML）、too_large（INVALID_ARGUMENT，超大小 / 超 zip 限制）。
+ * 只有这些“文件本身有问题”的错误带 reason；取消、磁盘满、读写失败等不带。message 不变，仍是给用户看的短句。
+ */
+export const DOC_ERROR_REASONS = ['too_many_pages', 'format', 'encrypted', 'no_font', 'invalid_ooxml', 'too_large'] as const
+export type DocErrorReason = (typeof DOC_ERROR_REASONS)[number]
+
+/** AppError.reason → Doc 的 reason 枚举；不在枚举里（含 TASK_CONFLICT / LIVE_URL_INVALID 的 reason）返回 undefined */
+export function docErrorReason(reason?: string): DocErrorReason | undefined {
+  return (DOC_ERROR_REASONS as readonly string[]).includes(reason ?? '') ? (reason as DocErrorReason) : undefined
 }
 
 const REASON_RE = /^reason=([A-Za-z0-9_-]+)$/
