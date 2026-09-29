@@ -1,5 +1,5 @@
 <template>
-  <div class="section">
+  <div class="section" :class="{ fill: route.meta.fill }">
     <div v-if="tabs.length > 1" class="tabs" role="tablist">
       <RouterLink
         v-for="tab in tabs"
@@ -40,6 +40,9 @@ const tabs = computed(() => {
   flex-direction: column;
   gap: var(--ff-space-4);
   min-height: 100%;
+}
+.section.fill {
+  height: 100%; /* 路由 meta.fill：页面自己撑满内容区（工具页的编辑器需要确定高度） */
 }
 .tabs {
   display: flex;

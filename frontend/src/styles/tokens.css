@@ -7,10 +7,18 @@
   --ff-primary: #3b6ef5;
   --ff-primary-hover: #2f5cd9;
   --ff-primary-soft: #eaf0ff;
+  --ff-on-primary: #ffffff; /* 主色底上的文字 / 开关圆点 */
   --ff-success: #16a34a;
   --ff-warning: #d97706;
   --ff-warning-soft: #fff7e6;
   --ff-danger: #dc2626;
+
+  /* JSON 语法色（工具页代码 / 树形共用），来源：设计原型 extra.css */
+  --ff-syntax-key: #2f5cd9;
+  --ff-syntax-string: #15803d;
+  --ff-syntax-number: #c2410c;
+  --ff-syntax-bool: #7c3aed;
+  --ff-syntax-null: #0e7490;
 
   --ff-bg-app: #f5f6f8;
   --ff-bg-sidebar: #eef0f3;
@@ -62,10 +70,17 @@ html.dark,
   --ff-primary: #5b8cff;
   --ff-primary-hover: #7aa2ff;
   --ff-primary-soft: #1e2a4a;
+  --ff-on-primary: #ffffff;
   --ff-success: #22c55e;
   --ff-warning: #f59e0b;
   --ff-warning-soft: #3a2a10;
   --ff-danger: #ef4444;
+
+  --ff-syntax-key: #7aa2ff;
+  --ff-syntax-string: #7ec699;
+  --ff-syntax-number: #f5a860;
+  --ff-syntax-bool: #c792ea;
+  --ff-syntax-null: #56c2d6;
 
   --ff-bg-app: #141518;
   --ff-bg-sidebar: #1a1b1f;
