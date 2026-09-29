@@ -17,3 +17,5 @@ func configure(cmd *exec.Cmd) {
 func kill(cmd *exec.Cmd) error {
 	return cmd.Process.Kill()
 }
+
+func interrupt(cmd *exec.Cmd) error { return ErrInterruptUnsupported }

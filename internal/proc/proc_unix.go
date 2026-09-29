@@ -21,3 +21,10 @@ func kill(cmd *exec.Cmd) error {
 	}
 	return cmd.Process.Kill()
 }
+
+func interrupt(cmd *exec.Cmd) error {
+	if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGINT); err == nil {
+		return nil
+	}
+	return cmd.Process.Signal(syscall.SIGINT)
+}
