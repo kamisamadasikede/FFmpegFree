@@ -32,6 +32,12 @@ export function runEditChecks(): string[] {
     eq('clip_gap / leading_gap 不提示', normalizeWarnings(['clip_gap', { code: 'leading_gap', message: '' }]).map(isSilentWarning), [true, true])
     eq('间隙 0.12 相接、0.13 空隙', [gapKind(10, 10.12), gapKind(10, 10.13)], ['touch', 'gap'])
   }
+  {
+    const pj = { videoTrack: [v('cs', 0, 5)], audioTrack: [] }
+    const ev = exportErrorView({ code: 'INVALID_ARGUMENT', message: '片段太短（按速度折算后不足 0.04 秒）', detail: 'clip=cs path=/m/cs.mp4\n片段太短' }, pj)
+    eq('片段太短：固定文案、定位 + 日志、无重试', [ev.text, ev.actions, ev.clipId], ['片段太短，请调整后再导出。', ['locate', 'log'], 'cs'])
+    eq('转场没生效文案', TEXT.transitionIgnored, '有片段太短，转场没有生效')
+  }
   eq('限制小字', LIMIT_TEXT, '限制：视频轨 8 条、音频轨 8 条，片段 100 个，时间线 6 小时')
   eq('删除 5 个才确认', [deleteNeedsConfirm(4), deleteNeedsConfirm(DELETE_CONFIRM_MIN), deleteNeedsConfirm(9)], [false, true, true])
 

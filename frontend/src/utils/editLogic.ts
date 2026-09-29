@@ -54,7 +54,8 @@ export const TEXT = {
   warningGeneric: '有一处会被自动调整，不影响导出。',
   transitionOver: '转场不能超过较短片段的一半',
   transitionTooShort: '相邻片段太短，放不下转场',
-  transitionIgnored: '部分转场因片段太短未生效',
+  transitionIgnored: '有片段太短，转场没有生效',
+  clipTooShort: '片段太短，请调整后再导出。',
 } as const
 
 export const rangeText = (min: number, max: number) => `请输入 ${min} 到 ${max} 之间的数`
@@ -324,12 +325,17 @@ export interface ExportErrorView {
  * detail 首行的 clip id 能在工程里找到时，说明前拼“片段 N 出错：”并给“定位片段”；找不到（已删除）或是 project 就不拼、没有定位。
  * detail 原文不显示在界面上（只给“查看日志”）。
  */
+const TOO_SHORT_RE = /太短|0\.04/
 export function exportErrorView(err: { code: string; message?: string; detail?: string }, p: ClipProject): ExportErrorView {
   const disk = err.code === 'CONVERT_DISK_FULL'
   const head = parseDetailHead(err.detail)
   const label = head.clipId ? clipNumberLabel(p, head.clipId) : ''
   const base = disk ? taskErrorMessages.CONVERT_DISK_FULL.description : (err.message ?? '').trim() || FALLBACK_DESCRIPTION
   const clipId = label ? head.clipId! : null
+  // 折算后不足 0.04 秒（INVALID_ARGUMENT + clip= 首行，产品定稿）：固定文案，只有“定位片段”“查看日志”，不给重试（不改片段重试仍会失败）
+  if (err.code === 'INVALID_ARGUMENT' && clipId && TOO_SHORT_RE.test(`${err.message ?? ''}\n${err.detail ?? ''}`)) {
+    return { title: '导出失败', text: TEXT.clipTooShort, code: err.code, clipId, actions: ['locate', 'log'] }
+  }
   return {
     title: disk ? taskErrorMessages.CONVERT_DISK_FULL.title : '导出失败',
     text: label && !disk ? `${label} 出错：${base}` : base,
