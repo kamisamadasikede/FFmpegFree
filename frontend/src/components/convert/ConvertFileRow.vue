@@ -12,7 +12,7 @@
         <div v-else class="fname" :title="row.path">{{ row.name }}</div>
         <div class="finfo">
           <span class="ellip" :title="state === 'invalid' ? row.path : undefined">{{ infoLine }}</span>
-          <span v-if="toText" class="to">{{ toText }}</span>
+          <span v-if="toText" class="to" :class="{ out: state === 'succeeded' }" :title="state === 'succeeded' ? task?.outputPath : undefined">{{ toText }}</span>
         </div>
       </div>
 
@@ -143,7 +143,9 @@ function onRowClick(e: MouseEvent) {
 }
 
 const toText = computed(() => {
-  if (props.state === 'invalid' || props.state === 'probing' || props.state === 'waiting') return ''
+  if (props.state === 'invalid' || props.state === 'conflict' || props.state === 'probing' || props.state === 'waiting') return ''
+  // 完成后第二行右侧写“→ 输出文件名”（title 带完整路径），进度区只留“完成”标签
+  if (props.state === 'succeeded' && props.task?.outputPath) return `→ ${fileBaseName(props.task.outputPath)}`
   const label = props.row.label || props.presetShort
   return label ? `转为 ${label}` : ''
 })
@@ -173,7 +175,7 @@ const progressText = computed(() => {
       const eta = formatEta(props.task?.etaSec ?? 0)
       return `${percent.value}%${eta ? ` · 剩余 ${eta}` : ''}`
     }
-    case 'succeeded': return props.task?.outputPath ? fileBaseName(props.task.outputPath) : '已完成'
+    case 'succeeded': return ''
     case 'failed':
     case 'interrupted': return percent.value > 0 ? `停在 ${percent.value}%` : ''
     default: return ''
@@ -217,7 +219,7 @@ const errorLine = computed<ErrLine | null>(() => {
   align-items: center;
   gap: var(--ff-space-3);
   padding: var(--ff-space-3) var(--ff-space-2);
-  border-radius: 8px;
+  border-radius: var(--ff-radius-lg);
 }
 .row:hover {
   background: var(--ff-bg-hover);
@@ -256,8 +258,8 @@ const errorLine = computed<ErrLine | null>(() => {
 }
 .dur {
   position: absolute;
-  right: 2px;
-  bottom: 2px;
+  right: var(--ff-space-1);
+  bottom: var(--ff-space-1);
   font-size: var(--ff-fs-xs);
   line-height: 16px;
   padding: 0 4px;
@@ -304,6 +306,14 @@ const errorLine = computed<ErrLine | null>(() => {
   color: var(--ff-text-2);
   flex: none;
 }
+.finfo .to.out {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .ellip {
   min-width: 0;
   white-space: nowrap;
@@ -311,7 +321,8 @@ const errorLine = computed<ErrLine | null>(() => {
   text-overflow: ellipsis;
 }
 .prog {
-  width: 160px;
+  /* 192 = 标签约 52 + 间距 8 + 文字 132，放得下“68% · 剩余 1 分 37 秒”（约 120px） */
+  width: 192px;
   order: 0;
   flex: none;
   display: flex;
@@ -366,7 +377,7 @@ const errorLine = computed<ErrLine | null>(() => {
 .bar i.int { background: var(--ff-interrupted); }
 .ops {
   display: flex;
-  gap: 2px;
+  gap: var(--ff-space-1);
   color: var(--ff-text-2);
   min-width: 28px;
   justify-content: flex-end;
@@ -387,8 +398,8 @@ const errorLine = computed<ErrLine | null>(() => {
   background: var(--ff-bg-hover);
 }
 .iconbtn.sm {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
 }
 .btn.sm {
   height: 24px;
