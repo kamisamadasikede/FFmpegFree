@@ -1,4 +1,6 @@
-import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
+import { createRouter, createWebHashHistory, START_LOCATION, type RouteRecordRaw } from 'vue-router'
+import { routeNeedsFFmpeg } from '@/layout/navigation'
+import { useFFmpegStore } from '@/stores/ffmpeg'
 
 const SectionTabs = () => import('../views/sections/SectionTabs.vue')
 
@@ -44,12 +46,12 @@ const routes: RouteRecordRaw[] = [
   { path: '/tasks/:pathMatch(.*)*', redirect: '/tasks' },
   {
     path: '/settings',
-    meta: { title: '设置' },
-    component: SectionTabs,
+    meta: { title: '设置', subtitle: '外观 · ffmpeg · 转换' },
+    component: () => import('../views/settings/SettingsLayout.vue'),
     redirect: '/settings/general',
     children: [
-      { path: 'general', meta: { tab: '通用' }, component: () => import('../views/Settings.vue') },
-      { path: 'about', meta: { tab: '关于' }, component: () => import('../views/About.vue') },
+      { path: 'general', component: () => import('../views/Settings.vue') },
+      { path: 'about', component: () => import('../views/About.vue') },
     ],
   },
   // 临时开发预览页：只在 dev 下注册，生产构建里不存在
@@ -63,6 +65,24 @@ const routes: RouteRecordRaw[] = [
 const router = createRouter({
   history: createWebHashHistory(),
   routes,
+})
+
+// ffmpeg 路由守卫：与侧栏置灰同一套判断（导航里 needsFFmpeg 的一级入口 + ffmpeg store 的 featuresBlocked）。
+// ffmpeg 不可用时，直接改地址 / router.push 进入转换、剪辑、直播都会被拦下，行为和点击置灰的侧栏项一致：
+//  - 不进入该页面，并重新打开安装对话框（「稍后」不会让入口恢复）；
+//  - 应用内导航：留在当前页；地址栏直达（首次导航没有「当前页」）：落到任务中心，那里能看到安装进度。
+// 设置、文档、工具、任务中心不依赖 ffmpeg，不受影响。启动时状态还是 checking 不算缺失（与侧栏一致），
+// 只有首次导航直达受限页面时才等一下检测结果，否则 #/edit 这类地址在缺失时会漏过去。
+router.beforeEach(async (to, from) => {
+  if (!routeNeedsFFmpeg(to.matched[0]?.path)) return true
+  const ffmpeg = useFFmpegStore()
+  const initial = from === START_LOCATION
+  // 启动落点 '/' 保持原样：ffmpeg 缺失时转换页自带置灰提示（设计稿 31/32），与侧栏的当前页置灰表现一致
+  if (initial && to.path === '/') return true
+  if (initial) await ffmpeg.whenSettled()
+  if (!ffmpeg.featuresBlocked) return true
+  ffmpeg.dialogOpen = true
+  return initial ? { path: '/tasks', replace: true } : false
 })
 
 export default router

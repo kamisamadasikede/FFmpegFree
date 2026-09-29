@@ -1,6 +1,7 @@
 // 错误文案表：产品经理定稿、老板冻结，改文案要先走评审。
 // 展示形态见设计原型 proto/errors.html：overlay 用于播放器区域，inline 用于表单，任务中心失败行用 ErrorLine。
 import type { IconName } from '../components/icon/icons'
+import { parseDetailHead } from '../api/call'
 
 export type ErrorStyle = 'overlay' | 'inline'
 
@@ -13,6 +14,7 @@ export type ErrorCode =
   | 'LIVE_PUSH_INTERRUPTED'
   | 'FFMPEG_NOT_FOUND'
   | 'SCREEN_PERMISSION_DENIED'
+  | 'UNSUPPORTED_PLATFORM'
 
 export type ErrorButtonAction =
   | 'retry' // 触发 ErrorOverlay 的 retry 事件
@@ -51,13 +53,13 @@ function overlay(title: string, description: string, extra: Partial<ErrorMessage
 export const errorMessages: Record<ErrorCode, ErrorMessage> = {
   LIVE_URL_INVALID: {
     title: '流地址不正确',
-    description: '请输入正确的流地址，例如 rtmp://、http://、srt:// 开头。',
+    description: '推流地址不可用，请检查后重新输入', // 同 LIVE_URL_INVALID_GENERIC；具体 reason 见 LIVE_URL_INVALID_REASON_TEXT
     style: 'inline',
     primary: null,
     secondary: null,
   },
-  LIVE_CONNECT_FAILED: overlay('无法连接流服务器', '请检查地址和网络是否正常。', { taskRow: true }),
-  LIVE_PUSH_REJECTED: overlay('服务器拒绝了推流', '请检查串流密钥和推流地址是否正确。'),
+  LIVE_CONNECT_FAILED: overlay('无法连接流服务器', '连接失败，请检查推流地址和推流码是否正确，以及网络是否通畅', { taskRow: true }),
+  LIVE_PUSH_REJECTED: overlay('服务器拒绝了推流', '服务器拒绝了推流，请检查推流码是否有效，或是否已被其他推流占用'),
   LIVE_PLAY_FAILED: overlay('拉流失败', '请检查地址和流服务器状态。'),
   LIVE_CORS_BLOCKED: overlay('播放被跨域限制拦截', '需要流服务器允许跨域访问。'),
   LIVE_PUSH_INTERRUPTED: overlay('推流已中断', '可以点击重试；开启自动重连后会自动重试。', { taskRow: true }),
@@ -65,7 +67,9 @@ export const errorMessages: Record<ErrorCode, ErrorMessage> = {
     primary: { label: '去设置', action: 'route', to: '/settings' },
   }),
   // 原型里是弯引号“”，这里跟原型一致
-  SCREEN_PERMISSION_DENIED: overlay('没有录屏权限', '请在系统设置的“隐私与安全性”里允许本应用录制屏幕，然后重试。'),
+  // 产品经理定稿：两个码文案不混用（权限被拒 ≠ 平台不支持）
+  SCREEN_PERMISSION_DENIED: overlay('没有录屏权限', '没有获得屏幕录制权限，请在系统设置中允许 FFmpegFree 录制屏幕后重试'),
+  UNSUPPORTED_PLATFORM: overlay('无法进行屏幕推流', '当前系统暂不支持屏幕推流', { primary: null, secondary: null }),
 }
 
 /** 未收录的错误码（INTERNAL 等）的兜底文案 */
@@ -89,6 +93,11 @@ export function isKnownErrorCode(code: unknown): code is ErrorCode {
  */
 export function resolveError(code?: string | null, fallbackMessage?: string | null): ResolvedError {
   if (isKnownErrorCode(code)) {
+    // SRT 连接失败：后端统一判 LIVE_CONNECT_FAILED，页面把产品文案作为 message 传进来时替换说明
+    // 直播连接失败：页面按 detail 首行 scheme= 选好文案（liveConnectFailedText）后作为 message 传进来，替换说明
+    if (code === 'LIVE_CONNECT_FAILED' && isLiveConnectFailedText(fallbackMessage)) {
+      return { ...errorMessages[code], description: fallbackMessage as string, code, known: true }
+    }
     return { ...errorMessages[code], code, known: true }
   }
   const message = (fallbackMessage ?? '').trim()
@@ -167,7 +176,8 @@ export function resolveTaskError(code?: string | null, fallbackMessage?: string 
   }
   if (isKnownErrorCode(code)) {
     const m = errorMessages[code]
-    return { code, title: m.title, description: m.description, actions: DEFAULT_TASK_ACTIONS, known: true }
+    const byScheme = code === 'LIVE_CONNECT_FAILED' && isLiveConnectFailedText(fallbackMessage)
+    return { code, title: m.title, description: byScheme ? (fallbackMessage as string) : m.description, actions: DEFAULT_TASK_ACTIONS, known: true }
   }
   const message = (fallbackMessage ?? '').trim()
   return {
@@ -184,14 +194,133 @@ export function resolveTaskError(code?: string | null, fallbackMessage?: string 
 const ACTION_ERROR_TEXT: Record<string, string> = {
   CANCELED: '操作已取消。',
   UNSUPPORTED: '该任务暂不支持重试',
-  TASK_CONFLICT: '任务状态已变化，请刷新后再试',
+  TASK_CONFLICT: '操作冲突，请稍后再试', // Cancel / Remove 等不带 reason 的冲突；直播 Start* 的冲突见 taskConflictText
   NOT_FOUND: '找不到这个任务或文件，可能已被删除',
 }
 
 /** 取 toast 文案：有专门说明的码用说明，其余用后端 message */
-export function actionErrorText(code: string, backendMessage: string): string {
+export function actionErrorText(code: string, backendMessage: string, reason?: string): string {
+  if (code === 'TASK_CONFLICT') return taskConflictText(reason)
   return ACTION_ERROR_TEXT[code] ?? (backendMessage || FALLBACK_DESCRIPTION)
 }
+
+// ---- TASK_CONFLICT 的 reason → 文案（契约 6.10：detail 首行 `reason=<值>`，稳定枚举，只追加不改名）----
+// 追加新 reason 只需要在这张表里加一行。未知 reason、缺失 reason，以及 Cancel / Remove 等本来就不带 reason 的冲突，一律走 TASK_CONFLICT_GENERIC。
+export const TASK_CONFLICT_GENERIC = '操作冲突，请稍后再试'
+export const TASK_CONFLICT_REASON_TEXT: Record<string, string> = {
+  max_sessions: '最多同时推 4 路',
+  duplicate_url: '这个地址已经在推流',
+  screen_busy: '屏幕推流同一时间只能有 1 路，请先停止当前的屏幕推流',
+}
+
+/** TASK_CONFLICT 的用户文案；reason 取自 AppError.reason（api/call.ts 解析） */
+export function taskConflictText(reason?: string | null): string {
+  return (reason && Object.prototype.hasOwnProperty.call(TASK_CONFLICT_REASON_TEXT, reason) && TASK_CONFLICT_REASON_TEXT[reason]) || TASK_CONFLICT_GENERIC
+}
+
+// ---- 直播页专用文案（产品 / 设计定稿）----
+/** 直播任务停止后的状态文案：只看 Task.status（后端保证 succeeded 时 error 为空、canceled 时不带错误码），不看 error */
+export const LIVE_STOP_TEXT = { succeeded: '已结束推流', canceled: '已强制停止' } as const
+/** SRT 连接失败（产品经理定稿）：后端统一判 LIVE_CONNECT_FAILED（无法区分服务器未开与口令错误），文案由前端负责 */
+export const LIVE_SRT_CONNECT_FAILED_TEXT = '连接失败，请检查地址和口令是否正确'
+/** RTMP / RTMPS，以及 detail 缺 scheme 首行 / scheme 不认识时的连接失败文案（产品经理定稿） */
+export const LIVE_RTMP_CONNECT_FAILED_TEXT = '连接失败，请检查推流地址和推流码是否正确，以及网络是否通畅'
+/** LIVE_PUSH_REJECTED（产品经理定稿） */
+export const LIVE_PUSH_REJECTED_TEXT = '服务器拒绝了推流，请检查推流码是否有效，或是否已被其他推流占用'
+/** SRT 口令长度不在 10~79 时前端先拦（api/live.ts 的 validateSrtPassphrase），不发给后端 */
+export const LIVE_SRT_PASSPHRASE_TEXT = 'SRT 口令需要 10 到 79 个字符'
+
+/** LIVE_CONNECT_FAILED 的文案：scheme 来自 detail 首行 `scheme=rtmp|rtmps|srt`（AppError.scheme）。只有 srt 用 SRT 文案；rtmp / rtmps / 缺失 / 不认识一律用 RTMP 那句（产品定稿） */
+export function liveConnectFailedText(scheme?: string | null): string {
+  return typeof scheme === 'string' && scheme.toLowerCase() === 'srt' ? LIVE_SRT_CONNECT_FAILED_TEXT : LIVE_RTMP_CONNECT_FAILED_TEXT
+}
+function isLiveConnectFailedText(text?: string | null): boolean {
+  return text === LIVE_SRT_CONNECT_FAILED_TEXT || text === LIVE_RTMP_CONNECT_FAILED_TEXT
+}
+
+/**
+ * 直播任务 / 调用失败 → 遮罩和任务行上显示的说明（作为 message 传给 ErrorOverlay / ErrorLine）。
+ * LIVE_CONNECT_FAILED：按 detail 首行 scheme= 选 SRT / RTMP 文案；detail 没有 scheme 时用 fallbackScheme（脱敏 params.url 或页面地址的 scheme，只是兜底）；都没有 → RTMP 那句。
+ * LIVE_PUSH_REJECTED：固定文案。其余码原样返回后端 message。
+ */
+export function liveFailureMessage(err: { code?: string | null; message?: string | null; detail?: string | null }, fallbackScheme?: string | null): string {
+  if (err.code === 'LIVE_CONNECT_FAILED') return liveConnectFailedText(parseDetailHead(err.detail ?? undefined).scheme ?? fallbackScheme)
+  if (err.code === 'LIVE_PUSH_REJECTED') return LIVE_PUSH_REJECTED_TEXT
+  return err.message ?? ''
+}
+
+/** 从任务 params 里取脱敏地址的 scheme（兜底用；架构师决定 3：不再作为主要依据） */
+export function schemeFromParams(params?: string | null): string | undefined {
+  const m = /"url"\s*:\s*"(rtmps?|srt):\/\//i.exec(params ?? '')
+  return m ? m[1].toLowerCase() : undefined
+}
+
+// ---- LIVE_URL_INVALID 的 reason → 文案（契约 6.10：detail 首行 `reason=<值>`，稳定枚举，只追加不改名）----
+// 追加新 reason 只需要在这张表里加一行。未知值、缺失 reason 一律走 LIVE_URL_INVALID_GENERIC。
+export const LIVE_PROTOCOL_UNSUPPORTED_TEXT = '暂不支持这种推流地址，请使用 rtmp、rtmps 或 srt'
+export const LIVE_URL_MALFORMED_TEXT = '推流地址格式不正确，请检查后重新输入'
+export const LIVE_URL_MISSING_HOST_TEXT = '推流地址里缺少服务器地址，请检查后重新输入'
+export const LIVE_URL_PARAM_NOT_ALLOWED_TEXT = '推流地址里有不支持的参数，请去掉后重试'
+export const LIVE_URL_INVALID_GENERIC = '推流地址不可用，请检查后重新输入'
+export const LIVE_URL_INVALID_REASON_TEXT: Record<string, string> = {
+  scheme_unsupported: LIVE_PROTOCOL_UNSUPPORTED_TEXT,
+  malformed: LIVE_URL_MALFORMED_TEXT,
+  missing_host: LIVE_URL_MISSING_HOST_TEXT,
+  param_not_allowed: LIVE_URL_PARAM_NOT_ALLOWED_TEXT,
+}
+/** LIVE_URL_INVALID 的用户文案；reason 取自 AppError.reason（api/call.ts 解析）；地址框失焦校验也用它 */
+export function liveUrlInvalidText(reason?: string | null): string {
+  return (reason && Object.prototype.hasOwnProperty.call(LIVE_URL_INVALID_REASON_TEXT, reason) && LIVE_URL_INVALID_REASON_TEXT[reason]) || LIVE_URL_INVALID_GENERIC
+}
+/** ffmpeg 缺推流协议、detail 里没有认得出的协议名（产品经理定稿） */
+export const LIVE_FFMPEG_PROTOCOL_MISSING_TEXT = '当前 ffmpeg 不支持这种推流协议，请在设置的 ffmpeg 页面重新安装或更新'
+/**
+ * 开始前 ffmpeg 缺协议（Start* 同步返回 UNSUPPORTED）。契约没有规定 detail 的写法（见 api/README“缺协议”），按最保守的规则：
+ * 后端实际写法（internal/service/live/service.go checkProtocols）：detail = `missing=<协议名>`（srt / rtmps / rtmp / tee）；契约文档没有写这一条。
+ * 只在 detail 里出现“missing= / 缺少协议 / missing protocol / protocol not found / protocol=”后面紧跟白名单协议名（rtmp / rtmps / srt，大小写不敏感）时才显示协议名，
+ * 名字以白名单里的写法为准（大写）；其余情况（没写、写了别的、带地址的 ffmpeg 原文）一律用不带协议名的文案。detail 原文永远不进文案。
+ */
+export const LIVE_PROTOCOL_NAMES: Record<string, string> = { rtmp: 'RTMP', rtmps: 'RTMPS', srt: 'SRT' }
+const MISSING_PROTOCOL_RE = /(?:missing|缺少协议|缺少\s*协议|missing\s+protocol|protocol\s+not\s+found|protocol)\s*[:：=]\s*(rtmps|rtmp|srt)(?![A-Za-z0-9])/i
+export function liveMissingProtocolName(detail?: string | null): string | undefined {
+  const m = MISSING_PROTOCOL_RE.exec(detail ?? '')
+  return m ? LIVE_PROTOCOL_NAMES[m[1].toLowerCase()] : undefined
+}
+export function liveFfmpegProtocolMissingText(detail?: string | null): string {
+  const name = liveMissingProtocolName(detail)
+  return name ? `当前的 ffmpeg 不支持 ${name}，请在设置的 ffmpeg 页面重新安装或更新` : LIVE_FFMPEG_PROTOCOL_MISSING_TEXT
+}
+/** 屏幕推流“同时保存本地存档”后端暂未实现（archiveDir 非空 → UNSUPPORTED） */
+export const LIVE_ARCHIVE_UNSUPPORTED_TEXT = '暂不支持同时保存本地存档，请关闭“同时保存本地存档”后重试'
+/** 选中屏幕推流时来源下方常驻的说明（12px、--ff-text-2、前置信息图标，不弹窗） */
+export const LIVE_SCREEN_NO_AUDIO_TEXT = '屏幕推流暂不包含声音'
+
+/**
+ * 直播 Start* 同步返回的错误 → 页面上展示的一句话（走 ErrorLine，点“开始”之后才出现，不提前置灰按钮）。
+ * 返回 null 表示不属于这里处理的情形（调用方走原来的遮罩 / 行内错误）。
+ */
+export function liveStartErrorLine(e: { code: string; message?: string; reason?: string; scheme?: string; detail?: string }, opts: { scheme?: string; archive?: boolean } = {}): { title: string; description: string } | null {
+  switch (e.code) {
+    case 'TASK_CONFLICT':
+      return { title: '无法开始推流', description: taskConflictText(e.reason) }
+    case 'UNSUPPORTED':
+      // 屏幕推流带存档时后端暂返回 UNSUPPORTED（本地存档暂未实现，detail 没有 missing=）：提示“暂不支持存档”，不能说成缺协议
+      if (opts.archive && !/(^|\n)\s*missing\s*=/.test(e.detail ?? '')) return { title: '无法开始推流', description: LIVE_ARCHIVE_UNSUPPORTED_TEXT }
+      return { title: '无法开始推流', description: liveFfmpegProtocolMissingText(e.detail) }
+    case 'LIVE_CONNECT_FAILED': {
+      // scheme 优先取 detail 首行（AppError.scheme），拿不到才用页面上地址的 scheme 兜底；都没有 → RTMP 那句
+      return { title: '无法连接流服务器', description: liveConnectFailedText(e.scheme ?? opts.scheme) }
+    }
+    default:
+      return null
+  }
+}
+
+// ---- 文档页（DocService，契约 6.12）----
+export const DOC_EXPERIMENTAL_LABEL = '实验性'
+export const DOC_EXPERIMENTAL_NOTE = '仅提取文字，不保留图片和样式'
+/** doc / xls / ppt、加密文档等 UNSUPPORTED */
+export const DOC_FORMAT_UNSUPPORTED_TEXT = '暂不支持这种格式，请先另存为 docx、xlsx 或 pptx'
 
 // ---- 添加文件时的探测失败（转换页文件行，MediaService.Probe 单项 error）----
 // 与任务失败文案分开：这是「这个文件加不进来」，不是转换失败。
@@ -212,3 +341,12 @@ export function probeErrorText(code: string, backendMessage?: string): string {
 
 /** 提交失败（Submit 整体校验不通过）时没有对应到具体文件的错误标题 */
 export const SUBMIT_ERROR_TITLE = '无法开始转换'
+
+/**
+ * 文档 UNSUPPORTED 的用户文案：doc / xls / ppt、加密文档、其他不支持的格式（含 csv / txt、odt、rtf…）统一用格式说明；
+ * 超过 5000 页、没有可用 Unicode 字体这两种是别的原因，沿用后端 message，不误导用户去“另存为”。
+ */
+export function docUnsupportedText(backendMessage?: string, detail?: string): string {
+  const other = /5000|页数|字体/.test(`${backendMessage ?? ''}\n${detail ?? ''}`)
+  return other ? (backendMessage || FALLBACK_DESCRIPTION) : DOC_FORMAT_UNSUPPORTED_TEXT
+}

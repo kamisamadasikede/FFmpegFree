@@ -5,21 +5,11 @@
         v-model:muted="muted"
         fill
         mode="status"
-        :status-text="session.running.value ? '正在推流' : session.busy.value ? '正在连接' : '未开始推流'"
+        :status-text="statusText"
         :status-hint="selected ? selected.name : '请选择要推流的素材'"
         @fullscreen="fullscreen"
       >
-        <video
-          v-if="selected && !preview && !demo"
-          ref="videoRef"
-          :src="selected.url"
-          :poster="selected.cover"
-          :muted="muted"
-          loop
-          playsinline
-          preload="metadata"
-        />
-        <LiveMockFrame v-else-if="selected" variant="scene" />
+        <LiveMockFrame v-if="selected" variant="scene" />
         <LiveMockFrame v-else variant="idle" icon="upload" hint="选择素材后，这里会预览要推送的画面" />
         <template #overlay>
           <LiveOverlays :session="session" :hud-lines="hudLines" @retry="start" @view-log="logOpen = true" />
@@ -32,31 +22,26 @@
       <LivePanel title="推流设置" note="不占用转换队列">
         <LiveField v-slot="{ id }" label="推流素材">
           <div class="mat">
-            <el-select :id="id" v-model="selectedName" placeholder="选择素材" :disabled="session.busy.value" no-data-text="还没有素材，先上传一个 MP4" class="mat-sel">
-              <el-option v-for="m in materials" :key="m.name" :label="m.name" :value="m.name" />
+            <el-select :id="id" v-model="selectedPath" placeholder="选择素材" :disabled="session.busy.value" no-data-text="还没有素材，先选择一个视频文件" class="mat-sel">
+              <el-option v-for="m in materials" :key="m.path" :label="m.name" :value="m.path" />
             </el-select>
-            <el-upload :show-file-list="false" accept="video/mp4" :before-upload="beforeUpload" :http-request="onUpload" :disabled="session.busy.value">
-              <LiveButton icon="upload" :disabled="session.busy.value">上传</LiveButton>
-            </el-upload>
+            <LiveButton icon="upload" :disabled="session.busy.value" @click="pickMaterial">选择文件</LiveButton>
           </div>
-          <div v-if="uploadPercent > 0 && uploadPercent < 100" class="hint">上传中 {{ uploadPercent }}%</div>
-          <div v-else-if="materialsHint" class="hint">{{ materialsHint }}</div>
-          <button v-if="selected && !session.busy.value && !preview" type="button" class="del" @click="removeSelected">
-            <FIcon name="trash" :size="13" />删除这个素材
-          </button>
+          <div v-if="materialsHint" class="hint">{{ materialsHint }}</div>
         </LiveField>
         <LiveField label="推流地址">
-          <LiveInput v-model="baseUrl" :bad="urlBad" :disabled="session.busy.value" placeholder="rtmp://live.example.com/live" copyable @enter="start" />
-          <InlineError v-if="urlBad" code="LIVE_URL_INVALID" />
+          <LiveInput v-model="baseUrl" :bad="urlBad" :disabled="session.busy.value" placeholder="rtmp://live.example.com/live" copyable @enter="start" @blur="checkUrl" />
+          <InlineError v-if="urlBad" code="LIVE_URL_INVALID" :description="urlMessage" bare />
         </LiveField>
         <LiveField label="推流码">
           <LiveInput v-model="streamKey" secret :bad="keyBad" :disabled="session.busy.value" placeholder="留空则使用地址本身" />
           <InlineError v-if="keyBad" :code="session.errorCode.value" />
         </LiveField>
+        <div class="chk">循环播放<el-switch v-model="loop" size="small" aria-label="循环播放" :disabled="session.busy.value" /></div>
         <div class="chk">断线自动重连<el-switch v-model="autoReconnect" size="small" aria-label="断线自动重连" /></div>
-        <LiveAdvanced v-model:archive-enabled="archiveEnabled" v-model:segment-seconds="segmentSeconds" v-model:relay-text="relayText" />
+        <ErrorLine v-if="startError" code="TASK_CONFLICT" :title="startError.title" :description="startError.description" :show-log="false" hide-code compact />
         <template #action>
-          <LiveButton v-if="session.busy.value" variant="danger" lg icon="x" @click="stop">停止推流</LiveButton>
+          <LiveButton v-if="session.busy.value" variant="danger" lg icon="x" :disabled="stopping" @click="stop">{{ stopping ? '正在停止…' : '停止推流' }}</LiveButton>
           <LiveButton v-else variant="pri" lg icon="play" @click="start">开始推流</LiveButton>
         </template>
       </LivePanel>
@@ -66,62 +51,63 @@
 </template>
 
 <script setup lang="ts">
-// 文件推流：选一个素材，推到 RTMP 地址。UI 按 proto/pages.html?page=live 的布局（播放器 + 指标卡 + 320 设置面板）。
-// 所有后端调用走 @/api/live（过渡期 v1 HTTP，之后换 Wails LiveService）。
+// 文件推流：选一个本地视频文件，推到 rtmp / rtmps / srt 地址。UI 按 proto/pages.html?page=live 的布局（播放器 + 指标卡 + 320 设置面板）。
+// 所有后端调用走 @/api/live（契约 v0.10：StartFilePush 返回 Task，停止 = TaskService.Cancel，指标走 task:progress）。
+// 文件推流始终重编码（架构师定），表单里不提示；文件推流没有存档选项（只有屏幕推流有）。完整推流地址只存在于输入框和调用参数里，不写日志。
 import { computed, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox, type UploadRequestOptions } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import PlayerShell from '@/components/common/PlayerShell.vue'
 import InlineError from '@/components/common/InlineError.vue'
-import FIcon from '@/components/icon/FIcon.vue'
+import ErrorLine from '@/components/common/ErrorLine.vue'
 import LiveTabFrame from '@/components/live/LiveTabFrame.vue'
 import LivePanel from '@/components/live/LivePanel.vue'
 import LiveField from '@/components/live/LiveField.vue'
 import LiveInput from '@/components/live/LiveInput.vue'
 import LiveButton from '@/components/live/LiveButton.vue'
-import LiveAdvanced from '@/components/live/LiveAdvanced.vue'
 import LiveStatCards from '@/components/live/LiveStatCards.vue'
 import LiveMockFrame from '@/components/live/LiveMockFrame.vue'
 import LiveOverlays from '@/components/live/LiveOverlays.vue'
 import LiveLogDialog from '@/components/live/LiveLogDialog.vue'
 import { livePreview, useLiveSession } from '@/composables/useLiveSession'
 import { useFFmpegStore } from '@/stores/ffmpeg'
-import { isValidStreamUrl } from '@/errors/playerError'
-import { joinPushUrl, parseTargets } from '@/utils/liveUrl'
+import { liveFailureMessage, liveUrlInvalidText, LIVE_STOP_TEXT, liveStartErrorLine } from '@/errors/errorMessages'
+import { joinPushUrl, parsePushUrl } from '@/utils/liveUrl'
 import * as liveApi from '@/api/live'
-import { LIVE_BACKEND_READY } from '@/api/live'
+import { liveIsReal } from '@/api/live'
+import { toAppError } from '@/api/call'
 
 defineOptions({ name: 'LiveFilePush' })
 
 const session = useLiveSession('file')
 const ffmpeg = useFFmpegStore()
 const preview = !!livePreview
-// 后端 LiveService 未接入时素材是演示数据、没有真实画面，用占位画面代替 <video>
-const demo = !LIVE_BACKEND_READY
+// 后端 LiveService 未接入时素材是演示数据
+const demo = !liveIsReal()
 
 const materials = ref<liveApi.LiveMaterial[]>([])
-const selectedName = ref('')
-const selected = computed(() => materials.value.find((m) => m.name === selectedName.value))
+const selectedPath = ref('')
+const selected = computed(() => materials.value.find((m) => m.path === selectedPath.value))
 const materialsHint = ref('')
-const uploadPercent = ref(0)
 const baseUrl = ref(livePreview === 'invalid' ? 'http:/live.example' : livePreview ? 'rtmp://live-push.example.com/live' : '')
 const streamKey = ref(livePreview ? '••••••••••••••••' : '')
 const autoReconnect = ref(true)
-const archiveEnabled = ref(false)
-const segmentSeconds = ref(300)
-const relayText = ref('')
+const loop = ref(true)
 const muted = ref(false)
 const logOpen = ref(false)
 const urlInvalid = ref(livePreview === 'invalid')
-const videoRef = ref<HTMLVideoElement | null>(null)
+const urlMessage = ref('')
+const stopping = ref(false)
+/** 点“开始推流”之后才出现的错误行（最多同时推 4 路 / 这个地址已经在推流 / 当前 ffmpeg 不支持这种推流协议…） */
+const startError = ref<{ title: string; description: string } | null>(null)
 
-let streamId = ''
-let stopStats: (() => void) | null = null
-let stopEvents: (() => void) | null = null
+let taskId = ''
+let stopWatch: (() => void) | null = null
 let userStopped = false
 let reconnects = 0
 const MAX_RECONNECT = 5
 
 const urlBad = computed(() => urlInvalid.value)
+const statusText = computed(() => (session.running.value ? '正在推流' : session.busy.value ? (stopping.value ? '正在停止' : '正在连接') : '未开始推流'))
 // 推流码被拒（LIVE_PUSH_REJECTED）时推流码输入框变红并给行内说明，和原型一致
 const keyBad = computed(() => session.phase.value === 'error' && session.errorCode.value === 'LIVE_PUSH_REJECTED')
 const hudLines = computed(() => {
@@ -130,152 +116,157 @@ const hudLines = computed(() => {
   return [`${res}${Math.round(s.fps)} fps`, `${Math.round(s.bitrateKbps)} kbps · 丢帧 ${s.dropped}`]
 })
 
-watch(baseUrl, () => (urlInvalid.value = false))
+watch(baseUrl, () => {
+  urlInvalid.value = false
+  startError.value = null
+})
 watch(
   () => ffmpeg.ready,
   (ok) => {
     if (ok && session.errorCode.value === 'FFMPEG_NOT_FOUND') session.setIdle()
   },
 )
-watch(
-  () => session.running.value,
-  (r) => {
-    const v = videoRef.value
-    if (!v) return
-    if (r) v.play().catch(() => undefined)
-    else v.pause()
-  },
-)
-watch(muted, (m) => {
-  if (videoRef.value) videoRef.value.muted = m
-})
+
+/** 地址框失焦校验：协议不支持（rtsp、http-flv 等）显示“暂不支持这种推流地址…”，红框规则不变 */
+function checkUrl() {
+  if (!baseUrl.value.trim()) return
+  const r = parsePushUrl(joinPushUrl(baseUrl.value, ''))
+  urlInvalid.value = !r.ok
+  urlMessage.value = r.ok ? '' : r.message
+}
 
 async function loadMaterials() {
-  try {
-    materials.value = await liveApi.listMaterials()
-    materialsHint.value = materials.value.length ? '' : '还没有素材，点“上传”添加 MP4 文件'
-    if (!materials.value.some((m) => m.name === selectedName.value)) selectedName.value = materials.value[0]?.name ?? ''
-  } catch (e) {
-    materials.value = []
-    materialsHint.value = `读取素材列表失败：${(e as Error).message}`
+  if (demo) {
+    materials.value = liveApi.demoMaterials()
+    materialsHint.value = ''
+    if (!materials.value.some((m) => m.path === selectedPath.value)) selectedPath.value = materials.value[0]?.path ?? ''
+  } else if (!materials.value.length) {
+    materialsHint.value = '还没有素材，点“选择文件”添加视频'
   }
 }
 
-function beforeUpload(file: File) {
-  if (!['video/mp4'].includes(file.type)) {
-    ElMessage.error('只支持上传 MP4 视频')
-    return false
-  }
-  return true
-}
-
-async function onUpload(opt: UploadRequestOptions) {
-  uploadPercent.value = 1
+async function pickMaterial() {
   try {
-    await liveApi.uploadMaterial(opt.file as File, (p) => (uploadPercent.value = p))
-    ElMessage.success('上传成功')
-    await loadMaterials()
-    selectedName.value = (opt.file as File).name
+    const picked = await liveApi.pickMaterial()
+    for (const m of picked) {
+      if (!materials.value.some((x) => x.path === m.path)) materials.value.push(m)
+      selectedPath.value = m.path
+    }
+    if (materials.value.length) materialsHint.value = ''
   } catch (e) {
-    ElMessage.error(`上传失败：${(e as Error).message}`)
-  } finally {
-    uploadPercent.value = 0
-  }
-}
-
-async function removeSelected() {
-  if (!selected.value) return
-  try {
-    await ElMessageBox.confirm(`确定删除素材“${selected.value.name}”？`, '删除素材', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
-  } catch {
-    return
-  }
-  try {
-    await liveApi.deleteMaterial(selected.value.name)
-    ElMessage.success('已删除')
-    await loadMaterials()
-  } catch (e) {
-    ElMessage.error(`删除失败：${(e as Error).message}`)
+    ElMessage.error(toAppError(e).message)
   }
 }
 
 function cleanup() {
-  stopStats?.()
-  stopEvents?.()
-  stopStats = stopEvents = null
+  stopWatch?.()
+  stopWatch = null
 }
 
-function watchStream(id: string) {
-  streamId = id
+function watchTask(id: string) {
+  taskId = id
   cleanup()
-  stopStats = liveApi.subscribeStats({ streamId: id }, (s) => {
-    if (!s || !session.busy.value) return
-    if (s.status === 'running') session.setRunning()
-    session.addSample({ bitrateKbps: s.bitrateKbps, fps: s.fps, dropped: s.droppedFrames, width: s.width ?? (videoRef.value?.videoWidth || 0), height: s.height ?? (videoRef.value?.videoHeight || 0) })
-    reconnects = 0
-  })
-  stopEvents = liveApi.onLiveEvent((e) => {
-    if (e.streamId !== streamId) return
-    session.log(`${e.status}${e.error ? ' · ' + e.error : ''}`)
-    if (e.status === 'failed') onFailed(e.error)
-    else {
+  stopWatch = liveApi.watchLiveTask(id, {
+    // 收到第一条 task:progress 才算“已经在推”；之前是“连接中”
+    onConnected: () => session.setRunning(),
+    onProgress: (p) => {
+      if (!session.busy.value) return
+      session.addSample({ bitrateKbps: p.bitrateKbps, fps: p.fps, dropped: p.droppedFrames })
+      reconnects = 0
+    },
+    onEnd: (e) => {
       cleanup()
-      session.setIdle()
-      if (e.status === 'completed') ElMessage.success('推流已完成')
-    }
+      stopping.value = false
+      taskId = ''
+      // 停止文案只看 status（后端保证 succeeded 时 error 为空、canceled 时不带错误码）
+      if (e.status === 'succeeded') {
+        session.setIdle()
+        session.log(LIVE_STOP_TEXT.succeeded)
+        ElMessage.success(LIVE_STOP_TEXT.succeeded)
+      } else if (e.status === 'canceled') {
+        session.setIdle()
+        session.log(LIVE_STOP_TEXT.canceled)
+        ElMessage.warning(LIVE_STOP_TEXT.canceled)
+      } else if (e.status === 'interrupted') {
+        session.setIdle()
+        session.log('应用退出，推流已中断')
+      } else {
+        onFailed(e.error?.code ?? 'INTERNAL', e.error ?? undefined)
+      }
+    },
   })
 }
 
-function onFailed(detail?: string) {
-  cleanup()
-  if (!userStopped && autoReconnect.value && reconnects < MAX_RECONNECT) {
+function onFailed(code: string, error?: { message?: string; detail?: string }) {
+  // 只有推流已开始后被中断（LIVE_PUSH_INTERRUPTED）才自动重连；开始前的连接失败 / 被拒绝重连也不会好
+  if (!userStopped && autoReconnect.value && code === 'LIVE_PUSH_INTERRUPTED' && reconnects < MAX_RECONNECT) {
     reconnects++
     session.log(`断线，3 秒后自动重连（${reconnects}/${MAX_RECONNECT}）`)
     setTimeout(() => !userStopped && start(true), 3000)
     return
   }
-  // v1 后端不区分失败原因：还没有出过数据算“连不上”，出过数据算“中断”
-  const neverRan = session.stats.bitrateKbps === 0
-  session.fail(neverRan ? 'LIVE_CONNECT_FAILED' : 'LIVE_PUSH_INTERRUPTED', '', detail ?? '')
+  // scheme 以 detail 首行 scheme= 为准，页面上的地址只是兜底
+  session.fail(code, '', liveFailureMessage({ code, ...error }, currentScheme()))
 }
 
-async function start(isReconnect = false) {
-  if (session.busy.value && isReconnect !== true) return
+function currentScheme(): string {
+  const r = parsePushUrl(joinPushUrl(baseUrl.value, streamKey.value))
+  return r.ok ? r.info.scheme : ''
+}
+
+async function start(isReconnect: unknown = false) {
+  const reconnecting = isReconnect === true
+  if (session.busy.value && !reconnecting) return
   if (ffmpeg.needsAttention) return session.fail('FFMPEG_NOT_FOUND')
   const material = selected.value
   if (!material) {
     ElMessage.warning('请先选择推流素材')
     return
   }
+  startError.value = null
   const full = joinPushUrl(baseUrl.value, streamKey.value)
-  if (!isValidStreamUrl(full)) {
+  const check = parsePushUrl(full)
+  if (!check.ok) {
     urlInvalid.value = true
+    urlMessage.value = check.message
     session.log('推流地址格式不正确')
     return
   }
   userStopped = false
-  if (isReconnect !== true) reconnects = 0
+  stopping.value = false
+  if (!reconnecting) reconnects = 0
   session.setStarting()
-  session.log(`开始推流 ${material.name}`)
+  // 日志里只写脱敏后的地址
+  session.log(`开始推流 ${material.name} → ${check.info.redacted}`)
   try {
-    const id = await liveApi.startFilePush({
-      material,
+    const task = await liveApi.startFilePush({
+      inputPath: material.path,
       url: full,
-      archiveEnabled: archiveEnabled.value,
-      segmentSeconds: segmentSeconds.value,
-      relayTargets: parseTargets(relayText.value),
+      loop: loop.value,
+      options: liveApi.defaultPushOptions(),
     })
-    watchStream(id)
-    session.setRunning()
+    watchTask(task.id)
   } catch (e) {
-    const err = e as liveApi.LiveError
-    onFailedStart(err)
+    onStartFailed(toAppError(e), check.info.scheme)
   }
 }
 
-function onFailedStart(err: liveApi.LiveError) {
-  if (autoReconnect.value && reconnects > 0 && reconnects < MAX_RECONNECT) return onFailed(err.message)
-  session.fail(err.code === 'INTERNAL' ? 'LIVE_CONNECT_FAILED' : err.code, '', err.message)
+function onStartFailed(err: liveApi.LiveError, scheme: string) {
+  const line = liveStartErrorLine(err, { scheme })
+  if (line && (err.code === 'TASK_CONFLICT' || err.code === 'UNSUPPORTED')) {
+    // 点击开始之后的错误行，不提前置灰按钮
+    session.setIdle()
+    startError.value = line
+    session.log(`${line.title}：${line.description}`)
+    return
+  }
+  if (err.code === 'LIVE_URL_INVALID') {
+    session.setIdle()
+    urlInvalid.value = true
+    urlMessage.value = liveUrlInvalidText(err.reason) // detail 首行 reason=；未知 / 缺失 → 通用文案
+    return
+  }
+  session.fail(err.code, '', liveFailureMessage(err, scheme))
 }
 
 async function stop() {
@@ -284,33 +275,43 @@ async function stop() {
     session.setIdle()
     return
   }
-  try {
-    if (streamId) await liveApi.stopStream({ streamId })
-  } catch (e) {
-    ElMessage.error(`停止失败：${(e as Error).message}`)
+  if (!taskId) {
+    session.setIdle()
+    return
   }
-  cleanup()
-  session.setIdle()
-  session.log('已停止推流')
+  try {
+    // 停止 = TaskService.Cancel；立即返回，结果以 task:status 为准（onEnd 里显示“已结束推流”/“已强制停止”）
+    stopping.value = true
+    await liveApi.stopPush(taskId)
+    session.log('正在停止推流…')
+  } catch (e) {
+    stopping.value = false
+    const err = toAppError(e)
+    if (err.code === 'TASK_CONFLICT' || err.code === 'NOT_FOUND') {
+      // 会话已经结束了：以事件为准，补一次收尾
+      return
+    }
+    ElMessage.error(`停止失败：${err.message}`)
+  }
 }
 
 function fullscreen() {
-  videoRef.value?.requestFullscreen?.().catch(() => undefined)
+  document.querySelector<HTMLElement>('.ff-player')?.requestFullscreen?.().catch(() => undefined)
 }
 
-/** 页面刷新后接回还在推的会话 */
+/** 页面刷新后接回还在推的会话（ListActive 里的 live_file_push；params 已脱敏，拿不到完整地址） */
 async function recover() {
   try {
-    const running = await liveApi.listRunning()
-    const r = running.find((x) => materials.value.some((m) => m.name === x.name))
+    const running = (await liveApi.listRunning()).filter((x) => x.type === 'live_file_push')
+    const r = running.find((x) => materials.value.some((m) => x.inputPaths.includes(m.path))) ?? running[0]
     if (!r) return
-    selectedName.value = r.name
-    baseUrl.value = r.url
+    const m = materials.value.find((x) => r.inputPaths.includes(x.path))
+    if (m) selectedPath.value = m.path
     session.setStarting()
     session.setRunning()
-    session.startClock(0)
-    watchStream(r.streamId)
-    session.log(`已接回正在推流的任务 ${r.name}`)
+    session.startClock(r.startedAt ? Math.max(0, (Date.now() - r.startedAt) / 1000) : 0)
+    watchTask(r.streamId)
+    session.log(`已接回正在推流的任务：${r.title}`)
   } catch {
     /* 后端没起就算了 */
   }
@@ -339,7 +340,7 @@ onBeforeUnmount(cleanup)
 .hint {
   margin-top: 6px;
   font-size: 12px;
-  color: var(--ff-text-3);
+  color: var(--ff-text-2);
   line-height: 1.5;
 }
 .del {

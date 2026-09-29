@@ -25,14 +25,15 @@ func main() {
 	taskService := app.NewTaskService(mainApp.taskManager)
 	mediaService := app.NewMediaService(mainApp.mediaService, mainApp.appContext)
 	convertService := app.NewConvertService(mainApp.convertService, mainApp.appContext)
+	liveService := app.NewLiveService(mainApp.liveService, mainApp.appContext)
 
 	// Create application with options
 	err := wails.Run(&options.App{
 		Title:     "FFmpegFree",
-		Width:     1600,
-		Height:    850,
-		MinWidth:  1600, // ✅ 设置为 0 表示无最小宽度
-		MinHeight: 850,  // ✅ 设置为 0 表示无最小高度
+		Width:     1280,
+		Height:    800,
+		MinWidth:  1024, // ✅ 设置为 0 表示无最小宽度
+		MinHeight: 680,  // ✅ 设置为 0 表示无最小高度
 		MaxWidth:  0,    // ✅ 0 表示无最大宽度
 		MaxHeight: 0,    // ✅ 0 表示无最大高度
 		AssetServer: &assetserver.Options{
@@ -50,6 +51,7 @@ func main() {
 			taskService,
 			mediaService,
 			convertService,
+			liveService,
 		},
 	})
 

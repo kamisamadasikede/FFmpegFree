@@ -1,63 +1,290 @@
 <template>
-  <div class="settings">
-    <section class="group">
-      <h3 class="group-title">外观</h3>
-      <div class="row">
-        <div>
-          <div class="row-label">主题</div>
-          <div class="row-desc">跟随系统时会随操作系统的浅色和暗色设置自动切换。</div>
+  <div class="settings spanels">
+    <!-- 外观 -->
+    <section id="sec-appearance" class="panel group" aria-labelledby="h-appearance">
+      <div class="phead"><h2 id="h-appearance">外观</h2></div>
+      <div class="srow">
+        <div class="l">
+          <b id="theme-label">主题</b>
+          <small>跟随系统会随操作系统的浅色和暗色设置自动切换。</small>
         </div>
-        <el-radio-group v-model="mode">
-          <el-radio-button value="light">浅色</el-radio-button>
-          <el-radio-button value="dark">暗色</el-radio-button>
-          <el-radio-button value="system">跟随系统</el-radio-button>
-        </el-radio-group>
+        <div class="themes" role="radiogroup" aria-labelledby="theme-label">
+          <label v-for="t in themeOptions" :key="t.value" class="th" :class="{ on: mode === t.value }">
+            <input v-model="mode" type="radio" name="theme" class="sr-only" :value="t.value" />
+            <span class="pv" aria-hidden="true">
+              <!-- 预览用 .ff-light / .ff-dark 局部强制主题，颜色仍取自 tokens，不另存色值 -->
+              <span v-if="t.value !== 'system'" class="half" :class="t.value === 'dark' ? 'ff-dark' : 'ff-light'">
+                <i class="side" /><span class="main"><i class="bar" /><i class="card" /></span>
+              </span>
+              <template v-else>
+                <span class="half ff-light"><i class="side" /><span class="main" /></span>
+                <span class="half ff-dark"><span class="main" /></span>
+              </template>
+            </span>
+            {{ t.label }}
+          </label>
+        </div>
       </div>
     </section>
-    <section class="group">
-      <h3 class="group-title">转换</h3>
-      <OutputDirRow />
-      <!-- 同时转换数量、ffmpeg 路径 / 下载源、语言、减少动效等：后端 Settings 还没有对应字段，待补 -->
+
+    <!-- ffmpeg（与关于页共用 FFmpegPanel；这里带操作按钮） -->
+    <FFmpegPanel id="sec-ffmpeg" heading-id="h-ffmpeg">
+      <template #version-actions>
+        <button v-if="canInstall" type="button" class="btn pri" @click="ffmpeg.dialogOpen = true"><FIcon name="download" :size="15" />{{ installLabel }}</button>
+        <button type="button" class="btn" :disabled="busy || ffmpeg.status.state === 'installing'" @click="run(ffmpeg.recheck)"><FIcon name="refresh" :size="15" />重新检测</button>
+      </template>
+      <template #path-actions>
+        <button type="button" class="btn" :disabled="busy" @click="run(() => ffmpeg.pickPath())"><FIcon name="folder" :size="15" />更换</button>
+        <button v-if="ffmpeg.status.source === 'custom'" type="button" class="btn text" :disabled="busy" @click="run(ffmpeg.clearCustomPath)">恢复默认</button>
+      </template>
+    </FFmpegPanel>
+
+    <!-- 转换 -->
+    <section id="sec-convert" class="panel group" aria-labelledby="h-convert">
+      <div class="phead"><h2 id="h-convert">转换</h2></div>
+      <div class="srow">
+        <div class="l">
+          <b id="mc-label">同时转换数量</b>
+          <small id="mc-desc">{{ concurrentHint }}直播任务不占用名额。</small>
+        </div>
+        <div
+          class="stepper"
+          :class="{ busy: !loaded }"
+          role="spinbutton"
+          tabindex="0"
+          aria-labelledby="mc-label"
+          aria-describedby="mc-desc"
+          :aria-valuemin="MAX_CONCURRENT_AUTO"
+          :aria-valuemax="MAX_CONCURRENT_MAX"
+          :aria-valuenow="concurrent"
+          :aria-valuetext="concurrentText"
+          :aria-disabled="!loaded"
+          @keydown.up.prevent="step(1)"
+          @keydown.down.prevent="step(-1)"
+          @keydown.home.prevent="setTo(MAX_CONCURRENT_AUTO)"
+          @keydown.end.prevent="setTo(MAX_CONCURRENT_MAX)"
+        >
+          <button type="button" class="sb" tabindex="-1" aria-label="减少" :disabled="!loaded || concurrent <= MAX_CONCURRENT_AUTO" @click="step(-1)">−</button>
+          <b class="val" aria-hidden="true">{{ concurrentText }}</b>
+          <button type="button" class="sb" tabindex="-1" aria-label="增加" :disabled="!loaded || concurrent >= MAX_CONCURRENT_MAX" @click="step(1)">+</button>
+        </div>
+      </div>
+      <OutputDirRow class="srow" />
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { useTheme } from '@/composables/useTheme'
+import { computed, onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
+import FIcon from '@/components/icon/FIcon.vue'
+import FFmpegPanel from '@/components/settings/FFmpegPanel.vue'
 import OutputDirRow from '@/components/settings/OutputDirRow.vue'
+import { toAppError } from '@/api/call'
+import { MAX_CONCURRENT_AUTO, MAX_CONCURRENT_MAX, getMaxConcurrent, setMaxConcurrent } from '@/api/system'
+import { useTheme, type ThemeMode } from '@/composables/useTheme'
+import { useFFmpegStore } from '@/stores/ffmpeg'
 
 const { mode } = useTheme()
+const themeOptions: { value: ThemeMode; label: string }[] = [
+  { value: 'light', label: '浅色' },
+  { value: 'dark', label: '暗色' },
+  { value: 'system', label: '跟随系统' },
+]
+
+// ---- ffmpeg ----
+const ffmpeg = useFFmpegStore()
+const busy = ref(false)
+
+// 安装入口：缺失 / 过旧 / 失败时显示，打开与侧栏、提示条同一个安装对话框
+const canInstall = computed(() => ['missing', 'outdated', 'failed'].includes(ffmpeg.status.state))
+const installLabel = computed(() => (ffmpeg.status.state === 'failed' ? '重试安装' : '安装…'))
+
+async function run(fn: () => Promise<unknown>) {
+  if (busy.value) return
+  busy.value = true
+  try {
+    await fn()
+  } catch (e) {
+    ElMessage.error(toAppError(e).message)
+  } finally {
+    busy.value = false
+  }
+}
+
+// ---- 同时转换数量（Settings.maxConcurrent：0 = 自动，1~8 固定值）----
+/** 界面上的值；点击立即变化，保存失败时回退到 saved */
+const concurrent = ref(MAX_CONCURRENT_AUTO)
+/** 后端确认过的值 */
+let saved = MAX_CONCURRENT_AUTO
+const loaded = ref(false)
+const concurrentText = computed(() => (concurrent.value === MAX_CONCURRENT_AUTO ? '自动' : String(concurrent.value)))
+const concurrentHint = computed(() => (concurrent.value === MAX_CONCURRENT_AUTO ? '自动：按 CPU 核数决定，最多同时转换 1 到 3 个。' : '同时进行的转换、剪辑等任务数量，减小不会打断正在运行的任务。'))
+
+onMounted(async () => {
+  try {
+    saved = await getMaxConcurrent()
+    concurrent.value = saved
+  } catch (e) {
+    ElMessage.error(toAppError(e).message)
+  } finally {
+    loaded.value = true
+  }
+})
+
+// 连续点击时只保存最后一次：保存串行执行，落地后如果界面值又变了就再存一次
+let saving = false
+async function flush() {
+  if (saving) return
+  saving = true
+  try {
+    while (concurrent.value !== saved) {
+      const want = concurrent.value
+      try {
+        await setMaxConcurrent(want)
+        saved = want
+      } catch (e) {
+        concurrent.value = saved // 后端拒绝 / IO 出错：整体不生效，回退到已确认的值
+        ElMessage.error(toAppError(e).message)
+      }
+    }
+  } finally {
+    saving = false
+  }
+}
+
+function setTo(n: number) {
+  if (!loaded.value) return
+  concurrent.value = Math.min(MAX_CONCURRENT_MAX, Math.max(MAX_CONCURRENT_AUTO, n))
+  flush()
+}
+function step(d: number) {
+  setTo(concurrent.value + d)
+}
 </script>
 
 <style scoped>
-.settings {
-  max-width: 720px;
+/* 主题卡片 */
+.themes {
+  display: flex;
+  gap: var(--ff-space-3);
+}
+.th {
+  width: 118px;
   display: flex;
   flex-direction: column;
-  gap: var(--ff-space-4);
-}
-.group {
-  background: var(--ff-bg-surface);
-  border: 1px solid var(--ff-border);
-  border-radius: var(--ff-radius-lg);
-  padding: var(--ff-space-4);
-}
-.group-title {
-  margin: 0 0 var(--ff-space-3);
-  font-size: var(--ff-fs-lg);
-  font-weight: 600;
-}
-.row {
-  display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--ff-space-4);
+  gap: 6px;
+  font-size: var(--ff-fs-xs);
+  color: var(--ff-text-2);
+  cursor: pointer;
 }
-.row-label {
+.th .pv {
+  width: 118px;
+  height: 72px;
+  display: flex;
+  border-radius: 8px;
+  border: 1px solid var(--ff-border);
+  overflow: hidden;
+}
+.th.on {
+  color: var(--ff-primary-text);
   font-weight: 500;
 }
-.row-desc {
-  color: var(--ff-text-2);
-  font-size: var(--ff-fs-xs);
+.th.on .pv {
+  outline: 2px solid var(--ff-primary);
+  outline-offset: 2px;
+}
+.th:has(input:focus-visible) .pv {
+  outline: 2px solid var(--ff-primary);
+  outline-offset: 2px;
+}
+.th:hover:not(.on) {
+  color: var(--ff-text-1);
+}
+.half {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+}
+.half .side {
+  width: 26%;
+  background: var(--ff-bg-sidebar);
+}
+.half .main {
+  flex: 1;
+  background: var(--ff-bg-app);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.half .bar {
+  height: 10px;
+  border-radius: 3px;
+  background: var(--ff-bg-surface);
+}
+.half .card {
+  height: 26px;
+  border-radius: 3px;
+  background: var(--ff-bg-surface);
+}
+
+/* 步进器：非文字边界用 --ff-text-2 保证 ≥3:1（--ff-border 只有约 1.3:1） */
+.stepper {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  flex: none;
+  border: 1px solid var(--ff-text-2);
+  border-radius: var(--ff-radius-md);
+  background: var(--ff-bg-surface);
+}
+.stepper:focus-visible {
+  outline: 2px solid var(--ff-primary);
+  outline-offset: 2px;
+}
+.stepper .sb {
+  width: 28px;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--ff-text-1);
+  font: inherit;
+  font-size: var(--ff-fs-lg);
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--ff-dur-fast) var(--ff-ease);
+}
+.stepper .sb:first-child {
+  border-radius: 5px 0 0 5px;
+}
+.stepper .sb:last-child {
+  border-radius: 0 5px 5px 0;
+}
+.stepper .sb:hover:not(:disabled) {
+  background: var(--ff-bg-hover);
+}
+.stepper .sb:disabled {
+  color: var(--ff-text-3);
+  cursor: default;
+}
+.stepper .val {
+  min-width: 44px;
+  padding: 0 6px;
+  text-align: center;
+  line-height: 26px;
+  font-weight: 500;
+  border-left: 1px solid var(--ff-text-2);
+  border-right: 1px solid var(--ff-text-2);
+}
+.stepper.busy {
+  opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stepper .sb {
+    transition: none;
+  }
 }
 </style>

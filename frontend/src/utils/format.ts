@@ -52,7 +52,9 @@ export function formatShortClock(sec: number): string {
   return s >= 3600 ? `${Math.floor(s / 3600)}:${p(Math.floor((s % 3600) / 60))}:${p(s % 60)}` : `${p(Math.floor(s / 60))}:${p(s % 60)}`
 }
 
+/** 所在文件夹：/a/b.mp4 → /a；根路径保留分隔符：/a.mp4 → /，C:\a.mp4 → C:\（不是 C:） */
 export function dirName(path: string): string {
   const i = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+  if (i === 2 && path[1] === ':') return path.slice(0, 3) // 盘符根：C:\ / C:/
   return i <= 0 ? path.slice(0, i + 1) || path : path.slice(0, i)
 }
