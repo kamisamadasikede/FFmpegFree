@@ -1,5 +1,6 @@
 <template>
   <div class="office-container">
+    <MigrationNotice class="mig" />
     <el-tabs v-model="activeTab" type="border-card">
       <el-tab-pane label="上传转换" name="convert">
         <div class="upload-section">
@@ -16,6 +17,7 @@
             :http-request="customUpload"
             :auto-upload="true"
             :before-upload="beforeUpload"
+            :disabled="!V1_API_READY"
             multiple
           >
             <el-icon class="el-icon--upload"><upload-filled /></el-icon>
@@ -53,13 +55,14 @@
                   type="primary"
                   size="small"
                   @click="convertToPDF(scope.row)"
-                  :disabled="convertingFiles.has(scope.row.name)"
+                  :disabled="!V1_API_READY || convertingFiles.has(scope.row.name)"
                 >
                   {{ convertingFiles.has(scope.row.name) ? '转换中...' : '转换为PDF' }}
                 </el-button>
                 <el-button
                   type="danger"
                   size="small"
+                  :disabled="!V1_API_READY"
                   @click="deleteFile(scope.row)"
                 >
                   删除
@@ -97,6 +100,7 @@
                 <el-button
                   type="success"
                   size="small"
+                  :disabled="!V1_API_READY"
                   @click="downloadPDF(scope.row)"
                 >
                   下载
@@ -104,6 +108,7 @@
                 <el-button
                   type="danger"
                   size="small"
+                  :disabled="!V1_API_READY"
                   @click="deletePDF(scope.row)"
                 >
                   删除
@@ -126,6 +131,8 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import MigrationNotice from '@/components/common/MigrationNotice.vue'
+import { V1_API_READY } from '@/api'
 import { ElMessage, UploadRequestOptions } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
 import {
@@ -300,11 +307,14 @@ const formatFileSize = (bytes: number): string => {
 }
 
 onMounted(() => {
-  fetchConvertedFiles()
+  if (V1_API_READY) fetchConvertedFiles()
 })
 </script>
 
 <style scoped>
+.mig {
+  margin-bottom: 12px;
+}
 .office-container {
   padding: 20px;
   max-width: 1200px;

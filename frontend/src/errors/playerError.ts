@@ -40,6 +40,25 @@ export function isValidStreamUrl(url: string | undefined | null): boolean {
   return typeof url === 'string' && URL_RE.test(url.trim())
 }
 
+// 拉流页只接受浏览器能直接拉取的协议
+const PULL_URL_RE = /^(https?|wss?):\/\/[^\s/?#]+/i
+
+/** 拉流地址是否可用：只认 http / https / ws / wss（rtmp / rtsp / srt 浏览器播不了） */
+export function isValidPullUrl(url: string | undefined | null): boolean {
+  return typeof url === 'string' && PULL_URL_RE.test(url.trim())
+}
+
+/**
+ * 拉流失败是否属于“持久性”错误：重连也不会好，应直接出错误遮罩，不自动重连。
+ * - 跨域被拦（LIVE_CORS_BLOCKED）、连接失败 / 超时（LIVE_CONNECT_FAILED）
+ * - 服务器明确返回 4xx（403 / 404 等）
+ * 其余（断流、提前结束、5xx、无状态码的网络抖动）视为暂时性错误，可以自动重连。
+ */
+export function isPersistentPlayerError(code: string, httpStatus?: number): boolean {
+  if (code === 'LIVE_CORS_BLOCKED' || code === 'LIVE_CONNECT_FAILED' || code === 'LIVE_URL_INVALID') return true
+  return typeof httpStatus === 'number' && httpStatus >= 400 && httpStatus < 500
+}
+
 function currentOrigin(): string | undefined {
   return typeof location !== 'undefined' ? location.origin : undefined
 }

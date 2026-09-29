@@ -8,15 +8,13 @@ const routes: RouteRecordRaw[] = [
   { path: '/edit', name: 'Edit', meta: { title: '视频剪辑', subtitle: '多轨时间线 · 转场 · 调色' }, component: () => import('../views/VideoEditor.vue') },
   {
     path: '/live',
-    meta: { title: '直播工具', subtitle: '推流 · 录屏 · 拉流' },
-    component: SectionTabs,
+    meta: { title: '直播工具', subtitle: '文件推流 · 录屏推流 · 拉流播放' },
+    component: () => import('../views/live/LiveLayout.vue'),
     redirect: '/live/push',
     children: [
-      { path: 'push', meta: { tab: '文件推流' }, component: () => import('../views/steamup.vue') },
-      { path: 'streaming', meta: { tab: '正在推流' }, component: () => import('../views/steamlist.vue') },
-      { path: 'record', meta: { tab: '录屏推流' }, component: () => import('../views/MediaRecorder.vue') },
-      { path: 'player', meta: { tab: 'FLV 拉流' }, component: () => import('../views/LivePlayer.vue') },
-      { path: 'ops', meta: { tab: '运维面板' }, component: () => import('../views/LiveOps.vue') },
+      { path: 'push', component: () => import('../views/live/FilePush.vue') },
+      { path: 'record', component: () => import('../views/live/RecordPush.vue') },
+      { path: 'pull', component: () => import('../views/live/PullPlay.vue') },
     ],
   },
   {

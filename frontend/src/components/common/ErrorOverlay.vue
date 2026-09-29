@@ -55,7 +55,7 @@ function onClick(btn: ErrorButton, isPrimary = false) {
   z-index: 4;
   display: grid;
   place-items: center;
-  background: rgba(11, 12, 14, 0.72);
+  background: rgba(11, 12, 14, 0.85); /* 原型 0.72，设计评审要求 ≥ 0.85，避免亮画面透出影响可读性 */
   backdrop-filter: blur(4px);
 }
 .box {
@@ -101,7 +101,7 @@ p {
   font-family: var(--ff-font-mono);
   font-size: 12px;
   line-height: 1.75; /* 原型里 .code 继承了 1.75 的行高，保持一致 */
-  color: #6b717b;
+  color: #8b919b; /* 原型 #6b717b，设计评审调亮，亮画面上也能读 */
 }
 .acts {
   display: flex;
@@ -135,6 +135,11 @@ p {
 .btn.pri:hover {
   background: var(--ff-primary-hover);
   border-color: var(--ff-primary-hover);
+}
+/* 暗色主题的主色偏亮，白字对比度只有 3.16:1，改用近黑字（设计评审） */
+.ff-dark .btn.pri,
+html.dark .btn.pri {
+  color: #0b0c0e;
 }
 .btn:focus-visible {
   outline: 2px solid var(--ff-primary);
