@@ -1,4 +1,7 @@
-# FFmpegFree v2 接口契约（v0.9.2）
+# FFmpegFree v2 接口契约（v0.12）
+
+v0.12 变更（DocService 契约定稿，**只有契约，尚无实现**，见 6.12 节）：`ConvertToPDF` 保持签名，格式范围如实收窄为 `docx` / `xlsx` / `pptx` **纯文本版**（与 v1 一致：无图片、表格线、样式；旧版 `doc` / `xls` / `ppt` 及其他格式一律 `UNSUPPORTED`）；`GetPDFURL` 替换为 `OpenPDF`（返回 `PDFSource`）+ `ReadPDFChunk`（分块读，走 Wails Bind，不依赖 AssetServer 行为）；新增 `GetDocCapabilities` / `ListRecentPDFs` / `RemoveRecentPDFs`；新增表 `doc_recent`；任务类型 `office_pdf` 保持不变；PDF 渲染、页数、缩略图、搜索全部在前端 pdf.js（`@tato30/vue-pdf`）完成，后端不渲染、不提供合并 / 拆分 / 旋转（v1 也没有）。
+
 
 v0.9.2 变更（Windows 子进程回收，见 6.6 节）：Windows 上 ffmpeg / ffprobe 子进程改为放进 Job Object（`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`），应用崩溃或被强制结束时系统会回收 ffmpeg 及其子孙进程；结束进程树先终结 Job，失败退回 `taskkill /T /F`，再退回只结束主进程；其他平台行为不变。无接口变化。
 
@@ -186,11 +189,16 @@ LoadProject(id string) (EditProject, error)
 ListProjects() ([]EditProjectMeta, error)
 ```
 
-### DocService（Office 转 PDF + PDF 预览）
+### DocService（Office 转 PDF + PDF 预览，v0.12 契约，详见 6.12）
 ```go
-ConvertToPDF(inputs []string, outputDir string) ([]Task, error) // docx/xlsx/pptx，纯 Go 实现，不依赖 LibreOffice
-GetPDFURL(path string) (string, error)                            // 返回 /local/<token> 供预览
+GetDocCapabilities() (DocCapabilities, error)                       // 支持的格式、字体状态；不依赖 ffmpeg，随时可调
+ConvertToPDF(inputs []string, outputDir string) ([]Task, error)     // 批量，一个文件一个 office_pdf 任务；先整体校验再提交
+OpenPDF(path string) (PDFSource, error)                             // 校验并登记一个 PDF，返回句柄；同时写入 doc_recent
+ReadPDFChunk(id string, offset int64, length int) (PDFChunk, error) // 按句柄分块读 PDF 字节（Bind，base64），length ≤ 1 MiB
+ListRecentPDFs(limit int) ([]PDFFile, error)                        // 默认 20，最大 200，按 openedAt 倒序
+RemoveRecentPDFs(ids []string) error                                // 只删记录，不删文件
 ```
+`GetPDFURL(path) string` 在 v0.12 删除（未实现过，无迁移）。
 
 ### JsonService（纯函数，不落库）
 ```go
@@ -257,6 +265,7 @@ tasks(id PK, type, status, title, input_paths JSON, output_path, params JSON, pr
       log_path, version, created_at, started_at, finished_at)
 presets(id PK, name, built_in, options JSON, sort)
 edit_projects(id PK, name, project JSON, updated_at)
+doc_recent(id PK, path, path_key UNIQUE, name, size, opened_at)
 settings(key PK, value JSON)
 schema_migrations(version PK, applied_at)
 ```
@@ -334,6 +343,120 @@ schema_migrations(version PK, applied_at)
 - **提交阶段失败会保留已提交的任务**：`Submit` 校验全部通过之后才开始逐个提交；若中途某个 `Submit` 失败（例如任务管理器出错），返回值里带着已成功提交的任务列表和错误，这些任务**不回滚**，会照常运行。ctx 被取消时返回 `CANCELED`。
 - 输入是文件名带 `%` 的图片（如 `a%03d.jpg`）时，命令里在 `-i` 前加 `-pattern_type none`（与缩略图 / 探测同一规则，只对 image2 图片扩展名），避免被当成序列模板。
 - 所有 ffmpeg 输入输出路径都带 `file:` 前缀，以 `-` 开头、含空格、冒号、中日韩字符的文件名都安全。
+
+## 6.12 DocService 契约（v0.12，只有契约，架构师冻结前不实现）
+
+依据：v1 `master` 上 `backend/contollers/office_controller.go`、`pdf_controller.go`、`frontend/src/views/OfficeConvert.vue`、`PDFPreview.vue`。v1 真实功能：Office → PDF（**纯 Go**，`archive/zip` + `encoding/xml` + `excelize` + `go-pdf/fpdf`，不用 LibreOffice）、PDF 上传 / 列表 / 删除、PDF 预览（前端 `@tato30/vue-pdf`：缩放、翻页、缩略图侧栏、历史列表）。v1 **没有** PDF 合并 / 拆分 / 旋转 / 提取 / 加水印 / 文本提取 / OCR，v2 首版同样不做。
+
+### 6.12.1 Office 转 PDF：格式范围（如实）
+
+| 扩展名（不区分大小写） | v2 行为 |
+|---|---|
+| `.docx` | 支持，**仅文本**：`word/document.xml` 里每个 `<w:p>` 的 `<w:t>` 拼成一段，按顺序输出，自动换行分页 |
+| `.xlsx` | 支持，**仅单元格文本**：每个工作表先输出 `Sheet: <名称>` 标题，再逐行输出（`excelize.GetRows`，即单元格的显示文本，公式取缓存值），单元格间 4 个空格分隔；每个工作表后换页 |
+| `.pptx` | 支持，**仅文本**：每张幻灯片一个标题 `Slide <n>` + 该页所有 `<a:t>` 文本按段落输出，每页幻灯片换页；按数字顺序处理（v1 按字符串排序会把 slide10 排在 slide2 前，v2 修正） |
+| `.doc` `.xls` `.ppt`（旧二进制格式）、`.odt` `.ods` `.odp` `.rtf` `.csv` `.txt` `.pages` `.numbers` `.key`、其他 | `UNSUPPORTED`，detail 写明原因；旧格式提示"请先另存为 docx / xlsx / pptx" |
+| 密码加密的 docx / xlsx / pptx（OLE 容器，不是 zip） | `UNSUPPORTED`，detail "加密文档不支持" |
+
+**明确不支持（输出里没有）**：图片、图表、形状、SmartArt、表格边框与合并单元格、页眉页脚、脚注、批注、修订、字体 / 字号 / 颜色 / 加粗等样式、页面大小与方向（一律 A4 纵向）、分栏、超链接（只保留文字）、公式的重新计算、幻灯片母版与动画、xlsx 的图表与条件格式。这是"提取文字后重排"，**不是**版式保真转换；想要版式保真需要 LibreOffice 或商业库，不在本项目范围（纯 Go 没有可用的开源保真实现）。前端在转换页必须常驻一条说明，文案由前端定。
+
+**字体**（影响是否能转换）：`fpdf` 只能嵌入 `.ttf`（TrueType 轮廓），**不能加载 `.ttc`**（箱子上实测用系统 `NotoSansCJK-Regular.ttc` 报 `get metrics Error: not supported`）；只用 Helvetica 等内置字体时，任何 U+00FF 以上的字符（含中日韩）会变成乱码（箱子上实测 `你好` 输出为 `ä½ å¥½`）。规则：
+- 后端按顺序找第一个存在且可加载的 `.ttf`：Windows `C:/Windows/Fonts/simhei.ttf`、`msyh.ttf`、`simsun.ttf`（**注意** Windows 自带的微软雅黑通常是 `msyh.ttc`，`fpdf` 加载不了，v1 的路径表对新版 Windows 可能一个都命不中——**未在 Windows 真机验证**），macOS `/Library/Fonts/Arial Unicode.ttf`，Linux `/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf`。
+- 文档里出现 U+00FF 以上的字符而找不到可用 `.ttf` → 该文件 `UNSUPPORTED`，detail "没有可用的 Unicode 字体"（不输出乱码 PDF）。纯 Latin-1 文档可用内置字体。
+- DejaVu Sans 不含 CJK 字形（覆盖 Latin / 希腊 / 西里尔等）：Linux 上只有 DejaVu 时，含中日韩字符的文档同样 `UNSUPPORTED`，判定方式是检测 CJK / 日文假名 / 谚文码点区间而不是逐字形检查。所以 `GetDocCapabilities.font.cjk` 表示"当前找到的字体是否是已知的 CJK 字体（simhei / msyh / simsun / Arial Unicode）"。
+- 是否把一个开源 CJK 字体（如 Noto Sans SC 的 `.ttf` 子集，OFL 协议，包体增加数 MB）内嵌进程序，见开放问题 1。
+
+### 6.12.2 数据结构
+
+```go
+type DocCapabilities struct {
+    Formats []DocFormat `json:"formats"` // 固定列表：docx xlsx pptx（supported=true）+ doc xls ppt odt ods odp rtf（supported=false，reason 给出原因）
+    Font    DocFont     `json:"font"`
+    Limits  DocLimits   `json:"limits"`
+}
+type DocFormat struct {
+    Ext       string `json:"ext"`       // 不带点，小写
+    Supported bool   `json:"supported"`
+    Fidelity  string `json:"fidelity"`  // "text-only"（支持的三种）| ""
+    Reason    string `json:"reason"`    // 不支持时的原因
+}
+type DocFont struct {
+    Available bool   `json:"available"` // 是否找到可用 .ttf
+    Name      string `json:"name"`      // simhei / msyh / simsun / arialunicode / dejavu / ""
+    Cjk       bool   `json:"cjk"`
+}
+type DocLimits struct {
+    MaxInputsPerSubmit int   `json:"maxInputsPerSubmit"` // 50
+    MaxInputBytes      int64 `json:"maxInputBytes"`      // 100 MiB
+    MaxPages           int   `json:"maxPages"`           // 5000
+    MaxPDFBytes        int64 `json:"maxPdfBytes"`        // 512 MiB（OpenPDF）
+    ChunkBytes         int   `json:"chunkBytes"`         // 1 MiB（ReadPDFChunk 上限）
+    WholeLoadBytes     int64 `json:"wholeLoadBytes"`     // 64 MiB（前端整份读入内存的上限，见 6.12.4）
+}
+type PDFSource struct {
+    ID   string `json:"id"`   // 句柄（128 位随机，进程内有效，重启失效）；同一路径复用同一 id
+    Path string `json:"path"`
+    Name string `json:"name"`
+    Size int64  `json:"size"` // 字节
+    URL  string `json:"url"`  // /local/<token>，仅在 size > WholeLoadBytes 时前端使用，见 6.12.4；token 与 id 是两回事
+}
+type PDFChunk struct {
+    Offset int64  `json:"offset"`
+    Length int    `json:"length"` // 实际读到的字节数
+    EOF    bool   `json:"eof"`    // offset+length >= 文件当前大小
+    Data   []byte `json:"data"`   // JSON 里是 base64 字符串
+}
+type PDFFile struct {
+    ID       string `json:"id"`       // doc_recent.id（ULID）
+    Path     string `json:"path"`
+    Name     string `json:"name"`
+    Size     int64  `json:"size"`
+    OpenedAt int64  `json:"openedAt"` // Unix 毫秒
+    Exists   bool   `json:"exists"`   // 列表时 stat 的结果，文件已删为 false（记录保留，用户手动移除）
+}
+```
+表 `doc_recent(id PK, path, path_key UNIQUE, name, size, opened_at)`（第 6 节补一行，迁移新文件）。
+
+### 6.12.3 `ConvertToPDF`：任务 `office_pdf`
+
+- 参数校验与 6.9 同一套规则：`inputs` 非空且 ≤ 50，路径必须绝对（`INVALID_ARGUMENT`），文件不存在 `NOT_FOUND`，是目录 `INVALID_ARGUMENT`，无读权限 `IO_ERROR`；`outputDir` 规则同 6.9（空 = `Settings.defaultOutputDir`，仍空 = 源文件所在文件夹）。**先整体校验再提交**，任何一个不通过整体失败、不提交任何任务，`detail` 第一行是出错文件路径。
+- 整体校验里额外检查：扩展名在支持表内（否则 `UNSUPPORTED`）；文件 ≤ 100 MiB（否则 `INVALID_ARGUMENT`）；能作为 zip 打开且含必需部件（docx `word/document.xml`，xlsx `xl/workbook.xml`，pptx 至少一张 `ppt/slides/slide<n>.xml`），打不开或缺部件 `INVALID_ARGUMENT`（detail "不是有效的 OOXML 文件"）；不是 zip 而是 OLE 头（`D0 CF 11 E0`）→ `UNSUPPORTED`（加密或旧格式改了扩展名）；单个 zip 条目解压后 > 256 MiB `INVALID_ARGUMENT`（防 zip 炸弹）；字体规则见 6.12.1（需要 Unicode 字体而没有 → `UNSUPPORTED`，此项在提交时对文本做一次快速扫描，不通过整体失败）。
+- **不依赖 ffmpeg**（不做 `FFMPEG_NOT_FOUND` 门控）。走 batch 池（与转换共用并发数）；`GoFuncRunner` 实际是 `task.RunnerFunc`。
+- 任务：`type=office_pdf`，`title` 形如 `a.docx → PDF`，`inputPaths=[源]`，`outputPath` 为预期输出，`params={input, outputDir}` JSON。输出 `<源文件名去扩展名>.pdf`，重名追加 `(1)`、`(2)`，不覆盖，走 6.6 `RunWithPart`（`.part.pdf` → 原子改名）；取消或失败不留 `.part`。
+- **进度**：按处理单元计数（docx 段落、xlsx 行、pptx 幻灯片）占总数的比例，0~1 单调，完成为 1；每处理约 100 个单元检查一次 ctx，取消响应 ≤ 1 秒（超大文件除外）。`task:progress` 载荷不变，`speed` / `etaSec` 为空。
+- 页数上限 5000：超过时任务失败 `UNSUPPORTED`，detail "超过 5000 页"；xlsx 一个工作表所有行都算；xlsx 单元格文本每格最多 32 767 字符（Excel 自身上限），超出截断。
+- 错误码（任务的 `error`）：`IO_ERROR`（读写失败，没有权限）、`CONVERT_DISK_FULL`（输出写盘失败且是磁盘满，判定规则同 6.9 的系统错误文本匹配；Office 转换也用这个码，前端标题相同）、`UNSUPPORTED`、`INVALID_ARGUMENT`（运行时才发现的损坏）、`INTERNAL`（fpdf / excelize 意外错误，`detail` 是错误文本）；取消是任务状态 `canceled`。
+- `Retry`：注册 `office_pdf` 的重试工厂，用 `params` 重建并重新校验（输入被删除 `NOT_FOUND`，不产生新任务）。
+- v1 的"按文件名防重复转换"（`officeConvertingFiles`）取消：两个任务转同一个输入是允许的，输出各自取不冲突的名字。
+
+### 6.12.4 PDF 预览方案（不做本地流服务）
+
+渲染**完全在前端**：沿用 v1 的 `@tato30/vue-pdf`（pdf.js），后端不渲染成图片、不提供页数 / 文本 / 缩略图接口（后端无纯 Go 的可靠 PDF 渲染器，也不打包 `pdftoppm` 之类外部程序）。后端只负责把字节交给前端：
+
+1. `OpenPDF(path)`：路径必须绝对（`INVALID_ARGUMENT`）、存在（`NOT_FOUND`）、是文件（否则 `INVALID_ARGUMENT`）、可读（`IO_ERROR`）、扩展名 `.pdf`（不区分大小写，否则 `INVALID_ARGUMENT`）、前 1024 字节内含 `%PDF-`（否则 `INVALID_ARGUMENT`，detail "不是 PDF 文件"）、大小 ≤ 512 MiB（否则 `INVALID_ARGUMENT`）。成功后登记句柄并写入 / 更新 `doc_recent`。加密 PDF 也能打开，密码由前端 pdf.js 的 `onPassword` 弹窗处理，后端不接触密码。
+2. **主路径（size ≤ 64 MiB）：`ReadPDFChunk` 读整份**。前端循环调用 `ReadPDFChunk(id, offset, 1 MiB)` 直到 `eof`，拼成 `Uint8Array` 交给 `usePDF`。只用 Wails Bind，**不依赖 AssetServer 在 Windows 上缓冲响应的行为**（Wails 2.11.0 `responsewriter_windows.go` 把整个响应体缓冲在内存里，见 6.11.4）。`ReadPDFChunk`：`length` 范围 1~1 MiB（越界 `INVALID_ARGUMENT`），`offset` 不能为负；`offset ≥ 文件大小` 返回 `length=0, eof=true`；句柄不存在（重启后失效）`NOT_FOUND`；每次调用重新 `stat` / 打开，文件被删 `NOT_FOUND`，读失败 `IO_ERROR`；文件在读取期间被改动时前端读到的内容可能不一致，前端在 `size` 变化时应重新 `OpenPDF`。
+3. **大文件（64 MiB < size ≤ 512 MiB）**：前端用 `PDFSource.url`（`/local/<token>`）交给 pdf.js 按 Range 加载；handler 与限长规则同 6.11.4（每个 Range 响应 ≤ 4 MiB；无 Range 的整体请求 ≤ 32 MiB，更大 413，因此大文件必须走 Range）。**此路径在 Windows 上未经验证**（箱子是 Linux；6.11.4 的 WebView2 Range 续传问题同样适用），若真机不通过，大文件的处理见开放问题 2。`url` 在 size ≤ 64 MiB 时也会返回，但前端不应使用。
+4. 不用 `file://`（WebView 拒绝，同 6.11.4）；不把整份 PDF 作为 base64 一次返回（会撞 IPC 体积与内存峰值）。
+5. 内存：主路径峰值 = 文件大小 × 约 2（分块拼接 + pdf.js 解析），64 MiB 上限据此设定，**阈值是估计值，需真机调**。
+6. 历史列表：`ListRecentPDFs` 取代 v1 的"服务器上传目录列表"；不再复制 PDF 到应用目录（v1 上传会拷贝），列表只存路径，文件被移动 / 删除时 `exists=false`。`OpenPDF` 是唯一的写入点；转换产出的 PDF 不自动进历史，前端在转换完成后需要预览时调用 `OpenPDF(outputPath)`。
+
+### 6.12.5 事件
+
+不新增事件。转换进度走 `task:created` / `task:progress` / `task:status`，与转换、剪辑一致；预览没有事件。
+
+### 6.12.6 错误码对照（全部沿用现有码，无新增）
+
+| 场景 | code |
+|---|---|
+| 参数不合法、路径非绝对、目录当文件、不是 PDF、不是有效 OOXML、文件超限、`length` 越界 | `INVALID_ARGUMENT` |
+| 输入 / PDF / 句柄不存在 | `NOT_FOUND` |
+| 不支持的格式（旧版 Office、odt、rtf、加密文档）、缺 Unicode 字体、超过 5000 页 | `UNSUPPORTED` |
+| 读写失败、无权限 | `IO_ERROR` |
+| 输出磁盘满（任务错误） | `CONVERT_DISK_FULL` |
+| 应用退出导致调用中断 | `CANCELED` |
+| 库内部意外错误 | `INTERNAL` |
+
+`FFMPEG_NOT_FOUND` / `PROBE_FAILED` / `PROCESS_FAILED` 不会由 DocService 返回。
 
 ## 7. 本地流服务（唯一保留的 HTTP）
 
@@ -417,6 +540,6 @@ RecheckFFmpeg() (FFmpegStatus, error)
 ### 9.5 功能门控
 
 - 依赖 ffmpeg 的：转换、剪辑、直播、媒体探测和缩略图。`state != ready` 时这些入口可以进，但操作按钮禁用，顶部显示提示条和"一键安装"按钮；后端对应 Service 统一返回 `FFMPEG_NOT_FOUND`，双保险：入口处调用 `ffmpeg.Require()`，未就绪返回该错误，就绪则返回 ffmpeg / ffprobe 的绝对路径，子进程一律用这个路径启动。
-- 不依赖 ffmpeg 的：Office 转 PDF、PDF 预览、JSON 工具，始终可用。
+- 不依赖 ffmpeg 的：Office 转 PDF、PDF 预览、JSON 工具，始终可用（DocService 任何方法都不返回 `FFMPEG_NOT_FOUND`）。
 - 首次启动检测到 `missing` 时弹一次确认框（"安装"或"稍后"），选"稍后"后写入 `Settings.ffmpegPromptDismissed = true`，之后只保留提示条，不再弹窗；ffmpeg 变为 ready 后该标记重置。
 - 前端不轮询：检测完成、安装进度导致的 state 变化、手动指定路径、重新检测，都会推送 `ffmpeg:status`，payload 为完整 `FFmpegStatus`。
