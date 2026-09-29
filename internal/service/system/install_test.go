@@ -92,6 +92,7 @@ func (e *anyEmitter) count(name string) int {
 
 type instFixture struct {
 	mgr   *Manager
+	tasks *task.Manager
 	em    *anyEmitter
 	root  string
 	gate  chan struct{} // 非 nil 时，服务器在发送前等待
@@ -150,6 +151,7 @@ func newInstFixture(t *testing.T, ffmpegBody string) *instFixture {
 	tasks := task.NewManager(task.Config{Store: st, Emitter: f.em, LogDir: filepath.Join(root, "logs"), BatchConcurrency: 1,
 		ProgressInterval: -1, Logf: func(string, ...any) {}})
 	t.Cleanup(func() { tasks.Shutdown(2 * time.Second) })
+	f.tasks = tasks
 	f.mgr = NewManager()
 	f.mgr.Start(context.Background(), Config{Locator: loc, Settings: newMemSettings(), Emitter: f.em, Installer: inst, Tasks: tasks})
 	waitFor(t, func() bool { return f.mgr.Status().State == ffmpeg.StateMissing })

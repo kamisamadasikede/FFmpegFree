@@ -129,8 +129,12 @@ func (m *Manager) BatchConcurrency() int {
 	return m.limit
 }
 
-// SetBatchConcurrency 调整 batch 池并发数（设置里的并发数变化时调用）。调大立即生效，
-// 调小不会打断已在运行的任务，只是暂停从队列取新任务直到数量降到新上限以下。
+// SetConcurrency 调整 batch 池并发数（设置里的并发数变化时调用），n<=0 用 DefaultBatchConcurrency()。
+// 调大立即生效（排队的任务马上补位）；调小不会打断已在运行的任务，只是暂停从队列取新任务，
+// 直到运行数降到新上限以下。可在任意时刻并发调用。
+func (m *Manager) SetConcurrency(n int) { m.SetBatchConcurrency(n) }
+
+// SetBatchConcurrency 同 SetConcurrency。
 func (m *Manager) SetBatchConcurrency(n int) {
 	if n <= 0 {
 		n = DefaultBatchConcurrency()
