@@ -55,10 +55,10 @@
         <table v-else class="tbl" aria-label="任务列表">
           <thead>
             <tr>
-              <th scope="col" style="width: 30%">任务</th>
+              <th scope="col" class="c-task">任务</th>
               <th scope="col" style="width: 8%">类型</th>
               <th scope="col" style="width: 11%">状态</th>
-              <th scope="col" style="width: 24%">进度</th>
+              <th scope="col" class="c-prog">进度</th>
               <th scope="col">开始时间</th>
               <th scope="col" class="opsh"><span class="sr-only">操作</span></th>
             </tr>
@@ -706,6 +706,16 @@ tr.errrow > td {
 }
 td:first-child {
   max-width: 0; /* 让长文件名在表格里省略而不是撑宽列 */
+}
+/* 任务列多给一些宽度：第二行“转为 MP4 · 压缩到 200 MB”约 170px。窗口最小 1024 宽时表格只有约 774px，
+   其余四列的最小宽度合计约 407px，所以窄窗口下再把单元格左右内边距从 16 收到 12（见下面的 @media） */
+.c-task { width: 32%; }
+.c-prog { width: 22%; }
+th { white-space: nowrap; } /* “开始时间”不换行 */
+@media (max-width: 1100px) {
+  th,
+  td { padding-left: 12px; padding-right: 12px; }
+  tr.errrow > td { padding-left: 12px; padding-right: 12px; }
 }
 .finfo {
   font-size: 12px;
