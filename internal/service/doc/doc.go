@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/localassets"
@@ -118,6 +119,7 @@ type LocalAssets interface {
 // Config 是 Service 的依赖。
 type Config struct {
 	Recent RecentStore   // 可为 nil：OpenPDF 不记录、ListRecentPDFs 返回空
+	Lister TaskLister    // 可为 nil：不做启动时的 .part 清理
 	Tasks  TaskSubmitter // 可为 nil：ConvertToPDF 返回 INTERNAL
 	Local  LocalAssets   // 可为 nil：PDFSource.URL 恒为空
 	// DefaultOutputDir 返回设置里的默认输出目录，空表示与源文件同目录。可为 nil。
@@ -142,11 +144,13 @@ type Service struct {
 	fonts *fontSet
 	h     *handles
 	maxP  int
+	// started 是服务创建时刻：清理 .part 只删修改时间早于它的文件。
+	started time.Time
 }
 
 // New 创建 Service，并注册 office_pdf 的重试工厂。
 func New(cfg Config) *Service {
-	s := &Service{cfg: cfg, fonts: newFontSet(cfg), h: newHandles(), maxP: cfg.WindowsMaxPath}
+	s := &Service{cfg: cfg, fonts: newFontSet(cfg), h: newHandles(), maxP: cfg.WindowsMaxPath, started: time.Now()}
 	if s.maxP == 0 && runtime.GOOS == "windows" {
 		s.maxP = windowsMaxPath
 	}

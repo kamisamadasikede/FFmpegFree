@@ -180,11 +180,16 @@ func (a *App) startDoc() {
 	}
 	if a.store != nil { // 避免把 nil *Store 装进接口
 		cfg.Recent = a.store
+		cfg.Lister = a.store
 	}
 	if tm := a.taskManager(); tm != nil {
 		cfg.Tasks = tm
 	}
-	a.docs.Store(doc.New(cfg))
+	svc := doc.New(cfg)
+	if n := svc.CleanupInterruptedParts(a.rootCtx); n > 0 {
+		log.Printf("已清理 %d 个中断的 Office 转 PDF 临时文件", n)
+	}
+	a.docs.Store(svc)
 }
 
 // startFFmpegDetect 在后台检测 ffmpeg，不阻塞界面；状态变化通过 ffmpeg:status 事件推送。
