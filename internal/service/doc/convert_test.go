@@ -148,8 +148,9 @@ func TestValidationWholeBatchNoSubmit(t *testing.T) {
 	os.WriteFile(bad, []byte("这不是 zip"), 0o644)
 	_, err := e.svc.ConvertToPDF(context.Background(), []string{good, bad}, "")
 	ae := wantCode(t, err, apperr.InvalidArgument)
-	if !strings.HasPrefix(ae.Detail, bad+"\n") && ae.Detail != bad {
-		t.Fatalf("detail 第一行应是出错路径: %q", ae.Detail)
+	// detail 首行是 reason=，出错文件路径在第二行（路径行紧跟在 reason 行后面）
+	if lines := strings.Split(ae.Detail, "\n"); len(lines) < 2 || lines[0] != "reason=invalid_ooxml" || lines[1] != bad {
+		t.Fatalf("detail 应是 reason 行 + 路径行: %q", ae.Detail)
 	}
 	if l := e.tm.ListActive(); len(l) != 0 {
 		t.Fatalf("不应提交任何任务: %+v", l)
@@ -205,8 +206,8 @@ func TestUnsupportedFormats(t *testing.T) {
 		os.WriteFile(p, []byte("x"), 0o644)
 		_, err := e.svc.ConvertToPDF(context.Background(), []string{p}, "")
 		ae := wantCode(t, err, apperr.Unsupported)
-		if !strings.HasPrefix(ae.Detail, p+"\n") {
-			t.Fatalf("%s detail 首行应是路径: %q", ext, ae.Detail)
+		if lines := strings.Split(ae.Detail, "\n"); len(lines) < 2 || lines[0] != "reason=format" || lines[1] != p {
+			t.Fatalf("%s detail 应是 reason=format + 路径行: %q", ext, ae.Detail)
 		}
 	}
 	p := filepath.Join(e.dir, "noext")

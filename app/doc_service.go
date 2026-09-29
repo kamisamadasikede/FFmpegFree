@@ -52,7 +52,7 @@ func (s *DocService) GetDocCapabilities() (doc.DocCapabilities, error) {
 
 // ConvertToPDF 为每个输入文件提交一个 office_pdf 任务，返回的任务与 inputs 一一对应；进度、取消、重试走任务中心。
 // 只支持 docx / xlsx / pptx，且只提取文字（无图片和样式）；其他格式与加密文档返回 UNSUPPORTED。
-// 先整体校验再提交，任何一个不通过整体失败，错误 detail 第一行是出错文件路径。
+// 先整体校验再提交，任何一个不通过整体失败，错误 detail：有 reason 的错误首行是 reason=<枚举>、第二行是出错文件路径，其余首行是出错文件路径（契约 2.2 / 6.12.3）。
 // 错误码：INVALID_ARGUMENT、NOT_FOUND、IO_ERROR、UNSUPPORTED、CANCELED；任务失败见任务的 error（含 CONVERT_DISK_FULL）。
 func (s *DocService) ConvertToPDF(inputs []string, outputDir string) ([]store.Task, error) {
 	c, err := s.svc()
