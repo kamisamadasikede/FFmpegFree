@@ -9,7 +9,7 @@
 
 | 开关 | 文件 | true 时调用 |
 |---|---|---|
-| `LIVE_BACKEND_READY` | `live.ts` | `window.go.app.LiveService.*`，停止走 `TaskService.Cancel` |
+| `LIVE_BACKEND_READY`（已打开，联调中） | `live.ts` | 生成的绑定 `wailsjs/go/app/LiveService`（直接 import，类型用 `models.live.*`），停止走 `TaskService.Cancel`，刷新后 `TaskService.ListActive` 接回。**只有 Wails 里（有 `window.go`）才走真实后端**（`liveIsReal()`），纯浏览器环境仍走模拟；“演示”提示 / 演示素材 / 任务中心“演示”标签只在模拟环境出现 |
 | `EDIT_BACKEND_READY` | `edit.ts` | `window.go.app.EditService.*` |
 | `DOC_BACKEND_READY` | `doc.ts` | `window.go.app.DocService.*` |
 | `ABOUT_BACKEND_READY` | `about.ts` | 生成绑定 `wailsjs/go/main/App` 的 `GetAppVersion()` / `GetLicenseText(name)`（后端 #34、#36，已合入，开关为 `true`）。纯浏览器开发环境（没有 `window.go`）始终走模拟：版本“开发版”、许可文本是标注“演示文本”的 OFL 前几行 |
@@ -46,7 +46,7 @@
 
 1. `src/api/flags.ts` 里对应开关改 `true`（三个可以分开切）。
 2. 后端生成 wailsjs 绑定后，可选：把 `callService('X','Y',…)` 换成直接 import 生成文件（保留 `call()` 包装），并用生成的类型替换 `live.ts` / `edit.ts` / `doc.ts` 顶部的手写类型。
-3. `LiveLayout.vue` 顶部的 `MigrationNotice`（直播仍是演示）联调完成后删除；剪辑页 `VideoEditor.vue` 与 Office 页 `OfficeConvert.vue` / `PDFPreview.vue` 目前仍是 v1 的 `V1_API_READY=false`，**本次没有改这三个页面的逻辑**（接口层已备好，页面接入是后续工作）。
+3. `LiveLayout.vue` 顶部的 `MigrationNotice`（直播演示提示）已改为只在模拟环境（`!liveIsReal()`）显示，真实 Wails 里不出现；剪辑页 `VideoEditor.vue` 与 Office 页 `OfficeConvert.vue` / `PDFPreview.vue` 目前仍是 v1 的 `V1_API_READY=false`，**本次没有改这三个页面的逻辑**（接口层已备好，页面接入是后续工作）。
 4. `services/wails.ts` 的 `onSimEvent` 总线与 `stores/tasks.ts` 里对 `sim` 的分支（cancel / retry / remove / 历史）在全部开关为 true 后可删。
 
 ## 契约未冻结、可能要改的点
@@ -113,6 +113,7 @@
 
 等**后端 / 架构师**：
 
+- **屏幕推流本地存档**：后端暂未实现，`archiveDir` 非空 → `UNSUPPORTED`（detail 没有 `missing=`，message“屏幕推流的本地存档暂未实现”）。前端保留存档开关，提交后若返回该错误显示“暂不支持同时保存本地存档，请关闭‘同时保存本地存档’后重试”（`LIVE_ARCHIVE_UNSUPPORTED_TEXT`，只在开着存档且 detail 没有 `missing=` 时用，缺协议照旧）；模拟层与后端一致。后端实现存档后去掉这个分支。
 - **缺协议的 UNSUPPORTED**（原 6）：契约（docs/architecture/contract.md）只说 `UNSUPPORTED` = “该操作不支持这个对象”，**没有**规定缺协议时 detail 的写法，也没有 reason 约定；且与直播会话 Retry 的 UNSUPPORTED 同码。后端实现（`internal/service/live/service.go` 的 `checkProtocols`，PR #31）实际写 detail=`missing=<协议名>`（srt / rtmps / rtmp / tee，无 reason 行、message 是“当前 ffmpeg 不支持 xxx，请安装完整版 ffmpeg”，前端不显示该 message）。前端按最保守写法（`liveFfmpegProtocolMissingText`）：detail 里出现“missing / 缺少协议 / missing protocol / protocol not found / protocol”加 `:`/`：`/`=` 再紧跟白名单协议名 rtmp / rtmps / srt 才显示协议名，其余一律用不带协议名的文案；detail 原文永不进文案。`missing=tee` 等不是推流协议名的值走无协议名文案。待架构师把 `missing=<协议名>` 写进契约后可收紧解析；模拟层 `?sim_missing=` 已改成同样的 `missing=<协议名>`。
 - **Edit 多素材预览**（原 10）：同时预览 N 个素材占 N 个 token（登记表 256 项 LRU），是否提供批量 `GetPreviewURL`。限长 206（4 MiB）的 seek 体验待 Windows 真机验证。
 - **Doc 转换产物不自动进 PDF 历史**（原 15）：预览时才 `OpenPDF`，请确认是预期。

@@ -398,6 +398,16 @@ export async function runApiChecks(): Promise<string[]> {
     eq('任何文案输出都不含传入的地址 / 口令 / 推流码', leaks, [])
     eq('自检的输出集合非空', outputs.length > 100, true)
   }
+  // ---- 联调：开关 true 时纯浏览器环境（无 window.go）仍走模拟；带存档的屏幕推流 → UNSUPPORTED → “暂不支持存档” ----
+  eq('LIVE_BACKEND_READY 已打开', live.LIVE_BACKEND_READY, true)
+  eq('无 window.go → liveIsReal() 为 false（走模拟）', live.liveIsReal(), false)
+  err = await rejects(live.startScreenPush({ ...screenReq('rtmp://arc.example/live/arckey'), archiveDir: '/m/arc' }))
+  eq('带存档屏幕推流 → UNSUPPORTED（无 missing=）', [err?.code, err?.detail], ['UNSUPPORTED', undefined])
+  const ARCHIVE_TEXT = '暂不支持同时保存本地存档，请关闭“同时保存本地存档”后重试'
+  eq('存档 UNSUPPORTED → 暂不支持存档提示', liveStartErrorLine({ code: 'UNSUPPORTED', detail: err?.detail }, { archive: true })?.description, ARCHIVE_TEXT)
+  eq('缺协议 UNSUPPORTED（有 missing=）即使开着存档也按缺协议', liveStartErrorLine({ code: 'UNSUPPORTED', detail: 'missing=srt' }, { archive: true })?.description, '当前的 ffmpeg 不支持 SRT，请在设置的 ffmpeg 页面重新安装或更新')
+  eq('没开存档的 UNSUPPORTED 仍按缺协议', liveStartErrorLine({ code: 'UNSUPPORTED' }, { archive: false })?.description, PROTO_GENERIC)
+  eq('存档提示不含地址', ARCHIVE_TEXT.includes('arc.example'), false)
   // 屏幕推流两个码、TASK_CONFLICT 四条文案都在映射里
   eq('TASK_CONFLICT 映射四条', [taskConflictText('max_sessions'), taskConflictText('duplicate_url'), taskConflictText('screen_busy'), taskConflictText('other')], ['最多同时推 4 路', '这个地址已经在推流', '屏幕推流同一时间只能有 1 路，请先停止当前的屏幕推流', '操作冲突，请稍后再试'])
   eq('SCREEN_PERMISSION_DENIED 文案', errorMessages.SCREEN_PERMISSION_DENIED.description, '没有获得屏幕录制权限，请在系统设置中允许 FFmpegFree 录制屏幕后重试')
