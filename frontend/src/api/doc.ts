@@ -161,6 +161,8 @@ export async function convertToPDF(inputs: string[], outputDir: string): Promise
   if (inj && !asTask) simError(inj.code, '模拟错误', injectionDetail(inj))
   if (inputs.length === 0 || inputs.length > DEFAULT_DOC_LIMITS.maxInputsPerSubmit) simError('INVALID_ARGUMENT', `一次需要 1~${DEFAULT_DOC_LIMITS.maxInputsPerSubmit} 个文件`)
   if (outputDir && !isAbs(outputDir)) simError('INVALID_ARGUMENT', 'outputDir 必须是绝对路径')
+  // 契约 v0.16：文件本身有问题的错误，detail 首行 `reason=<枚举>`，整体校验失败时第二行是出错文件路径；路径 / 参数类没有 reason（第一行就是路径）
+  const withReason = (reason: string, p: string, note: string) => `reason=${reason}\n${p}\n${note}`
   for (const p of inputs) {
     const first = `${p}\n`
     if (!isAbs(p)) simError('INVALID_ARGUMENT', '路径必须是绝对路径', `${first}路径必须是绝对路径`)
@@ -168,13 +170,13 @@ export async function convertToPDF(inputs: string[], outputDir: string): Promise
     if (name.startsWith('缺失') || name.startsWith('missing')) simError('NOT_FOUND', '文件不存在', `${first}文件不存在`)
     if (!name.includes('.')) simError('INVALID_ARGUMENT', '这是文件夹', `${first}是目录，不是文件`)
     const ext = extOf(p)
-    if (name.startsWith('加密') || name.startsWith('encrypted')) simError('UNSUPPORTED', '加密文档不支持', `${first}加密文档不支持`)
+    if (name.startsWith('加密') || name.startsWith('encrypted')) simError('UNSUPPORTED', '暂不支持这种格式', withReason('encrypted', p, '加密文档不支持（或旧版格式改了扩展名），请先另存为 docx / xlsx / pptx'))
     if (!(OFFICE_EXTS as readonly string[]).includes(ext)) {
       const legacy = ['doc', 'xls', 'ppt'].includes(ext)
-      simError('UNSUPPORTED', '不支持这种格式', `${first}${legacy ? '旧版 Office 格式，请先另存为 docx / xlsx / pptx' : ext === 'csv' || ext === 'txt' ? '暂不支持该格式' : '不支持的格式：' + ext}`)
+      simError('UNSUPPORTED', '暂不支持这种格式', withReason('format', p, legacy ? `.${ext}：旧版 Office 格式，请先另存为 docx / xlsx / pptx` : ext === 'csv' || ext === 'txt' ? '暂不支持该格式' : `.${ext}：不支持的格式`))
     }
-    if (name.startsWith('损坏') || name.startsWith('broken')) simError('INVALID_ARGUMENT', '不是有效的 OOXML 文件', `${first}不是有效的 OOXML 文件`)
-    if (name.startsWith('超大') || name.startsWith('huge')) simError('INVALID_ARGUMENT', '文件超过 100 MiB', `${first}文件超过 100 MiB`)
+    if (name.startsWith('损坏') || name.startsWith('broken')) simError('INVALID_ARGUMENT', '不是有效的 OOXML 文件', withReason('invalid_ooxml', p, '缺少 word/document.xml'))
+    if (name.startsWith('超大') || name.startsWith('huge')) simError('INVALID_ARGUMENT', '文件超过 100 MiB', withReason('too_large', p, `${101 * MIB} 字节`))
   }
   const dir = outputDir || '/Users/me/Documents'
   return inputs.map((p, i) => {
@@ -186,7 +188,11 @@ export async function convertToPDF(inputs: string[], outputDir: string): Promise
       outputPath: `${dir}/${stem(p)}.pdf`,
       params: JSON.stringify({ input: p, outputDir: dir }),
       simSeconds: 4 + i,
-      fail: fail ? { code: fail.code, message: '模拟错误', detail: injectionDetail(fail), atProgress: 0.5 } : undefined,
+      fail: fail
+        ? fail.code === 'UNSUPPORTED'
+          ? { code: fail.code, message: '超过 5000 页', detail: 'reason=too_many_pages\n已排到第 5000 页仍未结束', atProgress: 0.5 } // 运行时任务失败：reason 首行，没有路径行
+          : { code: fail.code, message: '模拟错误', detail: injectionDetail(fail), atProgress: 0.5 }
+        : undefined,
     })
   })
 }
@@ -225,9 +231,10 @@ export async function openPDF(path: string): Promise<PDFSource> {
   if (name.startsWith('缺失') || name.startsWith('missing')) simError('NOT_FOUND', '文件不存在')
   if (name.startsWith('无权限')) simError('IO_ERROR', '读取文件失败')
   if (name.startsWith('被修改')) simError('IO_ERROR', '文件在读取时被替换，请重试', path)
-  if (extOf(path) !== 'pdf' || name.startsWith('非pdf')) simError('INVALID_ARGUMENT', '不是 PDF 文件', '不是 PDF 文件')
+  if (extOf(path) !== 'pdf') simError('INVALID_ARGUMENT', '只支持 .pdf 文件', 'reason=format')
+  if (name.startsWith('非pdf')) simError('INVALID_ARGUMENT', '不是 PDF 文件', `reason=format\n${path}`)
   const size = name.startsWith('超大') ? 600 * MIB : name.startsWith('大文件') ? 100 * MIB : 2 * MIB
-  if (size > DEFAULT_DOC_LIMITS.maxPdfBytes) simError('INVALID_ARGUMENT', '文件超过 512 MiB', '文件超过 512 MiB')
+  if (size > DEFAULT_DOC_LIMITS.maxPdfBytes) simError('INVALID_ARGUMENT', '文件超过 512 MiB', `reason=too_large\n${size} 字节`)
   const existing = [...simHandles.values()].find((h) => h.path === path)
   const src: PDFSource = existing ?? { id: `sim-pdf-${(++simSeq).toString(36)}${Math.random().toString(36).slice(2, 8)}`, path, name, size, url: `/local/sim${simSeq.toString(36)}` }
   simHandles.set(src.id, src)
