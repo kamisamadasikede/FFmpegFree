@@ -43,6 +43,6 @@ async function copy() {
 .hint {
   margin: 8px 0 0;
   font-size: 12px;
-  color: var(--ff-text-3);
+  color: var(--ff-text-2);
 }
 </style>

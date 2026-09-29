@@ -71,7 +71,7 @@ h2 {
   flex: none;
 }
 .foot small {
-  color: var(--ff-text-3);
+  color: var(--ff-text-2);
   font-size: 12px;
 }
 .sp {
