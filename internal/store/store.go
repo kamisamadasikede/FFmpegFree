@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -26,7 +27,8 @@ var migrationFS embed.FS
 
 // Store 持有数据库连接。各领域的仓储方法（任务、媒体、预设等）按文件拆开挂在它上面。
 type Store struct {
-	db *sql.DB
+	db        *sql.DB
+	mediaKeep atomic.Int64 // media 表保留条数，0 表示默认
 }
 
 // Open 打开（或创建）数据库并执行未应用的迁移。

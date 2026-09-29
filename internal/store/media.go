@@ -63,6 +63,8 @@ type StreamInfo struct {
 const (
 	defaultRecentLimit = 20
 	maxRecentLimit     = 200
+	// DefaultMediaKeep 是 media 表保留的最近记录数：每次 UpsertMedia 之后删除更旧的，避免表无限增长。
+	DefaultMediaKeep = 1000
 )
 
 // UpsertMedia 按 path_key 写入 media 表：同一个文件再次探测时保留原来的 id，只更新探测结果。
@@ -83,6 +85,9 @@ func (s *Store) UpsertMedia(ctx context.Context, pathKey string, m MediaInfo) (M
 		m.Bitrate, m.ProbedAt).Scan(&m.ID)
 	if err != nil {
 		return MediaInfo{}, fmt.Errorf("写入媒体记录失败: %w", err)
+	}
+	if err := s.pruneMedia(ctx); err != nil {
+		return MediaInfo{}, err
 	}
 	return m, nil
 }
@@ -132,4 +137,27 @@ func (s *Store) DeleteMedia(ctx context.Context, ids []string) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// SetMediaKeep 修改 media 表保留的记录数（默认 DefaultMediaKeep，<=0 恢复默认）。测试用。
+func (s *Store) SetMediaKeep(n int) {
+	if n <= 0 {
+		n = DefaultMediaKeep
+	}
+	s.mediaKeep.Store(int64(n))
+}
+
+// pruneMedia 只保留最近探测的 N 条（按 probed_at、id 倒序），其余删除。
+func (s *Store) pruneMedia(ctx context.Context) error {
+	keep := s.mediaKeep.Load()
+	if keep <= 0 {
+		keep = DefaultMediaKeep
+	}
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM media WHERE id NOT IN (
+			SELECT id FROM media ORDER BY probed_at DESC, id DESC LIMIT ?)`, keep)
+	if err != nil {
+		return fmt.Errorf("清理旧媒体记录失败: %w", err)
+	}
+	return nil
 }
