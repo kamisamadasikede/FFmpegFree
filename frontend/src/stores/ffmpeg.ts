@@ -72,7 +72,9 @@ export interface InstallOptions {
   defaultMirror?: string
 }
 
-const previewMode = !hasWailsBackend() && previewParams.has('ff') && !!PREVIEW[previewParams.get('ff')!]
+// ?convert=…（转换页预览）没带 ff 时默认 ready
+const previewFf = previewParams.get('ff') ?? (previewParams.has('convert') ? 'ready' : null)
+const previewMode = !hasWailsBackend() && !!previewFf && !!PREVIEW[previewFf]
 
 export const useFFmpegStore = defineStore('ffmpeg', () => {
   const status = ref<FFmpegStatus>({ state: 'checking' })
@@ -161,7 +163,7 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
 
   async function init() {
     if (!hasWailsBackend()) {
-      const preview = previewParams.get('ff')
+      const preview = previewFf
       if (preview && PREVIEW[preview]) {
         setStatus(PREVIEW[preview].status)
         install.value = PREVIEW[preview].install ?? null

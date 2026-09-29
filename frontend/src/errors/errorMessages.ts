@@ -105,9 +105,9 @@ export function resolveError(code?: string | null, fallbackMessage?: string | nu
 
 // ---- 任务中心失败行（ErrorLine）专用文案 ----
 // 冻结的八个直播 / 录屏错误码（上面的 errorMessages）原样沿用；这里只补任务中心自己的错误码。
-// 后端目前把磁盘写满报成 IO_ERROR，还不会发 CONVERT_DISK_FULL；码名已由产品定稿，后端跟进后即生效。
+// 后端 v0.9（ConvertService）起，磁盘写满发 CONVERT_DISK_FULL（原来归在 IO_ERROR）。
 
-/** 任务中心失败行上的操作。changeOutput 目前只发事件（见 TaskCenter.vue），还没有真正的换目录能力 */
+/** 任务中心 / 转换页失败行上的操作。changeOutput = 选新文件夹后用原参数重新提交（仅 convert 任务，见 api/convert.ts） */
 export type TaskErrorAction = 'retry' | 'changeOutput' | 'viewLog'
 
 export interface TaskErrorMessage {
@@ -117,7 +117,7 @@ export interface TaskErrorMessage {
   actions: TaskErrorAction[]
 }
 
-export type TaskErrorCode = 'CONVERT_DISK_FULL' | 'PROBE_FAILED'
+export type TaskErrorCode = 'CONVERT_DISK_FULL' | 'PROBE_FAILED' | 'CANCELED'
 
 export const taskErrorMessages: Record<TaskErrorCode, TaskErrorMessage> = {
   CONVERT_DISK_FULL: {
@@ -129,6 +129,12 @@ export const taskErrorMessages: Record<TaskErrorCode, TaskErrorMessage> = {
     title: '无法读取输入文件',
     description: '文件可能已损坏，或不是音视频文件。',
     actions: ['retry', 'viewLog'],
+  },
+  // 后端因应用退出（根 ctx 取消）取消调用时返回：不是失败，不提供重试，展示为中性样式
+  CANCELED: {
+    title: '已取消',
+    description: '操作已取消。',
+    actions: [],
   },
 }
 
@@ -176,6 +182,7 @@ export function resolveTaskError(code?: string | null, fallbackMessage?: string 
 // ---- 操作失败提示（toast / 行内）：按钮触发的 Bind 调用返回的 AppError → 用户可读的话 ----
 // 与失败行的 ErrorLine 文案分开：这里是「点了某个按钮但没成功」，不是任务本身失败。
 const ACTION_ERROR_TEXT: Record<string, string> = {
+  CANCELED: '操作已取消。',
   UNSUPPORTED: '该任务暂不支持重试',
   TASK_CONFLICT: '任务状态已变化，请刷新后再试',
   NOT_FOUND: '找不到这个任务或文件，可能已被删除',
@@ -185,3 +192,23 @@ const ACTION_ERROR_TEXT: Record<string, string> = {
 export function actionErrorText(code: string, backendMessage: string): string {
   return ACTION_ERROR_TEXT[code] ?? (backendMessage || FALLBACK_DESCRIPTION)
 }
+
+// ---- 添加文件时的探测失败（转换页文件行，MediaService.Probe 单项 error）----
+// 与任务失败文案分开：这是「这个文件加不进来」，不是转换失败。
+const PROBE_ERROR_TEXT: Record<string, string> = {
+  CANCELED: '操作已取消。',
+  PROBE_FAILED: '文件可能已损坏，或不是音视频文件。',
+  NOT_FOUND: '找不到这个文件，可能已被移动或删除。',
+  INVALID_ARGUMENT: '这是文件夹或不支持的路径，请选择音视频文件。',
+  IO_ERROR: '没有读取这个文件的权限。',
+  FFMPEG_NOT_FOUND: '需要先安装 ffmpeg 才能读取文件信息。',
+}
+export const PROBE_ERROR_TITLE = '无法读取这个文件'
+
+/** 探测失败行的说明：已知码用上面的文案，其余用后端 message */
+export function probeErrorText(code: string, backendMessage?: string): string {
+  return PROBE_ERROR_TEXT[code] ?? ((backendMessage ?? '').trim() || FALLBACK_DESCRIPTION)
+}
+
+/** 提交失败（Submit 整体校验不通过）时没有对应到具体文件的错误标题 */
+export const SUBMIT_ERROR_TITLE = '无法开始转换'

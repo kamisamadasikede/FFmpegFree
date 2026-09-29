@@ -38,6 +38,8 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
+		// 转换页等：拖入文件拿本地绝对路径（前端 OnFileDrop，落在带 --wails-drop-target: drop 的区域才回调）
+		DragAndDrop:      &options.DragAndDrop{EnableFileDrop: true},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup:        mainApp.startup,
 		OnShutdown:       mainApp.shutdown,

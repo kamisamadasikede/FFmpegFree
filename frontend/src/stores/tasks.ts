@@ -45,6 +45,20 @@ export interface TaskItem {
   finishedAt: number
 }
 
+/** 终态任务的快照（见 useTaskStore 的 finalById） */
+export interface FinalState {
+  id: string
+  status: TaskStatus
+  error?: TaskError | null
+  outputPath: string
+  /** 0~1；不知道最后进度时（终态事件先于任何进度事件到达）为 0，成功恒为 1 */
+  progress: number
+  speed: string
+  etaSec: number
+  finishedAt: number
+  params: string
+}
+
 /** 历史分组 → 状态过滤。failed 组把 interrupted 也算进去（都需要用户手动重试） */
 export type HistoryGroup = 'all' | 'succeeded' | 'failed' | 'canceled'
 const TERMINAL: TaskStatus[] = ['succeeded', 'failed', 'canceled', 'interrupted']
@@ -132,6 +146,31 @@ export const useTaskStore = defineStore('tasks', () => {
       finishedVersions.delete(id)
     }
     while (removedIds.size > REMOVED_CAP) removedIds.delete(removedIds.values().next().value as string)
+  }
+
+  /**
+   * 刚结束的任务的终态快照（id → 状态 / 错误 / 输出路径 / 最后进度）。活动列表里终态任务会被移除，
+   * 而转换页的文件行需要在任务结束后继续显示结果，所以在这里留一份（最多 500 条，先进先出）。
+   * task:removed 会清掉对应条目。
+   */
+  const finalById = reactive<Record<string, FinalState>>({})
+  function recordFinal(f: FinalState) {
+    delete finalById[f.id]
+    finalById[f.id] = f
+    const keys = Object.keys(finalById)
+    if (keys.length > 500) for (const k of keys.slice(0, keys.length - 500)) delete finalById[k]
+  }
+  /** 仅浏览器预览（?convert=…）用：直接放一个终态快照 */
+  function seedFinal(f: FinalState) {
+    recordFinal(f)
+  }
+  /** 该任务是否已被删除（收到 task:removed 或本地删除过） */
+  function wasRemoved(id: string): boolean {
+    return removedIds.has(id)
+  }
+  /** 转换页等按 id 取任务：活动的优先，其次是刚结束的终态快照 */
+  function taskById(id: string): TaskItem | FinalState | undefined {
+    return byId[id] ?? finalById[id]
   }
 
   /**
@@ -343,6 +382,10 @@ export const useTaskStore = defineStore('tasks', () => {
         // 没在活动列表里的终态事件：历史需要刷新
         if ((finishedVersions.get(p.id) ?? -1) < p.version) {
           rememberFinished(p.id, p.version)
+          recordFinal({
+            id: p.id, status: p.status, error: normalizeError(p.error), outputPath: p.outputPath ?? '',
+            progress: p.status === 'succeeded' ? 1 : 0, speed: '', etaSec: 0, finishedAt: p.finishedAt ?? Date.now(), params: '',
+          })
           scheduleRefresh()
         }
       } else if (!finishedVersions.has(p.id)) {
@@ -359,6 +402,10 @@ export const useTaskStore = defineStore('tasks', () => {
     if (p.status === 'running' && !cur.startedAt) cur.startedAt = Date.now()
     if (isTerminal(p.status)) {
       if (p.status === 'succeeded') cur.progress = 1
+      recordFinal({
+        id: cur.id, status: p.status, error: cur.error, outputPath: cur.outputPath, progress: cur.progress,
+        speed: '', etaSec: 0, finishedAt: cur.finishedAt || Date.now(), params: cur.params,
+      })
       delete byId[p.id]
       rememberFinished(p.id, p.version)
       scheduleRefresh()
@@ -370,7 +417,10 @@ export const useTaskStore = defineStore('tasks', () => {
   function applyRemoved(p: RemovedPayload) {
     const ids = new Set(p.ids ?? [])
     markRemoved(ids)
-    for (const id of ids) delete byId[id]
+    for (const id of ids) {
+      delete byId[id]
+      delete finalById[id]
+    }
     if (history.value.some((t) => ids.has(t.id))) scheduleRefresh()
     else if (statsLoaded) scheduleRefresh()
   }
@@ -468,8 +518,30 @@ export const useTaskStore = defineStore('tasks', () => {
     await call(TaskBinding.Cancel(id))
   }
 
-  /** 重试：用原参数生成新任务，原任务保留在历史里 */
-  async function retry(id: string): Promise<TaskItem | undefined> {
+  /**
+   * 正在「重试 / 换输出位置重新提交」的任务 id（在途集合）。按原任务 id 记：同一个失败任务的两种再提交互斥，
+   * 快速连点、或两个组件（任务中心 / 转换页）同时点，都只会发出一次调用（后端 M4：重复 Retry 会产生重复任务）。
+   */
+  const busyIds = reactive(new Set<string>())
+  function isBusy(id: string | undefined | null): boolean {
+    return !!id && busyIds.has(id)
+  }
+  /** 在 id 的在途保护下运行 fn；已有在途调用时忽略本次（返回 undefined）。成功或失败都会释放。 */
+  async function exclusive<T>(id: string, fn: () => Promise<T>): Promise<T | undefined> {
+    if (!id || busyIds.has(id)) return undefined
+    busyIds.add(id)
+    try {
+      return await fn()
+    } finally {
+      busyIds.delete(id)
+    }
+  }
+
+  /** 重试：用原参数生成新任务，原任务保留在历史里。同一任务已有重试在途时忽略（返回 undefined） */
+  function retry(id: string): Promise<TaskItem | undefined> {
+    return exclusive(id, () => doRetry(id)).then((t) => t ?? undefined)
+  }
+  async function doRetry(id: string): Promise<TaskItem | undefined> {
     if (previewMode) {
       const old = previewHistory.value.find((t) => t.id === id)
       if (!old) return
@@ -515,6 +587,31 @@ export const useTaskStore = defineStore('tasks', () => {
     scheduleRefresh()
   }
 
+  /**
+   * 提交（ConvertService.Submit 等）返回的新任务：先放进活动列表让界面立刻有反馈；
+   * 之后同一任务的 task:created 事件靠版本判断不会重复。
+   */
+  function track(list: goStore.Task[] | TaskItem[]) {
+    for (const t of list ?? []) applyCreated(t as unknown as goStore.Task)
+  }
+
+  /** 按 id 主动取一次任务（事件可能在订阅前就发完了）：终态记快照，进行中放进活动列表 */
+  async function fetchFinal(id: string) {
+    if (removedIds.has(id) || byId[id] || finalById[id] || !hasWailsBackend()) return
+    try {
+      const t = normalizeTask(await call(TaskBinding.Get(id)))
+      if (removedIds.has(id) || byId[id] || finalById[id]) return
+      if (isTerminal(t.status)) {
+        recordFinal({
+          id: t.id, status: t.status, error: t.error, outputPath: t.outputPath, progress: t.status === 'succeeded' ? 1 : t.progress,
+          speed: '', etaSec: 0, finishedAt: t.finishedAt, params: t.params,
+        })
+      } else byId[id] = t
+    } catch (e) {
+      console.warn('fetch task failed', id, e)
+    }
+  }
+
   async function getLog(id: string, tailLines = 200): Promise<string> {
     if (previewMode || !hasWailsBackend()) return PREVIEW_LOG
     return await call(TaskBinding.GetLog(id, tailLines))
@@ -527,6 +624,6 @@ export const useTaskStore = defineStore('tasks', () => {
     todayDone, todayDoneCapped, failedTotal, finishedTotal,
     // 方法
     init, refreshActive, loadHistory, setHistoryGroup, setHistoryTypes, setHistoryPage, loadStats,
-    cancel, retry, remove, clearFinished, getLog,
+    cancel, retry, isBusy, exclusive, remove, clearFinished, getLog, track, fetchFinal, taskById, seedFinal, wasRemoved,
   }
 })
