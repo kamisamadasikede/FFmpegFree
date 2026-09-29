@@ -1,0 +1,160 @@
+{
+  "schemaVersion": 1,
+  "note": "下载源清单。每个条目的 url、sha256、size 都经过实际下载核对；更新时必须换成带版本号的固定地址并重新计算 SHA256，禁止使用 latest 之类的滚动地址。mirrors 里的镜像必须返回与原地址完全相同的文件（同一 sha256），没有核实过的不要写。",
+  "platforms": {
+    "linux-amd64": {
+      "available": true,
+      "version": "9.0.2",
+      "source": "martin-riedl.de 静态构建",
+      "archives": [
+        {
+          "url": "https://ffmpeg.martin-riedl.de/download/linux/amd64/1789931100_9.0.2/ffmpeg.zip",
+          "sha256": "fa8ecf4abbd290d98f7d188b8649cc6b391ae209a98452be955a15aab1909d7f",
+          "size": 33326445,
+          "type": "zip",
+          "extract": [
+            {
+              "path": "ffmpeg",
+              "name": "ffmpeg"
+            }
+          ]
+        },
+        {
+          "url": "https://ffmpeg.martin-riedl.de/download/linux/amd64/1789931100_9.0.2/ffprobe.zip",
+          "sha256": "3f428c49070be3d24ec338602b76d412e401ffcb8a5641ef0e729181a232fc32",
+          "size": 33223234,
+          "type": "zip",
+          "extract": [
+            {
+              "path": "ffprobe",
+              "name": "ffprobe"
+            }
+          ]
+        }
+      ]
+    },
+    "linux-arm64": {
+      "available": true,
+      "version": "9.0.2",
+      "source": "martin-riedl.de 静态构建",
+      "archives": [
+        {
+          "url": "https://ffmpeg.martin-riedl.de/download/linux/arm64/1789931697_9.0.2/ffmpeg.zip",
+          "sha256": "93a76ae90db5474eecdf951a729857c64f3de23567228d6a7d5e6e8e3cd1021b",
+          "size": 28753826,
+          "type": "zip",
+          "extract": [
+            {
+              "path": "ffmpeg",
+              "name": "ffmpeg"
+            }
+          ]
+        },
+        {
+          "url": "https://ffmpeg.martin-riedl.de/download/linux/arm64/1789931697_9.0.2/ffprobe.zip",
+          "sha256": "bcbe80fb741c180083327afaf5434812e006b33cacde2016b9aeaf6936128330",
+          "size": 28655683,
+          "type": "zip",
+          "extract": [
+            {
+              "path": "ffprobe",
+              "name": "ffprobe"
+            }
+          ]
+        }
+      ]
+    },
+    "darwin-amd64": {
+      "available": true,
+      "version": "9.0.2",
+      "source": "martin-riedl.de 静态构建",
+      "archives": [
+        {
+          "url": "https://ffmpeg.martin-riedl.de/download/macos/amd64/1789931006_9.0.2/ffmpeg.zip",
+          "sha256": "7c6b4125b191cbf773832dc51f424cf2b6bb7da43007d1e066f95909e47cacd4",
+          "size": 33816391,
+          "type": "zip",
+          "extract": [
+            {
+              "path": "ffmpeg",
+              "name": "ffmpeg"
+            }
+          ]
+        },
+        {
+          "url": "https://ffmpeg.martin-riedl.de/download/macos/amd64/1789931006_9.0.2/ffprobe.zip",
+          "sha256": "2322438ed2f6319a691291b247d09c69dcaa3a982460d1f269a7e1af335cfdfd",
+          "size": 33719233,
+          "type": "zip",
+          "extract": [
+            {
+              "path": "ffprobe",
+              "name": "ffprobe"
+            }
+          ]
+        }
+      ],
+      "note": "上游宣布 2027 年 1 月起不再提供 macOS Intel 的 release 构建；届时需要换源或标记不可用。"
+    },
+    "darwin-arm64": {
+      "available": true,
+      "version": "9.0.2",
+      "source": "martin-riedl.de 静态构建",
+      "archives": [
+        {
+          "url": "https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffmpeg.zip",
+          "sha256": "c8ed4c4e6978a03c485edbfe4e0a5dc2380f8a30bba5150531b31b094492d924",
+          "size": 28395699,
+          "type": "zip",
+          "extract": [
+            {
+              "path": "ffmpeg",
+              "name": "ffmpeg"
+            }
+          ]
+        },
+        {
+          "url": "https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffprobe.zip",
+          "sha256": "fcbe839537485eaee7a7a8bc5cbc0f90d53617e80943e8a5b2e31cb851197ea6",
+          "size": 28317701,
+          "type": "zip",
+          "extract": [
+            {
+              "path": "ffprobe",
+              "name": "ffprobe"
+            }
+          ]
+        }
+      ]
+    },
+    "windows-amd64": {
+      "available": true,
+      "version": "9.0.2",
+      "source": "gyan.dev essentials 构建（GitHub GyanD/codexffmpeg release 9.0.2）",
+      "archives": [
+        {
+          "url": "https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip",
+          "sha256": "60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba",
+          "size": 114768076,
+          "type": "zip",
+          "extract": [
+            {
+              "path": "ffmpeg-9.0.2-essentials_build/bin/ffmpeg.exe",
+              "name": "ffmpeg.exe"
+            },
+            {
+              "path": "ffmpeg-9.0.2-essentials_build/bin/ffprobe.exe",
+              "name": "ffprobe.exe"
+            }
+          ],
+          "mirrors": {
+            "cn": [
+              "https://ghfast.top/https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip",
+              "https://gh-proxy.com/https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
