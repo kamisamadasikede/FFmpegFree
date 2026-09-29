@@ -357,3 +357,52 @@ export function docUnsupportedText(backendMessage?: string, detail?: string): st
   const other = /5000|页数|字体/.test(`${backendMessage ?? ''}\n${detail ?? ''}`)
   return other ? (backendMessage || FALLBACK_DESCRIPTION) : DOC_FORMAT_UNSUPPORTED_TEXT
 }
+
+// 待产品经理确认：下面两句是自拟文案（超过 5000 页、文件损坏），设计稿 / 产品经理还没定稿，定稿后只改这里。
+/** 待产品经理确认：UNSUPPORTED 且是超过 5000 页 */
+export const DOC_TOO_MANY_PAGES_TEXT = '文档太长，超过 5000 页，无法转换'
+/** 待产品经理确认：INVALID_ARGUMENT 且 detail / message 说不是有效的 OOXML 文件（打不开、缺部件、条目过多） */
+export const DOC_FILE_BROKEN_TEXT = '这个文件已损坏，或不是有效的 Word、Excel、PowerPoint 文档'
+export const DOC_NOT_FOUND_TEXT = '找不到这个文件，可能已被移动或删除'
+export const DOC_PDF_INVALID_TEXT = '这不是有效的 PDF 文件'
+/** pdf.js 解析 / 渲染失败（后端已放行的 PDF，前端打不开） */
+export const DOC_PDF_RENDER_FAILED_TEXT = '无法显示这个 PDF，文件可能已损坏'
+export const DOC_PDF_PASSWORD_TITLE = '这个 PDF 已加密'
+export const DOC_PDF_PASSWORD_PROMPT = '请输入打开密码'
+export const DOC_PDF_PASSWORD_WRONG = '密码不正确，请重新输入'
+
+/**
+ * 文档页（Office 转 PDF、PDF 预览）里 DocService / 转换任务的错误 → 用户可读的话。页面里不要散写文案，统一走这里。
+ * 只处理契约 6.12.6 里 DocService 会返回的码：INVALID_ARGUMENT / NOT_FOUND / UNSUPPORTED / IO_ERROR / CONVERT_DISK_FULL / CANCELED / INTERNAL。
+ * 其他情况沿用后端 message（后端文案本身就是给用户看的中文）。
+ */
+export function docErrorText(code: string, backendMessage?: string, detail?: string): string {
+  const msg = (backendMessage ?? '').trim()
+  const text = `${msg}\n${detail ?? ''}`
+  switch (code) {
+    case 'UNSUPPORTED':
+      return /5000/.test(text) ? DOC_TOO_MANY_PAGES_TEXT : docUnsupportedText(msg, detail)
+    case 'INVALID_ARGUMENT':
+      if (/OOXML/.test(text)) return DOC_FILE_BROKEN_TEXT
+      if (/不是 PDF 文件/.test(text)) return DOC_PDF_INVALID_TEXT
+      return msg || FALLBACK_DESCRIPTION
+    case 'NOT_FOUND':
+      return DOC_NOT_FOUND_TEXT
+    case 'CONVERT_DISK_FULL':
+      return taskErrorMessages.CONVERT_DISK_FULL.description
+    case 'CANCELED':
+      return '操作已取消。'
+    default:
+      return msg || FALLBACK_DESCRIPTION
+  }
+}
+
+/** 出错文件名：ConvertToPDF 整体校验失败时 detail 第一行是出错文件的路径 */
+export function docErrorFile(code: string, detail?: string): string {
+  const first = (detail ?? '').split(/\r?\n/, 1)[0].trim()
+  if (!first || !/^([A-Za-z]:[\\/]|\/|\\\\)/.test(first)) return ''
+  return first.split(/[\\/]/).pop() || ''
+}
+
+/** 浏览器里的模拟环境（没有 window.go）才显示的说明 */
+export const DOC_DEMO_NOTE = '当前是演示数据：不会真的转换或读取文件'
