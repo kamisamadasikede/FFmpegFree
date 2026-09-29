@@ -25,6 +25,7 @@ func main() {
 	taskService := app.NewTaskService(mainApp.taskManager)
 	mediaService := app.NewMediaService(mainApp.mediaService, mainApp.appContext)
 	convertService := app.NewConvertService(mainApp.convertService, mainApp.appContext)
+	docService := app.NewDocService(mainApp.docService, mainApp.appContext)
 	editService := app.NewEditService(mainApp.editService, mainApp.appContext)
 	liveService := app.NewLiveService(mainApp.liveService, mainApp.appContext)
 
@@ -55,6 +56,7 @@ func main() {
 			taskService,
 			mediaService,
 			convertService,
+			docService,
 			editService,
 			liveService,
 		},
