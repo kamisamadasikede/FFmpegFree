@@ -54,6 +54,9 @@ type Config struct {
 	Now    func() time.Time
 	// Run 运行外部命令取标准输出（xrandr、ffmpeg -list_devices），默认 ffmpeg.ExecRunner(10s)。
 	Run ffmpeg.Runner
+	// ProbeDuration 读存档时长，读不出返回错误（空壳判定）；默认用 ffprobe。Remove 删除空壳存档，默认 os.Remove（测试用）。
+	ProbeDuration func(ctx context.Context, ffprobe, path string) (float64, error)
+	Remove        func(path string) error
 	// Grace 覆盖优雅停止的等待时间（测试用）；0 用默认（无存档 5 秒、有存档 15 秒）。
 	Grace time.Duration
 	// Logf 记录内部信息；只会收到脱敏内容。为空时不记录。
@@ -90,6 +93,12 @@ func New(cfg Config) *Service {
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
+	}
+	if cfg.ProbeDuration == nil {
+		cfg.ProbeDuration = probeDuration
+	}
+	if cfg.Remove == nil {
+		cfg.Remove = os.Remove
 	}
 	if cfg.Run == nil {
 		cfg.Run = ffmpeg.ExecRunner(10 * time.Second)

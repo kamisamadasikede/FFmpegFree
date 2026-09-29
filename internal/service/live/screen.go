@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"regexp"
 	"strconv"
 	"strings"
@@ -252,15 +254,17 @@ func (s *Service) startScreenPush(ctx context.Context, req ScreenPushRequest) (t
 	default:
 		return task.Task{}, invalidArg("audio 只能是 none 或 silent")
 	}
+	archiveDir := ""
 	if req.ArchiveDir != "" {
-		// 存档（tee + 分片 mp4）在 #22（文件名净化函数）合入 v2 之后实现。
-		return task.Task{}, apperr.New(apperr.Unsupported, "屏幕推流的本地存档暂未实现")
+		if archiveDir, err = checkArchiveDir(req.ArchiveDir); err != nil {
+			return task.Task{}, err
+		}
 	}
 	c := s.capabilities()
 	if !c.Supported {
 		return task.Task{}, s.unsupportedErr(c)
 	}
-	if err := s.checkProtocols(ctx, bin, u.Scheme, false); err != nil {
+	if err := s.checkProtocols(ctx, bin, u.Scheme, archiveDir != ""); err != nil {
 		return task.Task{}, err
 	}
 	screens, err := s.ListScreens(ctx)
@@ -287,26 +291,60 @@ func (s *Service) startScreenPush(ctx context.Context, req ScreenPushRequest) (t
 	if strings.HasPrefix(sc.ID, "avf:") {
 		plan.Region.DeviceIndex, _ = strconv.Atoi(strings.TrimPrefix(sc.ID, "avf:"))
 	}
-	args := ffmpeg.BuildScreenPushArgs(plan)
 	taskID := id.New()
-	if err := s.reserve(taskID, u.Key, false, true); err != nil {
+	archive := archiveDir != ""
+	if err := s.reserve(taskID, u.Key, archive, true); err != nil {
 		return task.Task{}, err
 	}
+	// 存档：先占会话再建占位文件（冲突时不留下空文件）。占位文件是本任务自己用 O_EXCL 创建的，之后只有它可能被删。
+	var archivePath string
+	if archive {
+		if archivePath, err = s.reserveArchive(archiveDir); err != nil {
+			s.release(taskID)
+			return task.Task{}, err
+		}
+		tee, terr := ffmpeg.TeePath(s.cfg.GOOS, archivePath)
+		if terr != nil {
+			s.release(taskID)
+			s.removePlaceholder(archivePath)
+			return task.Task{}, invalidArg("存档路径不合法")
+		}
+		plan.ArchiveTee = tee
+	}
+	args := ffmpeg.BuildScreenPushArgs(plan)
 	pj, _ := json.Marshal(screenPushParams{Kind: "screen", ScreenID: sc.ID, URL: u.Redacted, HideCursor: req.HideCursor,
-		Audio: firstNonEmpty(req.Audio, "none"), ArchiveDir: "", Options: req.Options})
+		Audio: firstNonEmpty(req.Audio, "none"), ArchiveDir: archiveDir, Options: req.Options})
 	spec := task.Spec{
 		ID:         taskID,
 		Type:       task.TypeLiveScreenPush,
 		Title:      "屏幕推流：" + sc.Name + " → " + u.Redacted,
 		InputPaths: []string{},
+		OutputPath: archivePath,
 		Params:     string(pj),
 	}
-	t, err := s.cfg.Tasks.Submit(spec, s.newRunner(taskID, bin, u, req.URL, args, true, false))
+	var r task.Runner
+	base := s.newRunner(taskID, bin, u, req.URL, args, true, archive)
+	if archive {
+		r = &archiveRunner{runner: base, g: &archiveGuard{s: s, ffprobe: bin.FFprobe, path: archivePath}}
+	} else {
+		r = base
+	}
+	t, err := s.cfg.Tasks.Submit(spec, r)
 	if err != nil {
 		s.release(taskID)
+		if archive {
+			s.removePlaceholder(archivePath)
+		}
 		return task.Task{}, err
 	}
 	return t, nil
+}
+
+// removePlaceholder 删除本任务刚创建、还没交给 ffmpeg 的空占位文件（启动失败的回滚）。
+func (s *Service) removePlaceholder(path string) {
+	if err := s.cfg.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		s.logf("删除存档占位文件失败: %s: %v", path, err)
+	}
 }
 
 func firstNonEmpty(a, b string) string {

@@ -187,19 +187,40 @@ func TestValidateLimits(t *testing.T) {
 	if _, err := s.ValidateProject(context.Background(), p); err != nil {
 		t.Fatalf("8 轨: %v", err)
 	}
-	// 大工程：sources 超过 200
-	p = proj(vclip("c1", pV, "V1", 0, 0, 1))
-	for i := 0; i < 201; i++ {
-		p.Sources = append(p.Sources, filepath.Join(string(filepath.Separator), "m", "s"+itoa(i)+".mp4"))
+	// 素材库上限 100：恰好 100 通过，101 → INVALID_ARGUMENT（detail sources=101）；旧上限 200 已废
+	if MaxSources != 100 {
+		t.Fatalf("MaxSources = %d，产品经理定稿是 100", MaxSources)
 	}
+	srcs := func(n int) []string {
+		out := make([]string, 0, n)
+		for i := 0; i < n; i++ {
+			out = append(out, filepath.Join(string(filepath.Separator), "m", "s"+itoa(i)+".mp4"))
+		}
+		return out
+	}
+	p = proj(vclip("c1", pV, "V1", 0, 0, 1))
+	p.Sources = srcs(100)
+	if _, err := s.ValidateProject(context.Background(), p); err != nil {
+		t.Fatalf("恰好 100 个素材应通过: %v", err)
+	}
+	p.Sources = srcs(101)
+	_, err = s.ValidateProject(context.Background(), p)
+	if code(t, err) != apperr.InvalidArgument || firstLine(err) != "project" || !strings.Contains(apperr.From(err).Message, "100") || !strings.Contains(apperr.From(err).Detail, "sources=101") {
+		t.Fatalf("sources=101: %v", err)
+	}
+	p.Sources = srcs(150) // 旧上限 200 以内也不再允许
 	if _, err := s.ValidateProject(context.Background(), p); code(t, err) != apperr.InvalidArgument {
-		t.Fatal("sources > 200")
+		t.Fatal("sources=150 应被拒绝")
+	}
+	// 片段总数上限仍是 100（与素材上限相互独立）
+	if MaxClips != 100 {
+		t.Fatalf("MaxClips = %d", MaxClips)
 	}
 	// 工程 > 1 MiB
 	p = proj(vclip("c1", pV, "V1", 0, 0, 1))
 	p.Name = strings.Repeat("字", 80)
-	for i := 0; i < 200; i++ {
-		p.Sources = append(p.Sources, filepath.Join(string(filepath.Separator), "m", strings.Repeat("x", 6000)+itoa(i)+".mp4"))
+	for i := 0; i < MaxSources; i++ { // 100 × 12000 字符 > 1 MiB
+		p.Sources = append(p.Sources, filepath.Join(string(filepath.Separator), "m", strings.Repeat("x", 12000)+itoa(i)+".mp4"))
 	}
 	if _, err := s.ValidateProject(context.Background(), p); code(t, err) != apperr.InvalidArgument || !strings.Contains(apperr.From(err).Message, "1 MiB") {
 		t.Fatalf("1 MiB: %v", err)
