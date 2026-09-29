@@ -224,6 +224,13 @@ export function formatTC(t: number, fps = FRAME_FPS): string {
   const h = Math.floor(whole / 3600)
   return `${h ? p2(h) + ':' : ''}${p2(Math.floor((whole % 3600) / 60))}:${p2(whole % 60)}.${p2(f)}`
 }
+/** 属性区输入框用：mm:ss.cc（百分之一秒，parseTC 能原样解析回来；和预览区按 30 帧显示的时间码不同） */
+export function formatPrecise(t: number): string {
+  const cs = Math.max(0, Math.round(t * 100))
+  const whole = Math.floor(cs / 100)
+  const h = Math.floor(whole / 3600)
+  return `${h ? p2(h) + ':' : ''}${p2(Math.floor((whole % 3600) / 60))}:${p2(whole % 60)}.${p2(cs % 100)}`
+}
 /** 标尺 / 用量用：mm:ss，≥ 1 小时 hh:mm:ss；forceHours 时始终三段（06:00:00） */
 export function formatClock(t: number, forceHours = false): string {
   const s = Math.max(0, Math.round(t))
