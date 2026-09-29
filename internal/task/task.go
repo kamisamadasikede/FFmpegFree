@@ -31,11 +31,14 @@ type (
 
 // 任务类型与状态常量（契约第 3 节）。
 const (
-	TypeConvert        = store.TypeConvert
-	TypeEditExport     = store.TypeEditExport
+	TypeConvert    = store.TypeConvert
+	TypeEditExport = store.TypeEditExport
+	// TypeEditRender 已弃用（只为读旧数据），见 store.TypeEditRender。
+	TypeEditRender     = store.TypeEditRender
 	TypeOfficePDF      = store.TypeOfficePDF
 	TypeLiveFilePush   = store.TypeLiveFilePush
-	TypeLiveScreenPush = store.TypeLiveScreenPush
+	TypeLiveRelay      = store.TypeLiveRelay
+	TypeLiveRecordPush = store.TypeLiveRecordPush
 	TypeFFmpegInstall  = store.TypeFFmpegInstall
 
 	StatusQueued      = store.StatusQueued
@@ -57,7 +60,7 @@ const (
 // IsLive 判断任务类型是否属于 live 池（直播类：不排队，不占 batch 名额）。
 func IsLive(t Type) bool {
 	switch t {
-	case TypeLiveFilePush, TypeLiveScreenPush:
+	case TypeLiveFilePush, TypeLiveRelay, TypeLiveRecordPush:
 		return true
 	}
 	return false

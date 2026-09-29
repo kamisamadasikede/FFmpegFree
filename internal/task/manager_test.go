@@ -276,9 +276,9 @@ func TestLivePoolNotBlockedByBatch(t *testing.T) {
 		<-ctx.Done()
 		return "", nil
 	})
-	l1, _ := f.m.Submit(Spec{Type: TypeLiveFilePush}, live)
+	l1, _ := f.m.Submit(Spec{Type: TypeLiveRelay}, live)
 	l2, _ := f.m.Submit(Spec{Type: TypeLiveFilePush}, live)
-	l3, _ := f.m.Submit(Spec{Type: TypeLiveScreenPush}, live)
+	l3, _ := f.m.Submit(Spec{Type: TypeLiveRecordPush}, live)
 	eventually(t, func() bool { return atomic.LoadInt32(&liveRan) == 3 })
 	if f.m.mustGet(t, b2.ID).Status != StatusQueued || f.m.mustGet(t, b1.ID).Status != StatusRunning {
 		t.Fatal("batch 池应仍被占满，第二个在排队")
@@ -365,7 +365,7 @@ func TestGracefulStopCountsAsSucceeded(t *testing.T) {
 		time.Sleep(20 * time.Millisecond) // 模拟写文件尾
 		return "/archive/a.mp4", nil      // 优雅停止：存档完整，返回 nil
 	})
-	tk, _ := f.m.Submit(Spec{Type: TypeLiveScreenPush}, r)
+	tk, _ := f.m.Submit(Spec{Type: TypeLiveRecordPush}, r)
 	eventually(t, func() bool { return f.m.mustGet(t, tk.ID).Status == StatusRunning })
 	f.m.Cancel(tk.ID)
 	d := waitTask(t, f.m, tk.ID)

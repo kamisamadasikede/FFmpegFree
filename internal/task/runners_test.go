@@ -134,7 +134,7 @@ func TestFFmpegRunnerCancelKillsAndCleans(t *testing.T) {
 
 func TestFFmpegRunnerLiveGracefulStop(t *testing.T) {
 	f := newFx(t, 1)
-	tk, _ := f.m.Submit(Spec{Type: TypeLiveFilePush}, &FFmpegRunner{Exe: fakeFFmpegBin(t), Live: true,
+	tk, _ := f.m.Submit(Spec{Type: TypeLiveRelay}, &FFmpegRunner{Exe: fakeFFmpegBin(t), Live: true,
 		BuildArgs: func(string) []string { return []string{"live", "-"} }})
 	eventually(t, func() bool { return f.m.mustGet(t, tk.ID).Status == StatusRunning })
 	time.Sleep(100 * time.Millisecond)
