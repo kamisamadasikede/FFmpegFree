@@ -361,6 +361,22 @@ export namespace system {
 		    return a;
 		}
 	}
+	export class InstallOptions {
+	    platform: string;
+	    supported: boolean;
+	    mirrors: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new InstallOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.platform = source["platform"];
+	        this.supported = source["supported"];
+	        this.mirrors = source["mirrors"];
+	    }
+	}
 	export class Settings {
 	    ffmpegPath: string;
 	    ffmpegPromptDismissed: boolean;

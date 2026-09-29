@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/ffmpeg"
@@ -47,7 +48,8 @@ func (m *Manager) beginInstallLocked(taskID string) {
 // Install 启动 ffmpeg 下载安装（契约 9.3），立即返回任务，实际工作在任务管理器的 batch 池里进行。
 //
 //   - 幂等：已有进行中（排队或运行）的安装时直接返回该任务，不开第二个下载；
-//   - mirror 只接受 "" 和 "cn"，其他值返回 INVALID_ARGUMENT；
+//   - mirror 只接受 ""（默认源）和当前平台清单里真正有的镜像（见 InstallOptions）；
+//     其他值（包括当前平台没有的 "cn"）返回 INVALID_ARGUMENT，detail 列出可选镜像，不会悄悄改用默认源；
 //   - 当前平台没有下载源返回 UNSUPPORTED_PLATFORM；
 //   - 状态：任意 → installing（TaskID 为任务 ID）→ ready | failed；取消后重新检测。
 //     每次状态变化推送 ffmpeg:status，进度通过 task:progress 推送，不塞进 ffmpeg:status。
@@ -59,20 +61,14 @@ func (m *Manager) Install(ctx context.Context, mirror string) (task.Task, error)
 	if t, ok := m.currentInstallTask(); ok {
 		return t, nil
 	}
-	if !ffmpeg.ValidMirror(mirror) {
-		return task.Task{}, apperr.New(apperr.InvalidArgument, fmt.Sprintf("不支持的镜像 %q，只能是空字符串（默认源）或 \"cn\"", mirror))
-	}
 	if cfg.Installer == nil {
 		return task.Task{}, apperr.New(apperr.Internal, "安装功能未初始化")
 	}
 	if cfg.Tasks == nil {
 		return task.Task{}, apperr.New(apperr.Internal, "任务管理器未初始化")
 	}
-	if err := cfg.Installer.Preflight(mirror); err != nil {
-		if ffmpeg.IsUnavailable(err) {
-			return task.Task{}, apperr.Wrap(apperr.UnsupportedPlatform, "当前系统暂无可用的 ffmpeg 下载源，请手动指定 ffmpeg 所在位置", err)
-		}
-		return task.Task{}, apperr.Wrap(apperr.InvalidArgument, "安装参数不合法", err)
+	if err := preflightInstall(cfg.Installer, mirror); err != nil {
+		return task.Task{}, err
 	}
 
 	params, _ := json.Marshal(installParams{Mirror: mirror})
@@ -236,4 +232,48 @@ func (m *Manager) CancelInstall() error {
 		return err
 	}
 	return nil
+}
+
+// InstallOptions 描述当前平台的安装选项，前端据此决定是否显示"使用国内镜像"开关。
+type InstallOptions struct {
+	Platform  string   `json:"platform"`  // 如 windows-amd64
+	Supported bool     `json:"supported"` // 当前平台有可用的下载源
+	Mirrors   []string `json:"mirrors"`   // 可用的镜像名（不含默认源 ""），没有时是 []
+}
+
+// GetInstallOptions 返回当前平台可选的安装镜像。Installer 未初始化时返回 INTERNAL。
+func (m *Manager) GetInstallOptions() (InstallOptions, error) {
+	cfg, err := m.ready()
+	if err != nil {
+		return InstallOptions{}, err
+	}
+	if cfg.Installer == nil {
+		return InstallOptions{}, apperr.New(apperr.Internal, "安装功能未初始化")
+	}
+	return InstallOptions{
+		Platform:  cfg.Installer.PlatformName(),
+		Supported: cfg.Installer.Supported(),
+		Mirrors:   cfg.Installer.AvailableMirrors(),
+	}, nil
+}
+
+// preflightInstall 在提交任务前同步检查平台和镜像，错误已映射为契约错误码。
+func preflightInstall(in *ffmpeg.Installer, mirror string) error {
+	err := in.Preflight(mirror)
+	if err == nil {
+		return nil
+	}
+	var me *ffmpeg.MirrorError
+	switch {
+	case ffmpeg.IsUnavailable(err):
+		return apperr.Wrap(apperr.UnsupportedPlatform, "当前系统暂无可用的 ffmpeg 下载源，请手动指定 ffmpeg 所在位置", err)
+	case errors.As(err, &me):
+		msg := fmt.Sprintf("当前平台不支持镜像 %q", me.Mirror)
+		detail := "可用的镜像：无，请使用默认源（mirror 传空字符串）"
+		if len(me.Available) > 0 {
+			detail = "可用的镜像：" + strings.Join(me.Available, "、") + "；或传空字符串使用默认源"
+		}
+		return apperr.New(apperr.InvalidArgument, msg).WithDetail(detail)
+	}
+	return apperr.Wrap(apperr.InvalidArgument, "安装参数不合法", err)
 }

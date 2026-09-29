@@ -48,32 +48,40 @@ func TestResolveMirror(t *testing.T) {
 	m, _ := DefaultManifest()
 	// 默认源
 	plan, err := m.Resolve("windows-amd64", "")
-	if err != nil || plan.MirrorFallback || len(plan.Sources[0].URLs) != 1 {
+	if err != nil || len(plan.Sources[0].URLs) != 1 {
 		t.Fatalf("%+v %v", plan, err)
 	}
 	// cn：有镜像的平台，镜像在前，原地址兜底在最后
 	plan, err = m.Resolve("windows-amd64", "cn")
-	if err != nil || plan.MirrorFallback {
+	if err != nil {
 		t.Fatalf("%+v %v", plan, err)
 	}
 	urls := plan.Sources[0].URLs
 	if len(urls) < 2 || urls[len(urls)-1] != plan.Sources[0].Archive.URL || urls[0] == plan.Sources[0].Archive.URL {
 		t.Fatalf("镜像顺序不对: %v", urls)
 	}
-	// cn：没有镜像条目的平台退回默认源
-	plan, err = m.Resolve("linux-amd64", "cn")
-	if err != nil || !plan.MirrorFallback {
-		t.Fatalf("应标记 MirrorFallback: %+v %v", plan, err)
+	// cn：没有镜像条目的平台明确报错，不悄悄退回默认源，并列出可选镜像
+	_, err = m.Resolve("linux-amd64", "cn")
+	var me *MirrorError
+	if !errors.As(err, &me) || !IsMirrorError(err) || me.Mirror != "cn" || me.Platform != "linux-amd64" || len(me.Available) != 0 {
+		t.Fatalf("linux 上 cn 应返回 MirrorError: %v", err)
 	}
-	for _, s := range plan.Sources {
-		if len(s.URLs) != 1 || s.URLs[0] != s.Archive.URL {
-			t.Fatalf("应只有默认地址: %v", s.URLs)
-		}
+	if !strings.Contains(err.Error(), "默认源") {
+		t.Fatalf("错误信息应提示默认源: %v", err)
+	}
+	if got := m.AvailableMirrors("linux-amd64"); len(got) != 0 {
+		t.Fatalf("linux 不应有镜像: %v", got)
+	}
+	if got := m.AvailableMirrors("windows-amd64"); len(got) != 1 || got[0] != "cn" {
+		t.Fatalf("windows 应有 cn: %v", got)
+	}
+	if got := m.AvailableMirrors("plan9-mips"); got == nil || len(got) != 0 {
+		t.Fatalf("未知平台应返回空切片: %#v", got)
 	}
 	// 其他镜像名不合法
 	for _, bad := range []string{"CN", "cn ", "https://x.example/", "default", "eu"} {
-		if _, err := m.Resolve("linux-amd64", bad); err == nil {
-			t.Fatalf("镜像 %q 应被拒绝", bad)
+		if _, err := m.Resolve("windows-amd64", bad); !IsMirrorError(err) {
+			t.Fatalf("镜像 %q 应被拒绝: %v", bad, err)
 		}
 		if ValidMirror(bad) {
 			t.Fatalf("ValidMirror(%q)", bad)
@@ -108,5 +116,21 @@ func TestParseManifestValidation(t *testing.T) {
 		if _, err := ParseManifest([]byte(b)); err == nil {
 			t.Fatalf("case %d 应失败", i)
 		}
+	}
+}
+
+func TestResolvePartialMirrorIsRejected(t *testing.T) {
+	// 只有部分压缩包有镜像：等于对其余压缩包悄悄退回默认源，一律拒绝。
+	m, err := ParseManifest([]byte(`{"schemaVersion":1,"platforms":{"x-y":{"available":true,"version":"1","archives":[
+	 {"url":"https://a/1.zip","sha256":"` + strings.Repeat("a", 64) + `","size":1,"type":"zip","mirrors":{"cn":["https://m/1.zip"]},"extract":[{"path":"ffmpeg","name":"ffmpeg"}]},
+	 {"url":"https://a/2.zip","sha256":"` + strings.Repeat("b", 64) + `","size":1,"type":"zip","extract":[{"path":"ffprobe","name":"ffprobe"}]}]}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m.AvailableMirrors("x-y"); len(got) != 0 {
+		t.Fatalf("%v", got)
+	}
+	if _, err := m.Resolve("x-y", "cn"); !IsMirrorError(err) {
+		t.Fatalf("%v", err)
 	}
 }
