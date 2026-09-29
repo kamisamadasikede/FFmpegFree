@@ -15,6 +15,9 @@ import * as doc from './doc'
 import { docErrorText, docErrorFile, DOC_TOO_MANY_PAGES_TEXT, DOC_FILE_BROKEN_TEXT, DOC_FORMAT_UNSUPPORTED_TEXT } from '@/errors/errorMessages'
 import { onSimEvent } from '@/services/wails'
 import { retrySimTask, SIM_TITLE_PREFIX } from './sim'
+import * as encApi from './encoder'
+import { deriveEncoderView } from './encoderView'
+import * as encMsg from '@/errors/encoderMessages'
 import { elapsedMs, isKnownTaskType, isLegacyTaskType } from '@/stores/tasks'
 
 const fails: string[] = []
@@ -45,7 +48,8 @@ export async function runApiChecks(): Promise<string[]> {
   eq('clip 首行', parseDetailHead('clip=c_1-a path=/a b/中文.mp4\n原因'), { clipId: 'c_1-a', path: '/a b/中文.mp4' })
   eq('project 首行没有 clip', parseDetailHead('project\n视频轨不能为空'), {})
   eq('toAppError 解析 JSON 的 detail', toAppError('{"code":"TASK_CONFLICT","message":"m","detail":"reason=duplicate_url"}').reason, 'duplicate_url')
-  eq('BACKEND_ERROR_CODES 17 个', BACKEND_ERROR_CODES.length, 17)
+  eq('BACKEND_ERROR_CODES 18 个（v0.14 含 LIVE_SOURCE_GONE）', BACKEND_ERROR_CODES.length, 18)
+  eq('LIVE_SOURCE_GONE 的 kind 首行', [new AppError('LIVE_SOURCE_GONE', 'x', 'kind=window').kind, new AppError('LIVE_SOURCE_GONE', 'x', 'kind=screen').kind, new AppError('LIVE_SOURCE_GONE', 'x', 'kind=other').kind, new AppError('LIVE_SOURCE_GONE', 'x').kind], ['window', 'screen', undefined, undefined])
 
   // ---- TASK_CONFLICT 文案（reason → 文案 一张表）----
   eq('max_sessions 文案', taskConflictText('max_sessions'), '最多同时推 4 路')
@@ -201,6 +205,22 @@ export async function runApiChecks(): Promise<string[]> {
   eq('duplicate_url 文案', taskConflictText(err?.reason), '这个地址已经在推流')
   // 屏幕推流同一时间最多 1 路；判断顺序 duplicate_url → screen_busy → max_sessions
   const screenReq = (url: string): live.ScreenPushRequest => ({ screenId: 'avf:0', url, hideCursor: false, audio: 'none', archiveDir: '', options: live.defaultPushOptions() })
+  // v0.14 采集来源：列表 = 屏幕 + 窗口；来源失效 → LIVE_SOURCE_GONE（detail 首行 kind=）；格式不对 INVALID_ARGUMENT；失败不占会话
+  const sources = await live.listCaptureSources()
+  eq('采集来源：屏幕在前，窗口在后', sources.map((s) => s.kind), ['screen', 'screen', 'window', 'window'])
+  eq('采集来源 id', sources.map((s) => s.id), ['screen:0', 'screen:1', 'window:65890', 'window:131426'])
+  const runningBefore = (await live.listRunning()).length
+  err = await rejects(live.startScreenPush({ ...screenReq('rtmp://g1.example/live/g1'), captureSourceId: 'window:999' }))
+  eq('LIVE_SOURCE_GONE（窗口）', [err?.code, err?.kind, err?.detail], ['LIVE_SOURCE_GONE', 'window', 'kind=window'])
+  err = await rejects(live.startScreenPush({ ...screenReq('rtmp://g1.example/live/g1'), captureSourceId: 'screen:9' }))
+  eq('LIVE_SOURCE_GONE（屏幕）', [err?.code, err?.kind], ['LIVE_SOURCE_GONE', 'screen'])
+  err = await rejects(live.startScreenPush({ ...screenReq('rtmp://g1.example/live/g1'), captureSourceId: 'window:0x10' }))
+  eq('captureSourceId 格式不对', err?.code, 'INVALID_ARGUMENT')
+  eq('来源失败不占会话', (await live.listRunning()).length, runningBefore)
+  const gt = await live.startScreenPush({ ...screenReq('rtmp://g2.example/live/g2'), captureSourceId: 'window:131426' })
+  eq('窗口来源的任务标题与 params', [gt.title.includes('记事本'), JSON.parse(gt.params).captureSourceId], [true, 'window:131426'])
+  await live.stopPush(gt.id)
+  await new Promise((r) => setTimeout(r, 1700)) // 模拟层停止需要一小会儿，之后才能再开屏幕推流
   await live.startScreenPush(screenReq('rtmp://s1.example/live/sk1'))
   err = await rejects(live.startScreenPush(screenReq('rtmp://s2.example/live/sk2')))
   eq('screen_busy', [err?.code, err?.reason], ['TASK_CONFLICT', 'screen_busy'])
@@ -486,5 +506,68 @@ export async function runApiChecks(): Promise<string[]> {
   eq('SCREEN_PERMISSION_DENIED 文案', errorMessages.SCREEN_PERMISSION_DENIED.description, '没有获得屏幕录制权限，请在系统设置中允许 FFmpegFree 录制屏幕后重试')
   eq('UNSUPPORTED_PLATFORM 文案', errorMessages.UNSUPPORTED_PLATFORM.description, '当前系统暂不支持屏幕推流')
   eq('errorMessages 已知码不含 LIVE_PLAY 以外遗漏', Object.keys(errorMessages).length >= 8 && Object.keys(taskErrorMessages).length >= 3, true)
+
+  // ---- 编码设备（后端字段：ffmpegReady + devices[id,name,vendor,kind,available,reason?]；cpu 永远第一项；偏好 auto|cpu|设备 id）----
+  {
+    const nv = { id: 'nvidia-0', name: 'NVIDIA GeForce RTX 4060', vendor: 'nvidia', kind: 'gpu', available: true }
+    const n = encApi.normalizeList({ ffmpegReady: true, devices: [{ id: 'cpu', name: 'CPU', vendor: 'unknown', kind: 'cpu', available: true }, nv, { id: 'x', name: 'X', vendor: 'matrox', kind: 'gpu', available: false, reason: '驱动异常' }, { name: '没有 id' }, null] })
+    eq('normalizeList：未知 vendor → unknown，缺 id 的丢弃，reason 保留', n.devices.map((d) => [d.id, d.vendor, d.available, d.reason]), [['cpu', 'unknown', true, undefined], ['nvidia-0', 'nvidia', true, undefined], ['x', 'unknown', false, '驱动异常']])
+    eq('normalizeList：缺 cpu 时补在第一项', encApi.normalizeList({ ffmpegReady: true, devices: [nv] }).devices.map((d) => d.id), ['cpu', 'nvidia-0'])
+    eq('normalizeList：空 / 错误形状 → 只有 cpu；ffmpegReady 只有明确 false 才算未就绪', [encApi.normalizeList(null).devices.map((d) => d.id), encApi.normalizeList(undefined).ffmpegReady, encApi.normalizeList({ ffmpegReady: false }).ffmpegReady], [['cpu'], true, false])
+    eq('normalizeList：结果不含编码器名字段', Object.keys(n.devices[1]).sort(), ['available', 'id', 'kind', 'name', 'vendor'])
+
+    // 显示规则：ENCODER_BACKEND_READY=false（默认）+ 纯浏览器 → 没有 ?enc= 完全不显示；有 ?enc= 才显示模拟层
+    win.location.search = ''
+    eq('面板显示：默认（无 ?enc=）→ 不显示', encApi.encoderPanelVisible(), false)
+    win.location.search = '?ff=ready'
+    eq('面板显示：只有别的参数 → 不显示', encApi.encoderPanelVisible(), false)
+    win.location.search = '?enc=found'
+    eq('面板显示：?enc=found → 显示模拟层', encApi.encoderPanelVisible(), true)
+
+    encApi.resetEncoderSim()
+    win.location.search = '?enc=found'
+    const l1 = await encApi.listEncoderDevices()
+    eq('模拟 found：第一项 cpu、两张显卡、ffmpegReady', [l1.ffmpegReady, l1.devices.map((d) => d.id), l1.devices.map((d) => d.kind)], [true, ['cpu', 'nvidia-0', 'intel-0'], ['cpu', 'gpu', 'gpu']])
+    eq('偏好默认 auto', await encApi.getEncoderPreference(), 'auto')
+    await encApi.setEncoderPreference('nvidia-0')
+    eq('Set 后 Get 返回新值', await encApi.getEncoderPreference(), 'nvidia-0')
+    await encApi.setEncoderPreference('cpu')
+    eq('偏好可设为 cpu', await encApi.getEncoderPreference(), 'cpu')
+    encApi.resetEncoderSim()
+    win.location.search = '?enc=none'
+    const l2 = await encApi.listEncoderDevices()
+    eq('模拟 none：只有 cpu', l2.devices.map((d) => d.id), ['cpu'])
+    win.location.search = '?enc=unavail'
+    encApi.resetEncoderSim()
+    const l3 = await encApi.listEncoderDevices()
+    eq('模拟 unavail：偏好保持原显卡，列表里 available=false 并带原因', [await encApi.getEncoderPreference(), l3.devices.find((d) => d.id === 'nvidia-0')?.available, !!l3.devices.find((d) => d.id === 'nvidia-0')?.reason], ['nvidia-0', false, true])
+    win.location.search = '?enc=noff'
+    eq('模拟 noff：ffmpegReady=false', (await encApi.listEncoderDevices()).ffmpegReady, false)
+    win.location.search = '?enc=fail'
+    eq('模拟 fail：抛错', (await rejects(encApi.listEncoderDevices()))?.code, 'INTERNAL')
+    win.location.search = ''
+    encApi.resetEncoderSim()
+
+    // 视图推导（设置页的状态行）
+    const base = { loading: false, failed: false, pref: 'auto', ffmpegReady: true }
+    const two = encApi.normalizeList({ ffmpegReady: true, devices: [nv, { id: 'intel-0', name: 'Intel UHD Graphics 770', vendor: 'intel', kind: 'gpu', available: true }] })
+    const only = encApi.normalizeList({ ffmpegReady: true, devices: [] })
+    const bad = encApi.normalizeList({ ffmpegReady: true, devices: [{ ...nv, available: false, reason: '驱动异常' }] })
+    const v = (o: Partial<Parameters<typeof deriveEncoderView>[0]>) => deriveEncoderView({ ...base, list: two, ...o })
+    eq('视图：检测中 → 下拉与重新检测置灰', [v({ loading: true }).state, v({ loading: true }).selectDisabled, v({ loading: true }).redetectDisabled], ['detecting', true, true])
+    eq('视图：有显卡 + auto → 提示第一张可用显卡', v({}).note.text, encMsg.encoderAutoNote(2, 'NVIDIA GeForce RTX 4060'))
+    eq('视图：没检测到显卡 → 无显卡提示，下拉不列显卡', [v({ list: only }).note.text, v({ list: only }).gpus.length], [encMsg.ENCODER_NONE_NOTE, 0])
+    eq('视图：选了具体显卡 → 显示显卡名，ok 色', [v({ pref: 'nvidia-0' }).selectText, v({ pref: 'nvidia-0' }).note.tone], ['NVIDIA GeForce RTX 4060', 'ok'])
+    eq('视图：选 CPU', [v({ pref: 'cpu' }).selectText, v({ pref: 'cpu' }).note.text], [encMsg.ENCODER_OPTION_CPU, encMsg.ENCODER_CPU_NOTE])
+    const un = v({ list: bad, pref: 'nvidia-0' })
+    eq('视图：所选不可用 → 保持原显卡名、警告描边、“改回自动”，菜单里没有对应勾选', [un.selectText, un.selectWarn, un.note.action, un.selectedKey, un.note.tone], ['NVIDIA GeForce RTX 4060', true, 'resetAuto', '', 'warn'])
+    eq('视图：所选显卡已不在列表 → 用兜底名', v({ list: only, pref: 'nvidia-0' }).selectText, encMsg.ENCODER_UNKNOWN_SELECTED)
+    eq('视图：检测失败 → 红色 alert 文案', [v({ failed: true, list: null }).note.text, v({ failed: true, list: null }).note.tone], [encMsg.ENCODER_FAILED_NOTE, 'err'])
+    eq('视图：ffmpeg 未就绪（store 或后端 ffmpegReady=false）→ 提示去安装，下拉置灰', [v({ ffmpegReady: false }).state, v({ list: { ffmpegReady: false, devices: [] } }).state, v({ ffmpegReady: false }).selectDisabled], ['noff', 'noff', true])
+    // 界面文案不得出现编码器名
+    const allText = JSON.stringify(Object.values(encMsg).map((x) => (typeof x === 'function' ? (x as (...a: unknown[]) => string)(2, 'GPU') : x)))
+    eq('编码设备文案不含编码器名（NVENC / QSV / AMF / VideoToolbox）', /nvenc|qsv|amf|videotoolbox|h264_|hevc_/i.test(allText), false)
+    eq('回退文案锁定（设计稿，待产品经理确认）', [encMsg.ENCODER_FALLBACK_SETTINGS_LINK, encMsg.ENCODER_FALLBACK_LOG_LINK], ['编码设置', '查看日志'])
+  }
   return fails
 }

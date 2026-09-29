@@ -47,6 +47,7 @@ export function simInjection(): SimInjection | null {
 export function injectionDetail(inj: SimInjection): string | undefined {
   const lines: string[] = []
   if ((inj.code === 'TASK_CONFLICT' || inj.code === 'LIVE_URL_INVALID') && inj.reason) lines.push(`reason=${inj.reason === 'unknown' ? 'future_reason' : inj.reason}`)
+  if (inj.code === 'LIVE_SOURCE_GONE') lines.push(`kind=${inj.reason === 'screen' ? 'screen' : 'window'}`) // sim_reason=window|screen
   if (inj.detail) lines.push(inj.detail)
   return lines.length ? lines.join('\n') : undefined
 }

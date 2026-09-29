@@ -61,3 +61,37 @@ func TestBuildScreenPushArgs(t *testing.T) {
 		t.Fatalf("silent 补静音、屏幕采集是无限流不加 -shortest: %s", line)
 	}
 }
+
+// 表驱动：gdigrab 窗口（title=）与桌面（offset / video_size，含负偏移）的 argv。标题永远是单个 argv 元素。
+func TestScreenInputArgsWindowAndOffset(t *testing.T) {
+	tests := []struct {
+		name string
+		plan ScreenPushPlan
+		want []string
+	}{
+		{"窗口", ScreenPushPlan{GOOS: "windows", FPS: 30, Region: ScreenRegion{WindowTitle: "记事本"}},
+			[]string{"-f", "gdigrab", "-framerate", "30", "-i", "title=记事本"}},
+		{"窗口标题带空格引号等号（一个 argv）", ScreenPushPlan{GOOS: "windows", FPS: 15, HideCursor: true, Region: ScreenRegion{WindowTitle: `a "b" = c; d&e|f`}},
+			[]string{"-f", "gdigrab", "-framerate", "15", "-draw_mouse", "0", "-i", `title=a "b" = c; d&e|f`}},
+		{"窗口忽略 offset / 尺寸", ScreenPushPlan{GOOS: "windows", FPS: 30, Region: ScreenRegion{WindowTitle: "x", X: 10, Y: 20, Width: 800, Height: 600}},
+			[]string{"-f", "gdigrab", "-framerate", "30", "-i", "title=x"}},
+		{"窗口标题以 title= 开头也原样", ScreenPushPlan{GOOS: "windows", FPS: 30, Region: ScreenRegion{WindowTitle: "title=x"}},
+			[]string{"-f", "gdigrab", "-framerate", "30", "-i", "title=title=x"}},
+		{"副屏在左侧（负 offset）", ScreenPushPlan{GOOS: "windows", FPS: 30, Region: ScreenRegion{X: -1920, Y: 0, Width: 1920, Height: 1080}},
+			[]string{"-f", "gdigrab", "-framerate", "30", "-offset_x", "-1920", "-offset_y", "0", "-video_size", "1920x1080", "-i", "desktop"}},
+		{"副屏在右下", ScreenPushPlan{GOOS: "windows", FPS: 30, Region: ScreenRegion{X: 2560, Y: 360, Width: 1280, Height: 720}},
+			[]string{"-f", "gdigrab", "-framerate", "30", "-offset_x", "2560", "-offset_y", "360", "-video_size", "1280x720", "-i", "desktop"}},
+		{"宽高为 0 采整个桌面", ScreenPushPlan{GOOS: "windows", FPS: 30},
+			[]string{"-f", "gdigrab", "-framerate", "30", "-i", "desktop"}},
+		{"非 Windows 忽略窗口标题", ScreenPushPlan{GOOS: "linux", Display: ":0", FPS: 30, Region: ScreenRegion{WindowTitle: "x", Desktop: true}},
+			[]string{"-f", "x11grab", "-framerate", "30", "-draw_mouse", "1", "-i", ":0+0,0"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ScreenInputArgs(tc.plan)
+			if strings.Join(got, "\x00") != strings.Join(tc.want, "\x00") {
+				t.Fatalf("\n got %q\nwant %q", got, tc.want)
+			}
+		})
+	}
+}

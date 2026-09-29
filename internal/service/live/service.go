@@ -57,6 +57,10 @@ type Config struct {
 	// ProbeDuration 读存档时长，读不出返回错误（空壳判定）；默认用 ffprobe。Remove 删除空壳存档，默认 os.Remove（测试用）。
 	ProbeDuration func(ctx context.Context, ffprobe, path string) (float64, error)
 	Remove        func(path string) error
+	// EnumWindows 枚举顶层窗口（未过滤），Monitors 枚举 Windows 显示器（测试注入）。默认只在 GOOS 等于真实系统时用平台实现：
+	// EnumWindows 默认 enumTopLevelWindows（仅 Windows 有意义），Monitors 默认 listWindowsMonitors。
+	EnumWindows func() ([]RawWindow, error)
+	Monitors    func() ([]ScreenInfo, error)
 	// Grace 覆盖优雅停止的等待时间（测试用）；0 用默认（无存档 5 秒、有存档 15 秒）。
 	Grace time.Duration
 	// Logf 记录内部信息；只会收到脱敏内容。为空时不记录。
@@ -99,6 +103,12 @@ func New(cfg Config) *Service {
 	}
 	if cfg.Remove == nil {
 		cfg.Remove = os.Remove
+	}
+	if cfg.EnumWindows == nil && cfg.GOOS == runtime.GOOS {
+		cfg.EnumWindows = enumTopLevelWindows
+	}
+	if cfg.Monitors == nil {
+		cfg.Monitors = listWindowsMonitors
 	}
 	if cfg.Run == nil {
 		cfg.Run = ffmpeg.ExecRunner(10 * time.Second)

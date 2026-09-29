@@ -13,16 +13,23 @@
 | `EDIT_BACKEND_READY` | `edit.ts` | `window.go.app.EditService.*` |
 | `DOC_BACKEND_READY` | `doc.ts` | 生成绑定 `wailsjs/go/app/DocService`（后端 #29 已合入，开关为 `true`）。纯浏览器（没有 `window.go`）保留模拟，`isDocSim()` 为 true，文档页只在这时显示“演示”提示 |
 | `ABOUT_BACKEND_READY` | `about.ts` | 生成绑定 `wailsjs/go/main/App` 的 `GetAppVersion()` / `GetLicenseText(name)`（后端 #34、#36，已合入，开关为 `true`）。纯浏览器开发环境（没有 `window.go`）始终走模拟：版本“开发版”、许可文本是标注“演示文本”的 OFL 前几行 |
+| `ENCODER_BACKEND_READY`（默认 `false`） | `encoder.ts` | `SystemService.ListEncoderDevices()` / `GetEncoderPreference()` / `SetEncoderPreference(id)`（经 `callService`）。**false 时设置页完全不显示“编码设备”**；纯浏览器只有地址带 `?enc=` 才显示模拟层 |
 
 开关为 true 时经 `call.ts` 的 `callService(service, method, ...args)` 按名字取 `window.go`，**不 import wailsjs 生成文件**（没有绑定时 `vue-tsc` / `vite build` 也能过）。绑定不存在会抛 `UNSUPPORTED`，不会悄悄走模拟。
 
 ## 方法清单
 
-**Live**（`live.ts`）：`startFilePush(FilePushRequest)→Task`、`startScreenPush(ScreenPushRequest)→Task`、`getCaptureCapabilities()`、`listScreens()`、`checkPushURL(url)→PushURLInfo`；停止 `stopPush(taskId)`（= `TaskService.Cancel`）；`listRunning()`（`TaskService.ListActive` 里的 live_*）；`watchLiveTask(id, handlers)`（`task:progress` / `task:status`）；素材 `pickMaterial()`（`SystemService.PickFiles` + `MediaService.Probe`）。任务类型 `live_file_push` / `live_screen_push`，Task 新增 `fps` / `bitrateKbps` / `droppedFrames`。
+**Live**（`live.ts`）：`startFilePush(FilePushRequest)→Task`、`startScreenPush(ScreenPushRequest)→Task`、`getCaptureCapabilities()`、`listScreens()`、`listCaptureSources()`（v0.14，屏幕 + Windows 窗口；`ScreenPushRequest.captureSourceId` 可选，失效 → `LIVE_SOURCE_GONE`，`?sim_source_gone=1` 让模拟窗口消失，`?sim_err=LIVE_SOURCE_GONE&sim_reason=window|screen` 注入）、`checkPushURL(url)→PushURLInfo`；停止 `stopPush(taskId)`（= `TaskService.Cancel`）；`listRunning()`（`TaskService.ListActive` 里的 live_*）；`watchLiveTask(id, handlers)`（`task:progress` / `task:status`）；素材 `pickMaterial()`（`SystemService.PickFiles` + `MediaService.Probe`）。任务类型 `live_file_push` / `live_screen_push`，Task 新增 `fps` / `bitrateKbps` / `droppedFrames`。
 
 **Edit**（`edit.ts`）：`validateProject`、`exportProject(EditProject, EditExportOptions)→Task`（契约名 `Export`）、`getPreviewURL(path)`、`saveProject`、`loadProject`、`listProjects(limit)`、`deleteProject`；辅助 `createPreviewSource`（404 后 HEAD 探测、重新取地址）、`findTrackOverlap` / `wouldOverlap`（拖拽 / 放置时拦同轨重叠）、`newVideoClip` / `newAudioClip` / `fillOutSec`（素材加入 clip 时用探测到的时长填 `outSec`，不能是 0）、`checkStructure`（Validate / Export）、`checkSaveLimits`（Save，只查数量上限）、`sanitizeOutputName`。素材用 `system.ts` 的 `pickFiles` 和 `media.ts` 的 `probeFiles` / `thumbnailOf`。任务类型 `edit_export`。
 
 **Doc**（`doc.ts`）：`getDocCapabilities`、`convertToPDF(inputs, outputDir)→Task[]`（`office_pdf`）、`openPDF(path)→PDFSource`、`readPDFChunk(id, offset, length)`、`readWholePDF(src)`（循环读到 eof，按原始字节处理）、`loadPDF(path)`（≤ 64 MiB 读整份；更大的返回 `/local/<token>`，先 `HEAD` 探测，404 重新 `OpenPDF` 只重试一次）、`listRecentPDFs(limit)`（limit > 200 按 200）、`removeRecentPDFs(ids)`、`listOfficeHistory()`（`TaskService.List` 的 `office_pdf` 终态任务，刷新后接回）；`isExperimental(caps)`。文档页错误文案统一走 `errors/errorMessages.ts` 的 `docErrorText`。
+
+**编码设备**（`encoder.ts`，字段来自后端同学转述，**后端 PR 未合入、生成绑定里还没有，以后端最终版为准**）：`listEncoderDevices()→{ffmpegReady, devices[]}`，每个设备 `id` / `name` / `vendor`（nvidia|intel|amd|apple|unknown）/ `kind`（gpu|cpu）/ `available` / 可选 `reason`，第一项永远是 `id="cpu"`；`getEncoderPreference()` / `setEncoderPreference(id)`，值 `auto` | `cpu` | 设备 id，默认 `auto`；所选设备不可用时偏好保持原值，列表里该项 `available=false` 并给 `reason`。返回里**没有编码器名**，界面不显示 NVENC / QSV 等（自检锁定）。`ffmpegReady` 放在列表返回上（待后端确认层级，`normalizeList` 只在它明确为 `false` 时当作未就绪）。状态推导在 `encoderView.ts`，面板 `components/encoder/EncoderDevicePanel.vue`（挂在设置页 ffmpeg 面板之后，不新增左侧分类），文案集中在 `errors/encoderMessages.ts`（**全部待产品经理确认**）。
+
+**编码设备显示规则**：`ENCODER_BACKEND_READY=false`（默认）时正式包不渲染整块，也不出现模拟显卡名。浏览器演示用 `?enc=<场景>`：`found`（默认）| `found-open` | `found-gpu` | `none` | `none-open` | `unavail` | `fail` | `noff` | `detecting`；`&fb=1` 额外显示“回退提示”三种展示的预览（仅展示）。
+
+**编码设备 · 回退提示接入点**（**本版只做展示组件，没有接线**）：`components/encoder/EncoderFallbackNotice.vue`，`variant`：`convert`（转换页进度面板上方）、`live`（直播页 Tab 条下方）、`row`（任务中心该任务行下方，末尾“查看日志”）；事件 `settings`（跳设置页 `#/settings/general`）、`log`、`close`（只影响本次会话）。接线需要后端提供：任务级标记（如任务事件 / `Task` 字段 `hwFallback`，**名字待契约**）表示“硬件编码失败已自动改用 CPU”，最好带原因供日志；直播需要在推流已回退时给出同样标记；回退是每任务提示一次还是每会话一次待产品确认。接线时只在 `ENCODER_BACKEND_READY` 为 true 且事件到达时才挂载，不改现有逻辑。
 
 公共：`call.ts`（`AppError` 含 `reason` / `scheme` / `clipId` / `path`，`AppErrorCode` 全集，`BACKEND_ERROR_CODES`）、`taskTypes.ts`（Task / 事件载荷类型）、`sim.ts`（模拟任务引擎，走 `services/wails.ts` 的模拟事件总线，任务 store 已订阅，任务中心 / 角标能看到模拟任务）。
 
