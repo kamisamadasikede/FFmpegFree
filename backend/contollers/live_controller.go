@@ -4,17 +4,16 @@ import (
 	"FFmpegFree/backend/live"
 	"FFmpegFree/backend/sse"
 	"FFmpegFree/backend/utils"
+	"FFmpegFree/internal/proc"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -189,9 +188,7 @@ func StartLiveFileStream(c *gin.Context) {
 		teeOutput,
 	}
 	cmd := exec.Command(live.FFmpegBinaryPath(), args...)
-	if runtime.GOOS == "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	}
+	proc.Configure(cmd)
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
@@ -412,9 +409,7 @@ func StartRelay(c *gin.Context) {
 		teeOutput,
 	}
 	cmd := exec.Command(live.FFmpegBinaryPath(), args...)
-	if runtime.GOOS == "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	}
+	proc.Configure(cmd)
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
