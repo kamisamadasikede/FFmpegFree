@@ -43,9 +43,10 @@ var hwLabel = map[string]string{
 	VendorNvidia: "NVENC", VendorIntel: "Quick Sync（QSV）", VendorAMD: "AMF", VendorApple: "VideoToolbox",
 }
 
-// vendorBrand 是没有具体型号时给设备起的名字。
+// vendorBrand 是读不到具体型号时给设备起的名字（会直接显示在界面上）：中文短名，
+// 不含编码器名（NVENC / QSV / AMF / VideoToolbox）、驱动名（i915 / amdgpu / nvidia）和括号后缀。Apple 读不到型号统一叫“系统显卡”。
 var vendorBrand = map[string]string{
-	VendorNvidia: "NVIDIA GPU", VendorIntel: "Intel GPU", VendorAMD: "AMD GPU", VendorApple: "Apple GPU",
+	VendorNvidia: "NVIDIA 显卡", VendorIntel: "Intel 显卡", VendorAMD: "AMD 显卡", VendorApple: "系统显卡",
 }
 
 var (
@@ -242,20 +243,16 @@ func parseLspci(out string) []gpuInfo {
 // drmCard 是 /sys/class/drm/card*/device 里读到的两项。
 type drmCard struct {
 	Vendor string // 如 0x10de
-	Driver string // 如 nvidia / i915 / amdgpu，可能为空
+	Driver string // 如 nvidia / i915 / amdgpu，可能为空；只供内部判断，不进设备名
 }
 
-// gpuFromDRM 在没有 lspci 时用 sysfs 的厂商号造一个只有厂商名的显卡。
+// gpuFromDRM 在没有 lspci 时用 sysfs 的厂商号造一个只有厂商名的显卡（名字是 vendorBrand 的中文短名，不拼驱动名）。
 func gpuFromDRM(c drmCard) (gpuInfo, bool) {
 	v := vendorFromPCIID(c.Vendor)
 	if v == VendorUnknown {
 		return gpuInfo{}, false
 	}
-	name := vendorBrand[v]
-	if c.Driver != "" {
-		name += "（" + c.Driver + "）"
-	}
-	g := gpuInfo{Name: name, Vendor: v, Discrete: v == VendorNvidia}
+	g := gpuInfo{Name: vendorBrand[v], Vendor: v, Discrete: v == VendorNvidia}
 	return g, true
 }
 

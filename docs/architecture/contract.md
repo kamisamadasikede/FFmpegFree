@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.19）
+# FFmpegFree v2 接口契约（v0.20）
+
+v0.20 变更（只改设备名兜底文案，**接口、字段、错误码都没有变**；见 9.6 第 5 步）：`EncoderDevice.name` 在读不到具体显卡型号时的兜底名统一改成中文短名，界面可直接显示、不再带编码器名或驱动名：`NVIDIA GPU` → `NVIDIA 显卡`，`Intel GPU` → `Intel 显卡`，`AMD GPU` → `AMD 显卡`，`Apple GPU` / macOS 的 `Apple VideoToolbox（系统硬件编码）` → `系统显卡`，Linux 只有 sysfs 时的 `Intel GPU（i915）` / `NVIDIA GPU（nvidia）` / `AMD GPU（amdgpu）` → 同上不带驱动名的 `Intel 显卡` / `NVIDIA 显卡` / `AMD 显卡`；能读到真实型号时不变。`EncoderDevice.reason` 仍可能含 NVENC / QSV / AMF 等技术词（v0.15 起就说明“界面不必直接显示”），本次不改。
 
 v0.19 变更（只补契约文字，**接口、字段、错误码、行为都没有变**）：① 6.6 新增 `task.NeverRanner`（任务从未真正开始执行就结束）的说明，写清触发场景、状态 / 事件 / 字段表现，以及与 v0.18 编码器字段的关系——**这类任务的 `encoder` / `encoderDevice` / `hwFallback` / `hwFallbackReason` 保留提交时写入的值，不会为空**（见 6.6 与 9.7）；② 第 6 节 `tasks` 表列清单补上 v0.18 迁移 `0004` 新增的四列（`encoder`、`encoder_device`、`hw_fallback`、`hw_fallback_reason`，v0.18 漏写）；③ 9.7 补一句：`hwFallbackReason` 枚举在 Go 常量（`internal/ffmpeg/hwenc.go`）、本契约、前端 `taskTypes.ts` 三处一致，并新增测试锁住这个一致性；前端 `errors/encoderMessages.ts` 现有回退文案按功能区分（转换 / 直播 / 任务行），不按原因区分。
 
@@ -1326,7 +1328,7 @@ type EncoderPreferenceInfo struct {
 2. `ffmpeg -hide_banner -encoders`，解析出视频编码器集合。这一步失败（命令失败且没有输出）：返回仅 cpu，**不缓存**、不报错。
 3. 枚举显卡名称（失败一律降级为空列表，不报错）：Windows 用 PowerShell `Get-CimInstance Win32_VideoController | Select-Object Name,PNPDeviceID | ConvertTo-Json`（wmic 已废弃）；macOS 用 `system_profiler SPDisplaysDataType -json`；Linux 先 `lspci -nn`，没有或没输出时读 `/sys/class/drm/card*/device/vendor`（只有厂商名）。虚拟适配器（Microsoft Basic Display / Remote Display、Hyper-V、VMware、VirtualBox、QXL 等）忽略。独显判定：NVIDIA 恒为独显；AMD 的 `Radeon Graphics` / `Vega N` / `xxxM` 是集显，其余（RX、Pro）是独显；Intel 只有 Arc 是独显。
 4. 试跑：平台上每个厂商的编码器（nvidia：`h264_nvenc` / `hevc_nvenc`；intel：`h264_qsv` / `hevc_qsv`；amd：`h264_amf` / `hevc_amf`；macOS：`h264_videotoolbox` / `hevc_videotoolbox`；Linux vaapi 本版不做），**只试 ffmpeg 里存在的**；显卡枚举到了就只试有对应显卡的厂商，枚举不出来就全试（试跑才是真相）。命令：`ffmpeg -hide_banner -loglevel error -nostdin -f lavfi -i color=c=black:s=256x256:d=0.1 -frames:v 1 -c:v <enc> -f null -`，**每个编码器 5 秒超时**，同时最多 2 个试跑。某厂商任一编码器试跑成功即 `available=true`，`encoders` 只填成功的那个（h264 成功、hevc 失败则 `hevc` 为 `""`）；都失败则 `available=false`、`reason` 是归类后的一行原因（ffmpeg 不含该编码器 / 无可用显卡或驱动缺失 / 试跑超时 / 其他）。
-5. 组装：`devices[0]` 是 cpu；随后按厂商顺序（nvidia、amd、intel；macOS 只有 apple）每张显卡一项，同厂商多张 id 序号递增。试跑成功但没枚举到名字（lspci 缺失等）给一个只有厂商名的设备（如 `NVIDIA GPU`）。枚举到但厂商没有硬件编码器支持的显卡（如 unknown）也列出，`available=false`。
+5. 组装：`devices[0]` 是 cpu；随后按厂商顺序（nvidia、amd、intel；macOS 只有 apple）每张显卡一项，同厂商多张 id 序号递增。试跑成功但没枚举到名字（lspci 缺失等）给一个只有厂商名的设备，名字是中文短名：`NVIDIA 显卡`、`Intel 显卡`、`AMD 显卡`；macOS 读不到型号时是 `系统显卡`（v0.20 起；此前是 `NVIDIA GPU` / `Apple VideoToolbox（系统硬件编码）` / Linux 只有 sysfs 时的 `Intel GPU（i915）`）。兜底名不含编码器名（NVENC / QSV / AMF / VideoToolbox）、驱动名（i915 / amdgpu / nvidia）和括号后缀，界面可以直接显示；能读到真实型号（如 `NVIDIA GeForce RTX 4060`）时保持原样。枚举到但厂商没有硬件编码器支持的显卡（如 unknown）也列出，`available=false`。
 6. 探测子进程一律经 `ffmpeg.NewCommand`（Windows 隐藏控制台窗口、单独进程组），不占用任务管理器的槽位，不影响正在运行的任务。应用根 ctx 取消时中断并返回 `CANCELED`。
 
 **缓存**：按 `ffmpeg 路径 + 版本` 缓存整个结果。ffmpeg 状态每次变化（安装完成 / 手动指定 / 重新检测，即每次 `ffmpeg:status`）都使缓存失效；检测过程中发生失效，这次结果不写入缓存。`RefreshEncoderDevices()` 强制重测。有编码器试跑超时的结果**不缓存**（驱动可能只是一时没响应）。没有显卡的机器：`devices` 只有 cpu，不报错，也不试跑。
