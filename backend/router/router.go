@@ -72,9 +72,6 @@ func SetupRouter() *gin.Engine {
 	api.GET("/getPDFFiles", contollers.GetPDFFiles)
 	api.POST("/deletePDFFile", contollers.DeletePDFFile)
 
-	api.POST("/json/format", contollers.JsonFormat)
-	api.POST("/json/compare", contollers.JsonCompare)
-	api.POST("/json/validate", contollers.JsonValidate)
 	api.GET("/edit/sources", contollers.GetEditSources)
 	api.POST("/edit/probe", contollers.ProbeEditSource)
 	api.POST("/edit/render", contollers.RenderEditProject)
