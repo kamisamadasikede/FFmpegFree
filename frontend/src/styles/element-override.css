@@ -1,0 +1,62 @@
+/* 把 Element Plus 变量映射到 --ff-*，浅色和暗色共用一份 */
+:root,
+html.dark {
+  --el-color-primary: var(--ff-primary);
+  --el-color-primary-light-3: color-mix(in srgb, var(--ff-primary) 70%, var(--ff-bg-surface));
+  --el-color-primary-light-5: color-mix(in srgb, var(--ff-primary) 50%, var(--ff-bg-surface));
+  --el-color-primary-light-7: color-mix(in srgb, var(--ff-primary) 30%, var(--ff-bg-surface));
+  --el-color-primary-light-8: color-mix(in srgb, var(--ff-primary) 20%, var(--ff-bg-surface));
+  --el-color-primary-light-9: var(--ff-primary-soft);
+  --el-color-primary-dark-2: var(--ff-primary-hover);
+  --el-color-success: var(--ff-success);
+  --el-color-warning: var(--ff-warning);
+  --el-color-danger: var(--ff-danger);
+  --el-color-error: var(--ff-danger);
+
+  --el-bg-color: var(--ff-bg-surface);
+  --el-bg-color-page: var(--ff-bg-app);
+  --el-bg-color-overlay: var(--ff-bg-elevated);
+  --el-fill-color-light: var(--ff-bg-hover);
+  --el-fill-color-blank: var(--ff-bg-surface);
+
+  --el-text-color-primary: var(--ff-text-1);
+  --el-text-color-regular: var(--ff-text-1);
+  --el-text-color-secondary: var(--ff-text-2);
+  --el-text-color-placeholder: var(--ff-text-3);
+  --el-text-color-disabled: var(--ff-text-3);
+
+  --el-border-color: var(--ff-border);
+  --el-border-color-light: var(--ff-border);
+  --el-border-color-lighter: var(--ff-border);
+
+  --el-border-radius-base: var(--ff-radius-md);
+  --el-border-radius-small: var(--ff-radius-sm);
+  --el-font-size-base: var(--ff-fs-sm);
+  --el-font-family: var(--ff-font);
+  --el-box-shadow-light: var(--ff-shadow-1);
+  --el-transition-duration: var(--ff-dur-base);
+  --el-transition-duration-fast: var(--ff-dur-fast);
+}
+
+.el-dialog {
+  --el-dialog-border-radius: var(--ff-radius-xl);
+  box-shadow: var(--ff-shadow-dialog);
+}
+
+/* 去掉页面级大阴影，用描边分区 */
+.el-card {
+  border-radius: var(--ff-radius-lg);
+  border: 1px solid var(--ff-border);
+  box-shadow: none !important;
+}
+
+.el-table {
+  border-radius: var(--ff-radius-lg);
+  overflow: hidden;
+}
+
+.el-table th.el-table__cell {
+  background-color: var(--ff-bg-hover);
+  color: var(--ff-text-2);
+  font-weight: 500;
+}
