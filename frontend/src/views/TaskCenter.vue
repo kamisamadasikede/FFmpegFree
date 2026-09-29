@@ -55,10 +55,10 @@
         <table v-else class="tbl" aria-label="任务列表">
           <thead>
             <tr>
-              <th scope="col" style="width: 30%">任务</th>
+              <th scope="col" class="c-task">任务</th>
               <th scope="col" style="width: 8%">类型</th>
               <th scope="col" style="width: 11%">状态</th>
-              <th scope="col" style="width: 24%">进度</th>
+              <th scope="col" class="c-prog">进度</th>
               <th scope="col">开始时间</th>
               <th scope="col" class="opsh"><span class="sr-only">操作</span></th>
             </tr>
@@ -67,7 +67,7 @@
             <template v-for="t in rows" :key="t.id">
               <tr :class="{ sel: logId === t.id, haserr: hasErrLine(t) }">
                 <td>
-                  <div class="fname" :title="t.title">{{ t.title || fileBaseName(t.outputPath) }}</div>
+                  <div class="fname" :title="isSim(t) ? `演示任务（模拟数据） · ${t.title}` : t.title"><span v-if="isSim(t)" class="simtag">演示</span>{{ shownTitle(t) }}</div>
                   <div class="finfo">{{ subInfo(t) }}</div>
                 </td>
                 <td>
@@ -76,7 +76,7 @@
                 </td>
                 <td>
                   <span class="tag" :class="STATUS_TAG[t.status].cls">
-                    <FIcon v-if="STATUS_TAG[t.status].icon" :name="STATUS_TAG[t.status].icon!" :size="12" />{{ STATUS_TAG[t.status].label }}
+                    <FIcon v-if="STATUS_TAG[t.status].icon" :name="STATUS_TAG[t.status].icon!" :size="12" />{{ statusLabel(t) }}
                   </span>
                 </td>
                 <td>
@@ -107,7 +107,7 @@
                     compact
                     :tone="t.status === 'interrupted' ? 'interrupted' : 'danger'"
                     :code="t.error.code"
-                    :message="t.error.message"
+                    :message="errMessage(t)"
                     :detail="t.error.detail"
                     :announce="isFresh(t)"
                     show-retry
@@ -191,10 +191,11 @@ import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import ErrorLine from '@/components/common/ErrorLine.vue'
-import { isLiveType, isTerminal, useTaskStore, type TaskItem, type TaskStatus } from '@/stores/tasks'
+import { elapsedMs, isLiveType, isTerminal, useTaskStore, type TaskItem, type TaskStatus } from '@/stores/tasks'
 import type { IconName } from '@/components/icon/icons'
 import { toAppError } from '@/api/call'
-import { actionErrorText } from '@/errors/errorMessages'
+import { isSimTask, SIM_TITLE_PREFIX } from '@/api/sim'
+import { actionErrorText, docUnsupportedText, liveFailureMessage, LIVE_STOP_TEXT, schemeFromParams } from '@/errors/errorMessages'
 import { pickDirectory, revealInFolder } from '@/api/system'
 import { parseConvertParams, resubmitToDir } from '@/api/convert'
 import { fileBaseName, formatClock, formatDuration, formatEta, formatStart } from '@/utils/format'
@@ -235,9 +236,9 @@ function onTabKeydown(e: KeyboardEvent) {
 const TYPE_FILTERS = [
   { key: 'all', label: '全部类型', types: [] as string[] },
   { key: 'convert', label: '转换', types: ['convert'] },
-  { key: 'edit', label: '剪辑', types: ['edit_render'] },
+  { key: 'edit', label: '剪辑', types: ['edit_export'] },
   { key: 'doc', label: '文档', types: ['office_pdf'] },
-  { key: 'live', label: '直播', types: ['live_file_push', 'live_relay', 'live_record_push'] },
+  { key: 'live', label: '直播', types: ['live_file_push', 'live_screen_push'] },
   { key: 'install', label: '安装', types: ['ffmpeg_install'] },
 ]
 const typeFilter = ref('all')
@@ -283,8 +284,8 @@ function onTypeChange() {
 
 // ---- 展示辅助 ----
 const TYPE_LABEL: Record<string, string> = {
-  convert: '转换', edit_render: '剪辑', office_pdf: '文档', ffmpeg_install: '安装',
-  live_file_push: '直播', live_relay: '直播', live_record_push: '直播',
+  convert: '转换', edit_export: '剪辑', office_pdf: '文档', ffmpeg_install: '安装',
+  live_file_push: '直播', live_screen_push: '直播',
 }
 const typeLabel = (t: string) => TYPE_LABEL[t] ?? t
 
@@ -297,6 +298,28 @@ const STATUS_TAG: Record<TaskStatus, { label: string; cls: string; icon?: IconNa
   canceled: { label: '已取消', cls: 'cx' },
   interrupted: { label: '已中断', cls: 'int', icon: 'warn' },
 }
+
+/** 直播任务的停止文案只看 status（契约 v0.10：succeeded=优雅停止，error 为空；canceled=超时强杀，不带错误码）；其他类型沿用通用文案 */
+function statusLabel(t: TaskItem): string {
+  if (isLiveType(t.type)) {
+    if (t.status === 'succeeded') return LIVE_STOP_TEXT.succeeded
+    if (t.status === 'canceled') return LIVE_STOP_TEXT.canceled
+  }
+  return STATUS_TAG[t.status].label
+}
+
+/** 失败行的说明：office_pdf 的 UNSUPPORTED 用产品文案（“暂不支持这种格式，请先另存为 docx、xlsx 或 pptx”），其余沿用后端 message */
+function errMessage(t: TaskItem): string | undefined {
+  if (t.type === 'office_pdf' && t.error?.code === 'UNSUPPORTED') return docUnsupportedText(t.error.message, t.error.detail)
+  // 连接失败：按 detail 首行 scheme=（srt 一句、rtmp/rtmps 一句）；detail 没有时才用脱敏 params.url 的 scheme 兜底
+  if (isLiveType(t.type) && t.error?.code === 'LIVE_CONNECT_FAILED') return liveFailureMessage(t.error, schemeFromParams(t.params))
+  return t.error?.message
+}
+
+/** 接口层模拟出来的任务（后端还没接入时的演示数据），任务中心里加“演示”标记，避免被当成真实任务 */
+const isSim = (t: TaskItem) => isSimTask(t.id)
+/** 演示任务的标题去掉“【演示】”前缀（由标签代替） */
+const shownTitle = (t: TaskItem) => (isSim(t) && t.title.startsWith(SIM_TITLE_PREFIX) ? t.title.slice(SIM_TITLE_PREFIX.length) : t.title) || fileBaseName(t.outputPath)
 
 const percent = (t: TaskItem) => Math.round(Math.min(1, Math.max(0, t.progress)) * 100)
 const liveSeconds = (t: TaskItem) => (t.outTimeSec > 0 ? t.outTimeSec : t.startedAt ? (Date.now() - t.startedAt) / 1000 : 0)
@@ -326,13 +349,17 @@ function progressText(t: TaskItem): string {
       return pos > 0 ? `排队中（第 ${pos} 位）` : '排队中'
     }
     case 'succeeded':
-      return t.startedAt && t.finishedAt ? `用时 ${formatDuration(t.finishedAt - t.startedAt)}` : '已完成'
+      {
+        const ms = elapsedMs(t.startedAt, t.finishedAt)
+        if (isLiveType(t.type)) return ms !== null ? `推流 ${formatDuration(ms)}` : '推流已结束'
+        return ms !== null ? `用时 ${formatDuration(ms)}` : '已完成'
+      }
     case 'failed':
       return '失败'
     case 'interrupted':
       return '应用退出，已中断'
     case 'canceled':
-      return '用户取消'
+      return isLiveType(t.type) ? LIVE_STOP_TEXT.canceled : '用户取消'
   }
 }
 
@@ -661,6 +688,18 @@ tr.haserr > td {
 tr.errrow > td {
   padding: 0 16px 12px;
 }
+.simtag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border: 1px solid var(--ff-border);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 18px;
+  color: var(--ff-text-2);
+  vertical-align: 1px;
+}
 .fname {
   font-weight: 500;
   white-space: nowrap;
@@ -670,6 +709,16 @@ tr.errrow > td {
 }
 td:first-child {
   max-width: 0; /* 让长文件名在表格里省略而不是撑宽列 */
+}
+/* 任务列多给一些宽度：第二行“转为 MP4 · 压缩到 200 MB”约 170px。窗口最小 1024 宽时表格只有约 774px，
+   其余四列的最小宽度合计约 407px，所以窄窗口下再把单元格左右内边距从 16 收到 12（见下面的 @media） */
+.c-task { width: 32%; }
+.c-prog { width: 22%; }
+th { white-space: nowrap; } /* “开始时间”不换行 */
+@media (max-width: 1100px) {
+  th,
+  td { padding-left: 12px; padding-right: 12px; }
+  tr.errrow > td { padding-left: 12px; padding-right: 12px; }
 }
 .finfo {
   font-size: 12px;

@@ -7,6 +7,7 @@ import router from './router'
 import './styles/tokens.css'
 import './styles/element-override.css'
 import './styles/base.css'
+import './styles/settings-panels.css'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import { createPinia } from 'pinia'
 const app = createApp(App)
@@ -36,8 +37,9 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
     app.component(key, component)
 }
 
-app.use(router)
+// pinia 先于 router 安装：路由守卫里要读 ffmpeg store，首次导航在 app.use(router) 之后就会开始
 app.use(pinia)
+app.use(router)
 // 桌面化：控件默认 small（设计规范第 0 节）
 app.use(ElementPlus, { size: 'small' })
 app.mount('#app')

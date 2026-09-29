@@ -10,10 +10,17 @@ export interface SyntaxErr {
   message: string
 }
 
+/** 第一个字符是不是汉字（含 CJK 扩展 A / 兼容汉字）。 */
+export function startsWithCJK(s: string): boolean {
+  return /^\s*[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/.test(s)
+}
+
 /** 把服务端（Go）/ JSON.parse（V8）的英文错误翻成简短中文，文案取自设计稿「缺少逗号或括号」。 */
 export function describeSyntax(raw: string): string {
   const m = raw.replace(/^JSON 语法错误[:：]\s*/, '')
-  if (/[\u4e00-\u9fa5]/.test(m)) return m // 已经是中文（服务端的 内容为空 / 内容不完整 / 结束后还有多余内容，或本地校验已翻译）
+  // 只放行以中文开头的（服务端的 内容为空 / 内容不完整 / 结束后还有多余内容，或本地校验已翻译）。
+  // 不能用「包含中文」判断：引擎的英文信息里可能带用户输入的字符，如 invalid character '中' looking for ...
+  if (startsWithCJK(m)) return m
   const rules: [RegExp, string][] = [
     [/after object key:value pair|after array element|Expected ',' or|after property value/i, '缺少逗号或括号'],
     [/beginning of object key string|double-quoted property name|Expected property name/i, '键名需要用双引号括起来'],
@@ -26,6 +33,35 @@ export function describeSyntax(raw: string): string {
   ]
   for (const [re, zh] of rules) if (re.test(m)) return zh
   return '语法错误'
+}
+
+/**
+ * 非语法类的处理错误（JSON 页里用户永远看不到标题「出错了」和错误码）→ 结果区的一行中文。
+ * - 去转义失败（INVALID_ARGUMENT）→ 不是有效的转义字符串
+ * - 后端 message 以中文开头 → 直接用
+ * - 其余（英文、空、乱码）→ 处理失败，请检查输入内容
+ */
+export function describeServiceError(code: string, message: string | undefined, mode?: 'format' | 'compact' | 'escape' | 'unescape'): string {
+  if (mode === 'unescape' && code === 'INVALID_ARGUMENT') return '不是有效的转义字符串'
+  const m = (message ?? '').trim()
+  if (startsWithCJK(m)) return m
+  return '处理失败，请检查输入内容'
+}
+
+/** 错误标记范围：从出错列开始，只覆盖出错的那一个 token（整串字符串 / 一个字面量 / 一个标点），不拖到行尾。返回 0 基起点和长度。 */
+export function errorTokenSpan(line: string, col0: number): { start: number; length: number } {
+  const start = Math.max(0, Math.min(col0, Math.max(0, line.length - 1)))
+  const c = line[start]
+  if (c === undefined) return { start, length: 1 }
+  if (c === '"') {
+    let j = start + 1
+    while (j < line.length && line[j] !== '"') j += line[j] === '\\' ? 2 : 1
+    return { start, length: Math.min(j + 1, line.length) - start }
+  }
+  if (/[\s,:\[\]{}]/.test(c)) return { start, length: 1 }
+  let j = start
+  while (j < line.length && !/[\s,:\[\]{}"]/.test(line[j])) j++
+  return { start, length: Math.max(1, j - start) }
 }
 
 export function offsetToLineCol(text: string, offset: number): { line: number; column: number } {

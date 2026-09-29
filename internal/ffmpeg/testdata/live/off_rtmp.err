@@ -1,0 +1,21 @@
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from '/tmp/live_src.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf61.7.103
+  Duration: 00:00:20.00, start: 0.000000, bitrate: 118 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High 4:4:4 Predictive) (avc1 / 0x31637661), yuv444p(progressive), 640x360 [SAR 1:1 DAR 16:9], 42 kb/s, 25 fps, 25 tbr, 12800 tbn (default)
+      Metadata:
+        handler_name    : VideoHandler
+        vendor_id       : [0][0][0][0]
+        encoder         : Lavc61.19.101 libx264
+  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, mono, fltp, 69 kb/s (default)
+      Metadata:
+        handler_name    : SoundHandler
+        vendor_id       : [0][0][0][0]
+[tcp @ 0x55bb1ef27100] Connection to tcp://127.0.0.1:1999?tcp_nodelay=0 failed: Connection refused
+[rtmp @ 0x55bb1ef26b00] Cannot open connection tcp://127.0.0.1:1999?tcp_nodelay=0
+[out#0/flv @ 0x55bb1e6427c0] Error opening output rtmp://127.0.0.1:1999/live/secretkey123: Connection refused
+Error opening output file rtmp://127.0.0.1:1999/live/secretkey123.
+Error opening output files: Connection refused

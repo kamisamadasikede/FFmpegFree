@@ -415,8 +415,8 @@ const dragPreviewRAF = ref<number | null>(null)
 const renderConfig = reactive<EditRenderRequest>({
   outputName: 'timeline_cut',
   outputFormat: 'mp4',
-  width: 1280,
-  height: 720,
+  width: 1920, // 默认导出 1920×1080（产品经理已定），提交时显式写宽高
+  height: 1080,
   fps: 30,
   videoTrack: [],
   audioTrack: [],

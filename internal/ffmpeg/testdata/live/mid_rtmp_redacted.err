@@ -1,0 +1,65 @@
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'file:/tmp/live_src.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf61.7.103
+  Duration: 00:00:20.00, start: 0.000000, bitrate: 354 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(progressive), 320x240 [SAR 1:1 DAR 4:3], 278 kb/s, 25 fps, 25 tbr, 12800 tbn (default)
+      Metadata:
+        handler_name    : VideoHandler
+        vendor_id       : [0][0][0][0]
+        encoder         : Lavc61.19.101 libx264
+  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, mono, fltp, 69 kb/s (default)
+      Metadata:
+        handler_name    : SoundHandler
+        vendor_id       : [0][0][0][0]
+Stream mapping:
+  Stream #0:0 -> #0:0 (h264 (native) -> h264 (libx264))
+  Stream #0:1 -> #0:1 (aac (native) -> aac (native))
+Press [q] to stop, [?] for help
+[libx264 @ 0x558706aed540] using SAR=1/1
+[libx264 @ 0x558706aed540] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2 AVX512
+[libx264 @ 0x558706aed540] profile High, level 1.3, 4:2:0, 8-bit
+[libx264 @ 0x558706aed540] 264 - core 164 r3108 31e19f9 - H.264/MPEG-4 AVC codec - Copyleft 2003-2023 - http://www.videolan.org/x264.html - options: cabac=1 ref=1 deblock=1:0:0 analyse=0x3:0x113 me=hex subme=2 psy=1 psy_rd=1.00:0.00 mixed_ref=0 me_range=16 chroma_me=1 trellis=0 8x8dct=1 cqm=0 deadzone=21,11 fast_pskip=1 chroma_qp_offset=0 threads=3 lookahead_threads=3 sliced_threads=1 slices=3 nr=0 decimate=1 interlaced=0 bluray_compat=0 constrained_intra=0 bframes=0 weightp=1 keyint=50 keyint_min=5 scenecut=40 intra_refresh=0 rc_lookahead=0 rc=cbr mbtree=0 bitrate=500 ratetol=1.0 qcomp=0.60 qpmin=0 qpmax=69 qpstep=4 vbv_maxrate=500 vbv_bufsize=1000 nal_hrd=none filler=0 ip_ratio=1.40 aq=1:1.00
+Output #0, flv, to 'rtmp://127.0.0.1:43539/live/***':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf61.7.103
+  Stream #0:0(und): Video: h264 ([7][0][0][0] / 0x0007), yuv420p(tv, progressive), 320x240 [SAR 1:1 DAR 4:3], q=2-31, 500 kb/s, 25 fps, 1k tbn (default)
+      Metadata:
+        handler_name    : VideoHandler
+        vendor_id       : [0][0][0][0]
+        encoder         : Lavc61.19.101 libx264
+      Side data:
+        cpb: bitrate max/min/avg: 500000/0/500000 buffer size: 1000000 vbv_delay: N/A
+  Stream #0:1(und): Audio: aac (LC) ([10][0][0][0] / 0x000A), 44100 Hz, stereo, fltp, 128 kb/s (default)
+      Metadata:
+        handler_name    : SoundHandler
+        vendor_id       : [0][0][0][0]
+        encoder         : Lavc61.19.101 aac
+[vost#0:0/libx264 @ 0x558706b50700] Error submitting a packet to the muxer: Broken pipe
+    Last message repeated 1 times
+[out#0/flv @ 0x558706afd540] Error muxing a packet
+[out#0/flv @ 0x558706afd540] Task finished with error code: -32 (Broken pipe)
+[out#0/flv @ 0x558706afd540] Terminating thread with return code -32 (Broken pipe)
+[out#0/flv @ 0x558706afd540] Error writing trailer: Broken pipe
+[out#0/flv @ 0x558706afd540] Error closing file: Broken pipe
+[out#0/flv @ 0x558706afd540] video:74KiB audio:23KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown
+frame=   30 fps= 29 q=17.0 Lsize=      91KiB time=00:00:01.20 bitrate= 619.9kbits/s speed=1.15x    
+[libx264 @ 0x558706aed540] frame I:1     Avg QP:11.56  size:  5332
+[libx264 @ 0x558706aed540] frame P:43    Avg QP:15.34  size:  2329
+[libx264 @ 0x558706aed540] mb I  I16..4: 66.3%  5.3% 28.3%
+[libx264 @ 0x558706aed540] mb P  I16..4:  7.1%  0.2%  0.4%  P16..4: 14.6%  7.1%  6.1%  0.0%  0.0%    skip:64.6%
+[libx264 @ 0x558706aed540] 8x8 transform intra:3.5% inter:7.2%
+[libx264 @ 0x558706aed540] coded y,uvDC,uvAC intra: 12.8% 45.0% 37.9% inter: 8.2% 21.9% 17.3%
+[libx264 @ 0x558706aed540] i16 v,h,dc,p: 85%  9%  6%  0%
+[libx264 @ 0x558706aed540] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 29% 22% 33%  7%  2%  2%  2%  2%  2%
+[libx264 @ 0x558706aed540] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 45% 18% 26%  2%  2%  2%  3%  2%  2%
+[libx264 @ 0x558706aed540] i8c dc,h,v,p: 49% 15% 36%  1%
+[libx264 @ 0x558706aed540] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x558706aed540] kb/s:479.48
+[aac @ 0x558707346600] Qavg: 7151.417
+Conversion failed!
