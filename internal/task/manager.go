@@ -208,7 +208,10 @@ func (m *Manager) Submit(spec Spec, r Runner) (Task, error) {
 	if c, ok := r.(Claimer); ok {
 		c.Submitted(t.ID)
 	}
-	m.emit(EventCreated, e.snapshot())
+	// 快照必须在入队前取：入队后任务可能立刻开始甚至跑完，返回给调用方的应当是"刚创建"的状态（queued，version 1），
+	// 与 task:created 事件一致；之后的变化由 task:status / task:progress 事件推送。
+	created := e.snapshot()
+	m.emit(EventCreated, created)
 
 	live := IsLive(spec.Type)
 	m.mu.Lock()
@@ -231,7 +234,7 @@ func (m *Manager) Submit(spec Spec, r Runner) (Task, error) {
 			m.pump()
 		}
 	}
-	return e.snapshot(), nil
+	return created, nil
 }
 
 // finishNeverRan 结束一个从未开始执行的任务（排队中被取消、退出时还在排队）：落库、发 task:status、调用 OnFinish。
