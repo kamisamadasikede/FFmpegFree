@@ -22,8 +22,16 @@ export function InstallFFmpeg(arg1) {
   return window['go']['app']['SystemService']['InstallFFmpeg'](arg1);
 }
 
+export function PickDirectory(arg1) {
+  return window['go']['app']['SystemService']['PickDirectory'](arg1);
+}
+
 export function RecheckFFmpeg() {
   return window['go']['app']['SystemService']['RecheckFFmpeg']();
+}
+
+export function RevealInFolder(arg1) {
+  return window['go']['app']['SystemService']['RevealInFolder'](arg1);
 }
 
 export function SetFFmpegPath(arg1) {
