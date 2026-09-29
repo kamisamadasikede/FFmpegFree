@@ -804,7 +804,8 @@ void hasWailsBackend
   gap: var(--ff-space-4);
   /* 给焦点描边留位置，避免被 overflow 裁掉 */
   margin: calc(-1 * var(--ff-space-1));
-  padding: var(--ff-space-1);
+  /* 底部多补 4px：实测有约 7px 溢出残余，未滚动时卡片底缘比可视区低约 3px，底部描边被裁、最后一行小字落在渐隐区 */
+  padding: var(--ff-space-1) var(--ff-space-1) calc(var(--ff-space-1) + 4px);
 }
 /* 有溢出时滚动条 6px 可见（覆盖全局“悬停才显示”的透明度），让人看出下面还有 */
 .pscroll::-webkit-scrollbar-thumb {

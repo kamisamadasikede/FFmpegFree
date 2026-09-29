@@ -7,7 +7,7 @@
  * 取消导出 = TaskService.Cancel（tasks store 的 cancel）；重试 = TaskService.Retry（edit_export 注册了重试工厂）。
  *
  * 契约要点（前端相关）：
- * - Render → Export，edit_render → edit_export。数值 / 枚举越界一律 INVALID_ARGUMENT（不再静默截断）。
+ * - Render → Export（任务类型 edit_export）。数值 / 枚举越界一律 INVALID_ARGUMENT（不再静默截断）。
  * - 同一轨道上 clip 时间重叠 → INVALID_ARGUMENT，但只在 ValidateProject 和 Export 里报；SaveProject 只校验数量上限，草稿可以带重叠保存（架构师决定 5）。
  *   前端在拖拽 / 放置时就要拦住：见 findTrackOverlap；画中画用不同轨道。
  * - outSec 必须 > inSec，0 不表示“到结尾”，outSec=0 一律 INVALID_ARGUMENT：素材加入 clip 时用探测到的时长填实际值（见 newVideoClip / newAudioClip / fillOutSec）。

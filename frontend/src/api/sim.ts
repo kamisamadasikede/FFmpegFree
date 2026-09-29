@@ -143,7 +143,7 @@ function finish(e: Entry, status: 'succeeded' | 'failed' | 'canceled', error?: A
   t.fps = t.bitrateKbps = t.droppedFrames = undefined
   bump(e)
   // 契约：优雅停止的 succeeded 和强杀的 canceled 都不带 error
-  emitStatus(e, { outputPath: t.outputPath || undefined, finishedAt: t.finishedAt, ...(error ? { error } : {}) })
+  emitStatus(e, { outputPath: t.outputPath || undefined, ...(t.startedAt ? { startedAt: t.startedAt } : {}), finishedAt: t.finishedAt, ...(error ? { error } : {}) })
 }
 
 function progress(e: Entry, over: Partial<TaskProgressPayload>) {
@@ -177,7 +177,7 @@ export function createSimTask(spec: SimTaskSpec): ApiTask {
     task.status = 'running'
     task.startedAt = Date.now()
     bump(e)
-    emitStatus(e)
+    emitStatus(e, { startedAt: task.startedAt })
     if (live) runLive(e)
     else runBatch(e)
   }, 300)
