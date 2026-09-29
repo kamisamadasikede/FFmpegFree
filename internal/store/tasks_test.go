@@ -142,3 +142,29 @@ func TestMarkInterruptedAffectsOnlyActive(t *testing.T) {
 		t.Fatalf("%+v", g)
 	}
 }
+
+func TestTaskOutputsByBase(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openTemp(t)
+	for i, out := range []string{"/o/a_b.mp4", "/o/axb.mp4", "/o/100%.mp4", "/p/A_B.MP4", ""} {
+		tk := mkTask(fmt.Sprintf("T%d", i), TypeConvert, StatusSucceeded, int64(i))
+		tk.OutputPath = out
+		if err := s.InsertTask(ctx, tk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.TaskOutputsByBase(ctx, "a_b.mp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// _ 不是通配符：axb.mp4 不能匹配；LIKE 对 ASCII 大小写不敏感，所以 A_B.MP4 会被粗筛进来（调用方再精确比较）
+	if len(got) != 2 {
+		t.Fatalf("got %v", got)
+	}
+	if got, _ := s.TaskOutputsByBase(ctx, "100%.mp4"); len(got) != 1 || got[0] != "/o/100%.mp4" {
+		t.Fatalf("%% 应按字面匹配: %v", got)
+	}
+	if got, _ := s.TaskOutputsByBase(ctx, ""); got != nil {
+		t.Fatalf("空文件名应返回 nil: %v", got)
+	}
+}
