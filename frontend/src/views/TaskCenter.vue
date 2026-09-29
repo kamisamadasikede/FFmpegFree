@@ -76,7 +76,7 @@
                 </td>
                 <td>
                   <span class="tag" :class="STATUS_TAG[t.status].cls">
-                    <FIcon v-if="STATUS_TAG[t.status].icon" :name="STATUS_TAG[t.status].icon!" :size="12" />{{ STATUS_TAG[t.status].label }}
+                    <FIcon v-if="STATUS_TAG[t.status].icon" :name="STATUS_TAG[t.status].icon!" :size="12" />{{ statusLabel(t) }}
                   </span>
                 </td>
                 <td>
@@ -107,7 +107,7 @@
                     compact
                     :tone="t.status === 'interrupted' ? 'interrupted' : 'danger'"
                     :code="t.error.code"
-                    :message="t.error.message"
+                    :message="errMessage(t)"
                     :detail="t.error.detail"
                     :announce="isFresh(t)"
                     show-retry
@@ -194,7 +194,7 @@ import ErrorLine from '@/components/common/ErrorLine.vue'
 import { isLiveType, isTerminal, useTaskStore, type TaskItem, type TaskStatus } from '@/stores/tasks'
 import type { IconName } from '@/components/icon/icons'
 import { toAppError } from '@/api/call'
-import { actionErrorText } from '@/errors/errorMessages'
+import { actionErrorText, docUnsupportedText, LIVE_SRT_CONNECT_FAILED_TEXT, LIVE_STOP_TEXT } from '@/errors/errorMessages'
 import { pickDirectory, revealInFolder } from '@/api/system'
 import { parseConvertParams, resubmitToDir } from '@/api/convert'
 import { fileBaseName, formatClock, formatDuration, formatEta, formatStart } from '@/utils/format'
@@ -235,9 +235,9 @@ function onTabKeydown(e: KeyboardEvent) {
 const TYPE_FILTERS = [
   { key: 'all', label: '全部类型', types: [] as string[] },
   { key: 'convert', label: '转换', types: ['convert'] },
-  { key: 'edit', label: '剪辑', types: ['edit_render'] },
+  { key: 'edit', label: '剪辑', types: ['edit_export'] },
   { key: 'doc', label: '文档', types: ['office_pdf'] },
-  { key: 'live', label: '直播', types: ['live_file_push', 'live_relay', 'live_record_push'] },
+  { key: 'live', label: '直播', types: ['live_file_push', 'live_screen_push'] },
   { key: 'install', label: '安装', types: ['ffmpeg_install'] },
 ]
 const typeFilter = ref('all')
@@ -283,8 +283,8 @@ function onTypeChange() {
 
 // ---- 展示辅助 ----
 const TYPE_LABEL: Record<string, string> = {
-  convert: '转换', edit_render: '剪辑', office_pdf: '文档', ffmpeg_install: '安装',
-  live_file_push: '直播', live_relay: '直播', live_record_push: '直播',
+  convert: '转换', edit_export: '剪辑', office_pdf: '文档', ffmpeg_install: '安装',
+  live_file_push: '直播', live_screen_push: '直播',
 }
 const typeLabel = (t: string) => TYPE_LABEL[t] ?? t
 
@@ -296,6 +296,23 @@ const STATUS_TAG: Record<TaskStatus, { label: string; cls: string; icon?: IconNa
   failed: { label: '失败', cls: 'fail' },
   canceled: { label: '已取消', cls: 'cx' },
   interrupted: { label: '已中断', cls: 'int', icon: 'warn' },
+}
+
+/** 直播任务的停止文案只看 status（契约 v0.10：succeeded=优雅停止，error 为空；canceled=超时强杀，不带错误码）；其他类型沿用通用文案 */
+function statusLabel(t: TaskItem): string {
+  if (isLiveType(t.type)) {
+    if (t.status === 'succeeded') return LIVE_STOP_TEXT.succeeded
+    if (t.status === 'canceled') return LIVE_STOP_TEXT.canceled
+  }
+  return STATUS_TAG[t.status].label
+}
+
+/** 失败行的说明：office_pdf 的 UNSUPPORTED 用产品文案（“暂不支持这种格式，请先另存为 docx、xlsx 或 pptx”），其余沿用后端 message */
+function errMessage(t: TaskItem): string | undefined {
+  if (t.type === 'office_pdf' && t.error?.code === 'UNSUPPORTED') return docUnsupportedText(t.error.message, t.error.detail)
+  // SRT 连接失败：后端统一判 LIVE_CONNECT_FAILED，文案由前端给（任务 params 已脱敏，但 scheme 还在）
+  if (isLiveType(t.type) && t.error?.code === 'LIVE_CONNECT_FAILED' && /"url":"srt:\/\//.test(t.params)) return LIVE_SRT_CONNECT_FAILED_TEXT
+  return t.error?.message
 }
 
 const percent = (t: TaskItem) => Math.round(Math.min(1, Math.max(0, t.progress)) * 100)
@@ -326,13 +343,14 @@ function progressText(t: TaskItem): string {
       return pos > 0 ? `排队中（第 ${pos} 位）` : '排队中'
     }
     case 'succeeded':
+      if (isLiveType(t.type)) return t.startedAt && t.finishedAt ? `推流 ${formatDuration(t.finishedAt - t.startedAt)}` : '推流已结束'
       return t.startedAt && t.finishedAt ? `用时 ${formatDuration(t.finishedAt - t.startedAt)}` : '已完成'
     case 'failed':
       return '失败'
     case 'interrupted':
       return '应用退出，已中断'
     case 'canceled':
-      return '用户取消'
+      return isLiveType(t.type) ? LIVE_STOP_TEXT.canceled : '用户取消'
   }
 }
 
