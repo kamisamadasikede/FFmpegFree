@@ -174,3 +174,11 @@
 **文案**集中在 `errors/livePreviewMessages.ts`（“已定”与“待产品经理确认”在文件里逐条标注）；主屏统一为“屏幕 1（主显示器）”（后端 `ListScreens` 名称、模拟数据、契约同步）。
 **浏览器演示参数**（只在没有 window.go 时有效）：`?preview=ok|slow|never|error|flaky`（模拟 JPEG 帧 / 5 秒后首帧 / 一直没画面 / 每次出错 / 偶尔出错）；`?rows=…&rowspv=1,0,1`（逐行“预览：开/关”）、`&pvsel=N`（选中第 N 行为当前预览行）；拉流页 `?live=running&pvon=0`（预览关）。不加 `?preview` 时模拟层恒返回空帧（不假装有画面）。
 
+## 采集来源选择器 v1.1（Windows 分组下拉）+ 直播回退提示条（`v2-fe-live-source-picker`）
+
+**形态判断**：`GetCaptureCapabilities().platform === 'windows'` 或 `ListCaptureSources()` 里有 `kind=window` → 分组下拉（标签“采集来源”）；否则（macOS / Linux）→ 屏幕单选列表（标签“屏幕来源”，`role=radiogroup`）。**不靠“列表为空”判断**（`utils/liveSource.ts` 的 `sourcePickerMode`）。主屏名统一“屏幕 1（主显示器）”。
+**下拉**（`CaptureSourcePicker.vue`，`mode='dropdown'`）：`combobox` + `listbox`，“屏幕”“应用窗口”两组；标题中间省略（尾部固定保留最后 10 个字符，`title` 和悬停 300ms 的气泡给全名）；底栏“共 n 个窗口”+“刷新”；首次加载骨架行、刷新中保留旧列表（“正在刷新…”）、没有窗口（组内提示）、首次失败（整块失败态 + 重试）、刷新失败保留旧列表（底栏红字“刷新失败，列表可能已过期”）。键盘 ↑↓ / Home / End / Enter / Space / Esc。弹层 Teleport 到 body。
+**LIVE_SOURCE_GONE**：选择器红边，名称保留、尺寸位置换成红字“已不可用”；字段下方错误行 + “刷新列表”；点“刷新列表”展开并立即刷新，失效窗口从列表消失，重选后红边和错误行立即清除。刷新期间不自动改选。
+**直播回退提示条**：`LiveFallbackNotice.vue`（文件推流 / 录屏推流页左列最上面，`EncoderFallbackNotice variant="live"`），条件 `liveFallbackShown(tasks.active)`：`live_*` 任务里有 `startedAt>0` 且 `hwFallback` 才显示；startedAt 为 0 / 缺失、非直播任务、`ENCODER_BACKEND_READY` 为 false 都不显示；文案不含编码器名。
+**浏览器演示参数**（无 window.go）：`?sim_sources=stale|refreshing|nowin`（刷新失败保留旧列表 / 刷新中 / Windows 没有窗口）、`?sim_win=many`（5 个窗口含长标题）、`?sim_os=mac|linux`（配合 `sim_sources=screens`，linux 三块屏；默认模拟 Windows）、`?form=srcgoneopen`（点“刷新列表”后展开）、`?enc=fb-unavail|fb-nvenc|fb-unknown`（直播任务也带回退字段，running 后显示提示条）。文案在 `errors/errorMessages.ts`（`LIVE_SOURCE_*`，除 `LIVE_SOURCE_GONE_WINDOW_TEXT` 已定稿外均待产品经理确认）。
+

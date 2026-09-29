@@ -50,6 +50,11 @@ export function showFallbackNotice(t: TaskEncoderInput | null | undefined, enabl
   return !!t && enabled && taskEverRan(t) && t.hwFallback === true
 }
 
+/** 直播页提示条：任务列表里有没有“真的运行过（startedAt>0）且 hwFallback”的直播任务（live_file_push / live_screen_push）。startedAt 为 0 / 缺失、功能没启用都不显示 */
+export function liveFallbackShown(tasks: readonly (TaskEncoderInput & { type: string })[], enabled: boolean = encoderTaskUiEnabled()): boolean {
+  return tasks.some((t) => t.type.startsWith('live_') && showFallbackNotice(t, enabled))
+}
+
 /** 设备显示名：cpu → “CPU”；显卡 → 列表里的 name；查不到（设备已不存在、列表没读到）→ “显卡”。永远不显示 id */
 export function deviceDisplayName(id: string, devices: readonly EncoderDevice[] | null | undefined): string {
   if (id === 'cpu') return ENCODER_DEVICE_CPU_NAME
