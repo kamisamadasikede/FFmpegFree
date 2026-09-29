@@ -11,8 +11,8 @@
         <button v-if="selectable" type="button" class="fname fbtn" :title="row.path" :aria-pressed="selected" :aria-label="`${row.name}，查看文件信息`" @click.stop="emit('select')">{{ row.name }}</button>
         <div v-else class="fname" :title="row.path">{{ row.name }}</div>
         <div class="finfo">
-          <span class="ellip" :title="state === 'invalid' ? row.path : undefined">{{ infoLine }}</span>
-          <span v-if="toText" class="to" :class="{ out: state === 'succeeded' }" :title="state === 'succeeded' ? task?.outputPath : undefined">{{ toText }}</span>
+          <span v-if="showInfo" class="ellip" :title="state === 'invalid' ? row.path : undefined">{{ infoLine }}</span>
+          <span v-if="toText" class="to" :class="{ out: state === 'succeeded', solo: !showInfo }" :title="state === 'succeeded' ? task?.outputPath : undefined">{{ toText }}</span>
         </div>
       </div>
 
@@ -85,6 +85,8 @@ const props = defineProps<{
   logText: string | null
   /** ffmpeg 是否就绪：没就绪时“还没读取”的行显示“等待 ffmpeg” */
   ffmpegReady?: boolean
+  /** 列表里只有这 1 个文件：下方信息卡已经写了分辨率 · 编码 · 大小，行内第二行不再重复 */
+  single?: boolean
   /** 多个文件时可点选这一行查看文件信息卡 */
   selectable?: boolean
   selected?: boolean
@@ -149,6 +151,12 @@ const toText = computed(() => {
   const label = props.row.label || props.presetShort
   return label ? `转为 ${label}` : ''
 })
+
+/**
+ * 单文件时第二行去重：信息卡（读取成功后一定显示）已经有分辨率 / 编码 / 大小，行内只留“转为 MP4 · H.264”/“→ 输出名”。
+ * 没有别的可显示时（不兼容 / 读取中 / 读取失败）仍保留原第二行，避免整行变空。
+ */
+const showInfo = computed(() => !(props.single && props.row.probe === 'ok' && toText.value))
 
 const percent = computed(() => Math.round(Math.min(1, Math.max(0, props.task?.progress ?? 0)) * 100))
 const showBar = computed(() => ['running', 'failed', 'interrupted'].includes(props.state) && (props.state === 'running' || percent.value > 0))
@@ -314,6 +322,9 @@ const errorLine = computed<ErrLine | null>(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.finfo .to.solo {
+  max-width: 100%; /* 单文件第二行只剩这一段：不再限制 60% */
+}
 .ellip {
   min-width: 0;
   white-space: nowrap;
@@ -321,8 +332,8 @@ const errorLine = computed<ErrLine | null>(() => {
   text-overflow: ellipsis;
 }
 .prog {
-  /* 192 = 标签约 52 + 间距 8 + 文字 132，放得下“68% · 剩余 1 分 37 秒”（约 120px） */
-  width: 192px;
+  /* 200 = 标签约 52 + 间距 8 + 文字 140，“68% · 剩余 1 分 37 秒”约 120px，给 Segoe UI / 雅黑的字宽差留 20px */
+  width: 200px;
   order: 0;
   flex: none;
   display: flex;

@@ -17,7 +17,7 @@
       </div>
       <div v-else-if="cv.mode === 'done'" class="okline" role="status">
         <FIcon name="check" :size="16" />
-        <div class="okbody"><b>转换完成</b>{{ cv.succeededRows.length }} 个文件已保存<template v-if="cv.outputFolder"> · <span class="okdir" :title="cv.outputFolder">{{ cv.outputFolder }}</span></template><template v-else-if="cv.outputFolders.length > 1"> · <span :title="cv.outputFolders.join('\n')">{{ cv.outputFolders.length }} 个文件夹</span></template></div>
+        <div class="okbody"><b>转换完成</b>{{ cv.succeededRows.length }} 个文件已保存<template v-if="elapsedText"> · 用时 {{ elapsedText }}</template><template v-if="cv.outputFolder"> · <span class="okdir" :title="cv.outputFolder">{{ cv.outputFolder }}</span></template><template v-else-if="cv.outputFolders.length > 1"> · <span :title="cv.outputFolders.join('\n')">{{ cv.outputFolders.length }} 个文件夹</span></template></div>
       </div>
 
       <div class="panel list-panel" :style="dropStyle">
@@ -57,6 +57,7 @@
               :conflict="cv.conflictOf(r)"
               :preset-short="cv.presetShort"
               :ffmpeg-ready="ffmpeg.ready"
+              :single="cv.rows.length === 1"
               :selectable="cv.rows.length > 1 && r.probe === 'ok'"
               :selected="cv.focusRow === r"
               :log-text="logKey === r.key ? logText : null"
@@ -205,7 +206,7 @@ import { actionErrorText } from '@/errors/errorMessages'
 import { PREVIEW_CONVERT, splitPresetName, useConvertStore, type ConvertRow } from '@/stores/convert'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { useTaskStore } from '@/stores/tasks'
-import { formatBytes, formatEta, formatShortClock } from '@/utils/format'
+import { formatBytes, formatDuration, formatEta, formatShortClock } from '@/utils/format'
 import { channelText, codecName, isAudioInfo, sampleRateText } from '@/utils/mediaText'
 
 const cv = useConvertStore()
@@ -306,6 +307,16 @@ const startLabel = computed(() => {
   return n > 0 && !cv.startBlockReason ? `开始转换 ${n} 个` : '开始转换'
 })
 
+// ---- 单文件完成态“用时” ----
+// 用时由前端自己算：任务开始到结束时间（startedAt → finishedAt）。只在整个列表就 1 个文件且已成功时显示；
+// 体积变化（源大小 → 输出大小）需要任务对象里有输出文件大小，目前没有，所以不做（也不向后端要字段）。
+const elapsedText = computed(() => {
+  if (cv.rows.length !== 1 || cv.succeededRows.length !== 1) return ''
+  const t = cv.rowTask(cv.succeededRows[0])
+  if (!t?.startedAt || !t.finishedAt || t.finishedAt < t.startedAt) return ''
+  return formatDuration(t.finishedAt - t.startedAt)
+})
+
 // ---- 文件信息卡 ----
 const card = computed(() => {
   const r = cv.focusRow
@@ -336,7 +347,7 @@ const pscrollEl = ref<HTMLElement | null>(null)
 const moreBelow = ref(false)
 function updateMore() {
   const el = pscrollEl.value
-  moreBelow.value = !!el && el.scrollHeight - el.scrollTop - el.clientHeight > 8
+  moreBelow.value = !!el && el.scrollHeight - el.scrollTop - el.clientHeight > 2
 }
 let roPscroll: ResizeObserver | null = null
 watch(() => [shownPresets.value.length, group.value, cv.presetsLoaded, cv.presetsError] as const, () => void nextTick(updateMore), { flush: 'post' })
@@ -618,17 +629,23 @@ void hasWailsBackend
   display: flex;
   flex-direction: column;
   gap: var(--ff-space-3);
-  /* 封面宽度随窗口高度收缩，保证 1024×680 下封面、信息和列表都放得下 */
-  --cover-w: min(100%, max(192px, calc((100vh - 540px) * 16 / 9)));
+  /* 封面宽度随窗口高度收缩，保证 1024×680 下封面、信息和列表都放得下：
+     宽 = 16/9 × (窗口高 − 其余内容占用的高度)，夹在 [最小宽, 100%] 之间。
+     --cover-rest = 封面以外一屏里其余部分（顶栏、标题、拖入区、文件行、信息卡文字、页边距）大约占的高度；
+     多文件时列表更高，rest 更大、最小宽更小 */
+  --cover-min: 192px;
+  --cover-rest: 540px;
+  --cover-w: min(100%, max(var(--cover-min), calc((100vh - var(--cover-rest)) * 16 / 9)));
 }
 .infocard.multi {
-  --cover-w: min(100%, max(160px, calc((100vh - 640px) * 16 / 9)));
+  --cover-min: 160px;
+  --cover-rest: 640px;
 }
 .cover {
   position: relative;
   width: var(--cover-w);
   aspect-ratio: 16 / 9;
-  margin: 0 auto;
+  margin: 0; /* 左对齐：封面左缘与下面的文件名、四列信息对齐 */
   border-radius: var(--ff-radius-lg);
   overflow: hidden;
   background: var(--ff-bg-hover);
@@ -788,9 +805,8 @@ void hasWailsBackend
   /* 给焦点描边留位置，避免被 overflow 裁掉 */
   margin: calc(-1 * var(--ff-space-1));
   padding: var(--ff-space-1);
-  /* 有溢出时滚动条常显（6px，覆盖全局“悬停才显示”），让人看出下面还有 */
-  scrollbar-gutter: auto;
 }
+/* 有溢出时滚动条 6px 可见（覆盖全局“悬停才显示”的透明度），让人看出下面还有 */
 .pscroll::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--ff-text-3) 60%, transparent);
 }

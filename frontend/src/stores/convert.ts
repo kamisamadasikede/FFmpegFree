@@ -47,6 +47,9 @@ export interface RowTask {
   etaSec: number
   error?: TaskError | null
   outputPath: string
+  /** 开始 / 结束时间（ms）：完成态“用时”由前端用它们相减；0 或缺省 = 未知 */
+  startedAt?: number
+  finishedAt?: number
 }
 
 const VIDEO_CONTAINERS = ['mp4', 'mkv', 'mov', 'webm', 'avi', 'flv', 'gif']
@@ -537,7 +540,7 @@ export const useConvertStore = defineStore('convert', () => {
     let paths = names.map((n) => `${dir}/${n}`)
     // files：三个视频文件（干净的待转换状态）；probefail：再加一个损坏文件和一个纯音频（不兼容 MP4 预设）
     if (kind === 'files') paths = [paths[0], paths[1], paths[3]]
-    if (kind === 'single') paths = [paths[0]]
+    if (kind === 'single' || kind === 'singledone') paths = [paths[0]]
     if (kind === 'audio') paths = [paths[2]]
     if (kind === 'many') paths = Array.from({ length: 50 }, (_, i) => `${dir}/素材_${String(i + 1).padStart(2, '0')}.mp4`)
     if (kind === 'probefail') paths = [paths[0], paths[1], `${dir}/损坏_采访素材.mp4`, paths[2]]
@@ -552,16 +555,16 @@ export const useConvertStore = defineStore('convert', () => {
         r.taskId = t.id
         r.label = presetShort.value
         if (fin) {
-          tasks.seedFinal({ id: t.id, status: t.status, error: t.error, outputPath: t.outputPath, progress: t.status === 'succeeded' ? 1 : t.progress, speed: '', etaSec: 0, finishedAt: Date.now(), params: t.params })
+          tasks.seedFinal({ id: t.id, status: t.status, error: t.error, outputPath: t.outputPath, progress: t.status === 'succeeded' ? 1 : t.progress, speed: '', etaSec: 0, startedAt: t.startedAt, finishedAt: Date.now(), params: t.params })
         } else tasks.track([t] as unknown as goStore.Task[])
       }
-      const ok = (i: number, out: string) => put(i, mkTask(`pv${i}`, 'succeeded', 1, { outputPath: `${dir}/输出/${out}` }), true)
+      const ok = (i: number, out: string) => put(i, mkTask(`pv${i}`, 'succeeded', 1, { outputPath: `${dir}/输出/${out}`, ...(kind === 'singledone' ? { startedAt: Date.now() - 302_000 } : {}) }), true)
       if (kind === 'running') {
         put(0, mkTask('pv0', 'running', 0.68, { speed: '2.4x', etaSec: 97 }))
         put(1, mkTask('pv1', 'running', 0.31, { speed: '1.8x', etaSec: 140 }))
         put(2, mkTask('pv2', 'queued', 0, { startedAt: 0 }))
         ok(3, 'screen_record_0928.mp4')
-      } else if (kind === 'done' || kind === 'donemulti') {
+      } else if (kind === 'done' || kind === 'donemulti' || kind === 'singledone') {
         ok(0, '产品发布会_完整版.mp4'); ok(1, 'vlog_杭州西湖.mp4'); ok(2, '访谈录音_第三期.mp4'); ok(3, 'screen_record_0928.mp4')
         // donemulti：输出在两个文件夹里（每个文件保存在各自源文件夹）
         if (kind === 'donemulti') put(3, mkTask('pv3', 'succeeded', 1, { outputPath: '/Users/me/Desktop/录屏/screen_record_0928.mp4' }), true)
