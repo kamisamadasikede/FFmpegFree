@@ -1,7 +1,9 @@
 package main
 
 import (
+	"FFmpegFree/app"
 	"FFmpegFree/backend/router"
+	"FFmpegFree/internal/service/system"
 	"embed"
 
 	"github.com/wailsapp/wails/v2"
@@ -16,7 +18,10 @@ func main() {
 	// Create an instance of the app structure
 
 	go router.InitRouter()
-	app := NewApp()
+	sysManager := system.NewManager()
+	mainApp := NewApp(sysManager)
+	jsonService := app.NewJsonService()
+	systemService := app.NewSystemService(sysManager)
 
 	// Create application with options
 	err := wails.Run(&options.App{
@@ -31,9 +36,12 @@ func main() {
 			Assets: assets,
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
-		OnStartup:        app.startup,
+		OnStartup:        mainApp.startup,
+		OnShutdown:       mainApp.shutdown,
 		Bind: []interface{}{
-			app,
+			mainApp,
+			jsonService,
+			systemService,
 		},
 	})
 

@@ -4,19 +4,18 @@ import (
 	"FFmpegFree/backend/sse"
 	"FFmpegFree/backend/utils"
 	"FFmpegFree/backend/vo"
-	"bytes"
+	"FFmpegFree/internal/proc"
 	"bufio"
+	"bytes"
 	"fmt"
 	"math"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 
 	"github.com/gin-gonic/gin"
 	"github.com/goccy/go-json"
@@ -24,6 +23,7 @@ import (
 
 var convertingMutex = &sync.Mutex{}
 var streamsMutex = &sync.Mutex{}
+
 type convertingTask struct {
 	info vo.VideoInfo
 	cmd  *exec.Cmd
@@ -74,9 +74,7 @@ func buildCoverURL(kind string, fileName string, inputPath string) string {
 			"-vf", "scale=320:-1",
 			thumbPath,
 		)
-		if runtime.GOOS == "windows" {
-			cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-		}
+		proc.Configure(cmd)
 		_ = cmd.Run()
 	}
 	if _, err := os.Stat(thumbPath); err != nil {
@@ -373,9 +371,7 @@ func Selectvideofile(c *gin.Context) {
 func getVideoDuration(filePath string) string {
 	fmt.Println(filePath)
 	cmd := exec.Command("./ffmpeg/ffmpeg", "-i", "./"+filePath)
-	if runtime.GOOS == "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	}
+	proc.Configure(cmd)
 	fmt.Print(cmd)
 	var out bytes.Buffer
 	cmd.Stderr = &out
@@ -521,9 +517,7 @@ func Convert(c *gin.Context) {
 			delete(convertingFiles, convertingKey(videoInfo))
 			convertingMutex.Unlock()
 		}()
-		cmd.SysProcAttr = &syscall.SysProcAttr{
-			HideWindow: true,
-		}
+		proc.Configure(cmd)
 		progressKey := convertingKey(videoInfo)
 		durationSeconds := parseDurationSeconds(getVideoDuration(inputPath))
 		stdout, err := cmd.StdoutPipe()
@@ -657,9 +651,7 @@ func Steamload(c *gin.Context) {
 		"-f", "flv",
 		videoInfo.SteamUrl,
 	)
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		HideWindow: true,
-	}
+	proc.Configure(cmd)
 	// 启动推流
 	cmd.Start()
 	/*	err := cmd.Start()

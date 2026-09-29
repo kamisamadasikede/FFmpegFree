@@ -1,0 +1,50 @@
+package ffmpeg
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"os/exec"
+	"strings"
+	"time"
+
+	"FFmpegFree/internal/proc"
+)
+
+// Runner 运行一个可执行文件并返回标准输出。检测逻辑通过它调用 ffmpeg / ffprobe，
+// 测试可以注入假实现。
+type Runner func(ctx context.Context, exe string, args ...string) (stdout string, err error)
+
+// defaultCheckTimeout 是单次探测命令（-version、-encoders）的超时。
+const defaultCheckTimeout = 10 * time.Second
+
+// ExecRunner 返回真实的命令执行器：每次调用带超时，Windows 上隐藏控制台窗口。
+func ExecRunner(timeout time.Duration) Runner {
+	if timeout <= 0 {
+		timeout = defaultCheckTimeout
+	}
+	return func(ctx context.Context, exe string, args ...string) (string, error) {
+		ctx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, exe, args...)
+		proc.Configure(cmd)
+		// 超时杀掉主进程后，如果子孙进程还握着管道，Wait 不会返回；WaitDelay 兜底。
+		cmd.WaitDelay = 2 * time.Second
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		if err := cmd.Run(); err != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				return stdout.String(), fmt.Errorf("运行超时（%s）: %s", timeout, exe)
+			}
+			msg := strings.TrimSpace(stderr.String())
+			if len(msg) > 500 {
+				msg = msg[len(msg)-500:]
+			}
+			if msg != "" {
+				return stdout.String(), fmt.Errorf("%w: %s", err, msg)
+			}
+			return stdout.String(), err
+		}
+		return stdout.String(), nil
+	}
+}
