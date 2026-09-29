@@ -125,8 +125,7 @@ func commitPart(part, final string) error {
 //  3. produce 成功后无覆盖地提交为最终路径（os.Link；万一目标在此期间被别的程序创建，改用下一个 (n) 名字）；
 //     失败或取消则删除 .part。
 //
-// 返回最终路径。produce 必须把完整输出写到 partPath；两遍编码等需要多次调用 ffmpeg 的任务
-// 在同一个 produce 里依次运行即可（见 FFmpegRunner.BuildPassArgs）。ctx 不带任务信息时使用进程级登记表。
+// 返回最终路径。produce 必须把完整输出写到 partPath；需要多次调用 ffmpeg 的任务可以在同一个 produce 里依次运行。ctx 不带任务信息时使用进程级登记表。
 func RunWithPart(ctx context.Context, desired string, produce func(partPath string) error) (string, error) {
 	n, owner := defaultNamer, ""
 	if info, ok := InfoFrom(ctx); ok && info.m != nil {
@@ -139,13 +138,20 @@ func RunWithPart(ctx context.Context, desired string, produce func(partPath stri
 		return "", fmt.Errorf("创建输出目录失败: %w", err)
 	}
 	part := PartPath(final)
+	// produce 发生 panic 时也要清理 .part（panic 会继续向上传播，由 Manager 的 safeRun 转成任务失败）。
+	committed := false
+	defer func() {
+		if !committed {
+			os.Remove(part)
+		}
+	}()
 	if err := produce(part); err != nil {
-		os.Remove(part)
 		return "", err
 	}
 	for {
 		err := commitPart(part, final)
 		if err == nil {
+			committed = true
 			return final, nil
 		}
 		if !errors.Is(err, errTargetExists) {
@@ -163,23 +169,4 @@ func RunWithPart(ctx context.Context, desired string, produce func(partPath stri
 		n.release(final)
 		final, part = next, nextPart
 	}
-}
-
-// MkTaskTemp 创建任务专属的临时目录（两遍编码的 -passlogfile 等），返回目录和清理函数。
-// base 为空用系统临时目录。目录名带任务 ID 便于排查；清理函数是幂等的。
-func MkTaskTemp(ctx context.Context, base string) (dir string, cleanup func(), err error) {
-	if base != "" {
-		if err := os.MkdirAll(base, 0o755); err != nil {
-			return "", func() {}, err
-		}
-	}
-	prefix := "task-"
-	if info, ok := InfoFrom(ctx); ok && info.ID != "" {
-		prefix += info.ID + "-"
-	}
-	dir, err = os.MkdirTemp(base, prefix)
-	if err != nil {
-		return "", func() {}, err
-	}
-	return dir, func() { os.RemoveAll(dir) }, nil
 }

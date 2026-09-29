@@ -385,7 +385,7 @@ func TestRemoveDeleteOutputSafety(t *testing.T) {
 		t.Fatal("目录不应被删除")
 	}
 	// 5. 正常情况：这个任务生成的普通文件会删
-	gen := filepath.Join(f.dir, "gen.mp4")
+	gen := filepath.Join(realTemp(t, f.dir), "gen.mp4")
 	d = runTaskWithOutput(t, f, []string{same}, gen, func() { os.WriteFile(gen, []byte("g"), 0o644) })
 	if err := f.m.Remove([]string{d.ID}, true); err != nil {
 		t.Fatal(err)
@@ -403,6 +403,98 @@ func TestRemoveDeleteOutputSafety(t *testing.T) {
 	f.m.Remove([]string{tk.ID}, true)
 	if _, err := os.Stat(failOut); err != nil {
 		t.Fatal("只删成功任务的输出")
+	}
+}
+
+// realTemp 返回解析过符号链接的临时目录（macOS 的 /var 是 /private/var 的链接，否则"目录含符号链接"检查会误伤测试）。
+func realTemp(t *testing.T, dir string) string {
+	t.Helper()
+	r, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+func TestUnsafeToDeleteOutputRelativePath(t *testing.T) {
+	dir := realTemp(t, t.TempDir())
+	// 相对路径会按进程工作目录解析：即使那里恰好有同名文件也不能删。
+	old, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Skip(err)
+	}
+	defer os.Chdir(old)
+	os.WriteFile("rel.mp4", []byte("x"), 0o644)
+	tk := Task{Status: StatusSucceeded, OutputPath: "rel.mp4", StartedAt: time.Now().Add(-time.Minute).UnixMilli()}
+	if r := unsafeToDeleteOutput(tk); r == "" || r == "skip" {
+		t.Fatalf("相对路径必须被拒绝并说明原因: %q", r)
+	}
+	m := &Manager{cfg: Config{}}
+	m.cleanupFiles(tk, true)
+	if _, err := os.Stat("rel.mp4"); err != nil {
+		t.Fatal("相对路径的文件不应被删除")
+	}
+}
+
+func TestRunnerRelativeOutputIsNotTrustedNorDeleted(t *testing.T) {
+	f := newFx(t, 1)
+	dir := realTemp(t, f.dir)
+	old, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Skip(err)
+	}
+	defer os.Chdir(old)
+	os.WriteFile("victim.mp4", []byte("x"), 0o644)
+	tk, err := f.m.Submit(Spec{Type: TypeConvert, OutputPath: filepath.Join(dir, "expected.mp4")}, RunnerFunc(
+		func(context.Context, func(Progress)) (string, error) { return "victim.mp4", nil }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := waitTask(t, f.m, tk.ID)
+	if d.Status != StatusSucceeded || d.OutputPath != filepath.Join(dir, "expected.mp4") {
+		t.Fatalf("相对路径不应被采信为输出: %+v", d)
+	}
+	f.m.Remove([]string{d.ID}, true)
+	if _, err := os.Stat("victim.mp4"); err != nil {
+		t.Fatal("相对路径指向的文件不应被删除")
+	}
+}
+
+func TestRemoveDeleteOutputRefusesSymlinkedParentDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows 创建符号链接需要特权")
+	}
+	f := newFx(t, 1)
+	base := realTemp(t, f.dir)
+	outside := filepath.Join(base, "outside")
+	os.MkdirAll(outside, 0o755)
+	victim := filepath.Join(outside, "v.mp4")
+	linkDir := filepath.Join(base, "linkdir")
+	if err := os.Symlink(outside, linkDir); err != nil {
+		t.Skip(err)
+	}
+	// 任务记录的输出是 linkdir/v.mp4，父目录是指向 outside 的符号链接
+	out := filepath.Join(linkDir, "v.mp4")
+	d := runTaskWithOutput(t, f, nil, out, func() { os.WriteFile(victim, []byte("x"), 0o644) })
+	if d.Status != StatusSucceeded {
+		t.Fatalf("%+v", d)
+	}
+	if err := f.m.Remove([]string{d.ID}, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(victim); err != nil {
+		t.Fatal("父目录是符号链接时不应删除链接另一端的文件")
+	}
+	if r := unsafeToDeleteOutput(d); r == "" || r == "skip" {
+		t.Fatalf("应给出拒绝原因: %q", r)
+	}
+	// 对照：普通目录里的输出仍然会删
+	plain := filepath.Join(base, "plain", "p.mp4")
+	os.MkdirAll(filepath.Dir(plain), 0o755)
+	d = runTaskWithOutput(t, f, nil, plain, func() { os.WriteFile(plain, []byte("x"), 0o644) })
+	f.m.Remove([]string{d.ID}, true)
+	if _, err := os.Stat(plain); !os.IsNotExist(err) {
+		t.Fatal("普通目录里的输出应被删除")
 	}
 }
 
@@ -577,5 +669,92 @@ func TestGetLogExactBoundaries(t *testing.T) {
 	waitTask(t, f.m, tk2.ID)
 	if s, err := f.m.GetLog(tk2.ID, 5); err != nil || s != "" {
 		t.Fatalf("%q %v", s, err)
+	}
+}
+
+// ---- 评审补充：日志大块写入、produce panic ----
+
+func TestLogSinkHugeMultiLineWriteRespectsCap(t *testing.T) {
+	dir := t.TempDir()
+	l := &logSink{p: filepath.Join(dir, "big.log"), maxBytes: 1000}
+	// 一次写入 50 行 × 100 字节 = 5000 字节，远超单文件上限。
+	var blob strings.Builder
+	for i := 0; i < 50; i++ {
+		blob.WriteString(fmt.Sprintf("%-98d\n", i))
+	}
+	if n, err := l.Write([]byte(blob.String())); err != nil || n != blob.Len() {
+		t.Fatalf("Write 应报告全部写入: %d %v", n, err)
+	}
+	l.close()
+	cur, err1 := os.Stat(l.p)
+	old, err2 := os.Stat(rotatedPath(l.p))
+	if err1 != nil || err2 != nil {
+		t.Fatalf("应有当前和轮转两个文件: %v %v", err1, err2)
+	}
+	if cur.Size() > 1000 || old.Size() > 1000 {
+		t.Fatalf("一次大块写入也不能突破单文件上限: cur=%d old=%d", cur.Size(), old.Size())
+	}
+	// 最新的内容（最后几行）必须在日志里
+	b, _ := os.ReadFile(l.p)
+	if !strings.Contains(string(b), fmt.Sprintf("%-98d", 49)) {
+		t.Fatal("最后一行应保留在当前日志里")
+	}
+	if ents, _ := os.ReadDir(dir); len(ents) != 2 {
+		t.Fatalf("目录里只应有 .log 和 .log.1: %v", ents)
+	}
+	// 一次写入比整个上限的许多倍还大（10 万字节）：不死循环，总占用不超过 2 倍上限
+	l2 := &logSink{p: filepath.Join(dir, "huge.log"), maxBytes: 1000}
+	l2.Write([]byte(strings.Repeat(strings.Repeat("x", 99)+"\n", 1000)))
+	l2.close()
+	a, _ := os.Stat(l2.p)
+	b2, _ := os.Stat(rotatedPath(l2.p))
+	if a.Size()+b2.Size() > 2000 {
+		t.Fatalf("总占用应不超过 2 倍上限: %d", a.Size()+b2.Size())
+	}
+}
+
+func TestRunWithPartPanicCleansPartAndReleasesName(t *testing.T) {
+	f := newFx(t, 1)
+	dir := realTemp(t, f.dir)
+	out := filepath.Join(dir, "p.mp4")
+	tk, err := f.m.Submit(Spec{Type: TypeConvert, OutputPath: out}, RunnerFunc(func(ctx context.Context, _ func(Progress)) (string, error) {
+		return RunWithPart(ctx, out, func(part string) error {
+			os.WriteFile(part, []byte("half"), 0o644)
+			panic("boom")
+		})
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := waitTask(t, f.m, tk.ID)
+	if d.Status != StatusFailed || d.Error == nil || !strings.Contains(d.Error.Message, "panic") {
+		t.Fatalf("panic 应变成任务失败: %+v", d)
+	}
+	if _, err := os.Stat(PartPath(out)); !os.IsNotExist(err) {
+		t.Fatalf("panic 后不应残留 .part: %v", err)
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Fatal("panic 不应产生最终文件")
+	}
+	// 名字占用已释放：同名再来一个任务，拿到原名而不是 (1)
+	tk2, _ := f.m.Submit(Spec{Type: TypeConvert, OutputPath: out}, RunnerFunc(func(ctx context.Context, _ func(Progress)) (string, error) {
+		return RunWithPart(ctx, out, func(part string) error { return os.WriteFile(part, []byte("ok"), 0o644) })
+	}))
+	if d2 := waitTask(t, f.m, tk2.ID); d2.Status != StatusSucceeded || d2.OutputPath != out {
+		t.Fatalf("panic 后名字应已释放: %+v", d2)
+	}
+}
+
+func TestRunWithPartPanicWithoutManager(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "q.mp4")
+	func() {
+		defer func() { recover() }()
+		RunWithPart(context.Background(), out, func(part string) error {
+			os.WriteFile(part, []byte("x"), 0o644)
+			panic("x")
+		})
+	}()
+	if _, err := os.Stat(PartPath(out)); !os.IsNotExist(err) {
+		t.Fatal("不在任务管理器里运行时 panic 也应清理 .part")
 	}
 }
