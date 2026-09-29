@@ -104,7 +104,7 @@ func Run(ctx context.Context, opts RunOptions) (RunResult, error) {
 		stdinW = w
 	}
 
-	if err := cmd.Start(); err != nil {
+	if err := proc.Start(cmd); err != nil {
 		return RunResult{}, apperr.Wrap(apperr.ProcessFailed, "启动 ffmpeg 失败", err)
 	}
 

@@ -24,7 +24,7 @@ export interface ErrorButton {
   action: ErrorButtonAction
   /** action 为 route 时的目标路径 */
   to?: string
-  /** 原型的遮罩按钮没有图标；需要时在这里加 */
+  /** 按钮前的图标；原型里只有“重试”带 refresh 图标，其余按钮不带 */
   icon?: IconName
 }
 
@@ -41,7 +41,7 @@ export interface ErrorMessage {
   taskRow?: boolean
 }
 
-const RETRY: ErrorButton = { label: '重试', action: 'retry' }
+const RETRY: ErrorButton = { label: '重试', action: 'retry', icon: 'refresh' }
 const VIEW_LOG: ErrorButton = { label: '查看日志', action: 'viewLog' }
 
 function overlay(title: string, description: string, extra: Partial<ErrorMessage> = {}): ErrorMessage {

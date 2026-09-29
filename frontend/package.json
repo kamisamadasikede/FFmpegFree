@@ -12,13 +12,12 @@
     "@element-plus/icons-vue": "^2.3.1",
     "@tato30/vue-pdf": "^1.11.4",
     "@wailsapp/runtime": "^1.1.1",
-    "axios": "^1.10.0",
     "element-plus": "^2.10.2",
     "monaco-editor": "^0.45.0",
+    "mpegts.js": "^1.8.0",
     "pinia": "^3.0.3",
     "vue": "^3.5.13",
-    "vue-router": "^4.5.1",
-    "mpegts.js": "^1.8.0"
+    "vue-router": "^4.5.1"
   },
   "devDependencies": {
     "@types/node": "^20.17.0",

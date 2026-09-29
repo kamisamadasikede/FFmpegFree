@@ -19,6 +19,7 @@ import (
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/ffmpeg"
+	"FFmpegFree/internal/proc"
 )
 
 const (
@@ -225,7 +226,7 @@ func runThumbOnce(ctx context.Context, ffmpegExe, in, out string, atSec float64,
 	cmd := ffmpeg.NewCommand(cctx, ffmpegExe, thumbArgs(in, out, atSec, width)...)
 	stderr := newTailWriter(maxStderrBytes)
 	cmd.Stderr = stderr
-	runErr := cmd.Run()
+	runErr := proc.Run(cmd)
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}

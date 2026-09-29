@@ -60,3 +60,53 @@ html.dark {
   color: var(--ff-text-2);
   font-weight: 500;
 }
+
+/* 主按钮 / 对话框主按钮：文字用 --ff-on-primary（暗色下白字只有 3.16:1）；
+   底色用 --ff-badge-bg（浅色 #2f5cd9 配白字 5.75:1，暗色 #5b8cff 配近黑字 6.19:1） */
+.el-button--primary:not(.is-link):not(.is-text) {
+  --el-button-text-color: var(--ff-on-primary);
+  --el-button-bg-color: var(--ff-badge-bg);
+  --el-button-border-color: var(--ff-badge-bg);
+  --el-button-outline-color: color-mix(in srgb, var(--ff-primary) 40%, transparent);
+  --el-button-active-color: var(--ff-on-primary);
+  --el-button-hover-text-color: var(--ff-on-primary);
+  --el-button-hover-bg-color: var(--ff-primary-hover);
+  --el-button-hover-border-color: var(--ff-primary-hover);
+  --el-button-active-bg-color: var(--ff-primary-hover);
+  --el-button-active-border-color: var(--ff-primary-hover);
+  --el-button-disabled-text-color: var(--ff-on-primary);
+  --el-button-disabled-bg-color: color-mix(in srgb, var(--ff-badge-bg) 50%, var(--ff-bg-surface));
+  --el-button-disabled-border-color: transparent;
+}
+/* 浅色主题 hover 底色 --ff-primary-hover 与 --ff-badge-bg 同为 #2f5cd9，加深一点保留可见的悬停反馈 */
+:root:not(.dark) .el-button--primary:not(.is-link):not(.is-text):hover:not(.is-disabled) {
+  --el-button-hover-bg-color: color-mix(in srgb, var(--ff-primary-hover) 88%, #000);
+  --el-button-hover-border-color: color-mix(in srgb, var(--ff-primary-hover) 88%, #000);
+}
+/* 链接型按钮：文字用 --ff-primary-text（浅色底上 ≥4.5:1） */
+.el-button--primary.is-link,
+.el-button--primary.is-text {
+  --el-button-text-color: var(--ff-primary-text);
+  --el-button-hover-text-color: var(--ff-primary-text);
+  --el-button-active-color: var(--ff-primary-text);
+  --el-button-hover-link-text-color: var(--ff-primary-text);
+}
+.el-button--primary.is-link:hover:not(.is-disabled) {
+  text-decoration: underline;
+}
+
+/* tooltip：浅色气泡（bg-elevated + 1px 边 + 阴影），两个主题通用 */
+.el-popper.is-light {
+  --el-popper-border-color: var(--ff-border);
+  background: var(--ff-bg-elevated);
+  border: 1px solid var(--ff-border);
+  color: var(--ff-text-1);
+  box-shadow: var(--ff-shadow-dialog);
+  font-size: var(--ff-fs-xs);
+  line-height: 1.5;
+  padding: 4px 12px;
+}
+.el-popper.is-light .el-popper__arrow::before {
+  background: var(--ff-bg-elevated);
+  border-color: var(--ff-border);
+}

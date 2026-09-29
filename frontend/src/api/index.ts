@@ -1,37 +1,28 @@
-// src/api/index.ts
+// v1 的本地 gin HTTP 服务已随后端重写移除，这里不再发起任何网络请求。
+// 仍 import 本模块的页面（剪辑、Office 转 PDF、PDF 上传）在迁移到 Wails 服务之前处于“暂不可用”状态：
+// 页面顶部有 MigrationNotice，相关按钮置灰；万一还有调用漏过来，一律立即 reject，不联网。
 
-import axios from 'axios'
+/** v1 接口是否可用。迁移完成、改用 Wails 服务后，各页面自己的调用替换掉，这个开关随之删除。 */
+export const V1_API_READY = false
 
-const baseURL = `http://localhost:19200`
-
-const api = axios.create({
-  baseURL,
-})
-
-// 请求拦截器
-api.interceptors.request.use(
-  (config) => {
-    return config
-  },
-  (error) => {
-    return Promise.reject(error)
+export class V1UnavailableError extends Error {
+  constructor() {
+    super('该功能正在迁移到 v2，暂不可用')
+    this.name = 'V1UnavailableError'
   }
-)
+}
 
-// 响应拦截器 - 修改如下
-api.interceptors.response.use(
-  (response) => {
-    // 如果是 Blob 类型，直接返回整个 response（否则 blob 会损坏）
-    if (response.config.responseType === 'blob') {
-      return response
-    }
+interface RequestConfig {
+  headers?: Record<string, string>
+  responseType?: 'blob' | 'json'
+  onUploadProgress?: (e: { loaded: number; total?: number }) => void
+}
 
-    // 否则继续返回 data 字段
-    return response
-  },
-  (error) => {
-    return Promise.reject(error)
-  }
-)
+const unavailable = <T>(): Promise<{ data: T }> => Promise.reject(new V1UnavailableError())
+
+const api = {
+  get: <T = any>(_url: string, _config?: RequestConfig) => unavailable<T>(),
+  post: <T = any>(_url: string, _data?: unknown, _config?: RequestConfig) => unavailable<T>(),
+}
 
 export default api

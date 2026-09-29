@@ -1,11 +1,10 @@
 <template>
-  <el-tooltip v-if="gated" content="需要先安装 ffmpeg" placement="right" :show-after="300" :hide-after="0">
+  <el-tooltip v-if="gated" content="需要先安装 ffmpeg" effect="light" placement="right" :show-after="300" :hide-after="0">
     <a
       class="nav-item gated"
       :class="{ active: isActive }"
-      role="link"
+      role="button"
       tabindex="0"
-      aria-disabled="true"
       :aria-label="item.label"
       @click.prevent="openInstall"
       @keydown.enter.prevent="openInstall"
@@ -13,13 +12,11 @@
     >
       <FIcon :name="item.icon" />
       <span v-show="!collapsed" class="label">{{ item.label }}</span>
-      <span v-if="warn" class="dot" />
     </a>
   </el-tooltip>
   <RouterLink v-else :to="item.path" class="nav-item" :class="{ active: isActive }" :title="collapsed ? item.label : undefined">
     <FIcon :name="item.icon" />
     <span v-show="!collapsed" class="label">{{ item.label }}</span>
-    <span v-if="warn" class="dot" />
     <span v-if="badge && !collapsed" class="badge">{{ badge }}</span>
   </RouterLink>
 </template>
@@ -31,7 +28,7 @@ import FIcon from '@/components/icon/FIcon.vue'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import type { NavItem } from './navigation'
 
-const props = defineProps<{ item: NavItem; collapsed: boolean; warn?: boolean; badge?: number }>()
+const props = defineProps<{ item: NavItem; collapsed: boolean; badge?: number }>()
 const route = useRoute()
 const ffmpeg = useFFmpegStore()
 
@@ -55,7 +52,7 @@ const isActive = computed(
   height: 36px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 10px; /* 与原型 .nav a 一致（10px），不改成 4 的倍数以免侧栏与设计稿错位 */
   padding: 0 10px;
   border-radius: var(--ff-radius-md);
   color: var(--ff-text-2);
@@ -79,32 +76,22 @@ const isActive = computed(
   background: transparent;
 }
 .nav-item.gated.active {
-  background: var(--ff-primary-soft);
+  background: transparent; /* 置灰且是当前页：不高亮（原型 31/32） */
   font-weight: 400;
 }
 .nav-item.gated:focus-visible {
   outline: 2px solid var(--ff-primary);
   outline-offset: -2px;
 }
-.dot {
-  position: absolute;
-  left: 24px;
-  top: 8px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--ff-warning);
-  box-shadow: 0 0 0 2px var(--ff-bg-sidebar);
-}
 .badge {
   margin-left: auto;
   min-width: 18px;
   height: 18px;
-  padding: 0 5px;
+  padding: 0 4px;
   border-radius: 9px;
   background: var(--ff-badge-bg);
   color: var(--ff-on-primary);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   display: grid;
   place-items: center;
