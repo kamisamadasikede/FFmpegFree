@@ -6,6 +6,7 @@ import { toApiTask, type TaskProgressPayload, type TaskStatusPayload, type ApiTa
 import {
   taskConflictText, TASK_CONFLICT_GENERIC, actionErrorText, liveStartErrorLine, LIVE_STOP_TEXT, docUnsupportedText, errorMessages, taskErrorMessages,
   liveUrlInvalidText, LIVE_URL_INVALID_GENERIC, LIVE_URL_INVALID_REASON_TEXT, liveFailureMessage, liveConnectFailedText, LIVE_SRT_CONNECT_FAILED_TEXT, LIVE_RTMP_CONNECT_FAILED_TEXT, schemeFromParams,
+  liveFfmpegProtocolMissingText, LIVE_PUSH_REJECTED_TEXT, LIVE_SRT_PASSPHRASE_TEXT, resolveError, resolveTaskError,
 } from '@/errors/errorMessages'
 import { parsePushUrl, redactPushUrl } from '@/utils/liveUrl'
 import * as live from './live'
@@ -53,7 +54,7 @@ export async function runApiChecks(): Promise<string[]> {
   eq('Cancel / Remove 的冲突 → 通用', actionErrorText('TASK_CONFLICT', '任务已结束'), '操作冲突，请稍后再试')
   eq('原型链上的键不算 reason', taskConflictText('toString'), TASK_CONFLICT_GENERIC)
   eq('直播停止文案', LIVE_STOP_TEXT, { succeeded: '已结束推流', canceled: '已强制停止' })
-  eq('UNSUPPORTED 起始错误行', liveStartErrorLine({ code: 'UNSUPPORTED' })?.description, '当前 ffmpeg 不支持这种推流协议')
+  eq('UNSUPPORTED 起始错误行（无协议名）', liveStartErrorLine({ code: 'UNSUPPORTED' })?.description, '当前 ffmpeg 不支持这种推流协议，请在设置的 ffmpeg 页面重新安装或更新')
 
   eq('doc/xls/ppt/加密 UNSUPPORTED 文案', docUnsupportedText('不支持这种格式', '/d/a.doc\n旧版'), '暂不支持这种格式，请先另存为 docx、xlsx 或 pptx')
   eq('超 5000 页沿用后端 message', docUnsupportedText('超过 5000 页'), '超过 5000 页')
@@ -186,7 +187,7 @@ export async function runApiChecks(): Promise<string[]> {
   const req = (url: string): live.FilePushRequest => ({ inputPath: '/m/a.mp4', url, loop: true, options: live.defaultPushOptions() })
   win.location.search = '?sim_missing=srt'
   err = await rejects(live.startFilePush(req('srt://h9.example:9000?streamid=a')))
-  eq('缺 srt 协议 → UNSUPPORTED + detail', [err?.code, err?.detail], ['UNSUPPORTED', 'ffmpeg 缺少协议：srt'])
+  eq('缺 srt 协议 → UNSUPPORTED + detail', [err?.code, err?.detail], ['UNSUPPORTED', 'missing=srt'])
   win.location.search = ''
   const first = await live.startFilePush(req('rtmp://h1.example/live/secretkey1'))
   eq('Start 返回入队快照', [first.status, first.version, first.progress], ['queued', 1, -1])
@@ -256,16 +257,23 @@ export async function runApiChecks(): Promise<string[]> {
   eq('scheme 首行解析', [new AppError('LIVE_CONNECT_FAILED', 'x', 'scheme=srt\nConnection failed').scheme, new AppError('LIVE_CONNECT_FAILED', 'x', 'scheme=rtmps').scheme], ['srt', 'rtmps'])
   eq('scheme 不在首行不算', new AppError('LIVE_CONNECT_FAILED', 'x', 'Connection failed\nscheme=srt').scheme, undefined)
   eq('SRT 文案', liveConnectFailedText('srt'), '连接失败，请检查地址和口令是否正确')
-  eq('RTMP 文案（待产品定稿）', [liveConnectFailedText('rtmp'), liveConnectFailedText('rtmps')], ['连接失败，请检查推流地址是否正确、服务器是否在线', '连接失败，请检查推流地址是否正确、服务器是否在线'])
-  eq('未知 scheme 没有专属文案', [liveConnectFailedText('quic'), liveConnectFailedText(undefined), liveConnectFailedText('toString')], [undefined, undefined, undefined])
+  const RTMP_TEXT = '连接失败，请检查推流地址和推流码是否正确，以及网络是否通畅'
+  eq('RTMP / RTMPS 文案', [liveConnectFailedText('rtmp'), liveConnectFailedText('rtmps')], [RTMP_TEXT, RTMP_TEXT])
+  eq('未知 / 缺 scheme 用 RTMP 那句', [liveConnectFailedText('quic'), liveConnectFailedText(undefined), liveConnectFailedText(null), liveConnectFailedText(''), liveConnectFailedText('toString')], [RTMP_TEXT, RTMP_TEXT, RTMP_TEXT, RTMP_TEXT, RTMP_TEXT])
   eq('detail 的 scheme 优先于兜底', liveFailureMessage({ code: 'LIVE_CONNECT_FAILED', message: 'm', detail: 'scheme=rtmp\nx' }, 'srt'), LIVE_RTMP_CONNECT_FAILED_TEXT)
   eq('detail 没有 scheme 时用脱敏 params 的 scheme 兜底', liveFailureMessage({ code: 'LIVE_CONNECT_FAILED', message: 'm', detail: 'boom' }, schemeFromParams('{"url":"srt://h:9000?streamid=***"}')), LIVE_SRT_CONNECT_FAILED_TEXT)
-  eq('scheme、兜底都没有 → 后端 message', liveFailureMessage({ code: 'LIVE_CONNECT_FAILED', message: '无法连接推流目标' }), '无法连接推流目标')
-  eq('非连接失败码原样 message', liveFailureMessage({ code: 'LIVE_PUSH_REJECTED', message: '被拒绝', detail: 'scheme=srt' }), '被拒绝')
+  eq('scheme、兜底都没有 → RTMP 那句', liveFailureMessage({ code: 'LIVE_CONNECT_FAILED', message: '无法连接推流目标' }), RTMP_TEXT)
+  eq('LIVE_PUSH_REJECTED 文案', liveFailureMessage({ code: 'LIVE_PUSH_REJECTED', message: '被拒绝', detail: 'scheme=srt' }), '服务器拒绝了推流，请检查推流码是否有效，或是否已被其他推流占用')
+  eq('LIVE_PUSH_REJECTED 表内文案', [errorMessages.LIVE_PUSH_REJECTED.description, LIVE_PUSH_REJECTED_TEXT], [LIVE_PUSH_REJECTED_TEXT, LIVE_PUSH_REJECTED_TEXT])
+  eq('LIVE_CONNECT_FAILED 表内文案与遮罩', [errorMessages.LIVE_CONNECT_FAILED.description, resolveError('LIVE_CONNECT_FAILED', LIVE_SRT_CONNECT_FAILED_TEXT).description, resolveTaskError('LIVE_CONNECT_FAILED', LIVE_SRT_CONNECT_FAILED_TEXT).description], [RTMP_TEXT, LIVE_SRT_CONNECT_FAILED_TEXT, LIVE_SRT_CONNECT_FAILED_TEXT])
   eq('liveStartErrorLine 用 e.scheme', liveStartErrorLine({ code: 'LIVE_CONNECT_FAILED', scheme: 'rtmp' }, { scheme: 'srt' })?.description, LIVE_RTMP_CONNECT_FAILED_TEXT)
   eq('scheme_unsupported 文案', liveUrlInvalidText('scheme_unsupported'), '暂不支持这种推流地址，请使用 rtmp、rtmps 或 srt')
-  for (const r of ['malformed', 'missing_host', 'param_not_allowed']) eq(`${r} 文案`, liveUrlInvalidText(r), '推流地址格式不正确')
-  eq('未知 reason → 推流地址不正确', [liveUrlInvalidText('future_reason'), liveUrlInvalidText(undefined), liveUrlInvalidText('toString')], [LIVE_URL_INVALID_GENERIC, LIVE_URL_INVALID_GENERIC, LIVE_URL_INVALID_GENERIC])
+  eq('malformed 文案', liveUrlInvalidText('malformed'), '推流地址格式不正确，请检查后重新输入')
+  eq('missing_host 文案', liveUrlInvalidText('missing_host'), '推流地址里缺少服务器地址，请检查后重新输入')
+  eq('param_not_allowed 文案', liveUrlInvalidText('param_not_allowed'), '推流地址里有不支持的参数，请去掉后重试')
+  eq('LIVE_URL_INVALID 行内表文案 = 通用文案', errorMessages.LIVE_URL_INVALID.description, '推流地址不可用，请检查后重新输入')
+  eq('LIVE_URL_INVALID_GENERIC 文案', LIVE_URL_INVALID_GENERIC, '推流地址不可用，请检查后重新输入')
+  eq('未知 reason → 推流地址不可用', [liveUrlInvalidText('future_reason'), liveUrlInvalidText(undefined), liveUrlInvalidText('toString')], [LIVE_URL_INVALID_GENERIC, LIVE_URL_INVALID_GENERIC, LIVE_URL_INVALID_GENERIC])
   eq('reason 表只有四个取值', Object.keys(LIVE_URL_INVALID_REASON_TEXT).sort(), ['malformed', 'missing_host', 'param_not_allowed', 'scheme_unsupported'])
   // 模拟层：LIVE_URL_INVALID 各取值、注入的未知 / 缺失
   const urlReason = async (url: string) => (await rejects(live.startFilePush(req(url))))?.reason
@@ -331,6 +339,77 @@ export async function runApiChecks(): Promise<string[]> {
   eq('length 越界 INVALID_ARGUMENT', (await rejects(doc.readPDFChunk(src.id, 0, 0)))?.code, 'INVALID_ARGUMENT')
   eq('句柄不存在 NOT_FOUND', (await rejects(doc.readPDFChunk('nope', 0, 10)))?.code, 'NOT_FOUND')
   eq('最近列表', (await doc.listRecentPDFs()).length, 1)
+  // ---- 产品定稿：SRT 口令长度 / 缺协议 / 不泄露地址口令推流码 ----
+  eq('LIVE_SRT_PASSPHRASE_TEXT', LIVE_SRT_PASSPHRASE_TEXT, 'SRT 口令需要 10 到 79 个字符')
+  eq('口令长度边界', ['', 'a'.repeat(9), 'a'.repeat(10), 'a'.repeat(79), 'a'.repeat(80)].map(live.isValidSrtPassphrase), [true, false, true, true, false])
+  eq('口令按字符数（中文 10 个）', live.isValidSrtPassphrase('口令口令口令口令口令'), true)
+  eq('取地址里的 passphrase', [live.srtPassphraseFromUrl('srt://h:9000?streamid=a&passphrase=abc%20def'), live.srtPassphraseFromUrl('srt://h:9000?streamid=a'), live.srtPassphraseFromUrl('rtmp://h/live/k?passphrase=x')], ['abc def', undefined, undefined])
+  const shortPass = 'short9xxx'
+  const shortUrl = `srt://sp.example:9000?streamid=sidsecret&passphrase=${shortPass}`
+  err = await rejects(live.startFilePush(req(shortUrl)))
+  eq('口令太短：前端先拦（INVALID_ARGUMENT，产品文案）', [err?.code, err?.message], ['INVALID_ARGUMENT', 'SRT 口令需要 10 到 79 个字符'])
+  eq('口令太短：没有创建任务', (await live.listRunning()).length, 0)
+  err = await rejects(live.startScreenPush(screenReq(shortUrl)))
+  eq('屏幕推流口令太短同样先拦', [err?.code, err?.message], ['INVALID_ARGUMENT', 'SRT 口令需要 10 到 79 个字符'])
+  eq('口令太长先拦', (await rejects(live.startFilePush(req(`srt://sp.example:9000?passphrase=${'a'.repeat(80)}`))))?.code, 'INVALID_ARGUMENT')
+  const okPass = await live.startFilePush(req('srt://sp2.example:9000?streamid=s&passphrase=abcdefghij'))
+  eq('口令 10 位放行', okPass.status, 'queued')
+  await live.stopPush(okPass.id)
+  const PROTO_GENERIC = '当前 ffmpeg 不支持这种推流协议，请在设置的 ffmpeg 页面重新安装或更新'
+  eq('缺协议：后端实际写法 missing=srt', [liveFfmpegProtocolMissingText('missing=srt'), liveFfmpegProtocolMissingText('missing=rtmps')], ['当前的 ffmpeg 不支持 SRT，请在设置的 ffmpeg 页面重新安装或更新', '当前的 ffmpeg 不支持 RTMPS，请在设置的 ffmpeg 页面重新安装或更新'])
+  eq('缺协议：missing=tee（不是推流协议名）→ 通用', liveFfmpegProtocolMissingText('missing=tee'), PROTO_GENERIC)
+  eq('缺协议：SRT', liveFfmpegProtocolMissingText('ffmpeg 缺少协议：srt'), '当前的 ffmpeg 不支持 SRT，请在设置的 ffmpeg 页面重新安装或更新')
+  eq('缺协议：RTMPS（大小写、英文写法）', [liveFfmpegProtocolMissingText('missing protocol: RTMPS'), liveFfmpegProtocolMissingText('protocol=rtmp\nx')], ['当前的 ffmpeg 不支持 RTMPS，请在设置的 ffmpeg 页面重新安装或更新', '当前的 ffmpeg 不支持 RTMP，请在设置的 ffmpeg 页面重新安装或更新'])
+  eq('缺协议：没有具体协议名 → 通用', [liveFfmpegProtocolMissingText(undefined), liveFfmpegProtocolMissingText(''), liveFfmpegProtocolMissingText('ffmpeg 缺少协议'), liveFfmpegProtocolMissingText('缺少协议：quic'), liveFfmpegProtocolMissingText('缺少协议：srtx')], [PROTO_GENERIC, PROTO_GENERIC, PROTO_GENERIC, PROTO_GENERIC, PROTO_GENERIC])
+  eq('缺协议：起始错误行带协议名', liveStartErrorLine({ code: 'UNSUPPORTED', detail: 'ffmpeg 缺少协议：srt' })?.description, '当前的 ffmpeg 不支持 SRT，请在设置的 ffmpeg 页面重新安装或更新')
+  // 模拟层 ?sim_missing 走同一条路径
+  const simMissingLine = (detail?: string) => liveStartErrorLine({ code: 'UNSUPPORTED', detail })?.description
+  eq('模拟 detail 出协议名', simMissingLine('ffmpeg 缺少协议：srt'), '当前的 ffmpeg 不支持 SRT，请在设置的 ffmpeg 页面重新安装或更新')
+  // 所有文案都不含传入的地址 / 口令 / 推流码
+  {
+    const secretUrl = 'srt://user:pw123@leak.example:9000/live/streamKEY999?streamid=sidLEAK&passphrase=passLEAK1234'
+    const rtmpUrl = 'rtmp://leak.example/live/rtmpKEY888'
+    const secrets = ['user:pw123', 'pw123', 'leak.example', 'streamKEY999', 'sidLEAK', 'passLEAK1234', 'rtmpKEY888', secretUrl, rtmpUrl, shortPass]
+    const outputs: string[] = []
+    const detailWith = (head: string, u: string) => `${head}\nConnection to ${u} failed\nmissing protocol: srt at ${u}`
+    for (const u of [secretUrl, rtmpUrl, 'rtsp://leak.example/live/rtmpKEY888']) {
+      for (const scheme of ['srt', 'rtmp', 'rtmps', 'quic', undefined]) {
+        outputs.push(liveConnectFailedText(scheme))
+        for (const code of ['LIVE_CONNECT_FAILED', 'LIVE_PUSH_REJECTED']) outputs.push(liveFailureMessage({ code, message: '后端 message', detail: `scheme=${scheme}\n${u}` }, scheme))
+        outputs.push(liveStartErrorLine({ code: 'LIVE_CONNECT_FAILED', scheme }, { scheme })?.description ?? '')
+      }
+      for (const reason of ['scheme_unsupported', 'malformed', 'missing_host', 'param_not_allowed', 'future', undefined]) outputs.push(liveUrlInvalidText(reason))
+      for (const reason of ['duplicate_url', 'screen_busy', 'max_sessions', 'future', undefined]) outputs.push(taskConflictText(reason), actionErrorText('TASK_CONFLICT', u, reason))
+      outputs.push(liveFfmpegProtocolMissingText(detailWith('reason=x', u)), liveStartErrorLine({ code: 'UNSUPPORTED', detail: detailWith('x', u) })?.description ?? '')
+      outputs.push(LIVE_PUSH_REJECTED_TEXT, LIVE_SRT_PASSPHRASE_TEXT)
+      // 模拟层真实产出的错误：URL 非法 / 冲突 / 口令 / 检查地址
+      const e1 = await rejects(live.checkPushURL(u.replace('://', ':/')))
+      outputs.push(e1?.message ?? '', ...(e1?.detail ? [e1.detail] : []))
+    }
+    for (const c of Object.keys(errorMessages)) {
+      const m = errorMessages[c as keyof typeof errorMessages]
+      outputs.push(m.title, m.description)
+    }
+    for (const w of [shortUrl, 'srt://sp.example:9000?passphrase=short9xxx']) {
+      const e2 = await rejects(live.startFilePush(req(w)))
+      outputs.push(e2?.message ?? '', e2?.detail ?? '')
+    }
+    const leaks = outputs.filter((t) => secrets.some((x) => t.includes(x)))
+    eq('任何文案输出都不含传入的地址 / 口令 / 推流码', leaks, [])
+    eq('自检的输出集合非空', outputs.length > 100, true)
+  }
+  // ---- 联调：开关 true 时纯浏览器环境（无 window.go）仍走模拟；带存档的屏幕推流 → UNSUPPORTED → “暂不支持存档” ----
+  eq('LIVE_BACKEND_READY 已打开', live.LIVE_BACKEND_READY, true)
+  eq('无 window.go → liveIsReal() 为 false（走模拟）', live.liveIsReal(), false)
+  err = await rejects(live.startScreenPush({ ...screenReq('rtmp://arc.example/live/arckey'), archiveDir: '/m/arc' }))
+  eq('带存档屏幕推流 → UNSUPPORTED（无 missing=）', [err?.code, err?.detail], ['UNSUPPORTED', undefined])
+  const ARCHIVE_TEXT = '暂不支持同时保存本地存档，请关闭“同时保存本地存档”后重试'
+  eq('存档 UNSUPPORTED → 暂不支持存档提示', liveStartErrorLine({ code: 'UNSUPPORTED', detail: err?.detail }, { archive: true })?.description, ARCHIVE_TEXT)
+  eq('缺协议 UNSUPPORTED（有 missing=）即使开着存档也按缺协议', liveStartErrorLine({ code: 'UNSUPPORTED', detail: 'missing=srt' }, { archive: true })?.description, '当前的 ffmpeg 不支持 SRT，请在设置的 ffmpeg 页面重新安装或更新')
+  eq('没开存档的 UNSUPPORTED 仍按缺协议', liveStartErrorLine({ code: 'UNSUPPORTED' }, { archive: false })?.description, PROTO_GENERIC)
+  eq('存档提示不含地址', ARCHIVE_TEXT.includes('arc.example'), false)
+  // 屏幕推流两个码、TASK_CONFLICT 四条文案都在映射里
+  eq('TASK_CONFLICT 映射四条', [taskConflictText('max_sessions'), taskConflictText('duplicate_url'), taskConflictText('screen_busy'), taskConflictText('other')], ['最多同时推 4 路', '这个地址已经在推流', '屏幕推流同一时间只能有 1 路，请先停止当前的屏幕推流', '操作冲突，请稍后再试'])
   eq('SCREEN_PERMISSION_DENIED 文案', errorMessages.SCREEN_PERMISSION_DENIED.description, '没有获得屏幕录制权限，请在系统设置中允许 FFmpegFree 录制屏幕后重试')
   eq('UNSUPPORTED_PLATFORM 文案', errorMessages.UNSUPPORTED_PLATFORM.description, '当前系统暂不支持屏幕推流')
   eq('errorMessages 已知码不含 LIVE_PLAY 以外遗漏', Object.keys(errorMessages).length >= 8 && Object.keys(taskErrorMessages).length >= 3, true)

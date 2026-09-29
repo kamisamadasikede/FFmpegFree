@@ -73,7 +73,7 @@ import { useFFmpegStore } from '@/stores/ffmpeg'
 import { liveFailureMessage, liveUrlInvalidText, LIVE_STOP_TEXT, liveStartErrorLine } from '@/errors/errorMessages'
 import { joinPushUrl, parsePushUrl } from '@/utils/liveUrl'
 import * as liveApi from '@/api/live'
-import { LIVE_BACKEND_READY } from '@/api/live'
+import { liveIsReal } from '@/api/live'
 import { toAppError } from '@/api/call'
 
 defineOptions({ name: 'LiveFilePush' })
@@ -82,7 +82,7 @@ const session = useLiveSession('file')
 const ffmpeg = useFFmpegStore()
 const preview = !!livePreview
 // 后端 LiveService 未接入时素材是演示数据
-const demo = !LIVE_BACKEND_READY
+const demo = !liveIsReal()
 
 const materials = ref<liveApi.LiveMaterial[]>([])
 const selectedPath = ref('')
