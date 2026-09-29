@@ -324,6 +324,8 @@ export const LIVE_SOURCE_NO_WINDOW_TITLE = '没有可选的应用窗口'
 export const LIVE_SOURCE_NO_WINDOW_HINT = '打开要推流的应用并保持在桌面上（不要最小化），再点“刷新”'
 export const LIVE_SOURCE_FAIL_TITLE = '无法获取可选来源'
 export const LIVE_SOURCE_FAIL_HINT = '请稍后重试'
+/** 没选来源（列表加载失败 / 没有可选项）时的轻提示：后端默认推主显示器。待产品经理确认 */
+export const LIVE_SOURCE_DEFAULT_MAIN_HINT = '未选择来源，将推送主屏'
 export const LIVE_SOURCE_STALE = '刷新失败，列表可能已过期'
 export const liveSourceWindowCount = (n: number): string => `共 ${n} 个窗口`
 /** 会话列表空状态：Windows 加“或应用窗口”，macOS / Linux 保持 v0.2 原文 */

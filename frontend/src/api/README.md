@@ -179,6 +179,11 @@
 **形态判断**：`GetCaptureCapabilities().platform === 'windows'` 或 `ListCaptureSources()` 里有 `kind=window` → 分组下拉（标签“采集来源”）；否则（macOS / Linux）→ 屏幕单选列表（标签“屏幕来源”，`role=radiogroup`）。**不靠“列表为空”判断**（`utils/liveSource.ts` 的 `sourcePickerMode`）。主屏名统一“屏幕 1（主显示器）”。
 **下拉**（`CaptureSourcePicker.vue`，`mode='dropdown'`）：`combobox` + `listbox`，“屏幕”“应用窗口”两组；标题中间省略（尾部固定保留最后 10 个字符，`title` 和悬停 300ms 的气泡给全名）；底栏“共 n 个窗口”+“刷新”；首次加载骨架行、刷新中保留旧列表（“正在刷新…”）、没有窗口（组内提示）、首次失败（整块失败态 + 重试）、刷新失败保留旧列表（底栏红字“刷新失败，列表可能已过期”）。键盘 ↑↓ / Home / End / Enter / Space / Esc。弹层 Teleport 到 body。
 **LIVE_SOURCE_GONE**：选择器红边，名称保留、尺寸位置换成红字“已不可用”；字段下方错误行 + “刷新列表”；点“刷新列表”展开并立即刷新，失效窗口从列表消失，重选后红边和错误行立即清除。刷新期间不自动改选。
-**直播回退提示条**：`LiveFallbackNotice.vue`（文件推流 / 录屏推流页左列最上面，`EncoderFallbackNotice variant="live"`），条件 `liveFallbackShown(tasks.active)`：`live_*` 任务里有 `startedAt>0` 且 `hwFallback` 才显示；startedAt 为 0 / 缺失、非直播任务、`ENCODER_BACKEND_READY` 为 false 都不显示；文案不含编码器名。
+**直播回退提示条**：`LiveFallbackNotice.vue`（小修订包 12 起放在 `LiveLayout` 的 Tab 条下方做通栏条，文件推流 / 录屏推流页签显示，`EncoderFallbackNotice variant="live"`），条件 `liveFallbackShown(tasks.active)`：`live_*` 任务里有 `startedAt>0` 且 `hwFallback` 才显示；startedAt 为 0 / 缺失、非直播任务、`ENCODER_BACKEND_READY` 为 false 都不显示；文案不含编码器名。
 **浏览器演示参数**（无 window.go）：`?sim_sources=stale|refreshing|nowin`（刷新失败保留旧列表 / 刷新中 / Windows 没有窗口）、`?sim_win=many`（5 个窗口含长标题）、`?sim_os=mac|linux`（配合 `sim_sources=screens`，linux 三块屏；默认模拟 Windows）、`?form=srcgoneopen`（点“刷新列表”后展开）、`?enc=fb-unavail|fb-nvenc|fb-unknown`（直播任务也带回退字段，running 后显示提示条）。文案在 `errors/errorMessages.ts`（`LIVE_SOURCE_*`，除 `LIVE_SOURCE_GONE_WINDOW_TEXT` 已定稿外均待产品经理确认）。
 
+
+### 直播小修订（包 12，设计师走查 PR71/72）
+- 预览舞台 `.pv-stage` 网格轨道 `minmax(0,1fr)`：16:9 画面 1280 下 384×216、1024 下 256×144 居中（拉流页舞台 694×390 / 454×255 不变）。
+- `previewOn` 开始成功后复位为开（文件 / 录屏推流）；拉流页在会话结束后复位；开始报错时保留用户当前选择。
+- 录屏推流“开始推流”可用性 `recordStartEnabled`（utils/liveSource.ts）：已选来源即可用（刷新中 / 刷新失败保留旧列表也可用）；没选来源时，首次失败或空列表可用——请求用 `buildScreenPushRequest`，**不带 captureSourceId**（也不带 screenId），后端默认推主显示器，表单出一句轻提示“未选择来源，将推送主屏”（待产品经理确认）；GONE 等待重选、首次加载中置灰。ffmpeg 未就绪 / 正在开始 / 地址为空一律置灰。

@@ -1,5 +1,5 @@
 <template>
-  <div class="live">
+  <div class="lv-root">
     <div v-if="!liveIsReal()" class="lv-demo" role="status">
       <FIcon name="warn" :size="16" />
       <span>直播功能仍在开发中，当前页面为演示，尚未连接真实推流。</span>
@@ -10,6 +10,8 @@
         {{ t.label }}
       </RouterLink>
     </nav>
+    <!-- 直播转码回退提示条：Tab 条下方的通栏条（设计稿 182/190）；只在推流页签（文件 / 录屏）显示，拉流播放不转码 -->
+    <LiveFallbackNotice v-if="isPushTab" />
     <!-- KeepAlive：切换页签不打断进行中的推流 / 播放 -->
     <RouterView v-slot="{ Component }">
       <KeepAlive>
@@ -21,9 +23,14 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
 import FIcon from '@/components/icon/FIcon.vue'
+import LiveFallbackNotice from '@/components/live/LiveFallbackNotice.vue'
 import { liveIsReal } from '@/api/live'
 // 直播页外壳：三个页签（原型 pages.html 的 .seg，宽 360）+ 页签内容。
+const route = useRoute()
+const isPushTab = computed(() => route.path.startsWith('/live/push') || route.path.startsWith('/live/record'))
 const tabs = [
   { label: '文件推流', to: '/live/push' },
   { label: '录屏推流', to: '/live/record' },
@@ -32,7 +39,7 @@ const tabs = [
 </script>
 
 <style scoped>
-.live {
+.lv-root {
   /* 原型 .page 内边距 16/24/20（提示条通栏 32px），外壳 .app-content 是 20/24/24：抵消外壳内边距，由 .body 按设计稿自己留白 */
   margin: -20px -24px -24px;
   height: calc(100% + 44px);

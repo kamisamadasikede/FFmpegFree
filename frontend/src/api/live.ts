@@ -302,6 +302,14 @@ export async function startFilePush(req: FilePushRequest): Promise<ApiTask> {
   })
 }
 
+/** 屏幕推流请求：没选来源（sourceId 为空）时**不带 captureSourceId**（也不带 screenId），后端默认推主显示器；选了就原样传回，开始时后端重新校验 */
+export function buildScreenPushRequest(p: { url: string; sourceId: string; archiveDir: string; preview: boolean }): ScreenPushRequest {
+  return {
+    url: p.url, screenId: '', hideCursor: false, audio: 'none', archiveDir: p.archiveDir, options: defaultPushOptions(), preview: p.preview,
+    ...(p.sourceId ? { captureSourceId: p.sourceId } : {}),
+  }
+}
+
 /** 屏幕推流（可同时本地存档；后端 #47 已实现，archiveDir 非空时任务的 outputPath = 存档路径） */
 export async function startScreenPush(req: ScreenPushRequest): Promise<ApiTask> {
   assertSrtPassphrase(req.url)

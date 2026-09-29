@@ -62,14 +62,19 @@ void PREVIEW_RETRY
   inset: 0;
   background: #0b0c0e;
   display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr); /* 轨道必须 minmax(0,1fr)：否则图片按自然宽度撑开轨道，画面被 overflow 裁掉（走查 S1） */
   place-items: center;
   overflow: hidden;
   color: #e5e7eb;
 }
 .pv-img {
-  width: 100%;
   height: 100%;
-  object-fit: contain; /* 按画面原比例放进舞台（推流源可能是 4:3 / 16:9 / 屏幕比例） */
+  width: auto;
+  max-width: 100%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+  object-fit: contain; /* 按画面原比例放进舞台并居中（16:9 时 1280 下 384×216、1024 下 256×144；4:3 等两侧留黑） */
   display: block;
 }
 .pv-img.ended {

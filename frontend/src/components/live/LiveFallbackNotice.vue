@@ -4,7 +4,7 @@
 
 <script setup lang="ts">
 // 直播转码回退提示条（设计稿 §2.4 的 live 变体）：任务 store 里有 startedAt>0 且 hwFallback 的直播任务才显示（startedAt 为 0 / 缺失不显示）；
-// 文案只说“显卡编码启动失败，已自动改用 CPU 推流”，不出现编码器名。放在推流页左列最上面（预览面板上方），关闭只影响本次会话。
+// 文案只说“显卡编码启动失败，已自动改用 CPU 推流”，不出现编码器名。放在 LiveLayout 的 Tab 条下方做通栏条（设计稿 182/190；文件推流 / 录屏推流页签显示），关闭只影响本次会话。
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import EncoderFallbackNotice from '@/components/encoder/EncoderFallbackNotice.vue'

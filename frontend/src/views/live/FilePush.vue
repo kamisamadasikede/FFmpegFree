@@ -1,7 +1,6 @@
 <template>
   <LiveTabFrame>
     <template #main>
-      <LiveFallbackNotice />
       <LivePushPreview />
       <LiveSessionList empty-hint="选择文件并填写推流地址，点击“开始推流”" />
     </template>
@@ -44,7 +43,6 @@ import LiveField from '@/components/live/LiveField.vue'
 import LiveInput from '@/components/live/LiveInput.vue'
 import LiveButton from '@/components/live/LiveButton.vue'
 import LiveFormError from '@/components/live/LiveFormError.vue'
-import LiveFallbackNotice from '@/components/live/LiveFallbackNotice.vue'
 import LivePushPreview from '@/components/live/LivePushPreview.vue'
 import PreviewSwitch from '@/components/live/PreviewSwitch.vue'
 import LiveSessionList from '@/components/live/LiveSessionList.vue'
@@ -101,7 +99,10 @@ async function start() {
     const task = await liveApi.startFilePush({ inputPath: material.value.path, url: full, loop: true, options: liveApi.defaultPushOptions(), preview: previewOn.value })
     const r = await store.begin(task, { kind: 'file', redactedUrl: check.info.redacted, archive: false, preview: previewOn.value })
     if (!r.ok) err.value = pushErrorToForm(r.error, check.info.scheme)
-    else key.value = ''
+    else {
+      key.value = ''
+      previewOn.value = true // 产品经理已定：不记住上次选择，每次开始推流后复位为开（页面被 KeepAlive 保留时也一样）；没开始成功（报错）时保留用户当前选择
+    }
   } catch (e) {
     err.value = pushErrorToForm(toAppError(e), check.info.scheme)
   } finally {
