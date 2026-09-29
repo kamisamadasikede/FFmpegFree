@@ -42,6 +42,8 @@ func TestLiveCodesMatchContract(t *testing.T) {
 		LivePushRejected:       "LIVE_PUSH_REJECTED",
 		LivePushInterrupted:    "LIVE_PUSH_INTERRUPTED",
 		ScreenPermissionDenied: "SCREEN_PERMISSION_DENIED",
+		ProbeFailed:            "PROBE_FAILED",
+		ConvertDiskFull:        "CONVERT_DISK_FULL",
 		Unsupported:            "UNSUPPORTED",
 	}
 	for c, s := range want {

@@ -19,6 +19,86 @@ export namespace apperr {
 
 }
 
+export namespace convert {
+	
+	export class Preset {
+	    id: string;
+	    name: string;
+	    builtIn: boolean;
+	    options: ffmpeg.ConvertOptions;
+	
+	    static createFrom(source: any = {}) {
+	        return new Preset(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.builtIn = source["builtIn"];
+	        this.options = this.convertValues(source["options"], ffmpeg.ConvertOptions);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
+export namespace ffmpeg {
+	
+	export class ConvertOptions {
+	    container: string;
+	    videoCodec: string;
+	    audioCodec: string;
+	    width: number;
+	    height: number;
+	    fps: number;
+	    videoBitrate: number;
+	    audioBitrate: number;
+	    crf: number;
+	    targetSizeMb: number;
+	    trimStart: number;
+	    trimEnd: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConvertOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.container = source["container"];
+	        this.videoCodec = source["videoCodec"];
+	        this.audioCodec = source["audioCodec"];
+	        this.width = source["width"];
+	        this.height = source["height"];
+	        this.fps = source["fps"];
+	        this.videoBitrate = source["videoBitrate"];
+	        this.audioBitrate = source["audioBitrate"];
+	        this.crf = source["crf"];
+	        this.targetSizeMb = source["targetSizeMb"];
+	        this.trimStart = source["trimStart"];
+	        this.trimEnd = source["trimEnd"];
+	    }
+	}
+
+}
+
 export namespace jsontool {
 	
 	export class CompareRequest {
@@ -204,7 +284,143 @@ export namespace jsontool {
 
 }
 
+export namespace media {
+	
+	export class Thumb {
+	    path: string;
+	    dataUrl: string;
+	    atSec: number;
+	    width: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Thumb(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.dataUrl = source["dataUrl"];
+	        this.atSec = source["atSec"];
+	        this.width = source["width"];
+	    }
+	}
+
+}
+
 export namespace store {
+	
+	export class StreamInfo {
+	    index: number;
+	    type: string;
+	    codec: string;
+	    profile?: string;
+	    width?: number;
+	    height?: number;
+	    pixFmt?: string;
+	    fps?: number;
+	    bitrate?: number;
+	    duration?: number;
+	    rotation?: number;
+	    sampleRate?: number;
+	    channels?: number;
+	    channelLayout?: string;
+	    language?: string;
+	    attachedPic?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new StreamInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.index = source["index"];
+	        this.type = source["type"];
+	        this.codec = source["codec"];
+	        this.profile = source["profile"];
+	        this.width = source["width"];
+	        this.height = source["height"];
+	        this.pixFmt = source["pixFmt"];
+	        this.fps = source["fps"];
+	        this.bitrate = source["bitrate"];
+	        this.duration = source["duration"];
+	        this.rotation = source["rotation"];
+	        this.sampleRate = source["sampleRate"];
+	        this.channels = source["channels"];
+	        this.channelLayout = source["channelLayout"];
+	        this.language = source["language"];
+	        this.attachedPic = source["attachedPic"];
+	    }
+	}
+	export class MediaInfo {
+	    id: string;
+	    path: string;
+	    name: string;
+	    size: number;
+	    duration: number;
+	    width: number;
+	    height: number;
+	    videoCodec: string;
+	    audioCodec: string;
+	    bitrate: number;
+	    thumbUrl: string;
+	    container?: string;
+	    fps?: number;
+	    rotation?: number;
+	    sampleRate?: number;
+	    channels?: number;
+	    hasVideo?: boolean;
+	    hasAudio?: boolean;
+	    streams?: StreamInfo[];
+	    error?: apperr.AppError;
+	    probedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MediaInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.path = source["path"];
+	        this.name = source["name"];
+	        this.size = source["size"];
+	        this.duration = source["duration"];
+	        this.width = source["width"];
+	        this.height = source["height"];
+	        this.videoCodec = source["videoCodec"];
+	        this.audioCodec = source["audioCodec"];
+	        this.bitrate = source["bitrate"];
+	        this.thumbUrl = source["thumbUrl"];
+	        this.container = source["container"];
+	        this.fps = source["fps"];
+	        this.rotation = source["rotation"];
+	        this.sampleRate = source["sampleRate"];
+	        this.channels = source["channels"];
+	        this.hasVideo = source["hasVideo"];
+	        this.hasAudio = source["hasAudio"];
+	        this.streams = this.convertValues(source["streams"], StreamInfo);
+	        this.error = this.convertValues(source["error"], apperr.AppError);
+	        this.probedAt = source["probedAt"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	
 	export class Task {
 	    id: string;

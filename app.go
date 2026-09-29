@@ -5,6 +5,8 @@ import (
 	"FFmpegFree/backend/contollers"
 	"FFmpegFree/internal/ffmpeg"
 	"FFmpegFree/internal/paths"
+	"FFmpegFree/internal/service/convert"
+	"FFmpegFree/internal/service/media"
 	"FFmpegFree/internal/service/system"
 	"FFmpegFree/internal/store"
 	"FFmpegFree/internal/task"
@@ -24,11 +26,19 @@ type App struct {
 	store *store.Store
 	sys   *system.Manager
 	tasks atomic.Pointer[task.Manager]
+	media atomic.Pointer[media.Service]
+	conv  atomic.Pointer[convert.Service]
 }
 
 // taskManager 返回任务管理器；OnStartup 完成前（或存储初始化失败时）为 nil。
 // 首字母小写，不会被 Wails 当作绑定方法暴露给前端。
 func (a *App) taskManager() *task.Manager { return a.tasks.Load() }
+
+// mediaService 返回媒体服务；OnStartup 完成前为 nil。小写，不会被 Wails 暴露。
+func (a *App) mediaService() *media.Service { return a.media.Load() }
+
+// convertService 返回转换服务；OnStartup 完成前（或存储 / 任务管理器不可用时）为 nil。小写，不会被 Wails 暴露。
+func (a *App) convertService() *convert.Service { return a.conv.Load() }
 
 // NewApp creates a new App application struct
 func NewApp(sys *system.Manager) *App {
@@ -44,6 +54,8 @@ func (a *App) startup(ctx context.Context) {
 		log.Printf("初始化本地存储失败: %v", err)
 	}
 	a.startTasks(ctx)
+	a.startMedia()
+	a.startConvert(ctx)
 	a.startFFmpegDetect(ctx)
 }
 
@@ -60,6 +72,46 @@ func (a *App) startTasks(ctx context.Context) {
 		LogDir:  a.dirs.Logs,
 		Logf:    log.Printf,
 	}))
+}
+
+// startMedia 创建媒体服务（探测、缩略图）并清理一次缩略图缓存。存储不可用时仍可生成缩略图，只是不记录最近媒体。
+func (a *App) startMedia() {
+	thumbs := a.dirs.Thumbs
+	if thumbs == "" {
+		d, err := paths.Resolve("")
+		if err != nil {
+			log.Printf("定位缩略图目录失败，媒体服务未启动: %v", err)
+			return
+		}
+		thumbs = d.Thumbs
+	}
+	cfg := media.Config{ThumbsDir: thumbs}
+	if a.store != nil { // 避免把 nil *Store 装进接口
+		cfg.Store = a.store
+	}
+	svc := media.New(cfg)
+	go svc.CleanupCache()
+	a.media.Store(svc)
+}
+
+// startConvert 创建转换服务：需要存储（预设）、任务管理器和媒体服务，缺一个就不启动（此时 ConvertService 返回 INTERNAL）。
+func (a *App) startConvert(ctx context.Context) {
+	tm, med := a.taskManager(), a.mediaService()
+	if a.store == nil || tm == nil || med == nil {
+		log.Printf("转换服务未启动：存储、任务管理器或媒体服务不可用")
+		return
+	}
+	svc, err := convert.New(ctx, convert.Config{
+		Presets:          a.store,
+		Media:            med,
+		Tasks:            tm,
+		DefaultOutputDir: a.sys.DefaultOutputDir,
+	})
+	if err != nil {
+		log.Printf("启动转换服务失败: %v", err)
+		return
+	}
+	a.conv.Store(svc)
 }
 
 // startFFmpegDetect 在后台检测 ffmpeg，不阻塞界面；状态变化通过 ffmpeg:status 事件推送。
