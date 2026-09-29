@@ -7,10 +7,16 @@ export function CheckPushURL(arg1:string):Promise<live.PushURLInfo>;
 
 export function GetCaptureCapabilities():Promise<live.CaptureCapabilities>;
 
+export function GetPreview(arg1:string):Promise<live.Preview>;
+
 export function ListCaptureSources():Promise<Array<live.CaptureSource>>;
 
 export function ListScreens():Promise<Array<live.ScreenInfo>>;
 
 export function StartFilePush(arg1:live.FilePushRequest):Promise<store.Task>;
 
+export function StartPullPreview(arg1:live.PullPreviewRequest):Promise<live.PullSession>;
+
 export function StartScreenPush(arg1:live.ScreenPushRequest):Promise<store.Task>;
+
+export function StopPullPreview(arg1:string):Promise<void>;

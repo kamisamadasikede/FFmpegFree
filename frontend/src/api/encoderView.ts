@@ -1,5 +1,5 @@
 // 设置页“编码设备”的状态推导（纯函数，api.check.ts 里有自检）。界面不显示编码器名（NVENC / QSV…），后端也不返回。
-import type { EncoderDevice, EncoderDeviceList, EncoderPreference } from '@/api/encoder'
+import type { EncoderDevice, EncoderDeviceList, EncoderPreference, EncoderPreferenceInfo } from '@/api/encoder'
 import { PREF_AUTO, PREF_CPU } from '@/api/encoder'
 import {
   ENCODER_CPU_NOTE, ENCODER_DETECTING_NOTE, ENCODER_DETECTING_SELECT, ENCODER_FAILED_NOTE, ENCODER_NONE_NOTE, ENCODER_NO_FFMPEG_NOTE,
@@ -28,6 +28,8 @@ export interface EncoderInput {
   failed: boolean
   list: EncoderDeviceList | null
   pref: EncoderPreference
+  /** GetEncoderPreferenceInfo 的结果：所选显卡的显示名（不可用 / 不存在时也是保存时记下的名字）和当前是否可用；没读到时为 null */
+  info?: EncoderPreferenceInfo | null
   /** ffmpeg store 是否就绪（未就绪也算 noff） */
   ffmpegReady: boolean
 }
@@ -37,7 +39,7 @@ export function deriveEncoderView(i: EncoderInput): EncoderView {
   const prefName = (): string => {
     if (i.pref === PREF_AUTO) return ENCODER_OPTION_AUTO
     if (i.pref === PREF_CPU) return ENCODER_OPTION_CPU
-    return i.list?.devices.find((d) => d.id === i.pref)?.name || ENCODER_UNKNOWN_SELECTED
+    return (i.info && i.info.id === i.pref && i.info.name) || i.list?.devices.find((d) => d.id === i.pref)?.name || ENCODER_UNKNOWN_SELECTED
   }
   if (!i.ffmpegReady || (i.list && !i.list.ffmpegReady)) {
     return { ...base, state: 'noff', selectText: ENCODER_OPTION_AUTO, selectDisabled: true, redetectDisabled: true, note: { tone: 'warn', text: ENCODER_NO_FFMPEG_NOTE } }
@@ -57,7 +59,18 @@ export function deriveEncoderView(i: EncoderInput): EncoderView {
     return { ...ready, selectText: ENCODER_OPTION_CPU, selectedKey: PREF_CPU, note: { tone: 'info', text: ENCODER_CPU_NOTE } }
   }
   const dev = i.list.devices.find((d) => d.id === i.pref)
-  if (dev && dev.available) return { ...ready, selectText: dev.name, selectedKey: dev.id, note: { tone: 'ok', text: encoderGpuNote(dev.name) } }
+  // 列表和偏好信息都说可用才算可用（任何一边说不可用 / 不存在都走警告）
+  const infoOk = !i.info || i.info.id !== i.pref || i.info.available
+  if (dev && dev.available && infoOk) return { ...ready, selectText: dev.name, selectedKey: dev.id, note: { tone: 'ok', text: encoderGpuNote(dev.name) } }
   // 所选显卡当前不可用：偏好保持原值，不阻止转码（转码会改用 CPU），只用警告色
   return { ...ready, selectText: prefName(), selectedKey: '', selectWarn: true, note: { tone: 'warn', text: ENCODER_UNAVAILABLE_NOTE, action: 'resetAuto' } }
+}
+
+/**
+ * 事件序号：每次发起请求 next() 拿一个号，返回时 isCurrent(号) 为 false 说明期间又发起过新请求，这次结果作废（丢弃）。
+ * 设置页面板用两组：一组管“设备列表 + 检测中”，一组管“偏好 + 偏好信息”（沿用 ffmpeg store 的做法，自检见 api.check.ts）。
+ */
+export function createSeq(): { next: () => number; isCurrent: (n: number) => boolean } {
+  let n = 0
+  return { next: () => ++n, isCurrent: (t) => t === n }
 }

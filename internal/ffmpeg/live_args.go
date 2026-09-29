@@ -100,6 +100,8 @@ type FilePushPlan struct {
 	Scheme   string
 	URL      string // 校验并重新组装后的地址
 	Enc      LiveEncode
+	// PreviewPath 不为空时在主输出之后追加预览输出（PreviewOutputArgs）。
+	PreviewPath string
 }
 
 // BuildFilePushArgs 生成文件推流的 ffmpeg 参数（不含 -progress 等，由 Run 添加）。
@@ -125,5 +127,9 @@ func BuildFilePushArgs(p FilePushPlan) []string {
 	if p.Scheme != "srt" {
 		a = append(a, "-flvflags", "no_duration_filesize")
 	}
-	return append(a, p.URL)
+	a = append(a, p.URL)
+	if p.PreviewPath != "" {
+		a = append(a, PreviewOutputArgs(p.PreviewPath)...)
+	}
+	return a
 }

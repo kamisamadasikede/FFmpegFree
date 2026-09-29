@@ -65,6 +65,11 @@ type Config struct {
 	Grace time.Duration
 	// Logf 记录内部信息；只会收到脱敏内容。为空时不记录。
 	Logf func(format string, args ...any)
+	// PreviewDir 是预览 JPEG 的临时目录（<数据目录>/tmp/live-preview）；空 = 不出预览（推流照常，拉流预览返回 UNSUPPORTED）。
+	PreviewDir string
+	// Preview 检查 ffmpeg 能否出预览，默认真实执行 ffmpeg（按路径缓存）；ProbeStreams 探测拉流地址里有没有视频，默认用 ffprobe。
+	Preview      *ffmpeg.PreviewProbe
+	ProbeStreams func(ctx context.Context, ffprobe, url, whitelist string) (hasVideo bool, err error)
 }
 
 // Service 实现直播推流。会话登记在内存里（上限 4、同地址 1 个）。
@@ -72,13 +77,15 @@ type Service struct {
 	cfg Config
 
 	mu       sync.Mutex
-	sessions map[string]session // 任务 ID → 会话
+	sessions map[string]session      // 任务 ID → 会话
+	pulls    map[string]*pullSession // 拉流预览会话 ID → 会话（不占推流会话名额）
 }
 
 type session struct {
 	key     string // 标准化地址（只在内存里比较，不展示）
 	archive bool   // 有本地存档（优雅停止等 15 秒）
 	screen  bool   // 屏幕推流（同一时间最多 1 路）
+	preview string // 预览 JPEG 路径；空 = 没有预览。会话结束时删除
 }
 
 // New 创建 Service。
@@ -113,7 +120,13 @@ func New(cfg Config) *Service {
 	if cfg.Run == nil {
 		cfg.Run = ffmpeg.ExecRunner(10 * time.Second)
 	}
-	return &Service{cfg: cfg, sessions: map[string]session{}}
+	if cfg.Preview == nil {
+		cfg.Preview = &ffmpeg.PreviewProbe{}
+	}
+	if cfg.ProbeStreams == nil {
+		cfg.ProbeStreams = probeStreams
+	}
+	return &Service{cfg: cfg, sessions: map[string]session{}, pulls: map[string]*pullSession{}}
 }
 
 func (s *Service) logf(format string, args ...any) {
@@ -139,6 +152,8 @@ type FilePushRequest struct {
 	URL       string      `json:"url"`
 	Loop      bool        `json:"loop"`
 	Options   PushOptions `json:"options"`
+	// Preview 为 nil（缺省）或 true 时会话带预览画面（GetPreview）；false 时不加预览输出。
+	Preview *bool `json:"preview"`
 }
 
 // PushURLInfo 是 CheckPushURL 的返回。
@@ -249,7 +264,7 @@ func (s *Service) checkProtocols(ctx context.Context, bin ffmpeg.Binaries, schem
 //  1. duplicate_url：同一标准化地址已有会话；
 //  2. screen_busy：要开的是屏幕推流，且已有进行中（含已入队未结束）的屏幕推流会话（屏幕推流同一时间最多 1 路；文件推流不受影响）；
 //  3. max_sessions：会话总数已达上限。
-func (s *Service) reserve(taskID, key string, archive, screen bool) error {
+func (s *Service) reserve(taskID, key string, archive, screen bool, preview string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	busy := false
@@ -268,14 +283,16 @@ func (s *Service) reserve(taskID, key string, archive, screen bool) error {
 		return apperr.New(apperr.TaskConflict, "同时进行的直播会话已达上限").
 			WithDetail(fmt.Sprintf("reason=max_sessions\n最多同时推 %d 路", MaxSessions))
 	}
-	s.sessions[taskID] = session{key: key, archive: archive, screen: screen}
+	s.sessions[taskID] = session{key: key, archive: archive, screen: screen, preview: preview}
 	return nil
 }
 
 func (s *Service) release(taskID string) {
 	s.mu.Lock()
+	x := s.sessions[taskID]
 	delete(s.sessions, taskID)
 	s.mu.Unlock()
+	removePreviewFiles(x.preview) // 会话结束（含从未运行）清理预览文件
 }
 
 // ActiveSessions 返回进行中的会话数，HasArchiveSession 表示其中有带本地存档的（应用退出时要多等）。
@@ -417,15 +434,16 @@ func (s *Service) startFilePush(ctx context.Context, req FilePushRequest) (task.
 	if gop <= 0 || gop > 240 {
 		gop = 30
 	}
+	taskID := id.New()
+	previewPath := s.planPreview(ctx, bin, taskID, req.Preview)
 	args := ffmpeg.BuildFilePushArgs(ffmpeg.FilePushPlan{
-		Input: in, Loop: req.Loop, HasAudio: info.HasAudio, Scheme: u.Scheme, URL: u.FFmpeg,
+		Input: in, Loop: req.Loop, HasAudio: info.HasAudio, Scheme: u.Scheme, URL: u.FFmpeg, PreviewPath: previewPath,
 		Enc: ffmpeg.LiveEncode{
 			Width: req.Options.Width, Height: req.Options.Height, Fps: req.Options.Fps, GOPFps: gop,
 			VideoKbps: req.Options.videoKbps(), AudioKbps: req.Options.audioKbps(),
 		},
 	})
-	taskID := id.New()
-	if err := s.reserve(taskID, u.Key, false, false); err != nil {
+	if err := s.reserve(taskID, u.Key, false, false, previewPath); err != nil {
 		return task.Task{}, err
 	}
 	pj, _ := json.Marshal(filePushParams{Kind: "file", Input: in, URL: u.Redacted, Loop: req.Loop, Options: req.Options})

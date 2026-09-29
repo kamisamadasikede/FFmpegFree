@@ -20,6 +20,9 @@
  *   listScreens             LiveService.ListScreens()
  *   listCaptureSources      LiveService.ListCaptureSources()（v0.14）
  *   checkPushURL            LiveService.CheckPushURL(url) → PushURLInfo（只校验，不联网）
+ *   getPreview              LiveService.GetPreview(sessionId) → LivePreview（契约 v0.14；最新一帧 JPEG，没有画面返回空 data，不是错误）
+ *   startPullPreview        LiveService.StartPullPreview(PullPreviewRequest) → PullSession（拉流预览会话）
+ *   stopPullPreview         LiveService.StopPullPreview(sessionId)
  *   stopPush                TaskService.Cancel(taskID)
  *   listRunning             TaskService.ListActive()（type = live_*）
  *   watchLiveTask           事件 task:progress / task:status（按任务 id 过滤）
@@ -70,6 +73,8 @@ export interface FilePushRequest {
   /** true = 循环直到用户停止；false = 播完自然结束（succeeded） */
   loop: boolean
   options: PushOptions
+  /** 预览画面开关（契约 v0.14）：省略 / true = 带预览（GetPreview 可用）；false = 不加预览输出。只在开始时决定 */
+  preview?: boolean
 }
 
 export interface ScreenPushRequest {
@@ -83,6 +88,8 @@ export interface ScreenPushRequest {
   /** 非空 = 同时在本地存一份 mp4（绝对路径）；"" = 不存档 */
   archiveDir: string
   options: PushOptions
+  /** 同 FilePushRequest.preview */
+  preview?: boolean
   /** v0.14 可选：ListCaptureSources 返回的 id（screen:<序号> | window:<hwnd 十进制>），原样传回；不传 = 按 screenId（原行为）；传了以它为准。来源已不可用 → LIVE_SOURCE_GONE（detail 首行 kind=window|screen） */
   captureSourceId?: string
 }
@@ -129,6 +136,33 @@ export interface PushURLInfo {
   port: number
   /** 脱敏后的地址，可以直接显示 */
   redacted: string
+}
+
+/** GetPreview 的返回（契约 v0.14）：没有画面时 data 为空串、ts 为 0；active=false 表示会话已结束（前端停止轮询） */
+export interface LivePreview {
+  /** 最新一帧 JPEG 的 base64（不带 data: 前缀），没有画面为 '' */
+  data: string
+  /** 这一帧写入的时间（毫秒时间戳），没有画面为 0 */
+  ts: number
+  /** 会话还在进行 */
+  active: boolean
+}
+
+/** 拉流预览会话请求：后端 ffmpeg 读远端流只出预览，播放仍由前端播放器直接拉地址 */
+export interface PullPreviewRequest {
+  /** rtmp / rtmps / srt / http / https 地址（ws / wss 后端返回 LIVE_URL_INVALID） */
+  url: string
+  /** 省略 / true = 出预览；false = 不启动 ffmpeg */
+  preview?: boolean
+}
+
+export interface PullSession {
+  /** 会话 id，传给 getPreview / stopPullPreview */
+  id: string
+  /** 脱敏后的地址，可以直接显示 */
+  redacted: string
+  /** 是否真的在出预览 */
+  preview: boolean
 }
 
 /** 全零 = 全部使用默认 */
@@ -375,6 +409,28 @@ export async function checkPushURL(url: string): Promise<PushURLInfo> {
   const u = parsePushUrl(url)
   if (!u.ok) return simError('LIVE_URL_INVALID', u.message, urlInvalidDetail(u.reason, url))
   return u.info
+}
+
+// ───────────── 预览画面（契约 v0.14）─────────────
+
+/** 最新一帧预览。真实后端：LiveService.GetPreview；模拟层（浏览器）最小假实现：恒为空、会话视为已结束（不出画面，页面继续用 LiveMockFrame） */
+export async function getPreview(sessionId: string): Promise<LivePreview> {
+  if (liveIsReal()) {
+    const p = await call(LiveBinding.GetPreview(sessionId))
+    return { data: p?.data ?? '', ts: p?.ts ?? 0, active: !!p?.active }
+  }
+  return { data: '', ts: 0, active: false }
+}
+
+/** 开始拉流预览会话。模拟层：返回一个不出画面的会话 */
+export async function startPullPreview(req: PullPreviewRequest): Promise<PullSession> {
+  if (liveIsReal()) return (await call(LiveBinding.StartPullPreview(goLive.PullPreviewRequest.createFrom(req)))) as PullSession
+  return { id: 'sim-pull-preview', redacted: redactPushUrl(req.url), preview: false }
+}
+
+/** 停止拉流预览会话；会话已结束时无操作 */
+export async function stopPullPreview(sessionId: string): Promise<void> {
+  if (liveIsReal()) await call(LiveBinding.StopPullPreview(sessionId))
 }
 
 // ───────────── 停止 / 查询 ─────────────

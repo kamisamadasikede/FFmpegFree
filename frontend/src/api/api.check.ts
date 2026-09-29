@@ -18,7 +18,7 @@ import { splitMiddle, nextZoom, thumbWindow, formatRecentTime, extBadge } from '
 import { onSimEvent } from '@/services/wails'
 import { retrySimTask, SIM_TITLE_PREFIX } from './sim'
 import * as encApi from './encoder'
-import { deriveEncoderView } from './encoderView'
+import { deriveEncoderView, createSeq } from './encoderView'
 import * as encMsg from '@/errors/encoderMessages'
 import { pushErrorToForm } from '@/views/live/pushErrors'
 import { elapsedMs, isKnownTaskType, isLegacyTaskType } from '@/stores/tasks'
@@ -197,6 +197,11 @@ export async function runApiChecks(): Promise<string[]> {
   const fresh = await ps2.onMediaError()
   eq('404 后重新调用 GetPreviewURL 拿到新地址', [!!fresh, fresh?.url !== stale.url], [true, true])
   win.location.search = ''
+
+  // ---- Live 预览（契约 v0.14）：模拟层最小假实现返回空，不是错误 ----
+  eq('模拟 GetPreview 为空', await live.getPreview('any'), { data: '', ts: 0, active: false })
+  eq('模拟 StartPullPreview 不出画面', (await live.startPullPreview({ url: 'rtmp://h/live/abc' })).preview, false)
+  eq('模拟 StopPullPreview 无操作', await live.stopPullPreview('x'), undefined)
 
   // ---- Live：两种 TASK_CONFLICT 都能由模拟层复现 ----
   win.location.search = ''
@@ -620,7 +625,8 @@ export async function runApiChecks(): Promise<string[]> {
     eq('normalizeList：未知 vendor → unknown，缺 id 的丢弃，reason 保留', n.devices.map((d) => [d.id, d.vendor, d.available, d.reason]), [['cpu', 'unknown', true, undefined], ['nvidia-0', 'nvidia', true, undefined], ['x', 'unknown', false, '驱动异常']])
     eq('normalizeList：缺 cpu 时补在第一项', encApi.normalizeList({ ffmpegReady: true, devices: [nv] }).devices.map((d) => d.id), ['cpu', 'nvidia-0'])
     eq('normalizeList：空 / 错误形状 → 只有 cpu；ffmpegReady 只有明确 false 才算未就绪', [encApi.normalizeList(null).devices.map((d) => d.id), encApi.normalizeList(undefined).ffmpegReady, encApi.normalizeList({ ffmpegReady: false }).ffmpegReady], [['cpu'], true, false])
-    eq('normalizeList：结果不含编码器名字段', Object.keys(n.devices[1]).sort(), ['available', 'id', 'kind', 'name', 'vendor'])
+    eq('normalizeList：结果不含编码器名字段（encoders）', Object.keys(n.devices[1]).sort(), ['available', 'discrete', 'id', 'kind', 'name', 'vendor'])
+    eq('normalizeList：后端 encoders{h264,hevc} 被丢弃', JSON.stringify(encApi.normalizeList({ ffmpegReady: true, devices: [{ ...nv, discrete: true, encoders: { h264: 'h264_nvenc', hevc: 'hevc_nvenc' } }] })).includes('nvenc'), false)
 
     // 显示规则：ENCODER_BACKEND_READY=false（默认）+ 纯浏览器 → 没有 ?enc= 完全不显示；有 ?enc= 才显示模拟层
     win.location.search = ''
@@ -661,6 +667,75 @@ export async function runApiChecks(): Promise<string[]> {
     eq('模拟 fail：抛错', (await rejects(encApi.listEncoderDevices()))?.code, 'INTERNAL')
     win.location.search = ''
     encApi.resetEncoderSim()
+
+    // ---- 对接后端 #60：多显卡排序 / 偏好信息 / 假 Wails 绑定 / 过期返回 / 标志为 false ----
+    const dev = (id: string, kind: string, discrete: boolean, available = true) => ({ id, name: id, vendor: 'unknown', kind, discrete, available })
+    eq('排序：cpu 第一，独显在前、集显在后，同级保持后端顺序', encApi.normalizeList({ ffmpegReady: true, devices: [dev('cpu', 'cpu', false), dev('intel-0', 'gpu', false), dev('amd-0', 'gpu', true), dev('nvidia-0', 'gpu', true), dev('intel-1', 'gpu', false)] }).devices.map((d) => d.id), ['cpu', 'amd-0', 'nvidia-0', 'intel-0', 'intel-1'])
+    eq('排序：后端 cpu 不在第一位也会被纠正到第一', encApi.normalizeList({ ffmpegReady: true, devices: [dev('nvidia-0', 'gpu', true), dev('cpu', 'cpu', false)] }).devices.map((d) => d.id), ['cpu', 'nvidia-0'])
+    eq('排序：缺 discrete 视为集显', encApi.normalizeList({ ffmpegReady: true, devices: [{ id: 'a', name: 'a', kind: 'gpu' }, dev('b', 'gpu', true)] }).devices.map((d) => d.id), ['cpu', 'b', 'a'])
+    win.location.search = '?enc=multi'
+    encApi.resetEncoderSim()
+    const lm = await encApi.listEncoderDevices()
+    eq('模拟 multi：独显（AMD、NVIDIA）在集显（Intel）前，下拉第一张 = 自动会选的那张', lm.devices.map((d) => d.id), ['cpu', 'amd-0', 'nvidia-0', 'intel-0'])
+    eq('视图：多显卡 auto → 提示的是排序后的第一张', deriveEncoderView({ loading: false, failed: false, pref: 'auto', ffmpegReady: true, list: lm }).note.text, encMsg.encoderAutoNote(3, 'AMD Radeon RX 7600'))
+    // 偏好信息：所选不可用（含设备已不存在）时显示保存的名字 + 警告 + “改回自动”
+    const cur = { loading: false, failed: false, ffmpegReady: true }
+    const ghostList = encApi.normalizeList({ ffmpegReady: true, devices: [dev('cpu', 'cpu', false), { ...dev('nvidia-0', 'gpu', true, false), name: '保存的显卡名', reason: '驱动异常' }] })
+    const g = deriveEncoderView({ ...cur, pref: 'nvidia-0', list: ghostList, info: { id: 'nvidia-0', name: '保存的显卡名', available: false, reason: '驱动异常' } })
+    eq('视图：所选不可用 → 名字取偏好信息，警告 + 改回自动', [g.selectText, g.selectWarn, g.note.action], ['保存的显卡名', true, 'resetAuto'])
+    const gone = deriveEncoderView({ ...cur, pref: 'nvidia-0', list: encApi.normalizeList({ ffmpegReady: true, devices: [] }), info: { id: 'nvidia-0', name: 'NVIDIA GeForce RTX 4060', available: false } })
+    eq('视图：所选设备不在列表 → 偏好信息里记下的名字仍显示', [gone.selectText, gone.selectWarn], ['NVIDIA GeForce RTX 4060', true])
+    const noName = deriveEncoderView({ ...cur, pref: 'nvidia-0', list: encApi.normalizeList({ ffmpegReady: true, devices: [] }), info: { id: 'nvidia-0', name: '', available: false } })
+    eq('视图：连名字都没记过 → 兜底名', noName.selectText, encMsg.ENCODER_UNKNOWN_SELECTED)
+    const stale = deriveEncoderView({ ...cur, pref: 'cpu', list: lm, info: { id: 'nvidia-0', name: '别的显卡', available: false } })
+    eq('视图：偏好信息与当前偏好 id 不一致（过期）不采用', [stale.selectText, stale.selectWarn], [encMsg.ENCODER_OPTION_CPU, false])
+    eq('视图：偏好信息说可用 → 正常', deriveEncoderView({ ...cur, pref: 'nvidia-0', list: lm, info: { id: 'nvidia-0', name: 'NVIDIA GeForce RTX 4060', available: true } }).selectWarn, false)
+    eq('视图：偏好信息说不可用而列表说可用 → 走警告（保守）', deriveEncoderView({ ...cur, pref: 'nvidia-0', list: lm, info: { id: 'nvidia-0', name: 'x', available: false } }).selectWarn, true)
+    eq('视图：ffmpegReady=false（后端）→ noff 状态，显示定稿文案', deriveEncoderView({ ...cur, pref: 'auto', list: encApi.normalizeList({ ffmpegReady: false, devices: [dev('cpu', 'cpu', false)] }) }).note.text, encMsg.ENCODER_NO_FFMPEG_NOTE)
+    // 模拟层：偏好写入后重读
+    encApi.resetEncoderSim()
+    win.location.search = '?enc=found'
+    await encApi.setEncoderPreference('amd-0')
+    const pi = await encApi.getEncoderPreferenceInfo()
+    eq('偏好写入后重读：信息里是显卡名（设备当前不在列表里 → available=false 且名字仍在）', [pi.id, pi.name, pi.available], ['amd-0', 'AMD Radeon RX 7600', false])
+    await encApi.setEncoderPreference('nvidia-0')
+    eq('偏好写入后重读：选可用显卡 → available=true', [(await encApi.getEncoderPreferenceInfo()).name, (await encApi.getEncoderPreferenceInfo()).available], ['NVIDIA GeForce RTX 4060', true])
+    win.location.search = '?enc=unavail'
+    encApi.resetEncoderSim()
+    const pu = await encApi.getEncoderPreferenceInfo()
+    eq('模拟 unavail：偏好信息 = 保存的显卡名 + 不可用 + 原因', [pu.name, pu.available, !!pu.reason], ['NVIDIA GeForce RTX 4060', false, true])
+    // 事件序号：后发起的让先发起的作废
+    const sq = createSeq()
+    const t1 = sq.next()
+    const t2 = sq.next()
+    eq('事件序号：旧的作废、新的有效', [sq.isCurrent(t1), sq.isCurrent(t2)], [false, true])
+    win.location.search = ''
+    encApi.resetEncoderSim()
+    // 假 Wails 绑定（window.go.app.SystemService）：标志为 false 时不调用；字段原样对齐；encoders 丢弃
+    const calls: string[] = []
+    const svc = {
+      ListEncoderDevices: async () => (calls.push('List'), { ffmpegReady: true, devices: [{ ...dev('cpu', 'cpu', false), encoders: { h264: 'libx264', hevc: 'libx265' } }, { ...dev('intel-0', 'gpu', false), encoders: { h264: 'h264_qsv', hevc: '' } }, { ...dev('nvidia-0', 'gpu', true), encoders: { h264: 'h264_nvenc', hevc: '' } }] }),
+      RefreshEncoderDevices: async () => (calls.push('Refresh'), { ffmpegReady: false, devices: [dev('cpu', 'cpu', false)] }),
+      GetEncoderPreference: async () => (calls.push('GetPref'), 'nvidia-0'),
+      GetEncoderPreferenceInfo: async () => (calls.push('Info'), { id: 'nvidia-0', name: 'NVIDIA GeForce RTX 4060', available: false, reason: '驱动异常' }),
+      SetEncoderPreference: async (id: string) => (calls.push('Set:' + id), undefined),
+    }
+    ;(win as unknown as Record<string, unknown>).go = { app: { SystemService: svc } }
+    ;(win as unknown as Record<string, unknown>).runtime = {}
+    eq('标志为 false（正式包）+ 有 Wails：面板不显示', encApi.encoderPanelVisible(), false)
+    win.location.search = '?enc=found'
+    eq('标志为 false + 有 Wails：?enc= 无效，仍不显示', encApi.encoderPanelVisible(), false)
+    eq('标志为 false + 有 Wails：走模拟层（不调用真实绑定）', [encApi.encoderIsReal(), (await encApi.listEncoderDevices()).devices.length, calls.length], [false, 3, 0])
+    win.location.search = ''
+    delete (win as unknown as Record<string, unknown>).go
+    delete (win as unknown as Record<string, unknown>).runtime
+    eq('标志值：ENCODER_BACKEND_READY 保持 false（第二个后端 PR 合入后再打开）', encApi.ENCODER_BACKEND_READY, false)
+    // 真实绑定形状：直接对 normalizeList / normalizeInfo 喂后端返回（标志为 false 时 API 函数不走绑定，这里验字段对齐）
+    const realList = encApi.normalizeList(await svc.ListEncoderDevices())
+    eq('真实绑定形状：排序后 cpu / nvidia（独显）/ intel（集显），无编码器名', [realList.devices.map((d) => d.id), JSON.stringify(realList).includes('nvenc') || JSON.stringify(realList).includes('qsv') || JSON.stringify(realList).includes('libx264')], [['cpu', 'nvidia-0', 'intel-0'], false])
+    eq('真实绑定形状：ffmpegReady=false + 仅 cpu', encApi.normalizeList(await svc.RefreshEncoderDevices()), { ffmpegReady: false, devices: [{ id: 'cpu', name: 'cpu', vendor: 'unknown', kind: 'cpu', discrete: false, available: true }] })
+    eq('真实绑定形状：偏好信息', encApi.normalizeInfo(await svc.GetEncoderPreferenceInfo()), { id: 'nvidia-0', name: 'NVIDIA GeForce RTX 4060', available: false, reason: '驱动异常' })
+    eq('normalizeInfo：缺字段 → auto / 空名 / 可用', encApi.normalizeInfo({}), { id: 'auto', name: '', available: true })
 
     // 视图推导（设置页的状态行）
     const base = { loading: false, failed: false, pref: 'auto', ffmpegReady: true }
