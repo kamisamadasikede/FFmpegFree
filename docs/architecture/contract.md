@@ -348,6 +348,8 @@ schema_migrations(version PK, applied_at)
 
 > **架构师新增决定（写死，逐条对应下文）**：① 同轨不重叠单独成条（6.11.2 A）；② Windows 路径上限 259 按最终文件全路径算，含扩展名，为 `.part` 和最坏 `(99)` 预留，超长在 `Export` 提交时同步 `INVALID_ARGUMENT`（6.11.3「输出路径长度」）；③ `ValidateProject` 的 `warnings` 是稳定结构 `EditWarning{code, clipId?, message}`，`code` 枚举只追加（6.11.2 D）；④ `edit_proxy` 首版不做，契约只保留一句回退说明（6.11.4 第 4 点）；⑤ 导出期间后端允许再提交导出、走 batch 池排队，前端在同一工程导出中禁用"导出视频"按钮（6.11.3「并发提交」）；⑥ `/local/<token>` 必须支持 `HEAD`，token 失效返回 404，前端用 `HEAD` 探测后重新 `GetPreviewURL`（6.13）；⑦ `SaveProject` 只校验数量上限，`outSec` 必须大于 `inSec`，`outSec=0` 一律 `INVALID_ARGUMENT`（0 不再表示"到结尾"）。
 
+> **#30 实现反馈回改**：`.part` 遗留清理首版只在 EditService 对 `edit_export` 做（6.11.3）；默认转场超限的处理、`durationSec` 公式、`SaveProject` 的时长估算、clip 最短时长、`outSec` 取整不报警告、`outputName` 空白与净化后为空的区别、各错误的 `detail` 行格式、探测缓存 key（6.11.1 / 6.11.2 / 6.11.3 / 6.11.5）；POSIX 改名残余竞态写进 6.11.7。
+
 > **架构师已确认（v0.11 定稿）**：`Render` → `Export`、`edit_render` → `edit_export` 确定；数值 / 枚举越界一律 `INVALID_ARGUMENT`（不再静默截断）；filtergraph 只用 `-filter_complex_script`；输出文件名规则见 6.11.3；预览回退方案见 6.11.4 第 4 点。
 
 ### 6.11.1 数据结构
@@ -380,7 +382,7 @@ type VideoClip struct {
     Speed                 float64 `json:"speed"`   // 0.25~4，空(0) = 1
     EffectPreset          string  `json:"effectPreset"`          // none | grayscale | sepia | vintage | cinematic，空 = none
     TransitionToNext      string  `json:"transitionToNext"`      // none | fade | wipeleft | wiperight | slideleft | slideright | circleopen | circleclose | dissolve，空 = none
-    TransitionDurationSec float64 `json:"transitionDurationSec"` // 0 = 0.5；范围 0.1~2，且不超过相邻两个 clip 中较短者的一半
+    TransitionDurationSec float64 `json:"transitionDurationSec"` // 0 = 默认 0.5；显式设置范围 0.1~2，且不超过相邻两个 clip 中较短者的一半（显式超限 INVALID_ARGUMENT；默认值超限静默缩短，见 6.11.2 第 2 条）
     Blur                  float64 `json:"blur"`    // 0~4
 }
 type AudioClip struct {
@@ -400,11 +402,11 @@ type GlobalEffects struct {
     Sharpen    float64 `json:"sharpen"`    // 0~2
 }
 type EditExportOptions struct {
-    OutputName string `json:"outputName"` // 不含扩展名；空 = 工程名；净化规则见 6.11.3「输出文件名」，最长 100 字符，净化后为空则用 "edit"
+    OutputName string `json:"outputName"` // 不含扩展名；空或纯空白 = 工程名；净化规则见 6.11.3「输出文件名」，最长 100 字符；净化后才变空则直接用 "edit"（不回退工程名）
     OutputDir  string `json:"outputDir"`  // 规则同 6.9：空 = Settings.defaultOutputDir，仍空 = 第一个 clip 所在文件夹；必须是绝对路径
 }
 type EditPlan struct {
-    DurationSec float64       `json:"durationSec"` // 时间线总长 = max(startSec + (outSec-inSec)/speed)，视频与音频一起算
+    DurationSec float64       `json:"durationSec"` // 导出的实际时间线总长：扣除转场重叠之后（见 6.11.2 E），视频与音频一起算；进度分母用它
     ClipCount   int           `json:"clipCount"`
     Inputs      []string      `json:"inputs"`      // 去重后的素材路径
     HasAudio    bool          `json:"hasAudio"`    // 音轨是否非空；false 时导出静音音轨
@@ -434,9 +436,9 @@ type PreviewURL struct {
 **顺序（决定"第一个校验失败的片段"是谁，实现必须按此顺序，测试逐条断言）**：0 环境 → 1 工程级 → 2 逐 clip 字段（先 `videoTrack` 再 `audioTrack`，各自按数组顺序）→ 3 逐 clip 路径与探测（同上顺序；同一素材的失败记在按顺序第一个用到它的 clip 上）→ 4 同轨重叠（A）→ 5 输出（名字、目录、路径长度，见 6.11.3）。第一个失败就返回，不累计。
 
 0. **环境**：ffmpeg / ffprobe 就绪，否则 `FFMPEG_NOT_FOUND`；**`-filter_complex_script` 可用性探测**（导出方式依赖它，见 6.11.3「命令行长度」），不支持返回 `UNSUPPORTED`，`detail` 第一行 `project`、第二行 `missing=filter_complex_script`，**不落 `PROCESS_FAILED`**。探测方式是功能探测而不是解析帮助文本：`ffmpeg -hide_banner -nostdin -loglevel error -f lavfi -i nullsrc=s=32x32:r=5:d=0.4 -filter_complex_script <临时文件，内容 [0:v]scale=16:16[v]> -map [v] -f null -`，退出码 0 = 可用（ffmpeg 7.1.5 实测约 0.07 秒，退出码 0；不认识的选项退出码 8，stderr `Unrecognized option`）；结果按 ffmpeg 路径 + 文件大小 + 修改时间缓存到进程内。ffmpeg 8.0 上是否仍可用**未在箱子上验证**（箱子只有 7.1.5），官方 8.0 Changelog 里仍列着该选项，但那不是运行结果。
-1. **工程级**：`videoTrack` 不能为空（v1 同）；clip 总数（视频 + 音频）≤ 100；`sources` ≤ 200 且都是绝对路径；名称 1~80 字；序列化后 ≤ 1 MiB；`schemaVersion` = 1；输出参数范围；时间线总长 ≤ 6 小时。
-2. **逐 clip 字段**（数值越界一律 `INVALID_ARGUMENT`，v1 是悄悄截断，v2 改为报错）：`id` 匹配 `^[A-Za-z0-9_-]{1,64}$` 且工程内唯一；`trackId` 匹配 `V1~V8`（视频）/ `A1~A8`（音频）；所有数值必须是有限数（拒绝 NaN / Inf）；`startSec ≥ 0`；`inSec ≥ 0`；**`outSec > inSec`，`outSec = 0` 或 `outSec ≤ inSec` 一律 `INVALID_ARGUMENT`**；`speed` 0.25~4（空(0)= 1）；`volume` 0~4；`blur` 0~4；`effectPreset` / `transitionToNext` 不在枚举内；`transitionDurationSec`（空(0)= 0.5）范围 0.1~2 且不超过相邻两个 clip 中较短者的一半。
-3. **逐 clip 路径**：必须绝对路径且不含控制字符（含换行，否则会破坏 `detail` 的行格式）；不存在 `NOT_FOUND`；是目录 `INVALID_ARGUMENT`；无读权限 `IO_ERROR`；ffprobe 失败 `PROBE_FAILED`。视频 clip 的素材必须有视频流，音频 clip 的素材必须有音频流，否则 `INVALID_ARGUMENT`。`inSec ≥ 素材时长` → `INVALID_ARGUMENT`；`outSec` 超过素材时长 0.05 秒以内静默取整，更大则截断到素材时长并记警告 `out_truncated`。素材探测复用 `MediaService` 的探测实现与缓存（超时 30 秒、根 ctx 取消返回 `CANCELED`）。
+1. **工程级**：`videoTrack` 不能为空（v1 同）；clip 总数（视频 + 音频）≤ 100；`sources` ≤ 200 且都是绝对路径；名称 1~80 字；序列化后 ≤ 1 MiB；`schemaVersion` = 1；输出参数范围；时间线总长 ≤ 6 小时（**按 clip 自填值 `max(startSec + (outSec − inSec) / speed)` 检查，不扣转场、不探测素材**，见 E）。
+2. **逐 clip 字段**（数值越界一律 `INVALID_ARGUMENT`，v1 是悄悄截断，v2 改为报错）：`id` 匹配 `^[A-Za-z0-9_-]{1,64}$` 且工程内唯一；`trackId` 匹配 `V1~V8`（视频）/ `A1~A8`（音频）；所有数值必须是有限数（拒绝 NaN / Inf）；`startSec ≥ 0`；`inSec ≥ 0`；**`outSec > inSec`，`outSec = 0` 或 `outSec ≤ inSec` 一律 `INVALID_ARGUMENT`**；`speed` 0.25~4（空(0)= 1）；`volume` 0~4；`blur` 0~4；`effectPreset` / `transitionToNext` 不在枚举内；`transitionDurationSec`：**显式设置**（> 0）时范围 0.1~2，且不超过相邻两个 clip 中较短者的一半（clip 时长 = `(outSec − inSec) / speed`），越界 `INVALID_ARGUMENT`；**空(0)= 默认 0.5 秒**，默认值超过较短者的一半时**不报错**：① **静默缩短到较短者时长的一半**；② 一半**不足 0.1 秒**（即较短者 < 0.2 秒）则该转场**不生效**（这两个 clip 直接 `concat`），并给警告 `transition_ignored`（6.11.2 D）。显式值不做缩短，也不因为"一半不足 0.1 秒"放行（显式 0.1 起步，超限就是超限）。**clip 折算后的时长（`(outSec − inSec) / speed`）不足 0.04 秒 → `INVALID_ARGUMENT`**（否则导出 0 帧；素材截断到素材时长之后再算一次，见第 3 条）。
+3. **逐 clip 路径**：必须绝对路径且不含控制字符（含换行，否则会破坏 `detail` 的行格式）——**含控制字符的路径直接 `INVALID_ARGUMENT`，不探测、不访问文件系统**（`detail` 第一行的 `path=` 里控制字符一律替换成 `?`，保证仍是单行）；不存在 `NOT_FOUND`；是目录 `INVALID_ARGUMENT`；无读权限 `IO_ERROR`；ffprobe 失败 `PROBE_FAILED`。视频 clip 的素材必须有视频流，音频 clip 的素材必须有音频流，否则 `INVALID_ARGUMENT`。`inSec ≥ 素材时长` → `INVALID_ARGUMENT`；`outSec` 超过素材时长 **0.05 秒以内静默取整到素材时长，不报警告**（浮点 / 毫秒吸附误差，不值得打扰用户）；更大则截断到素材时长并记警告 `out_truncated`。截断 / 取整之后 clip 时长仍要满足第 2 条的 ≥ 0.04 秒，否则 `INVALID_ARGUMENT`。素材探测复用 `MediaService` 的探测实现与缓存（超时 30 秒、根 ctx 取消返回 `CANCELED`）；**探测结果缓存的 key 含路径、文件大小和修改时间**（文件被替换或改动即失效，不会拿旧的时长去校验）。
 
 **A. 同一轨道上的 clip 不得重叠（架构师定，独立一条）**
 - 适用于每条视频轨（`V1~V8`）和每条音频轨（`A1~A8`）。不同轨道之间可以重叠（画中画 / 混音请用不同轨道）。
@@ -444,7 +446,7 @@ type PreviewURL struct {
 - **间隙**：`后一个.startSec − 前一个.end ≤ 0.12 秒`视为首尾相接（可以带转场，沿用 v1 阈值）；`> 0.12 秒`视为空隙——**导出时空隙补黑场（视频）和静音（音频）**，不报错，只在 `ValidateProject` 的 `warnings` 里给 `clip_gap`（见 D）。第一个 clip 的 `startSec > 0.12` 同理是片头黑场，警告 `leading_gap`。
 - **实测（ffmpeg 7.1.5，箱子上用 6.11.3 的滤镜图）**：`V1` 上 0~2 秒一个 clip、3~5 秒一个 clip，6 秒时间线在 2.5 秒和 5.0 秒处的亮度均值 `YAVG=16`（黑），1.0 / 3.5 秒处 122.9 / 125.9（有画面）；`A1` 上 0~1 秒、3~4 秒各一个 clip，1~3 秒 `mean_volume` −90.3 dB、4~6 秒 −80.8 dB（静音，编码底噪），0~1 / 3~4 秒 −21.0 dB。也就是空隙自然是黑场 / 静音，不需要额外补丁。
 - **同一轨道重叠时 ffmpeg 不会报错**（实测：把第二个 clip 平移到 1 秒，命令退出码 0，后一个盖在前一个上面），所以必须由契约这一条在提交前拦住，不能靠 ffmpeg 兜底。
-- `detail` 第一行的 `clip=` 指**后一个** clip（即 `startSec` 更晚、被判定为"压到前一个"的那个）；第二行起写 `overlaps=<前一个 clip.id>`。
+- `detail` 第一行的 `clip=` 指**后一个** clip（即 `startSec` 更晚、被判定为"压到前一个"的那个）；**第二行固定是 `overlaps=<前一个 clip.id>`**（例如 `clip=c2 path=C:\Videos\a.mp4` 换行 `overlaps=c1`，见 F 的示例）。
 
 **B. `detail` 第一行格式（写死，前端用正则取）**
 - 有 clip：`clip=<clip.id> path=<绝对路径>`；没有 clip 的工程级错误：`project`。正则：`^(?:clip=([A-Za-z0-9_-]{1,64}) path=(.*)|project)$`（`path` 取到行尾，路径里可以有空格；路径不含换行，见上）。
@@ -460,9 +462,14 @@ type PreviewURL struct {
 | `leading_gap` | 视频轨或音频轨上第一个 clip 的 `startSec` > 0.12 秒（片头黑场 / 静音） | 该 clip |
 | `no_audio_track` | `audioTrack` 为空，导出静音音轨；**不会**回退用视频自带音频 | 省略 |
 | `out_truncated` | `outSec` 超过素材时长 0.05 秒以上，已截断到素材时长 | 该 clip |
-| `transition_ignored` | clip 设了 `transitionToNext` 但它后面没有同轨首尾相接的 clip（空隙 > 0.12 秒或它是最后一个），转场不生效 | 该 clip |
+| `transition_ignored` | clip 设了 `transitionToNext` 但转场不生效：① 它后面没有同轨首尾相接的 clip（空隙 > 0.12 秒或它是最后一个）；② 用的是默认时长（`transitionDurationSec` = 0），且相邻较短 clip 的一半不足 0.1 秒（无法缩到最小转场时长） | 该 clip |
 
-**E. 示例（数值是示意）**
+**E. 时长口径（架构师定）**
+- **`EditPlan.durationSec`（`ValidateProject` 返回）= 扣除转场重叠后的实际时长**：clip 时长 `d = (outSec − inSec) / speed`（`outSec` 已按素材时长截断）；同轨一串首尾相接的 clip 用 `xfade` 连接时，这一串的长度 = 第一个 clip 的 `startSec` + Σ`d` − Σ（实际生效的转场时长，即上面缩短后的值，不生效的转场不扣）；其余 clip 是 `startSec + d`；`durationSec` 取所有视频、音频串 / clip 的最大值。导出进度 `outTimeSec / durationSec` 用它（6.11.3）。
+- **工程级 6 小时上限（6.11.2 第 1 条）按 clip 自填值检查、不扣转场**：即 `max(startSec + (outSec − inSec) / speed)`，用 clip 里填的 `outSec`（未按素材截断，不探测）。所以一个不扣转场为 6 小时零几秒、扣掉转场后不足 6 小时的工程仍然 `INVALID_ARGUMENT`。
+- **`SaveProject` 返回的 `EditProjectMeta.durationSec` 是按 clip 自填值估算的**（同上一条的 `max(startSec + (outSec − inSec) / speed)`，**不探测素材、不扣转场**），只用于工程列表显示，可能与 `ValidateProject` 的 `durationSec` 不同（6.11.5）。
+
+**F. 示例（数值是示意）**
 ```json
 // ValidateProject 请求（节选）
 { "schemaVersion": 1, "id": "", "name": "旅行 vlog", "sources": ["C:\\Videos\\a.mp4"],
@@ -503,11 +510,11 @@ type PreviewURL struct {
 - 输出：`<outputDir>/<outputName>.<format>`，重名追加 `(1)`、`(2)`，绝不覆盖，走 6.6 的 `RunWithPart`（`.part.<ext>` → 原子改名）；取消 / 失败删除 `.part`。
 - 命令：一个 filtergraph（见下「命令行长度」），语义**沿用 v1**：黑色底画布 → 每个 clip `trim` + `setpts=(PTS-STARTPTS)/speed` + `fps` + `scale`（等比缩进 + 黑边）+ 预设 / 全局效果 + `boxblur` → 同轨且首尾相接（间隙 ≤ 0.12 秒）的 clip 用 `xfade`（有转场）或 `concat`（无转场），其余按 `startSec` 平移后 `overlay` 到画布，轨道编号大的在上；音频：`atrim` + `atempo`（速度 > 2 或 < 0.5 链式拆分）+ `volume` + `adelay` → `amix`（`normalize=0`）→ 截到时间线总长；音轨为空时导出静音（`anullsrc`），**不会**回退使用视频自带音频（v1 行为；想用视频原声，前端把同一素材再加进音轨）。
 - **命令行长度**：filtergraph 写入任务专属临时目录里的 UTF-8 文本文件（滤镜图里的 `\n` 换行在 7.1.5 上实测可用，退出码 0），**只用 `-filter_complex_script <file>` 传给 ffmpeg**（架构师定，不用 `-/filter_complex`，也不按 ffmpeg 版本判断），避免 Windows 命令行 32 K 上限；任务结束后删除该目录。素材路径仍按 6.9 规则写成 `file:<路径>`。已知：ffmpeg 7.1.5 上该选项会在 stderr 打印一行 `-filter_complex_script is deprecated, use -/filter_complex … instead`，但功能正常（箱子上实测）；该警告行不参与错误分类，日志里保留即可。ffmpeg 未来版本若移除该选项属于升级风险，届时再改契约（本项目 ffmpeg 版本由第 9 节的检测 / 安装决定，**其他版本未验证**）；提交前的可用性探测见 6.11.2 第 0 条，不可用返回 `UNSUPPORTED`。
-- **输出文件名**（`outputName` 净化，架构师定；放开中日韩，不再限制为 `[a-zA-Z0-9_-]`；净化函数 `SanitizeFileName` 是**共用函数**，直播存档（6.10）也调用它）：① 空 → 用工程名，工程名也空 → `edit`；② 先做 **Unicode NFC 规范化**，再删除：控制字符（U+0000~U+001F、U+007F~U+009F）、**Unicode 格式类字符**（U+200B~U+200F、U+202A~U+202E、U+2066~U+2069、U+FEFF；零宽字符和双向控制符会让文件名"看起来一样"或反向显示）、路径分隔符和 Windows 非法字符 `\ / : * ? " < > |`；③ 去掉首尾空白和**尾部的点与空格**（Windows 会静默吞掉它们）；④ Windows 保留设备名一律避开，**取名字里第一个 `.` 之前的部分**（`NUL.foo`、`con.tar.gz` 也命中），不区分大小写，保留名为 `CON PRN AUX NUL COM0~COM9 LPT0~LPT9`（含上标数字变体 `COM¹ COM² COM³ LPT¹ LPT² LPT³`）：命中时在整个名字前加下划线（`CON` → `_CON`，`NUL.foo` → `_NUL.foo`）；⑤ 长度上限：先按 Unicode 字符（rune）截断到 **100 个字符**，再检查 **UTF-8 字节数 ≤ 200**，超了就从末尾逐个 rune 删到 ≤ 200（**不得切开一个字符**），然后再做一次 ③④；⑥ 以上处理后为空 → `edit`。直播存档额外禁止 `| ' [ ]`（替换为 `_`）。所有平台使用同一套规则（避免工程在 Mac 上导出、拷到 Windows 出问题）。最终文件名 = `<净化名>.<format>`，重名再追加 `(1)`、`(2)`（6.6）。**净化是静默处理，不报错；路径超长才报错，见下一条。**
+- **输出文件名**（`outputName` 净化，架构师定；放开中日韩，不再限制为 `[a-zA-Z0-9_-]`；净化函数 `SanitizeFileName` 是**共用函数**，直播存档（6.10）也调用它）：① `outputName` **为空或纯空白（去首尾空白后为空）→ 用工程名**（工程名也空白 → `edit`）；② 先做 **Unicode NFC 规范化**，再删除：控制字符（U+0000~U+001F、U+007F~U+009F）、**Unicode 格式类字符**（U+200B~U+200F、U+202A~U+202E、U+2066~U+2069、U+FEFF；零宽字符和双向控制符会让文件名"看起来一样"或反向显示）、路径分隔符和 Windows 非法字符 `\ / : * ? " < > |`；③ 去掉首尾空白和**尾部的点与空格**（Windows 会静默吞掉它们）；④ Windows 保留设备名一律避开，**取名字里第一个 `.` 之前的部分**（`NUL.foo`、`con.tar.gz` 也命中），不区分大小写，保留名为 `CON PRN AUX NUL COM0~COM9 LPT0~LPT9`（含上标数字变体 `COM¹ COM² COM³ LPT¹ LPT² LPT³`）：命中时在整个名字前加下划线（`CON` → `_CON`，`NUL.foo` → `_NUL.foo`）；⑤ 长度上限：先按 Unicode 字符（rune）截断到 **100 个字符**，再检查 **UTF-8 字节数 ≤ 200**，超了就从末尾逐个 rune 删到 ≤ 200（**不得切开一个字符**），然后再做一次 ③④；⑥ 以上处理后为空（**净化之后才变空**，例如名字全是 `?:*` 或零宽字符）→ **直接用 `edit`，不回退工程名**（与①的"输入为空用工程名"是两回事：用户写了名字但全被净化掉，用工程名会让文件名与用户输入毫无关系）。直播存档额外禁止 `| ' [ ]`（替换为 `_`）。所有平台使用同一套规则（避免工程在 Mac 上导出、拷到 Windows 出问题）。最终文件名 = `<净化名>.<format>`，重名再追加 `(1)`、`(2)`（6.6）。**净化是静默处理，不报错；路径超长才报错，见下一条。**
 - **输出路径长度（Windows，架构师定）**：在 **`Export` 提交时**（同步返回，**不放到任务里失败**）计算并校验，只在 Windows 上启用（其他平台只受上一条的字节数限制）。长度按 **UTF-16 码元数**算，上限 **259**（`MAX_PATH` 260 含结尾 NUL）。计算：`len(输出目录, 已 Clean 的绝对路径) + 1（分隔符，目录以分隔符结尾则不加）+ len(净化名) + len(扩展名含点) + 4（最坏情况的 "(99)" 后缀，见 `task.UniquePath` 的 `%s(%d)%s` 格式，没有空格）+ 5（".part"，`PartPath` 把它插在扩展名前）≤ 259`。也就是说**为 `.part` 和 `(99)` 一律预留 9 个字符**，不管这次实际会不会重名。超出返回 `INVALID_ARGUMENT`，`detail` 第一行 `project`，第二行 `path_length=<实际计算值> limit=259`；**不自动截断名字**（名字的截断只由上一条的 100 字符 / 200 字节规则完成）。拒绝以 `\\?\`、`\\.\` 开头的 `outputDir`（`INVALID_ARGUMENT`）。UNC 路径（`\\server\share\…`）整条计入。**未在 Windows 真机验证**（Linux 箱子只能验证算式，实测：目录 `C:\Users\someone\Videos\FFmpegFree`（34 字符）+ `.webm` 时名字最多 209 字符，被 100 字符规则先挡住）。
 - **输出目录在提交时就校验**：`outputDir`（含从"第一个 clip 所在文件夹"推出的）必须是绝对路径（`INVALID_ARGUMENT`）；已存在则必须是目录（`INVALID_ARGUMENT`）且可写（在其中创建再删除一个临时文件，失败 `IO_ERROR`）；不存在则最近的已存在上级必须是可写目录，任务开始时再创建。这样磁盘 / 权限错误在 `Export` 返回，而不是任务开始后才失败。
 - **并发提交（架构师定）**：导出期间后端**允许再次提交** `Export`（同一工程或别的工程），新任务走 batch 池 FIFO 排队，与转换共用并发数；同名输出靠 `RunWithPart` 的占用登记各取不冲突的名字。**后端不判断"同一工程正在导出"**（`EditProject.id` 可能为空，草稿也能导出）。**前端职责**：同一工程有 `queued` / `running` 的 `edit_export` 任务时，禁用"导出视频"按钮（按前端自己记录的工程 id → taskId 对应关系，任务进入终态后恢复）。
-- **`.part` 遗留清理**：启动时在 `MarkInterrupted` 之后，对每个被标为 `interrupted` 的、走 `RunWithPart` 的任务（`edit_export`、`convert`、`office_pdf`），删除它的 `.part` 遗留：候选只有 `PartPath(outputPath)` 和 `<名字>(n)` 形式（`n = 1..99`）的 `PartPath`；只删普通文件（`Lstat`，不跟随符号链接）、修改时间早于本次进程启动时间的；找不到不算错误；删除失败只记日志。该逻辑放在任务管理器里统一做，不属于 EditService，此处写明是因为导出文件最大、最容易留下垃圾。
+- **`.part` 遗留清理（#30 实现反馈修订）**：**首版只在 EditService 里对 `edit_export` 做；任务管理器统一版（覆盖 `convert`、`office_pdf`）后续单独做**（之前写的"放在任务管理器里统一做"本版不做）。做法：启动时在 `MarkInterrupted` 之后，对每个被标为 `interrupted` 的 `edit_export` 任务，删除它的 `.part` 遗留：候选只有 `PartPath(outputPath)` 和 `<名字>(n)` 形式（`n = 1..99`）的 `PartPath`；**只删普通文件**（`Lstat`，**不跟随符号链接**；符号链接、目录一律不动）、**修改时间早于本次进程启动时间**的（避免误删本次运行刚建的）；找不到不算错误；删除失败只记日志。此处写明是因为导出文件最大、最容易留下垃圾。
 - **提交阶段 `os.Link` 不可用时的回退**：FAT / exFAT / 部分网络盘不支持硬链接，`commitPart` 已经是"`os.Link` 失败且**目标不存在**才 `Rename`，目标已存在返回 `errTargetExists` 换下一个名字"，本契约要求保持这一点。已知的残余竞态：检查和 `Rename` 之间目标被别的程序创建，在 Windows 上 `os.Rename` 会**覆盖**它（`MoveFileEx` 带 `REPLACE_EXISTING`）；实现时 Windows 的回退应改用不带 `REPLACE_EXISTING` 的 `MoveFileEx`（`golang.org/x/sys/windows`，已在 go.mod），使"目标存在"变成失败。**此点未在 Windows 真机验证。**
 - 编码：mp4 / mov / mkv = `libx264 -preset medium -crf 20` + `aac 192k`（mp4 加 `+faststart`）；webm = `libvpx-vp9 -b:v 2M` + `libopus 128k`。缺少编码器由 ffmpeg 报错，按 6.9 归为 `PROCESS_FAILED`。
 - 进度：`outTimeSec / durationSec`，0~1 单调，完成为 1；`task:progress` 载荷不变（`progress / speed / etaSec / outTimeSec`）。**不新增事件**。
@@ -524,6 +531,7 @@ type PreviewURL struct {
 
 ### 6.11.5 工程存取
 
+- **`EditProjectMeta.durationSec`**：`SaveProject` 返回（以及 `ListProjects` 列表）的时长是**按 clip 自填值估算的**，即 `max(startSec + (outSec − inSec) / speed)`，**不探测素材、不扣转场**（6.11.2 E）；精确时长以 `ValidateProject` 的 `EditPlan.durationSec` 为准。
 - 表 `edit_projects(id, name, project JSON, updated_at)` 已在第 6 节。`SaveProject`：`id` 空 = 新建（ULID），否则更新（不存在 `NOT_FOUND`）；名称重复允许。**只校验数量上限（架构师定）**：名称去首尾空白后 1~80 字、clip 总数 ≤ 100、`sources` ≤ 200、序列化后 ≤ 1 MiB、`schemaVersion` ≤ 1，超了 `INVALID_ARGUMENT`。**不校验**同轨重叠、`outSec`、`speed` 等取值范围、路径是否存在（草稿可以保存，比如正在拖动中的时间线）；这些只在 `ValidateProject` 和 `Export` 报。所以 `LoadProject` 可能读出不合法的草稿，前端要能显示，导出前再调 `ValidateProject`。
 - `LoadProject` 不因素材丢失而失败，缺失路径放 `missingPaths`；`SchemaVersion` 大于 1 → `UNSUPPORTED`。
 - 后端不做自动保存，也不做撤销栈；前端需要时自行防抖调用 `SaveProject`。
@@ -550,7 +558,7 @@ type PreviewURL struct {
 | # | 未验证项 | 在哪里 | 怎么验证 | 不通过怎么办 |
 |---|---|---|---|---|
 | 1 | Windows 输出路径 259 字符上限的算式（UTF-16 码元数、预留 `.part` 和 `(99)` 共 9 个字符）与真实 `MAX_PATH` 行为；UNC 路径整条计入 | 6.11.3「输出路径长度」 | Windows 上用接近上限的目录导出，确认不超长的能成功、超长的在提交时返回 `INVALID_ARGUMENT` | 调整预留长度（契约变更） |
-| 2 | `MoveFileEx`：Windows 回退改名用不带 `REPLACE_EXISTING` 的 `MoveFileEx`，"目标存在"变失败 | 6.11.3「`os.Link` 不可用时的回退」 | 在 FAT / exFAT U 盘或网络盘上导出两次同名文件，确认第二次得到 `(1)` 后缀而不是覆盖 | 保持 `os.Rename`，接受残余竞态并记录 |
+| 2 | `MoveFileEx`：Windows 回退改名用不带 `REPLACE_EXISTING` 的 `MoveFileEx`，"目标存在"变失败（**已交叉编译，未真机验证**；**POSIX 上 `rename` 会覆盖已存在的目标，检查与改名之间的竞态仍有残余**，首版接受并在实现里注明） | 6.11.3「`os.Link` 不可用时的回退」 | 在 FAT / exFAT U 盘或网络盘上导出两次同名文件，确认第二次得到 `(1)` 后缀而不是覆盖 | 保持 `os.Rename`，接受残余竞态并记录 |
 | 3 | WebView2 收到被截短到 4 MiB 的 `206` 之后是否继续请求后续 Range（Range 续传） | 6.11.4 第 4 点、6.13 第 9 点 | 预览包里播放 > 32 MiB 的视频并拖动进度 | **验证不通过时的回退方案（首版不实现）**：走 `edit_proxy`，见 6.11.4 第 4 点 |
 | 4 | `HEAD` 请求在 WebView2 里的实际表现，`token` 失效 404 后前端重新 `GetPreviewURL` 的流程 | 6.13 | 预览包里让 token 失效（删除素材后）再播放 | 前端改为直接重新 `GetPreviewURL` 不探测 |
 
