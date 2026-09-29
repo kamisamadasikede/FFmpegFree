@@ -54,6 +54,7 @@ export const iconPaths = {
   'edit': "<path d=\"M4 20h4L19 9l-4-4L4 16z\"/>",
   'stop': "<rect x=\"6\" y=\"6\" width=\"12\" height=\"12\" rx=\"1\"/>",
   'magic': "<path d=\"m15 4 1 2 2 1-2 1-1 2-1-2-2-1 2-1zM5 14l1 2 2 1-2 1-1 2-1-2-2-1 2-1zM19 13l-8 8M16 10l-2 2\"/>",
+  'lock': "<rect x=\"5\" y=\"11\" width=\"14\" height=\"10\" rx=\"2\"/><path d=\"M8 11V8a4 4 0 0 1 8 0v3\"/>",
   'block': "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"m5.6 5.6 12.8 12.8\"/>",
 } as const
 
