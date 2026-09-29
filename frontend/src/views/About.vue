@@ -33,7 +33,7 @@
         <div class="l">
           <b>字体来源和许可</b>
           <!-- 每条一个 <p>，链接跟在末尾；允许在窄窗口下折成两行，不截断、不 nowrap -->
-          <p v-for="lic in FONT_LICENSES" :key="lic.name">{{ lic.before }}<b class="fn">{{ lic.font }}</b>{{ lic.after }}<a class="lnk sm" role="button" tabindex="0" :aria-label="`查看许可文本：${lic.font}`" @click.prevent="openLicense(lic)" @keydown.enter.prevent="openLicense(lic)" @keydown.space.prevent="openLicense(lic)">查看许可文本</a></p>
+          <p v-for="lic in FONT_LICENSES" :key="lic.name">{{ lic.before }}<b class="fn">{{ lic.font }}</b>{{ lic.after }}<a class="lnk sm" role="button" tabindex="0" @click.prevent="openLicense(lic)" @keydown.enter.prevent="openLicense(lic)" @keydown.space.prevent="openLicense(lic)">查看许可文本</a></p>
         </div>
       </div>
     </section>
