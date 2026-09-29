@@ -1,8 +1,11 @@
 package main
 
 import (
+	"FFmpegFree/app"
 	"FFmpegFree/backend/contollers"
+	"FFmpegFree/internal/ffmpeg"
 	"FFmpegFree/internal/paths"
+	"FFmpegFree/internal/service/system"
 	"FFmpegFree/internal/store"
 	"context"
 	"fmt"
@@ -17,11 +20,12 @@ type App struct {
 	ctx   context.Context
 	dirs  paths.Dirs
 	store *store.Store
+	sys   *system.Manager
 }
 
 // NewApp creates a new App application struct
-func NewApp() *App {
-	return &App{}
+func NewApp(sys *system.Manager) *App {
+	return &App{sys: sys}
 }
 
 // startup is called when the app starts. The context is saved
@@ -32,6 +36,26 @@ func (a *App) startup(ctx context.Context) {
 		// v2 迁移期间旧的 gin 接口仍在工作，存储层初始化失败先记录日志，不阻止应用启动。
 		log.Printf("初始化本地存储失败: %v", err)
 	}
+	a.startFFmpegDetect(ctx)
+}
+
+// startFFmpegDetect 在后台检测 ffmpeg，不阻塞界面；状态变化通过 ffmpeg:status 事件推送。
+func (a *App) startFFmpegDetect(ctx context.Context) {
+	binDir := a.dirs.Bin
+	if binDir == "" {
+		// 存储初始化失败时 a.dirs 可能为空，仍然按默认位置检测。
+		if d, err := paths.Resolve(""); err == nil {
+			binDir = d.Bin
+		}
+	}
+	cfg := system.Config{
+		Locator: ffmpeg.NewLocator(binDir),
+		Emitter: app.NewWailsEmitter(ctx),
+	}
+	if a.store != nil { // 避免把 nil *Store 装进接口
+		cfg.Settings = a.store
+	}
+	a.sys.Start(ctx, cfg)
 }
 
 func (a *App) initStore(ctx context.Context) error {
