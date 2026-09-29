@@ -525,8 +525,8 @@ func TestRetry(t *testing.T) {
 	}
 	close(gate)
 	waitTask(t, f.m, act.ID)
-	if _, err := f.m.Retry(act.ID); !apperr.Is(err, apperr.Internal) {
-		t.Fatalf("未注册工厂: %v", err)
+	if _, err := f.m.Retry(act.ID); !apperr.Is(err, apperr.Unsupported) {
+		t.Fatalf("未注册工厂应返回 UNSUPPORTED: %v", err)
 	}
 	if _, err := f.m.Retry("nope"); !apperr.Is(err, apperr.NotFound) {
 		t.Fatalf("%v", err)
@@ -540,6 +540,7 @@ func TestRemoveAndClearFinished(t *testing.T) {
 	okT, _ := f.m.Submit(Spec{Type: TypeConvert}, RunnerFunc(func(ctx context.Context, _ func(Progress)) (string, error) {
 		io := LogWriter(ctx)
 		io.Write([]byte("hello log\nline2\nline3\n"))
+		os.WriteFile(out, []byte("x"), 0o644) // 输出文件在任务运行期间生成
 		return out, nil
 	}))
 	waitTask(t, f.m, okT.ID)
@@ -713,7 +714,7 @@ func TestRunWithPart(t *testing.T) {
 		t.Fatal(PartPath(want))
 	}
 	var gotPart string
-	out, err := RunWithPart(want, func(part string) error {
+	out, err := RunWithPart(context.Background(), want, func(part string) error {
 		gotPart = part
 		if _, err := os.Stat(want); err == nil {
 			t.Error("最终文件在完成前不应存在")
@@ -727,14 +728,14 @@ func TestRunWithPart(t *testing.T) {
 		t.Fatal(".part 应已改名")
 	}
 	// 重名追加 (1)、(2)
-	out2, _ := RunWithPart(want, func(p string) error { return os.WriteFile(p, []byte("2"), 0o644) })
-	out3, _ := RunWithPart(want, func(p string) error { return os.WriteFile(p, []byte("3"), 0o644) })
+	out2, _ := RunWithPart(context.Background(), want, func(p string) error { return os.WriteFile(p, []byte("2"), 0o644) })
+	out3, _ := RunWithPart(context.Background(), want, func(p string) error { return os.WriteFile(p, []byte("3"), 0o644) })
 	if out2 != filepath.Join(dir, "a(1).mp4") || out3 != filepath.Join(dir, "a(2).mp4") {
 		t.Fatalf("%s %s", out2, out3)
 	}
 	// 失败删除 .part，且不产生最终文件
 	failTarget := filepath.Join(dir, "sub", "b.mkv")
-	_, err = RunWithPart(failTarget, func(p string) error {
+	_, err = RunWithPart(context.Background(), failTarget, func(p string) error {
 		os.WriteFile(p, []byte("half"), 0o644)
 		return errors.New("fail")
 	})
