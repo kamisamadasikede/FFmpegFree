@@ -3,10 +3,10 @@
 //
 // 用法：
 //
-//	reg := localassets.New(localassets.Config{})
-//	e, err := reg.Register("/abs/path/a.mp4") // e.URL == "/local/<token>"
-//	options.App.AssetServer.Handler = reg.Handler()
-//	reg.Revoke(e.Token)
+//	edit, doc := localassets.New(localassets.Config{}), localassets.New(localassets.Config{}) // 分表：互不挤占
+//	e, err := edit.Register("/abs/path/a.mp4") // e.URL == "/local/<token>"
+//	options.App.AssetServer.Handler = localassets.MultiHandler(edit, doc)
+//	edit.Revoke(e.Token)
 //
 // 安全约束：
 //   - Handler 只按 token 查表，不接受任何路径参数；token 是 crypto/rand 的 128 位随机数（32 个十六进制字符）；
@@ -35,8 +35,8 @@ import (
 const (
 	// Prefix 是 URL 前缀。
 	Prefix = "/local/"
-	// DefaultMaxEntries 是登记表容量，超过时淘汰最旧的。
-	DefaultMaxEntries = 1024
+	// DefaultMaxEntries 是每张登记表的容量（契约 6.13：edit 与 doc 各自一张表、各 512 项），满了淘汰最近最少使用的。
+	DefaultMaxEntries = 512
 	// DefaultMaxRangeBytes 是单个 Range 响应的最大字节数（4 MiB）。
 	DefaultMaxRangeBytes int64 = 4 << 20
 	// DefaultMaxWholeBytes 是不带 Range 的请求允许返回的最大文件（32 MiB）。
@@ -116,7 +116,7 @@ func resolve(path string) (string, os.FileInfo, error) {
 	return real, fi, nil
 }
 
-// Register 登记文件并返回 token。同一个（真实）文件复用已有 token；登记表满时淘汰最旧的。
+// Register 登记文件并返回 token。同一个（真实）文件复用已有 token；登记表满时淘汰最近最少使用的（请求命中也算使用）。
 // 路径必须是绝对路径、存在且是普通文件（符号链接会被解析到真实文件，真实目标必须是普通文件）。
 func (r *Registry) Register(path string) (Entry, error) {
 	real, fi, err := resolve(path)
@@ -213,10 +213,28 @@ func ContentType(path string) string {
 	return "application/octet-stream"
 }
 
-// Handler 返回给 Wails AssetServer 的 http.Handler（options.AssetServer.Handler）。
-func (r *Registry) Handler() http.Handler { return http.HandlerFunc(r.serve) }
+// Handler 返回只查本表的 http.Handler。AssetServer 上要同时挂多张表时用 MultiHandler。
+func (r *Registry) Handler() http.Handler { return MultiHandler(r) }
 
-func (r *Registry) serve(w http.ResponseWriter, req *http.Request) {
+// MultiHandler 返回给 Wails AssetServer 的 http.Handler（options.AssetServer.Handler）：
+// 按 token 依次在各张表里查（token 是 128 位随机数，不同表不会重复），都查不到 404。
+func MultiHandler(regs ...*Registry) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) { serve(regs, w, req) })
+}
+
+// lookup 在表里按 token 取项并标记最近使用（LRU）。
+func (r *Registry) lookup(tok string) (path, resolved string, want os.FileInfo, ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	it, ok := r.byTok[tok]
+	if !ok {
+		return "", "", nil, false
+	}
+	r.order.MoveToBack(it.elem)
+	return it.path, it.resolved, it.info, true
+}
+
+func serve(regs []*Registry, w http.ResponseWriter, req *http.Request) {
 	h := w.Header()
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Cache-Control", "no-store")
@@ -235,15 +253,19 @@ func (r *Registry) serve(w http.ResponseWriter, req *http.Request) {
 		http.NotFound(w, req)
 		return
 	}
-	r.mu.Lock()
-	it, ok := r.byTok[tok]
-	var path, resolved string
-	var want os.FileInfo
-	if ok {
-		path, resolved, want = it.path, it.resolved, it.info
+	var (
+		path, resolved string
+		want           os.FileInfo
+		cfg            Config
+		found          bool
+	)
+	for _, r := range regs {
+		if path, resolved, want, found = r.lookup(tok); found {
+			cfg = r.cfg
+			break
+		}
 	}
-	r.mu.Unlock()
-	if !ok {
+	if !found {
 		http.NotFound(w, req)
 		return
 	}
@@ -272,7 +294,7 @@ func (r *Registry) serve(w http.ResponseWriter, req *http.Request) {
 	start, length := int64(0), size
 	status := http.StatusOK
 	if rangeHdr != "" {
-		s, l, kind := parseRange(rangeHdr, size, r.cfg.MaxRangeBytes)
+		s, l, kind := parseRange(rangeHdr, size, cfg.MaxRangeBytes)
 		switch kind {
 		case rangeIgnore:
 			// 不是 bytes 单位：按没有 Range 处理
@@ -285,7 +307,7 @@ func (r *Registry) serve(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 	// HEAD 用来探测 token 是否仍有效（前端 404 后重新 GetPreviewURL）：不受 32 MiB 限制，只回头部不回 body。
-	if status == http.StatusOK && size > r.cfg.MaxWholeBytes && req.Method != http.MethodHead {
+	if status == http.StatusOK && size > cfg.MaxWholeBytes && req.Method != http.MethodHead {
 		http.Error(w, "file too large without Range", http.StatusRequestEntityTooLarge)
 		return
 	}

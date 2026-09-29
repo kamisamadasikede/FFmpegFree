@@ -150,3 +150,24 @@ func TestOutputPathTooLong(t *testing.T) {
 		t.Fatal("utf16")
 	}
 }
+
+func TestNFCBeforeDeleteAndArchive(t *testing.T) {
+	// 契约：先 NFC，再删除。零宽字符夹在 e 和组合重音之间时，NFC 先做 → 无法组合（删除后保持分解形式）。
+	if got := SanitizeFileName("e\u200b\u0301"); got != "e\u0301" {
+		t.Fatalf("%q", got)
+	}
+	if got := SanitizeFileName("\u0065\u0301"); got != "\u00e9" {
+		t.Fatalf("%q", got)
+	}
+	// 直播存档：| ' [ ] → _
+	if got := SanitizeArchiveName("a|b'c[d]e"); got != "a_b_c_d_e" {
+		t.Fatalf("%q", got)
+	}
+	if got := SanitizeArchiveName("CON"); got != "_CON" {
+		t.Fatalf("%q", got)
+	}
+	// 普通净化不动这些字符
+	if got := SanitizeFileName("a'b[c]"); got != "a'b[c]" {
+		t.Fatalf("%q", got)
+	}
+}

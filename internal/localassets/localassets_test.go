@@ -357,3 +357,105 @@ func TestHeadProbe(t *testing.T) {
 		t.Fatalf("文件删除后: %d", rec.Code)
 	}
 }
+
+func TestLRUEviction(t *testing.T) {
+	dir := t.TempDir()
+	reg := New(Config{MaxEntries: 2})
+	a, _ := reg.Register(writeFile(t, dir, "a.mp4", 5))
+	b, _ := reg.Register(writeFile(t, dir, "b.mp4", 5))
+	h := reg.Handler()
+	// 请求命中 a → a 变成最近使用；再登记 c 应淘汰 b
+	if rec := get(t, h, "GET", a.URL, nil); rec.Code != 200 {
+		t.Fatal(rec.Code)
+	}
+	c, _ := reg.Register(writeFile(t, dir, "c.mp4", 5))
+	if get(t, h, "GET", b.URL, nil).Code != 404 || get(t, h, "GET", a.URL, nil).Code != 200 || get(t, h, "GET", c.URL, nil).Code != 200 {
+		t.Fatal("LRU：b 应被淘汰")
+	}
+}
+
+func TestDefaultCapacity512(t *testing.T) {
+	if r := New(Config{}); r.cfg.MaxEntries != 512 {
+		t.Fatal(r.cfg.MaxEntries)
+	}
+}
+
+// edit 与 doc 分表：各自 512 项，互不挤占；MultiHandler 两张表都能查到。
+func TestSeparateTablesAndMultiHandler(t *testing.T) {
+	dir := t.TempDir()
+	edit, doc := New(Config{MaxEntries: 2}), New(Config{MaxEntries: 2})
+	e1, _ := edit.Register(writeFile(t, dir, "a.mp4", 5))
+	d1, _ := doc.Register(writeFile(t, dir, "d1.pdf", 6))
+	for i := 0; i < 5; i++ { // doc 表被挤满、淘汰，不影响 edit 表
+		doc.Register(writeFile(t, dir, "x"+string(rune('a'+i))+".pdf", 5))
+	}
+	h := MultiHandler(edit, doc)
+	if rec := get(t, h, "GET", e1.URL, nil); rec.Code != 200 || rec.Body.Len() != 5 {
+		t.Fatalf("edit 表的项不应被 doc 挤掉: %d", rec.Code)
+	}
+	if rec := get(t, h, "GET", d1.URL, nil); rec.Code != 404 {
+		t.Fatalf("doc 表里最旧的应被淘汰: %d", rec.Code)
+	}
+	d2, _ := doc.Register(writeFile(t, dir, "last.pdf", 7))
+	if rec := get(t, h, "GET", d2.URL, nil); rec.Code != 200 || rec.Header().Get("Content-Type") != "application/pdf" {
+		t.Fatalf("%d", rec.Code)
+	}
+	// 单表 Handler 只认自己的表
+	if rec := get(t, edit.Handler(), "GET", d2.URL, nil); rec.Code != 404 {
+		t.Fatalf("%d", rec.Code)
+	}
+}
+
+// 不设 Last-Modified / ETag，也不处理条件请求（WebView2 对 304 有已知问题）。
+func TestNoConditionalHeaders(t *testing.T) {
+	dir := t.TempDir()
+	reg := New(Config{})
+	e, _ := reg.Register(writeFile(t, dir, "a.mp4", 50))
+	rec := get(t, reg.Handler(), "GET", e.URL, map[string]string{
+		"If-None-Match": `"x"`, "If-Modified-Since": "Wed, 21 Oct 2099 07:28:00 GMT", "If-Range": `"x"`, "Range": "bytes=0-9"})
+	if rec.Code != 206 || rec.Header().Get("Last-Modified") != "" || rec.Header().Get("ETag") != "" {
+		t.Fatalf("%d %v", rec.Code, rec.Header())
+	}
+}
+
+// 契约 6.13 原型实测的 12 种请求（阈值等比缩小：4 MiB → 40 字节，32 MiB → 320 字节；文件 400 字节）。
+func TestContractRangeMatrix(t *testing.T) {
+	dir := t.TempDir()
+	reg := New(Config{MaxRangeBytes: 40, MaxWholeBytes: 320})
+	e, _ := reg.Register(writeFile(t, dir, "big.mp4", 400))
+	h := reg.Handler()
+	type c struct {
+		method, rng string
+		code, n     int
+		cr          string
+	}
+	for _, x := range []c{
+		{"GET", "bytes=0-", 206, 40, "bytes 0-39/400"},
+		{"GET", "bytes=0-9", 206, 10, "bytes 0-9/400"},
+		{"GET", "bytes=-10", 206, 10, "bytes 390-399/400"},
+		{"GET", "bytes=-100000", 206, 40, "bytes 0-39/400"},
+		{"GET", "bytes=99999999-", 416, 0, "bytes */400"},
+		{"GET", "bytes=0-1,5-9", 416, 0, "bytes */400"},
+		{"GET", "bytes=abc", 416, 0, "bytes */400"},
+		{"POST", "", 405, 0, ""},
+		{"HEAD", "bytes=0-9", 206, 0, "bytes 0-9/400"},
+		{"GET", "", 413, 0, ""},
+		{"HEAD", "", 200, 0, ""},
+		{"GET", "bytes=400-", 416, 0, "bytes */400"},
+	} {
+		hdr := map[string]string{}
+		if x.rng != "" {
+			hdr["Range"] = x.rng
+		}
+		rec := get(t, h, x.method, e.URL, hdr)
+		if rec.Code != x.code || (x.code == 206 && x.method == "GET" && rec.Body.Len() != x.n) || rec.Header().Get("Content-Range") != x.cr {
+			t.Errorf("%s %q: %d len=%d cr=%q", x.method, x.rng, rec.Code, rec.Body.Len(), rec.Header().Get("Content-Range"))
+		}
+		if x.method == "POST" && rec.Header().Get("Allow") != "GET, HEAD" {
+			t.Errorf("405 缺 Allow")
+		}
+		if x.method == "HEAD" && rec.Body.Len() != 0 {
+			t.Errorf("HEAD 有正文")
+		}
+	}
+}

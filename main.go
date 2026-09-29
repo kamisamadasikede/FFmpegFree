@@ -27,8 +27,7 @@ func main() {
 	convertService := app.NewConvertService(mainApp.convertService, mainApp.appContext)
 	editService := app.NewEditService(mainApp.editService, mainApp.appContext)
 
-	// /local/<token> 本地文件预览登记表：Edit（视频 / 音频）与 Doc（PDF）共用同一个实例，Handler 挂在 AssetServer 上。
-	localAssets := mainApp.localAssets()
+	// /local/<token> 本地文件预览（契约 6.13）：edit / doc 两张登记表，Handler 挂在 AssetServer 上。
 
 	// Create application with options
 	err := wails.Run(&options.App{
@@ -41,7 +40,7 @@ func main() {
 		MaxHeight: 0,    // ✅ 0 表示无最大高度
 		AssetServer: &assetserver.Options{
 			Assets:  assets,
-			Handler: localAssets.Handler(),
+			Handler: mainApp.localHandler(),
 		},
 		// 转换页等：拖入文件拿本地绝对路径（前端 OnFileDrop，落在带 --wails-drop-target: drop 的区域才回调）
 		DragAndDrop:      &options.DragAndDrop{EnableFileDrop: true},

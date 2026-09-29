@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"sync/atomic"
 	"time"
 
@@ -34,12 +35,18 @@ type App struct {
 	media      atomic.Pointer[media.Service]
 	conv       atomic.Pointer[convert.Service]
 	edt        atomic.Pointer[edit.Service]
-	// local 是 /local/<token> 预览登记表，Edit 与 Doc 共用；main.go 把它的 Handler 挂到 AssetServer。
-	local *localassets.Registry
+	// /local/<token> 预览登记表（契约 6.13）：edit 与 doc 分表，各 512 项，互不挤占；main.go 用 localHandler 挂到 AssetServer。
+	editLocal *localassets.Registry
+	docLocal  *localassets.Registry
 }
 
-// localAssets 返回 /local/<token> 登记表（NewApp 时创建，永不为 nil）。小写，不会被 Wails 暴露。
-func (a *App) localAssets() *localassets.Registry { return a.local }
+// editAssets / docAssets 返回两张 /local/<token> 登记表（NewApp 时创建，永不为 nil）。小写，不会被 Wails 暴露。
+// DocService 用 docAssets().Register(path)。
+func (a *App) editAssets() *localassets.Registry { return a.editLocal }
+func (a *App) docAssets() *localassets.Registry  { return a.docLocal }
+
+// localHandler 是挂在 Wails AssetServer.Handler 上的处理器，按 token 在两张表里查。
+func (a *App) localHandler() http.Handler { return localassets.MultiHandler(a.editLocal, a.docLocal) }
 
 // taskManager 返回任务管理器；OnStartup 完成前（或存储初始化失败时）为 nil。
 // 首字母小写，不会被 Wails 当作绑定方法暴露给前端。
@@ -58,7 +65,7 @@ func (a *App) editService() *edit.Service { return a.edt.Load() }
 func NewApp(sys *system.Manager) *App {
 	// 根 ctx 在构造时就创建，保证绑定方法在 OnStartup 之前被调用也拿到有效的 ctx。
 	ctx, cancel := context.WithCancel(context.Background())
-	return &App{sys: sys, rootCtx: ctx, rootCancel: cancel, local: localassets.New(localassets.Config{})}
+	return &App{sys: sys, rootCtx: ctx, rootCancel: cancel, editLocal: localassets.New(localassets.Config{}), docLocal: localassets.New(localassets.Config{})}
 }
 
 // appContext 返回应用根 ctx，shutdown 时被取消。小写，不会被 Wails 暴露。
@@ -147,7 +154,7 @@ func (a *App) startEdit() {
 		Lister:           a.store,
 		Tasks:            tm,
 		Media:            med,
-		Preview:          a.local,
+		Preview:          a.editLocal,
 		DefaultOutputDir: a.sys.DefaultOutputDir,
 		TempDir:          a.dirs.Temp,
 	})
