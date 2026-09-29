@@ -26,9 +26,9 @@ func enumMonitorsProc(hMon, hdc, rc, lparam uintptr) uintptr {
 			X: int(mi.Monitor.Left), Y: int(mi.Monitor.Top),
 			Width: int(mi.Monitor.Right - mi.Monitor.Left), Height: int(mi.Monitor.Bottom - mi.Monitor.Top),
 		}
-		si.Name = fmt.Sprintf("显示器 %d", n+1)
+		si.Name = fmt.Sprintf("屏幕 %d", n+1)
 		if si.Primary {
-			si.Name += "（主）"
+			si.Name += "（主显示器）"
 		}
 		monitorsRes = append(monitorsRes, si)
 	}

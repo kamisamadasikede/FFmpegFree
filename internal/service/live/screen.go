@@ -147,9 +147,9 @@ func parseXrandr(out string) []ScreenInfo {
 		res[0].Primary = true // 没有标 primary 时第一个当主显示器
 	}
 	for i := range res {
-		res[i].Name = fmt.Sprintf("显示器 %d", i+1)
+		res[i].Name = fmt.Sprintf("屏幕 %d", i+1)
 		if res[i].Primary {
-			res[i].Name += "（主）"
+			res[i].Name += "（主显示器）"
 		}
 	}
 	return res
@@ -174,9 +174,9 @@ func parseAVFoundationScreens(out string) []ScreenInfo {
 	for _, line := range strings.Split(out, "\n") {
 		if m := avfScreen.FindStringSubmatch(line); m != nil {
 			n, _ := strconv.Atoi(m[2])
-			si := ScreenInfo{ID: "avf:" + m[1], Name: fmt.Sprintf("显示器 %d", n+1), Primary: n == 0, Scale: 1}
+			si := ScreenInfo{ID: "avf:" + m[1], Name: fmt.Sprintf("屏幕 %d", n+1), Primary: n == 0, Scale: 1}
 			if si.Primary {
-				si.Name += "（主）"
+				si.Name += "（主显示器）"
 			}
 			res = append(res, si)
 		}

@@ -160,4 +160,17 @@
 
 ### 直播 v1.1 采集来源选择器（2026-09-30，设计稿未出，按 v0.2 风格先做）
 
-`views/live/RecordPush.vue` 用 `listCaptureSources()` 取代 `listScreens()`，组件 `components/live/CaptureSourcePicker.vue`（“屏幕 / 应用窗口”两个分组，仅屏幕时不出“应用窗口”标题；加载中 / 空 / 失败三态 + “刷新列表”；名称过长省略，title 带完整名称和分辨率）。默认选第一个屏幕；开始推流传 `captureSourceId`（`screenId` 传空，后端以 captureSourceId 为准）。`LIVE_SOURCE_GONE`（detail 首行 `kind=window|screen`）→ 来源选择器下方显示错误（`liveSourceGoneText`），取消已选来源并自动刷新列表；`INVALID_ARGUMENT` 沿用通用文案。会话行显示这一路的来源名（`LiveRow.source`），不脱敏但只在本机界面显示，不写日志、不进错误 detail；刷新后接回的会话取不到来源名。文案集中在 `errors/errorMessages.ts`（`LIVE_SOURCE_*`，**全部待产品经理确认**）。预览参数：`?sim_sources=…`、`?form=window|srcgone|srcgonescreen`、`?src=window`（会话行窗口来源）。预览（`GetPreview`）后端未合，本版不做。
+`views/live/RecordPush.vue` 用 `listCaptureSources()` 取代 `listScreens()`，组件 `components/live/CaptureSourcePicker.vue`（“屏幕 / 应用窗口”两个分组，仅屏幕时不出“应用窗口”标题；加载中 / 空 / 失败三态 + “刷新列表”；名称过长省略，title 带完整名称和分辨率）。默认选第一个屏幕；开始推流传 `captureSourceId`（`screenId` 传空，后端以 captureSourceId 为准）。`LIVE_SOURCE_GONE`（detail 首行 `kind=window|screen`）→ 来源选择器下方显示错误（`liveSourceGoneText`），取消已选来源并自动刷新列表；`INVALID_ARGUMENT` 沿用通用文案。会话行显示这一路的来源名（`LiveRow.source`），不脱敏但只在本机界面显示，不写日志、不进错误 detail；刷新后接回的会话取不到来源名。文案集中在 `errors/errorMessages.ts`（`LIVE_SOURCE_*`，**全部待产品经理确认**）。预览参数：`?sim_sources=…`、`?form=window|srcgone|srcgonescreen`、`?src=window`（会话行窗口来源）。预览见下一节。
+
+## 直播预览（后端 PR #65，契约 v0.17；前端 `v2-fe-live-preview`）
+
+**接口**（`api/live.ts`）：`getPreview(sessionId)`（`{data: base64 JPEG, ts: 毫秒, active}`；没有画面返回空、不是错误；`active=false` = 会话已结束）、`startPullPreview({url, preview?})→{id, redacted, preview}`（同地址幂等，最多 4 路，超限 `TASK_CONFLICT` reason=max_pull_previews）、`stopPullPreview(id)`；`FilePushRequest` / `ScreenPushRequest` 有可选 `preview`（缺省开）。
+
+**开关语义（产品经理已定）**：预览是**会话启动参数**，只能在开始前选。推流表单“开始推流”上方是“开启预览”开关（默认开，**不记住上次选择**，每次打开表单默认开；ffmpeg 未就绪、正在开始推流时和“开始推流”一起置灰）；会话行第二行只读“预览：开 / 关”；拉流的开关在“拉流设置”地址框下方，播放中置灰，控制条只剩只读“预览：开”。`preview:false` 原样透传给后端。
+
+**取帧规则**（`api/livePreviewPoller.ts`，不依赖 Vue，可注入假时钟）：约 500ms 一次、请求不重叠、事件序号丢弃过期返回；空帧只算“还没画面”；首帧 10 秒仍没有转失败；连续 5 次取帧出错转失败（成功一次清零）；点“重试”重新计时 / 计数；`active=false` 转“会话已结束”（末帧灰化）；页面不可见 / 切页 / 卸载停止，重新可见立即取一次；预览关闭的会话不轮询。画面用 `data:image/jpeg;base64,` 直接显示，不建 blob。
+**拉流预览会话**（`api/pullPreviewSession.ts`）：start 成功后一定 stop（出错 / 点停止 / 离开页面 / 卸载 / start 在途被取消 / 后端返回 `preview=false`），重复开始不重复 Start。KeepAlive 切走会 Stop，回来仍在播放则重开。ws / wss 地址后端不支持预览，舞台显示“不支持”提示（自拟文案）。
+**多路会话**：预览面板只显示一路（当前预览行）；其他预览为开的运行中行显示“查看预览”，预览为关的行不显示，被选中的关闭行显示“当前选中”。
+**文案**集中在 `errors/livePreviewMessages.ts`（“已定”与“待产品经理确认”在文件里逐条标注）；主屏统一为“屏幕 1（主显示器）”（后端 `ListScreens` 名称、模拟数据、契约同步）。
+**浏览器演示参数**（只在没有 window.go 时有效）：`?preview=ok|slow|never|error|flaky`（模拟 JPEG 帧 / 5 秒后首帧 / 一直没画面 / 每次出错 / 偶尔出错）；`?rows=…&rowspv=1,0,1`（逐行“预览：开/关”）、`&pvsel=N`（选中第 N 行为当前预览行）；拉流页 `?live=running&pvon=0`（预览关）。不加 `?preview` 时模拟层恒返回空帧（不假装有画面）。
+
