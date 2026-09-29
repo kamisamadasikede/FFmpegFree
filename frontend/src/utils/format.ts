@@ -30,3 +30,29 @@ export function formatDuration(ms: number): string {
 export function fileBaseName(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path
 }
+
+/** 字节数：862 * 1024**2 → "862 MB"，1.8 GB → "1.8 GB"（1024 进制，与系统文件管理器一致） */
+export function formatBytes(n: number): string {
+  if (!isFinite(n) || n <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let i = 0
+  let v = n
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024
+    i++
+  }
+  return `${v >= 100 || i === 0 ? Math.round(v) : v.toFixed(1).replace(/\.0$/, '')} ${units[i]}`
+}
+
+/** 缩略图角标时长：724 → "12:04"，3725 → "1:02:05"，0 → "" */
+export function formatShortClock(sec: number): string {
+  if (!isFinite(sec) || sec <= 0) return ''
+  const s = Math.round(sec)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return s >= 3600 ? `${Math.floor(s / 3600)}:${p(Math.floor((s % 3600) / 60))}:${p(s % 60)}` : `${p(Math.floor(s / 60))}:${p(s % 60)}`
+}
+
+export function dirName(path: string): string {
+  const i = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+  return i <= 0 ? path.slice(0, i + 1) || path : path.slice(0, i)
+}
