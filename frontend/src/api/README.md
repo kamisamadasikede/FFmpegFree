@@ -11,7 +11,7 @@
 |---|---|---|
 | `LIVE_BACKEND_READY`（已打开，联调中） | `live.ts` | 生成的绑定 `wailsjs/go/app/LiveService`（直接 import，类型用 `models.live.*`），停止走 `TaskService.Cancel`，刷新后 `TaskService.ListActive` 接回。**只有 Wails 里（有 `window.go`）才走真实后端**（`liveIsReal()`），纯浏览器环境仍走模拟；“演示”提示 / 演示素材 / 任务中心“演示”标签只在模拟环境出现 |
 | `EDIT_BACKEND_READY` | `edit.ts` | `window.go.app.EditService.*` |
-| `DOC_BACKEND_READY` | `doc.ts` | `window.go.app.DocService.*` |
+| `DOC_BACKEND_READY` | `doc.ts` | 生成绑定 `wailsjs/go/app/DocService`（后端 #29 已合入，开关为 `true`）。纯浏览器（没有 `window.go`）保留模拟，`isDocSim()` 为 true，文档页只在这时显示“演示”提示 |
 | `ABOUT_BACKEND_READY` | `about.ts` | 生成绑定 `wailsjs/go/main/App` 的 `GetAppVersion()` / `GetLicenseText(name)`（后端 #34、#36，已合入，开关为 `true`）。纯浏览器开发环境（没有 `window.go`）始终走模拟：版本“开发版”、许可文本是标注“演示文本”的 OFL 前几行 |
 
 开关为 true 时经 `call.ts` 的 `callService(service, method, ...args)` 按名字取 `window.go`，**不 import wailsjs 生成文件**（没有绑定时 `vue-tsc` / `vite build` 也能过）。绑定不存在会抛 `UNSUPPORTED`，不会悄悄走模拟。
@@ -22,7 +22,7 @@
 
 **Edit**（`edit.ts`）：`validateProject`、`exportProject(EditProject, EditExportOptions)→Task`（契约名 `Export`）、`getPreviewURL(path)`、`saveProject`、`loadProject`、`listProjects(limit)`、`deleteProject`；辅助 `createPreviewSource`（404 后 HEAD 探测、重新取地址）、`findTrackOverlap` / `wouldOverlap`（拖拽 / 放置时拦同轨重叠）、`newVideoClip` / `newAudioClip` / `fillOutSec`（素材加入 clip 时用探测到的时长填 `outSec`，不能是 0）、`checkStructure`（Validate / Export）、`checkSaveLimits`（Save，只查数量上限）、`sanitizeOutputName`。素材用 `system.ts` 的 `pickFiles` 和 `media.ts` 的 `probeFiles` / `thumbnailOf`。任务类型 `edit_export`。
 
-**Doc**（`doc.ts`）：`getDocCapabilities`、`convertToPDF(inputs, outputDir)→Task[]`（`office_pdf`）、`openPDF(path)→PDFSource`、`readPDFChunk(id, offset, length)`、`readWholePDF(src)`（循环读到 eof）、`listRecentPDFs(limit)`、`removeRecentPDFs(ids)`；`isExperimental(caps)`。
+**Doc**（`doc.ts`）：`getDocCapabilities`、`convertToPDF(inputs, outputDir)→Task[]`（`office_pdf`）、`openPDF(path)→PDFSource`、`readPDFChunk(id, offset, length)`、`readWholePDF(src)`（循环读到 eof，按原始字节处理）、`loadPDF(path)`（≤ 64 MiB 读整份；更大的返回 `/local/<token>`，先 `HEAD` 探测，404 重新 `OpenPDF` 只重试一次）、`listRecentPDFs(limit)`（limit > 200 按 200）、`removeRecentPDFs(ids)`、`listOfficeHistory()`（`TaskService.List` 的 `office_pdf` 终态任务，刷新后接回）；`isExperimental(caps)`。文档页错误文案统一走 `errors/errorMessages.ts` 的 `docErrorText`。
 
 公共：`call.ts`（`AppError` 含 `reason` / `scheme` / `clipId` / `path`，`AppErrorCode` 全集，`BACKEND_ERROR_CODES`）、`taskTypes.ts`（Task / 事件载荷类型）、`sim.ts`（模拟任务引擎，走 `services/wails.ts` 的模拟事件总线，任务 store 已订阅，任务中心 / 角标能看到模拟任务）。
 
@@ -40,20 +40,20 @@
 
 ## 关于页（`about.ts`）
 
-`getAppVersion()` → `GetAppVersion()`（构建时 `-ldflags` 注入，没注入返回“开发版”）；`getLicenseText(name)` → `GetLicenseText(name)`，`name` 只能是后端白名单里的 `"OFL"`（Noto Sans SC）和 `"OFL-Nunito"`（Nunito），调用方只传 `src/config/about.ts` 里列出的常量，不传用户输入；未知名字后端返回 `INVALID_ARGUMENT`。这两个绑定已在生成文件 `wailsjs/go/main/App` 里，直接 import，没有本地类型声明。
+`getAppVersion()` → `GetAppVersion()`（构建时 `-ldflags` 注入，没注入返回“开发版”）；`getLicenseText(name)` → `GetLicenseText(name)`，`name` 前端只传 `"OFL"`（Noto Sans SC）；后端白名单里仍有 `"OFL-Nunito"`，但 v2 界面不使用 Nunito，关于页已去掉该入口，前端类型 `LicenseName` 只含 `"OFL"`。调用方只传 `src/config/about.ts` 里列出的常量，不传用户输入；未知名字后端返回 `INVALID_ARGUMENT`。`GetAppVersion`、`GetLicenseText` 两个绑定已在生成文件 `wailsjs/go/main/App` 里，直接 import，没有本地类型声明。
 
 ## 联调时要切换的地方
 
 1. `src/api/flags.ts` 里对应开关改 `true`（三个可以分开切）。
 2. 后端生成 wailsjs 绑定后，可选：把 `callService('X','Y',…)` 换成直接 import 生成文件（保留 `call()` 包装），并用生成的类型替换 `live.ts` / `edit.ts` / `doc.ts` 顶部的手写类型。
-3. `LiveLayout.vue` 顶部的 `MigrationNotice`（直播演示提示）已改为只在模拟环境（`!liveIsReal()`）显示，真实 Wails 里不出现；剪辑页 `VideoEditor.vue` 与 Office 页 `OfficeConvert.vue` / `PDFPreview.vue` 目前仍是 v1 的 `V1_API_READY=false`，**本次没有改这三个页面的逻辑**（接口层已备好，页面接入是后续工作）。
+3. `LiveLayout.vue` 顶部的 `MigrationNotice`（直播演示提示）已改为只在模拟环境（`!liveIsReal()`）显示，真实 Wails 里不出现；剪辑页 `VideoEditor.vue`、直播页、文档页 `OfficeConvert.vue` / `PDFPreview.vue` 均已接真实后端（Wails 内），各页的 `MigrationNotice` 只在模拟环境显示。v1 兼容层 `api/index.ts`、`V1_API_READY`、`api/office`、`api/pdf`、`api/editor` 已全部删除。
 4. `services/wails.ts` 的 `onSimEvent` 总线与 `stores/tasks.ts` 里对 `sim` 的分支（cancel / retry / remove / 历史）在全部开关为 true 后可删。
 
 ## 契约未冻结、可能要改的点
 
 - Live：方法名、`PushOptions` 字段、`TASK_CONFLICT` 的 `reason` 取值（`duplicate_url` / `screen_busy` / `max_sessions` 已定）、缺 srt/rtmps 协议时 UNSUPPORTED 的 detail 写法与文案、`LIVE_*` 错误分类关键词（未用真实服务器验证）（文案已由产品定稿，见上）。
 - Edit：`Export` 命名（已确认）、`EditExportOptions`、`GetPreviewURL` 的限长 206 在 Windows/WebView2 上是否可用（未验证，回退是 `edit_proxy`，接口不变）、clip 错误 detail 首行格式。
-- Doc：大文件（> 64 MiB）路径在 Windows 未验证（验证不通过则 `OpenPDF` 对 > 64 MiB 返回 INVALID_ARGUMENT、`url` 恒空）；字体子集范围与 OFL 保留名。
+- Doc：大文件（> 64 MiB）路径在 Windows 未验证（前端已实现 HEAD 探测 + 一次重试，未在真实 Wails 里跑过）（验证不通过则 `OpenPDF` 对 > 64 MiB 返回 INVALID_ARGUMENT、`url` 恒空）；字体子集范围与 OFL 保留名。
 
 ## 契约疑问：已决与未决
 
@@ -77,7 +77,7 @@
   - 后端会先删空壳存档并清空 `outputPath`，再发终态事件。
 - **SRT passphrase 长度 10–79**（新增约束，已定）。
 - **`TASK_CONFLICT` 的 `reason`**（原 18，已关）：`max_sessions`=“最多同时推 4 路”，`duplicate_url`=“这个地址已经在推流”，其他 / 缺失 / Edit、Doc 的冲突=“操作冲突，请稍后再试”。屏幕推流“同时最多 1 路”是否限制、reason 叫什么，仍等产品经理（见下）。
-- **带存档的屏幕推流**（原 8 的一部分）：后端暂返回 `UNSUPPORTED`，等 Edit 合入后补。
+- **带存档的屏幕推流**（原 8 的一部分）：后端已实现（#47，tee 分片 mp4），前端已放开，不再返回 `UNSUPPORTED`。
 - **Doc**（无对应旧疑问，仅记录）：`PDFChunk.Data` 是 Go `string`（标准 base64，含 `=` 填充），前端直接 `atob`，不做类型转换；`Length` / `chunkBytes` 是原始字节数；超 5000 页返回 `UNSUPPORTED`；Office 转 PDF 页面显示“实验性”标签和常驻说明“仅提取文字，不保留图片和样式”；`/local/<token>` 支持 `HEAD`，失效 404。
 - **Edit**（无对应旧疑问，仅记录）：
   - 转场：默认 0.5s 超过相邻较短片段一半时后端静默缩到一半，不足 0.1s 忽略并给 `transition_ignored` 警告；显式超限 `INVALID_ARGUMENT`。`EditPlan.durationSec` 已扣除转场重叠。
@@ -113,12 +113,23 @@
 
 等**后端 / 架构师**：
 
-- **屏幕推流本地存档**：后端暂未实现，`archiveDir` 非空 → `UNSUPPORTED`（契约 §6.10：detail 没有 `missing=` 行，message“屏幕推流的本地存档暂未实现”）。前端保留存档开关，提交后若返回该错误显示“暂不支持同时保存本地存档，请关闭‘同时保存本地存档’后重试”（`LIVE_ARCHIVE_UNSUPPORTED_TEXT`，只在开着存档且 detail 没有 `missing=` 行时用；有 `missing=` 行（含 `missing=tee`）的按缺组件处理，`tee` 用通用句，不当成存档提示；后端存档 PR 合入前不放开）；模拟层与后端一致。后端实现存档后去掉这个分支。
+- **屏幕推流本地存档**：后端已实现（#47），前端存档开关可用。`errorMessages.ts` 里仍保留 `LIVE_ARCHIVE_UNSUPPORTED_TEXT` 分支（archiveDir 非空且 UNSUPPORTED 且 detail 没有 `missing=` 行时用），作为旧后端的兜底；`api/live.ts` 的模拟层仍按旧行为对 archiveDir 抛 `UNSUPPORTED`，浏览器演示环境下如此，待直播页跟进时对齐。
 - **缺协议的 UNSUPPORTED**（原 6，**契约已冻结，见契约 §6.10 与 2.2 的 detail 约定表**）：本机 ffmpeg 缺推流协议时 `Start*` 返回 `UNSUPPORTED`，`detail` 是**单独一行** `missing=<协议名>`，协议名只取 `rtmp` / `rtmps` / `srt`（对应地址 scheme，`rtmp` 是除 `rtmps` / `srt` 以外的默认）；带本地存档的会话另需 tee，缺时是 `missing=tee`；`CheckPushURL` 不返回它；`message` 是“当前 ffmpeg 不支持 <协议名>，请安装完整版 ffmpeg”（前端不显示）。其他原因的 `UNSUPPORTED`（`Retry` 直播任务、屏幕推流存档未实现）没有这一行。前端按契约严格识别（`liveMissingProtocolName` / `liveFfmpegProtocolMissingText`）：detail 按行拆开，某一行**严格等于** `missing=rtmp` / `missing=rtmps` / `missing=srt` 才显示协议名（大写）；其余一律用不带协议名的通用句，包括 `missing=tee`、大小写 / 空格不同、别的写法。`hasMissingLine` 判断有没有 `missing=` 行，用来把“缺组件的 UNSUPPORTED”和“存档未实现的 UNSUPPORTED”分开。模拟层 `?sim_missing=rtmp|rtmps|srt` 产出的 detail 就是这一行。
 - **Edit 多素材预览**（原 10）：同时预览 N 个素材占 N 个 token（登记表 256 项 LRU），是否提供批量 `GetPreviewURL`。限长 206（4 MiB）的 seek 体验待 Windows 真机验证。
-- **Doc 转换产物不自动进 PDF 历史**（原 15）：预览时才 `OpenPDF`，请确认是预期。
+- **Doc 转换产物不自动进 PDF 历史**（原 15，已按契约实现）：转换记录里点“预览”才对输出路径 `OpenPDF`（此时才进“最近打开”）。
 - **错误码表**（原 17）：`UNSUPPORTED_PLATFORM` 文案已定（见上）；`LIVE_PLAY_FAILED` / `LIVE_CORS_BLOCKED` 只由前端播放器产生。契约 §2 的清单是 17 个后端码。
 - **敏感信息**（原 20）：前端已保证完整推流地址和口令只在输入框和调用参数里，不写 localStorage / 日志 / console，列表和标题用脱敏形式；后端 `Task.title` / `params` 已脱敏。无需契约改动，仅记录。
 
 （关于页三项已由产品经理确认：项目地址用 GitHub、许可证句“本应用以木兰宽松许可证第 2 版发布”、许可证链接指向 `blob/master/LICENSE`，常量在 `src/config/about.ts`。）
 
+
+### 文档页（2026-09-29 落地，设计稿待补）
+
+- 布局按旧稿 `07-文档-浅色.png` 与现有设计令牌：Office 转 PDF = 标题 +“实验性”标签 + 常驻说明 12px `--ff-text-2`“仅提取文字，不保留图片和样式”、拖入区、转换记录；PDF 预览 = 缩略图 + 阅读区 + 最近打开。完整稿（含暗色、标签与说明）由设计师稍后补，出来后走查差异。
+- **待产品经理确认的自拟文案**（`errors/errorMessages.ts`，已标注）：超过 5000 页 `DOC_TOO_MANY_PAGES_TEXT`、文件损坏（INVALID_ARGUMENT + OOXML）`DOC_FILE_BROKEN_TEXT`。
+- 未在真实 Wails 里验证：`atob` 解码后字节与 `length` 一致（前端已校验，不一致抛 INTERNAL）；> 64 MiB 的 `/local/<token>` Range 加载与 HEAD 探测；真实 Office 转换与超 5000 页；加密 PDF 的 `onPassword` 弹出；拖入（`OnFileDrop`）落在文档页；刷新后 `ListActive` / `List` 接回进度。
+
+### ffmpeg 安装完成后重复弹"需要安装"（2026-09-29 修复）
+
+- 根因在前端：`stores/ffmpeg.ts` 的 `dialogOpen` 在点"下载"后一直为 true，安装完成收到 `ffmpeg:status(ready)` 时没有复位；安装对话框 `v-if` 只看 `dialogOpen`，`installing` 视图消失后就退回"需要安装 ffmpeg / 下载"视图。现在 ready 时复位 `dialogOpen`，对话框改用 `dialogVisible = dialogOpen && needsAttention`；`startInstall` / `pickPath` / `clearCustomPath` 的返回值也按事件序号丢弃过期结果。
+- 自检：`npm run check:ffmpeg`（`src/stores/ffmpeg.check.ts`，假的 `window.go` 驱动真实 store）。

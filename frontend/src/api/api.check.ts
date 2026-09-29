@@ -12,6 +12,7 @@ import { parsePushUrl, redactPushUrl } from '@/utils/liveUrl'
 import * as live from './live'
 import * as edit from './edit'
 import * as doc from './doc'
+import { docErrorText, docErrorFile, DOC_TOO_MANY_PAGES_TEXT, DOC_FILE_BROKEN_TEXT, DOC_FORMAT_UNSUPPORTED_TEXT } from '@/errors/errorMessages'
 import { onSimEvent } from '@/services/wails'
 import { retrySimTask, SIM_TITLE_PREFIX } from './sim'
 import { elapsedMs, isKnownTaskType, isLegacyTaskType } from '@/stores/tasks'
@@ -339,6 +340,19 @@ export async function runApiChecks(): Promise<string[]> {
   eq('length 越界 INVALID_ARGUMENT', (await rejects(doc.readPDFChunk(src.id, 0, 0)))?.code, 'INVALID_ARGUMENT')
   eq('句柄不存在 NOT_FOUND', (await rejects(doc.readPDFChunk('nope', 0, 10)))?.code, 'NOT_FOUND')
   eq('最近列表', (await doc.listRecentPDFs()).length, 1)
+  eq('limit > 200 按 200 处理，不报错', (await doc.listRecentPDFs(100000)).length, 1)
+  // base64：标准字母表、含 = 填充；length 是原始字节数，不是 data 的字符数
+  const enc = (bytes: number[]) => btoa(String.fromCharCode(...bytes))
+  eq('atob 解码含 = 填充', Array.from(doc.decodeChunk({ offset: 0, length: 4, eof: true, size: 4, data: enc([37, 80, 68, 70]) })), [37, 80, 68, 70])
+  eq('解码长度以原始字节为准（data 字符数更多）', enc([1, 2, 3, 4]).length > 4 && doc.decodeChunk({ offset: 0, length: 4, eof: true, size: 4, data: enc([1, 2, 3, 4]) }).length === 4, true)
+  eq('分块长度不一致 INTERNAL', (() => { try { doc.decodeChunk({ offset: 0, length: 5, eof: true, size: 5, data: enc([1, 2, 3, 4]) }); return '' } catch (e) { return toAppError(e).code } })(), 'INTERNAL')
+  eq('模拟大文件不能预览 → UNSUPPORTED', (await rejects(doc.loadPDF('/d/大文件.pdf')))?.code, 'UNSUPPORTED')
+  eq('小文件 loadPDF 返回字节', (await doc.loadPDF('/d/b.pdf')).data?.length, 2 * 1024 * 1024)
+  // 文档错误文案统一走 errorMessages
+  eq('doc 格式文案', docErrorText('UNSUPPORTED', '暂不支持这种格式', '.doc：旧版'), DOC_FORMAT_UNSUPPORTED_TEXT)
+  eq('超 5000 页文案', docErrorText('UNSUPPORTED', '超过 5000 页', '已排到第 5000 页仍未结束'), DOC_TOO_MANY_PAGES_TEXT)
+  eq('文件损坏文案', docErrorText('INVALID_ARGUMENT', '不是有效的 OOXML 文件', 'bad zip'), DOC_FILE_BROKEN_TEXT)
+  eq('出错文件取 detail 首行', [docErrorFile('UNSUPPORTED', '/d/a.doc\n旧版'), docErrorFile('UNSUPPORTED', '旧版')], ['a.doc', ''])
   // ---- 产品定稿：SRT 口令长度 / 缺协议 / 不泄露地址口令推流码 ----
   eq('LIVE_SRT_PASSPHRASE_TEXT', LIVE_SRT_PASSPHRASE_TEXT, 'SRT 口令需要 10 到 79 个字符')
   eq('口令长度边界', ['', 'a'.repeat(9), 'a'.repeat(10), 'a'.repeat(79), 'a'.repeat(80)].map(live.isValidSrtPassphrase), [true, false, true, true, false])

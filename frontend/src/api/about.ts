@@ -6,8 +6,8 @@ import { hasWailsBackend } from '@/services/wails'
 /** 后端没有注入版本号时的显示文本（与后端 DevVersion 一致），也是纯浏览器预览的模拟值 */
 export const DEV_VERSION = '开发版'
 
-/** GetLicenseText 的白名单键；其它值后端返回 INVALID_ARGUMENT，所以只允许调用方传这两个常量值 */
-export type LicenseName = 'OFL' | 'OFL-Nunito'
+/** GetLicenseText 的白名单键；其它值后端返回 INVALID_ARGUMENT，所以只允许调用方传这个常量值 */
+export type LicenseName = 'OFL'
 
 /** 只有 Wails 里且开关打开才走真实绑定 */
 const live = () => ABOUT_BACKEND_READY && hasWailsBackend()

@@ -21,7 +21,7 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/docs',
-    meta: { title: '文档', subtitle: 'Office 转 PDF · PDF 预览' },
+    meta: { title: '文档', subtitle: 'Office 转 PDF · PDF 预览', fill: true },
     component: SectionTabs,
     redirect: '/docs/office',
     children: [

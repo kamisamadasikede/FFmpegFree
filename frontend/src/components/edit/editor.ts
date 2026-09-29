@@ -1,5 +1,5 @@
 // 剪辑页状态与动作（模块级单例：离开页面再回来，工程和导出条还在）。
-// 只经 src/api（edit / media / system）和 stores/tasks，不引用 wailsjs，不依赖 v1 的 @/api 与 V1_API_READY。
+// 只经 src/api（edit / media / system）和 stores/tasks，不引用 wailsjs。
 import { computed, reactive, ref, shallowRef } from 'vue'
 import {
   EDIT_BACKEND_READY, createPreviewSource, fillOutSec, listProjects, loadProject, newAudioClip, newClipId, newEditProject, newVideoClip, saveProject, toAppError,

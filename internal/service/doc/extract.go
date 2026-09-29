@@ -18,7 +18,7 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
-// 文本提取（契约 6.12.1）：只取文字，按顺序重排；逻辑照 v1 backend/contollers/office_controller.go。
+// 文本提取（契约 6.12.1）：只取文字，按顺序重排；逻辑参照 v1 的 office_controller（v1 后端已随 backend/ 删除，见 master 分支）。
 
 type unitKind uint8
 

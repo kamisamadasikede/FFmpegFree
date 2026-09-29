@@ -5,7 +5,7 @@
       <div class="logo"><FIcon name="play" :size="16" :stroke="2.2" /></div>
       <div v-show="!collapsed" class="brand-text">
         <b>FFmpegFree</b>
-        <small>v{{ version }}</small>
+        <small>{{ versionText }}</small>
       </div>
       <button v-show="!collapsed" class="collapse-btn" title="收起导航" @click="collapsed = true">
         <el-icon :size="14"><Fold /></el-icon>
@@ -25,8 +25,8 @@
 
     <div class="grow" />
 
-    <FFmpegStatusCard v-if="!collapsed" />
     <nav class="nav">
+      <FFmpegStatusCard :collapsed="collapsed" />
       <button v-if="collapsed" class="expand-btn" title="展开导航" @click="collapsed = false">
         <el-icon :size="16"><Expand /></el-icon>
       </button>
@@ -36,18 +36,29 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { Expand, Fold } from '@element-plus/icons-vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import FFmpegStatusCard from '@/components/ffmpeg/FFmpegStatusCard.vue'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { useTaskStore } from '@/stores/tasks'
+import { getAppVersion, DEV_VERSION } from '@/api/about'
 import SidebarItem from './SidebarItem.vue'
 import { mainNav, bottomNav } from './navigation'
 
 // 改成无边框窗口后置为 true，macOS 在顶部留出红绿灯位置
 const macFrameless = false
-const version = '2.0'
+// 版本号与关于页一致：取 GetAppVersion，失败或返回空回落“开发版”
+const version = ref(DEV_VERSION)
+const versionText = computed(() => (/^\d/.test(version.value) ? `v${version.value}` : version.value))
+onMounted(async () => {
+  try {
+    version.value = (await getAppVersion()).trim() || DEV_VERSION
+  } catch (e) {
+    console.error('读取版本号失败', e)
+    version.value = DEV_VERSION
+  }
+})
 const ffmpeg = useFFmpegStore()
 const tasks = useTaskStore()
 

@@ -1,23 +1,35 @@
 /**
- * DocService 接口层（契约 v0.12 / 6.12，#23 最新提交为准，尚未冻结）。
+ * DocService 接口层（契约 v0.12 / 6.12，后端 #29 已合入，绑定在 wailsjs/go/app/DocService）。
  *
- * DOC_BACKEND_READY（api/flags.ts）= false：本地模拟（内存里的最近 PDF 列表 + 假 PDF 字节 + api/sim.ts 的定时器转换任务）；
- * = true：window.go.app.DocService.*（callService；绑定不存在抛 UNSUPPORTED）。
+ * DOC_BACKEND_READY（api/flags.ts）= true：在 Wails 里直接调用生成的 DocService 绑定（经 call() 解析 AppError）；
+ * 纯浏览器（没有 window.go）保留本地模拟（内存里的最近 PDF 列表 + 假 PDF 字节 + api/sim.ts 的定时器转换任务），isDocSim() 为 true，页面据此显示“演示”提示。
  * 选文件用 SystemService.PickFiles（api/system.ts）；取消转换 = TaskService.Cancel，重试 = TaskService.Retry（office_pdf 注册了重试工厂）。
  * DocService 任何方法都不返回 FFMPEG_NOT_FOUND / PROBE_FAILED / PROCESS_FAILED，不依赖 ffmpeg，始终可用。
  *
  * 契约要点：
- * - 支持 docx / xlsx / pptx（仅文本，不保留图片和样式）；doc xls ppt odt ods odp rtf csv txt pages numbers key 及加密文档 → UNSUPPORTED。
+ * - 支持 docx / xlsx / pptx（仅文本，不保留图片和样式）；doc xls ppt odt ods odp rtf csv txt pages numbers key 及加密文档 → UNSUPPORTED；超过 5000 页 → UNSUPPORTED。
  * - ConvertToPDF 先整体校验再提交，任何一个不通过整体失败、不提交任何任务，detail 第一行是出错文件路径。
- * - 预览：OpenPDF 登记句柄 → ReadPDFChunk 分块（≤ 1 MiB）读整份（≤ 64 MiB，主路径）；更大的文件用 PDFSource.url 走 Range（Windows 未验证，架构师定：验证不通过则上限降为 64 MiB，OpenPDF 对更大的文件 INVALID_ARGUMENT）。
- * - “实验性”标签优先按 DocCapabilities.experimental 显示（后端字段，尚未写进契约，见 README 疑问）；模拟层默认 true。
+ * - 预览：OpenPDF 登记句柄 → ReadPDFChunk 分块（≤ 1 MiB 原始字节）读整份（≤ 64 MiB，主路径）；更大的文件用 PDFSource.url（/local/<token>）走 Range，
+ *   用前先 HEAD 探测，404 → 重新 OpenPDF 换 URL，只重试一次。
+ * - PDFChunk.data 是 Go string（标准 base64，含 = 填充），直接 atob；length / chunkBytes / size 都是原始字节数，不是 data 的字符数（1 MiB 约编码成 1.4 MiB）。
+ * - ListRecentPDFs(limit)：limit ≤ 0 取默认 20，> 200 后端静默截到 200；这里前端也按 200 处理，不传更大的值。
+ * - 转换进度走 task:created / task:progress / task:status，刷新后由任务 store 的 ListActive 接回（页面不自己订阅）。
  */
-import { AppError, callService } from '@/api/call'
+import * as DocBinding from '../../wailsjs/go/app/DocService'
+import * as TaskBinding from '../../wailsjs/go/app/TaskService'
+import { store as goStore } from '../../wailsjs/go/models'
+import { AppError, call, toAppError } from '@/api/call'
 import { DOC_BACKEND_READY } from '@/api/flags'
-import { createSimTask, injectionDetail, simDelay, simError, simInjection, simParam } from '@/api/sim'
+import { createSimTask, injectionDetail, listSimFinished, simDelay, simError, simInjection, simParam } from '@/api/sim'
 import { toApiTask, type ApiTask } from '@/api/taskTypes'
+import { hasWailsBackend } from '@/services/wails'
 
 export { DOC_BACKEND_READY }
+
+/** 走真实绑定：开关打开且在 Wails 里 */
+const live = () => DOC_BACKEND_READY && hasWailsBackend()
+/** 当前是浏览器里的本地模拟（页面显示“演示”提示的条件） */
+export const isDocSim = (): boolean => !live()
 
 // ───────────── 契约类型（§6.12.2，字段一一对应）─────────────
 
@@ -26,7 +38,7 @@ export interface DocFormat {
   ext: string
   supported: boolean
   /** "text-only"（支持的三种）| "" */
-  fidelity: 'text-only' | ''
+  fidelity: string
   /** 不支持时的原因 */
   reason: string
 }
@@ -78,11 +90,13 @@ export interface PDFSource {
 
 export interface PDFChunk {
   offset: number
-  /** 实际读到的字节数 */
+  /** 实际读到的原始字节数（不是 data 的字符数） */
   length: number
   /** offset+length >= 文件当前大小 */
   eof: boolean
-  /** Go 的 []byte，JSON 里是 base64 字符串（模拟层也返回 base64，统一走 decodeChunk） */
+  /** 读取时文件的当前大小（原始字节）；与 OpenPDF 的 size 不一致说明读取期间文件被改动 */
+  size: number
+  /** Go string，标准 base64（含 = 填充）；模拟层也返回 base64，统一走 decodeChunk */
   data: string
 }
 
@@ -123,7 +137,7 @@ const stem = (p: string) => baseName(p).replace(/\.[^.]*$/, '')
 
 /** 支持的格式、字体状态、限额；不依赖 ffmpeg，随时可调 */
 export async function getDocCapabilities(): Promise<DocCapabilities> {
-  if (DOC_BACKEND_READY) return await callService<DocCapabilities>('DocService', 'GetDocCapabilities')
+  if (live()) return await call(DocBinding.GetDocCapabilities())
   return { formats: SIM_FORMATS, font: { available: true, name: 'noto-sans-sc-embedded', cjk: true }, limits: DEFAULT_DOC_LIMITS, experimental: true }
 }
 
@@ -138,7 +152,7 @@ export function isExperimental(caps: DocCapabilities | null | undefined): boolea
  * `?sim_err=CONVERT_DISK_FULL|IO_ERROR|INTERNAL|UNSUPPORTED` 让任务中途失败；其他 ?sim_err=<码> 让 ConvertToPDF 同步抛出。
  */
 export async function convertToPDF(inputs: string[], outputDir: string): Promise<ApiTask[]> {
-  if (DOC_BACKEND_READY) return ((await callService<unknown[] | null>('DocService', 'ConvertToPDF', inputs, outputDir)) ?? []).map(toApiTask)
+  if (live()) return ((await call(DocBinding.ConvertToPDF(inputs, outputDir))) ?? []).map(toApiTask)
   await simDelay(150)
   const inj = simInjection()
   // 这些码默认让任务在转换中途失败；其余的码（含 sim_when=call）由 ConvertToPDF 同步抛出
@@ -182,9 +196,15 @@ const simRecent = new Map<string, PDFFile>()
 const simHandles = new Map<string, PDFSource>()
 let simSeq = 0
 
-/** 模拟用的最小 PDF 字节（一页空白） */
+/** 模拟用的最小 PDF 字节（一页，带一行“演示 PDF”文字；pdf.js 能重建缺失的 xref，所以不写 xref 表） */
 function simPdfBytes(size: number): Uint8Array {
-  const head = new TextEncoder().encode('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n')
+  const content = 'BT /F1 28 Tf 72 720 Td (Demo PDF - simulated data) Tj ET'
+  const head = new TextEncoder().encode(
+    `%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n` +
+      `3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n` +
+      `4 0 obj<</Length ${content.length}>>stream\n${content}\nendstream endobj\n5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n` +
+      `trailer<</Root 1 0 R>>\n%%EOF\n`,
+  )
   const out = new Uint8Array(Math.max(size, head.length))
   out.set(head)
   return out
@@ -192,7 +212,7 @@ function simPdfBytes(size: number): Uint8Array {
 
 /** 校验并登记一个 PDF，返回句柄；同时写入最近列表（OpenPDF 是唯一的写入点）。转换产出的 PDF 不自动进历史，需要预览时对 outputPath 调用它 */
 export async function openPDF(path: string): Promise<PDFSource> {
-  if (DOC_BACKEND_READY) return await callService<PDFSource>('DocService', 'OpenPDF', path)
+  if (live()) return await call(DocBinding.OpenPDF(path))
   await simDelay(80)
   const inj = simInjection()
   if (inj && inj.when === 'call') simError(inj.code, '模拟错误', injectionDetail(inj))
@@ -212,62 +232,142 @@ export async function openPDF(path: string): Promise<PDFSource> {
 
 /** 按句柄分块读 PDF 字节。length 1~1 MiB（越界 INVALID_ARGUMENT），offset 不能为负；offset ≥ 文件大小返回 length=0, eof=true；句柄不存在（重启后失效）NOT_FOUND */
 export async function readPDFChunk(id: string, offset: number, length: number): Promise<PDFChunk> {
-  if (DOC_BACKEND_READY) return await callService<PDFChunk>('DocService', 'ReadPDFChunk', id, offset, length)
+  if (live()) return await call(DocBinding.ReadPDFChunk(id, offset, length))
   if (length < 1 || length > DEFAULT_DOC_LIMITS.chunkBytes) simError('INVALID_ARGUMENT', `length 需要在 1~${DEFAULT_DOC_LIMITS.chunkBytes} 之间`)
   if (offset < 0) simError('INVALID_ARGUMENT', 'offset 不能为负')
   const h = simHandles.get(id)
   if (!h) return simError('NOT_FOUND', '句柄不存在，请重新打开')
-  if (offset >= h.size) return { offset, length: 0, eof: true, data: '' }
+  if (offset >= h.size) return { offset, length: 0, eof: true, size: h.size, data: '' }
   const n = Math.min(length, h.size - offset)
   const bytes = simPdfBytes(h.size).subarray(offset, offset + n)
   let bin = ''
   for (const b of bytes) bin += String.fromCharCode(b)
-  return { offset, length: n, eof: offset + n >= h.size, data: btoa(bin) }
+  return { offset, length: n, eof: offset + n >= h.size, size: h.size, data: btoa(bin) }
 }
 
-/** base64（Go []byte 在 JSON 里的形态）→ Uint8Array */
+/** base64（Go string，标准字母表、含 = 填充）→ Uint8Array。直接 atob，解出的字节数必须等于 chunk.length（原始字节数），不等抛 INTERNAL */
 export function decodeChunk(chunk: PDFChunk): Uint8Array {
   const bin = atob(chunk.data || '')
   const out = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+  if (out.length !== chunk.length) throw new AppError('INTERNAL', '分块长度不一致')
   return out
 }
 
 /**
  * 主路径：循环 ReadPDFChunk 直到 eof，拼成 Uint8Array 交给 pdf.js（size ≤ wholeLoadBytes）。
- * size 超过 wholeLoadBytes 时抛 UNSUPPORTED，调用方改用 src.url 走 Range（或在降级后提示文件太大）。
- * onProgress(已读, 总大小)。文件在读取期间被改动（size 变化）需要重新 OpenPDF。
+ * size 超过 wholeLoadBytes 时抛 UNSUPPORTED，调用方改用 src.url 走 Range（见 loadPDF）。
+ * 读取期间文件大小变了（chunk.size !== src.size）抛 IO_ERROR，由 loadPDF 重新 OpenPDF 只重试一次。
+ * onProgress(已读, 总大小)，都是原始字节。
  */
 export async function readWholePDF(src: PDFSource, limits: DocLimits = DEFAULT_DOC_LIMITS, onProgress?: (read: number, total: number) => void, signal?: AbortSignal): Promise<Uint8Array> {
   if (src.size > limits.wholeLoadBytes) throw new AppError('UNSUPPORTED', '文件较大，需要按需加载')
+  // 每块最多 1 MiB 原始字节（base64 后约 1.4 MiB）
+  const chunkLen = Math.max(1, Math.min(limits.chunkBytes, MIB))
   const buf = new Uint8Array(src.size)
   let off = 0
-  while (true) {
+  while (off < src.size) {
     if (signal?.aborted) throw new AppError('CANCELED', '已取消')
-    const c = await readPDFChunk(src.id, off, limits.chunkBytes)
+    const c = await readPDFChunk(src.id, off, chunkLen)
+    if (c.size !== src.size) throw new AppError('IO_ERROR', 'PDF 在读取时被修改')
     const bytes = decodeChunk(c)
-    if (off + bytes.length > buf.length) throw new AppError('IO_ERROR', '文件在读取期间发生了变化，请重新打开')
+    if (off + bytes.length > buf.length) throw new AppError('IO_ERROR', 'PDF 在读取时被修改')
     buf.set(bytes, off)
     off += bytes.length
     onProgress?.(off, src.size)
-    if (c.eof || bytes.length === 0) break
+    if (c.eof) break
+    if (bytes.length === 0) throw new AppError('INTERNAL', '读到 0 字节但未结束')
   }
-  return off === buf.length ? buf : buf.subarray(0, off)
+  if (off !== src.size) throw new AppError('IO_ERROR', 'PDF 读取不完整')
+  return buf
 }
 
-/** 最近打开的 PDF，按 openedAt 倒序。limit 默认 20，最大 200（0 = 默认，越界 INVALID_ARGUMENT） */
+/** loadPDF 的结果：小文件是整份字节（data），大文件是可 Range 加载的 /local/<token> 地址（url） */
+export interface LoadedPDF {
+  src: PDFSource
+  data?: Uint8Array
+  url?: string
+}
+
+/** HEAD 探测 /local/<token>：200 / 206 可用；404（token 失效、被撤销、重启后）返回 false */
+async function urlAlive(url: string): Promise<boolean> {
+  try {
+    const r = await fetch(url, { method: 'HEAD' })
+    return r.status === 200 || r.status === 206
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 打开并读取一个 PDF（契约 6.12.4 的读取流程）：
+ * - size ≤ wholeLoadBytes（64 MiB）：ReadPDFChunk 读整份；句柄失效（NOT_FOUND）或读取期间文件被改动，重新 OpenPDF 只重试一次；
+ * - 更大：返回 src.url 给 pdf.js 按 Range 加载；先 HEAD 探测，404 → 重新 OpenPDF 换 URL，只重试一次，仍失败抛 NOT_FOUND。
+ * 模拟层不能服务 /local/，大文件在模拟里抛 UNSUPPORTED。
+ */
+export async function loadPDF(path: string, onProgress?: (read: number, total: number) => void, signal?: AbortSignal): Promise<LoadedPDF> {
+  const caps = await getDocCapabilities().catch(() => null)
+  const limits = caps?.limits ?? DEFAULT_DOC_LIMITS
+  for (let attempt = 0; ; attempt++) {
+    const src = await openPDF(path)
+    try {
+      if (src.size > limits.wholeLoadBytes) {
+        if (!live()) throw new AppError('UNSUPPORTED', '演示环境无法预览大文件')
+        if (src.url && (await urlAlive(src.url))) return { src, url: src.url }
+        throw new AppError('NOT_FOUND', '文件不存在或已被移动')
+      }
+      return { src, data: await readWholePDF(src, limits, onProgress, signal) }
+    } catch (e) {
+      const err = toAppError(e)
+      const retryable = err.code === 'NOT_FOUND' || (err.code === 'IO_ERROR' && err.message.includes('被修改'))
+      if (attempt === 0 && retryable) continue
+      throw err
+    }
+  }
+}
+
+/** 最近打开的 PDF，按 openedAt 倒序。limit 默认 20（0 = 默认），最大 200（更大的值按 200 处理） */
+export const MAX_RECENT_LIMIT = 200
 export async function listRecentPDFs(limit = 0): Promise<PDFFile[]> {
-  if (DOC_BACKEND_READY) return (await callService<PDFFile[] | null>('DocService', 'ListRecentPDFs', limit)) ?? []
-  if (limit < 0 || limit > 200) simError('INVALID_ARGUMENT', 'limit 范围 0~200')
-  return [...simRecent.values()].sort((a, b) => b.openedAt - a.openedAt).slice(0, limit || 20)
+  // 契约：limit ≤ 0 取默认 20，> 200 后端静默截到 200（不报错）；前端不传超过 200 的值
+  const n = Math.min(Math.max(0, Math.trunc(limit) || 0), MAX_RECENT_LIMIT)
+  if (live()) return (await call(DocBinding.ListRecentPDFs(n))) ?? []
+  return [...simRecent.values()].sort((a, b) => b.openedAt - a.openedAt).slice(0, n || 20)
 }
 
 /** 只删记录，不删文件；一次最多 500 个 id */
 export async function removeRecentPDFs(ids: string[]): Promise<void> {
-  if (DOC_BACKEND_READY) {
-    await callService('DocService', 'RemoveRecentPDFs', ids)
+  if (live()) {
+    await call(DocBinding.RemoveRecentPDFs(ids))
     return
   }
   if (ids.length > 500) simError('INVALID_ARGUMENT', '一次最多 500 个')
   for (const id of ids) simRecent.delete(id)
+}
+
+// ---- 转换记录（office_pdf 任务）----
+
+const OFFICE_TERMINAL = ['succeeded', 'failed', 'canceled', 'interrupted']
+
+/** 最近结束的 office_pdf 任务（新的在前）。真实：TaskService.List（刷新页面后接回历史）；模拟：接口层模拟任务 */
+export async function listOfficeHistory(limit = 20): Promise<ApiTask[]> {
+  if (!live()) return listSimFinished().filter((t) => t.type === 'office_pdf').slice(0, limit)
+  const page = await call(TaskBinding.List(goStore.TaskFilter.createFrom({ types: ['office_pdf'], statuses: OFFICE_TERMINAL, limit, offset: 0 })))
+  return (page.items ?? []).map(toApiTask)
+}
+
+// ---- 选文件 / 演示数据 ----
+
+/** Office 文件选择对话框的过滤器（只列支持的三种；不支持的格式拖进来会得到 UNSUPPORTED 文案） */
+export const OFFICE_FILE_FILTER = { name: 'Office 文档', patterns: OFFICE_EXTS.map((e) => `*.${e}`) }
+export const PDF_FILE_FILTER = { name: 'PDF 文件', patterns: ['*.pdf'] }
+
+/** 浏览器模拟环境里“选择文件”给出的假路径（真实环境不用） */
+export const DEMO_OFFICE_PATHS = ['/Users/me/Documents/用户调研报告.docx', '/Users/me/Documents/2026 Q3 产品回顾.pptx', '/Users/me/Documents/渠道数据汇总.xlsx']
+export const DEMO_PDF_PATH = '/Users/me/Documents/2026 Q3 产品回顾.pdf'
+
+/** 文件类型徽标：DOC / XLS / PPT（按扩展名，未知按 DOC） */
+export function officeKind(path: string): 'DOC' | 'XLS' | 'PPT' {
+  const e = extOf(path)
+  return e.startsWith('xls') ? 'XLS' : e.startsWith('ppt') ? 'PPT' : 'DOC'
 }
