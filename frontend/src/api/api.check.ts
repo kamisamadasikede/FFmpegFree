@@ -13,12 +13,14 @@ import * as live from './live'
 import * as edit from './edit'
 import * as doc from './doc'
 import { docErrorText, docErrorFile, docErrorPath, docDetailHead, pdfErrorView, DOC_TOO_MANY_PAGES_TEXT, DOC_FILE_BROKEN_TEXT, DOC_FORMAT_UNSUPPORTED_TEXT } from '@/errors/errorMessages'
+import { ffmpegStatusView } from '@/components/ffmpeg/statusView'
 import { splitMiddle, nextZoom, thumbWindow, formatRecentTime, extBadge } from '@/utils/docLogic'
 import { onSimEvent } from '@/services/wails'
 import { retrySimTask, SIM_TITLE_PREFIX } from './sim'
 import * as encApi from './encoder'
 import { deriveEncoderView } from './encoderView'
 import * as encMsg from '@/errors/encoderMessages'
+import { pushErrorToForm } from '@/views/live/pushErrors'
 import { elapsedMs, isKnownTaskType, isLegacyTaskType } from '@/stores/tasks'
 
 const fails: string[] = []
@@ -226,6 +228,33 @@ export async function runApiChecks(): Promise<string[]> {
   err = await rejects(live.startScreenPush({ ...screenReq('rtmp://g1.example/live/g1'), captureSourceId: 'window:0x10' }))
   eq('captureSourceId 格式不对', err?.code, 'INVALID_ARGUMENT')
   eq('来源失败不占会话', (await live.listRunning()).length, runningBefore)
+
+  // 来源选择器（RecordPush 用）：多屏 / 含窗口 / 仅屏幕 / 空 / 列表失败 / 来源消失后刷新
+  eq('选择器：默认选第一个屏幕（屏幕在前）', (sources.find((x) => x.kind === 'screen') ?? sources[0]).id, 'screen:0')
+  eq('选择器：多屏 + 含窗口 → 两个分组都有', ['screen', 'window'].map((k) => sources.filter((x) => x.kind === k).length), [2, 2])
+  win.location.search = '?sim_sources=screens'
+  const onlyScreens = await live.listCaptureSources()
+  eq('仅屏幕（平台不返回 window）→ 没有 window 项，分组标题不出现', [onlyScreens.length, onlyScreens.some((x) => x.kind === 'window')], [2, false])
+  win.location.search = '?sim_sources=empty'
+  eq('列表为空', (await live.listCaptureSources()).length, 0)
+  win.location.search = '?sim_sources=fail'
+  eq('列表失败 → 抛错', (await rejects(live.listCaptureSources()))?.code, 'INTERNAL')
+  win.location.search = '?sim_source_gone=1'
+  live.resetSimSources()
+  const before = await live.listCaptureSources()
+  eq('来源消失：第一次拉取时窗口还在', before.some((x) => x.id === 'window:65890'), true)
+  const goneErr = await rejects(live.startScreenPush({ ...screenReq('rtmp://gone.example/live/k'), captureSourceId: 'window:65890' }))
+  eq('来源消失：开始推流 → LIVE_SOURCE_GONE(kind=window)', [goneErr?.code, goneErr?.kind, goneErr?.detail], ['LIVE_SOURCE_GONE', 'window', 'kind=window'])
+  eq('LIVE_SOURCE_GONE 的错误 detail / message 不含窗口标题', /演示文稿|PowerPoint/.test(`${goneErr?.detail}${goneErr?.message}`), false)
+  const after = await live.listCaptureSources()
+  eq('来源消失：刷新后该窗口不在列表里，其他窗口和屏幕还在', [after.some((x) => x.id === 'window:65890'), after.length], [false, 3])
+  win.location.search = ''
+  live.resetSimSources()
+  // 表单错误映射：LIVE_SOURCE_GONE 显示在来源选择器下方（where=source），窗口 / 屏幕文案，INVALID_ARGUMENT 沿用通用文案
+  eq('表单错误：窗口消失', pushErrorToForm(new AppError('LIVE_SOURCE_GONE', 'm', 'kind=window')), { where: 'source', text: '所选窗口已不可用，请重新选择' })
+  eq('表单错误：屏幕消失', pushErrorToForm(new AppError('LIVE_SOURCE_GONE', 'm', 'kind=screen')), { where: 'source', text: '所选屏幕已不可用，请重新选择' })
+  eq('表单错误：缺 kind → 窗口版', pushErrorToForm(new AppError('LIVE_SOURCE_GONE', 'm')).text, '所选窗口已不可用，请重新选择')
+  eq('表单错误：INVALID_ARGUMENT 沿用通用（form 级，不指向来源）', pushErrorToForm(new AppError('INVALID_ARGUMENT', 'captureSourceId 格式不对')).where, 'form')
   const gt = await live.startScreenPush({ ...screenReq('rtmp://g2.example/live/g2'), captureSourceId: 'window:131426' })
   eq('窗口来源的任务标题与 params', [gt.title.includes('记事本'), JSON.parse(gt.params).captureSourceId], [true, 'window:131426'])
   await live.stopPush(gt.id)
@@ -415,6 +444,14 @@ export async function runApiChecks(): Promise<string[]> {
     splitMiddle('2026年第三季度华东区域渠道商务拓展与用户增长复盘汇报材料（终稿-已审阅-v12）.pptx'),
     splitMiddle('ab'),
   ], [{ head: '用户调研报告.docx', tail: '' }, { head: '2026年第三季度华东区域渠道商务拓展与用户增长复盘汇报材料（终稿-已审', tail: '阅-v12）.pptx' }, { head: 'ab', tail: '' }])
+  eq('侧栏 ffmpeg 状态：文案 / aria-label / 可点性', (['ready', 'checking', 'missing', 'outdated', 'failed', 'installing'] as const).map((k) => { const v = ffmpegStatusView(k); return [v.tone, v.text, v.label, v.actionLabel, v.clickable] }), [
+    ['ok', 'ffmpeg 已就绪', 'ffmpeg 已就绪', 'ffmpeg 已就绪', false],
+    ['q', 'ffmpeg 检测中…', 'ffmpeg 检测中…', 'ffmpeg 检测中…', false],
+    ['warn', 'ffmpeg 未就绪', 'ffmpeg 未就绪', 'ffmpeg 未就绪，点击打开安装对话框', true],
+    ['warn', 'ffmpeg 未就绪', 'ffmpeg 未就绪', 'ffmpeg 未就绪，点击打开安装对话框', true],
+    ['warn', 'ffmpeg 未就绪', 'ffmpeg 未就绪', 'ffmpeg 未就绪，点击打开安装对话框', true],
+    ['run', 'ffmpeg 安装中…', 'ffmpeg 安装中，点击查看进度', 'ffmpeg 安装中，点击查看进度', true],
+  ])
   eq('缩放档位 50%~200% 步进 25%，两端夹住', [nextZoom(1, -1), nextZoom(0.5, -1), nextZoom(2, 1), nextZoom(1.75, 1), nextZoom(1.3, 1)], [0.75, 0.5, 2, 2, 1.25])
   eq('缩略图窗口：可视范围 ± 2 屏', [thumbWindow(0, 600, 100, 5000), thumbWindow(50000, 600, 100, 5000), thumbWindow(0, 600, 100, 0)], [{ from: 1, to: 18 }, { from: 489, to: 518 }, { from: 1, to: 0 }])
   const NOW = new Date(2026, 8, 30, 12, 0).getTime()

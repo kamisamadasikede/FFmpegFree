@@ -303,6 +303,23 @@ export const LIVE_STOPPING_TEXT = '正在停止…'
 /** 选中屏幕推流时来源下方常驻的说明（12px、--ff-text-2、前置信息图标，不弹窗） */
 export const LIVE_SCREEN_NO_AUDIO_TEXT = '屏幕推流暂不包含声音'
 
+// ---- 直播 v1.1 采集来源选择器文案（设计稿未出，先按 v0.2 风格；**全部待产品经理确认**，改字只改这里）----
+export const LIVE_SOURCE_FIELD_LABEL = '采集来源'
+export const LIVE_SOURCE_GROUP_SCREEN = '屏幕'
+export const LIVE_SOURCE_GROUP_WINDOW = '应用窗口'
+export const LIVE_SOURCE_REFRESH = '刷新列表'
+export const LIVE_SOURCE_LOADING = '正在获取采集来源…'
+export const LIVE_SOURCE_EMPTY = '没有可用的采集来源'
+export const LIVE_SOURCE_FAILED = '无法获取采集来源，请稍后重试'
+export const LIVE_SOURCE_RETRY = '重试'
+/** LIVE_SOURCE_GONE：窗口版由产品经理给出（待确认）；屏幕版（kind=screen）用通用说法，待确认 */
+export const LIVE_SOURCE_GONE_WINDOW_TEXT = '所选窗口已不可用，请重新选择'
+export const LIVE_SOURCE_GONE_SCREEN_TEXT = '所选屏幕已不可用，请重新选择'
+/** detail 首行 kind=window|screen；没有 / 未知 → 按契约用窗口版（码本身就表示“所选窗口已不可用”）。文案里不带窗口标题 */
+export function liveSourceGoneText(kind?: string): string {
+  return kind === 'screen' ? LIVE_SOURCE_GONE_SCREEN_TEXT : LIVE_SOURCE_GONE_WINDOW_TEXT
+}
+
 /**
  * 直播 Start* 同步返回的错误 → 页面上展示的一句话（走 ErrorLine，点“开始”之后才出现，不提前置灰按钮）。
  * 返回 null 表示不属于这里处理的情形（调用方走原来的遮罩 / 行内错误）。

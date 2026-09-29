@@ -27,6 +27,8 @@ export interface LiveRow {
   /** 终态时间；0 = 还没结束 */
   endedAt: number
   bitrateKbps: number | null
+  /** 屏幕推流的采集来源名（屏幕名 / 窗口标题）：只在本机界面显示，**不脱敏但不写日志、不进错误 detail**；刷新后接回的会话取不到 */
+  source?: { title: string; kind: 'screen' | 'window' }
 }
 
 export const MAX_LIVE_SESSIONS = 4
@@ -75,14 +77,14 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
    * 新开的推流：订阅任务事件。第一条 progress 到了 → 加一行“运行中”并 resolve ok；
    * 还没连上就 failed → resolve 失败（错误交给表单显示，不进列表）；没连上就 succeeded / canceled / interrupted → 直接加一条终态行。
    */
-  function begin(task: liveApi.ApiTask, meta: { kind: 'file' | 'screen'; redactedUrl: string; archive: boolean }): Promise<BeginResult> {
+  function begin(task: liveApi.ApiTask, meta: { kind: 'file' | 'screen'; redactedUrl: string; archive: boolean; source?: { title: string; kind: 'screen' | 'window' } }): Promise<BeginResult> {
     return new Promise((resolve) => {
       let connected = false
       const add = (status: LiveRowStatus, endedAt: number, outputPath = '') => {
         if (find(task.id)) return
         rows.value.unshift({
           id: task.id, kind: meta.kind, url: displayPushUrl(meta.redactedUrl), status, archive: meta.archive,
-          outputPath, startedAt: Date.now(), endedAt, bitrateKbps: null,
+          outputPath, startedAt: Date.now(), endedAt, bitrateKbps: null, ...(meta.source ? { source: meta.source } : {}),
         })
       }
       const off = liveApi.watchLiveTask(task.id, {
@@ -193,8 +195,10 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
     }
     const ARC = '/Users/me/Movies/FFmpegFree/直播存档/screen-20260929-200000.mp4'
     let n = 0
+    const win = new URLSearchParams(window.location.search).get('src') === 'window' // 预览：?src=window 会话行显示窗口来源（含很长的标题）
     const mk = (kind: 'file' | 'screen', u: keyof typeof U, status: LiveRowStatus, sec: number, kb: number | null, arc = false): LiveRow => ({
-      id: `preview-${++n}`, kind, url: U[u], status, archive: arc, outputPath: arc && status !== 'run' && status !== 'stp' && status !== 'int' ? ARC : '',
+      id: `preview-${++n}`, kind, url: U[u], status, archive: arc,
+      ...(kind === 'screen' ? { source: win && n % 2 === 1 ? { title: '2026 年第三季度经营分析汇报（终稿）.pptx - PowerPoint', kind: 'window' as const } : { title: '屏幕 1', kind: 'screen' as const } } : {}), outputPath: arc && status !== 'run' && status !== 'stp' && status !== 'int' ? ARC : '',
       startedAt: now - sec * 1000, endedAt: status === 'run' || status === 'stp' ? 0 : now, bitrateKbps: arc ? null : kb,
     })
     const t = (h: number, m: number, s: number) => h * 3600 + m * 60 + s
