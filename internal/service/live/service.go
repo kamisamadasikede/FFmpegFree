@@ -71,6 +71,7 @@ type Service struct {
 type session struct {
 	key     string // 标准化地址（只在内存里比较，不展示）
 	archive bool   // 有本地存档（优雅停止等 15 秒）
+	screen  bool   // 屏幕推流（同一时间最多 1 路）
 }
 
 // New 创建 Service。
@@ -224,21 +225,31 @@ func (s *Service) checkProtocols(ctx context.Context, bin ffmpeg.Binaries, schem
 
 // ---------- 会话登记 ----------
 
-// reserve 登记一个会话：先查上限再查同地址（都是 TASK_CONFLICT，detail 首行固定 reason=…，不含任何地址信息）。
-func (s *Service) reserve(taskID, key string, archive bool) error {
+// reserve 登记一个会话。检查和登记在同一把锁里完成，并发的两次 Start 不会同时成功。
+// 判断顺序固定（都是 TASK_CONFLICT，detail 首行固定 reason=…，不含任何地址信息，文案由前端负责）：
+//  1. duplicate_url：同一标准化地址已有会话；
+//  2. screen_busy：要开的是屏幕推流，且已有进行中（含已入队未结束）的屏幕推流会话（屏幕推流同一时间最多 1 路；文件推流不受影响）；
+//  3. max_sessions：会话总数已达上限。
+func (s *Service) reserve(taskID, key string, archive, screen bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.sessions) >= MaxSessions {
-		return apperr.New(apperr.TaskConflict, "同时进行的直播会话已达上限").
-			WithDetail(fmt.Sprintf("reason=max_sessions\n最多同时推 %d 路", MaxSessions))
-	}
+	busy := false
 	for _, x := range s.sessions {
 		if x.key == key {
 			return apperr.New(apperr.TaskConflict, "这个推流地址已经在推流").
 				WithDetail("reason=duplicate_url\n已有会话使用同一推流地址")
 		}
+		busy = busy || x.screen
 	}
-	s.sessions[taskID] = session{key: key, archive: archive}
+	if screen && busy {
+		return apperr.New(apperr.TaskConflict, "已有屏幕推流正在进行").
+			WithDetail("reason=screen_busy")
+	}
+	if len(s.sessions) >= MaxSessions {
+		return apperr.New(apperr.TaskConflict, "同时进行的直播会话已达上限").
+			WithDetail(fmt.Sprintf("reason=max_sessions\n最多同时推 %d 路", MaxSessions))
+	}
+	s.sessions[taskID] = session{key: key, archive: archive, screen: screen}
 	return nil
 }
 
@@ -395,7 +406,7 @@ func (s *Service) startFilePush(ctx context.Context, req FilePushRequest) (task.
 		},
 	})
 	taskID := id.New()
-	if err := s.reserve(taskID, u.Key, false); err != nil {
+	if err := s.reserve(taskID, u.Key, false, false); err != nil {
 		return task.Task{}, err
 	}
 	pj, _ := json.Marshal(filePushParams{Kind: "file", Input: in, URL: u.Redacted, Loop: req.Loop, Options: req.Options})

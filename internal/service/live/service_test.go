@@ -372,9 +372,9 @@ func TestTaskConflictReasons(t *testing.T) {
 		t.Fatalf("detail 首行=%q", firstLine(ae.Detail))
 	}
 	assertNoSecrets(t, ae.Message+"\n"+ae.Detail, "10.0.0.9", "SECRETKEYabc")
-	// 上限时重复地址也走 max_sessions（先查上限）——两个 reason 各自可稳定触发
+	// 判断顺序 duplicate_url → screen_busy → max_sessions：满额时重复地址仍是 duplicate_url
 	_, err = f.start(t, secretURL)
-	if ae := mustAppErr(t, err, apperr.TaskConflict); firstLine(ae.Detail) != "reason=max_sessions" {
+	if ae := mustAppErr(t, err, apperr.TaskConflict); firstLine(ae.Detail) != "reason=duplicate_url" {
 		t.Fatalf("%q", ae.Detail)
 	}
 	// 事件和日志里也没有冲突相关的秘密

@@ -292,7 +292,7 @@ func (s *Service) startScreenPush(ctx context.Context, req ScreenPushRequest) (t
 	}
 	args := ffmpeg.BuildScreenPushArgs(plan)
 	taskID := id.New()
-	if err := s.reserve(taskID, u.Key, false); err != nil {
+	if err := s.reserve(taskID, u.Key, false, true); err != nil {
 		return task.Task{}, err
 	}
 	pj, _ := json.Marshal(screenPushParams{Kind: "screen", ScreenID: sc.ID, URL: u.Redacted, HideCursor: req.HideCursor,

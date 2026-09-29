@@ -4,9 +4,12 @@ package live
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/task"
@@ -184,4 +187,160 @@ func TestStartScreenPushSessionLimits(t *testing.T) {
 	}
 	f.mgr.Cancel(tk.ID)
 	f.wait(t, tk.ID)
+}
+
+func screenReq(url string) ScreenPushRequest { return ScreenPushRequest{URL: url} }
+
+// 屏幕推流同一时间最多 1 路。判断顺序：duplicate_url → screen_busy → max_sessions；文件推流不受屏幕推流影响。
+func TestScreenBusyAndConflictOrder(t *testing.T) {
+	f := x11Fixture(t, nil)
+	f.setMode("live")
+	ctx := context.Background()
+	const u1 = "rtmp://127.0.0.1:1935/live/sb1"
+	first, err := f.svc.StartScreenPush(ctx, screenReq(u1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reason := func(err error) string {
+		ae := mustAppErr(t, err, apperr.TaskConflict)
+		assertNoSecrets(t, ae.Message+"\n"+ae.Detail, "127.0.0.1", "1935", "sb1", "sb2")
+		return firstLine(ae.Detail)
+	}
+	// 同地址且已有屏幕推流 → duplicate_url（先于 screen_busy）
+	_, err = f.svc.StartScreenPush(ctx, screenReq(u1))
+	if r := reason(err); r != "reason=duplicate_url" {
+		t.Fatalf("同地址应 duplicate_url: %s", r)
+	}
+	// 不同地址、已有屏幕推流 → screen_busy
+	_, err = f.svc.StartScreenPush(ctx, screenReq("rtmp://127.0.0.1:1935/live/sb2"))
+	if r := reason(err); r != "reason=screen_busy" {
+		t.Fatalf("不同地址应 screen_busy: %s", r)
+	}
+	if n, _ := f.svc.ActiveSessions(); n != 1 {
+		t.Fatalf("失败不应占用会话: %d", n)
+	}
+	// 文件推流不受影响（不同地址可以开；同地址仍是 duplicate_url）
+	fp, err := f.start(t, "rtmp://10.0.0.2/live/f2")
+	if err != nil {
+		t.Fatalf("文件推流不应受屏幕推流限制: %v", err)
+	}
+	_, err = f.start(t, u1)
+	if r := reason(err); r != "reason=duplicate_url" {
+		t.Fatal(r)
+	}
+	// screen_busy 先于 max_sessions：凑满 4 个会话后再开屏幕推流仍是 screen_busy；文件推流则是 max_sessions
+	for i := 3; i <= 4; i++ {
+		if _, err := f.start(t, fmt.Sprintf("rtmp://10.0.0.%d/live/f%d", i, i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err = f.svc.StartScreenPush(ctx, screenReq("rtmp://127.0.0.1:1935/live/sb2"))
+	if r := reason(err); r != "reason=screen_busy" {
+		t.Fatalf("满额时屏幕推流应先 screen_busy: %s", r)
+	}
+	_, err = f.start(t, "rtmp://10.0.0.9/live/f9")
+	if r := reason(err); r != "reason=max_sessions" {
+		t.Fatalf("文件推流满额应 max_sessions: %s", r)
+	}
+	// 屏幕推流结束后释放，可以再开一路
+	f.mgr.Cancel(first.ID)
+	f.wait(t, first.ID)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		tk, err := f.svc.StartScreenPush(ctx, screenReq("rtmp://127.0.0.1:1935/live/sb2"))
+		if err == nil {
+			f.mgr.Cancel(tk.ID)
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("屏幕推流结束后应释放: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	_ = fp
+	for _, a := range f.mgr.ListActive() {
+		f.mgr.Cancel(a.ID)
+	}
+}
+
+// 并发两次 StartScreenPush（不同地址）只成功一次，另一次 screen_busy；检查与登记在同一把锁里。
+func TestConcurrentScreenStartsOnlyOneSucceeds(t *testing.T) {
+	for round := 0; round < 5; round++ {
+		f := x11Fixture(t, nil)
+		f.setMode("live")
+		const n = 8
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		errs := make([]error, n)
+		ids := make([]string, n)
+		for i := 0; i < n; i++ {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				<-start
+				tk, err := f.svc.StartScreenPush(context.Background(), screenReq(fmt.Sprintf("rtmp://127.0.0.1:1935/live/c%d", i)))
+				errs[i], ids[i] = err, tk.ID
+			}(i)
+		}
+		close(start)
+		wg.Wait()
+		ok := 0
+		for i, err := range errs {
+			if err == nil {
+				ok++
+				continue
+			}
+			ae := mustAppErr(t, err, apperr.TaskConflict)
+			if firstLine(ae.Detail) != "reason=screen_busy" {
+				t.Fatalf("第 %d 个失败应是 screen_busy: %q", i, ae.Detail)
+			}
+		}
+		if ok != 1 {
+			t.Fatalf("第 %d 轮：并发 %d 次 StartScreenPush 应只成功 1 次，实际 %d", round, n, ok)
+		}
+		if got, _ := f.svc.ActiveSessions(); got != 1 {
+			t.Fatalf("会话数应为 1: %d", got)
+		}
+		if len(f.mgr.ListActive()) != 1 {
+			t.Fatalf("任务表里应只有 1 个进行中的任务: %d", len(f.mgr.ListActive()))
+		}
+		for _, a := range f.mgr.ListActive() {
+			f.mgr.Cancel(a.ID)
+			f.wait(t, a.ID)
+		}
+	}
+}
+
+// 同地址并发的屏幕推流：只成功一次，另一次 duplicate_url（先于 screen_busy）。
+func TestConcurrentScreenStartsSameURL(t *testing.T) {
+	f := x11Fixture(t, nil)
+	f.setMode("live")
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	errs := make([]error, 4)
+	for i := range errs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			_, errs[i] = f.svc.StartScreenPush(context.Background(), screenReq("rtmp://127.0.0.1:1935/live/same"))
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	ok := 0
+	for _, err := range errs {
+		if err == nil {
+			ok++
+		} else if ae := mustAppErr(t, err, apperr.TaskConflict); firstLine(ae.Detail) != "reason=duplicate_url" {
+			t.Fatalf("同地址并发应 duplicate_url: %q", ae.Detail)
+		}
+	}
+	if ok != 1 {
+		t.Fatalf("应只成功 1 次: %d", ok)
+	}
+	for _, a := range f.mgr.ListActive() {
+		f.mgr.Cancel(a.ID)
+		f.wait(t, a.ID)
+	}
 }
