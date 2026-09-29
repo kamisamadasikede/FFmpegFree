@@ -327,13 +327,25 @@ func TestInstallFailureSetsFailedAndKeepsPartial(t *testing.T) {
 		t.Fatal("应发 task:status(running) 和 task:status(failed)")
 	}
 	// failed 之后可以重新安装（此时不再是进行中）
-	if _, err := f.mgr.Install(context.Background(), ""); err != nil {
+	second, err := f.mgr.Install(context.Background(), "")
+	if err != nil {
 		t.Fatal(err)
 	}
+	if second.ID == st.TaskID {
+		t.Fatal("失败后重新安装应生成新任务")
+	}
 	waitFor(t, func() bool { return f.em.count(task.EventCreated) == 2 })
-	// 重新检测在失败后可用
-	f.mgr.CancelInstall()
-	waitFor(t, func() bool { s := f.mgr.Status().State; return s == ffmpeg.StateMissing })
+	// 服务器的 gate 已经放开，第二次安装会很快再次失败；不能在它进行中取消（取消与失败谁先到不确定，
+	// 曾导致偶发超时），而是等它以第二个任务的身份失败，再验证失败之后重新检测可用。
+	waitFor(t, func() bool {
+		s := f.mgr.Status()
+		return s.State == ffmpeg.StateFailed && s.TaskID == second.ID
+	})
+	f.mgr.CancelInstall() // 已经结束：应当无副作用
+	if _, err := f.mgr.Recheck(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return f.mgr.Status().State == ffmpeg.StateMissing })
 }
 
 func TestCancelInstall(t *testing.T) {
