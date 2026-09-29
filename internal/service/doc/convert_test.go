@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode"
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/task"
@@ -470,4 +471,34 @@ func TestNoFFmpegNeeded(t *testing.T) {
 	in := filepath.Join(e.dir, "a.docx")
 	makeDocx(t, in, "no ffmpeg")
 	e.convertOK(t, in, "")
+}
+
+// 长中日文段落经自动换行后一个字都不能少（fpdf.MultiCell 会在每个换行处丢一个汉字，见 wrap.go）。
+func TestConvertLongCJKParagraphKeepsEveryCharacter(t *testing.T) {
+	e := newEnv(t)
+	long := strings.Repeat("这是一段没有空格的很长的中文文字，用来检查自动换行是否会丢字。", 12)
+	jp := strings.Repeat("日本語の長い文章です、読む話す黒龍。", 15)
+	mixed := strings.Repeat("Mixed 中文 and English words，含标点（括号）「引号」。 ", 10)
+	docs := map[string][]string{"a.docx": {long, jp, mixed}, "b.pptx": {long, jp, mixed}}
+	makeDocx(t, filepath.Join(e.dir, "a.docx"), docs["a.docx"]...)
+	makePptx(t, filepath.Join(e.dir, "b.pptx"), []int{1}, [][]string{docs["b.pptx"]})
+	strip := func(s string) string {
+		return strings.Map(func(r rune) rune {
+			if unicode.IsSpace(r) {
+				return -1
+			}
+			return r
+		}, s)
+	}
+	for name, paras := range docs {
+		tk := e.convertOK(t, filepath.Join(e.dir, name), t.TempDir())
+		got := strip(pdfText(t, tk.OutputPath))
+		want := strip(strings.Join(paras, ""))
+		if name == "b.pptx" {
+			want = "Slide1" + want
+		}
+		if got != want {
+			t.Fatalf("%s 文字与原文不一致：\n got %d 字 %.80q…\nwant %d 字 %.80q…", name, len([]rune(got)), got, len([]rune(want)), want)
+		}
+	}
 }
