@@ -15,8 +15,12 @@ export const DOC_BACKEND_READY: boolean = true
  */
 export const ABOUT_BACKEND_READY: boolean = true
 /**
- * 编码设备（GPU 加速）：后端 `SystemService.ListEncoderDevices / GetEncoderPreference / SetEncoderPreference` 绑定还没合入，默认 false。
- * false 时设置页完全不显示“编码设备”一块（产品经理要求）；纯浏览器演示要看模拟层，地址加 `?enc=`（见 api/encoder.ts）。
- * 后端绑定合并后：核对 api/encoder.ts 的字段名，把这里改成 true 即可。
+ * 编码设备（GPU 加速）。后端第一个 PR（#60，SystemService.ListEncoderDevices / RefreshEncoderDevices / GetEncoderPreference /
+ * GetEncoderPreferenceInfo / SetEncoderPreference）已合入，设置页面板（components/encoder/EncoderDevicePanel.vue）已对着真实绑定写好，
+ * **但本开关必须保持 false**：#60 只做检测和偏好，转换 / 剪辑 / 直播的编码参数还没用上所选设备，
+ * 现在打开会让用户看到“能选显卡”却没有实际加速。
+ * 打开条件：后端第二个 PR（转换、剪辑、直播真正按偏好使用硬件编码器，含任务的 encoder / encoderDevice / hwFallback / hwFallbackReason 字段）合入后，
+ *   1) 核对 api/encoder.ts 与生成绑定；2) 接线回退提示（EncoderFallbackNotice）与任务详情里的编码器展示；3) 再把本开关改成 true。
+ * false 时（不论在不在 Wails 里）正式包设置页完全不显示“编码设备”一块；仅开发 / 走查：纯浏览器（没有 window.go）地址加 `?enc=`（见 api/encoder.ts）看模拟层。
  */
 export const ENCODER_BACKEND_READY: boolean = false
