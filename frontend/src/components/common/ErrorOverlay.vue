@@ -137,8 +137,8 @@ p {
   border-color: var(--ff-primary-hover);
 }
 /* 暗色主题的主色偏亮，白字对比度只有 3.16:1，改用近黑字（设计评审） */
-:global(html.dark) .btn.pri,
-:global(.ff-dark) .btn.pri {
+.ff-dark .btn.pri,
+html.dark .btn.pri {
   color: #0b0c0e;
 }
 .btn:focus-visible {
