@@ -5,6 +5,7 @@ import (
 	"FFmpegFree/backend/contollers"
 	"FFmpegFree/internal/ffmpeg"
 	"FFmpegFree/internal/paths"
+	"FFmpegFree/internal/service/media"
 	"FFmpegFree/internal/service/system"
 	"FFmpegFree/internal/store"
 	"FFmpegFree/internal/task"
@@ -19,21 +20,33 @@ import (
 
 // App struct
 type App struct {
-	ctx   context.Context
-	dirs  paths.Dirs
-	store *store.Store
-	sys   *system.Manager
-	tasks atomic.Pointer[task.Manager]
+	ctx context.Context
+	// rootCtx 是应用根 ctx，shutdown 时取消；探测、缩略图等长时间操作用它，退出时不会遗留子进程。
+	rootCtx    context.Context
+	rootCancel context.CancelFunc
+	dirs       paths.Dirs
+	store      *store.Store
+	sys        *system.Manager
+	tasks      atomic.Pointer[task.Manager]
+	media      atomic.Pointer[media.Service]
 }
 
 // taskManager 返回任务管理器；OnStartup 完成前（或存储初始化失败时）为 nil。
 // 首字母小写，不会被 Wails 当作绑定方法暴露给前端。
 func (a *App) taskManager() *task.Manager { return a.tasks.Load() }
 
+// mediaService 返回媒体服务；OnStartup 完成前为 nil。小写，不会被 Wails 暴露。
+func (a *App) mediaService() *media.Service { return a.media.Load() }
+
 // NewApp creates a new App application struct
 func NewApp(sys *system.Manager) *App {
-	return &App{sys: sys}
+	// 根 ctx 在构造时就创建，保证绑定方法在 OnStartup 之前被调用也拿到有效的 ctx。
+	ctx, cancel := context.WithCancel(context.Background())
+	return &App{sys: sys, rootCtx: ctx, rootCancel: cancel}
 }
+
+// appContext 返回应用根 ctx，shutdown 时被取消。小写，不会被 Wails 暴露。
+func (a *App) appContext() context.Context { return a.rootCtx }
 
 // startup is called when the app starts. The context is saved
 // so we can call the runtime methods
@@ -44,6 +57,7 @@ func (a *App) startup(ctx context.Context) {
 		log.Printf("初始化本地存储失败: %v", err)
 	}
 	a.startTasks(ctx)
+	a.startMedia()
 	a.startFFmpegDetect(ctx)
 }
 
@@ -60,6 +74,26 @@ func (a *App) startTasks(ctx context.Context) {
 		LogDir:  a.dirs.Logs,
 		Logf:    log.Printf,
 	}))
+}
+
+// startMedia 创建媒体服务（探测、缩略图）并清理一次缩略图缓存。存储不可用时仍可生成缩略图，只是不记录最近媒体。
+func (a *App) startMedia() {
+	thumbs := a.dirs.Thumbs
+	if thumbs == "" {
+		d, err := paths.Resolve("")
+		if err != nil {
+			log.Printf("定位缩略图目录失败，媒体服务未启动: %v", err)
+			return
+		}
+		thumbs = d.Thumbs
+	}
+	cfg := media.Config{ThumbsDir: thumbs}
+	if a.store != nil { // 避免把 nil *Store 装进接口
+		cfg.Store = a.store
+	}
+	svc := media.New(cfg)
+	go svc.CleanupCache()
+	a.media.Store(svc)
 }
 
 // startFFmpegDetect 在后台检测 ffmpeg，不阻塞界面；状态变化通过 ffmpeg:status 事件推送。
@@ -117,6 +151,9 @@ func (a *App) initStore(ctx context.Context) error {
 
 // shutdown 在窗口关闭时由 Wails 调用：结束所有 ffmpeg 子进程并关闭数据库。
 func (a *App) shutdown(ctx context.Context) {
+	if a.rootCancel != nil {
+		a.rootCancel() // 先取消根 ctx：进行中的探测 / 缩略图立即结束 ffprobe / ffmpeg
+	}
 	contollers.KillAllFFmpegProcesses()
 	contollers.KillLiveOpsProcesses()
 	if m := a.taskManager(); m != nil {

@@ -38,15 +38,12 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/tasks',
+    name: 'Tasks',
     meta: { title: '任务中心', subtitle: '进度 · 历史 · 失败重试' },
-    component: SectionTabs,
-    redirect: '/tasks/running',
-    // 过渡期沿用 v1 的两个列表页，任务 store 接上后换成统一的任务中心
-    children: [
-      { path: 'running', meta: { tab: '进行中' }, component: () => import('../views/convert.vue') },
-      { path: 'done', meta: { tab: '已完成' }, component: () => import('../views/convertup.vue') },
-    ],
+    component: () => import('../views/TaskCenter.vue'),
   },
+  // v1 的两个列表页路径不再使用，旧链接落到任务中心
+  { path: '/tasks/:pathMatch(.*)*', redirect: '/tasks' },
   {
     path: '/settings',
     meta: { title: '设置' },

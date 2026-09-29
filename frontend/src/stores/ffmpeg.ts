@@ -1,14 +1,19 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { onEvent, previewParams, service } from '@/services/wails'
+import * as SystemBinding from '../../wailsjs/go/app/SystemService'
+import { system } from '../../wailsjs/go/models'
+import { call } from '@/api/call'
+import { hasWailsBackend, onEvent, previewParams } from '@/services/wails'
+import { formatEta } from '@/utils/format'
 
-/** 与契约 9.4 FFmpegStatus 对齐；wailsjs 生成 models.ts 后换成生成的类型 */
+/** 与契约 9.4 FFmpegStatus 对齐。生成的类型里 state/source 是 string、error 可能为 null，这里收窄后使用 */
 export interface FFmpegStatus {
   state: 'checking' | 'ready' | 'missing' | 'outdated' | 'installing' | 'failed'
   path?: string
   version?: string
   source?: 'custom' | 'bundled' | 'system' | 'legacy'
   taskId?: string
+  ffprobeMissing?: boolean
   error?: { code: string; message: string; detail?: string } | null
 }
 
@@ -19,6 +24,36 @@ export interface InstallProgress {
   remainText?: string
 }
 
+/**
+ * ffmpeg_install 任务的进度 → 安装对话框 / 提示条用的形态。
+ * 契约 9.3：progress 0~1 覆盖整个流程，下载占 0~0.9，解压 0.9~0.94，校验 0.94~0.98，安装完成 1。
+ * task.speed 后端已经格式化好（如 "3.2 MB/s"）；etaSec 为 0 表示未知。
+ */
+export function toInstallProgress(progress: number, speed: string, etaSec: number): InstallProgress {
+  const p = Math.min(1, Math.max(0, progress))
+  return {
+    progress: p,
+    stage: p < 0.9 ? 'download' : p < 0.94 ? 'extract' : 'validate',
+    speedText: speed || undefined,
+    remainText: etaSec > 0 ? `剩余 ${formatEta(etaSec)}` : undefined,
+  }
+}
+
+/** 后端事件 / 调用返回的原始状态 → 前端状态（空串字段归一为 undefined） */
+function normalize(raw: system.FFmpegStatus | FFmpegStatus): FFmpegStatus {
+  const r = raw as any
+  return {
+    state: r.state,
+    path: r.path || undefined,
+    version: r.version || undefined,
+    source: r.source || undefined,
+    taskId: r.taskId || undefined,
+    ffprobeMissing: !!r.ffprobeMissing,
+    error: r.error ? { code: r.error.code, message: r.error.message, detail: r.error.detail } : null,
+  }
+}
+
+// 预览模式（仅浏览器里没有 window.go 时）：纯界面模拟，不代表真实状态
 const PREVIEW: Record<string, { status: FFmpegStatus; install?: InstallProgress }> = {
   ready: { status: { state: 'ready', version: '7.1', source: 'bundled' } },
   missing: { status: { state: 'missing' } },
@@ -29,6 +64,8 @@ const PREVIEW: Record<string, { status: FFmpegStatus; install?: InstallProgress 
   failed: { status: { state: 'failed', error: { code: 'IO_ERROR', message: '下载超时，请检查网络' } } },
 }
 
+const previewMode = !hasWailsBackend() && previewParams.has('ff') && !!PREVIEW[previewParams.get('ff')!]
+
 export const useFFmpegStore = defineStore('ffmpeg', () => {
   const status = ref<FFmpegStatus>({ state: 'checking' })
   const install = ref<InstallProgress | null>(null)
@@ -36,57 +73,152 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
   const bannerClosed = ref(false) // 只隐藏本次会话
   const dialogOpen = ref(false)
   const justBecameReady = ref(false)
+  const manualInputOpen = ref(false) // 没有目录选择器时，对话框里显示路径输入框
+
+  /** 安装功能可用（绑定已有 InstallFFmpeg）；只有浏览器预览里 ?noinstall 会关闭，用来看"即将上线"样式 */
+  const installAvailable = !(previewMode && previewParams.has('noinstall'))
+  /** 有系统目录选择器（PickDirectory 已在绑定里）；只有浏览器预览里 ?nopicker 会关闭，用来看"手动输入路径"的样式 */
+  const canPickDirectory = !(previewMode && previewParams.has('nopicker'))
 
   const ready = computed(() => status.value.state === 'ready')
   const needsAttention = computed(() => !['ready', 'checking'].includes(status.value.state))
+  /**
+   * 依赖 ffmpeg 的入口（转换/剪辑/直播）是否置灰：只看 ffmpeg 当前状态（missing/outdated/installing/failed）。
+   * 刻意不看 promptDismissed / bannerClosed——用户点「稍后」只是不再打扰，不代表 ffmpeg 可用。
+   * checking（启动检测中）不置灰，避免每次启动闪一下灰。
+   */
+  const featuresBlocked = computed(() => needsAttention.value)
 
   function setStatus(next: FFmpegStatus) {
     const was = status.value.state
     status.value = next
-    if (next.state === 'ready' && was !== 'ready' && was !== 'checking') {
-      justBecameReady.value = true
-      setTimeout(() => (justBecameReady.value = false), 3000)
+    if (next.state === 'ready') {
+      // 契约 9.5：ready 后后端重置 ffmpegPromptDismissed，本地保持一致
+      promptDismissed.value = false
+      promptShown = false
+      if (was !== 'ready' && was !== 'checking') {
+        justBecameReady.value = true
+        setTimeout(() => (justBecameReady.value = false), 3000)
+      }
     }
     if (next.state !== 'installing') install.value = null
   }
 
+  // 首次 missing 且用户没选过"稍后"时弹一次确认框；需要等设置读完才能判断
+  let settingsLoaded = false
+  let promptShown = false
+  function maybePrompt() {
+    if (!settingsLoaded || promptShown || promptDismissed.value) return
+    if (status.value.state === 'missing') {
+      promptShown = true
+      dialogOpen.value = true
+    }
+  }
+
+  let eventSeq = 0 // 每收到一次 ffmpeg:status 事件加一，用来丢弃过期的主动查询结果
+  function applyEvent(raw: system.FFmpegStatus) {
+    eventSeq++
+    setStatus(normalize(raw))
+    maybePrompt()
+  }
+
   async function init() {
-    const preview = previewParams.get('ff')
-    if (preview && PREVIEW[preview]) {
-      setStatus(PREVIEW[preview].status)
-      install.value = PREVIEW[preview].install ?? null
-      dialogOpen.value = previewParams.has('dlg')
+    if (!hasWailsBackend()) {
+      const preview = previewParams.get('ff')
+      if (preview && PREVIEW[preview]) {
+        setStatus(PREVIEW[preview].status)
+        install.value = PREVIEW[preview].install ?? null
+        dialogOpen.value = previewParams.has('dlg')
+      }
+      return // 浏览器里没有后端，保持 checking
+    }
+
+    // 先订阅再查询：查询期间到达的事件一定比查询结果新
+    onEvent<system.FFmpegStatus>('ffmpeg:status', applyEvent)
+    try {
+      const seqAtStart = eventSeq
+      const st = await call(SystemBinding.GetFFmpegStatus())
+      if (eventSeq === seqAtStart) setStatus(normalize(st))
+    } catch (e) {
+      console.error('GetFFmpegStatus failed', e)
+    }
+    try {
+      const s = await call(SystemBinding.GetSettings())
+      promptDismissed.value = !!s?.ffmpegPromptDismissed
+    } catch (e) {
+      console.error('GetSettings failed', e)
+    }
+    settingsLoaded = true
+    maybePrompt()
+  }
+
+  let lastMirror: '' | 'cn' = '' // 上次选的下载源，横幅上的"重试"沿用
+  /**
+   * 安装：调用 InstallFFmpeg(mirror)，mirror 只能是 '' 或 'cn'（后端对其他值返回 INVALID_ARGUMENT）。
+   * 幂等：已有进行中的安装时后端直接返回该任务。进度由任务 store 通过 updateInstall() 推进。
+   * 预览模式（浏览器里没有 window.go）只切到 installing 的静态样子。
+   */
+  async function startInstall(mirror?: string) {
+    if (!installAvailable) return
+    if (previewMode) {
+      setStatus(PREVIEW.installing.status)
+      install.value = PREVIEW.installing.install!
       return
     }
-    onEvent<FFmpegStatus>('ffmpeg:status', setStatus)
-    const svc = service('SystemService')
-    if (!svc?.GetFFmpegStatus) return // 后端 SystemService 还没接上，保持 checking
-    setStatus(await svc.GetFFmpegStatus())
-    const settings = await svc.GetSettings?.()
-    promptDismissed.value = !!settings?.ffmpegPromptDismissed
-    if (status.value.state === 'missing' && !promptDismissed.value) dialogOpen.value = true
+    if (!hasWailsBackend()) return
+    if (mirror !== undefined) lastMirror = mirror === 'cn' ? 'cn' : ''
+    const task = await call(SystemBinding.InstallFFmpeg(lastMirror))
+    // 后端随后会推 ffmpeg:status(installing)；这里先本地切换，避免按钮空档
+    setStatus({ ...status.value, state: 'installing', taskId: task?.id })
+    install.value = toInstallProgress(task?.progress ?? 0, task?.speed ?? '', task?.etaSec ?? 0)
   }
 
-  async function startInstall(mirror = '') {
-    const svc = service('SystemService')
-    if (!svc?.InstallFFmpeg) throw new Error('SystemService 尚未就绪')
-    const task = await svc.InstallFFmpeg(mirror)
-    setStatus({ ...status.value, state: 'installing', taskId: task.id })
+  /** 取消进行中的安装（保留已下载部分）；没有安装在进行时后端无操作。取消后后端会重新检测并推 ffmpeg:status */
+  async function cancelInstall() {
+    if (previewMode) {
+      setStatus(PREVIEW.missing.status)
+      return
+    }
+    if (!hasWailsBackend()) return
+    await call(SystemBinding.CancelFFmpegInstall())
   }
 
-  async function pickPath() {
-    const svc = service('SystemService')
-    if (!svc?.PickDirectory || !svc?.SetFFmpegPath) throw new Error('SystemService 尚未就绪')
-    const dir = await svc.PickDirectory('选择 ffmpeg 所在文件夹')
-    if (dir) setStatus(await svc.SetFFmpegPath(dir))
+  /** 手动指定目录。dir 省略时用系统目录选择器（PickDirectory）；没有选择器时调用方必须传 dir */
+  async function pickPath(dir?: string) {
+    if (dir === undefined) {
+      if (!canPickDirectory) {
+        manualInputOpen.value = true // 没有选择器：打开对话框里的文本框
+        dialogOpen.value = true
+        return
+      }
+      if (previewMode) return
+      dir = await call<string>(SystemBinding.PickDirectory('选择 ffmpeg 所在文件夹'))
+      if (!dir) return // 用户取消
+    }
+    if (previewMode) return
+    setStatus(normalize(await call(SystemBinding.SetFFmpegPath(dir))))
+  }
+
+  /** 清除手动指定并重新检测（SetFFmpegPath('')） */
+  async function clearCustomPath() {
+    if (previewMode) return
+    setStatus(normalize(await call(SystemBinding.SetFFmpegPath(''))))
+  }
+
+  /** 重新检测：后端先推 checking 再推结果，返回值就是最终结果 */
+  async function recheck() {
+    if (previewMode) return
+    const seqAtStart = eventSeq
+    const st = await call(SystemBinding.RecheckFFmpeg())
+    if (eventSeq === seqAtStart) setStatus(normalize(st))
   }
 
   async function dismissPrompt() {
     promptDismissed.value = true
     dialogOpen.value = false
-    const svc = service('SystemService')
-    const s = await svc?.GetSettings?.()
-    if (s) await svc!.UpdateSettings({ ...s, ffmpegPromptDismissed: true })
+    if (previewMode || !hasWailsBackend()) return
+    const s = await call(SystemBinding.GetSettings())
+    await call(SystemBinding.UpdateSettings(system.Settings.createFrom({ ...s, ffmpegPromptDismissed: true })))
   }
 
   /** 任务 store 收到安装任务的 task:progress 时调用 */
@@ -96,6 +228,7 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
 
   return {
     status, install, promptDismissed, bannerClosed, dialogOpen, justBecameReady,
-    ready, needsAttention, init, startInstall, pickPath, dismissPrompt, updateInstall,
+    installAvailable, canPickDirectory, manualInputOpen,
+    ready, needsAttention, featuresBlocked, init, startInstall, cancelInstall, pickPath, clearCustomPath, recheck, dismissPrompt, updateInstall,
   }
 })

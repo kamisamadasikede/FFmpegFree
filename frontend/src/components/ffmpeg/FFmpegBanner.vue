@@ -2,11 +2,19 @@
   <div v-if="kind" class="banner" :class="kind">
     <FIcon :name="kind === 'info' ? 'download' : kind === 'ok' ? 'check' : 'warn'" />
 
-    <template v-if="state === 'missing' || state === 'outdated'">
-      <span>{{ state === 'missing' ? '未检测到 ffmpeg，转换、剪辑和直播功能暂不可用。' : 'ffmpeg 版本过旧，需要 6.0 或更高版本。' }}</span>
+    <template v-if="state === 'missing'">
+      <span>未检测到 ffmpeg，转换、剪辑和直播暂时不能用。</span>
+      <span class="sp" />
+      <el-button type="primary" :disabled="!ffmpeg.installAvailable" @click="safe(() => ffmpeg.startInstall())">{{ ffmpeg.installAvailable ? '下载安装' : '安装功能即将上线' }}</el-button>
+      <el-button @click="ffmpeg.bannerClosed = true">稍后</el-button>
+    </template>
+
+    <template v-else-if="state === 'outdated'">
+      <span>ffmpeg 版本过旧，需要 6.0 或更高版本。</span>
       <span class="sp" />
       <el-button link type="primary" @click="safe(ffmpeg.pickPath)">手动指定</el-button>
-      <el-button type="primary" @click="safe(() => ffmpeg.startInstall())">立即安装</el-button>
+      <el-button link type="primary" @click="safe(ffmpeg.recheck)">重新检测</el-button>
+      <el-button type="primary" :disabled="!ffmpeg.installAvailable" @click="safe(() => ffmpeg.startInstall())">{{ ffmpeg.installAvailable ? '立即安装' : '安装功能即将上线' }}</el-button>
       <button class="iconbtn" title="本次不再显示" @click="ffmpeg.bannerClosed = true"><FIcon name="x" :size="16" /></button>
     </template>
 
@@ -15,6 +23,7 @@
       <div class="bar"><i :style="{ width: percent + '%' }" /></div>
       <span v-if="ffmpeg.install?.speedText" class="meta">{{ ffmpeg.install.speedText }} · {{ ffmpeg.install.remainText }}</span>
       <span class="sp" />
+      <el-button link type="primary" @click="safe(ffmpeg.cancelInstall)">取消</el-button>
       <el-button link type="primary" @click="router.push('/tasks')">查看详情</el-button>
     </template>
 
@@ -23,7 +32,7 @@
       <span class="sp" />
       <el-button link type="primary" @click="safe(ffmpeg.pickPath)">手动指定</el-button>
       <el-button link type="primary" @click="ffmpeg.dialogOpen = true">更换下载源</el-button>
-      <el-button type="primary" @click="safe(() => ffmpeg.startInstall())">重试</el-button>
+      <el-button type="primary" :disabled="!ffmpeg.installAvailable" @click="safe(() => ffmpeg.startInstall())">重试</el-button>
     </template>
 
     <template v-else-if="kind === 'ok'">
@@ -38,6 +47,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import { useFFmpegStore } from '@/stores/ffmpeg'
+import { toAppError } from '@/api/call'
 
 const ffmpeg = useFFmpegStore()
 const router = useRouter()
@@ -58,8 +68,8 @@ const stageText = computed(() => (ffmpeg.install ? STAGES[ffmpeg.install.stage] 
 async function safe(fn: () => Promise<unknown>) {
   try {
     await fn()
-  } catch (e: any) {
-    ElMessage.error(e?.message || String(e))
+  } catch (e) {
+    ElMessage.error(toAppError(e).message)
   }
 }
 </script>
