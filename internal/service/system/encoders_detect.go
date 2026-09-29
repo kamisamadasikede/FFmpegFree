@@ -116,9 +116,9 @@ func detectEncoderDevices(ctx context.Context, env encoderEnv, ffmpegPath string
 		}
 		vgpus := gpusOfVendor(gpus, v)
 		if goos == "darwin" && v == VendorApple {
-			// macOS 的硬件编码统一由 VideoToolbox 调度，只列 Apple 设备；没枚举到就给一个通用项。
+			// macOS 的硬件编码统一由 VideoToolbox 调度，只列 Apple 设备；没枚举到就给一个通用项（名字“系统显卡”，不出现编码器名）。
 			if len(vgpus) == 0 && ok {
-				vgpus = []gpuInfo{{Name: "Apple VideoToolbox（系统硬件编码）", Vendor: VendorApple}}
+				vgpus = []gpuInfo{{Name: vendorBrand[VendorApple], Vendor: VendorApple}}
 			}
 		} else if len(vgpus) == 0 && ok {
 			// 试跑成功但没枚举到名字（lspci 缺失等）：给一个只有厂商名的项。

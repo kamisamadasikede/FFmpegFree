@@ -137,14 +137,42 @@ func TestVendorFromPCIIDAndDRM(t *testing.T) {
 			t.Errorf("%q → %s want %s", in, got, want)
 		}
 	}
-	if g, ok := gpuFromDRM(drmCard{Vendor: "0x10de", Driver: "nvidia"}); !ok || g.Vendor != VendorNvidia || !g.Discrete || !strings.Contains(g.Name, "nvidia") {
+	if g, ok := gpuFromDRM(drmCard{Vendor: "0x10de", Driver: "nvidia"}); !ok || g.Vendor != VendorNvidia || !g.Discrete || g.Name != "NVIDIA 显卡" {
 		t.Errorf("%+v", g)
 	}
-	if g, ok := gpuFromDRM(drmCard{Vendor: "0x8086", Driver: "i915"}); !ok || g.Discrete || g.Vendor != VendorIntel {
-		t.Errorf("%+v", g)
+	if g, ok := gpuFromDRM(drmCard{Vendor: "0x8086", Driver: "i915"}); !ok || g.Discrete || g.Vendor != VendorIntel || g.Name != "Intel 显卡" {
+		t.Errorf("驱动名 i915 不能进设备名: %+v", g)
+	}
+	if g, ok := gpuFromDRM(drmCard{Vendor: "0x1002", Driver: "amdgpu"}); !ok || g.Vendor != VendorAMD || g.Name != "AMD 显卡" {
+		t.Errorf("驱动名 amdgpu 不能进设备名: %+v", g)
+	}
+	// 所有兜底名：中文短名，不含编码器名、驱动名、括号后缀。
+	for v, name := range vendorBrand {
+		assertFallbackName(t, "vendorBrand["+v+"]", name)
+	}
+	for _, drv := range []string{"", "nvidia", "i915", "xe", "amdgpu", "radeon", "nouveau"} {
+		for _, ven := range []string{"0x10de", "0x8086", "0x1002"} {
+			if g, ok := gpuFromDRM(drmCard{Vendor: ven, Driver: drv}); ok {
+				assertFallbackName(t, "gpuFromDRM("+ven+","+drv+")", g.Name)
+			}
+		}
 	}
 	if _, ok := gpuFromDRM(drmCard{Vendor: "0x1af4"}); ok {
 		t.Error("virtio 不算")
+	}
+}
+
+// 设备名兜底（读不到具体型号）会直接显示在界面上，不得出现编码器名 / 驱动名 / 括号后缀（界面不显示编码器名）。
+func assertFallbackName(t *testing.T, where, name string) {
+	t.Helper()
+	low := strings.ToLower(name)
+	for _, bad := range []string{"nvenc", "qsv", "amf", "videotoolbox", "i915", "amdgpu", "radeon", "nouveau", "vaapi", "cuda", "h264", "hevc", "（", "）", "(", ")", "gpu", "encoder"} {
+		if strings.Contains(low, bad) {
+			t.Errorf("%s: 兜底名 %q 不应含 %q", where, name, bad)
+		}
+	}
+	if name == "" {
+		t.Errorf("%s: 兜底名为空", where)
 	}
 }
 
@@ -424,6 +452,15 @@ func TestListEncoderDevicesVendors(t *testing.T) {
 		}
 		if l.Devices[0].ID != "cpu" {
 			t.Errorf("%s: 第一项不是 cpu", c.name)
+		}
+		if len(c.gpus) == 0 { // 枚举不出名字、靠试跑成功给出的设备：名字必须是中文短名兜底
+			for _, d := range l.Devices[1:] {
+				want := map[string]string{VendorNvidia: "NVIDIA 显卡", VendorIntel: "Intel 显卡", VendorAMD: "AMD 显卡", VendorApple: "系统显卡"}[d.Vendor]
+				if d.Available && d.Name != want {
+					t.Errorf("%s: %s 兜底名 %q，期望 %q", c.name, d.ID, d.Name, want)
+				}
+				assertFallbackName(t, c.name+"/"+d.ID, d.Name)
+			}
 		}
 	}
 }
