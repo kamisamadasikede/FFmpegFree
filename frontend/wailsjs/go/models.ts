@@ -381,6 +381,7 @@ export namespace system {
 	    ffmpegPath: string;
 	    ffmpegPromptDismissed: boolean;
 	    defaultOutputDir: string;
+	    maxConcurrent: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -391,6 +392,7 @@ export namespace system {
 	        this.ffmpegPath = source["ffmpegPath"];
 	        this.ffmpegPromptDismissed = source["ffmpegPromptDismissed"];
 	        this.defaultOutputDir = source["defaultOutputDir"];
+	        this.maxConcurrent = source["maxConcurrent"];
 	    }
 	}
 
