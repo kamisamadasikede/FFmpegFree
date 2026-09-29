@@ -29,6 +29,8 @@ type ScreenPushRequest struct {
 	Audio      string      `json:"audio"` // none（默认）| silent
 	ArchiveDir string      `json:"archiveDir"`
 	Options    PushOptions `json:"options"`
+	// Preview 为 nil（缺省）或 true 时会话带预览画面（GetPreview）；false 时不加预览输出。
+	Preview *bool `json:"preview"`
 	// CaptureSourceID 可选：ListCaptureSources 返回的 id（screen:<序号> | window:<hwnd 十进制>）。不传 = 沿用 ScreenID（原行为）；
 	// 传了以它为准（同时给了 ScreenID 时忽略 ScreenID）。
 	CaptureSourceID string `json:"captureSourceId"`
@@ -296,8 +298,11 @@ func (s *Service) startScreenPush(ctx context.Context, req ScreenPushRequest) (t
 	if fps == 0 {
 		fps = defaultScreenFps
 	}
+	taskID := id.New()
+	previewPath := s.planPreview(ctx, bin, taskID, req.Preview)
 	plan := ffmpeg.ScreenPushPlan{
-		GOOS: s.cfg.GOOS, Display: s.cfg.Getenv("DISPLAY"), HideCursor: req.HideCursor, Silent: req.Audio == "silent",
+		PreviewPath: previewPath,
+		GOOS:        s.cfg.GOOS, Display: s.cfg.Getenv("DISPLAY"), HideCursor: req.HideCursor, Silent: req.Audio == "silent",
 		Scheme: u.Scheme, URL: u.FFmpeg, FPS: fps,
 		Region: ffmpeg.ScreenRegion{X: sc.X, Y: sc.Y, Width: sc.Width, Height: sc.Height, Desktop: sc.ID == "x11:desktop", WindowTitle: windowTitle},
 		Enc: ffmpeg.LiveEncode{
@@ -308,9 +313,8 @@ func (s *Service) startScreenPush(ctx context.Context, req ScreenPushRequest) (t
 	if strings.HasPrefix(sc.ID, "avf:") {
 		plan.Region.DeviceIndex, _ = strconv.Atoi(strings.TrimPrefix(sc.ID, "avf:"))
 	}
-	taskID := id.New()
 	archive := archiveDir != ""
-	if err := s.reserve(taskID, u.Key, archive, true); err != nil {
+	if err := s.reserve(taskID, u.Key, archive, true, previewPath); err != nil {
 		return task.Task{}, err
 	}
 	// 存档：先占会话再建占位文件（冲突时不留下空文件）。占位文件是本任务自己用 O_EXCL 创建的，之后只有它可能被删。

@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
@@ -209,7 +210,16 @@ func (a *App) startLive() {
 		log.Printf("直播服务未启动：任务管理器或媒体服务不可用")
 		return
 	}
-	a.live.Store(live.New(live.Config{Tasks: tm, Media: med}))
+	// 预览临时目录：<数据目录>/tmp/live-preview。启动时清空上次异常退出遗留的预览文件；目录不可用只是没有预览，不影响直播。
+	previewDir := ""
+	if a.dirs.Temp != "" {
+		previewDir = filepath.Join(a.dirs.Temp, live.PreviewDirName)
+		if err := live.CleanupPreviewDir(previewDir); err != nil {
+			log.Printf("清理直播预览临时目录失败，本次运行不出预览: %v", err)
+			previewDir = ""
+		}
+	}
+	a.live.Store(live.New(live.Config{Tasks: tm, Media: med, PreviewDir: previewDir}))
 }
 
 // startFFmpegDetect 在后台检测 ffmpeg，不阻塞界面；状态变化通过 ffmpeg:status 事件推送。
@@ -269,6 +279,9 @@ func (a *App) initStore(ctx context.Context) error {
 func (a *App) shutdown(ctx context.Context) {
 	if a.rootCancel != nil {
 		a.rootCancel() // 先取消根 ctx：进行中的探测 / 缩略图立即结束 ffprobe / ffmpeg
+	}
+	if l := a.liveService(); l != nil {
+		l.Close() // 停止拉流预览会话（推流任务由下面的任务管理器停止）
 	}
 	if m := a.taskManager(); m != nil {
 		// 先停任务再关数据库：运行中的任务被取消并落库为 interrupted。
