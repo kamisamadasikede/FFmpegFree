@@ -1,7 +1,7 @@
 <template>
   <div
     class="ff-error-line"
-    :class="[`tone-${tone}`, { compact }]"
+    :class="[`tone-${shownTone}`, { compact }]"
     :role="announce ? 'alert' : 'group'"
     :aria-label="announce ? undefined : `${shownTitle || shownDescription}`"
   >
@@ -11,15 +11,15 @@
       <template v-if="!compact">
         <button v-if="retryVisible" type="button" class="ff-link" :class="{ busy }" :disabled="busy" :aria-busy="busy" @click="onRetry">重试</button>
         <button v-if="showChange" type="button" class="ff-link" :class="{ busy }" :disabled="busy" :aria-busy="busy" @click="onChange">更换输出位置</button>
-        <button v-if="showLog" type="button" class="ff-link" @click="emit('viewLog')">查看日志</button>
+        <button v-if="showLog && !canceled" type="button" class="ff-link" @click="emit('viewLog')">查看日志</button>
         <br v-if="showCode" />
         <span v-if="showCode" class="code">{{ resolved.code }}</span>
       </template>
     </div>
-    <div v-if="compact && (retryVisible || showChange || showLog)" class="actions">
+    <div v-if="compact && (retryVisible || showChange || (showLog && !canceled))" class="actions">
       <button v-if="retryVisible" type="button" class="ff-link" :class="{ busy }" :disabled="busy" :aria-busy="busy" @click="onRetry">重试</button>
       <button v-if="showChange" type="button" class="ff-link" :class="{ busy }" :disabled="busy" :aria-busy="busy" @click="onChange">更换输出位置</button>
-      <button v-if="showLog" type="button" class="ff-link" @click="emit('viewLog')">查看日志</button>
+      <button v-if="showLog && !canceled" type="button" class="ff-link" @click="emit('viewLog')">查看日志</button>
     </div>
   </div>
 </template>
@@ -47,7 +47,7 @@ const props = withDefaults(
     /** 横排紧凑版：标题、说明、错误码在一行，操作靠右 */
     compact?: boolean
     /** danger 红色（失败）；interrupted 灰橙色（已中断） */
-    tone?: 'danger' | 'interrupted'
+    tone?: 'danger' | 'interrupted' | 'neutral'
     /** 没有专属文案的错误码的标题，默认「转换失败」；非任务错误（如列表加载失败）可改成别的，但不会是「出错了」 */
     fallbackTitle?: string
     /** 覆盖标题 / 说明（interrupted 且后端没给 error 时用）；title 传空串 = 不显示标题，只有一行说明 */
@@ -76,8 +76,11 @@ function lastLine(text?: string): string {
 
 const resolved = computed(() => resolveTaskError(props.code, props.message || lastLine(props.detail)))
 /** 该错误码是否带「更换输出位置」（磁盘空间不足） */
-const showChange = computed(() => !props.title && resolved.value.actions.includes('changeOutput'))
-const retryVisible = computed(() => props.showRetry && !props.hideRetry)
+const showChange = computed(() => !canceled.value && !props.title && resolved.value.actions.includes('changeOutput'))
+/** CANCELED 不是失败：中性样式，不提供重试 / 更换输出位置 / 查看日志 */
+const canceled = computed(() => props.code === 'CANCELED')
+const shownTone = computed(() => (canceled.value ? 'neutral' : props.tone))
+const retryVisible = computed(() => props.showRetry && !props.hideRetry && !canceled.value)
 const shownTitle = computed(() => props.title ?? (!resolved.value.known && props.fallbackTitle ? props.fallbackTitle : resolved.value.title))
 const shownDescription = computed(() => props.description ?? resolved.value.description)
 const showCode = computed(() => !props.hideCode)
@@ -99,6 +102,9 @@ const showCode = computed(() => !props.hideCode)
 }
 .ff-error-line.tone-interrupted {
   --tone: var(--ff-interrupted);
+}
+.ff-error-line.tone-neutral {
+  --tone: var(--ff-text-3);
 }
 .ff-error-line > svg {
   color: var(--tone);

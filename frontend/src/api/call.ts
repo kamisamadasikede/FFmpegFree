@@ -12,6 +12,7 @@ export type AppErrorCode =
   | 'CONVERT_DISK_FULL'
   | 'UNSUPPORTED_PLATFORM'
   | 'UNSUPPORTED'
+  | 'CANCELED'
   | 'INTERNAL'
 
 export class AppError extends Error {

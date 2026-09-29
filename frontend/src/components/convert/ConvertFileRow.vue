@@ -185,6 +185,7 @@ const errorLine = computed<ErrLine | null>(() => {
   if (r.submitError && !r.taskId) {
     const e = r.submitError
     const detailRest = (e.detail ?? '').split(/\r?\n/).slice(1).join(' ').trim()
+    if (e.code === 'CANCELED') return { code: e.code, message: e.message, retry: false, log: false }
     return { code: e.code, title: SUBMIT_ERROR_TITLE, description: [e.message, detailRest].filter(Boolean).join('：'), retry: false, log: false }
   }
   if ((props.state === 'failed' || props.state === 'interrupted') && props.task) {
