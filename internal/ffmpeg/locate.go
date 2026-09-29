@@ -45,8 +45,12 @@ type Info struct {
 	Binaries
 	Source  string
 	Version string // ffmpeg 的原始版本串，如 "6.1.1-3ubuntu5"
-	Major   int
-	Known   bool // 主版本号是否解析成功
+	// FFprobeMissing 为 true 表示 ffmpeg 可用但没有可用的 ffprobe（此时 FFprobe 为空）。
+	// 只会出现在 v1 兼容目录（SourceLegacy）：v1 随包只带了 ffmpeg.exe，不能因此判整个候选失败。
+	// 依赖 ffprobe 的功能（媒体探测）用 RequireProbe 门控，安装流程会把 ffprobe 补进 <数据目录>/bin。
+	FFprobeMissing bool
+	Major          int
+	Known          bool // 主版本号是否解析成功
 }
 
 // Attempt 记录一个被尝试过的候选及其失败原因，用于排查"为什么没找到"。
@@ -195,7 +199,8 @@ func (l *Locator) Locate(ctx context.Context, customPath string) (Result, error)
 	}
 
 	// 4. 兼容 v1：程序同级 ffmpeg/ 目录。
-	// v1 只随包带了 ffmpeg，没有 ffprobe，所以这里允许 ffprobe 退回到 PATH 里找（仍会校验）。
+	// v1 只随包带了 ffmpeg，没有 ffprobe：先退回 PATH 里找，还没有就把 ffprobe 记为缺失，
+	// ffmpeg 本身仍视为可用（见 Info.FFprobeMissing）。
 	if l.ExeDir != nil {
 		if dir, err := l.ExeDir(); err == nil {
 			ff := filepath.Join(dir, "ffmpeg", l.exeName("ffmpeg"))
@@ -271,10 +276,15 @@ func (l *Locator) customCandidates(p string) ([]Binaries, error) {
 	return out, nil
 }
 
-// probeBeside 返回 ffmpeg 同目录的 ffprobe；同目录没有且 fallbackPath 为 true 时到 PATH 里找。
+// probeBeside 返回 ffmpeg 同目录的 ffprobe。同目录没有时：fallbackPath 为 false 返回
+// 那个不存在的同目录路径（让校验报"无法运行 ffprobe"）；为 true 则到 PATH 里找，
+// PATH 里也没有就返回空串，表示 ffprobe 缺失。
 func (l *Locator) probeBeside(ffmpegPath string, fallbackPath bool) string {
 	beside := filepath.Join(filepath.Dir(ffmpegPath), l.exeName("ffprobe"))
-	if fileExists(beside) || !fallbackPath {
+	if fileExists(beside) {
+		return beside
+	}
+	if !fallbackPath {
 		return beside
 	}
 	if p, err := l.lookPath("ffprobe"); err == nil {
@@ -283,7 +293,17 @@ func (l *Locator) probeBeside(ffmpegPath string, fallbackPath bool) string {
 		}
 		return p
 	}
-	return beside
+	return ""
+}
+
+// probeOptional 判断这个候选的 ffprobe 是否允许缺失：仅 v1 兼容目录，且 ffprobe 不在
+// ffmpeg 同目录（为空，或是从 PATH 借来的）。借来的 ffprobe 不可用时同样按缺失处理，
+// 不因 PATH 里没有或有个坏的 ffprobe 就否掉 v1 自带的 ffmpeg。
+func probeOptional(source string, b Binaries) bool {
+	if source != SourceLegacy {
+		return false
+	}
+	return b.FFprobe == "" || filepath.Dir(b.FFprobe) != filepath.Dir(b.FFmpeg)
 }
 
 // Check 校验一个候选，返回 ready / outdated / missing 三种状态之一（missing 表示不可用，
@@ -305,17 +325,27 @@ func (l *Locator) Check(ctx context.Context, source string, b Binaries) (Info, s
 	}
 	info.Version, info.Major, info.Known = fv.Raw, fv.Major, fv.Known
 
-	out, err = run(ctx, b.FFprobe, "-hide_banner", "-version")
-	if err != nil {
-		return info, StateMissing, fmt.Sprintf("无法运行 ffprobe: %v", err)
-	}
-	pv, ok := ParseVersion(out)
-	if !ok {
-		return info, StateMissing, "ffprobe -version 输出无法识别"
+	probeVer := fv
+	if b.FFprobe == "" {
+		if !probeOptional(source, b) {
+			return info, StateMissing, "缺少 ffprobe"
+		}
+		info.FFprobe, info.FFprobeMissing = "", true
+	} else {
+		pv, perr := l.checkProbe(ctx, run, b.FFprobe)
+		switch {
+		case perr == nil:
+			probeVer = pv
+		case probeOptional(source, b):
+			// 借来的 ffprobe 不可用：按缺失处理，ffmpeg 仍然可用。
+			info.FFprobe, info.FFprobeMissing = "", true
+		default:
+			return info, StateMissing, perr.Error()
+		}
 	}
 
-	if !fv.Acceptable() || !pv.Acceptable() {
-		return info, StateOutdated, fmt.Sprintf("版本过低（ffmpeg %s，ffprobe %s），需要 %d 或更高", fv.Raw, pv.Raw, MinMajor)
+	if !fv.Acceptable() || !probeVer.Acceptable() {
+		return info, StateOutdated, fmt.Sprintf("版本过低（ffmpeg %s，ffprobe %s），需要 %d 或更高", fv.Raw, probeVer.Raw, MinMajor)
 	}
 
 	out, err = run(ctx, b.FFmpeg, "-hide_banner", "-encoders")
@@ -326,6 +356,19 @@ func (l *Locator) Check(ctx context.Context, source string, b Binaries) (Info, s
 		return info, StateMissing, "缺少编码器: " + strings.Join(missing, ", ")
 	}
 	return info, StateReady, ""
+}
+
+// checkProbe 运行 ffprobe -version 并解析版本。
+func (l *Locator) checkProbe(ctx context.Context, run Runner, ffprobe string) (Version, error) {
+	out, err := run(ctx, ffprobe, "-hide_banner", "-version")
+	if err != nil {
+		return Version{}, fmt.Errorf("无法运行 ffprobe: %v", err)
+	}
+	v, ok := ParseVersion(out)
+	if !ok {
+		return Version{}, errors.New("ffprobe -version 输出无法识别")
+	}
+	return v, nil
 }
 
 // missingEncoders 在 `ffmpeg -encoders` 输出里找编码器。每行格式为

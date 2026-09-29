@@ -26,12 +26,16 @@ const (
 // Error 在 missing / outdated 时为 FFMPEG_NOT_FOUND（detail 里列出每个候选失败的原因），
 // failed 时为 INTERNAL；ready / checking 时为 nil。
 type FFmpegStatus struct {
-	State   string           `json:"state"`   // checking | ready | missing | outdated | installing | failed
-	Path    string           `json:"path"`    // ffmpeg 可执行文件的绝对路径
-	Version string           `json:"version"` // 如 "6.1.1-3ubuntu5"
-	Source  string           `json:"source"`  // custom | bundled | system | legacy
-	TaskID  string           `json:"taskId"`  // installing 时对应的安装任务
-	Error   *apperr.AppError `json:"error"`
+	State   string `json:"state"`   // checking | ready | missing | outdated | installing | failed
+	Path    string `json:"path"`    // ffmpeg 可执行文件的绝对路径
+	Version string `json:"version"` // 如 "6.1.1-3ubuntu5"
+	Source  string `json:"source"`  // custom | bundled | system | legacy
+	TaskID  string `json:"taskId"`  // installing 时对应的安装任务
+	// FFprobeMissing 为 true 表示 ffmpeg 可用但没有 ffprobe（v1 的 ffmpeg/ 目录只带 ffmpeg）。
+	// state 仍是 ready，转换等只依赖 ffmpeg 的功能可用；媒体探测、缩略图需要 ffprobe，
+	// 前端据此提示"补全 ffprobe"，引导一键安装。
+	FFprobeMissing bool             `json:"ffprobeMissing"`
+	Error          *apperr.AppError `json:"error"`
 }
 
 // Emitter 向前端发事件。生产实现在 app 包（封装 Wails runtime.EventsEmit）。
@@ -147,7 +151,7 @@ func statusFromResult(res ffmpeg.Result) (FFmpegStatus, *ffmpeg.Binaries) {
 	switch res.State {
 	case ffmpeg.StateReady:
 		b := res.Info.Binaries
-		return FFmpegStatus{State: ffmpeg.StateReady, Path: b.FFmpeg, Version: res.Info.Version, Source: res.Info.Source}, &b
+		return FFmpegStatus{State: ffmpeg.StateReady, Path: b.FFmpeg, Version: res.Info.Version, Source: res.Info.Source, FFprobeMissing: res.Info.FFprobeMissing}, &b
 	case ffmpeg.StateOutdated:
 		return FFmpegStatus{
 			State: ffmpeg.StateOutdated, Path: res.Info.FFmpeg, Version: res.Info.Version, Source: res.Info.Source,
@@ -198,7 +202,7 @@ func (m *Manager) SetPath(ctx context.Context, dir string) (FFmpegStatus, error)
 		return FFmpegStatus{}, apperr.Wrap(apperr.IOError, "保存设置失败", err)
 	}
 	b := info.Binaries
-	st := FFmpegStatus{State: ffmpeg.StateReady, Path: b.FFmpeg, Version: info.Version, Source: ffmpeg.SourceCustom}
+	st := FFmpegStatus{State: ffmpeg.StateReady, Path: b.FFmpeg, Version: info.Version, Source: ffmpeg.SourceCustom, FFprobeMissing: info.FFprobeMissing}
 	m.set(ctx, st, &b)
 	return st, nil
 }

@@ -353,3 +353,32 @@ func TestBeforeStart(t *testing.T) {
 		t.Fatal("未 Start 状态应为 checking")
 	}
 }
+
+func TestLegacyWithoutFFprobeStatus(t *testing.T) {
+	f := newFixture(t)
+	// 路径含 "/good/"，让假运行器认为 ffmpeg 合格；只创建 ffmpeg，不创建 ffprobe
+	dir := filepath.Join(f.root, "good", "app")
+	f.loc.ExeDir = func() (string, error) { return dir, nil }
+	if err := os.MkdirAll(filepath.Join(dir, "ffmpeg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(dir, "ffmpeg", "ffmpeg"), []byte("x"), 0o755)
+	f.start(t)
+	waitFor(t, func() bool { return f.mgr.Status().State == ffmpeg.StateReady })
+	st := f.mgr.Status()
+	if st.Source != ffmpeg.SourceLegacy || !st.FFprobeMissing || st.Error != nil {
+		t.Fatalf("%+v", st)
+	}
+	if _, err := ffmpeg.Require(); err != nil {
+		t.Fatalf("只需 ffmpeg 的功能应放行: %v", err)
+	}
+	if _, err := ffmpeg.RequireProbe(); !apperr.Is(err, apperr.FFmpegNotFound) {
+		t.Fatalf("需要 ffprobe 的功能应被拦: %v", err)
+	}
+	raw, _ := json.Marshal(st)
+	var m map[string]any
+	json.Unmarshal(raw, &m)
+	if m["ffprobeMissing"] != true {
+		t.Fatalf("JSON 应带 ffprobeMissing: %s", raw)
+	}
+}
