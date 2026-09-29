@@ -1,6 +1,6 @@
 // 不引入测试框架的自检：在 /dev/components 页面运行，也可以用 esbuild 打包后在 node 里跑。
 import { mapPlayerError, isValidStreamUrl, isCrossOrigin, type PlayerErrorInput } from './playerError'
-import { resolveError, errorMessages } from './errorMessages'
+import { resolveError, errorMessages, resolveTaskError, taskErrorMessages } from './errorMessages'
 
 const PAGE = 'http://localhost:5173'
 const cases: Array<[string, PlayerErrorInput, string]> = [
@@ -40,6 +40,16 @@ export function runErrorChecks(): string[] {
   eq('未知码描述取 message', resolveError('INTERNAL', 'boom').description, 'boom')
   eq('未传码为 INTERNAL', resolveError(undefined).code, 'INTERNAL')
   eq('错误码数量', Object.keys(errorMessages).length, 8)
+  // 任务中心失败行文案
+  const disk = resolveTaskError('CONVERT_DISK_FULL', 'ignored')
+  eq('磁盘满标题', disk.title, '磁盘空间不足')
+  eq('磁盘满描述', disk.description, '输出位置的可用空间不够，请清理空间或换一个输出文件夹。')
+  eq('磁盘满操作', disk.actions.join(','), 'retry,changeOutput,viewLog')
+  eq('任务未知码标题', resolveTaskError('PROCESS_FAILED', 'ffmpeg 退出码 1').title, '转换失败')
+  eq('任务未知码描述取 message', resolveTaskError('PROCESS_FAILED', 'ffmpeg 退出码 1').description, 'ffmpeg 退出码 1')
+  eq('任务无码标题不是出错了', resolveTaskError(undefined).title, '转换失败')
+  eq('直播码沿用冻结文案', resolveTaskError('LIVE_PUSH_INTERRUPTED').title, '推流已中断')
+  eq('任务专属码数量', Object.keys(taskErrorMessages).length, 1)
   for (const [code, m] of Object.entries(errorMessages)) {
     if (m.description.length > 40) fails.push(`${code} 描述过长，可能超过两行`)
   }

@@ -11,7 +11,7 @@ import (
 )
 
 // SystemService 是系统相关能力的 Wails 绑定（契约第 4、9 节）。
-// 目前包含 ffmpeg 检测、设置里和 ffmpeg 相关的两项、RevealInFolder 与 PickDirectory；PickFiles、GetEnv 等后续 PR 补充。
+// 目前包含 ffmpeg 检测、设置里和 ffmpeg 相关的两项、RevealInFolder、PickDirectory 与 PickFiles；GetEnv 等后续 PR 补充。
 //
 // 检测状态机在 system.Manager 里，由 App.startup 调用 Manager.Start 在后台启动，
 // 所以这里的方法都只是转发。
@@ -78,6 +78,38 @@ func (s *SystemService) PickDirectory(title string) (string, error) {
 		return "", apperr.Wrap(apperr.Internal, "打开文件夹选择对话框失败", err)
 	}
 	return dir, nil // 取消时 Wails 返回 ""
+}
+
+// PickFiles 弹出系统"打开文件"对话框，返回所选文件的绝对路径（已 Clean）。用户取消返回空数组 []（不是错误）。
+// filter.patterns 是通配符列表，如 ["*.mp4", "*.mkv"]（也可写成 "*.mp4;*.mkv"），filter.name 是对话框里显示的名字；
+// patterns 为空表示所有文件。通配符格式不对返回 INVALID_ARGUMENT。multiple 为 false 时最多返回 1 个。
+// 应用还没启动完成时返回 INTERNAL。
+func (s *SystemService) PickFiles(filter system.FileFilter, multiple bool) ([]string, error) {
+	ctx := s.mgr.AppContext()
+	if ctx == nil {
+		return nil, apperr.New(apperr.Internal, "应用尚未初始化")
+	}
+	opts := runtime.OpenDialogOptions{Title: "选择文件"}
+	name, pattern, ok, err := filter.DialogPattern()
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		opts.Filters = []runtime.FileFilter{{DisplayName: name, Pattern: pattern}}
+	}
+	var picked []string
+	if multiple {
+		picked, err = runtime.OpenMultipleFilesDialog(ctx, opts)
+	} else {
+		var one string
+		if one, err = runtime.OpenFileDialog(ctx, opts); one != "" {
+			picked = []string{one}
+		}
+	}
+	if err != nil {
+		return nil, apperr.Wrap(apperr.Internal, "打开文件选择对话框失败", err)
+	}
+	return system.CleanPickedPaths(picked), nil // 取消时得到 []
 }
 
 // GetSettings 返回设置。目前只有 ffmpegPath 和 ffmpegPromptDismissed，其余字段后续补充。

@@ -9,6 +9,7 @@ export type AppErrorCode =
   | 'IO_ERROR'
   | 'PROCESS_FAILED'
   | 'UNSUPPORTED_PLATFORM'
+  | 'UNSUPPORTED'
   | 'INTERNAL'
 
 export class AppError extends Error {

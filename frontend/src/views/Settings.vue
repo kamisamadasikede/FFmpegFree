@@ -14,12 +14,17 @@
         </el-radio-group>
       </div>
     </section>
-    <!-- 输出目录、并发数、ffmpeg 路径、语言等在接上 SettingsService 后补充 -->
+    <section class="group">
+      <h3 class="group-title">转换</h3>
+      <OutputDirRow />
+      <!-- 同时转换数量、ffmpeg 路径 / 下载源、语言、减少动效等：后端 Settings 还没有对应字段，待补 -->
+    </section>
   </div>
 </template>
 
 <script setup lang="ts">
 import { useTheme } from '@/composables/useTheme'
+import OutputDirRow from '@/components/settings/OutputDirRow.vue'
 
 const { mode } = useTheme()
 </script>

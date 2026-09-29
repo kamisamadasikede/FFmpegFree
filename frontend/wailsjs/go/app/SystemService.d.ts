@@ -15,6 +15,8 @@ export function InstallFFmpeg(arg1:string):Promise<store.Task>;
 
 export function PickDirectory(arg1:string):Promise<string>;
 
+export function PickFiles(arg1:system.FileFilter,arg2:boolean):Promise<Array<string>>;
+
 export function RecheckFFmpeg():Promise<system.FFmpegStatus>;
 
 export function RevealInFolder(arg1:string):Promise<void>;

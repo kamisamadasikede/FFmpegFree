@@ -11,6 +11,22 @@
   --ff-warning: #d97706;
   --ff-warning-soft: #fff7e6;
   --ff-danger: #dc2626;
+  --ff-interrupted: #8f5a1e; /* 已中断状态（任务中心） */
+  /* 状态标签文字色：浅色主题下在 14% 着色底上 ≥4.5:1（success/warning/danger 本色只有 2.8~3.9） */
+  --ff-success-text: #137535;
+  --ff-warning-text: #985006;
+  --ff-danger-text: #b91c1c;
+  --ff-primary-text: #2f5cd9; /* 主色浅底（primary-soft）上的文字色，4.5:1 以上 */
+  --ff-on-primary: #ffffff; /* 主色底上的文字（主按钮等） */
+  --ff-badge-bg: #2f5cd9; /* 白字 4.44:1 不够，浅色主题角标用 primary-hover（≈5.0:1） */
+  --ff-on-danger: #ffffff; /* 危险色底上的文字（删除 / 清除按钮） */
+
+  /* JSON 语法色（工具页代码 / 树形共用），来源：设计原型 extra.css */
+  --ff-syntax-key: #2f5cd9;
+  --ff-syntax-string: #15803d;
+  --ff-syntax-number: #c2410c;
+  --ff-syntax-bool: #7c3aed;
+  --ff-syntax-null: #0e7490;
 
   --ff-bg-app: #f5f6f8;
   --ff-bg-sidebar: #eef0f3;
@@ -66,6 +82,20 @@ html.dark,
   --ff-warning: #f59e0b;
   --ff-warning-soft: #3a2a10;
   --ff-danger: #ef4444;
+  --ff-interrupted: #d9a05b;
+  --ff-success-text: #22c55e;
+  --ff-warning-text: #f59e0b;
+  --ff-danger-text: #f87171; /* #ef4444 在 14% 着色底上只有 3.75:1 */
+  --ff-primary-text: #7aa2ff;
+  --ff-on-primary: #0b0c0e; /* 白字在 #5b8cff 上只有 3.16:1 */
+  --ff-badge-bg: #5b8cff; /* 配近黑字 6.2:1 */
+  --ff-on-danger: #0b0c0e; /* 白字在 #ef4444 上只有 3.76:1 */
+
+  --ff-syntax-key: #7aa2ff;
+  --ff-syntax-string: #7ec699;
+  --ff-syntax-number: #f5a860;
+  --ff-syntax-bool: #c792ea;
+  --ff-syntax-null: #56c2d6;
 
   --ff-bg-app: #141518;
   --ff-bg-sidebar: #1a1b1f;

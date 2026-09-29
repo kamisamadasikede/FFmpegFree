@@ -1,955 +1,716 @@
 <template>
-  <div class="json-tools-container">
-    <el-tabs v-model="activeTab" type="border-card" class="json-tabs">
-      <el-tab-pane label="JSON 格式化" name="format">
-          <el-row :gutter="20">
-            <el-col :span="7">
-              <div class="panel-header">
-                <span>输入原始 JSON</span>
-                <div class="header-actions">
-                  <el-button size="small" type="danger" plain @click="clearFormatInput">清空</el-button>
-                </div>
-              </div>
-              <div class="editor-outer editor-container" ref="formatInputEditorRef"></div>
-              <div v-if="formatError" class="error-info">
-                <el-alert 
-                  :title="`JSON 语法错误: 第 ${formatErrorPos.line} 行, 第 ${formatErrorPos.column} 列`" 
-                  :description="formatError" 
-                  type="error" 
-                  :closable="false" 
-                  show-icon 
-                />
-              </div>
-            </el-col>
-            <el-col :span="17">
-              <div class="panel-header res-header">
-                <span>格式化结果</span>
-                <div class="header-actions">
-                  <el-button size="small" @click="copyFormatOutput">复制</el-button>
-                  <el-button size="small" type="primary" @click="handleFormat">格式化</el-button>
-                </div>
-              </div>
-              <div class="editor-outer">
-                <div class="editor-container" ref="formatOutputEditorRef"></div>
-              </div>
-            </el-col>
-          </el-row>
-          
-          <div class="format-options">
-            <el-checkbox v-model="compactMode">压缩单行</el-checkbox>
-            <span class="label">缩进空格:</span>
-            <el-input-number v-model="indentSize" :min="2" :max="8" :step="2" size="small" />
-            <span class="tips">自动格式化：停止输入 800ms 后自动格式化</span>
-          </div>
+  <div class="jt">
+    <!-- 工具栏：格式化 / 压缩 / 转义 / 去转义 / 复制，右侧自动格式化开关 -->
+    <div class="tb" role="toolbar" aria-label="JSON 工具栏">
+      <span class="grow" />
+      <button class="btn pri" type="button" @click="run('format')">格式化</button>
+      <button class="btn" type="button" @click="run('compact')">压缩</button>
+      <button class="btn" type="button" @click="run('escape')">转义</button>
+      <button class="btn" type="button" @click="run('unescape')">去转义</button>
+      <button class="btn" type="button" @click="copyResult"><FIcon name="doc" :size="15" />复制</button>
+      <span class="vs" />
+      <button class="af" type="button" role="switch" :aria-checked="autoFormat" @click="autoFormat = !autoFormat">
+        <span class="switch" :class="{ on: autoFormat }" />自动格式化
+      </button>
+    </div>
 
-      </el-tab-pane>
-
-      <el-tab-pane label="JSON 比对" name="compare">
-          <el-row :gutter="20">
-            <el-col :span="7">
-              <div class="panel-header">
-                <span>JSON 1 (原始)</span>
-                <div class="header-actions">
-                  <el-button size="small" type="danger" plain @click="clearCompareInput1">清空</el-button>
-                </div>
-              </div>
-              <div class="editor-outer">
-                <div class="editor-container" ref="compareInput1EditorRef"></div>
-              </div>
-              <div v-if="compareError1" class="error-info">
-                <el-alert 
-                  :title="`JSON 语法错误: 第 ${compareErrorPos1.line} 行`" 
-                  :description="compareError1" 
-                  type="error" 
-                  :closable="false" 
-                  show-icon 
-                />
-              </div>
-            </el-col>
-            <el-col :span="17">
-              <div class="panel-header">
-                <span>JSON 2 (对比)</span>
-                <div class="header-actions">
-                  <el-button size="small" type="danger" plain @click="clearCompareInput2">清空</el-button>
-                </div>
-              </div>
-              <div class="editor-outer">
-                <div class="editor-container" ref="compareInput2EditorRef"></div>
-              </div>
-              <div v-if="compareError2" class="error-info">
-                <el-alert 
-                  :title="`JSON 语法错误: 第 ${compareErrorPos2.line} 行`" 
-                  :description="compareError2" 
-                  type="error" 
-                  :closable="false" 
-                  show-icon 
-                />
-              </div>
-            </el-col>
-          </el-row>
-          
-          <div class="compare-actions">
-            <el-button type="primary" size="large" @click="handleCompare" :disabled="!canCompare">
-              比对 JSON
-            </el-button>
-          </div>
-          
-          <div v-if="compareResult" class="compare-result fade-in">
-            <el-alert
-              v-if="compareResult.identical"
-              title="✅ 两个 JSON 完全相同"
-              type="success"
-              :closable="false"
-            />
-            <div v-else-if="compareResult.differences && compareResult.differences.length > 0">
-              <el-alert
-                :title="`⚠️ 发现 ${compareResult.differences.length} 处差异`"
-                type="warning"
-                :closable="false"
-              />
-              <el-table :data="compareResult.differences" style="width: 100%; margin-top: 20px;">
-                <el-table-column prop="type" label="类型" width="100">
-                  <template #default="scope">
-                    <el-tag :type="getDiffTypeTag(scope.row.type)">
-                      {{ getDiffTypeLabel(scope.row.type) }}
-                    </el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column prop="path" label="路径" width="200" />
-                <el-table-column label="旧值" width="220">
-                  <template #default="scope">
-                    <span class="old-value">{{ scope.row.oldValue || '-' }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="新值">
-                  <template #default="scope">
-                    <span class="new-value">{{ scope.row.newValue || '-' }}</span>
-                  </template>
-                </el-table-column>
-              </el-table>
+    <div class="hrow">
+      <!-- 输入 -->
+      <section
+        class="panel"
+        aria-label="输入"
+        @dragenter.capture="onDragEnter"
+        @dragover.capture="onDragOver"
+        @dragleave.capture="onDragLeave"
+        @drop.capture="onDrop"
+      >
+        <header class="phead"><h2>输入</h2><span class="sp" /><span class="sub">粘贴或拖入 .json 文件</span></header>
+        <div class="edwrap">
+          <div ref="inputEl" class="ed" />
+          <div v-if="dragging" class="dropov" aria-hidden="true">
+            <div class="in">
+              <FIcon name="upload" :size="32" :stroke="1.6" />
+              <b>松开以载入 JSON 文件</b>
+              <small>仅支持 .json，最大 10 MB</small>
             </div>
           </div>
-      </el-tab-pane>
-    </el-tabs>
+        </div>
+        <footer class="sbar" aria-live="polite">
+          <template v-if="dropMsg">
+            <span class="bad msg"><FIcon name="warn" :size="13" />{{ dropMsg }}</span>
+          </template>
+          <template v-else-if="inputErr">
+            <button class="bad" type="button" title="跳转到出错位置" @click="gotoError">
+              <FIcon name="warn" :size="13" />第 {{ inputErr.line }} 行，第 {{ inputErr.column }} 列：{{ inputErr.message }}
+            </button>
+          </template>
+          <span v-else-if="inputText.trim()" class="ok"><FIcon name="check" :size="13" />有效 JSON</span>
+          <span v-else>未输入</span>
+          <span class="sp" />
+          <span>{{ inputLines }} 行 · {{ inputIndent }}</span>
+        </footer>
+      </section>
+
+      <!-- 结果 -->
+      <section class="panel" aria-label="结果">
+        <header class="phead">
+          <h2>结果</h2>
+          <span class="sp" />
+          <div class="seg" role="tablist" aria-label="结果视图">
+            <button
+              v-for="v in VIEWS"
+              :key="v.key"
+              type="button"
+              role="tab"
+              :aria-selected="view === v.key"
+              :class="{ on: view === v.key }"
+              @click="view = v.key"
+            >
+              {{ v.label }}
+            </button>
+          </div>
+        </header>
+        <div class="edwrap">
+          <div v-show="showCode" ref="resultEl" class="ed" />
+          <JsonTree v-if="showTree" :text="result.text" />
+          <div v-if="treeTooDeep" class="rempty">
+            <div class="ic"><FIcon name="doc" :size="20" /></div>
+            嵌套层级过深，请切换到代码视图
+          </div>
+          <div v-if="showEmpty" class="rempty">
+            <template v-if="svcError"><ErrorLine :code="svcError.code" :message="svcError.message" :show-log="false" /></template>
+            <template v-else>
+              <div class="ic"><FIcon name="doc" :size="20" /></div>
+              {{ emptyText }}
+            </template>
+          </div>
+        </div>
+        <footer class="sbar">
+          <template v-if="showEmpty || !result.text">
+            <span class="sp" /><span>UTF-8</span>
+          </template>
+          <template v-else>
+            <span v-if="result.kind === 'json'" class="ok"><FIcon name="check" :size="13" />有效 JSON</span>
+            <span v-else>{{ result.mode === 'escape' ? '已转义' : '已去转义' }}</span>
+            <span>{{ resultLines }} 行<template v-if="result.kind === 'json'"> · {{ resultIndent }}</template></span>
+            <span class="sp" /><span>UTF-8</span>
+          </template>
+        </footer>
+      </section>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, nextTick, watch, computed } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import * as monaco from 'monaco-editor'
-import { formatJson, compareJson, type JsonCompareResponse } from '@/api/json/json'
+import FIcon from '@/components/icon/FIcon.vue'
+import ErrorLine from '@/components/common/ErrorLine.vue'
+import JsonTree from '@/components/json/JsonTree.vue'
+import { formatJson } from '@/api/json/json'
+import { AppError, toAppError } from '@/api/call'
+import { applyMonacoTheme, monaco, monoFontFamily } from '@/utils/monacoJson'
+import {
+  countLines,
+  describeIndent,
+  describeSyntax,
+  escapeText,
+  localFormat,
+  localValidate,
+  unescapeText,
+  type SyntaxErr,
+} from '@/utils/jsonText'
 
-const activeTab = ref('format')
+type Mode = 'format' | 'compact' | 'escape' | 'unescape'
+const VIEWS = [
+  { key: 'code', label: '代码' },
+  { key: 'tree', label: '树形' },
+] as const
 
-// 格式化相关
-const formatInput = ref('')
-const formatError = ref('')
-const formatErrorPos = ref({ line: 1, column: 1 })
-const compactMode = ref(false)
-const indentSize = ref(4)
-let formatTimer: ReturnType<typeof setTimeout> | null = null
-let lastFormattedValue = ''
+const INDENT = 2
+const MAX_FILE = 10 * 1024 * 1024
+const DEBOUNCE_MS = 300
+const MSG_MS = 4000
 
-// 比对相关
-const compareInput1 = ref('')
-const compareInput2 = ref('')
-const compareError1 = ref('')
-const compareError2 = ref('')
-const compareErrorPos1 = ref({ line: 1, column: 1 })
-const compareErrorPos2 = ref({ line: 1, column: 1 })
-const compareResult = ref<JsonCompareResponse | null>(null)
-let compareTimer1: ReturnType<typeof setTimeout> | null = null
-let compareTimer2: ReturnType<typeof setTimeout> | null = null
-let lastCompareValue1 = ''
-let lastCompareValue2 = ''
+const autoFormat = ref(true) // 默认开启
+const view = ref<'code' | 'tree'>('code')
+const inputEl = ref<HTMLElement | null>(null)
+const resultEl = ref<HTMLElement | null>(null)
 
-// 编辑器引用
-const formatInputEditorRef = ref<HTMLElement | null>(null)
-const formatOutputEditorRef = ref<HTMLElement | null>(null)
-const compareInput1EditorRef = ref<HTMLElement | null>(null)
-const compareInput2EditorRef = ref<HTMLElement | null>(null)
+const inputText = ref('')
+const inputErr = ref<SyntaxErr | null>(null)
+const svcError = ref<AppError | null>(null)
+const result = ref<{ mode: Mode; kind: 'json' | 'text'; text: string }>({ mode: 'format', kind: 'json', text: '' })
+const dragging = ref(false)
+const dropMsg = ref('')
+const treeTooDeep = ref(false)
 
-// 编辑器实例
-let formatInputEditor: monaco.editor.IStandaloneCodeEditor | null = null
-let formatOutputEditor: monaco.editor.IStandaloneCodeEditor | null = null
-let compareInput1Editor: monaco.editor.IStandaloneCodeEditor | null = null
-let compareInput2Editor: monaco.editor.IStandaloneCodeEditor | null = null
+const inputLines = computed(() => countLines(inputText.value))
+const inputIndent = computed(() => describeIndent(inputText.value))
+const resultLines = computed(() => countLines(result.value.text))
+const resultIndent = computed(() => describeIndent(result.value.text))
 
-let compareDecorations1: string[] = []
-let compareDecorations2: string[] = []
-let isSyncingScroll = false
+// 有语法错误时，格式化 / 压缩的结果作废；转义 / 去转义不要求输入是合法 JSON
+const errorBlocksResult = computed(() => !!inputErr.value && (result.value.mode === 'format' || result.value.mode === 'compact'))
+const showEmpty = computed(() => !!svcError.value || errorBlocksResult.value || !result.value.text)
+const showCode = computed(() => !showEmpty.value && (view.value === 'code' || result.value.kind !== 'json'))
+const showTree = computed(() => !showEmpty.value && view.value === 'tree' && result.value.kind === 'json' && !treeTooDeep.value)
+const emptyText = computed(() =>
+  inputErr.value ? '修正错误后自动显示结果' : autoFormat.value ? '在左侧输入或拖入 JSON，结果会自动显示' : '点击「格式化」查看结果',
+)
 
-const createJsonEditor = (container: HTMLElement, readOnly: boolean = false, onChange?: (value: string) => void) => {
-  const editor = monaco.editor.create(container, {
-    value: '',
-    language: 'json',
-    theme: 'vs',
-    readOnly: readOnly,
-    automaticLayout: true,
-    tabSize: indentSize.value,
-    insertSpaces: true,
-    detectIndentation: false,
-    fontSize: 14,
-    fontFamily: "'Cascadia Code', 'Consolas', 'Monaco', monospace",
-    fixedOverflowWidgets: true,
-    renderLineHighlight: 'line',
-    folding: true,
-    lineNumbers: 'on',
-    minimap: { enabled: false },
-    scrollBeyondLastLine: false,
-    bracketPairColorization: { enabled: true },
-    guides: {
-      indentation: true,
-      bracketPairs: true,
-      highlightActiveIndentation: true
-    },
-    scrollbar: {
-      verticalScrollbarSize: 8,
-      horizontalScrollbarSize: 8
-    }
-  })
-  
-  if (onChange) {
-    editor.onDidChangeModelContent(() => {
-      onChange(editor.getValue())
-    })
-  }
-  
-  return editor
+// ---------- Monaco ----------
+let inputEditor: monaco.editor.IStandaloneCodeEditor | null = null
+let resultEditor: monaco.editor.IStandaloneCodeEditor | null = null
+let errDecos: monaco.editor.IEditorDecorationsCollection | null = null
+let themeObserver: MutationObserver | null = null
+
+const baseOptions = (): monaco.editor.IStandaloneEditorConstructionOptions => ({
+  language: 'json',
+  automaticLayout: true,
+  fontSize: 13,
+  lineHeight: 24,
+  fontFamily: monoFontFamily(),
+  minimap: { enabled: false },
+  scrollBeyondLastLine: false,
+  renderLineHighlight: 'none',
+  overviewRulerLanes: 0,
+  overviewRulerBorder: false,
+  hideCursorInOverviewRuler: true,
+  lineNumbersMinChars: 3,
+  lineDecorationsWidth: 8,
+  padding: { top: 8, bottom: 8 },
+  tabSize: INDENT,
+  insertSpaces: true,
+  detectIndentation: false,
+  quickSuggestions: false,
+  suggestOnTriggerCharacters: false,
+  contextmenu: true,
+  scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8 },
+  folding: false,
+  guides: { indentation: true, bracketPairs: false },
+})
+
+let timer: ReturnType<typeof setTimeout> | null = null
+let seq = 0
+
+function scheduleCheck(immediate = false) {
+  if (timer) clearTimeout(timer)
+  timer = setTimeout(() => void check(), immediate ? 0 : DEBOUNCE_MS)
 }
 
-// 验证 JSON 并标记错误
-const validateAndMarkErrors = (editor: monaco.editor.IStandaloneCodeEditor | null, errorRef: any, errorPosRef: any) => {
-  if (!editor) return
-  
-  const value = editor.getValue()
-  const model = editor.getModel()
-  if (!model) return
-  
-  // 清除之前的标记
-  monaco.editor.setModelMarkers(model, 'json-validator', [])
-  
-  if (!value.trim()) {
-    errorRef.value = ''
-    errorPosRef.value = { line: 1, column: 1 }
+const hasBinding = () => !!(window as unknown as { go?: { app?: { JsonService?: unknown } } }).go?.app?.JsonService
+
+interface FormatOut {
+  formatted: string
+  error: string
+  errorPos: { line: number; column: number }
+}
+/** 优先走 Wails 的 JsonService；浏览器里没有绑定时退回本地实现（仅开发预览用）。 */
+async function svcFormat(json: string, compact: boolean): Promise<FormatOut> {
+  if (!hasBinding()) return localFormat(json, compact, INDENT)
+  return formatJson({ json, indent: INDENT, compact })
+}
+
+/** 输入变化后：校验语法，自动格式化开启时同时更新结果。 */
+async function check() {
+  const my = ++seq
+  const text = inputEditor?.getValue() ?? ''
+  inputText.value = text
+  svcError.value = null
+  if (!text.trim()) {
+    inputErr.value = null
+    result.value = { mode: 'format', kind: 'json', text: '' }
     return
   }
-  
   try {
-    JSON.parse(value)
-    errorRef.value = ''
-    errorPosRef.value = { line: 1, column: 1 }
-  } catch (e: any) {
-    errorRef.value = e.message
-    const pos = parseErrorPosition(value, e.message)
-    errorPosRef.value = pos
-    
-    // 添加错误标记 - 红色波浪线
-    const match = e.message.match(/position (\d+)/i) || e.message.match(/offset (\d+)/i)
-    let startLine = 1
-    let startColumn = 1
-    
-    if (match) {
-      const offset = parseInt(match[1])
-      const pos = calculateLineColumn(value, offset)
-      startLine = pos.line
-      startColumn = pos.column
+    // 自动格式化关闭时也要校验，所以总是调用 Format；只是关闭时不采用它的格式化结果
+    const r = await svcFormat(text, false)
+    if (my !== seq) return
+    if (r.error) {
+      inputErr.value = { line: r.errorPos.line, column: r.errorPos.column, message: describeSyntax(r.error) }
+      return
     }
-    
-    // 找到该行的结束位置
-    const lineContent = model.getLineContent(startLine)
-    const endColumn = lineContent.length + 1
-    
-    monaco.editor.setModelMarkers(model, 'json-validator', [{
-      startLineNumber: startLine,
-      startColumn: startColumn,
-      endLineNumber: startLine,
-      endColumn: endColumn,
-      message: e.message,
-      severity: monaco.MarkerSeverity.Error
-    }])
+    inputErr.value = null
+    if (autoFormat.value) setResult('format', r.formatted)
+  } catch (e) {
+    if (my !== seq) return
+    inputErr.value = null
+    svcError.value = toAppError(e)
   }
 }
 
-const parseErrorPosition = (jsonStr: string, errMsg: string): { line: number; column: number } => {
-  const lineColMatch = errMsg.match(/line (\d+) column (\d+)/i)
-  if (lineColMatch) {
-    return {
-      line: parseInt(lineColMatch[1]),
-      column: parseInt(lineColMatch[2])
-    }
-  }
-  
-  const posMatch = errMsg.match(/position (\d+)/i)
-  if (posMatch) {
-    const pos = parseInt(posMatch[1])
-    return calculateLineColumn(jsonStr, pos)
-  }
-  
-  const offsetMatch = errMsg.match(/offset (\d+)/i)
-  if (offsetMatch) {
-    const offset = parseInt(offsetMatch[1])
-    return calculateLineColumn(jsonStr, offset)
-  }
-  
-  return { line: 1, column: 1 }
+function setResult(mode: Mode, text: string) {
+  const kind = mode === 'escape' ? 'text' : mode === 'unescape' ? (localValidate(text) ? 'text' : 'json') : 'json'
+  result.value = { mode, kind, text }
 }
 
-const calculateLineColumn = (str: string, offset: number): { line: number; column: number } => {
-  if (offset > str.length) offset = str.length
-  
-  let line = 1
-  let column = 1
-  
-  for (let i = 0; i < offset; i++) {
-    if (str[i] === '\n') {
-      line++
-      column = 1
-    } else {
-      column++
-    }
-  }
-  
-  return { line, column }
-}
-
-// 监听缩进变化
-watch(indentSize, (val) => {
-  const editors = [formatInputEditor, formatOutputEditor, compareInput1Editor, compareInput2Editor]
-  editors.forEach(editor => {
-    editor?.getModel()?.updateOptions({ tabSize: val })
-  })
-})
-
-watch([compactMode, indentSize], () => {
-  if (formatInput.value.trim() && !formatError.value) {
-    triggerAutoFormat(formatInput.value)
-  }
-})
-
-watch([compareInput1, compareInput2], () => {
-  compareResult.value = null
-})
-
-onMounted(async () => {
-  await nextTick()
-  
-  if (formatInputEditorRef.value) {
-    formatInputEditor = createJsonEditor(formatInputEditorRef.value, false, (value) => {
-      formatInput.value = value
-      validateAndMarkErrors(formatInputEditor, formatError, formatErrorPos)
-      triggerAutoFormat(value)
-    })
-  }
-  
-  if (formatOutputEditorRef.value) {
-    formatOutputEditor = createJsonEditor(formatOutputEditorRef.value, true)
-  }
-  
-  if (compareInput1EditorRef.value) {
-    compareInput1Editor = createJsonEditor(compareInput1EditorRef.value, false, (value) => {
-      compareInput1.value = value
-      validateAndMarkErrors(compareInput1Editor, compareError1, compareErrorPos1)
-      triggerCompareAutoFormat(compareInput1Editor, value, true)
-    })
-  }
-  
-  if (compareInput2EditorRef.value) {
-    compareInput2Editor = createJsonEditor(compareInput2EditorRef.value, false, (value) => {
-      compareInput2.value = value
-      validateAndMarkErrors(compareInput2Editor, compareError2, compareErrorPos2)
-      triggerCompareAutoFormat(compareInput2Editor, value, false)
-    })
-  }
-  
-  if (compareInput1Editor && compareInput2Editor) {
-    compareInput1Editor.onDidScrollChange((e) => {
-      if (!isSyncingScroll && e.scrollTopChanged) {
-        isSyncingScroll = true
-        compareInput2Editor?.setScrollTop(e.scrollTop)
-        compareInput2Editor?.setScrollLeft(e.scrollLeft)
-        setTimeout(() => { isSyncingScroll = false }, 50)
-      }
-    })
-    compareInput2Editor.onDidScrollChange((e) => {
-      if (!isSyncingScroll && e.scrollTopChanged) {
-        isSyncingScroll = true
-        compareInput1Editor?.setScrollTop(e.scrollTop)
-        compareInput1Editor?.setScrollLeft(e.scrollLeft)
-        setTimeout(() => { isSyncingScroll = false }, 50)
-      }
-    })
-  }
-})
-
-const canCompare = computed(() => {
-  return compareInput1.value.trim() !== '' && 
-         compareInput2.value.trim() !== '' && 
-         !compareError1.value && 
-         !compareError2.value
-})
-
-const doFormat = async (isAuto: boolean = false) => {
-  if (!formatInput.value.trim()) {
-    if (isAuto) return
-    ElMessage.warning('请输入 JSON 字符串')
+async function run(mode: Mode) {
+  const text = inputEditor?.getValue() ?? ''
+  svcError.value = null
+  if (!text.trim()) {
+    inputText.value = text
     return
   }
-  
-  // 先验证
-  if (formatError.value) {
-    if (isAuto) return
-    ElMessage.error('JSON 格式有误，请先修正错误')
-    return
-  }
-  
-  try {
-    const result = await formatJson({
-      json: formatInput.value,
-      indent: indentSize.value,
-      compact: compactMode.value
-    })
-    if (result.error) {
-      formatError.value = result.error
-      formatErrorPos.value = result.errorPos
-      if (!isAuto) ElMessage.error('JSON 格式有误')
-    } else {
-      formatError.value = ''
-      if (formatOutputEditor?.getValue() !== result.formatted) {
-        formatOutputEditor?.setValue(result.formatted)
-      }
-      setTimeout(() => {
-        formatOutputEditor?.getAction('editor.unfoldAll')?.run()
-      }, 50)
-      if (!isAuto) ElMessage.success('格式化成功')
-    }
-  } catch (err: any) {
-    if (!isAuto) ElMessage.error('格式化失败: ' + (err?.message || '未知错误'))
-  }
-}
-
-const handleFormat = () => {
-  doFormat(false)
-}
-
-const triggerAutoFormat = (currentValue: string) => {
-  if (currentValue === lastFormattedValue) {
-    return
-  }
-  if (formatTimer) {
-    clearTimeout(formatTimer)
-  }
-  formatTimer = setTimeout(() => {
-    doFormat(true)
-    lastFormattedValue = formatOutputEditor?.getValue() || ''
-  }, 800)
-}
-
-const triggerCompareAutoFormat = (editor: monaco.editor.IStandaloneCodeEditor | null, value: string, isFirst: boolean) => {
-  const lastValue = isFirst ? lastCompareValue1 : lastCompareValue2
-  const setLastValue = (v: string) => {
-    if (isFirst) lastCompareValue1 = v
-    else lastCompareValue2 = v
-  }
-  
-  if (value === lastValue) {
-    return
-  }
-  
-  const timer = isFirst ? compareTimer1 : compareTimer2
-  const setTimer = (t: ReturnType<typeof setTimeout> | null) => {
-    if (isFirst) compareTimer1 = t
-    else compareTimer2 = t
-  }
-  
-  if (timer) {
-    clearTimeout(timer)
-  }
-  
-  const newTimer = setTimeout(() => {
-    if (!value.trim() || !editor) return
-    if (isFirst ? compareError1.value : compareError2.value) return
-    
+  treeTooDeep.value = false
+  if (mode === 'escape') return setResult(mode, escapeText(text))
+  if (mode === 'unescape') {
     try {
-      const obj = JSON.parse(value)
-      editor.setValue(JSON.stringify(obj, null, indentSize.value))
-      setLastValue(editor.getValue())
-      compareResult.value = null
-      setTimeout(() => {
-        editor.getAction('editor.unfoldAll')?.run()
-      }, 50)
+      return setResult(mode, unescapeText(text))
     } catch (e) {
-      // 格式错误时不自动格式化
+      svcError.value = new AppError('INVALID_ARGUMENT', (e as Error).message)
+      return
     }
-  }, 800)
-  
-  setTimer(newTimer)
-}
-
-const handleCompare = async () => {
-  if (!canCompare.value) {
-    ElMessage.warning('请确保两个 JSON 都没有语法错误')
-    return
   }
-  
+  const my = ++seq
   try {
-    const result = await compareJson({
-      json1: compareInput1.value,
-      json2: compareInput2.value
-    })
-    compareResult.value = result
-    clearCompareDecorations()
-    if (result.error) {
-      ElMessage.error(result.error)
-    } else if (result.identical) {
-      ElMessage.success('两个 JSON 完全相同')
-    } else {
-      const diffs = result.differences ?? []
-      highlightDifferences(diffs)
-      ElMessage.warning(`发现 ${diffs.length} 处差异`)
+    const r = await svcFormat(text, mode === 'compact')
+    if (my !== seq) return
+    inputText.value = text
+    if (r.error) {
+      inputErr.value = { line: r.errorPos.line, column: r.errorPos.column, message: describeSyntax(r.error) }
+      result.value = { mode, kind: 'json', text: '' } // 结果区显示「修正错误后自动显示结果」
+      return
     }
-  } catch (error: any) {
-    ElMessage.error('比对失败: ' + (error.message || '未知错误'))
+    inputErr.value = null
+    setResult(mode, r.formatted)
+  } catch (e) {
+    if (my !== seq) return
+    svcError.value = toAppError(e)
   }
 }
 
-const clearCompareDecorations = () => {
-  if (compareInput1Editor) {
-    compareDecorations1 = compareInput1Editor.deltaDecorations(compareDecorations1, [])
+// 错误标记：红色波浪线 + 槽位红点 + 整行淡红底
+function paintError(err: SyntaxErr | null) {
+  if (!inputEditor || !errDecos) return
+  const model = inputEditor.getModel()
+  if (!err || !model) return errDecos.clear()
+  const line = Math.min(Math.max(1, err.line), model.getLineCount())
+  const max = model.getLineMaxColumn(line)
+  const start = Math.min(Math.max(1, err.column), Math.max(1, max - 1))
+  const trailing = model.getLineContent(line).match(/\s*$/)?.[0].length ?? 0
+  const end = Math.max(start + 1, max - trailing)
+  errDecos.set([
+    { range: new monaco.Range(line, 1, line, 1), options: { isWholeLine: true, className: 'ff-json-errline', glyphMarginClassName: 'ff-json-dot' } },
+    { range: new monaco.Range(line, start, line, end), options: { inlineClassName: 'ff-json-squiggle' } },
+  ])
+}
+watch(inputErr, paintError)
+
+function gotoError() {
+  const e = inputErr.value
+  if (!e || !inputEditor) return
+  const model = inputEditor.getModel()!
+  const line = Math.min(Math.max(1, e.line), model.getLineCount())
+  const col = Math.min(Math.max(1, e.column), model.getLineMaxColumn(line))
+  inputEditor.setPosition({ lineNumber: line, column: col })
+  inputEditor.revealPositionInCenter({ lineNumber: line, column: col })
+  inputEditor.focus()
+}
+
+// 结果编辑器随结果文本 / 类型更新
+watch(
+  () => [result.value.text, result.value.kind] as const,
+  ([text, kind]) => {
+    const model = resultEditor?.getModel()
+    if (!resultEditor || !model) return
+    monaco.editor.setModelLanguage(model, kind === 'json' ? 'json' : 'plaintext')
+    if (resultEditor.getValue() !== text) resultEditor.setValue(text)
+  },
+)
+watch(showCode, (v) => v && nextTick(() => resultEditor?.layout()))
+
+// 自动格式化：打开时立刻按当前输入格式化一次
+watch(autoFormat, (on) => on && scheduleCheck(true))
+
+// ---------- 复制 ----------
+async function copyResult() {
+  const text = result.value.text
+  if (!text || showEmpty.value) return void ElMessage.warning('暂无可复制内容')
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    ta.remove()
   }
-  if (compareInput2Editor) {
-    compareDecorations2 = compareInput2Editor.deltaDecorations(compareDecorations2, [])
+  ElMessage.success('已复制')
+}
+
+// ---------- 拖入 .json ----------
+let dragDepth = 0
+const hasFiles = (e: DragEvent) => !!e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')
+function onDragEnter(e: DragEvent) {
+  if (!hasFiles(e)) return
+  e.preventDefault()
+  dragDepth++
+  dragging.value = true
+}
+function onDragOver(e: DragEvent) {
+  if (!hasFiles(e)) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+}
+function onDragLeave(e: DragEvent) {
+  if (!hasFiles(e)) return
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (dragDepth === 0) dragging.value = false
+}
+
+let msgTimer: ReturnType<typeof setTimeout> | null = null
+/** 状态栏左侧的红字提示，4 秒后自动消失，新提示会替换旧的并重置计时。 */
+function flashMsg(text: string) {
+  if (msgTimer) clearTimeout(msgTimer)
+  dropMsg.value = text
+  msgTimer = setTimeout(() => {
+    dropMsg.value = ''
+    msgTimer = null
+  }, MSG_MS)
+}
+
+async function onDrop(e: DragEvent) {
+  if (!hasFiles(e)) return
+  e.preventDefault()
+  e.stopPropagation()
+  dragDepth = 0
+  dragging.value = false
+  const file = e.dataTransfer?.files?.[0]
+  if (!file) return
+  if (!/\.json$/i.test(file.name)) return flashMsg('只能载入 .json 文件')
+  if (file.size > MAX_FILE) return flashMsg('文件超过 10 MB')
+  try {
+    const text = (await file.text()).replace(/^\uFEFF/, '')
+    inputEditor?.setValue(text)
+    inputEditor?.setPosition({ lineNumber: 1, column: 1 })
+    scheduleCheck(true)
+  } catch {
+    flashMsg('读取文件失败')
   }
 }
 
-const highlightDifferences = (differences: any[]) => {
-  const decorations1: any[] = []
-  const decorations2: any[] = []
-  
-  differences.forEach(diff => {
-    const pos = findJsonValuePosition(diff.path, diff.oldValue, diff.newValue, diff.type)
-    if (pos) {
-      if (diff.type === 'removed') {
-        decorations1.push({
-          range: new monaco.Range(pos.oldLine, pos.oldStartCol, pos.oldLine, pos.oldEndCol),
-          options: {
-            isWholeLine: false,
-            className: 'diff-highlight-removed',
-            hoverMessage: { value: `删除: ${diff.oldValue}` }
-          }
-        })
-      } else if (diff.type === 'added') {
-        decorations2.push({
-          range: new monaco.Range(pos.newLine, pos.newStartCol, pos.newLine, pos.newEndCol),
-          options: {
-            isWholeLine: false,
-            className: 'diff-highlight-added',
-            hoverMessage: { value: `新增: ${diff.newValue}` }
-          }
-        })
-      } else if (diff.type === 'modified') {
-        decorations1.push({
-          range: new monaco.Range(pos.oldLine, pos.oldStartCol, pos.oldLine, pos.oldEndCol),
-          options: {
-            isWholeLine: false,
-            className: 'diff-highlight-removed',
-            hoverMessage: { value: `旧值: ${diff.oldValue}` }
-          }
-        })
-        decorations2.push({
-          range: new monaco.Range(pos.newLine, pos.newStartCol, pos.newLine, pos.newEndCol),
-          options: {
-            isWholeLine: false,
-            className: 'diff-highlight-added',
-            hoverMessage: { value: `新值: ${diff.newValue}` }
-          }
-        })
-      }
-    }
+// ---------- 生命周期 ----------
+onMounted(() => {
+  applyMonacoTheme()
+  inputEditor = monaco.editor.create(inputEl.value!, { ...baseOptions(), value: '', glyphMargin: true, wordWrap: 'on' })
+  resultEditor = monaco.editor.create(resultEl.value!, { ...baseOptions(), value: '', readOnly: true, domReadOnly: true, glyphMargin: false })
+  errDecos = inputEditor.createDecorationsCollection()
+  inputEditor.onDidChangeModelContent(() => scheduleCheck())
+  // 主题跟随 html.dark 实时切换
+  themeObserver = new MutationObserver(() => applyMonacoTheme())
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+  // 深度嵌套等极端情况树解析失败时给出提示
+  watch([showTree, () => result.value.text], async () => {
+    if (view.value !== 'tree' || result.value.kind !== 'json' || !result.value.text) return void (treeTooDeep.value = false)
+    const { parseTree } = await import('@/utils/jsonTree')
+    treeTooDeep.value = parseTree(result.value.text) === null
   })
-  
-  if (compareInput1Editor && decorations1.length > 0) {
-    compareDecorations1 = compareInput1Editor.deltaDecorations([], decorations1)
-  }
-  if (compareInput2Editor && decorations2.length > 0) {
-    compareDecorations2 = compareInput2Editor.deltaDecorations([], decorations2)
-  }
-}
-
-const findJsonValuePosition = (
-  path: string, 
-  oldValue: string, 
-  newValue: string, 
-  diffType: string
-): { oldLine: number, oldStartCol: number, oldEndCol: number, newLine: number, newStartCol: number, newEndCol: number } | null => {
-  const model1 = compareInput1Editor?.getModel()
-  const model2 = compareInput2Editor?.getModel()
-  
-  const content1 = model1?.getValue() || ''
-  const content2 = model2?.getValue() || ''
-  
-  const keys = path.split('.').filter(k => k && !k.match(/^\d+$/))
-  
-  if (keys.length === 0) {
-    const simplePos1 = findValueInLine(content1, oldValue)
-    const simplePos2 = findValueInLine(content2, newValue)
-    return {
-      oldLine: simplePos1?.line || 1,
-      oldStartCol: simplePos1?.startCol || 1,
-      oldEndCol: simplePos1?.endCol || 10,
-      newLine: simplePos2?.line || 1,
-      newStartCol: simplePos2?.startCol || 1,
-      newEndCol: simplePos2?.endCol || 10
-    }
-  }
-  
-  const searchKey = keys[keys.length - 1]
-  
-  const pos1 = findKeyValuePosition(content1, searchKey, oldValue)
-  const pos2 = findKeyValuePosition(content2, searchKey, newValue)
-  
-  return {
-    oldLine: pos1?.line || 1,
-    oldStartCol: pos1?.startCol || 1,
-    oldEndCol: pos1?.endCol || 10,
-    newLine: pos2?.line || 1,
-    newStartCol: pos2?.startCol || 1,
-    newEndCol: pos2?.endCol || 10
-  }
-}
-
-const findKeyValuePosition = (content: string, key: string, value: string): { line: number, startCol: number, endCol: number } | null => {
-  const lines = content.split('\n')
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    const keyIndex = line.indexOf(`"${key}"`)
-    if (keyIndex !== -1) {
-      const valueInfo = extractValueRange(line, keyIndex + key.length + 2)
-      if (valueInfo) {
-        return {
-          line: i + 1,
-          startCol: keyIndex + 1,
-          endCol: keyIndex + key.length + 2 + valueInfo.length
-        }
-      }
-    }
-  }
-  
-  return findValueInLine(content, value)
-}
-
-const findValueInLine = (content: string, value: string): { line: number, startCol: number, endCol: number } | null => {
-  if (!value) return null
-  
-  const lines = content.split('\n')
-  const searchValue = value.length > 50 ? value.substring(0, 50) : value
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    const valueIndex = line.indexOf(searchValue)
-    if (valueIndex !== -1) {
-      return {
-        line: i + 1,
-        startCol: valueIndex + 1,
-        endCol: valueIndex + value.length + 1
-      }
-    }
-  }
-  
-  return null
-}
-
-const extractValueRange = (line: string, afterKeyPos: number): { value: string, length: number } | null => {
-  const rest = line.substring(afterKeyPos).trim()
-  if (!rest) return null
-  
-  if (rest.startsWith(':')) {
-    const afterColon = rest.substring(1).trim()
-    
-    if (afterColon.startsWith('"')) {
-      const endQuote = findEndQuote(afterColon.substring(1))
-      if (endQuote >= 0) {
-        return { value: afterColon.substring(0, endQuote + 2), length: afterColon.substring(0, endQuote + 2).length + 1 }
-      }
-    } else if (afterColon.startsWith('{') || afterColon.startsWith('[')) {
-      const endBracket = findMatchingBracket(afterColon)
-      if (endBracket > 0) {
-        return { value: afterColon.substring(0, endBracket + 1), length: endBracket + 1 }
-      }
-    } else {
-      const numMatch = afterColon.match(/^[\d.eE+-]+/)
-      if (numMatch) {
-        return { value: numMatch[0], length: numMatch[0].length }
-      }
-      const boolMatch = afterColon.match(/^(true|false|null)/)
-      if (boolMatch) {
-        return { value: boolMatch[0], length: boolMatch[0].length }
-      }
-    }
-  }
-  
-  return null
-}
-
-const findEndQuote = (str: string): number => {
-  for (let i = 0; i < str.length; i++) {
-    if (str[i] === '"' && (i === 0 || str[i - 1] !== '\\')) {
-      return i
-    }
-  }
-  return -1
-}
-
-const findMatchingBracket = (str: string): number => {
-  let count = 0
-  for (let i = 0; i < str.length; i++) {
-    if (str[i] === '{' || str[i] === '[') count++
-    else if (str[i] === '}' || str[i] === ']') {
-      count--
-      if (count === 0) return i
-    }
-  }
-  return -1
-}
-
-const clearFormatInput = () => {
-  formatInputEditor?.setValue('')
-  formatOutputEditor?.setValue('')
-  formatError.value = ''
-  formatErrorPos.value = { line: 1, column: 1 }
-  
-  const model = formatInputEditor?.getModel()
-  if (model) {
-    monaco.editor.setModelMarkers(model, 'json-validator', [])
-  }
-}
-
-const clearCompareInput1 = () => {
-  compareInput1Editor?.setValue('')
-  compareError1.value = ''
-  compareErrorPos1.value = { line: 1, column: 1 }
-  compareResult.value = null
-  
-  const model = compareInput1Editor?.getModel()
-  if (model) {
-    monaco.editor.setModelMarkers(model, 'json-validator', [])
-  }
-}
-
-const clearCompareInput2 = () => {
-  compareInput2Editor?.setValue('')
-  compareError2.value = ''
-  compareErrorPos2.value = { line: 1, column: 1 }
-  compareResult.value = null
-  
-  const model = compareInput2Editor?.getModel()
-  if (model) {
-    monaco.editor.setModelMarkers(model, 'json-validator', [])
-  }
-}
-
-const copyFormatOutput = () => {
-  const val = formatOutputEditor?.getValue()
-  if (val) {
-    navigator.clipboard.writeText(val)
-    ElMessage.success('复制成功')
-  } else {
-    ElMessage.warning('暂无可复制内容')
-  }
-}
-
-const getDiffTypeTag = (type: string): string => {
-  switch (type) {
-    case 'added': return 'success'
-    case 'removed': return 'danger'
-    case 'modified': return 'warning'
-    default: return 'info'
-  }
-}
-
-const getDiffTypeLabel = (type: string): string => {
-  switch (type) {
-    case 'added': return '新增'
-    case 'removed': return '删除'
-    case 'modified': return '修改'
-    default: return type
-  }
-}
+})
 
 onBeforeUnmount(() => {
-  if (formatTimer) {
-    clearTimeout(formatTimer)
-  }
-  if (compareTimer1) {
-    clearTimeout(compareTimer1)
-  }
-  if (compareTimer2) {
-    clearTimeout(compareTimer2)
-  }
-  formatInputEditor?.dispose()
-  formatOutputEditor?.dispose()
-  compareInput1Editor?.dispose()
-  compareInput2Editor?.dispose()
+  if (timer) clearTimeout(timer)
+  if (msgTimer) clearTimeout(msgTimer)
+  themeObserver?.disconnect()
+  inputEditor?.dispose()
+  resultEditor?.dispose()
 })
 </script>
 
 <style scoped>
-.json-tools-container {
+.jt {
+  height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  gap: var(--ff-space-4);
 }
-
-.json-tabs {
+.tb {
+  display: flex;
+  align-items: center;
+  gap: var(--ff-space-2);
+  flex: none;
+}
+.grow {
   flex: 1;
 }
-
-.format-section,
-.compare-section {
-  background: var(--surface);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--panel-radius);
-  padding: 12px;
-  box-shadow: var(--shadow-2);
-  animation: fadeIn 0.25s ease;
+.vs {
+  width: 1px;
+  height: 16px;
+  background: var(--ff-border);
+  margin: 0 var(--ff-space-1);
+}
+.btn {
+  height: 28px;
+  padding: 0 var(--ff-space-3);
+  border-radius: var(--ff-radius-md);
+  border: 1px solid var(--ff-border);
+  background: var(--ff-bg-surface);
+  color: var(--ff-text-1);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: var(--ff-fs-sm);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--ff-dur-fast) var(--ff-ease);
+}
+.btn:hover {
+  background: var(--ff-bg-hover);
+}
+.btn.pri {
+  background: var(--ff-primary);
+  border-color: var(--ff-primary);
+  color: var(--ff-on-primary);
+}
+.btn.pri:hover {
+  background: var(--ff-primary-hover);
+}
+.btn:focus-visible,
+.af:focus-visible,
+.seg button:focus-visible,
+.bad:focus-visible {
+  outline: 2px solid var(--ff-primary);
+  outline-offset: 1px;
+}
+.af {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ff-space-2);
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--ff-fs-sm);
+  color: var(--ff-text-2);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.switch {
+  width: 28px;
+  height: 16px;
+  border-radius: 8px;
+  background: var(--ff-border);
+  position: relative;
+  flex: none;
+  transition: background var(--ff-dur-fast) var(--ff-ease);
+}
+.switch::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--ff-on-primary);
+  transition: transform var(--ff-dur-fast) var(--ff-ease);
+}
+.switch.on {
+  background: var(--ff-primary);
+}
+.switch.on::after {
+  transform: translateX(12px);
 }
 
-.editor-outer {
-  width: 100%;
-  border: 1px solid var(--border-soft);
-  border-radius: 0 0 14px 14px;
+/* 两个面板等宽 */
+.hrow {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: var(--ff-space-4);
+}
+.panel {
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
+  background: var(--ff-bg-surface);
+  border: 1px solid var(--ff-border);
+  border-radius: var(--ff-radius-lg);
+}
+.phead {
+  display: flex;
+  align-items: center;
+  gap: var(--ff-space-2);
+  height: 48px;
+  flex: none;
+  padding: 0 var(--ff-space-4);
+  border-bottom: 1px solid var(--ff-border);
+}
+.phead h2 {
+  margin: 0;
+  font-size: var(--ff-fs-md);
+  font-weight: 600;
+}
+.sp {
+  flex: 1;
+}
+.sub {
+  color: var(--ff-text-3);
+  font-size: var(--ff-fs-xs);
+}
+.seg {
+  display: flex;
+  width: 120px;
+  background: var(--ff-bg-hover);
+  border-radius: var(--ff-radius-md);
+  padding: 2px;
+}
+.seg button {
+  flex: 1;
+  height: 24px;
+  border: 0;
+  border-radius: var(--ff-radius-sm);
+  background: none;
+  font: inherit;
+  font-size: var(--ff-fs-xs);
+  color: var(--ff-text-2);
+  cursor: pointer;
+}
+.seg button.on {
+  background: var(--ff-bg-surface);
+  color: var(--ff-text-1);
+  font-weight: 500;
+  box-shadow: var(--ff-shadow-1);
+}
+
+.edwrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--ff-bg-surface);
+}
+.ed {
+  flex: 1;
+  min-height: 0;
   text-align: left;
-  background: #fff;
 }
 
-.editor-container {
-  width: 100%;
-  height: min(62vh, 680px);
-  background: #fff;
-}
-
-.panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 15px;
-  background: var(--surface-muted);
-  color: var(--text-primary);
-  font-weight: bold;
-  border-radius: 14px 14px 0 0;
-  border: 1px solid var(--border-soft);
-  border-bottom: none;
-}
-
-.res-header {
-  background: rgba(37, 99, 235, 0.08);
-}
-
-.format-options {
-  margin-top: 14px;
-  padding: 12px;
-  background: var(--surface);
-  border-radius: 14px;
+.sbar {
+  height: 28px;
+  flex: none;
+  border-top: 1px solid var(--ff-border);
   display: flex;
   align-items: center;
-  gap: 15px;
-  border: 1px solid var(--border-soft);
-  box-shadow: var(--shadow-2);
+  gap: 14px;
+  padding: 0 var(--ff-space-3);
+  font-size: var(--ff-fs-xs);
+  color: var(--ff-text-3);
+  white-space: nowrap;
+  overflow: hidden;
 }
-
-.label {
-  font-size: 14px;
-  color: var(--text-muted);
-}
-
-.tips {
-  font-size: 12px;
-  color: var(--text-soft);
-  margin-left: auto;
-}
-
-.error-info {
-  margin-top: 10px;
-}
-
-.compare-actions {
+.ok {
+  color: var(--ff-success);
   display: flex;
+  align-items: center;
+  gap: var(--ff-space-1);
+}
+.bad {
+  color: var(--ff-danger);
+  display: flex;
+  align-items: center;
+  gap: var(--ff-space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bad.msg {
+  text-decoration: none;
+  cursor: default;
+}
+
+.rempty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
-  margin-top: 18px;
+  gap: var(--ff-space-3);
+  padding: 0 var(--ff-space-6);
+  color: var(--ff-text-2);
+  font-size: var(--ff-fs-sm);
+  background: var(--ff-bg-surface);
+}
+.rempty .ic {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--ff-bg-hover);
+  color: var(--ff-text-3);
+  display: grid;
+  place-items: center;
 }
 
-.compare-actions :deep(.el-button--primary) {
-  padding: 15px 40px;
-  font-size: 16px;
+/* 拖入文件：只盖住输入面板的编辑区，不拦截鼠标事件 */
+.dropov {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: color-mix(in srgb, var(--ff-primary) 8%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.dropov::before {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border: 2px dashed var(--ff-primary);
+  border-radius: var(--ff-radius-md);
+}
+.dropov .in {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ff-space-2);
+  color: var(--ff-primary);
+}
+.dropov b {
+  font-size: var(--ff-fs-lg);
+  font-weight: 600;
+  line-height: 24px;
+}
+.dropov small {
+  font-size: var(--ff-fs-xs);
+  line-height: 16px;
+  color: var(--ff-text-3);
 }
 
-.compare-result {
-  margin-top: 20px;
+/* Monaco 内部节点由 Monaco 创建，需要 :deep */
+.ed :deep(.ff-json-errline) {
+  background: color-mix(in srgb, var(--ff-danger) 8%, transparent);
 }
-
-.old-value {
-  color: #dc2626;
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 12px;
+.ed :deep(.ff-json-dot)::before {
+  content: '';
+  display: block;
+  width: 6px;
+  height: 6px;
+  margin: 9px 0 0 6px;
+  border-radius: 50%;
+  background: var(--ff-danger);
 }
-
-.new-value {
-  color: #16a34a;
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 12px;
-}
-
-:deep(.monaco-editor) {
-  text-align: left !important;
-}
-:deep(.view-lines) {
-  text-align: left !important;
-}
-
-:deep(.el-table th) {
-  background: var(--surface-muted);
-  color: var(--text-muted);
-}
-
-:deep(.diff-highlight-removed) {
-  background: rgba(220, 38, 38, 0.2) !important;
-  border: 1px solid rgba(220, 38, 38, 0.4);
-}
-
-:deep(.diff-highlight-added) {
-  background: rgba(22, 163, 74, 0.2) !important;
-  border: 1px solid rgba(22, 163, 74, 0.4);
-}
-
-.fade-in {
-  animation: fadeIn 0.3s ease;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@media (max-width: 1200px) {
-  .editor-container {
-    height: 420px;
-  }
-
-  .format-options {
-    flex-wrap: wrap;
-    justify-content: flex-start;
-  }
-
-  .tips {
-    width: 100%;
-    margin-left: 0;
-  }
+.ed :deep(.ff-json-squiggle) {
+  text-decoration: underline wavy var(--ff-danger);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+  text-decoration-skip-ink: none;
 }
 </style>
