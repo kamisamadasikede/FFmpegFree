@@ -163,7 +163,7 @@ UpdateSettings(s Settings) error      // defaultOutputDir（空=与源文件同�
 
 ### App（main 包，非 Service）
 ```go
-GetLicenseText(name string) (string, error) // 内嵌第三方许可全文；白名单仅 "OFL"（Noto Sans SC 的 SIL OFL 1.1），其它名称（含空串、带路径、大小写不同）→ INVALID_ARGUMENT
+GetLicenseText(name string) (string, error) // 内嵌第三方许可全文；白名单 "OFL"（Noto Sans SC 的 SIL OFL 1.1）、"OFL-Nunito"（Nunito 的 SIL OFL 1.1），其它名称（含空串、带路径、大小写不同）→ INVALID_ARGUMENT
 GetAppVersion() string                      // 构建时 -ldflags "-X FFmpegFree/internal/about.Version=..." 注入；未注入返回 "开发版"
 ```
 
