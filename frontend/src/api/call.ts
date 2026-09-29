@@ -8,6 +8,8 @@ export type AppErrorCode =
   | 'TASK_CONFLICT'
   | 'IO_ERROR'
   | 'PROCESS_FAILED'
+  | 'PROBE_FAILED'
+  | 'CONVERT_DISK_FULL'
   | 'UNSUPPORTED_PLATFORM'
   | 'UNSUPPORTED'
   | 'INTERNAL'
