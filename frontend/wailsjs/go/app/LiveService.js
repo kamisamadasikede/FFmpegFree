@@ -10,6 +10,10 @@ export function GetCaptureCapabilities() {
   return window['go']['app']['LiveService']['GetCaptureCapabilities']();
 }
 
+export function GetPreview(arg1) {
+  return window['go']['app']['LiveService']['GetPreview'](arg1);
+}
+
 export function ListScreens() {
   return window['go']['app']['LiveService']['ListScreens']();
 }
@@ -18,6 +22,14 @@ export function StartFilePush(arg1) {
   return window['go']['app']['LiveService']['StartFilePush'](arg1);
 }
 
+export function StartPullPreview(arg1) {
+  return window['go']['app']['LiveService']['StartPullPreview'](arg1);
+}
+
 export function StartScreenPush(arg1) {
   return window['go']['app']['LiveService']['StartScreenPush'](arg1);
+}
+
+export function StopPullPreview(arg1) {
+  return window['go']['app']['LiveService']['StopPullPreview'](arg1);
 }

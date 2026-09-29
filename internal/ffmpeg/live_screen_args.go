@@ -26,6 +26,8 @@ type ScreenPushPlan struct {
 	Enc        LiveEncode
 	// ArchiveTee 不为空时同时存档：是 TeePath 的结果（`file:` + 转义后的路径），命令改用 tee 复合输出。
 	ArchiveTee string
+	// PreviewPath 不为空时在主输出（含 tee）之后追加一路独立的预览输出，不放进 tee。
+	PreviewPath string
 }
 
 // ScreenInputArgs 生成屏幕采集输入参数（各平台）。
@@ -73,13 +75,18 @@ func BuildScreenPushArgs(p ScreenPushPlan) []string {
 	}
 	a = append(a, liveEncodeArgs(p.Enc, p.Silent)...)
 	if p.ArchiveTee != "" {
-		return append(a, "-flags", "+global_header", "-f", "tee", TeeDescription(p.Scheme, p.URL, p.ArchiveTee))
+		a = append(a, "-flags", "+global_header", "-f", "tee", TeeDescription(p.Scheme, p.URL, p.ArchiveTee))
+	} else {
+		a = append(a, "-protocol_whitelist", ProtocolWhitelist(p.Scheme), "-f", OutputFormat(p.Scheme))
+		if p.Scheme != "srt" {
+			a = append(a, "-flvflags", "no_duration_filesize")
+		}
+		a = append(a, p.URL)
 	}
-	a = append(a, "-protocol_whitelist", ProtocolWhitelist(p.Scheme), "-f", OutputFormat(p.Scheme))
-	if p.Scheme != "srt" {
-		a = append(a, "-flvflags", "no_duration_filesize")
+	if p.PreviewPath != "" {
+		a = append(a, PreviewOutputArgs(p.PreviewPath)...)
 	}
-	return append(a, p.URL)
+	return a
 }
 
 // TeeDescription 返回 tee 的输出描述。网络一路写 onfail=abort（默认 continue 会在连接失败时仍然退出码 0），

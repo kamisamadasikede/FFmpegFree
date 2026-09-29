@@ -183,6 +183,11 @@ export async function runApiChecks(): Promise<string[]> {
   eq('404 后重新调用 GetPreviewURL 拿到新地址', [!!fresh, fresh?.url !== stale.url], [true, true])
   win.location.search = ''
 
+  // ---- Live 预览（契约 v0.14）：模拟层最小假实现返回空，不是错误 ----
+  eq('模拟 GetPreview 为空', await live.getPreview('any'), { data: '', ts: 0, active: false })
+  eq('模拟 StartPullPreview 不出画面', (await live.startPullPreview({ url: 'rtmp://h/live/abc' })).preview, false)
+  eq('模拟 StopPullPreview 无操作', await live.stopPullPreview('x'), undefined)
+
   // ---- Live：两种 TASK_CONFLICT 都能由模拟层复现 ----
   win.location.search = ''
   const req = (url: string): live.FilePushRequest => ({ inputPath: '/m/a.mp4', url, loop: true, options: live.defaultPushOptions() })
