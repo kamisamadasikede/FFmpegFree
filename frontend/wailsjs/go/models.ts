@@ -1,3 +1,24 @@
+export namespace apperr {
+	
+	export class AppError {
+	    code: string;
+	    message: string;
+	    detail?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AppError(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.message = source["message"];
+	        this.detail = source["detail"];
+	    }
+	}
+
+}
+
 export namespace jsontool {
 	
 	export class CompareRequest {
@@ -179,6 +200,141 @@ export namespace jsontool {
 		    }
 		    return a;
 		}
+	}
+
+}
+
+export namespace system {
+	
+	export class FFmpegStatus {
+	    state: string;
+	    path: string;
+	    version: string;
+	    source: string;
+	    taskId?: string;
+	    ffprobeMissing: boolean;
+	    error?: apperr.AppError;
+	
+	    static createFrom(source: any = {}) {
+	        return new FFmpegStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.state = source["state"];
+	        this.path = source["path"];
+	        this.version = source["version"];
+	        this.source = source["source"];
+	        this.taskId = source["taskId"];
+	        this.ffprobeMissing = source["ffprobeMissing"];
+	        this.error = this.convertValues(source["error"], apperr.AppError);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class InstallOptions {
+	    platform: string;
+	    supported: boolean;
+	    mirrors: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new InstallOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.platform = source["platform"];
+	        this.supported = source["supported"];
+	        this.mirrors = source["mirrors"];
+	    }
+	}
+	export class InstallTask {
+	    id: string;
+	    type: string;
+	    status: string;
+	    title: string;
+	    inputPaths: string[];
+	    outputPath: string;
+	    progress: number;
+	    speed: string;
+	    etaSec: number;
+	    params: string;
+	    version: number;
+	    error?: apperr.AppError;
+	    createdAt: number;
+	    startedAt: number;
+	    finishedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new InstallTask(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.type = source["type"];
+	        this.status = source["status"];
+	        this.title = source["title"];
+	        this.inputPaths = source["inputPaths"];
+	        this.outputPath = source["outputPath"];
+	        this.progress = source["progress"];
+	        this.speed = source["speed"];
+	        this.etaSec = source["etaSec"];
+	        this.params = source["params"];
+	        this.version = source["version"];
+	        this.error = this.convertValues(source["error"], apperr.AppError);
+	        this.createdAt = source["createdAt"];
+	        this.startedAt = source["startedAt"];
+	        this.finishedAt = source["finishedAt"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Settings {
+	    ffmpegPath: string;
+	    ffmpegPromptDismissed: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Settings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ffmpegPath = source["ffmpegPath"];
+	        this.ffmpegPromptDismissed = source["ffmpegPromptDismissed"];
+	    }
 	}
 
 }

@@ -35,6 +35,25 @@ func (s *SystemService) SetFFmpegPath(dir string) (system.FFmpegStatus, error) {
 	return s.mgr.SetPath(context.Background(), dir)
 }
 
+// InstallFFmpeg 下载并安装 ffmpeg 到 <数据目录>/bin（契约 9.3），立即返回任务信息，安装在后台进行。
+// mirror 只接受 ""（默认源）和 GetInstallOptions().mirrors 里列出的镜像；其他值返回 INVALID_ARGUMENT，
+// detail 列出可选镜像，不会悄悄改用默认源（目前只有 Windows 有 "cn"，macOS / Linux 传 "cn" 会被拒绝）。
+// 幂等：已有进行中的安装时返回同一个任务。进度走 task:progress，状态走 task:status 和 ffmpeg:status。
+func (s *SystemService) InstallFFmpeg(mirror string) (system.InstallTask, error) {
+	return s.mgr.Install(context.Background(), mirror)
+}
+
+// GetInstallOptions 返回当前平台的安装选项：平台名、是否有下载源、可用的镜像列表。
+// 前端只在 mirrors 非空时显示"使用国内镜像"开关。
+func (s *SystemService) GetInstallOptions() (system.InstallOptions, error) {
+	return s.mgr.GetInstallOptions()
+}
+
+// CancelFFmpegInstall 取消进行中的安装，已下载的部分保留以便下次续传。没有安装在进行时什么也不做。
+func (s *SystemService) CancelFFmpegInstall() error {
+	return s.mgr.CancelInstall()
+}
+
 // GetSettings 返回设置。目前只有 ffmpegPath 和 ffmpegPromptDismissed，其余字段后续补充。
 func (s *SystemService) GetSettings() (system.Settings, error) {
 	return s.mgr.GetSettings(context.Background())
