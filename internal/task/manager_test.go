@@ -64,6 +64,9 @@ type fx struct {
 func newFx(t *testing.T, batch int) *fx {
 	t.Helper()
 	dir := t.TempDir()
+	if r, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = r // macOS 的 /var 是链接：Remove 不信任含符号链接的输出目录
+	}
 	st, err := store.Open(context.Background(), filepath.Join(dir, "app.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -749,4 +752,69 @@ func TestRunWithPart(t *testing.T) {
 	if PartPath("/x/noext") != "/x/noext.part" {
 		t.Fatal(PartPath("/x/noext"))
 	}
+}
+
+func TestSetConcurrencyAutoAndShrinkKeepsRunning(t *testing.T) {
+	f := newFx(t, 3)
+	var cur int32
+	gate := make(chan struct{})
+	mk := func() Runner {
+		return RunnerFunc(func(ctx context.Context, _ func(Progress)) (string, error) {
+			atomic.AddInt32(&cur, 1)
+			<-gate
+			atomic.AddInt32(&cur, -1)
+			return "", nil
+		})
+	}
+	var ids []string
+	for i := 0; i < 6; i++ {
+		tk, _ := f.m.Submit(Spec{Type: TypeConvert}, mk())
+		ids = append(ids, tk.ID)
+	}
+	eventually(t, func() bool { return atomic.LoadInt32(&cur) == 3 })
+	// 调小：已在运行的 3 个不被打断，新任务暂不启动
+	f.m.SetConcurrency(1)
+	time.Sleep(50 * time.Millisecond)
+	if atomic.LoadInt32(&cur) != 3 || f.m.BatchConcurrency() != 1 {
+		t.Fatalf("调小不应打断运行中的任务: cur=%d limit=%d", cur, f.m.BatchConcurrency())
+	}
+	// 0 = 自动
+	f.m.SetConcurrency(0)
+	if f.m.BatchConcurrency() != DefaultBatchConcurrency() {
+		t.Fatalf("0 应为自动值: %d", f.m.BatchConcurrency())
+	}
+	f.m.SetConcurrency(1)
+	close(gate)
+	for _, id := range ids {
+		if d := waitTask(t, f.m, id); d.Status != StatusSucceeded {
+			t.Fatalf("%+v", d)
+		}
+	}
+}
+
+func TestSetConcurrencyRaceWithSubmit(t *testing.T) {
+	f := newFx(t, 1)
+	stop := make(chan struct{})
+	go func() {
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+				f.m.SetConcurrency(i % 5)
+			}
+		}
+	}()
+	var ids []string
+	for i := 0; i < 30; i++ {
+		tk, err := f.m.Submit(Spec{Type: TypeConvert}, ok)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, tk.ID)
+	}
+	for _, id := range ids {
+		waitTask(t, f.m, id)
+	}
+	close(stop)
 }

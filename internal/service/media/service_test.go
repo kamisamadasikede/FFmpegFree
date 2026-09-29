@@ -2,6 +2,7 @@ package media
 
 import (
 	"context"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -485,5 +486,343 @@ func TestConcurrentSameThumbnailGeneratesOnce(t *testing.T) {
 	es, _ := os.ReadDir(e.thumbs)
 	if len(es) != 1 {
 		t.Fatalf("应只有 1 个缓存文件（无 .part 残留）: %d", len(es))
+	}
+}
+
+// ---------- #9 评审修订 ----------
+
+func TestStatMediaRejectsFIFOWithoutBlocking(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows 没有 mkfifo")
+	}
+	dir := t.TempDir()
+	fifo := filepath.Join(dir, "pipe.mp4")
+	if err := syscallMkfifo(fifo); err != nil {
+		t.Skipf("mkfifo 不可用: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, _, _, err := statMedia(fifo)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if !apperr.Is(err, apperr.InvalidArgument) {
+			t.Fatalf("FIFO 应返回 INVALID_ARGUMENT: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("statMedia 在 FIFO 上阻塞了")
+	}
+	// 走完整的 Probe / Thumbnail 也不能卡
+	svc := New(Config{ThumbsDir: filepath.Join(dir, "t"), Require: func() (ffmpeg.Binaries, error) {
+		return ffmpeg.Binaries{FFmpeg: "/bin/false", FFprobe: "/bin/false"}, nil
+	}})
+	res, err := svc.Probe(context.Background(), []string{fifo})
+	if err != nil || res[0].Error == nil || res[0].Error.Code != apperr.InvalidArgument {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if _, err := svc.Thumbnail(context.Background(), fifo, 0, 100); !apperr.Is(err, apperr.InvalidArgument) {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestProbeSubtitleOnlyIsProbeFailed(t *testing.T) {
+	e := newEnv(t, nil)
+	srt := filepath.Join(e.dir, "s.srt")
+	os.WriteFile(srt, []byte("1\n00:00:00,000 --> 00:00:01,000\nhi\n"), 0o644)
+	res, err := e.svc.Probe(context.Background(), []string{srt})
+	if err != nil || res[0].Error == nil || res[0].Error.Code != apperr.ProbeFailed {
+		t.Fatalf("只有字幕流应 PROBE_FAILED: %+v %v", res, err)
+	}
+	if recent, _ := e.svc.ListRecent(context.Background(), 10); len(recent) != 0 {
+		t.Fatalf("失败不入库: %+v", recent)
+	}
+}
+
+func TestParseOnlySubtitleDataOrCoverArt(t *testing.T) {
+	for name, in := range map[string]string{
+		"只有字幕":  `{"streams":[{"index":0,"codec_type":"subtitle","codec_name":"subrip"}],"format":{"duration":"1.0"}}`,
+		"只有数据":  `{"streams":[{"index":0,"codec_type":"data","codec_name":"bin_data"}],"format":{}}`,
+		"字幕加数据": `{"streams":[{"index":0,"codec_type":"subtitle"},{"index":1,"codec_type":"data"}],"format":{}}`,
+		"只有封面图": `{"streams":[{"index":0,"codec_type":"video","codec_name":"mjpeg","disposition":{"attached_pic":1}}],"format":{}}`,
+	} {
+		if _, err := ParseProbe([]byte(in), "x"); !apperr.Is(err, apperr.ProbeFailed) {
+			t.Errorf("%s: 应 PROBE_FAILED, got %v", name, err)
+		}
+	}
+	// 封面图 + 音频仍然是有效的音频文件
+	m, err := ParseProbe([]byte(`{"streams":[{"index":0,"codec_type":"audio","codec_name":"mp3"},{"index":1,"codec_type":"video","codec_name":"mjpeg","disposition":{"attached_pic":1}}],"format":{"duration":"2"}}`), "x.mp3")
+	if err != nil || m.HasVideo || !m.HasAudio {
+		t.Fatalf("%+v %v", m, err)
+	}
+}
+
+func TestThumbnailAtSecCapAndFallbackToZero(t *testing.T) {
+	e := newEnv(t, nil)
+	p := e.video(t, "at.mp4", "-t", "1")
+	ctx := context.Background()
+	for _, at := range []float64{1e300, 1e7, 1e7 + 1, 500} {
+		th, err := e.svc.Thumbnail(ctx, p, at, 120)
+		if err != nil {
+			t.Fatalf("at=%v: %v", at, err)
+		}
+		if th.AtSec != 0 {
+			t.Fatalf("at=%v: 退回第 0 秒时返回的 AtSec 应为 0, got %v", at, th.AtSec)
+		}
+	}
+	// 缓存名按 0 算：所有回退请求 + 显式请求第 0 秒共用同一个缓存文件
+	zero, err := e.svc.Thumbnail(ctx, p, 0, 120)
+	if err != nil || zero.AtSec != 0 {
+		t.Fatalf("%+v %v", zero, err)
+	}
+	th, _ := e.svc.Thumbnail(ctx, p, 1e300, 120)
+	if th.Path != zero.Path {
+		t.Fatalf("回退结果应用 atSec=0 的缓存名: %s vs %s", th.Path, zero.Path)
+	}
+	if es, _ := os.ReadDir(e.thumbs); len(es) != 1 {
+		t.Fatalf("只应有 1 个缓存文件: %d", len(es))
+	}
+	// 正常时间点保持原样
+	ok, err := e.svc.Thumbnail(ctx, p, 0.5, 120)
+	if err != nil || ok.AtSec != 0.5 {
+		t.Fatalf("%+v %v", ok, err)
+	}
+}
+
+func TestCacheNameHugeAtDoesNotOverflow(t *testing.T) {
+	mt := time.Unix(1700000000, 0)
+	a := cacheName("k", mt, 1, maxThumbAt, 100)
+	b := cacheName("k", mt, 1, maxThumbAt-1, 100)
+	if a == b {
+		t.Fatal("上限内的不同值应得到不同缓存名")
+	}
+	if int64(math.Round(maxThumbAt*1000)) <= 0 {
+		t.Fatal("上限换算毫秒不应溢出")
+	}
+}
+
+// 假 ffmpeg：忽略参数，睡很久；用来验证超时不重试、取消会结束进程。
+func fakeSleepBin(t *testing.T, counter string) string {
+	p := filepath.Join(t.TempDir(), "ffmpeg")
+	os.WriteFile(p, []byte("#!/bin/sh\necho x >> '"+counter+"'\nsleep 30\n"), 0o755)
+	return p
+}
+
+func TestThumbnailTimeoutIsNotRetried(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell 脚本假 ffmpeg")
+	}
+	dir := t.TempDir()
+	counter := filepath.Join(dir, "count")
+	f := filepath.Join(dir, "v.mp4")
+	os.WriteFile(f, []byte("x"), 0o644)
+	bin := fakeSleepBin(t, counter)
+	svc := New(Config{ThumbsDir: filepath.Join(dir, "t"), ThumbTimeout: 300 * time.Millisecond,
+		Require: func() (ffmpeg.Binaries, error) { return ffmpeg.Binaries{FFmpeg: bin, FFprobe: bin}, nil }})
+	start := time.Now()
+	_, err := svc.Thumbnail(context.Background(), f, 5, 100)
+	if !apperr.Is(err, apperr.ProcessFailed) {
+		t.Fatalf("%v", err)
+	}
+	b, _ := os.ReadFile(counter)
+	if n := strings.Count(string(b), "x"); n != 1 {
+		t.Fatalf("超时不应重试，ffmpeg 被启动了 %d 次", n)
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Fatal("超时耗时过长")
+	}
+}
+
+func TestRootContextCancelStopsProbeAndThumbnail(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell 脚本假 ffmpeg")
+	}
+	dir := t.TempDir()
+	f := filepath.Join(dir, "v.mp4")
+	os.WriteFile(f, []byte("x"), 0o644)
+	bin := fakeSleepBin(t, filepath.Join(dir, "c"))
+	svc := New(Config{ThumbsDir: filepath.Join(dir, "t"), ThumbTimeout: time.Minute, ProbeTimeout: time.Minute,
+		Require: func() (ffmpeg.Binaries, error) { return ffmpeg.Binaries{FFmpeg: bin, FFprobe: bin}, nil }})
+	ctx, cancel := context.WithCancel(context.Background())
+	errs := make(chan error, 2)
+	go func() { _, err := svc.Probe(ctx, []string{f}); errs <- err }()
+	go func() { _, err := svc.Thumbnail(ctx, f, 1, 100); errs <- err }()
+	time.Sleep(300 * time.Millisecond)
+	cancel()
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-errs:
+			if err == nil {
+				t.Fatal("取消后应返回错误")
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("根 ctx 取消后调用没有返回")
+		}
+	}
+}
+
+func TestThumbnailOnCoverArtOnlyAudioIsInvalidArgument(t *testing.T) {
+	e := newEnv(t, nil)
+	cover := filepath.Join(e.dir, "c.jpg")
+	gen(t, e.bin, cover, "-f", "lavfi", "-i", "testsrc=size=64x64:duration=1", "-frames:v", "1")
+	mp3 := filepath.Join(e.dir, "cover.mp3")
+	full := []string{"-v", "error", "-y", "-i", cover, "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+		"-map", "1:a", "-map", "0:v", "-c:a", "libmp3lame", "-c:v", "copy", "-disposition:v", "attached_pic", "-id3v2_version", "3", "file:" + mp3}
+	if b, err := exec.Command(e.bin.FFmpeg, full...).CombinedOutput(); err != nil {
+		t.Skipf("生成带封面的 mp3 失败: %v\n%s", err, b)
+	}
+	res, err := e.svc.Probe(context.Background(), []string{mp3})
+	if err != nil || res[0].Error != nil || res[0].HasVideo || !res[0].HasAudio || res[0].ThumbURL != "" {
+		t.Fatalf("封面图不算视频: %+v %v", res, err)
+	}
+	if _, err := e.svc.Thumbnail(context.Background(), mp3, 0, 100); !apperr.Is(err, apperr.InvalidArgument) {
+		t.Fatalf("带封面的 mp3 直接 Thumbnail 应 INVALID_ARGUMENT: %v", err)
+	}
+}
+
+func TestOutputCapsAndOverlong(t *testing.T) {
+	h := &headWriter{max: 10}
+	n, err := h.Write([]byte("0123456789abc"))
+	if n != 13 || err != nil || !h.over || h.buf.String() != "0123456789" {
+		t.Fatalf("%d %v %v %q", n, err, h.over, h.buf.String())
+	}
+	h.Write([]byte("more"))
+	if h.buf.Len() != 10 {
+		t.Fatal("超出后不再增长")
+	}
+	tw := newTailWriter(8)
+	for i := 0; i < 100; i++ {
+		tw.Write([]byte("0123456789"))
+	}
+	if s := tw.String(); len(s) != 8 || s != "23456789" {
+		t.Fatalf("应保留最后 8 字节: %q", s)
+	}
+	if len(tw.buf) > 3*8 {
+		t.Fatalf("缓冲不应无限增长: %d", len(tw.buf))
+	}
+}
+
+// 假 ffprobe 输出超过上限的 JSON：不能无限占内存，返回 PROBE_FAILED。
+func TestProbeStdoutIsCapped(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell 脚本假 ffprobe")
+	}
+	dir := t.TempDir()
+	f := filepath.Join(dir, "v.mp4")
+	os.WriteFile(f, []byte("x"), 0o644)
+	bin := filepath.Join(dir, "ffprobe")
+	os.WriteFile(bin, []byte("#!/bin/sh\nyes '{\"a\":1}' | head -c 20000000\n"), 0o755)
+	svc := New(Config{ThumbsDir: filepath.Join(dir, "t"),
+		Require: func() (ffmpeg.Binaries, error) { return ffmpeg.Binaries{FFmpeg: bin, FFprobe: bin}, nil }})
+	res, err := svc.Probe(context.Background(), []string{f})
+	if err != nil || res[0].Error == nil || res[0].Error.Code != apperr.ProbeFailed {
+		t.Fatalf("%+v %v", res, err)
+	}
+}
+
+func TestPatternTypeNoneForPercentImageNames(t *testing.T) {
+	a := probeArgs("/x/a%03d.png")
+	idx := -1
+	for i, v := range a {
+		if v == "-pattern_type" {
+			idx = i
+		}
+	}
+	i := len(a) - 2
+	if idx < 0 || a[idx+1] != "none" || idx > i {
+		t.Fatalf("图片文件名带 %% 时 -pattern_type none 必须在 -i 之前: %v", a)
+	}
+	th := thumbArgs("/x/a%03d.jpg", "/o/x.part.jpg", 1, 100)
+	joined := strings.Join(th, " ")
+	if !strings.Contains(joined, "-pattern_type none -i file:/x/a%03d.jpg") {
+		t.Fatalf("%v", th)
+	}
+	// 普通文件名不加（mp4 等解封装器不认识这个选项）
+	for _, in := range []string{"/x/a.mp4", "/x/a%d.mp4", "/x/a.png", "/x/a%d.gif"} {
+		if strings.Contains(strings.Join(probeArgs(in), " "), "pattern_type") || strings.Contains(strings.Join(thumbArgs(in, "/o", 0, 10), " "), "pattern_type") {
+			t.Errorf("%s 不应加 -pattern_type", in)
+		}
+	}
+}
+
+func TestIntegrationPercentFilenameImage(t *testing.T) {
+	e := newEnv(t, nil)
+	p := filepath.Join(e.dir, "img%03d.png")
+	gen(t, e.bin, p, "-f", "lavfi", "-i", "testsrc=size=64x48:duration=1", "-frames:v", "1", "-update", "1")
+	if _, err := os.Stat(p); err != nil {
+		t.Skip("没生成出带 % 的文件名")
+	}
+	res, err := e.svc.Probe(context.Background(), []string{p})
+	if err != nil || res[0].Error != nil || !res[0].HasVideo {
+		t.Fatalf("带 %% 的图片文件应能探测: %+v %v", res, err)
+	}
+	if _, err := e.svc.Thumbnail(context.Background(), p, 0, 64); err != nil {
+		t.Fatalf("带 %% 的图片文件应能生成缩略图: %v", err)
+	}
+}
+
+func TestCacheCleanupRaceIsTreatedAsMiss(t *testing.T) {
+	e := newEnv(t, nil)
+	p := e.video(t, "race.mp4", "-t", "1")
+	ctx := context.Background()
+	first, err := e.svc.Thumbnail(ctx, p, 0.5, 120)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 模拟 lookup 通过后、读取前缓存被清理：并发地反复删除缓存文件，同时反复请求，不应返回错误。
+	stop := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				os.Remove(first.Path)
+				time.Sleep(time.Millisecond)
+			}
+		}
+	}()
+	defer close(stop)
+	for i := 0; i < 30; i++ {
+		th, err := e.svc.Thumbnail(ctx, p, 0.5, 120)
+		if err != nil || !strings.HasPrefix(th.DataURL, "data:image/jpeg;base64,") {
+			t.Fatalf("清理与读取的竞态应视为未命中并重新生成: #%d %v", i, err)
+		}
+	}
+}
+
+func TestRemoveRecentIDsCap(t *testing.T) {
+	e := newEnv(t, nil)
+	ids := make([]string, maxRemoveIDs+1)
+	if err := e.svc.RemoveRecent(context.Background(), ids); !apperr.Is(err, apperr.InvalidArgument) {
+		t.Fatalf("超过 500 个 id 应 INVALID_ARGUMENT: %v", err)
+	}
+	if err := e.svc.RemoveRecent(context.Background(), ids[:maxRemoveIDs]); err != nil {
+		t.Fatalf("恰好 500 个应可以: %v", err)
+	}
+}
+
+func TestNewCommandCancelKillsProcessGroup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell 脚本")
+	}
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "child-alive")
+	script := filepath.Join(dir, "p.sh")
+	// 父 shell 启动一个孙进程，孙进程每 0.1 秒 touch 一次文件；取消后文件不应再更新。
+	os.WriteFile(script, []byte("#!/bin/sh\n(while true; do touch '"+marker+"'; sleep 0.1; done) &\nsleep 30\n"), 0o755)
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	cmd := ffmpeg.NewCommand(ctx, script)
+	cmd.Run()
+	time.Sleep(300 * time.Millisecond)
+	fi1, err := os.Stat(marker)
+	if err != nil {
+		t.Fatal("孙进程没有运行过")
+	}
+	time.Sleep(500 * time.Millisecond)
+	fi2, _ := os.Stat(marker)
+	if !fi2.ModTime().Equal(fi1.ModTime()) {
+		t.Fatal("超时后孙进程仍在运行：NewCommand 应结束整个进程组")
 	}
 }

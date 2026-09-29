@@ -2,8 +2,15 @@
   <div v-if="kind" class="banner" :class="kind">
     <FIcon :name="kind === 'info' ? 'download' : kind === 'ok' ? 'check' : 'warn'" />
 
-    <template v-if="state === 'missing' || state === 'outdated'">
-      <span>{{ state === 'missing' ? '未检测到 ffmpeg，转换、剪辑和直播功能暂不可用。' : 'ffmpeg 版本过旧，需要 6.0 或更高版本。' }}</span>
+    <template v-if="state === 'missing'">
+      <span>未检测到 ffmpeg，转换、剪辑和直播暂时不能用。</span>
+      <span class="sp" />
+      <el-button type="primary" :disabled="!ffmpeg.installAvailable" @click="safe(() => ffmpeg.startInstall())">{{ ffmpeg.installAvailable ? '下载安装' : '安装功能即将上线' }}</el-button>
+      <el-button @click="ffmpeg.bannerClosed = true">稍后</el-button>
+    </template>
+
+    <template v-else-if="state === 'outdated'">
+      <span>ffmpeg 版本过旧，需要 6.0 或更高版本。</span>
       <span class="sp" />
       <el-button link type="primary" @click="safe(ffmpeg.pickPath)">手动指定</el-button>
       <el-button link type="primary" @click="safe(ffmpeg.recheck)">重新检测</el-button>

@@ -138,13 +138,20 @@ func RunWithPart(ctx context.Context, desired string, produce func(partPath stri
 		return "", fmt.Errorf("创建输出目录失败: %w", err)
 	}
 	part := PartPath(final)
+	// produce 发生 panic 时也要清理 .part（panic 会继续向上传播，由 Manager 的 safeRun 转成任务失败）。
+	committed := false
+	defer func() {
+		if !committed {
+			os.Remove(part)
+		}
+	}()
 	if err := produce(part); err != nil {
-		os.Remove(part)
 		return "", err
 	}
 	for {
 		err := commitPart(part, final)
 		if err == nil {
+			committed = true
 			return final, nil
 		}
 		if !errors.Is(err, errTargetExists) {

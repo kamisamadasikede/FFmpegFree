@@ -84,6 +84,12 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
 
   const ready = computed(() => status.value.state === 'ready')
   const needsAttention = computed(() => !['ready', 'checking'].includes(status.value.state))
+  /**
+   * 依赖 ffmpeg 的入口（转换/剪辑/直播）是否置灰：只看 ffmpeg 当前状态（missing/outdated/installing/failed）。
+   * 刻意不看 promptDismissed / bannerClosed——用户点「稍后」只是不再打扰，不代表 ffmpeg 可用。
+   * checking（启动检测中）不置灰，避免每次启动闪一下灰。
+   */
+  const featuresBlocked = computed(() => needsAttention.value)
 
   function setStatus(next: FFmpegStatus) {
     const was = status.value.state
@@ -225,6 +231,6 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
   return {
     status, install, promptDismissed, bannerClosed, dialogOpen, justBecameReady,
     installAvailable, canPickDirectory, manualInputOpen,
-    ready, needsAttention, init, startInstall, cancelInstall, pickPath, clearCustomPath, recheck, dismissPrompt, updateInstall,
+    ready, needsAttention, featuresBlocked, init, startInstall, cancelInstall, pickPath, clearCustomPath, recheck, dismissPrompt, updateInstall,
   }
 })
