@@ -1,371 +1,289 @@
 <template>
   <LiveTabFrame>
-    <template #main>
-      <PlayerShell
-        v-model:muted="muted"
-        fill
-        mode="status"
-        :status-text="statusText"
-        :status-hint="statusHint"
-        @fullscreen="fullscreen"
-      >
-        <LiveMockFrame v-if="session.phase.value !== 'idle'" variant="screen" />
-        <LiveMockFrame v-else variant="idle" icon="monitor" hint="点击“开始推流”后，后端会直接采集所选显示器并推流" />
-        <template #overlay>
-          <LiveOverlays :session="session" :hud-lines="hudLines" @retry="start" @view-log="logOpen = true" />
-        </template>
-      </PlayerShell>
-      <LiveStatCards :stats="session.stats" :series="session.series" />
-    </template>
-
+    <template #main><LiveSessionList empty-hint="选择屏幕并填写推流地址，点击“开始推流”" /></template>
     <template #panel>
-      <LivePanel title="推流设置" note="不占用转换队列">
-        <LiveField label="画面来源" :control="false">
-          <LiveSourcePicker v-model="source" :disabled="session.busy.value" />
-          <!-- 选中屏幕推流时常驻，不弹窗 -->
-          <p v-if="source === 'screen'" class="note-inline"><FIcon name="info" :size="14" />{{ LIVE_SCREEN_NO_AUDIO_TEXT }}</p>
-          <p v-else class="note-inline"><FIcon name="info" :size="14" />摄像头和窗口推流暂不支持，请选择屏幕。</p>
-        </LiveField>
-        <LiveField v-if="screens.length > 1" v-slot="{ id }" label="显示器">
-          <el-select :id="id" v-model="screenId" :disabled="session.busy.value" class="sel">
-            <el-option v-for="sc in screens" :key="sc.id" :label="sc.name" :value="sc.id" />
-          </el-select>
+      <LivePanel title="推流设置">
+        <LiveField label="屏幕来源" :control="false">
+          <div class="scr" role="radiogroup" aria-label="屏幕来源">
+            <button
+              v-for="sc in screens"
+              :key="sc.id"
+              type="button"
+              class="so"
+              :class="{ on: screenId === sc.id }"
+              role="radio"
+              :aria-checked="screenId === sc.id"
+              @click="screenId = sc.id"
+            >
+              <i class="rd" /><FIcon name="monitor" :size="14" /><span>{{ sc.name }}{{ sc.primary ? '（主显示器）' : '' }}</span><em>{{ sc.width }}×{{ sc.height }}</em>
+            </button>
+          </div>
+          <p v-if="screenId" class="note"><FIcon name="info" :size="14" />{{ LIVE_SCREEN_NO_AUDIO_TEXT }}</p>
         </LiveField>
         <LiveField label="推流地址">
-          <LiveInput v-model="baseUrl" :bad="urlInvalid" :disabled="session.busy.value" placeholder="rtmp://live.example.com/live" copyable @enter="start" @blur="checkUrl" />
-          <InlineError v-if="urlInvalid" code="LIVE_URL_INVALID" :description="urlMessage" bare />
+          <LiveInput v-model="baseUrl" :bad="err?.where === 'addr'" placeholder="rtmp://、rtmps:// 或 srt://" @enter="start" />
+          <LiveFormError v-if="err?.where === 'addr'" :text="err.text" />
         </LiveField>
-        <LiveField label="推流码">
-          <LiveInput v-model="streamKey" secret :bad="keyBad" :disabled="session.busy.value" placeholder="留空则使用地址本身" />
-          <InlineError v-if="keyBad" :code="session.errorCode.value" />
+        <LiveField label="推流码 / 口令">
+          <LiveInput v-model="key" secret :bad="err?.where === 'key'" placeholder="推流码或口令" @enter="start" />
+          <LiveFormError v-if="err?.where === 'key'" :text="err.text" />
         </LiveField>
-        <div class="two">
-          <LiveField v-slot="{ id }" label="分辨率">
-            <el-select :id="id" v-model="resolution" :disabled="session.busy.value" class="sel">
-              <el-option v-for="r in resolutions" :key="r.value" :label="r.label" :value="r.value" />
-            </el-select>
+        <div class="chk"><span>保存存档</span><el-switch v-model="archiveOn" size="small" aria-label="保存存档" /></div>
+        <template v-if="archiveOn">
+          <div class="chk"><span>存档格式</span><span class="fmt">MP4</span></div>
+          <LiveField v-slot="{ id }" label="存档目录">
+            <div class="input ro">
+              <span :id="id" class="grow" :title="archiveDir">{{ archiveDir || '开始推流时选择存档文件夹' }}</span>
+              <a class="lk" role="button" tabindex="0" @click="changeDir" @keyup.enter="changeDir">更改</a>
+            </div>
           </LiveField>
-          <LiveField v-slot="{ id }" label="帧率">
-            <el-select :id="id" v-model="fps" :disabled="session.busy.value" class="sel">
-              <el-option v-for="f in [15, 24, 30, 60]" :key="f" :label="`${f} fps`" :value="f" />
-            </el-select>
-          </LiveField>
-        </div>
-        <LiveField label="视频码率" :control="false"><LiveSlider v-model="bitrate" :min="1000" :max="10000" :step="500" unit="k" :disabled="session.busy.value" /></LiveField>
-        <div class="chk">隐藏鼠标指针<el-switch v-model="hideCursor" size="small" aria-label="隐藏鼠标指针" :disabled="session.busy.value" /></div>
-        <div class="chk">补一路静音音轨<el-switch v-model="silentAudio" size="small" aria-label="补一路静音音轨" :disabled="session.busy.value" /></div>
-        <div class="chk">断线自动重连<el-switch v-model="autoReconnect" size="small" aria-label="断线自动重连" /></div>
-        <div class="chk">同时保存本地存档（mp4）<el-switch v-model="archiveEnabled" size="small" aria-label="同时保存本地存档" :disabled="session.busy.value" /></div>
-        <div v-if="archiveEnabled" class="hint">{{ archiveDir || '开始推流时选择存档文件夹' }}</div>
-        <ErrorLine v-if="startError" code="TASK_CONFLICT" :title="startError.title" :description="startError.description" :show-log="false" hide-code compact />
+        </template>
+        <LiveFormError v-if="err?.where === 'form'" :text="err.text" class="form-err" />
         <template #action>
-          <LiveButton v-if="session.busy.value" variant="danger" lg icon="x" :disabled="stopping" @click="stop">{{ stopping ? '正在停止…' : '停止推流' }}</LiveButton>
-          <LiveButton v-else variant="pri" lg icon="rec" @click="start">开始推流</LiveButton>
+          <LiveButton variant="pri" lg icon="play" :disabled="!canStart" :tip-when-disabled="blocked ? '需要先安装 ffmpeg' : undefined" @click="start">开始推流</LiveButton>
         </template>
       </LivePanel>
     </template>
   </LiveTabFrame>
-  <LiveLogDialog v-model="logOpen" :lines="session.logs.value" />
 </template>
 
 <script setup lang="ts">
-// 屏幕推流（契约 v0.10）：由后端 ffmpeg 直接采集显示器并推到 rtmp / rtmps / srt 地址，前端不再用 getDisplayMedia / MediaRecorder / WebSocket。
-// 屏幕推流首版不包含声音（只有 none / silent）；可同时在本地存 mp4 存档。停止 = TaskService.Cancel。完整推流地址不写日志。
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+// 录屏推流（设计稿 v0.2）：屏幕来源单选 → 无声音说明 → 推流地址 → 推流码 / 口令 → 保存存档（MP4，目录只读 + 更改）→ 表单级错误 → 开始推流。
+// 后端 #47 已支持带存档：archiveDir 非空时任务的 outputPath = 存档路径，终态事件里的 outputPath 决定“打开所在文件夹”。屏幕推流没有声音（audio 恒为 none）。
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import PlayerShell from '@/components/common/PlayerShell.vue'
-import InlineError from '@/components/common/InlineError.vue'
-import ErrorLine from '@/components/common/ErrorLine.vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import LiveTabFrame from '@/components/live/LiveTabFrame.vue'
 import LivePanel from '@/components/live/LivePanel.vue'
 import LiveField from '@/components/live/LiveField.vue'
 import LiveInput from '@/components/live/LiveInput.vue'
 import LiveButton from '@/components/live/LiveButton.vue'
-import LiveSlider from '@/components/live/LiveSlider.vue'
-import LiveSourcePicker, { type CaptureSource } from '@/components/live/LiveSourcePicker.vue'
-import LiveStatCards from '@/components/live/LiveStatCards.vue'
-import LiveMockFrame from '@/components/live/LiveMockFrame.vue'
-import LiveOverlays from '@/components/live/LiveOverlays.vue'
-import LiveLogDialog from '@/components/live/LiveLogDialog.vue'
-import { livePreview, useLiveSession } from '@/composables/useLiveSession'
+import LiveFormError from '@/components/live/LiveFormError.vue'
+import LiveSessionList from '@/components/live/LiveSessionList.vue'
 import { useFFmpegStore } from '@/stores/ffmpeg'
-import { LIVE_SCREEN_NO_AUDIO_TEXT, liveFailureMessage, liveUrlInvalidText, LIVE_STOP_TEXT, liveStartErrorLine } from '@/errors/errorMessages'
-import { joinPushUrl, parsePushUrl } from '@/utils/liveUrl'
+import { useLiveSessionsStore } from '@/stores/liveSessions'
+import { LIVE_SCREEN_NO_AUDIO_TEXT, LIVE_SRT_PASSPHRASE_TEXT } from '@/errors/errorMessages'
+import { composePushUrl, parsePushUrl } from '@/utils/liveUrl'
 import * as liveApi from '@/api/live'
 import { toAppError } from '@/api/call'
 import { getDefaultOutputDir, pickDirectory } from '@/api/system'
+import { formPreview } from './pushPreview'
+import { pushErrorToForm, type PushFormError } from './pushErrors'
 
 defineOptions({ name: 'LiveRecordPush' })
 
-const session = useLiveSession('record')
 const ffmpeg = useFFmpegStore()
-const preview = !!livePreview
+const store = useLiveSessionsStore()
+const blocked = computed(() => ffmpeg.featuresBlocked)
+const DEMO_ARCHIVE_DIR = '~/Movies/FFmpegFree/直播存档'
 
-const source = ref<CaptureSource>('screen')
 const screens = ref<liveApi.ScreenInfo[]>([])
 const screenId = ref('')
-const baseUrl = ref(livePreview === 'invalid' ? 'http:/live.example' : livePreview ? 'rtmp://live-push.example.com/live' : '')
-const streamKey = ref(livePreview ? '••••••••••••••••' : '')
-const resolutions = [
-  { label: '原始', value: 0 },
-  { label: '720p', value: 720 },
-  { label: '1080p', value: 1080 },
-]
-const resolution = ref(1080)
-const fps = ref(30)
-const bitrate = ref(6000)
-const hideCursor = ref(false)
-const silentAudio = ref(false)
-const autoReconnect = ref(true)
-const archiveEnabled = ref(false)
+const baseUrl = ref('')
+const key = ref('')
+const archiveOn = ref(false)
 const archiveDir = ref('')
-const muted = ref(false)
-const logOpen = ref(false)
-const urlInvalid = ref(livePreview === 'invalid')
-const urlMessage = ref('')
-const stopping = ref(false)
-/** 点“开始推流”之后才出现的错误行（最多同时推 4 路 / 这个地址已经在推流 / 当前 ffmpeg 不支持这种推流协议…） */
-const startError = ref<{ title: string; description: string } | null>(null)
+const err = ref<PushFormError | null>(null)
+const starting = ref(false)
+const canStart = computed(() => !blocked.value && !starting.value && !!screenId.value && !!baseUrl.value.trim())
 
-let taskId = ''
-let stopWatch: (() => void) | null = null
-let userStopped = false
-let reconnects = 0
-const MAX_RECONNECT = 5
-
-const keyBad = computed(() => session.phase.value === 'error' && session.errorCode.value === 'LIVE_PUSH_REJECTED')
-const statusText = computed(() => (session.running.value ? '正在推流' : session.busy.value ? (stopping.value ? '正在停止' : '正在连接') : '未开始推流'))
-const statusHint = computed(() => screens.value.find((s) => s.id === screenId.value)?.name ?? (source.value === 'screen' ? '屏幕' : '暂不支持'))
-const hudLines = computed(() => {
-  const s = session.stats
-  const res = s.width ? `${s.width}×${s.height} · ` : ''
-  return [`${res}${Math.round(s.fps)} fps`, `${Math.round(s.bitrateKbps)} kbps · 丢帧 ${s.dropped}`]
+watch([baseUrl, key], () => (err.value = null))
+watch(archiveOn, async (on) => {
+  if (!on || archiveDir.value) return
+  archiveDir.value = (await getDefaultOutputDir().catch(() => '')) || (liveApi.liveIsReal() ? '' : DEMO_ARCHIVE_DIR)
 })
 
-watch([baseUrl, streamKey], () => {
-  urlInvalid.value = false
-  startError.value = null
-})
-
-/** 地址框失焦校验：rtsp、http-flv 等不支持的协议显示“暂不支持这种推流地址，请使用 rtmp、rtmps 或 srt”，红框规则不变 */
-function checkUrl() {
-  if (!baseUrl.value.trim()) return
-  const r = parsePushUrl(joinPushUrl(baseUrl.value, ''))
-  urlInvalid.value = !r.ok
-  urlMessage.value = r.ok ? '' : r.message
-}
-
-function cleanup() {
-  stopWatch?.()
-  stopWatch = null
-}
-
-function watchTask(id: string) {
-  taskId = id
-  cleanup()
-  stopWatch = liveApi.watchLiveTask(id, {
-    onConnected: () => session.setRunning(),
-    onProgress: (p) => {
-      if (!session.busy.value) return
-      session.addSample({ bitrateKbps: p.bitrateKbps, fps: p.fps, dropped: p.droppedFrames })
-      reconnects = 0
-    },
-    onEnd: (e) => {
-      cleanup()
-      stopping.value = false
-      taskId = ''
-      // 停止文案只看 status（succeeded → 已结束推流，canceled → 已强制停止）
-      if (e.status === 'succeeded') {
-        session.setIdle()
-        session.log(LIVE_STOP_TEXT.succeeded)
-        ElMessage.success(LIVE_STOP_TEXT.succeeded)
-      } else if (e.status === 'canceled') {
-        session.setIdle()
-        session.log(LIVE_STOP_TEXT.canceled)
-        ElMessage.warning(LIVE_STOP_TEXT.canceled)
-      } else if (e.status === 'interrupted') {
-        session.setIdle()
-        session.log('应用退出，推流已中断')
-      } else {
-        onFailed(e.error?.code ?? 'INTERNAL', e.error ?? undefined)
-      }
-    },
-  })
-}
-
-function onFailed(code: string, error?: { message?: string; detail?: string }) {
-  if (!userStopped && autoReconnect.value && code === 'LIVE_PUSH_INTERRUPTED' && reconnects < MAX_RECONNECT) {
-    reconnects++
-    session.log(`断线，3 秒后自动重连（${reconnects}/${MAX_RECONNECT}）`)
-    setTimeout(() => !userStopped && start(true), 3000)
-    return
-  }
-  const r = parsePushUrl(joinPushUrl(baseUrl.value, streamKey.value))
-  // scheme 以 detail 首行 scheme= 为准，页面上的地址只是兜底
-  session.fail(code, '', liveFailureMessage({ code, ...error }, r.ok ? r.info.scheme : ''))
-}
-
-async function ensureArchiveDir(): Promise<string | null> {
-  if (!archiveEnabled.value) return ''
-  if (archiveDir.value) return archiveDir.value
-  const dir = preview || !liveApi.liveIsReal() ? await getDefaultOutputDir().catch(() => '') || '/Users/me/Movies/FFmpegFree' : await getDefaultOutputDir()
-  if (dir) return (archiveDir.value = dir)
-  const picked = await pickDirectory('选择存档文件夹')
-  if (!picked) return null // 用户取消
-  return (archiveDir.value = picked)
-}
-
-async function start(isReconnect: unknown = false) {
-  const reconnecting = isReconnect === true
-  if (session.busy.value && !reconnecting) return
-  if (ffmpeg.needsAttention) return session.fail('FFMPEG_NOT_FOUND')
-  if (source.value !== 'screen') {
-    startError.value = { title: '无法开始推流', description: '摄像头和窗口推流暂不支持，请选择屏幕。' }
-    return
-  }
-  startError.value = null
-  const full = joinPushUrl(baseUrl.value, streamKey.value)
-  const check = parsePushUrl(full)
-  if (!check.ok) {
-    urlInvalid.value = true
-    urlMessage.value = check.message
-    session.log('推流地址格式不正确')
-    return
-  }
-  userStopped = false
-  stopping.value = false
-  if (!reconnecting) reconnects = 0
-  let dir: string | null
+async function changeDir() {
   try {
-    dir = await ensureArchiveDir()
+    const d = await pickDirectory('选择存档文件夹')
+    if (d) archiveDir.value = d
   } catch (e) {
     ElMessage.error(toAppError(e).message)
-    return
   }
-  if (dir === null) return
-  session.setStarting()
-  session.log(`开始屏幕推流（${statusHint.value}）→ ${check.info.redacted}`)
-  const h = resolution.value
+}
+
+async function start() {
+  if (!canStart.value) return
+  err.value = null
+  const head = parsePushUrl(composePushUrl(baseUrl.value, ''))
+  if (!head.ok) return void (err.value = { where: 'addr', text: head.message })
+  if (head.info.scheme === 'srt' && !liveApi.isValidSrtPassphrase(key.value)) return void (err.value = { where: 'key', text: LIVE_SRT_PASSPHRASE_TEXT })
+  const full = composePushUrl(baseUrl.value, key.value)
+  const check = parsePushUrl(full)
+  if (!check.ok) return void (err.value = { where: 'addr', text: check.message })
+  let dir = ''
+  if (archiveOn.value) {
+    dir = archiveDir.value
+    if (!dir) {
+      try {
+        dir = archiveDir.value = await pickDirectory('选择存档文件夹')
+      } catch (e) {
+        return void ElMessage.error(toAppError(e).message)
+      }
+      if (!dir) return // 用户取消
+    }
+    // 演示目录里的 ~ 不是绝对路径，模拟层要求绝对路径
+    if (!liveApi.liveIsReal()) dir = dir.replace(/^~/, '/Users/me')
+  }
+  starting.value = true
   try {
-    const task = await liveApi.startScreenPush({
-      url: full,
-      screenId: screenId.value,
-      hideCursor: hideCursor.value,
-      audio: silentAudio.value ? 'silent' : 'none',
-      archiveDir: dir,
-      options: { ...liveApi.defaultPushOptions(), height: h, fps: fps.value, videoBitrateKbps: bitrate.value },
-    })
-    watchTask(task.id)
+    const task = await liveApi.startScreenPush({ url: full, screenId: screenId.value, hideCursor: false, audio: 'none', archiveDir: dir, options: liveApi.defaultPushOptions() })
+    const r = await store.begin(task, { kind: 'screen', redactedUrl: check.info.redacted, archive: !!dir })
+    if (!r.ok) err.value = pushErrorToForm(r.error, check.info.scheme)
+    else key.value = ''
   } catch (e) {
-    onStartFailed(toAppError(e), check.info.scheme)
-  }
-}
-
-function onStartFailed(err: liveApi.LiveError, scheme: string) {
-  const line = liveStartErrorLine(err, { scheme, archive: archiveEnabled.value })
-  if (line && (err.code === 'TASK_CONFLICT' || err.code === 'UNSUPPORTED')) {
-    session.setIdle()
-    startError.value = line
-    session.log(`${line.title}：${line.description}`)
-    return
-  }
-  if (err.code === 'LIVE_URL_INVALID') {
-    session.setIdle()
-    urlInvalid.value = true
-    urlMessage.value = liveUrlInvalidText(err.reason) // detail 首行 reason=；未知 / 缺失 → 通用文案
-    return
-  }
-  // UNSUPPORTED_PLATFORM / SCREEN_PERMISSION_DENIED / FFMPEG_NOT_FOUND 等走遮罩
-  session.fail(err.code, '', liveFailureMessage(err, scheme))
-}
-
-async function stop() {
-  userStopped = true
-  if (preview || !taskId) {
-    session.setIdle()
-    return
-  }
-  try {
-    stopping.value = true
-    await liveApi.stopPush(taskId)
-    session.log('正在停止推流…')
-  } catch (e) {
-    stopping.value = false
-    const err = toAppError(e)
-    if (err.code === 'TASK_CONFLICT' || err.code === 'NOT_FOUND') return // 已经结束，以事件为准
-    ElMessage.error(`停止失败：${err.message}`)
-  }
-}
-
-function fullscreen() {
-  document.querySelector<HTMLElement>('.ff-player')?.requestFullscreen?.().catch(() => undefined)
-}
-
-/** 页面刷新后接回还在推的屏幕推流：先 ListActive（TaskService）重建状态，再订阅 task:*（架构师决定，不做专门重连逻辑；params 已脱敏，拿不到完整地址） */
-async function recover() {
-  try {
-    const r = (await liveApi.listRunning()).find((x) => x.type === 'live_screen_push')
-    if (!r) return
-    session.setStarting()
-    session.setRunning()
-    session.startClock(r.startedAt ? Math.max(0, (Date.now() - r.startedAt) / 1000) : 0)
-    watchTask(r.streamId)
-    session.log(`已接回正在推流的任务：${r.title}`)
-  } catch {
-    /* 后端没起就算了 */
+    err.value = pushErrorToForm(toAppError(e), check.info.scheme)
+  } finally {
+    starting.value = false
   }
 }
 
 onMounted(async () => {
-  if (preview) session.initPreview()
+  void store.recover()
   try {
     screens.value = await liveApi.listScreens()
-    screenId.value = screens.value.find((s) => s.primary)?.id ?? screens.value[0]?.id ?? ''
-  } catch (e) {
-    const err = toAppError(e)
-    if (err.code === 'UNSUPPORTED_PLATFORM') session.log(err.message)
+  } catch {
+    screens.value = []
   }
-  if (!preview && !session.busy.value) await recover()
-})
-onBeforeUnmount(() => {
-  userStopped = true
-  cleanup()
+  const f = formPreview
+  if (f === 'empty') return
+  screenId.value = screens.value.find((s) => s.primary)?.id ?? screens.value[0]?.id ?? ''
+  if (!f) return
+  baseUrl.value = 'rtmp://live-push.example.com/live'
+  key.value = '••••••••••••'
+  archiveOn.value = true
+  archiveDir.value = DEMO_ARCHIVE_DIR
+  const E: Record<string, PushFormError> = {
+    scheme: { where: 'addr', text: '暂不支持这种推流地址，请使用 rtmp、rtmps 或 srt' },
+    srtpass: { where: 'key', text: LIVE_SRT_PASSPHRASE_TEXT },
+    connfail: pushErrorToForm({ code: 'LIVE_CONNECT_FAILED', message: '', detail: 'scheme=rtmp' } as never),
+    connfailsrt: pushErrorToForm({ code: 'LIVE_CONNECT_FAILED', message: '', detail: 'scheme=srt', scheme: 'srt' } as never),
+    rejected: pushErrorToForm({ code: 'LIVE_PUSH_REJECTED', message: '' } as never),
+    same: pushErrorToForm({ code: 'TASK_CONFLICT', message: '', reason: 'duplicate_url' } as never),
+    max4: pushErrorToForm({ code: 'TASK_CONFLICT', message: '', reason: 'max_sessions' } as never),
+    screen1: pushErrorToForm({ code: 'TASK_CONFLICT', message: '', reason: 'screen_busy' } as never),
+    perm: pushErrorToForm({ code: 'SCREEN_PERMISSION_DENIED', message: '' } as never),
+    unsupported: pushErrorToForm({ code: 'UNSUPPORTED_PLATFORM', message: '' } as never),
+    nosrt: pushErrorToForm({ code: 'UNSUPPORTED', message: '', detail: 'missing=srt' } as never),
+    noproto: pushErrorToForm({ code: 'UNSUPPORTED', message: '' } as never),
+  }
+  if (E[f]) err.value = E[f]
+  if (f === 'srtpass' || f === 'connfailsrt' || f === 'nosrt') baseUrl.value = 'srt://srt.example.com:9000'
+  if (f === 'same') baseUrl.value = 'rtmp://push.example.com/live'
 })
 </script>
 
 <style scoped>
-.two {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
+.scr {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
-.sel {
-  width: 100%;
+.so {
+  height: 32px;
+  border: 1px solid var(--ff-border);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: var(--ff-fs-sm);
+  color: var(--ff-text-1);
+  background: var(--ff-bg-surface);
+  cursor: pointer;
+  text-align: left;
 }
-.hint {
-  margin-top: -6px;
-  font-size: 12px;
+.so svg {
   color: var(--ff-text-2);
-  word-break: break-all;
 }
-.note-inline {
+.so em {
+  margin-left: auto;
+  font-style: normal;
+  font-size: var(--ff-fs-xs);
+  color: var(--ff-text-2);
+}
+.so .rd {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ff-text-2);
+  flex: none;
+  position: relative;
+}
+.so.on {
+  border-color: var(--ff-primary);
+  background: var(--ff-primary-soft);
+}
+.so.on .rd {
+  border-color: var(--ff-primary);
+}
+.so.on .rd::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: var(--ff-primary);
+}
+.so:focus-visible {
+  outline: 2px solid var(--ff-primary);
+  outline-offset: 2px;
+}
+.note {
   margin: 8px 0 0;
   display: flex;
   align-items: flex-start;
-  gap: 6px;
-  font-size: 12px;
+  gap: 8px;
+  font-size: var(--ff-fs-xs);
   line-height: 1.5;
   color: var(--ff-text-2);
 }
-.note-inline > svg {
-  margin-top: 2px;
+.note > svg {
+  margin-top: 1px;
   flex: none;
 }
 .chk {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 13px;
+  font-size: var(--ff-fs-sm);
+  font-weight: 500;
+}
+.fmt {
+  color: var(--ff-text-2);
+  font-weight: 400;
+}
+.input.ro {
+  height: 28px;
+  border: 1px solid var(--ff-border);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  background: var(--ff-bg-hover);
+  font-size: var(--ff-fs-sm);
+  color: var(--ff-text-2);
+  overflow: hidden;
+}
+.grow {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lk {
+  flex: none;
+  color: var(--ff-primary-text);
+  cursor: pointer;
+}
+.lk:focus-visible {
+  outline: 2px solid var(--ff-primary);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.form-err {
+  margin-top: 0;
 }
 </style>

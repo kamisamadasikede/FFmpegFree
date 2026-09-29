@@ -127,6 +127,6 @@ withDefaults(defineProps<{ variant: 'screen' | 'scene' | 'idle'; hint?: string; 
   justify-content: center;
   gap: 10px;
   color: #7c828c;
-  font-size: 12.5px;
+  font-size: var(--ff-fs-xs);
 }
 </style>

@@ -30,7 +30,7 @@ import { live as goLive } from '../../wailsjs/go/models'
 import { AppError, call, toAppError } from '@/api/call'
 import { LIVE_BACKEND_READY } from '@/api/flags'
 import { probeFiles } from '@/api/media'
-import { activeSimEntries, cancelSimTask, createSimTask, getSimTask, injectionDetail, listSimActive, simDelay, simError, simInjection, simParam, type SimLiveSpec } from '@/api/sim'
+import { activeSimEntries, cancelSimTask, createSimTask, forceKillSimTask, getSimTask, injectionDetail, listSimActive, simDelay, simError, simInjection, simParam, type SimLiveSpec } from '@/api/sim'
 import { pickFiles, type PickFilter } from '@/api/system'
 import { toApiTask, type ApiTask, type ApiTaskError, type TaskProgressPayload, type TaskStatusPayload } from '@/api/taskTypes'
 import { hasWailsBackend, onTaskEvent } from '@/services/wails'
@@ -252,13 +252,11 @@ export async function startFilePush(req: FilePushRequest): Promise<ApiTask> {
   })
 }
 
-/** 屏幕推流（可同时本地存档） */
+/** 屏幕推流（可同时本地存档；后端 #47 已实现，archiveDir 非空时任务的 outputPath = 存档路径） */
 export async function startScreenPush(req: ScreenPushRequest): Promise<ApiTask> {
   assertSrtPassphrase(req.url)
   if (liveIsReal()) return toApiTask(await call(LiveBinding.StartScreenPush(goLive.ScreenPushRequest.createFrom(req))))
   await simDelay(150)
-  // 与真实后端一致：本地存档暂未实现，archiveDir 非空 → UNSUPPORTED（契约 §6.10：这种 UNSUPPORTED 没有 missing= 行，页面据此显示“暂不支持存档”而不是缺协议）
-  if (req.archiveDir) simError('UNSUPPORTED', '屏幕推流的本地存档暂未实现')
   const caps = await getCaptureCapabilities()
   if (!caps.supported) simError('UNSUPPORTED_PLATFORM', caps.reason || simMsg('UNSUPPORTED_PLATFORM'))
   if (caps.permission === 'denied') simError('SCREEN_PERMISSION_DENIED', simMsg('SCREEN_PERMISSION_DENIED'))
@@ -268,15 +266,25 @@ export async function startScreenPush(req: ScreenPushRequest): Promise<ApiTask> 
   if (req.audio !== 'none' && req.audio !== 'silent') simError('INVALID_ARGUMENT', 'audio 只能是 none 或 silent')
   const v = simValidateStart(req.url, req.options, true)
   const screen = screens.find((s) => s.id === req.screenId) ?? screens.find((s) => s.primary)!
+  // 后端 #47：archiveDir 非空 → 任务的 outputPath = 存档路径（分片 mp4，直接写最终文件名）；有存档的会话没有 bitrateKbps
+  const archivePath = req.archiveDir ? simArchivePath(req.archiveDir) : ''
   return createSimTask({
     type: 'live_screen_push',
     title: `屏幕推流：${screen.name} → ${v.redacted}`,
     inputPaths: [],
-    outputPath: '',
+    outputPath: archivePath,
     params: JSON.stringify({ kind: 'screen', screenId: req.screenId, url: v.redacted, hideCursor: req.hideCursor, audio: req.audio, archiveDir: req.archiveDir, options: req.options }),
-    live: simLiveSpec(v.scheme),
+    live: { ...simLiveSpec(v.scheme), ...(archivePath ? { archive: true } : {}) },
     meta: { normalized: v.normalized },
   })
+}
+
+/** 模拟：存档文件名与后端一致 screen-YYYYMMDD-HHMMSS.mp4 */
+function simArchivePath(dir: string): string {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  const sep = dir.includes('\\') && !dir.includes('/') ? '\\' : '/'
+  return `${dir.replace(/[\\/]+$/, '')}${sep}screen-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.mp4`
 }
 
 /** 屏幕采集能不能用、为什么不能用。模拟：?sim_err=UNSUPPORTED_PLATFORM（Wayland）/ SCREEN_PERMISSION_DENIED（macOS 未授权） */
@@ -295,8 +303,8 @@ export async function getCaptureCapabilities(): Promise<CaptureCapabilities> {
 export async function listScreens(): Promise<ScreenInfo[]> {
   if (liveIsReal()) return (await call(LiveBinding.ListScreens())) ?? []
   return [
-    { id: 'avf:0', name: '显示器 1（主）', primary: true, x: 0, y: 0, width: 2880, height: 1800, scale: 2 },
-    { id: 'avf:1', name: '显示器 2', primary: false, x: 2880, y: 0, width: 1920, height: 1080, scale: 1 },
+    { id: 'avf:0', name: '屏幕 1', primary: true, x: 0, y: 0, width: 1920, height: 1080, scale: 2 },
+    { id: 'avf:1', name: '屏幕 2', primary: false, x: 1920, y: 0, width: 2560, height: 1440, scale: 1 },
   ]
 }
 
@@ -319,6 +327,19 @@ export async function stopPush(taskId: string): Promise<void> {
   cancelSimTask(taskId)
 }
 
+/**
+ * 强制停止（“正在停止…”行上的 [强制停止]）。后端目前没有单独的强杀入口：重复 Cancel 是无操作（契约 6.6），
+ * 所以真实环境下这里只是再发一次 Cancel，不会缩短等待（最多 16 秒后端自己强杀）；模拟层立即强杀 → canceled。
+ * 需要架构师给强杀入口后再接（见 PR 说明）。
+ */
+export async function forceStopPush(taskId: string): Promise<void> {
+  if (liveIsReal()) {
+    await call(TaskBinding.Cancel(taskId))
+    return
+  }
+  forceKillSimTask(taskId)
+}
+
 export interface RunningStream {
   /** = 任务 id */
   streamId: string
@@ -327,6 +348,19 @@ export interface RunningStream {
   title: string
   inputPaths: string[]
   startedAt: number
+  /** 存档路径；非空 = 有本地存档（分片 mp4）。文件推流恒为 "" */
+  outputPath: string
+  /** 脱敏后的推流地址（params.url，形如 rtmp://host/app/***）；解析不了为 "" */
+  url: string
+}
+
+function redactedUrlFromParams(params: string): string {
+  try {
+    const u = (JSON.parse(params) as { url?: unknown }).url
+    return typeof u === 'string' ? u : ''
+  } catch {
+    return ''
+  }
 }
 
 /** 页面刷新后接回还在推的会话：TaskService.ListActive 里的 live_* 任务。params 已脱敏，拿不到完整地址 */
@@ -334,7 +368,10 @@ export async function listRunning(): Promise<RunningStream[]> {
   const tasks = liveIsReal() ? ((await call(TaskBinding.ListActive())) ?? []).map(toApiTask) : listSimActive()
   return tasks
     .filter((t) => t.type === 'live_file_push' || t.type === 'live_screen_push')
-    .map((t) => ({ streamId: t.id, type: t.type as RunningStream['type'], title: t.title, inputPaths: t.inputPaths, startedAt: t.startedAt }))
+    .map((t) => ({
+      streamId: t.id, type: t.type as RunningStream['type'], title: t.title, inputPaths: t.inputPaths, startedAt: t.startedAt,
+      outputPath: t.outputPath, url: redactedUrlFromParams(t.params),
+    }))
 }
 
 // ───────────── 任务事件 ─────────────
@@ -354,6 +391,8 @@ export interface LiveTaskEnd {
   /** succeeded=优雅停止 / 自然结束（已结束推流）；canceled=强杀（已强制停止）；failed=看 error；interrupted=应用退出 */
   status: 'succeeded' | 'failed' | 'canceled' | 'interrupted'
   error?: ApiTaskError | null
+  /** 终态 task:status 里的 outputPath：有本地存档且保留时非空（succeeded / canceled / failed / interrupted 都可能有）；空 = 没有存档，或空壳存档已被后端删掉。`canceled` 且非空 = 强杀且存档已保留 */
+  outputPath: string
 }
 
 export interface LiveWatchHandlers {
@@ -370,11 +409,11 @@ export function watchLiveTask(taskId: string, h: LiveWatchHandlers): () => void 
   let version = 0
   let connected = false
   let ended = false
-  const end = (status: string, error?: ApiTaskError | null) => {
+  const end = (status: string, error?: ApiTaskError | null, outputPath?: string) => {
     if (ended) return
     ended = true
     off()
-    h.onEnd({ taskId, status: status as LiveTaskEnd['status'], error: error ?? null })
+    h.onEnd({ taskId, status: status as LiveTaskEnd['status'], error: error ?? null, outputPath: outputPath ?? '' })
   }
   const offProgress = onTaskEvent<TaskProgressPayload>('task:progress', (p) => {
     if (p.id !== taskId || ended || p.version <= version) return
@@ -388,7 +427,7 @@ export function watchLiveTask(taskId: string, h: LiveWatchHandlers): () => void 
   const offStatus = onTaskEvent<TaskStatusPayload>('task:status', (p) => {
     if (p.id !== taskId || p.version <= version) return
     version = p.version
-    if (TERMINAL.includes(p.status)) end(p.status, p.error)
+    if (TERMINAL.includes(p.status)) end(p.status, p.error, p.outputPath)
   })
   const off = () => {
     offProgress()
@@ -398,7 +437,7 @@ export function watchLiveTask(taskId: string, h: LiveWatchHandlers): () => void 
   void (async () => {
     try {
       const t = liveIsReal() ? toApiTask(await call(TaskBinding.Get(taskId))) : getSimTask(taskId)
-      if (t && TERMINAL.includes(t.status) && t.version > version) end(t.status, t.error)
+      if (t && TERMINAL.includes(t.status) && t.version > version) end(t.status, t.error, t.outputPath)
     } catch (e) {
       console.warn('live task get failed', taskId, toAppError(e).code)
     }

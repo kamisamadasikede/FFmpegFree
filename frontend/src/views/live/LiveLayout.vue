@@ -1,22 +1,27 @@
 <template>
   <div class="live">
+    <div v-if="!liveIsReal()" class="lv-demo" role="status">
+      <FIcon name="warn" :size="16" />
+      <span>直播功能仍在开发中，当前页面为演示，尚未连接真实推流。</span>
+    </div>
+    <div class="body">
     <nav class="seg" aria-label="直播工具">
       <RouterLink v-for="t in tabs" :key="t.to" :to="t.to" class="seg-item">
         {{ t.label }}
       </RouterLink>
     </nav>
-    <MigrationNotice v-if="!liveIsReal()" text="直播功能仍在开发中，当前页面为演示，尚未连接真实推流。" />
     <!-- KeepAlive：切换页签不打断进行中的推流 / 播放 -->
     <RouterView v-slot="{ Component }">
       <KeepAlive>
         <component :is="Component" />
       </KeepAlive>
     </RouterView>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import MigrationNotice from '@/components/common/MigrationNotice.vue'
+import FIcon from '@/components/icon/FIcon.vue'
 import { liveIsReal } from '@/api/live'
 // 直播页外壳：三个页签（原型 pages.html 的 .seg，宽 360）+ 页签内容。
 const tabs = [
@@ -28,13 +33,36 @@ const tabs = [
 
 <style scoped>
 .live {
-  /* 原型 .page 的内边距是 16/24/20，外壳 .app-content 是 20/24/24，这里各补 4px */
-  margin: -4px 0;
-  height: calc(100% + 8px);
+  /* 原型 .page 内边距 16/24/20（提示条通栏 32px），外壳 .app-content 是 20/24/24：抵消外壳内边距，由 .body 按设计稿自己留白 */
+  margin: -20px -24px -24px;
+  height: calc(100% + 44px);
   min-height: 600px;
   display: flex;
   flex-direction: column;
+}
+.lv-demo {
+  height: 32px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 24px;
+  background: color-mix(in srgb, var(--ff-warning) 10%, var(--ff-bg-app));
+  border-bottom: 1px solid color-mix(in srgb, var(--ff-warning) 28%, transparent);
+  font-size: var(--ff-fs-sm);
+  color: var(--ff-text-1);
+  white-space: nowrap;
+}
+.lv-demo svg {
+  color: var(--ff-warning-text);
+}
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   gap: 16px;
+  padding: 16px 24px 20px;
 }
 .seg {
   display: flex;
@@ -51,7 +79,7 @@ const tabs = [
   line-height: 24px;
   border-radius: 4px;
   color: var(--ff-text-2);
-  font-size: 12px;
+  font-size: var(--ff-fs-xs);
   transition: color var(--ff-dur-fast) var(--ff-ease), background var(--ff-dur-fast) var(--ff-ease);
 }
 .seg-item:hover {

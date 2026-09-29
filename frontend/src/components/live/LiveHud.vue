@@ -52,7 +52,7 @@ defineProps<{ label: string; time: string; lines: string[] }>()
   padding: 8px 10px;
   color: #e5e7eb;
   font-family: var(--ff-font-mono);
-  font-size: 11px;
+  font-size: var(--ff-fs-xs);
   line-height: 1.6;
 }
 </style>
