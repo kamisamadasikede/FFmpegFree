@@ -452,3 +452,20 @@ func vendorFromID(id string) string {
 	}
 	return VendorUnknown
 }
+
+// EncoderResolver 返回任务用的编码器解析器（契约 9.7）：用 ListEncoderDevices 的缓存结果 + 当前偏好 + ResolveEncoder。
+// 缓存还没有时会先检测一次（每个编码器最多 5 秒，之后走缓存）；检测出错一律按 CPU。
+// codec 是 "h264" 或 "hevc"。选了具体设备但它不可用时 Fallback=true。
+func (m *Manager) EncoderResolver() ffmpeg.EncoderResolver {
+	return func(ctx context.Context, codec string) ffmpeg.EncoderChoice {
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		list, err := m.ListEncoderDevices(ctx)
+		if err != nil {
+			return ffmpeg.EncoderChoice{}
+		}
+		name, dev, fb := ResolveEncoder(m.GetEncoderPreference(ctx), list.Devices, codec)
+		return ffmpeg.EncoderChoice{Encoder: name, Device: dev, Fallback: fb}
+	}
+}

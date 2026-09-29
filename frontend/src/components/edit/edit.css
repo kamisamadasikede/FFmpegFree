@@ -348,10 +348,12 @@ select.ed-in { padding-right: 24px; background-image: linear-gradient(45deg, tra
 .ed-strip .x { border: 0; background: none; cursor: pointer; }
 .ed-strip .x:hover { background: var(--ff-bg-hover); }
 .ed-strip .ed-warns { flex-basis: 100%; }
-.ed-strip.st-ok { flex-wrap: wrap; }
+.ed-strip.st-ok, .ed-strip.st-run { flex-wrap: wrap; }
 .ed-strip .ed-wl { flex-basis: 100%; margin: 0; padding: 8px 0 0 28px; border-top: 1px solid color-mix(in srgb, var(--ff-success) 28%, transparent); list-style: none; display: flex; flex-direction: column; gap: 4px; }
 .ed-strip .ed-wl li { display: flex; align-items: center; gap: 4px; color: var(--ff-warning-text); font-size: 12px; }
 .ed-strip .ed-wl svg { width: 14px; height: 14px; flex: none; }
+.ed-strip .ed-fb { flex-basis: 100%; margin-top: 4px; }
+.ed-strip .ed-dev { color: var(--ff-text-2); white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 .ed-strip .st-code { font-family: var(--ff-font-mono); font-size: 12px; color: var(--ff-text-2); margin-left: 8px; }
 .ed-mask { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: grid; place-items: center; z-index: 50; }
 .ed-dlg { max-height: calc(100vh - 48px); overflow-y: auto; }

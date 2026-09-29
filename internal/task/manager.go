@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"FFmpegFree/internal/apperr"
+	"FFmpegFree/internal/ffmpeg"
 	"FFmpegFree/internal/id"
 )
 
@@ -179,6 +180,10 @@ func (m *Manager) Submit(spec Spec, r Runner) (Task, error) {
 	}
 	if IsLive(spec.Type) {
 		t.Progress = -1 // 契约：直播类任务进度恒为 -1
+	}
+	if er, ok := r.(EncoderReporter); ok {
+		ei := er.EncoderInfo()
+		t.Encoder, t.EncoderDevice, t.HWFallback, t.HWFallbackReason = ei.Encoder, ei.Device, ei.HWFallback, ei.HWFallbackReason
 	}
 	e := newEntry(m, t, r)
 	t.LogPath = e.log.path()
@@ -563,4 +568,14 @@ func nonNil(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+// setEncoder 见 ReportEncoder。
+func (m *Manager) setEncoder(taskID string, info ffmpeg.EncoderInfo) {
+	m.mu.Lock()
+	e := m.entries[taskID]
+	m.mu.Unlock()
+	if e != nil {
+		e.setEncoder(info)
+	}
 }

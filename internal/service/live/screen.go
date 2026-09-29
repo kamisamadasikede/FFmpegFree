@@ -305,10 +305,10 @@ func (s *Service) startScreenPush(ctx context.Context, req ScreenPushRequest) (t
 		GOOS:        s.cfg.GOOS, Display: s.cfg.Getenv("DISPLAY"), HideCursor: req.HideCursor, Silent: req.Audio == "silent",
 		Scheme: u.Scheme, URL: u.FFmpeg, FPS: fps,
 		Region: ffmpeg.ScreenRegion{X: sc.X, Y: sc.Y, Width: sc.Width, Height: sc.Height, Desktop: sc.ID == "x11:desktop", WindowTitle: windowTitle},
-		Enc: ffmpeg.LiveEncode{
-			Width: req.Options.Width, Height: req.Options.Height, GOPFps: fps,
-			VideoKbps: req.Options.videoKbps(), AudioKbps: req.Options.audioKbps(),
-		},
+	}
+	baseEnc := ffmpeg.LiveEncode{
+		Width: req.Options.Width, Height: req.Options.Height, GOPFps: fps,
+		VideoKbps: req.Options.videoKbps(), AudioKbps: req.Options.audioKbps(),
 	}
 	if strings.HasPrefix(sc.ID, "avf:") {
 		plan.Region.DeviceIndex, _ = strconv.Atoi(strings.TrimPrefix(sc.ID, "avf:"))
@@ -332,7 +332,11 @@ func (s *Service) startScreenPush(ctx context.Context, req ScreenPushRequest) (t
 		}
 		plan.ArchiveTee = tee
 	}
-	args := ffmpeg.BuildScreenPushArgs(plan)
+	args, encoding := s.resolveLiveEncoder(ctx, baseEnc, func(e ffmpeg.LiveEncode) []string {
+		p := plan
+		p.Enc = e
+		return ffmpeg.BuildScreenPushArgs(p)
+	})
 	pj, _ := json.Marshal(screenPushParams{Kind: "screen", ScreenID: req.ScreenID, URL: u.Redacted, HideCursor: req.HideCursor,
 		Audio: firstNonEmpty(req.Audio, "none"), ArchiveDir: archiveDir, Options: req.Options, CaptureSourceID: req.CaptureSourceID})
 	spec := task.Spec{
@@ -344,7 +348,7 @@ func (s *Service) startScreenPush(ctx context.Context, req ScreenPushRequest) (t
 		Params:     string(pj),
 	}
 	var r task.Runner
-	base := s.newRunner(taskID, bin, u, req.URL, args, true, archive)
+	base := s.newRunner(taskID, bin, u, req.URL, args, encoding, true, archive)
 	if archive {
 		r = &archiveRunner{runner: base, g: &archiveGuard{s: s, ffprobe: bin.FFprobe, path: archivePath}}
 	} else {

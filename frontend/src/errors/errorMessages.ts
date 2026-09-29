@@ -1,7 +1,7 @@
 // 错误文案表：产品经理定稿、老板冻结，改文案要先走评审。
 // 展示形态见设计原型 proto/errors.html：overlay 用于播放器区域，inline 用于表单，任务中心失败行用 ErrorLine。
 import type { IconName } from '../components/icon/icons'
-import { parseDetailHead } from '../api/call'
+import { docErrorReason, parseDetailHead, type DocErrorReason } from '../api/call'
 
 export type ErrorStyle = 'overlay' | 'inline'
 
@@ -368,30 +368,31 @@ export function probeErrorText(code: string, backendMessage?: string): string {
 export const SUBMIT_ERROR_TITLE = '无法开始转换'
 
 // ───────────── 文档页错误判断 ─────────────
-// 后端（internal/service/doc）的真实取值，逐条对照代码，不靠正则猜 message：
-//  - 提交时整体校验失败（ConvertToPDF）：detail 第一行是出错文件的绝对路径（withPath），后面才是原因；
-//    任务运行时失败（task.error）：detail 没有路径行，第一行就是原因。所以先剥掉路径行再看“原因首行”。
-//  - UNSUPPORTED · 超过 5000 页：detail 首行是 `已排到第 N 页仍未结束`（render.go）或 `文档文字量超过上限`（extract.go）。
-//    （契约 6.12.3 写 detail「超过 5000 页」，实际那是 message；detail 用的是上面两句。）
-//  - UNSUPPORTED · 不支持的格式：message `暂不支持这种格式`，detail 首行是 `.<扩展名>：<原因>` / `.<扩展名>` / `文件没有扩展名` / `加密文档不支持…`。
-//  - UNSUPPORTED · 缺 Unicode 字体：detail 首行 `文档含有 Latin-1 以外的字符，但没有可用的字体`，沿用后端 message。
-//  - INVALID_ARGUMENT · 文件损坏：message 固定 `不是有效的 OOXML 文件`，但 detail 首行是自由文本（zip 错误、`缺少 word/document.xml`、
-//    `压缩包条目数超过 100000`、`<条目> 解压后超过 256 MiB`……），没有稳定枚举可用，所以这一项只能对 message 做精确相等比较。
-//    已提请架构师在契约里给一个稳定的 detail 首行（如 `reason=invalid_ooxml`），有了以后这里改成看 detail。
-//  其余任何取值都保守回落到后端 message（后端 message 本身是给用户看的中文）或通用文案。
+// 契约 v0.16（2.2 / 6.12.6）：Doc 面向前端的“文件本身有问题”类错误，detail 首行严格是 `reason=<枚举>`
+// （too_many_pages | format | encrypted | no_font | invalid_ooxml | too_large，只追加），code 和 message 不变。
+// 取消、磁盘满、读写失败、NOT_FOUND、路径 / 参数 / 输出目录 / 句柄类 INVALID_ARGUMENT、INTERNAL 没有 reason，走该码的原有处理。
+// ConvertToPDF 整体校验失败时，出错文件的绝对路径在 reason 行之后（第二行）；任务 error 没有路径行。
+// 判断顺序：先看 reason；reason 缺失（老后端 / 没有 reason 的场景）才用下面对 message 的精确相等兜底。不做正则或包含匹配。
 const PAGES_MESSAGE = '超过 5000 页'
 const FORMAT_MESSAGE = '暂不支持这种格式'
+const NO_FONT_MESSAGE = '没有可用的 Unicode 字体'
 const OOXML_INVALID_MESSAGE = '不是有效的 OOXML 文件'
-const PAGES_DETAIL_HEADS: RegExp[] = [/^已排到第 \d+ 页仍未结束$/, /^文档文字量超过上限$/]
-const NO_FONT_DETAIL_HEAD = '文档含有 Latin-1 以外的字符，但没有可用的字体'
-const FORMAT_DETAIL_HEADS: RegExp[] = [/^\.[A-Za-z0-9]+(：.*)?$/, /^文件没有扩展名$/, /^加密文档不支持/]
+const OFFICE_TOO_LARGE_MESSAGE = '文件超过 100 MiB'
 
 const ABS_PATH_RE = /^([A-Za-z]:[\\/]|\/|\\\\)/
 
-/** 出错文件的完整路径：ConvertToPDF 整体校验失败时 detail 第一行；不是路径返回空串 */
+/** detail 首行 reason=…（只认契约枚举里的值，其余返回 undefined） */
+export function docReasonOf(detail?: string): DocErrorReason | undefined {
+  return docErrorReason(parseDetailHead(detail).reason)
+}
+
+/** 出错文件的完整路径：ConvertToPDF 整体校验失败时在 reason 行之后（第二行）；也兼容没有 reason 行、路径在第一行的旧形态。只看前两行，reason= 行不当路径；找不到返回空串 */
 export function docErrorPath(detail?: string): string {
-  const first = (detail ?? '').split(/\r?\n/, 1)[0].trim()
-  return first && ABS_PATH_RE.test(first) ? first : ''
+  const lines = (detail ?? '').split(/\r?\n/, 2).map((l) => l.trim())
+  for (const l of lines) {
+    if (l && !/^reason=/.test(l) && ABS_PATH_RE.test(l)) return l
+  }
+  return ''
 }
 
 /** 出错文件名（路径的最后一段） */
@@ -400,37 +401,66 @@ export function docErrorFile(_code: string, detail?: string): string {
   return p ? p.split(/[\\/]/).pop() || '' : ''
 }
 
-/** “原因首行”：detail 去掉开头的路径行（如果有）后的第一行 */
-export function docDetailHead(detail?: string): string {
-  const lines = (detail ?? '').split(/\r?\n/).map((l) => l.trim())
-  if (lines.length && lines[0] && ABS_PATH_RE.test(lines[0])) lines.shift()
-  return lines.find((l) => l !== '') ?? ''
-}
-
-/** 待产品经理确认：UNSUPPORTED 且是超过页数上限。maxPages 取 GetDocCapabilities().limits.maxPages（默认 5000） */
+/** 待产品经理确认：超过页数上限。maxPages 取 GetDocCapabilities().limits.maxPages（默认 5000） */
 export function docTooManyPagesText(maxPages = 5000): string {
   return `文档太长，超过 ${maxPages} 页，无法转换`
 }
 
-const isTooManyPages = (message?: string, head = ''): boolean => (message ?? '').trim() === PAGES_MESSAGE || PAGES_DETAIL_HEADS.some((re) => re.test(head))
-
-/** 文档 UNSUPPORTED 的用户文案（任务中心也用）：见上面的取值表；认不出的沿用后端 message，不误导用户去“另存为” */
-export function docUnsupportedText(backendMessage?: string, detail?: string, maxPages = 5000): string {
-  const head = docDetailHead(detail)
-  if (isTooManyPages(backendMessage, head)) return (backendMessage ?? '').trim() || docTooManyPagesText(maxPages) // 任务中心沿用后端 message，行为不变；文档页走 docErrorText 用待确认文案
-  if (head === NO_FONT_DETAIL_HEAD) return (backendMessage ?? '').trim() || FALLBACK_DESCRIPTION
-  if ((backendMessage ?? '').trim() === FORMAT_MESSAGE || FORMAT_DETAIL_HEADS.some((re) => re.test(head))) return DOC_FORMAT_UNSUPPORTED_TEXT
-  return (backendMessage ?? '').trim() || FALLBACK_DESCRIPTION
-}
-
-// 待产品经理确认：下面两句是自拟文案（超过页数上限、文件损坏）。设计师倾向保持这两句，产品经理还没最终确认，定稿后只改这里。
-/** 待产品经理确认：UNSUPPORTED 且是超过 5000 页（常量形式，页数上限取默认 5000；页面里用 docTooManyPagesText(limits.maxPages)） */
+// 待产品经理确认：下面几句是自拟文案（超过页数上限、文件损坏、加密、缺字体、文件太大），设计师倾向保持前两句，产品经理还没最终确认，定稿后只改这里。
+/** 待产品经理确认：reason=too_many_pages（常量形式，页数上限取默认 5000；页面里用 docTooManyPagesText(limits.maxPages)） */
 export const DOC_TOO_MANY_PAGES_TEXT = docTooManyPagesText(5000)
-/** 待产品经理确认：INVALID_ARGUMENT 且 message 是“不是有效的 OOXML 文件”（打不开、缺部件、条目过多、解压过大） */
+/** 待产品经理确认：reason=invalid_ooxml（不是 zip、缺必需部件、XML 损坏） */
 export const DOC_FILE_BROKEN_TEXT = '这个文件已损坏，或不是有效的 Word、Excel、PowerPoint 文档'
+/** 待产品经理确认：reason=encrypted（加密的 Office 文档；也可能是旧版格式改了扩展名） */
+export const DOC_ENCRYPTED_TEXT = '这是加密的 Office 文档（或旧版格式改了扩展名），暂不支持，请先去掉密码，或另存为 docx、xlsx、pptx'
+/** 待产品经理确认：reason=no_font（需要 Unicode 字体而没有；正常构建内嵌字体总是可用，基本不会出现） */
+export const DOC_NO_FONT_TEXT = '没有可用的字体，暂时无法转换这个文档'
+/** 待产品经理确认：reason=too_large（Office 文件 > 100 MiB，或 zip 条目 / 解压大小超限） */
+export const DOC_TOO_LARGE_TEXT = '这个文件太大，无法转换'
 export const DOC_NOT_FOUND_TEXT = '找不到这个文件，可能已被移动或删除'
 /** 整批校验未通过时列表底部的提示（设计说明 5.2，待确认） */
 export const DOC_BATCH_INVALID_HINT = '有文件不能转换，本次没有开始转换任何文件。请移除标红的文件后重试。'
+
+/**
+ * 按 reason（缺失时按 message 精确相等兜底）得出 Office 转换错误的文案；不是这几类返回 undefined。
+ * taskCenter 为 true 时保持任务中心原有行为：超页数沿用后端 message，缺字体沿用后端 message。
+ */
+function docReasonText(code: string, msg: string, detail: string | undefined, maxPages: number, taskCenter = false): string | undefined {
+  if (code !== 'UNSUPPORTED' && code !== 'INVALID_ARGUMENT') return undefined
+  const reason = docReasonOf(detail)
+  if (reason) {
+    switch (reason) {
+      case 'too_many_pages':
+        return taskCenter ? msg || docTooManyPagesText(maxPages) : docTooManyPagesText(maxPages)
+      case 'format':
+        return DOC_FORMAT_UNSUPPORTED_TEXT
+      case 'encrypted':
+        return DOC_ENCRYPTED_TEXT
+      case 'no_font':
+        return taskCenter ? msg || DOC_NO_FONT_TEXT : DOC_NO_FONT_TEXT
+      case 'invalid_ooxml':
+        return DOC_FILE_BROKEN_TEXT
+      case 'too_large':
+        return DOC_TOO_LARGE_TEXT
+    }
+  }
+  // 兜底：reason 缺失，对 message 做精确相等
+  if (code === 'UNSUPPORTED') {
+    if (msg === PAGES_MESSAGE) return taskCenter ? msg : docTooManyPagesText(maxPages)
+    if (msg === FORMAT_MESSAGE) return DOC_FORMAT_UNSUPPORTED_TEXT
+    if (msg === NO_FONT_MESSAGE) return taskCenter ? msg : DOC_NO_FONT_TEXT
+  } else {
+    if (msg === OOXML_INVALID_MESSAGE) return DOC_FILE_BROKEN_TEXT
+    if (msg === OFFICE_TOO_LARGE_MESSAGE) return DOC_TOO_LARGE_TEXT
+  }
+  return undefined
+}
+
+/** 文档 UNSUPPORTED 的用户文案（任务中心也用）：先看 reason，再兜底 message；认不出的沿用后端 message，不误导用户去“另存为” */
+export function docUnsupportedText(backendMessage?: string, detail?: string, maxPages = 5000): string {
+  const msg = (backendMessage ?? '').trim()
+  return docReasonText('UNSUPPORTED', msg, detail, maxPages, true) ?? (msg || FALLBACK_DESCRIPTION)
+}
 
 /**
  * 文档页（Office 转 PDF、PDF 预览）里 DocService / 转换任务的错误 → 用户可读的话。页面里不要散写文案，统一走这里。
@@ -440,9 +470,9 @@ export function docErrorText(code: string, backendMessage?: string, detail?: str
   const msg = (backendMessage ?? '').trim()
   switch (code) {
     case 'UNSUPPORTED':
-      return isTooManyPages(msg, docDetailHead(detail)) ? docTooManyPagesText(maxPages) : docUnsupportedText(msg, detail, maxPages)
     case 'INVALID_ARGUMENT':
-      return msg === OOXML_INVALID_MESSAGE ? DOC_FILE_BROKEN_TEXT : msg || FALLBACK_DESCRIPTION
+      // 有 reason 的按 reason；路径 / 参数 / 输出目录类的 INVALID_ARGUMENT 没有 reason，沿用后端 message
+      return docReasonText(code, msg, detail, maxPages) ?? (msg || FALLBACK_DESCRIPTION)
     case 'NOT_FOUND':
       return DOC_NOT_FOUND_TEXT
     case 'CONVERT_DISK_FULL':
@@ -474,7 +504,8 @@ export const DOC_PDF_EMPTY_TITLE = '预览 PDF'
 export const DOC_PDF_EMPTY_HINT = '选择或拖入 PDF 文件，也可以从右侧列表打开最近的文件'
 export const DOC_PDF_NOT_OPENED = '未打开 PDF'
 
-// 后端 OpenPDF / ReadPDFChunk 里固定的 message（pdf.go）。detail 是路径或字节数，不能用来区分，所以对 message 精确比较。
+// 后端 OpenPDF / ReadPDFChunk（契约 v0.16）：不是 PDF / 扩展名不对 = reason=format，超 512 MiB = reason=too_large；其余（NOT_FOUND、IO_ERROR、路径 / 句柄类）没有 reason。
+// reason 缺失时才用下面对 message 的精确相等兜底。
 const PDF_NOT_PDF_MESSAGES = ['不是 PDF 文件', '只支持 .pdf 文件']
 const PDF_TOO_LARGE_MESSAGE = '文件超过 512 MiB'
 // 文件在读取时变了：后端 OpenPDF 是“文件在读取时被替换，请重试”，前端读整份时 c.size !== src.size 抛的是“PDF 在读取时被修改”
@@ -490,14 +521,15 @@ export interface PdfErrorView {
 }
 
 /** 预览加载失败卡片（设计说明 5.3）。maxPdfBytes 取 limits.maxPdfBytes（默认 512 MiB） */
-export function pdfErrorView(code: string, backendMessage?: string, maxPdfBytes = 512 * 1024 * 1024): PdfErrorView {
+export function pdfErrorView(code: string, backendMessage?: string, maxPdfBytes = 512 * 1024 * 1024, detail?: string): PdfErrorView {
   const msg = (backendMessage ?? '').trim()
+  const reason = docReasonOf(detail)
   switch (code) {
     case DOC_PDF_PARSE_FAILED_CODE:
       return { text: DOC_PDF_PARSE_FAILED_TEXT, code: DOC_PDF_PARSE_FAILED_CODE, retry: true }
     case 'INVALID_ARGUMENT':
-      if (msg === PDF_TOO_LARGE_MESSAGE) return { text: `文件超过 ${Math.round(maxPdfBytes / (1024 * 1024))} MiB，暂不支持预览。`, code, retry: false }
-      if (PDF_NOT_PDF_MESSAGES.includes(msg)) return { text: DOC_PDF_INVALID_TEXT, code, retry: false }
+      if (reason === 'too_large' || (!reason && msg === PDF_TOO_LARGE_MESSAGE)) return { text: `文件超过 ${Math.round(maxPdfBytes / (1024 * 1024))} MiB，暂不支持预览。`, code, retry: false }
+      if (reason === 'format' || (!reason && PDF_NOT_PDF_MESSAGES.includes(msg))) return { text: DOC_PDF_INVALID_TEXT, code, retry: false }
       return { text: msg || FALLBACK_DESCRIPTION, code, retry: false }
     case 'NOT_FOUND':
       return { text: DOC_PDF_NOT_FOUND_TEXT, code, retry: false }

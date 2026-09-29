@@ -19,11 +19,27 @@ type exportRunner struct {
 	bin ffmpeg.Binaries
 	pl  *plan
 	out string
+	// 编码器在提交 / 重试时解析一次（契约 9.7）：hw 非空 = 用该硬件 H.264 编码器；info 是任务开始时的编码器信息，cpuInfo 是回退 CPU 后的。
+	hw      string
+	info    ffmpeg.EncoderInfo
+	cpuInfo ffmpeg.EncoderInfo
 }
 
 func (s *Service) newRunner(bin ffmpeg.Binaries, pl *plan, out string) task.Runner {
-	return &exportRunner{s: s, bin: bin, pl: pl, out: out}
+	// mp4 / mov / mkv 等非 webm 导出是 libx264 重编码 → 可以用硬件；webm 是 VP9，走 CPU。
+	cpuInfo := ffmpeg.EncoderInfo{Encoder: "libx264", Device: "cpu"}
+	r := &exportRunner{s: s, bin: bin, pl: pl, out: out, cpuInfo: cpuInfo, info: cpuInfo}
+	if pl.format == "webm" {
+		r.info = ffmpeg.EncoderInfo{Encoder: "libvpx-vp9", Device: "cpu"}
+		r.cpuInfo = r.info
+		return r
+	}
+	r.hw, r.info = ffmpeg.DecideEncoding(context.Background(), s.cfg.Encoder, "h264", ffmpeg.HWDimsOK("h264", pl.w, pl.h))
+	return r
 }
+
+// EncoderInfo 实现 task.EncoderReporter。
+func (r *exportRunner) EncoderInfo() ffmpeg.EncoderInfo { return r.info }
 
 func (r *exportRunner) Run(ctx context.Context, report func(task.Progress)) (string, error) {
 	tmp, err := os.MkdirTemp(r.s.cfg.TempDir, "edit-")
@@ -40,7 +56,12 @@ func (r *exportRunner) Run(ctx context.Context, report func(task.Progress)) (str
 		Output:      r.out,
 		DurationSec: r.pl.duration,
 		Classify:    classifyExportError,
-		BuildArgs:   func(part string) []string { return exportArgs(r.pl, script, part) },
+		BuildArgs:   func(part string) []string { return exportArgsHW(r.pl, script, part, r.hw) },
+		Encoding:    r.info,
+	}
+	if r.hw != "" {
+		fr.HWEncoder, fr.CPUEncoding = r.hw, r.cpuInfo
+		fr.BuildCPUArgs = func(part string) []string { return exportArgsHW(r.pl, script, part, "") }
 	}
 	return fr.Run(ctx, report)
 }
@@ -50,7 +71,12 @@ func outputErr(msg string, err error) error {
 }
 
 // exportArgs 生成 ffmpeg 参数（不含 -y / -progress 等，由 ffmpeg.Run 添加）。filtergraph 写文件，用探测选中的选项（pl.filterOpt：-/filter_complex 或 -filter_complex_script）传入，不走命令行。
-func exportArgs(pl *plan, script, part string) []string {
+//
+// hw 非空时视频用该硬件 H.264 编码器（画质对应 x264 CRF 20，见 ffmpeg.HWRateArgs），否则 libx264；webm 恒用 CPU 的 VP9。
+func exportArgs(pl *plan, script, part string) []string { return exportArgsHW(pl, script, part, "") }
+
+// exportArgsHW 同 exportArgs，hw 非空时 H.264 视频用该硬件编码器。
+func exportArgsHW(pl *plan, script, part, hw string) []string {
 	var a []string
 	// 每个 clip 一个输入，序号 = clip.idx（视频 clip 在前，音频 clip 在后）。
 	all := make([]rclip, 0, len(pl.videos)+len(pl.audios))
@@ -68,7 +94,12 @@ func exportArgs(pl *plan, script, part string) []string {
 	if pl.format == "webm" {
 		a = append(a, "-c:v", "libvpx-vp9", "-b:v", "2M", "-pix_fmt", "yuv420p", "-c:a", "libopus", "-b:a", "128k")
 	} else {
-		a = append(a, "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k")
+		if hw != "" {
+			a = append(a, ffmpeg.HWRateArgs(hw, "h264", 20, 0)...)
+		} else {
+			a = append(a, "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p")
+		}
+		a = append(a, "-c:a", "aac", "-b:a", "192k")
 		if pl.format == "mp4" {
 			a = append(a, "-movflags", "+faststart")
 		}

@@ -102,6 +102,7 @@ func fakeFFmpeg(t *testing.T, dir string) string {
 	script := `#!/bin/sh
 mode=$(cat "$0.mode")
 printf '%s\n' "$@" > "$0.args"
+printf '%s\n' "$*" >> "$0.calls"
 for a in "$@"; do last="$a"; done
 prog() { echo "fps=25.00"; echo "drop_frames=0"; echo "total_size=$1"; echo "out_time_us=$2"; echo "speed=1.00x"; echo "progress=continue"; }
 case "$mode" in
@@ -153,6 +154,25 @@ case "$mode" in
     prog 5000 1000000
     prog 9000 2000000
     echo "total_size=9000"; echo "out_time_us=2000000"; echo "progress=end"
+    exit 0 ;;
+  hwinit_live) # 含 h264_nvenc 时 NVENC 初始化失败（没有 progress）；否则正常推流等 q
+    case "$*" in *h264_nvenc*)
+      echo "[h264_nvenc @ 0x1] OpenEncodeSessionEx failed: unsupported device (2): (no details)" >&2
+      echo "Error while opening encoder for output stream #0:0 - maybe incorrect parameters" >&2
+      exit 1 ;;
+    esac
+    prog 5000 1000000
+    read -r x
+    exit 0 ;;
+  hwmid)       # 含 h264_nvenc 时先推出去，之后 NVENC 报错退出（推流中途失败）
+    case "$*" in *h264_nvenc*)
+      prog 5000 1000000
+      sleep 0.2
+      echo "[h264_nvenc @ 0x1] OpenEncodeSessionEx failed: out of memory" >&2
+      exit 1 ;;
+    esac
+    prog 5000 1000000
+    read -r x
     exit 0 ;;
   unknown)
     echo "some unexpected failure $last" >&2

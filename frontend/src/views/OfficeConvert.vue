@@ -341,7 +341,7 @@ function seedSim(kind: string) {
   } else if (kind === 'invalid' || kind === 'invalid2') {
     entries.value = [
       mk('用户调研报告.docx'),
-      mk(kind === 'invalid' ? '旧版报价单.doc' : '损坏的合同.xlsx', { invalid: kind === 'invalid' ? docErrorText('UNSUPPORTED', '暂不支持这种格式', '.doc：旧版') : docErrorText('INVALID_ARGUMENT', '不是有效的 OOXML 文件', 'bad zip') }),
+      mk(kind === 'invalid' ? '旧版报价单.doc' : '损坏的合同.xlsx', { invalid: kind === 'invalid' ? docErrorText('UNSUPPORTED', '暂不支持这种格式', 'reason=format\n/Users/me/Documents/旧版报价单.doc\n.doc：旧版') : docErrorText('INVALID_ARGUMENT', '不是有效的 OOXML 文件', 'reason=invalid_ooxml\n/Users/me/Documents/损坏的合同.xlsx\nzip: not a valid zip file') }),
       mk('2026 Q3 产品回顾.pptx'),
     ]
   } else if (kind === 'running') {
@@ -354,8 +354,8 @@ function seedSim(kind: string) {
     entries.value = [mk('用户调研报告.docx', { fake: { status: 'succeeded' } }), mk('渠道数据汇总.xlsx', { fake: { status: 'succeeded' } }), mk('2026 Q3 产品回顾.pptx', { fake: { status: 'succeeded' } })]
   } else if (kind === 'failed') {
     entries.value = [
-      mk('用户调研报告.docx', { fake: { status: 'failed', error: { code: 'UNSUPPORTED', message: '超过 5000 页', detail: '已排到第 5000 页仍未结束' } } }),
-      mk('渠道数据汇总.xlsx', { fake: { status: 'failed', error: { code: 'INVALID_ARGUMENT', message: '不是有效的 OOXML 文件', detail: '缺少 xl/workbook.xml' } } }),
+      mk('用户调研报告.docx', { fake: { status: 'failed', error: { code: 'UNSUPPORTED', message: '超过 5000 页', detail: 'reason=too_many_pages\n已排到第 5000 页仍未结束' } } }),
+      mk('渠道数据汇总.xlsx', { fake: { status: 'failed', error: { code: 'INVALID_ARGUMENT', message: '不是有效的 OOXML 文件', detail: 'reason=invalid_ooxml\n缺少 xl/workbook.xml' } } }),
       mk('2026年第三季度华东区域渠道商务拓展与用户增长复盘汇报材料（终稿-已审阅-v12）.pptx', { fake: { status: 'failed', error: { code: 'CONVERT_DISK_FULL', message: '磁盘空间不足，无法写入输出文件' } } }),
     ]
   } else if (kind === 'canceled') {
@@ -366,7 +366,7 @@ function seedSim(kind: string) {
       mk('用户调研报告.docx', { fake: { status: 'running', progress: 0.67 } }),
       mk('渠道数据汇总.xlsx', { fake: { status: 'queued', pos: 1 } }),
       mk('季度复盘.pptx', { fake: { status: 'queued', pos: 2 } }),
-      mk('合同附件.docx', { fake: { status: 'failed', error: { code: 'UNSUPPORTED', message: '超过 5000 页', detail: '文档文字量超过上限' } } }),
+      mk('合同附件.docx', { fake: { status: 'failed', error: { code: 'UNSUPPORTED', message: '超过 5000 页', detail: 'reason=too_many_pages\n文档文字量超过上限' } } }),
       mk('费用明细.xlsx', { fake: { status: 'failed', error: { code: 'INVALID_ARGUMENT', message: '不是有效的 OOXML 文件' } } }),
       mk('培训材料.pptx', { fake: { status: 'failed', error: { code: 'CONVERT_DISK_FULL', message: '磁盘空间不足，无法写入输出文件' } } }),
       mk('会议纪要.docx', { fake: { status: 'canceled' } }),

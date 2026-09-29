@@ -275,7 +275,7 @@ async function open(path: string) {
     if (my !== seq) return
     const err = toAppError(e)
     if (err.code === 'CANCELED') return
-    fail(path, pdfErrorView(err.code, err.message, limits.value.maxPdfBytes))
+    fail(path, pdfErrorView(err.code, err.message, limits.value.maxPdfBytes, err.detail))
   }
 }
 
@@ -331,7 +331,7 @@ async function choose() {
     if (paths[0]) await open(paths[0])
   } catch (e) {
     const err = toAppError(e)
-    ElMessage.error(pdfErrorView(err.code, err.message, limits.value.maxPdfBytes).text)
+    ElMessage.error(pdfErrorView(err.code, err.message, limits.value.maxPdfBytes, err.detail).text)
   } finally {
     picking.value = false
   }

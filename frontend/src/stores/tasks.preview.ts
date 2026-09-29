@@ -1,5 +1,13 @@
 // 浏览器预览专用的假数据（只在 window.go 不存在且地址带 ?tasks= 时使用），不代表真实任务。
 import type { TaskItem } from './tasks'
+import { simEncoderScenario } from '@/api/sim'
+
+/** ?enc=<场景> 时给预览任务带上编码器字段（回退类场景直接是回退后的样子）；没有场景 = 不带 */
+function encFields(): Partial<TaskItem> {
+  const sc = simEncoderScenario()
+  if (!sc) return {}
+  return { encoder: sc.encoder, encoderDevice: sc.encoderDevice, ...(sc.hwFallback ? { hwFallback: true, hwFallbackReason: sc.hwFallbackReason } : {}) }
+}
 
 const now = () => Date.now()
 const min = 60_000
@@ -19,13 +27,13 @@ export function buildPreviewActive(n: number): TaskItem[] {
       id: 'p1', type: 'convert', status: 'running', title: '产品发布会_完整版.mov',
       inputPaths: ['/Users/me/Movies/产品发布会_完整版.mov'], outputPath: '/Users/me/Movies/FFmpegFree/产品发布会_完整版.mp4',
       progress: 0.68, speed: '5.47x', etaSec: 72, outTimeSec: 493, params: '{"container":"mp4","targetSizeMb":200}',
-      createdAt: t - 40 * min, startedAt: t - 38 * min,
+      createdAt: t - 40 * min, startedAt: t - 38 * min, ...encFields(),
     }),
     base({
       id: 'p2', type: 'live_screen_push', status: 'running', title: 'B站直播间推流',
       progress: -1, outTimeSec: 2538, createdAt: t - 100 * min, startedAt: t - 99 * min,
     }),
-    base({ id: 'p3', type: 'convert', status: 'queued', title: 'vlog_杭州西湖.mkv', createdAt: t - 30 * min, inputPaths: ['/Users/me/Movies/vlog_杭州西湖.mkv'] }),
+    base({ id: 'p3', type: 'convert', status: 'queued', title: 'vlog_杭州西湖.mkv', ...encFields(), createdAt: t - 30 * min, inputPaths: ['/Users/me/Movies/vlog_杭州西湖.mkv'] }),
     base({ id: 'p4', type: 'office_pdf', status: 'running', title: '用户调研报告.docx', progress: 0.67, speed: '', createdAt: t - 5 * min, startedAt: t - 4 * min }),
     base({ id: 'p5', type: 'convert', status: 'queued', title: '会议录音_0928.wav', createdAt: t - 3 * min }),
   ]
@@ -36,7 +44,7 @@ export function buildPreviewHistory(n: number): TaskItem[] {
   const t = now()
   const mk = (i: number): TaskItem => {
     const kinds: Array<Partial<TaskItem>> = [
-      { type: 'convert', status: 'succeeded', title: '旅行记录_东京.mov', outputPath: '/Users/me/Movies/FFmpegFree/旅行记录_东京.mp4' },
+      { type: 'convert', status: 'succeeded', title: '旅行记录_东京.mov', ...encFields(), outputPath: '/Users/me/Movies/FFmpegFree/旅行记录_东京.mp4' },
       {
         type: 'live_screen_push', status: 'failed', title: 'B站直播间推流',
         error: { code: 'LIVE_PUSH_INTERRUPTED', message: '推流被服务器中断', detail: 'Connection reset by peer' },

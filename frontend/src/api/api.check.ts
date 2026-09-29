@@ -12,11 +12,11 @@ import { parsePushUrl, redactPushUrl } from '@/utils/liveUrl'
 import * as live from './live'
 import * as edit from './edit'
 import * as doc from './doc'
-import { docErrorText, docErrorFile, docErrorPath, docDetailHead, pdfErrorView, DOC_TOO_MANY_PAGES_TEXT, DOC_FILE_BROKEN_TEXT, DOC_FORMAT_UNSUPPORTED_TEXT } from '@/errors/errorMessages'
+import { docErrorText, docErrorFile, docErrorPath, docReasonOf, pdfErrorView, DOC_TOO_MANY_PAGES_TEXT, DOC_FILE_BROKEN_TEXT, DOC_FORMAT_UNSUPPORTED_TEXT, DOC_ENCRYPTED_TEXT, DOC_NO_FONT_TEXT, DOC_TOO_LARGE_TEXT } from '@/errors/errorMessages'
 import { ffmpegStatusView } from '@/components/ffmpeg/statusView'
 import { splitMiddle, nextZoom, thumbWindow, formatRecentTime, extBadge } from '@/utils/docLogic'
 import { onSimEvent } from '@/services/wails'
-import { retrySimTask, SIM_TITLE_PREFIX } from './sim'
+import { retrySimTask, SIM_TITLE_PREFIX, simEncoderScenario } from './sim'
 import { PreviewPoller, previewDataUrl, type PollerClock } from './livePreviewPoller'
 import { PullPreviewController, type PullPreviewApi } from './pullPreviewSession'
 import * as pvMsg from '@/errors/livePreviewMessages'
@@ -24,7 +24,10 @@ import * as encApi from './encoder'
 import { deriveEncoderView, createSeq } from './encoderView'
 import * as encMsg from '@/errors/encoderMessages'
 import { pushErrorToForm } from '@/views/live/pushErrors'
-import { elapsedMs, isKnownTaskType, isLegacyTaskType } from '@/stores/tasks'
+import { elapsedMs, isKnownTaskType, isLegacyTaskType, useTaskStore } from '@/stores/tasks'
+import { createPinia, setActivePinia } from 'pinia'
+import { emitSimEvent } from '@/services/wails'
+import * as encTask from './encoderTask'
 
 const fails: string[] = []
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -44,6 +47,14 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /** node 里的模拟 window：只用到 location.search，由 scripts/check-api.mjs 挂到 globalThis */
 const win = (globalThis as unknown as { window: { location: { search: string } } }).window
+
+function simEncoderScenarioFor(v: string) {
+  const prev = win.location.search
+  win.location.search = `?enc=${v}`
+  const r = simEncoderScenario()
+  win.location.search = prev
+  return r
+}
 
 export async function runApiChecks(): Promise<string[]> {
   // ---- AppError：reason / clipId ----
@@ -73,10 +84,10 @@ export async function runApiChecks(): Promise<string[]> {
   eq('直播停止文案', LIVE_STOP_TEXT, { succeeded: '已结束推流', canceled: '已强制停止' })
   eq('UNSUPPORTED 起始错误行（无协议名）', liveStartErrorLine({ code: 'UNSUPPORTED' })?.description, '当前 ffmpeg 不支持这种推流协议，请在设置的 ffmpeg 页面重新安装或更新')
 
-  eq('doc/xls/ppt/加密 UNSUPPORTED 文案', docUnsupportedText('暂不支持这种格式', '/d/a.doc\n.doc：旧版'), '暂不支持这种格式，请先另存为 docx、xlsx 或 pptx')
-  eq('超 5000 页任务中心沿用后端 message', docUnsupportedText('超过 5000 页', '已排到第 5000 页仍未结束'), '超过 5000 页')
-  eq('没有可用字体沿用后端 message', docUnsupportedText('没有可用的 Unicode 字体', '文档含有 Latin-1 以外的字符，但没有可用的字体'), '没有可用的 Unicode 字体')
-  eq('认不出的 UNSUPPORTED 保守回落后端 message', docUnsupportedText('别的原因', '某行'), '别的原因')
+  eq('任务中心：reason=format / encrypted 的 UNSUPPORTED', [docUnsupportedText('暂不支持这种格式', 'reason=format\n/d/a.doc\n.doc：旧版'), docUnsupportedText('暂不支持这种格式', 'reason=encrypted')], [DOC_FORMAT_UNSUPPORTED_TEXT, DOC_ENCRYPTED_TEXT])
+  eq('任务中心：超 5000 页沿用后端 message（reason=too_many_pages）', docUnsupportedText('超过 5000 页', 'reason=too_many_pages\n已排到第 5000 页仍未结束'), '超过 5000 页')
+  eq('任务中心：缺字体沿用后端 message（reason=no_font）', docUnsupportedText('没有可用的 Unicode 字体', 'reason=no_font'), '没有可用的 Unicode 字体')
+  eq('任务中心：reason 缺失按 message 精确相等兜底；认不出的回落后端 message', [docUnsupportedText('暂不支持这种格式', ''), docUnsupportedText('别的原因', '某行'), docUnsupportedText('', undefined)], [DOC_FORMAT_UNSUPPORTED_TEXT, '别的原因', docUnsupportedText('', undefined)])
   // ---- 旧任务类型忽略 ----
   eq('live_relay 忽略', isKnownTaskType('live_relay'), false)
   eq('live_record_push 忽略', isKnownTaskType('live_record_push'), false)
@@ -383,6 +394,8 @@ export async function runApiChecks(): Promise<string[]> {
 
   // ---- 类型守卫 / 绑定查找 ----
   eq('toApiTask 容忍脏数据', ((t: ApiTask) => [t.id, t.progress, t.inputPaths, t.error])(toApiTask({ id: 't', inputPaths: ['a', 1], error: { code: '' } })), ['t', 0, ['a'], null])
+  eq('toApiTask 保留编码器字段（v0.18）', ((t: ApiTask) => [t.encoder, t.encoderDevice, t.hwFallback, t.hwFallbackReason])(toApiTask({ id: 't', encoder: 'libx264', encoderDevice: 'cpu', hwFallback: true, hwFallbackReason: 'nvenc_init_failed' })), ['libx264', 'cpu', true, 'nvenc_init_failed'])
+  eq('toApiTask 没有编码器字段时缺省', ((t: ApiTask) => [t.encoder, t.encoderDevice, t.hwFallback, t.hwFallbackReason])(toApiTask({ id: 't' })), [undefined, undefined, undefined, undefined])
   eq('toApiTask 保留直播字段', ((t: ApiTask) => [t.fps, t.bitrateKbps, t.droppedFrames])(toApiTask({ id: 't', fps: 30, bitrateKbps: 2500, droppedFrames: 0 })), [30, 2500, 0])
   eq('toApiTask null → 空任务不抛错', toApiTask(null).id, '')
   eq('绑定不存在 → UNSUPPORTED', (await rejects(callService('LiveService', 'Nope')))?.code, 'UNSUPPORTED')
@@ -394,7 +407,7 @@ export async function runApiChecks(): Promise<string[]> {
   eq('老后端没有字段 → true', doc.isExperimental({ ...caps, experimental: undefined }), true)
   for (const f of ['/d/a.doc', '/d/b.xls', '/d/c.ppt', '/d/加密.docx', '/d/x.csv', '/d/y.txt']) {
     err = await rejects(doc.convertToPDF([f], ''))
-    eq(`UNSUPPORTED ${f}`, [err?.code, err?.detail?.split('\n')[0]], ['UNSUPPORTED', f])
+    eq(`UNSUPPORTED ${f}`, [err?.code, err?.reason && docErrorPath(err.detail)], ['UNSUPPORTED', f]) // 契约 v0.16：首行 reason=…，第二行才是出错文件路径
   }
   const good = await doc.convertToPDF(['/d/a.docx', '/d/b.pptx'], '')
   eq('ConvertToPDF 返回与 inputs 一一对应', good.map((t) => t.type), ['office_pdf', 'office_pdf'])
@@ -415,27 +428,40 @@ export async function runApiChecks(): Promise<string[]> {
   eq('模拟大文件不能预览 → UNSUPPORTED', (await rejects(doc.loadPDF('/d/大文件.pdf')))?.code, 'UNSUPPORTED')
   eq('小文件 loadPDF 返回字节', (await doc.loadPDF('/d/b.pdf')).data?.length, 2 * 1024 * 1024)
   // 文档错误文案统一走 errorMessages
-  eq('doc 格式文案', docErrorText('UNSUPPORTED', '暂不支持这种格式', '.doc：旧版'), DOC_FORMAT_UNSUPPORTED_TEXT)
-  eq('超 5000 页文案', docErrorText('UNSUPPORTED', '超过 5000 页', '已排到第 5000 页仍未结束'), DOC_TOO_MANY_PAGES_TEXT)
-  eq('文件损坏文案', docErrorText('INVALID_ARGUMENT', '不是有效的 OOXML 文件', 'bad zip'), DOC_FILE_BROKEN_TEXT)
-  eq('出错文件取 detail 首行', [docErrorFile('UNSUPPORTED', '/d/a.doc\n旧版'), docErrorFile('UNSUPPORTED', '旧版')], ['a.doc', ''])
-  eq('出错文件完整路径（整体校验定位用）', [docErrorPath('/d/a.doc\n.doc：旧版'), docErrorPath('C:\\d\\a.doc\n原因'), docErrorPath('旧版')], ['/d/a.doc', 'C:\\d\\a.doc', ''])
-  eq('原因首行剥掉路径行', [docDetailHead('/d/a.doc\n.doc：旧版'), docDetailHead('已排到第 9 页仍未结束'), docDetailHead('')], ['.doc：旧版', '已排到第 9 页仍未结束', ''])
-  eq('超页数：按 message 精确匹配或 detail 首行（含带路径行）', [
-    docErrorText('UNSUPPORTED', '超过 5000 页', '/d/a.docx\n已排到第 5000 页仍未结束'),
-    docErrorText('UNSUPPORTED', '别的', '文档文字量超过上限'),
-    docErrorText('UNSUPPORTED', '别的', '文本里写着 5000 页但不是这两句'),
-  ], [DOC_TOO_MANY_PAGES_TEXT, DOC_TOO_MANY_PAGES_TEXT, '别的'])
-  eq('页数上限取 limits 拼', docErrorText('UNSUPPORTED', '超过 5000 页', '', 8000), '文档太长，超过 8000 页，无法转换')
-  eq('损坏：只认 INVALID_ARGUMENT + message 精确相等，不做包含匹配', [
-    docErrorText('INVALID_ARGUMENT', '不是有效的 OOXML 文件', '/d/a.docx\nzip: not a valid zip file'),
-    docErrorText('INVALID_ARGUMENT', '文件超过 100 MiB', 'OOXML 100 字节'),
-    docErrorText('INVALID_ARGUMENT', '路径不合法'),
-  ], [DOC_FILE_BROKEN_TEXT, '文件超过 100 MiB', '路径不合法'])
+  // reason 优先（契约 v0.16）：六个枚举各一条，message 故意写成别的，证明是按 reason 判断的
+  const R = (code: string, reason: string, msg = '随便', rest = '') => docErrorText(code, msg, `reason=${reason}${rest ? '\n' + rest : ''}`)
+  eq('reason → 文案（六种）', [
+    R('UNSUPPORTED', 'too_many_pages'), R('UNSUPPORTED', 'format'), R('UNSUPPORTED', 'encrypted'), R('UNSUPPORTED', 'no_font'),
+    R('INVALID_ARGUMENT', 'invalid_ooxml'), R('INVALID_ARGUMENT', 'too_large'),
+  ], [DOC_TOO_MANY_PAGES_TEXT, DOC_FORMAT_UNSUPPORTED_TEXT, DOC_ENCRYPTED_TEXT, DOC_NO_FONT_TEXT, DOC_FILE_BROKEN_TEXT, DOC_TOO_LARGE_TEXT])
+  eq('reason=format 也可出现在 INVALID_ARGUMENT（OpenPDF 之外的场景不误判）', R('INVALID_ARGUMENT', 'format'), DOC_FORMAT_UNSUPPORTED_TEXT)
+  eq('reason 优先于 message（message 与 reason 不一致时听 reason）', docErrorText('INVALID_ARGUMENT', '不是有效的 OOXML 文件', 'reason=too_large\n/d/a.docx\n压缩包条目数超过 100000'), DOC_TOO_LARGE_TEXT)
+  eq('带路径行（第二行）的整体校验错误', docErrorText('UNSUPPORTED', '暂不支持这种格式', 'reason=format\n/d/a.doc\n.doc：旧版'), DOC_FORMAT_UNSUPPORTED_TEXT)
+  eq('未知 reason（不在枚举里）当作没有 reason，走 message 兜底 / 后端 message', [docErrorText('UNSUPPORTED', '暂不支持这种格式', 'reason=future'), docErrorText('UNSUPPORTED', '别的', 'reason=future')], [DOC_FORMAT_UNSUPPORTED_TEXT, '别的'])
+  eq('兜底：reason 缺失时对 message 精确相等（老后端）', [
+    docErrorText('UNSUPPORTED', '暂不支持这种格式', '.doc：旧版'), docErrorText('UNSUPPORTED', '超过 5000 页', '已排到第 5000 页仍未结束'), docErrorText('UNSUPPORTED', '没有可用的 Unicode 字体'),
+    docErrorText('INVALID_ARGUMENT', '不是有效的 OOXML 文件', 'bad zip'), docErrorText('INVALID_ARGUMENT', '文件超过 100 MiB', '104857601 字节'),
+  ], [DOC_FORMAT_UNSUPPORTED_TEXT, DOC_TOO_MANY_PAGES_TEXT, DOC_NO_FONT_TEXT, DOC_FILE_BROKEN_TEXT, DOC_TOO_LARGE_TEXT])
+  eq('兜底不做包含匹配：detail 里写着 5000 页 / OOXML 也不算', [
+    docErrorText('UNSUPPORTED', '别的', '文本里写着 5000 页'), docErrorText('INVALID_ARGUMENT', '路径不合法', 'OOXML'),
+  ], ['别的', '路径不合法'])
+  eq('没有 reason 的错误保持原有处理', [
+    docErrorText('INVALID_ARGUMENT', '路径不合法', '/d/a.docx'), docErrorText('INVALID_ARGUMENT', '一次最多提交 50 个文件'), docErrorText('NOT_FOUND', '文件不存在', '/d/a.docx\n文件不存在'),
+    docErrorText('CONVERT_DISK_FULL', '磁盘空间不足，无法写入输出文件'), docErrorText('IO_ERROR', '读取文件失败'), docErrorText('CANCELED', '已取消'), docErrorText('INTERNAL', '内部错误', 'fpdf: x'),
+  ], ['路径不合法', '一次最多提交 50 个文件', '找不到这个文件，可能已被移动或删除', taskErrorMessages.CONVERT_DISK_FULL.description, '没有读取这个文件的权限。', '操作已取消。', '内部错误'])
+  eq('页数上限取 limits 拼', docErrorText('UNSUPPORTED', '超过 5000 页', 'reason=too_many_pages', 8000), '文档太长，超过 8000 页，无法转换')
+  // 出错文件路径：reason 行在首行，路径在第二行；不把 reason= 行当路径；兼容旧形态（路径在第一行）
+  eq('出错文件路径：前两行里找，reason= 行不算路径', [
+    docErrorPath('reason=format\n/d/a.doc\n.doc：旧版'), docErrorPath('reason=invalid_ooxml\nC:\\d\\a.xlsx\n缺少 xl/workbook.xml'), docErrorPath('/d/a.doc\n旧版'),
+    docErrorPath('reason=too_many_pages\n已排到第 5000 页仍未结束'), docErrorPath('reason=format'), docErrorPath('旧版'), docErrorPath(undefined),
+    docErrorPath('reason=format\n说明\n/d/第三行不算.doc'),
+  ], ['/d/a.doc', 'C:\\d\\a.xlsx', '/d/a.doc', '', '', '', '', ''])
+  eq('出错文件名', [docErrorFile('UNSUPPORTED', 'reason=format\n/d/a.doc\n旧版'), docErrorFile('UNSUPPORTED', 'reason=format\n旧版'), docErrorFile('UNSUPPORTED', '/d/a.doc\n旧版')], ['a.doc', '', 'a.doc'])
+  eq('detail 首行 reason 解析 / 枚举过滤', [docReasonOf('reason=format\n/d/a.doc'), docReasonOf('reason=future'), docReasonOf('/d/a.doc'), docReasonOf(undefined)], ['format', undefined, undefined, undefined])
   eq('IO_ERROR 读源文件', docErrorText('IO_ERROR', '读取文件失败'), '没有读取这个文件的权限。')
-  const pv = (c: string, m?: string) => pdfErrorView(c, m)
+  const pv = (c: string, m?: string, d?: string) => pdfErrorView(c, m, undefined, d)
   eq('PDF 预览失败卡片：文案 / 错误码 / 是否可重试', [
-    pv('PDF_PARSE_FAILED'), pv('INVALID_ARGUMENT', '不是 PDF 文件'), pv('INVALID_ARGUMENT', '文件超过 512 MiB'), pv('NOT_FOUND', '文件不存在'),
+    pv('PDF_PARSE_FAILED'), pv('INVALID_ARGUMENT', '不是 PDF 文件', 'reason=format\n/d/a.pdf'), pv('INVALID_ARGUMENT', '文件超过 512 MiB', 'reason=too_large\n600000000 字节'), pv('NOT_FOUND', '文件不存在'),
     pv('IO_ERROR', '读取文件失败'), pv('IO_ERROR', '文件在读取时被替换，请重试'), pv('INVALID_ARGUMENT', '别的原因'),
   ].map((v) => [v.text, v.code, v.retry]), [
     ['PDF 内容无法解析，文件可能已损坏。', 'PDF_PARSE_FAILED', true],
@@ -446,7 +472,15 @@ export async function runApiChecks(): Promise<string[]> {
     ['读取时文件被修改了，请重试。', 'IO_ERROR', true],
     ['别的原因', 'INVALID_ARGUMENT', false],
   ])
-  eq('512 MiB 取 limits 拼', pdfErrorView('INVALID_ARGUMENT', '文件超过 512 MiB', 256 * 1024 * 1024).text, '文件超过 256 MiB，暂不支持预览。')
+  eq('512 MiB 取 limits 拼', pdfErrorView('INVALID_ARGUMENT', '文件超过 512 MiB', 256 * 1024 * 1024, 'reason=too_large').text, '文件超过 256 MiB，暂不支持预览。')
+  eq('PDF：reason 优先于 message；扩展名不对（reason=format）也算不是 PDF；reason 缺失按 message 兜底', [
+    pdfErrorView('INVALID_ARGUMENT', '只支持 .pdf 文件', undefined, 'reason=format').text, pdfErrorView('INVALID_ARGUMENT', '随便', undefined, 'reason=too_large').text,
+    pdfErrorView('INVALID_ARGUMENT', '不是 PDF 文件', undefined, '/d/a.pdf').text, pdfErrorView('INVALID_ARGUMENT', 'PDF 路径必须是绝对路径').text,
+  ], ['这不是有效的 PDF 文件。', '文件超过 512 MiB，暂不支持预览。', '这不是有效的 PDF 文件。', 'PDF 路径必须是绝对路径'])
+  eq('模拟层的 Doc 错误形态与契约 v0.16 一致（reason 首行、路径第二行）', await (async () => {
+    const one = async (name: string) => { const e = await rejects(doc.convertToPDF([`/d/${name}`], '')); return [e?.code, e?.reason, docErrorPath(e?.detail)] }
+    return [await one('旧版.doc'), await one('加密.docx'), await one('损坏.docx'), await one('超大.docx')]
+  })(), [['UNSUPPORTED', 'format', '/d/旧版.doc'], ['UNSUPPORTED', 'encrypted', '/d/加密.docx'], ['INVALID_ARGUMENT', 'invalid_ooxml', '/d/损坏.docx'], ['INVALID_ARGUMENT', 'too_large', '/d/超大.docx']])
   eq('中间省略拆分：≤14 字符不拆；否则尾部 = 末 6 字符 + 扩展名', [
     splitMiddle('用户调研报告.docx'),
     splitMiddle('2026年第三季度华东区域渠道商务拓展与用户增长复盘汇报材料（终稿-已审阅-v12）.pptx'),
@@ -610,7 +644,7 @@ export async function runApiChecks(): Promise<string[]> {
     eq('normalizeList：结果不含编码器名字段（encoders）', Object.keys(n.devices[1]).sort(), ['available', 'discrete', 'id', 'kind', 'name', 'vendor'])
     eq('normalizeList：后端 encoders{h264,hevc} 被丢弃', JSON.stringify(encApi.normalizeList({ ffmpegReady: true, devices: [{ ...nv, discrete: true, encoders: { h264: 'h264_nvenc', hevc: 'hevc_nvenc' } }] })).includes('nvenc'), false)
 
-    // 显示规则：ENCODER_BACKEND_READY=false（默认）+ 纯浏览器 → 没有 ?enc= 完全不显示；有 ?enc= 才显示模拟层
+    // 显示规则：纯浏览器（无 Wails）→ 没有 ?enc= 完全不显示；有 ?enc= 才显示模拟层（标志为 true 时 Wails 里另见下面）
     win.location.search = ''
     eq('面板显示：默认（无 ?enc=）→ 不显示', encApi.encoderPanelVisible(), false)
     win.location.search = '?ff=ready'
@@ -702,16 +736,26 @@ export async function runApiChecks(): Promise<string[]> {
       GetEncoderPreferenceInfo: async () => (calls.push('Info'), { id: 'nvidia-0', name: 'NVIDIA GeForce RTX 4060', available: false, reason: '驱动异常' }),
       SetEncoderPreference: async (id: string) => (calls.push('Set:' + id), undefined),
     }
+    // 标志为 true：Wails 里显示并走真实绑定；?enc= 只在纯浏览器生效
+    delete (win as unknown as Record<string, unknown>).go // 先当纯浏览器
+    delete (win as unknown as Record<string, unknown>).runtime
+    eq('标志值：ENCODER_BACKEND_READY 为 true（后端第二个 PR #67 / #68 已合入）', encApi.ENCODER_BACKEND_READY, true)
+    eq('纯浏览器（无 Wails）+ 标志 true：没有 ?enc= 仍不显示（encoderIsReal=false）', [encApi.encoderPanelVisible(), encApi.encoderIsReal()], [false, false])
+    win.location.search = '?enc=found'
+    eq('纯浏览器 + ?enc=：显示模拟层（仅开发用），不调用绑定', [encApi.encoderPanelVisible(), encApi.encoderIsReal(), (await encApi.listEncoderDevices()).devices.length, calls.length], [true, false, 3, 0])
+    win.location.search = ''
     ;(win as unknown as Record<string, unknown>).go = { app: { SystemService: svc } }
     ;(win as unknown as Record<string, unknown>).runtime = {}
-    eq('标志为 false（正式包）+ 有 Wails：面板不显示', encApi.encoderPanelVisible(), false)
-    win.location.search = '?enc=found'
-    eq('标志为 false + 有 Wails：?enc= 无效，仍不显示', encApi.encoderPanelVisible(), false)
-    eq('标志为 false + 有 Wails：走模拟层（不调用真实绑定）', [encApi.encoderIsReal(), (await encApi.listEncoderDevices()).devices.length, calls.length], [false, 3, 0])
+    eq('标志为 true + 有 Wails：面板显示、走真实绑定', [encApi.encoderPanelVisible(), encApi.encoderIsReal()], [true, true])
+    win.location.search = '?enc=none'
+    eq('标志为 true + 有 Wails：?enc= 无效（仍走真实绑定，不用模拟场景）', [encApi.encoderPanelVisible(), encApi.encoderIsReal(), (await encApi.listEncoderDevices()).devices.map((d) => d.id), calls.includes('List')], [true, true, ['cpu', 'nvidia-0', 'intel-0'], true])
+    eq('标志为 true + 有 Wails：偏好走真实绑定', [await encApi.getEncoderPreference(), (await encApi.getEncoderPreferenceInfo()).name], ['nvidia-0', 'NVIDIA GeForce RTX 4060'])
+    await encApi.setEncoderPreference('cpu')
+    eq('标志为 true + 有 Wails：Set 调用真实绑定', calls.includes('Set:cpu'), true)
+    eq('标志为 true + 有 Wails：刷新走真实绑定', [(await encApi.refreshEncoderDevices()).ffmpegReady, calls.includes('Refresh')], [false, true])
     win.location.search = ''
     delete (win as unknown as Record<string, unknown>).go
     delete (win as unknown as Record<string, unknown>).runtime
-    eq('标志值：ENCODER_BACKEND_READY 保持 false（第二个后端 PR 合入后再打开）', encApi.ENCODER_BACKEND_READY, false)
     // 真实绑定形状：直接对 normalizeList / normalizeInfo 喂后端返回（标志为 false 时 API 函数不走绑定，这里验字段对齐）
     const realList = encApi.normalizeList(await svc.ListEncoderDevices())
     eq('真实绑定形状：排序后 cpu / nvidia（独显）/ intel（集显），无编码器名', [realList.devices.map((d) => d.id), JSON.stringify(realList).includes('nvenc') || JSON.stringify(realList).includes('qsv') || JSON.stringify(realList).includes('libx264')], [['cpu', 'nvidia-0', 'intel-0'], false])
@@ -736,9 +780,105 @@ export async function runApiChecks(): Promise<string[]> {
     eq('视图：检测失败 → 红色 alert 文案', [v({ failed: true, list: null }).note.text, v({ failed: true, list: null }).note.tone], [encMsg.ENCODER_FAILED_NOTE, 'err'])
     eq('视图：ffmpeg 未就绪（store 或后端 ffmpegReady=false）→ 提示去安装，下拉置灰', [v({ ffmpegReady: false }).state, v({ list: { ffmpegReady: false, devices: [] } }).state, v({ ffmpegReady: false }).selectDisabled], ['noff', 'noff', true])
     // 界面文案不得出现编码器名
-    const allText = JSON.stringify(Object.values(encMsg).map((x) => (typeof x === 'function' ? (x as (...a: unknown[]) => string)(2, 'GPU') : x)))
+    // 原因枚举表的键是后端固定枚举（nvenc_init_failed 等，不会显示给用户），所以扫的是句子（值），不扫键
+    const allText = JSON.stringify(Object.values(encMsg).map((x) => (typeof x === 'function' ? (x as (...a: unknown[]) => string)(2, 'GPU') : typeof x === 'object' ? Object.values(x as Record<string, string>) : x)))
     eq('编码设备文案不含编码器名（NVENC / QSV / AMF / VideoToolbox）', /nvenc|qsv|amf|videotoolbox|h264_|hevc_/i.test(allText), false)
     eq('回退文案锁定（设计稿，待产品经理确认）', [encMsg.ENCODER_FALLBACK_SETTINGS_LINK, encMsg.ENCODER_FALLBACK_LOG_LINK], ['编码设置', '查看日志'])
+
+    // ───────── 任务的编码设备信息（契约 v0.18 §9.7 / v0.19）─────────
+    {
+      const NV = { id: 'nvidia-0', name: 'NVIDIA GeForce RTX 4060', vendor: 'nvidia', kind: 'gpu', discrete: true, available: true } as const
+      const devs = [encApi.normalizeList({ ffmpegReady: true, devices: [{ id: 'cpu', name: 'CPU（软件编码）', vendor: 'unknown', kind: 'cpu', available: true }, NV] }).devices][0]
+      // 四字段合并：缺省不覆盖
+      const cur: encTask.EncoderFields = { encoder: 'h264_nvenc', encoderDevice: 'nvidia-0' }
+      encTask.mergeEncoderFields(cur, {})
+      eq('合并：事件四字段全缺省 → 已有值不变', cur, { encoder: 'h264_nvenc', encoderDevice: 'nvidia-0' })
+      encTask.mergeEncoderFields(cur, { hwFallback: false })
+      eq('合并：hwFallback=false / 缺省不写', cur.hwFallback, undefined)
+      encTask.mergeEncoderFields(cur, { encoder: 'libx264', encoderDevice: 'cpu', hwFallback: true, hwFallbackReason: 'nvenc_init_failed' })
+      eq('合并：回退补发的 running status → 改成 CPU 并置 hwFallback', cur, { encoder: 'libx264', encoderDevice: 'cpu', hwFallback: true, hwFallbackReason: 'nvenc_init_failed' })
+      encTask.mergeEncoderFields(cur, { encoder: undefined, encoderDevice: '', hwFallback: undefined, hwFallbackReason: '' })
+      eq('合并：后续 progress 缺省 / 空串 → 不被覆盖成空、hwFallback 不被清掉', cur, { encoder: 'libx264', encoderDevice: 'cpu', hwFallback: true, hwFallbackReason: 'nvenc_init_failed' })
+      encTask.mergeEncoderFields(cur, { hwFallbackReason: 'brand_new_reason_x' })
+      eq('合并：只带一个字段也能单独更新', [cur.encoder, cur.hwFallbackReason], ['libx264', 'brand_new_reason_x'])
+
+      // 走 task store（事件通道）：created(显卡) → progress(只带进度) → status running 补发(CPU + hwFallback) → progress(缺省) → succeeded(不带编码器字段) → 终态快照
+      setActivePinia(createPinia())
+      const ts = useTaskStore()
+      await ts.init()
+      const t0 = Date.now()
+      emitSimEvent('task:created', { id: 'e1', type: 'convert', status: 'queued', title: 'a.mov', inputPaths: [], outputPath: '/o/a.mp4', progress: 0, speed: '', etaSec: 0, params: '', version: 1, createdAt: t0, startedAt: 0, finishedAt: 0, encoder: 'h264_nvenc', encoderDevice: 'nvidia-0' })
+      emitSimEvent('task:status', { id: 'e1', version: 2, status: 'running', startedAt: t0, encoder: 'h264_nvenc', encoderDevice: 'nvidia-0' })
+      emitSimEvent('task:progress', { id: 'e1', version: 3, progress: 0.2, speed: '2x', etaSec: 10, outTimeSec: 1 })
+      const g = () => ts.taskById('e1') as encTask.EncoderFields | undefined
+      eq('store：progress 不带编码器字段 → 显卡信息还在', [g()?.encoder, g()?.encoderDevice, g()?.hwFallback], ['h264_nvenc', 'nvidia-0', undefined])
+      emitSimEvent('task:status', { id: 'e1', version: 4, status: 'running', encoder: 'libx264', encoderDevice: 'cpu', hwFallback: true, hwFallbackReason: 'nvenc_init_failed' })
+      emitSimEvent('task:progress', { id: 'e1', version: 5, progress: 0.1, speed: '1x', etaSec: 20, outTimeSec: 1 })
+      eq('store：补发 running status 后更新 hwFallback / 设备，之后缺省的 progress 不覆盖', [g()?.encoder, g()?.encoderDevice, g()?.hwFallback, g()?.hwFallbackReason], ['libx264', 'cpu', true, 'nvenc_init_failed'])
+      emitSimEvent('task:status', { id: 'e1', version: 6, status: 'succeeded', finishedAt: t0 + 5000 })
+      eq('store：终态事件不带编码器字段 → 终态快照仍保留', [g()?.encoder, g()?.encoderDevice, g()?.hwFallback, g()?.hwFallbackReason], ['libx264', 'cpu', true, 'nvenc_init_failed'])
+      // 终态事件带字段、任务不在活动列表里（先于 created 到达）
+      emitSimEvent('task:status', { id: 'e2', version: 3, status: 'failed', startedAt: t0, finishedAt: t0 + 1, error: { code: 'PROCESS_FAILED', message: 'x' }, encoder: 'libx264', encoderDevice: 'cpu', hwFallback: true, hwFallbackReason: 'encoder_start_failed' })
+      eq('store：不在活动列表里的终态事件也把四字段记进快照', [(ts.taskById('e2') as encTask.EncoderFields | undefined)?.hwFallback, (ts.taskById('e2') as encTask.EncoderFields | undefined)?.hwFallbackReason], [true, 'encoder_start_failed'])
+
+      // 显示规则
+      const on = true
+      const fb = { encoder: 'libx264', encoderDevice: 'cpu', hwFallback: true, hwFallbackReason: 'nvenc_init_failed', startedAt: 1000 }
+      eq('提示：hwFallback=true 且运行过且功能启用 → 显示', encTask.showFallbackNotice(fb, on), true)
+      eq('提示：hwFallback=false（auto 落到 CPU / 偏好 CPU）→ 不显示', encTask.showFallbackNotice({ ...fb, hwFallback: false }, on), false)
+      eq('提示：-c copy（encoder=copy、无设备）→ 不显示，也不显示设备', [encTask.showFallbackNotice({ encoder: 'copy', startedAt: 1000 }, on), encTask.usedDeviceText({ encoder: 'copy', startedAt: 1000 }, devs, on)], [false, ''])
+      eq('提示：两遍编码 / 宽或高超 4096 / VP9 走 CPU（hwFallback 缺省）→ 不显示，设备显示 CPU', [encTask.showFallbackNotice({ encoder: 'libx264', encoderDevice: 'cpu', startedAt: 1000 }, on), encTask.usedDeviceText({ encoder: 'libx264', encoderDevice: 'cpu', startedAt: 1000 }, devs, on)], [false, 'CPU'])
+      eq('提示：startedAt=0（从未运行：排队中取消 / 退出时还在排队，字段仍是提交时的值）→ 不显示提示、不显示设备', [encTask.showFallbackNotice({ ...fb, startedAt: 0 }, on), encTask.usedDeviceText({ ...fb, startedAt: 0 }, devs, on)], [false, ''])
+      eq('提示：startedAt 缺省同样不显示', [encTask.showFallbackNotice({ ...fb, startedAt: undefined }, on), encTask.usedDeviceText({ ...fb, startedAt: undefined }, devs, on)], [false, ''])
+      eq('提示：没有任务 / 没有编码器字段 → 不显示', [encTask.showFallbackNotice(undefined, on), encTask.showFallbackNotice({ startedAt: 1000 }, on), encTask.usedDeviceText({ startedAt: 1000 }, devs, on)], [false, false, ''])
+      // 标志：ENCODER_BACKEND_READY=true → Wails 里整体启用；纯浏览器只有 ?enc= 启用（仅开发）
+      eq('标志：ENCODER_BACKEND_READY 为 true', encApi.ENCODER_BACKEND_READY, true)
+      win.location.search = ''
+      eq('纯浏览器且无 ?enc= → 编码设备界面关闭：不显示提示、不显示设备', [encTask.encoderTaskUiEnabled(), encTask.showFallbackNotice(fb), encTask.usedDeviceText(fb, devs)], [false, false, ''])
+      win.location.search = '?enc=fb-nvenc'
+      eq('纯浏览器 ?enc= 预览 → 界面启用（仅开发用）', [encTask.encoderTaskUiEnabled(), encTask.showFallbackNotice(fb), encTask.usedDeviceText(fb, devs)], [true, true, 'CPU'])
+      win.location.search = ''
+      ;(win as unknown as Record<string, unknown>).go = { app: {} }
+      ;(win as unknown as Record<string, unknown>).runtime = {}
+      eq('Wails 里（标志 true）→ 界面启用：hwFallback 显示提示、设备显示名', [encTask.encoderTaskUiEnabled(), encTask.showFallbackNotice(fb), encTask.usedDeviceText(fb, devs)], [true, true, 'CPU'])
+      win.location.search = '?enc=none'
+      eq('Wails 里 ?enc= 无效但界面照常启用', encTask.encoderTaskUiEnabled(), true)
+      eq('Wails 里：startedAt=0 仍不显示提示和设备', [encTask.showFallbackNotice({ ...fb, startedAt: 0 }), encTask.usedDeviceText({ ...fb, startedAt: 0 }, devs)], [false, ''])
+      win.location.search = ''
+      delete (win as unknown as Record<string, unknown>).go
+      delete (win as unknown as Record<string, unknown>).runtime
+      // 设备名：只取 name；cpu → CPU；查不到 → 显卡；永不显示 id
+      eq('设备名：显卡取列表里的 name', encTask.deviceDisplayName('nvidia-0', devs), 'NVIDIA GeForce RTX 4060')
+      eq('设备名：cpu → CPU（不取后端的“CPU（软件编码）”）', encTask.deviceDisplayName('cpu', devs), 'CPU')
+      eq('设备名：查不到 / 列表没读到 → 显卡，不显示 id', [encTask.deviceDisplayName('nvidia-9', devs), encTask.deviceDisplayName('nvidia-9', null), encTask.deviceDisplayName('nvidia-9', [])], ['显卡', '显卡', '显卡'])
+      eq('设备文字：显卡任务 → 设备名，encoder（h264_nvenc）不出现', encTask.usedDeviceText({ encoder: 'h264_nvenc', encoderDevice: 'nvidia-0', startedAt: 1 }, devs, true), 'NVIDIA GeForce RTX 4060')
+
+      // hwFallbackReason 文案：与契约 §9.7 枚举一一对应；未知走兜底；不含编码器名
+      const ENUM = ['device_unavailable', 'nvenc_init_failed', 'qsv_init_failed', 'amf_init_failed', 'videotoolbox_failed', 'encoder_unavailable', 'encoder_start_failed']
+      eq('原因文案的枚举 = 契约 9.7 的七个（一一对应）', Object.keys(encMsg.ENCODER_FALLBACK_REASONS).sort(), [...ENUM].sort())
+      eq('原因文案：每个枚举都有非空句子', ENUM.every((r) => encMsg.encoderFallbackReasonText(r).length > 0 && encMsg.encoderFallbackReasonText(r) !== encMsg.ENCODER_FALLBACK_REASON_GENERIC || r === ''), true)
+      eq('原因文案：未知 / 空 / undefined / 原型属性名 → 通用兜底句，不报错', [encMsg.encoderFallbackReasonText('brand_new_reason_x'), encMsg.encoderFallbackReasonText(''), encMsg.encoderFallbackReasonText(undefined), encMsg.encoderFallbackReasonText('toString')], Array(4).fill(encMsg.ENCODER_FALLBACK_REASON_GENERIC))
+      // 界面文案不得出现编码器名：扫 encoderMessages 的全部导出 + 新增 / 改动的模板与脚本
+      const banned = /nvenc|qsv|amf|videotoolbox|libx26|h264_|hevc_|x264|x265|encoderDevice|nvidia-0/i
+      const texts = Object.values(encMsg).flatMap((x) => (typeof x === 'function' ? [(x as (...a: unknown[]) => string)(2, 'GPU')] : typeof x === 'string' ? [x] : Object.values(x as Record<string, string>)))
+      eq('encoderMessages 全部文案（含原因句）不含编码器名', texts.filter((t) => banned.test(t)), [])
+      const fs = await import('node:fs')
+      const root = `${process.cwd()}/` // npm run check:api 在 frontend/ 下运行
+      const tplFiles = ['src/views/ConvertPage.vue', 'src/views/TaskCenter.vue', 'src/components/edit/ExportStrip.vue', 'src/components/encoder/EncoderFallbackNotice.vue']
+      const tplHits: string[] = []
+      for (const f of tplFiles) {
+        const src = fs.readFileSync(root + f, 'utf8')
+        const tpl = src.slice(src.indexOf('<template>'), src.indexOf('</template>\n\n<script') + 11)
+        for (const m of tpl.matchAll(/(?:\{\{([^}]*)\}\})|(?:>([^<{]+)<)/g)) {
+          const seg = (m[1] ?? m[2] ?? '').replace(/ENCODER_[A-Z_]+/g, '')
+          if (/nvenc|qsv|amf|videotoolbox|libx26|x264|x265/i.test(seg) || /\.encoder\b|\.encoderDevice\b/.test(seg)) tplHits.push(`${f}: ${seg.trim()}`)
+        }
+      }
+      eq('模板文字插值里没有编码器名，也不直接输出 encoder / encoderDevice 字段', tplHits, [])
+      // 模拟层（?enc=）：回退场景
+      const s1 = simEncoderScenarioFor('fb-nvenc'); const s2 = simEncoderScenarioFor('gpu-task'); const s3 = simEncoderScenarioFor('copy-task'); const s4 = simEncoderScenarioFor('found')
+      eq('?enc= 任务场景：fb-nvenc 回退 / gpu-task 不回退 / copy-task 无设备 / 设备列表场景不改任务', [s1?.hwFallback, s2?.hwFallback, s3?.encoder, s3?.encoderDevice, s4], [true, undefined, 'copy', '', undefined])
+    }
   }
 
   // ---- 直播预览（轮询核心用假时钟，不真等；设计说明 6.1 / 6.2）----

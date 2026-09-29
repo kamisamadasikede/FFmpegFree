@@ -1122,6 +1122,10 @@ export namespace store {
 	    fps?: number;
 	    bitrateKbps?: number;
 	    droppedFrames?: number;
+	    encoder?: string;
+	    encoderDevice?: string;
+	    hwFallback?: boolean;
+	    hwFallbackReason?: string;
 	    params: string;
 	    version: number;
 	    error?: apperr.AppError;
@@ -1147,6 +1151,10 @@ export namespace store {
 	        this.fps = source["fps"];
 	        this.bitrateKbps = source["bitrateKbps"];
 	        this.droppedFrames = source["droppedFrames"];
+	        this.encoder = source["encoder"];
+	        this.encoderDevice = source["encoderDevice"];
+	        this.hwFallback = source["hwFallback"];
+	        this.hwFallbackReason = source["hwFallbackReason"];
 	        this.params = source["params"];
 	        this.version = source["version"];
 	        this.error = this.convertValues(source["error"], apperr.AppError);

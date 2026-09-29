@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"FFmpegFree/internal/apperr"
+	"FFmpegFree/internal/ffmpeg"
 )
 
 // entry 是一个未结束任务在内存中的状态。
@@ -81,6 +82,7 @@ func (e *entry) start() {
 	e.persistLocked()
 	e.m.emit(EventStatus, StatusEvent{
 		ID: e.task.ID, Version: e.task.Version, Status: StatusRunning, StartedAt: e.task.StartedAt,
+		Encoder: e.task.Encoder, EncoderDevice: e.task.EncoderDevice, HWFallback: e.task.HWFallback, HWFallbackReason: e.task.HWFallbackReason,
 	})
 }
 
@@ -118,8 +120,30 @@ func (e *entry) finish(m *Manager, st Status, aerr *apperr.AppError, output stri
 	m.emit(EventStatus, StatusEvent{
 		ID: e.task.ID, Version: e.task.Version, Status: st, Error: aerr,
 		OutputPath: e.task.OutputPath, StartedAt: e.task.StartedAt, FinishedAt: e.task.FinishedAt,
+		Encoder: e.task.Encoder, EncoderDevice: e.task.EncoderDevice, HWFallback: e.task.HWFallback, HWFallbackReason: e.task.HWFallbackReason,
 	})
 	e.log.close()
+}
+
+// setEncoder 更新编码器信息（运行中硬件编码回退 CPU）：变化时落库并补发一条 running 的 task:status。
+func (e *entry) setEncoder(info ffmpeg.EncoderInfo) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.terminal || e.task.Status != StatusRunning {
+		return
+	}
+	if e.task.Encoder == info.Encoder && e.task.EncoderDevice == info.Device &&
+		e.task.HWFallback == info.HWFallback && e.task.HWFallbackReason == info.HWFallbackReason {
+		return
+	}
+	e.task.Encoder, e.task.EncoderDevice = info.Encoder, info.Device
+	e.task.HWFallback, e.task.HWFallbackReason = info.HWFallback, info.HWFallbackReason
+	e.task.Version++
+	e.persistLocked()
+	e.m.emit(EventStatus, StatusEvent{
+		ID: e.task.ID, Version: e.task.Version, Status: StatusRunning, StartedAt: e.task.StartedAt,
+		Encoder: e.task.Encoder, EncoderDevice: e.task.EncoderDevice, HWFallback: e.task.HWFallback, HWFallbackReason: e.task.HWFallbackReason,
+	})
 }
 
 // report 是传给 Runner 的进度回调：内存里总是更新，推送按最小间隔节流，被抑制的最后一次会在间隔到期后补发。
@@ -188,6 +212,7 @@ func (e *entry) emitProgressLocked() {
 	e.m.emit(EventProgress, ProgressEvent{
 		ID: e.task.ID, Version: e.task.Version, Progress: e.task.Progress,
 		Speed: e.task.Speed, EtaSec: e.task.EtaSec, OutTimeSec: e.outTime,
+		Encoder: e.task.Encoder, EncoderDevice: e.task.EncoderDevice, HWFallback: e.task.HWFallback, HWFallbackReason: e.task.HWFallbackReason,
 		Fps: e.task.Fps, BitrateKbps: e.task.BitrateKbps, DroppedFrames: e.task.DroppedFrames,
 	})
 }

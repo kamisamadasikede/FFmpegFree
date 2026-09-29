@@ -7,6 +7,7 @@ import { hasWailsBackend, onEvent, onSimEvent, previewParams } from '@/services/
 import { cancelSimTask, isSimTask, listSimFinished, removeSimTasks, retrySimTask } from '@/api/sim'
 import { toInstallProgress, useFFmpegStore } from '@/stores/ffmpeg'
 import { buildPreviewActive, buildPreviewHistory, PREVIEW_LOG } from '@/stores/tasks.preview'
+import { mergeEncoderFields, pickEncoderFields } from '@/api/encoderTask'
 
 /** 契约第 3 节。注意 canceled 只有一个 l */
 export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'interrupted'
@@ -63,6 +64,11 @@ export interface TaskItem {
   fps?: number
   bitrateKbps?: number
   droppedFrames?: number
+  /** v0.18（契约 9.7）：实际使用的视频编码器 / 设备 / 是否回退 CPU / 原因；没有视频编码的任务缺省 */
+  encoder?: string
+  encoderDevice?: string
+  hwFallback?: boolean
+  hwFallbackReason?: string
 }
 
 /** 终态任务的快照（见 useTaskStore 的 finalById） */
@@ -79,6 +85,11 @@ export interface FinalState {
   startedAt?: number
   finishedAt: number
   params: string
+  /** 编码器字段（契约 9.7）：终态后转换页 / 剪辑导出结果处还要显示“用了哪个设备 / 是否回退”，所以快照里也带上 */
+  encoder?: string
+  encoderDevice?: string
+  hwFallback?: boolean
+  hwFallbackReason?: string
 }
 
 /** 历史分组 → 状态过滤。failed 组把 interrupted 也算进去（都需要用户手动重试） */
@@ -105,6 +116,10 @@ interface ProgressPayload {
   fps?: number
   bitrateKbps?: number
   droppedFrames?: number
+  encoder?: string
+  encoderDevice?: string
+  hwFallback?: boolean
+  hwFallbackReason?: string
 }
 interface StatusPayload {
   id: string
@@ -115,6 +130,10 @@ interface StatusPayload {
   /** 后端 PR #32：running 事件与四种终态事件都带；排队中被取消则缺省 */
   startedAt?: number
   finishedAt?: number
+  encoder?: string
+  encoderDevice?: string
+  hwFallback?: boolean
+  hwFallbackReason?: string
 }
 interface RemovedPayload { ids: string[] }
 type BufferedEvent =
@@ -150,8 +169,14 @@ export function normalizeTask(raw: goStore.Task | TaskItem): TaskItem {
     ...(r.fps !== undefined ? { fps: r.fps } : {}),
     ...(r.bitrateKbps !== undefined ? { bitrateKbps: r.bitrateKbps } : {}),
     ...(r.droppedFrames !== undefined ? { droppedFrames: r.droppedFrames } : {}),
+    ...(r.encoder ? { encoder: r.encoder } : {}),
+    ...(r.encoderDevice ? { encoderDevice: r.encoderDevice } : {}),
+    ...(r.hwFallback ? { hwFallback: true } : {}),
+    ...(r.hwFallbackReason ? { hwFallbackReason: r.hwFallbackReason } : {}),
   }
 }
+
+const mergeEncoder = mergeEncoderFields // 逐字段合并，缺省不覆盖（api/encoderTask.ts，自检见 api.check.ts）
 
 const PREVIEW_ACTIVE = previewParams.has('tasks')
 const previewMode = !hasWailsBackend() && PREVIEW_ACTIVE
@@ -426,6 +451,7 @@ export const useTaskStore = defineStore('tasks', () => {
     if (p.fps !== undefined) cur.fps = p.fps
     if (p.bitrateKbps !== undefined) cur.bitrateKbps = p.bitrateKbps
     if (p.droppedFrames !== undefined) cur.droppedFrames = p.droppedFrames
+    mergeEncoder(cur, p)
     syncInstall(cur)
   }
 
@@ -439,7 +465,7 @@ export const useTaskStore = defineStore('tasks', () => {
           rememberFinished(p.id, p.version)
           recordFinal({
             id: p.id, status: p.status, error: normalizeError(p.error), outputPath: p.outputPath ?? '',
-            progress: p.status === 'succeeded' ? 1 : 0, speed: '', etaSec: 0, startedAt: p.startedAt || undefined, finishedAt: p.finishedAt ?? Date.now(), params: '',
+            progress: p.status === 'succeeded' ? 1 : 0, speed: '', etaSec: 0, startedAt: p.startedAt || undefined, finishedAt: p.finishedAt ?? Date.now(), params: '', ...pickEncoderFields(p),
           })
           scheduleRefresh()
         }
@@ -454,6 +480,7 @@ export const useTaskStore = defineStore('tasks', () => {
     if (p.error) cur.error = normalizeError(p.error)
     if (p.outputPath) cur.outputPath = p.outputPath
     if (p.finishedAt) cur.finishedAt = p.finishedAt
+    mergeEncoder(cur, p)
     // 事件带的 startedAt 优先；没有就沿用本地已记录值（running 时本地第一次见到才记当前时间）
     if (p.startedAt) cur.startedAt = p.startedAt
     else if (p.status === 'running' && !cur.startedAt) cur.startedAt = Date.now()
@@ -461,7 +488,7 @@ export const useTaskStore = defineStore('tasks', () => {
       if (p.status === 'succeeded') cur.progress = 1
       recordFinal({
         id: cur.id, status: p.status, error: cur.error, outputPath: cur.outputPath, progress: cur.progress,
-        speed: '', etaSec: 0, startedAt: cur.startedAt, finishedAt: cur.finishedAt || Date.now(), params: cur.params,
+        speed: '', etaSec: 0, startedAt: cur.startedAt, finishedAt: cur.finishedAt || Date.now(), params: cur.params, ...pickEncoderFields(cur),
       })
       delete byId[p.id]
       rememberFinished(p.id, p.version)
@@ -674,7 +701,7 @@ export const useTaskStore = defineStore('tasks', () => {
       if (isTerminal(t.status)) {
         recordFinal({
           id: t.id, status: t.status, error: t.error, outputPath: t.outputPath, progress: t.status === 'succeeded' ? 1 : t.progress,
-          speed: '', etaSec: 0, startedAt: t.startedAt, finishedAt: t.finishedAt, params: t.params,
+          speed: '', etaSec: 0, startedAt: t.startedAt, finishedAt: t.finishedAt, params: t.params, ...pickEncoderFields(t),
         })
       } else byId[id] = t
     } catch (e) {
