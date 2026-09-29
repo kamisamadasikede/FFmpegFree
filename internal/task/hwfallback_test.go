@@ -272,3 +272,55 @@ func TestEncoderFieldsOnPlainRunners(t *testing.T) {
 		t.Fatalf("没有编码器信息的任务不带字段: %+v", tk2)
 	}
 }
+
+type encRunner struct {
+	info ffmpeg.EncoderInfo
+	ran  bool
+}
+
+func (r *encRunner) Run(ctx context.Context, _ func(Progress)) (string, error) {
+	r.ran = true
+	<-ctx.Done()
+	return "", ctx.Err()
+}
+func (r *encRunner) EncoderInfo() ffmpeg.EncoderInfo { return r.info }
+
+// 从未运行的任务（排队中被取消）：Run 没执行过，不会有运行中的回退；但 Submit 时写入的编码器字段仍在，
+// 终态 task:status（没有 startedAt、没有 running 事件）和库里都带着它（契约 6.6 的 NeverRanner 段）。
+func TestNeverRanTaskKeepsSubmitTimeEncoderFields(t *testing.T) {
+	f := newFx(t, 1)
+	gate := make(chan struct{})
+	blocker, _ := f.m.Submit(Spec{Type: TypeConvert}, RunnerFunc(func(ctx context.Context, _ func(Progress)) (string, error) {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+		}
+		return "", nil
+	}))
+	r := &encRunner{info: ffmpeg.EncoderInfo{Encoder: "libx264", Device: "cpu", HWFallback: true, HWFallbackReason: ffmpeg.ReasonDeviceUnavailable}}
+	queued, _ := f.m.Submit(Spec{Type: TypeConvert, OutputPath: filepath.Join(f.dir, "q.mp4")}, r)
+	if err := f.m.Cancel(queued.ID); err != nil {
+		t.Fatal(err)
+	}
+	d := waitTask(t, f.m, queued.ID)
+	if d.Status != StatusCanceled || r.ran || d.StartedAt != 0 || d.FinishedAt == 0 {
+		t.Fatalf("%+v ran=%v", d, r.ran)
+	}
+	if d.Encoder != "libx264" || d.EncoderDevice != "cpu" || !d.HWFallback || d.HWFallbackReason != ffmpeg.ReasonDeviceUnavailable {
+		t.Fatalf("库里应保留提交时的编码器字段: %+v", d)
+	}
+	ev := lastStatus(f, queued.ID)
+	if ev.Status != StatusCanceled || ev.StartedAt != 0 || ev.Encoder != "libx264" || !ev.HWFallback {
+		t.Fatalf("终态事件: %+v", ev)
+	}
+	for _, e := range f.em.all() {
+		if s, ok := e.payload.(StatusEvent); ok && s.ID == queued.ID && s.Status == StatusRunning {
+			t.Fatalf("从未运行的任务不应有 running 事件")
+		}
+		if p, ok := e.payload.(ProgressEvent); ok && p.ID == queued.ID {
+			t.Fatalf("从未运行的任务不应有 task:progress")
+		}
+	}
+	close(gate)
+	waitTask(t, f.m, blocker.ID)
+}

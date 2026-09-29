@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.18）
+# FFmpegFree v2 接口契约（v0.19）
+
+v0.19 变更（只补契约文字，**接口、字段、错误码、行为都没有变**）：① 6.6 新增 `task.NeverRanner`（任务从未真正开始执行就结束）的说明，写清触发场景、状态 / 事件 / 字段表现，以及与 v0.18 编码器字段的关系——**这类任务的 `encoder` / `encoderDevice` / `hwFallback` / `hwFallbackReason` 保留提交时写入的值，不会为空**（见 6.6 与 9.7）；② 第 6 节 `tasks` 表列清单补上 v0.18 迁移 `0004` 新增的四列（`encoder`、`encoder_device`、`hw_fallback`、`hw_fallback_reason`，v0.18 漏写）；③ 9.7 补一句：`hwFallbackReason` 枚举在 Go 常量（`internal/ffmpeg/hwenc.go`）、本契约、前端 `taskTypes.ts` 三处一致，并新增测试锁住这个一致性；前端 `errors/encoderMessages.ts` 现有回退文案按功能区分（转换 / 直播 / 任务行），不按原因区分。
 
 v0.18 变更（硬件编码接入 ConvertService / EditService / LiveService，见新增的 9.7；**契约按架构师口头方案起草，如有出入以架构师为准**）：`Task` 和 `task:progress` / `task:status` 事件新增四个可选字段 `encoder`（string）、`encoderDevice`（string）、`hwFallback`（bool）、`hwFallbackReason`（string），全部 `omitempty`，没有视频编码的任务不带；`tasks` 表新增迁移 `0004_task_encoder.sql`（四列，旧行为空）；`ResolveEncoder` 的结果现在真正用于转换 / 剪辑导出 / 直播的 H.264、H.265 重编码（NVENC / QSV / AMF / VideoToolbox），`-c copy`、VP9 / GIF / 音频、按目标大小的两遍编码一律 CPU；硬件编码启动失败自动用 CPU 重试一次（`hwFallback`），取消不回退，直播只在推流建立前回退；**没有新增接口方法、没有新增错误码**；`Task.params` 不变。9.6 末段“本版不接入”作废。
 
@@ -502,7 +504,8 @@ GetLog(id string, tailLines int) (string, error)
 ```sql
 media(id PK, path, path_key UNIQUE, name, size, duration, width, height, video_codec, audio_codec, bitrate, probed_at)
 tasks(id PK, type, status, title, input_paths JSON, output_path, params JSON, progress, error JSON,
-      log_path, version, created_at, started_at, finished_at)
+      log_path, version, created_at, started_at, finished_at,
+      encoder, encoder_device, hw_fallback, hw_fallback_reason)   -- 后四列：迁移 0004（v0.18），见 9.7；旧行为空 / 0
 presets(id PK, name, built_in, options JSON, sort)
 edit_projects(id PK, name, project JSON, updated_at)
 doc_recent(id PK, path, path_key UNIQUE, name, size, opened_at)
@@ -533,6 +536,11 @@ schema_migrations(version PK, applied_at)
 - 状态机：`queued → running → succeeded | failed | canceled | interrupted`。Runner 返回 nil 即 `succeeded`（含直播优雅停止：存档完整；直播存档在强杀 / 失败 / 中断后也保留，见 6.10）；返回被取消的错误且用户请求过取消为 `canceled`；应用退出时被停止的任务（含还在排队的）为 `interrupted`；其余为 `failed`（`error` 带错误，ffmpeg 失败时 `detail` 为 stderr 最后 50 行）。
 - 只有状态变化落库；进度只在内存。`task:progress` 同一任务最多 4 次/秒，被节流抑制的最后一次会在间隔到期后补发。`ListActive` / `Get` / `List` 返回运行中任务时带实时进度，`Speed` / `EtaSec` 不落库。
 - 取消：排队中的直接移出队列变 `canceled`；运行中的取消 `ctx`，ffmpeg 任务结束整个进程组；直播任务发 `q`（不用 SIGINT，见 6.10），最多等 5 秒（有本地存档的直播会话 15 秒；还没连上、没有收到第一条 progress 的会话直接强杀，不发 `q`，见 6.10）再强制结束。已结束的任务取消返回 `TASK_CONFLICT`，不存在返回 `NOT_FOUND`；**旧类型（"保留但不再产生"的类型）的 id 按不存在处理，返回 `NOT_FOUND`**（6.10 确认项 ⑧）。Windows 上结束整个进程树（v0.9.2：先终结进程所在的 Job Object，失败退回 `taskkill /T /F`，再失败只结束主进程）。
+- **`task.NeverRanner`（v0.19 补写，描述现有行为）**：`Runner` 可选实现的接口 `NeverRan() string`。**什么时候用**：任务在 `Run` 根本没有执行的情况下就结束时，管理器在发终态事件**之前**调用一次 `NeverRan`，返回值当作该任务的输出路径（含义与 `Run` 的返回值相同：`""` = 保留提交时的预期路径；`task.ClearOutputPath` = 把 `outputPath` 清空；绝对路径 = 采信；相对路径忽略）。目前**只有直播屏幕推流的存档 Runner**（`archiveRunner`）实现它：删掉自己创建的 0 字节占位文件并返回 `ClearOutputPath`；其余 Runner 都没实现，行为是保留预期路径（旧行为）。
+  - **触发场景（`Run` 没有执行）**：排队中被 `Cancel`（`canceled`）；`Submit` 与应用退出并发、或在 `task:created` 与入队之间被取消（`interrupted` / `canceled`）；应用退出时还在排队（`interrupted`）；刚出队但 ctx 已被取消（`canceled`，应用正在退出时按“不是用户取消”规则为 `interrupted`）。直播任务不排队，只会走最后两种（刚提交就被取消）。
+  - **状态与事件**：终态只可能是 `canceled` 或 `interrupted`，**不会是 `failed` / `succeeded`**，`error` 为空。**没有 `running` 事件、没有任何 `task:progress`**；终态 `task:status` **不带 `startedAt`**（`Task.startedAt` 为 0，事件里省略），带 `finishedAt`；`Task.progress` 保持提交时的值（非直播 0，直播 -1，不会因终态变成 1）。终态落库、发 `task:status` 后调用 `OnFinish`（`Finalizer`）。这类任务从未启动 ffmpeg，也没有 `.part` 文件；日志文件可能不存在（`GetLog` 返回空）。
+  - **注意（非直播的例外）**：“刚出队但 ctx 已被取消”这条路径上，非直播任务失败 / 取消时管理器一律丢弃 Runner 返回的输出路径（沿用旧行为，见 `finishAfterRun`），所以 `NeverRan` 的返回值只对直播任务在这条路径上生效；前四种场景对所有类型都采信。
+  - **与 v0.18 编码器字段的关系**：`encoder` / `encoderDevice` / `hwFallback` / `hwFallbackReason` 由 `Submit` 在任务落库前从 Runner 的 `EncoderReporter` 一次性写入，而 `NeverRan` 只影响输出路径，所以**从未运行的任务上这四个字段是提交时解析出来的值，不是空**（例如排队中被取消的 h264 转换任务带 `libx264` / `cpu`，所选设备当时不可用的带 `hwFallback=true`、`device_unavailable`；实现了 `EncoderReporter` 才有，纯音频转换、Office 转 PDF、ffmpeg 安装这类没有视频编码器的任务本来就为空）。因为 `Run` 没执行过，**不会发生运行中的硬件编码回退**，不会补发 `running` 事件，所以字段不会再变。前端不要把“这四个字段有值”理解为“这个任务真的编码过”，要看是否有 `startedAt`。
 - `Retry`：用原任务的 `type` / `params` / `title` / `inputPaths` 重新提交，生成新任务（原任务保留）；原任务仍在进行返回 `TASK_CONFLICT`。每个任务类型注册一个 Factory 才支持重试（目前只有 `ffmpeg_install`），没有 Factory 的返回 `UNSUPPORTED`；**旧类型（"保留但不再产生"的类型）的 id 先判为 `NOT_FOUND`，不落 `UNSUPPORTED`**（6.10 确认项 ⑧）。
 - `Remove(ids, deleteOutput)`：任一 id 仍在进行则整体失败（`TASK_CONFLICT`）；删除记录与日志，`deleteOutput=true` 时删除成功任务的输出文件（仅当输出路径是绝对路径、所在目录及上级不含符号链接、且是普通文件；否则只删记录并在日志里说明）；不存在的 id 忽略；**但 ids 里有旧类型（"保留但不再产生"的类型）记录的 id 时整体返回 `NOT_FOUND`、不删任何记录**（6.10 确认项 ⑧，"不存在的 id 忽略"的例外）；发 `task:removed`。`ClearFinished` 只删记录和日志，不删输出。
 - 日志：`<数据目录>/logs/<任务ID>.log`（单个任务最多 16 MB：写满 8 MB 轮转为 `.log.1`，单行最多 8 KB 超出截断），Runner 通过 `task.LogWriter(ctx)` 写入，`GetLog(id, tailLines)` 读取末尾若干行（最多读末尾 1 MB）。
@@ -1368,7 +1376,7 @@ H.265 在 mp4 / mov 里照旧加 `-tag:v hvc1`。**直播**（H.264，码率控�
 - **直播的回退窗口**：只在推流尚未建立（还没有第一条 `task:progress`，即 ReportGate 之前）时失败才回退；推流已建立后中途失败（包括硬件编码器中途报错）**不自动重试**，任务按原有规则失败。
 - **提交时**所选设备不可用（`ResolveEncoder` 返回 `fallback=true`）：直接用 CPU，`hwFallback=true`，`hwFallbackReason="device_unavailable"`，不算错误。auto 落到 CPU、偏好 `cpu`、以及上表“一律 CPU”的场景都**不**算回退。
 
-`hwFallbackReason` 取值（固定枚举，一行，不含路径；前端自行翻译文案）：`device_unavailable`、`nvenc_init_failed`、`qsv_init_failed`、`amf_init_failed`、`videotoolbox_failed`、`encoder_unavailable`（ffmpeg 里没有该编码器）、`encoder_start_failed`（其他打开编码器失败 / 起始崩溃）。
+`hwFallbackReason` 取值（固定枚举，一行，不含路径；前端自行翻译文案。v0.19：Go 常量 `internal/ffmpeg/hwenc.go`、本行、前端 `taskTypes.ts` 三处枚举一致，`TestHWFallbackReasonEnumConsistent` 锁定；前端 `errors/encoderMessages.ts` 的回退文案按功能区分，不按原因区分）：`device_unavailable`、`nvenc_init_failed`、`qsv_init_failed`、`amf_init_failed`、`videotoolbox_failed`、`encoder_unavailable`（ffmpeg 里没有该编码器）、`encoder_start_failed`（其他打开编码器失败 / 起始崩溃）。
 
 **事件与落库**：`Task.encoder` / `encoderDevice` / `hwFallback` / `hwFallbackReason` 与 `task:progress`、`task:status` 里的同名字段一致（`omitempty`）：`task:progress` 每条都带（前端可只在变化时取用）；`task:status` 的 `running` 事件、回退时补发的 `running` 事件、所有终态事件都带；`Get` / `List` 从库里读到的任务也有（迁移 `0004_task_encoder.sql`，旧行为空）。Retry 生成的新任务重新解析编码器。`Task.params` 不变（不含编码器信息）。
 
