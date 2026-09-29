@@ -112,7 +112,11 @@ func (a *App) startMedia() {
 		}
 		thumbs = d.Thumbs
 	}
-	cfg := media.Config{ThumbsDir: thumbs}
+	cfg := media.Config{ThumbsDir: thumbs, OnRemoved: func(ps []string) {
+		for _, p := range ps { // RemoveRecent 联动：撤销这些文件的 edit 预览 token（契约 6.13）
+			a.editLocal.RevokePath(p)
+		}
+	}}
 	if a.store != nil { // 避免把 nil *Store 装进接口
 		cfg.Store = a.store
 	}

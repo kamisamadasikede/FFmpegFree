@@ -70,15 +70,16 @@ type Config struct {
 	TempDir string
 	// GOOS 用于 Windows 路径长度检查，默认 runtime.GOOS（测试里可改）。
 	GOOS string
-	// SupportsScript 探测 ffmpeg 是否支持 -filter_complex_script，默认 probeFilterScript；按可执行文件路径缓存成功结果。
-	SupportsScript func(ctx context.Context, exe string) error
+	// SupportsScript 功能探测 ffmpeg 从文件读 filtergraph 的选项，返回选中的选项（OptFilterFile 或 OptFilterScript）；
+	// 两个都不支持返回 UNSUPPORTED。默认 probeFilterScript，结果按 ffmpeg 二进制（路径 + 大小 + 修改时间）缓存。
+	SupportsScript func(ctx context.Context, exe string) (option string, err error)
 	Now            func() time.Time
 }
 
 // Service 实现 EditService，无后台协程。
 type Service struct {
 	cfg      Config
-	scriptOK sync.Map  // exe → struct{}（探测成功的）
+	scriptOK sync.Map  // 路径|大小|mtime → 选中的选项（探测成功的）
 	started  time.Time // 进程（服务）启动时间：只清理修改时间早于它的 .part
 }
 
@@ -134,7 +135,7 @@ type params struct {
 }
 
 // Export 提交一个 edit_export 任务。先整体校验再提交，任何一项失败（含输出目录、输出路径过长、ffmpeg 不支持
-// -filter_complex_script）都不产生任务。
+// -/filter_complex 与 -filter_complex_script 都不可用）都不产生任务。
 func (s *Service) Export(ctx context.Context, p EditProject, opts EditExportOptions) (task.Task, error) {
 	if s.cfg.Tasks == nil || s.cfg.Media == nil {
 		return task.Task{}, apperr.New(apperr.Internal, "剪辑服务尚未初始化")
@@ -209,7 +210,7 @@ func (s *Service) resolveOutputDir(ctx context.Context, dir, fixed string, p Edi
 	if dir == "" && len(p.VideoTrack) > 0 {
 		dir = filepath.Dir(p.VideoTrack[0].Path)
 	}
-	if strings.HasPrefix(dir, `\\?\`) || strings.HasPrefix(dir, `\\.\`) {
+	if hasDevicePrefix(dir) {
 		return "", projectErr(apperr.InvalidArgument, `输出目录不能以 \\?\ 或 \\.\ 开头`, "outputDir="+cleanLine(dir))
 	}
 	if dir == "" || !filepath.IsAbs(dir) || strings.IndexFunc(dir, isCtrl) >= 0 {
@@ -276,6 +277,9 @@ func (s *Service) GetPreviewURL(path string) (PreviewURL, error) {
 	}
 	if path == "" || !filepath.IsAbs(path) {
 		return PreviewURL{}, apperr.New(apperr.InvalidArgument, "预览路径必须是绝对路径").WithDetail(cleanLine(path))
+	}
+	if hasDevicePrefix(path) {
+		return PreviewURL{}, apperr.New(apperr.InvalidArgument, `预览路径不能以 \\?\ 或 \\.\ 开头`).WithDetail(cleanLine(path))
 	}
 	if !previewExts[strings.ToLower(filepath.Ext(path))] {
 		return PreviewURL{}, apperr.New(apperr.InvalidArgument, "不支持预览这种文件类型").WithDetail(cleanLine(path))
@@ -504,49 +508,70 @@ func (s *Service) CleanupInterruptedParts(ctx context.Context) int {
 
 // ---------- ffmpeg 能力探测 ----------
 
-// probeFilterScript 做契约 6.11.2 第 0 条的功能探测（不解析帮助文本）：
+// 从文件读 filtergraph 的两个 ffmpeg 选项。不按版本号判断，只做功能探测：先探新的（7.0 起），不支持再探旧的（6.x；9.0 已移除）。
+const (
+	OptFilterFile   = "-/filter_complex"       // 后面跟文件路径；ffmpeg 7.0 起
+	OptFilterScript = "-filter_complex_script" // ffmpeg 6.x；7.x 仍可用但打印 deprecated，9.0 已移除
+)
+
+// probeFilterScript 功能探测（不解析帮助文本、不看版本号），跑一个小样本：
 //
 //	ffmpeg -hide_banner -nostdin -loglevel error -f lavfi -i nullsrc=s=32x32:r=5:d=0.4
-//	       -filter_complex_script <file:[0:v]scale=16:16[v]> -map [v] -f null -
+//	       <选项> <file:[0:v]scale=16:16[v]> -map [v] -f null -
 //
-// 退出码 0 = 可用。不认识选项（stderr `Unrecognized option`）返回 UNSUPPORTED，detail 第一行 `project`、第二行
-// `missing=filter_complex_script`；其他失败返回 PROCESS_FAILED（不冒充 UNSUPPORTED）。
-// 成功结果按 ffmpeg 路径 + 文件大小 + 修改时间缓存到进程内。
-func (s *Service) probeFilterScript(ctx context.Context, exe string) error {
+// 先用 OptFilterFile，退出码 0 = 可用；stderr 含 `Unrecognized option` 才继续探 OptFilterScript；两个都不认识返回 UNSUPPORTED，
+// detail 第一行 `project`、第二行 `missing=filter_complex`。其他失败（超时、崩溃、别的错误）返回 PROCESS_FAILED，不冒充 UNSUPPORTED。
+// 成功结果（选中的选项）按 ffmpeg 路径 + 文件大小 + 修改时间缓存到进程内。
+func (s *Service) probeFilterScript(ctx context.Context, exe string) (string, error) {
 	key := exe
 	if fi, err := os.Stat(exe); err == nil {
 		key = fmt.Sprintf("%s|%d|%d", exe, fi.Size(), fi.ModTime().UnixNano())
 	}
-	if _, ok := s.scriptOK.Load(key); ok {
-		return nil
+	if v, ok := s.scriptOK.Load(key); ok {
+		return v.(string), nil
 	}
 	tmp, err := os.MkdirTemp(s.cfg.TempDir, "edit-probe-")
 	if err != nil {
-		return apperr.Wrap(apperr.IOError, "创建临时目录失败", err)
+		return "", apperr.Wrap(apperr.IOError, "创建临时目录失败", err)
 	}
 	defer os.RemoveAll(tmp)
 	script := filepath.Join(tmp, "probe.txt")
 	if err := os.WriteFile(script, []byte("[0:v]scale=16:16[v]\n"), 0o600); err != nil {
-		return apperr.Wrap(apperr.IOError, "写入临时文件失败", err)
+		return "", apperr.Wrap(apperr.IOError, "写入临时文件失败", err)
 	}
+	for _, opt := range []string{OptFilterFile, OptFilterScript} {
+		ok, err := s.tryFilterOption(ctx, exe, opt, script)
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			s.scriptOK.Store(key, opt)
+			return opt, nil
+		}
+	}
+	return "", projectErr(apperr.Unsupported, "当前 ffmpeg 版本不支持从文件读取滤镜图（-/filter_complex、-filter_complex_script 都不可用），无法导出多轨剪辑，请安装应用推荐的 ffmpeg 版本", "missing=filter_complex")
+}
+
+// tryFilterOption 用 opt 跑一次探测样本：可用 (true, nil)；ffmpeg 不认识该选项 (false, nil)；其他失败返回错误。
+func (s *Service) tryFilterOption(ctx context.Context, exe, opt, script string) (bool, error) {
 	pctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	cmd := ffmpeg.NewCommand(pctx, exe, "-hide_banner", "-nostdin", "-loglevel", "error",
 		"-f", "lavfi", "-i", "nullsrc=s=32x32:r=5:d=0.4",
-		"-filter_complex_script", script, "-map", "[v]", "-f", "null", "-")
+		opt, script, "-map", "[v]", "-f", "null", "-")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	if err := proc.Run(cmd); err != nil {
-		if ctx.Err() != nil {
-			return apperr.Wrap(apperr.Canceled, "操作已取消", ctx.Err())
-		}
-		if strings.Contains(strings.ToLower(stderr.String()), "unrecognized option") {
-			return projectErr(apperr.Unsupported, "当前 ffmpeg 版本不支持 -filter_complex_script，无法导出多轨剪辑，请安装应用推荐的 ffmpeg 版本", "missing=filter_complex_script")
-		}
-		return apperr.Wrap(apperr.ProcessFailed, "检测 ffmpeg 的滤镜脚本能力失败", err).WithDetail(tailLines(stderr.String(), 10))
+	err := proc.Run(cmd)
+	if err == nil {
+		return true, nil
 	}
-	s.scriptOK.Store(key, struct{}{})
-	return nil
+	if ctx.Err() != nil {
+		return false, apperr.Wrap(apperr.Canceled, "操作已取消", ctx.Err())
+	}
+	if strings.Contains(strings.ToLower(stderr.String()), "unrecognized option") {
+		return false, nil
+	}
+	return false, apperr.Wrap(apperr.ProcessFailed, "检测 ffmpeg 的滤镜脚本能力失败", err).WithDetail(tailLines(stderr.String(), 10))
 }
 
 func tailLines(s string, n int) string {

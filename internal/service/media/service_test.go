@@ -1,8 +1,10 @@
 package media
 
 import (
+	"FFmpegFree/internal/localassets"
 	"context"
 	"math"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -824,5 +826,45 @@ func TestNewCommandCancelKillsProcessGroup(t *testing.T) {
 	fi2, _ := os.Stat(marker)
 	if !fi2.ModTime().Equal(fi1.ModTime()) {
 		t.Fatal("超时后孙进程仍在运行：NewCommand 应结束整个进程组")
+	}
+}
+
+// RemoveRecent 联动撤销预览 token：契约 6.13「被 RemoveRecent 撤销后一律 404」。
+func TestRemoveRecentRevokesPreview(t *testing.T) {
+	reg := localassets.New(localassets.Config{})
+	e := newEnv(t, func(c *Config) {
+		c.OnRemoved = func(ps []string) {
+			for _, p := range ps {
+				reg.RevokePath(p)
+			}
+		}
+	})
+	p := e.video(t, "pv.mp4")
+	p2 := e.video(t, "pv2.mp4")
+	res, _ := e.svc.Probe(context.Background(), []string{p, p2})
+	en, err := reg.Register(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	en2, _ := reg.Register(p2)
+	code := func(url string) int {
+		rec := httptest.NewRecorder()
+		reg.Handler().ServeHTTP(rec, httptest.NewRequest("HEAD", url, nil))
+		return rec.Code
+	}
+	if code(en.URL) != 200 {
+		t.Fatal("撤销前应 200")
+	}
+	if err := e.svc.RemoveRecent(context.Background(), []string{res[0].ID}); err != nil {
+		t.Fatal(err)
+	}
+	if code(en.URL) != 404 {
+		t.Fatal("RemoveRecent 后旧 URL 应 404")
+	}
+	if code(en2.URL) != 200 {
+		t.Fatal("没被移除的文件预览不应受影响")
+	}
+	if _, err := os.Stat(p); err != nil {
+		t.Fatal("文件不应被删除")
 	}
 }

@@ -53,6 +53,10 @@ type env struct {
 
 func realBins(t *testing.T) ffmpeg.Binaries {
 	t.Helper()
+	// EDIT_TEST_FFMPEG_DIR：指向放着 ffmpeg / ffprobe 的目录，用来在别的 ffmpeg 版本（如 9.x）上跑整套真实导出测试。
+	if d := os.Getenv("EDIT_TEST_FFMPEG_DIR"); d != "" {
+		return ffmpeg.Binaries{FFmpeg: filepath.Join(d, "ffmpeg"), FFprobe: filepath.Join(d, "ffprobe")}
+	}
 	fm, err1 := exec.LookPath("ffmpeg")
 	fp, err2 := exec.LookPath("ffprobe")
 	if err1 != nil || err2 != nil {

@@ -371,7 +371,7 @@ func TestExportPathTooLongOnWindows(t *testing.T) {
 	// 在任意平台上把 GOOS 设成 windows 验证：超长在提交时同步 INVALID_ARGUMENT，不产生任务；用假的探测让它不依赖真实 ffmpeg。
 	s := New(Config{Media: fakeMedia{base}, Tasks: &fakeTasks{}, GOOS: "windows",
 		Require:        func() (ffmpeg.Binaries, error) { return ffmpeg.Binaries{FFmpeg: "x", FFprobe: "y"}, nil },
-		SupportsScript: func(context.Context, string) error { return nil }})
+		SupportsScript: func(context.Context, string) (string, error) { return OptFilterFile, nil }})
 	dir := t.TempDir()
 	long := dir
 	for len(long) < 240 {
@@ -553,10 +553,14 @@ func TestParamsAreSnapshot(t *testing.T) {
 
 // ---------- 辅助 ----------
 
-type fakeTasks struct{ n int }
+type fakeTasks struct {
+	n    int
+	last task.Runner
+}
 
 func (f *fakeTasks) Submit(spec task.Spec, r task.Runner) (task.Task, error) {
 	f.n++
+	f.last = r
 	return task.Task{ID: "fake", Type: spec.Type, Title: spec.Title, OutputPath: spec.OutputPath}, nil
 }
 func (f *fakeTasks) RegisterFactory(task.Type, task.Factory) {}
@@ -589,4 +593,63 @@ func (r *badRunner) Run(ctx context.Context, report func(task.Progress)) (string
 	fr := &task.FFmpegRunner{Exe: r.bin.FFmpeg, Output: r.out, DurationSec: 1, Classify: classifyExportError,
 		BuildArgs: func(part string) []string { return exportArgs(r.pl, script, part) }}
 	return fr.Run(ctx, report)
+}
+
+// 真 ffmpeg：导出走探测选中的 -/filter_complex（7.0 起；9.x 唯一可用），输出能被 ffprobe 读取。
+// 用 EDIT_TEST_FFMPEG_DIR 指向别的 ffmpeg 目录可在 9.x 上重跑。
+func TestExportRealUsesFileOption(t *testing.T) {
+	e := newEnv(t)
+	v := e.genVideo(t, "a.mp4", 3, "320x240")
+	au := e.genAudio(t, "m.mp3", 3)
+	p := proj(vclip("c1", v, "V1", 0, 0, 2), vclip("c2", v, "V2", 1, 0, 2))
+	p.Output = EditOutput{Width: 320, Height: 240, Fps: 25}
+	p.AudioTrack = []AudioClip{aclip("a1", au, "A1", 0, 0, 3)}
+	r, _, err := e.svc.prepareExport(context.Background(), p, EditExportOptions{OutputDir: filepath.Join(e.dir, "o")}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pl := r.(*exportRunner).pl
+	if pl.filterOpt != OptFilterFile {
+		t.Fatalf("选项 %q", pl.filterOpt)
+	}
+	tk := e.export(t, p, EditExportOptions{OutputDir: filepath.Join(e.dir, "o")})
+	done := e.wait(t, tk.ID)
+	if done.Status != task.StatusSucceeded {
+		t.Fatalf("%+v", done.Error)
+	}
+	res := e.probe(t, done.OutputPath)
+	t.Logf("ffmpeg=%s 输出 %s：时长 %.2fs，视频流 %d，音频流 %d", e.bin.FFmpeg, filepath.Base(done.OutputPath), res.dur(), res.count("video"), res.count("audio"))
+	if !near(res.dur(), 3, 0.2) || res.count("video") != 1 || res.count("audio") != 1 {
+		t.Fatalf("%+v", res.Streams)
+	}
+}
+
+// 真 ffmpeg 6.x/7.x：强制走旧选项 -filter_complex_script 也能导出（9.x 已移除该选项，自动跳过）。
+func TestExportRealOldOptionFallback(t *testing.T) {
+	e := newEnv(t)
+	if opt, err := e.svc.probeFilterScript(context.Background(), e.bin.FFmpeg); err != nil {
+		t.Fatal(err)
+	} else if ok, _ := e.svc.tryFilterOption(context.Background(), e.bin.FFmpeg, OptFilterScript, writeProbe(t)); !ok {
+		t.Skipf("该 ffmpeg 不支持 %s（探测选中 %s）", OptFilterScript, opt)
+	}
+	e.svc.cfg.SupportsScript = func(context.Context, string) (string, error) { return OptFilterScript, nil }
+	v := e.genVideo(t, "a.mp4", 2, "320x240")
+	p := proj(vclip("c1", v, "V1", 0, 0, 2))
+	p.Output = EditOutput{Width: 320, Height: 240, Fps: 25}
+	tk := e.export(t, p, EditExportOptions{OutputDir: filepath.Join(e.dir, "o")})
+	done := e.wait(t, tk.ID)
+	if done.Status != task.StatusSucceeded {
+		t.Fatalf("%+v", done.Error)
+	}
+	res := e.probe(t, done.OutputPath)
+	if !near(res.dur(), 2, 0.2) || res.count("video") != 1 || res.count("audio") != 1 {
+		t.Fatalf("%+v", res.Streams)
+	}
+	t.Logf("旧选项导出 OK：%.2fs", res.dur())
+}
+
+func writeProbe(t *testing.T) string {
+	p := filepath.Join(t.TempDir(), "p.txt")
+	os.WriteFile(p, []byte("[0:v]scale=16:16[v]\n"), 0o600)
+	return p
 }

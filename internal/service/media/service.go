@@ -46,6 +46,10 @@ type Config struct {
 	// Require 返回当前 ffmpeg / ffprobe，默认 ffmpeg.RequireProbe（未就绪返回 FFMPEG_NOT_FOUND）。
 	Require func() (ffmpeg.Binaries, error)
 
+	// OnRemoved 在 RemoveRecent 删除记录之后被调用，参数是被移除记录的路径。用来撤销这些文件的 /local/<token> 预览
+	// （契约 6.13：被 RemoveRecent 撤销后一律 404）。可为 nil。
+	OnRemoved func(paths []string)
+
 	ProbeTimeout  time.Duration
 	ThumbTimeout  time.Duration
 	CacheMaxFiles int
@@ -368,8 +372,17 @@ func (s *Service) RemoveRecent(ctx context.Context, ids []string) error {
 	if s.cfg.Store == nil {
 		return nil
 	}
+	var removed []string
+	if pl, ok := s.cfg.Store.(interface {
+		MediaPaths(ctx context.Context, ids []string) ([]string, error)
+	}); ok && s.cfg.OnRemoved != nil {
+		removed, _ = pl.MediaPaths(ctx, ids) // 查不到路径只是少撤销几个预览，不影响删除
+	}
 	if err := s.cfg.Store.DeleteMedia(ctx, ids); err != nil {
 		return apperr.Wrap(apperr.IOError, "删除媒体记录失败", err)
+	}
+	if len(removed) > 0 {
+		s.cfg.OnRemoved(removed)
 	}
 	return nil
 }

@@ -25,7 +25,7 @@ func (f fakeMedia) Inspect(_ context.Context, p string) (store.MediaInfo, error)
 
 func fakeSvc(m map[string]store.MediaInfo) *Service {
 	return New(Config{Media: fakeMedia{m}, Require: func() (ffmpeg.Binaries, error) { return ffmpeg.Binaries{FFmpeg: "x", FFprobe: "y"}, nil },
-		SupportsScript: func(context.Context, string) error { return nil }})
+		SupportsScript: func(context.Context, string) (string, error) { return OptFilterFile, nil }})
 }
 
 var (
@@ -522,5 +522,23 @@ func TestTimelineLimit(t *testing.T) {
 	c = vclip("c1", pV, "V1", 6*3600-1, 0, 1) // 恰好 6h
 	if _, err := s.ValidateProject(context.Background(), proj(c)); err != nil {
 		t.Fatalf("6 小时整应通过: %v", err)
+	}
+}
+
+// 控制字符在 detail 第一行里替换为 ?（契约 6.11.2 B），设备路径前缀被拒绝。
+func TestCleanLineAndDevicePrefix(t *testing.T) {
+	if got := cleanLine("a\nb\rc\x00d"); got != "a?b?c?d" {
+		t.Fatalf("%q", got)
+	}
+	s := fakeSvc(base)
+	nl := filepath.Join(string(filepath.Separator), "m", "a\nb.mp4")
+	_, err := s.ValidateProject(context.Background(), proj(vclip("c1", nl, "V1", 0, 0, 1)))
+	if firstLine(err) != "clip=c1 path="+filepath.Join(string(filepath.Separator), "m", "a?b.mp4") {
+		t.Fatalf("%q", firstLine(err))
+	}
+	for _, p := range []string{`\\?\C:\a.mp4`, `\\.\C:\a.mp4`} {
+		if err := checkClipPath("c1", p); err == nil || apperr.From(err).Code != apperr.InvalidArgument {
+			t.Fatalf("%s: %v", p, err)
+		}
 	}
 }

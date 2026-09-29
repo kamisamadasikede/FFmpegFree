@@ -459,3 +459,41 @@ func TestContractRangeMatrix(t *testing.T) {
 		}
 	}
 }
+
+func TestRevokePath(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "a.mp4")
+	os.WriteFile(p, []byte("0123456789"), 0o644)
+	link := filepath.Join(dir, "l.mp4")
+	if err := os.Symlink(p, link); err != nil {
+		t.Skip("不支持符号链接")
+	}
+	r := New(Config{})
+	e, _ := r.Register(p)
+	h := r.Handler()
+	get := func() int {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", e.URL, nil))
+		return rec.Code
+	}
+	if get() != 200 {
+		t.Fatal("登记后应 200")
+	}
+	if n := r.RevokePath(link); n != 1 { // 通过符号链接路径也能撤销（真实路径相同）
+		t.Fatalf("n=%d", n)
+	}
+	if get() != 404 || r.Len() != 0 {
+		t.Fatal("撤销后应 404")
+	}
+	if r.RevokePath(p) != 0 || r.RevokePath("") != 0 {
+		t.Fatal("不存在时应无操作")
+	}
+	// 文件已删除时按登记时的路径匹配
+	e, _ = r.Register(p)
+	os.Remove(p)
+	os.Remove(link)
+	if r.RevokePath(p) != 1 {
+		t.Fatal("文件已删除也应能撤销")
+	}
+	_ = e
+}

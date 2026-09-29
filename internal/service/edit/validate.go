@@ -31,11 +31,11 @@ var (
 
 // ---------- 错误辅助 ----------
 
-// cleanLine 去掉换行等控制字符，避免用户可控的路径 / id 伪造 detail 的第一行。
+// cleanLine 把换行等控制字符替换成 ?（契约 6.11.2 B），避免用户可控的路径 / id 伪造 detail 的第一行。
 func cleanLine(s string) string {
 	return strings.Map(func(r rune) rune {
 		if isCtrl(r) {
-			return ' '
+			return '?'
 		}
 		return r
 	}, s)
@@ -104,16 +104,17 @@ type rclip struct {
 func (c rclip) end() float64 { return c.start + c.dur }
 
 type plan struct {
-	format   string
-	w, h     int
-	fps      float64
-	effects  GlobalEffects
-	videos   []rclip // 与 project.VideoTrack 同序
-	audios   []rclip // 与 project.AudioTrack 同序
-	duration float64
-	inputs   []string
-	hasAudio bool
-	warnings []EditWarning
+	filterOpt string // 本次导出用的 ffmpeg 选项（OptFilterFile / OptFilterScript）
+	format    string
+	w, h      int
+	fps       float64
+	effects   GlobalEffects
+	videos    []rclip // 与 project.VideoTrack 同序
+	audios    []rclip // 与 project.AudioTrack 同序
+	duration  float64
+	inputs    []string
+	hasAudio  bool
+	warnings  []EditWarning
 }
 
 func (p *plan) toPlan() EditPlan {
@@ -291,12 +292,13 @@ func declaredDuration(p EditProject) float64 {
 
 // build 是 ValidateProject / Export 共用的完整校验：ffmpeg 就绪 → 结构 → 探测素材 → 素材匹配与时长 → 同轨重叠 / 转场 → 总时长。
 func (s *Service) build(ctx context.Context, p EditProject) (*plan, error) {
-	// 0 环境：ffmpeg / ffprobe 就绪，-filter_complex_script 可用（契约 6.11.2 第 0 条）。
+	// 0 环境：ffmpeg / ffprobe 就绪，从文件读 filtergraph 的选项可用（-/filter_complex 或 -filter_complex_script，功能探测择一）。
 	bin, err := s.cfg.Require()
 	if err != nil {
 		return nil, err
 	}
-	if err := s.cfg.SupportsScript(ctx, bin.FFmpeg); err != nil {
+	opt, err := s.cfg.SupportsScript(ctx, bin.FFmpeg)
+	if err != nil {
 		return nil, err
 	}
 	if err := checkStructure(p); err != nil {
@@ -307,7 +309,7 @@ func (s *Service) build(ctx context.Context, p EditProject) (*plan, error) {
 		return nil, err
 	}
 
-	pl := &plan{format: p.Output.Format, w: p.Output.Width, h: p.Output.Height, fps: p.Output.Fps, effects: p.Effects}
+	pl := &plan{filterOpt: opt, format: p.Output.Format, w: p.Output.Width, h: p.Output.Height, fps: p.Output.Fps, effects: p.Effects}
 	if pl.format == "" {
 		pl.format = "mp4"
 	}
@@ -589,6 +591,9 @@ func checkClipPath(id, path string) error {
 	if strings.IndexFunc(path, isCtrl) >= 0 {
 		return clipErr(apperr.InvalidArgument, id, path, "素材路径不能包含控制字符（含换行）", "")
 	}
+	if hasDevicePrefix(path) {
+		return clipErr(apperr.InvalidArgument, id, path, `素材路径不能以 \\?\ 或 \\.\ 开头`, "")
+	}
 	return nil
 }
 
@@ -641,6 +646,11 @@ func (s *Service) probeAll(ctx context.Context, p EditProject) (map[string]store
 		mi[path] = infos[i]
 	}
 	return mi, me, nil
+}
+
+// hasDevicePrefix 判断 Windows 设备 / 扩展长度路径前缀（\\?\ 与 \\.\），这类路径绕过 Win32 规范化，一律拒绝。
+func hasDevicePrefix(p string) bool {
+	return strings.HasPrefix(p, `\\?\`) || strings.HasPrefix(p, `\\.\`)
 }
 
 func isCtrl(r rune) bool {
