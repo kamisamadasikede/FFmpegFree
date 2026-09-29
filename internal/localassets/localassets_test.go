@@ -319,3 +319,41 @@ func TestContentTypes(t *testing.T) {
 		}
 	}
 }
+
+func TestHeadProbe(t *testing.T) {
+	dir := t.TempDir()
+	p := writeFile(t, dir, "big.mp4", 100)
+	reg := New(Config{MaxRangeBytes: 10, MaxWholeBytes: 50})
+	e, _ := reg.Register(p)
+	h := reg.Handler()
+	// 大文件：GET 无 Range 413，但 HEAD 200 且无 body，带 Accept-Ranges / Content-Length / nosniff
+	if rec := get(t, h, "GET", e.URL, nil); rec.Code != 413 {
+		t.Fatal(rec.Code)
+	}
+	rec := get(t, h, "HEAD", e.URL, nil)
+	if rec.Code != 200 || rec.Body.Len() != 0 || rec.Header().Get("Content-Length") != "100" ||
+		rec.Header().Get("Accept-Ranges") != "bytes" || rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("HEAD: %d %v", rec.Code, rec.Header())
+	}
+	// HEAD + Range：206 头部，长度截断，无 body
+	rec = get(t, h, "HEAD", e.URL, map[string]string{"Range": "bytes=0-99"})
+	if rec.Code != 206 || rec.Body.Len() != 0 || rec.Header().Get("Content-Length") != "10" || rec.Header().Get("Content-Range") != "bytes 0-9/100" {
+		t.Fatalf("HEAD range: %d %v", rec.Code, rec.Header())
+	}
+	if rec := get(t, h, "HEAD", e.URL, map[string]string{"Range": "bytes=200-"}); rec.Code != 416 {
+		t.Fatalf("HEAD 越界: %d", rec.Code)
+	}
+	// token 失效 / 不存在 / 文件被删：HEAD 404
+	if rec := get(t, h, "HEAD", "/local/"+strings.Repeat("0", 32), nil); rec.Code != 404 {
+		t.Fatalf("未知 token: %d", rec.Code)
+	}
+	reg.Revoke(e.Token)
+	if rec := get(t, h, "HEAD", e.URL, nil); rec.Code != 404 {
+		t.Fatalf("Revoke 后: %d", rec.Code)
+	}
+	e2, _ := reg.Register(p)
+	os.Remove(p)
+	if rec := get(t, h, "HEAD", e2.URL, nil); rec.Code != 404 {
+		t.Fatalf("文件删除后: %d", rec.Code)
+	}
+}

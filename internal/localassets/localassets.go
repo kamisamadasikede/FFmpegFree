@@ -12,7 +12,7 @@
 //   - Handler 只按 token 查表，不接受任何路径参数；token 是 crypto/rand 的 128 位随机数（32 个十六进制字符）；
 //   - 登记时和每次请求都对路径 EvalSymlinks，并要求结果与登记时相同、仍是同一个普通文件（os.SameFile），
 //     文件被换成符号链接、目录、被别的文件替换后一律 404（前端应重新向服务要一个 token）；
-//   - 只允许 GET / HEAD；Range 只取第一段，多段拒绝（416）；
+//   - 只允许 GET / HEAD；HEAD 只回头部（用于探测 token 是否仍有效，token 失效 / 文件变化返回 404），不受 32 MiB 限制；Range 只取第一段，多段拒绝（416）；
 //   - Windows 上 Wails AssetServer 把响应整个缓冲进内存、不支持流式：每个 Range 响应最多 MaxRangeBytes（4 MiB），
 //     没有 Range 的请求文件不超过 MaxWholeBytes（32 MiB）才返回，更大返回 413。
 package localassets
@@ -284,7 +284,8 @@ func (r *Registry) serve(w http.ResponseWriter, req *http.Request) {
 			start, length, status = s, l, http.StatusPartialContent
 		}
 	}
-	if status == http.StatusOK && size > r.cfg.MaxWholeBytes {
+	// HEAD 用来探测 token 是否仍有效（前端 404 后重新 GetPreviewURL）：不受 32 MiB 限制，只回头部不回 body。
+	if status == http.StatusOK && size > r.cfg.MaxWholeBytes && req.Method != http.MethodHead {
 		http.Error(w, "file too large without Range", http.StatusRequestEntityTooLarge)
 		return
 	}

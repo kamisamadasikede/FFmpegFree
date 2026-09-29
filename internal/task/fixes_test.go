@@ -834,3 +834,16 @@ func TestIsDiskFull(t *testing.T) {
 		t.Fatal("其它错误不是磁盘满")
 	}
 }
+
+// 类型枚举：edit_export 可提交，旧名 edit_render 只为读旧数据保留、不能再提交。
+func TestEditTaskTypeNames(t *testing.T) {
+	if TypeEditExport != "edit_export" || TypeEditRender != "edit_render" {
+		t.Fatal("常量值不对")
+	}
+	if !validType(TypeEditExport) {
+		t.Fatal("edit_export 应可提交")
+	}
+	if validType(TypeEditRender) {
+		t.Fatal("edit_render 不应再可提交")
+	}
+}

@@ -235,7 +235,7 @@ function onTabKeydown(e: KeyboardEvent) {
 const TYPE_FILTERS = [
   { key: 'all', label: '全部类型', types: [] as string[] },
   { key: 'convert', label: '转换', types: ['convert'] },
-  { key: 'edit', label: '剪辑', types: ['edit_render'] },
+  { key: 'edit', label: '剪辑', types: ['edit_export'] },
   { key: 'doc', label: '文档', types: ['office_pdf'] },
   { key: 'live', label: '直播', types: ['live_file_push', 'live_relay', 'live_record_push'] },
   { key: 'install', label: '安装', types: ['ffmpeg_install'] },
@@ -283,7 +283,7 @@ function onTypeChange() {
 
 // ---- 展示辅助 ----
 const TYPE_LABEL: Record<string, string> = {
-  convert: '转换', edit_render: '剪辑', office_pdf: '文档', ffmpeg_install: '安装',
+  convert: '转换', edit_export: '剪辑', office_pdf: '文档', ffmpeg_install: '安装',
   live_file_push: '直播', live_relay: '直播', live_record_push: '直播',
 }
 const typeLabel = (t: string) => TYPE_LABEL[t] ?? t

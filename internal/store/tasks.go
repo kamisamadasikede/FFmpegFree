@@ -16,7 +16,11 @@ type TaskType string
 type TaskStatus string
 
 const (
-	TypeConvert        TaskType = "convert"
+	TypeConvert    TaskType = "convert"
+	TypeEditExport TaskType = "edit_export"
+	// TypeEditRender 是 v0.11 之前的旧名，只为读取旧数据保留，不再产生任务。
+	//
+	// Deprecated: 用 TypeEditExport。
 	TypeEditRender     TaskType = "edit_render"
 	TypeOfficePDF      TaskType = "office_pdf"
 	TypeLiveFilePush   TaskType = "live_file_push"
