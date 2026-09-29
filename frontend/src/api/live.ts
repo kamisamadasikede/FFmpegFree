@@ -33,6 +33,7 @@ import { pickFiles, type PickFilter } from '@/api/system'
 import { toApiTask, type ApiTask, type ApiTaskError, type TaskProgressPayload, type TaskStatusPayload } from '@/api/taskTypes'
 import { onTaskEvent } from '@/services/wails'
 import { parsePushUrl, redactPushUrl } from '@/utils/liveUrl'
+import { LIVE_FFMPEG_PROTOCOL_MISSING_TEXT, LIVE_PUSH_REJECTED_TEXT, LIVE_RTMP_CONNECT_FAILED_TEXT, LIVE_SRT_PASSPHRASE_TEXT, LIVE_URL_INVALID_GENERIC } from '@/errors/errorMessages'
 
 export { LIVE_BACKEND_READY }
 /** 页面用的错误类型：就是 AppError（code / message / detail / reason） */
@@ -113,17 +114,18 @@ export const defaultPushOptions = (): PushOptions => ({ width: 0, height: 0, fps
 
 // ───────────── Start* / 能力 / 校验 ─────────────
 
+// 模拟层的后端 message（真实后端的 message 页面基本不直接显示，文案见 errors/errorMessages.ts；这里与产品定稿保持一致，方便预览）
 const SIM_MESSAGES: Record<string, string> = {
   INVALID_ARGUMENT: '参数不合法',
   NOT_FOUND: '输入文件不存在',
   PROBE_FAILED: '无法解析输入文件',
   FFMPEG_NOT_FOUND: '未找到 ffmpeg 可执行文件',
-  TASK_CONFLICT: '任务冲突',
-  UNSUPPORTED: '当前 ffmpeg 不支持这种推流协议',
+  TASK_CONFLICT: '操作冲突，请稍后再试',
+  UNSUPPORTED: LIVE_FFMPEG_PROTOCOL_MISSING_TEXT,
   UNSUPPORTED_PLATFORM: '当前系统暂不支持屏幕推流',
-  LIVE_URL_INVALID: '推流地址不合法',
-  LIVE_CONNECT_FAILED: '无法连接推流目标',
-  LIVE_PUSH_REJECTED: '目标服务器拒绝了推流',
+  LIVE_URL_INVALID: LIVE_URL_INVALID_GENERIC,
+  LIVE_CONNECT_FAILED: LIVE_RTMP_CONNECT_FAILED_TEXT,
+  LIVE_PUSH_REJECTED: LIVE_PUSH_REJECTED_TEXT,
   LIVE_PUSH_INTERRUPTED: '推流被中断',
   SCREEN_PERMISSION_DENIED: '没有获得屏幕录制权限，请在系统设置中允许 FFmpegFree 录制屏幕后重试',
   CANCELED: '调用已取消',
@@ -149,6 +151,42 @@ function urlInvalidDetail(reason: string, url: string): string {
   return `reason=${reason}\n${redactPushUrl(url)}`
 }
 
+// ───────────── SRT 口令校验（前端先拦，不发给后端）─────────────
+export const SRT_PASSPHRASE_MIN = 10
+export const SRT_PASSPHRASE_MAX = 79
+
+/** SRT 口令长度是否合法：空口令（不加密）合法；否则必须 10~79 个字符（按 Unicode 码点数；后端按字节时更严，这里取前端能确定的下限 / 上限） */
+export function isValidSrtPassphrase(passphrase: string): boolean {
+  if (!passphrase) return true
+  const n = Array.from(passphrase).length
+  return n >= SRT_PASSPHRASE_MIN && n <= SRT_PASSPHRASE_MAX
+}
+
+/** 取地址查询参数里的 passphrase（srt 才有意义；解析不了返回 undefined）。只读、不打印、不存储 */
+export function srtPassphraseFromUrl(url: string): string | undefined {
+  const m = /^srt:\/\/[^?#]*\?([^#]*)/i.exec((url ?? '').trim())
+  if (!m) return undefined
+  for (const kv of m[1].split('&')) {
+    const i = kv.indexOf('=')
+    if (i > 0 && kv.slice(0, i) === 'passphrase') {
+      try {
+        return decodeURIComponent(kv.slice(i + 1).replace(/\+/g, ' '))
+      } catch {
+        return kv.slice(i + 1)
+      }
+    }
+  }
+  return undefined
+}
+
+/** 口令长度不对就抛 INVALID_ARGUMENT（message = 产品文案，不含口令 / 地址，detail 首行 reason=srt_passphrase_length）。Start* 在调后端之前先调它 */
+export function assertSrtPassphrase(url: string): void {
+  const pass = srtPassphraseFromUrl(url)
+  if (pass !== undefined && !isValidSrtPassphrase(pass)) {
+    throw new AppError('INVALID_ARGUMENT', LIVE_SRT_PASSPHRASE_TEXT, 'reason=srt_passphrase_length')
+  }
+}
+
 /** 模拟：Start* 的同步校验（契约“Start* 同步返回的错误”），返回标准化地址 */
 function simValidateStart(url: string, options: PushOptions, screen = false): { normalized: string; redacted: string; scheme: string } {
   const inj = simInjection()
@@ -158,7 +196,7 @@ function simValidateStart(url: string, options: PushOptions, screen = false): { 
   // detail 只带脱敏后的地址，绝不回显原文
   if (!u.ok) return simError('LIVE_URL_INVALID', u.message, urlInvalidDetail(u.reason, url))
   const missing = simParam('sim_missing')
-  if (missing && missing === u.info.scheme) simError('UNSUPPORTED', simMsg('UNSUPPORTED'), `ffmpeg 缺少协议：${missing}`)
+  if (missing && missing === u.info.scheme) simError('UNSUPPORTED', simMsg('UNSUPPORTED'), `missing=${missing}`)
   const live = activeSimEntries().filter((e) => e.task.type === 'live_file_push' || e.task.type === 'live_screen_push')
   // 后端两种冲突用 detail 第一行 reason=<值> 区分，detail 里不带任何地址片段
   // 判断顺序（后端统一）：duplicate_url → screen_busy → max_sessions
@@ -190,6 +228,7 @@ function simLiveSpec(scheme: string): SimLiveSpec {
 
 /** 文件推流。返回入队快照（queued）；连接 / 鉴权失败以任务 failed + error 体现，不是这里的返回错误 */
 export async function startFilePush(req: FilePushRequest): Promise<ApiTask> {
+  assertSrtPassphrase(req.url)
   if (LIVE_BACKEND_READY) return toApiTask(await callService('LiveService', 'StartFilePush', req))
   await simDelay(150)
   if (!isAbs(req.inputPath)) simError('INVALID_ARGUMENT', '输入文件必须是绝对路径')
@@ -207,6 +246,7 @@ export async function startFilePush(req: FilePushRequest): Promise<ApiTask> {
 
 /** 屏幕推流（可同时本地存档） */
 export async function startScreenPush(req: ScreenPushRequest): Promise<ApiTask> {
+  assertSrtPassphrase(req.url)
   if (LIVE_BACKEND_READY) return toApiTask(await callService('LiveService', 'StartScreenPush', req))
   await simDelay(150)
   const caps = await getCaptureCapabilities()
