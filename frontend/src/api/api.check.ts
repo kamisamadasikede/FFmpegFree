@@ -6,7 +6,7 @@ import { toApiTask, type TaskProgressPayload, type TaskStatusPayload, type ApiTa
 import {
   taskConflictText, TASK_CONFLICT_GENERIC, actionErrorText, liveStartErrorLine, LIVE_STOP_TEXT, docUnsupportedText, errorMessages, taskErrorMessages,
   liveUrlInvalidText, LIVE_URL_INVALID_GENERIC, LIVE_URL_INVALID_REASON_TEXT, liveFailureMessage, liveConnectFailedText, LIVE_SRT_CONNECT_FAILED_TEXT, LIVE_RTMP_CONNECT_FAILED_TEXT, schemeFromParams,
-  liveFfmpegProtocolMissingText, LIVE_PUSH_REJECTED_TEXT, LIVE_SRT_PASSPHRASE_TEXT, resolveError, resolveTaskError,
+  liveFfmpegProtocolMissingText, hasMissingLine, LIVE_PUSH_REJECTED_TEXT, LIVE_SRT_PASSPHRASE_TEXT, resolveError, resolveTaskError,
 } from '@/errors/errorMessages'
 import { parsePushUrl, redactPushUrl } from '@/utils/liveUrl'
 import * as live from './live'
@@ -356,15 +356,21 @@ export async function runApiChecks(): Promise<string[]> {
   eq('口令 10 位放行', okPass.status, 'queued')
   await live.stopPush(okPass.id)
   const PROTO_GENERIC = '当前 ffmpeg 不支持这种推流协议，请在设置的 ffmpeg 页面重新安装或更新'
-  eq('缺协议：后端实际写法 missing=srt', [liveFfmpegProtocolMissingText('missing=srt'), liveFfmpegProtocolMissingText('missing=rtmps')], ['当前的 ffmpeg 不支持 SRT，请在设置的 ffmpeg 页面重新安装或更新', '当前的 ffmpeg 不支持 RTMPS，请在设置的 ffmpeg 页面重新安装或更新'])
-  eq('缺协议：missing=tee（不是推流协议名）→ 通用', liveFfmpegProtocolMissingText('missing=tee'), PROTO_GENERIC)
-  eq('缺协议：SRT', liveFfmpegProtocolMissingText('ffmpeg 缺少协议：srt'), '当前的 ffmpeg 不支持 SRT，请在设置的 ffmpeg 页面重新安装或更新')
-  eq('缺协议：RTMPS（大小写、英文写法）', [liveFfmpegProtocolMissingText('missing protocol: RTMPS'), liveFfmpegProtocolMissingText('protocol=rtmp\nx')], ['当前的 ffmpeg 不支持 RTMPS，请在设置的 ffmpeg 页面重新安装或更新', '当前的 ffmpeg 不支持 RTMP，请在设置的 ffmpeg 页面重新安装或更新'])
-  eq('缺协议：没有具体协议名 → 通用', [liveFfmpegProtocolMissingText(undefined), liveFfmpegProtocolMissingText(''), liveFfmpegProtocolMissingText('ffmpeg 缺少协议'), liveFfmpegProtocolMissingText('缺少协议：quic'), liveFfmpegProtocolMissingText('缺少协议：srtx')], [PROTO_GENERIC, PROTO_GENERIC, PROTO_GENERIC, PROTO_GENERIC, PROTO_GENERIC])
-  eq('缺协议：起始错误行带协议名', liveStartErrorLine({ code: 'UNSUPPORTED', detail: 'ffmpeg 缺少协议：srt' })?.description, '当前的 ffmpeg 不支持 SRT，请在设置的 ffmpeg 页面重新安装或更新')
-  // 模拟层 ?sim_missing 走同一条路径
-  const simMissingLine = (detail?: string) => liveStartErrorLine({ code: 'UNSUPPORTED', detail })?.description
-  eq('模拟 detail 出协议名', simMissingLine('ffmpeg 缺少协议：srt'), '当前的 ffmpeg 不支持 SRT，请在设置的 ffmpeg 页面重新安装或更新')
+  const NAME = (n: string) => `当前的 ffmpeg 不支持 ${n}，请在设置的 ffmpeg 页面重新安装或更新`
+  eq('缺协议（契约 §6.10）：missing=rtmp|rtmps|srt 带协议名', ['missing=rtmp', 'missing=rtmps', 'missing=srt'].map((d) => liveFfmpegProtocolMissingText(d)), [NAME('RTMP'), NAME('RTMPS'), NAME('SRT')])
+  eq('缺协议：某一行严格等于即可（CRLF / 多行）', [liveFfmpegProtocolMissingText('missing=srt\r\n'), liveFfmpegProtocolMissingText('x\nmissing=rtmps')], [NAME('SRT'), NAME('RTMPS')])
+  eq('缺协议：missing=tee → 通用句（不显示 tee）', liveFfmpegProtocolMissingText('missing=tee'), PROTO_GENERIC)
+  eq('缺协议：严格匹配，别的写法一律通用句', [
+    'MISSING=SRT', 'missing=SRT', 'missing=Srt', ' missing=srt', 'missing=srt ', 'missing = srt', 'missing=srtx', 'missing=quic', 'missing=', 'missing=srt,rtmp', 'xmissing=srt',
+    'missing protocol: SRT', 'protocol=srt', 'ffmpeg 缺少协议：srt', 'Protocol not found: srt', 'reason=missing=srt', 'a missing=srt b',
+  ].map((d) => liveFfmpegProtocolMissingText(d)).filter((t) => t !== PROTO_GENERIC), [])
+  eq('缺协议：没有 detail → 通用句', [liveFfmpegProtocolMissingText(undefined), liveFfmpegProtocolMissingText(null), liveFfmpegProtocolMissingText('')], [PROTO_GENERIC, PROTO_GENERIC, PROTO_GENERIC])
+  eq('缺协议：起始错误行带协议名', liveStartErrorLine({ code: 'UNSUPPORTED', detail: 'missing=srt' })?.description, NAME('SRT'))
+  eq('缺协议：起始错误行 missing=tee → 通用句', liveStartErrorLine({ code: 'UNSUPPORTED', detail: 'missing=tee' })?.description, PROTO_GENERIC)
+  eq('缺协议：起始错误行写法不严格 → 通用句', liveStartErrorLine({ code: 'UNSUPPORTED', detail: 'ffmpeg 缺少协议：srt' })?.description, PROTO_GENERIC)
+  eq('missing= 行判断', [hasMissingLine('missing=tee'), hasMissingLine('missing=srt'), hasMissingLine(undefined), hasMissingLine(''), hasMissingLine('other'), hasMissingLine(' missing=srt')], [true, true, false, false, false, false])
+  // 模拟层 ?sim_missing 产出的 detail 就是契约格式：单独一行 missing=<协议名>，没有第二行
+  eq('模拟 sim_missing 的 detail 走同一条路径', liveStartErrorLine({ code: 'UNSUPPORTED', detail: 'missing=rtmps' })?.description, NAME('RTMPS'))
   // 所有文案都不含传入的地址 / 口令 / 推流码
   {
     const secretUrl = 'srt://user:pw123@leak.example:9000/live/streamKEY999?streamid=sidLEAK&passphrase=passLEAK1234'
@@ -380,7 +386,8 @@ export async function runApiChecks(): Promise<string[]> {
       }
       for (const reason of ['scheme_unsupported', 'malformed', 'missing_host', 'param_not_allowed', 'future', undefined]) outputs.push(liveUrlInvalidText(reason))
       for (const reason of ['duplicate_url', 'screen_busy', 'max_sessions', 'future', undefined]) outputs.push(taskConflictText(reason), actionErrorText('TASK_CONFLICT', u, reason))
-      outputs.push(liveFfmpegProtocolMissingText(detailWith('reason=x', u)), liveStartErrorLine({ code: 'UNSUPPORTED', detail: detailWith('x', u) })?.description ?? '')
+      outputs.push(liveFfmpegProtocolMissingText(detailWith('missing=srt', u)), liveFfmpegProtocolMissingText(detailWith('missing=tee', u)), liveStartErrorLine({ code: 'UNSUPPORTED', detail: detailWith('missing=srt', u) }, { archive: true })?.description ?? '',
+        liveFfmpegProtocolMissingText(detailWith('reason=x', u)), liveStartErrorLine({ code: 'UNSUPPORTED', detail: detailWith('x', u) })?.description ?? '')
       outputs.push(LIVE_PUSH_REJECTED_TEXT, LIVE_SRT_PASSPHRASE_TEXT)
       // 模拟层真实产出的错误：URL 非法 / 冲突 / 口令 / 检查地址
       const e1 = await rejects(live.checkPushURL(u.replace('://', ':/')))
@@ -405,6 +412,7 @@ export async function runApiChecks(): Promise<string[]> {
   eq('带存档屏幕推流 → UNSUPPORTED（无 missing=）', [err?.code, err?.detail], ['UNSUPPORTED', undefined])
   const ARCHIVE_TEXT = '暂不支持同时保存本地存档，请关闭“同时保存本地存档”后重试'
   eq('存档 UNSUPPORTED → 暂不支持存档提示', liveStartErrorLine({ code: 'UNSUPPORTED', detail: err?.detail }, { archive: true })?.description, ARCHIVE_TEXT)
+  eq('开着存档：missing=tee → 通用句（不是存档提示，也不带 tee）', liveStartErrorLine({ code: 'UNSUPPORTED', detail: 'missing=tee' }, { archive: true })?.description, PROTO_GENERIC)
   eq('缺协议 UNSUPPORTED（有 missing=）即使开着存档也按缺协议', liveStartErrorLine({ code: 'UNSUPPORTED', detail: 'missing=srt' }, { archive: true })?.description, '当前的 ffmpeg 不支持 SRT，请在设置的 ffmpeg 页面重新安装或更新')
   eq('没开存档的 UNSUPPORTED 仍按缺协议', liveStartErrorLine({ code: 'UNSUPPORTED' }, { archive: false })?.description, PROTO_GENERIC)
   eq('存档提示不含地址', ARCHIVE_TEXT.includes('arc.example'), false)
