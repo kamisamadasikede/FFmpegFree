@@ -22,6 +22,9 @@ const (
 	UnsupportedPlatform Code = "UNSUPPORTED_PLATFORM"
 	Internal            Code = "INTERNAL"
 
+	// PROBE_FAILED：文件存在但 ffprobe 无法解析（损坏、不是媒体文件、无可读流）。v0.8 新增。
+	ProbeFailed Code = "PROBE_FAILED"
+
 	// 直播 / 录屏相关，后端返回（契约第 2 节）。
 	// LIVE_PLAY_FAILED、LIVE_CORS_BLOCKED 是前端播放器自己产生的，不在这里定义。
 	LiveURLInvalid         Code = "LIVE_URL_INVALID"
