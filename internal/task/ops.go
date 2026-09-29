@@ -115,6 +115,7 @@ func (m *Manager) insideLogDir(p string) bool {
 
 // unsafeToDeleteOutput 判断为什么不能删除该任务的输出文件（返回空串表示可以删）：
 //   - 只删成功任务的输出（"skip" = 静默跳过）；
+//   - Runner 返回的输出路径必须是绝对路径，且所在目录（含上级）不能含符号链接（EvalSymlinks 后必须不变）；
 //   - 输出路径等于某个输入路径（原地处理）不删，避免删掉用户的源文件；
 //   - 符号链接不删（也不跟随）；只删普通文件；
 //   - 文件的修改时间早于任务开始时间：不是这个任务写出来的（例如后来被用户换成了别的文件），不删。
@@ -122,7 +123,21 @@ func unsafeToDeleteOutput(t Task) string {
 	if t.Status != StatusSucceeded || t.OutputPath == "" {
 		return "skip"
 	}
+	// Runner 返回的路径不可信：必须是绝对路径（相对路径会按进程工作目录解析，可能删到别处）。
+	if !filepath.IsAbs(t.OutputPath) {
+		return "输出路径不是绝对路径"
+	}
 	out := filepath.Clean(t.OutputPath)
+	// 输出所在目录（含上级）里有符号链接时不信任：链接可能是后来换上的，删除会落到链接另一端。
+	// 做法：解析真实目录，必须与记录的目录逐字一致；叶子文件仍用下面的 Lstat（符号链接本身不删）。
+	// 代价：输出目录本身经过符号链接（如 ~/Videos → /mnt/data）时不会自动删除文件（只记日志，记录照常删除）。
+	realDir, err := filepath.EvalSymlinks(filepath.Dir(out))
+	if err != nil {
+		return "skip" // 目录已不存在：文件也不在了
+	}
+	if nameKey(realDir) != nameKey(filepath.Dir(out)) {
+		return "输出所在目录含符号链接，路径不可信"
+	}
 	for _, in := range t.InputPaths {
 		if sameFilePath(out, filepath.Clean(in)) {
 			return "输出与输入是同一个文件"

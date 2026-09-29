@@ -64,6 +64,9 @@ type fx struct {
 func newFx(t *testing.T, batch int) *fx {
 	t.Helper()
 	dir := t.TempDir()
+	if r, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = r // macOS 的 /var 是链接：Remove 不信任含符号链接的输出目录
+	}
 	st, err := store.Open(context.Background(), filepath.Join(dir, "app.db"))
 	if err != nil {
 		t.Fatal(err)
