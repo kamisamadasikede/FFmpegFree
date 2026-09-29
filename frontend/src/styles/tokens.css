@@ -7,7 +7,6 @@
   --ff-primary: #3b6ef5;
   --ff-primary-hover: #2f5cd9;
   --ff-primary-soft: #eaf0ff;
-  --ff-on-primary: #ffffff; /* 主色底上的文字 / 开关圆点 */
   --ff-success: #16a34a;
   --ff-warning: #d97706;
   --ff-warning-soft: #fff7e6;
@@ -79,7 +78,6 @@ html.dark,
   --ff-primary: #5b8cff;
   --ff-primary-hover: #7aa2ff;
   --ff-primary-soft: #1e2a4a;
-  --ff-on-primary: #ffffff;
   --ff-success: #22c55e;
   --ff-warning: #f59e0b;
   --ff-warning-soft: #3a2a10;
