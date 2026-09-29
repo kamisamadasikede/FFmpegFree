@@ -40,7 +40,7 @@
           </div>
         </div>
       </div>
-      <button type="button" class="btn" :aria-disabled="view.redetectDisabled || undefined" @click="!view.redetectDisabled && detect()">
+      <button type="button" class="btn" :aria-disabled="view.redetectDisabled || undefined" @click="!view.redetectDisabled && detect(true)">
         <FIcon name="refresh" :size="15" />{{ ENCODER_REDETECT }}
       </button>
     </div>
@@ -64,8 +64,11 @@ import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import { toAppError } from '@/api/call'
 import { simParam } from '@/api/sim'
-import { PREF_AUTO, PREF_CPU, encoderIsReal, getEncoderPreference, listEncoderDevices, setEncoderPreference, type EncoderDeviceList } from '@/api/encoder'
-import { deriveEncoderView } from '@/api/encoderView'
+import {
+  PREF_AUTO, PREF_CPU, encoderIsReal, getEncoderPreference, getEncoderPreferenceInfo, listEncoderDevices, refreshEncoderDevices, setEncoderPreference,
+  type EncoderDeviceList, type EncoderPreferenceInfo,
+} from '@/api/encoder'
+import { createSeq, deriveEncoderView } from '@/api/encoderView'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import {
   ENCODER_OPTION_AUTO, ENCODER_OPTION_CPU, ENCODER_PANEL_TITLE, ENCODER_REDETECT, ENCODER_ROW_DESC, ENCODER_UNAVAILABLE_ACTION, encoderComboLabel,
@@ -77,13 +80,14 @@ const uid = useId()
 const listId = `ff-enc-${uid}`
 const list = ref<EncoderDeviceList | null>(null)
 const pref = ref<string>(PREF_AUTO)
+const info = ref<EncoderPreferenceInfo | null>(null)
 const loading = ref(true)
 const failed = ref(false)
 const open = ref(false)
 const hover = ref(0)
 const root = ref<HTMLElement | null>(null)
 
-const view = computed(() => deriveEncoderView({ loading: loading.value, failed: failed.value, list: list.value, pref: pref.value, ffmpegReady: ffmpeg.ready || ffmpeg.status.state === 'checking' }))
+const view = computed(() => deriveEncoderView({ loading: loading.value, failed: failed.value, list: list.value, pref: pref.value, info: info.value, ffmpegReady: ffmpeg.ready || ffmpeg.status.state === 'checking' }))
 const noteIcon = computed(() => (view.value.note.tone === 'ok' ? 'check' : view.value.note.tone === 'info' ? 'info' : 'warn'))
 const options = computed(() => [
   { key: PREF_AUTO, label: ENCODER_OPTION_AUTO },
@@ -91,37 +95,67 @@ const options = computed(() => [
   ...view.value.gpus.map((g) => ({ key: g.id, label: g.name })),
 ])
 
-let seq = 0
-async function detect() {
-  const my = ++seq
+// 事件序号（沿用 ffmpeg store 的做法）：detectSeq 管“列表 + loading”，prefSeq 管“偏好 + 偏好信息”。
+// 后发起的请求会让先发起的返回作废，避免慢返回盖掉新结果（例如重新检测还没回来时又改了选择）。
+const detectSeq = createSeq()
+const prefSeq = createSeq()
+
+/** 读偏好和偏好信息（GetEncoderPreference + GetEncoderPreferenceInfo）；信息读不到不算失败，退回用列表里的名字 */
+async function readPref(): Promise<{ p: string; i: EncoderPreferenceInfo | null }> {
+  const [p, i] = await Promise.all([getEncoderPreference(), getEncoderPreferenceInfo().catch(() => null)])
+  return { p, i }
+}
+
+/** refresh=true 走 RefreshEncoderDevices（强制重测），否则走 ListEncoderDevices（后端有缓存） */
+async function detect(refresh = false) {
+  const my = detectSeq.next()
+  const myP = prefSeq.next()
   loading.value = true
   failed.value = false
   open.value = false
   try {
-    const [l, p] = await Promise.all([listEncoderDevices(), getEncoderPreference()])
-    if (my !== seq) return
-    list.value = l
-    pref.value = p
-    if (!encoderIsReal() && (simParam('enc') ?? '').endsWith('-open')) open.value = true // 演示：?enc=found-open / none-open 直接展开下拉
+    const [l, r] = await Promise.all([refresh ? refreshEncoderDevices() : listEncoderDevices(), readPref()])
+    if (detectSeq.isCurrent(my)) list.value = l
+    if (prefSeq.isCurrent(myP)) {
+      pref.value = r.p
+      info.value = r.i
+    }
+    if (detectSeq.isCurrent(my) && !encoderIsReal() && (simParam('enc') ?? '').endsWith('-open')) open.value = true // 演示：?enc=found-open / none-open 直接展开下拉
   } catch (e) {
-    if (my !== seq) return
+    if (!detectSeq.isCurrent(my)) return
     failed.value = true
     void toAppError(e) // 详情不给用户看，界面只显示定稿的失败文案
   } finally {
-    if (my === seq) loading.value = false
+    if (detectSeq.isCurrent(my)) loading.value = false
   }
 }
 
+/** 选择后：先乐观显示，SetEncoderPreference 成功后重读偏好信息（以后端为准）；失败回滚并提示 */
 async function choose(key: string) {
   open.value = false
   if (key === pref.value) return
   const prev = pref.value
+  const prevInfo = info.value
+  const myP = prefSeq.next()
   pref.value = key
+  info.value = null
   try {
     await setEncoderPreference(key)
   } catch (e) {
-    pref.value = prev
+    if (prefSeq.isCurrent(myP)) {
+      pref.value = prev
+      info.value = prevInfo
+    }
     ElMessage.error(toAppError(e).message)
+    return
+  }
+  try {
+    const r = await readPref()
+    if (!prefSeq.isCurrent(myP)) return
+    pref.value = r.p
+    info.value = r.i
+  } catch (e) {
+    void toAppError(e) // 重读失败：保留刚选的值，名字退回用列表里的
   }
 }
 
