@@ -1178,6 +1178,115 @@ export namespace store {
 
 export namespace system {
 	
+	export class EncoderNames {
+	    h264: string;
+	    hevc: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new EncoderNames(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.h264 = source["h264"];
+	        this.hevc = source["hevc"];
+	    }
+	}
+	export class EncoderDevice {
+	    id: string;
+	    name: string;
+	    vendor: string;
+	    kind: string;
+	    discrete: boolean;
+	    encoders: EncoderNames;
+	    available: boolean;
+	    reason?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new EncoderDevice(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.vendor = source["vendor"];
+	        this.kind = source["kind"];
+	        this.discrete = source["discrete"];
+	        this.encoders = this.convertValues(source["encoders"], EncoderNames);
+	        this.available = source["available"];
+	        this.reason = source["reason"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class EncoderDeviceList {
+	    ffmpegReady: boolean;
+	    devices: EncoderDevice[];
+	
+	    static createFrom(source: any = {}) {
+	        return new EncoderDeviceList(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ffmpegReady = source["ffmpegReady"];
+	        this.devices = this.convertValues(source["devices"], EncoderDevice);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class EncoderPreferenceInfo {
+	    id: string;
+	    name: string;
+	    available: boolean;
+	    reason?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new EncoderPreferenceInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.available = source["available"];
+	        this.reason = source["reason"];
+	    }
+	}
 	export class FFmpegStatus {
 	    state: string;
 	    path: string;

@@ -122,6 +122,43 @@ func (s *SystemService) UpdateSettings(st system.Settings) error {
 	return s.mgr.UpdateSettings(context.Background(), st)
 }
 
+// ListEncoderDevices 返回可选的编码设备（契约 9.6）：第一项永远是 CPU，其后是检测到并试跑确认过的显卡。
+// 结果有缓存，ffmpeg 重新就绪时失效；ffmpeg 未就绪时只返回 CPU 且 ffmpegReady=false，不报错；没有显卡的机器同样只有 CPU。
+// 首次检测最多花几秒（每个硬件编码器试跑一帧，5 秒超时），前端不要阻塞界面等它。
+func (s *SystemService) ListEncoderDevices() (system.EncoderDeviceList, error) {
+	return s.mgr.ListEncoderDevices(s.encCtx())
+}
+
+// RefreshEncoderDevices 丢弃缓存重新检测（装了驱动 / 换了显卡后手动刷新）。
+func (s *SystemService) RefreshEncoderDevices() (system.EncoderDeviceList, error) {
+	return s.mgr.RefreshEncoderDevices(s.encCtx())
+}
+
+// GetEncoderPreference 返回编码器偏好："auto"（默认）| "cpu" | 设备 id。所选设备不存在或不可用时仍返回原值。
+func (s *SystemService) GetEncoderPreference() (string, error) {
+	return s.mgr.GetEncoderPreference(s.encCtx()), nil
+}
+
+// GetEncoderPreferenceInfo 返回偏好的 {id, name, available, reason?}：设置页据此显示"自动 / CPU（软件编码） / 具体显卡名"。
+// 偏好指向的设备即使现在不可用或已不存在，也会带上保存偏好时记下的名字和不可用原因（此时实际编码会回退 CPU）。
+func (s *SystemService) GetEncoderPreferenceInfo() (system.EncoderPreferenceInfo, error) {
+	return s.mgr.GetEncoderPreferenceInfo(s.encCtx())
+}
+
+// SetEncoderPreference 保存编码器偏好。只接受 "auto"、"cpu" 和 ListEncoderDevices 里存在的设备 id，其他值 INVALID_ARGUMENT。
+// 本 PR 只保存偏好，转换 / 剪辑 / 直播的编码参数暂不使用它。
+func (s *SystemService) SetEncoderPreference(id string) error {
+	return s.mgr.SetEncoderPreference(s.encCtx(), id)
+}
+
+// encCtx 用应用根 ctx（应用退出时取消检测）；启动完成前退回 Background。
+func (s *SystemService) encCtx() context.Context {
+	if ctx := s.mgr.AppContext(); ctx != nil {
+		return ctx
+	}
+	return context.Background()
+}
+
 // wailsEmitter 用应用 ctx 把事件发给前端。ctx 必须是 OnStartup 收到的那个。
 type wailsEmitter struct{ ctx context.Context }
 

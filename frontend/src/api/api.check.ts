@@ -584,6 +584,14 @@ export async function runApiChecks(): Promise<string[]> {
     eq('Set 后 Get 返回新值', await encApi.getEncoderPreference(), 'nvidia-0')
     await encApi.setEncoderPreference('cpu')
     eq('偏好可设为 cpu', await encApi.getEncoderPreference(), 'cpu')
+    // GetEncoderPreferenceInfo：自动 / CPU / 具体显卡名；设备不可用时仍带名字
+    encApi.resetEncoderSim()
+    eq('偏好信息：默认 → 自动', await encApi.getEncoderPreferenceInfo(), { id: 'auto', name: '自动', available: true })
+    await encApi.setEncoderPreference('nvidia-0')
+    eq('偏好信息：具体显卡名', (await encApi.getEncoderPreferenceInfo()).name, 'NVIDIA GeForce RTX 4060')
+    await encApi.setEncoderPreference('gone-0')
+    eq('偏好信息：设备不存在 → available=false 且有原因', [(await encApi.getEncoderPreferenceInfo()).available, !!(await encApi.getEncoderPreferenceInfo()).reason], [false, true])
+    eq('refreshEncoderDevices 模拟层可用', (await encApi.refreshEncoderDevices()).devices[0].id, 'cpu')
     encApi.resetEncoderSim()
     win.location.search = '?enc=none'
     const l2 = await encApi.listEncoderDevices()

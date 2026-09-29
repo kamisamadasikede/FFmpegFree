@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.14）
+# FFmpegFree v2 接口契约（v0.15）
+
+v0.15 变更（SystemService 硬件编码器检测与偏好，见第 4 节 SystemService 和 9.6；**契约按架构师口头方案起草，如有出入以架构师为准**）：新增 `ListEncoderDevices()`（返回 `EncoderDeviceList{ffmpegReady, devices[]}`，第一项永远是 CPU）、`RefreshEncoderDevices()`、`GetEncoderPreference()`（`"auto" | "cpu" | 设备 id`，默认 `"auto"`）、`GetEncoderPreferenceInfo()`（`{id, name, available, reason?}`，设置页显示「自动 / CPU / 具体显卡名」用）、`SetEncoderPreference(id)`；新增设置键 `encoderPreference`、`encoderPreferenceName`；新增纯函数 `ResolveEncoder(pref, devices, codec)`（Go 内部，不是绑定方法）。检测 = `ffmpeg -encoders` + 逐个硬件编码器实际试跑一帧（5 秒超时）+ 显卡名称枚举；结果缓存，ffmpeg 变为 ready 时失效。**本版只做检测、偏好和解析函数，转换 / 剪辑 / 直播的编码参数暂不使用它（下一版接入）**。无新增错误码。
 
 v0.14 变更（LiveService 屏幕推流可选采集来源，见第 4 节 LiveService 和 6.10「采集来源」）：新增 `LiveService.ListCaptureSources() ([]CaptureSource, error)`；`ScreenPushRequest` 新增可选字段 `captureSourceId`（不传 = 原行为，向后兼容）；新增错误码 `LIVE_SOURCE_GONE`（`internal/apperr` 现在 18 个码，第 2.1 节清单同步），`detail` 第一行 `kind=window|screen`（2.2 表新增一行）。新增类型 `CaptureSource`。`ScreenInfo` / `ListScreens` / `GetCaptureCapabilities` 不变。
 
@@ -222,6 +224,11 @@ RevealInFolder(path string) error
 GetEnv() (EnvInfo, error)            // 系统、ffmpeg 版本、数据目录
 GetSettings() (Settings, error)
 UpdateSettings(s Settings) error      // defaultOutputDir（空=与源文件同目录）、maxConcurrent（0=自动，1~8）、主题、语言、ffmpegPromptDismissed、ffmpegPath
+ListEncoderDevices() (EncoderDeviceList, error)      // 硬件编码设备（9.6）：第一项永远是 cpu；ffmpeg 未就绪时只有 cpu 且 ffmpegReady=false，不报错
+RefreshEncoderDevices() (EncoderDeviceList, error)   // 丢弃缓存重新检测
+GetEncoderPreference() (string, error)               // "auto" | "cpu" | 设备 id，默认 "auto"；所选设备不可用时保持原值
+GetEncoderPreferenceInfo() (EncoderPreferenceInfo, error) // {id, name, available, reason?}
+SetEncoderPreference(id string) error                // 只接受 auto、cpu、ListEncoderDevices 里存在的设备 id，否则 INVALID_ARGUMENT
 ```
 
 ### App（main 包，非 Service）
@@ -1210,3 +1217,52 @@ RecheckFFmpeg() (FFmpegStatus, error)
 - 不依赖 ffmpeg 的：Office 转 PDF、PDF 预览、JSON 工具，始终可用（DocService 任何方法都不返回 `FFMPEG_NOT_FOUND`）。
 - 首次启动检测到 `missing` 时弹一次确认框（"安装"或"稍后"），选"稍后"后写入 `Settings.ffmpegPromptDismissed = true`，之后只保留提示条，不再弹窗；ffmpeg 变为 ready 后该标记重置。
 - 前端不轮询：检测完成、安装进度导致的 state 变化、手动指定路径、重新检测，都会推送 `ffmpeg:status`，payload 为完整 `FFmpegStatus`。
+
+### 9.6 硬件编码器检测与偏好（v0.15，契约按架构师口头方案起草，如有出入以架构师为准）
+
+```go
+type EncoderNames struct {
+    H264 string `json:"h264"` // 该设备上的 h264 编码器名，如 "h264_nvenc"；不支持为 ""
+    HEVC string `json:"hevc"` // 如 "hevc_nvenc"；不支持为 ""
+}
+type EncoderDevice struct {
+    ID        string       `json:"id"`        // "cpu"，或 "<vendor>-<序号>"，如 nvidia-0、intel-0、amd-0、apple-0；偏好里存它
+    Name      string       `json:"name"`      // 给人看的名字，CPU 是 "CPU（软件编码）"
+    Vendor    string       `json:"vendor"`    // nvidia | intel | amd | apple | unknown
+    Kind      string       `json:"kind"`      // gpu | cpu
+    Discrete  bool         `json:"discrete"`  // 独立显卡（auto 时独显优先于集显）；CPU 恒为 false
+    Encoders  EncoderNames `json:"encoders"`
+    Available bool         `json:"available"` // 试跑成功才为 true
+    Reason    string       `json:"reason,omitempty"` // available=false 时的一行原因（可能偏技术，界面不必直接显示）
+}
+type EncoderDeviceList struct {
+    FFmpegReady bool            `json:"ffmpegReady"` // false = ffmpeg 未就绪，没有做检测，devices 只有 cpu
+    Devices     []EncoderDevice `json:"devices"`     // 第一项永远是 cpu（id "cpu"，encoders 为 libx264 / libx265，available=true）
+}
+type EncoderPreferenceInfo struct {
+    ID        string `json:"id"`                // auto | cpu | 设备 id
+    Name      string `json:"name"`              // "自动" | "CPU（软件编码）" | 设备名；设备不可用 / 不存在时用保存偏好时记下的名字（没记过为 ""）
+    Available bool   `json:"available"`         // auto、cpu 恒为 true
+    Reason    string `json:"reason,omitempty"`
+}
+```
+
+**检测流程**（`ListEncoderDevices`）：
+1. ffmpeg 状态不是 `ready`：直接返回 `{ffmpegReady:false, devices:[cpu]}`，不检测、不报错。
+2. `ffmpeg -hide_banner -encoders`，解析出视频编码器集合。这一步失败（命令失败且没有输出）：返回仅 cpu，**不缓存**、不报错。
+3. 枚举显卡名称（失败一律降级为空列表，不报错）：Windows 用 PowerShell `Get-CimInstance Win32_VideoController | Select-Object Name,PNPDeviceID | ConvertTo-Json`（wmic 已废弃）；macOS 用 `system_profiler SPDisplaysDataType -json`；Linux 先 `lspci -nn`，没有或没输出时读 `/sys/class/drm/card*/device/vendor`（只有厂商名）。虚拟适配器（Microsoft Basic Display / Remote Display、Hyper-V、VMware、VirtualBox、QXL 等）忽略。独显判定：NVIDIA 恒为独显；AMD 的 `Radeon Graphics` / `Vega N` / `xxxM` 是集显，其余（RX、Pro）是独显；Intel 只有 Arc 是独显。
+4. 试跑：平台上每个厂商的编码器（nvidia：`h264_nvenc` / `hevc_nvenc`；intel：`h264_qsv` / `hevc_qsv`；amd：`h264_amf` / `hevc_amf`；macOS：`h264_videotoolbox` / `hevc_videotoolbox`；Linux vaapi 本版不做），**只试 ffmpeg 里存在的**；显卡枚举到了就只试有对应显卡的厂商，枚举不出来就全试（试跑才是真相）。命令：`ffmpeg -hide_banner -loglevel error -nostdin -f lavfi -i color=c=black:s=256x256:d=0.1 -frames:v 1 -c:v <enc> -f null -`，**每个编码器 5 秒超时**，同时最多 2 个试跑。某厂商任一编码器试跑成功即 `available=true`，`encoders` 只填成功的那个（h264 成功、hevc 失败则 `hevc` 为 `""`）；都失败则 `available=false`、`reason` 是归类后的一行原因（ffmpeg 不含该编码器 / 无可用显卡或驱动缺失 / 试跑超时 / 其他）。
+5. 组装：`devices[0]` 是 cpu；随后按厂商顺序（nvidia、amd、intel；macOS 只有 apple）每张显卡一项，同厂商多张 id 序号递增。试跑成功但没枚举到名字（lspci 缺失等）给一个只有厂商名的设备（如 `NVIDIA GPU`）。枚举到但厂商没有硬件编码器支持的显卡（如 unknown）也列出，`available=false`。
+6. 探测子进程一律经 `ffmpeg.NewCommand`（Windows 隐藏控制台窗口、单独进程组），不占用任务管理器的槽位，不影响正在运行的任务。应用根 ctx 取消时中断并返回 `CANCELED`。
+
+**缓存**：按 `ffmpeg 路径 + 版本` 缓存整个结果。ffmpeg 状态每次变化（安装完成 / 手动指定 / 重新检测，即每次 `ffmpeg:status`）都使缓存失效；检测过程中发生失效，这次结果不写入缓存。`RefreshEncoderDevices()` 强制重测。有编码器试跑超时的结果**不缓存**（驱动可能只是一时没响应）。没有显卡的机器：`devices` 只有 cpu，不报错，也不试跑。
+
+**偏好**：`"auto" | "cpu" | 设备 id`，存 settings 表键 `encoderPreference`，默认 `"auto"`；同时把设备名记在 `encoderPreferenceName`（设备之后不可用时，设置页仍能显示选的是哪张卡）。`SetEncoderPreference(id)`：`auto`、`cpu` 直接保存；其他值必须符合 `^[a-z0-9][a-z0-9_-]{0,31}$` 且在当前 `ListEncoderDevices` 里存在（存在但 `available=false` 的允许保存），否则 `INVALID_ARGUMENT` 且不改动原值。`GetEncoderPreference` 永远返回保存的原值，不因设备消失而改写；设备不存在或不可用时，`ListEncoderDevices` 在列表**末尾**追加一项 `available=false` 的占位（`id` 为偏好值，`name` 为记下的名字，`reason` 说明），偏好为 `auto` / `cpu` 时不追加。
+
+**`ResolveEncoder(pref, devices, codec) (encoderName, deviceID string, fallback bool)`**（Go 纯函数，`internal/service/system`）：`codec` 为 `h264` 或 `hevc`（接受 `h265`）。
+- `auto`（或空）：从 `available` 且有该 codec 编码器的显卡里选第一张，排序为 **独显优先于集显**，同为独显时 nvidia、amd 在前，其后 intel Arc，同级保持列表顺序；没有则 cpu。auto 落到 cpu **不算回退**（`fallback=false`）。
+- `cpu`：cpu，`fallback=false`。
+- 设备 id：该设备存在、`available` 且有该 codec 编码器则用它；否则回退 cpu，`fallback=true`。
+- 不认识的 `codec`：返回 `("", "", false)`。
+
+**本版不接入**：`ConvertService` / `EditService` / `LiveService` 的编码参数仍是软件编码；`ResolveEncoder` 只是提供给下一版接入用。**未在真机验证**：真实 NVIDIA / Intel / AMD / VideoToolbox 试跑、Windows 显卡名称枚举（PowerShell 输出格式按文档与常见样例解析，用纯函数表驱动测试覆盖）。
