@@ -113,11 +113,12 @@ func TestBuildPullPreviewArgs(t *testing.T) {
 				}
 				return
 			}
-			if a[0] != "-protocol_whitelist" || a[1] != tc.plan.InputWhitelist || a[2] != "-i" || a[3] != tc.plan.URL {
-				t.Fatalf("输入侧白名单必须在 -i 之前: %v", a)
+			in := "-protocol_whitelist " + tc.plan.InputWhitelist + " -fflags +nobuffer -analyzeduration 1000000 -probesize 1000000 -i " + tc.plan.URL
+			if !strings.HasPrefix(strings.Join(a, " "), in+" ") {
+				t.Fatalf("输入侧白名单必须在 -i 之前、探测缩短: %v", a)
 			}
-			if strings.Join(a[4:], "\x00") != strings.Join(wantPreviewTail, "\x00") {
-				t.Fatalf("拉流预览只有预览一路输出: %v", a[4:])
+			if strings.Join(a[idx(a, "-i", 0)+2:], "\x00") != strings.Join(wantPreviewTail, "\x00") {
+				t.Fatalf("拉流预览只有预览一路输出: %v", a)
 			}
 			if has(a, "copy") || has(a, "-f") && idx(a, "flv", 0) >= 0 {
 				t.Fatalf("拉流预览不能有其他输出: %v", a)

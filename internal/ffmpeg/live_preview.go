@@ -46,7 +46,8 @@ func BuildPullPreviewArgs(p PullPreviewPlan) (args []string, ok bool) {
 	if !p.HasVideo || p.PreviewPath == "" || p.InputWhitelist == "" || p.URL == "" {
 		return nil, false
 	}
-	a := []string{"-protocol_whitelist", p.InputWhitelist, "-i", p.URL}
+	// 预览只要尽快出第一帧：缩短输入探测（默认 analyzeduration 5 秒、probesize 5 MB，会让第一帧晚 4~5 秒）。
+	a := []string{"-protocol_whitelist", p.InputWhitelist, "-fflags", "+nobuffer", "-analyzeduration", "1000000", "-probesize", "1000000", "-i", p.URL}
 	return append(a, PreviewOutputArgs(p.PreviewPath)...), true
 }
 

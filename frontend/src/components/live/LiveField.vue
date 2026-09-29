@@ -24,9 +24,9 @@ provide('ff-field-error-id', errorId)
 <style scoped>
 label {
   display: block;
-  font-size: 12px;
+  font-size: var(--ff-fs-xs);
   color: var(--ff-text-2);
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   line-height: 18px;
 }
 </style>

@@ -14,3 +14,9 @@ export const DOC_BACKEND_READY: boolean = true
  * true = 在 Wails 里调用真实绑定；纯浏览器开发环境（没有 window.go）始终走 api/about.ts 里的模拟。
  */
 export const ABOUT_BACKEND_READY: boolean = true
+/**
+ * 编码设备（GPU 加速）：后端 `SystemService.ListEncoderDevices / GetEncoderPreference / SetEncoderPreference` 绑定还没合入，默认 false。
+ * false 时设置页完全不显示“编码设备”一块（产品经理要求）；纯浏览器演示要看模拟层，地址加 `?enc=`（见 api/encoder.ts）。
+ * 后端绑定合并后：核对 api/encoder.ts 的字段名，把这里改成 true 即可。
+ */
+export const ENCODER_BACKEND_READY: boolean = false

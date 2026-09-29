@@ -26,6 +26,7 @@ export type AppErrorCode =
   | 'LIVE_PUSH_REJECTED'
   | 'LIVE_PUSH_INTERRUPTED'
   | 'SCREEN_PERMISSION_DENIED'
+  | 'LIVE_SOURCE_GONE' // v0.14：屏幕推流所选的窗口 / 屏幕已不可用，detail 首行 kind=window|screen
   // 只在前端由播放器产生，后端不会返回
   | 'LIVE_PLAY_FAILED'
   | 'LIVE_CORS_BLOCKED'
@@ -34,7 +35,7 @@ export type AppErrorCode =
 export const BACKEND_ERROR_CODES: readonly AppErrorCode[] = [
   'INVALID_ARGUMENT', 'NOT_FOUND', 'FFMPEG_NOT_FOUND', 'TASK_CONFLICT', 'IO_ERROR', 'PROBE_FAILED', 'CANCELED', 'UNSUPPORTED',
   'CONVERT_DISK_FULL', 'PROCESS_FAILED', 'UNSUPPORTED_PLATFORM', 'LIVE_URL_INVALID', 'LIVE_CONNECT_FAILED', 'LIVE_PUSH_REJECTED',
-  'LIVE_PUSH_INTERRUPTED', 'SCREEN_PERMISSION_DENIED', 'INTERNAL',
+  'LIVE_PUSH_INTERRUPTED', 'SCREEN_PERMISSION_DENIED', 'LIVE_SOURCE_GONE', 'INTERNAL',
 ]
 
 export interface DetailHead {
@@ -42,6 +43,8 @@ export interface DetailHead {
   reason?: string
   /** detail 首行 `scheme=rtmp|rtmps|srt`（整行只有这一个键值对）；LIVE_CONNECT_FAILED 用，没有时为 undefined */
   scheme?: string
+  /** detail 首行 `kind=window|screen`（整行只有这一个键值对）；LIVE_SOURCE_GONE 用，没有 / 未知值时为 undefined */
+  kind?: 'window' | 'screen'
   /** detail 首行 `clip=<id> path=<path>`（Edit 的 clip 级错误）；结构性错误首行是 `project`，两者都为 undefined */
   clipId?: string
   path?: string
@@ -49,6 +52,7 @@ export interface DetailHead {
 
 const REASON_RE = /^reason=([A-Za-z0-9_-]+)$/
 const SCHEME_RE = /^scheme=([A-Za-z0-9+.-]+)$/
+const KIND_RE = /^kind=(window|screen)$/
 const CLIP_RE = /^clip=(\S+) path=(.*)$/
 
 /** 解析 AppError.detail 的第一行（契约：TASK_CONFLICT / LIVE_URL_INVALID 的 reason、LIVE_CONNECT_FAILED 的 scheme、Edit 的 clip 定位）。只看第一行，解析不了就什么都不返回。 */
@@ -59,6 +63,8 @@ export function parseDetailHead(detail?: string): DetailHead {
   if (r) return { reason: r[1] }
   const sc = SCHEME_RE.exec(first)
   if (sc) return { scheme: sc[1].toLowerCase() }
+  const k = KIND_RE.exec(first)
+  if (k) return { kind: k[1] as 'window' | 'screen' }
   const c = CLIP_RE.exec(first)
   if (c) return { clipId: c[1], path: c[2] }
   return {}
@@ -70,6 +76,8 @@ export class AppError extends Error {
   /** 见 parseDetailHead */
   reason?: string
   scheme?: string
+  /** LIVE_SOURCE_GONE 的 detail 首行 kind=window|screen */
+  kind?: 'window' | 'screen'
   clipId?: string
   path?: string
   constructor(code: AppErrorCode, message: string, detail?: string) {
@@ -80,6 +88,7 @@ export class AppError extends Error {
     const head = parseDetailHead(detail)
     this.reason = head.reason
     this.scheme = head.scheme
+    this.kind = head.kind
     this.clipId = head.clipId
     this.path = head.path
   }

@@ -755,6 +755,26 @@ export namespace live {
 	        this.reason = source["reason"];
 	    }
 	}
+	export class CaptureSource {
+	    id: string;
+	    kind: string;
+	    title: string;
+	    width: number;
+	    height: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CaptureSource(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.kind = source["kind"];
+	        this.title = source["title"];
+	        this.width = source["width"];
+	        this.height = source["height"];
+	    }
+	}
 	export class PushOptions {
 	    width: number;
 	    height: number;
@@ -912,6 +932,7 @@ export namespace live {
 	    archiveDir: string;
 	    options: PushOptions;
 	    preview?: boolean;
+	    captureSourceId: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ScreenPushRequest(source);
@@ -926,6 +947,7 @@ export namespace live {
 	        this.archiveDir = source["archiveDir"];
 	        this.options = this.convertValues(source["options"], PushOptions);
 	        this.preview = source["preview"];
+	        this.captureSourceId = source["captureSourceId"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

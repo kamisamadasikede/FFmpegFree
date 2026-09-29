@@ -1,4 +1,8 @@
-# FFmpegFree v2 接口契约（v0.13）
+# FFmpegFree v2 接口契约（v0.15）
+
+v0.15 变更（LiveService 推流 / 拉流真实预览画面，见第 4 节 LiveService 和 6.10「预览画面」）：新增 `LiveService.GetPreview(sessionId) (Preview, error)`（最新一帧 base64 JPEG + 毫秒时间戳，没有画面返回空、不是错误）、`StartPullPreview(PullPreviewRequest) (PullSession, error)` / `StopPullPreview(sessionId) error`（拉流预览会话：后端 ffmpeg 读远端流只出预览，播放仍由前端播放器直接拉地址）；`FilePushRequest` / `ScreenPushRequest` 新增可选字段 `preview`（`*bool`，缺省 = true，false = 不加预览输出）；预览输出是主输出之外**独立**的一路 image2 输出（`fps=2,scale=640:-2`、`-q:v 5`、`-update 1`、`-atomic_writing 1`），不放进 tee；临时文件放 `<数据目录>/tmp/live-preview/<会话 id>.jpg`，会话结束清理，应用启动清空该目录。新增类型 `Preview`、`PullPreviewRequest`、`PullSession`；不新增错误码、不新增事件。**有硬字幕 / 视频复制（`-c copy`）的推流场景预览输出需要单独解码（额外占少量 CPU）**；当前直播主输出始终重编码，预览输出复用同一路解码结果不增加解码次数，见 6.10「预览画面」。
+
+v0.14 变更（LiveService 屏幕推流可选采集来源，见第 4 节 LiveService 和 6.10「采集来源」）：新增 `LiveService.ListCaptureSources() ([]CaptureSource, error)`；`ScreenPushRequest` 新增可选字段 `captureSourceId`（不传 = 原行为，向后兼容）；新增错误码 `LIVE_SOURCE_GONE`（`internal/apperr` 现在 18 个码，第 2.1 节清单同步），`detail` 第一行 `kind=window|screen`（2.2 表新增一行）。新增类型 `CaptureSource`。`ScreenInfo` / `ListScreens` / `GetCaptureCapabilities` 不变。
 
 v0.13 变更（EditService 素材上限，随实现回改的小修订，见 6.11 节）：`EditProject.sources`（素材库）上限由 200 改为 100（产品经理定稿：素材 100）；`SaveProject` / `ValidateProject` / `Export` 超过 100 个返回 `INVALID_ARGUMENT`（message「素材库最多 100 个文件」，detail 第一行 `project`、第二行 `sources=<实际个数>`）。clip 总数（视频 + 音频）上限不变，仍是 100——**素材 100 / 片段 100 都是 100，是两个独立上限**。无接口签名变化。
 
@@ -88,13 +92,14 @@ Bind 方法返回 `(T, error)`。error 的 message 是 JSON 字符串，前端 `
 | LIVE_PUSH_REJECTED | 目标服务器明确拒绝推流（RTMP 鉴权失败、流名冲突、握手被拒等；SRT 不会出现），**推流开始前** |
 | LIVE_PUSH_INTERRUPTED | 推流**已经开始**（收到过 `task:progress`）后被目标服务器或网络中断 |
 | SCREEN_PERMISSION_DENIED | 没有屏幕录制权限（macOS 系统授权），`StartScreenPush` 同步返回或任务失败 |
+| LIVE_SOURCE_GONE | （v0.14）`StartScreenPush` 传了 `captureSourceId`，但所选来源此刻已不可用：窗口已关闭 / 已最小化 / 不可见，或屏幕序号不存在（显示器被拔掉）。同步返回（没有创建任务）；ffmpeg 打开窗口时才发现窗口没了（校验与打开之间的竞态）则是任务失败，码相同。`detail` 第一行 `kind=window` 或 `kind=screen`，**不带窗口标题**。前端提示「所选窗口已不可用，请重新选择」（屏幕：「所选屏幕已不可用，请重新选择」）并重新 `ListCaptureSources` |
 | INTERNAL | 其他；直播任务里认不出的 ffmpeg 非零退出也是它（不是 `PROCESS_FAILED`），detail 带（已脱敏的）stderr 最后若干行 |
 
-**直播 / 录屏（v0.10）用到的后端码正好是冻结的这八个：`LIVE_URL_INVALID`、`LIVE_CONNECT_FAILED`、`LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`SCREEN_PERMISSION_DENIED`、`FFMPEG_NOT_FOUND`、`UNSUPPORTED_PLATFORM`、`INTERNAL`**；此外复用已有的 `INVALID_ARGUMENT`、`NOT_FOUND`、`PROBE_FAILED`（输入文件问题）、`TASK_CONFLICT`（会话上限 / 同地址冲突）、`UNSUPPORTED`（Retry）、`CANCELED`（`Start*` 因应用退出被取消，#10 已加）。**v0.10 没有新增任何错误码**，也没有 `LIVE_START_FAILED` 之类的同义码。用户主动停止不产生错误码（优雅停止成功 = `succeeded`，超时强杀 = `canceled` 状态，`error` 为空）。`LIVE_PLAY_FAILED`（播放器加载或解码失败）和 `LIVE_CORS_BLOCKED`（拉流地址跨域被浏览器拦截）**只在前端由播放器产生**，后端不会返回，也不在 `apperr` 里定义。
+**直播 / 录屏（v0.10）用到的后端码正好是冻结的这八个：`LIVE_URL_INVALID`、`LIVE_CONNECT_FAILED`、`LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`SCREEN_PERMISSION_DENIED`、`FFMPEG_NOT_FOUND`、`UNSUPPORTED_PLATFORM`、`INTERNAL`**（v0.14 起再加 `LIVE_SOURCE_GONE`，共九个）；此外复用已有的 `INVALID_ARGUMENT`、`NOT_FOUND`、`PROBE_FAILED`（输入文件问题）、`TASK_CONFLICT`（会话上限 / 同地址冲突）、`UNSUPPORTED`（Retry）、`CANCELED`（`Start*` 因应用退出被取消，#10 已加）。**v0.10 没有新增任何错误码**，也没有 `LIVE_START_FAILED` 之类的同义码。用户主动停止不产生错误码（优雅停止成功 = `succeeded`，超时强杀 = `canceled` 状态，`error` 为空）。`LIVE_PLAY_FAILED`（播放器加载或解码失败）和 `LIVE_CORS_BLOCKED`（拉流地址跨域被浏览器拦截）**只在前端由播放器产生**，后端不会返回，也不在 `apperr` 里定义。
 
 ### 2.1 AppErrorCode 完整清单（供前端 `frontend/src/api/call.ts` 对照）
 
-后端 `internal/apperr` 一共 17 个码，前端 `AppErrorCode` 必须全部包含；前端 `frontend/src/api/call.ts` 以本清单为准逐项核对补全（不在契约里写它当前缺几个，现状随前端分支变化）：
+后端 `internal/apperr` 一共 18 个码（v0.14 新增 `LIVE_SOURCE_GONE`），前端 `AppErrorCode` 必须全部包含；前端 `frontend/src/api/call.ts` 以本清单为准逐项核对补全（不在契约里写它当前缺几个，现状随前端分支变化）：
 
 ```ts
 export type AppErrorCode =
@@ -102,7 +107,7 @@ export type AppErrorCode =
   | 'PROBE_FAILED' | 'CANCELED' | 'UNSUPPORTED' | 'CONVERT_DISK_FULL' | 'PROCESS_FAILED'
   | 'UNSUPPORTED_PLATFORM' | 'INTERNAL'
   | 'LIVE_URL_INVALID' | 'LIVE_CONNECT_FAILED' | 'LIVE_PUSH_REJECTED' | 'LIVE_PUSH_INTERRUPTED'
-  | 'SCREEN_PERMISSION_DENIED'
+  | 'SCREEN_PERMISSION_DENIED' | 'LIVE_SOURCE_GONE'
 ```
 
 - 前端遇到不在清单里的 `code`：按 `INTERNAL` 的通用文案处理，不崩溃。
@@ -118,9 +123,10 @@ export type AppErrorCode =
 | `UNSUPPORTED`（直播 `Start*` 时本机 ffmpeg 缺协议） | `missing=<协议名>` | `rtmp`、`rtmps`、`srt`（对应推流地址的 scheme；`rtmp` 是除 `rtmps` / `srt` 以外的默认）；带本地存档的会话另需 `tee`，缺时是 `missing=tee` | `detail` 只有这一行，没有第二行；`message` 是"当前 ffmpeg 不支持 <协议名>，请安装完整版 ffmpeg"，前端据此提示安装完整版；其他原因的 `UNSUPPORTED`（如 `Retry` 直播任务、屏幕推流存档未实现）没有这一行 |
 | `LIVE_CONNECT_FAILED` | `scheme=<值>` | `rtmp`、`rtmps`、`srt`（取自校验后的标准化地址，小写） | 第二行起是脱敏后的 ffmpeg stderr 最后若干行；前端据此选 RTMP / SRT 的提示文案（SRT 用"连接失败，请检查地址和口令是否正确"，文案由前端负责，后端 `message` 不承载） |
 | 编辑类错误（`EditService` 的 `ValidateProject` / `Export` 返回的 `INVALID_ARGUMENT`、`NOT_FOUND`、`IO_ERROR`、`PROBE_FAILED`、`UNSUPPORTED`） | **按 6.11.2 B（#22）**：`clip=<clip.id> path=<绝对路径>`，或没有 clip 的工程级错误写 `project` | 由 6.11.2 B 定义，第二行起才是原因（如 `overlaps=<clip.id>`、`path_length=<n> limit=259`、`missing=filter_complex`） | 前端用 6.11.2 B 的正则取首行；**不适用**下面"第一行只有一个 `key=value`"的统一规则；此行是 #22 合入后生效，#22 单独看时它引用的 6.11.2 B 就在该 PR 里，措辞与 #22 的 B 一致（已核对） |
+| `LIVE_SOURCE_GONE`（v0.14，`StartScreenPush` 的所选来源已不可用） | `kind=<值>` | `window`（窗口已关闭 / 最小化 / 不可见）、`screen`（屏幕序号不存在）（只追加） | 只有这一行，没有第二行（不带窗口标题、不带地址）；前端用 `^kind=(window\|screen)$` 匹配（未知值按通用文案）；前端不必解析也能工作：码本身就足够提示「所选窗口已不可用」 |
 | 其余所有码（含 `LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`INTERNAL`） | 无固定格式 | — | 前端**不得**解析（上面几行列出的码 / 场景除外） |
 
-统一规则：第一行只有一个 `key=value`，值只含小写字母、数字、下划线（`scheme` 例外，取值就是上面三个小写单词）；前端用 `^(reason|scheme)=([a-z0-9_]+)$` 匹配 `detail` 的第一行；**没有第一行、格式不对、或值不认识，一律走该错误码的通用文案**，不得猜测含义、不得报错崩溃。测试必须逐码断言第一行精确等于期望值（不是包含）。
+统一规则：第一行只有一个 `key=value`，值只含小写字母、数字、下划线（`scheme` 例外；`kind` 的取值是 `window` / `screen`，取值就是上面三个小写单词）；前端用 `^(reason|scheme|kind)=([a-z0-9_]+)$` 匹配 `detail` 的第一行；**没有第一行、格式不对、或值不认识，一律走该错误码的通用文案**，不得猜测含义、不得报错崩溃。测试必须逐码断言第一行精确等于期望值（不是包含）。
 
 ### 2.3 示例（JSON 里的数值是示意）
 
@@ -281,6 +287,10 @@ Validate(req JsonValidateRequest) (JsonValidateResponse, error)
 StartFilePush(req FilePushRequest) (Task, error)       // 文件推流（可循环）
 StartScreenPush(req ScreenPushRequest) (Task, error)   // 屏幕推流（可同时本地存档）；同一时间最多 1 路：已有进行中的 live_screen_push 返回 TASK_CONFLICT（detail 首行 reason=screen_busy）
 GetCaptureCapabilities() (CaptureCapabilities, error)  // 屏幕采集能不能用、为什么不能用（Linux 读 XDG_SESSION_TYPE 和 DISPLAY，见 6.10「采集能力检测」）
+ListCaptureSources() ([]CaptureSource, error)          // （v0.14）屏幕推流可选的采集来源：屏幕（所有平台）+ 应用窗口（只有 Windows）；不能采集屏幕的平台 / 会话返回 UNSUPPORTED_PLATFORM（同 ListScreens），见 6.10「采集来源」
+GetPreview(sessionID string) (Preview, error)          // （v0.15）会话（推流任务 id 或拉流预览会话 id）最新一帧预览：{data: base64 JPEG, ts: 毫秒时间戳, active}；没有画面（会话不存在 / 已结束、preview=false、还没出第一帧）返回空 data、ts=0，不是错误。前端约 500 毫秒轮询，见 6.10「预览画面」
+StartPullPreview(req PullPreviewRequest) (PullSession, error) // （v0.15）拉流预览会话：后端 ffmpeg 读 rtmp / rtmps / srt / http(s) 远端流，只输出预览；同一地址幂等；同时最多 4 路
+StopPullPreview(sessionID string) error                // （v0.15）停止拉流预览会话并清理预览文件；会话不存在（已结束）无操作
 ListScreens() ([]ScreenInfo, error)                    // 可采集的显示器（Linux 用 xrandr --display $DISPLAY --query，必须带 --display，见 6.10「采集能力检测」）
 CheckPushURL(url string) (PushURLInfo, error)          // 只校验地址并返回脱敏后的显示文本，不联网
 // 停止：TaskService.Cancel(taskID)，没有单独的 StopPush（理由见下）
@@ -300,6 +310,7 @@ type PushOptions struct {
 type FilePushRequest struct {
     InputPath  string      `json:"inputPath"`  // 绝对路径的普通文件，必须有视频画面（否则 INVALID_ARGUMENT）
     URL        string      `json:"url"`        // 推流地址，规则见下
+    Preview    *bool       `json:"preview"`    // （v0.15）可选：nil / true = 带预览画面（GetPreview）；false = 不加预览输出。只在开始时决定（ffmpeg 已启动无法动态改输出）
     Loop       bool        `json:"loop"`       // true = 循环播放直到用户停止；false = 播完自然结束（任务 succeeded）
     Options    PushOptions `json:"options"`
 }
@@ -309,6 +320,8 @@ type ScreenPushRequest struct {
     ScreenID   string      `json:"screenId"`   // ListScreens 返回的 id；"" = 主显示器；不存在 INVALID_ARGUMENT
     HideCursor bool        `json:"hideCursor"` // 零值 = 画面里带鼠标指针
     Audio      string      `json:"audio"`      // "none"（默认，视频流里没有音轨）| "silent"（补一路静音音轨，给要求必须有音频的服务器）；采集声音 v1 不做
+    Preview    *bool       `json:"preview"`    // （v0.15）同 FilePushRequest.preview
+    CaptureSourceID string `json:"captureSourceId"` // （v0.14）可选：ListCaptureSources 返回的 id（screen:<序号> | window:<hwnd 十进制>）；"" = 不传，行为同 v0.13（按 ScreenID）；非空时以它为准，ScreenID 被忽略；格式不对 INVALID_ARGUMENT；来源已不可用 LIVE_SOURCE_GONE
     ArchiveDir string      `json:"archiveDir"` // 非空 = 同时在本地存一份 mp4（绝对路径，不存在会创建；存档规则见 6.10）；"" = 不存档
     Options    PushOptions `json:"options"`
 }
@@ -321,6 +334,33 @@ type CaptureCapabilities struct {
     Permission   string `json:"permission"`   // granted | denied | unknown | notRequired（macOS 屏幕录制授权；查不出来是 unknown）
     AudioCapture bool   `json:"audioCapture"` // v1 恒为 false
     Reason       string `json:"reason"`       // 不支持时给用户看的中文原因，支持时 ""
+}
+
+// v0.15：GetPreview 的返回。没有画面时 data 为 ""、ts 为 0（不是错误）。
+type Preview struct {
+    Data   string `json:"data"`   // 最新一帧 JPEG 的 base64（标准编码，不带 data: 前缀）；没有画面 ""
+    TS     int64  `json:"ts"`     // 这一帧写入的时间（毫秒时间戳，取文件修改时间）；没有画面 0。前端可据此判断画面是否停滞
+    Active bool   `json:"active"` // 会话还在进行（推流任务未结束 / 拉流预览会话未结束）；false 时前端停止轮询
+}
+
+type PullPreviewRequest struct {
+    URL     string `json:"url"`     // rtmp / rtmps / srt / http / https；ws / wss 没有对应的 ffmpeg 协议，LIVE_URL_INVALID（reason=scheme_unsupported）
+    Preview *bool  `json:"preview"` // nil / true = 出预览；false = 不启动 ffmpeg（GetPreview 恒为空）
+}
+
+type PullSession struct {
+    ID       string `json:"id"`       // 会话 id，传给 GetPreview / StopPullPreview
+    Redacted string `json:"redacted"` // 脱敏后的地址，可直接显示
+    Preview  bool   `json:"preview"`  // 是否真的在出预览
+}
+
+// v0.14：一个可采集的来源。ListCaptureSources 返回它的列表：先是所有屏幕（顺序同 ListScreens），Windows 上再是窗口（EnumWindows 的 Z 序，最上面的在前）。
+type CaptureSource struct {
+    ID     string `json:"id"`     // 不透明字符串，前端原样传回 captureSourceId。screen:<序号>（序号是 ListScreens 结果里的位置，从 0 起，第 0 个不一定是主显示器）；window:<hwnd 十进制>（无符号十进制，无前导零）
+    Kind   string `json:"kind"`   // screen | window。macOS / Linux 永远只有 screen，不返回 window
+    Title  string `json:"title"`  // screen：ScreenInfo.Name（如 "显示器 1（主）"）；window：窗口标题原文
+    Width  int    `json:"width"`  // 物理像素；window 是客户区大小（gdigrab 采的就是客户区）；查不到为 0
+    Height int    `json:"height"`
 }
 
 type ScreenInfo struct {
@@ -589,6 +629,27 @@ schema_migrations(version PK, applied_at)
     - **(c) 前端规则**：前端遇到**未知的 `reason` 值或没有 `reason` 行**时，显示通用冲突提示（如"操作冲突，请稍后再试"，文案由前端定），不得猜测含义、不得报错崩溃。
   - `LIVE_URL_INVALID`：协议不是 rtmp / rtmps / srt 时**后端已经是这个码**，`detail` 第一行 `reason=scheme_unsupported`，前端提示"暂不支持这种推流地址，请使用 rtmp、rtmps 或 srt"。同一个码的其他原因用 `reason=malformed` / `missing_host` / `param_not_allowed` 区分（枚举和规则见 2.2，未知值走通用文案），**不要靠 `message` 文本区分**。
 
+- **预览画面（v0.15，架构师定；实现：`internal/ffmpeg/live_preview.go`、`internal/service/live/preview.go`）**：
+  - **预览输出**：推流命令在**主输出之后**追加一路独立输出 `-map 0:v:0 -an -sn -dn -vf fps=2,scale=640:-2 -q:v 5 -protocol_whitelist file -f image2 -update 1 -atomic_writing 1 file:<预览路径>`。有自己的 `-vf`（不复用主输出的滤镜链，宽 640、高按比例取偶数、每秒 2 帧）；不影响主输出的编码参数、`-progress` 与码率统计。**带存档的屏幕推流：预览输出在 tee 之外**，仍是主输出（`-f tee`）之后单独的一路，不写进 tee 描述（测试断言 tee 描述里没有预览、且只有网络与存档两路）。文件推流、屏幕推流（含 Windows gdigrab 窗口采集、存档）用同一个 `PreviewOutputArgs`。
+  - **CPU 说明**：预览输出与主输出共享同一路解码（ffmpeg 的输出端只多一个 fps + scale + mjpeg 编码，每秒 2 帧，开销很小）。当前直播主输出始终重编码（不用 `-c copy`），所以没有额外的解码次数；**如果以后加入"视频流复制（`-c copy`）"或"硬字幕"的推流场景，主输出不解码时预览输出需要单独解码（ffmpeg 会为预览输出自己起解码器），会额外占少量 CPU，那时按需要再评估默认是否关预览。** **【未验证】**高分辨率（4K）屏幕采集、Windows 真机上的预览耗时与 CPU 占用。
+  - **读取与半帧**：`-atomic_writing 1` 让 ffmpeg 先写 `<路径>.tmp` 再改名，读取端不会读到半帧；`GetPreview` 读取时仍校验 JPEG：以 SOI（`FF D8`）开头、以 EOI（`FF D9`）结尾（允许末尾少量 0 填充），大小 4 字节~4 MiB，不合格（半帧、空文件、不是 JPEG）一律当没有画面返回空，不返回错误。`ts` 取文件修改时间。
+  - **`GetPreview(sessionId)`**：`sessionId` 是推流任务 id（= 会话 id）或 `StartPullPreview` 返回的拉流预览会话 id。返回 `{data, ts, active}`：会话不存在 / 已结束、`preview=false`、ffmpeg 还没出第一帧、读到半帧、预览文件不存在，都是**空 data + ts=0，不是错误**；`active` = 会话是否还在进行（推流：任务没结束；拉流：会话没结束），前端在 `active=false` 或页面不可见时停止轮询，约 500 毫秒一次。预览关闭时 `GetPreview` 返回空（推流会话仍 `active=true`）。
+  - **开关**：`FilePushRequest.preview` / `ScreenPushRequest.preview` / `PullPreviewRequest.preview` 是 `*bool`，缺省（nil）= true，false = 不加预览输出。**只在开始时决定**（ffmpeg 已启动无法动态改输出），没有 `SetPreviewEnabled`。
+  - **降级（预览绝不能让主流失败）**：推流开始前用 `ffmpeg -encoders / -muxers / -filters` 检查 `mjpeg` 编码器、`image2` 封装、`fps` 与 `scale` 滤镜（按 ffmpeg 路径缓存）；不支持、预览目录不可用 / 不可写、`preview=false`，都**只是不加预览输出**（记日志，不报错、不改变 `Start*` 的返回）。运行中预览输出自己出错（写盘失败）会让 ffmpeg 整体退出，与主输出写失败同样处理（由主流的错误分类决定，预览不引入新错误码）。`StartPullPreview` 是拉流预览专用，没有"主流"可降级，ffmpeg 不支持时返回 `UNSUPPORTED`（`detail` 单独一行 `missing=preview`）。
+  - **拉流预览会话**：`StartPullPreview` 后端起一个 ffmpeg **只读远端流、只输出预览**（不推流、不存盘），播放本身仍由前端播放器直接拉远端地址（契约 6.10 之前的"前端 mpegts.js 直接拉"不变）。地址规则：`rtmp` / `rtmps` / `srt` 复用推流地址校验（`LIVE_URL_INVALID` + `reason=`）；`http` / `https` 只做基本校验（主机必填、无空白 / 控制字符 / `|` `\` `"` `'`、≤ 2048 字节）；其他协议（含 `ws` / `wss`）`reason=scheme_unsupported`。输入侧 `-protocol_whitelist` 写在 `-i` 之前（rtmp `rtmp,tcp`、rtmps `rtmps,tcp,tls,crypto`、srt `srt,udp`、http(s) `http,https,tcp,tls,crypto`）。先用 ffprobe（`-rw_timeout 8s`，总 12 秒超时）探测有没有视频流：**纯音频没有预览**（不启动预览 ffmpeg，会话立即结束，`active` 变 `false`）；探测不出来（没有 ffprobe、连不上）按"有视频"让 ffmpeg 自己试。同一标准化地址重复调用返回同一会话（幂等）；同时最多 4 路（与推流会话上限分开计），超过 `TASK_CONFLICT`（`detail` 首行 `reason=max_pull_previews`）。会话不是任务（不进任务中心、不落库、不占 live 池）；`StopPullPreview`、远端流结束、ffmpeg 退出、应用退出（`Close`）都会结束会话并清理预览文件。地址（含口令 / 流名）只在调用参数里，日志和返回值只有脱敏形式。
+  - **临时文件**：`<数据目录>/tmp/live-preview/<会话 id>.jpg`（及 ffmpeg 原子写入的 `.jpg.tmp`）。会话结束（含从未运行、排队中被取消）删除；**应用启动时清空并重建整个 `live-preview` 目录**（清理上次异常退出遗留；目录名必须是 `live-preview`，防止误删）；目录建不出来只是本次运行没有预览。
+  - **前端约定**：约 500 毫秒轮询 `GetPreview`，`active=false`、任务进入终态、页面不可见时停止；`data` 转成 `data:image/jpeg;base64,<data>` 显示；`ts` 长时间不前进 = 画面停滞。浏览器模拟层（`frontend/src/api/live.ts`）最小假实现：`getPreview` 恒返回 `{data:'', ts:0, active:false}`，`startPullPreview` 返回不出画面的会话。**本版不改直播页 UI。**
+  - **测试**：参数构造表驱动（文件推流有 / 无音轨、屏幕推流、带 tee 存档、拉流各协议、纯音频、`preview=false`）；`GetPreview` 半帧 / 无文件 / 关闭 / 未知会话；会话结束与启动清理；集成测试用真实 ffmpeg（7.1.5、9.0.2）+ MediaMTX 1.21.1（含 Xvfb 屏幕采集与带存档的屏幕推流）验证 2 秒内拿到宽 640 的合法 JPEG、画面不是黑屏 / 纯色（亮度方差）、主流与存档不受影响、停止后临时文件被清理。**【未验证】**Windows 真机上预览的耗时、高 CPU 占用；WebView 里 500 毫秒轮询大图 base64 的开销（每帧约几十 KB）。
+
+- **采集来源（v0.14）**：
+  - **`ListCaptureSources`**：屏幕来源 = `ListScreens` 的结果（`id` 换成 `screen:<序号>`，`title` = `ScreenInfo.Name`）；Windows 上再追加窗口来源。`ListScreens` 失败（`UNSUPPORTED_PLATFORM`，如 Wayland / 没有 `DISPLAY`）时整个方法同样失败。枚举窗口失败（`EnumWindows` 出错）只记日志、只返回屏幕，不报错。macOS / Linux 多显示器尽量列出（Linux 用 xrandr，没有 xrandr 只给一个 `x11:desktop` 默认；macOS 用 avfoundation 设备列表），**永远不返回 `window`**。
+  - **窗口过滤（Windows，纯函数 `filterCaptureWindows`，有表驱动测试）**：`EnumWindows` 取顶层窗口，保留同时满足：标题非空（去空白后）；`IsWindowVisible`；不是最小化（`IsIconic`，最小化的不列出，因为 gdigrab 采不到内容；"最小化按需标记"本版选择不列出）；不是 DWM cloaked（别的虚拟桌面、挂起的 UWP 窗口）；客户区宽高都大于 0；不是本进程（FFmpegFree 自己）的窗口；不是系统壳窗口（类名 `Progman`、`WorkerW`、`Shell_TrayWnd`、`Shell_SecondaryTrayWnd`、`Windows.UI.Core.CoreWindow`，或标题 `Program Manager`）；没有 `WS_EX_TOOLWINDOW` / `WS_EX_NOACTIVATE` 且没有 owner（即被拥有的对话框、浮层不列）——带 `WS_EX_APPWINDOW` 的例外，照列。
+  - **`id` 与校验**：`window:<hwnd 十进制>`，句柄在窗口关闭后会失效（也可能被复用，见未验证项）。`StartScreenPush` 传了 `captureSourceId` 时，**在占会话 / 建存档之前**重新枚举并按同一套过滤校验来源还在：格式不对（不是 `screen:<无符号十进制>` / `window:<无符号十进制>`、有前导零、带符号、十六进制）→ `INVALID_ARGUMENT`；非 Windows 传 `window:…` → `INVALID_ARGUMENT`；窗口不在过滤后的列表里（已关闭、已最小化、已不可见）→ `LIVE_SOURCE_GONE`（`kind=window`）；屏幕序号超出当前 `ListScreens` 的范围 → `LIVE_SOURCE_GONE`（`kind=screen`）。校验失败不创建任务、不占用会话。检查顺序：URL 校验 → 选项 → audio → 存档目录 → 能力检测 → 协议 / tee 检测 → **来源校验** → 会话冲突（`duplicate_url` → `screen_busy` → `max_sessions`）。
+  - **ffmpeg 命令行（Windows gdigrab）**：窗口 → `-f gdigrab -framerate <fps> [-draw_mouse 0] -i title=<窗口标题>`（用**校验那一刻**的标题，标题作为**单个 argv 元素**传给 ffmpeg，不经过 shell，不加引号、不转义；gdigrab 把 `title=` 之后的全部内容当窗口标题，所以空格、引号、`=`、`&`、`|`、`%`、中日韩都原样；不带 `-offset_x` / `-offset_y` / `-video_size`，窗口大小由 gdigrab 决定，输出仍按 `PushOptions` 缩放并保证偶数）。屏幕 → `-f gdigrab -framerate <fps> [-draw_mouse 0] -offset_x <X> -offset_y <Y> -video_size <W>x<H> -i desktop`，`X/Y/W/H` 取自 `EnumDisplayMonitors` / `GetMonitorInfoW` 的显示器矩形（副屏在主屏左 / 上方时 `X` / `Y` 为负数，原样传）。macOS / Linux 屏幕来源命令行不变。
+  - **窗口在校验后、ffmpeg 打开前消失**：gdigrab 报 `Can't find window '…', aborting.`——`ClassifyLiveError`（`Screen=true`）识别它 → `LIVE_SOURCE_GONE`，`detail` 只有 `kind=window`（stderr 里有窗口标题，**不放进 detail**）。这是任务失败（没有 `task:progress` 之前），不是同步错误。已开始推流之后窗口被关闭：gdigrab 行为未验证，按现有规则分类（多半是 `INTERNAL` 或 `LIVE_PUSH_INTERRUPTED`）。
+  - **任务 `params`**：`kind=screen` 的 `params` 在传了 `captureSourceId` 时多一个 `"captureSourceId"` 字段（没传则不出现，旧任务不变）；任务标题 = `屏幕推流：<屏幕名 | 窗口标题> → <脱敏地址>`。`screenId` 字段仍是请求里的原值。
+  - **【未验证】**（Linux 箱子只能验证参数构造、过滤、错误码；见 6.10.1 第 8～10 项）：Windows 真机上 `EnumWindows` 的实际过滤效果；gdigrab `title=` 采窗口被其他窗口遮挡 / 最小化 / 跨显示器 / 高 DPI（进程非 DPI 感知时 `GetClientRect` 与 gdigrab 的尺寸口径）；多显示器 `offset` / `video_size` 在非 100% 缩放、副屏在负坐标时是否对齐；同标题的多个窗口（`title=` 只能命中 `FindWindow` 找到的第一个，可能不是用户选的那个——**这是 `title=` 方案的固有局限**；ffmpeg 7.0+ 的 `hwnd=<十进制>` 可以精确指定窗口，但本机 ffmpeg 版本不一定支持，本版按契约用 `title=`，需要时另出契约变更）。
+
 ### 6.10.1 真机试用清单（Live，未验证项汇总）
 
 以下项目**没有在真机上验证**（箱子是 Linux + ffmpeg 7.1.5 + MediaMTX 1.21.1），契约里已就地标"未验证"。**不阻塞实现**：实现按契约写，试用包出来后由用户逐项确认，不符再回来改契约。（Edit 的 Windows 路径 / `commitPart` / Range 续传、Doc 的 Windows 字体路径 / 大文件 Range 各在 6.11.1 / 6.11.4 / 6.12.1 / 6.12.4 有同样的清单，合并后由架构师汇总。）
@@ -602,6 +663,9 @@ schema_migrations(version PK, applied_at)
 | 5 | SRT 在真实公网 / 有 passphrase 的服务器上：错误 passphrase 与服务器未开确实都只有 `Input/output error`（实测于 MediaMTX，其他服务器未测） | 6.10「SRT 说明」 | 用错误口令推到 SRS / MediaMTX / 商用服务 | 仍判 `LIVE_CONNECT_FAILED`，前端文案不变 |
 | 6 | macOS 屏幕录制授权检测；Windows gdigrab 多显示器 / 非 100% 缩放的偏移与尺寸；`x11grab` 在各桌面环境的表现 | 6.10「未验证」条 | 各平台真机各推一次 | 见各条 |
 | 7 | 15 秒（有存档）/ 16 秒（`Shutdown`）优雅停止上限在慢网络、高负载下够不够 | 6.10 存档第 3 条 | 弱网下停止有存档的会话，看是否超时被强杀 | 调整上限（契约变更） |
+| 8 | Windows：`EnumWindows` 过滤后的窗口列表是否合理（无任务栏 / 桌面 / 输入法 / 系统浮层，UWP 应用与最大化窗口能列出）；FFmpegFree 自己的窗口不出现 | 6.10「采集来源」 | Windows 上调 `ListCaptureSources`，与任务栏里的窗口对照 | 调整 `filterCaptureWindows` 的类名 / 样式过滤（不改契约结构） |
+| 9 | Windows：gdigrab `title=` 采窗口——被其他窗口遮挡时内容是否正常、最小化后行为（黑屏 / 报错 / 冻结）、窗口移到副屏 / 高 DPI（125%~200% 缩放）时画面尺寸和清晰度；同标题多窗口命中哪一个；标题含引号、`&`、中文时能否找到窗口 | 同上 | 各推一次，观察播放端画面 | 遮挡 / 高 DPI 问题另出契约变更（如改用 `hwnd=`、DPI 感知清单）；同标题问题在前端提示或后端过滤 |
+| 10 | Windows 多显示器：副屏在主屏左侧 / 上方（负偏移）、两块屏缩放不同时，`offset_x` / `offset_y` / `video_size` 是否对准该显示器（进程是否 DPI 感知影响 `GetMonitorInfoW` 的坐标口径） | 同上、6.10「采集能力检测」 | 双屏各选一块推流 | 改用物理像素坐标（进程声明 DPI 感知）或按缩放换算 |
 
 ### 6.10.2 实现清单（给 #31 / #30 对照；不是新接口；"现状"列已按 `origin/v2` 的 `2f0c0a4`（含已合并的 #31 第一部分）更新）
 

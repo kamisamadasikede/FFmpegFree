@@ -39,6 +39,8 @@ const (
 	LivePushRejected       Code = "LIVE_PUSH_REJECTED"
 	LivePushInterrupted    Code = "LIVE_PUSH_INTERRUPTED"
 	ScreenPermissionDenied Code = "SCREEN_PERMISSION_DENIED"
+	// LiveSourceGone：屏幕推流所选的采集来源（窗口 / 屏幕）已不可用（窗口已关闭 / 最小化，屏幕已拔掉）。v0.14 新增。
+	LiveSourceGone Code = "LIVE_SOURCE_GONE"
 )
 
 // AppError 同时用于 Bind 返回值和持久化到 tasks.error 列。

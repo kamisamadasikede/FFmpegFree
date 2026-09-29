@@ -31,6 +31,9 @@ type ScreenPushRequest struct {
 	Options    PushOptions `json:"options"`
 	// Preview 为 nil（缺省）或 true 时会话带预览画面（GetPreview）；false 时不加预览输出。
 	Preview *bool `json:"preview"`
+	// CaptureSourceID 可选：ListCaptureSources 返回的 id（screen:<序号> | window:<hwnd 十进制>）。不传 = 沿用 ScreenID（原行为）；
+	// 传了以它为准（同时给了 ScreenID 时忽略 ScreenID）。
+	CaptureSourceID string `json:"captureSourceId"`
 }
 
 // CaptureCapabilities 是 GetCaptureCapabilities 的返回。
@@ -113,7 +116,7 @@ func (s *Service) ListScreens(ctx context.Context) ([]ScreenInfo, error) {
 	}
 	switch s.cfg.GOOS {
 	case "windows":
-		return listWindowsMonitors()
+		return s.cfg.Monitors()
 	case "darwin":
 		return s.listDarwinScreens(ctx, bin)
 	}
@@ -225,6 +228,8 @@ type screenPushParams struct {
 	Audio      string      `json:"audio"`
 	ArchiveDir string      `json:"archiveDir"`
 	Options    PushOptions `json:"options"`
+	// CaptureSourceID 只在传了时写入（旧任务的 params 不变）。
+	CaptureSourceID string `json:"captureSourceId,omitempty"`
 }
 
 // StartScreenPush 开始屏幕推流。立即返回入队前的任务快照。
@@ -269,13 +274,25 @@ func (s *Service) startScreenPush(ctx context.Context, req ScreenPushRequest) (t
 	if err := s.checkProtocols(ctx, bin, u.Scheme, archiveDir != ""); err != nil {
 		return task.Task{}, err
 	}
-	screens, err := s.ListScreens(ctx)
-	if err != nil {
-		return task.Task{}, err
-	}
-	sc, err := resolveScreen(screens, req.ScreenID)
-	if err != nil {
-		return task.Task{}, err
+	var sc ScreenInfo
+	var windowTitle string
+	name := ""
+	if req.CaptureSourceID != "" {
+		// 开始时再校验一次来源还在：窗口已关闭 / 最小化、屏幕序号不存在 → LIVE_SOURCE_GONE
+		src, err := s.resolveCaptureSource(ctx, req.CaptureSourceID)
+		if err != nil {
+			return task.Task{}, err
+		}
+		sc, windowTitle, name = src.Screen, src.WindowTitle, src.Name
+	} else {
+		screens, err := s.ListScreens(ctx)
+		if err != nil {
+			return task.Task{}, err
+		}
+		if sc, err = resolveScreen(screens, req.ScreenID); err != nil {
+			return task.Task{}, err
+		}
+		name = sc.Name
 	}
 	fps := req.Options.Fps
 	if fps == 0 {
@@ -287,7 +304,7 @@ func (s *Service) startScreenPush(ctx context.Context, req ScreenPushRequest) (t
 		PreviewPath: previewPath,
 		GOOS:        s.cfg.GOOS, Display: s.cfg.Getenv("DISPLAY"), HideCursor: req.HideCursor, Silent: req.Audio == "silent",
 		Scheme: u.Scheme, URL: u.FFmpeg, FPS: fps,
-		Region: ffmpeg.ScreenRegion{X: sc.X, Y: sc.Y, Width: sc.Width, Height: sc.Height, Desktop: sc.ID == "x11:desktop"},
+		Region: ffmpeg.ScreenRegion{X: sc.X, Y: sc.Y, Width: sc.Width, Height: sc.Height, Desktop: sc.ID == "x11:desktop", WindowTitle: windowTitle},
 		Enc: ffmpeg.LiveEncode{
 			Width: req.Options.Width, Height: req.Options.Height, GOPFps: fps,
 			VideoKbps: req.Options.videoKbps(), AudioKbps: req.Options.audioKbps(),
@@ -316,12 +333,12 @@ func (s *Service) startScreenPush(ctx context.Context, req ScreenPushRequest) (t
 		plan.ArchiveTee = tee
 	}
 	args := ffmpeg.BuildScreenPushArgs(plan)
-	pj, _ := json.Marshal(screenPushParams{Kind: "screen", ScreenID: sc.ID, URL: u.Redacted, HideCursor: req.HideCursor,
-		Audio: firstNonEmpty(req.Audio, "none"), ArchiveDir: archiveDir, Options: req.Options})
+	pj, _ := json.Marshal(screenPushParams{Kind: "screen", ScreenID: req.ScreenID, URL: u.Redacted, HideCursor: req.HideCursor,
+		Audio: firstNonEmpty(req.Audio, "none"), ArchiveDir: archiveDir, Options: req.Options, CaptureSourceID: req.CaptureSourceID})
 	spec := task.Spec{
 		ID:         taskID,
 		Type:       task.TypeLiveScreenPush,
-		Title:      "屏幕推流：" + sc.Name + " → " + u.Redacted,
+		Title:      "屏幕推流：" + name + " → " + u.Redacted,
 		InputPaths: []string{},
 		OutputPath: archivePath,
 		Params:     string(pj),

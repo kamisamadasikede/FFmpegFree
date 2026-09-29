@@ -1,19 +1,19 @@
 <template>
-  <aside class="lpanel">
-    <div class="phead"><h2>{{ title }}</h2></div>
-    <div class="pbody"><slot /></div>
-    <div class="foot"><small>{{ note }}</small><span class="sp" /><slot name="action" /></div>
+  <aside class="lpanel" :class="{ form: !flat }">
+    <div class="phead"><h2>{{ title }}</h2><slot name="head" /></div>
+    <div class="pbody" :class="{ flat }"><slot /></div>
+    <div v-if="note || $slots.action" class="foot"><small v-if="note">{{ note }}</small><span class="sp" /><slot name="action" /></div>
+    <slot name="foot" />
   </aside>
 </template>
 
 <script setup lang="ts">
-// 右侧 320px 设置面板：标题 + 表单 + 底部操作栏，样式来自 proto/pages.html 的 .panel / .phead / .pbody / .foot。
-defineProps<{ title: string; note?: string }>()
+// 设计稿 v0.2 的面板：标题 14/600 + 表单区 + 底部操作栏（右对齐）。flat=true 是会话列表面板（弹性宽度、无内边距），否则是 320px 设置面板（1024 宽 304px）。
+defineProps<{ title: string; note?: string; flat?: boolean }>()
 </script>
 
 <style scoped>
 .lpanel {
-  width: 320px;
   flex: none;
   display: flex;
   flex-direction: column;
@@ -21,6 +21,9 @@ defineProps<{ title: string; note?: string }>()
   background: var(--ff-bg-surface);
   border: 1px solid var(--ff-border);
   border-radius: 10px;
+}
+.lpanel.form {
+  width: 320px;
 }
 .phead {
   display: flex;
@@ -32,7 +35,7 @@ defineProps<{ title: string; note?: string }>()
 }
 h2 {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--ff-fs-md);
   font-weight: 600;
   line-height: 21px;
 }
@@ -40,10 +43,15 @@ h2 {
   padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+}
+.pbody.flat {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
 }
 .pbody :deep(.el-switch) {
   height: 16px;
@@ -52,29 +60,33 @@ h2 {
 .pbody :deep(.el-switch--small .el-switch__core) {
   min-width: 28px;
 }
-.pbody :deep(.el-select__wrapper) {
-  min-height: 28px;
-  height: 28px;
-  padding: 0 10px;
-  font-size: 13px;
-  line-height: 26px;
-}
-.pbody :deep(.el-select__selected-item) {
-  color: var(--ff-text-1);
-}
 .foot {
   padding: 12px 16px;
   border-top: 1px solid var(--ff-border);
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   flex: none;
 }
 .foot small {
   color: var(--ff-text-2);
-  font-size: 12px;
+  font-size: var(--ff-fs-xs);
 }
 .sp {
   flex: 1;
+}
+/* 1024 宽：设置面板 320 → 304，表单内边距 16 → 12，字段间距 12 → 8 */
+@media (max-width: 1199px) {
+  .lpanel.form {
+    width: 304px;
+  }
+  .pbody:not(.flat) {
+    padding: 12px;
+    gap: 8px;
+  }
+  .foot {
+    padding: 12px;
+  }
 }
 </style>

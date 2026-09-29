@@ -9,6 +9,8 @@ export function GetCaptureCapabilities():Promise<live.CaptureCapabilities>;
 
 export function GetPreview(arg1:string):Promise<live.Preview>;
 
+export function ListCaptureSources():Promise<Array<live.CaptureSource>>;
+
 export function ListScreens():Promise<Array<live.ScreenInfo>>;
 
 export function StartFilePush(arg1:live.FilePushRequest):Promise<store.Task>;

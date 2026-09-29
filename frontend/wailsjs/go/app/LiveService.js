@@ -14,6 +14,10 @@ export function GetPreview(arg1) {
   return window['go']['app']['LiveService']['GetPreview'](arg1);
 }
 
+export function ListCaptureSources() {
+  return window['go']['app']['LiveService']['ListCaptureSources']();
+}
+
 export function ListScreens() {
   return window['go']['app']['LiveService']['ListScreens']();
 }
