@@ -367,18 +367,61 @@ func TestExportOutputNameSanitized(t *testing.T) {
 	}
 }
 
+// WindowsLimitForTest 是 Windows 整条输出路径的上限（fsutil.WindowsMaxPath），测试里单独写出来，防止常量被误改时测试跟着漂。
+const WindowsLimitForTest = 259
+
+// dirOfLen 在 base 下建一串子目录，使最终目录路径的字符数恰好为 n（每级 ≤ 100 字符，远小于 NAME_MAX）。
+func dirOfLen(t *testing.T, base string, n int) string {
+	t.Helper()
+	sep := string(filepath.Separator)
+	cur := filepath.Join(base, fmt.Sprintf("edge%d", n)) // 每个 n 用独立分支，避免两次调用互相嵌套
+	for len(cur) < n {
+		room := n - len(cur) - len(sep) // 再加一级需要 sep + 名字
+		if room < 1 {
+			// 剩余不足一级：把最后一级名字补长
+			cur += strings.Repeat("e", n-len(cur))
+			break
+		}
+		if room > 100 {
+			room = 100
+		}
+		cur = cur + sep + strings.Repeat("d", room)
+	}
+	if len(cur) != n {
+		t.Fatalf("dirOfLen: got %d want %d", len(cur), n)
+	}
+	if err := os.MkdirAll(cur, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return cur
+}
+
 func TestExportPathTooLongOnWindows(t *testing.T) {
 	// 在任意平台上把 GOOS 设成 windows 验证：超长在提交时同步 INVALID_ARGUMENT，不产生任务；用假的探测让它不依赖真实 ffmpeg。
 	s := New(Config{Media: fakeMedia{base}, Tasks: &fakeTasks{}, GOOS: "windows",
 		Require:        func() (ffmpeg.Binaries, error) { return ffmpeg.Binaries{FFmpeg: "x", FFprobe: "y"}, nil },
 		SupportsScript: func(context.Context, string) (string, error) { return OptFilterFile, nil }})
 	dir := t.TempDir()
-	long := dir
-	for len(long) < 240 {
-		long = filepath.Join(long, "dddddddddd")
+	// 目录长度要精确控制：OutputPathLength = len(dir)+1+len("x")+len("(99)")+len(".mp4")+len(".part") = len(dir)+15，
+	// 超过 259 即 len(dir) >= 245。t.TempDir() 的长度取决于 TMPDIR，不能靠"累加到 ≥N"碰运气
+	// （旧写法每步 +11，落点在 240~250，TMPDIR 较长/较短时会落在 240~244 而不超限，测试误报"期望有错误"）。
+	const overhead = 15
+	if len(dir)+1+len("edge260") > WindowsLimitForTest-overhead {
+		t.Skipf("TMPDIR 太长（%d），无法构造边界用例", len(dir))
 	}
-	os.MkdirAll(long, 0o755)
+	long := dirOfLen(t, dir, WindowsLimitForTest-overhead+1) // 输出路径长度 260，刚好超限
+	edge := dirOfLen(t, dir, WindowsLimitForTest-overhead)   // 输出路径长度 259，刚好不超限
+	if n := fsutil.OutputPathLength(long, "x", ".mp4"); n != WindowsLimitForTest+1 {
+		t.Fatalf("夹具长度不对: %d", n)
+	}
 	p := proj(vclip("c1", pV, "V1", 0, 0, 1))
+	if _, err := s.Export(context.Background(), p, EditExportOptions{OutputDir: edge, OutputName: "x"}); err != nil {
+		t.Fatalf("恰好 259 应通过: %v", err)
+	}
+	if s.cfg.Tasks.(*fakeTasks).n != 1 {
+		t.Fatal("边界 259 应提交 1 个任务")
+	}
+	s.cfg.Tasks.(*fakeTasks).n = 0
 	_, err := s.Export(context.Background(), p, EditExportOptions{OutputDir: long, OutputName: "x"})
 	if code(t, err) != apperr.InvalidArgument || !strings.Contains(apperr.From(err).Message, "259") {
 		t.Fatalf("%v", err)
