@@ -14,7 +14,7 @@
 
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
-import flvjs from 'flv.js'
+import mpegts from 'mpegts.js'
 
 const props = defineProps<{
   modelValue: boolean
@@ -32,7 +32,7 @@ const visible = computed({
 })
 
 const videoRef = ref<HTMLVideoElement | null>(null)
-let flvPlayer: ReturnType<typeof flvjs.createPlayer> | null = null
+let flvPlayer: mpegts.Player | null = null
 
 const isFlv = computed(() => props.name.toLowerCase().endsWith('.flv'))
 
@@ -51,9 +51,9 @@ const destroyPlayer = () => {
 const initPlayer = () => {
   if (!videoRef.value || !props.url) return
 
-  if (isFlv.value && flvjs.isSupported()) {
+  if (isFlv.value && mpegts.isSupported()) {
     destroyPlayer()
-    flvPlayer = flvjs.createPlayer(
+    flvPlayer = mpegts.createPlayer(
       { type: 'flv', url: props.url },
       { enableWorker: true, isLive: false }
     )

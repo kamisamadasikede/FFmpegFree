@@ -2,7 +2,6 @@
 
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import flvjs from 'flv.js'
 
 export const useFlvPlayerStore = defineStore('flvPlayer', () => {
     // 当前拉流地址

@@ -1,0 +1,103 @@
+/* 旧页面用到的变量先映射到新 token，逐页迁移完后删除这一段 */
+:root,
+html.dark {
+  --app-bg: var(--ff-bg-app);
+  --app-bg-accent: var(--ff-bg-sidebar);
+  --surface: var(--ff-bg-surface);
+  --surface-muted: var(--ff-bg-hover);
+  --surface-strong: var(--ff-border);
+  --surface-hover: var(--ff-primary-soft);
+  --text-primary: var(--ff-text-1);
+  --text-muted: var(--ff-text-2);
+  --text-soft: var(--ff-text-3);
+  --border-soft: var(--ff-border);
+  --border-strong: var(--ff-primary);
+  --shadow-1: var(--ff-shadow-1);
+  --shadow-2: none;
+  --panel-radius: var(--ff-radius-lg);
+  --motion-fast: var(--ff-dur-fast) var(--ff-ease);
+  --motion-base: var(--ff-dur-base) var(--ff-ease);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--ff-font);
+  font-size: var(--ff-fs-sm);
+  line-height: 1.5;
+  color: var(--ff-text-1);
+  background: var(--ff-bg-app);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* 外壳禁止整页选中，输入框、日志、代码区域除外 */
+.app-shell {
+  user-select: none;
+}
+.app-shell input,
+.app-shell textarea,
+.app-shell pre,
+.app-shell code,
+.app-shell [contenteditable],
+.app-shell .selectable,
+.app-shell .monaco-editor {
+  user-select: text;
+}
+
+/* 细滚动条，悬停时显示 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+}
+*:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ff-text-3) 60%, transparent);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 旧页面通用类 */
+.panel {
+  background: var(--ff-bg-surface);
+  border: 1px solid var(--ff-border);
+  border-radius: var(--ff-radius-lg);
+  padding: var(--ff-space-4);
+}
+
+.preview-video {
+  width: 260px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: var(--ff-radius-lg);
+  background: #111;
+  cursor: pointer;
+}
+
+.mono {
+  font-family: var(--ff-font-mono);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

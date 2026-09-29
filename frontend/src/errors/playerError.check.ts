@@ -1,0 +1,47 @@
+// 不引入测试框架的自检：在 /dev/components 页面运行，也可以用 esbuild 打包后在 node 里跑。
+import { mapPlayerError, isValidStreamUrl, isCrossOrigin, type PlayerErrorInput } from './playerError'
+import { resolveError, errorMessages } from './errorMessages'
+
+const PAGE = 'http://localhost:5173'
+const cases: Array<[string, PlayerErrorInput, string]> = [
+  ['地址缺少第二个斜杠', { kind: 'mpegts', type: 'NetworkError', detail: 'Exception', url: 'http:/live.example' }, 'LIVE_URL_INVALID'],
+  ['未知协议', { kind: 'video', code: 4, url: 'ftp://a.b/c' }, 'LIVE_URL_INVALID'],
+  ['连接超时', { kind: 'mpegts', type: 'NetworkError', detail: 'ConnectingTimeout', url: 'https://a.b/x.flv', pageOrigin: PAGE }, 'LIVE_CONNECT_FAILED'],
+  ['跨域 + fetch TypeError', { kind: 'mpegts', type: 'NetworkError', detail: 'Exception', info: { code: -1, msg: 'Failed to fetch' }, url: 'https://a.b/x.flv', pageOrigin: PAGE }, 'LIVE_CORS_BLOCKED'],
+  ['跨域 + 状态码 0', { kind: 'mpegts', type: 'NetworkError', detail: 'Exception', info: { code: 0 }, url: 'https://a.b/x.flv', pageOrigin: PAGE }, 'LIVE_CORS_BLOCKED'],
+  ['同源的 fetch 失败不算跨域', { kind: 'mpegts', type: 'NetworkError', detail: 'Exception', info: { code: -1, msg: 'Failed to fetch' }, url: PAGE + '/x.flv', pageOrigin: PAGE }, 'LIVE_PLAY_FAILED'],
+  ['跨域但有 HTTP 状态码 403', { kind: 'mpegts', type: 'NetworkError', detail: 'HttpStatusCodeInvalid', info: { code: 403, msg: 'Forbidden' }, url: 'https://a.b/x.flv', pageOrigin: PAGE }, 'LIVE_PLAY_FAILED'],
+  ['提前结束', { kind: 'mpegts', type: 'NetworkError', detail: 'UnrecoverableEarlyEof', url: 'https://a.b/x.flv', pageOrigin: PAGE }, 'LIVE_PLAY_FAILED'],
+  ['媒体格式错误', { kind: 'mpegts', type: 'MediaError', detail: 'FormatError', url: 'https://a.b/x.flv', pageOrigin: PAGE }, 'LIVE_PLAY_FAILED'],
+  ['其他错误', { kind: 'mpegts', type: 'OtherError', detail: 'x', url: 'https://a.b/x.flv' }, 'LIVE_PLAY_FAILED'],
+  ['video 网络错误（无状态码，不猜跨域）', { kind: 'video', code: 2, url: 'https://a.b/x.mp4', pageOrigin: PAGE }, 'LIVE_PLAY_FAILED'],
+  ['video 解码错误', { kind: 'video', code: 3, url: 'https://a.b/x.mp4', pageOrigin: PAGE }, 'LIVE_PLAY_FAILED'],
+  ['video 探测到 status 0 且跨域', { kind: 'video', code: 2, status: 0, url: 'https://a.b/x.mp4', pageOrigin: PAGE }, 'LIVE_CORS_BLOCKED'],
+]
+
+/** 返回失败项描述，空数组表示全部通过 */
+export function runErrorChecks(): string[] {
+  const fails: string[] = []
+  const eq = (name: string, got: unknown, want: unknown) => {
+    if (got !== want) fails.push(`${name}: 期望 ${String(want)}，实际 ${String(got)}`)
+  }
+  for (const [name, input, want] of cases) eq(name, mapPlayerError(input), want)
+
+  eq('rtmp 地址合法', isValidStreamUrl('rtmp://live.example/app/key'), true)
+  eq('srt 地址合法', isValidStreamUrl('srt://1.2.3.4:9000?mode=caller'), true)
+  eq('空串不合法', isValidStreamUrl(''), false)
+  eq('同源', isCrossOrigin(PAGE + '/a', PAGE), false)
+  eq('端口不同即跨域', isCrossOrigin('http://localhost:8080/a', PAGE), true)
+  eq('rtmp 不受跨域限制', isCrossOrigin('rtmp://a.b/x', PAGE), false)
+
+  eq('已知码取表文案', resolveError('LIVE_PLAY_FAILED', 'ignored').title, '拉流失败')
+  eq('FFMPEG_NOT_FOUND 主按钮', resolveError('FFMPEG_NOT_FOUND').primary?.label, '去设置')
+  eq('未知码标题', resolveError('INTERNAL', 'boom').title, '出错了')
+  eq('未知码描述取 message', resolveError('INTERNAL', 'boom').description, 'boom')
+  eq('未传码为 INTERNAL', resolveError(undefined).code, 'INTERNAL')
+  eq('错误码数量', Object.keys(errorMessages).length, 8)
+  for (const [code, m] of Object.entries(errorMessages)) {
+    if (m.description.length > 40) fails.push(`${code} 描述过长，可能超过两行`)
+  }
+  return fails
+}

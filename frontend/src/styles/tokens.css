@@ -1,0 +1,82 @@
+/* FFmpegFree v2 设计变量，来源：设计规范 v0.1 第 1-5 节。
+   .ff-light / .ff-dark 用于在同一页面里局部强制某个主题（开发预览页、截图），业务页面不需要 */
+:root,
+.ff-light {
+  color-scheme: light;
+
+  --ff-primary: #3b6ef5;
+  --ff-primary-hover: #2f5cd9;
+  --ff-primary-soft: #eaf0ff;
+  --ff-success: #16a34a;
+  --ff-warning: #d97706;
+  --ff-warning-soft: #fff7e6;
+  --ff-danger: #dc2626;
+
+  --ff-bg-app: #f5f6f8;
+  --ff-bg-sidebar: #eef0f3;
+  --ff-bg-surface: #ffffff;
+  --ff-bg-elevated: #ffffff;
+  --ff-bg-hover: #f0f2f5;
+  --ff-border: #e3e6eb;
+
+  --ff-text-1: #1f2329;
+  --ff-text-2: #5c6370;
+  --ff-text-3: #9aa0a9;
+
+  --ff-space-1: 4px;
+  --ff-space-2: 8px;
+  --ff-space-3: 12px;
+  --ff-space-4: 16px;
+  --ff-space-5: 20px;
+  --ff-space-6: 24px;
+  --ff-space-8: 32px;
+
+  --ff-radius-sm: 4px;
+  --ff-radius-md: 6px;
+  --ff-radius-lg: 10px;
+  --ff-radius-xl: 12px;
+
+  --ff-font: -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+  --ff-font-mono: "JetBrains Mono", Consolas, Menlo, "Noto Sans Mono CJK SC", monospace;
+  --ff-fs-xs: 12px;
+  --ff-fs-sm: 13px;
+  --ff-fs-md: 14px;
+  --ff-fs-lg: 16px;
+  --ff-fs-xl: 20px;
+
+  --ff-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --ff-shadow-dialog: 0 12px 32px rgba(0, 0, 0, 0.18);
+  --ff-ease: cubic-bezier(0.2, 0, 0, 1);
+  --ff-dur-fast: 150ms;
+  --ff-dur-base: 200ms;
+
+  --ff-sidebar-w: 200px;
+  --ff-sidebar-w-collapsed: 56px;
+  --ff-titlebar-h: 40px;
+}
+
+html.dark,
+.ff-dark {
+  color-scheme: dark;
+
+  --ff-primary: #5b8cff;
+  --ff-primary-hover: #7aa2ff;
+  --ff-primary-soft: #1e2a4a;
+  --ff-success: #22c55e;
+  --ff-warning: #f59e0b;
+  --ff-warning-soft: #3a2a10;
+  --ff-danger: #ef4444;
+
+  --ff-bg-app: #141518;
+  --ff-bg-sidebar: #1a1b1f;
+  --ff-bg-surface: #1f2025;
+  --ff-bg-elevated: #26282e;
+  --ff-bg-hover: #2a2c33;
+  --ff-border: #2e3037;
+
+  --ff-text-1: #e8eaed;
+  --ff-text-2: #a0a6b0;
+  --ff-text-3: #6b717b;
+
+  --ff-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
