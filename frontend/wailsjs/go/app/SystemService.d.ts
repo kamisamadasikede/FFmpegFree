@@ -6,6 +6,8 @@ export function CancelFFmpegInstall():Promise<void>;
 
 export function GetFFmpegStatus():Promise<system.FFmpegStatus>;
 
+export function GetInstallOptions():Promise<system.InstallOptions>;
+
 export function GetSettings():Promise<system.Settings>;
 
 export function InstallFFmpeg(arg1:string):Promise<system.InstallTask>;

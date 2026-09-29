@@ -246,12 +246,49 @@ func TestInstallRejectsBadMirror(t *testing.T) {
 	if f.mgr.Status().State != ffmpeg.StateMissing {
 		t.Fatal("参数错误不应改变状态")
 	}
-	// "cn" 合法（清单里没有该平台镜像 → 退回默认源）
+	// linux-amd64 的清单里没有 cn 镜像：明确拒绝，detail 说明可选项，不创建任务
+	_, err := f.mgr.Install(context.Background(), "cn")
+	var ae *apperr.AppError
+	if !errors.As(err, &ae) || ae.Code != apperr.InvalidArgument || !strings.Contains(ae.Detail, "默认源") {
+		t.Fatalf("cn 应被拒绝并说明: %v", err)
+	}
+	if f.mgr.Status().State != ffmpeg.StateMissing {
+		t.Fatal("被拒绝的安装不应改变状态")
+	}
+	// 默认源可以
+	if _, err := f.mgr.Install(context.Background(), ""); err != nil {
+		t.Fatal(err)
+	}
+	f.release()
+	waitFor(t, func() bool { return f.mgr.Status().State == ffmpeg.StateReady })
+}
+
+func TestInstallOptions(t *testing.T) {
+	f := newInstFixture(t, "GOOD-ffmpeg")
+	o, err := f.mgr.GetInstallOptions()
+	if err != nil || o.Platform != "linux-amd64" || !o.Supported || o.Mirrors == nil || len(o.Mirrors) != 0 {
+		t.Fatalf("%+v %v", o, err)
+	}
+	// 给当前平台加上 cn 镜像后：出现在可选项里，并且 Install("cn") 被接受
+	inst := f.mgr.cfg.Installer
+	p := inst.Manifest.Platforms["linux-amd64"]
+	for i := range p.Archives {
+		p.Archives[i].Mirrors = map[string][]string{"cn": {p.Archives[i].URL}}
+	}
+	inst.Manifest.Platforms["linux-amd64"] = p
+	if o, _ = f.mgr.GetInstallOptions(); len(o.Mirrors) != 1 || o.Mirrors[0] != "cn" {
+		t.Fatalf("%+v", o)
+	}
 	if _, err := f.mgr.Install(context.Background(), "cn"); err != nil {
 		t.Fatal(err)
 	}
 	f.release()
 	waitFor(t, func() bool { return f.mgr.Status().State == ffmpeg.StateReady })
+	// 不支持的平台
+	inst.Platform = "plan9-mips"
+	if o, _ = f.mgr.GetInstallOptions(); o.Supported || len(o.Mirrors) != 0 {
+		t.Fatalf("%+v", o)
+	}
 }
 
 func TestInstallUnsupportedPlatform(t *testing.T) {
