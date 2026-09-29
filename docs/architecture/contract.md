@@ -69,7 +69,7 @@ Bind 方法返回 `(T, error)`。error 的 message 是 JSON 字符串，前端 `
 | INVALID_ARGUMENT | 参数不合法 |
 | NOT_FOUND | 记录或文件不存在 |
 | FFMPEG_NOT_FOUND | ffmpeg 缺失 |
-| TASK_CONFLICT | 任务状态不允许该操作（如取消已完成任务）；直播（v0.10）：同一推流地址已有进行中的会话（`detail` 首行 `reason=duplicate_url`），或进行中的直播会话已达 4 个上限（`reason=max_sessions`），稳定枚举见 6.10 |
+| TASK_CONFLICT | 任务状态不允许该操作（如取消已完成任务）；直播（v0.10）：已有进行中的屏幕推流时再开一路屏幕推流（`detail` 首行 `reason=screen_busy`，**屏幕推流同一时间最多 1 路**），同一推流地址已有进行中的会话（`reason=duplicate_url`），或进行中的直播会话已达 4 个上限（`reason=max_sessions`）；判断顺序 `screen_busy`、`duplicate_url`、`max_sessions`，稳定枚举见 2.2 与 6.10 |
 | IO_ERROR | 读写文件失败 |
 | PROBE_FAILED | 文件存在但 ffprobe 无法解析（损坏、不是音视频文件、没有可识别的流） |
 | CANCELED | 调用因应用退出（根 ctx 取消）而被取消，结果作废；前端不需要提示用户（`ConvertService.Submit`、`LiveService.Start*` 等） |
@@ -107,7 +107,7 @@ export type AppErrorCode =
 
 | code（触发场景） | `detail` 第一行 | 取值（只追加，不改名、不改含义、不删除） | 说明 |
 |---|---|---|---|
-| `TASK_CONFLICT`（直播 `Start*` 的会话冲突） | `reason=<值>` | `max_sessions`（进行中的直播会话已达 4 个）、`duplicate_url`（同一标准化地址已有会话） | 其他 `TASK_CONFLICT`（`Cancel` 已结束的会话、`Remove` 进行中的任务等）**没有** `reason=` 行；不含任何地址、口令、streamkey |
+| `TASK_CONFLICT`（直播 `Start*` 的会话冲突） | `reason=<值>` | `screen_busy`（已有进行中的 `live_screen_push`，再开一路屏幕推流；文件推流不会得到它）、`duplicate_url`（同一标准化地址已有会话）、`max_sessions`（进行中的直播会话已达 4 个）；**判断顺序固定：`screen_busy` → `duplicate_url` → `max_sessions`**，同时满足多个条件时只返回最先命中的 | 其他 `TASK_CONFLICT`（`Cancel` 已结束的会话、`Remove` 进行中的任务等）**没有** `reason=` 行；不含任何地址、口令、streamkey |
 | `LIVE_URL_INVALID` | `reason=<值>` | `scheme_unsupported`（scheme 不是 rtmp / rtmps / srt）、`malformed`（空串、超长、含非法字符、缺 scheme、端口越界或缺失、rtmp 缺应用名、SRT 参数值非法如 passphrase 长度、IPv6 括号错误等）、`missing_host`（host 为空）、`param_not_allowed`（SRT 查询参数不在白名单、`mode` 不是 `caller`、同名参数重复） | **不带地址、口令，也不带它们的任何片段**（连脱敏后的地址也不放），第二行起可以写不含地址的原因说明 |
 | `LIVE_CONNECT_FAILED` | `scheme=<值>` | `rtmp`、`rtmps`、`srt`（取自校验后的标准化地址，小写） | 第二行起是脱敏后的 ffmpeg stderr 最后若干行；前端据此选 RTMP / SRT 的提示文案（SRT 用"连接失败，请检查地址和口令是否正确"，文案由前端负责，后端 `message` 不承载） |
 | 编辑类错误（`EditService` 的 `ValidateProject` / `Export` 返回的 `INVALID_ARGUMENT`、`NOT_FOUND`、`IO_ERROR`、`PROBE_FAILED`、`UNSUPPORTED`） | **按 6.11.2 B（#22）**：`clip=<clip.id> path=<绝对路径>`，或没有 clip 的工程级错误写 `project` | 由 6.11.2 B 定义，第二行起才是原因（如 `overlaps=<clip.id>`、`path_length=<n> limit=259`、`missing=filter_complex`） | 前端用 6.11.2 B 的正则取首行；**不适用**下面"第一行只有一个 `key=value`"的统一规则；此行是 #22 合入后生效，#22 单独看时它引用的 6.11.2 B 就在该 PR 里，措辞与 #22 的 B 一致（已核对） |
@@ -122,6 +122,9 @@ export type AppErrorCode =
 ```
 ```json
 { "code": "TASK_CONFLICT", "message": "直播会话冲突", "detail": "reason=duplicate_url\n已有会话使用同一推流地址" }
+```
+```json
+{ "code": "TASK_CONFLICT", "message": "已有屏幕推流在进行", "detail": "reason=screen_busy" }
 ```
 ```json
 { "code": "LIVE_CONNECT_FAILED", "message": "连接推流服务器失败", "detail": "scheme=rtmp\n[tcp @ 0x7f50942c6900] Connection to tcp://127.0.0.1:1999?tcp_nodelay=0 failed: Connection refused\n[out#0/tee @ 0x557c2ff9e9c0] Could not write header (incorrect codec parameters ?): Connection refused" }
@@ -255,7 +258,7 @@ Validate(req JsonValidateRequest) (JsonValidateResponse, error)
 
 ```go
 StartFilePush(req FilePushRequest) (Task, error)       // 文件推流（可循环）
-StartScreenPush(req ScreenPushRequest) (Task, error)   // 屏幕推流（可同时本地存档）
+StartScreenPush(req ScreenPushRequest) (Task, error)   // 屏幕推流（可同时本地存档）；同一时间最多 1 路：已有进行中的 live_screen_push 返回 TASK_CONFLICT（detail 首行 reason=screen_busy）
 GetCaptureCapabilities() (CaptureCapabilities, error)  // 屏幕采集能不能用、为什么不能用
 ListScreens() ([]ScreenInfo, error)                    // 可采集的显示器
 CheckPushURL(url string) (PushURLInfo, error)          // 只校验地址并返回脱敏后的显示文本，不联网
@@ -320,7 +323,7 @@ type PushURLInfo struct {
 
 **返回值**：`Start*` 立即返回，不等连接成功。返回的 `Task` 是入队前取的快照（`status=queued`、`version=1`，与 `task:created` 一致）；紧接着 `task:status(running)`；连接 / 鉴权失败以任务 `failed` + `error` 体现，不是 `Start*` 的返回错误。前端判断"已经在推了"：`running` 且已收到该任务的第一条 `task:progress`（ffmpeg 有输出才会有）；`running` 但还没有 progress = "连接中"。
 
-**`Start*` 同步返回的错误**（此时没有创建任务）：`FFMPEG_NOT_FOUND`；`INVALID_ARGUMENT`（选项越界、输入文件没有视频、`archiveDir` 不是绝对路径、`screenId` 不存在）；`NOT_FOUND` / `PROBE_FAILED`（输入文件不存在 / 无法解析）；`LIVE_URL_INVALID`；`UNSUPPORTED`（开始前用 `ffmpeg -protocols` 检查：`Output:` 段必须有 `srt`（srt 地址）/ `rtmps`（rtmps 地址）以及 `tee`，缺哪个返回它，`detail` 写 `missing=<协议名>`，如 `missing=srt`；结果按 ffmpeg 路径缓存；7.1.5 上 `rtmp`、`rtmps`、`srt`、`tee` 都在）；`UNSUPPORTED_PLATFORM`（不能采集屏幕）；`SCREEN_PERMISSION_DENIED`（已知没有权限时）；`TASK_CONFLICT`（同一个推流地址已经有进行中的会话；或进行中的直播会话已达 4 个上限）。
+**`Start*` 同步返回的错误**（此时没有创建任务）：`FFMPEG_NOT_FOUND`；`INVALID_ARGUMENT`（选项越界、输入文件没有视频、`archiveDir` 不是绝对路径、`screenId` 不存在）；`NOT_FOUND` / `PROBE_FAILED`（输入文件不存在 / 无法解析）；`LIVE_URL_INVALID`；`UNSUPPORTED`（开始前用 `ffmpeg -protocols` 检查：`Output:` 段必须有 `srt`（srt 地址）/ `rtmps`（rtmps 地址）以及 `tee`，缺哪个返回它，`detail` 写 `missing=<协议名>`，如 `missing=srt`；结果按 ffmpeg 路径缓存；7.1.5 上 `rtmp`、`rtmps`、`srt`、`tee` 都在）；`UNSUPPORTED_PLATFORM`（不能采集屏幕）；`SCREEN_PERMISSION_DENIED`（已知没有权限时）；`TASK_CONFLICT`（`detail` 首行 `reason=`，判断顺序 **`screen_busy` → `duplicate_url` → `max_sessions`**：`StartScreenPush` 时已有进行中的 `live_screen_push`（屏幕推流同一时间最多 1 路，`reason=screen_busy`）；同一个推流地址已经有进行中的会话（`duplicate_url`）；进行中的直播会话已达 4 个上限（`max_sessions`）；`StartFilePush` 只会得到后两种）。
 
 **停止 = `TaskService.Cancel(taskID)`，不设 `StopPush`**。理由：
 1. 状态机、落库、`task:status`、应用退出（`Shutdown`）走的就是同一条取消路径，直播任务的 Runner 本来就是"取消 → 先发 `q`，最多等 5 秒（有本地存档的会话 15 秒，见 6.10）让 ffmpeg 收尾，超时再强杀"（6.5、6.6）；再包一层 `StopPush` 只会多一个和 `Cancel` 语义重复、还要保持同步的入口。
@@ -536,11 +539,11 @@ schema_migrations(version PK, applied_at)
   - **已知限制**：ffmpeg 命令行里必须有完整 URL，同一台机器上的其他进程（任务管理器、`ps`）能看到；应用不能规避，文档里说明。
   - **日志规则**：后端**不得**输出 `cmd.Args` / `cmd.String()` / `exec.Cmd` 的任何格式化结果（含调试日志、panic 信息、`%v` / `%+v`），记录命令行只能用已脱敏的副本；发布版关闭 Wails 的调试日志（`logger.DEBUG` 级别、`options.App.LogLevel` 设为 `ERROR`/`INFO`，`Debug` 相关开关关闭），因为 Bind 调用的参数会被它记录；**前端不得把完整推流 URL（含流名、口令）存进 `localStorage` / `sessionStorage` / IndexedDB**，需要记住地址时只存脱敏后的 `PushURLInfo.redacted`，密钥由用户每次输入。
 - **指标**：`task.Progress` 增加 `Fps float64`、`BitrateKbps float64`、`DroppedFrames int64`，`task.ProgressEvent` 和 `Task` 增加同名字段（`omitempty`；**待实现项**：`origin/v2` 上的 `task.ProgressEvent`、`task.Progress` 还没有这三个字段，随 #31 实现，列入 6.10.2）；`FFmpegRunner` 从 `ffmpeg.ProgressUpdate`（已有 `Fps`、`Dropped`、`TotalSize`、`OutTimeSec`）填充，`BitrateKbps` **只在无存档的会话里计算**：用相邻两次 progress 的 `total_size` / `out_time` 增量做 5 秒滑动平均；有存档的会话（tee，`total_size` 恒为 `N/A`）不计算、不轮询文件大小，保持 0 → 因 `omitempty` 不出现在 JSON 里（`out_time` 不增长时沿用上一个值，不出现 NaN / Inf）。其余节流、`version`、丢弃旧事件规则不变。
-- **会话与任务管理器**：新增 `TypeLiveScreenPush`，`IsLive` 包含它；旧的 `TypeLiveRelay`、`TypeLiveRecordPush` 常量**保留但不再产生**（架构师定，见下方确认项 ⑧）：`Submit` 不再接受，`IsLive` 对它们仍为 true 只是为了常量兼容。不注册重试工厂，`live_file_push` / `live_screen_push` 的 `Retry` 得到 `UNSUPPORTED`（message：直播会话不能重试，请重新开始推流）；旧类型（`live_relay`、`live_record_push`）的 id 调 `Retry` / `Get` / `Cancel` / `Remove` 一律 `NOT_FOUND`，见下方确认项 ⑧。进行中的会话同时最多 4 个；同一个标准化推流地址同时只能有一个会话（都是 `TASK_CONFLICT`）。应用退出：`Shutdown` 取消 → 优雅停止最多 5 秒（有存档 15 秒，总等待 16 秒；前端显示"正在停止…"，超时走强杀）→ 状态 `interrupted`（有存档时存档按 6.10 保留）；应用崩溃时 ffmpeg 子进程由操作系统回收（Windows 见 Job Object 修订）。
+- **会话与任务管理器**：新增 `TypeLiveScreenPush`，`IsLive` 包含它；旧的 `TypeLiveRelay`、`TypeLiveRecordPush` 常量**保留但不再产生**（架构师定，见下方确认项 ⑧）：`Submit` 不再接受，`IsLive` 对它们仍为 true 只是为了常量兼容。不注册重试工厂，`live_file_push` / `live_screen_push` 的 `Retry` 得到 `UNSUPPORTED`（message：直播会话不能重试，请重新开始推流）；旧类型（`live_relay`、`live_record_push`）的 id 调 `Retry` / `Get` / `Cancel` / `Remove` 一律 `NOT_FOUND`，见下方确认项 ⑧。进行中的会话同时最多 4 个；同一个标准化推流地址同时只能有一个会话；**屏幕推流同一时间最多 1 路**（都是 `TASK_CONFLICT`，`detail` 首行 `reason=max_sessions` / `duplicate_url` / `screen_busy`，判断顺序 `screen_busy` → `duplicate_url` → `max_sessions`，见下方确认项）。应用退出：`Shutdown` 取消 → 优雅停止最多 5 秒（有存档 15 秒，总等待 16 秒；前端显示"正在停止…"，超时走强杀）→ 状态 `interrupted`（有存档时存档按 6.10 保留）；应用崩溃时 ffmpeg 子进程由操作系统回收（Windows 见 Job Object 修订）。
 - **【未验证】（设计稿的已知风险，实现时要真机验证，汇总见 6.10.1「真机试用清单」）**：macOS 屏幕录制授权的检测方式（不用 cgo 时只能靠 ffmpeg 报错或首帧内容判断）；Windows gdigrab 在多显示器 / 非 100% 缩放下偏移和尺寸是否等于物理像素；`x11grab` 在各桌面环境下的表现；上面所有 ffmpeg 报错关键词；RTMP / SRT 在不同服务器（nginx-rtmp、SRS、MediaMTX、常见直播平台）上的兼容性。
 
 - **已确认项**（原待定项 ①~⑨，不再待定）：
-  - ①~⑦ **产品经理和架构师已正式确认**：① 同时进行的直播会话上限 4 个、同一标准化地址只允许一个会话；② 屏幕推流首版不采集声音（只有 `none` / `silent`）；③ 始终重编码（不支持 `-c copy` 直推文件）；④ 允许推到回环 / 内网地址；⑤ 只支持 rtmp / rtmps / srt，不含 rtsp / whip / http-flv 推流；⑥ 存档只用 mp4，且只有屏幕推流有存档；⑦ 优雅停止成功记 `succeeded`、强杀记 `canceled`，前端只看 `status`（硬性规则见第 4 节「结果语义」）；**优雅停止与自然播完都是 `succeeded`，都显示"已结束推流"，不区分、不加字段**。
+  - ①~⑦ **产品经理和架构师已正式确认**：① 同时进行的直播会话上限 4 个、同一标准化地址只允许一个会话；**（产品经理追加）屏幕推流同一时间最多 1 路，文件推流不受影响**；② 屏幕推流首版不采集声音（只有 `none` / `silent`）；③ 始终重编码（不支持 `-c copy` 直推文件）；④ 允许推到回环 / 内网地址；⑤ 只支持 rtmp / rtmps / srt，不含 rtsp / whip / http-flv 推流；⑥ 存档只用 mp4，且只有屏幕推流有存档；⑦ 优雅停止成功记 `succeeded`、强杀记 `canceled`，前端只看 `status`（硬性规则见第 4 节「结果语义」）；**优雅停止与自然播完都是 `succeeded`，都显示"已结束推流"，不区分、不加字段**。
   - ⑧ **架构师定**：任务中心**不展示** `live_relay` 和 `live_record_push`；这两个旧类型在契约里标为"保留但不再产生"（`Submit` 不接受）；数据库里若有旧记录，一律按未知类型**忽略、不报错**（`List` / `ListActive` 等读取路径遇到类型不在当前枚举内的行时跳过，不返回错误、不影响其他记录；**#31 实现：忽略发生在 store 层，对旧类型的 id 调 `Get` 返回 `NOT_FOUND`**，就当这条记录不存在，不返回"未知类型"之类的新错误；**架构师定：旧类型（`live_relay`、`live_record_push`、`edit_render` 等一切"保留但不再产生"的类型）的任务 id，`Get`、`Cancel`、`Remove`、`Retry` 四个方法一律返回 `NOT_FOUND`**，逐个写死：
     - `Get(id)`：`NOT_FOUND`（就当这条记录不存在，不返回"未知类型"之类的新错误、不返回 `UNSUPPORTED`）。
     - `Cancel(id)`：`NOT_FOUND`（不是 `TASK_CONFLICT`；旧类型没有进行中的会话，也不会有）。
@@ -550,13 +553,15 @@ schema_migrations(version PK, applied_at)
   - ⑨ **前端负责**：由前端在 `v2-fe-api-contracts` 里补全 `AppErrorCode`（`CANCELED`、八个 `LIVE_*` 相关码、`PROBE_FAILED`、`UNSUPPORTED`、`CONVERT_DISK_FULL`），并对照第 2 节契约错误码表逐项核对。后端不改动。
 - **SRT 说明（架构师 / 产品定）**：SRT 连接失败**统一判 `LIVE_CONNECT_FAILED`**（原因见上文实测：服务器未开与被拒绝在 ffmpeg stderr 里无法区分）。产品文案"连接失败，请检查地址和口令是否正确"由**前端负责**，后端 `message` **不承载该文案**（后端 `message` 只描述技术原因，`detail` 是脱敏后的 stderr 尾部）。 前端据 `LIVE_CONNECT_FAILED` 的 `detail` 第一行 `scheme=srt`（RTMP 为 `scheme=rtmp` / `rtmps`）选文案，见 2.2。
 - **用户可见提示（来自产品经理，仅供前端参考；后端只保证错误码和触发条件，不返回这些文案）**：
-  - `TASK_CONFLICT`：进行中的直播会话已达 4 个 → 前端提示"最多同时推 4 路"；同一标准化地址已有进行中的会话 → "这个地址已经在推流"。两种触发共用同一个错误码，**用 `detail` 第一行区分（架构师已确认，稳定枚举）**：
+  - `TASK_CONFLICT`：进行中的直播会话已达 4 个 → 前端提示"最多同时推 4 路"；同一标准化地址已有进行中的会话 → "这个地址已经在推流"。两种触发共用同一个错误码，**用 `detail` 第一行区分（架构师已确认，稳定枚举）**；**产品经理追加：屏幕推流同一时间最多 1 路**，已有进行中的屏幕推流时再开一路 → `reason=screen_busy`（**文案由前端负责，后端不写、不返回**）。三个取值：
+    - `reason=screen_busy`：**已有进行中的 `live_screen_push`，再调 `StartScreenPush`**（产品经理定"屏幕推流同一时间最多 1 路"）。只有 `StartScreenPush` 会得到它；**文件推流不受影响**（有屏幕推流在进行时仍可 `StartFilePush`，只受 4 路上限和地址唯一约束）。"进行中"指状态 `queued` / `running` 的 `live_screen_push`（含正在优雅停止、还没到终态的）。
     - `reason=max_sessions`：进行中的直播会话已达 4 个上限。
     - `reason=duplicate_url`：同一标准化推流地址已有进行中的会话。
+    - **判断顺序（写死）**：`StartScreenPush` 依次判断 **`screen_busy` → `duplicate_url` → `max_sessions`**，命中第一个就返回，不继续判断；`StartFilePush` 只判断 `duplicate_url` → `max_sessions`。例如已有一路屏幕推流、又用同一地址开屏幕推流，得到的是 `screen_busy` 而不是 `duplicate_url`；已有 4 路（其中一路是屏幕推流）时再开屏幕推流，得到 `screen_busy`。
     - **稳定枚举规则**：`detail` 第一行固定为 `reason=<值>`，整行只有这一个键值对。以后新增取值**只能追加、不能改名、不能改含义、不能删除**；追加要走契约版本变更并在此列出。
     - 适用范围：`StartFilePush` / `StartScreenPush`（以及复用同一检查的 `CheckPushURL`，如果它做会话冲突检查）因会话冲突返回的 `TASK_CONFLICT`。`Cancel` 已结束会话、`Remove` 进行中任务等其他 `TASK_CONFLICT` 不属于这两个取值，**不带 `reason=` 行**（沿用原有 detail）。
-    - **(a) 测试要求**：必须有测试分别触发两种冲突，各自断言 `detail` 第一行**精确等于** `reason=max_sessions` / `reason=duplicate_url`（不是包含），并断言两者的 `code` 都是 `TASK_CONFLICT`；同时断言未触发冲突的其他 `TASK_CONFLICT`（如已结束会话再 `Cancel`）不带 `reason=`。
-    - **(b) 脱敏要求**：这两种 `detail` 里**不得出现推流地址、口令、streamkey、streamid 或其任何片段**；`duplicate_url` 也不带地址（哪怕是脱敏后的地址、host 或端口），可以在第二行起写不含地址的说明（如"已有会话使用同一推流地址"）。测试要用带秘密片段的 URL 触发这两种冲突，断言 `message` / `detail` / 事件 / 日志里都搜不到秘密片段和 host。
+    - **(a) 测试要求**：必须有测试分别触发三种冲突，各自断言 `detail` 第一行**精确等于** `reason=screen_busy` / `reason=duplicate_url` / `reason=max_sessions`（不是包含），**另有测试断言判断顺序**（同时满足 `screen_busy` 和 `duplicate_url` 得 `screen_busy`；同时满足 `screen_busy` 和 `max_sessions` 得 `screen_busy`；同时满足 `duplicate_url` 和 `max_sessions` 得 `duplicate_url`），**断言文件推流在有屏幕推流进行时不返回 `screen_busy`**，并断言两者的 `code` 都是 `TASK_CONFLICT`；同时断言未触发冲突的其他 `TASK_CONFLICT`（如已结束会话再 `Cancel`）不带 `reason=`。
+    - **(b) 脱敏要求**：这三种 `detail` 里**不得出现推流地址、口令、streamkey、streamid 或其任何片段**；`duplicate_url` 也不带地址（哪怕是脱敏后的地址、host 或端口），可以在第二行起写不含地址的说明（如"已有会话使用同一推流地址"）。测试要用带秘密片段的 URL 触发这两种冲突，断言 `message` / `detail` / 事件 / 日志里都搜不到秘密片段和 host。
     - **(c) 前端规则**：前端遇到**未知的 `reason` 值或没有 `reason` 行**时，显示通用冲突提示（如"操作冲突，请稍后再试"，文案由前端定），不得猜测含义、不得报错崩溃。
   - `LIVE_URL_INVALID`：协议不是 rtmp / rtmps / srt 时**后端已经是这个码**，`detail` 第一行 `reason=scheme_unsupported`，前端提示"暂不支持这种推流地址，请使用 rtmp、rtmps 或 srt"。同一个码的其他原因用 `reason=malformed` / `missing_host` / `param_not_allowed` 区分（枚举和规则见 2.2，未知值走通用文案），**不要靠 `message` 文本区分**。
 
