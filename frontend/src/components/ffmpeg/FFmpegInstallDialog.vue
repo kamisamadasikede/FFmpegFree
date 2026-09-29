@@ -12,18 +12,37 @@
             <div>
               <span>下载源</span>
               <span>
-                <el-select v-model="mirror" size="small" class="mirror">
+                <el-select v-model="mirror" size="small" class="mirror" :disabled="!ffmpeg.installAvailable">
                   <el-option label="默认源（GitHub）" value="default" />
                   <el-option label="国内镜像" value="cn" />
                 </el-select>
               </span>
             </div>
           </div>
+          <div v-if="!ffmpeg.installAvailable" class="soon" role="status">
+            <FIcon name="warn" :size="14" />
+            <span>安装功能即将上线。已经装过 ffmpeg 的话，可以手动指定路径，或安装到系统后点“重新检测”。</span>
+          </div>
+          <div v-if="ffmpeg.manualInputOpen && !ffmpeg.canPickDirectory" class="manual">
+            <el-input v-model="manualDir" size="default" placeholder="ffmpeg 所在目录，例如 /usr/local/bin" :class="{ 'ff-input-bad': pathError }" @keyup.enter="applyManual" />
+            <el-button size="default" type="primary" :loading="busy" :disabled="!manualDir.trim()" @click="applyManual">确定</el-button>
+          </div>
+          <div v-if="pathError" class="perr" role="alert">
+            <FIcon name="warn" :size="14" />
+            <span>{{ pathError.message }}<template v-if="pathError.detail"><br /><small>{{ pathError.detail }}</small></template></span>
+          </div>
           <div class="dfoot">
-            <el-button link type="primary" @click="safe(ffmpeg.pickPath)">手动指定路径</el-button>
+            <el-button link type="primary" @click="onManual">手动指定路径</el-button>
+            <el-button link type="primary" :loading="rechecking" @click="safe(recheck)">重新检测</el-button>
             <span class="sp" />
-            <el-button size="default" @click="ffmpeg.dismissPrompt()">稍后</el-button>
-            <el-button size="default" type="primary" @click="safe(() => ffmpeg.startInstall(mirror === 'default' ? '' : mirror))">安装</el-button>
+            <el-button size="default" @click="safe(ffmpeg.dismissPrompt)">稍后</el-button>
+            <el-button
+              size="default"
+              type="primary"
+              :disabled="!ffmpeg.installAvailable"
+              :title="ffmpeg.installAvailable ? undefined : '安装功能即将上线'"
+              @click="safe(() => ffmpeg.startInstall(mirror === 'default' ? '' : mirror))"
+            >{{ ffmpeg.installAvailable ? '安装' : '安装（即将上线）' }}</el-button>
           </div>
         </template>
 
@@ -50,6 +69,7 @@ import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import { useFFmpegStore } from '@/stores/ffmpeg'
+import { toAppError, type AppError } from '@/api/call'
 
 const ffmpeg = useFFmpegStore()
 const mirror = ref('default')
@@ -61,11 +81,53 @@ const stageText = computed(() => (ffmpeg.install ? STAGES[ffmpeg.install.stage] 
 const ua = navigator.userAgent
 const platformText = ua.includes('Mac') ? 'macOS' : ua.includes('Windows') ? 'Windows' : 'Linux'
 
+const manualDir = ref('')
+const busy = ref(false)
+const rechecking = ref(false)
+const pathError = ref<AppError | null>(null)
+
 async function safe(fn: () => Promise<unknown>) {
   try {
     await fn()
-  } catch (e: any) {
-    ElMessage.error(e?.message || String(e))
+  } catch (e) {
+    ElMessage.error(toAppError(e).message)
+  }
+}
+
+async function recheck() {
+  rechecking.value = true
+  try {
+    await ffmpeg.recheck()
+  } finally {
+    rechecking.value = false
+  }
+}
+
+function onManual() {
+  pathError.value = null
+  if (ffmpeg.canPickDirectory) {
+    safe(() => ffmpeg.pickPath()) // 系统目录选择器
+  } else {
+    ffmpeg.manualInputOpen = !ffmpeg.manualInputOpen
+  }
+}
+
+/** 文本框提交：校验失败（INVALID_ARGUMENT）显示在框下面，其他错误弹提示 */
+async function applyManual() {
+  const dir = manualDir.value.trim()
+  if (!dir || busy.value) return
+  busy.value = true
+  pathError.value = null
+  try {
+    await ffmpeg.pickPath(dir)
+    ffmpeg.manualInputOpen = false
+    manualDir.value = ''
+  } catch (e) {
+    const err = toAppError(e)
+    if (err.code === 'INVALID_ARGUMENT') pathError.value = err
+    else ElMessage.error(err.message)
+  } finally {
+    busy.value = false
   }
 }
 </script>
@@ -148,6 +210,38 @@ p {
   margin: 8px 0 24px;
   font-size: var(--ff-fs-xs);
   color: var(--ff-text-2);
+}
+.soon,
+.perr {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: -12px 0 16px;
+  padding: 8px 10px;
+  border-radius: var(--ff-radius-md);
+  font-size: var(--ff-fs-xs);
+  line-height: 1.5;
+}
+.soon {
+  background: var(--ff-warning-soft);
+  color: var(--ff-text-1);
+}
+.soon > :first-child {
+  color: var(--ff-warning);
+  margin-top: 2px;
+}
+.perr {
+  margin-top: -12px;
+  color: var(--ff-danger);
+}
+.perr small {
+  color: var(--ff-text-3);
+  white-space: pre-line;
+}
+.manual {
+  display: flex;
+  gap: 8px;
+  margin: -12px 0 16px;
 }
 .dfoot {
   display: flex;
