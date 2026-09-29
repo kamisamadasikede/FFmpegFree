@@ -145,3 +145,16 @@ func TestClassifyLiveErrorRedactedRealSamples(t *testing.T) {
 		})
 	}
 }
+
+// gdigrab 校验之后窗口消失：LIVE_SOURCE_GONE，detail 只有 kind=window（不带标题）。
+func TestClassifyLiveErrorWindowGone(t *testing.T) {
+	tail := "[gdigrab @ 000001] Can't find window '机密标题', aborting.\n[in#0 @ 000002] Error opening input: Input/output error\nError opening input file title=机密标题.\n"
+	e := ClassifyLiveError(LiveClassifyInput{Tail: tail, Scheme: "rtmp", Screen: true})
+	if e.Code != apperr.LiveSourceGone || e.Detail != "kind=window" || strings.Contains(e.Message+e.Detail, "机密") {
+		t.Fatalf("%+v", e)
+	}
+	// 文件推流不走这条
+	if e := ClassifyLiveError(LiveClassifyInput{Tail: tail, Scheme: "rtmp"}); e.Code == apperr.LiveSourceGone {
+		t.Fatal("非屏幕推流不应识别")
+	}
+}

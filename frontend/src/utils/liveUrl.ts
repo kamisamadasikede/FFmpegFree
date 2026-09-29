@@ -8,6 +8,24 @@ export function joinPushUrl(base: string, key: string): string {
   return `${b.replace(/\/+$/, '')}/${k.replace(/^\/+/, '')}`
 }
 
+/**
+ * 推流地址 + 推流码 / 口令 → 完整地址（“推流码 / 口令”是同一个输入框）。
+ * rtmp / rtmps：接在地址后面作为流名（joinPushUrl）；srt：作为 passphrase 查询参数（已有查询串时用 &）。口令为空原样返回。
+ * 结果只允许作为调用参数存在，不显示、不存储。
+ */
+export function composePushUrl(base: string, key: string): string {
+  const b = base.trim()
+  const k = key.trim()
+  if (!k) return b
+  if (/^srt:\/\//i.test(b)) return `${b}${b.includes('?') ? '&' : '?'}passphrase=${encodeURIComponent(k)}`
+  return joinPushUrl(b, k)
+}
+
+/** 会话行 / 标题里显示的地址：后端脱敏结果里的 *** 一律显示成 ****（设计稿 v0.2），如 rtmp://host/app/****、srt://host:9000?passphrase=**** */
+export function displayPushUrl(redacted: string): string {
+  return (redacted ?? '').replace(/\*{3,}/g, '****')
+}
+
 /** 每行一个地址，去空行和首尾空格 */
 export function parseTargets(text: string): string[] {
   return text

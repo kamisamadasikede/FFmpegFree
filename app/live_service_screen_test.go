@@ -18,4 +18,7 @@ func TestLiveServiceScreenNotReady(t *testing.T) {
 	if _, err := s.ListScreens(); apperr.From(err).Code != apperr.Internal {
 		t.Fatalf("%v", err)
 	}
+	if _, err := s.ListCaptureSources(); apperr.From(err).Code != apperr.Internal {
+		t.Fatalf("%v", err)
+	}
 }

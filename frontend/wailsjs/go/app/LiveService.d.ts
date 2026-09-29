@@ -7,6 +7,8 @@ export function CheckPushURL(arg1:string):Promise<live.PushURLInfo>;
 
 export function GetCaptureCapabilities():Promise<live.CaptureCapabilities>;
 
+export function ListCaptureSources():Promise<Array<live.CaptureSource>>;
+
 export function ListScreens():Promise<Array<live.ScreenInfo>>;
 
 export function StartFilePush(arg1:live.FilePushRequest):Promise<store.Task>;

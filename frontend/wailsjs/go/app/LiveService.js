@@ -10,6 +10,10 @@ export function GetCaptureCapabilities() {
   return window['go']['app']['LiveService']['GetCaptureCapabilities']();
 }
 
+export function ListCaptureSources() {
+  return window['go']['app']['LiveService']['ListCaptureSources']();
+}
+
 export function ListScreens() {
   return window['go']['app']['LiveService']['ListScreens']();
 }

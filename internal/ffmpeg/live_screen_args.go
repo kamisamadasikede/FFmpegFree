@@ -11,6 +11,9 @@ type ScreenRegion struct {
 	Width, Height int // 0 = 采集整个桌面 / 让采集端自己决定
 	DeviceIndex   int // macOS avfoundation 的设备序号
 	Desktop       bool
+	// WindowTitle 非空 = 只采集这个窗口（仅 Windows gdigrab `-i title=<标题>`，忽略 X/Y/Width/Height）。标题作为单个 argv 元素传给 ffmpeg，
+	// 不经过 shell；gdigrab 把 `title=` 之后的全部内容当窗口标题，所以引号、空格、`=` 等字符不需要转义。
+	WindowTitle string
 }
 
 // ScreenPushPlan 描述一次屏幕推流（不含存档）。
@@ -40,6 +43,9 @@ func ScreenInputArgs(p ScreenPushPlan) []string {
 		a := []string{"-f", "gdigrab", "-framerate", fps}
 		if p.HideCursor {
 			a = append(a, "-draw_mouse", "0")
+		}
+		if p.Region.WindowTitle != "" {
+			return append(a, "-i", "title="+p.Region.WindowTitle)
 		}
 		if !p.Region.Desktop && p.Region.Width > 0 && p.Region.Height > 0 {
 			a = append(a, "-offset_x", strconv.Itoa(p.Region.X), "-offset_y", strconv.Itoa(p.Region.Y),

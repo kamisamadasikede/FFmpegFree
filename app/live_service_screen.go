@@ -31,3 +31,13 @@ func (s *LiveService) ListScreens() ([]live.ScreenInfo, error) {
 	}
 	return l.ListScreens(s.rootCtx())
 }
+
+// ListCaptureSources 返回屏幕推流可选的采集来源：屏幕（screen:<序号>），Windows 上还有应用窗口（window:<hwnd>）。
+// 不能采集屏幕时返回 UNSUPPORTED_PLATFORM。id 原样传给 StartScreenPush 的 captureSourceId；来源失效时 StartScreenPush 返回 LIVE_SOURCE_GONE。
+func (s *LiveService) ListCaptureSources() ([]live.CaptureSource, error) {
+	l, err := s.svc()
+	if err != nil {
+		return nil, err
+	}
+	return l.ListCaptureSources(s.rootCtx())
+}
