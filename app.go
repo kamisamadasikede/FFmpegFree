@@ -20,12 +20,15 @@ import (
 
 // App struct
 type App struct {
-	ctx   context.Context
-	dirs  paths.Dirs
-	store *store.Store
-	sys   *system.Manager
-	tasks atomic.Pointer[task.Manager]
-	media atomic.Pointer[media.Service]
+	ctx context.Context
+	// rootCtx 是应用根 ctx，shutdown 时取消；探测、缩略图等长时间操作用它，退出时不会遗留子进程。
+	rootCtx    context.Context
+	rootCancel context.CancelFunc
+	dirs       paths.Dirs
+	store      *store.Store
+	sys        *system.Manager
+	tasks      atomic.Pointer[task.Manager]
+	media      atomic.Pointer[media.Service]
 }
 
 // taskManager 返回任务管理器；OnStartup 完成前（或存储初始化失败时）为 nil。
@@ -37,8 +40,13 @@ func (a *App) mediaService() *media.Service { return a.media.Load() }
 
 // NewApp creates a new App application struct
 func NewApp(sys *system.Manager) *App {
-	return &App{sys: sys}
+	// 根 ctx 在构造时就创建，保证绑定方法在 OnStartup 之前被调用也拿到有效的 ctx。
+	ctx, cancel := context.WithCancel(context.Background())
+	return &App{sys: sys, rootCtx: ctx, rootCancel: cancel}
 }
+
+// appContext 返回应用根 ctx，shutdown 时被取消。小写，不会被 Wails 暴露。
+func (a *App) appContext() context.Context { return a.rootCtx }
 
 // startup is called when the app starts. The context is saved
 // so we can call the runtime methods
@@ -143,6 +151,9 @@ func (a *App) initStore(ctx context.Context) error {
 
 // shutdown 在窗口关闭时由 Wails 调用：结束所有 ffmpeg 子进程并关闭数据库。
 func (a *App) shutdown(ctx context.Context) {
+	if a.rootCancel != nil {
+		a.rootCancel() // 先取消根 ctx：进行中的探测 / 缩略图立即结束 ffprobe / ffmpeg
+	}
 	contollers.KillAllFFmpegProcesses()
 	contollers.KillLiveOpsProcesses()
 	if m := a.taskManager(); m != nil {
