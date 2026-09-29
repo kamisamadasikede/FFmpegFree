@@ -539,7 +539,7 @@ type PDFFile struct {
 [ { "id": "01J9Z8B1C2D3E4F5G6H7J8K9M0", "type": "office_pdf", "status": "queued", "title": "报告.docx → PDF",
     "inputPaths": ["C:\\Docs\\报告.docx"], "outputPath": "C:\\Users\\me\\Documents\\PDF\\报告.pdf",
     "progress": 0, "speed": "", "etaSec": 0, "params": "{\"input\":\"C:\\\\Docs\\\\报告.docx\",\"outputDir\":\"C:\\\\Users\\\\me\\\\Documents\\\\PDF\"}",
-    "version": 1, "error": null, "createdAt": 1790000000000, "startedAt": 0, "finishedAt": 0 } ]
+    "version": 1, "createdAt": 1790000000000, "startedAt": 0, "finishedAt": 0 } ]
 ```
 
 `task:progress`（`office_pdf`，没有 `fps` / `bitrateKbps` / `droppedFrames`，`speed` 为空）：
