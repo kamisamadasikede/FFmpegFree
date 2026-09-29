@@ -22,5 +22,6 @@
   flex-direction: column;
   gap: 12px;
   min-width: 0;
+  min-height: 0;
 }
 </style>

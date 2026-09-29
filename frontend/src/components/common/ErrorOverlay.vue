@@ -80,13 +80,13 @@ function onClick(btn: ErrorButton, isPrimary = false) {
 }
 h5 {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--ff-fs-md);
   font-weight: 600;
   line-height: 1.5;
 }
 p {
   margin: 0;
-  font-size: 12.5px;
+  font-size: var(--ff-fs-sm);
   color: #a0a6b0;
   line-height: 1.6;
   /* 最多两行，超出用省略号 */
