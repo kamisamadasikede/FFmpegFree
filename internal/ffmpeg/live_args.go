@@ -12,6 +12,8 @@ type LiveEncode struct {
 	GOPFps        float64 // 用来算 -g（2×fps）的帧率，必须 > 0
 	VideoKbps     int
 	AudioKbps     int
+	// HW 非空时视频用该硬件 H.264 编码器（如 h264_nvenc），空 = libx264（契约 9.7）。
+	HW string
 }
 
 // ProtocolWhitelist 返回输出侧允许的协议（契约 6.10）。
@@ -73,11 +75,14 @@ func liveEncodeArgs(e LiveEncode, withAudio bool) []string {
 		g = 60
 	}
 	k := strconv.Itoa(e.VideoKbps) + "k"
-	a := []string{
-		"-vf", liveVideoFilter(e),
-		"-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency", "-pix_fmt", "yuv420p",
-		"-b:v", k, "-maxrate", k, "-bufsize", strconv.Itoa(e.VideoKbps*2) + "k",
-		"-g", strconv.Itoa(g),
+	a := []string{"-vf", liveVideoFilter(e)}
+	if e.HW != "" {
+		a = append(a, HWLiveArgs(e.HW, e.VideoKbps, g)...)
+	} else {
+		a = append(a,
+			"-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency", "-pix_fmt", "yuv420p",
+			"-b:v", k, "-maxrate", k, "-bufsize", strconv.Itoa(e.VideoKbps*2)+"k",
+			"-g", strconv.Itoa(g))
 	}
 	if withAudio {
 		a = append(a, "-c:a", "aac", "-b:a", strconv.Itoa(e.AudioKbps)+"k", "-ar", "44100", "-ac", "2")

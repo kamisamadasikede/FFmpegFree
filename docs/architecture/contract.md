@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.17）
+# FFmpegFree v2 接口契约（v0.18）
+
+v0.18 变更（硬件编码接入 ConvertService / EditService / LiveService，见新增的 9.7；**契约按架构师口头方案起草，如有出入以架构师为准**）：`Task` 和 `task:progress` / `task:status` 事件新增四个可选字段 `encoder`（string）、`encoderDevice`（string）、`hwFallback`（bool）、`hwFallbackReason`（string），全部 `omitempty`，没有视频编码的任务不带；`tasks` 表新增迁移 `0004_task_encoder.sql`（四列，旧行为空）；`ResolveEncoder` 的结果现在真正用于转换 / 剪辑导出 / 直播的 H.264、H.265 重编码（NVENC / QSV / AMF / VideoToolbox），`-c copy`、VP9 / GIF / 音频、按目标大小的两遍编码一律 CPU；硬件编码启动失败自动用 CPU 重试一次（`hwFallback`），取消不回退，直播只在推流建立前回退；**没有新增接口方法、没有新增错误码**；`Task.params` 不变。9.6 末段“本版不接入”作废。
 
 v0.17 变更（LiveService 推流 / 拉流真实预览画面，见第 4 节 LiveService 和 6.10「预览画面」）：新增 `LiveService.GetPreview(sessionId) (Preview, error)`（最新一帧 base64 JPEG + 毫秒时间戳，没有画面返回空、不是错误）、`StartPullPreview(PullPreviewRequest) (PullSession, error)` / `StopPullPreview(sessionId) error`（拉流预览会话：后端 ffmpeg 读远端流只出预览，播放仍由前端播放器直接拉地址）；`FilePushRequest` / `ScreenPushRequest` 新增可选字段 `preview`（`*bool`，缺省 = true，false = 不加预览输出）；预览输出是主输出之外**独立**的一路 image2 输出（`fps=2,scale=640:-2`、`-q:v 5`、`-update 1`、`-atomic_writing 1`），不放进 tee；临时文件放 `<数据目录>/tmp/live-preview/<会话 id>.jpg`，会话结束清理，应用启动清空该目录。新增类型 `Preview`、`PullPreviewRequest`、`PullSession`；不新增错误码、不新增事件。**有硬字幕 / 视频复制（`-c copy`）的推流场景预览输出需要单独解码（额外占少量 CPU）**；当前直播主输出始终重编码，预览输出复用同一路解码结果不增加解码次数，见 6.10「预览画面」。
 
@@ -188,6 +190,11 @@ type Task struct {
     Fps           float64 `json:"fps,omitempty"`           // 当前输出帧率
     BitrateKbps   float64 `json:"bitrateKbps,omitempty"`   // 近 5 秒的输出码率（kbit/s）；有本地存档（tee）的会话没有此值，省略
     DroppedFrames int64   `json:"droppedFrames,omitempty"` // ffmpeg 丢弃的帧数（累计），不是网络丢包
+    // 以下四项（v0.18，见 9.7）：任务实际使用的视频编码器；没有视频编码的任务（纯音频转换、Office 转 PDF、ffmpeg 安装）省略；会落库（tasks 表迁移 0004）：
+    Encoder          string `json:"encoder,omitempty"`          // h264_nvenc | hevc_nvenc | h264_qsv | hevc_qsv | h264_amf | hevc_amf | h264_videotoolbox | hevc_videotoolbox | libx264 | libx265 | libvpx-vp9 | gif | copy
+    EncoderDevice    string `json:"encoderDevice,omitempty"`    // 设备 id（nvidia-0 之类，即 EncoderDevice.id）；CPU 编码为 "cpu"；copy 时省略
+    HWFallback       bool   `json:"hwFallback,omitempty"`       // 想用硬件但实际用了 CPU：所选设备不可用，或硬件编码启动失败后自动用 CPU 重试
+    HWFallbackReason string `json:"hwFallbackReason,omitempty"` // 一行短原因（固定枚举，不含路径），见 9.7
     Params     string     `json:"params"`     // 原始参数 JSON，用于重试（直播任务的 params 已脱敏，不能用来重试，见 6.10）
     Version    int64      `json:"version"`    // 每次变更 +1，前端据此丢弃旧事件
     Error      *AppError  `json:"error,omitempty"` // 无错误时省略（不是 null）；TS 里是 error?: AppError；succeeded / canceled 一律没有该键
@@ -477,8 +484,8 @@ GetLog(id string, tailLines int) (string, error)
 | 事件名 | payload | 频率 |
 |---|---|---|
 | `task:created` | `Task` | 每次 |
-| `task:progress` | `{ id, version, progress, speed, etaSec, outTimeSec, fps?, bitrateKbps?, droppedFrames? }`（后三项只有直播任务才有，见下） | 每任务最多 4 次/秒 |
-| `task:status` | `{ id, version, status, error?, outputPath?, startedAt?, finishedAt? }` | 状态变化时 |
+| `task:progress` | `{ id, version, progress, speed, etaSec, outTimeSec, fps?, bitrateKbps?, droppedFrames?, encoder?, encoderDevice?, hwFallback?, hwFallbackReason? }`（fps / bitrateKbps / droppedFrames 只有直播任务才有，见下；后四项 v0.18，与 `Task` 同名字段一致，见 9.7） | 每任务最多 4 次/秒 |
+| `task:status` | `{ id, version, status, error?, outputPath?, startedAt?, finishedAt?, encoder?, encoderDevice?, hwFallback?, hwFallbackReason? }`（后四项 v0.18，见 9.7） | 状态变化时 |
 | `task:removed` | `{ ids: string[] }` | 每次 |
 | `ffmpeg:status` | `FFmpegStatus`（见第 9 节） | 检测完成、安装状态变化时 |
 
@@ -1324,4 +1331,46 @@ type EncoderPreferenceInfo struct {
 - 设备 id：该设备存在、`available` 且有该 codec 编码器则用它；否则回退 cpu，`fallback=true`。
 - 不认识的 `codec`：返回 `("", "", false)`。
 
-**本版不接入**：`ConvertService` / `EditService` / `LiveService` 的编码参数仍是软件编码；`ResolveEncoder` 只是提供给下一版接入用。**未在真机验证**：真实 NVIDIA / Intel / AMD / VideoToolbox 试跑、Windows 显卡名称枚举（PowerShell 输出格式按文档与常见样例解析，用纯函数表驱动测试覆盖）。
+**~~本版不接入~~（v0.18 起作废，已在 9.7 接入）**：v0.15 时 `ConvertService` / `EditService` / `LiveService` 的编码参数仍是软件编码；`ResolveEncoder` 只是提供给下一版接入用。**未在真机验证**：真实 NVIDIA / Intel / AMD / VideoToolbox 试跑、Windows 显卡名称枚举（PowerShell 输出格式按文档与常见样例解析，用纯函数表驱动测试覆盖）。
+
+### 9.7 硬件编码接入（v0.18，契约按架构师口头方案起草，如有出入以架构师为准）
+
+**没有新增接口方法、没有新增错误码。** 只是让转换、剪辑导出、直播真正使用 9.6 的 `ResolveEncoder` 结果。
+
+**何时解析**：任务**提交时**（Retry 重新提交时同样）用 `ListEncoderDevices` 的缓存结果（没有缓存时先检测一次）+ 当前偏好 + `ResolveEncoder` 解析一次，结果写进 `Task.encoder` / `encoderDevice`（所以 `task:created`、落库、第一条 `task:status` 就带着）。直播在 `StartFilePush` / `StartScreenPush` 时解析。解析器由 `system.Manager.EncoderResolver()` 提供，注入各服务的 `Config.Encoder`（nil = 一律 CPU）。
+
+**各功能用哪个编码器**
+
+| 功能 | 什么时候可以用硬件 | 其余一律 CPU（`hwFallback` 为 false，不算回退） |
+|---|---|---|
+| 格式转换 `convert` | 真正重编码 H.264（`videoCodec=h264` → `h264_*`）或 H.265（`h265` → `hevc_*`），容器 mp4 / mov / mkv / avi / flv | `-c copy`（`encoder="copy"`，无设备）；VP9（`libvpx-vp9`）；GIF（`gif`）；纯音频转换和无视频输出（不带 `encoder`）；`targetSizeMb > 0` 的两遍编码（目前 `ValidateConvertOptions` 仍拒绝）；H.264 且输出宽或高 > 4096（NVENC / AMF / QSV 的 H.264 上限） |
+| 剪辑导出 `edit_export` | mp4 / mov / mkv 导出的 H.264（`h264_*`） | webm（VP9，恒 CPU）；输出宽或高 > 4096 |
+| 直播 `live_file_push` / `live_screen_push`（含带存档的 tee） | 视频恒为 H.264 重编码，用 `h264_*` | 输出宽或高 > 4096 |
+
+音频编码、滤镜（`scale` / `pad` / `fps` / `crop` / 剪辑 filtergraph）、封装参数不变，滤镜仍在 CPU 上跑，只把编码交给显卡。像素格式：nvenc / amf / videotoolbox 用 `yuv420p`，QSV 用 `nv12`；转换 / 剪辑本来就把输出降到 8bit 4:2:0，所以 10bit 输入不存在“编码器不兼容”的情况。
+
+**参数映射**（集中在 `internal/ffmpeg/hwenc.go` 的纯函数，表驱动测试；CPU 参数与原来逐字一致）。`eq` = “x264 等价 CRF”：H.264 直接用 CRF（转换默认 23，用户设了 `crf` 就用它，剪辑导出 20），H.265 用 `CRF - 5`（默认 28 → 23，因为 x265 的 CRF 比 x264 约高 5 才是相近画质），限制在 1~51。设置了 `videoBitrate` 时按码率而不是质量。
+
+| 编码器 | 质量（CRF 模式） | 码率模式（`videoBitrate` > 0） |
+|---|---|---|
+| libx264 / libx265（CPU，现状） | `-preset medium -crf N` | `-b:v` |
+| `*_nvenc` | `-preset p4 -rc vbr -cq <eq> -b:v 0` | `-preset p4 -rc vbr -b:v <b>` |
+| `*_qsv` | `-preset medium -global_quality <eq>` | `-preset medium -b:v <b>` |
+| `*_amf` | `-quality balanced -rc cqp -qp_i <eq> -qp_p <eq>` | `-quality balanced -rc vbr_peak -b:v <b>` |
+| `*_videotoolbox` | `-q:v <108 - 2×eq>`（1~100；18→72、23→62、28→52） | `-b:v <b>` |
+
+H.265 在 mp4 / mov 里照旧加 `-tag:v hvc1`。**直播**（H.264，码率控制）：`-b:v <k>k -maxrate <k>k -bufsize <2k>k -g <2×帧率> -bf 0` 在每个硬件编码器上都给，另加各家的低延迟项：nvenc `-preset p4 -tune ll -rc cbr`；qsv `-preset veryfast -async_depth 1`；amf `-usage lowlatency -rc cbr`；videotoolbox `-realtime 1`；CPU 仍是 `-preset veryfast -tune zerolatency`（不加 `-bf 0`，与现状一致）。这些映射是经验值，**没有在真机上校准画质**。
+
+**回退规则（硬件编码启动失败 → 自动用 CPU 重试一次，不算任务失败）**
+- 触发条件（任一）：ffmpeg 非零退出，且 stderr 命中所选厂商的硬件初始化失败特征（NVENC：`No NVENC capable devices`、`Cannot load libcuda`、`Driver does not support the required nvenc API`、`OpenEncodeSessionEx failed` 等；QSV：`Error initializing an MFX session` 等；AMF：`DLL amfrt64.dll failed to open`、`AMF failed` 等；VideoToolbox：`VTCompressionSessionCreate` 等）或通用特征（`Unknown encoder`、`Error while opening encoder`）；或**起始阶段崩溃**：还没有任何进度、输出临时文件不存在或为空，且 stderr 有一行提到该硬件编码器名和错误字样。与硬件无关的失败（输入损坏、磁盘满、推流连接被拒等）**不**触发回退，按原样失败。
+- 回退动作：日志里写一行说明，`Task.encoder` / `encoderDevice` 改成 CPU 编码器（`libx264` / `libx265`，设备 `cpu`），`hwFallback=true`，`hwFallbackReason` 设为下表枚举，落库，并**补发一条 `task:status`（status 仍为 `running`）**带这四个字段；然后用 CPU 参数重新运行同一个 ffmpeg 命令（进度从头开始，进度条只增不减）。**最多重试一次**；重试也失败则任务失败，错误取 CPU 那一次的错误。
+- **取消不触发回退**：ctx 已取消时一律按取消处理，不启动重试。
+- **直播的回退窗口**：只在推流尚未建立（还没有第一条 `task:progress`，即 ReportGate 之前）时失败才回退；推流已建立后中途失败（包括硬件编码器中途报错）**不自动重试**，任务按原有规则失败。
+- **提交时**所选设备不可用（`ResolveEncoder` 返回 `fallback=true`）：直接用 CPU，`hwFallback=true`，`hwFallbackReason="device_unavailable"`，不算错误。auto 落到 CPU、偏好 `cpu`、以及上表“一律 CPU”的场景都**不**算回退。
+
+`hwFallbackReason` 取值（固定枚举，一行，不含路径；前端自行翻译文案）：`device_unavailable`、`nvenc_init_failed`、`qsv_init_failed`、`amf_init_failed`、`videotoolbox_failed`、`encoder_unavailable`（ffmpeg 里没有该编码器）、`encoder_start_failed`（其他打开编码器失败 / 起始崩溃）。
+
+**事件与落库**：`Task.encoder` / `encoderDevice` / `hwFallback` / `hwFallbackReason` 与 `task:progress`、`task:status` 里的同名字段一致（`omitempty`）：`task:progress` 每条都带（前端可只在变化时取用）；`task:status` 的 `running` 事件、回退时补发的 `running` 事件、所有终态事件都带；`Get` / `List` 从库里读到的任务也有（迁移 `0004_task_encoder.sql`，旧行为空）。Retry 生成的新任务重新解析编码器。`Task.params` 不变（不含编码器信息）。
+
+**已在沙箱验证**（ffmpeg 7.1.5，有 `h264_nvenc` 编码器但没有 GPU，libcuda 缺失）：转换 / 剪辑导出 / 文件推流到 MediaMTX 的 CPU 路径端到端；选 NVIDIA 时真实 NVENC 初始化失败（`Cannot load libcuda.so.1` / `Error while opening encoder`）→ 自动 CPU 重试成功，输出 h264，任务带 `hwFallback`；假 ffmpeg 夹具覆盖：初始化失败回退成功、重试也失败、与硬件无关的失败不回退、取消不回退、直播推流前失败回退、推流中途失败不回退。
+**未在真机验证**：真实 NVENC / QSV / AMF / VideoToolbox 的画质与码率（CRF → 质量映射是经验值）；各厂商 stderr 失败特征的覆盖度（尤其 QSV、AMF、VideoToolbox 的真实报错文案）；`-rc cqp` / `vbr_peak` / `-async_depth` / `-realtime` 等参数在各驱动版本上的可用性；4096 的尺寸上限只是保守取值（新显卡的 H.264 可能支持更大）；直播在硬件编码器上的延迟与 `-bf 0` 效果。

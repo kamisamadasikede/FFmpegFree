@@ -16,6 +16,7 @@ import (
 	"io"
 
 	"FFmpegFree/internal/apperr"
+	"FFmpegFree/internal/ffmpeg"
 	"FFmpegFree/internal/store"
 )
 
@@ -116,6 +117,14 @@ type Claimer interface {
 	Abandoned()
 }
 
+// EncoderReporter 是 Runner 可选实现的接口：返回任务一开始使用的视频编码器信息（契约 v0.18，9.7）。
+// Submit 用它填 Task.Encoder / EncoderDevice / HWFallback / HWFallbackReason（Retry 造出的新 Runner 同样适用），
+// 所以 task:created、落库和第一个 task:status 就带着实际编码器；运行中若硬件编码失败回退 CPU，Runner 再用 ReportEncoder 更新。
+// 不返回视频编码器（Encoder 为空）的任务不设置这些字段。
+type EncoderReporter interface {
+	EncoderInfo() ffmpeg.EncoderInfo
+}
+
 // Emitter 向前端发事件。生产实现封装 Wails runtime.EventsEmit。
 type Emitter interface {
 	Emit(event string, payload any)
@@ -141,6 +150,11 @@ type ProgressEvent struct {
 	Speed      string  `json:"speed"`
 	EtaSec     float64 `json:"etaSec"`
 	OutTimeSec float64 `json:"outTimeSec"`
+	// 使用了视频编码器的任务才有（契约 v0.18，9.7），与 Task 里的同名字段一致。
+	Encoder          string `json:"encoder,omitempty"`
+	EncoderDevice    string `json:"encoderDevice,omitempty"`
+	HWFallback       bool   `json:"hwFallback,omitempty"`
+	HWFallbackReason string `json:"hwFallbackReason,omitempty"`
 	// 只有直播任务才有（契约 v0.10）。
 	Fps           float64 `json:"fps,omitempty"`
 	BitrateKbps   float64 `json:"bitrateKbps,omitempty"`
@@ -168,6 +182,11 @@ type StatusEvent struct {
 	OutputPath string           `json:"outputPath,omitempty"`
 	StartedAt  int64            `json:"startedAt,omitempty"`
 	FinishedAt int64            `json:"finishedAt,omitempty"`
+	// 使用了视频编码器的任务才有（契约 v0.18，9.7）：running 事件、终态事件、以及运行中硬件编码回退 CPU 时补发的 running 事件都带。
+	Encoder          string `json:"encoder,omitempty"`
+	EncoderDevice    string `json:"encoderDevice,omitempty"`
+	HWFallback       bool   `json:"hwFallback,omitempty"`
+	HWFallbackReason string `json:"hwFallbackReason,omitempty"`
 }
 
 // RemovedEvent 是 task:removed 的 payload。
@@ -208,4 +227,14 @@ func LogWriter(ctx context.Context) io.Writer {
 		return i.log
 	}
 	return io.Discard
+}
+
+// ReportEncoder 由 Runner 在运行中更新任务的编码器信息（硬件编码启动失败、改用 CPU 重试时调用）。
+// 不在任务里运行、任务已结束或信息没变时什么也不做；有变化时落库并补发一条 task:status（status 仍是 running）。
+func ReportEncoder(ctx context.Context, info ffmpeg.EncoderInfo) {
+	i, ok := InfoFrom(ctx)
+	if !ok || i.m == nil {
+		return
+	}
+	i.m.setEncoder(i.ID, info)
 }

@@ -30,6 +30,15 @@ export interface ApiTask {
   fps?: number
   bitrateKbps?: number
   droppedFrames?: number
+  // v0.18（契约 9.7）：任务实际使用的视频编码器；没有视频编码的任务缺省
+  /** 如 h264_nvenc / libx264 / libx265 / libvpx-vp9 / gif / copy */
+  encoder?: string
+  /** 设备 id（nvidia / intel / amd / apple …）；CPU 编码为 'cpu'；copy 缺省 */
+  encoderDevice?: string
+  /** 想用硬件但实际用了 CPU（设备不可用，或硬件编码启动失败后自动用 CPU 重试） */
+  hwFallback?: boolean
+  /** 回退原因（固定枚举，一行，不含路径）：device_unavailable / nvenc_init_failed / qsv_init_failed / amf_init_failed / videotoolbox_failed / encoder_unavailable / encoder_start_failed */
+  hwFallbackReason?: string
 }
 
 /** task:progress 载荷（契约第 5 节；后三项只有直播任务有） */
@@ -43,6 +52,11 @@ export interface TaskProgressPayload {
   fps?: number
   bitrateKbps?: number
   droppedFrames?: number
+  // v0.18：与 Task 的同名字段一致（缺省 = 没有视频编码器信息）
+  encoder?: string
+  encoderDevice?: string
+  hwFallback?: boolean
+  hwFallbackReason?: string
 }
 
 /** task:status 载荷 */
@@ -55,6 +69,11 @@ export interface TaskStatusPayload {
   /** running 与四种终态事件都带；排队中被取消则缺省 */
   startedAt?: number
   finishedAt?: number
+  /** v0.18：running / 终态事件带；运行中硬件编码回退 CPU 时补发一条 running 事件更新这些字段 */
+  encoder?: string
+  encoderDevice?: string
+  hwFallback?: boolean
+  hwFallbackReason?: string
 }
 
 /** Wails 生成的 store.Task（或事件里的对象）→ ApiTask：error 为 null / 缺省统一成 null，数值缺省补 0 */
@@ -83,6 +102,10 @@ export function toApiTask(raw: unknown): ApiTask {
     ...opt('fps'),
     ...opt('bitrateKbps'),
     ...opt('droppedFrames'),
+    ...(str(r.encoder) ? { encoder: str(r.encoder) } : {}),
+    ...(str(r.encoderDevice) ? { encoderDevice: str(r.encoderDevice) } : {}),
+    ...(r.hwFallback === true ? { hwFallback: true } : {}),
+    ...(str(r.hwFallbackReason) ? { hwFallbackReason: str(r.hwFallbackReason) } : {}),
   }
 }
 

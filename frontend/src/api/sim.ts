@@ -86,6 +86,8 @@ export interface SimTaskSpec {
   /** 非直播任务失败：进度到 atProgress 时失败 */
   fail?: { code: AppErrorCode; message: string; detail?: string; atProgress?: number }
   live?: SimLiveSpec
+  /** 模拟的实际编码器（契约 9.7）；缺省：convert / edit_export / 直播 = libx264 + cpu，其余不带 */
+  encoder?: { encoder: string; encoderDevice: string; hwFallback?: boolean; hwFallbackReason?: string }
   /** 只在内存里用的附加信息（如标准化推流地址），不会进入任何事件 */
   meta?: Record<string, unknown>
 }
@@ -126,8 +128,14 @@ export const activeSimEntries = (type?: ApiTask['type']): { task: ApiTask; meta?
 
 function emitStatus(e: Entry, extra: Partial<TaskStatusPayload> = {}) {
   const t = e.task
-  const p: TaskStatusPayload = { id: t.id, version: t.version, status: t.status, ...extra }
+  const p: TaskStatusPayload = { id: t.id, version: t.version, status: t.status, ...encoderFields(t), ...extra }
   emitSimEvent('task:status', p)
+}
+
+/** 事件里带的编码器字段（有编码器信息的任务才有；与后端 omitempty 一致） */
+function encoderFields(t: ApiTask): Partial<TaskStatusPayload> {
+  if (!t.encoder) return {}
+  return { encoder: t.encoder, ...(t.encoderDevice ? { encoderDevice: t.encoderDevice } : {}), ...(t.hwFallback ? { hwFallback: true } : {}), ...(t.hwFallbackReason ? { hwFallbackReason: t.hwFallbackReason } : {}) }
 }
 
 function bump(e: Entry): number {
@@ -154,7 +162,7 @@ function finish(e: Entry, status: 'succeeded' | 'failed' | 'canceled', error?: A
 function progress(e: Entry, over: Partial<TaskProgressPayload>) {
   const t = e.task
   bump(e)
-  const p: TaskProgressPayload = { id: t.id, version: t.version, progress: t.progress, speed: t.speed, etaSec: t.etaSec, outTimeSec: 0, ...over }
+  const p: TaskProgressPayload = { id: t.id, version: t.version, progress: t.progress, speed: t.speed, etaSec: t.etaSec, outTimeSec: 0, ...encoderFields(t), ...over }
   t.progress = p.progress
   t.speed = p.speed
   t.etaSec = p.etaSec
@@ -175,6 +183,8 @@ export function createSimTask(spec: SimTaskSpec): ApiTask {
     id, type: spec.type, status: 'queued', title: SIM_TITLE_PREFIX + spec.title, inputPaths: [...spec.inputPaths], outputPath: spec.outputPath,
     progress: live ? -1 : 0, speed: '', etaSec: 0, params: spec.params, version: 1, error: null, createdAt: Date.now(), startedAt: 0, finishedAt: 0,
   }
+  const enc = spec.encoder ?? (spec.type === 'convert' || spec.type === 'edit_export' || live ? { encoder: 'libx264', encoderDevice: 'cpu' } : undefined)
+  if (enc) Object.assign(task, { encoder: enc.encoder, encoderDevice: enc.encoderDevice, ...(enc.hwFallback ? { hwFallback: true } : {}), ...(enc.hwFallbackReason ? { hwFallbackReason: enc.hwFallbackReason } : {}) })
   const e: Entry = { task, spec, stopping: false, firstProgressAt: 0 }
   entries.set(id, e)
   emitSimEvent('task:created', snapshot(task))

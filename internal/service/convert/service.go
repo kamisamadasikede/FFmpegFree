@@ -56,6 +56,9 @@ type Config struct {
 	Require func() (ffmpeg.Binaries, error)
 	// DefaultOutputDir 返回设置里的默认输出目录，空字符串表示与源文件同目录。可为 nil。
 	DefaultOutputDir func(ctx context.Context) string
+	// Encoder 按用户偏好与设备缓存解析 H.264 / HEVC 编码器（契约 9.7）；nil = 一律 CPU。
+	// 每个任务在提交 / 重试时解析一次。
+	Encoder ffmpeg.EncoderResolver
 }
 
 // Service 实现转换：无后台协程。
@@ -306,19 +309,37 @@ func (s *Service) resolveOutputDir(ctx context.Context, dir string) (string, err
 }
 
 func (s *Service) newRunner(bin ffmpeg.Binaries, in, out string, opts ffmpeg.ConvertOptions, dur float64, src ffmpeg.ConvertSource) *task.FFmpegRunner {
-	return &task.FFmpegRunner{
-		Exe:         bin.FFmpeg,
-		Output:      out,
-		DurationSec: dur,
-		Classify:    ffmpeg.ClassifyConvertError,
-		BuildArgs: func(part string) []string {
-			plan, err := ffmpeg.PlanConvert(in, part, opts, src)
+	// 只有真正重编码 H.264 / H.265 时才用硬件；copy、VP9、GIF、音频转换、两遍编码一律 CPU（契约 9.7）。
+	codec := ffmpeg.ConvertHWCodec(opts)
+	hw, info := ffmpeg.DecideEncoding(context.Background(), s.cfg.Encoder, codec, codec != "")
+	cpuInfo := ffmpeg.EncoderInfo{Encoder: ffmpeg.ConvertEncoderName(opts), Device: "cpu"}
+	if codec == "" {
+		info = cpuInfo
+		if info.Encoder == "copy" || info.Encoder == "" {
+			info.Device = "" // copy / 没有视频编码：不属于任何设备
+		}
+	}
+	build := func(hwEnc string) func(part string) []string {
+		return func(part string) []string {
+			plan, err := ffmpeg.PlanConvertHW(in, part, opts, src, hwEnc)
 			if err != nil {
 				return nil // prepare 已经用同样的参数验证过，不会走到这里；ffmpeg 会因缺少输出而失败
 			}
 			return plan.Final
-		},
+		}
 	}
+	r := &task.FFmpegRunner{
+		Exe:         bin.FFmpeg,
+		Output:      out,
+		DurationSec: dur,
+		Classify:    ffmpeg.ClassifyConvertError,
+		BuildArgs:   build(hw),
+		Encoding:    info,
+	}
+	if hw != "" {
+		r.HWEncoder, r.BuildCPUArgs, r.CPUEncoding = hw, build(""), cpuInfo
+	}
+	return r
 }
 
 func (s *Service) submitOne(bin ffmpeg.Binaries, in, out string, opts ffmpeg.ConvertOptions, dir string, dur float64, src ffmpeg.ConvertSource) (task.Task, error) {

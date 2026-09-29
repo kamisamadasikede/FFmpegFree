@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"math"
+	"os"
 	"sync/atomic"
 	"time"
 
@@ -52,15 +53,29 @@ type FFmpegRunner struct {
 	// 直播用它把"已开始"定义为第一条 total_size>0 的 progress，之前的 progress 不上报，
 	// 这样前端"收到第一条 task:progress = 已经在推"的判断与 Runner 的错误分类一致。同步调用，要快速返回。
 	ReportGate func(u ffmpeg.ProgressUpdate) bool
+	// 以下是硬件编码接入（契约 9.7），不用硬件编码的任务留空即可。
+
+	// Encoding 是任务一开始使用的视频编码器信息（实现 EncoderReporter，Submit 时写进 Task）。
+	Encoding ffmpeg.EncoderInfo
+	// HWEncoder 非空表示 BuildArgs 里用的是这个硬件编码器；此时 BuildCPUArgs 必须给出同一任务用 CPU 编码器的参数。
+	HWEncoder string
+	// BuildCPUArgs 生成 CPU 编码的参数（硬件编码启动失败后自动重试一次用）。
+	BuildCPUArgs func(partPath string) []string
+	// CPUEncoding 是回退到 CPU 后的编码器信息（Encoder / Device 已填好，HWFallback 与原因由 Runner 补）。
+	CPUEncoding ffmpeg.EncoderInfo
 	// NoBitrate 为 true 时不计算 bitrateKbps（走 tee 时 ffmpeg 的 total_size 恒为 N/A，契约 6.10：有存档时没有 bitrateKbps）。
 	NoBitrate bool
 }
+
+// EncoderInfo 实现 EncoderReporter。
+func (r *FFmpegRunner) EncoderInfo() ffmpeg.EncoderInfo { return r.Encoding }
 
 // Run 实现 Runner。ffmpeg 的 stderr 会写入任务日志。
 func (r *FFmpegRunner) Run(ctx context.Context, report func(Progress)) (string, error) {
 	logw := LogWriter(ctx)
 	// one 运行一次 ffmpeg，进度映射为 base + f*scale。
-	one := func(args []string, base, scale float64) error {
+	// 返回 ffmpeg 的 stderr 尾部和"是否已经有输出进度（out_time > 0）"，供硬件编码回退判断。
+	one := func(args []string, base, scale float64) (string, bool, error) {
 		if scale == 0 {
 			scale = 1
 		}
@@ -122,15 +137,45 @@ func (r *FFmpegRunner) Run(ctx context.Context, report func(Progress)) (string, 
 		if r.GracefulOnlyAfterProgress {
 			opts.CanGraceful = started.Load
 		}
-		_, err := ffmpeg.Run(ctx, opts)
-		return err
+		res, err := ffmpeg.Run(ctx, opts)
+		return res.StderrTail, lastOut > 0, err
 	}
 
-	run := func(part string) error { return one(r.BuildArgs(part), r.ProgressBase, r.ProgressScale) }
+	run := func(part string) error {
+		tail, progressed, err := one(r.BuildArgs(part), r.ProgressBase, r.ProgressScale)
+		if err == nil || r.HWEncoder == "" || r.BuildCPUArgs == nil || ctx.Err() != nil {
+			return err // 成功 / 没用硬件 / 已取消：取消绝不触发回退
+		}
+		if progressed && r.Live {
+			return err // 直播：推流已经建立（有过输出）后中途失败不自动重试
+		}
+		reason, ok := ffmpeg.HWInitFailure(r.HWEncoder, tail)
+		if !ok && !progressed && ffmpeg.HWStartCrash(r.HWEncoder, tail, false, partProduced(part)) {
+			reason, ok = ffmpeg.ReasonEncoderStart, true
+		}
+		if !ok {
+			return err
+		}
+		info := r.CPUEncoding
+		info.HWFallback, info.HWFallbackReason = true, reason
+		io.WriteString(logw, "[FFmpegFree] 硬件编码器 "+r.HWEncoder+" 启动失败（"+reason+"），改用 CPU 编码重试一次\n")
+		ReportEncoder(ctx, info)
+		_, _, err = one(r.BuildCPUArgs(part), r.ProgressBase, r.ProgressScale)
+		return err
+	}
 	if r.Output == "" {
 		return "", run("")
 	}
 	return RunWithPart(ctx, r.Output, run)
+}
+
+// partProduced 判断输出临时文件是否已经有内容（不写文件的任务 part 为空，视为没有）。
+func partProduced(part string) bool {
+	if part == "" {
+		return false
+	}
+	fi, err := os.Stat(part)
+	return err == nil && fi.Size() > 0
 }
 
 // bitrateWindowSec 是直播码率滑动均值的窗口（秒，媒体时间）。
