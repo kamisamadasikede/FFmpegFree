@@ -51,7 +51,7 @@
 
 ## 契约未冻结、可能要改的点
 
-- Live：方法名、`PushOptions` 字段、`TASK_CONFLICT` 的 `reason` 取值（`duplicate_url` / `screen_busy` / `max_sessions` 已定）、缺 srt/rtmps 协议时 UNSUPPORTED 的 detail 写法与文案、`LIVE_*` 错误分类关键词（未用真实服务器验证）、RTMP 连接失败与 `malformed` / `missing_host` / `param_not_allowed` 的文案（待产品定稿）。
+- Live：方法名、`PushOptions` 字段、`TASK_CONFLICT` 的 `reason` 取值（`duplicate_url` / `screen_busy` / `max_sessions` 已定）、缺 srt/rtmps 协议时 UNSUPPORTED 的 detail 写法与文案、`LIVE_*` 错误分类关键词（未用真实服务器验证）（文案已由产品定稿，见上）。
 - Edit：`Export` 命名（已确认）、`EditExportOptions`、`GetPreviewURL` 的限长 206 在 Windows/WebView2 上是否可用（未验证，回退是 `edit_proxy`，接口不变）、clip 错误 detail 首行格式。
 - Doc：大文件（> 64 MiB）路径在 Windows 未验证（验证不通过则 `OpenPDF` 对 > 64 MiB 返回 INVALID_ARGUMENT、`url` 恒空）；字体子集范围与 OFL 保留名。
 
@@ -62,8 +62,8 @@
 1. **TaskType 统一**：`convert | edit_export | office_pdf | live_file_push | live_screen_push | ffmpeg_install`。三个旧类型 id（见 `stores/tasks.ts` 的 `isLegacyTaskType`）后端保留但不再产生，任务中心一律忽略、不显示、不报错；旧类型 id 调 `Get` / `Cancel` / `Retry` / `Remove` 一律 `NOT_FOUND`（后端约定）。（原疑问 19）
 2. **停止语义**：优雅停止和自然播完都是 `succeeded`，都显示“已结束推流”，不区分；停止中 5 秒内刷新看到 `running` 可接受，不加字段。（原疑问 1、2）
 3. **连接失败 / 地址不合法的稳定首行**（原疑问 4、5）：
-   - `LIVE_CONNECT_FAILED` 的 detail 第一行固定 `scheme=rtmp|rtmps|srt`。`AppError.scheme` 解析它；SRT 文案“连接失败，请检查地址和口令是否正确”，RTMP / RTMPS 文案“连接失败，请检查推流地址是否正确、服务器是否在线”（**待产品定稿**）。脱敏 `params.url` 的 scheme、页面上地址的 scheme 只作首行缺失时的兜底。
-   - `LIVE_URL_INVALID` 的 detail 第一行 `reason=`，取值 `scheme_unsupported` / `malformed` / `missing_host` / `param_not_allowed`（稳定枚举，只追加）。文案表 `LIVE_URL_INVALID_REASON_TEXT`：`scheme_unsupported`→“暂不支持这种推流地址，请使用 rtmp、rtmps 或 srt”；其余三个先用“推流地址格式不正确”（**待产品定稿**）；未知值 / 缺失 reason →“推流地址不正确”。
+   - `LIVE_CONNECT_FAILED` 的 detail 第一行固定 `scheme=rtmp|rtmps|srt`。`AppError.scheme` 解析它；文案见下方“产品经理直播错误文案定稿”。脱敏 `params.url` 的 scheme、页面上地址的 scheme 只作首行缺失时的兜底。
+   - `LIVE_URL_INVALID` 的 detail 第一行 `reason=`，取值 `scheme_unsupported` / `malformed` / `missing_host` / `param_not_allowed`（稳定枚举，只追加）。文案表 `LIVE_URL_INVALID_REASON_TEXT`，见下方定稿。
 4. **`DocCapabilities.experimental`**（布尔，字段名与前端一致）；`ReadPDFChunk` 的 `Data` 按 base64 字符串解码。（原疑问 14、16）
 5. **Edit**（原疑问 9、11、12、13）：预览 `/local/<token>` 支持 HEAD，token 失效返回 404，前端 HEAD 探测后重新调用 `GetPreviewURL`（`isPreviewGone` / `createPreviewSource`，已符合）；`SaveProject` 只校验数量上限、**不校验同轨重叠**（草稿可保存），重叠只在 `ValidateProject` 和 `Export` 报；`outSec` 必须大于 `inSec`，**0 不表示到结尾**，`outSec=0` 一律 `INVALID_ARGUMENT`，前端用探测到的时长填实际值（`newVideoClip` / `newAudioClip` / `fillOutSec`，素材时长未知时不能加入时间线）。
 
@@ -98,11 +98,22 @@
 - **屏幕推流两个错误码文案**（产品经理已定，两者不混用）：`SCREEN_PERMISSION_DENIED`：“没有获得屏幕录制权限，请在系统设置中允许 FFmpegFree 录制屏幕后重试”；`UNSUPPORTED_PLATFORM`：“当前系统暂不支持屏幕推流”（`errorMessages` 里新增了 `UNSUPPORTED_PLATFORM`）。
 - **剪辑**（产品经理已定）：默认导出分辨率 **1920×1080**（前端提交时显式写宽高，`newEditProject` / `VideoEditor.vue` 已改；后端兜底值也改为 1920×1080）；素材库上限 **100**（`checkSaveLimits` 已改）；一次删除 **≥5 个片段**才二次确认。
 
+### 产品经理直播错误文案定稿（已落地，逐字）
+
+映射都在 `errors/errorMessages.ts`，`api/live.ts` 的模拟层引用同一份；`api.check.ts` 逐条断言，并断言任何文案输出都不含传入的地址 / 口令 / 推流码。
+
+- `LIVE_CONNECT_FAILED`（按 detail 首行 `scheme=`）：rtmp、rtmps、缺 scheme 或未知 → “连接失败，请检查推流地址和推流码是否正确，以及网络是否通畅”；srt → “连接失败，请检查地址和口令是否正确”。
+- `LIVE_PUSH_REJECTED`：“服务器拒绝了推流，请检查推流码是否有效，或是否已被其他推流占用”。
+- `LIVE_URL_INVALID`（按 `reason=`）：`scheme_unsupported` “暂不支持这种推流地址，请使用 rtmp、rtmps 或 srt”；`malformed` “推流地址格式不正确，请检查后重新输入”；`missing_host` “推流地址里缺少服务器地址，请检查后重新输入”；`param_not_allowed` “推流地址里有不支持的参数，请去掉后重试”；未知 / 缺失 “推流地址不可用，请检查后重新输入”。
+- SRT 口令不是 10 到 79 个字符：前端先拦，“SRT 口令需要 10 到 79 个字符”，不发给后端。校验在 `api/live.ts` 的 `isValidSrtPassphrase` / `assertSrtPassphrase`（两个 Start* 调后端和模拟之前先调；空口令 = 不加密，放行；按字符数算）。抛 `INVALID_ARGUMENT`，detail 首行 `reason=srt_passphrase_length`，message 是产品文案。页面目前没有单独的口令输入框（口令在地址的 `passphrase=` 参数里），页面把它当普通 INVALID_ARGUMENT 显示 message。
+- 缺协议（UNSUPPORTED）：有具体协议名 “当前的 ffmpeg 不支持 SRT，请在设置的 ffmpeg 页面重新安装或更新”（协议名替换）；没有 “当前 ffmpeg 不支持这种推流协议，请在设置的 ffmpeg 页面重新安装或更新”。判断依据见“仍未决”里的缺协议条目（契约没写清，采用最保守写法）。
+- 已确认在映射里：`TASK_CONFLICT`（max_sessions / duplicate_url / screen_busy / 其他），`SCREEN_PERMISSION_DENIED`，`UNSUPPORTED_PLATFORM`（文案见上一节）。
+
 ### 仍未决
 
 等**后端 / 架构师**：
 
-- **缺协议的 UNSUPPORTED**（原 6）：detail 写“缺哪个”，格式没定，模拟层暂按 `ffmpeg 缺少协议：srt`；且与直播会话 Retry 的 UNSUPPORTED 同码，建议也用 `reason=` 首行区分。
+- **缺协议的 UNSUPPORTED**（原 6）：契约（docs/architecture/contract.md）只说 `UNSUPPORTED` = “该操作不支持这个对象”，**没有**规定缺协议时 detail 的写法，也没有 reason 约定；且与直播会话 Retry 的 UNSUPPORTED 同码。前端按最保守写法（`liveFfmpegProtocolMissingText`）：detail 里出现“缺少协议 / missing protocol / protocol not found / protocol”加 `:`/`：`/`=` 再紧跟白名单协议名 rtmp / rtmps / srt 才显示协议名，其余一律用不带协议名的文案；detail 原文永不进文案。待后端 / 架构师在契约里写清（建议首行 `reason=protocol_missing` + `protocol=srt`），之后收紧解析。
 - **Edit 多素材预览**（原 10）：同时预览 N 个素材占 N 个 token（登记表 256 项 LRU），是否提供批量 `GetPreviewURL`。限长 206（4 MiB）的 seek 体验待 Windows 真机验证。
 - **Doc 转换产物不自动进 PDF 历史**（原 15）：预览时才 `OpenPDF`，请确认是预期。
 - **错误码表**（原 17）：`UNSUPPORTED_PLATFORM` 文案已定（见上）；`LIVE_PLAY_FAILED` / `LIVE_CORS_BLOCKED` 只由前端播放器产生。契约 §2 的清单是 17 个后端码。
@@ -110,5 +121,4 @@
 
 等**产品经理**：
 
-- `LIVE_CONNECT_FAILED` / `LIVE_URL_INVALID` 各 reason 的文案定稿：**等产品经理贴定稿原文**（设计师已请她再贴一次），现有文案为临时文案，见上“待产品定稿”。
 - 关于页两项：许可证那句话、项目地址用 GitHub 还是 gitee 镜像（集中在 `src/config/about.ts`，先按稿面写）。
