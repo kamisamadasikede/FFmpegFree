@@ -3,6 +3,7 @@ package main
 import (
 	"FFmpegFree/app"
 	"FFmpegFree/backend/contollers"
+	"FFmpegFree/internal/about"
 	"FFmpegFree/internal/ffmpeg"
 	"FFmpegFree/internal/paths"
 	"FFmpegFree/internal/service/convert"
@@ -214,6 +215,17 @@ func (a *App) shutdown(ctx context.Context) {
 			log.Printf("关闭数据库失败: %v", err)
 		}
 	}
+}
+
+// GetLicenseText 返回内嵌的第三方许可全文。目前只有 "OFL"（Noto Sans SC 的 SIL Open Font License 1.1）；
+// 其它名称（含空串、带路径、大小写不同）返回 INVALID_ARGUMENT。
+func (a *App) GetLicenseText(name string) (string, error) {
+	return about.LicenseText(name)
+}
+
+// GetAppVersion 返回应用版本号；构建时未用 -ldflags 注入则返回“开发版”。
+func (a *App) GetAppVersion() string {
+	return about.AppVersion()
 }
 
 // Greet returns a greeting for the given name
