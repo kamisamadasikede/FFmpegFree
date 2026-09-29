@@ -349,6 +349,8 @@ schema_migrations(version PK, applied_at)
 
 依据：v1 `master` 上 `backend/contollers/office_controller.go`、`pdf_controller.go`、`frontend/src/views/OfficeConvert.vue`、`PDFPreview.vue`。v1 真实功能：Office → PDF（**纯 Go**，`archive/zip` + `encoding/xml` + `excelize` + `go-pdf/fpdf`，不用 LibreOffice）、PDF 上传 / 列表 / 删除、PDF 预览（前端 `@tato30/vue-pdf`：缩放、翻页、缩略图侧栏、历史列表）。v1 **没有** PDF 合并 / 拆分 / 旋转 / 提取 / 加水印 / 文本提取 / OCR，v2 首版同样不做。
 
+> **合并顺序（架构师最新决定，三个 PR 说明一致）**：**#22 先合**，然后 #19、#23；本节引用的 6.13 由 #22 引入，所以 #23 必须在 #22 之后合入。
+
 > **架构师新增决定（写死，逐条对应下文）**：① `DocCapabilities` 增加 `experimental`（bool，后端给出，前端据此显示"实验性"，6.12.2）；② `ReadPDFChunk` 的 `Data []byte` 在 Wails 生成的 TS 里是 **base64 字符串**，前端按 base64 解码（6.12.4 第 2 点）；③ `TaskType` 与 #19 / #22 统一（第 3 节）；④ `/local/<token>` 的共用规则移到中立章节 6.13，本节引用；⑤ 字体合规：子集 name 表改名、CI 断言、字体目录 README（6.12.1）。
 
 > **架构师已确认（v0.12 定稿）**：内嵌 Noto Sans SC `.ttf` 子集为主路径（6.12.1）；大文件预览的 Windows 验证与回退（6.12.4 第 3 点）；Office 转 PDF 标"实验性"；CSV / TXT 首版不支持。
@@ -550,6 +552,17 @@ AppError（句柄失效）：
 ### 6.12.5 事件
 
 不新增事件。转换进度走 `task:created` / `task:progress` / `task:status`，与转换、剪辑一致；预览没有事件。
+
+### 6.12.8 真机试用清单（Doc，未验证项汇总）
+
+以下项目**没有在真机上验证**（箱子是 Linux），契约里已就地标"未验证"。**不阻塞实现**：实现按契约写，试用包出来后由用户逐项确认。
+
+| # | 未验证项 | 在哪里 | 怎么验证 | 不通过怎么办 |
+|---|---|---|---|---|
+| 1 | Windows 系统字体路径：`simhei.ttf` / `simsun.ttf` 是否存在、新版 Windows 的 `msyh.ttc` 确实加载不了；系统字体作补充路径时的表现 | 6.12.1「系统字体（补充）」 | Windows 10 / 11 上转一份含繁体字的 docx | 内嵌字体是主路径，系统字体只是补充，无系统字体也不影响简体 |
+| 2 | 大文件（> 64 MiB）经 `/local/<token>` 的 Range 续传：WebView2 收到被截短的 `206` 后是否继续请求；`HEAD` 探测与失效重试 | 6.12.4 第 3 点、6.13 | 预览包里打开 100 MiB 左右的 PDF 并翻页 | **验证不通过时的回退方案（首版不实现）**：大文件限 64 MiB，超过返回 `INVALID_ARGUMENT`（不新增方法、错误码） |
+| 3 | 64 MiB 整份读入阈值（峰值内存约文件大小 × 2）是估计值 | 6.12.4 第 5 点 | 真机打开 60 MiB 左右的 PDF，看内存和耗时 | 调整阈值（契约变更） |
+| 4 | Windows 上 `outputDir` 拒绝 `\\?\` / `\\.\` 与数据目录内路径的判断；输出的 `.part` 原子改名（`os.Link` 失败回退到不带 `REPLACE_EXISTING` 的 `MoveFileEx`，同 6.11.3） | 6.12.3、6.12.6 | Windows 上把输出目录设到 U 盘（FAT/exFAT）、网络盘、数据目录内 | 保持 `os.Rename`，接受残余竞态并记录 |
 
 ### 6.12.6 错误码对照（全部沿用现有码，无新增）
 
