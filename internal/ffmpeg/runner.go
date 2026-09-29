@@ -42,7 +42,7 @@ func ExecRunner(timeout time.Duration) Runner {
 		cmd := NewCommand(ctx, exe, args...)
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
-		if err := cmd.Run(); err != nil {
+		if err := proc.Run(cmd); err != nil {
 			if ctx.Err() == context.DeadlineExceeded {
 				return stdout.String(), fmt.Errorf("运行超时（%s）: %s", timeout, exe)
 			}

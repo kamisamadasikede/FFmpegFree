@@ -17,6 +17,7 @@ import (
 	"FFmpegFree/internal/ffmpeg"
 	"FFmpegFree/internal/id"
 	"FFmpegFree/internal/paths"
+	"FFmpegFree/internal/proc"
 	"FFmpegFree/internal/store"
 )
 
@@ -223,7 +224,7 @@ func runProbe(ctx context.Context, ffprobeExe, path string, timeout time.Duratio
 	// 限制输出大小：畸形文件可能让 ffprobe 输出海量流 / 标签，不能无限占内存。
 	stdout, stderr := &headWriter{max: maxProbeStdoutBytes}, newTailWriter(maxStderrBytes)
 	cmd.Stdout, cmd.Stderr = stdout, stderr
-	err := cmd.Run()
+	err := proc.Run(cmd)
 	if ctx.Err() != nil {
 		return nil, apperr.Wrap(apperr.Internal, "探测被取消", ctx.Err())
 	}
