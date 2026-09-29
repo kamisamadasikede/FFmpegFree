@@ -164,7 +164,7 @@ function onSeekDown(e: PointerEvent) {
   background: linear-gradient(0deg, #16171b, #131417);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--ff-space-3);
   padding: 0 14px;
   color: #d6d9de;
   flex: none;
@@ -190,6 +190,9 @@ function onSeekDown(e: PointerEvent) {
   stroke: #111;
 }
 .ci {
+  /* 点击热区 28×28，图标视觉尺寸（17px）不变 */
+  width: 28px;
+  height: 28px;
   color: #aeb3bb;
   display: grid;
   place-items: center;

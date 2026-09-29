@@ -46,10 +46,11 @@ b {
 a {
   color: var(--ff-primary);
   cursor: pointer;
+  text-decoration: underline;
 }
 .code {
   font-family: var(--ff-font-mono);
   font-size: 11px;
-  color: var(--ff-text-3);
+  color: var(--ff-text-2);
 }
 </style>
