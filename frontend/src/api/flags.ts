@@ -6,3 +6,8 @@
 export const LIVE_BACKEND_READY: boolean = false
 export const EDIT_BACKEND_READY: boolean = false
 export const DOC_BACKEND_READY: boolean = false
+/**
+ * 关于页：GetAppVersion / GetLicenseText（后端 #34，绑定在 wailsjs/go/main/App）。
+ * true = 在 Wails 里调用真实绑定；纯浏览器开发环境（没有 window.go）始终走 api/about.ts 里的模拟。
+ */
+export const ABOUT_BACKEND_READY: boolean = true

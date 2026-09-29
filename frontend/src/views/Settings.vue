@@ -1,5 +1,5 @@
 <template>
-  <div class="settings">
+  <div class="settings spanels">
     <!-- 外观 -->
     <section id="sec-appearance" class="panel group" aria-labelledby="h-appearance">
       <div class="phead"><h2 id="h-appearance">外观</h2></div>
@@ -27,33 +27,17 @@
       </div>
     </section>
 
-    <!-- ffmpeg -->
-    <section id="sec-ffmpeg" class="panel group" aria-labelledby="h-ffmpeg">
-      <div class="phead">
-        <h2 id="h-ffmpeg">ffmpeg</h2>
-        <span class="tag" :class="ffView.tone">{{ ffView.tag }}</span>
-      </div>
-      <div class="srow">
-        <div class="l">
-          <b>当前版本</b>
-          <small>{{ ffView.detail }}</small>
-        </div>
+    <!-- ffmpeg（与关于页共用 FFmpegPanel；这里带操作按钮） -->
+    <FFmpegPanel id="sec-ffmpeg" heading-id="h-ffmpeg">
+      <template #version-actions>
         <button v-if="canInstall" type="button" class="btn pri" @click="ffmpeg.dialogOpen = true"><FIcon name="download" :size="15" />{{ installLabel }}</button>
         <button type="button" class="btn" :disabled="busy || ffmpeg.status.state === 'installing'" @click="run(ffmpeg.recheck)"><FIcon name="refresh" :size="15" />重新检测</button>
-      </div>
-      <div class="srow">
-        <div class="l">
-          <b>路径</b>
-          <small v-if="ffmpeg.status.source === 'custom'">手动指定的位置，恢复后会重新自动查找。</small>
-        </div>
-        <div class="pathbox" :class="{ empty: !ffmpeg.status.path }" :title="ffmpeg.status.path || undefined">
-          <span v-if="!ffmpeg.status.path" class="ph">未找到</span>
-          <template v-else><span class="h">{{ pathParts.head }}</span><span class="t">{{ pathParts.tail }}</span></template>
-        </div>
+      </template>
+      <template #path-actions>
         <button type="button" class="btn" :disabled="busy" @click="run(() => ffmpeg.pickPath())"><FIcon name="folder" :size="15" />更换</button>
         <button v-if="ffmpeg.status.source === 'custom'" type="button" class="btn text" :disabled="busy" @click="run(ffmpeg.clearCustomPath)">恢复默认</button>
-      </div>
-    </section>
+      </template>
+    </FFmpegPanel>
 
     <!-- 转换 -->
     <section id="sec-convert" class="panel group" aria-labelledby="h-convert">
@@ -94,6 +78,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
+import FFmpegPanel from '@/components/settings/FFmpegPanel.vue'
 import OutputDirRow from '@/components/settings/OutputDirRow.vue'
 import { toAppError } from '@/api/call'
 import { MAX_CONCURRENT_AUTO, MAX_CONCURRENT_MAX, getMaxConcurrent, setMaxConcurrent } from '@/api/system'
@@ -110,35 +95,10 @@ const themeOptions: { value: ThemeMode; label: string }[] = [
 // ---- ffmpeg ----
 const ffmpeg = useFFmpegStore()
 const busy = ref(false)
-const SOURCE: Record<string, string> = { bundled: '应用目录', system: '系统环境', custom: '手动指定', legacy: '旧版目录' }
 
-const ffView = computed(() => {
-  const s = ffmpeg.status
-  const from = SOURCE[s.source ?? '']
-  switch (s.state) {
-    case 'ready':
-      return { tag: '已就绪', tone: 'ok', detail: [s.version && `ffmpeg ${s.version}`, from && `来自${from}`].filter(Boolean).join(' · ') || '已检测到 ffmpeg' + (s.ffprobeMissing ? '，但缺少 ffprobe' : '') }
-    case 'installing':
-      return { tag: '安装中', tone: 'run', detail: ffmpeg.install ? `下载中 ${Math.round(ffmpeg.install.progress * 100)}%` : '准备中' }
-    case 'failed':
-      return { tag: '安装失败', tone: 'fail', detail: s.error?.message || '安装没有成功，可以重试或手动指定位置。' }
-    case 'outdated':
-      return { tag: '版本过旧', tone: 'warn', detail: `${s.version ? `当前 ffmpeg ${s.version}，` : ''}需要 6.0 或更高版本。` }
-    case 'missing':
-      return { tag: '未安装', tone: 'warn', detail: '转换、剪辑、直播暂不可用。' }
-    default:
-      return { tag: '检测中', tone: 'q', detail: '正在检测 ffmpeg，请稍候。' }
-  }
-})
 // 安装入口：缺失 / 过旧 / 失败时显示，打开与侧栏、提示条同一个安装对话框
 const canInstall = computed(() => ['missing', 'outdated', 'failed'].includes(ffmpeg.status.state))
 const installLabel = computed(() => (ffmpeg.status.state === 'failed' ? '重试安装' : '安装…'))
-
-const pathParts = computed(() => {
-  const p = ffmpeg.status.path ?? ''
-  const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))
-  return i < 0 ? { head: '', tail: p } : { head: p.slice(0, i + 1), tail: p.slice(i + 1) }
-})
 
 async function run(fn: () => Promise<unknown>) {
   if (busy.value) return
@@ -204,160 +164,6 @@ function step(d: number) {
 </script>
 
 <style scoped>
-.settings {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ff-space-4);
-}
-.group {
-  padding: 0; /* 面板内边距由 phead / srow 提供，与原型一致 */
-  scroll-margin-top: var(--ff-space-2);
-}
-.phead {
-  display: flex;
-  align-items: center;
-  gap: var(--ff-space-2);
-  padding: var(--ff-space-3) var(--ff-space-4);
-  border-bottom: 1px solid var(--ff-border);
-}
-.phead h2 {
-  margin: 0;
-  font-size: var(--ff-fs-md);
-  font-weight: 600;
-}
-.srow,
-.group :deep(.srow) {
-  display: flex;
-  align-items: center;
-  gap: var(--ff-space-4);
-  padding: var(--ff-space-3) var(--ff-space-4);
-  border-bottom: 1px solid var(--ff-border);
-}
-.group :deep(.srow.od) {
-  align-items: flex-start; /* 输出位置行带错误提示时高度会变，控件顶对齐（原型 .srow.od） */
-}
-.srow:last-child,
-.group :deep(.srow:last-child) {
-  border-bottom: none;
-}
-.l {
-  flex: 1;
-  min-width: 0;
-}
-.l b {
-  display: block;
-  font-weight: 500;
-}
-.l small {
-  display: block;
-  font-size: var(--ff-fs-xs);
-  color: var(--ff-text-2);
-}
-
-/* 状态标签：文字色取 *-text token（14% 着色底上 ≥4.5:1） */
-.tag {
-  height: 20px;
-  padding: 0 7px;
-  border-radius: var(--ff-radius-sm);
-  font-size: var(--ff-fs-xs);
-  display: inline-flex;
-  align-items: center;
-}
-.tag.ok {
-  background: color-mix(in srgb, var(--ff-success) 14%, transparent);
-  color: var(--ff-success-text);
-}
-.tag.warn {
-  background: color-mix(in srgb, var(--ff-warning) 14%, transparent);
-  color: var(--ff-warning-text);
-}
-.tag.fail {
-  background: color-mix(in srgb, var(--ff-danger) 14%, transparent);
-  color: var(--ff-danger-text);
-}
-.tag.run {
-  background: var(--ff-primary-soft);
-  color: var(--ff-primary-text);
-}
-.tag.q {
-  background: var(--ff-bg-hover);
-  color: var(--ff-text-2);
-}
-
-/* 按钮：与 OutputDirRow 同一套（28px 高，边框 / 文字色取 token） */
-.btn {
-  height: 28px;
-  padding: 0 12px;
-  border-radius: var(--ff-radius-md);
-  border: 1px solid var(--ff-border);
-  background: var(--ff-bg-surface);
-  color: var(--ff-text-1);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font: inherit;
-  font-size: var(--ff-fs-sm);
-  white-space: nowrap;
-  cursor: pointer;
-  flex: none;
-  transition: background var(--ff-dur-fast) var(--ff-ease);
-}
-.btn:hover:not(:disabled) {
-  background: var(--ff-bg-hover);
-}
-.btn:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.btn:focus-visible {
-  outline: 2px solid var(--ff-primary);
-  outline-offset: 2px;
-}
-.btn.pri {
-  background: var(--ff-badge-bg);
-  border-color: var(--ff-badge-bg);
-  color: var(--ff-on-primary);
-}
-.btn.pri:hover:not(:disabled) {
-  background: var(--ff-primary-hover);
-  border-color: var(--ff-primary-hover);
-}
-.btn.text {
-  border-color: transparent;
-  background: transparent;
-  color: var(--ff-primary-text);
-  padding: 0 8px;
-}
-
-/* ffmpeg 路径：只读展示，最后一级单独一段不被省略 */
-.pathbox {
-  width: 360px;
-  flex: none;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  padding: 0 12px;
-  border: 1px solid var(--ff-border);
-  border-radius: var(--ff-radius-md);
-  background: var(--ff-bg-surface);
-  font-size: var(--ff-fs-sm);
-  color: var(--ff-text-1);
-  overflow: hidden;
-  white-space: nowrap;
-}
-.pathbox .ph {
-  color: var(--ff-text-2);
-}
-.pathbox .h {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.pathbox .t {
-  flex: none;
-}
-
 /* 主题卡片 */
 .themes {
   display: flex;
@@ -477,7 +283,6 @@ function step(d: number) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .btn,
   .stepper .sb {
     transition: none;
   }

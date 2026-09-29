@@ -528,7 +528,7 @@ func TestShutdownMarksGracefullyStoppedRunningTaskInterrupted(t *testing.T) {
 	f := newFx(t, 1)
 	started := make(chan struct{})
 	// 模拟直播优雅停止：收到取消后正常返回 nil
-	tk, _ := f.m.Submit(Spec{Type: TypeLiveRelay}, RunnerFunc(func(ctx context.Context, _ func(Progress)) (string, error) {
+	tk, _ := f.m.Submit(Spec{Type: TypeLiveScreenPush}, RunnerFunc(func(ctx context.Context, _ func(Progress)) (string, error) {
 		close(started)
 		<-ctx.Done()
 		return "/archive/a.mp4", nil

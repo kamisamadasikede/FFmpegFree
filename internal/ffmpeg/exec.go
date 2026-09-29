@@ -40,6 +40,14 @@ type RunOptions struct {
 	// 优雅退出成功时 Run 返回 nil（输出文件完整），并且 Result.Stopped 为 true。
 	GracefulStop bool
 	GracePeriod  time.Duration // 默认 DefaultGracePeriod
+	// CanGraceful 不为空时，在 ctx 取消的那一刻调用：返回 false 表示不值得等待收尾，直接强杀
+	// （直播的连接阶段：还没有任何 progress，没有需要写完的东西）。
+	CanGraceful func() bool
+	// StrictGracefulExit 为 true 时，取消后 ffmpeg 虽然在宽限期内退出，但退出码非零，也按"被取消"处理
+	// （Run 返回 ctx.Err()，任务落 canceled）；默认（false）沿用"收到 q / SIGINT 后退出即成功"。
+	StrictGracefulExit bool
+	// Redact 不为空时，stderr 的每一行在进入 TailBuffer、OnStderr、Classify 之前先经过它（直播脱敏，契约 6.10）。
+	Redact func(string) string
 	// Classify 把非零退出转换成具体的错误码（直播的连接失败、推流被拒绝等）。
 	// 返回 nil 表示不认识，使用默认的 PROCESS_FAILED。
 	Classify func(stderrTail string, exitErr error) *apperr.AppError
@@ -86,6 +94,9 @@ func Run(ctx context.Context, opts RunOptions) (RunResult, error) {
 		}
 	})
 	cmd.Stderr = newLineWriter(func(line string) {
+		if opts.Redact != nil {
+			line = opts.Redact(line)
+		}
 		tail.Add(line)
 		if opts.OnStderr != nil {
 			opts.OnStderr(line)
@@ -121,7 +132,7 @@ func Run(ctx context.Context, opts RunOptions) (RunResult, error) {
 	case waitErr = <-waitDone:
 	case <-ctx.Done():
 		stopped = true
-		if opts.GracefulStop {
+		if opts.GracefulStop && (opts.CanGraceful == nil || opts.CanGraceful()) {
 			requestGracefulExit(cmd, stdinW, opts.Stdin != nil)
 			timer := time.NewTimer(grace)
 			select {
@@ -143,9 +154,15 @@ func Run(ctx context.Context, opts RunOptions) (RunResult, error) {
 	res := RunResult{Stopped: stopped, StderrTail: tail.String()}
 
 	if stopped {
-		if exitedGracefully {
+		if exitedGracefully && (waitErr == nil || !opts.StrictGracefulExit) {
 			return res, nil // 文件尾已写完；ffmpeg 收到 q / SIGINT 后的退出码不一定是 0，不当作失败
 		}
+		return res, ctx.Err()
+	}
+	if waitErr != nil && ctx.Err() != nil {
+		// 取消和进程退出几乎同时发生（select 选中了 waitDone）：已经请求过取消，非零退出一律按"被取消"处理，
+		// 不落成失败（直播：不能变成 LIVE_PUSH_INTERRUPTED）。
+		res.Stopped = true
 		return res, ctx.Err()
 	}
 	if waitErr != nil {
@@ -171,6 +188,9 @@ func requestGracefulExit(cmd *exec.Cmd, stdin io.WriteCloser, callerOwnsStdin bo
 func classifyExit(opts RunOptions, tail string, exitErr error) error {
 	if opts.Classify != nil {
 		if e := opts.Classify(tail, exitErr); e != nil {
+			if e.Detail != "" { // 分类器自己写了 detail（如直播的固定首行），保留
+				return e
+			}
 			return e.WithDetail(tail)
 		}
 	}
