@@ -1,6 +1,8 @@
-# FFmpegFree v2 接口契约（v0.16）
+# FFmpegFree v2 接口契约（v0.17）
 
-v0.16 变更（LiveService 推流 / 拉流真实预览画面，见第 4 节 LiveService 和 6.10「预览画面」）：新增 `LiveService.GetPreview(sessionId) (Preview, error)`（最新一帧 base64 JPEG + 毫秒时间戳，没有画面返回空、不是错误）、`StartPullPreview(PullPreviewRequest) (PullSession, error)` / `StopPullPreview(sessionId) error`（拉流预览会话：后端 ffmpeg 读远端流只出预览，播放仍由前端播放器直接拉地址）；`FilePushRequest` / `ScreenPushRequest` 新增可选字段 `preview`（`*bool`，缺省 = true，false = 不加预览输出）；预览输出是主输出之外**独立**的一路 image2 输出（`fps=2,scale=640:-2`、`-q:v 5`、`-update 1`、`-atomic_writing 1`），不放进 tee；临时文件放 `<数据目录>/tmp/live-preview/<会话 id>.jpg`，会话结束清理，应用启动清空该目录。新增类型 `Preview`、`PullPreviewRequest`、`PullSession`；不新增错误码、不新增事件。**有硬字幕 / 视频复制（`-c copy`）的推流场景预览输出需要单独解码（额外占少量 CPU）**；当前直播主输出始终重编码，预览输出复用同一路解码结果不增加解码次数，见 6.10「预览画面」。
+v0.17 变更（LiveService 推流 / 拉流真实预览画面，见第 4 节 LiveService 和 6.10「预览画面」）：新增 `LiveService.GetPreview(sessionId) (Preview, error)`（最新一帧 base64 JPEG + 毫秒时间戳，没有画面返回空、不是错误）、`StartPullPreview(PullPreviewRequest) (PullSession, error)` / `StopPullPreview(sessionId) error`（拉流预览会话：后端 ffmpeg 读远端流只出预览，播放仍由前端播放器直接拉地址）；`FilePushRequest` / `ScreenPushRequest` 新增可选字段 `preview`（`*bool`，缺省 = true，false = 不加预览输出）；预览输出是主输出之外**独立**的一路 image2 输出（`fps=2,scale=640:-2`、`-q:v 5`、`-update 1`、`-atomic_writing 1`），不放进 tee；临时文件放 `<数据目录>/tmp/live-preview/<会话 id>.jpg`，会话结束清理，应用启动清空该目录。新增类型 `Preview`、`PullPreviewRequest`、`PullSession`；不新增错误码、不新增事件。**有硬字幕 / 视频复制（`-c copy`）的推流场景预览输出需要单独解码（额外占少量 CPU）**；当前直播主输出始终重编码，预览输出复用同一路解码结果不增加解码次数，见 6.10「预览画面」。
+
+v0.16 变更（DocService 错误 detail 首行统一为 `reason=`，并更正 6.12.3 的措辞，只改契约的说明，接口和错误码不变，见 2.2 和 6.12.6）：**架构师定**：Doc（Office 转 PDF、PDF 预览 / 打开）面向前端的“文件本身有问题”类错误，`detail` 首行严格是 `reason=<枚举>`，枚举固定为 `too_many_pages`、`format`、`encrypted`、`no_font`、`invalid_ooxml`、`too_large`（只追加），其后可以保留原来的自由文本行（`ConvertToPDF` 整体校验失败时，出错文件路径在 reason 行**之后**，即第二行）；**`code` 和 `message` 不变**（`message` 是给用户看的短句，前端精确匹配它，精确文案列在 6.12.6 的表里）。**更正**：6.12.3 原文写 detail "超过 5000 页"，实现里"超过 5000 页"是 `message`，detail 首行是 `reason=too_many_pages`；同类的 "不是有效的 OOXML 文件" "暂不支持这种格式" "没有可用的 Unicode 字体" 也都是 `message`，不是 detail。取消、磁盘满、读写失败、路径 / 参数 / 句柄类错误**没有 reason**（6.12.6 明确列出）。实现：`internal/service/doc` 的 `reasonErr`；2.2 新增 Doc 行。
 
 v0.15 变更（SystemService 硬件编码器检测与偏好，见第 4 节 SystemService 和 9.6；**契约按架构师口头方案起草，如有出入以架构师为准**）：新增 `ListEncoderDevices()`（返回 `EncoderDeviceList{ffmpegReady, devices[]}`，第一项永远是 CPU）、`RefreshEncoderDevices()`、`GetEncoderPreference()`（`"auto" | "cpu" | 设备 id`，默认 `"auto"`）、`GetEncoderPreferenceInfo()`（`{id, name, available, reason?}`，设置页显示「自动 / CPU / 具体显卡名」用）、`SetEncoderPreference(id)`；新增设置键 `encoderPreference`、`encoderPreferenceName`；新增纯函数 `ResolveEncoder(pref, devices, codec)`（Go 内部，不是绑定方法）。检测 = `ffmpeg -encoders` + 逐个硬件编码器实际试跑一帧（5 秒超时）+ 显卡名称枚举；结果缓存，ffmpeg 变为 ready 时失效。**本版只做检测、偏好和解析函数，转换 / 剪辑 / 直播的编码参数暂不使用它（下一版接入）**。无新增错误码。
 
@@ -126,6 +128,7 @@ export type AppErrorCode =
 | `LIVE_CONNECT_FAILED` | `scheme=<值>` | `rtmp`、`rtmps`、`srt`（取自校验后的标准化地址，小写） | 第二行起是脱敏后的 ffmpeg stderr 最后若干行；前端据此选 RTMP / SRT 的提示文案（SRT 用"连接失败，请检查地址和口令是否正确"，文案由前端负责，后端 `message` 不承载） |
 | 编辑类错误（`EditService` 的 `ValidateProject` / `Export` 返回的 `INVALID_ARGUMENT`、`NOT_FOUND`、`IO_ERROR`、`PROBE_FAILED`、`UNSUPPORTED`） | **按 6.11.2 B（#22）**：`clip=<clip.id> path=<绝对路径>`，或没有 clip 的工程级错误写 `project` | 由 6.11.2 B 定义，第二行起才是原因（如 `overlaps=<clip.id>`、`path_length=<n> limit=259`、`missing=filter_complex`） | 前端用 6.11.2 B 的正则取首行；**不适用**下面"第一行只有一个 `key=value`"的统一规则；此行是 #22 合入后生效，#22 单独看时它引用的 6.11.2 B 就在该 PR 里，措辞与 #22 的 B 一致（已核对） |
 | `LIVE_SOURCE_GONE`（v0.14，`StartScreenPush` 的所选来源已不可用） | `kind=<值>` | `window`（窗口已关闭 / 最小化 / 不可见）、`screen`（屏幕序号不存在）（只追加） | 只有这一行，没有第二行（不带窗口标题、不带地址）；前端用 `^kind=(window\|screen)$` 匹配（未知值按通用文案）；前端不必解析也能工作：码本身就足够提示「所选窗口已不可用」 |
+| DocService 错误（v0.16，`ConvertToPDF` 的同步校验和 `office_pdf` 任务的 `error`、`OpenPDF`、`ReadPDFChunk`；只有下面取值对应的场景，其余 Doc 错误没有 reason） | `reason=<值>` | `too_many_pages`（`UNSUPPORTED`，超过 5000 页，含文字量超限）、`format`（`UNSUPPORTED` 或 `INVALID_ARGUMENT`，格式不受支持：不支持的扩展名、没有扩展名、`OpenPDF` 的扩展名不是 `.pdf` / 内容不是 PDF）、`encrypted`（`UNSUPPORTED`，加密的 Office 文档，OLE 容器；**加密 PDF 能正常打开，不会有这个错误**）、`no_font`（`UNSUPPORTED`，需要 Unicode 字体而没有）、`invalid_ooxml`（`INVALID_ARGUMENT`，不是 zip、缺必需部件、XML 损坏、zip64 目录信息无效）、`too_large`（`INVALID_ARGUMENT`，超大小或超 zip 限制：文件 > 100 MiB、PDF > 512 MiB、zip 条目数 > 100 000、中央目录 > 9 600 000 字节、单个条目解压后 > 256 MiB）（只追加，不改名、不改含义、不删除） | `code` 和 `message` 不变，`message` 是给用户看的短句（精确文案见 6.12.6）；首行之后可以有自由文本行：`ConvertToPDF` 整体校验失败时**第二行是出错文件的绝对路径**（`reason` 行永远在首行），再后面是原因说明；任务的 `error` 没有路径行。取消、磁盘满（`CONVERT_DISK_FULL`）、读写失败（`IO_ERROR`）、`NOT_FOUND`、路径 / 参数 / 输出目录 / 句柄类的 `INVALID_ARGUMENT`、`INTERNAL` **没有 reason**，走该码的通用文案 |
 | 其余所有码（含 `LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`INTERNAL`） | 无固定格式 | — | 前端**不得**解析（上面几行列出的码 / 场景除外） |
 
 统一规则：第一行只有一个 `key=value`，值只含小写字母、数字、下划线（`scheme` 例外；`kind` 的取值是 `window` / `screen`，取值就是上面三个小写单词）；前端用 `^(reason|scheme|kind)=([a-z0-9_]+)$` 匹配 `detail` 的第一行；**没有第一行、格式不对、或值不认识，一律走该错误码的通用文案**，不得猜测含义、不得报错崩溃。测试必须逐码断言第一行精确等于期望值（不是包含）。
@@ -295,9 +298,9 @@ StartFilePush(req FilePushRequest) (Task, error)       // 文件推流（可循�
 StartScreenPush(req ScreenPushRequest) (Task, error)   // 屏幕推流（可同时本地存档）；同一时间最多 1 路：已有进行中的 live_screen_push 返回 TASK_CONFLICT（detail 首行 reason=screen_busy）
 GetCaptureCapabilities() (CaptureCapabilities, error)  // 屏幕采集能不能用、为什么不能用（Linux 读 XDG_SESSION_TYPE 和 DISPLAY，见 6.10「采集能力检测」）
 ListCaptureSources() ([]CaptureSource, error)          // （v0.14）屏幕推流可选的采集来源：屏幕（所有平台）+ 应用窗口（只有 Windows）；不能采集屏幕的平台 / 会话返回 UNSUPPORTED_PLATFORM（同 ListScreens），见 6.10「采集来源」
-GetPreview(sessionID string) (Preview, error)          // （v0.16）会话（推流任务 id 或拉流预览会话 id）最新一帧预览：{data: base64 JPEG, ts: 毫秒时间戳, active}；没有画面（会话不存在 / 已结束、preview=false、还没出第一帧）返回空 data、ts=0，不是错误。前端约 500 毫秒轮询，见 6.10「预览画面」
-StartPullPreview(req PullPreviewRequest) (PullSession, error) // （v0.16）拉流预览会话：后端 ffmpeg 读 rtmp / rtmps / srt / http(s) 远端流，只输出预览；同一地址幂等；同时最多 4 路
-StopPullPreview(sessionID string) error                // （v0.16）停止拉流预览会话并清理预览文件；会话不存在（已结束）无操作
+GetPreview(sessionID string) (Preview, error)          // （v0.17）会话（推流任务 id 或拉流预览会话 id）最新一帧预览：{data: base64 JPEG, ts: 毫秒时间戳, active}；没有画面（会话不存在 / 已结束、preview=false、还没出第一帧）返回空 data、ts=0，不是错误。前端约 500 毫秒轮询，见 6.10「预览画面」
+StartPullPreview(req PullPreviewRequest) (PullSession, error) // （v0.17）拉流预览会话：后端 ffmpeg 读 rtmp / rtmps / srt / http(s) 远端流，只输出预览；同一地址幂等；同时最多 4 路
+StopPullPreview(sessionID string) error                // （v0.17）停止拉流预览会话并清理预览文件；会话不存在（已结束）无操作
 ListScreens() ([]ScreenInfo, error)                    // 可采集的显示器（Linux 用 xrandr --display $DISPLAY --query，必须带 --display，见 6.10「采集能力检测」）
 CheckPushURL(url string) (PushURLInfo, error)          // 只校验地址并返回脱敏后的显示文本，不联网
 // 停止：TaskService.Cancel(taskID)，没有单独的 StopPush（理由见下）
@@ -317,7 +320,7 @@ type PushOptions struct {
 type FilePushRequest struct {
     InputPath  string      `json:"inputPath"`  // 绝对路径的普通文件，必须有视频画面（否则 INVALID_ARGUMENT）
     URL        string      `json:"url"`        // 推流地址，规则见下
-    Preview    *bool       `json:"preview"`    // （v0.16）可选：nil / true = 带预览画面（GetPreview）；false = 不加预览输出。只在开始时决定（ffmpeg 已启动无法动态改输出）
+    Preview    *bool       `json:"preview"`    // （v0.17）可选：nil / true = 带预览画面（GetPreview）；false = 不加预览输出。只在开始时决定（ffmpeg 已启动无法动态改输出）
     Loop       bool        `json:"loop"`       // true = 循环播放直到用户停止；false = 播完自然结束（任务 succeeded）
     Options    PushOptions `json:"options"`
 }
@@ -327,7 +330,7 @@ type ScreenPushRequest struct {
     ScreenID   string      `json:"screenId"`   // ListScreens 返回的 id；"" = 主显示器；不存在 INVALID_ARGUMENT
     HideCursor bool        `json:"hideCursor"` // 零值 = 画面里带鼠标指针
     Audio      string      `json:"audio"`      // "none"（默认，视频流里没有音轨）| "silent"（补一路静音音轨，给要求必须有音频的服务器）；采集声音 v1 不做
-    Preview    *bool       `json:"preview"`    // （v0.16）同 FilePushRequest.preview
+    Preview    *bool       `json:"preview"`    // （v0.17）同 FilePushRequest.preview
     CaptureSourceID string `json:"captureSourceId"` // （v0.14）可选：ListCaptureSources 返回的 id（screen:<序号> | window:<hwnd 十进制>）；"" = 不传，行为同 v0.13（按 ScreenID）；非空时以它为准，ScreenID 被忽略；格式不对 INVALID_ARGUMENT；来源已不可用 LIVE_SOURCE_GONE
     ArchiveDir string      `json:"archiveDir"` // 非空 = 同时在本地存一份 mp4（绝对路径，不存在会创建；存档规则见 6.10）；"" = 不存档
     Options    PushOptions `json:"options"`
@@ -343,7 +346,7 @@ type CaptureCapabilities struct {
     Reason       string `json:"reason"`       // 不支持时给用户看的中文原因，支持时 ""
 }
 
-// v0.16：GetPreview 的返回。没有画面时 data 为 ""、ts 为 0（不是错误）。
+// v0.17：GetPreview 的返回。没有画面时 data 为 ""、ts 为 0（不是错误）。
 type Preview struct {
     Data   string `json:"data"`   // 最新一帧 JPEG 的 base64（标准编码，不带 data: 前缀）；没有画面 ""
     TS     int64  `json:"ts"`     // 这一帧写入的时间（毫秒时间戳，取文件修改时间）；没有画面 0。前端可据此判断画面是否停滞
@@ -636,7 +639,7 @@ schema_migrations(version PK, applied_at)
     - **(c) 前端规则**：前端遇到**未知的 `reason` 值或没有 `reason` 行**时，显示通用冲突提示（如"操作冲突，请稍后再试"，文案由前端定），不得猜测含义、不得报错崩溃。
   - `LIVE_URL_INVALID`：协议不是 rtmp / rtmps / srt 时**后端已经是这个码**，`detail` 第一行 `reason=scheme_unsupported`，前端提示"暂不支持这种推流地址，请使用 rtmp、rtmps 或 srt"。同一个码的其他原因用 `reason=malformed` / `missing_host` / `param_not_allowed` 区分（枚举和规则见 2.2，未知值走通用文案），**不要靠 `message` 文本区分**。
 
-- **预览画面（v0.16，架构师定；实现：`internal/ffmpeg/live_preview.go`、`internal/service/live/preview.go`）**：
+- **预览画面（v0.17，架构师定；实现：`internal/ffmpeg/live_preview.go`、`internal/service/live/preview.go`）**：
   - **预览输出**：推流命令在**主输出之后**追加一路独立输出 `-map 0:v:0 -an -sn -dn -vf fps=2,scale=640:-2 -q:v 5 -protocol_whitelist file -f image2 -update 1 -atomic_writing 1 file:<预览路径>`。有自己的 `-vf`（不复用主输出的滤镜链，宽 640、高按比例取偶数、每秒 2 帧）；不影响主输出的编码参数、`-progress` 与码率统计。**带存档的屏幕推流：预览输出在 tee 之外**，仍是主输出（`-f tee`）之后单独的一路，不写进 tee 描述（测试断言 tee 描述里没有预览、且只有网络与存档两路）。文件推流、屏幕推流（含 Windows gdigrab 窗口采集、存档）用同一个 `PreviewOutputArgs`。
   - **CPU 说明**：预览输出与主输出共享同一路解码（ffmpeg 的输出端只多一个 fps + scale + mjpeg 编码，每秒 2 帧，开销很小）。当前直播主输出始终重编码（不用 `-c copy`），所以没有额外的解码次数；**如果以后加入"视频流复制（`-c copy`）"或"硬字幕"的推流场景，主输出不解码时预览输出需要单独解码（ffmpeg 会为预览输出自己起解码器），会额外占少量 CPU，那时按需要再评估默认是否关预览。** **【未验证】**高分辨率（4K）屏幕采集、Windows 真机上的预览耗时与 CPU 占用。
   - **读取与半帧**：`-atomic_writing 1` 让 ffmpeg 先写 `<路径>.tmp` 再改名，读取端不会读到半帧；`GetPreview` 读取时仍校验 JPEG：以 SOI（`FF D8`）开头、以 EOI（`FF D9`）结尾（允许末尾少量 0 填充），大小 4 字节~4 MiB，不合格（半帧、空文件、不是 JPEG）一律当没有画面返回空，不返回错误。`ts` 取文件修改时间。
@@ -673,7 +676,7 @@ schema_migrations(version PK, applied_at)
 | 8 | Windows：`EnumWindows` 过滤后的窗口列表是否合理（无任务栏 / 桌面 / 输入法 / 系统浮层，UWP 应用与最大化窗口能列出）；FFmpegFree 自己的窗口不出现 | 6.10「采集来源」 | Windows 上调 `ListCaptureSources`，与任务栏里的窗口对照 | 调整 `filterCaptureWindows` 的类名 / 样式过滤（不改契约结构） |
 | 9 | Windows：gdigrab `title=` 采窗口——被其他窗口遮挡时内容是否正常、最小化后行为（黑屏 / 报错 / 冻结）、窗口移到副屏 / 高 DPI（125%~200% 缩放）时画面尺寸和清晰度；同标题多窗口命中哪一个；标题含引号、`&`、中文时能否找到窗口 | 同上 | 各推一次，观察播放端画面 | 遮挡 / 高 DPI 问题另出契约变更（如改用 `hwnd=`、DPI 感知清单）；同标题问题在前端提示或后端过滤 |
 | 10 | Windows 多显示器：副屏在主屏左侧 / 上方（负偏移）、两块屏缩放不同时，`offset_x` / `offset_y` / `video_size` 是否对准该显示器（进程是否 DPI 感知影响 `GetMonitorInfoW` 的坐标口径） | 同上、6.10「采集能力检测」 | 双屏各选一块推流 | 改用物理像素坐标（进程声明 DPI 感知）或按缩放换算 |
-| 11 | （v0.16）Windows 上预览输出的耗时（首帧时间、`GetPreview` 单次读取耗时）；高分辨率（4K）采集 / 硬字幕 / `-c copy` 场景下预览额外占用的 CPU；WebView 里每 500ms 轮询 `GetPreview`（base64 JPEG 经 IPC）的开销 | 6.10「预览画面」 | Windows 真机推流 1080p / 4K 屏幕，观察任务管理器 CPU、`GetPreview` 耗时、前端轮询时界面是否卡顿 | 降低 `fps` / 宽度常量、前端降低轮询频率，或在开销过大时默认 `preview=false`（需另出契约变更） |
+| 11 | （v0.17）Windows 上预览输出的耗时（首帧时间、`GetPreview` 单次读取耗时）；高分辨率（4K）采集 / 硬字幕 / `-c copy` 场景下预览额外占用的 CPU；WebView 里每 500ms 轮询 `GetPreview`（base64 JPEG 经 IPC）的开销 | 6.10「预览画面」 | Windows 真机推流 1080p / 4K 屏幕，观察任务管理器 CPU、`GetPreview` 耗时、前端轮询时界面是否卡顿 | 降低 `fps` / 宽度常量、前端降低轮询频率，或在开销过大时默认 `preview=false`（需另出契约变更） |
 
 ### 6.10.2 实现清单（给 #31 / #30 对照；不是新接口；"现状"列已按 `origin/v2` 的 `2f0c0a4`（含已合并的 #31 第一部分）更新）
 
@@ -933,9 +936,9 @@ type PreviewURL struct {
 | `.docx` | 支持，**仅文本**：`word/document.xml` 里每个 `<w:p>` 的 `<w:t>` 拼成一段，按顺序输出，折行分页（折行方式见 6.12.1「折行」） |
 | `.xlsx` | 支持，**仅单元格文本**：每个工作表先输出 `Sheet: <名称>` 标题，再**按行流式读取**逐行输出（`excelize.OpenReader` + `Rows()` 迭代器，一次只读一行，`rows.Columns()` 取单元格的显示文本，公式取缓存值；**不用 `GetRows`**——它会把整个工作表一次读进内存），单元格间 4 个空格分隔；每个工作表后换页 |
 | `.pptx` | 支持，**仅文本**：每张幻灯片一个标题 `Slide <n>` + 该页所有 `<a:t>` 文本按段落输出，每页幻灯片换页；按数字顺序处理（v1 按字符串排序会把 slide10 排在 slide2 前，v2 修正） |
-| `.doc` `.xls` `.ppt`（旧二进制格式）、`.odt` `.ods` `.odp` `.rtf` `.pages` `.numbers` `.key`、其他 | `UNSUPPORTED`，detail 写明原因；旧格式提示"请先另存为 docx / xlsx / pptx" |
-| `.csv` `.txt` | **首版不支持**（架构师定，v1 也没有），`UNSUPPORTED`，detail "暂不支持该格式"；以后要加走增量契约版本 |
-| 密码加密的 docx / xlsx / pptx（OLE 容器，不是 zip） | `UNSUPPORTED`，detail "加密文档不支持" |
+| `.doc` `.xls` `.ppt`（旧二进制格式）、`.odt` `.ods` `.odp` `.rtf` `.pages` `.numbers` `.key`、其他 | `UNSUPPORTED`，`message` "暂不支持这种格式"，`detail` 首行 `reason=format`，第二行起写明原因（提交时整体校验失败则第二行是出错文件路径）；旧格式提示"请先另存为 docx / xlsx / pptx" |
+| `.csv` `.txt` | **首版不支持**（架构师定，v1 也没有），`UNSUPPORTED`，`message` "暂不支持这种格式"，`detail` 首行 `reason=format`（说明行 "暂不支持该格式"）；以后要加走增量契约版本 |
+| 密码加密的 docx / xlsx / pptx（OLE 容器，不是 zip） | `UNSUPPORTED`，`message` "暂不支持这种格式"，`detail` 首行 `reason=encrypted`（说明行 "加密文档不支持（或旧版格式改了扩展名）…"） |
 
 **明确不支持（输出里没有）**：图片、图表、形状、SmartArt、表格边框与合并单元格、页眉页脚、脚注、批注、修订、字体 / 字号 / 颜色 / 加粗等样式、页面大小与方向（一律 A4 纵向）、分栏、超链接（只保留文字）、公式的重新计算、幻灯片母版与动画、xlsx 的图表与条件格式。这是"提取文字后重排"，**不是**版式保真转换；想要版式保真需要 LibreOffice 或商业库，不在本项目范围（纯 Go 没有可用的开源保真实现）。**Office 转 PDF 在界面上标"实验性"**（架构师定）：转换页标题 / 入口带"实验性"标签，并常驻一条说明"仅提取文字重新排版，不保留图片和样式"，文案由前端定。
 
@@ -953,7 +956,7 @@ type PreviewURL struct {
 - **包体增量（实测）**：当前实现的字体 `NotoSansSC-Regular-subset.ttf` = **2 741 704 字节（约 2.61 MiB）**（含 JIS X 0208 第一水准；早期只含 GB2312 的样品是 2 355 692 字节 / 约 2.25 MiB，已过时），`OFL.txt` = 4 388 字节；`go:embed` 不压缩，所以可执行文件增加约 **2.61 MiB**（安装包会压缩，早期样品 gzip -9 后约 1.4 MiB，当前版本 7z / NSIS 压缩率**未测**）。**大小和 SHA 以字体目录 README 为准**，实现 PR 描述里必须再报一次包体增量。
 - **缺字统计（建议，已写入）**：转换时统计"文档里出现、但当前主用字体没有的字符"（按去重码点计数），任务日志（`task.LogWriter`）末尾写一行 `missing_glyphs=<去重码点数> total=<出现次数> sample=U+XXXX,U+XXXX,…（最多 20 个）`，**只记码点，不记文档文字内容**（避免把用户文档内容写进日志）；没有缺字不写这一行。判断"有没有这个字"以嵌入字体的 cmap 为准（用上面自写的只读 `cmap` 解析，不引入 `x/image/font/sfnt`）。缺字仍输出 `.notdef` 方框，不视为失败。
 - **系统字体（补充）**：后端按顺序找第一个存在且可加载的 `.ttf`：Windows `C:/Windows/Fonts/simhei.ttf`、`simsun.ttf`（`msyh.ttf` 仅在旧系统存在；新版 Windows 自带的雅黑通常是 `msyh.ttc`，`fpdf` 加载不了，**未在 Windows 真机验证**），macOS `/Library/Fonts/Arial Unicode.ttf`，Linux `/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf`。**按文档选字体、不做逐字回退**（`fpdf` 一份文档一个当前字体）：先用内嵌字体；若文档含内嵌字体 cmap 未覆盖的字符，且系统字体 cmap 覆盖了这些字符（如繁体字用 Arial Unicode），则整份文档改用该系统字体；否则仍用内嵌字体（缺字为方框）。
-- **`UNSUPPORTED` 规则保留**：内嵌字体加载失败（构建错误才会发生）**且**没有可用系统 `.ttf`，而文档又含 U+00FF 以上的字符 → 该文件 `UNSUPPORTED`，detail "没有可用的 Unicode 字体"（不输出乱码 PDF）；纯 Latin-1 文档可用内置字体。正常构建下内嵌字体总是可用，该分支基本不会触发，但校验和单元测试要覆盖。
+- **`UNSUPPORTED` 规则保留**：内嵌字体加载失败（构建错误才会发生）**且**没有可用系统 `.ttf`，而文档又含 U+00FF 以上的字符 → 该文件 `UNSUPPORTED`，`message` "没有可用的 Unicode 字体"，`detail` 首行 `reason=no_font`（不输出乱码 PDF）；纯 Latin-1 文档可用内置字体。正常构建下内嵌字体总是可用，该分支基本不会触发，但校验和单元测试要覆盖。
 - **折行（自行折行，#29 实现）**：**有 Unicode 字体（内嵌字体或可加载的系统字体，即 `DocFont.available=true`）时由后端自己折行**：按字体度量逐字符累计宽度，超出版心宽度就换行；CJK 文字可在任意两个字符之间断行，拉丁文字 / 数字按空格断词（单词超宽才强制断开）；**简化的行首行尾禁则**：行首不得出现的标点（`，。、；：？！）》」』】〕…—` 及半角 `,.;:?!)]}` 等）和行尾不得出现的标点（`（《「『【〔([{` 等）不落在不允许的位置，违反时把该标点与相邻字符一起挪到同一行（**只处理单个标点，不做连续标点、完整 JIS X 4051 避头尾规则**）。**没有 Unicode 字体时**（内嵌字体加载失败且无系统 `.ttf`，只能用内置 Helvetica，文档只能含 Latin-1，见下条 `UNSUPPORTED` 规则）**退回 `fpdf` 自带的 `MultiCell`**（无禁则）。这是实现细节，不改任何接口；测试：含长中文段落、行首标点的文档，`pdftotext` 取回文字无丢失、行首不出现 `，。`。
 - DejaVu Sans 不含 CJK 字形，只作为系统补充里的拉丁 / 希腊 / 西里尔备选，不再是 CJK 的判据。`GetDocCapabilities.font` 的语义相应调整：`available` = 内嵌字体或系统字体至少一个可用；`name` = 主用字体（`noto-sans-sc-embedded` 或系统字体名）；`cjk` = 主用字体是否覆盖 GB2312 汉字（内嵌字体为 `true`）。
 
@@ -1012,13 +1015,13 @@ type PDFFile struct {
 
 ### 6.12.3 `ConvertToPDF`：任务 `office_pdf`
 
-- 参数校验与 6.9 同一套规则：`inputs` 非空且 ≤ 50，路径必须绝对（`INVALID_ARGUMENT`），文件不存在 `NOT_FOUND`，是目录 `INVALID_ARGUMENT`，无读权限 `IO_ERROR`；`outputDir` 规则同 6.9（空 = `Settings.defaultOutputDir`，仍空 = 源文件所在文件夹），并在**提交时**同步校验（不放到任务里失败）：必须是绝对路径；**拒绝以 `\\?\`、`\\.\` 开头的路径**（`INVALID_ARGUMENT`）；**拒绝位于应用数据目录之内（含其本身）的路径**（`os.UserConfigDir()/FFmpegFree/`，防止把输出写进 `app.db`、`thumbs/`、`logs/` 旁边并被清理逻辑误伤，`INVALID_ARGUMENT`，`detail` 写 `outputDir 不能在应用数据目录内`；比较前对两边做 `EvalSymlinks` + 大小写按平台规则规范化）；已存在必须是目录且可写，不存在则最近的已存在上级必须是可写目录。**"可写"的判断方式（#29 实现反馈）**：在该目录里**创建一个探测文件**（`os.CreateTemp(dir, ".ffmpegfree-probe-*")`，创建成功后立即关闭并删除），**不用**权限位或 `access()` 推断（Windows 的 ACL、只读挂载、网络盘上权限位不可靠）；创建失败（含权限不足、只读、磁盘满）一律返回 `IO_ERROR`，`detail` 写系统错误文本；探测文件删除失败只记日志，不影响结果。**先整体校验再提交**，任何一个不通过整体失败、不提交任何任务，`detail` 第一行是出错文件路径。
-- 整体校验里额外检查：扩展名在支持表内（否则 `UNSUPPORTED`）；文件 ≤ 100 MiB（否则 `INVALID_ARGUMENT`）；能作为 zip 打开且含必需部件（docx `word/document.xml`，xlsx `xl/workbook.xml`，pptx 至少一张 `ppt/slides/slide<n>.xml`），打不开或缺部件 `INVALID_ARGUMENT`（detail "不是有效的 OOXML 文件"）；**zip 条目数上限 100 000**：打开压缩包之前先只读文件尾部的 EOCD（含 zip64 记录）取条目总数，超过 100 000 → `INVALID_ARGUMENT`（detail "不是有效的 OOXML 文件" / "压缩包条目数超过 100000"，`internal/service/doc/zipcount.go` 的 `MaxZipEntries` / `checkZipEntries`）；读不出条目数（不是 zip、被截断）就交给后面的 zip 打开报错；不是 zip 而是 OLE 头（`D0 CF 11 E0`）→ `UNSUPPORTED`（加密或旧格式改了扩展名）；单个 zip 条目解压后 > 256 MiB `INVALID_ARGUMENT`（防 zip 炸弹）；字体规则见 6.12.1（需要 Unicode 字体而没有 → `UNSUPPORTED`，此项在提交时对文本做一次快速扫描，不通过整体失败）。
+- 参数校验与 6.9 同一套规则：`inputs` 非空且 ≤ 50，路径必须绝对（`INVALID_ARGUMENT`），文件不存在 `NOT_FOUND`，是目录 `INVALID_ARGUMENT`，无读权限 `IO_ERROR`；`outputDir` 规则同 6.9（空 = `Settings.defaultOutputDir`，仍空 = 源文件所在文件夹），并在**提交时**同步校验（不放到任务里失败）：必须是绝对路径；**拒绝以 `\\?\`、`\\.\` 开头的路径**（`INVALID_ARGUMENT`）；**拒绝位于应用数据目录之内（含其本身）的路径**（`os.UserConfigDir()/FFmpegFree/`，防止把输出写进 `app.db`、`thumbs/`、`logs/` 旁边并被清理逻辑误伤，`INVALID_ARGUMENT`，`detail` 写 `outputDir 不能在应用数据目录内`；比较前对两边做 `EvalSymlinks` + 大小写按平台规则规范化）；已存在必须是目录且可写，不存在则最近的已存在上级必须是可写目录。**"可写"的判断方式（#29 实现反馈）**：在该目录里**创建一个探测文件**（`os.CreateTemp(dir, ".ffmpegfree-probe-*")`，创建成功后立即关闭并删除），**不用**权限位或 `access()` 推断（Windows 的 ACL、只读挂载、网络盘上权限位不可靠）；创建失败（含权限不足、只读、磁盘满）一律返回 `IO_ERROR`，`detail` 写系统错误文本；探测文件删除失败只记日志，不影响结果。**先整体校验再提交**，任何一个不通过整体失败、不提交任何任务；`detail` 的形式（v0.16 更正）：**有 reason 的错误首行是 `reason=<枚举>`，第二行是出错文件的绝对路径**，其后是原因说明；没有 reason 的错误（相对路径、文件不存在、目录当文件等）首行仍是出错文件路径。前端定位出错文件时在前两行里找绝对路径。
+- 整体校验里额外检查：扩展名在支持表内（否则 `UNSUPPORTED`）；文件 ≤ 100 MiB（否则 `INVALID_ARGUMENT`，`message` "文件超过 100 MiB"，`detail` 首行 `reason=too_large`）；能作为 zip 打开且含必需部件（docx `word/document.xml`，xlsx `xl/workbook.xml`，pptx 至少一张 `ppt/slides/slide<n>.xml`），打不开或缺部件 `INVALID_ARGUMENT`（`message` "不是有效的 OOXML 文件"，**`detail` 首行 `reason=invalid_ooxml`**）；**zip 条目数上限 100 000**：打开压缩包之前先只读文件尾部的 EOCD（含 zip64 记录）取条目总数，超过 100 000 → `INVALID_ARGUMENT`（`message` "不是有效的 OOXML 文件"，`detail` 首行 `reason=too_large`，说明行 "压缩包条目数超过 100000"，`internal/service/doc/zipcount.go` 的 `MaxZipEntries` / `checkZipEntries`）；读不出条目数（不是 zip、被截断）就交给后面的 zip 打开报错；不是 zip 而是 OLE 头（`D0 CF 11 E0`）→ `UNSUPPORTED`（加密或旧格式改了扩展名，`message` "暂不支持这种格式"，`detail` 首行 `reason=encrypted`）；单个 zip 条目解压后 > 256 MiB `INVALID_ARGUMENT`（防 zip 炸弹，`message` "不是有效的 OOXML 文件"，`detail` 首行 `reason=too_large`）；中央目录字节数 > 9 600 000（伪造 EOCD 防护）同样是 `reason=too_large`，zip64 目录信息无效（占位符没有 zip64 记录）是 `reason=invalid_ooxml`；字体规则见 6.12.1（需要 Unicode 字体而没有 → `UNSUPPORTED`，`message` "没有可用的 Unicode 字体"，`detail` 首行 `reason=no_font`，此项在提交时对文本做一次快速扫描，不通过整体失败）。
 - **不依赖 ffmpeg**（不做 `FFMPEG_NOT_FOUND` 门控）。走 batch 池（与转换共用并发数）；`GoFuncRunner` 实际是 `task.RunnerFunc`。
 - 任务：`type=office_pdf`，`title` 形如 `a.docx → PDF`，`inputPaths=[源]`，`outputPath` 为预期输出，`params={input, outputDir}` JSON。输出 `<源文件名去扩展名>.pdf`，重名追加 `(1)`、`(2)`，不覆盖，走 6.6 `RunWithPart`（`.part.pdf` → 原子改名）；取消或失败不留 `.part`。**已知边界（编号最大 99）**：`.part` 遗留清理只精确拼出 `<name>.part.pdf` 与 `<name>(1..99).part.pdf` 共 100 个候选名，`(n)` 大于 99 的残留文件不会被清理（与 `internal/service/doc/cleanup.go` 一致，不通配、不扫目录）。**启动时 `.part` 遗留清理是可选功能（契约"允许"，是否做由实现 PR 决定）**：若做，必须与 #22 的 6.11.3「`.part` 遗留清理」**五个条件完全一致，缺一不可**——① 文件名只能是由 `interrupted` 的 `office_pdf` 任务 `outputPath` 推出的 `<name>.part.pdf` 和 `<name>(n).part.pdf`（n=1..99）；② 位于该任务记录里登记的 `outputPath` 所在目录（不是任意目录，也不单独扫描默认输出目录）；③ 修改时间早于本次启动；④ 仅普通文件，`Lstat` 不跟随链接，符号链接和目录不动；⑤ 不递归，只看输出目录第一层，不 `ReadDir`。任务管理器统一版（覆盖 `convert`、`office_pdf`）后续单独做（见 6.11.3）。
 - **进度**：按处理单元计数（docx 段落、xlsx 行、pptx 幻灯片）占总数的比例，0~1 单调，完成为 1；每处理约 100 个单元检查一次 ctx，取消响应 ≤ 1 秒（超大文件除外）。`task:progress` 载荷不变，`speed` / `etaSec` 为空。
-- 页数上限 5000：**输出页数超过 5000（生成过程中累计到第 5001 页时立即停止）返回 `UNSUPPORTED`**，detail "超过 5000 页"，不产生输出文件（`.part` 删除）；xlsx 一个工作表所有行都算；xlsx 单元格文本每格最多 32 767 字符（Excel 自身上限），超出截断。**页数按"正在生成的 PDF 的页码"统计，折行产生的页也算**（与 `origin/feat/doc-impl` 4d83299 的 `render.go` 一致：每处理完一个单元检查一次 `pdf.PageNo() > 5000`，写长段落时逐行也检查，超过即停止，所以不会生成超过 5000 页的 PDF）。**已知边界**：① 检查粒度是"一个单元 / 一行"，没有 Unicode 字体时（helvetica 兜底路径，只有西文文档会走到）一个超长段落用 `MultiCell` 整段排完才检查，这一段可能超过 5000 页很多再被拒绝（仍是 `UNSUPPORTED`、不产生输出）；② 提取出的文字总量超过 64 MiB 直接按"超过 5000 页"处理（`UNSUPPORTED`，detail "文档文字量超过上限"），即使按这些文字排出的页数没到 5000。
-- 错误码（任务的 `error`）：`IO_ERROR`（读写失败，没有权限）、`CONVERT_DISK_FULL`（输出写盘失败且是磁盘满，判定规则同 6.9 的系统错误文本匹配；Office 转换也用这个码，前端标题相同）、`UNSUPPORTED`、`INVALID_ARGUMENT`（运行时才发现的损坏）、`INTERNAL`（fpdf / excelize 意外错误，`detail` 是错误文本）；取消是任务状态 `canceled`。
+- 页数上限 5000：**输出页数超过 5000（生成过程中累计到第 5001 页时立即停止）返回 `UNSUPPORTED`**，**`message` "超过 5000 页"（v0.16 更正：原文写成 detail），`detail` 首行 `reason=too_many_pages`**，第二行是说明（"已排到第 N 页仍未结束"），不产生输出文件（`.part` 删除）；xlsx 一个工作表所有行都算；xlsx 单元格文本每格最多 32 767 字符（Excel 自身上限），超出截断。**页数按"正在生成的 PDF 的页码"统计，折行产生的页也算**（与 `origin/feat/doc-impl` 4d83299 的 `render.go` 一致：每处理完一个单元检查一次 `pdf.PageNo() > 5000`，写长段落时逐行也检查，超过即停止，所以不会生成超过 5000 页的 PDF）。**已知边界**：① 检查粒度是"一个单元 / 一行"，没有 Unicode 字体时（helvetica 兜底路径，只有西文文档会走到）一个超长段落用 `MultiCell` 整段排完才检查，这一段可能超过 5000 页很多再被拒绝（仍是 `UNSUPPORTED`、不产生输出）；② 提取出的文字总量超过 64 MiB 直接按"超过 5000 页"处理（`UNSUPPORTED`，`message` "超过 5000 页"，`detail` 首行 `reason=too_many_pages`，说明行 "文档文字量超过上限"），即使按这些文字排出的页数没到 5000。
+- 错误码（任务的 `error`）：`IO_ERROR`（读写失败，没有权限）、`CONVERT_DISK_FULL`（输出写盘失败且是磁盘满，判定规则同 6.9 的系统错误文本匹配；Office 转换也用这个码，前端标题相同）、`UNSUPPORTED`、`INVALID_ARGUMENT`（运行时才发现的损坏，`reason=invalid_ooxml` / `too_large`）、`INTERNAL`（fpdf / excelize 意外错误，`detail` 是错误文本）；取消是任务状态 `canceled`。
 - `Retry`：注册 `office_pdf` 的重试工厂，用 `params` 重建并重新校验（输入被删除 `NOT_FOUND`，不产生新任务）。
 - v1 的"按文件名防重复转换"（`officeConvertingFiles`）取消：两个任务转同一个输入是允许的，输出各自取不冲突的名字。
 
@@ -1026,7 +1029,7 @@ type PDFFile struct {
 
 渲染**完全在前端**：沿用 v1 的 `@tato30/vue-pdf`（pdf.js），后端不渲染成图片、不提供页数 / 文本 / 缩略图接口（后端无纯 Go 的可靠 PDF 渲染器，也不打包 `pdftoppm` 之类外部程序）。后端只负责把字节交给前端：
 
-1. `OpenPDF(path)`：路径必须绝对（`INVALID_ARGUMENT`）、存在（`NOT_FOUND`）、是文件（否则 `INVALID_ARGUMENT`）、可读（`IO_ERROR`）、扩展名 `.pdf`（不区分大小写，否则 `INVALID_ARGUMENT`）、前 1024 字节内含 `%PDF-`（否则 `INVALID_ARGUMENT`，detail "不是 PDF 文件"）、大小 ≤ 512 MiB（否则 `INVALID_ARGUMENT`）。成功后登记句柄并写入 / 更新 `doc_recent`。加密 PDF 也能打开，密码由前端 pdf.js 的 `onPassword` 弹窗处理，后端不接触密码。
+1. `OpenPDF(path)`：路径必须绝对（`INVALID_ARGUMENT`）、存在（`NOT_FOUND`）、是文件（否则 `INVALID_ARGUMENT`）、可读（`IO_ERROR`）、扩展名 `.pdf`（不区分大小写，否则 `INVALID_ARGUMENT`，`message` "只支持 .pdf 文件"，`detail` 首行 `reason=format`）、前 1024 字节内含 `%PDF-`（否则 `INVALID_ARGUMENT`，`message` "不是 PDF 文件"，`detail` 首行 `reason=format`，第二行是路径）、大小 ≤ 512 MiB（否则 `INVALID_ARGUMENT`，`message` "文件超过 512 MiB"，`detail` 首行 `reason=too_large`；`ReadPDFChunk` 发现文件已变大超限时同样）。成功后登记句柄并写入 / 更新 `doc_recent`。加密 PDF 也能打开，密码由前端 pdf.js 的 `onPassword` 弹窗处理，后端不接触密码。
 2. **主路径（size ≤ 64 MiB）：`ReadPDFChunk` 读整份**。前端循环调用 `ReadPDFChunk(id, offset, chunk)` 直到 `eof`，拼成 `Uint8Array` 交给 `usePDF`。只用 Wails Bind，**不依赖 AssetServer 在 Windows 上缓冲响应的行为**（见 6.13 第 9 点）。`chunk` 取 `min(GetDocCapabilities().limits.chunkBytes, 1 MiB)`（1 MiB 的 base64 约 1.4 MiB；Windows 上 Bind 返回值大小是否有上限**未验证**，需要时后端把 `chunkBytes` 调小，前端不用改）。
    - **`Data` 的编码与解码（架构师定）**：`PDFChunk.data` 在 Go 结构体里**直接是 `string`**（不再是 `[]byte`），由后端**显式 `base64.StdEncoding.EncodeToString`**（标准字母表，含 `=` 填充）；因此 Wails 生成的 `frontend/wailsjs/go/models.ts` 里 `PDFChunk.data` 就是 `string`，**前端拿到后直接 `atob`，不需要类型断言**；`length` 是解码后的原始字节数，单块上限 1 MiB，`atob` 解出的字节数必须等于 `length`：`const bin = atob(chunk.data); const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)`（不要用 `Uint8Array.fromBase64`，WebView2 / WebKit 版本不一定有）。**大小口径**：`length` 参数、`chunkBytes`（1 MiB）、`PDFChunk.length` 都按**原始字节**计；base64 编码后 `data` 约为原始的 4/3，一块最多约 **1.4 MiB**（1 MiB → 1 398 104 个字符）。`bytes.length` 必须等于 `chunk.length`（前端校验，见伪代码）。**【未验证】**：没有在真实 Wails 环境里跑过，见 6.12.8 联调项。**实现 PR 仍以生成出来的 `models.ts` 为准**核对字段类型，与这里不一致要回来改契约。
    - `ReadPDFChunk` 每次调用的校验（顺序即优先级，架构师定）：
@@ -1084,6 +1087,24 @@ type PDFFile struct {
 | 应用退出导致调用中断 | `CANCELED` |
 | 库内部意外错误 | `INTERNAL` |
 
+**`message` 与 `detail` 首行对照（v0.16，与 `internal/service/doc` 一致；`message` 是精确文案，前端精确匹配，不得改动）**：
+
+| 场景 | code | `message`（精确） | `detail` 首行 | 出现位置 |
+|---|---|---|---|---|
+| 超过 5000 页（输出页数，含折行；说明行 "已排到第 N 页仍未结束"） | `UNSUPPORTED` | `超过 5000 页` | `reason=too_many_pages` | 任务 `error` |
+| 提取的文字总量超过 64 MiB（说明行 "文档文字量超过上限"） | `UNSUPPORTED` | `超过 5000 页` | `reason=too_many_pages` | 任务 `error` |
+| 不支持的扩展名（doc / xls / ppt / odt / ods / odp / rtf / csv / txt / pdf / pages…）、没有扩展名 | `UNSUPPORTED` | `暂不支持这种格式` | `reason=format` | `ConvertToPDF` 同步校验 |
+| 加密的 Office 文档（OLE 头 `D0 CF 11 E0`） | `UNSUPPORTED` | `暂不支持这种格式` | `reason=encrypted` | `ConvertToPDF` 同步校验 |
+| 需要 Unicode 字体而没有 | `UNSUPPORTED` | `没有可用的 Unicode 字体` | `reason=no_font` | 同步校验 / 任务 `error` |
+| 不是 zip、空文件、缺必需部件、XML 损坏、zip64 目录信息无效 | `INVALID_ARGUMENT` | `不是有效的 OOXML 文件` | `reason=invalid_ooxml` | 同步校验 / 任务 `error` |
+| zip 条目数 > 100 000、中央目录 > 9 600 000 字节、单个条目解压后 > 256 MiB | `INVALID_ARGUMENT` | `不是有效的 OOXML 文件` | `reason=too_large` | 同步校验 / 任务 `error` |
+| Office 输入文件 > 100 MiB | `INVALID_ARGUMENT` | `文件超过 100 MiB` | `reason=too_large` | `ConvertToPDF` 同步校验 |
+| `OpenPDF` 扩展名不是 `.pdf` | `INVALID_ARGUMENT` | `只支持 .pdf 文件` | `reason=format` | `OpenPDF` |
+| `OpenPDF` 内容不是 PDF（含空文件） | `INVALID_ARGUMENT` | `不是 PDF 文件` | `reason=format` | `OpenPDF` |
+| PDF > 512 MiB（含 `ReadPDFChunk` 时文件已变大） | `INVALID_ARGUMENT` | `文件超过 512 MiB` | `reason=too_large` | `OpenPDF` / `ReadPDFChunk` |
+
+**没有 reason 的 Doc 错误**（保持现有 code 和 `detail`，`detail` 首行不是 `reason=`）：取消（`CANCELED` "操作已取消"）；磁盘满（`CONVERT_DISK_FULL`）；读写失败 / 无权限（`IO_ERROR`）；文件 / PDF / 句柄不存在或已失效（`NOT_FOUND`）；路径非绝对、路径不合法、目录当文件、不是普通文件、`outputDir` 相关、`inputs` 为空或超过 50 个、`length` / `offset` 越界、`RemoveRecentPDFs` 超过 500 个（`INVALID_ARGUMENT`）；内部错误（`INTERNAL`）；加密 PDF 没有错误（能打开，密码由前端 pdf.js 处理），所以**没有 PDF 的 `reason=encrypted`**；LibreOffice 缺失 / 超时不适用（纯 Go 实现，不依赖外部程序）。
+
 `FFMPEG_NOT_FOUND` / `PROBE_FAILED` / `PROCESS_FAILED` 不会由 DocService 返回。
 
 ### 6.12.7 示例（JSON 数值是示意；`data` 为节选）
@@ -1130,9 +1151,9 @@ type PDFFile struct {
 { "offset": 0, "length": 1048576, "eof": false, "size": 2411724, "data": "JVBERi0xLjcKJeLjz9MK…" }
 ```
 
-AppError（转换不支持的格式；`detail` 第一行是出错文件路径）：
+AppError（转换不支持的格式；v0.16：`detail` 首行是 `reason=`，第二行是出错文件路径）：
 ```json
-{ "code": "UNSUPPORTED", "message": "不支持转换该格式", "detail": "C:\\Docs\\旧文档.doc\n旧版 DOC 格式暂不支持，请先另存为 docx" }
+{ "code": "UNSUPPORTED", "message": "暂不支持这种格式", "detail": "reason=format\nC:\\Docs\\旧文档.doc\n.doc：旧版二进制格式，请先另存为 docx" }
 ```
 AppError（句柄失效）：
 ```json

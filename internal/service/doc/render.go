@@ -92,7 +92,7 @@ func renderPDF(ctx context.Context, m *docModel, choice fontChoice, part string,
 			pdf.AddPage()
 		}
 		if pdf.PageNo() > MaxPages {
-			return apperr.New(apperr.Unsupported, "超过 5000 页").WithDetail(fmt.Sprintf("已排到第 %d 页仍未结束", pdf.PageNo()))
+			return reasonErr(apperr.Unsupported, "超过 5000 页", reasonTooManyPages, fmt.Sprintf("已排到第 %d 页仍未结束", pdf.PageNo()))
 		}
 		if u.tick {
 			done++
