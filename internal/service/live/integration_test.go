@@ -330,6 +330,7 @@ func TestIntegrationAuthRejected(t *testing.T) {
 	if d.Status != task.StatusFailed || d.Error == nil || d.Error.Code != apperr.LivePushRejected {
 		t.Fatalf("%+v %+v", d, d.Error)
 	}
+	t.Logf("rejected detail:\n%s", d.Error.Detail)
 	for _, s := range []string{"WRONGpass", "secretpass", "pass=", "k2"} {
 		if strings.Contains(d.Error.Detail+d.Title+d.Params+r.logText(t, tk.ID)+r.em.jsonAll(), s) && s != "pass=" {
 			t.Fatalf("泄露 %q", s)
@@ -348,6 +349,9 @@ func TestIntegrationServerKilledMidStream(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 	m.stop()
 	d := r.wait(t, tk.ID)
+	if d.Error != nil {
+		t.Logf("interrupted detail:\n%s", d.Error.Detail)
+	}
 	if d.Status != task.StatusFailed || d.Error == nil || d.Error.Code != apperr.LivePushInterrupted {
 		t.Fatalf("推流中途杀掉服务器应 LIVE_PUSH_INTERRUPTED: %+v %+v\n%s", d, d.Error, tailLines(r.logText(t, tk.ID), 8))
 	}
