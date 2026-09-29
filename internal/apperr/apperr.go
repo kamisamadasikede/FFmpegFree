@@ -21,6 +21,14 @@ const (
 	ProcessFailed       Code = "PROCESS_FAILED"
 	UnsupportedPlatform Code = "UNSUPPORTED_PLATFORM"
 	Internal            Code = "INTERNAL"
+
+	// 直播 / 录屏相关，后端返回（契约第 2 节）。
+	// LIVE_PLAY_FAILED、LIVE_CORS_BLOCKED 是前端播放器自己产生的，不在这里定义。
+	LiveURLInvalid         Code = "LIVE_URL_INVALID"
+	LiveConnectFailed      Code = "LIVE_CONNECT_FAILED"
+	LivePushRejected       Code = "LIVE_PUSH_REJECTED"
+	LivePushInterrupted    Code = "LIVE_PUSH_INTERRUPTED"
+	ScreenPermissionDenied Code = "SCREEN_PERMISSION_DENIED"
 )
 
 // AppError 同时用于 Bind 返回值和持久化到 tasks.error 列。

@@ -34,3 +34,18 @@ func TestFromAndIs(t *testing.T) {
 		t.Fatal("nil 应返回 nil")
 	}
 }
+
+func TestLiveCodesMatchContract(t *testing.T) {
+	want := map[Code]string{
+		LiveURLInvalid:         "LIVE_URL_INVALID",
+		LiveConnectFailed:      "LIVE_CONNECT_FAILED",
+		LivePushRejected:       "LIVE_PUSH_REJECTED",
+		LivePushInterrupted:    "LIVE_PUSH_INTERRUPTED",
+		ScreenPermissionDenied: "SCREEN_PERMISSION_DENIED",
+	}
+	for c, s := range want {
+		if string(c) != s {
+			t.Fatalf("%q != %q", c, s)
+		}
+	}
+}
