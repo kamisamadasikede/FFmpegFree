@@ -2,7 +2,10 @@
   <aside class="lpanel" :class="{ form: !flat }">
     <div class="phead"><h2>{{ title }}</h2><slot name="head" /></div>
     <div class="pbody" :class="{ flat }"><slot /></div>
-    <div v-if="note || $slots.action" class="foot"><small v-if="note">{{ note }}</small><span class="sp" /><slot name="action" /></div>
+    <div v-if="note || $slots.action" class="foot" :class="{ stack: $slots['action-top'] }">
+      <div v-if="$slots['action-top']" class="top"><slot name="action-top" /></div>
+      <div class="btns"><small v-if="note">{{ note }}</small><span class="sp" /><slot name="action" /></div>
+    </div>
     <slot name="foot" />
   </aside>
 </template>
@@ -67,6 +70,23 @@ h2 {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+  flex: none;
+}
+.btns {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+/* 启动表单：开关块在上、按钮在下靠右（设计说明 §5.1） */
+.foot.stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.foot.stack .btns {
   flex: none;
 }
 .foot small {

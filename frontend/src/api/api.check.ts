@@ -17,6 +17,9 @@ import { ffmpegStatusView } from '@/components/ffmpeg/statusView'
 import { splitMiddle, nextZoom, thumbWindow, formatRecentTime, extBadge } from '@/utils/docLogic'
 import { onSimEvent } from '@/services/wails'
 import { retrySimTask, SIM_TITLE_PREFIX } from './sim'
+import { PreviewPoller, previewDataUrl, type PollerClock } from './livePreviewPoller'
+import { PullPreviewController, type PullPreviewApi } from './pullPreviewSession'
+import * as pvMsg from '@/errors/livePreviewMessages'
 import * as encApi from './encoder'
 import { deriveEncoderView, createSeq } from './encoderView'
 import * as encMsg from '@/errors/encoderMessages'
@@ -736,6 +739,299 @@ export async function runApiChecks(): Promise<string[]> {
     const allText = JSON.stringify(Object.values(encMsg).map((x) => (typeof x === 'function' ? (x as (...a: unknown[]) => string)(2, 'GPU') : x)))
     eq('编码设备文案不含编码器名（NVENC / QSV / AMF / VideoToolbox）', /nvenc|qsv|amf|videotoolbox|h264_|hevc_/i.test(allText), false)
     eq('回退文案锁定（设计稿，待产品经理确认）', [encMsg.ENCODER_FALLBACK_SETTINGS_LINK, encMsg.ENCODER_FALLBACK_LOG_LINK], ['编码设置', '查看日志'])
+  }
+
+  // ---- 直播预览（轮询核心用假时钟，不真等；设计说明 6.1 / 6.2）----
+  {
+    class FakeClock implements PollerClock {
+      t = 0
+      private seq = 0
+      private timers = new Map<number, { at: number; fn: () => void }>()
+      now() { return this.t }
+      setTimeout(fn: () => void, ms: number) { const id = ++this.seq; this.timers.set(id, { at: this.t + ms, fn }); return id }
+      clearTimeout(h: unknown) { this.timers.delete(h as number) }
+      async flush() { for (let i = 0; i < 20; i++) await Promise.resolve() }
+      /** 前进 ms，按时间顺序触发定时器，每次触发后让 Promise 回调跑完 */
+      async advance(ms: number) {
+        await this.flush() // 先让刚 resolve 的 Promise 回调跑完（它们会排定时器）
+        const end = this.t + ms
+        for (;;) {
+          let best: [number, { at: number; fn: () => void }] | null = null
+          for (const e of this.timers) if (e[1].at <= end && (!best || e[1].at < best[1].at)) best = e
+          if (!best) break
+          this.timers.delete(best[0])
+          this.t = Math.max(this.t, best[1].at)
+          best[1].fn()
+          await this.flush()
+        }
+        this.t = end
+        await this.flush()
+      }
+    }
+    const FRAME = { data: 'AAAA', ts: 1000, active: true }
+    const EMPTY = { data: '', ts: 0, active: true }
+    type R = { data: string; ts: number; active: boolean }
+    /** 可控的 fetch：每次调用记下来，由测试决定何时、如何返回 */
+    const mk = (opt: Partial<ConstructorParameters<typeof PreviewPoller>[0]> = {}) => {
+      const clock = new FakeClock()
+      const calls: { id: string; resolve: (r: R) => void; reject: (e: unknown) => void }[] = []
+      const snaps: string[] = []
+      const p = new PreviewPoller({
+        clock,
+        fetch: (id) => new Promise<R>((resolve, reject) => calls.push({ id, resolve, reject })),
+        onChange: (s) => snaps.push(s.phase),
+        ...opt,
+      })
+      return { clock, calls, snaps, p }
+    }
+    // 1) 请求不重叠：上一次没返回不发下一次
+    {
+      const { clock, calls, p } = mk()
+      p.start('s1')
+      await clock.flush()
+      eq('轮询：start 立即取一次', calls.length, 1)
+      await clock.advance(3000)
+      eq('轮询：上一次没返回，不叠加新请求', calls.length, 1)
+      calls[0].resolve(FRAME)
+      await clock.flush()
+      eq('轮询：拿到帧 → ok', [p.snap.phase, p.snap.data], ['ok', 'AAAA'])
+      await clock.advance(500)
+      eq('轮询：返回后约 500ms 再取下一次', calls.length, 2)
+      p.dispose()
+    }
+    // 2) 空帧不是错误：从未有画面 = 加载中；有过画面之后空帧保持上一帧
+    {
+      const { clock, calls, p } = mk()
+      p.start('s2')
+      await clock.flush()
+      calls[0].resolve(EMPTY)
+      await clock.advance(500)
+      eq('空帧：仍是加载中，不算出错', [p.snap.phase, calls.length], ['loading', 2])
+      calls[1].resolve(FRAME)
+      await clock.advance(500)
+      calls[2].resolve(EMPTY)
+      await clock.advance(500)
+      eq('空帧：有过画面后保持上一帧', [p.snap.phase, p.snap.data], ['ok', 'AAAA'])
+      p.dispose()
+    }
+    // 3) 10 秒首帧超时（空帧一直来）→ 失败，且不再自动轮询；重试后重新开始
+    {
+      const { clock, calls, p } = mk()
+      p.start('s3')
+      await clock.flush()
+      for (let i = 0; i < 19; i++) {
+        calls[calls.length - 1].resolve(EMPTY)
+        await clock.advance(500)
+      }
+      eq('首帧：9.5 秒仍空 → 还是加载中', p.snap.phase, 'loading')
+      calls[calls.length - 1].resolve(EMPTY)
+      await clock.advance(500)
+      eq('首帧：10 秒仍没有画面 → 失败', p.snap.phase, 'failed')
+      const n = calls.length
+      await clock.advance(5000)
+      eq('失败后不再自动轮询', calls.length, n)
+      p.retry()
+      await clock.flush()
+      eq('重试：回到加载中并重新取帧', [p.snap.phase, calls.length], ['loading', n + 1])
+      calls[calls.length - 1].resolve(EMPTY)
+      await clock.advance(9000)
+      eq('重试后首帧计时重新开始（9 秒内不失败）', p.snap.phase, 'loading')
+      p.dispose()
+    }
+    // 4) 连续 5 次出错 → 失败；期间成功一次（含空帧）清零
+    {
+      const { clock, calls, p } = mk()
+      p.start('s4')
+      await clock.flush()
+      for (let i = 0; i < 4; i++) {
+        calls[calls.length - 1].reject(new Error('x'))
+        await clock.advance(500)
+      }
+      eq('出错：连续 4 次还不失败', p.snap.phase, 'loading')
+      calls[calls.length - 1].resolve(EMPTY) // 空帧算成功，清零
+      await clock.advance(500)
+      for (let i = 0; i < 4; i++) {
+        calls[calls.length - 1].reject(new Error('x'))
+        await clock.advance(500)
+      }
+      eq('出错：中间成功一次清零，再 4 次仍不失败', p.snap.phase, 'loading')
+      calls[calls.length - 1].reject(new Error('x'))
+      await clock.advance(500)
+      eq('出错：连续 5 次 → 失败', p.snap.phase, 'failed')
+      const n = calls.length
+      await clock.advance(5000)
+      eq('出错失败后不再轮询', calls.length, n)
+      p.retry()
+      await clock.flush()
+      for (let i = 0; i < 4; i++) {
+        calls[calls.length - 1].reject(new Error('x'))
+        await clock.advance(500)
+      }
+      eq('重试后错误计数重新开始（4 次不失败）', p.snap.phase, 'loading')
+      p.dispose()
+    }
+    // 5) 页面隐藏停止、重新可见立即取一次；隐藏时的在途结果被丢弃
+    {
+      const { clock, calls, p } = mk()
+      p.start('s5')
+      await clock.flush()
+      calls[0].resolve(FRAME)
+      await clock.advance(500)
+      const before = calls.length
+      p.setVisible(false)
+      await clock.advance(5000)
+      eq('隐藏：不再发请求（在途的不算）', calls.length, before)
+      calls[before - 1].resolve({ data: 'STALE', ts: 5000, active: true }) // 隐藏后才返回的旧结果
+      await clock.advance(1000)
+      eq('隐藏：在途请求返回的过期结果被丢弃，也不排下一次', [p.snap.data, calls.length], ['AAAA', before])
+      p.setVisible(true)
+      await clock.advance(0)
+      eq('重新可见：立即取一次', calls.length, before + 1)
+      p.dispose()
+    }
+    // 6) 会话结束（active=false）→ 保留末帧、停止请求；stop/reset 后不再请求；过期序号丢弃
+    {
+      const { clock, calls, p } = mk()
+      p.start('s6')
+      await clock.flush()
+      calls[0].resolve(FRAME)
+      await clock.advance(500)
+      calls[1].resolve({ data: '', ts: 0, active: false })
+      await clock.advance(500)
+      eq('结束：phase=ended，保留末帧', [p.snap.phase, p.snap.data], ['ended', 'AAAA'])
+      const n = calls.length
+      await clock.advance(5000)
+      eq('结束：不再请求', calls.length, n)
+      p.start('s6b') // 换会话：旧帧清空
+      await clock.flush()
+      eq('换会话：清空旧画面并重新取', [p.snap.phase, p.snap.data, calls[calls.length - 1].id], ['loading', '', 's6b'])
+      const old = calls[calls.length - 1]
+      p.start('s6c')
+      await clock.flush()
+      old.resolve({ data: 'OLD', ts: 9, active: true }) // s6b 的迟到结果
+      await clock.flush()
+      eq('过期序号：换会话后旧会话的迟到返回被丢弃', p.snap.data, '')
+      p.stop()
+      const m = calls.length
+      await clock.advance(3000)
+      eq('stop 后不再请求', calls.length, m)
+      p.dispose()
+    }
+    // 7) 时间戳只用来丢弃过期帧：ts 更旧的帧不覆盖
+    {
+      const { clock, calls, p } = mk()
+      p.start('s7')
+      await clock.flush()
+      calls[0].resolve({ data: 'NEW', ts: 2000, active: true })
+      await clock.advance(500)
+      calls[1].resolve({ data: 'OLDER', ts: 1500, active: true })
+      await clock.advance(500)
+      eq('过期帧（ts 更旧）不覆盖当前画面', p.snap.data, 'NEW')
+      p.dispose()
+    }
+    eq('预览 data URL 直接拼接、不建 blob', previewDataUrl('QUJD'), 'data:image/jpeg;base64,QUJD')
+
+    // ---- 拉流预览会话：Stop 一定被调用 ----
+    const mkPull = (opt: { startMs?: number; preview?: boolean; failStart?: boolean; failStop?: boolean } = {}) => {
+      const log: string[] = []
+      let n = 0
+      const gate: { release?: () => void } = {}
+      const api: PullPreviewApi = {
+        async start(req) {
+          log.push('start:' + req.url)
+          if (opt.startMs) await new Promise<void>((r) => (gate.release = r))
+          if (opt.failStart) throw new Error('x')
+          return { id: 'ps' + ++n, redacted: 'r', preview: opt.preview !== false }
+        },
+        async stop(id) {
+          log.push('stop:' + id)
+          if (opt.failStop) throw new Error('stop failed')
+        },
+      }
+      return { log, gate, c: new PullPreviewController(api) }
+    }
+    {
+      const { log, c } = mkPull()
+      await c.begin('http://a/x.flv', true)
+      await c.end()
+      eq('拉流：点停止 → Stop 被调用', log, ['start:http://a/x.flv', 'stop:ps1'])
+      await c.end()
+      eq('拉流：重复停止不重复 Stop', log.length, 2)
+    }
+    {
+      const { log, c } = mkPull()
+      const a = c.begin('u', true)
+      const b = c.begin('u', true)
+      await Promise.all([a, b])
+      eq('拉流：重复点击不重复 Start', log.filter((x) => x.startsWith('start')).length, 1)
+      await c.end() // 卸载
+      eq('拉流：卸载（离开页面）→ Stop', log.filter((x) => x.startsWith('stop')), ['stop:ps1'])
+    }
+    {
+      const { log, gate, c } = mkPull({ startMs: 1 })
+      const a = c.begin('u', true)
+      await c.end() // Start 还没返回就点停止 / 离开
+      gate.release?.()
+      await a
+      eq('拉流：Start 在途时被取消 → 返回后补 Stop，且不进入 active', [log, c.state], [['start:u', 'stop:ps1'], 'idle'])
+    }
+    {
+      const { log, c } = mkPull({ failStop: true })
+      await c.begin('u', true)
+      const err = await rejects(c.end())
+      eq('拉流：Stop 自己出错不抛给界面，也算调用过', [err, log], [null, ['start:u', 'stop:ps1']])
+    }
+    {
+      const { log, c } = mkPull({ preview: false })
+      await c.begin('u', true)
+      eq('拉流：后端说不出预览（如纯音频）→ 该会话仍 Stop，状态 off', [log, c.state], [['start:u', 'stop:ps1'], 'off'])
+    }
+    {
+      const { log, c } = mkPull()
+      await c.begin('u', false)
+      eq('拉流：开关关 → 不调后端', [log, c.state], [[], 'off'])
+    }
+    {
+      const { log, c } = mkPull({ failStart: true })
+      await c.begin('u', true)
+      eq('拉流：Start 出错 → failed，没有会话可 Stop', [c.state, log], ['failed', ['start:u']])
+      await c.end()
+      eq('拉流：failed 后 end 不调 Stop', log.length, 1)
+    }
+
+    // ---- 传参与模拟层 ----
+    win.location.search = ''
+    const sp = (url: string, preview?: boolean) => live.startFilePush({ inputPath: '/tmp/a.mp4', url, loop: true, options: live.defaultPushOptions(), ...(preview === undefined ? {} : { preview }) })
+    const tOff = await sp('rtmp://pv1.example/live/k1', false)
+    const tOn = await sp('rtmp://pv2.example/live/k2')
+    win.location.search = '?preview=ok'
+    const off = await live.getPreview(tOff.id)
+    const on = await live.getPreview(tOn.id)
+    win.location.search = ''
+    eq('preview:false 透传：模拟层记下，GetPreview 恒空但会话仍 active', [off.data, off.active], ['', true])
+    eq('缺省 preview 视为开：?preview=ok 出 JPEG 帧（SOI 开头）', [on.active, Buffer.from(on.data, 'base64').subarray(0, 2).toString('hex')], [true, 'ffd8'])
+    eq('模拟层默认（无 ?preview）不假装有画面', (await live.getPreview(tOn.id)).data, '')
+    eq('未知会话：空且 active=false（不是错误）', await live.getPreview('nope'), { data: '', ts: 0, active: false })
+    win.location.search = '?preview=error'
+    eq('?preview=error：取帧出错', (await rejects(live.getPreview(tOn.id)))?.code, 'INTERNAL')
+    win.location.search = '?preview=never'
+    eq('?preview=never：一直空', (await live.getPreview(tOn.id)).data, '')
+    win.location.search = ''
+    await live.stopPush(tOff.id).catch(() => undefined)
+    await live.stopPush(tOn.id).catch(() => undefined)
+    win.location.search = '?preview=ok'
+    const pull0 = live.simPullPreviewCount()
+    const ps1 = await live.startPullPreview({ url: 'http://pull.example/a.flv' })
+    const ps2 = await live.startPullPreview({ url: 'http://pull.example/a.flv' })
+    eq('模拟拉流预览：同地址幂等；?preview 时出画面', [ps1.id === ps2.id, ps1.preview, live.simPullPreviewCount() - pull0], [true, true, 1])
+    eq('模拟拉流预览：有画面', (await live.getPreview(ps1.id)).data.length > 10, true)
+    await live.stopPullPreview(ps1.id)
+    eq('模拟拉流预览：Stop 后会话消失，GetPreview 空且 inactive', [live.simPullPreviewCount() - pull0, await live.getPreview(ps1.id)], [0, { data: '', ts: 0, active: false }])
+    win.location.search = ''
+    eq('拉流预览会话默认不出画面', (await live.startPullPreview({ url: 'http://pull.example/b.flv' })).preview, false)
+    await live.stopPullPreview((await live.startPullPreview({ url: 'http://pull.example/b.flv' })).id)
+    // 文案里没有编码器名，时间戳不进文案
+    eq('预览文案锁定（待产品经理确认的自拟部分除外）', [pvMsg.PREVIEW_LOADING_TITLE, pvMsg.PREVIEW_SWITCH_LABEL, pvMsg.PREVIEW_SWITCH_NOTE, pvMsg.PREVIEW_ROW_ON, pvMsg.PREVIEW_ROW_OFF, pvMsg.PREVIEW_OFF_TITLE], ['正在获取画面，通常需要几秒', '开启预览', '开启预览会多占用少量 CPU，只能在开始前选择', '预览：开', '预览：关', '该会话未开启预览'])
   }
   return fails
 }

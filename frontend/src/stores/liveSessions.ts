@@ -29,6 +29,8 @@ export interface LiveRow {
   bitrateKbps: number | null
   /** 屏幕推流的采集来源名（屏幕名 / 窗口标题）：只在本机界面显示，**不脱敏但不写日志、不进错误 detail**；刷新后接回的会话取不到 */
   source?: { title: string; kind: 'screen' | 'window' }
+  /** 这一路开始时是否带预览（会话启动参数，运行中不能改）；刷新后接回的会话后端没告诉我们，为 undefined（按“有预览”去取，取不到会转“失败”） */
+  preview?: boolean
 }
 
 export const MAX_LIVE_SESSIONS = 4
@@ -43,6 +45,8 @@ export type BeginResult = { ok: true } | { ok: false; error: AppError }
  */
 export const useLiveSessionsStore = defineStore('liveSessions', () => {
   const rows = ref<LiveRow[]>([])
+  /** 预览面板当前显示的会话（任务 id）；空 = 自动取第一个进行中的会话 */
+  const previewId = ref('')
   const offs = new Map<string, () => void>()
   let recovered = false
 
@@ -77,14 +81,14 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
    * 新开的推流：订阅任务事件。第一条 progress 到了 → 加一行“运行中”并 resolve ok；
    * 还没连上就 failed → resolve 失败（错误交给表单显示，不进列表）；没连上就 succeeded / canceled / interrupted → 直接加一条终态行。
    */
-  function begin(task: liveApi.ApiTask, meta: { kind: 'file' | 'screen'; redactedUrl: string; archive: boolean; source?: { title: string; kind: 'screen' | 'window' } }): Promise<BeginResult> {
+  function begin(task: liveApi.ApiTask, meta: { kind: 'file' | 'screen'; redactedUrl: string; archive: boolean; source?: { title: string; kind: 'screen' | 'window' }; preview?: boolean }): Promise<BeginResult> {
     return new Promise((resolve) => {
       let connected = false
       const add = (status: LiveRowStatus, endedAt: number, outputPath = '') => {
         if (find(task.id)) return
         rows.value.unshift({
           id: task.id, kind: meta.kind, url: displayPushUrl(meta.redactedUrl), status, archive: meta.archive,
-          outputPath, startedAt: Date.now(), endedAt, bitrateKbps: null, ...(meta.source ? { source: meta.source } : {}),
+          outputPath, startedAt: Date.now(), endedAt, bitrateKbps: null, ...(meta.source ? { source: meta.source } : {}), ...(meta.preview !== undefined ? { preview: meta.preview } : {}),
         })
       }
       const off = liveApi.watchLiveTask(task.id, {
@@ -198,7 +202,7 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
     const win = new URLSearchParams(window.location.search).get('src') === 'window' // 预览：?src=window 会话行显示窗口来源（含很长的标题）
     const mk = (kind: 'file' | 'screen', u: keyof typeof U, status: LiveRowStatus, sec: number, kb: number | null, arc = false): LiveRow => ({
       id: `preview-${++n}`, kind, url: U[u], status, archive: arc,
-      ...(kind === 'screen' ? { source: win && n % 2 === 1 ? { title: '2026 年第三季度经营分析汇报（终稿）.pptx - PowerPoint', kind: 'window' as const } : { title: '屏幕 1', kind: 'screen' as const } } : {}), outputPath: arc && status !== 'run' && status !== 'stp' && status !== 'int' ? ARC : '',
+      ...(kind === 'screen' ? { source: win && n % 2 === 1 ? { title: '2026 年第三季度经营分析汇报（终稿）.pptx - PowerPoint', kind: 'window' as const } : { title: '屏幕 1（主显示器）', kind: 'screen' as const } } : {}), outputPath: arc && status !== 'run' && status !== 'stp' && status !== 'int' ? ARC : '',
       startedAt: now - sec * 1000, endedAt: status === 'run' || status === 'stp' ? 0 : now, bitrateKbps: arc ? null : kb,
     })
     const t = (h: number, m: number, s: number) => h * 3600 + m * 60 + s
@@ -225,8 +229,14 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
     // cancelarc 强杀且存档保留：canceled 且 outputPath 非空
     const list = (map[name] ?? (() => []))()
     for (const r of list) if (r.status === 'cnl' && r.archive) r.outputPath = ARC
+    // 开发演示：?rowspv=1,0,1 逐行指定“预览：开/关”（缺省都是开）；?pvsel=2 选中第 N 行作为当前预览行
+    const pvs = (new URLSearchParams(window.location.search).get('rowspv') ?? '').split(',').filter(Boolean)
+    list.forEach((r, i) => (r.preview = pvs[i] !== '0'))
+    const sel = Number(new URLSearchParams(window.location.search).get('pvsel'))
+    if (sel >= 1 && list[sel - 1]) previewId.value = list[sel - 1].id
     rows.value = list
   }
 
-  return { rows, busyCount, begin, recover, stop, forceStop, remove, reveal }
+  const selectPreview = (id: string) => (previewId.value = id)
+  return { rows, previewId, selectPreview, busyCount, begin, recover, stop, forceStop, remove, reveal }
 })

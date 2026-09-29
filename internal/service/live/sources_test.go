@@ -18,8 +18,8 @@ func winFixture(t *testing.T, wins *[]RawWindow, mut func(*Config)) *fixture {
 		c.GOOS = "windows"
 		c.Monitors = func() ([]ScreenInfo, error) {
 			return []ScreenInfo{
-				{ID: "monitor:0", Name: "显示器 1（主）", Primary: true, X: 0, Y: 0, Width: 1920, Height: 1080, Scale: 1},
-				{ID: "monitor:1", Name: "显示器 2", X: -1280, Y: 0, Width: 1280, Height: 720, Scale: 1},
+				{ID: "monitor:0", Name: "屏幕 1（主显示器）", Primary: true, X: 0, Y: 0, Width: 1920, Height: 1080, Scale: 1},
+				{ID: "monitor:1", Name: "屏幕 2", X: -1280, Y: 0, Width: 1280, Height: 720, Scale: 1},
 			}, nil
 		}
 		c.EnumWindows = func() ([]RawWindow, error) { return append([]RawWindow(nil), *wins...), nil }
@@ -44,8 +44,8 @@ func TestListCaptureSourcesLinuxOnlyScreens(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []CaptureSource{
-		{ID: "screen:0", Kind: "screen", Title: "显示器 1（主）", Width: 1920, Height: 1080},
-		{ID: "screen:1", Kind: "screen", Title: "显示器 2", Width: 1280, Height: 720},
+		{ID: "screen:0", Kind: "screen", Title: "屏幕 1（主显示器）", Width: 1920, Height: 1080},
+		{ID: "screen:1", Kind: "screen", Title: "屏幕 2", Width: 1280, Height: 720},
 	}
 	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("%+v", got)

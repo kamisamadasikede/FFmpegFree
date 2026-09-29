@@ -1,6 +1,9 @@
 <template>
   <LiveTabFrame>
-    <template #main><LiveSessionList empty-hint="选择屏幕并填写推流地址，点击“开始推流”" /></template>
+    <template #main>
+      <LivePushPreview />
+      <LiveSessionList empty-hint="选择屏幕并填写推流地址，点击“开始推流”" />
+    </template>
     <template #panel>
       <LivePanel title="推流设置">
         <LiveField :label="LIVE_SOURCE_FIELD_LABEL" :control="false">
@@ -27,6 +30,9 @@
           </LiveField>
         </template>
         <LiveFormError v-if="err?.where === 'form'" :text="err.text" class="form-err" />
+        <template #action-top>
+          <PreviewSwitch v-model="previewOn" :disabled="blocked || starting" :note="starting ? PREVIEW_SWITCH_NOTE_STARTING : undefined" />
+        </template>
         <template #action>
           <LiveButton variant="pri" lg icon="play" :disabled="!canStart" :tip-when-disabled="blocked ? '需要先安装 ffmpeg' : undefined" @click="start">开始推流</LiveButton>
         </template>
@@ -48,10 +54,13 @@ import LiveInput from '@/components/live/LiveInput.vue'
 import LiveButton from '@/components/live/LiveButton.vue'
 import LiveFormError from '@/components/live/LiveFormError.vue'
 import CaptureSourcePicker from '@/components/live/CaptureSourcePicker.vue'
+import LivePushPreview from '@/components/live/LivePushPreview.vue'
+import PreviewSwitch from '@/components/live/PreviewSwitch.vue'
 import LiveSessionList from '@/components/live/LiveSessionList.vue'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { useLiveSessionsStore } from '@/stores/liveSessions'
 import { LIVE_SCREEN_NO_AUDIO_TEXT, LIVE_SOURCE_FIELD_LABEL, LIVE_SRT_PASSPHRASE_TEXT, liveSourceGoneText } from '@/errors/errorMessages'
+import { PREVIEW_SWITCH_NOTE_STARTING } from '@/errors/livePreviewMessages'
 import { composePushUrl, parsePushUrl } from '@/utils/liveUrl'
 import * as liveApi from '@/api/live'
 import { toAppError, type AppError } from '@/api/call'
@@ -70,6 +79,8 @@ const sources = ref<liveApi.CaptureSource[]>([])
 const sourceId = ref('')
 const srcState = ref<'loading' | 'ready' | 'empty' | 'failed'>('loading')
 let srcSeq = 0
+/** 预览开关：会话启动参数，默认开；产品经理已定：不记住上次选择，每次打开表单默认开 */
+const previewOn = ref(true)
 const baseUrl = ref('')
 const key = ref('')
 const archiveOn = ref(false)
@@ -159,8 +170,8 @@ async function start() {
   }
   starting.value = true
   try {
-    const task = await liveApi.startScreenPush({ url: full, screenId: '', captureSourceId: sourceId.value, hideCursor: false, audio: 'none', archiveDir: dir, options: liveApi.defaultPushOptions() })
-    const r = await store.begin(task, { kind: 'screen', redactedUrl: check.info.redacted, archive: !!dir, source: pickedSource(sourceId.value) })
+    const task = await liveApi.startScreenPush({ url: full, screenId: '', captureSourceId: sourceId.value, hideCursor: false, audio: 'none', archiveDir: dir, options: liveApi.defaultPushOptions(), preview: previewOn.value })
+    const r = await store.begin(task, { kind: 'screen', redactedUrl: check.info.redacted, archive: !!dir, source: pickedSource(sourceId.value), preview: previewOn.value })
     if (!r.ok) showError(r.error, check.info.scheme)
     else key.value = ''
   } catch (e) {

@@ -368,14 +368,14 @@ type PullSession struct {
 type CaptureSource struct {
     ID     string `json:"id"`     // 不透明字符串，前端原样传回 captureSourceId。screen:<序号>（序号是 ListScreens 结果里的位置，从 0 起，第 0 个不一定是主显示器）；window:<hwnd 十进制>（无符号十进制，无前导零）
     Kind   string `json:"kind"`   // screen | window。macOS / Linux 永远只有 screen，不返回 window
-    Title  string `json:"title"`  // screen：ScreenInfo.Name（如 "显示器 1（主）"）；window：窗口标题原文
+    Title  string `json:"title"`  // screen：ScreenInfo.Name（如 "屏幕 1（主显示器）"）；window：窗口标题原文
     Width  int    `json:"width"`  // 物理像素；window 是客户区大小（gdigrab 采的就是客户区）；查不到为 0
     Height int    `json:"height"`
 }
 
 type ScreenInfo struct {
     ID      string  `json:"id"`      // 不透明字符串，前端只原样传回：windows "monitor:<序号>"、darwin "avf:<设备序号>"、linux "x11:<输出名>" 或 "x11:desktop"
-    Name    string  `json:"name"`    // 如 "显示器 1（主）"
+    Name    string  `json:"name"`    // 如 "屏幕 1（主显示器）"
     Primary bool    `json:"primary"`
     X       int     `json:"x"`       // 在虚拟桌面里的位置，物理像素；查不到为 0
     Y       int     `json:"y"`
@@ -412,7 +412,7 @@ type PushURLInfo struct {
 
 **推流密钥 / 凭据脱敏**（规则、覆盖范围和测试要求见 6.10）：地址里的用户信息、rtmp / rtmps 的流名（应用名之后的路径）、所有查询参数的值一律显示成 `***`；标题、`params`、任务日志、错误的 `message` / `detail`、所有事件 payload、后端日志都只出现脱敏后的地址；完整地址不落库、不写文件。
 
-**任务字段**：`type` 是 `live_file_push` / `live_screen_push`；`title` 如 `文件推流：a.mp4 → rtmp://host/app/***`、`屏幕推流：显示器 1（主） → srt://host:9000?streamid=***&passphrase=***`；`inputPaths` 文件推流为 `[inputPath]`、屏幕推流为 `[]`；`outputPath` 是本地存档的最终路径，没存档为 `""`；`params` 见 6.10。
+**任务字段**：`type` 是 `live_file_push` / `live_screen_push`；`title` 如 `文件推流：a.mp4 → rtmp://host/app/***`、`屏幕推流：屏幕 1（主显示器） → srt://host:9000?streamid=***&passphrase=***`；`inputPaths` 文件推流为 `[inputPath]`、屏幕推流为 `[]`；`outputPath` 是本地存档的最终路径，没存档为 `""`；`params` 见 6.10。
 
 **示例（JSON 数值是示意）**
 

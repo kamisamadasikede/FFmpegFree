@@ -19,12 +19,15 @@
             <div v-else-if="r.status === 'int'" class="lv-s int"><FIcon name="warn" :size="14" />推流中断</div>
             <div v-else-if="r.outputPath" class="lv-info"><FIcon name="info" :size="14" /><span>{{ LIVE_CANCELED_ARCHIVE_KEPT_TEXT }}</span></div>
             <div v-else class="lv-s cnl"><FIcon name="stop" :size="14" />{{ LIVE_STOP_TEXT.canceled }}</div>
+            <div v-if="r.status === 'run' || r.status === 'stp'" class="pvr" :title="PREVIEW_ROW_TITLE"><span :class="{ off: r.preview === false }">{{ r.preview === false ? PREVIEW_ROW_OFF : PREVIEW_ROW_ON }}</span></div>
             <LiveButton v-if="showFolder(r)" sm icon="folder" class="fold" :disabled="blocked" :tip-when-disabled="FFMPEG_TIP" @click="store.reveal(r.id)">打开所在文件夹</LiveButton>
           </div>
           <div class="nu">{{ elapsed(r) }}</div>
           <div class="nu">{{ r.archive ? '—' : r.bitrateKbps ? `${r.bitrateKbps} kbps` : '—' }}</div>
           <div class="ac">
             <template v-if="r.status === 'run'">
+              <span v-if="isCurrent(r)" class="cur"><FIcon :name="r.preview === false ? 'block' : 'eye'" :size="14" />{{ r.preview === false ? PREVIEW_ROW_SELECTED : PREVIEW_ROW_CURRENT }}</span>
+              <LiveButton v-else-if="r.preview !== false && store.rows.filter((x) => x.status === 'run' || x.status === 'stp').length > 1" sm variant="text" @click="store.selectPreview(r.id)">{{ PREVIEW_ROW_VIEW }}</LiveButton>
               <LiveButton sm :disabled="blocked" :tip-when-disabled="FFMPEG_TIP" @click="store.stop(r.id)">停止</LiveButton>
             </template>
             <template v-else-if="r.status === 'stp'">
@@ -46,6 +49,7 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import FIcon from '../icon/FIcon.vue'
 import LivePanel from './LivePanel.vue'
 import LiveButton from './LiveButton.vue'
+import { PREVIEW_ROW_CURRENT, PREVIEW_ROW_OFF, PREVIEW_ROW_ON, PREVIEW_ROW_SELECTED, PREVIEW_ROW_TITLE, PREVIEW_ROW_VIEW } from '@/errors/livePreviewMessages'
 import { LIVE_CANCELED_ARCHIVE_KEPT_TEXT, LIVE_STOPPING_TEXT, LIVE_STOP_TEXT } from '@/errors/errorMessages'
 import { MAX_LIVE_SESSIONS, useLiveSessionsStore, type LiveRow } from '@/stores/liveSessions'
 import { useFFmpegStore } from '@/stores/ffmpeg'
@@ -60,6 +64,13 @@ const now = ref(Date.now())
 const timer = setInterval(() => (now.value = Date.now()), 1000)
 onBeforeUnmount(() => clearInterval(timer))
 
+/** 与预览面板同一规则：用户选的运行中行，否则第一个进行中的会话 */
+const isCurrent = (r: LiveRow) => {
+  const live = store.rows.filter((x) => x.status === 'run' || x.status === 'stp')
+  if (live.length < 2) return false
+  const chosen = live.find((x) => x.id === store.previewId)
+  return (chosen ?? live[0]).id === r.id
+}
 const elapsed = (r: LiveRow) => formatClock(((r.endedAt || now.value) - r.startedAt) / 1000)
 /** 有存档且已结束（已结束推流 / 强杀且存档保留）才有 [打开所在文件夹]；放在状态文案下方 */
 const showFolder = (r: LiveRow) => (r.status === 'ok' || r.status === 'cnl') && !!r.outputPath
@@ -94,7 +105,24 @@ const showFolder = (r: LiveRow) => (r.status === 'ok' || r.status === 'cnl') && 
 }
 .lv-th span:nth-child(2),
 .lv-th span:nth-child(3),
-.lv-r .src {
+.lv-r .pvr {
+  font-size: var(--ff-fs-xs);
+  line-height: 16px;
+  color: var(--ff-text-1);
+  font-weight: 500;
+}
+.pvr .off {
+  color: var(--ff-text-2);
+}
+.cur {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--ff-fs-xs);
+  color: var(--ff-primary-text);
+  white-space: nowrap;
+}
+.src {
   display: flex;
   align-items: center;
   gap: 6px;
