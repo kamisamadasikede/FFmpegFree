@@ -88,3 +88,10 @@ export function resetEncoderDeviceCache(): void {
   devices.value = null
   loading = null
 }
+
+// ---- “编码设置”链接：跳到设置页并定位到“编码设备”----
+/** 设置页里“编码设备”分组的锚点 id 和路由 query（?section=encoder） */
+export const ENCODER_SECTION_ID = 'sec-encoder'
+export const ENCODER_SECTION_QUERY = 'encoder'
+/** 提示条“编码设置”的跳转目标；设置页读 query.section 后滚动并聚焦该分组（分组只在 encoderPanelVisible() 时存在，不存在就停在页顶） */
+export const encoderSettingsLocation = () => ({ path: '/settings/general', query: { section: ENCODER_SECTION_QUERY } })
