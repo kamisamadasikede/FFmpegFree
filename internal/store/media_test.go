@@ -44,3 +44,52 @@ func TestMediaUpsertListDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestMediaTableKeepsMostRecent(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openTemp(t)
+	s.SetMediaKeep(5)
+	for i := 1; i <= 12; i++ {
+		id := string(rune('A' + i))
+		if _, err := s.UpsertMedia(ctx, "/k/"+id, MediaInfo{ID: id, Path: "/k/" + id, Name: id, ProbedAt: int64(i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	list, _ := s.ListRecentMedia(ctx, 200)
+	if len(list) != 5 || list[0].ProbedAt != 12 || list[4].ProbedAt != 8 {
+		t.Fatalf("应只保留最近 5 条: %+v", list)
+	}
+	// 重新探测旧记录（已被删）= 新插入；重新探测保留区内的记录不增加行数
+	if _, err := s.UpsertMedia(ctx, "/k/"+string(rune('A'+10)), MediaInfo{ID: "zz", Path: "x", Name: "x", ProbedAt: 20}); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ = s.ListRecentMedia(ctx, 200); len(list) != 5 || list[0].ProbedAt != 20 {
+		t.Fatalf("%+v", list)
+	}
+}
+
+func TestMediaTableDefaultKeepIs1000(t *testing.T) {
+	if DefaultMediaKeep != 1000 {
+		t.Fatal("契约约定保留 1000 条")
+	}
+	ctx := context.Background()
+	s, _ := openTemp(t)
+	tx, _ := s.DB().Begin()
+	for i := 0; i < 1100; i++ {
+		tx.Exec(`INSERT INTO media (id, path, path_key, name, probed_at) VALUES (?,?,?,?,?)`, i, "p", "k"+string(rune(i+1000)), "n", i)
+	}
+	tx.Commit()
+	if _, err := s.UpsertMedia(ctx, "new", MediaInfo{ID: "NEW", Path: "n", Name: "n", ProbedAt: 5000}); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	s.DB().QueryRow(`SELECT COUNT(*) FROM media`).Scan(&n)
+	if n != 1000 {
+		t.Fatalf("应保留 1000 条: %d", n)
+	}
+	var minAt int64
+	s.DB().QueryRow(`SELECT MIN(probed_at) FROM media`).Scan(&minAt)
+	if minAt != 101 { // 保留 NEW(5000) + 999 条最新的（101..1099）
+		t.Fatalf("删的应是最旧的: min=%d", minAt)
+	}
+}
