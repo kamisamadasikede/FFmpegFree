@@ -380,3 +380,30 @@ func tailLines(s string, n int) string {
 	}
 	return strings.Join(l, "\n")
 }
+
+// 取消之后 ffmpeg 非零退出 → canceled（不是 failed / LIVE_PUSH_INTERRUPTED）。真实 ffmpeg：先 SIGKILL 服务器（不等待），
+// 紧接着 Cancel；ffmpeg 收到 q 后写文件尾时 Broken pipe，以非零码退出（实测 224），契约要求"取消后非零一律 canceled"。
+// 服务器死亡到 ffmpeg 下一次写包之间有约一个包间隔（几十毫秒），Cancel 在微秒级发出，所以不会误判成断流。
+func TestIntegrationNonzeroExitAfterCancelIsCanceled(t *testing.T) {
+	for i := 0; i < 3; i++ {
+		m := startMediaMTX(t)
+		r := newRealFixture(t, 0)
+		tk, err := r.push(t, r.withAudio, m.rtmpURL("live/nz"), true, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.waitProgress(t, tk.ID)
+		time.Sleep(300 * time.Millisecond)
+		syscall.Kill(-m.cmd.Process.Pid, syscall.SIGKILL)
+		if err := r.mgr.Cancel(tk.ID); err != nil {
+			t.Fatal(err)
+		}
+		d := r.wait(t, tk.ID)
+		if d.Status != task.StatusCanceled || d.Error != nil {
+			t.Fatalf("第 %d 次：取消后非零退出应 canceled 且 error 为空: %+v %+v\n%s", i, d, d.Error, tailLines(r.logText(t, tk.ID), 6))
+		}
+		assertStatusPayloadsHaveNoError(t, r.fixture, tk.ID, task.StatusCanceled)
+		t.Logf("第 %d 次日志尾部:\n%s", i, tailLines(r.logText(t, tk.ID), 3))
+		m.stop()
+	}
+}

@@ -261,3 +261,20 @@ func TestRunRedactsBeforeTailLogAndClassify(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+// 严格模式下：q 之后退出码 0 才算成功（返回 nil、Stopped=true）；宽限期超时被强杀仍是 ctx 错误。
+// 非严格（默认，除直播外的调用方）行为不变：见 TestRunGracefulStopViaQ / TestRunStrictGracefulNonzeroExitAfterCancelIsCanceled 的第二段。
+func TestRunStrictGracefulExitZeroIsSuccess(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(200 * time.Millisecond); cancel() }()
+	res, err := Run(ctx, RunOptions{Exe: fakeFFmpeg(t), Args: []string{"waitq"}, GracefulStop: true, StrictGracefulExit: true})
+	if err != nil || !res.Stopped || !strings.Contains(res.StderrTail, "trailer written") {
+		t.Fatalf("q 后退出码 0 应成功: %v %+v", err, res)
+	}
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	go func() { time.Sleep(200 * time.Millisecond); cancel2() }()
+	_, err = Run(ctx2, RunOptions{Exe: fakeFFmpeg(t), Args: []string{"ignoreq"}, GracefulStop: true, StrictGracefulExit: true, GracePeriod: 300 * time.Millisecond})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("超时强杀应是 ctx 错误: %v", err)
+	}
+}
