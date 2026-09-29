@@ -131,19 +131,11 @@ func (s *Service) ProbeOne(ctx context.Context, path string) (store.MediaInfo, e
 }
 
 func (s *Service) probeOne(ctx context.Context, bin ffmpeg.Binaries, raw string) (store.MediaInfo, error) {
-	p, key, fi, err := statMedia(raw)
+	m, key, fi, err := s.inspect(ctx, bin, raw)
 	if err != nil {
 		return store.MediaInfo{}, err
 	}
-	data, err := runProbe(ctx, bin.FFprobe, p, s.cfg.ProbeTimeout)
-	if err != nil {
-		return store.MediaInfo{}, err
-	}
-	m, err := ParseProbe(data, p)
-	if err != nil {
-		return store.MediaInfo{}, err
-	}
-	m.ID, m.Path, m.Name, m.Size = id.New(), p, filepath.Base(p), fi.Size()
+	m.ID = id.New()
 	m.ProbedAt = s.cfg.Now().UnixMilli()
 	if s.cfg.Store != nil {
 		saved, err := s.cfg.Store.UpsertMedia(ctx, key, m)
@@ -153,11 +145,40 @@ func (s *Service) probeOne(ctx context.Context, bin ffmpeg.Binaries, raw string)
 		m.ID = saved.ID
 	}
 	if m.HasVideo {
-		if t, err := s.thumbnail(ctx, bin, p, key, fi, defaultThumbAt(m.Duration), DefaultThumbWidth); err == nil {
+		if t, err := s.thumbnail(ctx, bin, m.Path, key, fi, defaultThumbAt(m.Duration), DefaultThumbWidth); err == nil {
 			m.ThumbURL = t.DataURL
 		}
 	}
 	return m, nil
+}
+
+// inspect 只做探测：不写 media 表，不生成缩略图，ID 为空。转换等服务需要时长和流信息时用它（见 Inspect）。
+func (s *Service) inspect(ctx context.Context, bin ffmpeg.Binaries, raw string) (store.MediaInfo, string, os.FileInfo, error) {
+	p, key, fi, err := statMedia(raw)
+	if err != nil {
+		return store.MediaInfo{}, "", nil, err
+	}
+	data, err := runProbe(ctx, bin.FFprobe, p, s.cfg.ProbeTimeout)
+	if err != nil {
+		return store.MediaInfo{}, "", nil, err
+	}
+	m, err := ParseProbe(data, p)
+	if err != nil {
+		return store.MediaInfo{}, "", nil, err
+	}
+	m.Path, m.Name, m.Size = p, filepath.Base(p), fi.Size()
+	return m, key, fi, nil
+}
+
+// Inspect 探测单个文件并返回结果，但不写入最近媒体记录、不生成缩略图（ID 为空）。
+// 错误码与 Probe 一致；ffmpeg / ffprobe 缺失返回 FFMPEG_NOT_FOUND。
+func (s *Service) Inspect(ctx context.Context, path string) (store.MediaInfo, error) {
+	bin, err := s.cfg.Require()
+	if err != nil {
+		return store.MediaInfo{}, err
+	}
+	m, _, _, err := s.inspect(ctx, bin, path)
+	return m, err
 }
 
 // statMedia 规范化路径并检查文件：不存在 NOT_FOUND，是目录 INVALID_ARGUMENT，打不开 IO_ERROR。
