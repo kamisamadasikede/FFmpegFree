@@ -1,24 +1,38 @@
+<template>
+  <div class="app-shell">
+    <AppSidebar />
+    <div class="app-main">
+      <AppTitlebar />
+      <FFmpegBanner />
+      <main class="app-content">
+        <RouterView />
+      </main>
+    </div>
+    <FFmpegInstallDialog />
+  </div>
+</template>
 
 <script lang="ts" setup>
 import { onMounted, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import MenuComponent from './components/MenuComponent.vue'
+import AppSidebar from './layout/AppSidebar.vue'
+import AppTitlebar from './layout/AppTitlebar.vue'
+import FFmpegBanner from './components/ffmpeg/FFmpegBanner.vue'
+import FFmpegInstallDialog from './components/ffmpeg/FFmpegInstallDialog.vue'
+import { useTheme } from './composables/useTheme'
+import { useFFmpegStore } from './stores/ffmpeg'
 
+useTheme()
+useFFmpegStore().init()
+
+// 过渡期：推流结果仍走 v1 的 SSE，任务 store 接上 task:status 事件后删除
 let eventSource: EventSource | null = null
 
-const handleResize = () => {
-  // 触发布局更新逻辑（例如通知图表重绘、刷新容器宽高）
-  console.log('窗口大小改变:', window.innerWidth, window.innerHeight)
-}
-
 onMounted(() => {
-  window.addEventListener('resize', handleResize)
   eventSource = new EventSource('http://localhost:19200/api/sse')
-
   eventSource.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data)
-      console.log('收到 SSE 推流状态更新:', data)
       if (data.status === 'failed') {
         ElMessage.error(`推流失败: ${data.error}`)
       } else {
@@ -28,29 +42,33 @@ onMounted(() => {
       console.error('SSE 数据解析失败:', error)
     }
   }
-
-  eventSource.onerror = (error) => {
-    console.warn('SSE 连接异常:', error)
-  }
+  eventSource.onerror = (error) => console.warn('SSE 连接异常:', error)
 })
 
 onUnmounted(() => {
-  window.removeEventListener('resize', handleResize)
-  if (eventSource) {
-    eventSource.close()
-    eventSource = null
-  }
+  eventSource?.close()
+  eventSource = null
 })
 </script>
-<template>
-  <div class="app-shell">
-    <aside class="app-sidebar">
-      <MenuComponent />
-    </aside>
-    <main class="app-main">
-      <div class="page-shell">
-        <router-view></router-view>
-      </div>
-    </main>
-  </div>
-</template>
+
+<style scoped>
+.app-shell {
+  display: flex;
+  height: 100vh;
+  min-width: 1024px;
+  min-height: 680px;
+  overflow: hidden;
+}
+.app-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.app-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 24px 24px;
+}
+</style>

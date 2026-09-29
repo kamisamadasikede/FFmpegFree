@@ -1,115 +1,113 @@
 <template>
-  <div class="video-container">
+  <div class="live-player">
     <div class="controls">
-      <input v-model="videoUrl" type="text" placeholder="Enter video URL (e.g., http://127.0.0.1:8080/live/test110.flv)" />
-      <button @click="initPlayer">Play</button>
-      <button @click="stopPlayer">Stop</button>
+      <el-input
+        v-model="videoUrl"
+        placeholder="输入 FLV 拉流地址，例如 http://127.0.0.1:8080/live/test.flv"
+        clearable
+        @keyup.enter="initPlayer"
+      />
+      <el-button type="primary" @click="initPlayer">播放</el-button>
+      <el-button @click="stopPlayer">停止</el-button>
     </div>
-    <div id="mse" />
+    <div class="video-stage">
+      <video ref="videoRef" class="video" controls muted playsinline></video>
+      <div v-if="errorText" class="error">{{ errorText }}</div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onUnmounted } from "vue";
-import { useFlvPlayerStore } from "@/stores/useFlvPlayerStore";
-import Player from "xgplayer";
-import "xgplayer/dist/index.min.css";
-import FlvPlugin from 'xgplayer-flv'
+import { ref, onUnmounted } from 'vue'
+import mpegts from 'mpegts.js'
+import { useFlvPlayerStore } from '@/stores/useFlvPlayerStore'
 
-defineOptions({
-  name: "VideoPage"
-});
+defineOptions({ name: 'LivePlayer' })
 
-const videoUrl = ref("http://localhost:8080/live/livestream.flv");
-let player: Player | null = null;
-const flvPlayerStore = useFlvPlayerStore();
-
-const initPlayer = () => {
-  // Destroy previous player if exists
-  if (player) {
-    player.destroy();
-    player = null;
-  }
-
-  if (videoUrl.value) {
-    flvPlayerStore.setFlvUrl(videoUrl.value);
-    player = new Player({
-      id: "mse",
-      lang: "zh",
-      volume: 0,
-      autoplay: true,
-      screenShot: true,
-      plugins: [FlvPlugin],
-      url: videoUrl.value,
-      fluid: true,
-      playbackRate: [0.5, 0.75, 1, 1.5, 2],
-      customConfig: {
-        isLive: true,               // 强制开启直播模式
-        lazyLoad: true,             // 延迟加载
-        lazyLoadMaxDuration: 3,     // 最多缓存 3 秒
-        reuseRedirectHTTP: true,    // 复用连接
-        autoCleanupSourceBuffer: true,
-        liveBufferLatencyChasing: true, // 追逐实时延迟
-        liveSyncTargetLatency: 1,   // 目标同步延迟为 1 秒
-        liveMaxBufferSize: 10 * 1024 * 1024, // 最大缓存 10MB
-        enableWorker: true,         // 启用 worker 提升性能
-        enableStashBuffer: false,   // 禁用 stash buffer
-        stashInitialSize: 128       // 减少初始缓冲区大小
-      }
-    });
-  }
-};
+const videoUrl = ref('http://localhost:8080/live/livestream.flv')
+const videoRef = ref<HTMLVideoElement | null>(null)
+const errorText = ref('')
+const flvPlayerStore = useFlvPlayerStore()
+let player: mpegts.Player | null = null
 
 const stopPlayer = () => {
   if (player) {
-    player.destroy();
-    player = null;
+    player.pause()
+    player.unload()
+    player.detachMediaElement()
+    player.destroy()
+    player = null
   }
-};
+}
 
-onUnmounted(() => {
-  if (player) {
-    player.destroy();
-    player = null;
+const initPlayer = () => {
+  stopPlayer()
+  errorText.value = ''
+  if (!videoUrl.value || !videoRef.value) return
+  if (!mpegts.getFeatureList().mseLivePlayback) {
+    errorText.value = '当前环境不支持 FLV 直播播放'
+    return
   }
-});
+  flvPlayerStore.setFlvUrl(videoUrl.value)
+  player = mpegts.createPlayer(
+    { type: 'flv', isLive: true, url: videoUrl.value },
+    {
+      enableWorker: true,
+      enableStashBuffer: false,
+      stashInitialSize: 128,
+      lazyLoad: true,
+      lazyLoadMaxDuration: 3,
+      autoCleanupSourceBuffer: true,
+      liveBufferLatencyChasing: true,
+      liveSync: true,
+      liveSyncTargetLatency: 1,
+    }
+  )
+  player.on(mpegts.Events.ERROR, (type: string, detail: string) => {
+    errorText.value = `播放失败：${type} ${detail}`
+  })
+  player.attachMediaElement(videoRef.value)
+  player.load()
+  const p = player.play()
+  if (p && typeof (p as Promise<void>).catch === 'function') (p as Promise<void>).catch(() => undefined)
+}
+
+onUnmounted(stopPlayer)
 </script>
 
 <style scoped>
-.video-container {
+.live-player {
   display: flex;
   flex-direction: column;
+  gap: var(--ff-space-3);
   height: 100%;
+  min-height: 0;
 }
-
 .controls {
   display: flex;
-  gap: 10px;
-  margin-bottom: 10px;
+  gap: var(--ff-space-2);
 }
-
-.controls input {
+.video-stage {
+  position: relative;
   flex: 1;
-  padding: 8px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-}
-
-.controls button {
-  padding: 8px 16px;
-  background-color: #1890ff;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.controls button:hover {
-  background-color: #40a9ff;
-}
-
-#mse {
-  flex: auto;
   min-height: 0;
+  background: #000;
+  border-radius: var(--ff-radius-lg);
+  overflow: hidden;
+}
+.video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.error {
+  position: absolute;
+  left: var(--ff-space-3);
+  bottom: var(--ff-space-3);
+  padding: var(--ff-space-1) var(--ff-space-2);
+  border-radius: var(--ff-radius-sm);
+  background: var(--ff-danger);
+  color: #fff;
+  font-size: 12px;
 }
 </style>
