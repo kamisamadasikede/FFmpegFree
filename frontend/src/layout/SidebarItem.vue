@@ -16,8 +16,11 @@ import type { NavItem } from './navigation'
 const props = defineProps<{ item: NavItem; collapsed: boolean; warn?: boolean; badge?: number }>()
 const route = useRoute()
 
-const isActive = computed(() =>
-  props.item.path === '/' ? route.path === '/' : route.path === props.item.path || route.path.startsWith(props.item.path + '/')
+// route.matched 为空说明首次导航还没完成（此时 route.path 是初始的 '/'，会让「转换」闪一下高亮），先不高亮任何项
+const isActive = computed(
+  () =>
+    route.matched.length > 0 &&
+    (props.item.path === '/' ? route.path === '/' : route.path === props.item.path || route.path.startsWith(props.item.path + '/')),
 )
 </script>
 
@@ -59,7 +62,7 @@ const isActive = computed(() =>
   height: 18px;
   padding: 0 5px;
   border-radius: 9px;
-  background: var(--ff-primary);
+  background: var(--ff-badge-bg);
   color: var(--ff-on-primary);
   font-size: 11px;
   font-weight: 600;
