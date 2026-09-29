@@ -7,6 +7,7 @@ import (
 	"FFmpegFree/internal/localassets"
 	"FFmpegFree/internal/paths"
 	"FFmpegFree/internal/service/convert"
+	"FFmpegFree/internal/service/edit"
 	"FFmpegFree/internal/service/media"
 	"FFmpegFree/internal/service/system"
 	"FFmpegFree/internal/store"
@@ -32,6 +33,7 @@ type App struct {
 	tasks      atomic.Pointer[task.Manager]
 	media      atomic.Pointer[media.Service]
 	conv       atomic.Pointer[convert.Service]
+	edt        atomic.Pointer[edit.Service]
 	// local 是 /local/<token> 预览登记表，Edit 与 Doc 共用；main.go 把它的 Handler 挂到 AssetServer。
 	local *localassets.Registry
 }
@@ -48,6 +50,9 @@ func (a *App) mediaService() *media.Service { return a.media.Load() }
 
 // convertService 返回转换服务；OnStartup 完成前（或存储 / 任务管理器不可用时）为 nil。小写，不会被 Wails 暴露。
 func (a *App) convertService() *convert.Service { return a.conv.Load() }
+
+// editService 返回剪辑服务；OnStartup 完成前（或存储 / 任务管理器 / 媒体服务不可用时）为 nil。小写，不会被 Wails 暴露。
+func (a *App) editService() *edit.Service { return a.edt.Load() }
 
 // NewApp creates a new App application struct
 func NewApp(sys *system.Manager) *App {
@@ -70,6 +75,7 @@ func (a *App) startup(ctx context.Context) {
 	a.startTasks(ctx)
 	a.startMedia()
 	a.startConvert(ctx)
+	a.startEdit()
 	a.startFFmpegDetect(ctx)
 }
 
@@ -126,6 +132,29 @@ func (a *App) startConvert(ctx context.Context) {
 		return
 	}
 	a.conv.Store(svc)
+}
+
+// startEdit 创建剪辑服务：需要存储（工程）、任务管理器和媒体服务，缺一个就不启动（此时 EditService 返回 INTERNAL）。
+// 启动时顺带清理 interrupted 的导出任务遗留的 .part 文件。
+func (a *App) startEdit() {
+	tm, med := a.taskManager(), a.mediaService()
+	if a.store == nil || tm == nil || med == nil {
+		log.Printf("剪辑服务未启动：存储、任务管理器或媒体服务不可用")
+		return
+	}
+	svc := edit.New(edit.Config{
+		Projects:         a.store,
+		Lister:           a.store,
+		Tasks:            tm,
+		Media:            med,
+		Preview:          a.local,
+		DefaultOutputDir: a.sys.DefaultOutputDir,
+		TempDir:          a.dirs.Temp,
+	})
+	if n := svc.CleanupInterruptedParts(a.rootCtx); n > 0 {
+		log.Printf("已清理 %d 个中断的剪辑导出临时文件", n)
+	}
+	a.edt.Store(svc)
 }
 
 // startFFmpegDetect 在后台检测 ffmpeg，不阻塞界面；状态变化通过 ffmpeg:status 事件推送。

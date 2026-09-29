@@ -25,6 +25,7 @@ func main() {
 	taskService := app.NewTaskService(mainApp.taskManager)
 	mediaService := app.NewMediaService(mainApp.mediaService, mainApp.appContext)
 	convertService := app.NewConvertService(mainApp.convertService, mainApp.appContext)
+	editService := app.NewEditService(mainApp.editService, mainApp.appContext)
 
 	// /local/<token> 本地文件预览登记表：Edit（视频 / 音频）与 Doc（PDF）共用同一个实例，Handler 挂在 AssetServer 上。
 	localAssets := mainApp.localAssets()
@@ -54,6 +55,7 @@ func main() {
 			taskService,
 			mediaService,
 			convertService,
+			editService,
 		},
 	})
 
