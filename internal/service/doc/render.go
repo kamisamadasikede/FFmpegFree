@@ -77,11 +77,15 @@ func renderPDF(ctx context.Context, m *docModel, choice fontChoice, part string,
 		switch u.kind {
 		case unitHead:
 			pdf.SetFontSize(14)
-			writeWrapped(pdf, tr(u.text), 8, choice.face != nil)
+			if err := writeWrapped(ctx, pdf, tr(u.text), 8, choice.face != nil); err != nil {
+				return err
+			}
 			pdf.Ln(2)
 			pdf.SetFontSize(m.bodySize)
 		case unitPara:
-			writeWrapped(pdf, tr(u.text), 6, choice.face != nil)
+			if err := writeWrapped(ctx, pdf, tr(u.text), 6, choice.face != nil); err != nil {
+				return err
+			}
 		case unitBlank:
 			pdf.Ln(4)
 		case unitBreak:
@@ -139,15 +143,28 @@ func sampleCodepoints(s []rune) string {
 // writeWrapped 用 wrapText 折行后逐行输出（替代 fpdf.MultiCell，见 wrap.go 的说明）。
 // 没有 Unicode 字体时（helvetica + cp1252 转码，字符串是单字节编码，不能按 rune 处理）仍用 MultiCell：
 // 单字节模式下它只在空格处断，不会丢字。
-func writeWrapped(pdf *fpdf.Fpdf, text string, lineH float64, utf8Font bool) {
+func writeWrapped(ctx context.Context, pdf *fpdf.Fpdf, text string, lineH float64, utf8Font bool) error {
 	if !utf8Font {
 		pdf.MultiCell(0, lineH, text, "", "L", false)
-		return
+		return ctx.Err()
 	}
 	pw, _ := pdf.GetPageSize()
 	l, _, r, _ := pdf.GetMargins()
 	maxW := pw - l - r - 2*pdf.GetCellMargin()
-	for _, line := range wrapText(text, maxW, pdf.GetStringWidth) {
-		pdf.CellFormat(0, lineH, line, "", 2, "L", false, 0, "")
+	lines, err := wrapText(ctx, text, maxW, pdf.GetStringWidth)
+	if err != nil {
+		return err
 	}
+	for i, line := range lines {
+		if i%256 == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
+		pdf.CellFormat(0, lineH, line, "", 2, "L", false, 0, "")
+		if pdf.PageNo() > MaxPages { // 一个超长段落也不能排出无限页
+			return nil // 由调用方的页数检查报 UNSUPPORTED
+		}
+	}
+	return nil
 }
