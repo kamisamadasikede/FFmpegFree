@@ -800,6 +800,7 @@ export namespace live {
 	    url: string;
 	    loop: boolean;
 	    options: PushOptions;
+	    preview?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new FilePushRequest(source);
@@ -811,6 +812,7 @@ export namespace live {
 	        this.url = source["url"];
 	        this.loop = source["loop"];
 	        this.options = this.convertValues(source["options"], PushOptions);
+	        this.preview = source["preview"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -830,6 +832,52 @@ export namespace live {
 		    }
 		    return a;
 		}
+	}
+	export class Preview {
+	    data: string;
+	    ts: number;
+	    active: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Preview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.data = source["data"];
+	        this.ts = source["ts"];
+	        this.active = source["active"];
+	    }
+	}
+	export class PullPreviewRequest {
+	    url: string;
+	    preview?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new PullPreviewRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.url = source["url"];
+	        this.preview = source["preview"];
+	    }
+	}
+	export class PullSession {
+	    id: string;
+	    redacted: string;
+	    preview: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new PullSession(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.redacted = source["redacted"];
+	        this.preview = source["preview"];
+	    }
 	}
 	
 	export class PushURLInfo {
@@ -883,6 +931,7 @@ export namespace live {
 	    audio: string;
 	    archiveDir: string;
 	    options: PushOptions;
+	    preview?: boolean;
 	    captureSourceId: string;
 	
 	    static createFrom(source: any = {}) {
@@ -897,6 +946,7 @@ export namespace live {
 	        this.audio = source["audio"];
 	        this.archiveDir = source["archiveDir"];
 	        this.options = this.convertValues(source["options"], PushOptions);
+	        this.preview = source["preview"];
 	        this.captureSourceId = source["captureSourceId"];
 	    }
 	

@@ -63,7 +63,7 @@ func RedactURL(raw string) string {
 	return b.String()
 }
 
-var residualURL = regexp.MustCompile(`(rtmps?|srt|tcp|tls|udp)://[^\s'"<>]+`)
+var residualURL = regexp.MustCompile(`(rtmps?|srt|tcp|tls|udp|https?)://[^\s'"<>]+`)
 
 const minSecretLen = 3
 
