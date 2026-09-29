@@ -12,7 +12,8 @@ import { parsePushUrl, redactPushUrl } from '@/utils/liveUrl'
 import * as live from './live'
 import * as edit from './edit'
 import * as doc from './doc'
-import { docErrorText, docErrorFile, DOC_TOO_MANY_PAGES_TEXT, DOC_FILE_BROKEN_TEXT, DOC_FORMAT_UNSUPPORTED_TEXT } from '@/errors/errorMessages'
+import { docErrorText, docErrorFile, docErrorPath, docDetailHead, pdfErrorView, DOC_TOO_MANY_PAGES_TEXT, DOC_FILE_BROKEN_TEXT, DOC_FORMAT_UNSUPPORTED_TEXT } from '@/errors/errorMessages'
+import { splitMiddle, nextZoom, thumbWindow, formatRecentTime, extBadge } from '@/utils/docLogic'
 import { onSimEvent } from '@/services/wails'
 import { retrySimTask, SIM_TITLE_PREFIX } from './sim'
 import * as encApi from './encoder'
@@ -62,8 +63,10 @@ export async function runApiChecks(): Promise<string[]> {
   eq('直播停止文案', LIVE_STOP_TEXT, { succeeded: '已结束推流', canceled: '已强制停止' })
   eq('UNSUPPORTED 起始错误行（无协议名）', liveStartErrorLine({ code: 'UNSUPPORTED' })?.description, '当前 ffmpeg 不支持这种推流协议，请在设置的 ffmpeg 页面重新安装或更新')
 
-  eq('doc/xls/ppt/加密 UNSUPPORTED 文案', docUnsupportedText('不支持这种格式', '/d/a.doc\n旧版'), '暂不支持这种格式，请先另存为 docx、xlsx 或 pptx')
-  eq('超 5000 页沿用后端 message', docUnsupportedText('超过 5000 页'), '超过 5000 页')
+  eq('doc/xls/ppt/加密 UNSUPPORTED 文案', docUnsupportedText('暂不支持这种格式', '/d/a.doc\n.doc：旧版'), '暂不支持这种格式，请先另存为 docx、xlsx 或 pptx')
+  eq('超 5000 页任务中心沿用后端 message', docUnsupportedText('超过 5000 页', '已排到第 5000 页仍未结束'), '超过 5000 页')
+  eq('没有可用字体沿用后端 message', docUnsupportedText('没有可用的 Unicode 字体', '文档含有 Latin-1 以外的字符，但没有可用的字体'), '没有可用的 Unicode 字体')
+  eq('认不出的 UNSUPPORTED 保守回落后端 message', docUnsupportedText('别的原因', '某行'), '别的原因')
   // ---- 旧任务类型忽略 ----
   eq('live_relay 忽略', isKnownTaskType('live_relay'), false)
   eq('live_record_push 忽略', isKnownTaskType('live_record_push'), false)
@@ -401,6 +404,45 @@ export async function runApiChecks(): Promise<string[]> {
   eq('超 5000 页文案', docErrorText('UNSUPPORTED', '超过 5000 页', '已排到第 5000 页仍未结束'), DOC_TOO_MANY_PAGES_TEXT)
   eq('文件损坏文案', docErrorText('INVALID_ARGUMENT', '不是有效的 OOXML 文件', 'bad zip'), DOC_FILE_BROKEN_TEXT)
   eq('出错文件取 detail 首行', [docErrorFile('UNSUPPORTED', '/d/a.doc\n旧版'), docErrorFile('UNSUPPORTED', '旧版')], ['a.doc', ''])
+  eq('出错文件完整路径（整体校验定位用）', [docErrorPath('/d/a.doc\n.doc：旧版'), docErrorPath('C:\\d\\a.doc\n原因'), docErrorPath('旧版')], ['/d/a.doc', 'C:\\d\\a.doc', ''])
+  eq('原因首行剥掉路径行', [docDetailHead('/d/a.doc\n.doc：旧版'), docDetailHead('已排到第 9 页仍未结束'), docDetailHead('')], ['.doc：旧版', '已排到第 9 页仍未结束', ''])
+  eq('超页数：按 message 精确匹配或 detail 首行（含带路径行）', [
+    docErrorText('UNSUPPORTED', '超过 5000 页', '/d/a.docx\n已排到第 5000 页仍未结束'),
+    docErrorText('UNSUPPORTED', '别的', '文档文字量超过上限'),
+    docErrorText('UNSUPPORTED', '别的', '文本里写着 5000 页但不是这两句'),
+  ], [DOC_TOO_MANY_PAGES_TEXT, DOC_TOO_MANY_PAGES_TEXT, '别的'])
+  eq('页数上限取 limits 拼', docErrorText('UNSUPPORTED', '超过 5000 页', '', 8000), '文档太长，超过 8000 页，无法转换')
+  eq('损坏：只认 INVALID_ARGUMENT + message 精确相等，不做包含匹配', [
+    docErrorText('INVALID_ARGUMENT', '不是有效的 OOXML 文件', '/d/a.docx\nzip: not a valid zip file'),
+    docErrorText('INVALID_ARGUMENT', '文件超过 100 MiB', 'OOXML 100 字节'),
+    docErrorText('INVALID_ARGUMENT', '路径不合法'),
+  ], [DOC_FILE_BROKEN_TEXT, '文件超过 100 MiB', '路径不合法'])
+  eq('IO_ERROR 读源文件', docErrorText('IO_ERROR', '读取文件失败'), '没有读取这个文件的权限。')
+  const pv = (c: string, m?: string) => pdfErrorView(c, m)
+  eq('PDF 预览失败卡片：文案 / 错误码 / 是否可重试', [
+    pv('PDF_PARSE_FAILED'), pv('INVALID_ARGUMENT', '不是 PDF 文件'), pv('INVALID_ARGUMENT', '文件超过 512 MiB'), pv('NOT_FOUND', '文件不存在'),
+    pv('IO_ERROR', '读取文件失败'), pv('IO_ERROR', '文件在读取时被替换，请重试'), pv('INVALID_ARGUMENT', '别的原因'),
+  ].map((v) => [v.text, v.code, v.retry]), [
+    ['PDF 内容无法解析，文件可能已损坏。', 'PDF_PARSE_FAILED', true],
+    ['这不是有效的 PDF 文件。', 'INVALID_ARGUMENT', false],
+    ['文件超过 512 MiB，暂不支持预览。', 'INVALID_ARGUMENT', false],
+    ['找不到这个文件，可能已被移动或删除。', 'NOT_FOUND', false],
+    ['没有读取这个文件的权限。', 'IO_ERROR', true],
+    ['读取时文件被修改了，请重试。', 'IO_ERROR', true],
+    ['别的原因', 'INVALID_ARGUMENT', false],
+  ])
+  eq('512 MiB 取 limits 拼', pdfErrorView('INVALID_ARGUMENT', '文件超过 512 MiB', 256 * 1024 * 1024).text, '文件超过 256 MiB，暂不支持预览。')
+  eq('中间省略拆分：≤14 字符不拆；否则尾部 = 末 6 字符 + 扩展名', [
+    splitMiddle('用户调研报告.docx'),
+    splitMiddle('2026年第三季度华东区域渠道商务拓展与用户增长复盘汇报材料（终稿-已审阅-v12）.pptx'),
+    splitMiddle('ab'),
+  ], [{ head: '用户调研报告.docx', tail: '' }, { head: '2026年第三季度华东区域渠道商务拓展与用户增长复盘汇报材料（终稿-已审', tail: '阅-v12）.pptx' }, { head: 'ab', tail: '' }])
+  eq('缩放档位 50%~200% 步进 25%，两端夹住', [nextZoom(1, -1), nextZoom(0.5, -1), nextZoom(2, 1), nextZoom(1.75, 1), nextZoom(1.3, 1)], [0.75, 0.5, 2, 2, 1.25])
+  eq('缩略图窗口：可视范围 ± 2 屏', [thumbWindow(0, 600, 100, 5000), thumbWindow(50000, 600, 100, 5000), thumbWindow(0, 600, 100, 0)], [{ from: 1, to: 18 }, { from: 489, to: 518 }, { from: 1, to: 0 }])
+  const NOW = new Date(2026, 8, 30, 12, 0).getTime()
+  const at = (d: number, h: number, m: number) => new Date(2026, 8, 30 + d, h, m).getTime()
+  eq('最近列表时间：今天 / 昨天 / 更早', [formatRecentTime(at(0, 22, 41), NOW), formatRecentTime(at(-1, 18, 5), NOW), formatRecentTime(at(-5, 16, 40), NOW)], ['今天 22:41', '昨天 18:05', '09-25 16:40'])
+  eq('扩展名色块', [extBadge('/a/b.docx'), extBadge('C:\\a\\b.XLSX'), extBadge('/a/noext')], ['DOCX', 'XLSX', ''])
   // ---- 产品定稿：SRT 口令长度 / 缺协议 / 不泄露地址口令推流码 ----
   eq('LIVE_SRT_PASSPHRASE_TEXT', LIVE_SRT_PASSPHRASE_TEXT, 'SRT 口令需要 10 到 79 个字符')
   eq('口令长度边界', ['', 'a'.repeat(9), 'a'.repeat(10), 'a'.repeat(79), 'a'.repeat(80)].map(live.isValidSrtPassphrase), [true, false, true, true, false])

@@ -22,11 +22,11 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/docs',
     meta: { title: '文档', subtitle: 'Office 转 PDF · PDF 预览', fill: true },
-    component: SectionTabs,
+    component: () => import('../views/docs/DocsLayout.vue'), // 分段控件 + KeepAlive + 共用的最近列表（设计说明 2）
     redirect: '/docs/office',
     children: [
-      { path: 'office', meta: { tab: 'Office 转 PDF' }, component: () => import('../views/OfficeConvert.vue') },
-      { path: 'pdf', meta: { tab: 'PDF 预览' }, component: () => import('../views/PDFPreview.vue') },
+      { path: 'office', component: () => import('../views/OfficeConvert.vue') },
+      { path: 'pdf', component: () => import('../views/PDFPreview.vue') },
     ],
   },
   {
