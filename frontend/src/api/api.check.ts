@@ -1,0 +1,417 @@
+// 接口层自检（不引入测试框架）：node scripts/check-api.mjs 用 esbuild 打包后运行，失败退出码 1。
+// 覆盖：AppError 的 reason / clipId 解析、TASK_CONFLICT 文案表、推流地址校验与脱敏、Edit 同轨道重叠 / 输出名净化 / 结构校验、
+// 模拟层（Live 两种 TASK_CONFLICT、停止语义、Doc 的 UNSUPPORTED、Edit 的 clip 错误）。
+import { AppError, parseDetailHead, toAppError, BACKEND_ERROR_CODES, callService } from './call'
+import { toApiTask, type TaskProgressPayload, type TaskStatusPayload, type ApiTask } from './taskTypes'
+import {
+  taskConflictText, TASK_CONFLICT_GENERIC, actionErrorText, liveStartErrorLine, LIVE_STOP_TEXT, docUnsupportedText, errorMessages, taskErrorMessages,
+  liveUrlInvalidText, LIVE_URL_INVALID_GENERIC, LIVE_URL_INVALID_REASON_TEXT, liveFailureMessage, liveConnectFailedText, LIVE_SRT_CONNECT_FAILED_TEXT, LIVE_RTMP_CONNECT_FAILED_TEXT, schemeFromParams,
+  liveFfmpegProtocolMissingText, LIVE_PUSH_REJECTED_TEXT, LIVE_SRT_PASSPHRASE_TEXT, resolveError, resolveTaskError,
+} from '@/errors/errorMessages'
+import { parsePushUrl, redactPushUrl } from '@/utils/liveUrl'
+import * as live from './live'
+import * as edit from './edit'
+import * as doc from './doc'
+import { onSimEvent } from '@/services/wails'
+import { retrySimTask, SIM_TITLE_PREFIX } from './sim'
+import { elapsedMs, isKnownTaskType, isLegacyTaskType } from '@/stores/tasks'
+
+const fails: string[] = []
+const eq = (name: string, got: unknown, want: unknown) => {
+  const a = JSON.stringify(got)
+  const b = JSON.stringify(want)
+  if (a !== b) fails.push(`✗ ${name}: 得到 ${a}，期望 ${b}`)
+}
+async function rejects(p: Promise<unknown>): Promise<AppError | null> {
+  try {
+    await p
+    return null
+  } catch (e) {
+    return toAppError(e)
+  }
+}
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/** node 里的模拟 window：只用到 location.search，由 scripts/check-api.mjs 挂到 globalThis */
+const win = (globalThis as unknown as { window: { location: { search: string } } }).window
+
+export async function runApiChecks(): Promise<string[]> {
+  // ---- AppError：reason / clipId ----
+  eq('reason=max_sessions', new AppError('TASK_CONFLICT', 'x', 'reason=max_sessions\n最多同时进行 4 个').reason, 'max_sessions')
+  eq('reason=duplicate_url', new AppError('TASK_CONFLICT', 'x', 'reason=duplicate_url').reason, 'duplicate_url')
+  eq('没有 reason', new AppError('TASK_CONFLICT', 'x', '任务已经结束').reason, undefined)
+  eq('reason 不在首行不算', new AppError('TASK_CONFLICT', 'x', '说明\nreason=max_sessions').reason, undefined)
+  eq('clip 首行', parseDetailHead('clip=c_1-a path=/a b/中文.mp4\n原因'), { clipId: 'c_1-a', path: '/a b/中文.mp4' })
+  eq('project 首行没有 clip', parseDetailHead('project\n视频轨不能为空'), {})
+  eq('toAppError 解析 JSON 的 detail', toAppError('{"code":"TASK_CONFLICT","message":"m","detail":"reason=duplicate_url"}').reason, 'duplicate_url')
+  eq('BACKEND_ERROR_CODES 17 个', BACKEND_ERROR_CODES.length, 17)
+
+  // ---- TASK_CONFLICT 文案（reason → 文案 一张表）----
+  eq('max_sessions 文案', taskConflictText('max_sessions'), '最多同时推 4 路')
+  eq('duplicate_url 文案', taskConflictText('duplicate_url'), '这个地址已经在推流')
+  eq('未知 reason → 通用', taskConflictText('single_screen_only'), TASK_CONFLICT_GENERIC)
+  eq('缺失 reason → 通用', taskConflictText(undefined), '操作冲突，请稍后再试')
+  eq('Cancel / Remove 的冲突 → 通用', actionErrorText('TASK_CONFLICT', '任务已结束'), '操作冲突，请稍后再试')
+  eq('原型链上的键不算 reason', taskConflictText('toString'), TASK_CONFLICT_GENERIC)
+  eq('直播停止文案', LIVE_STOP_TEXT, { succeeded: '已结束推流', canceled: '已强制停止' })
+  eq('UNSUPPORTED 起始错误行（无协议名）', liveStartErrorLine({ code: 'UNSUPPORTED' })?.description, '当前 ffmpeg 不支持这种推流协议，请在设置的 ffmpeg 页面重新安装或更新')
+
+  eq('doc/xls/ppt/加密 UNSUPPORTED 文案', docUnsupportedText('不支持这种格式', '/d/a.doc\n旧版'), '暂不支持这种格式，请先另存为 docx、xlsx 或 pptx')
+  eq('超 5000 页沿用后端 message', docUnsupportedText('超过 5000 页'), '超过 5000 页')
+  // ---- 旧任务类型忽略 ----
+  eq('live_relay 忽略', isKnownTaskType('live_relay'), false)
+  eq('live_record_push 忽略', isKnownTaskType('live_record_push'), false)
+  eq('edit_render 忽略', isKnownTaskType('edit_render'), false)
+  eq('未知类型忽略', isKnownTaskType('whatever'), false)
+  eq('旧类型识别', ['live_relay', 'live_record_push', 'edit_render'].every(isLegacyTaskType), true)
+  eq('用时：正常', elapsedMs(1000, 4000), 3000)
+  eq('用时：缺 startedAt', elapsedMs(undefined, 4000), null)
+  eq('用时：startedAt=0', elapsedMs(0, 4000), null)
+  eq('用时：结束早于开始', elapsedMs(5000, 4000), null)
+  eq('用时：NaN', elapsedMs(NaN, 4000), null)
+  eq('live_screen_push 认识', isKnownTaskType('live_screen_push'), true)
+  eq('edit_export 认识', isKnownTaskType('edit_export'), true)
+
+  // ---- 推流地址 ----
+  const failKind = (u: string) => { const r = parsePushUrl(u); return r.ok ? 'ok' : r.kind }
+  const failReason = (u: string) => { const r = parsePushUrl(u); return r.ok ? 'ok' : r.reason }
+  eq('rtsp 协议不支持', failKind('rtsp://h/live'), 'protocol')
+  eq('http-flv 协议不支持', failKind('http://h/live.flv'), 'protocol')
+  eq('srt 缺端口', failKind('srt://h?streamid=a'), 'port')
+  eq('srt listener 拒绝', failKind('srt://h:9000?mode=listener'), 'mode')
+  eq('rtmp 缺应用名', failKind('rtmp://h/'), 'app')
+  const okUrl = parsePushUrl('rtmp://H.example/live/k')
+  eq('rtmp 默认端口', okUrl.ok ? okUrl.info.port : -1, 1935)
+  // 本地校验按后端 reason 枚举归类
+  eq('reason：协议不支持', failReason('rtsp://h/live'), 'scheme_unsupported')
+  eq('reason：格式错', failReason('not a url'), 'malformed')
+  eq('reason：缺主机', failReason('rtmp:///live/k'), 'missing_host')
+  eq('reason：srt listener', failReason('srt://h:9000?mode=listener'), 'param_not_allowed')
+  eq('含空白拒绝', parsePushUrl('rtmp://h/live/a b').ok, false)
+  eq('脱敏 rtmp', redactPushUrl('rtmp://u:p@h:1935/live/abc123?token=xyz'), 'rtmp://***@h:1935/live/***?token=***')
+  eq('脱敏 srt', redactPushUrl('srt://h:9000?streamid=a&passphrase=b'), 'srt://h:9000?streamid=***&passphrase=***')
+  eq('脱敏 多段流名', redactPushUrl('rtmp://h/live/a/b/c'), 'rtmp://h/live/***')
+  eq('脱敏 非法串不回显', redactPushUrl('not a url secret'), '<invalid-url>')
+
+  // ---- Edit：同轨道重叠 / 输出名 / 结构 ----
+  const vc = (id: string, trackId: string, startSec: number, inSec: number, outSec: number, speed = 1): edit.VideoClip => ({
+    id, path: '/m/a.mp4', trackId, startSec, inSec, outSec, speed, effectPreset: 'none', transitionToNext: 'none', transitionDurationSec: 0, blur: 0,
+  })
+  eq('同轨重叠', edit.findTrackOverlap([vc('a', 'V1', 0, 0, 10), vc('b', 'V1', 5, 0, 10)]), { trackId: 'V1', a: 'a', b: 'b' })
+  eq('首尾相接不算重叠', edit.findTrackOverlap([vc('a', 'V1', 0, 0, 10), vc('b', 'V1', 10, 0, 10)]), null)
+  eq('不同轨道（画中画）不算重叠', edit.findTrackOverlap([vc('a', 'V1', 0, 0, 10), vc('b', 'V2', 5, 0, 10)]), null)
+  eq('速度 2 时占用一半', edit.findTrackOverlap([vc('a', 'V1', 0, 0, 10, 2), vc('b', 'V1', 5, 0, 10)]), null)
+  eq('放置检测 wouldOverlap', edit.wouldOverlap([vc('a', 'V1', 0, 0, 10)], vc('n', 'V1', 8, 0, 4)), 'a')
+  eq('拖动自己不冲突', edit.wouldOverlap([vc('a', 'V1', 0, 0, 10)], vc('a', 'V1', 2, 0, 10)), null)
+  eq('输出名允许中日韩', edit.sanitizeOutputName('周报：剪辑/第1版?'), '周报：剪辑第1版')
+  eq('输出名保留设备名', edit.sanitizeOutputName('con'), '_con')
+  eq('输出名保留设备名带扩展名', edit.sanitizeOutputName('CON.txt'), '_CON.txt')
+  eq('输出名空 → 工程名', edit.sanitizeOutputName('', '我的工程'), '我的工程')
+  eq('输出名全非法 → edit', edit.sanitizeOutputName('***'), 'edit')
+  eq('输出名尾部点与空格', edit.sanitizeOutputName('abc. . '), 'abc')
+  eq('输出名 100 字截断', [...edit.sanitizeOutputName('字'.repeat(150))].length, 100)
+  const proj = (): edit.EditProject => ({ ...edit.newEditProject('工程A'), sources: ['/m/a.mp4'], videoTrack: [vc('c1', 'V1', 0, 0, 10)] })
+  const okPlan = await edit.validateProject(proj())
+  eq('Validate 时长', okPlan.durationSec, 10)
+  const overlapProj = proj()
+  overlapProj.videoTrack.push(vc('c2', 'V1', 5, 0, 10))
+  let err = await rejects(edit.validateProject(overlapProj))
+  eq('模拟：同轨重叠 INVALID_ARGUMENT', err?.code, 'INVALID_ARGUMENT')
+  eq('模拟：clip 错误的 clipId / path', [err?.clipId, err?.path], ['c2', '/m/a.mp4'])
+  const noVideo = proj()
+  noVideo.videoTrack = []
+  err = await rejects(edit.validateProject(noVideo))
+  eq('模拟：视频轨为空 → project 首行', [err?.code, err?.clipId, err?.detail?.split('\n')[0]], ['INVALID_ARGUMENT', undefined, 'project'])
+  // ---- 架构师决定 5：SaveProject 不查同轨重叠；outSec=0 一律 INVALID_ARGUMENT ----
+  const saved = await edit.saveProject(overlapProj)
+  eq('SaveProject 允许同轨重叠（草稿）', saved.id.startsWith('sim-proj-'), true)
+  eq('Validate 仍然报同轨重叠', (await rejects(edit.validateProject(overlapProj)))?.code, 'INVALID_ARGUMENT')
+  eq('Export 也报同轨重叠', (await rejects(edit.exportProject(overlapProj, { outputName: '', outputDir: '' })))?.code, 'INVALID_ARGUMENT')
+  await edit.deleteProject(saved.id)
+  const zeroOut = proj()
+  zeroOut.videoTrack[0].outSec = 0
+  err = await rejects(edit.validateProject(zeroOut))
+  eq('Validate：outSec=0 → INVALID_ARGUMENT 且定位 clip', [err?.code, err?.clipId], ['INVALID_ARGUMENT', 'c1'])
+  eq('Export：outSec=0 → INVALID_ARGUMENT', (await rejects(edit.exportProject(zeroOut, { outputName: '', outputDir: '' })))?.code, 'INVALID_ARGUMENT')
+  eq('Save：outSec=0 草稿可保存', (await rejects(edit.saveProject(zeroOut))), null)
+  const eqIn = proj()
+  eqIn.videoTrack[0].inSec = 5
+  eqIn.videoTrack[0].outSec = 5
+  eq('outSec == inSec → INVALID_ARGUMENT', (await rejects(edit.validateProject(eqIn)))?.code, 'INVALID_ARGUMENT')
+  const filled = edit.newVideoClip({ path: '/m/a.mp4', durationSec: 42.5 })
+  eq('素材加入 clip 填探测到的时长', [filled.inSec, filled.outSec, edit.CLIP_ID_RE.test(filled.id)], [0, 42.5, true])
+  eq('素材时长未知不能加入', [(() => { try { edit.newVideoClip({ path: '/m/a.mp4', durationSec: 0 }); return 'ok' } catch (e) { return toAppError(e).code } })()], ['INVALID_ARGUMENT'])
+  eq('音频 clip 填时长且 volume=1', ((c) => [c.outSec, c.volume])(edit.newAudioClip({ path: '/m/a.mp3', durationSec: 10 })), [10, 1])
+  eq('fillOutSec 补 outSec=0', edit.fillOutSec(vc('z', 'V1', 0, 0, 0), 30).outSec, 30)
+  eq('fillOutSec 不动合法值', edit.fillOutSec(vc('z', 'V1', 0, 0, 8), 30).outSec, 8)
+  eq('outSec=0 的 clip 不再占时间线', edit.clipTimelineLength(vc('z', 'V1', 0, 0, 0)), 0)
+  const badSpeed = proj()
+  badSpeed.videoTrack[0].speed = 9
+  err = await rejects(edit.validateProject(badSpeed))
+  eq('模拟：speed 越界报错而不是截断', [err?.code, err?.clipId], ['INVALID_ARGUMENT', 'c1'])
+  eq('Save 不查 speed 范围（只查数量上限）', await rejects(edit.saveProject(badSpeed)), null)
+  const badId = proj()
+  badId.videoTrack[0].id = 'a b'
+  err = await rejects(edit.validateProject(badId))
+  eq('模拟：clip id 字符集', err?.code, 'INVALID_ARGUMENT')
+  const tooMany = proj()
+  tooMany.videoTrack = Array.from({ length: 101 }, (_, i) => vc(`k${i}`, 'V1', i * 10, 0, 5))
+  eq('Save 数量上限 101 个 clip → INVALID_ARGUMENT', (await rejects(edit.saveProject(tooMany)))?.code, 'INVALID_ARGUMENT')
+  const tooManySrc = proj()
+  tooManySrc.sources = Array.from({ length: 101 }, (_, i) => `/m/s${i}.mp4`)
+  eq('Save 素材库上限 101 → INVALID_ARGUMENT', (await rejects(edit.saveProject(tooManySrc)))?.code, 'INVALID_ARGUMENT')
+  eq('默认导出分辨率 1920×1080', [edit.newEditProject().output.width, edit.newEditProject().output.height], [1920, 1080])
+  const meta = await edit.saveProject(proj())
+  eq('SaveProject 新建返回 id', meta.id.startsWith('sim-proj-'), true)
+  eq('LoadProject 缺失素材', (await edit.loadProject(meta.id)).missingPaths, [])
+  eq('ListProjects', (await edit.listProjects()).length, 3) // 前面 Save 的草稿（outSec=0、speed 越界）也在列表里
+  for (const m of await edit.listProjects()) if (m.id !== meta.id) await edit.deleteProject(m.id)
+  eq('清理草稿后只剩一个', (await edit.listProjects()).length, 1)
+  await edit.deleteProject(meta.id)
+  eq('DeleteProject 不存在 NOT_FOUND', (await rejects(edit.deleteProject(meta.id)))?.code, 'NOT_FOUND')
+  // 预览 404 → 重新取
+  const ps = edit.createPreviewSource('/m/a.mp4')
+  const u1 = await ps.load()
+  eq('预览地址形态', u1.url.startsWith('/local/'), true)
+  eq('预览 token 有效时 onMediaError 不重取', await ps.onMediaError(), null)
+  win.location.search = '?sim_preview_404=1'
+  const ps2 = edit.createPreviewSource('/m/a.mp4')
+  const stale = await ps2.load()
+  eq('模拟：第一次的 token 已失效(404)', await edit.isPreviewGone(stale.url), true)
+  const fresh = await ps2.onMediaError()
+  eq('404 后重新调用 GetPreviewURL 拿到新地址', [!!fresh, fresh?.url !== stale.url], [true, true])
+  win.location.search = ''
+
+  // ---- Live：两种 TASK_CONFLICT 都能由模拟层复现 ----
+  win.location.search = ''
+  const req = (url: string): live.FilePushRequest => ({ inputPath: '/m/a.mp4', url, loop: true, options: live.defaultPushOptions() })
+  win.location.search = '?sim_missing=srt'
+  err = await rejects(live.startFilePush(req('srt://h9.example:9000?streamid=a')))
+  eq('缺 srt 协议 → UNSUPPORTED + detail', [err?.code, err?.detail], ['UNSUPPORTED', 'missing=srt'])
+  win.location.search = ''
+  const first = await live.startFilePush(req('rtmp://h1.example/live/secretkey1'))
+  eq('Start 返回入队快照', [first.status, first.version, first.progress], ['queued', 1, -1])
+  eq('标题脱敏', first.title.includes('secretkey1'), false)
+  eq('模拟任务标题带“演示”前缀', first.title.startsWith(SIM_TITLE_PREFIX), true)
+  eq('params 脱敏', first.params.includes('secretkey1'), false)
+  err = await rejects(live.startFilePush(req('rtmp://h1.example/live/secretkey1')))
+  eq('duplicate_url', [err?.code, err?.reason], ['TASK_CONFLICT', 'duplicate_url'])
+  eq('duplicate_url 的 detail 不带地址', (err?.detail ?? '').includes('h1.example') || (err?.detail ?? '').includes('secretkey1'), false)
+  eq('duplicate_url 文案', taskConflictText(err?.reason), '这个地址已经在推流')
+  // 屏幕推流同一时间最多 1 路；判断顺序 duplicate_url → screen_busy → max_sessions
+  const screenReq = (url: string): live.ScreenPushRequest => ({ screenId: 'avf:0', url, hideCursor: false, audio: 'none', archiveDir: '', options: live.defaultPushOptions() })
+  await live.startScreenPush(screenReq('rtmp://s1.example/live/sk1'))
+  err = await rejects(live.startScreenPush(screenReq('rtmp://s2.example/live/sk2')))
+  eq('screen_busy', [err?.code, err?.reason], ['TASK_CONFLICT', 'screen_busy'])
+  eq('screen_busy 文案', taskConflictText(err?.reason), '屏幕推流同一时间只能有 1 路，请先停止当前的屏幕推流')
+  eq('screen_busy 的 detail 不带地址', (err?.detail ?? '').includes('s2.example') || (err?.detail ?? '').includes('sk2'), false)
+  err = await rejects(live.startScreenPush(screenReq('rtmp://s1.example/live/sk1')))
+  eq('同地址优先 duplicate_url', err?.reason, 'duplicate_url')
+  for (let i = 2; i <= 3; i++) await live.startFilePush(req(`rtmp://h${i}.example/live/k${i}`))
+  err = await rejects(live.startScreenPush(screenReq('rtmp://s3.example/live/sk3')))
+  eq('已有屏幕推流又满 4 路：screen_busy 优先于 max_sessions', err?.reason, 'screen_busy')
+  err = await rejects(live.startFilePush(req('rtmp://h5.example/live/k5')))
+  eq('max_sessions', [err?.code, err?.reason], ['TASK_CONFLICT', 'max_sessions'])
+  eq('max_sessions 文案', taskConflictText(err?.reason), '最多同时推 4 路')
+  err = await rejects(live.startFilePush(req('rtsp://h/live')))
+  eq('协议不支持 → LIVE_URL_INVALID', err?.code, 'LIVE_URL_INVALID')
+  eq('LIVE_URL_INVALID 的 detail 首行 reason，第二行脱敏地址', [err?.reason, err?.detail], ['scheme_unsupported', 'reason=scheme_unsupported\nrtsp://h/live'])
+  // 预览参数触发：未知 reason / 缺 reason
+  win.location.search = '?sim_err=TASK_CONFLICT&sim_reason=unknown'
+  eq('预览参数：未知 reason → 通用文案', taskConflictText((await rejects(live.startFilePush(req('rtmp://h9.example/live/k'))))?.reason), TASK_CONFLICT_GENERIC)
+  win.location.search = '?sim_err=TASK_CONFLICT'
+  eq('预览参数：缺 reason', (await rejects(live.startFilePush(req('rtmp://h9.example/live/k'))))?.reason, undefined)
+  win.location.search = '?sim_err=TASK_CONFLICT&sim_reason=max_sessions'
+  eq('预览参数：max_sessions', (await rejects(live.startFilePush(req('rtmp://h9.example/live/k'))))?.reason, 'max_sessions')
+  win.location.search = '?sim_err=TASK_CONFLICT&sim_reason=duplicate_url'
+  eq('预览参数：duplicate_url', (await rejects(live.startFilePush(req('rtmp://h9.example/live/k'))))?.reason, 'duplicate_url')
+  win.location.search = ''
+
+  // 停止语义：优雅停止 succeeded 无 error；强杀 canceled 无 error
+  const ended: Record<string, TaskStatusPayload> = {}
+  const off = onSimEvent<TaskStatusPayload>('task:status', (p) => {
+    if (['succeeded', 'failed', 'canceled'].includes(p.status)) ended[p.id] = p
+  })
+  const connected = new Set<string>()
+  const offP = onSimEvent<TaskProgressPayload>('task:progress', (p) => connected.add(p.id))
+  await sleep(1700)
+  eq('第一条 progress 之后才算已连接', connected.has(first.id), true)
+  await live.stopPush(first.id)
+  await live.stopPush(first.id) // 正在停止中重复点击：无操作
+  await sleep(900)
+  eq('优雅停止 → succeeded 且没有 error', [ended[first.id]?.status, ended[first.id]?.error], ['succeeded', undefined])
+  eq('已结束再 Cancel → TASK_CONFLICT 且不带 reason', [(await rejects(live.stopPush(first.id)))?.code, (await rejects(live.stopPush(first.id)))?.reason], ['TASK_CONFLICT', undefined])
+  win.location.search = '?sim_kill=1'
+  const killed = await live.startFilePush(req('rtmp://hk.example/live/kk'))
+  win.location.search = ''
+  await sleep(1700)
+  await live.stopPush(killed.id)
+  await sleep(1800)
+  eq('强杀 → canceled 且没有 error', [ended[killed.id]?.status, ended[killed.id]?.error], ['canceled', undefined])
+  eq('Retry 直播任务 UNSUPPORTED', (await rejects(Promise.resolve().then(() => retrySimTask(first.id))))?.code, 'UNSUPPORTED')
+  for (const r of await live.listRunning()) await live.stopPush(r.streamId).catch(() => undefined)
+  off()
+  offP()
+
+  // ---- 架构师决定 3：LIVE_CONNECT_FAILED 的 scheme= / LIVE_URL_INVALID 的 reason= ----
+  eq('scheme 首行解析', [new AppError('LIVE_CONNECT_FAILED', 'x', 'scheme=srt\nConnection failed').scheme, new AppError('LIVE_CONNECT_FAILED', 'x', 'scheme=rtmps').scheme], ['srt', 'rtmps'])
+  eq('scheme 不在首行不算', new AppError('LIVE_CONNECT_FAILED', 'x', 'Connection failed\nscheme=srt').scheme, undefined)
+  eq('SRT 文案', liveConnectFailedText('srt'), '连接失败，请检查地址和口令是否正确')
+  const RTMP_TEXT = '连接失败，请检查推流地址和推流码是否正确，以及网络是否通畅'
+  eq('RTMP / RTMPS 文案', [liveConnectFailedText('rtmp'), liveConnectFailedText('rtmps')], [RTMP_TEXT, RTMP_TEXT])
+  eq('未知 / 缺 scheme 用 RTMP 那句', [liveConnectFailedText('quic'), liveConnectFailedText(undefined), liveConnectFailedText(null), liveConnectFailedText(''), liveConnectFailedText('toString')], [RTMP_TEXT, RTMP_TEXT, RTMP_TEXT, RTMP_TEXT, RTMP_TEXT])
+  eq('detail 的 scheme 优先于兜底', liveFailureMessage({ code: 'LIVE_CONNECT_FAILED', message: 'm', detail: 'scheme=rtmp\nx' }, 'srt'), LIVE_RTMP_CONNECT_FAILED_TEXT)
+  eq('detail 没有 scheme 时用脱敏 params 的 scheme 兜底', liveFailureMessage({ code: 'LIVE_CONNECT_FAILED', message: 'm', detail: 'boom' }, schemeFromParams('{"url":"srt://h:9000?streamid=***"}')), LIVE_SRT_CONNECT_FAILED_TEXT)
+  eq('scheme、兜底都没有 → RTMP 那句', liveFailureMessage({ code: 'LIVE_CONNECT_FAILED', message: '无法连接推流目标' }), RTMP_TEXT)
+  eq('LIVE_PUSH_REJECTED 文案', liveFailureMessage({ code: 'LIVE_PUSH_REJECTED', message: '被拒绝', detail: 'scheme=srt' }), '服务器拒绝了推流，请检查推流码是否有效，或是否已被其他推流占用')
+  eq('LIVE_PUSH_REJECTED 表内文案', [errorMessages.LIVE_PUSH_REJECTED.description, LIVE_PUSH_REJECTED_TEXT], [LIVE_PUSH_REJECTED_TEXT, LIVE_PUSH_REJECTED_TEXT])
+  eq('LIVE_CONNECT_FAILED 表内文案与遮罩', [errorMessages.LIVE_CONNECT_FAILED.description, resolveError('LIVE_CONNECT_FAILED', LIVE_SRT_CONNECT_FAILED_TEXT).description, resolveTaskError('LIVE_CONNECT_FAILED', LIVE_SRT_CONNECT_FAILED_TEXT).description], [RTMP_TEXT, LIVE_SRT_CONNECT_FAILED_TEXT, LIVE_SRT_CONNECT_FAILED_TEXT])
+  eq('liveStartErrorLine 用 e.scheme', liveStartErrorLine({ code: 'LIVE_CONNECT_FAILED', scheme: 'rtmp' }, { scheme: 'srt' })?.description, LIVE_RTMP_CONNECT_FAILED_TEXT)
+  eq('scheme_unsupported 文案', liveUrlInvalidText('scheme_unsupported'), '暂不支持这种推流地址，请使用 rtmp、rtmps 或 srt')
+  eq('malformed 文案', liveUrlInvalidText('malformed'), '推流地址格式不正确，请检查后重新输入')
+  eq('missing_host 文案', liveUrlInvalidText('missing_host'), '推流地址里缺少服务器地址，请检查后重新输入')
+  eq('param_not_allowed 文案', liveUrlInvalidText('param_not_allowed'), '推流地址里有不支持的参数，请去掉后重试')
+  eq('LIVE_URL_INVALID 行内表文案 = 通用文案', errorMessages.LIVE_URL_INVALID.description, '推流地址不可用，请检查后重新输入')
+  eq('LIVE_URL_INVALID_GENERIC 文案', LIVE_URL_INVALID_GENERIC, '推流地址不可用，请检查后重新输入')
+  eq('未知 reason → 推流地址不可用', [liveUrlInvalidText('future_reason'), liveUrlInvalidText(undefined), liveUrlInvalidText('toString')], [LIVE_URL_INVALID_GENERIC, LIVE_URL_INVALID_GENERIC, LIVE_URL_INVALID_GENERIC])
+  eq('reason 表只有四个取值', Object.keys(LIVE_URL_INVALID_REASON_TEXT).sort(), ['malformed', 'missing_host', 'param_not_allowed', 'scheme_unsupported'])
+  // 模拟层：LIVE_URL_INVALID 各取值、注入的未知 / 缺失
+  const urlReason = async (url: string) => (await rejects(live.startFilePush(req(url))))?.reason
+  eq('模拟：scheme_unsupported', await urlReason('rtsp://h/live'), 'scheme_unsupported')
+  eq('模拟：malformed', await urlReason('not a url'), 'malformed')
+  eq('模拟：missing_host', await urlReason('rtmp:///live/k'), 'missing_host')
+  eq('模拟：param_not_allowed', await urlReason('srt://h:9000?mode=listener'), 'param_not_allowed')
+  eq('CheckPushURL 同样带 reason', (await rejects(live.checkPushURL('rtsp://h/x')))?.reason, 'scheme_unsupported')
+  for (const [want, sim] of [['scheme_unsupported', 'scheme_unsupported'], ['malformed', 'malformed'], ['missing_host', 'missing_host'], ['param_not_allowed', 'param_not_allowed']] as const) {
+    win.location.search = `?sim_err=LIVE_URL_INVALID&sim_reason=${sim}`
+    eq(`预览参数：LIVE_URL_INVALID reason=${want}`, (await rejects(live.startFilePush(req('rtmp://h9.example/live/k'))))?.reason, want)
+  }
+  win.location.search = '?sim_err=LIVE_URL_INVALID&sim_reason=unknown'
+  eq('预览参数：未知 reason → 通用文案', liveUrlInvalidText((await rejects(live.startFilePush(req('rtmp://h9.example/live/k'))))?.reason), LIVE_URL_INVALID_GENERIC)
+  win.location.search = '?sim_err=LIVE_URL_INVALID'
+  eq('预览参数：缺 reason → 通用文案', liveUrlInvalidText((await rejects(live.startFilePush(req('rtmp://h9.example/live/k'))))?.reason), LIVE_URL_INVALID_GENERIC)
+  win.location.search = ''
+  // 模拟层：连接失败任务的 detail 首行 scheme=（rtmp / srt），?sim_scheme=missing 缺首行
+  const connFail = async (url: string, extra = ''): Promise<AppError | null> => {
+    win.location.search = `?sim_err=LIVE_CONNECT_FAILED${extra}`
+    const t = await live.startFilePush(req(url))
+    win.location.search = ''
+    const done = new Promise<TaskStatusPayload>((resolve) => {
+      const stop = onSimEvent<TaskStatusPayload>('task:status', (p) => {
+        if (p.id === t.id && p.status === 'failed') { stop(); resolve(p) }
+      })
+    })
+    const p = await done
+    return p.error ? new AppError(p.error.code as AppError['code'], p.error.message, p.error.detail) : null
+  }
+  const cSrt = await connFail('srt://hc1.example:9000?streamid=a')
+  eq('模拟：SRT 连接失败 scheme=srt', [cSrt?.code, cSrt?.scheme], ['LIVE_CONNECT_FAILED', 'srt'])
+  const cRtmp = await connFail('rtmp://hc2.example/live/k')
+  eq('模拟：RTMP 连接失败 scheme=rtmp', [cRtmp?.code, cRtmp?.scheme], ['LIVE_CONNECT_FAILED', 'rtmp'])
+  const cRtmps = await connFail('rtmps://hc3.example/live/k')
+  eq('模拟：RTMPS 连接失败 scheme=rtmps', cRtmps?.scheme, 'rtmps')
+  const cNone = await connFail('rtmp://hc4.example/live/k', '&sim_scheme=missing')
+  eq('模拟：缺 scheme 首行', cNone?.scheme, undefined)
+  eq('连接失败 detail 不带完整地址', [cSrt, cRtmp].every((e) => !(e?.detail ?? '').includes('streamid=a') && !(e?.detail ?? '').includes('/live/k')), true)
+
+  // ---- 类型守卫 / 绑定查找 ----
+  eq('toApiTask 容忍脏数据', ((t: ApiTask) => [t.id, t.progress, t.inputPaths, t.error])(toApiTask({ id: 't', inputPaths: ['a', 1], error: { code: '' } })), ['t', 0, ['a'], null])
+  eq('toApiTask 保留直播字段', ((t: ApiTask) => [t.fps, t.bitrateKbps, t.droppedFrames])(toApiTask({ id: 't', fps: 30, bitrateKbps: 2500, droppedFrames: 0 })), [30, 2500, 0])
+  eq('toApiTask null → 空任务不抛错', toApiTask(null).id, '')
+  eq('绑定不存在 → UNSUPPORTED', (await rejects(callService('LiveService', 'Nope')))?.code, 'UNSUPPORTED')
+
+  // ---- Doc ----
+  const caps = await doc.getDocCapabilities()
+  eq('模拟层 experimental 默认 true', doc.isExperimental(caps), true)
+  eq('后端给 false 优先', doc.isExperimental({ ...caps, experimental: false }), false)
+  eq('老后端没有字段 → true', doc.isExperimental({ ...caps, experimental: undefined }), true)
+  for (const f of ['/d/a.doc', '/d/b.xls', '/d/c.ppt', '/d/加密.docx', '/d/x.csv', '/d/y.txt']) {
+    err = await rejects(doc.convertToPDF([f], ''))
+    eq(`UNSUPPORTED ${f}`, [err?.code, err?.detail?.split('\n')[0]], ['UNSUPPORTED', f])
+  }
+  const good = await doc.convertToPDF(['/d/a.docx', '/d/b.pptx'], '')
+  eq('ConvertToPDF 返回与 inputs 一一对应', good.map((t) => t.type), ['office_pdf', 'office_pdf'])
+  err = await rejects(doc.convertToPDF(['/d/a.docx', '/d/b.doc'], ''))
+  eq('整体校验：一个不通过整体失败', err?.code, 'UNSUPPORTED')
+  const src = await doc.openPDF('/d/a.pdf')
+  const whole = await doc.readWholePDF(src)
+  eq('分块读取拼出整份', [whole.length, new TextDecoder().decode(whole.subarray(0, 5))], [src.size, '%PDF-'])
+  eq('length 越界 INVALID_ARGUMENT', (await rejects(doc.readPDFChunk(src.id, 0, 0)))?.code, 'INVALID_ARGUMENT')
+  eq('句柄不存在 NOT_FOUND', (await rejects(doc.readPDFChunk('nope', 0, 10)))?.code, 'NOT_FOUND')
+  eq('最近列表', (await doc.listRecentPDFs()).length, 1)
+  // ---- 产品定稿：SRT 口令长度 / 缺协议 / 不泄露地址口令推流码 ----
+  eq('LIVE_SRT_PASSPHRASE_TEXT', LIVE_SRT_PASSPHRASE_TEXT, 'SRT 口令需要 10 到 79 个字符')
+  eq('口令长度边界', ['', 'a'.repeat(9), 'a'.repeat(10), 'a'.repeat(79), 'a'.repeat(80)].map(live.isValidSrtPassphrase), [true, false, true, true, false])
+  eq('口令按字符数（中文 10 个）', live.isValidSrtPassphrase('口令口令口令口令口令'), true)
+  eq('取地址里的 passphrase', [live.srtPassphraseFromUrl('srt://h:9000?streamid=a&passphrase=abc%20def'), live.srtPassphraseFromUrl('srt://h:9000?streamid=a'), live.srtPassphraseFromUrl('rtmp://h/live/k?passphrase=x')], ['abc def', undefined, undefined])
+  const shortPass = 'short9xxx'
+  const shortUrl = `srt://sp.example:9000?streamid=sidsecret&passphrase=${shortPass}`
+  err = await rejects(live.startFilePush(req(shortUrl)))
+  eq('口令太短：前端先拦（INVALID_ARGUMENT，产品文案）', [err?.code, err?.message], ['INVALID_ARGUMENT', 'SRT 口令需要 10 到 79 个字符'])
+  eq('口令太短：没有创建任务', (await live.listRunning()).length, 0)
+  err = await rejects(live.startScreenPush(screenReq(shortUrl)))
+  eq('屏幕推流口令太短同样先拦', [err?.code, err?.message], ['INVALID_ARGUMENT', 'SRT 口令需要 10 到 79 个字符'])
+  eq('口令太长先拦', (await rejects(live.startFilePush(req(`srt://sp.example:9000?passphrase=${'a'.repeat(80)}`))))?.code, 'INVALID_ARGUMENT')
+  const okPass = await live.startFilePush(req('srt://sp2.example:9000?streamid=s&passphrase=abcdefghij'))
+  eq('口令 10 位放行', okPass.status, 'queued')
+  await live.stopPush(okPass.id)
+  const PROTO_GENERIC = '当前 ffmpeg 不支持这种推流协议，请在设置的 ffmpeg 页面重新安装或更新'
+  eq('缺协议：后端实际写法 missing=srt', [liveFfmpegProtocolMissingText('missing=srt'), liveFfmpegProtocolMissingText('missing=rtmps')], ['当前的 ffmpeg 不支持 SRT，请在设置的 ffmpeg 页面重新安装或更新', '当前的 ffmpeg 不支持 RTMPS，请在设置的 ffmpeg 页面重新安装或更新'])
+  eq('缺协议：missing=tee（不是推流协议名）→ 通用', liveFfmpegProtocolMissingText('missing=tee'), PROTO_GENERIC)
+  eq('缺协议：SRT', liveFfmpegProtocolMissingText('ffmpeg 缺少协议：srt'), '当前的 ffmpeg 不支持 SRT，请在设置的 ffmpeg 页面重新安装或更新')
+  eq('缺协议：RTMPS（大小写、英文写法）', [liveFfmpegProtocolMissingText('missing protocol: RTMPS'), liveFfmpegProtocolMissingText('protocol=rtmp\nx')], ['当前的 ffmpeg 不支持 RTMPS，请在设置的 ffmpeg 页面重新安装或更新', '当前的 ffmpeg 不支持 RTMP，请在设置的 ffmpeg 页面重新安装或更新'])
+  eq('缺协议：没有具体协议名 → 通用', [liveFfmpegProtocolMissingText(undefined), liveFfmpegProtocolMissingText(''), liveFfmpegProtocolMissingText('ffmpeg 缺少协议'), liveFfmpegProtocolMissingText('缺少协议：quic'), liveFfmpegProtocolMissingText('缺少协议：srtx')], [PROTO_GENERIC, PROTO_GENERIC, PROTO_GENERIC, PROTO_GENERIC, PROTO_GENERIC])
+  eq('缺协议：起始错误行带协议名', liveStartErrorLine({ code: 'UNSUPPORTED', detail: 'ffmpeg 缺少协议：srt' })?.description, '当前的 ffmpeg 不支持 SRT，请在设置的 ffmpeg 页面重新安装或更新')
+  // 模拟层 ?sim_missing 走同一条路径
+  const simMissingLine = (detail?: string) => liveStartErrorLine({ code: 'UNSUPPORTED', detail })?.description
+  eq('模拟 detail 出协议名', simMissingLine('ffmpeg 缺少协议：srt'), '当前的 ffmpeg 不支持 SRT，请在设置的 ffmpeg 页面重新安装或更新')
+  // 所有文案都不含传入的地址 / 口令 / 推流码
+  {
+    const secretUrl = 'srt://user:pw123@leak.example:9000/live/streamKEY999?streamid=sidLEAK&passphrase=passLEAK1234'
+    const rtmpUrl = 'rtmp://leak.example/live/rtmpKEY888'
+    const secrets = ['user:pw123', 'pw123', 'leak.example', 'streamKEY999', 'sidLEAK', 'passLEAK1234', 'rtmpKEY888', secretUrl, rtmpUrl, shortPass]
+    const outputs: string[] = []
+    const detailWith = (head: string, u: string) => `${head}\nConnection to ${u} failed\nmissing protocol: srt at ${u}`
+    for (const u of [secretUrl, rtmpUrl, 'rtsp://leak.example/live/rtmpKEY888']) {
+      for (const scheme of ['srt', 'rtmp', 'rtmps', 'quic', undefined]) {
+        outputs.push(liveConnectFailedText(scheme))
+        for (const code of ['LIVE_CONNECT_FAILED', 'LIVE_PUSH_REJECTED']) outputs.push(liveFailureMessage({ code, message: '后端 message', detail: `scheme=${scheme}\n${u}` }, scheme))
+        outputs.push(liveStartErrorLine({ code: 'LIVE_CONNECT_FAILED', scheme }, { scheme })?.description ?? '')
+      }
+      for (const reason of ['scheme_unsupported', 'malformed', 'missing_host', 'param_not_allowed', 'future', undefined]) outputs.push(liveUrlInvalidText(reason))
+      for (const reason of ['duplicate_url', 'screen_busy', 'max_sessions', 'future', undefined]) outputs.push(taskConflictText(reason), actionErrorText('TASK_CONFLICT', u, reason))
+      outputs.push(liveFfmpegProtocolMissingText(detailWith('reason=x', u)), liveStartErrorLine({ code: 'UNSUPPORTED', detail: detailWith('x', u) })?.description ?? '')
+      outputs.push(LIVE_PUSH_REJECTED_TEXT, LIVE_SRT_PASSPHRASE_TEXT)
+      // 模拟层真实产出的错误：URL 非法 / 冲突 / 口令 / 检查地址
+      const e1 = await rejects(live.checkPushURL(u.replace('://', ':/')))
+      outputs.push(e1?.message ?? '', ...(e1?.detail ? [e1.detail] : []))
+    }
+    for (const c of Object.keys(errorMessages)) {
+      const m = errorMessages[c as keyof typeof errorMessages]
+      outputs.push(m.title, m.description)
+    }
+    for (const w of [shortUrl, 'srt://sp.example:9000?passphrase=short9xxx']) {
+      const e2 = await rejects(live.startFilePush(req(w)))
+      outputs.push(e2?.message ?? '', e2?.detail ?? '')
+    }
+    const leaks = outputs.filter((t) => secrets.some((x) => t.includes(x)))
+    eq('任何文案输出都不含传入的地址 / 口令 / 推流码', leaks, [])
+    eq('自检的输出集合非空', outputs.length > 100, true)
+  }
+  // ---- 联调：开关 true 时纯浏览器环境（无 window.go）仍走模拟；带存档的屏幕推流 → UNSUPPORTED → “暂不支持存档” ----
+  eq('LIVE_BACKEND_READY 已打开', live.LIVE_BACKEND_READY, true)
+  eq('无 window.go → liveIsReal() 为 false（走模拟）', live.liveIsReal(), false)
+  err = await rejects(live.startScreenPush({ ...screenReq('rtmp://arc.example/live/arckey'), archiveDir: '/m/arc' }))
+  eq('带存档屏幕推流 → UNSUPPORTED（无 missing=）', [err?.code, err?.detail], ['UNSUPPORTED', undefined])
+  const ARCHIVE_TEXT = '暂不支持同时保存本地存档，请关闭“同时保存本地存档”后重试'
+  eq('存档 UNSUPPORTED → 暂不支持存档提示', liveStartErrorLine({ code: 'UNSUPPORTED', detail: err?.detail }, { archive: true })?.description, ARCHIVE_TEXT)
+  eq('缺协议 UNSUPPORTED（有 missing=）即使开着存档也按缺协议', liveStartErrorLine({ code: 'UNSUPPORTED', detail: 'missing=srt' }, { archive: true })?.description, '当前的 ffmpeg 不支持 SRT，请在设置的 ffmpeg 页面重新安装或更新')
+  eq('没开存档的 UNSUPPORTED 仍按缺协议', liveStartErrorLine({ code: 'UNSUPPORTED' }, { archive: false })?.description, PROTO_GENERIC)
+  eq('存档提示不含地址', ARCHIVE_TEXT.includes('arc.example'), false)
+  // 屏幕推流两个码、TASK_CONFLICT 四条文案都在映射里
+  eq('TASK_CONFLICT 映射四条', [taskConflictText('max_sessions'), taskConflictText('duplicate_url'), taskConflictText('screen_busy'), taskConflictText('other')], ['最多同时推 4 路', '这个地址已经在推流', '屏幕推流同一时间只能有 1 路，请先停止当前的屏幕推流', '操作冲突，请稍后再试'])
+  eq('SCREEN_PERMISSION_DENIED 文案', errorMessages.SCREEN_PERMISSION_DENIED.description, '没有获得屏幕录制权限，请在系统设置中允许 FFmpegFree 录制屏幕后重试')
+  eq('UNSUPPORTED_PLATFORM 文案', errorMessages.UNSUPPORTED_PLATFORM.description, '当前系统暂不支持屏幕推流')
+  eq('errorMessages 已知码不含 LIVE_PLAY 以外遗漏', Object.keys(errorMessages).length >= 8 && Object.keys(taskErrorMessages).length >= 3, true)
+  return fails
+}

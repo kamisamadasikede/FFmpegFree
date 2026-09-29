@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check:json": "node scripts/check-json-text.mjs",
+    "check:api": "node scripts/check-api.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",

@@ -29,6 +29,30 @@ export async function setDefaultOutputDir(dir: string): Promise<void> {
   await call(SystemBinding.UpdateSettings(system.Settings.createFrom({ ...s, defaultOutputDir: dir })))
 }
 
+/** 同时转换数量的合法范围（契约 v0.7.6）：0 = 自动（CPU 核数的一半，限制在 1~3），1~8 = 固定值 */
+export const MAX_CONCURRENT_AUTO = 0
+export const MAX_CONCURRENT_MAX = 8
+
+/** 读取同时转换数量；不在合法范围的值（旧数据 / 异常）按 0（自动）处理；浏览器预览返回 0 */
+export async function getMaxConcurrent(): Promise<number> {
+  if (!hasWailsBackend()) return MAX_CONCURRENT_AUTO
+  const s = await call(SystemBinding.GetSettings())
+  const n = s?.maxConcurrent
+  return Number.isInteger(n) && n >= MAX_CONCURRENT_AUTO && n <= MAX_CONCURRENT_MAX ? n : MAX_CONCURRENT_AUTO
+}
+
+/**
+ * 保存同时转换数量。先读最新 Settings 再整体写回（UpdateSettings 是整体更新），只改 maxConcurrent。
+ * 范围外的值后端返回 INVALID_ARGUMENT；这里先在前端拦一次，不发请求。
+ */
+export async function setMaxConcurrent(n: number): Promise<void> {
+  if (!Number.isInteger(n) || n < MAX_CONCURRENT_AUTO || n > MAX_CONCURRENT_MAX) {
+    throw new AppError('INVALID_ARGUMENT', '同时转换数量只能是 0（自动）或 1 到 8')
+  }
+  const s = await call(SystemBinding.GetSettings())
+  await call(SystemBinding.UpdateSettings(system.Settings.createFrom({ ...s, maxConcurrent: n })))
+}
+
 // ---- 选择文件（SystemService.PickFiles，后端 PR #12）----
 
 /** 文件选择对话框的过滤器；patterns 形如 ["*.mp4", "*.mkv"]，空 = 不过滤 */

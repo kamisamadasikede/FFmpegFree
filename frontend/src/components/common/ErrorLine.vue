@@ -104,7 +104,7 @@ const showCode = computed(() => !props.hideCode)
   --tone: var(--ff-interrupted);
 }
 .ff-error-line.tone-neutral {
-  --tone: var(--ff-text-3);
+  --tone: var(--ff-text-2);
 }
 .ff-error-line > svg {
   color: var(--tone);

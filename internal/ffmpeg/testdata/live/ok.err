@@ -1,0 +1,60 @@
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from '/tmp/live_src.mp4':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf61.7.103
+  Duration: 00:00:20.00, start: 0.000000, bitrate: 118 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High 4:4:4 Predictive) (avc1 / 0x31637661), yuv444p(progressive), 640x360 [SAR 1:1 DAR 16:9], 42 kb/s, 25 fps, 25 tbr, 12800 tbn (default)
+      Metadata:
+        handler_name    : VideoHandler
+        vendor_id       : [0][0][0][0]
+        encoder         : Lavc61.19.101 libx264
+  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, mono, fltp, 69 kb/s (default)
+      Metadata:
+        handler_name    : SoundHandler
+        vendor_id       : [0][0][0][0]
+Stream mapping:
+  Stream #0:0 -> #0:0 (h264 (native) -> h264 (libx264))
+  Stream #0:1 -> #0:1 (aac (native) -> aac (native))
+Press [q] to stop, [?] for help
+[libx264 @ 0x56403423b900] using SAR=1/1
+[libx264 @ 0x56403423b900] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2 AVX512
+[libx264 @ 0x56403423b900] profile High, level 3.0, 4:2:0, 8-bit
+[libx264 @ 0x56403423b900] 264 - core 164 r3108 31e19f9 - H.264/MPEG-4 AVC codec - Copyleft 2003-2023 - http://www.videolan.org/x264.html - options: cabac=1 ref=1 deblock=1:0:0 analyse=0x3:0x113 me=hex subme=2 psy=1 psy_rd=1.00:0.00 mixed_ref=0 me_range=16 chroma_me=1 trellis=0 8x8dct=1 cqm=0 deadzone=21,11 fast_pskip=1 chroma_qp_offset=0 threads=5 lookahead_threads=5 sliced_threads=1 slices=5 nr=0 decimate=1 interlaced=0 bluray_compat=0 constrained_intra=0 bframes=0 weightp=1 keyint=250 keyint_min=25 scenecut=40 intra_refresh=0 rc=abr mbtree=0 bitrate=1000 ratetol=1.0 qcomp=0.60 qpmin=0 qpmax=69 qpstep=4 ip_ratio=1.40 aq=1:1.00
+Output #0, flv, to 'rtmp://127.0.0.1:1935/live/test1':
+  Metadata:
+    major_brand     : isom
+    minor_version   : 512
+    compatible_brands: isomiso2avc1mp41
+    encoder         : Lavf61.7.103
+  Stream #0:0(und): Video: h264 ([7][0][0][0] / 0x0007), yuv420p(tv, progressive), 640x360 [SAR 1:1 DAR 16:9], q=2-31, 1000 kb/s, 25 fps, 1k tbn (default)
+      Metadata:
+        handler_name    : VideoHandler
+        vendor_id       : [0][0][0][0]
+        encoder         : Lavc61.19.101 libx264
+      Side data:
+        cpb: bitrate max/min/avg: 0/0/1000000 buffer size: 0 vbv_delay: N/A
+  Stream #0:1(und): Audio: aac (LC) ([10][0][0][0] / 0x000A), 44100 Hz, mono, fltp, 69 kb/s (default)
+      Metadata:
+        handler_name    : SoundHandler
+        vendor_id       : [0][0][0][0]
+        encoder         : Lavc61.19.101 aac
+[flv @ 0x56403429f500] Failed to update header with correct duration.
+[flv @ 0x56403429f500] Failed to update header with correct filesize.
+[out#0/flv @ 0x5640342a5400] video:2419KiB audio:169KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 1.025327%
+frame=  500 fps= 26 q=6.0 Lsize=    2615KiB time=00:00:20.00 bitrate=1071.1kbits/s speed=1.03x    
+[libx264 @ 0x56403423b900] frame I:2     Avg QP: 5.76  size: 10237
+[libx264 @ 0x56403423b900] frame P:498   Avg QP: 2.40  size:  4932
+[libx264 @ 0x56403423b900] mb I  I16..4: 74.3%  5.7% 19.9%
+[libx264 @ 0x56403423b900] mb P  I16..4:  1.5%  1.1%  1.5%  P16..4:  9.2%  5.0%  1.6%  0.0%  0.0%    skip:80.2%
+[libx264 @ 0x56403423b900] final ratefactor: 10.65
+[libx264 @ 0x56403423b900] 8x8 transform intra:24.6% inter:18.9%
+[libx264 @ 0x56403423b900] coded y,uvDC,uvAC intra: 49.3% 85.5% 84.9% inter: 10.3% 15.5% 14.5%
+[libx264 @ 0x56403423b900] i16 v,h,dc,p: 48% 40%  5%  7%
+[libx264 @ 0x56403423b900] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 86%  2% 10%  0%  0%  0%  0%  1%  0%
+[libx264 @ 0x56403423b900] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 78%  6% 10%  1%  0%  1%  0%  2%  1%
+[libx264 @ 0x56403423b900] i8c dc,h,v,p: 16% 22% 18% 44%
+[libx264 @ 0x56403423b900] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x56403423b900] kb/s:990.72
+[aac @ 0x564034a93e80] Qavg: 176.603

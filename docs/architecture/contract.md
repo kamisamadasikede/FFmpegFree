@@ -2,6 +2,7 @@
 
 v0.11 变更（EditService 契约定稿，**只有契约，尚无实现**，见 6.11 节）：`Render` 改名 `Export`，任务类型 `edit_render` 改名 `edit_export`（旧名从未产生过任务，无迁移问题）；新增 `ValidateProject` / `DeleteProject` / `GetPreviewURL`；`SaveProject` 返回 `EditProjectMeta`，`LoadProject` 返回 `LoadedProject`；`EditProject` 字段与校验范围、导出参数、错误码、预览方案全部写死；预览走 AssetServer 的 `/local/<token>`（不做本地流服务，不用 `file://`），并明确 Windows 上 AssetServer 不支持流式响应、单次响应必须限长。
 
+v0.10 变更（LiveService 设计稿，**只是契约，尚未实现**，见第 4 节 LiveService 和 6.10 节）：重写 LiveService——删除 `StartRelay`、`StartRecordPush(wsURL)`、`Stop`、`GetHealth`、`ListArchives`、`GetPlayURL`，新增 `StartFilePush`、`StartScreenPush`、`GetCaptureCapabilities`、`ListScreens`、`CheckPushURL`；停止用 `TaskService.Cancel`；`TaskType` 的直播类型改为 `live_file_push | live_screen_push`；`task:progress`（和 `Task`）增加 `fps`、`bitrateKbps`、`droppedFrames`，删除 `live:stats` 事件；推流地址校验规则、推流密钥 / 凭据在标题、params、日志、错误、事件里的脱敏规则；直播错误分类沿用 6.9 的"先剔除元数据段落"做法；第 7 节（本地流服务）删除，只留说明。
 
 v0.9.2 变更（Windows 子进程回收，见 6.6 节）：Windows 上 ffmpeg / ffprobe 子进程改为放进 Job Object（`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`），应用崩溃或被强制结束时系统会回收 ffmpeg 及其子孙进程；结束进程树先终结 Job，失败退回 `taskkill /T /F`，再退回只结束主进程；其他平台行为不变。无接口变化。
 
@@ -70,22 +71,68 @@ Bind 方法返回 `(T, error)`。error 的 message 是 JSON 字符串，前端 `
 | INVALID_ARGUMENT | 参数不合法 |
 | NOT_FOUND | 记录或文件不存在 |
 | FFMPEG_NOT_FOUND | ffmpeg 缺失 |
-| TASK_CONFLICT | 任务状态不允许该操作（如取消已完成任务） |
+| TASK_CONFLICT | 任务状态不允许该操作（如取消已完成任务）；直播（v0.10）：已有进行中的屏幕推流时再开一路屏幕推流（`detail` 首行 `reason=screen_busy`，**屏幕推流同一时间最多 1 路**），同一推流地址已有进行中的会话（`reason=duplicate_url`），或进行中的直播会话已达 4 个上限（`reason=max_sessions`）；判断顺序 `duplicate_url`、`screen_busy`、`max_sessions`（架构师定），稳定枚举见 2.2 与 6.10 |
 | IO_ERROR | 读写文件失败 |
 | PROBE_FAILED | 文件存在但 ffprobe 无法解析（损坏、不是音视频文件、没有可识别的流） |
-| CANCELED | 调用因应用退出（根 ctx 取消）而被取消，结果作废；前端不需要提示用户 |
-| UNSUPPORTED | 该操作不支持这个对象（如没有重试工厂的任务类型不能 Retry） |
+| CANCELED | 调用因应用退出（根 ctx 取消）而被取消，结果作废；前端不需要提示用户（`ConvertService.Submit`、`LiveService.Start*` 等） |
+| UNSUPPORTED | 该操作不支持这个对象（如没有重试工厂的任务类型不能 Retry；直播会话 Retry 也是它；直播（v0.10）：本机 ffmpeg 缺少推流协议时 `Start*` 返回它，`detail` 是 `missing=<协议名>`（协议名取 `rtmp`、`rtmps`、`srt`，如 `missing=srt`），见 2.2） |
 | CONVERT_DISK_FULL | 转换写输出文件时磁盘空间不足（前端标题「磁盘空间不足」，可引导用户换输出目录） |
 | PROCESS_FAILED | 子进程非零退出，detail 带最后 50 行日志 |
-| UNSUPPORTED_PLATFORM | 当前系统或会话不支持该功能（如 Linux Wayland 下的屏幕采集） |
-| LIVE_URL_INVALID | 直播地址格式不合法或协议不支持 |
-| LIVE_CONNECT_FAILED | 连接推流 / 拉流目标失败（DNS、拒绝连接、超时） |
-| LIVE_PUSH_REJECTED | 目标服务器拒绝推流（鉴权失败、流名冲突等） |
-| LIVE_PUSH_INTERRUPTED | 推流过程中被目标服务器或网络中断 |
-| SCREEN_PERMISSION_DENIED | 没有屏幕录制权限（macOS 系统授权） |
-| INTERNAL | 其他；ffmpeg 异常退出时 detail 带 ffmpeg stderr 的最后若干行 |
+| UNSUPPORTED_PLATFORM | 当前系统或会话不支持该功能（如 Linux Wayland 下的屏幕采集、Linux 没有 `DISPLAY`、x11grab 打不开显示） |
+| LIVE_URL_INVALID | 推流地址格式不合法或协议不支持（只允许 rtmp / rtmps / srt，规则见第 4 节 LiveService）；`detail` 第一行 `reason=<值>`，见 2.2 |
+| LIVE_CONNECT_FAILED | 推流**开始前**连接目标失败（DNS、拒绝连接、超时、网络不可达；SRT 的服务器未开与被拒绝无法区分，也归它）：任务在收到第一条 `task:progress` 之前就失败；`detail` 第一行 `scheme=rtmp\|rtmps\|srt`，见 2.2 |
+| LIVE_PUSH_REJECTED | 目标服务器明确拒绝推流（RTMP 鉴权失败、流名冲突、握手被拒等；SRT 不会出现），**推流开始前** |
+| LIVE_PUSH_INTERRUPTED | 推流**已经开始**（收到过 `task:progress`）后被目标服务器或网络中断 |
+| SCREEN_PERMISSION_DENIED | 没有屏幕录制权限（macOS 系统授权），`StartScreenPush` 同步返回或任务失败 |
+| INTERNAL | 其他；直播任务里认不出的 ffmpeg 非零退出也是它（不是 `PROCESS_FAILED`），detail 带（已脱敏的）stderr 最后若干行 |
 
-后端返回的直播 / 录屏错误码就是上表这些。`LIVE_PLAY_FAILED`（播放器加载或解码失败）和 `LIVE_CORS_BLOCKED`（拉流地址跨域被浏览器拦截）**只在前端由播放器产生**，后端不会返回，也不在 `apperr` 里定义。
+**直播 / 录屏（v0.10）用到的后端码正好是冻结的这八个：`LIVE_URL_INVALID`、`LIVE_CONNECT_FAILED`、`LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`SCREEN_PERMISSION_DENIED`、`FFMPEG_NOT_FOUND`、`UNSUPPORTED_PLATFORM`、`INTERNAL`**；此外复用已有的 `INVALID_ARGUMENT`、`NOT_FOUND`、`PROBE_FAILED`（输入文件问题）、`TASK_CONFLICT`（会话上限 / 同地址冲突）、`UNSUPPORTED`（Retry）、`CANCELED`（`Start*` 因应用退出被取消，#10 已加）。**v0.10 没有新增任何错误码**，也没有 `LIVE_START_FAILED` 之类的同义码。用户主动停止不产生错误码（优雅停止成功 = `succeeded`，超时强杀 = `canceled` 状态，`error` 为空）。`LIVE_PLAY_FAILED`（播放器加载或解码失败）和 `LIVE_CORS_BLOCKED`（拉流地址跨域被浏览器拦截）**只在前端由播放器产生**，后端不会返回，也不在 `apperr` 里定义。
+
+### 2.1 AppErrorCode 完整清单（供前端 `frontend/src/api/call.ts` 对照）
+
+后端 `internal/apperr` 一共 17 个码，前端 `AppErrorCode` 必须全部包含；前端 `frontend/src/api/call.ts` 以本清单为准逐项核对补全（不在契约里写它当前缺几个，现状随前端分支变化）：
+
+```ts
+export type AppErrorCode =
+  | 'INVALID_ARGUMENT' | 'NOT_FOUND' | 'FFMPEG_NOT_FOUND' | 'TASK_CONFLICT' | 'IO_ERROR'
+  | 'PROBE_FAILED' | 'CANCELED' | 'UNSUPPORTED' | 'CONVERT_DISK_FULL' | 'PROCESS_FAILED'
+  | 'UNSUPPORTED_PLATFORM' | 'INTERNAL'
+  | 'LIVE_URL_INVALID' | 'LIVE_CONNECT_FAILED' | 'LIVE_PUSH_REJECTED' | 'LIVE_PUSH_INTERRUPTED'
+  | 'SCREEN_PERMISSION_DENIED'
+```
+
+- 前端遇到不在清单里的 `code`：按 `INTERNAL` 的通用文案处理，不崩溃。
+- `LIVE_PLAY_FAILED`、`LIVE_CORS_BLOCKED` 只在前端播放器里产生，**不是** `AppErrorCode`，也不出现在后端。
+- 之后新增错误码：先改本表和 `internal/apperr`，再改前端；三处必须一致。
+
+### 2.2 `detail` 第一行格式（按错误码分，稳定枚举）
+
+| code（触发场景） | `detail` 第一行 | 取值（只追加，不改名、不改含义、不删除） | 说明 |
+|---|---|---|---|
+| `TASK_CONFLICT`（直播 `Start*` 的会话冲突） | `reason=<值>` | `screen_busy`（已有进行中的 `live_screen_push`，再开一路屏幕推流；文件推流不会得到它）、`duplicate_url`（同一标准化地址已有会话）、`max_sessions`（进行中的直播会话已达 4 个）；**判断顺序固定（架构师定）：`duplicate_url` → `screen_busy` → `max_sessions`**，同时满足多个条件时只返回最先命中的 | 其他 `TASK_CONFLICT`（`Cancel` 已结束的会话、`Remove` 进行中的任务等）**没有** `reason=` 行；不含任何地址、口令、streamkey |
+| `LIVE_URL_INVALID` | `reason=<值>` | `scheme_unsupported`（scheme 不是 rtmp / rtmps / srt）、`malformed`（空串、超长、含非法字符、缺 scheme、端口越界或缺失、rtmp 缺应用名、SRT 参数值非法如 passphrase 长度、IPv6 括号错误等）、`missing_host`（host 为空）、`param_not_allowed`（SRT 查询参数不在白名单、`mode` 不是 `caller`、同名参数重复） | **不带地址、口令，也不带它们的任何片段**（连脱敏后的地址也不放），第二行起可以写不含地址的原因说明 |
+| `UNSUPPORTED`（直播 `Start*` 时本机 ffmpeg 缺协议） | `missing=<协议名>` | `rtmp`、`rtmps`、`srt`（对应推流地址的 scheme；`rtmp` 是除 `rtmps` / `srt` 以外的默认）；带本地存档的会话另需 `tee`，缺时是 `missing=tee` | `detail` 只有这一行，没有第二行；`message` 是"当前 ffmpeg 不支持 <协议名>，请安装完整版 ffmpeg"，前端据此提示安装完整版；其他原因的 `UNSUPPORTED`（如 `Retry` 直播任务、屏幕推流存档未实现）没有这一行 |
+| `LIVE_CONNECT_FAILED` | `scheme=<值>` | `rtmp`、`rtmps`、`srt`（取自校验后的标准化地址，小写） | 第二行起是脱敏后的 ffmpeg stderr 最后若干行；前端据此选 RTMP / SRT 的提示文案（SRT 用"连接失败，请检查地址和口令是否正确"，文案由前端负责，后端 `message` 不承载） |
+| 编辑类错误（`EditService` 的 `ValidateProject` / `Export` 返回的 `INVALID_ARGUMENT`、`NOT_FOUND`、`IO_ERROR`、`PROBE_FAILED`、`UNSUPPORTED`） | **按 6.11.2 B（#22）**：`clip=<clip.id> path=<绝对路径>`，或没有 clip 的工程级错误写 `project` | 由 6.11.2 B 定义，第二行起才是原因（如 `overlaps=<clip.id>`、`path_length=<n> limit=259`、`missing=filter_complex`） | 前端用 6.11.2 B 的正则取首行；**不适用**下面"第一行只有一个 `key=value`"的统一规则；此行是 #22 合入后生效，#22 单独看时它引用的 6.11.2 B 就在该 PR 里，措辞与 #22 的 B 一致（已核对） |
+| 其余所有码（含 `LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`INTERNAL`） | 无固定格式 | — | 前端**不得**解析（上面几行列出的码 / 场景除外） |
+
+统一规则：第一行只有一个 `key=value`，值只含小写字母、数字、下划线（`scheme` 例外，取值就是上面三个小写单词）；前端用 `^(reason|scheme)=([a-z0-9_]+)$` 匹配 `detail` 的第一行；**没有第一行、格式不对、或值不认识，一律走该错误码的通用文案**，不得猜测含义、不得报错崩溃。测试必须逐码断言第一行精确等于期望值（不是包含）。
+
+### 2.3 示例（JSON 里的数值是示意）
+
+```json
+{ "code": "LIVE_URL_INVALID", "message": "暂不支持这种推流协议", "detail": "reason=scheme_unsupported" }
+```
+```json
+{ "code": "TASK_CONFLICT", "message": "直播会话冲突", "detail": "reason=duplicate_url\n已有会话使用同一推流地址" }
+```
+```json
+{ "code": "TASK_CONFLICT", "message": "已有屏幕推流在进行", "detail": "reason=screen_busy" }
+```
+```json
+{ "code": "LIVE_CONNECT_FAILED", "message": "连接推流服务器失败", "detail": "scheme=rtmp\n[tcp @ 0x7f50942c6900] Connection to tcp://127.0.0.1:1999?tcp_nodelay=0 failed: Connection refused\n[out#0/tee @ 0x557c2ff9e9c0] Could not write header (incorrect codec parameters ?): Connection refused" }
+```
+
 
 ## 3. 数据模型（Go struct，Wails 自动生成 models.ts）
 
@@ -122,9 +169,13 @@ type Task struct {
     Progress   float64    `json:"progress"`   // 0~1，直播类任务恒为 -1
     Speed      string     `json:"speed"`      // 如 "2.3x"
     EtaSec     float64    `json:"etaSec"`
-    Params     string     `json:"params"`     // 原始参数 JSON，用于重试
+    // 以下三项只有直播任务在运行中才有值（v0.10），只在内存里、不落库，和 speed / etaSec 一样：
+    Fps           float64 `json:"fps,omitempty"`           // 当前输出帧率
+    BitrateKbps   float64 `json:"bitrateKbps,omitempty"`   // 近 5 秒的输出码率（kbit/s）；有本地存档（tee）的会话没有此值，省略
+    DroppedFrames int64   `json:"droppedFrames,omitempty"` // ffmpeg 丢弃的帧数（累计），不是网络丢包
+    Params     string     `json:"params"`     // 原始参数 JSON，用于重试（直播任务的 params 已脱敏，不能用来重试，见 6.10）
     Version    int64      `json:"version"`    // 每次变更 +1，前端据此丢弃旧事件
-    Error      *AppError  `json:"error"`
+    Error      *AppError  `json:"error,omitempty"` // 无错误时省略（不是 null）；TS 里是 error?: AppError；succeeded / canceled 一律没有该键
     CreatedAt  int64      `json:"createdAt"`
     StartedAt  int64      `json:"startedAt"`
     FinishedAt int64      `json:"finishedAt"`
@@ -163,6 +214,12 @@ RevealInFolder(path string) error
 GetEnv() (EnvInfo, error)            // 系统、ffmpeg 版本、数据目录
 GetSettings() (Settings, error)
 UpdateSettings(s Settings) error      // defaultOutputDir（空=与源文件同目录）、maxConcurrent（0=自动，1~8）、主题、语言、ffmpegPromptDismissed、ffmpegPath
+```
+
+### App（main 包，非 Service）
+```go
+GetLicenseText(name string) (string, error) // 内嵌第三方许可全文；白名单 "OFL"（Noto Sans SC 的 SIL OFL 1.1）、"OFL-Nunito"（Nunito 的 SIL OFL 1.1），其它名称（含空串、带路径、大小写不同）→ INVALID_ARGUMENT
+GetAppVersion() string                      // 构建时 -ldflags "-X FFmpegFree/internal/about.Version=..." 注入；未注入返回 "开发版"
 ```
 
 ### MediaService
@@ -207,16 +264,131 @@ Validate(req JsonValidateRequest) (JsonValidateResponse, error)
 ```
 结构沿用现有 `vo/JsonInfo.go`。
 
-### LiveService
+### LiveService（v0.10 设计稿，尚未实现）
+
+没有本地流服务、没有 WebSocket：ffmpeg 直接把流推到用户填的地址，播放由前端播放器（mpegts.js）直接拉远端地址。会话就是 `live` 池里的一个 live 类型任务（不排队、不占 batch 名额），**会话 id = 任务 id**，`progress` 恒为 -1，指标走 `task:progress`。所有方法依赖 ffmpeg（缺失返回 `FFMPEG_NOT_FOUND`），启动完成之前返回 `INTERNAL`；`Start*` 用应用根 ctx，被取消返回 `CANCELED`。
+
 ```go
-StartFilePush(req FilePushRequest) (Task, error)      // 文件推流，支持循环
-StartRelay(req RelayRequest) (Task, error)            // 拉流转推，多目标
-StartRecordPush(req RecordPushRequest) (RecordSession, error) // 返回 wsURL + token，前端 MediaRecorder 往里写
-Stop(taskID string) error
-GetHealth() (LiveHealth, error)
-ListArchives() ([]MediaInfo, error)
-GetPlayURL(sourceURL string) (string, error)          // FLV 拉流播放经本地服务代理
+StartFilePush(req FilePushRequest) (Task, error)       // 文件推流（可循环）
+StartScreenPush(req ScreenPushRequest) (Task, error)   // 屏幕推流（可同时本地存档）；同一时间最多 1 路：已有进行中的 live_screen_push 返回 TASK_CONFLICT（detail 首行 reason=screen_busy）
+GetCaptureCapabilities() (CaptureCapabilities, error)  // 屏幕采集能不能用、为什么不能用（Linux 读 XDG_SESSION_TYPE 和 DISPLAY，见 6.10「采集能力检测」）
+ListScreens() ([]ScreenInfo, error)                    // 可采集的显示器（Linux 用 xrandr --display $DISPLAY --query，必须带 --display，见 6.10「采集能力检测」）
+CheckPushURL(url string) (PushURLInfo, error)          // 只校验地址并返回脱敏后的显示文本，不联网
+// 停止：TaskService.Cancel(taskID)，没有单独的 StopPush（理由见下）
+// 查询会话：TaskService.ListActive / Get / List（type = live_*），实时指标看 task:progress
 ```
+
+```go
+// 两个 Start* 共用的编码选项。全部可省略（零值 = 默认）；越界 INVALID_ARGUMENT。
+type PushOptions struct {
+    Width            int     `json:"width"`            // 0 = 保持（文件）/ 采集分辨率（屏幕）；上限 8192，输出保证偶数
+    Height           int     `json:"height"`           // 同上；只给一个按比例缩放
+    Fps              float64 `json:"fps"`              // 0 = 保持源帧率（文件）/ 30（屏幕）；范围 1~60
+    VideoBitrateKbps int     `json:"videoBitrateKbps"` // 0 = 2500；范围 100~50000（kbit/s）
+    AudioBitrateKbps int     `json:"audioBitrateKbps"` // 0 = 128；范围 32~512
+}
+
+type FilePushRequest struct {
+    InputPath  string      `json:"inputPath"`  // 绝对路径的普通文件，必须有视频画面（否则 INVALID_ARGUMENT）
+    URL        string      `json:"url"`        // 推流地址，规则见下
+    Loop       bool        `json:"loop"`       // true = 循环播放直到用户停止；false = 播完自然结束（任务 succeeded）
+    Options    PushOptions `json:"options"`
+}
+
+type ScreenPushRequest struct {
+    URL        string      `json:"url"`
+    ScreenID   string      `json:"screenId"`   // ListScreens 返回的 id；"" = 主显示器；不存在 INVALID_ARGUMENT
+    HideCursor bool        `json:"hideCursor"` // 零值 = 画面里带鼠标指针
+    Audio      string      `json:"audio"`      // "none"（默认，视频流里没有音轨）| "silent"（补一路静音音轨，给要求必须有音频的服务器）；采集声音 v1 不做
+    ArchiveDir string      `json:"archiveDir"` // 非空 = 同时在本地存一份 mp4（绝对路径，不存在会创建；存档规则见 6.10）；"" = 不存档
+    Options    PushOptions `json:"options"`
+}
+
+type CaptureCapabilities struct {
+    Supported    bool   `json:"supported"`    // 当前系统 / 会话能否采集屏幕
+    Platform     string `json:"platform"`     // windows | darwin | linux
+    Backend      string `json:"backend"`      // gdigrab | avfoundation | x11grab；不支持时 ""
+    SessionType  string `json:"sessionType"`  // 只对 linux 有意义：x11 | wayland | unknown；其他平台 ""
+    Permission   string `json:"permission"`   // granted | denied | unknown | notRequired（macOS 屏幕录制授权；查不出来是 unknown）
+    AudioCapture bool   `json:"audioCapture"` // v1 恒为 false
+    Reason       string `json:"reason"`       // 不支持时给用户看的中文原因，支持时 ""
+}
+
+type ScreenInfo struct {
+    ID      string  `json:"id"`      // 不透明字符串，前端只原样传回：windows "monitor:<序号>"、darwin "avf:<设备序号>"、linux "x11:<输出名>" 或 "x11:desktop"
+    Name    string  `json:"name"`    // 如 "显示器 1（主）"
+    Primary bool    `json:"primary"`
+    X       int     `json:"x"`       // 在虚拟桌面里的位置，物理像素；查不到为 0
+    Y       int     `json:"y"`
+    Width   int     `json:"width"`   // 物理像素；查不到为 0
+    Height  int     `json:"height"`
+    Scale   float64 `json:"scale"`   // 系统缩放倍数（1、1.5、2…）；查不到为 1
+}
+
+type PushURLInfo struct {
+    Scheme   string `json:"scheme"`   // rtmp | rtmps | srt
+    Host     string `json:"host"`
+    Port     int    `json:"port"`     // 地址里没写用默认值：rtmp 1935、rtmps 443；srt 必须写端口
+    Redacted string `json:"redacted"` // 脱敏后的地址，可以直接显示：rtmp://host/app/***
+}
+```
+
+**返回值**：`Start*` 立即返回，不等连接成功。返回的 `Task` 是入队前取的快照（`status=queued`、`version=1`，与 `task:created` 一致）；紧接着 `task:status(running)`；连接 / 鉴权失败以任务 `failed` + `error` 体现，不是 `Start*` 的返回错误。前端判断"已经在推了"：`running` 且已收到该任务的第一条 `task:progress`（ffmpeg 有输出才会有）；`running` 但还没有 progress = "连接中"。
+
+**`Start*` 同步返回的错误**（此时没有创建任务）：`FFMPEG_NOT_FOUND`；`INVALID_ARGUMENT`（选项越界、输入文件没有视频、`archiveDir` 不是绝对路径、`screenId` 不存在）；`NOT_FOUND` / `PROBE_FAILED`（输入文件不存在 / 无法解析）；`LIVE_URL_INVALID`；`UNSUPPORTED`（开始前用 `ffmpeg -protocols` 检查：`Output:` 段必须有与地址 scheme 对应的协议（`srt` 地址要 `srt`，`rtmps` 地址要 `rtmps`，其余即 `rtmp` 地址要 `rtmp`），带存档时另需 `tee`，缺哪个返回它，**`detail` 就是单独一行 `missing=<协议名>`（第一行，没有第二行）**，协议名取 `rtmp`、`rtmps`、`srt`（带存档的会话缺 `tee` 时是 `missing=tee`）；`message` 是"当前 ffmpeg 不支持 <协议名>，请安装完整版 ffmpeg"；`StartFilePush` 和 `StartScreenPush` 在参数校验之后、探测输入 / 枚举屏幕之前检查（`internal/service/live/service.go` 的 `checkProtocols`）；`CheckPushURL` 只校验地址、不联网、**不做协议检查**，不返回它；结果按 ffmpeg 路径缓存；7.1.5 上 `rtmp`、`rtmps`、`srt`、`tee` 都在）；`UNSUPPORTED_PLATFORM`（不能采集屏幕）；`SCREEN_PERMISSION_DENIED`（已知没有权限时）；`TASK_CONFLICT`（`detail` 首行 `reason=`，判断顺序 **`duplicate_url` → `screen_busy` → `max_sessions`**：同一个推流地址已经有进行中的会话（`duplicate_url`）；`StartScreenPush` 时已有进行中的 `live_screen_push`（屏幕推流同一时间最多 1 路，`reason=screen_busy`）；进行中的直播会话已达 4 个上限（`max_sessions`）；`StartFilePush` 只会得到 `duplicate_url` 和 `max_sessions`）。
+
+**停止 = `TaskService.Cancel(taskID)`，不设 `StopPush`**。理由：
+1. 状态机、落库、`task:status`、应用退出（`Shutdown`）走的就是同一条取消路径，直播任务的 Runner 本来就是"取消 → 先发 `q`，最多等 5 秒（有本地存档的会话 15 秒，见 6.10）让 ffmpeg 收尾，超时再强杀"（6.5、6.6）；再包一层 `StopPush` 只会多一个和 `Cancel` 语义重复、还要保持同步的入口。
+2. 任务中心、通知条等所有能看到任务的地方本来就有"停止"按钮，直播会话不用特殊处理。
+3. 结果语义（前端文案要区分）：优雅停止成功 → Runner 返回 nil → 任务是 **`succeeded`**（不是 `canceled`；用户点"停止直播"是直播的正常结束）；**自然播完**（文件推流 `loop=false` 播到结尾）也是 `succeeded`。**架构师定：优雅停止和自然播完都显示"已结束推流"，前端不区分，也不加任何字段；** 点"停止"之后 5 秒内（有存档的会话 15 秒内）刷新页面看到 `running` 是可接受的（`Cancel` 立即返回，ffmpeg 还在收尾），前端以 `task:status` 为准。收尾超时被强杀 → `canceled`（"已强制停止"）。**硬性规则（架构师定）：优雅停止记 `succeeded` 时任务的 `error` 必须为空；强杀记 `canceled` 时同样不带错误码（`error` 为空）；前端只看 `status` 区分"已结束推流"（`succeeded`）和"已强制停止"（`canceled`），不看 `error`。**测试必须断言这两种终态的 `Task.error == nil`，且 `task:status` 载荷不带 `error`。**已请求 `Cancel` 之后，ffmpeg 无论怎样非零退出，一律归 `canceled`、不带错误码，不得落 `LIVE_PUSH_INTERRUPTED` 等**（细则见 6.10「错误分类」）。**优雅停止的判定（架构师定）**：发 `q` 后 ffmpeg **退出码 0 才是 `succeeded`**；已请求 `Cancel` 后退出码非 0 一律 `canceled`（无错误码）。**#31 已实现**（见 6.10.2 第 1 项）：`ffmpeg.Run` 原先在发 `q` 后的宽限期内只要进程退出就返回 nil、不看退出码（`internal/ffmpeg/exec.go` 的 `exitedGracefully` 分支，对转换类任务合理，对直播不行），现在有 `ffmpeg.RunOptions.StrictGracefulExit`，直播 Runner 开启后**直播路径检查退出码**实测（7.1.5 与 9.0.2 一致）：`q` 之后无存档 / 有存档（tee）都退出码 **0**（约 0.06~0.3 秒）；而 **SIGINT 之后退出码是 255**，所以直播必须用 `q`（经 stdin 管道）而不是 SIGINT，否则优雅停止会被判成 `canceled`。已结束的会话 `Cancel` 返回 `TASK_CONFLICT`，重复点击（正在停止中）返回 nil。
+4. `Retry` 对直播任务返回 `UNSUPPORTED`（没有注册重试工厂，且 params 已脱敏、拿不到密钥）；前端"重新开始"就是用表单里的值再调一次 `Start*`。
+
+**推流地址校验规则**（`Start*` 和 `CheckPushURL` 共用，不通过一律 `LIVE_URL_INVALID`；`message` 说明原因，**`detail` 第一行固定 `reason=<值>`（枚举见 2.2），整个 `detail` 和 `message` 都不带地址、口令或它们的片段**，绝不回显原文）：
+1. 先 `TrimSpace`；长度 ≤ 2048 字节；不能含空白、控制字符、`|`、`\`、`"`、`'`（`|` 是 ffmpeg tee 分隔符，其余会破坏命令行 / 日志）。
+2. scheme 不区分大小写，只允许 `rtmp`、`rtmps`、`srt`；其余（`file`、`http(s)`、`rtsp`、`udp`、`tcp`、`pipe`、`concat`、`subfile`、`data` ……）一律拒绝。传给 ffmpeg 的永远是校验后的 URL 并带 `-protocol_whitelist`，不会因为用户输入变成读本地文件或打开别的协议。（不在白名单 → `reason=scheme_unsupported`；没有 `://` → `malformed`）
+3. host 不能为空；端口写了必须在 1~65535；IPv6 用方括号；IDN 主机名转 punycode，转不了就拒绝。**允许**回环 / 内网地址（推到本机或局域网的 nginx-rtmp、SRS、MediaMTX 是正常用法）。 host 为空 → `reason=missing_host`；端口越界、IPv6 括号错误、IDN 转换失败 → `reason=malformed`。
+4. `rtmp` / `rtmps`：路径至少要有应用名（`rtmp://host/` 不合法）；流名可以在路径里，也可以在查询参数里。
+5. `srt`：必须写端口（缺失 → `malformed`）；**查询参数白名单**（键先做一次 URL 解码并转小写再比较；不在白名单、同名重复、`mode` 不是 `caller` 都是 `reason=param_not_allowed`）：`passphrase`（长度 10~79，超出 → `malformed`）、`pbkeylen`（只能 0、16、24、32）、`streamid`（≤ 512 字符）、`latency`、`connect_timeout`、`maxbw`、`pkt_size`（≤ 1456）、`mode=caller`（数值参数必须是整数，范围由实现按 `ffmpeg -h protocol=srt` 校验；单位以 7.1.5 为准：`latency` 微秒、`connect_timeout` 毫秒、`maxbw` 字节/秒）。**传给 ffmpeg 的 URL 由后端按白名单重新组装：键统一写成小写解码后的形式，值原样保留。**原因（7.1.5 实测）：ffmpeg 对参数名区分大小写、也不做百分号解码——`?PASSPHRASE=abc` 和 `?pass%70hrase=abc` 都被**悄悄忽略**（不报错，等于没加密就推出去了），（**ffmpeg 9.0.2（项目默认安装版本）行为不同：大写参数名不再被忽略，而是报 `Query string option 'PASSPHRASE' does not exist` / `Option not found`，退出码 8**；所以同一个错误地址在 7.1.5 上静默不加密、在 9.0.2 上直接失败，**不能依赖 ffmpeg 兜底**，仍然必须先解码、小写化再按白名单重组 URL）；而 `?passphrase=abc`（3 位）会报 `failed to set option SRTO_PASSPHRASE … Bad parameters`、10~80 位都能通过、81 位又报错（**长度上限取 79 是架构师定，比 ffmpeg 实测多接受的 80 位保守一位，与 SRT 规范的 10~79 一致；测试断言 9、10、79、80 位的结果分别是 `malformed`、通过、通过、`malformed`**）；`mode=listener` 会让 ffmpeg 挂起等连接。所以：小写化 + 白名单 + 重新组装是必须的，不能"原样交给 ffmpeg"。
+6. 通过校验的 URL 只在内存里用；标准化形式（scheme / host 小写、去掉默认端口）用来判断"同一个地址已有进行中的会话"。
+
+**推流密钥 / 凭据脱敏**（规则、覆盖范围和测试要求见 6.10）：地址里的用户信息、rtmp / rtmps 的流名（应用名之后的路径）、所有查询参数的值一律显示成 `***`；标题、`params`、任务日志、错误的 `message` / `detail`、所有事件 payload、后端日志都只出现脱敏后的地址；完整地址不落库、不写文件。
+
+**任务字段**：`type` 是 `live_file_push` / `live_screen_push`；`title` 如 `文件推流：a.mp4 → rtmp://host/app/***`、`屏幕推流：显示器 1（主） → srt://host:9000?streamid=***&passphrase=***`；`inputPaths` 文件推流为 `[inputPath]`、屏幕推流为 `[]`；`outputPath` 是本地存档的最终路径，没存档为 `""`；`params` 见 6.10。
+
+**示例（JSON 数值是示意）**
+
+`StartFilePush` 请求 / 返回（返回是入队前的快照）：
+```json
+{ "inputPath": "C:\\Videos\\a.mp4", "url": "rtmp://live.example.com/app/mystreamkey", "loop": true,
+  "options": { "width": 1280, "height": 720, "fps": 30, "videoBitrateKbps": 2500, "audioBitrateKbps": 128 } }
+```
+```json
+{ "id": "01J9Z6ZK3Q8V2M4N5P6R7S8T9V", "type": "live_file_push", "status": "queued",
+  "title": "文件推流：a.mp4 → rtmp://live.example.com/app/***",
+  "inputPaths": ["C:\\Videos\\a.mp4"], "outputPath": "", "progress": -1, "speed": "", "etaSec": 0,
+  "params": "{\"kind\":\"file\",\"input\":\"C:\\\\Videos\\\\a.mp4\",\"url\":\"rtmp://live.example.com/app/***\",\"loop\":true,\"options\":{}}",
+  "version": 1, "createdAt": 1790000000000, "startedAt": 0, "finishedAt": 0 }
+```
+
+`StartScreenPush` 请求（带本地存档）：
+```json
+{ "url": "srt://live.example.com:9000?streamid=abc&passphrase=secret-pass-1", "screenId": "monitor:0",
+  "hideCursor": false, "audio": "silent", "archiveDir": "C:\\Users\\me\\Videos\\FFmpegFree",
+  "options": { "fps": 30, "videoBitrateKbps": 3000 } }
+```
+
+`task:progress`（无存档的直播会话；有存档时没有 `bitrateKbps`）：
+```json
+{ "id": "01J9Z6ZK3Q8V2M4N5P6R7S8T9V", "version": 12, "progress": -1, "speed": "1.00x", "etaSec": 0,
+  "outTimeSec": 83.4, "fps": 29.97, "bitrateKbps": 2431.5, "droppedFrames": 0 }
+```
+
+`task:status`（优雅停止成功，`error` 为空、不带 `error` 键）：
+```json
+{ "id": "01J9Z6ZK3Q8V2M4N5P6R7S8T9V", "version": 15, "status": "succeeded",
+  "outputPath": "C:\\Users\\me\\Videos\\FFmpegFree\\screen-20260929-203000.mp4", "finishedAt": 1790000090000 }
+```
+
 
 ### TaskService
 ```go
@@ -246,13 +418,16 @@ GetLog(id string, tailLines int) (string, error)
 | 事件名 | payload | 频率 |
 |---|---|---|
 | `task:created` | `Task` | 每次 |
-| `task:progress` | `{ id, version, progress, speed, etaSec, outTimeSec }` | 每任务最多 4 次/秒 |
-| `task:status` | `{ id, version, status, error?, outputPath?, finishedAt? }` | 状态变化时 |
+| `task:progress` | `{ id, version, progress, speed, etaSec, outTimeSec, fps?, bitrateKbps?, droppedFrames? }`（后三项只有直播任务才有，见下） | 每任务最多 4 次/秒 |
+| `task:status` | `{ id, version, status, error?, outputPath?, startedAt?, finishedAt? }` | 状态变化时 |
 | `task:removed` | `{ ids: string[] }` | 每次 |
-| `live:stats` | `{ id, bitrateKbps, fps, droppedFrames, uptimeSec }` | 每秒 1 次 |
 | `ffmpeg:status` | `FFmpegStatus`（见第 9 节） | 检测完成、安装状态变化时 |
 
+**直播指标（v0.10，取代 `live:stats`）**：直播任务的 `task:progress` 除 `speed`（如 `1.00x`，持续明显小于 1 说明编码跟不上）和 `outTimeSec`（已输出的媒体时长）外，还带 `fps`（当前输出帧率）、`bitrateKbps`（**只有没有本地存档的会话才有**：**近 5 秒**平均输出码率，由 ffmpeg `total_size` 和 `out_time` 的增量算出，不用 ffmpeg 自带的 `bitrate=`，那是从开始到现在的累计平均）、`droppedFrames`（ffmpeg 累计丢帧，不是网络丢包）；**有存档的会话没有 `bitrateKbps`（架构师定）**（7.1.5 实测：tee 下 `-progress` 的 `total_size` 和 `bitrate` 恒为 `N/A`，没有可用来源；**不轮询存档文件大小来补**——文件大小含音视频分片和 moov 开销、且不是网络那一路的码率，补出来的数是误导），该字段一律省略，前端显示"—"；`fps` / `droppedFrames` / `speed` / `out_time_us` 在 tee 下正常；`progress` 恒为 -1，`etaSec` 为 0。没有单独的 `uptimeSec`：已推时长 = 现在 − `Task.startedAt`（墙钟），`outTimeSec` 是媒体时间，两者差距变大说明卡顿。这几项同时写进 `Task`（`fps` / `bitrateKbps` / `droppedFrames`，只在内存），页面刷新后 `ListActive` 能立刻显示当前值。
+
 `task:created` 后任务状态为 `queued`；开始执行时发 `task:status`（`running`）；结束时发 `task:status`（终态）。`task:progress` 的 `version` 与 `task:status` 共用同一个递增序列（每次推送 +1），所以前端按 `version` 丢弃旧事件的规则对两类事件同样适用。
+
+`task:status` 的时间字段（Unix 毫秒，值为 0 时省略）：`running` 事件带 `startedAt`、不带 `finishedAt`；所有终态事件（`succeeded` / `failed` / `canceled` / `interrupted`）都带 `finishedAt`，跑过的任务同时带 `startedAt`（与 `Task.startedAt` / `Task.finishedAt` 及落库值一致）。任务从未进入 `running` 就结束（排队中被取消、应用退出时还在排队而被标记为 `interrupted`）时没有 `startedAt`：事件里省略该字段，`Task.startedAt` 为 0，这是正常的，前端不应把它当作错误。崩溃恢复（启动时把残留的 `queued` / `running` 置为 `interrupted`）只落库（写入 `finishedAt`，保留已有的 `startedAt`，`version` +1），不发事件；前端启动后通过 `ListActive` / `List` 拿到最新记录。`task:progress` 的 `version` 与 `task:status` 共用同一个递增序列（每次推送 +1），所以前端按 `version` 丢弃旧事件的规则对两类事件同样适用。
 
 前端任务 store 规则：先 `EventsOn` 订阅并缓存事件，再 `TaskService.ListActive()` 拉取 queued 和 running 任务，拉完按 `version` 回放缓存，版本不大于本地的事件直接丢弃。历史任务只在任务中心里用 `List` 分页加载。`task:progress` 只改进度字段，不替换对象。
 
@@ -278,26 +453,26 @@ schema_migrations(version PK, applied_at)
   }
   ```
   ffmpeg 类任务用 `FFmpegRunner`，Office 转 PDF 用 `GoFuncRunner`，ffmpeg 下载用 `DownloadRunner`。
-- 两个调度池：`batch` 池（转换、剪辑、Office、ffmpeg 下载）按设置里的并发数排队；`live` 池（三类直播任务）不排队、不占 batch 名额。
+- 两个调度池：`batch` 池（转换、剪辑、Office、ffmpeg 下载）按设置里的并发数排队；`live` 池（直播任务：`live_file_push`、`live_screen_push`）不排队、不占 batch 名额。
 - 两遍编码 / 目标大小压缩：暂缓（v0.7.2），设计保留：每个任务用 `-passlogfile <任务专属临时目录>/pass`，进度第一遍 0~0.5，第二遍 0.5~1，结束后删临时目录。
 - 输出文件先写 `<name>.part.<原扩展名>`（例如 `a.part.mp4`，保留扩展名让 ffmpeg 能识别封装格式），成功后改名；目标重名时自动追加 `(1)`、`(2)`；取消或失败删除 `.part`。
 - 进度只保存在内存并通过 `task:progress` 推送，不写库；只有状态变化（开始、成功、失败、取消）时落库，避免单连接下进度写入阻塞任务中心的列表查询。
-- 取消转换类任务直接强制结束进程；直播录制存档要先向 ffmpeg 发 `q`（或 SIGINT），等待最多 5 秒让它写完文件尾，超时再强制结束，否则 mp4 存档无法打开。
+- 取消转换类任务直接强制结束进程；直播录制存档要先向 ffmpeg 发 `q`（不用 SIGINT，见 6.10），等待它写完文件尾（无存档的直播 5 秒，有存档的 15 秒，见 6.10），超时再强制结束；存档用分片 mp4，强杀后已写出的分片仍可播放，**直播存档强杀后保留**（直接写最终文件名，不走 `RunWithPart`，6.10 实测）。
 - `/local/<token>` 用 `http.ServeContent` 输出，支持 Range 请求，保证视频可拖动进度。
 
 ## 6.6 任务管理器实现约定（v0.7）
 
-- 包 `internal/task`：`Manager.Submit(Spec, Runner)` 落库为 `queued` 并发 `task:created`；`batch` 池（`internal/ffmpeg` 转换 / 剪辑 / Office / 安装）按并发数 FIFO 排队，默认并发 `min(NumCPU/2, 3)` 且至少 1；`live` 池（三类直播）不排队、不占 batch 名额，且进度恒为 -1。
-- 状态机：`queued → running → succeeded | failed | canceled | interrupted`。Runner 返回 nil 即 `succeeded`（含直播优雅停止：存档完整）；返回被取消的错误且用户请求过取消为 `canceled`；应用退出时被停止的任务（含还在排队的）为 `interrupted`；其余为 `failed`（`error` 带错误，ffmpeg 失败时 `detail` 为 stderr 最后 50 行）。
+- 包 `internal/task`：`Manager.Submit(Spec, Runner)` 落库为 `queued` 并发 `task:created`；`batch` 池（`internal/ffmpeg` 转换 / 剪辑 / Office / 安装）按并发数 FIFO 排队，默认并发 `min(NumCPU/2, 3)` 且至少 1；`live` 池（两类直播）不排队、不占 batch 名额，且进度恒为 -1。
+- 状态机：`queued → running → succeeded | failed | canceled | interrupted`。Runner 返回 nil 即 `succeeded`（含直播优雅停止：存档完整；直播存档在强杀 / 失败 / 中断后也保留，见 6.10）；返回被取消的错误且用户请求过取消为 `canceled`；应用退出时被停止的任务（含还在排队的）为 `interrupted`；其余为 `failed`（`error` 带错误，ffmpeg 失败时 `detail` 为 stderr 最后 50 行）。
 - 只有状态变化落库；进度只在内存。`task:progress` 同一任务最多 4 次/秒，被节流抑制的最后一次会在间隔到期后补发。`ListActive` / `Get` / `List` 返回运行中任务时带实时进度，`Speed` / `EtaSec` 不落库。
-- 取消：排队中的直接移出队列变 `canceled`；运行中的取消 `ctx`，ffmpeg 任务结束整个进程组；直播任务先发 `q`（有外部 stdin 时发 SIGINT），最多等 5 秒再强制结束。已结束的任务取消返回 `TASK_CONFLICT`，不存在返回 `NOT_FOUND`。Windows 上结束整个进程树（v0.9.2：先终结进程所在的 Job Object，失败退回 `taskkill /T /F`，再失败只结束主进程）。
-- `Retry`：用原任务的 `type` / `params` / `title` / `inputPaths` 重新提交，生成新任务（原任务保留）；原任务仍在进行返回 `TASK_CONFLICT`。每个任务类型注册一个 Factory 才支持重试（目前只有 `ffmpeg_install`），没有 Factory 的返回 `UNSUPPORTED`。
-- `Remove(ids, deleteOutput)`：任一 id 仍在进行则整体失败（`TASK_CONFLICT`）；删除记录与日志，`deleteOutput=true` 时删除成功任务的输出文件（仅当输出路径是绝对路径、所在目录及上级不含符号链接、且是普通文件；否则只删记录并在日志里说明）；不存在的 id 忽略；发 `task:removed`。`ClearFinished` 只删记录和日志，不删输出。
+- 取消：排队中的直接移出队列变 `canceled`；运行中的取消 `ctx`，ffmpeg 任务结束整个进程组；直播任务发 `q`（不用 SIGINT，见 6.10），最多等 5 秒（有本地存档的直播会话 15 秒；还没连上、没有收到第一条 progress 的会话直接强杀，不发 `q`，见 6.10）再强制结束。已结束的任务取消返回 `TASK_CONFLICT`，不存在返回 `NOT_FOUND`；**旧类型（"保留但不再产生"的类型）的 id 按不存在处理，返回 `NOT_FOUND`**（6.10 确认项 ⑧）。Windows 上结束整个进程树（v0.9.2：先终结进程所在的 Job Object，失败退回 `taskkill /T /F`，再失败只结束主进程）。
+- `Retry`：用原任务的 `type` / `params` / `title` / `inputPaths` 重新提交，生成新任务（原任务保留）；原任务仍在进行返回 `TASK_CONFLICT`。每个任务类型注册一个 Factory 才支持重试（目前只有 `ffmpeg_install`），没有 Factory 的返回 `UNSUPPORTED`；**旧类型（"保留但不再产生"的类型）的 id 先判为 `NOT_FOUND`，不落 `UNSUPPORTED`**（6.10 确认项 ⑧）。
+- `Remove(ids, deleteOutput)`：任一 id 仍在进行则整体失败（`TASK_CONFLICT`）；删除记录与日志，`deleteOutput=true` 时删除成功任务的输出文件（仅当输出路径是绝对路径、所在目录及上级不含符号链接、且是普通文件；否则只删记录并在日志里说明）；不存在的 id 忽略；**但 ids 里有旧类型（"保留但不再产生"的类型）记录的 id 时整体返回 `NOT_FOUND`、不删任何记录**（6.10 确认项 ⑧，"不存在的 id 忽略"的例外）；发 `task:removed`。`ClearFinished` 只删记录和日志，不删输出。
 - 日志：`<数据目录>/logs/<任务ID>.log`（单个任务最多 16 MB：写满 8 MB 轮转为 `.log.1`，单行最多 8 KB 超出截断），Runner 通过 `task.LogWriter(ctx)` 写入，`GetLog(id, tailLines)` 读取末尾若干行（最多读末尾 1 MB）。
-- 输出文件用 `task.RunWithPart`：选出不冲突的最终路径（重名追加 `(1)`、`(2)`），写 `<name>.part.<原扩展名>`，成功后改名，失败或取消删除 `.part`。
+- 输出文件用 `task.RunWithPart`：选出不冲突的最终路径（重名追加 `(1)`、`(2)`），写 `<name>.part.<原扩展名>`，成功后改名，失败或取消删除 `.part`。**例外：直播屏幕推流的本地存档不走 `RunWithPart`**（分片 mp4 直接写最终文件名，强杀 / 失败后保留，见 6.10）。
 - `task.FFmpegRunner` + `ffmpeg.Run` 是 ffmpeg 任务的通用执行体：自动加 `-hide_banner -nostats -y -progress pipe:1`（不需要 stdin 时再加 `-nostdin`；直播优雅停止和外部 stdin 的任务不加），解析 `out_time_us` / `speed` / `fps` / `bitrate` / `progress=end`，保留 stderr 尾部，提供错误分类钩子（直播的 `LIVE_*` 分类由直播 PR 提供）；`FFmpegRunner` 目前只支持单次 ffmpeg 调用（两遍编码暂缓，见 v0.7.2），`ProgressBase` / `ProgressScale` 用来把一次调用的进度映射到任务整体进度区间（供以后多步骤任务使用）。
 - **子进程回收（v0.9.2）**：所有 ffmpeg / ffprobe 子进程经 `proc.Start` / `proc.Run` 启动。Windows 上会为每个子进程创建一个 Job Object（`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`）并把进程放进去，Job 句柄由应用进程持有：应用崩溃 / 被任务管理器结束时系统关闭句柄，ffmpeg 和它派生的进程一起被系统结束；进程正常退出后应用关闭句柄（同样结束遗留的子孙）。创建 / 加入 Job 失败不影响启动，此时结束进程树走 `taskkill /T /F`。macOS / Linux 不变（`Setpgid` 进程组；应用崩溃时 ffmpeg 不会被自动回收，读不到 stdin / 管道时通常会自己退出）。`proc.Start` 到加入 Job 之间有极短窗口，窗口内派生的孙进程不进 Job（ffmpeg 启动时不会立刻派生）。**没有 Windows 真机验证**，只有交叉编译和 Linux 上的回退顺序 / 登记表测试，Windows 专属测试文件已写但未运行。
-- 启动：`store.MarkInterrupted` 在打开数据库后立即执行，上次未结束的 `queued` / `running` 变 `interrupted`，**不会自动恢复执行**，用户可在任务中心点重试。退出：`Manager.Shutdown` 取消所有任务并等待收尾（最多 8 秒），再关闭数据库。
+- 启动：`store.MarkInterrupted` 在打开数据库后立即执行，上次未结束的 `queued` / `running` 变 `interrupted`，**不会自动恢复执行**，用户可在任务中心点重试。退出：`Manager.Shutdown` 取消所有任务并等待收尾（最多 8 秒；存在有本地存档的直播会话时最多 16 秒，见 6.10；等待期间前端显示"正在停止…"，超时走强杀），再关闭数据库。**已由 #31 实现**（见 6.10.2 第 3 项）：`app.go` 的 `shutdown` 在有带存档的直播会话时等 16 秒，否则 8 秒。
 
 ## 6.7 媒体探测与缩略图实现约定（v0.8）
 
@@ -341,6 +516,97 @@ schema_migrations(version PK, applied_at)
 - **提交阶段失败会保留已提交的任务**：`Submit` 校验全部通过之后才开始逐个提交；若中途某个 `Submit` 失败（例如任务管理器出错），返回值里带着已成功提交的任务列表和错误，这些任务**不回滚**，会照常运行。ctx 被取消时返回 `CANCELED`。
 - 输入是文件名带 `%` 的图片（如 `a%03d.jpg`）时，命令里在 `-i` 前加 `-pattern_type none`（与缩略图 / 探测同一规则，只对 image2 图片扩展名），避免被当成序列模板。
 - 所有 ffmpeg 输入输出路径都带 `file:` 前缀，以 `-` 开头、含空格、冒号、中日韩字符的文件名都安全。
+
+## 6.10 LiveService 实现约定（v0.10 设计稿，尚未实现）
+
+- **命令行**（`task.FFmpegRunner{Live: true}`，`GracefulStop`，不加 `-nostdin`，由 stdin 发 `q`）：
+  - 文件推流：参数顺序 `-protocol_whitelist file [-re] [-stream_loop -1] -i file:<path> [-protocol_whitelist file -f lavfi -i anullsrc=r=44100:cl=stereo] -map 0:v:0 -map <0:a:0 或 1:a> <编码参数> [-shortest] -protocol_whitelist <输出侧白名单> -f <flv|mpegts> [-flvflags no_duration_filesize] <url>`（输出侧命令模板：**RTMP / RTMPS 带 `-flvflags no_duration_filesize`，SRT 不带**，见本条末尾和下面的白名单条）。源文件没有音轨时补静音（很多服务器要求有音频）；始终重编码：`-c:v libx264 -preset veryfast -tune zerolatency -pix_fmt yuv420p -b:v <k>k -maxrate <k>k -bufsize <2k>k -g <2×fps> -c:a aac -b:a <k>k -ar 44100 -ac 2`；`-re` 让 ffmpeg 按源速度读文件；`rtmp(s)` 用 `-f flv`，`srt` 用 `-f mpegts`。**RTMP / RTMPS 输出（不经 tee 时，文件推流和无存档的屏幕推流一致）额外加 `-flvflags no_duration_filesize`**（与已合并的 #31 实现一致：`internal/ffmpeg/live_args.go` 的 `BuildFilePushArgs`、`live_screen_args.go` 的 `BuildScreenPushArgs`，`Scheme != "srt"` 时加）：它只让 flv 头里不写 `duration` / `filesize` 两个占位为 0 的元数据，**只影响 flv 头，对推流无害**（ffmpeg 7.1.5 与 9.0.2 实测：`-protocol_whitelist rtmp,tcp -flvflags no_duration_filesize -f flv rtmp://127.0.0.1:1935/live/x` 推到 MediaMTX 1.21.1 退出码 0，写本地 flv 文件也退出码 0）；**SRT（`-f mpegts`）不加**。完整的 RTMP / RTMPS 输出侧命令串：`-protocol_whitelist rtmp,tcp -f flv -flvflags no_duration_filesize <url>`（RTMPS 的白名单是 `rtmps,tcp,tls,crypto`）；SRT：`-protocol_whitelist srt,udp -f mpegts <url>`。**走 tee 的存档会话**（本条之外，尚未实现，随存档一起做）以上文存档段的选项串为准，本条不改它（tee 下是否加该选项未实测，不加）。
+  - **补 `anullsrc` 时必须加 `-shortest`**（架构师定；7.1.5 实测）：3 秒的无音轨源 + `anullsrc`，不加 `-shortest` 跑了 12 秒还没结束（被 `timeout` 杀掉，`anullsrc` 是无限流），加了 0 秒结束、退出码 0；`-re` 播 20 秒的源，加 `-shortest` 后 20 秒自然结束、退出码 0（任务 `succeeded`）；`loop=true` 时 `-stream_loop -1` 配 `-shortest` 仍然无限（实测 8 秒仍在运行），符合"循环直到用户停止"。源文件有音轨时不补 `anullsrc`，也不加 `-shortest`。
+  - **`-protocol_whitelist` 按输入和输出分别写**（架构师定；7.1.5 实测）：这个选项**按位置生效**——写在某个 `-i` 前面只管那个输入，写在所有输入之后、输出之前只管输出。① **输入侧必须放行 `file`**：文件输入前写 `-protocol_whitelist file`；如果全局写成 `rtmp,tcp`，`file:` 输入直接失败（`Protocol 'file' not on whitelist 'rtmp,tcp'!`，退出码 234）。`anullsrc` 输入前也写 `file`（无害）；屏幕采集输入（gdigrab / avfoundation / x11grab）不涉及 URL 协议，不需要写（x11grab 前写 `file` 实测无害）。② **输出侧必须另写一次**（#31 实现确认：RTMP 输出侧 **`-protocol_whitelist rtmp,tcp`** 必须写，不得省略），只写输入侧时输出**不受限制**（实测 rtmp 输出照常打开），所以输出侧再限：无存档时 `-protocol_whitelist rtmp,tcp -f flv -flvflags no_duration_filesize <url>` / `-protocol_whitelist rtmps,tcp,tls,crypto -f flv -flvflags no_duration_filesize <url>` / `-protocol_whitelist srt,udp -f mpegts <url>`（SRT 不加 `-flvflags`）（少写 `tcp` 会报 `Protocol 'tcp' not on whitelist 'rtmp'!`，退出码 234）。③ **走 `tee` 时输出侧的 `-protocol_whitelist` 对 slave 无效**（实测：输出侧只放 `file`，rtmp slave 仍能连上），所以要把白名单写进每个 slave 的选项里：`[...:protocol_whitelist=rtmp,tcp]`、存档一路 `[...:protocol_whitelist=file]`（实测 slave 里的限制有效；值里的逗号不用转义）。rtmps 的 `rtmps,tcp,tls,crypto` 只验证了"通过白名单并走到连接被拒"，没有 TLS 服务器可以推流，**rtmps 端到端未验证**。
+  - 屏幕推流输入：Windows `-f gdigrab -framerate N [-draw_mouse 0] [-offset_x X -offset_y Y -video_size WxH] -i desktop`；macOS `-f avfoundation -framerate N -capture_cursor 0|1 -i "<设备序号>:none"`；Linux `-f x11grab -framerate N -draw_mouse 0|1 [-video_size WxH] -i <DISPLAY>+<x>,<y>`。输出尺寸补偶数（`scale=trunc(iw/2)*2:trunc(ih/2)*2`），编码参数同上；无存档时输出侧与文件推流完全一致（`-protocol_whitelist <输出侧白名单> -f <flv|mpegts>`，**RTMP / RTMPS 加 `-flvflags no_duration_filesize`，SRT 不加**）；`audio=silent` 时加 `anullsrc`（屏幕采集是无限流，不需要 `-shortest`；7.1.5 + Xvfb + x11grab + `anullsrc` 端到端实测 `q` 后退出码 0、存档可完整解码，含 h264 + aac）。
+  - **存档（`archiveDir` 非空，只有屏幕推流）**：用 ffmpeg `tee` muxer 一次编码同时写两个输出，并加 `-flags +global_header`：`-flags +global_header -f tee "[f=flv:onfail=abort:protocol_whitelist=rtmp,tcp]<url>|[f=mp4:onfail=abort:movflags=+frag_keyframe+empty_moov:flush_packets=1:protocol_whitelist=file]file:<存档路径>"`（SRT 时网络一路是 `[f=mpegts:onfail=abort:protocol_whitelist=srt,udp]`；URL 已经保证不含 `|`；`<url>` 和 `<存档路径>` 都要按下面的转义规则处理）。**存档不走 `RunWithPart`**（架构师定）：分片 mp4 **直接写最终文件名**（没有 `.part`、没有成功后改名），**无论 `succeeded` / `canceled`（强杀）/ `failed` / `interrupted` 都保留**（唯一例外见第 2 条：没有任何可播放分片的空壳文件会被删掉）；`outputPath` = 存档最终路径（空壳被删时清空）。逐项（ffmpeg 7.1.5 + MediaMTX 1.21.1 实测）：
+    1. **网络那一路必须写 `onfail=abort`**（架构师定）：`tee` 默认 `onfail=continue`，推流地址连不上时 ffmpeg 只打一行 `Slave muxer #0 failed: Connection refused, continuing with 1/2 slaves.`，**退出码 0，存档照写**（实测存档 79 834 字节，任务会变成 `succeeded`）。加 `onfail=abort` 后：RTMP / RTMPS 连接被拒退出码 **145**（stderr 有 `[tee @ …] Slave '…': error opening: Connection refused`、`Slave muxer #0 failed, aborting`），没有存档文件；SRT 连不上退出码 **251**；RTMP 鉴权失败退出码 **255**（`Server error: authentication failed`，判 `LIVE_PUSH_REJECTED`）；推流中途服务器被杀退出码 **224**（`Broken pipe`）。这些行分类为 `LIVE_CONNECT_FAILED` / `LIVE_PUSH_REJECTED` / `LIVE_PUSH_INTERRUPTED` 的规则不变。存档那一路**也写 `onfail=abort`**（写盘失败要让整个任务失败；命令串和文字统一为 `abort`，不再有"不写 onfail"的说法）。**ffmpeg 9.0.2 复测**：`onfail=abort` 下 RTMP 连接被拒同样退出码 145、没有存档文件，带 `onfail=abort` 的 tee 命令（含存档 slave）正常推流退出码 0；另外发现 **9.0.2 里即使不写 `onfail`（默认 continue）连接被拒也退出码 145（7.1.5 上是 0、存档照写）**，也就是 7.1.5 的坑在 9.0.2 上表面消失，但契约仍然要求显式写 `onfail=abort`，不依赖版本行为。
+    2. **存档用分片 mp4**（架构师定）：`movflags=+frag_keyframe+empty_moov`（不再是 `+faststart`）。实测：`-f tee` + 分片 mp4 **必须同时加 `-flags +global_header`**，否则文件里没有 H.264 参数、无法解码（解码报 404 行错误、`could not find codec parameters`）；加了之后解码 0 个错误。`flush_packets=1` 让每个分片及时落盘：实测 `kill -9` 后带 `flush_packets=1` 的存档比不带的多保留约 34%（352 192 对 262 180 字节）、解码 0 个错误（不带时最后一个分片是残缺的，解码报 `partial file`）。关键帧间隔 `-g` 已经是 2×fps，分片约 2 秒。**强杀后保留（架构师定）**：分片 mp4 在强杀后仍可播放，所以存档直接写最终文件名，**不走 `RunWithPart`、强杀 / 失败后不删**。**同名处理**：文件名带秒、同一秒内两个会话或重启后仍可能重名，最终名冲突时加 `(n)` 后缀（`screen-20260929-200000(1).mp4`、`(2)`……，规则与 `task.UniquePath` 一致），**选名时用 `O_CREATE|O_EXCL` 建一个空文件占位**（不能只 `Stat` 后再交给 ffmpeg：ffmpeg 带 `-y` 会直接覆盖已有文件，实测 5 496 字节的已有文件被覆盖；对预先建好的空文件写入则正常）。文件名用 #22 的净化函数（见第 4 条）。**空壳**：连接失败（`started=false`，`onfail=abort` 时文件是 0 字节）或过早被杀时文件里只有 moov、没有一个完整分片，不是存档——实测 `kill -9`：0.6 秒和 1.5 秒时文件 1 263 字节、`ffprobe` 读不出时长；3 秒时 32 239 字节、时长 2.08 秒、50 个视频包；6 秒时 61 271 字节、时长 4.08 秒、100 个包（分片约 2 秒，所以头约 2 秒的数据可能还没落盘）。任务结束后（任何终态）`ffprobe` 读不出时长的存档文件**删除**并把 `outputPath` 清空，读得出的保留。**这条"空壳删除"已由架构师确认。** 三条硬性约束：① **只删本任务自己用 `O_EXCL` 创建的文件**（任务里记下占位时创建成功的最终路径；`O_EXCL` 失败换名重试时没创建成功的路径不算），**绝不碰已有文件**，也不删 `archiveDir` 里的其他文件；② **删除失败只记日志（不含推流地址，路径可记）**，**不改任务状态**、不改 `error`；③ **顺序：先清理并清空 `outputPath`，再发终态事件**（**#31 已实现**，见 6.10.2 第 2 项：`task.ClearOutputPath` 是 Runner 可以返回的特殊输出路径，`entry.finish` 遇到它把 `outputPath` 清空；语义是"终态落库和 `task:status` 里的 `outputPath` 为空串"。原先 `entry.finish` 只在 output 非空时才覆盖，清不掉）（`task:status` 和落库的 `Task` 里 `outputPath` 已经是最终值，前端不会看到已经不存在的路径）。**前端规则**：判断"强杀且存档已保留" = `status == "canceled"` 且 `outputPath` 非空（`canceled` 且 `outputPath` 为空 = 强杀且没有可用存档）；正常停止（`succeeded`）的存档**不加**"文件可能不完整"之类提示。测试：强杀后 0.6 秒的空壳被删、`outputPath==""`；3 秒以上的保留、`outputPath` 非空；删除失败（只读目录）任务状态仍是 `canceled` 且 `Task.error == nil`；已有同名文件不被删。
+    3. **优雅停止等待延长**（架构师定）：有存档的会话，`q` 之后最多等 **15 秒**（无存档的会话仍是 5 秒）。实测网络正常时 `q` 后 0.11 秒退出、存档完整（时长与关键帧一致、解码 0 个错误），15 秒只是上限。应用退出时同样适用：`Manager.Shutdown` 的总等待上限在存在有存档的直播会话时相应提高到 16 秒（原为 8 秒，见 6.6）。**等待期间前端显示"正在停止…"，超时走强杀**（强杀后的存档按第 2 条保留；任务终态为 `interrupted`）。
+    4. **存档文件名固定为 `screen-<yyyyMMdd-HHmmss>.mp4`**（本地时间，架构师定；直接是最终文件名，冲突时加 `(n)`，见第 2 条），不再用 `<title>`，文件名里没有任何用户输入。仍要过一遍共用的文件名净化规则作为纵深防御（规则见 6.11.3「输出文件名」，直播额外禁止 `| ' [ ]`；对这个固定格式是恒等变换，测试断言"净化前后相等"）——**该规则由 #22 引入。合并顺序与实现依赖（架构师定）：#22 先合；直播存档的实现放在 #22 合入之后的提交里，文件推流部分不用等 #22；文档层面 #19 先合也无妨，这里只是引用，依赖的是实现。**用户可控的只有 `archiveDir`，它靠下面的转义规则保证安全。
+- **`tee` 段转义规则**（架构师定；7.1.5 实测）：`tee` 的 slave 描述里 `|` 是 slave 分隔符，`'` `\` `[` `]` `,` `:` `=` 等是选项语法，**不转义会静默写到错误的位置或直接失败**。实测（Linux，未转义）：文件名或目录里的 `|` 把路径拆成两个 slave，`a|b.mp4` 实际创建了 `a` 和 `b.mp4` 两个文件；`'` 被吞掉（`q'x.mp4` 变成 `qx.mp4`，目录里有 `'` 则找不到目录，退出码 254）；`\` 被当转义符吞掉（`C:\Users\x\o.mp4` 变成文件 `C:Usersxo.mp4`）；目录里有 `[` 打不开（退出码 254）；文件名里的 `[` `]` `,` `=` `;` `:` 空格中日韩字符没问题，但不能靠这个判断——统一转义。规则：
+  1. **路径统一**：`file:` 前缀 + 正斜杠（Windows 先把 `\` 换成 `/`，再转义）。拒绝 `\\?\`、`\\.\` 开头的路径（`INVALID_ARGUMENT`）。
+  2. **转义函数**：把 `<存档路径>` 和 `<url>` 里所有**不在 `[A-Za-z0-9_./-]` 也不是非 ASCII 字符**的字符前面加一个 `\`（包括 `\ ' | [ ] , : = ; 空格 # ? % & ( )` 等，Windows 盘符冒号写成 `C\:/…`）。非 ASCII（中日韩等）不转义，实测可用。
+  3. **实测**：目录 `录 屏'|[x],y=z;c:d#f?g%h&i(1)`（含以上所有特殊字符），转义后 `[f=mp4]file:<转义路径>/screen-20260929-200000.mp4` 退出码 0、文件建在期望位置；同一个路径不转义退出码 254。URL 转义后也正常（`rtmp\://127.0.0.1\:1935/live/esc\?k\=v\&x\=1` 能连上），未转义的含 `?a=b,c=d;e=f&t=1` 和 IPv6 `[::1]` 的 URL 在 tee 里也能被正确解析，但为了统一，**一律走转义函数**。
+  4. **测试**：转义函数表驱动（上面每个特殊字符、中日韩、空格、Windows 盘符路径、UNC 路径）；集成测试用真实 ffmpeg 往含特殊字符的临时目录写存档，断言文件出现在期望路径且没有多余文件。
+  5. **【未验证】**：Windows 真机上 `file:C\:/Users/…` 的解析（Linux 上盘符冒号只是普通字符，无法验证 Windows 的盘符语义）；UNC 路径 `//server/share/…`。这两项需要用户在 Windows 上验证。
+- **采集能力检测**（`GetCaptureCapabilities` / `ListScreens` / `StartScreenPush` 共用一套逻辑）：Linux 读 `XDG_SESSION_TYPE`——`wayland`（即使有 XWayland 的 `DISPLAY`）或没有 `DISPLAY` → `supported=false`，`Start*` / `ListScreens` 返回 `UNSUPPORTED_PLATFORM`，不去录黑屏；macOS 需要"屏幕录制"授权，授权记在 FFmpegFree 名下（不是 ffmpeg 名下），查不出来时 `permission=unknown`，`Start` 时按 ffmpeg 报错分类为 `SCREEN_PERMISSION_DENIED`。显示器列表：Windows 用 `EnumDisplayMonitors`（`golang.org/x/sys/windows`，不用 cgo）；macOS 解析 `ffmpeg -f avfoundation -list_devices true -i ""` 里的 `Capture screen N`；Linux 解析 `xrandr --display $DISPLAY --query`（**必须显式带 `--display $DISPLAY`**，与已合并的 #31 实现一致（`internal/service/live/screen.go` 的 `listX11Screens`：`xrandr --display <DISPLAY> --query`）；`GetCaptureCapabilities` 用的是同一个 `DISPLAY`（为空则 `supported=false`）；不依赖子进程继承的环境变量，`$DISPLAY` 取的是与采集输入 `-i <DISPLAY>+x,y` 同一个值，保证枚举的屏幕和采集的屏幕是同一个 X server；`DISPLAY` 打不开时 `xrandr` 报 `Can't open display`，按"没有 xrandr"同样降级），没有 xrandr 或它失败时只返回一个 `x11:desktop`。
+- **错误分类**：`ffmpeg.ClassifyLiveError`，规则和 6.9 一样——只看 `classifiableLines()` 剔除 `Input #` / `Output #` / `Stream mapping:` / `Metadata` / `Stream #` 段落后的行，系统错误文本按行尾匹配（tee 会话的失败行形如 `[tee @ …] Slave '[f=flv:onfail=abort:…]rtmp://…': error opening: Connection refused`，slave 描述里带完整 URL，**日志和 detail 里必须已脱敏**）。区分"连接失败"和"中断"靠 Runner 记的 `started`：**收到第一个 `progress=continue` 且 `out_time_us > 0` 的 `-progress` 块之后为 `true`**（架构师建议用 `total_size > 0`，**后来已接受改为本判据**；7.1.5 实测：**走 tee（有存档）时 `total_size` 和 `bitrate` 恒为 `N/A`**，用 `total_size` 会让有存档的会话永远"没开始"；无存档时 `total_size` 是数字（首块 4 985 字节、`out_time_us=80000`），两个判据同时成立，所以统一改用 `out_time_us`）。**`progress=end` 块不算开始**：连接失败时 ffmpeg 也会补一个 `frame=0 total_size=0 out_time_us=N/A progress=end`。Runner 在 `started` 之前不发 `task:progress`，所以前端"收到第一条 progress = 已在推"的判断与此一致。
+  - `started=false`：无法解析主机名 / 连接被拒绝 / 超时 / 网络不可达 → `LIVE_CONNECT_FAILED`；服务器明确拒绝 → `LIVE_PUSH_REJECTED`。**按 ffmpeg 7.1.5 + MediaMTX 1.21.1 实测**：RTMP 鉴权失败的 stderr 是 `[rtmp @ …] Server error: authentication failed` + `Error opening output …: Operation not permitted`（可区分，判为 `LIVE_PUSH_REJECTED`）；RTMP 服务器未开 / 连接被拒是 `Connection refused`，域名解析失败是 `Failed to resolve hostname`（均为 `LIVE_CONNECT_FAILED`）；**SRT 是已知局限**：服务器未开与被拒绝（错误 passphrase / 无权限）在 ffmpeg stderr 里都只有 `Connection to srt://… failed: Input/output error`，无法区分，统一判 `LIVE_CONNECT_FAILED`（`LIVE_PUSH_REJECTED` 对 SRT 实际上不会出现）。
+  - `started=true`：`Broken pipe` / `Connection reset` / `Connection timed out` / 写出时 `Input/output error`、`Error writing trailer`（网络中断）→ `LIVE_PUSH_INTERRUPTED`。
+  - 屏幕采集：avfoundation 权限相关报错 → `SCREEN_PERMISSION_DENIED`；`x11grab` 打不开显示 → `UNSUPPORTED_PLATFORM`。
+  - 认不出来的非零退出 → `INTERNAL`（不是 `PROCESS_FAILED`），stderr 最后 50 行（已脱敏）放 `detail`。
+  - **已请求 `Cancel` 之后一律归 `canceled`**（架构师定）：Runner 一旦收到取消（用户 `Cancel` 或应用退出的 ctx 取消），之后 ffmpeg 无论以什么非零码退出（`Broken pipe`、`Connection reset`、被强杀……）都返回取消错误 → 任务 `canceled`（应用退出为 `interrupted`），`error` 为空，**不做错误分类**，不得落 `LIVE_PUSH_INTERRUPTED`、`LIVE_CONNECT_FAILED`、`INTERNAL`。只有"优雅停止成功且退出码 0"才是 `succeeded`。测试：取消后让假 ffmpeg 以 224 / 251 / 255 退出，断言状态是 `canceled` 且 `error == nil`。
+  - **连接阶段取消直接强杀**（还没有 `started`）：不发 `q`、不等 5 秒，直接结束进程组。原因（实测）：ffmpeg 卡在连接里时不读 stdin，往不通的地址（`10.255.255.1`）推流，2 秒后发 `q`，它又过了约 3 秒才因连接超时自己退出（退出码 146）。
+  - 用户主动停止：优雅退出成功 `succeeded`；超时强杀 `canceled`（没有错误码）。**具体的 ffmpeg 报错措辞（各版本、各服务器不同）必须用真实推流服务器收集样本后落成测试**，设计稿里的关键词只是起点。
+- **脱敏**（`internal/live`，纯函数，必须有表驱动测试）：
+  - `RedactURL(raw string) string`：用户信息 → `***@`；rtmp / rtmps 保留 host、端口和第一段路径（应用名），其后的路径（流名，可含 `/`）→ `***`；所有查询参数保留键、值 → `***`；fragment 去掉；解析失败返回 `<invalid-url>`，绝不回显原文。例：`rtmp://u:p@h:1935/live/abc123?token=xyz` → `rtmp://***@h:1935/live/***?token=***`，`srt://h:9000?streamid=a&passphrase=b` → `srt://h:9000?streamid=***&passphrase=***`。
+  - `NewRedactor(rawURL string) func(line string) string`：处理一行输出——① 原始 URL、它的 URL 编码 / 解码形式、以及从中提取的每个秘密片段（用户名、密码、流名、每个查询值，长度 ≥ 3）按字面替换成 `***`；② 再用正则 `(rtmps?|srt|tcp|tls|udp)://[^\s'"<>]+` 把行里残留的任何 URL 交给 `RedactURL`（覆盖 ffmpeg 改写后的形式，如 `tcp://host:1935?tcp_nodelay=0`）。
+  - **覆盖范围**：`ffmpeg.RunOptions` 增加 `Redact func(string) string`，`Run` 在 stderr 每一行进入 `TailBuffer`、`OnStderr`（任务日志）、`Classify` **之前**先过它；记录的命令行也用脱敏后的 URL；`task.Spec.Title`、`Spec.Params`、`apperr` 的 `message` / `detail`、事件 payload、后端 `logf` 全部只用脱敏后的值。完整 URL 只存在于 Runner 的内存和 ffmpeg 的命令行参数里，不落库、不写文件。
+  - **`params`（脱敏，不能用来重试）**：文件推流 `{"kind":"file","input":"/abs/a.mp4","url":"rtmp://h/live/***","loop":true,"options":{...}}`；屏幕推流 `{"kind":"screen","screenId":"monitor:0","url":"srt://h:9000?streamid=***","hideCursor":false,"audio":"none","archiveDir":"","options":{...}}`。
+  - **测试要求**：URL 表驱动（各协议、userinfo、多段路径、IPv6、非法串）；行脱敏用真实 ffmpeg 输出样本；端到端用假 ffmpeg 脚本把完整 URL 打到 stderr 并失败，断言 `Task.title` / `Task.params` / `error.message` / `error.detail` / 日志文件 / 全部事件 payload 里都搜不到任何秘密片段。
+  - **已知限制**：ffmpeg 命令行里必须有完整 URL，同一台机器上的其他进程（任务管理器、`ps`）能看到；应用不能规避，文档里说明。
+  - **日志规则**：后端**不得**输出 `cmd.Args` / `cmd.String()` / `exec.Cmd` 的任何格式化结果（含调试日志、panic 信息、`%v` / `%+v`），记录命令行只能用已脱敏的副本；发布版关闭 Wails 的调试日志（`logger.DEBUG` 级别、`options.App.LogLevel` 设为 `ERROR`/`INFO`，`Debug` 相关开关关闭），因为 Bind 调用的参数会被它记录；**前端不得把完整推流 URL（含流名、口令）存进 `localStorage` / `sessionStorage` / IndexedDB**，需要记住地址时只存脱敏后的 `PushURLInfo.redacted`，密钥由用户每次输入。
+- **指标**：`task.Progress` 增加 `Fps float64`、`BitrateKbps float64`、`DroppedFrames int64`，`task.ProgressEvent` 和 `Task` 增加同名字段（`omitempty`；**#31 已实现**，见 6.10.2 第 4 项：三个字段已在 `origin/v2` 的 `task.Progress`、`task.ProgressEvent`、`Task` 上）；`FFmpegRunner` 从 `ffmpeg.ProgressUpdate`（已有 `Fps`、`Dropped`、`TotalSize`、`OutTimeSec`）填充，`BitrateKbps` **只在无存档的会话里计算**：用相邻两次 progress 的 `total_size` / `out_time` 增量做 5 秒滑动平均；有存档的会话（tee，`total_size` 恒为 `N/A`）不计算、不轮询文件大小，保持 0 → 因 `omitempty` 不出现在 JSON 里（`out_time` 不增长时沿用上一个值，不出现 NaN / Inf）。其余节流、`version`、丢弃旧事件规则不变。
+- **会话与任务管理器**：新增 `TypeLiveScreenPush`，`IsLive` 包含它；旧的 `TypeLiveRelay`、`TypeLiveRecordPush` 常量**保留但不再产生**（架构师定，见下方确认项 ⑧）：`Submit` 不再接受，`IsLive` 对它们仍为 true 只是为了常量兼容。不注册重试工厂，`live_file_push` / `live_screen_push` 的 `Retry` 得到 `UNSUPPORTED`（message：直播会话不能重试，请重新开始推流）；旧类型（`live_relay`、`live_record_push`）的 id 调 `Retry` / `Get` / `Cancel` / `Remove` 一律 `NOT_FOUND`，见下方确认项 ⑧。进行中的会话同时最多 4 个；同一个标准化推流地址同时只能有一个会话；**屏幕推流同一时间最多 1 路**（都是 `TASK_CONFLICT`，`detail` 首行 `reason=max_sessions` / `duplicate_url` / `screen_busy`，判断顺序 `duplicate_url` → `screen_busy` → `max_sessions`，见下方确认项）。应用退出：`Shutdown` 取消 → 优雅停止最多 5 秒（有存档 15 秒，总等待 16 秒；前端显示"正在停止…"，超时走强杀）→ 状态 `interrupted`（有存档时存档按 6.10 保留）；应用崩溃时 ffmpeg 子进程由操作系统回收（Windows 见 Job Object 修订）。
+- **【未验证】（设计稿的已知风险，实现时要真机验证，汇总见 6.10.1「真机试用清单」）**：macOS 屏幕录制授权的检测方式（不用 cgo 时只能靠 ffmpeg 报错或首帧内容判断）；Windows gdigrab 在多显示器 / 非 100% 缩放下偏移和尺寸是否等于物理像素；`x11grab` 在各桌面环境下的表现；上面所有 ffmpeg 报错关键词；RTMP / SRT 在不同服务器（nginx-rtmp、SRS、MediaMTX、常见直播平台）上的兼容性。
+
+- **已确认项**（原待定项 ①~⑨，不再待定）：
+  - ①~⑦ **产品经理和架构师已正式确认**：① 同时进行的直播会话上限 4 个、同一标准化地址只允许一个会话；**（产品经理追加）屏幕推流同一时间最多 1 路，文件推流不受影响**；② 屏幕推流首版不采集声音（只有 `none` / `silent`）；③ 始终重编码（不支持 `-c copy` 直推文件）；④ 允许推到回环 / 内网地址；⑤ 只支持 rtmp / rtmps / srt，不含 rtsp / whip / http-flv 推流；⑥ 存档只用 mp4，且只有屏幕推流有存档；⑦ 优雅停止成功记 `succeeded`、强杀记 `canceled`，前端只看 `status`（硬性规则见第 4 节「结果语义」）；**优雅停止与自然播完都是 `succeeded`，都显示"已结束推流"，不区分、不加字段**。
+  - ⑧ **架构师定**：任务中心**不展示** `live_relay` 和 `live_record_push`；这两个旧类型在契约里标为"保留但不再产生"（`Submit` 不接受）；数据库里若有旧记录，一律按未知类型**忽略、不报错**（`List` / `ListActive` 等读取路径遇到类型不在当前枚举内的行时跳过，不返回错误、不影响其他记录；**#31 实现：忽略发生在 store 层，对旧类型的 id 调 `Get` 返回 `NOT_FOUND`**，就当这条记录不存在，不返回"未知类型"之类的新错误；**架构师定：旧类型（`live_relay`、`live_record_push`、`edit_render` 等一切"保留但不再产生"的类型）的任务 id，`Get`、`Cancel`、`Remove`、`Retry` 四个方法一律返回 `NOT_FOUND`**，逐个写死：
+    - `Get(id)`：`NOT_FOUND`（就当这条记录不存在，不返回"未知类型"之类的新错误、不返回 `UNSUPPORTED`）。
+    - `Cancel(id)`：`NOT_FOUND`（不是 `TASK_CONFLICT`；旧类型没有进行中的会话，也不会有）。
+    - `Remove(ids, deleteOutput)`：ids 里**只要有库里存在的旧类型记录的 id，整体返回 `NOT_FOUND`，什么都不删**（与"任一 id 仍在进行则整体失败"同一套整体失败语义）。这是"不存在的 id 忽略"（6.6）的**例外**：真正不存在的 id 仍然忽略、不报错，只有"库里有这条记录、但类型是旧类型"的 id 才报 `NOT_FOUND`；旧记录本身留在库里不删（任务中心不展示，也没有入口删）。
+    - `Retry(id)`：`NOT_FOUND`（**先于**"没有重试工厂返回 `UNSUPPORTED`"判断：旧类型按不存在处理，不落 `UNSUPPORTED`）。
+    - **实现方式（与已合并的 #31 一致，`internal/store/tasks.go`、`internal/task/ops.go`；措辞以代码为准）**：**由 store 的 SQL 读取层过滤**——`legacyTypes`（目前是 `live_relay`、`live_record_push`；`edit_render` 待 #30 合入后加进同一处）拼成 `legacyTypesSQL`，所有读取和按 id 操作的 SQL 都带 `type NOT IN (…)`：`GetTask`（所以 `Manager.Get` / `Cancel` / `Retry` 拿到"没找到"，得到 `NOT_FOUND`）、`ListTasks` / `ListActive` 的 `taskWhere`（列表不含旧类型）、`DeleteTasks`（逐个 id 的 `DELETE … AND type NOT IN …`，旧类型 id 不会被删）、`DeleteFinishedTasks`（`ClearFinished` 的实现，查询和删除都带 `type NOT IN …`，**旧类型记录不被清掉**）。**`Remove` 是特例**：`Manager.Remove` 在做任何事之前先调 `Store.LegacyTaskIDs(ids)`（返回"库里有这条记录、但类型是旧类型"的 id，真正不存在的 id 不在其中），**只要有一个，整体返回 `NOT_FOUND`，什么都不删**（记录、日志、输出文件都不碰）。**`ClearFinished` 和 `DeleteTasks` 同样排除旧类型**（上面的 SQL）。新增旧类型只改 `legacyTypes` 这一处；`IsLegacyType(t)` 用于判断。**测试**：库里插入 `live_relay` / `live_record_push` 各一条（`edit_render` 待 #30），断言 `Get` / `Cancel` / `Remove` / `Retry` 都返回 `NOT_FOUND`，`List` / `ListActive` 不含它们，`ClearFinished` 后它们仍在库里，且 `Remove` 整体失败时同批里合法的 id 没有被删
+  - ⑨ **前端负责**：由前端在 `v2-fe-api-contracts` 里补全 `AppErrorCode`（`CANCELED`、八个 `LIVE_*` 相关码、`PROBE_FAILED`、`UNSUPPORTED`、`CONVERT_DISK_FULL`），并对照第 2 节契约错误码表逐项核对。后端不改动。
+- **SRT 说明（架构师 / 产品定）**：SRT 连接失败**统一判 `LIVE_CONNECT_FAILED`**（原因见上文实测：服务器未开与被拒绝在 ffmpeg stderr 里无法区分）。产品文案"连接失败，请检查地址和口令是否正确"由**前端负责**，后端 `message` **不承载该文案**（后端 `message` 只描述技术原因，`detail` 是脱敏后的 stderr 尾部）。 前端据 `LIVE_CONNECT_FAILED` 的 `detail` 第一行 `scheme=srt`（RTMP 为 `scheme=rtmp` / `rtmps`）选文案，见 2.2。
+- **用户可见提示（来自产品经理，仅供前端参考；后端只保证错误码和触发条件，不返回这些文案）**：
+  - `TASK_CONFLICT`：进行中的直播会话已达 4 个 → 前端提示"最多同时推 4 路"；同一标准化地址已有进行中的会话 → "这个地址已经在推流"。两种触发共用同一个错误码，**用 `detail` 第一行区分（架构师已确认，稳定枚举）**；**产品经理追加：屏幕推流同一时间最多 1 路**，已有进行中的屏幕推流时再开一路 → `reason=screen_busy`（**文案由前端负责，后端不写、不返回**）。三个取值：
+    - `reason=screen_busy`：**已有进行中的 `live_screen_push`，再调 `StartScreenPush`**（产品经理定"屏幕推流同一时间最多 1 路"）。只有 `StartScreenPush` 会得到它；**文件推流不受影响**（有屏幕推流在进行时仍可 `StartFilePush`，只受 4 路上限和地址唯一约束）。"进行中"指状态 `queued` / `running` 的 `live_screen_push`（含正在优雅停止、还没到终态的）。
+    - `reason=max_sessions`：进行中的直播会话已达 4 个上限。
+    - `reason=duplicate_url`：同一标准化推流地址已有进行中的会话。
+    - **判断顺序（写死，架构师定）**：依次判断 **`duplicate_url` → `screen_busy` → `max_sessions`**，命中第一个就返回，不继续判断；`StartFilePush` 没有 `screen_busy` 这一步，只判断 `duplicate_url` → `max_sessions`。例如已有一路屏幕推流、又用**同一地址**开屏幕推流，得到的是 `duplicate_url` 而不是 `screen_busy`；已有屏幕推流、再用**不同地址**开屏幕推流，得到 `screen_busy`（即使这时总数已达 4 路也是 `screen_busy`，不是 `max_sessions`）；没有屏幕推流、总数已达 4 路时开新的推流，得到 `max_sessions`。
+    - **稳定枚举规则**：`detail` 第一行固定为 `reason=<值>`，整行只有这一个键值对。以后新增取值**只能追加、不能改名、不能改含义、不能删除**；追加要走契约版本变更并在此列出。
+    - 适用范围：`StartFilePush` / `StartScreenPush`（以及复用同一检查的 `CheckPushURL`，如果它做会话冲突检查）因会话冲突返回的 `TASK_CONFLICT`。`Cancel` 已结束会话、`Remove` 进行中任务等其他 `TASK_CONFLICT` 不属于这两个取值，**不带 `reason=` 行**（沿用原有 detail）。
+    - **(a) 测试要求**：必须有测试分别触发三种冲突，各自断言 `detail` 第一行**精确等于** `reason=screen_busy` / `reason=duplicate_url` / `reason=max_sessions`（不是包含），**另有测试断言判断顺序**（同时满足 `duplicate_url` 和 `screen_busy` 得 `duplicate_url`；同时满足 `duplicate_url` 和 `max_sessions` 得 `duplicate_url`；同时满足 `screen_busy` 和 `max_sessions` 得 `screen_busy`），**断言文件推流在有屏幕推流进行时不返回 `screen_busy`**，并断言两者的 `code` 都是 `TASK_CONFLICT`；同时断言未触发冲突的其他 `TASK_CONFLICT`（如已结束会话再 `Cancel`）不带 `reason=`。
+    - **(b) 脱敏要求**：这三种 `detail` 里**不得出现推流地址、口令、streamkey、streamid 或其任何片段**；`duplicate_url` 也不带地址（哪怕是脱敏后的地址、host 或端口），可以在第二行起写不含地址的说明（如"已有会话使用同一推流地址"）。测试要用带秘密片段的 URL 触发这两种冲突，断言 `message` / `detail` / 事件 / 日志里都搜不到秘密片段和 host。
+    - **(c) 前端规则**：前端遇到**未知的 `reason` 值或没有 `reason` 行**时，显示通用冲突提示（如"操作冲突，请稍后再试"，文案由前端定），不得猜测含义、不得报错崩溃。
+  - `LIVE_URL_INVALID`：协议不是 rtmp / rtmps / srt 时**后端已经是这个码**，`detail` 第一行 `reason=scheme_unsupported`，前端提示"暂不支持这种推流地址，请使用 rtmp、rtmps 或 srt"。同一个码的其他原因用 `reason=malformed` / `missing_host` / `param_not_allowed` 区分（枚举和规则见 2.2，未知值走通用文案），**不要靠 `message` 文本区分**。
+
+### 6.10.1 真机试用清单（Live，未验证项汇总）
+
+以下项目**没有在真机上验证**（箱子是 Linux + ffmpeg 7.1.5 + MediaMTX 1.21.1），契约里已就地标"未验证"。**不阻塞实现**：实现按契约写，试用包出来后由用户逐项确认，不符再回来改契约。（Edit 的 Windows 路径 / `commitPart` / Range 续传、Doc 的 Windows 字体路径 / 大文件 Range 各在 6.11.1 / 6.11.4 / 6.12.1 / 6.12.4 有同样的清单，合并后由架构师汇总。）
+
+| # | 未验证项 | 在哪里 | 怎么验证 | 不通过怎么办 |
+|---|---|---|---|---|
+| 1 | Windows 上 `file:C\:/Users/…` 形式的存档路径能否被 ffmpeg tee 正确解析（Linux 上盘符冒号只是普通字符） | 6.10「`tee` 段转义规则」第 5 点 | Windows 上屏幕推流 + 存档到 `C:\Users\<含空格和中文的目录>`，确认文件出现在期望位置 | 改转义规则（契约变更），不改行为约定 |
+| 2 | UNC 路径 `//server/share/…` 作存档目录 | 同上 | 存档到网络共享 | 同上；最坏情况在 `Start*` 拒绝 UNC 并返回 `INVALID_ARGUMENT` |
+| 3 | `MoveFileEx` / 改名语义：Windows 上同名冲突时 `(n)` 后缀的占位文件（`O_CREATE\|O_EXCL`）能否被 ffmpeg 以 `-y` 写入；被杀后文件句柄释放时机是否影响随后的 `ffprobe` 与删除空壳 | 6.10 存档第 2 条 | 同一秒内连开两路存档；强杀后立即检查文件是否可读、空壳是否被删 | 空壳删除改为延迟重试；不影响主流程 |
+| 4 | `rtmps`：本机 ffmpeg 的 TLS 握手与证书校验在真实服务器上的表现（7.1.5 只实测了连接被拒：退出码 145、`LIVE_CONNECT_FAILED`，没有真实 rtmps 服务器） | 6.10 命令行、错误分类 | 推到一个真实的 rtmps 地址（如常见直播平台的 rtmps 入口） | 证书错误的措辞补进分类规则；缺协议已有 `UNSUPPORTED`（`missing=rtmps`） |
+| 5 | SRT 在真实公网 / 有 passphrase 的服务器上：错误 passphrase 与服务器未开确实都只有 `Input/output error`（实测于 MediaMTX，其他服务器未测） | 6.10「SRT 说明」 | 用错误口令推到 SRS / MediaMTX / 商用服务 | 仍判 `LIVE_CONNECT_FAILED`，前端文案不变 |
+| 6 | macOS 屏幕录制授权检测；Windows gdigrab 多显示器 / 非 100% 缩放的偏移与尺寸；`x11grab` 在各桌面环境的表现 | 6.10「未验证」条 | 各平台真机各推一次 | 见各条 |
+| 7 | 15 秒（有存档）/ 16 秒（`Shutdown`）优雅停止上限在慢网络、高负载下够不够 | 6.10 存档第 3 条 | 弱网下停止有存档的会话，看是否超时被强杀 | 调整上限（契约变更） |
+
+### 6.10.2 实现清单（给 #31 / #30 对照；不是新接口；"现状"列已按 `origin/v2` 的 `2f0c0a4`（含已合并的 #31 第一部分）更新）
+
+| # | 项 | 现状（`origin/v2`） | 要求 | 随哪个 PR |
+|---|---|---|---|---|
+| 1 | 优雅停止检查退出码 | **#31 已实现**：`ffmpeg.RunOptions.StrictGracefulExit`（`internal/ffmpeg/exec.go`），直播 Runner 开启（`internal/service/live/service.go`） | 直播路径必须检查退出码：`q` 后退出码 0 → `succeeded`；已请求 `Cancel` 后非 0 → `canceled`，无错误码；停止用 `q`（stdin 管道），不用 SIGINT（退出码 255） | #31 补一个提交 |
+| 2 | 空壳存档清空 `outputPath` | **#31 已实现**：`task.ClearOutputPath` 特殊输出路径，`entry.finish` 遇到它把 `outputPath` 清空（`internal/task/`） | Runner 支持把 `outputPath` 清空（专门的清空标记 / 返回字段），先清空再发终态事件 | #31 补 |
+| 3 | `Shutdown` 等待时间 | **#31 已实现**：`app.go` 的 `shutdown` 有带存档的直播会话时等 16 秒，否则 8 秒 | 有存档的直播会话运行时总等待 16 秒（6.6 / 6.10） | #31 |
+| 4 | `fps` / `bitrateKbps` / `droppedFrames` | **#31 已实现**：`task.Progress` / `task.ProgressEvent` / `Task` 都有三个 `omitempty` 字段 | 三个字段（`omitempty`）；`bitrateKbps` 只在无存档会话计算 | #31 |
+| 5 | 任务类型 | **#31 已实现** `live_screen_push` 和 `validType`（含 `live_file_push`）；`store/tasks.go` 已有 `TypeLiveScreenPush`；`TypeEditExport` 与 `validType` 里的 `edit_render` → `edit_export` 仍未改（随 #30） | `validType` 改为第 3 节 `TaskType` 枚举（`convert`、`edit_export`、`office_pdf`、`live_file_push`、`live_screen_push`、`ffmpeg_install`）；`Submit` **不再接受** `live_relay`、`live_record_push`（也不接受 `edit_render`）；`IsLive` 包含 `live_file_push`、`live_screen_push` | `live_screen_push` 随 #31，`edit_export` 随 #30 |
+| 6 | 旧类型过滤 | **#31 已实现**（live 两个类型）：store 的 SQL 读取层过滤，`legacyTypes` / `legacyTypesSQL` / `LegacyTaskIDs`（`internal/store/tasks.go`）；`edit_render` 尚未加入（Edit 线合入前它仍是有效类型） | store 层读取时过滤旧类型行（`List` / `ListActive` 不含；`Get` / `Cancel` / `Remove` / `Retry` 一律 `NOT_FOUND`，见 6.10 确认项 ⑧） | #31（live 两个类型）、#30（`edit_render`） |
+| 7 | `Task.error` 序列化 | `store.Task.Error` 是 `json:"error,omitempty"` | 与契约一致：无错误时省略该键，不输出 `null`（本契约示例已统一） | 无需改代码，测试断言 |
+| 8 | 前端 `AppErrorCode` | `call.ts` 缺若干码 | 按 2.1 清单补全并逐项核对 | 前端（`v2-fe-api-contracts`） |
+
+**ffmpeg 版本复测**：项目默认安装的是 **9.0.2**（`internal/ffmpeg/manifest.json`，martin-riedl 静态构建，SHA-256 与 manifest 一致），契约里的 ffmpeg 行为除注明外已在 **7.1.5 和 9.0.2 上都复测**：`q` 退出码 0；tee + `onfail=abort` 连接被拒退出码 145；tee 转义路径正常；`-protocol_whitelist` 按位置生效（输出侧只写 `rtmp,tcp` 时 `file:` 输入失败退出码 234）；`anullsrc` + `-shortest` 播完即结束；`-flvflags no_duration_filesize` 退出码 0；SRT passphrase 长度 9 / 81 位报 `SRTO_PASSPHRASE` 错、10 / 79 / 80 位通过。**与 7.1.5 不同的两点**：SRT 大写参数名在 9.0.2 报错而不是静默忽略；tee 默认 `onfail=continue` 连接被拒在 9.0.2 上退出码 145（7.1.5 是 0）。
 
 ## 6.11 EditService 契约（v0.11，只有契约，架构师冻结前不实现）
 
@@ -592,14 +858,9 @@ type PreviewURL struct {
 8. **token 失效与前端重试（架构师定）**：token 不存在、被淘汰、应用重启、文件变化、被 `RemoveRecent*` 撤销 → 一律 **404**（不区分原因）。前端在 `<video>` / `<audio>` 触发 `error`、或每次用旧 URL 之前，先对该 URL 发一个 **`HEAD`** 请求探测：`200`/`206` 才继续；`404` → 重新调用 `GetPreviewURL(path)`（或 `OpenPDF(path)`）换新 URL，**只重试一次**，仍失败则按"文件不存在或已被移动"提示。
 9. **Windows 限制**：Wails v2.11.0 `pkg/assetserver/webview/responsewriter_windows.go` 把响应体缓冲在内存里，`Finish` 才一次性交给 WebView2（官方 Options 文档："Response Body Streaming：Windows ❌，macOS ✅，Linux ✅"），所以上面的 4 MiB / 32 MiB 限长在所有平台一律生效。WebView2 收到被截短的 `206` 之后是否会继续请求下一段 **未在 Windows 真机验证**，由用户在预览包里验证（社区有只发第一段的反馈，wailsapp/wails#5047 无结论）。
 
-## 7. 本地流服务（唯一保留的 HTTP）
+## 7. 本地流服务（已取消）
 
-> **v0.5：本节的本地 FLV / WebSocket 流服务取消，不再实现。** 推流由后端 ffmpeg 直接推到用户填写的目标地址；播放由前端播放器直接拉取远端地址；后端不再监听任何本地端口，也就没有 `/ws/record`、`/flv/<id>`、token 和 `wsURL`。下面保留的原文仅供参考，其中 `/ws/record`、`/flv/<id>` 相关内容作废；第 4 节 LiveService 的 `StartRecordPush`（wsURL）、`GetPlayURL` 需随直播 PR 一并修订。
-
-- 监听 `127.0.0.1:0`（随机端口），启动时生成随机 token，所有请求必须带 `?t=<token>`。
-- 只提供：`/ws/record`（录屏二进制分片写入 ffmpeg stdin）、`/flv/<id>`（拉流播放代理）。
-- 端口和 token 只通过 `LiveService` 返回，不写死在前端。
-- 录屏采集按平台降级：Windows（WebView2）用 `getDisplayMedia` + `MediaRecorder` 经 `/ws/record` 写入；macOS 和 Linux 默认由后端 ffmpeg 直接采集（`avfoundation` / `x11grab`），`RecordPushRequest.captureMode` 取 `webview | native`，由 `LiveService.GetCaptureCapabilities()` 告诉前端当前平台支持哪种。native 采集输入：Windows `gdigrab`、macOS `avfoundation`（首次会弹系统"屏幕录制"授权，记在 FFmpegFree 名下）、Linux `x11grab`；Linux 检测到 `XDG_SESSION_TYPE=wayland` 时返回 `UNSUPPORTED_PLATFORM` 错误，不录黑屏。
+> **v0.5 起取消，v0.10 删除原文。** 没有本地 FLV / WebSocket 流服务，后端不监听任何端口（也就没有 `/ws/record`、`/flv/<id>`、token、`wsURL`）：推流由后端 ffmpeg 直接推到用户填写的地址，播放由前端播放器直接拉取远端地址，屏幕由后端 ffmpeg 直接采集。应用里唯一保留的"HTTP"是 Wails AssetServer 的 `/local/<token>`（本地文件预览，见第 1 节）。直播的设计见第 4 节 LiveService 和 6.10。
 
 ## 8. 迁移步骤
 
