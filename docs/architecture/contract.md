@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.7.3）
+# FFmpegFree v2 接口契约（v0.7.4）
+
+v0.7.4 变更：`Settings` 新增 `defaultOutputDir`（string，空字符串 = 输出到源文件所在文件夹）。`UpdateSettings` 对非空值校验：必须是绝对路径、已存在的文件夹且可写，否则 `INVALID_ARGUMENT`，整个更新不生效（与 `ffmpegPath` 一样是原子的）；保存的是清理后的路径。转换等任务的 `outputDir` 传空时使用这个默认值。
 
 v0.7.3 变更：`SystemService.PickDirectory(title string)`（契约里原来无参，现在加 `title`，空字符串用默认标题，用户取消返回 `""` 而不是错误）与 `RevealInFolder(path)` 落地（见 6.8 节）。
 
@@ -130,7 +132,7 @@ PickDirectory(title string) (string, error) // 取消返回 ""
 RevealInFolder(path string) error
 GetEnv() (EnvInfo, error)            // 系统、ffmpeg 版本、数据目录
 GetSettings() (Settings, error)
-UpdateSettings(s Settings) error      // 输出目录、并发数、主题、语言、ffmpegPromptDismissed、ffmpegPath
+UpdateSettings(s Settings) error      // defaultOutputDir（空=与源文件同目录）、并发数、主题、语言、ffmpegPromptDismissed、ffmpegPath
 ```
 
 ### MediaService
