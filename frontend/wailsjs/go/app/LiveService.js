@@ -6,6 +6,18 @@ export function CheckPushURL(arg1) {
   return window['go']['app']['LiveService']['CheckPushURL'](arg1);
 }
 
+export function GetCaptureCapabilities() {
+  return window['go']['app']['LiveService']['GetCaptureCapabilities']();
+}
+
+export function ListScreens() {
+  return window['go']['app']['LiveService']['ListScreens']();
+}
+
 export function StartFilePush(arg1) {
   return window['go']['app']['LiveService']['StartFilePush'](arg1);
+}
+
+export function StartScreenPush(arg1) {
+  return window['go']['app']['LiveService']['StartScreenPush'](arg1);
 }

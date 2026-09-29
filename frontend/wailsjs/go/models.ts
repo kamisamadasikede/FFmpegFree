@@ -286,6 +286,30 @@ export namespace jsontool {
 
 export namespace live {
 	
+	export class CaptureCapabilities {
+	    supported: boolean;
+	    platform: string;
+	    backend: string;
+	    sessionType: string;
+	    permission: string;
+	    audioCapture: boolean;
+	    reason: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CaptureCapabilities(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.supported = source["supported"];
+	        this.platform = source["platform"];
+	        this.backend = source["backend"];
+	        this.sessionType = source["sessionType"];
+	        this.permission = source["permission"];
+	        this.audioCapture = source["audioCapture"];
+	        this.reason = source["reason"];
+	    }
+	}
 	export class PushOptions {
 	    width: number;
 	    height: number;
@@ -360,6 +384,72 @@ export namespace live {
 	        this.port = source["port"];
 	        this.redacted = source["redacted"];
 	    }
+	}
+	export class ScreenInfo {
+	    id: string;
+	    name: string;
+	    primary: boolean;
+	    x: number;
+	    y: number;
+	    width: number;
+	    height: number;
+	    scale: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ScreenInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.primary = source["primary"];
+	        this.x = source["x"];
+	        this.y = source["y"];
+	        this.width = source["width"];
+	        this.height = source["height"];
+	        this.scale = source["scale"];
+	    }
+	}
+	export class ScreenPushRequest {
+	    url: string;
+	    screenId: string;
+	    hideCursor: boolean;
+	    audio: string;
+	    archiveDir: string;
+	    options: PushOptions;
+	
+	    static createFrom(source: any = {}) {
+	        return new ScreenPushRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.url = source["url"];
+	        this.screenId = source["screenId"];
+	        this.hideCursor = source["hideCursor"];
+	        this.audio = source["audio"];
+	        this.archiveDir = source["archiveDir"];
+	        this.options = this.convertValues(source["options"], PushOptions);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

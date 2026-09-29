@@ -5,4 +5,10 @@ import {store} from '../models';
 
 export function CheckPushURL(arg1:string):Promise<live.PushURLInfo>;
 
+export function GetCaptureCapabilities():Promise<live.CaptureCapabilities>;
+
+export function ListScreens():Promise<Array<live.ScreenInfo>>;
+
 export function StartFilePush(arg1:live.FilePushRequest):Promise<store.Task>;
+
+export function StartScreenPush(arg1:live.ScreenPushRequest):Promise<store.Task>;
