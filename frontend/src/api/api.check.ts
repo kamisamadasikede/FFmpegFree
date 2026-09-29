@@ -12,7 +12,7 @@ import { parsePushUrl, redactPushUrl } from '@/utils/liveUrl'
 import * as live from './live'
 import * as edit from './edit'
 import * as doc from './doc'
-import { docErrorText, docErrorFile, docErrorPath, docDetailHead, pdfErrorView, DOC_TOO_MANY_PAGES_TEXT, DOC_FILE_BROKEN_TEXT, DOC_FORMAT_UNSUPPORTED_TEXT } from '@/errors/errorMessages'
+import { docErrorText, docErrorFile, docErrorPath, docReasonOf, pdfErrorView, DOC_TOO_MANY_PAGES_TEXT, DOC_FILE_BROKEN_TEXT, DOC_FORMAT_UNSUPPORTED_TEXT, DOC_ENCRYPTED_TEXT, DOC_NO_FONT_TEXT, DOC_TOO_LARGE_TEXT } from '@/errors/errorMessages'
 import { ffmpegStatusView } from '@/components/ffmpeg/statusView'
 import { splitMiddle, nextZoom, thumbWindow, formatRecentTime, extBadge } from '@/utils/docLogic'
 import { onSimEvent } from '@/services/wails'
@@ -70,10 +70,10 @@ export async function runApiChecks(): Promise<string[]> {
   eq('直播停止文案', LIVE_STOP_TEXT, { succeeded: '已结束推流', canceled: '已强制停止' })
   eq('UNSUPPORTED 起始错误行（无协议名）', liveStartErrorLine({ code: 'UNSUPPORTED' })?.description, '当前 ffmpeg 不支持这种推流协议，请在设置的 ffmpeg 页面重新安装或更新')
 
-  eq('doc/xls/ppt/加密 UNSUPPORTED 文案', docUnsupportedText('暂不支持这种格式', '/d/a.doc\n.doc：旧版'), '暂不支持这种格式，请先另存为 docx、xlsx 或 pptx')
-  eq('超 5000 页任务中心沿用后端 message', docUnsupportedText('超过 5000 页', '已排到第 5000 页仍未结束'), '超过 5000 页')
-  eq('没有可用字体沿用后端 message', docUnsupportedText('没有可用的 Unicode 字体', '文档含有 Latin-1 以外的字符，但没有可用的字体'), '没有可用的 Unicode 字体')
-  eq('认不出的 UNSUPPORTED 保守回落后端 message', docUnsupportedText('别的原因', '某行'), '别的原因')
+  eq('任务中心：reason=format / encrypted 的 UNSUPPORTED', [docUnsupportedText('暂不支持这种格式', 'reason=format\n/d/a.doc\n.doc：旧版'), docUnsupportedText('暂不支持这种格式', 'reason=encrypted')], [DOC_FORMAT_UNSUPPORTED_TEXT, DOC_ENCRYPTED_TEXT])
+  eq('任务中心：超 5000 页沿用后端 message（reason=too_many_pages）', docUnsupportedText('超过 5000 页', 'reason=too_many_pages\n已排到第 5000 页仍未结束'), '超过 5000 页')
+  eq('任务中心：缺字体沿用后端 message（reason=no_font）', docUnsupportedText('没有可用的 Unicode 字体', 'reason=no_font'), '没有可用的 Unicode 字体')
+  eq('任务中心：reason 缺失按 message 精确相等兜底；认不出的回落后端 message', [docUnsupportedText('暂不支持这种格式', ''), docUnsupportedText('别的原因', '某行'), docUnsupportedText('', undefined)], [DOC_FORMAT_UNSUPPORTED_TEXT, '别的原因', docUnsupportedText('', undefined)])
   // ---- 旧任务类型忽略 ----
   eq('live_relay 忽略', isKnownTaskType('live_relay'), false)
   eq('live_record_push 忽略', isKnownTaskType('live_record_push'), false)
@@ -391,7 +391,7 @@ export async function runApiChecks(): Promise<string[]> {
   eq('老后端没有字段 → true', doc.isExperimental({ ...caps, experimental: undefined }), true)
   for (const f of ['/d/a.doc', '/d/b.xls', '/d/c.ppt', '/d/加密.docx', '/d/x.csv', '/d/y.txt']) {
     err = await rejects(doc.convertToPDF([f], ''))
-    eq(`UNSUPPORTED ${f}`, [err?.code, err?.detail?.split('\n')[0]], ['UNSUPPORTED', f])
+    eq(`UNSUPPORTED ${f}`, [err?.code, err?.reason && docErrorPath(err.detail)], ['UNSUPPORTED', f]) // 契约 v0.16：首行 reason=…，第二行才是出错文件路径
   }
   const good = await doc.convertToPDF(['/d/a.docx', '/d/b.pptx'], '')
   eq('ConvertToPDF 返回与 inputs 一一对应', good.map((t) => t.type), ['office_pdf', 'office_pdf'])
@@ -412,27 +412,40 @@ export async function runApiChecks(): Promise<string[]> {
   eq('模拟大文件不能预览 → UNSUPPORTED', (await rejects(doc.loadPDF('/d/大文件.pdf')))?.code, 'UNSUPPORTED')
   eq('小文件 loadPDF 返回字节', (await doc.loadPDF('/d/b.pdf')).data?.length, 2 * 1024 * 1024)
   // 文档错误文案统一走 errorMessages
-  eq('doc 格式文案', docErrorText('UNSUPPORTED', '暂不支持这种格式', '.doc：旧版'), DOC_FORMAT_UNSUPPORTED_TEXT)
-  eq('超 5000 页文案', docErrorText('UNSUPPORTED', '超过 5000 页', '已排到第 5000 页仍未结束'), DOC_TOO_MANY_PAGES_TEXT)
-  eq('文件损坏文案', docErrorText('INVALID_ARGUMENT', '不是有效的 OOXML 文件', 'bad zip'), DOC_FILE_BROKEN_TEXT)
-  eq('出错文件取 detail 首行', [docErrorFile('UNSUPPORTED', '/d/a.doc\n旧版'), docErrorFile('UNSUPPORTED', '旧版')], ['a.doc', ''])
-  eq('出错文件完整路径（整体校验定位用）', [docErrorPath('/d/a.doc\n.doc：旧版'), docErrorPath('C:\\d\\a.doc\n原因'), docErrorPath('旧版')], ['/d/a.doc', 'C:\\d\\a.doc', ''])
-  eq('原因首行剥掉路径行', [docDetailHead('/d/a.doc\n.doc：旧版'), docDetailHead('已排到第 9 页仍未结束'), docDetailHead('')], ['.doc：旧版', '已排到第 9 页仍未结束', ''])
-  eq('超页数：按 message 精确匹配或 detail 首行（含带路径行）', [
-    docErrorText('UNSUPPORTED', '超过 5000 页', '/d/a.docx\n已排到第 5000 页仍未结束'),
-    docErrorText('UNSUPPORTED', '别的', '文档文字量超过上限'),
-    docErrorText('UNSUPPORTED', '别的', '文本里写着 5000 页但不是这两句'),
-  ], [DOC_TOO_MANY_PAGES_TEXT, DOC_TOO_MANY_PAGES_TEXT, '别的'])
-  eq('页数上限取 limits 拼', docErrorText('UNSUPPORTED', '超过 5000 页', '', 8000), '文档太长，超过 8000 页，无法转换')
-  eq('损坏：只认 INVALID_ARGUMENT + message 精确相等，不做包含匹配', [
-    docErrorText('INVALID_ARGUMENT', '不是有效的 OOXML 文件', '/d/a.docx\nzip: not a valid zip file'),
-    docErrorText('INVALID_ARGUMENT', '文件超过 100 MiB', 'OOXML 100 字节'),
-    docErrorText('INVALID_ARGUMENT', '路径不合法'),
-  ], [DOC_FILE_BROKEN_TEXT, '文件超过 100 MiB', '路径不合法'])
+  // reason 优先（契约 v0.16）：六个枚举各一条，message 故意写成别的，证明是按 reason 判断的
+  const R = (code: string, reason: string, msg = '随便', rest = '') => docErrorText(code, msg, `reason=${reason}${rest ? '\n' + rest : ''}`)
+  eq('reason → 文案（六种）', [
+    R('UNSUPPORTED', 'too_many_pages'), R('UNSUPPORTED', 'format'), R('UNSUPPORTED', 'encrypted'), R('UNSUPPORTED', 'no_font'),
+    R('INVALID_ARGUMENT', 'invalid_ooxml'), R('INVALID_ARGUMENT', 'too_large'),
+  ], [DOC_TOO_MANY_PAGES_TEXT, DOC_FORMAT_UNSUPPORTED_TEXT, DOC_ENCRYPTED_TEXT, DOC_NO_FONT_TEXT, DOC_FILE_BROKEN_TEXT, DOC_TOO_LARGE_TEXT])
+  eq('reason=format 也可出现在 INVALID_ARGUMENT（OpenPDF 之外的场景不误判）', R('INVALID_ARGUMENT', 'format'), DOC_FORMAT_UNSUPPORTED_TEXT)
+  eq('reason 优先于 message（message 与 reason 不一致时听 reason）', docErrorText('INVALID_ARGUMENT', '不是有效的 OOXML 文件', 'reason=too_large\n/d/a.docx\n压缩包条目数超过 100000'), DOC_TOO_LARGE_TEXT)
+  eq('带路径行（第二行）的整体校验错误', docErrorText('UNSUPPORTED', '暂不支持这种格式', 'reason=format\n/d/a.doc\n.doc：旧版'), DOC_FORMAT_UNSUPPORTED_TEXT)
+  eq('未知 reason（不在枚举里）当作没有 reason，走 message 兜底 / 后端 message', [docErrorText('UNSUPPORTED', '暂不支持这种格式', 'reason=future'), docErrorText('UNSUPPORTED', '别的', 'reason=future')], [DOC_FORMAT_UNSUPPORTED_TEXT, '别的'])
+  eq('兜底：reason 缺失时对 message 精确相等（老后端）', [
+    docErrorText('UNSUPPORTED', '暂不支持这种格式', '.doc：旧版'), docErrorText('UNSUPPORTED', '超过 5000 页', '已排到第 5000 页仍未结束'), docErrorText('UNSUPPORTED', '没有可用的 Unicode 字体'),
+    docErrorText('INVALID_ARGUMENT', '不是有效的 OOXML 文件', 'bad zip'), docErrorText('INVALID_ARGUMENT', '文件超过 100 MiB', '104857601 字节'),
+  ], [DOC_FORMAT_UNSUPPORTED_TEXT, DOC_TOO_MANY_PAGES_TEXT, DOC_NO_FONT_TEXT, DOC_FILE_BROKEN_TEXT, DOC_TOO_LARGE_TEXT])
+  eq('兜底不做包含匹配：detail 里写着 5000 页 / OOXML 也不算', [
+    docErrorText('UNSUPPORTED', '别的', '文本里写着 5000 页'), docErrorText('INVALID_ARGUMENT', '路径不合法', 'OOXML'),
+  ], ['别的', '路径不合法'])
+  eq('没有 reason 的错误保持原有处理', [
+    docErrorText('INVALID_ARGUMENT', '路径不合法', '/d/a.docx'), docErrorText('INVALID_ARGUMENT', '一次最多提交 50 个文件'), docErrorText('NOT_FOUND', '文件不存在', '/d/a.docx\n文件不存在'),
+    docErrorText('CONVERT_DISK_FULL', '磁盘空间不足，无法写入输出文件'), docErrorText('IO_ERROR', '读取文件失败'), docErrorText('CANCELED', '已取消'), docErrorText('INTERNAL', '内部错误', 'fpdf: x'),
+  ], ['路径不合法', '一次最多提交 50 个文件', '找不到这个文件，可能已被移动或删除', taskErrorMessages.CONVERT_DISK_FULL.description, '没有读取这个文件的权限。', '操作已取消。', '内部错误'])
+  eq('页数上限取 limits 拼', docErrorText('UNSUPPORTED', '超过 5000 页', 'reason=too_many_pages', 8000), '文档太长，超过 8000 页，无法转换')
+  // 出错文件路径：reason 行在首行，路径在第二行；不把 reason= 行当路径；兼容旧形态（路径在第一行）
+  eq('出错文件路径：前两行里找，reason= 行不算路径', [
+    docErrorPath('reason=format\n/d/a.doc\n.doc：旧版'), docErrorPath('reason=invalid_ooxml\nC:\\d\\a.xlsx\n缺少 xl/workbook.xml'), docErrorPath('/d/a.doc\n旧版'),
+    docErrorPath('reason=too_many_pages\n已排到第 5000 页仍未结束'), docErrorPath('reason=format'), docErrorPath('旧版'), docErrorPath(undefined),
+    docErrorPath('reason=format\n说明\n/d/第三行不算.doc'),
+  ], ['/d/a.doc', 'C:\\d\\a.xlsx', '/d/a.doc', '', '', '', '', ''])
+  eq('出错文件名', [docErrorFile('UNSUPPORTED', 'reason=format\n/d/a.doc\n旧版'), docErrorFile('UNSUPPORTED', 'reason=format\n旧版'), docErrorFile('UNSUPPORTED', '/d/a.doc\n旧版')], ['a.doc', '', 'a.doc'])
+  eq('detail 首行 reason 解析 / 枚举过滤', [docReasonOf('reason=format\n/d/a.doc'), docReasonOf('reason=future'), docReasonOf('/d/a.doc'), docReasonOf(undefined)], ['format', undefined, undefined, undefined])
   eq('IO_ERROR 读源文件', docErrorText('IO_ERROR', '读取文件失败'), '没有读取这个文件的权限。')
-  const pv = (c: string, m?: string) => pdfErrorView(c, m)
+  const pv = (c: string, m?: string, d?: string) => pdfErrorView(c, m, undefined, d)
   eq('PDF 预览失败卡片：文案 / 错误码 / 是否可重试', [
-    pv('PDF_PARSE_FAILED'), pv('INVALID_ARGUMENT', '不是 PDF 文件'), pv('INVALID_ARGUMENT', '文件超过 512 MiB'), pv('NOT_FOUND', '文件不存在'),
+    pv('PDF_PARSE_FAILED'), pv('INVALID_ARGUMENT', '不是 PDF 文件', 'reason=format\n/d/a.pdf'), pv('INVALID_ARGUMENT', '文件超过 512 MiB', 'reason=too_large\n600000000 字节'), pv('NOT_FOUND', '文件不存在'),
     pv('IO_ERROR', '读取文件失败'), pv('IO_ERROR', '文件在读取时被替换，请重试'), pv('INVALID_ARGUMENT', '别的原因'),
   ].map((v) => [v.text, v.code, v.retry]), [
     ['PDF 内容无法解析，文件可能已损坏。', 'PDF_PARSE_FAILED', true],
@@ -443,7 +456,15 @@ export async function runApiChecks(): Promise<string[]> {
     ['读取时文件被修改了，请重试。', 'IO_ERROR', true],
     ['别的原因', 'INVALID_ARGUMENT', false],
   ])
-  eq('512 MiB 取 limits 拼', pdfErrorView('INVALID_ARGUMENT', '文件超过 512 MiB', 256 * 1024 * 1024).text, '文件超过 256 MiB，暂不支持预览。')
+  eq('512 MiB 取 limits 拼', pdfErrorView('INVALID_ARGUMENT', '文件超过 512 MiB', 256 * 1024 * 1024, 'reason=too_large').text, '文件超过 256 MiB，暂不支持预览。')
+  eq('PDF：reason 优先于 message；扩展名不对（reason=format）也算不是 PDF；reason 缺失按 message 兜底', [
+    pdfErrorView('INVALID_ARGUMENT', '只支持 .pdf 文件', undefined, 'reason=format').text, pdfErrorView('INVALID_ARGUMENT', '随便', undefined, 'reason=too_large').text,
+    pdfErrorView('INVALID_ARGUMENT', '不是 PDF 文件', undefined, '/d/a.pdf').text, pdfErrorView('INVALID_ARGUMENT', 'PDF 路径必须是绝对路径').text,
+  ], ['这不是有效的 PDF 文件。', '文件超过 512 MiB，暂不支持预览。', '这不是有效的 PDF 文件。', 'PDF 路径必须是绝对路径'])
+  eq('模拟层的 Doc 错误形态与契约 v0.16 一致（reason 首行、路径第二行）', await (async () => {
+    const one = async (name: string) => { const e = await rejects(doc.convertToPDF([`/d/${name}`], '')); return [e?.code, e?.reason, docErrorPath(e?.detail)] }
+    return [await one('旧版.doc'), await one('加密.docx'), await one('损坏.docx'), await one('超大.docx')]
+  })(), [['UNSUPPORTED', 'format', '/d/旧版.doc'], ['UNSUPPORTED', 'encrypted', '/d/加密.docx'], ['INVALID_ARGUMENT', 'invalid_ooxml', '/d/损坏.docx'], ['INVALID_ARGUMENT', 'too_large', '/d/超大.docx']])
   eq('中间省略拆分：≤14 字符不拆；否则尾部 = 末 6 字符 + 扩展名', [
     splitMiddle('用户调研报告.docx'),
     splitMiddle('2026年第三季度华东区域渠道商务拓展与用户增长复盘汇报材料（终稿-已审阅-v12）.pptx'),
