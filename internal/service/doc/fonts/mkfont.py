@@ -20,6 +20,13 @@ for hi in range(0xA1, 0xF8):
             chars.add(bytes([hi, lo]).decode("gb2312"))
         except UnicodeDecodeError:
             pass
+# JIS X 0208 第一水准汉字（日文常用汉字，EUC-JP 0xB0A1–0xCFFE）：GB2312 里没有的日文汉字（語、読、黒、龍 等）
+for hi in range(0xB0, 0xD0):
+    for lo in range(0xA1, 0xFF):
+        try:
+            chars.add(bytes([hi, lo]).decode("euc_jp"))
+        except UnicodeDecodeError:
+            pass
 for a, b in [(0x20, 0x7E), (0xA0, 0xFF), (0x2000, 0x206F), (0x3000, 0x303F), (0x3040, 0x30FF),
              (0xFF00, 0xFFEF), (0x2190, 0x21FF), (0x2200, 0x22FF), (0x25A0, 0x25FF)]:
     chars.update(chr(c) for c in range(a, b + 1))

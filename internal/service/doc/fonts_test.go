@@ -3,6 +3,7 @@ package doc
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"golang.org/x/text/encoding/japanese"
 	"os"
 	"path/filepath"
 	"strings"
@@ -138,6 +139,24 @@ func TestEmbeddedCoverage(t *testing.T) {
 	}
 	if n != 6763 {
 		t.Fatalf("GB2312 汉字数 %d", n)
+	}
+	// JIS X 0208 第一水准（EUC-JP 0xB0A1–0xCFFE）全部汉字：日文文档常用字（語、読、黒、龍 …）
+	jn := 0
+	for hi := 0xB0; hi <= 0xCF; hi++ {
+		for lo := 0xA1; lo <= 0xFE; lo++ {
+			out, err := japanese.EUCJP.NewDecoder().Bytes([]byte{byte(hi), byte(lo)})
+			rs := []rune(string(out))
+			if err != nil || len(rs) != 1 || rs[0] == 0xFFFD {
+				continue
+			}
+			jn++
+			if !f.has(rs[0]) {
+				t.Fatalf("JIS 第一水准汉字 %q 缺失", rs[0])
+			}
+		}
+	}
+	if jn != 2965 {
+		t.Fatalf("JIS 第一水准汉字数 %d", jn)
 	}
 	for _, r := range "龘齉\U0001F600ᄀ" { // GB2312 之外的生僻字、emoji、谚文：没有
 		if f.has(r) {
