@@ -40,7 +40,7 @@
 
 ## 关于页（`about.ts`）
 
-`getAppVersion()` → `GetAppVersion()`（构建时 `-ldflags` 注入，没注入返回“开发版”）；`getLicenseText(name)` → `GetLicenseText(name)`，`name` 只能是后端白名单里的 `"OFL"`（Noto Sans SC）和 `"OFL-Nunito"`（Nunito），调用方只传 `src/config/about.ts` 里列出的常量，不传用户输入；未知名字后端返回 `INVALID_ARGUMENT`。这两个绑定已在生成文件 `wailsjs/go/main/App` 里，直接 import，没有本地类型声明。
+`getAppVersion()` → `GetAppVersion()`（构建时 `-ldflags` 注入，没注入返回“开发版”）；`getLicenseText(name)` → `GetLicenseText(name)`，`name` 前端只传 `"OFL"`（Noto Sans SC）；后端白名单里仍有 `"OFL-Nunito"`，但 v2 界面不使用 Nunito，关于页已去掉该入口，前端类型 `LicenseName` 只含 `"OFL"`。调用方只传 `src/config/about.ts` 里列出的常量，不传用户输入；未知名字后端返回 `INVALID_ARGUMENT`。`GetAppVersion`、`GetLicenseText` 两个绑定已在生成文件 `wailsjs/go/main/App` 里，直接 import，没有本地类型声明。
 
 ## 联调时要切换的地方
 

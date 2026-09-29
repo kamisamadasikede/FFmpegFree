@@ -128,7 +128,6 @@ npx vue-tsc --noEmit          # 类型检查
 
 - 本项目使用木兰宽松许可证第 2 版，见 [LICENSE](LICENSE)。
 - **ffmpeg 不随安装包分发**：由用户机器上已有的 ffmpeg，或应用在用户确认后从清单中的下载源下载安装（清单见 `internal/ffmpeg/manifest.json`）。ffmpeg 自身的许可证与使用条款请以其官方说明为准。
-- 前端已内置 Nunito 字体，随附许可文本见 `frontend/src/assets/fonts/OFL.txt`。
 - DocService 计划内嵌 Noto Sans SC 子集字体，遵循 SIL OFL；该字体尚未合入 v2，合入后见 `fonts/README.md` 与 `OFL.txt`（位置以合入后的实际路径为准）。
 
 ## 贡献
