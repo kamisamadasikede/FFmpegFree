@@ -40,9 +40,11 @@ export interface ToastState {
 }
 
 /** 预览状态条：导出相关的展示模型（由 EditExportStrip 渲染）。真实数据来自 tasks store，预览钩子可以直接给 forceStrip */
+/** 状态条上的编码器信息（契约 9.7 原始字段 + startedAt）；设备名由 ExportStrip 用设备列表解析，显示规则见 api/encoderTask.ts */
+export type StripEncoder = import('@/api/encoderTask').TaskEncoderInput
 export type StripView =
-  | { kind: 'run'; name: string; pct: number; speedText: string; etaText: string }
-  | { kind: 'ok'; name: string; meta: string; ignoredTransitions: boolean; outputPath: string }
+  | { kind: 'run'; name: string; pct: number; speedText: string; etaText: string; enc?: StripEncoder }
+  | { kind: 'ok'; name: string; meta: string; ignoredTransitions: boolean; outputPath: string; enc?: StripEncoder }
   | { kind: 'cx' }
   | { kind: 'err'; view: ExportErrorView; taskId: string }
 

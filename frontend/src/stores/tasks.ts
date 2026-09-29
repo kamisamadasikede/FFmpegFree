@@ -7,6 +7,7 @@ import { hasWailsBackend, onEvent, onSimEvent, previewParams } from '@/services/
 import { cancelSimTask, isSimTask, listSimFinished, removeSimTasks, retrySimTask } from '@/api/sim'
 import { toInstallProgress, useFFmpegStore } from '@/stores/ffmpeg'
 import { buildPreviewActive, buildPreviewHistory, PREVIEW_LOG } from '@/stores/tasks.preview'
+import { mergeEncoderFields, pickEncoderFields } from '@/api/encoderTask'
 
 /** 契约第 3 节。注意 canceled 只有一个 l */
 export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'interrupted'
@@ -84,6 +85,11 @@ export interface FinalState {
   startedAt?: number
   finishedAt: number
   params: string
+  /** 编码器字段（契约 9.7）：终态后转换页 / 剪辑导出结果处还要显示“用了哪个设备 / 是否回退”，所以快照里也带上 */
+  encoder?: string
+  encoderDevice?: string
+  hwFallback?: boolean
+  hwFallbackReason?: string
 }
 
 /** 历史分组 → 状态过滤。failed 组把 interrupted 也算进去（都需要用户手动重试） */
@@ -170,15 +176,7 @@ export function normalizeTask(raw: goStore.Task | TaskItem): TaskItem {
   }
 }
 
-/** 把事件里的编码器字段合并进任务（有值才覆盖；hwFallback 一旦为 true 由后端事件整体更新） */
-function mergeEncoder(cur: TaskItem, p: { encoder?: string; encoderDevice?: string; hwFallback?: boolean; hwFallbackReason?: string }) {
-  if (p.encoder) {
-    cur.encoder = p.encoder
-    cur.encoderDevice = p.encoderDevice
-    cur.hwFallback = p.hwFallback === true ? true : undefined
-    cur.hwFallbackReason = p.hwFallbackReason || undefined
-  }
-}
+const mergeEncoder = mergeEncoderFields // 逐字段合并，缺省不覆盖（api/encoderTask.ts，自检见 api.check.ts）
 
 const PREVIEW_ACTIVE = previewParams.has('tasks')
 const previewMode = !hasWailsBackend() && PREVIEW_ACTIVE
@@ -467,7 +465,7 @@ export const useTaskStore = defineStore('tasks', () => {
           rememberFinished(p.id, p.version)
           recordFinal({
             id: p.id, status: p.status, error: normalizeError(p.error), outputPath: p.outputPath ?? '',
-            progress: p.status === 'succeeded' ? 1 : 0, speed: '', etaSec: 0, startedAt: p.startedAt || undefined, finishedAt: p.finishedAt ?? Date.now(), params: '',
+            progress: p.status === 'succeeded' ? 1 : 0, speed: '', etaSec: 0, startedAt: p.startedAt || undefined, finishedAt: p.finishedAt ?? Date.now(), params: '', ...pickEncoderFields(p),
           })
           scheduleRefresh()
         }
@@ -490,7 +488,7 @@ export const useTaskStore = defineStore('tasks', () => {
       if (p.status === 'succeeded') cur.progress = 1
       recordFinal({
         id: cur.id, status: p.status, error: cur.error, outputPath: cur.outputPath, progress: cur.progress,
-        speed: '', etaSec: 0, startedAt: cur.startedAt, finishedAt: cur.finishedAt || Date.now(), params: cur.params,
+        speed: '', etaSec: 0, startedAt: cur.startedAt, finishedAt: cur.finishedAt || Date.now(), params: cur.params, ...pickEncoderFields(cur),
       })
       delete byId[p.id]
       rememberFinished(p.id, p.version)
@@ -703,7 +701,7 @@ export const useTaskStore = defineStore('tasks', () => {
       if (isTerminal(t.status)) {
         recordFinal({
           id: t.id, status: t.status, error: t.error, outputPath: t.outputPath, progress: t.status === 'succeeded' ? 1 : t.progress,
-          speed: '', etaSec: 0, startedAt: t.startedAt, finishedAt: t.finishedAt, params: t.params,
+          speed: '', etaSec: 0, startedAt: t.startedAt, finishedAt: t.finishedAt, params: t.params, ...pickEncoderFields(t),
         })
       } else byId[id] = t
     } catch (e) {

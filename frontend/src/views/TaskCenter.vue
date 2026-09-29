@@ -65,7 +65,7 @@
           </thead>
           <tbody>
             <template v-for="t in rows" :key="t.id">
-              <tr :class="{ sel: logId === t.id, haserr: hasErrLine(t) }">
+              <tr :class="{ sel: logId === t.id, haserr: hasErrLine(t) || showFallbackNotice(t) }">
                 <td>
                   <div class="fname" :title="isSim(t) ? `演示任务（模拟数据） · ${t.title}` : t.title"><span v-if="isSim(t)" class="simtag">演示</span>{{ shownTitle(t) }}</div>
                   <div class="finfo">{{ subInfo(t) }}</div>
@@ -97,6 +97,12 @@
                     <button type="button" class="iconbtn" :class="{ on: logId === t.id }" :title="`查看日志 ${t.title}`" :aria-label="`查看日志 ${t.title}`" :aria-pressed="logId === t.id" @click="toggleLog(t.id)"><FIcon name="doc" /></button>
                     <button v-if="isTerminal(t.status)" type="button" class="iconbtn" :title="`删除 ${t.title}`" :aria-label="`删除 ${t.title}`" @click="askRemove(t)"><FIcon name="trash" /></button>
                   </div>
+                </td>
+              </tr>
+              <!-- 硬件编码失败、已自动改用 CPU（契约 9.7）：警告色，不是失败；直播任务用直播那条文案 -->
+              <tr v-if="showFallbackNotice(t)" class="errrow fbrow">
+                <td colspan="6">
+                  <EncoderFallbackNotice variant="row" :text="isLiveType(t.type) ? ENCODER_FALLBACK_LIVE : undefined" @log="toggleLog(t.id, true)" />
                 </td>
               </tr>
               <!-- 失败 / 已中断行：共享 ErrorLine；错误码来自 Task.error.code，未知码走兜底文案（带后端 message） -->
@@ -163,6 +169,11 @@
           <button type="button" class="iconbtn sm" title="刷新日志" aria-label="刷新日志" @click="loadLog"><FIcon name="refresh" :size="14" /></button>
           <button type="button" class="iconbtn sm" title="关闭日志" aria-label="关闭日志" @click="closeLog"><FIcon name="x" :size="14" /></button>
         </div>
+        <!-- 任务详情的编码设备信息：只显示设备名；回退时加一句次要说明（原因枚举 → 用户文案，未知走兜底） -->
+        <div v-if="logDevice" class="logdev">
+          <span>{{ ENCODER_DEVICE_LABEL }}：{{ logDevice }}</span>
+          <span v-if="logFallbackReason">{{ logFallbackReason }}</span>
+        </div>
         <pre ref="logEl" class="log selectable" tabindex="0" aria-label="任务日志">{{ logText || (logLoading ? '正在读取…' : '（暂无日志）') }}</pre>
       </div>
     </div>
@@ -191,6 +202,9 @@ import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import ErrorLine from '@/components/common/ErrorLine.vue'
+import EncoderFallbackNotice from '@/components/encoder/EncoderFallbackNotice.vue'
+import { showFallbackNotice, usedDeviceText, useEncoderDeviceList } from '@/api/encoderTask'
+import { ENCODER_DEVICE_LABEL, ENCODER_FALLBACK_LIVE, encoderFallbackReasonText } from '@/errors/encoderMessages'
 import { elapsedMs, isLiveType, isTerminal, useTaskStore, type TaskItem, type TaskStatus } from '@/stores/tasks'
 import type { IconName } from '@/components/icon/icons'
 import { toAppError } from '@/api/call'
@@ -497,6 +511,9 @@ const logTask = computed<TaskItem | undefined>(() => {
   if (!logId.value) return undefined
   return tasks.active.find((t) => t.id === logId.value) ?? tasks.history.find((t) => t.id === logId.value)
 })
+const encDevices = useEncoderDeviceList()
+const logDevice = computed(() => usedDeviceText(logTask.value, encDevices.value))
+const logFallbackReason = computed(() => (showFallbackNotice(logTask.value) ? `已自动改用 CPU。${encoderFallbackReasonText(logTask.value?.hwFallbackReason)}` : ''))
 const isLogLive = computed(() => logTask.value?.status === 'running')
 
 async function loadLog() {
@@ -948,6 +965,14 @@ th { white-space: nowrap; } /* “开始时间”不换行 */
   gap: 4px;
   font-size: 12px;
   color: var(--ff-text-3);
+  margin-bottom: 6px;
+}
+.logdev {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 12px;
+  color: var(--ff-text-2);
   margin-bottom: 6px;
 }
 .log {

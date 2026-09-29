@@ -25,10 +25,37 @@ export const encoderAutoNote = (n: number, firstName: string) => `检测到 ${n}
 export const encoderGpuNote = (name: string) => `将使用 ${name} 转换和直播转码。硬件编码失败时，会自动改用 CPU。`
 export const encoderComboLabel = (current: string) => `编码设备：${current}`
 
-// ---- 硬件编码失败、已自动回退 CPU 的提示（展示组件已做，本版不接线；后端事件 / 字段待契约）----
+// ---- 硬件编码失败、已自动回退 CPU 的提示（契约 v0.18 §9.7；按功能区分文案，转换 / 直播 / 任务行沿用设计稿，剪辑导出一条是新增；全部待产品经理确认）----
 export const ENCODER_FALLBACK_CONVERT = '硬件编码失败，已自动改用 CPU 完成转换。'
 export const ENCODER_FALLBACK_LIVE = '显卡编码启动失败，已自动改用 CPU 推流。'
 export const ENCODER_FALLBACK_TASK_ROW = '硬件编码失败，已自动改用 CPU 继续转换。'
 export const ENCODER_FALLBACK_SETTINGS_LINK = '编码设置'
 export const ENCODER_FALLBACK_LOG_LINK = '查看日志'
 export const ENCODER_FALLBACK_CLOSE = '关闭提示'
+/** 剪辑导出的提示条（设计稿没有，新增，待确认） */
+export const ENCODER_FALLBACK_EXPORT = '硬件编码失败，已自动改用 CPU 完成导出。'
+
+// ---- 任务里“使用的设备”（只显示设备名，不显示编码器名、不显示 id）----
+export const ENCODER_DEVICE_LABEL = '编码设备'
+export const ENCODER_DEVICE_CPU_NAME = 'CPU'
+/** 设备已不存在 / 名字读不到时的退化文字 */
+export const ENCODER_DEVICE_GPU_FALLBACK_NAME = '显卡'
+export const encoderUsedDevice = (name: string) => `使用 ${name}`
+
+/**
+ * hwFallbackReason（契约 §9.7 固定枚举）→ 一句用户文案，只用在任务详情的次要说明里（主提示条用上面按功能区分的三条）。
+ * 枚举与后端 internal/ffmpeg/hwenc.go、契约 9.7、前端 api/taskTypes.ts 一一对应（api.check.ts 锁着）；文案不含编码器名。**待产品经理确认**。
+ */
+export const ENCODER_FALLBACK_REASONS: Readonly<Record<string, string>> = {
+  device_unavailable: '提交时所选显卡不可用。',
+  nvenc_init_failed: '显卡初始化失败，可能是驱动过旧或显卡被占用。',
+  qsv_init_failed: '显卡初始化失败，可能是驱动过旧或显卡被占用。',
+  amf_init_failed: '显卡初始化失败，可能是驱动过旧或显卡被占用。',
+  videotoolbox_failed: '系统的硬件编码初始化失败。',
+  encoder_unavailable: '当前 ffmpeg 不支持这张显卡的硬件编码。',
+  encoder_start_failed: '硬件编码启动时出错。',
+}
+/** 未知枚举（后端新增而前端没跟上）的兜底句 */
+export const ENCODER_FALLBACK_REASON_GENERIC = '硬件编码没有成功。'
+export const encoderFallbackReasonText = (reason: string | undefined | null): string =>
+  (reason && Object.prototype.hasOwnProperty.call(ENCODER_FALLBACK_REASONS, reason) ? ENCODER_FALLBACK_REASONS[reason] : ENCODER_FALLBACK_REASON_GENERIC)

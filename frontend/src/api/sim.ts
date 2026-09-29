@@ -88,6 +88,9 @@ export interface SimTaskSpec {
   live?: SimLiveSpec
   /** 模拟的实际编码器（契约 9.7）；缺省：convert / edit_export / 直播 = libx264 + cpu，其余不带 */
   encoder?: { encoder: string; encoderDevice: string; hwFallback?: boolean; hwFallbackReason?: string }
+  /** 非直播：进度到这个值时模拟“硬件编码启动失败 → 自动改用 CPU”（补发一条 running 的 task:status，进度从头开始）；用 encoder 描述回退后的样子 */
+  fallbackAt?: number
+  fallbackTo?: { encoder: string; encoderDevice: string; hwFallback?: boolean; hwFallbackReason?: string }
   /** 只在内存里用的附加信息（如标准化推流地址），不会进入任何事件 */
   meta?: Record<string, unknown>
 }
@@ -172,6 +175,27 @@ function progress(e: Entry, over: Partial<TaskProgressPayload>) {
   emitSimEvent('task:progress', p)
 }
 
+/**
+ * 开发用：?enc=<场景> 里和“任务用了哪个编码设备”有关的场景（仅纯浏览器；与设置页的设备列表场景共用同一个参数）：
+ *   gpu-task 用显卡不回退；fb-nvenc / fb-unavail 运行中回退到 CPU；fb-unknown 回退且原因是未知枚举；gpu-gone 用的显卡已不在设备列表里；
+ *   copy-task -c copy（encoder=copy，没有设备）；cpu-task 用 CPU 不回退（超 4096 / 两遍编码 / 偏好 CPU 都是这个样子）。
+ * 其它场景（found / multi / …）和没有 ?enc= 时返回 undefined = 沿用原来的默认（libx264 + cpu）。
+ */
+export function simEncoderScenario(): { encoder: string; encoderDevice: string; hwFallback?: boolean; hwFallbackReason?: string; fallbackAt?: number; gpuStart?: { encoder: string; encoderDevice: string } } | undefined {
+  const GPU = { encoder: 'h264_nvenc', encoderDevice: 'nvidia-0' }
+  const CPU = { encoder: 'libx264', encoderDevice: 'cpu' }
+  switch (simParam('enc')) {
+    case 'gpu-task': return GPU
+    case 'fb-nvenc': return { ...CPU, hwFallback: true, hwFallbackReason: 'nvenc_init_failed', fallbackAt: 0.25, gpuStart: GPU }
+    case 'fb-unavail': return { ...CPU, hwFallback: true, hwFallbackReason: 'device_unavailable' }
+    case 'fb-unknown': return { ...CPU, hwFallback: true, hwFallbackReason: 'brand_new_reason_x', fallbackAt: 0.25, gpuStart: GPU }
+    case 'gpu-gone': return { encoder: 'h264_nvenc', encoderDevice: 'nvidia-9' }
+    case 'copy-task': return { encoder: 'copy', encoderDevice: '' }
+    case 'cpu-task': return CPU
+    default: return undefined
+  }
+}
+
 /** 创建并启动一个模拟任务：立即发 task:created（queued, version 1），300ms 后 running，然后定时推进 */
 /** 模拟任务的标题前缀：所有出现标题的地方（任务中心、日志面板、通知）都能看出是演示数据；任务中心会把它换成“演示”标签 */
 export const SIM_TITLE_PREFIX = '【演示】'
@@ -182,6 +206,11 @@ export function createSimTask(spec: SimTaskSpec): ApiTask {
   const task: ApiTask = {
     id, type: spec.type, status: 'queued', title: SIM_TITLE_PREFIX + spec.title, inputPaths: [...spec.inputPaths], outputPath: spec.outputPath,
     progress: live ? -1 : 0, speed: '', etaSec: 0, params: spec.params, version: 1, error: null, createdAt: Date.now(), startedAt: 0, finishedAt: 0,
+  }
+  const sc = spec.type === 'convert' || spec.type === 'edit_export' ? simEncoderScenario() : undefined
+  if (sc && !spec.encoder) {
+    // 场景里“运行中才回退”的：一开始记显卡，到 fallbackAt 再改成 CPU 并补发 running；其余从头就是最终样子
+    spec = { ...spec, encoder: sc.gpuStart ? { ...sc.gpuStart } : { encoder: sc.encoder, encoderDevice: sc.encoderDevice, ...(sc.hwFallback ? { hwFallback: true, hwFallbackReason: sc.hwFallbackReason } : {}) }, ...(sc.fallbackAt ? { fallbackAt: sc.fallbackAt, fallbackTo: sc } : {}) } as SimTaskSpec
   }
   const enc = spec.encoder ?? (spec.type === 'convert' || spec.type === 'edit_export' || live ? { encoder: 'libx264', encoderDevice: 'cpu' } : undefined)
   if (enc) Object.assign(task, { encoder: enc.encoder, encoderDevice: enc.encoderDevice, ...(enc.hwFallback ? { hwFallback: true } : {}), ...(enc.hwFallbackReason ? { hwFallbackReason: enc.hwFallbackReason } : {}) })
@@ -209,6 +238,13 @@ function runBatch(e: Entry) {
     if (spec.fail && p >= (spec.fail.atProgress ?? 0.6)) {
       finish(e, 'failed', { code: spec.fail.code, message: spec.fail.message, detail: spec.fail.detail })
       return
+    }
+    if (spec.fallbackAt && spec.fallbackTo && !task.hwFallback && p >= spec.fallbackAt) {
+      // 契约 9.7：硬件启动失败 → 日志一行 → 编码器改成 CPU + hwFallback → 补发一条 running 的 task:status → 同一命令用 CPU 重跑（进度从头开始，进度条只增不减）
+      const to = spec.fallbackTo
+      Object.assign(task, { encoder: to.encoder, encoderDevice: to.encoderDevice, hwFallback: true, ...(to.hwFallbackReason ? { hwFallbackReason: to.hwFallbackReason } : {}) })
+      bump(e)
+      emitStatus(e)
     }
     if (p >= 1) {
       progress(e, { progress: 1, speed: '2.4x', etaSec: 0, outTimeSec: media })
