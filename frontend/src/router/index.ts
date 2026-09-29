@@ -4,7 +4,7 @@ const SectionTabs = () => import('../views/sections/SectionTabs.vue')
 
 // 七个一级入口（PRD / 设计规范第 6 节）。有多个子页面的入口用 SectionTabs 渲染页签。
 const routes: RouteRecordRaw[] = [
-  { path: '/', name: 'Convert', meta: { title: '格式转换', subtitle: '视频 · 音频 · 批量' }, component: () => import('../views/Home.vue') },
+  { path: '/', name: 'Convert', meta: { title: '格式转换', subtitle: '视频 · 音频 · 批量' }, component: () => import('../views/ConvertPage.vue') },
   { path: '/edit', name: 'Edit', meta: { title: '视频剪辑', subtitle: '多轨时间线 · 转场 · 调色' }, component: () => import('../views/VideoEditor.vue') },
   {
     path: '/live',

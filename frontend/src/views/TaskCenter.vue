@@ -194,6 +194,7 @@ import type { IconName } from '@/components/icon/icons'
 import { toAppError } from '@/api/call'
 import { actionErrorText } from '@/errors/errorMessages'
 import { pickDirectory, revealInFolder } from '@/api/system'
+import { parseConvertParams, resubmitToDir } from '@/api/convert'
 import { fileBaseName, formatClock, formatDuration, formatEta, formatStart } from '@/utils/format'
 
 /** 直播推流的说明文案（统计条和进行中的直播行共用）。角标 runningCount 仍包含直播推流 */
@@ -373,12 +374,11 @@ async function doRetry(t: TaskItem) {
 }
 /**
  * 「更换输出位置」（磁盘空间不足时）：弹系统选择文件夹对话框（PickDirectory），
- * 选中的文件夹只用于「这一次重试」，不会写进设置里的默认输出位置（设计师确认）。
+ * 选中的文件夹只用于「这一次」，不会写进设置里的默认输出位置（设计师确认）。
  *
- * 现状：TaskService.Retry(id) 没有输出目录参数，且只有 ffmpeg_install 注册了重试工厂。
- * 所以这里选好目录后暂时无法带着它重新提交——选中的目录保存在 chosenDir 里，
- * 等 ConvertService 落地、有「带 outputDir 提交新任务」的方法后，在下面标了 TODO 的位置把
- * { inputPaths: t.inputPaths, params: t.params, outputDir: chosenDir } 传给它即可。不编造后端方法。
+ * convert 任务：params 是 {input, options, outputDir}（契约 6.9），能完整解析时用原输入和原参数、
+ * 新文件夹调用 ConvertService.Submit 重新提交；原失败任务保留在历史里。
+ * params 解析不出来（旧数据 / 格式不符）就不猜，先不弹选择框，保留提示让用户清理磁盘后点「重试」。
  * ffmpeg_install 的安装位置固定在应用目录，不涉及输出文件夹，不弹选择框。
  */
 async function changeOutput(t: TaskItem) {
@@ -386,12 +386,18 @@ async function changeOutput(t: TaskItem) {
     ElMessage.info('ffmpeg 安装位置固定在应用目录，不能更换。')
     return
   }
+  const params = t.type === 'convert' ? parseConvertParams(t.params) : null
+  if (!params) {
+    ElMessage.info('没能读到这个任务的原始参数，暂时不能换输出位置。请先清理磁盘空间后点“重试”。')
+    return
+  }
   await act(async () => {
     const chosenDir = await pickDirectory('选择这次转换的输出文件夹')
     if (!chosenDir) return // 用户取消
-    // TODO(ConvertService)：用 chosenDir 作为 outputDir 重新提交（仅本次，不改默认输出位置）
-    void chosenDir
-    ElMessage.info('已选择新的输出文件夹。等转换服务上线后，就能用它重新提交这个任务；目前请先清理磁盘空间后点“重试”。')
+    const nt = await resubmitToDir(params, chosenDir)
+    tasks.track([nt])
+    ElMessage.success('已用新的输出位置重新提交')
+    if (tab.value === 'failed') setTab('active')
   })
 }
 async function openOutput(t: TaskItem) {
