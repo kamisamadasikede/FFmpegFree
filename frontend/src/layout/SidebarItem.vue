@@ -60,7 +60,7 @@ const isActive = computed(() =>
   padding: 0 5px;
   border-radius: 9px;
   background: var(--ff-primary);
-  color: #fff;
+  color: var(--ff-on-primary);
   font-size: 11px;
   font-weight: 600;
   display: grid;

@@ -1,41 +1,94 @@
 <template>
-  <div class="ff-error-line" role="alert">
+  <div
+    class="ff-error-line"
+    :class="[`tone-${tone}`, { compact }]"
+    :role="announce ? 'alert' : 'group'"
+    :aria-label="announce ? undefined : `错误：${shownTitle}`"
+  >
     <FIcon name="warn" :size="16" />
-    <div>
-      <b>{{ resolved.title }}</b>{{ resolved.description }}
-      <a v-if="showLog" href="#" @click.prevent="emit('viewLog')">查看日志</a><br />
-      <span class="code">{{ resolved.code }}</span>
+    <div class="body">
+      <b>{{ shownTitle }}</b>{{ shownDescription }}<span v-if="compact && showCode" class="code">{{ resolved.code }}</span>
+      <template v-if="!compact">
+        <button v-if="showRetry" type="button" class="ff-link" @click="emit('retry')">重试</button>
+        <button v-if="showLog" type="button" class="ff-link" @click="emit('viewLog')">查看日志</button>
+        <br v-if="showCode" />
+        <span v-if="showCode" class="code">{{ resolved.code }}</span>
+      </template>
+    </div>
+    <div v-if="compact && (showRetry || showLog)" class="actions">
+      <button v-if="showRetry" type="button" class="ff-link" @click="emit('retry')">重试</button>
+      <button v-if="showLog" type="button" class="ff-link" @click="emit('viewLog')">查看日志</button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-// 任务中心失败行下方的错误说明，样式来自 proto/errors.html 的 .errline。
+// 任务中心失败行下方的错误说明，样式来自 proto/errors.html 的 .errline（compact 为 index.html 任务中心的横排版本）。
+// 平时是 role="group"，不会让读屏软件把每一行都当成紧急提醒；只有新出现的错误（announce）才是 role="alert"。
 import { computed } from 'vue'
 import FIcon from '../icon/FIcon.vue'
 import { resolveError } from '../../errors/errorMessages'
 
-const props = withDefaults(defineProps<{ code: string; message?: string; showLog?: boolean }>(), { showLog: true })
-const emit = defineEmits<{ viewLog: [] }>()
-const resolved = computed(() => resolveError(props.code, props.message))
+const props = withDefaults(
+  defineProps<{
+    code: string
+    /** 后端 AppError.message。已知错误码用冻结文案；未知错误码把它作为说明文字 */
+    message?: string
+    /** 后端 AppError.detail。未知错误码且没有 message 时，取最后一行非空内容当说明 */
+    detail?: string
+    showLog?: boolean
+    showRetry?: boolean
+    /** 新出现的错误：role="alert"，读屏软件会立即播报 */
+    announce?: boolean
+    /** 横排紧凑版：标题、说明、错误码在一行，操作靠右 */
+    compact?: boolean
+    /** danger 红色（失败）；interrupted 灰橙色（已中断） */
+    tone?: 'danger' | 'interrupted'
+    /** 覆盖标题 / 说明（interrupted 且后端没给 error 时用） */
+    title?: string
+    description?: string
+    /** 不显示错误码（没有错误对象时） */
+    hideCode?: boolean
+  }>(),
+  { showLog: true, showRetry: false, announce: false, compact: false, tone: 'danger', hideCode: false },
+)
+const emit = defineEmits<{ viewLog: []; retry: [] }>()
+
+function lastLine(text?: string): string {
+  const lines = (text ?? '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  return lines.length ? lines[lines.length - 1].slice(0, 200) : ''
+}
+
+const resolved = computed(() => resolveError(props.code, props.message || lastLine(props.detail)))
+const shownTitle = computed(() => props.title ?? resolved.value.title)
+const shownDescription = computed(() => props.description ?? resolved.value.description)
+const showCode = computed(() => !props.hideCode)
 </script>
 
 <style scoped>
 .ff-error-line {
+  --tone: var(--ff-danger);
   display: flex;
   gap: 10px;
   align-items: flex-start;
   padding: 10px var(--ff-space-3);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--ff-danger) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--ff-danger) 28%, transparent);
+  background: color-mix(in srgb, var(--tone) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tone) 28%, transparent);
   font-size: var(--ff-fs-xs);
   color: var(--ff-text-2);
   line-height: 1.6;
 }
+.ff-error-line.tone-interrupted {
+  --tone: var(--ff-interrupted);
+}
 .ff-error-line > svg {
-  color: var(--ff-danger);
+  color: var(--tone);
   margin-top: 1px;
+}
+.body {
+  flex: 1;
+  min-width: 0;
 }
 b {
   display: block;
@@ -43,13 +96,40 @@ b {
   font-weight: 500;
   font-size: var(--ff-fs-sm);
 }
-a {
+.ff-link {
+  margin-left: 12px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
   color: var(--ff-primary);
   cursor: pointer;
+  border-radius: 2px;
+}
+.ff-link:hover {
+  text-decoration: underline;
 }
 .code {
   font-family: var(--ff-font-mono);
   font-size: 11px;
   color: var(--ff-text-3);
+}
+/* 横排紧凑版 */
+.compact {
+  gap: 8px;
+  padding: 8px var(--ff-space-3);
+  line-height: 1.5;
+}
+.compact b {
+  display: inline;
+  margin-right: 8px;
+}
+.compact .code {
+  margin-left: 8px;
+}
+.compact .actions {
+  display: flex;
+  gap: 4px;
+  flex: none;
 }
 </style>

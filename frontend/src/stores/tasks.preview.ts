@@ -44,18 +44,22 @@ export function buildPreviewHistory(n: number): TaskItem[] {
       { type: 'convert', status: 'succeeded', title: '课程录像_第3讲.mkv', outputPath: '/Users/me/Movies/FFmpegFree/课程录像_第3讲.mp4' },
       { type: 'office_pdf', status: 'succeeded', title: '2026 Q3 产品回顾.pptx', outputPath: '/Users/me/Documents/2026 Q3 产品回顾.pdf' },
       {
+        type: 'convert', status: 'failed', title: '课程录屏_第五讲.mkv', params: '{"container":"mp4"}', progress: 0.31,
+        error: { code: 'CONVERT_DISK_FULL', message: '输出磁盘空间不足，请清理后重试。', detail: 'No space left on device' },
+      },
+      {
         type: 'convert', status: 'failed', title: 'broken_sample.avi',
         error: { code: 'PROCESS_FAILED', message: 'ffmpeg 退出码 1', detail: 'Invalid data found when processing input' },
       },
       { type: 'convert', status: 'canceled', title: 'vlog_杭州西湖.mkv' },
-      { type: 'ffmpeg_install', status: 'interrupted', title: '安装 ffmpeg', error: null },
+      { type: 'convert', status: 'interrupted', title: '婚礼现场_全程4K.mp4', params: '{"container":"mp4","targetSizeMb":500}', progress: 0.42, error: null },
       { type: 'edit_render', status: 'succeeded', title: '周报剪辑.fproj', outputPath: '/Users/me/Movies/FFmpegFree/周报剪辑.mp4' },
     ]
     const k = kinds[i % kinds.length]
     const started = t - (i + 1) * 47 * min
     return base({
       id: 'h' + i, type: 'convert', status: 'succeeded', title: '', ...k,
-      progress: k.status === 'succeeded' ? 1 : 0.3, createdAt: started - min, startedAt: started, finishedAt: started + (3 + i) * min, version: 10 + i,
+      progress: k.progress ?? (k.status === 'succeeded' ? 1 : 0.3), createdAt: started - min, startedAt: started, finishedAt: started + (3 + i) * min, version: 10 + i,
     } as any)
   }
   return Array.from({ length: n }, (_, i) => mk(i))

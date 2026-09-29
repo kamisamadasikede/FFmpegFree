@@ -134,24 +134,40 @@ export const useTaskStore = defineStore('tasks', () => {
     while (removedIds.size > REMOVED_CAP) removedIds.delete(removedIds.values().next().value as string)
   }
 
-  // 活动列表：运行中在前（新开始的在前，与原型一致），排队的在后（先提交的在前 = 队列顺序）
-  const active = computed<TaskItem[]>(() =>
-    Object.values(byId).sort((a, b) => {
-      const ra = a.status === 'running' ? 0 : 1
-      const rb = b.status === 'running' ? 0 : 1
-      if (ra !== rb) return ra - rb
-      return ra === 0 ? b.startedAt - a.startedAt || b.createdAt - a.createdAt : a.createdAt - b.createdAt
-    }),
-  )
-  /** 侧边栏"任务中心"角标 = 进行中的任务数（运行中 + 排队中），与原型 "进行中 3" 一致 */
-  const runningCount = computed(() => active.value.length)
+  /**
+   * 活动列表相关的派生数据，一次遍历算完：排序结果、各种计数、排队序号。
+   * 只读取 status / startedAt / createdAt / type，不碰 progress / speed / etaSec，
+   * 所以高频的 task:progress 不会让它重新计算（只有任务增删或状态变化才会）。
+   * 排序：运行中在前（新开始的在前，与原型一致），排队的在后（先提交的在前 = 队列顺序）。
+   */
+  const derived = computed(() => {
+    const running: TaskItem[] = []
+    const queued: TaskItem[] = []
+    let liveActive = 0
+    for (const t of Object.values(byId)) {
+      if (isLiveType(t.type)) liveActive++
+      if (t.status === 'running') running.push(t)
+      else queued.push(t)
+    }
+    running.sort((a, b) => b.startedAt - a.startedAt || b.createdAt - a.createdAt)
+    queued.sort((a, b) => a.createdAt - b.createdAt)
+    // 排队序号只对 batch 池任务有意义（直播不排队）
+    const positions = new Map<string, number>()
+    let n = 0
+    for (const t of queued) if (!isLiveType(t.type)) positions.set(t.id, ++n)
+    return { list: [...running, ...queued], running: running.length, queued: queued.length, liveActive, positions }
+  })
+  const active = computed<TaskItem[]>(() => derived.value.list)
+  /** 侧边栏"任务中心"角标 = 进行中的任务数（运行中 + 排队中，含直播推流） */
+  const runningCount = computed(() => derived.value.list.length)
   const hasRunning = computed(() => runningCount.value > 0)
-  const runningOnly = computed(() => active.value.filter((t) => t.status === 'running').length)
-  const queuedCount = computed(() => active.value.filter((t) => t.status === 'queued').length)
-  /** 排队序号（从 1 开始），只对 batch 池任务有意义 */
+  const runningOnly = computed(() => derived.value.running)
+  const queuedCount = computed(() => derived.value.queued)
+  /** 进行中的直播任务数（统计条上的"直播推流单独计数"提示用） */
+  const liveActiveCount = computed(() => derived.value.liveActive)
+  /** 排队序号（从 1 开始），直播任务或不在队列里返回 0 */
   function queuePosition(id: string): number {
-    const q = active.value.filter((t) => t.status === 'queued' && !isLiveType(t.type))
-    return q.findIndex((t) => t.id === id) + 1
+    return derived.value.positions.get(id) ?? 0
   }
 
   // ---- 历史（分页，按需加载） ----
@@ -506,7 +522,7 @@ export const useTaskStore = defineStore('tasks', () => {
 
   return {
     // 状态
-    ready, loadError, active, runningCount, hasRunning, runningOnly, queuedCount, queuePosition,
+    ready, loadError, active, runningCount, hasRunning, runningOnly, queuedCount, liveActiveCount, queuePosition,
     history, historyTotal, historyLoading, historyLoaded, historyError, historyFilter,
     todayDone, todayDoneCapped, failedTotal, finishedTotal,
     // 方法

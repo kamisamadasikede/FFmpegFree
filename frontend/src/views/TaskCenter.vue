@@ -2,31 +2,49 @@
   <div class="tc">
     <!-- 统计条：运行中 / 排队中 / 今日完成 / 失败 -->
     <div class="stats">
-      <div class="card stat"><small>运行中</small><b style="color: var(--ff-primary)">{{ tasks.runningOnly }}</b></div>
+      <div class="card stat">
+        <small>运行中</small>
+        <b style="color: var(--ff-primary)">{{ tasks.runningOnly }}</b>
+        <span v-if="tasks.liveActiveCount > 0" class="note">{{ LIVE_NOTE }}</span>
+      </div>
       <div class="card stat"><small>排队中</small><b>{{ tasks.queuedCount }}</b></div>
       <div class="card stat"><small>今日完成</small><b style="color: var(--ff-success)">{{ tasks.todayDone }}{{ tasks.todayDoneCapped ? '+' : '' }}</b></div>
       <div class="card stat"><small>失败</small><b style="color: var(--ff-danger)">{{ tasks.failedTotal }}</b></div>
     </div>
 
     <div class="card main">
-      <div class="tabs" role="tablist">
-        <span v-for="t in tabList" :key="t.key" role="tab" :aria-selected="tab === t.key" :class="{ on: tab === t.key }" @click="setTab(t.key)">
-          {{ t.label }}<em>{{ t.count }}</em>
-        </span>
-        <span class="grow" />
-        <template v-if="tab !== 'active'">
-          <el-select v-model="typeFilter" size="small" class="type-select" @change="onTypeChange">
+      <div class="tabbar">
+        <div class="tabs" role="tablist" aria-label="任务分类" @keydown="onTabKeydown">
+          <button
+            v-for="t in tabList"
+            :id="`tc-tab-${t.key}`"
+            :key="t.key"
+            type="button"
+            role="tab"
+            class="tab"
+            :data-tab="t.key"
+            :aria-selected="tab === t.key"
+            aria-controls="tc-panel"
+            :tabindex="tab === t.key ? 0 : -1"
+            :class="{ on: tab === t.key }"
+            @click="setTab(t.key)"
+          >
+            {{ t.label }}<em>{{ t.count }}</em>
+          </button>
+        </div>
+        <div class="filters">
+          <el-select v-model="typeFilter" size="small" class="type-select" aria-label="按类型筛选" @change="onTypeChange">
             <el-option v-for="o in TYPE_FILTERS" :key="o.key" :label="o.label" :value="o.key" />
           </el-select>
-          <button class="btn" :disabled="!tasks.historyTotal && !tasks.finishedTotal" @click="askClear"><FIcon name="trash" />清除已结束</button>
-        </template>
+          <button v-if="tab !== 'active'" type="button" class="btn" :disabled="!tasks.historyTotal && !tasks.finishedTotal" @click="askClear"><FIcon name="trash" />清除已结束</button>
+        </div>
       </div>
 
-      <div v-if="tasks.loadError && tab === 'active'" class="loaderr">
-        <ErrorLine :code="tasks.loadError.code" :message="tasks.loadError.message" :show-log="false" />
+      <div v-if="tasks.loadError && tab !== 'history' && tab !== 'failed'" class="loaderr">
+        <ErrorLine :code="tasks.loadError.code" :message="tasks.loadError.message" :detail="tasks.loadError.detail" :show-log="false" />
       </div>
 
-      <div class="scroll">
+      <div id="tc-panel" class="scroll" role="tabpanel" :aria-labelledby="`tc-tab-${tab}`">
         <!-- 空状态 -->
         <div v-if="rows.length === 0 && !loading" class="empty">
           <div class="eic"><FIcon :name="tab === 'failed' ? 'check' : 'task'" :size="24" /></div>
@@ -34,59 +52,81 @@
           <span>{{ emptyText.hint }}</span>
         </div>
 
-        <table v-else class="tbl">
+        <table v-else class="tbl" aria-label="任务列表">
           <thead>
             <tr>
-              <th style="width: 36%">任务</th>
-              <th>类型</th>
-              <th style="width: 24%">{{ tab === 'active' ? '进度' : '结果' }}</th>
-              <th>{{ tab === 'active' ? '开始时间' : '完成时间' }}</th>
-              <th class="opsh"></th>
+              <th scope="col" style="width: 30%">任务</th>
+              <th scope="col" style="width: 8%">类型</th>
+              <th scope="col" style="width: 11%">状态</th>
+              <th scope="col" style="width: 24%">进度</th>
+              <th scope="col">开始时间</th>
+              <th scope="col" class="opsh"><span class="sr-only">操作</span></th>
             </tr>
           </thead>
           <tbody>
             <template v-for="t in rows" :key="t.id">
-              <tr :class="{ sel: logId === t.id, 'has-err': hasErrLine(t) }">
+              <tr :class="{ sel: logId === t.id, haserr: hasErrLine(t) }">
                 <td>
                   <div class="fname" :title="t.title">{{ t.title || fileBaseName(t.outputPath) }}</div>
                   <div class="finfo">{{ subInfo(t) }}</div>
                 </td>
                 <td>
                   <span v-if="isLiveType(t.type)" class="tag live">● 直播</span>
-                  <span v-else class="tag" :class="typeTagClass(t)">{{ typeLabel(t.type) }}</span>
+                  <span v-else class="tag type">{{ typeLabel(t.type) }}</span>
                 </td>
                 <td>
-                  <!-- 进行中 -->
-                  <template v-if="t.status === 'running' && !isLiveType(t.type)">
-                    <div class="prog">
-                      <div class="pline"><span>{{ progressText(t) }}</span><span>{{ percent(t) }}%</span></div>
-                      <div class="bar"><i :style="{ width: percent(t) + '%' }" /></div>
-                    </div>
-                  </template>
-                  <span v-else-if="t.status === 'running'" class="plain">已推流 {{ formatClock(liveSeconds(t)) }} · 不占转换名额</span>
-                  <span v-else-if="t.status === 'queued'" class="plain dim">{{ queueText(t) }}</span>
-                  <!-- 已结束 -->
-                  <template v-else>
-                    <span class="tag" :class="STATUS_TAG[t.status].cls">{{ STATUS_TAG[t.status].label }}</span>
-                    <span v-if="t.status === 'succeeded' && t.startedAt && t.finishedAt" class="dur">用时 {{ formatDuration(t.finishedAt - t.startedAt) }}</span>
-                  </template>
+                  <span class="tag" :class="STATUS_TAG[t.status].cls">
+                    <FIcon v-if="STATUS_TAG[t.status].icon" :name="STATUS_TAG[t.status].icon!" :size="12" />{{ STATUS_TAG[t.status].label }}
+                  </span>
                 </td>
-                <td class="when" :class="{ dim: !t.startedAt && tab === 'active' }">{{ tab === 'active' ? formatStart(t.startedAt) : formatStart(t.finishedAt || t.startedAt || t.createdAt) }}</td>
+                <td>
+                  <div v-if="showBar(t)" class="prog">
+                    <div class="pline"><span>{{ progressText(t) }}</span><span>{{ percent(t) }}%</span></div>
+                    <div class="bar" role="progressbar" :aria-label="`${t.title} 进度`" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="percent(t)">
+                      <i :class="barClass(t)" :style="{ width: percent(t) + '%' }" />
+                    </div>
+                  </div>
+                  <span v-else class="plain" :class="{ dim: t.status === 'canceled' }">{{ progressText(t) }}</span>
+                </td>
+                <td class="when" :class="{ dim: !t.startedAt && !isTerminal(t.status) }">{{ formatStart(startTime(t)) }}</td>
                 <td>
                   <div class="ops">
-                    <button v-if="t.status === 'queued' || t.status === 'running'" class="iconbtn" title="取消" aria-label="取消" @click="act(() => tasks.cancel(t.id))"><FIcon name="x" /></button>
-                    <button v-if="canRetry(t)" class="btn" :class="{ pri: t.status === 'interrupted' }" @click="doRetry(t)"><FIcon name="retry" />重试</button>
-                    <button v-if="t.status === 'succeeded' && t.outputPath" class="iconbtn" title="打开输出" aria-label="打开输出" @click="openOutput(t)"><FIcon name="folder" /></button>
-                    <button class="iconbtn" :class="{ on: logId === t.id }" title="查看日志" aria-label="查看日志" @click="toggleLog(t.id)"><FIcon name="doc" /></button>
-                    <button v-if="isTerminal(t.status)" class="iconbtn" title="删除" aria-label="删除" @click="askRemove(t)"><FIcon name="trash" /></button>
+                    <button v-if="t.status === 'failed' || t.status === 'interrupted' || t.status === 'canceled'" type="button" class="btn sm" @click="doRetry(t)"><FIcon name="retry" />重试</button>
+                    <button v-if="t.status === 'queued' || t.status === 'running'" type="button" class="iconbtn" :title="`取消 ${t.title}`" :aria-label="`取消 ${t.title}`" @click="act(() => tasks.cancel(t.id))"><FIcon name="x" /></button>
+                    <button v-if="t.status === 'succeeded' && t.outputPath" type="button" class="iconbtn" :title="`打开输出 ${t.title}`" :aria-label="`打开输出 ${t.title}`" @click="openOutput(t)"><FIcon name="folder" /></button>
+                    <button type="button" class="iconbtn" :class="{ on: logId === t.id }" :title="`查看日志 ${t.title}`" :aria-label="`查看日志 ${t.title}`" :aria-pressed="logId === t.id" @click="toggleLog(t.id)"><FIcon name="doc" /></button>
+                    <button v-if="isTerminal(t.status)" type="button" class="iconbtn" :title="`删除 ${t.title}`" :aria-label="`删除 ${t.title}`" @click="askRemove(t)"><FIcon name="trash" /></button>
                   </div>
                 </td>
               </tr>
-              <!-- 失败行：共享 ErrorLine；错误码来自 Task.error.code，未知码走兜底文案 -->
+              <!-- 失败 / 已中断行：共享 ErrorLine；错误码来自 Task.error.code，未知码走兜底文案（带后端 message） -->
               <tr v-if="hasErrLine(t)" class="errrow">
-                <td colspan="5">
-                  <ErrorLine v-if="t.error" :code="t.error.code" :message="t.error.message" @view-log="toggleLog(t.id, true)" />
-                  <div v-else class="notice"><FIcon name="warn" :size="14" />应用退出时这个任务还没有结束，不会自动继续。点击“重试”重新开始。</div>
+                <td colspan="6">
+                  <ErrorLine
+                    v-if="t.error"
+                    compact
+                    :tone="t.status === 'interrupted' ? 'interrupted' : 'danger'"
+                    :code="t.error.code"
+                    :message="t.error.message"
+                    :detail="t.error.detail"
+                    :announce="isFresh(t)"
+                    show-retry
+                    @retry="doRetry(t)"
+                    @view-log="toggleLog(t.id, true)"
+                  />
+                  <ErrorLine
+                    v-else
+                    compact
+                    tone="interrupted"
+                    code="INTERRUPTED"
+                    title="任务被中断"
+                    description="应用退出时这个任务还没有结束，不会自动继续。"
+                    hide-code
+                    :announce="isFresh(t)"
+                    show-retry
+                    @retry="doRetry(t)"
+                    @view-log="toggleLog(t.id, true)"
+                  />
                 </td>
               </tr>
             </template>
@@ -108,7 +148,7 @@
         />
       </div>
       <div v-if="tasks.historyError && tab !== 'active'" class="loaderr">
-        <ErrorLine :code="tasks.historyError.code" :message="tasks.historyError.message" :show-log="false" />
+        <ErrorLine :code="tasks.historyError.code" :message="tasks.historyError.message" :detail="tasks.historyError.detail" :show-log="false" announce />
       </div>
 
       <!-- 日志面板 -->
@@ -116,24 +156,24 @@
         <div class="loghead">
           <span>{{ isLogLive ? '实时日志' : '日志' }} · {{ logTask.title }}</span>
           <span class="grow" />
-          <button class="iconbtn sm" title="刷新" aria-label="刷新日志" @click="loadLog"><FIcon name="refresh" :size="14" /></button>
-          <button class="iconbtn sm" title="关闭" aria-label="关闭日志" @click="closeLog"><FIcon name="x" :size="14" /></button>
+          <button type="button" class="iconbtn sm" title="刷新日志" aria-label="刷新日志" @click="loadLog"><FIcon name="refresh" :size="14" /></button>
+          <button type="button" class="iconbtn sm" title="关闭日志" aria-label="关闭日志" @click="closeLog"><FIcon name="x" :size="14" /></button>
         </div>
-        <pre ref="logEl" class="log selectable">{{ logText || (logLoading ? '正在读取…' : '（暂无日志）') }}</pre>
+        <pre ref="logEl" class="log selectable" tabindex="0" aria-label="任务日志">{{ logText || (logLoading ? '正在读取…' : '（暂无日志）') }}</pre>
       </div>
     </div>
 
     <!-- 删除 / 清除确认 -->
     <Teleport to="body">
-      <div v-if="confirm" class="mask" @click.self="confirm = null">
-        <div class="dlg" role="dialog" aria-modal="true">
-          <h3>{{ confirm.title }}</h3>
+      <div v-if="confirm" class="mask" @click.self="confirm = null" @keydown.esc="confirm = null">
+        <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="tc-dlg-title">
+          <h3 id="tc-dlg-title">{{ confirm.title }}</h3>
           <p>{{ confirm.text }}</p>
           <label v-if="confirm.canDeleteOutput" class="chk"><el-checkbox v-model="deleteOutput">同时删除输出文件</el-checkbox></label>
           <div class="dfoot">
             <span class="sp" />
-            <button class="btn lg" @click="confirm = null">取消</button>
-            <button class="btn lg danger" @click="doConfirm">{{ confirm.ok }}</button>
+            <button type="button" class="btn lg" @click="confirm = null">取消</button>
+            <button type="button" class="btn lg danger" @click="doConfirm">{{ confirm.ok }}</button>
           </div>
         </div>
       </div>
@@ -148,21 +188,43 @@ import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import ErrorLine from '@/components/common/ErrorLine.vue'
 import { isLiveType, isTerminal, useTaskStore, type TaskItem, type TaskStatus } from '@/stores/tasks'
+import type { IconName } from '@/components/icon/icons'
 import { toAppError } from '@/api/call'
-import { canRevealInFolder, revealInFolder } from '@/api/system'
+import { revealInFolder } from '@/api/system'
 import { fileBaseName, formatClock, formatDuration, formatEta, formatStart } from '@/utils/format'
+
+/** 直播推流的说明文案（统计条和进行中的直播行共用）。角标 runningCount 仍包含直播推流 */
+const LIVE_NOTE = '直播推流单独计数，不占转换名额'
 
 const tasks = useTaskStore()
 const route = useRoute()
 
-type Tab = 'active' | 'history' | 'failed'
-const tab = ref<Tab>((['active', 'history', 'failed'] as string[]).includes(route.query.tab as string) ? (route.query.tab as Tab) : 'active')
+type Tab = 'all' | 'active' | 'history' | 'failed'
+const TAB_KEYS: Tab[] = ['all', 'active', 'history', 'failed']
+const tab = ref<Tab>(TAB_KEYS.includes(route.query.tab as Tab) ? (route.query.tab as Tab) : 'all')
 
+// 全部 = 进行中 + 已结束；历史 = 已结束（含失败 / 取消 / 中断）；失败 = failed + interrupted
 const tabList = computed(() => [
+  { key: 'all' as Tab, label: '全部', count: tasks.runningCount + tasks.finishedTotal },
   { key: 'active' as Tab, label: '进行中', count: tasks.runningCount },
   { key: 'history' as Tab, label: '历史', count: tasks.finishedTotal },
   { key: 'failed' as Tab, label: '失败', count: tasks.failedTotal },
 ])
+
+/** 页签键盘操作（WAI-ARIA tabs：左右键切换，Home / End 到首尾，自动激活） */
+function onTabKeydown(e: KeyboardEvent) {
+  const keys = tabList.value.map((t) => t.key)
+  const i = keys.indexOf(tab.value)
+  let next = -1
+  if (e.key === 'ArrowRight') next = (i + 1) % keys.length
+  else if (e.key === 'ArrowLeft') next = (i - 1 + keys.length) % keys.length
+  else if (e.key === 'Home') next = 0
+  else if (e.key === 'End') next = keys.length - 1
+  if (next < 0) return
+  e.preventDefault()
+  setTab(keys[next])
+  nextTick(() => document.getElementById(`tc-tab-${keys[next]}`)?.focus())
+}
 
 const TYPE_FILTERS = [
   { key: 'all', label: '全部类型', types: [] as string[] },
@@ -174,11 +236,23 @@ const TYPE_FILTERS = [
 ]
 const typeFilter = ref('all')
 
-const rows = computed<TaskItem[]>(() => (tab.value === 'active' ? tasks.active : tasks.history))
-const loading = computed(() => (tab.value === 'active' ? !tasks.ready : tasks.historyLoading && !tasks.history.length))
+const typeSet = computed(() => TYPE_FILTERS.find((o) => o.key === typeFilter.value)!.types)
+const activeFiltered = computed(() => (typeSet.value.length ? tasks.active.filter((t) => typeSet.value.includes(t.type)) : tasks.active))
+const rows = computed<TaskItem[]>(() => {
+  if (tab.value === 'active') return activeFiltered.value
+  if (tab.value === 'history') return tasks.history
+  if (tab.value === 'failed') return tasks.history
+  // 全部：进行中的排在最前（只在第一页），后面是已结束的历史
+  return tasks.historyFilter.page === 1 ? [...activeFiltered.value, ...tasks.history] : tasks.history
+})
+const loading = computed(() => {
+  if (tab.value === 'active') return !tasks.ready
+  return tasks.historyLoading && !tasks.history.length
+})
 
 const emptyText = computed(() => {
   if (tab.value === 'active') return { title: '没有进行中的任务', hint: '在转换、剪辑或直播页面开始任务后，会显示在这里。' }
+  if (tab.value === 'all') return { title: '还没有任务', hint: '在转换、剪辑或直播页面开始任务后，会显示在这里。' }
   if (tab.value === 'failed') return { title: '没有失败的任务', hint: '失败或被中断的任务会显示在这里，可以重试。' }
   return { title: '还没有历史任务', hint: '完成、失败或取消的任务会保留在这里。' }
 })
@@ -187,7 +261,7 @@ const emptyText = computed(() => {
 async function loadTab() {
   if (tab.value === 'active') return
   const group = tab.value === 'failed' ? 'failed' : 'all'
-  tasks.historyFilter.types = TYPE_FILTERS.find((o) => o.key === typeFilter.value)!.types
+  tasks.historyFilter.types = typeSet.value
   tasks.historyFilter.group = group
   tasks.historyFilter.page = 1
   await tasks.loadHistory()
@@ -207,30 +281,53 @@ const TYPE_LABEL: Record<string, string> = {
   live_file_push: '直播', live_relay: '直播', live_record_push: '直播',
 }
 const typeLabel = (t: string) => TYPE_LABEL[t] ?? t
-const typeTagClass = (t: TaskItem) => (t.status === 'running' ? 'run' : 'q')
 
-const STATUS_TAG: Record<TaskStatus, { label: string; cls: string }> = {
+// 类型标签一律中性色；颜色只出现在状态列。canceled 是无底色 1px 描边，和 queued 的灰底区分开
+const STATUS_TAG: Record<TaskStatus, { label: string; cls: string; icon?: IconName }> = {
   queued: { label: '排队中', cls: 'q' },
-  running: { label: '进行中', cls: 'run' },
-  succeeded: { label: '完成', cls: 'ok' },
+  running: { label: '运行中', cls: 'run' },
+  succeeded: { label: '已完成', cls: 'ok', icon: 'check' },
   failed: { label: '失败', cls: 'fail' },
-  canceled: { label: '已取消', cls: 'q' },
-  interrupted: { label: '已中断', cls: 'warn' },
+  canceled: { label: '已取消', cls: 'cx' },
+  interrupted: { label: '已中断', cls: 'int', icon: 'warn' },
 }
 
 const percent = (t: TaskItem) => Math.round(Math.min(1, Math.max(0, t.progress)) * 100)
 const liveSeconds = (t: TaskItem) => (t.outTimeSec > 0 ? t.outTimeSec : t.startedAt ? (Date.now() - t.startedAt) / 1000 : 0)
+const startTime = (t: TaskItem) => (isTerminal(t.status) ? t.startedAt || t.createdAt : t.startedAt)
+
+/** 进度条：非直播的运行中任务，以及保留了中断 / 失败时进度的任务 */
+function showBar(t: TaskItem): boolean {
+  if (isLiveType(t.type)) return false
+  if (t.status === 'running') return true
+  if (t.status === 'failed' || t.status === 'interrupted') return t.progress > 0
+  return false
+}
+const barClass = (t: TaskItem) => ({ run: t.status === 'running', fail: t.status === 'failed', int: t.status === 'interrupted' })
 
 function progressText(t: TaskItem): string {
-  const parts: string[] = []
-  if (t.speed) parts.push(t.speed)
-  const eta = formatEta(t.etaSec)
-  if (eta) parts.push(`剩余 ${eta}`)
-  return parts.join(' · ') || '处理中'
-}
-function queueText(t: TaskItem): string {
-  const pos = tasks.queuePosition(t.id)
-  return pos > 0 ? `排队中（第 ${pos} 位）` : '排队中'
+  switch (t.status) {
+    case 'running': {
+      if (isLiveType(t.type)) return `已推流 ${formatClock(liveSeconds(t))} · ${LIVE_NOTE}`
+      const parts: string[] = []
+      if (t.speed) parts.push(t.speed)
+      const eta = formatEta(t.etaSec)
+      if (eta) parts.push(`剩余 ${eta}`)
+      return parts.join(' · ') || '处理中'
+    }
+    case 'queued': {
+      const pos = tasks.queuePosition(t.id)
+      return pos > 0 ? `排队中（第 ${pos} 位）` : '排队中'
+    }
+    case 'succeeded':
+      return t.startedAt && t.finishedAt ? `用时 ${formatDuration(t.finishedAt - t.startedAt)}` : '已完成'
+    case 'failed':
+      return '失败'
+    case 'interrupted':
+      return '应用退出，已中断'
+    case 'canceled':
+      return '用户取消'
+  }
 }
 
 /** 第二行小字：从 params 里取转换选项，取不到就显示输出文件名；参数格式不假设，解析失败静默跳过 */
@@ -251,7 +348,9 @@ function subInfo(t: TaskItem): string {
 }
 
 const hasErrLine = (t: TaskItem) => t.status === 'failed' || t.status === 'interrupted'
-const canRetry = (t: TaskItem) => t.status === 'failed' || t.status === 'interrupted' || t.status === 'canceled'
+/** 页面打开之后才结束的失败：ErrorLine 用 role="alert" 播报；打开页面时就已存在的历史失败只是 group */
+const mountedAt = Date.now()
+const isFresh = (t: TaskItem) => t.finishedAt > mountedAt
 
 // ---- 动作 ----
 async function act(fn: () => Promise<unknown>) {
@@ -265,7 +364,7 @@ async function doRetry(t: TaskItem) {
   await act(async () => {
     await tasks.retry(t.id)
     ElMessage.success('已重新提交')
-    tab.value = 'active'
+    if (tab.value === 'failed') setTab('active')
   })
 }
 async function openOutput(t: TaskItem) {
@@ -367,7 +466,7 @@ let autoLogDismissed = false
 watch(
   () => [tab.value, tasks.ready, tasks.active.find((t) => t.status === 'running' && !isLiveType(t.type))?.id] as const,
   ([tb, ready, firstRunning]) => {
-    if (tb === 'active' && ready && firstRunning && !logId.value && !autoLogDismissed) toggleLog(firstRunning)
+    if ((tb === 'active' || tb === 'all') && ready && firstRunning && !logId.value && !autoLogDismissed) toggleLog(firstRunning)
   },
   { immediate: true },
 )
@@ -412,31 +511,49 @@ onMounted(async () => {
   margin-top: 2px;
   line-height: 1.5;
 }
+.stat .note {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ff-text-3);
+  line-height: 1.4;
+}
 .main {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
-.tabs {
+.tabbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 20px;
+  justify-content: space-between;
+  column-gap: 20px;
   padding: 0 16px;
   border-bottom: 1px solid var(--ff-border);
 }
-.tabs > span[role='tab'] {
+.tabs {
+  display: flex;
+  gap: 20px;
+}
+.tab {
   height: 40px;
   line-height: 40px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
   color: var(--ff-text-2);
   position: relative;
   cursor: pointer;
+  border-radius: 2px;
 }
-.tabs > span.on {
+.tab.on {
   color: var(--ff-text-1);
   font-weight: 500;
 }
-.tabs > span.on::after {
+.tab.on::after {
   content: '';
   position: absolute;
   left: 0;
@@ -446,11 +563,18 @@ onMounted(async () => {
   background: var(--ff-primary);
   border-radius: 1px;
 }
-.tabs em {
+.tab em {
   font-style: normal;
   color: var(--ff-text-3);
   margin-left: 4px;
   font-size: 12px;
+}
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
 }
 .grow {
   flex: 1;
@@ -483,9 +607,9 @@ td {
 tbody tr:last-child td {
   border-bottom: none;
 }
-tr.has-err > td {
+tr.haserr > td {
   border-bottom: none;
-  padding-bottom: 8px;
+  padding-bottom: 6px;
 }
 tr.errrow > td {
   padding: 0 16px 12px;
@@ -517,12 +641,15 @@ td:first-child {
   gap: 4px;
   white-space: nowrap;
 }
-.tag.run { background: var(--ff-primary-soft); color: var(--ff-primary); }
-.tag.ok { background: color-mix(in srgb, var(--ff-success) 14%, transparent); color: var(--ff-success); }
-.tag.fail { background: color-mix(in srgb, var(--ff-danger) 14%, transparent); color: var(--ff-danger); }
-.tag.warn { background: color-mix(in srgb, var(--ff-warning) 16%, transparent); color: var(--ff-warning); }
+/* 类型标签一律中性；只有状态列有颜色。文字色用 *-text 变量，浅色主题下在着色底上 ≥4.5:1 */
+.tag.type { background: var(--ff-bg-hover); color: var(--ff-text-2); }
+.tag.live { background: color-mix(in srgb, var(--ff-danger) 14%, transparent); color: var(--ff-danger-text); }
+.tag.run { background: var(--ff-primary-soft); color: var(--ff-primary-text); }
+.tag.ok { background: color-mix(in srgb, var(--ff-success) 14%, transparent); color: var(--ff-success-text); }
+.tag.fail { background: color-mix(in srgb, var(--ff-danger) 14%, transparent); color: var(--ff-danger-text); }
+.tag.int { background: color-mix(in srgb, var(--ff-interrupted) 14%, transparent); color: var(--ff-interrupted); }
 .tag.q { background: var(--ff-bg-hover); color: var(--ff-text-2); }
-.tag.live { background: color-mix(in srgb, #ef4444 14%, transparent); color: #ef4444; }
+.tag.cx { background: transparent; border: 1px solid var(--ff-border); color: var(--ff-text-2); }
 .prog {
   width: 100%;
   display: flex;
@@ -550,20 +677,42 @@ td:first-child {
 }
 .bar i {
   display: block;
+  position: relative;
   height: 100%;
   background: var(--ff-primary);
   border-radius: 2px;
+  overflow: hidden;
   transition: width var(--ff-dur-base) var(--ff-ease);
+}
+.bar i.fail { background: var(--ff-danger); }
+.bar i.int { background: var(--ff-interrupted); }
+/* 运行中进度条的轻微流光（设计规范 §状态）。减少动效时停用 */
+.bar i.run::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.45) 50%, transparent 80%);
+  transform: translateX(-100%);
+  animation: ff-shimmer 1.8s linear infinite;
+}
+@keyframes ff-shimmer {
+  to { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bar i.run::after {
+    animation: none;
+    display: none;
+  }
+  .bar i {
+    transition: none;
+  }
 }
 .plain {
   color: var(--ff-text-2);
-}
-.dim {
-  color: var(--ff-text-3);
-}
-.dur {
-  margin-left: 8px;
   font-size: 12px;
+}
+.plain.dim,
+.dim {
   color: var(--ff-text-3);
 }
 .when {
@@ -630,13 +779,15 @@ td:first-child {
   opacity: 0.45;
   cursor: default;
 }
-.btn.pri {
-  background: var(--ff-primary);
-  border-color: var(--ff-primary);
-  color: #fff;
+.btn.sm {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+  gap: 4px;
 }
-.btn.pri:hover {
-  background: var(--ff-primary-hover);
+.btn.sm svg {
+  width: 13px;
+  height: 13px;
 }
 .btn.lg {
   height: 32px;
@@ -650,22 +801,6 @@ td:first-child {
 .btn svg {
   width: 15px;
   height: 15px;
-}
-.tabs .btn {
-  margin-left: 0;
-}
-.notice {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: var(--ff-warning-soft);
-  color: var(--ff-text-2);
-  font-size: 12px;
-}
-.notice svg {
-  color: var(--ff-warning);
 }
 .loaderr {
   padding: 12px 16px 0;
@@ -731,6 +866,10 @@ td:first-child {
   max-height: 150px;
   min-height: 44px;
   overflow: auto;
+}
+.log:focus-visible {
+  outline: 2px solid var(--ff-primary);
+  outline-offset: 2px;
 }
 .mask {
   position: fixed;
