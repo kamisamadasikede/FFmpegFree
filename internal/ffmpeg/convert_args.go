@@ -88,14 +88,6 @@ func ContainerNames() []string {
 // IsAudioContainer 判断容器是否是纯音频输出。
 func IsAudioContainer(c string) bool { return containers[c].audioOnly }
 
-func contains(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
-}
 
 func invalid(format string, a ...any) error {
 	return apperr.New(apperr.InvalidArgument, fmt.Sprintf(format, a...))
