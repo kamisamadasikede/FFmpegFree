@@ -345,6 +345,8 @@ schema_migrations(version PK, applied_at)
 
 依据：v1 `master` 上 `backend/contollers/video_edit_controller.go`（`/api/edit/sources`、`/api/edit/probe`、`/api/edit/render`）与 `frontend/src/views/VideoEditor.vue`。v1 **没有**：撤销 / 重做、工程保存 / 打开、自动保存、切割（blade）工具、字幕、转场之外的关键帧；v2 首版也不做撤销 / 重做和切割（切割 = 前端把一个 clip 拆成两个 `inSec` / `outSec` 不同的 clip，不需要后端方法）。v1 有的：素材列表（按视频 / 音频过滤）、多视频轨 + 多音轨时间线、拖动 / 边缘裁剪 / 吸附 / 逐帧、按 clip 的速度 / 滤镜预设 / 模糊 / 转场、全局亮度对比度饱和度锐化、canvas 多 `<video>` 合成监视器、导出 mp4 / mov / mkv / webm。
 
+> **架构师已确认（v0.11 定稿）**：`Render` → `Export`、`edit_render` → `edit_export` 确定；数值 / 枚举越界一律 `INVALID_ARGUMENT`（不再静默截断）；filtergraph 只用 `-filter_complex_script`；输出文件名规则见 6.11.3；预览回退方案见 6.11.4 第 4 点。
+
 ### 6.11.1 数据结构
 
 ```go
@@ -395,7 +397,7 @@ type GlobalEffects struct {
     Sharpen    float64 `json:"sharpen"`    // 0~2
 }
 type EditExportOptions struct {
-    OutputName string `json:"outputName"` // 不含扩展名；空 = 工程名；后端去掉路径分隔符、控制字符、Windows 非法字符 \/:*?"<>|，最长 80 字符，净化后为空则用 "edit"（v1 只允许 [a-zA-Z0-9_-]，v2 放开中日韩文件名）
+    OutputName string `json:"outputName"` // 不含扩展名；空 = 工程名；净化规则见 6.11.3「输出文件名」，最长 100 字符，净化后为空则用 "edit"
     OutputDir  string `json:"outputDir"`  // 规则同 6.9：空 = Settings.defaultOutputDir，仍空 = 第一个 clip 所在文件夹；必须是绝对路径
 }
 type EditPlan struct {
@@ -432,8 +434,9 @@ type PreviewURL struct {
 
 - 走 batch 池（与转换共用并发数），不占 live 池。`title` 形如 `<outputName>.mp4`；`inputPaths` = 去重后的素材路径（按首次出现顺序）；`outputPath` = 预期输出；`params` = `{project, options, outputDir}` 的 JSON。
 - 输出：`<outputDir>/<outputName>.<format>`，重名追加 `(1)`、`(2)`，绝不覆盖，走 6.6 的 `RunWithPart`（`.part.<ext>` → 原子改名）；取消 / 失败删除 `.part`。
-- 命令：一个 `-filter_complex` 图，语义**沿用 v1**：黑色底画布 → 每个 clip `trim` + `setpts=(PTS-STARTPTS)/speed` + `fps` + `scale`（等比缩进 + 黑边）+ 预设 / 全局效果 + `boxblur` → 同轨且首尾相接（间隙 ≤ 0.12 秒）的 clip 用 `xfade`（有转场）或 `concat`（无转场），其余按 `startSec` 平移后 `overlay` 到画布，轨道编号大的在上；音频：`atrim` + `atempo`（速度 > 2 或 < 0.5 链式拆分）+ `volume` + `adelay` → `amix`（`normalize=0`）→ 截到时间线总长；音轨为空时导出静音（`anullsrc`），**不会**回退使用视频自带音频（v1 行为；想用视频原声，前端把同一素材再加进音轨）。
-- **命令行长度**：filtergraph 写入任务专属临时目录里的 UTF-8 文本文件再传给 ffmpeg（ffmpeg ≥ 7.0 用 `-/filter_complex <file>`，更低版本用 `-filter_complex_script <file>`，按 `ffmpeg -version` 判断；箱子里的 7.1.5 两种写法都能识别，低版本未验证），避免 Windows 命令行 32 K 上限；任务结束后删除该目录。素材路径仍按 6.9 规则写成 `file:<路径>`。
+- 命令：一个 filtergraph（见下「命令行长度」），语义**沿用 v1**：黑色底画布 → 每个 clip `trim` + `setpts=(PTS-STARTPTS)/speed` + `fps` + `scale`（等比缩进 + 黑边）+ 预设 / 全局效果 + `boxblur` → 同轨且首尾相接（间隙 ≤ 0.12 秒）的 clip 用 `xfade`（有转场）或 `concat`（无转场），其余按 `startSec` 平移后 `overlay` 到画布，轨道编号大的在上；音频：`atrim` + `atempo`（速度 > 2 或 < 0.5 链式拆分）+ `volume` + `adelay` → `amix`（`normalize=0`）→ 截到时间线总长；音轨为空时导出静音（`anullsrc`），**不会**回退使用视频自带音频（v1 行为；想用视频原声，前端把同一素材再加进音轨）。
+- **命令行长度**：filtergraph 写入任务专属临时目录里的 UTF-8 文本文件，**只用 `-filter_complex_script <file>` 传给 ffmpeg**（架构师定，不用 `-/filter_complex`，也不按 ffmpeg 版本判断），避免 Windows 命令行 32 K 上限；任务结束后删除该目录。素材路径仍按 6.9 规则写成 `file:<路径>`。已知：ffmpeg 7.1.5 上该选项会在 stderr 打印一行 `-filter_complex_script is deprecated, use -/filter_complex … instead`，但功能正常（箱子上实测）；该警告行不参与错误分类，日志里保留即可。ffmpeg 未来版本若移除该选项属于升级风险，届时再改契约（本项目 ffmpeg 版本由第 9 节的检测 / 安装决定，**其他版本未验证**）。
+- **输出文件名**（`outputName` 净化，架构师定；放开中日韩，不再限制为 `[a-zA-Z0-9_-]`）：① 空 → 用工程名，工程名也空 → `edit`；② 删除所有控制字符（U+0000~U+001F、U+007F~U+009F）以及路径分隔符和 Windows 非法字符 `\ / : * ? " < > |`；③ 去掉首尾空白和**尾部的点与空格**（Windows 会静默吞掉它们）；④ Windows 保留设备名一律避开，**不区分大小写，且与扩展名无关**（`CON.txt` 同样保留），保留名为 `CON PRN AUX NUL COM0~COM9 LPT0~LPT9`（含全角 / 上标数字变体 `COM¹ COM² COM³ LPT¹ LPT² LPT³`）：命中时在名字前加下划线（`CON` → `_CON`）；⑤ 按 Unicode 字符（rune）截断到 **100 个字符**，截断后再做一次 ③④；⑥ 以上处理后为空 → `edit`。所有平台使用同一套规则（避免工程在 Mac 上导出、拷到 Windows 出问题）。最终文件名 = `<净化名>.<format>`，重名再追加 `(1)`、`(2)`（6.6）。
 - 编码：mp4 / mov / mkv = `libx264 -preset medium -crf 20` + `aac 192k`（mp4 加 `+faststart`）；webm = `libvpx-vp9 -b:v 2M` + `libopus 128k`。缺少编码器由 ffmpeg 报错，按 6.9 归为 `PROCESS_FAILED`。
 - 进度：`outTimeSec / durationSec`，0~1 单调，完成为 1；`task:progress` 载荷不变（`progress / speed / etaSec / outTimeSec`）。**不新增事件**。
 - 任务失败错误码：`CONVERT_DISK_FULL`、`IO_ERROR`、`PROCESS_FAILED`（detail 带 ffmpeg 最后 50 行，分类规则同 6.9 / v0.9.1）、`PROBE_FAILED`、`CANCELED` 走任务状态 `canceled`。
@@ -445,7 +448,8 @@ type PreviewURL struct {
 1. **不用 `file://`**：Wails WebView 的页面源是 `wails://` / `http://wails.localhost`，`<video src="file:///...">` 会被 WebView 拒绝（Wails 官方 issue #292）。
 2. **视频 / 音频预览 = AssetServer `Handler` 挂 `/local/<token>`**（第 1 节的既有约定）。`GetPreviewURL(path)` 校验路径（绝对、存在、是文件、扩展名在 v1 允许列表 `mp4 mov avi mkv flv webm m4v mp3 wav aac m4a flac ogg` 内，否则 `INVALID_ARGUMENT`）后登记并返回 `/local/<token>`；token 为 128 位随机数，同一路径复用同一 token，进程内有效（重启失效），登记表最多 256 项（LRU）。Handler 只按 token 查表，每次请求重新 `stat`（文件被删返回 404），只允许 GET / HEAD，`Content-Type` 按扩展名，`Cache-Control: no-store`，不接受任何路径参数。用 `http.ServeContent` 支持 Range，保证可拖动进度。
 3. **必须限长**：Wails v2.11.0 源码（`pkg/assetserver/webview/responsewriter_windows.go`，`body *bytes.Buffer`，在 `Finish` 才一次性交给 WebView2）和官方 Options 文档（"Response Body Streaming：Windows ❌，macOS ✅，Linux ✅"）都表明：**Windows 上响应体会整个缓冲进内存**。所以 Handler 对**每个 Range 响应最多返回 4 MiB**（实现方式：Handler 在交给 `http.ServeContent` 之前把请求的 `Range` 改写为不超过 4 MiB 的区间，`206` + 正确的 `Content-Range`，实际长度小于请求长度是 HTTP 允许的，播放器会继续发下一段请求）；没有 `Range` 头的请求，文件 ≤ 32 MiB 返回 200 整体，更大返回 413。
-4. **未验证项（需要 Windows 真机）**：WebView2 在收到被截短的 206 之后是否会继续发下一段 Range 请求（社区反馈过 Wails + WebView2 只发第一段的情况，见 wailsapp/wails#5047，该 issue 没有结论）。箱子是 Linux，无法验证。**若真机验证不通过**，回退方案：① 所有平台都可用的缩略图逐帧预览（`MediaService.Thumbnail`，定位 / 拖动播放头时按 `atSec` 取图，宽度 160~480，箱内已有缓存与并发限制）；② 追加 `edit_proxy` 任务（生成 ≤ 480p 低码率 mp4 缓存，小于 32 MiB 时整体 200 返回），作为 v0.11.x 的增量变更，本版不包含。
+4. **未验证项（需要 Windows 真机，由用户在预览包里验证）**：WebView2 在收到被截短的 206 之后是否会继续发下一段 Range 请求（社区反馈过 Wails + WebView2 只发第一段的情况，见 wailsapp/wails#5047，该 issue 没有结论）。箱子是 Linux，无法验证。
+   **验证不通过时的回退方案（首版不实现，不新增方法或错误码）**：`edit_proxy`——为素材生成低分辨率短 mp4 代理（**≤ 32 MiB，整文件 200 加载**，不依赖 Range），预览改用代理文件；`GetPreviewURL` 届时返回代理文件的 token URL，接口与错误码不变。任务类型 `edit_proxy` 的参数、缓存位置、清理策略等到确定启用时再以增量契约版本补充。之前提到的缩略图逐帧预览不再作为回退方案。
 5. 监视器合成（多个 `<video>` + canvas）与 clip 滤镜的预览（CSS filter / canvas 像素处理）全在前端，和导出的 ffmpeg 效果只是近似，不保证逐像素一致（v1 同）。
 6. Linux / macOS 的 AssetServer 支持流式响应，限长后行为一致，不额外处理。
 
