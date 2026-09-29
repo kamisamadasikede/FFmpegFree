@@ -69,7 +69,7 @@ Bind 方法返回 `(T, error)`。error 的 message 是 JSON 字符串，前端 `
 | INVALID_ARGUMENT | 参数不合法 |
 | NOT_FOUND | 记录或文件不存在 |
 | FFMPEG_NOT_FOUND | ffmpeg 缺失 |
-| TASK_CONFLICT | 任务状态不允许该操作（如取消已完成任务）；直播（v0.10）：同一推流地址已有进行中的会话，或进行中的直播会话已达 4 个上限 |
+| TASK_CONFLICT | 任务状态不允许该操作（如取消已完成任务）；直播（v0.10）：同一推流地址已有进行中的会话（`detail` 首行 `reason=duplicate_url`），或进行中的直播会话已达 4 个上限（`reason=max_sessions`），稳定枚举见 6.10 |
 | IO_ERROR | 读写文件失败 |
 | PROBE_FAILED | 文件存在但 ffprobe 无法解析（损坏、不是音视频文件、没有可识别的流） |
 | CANCELED | 调用因应用退出（根 ctx 取消）而被取消，结果作废；前端不需要提示用户（`ConvertService.Submit`、`LiveService.Start*` 等） |
@@ -454,7 +454,14 @@ schema_migrations(version PK, applied_at)
   - ⑨ **前端负责**：由前端在 `v2-fe-api-contracts` 里补全 `AppErrorCode`（`CANCELED`、八个 `LIVE_*` 相关码、`PROBE_FAILED`、`UNSUPPORTED`、`CONVERT_DISK_FULL`），并对照第 2 节契约错误码表逐项核对。后端不改动。
 - **SRT 说明（架构师 / 产品定）**：SRT 连接失败**统一判 `LIVE_CONNECT_FAILED`**（原因见上文实测：服务器未开与被拒绝在 ffmpeg stderr 里无法区分）。产品文案"连接失败，请检查地址和口令是否正确"由**前端负责**，后端 `message` **不承载该文案**（后端 `message` 只描述技术原因，`detail` 是脱敏后的 stderr 尾部）。
 - **用户可见提示（来自产品经理，仅供前端参考；后端只保证错误码和触发条件，不返回这些文案）**：
-  - `TASK_CONFLICT`：进行中的直播会话已达 4 个 → 前端提示"最多同时推 4 路"；同一标准化地址已有进行中的会话 → "这个地址已经在推流"。两种触发共用同一个错误码 `TASK_CONFLICT`。**（建议，待架构师确认，非已拍板）**：为方便前端区分文案，`detail` 第一行固定写 `reason=max_sessions`（达到上限）或 `reason=duplicate_url`（地址重复），其后才是脱敏说明；不确认则前端只能按 `message` 文本区分，不稳定。
+  - `TASK_CONFLICT`：进行中的直播会话已达 4 个 → 前端提示"最多同时推 4 路"；同一标准化地址已有进行中的会话 → "这个地址已经在推流"。两种触发共用同一个错误码，**用 `detail` 第一行区分（架构师已确认，稳定枚举）**：
+    - `reason=max_sessions`：进行中的直播会话已达 4 个上限。
+    - `reason=duplicate_url`：同一标准化推流地址已有进行中的会话。
+    - **稳定枚举规则**：`detail` 第一行固定为 `reason=<值>`，整行只有这一个键值对。以后新增取值**只能追加、不能改名、不能改含义、不能删除**；追加要走契约版本变更并在此列出。
+    - 适用范围：`StartFilePush` / `StartScreenPush`（以及复用同一检查的 `CheckPushURL`，如果它做会话冲突检查）因会话冲突返回的 `TASK_CONFLICT`。`Cancel` 已结束会话、`Remove` 进行中任务等其他 `TASK_CONFLICT` 不属于这两个取值，**不带 `reason=` 行**（沿用原有 detail）。
+    - **(a) 测试要求**：必须有测试分别触发两种冲突，各自断言 `detail` 第一行**精确等于** `reason=max_sessions` / `reason=duplicate_url`（不是包含），并断言两者的 `code` 都是 `TASK_CONFLICT`；同时断言未触发冲突的其他 `TASK_CONFLICT`（如已结束会话再 `Cancel`）不带 `reason=`。
+    - **(b) 脱敏要求**：这两种 `detail` 里**不得出现推流地址、口令、streamkey、streamid 或其任何片段**；`duplicate_url` 也不带地址（哪怕是脱敏后的地址、host 或端口），可以在第二行起写不含地址的说明（如"已有会话使用同一推流地址"）。测试要用带秘密片段的 URL 触发这两种冲突，断言 `message` / `detail` / 事件 / 日志里都搜不到秘密片段和 host。
+    - **(c) 前端规则**：前端遇到**未知的 `reason` 值或没有 `reason` 行**时，显示通用冲突提示（如"操作冲突，请稍后再试"，文案由前端定），不得猜测含义、不得报错崩溃。
   - `LIVE_URL_INVALID`：协议不是 rtmp / rtmps / srt 时**后端已经是这个码**（第 2 节错误码表与本节「推流地址校验规则」第 2 条一致：scheme 只允许 `rtmp`、`rtmps`、`srt`，其余一律 `LIVE_URL_INVALID`），前端提示"暂不支持这种推流地址，请使用 rtmp、rtmps 或 srt"。同一个码还覆盖地址格式不合法、端口越界、srt listener / rendezvous 模式等，前端如需区分靠 `message`，不要靠猜测。
 
 ## 7. 本地流服务（已取消）
