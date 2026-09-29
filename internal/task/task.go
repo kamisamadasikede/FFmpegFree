@@ -94,6 +94,17 @@ type Finalizer interface {
 	OnFinish(t Task)
 }
 
+// Claimer 是 Runner 可选实现的接口，用来在任务被接受的瞬间"占位"：
+//
+//   - Submitted 在任务落库并登记之后、发出 task:created 之前同步调用一次（id 是任务 ID）；
+//   - Abandoned 在 Retry 用工厂造出了 Runner 但随后 Submit 失败时调用，让 Runner 释放工厂里做的占位。
+//
+// 例如 ffmpeg 安装任务：Retry 工厂先声明"正在安装"，避免排队期间又提交第二个安装。
+type Claimer interface {
+	Submitted(id string)
+	Abandoned()
+}
+
 // Emitter 向前端发事件。生产实现封装 Wails runtime.EventsEmit。
 type Emitter interface {
 	Emit(event string, payload any)
@@ -151,6 +162,7 @@ type Info struct {
 	ID   string
 	Type Type
 	log  *logSink
+	m    *Manager
 }
 
 type ctxKey struct{}

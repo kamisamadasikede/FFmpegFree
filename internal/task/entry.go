@@ -129,10 +129,15 @@ func (e *entry) report(p Progress) {
 		if f > 1 {
 			f = 1
 		}
+		if f < e.task.Progress { // 进度只增不减（out_time=N/A、两遍编码切换时可能给出更小的值）
+			f = e.task.Progress
+		}
 		e.task.Progress = f
 	}
 	e.task.Speed, e.task.EtaSec = p.Speed, p.EtaSec
-	e.outTime = p.OutTimeSec
+	if p.OutTimeSec > e.outTime {
+		e.outTime = p.OutTimeSec
+	}
 
 	interval := e.m.progressInterval()
 	since := time.Since(e.lastEmit)
@@ -175,13 +180,28 @@ func (e *entry) emitProgressLocked() {
 	})
 }
 
-// logSink 是任务日志文件，首次写入时才创建。
+const (
+	// 单个任务日志的容量上限：当前文件写满 logRotateBytes 就改名为 <id>.log.1（覆盖旧的 .1）再重新开始，
+	// 所以一个任务最多占用 2*logRotateBytes = 16 MB。
+	logRotateBytes = 8 << 20
+	// 单行最大字节数，超出的部分丢弃并标注（ffmpeg 偶尔会输出没有换行的超长内容）。
+	logMaxLine   = 8 << 10
+	logTruncMark = "…[行过长，已截断]"
+)
+
+// logSink 是任务日志文件，首次写入时才创建。带容量上限（轮转）和单行长度上限。
 type logSink struct {
 	mu sync.Mutex
 	p  string
 	f  *os.File
+	// size 是当前文件已写字节数；lineLen 是当前行已写字节数；cut 表示当前行已经被截断。
+	size    int64
+	lineLen int
+	cut     bool
 	// closed 之后的写入被丢弃。
 	closed bool
+	// maxBytes 可在测试里调小，0 用 logRotateBytes。
+	maxBytes int64
 }
 
 func (l *logSink) path() string {
@@ -189,6 +209,46 @@ func (l *logSink) path() string {
 		return ""
 	}
 	return l.p
+}
+
+// rotatedPath 是轮转后的旧日志路径。
+func rotatedPath(p string) string { return p + ".1" }
+
+func (l *logSink) limit() int64 {
+	if l.maxBytes > 0 {
+		return l.maxBytes
+	}
+	return logRotateBytes
+}
+
+func (l *logSink) openLocked() bool {
+	if l.f != nil {
+		return true
+	}
+	if err := os.MkdirAll(filepath.Dir(l.p), 0o755); err != nil {
+		return false
+	}
+	f, err := os.OpenFile(l.p, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return false
+	}
+	if fi, err := f.Stat(); err == nil {
+		l.size = fi.Size()
+	}
+	l.f = f
+	return true
+}
+
+func (l *logSink) rotateLocked() {
+	if l.f != nil {
+		l.f.Close()
+		l.f = nil
+	}
+	os.Remove(rotatedPath(l.p))
+	if err := os.Rename(l.p, rotatedPath(l.p)); err != nil {
+		os.Remove(l.p)
+	}
+	l.size = 0
 }
 
 func (l *logSink) Write(b []byte) (int, error) {
@@ -200,17 +260,37 @@ func (l *logSink) Write(b []byte) (int, error) {
 	if l.closed {
 		return len(b), nil
 	}
-	if l.f == nil {
-		if err := os.MkdirAll(filepath.Dir(l.p), 0o755); err != nil {
-			return len(b), nil
+	// 逐行处理：每行最多 logMaxLine 字节。
+	var out []byte
+	for _, c := range b {
+		if c == '\n' {
+			out = append(out, '\n')
+			l.lineLen, l.cut = 0, false
+			continue
 		}
-		f, err := os.OpenFile(l.p, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-		if err != nil {
-			return len(b), nil
+		if l.cut {
+			continue
 		}
-		l.f = f
+		if l.lineLen >= logMaxLine {
+			out = append(out, logTruncMark...)
+			l.cut = true
+			continue
+		}
+		out = append(out, c)
+		l.lineLen++
 	}
-	return l.f.Write(b)
+	if len(out) == 0 || !l.openLocked() {
+		return len(b), nil
+	}
+	if l.size+int64(len(out)) > l.limit() && l.size > 0 {
+		l.rotateLocked()
+		if !l.openLocked() {
+			return len(b), nil
+		}
+	}
+	n, _ := l.f.Write(out)
+	l.size += int64(n)
+	return len(b), nil
 }
 
 func (l *logSink) close() {

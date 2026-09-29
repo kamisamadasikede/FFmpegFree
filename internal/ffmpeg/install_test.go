@@ -628,16 +628,23 @@ func TestInstallPreflight(t *testing.T) {
 	if err := f.in.Preflight(""); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.in.Preflight("eu"); err == nil || IsUnavailable(err) {
-		t.Fatalf("非法镜像应是参数错误: %v", err)
+	if err := f.in.Preflight("eu"); !IsMirrorError(err) {
+		t.Fatalf("非法镜像应是 MirrorError: %v", err)
 	}
 	f.in.Platform = "plan9-mips"
 	if err := f.in.Preflight(""); !IsUnavailable(err) {
 		t.Fatalf("未知平台应是 unavailable: %v", err)
 	}
 	f.in.Platform = "linux-amd64"
-	if !f.in.MirrorFallsBack("cn") || f.in.MirrorFallsBack("") {
-		t.Fatal("没有 cn 条目时 cn 应退回默认源")
+	if err := f.in.Preflight("cn"); !IsMirrorError(err) {
+		t.Fatalf("没有 cn 条目时 cn 应报错而不是退回默认源: %v", err)
+	}
+	if len(f.in.AvailableMirrors()) != 0 || !f.in.Supported() || f.in.PlatformName() != "linux-amd64" {
+		t.Fatalf("%v %v %s", f.in.AvailableMirrors(), f.in.Supported(), f.in.PlatformName())
+	}
+	f.in.Platform = "plan9-mips"
+	if f.in.Supported() {
+		t.Fatal("未知平台不应 Supported")
 	}
 }
 
