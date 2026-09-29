@@ -98,7 +98,12 @@ func (e *entry) finish(m *Manager, st Status, aerr *apperr.AppError, output stri
 	e.task.FinishedAt = time.Now().UnixMilli()
 	e.task.Speed, e.task.EtaSec = "", 0
 	if output != "" {
-		e.task.OutputPath = output
+		if filepath.IsAbs(output) {
+			e.task.OutputPath = output
+		} else {
+			// Runner 返回的路径不可信：相对路径会按进程工作目录解析，不采信（保留提交时的预期路径）。
+			m.logf("任务 %s 的 Runner 返回了相对路径 %q，已忽略", e.task.ID, output)
+		}
 	}
 	if st == StatusSucceeded && !IsLive(e.task.Type) {
 		e.task.Progress = 1
@@ -279,17 +284,35 @@ func (l *logSink) Write(b []byte) (int, error) {
 		out = append(out, c)
 		l.lineLen++
 	}
-	if len(out) == 0 || !l.openLocked() {
-		return len(b), nil
-	}
-	if l.size+int64(len(out)) > l.limit() && l.size > 0 {
-		l.rotateLocked()
+	// 一次写入可能是很大的多行块：按剩余容量拆开写，写满就轮转，保证单个文件永远不超过上限
+	// （轮转可能发生在一行中间，GetLog 读取时会丢掉被截断的第一行）。
+	for len(out) > 0 {
 		if !l.openLocked() {
 			return len(b), nil
 		}
+		limit := l.limit()
+		room := limit - l.size
+		if room <= 0 {
+			if l.size == 0 {
+				return len(b), nil // 上限小于 1 字节（不可能），防死循环
+			}
+			l.rotateLocked()
+			continue
+		}
+		chunk := out
+		if int64(len(chunk)) > room {
+			chunk = chunk[:room]
+		}
+		n, err := l.f.Write(chunk)
+		l.size += int64(n)
+		if err != nil || n == 0 {
+			return len(b), nil
+		}
+		out = out[n:]
+		if len(out) > 0 { // 这个文件已满
+			l.rotateLocked()
+		}
 	}
-	n, _ := l.f.Write(out)
-	l.size += int64(n)
 	return len(b), nil
 }
 

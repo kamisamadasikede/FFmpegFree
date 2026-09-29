@@ -129,8 +129,12 @@ func (m *Manager) BatchConcurrency() int {
 	return m.limit
 }
 
-// SetBatchConcurrency 调整 batch 池并发数（设置里的并发数变化时调用）。调大立即生效，
-// 调小不会打断已在运行的任务，只是暂停从队列取新任务直到数量降到新上限以下。
+// SetConcurrency 调整 batch 池并发数（设置里的并发数变化时调用），n<=0 用 DefaultBatchConcurrency()。
+// 调大立即生效（排队的任务马上补位）；调小不会打断已在运行的任务，只是暂停从队列取新任务，
+// 直到运行数降到新上限以下。可在任意时刻并发调用。
+func (m *Manager) SetConcurrency(n int) { m.SetBatchConcurrency(n) }
+
+// SetBatchConcurrency 同 SetConcurrency。
 func (m *Manager) SetBatchConcurrency(n int) {
 	if n <= 0 {
 		n = DefaultBatchConcurrency()
@@ -204,7 +208,10 @@ func (m *Manager) Submit(spec Spec, r Runner) (Task, error) {
 	if c, ok := r.(Claimer); ok {
 		c.Submitted(t.ID)
 	}
-	m.emit(EventCreated, e.snapshot())
+	// 快照必须在入队前取：入队后任务可能立刻开始甚至跑完，返回给调用方的应当是"刚创建"的状态（queued，version 1），
+	// 与 task:created 事件一致；之后的变化由 task:status / task:progress 事件推送。
+	created := e.snapshot()
+	m.emit(EventCreated, created)
 
 	live := IsLive(spec.Type)
 	m.mu.Lock()
@@ -227,7 +234,7 @@ func (m *Manager) Submit(spec Spec, r Runner) (Task, error) {
 			m.pump()
 		}
 	}
-	return e.snapshot(), nil
+	return created, nil
 }
 
 // finishNeverRan 结束一个从未开始执行的任务（排队中被取消、退出时还在排队）：落库、发 task:status、调用 OnFinish。
