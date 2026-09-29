@@ -24,6 +24,8 @@ const defaultCheckTimeout = 10 * time.Second
 func NewCommand(ctx context.Context, exe string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, exe, args...)
 	proc.Configure(cmd)
+	// 取消 / 超时时结束整个进程组（Windows 是进程树），而不是只杀主进程留下孙进程。
+	cmd.Cancel = func() error { return proc.Kill(cmd) }
 	// 超时杀掉主进程后，如果子孙进程还握着管道，Wait 不会返回；WaitDelay 兜底。
 	cmd.WaitDelay = 2 * time.Second
 	return cmd
