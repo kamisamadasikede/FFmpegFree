@@ -110,7 +110,7 @@
 import { onMounted, onUnmounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
-  getLiveArchives,
+  listArchives,
   getLiveHealth,
   listRelay,
   startRelay,
@@ -118,7 +118,7 @@ import {
   type LiveArchiveItem,
   type LiveHealthItem,
   type RelayTaskItem,
-} from '@/api/live/live'
+} from '@/api/live'
 
 const healthItems = ref<LiveHealthItem[]>([])
 const relayItems = ref<RelayTaskItem[]>([])
@@ -147,13 +147,11 @@ const healthTagType = (health: string) => {
   return 'success'
 }
 
+// api/live.ts 已经解开 { code, data }，失败会抛 LiveError
 const refreshHealth = async () => {
-  const response = await getLiveHealth()
-  if (response.data.code !== 200) {
-    return
-  }
-  healthItems.value = response.data.data.items || []
-  const incomingSummary = response.data.data.summary || {}
+  const data = await getLiveHealth()
+  healthItems.value = data.items || []
+  const incomingSummary = data.summary || ({} as Partial<typeof summary>)
   summary.total = incomingSummary.total || 0
   summary.active = incomingSummary.active || 0
   summary.warning = incomingSummary.warning || 0
@@ -161,19 +159,11 @@ const refreshHealth = async () => {
 }
 
 const refreshArchives = async () => {
-  const response = await getLiveArchives()
-  if (response.data.code !== 200) {
-    return
-  }
-  archives.value = response.data.data.items || []
+  archives.value = (await listArchives()).items || []
 }
 
 const refreshRelay = async () => {
-  const response = await listRelay()
-  if (response.data.code !== 200) {
-    return
-  }
-  relayItems.value = response.data.data.items || []
+  relayItems.value = (await listRelay()).items || []
 }
 
 const refreshAll = async () => {
@@ -197,29 +187,28 @@ const submitRelay = async () => {
     return
   }
 
-  const response = await startRelay({
-    displayName: relayForm.displayName.trim(),
-    sourceUrl: relayForm.sourceUrl.trim(),
-    targets,
-    archiveEnabled: relayForm.archiveEnabled,
-    segmentSeconds: relayForm.segmentSeconds,
-  })
-
-  if (response.data.code === 200) {
+  try {
+    await startRelay({
+      displayName: relayForm.displayName.trim(),
+      sourceUrl: relayForm.sourceUrl.trim(),
+      targets,
+      archiveEnabled: relayForm.archiveEnabled,
+      segmentSeconds: relayForm.segmentSeconds,
+    })
     ElMessage.success('转推任务已启动')
     await refreshAll()
-  } else {
-    ElMessage.error(response.data.message || '转推任务启动失败')
+  } catch (e) {
+    ElMessage.error((e as Error).message || '转推任务启动失败')
   }
 }
 
 const stopRelayTask = async (streamId: string) => {
-  const response = await stopRelay(streamId)
-  if (response.data.code === 200) {
+  try {
+    await stopRelay(streamId)
     ElMessage.success('转推任务已停止')
     await refreshAll()
-  } else {
-    ElMessage.error(response.data.message || '停止失败')
+  } catch (e) {
+    ElMessage.error((e as Error).message || '停止失败')
   }
 }
 
