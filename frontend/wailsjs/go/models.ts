@@ -19,6 +19,86 @@ export namespace apperr {
 
 }
 
+export namespace convert {
+	
+	export class Preset {
+	    id: string;
+	    name: string;
+	    builtIn: boolean;
+	    options: ffmpeg.ConvertOptions;
+	
+	    static createFrom(source: any = {}) {
+	        return new Preset(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.builtIn = source["builtIn"];
+	        this.options = this.convertValues(source["options"], ffmpeg.ConvertOptions);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
+export namespace ffmpeg {
+	
+	export class ConvertOptions {
+	    container: string;
+	    videoCodec: string;
+	    audioCodec: string;
+	    width: number;
+	    height: number;
+	    fps: number;
+	    videoBitrate: number;
+	    audioBitrate: number;
+	    crf: number;
+	    targetSizeMb: number;
+	    trimStart: number;
+	    trimEnd: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConvertOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.container = source["container"];
+	        this.videoCodec = source["videoCodec"];
+	        this.audioCodec = source["audioCodec"];
+	        this.width = source["width"];
+	        this.height = source["height"];
+	        this.fps = source["fps"];
+	        this.videoBitrate = source["videoBitrate"];
+	        this.audioBitrate = source["audioBitrate"];
+	        this.crf = source["crf"];
+	        this.targetSizeMb = source["targetSizeMb"];
+	        this.trimStart = source["trimStart"];
+	        this.trimEnd = source["trimEnd"];
+	    }
+	}
+
+}
+
 export namespace jsontool {
 	
 	export class CompareRequest {

@@ -178,21 +178,9 @@ const maxThumbAt = 1e7
 // errThumbTimeout 标记"生成缩略图超时"，超时不会退回第 0 秒重试。
 var errThumbTimeout = errors.New("生成缩略图超时")
 
-// imagePatternExts 是 ffmpeg 用 image2 解封装的图片扩展名。文件名里带 % 时（如 a%03d.png），
-// image2 会把它当成序列模板而找不到文件，所以要加 -pattern_type none。
-// 只对这些扩展名加：其他解封装器（mp4、gif、png_pipe……）不认识这个选项，加了反而报错（ffmpeg 7.1 实测）。
-var imagePatternExts = map[string]bool{
-	".jpg": true, ".jpeg": true, ".png": true, ".bmp": true, ".webp": true,
-	".tif": true, ".tiff": true, ".ppm": true, ".pgm": true, ".pbm": true, ".pam": true,
-}
-
-// ffmpegPatternArgs 返回放在 ffmpeg -i 之前的 -pattern_type none（仅当文件名带 % 且是 image2 支持的图片）。
-func ffmpegPatternArgs(in string) []string {
-	if strings.Contains(filepath.Base(in), "%") && imagePatternExts[strings.ToLower(filepath.Ext(in))] {
-		return []string{"-pattern_type", "none"}
-	}
-	return nil
-}
+// ffmpegPatternArgs 返回放在 ffmpeg -i 之前的 -pattern_type none（仅当文件名带 % 且是 image2 支持的图片）；
+// 规则与转换共用，见 ffmpeg.ImagePatternArgs。
+func ffmpegPatternArgs(in string) []string { return ffmpeg.ImagePatternArgs(in) }
 
 // thumbArgs 生成截图命令行。
 //

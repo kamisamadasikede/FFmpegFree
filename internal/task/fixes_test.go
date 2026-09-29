@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -756,5 +757,80 @@ func TestRunWithPartPanicWithoutManager(t *testing.T) {
 	}()
 	if _, err := os.Stat(PartPath(out)); !os.IsNotExist(err) {
 		t.Fatal("不在任务管理器里运行时 panic 也应清理 .part")
+	}
+}
+
+// ---- M1：输出目录 / 提交阶段的系统错误映射 ----
+
+func swapFS(t *testing.T) {
+	t.Helper()
+	m, l, r := mkdirAll, linkFile, renameFile
+	t.Cleanup(func() { mkdirAll, linkFile, renameFile = m, l, r })
+}
+
+func TestRunWithPartMkdirFailureIsIOError(t *testing.T) {
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "file")
+	os.WriteFile(blocker, []byte("x"), 0o644)
+	// 输出目录的上级是普通文件：不是磁盘满 → IO_ERROR
+	_, err := RunWithPart(context.Background(), filepath.Join(blocker, "sub", "a.mp4"), func(string) error {
+		t.Fatal("目录创建失败不应调用 produce")
+		return nil
+	})
+	if !apperr.Is(err, apperr.IOError) {
+		t.Fatalf("期望 IO_ERROR: %v", err)
+	}
+}
+
+func TestRunWithPartDiskFullMapsToConvertDiskFull(t *testing.T) {
+	full := &os.PathError{Op: "mkdir", Path: "/x", Err: syscall.ENOSPC}
+	t.Run("mkdir", func(t *testing.T) {
+		swapFS(t)
+		mkdirAll = func(string, os.FileMode) error { return full }
+		_, err := RunWithPart(context.Background(), filepath.Join(t.TempDir(), "a.mp4"), func(string) error { return nil })
+		if !apperr.Is(err, apperr.ConvertDiskFull) {
+			t.Fatalf("mkdir ENOSPC 应为 CONVERT_DISK_FULL: %v", err)
+		}
+	})
+	t.Run("commit link+rename", func(t *testing.T) {
+		swapFS(t)
+		linkFile = func(string, string) error { return &os.LinkError{Op: "link", Err: syscall.ENOSPC} }
+		renameFile = func(string, string) error { return &os.LinkError{Op: "rename", Err: syscall.ENOSPC} }
+		out := filepath.Join(t.TempDir(), "a.mp4")
+		_, err := RunWithPart(context.Background(), out, func(part string) error { return os.WriteFile(part, []byte("v"), 0o644) })
+		if !apperr.Is(err, apperr.ConvertDiskFull) {
+			t.Fatalf("提交阶段 ENOSPC 应为 CONVERT_DISK_FULL: %v", err)
+		}
+		if _, e := os.Stat(PartPath(out)); !os.IsNotExist(e) {
+			t.Fatal("失败后应清理 .part")
+		}
+	})
+	t.Run("commit other error", func(t *testing.T) {
+		swapFS(t)
+		linkFile = func(string, string) error { return &os.LinkError{Op: "link", Err: syscall.EPERM} }
+		renameFile = func(string, string) error { return &os.LinkError{Op: "rename", Err: syscall.EACCES} }
+		_, err := RunWithPart(context.Background(), filepath.Join(t.TempDir(), "a.mp4"), func(part string) error { return os.WriteFile(part, []byte("v"), 0o644) })
+		if !apperr.Is(err, apperr.IOError) {
+			t.Fatalf("其它提交错误应为 IO_ERROR: %v", err)
+		}
+	})
+	t.Run("collision rename ENOSPC", func(t *testing.T) {
+		swapFS(t)
+		out := filepath.Join(t.TempDir(), "a.mp4")
+		linkFile = func(string, string) error { os.WriteFile(out, []byte("other"), 0o644); return os.ErrExist }
+		renameFile = func(string, string) error { return &os.LinkError{Op: "rename", Err: syscall.ENOSPC} }
+		_, err := RunWithPart(context.Background(), out, func(part string) error { return os.WriteFile(part, []byte("v"), 0o644) })
+		if !apperr.Is(err, apperr.ConvertDiskFull) {
+			t.Fatalf("换名重命名 ENOSPC 应为 CONVERT_DISK_FULL: %v", err)
+		}
+	})
+}
+
+func TestIsDiskFull(t *testing.T) {
+	if !isDiskFull(syscall.ENOSPC) || !isDiskFull(fmt.Errorf("wrap: %w", &os.PathError{Err: syscall.ENOSPC})) {
+		t.Fatal("ENOSPC 应识别")
+	}
+	if isDiskFull(syscall.EPERM) || isDiskFull(nil) {
+		t.Fatal("其它错误不是磁盘满")
 	}
 }

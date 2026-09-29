@@ -24,6 +24,7 @@ func main() {
 	systemService := app.NewSystemService(sysManager)
 	taskService := app.NewTaskService(mainApp.taskManager)
 	mediaService := app.NewMediaService(mainApp.mediaService, mainApp.appContext)
+	convertService := app.NewConvertService(mainApp.convertService, mainApp.appContext)
 
 	// Create application with options
 	err := wails.Run(&options.App{
@@ -46,6 +47,7 @@ func main() {
 			systemService,
 			taskService,
 			mediaService,
+			convertService,
 		},
 	})
 
