@@ -1,8 +1,20 @@
 <template>
-  <div class="ffst" :class="{ miss: ffmpeg.status.state === 'missing' }" :title="ffmpeg.status.path || undefined">
-    <b><i :style="{ background: view.color }" />{{ view.title }}</b>
-    <el-button v-if="ffmpeg.status.state === 'missing'" link type="primary" class="act" @click="ffmpeg.dialogOpen = true">安装</el-button>
-    <span class="sub">{{ view.sub }}</span>
+  <!-- 侧栏左下角的 ffmpeg 状态：一个状态点加一句话。版本、来源、路径、手动指定入口都在设置页的 ffmpeg 区域 -->
+  <button
+    v-if="clickable"
+    type="button"
+    class="ffst"
+    :class="[view.tone, { collapsed }]"
+    :title="view.title"
+    :aria-label="view.label"
+    @click="ffmpeg.dialogOpen = true"
+  >
+    <i class="dot" aria-hidden="true" />
+    <span v-if="!collapsed" class="txt">{{ view.text }}</span>
+  </button>
+  <div v-else class="ffst" :class="[view.tone, { collapsed }]" role="status" :title="view.title" :aria-label="view.label">
+    <i class="dot" aria-hidden="true" />
+    <span v-if="!collapsed" class="txt">{{ view.text }}</span>
   </div>
 </template>
 
@@ -10,74 +22,82 @@
 import { computed } from 'vue'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 
-const ffmpeg = useFFmpegStore()
-const SOURCE: Record<string, string> = { bundled: '应用目录', system: '系统环境', custom: '手动指定', legacy: '旧版目录' }
+defineProps<{ collapsed?: boolean }>()
 
+const ffmpeg = useFFmpegStore()
+
+/**
+ * 只有三种表达：已就绪 / 未就绪 / 安装中。
+ * 检测中（启动瞬间）、缺失、过旧、安装失败都归为“未就绪”；检测中用中性色，不当成需要处理的问题（点击也不开对话框）。
+ */
 const view = computed(() => {
-  const s = ffmpeg.status
-  switch (s.state) {
+  switch (ffmpeg.status.state) {
     case 'ready':
-      return { color: 'var(--ff-success)', title: 'ffmpeg 已就绪', sub: [s.version, SOURCE[s.source ?? '']].filter(Boolean).join(' · ') }
+      return { tone: 'ok', text: 'ffmpeg 已就绪', title: 'ffmpeg 已就绪', label: 'ffmpeg 已就绪' }
     case 'installing':
-      return {
-        color: 'var(--ff-primary)',
-        title: '正在安装 ffmpeg',
-        sub: ffmpeg.install ? `下载中 ${Math.round(ffmpeg.install.progress * 100)}%` : '准备中',
-      }
-    case 'failed':
-      return { color: 'var(--ff-danger)', title: 'ffmpeg 安装失败', sub: '点击顶部提示条重试' }
-    case 'outdated':
-      return { color: 'var(--ff-warning)', title: 'ffmpeg 版本过旧', sub: '需要 6.0 或更高版本' }
-    case 'missing':
-      return { color: 'var(--ff-warning)', title: 'ffmpeg 未安装', sub: '转换、剪辑、直播暂不可用' }
+      return { tone: 'run', text: 'ffmpeg 安装中…', title: 'ffmpeg 安装中…，点击查看进度', label: 'ffmpeg 安装中…' }
+    case 'checking':
+      return { tone: 'q', text: 'ffmpeg 未就绪', title: 'ffmpeg 未就绪', label: 'ffmpeg 未就绪' }
     default:
-      return { color: 'var(--ff-text-3)', title: '正在检测 ffmpeg', sub: '请稍候' }
+      return { tone: 'warn', text: 'ffmpeg 未就绪', title: 'ffmpeg 未就绪，点击安装', label: 'ffmpeg 未就绪' }
   }
 })
+
+// 未就绪（含安装中、失败、过旧）时点击打开安装对话框；已就绪和检测中没有可做的事
+const clickable = computed(() => ffmpeg.needsAttention)
 </script>
 
 <style scoped>
 .ffst {
-  margin: 0 2px 8px;
-  padding: 8px 12px;
-  border: 1px solid var(--ff-border);
-  border-radius: 8px;
-  background: var(--ff-bg-surface);
-  font-size: var(--ff-fs-xs);
-  color: var(--ff-text-2);
-}
-.ffst b {
+  height: 36px;
+  width: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
-  color: var(--ff-text-1);
-  font-weight: 500;
-  margin-bottom: 4px;
+  gap: 10px; /* 与 .nav-item 一致 */
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--ff-radius-md);
+  background: transparent;
+  color: var(--ff-text-2);
+  font-size: var(--ff-fs-xs);
+  font-family: inherit;
+  white-space: nowrap;
+  text-align: left;
+  --wails-draggable: no-drag;
 }
-.ffst i {
+button.ffst {
+  cursor: pointer;
+  transition: background var(--ff-dur-fast) var(--ff-ease);
+}
+button.ffst:hover {
+  background: var(--ff-bg-hover);
+}
+button.ffst:focus-visible {
+  outline: 2px solid var(--ff-primary);
+  outline-offset: -2px;
+}
+.ffst.collapsed {
+  justify-content: center;
+  padding: 0;
+}
+.txt {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dot {
+  flex: none;
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  display: block;
+  background: var(--ff-text-3);
 }
-/* 缺失状态（原型 .ffst.miss）：标题 + 右侧文字按钮一行，副文案独占一整行，整体高 58px */
-.ffst.miss {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  column-gap: 8px;
-  padding: 8px 8px 8px 12px;
+.ok .dot {
+  background: var(--ff-success);
 }
-.ffst.miss b {
-  margin-bottom: 0;
+.warn .dot {
+  background: var(--ff-warning);
 }
-.ffst.miss .sub {
-  grid-column: 1 / -1;
-}
-.ffst.miss .act {
-  height: 24px;
-  padding: 0 8px;
-  font-size: var(--ff-fs-xs);
-  --el-button-text-color: var(--ff-primary-text);
+.run .dot {
+  background: var(--ff-primary);
 }
 </style>

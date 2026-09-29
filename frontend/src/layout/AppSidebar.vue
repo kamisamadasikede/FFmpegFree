@@ -25,8 +25,8 @@
 
     <div class="grow" />
 
-    <FFmpegStatusCard v-if="!collapsed" />
     <nav class="nav">
+      <FFmpegStatusCard :collapsed="collapsed" />
       <button v-if="collapsed" class="expand-btn" title="展开导航" @click="collapsed = false">
         <el-icon :size="16"><Expand /></el-icon>
       </button>
