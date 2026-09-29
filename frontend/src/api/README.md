@@ -144,7 +144,7 @@
 ### 侧栏 ffmpeg 状态对齐设计稿（2026-09-30）
 
 - 按《编码设备-设计说明-v0.1》第一节：整行 32px、内边距 8px 12px、8px 圆点 + 13px 文字、间距 8px；已就绪 `--ff-success` 点 + `--ff-text-2`；未就绪 `--ff-warning` 点 + `--ff-warning-text`，整行是 `<button>`，点开安装对话框（#53 的 `dialogVisible` 逻辑没动）；安装中 12px 转圈（`--ff-primary`，减少动效下不转）、不可点；外层 `role="status"` + `aria-label`；折叠只留圆点，hover / 键盘聚焦显示气泡（12px、`--ff-bg-elevated`、`--ff-shadow-dialog`）。
-- 与稿不同的一处：启动瞬间的“检测中”稿里没有，仍显示“ffmpeg 未就绪”，但用中性灰点且不可点，避免闪一下警告色。折叠时侧栏 `overflow: visible`，气泡才能显示在侧栏外。
+- 设计师定稿的两处调整（2026-09-30）：启动检测中 = 中性灰点 + “ffmpeg 检测中…”，不可点，`role="status"`；安装中整行可点，点开就是安装对话框（里面有进度，不跳任务中心），`aria-label` / `title` 为“ffmpeg 安装中，点击查看进度”，有 hover 和焦点环，折叠时圆点（转圈）加气泡，气泡文字同 `aria-label`。映射抽在 `components/ffmpeg/statusView.ts`，`check:api` 有文案 / 可点性断言。折叠时侧栏 `overflow: visible`，气泡才能显示在侧栏外。
 
 ### ffmpeg 安装完成后重复弹"需要安装"（2026-09-29 修复）
 

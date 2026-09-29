@@ -13,6 +13,7 @@ import * as live from './live'
 import * as edit from './edit'
 import * as doc from './doc'
 import { docErrorText, docErrorFile, docErrorPath, docDetailHead, pdfErrorView, DOC_TOO_MANY_PAGES_TEXT, DOC_FILE_BROKEN_TEXT, DOC_FORMAT_UNSUPPORTED_TEXT } from '@/errors/errorMessages'
+import { ffmpegStatusView } from '@/components/ffmpeg/statusView'
 import { splitMiddle, nextZoom, thumbWindow, formatRecentTime, extBadge } from '@/utils/docLogic'
 import { onSimEvent } from '@/services/wails'
 import { retrySimTask, SIM_TITLE_PREFIX } from './sim'
@@ -409,6 +410,14 @@ export async function runApiChecks(): Promise<string[]> {
     splitMiddle('2026年第三季度华东区域渠道商务拓展与用户增长复盘汇报材料（终稿-已审阅-v12）.pptx'),
     splitMiddle('ab'),
   ], [{ head: '用户调研报告.docx', tail: '' }, { head: '2026年第三季度华东区域渠道商务拓展与用户增长复盘汇报材料（终稿-已审', tail: '阅-v12）.pptx' }, { head: 'ab', tail: '' }])
+  eq('侧栏 ffmpeg 状态：文案 / aria-label / 可点性', (['ready', 'checking', 'missing', 'outdated', 'failed', 'installing'] as const).map((k) => { const v = ffmpegStatusView(k); return [v.tone, v.text, v.label, v.actionLabel, v.clickable] }), [
+    ['ok', 'ffmpeg 已就绪', 'ffmpeg 已就绪', 'ffmpeg 已就绪', false],
+    ['q', 'ffmpeg 检测中…', 'ffmpeg 检测中…', 'ffmpeg 检测中…', false],
+    ['warn', 'ffmpeg 未就绪', 'ffmpeg 未就绪', 'ffmpeg 未就绪，点击打开安装对话框', true],
+    ['warn', 'ffmpeg 未就绪', 'ffmpeg 未就绪', 'ffmpeg 未就绪，点击打开安装对话框', true],
+    ['warn', 'ffmpeg 未就绪', 'ffmpeg 未就绪', 'ffmpeg 未就绪，点击打开安装对话框', true],
+    ['run', 'ffmpeg 安装中…', 'ffmpeg 安装中，点击查看进度', 'ffmpeg 安装中，点击查看进度', true],
+  ])
   eq('缩放档位 50%~200% 步进 25%，两端夹住', [nextZoom(1, -1), nextZoom(0.5, -1), nextZoom(2, 1), nextZoom(1.75, 1), nextZoom(1.3, 1)], [0.75, 0.5, 2, 2, 1.25])
   eq('缩略图窗口：可视范围 ± 2 屏', [thumbWindow(0, 600, 100, 5000), thumbWindow(50000, 600, 100, 5000), thumbWindow(0, 600, 100, 0)], [{ from: 1, to: 18 }, { from: 489, to: 518 }, { from: 1, to: 0 }])
   const NOW = new Date(2026, 8, 30, 12, 0).getTime()
