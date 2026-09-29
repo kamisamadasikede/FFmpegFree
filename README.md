@@ -14,7 +14,7 @@ FFmpegFree 是一个基于 ffmpeg 的桌面工具，技术栈为 **Wails v2 + Vu
 
 ## 功能与当前状态
 
-以下按 v2 分支上**实际已合入的代码**填写。“后端”指 Go 绑定和服务，“页面”指前端页面是否已接到真实后端（`frontend/src/api/flags.ts` 的开关）。所有平台上的真机验证项见“已知限制”。
+以下按 v2 分支上**实际已合入的代码**和 `frontend/src/api/flags.ts` 里开关的真实值填写。“后端”指 Go 绑定和服务，“页面”指前端页面是否已接到真实后端。所有平台上的真机验证项见“已知限制”。
 
 | 功能 | 状态 | 说明 |
 |---|---|---|
@@ -23,10 +23,10 @@ FFmpegFree 是一个基于 ffmpeg 的桌面工具，技术栈为 **Wails v2 + Vu
 | ffmpeg 检测与安装 | ✅ 已完成 | `SystemService`：检测、手动指定、下载安装、下载源切换 |
 | 设置 | ✅ 已完成 | 输出位置、同时转换数量、ffmpeg 路径等 |
 | JSON 工具 | ✅ 已完成 | `JsonService` |
-| 直播推流与拉流 | ✅ 推流后端已完成；⏳ 存档开发中 | `LiveService`：文件推流、屏幕推流（RTMP / RTMPS / SRT），页面已接入真实后端（`LIVE_BACKEND_READY=true`）；拉流由前端播放器直接拉远端地址。屏幕推流的本地存档尚未实现（带存档目录会返回 UNSUPPORTED）。Windows / macOS 屏幕采集待真机验证 |
-| 视频剪辑（导出） | ✅ 后端已完成；⏳ 页面待接入 | `EditService`：校验、导出、工程存取、预览 URL；剪辑页仍使用演示数据（`EDIT_BACKEND_READY=false`），页面接入是前端后续工作 |
-| Office 转 PDF | ✅ 后端已完成（实验性）；⏳ 页面待接入 | `DocService`：docx / pptx / xlsx 只转文字，内嵌 Noto Sans SC 子集字体；csv / txt / 旧版二进制格式暂不支持；页面暂不可用（`DOC_BACKEND_READY=false`） |
-| PDF 预览 | ✅ 后端已完成；⏳ 页面待接入 | 同上（`DocService`：`OpenPDF` / `ReadPDFChunk` / 最近列表；超过 64 MiB 的文件走 `/local/<token>` 按 Range 加载）。WebView2 的 Range 行为待真机验证 |
+| 直播推流与拉流 | ✅ 推流和存档后端已完成；⏳ 存档页面接入中 | `LiveService`：文件推流、屏幕推流（RTMP / RTMPS / SRT），屏幕推流本地存档（tee + 分片 mp4，#47 已合入）；推流页已接入真实后端（`LIVE_BACKEND_READY=true`）；拉流由前端播放器直接拉远端地址。带存档屏幕推流的前端开关仍在放开中（`frontend/src/api/README.md` 里仍写着后端不支持存档，待前端更新）。Windows / macOS 屏幕采集待真机验证 |
+| 视频剪辑（导出） | ✅ 后端已完成；✅ 剪辑页已接入 | `EditService`：校验、导出、工程存取、预览 URL；剪辑页（#46）在 Wails 里走真实后端（`EDIT_BACKEND_READY=true`），纯浏览器环境仍走模拟。多轨导出的真机表现、Windows 路径长度等待真机验证 |
+| Office 转 PDF | ✅ 后端已完成（实验性）；⏳ 页面接入中 | `DocService`：docx / pptx / xlsx 只转文字，内嵌 Noto Sans SC 子集字体；csv / txt / 旧版二进制格式暂不支持；页面尚未接到真实后端（`DOC_BACKEND_READY=false`，页面仍在用 v1 兼容层，按钮置灰） |
+| PDF 预览 | ✅ 后端已完成；⏳ 页面接入中 | 同上（`DocService`：`OpenPDF` / `ReadPDFChunk` / 最近列表；超过 64 MiB 的文件走 `/local/<token>` 按 Range 加载）。WebView2 的 Range 行为待真机验证 |
 
 ## 架构与目录
 
@@ -56,10 +56,10 @@ ffmpeg/              v1 遗留：随包的 ffmpeg（Windows），仅作为“程
 | 开关 | 对应后端 | 默认 |
 |---|---|---|
 | `LIVE_BACKEND_READY` | LiveService（直播） | `true`：Wails 里走真实后端，纯浏览器环境仍走模拟 |
-| `EDIT_BACKEND_READY` | EditService（剪辑） | `false`：走本地模拟 |
+| `EDIT_BACKEND_READY` | EditService（剪辑） | `true`：Wails 里走真实后端，纯浏览器环境仍走模拟 |
 | `DOC_BACKEND_READY` | DocService（Office / PDF） | `false`：走本地模拟 |
 
-三个后端都已合入并生成绑定；剪辑和文档的页面接入完成后把对应开关改成 `true`；细节见 [frontend/src/api/README.md](frontend/src/api/README.md)。
+三个后端都已合入并生成绑定；文档（Office / PDF）页面接入完成后把 `DOC_BACKEND_READY` 改成 `true`；细节见 [frontend/src/api/README.md](frontend/src/api/README.md)。
 
 ## ffmpeg 检测顺序
 
@@ -123,7 +123,7 @@ npx vue-tsc --noEmit          # 类型检查
 ## 已知限制
 
 - Windows / macOS 真机上尚未验证的项，见各契约的“真机试用清单”（如 Live 契约的“真机试用清单”一节，以及 v2 契约中标注“未验证”的部分）。目前主要在 Linux 上做了测试和交叉编译。
-- 剪辑页、Office 转 PDF 页、PDF 预览页尚未接到真实后端，暂不可用或仅为演示（见上表）；直播的本地存档尚未实现。
+- Office 转 PDF 页、PDF 预览页尚未接到真实后端，暂不可用（见上表）；带存档屏幕推流的前端开关仍在放开中。
 - Office 转 PDF 是实验性功能：只转文字，不保留排版、图片和表格样式；生僻字（GB2312 与 JIS X 0208 第一水准以外）会显示为方框。
 - 转换暂不支持“按目标体积压缩”（两遍编码已暂缓，见契约 v0.7.2）。
 - 仓库里仍保留 v1 遗留的 `ffmpeg/` 目录（兼容检测用），待清理。
