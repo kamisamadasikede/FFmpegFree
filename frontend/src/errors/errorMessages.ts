@@ -167,3 +167,16 @@ export function resolveTaskError(code?: string | null, fallbackMessage?: string 
     known: false,
   }
 }
+
+// ---- 操作失败提示（toast / 行内）：按钮触发的 Bind 调用返回的 AppError → 用户可读的话 ----
+// 与失败行的 ErrorLine 文案分开：这里是「点了某个按钮但没成功」，不是任务本身失败。
+const ACTION_ERROR_TEXT: Record<string, string> = {
+  UNSUPPORTED: '该任务暂不支持重试',
+  TASK_CONFLICT: '任务状态已变化，请刷新后再试',
+  NOT_FOUND: '找不到这个任务或文件，可能已被删除',
+}
+
+/** 取 toast 文案：有专门说明的码用说明，其余用后端 message */
+export function actionErrorText(code: string, backendMessage: string): string {
+  return ACTION_ERROR_TEXT[code] ?? (backendMessage || FALLBACK_DESCRIPTION)
+}

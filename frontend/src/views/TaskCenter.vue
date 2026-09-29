@@ -112,7 +112,7 @@
                     :announce="isFresh(t)"
                     show-retry
                     @retry="doRetry(t)"
-                    @change-output="changeOutput"
+                    @change-output="changeOutput(t)"
                     @view-log="toggleLog(t.id, true)"
                   />
                   <ErrorLine
@@ -191,7 +191,8 @@ import ErrorLine from '@/components/common/ErrorLine.vue'
 import { isLiveType, isTerminal, useTaskStore, type TaskItem, type TaskStatus } from '@/stores/tasks'
 import type { IconName } from '@/components/icon/icons'
 import { toAppError } from '@/api/call'
-import { revealInFolder } from '@/api/system'
+import { actionErrorText } from '@/errors/errorMessages'
+import { pickDirectory, revealInFolder } from '@/api/system'
 import { fileBaseName, formatClock, formatDuration, formatEta, formatStart } from '@/utils/format'
 
 /** 直播推流的说明文案（统计条和进行中的直播行共用）。角标 runningCount 仍包含直播推流 */
@@ -358,7 +359,8 @@ async function act(fn: () => Promise<unknown>) {
   try {
     await fn()
   } catch (e) {
-    ElMessage.error(toAppError(e).message)
+    const err = toAppError(e)
+    ElMessage.error(actionErrorText(err.code, err.message))
   }
 }
 async function doRetry(t: TaskItem) {
@@ -369,24 +371,45 @@ async function doRetry(t: TaskItem) {
   })
 }
 /**
- * 「更换输出位置」：桩。契约有 SystemService.PickDirectory，但绑定里还没有，
- * Settings 也还没有输出目录字段（UpdateSettings 只有 ffmpegPath / ffmpegPromptDismissed），选了目录也没处保存。
- * 所以先只提示；后端补上 PickDirectory 和输出目录设置后，在这里选目录、保存，再 doRetry。
+ * 「更换输出位置」（磁盘空间不足时）：弹系统选择文件夹对话框（PickDirectory），
+ * 选中的文件夹只用于「这一次重试」，不会写进设置里的默认输出位置（设计师确认）。
+ *
+ * 现状：TaskService.Retry(id) 没有输出目录参数，且只有 ffmpeg_install 注册了重试工厂。
+ * 所以这里选好目录后暂时无法带着它重新提交——选中的目录保存在 chosenDir 里，
+ * 等 ConvertService 落地、有「带 outputDir 提交新任务」的方法后，在下面标了 TODO 的位置把
+ * { inputPaths: t.inputPaths, params: t.params, outputDir: chosenDir } 传给它即可。不编造后端方法。
+ * ffmpeg_install 的安装位置固定在应用目录，不涉及输出文件夹，不弹选择框。
  */
-function changeOutput() {
-  ElMessage.info('更换输出位置功能即将上线，目前请先清理磁盘空间后重试。')
+async function changeOutput(t: TaskItem) {
+  if (t.type === 'ffmpeg_install') {
+    ElMessage.info('ffmpeg 安装位置固定在应用目录，不能更换。')
+    return
+  }
+  await act(async () => {
+    const chosenDir = await pickDirectory('选择这次转换的输出文件夹')
+    if (!chosenDir) return // 用户取消
+    // TODO(ConvertService)：用 chosenDir 作为 outputDir 重新提交（仅本次，不改默认输出位置）
+    void chosenDir
+    ElMessage.info('已选择新的输出文件夹。等转换服务上线后，就能用它重新提交这个任务；目前请先清理磁盘空间后点“重试”。')
+  })
 }
 async function openOutput(t: TaskItem) {
-  await act(async () => {
-    if (await revealInFolder(t.outputPath)) return
-    // RevealInFolder 后端未实现：退回复制路径
-    try {
-      await navigator.clipboard.writeText(t.outputPath)
-      ElMessage.info(`已复制输出路径：${t.outputPath}`)
-    } catch {
-      ElMessage.info(t.outputPath)
+  try {
+    await revealInFolder(t.outputPath)
+  } catch (e) {
+    const err = toAppError(e)
+    // 该平台 / 该对象不支持显示位置：退回复制路径；其他错误（文件已不存在等）如实提示
+    if (err.code === 'UNSUPPORTED' || err.code === 'UNSUPPORTED_PLATFORM') {
+      try {
+        await navigator.clipboard.writeText(t.outputPath)
+        ElMessage.info(`已复制输出路径：${t.outputPath}`)
+      } catch {
+        ElMessage.info(t.outputPath)
+      }
+    } else {
+      ElMessage.error(actionErrorText(err.code, err.message))
     }
-  })
+  }
 }
 
 interface Confirm { title: string; text: string; ok: string; canDeleteOutput: boolean; run: () => Promise<void> }

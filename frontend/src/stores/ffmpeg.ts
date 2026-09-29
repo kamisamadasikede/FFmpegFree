@@ -64,10 +64,6 @@ const PREVIEW: Record<string, { status: FFmpegStatus; install?: InstallProgress 
   failed: { status: { state: 'failed', error: { code: 'IO_ERROR', message: '下载超时，请检查网络' } } },
 }
 
-// PickDirectory 还不在生成的绑定里（契约 4 节 SystemService 已列出，后端未实现）：用命名空间对象探测，
-// 后端补上并重新生成绑定后自动生效。InstallFFmpeg / CancelFFmpegInstall 已在绑定里，直接调用。
-type OptionalFn = ((...args: any[]) => Promise<any>) | undefined
-const optional = SystemBinding as unknown as Record<string, OptionalFn>
 const previewMode = !hasWailsBackend() && previewParams.has('ff') && !!PREVIEW[previewParams.get('ff')!]
 
 export const useFFmpegStore = defineStore('ffmpeg', () => {
@@ -81,10 +77,8 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
 
   /** 安装功能可用（绑定已有 InstallFFmpeg）；只有浏览器预览里 ?noinstall 会关闭，用来看"即将上线"样式 */
   const installAvailable = !(previewMode && previewParams.has('noinstall'))
-  /** 后端有 PickDirectory；false 时手动指定路径改为文本框 */
-  const canPickDirectory = previewMode
-    ? !previewParams.has('nopicker')
-    : typeof optional.PickDirectory === 'function'
+  /** 有系统目录选择器（PickDirectory 已在绑定里）；只有浏览器预览里 ?nopicker 会关闭，用来看"手动输入路径"的样式 */
+  const canPickDirectory = !(previewMode && previewParams.has('nopicker'))
 
   const ready = computed(() => status.value.state === 'ready')
   const needsAttention = computed(() => !['ready', 'checking'].includes(status.value.state))
@@ -192,7 +186,7 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
         return
       }
       if (previewMode) return
-      dir = await call<string>(optional.PickDirectory!())
+      dir = await call<string>(SystemBinding.PickDirectory('选择 ffmpeg 所在文件夹'))
       if (!dir) return // 用户取消
     }
     if (previewMode) return
