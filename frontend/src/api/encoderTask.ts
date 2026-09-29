@@ -1,7 +1,7 @@
 // 任务的编码设备信息（契约 v0.18 §9.7 / v0.19）：事件字段合并、“要不要显示回退提示 / 用了哪个设备”的纯函数。api.check.ts 里有自检。
 // 界面只显示设备名（“NVIDIA GeForce RTX 4060” / “CPU”），不显示 encoder（h264_nvenc / libx264 …）和设备 id。
 import { encoderPanelVisible, listEncoderDevices, type EncoderDevice } from '@/api/encoder'
-import { ENCODER_DEVICE_CPU_NAME, ENCODER_DEVICE_GPU_FALLBACK_NAME } from '@/errors/encoderMessages'
+import { ENCODER_DEVICE_CPU_FALLBACK_NAME, ENCODER_DEVICE_CPU_NAME, ENCODER_DEVICE_GPU_FALLBACK_NAME } from '@/errors/encoderMessages'
 import { ref } from 'vue'
 
 /** 任务上的四个编码器字段（都可缺省，见契约 omitempty） */
@@ -67,6 +67,7 @@ export function deviceDisplayName(id: string, devices: readonly EncoderDevice[] 
  */
 export function usedDeviceText(t: TaskEncoderInput | null | undefined, devices: readonly EncoderDevice[] | null | undefined, enabled: boolean = encoderTaskUiEnabled()): string {
   if (!t || !enabled || !taskEverRan(t) || !t.encoder || t.encoder === 'copy' || !t.encoderDevice) return ''
+  if (t.hwFallback === true && t.encoderDevice === 'cpu') return ENCODER_DEVICE_CPU_FALLBACK_NAME // 显卡编码失败、已回退：“CPU（已回退）”
   return deviceDisplayName(t.encoderDevice, devices)
 }
 

@@ -102,7 +102,7 @@
               <!-- 硬件编码失败、已自动改用 CPU（契约 9.7）：警告色，不是失败；直播任务用直播那条文案 -->
               <tr v-if="showFallbackNotice(t)" class="errrow fbrow">
                 <td colspan="6">
-                  <EncoderFallbackNotice variant="row" :text="isLiveType(t.type) ? ENCODER_FALLBACK_LIVE : undefined" @log="toggleLog(t.id, true)" />
+                  <EncoderFallbackNotice variant="row" :text="isLiveType(t.type) ? ENCODER_FALLBACK_LIVE : isTerminal(t.status) ? ENCODER_FALLBACK_TASK_ROW_DONE : undefined" @log="toggleLog(t.id, true)" />
                 </td>
               </tr>
               <!-- 失败 / 已中断行：共享 ErrorLine；错误码来自 Task.error.code，未知码走兜底文案（带后端 message） -->
@@ -169,10 +169,10 @@
           <button type="button" class="iconbtn sm" title="刷新日志" aria-label="刷新日志" @click="loadLog"><FIcon name="refresh" :size="14" /></button>
           <button type="button" class="iconbtn sm" title="关闭日志" aria-label="关闭日志" @click="closeLog"><FIcon name="x" :size="14" /></button>
         </div>
-        <!-- 任务详情的编码设备信息：只显示设备名；回退时加一句次要说明（原因枚举 → 用户文案，未知走兜底） -->
+        <!-- 任务详情的编码设备信息：设备栏回退时是“CPU（已回退）”；原因（枚举 → 用户文案，未知走兜底）只放在这里，任务行不显示 -->
         <div v-if="logDevice" class="logdev">
-          <span class="dv" :title="`${ENCODER_DEVICE_LABEL}：${logDevice}`">{{ ENCODER_DEVICE_LABEL }}：{{ logDevice }}</span>
-          <span v-if="logFallbackReason">{{ logFallbackReason }}</span>
+          <span class="dv" :title="logDeviceFb ? ENCODER_DEVICE_CPU_FALLBACK_TITLE : `${ENCODER_DEVICE_LABEL}：${logDevice}`">{{ ENCODER_DEVICE_LABEL }}：<b v-if="logDeviceFb" class="dev-fb">{{ logDevice }}</b><template v-else>{{ logDevice }}</template></span>
+          <span v-if="logFallbackReason" class="rs">{{ logFallbackReason }}</span>
         </div>
         <pre ref="logEl" class="log selectable" tabindex="0" aria-label="任务日志">{{ logText || (logLoading ? '正在读取…' : '（暂无日志）') }}</pre>
       </div>
@@ -205,7 +205,7 @@ import ErrorLine from '@/components/common/ErrorLine.vue'
 import EncoderFallbackNotice from '@/components/encoder/EncoderFallbackNotice.vue'
 import { scrollBehavior } from '@/utils/motion'
 import { showFallbackNotice, usedDeviceText, useEncoderDeviceList } from '@/api/encoderTask'
-import { ENCODER_DEVICE_LABEL, ENCODER_FALLBACK_LIVE, encoderFallbackReasonText } from '@/errors/encoderMessages'
+import { ENCODER_DEVICE_CPU_FALLBACK_NAME, ENCODER_DEVICE_CPU_FALLBACK_TITLE, ENCODER_DEVICE_LABEL, ENCODER_FALLBACK_LIVE, ENCODER_FALLBACK_TASK_ROW_DONE, encoderFallbackReasonText } from '@/errors/encoderMessages'
 import { elapsedMs, isLiveType, isTerminal, useTaskStore, type TaskItem, type TaskStatus } from '@/stores/tasks'
 import type { IconName } from '@/components/icon/icons'
 import { toAppError } from '@/api/call'
@@ -515,7 +515,8 @@ const logTask = computed<TaskItem | undefined>(() => {
 })
 const encDevices = useEncoderDeviceList()
 const logDevice = computed(() => usedDeviceText(logTask.value, encDevices.value))
-const logFallbackReason = computed(() => (showFallbackNotice(logTask.value) ? `已自动改用 CPU。${encoderFallbackReasonText(logTask.value?.hwFallbackReason)}` : ''))
+const logDeviceFb = computed(() => logDevice.value === ENCODER_DEVICE_CPU_FALLBACK_NAME)
+const logFallbackReason = computed(() => (showFallbackNotice(logTask.value) ? encoderFallbackReasonText(logTask.value?.hwFallbackReason) : ''))
 const isLogLive = computed(() => logTask.value?.status === 'running')
 
 async function loadLog() {

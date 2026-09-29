@@ -22,7 +22,6 @@
           <LiveFormError v-if="err?.where === 'source'" :text="err.text">
             <button type="button" class="lk" @click="refreshFromError">{{ LIVE_SOURCE_REFRESH }}</button>
           </LiveFormError>
-          <p v-if="defaultMain" class="note" role="status"><FIcon name="info" :size="14" />{{ LIVE_SOURCE_DEFAULT_MAIN_HINT }}</p>
           <p v-if="sourceId" class="note"><FIcon name="info" :size="14" />{{ LIVE_SCREEN_NO_AUDIO_TEXT }}</p>
         </LiveField>
         <LiveField label="推流地址">
@@ -73,8 +72,8 @@ import PreviewSwitch from '@/components/live/PreviewSwitch.vue'
 import LiveSessionList from '@/components/live/LiveSessionList.vue'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { useLiveSessionsStore } from '@/stores/liveSessions'
-import { defaultMainScreenHint, recordStartEnabled, sourcePickerMode } from '@/utils/liveSource'
-import { LIVE_RECORD_EMPTY_HINT, LIVE_RECORD_EMPTY_HINT_WIN, LIVE_SCREEN_NO_AUDIO_TEXT, LIVE_SOURCE_DEFAULT_MAIN_HINT, LIVE_SOURCE_FIELD_LABEL, LIVE_SOURCE_FIELD_LABEL_SCREEN, LIVE_SOURCE_REFRESH, LIVE_SRT_PASSPHRASE_TEXT, liveSourceGoneText } from '@/errors/errorMessages'
+import { recordStartEnabled, sourcePickerMode } from '@/utils/liveSource'
+import { LIVE_RECORD_EMPTY_HINT, LIVE_RECORD_EMPTY_HINT_WIN, LIVE_SCREEN_NO_AUDIO_TEXT, LIVE_SOURCE_FIELD_LABEL, LIVE_SOURCE_FIELD_LABEL_SCREEN, LIVE_SOURCE_REFRESH, LIVE_SRT_PASSPHRASE_TEXT, liveSourceGoneText } from '@/errors/errorMessages'
 import { PREVIEW_SWITCH_NOTE_STARTING } from '@/errors/livePreviewMessages'
 import { composePushUrl, parsePushUrl } from '@/utils/liveUrl'
 import * as liveApi from '@/api/live'
@@ -111,7 +110,6 @@ const err = ref<PushFormError | null>(null)
 const starting = ref(false)
 const canStart = computed(() => recordStartEnabled({ blocked: blocked.value, starting: starting.value, hasUrl: !!baseUrl.value.trim(), sourceId: sourceId.value, state: srcState.value, gone: goneShown.value }))
 /** 没选来源（列表加载失败 / 没有可选项）时不传来源，后端默认推主屏：表单里给一句轻提示 */
-const defaultMain = computed(() => defaultMainScreenHint({ sourceId: sourceId.value, state: srcState.value, gone: goneShown.value }))
 
 watch([baseUrl, key], () => (err.value = null))
 watch(archiveOn, async (on) => {

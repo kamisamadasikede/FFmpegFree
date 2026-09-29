@@ -186,4 +186,11 @@
 ### 直播小修订（包 12，设计师走查 PR71/72）
 - 预览舞台 `.pv-stage` 网格轨道 `minmax(0,1fr)`：16:9 画面 1280 下 384×216、1024 下 256×144 居中（拉流页舞台 694×390 / 454×255 不变）。
 - `previewOn` 开始成功后复位为开（文件 / 录屏推流）；拉流页在会话结束后复位；开始报错时保留用户当前选择。
-- 录屏推流“开始推流”可用性 `recordStartEnabled`（utils/liveSource.ts）：已选来源即可用（刷新中 / 刷新失败保留旧列表也可用）；没选来源时，首次失败或空列表可用——请求用 `buildScreenPushRequest`，**不带 captureSourceId**（也不带 screenId），后端默认推主显示器，表单出一句轻提示“未选择来源，将推送主屏”（待产品经理确认）；GONE 等待重选、首次加载中置灰。ffmpeg 未就绪 / 正在开始 / 地址为空一律置灰。
+- 录屏推流“开始推流”可用性 `recordStartEnabled`（utils/liveSource.ts）：已选来源即可用（刷新中 / 刷新失败保留旧列表也可用）；没选来源时，首次失败或空列表可用——请求用 `buildScreenPushRequest`，**不带 captureSourceId**（也不带 screenId），后端默认推主显示器，触发器直接显示“屏幕 1（主显示器）”（`LIVE_SOURCE_DEFAULT_MAIN_NAME`，产品经理定稿；表单里不再另加提示）；GONE 等待重选、首次加载中置灰。ffmpeg 未就绪 / 正在开始 / 地址为空一律置灰。
+
+## 界面用词与回退文案定稿（小修订包 12，`v2-fe-copy-final`）
+
+产品经理定稿：界面叫“显卡编码”，不用“硬件编码”；转换任务说“转换”，直播任务说“推流”，不用“转码”；全角标点。`api.check.ts` 扫源码里用户可见字符串（去掉注释）锁着这几个词和编码器名。
+- 任务详情设备栏：回退时“CPU（已回退）”（`usedDeviceText`：`hwFallback` 且设备为 cpu）。
+- 回退原因只放在任务中心“查看日志”面板头（`encoderFallbackReasonText`，七个枚举 + 未知兜底“未能确定具体原因，详情见下方日志。”）；任务行只有一句通用提示（历史任务“已自动改用 CPU 完成转换。”），不显示原因。
+- 剪辑导出条内嵌的回退提示不带关闭按钮（`EncoderFallbackNotice` 的 `no-close`），整条只有一个“关闭提示”。

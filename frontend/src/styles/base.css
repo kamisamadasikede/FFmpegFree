@@ -135,3 +135,19 @@ a:focus-visible {
   white-space: nowrap;
   border: 0;
 }
+
+/* 任务的设备一栏回退时的警告色短标“CPU（已回退）”（设计说明 v0.1.2 §2.5-13） */
+.dev-fb {
+  display: inline-block;
+  height: 18px;
+  line-height: 18px;
+  box-sizing: border-box;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ff-warning-text);
+  background: color-mix(in srgb, var(--ff-warning) 14%, transparent);
+  white-space: nowrap;
+  vertical-align: middle;
+}
