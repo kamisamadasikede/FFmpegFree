@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.5）
+# FFmpegFree v2 接口契约（v0.6）
+
+v0.6 变更：第 9 节补充安装实现（下载清单、`InstallFFmpeg(mirror)` 只接受 `""` / `"cn"`、`CancelFFmpegInstall`、安装期间的事件）；`FFmpegStatus.error` / `taskId` 无值时不输出（TS 中为可选字段）；`FFmpegStatus` 增加 `ffprobeMissing`。
 
 v0.5 变更：错误码补充直播 / 录屏相关码（第 2 节）；第 7 节的本地流服务取消；第 9 节补充检测实现细节（git 构建取舍、`SetFFmpegPath` 空串、`ffmpeg.Require()` 门控）。
 
@@ -271,6 +273,14 @@ schema_migrations(version PK, applied_at)
 - `InstallFFmpeg` 幂等：已有进行中的安装任务时直接返回该任务，不开第二个下载。
 - 失败时保留已下载部分，提示"重试"或"手动选择 ffmpeg 所在位置"（离线用户的出路）。
 
+**v0.6 实现说明（`internal/ffmpeg`：manifest / download / extract / install）：**
+- 清单是内置的 `internal/ffmpeg/manifest.json`（`go:embed`），每个平台一项，含 URL、SHA256、大小、压缩包类型（zip / tar.xz）、要提取的文件；只用带版本号的固定地址，不用 `latest` 滚动地址，SHA256 都经实际下载核对。某平台没有可验证的固定源时标记 `available:false`，`InstallFFmpeg` 返回 `UNSUPPORTED_PLATFORM`。
+- `mirror` 参数只接受 `""`（默认源）和 `"cn"`。清单里某个压缩包有 `mirrors.cn` 时先用镜像、失败再退回原地址；没有 `cn` 条目的压缩包（目前是 macOS / Linux 的 martin-riedl.de）直接用默认源，不编造镜像地址。镜像必须与原地址返回完全相同的文件（SHA256 相同）。
+- 下载写到 `<数据目录>/tmp/ffmpeg-<版本>-<sha前缀>.part`，断线自动重试并用 `Range` 续传；失败或取消保留 `.part`，SHA256 不符则删除（内容已坏）。校验通过才解压，只提取 ffmpeg / ffprobe 到暂存目录，用与检测相同的规则校验，通过后改名进 `bin/`（新旧文件整体替换，中途失败回滚）。成功后才删除 `.part`。
+- 安装期间状态为 `installing`（`taskId` 为安装任务 ID），依赖 ffmpeg 的门控保持关闭；期间 `RecheckFFmpeg` 保持 `installing`，`SetFFmpegPath` 返回 `TASK_CONFLICT`。结束后 `ready`；失败为 `failed`（`error` 有值，`taskId` 保留）；取消后重新检测。
+- 进度不塞进 `ffmpeg:status`：安装任务在任务管理器出现前，由 SystemService 直接发第 5 节的 `task:created` / `task:progress`（每秒最多 4 次）/ `task:status`，payload 与契约一致（`Task.type = ffmpeg_install`）。`InstallFFmpeg` 返回的是与契约 `Task` 字段一致的轻量结构（`InstallTask`），任务管理器接入后换成真正的 `Task`，前端不用改。`progress` 0~1 覆盖整个流程：下载占 0~0.9，解压 0.9~0.94，校验 0.94~0.98，安装完成 1。
+- 下载可用镜像 / 平台清单在契约外，随版本更新清单文件即可；macOS 上校验失败会先 `codesign -s -` 再校验一次。
+
 ### 9.4 接口
 
 ```go
@@ -279,13 +289,15 @@ type FFmpegStatus struct {
     Path      string `json:"path"`
     Version   string `json:"version"`
     Source    string `json:"source"`    // custom | bundled | system | legacy
-    TaskID    string `json:"taskId"`    // installing 时对应的安装任务
-    Error     *AppError `json:"error"`
+    TaskID    string `json:"taskId,omitempty"` // installing 时对应的安装任务；无值时不输出，TS 中为 taskId?: string
+    FFprobeMissing bool `json:"ffprobeMissing"`   // ready 但没有 ffprobe（v1 的 ffmpeg/ 目录），前端提示补全；探测 / 缩略图用 ffmpeg.RequireProbe() 门控
+    Error     *AppError `json:"error,omitempty"`  // 无值时不输出，TS 中为 error?: AppError
 }
 
 // SystemService
 GetFFmpegStatus() (FFmpegStatus, error)
-InstallFFmpeg(mirror string) (Task, error)   // mirror 为空用默认源
+InstallFFmpeg(mirror string) (Task, error)   // mirror 只接受 "" 和 "cn"，其他值返回 INVALID_ARGUMENT
+CancelFFmpegInstall() error                  // 取消进行中的安装，保留已下载部分；没有安装在进行时无操作
 SetFFmpegPath(dir string) (FFmpegStatus, error) // 手动指定，校验失败返回 INVALID_ARGUMENT；传空串清除手动指定并重新检测
 RecheckFFmpeg() (FFmpegStatus, error)
 ```
