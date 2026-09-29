@@ -3,10 +3,11 @@
     <FIcon :name="kind === 'info' ? 'download' : kind === 'ok' ? 'check' : 'warn'" />
 
     <template v-if="state === 'missing'">
-      <span>未检测到 ffmpeg，转换、剪辑和直播暂时不能用。</span>
+      <span>未检测到 ffmpeg，转换、剪辑和直播功能暂不可用。</span>
       <span class="sp" />
-      <el-button type="primary" size="small" :disabled="!ffmpeg.installAvailable" @click="safe(() => ffmpeg.startInstall())">{{ ffmpeg.installAvailable ? '下载安装' : '安装功能即将上线' }}</el-button>
-      <el-button link class="later" @click="ffmpeg.bannerClosed = true">稍后</el-button>
+      <el-button type="primary" size="small" :disabled="!ffmpeg.installAvailable" @click="safe(() => ffmpeg.startInstall())">{{ ffmpeg.installAvailable ? '立即安装' : '安装功能即将上线' }}</el-button>
+      <el-button link type="primary" size="small" @click="safe(ffmpeg.pickPath)">手动指定</el-button>
+      <button type="button" class="iconbtn" title="本次不再显示" aria-label="关闭提示（本次不再显示）" @click="ffmpeg.bannerClosed = true"><FIcon name="x" :size="16" /></button>
     </template>
 
     <template v-else-if="state === 'outdated'">
@@ -19,9 +20,9 @@
     </template>
 
     <template v-else-if="state === 'installing'">
-      <span>正在安装 ffmpeg… {{ stageText }} {{ percent }}%</span>
+      <span>正在安装 ffmpeg… {{ percent }}%</span>
       <div class="bar"><i :style="{ width: percent + '%' }" /></div>
-      <span v-if="ffmpeg.install?.speedText" class="meta">{{ ffmpeg.install.speedText }} · {{ ffmpeg.install.remainText }}</span>
+      <span class="meta">{{ stageText }}<template v-if="ffmpeg.install?.speedText"> · {{ ffmpeg.install.speedText }} · {{ ffmpeg.install.remainText }}</template></span>
       <span class="sp" />
       <el-button link type="primary" @click="safe(ffmpeg.cancelInstall)">取消</el-button>
       <el-button link type="primary" @click="router.push('/tasks')">查看详情</el-button>
@@ -31,7 +32,7 @@
       <span>ffmpeg 安装失败：{{ ffmpeg.status.error?.message || '未知错误' }}</span>
       <span class="sp" />
       <el-button link type="primary" @click="safe(ffmpeg.pickPath)">手动指定</el-button>
-      <el-button v-if="ffmpeg.canSwitchMirror" link type="primary" @click="safe(ffmpeg.retryWithOtherMirror)">换下载源重试</el-button>
+      <el-button v-if="ffmpeg.canSwitchMirror" link type="primary" @click="safe(ffmpeg.retryWithOtherMirror)">更换下载源</el-button>
       <el-button type="primary" :disabled="!ffmpeg.installAvailable" @click="safe(() => ffmpeg.startInstall())">重试</el-button>
     </template>
 
@@ -103,8 +104,6 @@ async function safe(fn: () => Promise<unknown>) {
 }
 .banner.warn::before { display: none; }
 .banner.warn > .f-icon { color: var(--ff-warning-text); }
-.banner .later { color: var(--ff-text-2); }
-.banner .later:hover { color: var(--ff-text-1); }
 .banner.info { background: var(--ff-primary-soft); }
 .banner.info::before { background: var(--ff-primary); }
 .banner.info > .f-icon { color: var(--ff-primary); }

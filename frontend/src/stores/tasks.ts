@@ -66,6 +66,8 @@ export interface FinalState {
   progress: number
   speed: string
   etaSec: number
+  /** 任务开始时间（ms，前端算“用时”用；不知道时缺省 / 0） */
+  startedAt?: number
   finishedAt: number
   params: string
 }
@@ -446,7 +448,7 @@ export const useTaskStore = defineStore('tasks', () => {
       if (p.status === 'succeeded') cur.progress = 1
       recordFinal({
         id: cur.id, status: p.status, error: cur.error, outputPath: cur.outputPath, progress: cur.progress,
-        speed: '', etaSec: 0, finishedAt: cur.finishedAt || Date.now(), params: cur.params,
+        speed: '', etaSec: 0, startedAt: cur.startedAt, finishedAt: cur.finishedAt || Date.now(), params: cur.params,
       })
       delete byId[p.id]
       rememberFinished(p.id, p.version)
@@ -659,7 +661,7 @@ export const useTaskStore = defineStore('tasks', () => {
       if (isTerminal(t.status)) {
         recordFinal({
           id: t.id, status: t.status, error: t.error, outputPath: t.outputPath, progress: t.status === 'succeeded' ? 1 : t.progress,
-          speed: '', etaSec: 0, finishedAt: t.finishedAt, params: t.params,
+          speed: '', etaSec: 0, startedAt: t.startedAt, finishedAt: t.finishedAt, params: t.params,
         })
       } else byId[id] = t
     } catch (e) {
