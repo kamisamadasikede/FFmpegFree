@@ -31,7 +31,9 @@ type (
 
 // 任务类型与状态常量（契约第 3 节）。
 const (
-	TypeConvert        = store.TypeConvert
+	TypeConvert    = store.TypeConvert
+	TypeEditExport = store.TypeEditExport
+	// TypeEditRender 已弃用（只为读旧数据），见 store.TypeEditRender。
 	TypeEditRender     = store.TypeEditRender
 	TypeOfficePDF      = store.TypeOfficePDF
 	TypeLiveFilePush   = store.TypeLiveFilePush

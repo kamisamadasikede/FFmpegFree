@@ -16,7 +16,11 @@ type TaskType string
 type TaskStatus string
 
 const (
-	TypeConvert        TaskType = "convert"
+	TypeConvert    TaskType = "convert"
+	TypeEditExport TaskType = "edit_export"
+	// TypeEditRender 是 v0.11 之前的旧名，只为读取旧数据保留，不再产生任务。
+	//
+	// Deprecated: 用 TypeEditExport。
 	TypeEditRender     TaskType = "edit_render"
 	TypeOfficePDF      TaskType = "office_pdf"
 	TypeLiveFilePush   TaskType = "live_file_push"
@@ -271,10 +275,10 @@ func (s *Store) DeleteFinishedTasks(ctx context.Context) ([]Task, error) {
 }
 
 // legacyTypes 是"保留但不再产生"的旧任务类型（契约 v0.10 确认项 ⑧）：库里这类记录在所有读取 / 按 id 操作的入口按不存在处理。
-// 新增旧类型只改这一处（例如 Edit 线合入后把 TypeEditRender 加进来；在此之前 edit_render 仍是可提交的有效类型）。
-var legacyTypes = []TaskType{TypeLiveRelay, TypeLiveRecordPush}
+// 新增旧类型只改这一处。edit_render 是 edit_export 的旧名，同样只读旧数据、不再产生。
+var legacyTypes = []TaskType{TypeLiveRelay, TypeLiveRecordPush, TypeEditRender}
 
-// legacyTypesSQL 是 legacyTypes 的 SQL 列表，如 ('live_relay','live_record_push')。
+// legacyTypesSQL 是 legacyTypes 的 SQL 列表，如 ('live_relay','live_record_push','edit_render')。
 var legacyTypesSQL = func() string {
 	q := make([]string, len(legacyTypes))
 	for i, t := range legacyTypes {
