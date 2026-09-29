@@ -209,6 +209,31 @@ func (s *Store) DeleteTasks(ctx context.Context, ids []string) ([]string, error)
 	return deleted, tx.Commit()
 }
 
+// TaskOutputsByBase 返回 output_path 的文件名（最后一段）与 base 相同（SQLite LIKE 对 ASCII 大小写不敏感的粗筛）的任务输出路径，
+// 最多 500 条。调用方要自己做精确比较；用来判断某个路径是不是任务表里登记的输出。
+func (s *Store) TaskOutputsByBase(ctx context.Context, base string) ([]string, error) {
+	if base == "" {
+		return nil, nil
+	}
+	esc := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(base)
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT DISTINCT output_path FROM tasks WHERE output_path <> '' AND output_path LIKE ? ESCAPE '\' LIMIT 500`,
+		"%"+esc)
+	if err != nil {
+		return nil, fmt.Errorf("查询任务输出失败: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 // DeleteFinishedTasks 删除所有已结束（成功、失败、取消、中断）的任务，返回被删任务（用于清理日志、发事件）。
 func (s *Store) DeleteFinishedTasks(ctx context.Context) ([]Task, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
