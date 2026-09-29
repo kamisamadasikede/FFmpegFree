@@ -348,6 +348,8 @@ schema_migrations(version PK, applied_at)
 
 依据：v1 `master` 上 `backend/contollers/office_controller.go`、`pdf_controller.go`、`frontend/src/views/OfficeConvert.vue`、`PDFPreview.vue`。v1 真实功能：Office → PDF（**纯 Go**，`archive/zip` + `encoding/xml` + `excelize` + `go-pdf/fpdf`，不用 LibreOffice）、PDF 上传 / 列表 / 删除、PDF 预览（前端 `@tato30/vue-pdf`：缩放、翻页、缩略图侧栏、历史列表）。v1 **没有** PDF 合并 / 拆分 / 旋转 / 提取 / 加水印 / 文本提取 / OCR，v2 首版同样不做。
 
+> **架构师已确认（v0.12 定稿）**：内嵌 Noto Sans SC `.ttf` 子集为主路径（6.12.1）；大文件预览的 Windows 验证与回退（6.12.4 第 3 点）；Office 转 PDF 标"实验性"；CSV / TXT 首版不支持。
+
 ### 6.12.1 Office 转 PDF：格式范围（如实）
 
 | 扩展名（不区分大小写） | v2 行为 |
@@ -355,16 +357,19 @@ schema_migrations(version PK, applied_at)
 | `.docx` | 支持，**仅文本**：`word/document.xml` 里每个 `<w:p>` 的 `<w:t>` 拼成一段，按顺序输出，自动换行分页 |
 | `.xlsx` | 支持，**仅单元格文本**：每个工作表先输出 `Sheet: <名称>` 标题，再逐行输出（`excelize.GetRows`，即单元格的显示文本，公式取缓存值），单元格间 4 个空格分隔；每个工作表后换页 |
 | `.pptx` | 支持，**仅文本**：每张幻灯片一个标题 `Slide <n>` + 该页所有 `<a:t>` 文本按段落输出，每页幻灯片换页；按数字顺序处理（v1 按字符串排序会把 slide10 排在 slide2 前，v2 修正） |
-| `.doc` `.xls` `.ppt`（旧二进制格式）、`.odt` `.ods` `.odp` `.rtf` `.csv` `.txt` `.pages` `.numbers` `.key`、其他 | `UNSUPPORTED`，detail 写明原因；旧格式提示"请先另存为 docx / xlsx / pptx" |
+| `.doc` `.xls` `.ppt`（旧二进制格式）、`.odt` `.ods` `.odp` `.rtf` `.pages` `.numbers` `.key`、其他 | `UNSUPPORTED`，detail 写明原因；旧格式提示"请先另存为 docx / xlsx / pptx" |
+| `.csv` `.txt` | **首版不支持**（架构师定，v1 也没有），`UNSUPPORTED`，detail "暂不支持该格式"；以后要加走增量契约版本 |
 | 密码加密的 docx / xlsx / pptx（OLE 容器，不是 zip） | `UNSUPPORTED`，detail "加密文档不支持" |
 
-**明确不支持（输出里没有）**：图片、图表、形状、SmartArt、表格边框与合并单元格、页眉页脚、脚注、批注、修订、字体 / 字号 / 颜色 / 加粗等样式、页面大小与方向（一律 A4 纵向）、分栏、超链接（只保留文字）、公式的重新计算、幻灯片母版与动画、xlsx 的图表与条件格式。这是"提取文字后重排"，**不是**版式保真转换；想要版式保真需要 LibreOffice 或商业库，不在本项目范围（纯 Go 没有可用的开源保真实现）。前端在转换页必须常驻一条说明，文案由前端定。
+**明确不支持（输出里没有）**：图片、图表、形状、SmartArt、表格边框与合并单元格、页眉页脚、脚注、批注、修订、字体 / 字号 / 颜色 / 加粗等样式、页面大小与方向（一律 A4 纵向）、分栏、超链接（只保留文字）、公式的重新计算、幻灯片母版与动画、xlsx 的图表与条件格式。这是"提取文字后重排"，**不是**版式保真转换；想要版式保真需要 LibreOffice 或商业库，不在本项目范围（纯 Go 没有可用的开源保真实现）。**Office 转 PDF 在界面上标"实验性"**（架构师定）：转换页标题 / 入口带"实验性"标签，并常驻一条说明"仅提取文字重新排版，不保留图片和样式"，文案由前端定。
 
-**字体**（影响是否能转换）：`fpdf` 只能嵌入 `.ttf`（TrueType 轮廓），**不能加载 `.ttc`**（箱子上实测用系统 `NotoSansCJK-Regular.ttc` 报 `get metrics Error: not supported`）；只用 Helvetica 等内置字体时，任何 U+00FF 以上的字符（含中日韩）会变成乱码（箱子上实测 `你好` 输出为 `ä½ å¥½`）。规则：
-- 后端按顺序找第一个存在且可加载的 `.ttf`：Windows `C:/Windows/Fonts/simhei.ttf`、`msyh.ttf`、`simsun.ttf`（**注意** Windows 自带的微软雅黑通常是 `msyh.ttc`，`fpdf` 加载不了，v1 的路径表对新版 Windows 可能一个都命不中——**未在 Windows 真机验证**），macOS `/Library/Fonts/Arial Unicode.ttf`，Linux `/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf`。
-- 文档里出现 U+00FF 以上的字符而找不到可用 `.ttf` → 该文件 `UNSUPPORTED`，detail "没有可用的 Unicode 字体"（不输出乱码 PDF）。纯 Latin-1 文档可用内置字体。
-- DejaVu Sans 不含 CJK 字形（覆盖 Latin / 希腊 / 西里尔等）：Linux 上只有 DejaVu 时，含中日韩字符的文档同样 `UNSUPPORTED`，判定方式是检测 CJK / 日文假名 / 谚文码点区间而不是逐字形检查。所以 `GetDocCapabilities.font.cjk` 表示"当前找到的字体是否是已知的 CJK 字体（simhei / msyh / simsun / Arial Unicode）"。
-- 是否把一个开源 CJK 字体（如 Noto Sans SC 的 `.ttf` 子集，OFL 协议，包体增加数 MB）内嵌进程序，见开放问题 1。
+**字体**（影响是否能转换；架构师定：**内嵌字体为主路径，系统字体为补充**）：`fpdf` 只能嵌入 `.ttf`（TrueType 轮廓），**不能加载 `.ttc`**（箱子上实测用系统 `NotoSansCJK-Regular.ttc` 报 `get metrics Error: not supported`）；只用 Helvetica 等内置字体时，任何 U+00FF 以上的字符（含中日韩）会变成乱码（箱子上实测 `你好` 输出为 `ä½ å¥½`）。规则：
+- **内嵌字体（主路径）**：程序用 `go:embed` 内嵌 **Noto Sans SC 子集，必须是 `.ttf`（TrueType 轮廓 `glyf`，不得使用 `.otf` / `.ttc`，也不得是可变字体——`fvar` 表要实例化掉）**，字重 Regular（wght 400），通过 `fpdf.AddUTF8FontFromBytes` 加载，不落盘、不依赖系统。文件放 `internal/service/doc/fonts/NotoSansSC-Regular-subset.ttf`，**同目录必须随包带 SIL OFL 1.1 协议文件 `OFL.txt`（保留原版版权声明 `Copyright 2014-2021 Adobe … Reserved Font Name 'Source'`）**，并在应用的"关于 / 开源许可"里列出。OFL 1.1 对修改版有保留字体名（Reserved Font Name）限制：下载到的 `OFL.txt` 声明保留名 `Source`，子集化 / 实例化算修改，子集文件的内部字体名与随包说明如何写才合规，**需要人工确认**（本契约不做法律结论）。
+- **子集范围**（箱子上已做出样品，见下方实测）：GB2312 全部 6763 个汉字 + GB2312 符号区 + ASCII + Latin-1 + 通用标点（U+2000~206F）+ CJK 标点（U+3000~303F）+ 平假名 / 片假名（U+3040~30FF）+ 全角形式（U+FF00~FFEF）+ 箭头 / 数学符号 / 几何图形（U+2190~21FF、2200~22FF、25A0~25FF），保留 `kern` / `vert` 特性，去 hinting。**不覆盖**：繁体中文专用字、GB2312 之外的生僻字、谚文、emoji。**字体里没有的字符输出为该字体的 `.notdef` 方框，不视为失败**（实测：GB2312 之外的字确实显示为方框）。
+- **包体增量（实测）**：`NotoSansSC-Regular-subset.ttf` = **2 355 628 字节（约 2.25 MiB）**，`OFL.txt` = 4 388 字节；`go:embed` 不压缩，所以可执行文件增加约 **2.25 MiB**（安装包会压缩，gzip -9 后约 1.4 MiB，7z / NSIS 压缩率**未测**）。样品生成方式：google/fonts 仓库的 `NotoSansSC[wght].ttf`（可变，17.8 MB）→ `fontTools.varLib.instancer` 固定 wght=400（静态全集 10.6 MB）→ `fontTools.subset` 按上述码点集。样品用 fpdf v0.9.0 实测能加载并正确输出 `Hello 你好，世界！こんにちは Àé`（`pdftotext` 取回文本一致，`pdftoppm` 渲染有字形）。**实际提交的字体文件和最终大小以实现 PR 为准**，实现 PR 描述里必须再报一次包体增量。
+- **系统字体（补充）**：后端按顺序找第一个存在且可加载的 `.ttf`：Windows `C:/Windows/Fonts/simhei.ttf`、`simsun.ttf`（`msyh.ttf` 仅在旧系统存在；新版 Windows 自带的雅黑通常是 `msyh.ttc`，`fpdf` 加载不了，**未在 Windows 真机验证**），macOS `/Library/Fonts/Arial Unicode.ttf`，Linux `/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf`。**按文档选字体、不做逐字回退**（`fpdf` 一份文档一个当前字体）：先用内嵌字体；若文档含内嵌字体 cmap 未覆盖的字符，且系统字体 cmap 覆盖了这些字符（如繁体字用 Arial Unicode），则整份文档改用该系统字体；否则仍用内嵌字体（缺字为方框）。
+- **`UNSUPPORTED` 规则保留**：内嵌字体加载失败（构建错误才会发生）**且**没有可用系统 `.ttf`，而文档又含 U+00FF 以上的字符 → 该文件 `UNSUPPORTED`，detail "没有可用的 Unicode 字体"（不输出乱码 PDF）；纯 Latin-1 文档可用内置字体。正常构建下内嵌字体总是可用，该分支基本不会触发，但校验和单元测试要覆盖。
+- DejaVu Sans 不含 CJK 字形，只作为系统补充里的拉丁 / 希腊 / 西里尔备选，不再是 CJK 的判据。`GetDocCapabilities.font` 的语义相应调整：`available` = 内嵌字体或系统字体至少一个可用；`name` = 主用字体（`noto-sans-sc-embedded` 或系统字体名）；`cjk` = 主用字体是否覆盖 GB2312 汉字（内嵌字体为 `true`）。
 
 ### 6.12.2 数据结构
 
@@ -435,7 +440,7 @@ type PDFFile struct {
 
 1. `OpenPDF(path)`：路径必须绝对（`INVALID_ARGUMENT`）、存在（`NOT_FOUND`）、是文件（否则 `INVALID_ARGUMENT`）、可读（`IO_ERROR`）、扩展名 `.pdf`（不区分大小写，否则 `INVALID_ARGUMENT`）、前 1024 字节内含 `%PDF-`（否则 `INVALID_ARGUMENT`，detail "不是 PDF 文件"）、大小 ≤ 512 MiB（否则 `INVALID_ARGUMENT`）。成功后登记句柄并写入 / 更新 `doc_recent`。加密 PDF 也能打开，密码由前端 pdf.js 的 `onPassword` 弹窗处理，后端不接触密码。
 2. **主路径（size ≤ 64 MiB）：`ReadPDFChunk` 读整份**。前端循环调用 `ReadPDFChunk(id, offset, 1 MiB)` 直到 `eof`，拼成 `Uint8Array` 交给 `usePDF`。只用 Wails Bind，**不依赖 AssetServer 在 Windows 上缓冲响应的行为**（Wails 2.11.0 `responsewriter_windows.go` 把整个响应体缓冲在内存里，见 6.11.4）。`ReadPDFChunk`：`length` 范围 1~1 MiB（越界 `INVALID_ARGUMENT`），`offset` 不能为负；`offset ≥ 文件大小` 返回 `length=0, eof=true`；句柄不存在（重启后失效）`NOT_FOUND`；每次调用重新 `stat` / 打开，文件被删 `NOT_FOUND`，读失败 `IO_ERROR`；文件在读取期间被改动时前端读到的内容可能不一致，前端在 `size` 变化时应重新 `OpenPDF`。
-3. **大文件（64 MiB < size ≤ 512 MiB）**：前端用 `PDFSource.url`（`/local/<token>`）交给 pdf.js 按 Range 加载；handler 与限长规则同 6.11.4（每个 Range 响应 ≤ 4 MiB；无 Range 的整体请求 ≤ 32 MiB，更大 413，因此大文件必须走 Range）。**此路径在 Windows 上未经验证**（箱子是 Linux；6.11.4 的 WebView2 Range 续传问题同样适用），若真机不通过，大文件的处理见开放问题 2。`url` 在 size ≤ 64 MiB 时也会返回，但前端不应使用。
+3. **大文件（64 MiB < size ≤ 512 MiB）**：前端用 `PDFSource.url`（`/local/<token>`）交给 pdf.js 按 Range 加载；handler 与限长规则同 6.11.4（每个 Range 响应 ≤ 4 MiB；无 Range 的整体请求 ≤ 32 MiB，更大 413，因此大文件必须走 Range）。**此路径在 Windows 上未经验证**（箱子是 Linux；6.11.4 的 WebView2 Range 续传问题同样适用），**Windows 真机 Range 续传由用户在预览包里验证**（架构师定）。**验证不通过时的回退方案（首版不实现，不新增方法或错误码）**：大文件上限降为 64 MiB，即 `OpenPDF` 对 size > 64 MiB 的文件返回 `INVALID_ARGUMENT`（detail "文件超过 64 MiB"），`PDFSource.url` 恒为空；`WholeLoadBytes` 与 `MaxPDFBytes` 都变成 64 MiB。该降级只改 `OpenPDF` 的一个阈值和文档，不改方法签名。`url` 在 size ≤ 64 MiB 时也会返回，但前端不应使用。
 4. 不用 `file://`（WebView 拒绝，同 6.11.4）；不把整份 PDF 作为 base64 一次返回（会撞 IPC 体积与内存峰值）。
 5. 内存：主路径峰值 = 文件大小 × 约 2（分块拼接 + pdf.js 解析），64 MiB 上限据此设定，**阈值是估计值，需真机调**。
 6. 历史列表：`ListRecentPDFs` 取代 v1 的"服务器上传目录列表"；不再复制 PDF 到应用目录（v1 上传会拷贝），列表只存路径，文件被移动 / 删除时 `exists=false`。`OpenPDF` 是唯一的写入点；转换产出的 PDF 不自动进历史，前端在转换完成后需要预览时调用 `OpenPDF(outputPath)`。
