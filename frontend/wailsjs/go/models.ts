@@ -361,9 +361,26 @@ export namespace system {
 		    return a;
 		}
 	}
+	export class InstallOptions {
+	    platform: string;
+	    supported: boolean;
+	    mirrors: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new InstallOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.platform = source["platform"];
+	        this.supported = source["supported"];
+	        this.mirrors = source["mirrors"];
+	    }
+	}
 	export class Settings {
 	    ffmpegPath: string;
 	    ffmpegPromptDismissed: boolean;
+	    defaultOutputDir: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -373,6 +390,7 @@ export namespace system {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ffmpegPath = source["ffmpegPath"];
 	        this.ffmpegPromptDismissed = source["ffmpegPromptDismissed"];
+	        this.defaultOutputDir = source["defaultOutputDir"];
 	    }
 	}
 

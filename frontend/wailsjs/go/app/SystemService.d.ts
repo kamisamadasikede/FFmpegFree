@@ -7,11 +7,17 @@ export function CancelFFmpegInstall():Promise<void>;
 
 export function GetFFmpegStatus():Promise<system.FFmpegStatus>;
 
+export function GetInstallOptions():Promise<system.InstallOptions>;
+
 export function GetSettings():Promise<system.Settings>;
 
 export function InstallFFmpeg(arg1:string):Promise<store.Task>;
 
+export function PickDirectory(arg1:string):Promise<string>;
+
 export function RecheckFFmpeg():Promise<system.FFmpegStatus>;
+
+export function RevealInFolder(arg1:string):Promise<void>;
 
 export function SetFFmpegPath(arg1:string):Promise<system.FFmpegStatus>;
 

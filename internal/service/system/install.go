@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/ffmpeg"
@@ -18,7 +20,7 @@ import (
 
 // installRun 是进行中的安装（从提交到任务结束）。
 type installRun struct {
-	taskID string
+	taskID string // 空表示已占位但任务还在提交中
 }
 
 func (m *Manager) installingStatus() (FFmpegStatus, bool) {
@@ -30,12 +32,28 @@ func (m *Manager) installingStatus() (FFmpegStatus, bool) {
 	return m.status, true
 }
 
+// claimInstall 占住"正在安装"这个位置：同一时刻只允许一个安装任务（提交中、排队、运行都算）。
+// 已被占用返回 false。占位在 Submitted 时补上任务 ID，Abandoned / 任务结束时释放。
+func (m *Manager) claimInstall() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.install != nil {
+		return false
+	}
+	m.install = &installRun{}
+	return true
+}
+
 // beginInstallLocked 进入 installing 状态。调用方持有 m.mu。已经在同一个任务上安装时无操作。
 func (m *Manager) beginInstallLocked(taskID string) {
 	if m.install != nil && m.install.taskID == taskID {
 		return
 	}
 	m.install = &installRun{taskID: taskID}
+	m.announceInstallingLocked(taskID)
+}
+
+func (m *Manager) announceInstallingLocked(taskID string) {
 	st := FFmpegStatus{State: ffmpeg.StateInstalling, TaskID: taskID}
 	m.status = st
 	ffmpeg.SetCurrent(nil) // 安装期间不放行依赖 ffmpeg 的功能，避免与替换文件冲突
@@ -44,10 +62,34 @@ func (m *Manager) beginInstallLocked(taskID string) {
 	}
 }
 
+// waitInstallTask 返回进行中的安装任务；占位还没有任务 ID 时最多等 2 秒（提交只有几毫秒）。
+func (m *Manager) waitInstallTask() (task.Task, bool) {
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		m.mu.Lock()
+		run := m.install
+		if run == nil {
+			m.mu.Unlock()
+			return task.Task{}, false
+		}
+		if run.taskID != "" {
+			t := m.installTaskLocked()
+			m.mu.Unlock()
+			return t, true
+		}
+		m.mu.Unlock()
+		if time.Now().After(deadline) {
+			return task.Task{}, true
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 // Install 启动 ffmpeg 下载安装（契约 9.3），立即返回任务，实际工作在任务管理器的 batch 池里进行。
 //
 //   - 幂等：已有进行中（排队或运行）的安装时直接返回该任务，不开第二个下载；
-//   - mirror 只接受 "" 和 "cn"，其他值返回 INVALID_ARGUMENT；
+//   - mirror 只接受 ""（默认源）和当前平台清单里真正有的镜像（见 InstallOptions）；
+//     其他值（包括当前平台没有的 "cn"）返回 INVALID_ARGUMENT，detail 列出可选镜像，不会悄悄改用默认源；
 //   - 当前平台没有下载源返回 UNSUPPORTED_PLATFORM；
 //   - 状态：任意 → installing（TaskID 为任务 ID）→ ready | failed；取消后重新检测。
 //     每次状态变化推送 ffmpeg:status，进度通过 task:progress 推送，不塞进 ffmpeg:status。
@@ -56,11 +98,11 @@ func (m *Manager) Install(ctx context.Context, mirror string) (task.Task, error)
 	if err != nil {
 		return task.Task{}, err
 	}
-	if t, ok := m.currentInstallTask(); ok {
+	if t, ok := m.waitInstallTask(); ok {
+		if t.ID == "" {
+			return task.Task{}, apperr.New(apperr.TaskConflict, "ffmpeg 安装正在提交，请稍后再试")
+		}
 		return t, nil
-	}
-	if !ffmpeg.ValidMirror(mirror) {
-		return task.Task{}, apperr.New(apperr.InvalidArgument, fmt.Sprintf("不支持的镜像 %q，只能是空字符串（默认源）或 \"cn\"", mirror))
 	}
 	if cfg.Installer == nil {
 		return task.Task{}, apperr.New(apperr.Internal, "安装功能未初始化")
@@ -68,42 +110,32 @@ func (m *Manager) Install(ctx context.Context, mirror string) (task.Task, error)
 	if cfg.Tasks == nil {
 		return task.Task{}, apperr.New(apperr.Internal, "任务管理器未初始化")
 	}
-	if err := cfg.Installer.Preflight(mirror); err != nil {
-		if ffmpeg.IsUnavailable(err) {
-			return task.Task{}, apperr.Wrap(apperr.UnsupportedPlatform, "当前系统暂无可用的 ffmpeg 下载源，请手动指定 ffmpeg 所在位置", err)
-		}
-		return task.Task{}, apperr.Wrap(apperr.InvalidArgument, "安装参数不合法", err)
-	}
-
-	params, _ := json.Marshal(installParams{Mirror: mirror})
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.install != nil { // 检查之后有并发调用抢先提交了
-		return m.installTaskLocked(), nil
-	}
-	t, err := cfg.Tasks.Submit(task.Spec{
-		Type: task.TypeFFmpegInstall, Title: "安装 ffmpeg", OutputPath: cfg.Installer.BinDir, Params: string(params),
-	}, m.newInstallRunner(cfg, mirror))
-	if err != nil {
+	if err := preflightInstall(cfg.Installer, mirror); err != nil {
 		return task.Task{}, err
 	}
-	m.beginInstallLocked(t.ID)
+	if !m.claimInstall() { // 检查之后有并发调用抢先占位了
+		if t, ok := m.waitInstallTask(); ok && t.ID != "" {
+			return t, nil
+		}
+		return task.Task{}, apperr.New(apperr.TaskConflict, "已有 ffmpeg 安装在进行")
+	}
+	params, _ := json.Marshal(installParams{Mirror: mirror})
+	r := m.newInstallRunner(cfg, mirror)
+	r.claimed = true
+	t, err := cfg.Tasks.Submit(task.Spec{
+		Type: task.TypeFFmpegInstall, Title: "安装 ffmpeg", OutputPath: cfg.Installer.BinDir, Params: string(params),
+	}, r)
+	if err != nil {
+		r.Abandoned()
+		return task.Task{}, err
+	}
 	return t, nil
 }
 
+// 目录不在任务里用不到 InputPaths，OutputPath 必须是绝对路径（Installer.BinDir 由 paths.Resolve 给出，本来就是绝对的）。
+
 type installParams struct {
 	Mirror string `json:"mirror"`
-}
-
-// currentInstallTask 返回进行中的安装任务。
-func (m *Manager) currentInstallTask() (task.Task, bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.install == nil {
-		return task.Task{}, false
-	}
-	return m.installTaskLocked(), true
 }
 
 func (m *Manager) installTaskLocked() task.Task {
@@ -117,10 +149,34 @@ func (m *Manager) installTaskLocked() task.Task {
 
 // installRunner 实现 task.Runner 和 task.Finalizer。
 type installRunner struct {
-	m      *Manager
-	cfg    Config
-	mirror string
-	info   ffmpeg.Info // Run 成功后的安装结果
+	m       *Manager
+	cfg     Config
+	mirror  string
+	info    ffmpeg.Info // Run 成功后的安装结果
+	claimed bool        // 已经占住了 m.install（Install / Retry 工厂里占位）
+}
+
+var _ task.Claimer = (*installRunner)(nil)
+
+// Submitted 在任务落库后、task:created 之前调用：把占位补上任务 ID 并进入 installing 状态。
+func (r *installRunner) Submitted(id string) {
+	r.m.mu.Lock()
+	defer r.m.mu.Unlock()
+	if r.claimed && r.m.install != nil && r.m.install.taskID == "" {
+		r.m.install.taskID = id
+		r.m.announceInstallingLocked(id)
+		return
+	}
+	r.m.beginInstallLocked(id)
+}
+
+// Abandoned 在占位后提交失败时释放占位。
+func (r *installRunner) Abandoned() {
+	r.m.mu.Lock()
+	defer r.m.mu.Unlock()
+	if r.claimed && r.m.install != nil && r.m.install.taskID == "" {
+		r.m.install = nil
+	}
 }
 
 func (m *Manager) newInstallRunner(cfg Config, mirror string) *installRunner {
@@ -137,16 +193,16 @@ func (m *Manager) registerInstallFactory(cfg Config) {
 				return nil, apperr.Wrap(apperr.InvalidArgument, "安装任务参数无效", err)
 			}
 		}
-		if !ffmpeg.ValidMirror(p.Mirror) {
-			return nil, apperr.New(apperr.InvalidArgument, "安装任务参数无效")
+		if err := preflightInstall(cfg.Installer, p.Mirror); err != nil {
+			return nil, err
 		}
-		if err := cfg.Installer.Preflight(p.Mirror); err != nil {
-			return nil, apperr.Wrap(apperr.UnsupportedPlatform, "当前系统暂无可用的 ffmpeg 下载源", err)
-		}
-		if _, busy := m.installingStatus(); busy {
+		// 工厂里就占位：造出 Runner 到任务真正开始之间（包括排队期间）都不允许再提交第二个安装。
+		if !m.claimInstall() {
 			return nil, apperr.New(apperr.TaskConflict, "已有 ffmpeg 安装在进行")
 		}
-		return m.newInstallRunner(cfg, p.Mirror), nil
+		r := m.newInstallRunner(cfg, p.Mirror)
+		r.claimed = true
+		return r, nil
 	})
 }
 
@@ -225,15 +281,59 @@ func formatSpeed(bps float64) string {
 // CancelInstall 取消进行中的安装（排队或运行）。没有进行中的安装时什么也不做（返回 nil），
 // 这样前端点"取消"与安装刚好结束的竞态不会报错。已下载的部分保留在 <数据目录>/tmp，下次安装继续。
 func (m *Manager) CancelInstall() error {
+	t, ok := m.waitInstallTask()
 	m.mu.Lock()
-	run := m.install
 	tasks := m.cfg.Tasks
 	m.mu.Unlock()
-	if run == nil || tasks == nil {
+	if !ok || t.ID == "" || tasks == nil {
 		return nil
 	}
-	if err := tasks.Cancel(run.taskID); err != nil && !apperr.Is(err, apperr.TaskConflict) && !apperr.Is(err, apperr.NotFound) {
+	if err := tasks.Cancel(t.ID); err != nil && !apperr.Is(err, apperr.TaskConflict) && !apperr.Is(err, apperr.NotFound) {
 		return err
 	}
 	return nil
+}
+
+// InstallOptions 描述当前平台的安装选项，前端据此决定是否显示"使用国内镜像"开关。
+type InstallOptions struct {
+	Platform  string   `json:"platform"`  // 如 windows-amd64
+	Supported bool     `json:"supported"` // 当前平台有可用的下载源
+	Mirrors   []string `json:"mirrors"`   // 可用的镜像名（不含默认源 ""），没有时是 []
+}
+
+// GetInstallOptions 返回当前平台可选的安装镜像。Installer 未初始化时返回 INTERNAL。
+func (m *Manager) GetInstallOptions() (InstallOptions, error) {
+	cfg, err := m.ready()
+	if err != nil {
+		return InstallOptions{}, err
+	}
+	if cfg.Installer == nil {
+		return InstallOptions{}, apperr.New(apperr.Internal, "安装功能未初始化")
+	}
+	return InstallOptions{
+		Platform:  cfg.Installer.PlatformName(),
+		Supported: cfg.Installer.Supported(),
+		Mirrors:   cfg.Installer.AvailableMirrors(),
+	}, nil
+}
+
+// preflightInstall 在提交任务前同步检查平台和镜像，错误已映射为契约错误码。
+func preflightInstall(in *ffmpeg.Installer, mirror string) error {
+	err := in.Preflight(mirror)
+	if err == nil {
+		return nil
+	}
+	var me *ffmpeg.MirrorError
+	switch {
+	case ffmpeg.IsUnavailable(err):
+		return apperr.Wrap(apperr.UnsupportedPlatform, "当前系统暂无可用的 ffmpeg 下载源，请手动指定 ffmpeg 所在位置", err)
+	case errors.As(err, &me):
+		msg := fmt.Sprintf("当前平台不支持镜像 %q", me.Mirror)
+		detail := "可用的镜像：无，请使用默认源（mirror 传空字符串）"
+		if len(me.Available) > 0 {
+			detail = "可用的镜像：" + strings.Join(me.Available, "、") + "；或传空字符串使用默认源"
+		}
+		return apperr.New(apperr.InvalidArgument, msg).WithDetail(detail)
+	}
+	return apperr.Wrap(apperr.InvalidArgument, "安装参数不合法", err)
 }

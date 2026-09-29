@@ -382,3 +382,91 @@ func TestLegacyWithoutFFprobeStatus(t *testing.T) {
 		t.Fatalf("JSON 应带 ffprobeMissing: %s", raw)
 	}
 }
+
+func TestDefaultOutputDirSettings(t *testing.T) {
+	f := newFixture(t)
+	f.start(t)
+	waitFor(t, func() bool { return f.mgr.Status().State == ffmpeg.StateMissing })
+	ctx := context.Background()
+	if s, _ := f.mgr.GetSettings(ctx); s.DefaultOutputDir != "" {
+		t.Fatalf("默认应为空（与源文件同目录）: %q", s.DefaultOutputDir)
+	}
+	dir := filepath.Join(f.root, "out dir 中文")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.mgr.UpdateSettings(ctx, Settings{DefaultOutputDir: dir + string(filepath.Separator) + "."}); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := f.mgr.GetSettings(ctx); s.DefaultOutputDir != dir {
+		t.Fatalf("应保存清理后的路径: %q", s.DefaultOutputDir)
+	}
+	if ents, _ := os.ReadDir(dir); len(ents) != 0 {
+		t.Fatalf("可写性检查不应留下文件: %v", ents)
+	}
+	if got := f.mgr.DefaultOutputDir(ctx); got != dir {
+		t.Fatal(got)
+	}
+	// 设回空 = 清除
+	if err := f.mgr.UpdateSettings(ctx, Settings{}); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := f.mgr.GetSettings(ctx); s.DefaultOutputDir != "" {
+		t.Fatal("空值应清除设置")
+	}
+}
+
+func TestDefaultOutputDirValidationIsAtomic(t *testing.T) {
+	f := newFixture(t)
+	f.start(t)
+	waitFor(t, func() bool { return f.mgr.Status().State == ffmpeg.StateMissing })
+	ctx := context.Background()
+	file := filepath.Join(f.root, "a.txt")
+	os.WriteFile(file, []byte("x"), 0o644)
+	bad := map[string]string{
+		"相对路径": "relative/dir",
+		"不存在":  filepath.Join(f.root, "nope"),
+		"是文件":  file,
+	}
+	if os.Geteuid() != 0 { // root 能写任何目录
+		ro := filepath.Join(f.root, "ro")
+		os.MkdirAll(ro, 0o755)
+		os.Chmod(ro, 0o555)
+		t.Cleanup(func() { os.Chmod(ro, 0o755) })
+		bad["只读目录"] = ro
+	}
+	for name, d := range bad {
+		err := f.mgr.UpdateSettings(ctx, Settings{DefaultOutputDir: d, FFmpegPromptDismissed: true})
+		if !apperr.Is(err, apperr.InvalidArgument) {
+			t.Errorf("%s: 期望 INVALID_ARGUMENT, got %v", name, err)
+		}
+		if f.mgr.PromptDismissed(ctx) || f.mgr.DefaultOutputDir(ctx) != "" {
+			t.Fatalf("%s: 校验失败时整个更新不应生效", name)
+		}
+	}
+}
+
+func TestDefaultOutputDirMemoryFallbackAndStoreKey(t *testing.T) {
+	f := newFixture(t)
+	f.start(t)
+	waitFor(t, func() bool { return f.mgr.Status().State == ffmpeg.StateMissing })
+	ctx := context.Background()
+	dir := t.TempDir()
+	if err := f.mgr.UpdateSettings(ctx, Settings{DefaultOutputDir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	if found, _ := f.set.GetSetting(ctx, SettingDefaultOutputDir, &got); !found || got != dir {
+		t.Fatalf("应写入 settings 键 defaultOutputDir: %v %q", found, got)
+	}
+	// 没有存储时退化为内存
+	g := newFixture(t)
+	g.mgr.Start(ctx, Config{Locator: g.loc})
+	waitFor(t, func() bool { return g.mgr.Status().State == ffmpeg.StateMissing })
+	if err := g.mgr.UpdateSettings(ctx, Settings{DefaultOutputDir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	if g.mgr.DefaultOutputDir(ctx) != dir {
+		t.Fatal("内存兜底应生效")
+	}
+}

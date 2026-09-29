@@ -5,6 +5,8 @@ package system
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -20,6 +22,7 @@ const EventFFmpegStatus = "ffmpeg:status"
 const (
 	SettingFFmpegPath            = "ffmpegPath"
 	SettingFFmpegPromptDismissed = "ffmpegPromptDismissed"
+	SettingDefaultOutputDir      = "defaultOutputDir"
 )
 
 // FFmpegStatus 见契约第 9.4 节。
@@ -73,6 +76,7 @@ type Manager struct {
 	memMu   sync.Mutex // 保护下面两个内存兜底值（Settings 为 nil 时使用）
 	memPath string
 	memDism bool
+	memOut  string
 }
 
 // NewManager 创建 Manager，初始状态 checking。真正的检测由 Start 触发。
@@ -299,6 +303,8 @@ func (m *Manager) setDismissed(ctx context.Context, v bool) error {
 type Settings struct {
 	FFmpegPath            string `json:"ffmpegPath"`
 	FFmpegPromptDismissed bool   `json:"ffmpegPromptDismissed"`
+	// DefaultOutputDir 是转换等任务的默认输出目录；空字符串表示"与源文件同一个文件夹"。
+	DefaultOutputDir string `json:"defaultOutputDir"`
 }
 
 // GetSettings 返回当前设置。
@@ -307,13 +313,18 @@ func (m *Manager) GetSettings(ctx context.Context) (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	return Settings{FFmpegPath: m.customPath(ctx, cfg), FFmpegPromptDismissed: m.PromptDismissed(ctx)}, nil
+	return Settings{FFmpegPath: m.customPath(ctx, cfg), FFmpegPromptDismissed: m.PromptDismissed(ctx), DefaultOutputDir: m.DefaultOutputDir(ctx)}, nil
 }
 
-// UpdateSettings 更新设置。ffmpegPath 变化时走 SetPath 校验（失败返回 INVALID_ARGUMENT，
-// 且整个更新不生效）；ffmpegPromptDismissed 直接保存。
+// UpdateSettings 更新设置。ffmpegPath 变化时走 SetPath 校验，defaultOutputDir 非空时必须是
+// 绝对路径、已存在且可写的文件夹；任何一项校验失败都返回 INVALID_ARGUMENT，且整个更新不生效；
+// ffmpegPromptDismissed 直接保存。
 func (m *Manager) UpdateSettings(ctx context.Context, s Settings) error {
 	cfg, err := m.ready()
+	if err != nil {
+		return err
+	}
+	outDir, err := validateOutputDir(s.DefaultOutputDir) // 先校验，保证失败时什么都没改
 	if err != nil {
 		return err
 	}
@@ -325,5 +336,67 @@ func (m *Manager) UpdateSettings(ctx context.Context, s Settings) error {
 	if err := m.setDismissed(ctx, s.FFmpegPromptDismissed); err != nil {
 		return apperr.Wrap(apperr.IOError, "保存设置失败", err)
 	}
+	if err := m.setOutputDir(ctx, outDir); err != nil {
+		return apperr.Wrap(apperr.IOError, "保存设置失败", err)
+	}
 	return nil
+}
+
+// DefaultOutputDir 返回设置里的默认输出目录，空字符串表示与源文件同目录。
+func (m *Manager) DefaultOutputDir(ctx context.Context) string {
+	m.mu.Lock()
+	st := m.cfg.Settings
+	m.mu.Unlock()
+	if st == nil {
+		m.memMu.Lock()
+		defer m.memMu.Unlock()
+		return m.memOut
+	}
+	var d string
+	if _, err := st.GetSetting(ctx, SettingDefaultOutputDir, &d); err != nil {
+		return ""
+	}
+	return d
+}
+
+func (m *Manager) setOutputDir(ctx context.Context, d string) error {
+	m.mu.Lock()
+	st := m.cfg.Settings
+	m.mu.Unlock()
+	if st == nil {
+		m.memMu.Lock()
+		defer m.memMu.Unlock()
+		m.memOut = d
+		return nil
+	}
+	return st.SetSetting(ctx, SettingDefaultOutputDir, d)
+}
+
+// validateOutputDir 校验默认输出目录：空表示"与源文件同目录"；非空必须是绝对路径、存在的文件夹且能创建文件。
+// 返回清理过的路径。
+func validateOutputDir(dir string) (string, error) {
+	if dir == "" {
+		return "", nil
+	}
+	if !filepath.IsAbs(dir) {
+		return "", apperr.New(apperr.InvalidArgument, "默认输出目录必须是绝对路径").WithDetail(dir)
+	}
+	dir = filepath.Clean(dir)
+	fi, err := os.Stat(dir)
+	switch {
+	case err != nil && os.IsNotExist(err):
+		return "", apperr.New(apperr.InvalidArgument, "默认输出目录不存在").WithDetail(dir)
+	case err != nil:
+		return "", apperr.New(apperr.InvalidArgument, "无法访问默认输出目录").WithDetail(dir + ": " + err.Error())
+	case !fi.IsDir():
+		return "", apperr.New(apperr.InvalidArgument, "默认输出目录不是文件夹").WithDetail(dir)
+	}
+	f, err := os.CreateTemp(dir, ".ffmpegfree-write-test-*")
+	if err != nil {
+		return "", apperr.New(apperr.InvalidArgument, "默认输出目录不可写").WithDetail(dir + ": " + err.Error())
+	}
+	name := f.Name()
+	f.Close()
+	os.Remove(name)
+	return dir, nil
 }

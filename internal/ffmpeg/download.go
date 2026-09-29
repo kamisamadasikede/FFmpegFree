@@ -178,6 +178,10 @@ func (d *downloader) fetchOnce(ctx context.Context, url, partPath string, wantSi
 			}
 			done += int64(n)
 			report(done, total)
+			// 数据已经在缓冲里时读取不会失败，这里显式检查取消，保证取消立即生效。
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 		}
 		if rerr == io.EOF {
 			break

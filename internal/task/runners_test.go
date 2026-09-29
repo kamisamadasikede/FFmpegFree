@@ -145,3 +145,58 @@ func TestFFmpegRunnerLiveGracefulStop(t *testing.T) {
 	}
 	_ = context.Background()
 }
+
+// 带 out_time=N/A 的假 ffmpeg：第一个参数是模式。
+func fakeTwoPassBin(t *testing.T) string {
+	p := filepath.Join(t.TempDir(), "ffmpeg")
+	script := `#!/bin/sh
+# ffmpeg.Run 会在参数前加 -hide_banner ... -progress pipe:1：先丢掉这些
+while [ "$1" != "pipe:1" ]; do shift; done
+shift
+mode="$1"
+last=""
+for a in "$@"; do last="$a"; done
+case "$mode" in
+  pass1)
+    # $2 是 passlogfile 前缀：写一个日志文件证明目录存在
+    echo "log" > "$2.log"
+    echo "out_time_us=4000000"; echo "progress=continue"
+    echo "out_time_us=N/A"; echo "progress=continue"
+    echo "out_time_us=8000000"; echo "progress=end"
+    exit 0 ;;
+  pass2)
+    [ -f "$2.log" ] || { echo "no passlog" >&2; exit 2; }
+    echo "out_time_us=N/A"; echo "progress=continue"
+    echo "out_time_us=5000000"; echo "progress=continue"
+    echo "out_time_us=N/A"; echo "progress=continue"
+    echo "final" > "$last"
+    echo "out_time_us=8000000"; echo "progress=end"
+    exit 0 ;;
+esac
+`
+	os.WriteFile(p, []byte(script), 0o755)
+	return p
+}
+
+func TestFFmpegRunnerProgressIgnoresNA(t *testing.T) {
+	f := newFx(t, 1)
+	out := filepath.Join(f.dir, "na.mp4")
+	r := &FFmpegRunner{Exe: fakeTwoPassBin(t), Output: out, DurationSec: 8,
+		BuildArgs: func(part string) []string { return []string{"pass2", filepath.Join(f.dir, "nolog"), part} }}
+	// pass2 需要 $2.log
+	os.WriteFile(filepath.Join(f.dir, "nolog.log"), nil, 0o644)
+	tk, _ := f.m.Submit(Spec{Type: TypeConvert}, r)
+	d := waitTask(t, f.m, tk.ID)
+	if d.Status != StatusSucceeded {
+		t.Fatalf("%+v", d)
+	}
+	last := 0.0
+	for _, e := range f.em.all() {
+		if p, ok := e.payload.(ProgressEvent); ok {
+			if p.Progress < last {
+				t.Fatalf("N/A 导致进度回退: %v -> %v", last, p.Progress)
+			}
+			last = p.Progress
+		}
+	}
+}
