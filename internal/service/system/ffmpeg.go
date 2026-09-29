@@ -79,6 +79,9 @@ type Manager struct {
 	memDism bool
 	memOut  string
 	memConc int
+	memEnc  string // 编码器偏好的内存兜底（Settings 为 nil 时使用）
+
+	enc encoderState // 硬件编码器检测缓存（encoders.go）
 
 	launch launcher // 打开文件管理器的函数；nil 用 startDetached（测试里替换）
 }
@@ -131,6 +134,7 @@ func (m *Manager) setIf(ctx context.Context, s FFmpegStatus, bins *ffmpeg.Binari
 		return false
 	}
 	m.status = s
+	m.invalidateEncoders() // ffmpeg 路径 / 版本 / 就绪状态变化，硬件编码器检测结果作废
 	if s.State == ffmpeg.StateReady {
 		ffmpeg.SetCurrent(bins)
 	} else {
