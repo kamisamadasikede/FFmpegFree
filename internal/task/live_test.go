@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -170,4 +171,107 @@ exit 0
 `
 	os.WriteFile(p, []byte(script), 0o755)
 	return p
+}
+
+// 旧类型（保留但不再产生）：库里预置记录 + 日志 + 输出文件，Get / Cancel / Remove / Retry / GetLog 一律 NOT_FOUND，
+// Remove 整体失败且同批合法 id 不被删、旧记录的日志和输出文件不被碰；真正不存在的 id 仍被忽略。
+func TestLegacyTypeIDsAreNotFoundEverywhere(t *testing.T) {
+	f := newFx(t, 1)
+	ctx := context.Background()
+	if err := os.MkdirAll(filepath.Join(f.dir, "logs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacy := []store.TaskType{store.TypeLiveRelay, store.TypeLiveRecordPush}
+	type rec struct{ id, log, out string }
+	var recs []rec
+	for i, typ := range legacy {
+		id := fmt.Sprintf("OLD%d", i)
+		r := rec{id: id, log: filepath.Join(f.dir, "logs", id+".log"), out: filepath.Join(f.dir, id+".mp4")}
+		for _, p := range []string{r.log, r.out} {
+			if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// 状态覆盖已结束（succeeded）与"进行中"（running，遗留的脏数据）两种
+		st := store.StatusSucceeded
+		if i == 1 {
+			st = store.StatusRunning
+		}
+		tk := store.Task{ID: id, Type: typ, Status: st, Title: "old", InputPaths: []string{}, OutputPath: r.out, LogPath: r.log,
+			Version: 1, CreatedAt: int64(100 + i), StartedAt: 1}
+		if err := f.st.InsertTask(ctx, tk); err != nil {
+			t.Fatal(err)
+		}
+		recs = append(recs, r)
+	}
+	// 一条合法的已结束任务，用来验证 Remove 整体失败时不被删
+	good := store.Task{ID: "GOOD1", Type: store.TypeConvert, Status: store.StatusFailed, Title: "g", InputPaths: []string{}, Version: 1, CreatedAt: 200}
+	if err := f.st.InsertTask(ctx, good); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, r := range recs {
+		if _, err := f.m.Get(r.id); !apperr.Is(err, apperr.NotFound) {
+			t.Errorf("Get(%s): %v", r.id, err)
+		}
+		if err := f.m.Cancel(r.id); !apperr.Is(err, apperr.NotFound) {
+			t.Errorf("Cancel(%s) 应 NOT_FOUND（不是 TASK_CONFLICT）: %v", r.id, err)
+		}
+		if _, err := f.m.Retry(r.id); !apperr.Is(err, apperr.NotFound) {
+			t.Errorf("Retry(%s) 应 NOT_FOUND（不是 UNSUPPORTED）: %v", r.id, err)
+		}
+		if _, err := f.m.GetLog(r.id, 10); !apperr.Is(err, apperr.NotFound) {
+			t.Errorf("GetLog(%s): %v", r.id, err)
+		}
+		for _, del := range []bool{false, true} {
+			if err := f.m.Remove([]string{r.id}, del); !apperr.Is(err, apperr.NotFound) {
+				t.Errorf("Remove(%s, %v) 应 NOT_FOUND: %v", r.id, del, err)
+			}
+			if err := f.m.Remove([]string{"GOOD1", "nonexistent", r.id}, del); !apperr.Is(err, apperr.NotFound) {
+				t.Errorf("同批含旧类型应整体 NOT_FOUND: %v", err)
+			}
+		}
+	}
+	// 旧记录还在库里（直接查表），日志和输出文件没被碰；同批合法 id 没被删
+	for _, r := range recs {
+		var n int
+		if err := f.st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM tasks WHERE id = ?`, r.id).Scan(&n); err != nil || n != 1 {
+			t.Errorf("旧记录 %s 不应被删: n=%d err=%v", r.id, n, err)
+		}
+		for _, p := range []string{r.log, r.out} {
+			if _, err := os.Stat(p); err != nil {
+				t.Errorf("旧记录的文件不应被删: %v", err)
+			}
+		}
+	}
+	if _, err := f.m.Get("GOOD1"); err != nil {
+		t.Fatalf("同批合法 id 不应被删: %v", err)
+	}
+	// 真正不存在的 id 仍然忽略；合法 id 正常删除
+	if err := f.m.Remove([]string{"nonexistent"}, false); err != nil {
+		t.Fatalf("不存在的 id 应忽略: %v", err)
+	}
+	if err := f.m.Cancel("nonexistent"); !apperr.Is(err, apperr.NotFound) {
+		t.Fatalf("%v", err)
+	}
+	if err := f.m.Remove([]string{"GOOD1"}, false); err != nil {
+		t.Fatal(err)
+	}
+	// ClearFinished 也不动旧记录（任务中心不展示，也没有入口删）
+	if err := f.m.ClearFinished(); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range recs {
+		for _, p := range []string{r.log, r.out} {
+			if _, err := os.Stat(p); err != nil {
+				t.Errorf("ClearFinished 不应删旧记录的文件: %v", err)
+			}
+		}
+	}
+	// 没有任何 legacy 类型能被提交
+	for _, typ := range legacy {
+		if _, err := f.m.Submit(Spec{Type: typ}, RunnerFunc(func(context.Context, func(Progress)) (string, error) { return "", nil })); err == nil {
+			t.Errorf("%s 不应能提交", typ)
+		}
+	}
 }

@@ -207,7 +207,7 @@ func (s *Store) DeleteTasks(ctx context.Context, ids []string) ([]string, error)
 	}
 	defer tx.Rollback()
 	for _, id := range ids {
-		res, err := tx.ExecContext(ctx, `DELETE FROM tasks WHERE id = ? AND status NOT IN ('queued','running')`, id)
+		res, err := tx.ExecContext(ctx, `DELETE FROM tasks WHERE id = ? AND status NOT IN ('queued','running') AND type NOT IN `+legacyTypesSQL, id)
 		if err != nil {
 			return nil, fmt.Errorf("删除任务失败: %w", err)
 		}
@@ -250,7 +250,7 @@ func (s *Store) DeleteFinishedTasks(ctx context.Context) ([]Task, error) {
 		return nil, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `SELECT `+taskColumns+` FROM tasks WHERE status NOT IN ('queued','running')`)
+	rows, err := tx.QueryContext(ctx, `SELECT `+taskColumns+` FROM tasks WHERE status NOT IN ('queued','running') AND type NOT IN `+legacyTypesSQL)
 	if err != nil {
 		return nil, err
 	}
@@ -264,17 +264,52 @@ func (s *Store) DeleteFinishedTasks(ctx context.Context) ([]Task, error) {
 		gone = append(gone, t)
 	}
 	rows.Close()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM tasks WHERE status NOT IN ('queued','running')`); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM tasks WHERE status NOT IN ('queued','running') AND type NOT IN `+legacyTypesSQL); err != nil {
 		return nil, fmt.Errorf("清理任务失败: %w", err)
 	}
 	return gone, tx.Commit()
 }
 
-// legacyTypesSQL 是不再产生、读取时一律忽略的旧任务类型（契约 v0.10 确认项 ⑧）。
-const legacyTypesSQL = `('` + string(TypeLiveRelay) + `','` + string(TypeLiveRecordPush) + `')`
+// legacyTypes 是"保留但不再产生"的旧任务类型（契约 v0.10 确认项 ⑧）：库里这类记录在所有读取 / 按 id 操作的入口按不存在处理。
+// 新增旧类型只改这一处（例如 Edit 线合入后把 TypeEditRender 加进来；在此之前 edit_render 仍是可提交的有效类型）。
+var legacyTypes = []TaskType{TypeLiveRelay, TypeLiveRecordPush}
+
+// legacyTypesSQL 是 legacyTypes 的 SQL 列表，如 ('live_relay','live_record_push')。
+var legacyTypesSQL = func() string {
+	q := make([]string, len(legacyTypes))
+	for i, t := range legacyTypes {
+		q[i] = "'" + string(t) + "'"
+	}
+	return "(" + strings.Join(q, ",") + ")"
+}()
+
+// LegacyTaskIDs 返回 ids 中"库里有这条记录、但类型是旧类型"的 id（真正不存在的 id 不在其中）。
+// Manager.Remove 用它实现"旧类型按不存在处理并整体失败"（契约 v0.10 确认项 ⑧）。
+func (s *Store) LegacyTaskIDs(ctx context.Context, ids []string) ([]string, error) {
+	var out []string
+	for _, id := range ids {
+		var found string
+		err := s.db.QueryRowContext(ctx, `SELECT id FROM tasks WHERE id = ? AND type IN `+legacyTypesSQL, id).Scan(&found)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("查询旧类型任务失败: %w", err)
+		}
+		out = append(out, found)
+	}
+	return out, nil
+}
 
 // IsLegacyType 判断任务类型是否是"保留但不再产生"的旧类型；库里这类记录在 List / ListActive / Get 里按不存在处理，不报错。
-func IsLegacyType(t TaskType) bool { return t == TypeLiveRelay || t == TypeLiveRecordPush }
+func IsLegacyType(t TaskType) bool {
+	for _, l := range legacyTypes {
+		if t == l {
+			return true
+		}
+	}
+	return false
+}
 
 func taskWhere(f TaskFilter) (string, []any) {
 	conds := []string{"type NOT IN " + legacyTypesSQL}
