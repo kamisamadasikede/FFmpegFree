@@ -1,6 +1,5 @@
 node_modules
 frontend/dist
-public
 build
 app.exe
 FFmpegFree.zip
