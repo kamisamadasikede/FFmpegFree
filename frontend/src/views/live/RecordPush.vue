@@ -23,7 +23,7 @@
 
     <template #panel>
       <LivePanel title="推流设置" note="不占用转换队列">
-        <LiveField label="画面来源"><LiveSourcePicker v-model="source" :disabled="session.busy.value" /></LiveField>
+        <LiveField label="画面来源" :control="false"><LiveSourcePicker v-model="source" :disabled="session.busy.value" /></LiveField>
         <LiveField label="推流地址">
           <LiveInput v-model="baseUrl" :bad="urlInvalid" :disabled="session.busy.value" placeholder="rtmp://live.example.com/live" copyable @enter="start" />
           <InlineError v-if="urlInvalid" code="LIVE_URL_INVALID" />
@@ -33,20 +33,20 @@
           <InlineError v-if="keyBad" :code="session.errorCode.value" />
         </LiveField>
         <div class="two">
-          <LiveField label="分辨率">
-            <el-select v-model="resolution" :disabled="session.busy.value" class="sel">
+          <LiveField v-slot="{ id }" label="分辨率">
+            <el-select :id="id" v-model="resolution" :disabled="session.busy.value" class="sel">
               <el-option v-for="r in resolutions" :key="r.value" :label="r.label" :value="r.value" />
             </el-select>
           </LiveField>
-          <LiveField label="帧率">
-            <el-select v-model="fps" :disabled="session.busy.value" class="sel">
+          <LiveField v-slot="{ id }" label="帧率">
+            <el-select :id="id" v-model="fps" :disabled="session.busy.value" class="sel">
               <el-option v-for="f in [15, 24, 30, 60]" :key="f" :label="`${f} fps`" :value="f" />
             </el-select>
           </LiveField>
         </div>
-        <LiveField label="视频码率"><LiveSlider v-model="bitrate" :min="1000" :max="10000" :step="500" unit="k" :disabled="session.busy.value" /></LiveField>
-        <div class="chk">摄像头画中画<el-switch v-model="pip" size="small" :disabled="session.busy.value || source === 'camera'" /></div>
-        <div class="chk">断线自动重连<el-switch v-model="autoReconnect" size="small" /></div>
+        <LiveField label="视频码率" :control="false"><LiveSlider v-model="bitrate" :min="1000" :max="10000" :step="500" unit="k" :disabled="session.busy.value" /></LiveField>
+        <div class="chk">摄像头画中画<el-switch v-model="pip" size="small" aria-label="摄像头画中画" :disabled="session.busy.value || source === 'camera'" /></div>
+        <div class="chk">断线自动重连<el-switch v-model="autoReconnect" size="small" aria-label="断线自动重连" /></div>
         <LiveAdvanced v-model:archive-enabled="archiveEnabled" v-model:segment-seconds="segmentSeconds" v-model:relay-text="relayText" />
         <template #action>
           <LiveButton v-if="session.busy.value" variant="danger" lg icon="x" @click="stop">停止推流</LiveButton>

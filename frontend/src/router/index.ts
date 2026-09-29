@@ -15,8 +15,6 @@ const routes: RouteRecordRaw[] = [
       { path: 'push', component: () => import('../views/live/FilePush.vue') },
       { path: 'record', component: () => import('../views/live/RecordPush.vue') },
       { path: 'pull', component: () => import('../views/live/PullPlay.vue') },
-      // 转推 / 健康 / 归档运维面板：原型没有对应页签，暂不放进页签栏，保留路由 #/live/ops 给 v1 功能过渡
-      { path: 'ops', component: () => import('../views/LiveOps.vue') },
     ],
   },
   {

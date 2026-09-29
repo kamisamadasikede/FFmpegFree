@@ -1,11 +1,14 @@
 <template>
   <div class="slider">
-    <el-slider v-model="model" :min="min" :max="max" :step="step" :show-tooltip="false" :disabled="disabled" class="tr" />
+    <el-slider v-model="model" :aria-labelledby="labelId" :min="min" :max="max" :step="step" :show-tooltip="false" :disabled="disabled" class="tr" />
     <span class="val">{{ model }} {{ unit }}</span>
   </div>
 </template>
 
 <script setup lang="ts">
+import { inject } from 'vue'
+
+const labelId = inject<string | undefined>('ff-field-label-id', undefined)
 // 原型的 .slider：4px 轨道、12px 白色圆点（主色描边）、右侧 70px 数值。
 const model = defineModel<number>({ required: true })
 withDefaults(defineProps<{ min?: number; max?: number; step?: number; unit?: string; disabled?: boolean }>(), {

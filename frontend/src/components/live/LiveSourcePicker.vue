@@ -1,5 +1,5 @@
 <template>
-  <div class="srcs" role="radiogroup">
+  <div class="srcs" role="radiogroup" :aria-labelledby="labelId">
     <button
       v-for="o in options"
       :key="o.value"
@@ -18,12 +18,14 @@
 
 <script setup lang="ts">
 // 画面来源三选一：屏幕 / 摄像头 / 窗口，样式来自 proto/pages.html 的 .srcs / .src。
+import { inject } from 'vue'
 import FIcon from '../icon/FIcon.vue'
 import type { IconName } from '../icon/icons'
 
 export type CaptureSource = 'screen' | 'camera' | 'window'
 const model = defineModel<CaptureSource>({ default: 'screen' })
 defineProps<{ disabled?: boolean }>()
+const labelId = inject<string | undefined>('ff-field-label-id', undefined)
 const options: { value: CaptureSource; label: string; icon: IconName }[] = [
   { value: 'screen', label: '屏幕', icon: 'monitor' },
   { value: 'camera', label: '摄像头', icon: 'cam' },

@@ -30,9 +30,9 @@
 
     <template #panel>
       <LivePanel title="推流设置" note="不占用转换队列">
-        <LiveField label="推流素材">
+        <LiveField v-slot="{ id }" label="推流素材">
           <div class="mat">
-            <el-select v-model="selectedName" placeholder="选择素材" :disabled="session.busy.value" no-data-text="还没有素材，先上传一个 MP4" class="mat-sel">
+            <el-select :id="id" v-model="selectedName" placeholder="选择素材" :disabled="session.busy.value" no-data-text="还没有素材，先上传一个 MP4" class="mat-sel">
               <el-option v-for="m in materials" :key="m.name" :label="m.name" :value="m.name" />
             </el-select>
             <el-upload :show-file-list="false" accept="video/mp4" :before-upload="beforeUpload" :http-request="onUpload" :disabled="session.busy.value">
@@ -53,7 +53,7 @@
           <LiveInput v-model="streamKey" secret :bad="keyBad" :disabled="session.busy.value" placeholder="留空则使用地址本身" />
           <InlineError v-if="keyBad" :code="session.errorCode.value" />
         </LiveField>
-        <div class="chk">断线自动重连<el-switch v-model="autoReconnect" size="small" /></div>
+        <div class="chk">断线自动重连<el-switch v-model="autoReconnect" size="small" aria-label="断线自动重连" /></div>
         <LiveAdvanced v-model:archive-enabled="archiveEnabled" v-model:segment-seconds="segmentSeconds" v-model:relay-text="relayText" />
         <template #action>
           <LiveButton v-if="session.busy.value" variant="danger" lg icon="x" @click="stop">停止推流</LiveButton>

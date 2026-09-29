@@ -1,7 +1,9 @@
 <template>
   <div class="input" :class="{ 'ff-input-bad': bad, disabled }">
     <input
+      :id="inputId"
       v-model="model"
+      :aria-describedby="bad ? errorId : undefined"
       :type="secret && !revealed ? 'password' : 'text'"
       :placeholder="placeholder"
       :disabled="disabled"
@@ -22,7 +24,7 @@
 <script setup lang="ts">
 // 原型的 .input：28px 高、12px 等宽字、行尾一个 14px 图标（复制 / 显示推流码）。
 // 红色错误态复用 InlineError 文件里的全局类 ff-input-bad。
-import { ref } from 'vue'
+import { inject, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '../icon/FIcon.vue'
 
@@ -30,6 +32,9 @@ const model = defineModel<string>({ default: '' })
 withDefaults(defineProps<{ placeholder?: string; secret?: boolean; copyable?: boolean; bad?: boolean; disabled?: boolean }>(), {})
 const emit = defineEmits<{ enter: [] }>()
 const revealed = ref(false)
+// 由外层 LiveField 提供：label[for] 指向输入框，错误行通过 aria-describedby 关联
+const inputId = inject<string | undefined>('ff-field-input-id', undefined)
+const errorId = inject<string | undefined>('ff-field-error-id', undefined)
 
 async function copy() {
   try {
@@ -57,6 +62,12 @@ async function copy() {
 }
 .input:focus-within:not(.ff-input-bad) {
   border-color: var(--ff-primary);
+}
+/* 错误态聚焦：ff-input-bad 的红边 + 淡红外圈保留，另加 2px 红色聚焦环（间隔 2px，避免和边框糊在一起） */
+.input.ff-input-bad:focus-within {
+  outline: 2px solid var(--ff-danger);
+  outline-offset: 2px;
+  box-shadow: none !important;
 }
 .input.disabled {
   opacity: 0.6;

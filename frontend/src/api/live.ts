@@ -13,7 +13,6 @@
  *   startRecordPush               WS   /ws（首条文本 + 二进制分片）      StartRecordPush(req) → { wsURL, token }，前端 MediaRecorder 往 wsURL 写
  *   subscribeStats                GET  /api/live/health 每秒轮询          事件 live:stats { id, bitrateKbps, fps, droppedFrames, uptimeSec }
  *   onLiveEvent                   SSE  /api/sse                          事件 task:status { id, status, error }
- *   getLiveHealth/listArchives/relay*  运维面板用，同上映射到 GetHealth / ListArchives / StartRelay / Stop
  *
  * 错误：统一转成 LiveError（code 对齐契约第 2 节和 errors/errorMessages.ts），页面只认 code。
  * v1 后端区分不了“服务器拒绝推流”和“进程中途退出”，SSE 的 failed 一律按 LIVE_PUSH_INTERRUPTED 处理。
@@ -240,43 +239,12 @@ export interface LiveHealthItem {
   updatedAt: string
 }
 
-export interface LiveArchiveItem {
-  streamId: string
-  fileName: string
-  fileUrl: string
-  sizeBytes: number
-  updatedAt: string
-}
-
-export interface RelayTaskItem {
-  streamId: string
-  displayName: string
-  sourceUrl: string
-  targets: string[]
-  status: string
-  health: 'healthy' | 'warning' | 'critical'
-  latencyMs: number
-  dropFrames: number
-}
-
-export interface RelayStartPayload {
-  displayName: string
-  sourceUrl: string
-  targets: string[]
-  archiveEnabled: boolean
-  segmentSeconds: number
-}
-
 export interface LiveHealth {
   summary: { total: number; active: number; warning: number; critical: number }
   items: LiveHealthItem[]
 }
 
 export const getLiveHealth = () => call<LiveHealth>(() => api.get('/api/live/health'))
-export const listArchives = () => call<{ count: number; items: LiveArchiveItem[] }>(() => api.get('/api/live/archives'))
-export const startRelay = (p: RelayStartPayload) => call(() => api.post('/api/live/relay/start', p))
-export const stopRelay = (streamId: string) => call(() => api.post('/api/live/relay/stop', { streamId }))
-export const listRelay = () => call<{ items: RelayTaskItem[] }>(() => api.get('/api/live/relay/list'))
 
 /**
  * 订阅实时指标，返回取消订阅函数。

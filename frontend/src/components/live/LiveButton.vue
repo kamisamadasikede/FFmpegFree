@@ -58,6 +58,11 @@ html.dark .lbtn.pri,
 .ff-dark .lbtn.pri {
   color: #0b0c0e;
 }
+/* 暗色主题 danger 红底白字只有 3.76:1，改近黑字（与 pri 一致） */
+html.dark .lbtn.danger,
+.ff-dark .lbtn.danger {
+  color: #0b0c0e;
+}
 .lbtn:disabled {
   opacity: 0.45;
   cursor: not-allowed;

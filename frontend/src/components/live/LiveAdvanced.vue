@@ -4,12 +4,12 @@
       高级选项<FIcon name="down" :size="14" :class="{ up: open }" />
     </button>
     <div v-if="open" class="body">
-      <div class="chk">自动录制分段<el-switch v-model="archiveEnabled" size="small" /></div>
-      <LiveField v-if="archiveEnabled" label="分段秒数">
-        <el-input-number v-model="segmentSeconds" :min="30" :max="3600" :step="30" controls-position="right" />
+      <div class="chk">自动录制分段<el-switch v-model="archiveEnabled" size="small" aria-label="自动录制分段" /></div>
+      <LiveField v-if="archiveEnabled" label="分段秒数" :control="false">
+        <el-input-number v-model="segmentSeconds" aria-label="分段秒数" :min="30" :max="3600" :step="30" controls-position="right" />
       </LiveField>
-      <LiveField label="额外转推目标（每行一个）">
-        <el-input v-model="relayText" type="textarea" :rows="3" class="mono" placeholder="rtmp://backup.example.com/live/stream1" />
+      <LiveField v-slot="{ id }" label="额外转推目标（每行一个）">
+        <el-input :id="id" v-model="relayText" type="textarea" :rows="3" class="mono" placeholder="rtmp://backup.example.com/live/stream1" />
       </LiveField>
     </div>
   </div>

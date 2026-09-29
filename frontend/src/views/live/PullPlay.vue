@@ -16,7 +16,7 @@
         <template #overlay>
           <LiveOverlays
             :session="session"
-            hud-label="播放中"
+            :hud-label="reconnecting ? '重连中' : '播放中'"
             :hud-lines="hudLines"
             @retry="start"
             @view-log="logOpen = true"
@@ -27,14 +27,14 @@
     </template>
 
     <template #panel>
-      <LivePanel title="拉流设置" note="直接播放远端流，不经过本地服务">
+      <LivePanel title="拉流设置" note="不经过本地服务">
         <LiveField label="流地址">
           <LiveInput v-model="url" :bad="urlInvalid" :disabled="session.busy.value" placeholder="http://live.example.com/live/room.flv" copyable @enter="start" />
-          <InlineError v-if="urlInvalid" code="LIVE_URL_INVALID" />
+          <InlineError v-if="urlInvalid" code="LIVE_URL_INVALID" description="请输入 http:// 或 ws:// 开头的流地址" />
         </LiveField>
         <div class="tip">支持 HTTP-FLV（http:// 或 https://）和 WS-FLV（ws:// 或 wss://）。</div>
-        <div class="chk">低延迟追帧<el-switch v-model="lowLatency" size="small" :disabled="session.busy.value" /></div>
-        <div class="chk">断线自动重连<el-switch v-model="autoReconnect" size="small" /></div>
+        <div class="chk">低延迟追帧<el-switch v-model="lowLatency" size="small" aria-label="低延迟追帧" :disabled="session.busy.value" /></div>
+        <div class="chk">断线自动重连<el-switch v-model="autoReconnect" size="small" aria-label="断线自动重连" /></div>
         <template #action>
           <LiveButton v-if="session.busy.value" variant="danger" lg icon="x" @click="stop">停止播放</LiveButton>
           <LiveButton v-else variant="pri" lg icon="play" @click="start">开始播放</LiveButton>
@@ -62,7 +62,7 @@ import LiveMockFrame from '@/components/live/LiveMockFrame.vue'
 import LiveOverlays from '@/components/live/LiveOverlays.vue'
 import LiveLogDialog from '@/components/live/LiveLogDialog.vue'
 import { livePreview, useLiveSession } from '@/composables/useLiveSession'
-import { isValidStreamUrl, mapPlayerError } from '@/errors/playerError'
+import { isPersistentPlayerError, isValidPullUrl, mapPlayerError } from '@/errors/playerError'
 
 defineOptions({ name: 'LivePullPlay' })
 
@@ -80,12 +80,19 @@ const hasVideo = ref(false)
 
 let player: mpegts.Player | null = null
 let statTimer: ReturnType<typeof setInterval> | null = null
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let userStopped = false
+// 自动重连次数；开始播放（starting）和出画面（playing）时都归零
 let reconnects = 0
+const reconnectCount = ref(0)
 let lastDecoded = 0
 const MAX_RECONNECT = 5
 
-const statusText = computed(() => (session.running.value ? '正在播放' : session.busy.value ? '正在连接' : '未开始播放'))
+// 自动重连等待期间 reconnecting 为 true，状态栏显示“正在重连 n/5”，不再显示“正在播放”
+const reconnecting = ref(false)
+const statusText = computed(() =>
+  reconnecting.value ? `正在重连 ${reconnectCount.value}/${MAX_RECONNECT}` : session.running.value ? '正在播放' : session.busy.value ? '正在连接' : '未开始播放',
+)
 const statusHint = computed(() => (url.value && session.busy.value ? url.value : '拉流播放'))
 const hudLines = computed(() => {
   const s = session.stats
@@ -97,6 +104,17 @@ watch(url, () => (urlInvalid.value = false))
 watch(muted, (m) => {
   if (videoRef.value) videoRef.value.muted = m
 })
+
+function clearReconnectTimer() {
+  if (reconnectTimer) clearTimeout(reconnectTimer)
+  reconnectTimer = null
+}
+
+function resetReconnects() {
+  reconnects = 0
+  reconnectCount.value = 0
+  reconnecting.value = false
+}
 
 function destroyPlayer() {
   if (statTimer) clearInterval(statTimer)
@@ -115,35 +133,28 @@ function destroyPlayer() {
   hasVideo.value = false
 }
 
-/** 只有 http(s) / ws(s) 才能被浏览器拉取；rtmp / rtsp / srt 格式正确但无法直接播放 */
-function playableByBrowser(u: string) {
-  return /^(https?|wss?):\/\//i.test(u.trim())
-}
-
 function start() {
   if (session.busy.value && !player) return
   const u = url.value.trim()
-  if (!isValidStreamUrl(u)) {
+  if (!isValidPullUrl(u)) {
     urlInvalid.value = true
     session.log('流地址格式不正确')
     return
   }
+  clearReconnectTimer()
   userStopped = false
-  reconnects = 0
+  resetReconnects()
   session.setStarting()
   session.log(`开始拉流 ${u}`)
   if (preview) {
     session.simRunning()
     return
   }
-  if (!playableByBrowser(u)) {
-    session.fail('LIVE_PLAY_FAILED', '浏览器只能播放 http(s):// 或 ws(s):// 的 FLV 地址')
-    return
-  }
   open(u)
 }
 
 function open(u: string) {
+  clearReconnectTimer()
   destroyPlayer()
   const el = videoRef.value
   if (!el) return
@@ -173,7 +184,8 @@ function open(u: string) {
     // mpegts 的 detail 可能是 Exception / HttpStatusCodeInvalid / ConnectingTimeout 等
     const code = mapPlayerError({ kind: 'mpegts', type, detail, info, url: u })
     session.log(`播放器错误 ${type} / ${detail}${info?.code !== undefined ? ` / code=${info.code}` : ''}${info?.msg ? ` / ${info.msg}` : ''}`)
-    onFailed(code, info?.code && info.code > 0 ? `服务器返回 ${info.code}` : isWs ? 'WebSocket' : '')
+    const status = info?.code && info.code > 0 ? info.code : undefined
+    onFailed(code, status ? `服务器返回 ${status}` : isWs ? 'WebSocket' : '', status)
   })
   player.on(mpegts.Events.MEDIA_INFO, (mi: { width?: number; height?: number }) => {
     session.stats.width = mi.width ?? 0
@@ -190,10 +202,9 @@ function open(u: string) {
   // 播放器出画面后才算“播放中”
   const onPlaying = () => {
     el.removeEventListener('playing', onPlaying)
-    if (session.phase.value === 'starting') {
-      session.setRunning()
-      reconnects = 0
-    }
+    // 出画面即视为恢复：无论首次播放还是重连成功，重连计数都归零
+    resetReconnects()
+    if (session.phase.value === 'starting') session.setRunning()
   }
   el.addEventListener('playing', onPlaying)
   statTimer = setInterval(sample, 1000)
@@ -216,24 +227,36 @@ function sample() {
   })
 }
 
-function onFailed(code: string, detail = '') {
+function onFailed(code: string, detail = '', httpStatus?: number) {
   destroyPlayer()
-  if (!userStopped && autoReconnect.value && code !== 'LIVE_URL_INVALID' && reconnects < MAX_RECONNECT) {
-    reconnects++
-    session.log(`断线，3 秒后自动重连（${reconnects}/${MAX_RECONNECT}）`)
-    setTimeout(() => !userStopped && session.busy.value && open(url.value.trim()), 3000)
-    return
-  }
+  clearReconnectTimer()
   if (code === 'LIVE_URL_INVALID') {
+    resetReconnects()
     session.setIdle()
     urlInvalid.value = true
     return
   }
+  // 跨域 / 连接失败 / 4xx 这类持久性错误重连也没用：不重连，直接出错误遮罩
+  const persistent = isPersistentPlayerError(code, httpStatus)
+  if (!userStopped && autoReconnect.value && !persistent && reconnects < MAX_RECONNECT) {
+    reconnects++
+    reconnectCount.value = reconnects
+    reconnecting.value = true
+    session.log(`断线，3 秒后自动重连（${reconnects}/${MAX_RECONNECT}）`)
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null
+      if (!userStopped && session.busy.value) open(url.value.trim())
+    }, 3000)
+    return
+  }
+  reconnecting.value = false
   session.fail(code, detail)
 }
 
 function stop() {
   userStopped = true
+  clearReconnectTimer()
+  resetReconnects()
   destroyPlayer()
   session.setIdle()
   session.log('已停止播放')
@@ -248,6 +271,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   userStopped = true
+  clearReconnectTimer()
   destroyPlayer()
 })
 </script>

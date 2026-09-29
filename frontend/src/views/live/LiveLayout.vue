@@ -1,10 +1,10 @@
 <template>
   <div class="live">
-    <div class="seg" role="tablist">
-      <RouterLink v-for="t in tabs" :key="t.to" :to="t.to" class="seg-item" role="tab" :aria-selected="route.path === t.to">
+    <nav class="seg" aria-label="直播工具">
+      <RouterLink v-for="t in tabs" :key="t.to" :to="t.to" class="seg-item">
         {{ t.label }}
       </RouterLink>
-    </div>
+    </nav>
     <!-- KeepAlive：切换页签不打断进行中的推流 / 播放 -->
     <RouterView v-slot="{ Component }">
       <KeepAlive>
@@ -16,9 +16,6 @@
 
 <script setup lang="ts">
 // 直播页外壳：三个页签（原型 pages.html 的 .seg，宽 360）+ 页签内容。
-import { useRoute } from 'vue-router'
-
-const route = useRoute()
 const tabs = [
   { label: '文件推流', to: '/live/push' },
   { label: '录屏推流', to: '/live/record' },
