@@ -55,6 +55,7 @@ Bind 方法返回 `(T, error)`。error 的 message 是 JSON 字符串，前端 `
 | IO_ERROR | 读写文件失败 |
 | PROBE_FAILED | 文件存在但 ffprobe 无法解析（损坏、不是音视频文件、没有可识别的流） |
 | UNSUPPORTED | 该操作不支持这个对象（如没有重试工厂的任务类型不能 Retry） |
+| CONVERT_DISK_FULL | 转换写输出文件时磁盘空间不足（前端标题「磁盘空间不足」，可引导用户换输出目录） |
 | PROCESS_FAILED | 子进程非零退出，detail 带最后 50 行日志 |
 | UNSUPPORTED_PLATFORM | 当前系统或会话不支持该功能（如 Linux Wayland 下的屏幕采集） |
 | LIVE_URL_INVALID | 直播地址格式不合法或协议不支持 |

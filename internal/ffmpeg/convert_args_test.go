@@ -322,7 +322,10 @@ func TestValidateConvertOptions(t *testing.T) {
 
 func TestClassifyConvertError(t *testing.T) {
 	for tail, want := range map[string]apperr.Code{
-		"av_interleaved_write_frame(): No space left on device":                    apperr.IOError,
+		"av_interleaved_write_frame(): No space left on device":                    apperr.ConvertDiskFull,
+		"Error writing trailer: ENOSPC":                                            apperr.ConvertDiskFull,
+		"av_write_frame(): There is not enough space on the disk.":                 apperr.ConvertDiskFull,
+		"write error: Disk quota exceeded":                                         apperr.ConvertDiskFull,
 		"Error opening output file /x/a.mp4: Permission denied":                    apperr.IOError,
 		"/x/a.mp4: Read-only file system":                                          apperr.IOError,
 		"Error opening output /no/dir/a.mp4: No such file or directory":            apperr.IOError,

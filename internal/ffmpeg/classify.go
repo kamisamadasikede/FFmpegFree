@@ -9,7 +9,8 @@ import (
 // ClassifyConvertError 把转换 / 剪辑类 ffmpeg 任务的非零退出归类为契约错误码，stderr 尾部由 Run 放进 detail。
 // 不认识的返回 nil（Run 用默认的 PROCESS_FAILED）。
 //
-//	磁盘满、没有写权限、输出目录不存在、只读文件系统 → IO_ERROR
+//	磁盘满（No space left on device / ENOSPC / Windows "There is not enough space on the disk"）→ CONVERT_DISK_FULL
+//	没有写权限、输出目录不存在、只读文件系统           → IO_ERROR
 //	输入文件不存在或读不了                             → IO_ERROR（NOT_FOUND 由提交前的检查产生）
 //	输入损坏 / 不是媒体文件                             → PROBE_FAILED
 //	编码器 / 滤镜在当前 ffmpeg 构建里不存在              → PROCESS_FAILED，message 说明缺少什么
@@ -24,8 +25,8 @@ func ClassifyConvertError(tail string, _ error) *apperr.AppError {
 		return false
 	}
 	switch {
-	case has("no space left on device", "disk quota exceeded"):
-		return apperr.New(apperr.IOError, "磁盘空间不足，无法写入输出文件")
+	case has("no space left on device", "disk quota exceeded", "enospc", "there is not enough space on the disk", "not enough space on the disk", "磁盘空间不足"):
+		return apperr.New(apperr.ConvertDiskFull, "磁盘空间不足，无法写入输出文件")
 	case has("read-only file system"):
 		return apperr.New(apperr.IOError, "输出位置是只读的，无法写入")
 	case has("permission denied", "operation not permitted", "access is denied", "拒绝访问"):
