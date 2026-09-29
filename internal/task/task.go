@@ -145,6 +145,11 @@ type ProgressEvent struct {
 	DroppedFrames int64   `json:"droppedFrames,omitempty"`
 }
 
+// ClearOutputPath 是 Runner.Run 可以返回的特殊输出路径：表示任务没有输出了，把 outputPath 清空
+// （直播存档是空壳被删除时用）。清空在发终态事件之前完成并落库，事件和库里一致（都是空）。
+// 普通的空串仍然是没有变化，保留提交时的预期路径。
+const ClearOutputPath = "\x00clear-output"
+
 // StatusEvent 是 task:status 的 payload。
 type StatusEvent struct {
 	ID         string           `json:"id"`

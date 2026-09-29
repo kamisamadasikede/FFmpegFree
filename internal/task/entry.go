@@ -98,7 +98,9 @@ func (e *entry) finish(m *Manager, st Status, aerr *apperr.AppError, output stri
 	e.task.FinishedAt = time.Now().UnixMilli()
 	e.task.Speed, e.task.EtaSec = "", 0
 	e.task.Fps, e.task.BitrateKbps, e.task.DroppedFrames = 0, 0, 0
-	if output != "" {
+	if output == ClearOutputPath {
+		e.task.OutputPath = ""
+	} else if output != "" {
 		if filepath.IsAbs(output) {
 			e.task.OutputPath = output
 		} else {
