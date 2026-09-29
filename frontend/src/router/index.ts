@@ -31,7 +31,7 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/tools',
-    meta: { title: '工具', subtitle: 'JSON 格式化 · 对比 · 校验' },
+    meta: { title: '工具', subtitle: 'JSON 格式化与校验', fill: true },
     component: SectionTabs,
     redirect: '/tools/json',
     children: [{ path: 'json', meta: { tab: 'JSON 工具' }, component: () => import('../views/JsonTools.vue') }],

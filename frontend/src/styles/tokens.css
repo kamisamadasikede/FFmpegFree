@@ -21,6 +21,13 @@
   --ff-badge-bg: #2f5cd9; /* 白字 4.44:1 不够，浅色主题角标用 primary-hover（≈5.0:1） */
   --ff-on-danger: #ffffff; /* 危险色底上的文字（删除 / 清除按钮） */
 
+  /* JSON 语法色（工具页代码 / 树形共用），来源：设计原型 extra.css */
+  --ff-syntax-key: #2f5cd9;
+  --ff-syntax-string: #15803d;
+  --ff-syntax-number: #c2410c;
+  --ff-syntax-bool: #7c3aed;
+  --ff-syntax-null: #0e7490;
+
   --ff-bg-app: #f5f6f8;
   --ff-bg-sidebar: #eef0f3;
   --ff-bg-surface: #ffffff;
@@ -83,6 +90,12 @@ html.dark,
   --ff-on-primary: #0b0c0e; /* 白字在 #5b8cff 上只有 3.16:1 */
   --ff-badge-bg: #5b8cff; /* 配近黑字 6.2:1 */
   --ff-on-danger: #0b0c0e; /* 白字在 #ef4444 上只有 3.76:1 */
+
+  --ff-syntax-key: #7aa2ff;
+  --ff-syntax-string: #7ec699;
+  --ff-syntax-number: #f5a860;
+  --ff-syntax-bool: #c792ea;
+  --ff-syntax-null: #56c2d6;
 
   --ff-bg-app: #141518;
   --ff-bg-sidebar: #1a1b1f;
