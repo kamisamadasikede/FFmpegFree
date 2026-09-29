@@ -1,7 +1,9 @@
 package edit
 
 import (
+	"FFmpegFree/internal/fsutil"
 	"context"
+	"fmt"
 	"math"
 	"os"
 	"os/exec"
@@ -191,7 +193,7 @@ func TestExportGapFillsBlackAndSilence(t *testing.T) {
 	p.Output = EditOutput{Width: 320, Height: 240, Fps: 25}
 	p.AudioTrack = []AudioClip{aclip("a1", au, "A1", 2.5, 0, 1)}
 	pl, err := e.svc.ValidateProject(context.Background(), p)
-	if err != nil || !near(pl.DurationSec, 3.5, 1e-9) || !hasWarn(pl, WarnVideoGap) {
+	if err != nil || !near(pl.DurationSec, 3.5, 1e-9) || !hasWarn(pl, WarnClipGap) {
 		t.Fatalf("%+v %v", pl, err)
 	}
 	tk := e.export(t, p, EditExportOptions{OutputDir: filepath.Join(e.dir, "o")})
@@ -342,7 +344,7 @@ func TestExportOutputNameSanitized(t *testing.T) {
 		"../../evil/x": "....evilx.mkv", // 分隔符被删掉；中间的点合法，不会逃出输出目录
 		"CON":          "_CON.mkv",
 		"a:b*c":        "abc.mkv",
-		"   ":          "工程名.mkv", // 空白 → 净化后为空 → 用工程名？见下：outputName 非空白才优先
+		"   ":          "工程名.mkv", // 纯空白 = 未填 → 用工程名
 		"":             "工程名.mkv",
 		"日本語 name..":   "日本語 name.mkv",
 	}
@@ -358,8 +360,7 @@ func TestExportOutputNameSanitized(t *testing.T) {
 			t.Errorf("%q 逃出了输出目录: %s", in, tk.OutputPath)
 		}
 	}
-	// 工程名也空 → edit
-	p.Name = ""
+	// 净化后为空（不是原本为空）→ edit，不回退工程名
 	tk, err := e.svc.Export(context.Background(), p, EditExportOptions{OutputName: "///", OutputDir: out})
 	if err != nil || filepath.Base(tk.OutputPath) != "edit.mkv" {
 		t.Fatalf("%v %v", tk.OutputPath, err)
@@ -381,6 +382,18 @@ func TestExportPathTooLongOnWindows(t *testing.T) {
 	_, err := s.Export(context.Background(), p, EditExportOptions{OutputDir: long, OutputName: "x"})
 	if code(t, err) != apperr.InvalidArgument || !strings.Contains(apperr.From(err).Message, "259") {
 		t.Fatalf("%v", err)
+	}
+	// detail：第一行 project，第二行 path_length=<n> limit=259（n = fsutil.OutputPathLength，含 (99) 与 .part 预留）
+	want := fmt.Sprintf("project\npath_length=%d limit=259", fsutil.OutputPathLength(long, "x", ".mp4"))
+	if d := apperr.From(err).Detail; d != want || fsutil.OutputPathLength(long, "x", ".mp4") <= 259 {
+		t.Fatalf("detail=%q want %q", d, want)
+	}
+	// \\?\ 与 \\.\ 开头的 outputDir 一律拒绝（不看平台）
+	for _, d := range []string{`\\?\C:\out`, `\\.\C:\out`} {
+		_, err := s.Export(context.Background(), p, EditExportOptions{OutputDir: d, OutputName: "x"})
+		if code(t, err) != apperr.InvalidArgument || firstLine(err) != "project" {
+			t.Fatalf("%s: %v", d, err)
+		}
 	}
 	if s.cfg.Tasks.(*fakeTasks).n != 0 {
 		t.Fatal("不应产生任务")

@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/ffmpeg"
@@ -271,6 +272,18 @@ func TestCleanupInterruptedParts(t *testing.T) {
 			t.Fatalf("%s 不应被删", f)
 		}
 	}
+	// 修改时间不早于本次启动的（本次运行里刚写出的）不删
+	fresh := filepath.Join(out, "cut(1).part.mp4")
+	os.WriteFile(fresh, []byte("x"), 0o644)
+	future := time.Now().Add(time.Hour)
+	os.Chtimes(fresh, future, future)
+	if s.CleanupInterruptedParts(ctx) != 0 {
+		t.Fatal("启动之后修改过的 .part 不应被删")
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Fatal("被误删")
+	}
+	os.Remove(fresh)
 	// 只删普通文件：.part 位置是目录 / 符号链接时不动
 	if runtime.GOOS != "windows" {
 		os.Symlink(keep, part)
@@ -323,6 +336,13 @@ func TestUnsupportedFilterScriptProbe(t *testing.T) {
 	if code(t, err) != apperr.Unsupported || ft.n != 0 {
 		t.Fatalf("%v n=%d", err, ft.n)
 	}
+	if ae := apperr.From(err); ae.Detail != "project\nmissing=filter_complex_script" {
+		t.Fatalf("detail=%q", ae.Detail)
+	}
+	// ValidateProject 也在第 0 步报同样的 UNSUPPORTED（先于工程级校验）
+	if _, err := s.ValidateProject(context.Background(), EditProject{}); code(t, err) != apperr.Unsupported {
+		t.Fatalf("Validate 应先探测环境: %v", err)
+	}
 	// 别的失败（如脚本语法错）不是 UNSUPPORTED
 	os.WriteFile(fake, []byte("#!/bin/sh\necho 'boom' >&2\nexit 1\n"), 0o755)
 	s2 := New(Config{Media: fakeMedia{base}, Tasks: ft, TempDir: dir,
@@ -347,7 +367,15 @@ func TestRealFilterScriptProbeCached(t *testing.T) {
 	if err := s.probeFilterScript(context.Background(), bin.FFmpeg); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := s.scriptOK.Load(bin.FFmpeg); !ok {
+	n := 0
+	s.scriptOK.Range(func(k, _ any) bool {
+		n++
+		if !strings.HasPrefix(k.(string), bin.FFmpeg+"|") { // key = 路径|大小|修改时间
+			t.Fatalf("缓存 key 应含文件大小和修改时间: %v", k)
+		}
+		return true
+	})
+	if n != 1 {
 		t.Fatal("应缓存")
 	}
 	// 不存在的可执行文件 → 失败但不是 UNSUPPORTED

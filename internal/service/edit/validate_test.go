@@ -3,6 +3,7 @@ package edit
 import (
 	"context"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -23,7 +24,8 @@ func (f fakeMedia) Inspect(_ context.Context, p string) (store.MediaInfo, error)
 }
 
 func fakeSvc(m map[string]store.MediaInfo) *Service {
-	return New(Config{Media: fakeMedia{m}, Require: func() (ffmpeg.Binaries, error) { return ffmpeg.Binaries{FFmpeg: "x", FFprobe: "y"}, nil }})
+	return New(Config{Media: fakeMedia{m}, Require: func() (ffmpeg.Binaries, error) { return ffmpeg.Binaries{FFmpeg: "x", FFprobe: "y"}, nil },
+		SupportsScript: func(context.Context, string) error { return nil }})
 }
 
 var (
@@ -266,7 +268,7 @@ func TestOutSecSnapAndWarn(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("缺 OUT_TRUNCATED 警告: %+v", pl.Warnings)
+		t.Fatalf("缺 out_truncated 警告: %+v", pl.Warnings)
 	}
 }
 
@@ -275,12 +277,12 @@ func TestOverlapAndGap(t *testing.T) {
 	ctx := context.Background()
 	// 同轨重叠：detail 指后一个
 	_, err := s.ValidateProject(ctx, proj(vclip("c1", pV, "V1", 0, 0, 5), vclip("c2", pV2, "V1", 4.9, 0, 2)))
-	if code(t, err) != apperr.InvalidArgument || firstLine(err) != "clip=c2 path="+pV2 {
+	if code(t, err) != apperr.InvalidArgument || firstLine(err) != "clip=c2 path="+pV2 || detailLine(err, 1) != "overlaps=c1" {
 		t.Fatalf("%v", err)
 	}
 	// 顺序颠倒（数组里后面的 clip 时间更早）：仍然是时间上后一个被指
 	_, err = s.ValidateProject(ctx, proj(vclip("late", pV2, "V1", 4.9, 0, 2), vclip("early", pV, "V1", 0, 0, 5)))
-	if firstLine(err) != "clip=late path="+pV2 {
+	if firstLine(err) != "clip=late path="+pV2 || detailLine(err, 1) != "overlaps=early" {
 		t.Fatalf("%v", firstLine(err))
 	}
 	// 不同轨可以重叠
@@ -297,36 +299,58 @@ func TestOverlapAndGap(t *testing.T) {
 	if _, err := s.ValidateProject(ctx, proj(vclip("c1", pV, "V1", 0.1, 0, 3.3), vclip("c2", pV2, "V1", 3.4000000000000004, 0, 1))); err != nil {
 		t.Fatalf("首尾相接: %v", err)
 	}
-	// 间隙 0.12 秒：视为首尾相接（不报 VIDEO_GAP）；0.13 秒：空隙
+	// 毫秒取整：4.9996 秒开始 ≈ 5.000（不重叠）；4.9994 ≈ 4.999（重叠）
+	if _, err := s.ValidateProject(ctx, proj(vclip("c1", pV, "V1", 0, 0, 5), vclip("c2", pV2, "V1", 4.9996, 0, 1))); err != nil {
+		t.Fatalf("取整到 5.000 应不算重叠: %v", err)
+	}
+	if _, err := s.ValidateProject(ctx, proj(vclip("c1", pV, "V1", 0, 0, 5), vclip("c2", pV2, "V1", 4.9994, 0, 1))); firstLine(err) != "clip=c2 path="+pV2 {
+		t.Fatalf("取整到 4.999 应重叠: %v", err)
+	}
+	// 间隙 0.12 秒：视为首尾相接（不报 clip_gap）；0.13 秒：空隙
 	pl, err := s.ValidateProject(ctx, proj(vclip("c1", pV, "V1", 0, 0, 2), vclip("c2", pV2, "V1", 2.12, 0, 1)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, w := range pl.Warnings {
-		if w.Code == WarnVideoGap {
+		if w.Code == WarnClipGap {
 			t.Fatalf("0.12 秒不算空隙: %+v", w)
 		}
 	}
 	pl, _ = s.ValidateProject(ctx, proj(vclip("c1", pV, "V1", 0, 0, 2), vclip("c2", pV2, "V1", 2.13, 0, 1)))
 	gap := false
 	for _, w := range pl.Warnings {
-		if w.Code == WarnVideoGap && w.ClipID == "c2" {
+		if w.Code == WarnClipGap && w.ClipID == "c2" {
 			gap = true
 		}
 	}
 	if !gap {
-		t.Fatalf("0.13 秒应报 VIDEO_GAP: %+v", pl.Warnings)
+		t.Fatalf("0.13 秒应报 clip_gap: %+v", pl.Warnings)
 	}
-	// 开头空隙
+	// 片头空隙：视频轨第一个 clip startSec>0.12 → leading_gap（clipId=该 clip）；0.12 以内不报
 	pl, _ = s.ValidateProject(ctx, proj(vclip("c1", pV, "V1", 1, 0, 2)))
-	if len(pl.Warnings) == 0 || pl.Warnings[0].Code != WarnVideoGap || pl.Warnings[0].ClipID != "c1" {
+	if len(pl.Warnings) == 0 || pl.Warnings[0].Code != WarnLeadingGap || pl.Warnings[0].ClipID != "c1" {
 		t.Fatalf("开头空隙: %+v", pl.Warnings)
 	}
-	// 音频比视频长：末尾黑场警告；无音轨警告
+	pl, _ = s.ValidateProject(ctx, proj(vclip("c1", pV, "V1", 0.12, 0, 2)))
+	if hasWarn(pl, WarnLeadingGap) {
+		t.Fatalf("0.12 秒不算片头空隙: %+v", pl.Warnings)
+	}
+	// 音频轨：leading_gap 与同轨 clip_gap（clipId=后一个）；有音轨则没有 no_audio_track
+	p = proj(vclip("c1", pV, "V1", 0, 0, 6))
+	p.AudioTrack = []AudioClip{aclip("a1", pA, "A1", 1, 0, 1), aclip("a2", pA, "A1", 3, 0, 1)}
+	pl, _ = s.ValidateProject(ctx, p)
+	var got []string
+	for _, w := range pl.Warnings {
+		got = append(got, w.Code+":"+w.ClipID)
+	}
+	if strings.Join(got, ",") != "leading_gap:a1,clip_gap:a2" || pl.DurationSec != 6 || hasWarn(pl, WarnNoAudioTrack) {
+		t.Fatalf("%v %+v", got, pl)
+	}
+	// 音频比视频长：不再有"末尾黑场"警告（契约只有同轨相邻 / 片头）
 	p = proj(vclip("c1", pV, "V1", 0, 0, 2))
 	p.AudioTrack = []AudioClip{aclip("a1", pA, "A1", 0, 0, 6)}
 	pl, _ = s.ValidateProject(ctx, p)
-	if pl.DurationSec != 6 || !hasWarn(pl, WarnVideoGap) || hasWarn(pl, WarnNoAudioTrack) {
+	if pl.DurationSec != 6 || len(pl.Warnings) != 0 {
 		t.Fatalf("%+v", pl)
 	}
 	pl, _ = s.ValidateProject(ctx, proj(vclip("c1", pV, "V1", 0, 0, 2)))
@@ -373,11 +397,11 @@ func TestTransitionRules(t *testing.T) {
 	if !hasWarn(pl, WarnTransitionIgnored) {
 		t.Fatalf("%+v", pl)
 	}
-	// 默认时长 0.5 但相邻片段只有 0.6 秒（一半 0.3）→ 缩短并警告
+	// 默认时长 0.5 但相邻片段只有 0.6 秒（一半 0.3）→ 静默缩短（契约没有对应警告），不报错
 	a := vclip("c1", pV, "V1", 0, 0, 0.6)
 	a.TransitionToNext = "fade"
 	pl, err = s.ValidateProject(ctx, proj(a, vclip("c2", pV2, "V1", 0.6, 0, 3)))
-	if err != nil || !hasWarn(pl, WarnTransitionClamped) {
+	if err != nil || hasWarn(pl, WarnTransitionIgnored) {
 		t.Fatalf("%+v %v", pl, err)
 	}
 }
@@ -409,5 +433,94 @@ func TestValidateCanceled(t *testing.T) {
 	_, err := s.ValidateProject(ctx, proj(vclip("c1", pV, "V1", 0, 0, 1)))
 	if code(t, err) != apperr.Canceled {
 		t.Fatalf("%v", err)
+	}
+}
+
+// detailLine 返回 AppError.Detail 的第 n 行（0 起）。
+func detailLine(err error, n int) string {
+	lines := strings.Split(apperr.From(err).Detail, "\n")
+	if n < len(lines) {
+		return lines[n]
+	}
+	return ""
+}
+
+// 校验顺序（契约 6.11.2）：环境 → 工程级 → 逐 clip 字段（先视频后音频）→ 逐 clip 路径 / 探测 → 同轨重叠。第一个失败就返回。
+func TestValidationOrder(t *testing.T) {
+	s := fakeSvc(base)
+	ctx := context.Background()
+	missing := filepath.Join(string(filepath.Separator), "m", "nope.mp4")
+	// 路径阶段（素材不存在）先于重叠阶段：c1 素材不存在，c3/c4 重叠 → 报 c1
+	a, b := vclip("c1", missing, "V1", 0, 0, 1), vclip("c2", pV, "V2", 0, 0, 1)
+	c3, c4 := vclip("c3", pV, "V3", 0, 0, 2), vclip("c4", pV2, "V3", 1, 0, 1)
+	_, err := s.ValidateProject(ctx, proj(a, b, c3, c4))
+	if code(t, err) != apperr.NotFound || firstLine(err) != "clip=c1 path="+missing {
+		t.Fatalf("%v", err)
+	}
+	// 字段阶段先于路径阶段：c2 的 outSec=0，c1 的素材不存在 → 报 c2（字段）
+	bad := vclip("c2", pV, "V1", 3, 0, 0)
+	_, err = s.ValidateProject(ctx, proj(a, bad))
+	if code(t, err) != apperr.InvalidArgument || firstLine(err) != "clip=c2 path="+pV {
+		t.Fatalf("%v", err)
+	}
+	// 字段阶段先视频后音频：音频 a1 与视频 c2 都有字段错 → 报视频 c2
+	p := proj(vclip("c1", pV, "V1", 0, 0, 1), bad)
+	p.AudioTrack = []AudioClip{aclip("a1", pA, "A1", -1, 0, 1)}
+	if _, err = s.ValidateProject(ctx, p); firstLine(err) != "clip=c2 path="+pV {
+		t.Fatalf("%v", err)
+	}
+	// 工程级先于逐 clip：名称过长 + clip 字段错 → project
+	p = proj(bad)
+	p.Name = strings.Repeat("长", 81)
+	if _, err = s.ValidateProject(ctx, p); firstLine(err) != "project" {
+		t.Fatalf("%v", err)
+	}
+	// 同一素材探测失败记在按顺序第一个用到它的 clip 上（视频先于音频）
+	p = proj(vclip("c1", missing, "V1", 0, 0, 1))
+	p.AudioTrack = []AudioClip{aclip("a0", missing, "A1", 0, 0, 1)}
+	if _, err = s.ValidateProject(ctx, p); firstLine(err) != "clip=c1 path="+missing {
+		t.Fatalf("%v", err)
+	}
+	// 路径含换行 / 控制字符 → INVALID_ARGUMENT，detail 第一行仍然是一行（换行被替换），且不会探测
+	nl := filepath.Join(string(filepath.Separator), "m", "a\nb.mp4")
+	_, err = s.ValidateProject(ctx, proj(vclip("c1", nl, "V1", 0, 0, 1)))
+	if code(t, err) != apperr.InvalidArgument || !detailRe.MatchString(firstLine(err)) {
+		t.Fatalf("%v %q", err, firstLine(err))
+	}
+}
+
+var detailRe = regexp.MustCompile(`^(?:clip=([A-Za-z0-9_-]{1,64}) path=(.*)|project)$`)
+
+// 每个错误的 detail 第一行都符合契约正则。
+func TestDetailFirstLineRegex(t *testing.T) {
+	s := fakeSvc(base)
+	ctx := context.Background()
+	cases := []EditProject{
+		{Name: "x"},                           // 视频轨为空
+		proj(vclip("c 1", pV, "V1", 0, 0, 1)), // id 非法
+		proj(vclip("c1", pV, "V9", 0, 0, 1)),
+		proj(vclip("c1", "rel.mp4", "V1", 0, 0, 1)),
+		proj(vclip("c1", pV, "V1", 0, 0, 0)),
+		proj(vclip("c1", pV, "V1", 0, 0, 5), vclip("c2", pV, "V1", 1, 0, 1)),
+	}
+	for i, p := range cases {
+		_, err := s.ValidateProject(ctx, p)
+		if err == nil || !detailRe.MatchString(firstLine(err)) {
+			t.Errorf("case %d: %v / %q", i, err, firstLine(err))
+		}
+	}
+}
+
+// 时间线总长 ≤ 6 小时：按 clip 自填值 max(startSec+(outSec-inSec)/speed) 在工程级检查，先于素材探测。
+func TestTimelineLimit(t *testing.T) {
+	s := fakeSvc(base)
+	c := vclip("c1", pV, "V1", 6*3600, 0, 1) // 结束于 6h+1s
+	_, err := s.ValidateProject(context.Background(), proj(c))
+	if code(t, err) != apperr.InvalidArgument || firstLine(err) != "project" {
+		t.Fatalf("%v", err)
+	}
+	c = vclip("c1", pV, "V1", 6*3600-1, 0, 1) // 恰好 6h
+	if _, err := s.ValidateProject(context.Background(), proj(c)); err != nil {
+		t.Fatalf("6 小时整应通过: %v", err)
 	}
 }

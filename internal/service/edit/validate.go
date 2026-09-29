@@ -34,7 +34,7 @@ var (
 // cleanLine 去掉换行等控制字符，避免用户可控的路径 / id 伪造 detail 的第一行。
 func cleanLine(s string) string {
 	return strings.Map(func(r rune) rune {
-		if r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) || r == 0x2028 || r == 0x2029 {
+		if isCtrl(r) {
 			return ' '
 		}
 		return r
@@ -160,8 +160,8 @@ func checkStructure(p EditProject) error {
 	if err := checkCounts(p); err != nil {
 		return err
 	}
-	if n := utf8.RuneCountInString(strings.TrimSpace(p.Name)); n > MaxNameRunes {
-		return projectErr(apperr.InvalidArgument, "工程名称最多 80 个字", "")
+	if err := checkName(p.Name); err != nil {
+		return err
 	}
 	if len(p.VideoTrack) == 0 {
 		return projectErr(apperr.InvalidArgument, "视频轨道不能为空", "videoTrack is empty")
@@ -192,6 +192,10 @@ func checkStructure(p EditProject) error {
 		return projectErr(apperr.InvalidArgument, "全局效果参数越界", fmt.Sprintf("effects=%+v", e))
 	}
 
+	if d := declaredDuration(p); d > MaxTimelineSec {
+		return projectErr(apperr.InvalidArgument, "时间线总长不能超过 6 小时", fmt.Sprintf("durationSec=%.1f", d))
+	}
+
 	seen := map[string]bool{}
 	checkID := func(kind string, i int, id string) error {
 		if !clipIDRe.MatchString(id) {
@@ -206,9 +210,6 @@ func checkStructure(p EditProject) error {
 	common := func(id, path string, start, in, out, speed float64) error {
 		if !finite(start, in, out, speed) {
 			return clipErr(apperr.InvalidArgument, id, path, "片段的数值不合法", "存在 NaN 或无穷大")
-		}
-		if path == "" || !filepath.IsAbs(path) {
-			return clipErr(apperr.InvalidArgument, id, path, "素材路径必须是绝对路径", "")
 		}
 		if start < 0 {
 			return clipErr(apperr.InvalidArgument, id, path, "startSec 不能为负", fmt.Sprintf("startSec=%v", start))
@@ -264,17 +265,44 @@ func checkStructure(p EditProject) error {
 	return nil
 }
 
+// declaredDuration 是按 clip 自填值算的时间线总长 max(startSec + (outSec-inSec)/speed)（契约 6.11.2 第 1 条），
+// 只用于"总长 ≤ 6 小时"的工程级检查；数值不合法（NaN、speed 越界等）的 clip 在这里跳过，留给逐 clip 字段校验去报。
+func declaredDuration(p EditProject) float64 {
+	d := 0.0
+	add := func(start, in, out, speed float64) {
+		if speed == 0 {
+			speed = 1
+		}
+		if !finite(start, in, out, speed) || speed < 0.25 || speed > 4 {
+			return
+		}
+		d = math.Max(d, start+(out-in)/speed)
+	}
+	for _, c := range p.VideoTrack {
+		add(c.StartSec, c.InSec, c.OutSec, c.Speed)
+	}
+	for _, c := range p.AudioTrack {
+		add(c.StartSec, c.InSec, c.OutSec, c.Speed)
+	}
+	return d
+}
+
 // ---------- 素材探测 + 计划 ----------
 
 // build 是 ValidateProject / Export 共用的完整校验：ffmpeg 就绪 → 结构 → 探测素材 → 素材匹配与时长 → 同轨重叠 / 转场 → 总时长。
 func (s *Service) build(ctx context.Context, p EditProject) (*plan, error) {
-	if _, err := s.cfg.Require(); err != nil {
+	// 0 环境：ffmpeg / ffprobe 就绪，-filter_complex_script 可用（契约 6.11.2 第 0 条）。
+	bin, err := s.cfg.Require()
+	if err != nil {
+		return nil, err
+	}
+	if err := s.cfg.SupportsScript(ctx, bin.FFmpeg); err != nil {
 		return nil, err
 	}
 	if err := checkStructure(p); err != nil {
 		return nil, err
 	}
-	infos, err := s.probeAll(ctx, p)
+	infos, probeErrs, err := s.probeAll(ctx, p)
 	if err != nil {
 		return nil, err
 	}
@@ -303,6 +331,12 @@ func (s *Service) build(ctx context.Context, p EditProject) (*plan, error) {
 
 	// 素材匹配：视频 clip 要有视频流，音频 clip 要有音频流；inSec 不能超出素材；outSec 超出素材按 0.05 秒规则取整 / 截断。
 	resolve := func(kind byte, id, path string, in, out float64) (float64, error) {
+		if err := checkClipPath(id, path); err != nil {
+			return 0, err
+		}
+		if err := probeErrs[path]; err != nil {
+			return 0, withClip(err, id, path)
+		}
 		mi := infos[path]
 		if kind == 'v' && !mi.HasVideo {
 			return 0, clipErr(apperr.InvalidArgument, id, path, "视频片段的素材没有视频画面", "")
@@ -386,16 +420,14 @@ func (s *Service) build(ctx context.Context, p EditProject) (*plan, error) {
 	}
 
 	// 时间线总长：视频取"实际画面段"的末尾（有转场时后一个 clip 会和前一个重叠，整段变短），音频取声明的结束。
+	// （工程级的 6 小时上限已在 checkStructure 里按 clip 自填值检查过。）
 	for _, sg := range videoSegments(pl) {
 		pl.duration = math.Max(pl.duration, sg.end)
 	}
 	for _, c := range pl.audios {
 		pl.duration = math.Max(pl.duration, c.end())
 	}
-	if pl.duration > MaxTimelineSec {
-		return nil, projectErr(apperr.InvalidArgument, "时间线总长不能超过 6 小时", fmt.Sprintf("durationSec=%.1f", pl.duration))
-	}
-	pl.warnings = append(pl.warnings, videoGapWarnings(pl)...)
+	pl.warnings = append(pl.warnings, gapWarnings(pl)...)
 	if !pl.hasAudio {
 		pl.warnings = append(pl.warnings, EditWarning{Code: WarnNoAudioTrack, Message: "音轨为空，导出的视频是静音的（不会使用视频素材自带的声音）"})
 	}
@@ -416,32 +448,38 @@ func byTrack(cs []rclip) [][]*rclip {
 	out := make([][]*rclip, 0, len(keys))
 	for _, k := range keys {
 		g := m[k]
-		sort.SliceStable(g, func(i, j int) bool { return g[i].start < g[j].start })
+		sort.SliceStable(g, func(i, j int) bool { return ms(g[i].start) < ms(g[j].start) })
 		out = append(out, g)
 	}
 	return out
 }
 
+// ms 把秒四舍五入到毫秒整数（契约 6.11.2 A：重叠 / 相接比较前先取整，避免浮点误差）。
+func ms(sec float64) int64 { return int64(math.Round(sec * 1000)) }
+
+const contiguousGapMs = 120 // ContiguousGapSec 的毫秒数
+
+// checkOverlap：同一轨道上相邻两个 clip（按 startSec 升序，相同按数组下标），后一个 startSec 早于前一个 end
+// （都先取整到毫秒）即重叠。detail 第一行 clip= 指后一个，第二行 overlaps=<前一个 id>。
 func checkOverlap(cs []rclip) error {
 	for _, g := range byTrack(cs) {
 		for i := 1; i < len(g); i++ {
 			prev, cur := g[i-1], g[i]
-			if cur.start < prev.end()-overlapEpsSec {
-				return clipErr(apperr.InvalidArgument, cur.id, cur.path, "同一轨道上的片段不能重叠",
-					fmt.Sprintf("clip %s 开始于 %.3f，早于同轨上一个片段 %s 的结束 %.3f", cur.id, cur.start, prev.id, prev.end()))
+			if ms(cur.start) < ms(prev.end()) {
+				return clipErr(apperr.InvalidArgument, cur.id, cur.path, "同一轨道上的片段重叠", "overlaps="+prev.id)
 			}
 		}
 	}
 	return nil
 }
 
-// isContiguous 判断同轨相邻片段是否首尾相接（间隙 ≤ 0.12 秒）。
-func isContiguous(prev, cur *rclip) bool { return cur.start-prev.end() <= ContiguousGapSec+1e-9 }
+// isContiguous 判断同轨相邻片段是否首尾相接（间隙 ≤ 0.12 秒，按毫秒取整比较）。
+func isContiguous(prev, cur *rclip) bool { return ms(cur.start)-ms(prev.end()) <= contiguousGapMs }
 
 // resolveTransitions 解析每个视频 clip 的转场（写回 transition / transDur）。转场只对"与同轨下一个片段首尾相接"的片段有效：
-//   - 没有下一个片段或有空隙：忽略转场，记 TRANSITION_IGNORED；
+//   - 没有下一个片段或有空隙：忽略转场，记 transition_ignored；
 //   - 显式时长 > 相邻两个片段中较短者的一半：INVALID_ARGUMENT（detail 的 clip= 指设了转场的片段）；
-//   - 默认时长（0 = 0.5）超过一半：取一半并记 TRANSITION_CLAMPED；一半不足 0.1 秒则忽略转场并记 TRANSITION_IGNORED。
+//   - 默认时长（0 = 0.5）超过一半：静默取一半（契约没有为此定义警告）；一半不足 0.1 秒则转场不生效，记 transition_ignored。
 func resolveTransitions(pl *plan) error {
 	for _, g := range byTrack(pl.videos) {
 		for i, cur := range g {
@@ -472,8 +510,6 @@ func resolveTransitions(pl *plan) error {
 						Message: fmt.Sprintf("片段 %s 与相邻片段太短，放不下转场，转场已忽略", cur.id)})
 					continue
 				}
-				pl.warnings = append(pl.warnings, EditWarning{Code: WarnTransitionClamped, ClipID: cur.id,
-					Message: fmt.Sprintf("片段 %s 的转场时长已缩短为 %.3f 秒（相邻片段较短）", cur.id, d)})
 			}
 			cur.transDur = d
 		}
@@ -511,49 +547,75 @@ func videoSegments(pl *plan) []vseg {
 	return out
 }
 
-// videoGapWarnings 找出时间线上没有任何画面的空隙（> 0.12 秒；跨轨合并后计算），导出时这些位置是黑场。
-func videoGapWarnings(pl *plan) []EditWarning {
-	segs := videoSegments(pl)
-	sort.SliceStable(segs, func(i, j int) bool { return segs[i].start < segs[j].start })
+// gapWarnings 生成 clip_gap / leading_gap（契约 6.11.2 D）：
+//   - clip_gap：同一轨道（V1~V8、A1~A8 各自）相邻两个 clip 之间的空隙 > 0.12 秒，clipId = 后一个 clip；
+//   - leading_gap：视频轨（videoTrack）/ 音频轨（audioTrack）上最早的 clip 的 startSec > 0.12 秒，clipId = 该 clip。
+//
+// 顺序：先视频后音频，轨道编号升序，轨内按时间。
+func gapWarnings(pl *plan) []EditWarning {
 	var out []EditWarning
-	covered := 0.0
-	for _, sg := range segs {
-		if sg.start-covered > ContiguousGapSec+1e-9 {
-			out = append(out, EditWarning{Code: WarnVideoGap, ClipID: sg.firstID,
-				Message: fmt.Sprintf("时间线 %.2f~%.2f 秒没有画面，导出时补黑场", covered, sg.start)})
+	for _, cs := range [][]rclip{pl.videos, pl.audios} {
+		if len(cs) == 0 {
+			continue
 		}
-		covered = math.Max(covered, sg.end)
-	}
-	if pl.duration-covered > ContiguousGapSec+1e-9 {
-		out = append(out, EditWarning{Code: WarnVideoGap,
-			Message: fmt.Sprintf("时间线 %.2f~%.2f 秒没有画面（音频比视频长），导出时补黑场", covered, pl.duration)})
+		first := &cs[0]
+		for i := range cs {
+			if ms(cs[i].start) < ms(first.start) {
+				first = &cs[i]
+			}
+		}
+		if ms(first.start) > contiguousGapMs {
+			out = append(out, EditWarning{Code: WarnLeadingGap, ClipID: first.id,
+				Message: fmt.Sprintf("时间线开头 %.2f 秒没有内容，导出时补黑场 / 静音", first.start)})
+		}
+		for _, g := range byTrack(cs) {
+			for i := 1; i < len(g); i++ {
+				prev, cur := g[i-1], g[i]
+				if ms(cur.start)-ms(prev.end()) > contiguousGapMs {
+					out = append(out, EditWarning{Code: WarnClipGap, ClipID: cur.id,
+						Message: fmt.Sprintf("片段 %s 与 %s 之间有 %.2f 秒空隙，导出时补黑场 / 静音", prev.id, cur.id, cur.start-prev.end())})
+				}
+			}
+		}
 	}
 	return out
 }
 
-// probeAll 探测工程里所有 clip 引用的素材（去重，最多 4 个并行）。返回 path → MediaInfo；
-// 出错时报第一个（按 clip 顺序）出错的 clip，detail 第一行 clip=… path=…。
-func (s *Service) probeAll(ctx context.Context, p EditProject) (map[string]store.MediaInfo, error) {
-	type ref struct{ id, path string }
-	var order []ref
+// checkClipPath 是逐 clip 路径检查的第一步：必须是绝对路径且不含控制字符（含换行，否则会破坏 detail 的行格式）。
+func checkClipPath(id, path string) error {
+	if path == "" || !filepath.IsAbs(path) {
+		return clipErr(apperr.InvalidArgument, id, path, "素材路径必须是绝对路径", "")
+	}
+	if strings.IndexFunc(path, isCtrl) >= 0 {
+		return clipErr(apperr.InvalidArgument, id, path, "素材路径不能包含控制字符（含换行）", "")
+	}
+	return nil
+}
+
+// probeAll 并行探测工程里所有 clip 引用的素材（去重，最多 4 个并行），返回 path → 结果 / 错误。
+// 只探测通过 checkClipPath 的路径；哪个 clip 报错由调用方按契约顺序（先视频后音频、数组顺序）逐个 clip 决定，
+// 所以同一素材的失败记在按顺序第一个用到它的 clip 上。
+func (s *Service) probeAll(ctx context.Context, p EditProject) (map[string]store.MediaInfo, map[string]error, error) {
+	var order []string
 	seen := map[string]bool{}
-	for _, c := range p.VideoTrack {
-		if !seen[c.Path] {
-			seen[c.Path] = true
-			order = append(order, ref{c.ID, c.Path})
+	add := func(id, path string) {
+		if seen[path] || checkClipPath(id, path) != nil {
+			return
 		}
+		seen[path] = true
+		order = append(order, path)
+	}
+	for _, c := range p.VideoTrack {
+		add(c.ID, c.Path)
 	}
 	for _, c := range p.AudioTrack {
-		if !seen[c.Path] {
-			seen[c.Path] = true
-			order = append(order, ref{c.ID, c.Path})
-		}
+		add(c.ID, c.Path)
 	}
 	infos := make([]store.MediaInfo, len(order))
 	errs := make([]error, len(order))
 	sem := make(chan struct{}, 4)
 	var wg sync.WaitGroup
-	for i, r := range order {
+	for i, path := range order {
 		wg.Add(1)
 		sem <- struct{}{}
 		go func() {
@@ -563,19 +625,24 @@ func (s *Service) probeAll(ctx context.Context, p EditProject) (map[string]store
 				errs[i] = err
 				return
 			}
-			infos[i], errs[i] = s.cfg.Media.Inspect(ctx, filepath.Clean(r.path))
+			infos[i], errs[i] = s.cfg.Media.Inspect(ctx, filepath.Clean(path))
 		}()
 	}
 	wg.Wait()
 	if err := ctx.Err(); err != nil {
-		return nil, apperr.Wrap(apperr.Canceled, "操作已取消", err)
+		return nil, nil, apperr.Wrap(apperr.Canceled, "操作已取消", err)
 	}
-	out := make(map[string]store.MediaInfo, len(order))
-	for i, r := range order {
+	mi, me := make(map[string]store.MediaInfo, len(order)), map[string]error{}
+	for i, path := range order {
 		if errs[i] != nil {
-			return nil, withClip(errs[i], r.id, r.path)
+			me[path] = errs[i]
+			continue
 		}
-		out[r.path] = infos[i]
+		mi[path] = infos[i]
 	}
-	return out, nil
+	return mi, me, nil
+}
+
+func isCtrl(r rune) bool {
+	return r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) || r == 0x2028 || r == 0x2029
 }

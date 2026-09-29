@@ -77,10 +77,9 @@ type Config struct {
 
 // Service 实现 EditService，无后台协程。
 type Service struct {
-	cfg       Config
-	scriptOK  sync.Map // exe → struct{}（探测成功的）
-	scriptMu  sync.Mutex
-	probeHook func(ctx context.Context, exe, tmp string) error
+	cfg      Config
+	scriptOK sync.Map  // exe → struct{}（探测成功的）
+	started  time.Time // 进程（服务）启动时间：只清理修改时间早于它的 .part
 }
 
 // New 创建 Service 并注册 edit_export 的重试工厂。
@@ -94,7 +93,7 @@ func New(cfg Config) *Service {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	s := &Service{cfg: cfg}
+	s := &Service{cfg: cfg, started: cfg.Now()}
 	if cfg.SupportsScript == nil {
 		s.cfg.SupportsScript = s.probeFilterScript
 	}
@@ -173,11 +172,8 @@ func (s *Service) prepareExport(ctx context.Context, p EditProject, opts EditExp
 	name := fsutil.SanitizeFileNameOr(firstNonEmpty(opts.OutputName, p.Name), fsutil.DefaultName)
 	ext := "." + pl.format
 	if fsutil.OutputPathTooLong(s.cfg.GOOS, dir, name, ext) {
-		return nil, task.Spec{}, apperr.New(apperr.InvalidArgument, "输出路径太长（Windows 上整条路径不能超过 259 个字符），请换一个较短的输出文件夹或文件名").
-			WithDetail(fmt.Sprintf("project\ndir=%s\nname=%s", cleanLine(dir), cleanLine(name)))
-	}
-	if err := s.cfg.SupportsScript(ctx, bin.FFmpeg); err != nil {
-		return nil, task.Spec{}, err
+		return nil, task.Spec{}, projectErr(apperr.InvalidArgument, "输出路径太长（Windows 上整条路径不能超过 259 个字符），请换一个较短的输出文件夹或文件名",
+			fmt.Sprintf("path_length=%d limit=%d", fsutil.OutputPathLength(dir, name, ext), fsutil.WindowsMaxPath))
 	}
 
 	out := filepath.Join(dir, name+ext)
@@ -213,8 +209,11 @@ func (s *Service) resolveOutputDir(ctx context.Context, dir, fixed string, p Edi
 	if dir == "" && len(p.VideoTrack) > 0 {
 		dir = filepath.Dir(p.VideoTrack[0].Path)
 	}
-	if dir == "" || !filepath.IsAbs(dir) {
-		return "", apperr.New(apperr.InvalidArgument, "输出目录必须是绝对路径").WithDetail("project\n" + cleanLine(dir))
+	if strings.HasPrefix(dir, `\\?\`) || strings.HasPrefix(dir, `\\.\`) {
+		return "", projectErr(apperr.InvalidArgument, `输出目录不能以 \\?\ 或 \\.\ 开头`, "outputDir="+cleanLine(dir))
+	}
+	if dir == "" || !filepath.IsAbs(dir) || strings.IndexFunc(dir, isCtrl) >= 0 {
+		return "", projectErr(apperr.InvalidArgument, "输出目录必须是绝对路径", "outputDir="+cleanLine(dir))
 	}
 	return filepath.Clean(dir), nil
 }
@@ -227,19 +226,19 @@ func checkWritableDir(dir string) error {
 		fi, err := os.Stat(probe)
 		if err == nil {
 			if !fi.IsDir() {
-				return apperr.New(apperr.InvalidArgument, "输出位置不是文件夹").WithDetail("project\n" + cleanLine(probe))
+				return projectErr(apperr.InvalidArgument, "输出位置不是文件夹", "outputDir="+cleanLine(probe))
 			}
 			break
 		}
 		if errors.Is(err, syscall.ENOTDIR) { // 上级路径里有一段是文件
-			return apperr.New(apperr.InvalidArgument, "输出位置的上级不是文件夹").WithDetail("project\n" + cleanLine(dir))
+			return projectErr(apperr.InvalidArgument, "输出位置的上级不是文件夹", "outputDir="+cleanLine(dir))
 		}
 		if !errors.Is(err, os.ErrNotExist) {
 			return apperr.Wrap(apperr.IOError, "无法访问输出目录", err)
 		}
 		parent := filepath.Dir(probe)
 		if parent == probe {
-			return apperr.New(apperr.InvalidArgument, "输出目录不存在且无法创建").WithDetail("project\n" + cleanLine(dir))
+			return projectErr(apperr.InvalidArgument, "输出目录不存在且无法创建", "outputDir="+cleanLine(dir))
 		}
 		probe = parent
 	}
@@ -468,7 +467,7 @@ func (s *Service) DeleteProject(ctx context.Context, projectID string) error {
 // ---------- 启动清理 ----------
 
 // CleanupInterruptedParts 启动时调用：删除 interrupted 的 edit_export 任务遗留的 .part 文件
-// （<name>.part.<ext>，以及重名时可能占用的 <name>(1..99).part.<ext>）。只删普通文件，不跟随符号链接。返回删除个数。
+// （<name>.part.<ext>，以及重名时可能占用的 <name>(1..99).part.<ext>）。只删普通文件（Lstat，不跟随符号链接）且修改时间早于本次启动的。返回删除个数。
 func (s *Service) CleanupInterruptedParts(ctx context.Context) int {
 	if s.cfg.Lister == nil {
 		return 0
@@ -491,7 +490,7 @@ func (s *Service) CleanupInterruptedParts(ctx context.Context) int {
 				cands = append(cands, fmt.Sprintf("%s(%d).part%s", base, i, ext))
 			}
 			for _, c := range cands {
-				if fi, err := os.Lstat(c); err == nil && fi.Mode().IsRegular() {
+				if fi, err := os.Lstat(c); err == nil && fi.Mode().IsRegular() && fi.ModTime().Before(s.started) {
 					if os.Remove(c) == nil {
 						removed++
 					}
@@ -505,10 +504,20 @@ func (s *Service) CleanupInterruptedParts(ctx context.Context) int {
 
 // ---------- ffmpeg 能力探测 ----------
 
-// probeFilterScript 用一个最小的 filtergraph 文件实际跑一次 ffmpeg，确认 -filter_complex_script 可用。
-// 不支持（选项不存在）返回 UNSUPPORTED；其他失败返回 PROCESS_FAILED。成功按 ffmpeg 路径缓存。
+// probeFilterScript 做契约 6.11.2 第 0 条的功能探测（不解析帮助文本）：
+//
+//	ffmpeg -hide_banner -nostdin -loglevel error -f lavfi -i nullsrc=s=32x32:r=5:d=0.4
+//	       -filter_complex_script <file:[0:v]scale=16:16[v]> -map [v] -f null -
+//
+// 退出码 0 = 可用。不认识选项（stderr `Unrecognized option`）返回 UNSUPPORTED，detail 第一行 `project`、第二行
+// `missing=filter_complex_script`；其他失败返回 PROCESS_FAILED（不冒充 UNSUPPORTED）。
+// 成功结果按 ffmpeg 路径 + 文件大小 + 修改时间缓存到进程内。
 func (s *Service) probeFilterScript(ctx context.Context, exe string) error {
-	if _, ok := s.scriptOK.Load(exe); ok {
+	key := exe
+	if fi, err := os.Stat(exe); err == nil {
+		key = fmt.Sprintf("%s|%d|%d", exe, fi.Size(), fi.ModTime().UnixNano())
+	}
+	if _, ok := s.scriptOK.Load(key); ok {
 		return nil
 	}
 	tmp, err := os.MkdirTemp(s.cfg.TempDir, "edit-probe-")
@@ -517,27 +526,26 @@ func (s *Service) probeFilterScript(ctx context.Context, exe string) error {
 	}
 	defer os.RemoveAll(tmp)
 	script := filepath.Join(tmp, "probe.txt")
-	if err := os.WriteFile(script, []byte("color=c=black:s=16x16:r=5:d=0.2[v]\n"), 0o600); err != nil {
+	if err := os.WriteFile(script, []byte("[0:v]scale=16:16[v]\n"), 0o600); err != nil {
 		return apperr.Wrap(apperr.IOError, "写入临时文件失败", err)
 	}
 	pctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	cmd := ffmpeg.NewCommand(pctx, exe, "-hide_banner", "-nostdin", "-v", "error", "-filter_complex_script", script,
-		"-map", "[v]", "-frames:v", "1", "-f", "null", "-")
+	cmd := ffmpeg.NewCommand(pctx, exe, "-hide_banner", "-nostdin", "-loglevel", "error",
+		"-f", "lavfi", "-i", "nullsrc=s=32x32:r=5:d=0.4",
+		"-filter_complex_script", script, "-map", "[v]", "-f", "null", "-")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := proc.Run(cmd); err != nil {
 		if ctx.Err() != nil {
 			return apperr.Wrap(apperr.Canceled, "操作已取消", ctx.Err())
 		}
-		low := strings.ToLower(stderr.String())
-		if strings.Contains(low, "unrecognized option") || strings.Contains(low, "option not found") {
-			return apperr.New(apperr.Unsupported, "当前 ffmpeg 版本不支持 -filter_complex_script，无法导出多轨剪辑，请安装应用推荐的 ffmpeg 版本").
-				WithDetail(tailLines(stderr.String(), 10))
+		if strings.Contains(strings.ToLower(stderr.String()), "unrecognized option") {
+			return projectErr(apperr.Unsupported, "当前 ffmpeg 版本不支持 -filter_complex_script，无法导出多轨剪辑，请安装应用推荐的 ffmpeg 版本", "missing=filter_complex_script")
 		}
 		return apperr.Wrap(apperr.ProcessFailed, "检测 ffmpeg 的滤镜脚本能力失败", err).WithDetail(tailLines(stderr.String(), 10))
 	}
-	s.scriptOK.Store(exe, struct{}{})
+	s.scriptOK.Store(key, struct{}{})
 	return nil
 }
 
