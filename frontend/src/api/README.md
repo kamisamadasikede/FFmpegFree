@@ -46,7 +46,7 @@
 
 1. `src/api/flags.ts` 里对应开关改 `true`（三个可以分开切）。
 2. 后端生成 wailsjs 绑定后，可选：把 `callService('X','Y',…)` 换成直接 import 生成文件（保留 `call()` 包装），并用生成的类型替换 `live.ts` / `edit.ts` / `doc.ts` 顶部的手写类型。
-3. `LiveLayout.vue` 顶部的 `MigrationNotice`（直播演示提示）已改为只在模拟环境（`!liveIsReal()`）显示，真实 Wails 里不出现；剪辑页 `VideoEditor.vue` 目前仍是 v1 的 `V1_API_READY=false`（接口层已备好，页面接入是后续工作）；文档页 `OfficeConvert.vue` / `PDFPreview.vue` 已改为直接用 `doc.ts`（v1 的 `api/office`、`api/pdf` 已删除，`V1_API_READY` 现在只剩剪辑页在用）。
+3. `LiveLayout.vue` 顶部的 `MigrationNotice`（直播演示提示）已改为只在模拟环境（`!liveIsReal()`）显示，真实 Wails 里不出现；剪辑页 `VideoEditor.vue`、直播页、文档页 `OfficeConvert.vue` / `PDFPreview.vue` 均已接真实后端（Wails 内），各页的 `MigrationNotice` 只在模拟环境显示。v1 兼容层 `api/index.ts`、`V1_API_READY`、`api/office`、`api/pdf`、`api/editor` 已全部删除。
 4. `services/wails.ts` 的 `onSimEvent` 总线与 `stores/tasks.ts` 里对 `sim` 的分支（cancel / retry / remove / 历史）在全部开关为 true 后可删。
 
 ## 契约未冻结、可能要改的点
@@ -77,7 +77,7 @@
   - 后端会先删空壳存档并清空 `outputPath`，再发终态事件。
 - **SRT passphrase 长度 10–79**（新增约束，已定）。
 - **`TASK_CONFLICT` 的 `reason`**（原 18，已关）：`max_sessions`=“最多同时推 4 路”，`duplicate_url`=“这个地址已经在推流”，其他 / 缺失 / Edit、Doc 的冲突=“操作冲突，请稍后再试”。屏幕推流“同时最多 1 路”是否限制、reason 叫什么，仍等产品经理（见下）。
-- **带存档的屏幕推流**（原 8 的一部分）：后端暂返回 `UNSUPPORTED`，等 Edit 合入后补。
+- **带存档的屏幕推流**（原 8 的一部分）：后端已实现（#47，tee 分片 mp4），前端已放开，不再返回 `UNSUPPORTED`。
 - **Doc**（无对应旧疑问，仅记录）：`PDFChunk.Data` 是 Go `string`（标准 base64，含 `=` 填充），前端直接 `atob`，不做类型转换；`Length` / `chunkBytes` 是原始字节数；超 5000 页返回 `UNSUPPORTED`；Office 转 PDF 页面显示“实验性”标签和常驻说明“仅提取文字，不保留图片和样式”；`/local/<token>` 支持 `HEAD`，失效 404。
 - **Edit**（无对应旧疑问，仅记录）：
   - 转场：默认 0.5s 超过相邻较短片段一半时后端静默缩到一半，不足 0.1s 忽略并给 `transition_ignored` 警告；显式超限 `INVALID_ARGUMENT`。`EditPlan.durationSec` 已扣除转场重叠。
@@ -113,7 +113,7 @@
 
 等**后端 / 架构师**：
 
-- **屏幕推流本地存档**：后端暂未实现，`archiveDir` 非空 → `UNSUPPORTED`（契约 §6.10：detail 没有 `missing=` 行，message“屏幕推流的本地存档暂未实现”）。前端保留存档开关，提交后若返回该错误显示“暂不支持同时保存本地存档，请关闭‘同时保存本地存档’后重试”（`LIVE_ARCHIVE_UNSUPPORTED_TEXT`，只在开着存档且 detail 没有 `missing=` 行时用；有 `missing=` 行（含 `missing=tee`）的按缺组件处理，`tee` 用通用句，不当成存档提示；后端存档 PR 合入前不放开）；模拟层与后端一致。后端实现存档后去掉这个分支。
+- **屏幕推流本地存档**：后端已实现（#47），前端存档开关可用。`errorMessages.ts` 里仍保留 `LIVE_ARCHIVE_UNSUPPORTED_TEXT` 分支（archiveDir 非空且 UNSUPPORTED 且 detail 没有 `missing=` 行时用），作为旧后端的兜底；`api/live.ts` 的模拟层仍按旧行为对 archiveDir 抛 `UNSUPPORTED`，浏览器演示环境下如此，待直播页跟进时对齐。
 - **缺协议的 UNSUPPORTED**（原 6，**契约已冻结，见契约 §6.10 与 2.2 的 detail 约定表**）：本机 ffmpeg 缺推流协议时 `Start*` 返回 `UNSUPPORTED`，`detail` 是**单独一行** `missing=<协议名>`，协议名只取 `rtmp` / `rtmps` / `srt`（对应地址 scheme，`rtmp` 是除 `rtmps` / `srt` 以外的默认）；带本地存档的会话另需 tee，缺时是 `missing=tee`；`CheckPushURL` 不返回它；`message` 是“当前 ffmpeg 不支持 <协议名>，请安装完整版 ffmpeg”（前端不显示）。其他原因的 `UNSUPPORTED`（`Retry` 直播任务、屏幕推流存档未实现）没有这一行。前端按契约严格识别（`liveMissingProtocolName` / `liveFfmpegProtocolMissingText`）：detail 按行拆开，某一行**严格等于** `missing=rtmp` / `missing=rtmps` / `missing=srt` 才显示协议名（大写）；其余一律用不带协议名的通用句，包括 `missing=tee`、大小写 / 空格不同、别的写法。`hasMissingLine` 判断有没有 `missing=` 行，用来把“缺组件的 UNSUPPORTED”和“存档未实现的 UNSUPPORTED”分开。模拟层 `?sim_missing=rtmp|rtmps|srt` 产出的 detail 就是这一行。
 - **Edit 多素材预览**（原 10）：同时预览 N 个素材占 N 个 token（登记表 256 项 LRU），是否提供批量 `GetPreviewURL`。限长 206（4 MiB）的 seek 体验待 Windows 真机验证。
 - **Doc 转换产物不自动进 PDF 历史**（原 15，已按契约实现）：转换记录里点“预览”才对输出路径 `OpenPDF`（此时才进“最近打开”）。
