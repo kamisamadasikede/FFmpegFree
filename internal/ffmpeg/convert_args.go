@@ -3,6 +3,7 @@ package ffmpeg
 import (
 	"fmt"
 	"math"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -46,13 +47,9 @@ type ConvertSource struct {
 // ConvertPlan 是构造好的 ffmpeg 参数。参数里不含可执行文件、-hide_banner、-nostats、-progress
 // （由 Run 统一添加），输出位置是调用方传入的 out（一般是 .part 临时文件）。
 type ConvertPlan struct {
-	// Pass1 非空表示两遍编码：先跑 Pass1（输出到 null），再跑 Final。
-	Pass1 []string
 	Final []string
 	// OutDurationSec 是输出时长（应用裁剪后），用来换算进度；0 表示未知。
 	OutDurationSec float64
-	// VideoBitrate 是两遍编码反推出的视频码率（bit/s），单遍时为 0。
-	VideoBitrate int64
 }
 
 type containerSpec struct {
@@ -94,9 +91,22 @@ func invalid(format string, a ...any) error {
 
 func finite(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
 
+// 选项上下限（契约 v0.9.1）。
+const (
+	maxDimension    = 8192
+	minFps          = 0.1
+	maxVideoBitrate = 1e9 // bit/s
+	minAudioBitrate = 8000
+	maxAudioBitrate = 1e6
+	maxTrimSec      = 1e6
+)
+
 // ValidateConvertOptions 只检查选项本身（不需要输入文件），保存预设和提交任务前都会调用。
 // 错误一律是 INVALID_ARGUMENT，message 直接可以展示给用户。
 func ValidateConvertOptions(o ConvertOptions) error {
+	if o.TargetSizeMB != 0 {
+		return invalid("暂不支持按目标大小压缩")
+	}
 	spec, ok := containers[o.Container]
 	if !ok {
 		return invalid("不支持的输出格式 %q，可选：%s", o.Container, strings.Join(ContainerNames(), " "))
@@ -107,14 +117,17 @@ func ValidateConvertOptions(o ConvertOptions) error {
 	if !contains([]string{"", "none", "copy", "aac", "mp3", "opus", "vorbis", "flac", "pcm", "ac3"}, o.AudioCodec) {
 		return invalid("不支持的音频编码 %q，可选：copy aac mp3 opus vorbis flac pcm ac3 none", o.AudioCodec)
 	}
-	if o.Width < 0 || o.Height < 0 || o.Width > 16384 || o.Height > 16384 {
-		return invalid("分辨率必须在 0~16384 之间")
+	if o.Width < 0 || o.Height < 0 || o.Width > maxDimension || o.Height > maxDimension {
+		return invalid("分辨率必须在 0~%d 之间", maxDimension)
 	}
-	if !finite(o.Fps) || o.Fps < 0 || o.Fps > 240 {
-		return invalid("帧率必须在 0~240 之间")
+	if !finite(o.Fps) || o.Fps < 0 || o.Fps > 240 || (o.Fps > 0 && o.Fps < minFps) {
+		return invalid("帧率必须是 0（保持）或 %.1f~240", minFps)
 	}
-	if o.VideoBitrate < 0 || o.AudioBitrate < 0 || o.VideoBitrate > 1<<31 || o.AudioBitrate > 1<<31 {
-		return invalid("码率不合法")
+	if o.VideoBitrate < 0 || o.VideoBitrate > maxVideoBitrate {
+		return invalid("视频码率必须是 0（自动）或不超过 %d bit/s", int64(maxVideoBitrate))
+	}
+	if o.AudioBitrate != 0 && (o.AudioBitrate < minAudioBitrate || o.AudioBitrate > maxAudioBitrate) {
+		return invalid("音频码率必须是 0（自动）或 %d~%d bit/s", int64(minAudioBitrate), int64(maxAudioBitrate))
 	}
 	if o.Crf < 0 || o.Crf > 63 {
 		return invalid("CRF 必须在 0~63 之间")
@@ -122,8 +135,8 @@ func ValidateConvertOptions(o ConvertOptions) error {
 	if !finite(o.TargetSizeMB) || o.TargetSizeMB < 0 || o.TargetSizeMB > 1e6 {
 		return invalid("目标大小不合法")
 	}
-	if !finite(o.TrimStart) || !finite(o.TrimEnd) || o.TrimStart < 0 || o.TrimEnd < 0 {
-		return invalid("裁剪时间必须是不小于 0 的数字")
+	if !finite(o.TrimStart) || !finite(o.TrimEnd) || o.TrimStart < 0 || o.TrimEnd < 0 || o.TrimStart > maxTrimSec || o.TrimEnd > maxTrimSec {
+		return invalid("裁剪时间必须在 0~%g 秒之间", maxTrimSec)
 	}
 	if o.TrimEnd > 0 && o.TrimEnd <= o.TrimStart {
 		return invalid("裁剪结束时间必须大于开始时间")
@@ -192,10 +205,11 @@ func defaultAudioBitrate(codec string) int64 {
 	return 0
 }
 
-// PlanConvert 生成转换命令。in 是输入文件，out 是输出文件（调用方传 .part 临时路径），
-// passLog 是两遍编码的日志文件前缀（只在 TargetSizeMB > 0 时用到，建议放在任务专属临时目录）。
-// 输入输出都会加 `file:` 前缀，以 - 开头、含冒号或空格的路径都安全。
-func PlanConvert(in, out, passLog string, o ConvertOptions, src ConvertSource) (ConvertPlan, error) {
+// PlanConvert 生成转换命令（单次 ffmpeg 调用；两遍编码暂缓，见契约 v0.7.2）。in 是输入文件，
+// out 是输出文件（调用方传 .part 临时路径）。
+// 输入输出都会加 `file:` 前缀，以 - 开头、含冒号或空格的路径都安全；
+// 输入是文件名带 % 的图片时在 -i 前加 -pattern_type none，避免被当成序列模板。
+func PlanConvert(in, out string, o ConvertOptions, src ConvertSource) (ConvertPlan, error) {
 	if err := ValidateConvertOptions(o); err != nil {
 		return ConvertPlan{}, err
 	}
@@ -240,44 +254,14 @@ func PlanConvert(in, out, passLog string, o ConvertOptions, src ConvertSource) (
 
 	plan := ConvertPlan{OutDurationSec: outDur}
 	audioBitrate := o.AudioBitrate
-	var videoBitrate int64 = o.VideoBitrate
-	twoPass := false
-
-	if o.TargetSizeMB > 0 {
-		if outDur <= 0 {
-			return ConvertPlan{}, invalid("无法获知输入时长，不能按目标大小压缩")
-		}
-		totalBits := o.TargetSizeMB * 1024 * 1024 * 8 * 0.95 // 留 5% 给封装开销
-		if spec.audioOnly {
-			audioBitrate = int64(totalBits / outDur)
-			if audioBitrate < 8_000 {
-				return ConvertPlan{}, invalid("目标大小太小，音频码率不足 8 kbps")
-			}
-		} else {
-			ab := audioBitrate
-			if ab == 0 {
-				ab = defaultAudioBitrate(audio)
-				if ab == 0 {
-					ab = 128_000 // copy 等无法预知，按 128 kbps 估算
-				}
-			}
-			if !wantAudio {
-				ab = 0
-			}
-			videoBitrate = int64((totalBits - float64(ab)*outDur) / outDur)
-			if videoBitrate < 30_000 {
-				return ConvertPlan{}, invalid("目标大小太小，视频码率不足 30 kbps，请调大目标大小或缩短时长")
-			}
-			twoPass = true
-			plan.VideoBitrate = videoBitrate
-		}
-	}
+	videoBitrate := o.VideoBitrate
 
 	// 输入侧参数。
 	pre := []string{"-y"}
 	if o.TrimStart > 0 {
 		pre = append(pre, "-ss", fnum(o.TrimStart))
 	}
+	pre = append(pre, ImagePatternArgs(in)...)
 	pre = append(pre, "-i", "file:"+in)
 	if outDur > 0 && (o.TrimEnd > 0) {
 		pre = append(pre, "-t", fnum(outDur))
@@ -318,43 +302,14 @@ func PlanConvert(in, out, passLog string, o ConvertOptions, src ConvertSource) (
 		tail = append(tail, "-avoid_negative_ts", "make_zero")
 	}
 
-	build := func(pass int) []string {
-		a := append([]string{}, pre...)
-		a = append(a, maps...)
-		if pass == 1 {
-			// 第一遍只分析视频，不要音频和封装。
-			a = removeAudio(a)
-			a = append(a, vargs...)
-			a = append(a, "-pass", "1", "-passlogfile", passLog, "-an", "-f", "null", "-")
-			return a
-		}
-		a = append(a, vargs...)
-		if twoPass {
-			a = append(a, "-pass", "2", "-passlogfile", passLog)
-		}
-		a = append(a, aargs...)
-		a = append(a, tail...)
-		a = append(a, "file:"+out)
-		return a
-	}
-	if twoPass {
-		plan.Pass1 = build(1)
-	}
-	plan.Final = build(2)
+	a := append([]string{}, pre...)
+	a = append(a, maps...)
+	a = append(a, vargs...)
+	a = append(a, aargs...)
+	a = append(a, tail...)
+	a = append(a, "file:"+out)
+	plan.Final = a
 	return plan, nil
-}
-
-// removeAudio 去掉流选择里的音频映射（第一遍用）。
-func removeAudio(a []string) []string {
-	out := make([]string, 0, len(a))
-	for i := 0; i < len(a); i++ {
-		if a[i] == "-map" && i+1 < len(a) && strings.HasPrefix(a[i+1], "0:a") {
-			i++
-			continue
-		}
-		out = append(out, a[i])
-	}
-	return out
 }
 
 func fnum(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
@@ -491,6 +446,22 @@ func audioArgs(codec string, bitrate int64, want, audioOnly bool) []string {
 		return []string{"-c:a", "pcm_s16le"}
 	case "ac3":
 		return append([]string{"-c:a", "ac3"}, br(defaultAudioBitrate("ac3"))...)
+	}
+	return nil
+}
+
+// imagePatternExts 是 ffmpeg 用 image2 解封装的图片扩展名。文件名里带 % 时（如 a%03d.png），
+// image2 会把它当成序列模板而找不到文件，所以要加 -pattern_type none。
+// 只对这些扩展名加：其他解封装器（mp4、gif、png_pipe……）不认识这个选项，加了反而报错（ffmpeg 7.1 实测）。
+var imagePatternExts = map[string]bool{
+	".jpg": true, ".jpeg": true, ".png": true, ".bmp": true, ".webp": true,
+	".tif": true, ".tiff": true, ".ppm": true, ".pgm": true, ".pbm": true, ".pam": true,
+}
+
+// ImagePatternArgs 返回放在 ffmpeg -i 之前的 -pattern_type none（仅当文件名带 % 且是 image2 支持的图片），否则 nil。
+func ImagePatternArgs(in string) []string {
+	if strings.Contains(filepath.Base(in), "%") && imagePatternExts[strings.ToLower(filepath.Ext(in))] {
+		return []string{"-pattern_type", "none"}
 	}
 	return nil
 }

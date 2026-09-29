@@ -155,13 +155,8 @@ func (s *Service) DeletePreset(ctx context.Context, presetID string) error {
 	return nil
 }
 
-// validateOptions 校验转换参数；按目标大小压缩（两遍编码）暂缓，传 >0 直接拒绝。
-func validateOptions(o ffmpeg.ConvertOptions) error {
-	if o.TargetSizeMB != 0 {
-		return apperr.New(apperr.InvalidArgument, "暂不支持按目标大小压缩")
-	}
-	return ffmpeg.ValidateConvertOptions(o)
-}
+// validateOptions 校验转换参数；按目标大小压缩（两遍编码）暂缓，ValidateConvertOptions 对 TargetSizeMB != 0 直接拒绝。
+func validateOptions(o ffmpeg.ConvertOptions) error { return ffmpeg.ValidateConvertOptions(o) }
 
 // ---------- 提交 ----------
 
@@ -252,7 +247,7 @@ func (s *Service) prepare(ctx context.Context, in string, opts ffmpeg.ConvertOpt
 	}
 	stem := strings.TrimSuffix(filepath.Base(in), filepath.Ext(in))
 	out := filepath.Join(outDir, stem+"."+opts.Container)
-	plan, err := ffmpeg.PlanConvert(in, out, "", opts, src)
+	plan, err := ffmpeg.PlanConvert(in, out, opts, src)
 	if err != nil {
 		return prepared{}, err
 	}
@@ -305,7 +300,7 @@ func (s *Service) newRunner(bin ffmpeg.Binaries, in, out string, opts ffmpeg.Con
 		DurationSec: dur,
 		Classify:    ffmpeg.ClassifyConvertError,
 		BuildArgs: func(part string) []string {
-			plan, err := ffmpeg.PlanConvert(in, part, "", opts, src)
+			plan, err := ffmpeg.PlanConvert(in, part, opts, src)
 			if err != nil {
 				return nil // prepare 已经用同样的参数验证过，不会走到这里；ffmpeg 会因缺少输出而失败
 			}

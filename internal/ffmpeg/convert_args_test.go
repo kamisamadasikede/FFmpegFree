@@ -13,7 +13,7 @@ var vsrc = ConvertSource{DurationSec: 10, HasVideo: true, VideoIndex: 0, HasAudi
 
 func plan(t *testing.T, o ConvertOptions, src ConvertSource) ConvertPlan {
 	t.Helper()
-	p, err := PlanConvert("/in/a.mp4", "/out/a.part.x", "/tmp/pass", o, src)
+	p, err := PlanConvert("/in/a.mp4", "/out/a.part.x", o, src)
 	if err != nil {
 		t.Fatalf("PlanConvert(%+v): %v", o, err)
 	}
@@ -116,9 +116,6 @@ func TestPlanConvertTable(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			p := plan(t, c.o, c.src)
-			if p.Pass1 != nil {
-				t.Fatalf("不应是两遍编码")
-			}
 			if !reflect.DeepEqual(p.Final, c.want) {
 				t.Fatalf("\n got: %q\nwant: %q", p.Final, c.want)
 			}
@@ -126,61 +123,10 @@ func TestPlanConvertTable(t *testing.T) {
 	}
 }
 
-func TestPlanConvertTwoPass(t *testing.T) {
-	// 10 秒，目标 5 MB：总位数 5*1024*1024*8*0.95，减去 192 kbps 音频
-	p := plan(t, ConvertOptions{Container: "mp4", VideoCodec: "h264", TargetSizeMB: 5}, vsrc)
-	if p.Pass1 == nil {
-		t.Fatal("应是两遍编码")
-	}
-	want := tr((5*1024*1024*8*0.95 - 192000*10) / 10)
-	if p.VideoBitrate != want {
-		t.Fatalf("bitrate = %d, want %d", p.VideoBitrate, want)
-	}
-	j1, j2 := strings.Join(p.Pass1, " "), strings.Join(p.Final, " ")
-	for _, s := range []string{"-pass 1", "-passlogfile /tmp/pass", "-an", "-f null -", "-b:v " + itoa(want)} {
-		if !strings.Contains(j1, s) {
-			t.Errorf("第一遍缺 %q: %s", s, j1)
-		}
-	}
-	if strings.Contains(j1, "0:a") || strings.Contains(j1, "file:/out") || strings.Contains(j1, "-c:a") {
-		t.Errorf("第一遍不应带音频或输出文件: %s", j1)
-	}
-	for _, s := range []string{"-pass 2", "-passlogfile /tmp/pass", "-b:v " + itoa(want), "-c:a aac", "file:/out/a.part.x"} {
-		if !strings.Contains(j2, s) {
-			t.Errorf("第二遍缺 %q: %s", s, j2)
-		}
-	}
-	if strings.Contains(j1, "-crf") || strings.Contains(j2, "-crf") {
-		t.Error("两遍编码不应带 -crf")
-	}
-	if p.OutDurationSec != 10 {
-		t.Fatalf("dur = %v", p.OutDurationSec)
-	}
-}
-
-func TestPlanConvertTwoPassVariants(t *testing.T) {
-	// 无音轨：不扣音频码率
-	p := plan(t, ConvertOptions{Container: "mkv", VideoCodec: "vp9", TargetSizeMB: 1}, ConvertSource{DurationSec: 8, HasVideo: true})
-	if want := tr(1 * 1024 * 1024 * 8 * 0.95 / 8); p.VideoBitrate != want {
-		t.Fatalf("%d != %d", p.VideoBitrate, want)
-	}
-	// 裁剪后按裁剪时长算
-	p = plan(t, ConvertOptions{Container: "mp4", VideoCodec: "h265", TargetSizeMB: 2, TrimStart: 2, TrimEnd: 6, AudioBitrate: 64_000}, vsrc)
-	if want := tr((2*1024*1024*8*0.95 - 64000*4) / 4); p.VideoBitrate != want || p.OutDurationSec != 4 {
-		t.Fatalf("%d != %d dur=%v", p.VideoBitrate, want, p.OutDurationSec)
-	}
-	// 音频容器按目标大小：单遍 -b:a
-	p = plan(t, ConvertOptions{Container: "mp3", TargetSizeMB: 1}, vsrc)
-	if p.Pass1 != nil || !strings.Contains(strings.Join(p.Final, " "), "-b:a "+itoa(tr(1*1024*1024*8*0.95/10))) {
-		t.Fatalf("%q", p.Final)
-	}
-	// 太小
-	if _, err := PlanConvert("/a", "/b", "/p", ConvertOptions{Container: "mp4", VideoCodec: "h264", TargetSizeMB: 0.01}, vsrc); !apperr.Is(err, apperr.InvalidArgument) {
-		t.Fatalf("目标太小应报错: %v", err)
-	}
-	// 未知时长
-	if _, err := PlanConvert("/a", "/b", "/p", ConvertOptions{Container: "mp4", VideoCodec: "h264", TargetSizeMB: 5}, ConvertSource{HasVideo: true, HasAudio: true}); !apperr.Is(err, apperr.InvalidArgument) {
-		t.Fatalf("未知时长应报错: %v", err)
+func TestPlanConvertRejectsTargetSize(t *testing.T) {
+	// 两遍编码 / 目标大小暂缓（契约 v0.7.2）：选项校验直接拒绝
+	if _, err := PlanConvert("/a", "/b", ConvertOptions{Container: "mp4", VideoCodec: "h264", TargetSizeMB: 5}, vsrc); !apperr.Is(err, apperr.InvalidArgument) {
+		t.Fatalf("目标大小应 INVALID_ARGUMENT: %v", err)
 	}
 }
 
@@ -200,7 +146,7 @@ func TestPlanConvertOutputDuration(t *testing.T) {
 		"未知时长有 end": {ConvertOptions{Container: "mp4", VideoCodec: "h264", TrimStart: 1, TrimEnd: 4}, ConvertSource{HasVideo: true}, 3},
 		"未知时长无 end": {ConvertOptions{Container: "mp4", VideoCodec: "h264"}, ConvertSource{HasVideo: true}, 0},
 	} {
-		p, err := PlanConvert("/a", "/b", "/p", c.o, c.src)
+		p, err := PlanConvert("/a", "/b", c.o, c.src)
 		if err != nil || p.OutDurationSec != c.want {
 			t.Errorf("%s: %v dur=%v want %v", name, err, p.OutDurationSec, c.want)
 		}
@@ -214,7 +160,7 @@ func TestPlanConvertOutputDuration(t *testing.T) {
 
 func TestPlanConvertPathsAreSafe(t *testing.T) {
 	for _, in := range []string{"-evil.mp4", `C:\视频 库\a b.mp4`, "/a/b:c.mp4", "/x/it's [1] (2).mp4"} {
-		p, err := PlanConvert(in, "-out.part.mp4", "/tmp/p", ConvertOptions{Container: "mp4", VideoCodec: "h264"}, vsrc)
+		p, err := PlanConvert(in, "-out.part.mp4", ConvertOptions{Container: "mp4", VideoCodec: "h264"}, vsrc)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -248,16 +194,16 @@ func TestPlanConvertSourceMismatch(t *testing.T) {
 		"裁剪开头超出时长":  {ConvertOptions{Container: "mp4", VideoCodec: "h264", TrimStart: 5}, vsrc2(5)},
 		"什么都没有":     {ConvertOptions{Container: "mkv", AudioCodec: "opus"}, ConvertSource{}},
 	} {
-		if _, err := PlanConvert("/a", "/b", "/p", c.o, c.src); !apperr.Is(err, apperr.InvalidArgument) {
+		if _, err := PlanConvert("/a", "/b", c.o, c.src); !apperr.Is(err, apperr.InvalidArgument) {
 			t.Errorf("%s: 期望 INVALID_ARGUMENT, got %v", name, err)
 		}
 	}
 	// 音频文件转 mkv 只要音频（VideoCodec 为空）是合法的
-	if _, err := PlanConvert("/a", "/b", "/p", ConvertOptions{Container: "mkv", AudioCodec: "opus"}, audioOnly); err != nil {
+	if _, err := PlanConvert("/a", "/b", ConvertOptions{Container: "mkv", AudioCodec: "opus"}, audioOnly); err != nil {
 		t.Fatal(err)
 	}
 	// 无声视频转视频容器合法
-	if _, err := PlanConvert("/a", "/b", "/p", ConvertOptions{Container: "mp4", VideoCodec: "copy"}, videoOnly); err != nil {
+	if _, err := PlanConvert("/a", "/b", ConvertOptions{Container: "mp4", VideoCodec: "copy"}, videoOnly); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -409,5 +355,59 @@ func TestClassifyIgnoresUserDataInStderr(t *testing.T) {
 	// tail 从元数据块中间开始（只保留最后 50 行）
 	if e := ClassifyConvertError("    title : ENOSPC\n    artist : Permission denied\nConversion failed!", nil); e != nil {
 		t.Errorf("块中间开头的元数据行应被忽略: %+v", e)
+	}
+}
+
+// M2：选项上下限
+func TestValidateConvertOptionsLimits(t *testing.T) {
+	base := ConvertOptions{Container: "mp4", VideoCodec: "h264"}
+	with := func(f func(*ConvertOptions)) ConvertOptions { o := base; f(&o); return o }
+	bad := map[string]ConvertOptions{
+		"trimStart 超上限":   with(func(o *ConvertOptions) { o.TrimStart = 1e6 + 1 }),
+		"trimEnd 超上限":     with(func(o *ConvertOptions) { o.TrimEnd = 2e6 }),
+		"fps 低于 0.1":      with(func(o *ConvertOptions) { o.Fps = 0.05 }),
+		"videoBitrate 超限": with(func(o *ConvertOptions) { o.VideoBitrate = 1e9 + 1 }),
+		"audioBitrate 太低": with(func(o *ConvertOptions) { o.AudioBitrate = 7999 }),
+		"audioBitrate 太高": with(func(o *ConvertOptions) { o.AudioBitrate = 1_000_001 }),
+		"width 8193":      with(func(o *ConvertOptions) { o.Width = 8193 }),
+		"height 8193":     with(func(o *ConvertOptions) { o.Height = 8193 }),
+	}
+	for name, o := range bad {
+		if err := ValidateConvertOptions(o); !apperr.Is(err, apperr.InvalidArgument) {
+			t.Errorf("%s: 期望 INVALID_ARGUMENT, got %v", name, err)
+		}
+	}
+	good := map[string]ConvertOptions{
+		"边界值": with(func(o *ConvertOptions) {
+			o.TrimStart, o.TrimEnd, o.Fps = 999_999, 1e6, 0.1
+			o.VideoBitrate, o.AudioBitrate, o.Width, o.Height = 1e9, 8000, 8192, 8192
+		}),
+		"音频码率 1M": with(func(o *ConvertOptions) { o.AudioBitrate = 1_000_000 }),
+		"全默认":     base,
+	}
+	for name, o := range good {
+		if err := ValidateConvertOptions(o); err != nil {
+			t.Errorf("%s 应通过: %v", name, err)
+		}
+	}
+}
+
+// M3：PlanConvert 对文件名带 % 的图片输入加 -pattern_type none（在 -i 之前）；其它输入不加。
+func TestPlanConvertPatternTypeForPercentImages(t *testing.T) {
+	img := ConvertSource{HasVideo: true}
+	o := ConvertOptions{Container: "mp4", VideoCodec: "h264"}
+	p, err := PlanConvert("/x/a%03d.jpg", "/o/a.part.mp4", o, img)
+	if err != nil {
+		t.Fatal(err)
+	}
+	j := strings.Join(p.Final, " ")
+	if !strings.Contains(j, "-pattern_type none -i file:/x/a%03d.jpg") {
+		t.Fatalf("图片文件名带 %% 时应有 -pattern_type none 且在 -i 之前: %s", j)
+	}
+	for _, in := range []string{"/x/a.jpg", "/x/a%03d.mp4", "/x/100%.gif", "/x/a.png"} {
+		p, _ := PlanConvert(in, "/o/a.part.mp4", o, img)
+		if strings.Contains(strings.Join(p.Final, " "), "pattern_type") {
+			t.Errorf("%s 不应加 -pattern_type", in)
+		}
 	}
 }
