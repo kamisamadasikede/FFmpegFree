@@ -1,40 +1,43 @@
 # FFmpegFree
 
-FFmpegFree 是一个基于 ffmpeg 的桌面工具，技术栈为 **Wails v2 + Vue 3 + Go**。目前提供格式转换、任务中心、JSON 工具等功能；视频剪辑、直播推流、Office 转 PDF、PDF 预览仍在开发合入中（见下文“功能与当前状态”）。
+FFmpegFree 是一个基于 ffmpeg 的桌面工具，技术栈为 **Wails v2 + Vue 3 + Go**。提供格式转换、任务中心、JSON 工具、直播推流与拉流、视频剪辑导出、Office 转 PDF 与 PDF 预览等功能；各功能的后端已合入，个别页面的前端接入和真机验证仍在进行（见下文“功能与当前状态”）。
 
 > **分支说明**：`master` 是 v1，保持不动；v2 的开发集成在 `v2` 分支，本 README 描述 v2。v1 的原始说明归档在 [docs/v1.md](docs/v1.md)。
 
 ## v2 相对 v1 的变化
 
 - **去掉 OpenClaw**：相关后端、页面、接口和菜单项已删除。
-- **去掉 Gin 与本地 HTTP 中间层（进行中）**：前端通过 Wails 直接绑定调用 Go 的 Service，不再走 Axios + 本地 HTTP。已迁移的功能（转换、JSON 工具、系统与 ffmpeg、任务、媒体探测）都已走 Wails 绑定；剪辑、直播、Office/PDF 的后端尚未合入，v2 上还保留着 v1 的 `backend/`（Gin 路由与控制器）给这些功能占位，随对应后端 PR 合入后再删除。
+- **去掉 Gin 与本地 HTTP 中间层（已完成）**：后端不再监听任何端口，没有 Gin、SSE、WebSocket 服务，也没有 `public/` 静态目录；前端通过 Wails 绑定调用 Go 的 Service。应用里唯一的“HTTP”是 Wails AssetServer 上的 `/local/<token>`（本地文件预览，见契约第 1 节和 6.13）。v1 的 `backend/` 目录已删除。
 - **SQLite 存任务和设置**：任务记录、设置、最近文件等保存在用户数据目录下的 SQLite（`app.db`），应用退出或崩溃时未结束的任务在下次启动被标记为“已中断”。
 - **ffmpeg 不再内置**：启动时后台检测；缺失时经用户确认后自动下载安装到数据目录，不修改系统 PATH；检测不到（或版本过旧）时，依赖 ffmpeg 的功能被禁用并给出提示。
 - **统一的任务管理器与任务中心**：转换等耗时操作都作为任务提交，有排队、并发上限、进度、取消、重试和日志，界面里可在任务中心统一查看。
 
 ## 功能与当前状态
 
-以下按 v2 分支上**实际已合入的代码**填写（截至本 README 提交时）。
+以下按 v2 分支上**实际已合入的代码**和 `frontend/src/api/flags.ts` 里开关的真实值填写。“后端”指 Go 绑定和服务，“页面”指前端页面是否已接到真实后端。所有平台上的真机验证项见“已知限制”。
 
 | 功能 | 状态 | 说明 |
 |---|---|---|
-| 格式转换 | ✅ 已完成 | `ConvertService` + `MediaService`（探测、缩略图）已合入，转换页已接入真实后端 |
+| 格式转换 | ✅ 已完成 | `ConvertService` + `MediaService`（探测、缩略图），转换页已接入真实后端 |
 | 任务中心 | ✅ 已完成 | `TaskService` + `internal/task`，界面为“任务中心”页 |
 | ffmpeg 检测与安装 | ✅ 已完成 | `SystemService`：检测、手动指定、下载安装、下载源切换 |
 | 设置 | ✅ 已完成 | 输出位置、同时转换数量、ffmpeg 路径等 |
 | JSON 工具 | ✅ 已完成 | `JsonService` |
-| 视频剪辑 | ⏳ 待合入 | 后端 EditService 在审查中（契约 #22，实现 #30）；界面接口层已就绪，暂用演示数据，页面按钮当前禁用 |
-| 直播推流 | ⏳ 待合入 | 后端 LiveService 在审查中（契约 #19，实现 #31）；界面接口层已就绪，页面暂用演示数据 |
-| Office 转 PDF | ⏳ 待合入 | 后端 DocService 在审查中（契约 #23，实现 #29）；页面暂不可用 |
-| PDF 预览 | ⏳ 待合入 | 同上（DocService） |
+| 直播推流与拉流 | ✅ 推流和存档后端已完成；⏳ 存档页面接入中 | `LiveService`：文件推流、屏幕推流（RTMP / RTMPS / SRT），屏幕推流本地存档（tee + 分片 mp4，#47 已合入）；推流页已接入真实后端（`LIVE_BACKEND_READY=true`）；拉流由前端播放器直接拉远端地址。带存档屏幕推流的前端开关仍在放开中（`frontend/src/api/README.md` 里仍写着后端不支持存档，待前端更新）。Windows / macOS 屏幕采集待真机验证 |
+| 视频剪辑（导出） | ✅ 后端已完成；✅ 剪辑页已接入 | `EditService`：校验、导出、工程存取、预览 URL；剪辑页（#46）在 Wails 里走真实后端（`EDIT_BACKEND_READY=true`），纯浏览器环境仍走模拟。多轨导出的真机表现、Windows 路径长度等待真机验证 |
+| Office 转 PDF | ✅ 后端已完成（实验性）；⏳ 页面接入中 | `DocService`：docx / pptx / xlsx 只转文字，内嵌 Noto Sans SC 子集字体；csv / txt / 旧版二进制格式暂不支持；页面尚未接到真实后端（`DOC_BACKEND_READY=false`，页面仍在用 v1 兼容层，按钮置灰） |
+| PDF 预览 | ✅ 后端已完成；⏳ 页面接入中 | 同上（`DocService`：`OpenPDF` / `ReadPDFChunk` / 最近列表；超过 64 MiB 的文件走 `/local/<token>` 按 Range 加载）。WebView2 的 Range 行为待真机验证 |
 
 ## 架构与目录
 
 ```
-app/                 Wails 绑定层：按领域拆分的 Service（convert / media / system / task / json），
+app/                 Wails 绑定层：按领域拆分的 Service（convert / media / system / task / json / edit / doc / live），
                      只做参数校验与转发。新增 Service 后在 main.go 的 Bind 列表注册
 internal/
-  service/           业务逻辑（convert、media、system、jsontool）
+  service/           业务逻辑（convert、media、system、jsontool、edit、doc、live）
+  localassets/       /local/<token> 本地文件预览登记表与 AssetServer Handler
+  fsutil/            输出文件名净化等共用文件工具
+  about/             版本号与第三方许可文本
   task/              统一任务管理器（调度、并发、取消、重试、日志、事件）
   store/             SQLite 存储与迁移（任务、设置、媒体记录、预设）
   ffmpeg/            ffmpeg 定位与校验、下载安装、参数生成、进度解析
@@ -45,18 +48,18 @@ frontend/            Vue 3 + TypeScript + Vite + Element Plus + Pinia
   src/api/           前端接口封装层（见下）
   wailsjs/           Wails 生成的绑定（wails generate module）
 docs/architecture/   接口契约
-backend/ ffmpeg/     v1 遗留：Gin 后端与内置 ffmpeg（Windows），待清理
+ffmpeg/              v1 遗留：随包的 ffmpeg（Windows），仅作为“程序同级 ffmpeg/ 目录”的兼容检测来源，待清理
 ```
 
-**前端接口层**位于 `frontend/src/api`，页面和 store 只调用这一层。其中有三个“后端就绪开关”（`frontend/src/api/flags.ts`）：
+**前端接口层**位于 `frontend/src/api`，页面和 store 只调用这一层。其中有几个“后端就绪开关”（`frontend/src/api/flags.ts`）：
 
 | 开关 | 对应后端 | 默认 |
 |---|---|---|
-| `LIVE_BACKEND_READY` | LiveService（直播） | `false`：走本地模拟 |
-| `EDIT_BACKEND_READY` | EditService（剪辑） | `false`：走本地模拟 |
+| `LIVE_BACKEND_READY` | LiveService（直播） | `true`：Wails 里走真实后端，纯浏览器环境仍走模拟 |
+| `EDIT_BACKEND_READY` | EditService（剪辑） | `true`：Wails 里走真实后端，纯浏览器环境仍走模拟 |
 | `DOC_BACKEND_READY` | DocService（Office / PDF） | `false`：走本地模拟 |
 
-对应后端合入并生成绑定后，把开关改成 `true` 即可联调；细节见 [frontend/src/api/README.md](frontend/src/api/README.md)。
+三个后端都已合入并生成绑定；文档（Office / PDF）页面接入完成后把 `DOC_BACKEND_READY` 改成 `true`；细节见 [frontend/src/api/README.md](frontend/src/api/README.md)。
 
 ## ffmpeg 检测顺序
 
@@ -103,6 +106,7 @@ go build -ldflags "-X FFmpegFree/internal/about.Version=1.2.3" .
 
 ```bash
 go test ./...                 # Go 单元测试
+go test -race ./internal/...  # 竞态检查
 cd frontend
 npm run check:api             # 接口层自检
 npm run check:json            # JSON 工具文本处理自检
@@ -114,21 +118,21 @@ npx vue-tsc --noEmit          # 类型检查
 
 ## 接口契约文档
 
-- v2 已合入的契约：[docs/architecture/contract.md](docs/architecture/contract.md)（数据模型、Service 方法、事件、SQLite 表、任务管理器、ffmpeg 检测与安装等）。
-- Live / Edit / Doc 三份契约尚未合入 v2，合入后位于同一文件 `docs/architecture/contract.md` 中；在此之前见对应 PR：直播 #19（分支 `feat/live-contract`）、剪辑 #22（`feat/edit-contract`）、Office/PDF #23（`feat/doc-contract`）。
+契约都在 [docs/architecture/contract.md](docs/architecture/contract.md)：数据模型、各 Service 方法（含 Edit / Doc / Live）、事件、SQLite 表、任务管理器、ffmpeg 检测与安装、`/local/<token>` 预览规则等。
 
 ## 已知限制
 
 - Windows / macOS 真机上尚未验证的项，见各契约的“真机试用清单”（如 Live 契约的“真机试用清单”一节，以及 v2 契约中标注“未验证”的部分）。目前主要在 Linux 上做了测试和交叉编译。
-- 剪辑、直播、Office 转 PDF、PDF 预览暂不可用或仅为演示（见上表）。
+- Office 转 PDF 页、PDF 预览页尚未接到真实后端，暂不可用（见上表）；带存档屏幕推流的前端开关仍在放开中。
+- Office 转 PDF 是实验性功能：只转文字，不保留排版、图片和表格样式；生僻字（GB2312 与 JIS X 0208 第一水准以外）会显示为方框。
 - 转换暂不支持“按目标体积压缩”（两遍编码已暂缓，见契约 v0.7.2）。
-- 仓库里仍保留 v1 遗留的 Gin 后端与 `ffmpeg/` 目录，待相关功能迁移完成后清理。
+- 仓库里仍保留 v1 遗留的 `ffmpeg/` 目录（兼容检测用），待清理。
 
 ## 许可与第三方
 
 - 本项目使用木兰宽松许可证第 2 版，见 [LICENSE](LICENSE)。
 - **ffmpeg 不随安装包分发**：由用户机器上已有的 ffmpeg，或应用在用户确认后从清单中的下载源下载安装（清单见 `internal/ffmpeg/manifest.json`）。ffmpeg 自身的许可证与使用条款请以其官方说明为准。
-- DocService 计划内嵌 Noto Sans SC 子集字体，遵循 SIL OFL；该字体尚未合入 v2，合入后见 `fonts/README.md` 与 `OFL.txt`（位置以合入后的实际路径为准）。
+- DocService 内嵌 Noto Sans SC 子集字体（遵循 SIL OFL 1.1，子集内部名为 `FFmpegFree CJK Subset`），来源、SHA-256 与生成方法见 `internal/service/doc/fonts/README.md`，许可文本见同目录 `OFL.txt`。
 
 ## 贡献
 

@@ -2,7 +2,6 @@ package main
 
 import (
 	"FFmpegFree/app"
-	"FFmpegFree/backend/router"
 	"FFmpegFree/internal/service/system"
 	"embed"
 
@@ -17,7 +16,6 @@ var assets embed.FS
 func main() {
 	// Create an instance of the app structure
 
-	go router.InitRouter()
 	sysManager := system.NewManager()
 	mainApp := NewApp(sysManager)
 	jsonService := app.NewJsonService()

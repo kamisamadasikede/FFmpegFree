@@ -2,7 +2,6 @@ package main
 
 import (
 	"FFmpegFree/app"
-	"FFmpegFree/backend/contollers"
 	"FFmpegFree/internal/about"
 	"FFmpegFree/internal/ffmpeg"
 	"FFmpegFree/internal/localassets"
@@ -87,7 +86,7 @@ func (a *App) appContext() context.Context { return a.rootCtx }
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	if err := a.initStore(ctx); err != nil {
-		// v2 迁移期间旧的 gin 接口仍在工作，存储层初始化失败先记录日志，不阻止应用启动。
+		// 存储层初始化失败先记录日志，不阻止应用启动（依赖存储的服务会返回 INTERNAL）。
 		log.Printf("初始化本地存储失败: %v", err)
 	}
 	a.startTasks(ctx)
@@ -266,13 +265,11 @@ func (a *App) initStore(ctx context.Context) error {
 	return nil
 }
 
-// shutdown 在窗口关闭时由 Wails 调用：结束所有 ffmpeg 子进程并关闭数据库。
+// shutdown 在窗口关闭时由 Wails 调用：取消根 ctx、停止所有任务（结束 ffmpeg 子进程）并关闭数据库。
 func (a *App) shutdown(ctx context.Context) {
 	if a.rootCancel != nil {
 		a.rootCancel() // 先取消根 ctx：进行中的探测 / 缩略图立即结束 ffprobe / ffmpeg
 	}
-	contollers.KillAllFFmpegProcesses()
-	contollers.KillLiveOpsProcesses()
 	if m := a.taskManager(); m != nil {
 		// 先停任务再关数据库：运行中的任务被取消并落库为 interrupted。
 		// 有带存档的直播会话时要多等：优雅停止最多 15 秒写完存档尾（契约 6.10：总等待 16 秒，超时强杀）。
