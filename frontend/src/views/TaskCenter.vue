@@ -41,7 +41,7 @@
       </div>
 
       <div v-if="tasks.loadError && tab !== 'history' && tab !== 'failed'" class="loaderr">
-        <ErrorLine :code="tasks.loadError.code" :message="tasks.loadError.message" :detail="tasks.loadError.detail" :show-log="false" />
+        <ErrorLine :code="tasks.loadError.code" :message="tasks.loadError.message" :detail="tasks.loadError.detail" :show-log="false" fallback-title="加载任务失败" />
       </div>
 
       <div id="tc-panel" class="scroll" role="tabpanel" :aria-labelledby="`tc-tab-${tab}`">
@@ -112,6 +112,7 @@
                     :announce="isFresh(t)"
                     show-retry
                     @retry="doRetry(t)"
+                    @change-output="changeOutput"
                     @view-log="toggleLog(t.id, true)"
                   />
                   <ErrorLine
@@ -148,7 +149,7 @@
         />
       </div>
       <div v-if="tasks.historyError && tab !== 'active'" class="loaderr">
-        <ErrorLine :code="tasks.historyError.code" :message="tasks.historyError.message" :detail="tasks.historyError.detail" :show-log="false" announce />
+        <ErrorLine :code="tasks.historyError.code" :message="tasks.historyError.message" :detail="tasks.historyError.detail" :show-log="false" fallback-title="加载任务失败" announce />
       </div>
 
       <!-- 日志面板 -->
@@ -366,6 +367,14 @@ async function doRetry(t: TaskItem) {
     ElMessage.success('已重新提交')
     if (tab.value === 'failed') setTab('active')
   })
+}
+/**
+ * 「更换输出位置」：桩。契约有 SystemService.PickDirectory，但绑定里还没有，
+ * Settings 也还没有输出目录字段（UpdateSettings 只有 ffmpegPath / ffmpegPromptDismissed），选了目录也没处保存。
+ * 所以先只提示；后端补上 PickDirectory 和输出目录设置后，在这里选目录、保存，再 doRetry。
+ */
+function changeOutput() {
+  ElMessage.info('更换输出位置功能即将上线，目前请先清理磁盘空间后重试。')
 }
 async function openOutput(t: TaskItem) {
   await act(async () => {

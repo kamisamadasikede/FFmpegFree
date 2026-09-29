@@ -102,3 +102,68 @@ export function resolveError(code?: string | null, fallbackMessage?: string | nu
     secondary: VIEW_LOG,
   }
 }
+
+// ---- 任务中心失败行（ErrorLine）专用文案 ----
+// 冻结的八个直播 / 录屏错误码（上面的 errorMessages）原样沿用；这里只补任务中心自己的错误码。
+// 后端目前把磁盘写满报成 IO_ERROR，还不会发 CONVERT_DISK_FULL；码名已由产品定稿，后端跟进后即生效。
+
+/** 任务中心失败行上的操作。changeOutput 目前只发事件（见 TaskCenter.vue），还没有真正的换目录能力 */
+export type TaskErrorAction = 'retry' | 'changeOutput' | 'viewLog'
+
+export interface TaskErrorMessage {
+  title: string
+  description: string
+  /** 按显示顺序 */
+  actions: TaskErrorAction[]
+}
+
+export type TaskErrorCode = 'CONVERT_DISK_FULL'
+
+export const taskErrorMessages: Record<TaskErrorCode, TaskErrorMessage> = {
+  CONVERT_DISK_FULL: {
+    title: '磁盘空间不足',
+    description: '输出位置的可用空间不够，请清理空间或换一个输出文件夹。',
+    actions: ['retry', 'changeOutput', 'viewLog'],
+  },
+}
+
+/** 任务中心里没有专属文案的错误码：标题固定，描述取后端 message */
+export const TASK_FALLBACK_TITLE = '转换失败'
+const DEFAULT_TASK_ACTIONS: TaskErrorAction[] = ['retry', 'viewLog']
+
+export interface ResolvedTaskError {
+  code: string
+  title: string
+  description: string
+  actions: TaskErrorAction[]
+  /** false 表示没有专属文案（走了 转换失败 兜底） */
+  known: boolean
+}
+
+export function isTaskErrorCode(code: unknown): code is TaskErrorCode {
+  return typeof code === 'string' && Object.prototype.hasOwnProperty.call(taskErrorMessages, code)
+}
+
+/**
+ * 任务中心失败行的文案：
+ * 1. 任务中心专属码（CONVERT_DISK_FULL）用表里的文案；
+ * 2. 冻结的直播码（LIVE_PUSH_INTERRUPTED 等）用 errorMessages 里的文案；
+ * 3. 其余一律 标题「转换失败」+ 后端 message 作描述，绝不出现「出错了」。
+ */
+export function resolveTaskError(code?: string | null, fallbackMessage?: string | null): ResolvedTaskError {
+  if (isTaskErrorCode(code)) {
+    return { code, ...taskErrorMessages[code], known: true }
+  }
+  if (isKnownErrorCode(code)) {
+    const m = errorMessages[code]
+    return { code, title: m.title, description: m.description, actions: DEFAULT_TASK_ACTIONS, known: true }
+  }
+  const message = (fallbackMessage ?? '').trim()
+  return {
+    code: code || 'INTERNAL',
+    title: TASK_FALLBACK_TITLE,
+    description: message || FALLBACK_DESCRIPTION,
+    actions: DEFAULT_TASK_ACTIONS,
+    known: false,
+  }
+}

@@ -10,13 +10,15 @@
       <b>{{ shownTitle }}</b>{{ shownDescription }}<span v-if="compact && showCode" class="code">{{ resolved.code }}</span>
       <template v-if="!compact">
         <button v-if="showRetry" type="button" class="ff-link" @click="emit('retry')">重试</button>
+        <button v-if="showChange" type="button" class="ff-link" @click="emit('changeOutput')">更换输出位置</button>
         <button v-if="showLog" type="button" class="ff-link" @click="emit('viewLog')">查看日志</button>
         <br v-if="showCode" />
         <span v-if="showCode" class="code">{{ resolved.code }}</span>
       </template>
     </div>
-    <div v-if="compact && (showRetry || showLog)" class="actions">
+    <div v-if="compact && (showRetry || showChange || showLog)" class="actions">
       <button v-if="showRetry" type="button" class="ff-link" @click="emit('retry')">重试</button>
+      <button v-if="showChange" type="button" class="ff-link" @click="emit('changeOutput')">更换输出位置</button>
       <button v-if="showLog" type="button" class="ff-link" @click="emit('viewLog')">查看日志</button>
     </div>
   </div>
@@ -27,7 +29,7 @@
 // 平时是 role="group"，不会让读屏软件把每一行都当成紧急提醒；只有新出现的错误（announce）才是 role="alert"。
 import { computed } from 'vue'
 import FIcon from '../icon/FIcon.vue'
-import { resolveError } from '../../errors/errorMessages'
+import { resolveTaskError } from '../../errors/errorMessages'
 
 const props = withDefaults(
   defineProps<{
@@ -44,6 +46,8 @@ const props = withDefaults(
     compact?: boolean
     /** danger 红色（失败）；interrupted 灰橙色（已中断） */
     tone?: 'danger' | 'interrupted'
+    /** 没有专属文案的错误码的标题，默认「转换失败」；非任务错误（如列表加载失败）可改成别的，但不会是「出错了」 */
+    fallbackTitle?: string
     /** 覆盖标题 / 说明（interrupted 且后端没给 error 时用） */
     title?: string
     description?: string
@@ -52,15 +56,17 @@ const props = withDefaults(
   }>(),
   { showLog: true, showRetry: false, announce: false, compact: false, tone: 'danger', hideCode: false },
 )
-const emit = defineEmits<{ viewLog: []; retry: [] }>()
+const emit = defineEmits<{ viewLog: []; retry: []; changeOutput: [] }>()
 
 function lastLine(text?: string): string {
   const lines = (text ?? '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
   return lines.length ? lines[lines.length - 1].slice(0, 200) : ''
 }
 
-const resolved = computed(() => resolveError(props.code, props.message || lastLine(props.detail)))
-const shownTitle = computed(() => props.title ?? resolved.value.title)
+const resolved = computed(() => resolveTaskError(props.code, props.message || lastLine(props.detail)))
+/** 该错误码是否带「更换输出位置」（磁盘空间不足） */
+const showChange = computed(() => !props.title && resolved.value.actions.includes('changeOutput'))
+const shownTitle = computed(() => props.title ?? (!resolved.value.known && props.fallbackTitle ? props.fallbackTitle : resolved.value.title))
 const shownDescription = computed(() => props.description ?? resolved.value.description)
 const showCode = computed(() => !props.hideCode)
 </script>
