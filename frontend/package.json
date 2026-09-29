@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "check:json": "node scripts/check-json-text.mjs",
     "check:api": "node scripts/check-api.mjs",
-    "check:edit": "node scripts/check-edit.mjs"
+    "check:edit": "node scripts/check-edit.mjs",
+    "check:ffmpeg": "node scripts/check-ffmpeg.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
