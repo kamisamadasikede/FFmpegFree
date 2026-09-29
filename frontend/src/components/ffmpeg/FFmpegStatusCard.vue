@@ -1,7 +1,10 @@
 <template>
   <div class="ffst" :title="ffmpeg.status.path || undefined">
-    <b><i :style="{ background: view.color }" />{{ view.title }}</b>
-    <span>{{ view.sub }}</span>
+    <div class="txt">
+      <b><i :style="{ background: view.color }" />{{ view.title }}</b>
+      <span>{{ view.sub }}</span>
+    </div>
+    <el-button v-if="ffmpeg.status.state === 'missing'" size="small" type="primary" class="act" @click="ffmpeg.dialogOpen = true">安装</el-button>
   </div>
 </template>
 
@@ -28,7 +31,7 @@ const view = computed(() => {
     case 'outdated':
       return { color: 'var(--ff-warning)', title: 'ffmpeg 版本过旧', sub: '需要 6.0 或更高版本' }
     case 'missing':
-      return { color: 'var(--ff-warning)', title: '未安装 ffmpeg', sub: '部分功能不可用' }
+      return { color: 'var(--ff-warning)', title: 'ffmpeg 未安装', sub: '转换、剪辑、直播暂不可用' }
     default:
       return { color: 'var(--ff-text-3)', title: '正在检测 ffmpeg', sub: '请稍候' }
   }
@@ -37,6 +40,9 @@ const view = computed(() => {
 
 <style scoped>
 .ffst {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0 2px 8px;
   padding: 10px;
   border: 1px solid var(--ff-border);
@@ -44,6 +50,13 @@ const view = computed(() => {
   background: var(--ff-bg-surface);
   font-size: var(--ff-fs-xs);
   color: var(--ff-text-2);
+}
+.txt {
+  flex: 1;
+  min-width: 0;
+}
+.act {
+  flex: none;
 }
 .ffst b {
   display: flex;

@@ -101,3 +101,24 @@ a {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* 键盘焦点：统一 2px 主色描边（图标按钮、按钮、页签、链接） */
+.iconbtn:focus-visible,
+.btn:focus-visible,
+[role='tab']:focus-visible,
+.ff-link:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--ff-primary);
+  outline-offset: 2px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

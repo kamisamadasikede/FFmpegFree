@@ -21,9 +21,11 @@ import FFmpegBanner from './components/ffmpeg/FFmpegBanner.vue'
 import FFmpegInstallDialog from './components/ffmpeg/FFmpegInstallDialog.vue'
 import { useTheme } from './composables/useTheme'
 import { useFFmpegStore } from './stores/ffmpeg'
+import { useTaskStore } from './stores/tasks'
 
 useTheme()
 useFFmpegStore().init()
+useTaskStore().init()
 
 // 过渡期：推流结果仍走 v1 的 SSE，任务 store 接上 task:status 事件后删除
 let eventSource: EventSource | null = null
