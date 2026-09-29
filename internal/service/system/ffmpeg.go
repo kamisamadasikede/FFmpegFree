@@ -10,6 +10,7 @@ import (
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/ffmpeg"
+	"FFmpegFree/internal/task"
 )
 
 // EventFFmpegStatus 是 ffmpeg 状态变化事件名，payload 为完整的 FFmpegStatus。
@@ -26,12 +27,16 @@ const (
 // Error 在 missing / outdated 时为 FFMPEG_NOT_FOUND（detail 里列出每个候选失败的原因），
 // failed 时为 INTERNAL；ready / checking 时为 nil。
 type FFmpegStatus struct {
-	State   string           `json:"state"`   // checking | ready | missing | outdated | installing | failed
-	Path    string           `json:"path"`    // ffmpeg 可执行文件的绝对路径
-	Version string           `json:"version"` // 如 "6.1.1-3ubuntu5"
-	Source  string           `json:"source"`  // custom | bundled | system | legacy
-	TaskID  string           `json:"taskId"`  // installing 时对应的安装任务
-	Error   *apperr.AppError `json:"error"`
+	State   string `json:"state"`            // checking | ready | missing | outdated | installing | failed
+	Path    string `json:"path"`             // ffmpeg 可执行文件的绝对路径
+	Version string `json:"version"`          // 如 "6.1.1-3ubuntu5"
+	Source  string `json:"source"`           // custom | bundled | system | legacy
+	TaskID  string `json:"taskId,omitempty"` // installing 时对应的安装任务
+	// FFprobeMissing 为 true 表示 ffmpeg 可用但没有 ffprobe（v1 的 ffmpeg/ 目录只带 ffmpeg）。
+	// state 仍是 ready，转换等只依赖 ffmpeg 的功能可用；媒体探测、缩略图需要 ffprobe，
+	// 前端据此提示"补全 ffprobe"，引导一键安装。
+	FFprobeMissing bool             `json:"ffprobeMissing"`
+	Error          *apperr.AppError `json:"error,omitempty"`
 }
 
 // Emitter 向前端发事件。生产实现在 app 包（封装 Wails runtime.EventsEmit）。
@@ -47,9 +52,11 @@ type SettingsStore interface {
 
 // Config 是 Manager.Start 的依赖。
 type Config struct {
-	Locator  *ffmpeg.Locator
-	Settings SettingsStore // 可为 nil（存储初始化失败时降级为不持久化）
-	Emitter  Emitter       // 可为 nil
+	Locator   *ffmpeg.Locator
+	Settings  SettingsStore     // 可为 nil（存储初始化失败时降级为不持久化）
+	Emitter   Emitter           // 可为 nil
+	Installer *ffmpeg.Installer // 可为 nil（此时 InstallFFmpeg 返回 INTERNAL）
+	Tasks     *task.Manager     // 可为 nil（此时 InstallFFmpeg 返回 INTERNAL）
 }
 
 // Manager 持有 ffmpeg 检测状态。所有方法并发安全。
@@ -58,6 +65,8 @@ type Manager struct {
 	status  FFmpegStatus
 	cfg     Config
 	started bool
+	appCtx  context.Context // Start 传入的应用 ctx，安装 goroutine 由它派生
+	install *installRun     // 进行中的安装，nil 表示没有
 
 	detectMu sync.Mutex // 串行化检测，避免并发 Recheck 互相覆盖
 
@@ -75,7 +84,11 @@ func NewManager() *Manager {
 func (m *Manager) Start(ctx context.Context, cfg Config) {
 	m.mu.Lock()
 	m.cfg = cfg
+	m.appCtx = ctx
 	m.started = true
+	if cfg.Tasks != nil && cfg.Installer != nil {
+		m.registerInstallFactory(cfg)
+	}
 	m.mu.Unlock()
 	go func() {
 		if _, err := m.Recheck(ctx); err != nil {
@@ -94,7 +107,20 @@ func (m *Manager) Status() FFmpegStatus {
 
 // set 更新状态并发出 ffmpeg:status 事件；ready 时同步全局门控并重置"稍后"标记。
 func (m *Manager) set(ctx context.Context, s FFmpegStatus, bins *ffmpeg.Binaries) {
+	m.setIf(ctx, s, bins, false)
+}
+
+// setUnlessInstalling 仅在没有安装进行时更新状态，返回是否更新。
+func (m *Manager) setUnlessInstalling(ctx context.Context, s FFmpegStatus, bins *ffmpeg.Binaries) bool {
+	return m.setIf(ctx, s, bins, true)
+}
+
+func (m *Manager) setIf(ctx context.Context, s FFmpegStatus, bins *ffmpeg.Binaries, skipIfInstalling bool) bool {
 	m.mu.Lock()
+	if skipIfInstalling && m.install != nil {
+		m.mu.Unlock()
+		return false
+	}
 	m.status = s
 	if s.State == ffmpeg.StateReady {
 		ffmpeg.SetCurrent(bins)
@@ -110,6 +136,7 @@ func (m *Manager) set(ctx context.Context, s FFmpegStatus, bins *ffmpeg.Binaries
 	if s.State == ffmpeg.StateReady && m.PromptDismissed(ctx) {
 		_ = m.setDismissed(ctx, false) // 契约 9.5：变为 ready 后重置
 	}
+	return true
 }
 
 func (m *Manager) ready() (Config, error) {
@@ -131,15 +158,23 @@ func (m *Manager) Recheck(ctx context.Context) (FFmpegStatus, error) {
 	m.detectMu.Lock()
 	defer m.detectMu.Unlock()
 
-	m.set(ctx, FFmpegStatus{State: ffmpeg.StateChecking}, nil)
+	if st, busy := m.installingStatus(); busy {
+		return st, nil // 安装期间保持 installing，不被重检覆盖
+	}
+	if !m.setUnlessInstalling(ctx, FFmpegStatus{State: ffmpeg.StateChecking}, nil) {
+		st, _ := m.installingStatus()
+		return st, nil
+	}
 	res, err := cfg.Locator.Locate(ctx, m.customPath(ctx, cfg))
 	if err != nil {
 		st := FFmpegStatus{State: ffmpeg.StateFailed, Error: apperr.Wrap(apperr.Internal, "检测 ffmpeg 被中断", err)}
-		m.set(ctx, st, nil)
+		m.setUnlessInstalling(ctx, st, nil)
 		return st, err
 	}
 	st, bins := statusFromResult(res)
-	m.set(ctx, st, bins)
+	if !m.setUnlessInstalling(ctx, st, bins) {
+		st, _ = m.installingStatus() // 检测期间开始了安装，以安装状态为准
+	}
 	return st, nil
 }
 
@@ -147,7 +182,7 @@ func statusFromResult(res ffmpeg.Result) (FFmpegStatus, *ffmpeg.Binaries) {
 	switch res.State {
 	case ffmpeg.StateReady:
 		b := res.Info.Binaries
-		return FFmpegStatus{State: ffmpeg.StateReady, Path: b.FFmpeg, Version: res.Info.Version, Source: res.Info.Source}, &b
+		return FFmpegStatus{State: ffmpeg.StateReady, Path: b.FFmpeg, Version: res.Info.Version, Source: res.Info.Source, FFprobeMissing: res.Info.FFprobeMissing}, &b
 	case ffmpeg.StateOutdated:
 		return FFmpegStatus{
 			State: ffmpeg.StateOutdated, Path: res.Info.FFmpeg, Version: res.Info.Version, Source: res.Info.Source,
@@ -184,6 +219,9 @@ func (m *Manager) SetPath(ctx context.Context, dir string) (FFmpegStatus, error)
 		return m.Recheck(ctx)
 	}
 
+	if _, busy := m.installingStatus(); busy {
+		return FFmpegStatus{}, apperr.New(apperr.TaskConflict, "正在安装 ffmpeg，请等待完成或先取消")
+	}
 	m.detectMu.Lock()
 	defer m.detectMu.Unlock()
 	info, state, reason := cfg.Locator.CheckCustom(ctx, dir)
@@ -198,7 +236,7 @@ func (m *Manager) SetPath(ctx context.Context, dir string) (FFmpegStatus, error)
 		return FFmpegStatus{}, apperr.Wrap(apperr.IOError, "保存设置失败", err)
 	}
 	b := info.Binaries
-	st := FFmpegStatus{State: ffmpeg.StateReady, Path: b.FFmpeg, Version: info.Version, Source: ffmpeg.SourceCustom}
+	st := FFmpegStatus{State: ffmpeg.StateReady, Path: b.FFmpeg, Version: info.Version, Source: ffmpeg.SourceCustom, FFprobeMissing: info.FFprobeMissing}
 	m.set(ctx, st, &b)
 	return st, nil
 }

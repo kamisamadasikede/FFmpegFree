@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"FFmpegFree/internal/service/system"
+	"FFmpegFree/internal/store"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -33,6 +34,18 @@ func (s *SystemService) RecheckFFmpeg() (system.FFmpegStatus, error) {
 // 校验失败返回 INVALID_ARGUMENT；成功后写入设置并推送 ffmpeg:status。传空字符串清除手动指定。
 func (s *SystemService) SetFFmpegPath(dir string) (system.FFmpegStatus, error) {
 	return s.mgr.SetPath(context.Background(), dir)
+}
+
+// InstallFFmpeg 下载并安装 ffmpeg 到 <数据目录>/bin（契约 9.3），立即返回任务信息，安装在后台进行。
+// mirror 只接受 ""（默认源）和 "cn"，其他值返回 INVALID_ARGUMENT；"cn" 在清单没有对应镜像的平台会退回默认源。
+// 幂等：已有进行中的安装时返回同一个任务。这是任务管理器里的一个 ffmpeg_install 任务（batch 池），进度走 task:progress，任务状态走 task:status，ffmpeg 状态走 ffmpeg:status。
+func (s *SystemService) InstallFFmpeg(mirror string) (store.Task, error) {
+	return s.mgr.Install(context.Background(), mirror)
+}
+
+// CancelFFmpegInstall 取消进行中的安装，已下载的部分保留以便下次续传。没有安装在进行时什么也不做。
+func (s *SystemService) CancelFFmpegInstall() error {
+	return s.mgr.CancelInstall()
 }
 
 // GetSettings 返回设置。目前只有 ffmpegPath 和 ffmpegPromptDismissed，其余字段后续补充。
