@@ -77,7 +77,7 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
   async function pickPath() {
     const svc = service('SystemService')
     if (!svc?.PickDirectory || !svc?.SetFFmpegPath) throw new Error('SystemService 尚未就绪')
-    const dir = await svc.PickDirectory()
+    const dir = await svc.PickDirectory('选择 ffmpeg 所在文件夹')
     if (dir) setStatus(await svc.SetFFmpegPath(dir))
   }
 

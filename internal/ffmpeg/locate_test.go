@@ -1,6 +1,7 @@
 package ffmpeg
 
 import (
+	"FFmpegFree/internal/apperr"
 	"context"
 	"errors"
 	"fmt"
@@ -347,5 +348,77 @@ func TestExecRunnerTimeout(t *testing.T) {
 	_, err := run(context.Background(), p, "-version")
 	if err == nil || !strings.Contains(err.Error(), "超时") {
 		t.Fatalf("期望超时错误, got %v", err)
+	}
+}
+
+func TestLegacyWithoutFFprobeStillUsable(t *testing.T) {
+	e := newEnv(t)
+	lf := touch(t, filepath.Join(e.exeDir, "ffmpeg", "ffmpeg"))
+	e.specs[lf] = fakeSpec{version: "ffmpeg version 6.1", encoders: encodersOK}
+	// v1 目录没有 ffprobe，PATH 里也没有
+	res, err := e.loc.Locate(context.Background(), "")
+	if err != nil || res.State != StateReady || res.Info.Source != SourceLegacy {
+		t.Fatalf("缺 ffprobe 的 v1 目录应仍为 ready: %+v %v", res, err)
+	}
+	if !res.Info.FFprobeMissing || res.Info.FFprobe != "" || res.Info.FFmpeg != lf {
+		t.Fatalf("应标记 ffprobe 缺失: %+v", res.Info)
+	}
+	// 不应尝试运行空路径
+	for _, c := range e.calls {
+		if strings.HasPrefix(c, " ") {
+			t.Fatalf("不应运行空 ffprobe 路径: %q", c)
+		}
+	}
+}
+
+func TestLegacyBrokenPathFFprobeTreatedAsMissing(t *testing.T) {
+	e := newEnv(t)
+	lf := touch(t, filepath.Join(e.exeDir, "ffmpeg", "ffmpeg"))
+	e.specs[lf] = fakeSpec{version: "ffmpeg version 6.1", encoders: encodersOK}
+	bad := touch(t, filepath.Join(e.root, "sys", "ffprobe")) // 没有登记 spec → 无法运行
+	e.pathHit["ffprobe"] = bad
+	res, _ := e.loc.Locate(context.Background(), "")
+	if res.State != StateReady || !res.Info.FFprobeMissing || res.Info.FFprobe != "" {
+		t.Fatalf("PATH 里的 ffprobe 不可用不应否掉 v1 的 ffmpeg: %+v", res)
+	}
+}
+
+func TestLegacyOutdatedWithoutFFprobe(t *testing.T) {
+	e := newEnv(t)
+	lf := touch(t, filepath.Join(e.exeDir, "ffmpeg", "ffmpeg"))
+	e.specs[lf] = fakeSpec{version: "ffmpeg version 4.4", encoders: encodersOK}
+	res, _ := e.loc.Locate(context.Background(), "")
+	if res.State != StateOutdated || !res.Info.FFprobeMissing {
+		t.Fatalf("%+v", res)
+	}
+}
+
+func TestFFprobeRequiredForNonLegacy(t *testing.T) {
+	e := newEnv(t)
+	// 自带目录和自定义目录都不允许缺 ffprobe
+	bf := touch(t, filepath.Join(e.binDir, "ffmpeg"))
+	e.specs[bf] = fakeSpec{version: "ffmpeg version 6.1", encoders: encodersOK}
+	res, _ := e.loc.Locate(context.Background(), "")
+	if res.State != StateMissing {
+		t.Fatalf("bundled 缺 ffprobe 应判失败: %+v", res)
+	}
+	info, st, reason := e.loc.CheckCustom(context.Background(), e.binDir)
+	if st != StateMissing || !strings.Contains(reason, "ffprobe") || info.FFprobeMissing {
+		t.Fatalf("custom 缺 ffprobe 应判失败: %s %s %+v", st, reason, info)
+	}
+}
+
+func TestRequireProbe(t *testing.T) {
+	t.Cleanup(func() { SetCurrent(nil) })
+	SetCurrent(&Binaries{FFmpeg: "/v1/ffmpeg"})
+	if _, err := Require(); err != nil {
+		t.Fatalf("只需 ffmpeg 的入口应放行: %v", err)
+	}
+	if _, err := RequireProbe(); !apperr.Is(err, apperr.FFmpegNotFound) {
+		t.Fatalf("缺 ffprobe 时 RequireProbe 应返回 FFMPEG_NOT_FOUND: %v", err)
+	}
+	SetCurrent(&Binaries{FFmpeg: "/a/ffmpeg", FFprobe: "/a/ffprobe"})
+	if _, err := RequireProbe(); err != nil {
+		t.Fatal(err)
 	}
 }
