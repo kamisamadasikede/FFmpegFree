@@ -22,8 +22,12 @@
 <script setup lang="ts">
 // 设置页外壳（设计稿 proto/pages.html ?page=settings）：左侧分类导航 + 右侧内容。
 // 「外观 / ffmpeg / 转换」是通用页里的三个分组，点击滚动到对应分组；「关于」是独立子路由。
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { encoderPanelVisible } from '@/api/encoder'
+import { ENCODER_PANEL_TITLE } from '@/errors/encoderMessages'
+import { ENCODER_SECTION_ID, ENCODER_SECTION_QUERY } from '@/api/encoderTask'
+import { scrollBehavior } from '@/utils/motion'
 
 interface Item {
   key: string
@@ -33,19 +37,21 @@ interface Item {
   section?: string
 }
 
+// “编码设备”一项只在这一块会显示时才出现（ENCODER_BACKEND_READY 且在 Wails 里；纯浏览器只有 ?enc=），与 Settings.vue 里面板的显示条件同一个 encoderPanelVisible()
 const items: Item[] = [
   { key: 'appearance', label: '外观', to: '/settings/general', section: 'sec-appearance' },
   { key: 'ffmpeg', label: 'ffmpeg', to: '/settings/general', section: 'sec-ffmpeg' },
+  ...(encoderPanelVisible() ? [{ key: 'encoder', label: ENCODER_PANEL_TITLE, to: '/settings/general', section: ENCODER_SECTION_ID }] : []),
   { key: 'convert', label: '转换', to: '/settings/general', section: 'sec-convert' },
   { key: 'about', label: '关于', to: '/settings/about' },
 ]
 
 const route = useRoute()
 const router = useRouter()
-const section = ref('appearance')
+const section = ref(route.query.section === ENCODER_SECTION_QUERY && encoderPanelVisible() ? 'encoder' : 'appearance')
+// 从提示条的“编码设置”跳来（?section=encoder）时，子导航高亮“编码设备”；定位由 Settings.vue 做
+watch(() => route.query.section, (q) => { if (q === ENCODER_SECTION_QUERY && encoderPanelVisible()) section.value = 'encoder' })
 const active = computed(() => (route.path.endsWith('/about') ? 'about' : section.value))
-
-const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches || document.documentElement.classList.contains('reduce-motion')
 
 async function go(item: Item) {
   if (!item.section) {
@@ -57,7 +63,7 @@ async function go(item: Item) {
     await router.push(item.to)
     await nextTick()
   }
-  document.getElementById(item.section)?.scrollIntoView({ behavior: reduceMotion() ? 'auto' : 'smooth', block: 'start' })
+  document.getElementById(item.section)?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
 }
 </script>
 

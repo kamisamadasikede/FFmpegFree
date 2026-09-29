@@ -4,7 +4,7 @@
     <span class="t">{{ text }}</span>
     <button v-if="variant !== 'row'" type="button" class="lk" @click="emit('settings')">{{ ENCODER_FALLBACK_SETTINGS_LINK }}</button>
     <button v-else type="button" class="lk" @click="emit('log')">{{ ENCODER_FALLBACK_LOG_LINK }}</button>
-    <button v-if="variant !== 'row'" type="button" class="x" :aria-label="ENCODER_FALLBACK_CLOSE" @click="close"><FIcon name="x" :size="14" /></button>
+    <button v-if="variant !== 'row'" type="button" class="x" :aria-label="closeLabel ?? ENCODER_FALLBACK_CLOSE" @click="close"><FIcon name="x" :size="14" /></button>
   </div>
 </template>
 
@@ -19,7 +19,7 @@ import {
   ENCODER_FALLBACK_CLOSE, ENCODER_FALLBACK_CONVERT, ENCODER_FALLBACK_LIVE, ENCODER_FALLBACK_LOG_LINK, ENCODER_FALLBACK_SETTINGS_LINK, ENCODER_FALLBACK_TASK_ROW,
 } from '@/errors/encoderMessages'
 
-const props = withDefaults(defineProps<{ variant?: 'convert' | 'live' | 'row'; text?: string }>(), { variant: 'convert' })
+const props = withDefaults(defineProps<{ variant?: 'convert' | 'live' | 'row'; text?: string; closeLabel?: string }>(), { variant: 'convert' })
 const emit = defineEmits<{ settings: []; log: []; close: [] }>()
 const closed = ref(false)
 const text = computed(() => props.text ?? (props.variant === 'live' ? ENCODER_FALLBACK_LIVE : props.variant === 'row' ? ENCODER_FALLBACK_TASK_ROW : ENCODER_FALLBACK_CONVERT))

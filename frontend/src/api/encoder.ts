@@ -103,7 +103,9 @@ export function normalizeList(raw: unknown): EncoderDeviceList {
 }
 
 // ───────────── 模拟层（?enc=detecting|found|found-open|found-gpu|multi|none|none-open|unavail|fail|noff，与设计稿原型参数一致；multi = 多显卡排序演示）─────────────
-const SIM_NV: EncoderDevice = { id: 'nvidia-0', name: 'NVIDIA GeForce RTX 4060', vendor: 'nvidia', kind: 'gpu', discrete: true, available: true }
+/** 开发预览：?encname=long 把模拟的 NVIDIA 显卡改成长名字，看长设备名的截断（仅模拟层） */
+const SIM_NV_NAME = simParam('encname') === 'long' ? 'NVIDIA GeForce RTX 4060 Laptop GPU with Max-Q Design' : 'NVIDIA GeForce RTX 4060'
+const SIM_NV: EncoderDevice = { id: 'nvidia-0', name: SIM_NV_NAME, vendor: 'nvidia', kind: 'gpu', discrete: true, available: true }
 const SIM_INTEL: EncoderDevice = { id: 'intel-0', name: 'Intel UHD Graphics 770', vendor: 'intel', kind: 'gpu', discrete: false, available: true }
 const SIM_AMD: EncoderDevice = { id: 'amd-0', name: 'AMD Radeon RX 7600', vendor: 'amd', kind: 'gpu', discrete: true, available: true }
 const SIM_CPU: EncoderDevice = { id: 'cpu', name: 'CPU', vendor: 'unknown', kind: 'cpu', discrete: false, available: true }

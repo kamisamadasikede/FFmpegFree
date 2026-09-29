@@ -903,6 +903,49 @@ export async function runApiChecks(): Promise<string[]> {
         }
       }
       eq('模板文字插值里没有编码器名，也不直接输出 encoder / encoderDevice 字段', tplHits, [])
+      // ───────── 走查修订（设计师 PR69/70 走查 G1 / G6 / G11 / D2）─────────
+      const readSrc = (f: string) => fs.readFileSync(root + f, 'utf8')
+      // 减少动效：滚动 behavior
+      const gw = globalThis as unknown as { window: Record<string, unknown>; document?: unknown }
+      const oldMM = gw.window.matchMedia
+      const oldDoc = gw.document
+      let rmHook = false
+      let rmMedia = false
+      gw.document = { documentElement: { classList: { contains: (c: string) => c === 'reduce-motion' && rmHook } } }
+      gw.window.matchMedia = (q: string) => ({ matches: q.includes('reduce') && rmMedia })
+      const motion = await import('@/utils/motion')
+      eq('滚动：默认 smooth', motion.scrollBehavior(), 'smooth')
+      rmMedia = true
+      eq('滚动：prefers-reduced-motion → auto（不做平滑动画）', motion.scrollBehavior(), 'auto')
+      rmMedia = false; rmHook = true
+      eq('滚动：html.reduce-motion → auto', motion.scrollBehavior(), 'auto')
+      gw.window.matchMedia = oldMM as never
+      gw.document = oldDoc
+      // G1 / D1：设备名过长只截自己，并有 title 显示全名
+      const cvSrc = readSrc('src/views/ConvertPage.vue')
+      eq('转换页进度条设备名：有 title 全名', /class="dev" :title="`\$\{ENCODER_DEVICE_LABEL\} \$\{deviceText\}`"/.test(cvSrc), true)
+      eq('转换页进度条：meta 各段 nowrap，设备名段 min-width:0 + 省略号', [/\.rprog \.meta span \{\s*white-space: nowrap/.test(cvSrc), /\.rprog \.meta \.dev \{[^}]*min-width: 0[^}]*text-overflow: ellipsis/.test(cvSrc)], [true, true])
+      eq('剪辑导出条设备名：有 title + 省略号', [/class="ed-dev" :title=/.test(readSrc('src/components/edit/ExportStrip.vue')), /\.ed-dev \{[^}]*text-overflow: ellipsis/.test(readSrc('src/components/edit/edit.css'))], [true, true])
+      eq('任务中心日志头设备名：有 title + 省略号', [/class="dv" :title=/.test(readSrc('src/views/TaskCenter.vue')), /\.logdev \.dv \{[^}]*text-overflow: ellipsis/.test(readSrc('src/views/TaskCenter.vue'))], [true, true])
+      // G6：查看日志后滚动到日志面板（尊重减少动效）、焦点到面板
+      const tcSrc = readSrc('src/views/TaskCenter.vue')
+      eq('任务中心：打开日志会 revealLog（scrollIntoView + scrollBehavior + focus）', [/loadLog\(\)\s*revealLog\(\)/.test(tcSrc), /scrollIntoView\(\{ block: 'nearest', behavior: scrollBehavior\(\) \}\)/.test(tcSrc), /el\.focus\(\{ preventScroll: true \}\)/.test(tcSrc), /ref="logWrapEl" class="logwrap" tabindex="-1" role="region"/.test(tcSrc)], [true, true, true, true])
+      // G11：“编码设置”跳转定位 + 子导航
+      eq('编码设置跳转目标：设置页 + ?section=encoder', encTask.encoderSettingsLocation(), { path: '/settings/general', query: { section: 'encoder' } })
+      const rawPush = ['src/views/ConvertPage.vue', 'src/components/edit/ExportStrip.vue', 'src/components/live/LiveFallbackNotice.vue'].filter((f) => /router\.push\('\/settings\/general'\)/.test(readSrc(f)))
+      eq('三处“编码设置”链接都用 encoderSettingsLocation（不再直接 push 设置页顶部）', rawPush, [])
+      const layoutSrc = readSrc('src/views/settings/SettingsLayout.vue')
+      eq('设置子导航：“编码设备”只在 encoderPanelVisible() 时加入，锚点 sec-encoder', [/\.\.\.\(encoderPanelVisible\(\) \? \[\{ key: 'encoder', label: ENCODER_PANEL_TITLE, to: '\/settings\/general', section: ENCODER_SECTION_ID \}\] : \[\]\)/.test(layoutSrc), encTask.ENCODER_SECTION_ID], [true, 'sec-encoder'])
+      const setSrc = readSrc('src/views/Settings.vue')
+      eq('设置页：读 ?section=encoder → 滚到面板并把焦点放到小节标题；面板不显示时不做', [/route\.query\.section !== ENCODER_SECTION_QUERY \|\| !encoderVisible/.test(setSrc), /scrollIntoView\(\{ behavior: scrollBehavior\(\)/.test(setSrc), /h2'\)\?\.focus\(\{ preventScroll: true \}\)/.test(setSrc), /<h2 :id="headingId" tabindex="-1">/.test(readSrc('src/components/encoder/EncoderDevicePanel.vue'))], [true, true, true, true])
+      win.location.search = ''
+      eq('子导航显示条件：纯浏览器无 ?enc= → 不显示；有 ?enc= → 显示', [encApi.encoderPanelVisible()], [false])
+      win.location.search = '?enc=found'
+      eq('子导航显示条件：?enc= → 显示', encApi.encoderPanelVisible(), true)
+      win.location.search = ''
+      // D2：导出条内嵌提示的关闭按钮有区别于外层的读屏名
+      const stripSrc = readSrc('src/components/edit/ExportStrip.vue')
+      eq('导出条内嵌回退提示：关闭按钮 aria-label 与外层“关闭提示”不同', [(stripSrc.match(/:close-label="ENCODER_FALLBACK_CLOSE_INNER"/g) ?? []).length, (encMsg.ENCODER_FALLBACK_CLOSE_INNER as string) !== (encMsg.ENCODER_FALLBACK_CLOSE as string), /:aria-label="closeLabel \?\? ENCODER_FALLBACK_CLOSE"/.test(readSrc('src/components/encoder/EncoderFallbackNotice.vue'))], [2, true, true])
       // 模拟层（?enc=）：回退场景
       const s1 = simEncoderScenarioFor('fb-nvenc'); const s2 = simEncoderScenarioFor('gpu-task'); const s3 = simEncoderScenarioFor('copy-task'); const s4 = simEncoderScenarioFor('found')
       eq('?enc= 任务场景：fb-nvenc 回退 / gpu-task 不回退 / copy-task 无设备 / 设备列表场景不改任务', [s1?.hwFallback, s2?.hwFallback, s3?.encoder, s3?.encoderDevice, s4], [true, undefined, 'copy', '', undefined])

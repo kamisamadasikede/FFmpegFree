@@ -8,12 +8,12 @@
       <div class="bar" role="progressbar" aria-label="导出进度" :aria-valuenow="s.pct" aria-valuemin="0" aria-valuemax="100"><i :style="{ width: s.pct + '%' }"></i></div>
       <span class="num">{{ s.pct }}%</span>
       <span v-if="s.speedText || s.etaText">{{ [s.speedText, s.etaText].filter(Boolean).join(' · ') }}</span>
-      <span v-if="encDevice" class="ed-dev">{{ ENCODER_DEVICE_LABEL }} {{ encDevice }}</span>
+      <span v-if="encDevice" class="ed-dev" :title="`${ENCODER_DEVICE_LABEL} ${encDevice}`">{{ ENCODER_DEVICE_LABEL }} {{ encDevice }}</span>
       <div class="acts">
         <button type="button" class="ed-btn sm" @click="fl.cancelExport()">取消导出</button>
         <button type="button" class="ed-lk" @click="router.push('/tasks')">在任务中心查看</button>
       </div>
-      <EncoderFallbackNotice v-if="encFallback" class="ed-fb" variant="convert" :text="ENCODER_FALLBACK_EXPORT" @settings="router.push('/settings/general')" />
+      <EncoderFallbackNotice v-if="encFallback" class="ed-fb" variant="convert" :text="ENCODER_FALLBACK_EXPORT" @settings="router.push(encoderSettingsLocation())" :close-label="ENCODER_FALLBACK_CLOSE_INNER" />
       <span class="sr-only" aria-live="polite">{{ spoken }}</span>
     </template>
 
@@ -23,12 +23,12 @@
       <span class="nm" :title="s.name">已保存为 {{ s.name }}</span>
       <span class="sp"></span>
       <span v-if="s.meta">{{ s.meta }}</span>
-      <span v-if="encDevice" class="ed-dev">{{ ENCODER_DEVICE_LABEL }} {{ encDevice }}</span>
+      <span v-if="encDevice" class="ed-dev" :title="`${ENCODER_DEVICE_LABEL} ${encDevice}`">{{ ENCODER_DEVICE_LABEL }} {{ encDevice }}</span>
       <div class="acts">
         <button type="button" class="ed-btn sm" @click="fl.reveal(s.outputPath)">在文件夹中显示</button>
         <button type="button" class="x" aria-label="关闭提示" @click="fl.dismiss()"><FIcon name="x" :size="14" /></button>
       </div>
-      <EncoderFallbackNotice v-if="encFallback" class="ed-fb" variant="convert" :text="ENCODER_FALLBACK_EXPORT" @settings="router.push('/settings/general')" />
+      <EncoderFallbackNotice v-if="encFallback" class="ed-fb" variant="convert" :text="ENCODER_FALLBACK_EXPORT" @settings="router.push(encoderSettingsLocation())" :close-label="ENCODER_FALLBACK_CLOSE_INNER" />
       <ul v-if="s.ignoredTransitions" class="ed-wl" role="list">
         <li role="listitem"><FIcon name="warn" :size="14" />{{ TEXT.transitionIgnored }}</li>
       </ul>
@@ -60,9 +60,9 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import FIcon from '@/components/icon/FIcon.vue'
 import EncoderFallbackNotice from '@/components/encoder/EncoderFallbackNotice.vue'
-import { ENCODER_DEVICE_LABEL, ENCODER_FALLBACK_EXPORT } from '@/errors/encoderMessages'
+import { ENCODER_DEVICE_LABEL, ENCODER_FALLBACK_CLOSE_INNER, ENCODER_FALLBACK_EXPORT } from '@/errors/encoderMessages'
 import { TEXT } from '@/utils/editLogic'
-import { showFallbackNotice, usedDeviceText, useEncoderDeviceList } from '@/api/encoderTask'
+import { encoderSettingsLocation, showFallbackNotice, usedDeviceText, useEncoderDeviceList } from '@/api/encoderTask'
 import { useExportFlow } from './exportFlow'
 
 const fl = useExportFlow()

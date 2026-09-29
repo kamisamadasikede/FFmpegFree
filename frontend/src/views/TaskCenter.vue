@@ -94,7 +94,7 @@
                     <button v-if="t.status === 'failed' || t.status === 'interrupted'" type="button" class="btn sm" :disabled="tasks.isBusy(t.id)" :aria-busy="tasks.isBusy(t.id)" @click="doRetry(t)"><FIcon name="retry" />重试</button>
                     <button v-if="t.status === 'queued' || t.status === 'running'" type="button" class="iconbtn" :title="`取消 ${t.title}`" :aria-label="`取消 ${t.title}`" @click="act(() => tasks.cancel(t.id))"><FIcon name="x" /></button>
                     <button v-if="t.status === 'succeeded' && t.outputPath" type="button" class="iconbtn" :title="`打开输出 ${t.title}`" :aria-label="`打开输出 ${t.title}`" @click="openOutput(t)"><FIcon name="folder" /></button>
-                    <button type="button" class="iconbtn" :class="{ on: logId === t.id }" :title="`查看日志 ${t.title}`" :aria-label="`查看日志 ${t.title}`" :aria-pressed="logId === t.id" @click="toggleLog(t.id)"><FIcon name="doc" /></button>
+                    <button type="button" class="iconbtn" :class="{ on: logId === t.id }" :data-logbtn="t.id" :title="`查看日志 ${t.title}`" :aria-label="`查看日志 ${t.title}`" :aria-pressed="logId === t.id" @click="toggleLog(t.id)"><FIcon name="doc" /></button>
                     <button v-if="isTerminal(t.status)" type="button" class="iconbtn" :title="`删除 ${t.title}`" :aria-label="`删除 ${t.title}`" @click="askRemove(t)"><FIcon name="trash" /></button>
                   </div>
                 </td>
@@ -162,7 +162,7 @@
       </div>
 
       <!-- 日志面板 -->
-      <div v-if="logTask" class="logwrap">
+      <div v-if="logTask" ref="logWrapEl" class="logwrap" tabindex="-1" role="region" aria-label="任务日志面板">
         <div class="loghead">
           <span>{{ isLogLive ? '实时日志' : '日志' }} · {{ logTask.title }}</span>
           <span class="grow" />
@@ -171,7 +171,7 @@
         </div>
         <!-- 任务详情的编码设备信息：只显示设备名；回退时加一句次要说明（原因枚举 → 用户文案，未知走兜底） -->
         <div v-if="logDevice" class="logdev">
-          <span>{{ ENCODER_DEVICE_LABEL }}：{{ logDevice }}</span>
+          <span class="dv" :title="`${ENCODER_DEVICE_LABEL}：${logDevice}`">{{ ENCODER_DEVICE_LABEL }}：{{ logDevice }}</span>
           <span v-if="logFallbackReason">{{ logFallbackReason }}</span>
         </div>
         <pre ref="logEl" class="log selectable" tabindex="0" aria-label="任务日志">{{ logText || (logLoading ? '正在读取…' : '（暂无日志）') }}</pre>
@@ -203,6 +203,7 @@ import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import ErrorLine from '@/components/common/ErrorLine.vue'
 import EncoderFallbackNotice from '@/components/encoder/EncoderFallbackNotice.vue'
+import { scrollBehavior } from '@/utils/motion'
 import { showFallbackNotice, usedDeviceText, useEncoderDeviceList } from '@/api/encoderTask'
 import { ENCODER_DEVICE_LABEL, ENCODER_FALLBACK_LIVE, encoderFallbackReasonText } from '@/errors/encoderMessages'
 import { elapsedMs, isLiveType, isTerminal, useTaskStore, type TaskItem, type TaskStatus } from '@/stores/tasks'
@@ -507,6 +508,7 @@ const logId = ref<string | null>(null)
 const logText = ref('')
 const logLoading = ref(false)
 const logEl = ref<HTMLElement | null>(null)
+const logWrapEl = ref<HTMLElement | null>(null)
 const logTask = computed<TaskItem | undefined>(() => {
   if (!logId.value) return undefined
   return tasks.active.find((t) => t.id === logId.value) ?? tasks.history.find((t) => t.id === logId.value)
@@ -538,11 +540,27 @@ function toggleLog(id: string, forceOpen = false) {
     logId.value = id
     logText.value = ''
     loadLog()
+    revealLog()
   }
 }
+/**
+ * 打开日志后把日志面板滚进视口并把焦点移过去：面板在列表下方，长列表里点了“查看日志”屏幕上看不出变化。
+ * 选滚动而不是就地展开：面板本来就是整页共用的一块（不随行变化），滚动不改动列表布局；behavior 尊重“减少动效”；
+ * 焦点放到面板（tabindex=-1，读屏会读“任务日志面板”区域），preventScroll 避免二次跳动。关闭时焦点回到触发它的按钮。
+ */
+async function revealLog() {
+  await nextTick()
+  const el = logWrapEl.value
+  if (!el) return
+  el.scrollIntoView({ block: 'nearest', behavior: scrollBehavior() })
+  el.focus({ preventScroll: true })
+}
 function closeLog() {
+  const id = logId.value
+  const hadFocus = !!logWrapEl.value && logWrapEl.value.contains(document.activeElement)
   logId.value = null
   logText.value = ''
+  if (id && hadFocus) nextTick(() => document.querySelector<HTMLElement>(`[data-logbtn="${CSS.escape(id)}"]`)?.focus())
 }
 // 日志面板打开且任务在运行时每 2 秒刷新一次（日志没有事件推送）
 let logTimer: ReturnType<typeof setInterval> | undefined
@@ -955,6 +973,14 @@ th { white-space: nowrap; } /* “开始时间”不换行 */
   padding: 8px 16px;
   border-top: 1px solid var(--ff-border);
 }
+.logwrap:focus {
+  outline: none;
+}
+.logwrap:focus-visible {
+  outline: 2px solid var(--ff-primary);
+  outline-offset: -2px;
+  border-radius: var(--ff-radius-md);
+}
 .logwrap {
   padding: 0 16px 16px;
   margin-top: auto;
@@ -966,6 +992,13 @@ th { white-space: nowrap; } /* “开始时间”不换行 */
   font-size: 12px;
   color: var(--ff-text-3);
   margin-bottom: 6px;
+}
+.logdev .dv {
+  min-width: 0;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .logdev {
   display: flex;

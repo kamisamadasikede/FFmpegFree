@@ -87,7 +87,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { ENCODER_SECTION_ID, ENCODER_SECTION_QUERY } from '@/api/encoderTask'
+import { scrollBehavior } from '@/utils/motion'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import FFmpegPanel from '@/components/settings/FFmpegPanel.vue'
@@ -103,6 +106,19 @@ import { useFFmpegStore } from '@/stores/ffmpeg'
 
 const { mode } = useTheme()
 const encoderVisible = encoderPanelVisible()
+
+// 从提示条“编码设置”跳来（?section=encoder）：滚到“编码设备”并把焦点放到它的标题（tabindex=-1，读屏会读出小节名）。
+// 这一块不显示时（标志关 / 纯浏览器没有 ?enc=）什么也不做，停在页顶。
+const route = useRoute()
+async function focusEncoderSection() {
+  if (route.query.section !== ENCODER_SECTION_QUERY || !encoderVisible) return
+  await nextTick()
+  const sec = document.getElementById(ENCODER_SECTION_ID)
+  if (!sec) return
+  sec.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
+  sec.querySelector<HTMLElement>('h2')?.focus({ preventScroll: true })
+}
+watch(() => route.query.section, focusEncoderSection)
 const fbPreview = encoderVisible && simParam('fb') === '1'
 const themeOptions: { value: ThemeMode; label: string }[] = [
   { value: 'light', label: '浅色' },
@@ -140,6 +156,7 @@ const concurrentText = computed(() => (concurrent.value === MAX_CONCURRENT_AUTO 
 const concurrentHint = computed(() => (concurrent.value === MAX_CONCURRENT_AUTO ? '自动：按 CPU 核数决定，最多同时转换 1 到 3 个。' : '同时进行的转换、剪辑等任务数量，减小不会打断正在运行的任务。'))
 
 onMounted(async () => {
+  void focusEncoderSection()
   try {
     saved = await getMaxConcurrent()
     concurrent.value = saved

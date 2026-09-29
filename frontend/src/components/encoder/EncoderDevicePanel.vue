@@ -1,6 +1,6 @@
 <template>
   <section class="panel group encdev" :aria-labelledby="headingId">
-    <div class="phead"><h2 :id="headingId">{{ ENCODER_PANEL_TITLE }}</h2></div>
+    <div class="phead"><h2 :id="headingId" tabindex="-1">{{ ENCODER_PANEL_TITLE }}</h2></div>
     <div class="srow">
       <div class="l">
         <b>{{ ENCODER_PANEL_TITLE }}</b>

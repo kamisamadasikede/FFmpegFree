@@ -1,5 +1,5 @@
 <template>
-  <EncoderFallbackNotice v-if="shown" variant="live" class="lv-fb" @settings="router.push('/settings/general')" />
+  <EncoderFallbackNotice v-if="shown" variant="live" class="lv-fb" @settings="router.push(encoderSettingsLocation())" />
 </template>
 
 <script setup lang="ts">
@@ -8,7 +8,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import EncoderFallbackNotice from '@/components/encoder/EncoderFallbackNotice.vue'
-import { liveFallbackShown } from '@/api/encoderTask'
+import { encoderSettingsLocation, liveFallbackShown } from '@/api/encoderTask'
 import { useTaskStore } from '@/stores/tasks'
 
 const router = useRouter()
