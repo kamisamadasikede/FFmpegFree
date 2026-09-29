@@ -279,7 +279,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .tip {
   font-size: 12px;
-  color: var(--ff-text-3);
+  color: var(--ff-text-2);
   line-height: 1.5;
   margin-top: -6px;
 }

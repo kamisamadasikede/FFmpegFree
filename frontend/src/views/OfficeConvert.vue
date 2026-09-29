@@ -1,6 +1,10 @@
 <template>
   <div class="office-container">
     <MigrationNotice class="mig" />
+    <div class="doc-head">
+      <h2>Office 转 PDF<span v-if="experimental" class="exp-tag">{{ DOC_EXPERIMENTAL_LABEL }}</span></h2>
+      <p class="exp-note">{{ DOC_EXPERIMENTAL_NOTE }}</p>
+    </div>
     <el-tabs v-model="activeTab" type="border-card">
       <el-tab-pane label="上传转换" name="convert">
         <div class="upload-section">
@@ -131,6 +135,8 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { DOC_EXPERIMENTAL_LABEL, DOC_EXPERIMENTAL_NOTE } from '@/errors/errorMessages'
+import { getDocCapabilities, isExperimental } from '@/api/doc'
 import MigrationNotice from '@/components/common/MigrationNotice.vue'
 import { V1_API_READY } from '@/api'
 import { ElMessage, UploadRequestOptions } from 'element-plus'
@@ -151,6 +157,10 @@ interface UploadFile {
   size: number
   url: string
 }
+
+// “实验性”标签优先按后端 DocCapabilities.experimental 显示，缺省 true（模拟层默认 true）
+const experimental = ref(true)
+getDocCapabilities().then((c) => (experimental.value = isExperimental(c))).catch(() => undefined)
 
 const activeTab = ref('convert')
 const fileList = ref<UploadFile[]>([])
@@ -314,6 +324,34 @@ onMounted(() => {
 <style scoped>
 .mig {
   margin-bottom: 12px;
+}
+.doc-head {
+  margin-bottom: 12px;
+}
+.doc-head h2 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ff-text-1);
+}
+/* 无悬停提示（不加 title） */
+.exp-tag {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: var(--ff-warning-text);
+  background: color-mix(in srgb, var(--ff-warning) 10%, transparent);
+}
+.exp-note {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ff-text-2);
 }
 .office-container {
   padding: 20px;

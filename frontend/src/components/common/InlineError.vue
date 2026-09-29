@@ -1,7 +1,8 @@
 <template>
   <div :id="errorId" class="ff-inline-error" role="alert">
     <FIcon name="warn" :size="14" />
-    <span>{{ resolved.title }}。{{ description ?? resolved.description }}</span>
+    <span v-if="bare">{{ description ?? resolved.description }}</span>
+    <span v-else>{{ resolved.title }}。{{ description ?? resolved.description }}</span>
   </div>
 </template>
 
@@ -12,7 +13,7 @@ import { computed, inject } from 'vue'
 import FIcon from '../icon/FIcon.vue'
 import { resolveError } from '../../errors/errorMessages'
 
-const props = defineProps<{ code: string; message?: string; id?: string; description?: string }>()
+const props = defineProps<{ code: string; message?: string; id?: string; description?: string; bare?: boolean }>()
 // 放在表单项（LiveField）里时自动取它提供的错误行 id，供输入框 aria-describedby 关联
 const fieldErrorId = inject<string | undefined>('ff-field-error-id', undefined)
 const errorId = computed(() => props.id ?? fieldErrorId)

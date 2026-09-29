@@ -22,7 +22,7 @@ export function buildPreviewActive(n: number): TaskItem[] {
       createdAt: t - 40 * min, startedAt: t - 38 * min,
     }),
     base({
-      id: 'p2', type: 'live_record_push', status: 'running', title: 'B站直播间推流',
+      id: 'p2', type: 'live_screen_push', status: 'running', title: 'B站直播间推流',
       progress: -1, outTimeSec: 2538, createdAt: t - 100 * min, startedAt: t - 99 * min,
     }),
     base({ id: 'p3', type: 'convert', status: 'queued', title: 'vlog_杭州西湖.mkv', createdAt: t - 30 * min, inputPaths: ['/Users/me/Movies/vlog_杭州西湖.mkv'] }),
@@ -38,7 +38,7 @@ export function buildPreviewHistory(n: number): TaskItem[] {
     const kinds: Array<Partial<TaskItem>> = [
       { type: 'convert', status: 'succeeded', title: '旅行记录_东京.mov', outputPath: '/Users/me/Movies/FFmpegFree/旅行记录_东京.mp4' },
       {
-        type: 'live_record_push', status: 'failed', title: 'B站直播间推流',
+        type: 'live_screen_push', status: 'failed', title: 'B站直播间推流',
         error: { code: 'LIVE_PUSH_INTERRUPTED', message: '推流被服务器中断', detail: 'Connection reset by peer' },
       },
       { type: 'convert', status: 'succeeded', title: '课程录像_第3讲.mkv', outputPath: '/Users/me/Movies/FFmpegFree/课程录像_第3讲.mp4' },
@@ -53,7 +53,7 @@ export function buildPreviewHistory(n: number): TaskItem[] {
       },
       { type: 'convert', status: 'canceled', title: 'vlog_杭州西湖.mkv' },
       { type: 'convert', status: 'interrupted', title: '婚礼现场_全程4K.mp4', params: '{"container":"mp4","targetSizeMb":500}', progress: 0.42, error: null },
-      { type: 'edit_render', status: 'succeeded', title: '周报剪辑.fproj', outputPath: '/Users/me/Movies/FFmpegFree/周报剪辑.mp4' },
+      { type: 'edit_export', status: 'succeeded', title: '周报剪辑.fproj', outputPath: '/Users/me/Movies/FFmpegFree/周报剪辑.mp4' },
     ]
     const k = kinds[i % kinds.length]
     const started = t - (i + 1) * 47 * min
