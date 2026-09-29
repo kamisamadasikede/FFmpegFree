@@ -79,7 +79,9 @@ func (e *entry) start() {
 	e.task.StartedAt = time.Now().UnixMilli()
 	e.task.Version++
 	e.persistLocked()
-	e.m.emit(EventStatus, StatusEvent{ID: e.task.ID, Version: e.task.Version, Status: StatusRunning})
+	e.m.emit(EventStatus, StatusEvent{
+		ID: e.task.ID, Version: e.task.Version, Status: StatusRunning, StartedAt: e.task.StartedAt,
+	})
 }
 
 // finish 进入终态：落库并发 task:status。重复调用无效。
@@ -112,7 +114,7 @@ func (e *entry) finish(m *Manager, st Status, aerr *apperr.AppError, output stri
 	e.persistLocked()
 	m.emit(EventStatus, StatusEvent{
 		ID: e.task.ID, Version: e.task.Version, Status: st, Error: aerr,
-		OutputPath: e.task.OutputPath, FinishedAt: e.task.FinishedAt,
+		OutputPath: e.task.OutputPath, StartedAt: e.task.StartedAt, FinishedAt: e.task.FinishedAt,
 	})
 	e.log.close()
 }
