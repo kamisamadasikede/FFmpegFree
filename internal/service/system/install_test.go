@@ -567,6 +567,10 @@ func TestRetryClaimsInstallingWhileQueued(t *testing.T) {
 	if nt.Status != task.StatusQueued {
 		t.Fatalf("重试的任务应在排队: %+v", nt)
 	}
+	// nt 是入队前快照（恒为 queued）；以实时状态确认它真的还在排队、没有开始。
+	if cur, err := f.tasks.Get(nt.ID); err != nil || cur.Status != task.StatusQueued || cur.StartedAt != 0 {
+		t.Fatalf("重试的安装任务应仍在排队: %+v %v", cur, err)
+	}
 	// 排队期间：已经处于 installing，第二个 Install 返回同一个任务，不会再提交
 	if st := f.mgr.Status(); st.State != ffmpeg.StateInstalling || st.TaskID != nt.ID {
 		t.Fatalf("Retry 应立刻占住 installing: %+v", st)
