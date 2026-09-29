@@ -14,6 +14,7 @@ export type ErrorCode =
   | 'LIVE_PUSH_INTERRUPTED'
   | 'FFMPEG_NOT_FOUND'
   | 'SCREEN_PERMISSION_DENIED'
+  | 'UNSUPPORTED_PLATFORM'
 
 export type ErrorButtonAction =
   | 'retry' // 触发 ErrorOverlay 的 retry 事件
@@ -66,7 +67,9 @@ export const errorMessages: Record<ErrorCode, ErrorMessage> = {
     primary: { label: '去设置', action: 'route', to: '/settings' },
   }),
   // 原型里是弯引号“”，这里跟原型一致
-  SCREEN_PERMISSION_DENIED: overlay('没有录屏权限', '请在系统设置的“隐私与安全性”里允许本应用录制屏幕，然后重试。'),
+  // 产品经理定稿：两个码文案不混用（权限被拒 ≠ 平台不支持）
+  SCREEN_PERMISSION_DENIED: overlay('没有录屏权限', '没有获得屏幕录制权限，请在系统设置中允许 FFmpegFree 录制屏幕后重试'),
+  UNSUPPORTED_PLATFORM: overlay('无法进行屏幕推流', '当前系统暂不支持屏幕推流', { primary: null, secondary: null }),
 }
 
 /** 未收录的错误码（INTERNAL 等）的兜底文案 */
@@ -207,7 +210,7 @@ export const TASK_CONFLICT_GENERIC = '操作冲突，请稍后再试'
 export const TASK_CONFLICT_REASON_TEXT: Record<string, string> = {
   max_sessions: '最多同时推 4 路',
   duplicate_url: '这个地址已经在推流',
-  // 待产品定：屏幕推流可能新增“同时最多 1 路”，reason 值待定，定后在此追加一行
+  screen_busy: '屏幕推流同一时间只能有 1 路，请先停止当前的屏幕推流',
 }
 
 /** TASK_CONFLICT 的用户文案；reason 取自 AppError.reason（api/call.ts 解析） */

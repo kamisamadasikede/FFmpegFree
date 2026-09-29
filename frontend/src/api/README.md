@@ -5,13 +5,14 @@
 
 ## 开关
 
-`src/api/flags.ts`，默认全部 `false`（走模拟，不发任何网络请求）：
+`src/api/flags.ts`，除 `ABOUT_BACKEND_READY` 外默认全部 `false`（走模拟，不发任何网络请求）：
 
 | 开关 | 文件 | true 时调用 |
 |---|---|---|
 | `LIVE_BACKEND_READY` | `live.ts` | `window.go.app.LiveService.*`，停止走 `TaskService.Cancel` |
 | `EDIT_BACKEND_READY` | `edit.ts` | `window.go.app.EditService.*` |
 | `DOC_BACKEND_READY` | `doc.ts` | `window.go.app.DocService.*` |
+| `ABOUT_BACKEND_READY` | `about.ts` | 生成绑定 `wailsjs/go/main/App` 的 `GetAppVersion()` / `GetLicenseText(name)`（后端 #34、#36，已合入，开关为 `true`）。纯浏览器开发环境（没有 `window.go`）始终走模拟：版本“开发版”、许可文本是标注“演示文本”的 OFL 前几行 |
 
 开关为 true 时经 `call.ts` 的 `callService(service, method, ...args)` 按名字取 `window.go`，**不 import wailsjs 生成文件**（没有绑定时 `vue-tsc` / `vite build` 也能过）。绑定不存在会抛 `UNSUPPORTED`，不会悄悄走模拟。
 
@@ -37,6 +38,10 @@
 - 模拟任务的标题带“【演示】”前缀，任务中心里显示为“演示”标签（`api/sim.ts` 的 `SIM_TITLE_PREFIX`）；开关为 false 且有 Wails 时，任务中心的活动列表 / 历史都会合并模拟任务，不会被 `ListActive` 刷新清掉。
 - 自检：`npm run check:api`（esbuild 打包后在 node 跑，覆盖 reason / scheme / clipId 解析、两种 TASK_CONFLICT、LIVE_URL_INVALID 各 reason、连接失败按 scheme 出文案、未知 / 缺失兜底、停止语义、地址校验与脱敏、同轨重叠、outSec=0、Save 只查数量上限、输出名净化、模拟层主要错误）。
 
+## 关于页（`about.ts`）
+
+`getAppVersion()` → `GetAppVersion()`（构建时 `-ldflags` 注入，没注入返回“开发版”）；`getLicenseText(name)` → `GetLicenseText(name)`，`name` 只能是后端白名单里的 `"OFL"`（Noto Sans SC）和 `"OFL-Nunito"`（Nunito），调用方只传 `src/config/about.ts` 里列出的常量，不传用户输入；未知名字后端返回 `INVALID_ARGUMENT`。这两个绑定已在生成文件 `wailsjs/go/main/App` 里，直接 import，没有本地类型声明。
+
 ## 联调时要切换的地方
 
 1. `src/api/flags.ts` 里对应开关改 `true`（三个可以分开切）。
@@ -46,7 +51,7 @@
 
 ## 契约未冻结、可能要改的点
 
-- Live：方法名、`PushOptions` 字段、`TASK_CONFLICT` 的 `reason` 取值（`max_sessions` / `duplicate_url` 已定；屏幕推流“同时最多 1 路”的 reason 待产品经理定）、缺 srt/rtmps 协议时 UNSUPPORTED 的 detail 写法与文案、`LIVE_*` 错误分类关键词（未用真实服务器验证）、RTMP 连接失败与 `malformed` / `missing_host` / `param_not_allowed` 的文案（待产品定稿）。
+- Live：方法名、`PushOptions` 字段、`TASK_CONFLICT` 的 `reason` 取值（`duplicate_url` / `screen_busy` / `max_sessions` 已定）、缺 srt/rtmps 协议时 UNSUPPORTED 的 detail 写法与文案、`LIVE_*` 错误分类关键词（未用真实服务器验证）、RTMP 连接失败与 `malformed` / `missing_host` / `param_not_allowed` 的文案（待产品定稿）。
 - Edit：`Export` 命名（已确认）、`EditExportOptions`、`GetPreviewURL` 的限长 206 在 Windows/WebView2 上是否可用（未验证，回退是 `edit_proxy`，接口不变）、clip 错误 detail 首行格式。
 - Doc：大文件（> 64 MiB）路径在 Windows 未验证（验证不通过则 `OpenPDF` 对 > 64 MiB 返回 INVALID_ARGUMENT、`url` 恒空）；字体子集范围与 OFL 保留名。
 
@@ -81,23 +86,29 @@
   - 同轨间隙 ≤0.12s 视为相接，更大间隙导出时补黑场 / 静音。
 - **task:status 事件的 `startedAt`**（后端 PR #32）：`running` 事件带 `startedAt`，四种终态事件带 `startedAt` 与 `finishedAt`，均为可选（排队中被取消则 `startedAt` 缺省）。前端优先用事件值，没有则沿用本地已记录值，仍没有就不显示“用时”。
 
+### 2026-09-29 架构师 / 产品经理定稿（本轮关掉的疑问）
+
+- **刷新后重连**（原 4 的后半，架构师已决）：直播任务在后端任务管理器里，刷新页面不影响它。前端刷新后重新调 `ListTasks`（`TaskService.List` / `ListActive`）重建状态，再订阅 `task:*` 事件；不做专门的重连逻辑，不需要新接口。
+- **`CheckPushURL`**（原 7，架构师已决）：只校验地址格式和协议（`LIVE_URL_INVALID` 的 reason），不做冲突检查。“同地址已在推”“超过上限”都在真正开始推流（`StartFilePush` / `StartScreenPush`）时返回 `TASK_CONFLICT`，界面按 `reason` 显示。
+- **`TASK_CONFLICT` reason 与判断顺序**（已统一）：**`duplicate_url` → `screen_busy` → `max_sessions`**。
+  - `duplicate_url`：“这个地址已经在推流”
+  - `screen_busy`：屏幕推流同一时间最多 1 路（已有进行中的屏幕推流，含排队、正在停止时，`StartScreenPush` 返回）：“屏幕推流同一时间只能有 1 路，请先停止当前的屏幕推流”（映射在 `errors/errorMessages.ts` 的 `TASK_CONFLICT_REASON_TEXT`，模拟在 `api/live.ts`，自检覆盖顺序）
+  - `max_sessions`：“最多同时推 4 路”
+- **屏幕推流首版**（原 8 的其余部分，架构师已决）：不做区域选择，只推整块屏幕，可选来源以契约为准（`ListScreens`），契约没写的不加。
+- **屏幕推流两个错误码文案**（产品经理已定，两者不混用）：`SCREEN_PERMISSION_DENIED`：“没有获得屏幕录制权限，请在系统设置中允许 FFmpegFree 录制屏幕后重试”；`UNSUPPORTED_PLATFORM`：“当前系统暂不支持屏幕推流”（`errorMessages` 里新增了 `UNSUPPORTED_PLATFORM`）。
+- **剪辑**（产品经理已定）：默认导出分辨率 **1920×1080**（前端提交时显式写宽高，`newEditProject` / `VideoEditor.vue` 已改；后端兜底值也改为 1920×1080）；素材库上限 **100**（`checkSaveLimits` 已改）；一次删除 **≥5 个片段**才二次确认。
+
 ### 仍未决
 
 等**后端 / 架构师**：
 
-- **刷新后重连**（原 4 的后半）：`params` 已脱敏，刷新后拿不到完整地址，“断线自动重连”只能在页面不刷新时用。可接受的话请确认。
 - **缺协议的 UNSUPPORTED**（原 6）：detail 写“缺哪个”，格式没定，模拟层暂按 `ffmpeg 缺少协议：srt`；且与直播会话 Retry 的 UNSUPPORTED 同码，建议也用 `reason=` 首行区分。
-- **`CheckPushURL` 是否做会话冲突检查**（原 7）：前端当纯校验用。
-- **屏幕推流**（原 8 的其余部分）：没有区域 / 窗口选择；`ArchiveDir` 是否需要 `Settings.archiveDir` 默认值（带存档的屏幕推流本身等 Edit 合入后补，见上）。
 - **Edit 多素材预览**（原 10）：同时预览 N 个素材占 N 个 token（登记表 256 项 LRU），是否提供批量 `GetPreviewURL`。限长 206（4 MiB）的 seek 体验待 Windows 真机验证。
 - **Doc 转换产物不自动进 PDF 历史**（原 15）：预览时才 `OpenPDF`，请确认是预期。
-- **错误码表**（原 17）：`UNSUPPORTED_PLATFORM` 没有专属用户文案，走兜底；`LIVE_PLAY_FAILED` / `LIVE_CORS_BLOCKED` 只由前端播放器产生。契约 §2 的清单是 17 个后端码。
+- **错误码表**（原 17）：`UNSUPPORTED_PLATFORM` 文案已定（见上）；`LIVE_PLAY_FAILED` / `LIVE_CORS_BLOCKED` 只由前端播放器产生。契约 §2 的清单是 17 个后端码。
 - **敏感信息**（原 20）：前端已保证完整推流地址和口令只在输入框和调用参数里，不写 localStorage / 日志 / console，列表和标题用脱敏形式；后端 `Task.title` / `params` 已脱敏。无需契约改动，仅记录。
 
-等**产品经理**（当前暂用值，未最终确认）：
+等**产品经理**：
 
-- 剪辑默认导出分辨率：暂用 1280×720。
-- 素材库上限：暂用 100。
-- 删除片段的确认：≥5 个片段时才确认（暂定）。
-- 屏幕推流是否限 1 路（及对应 `TASK_CONFLICT` 的 reason 与文案）。
-- `LIVE_CONNECT_FAILED` / `LIVE_URL_INVALID` 各 reason 的文案定稿（见上“待产品定稿”）。
+- `LIVE_CONNECT_FAILED` / `LIVE_URL_INVALID` 各 reason 的文案定稿：**等产品经理贴定稿原文**（设计师已请她再贴一次），现有文案为临时文案，见上“待产品定稿”。
+- 关于页两项：许可证那句话、项目地址用 GitHub 还是 gitee 镜像（集中在 `src/config/about.ts`，先按稿面写）。

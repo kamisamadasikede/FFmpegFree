@@ -65,6 +65,7 @@ const overlayCodes = [
   'LIVE_PUSH_INTERRUPTED',
   'FFMPEG_NOT_FOUND',
   'SCREEN_PERMISSION_DENIED',
+  'UNSUPPORTED_PLATFORM',
 ]
 const playing = ref(false)
 const muted = ref(false)

@@ -120,12 +120,12 @@ const SIM_MESSAGES: Record<string, string> = {
   FFMPEG_NOT_FOUND: '未找到 ffmpeg 可执行文件',
   TASK_CONFLICT: '任务冲突',
   UNSUPPORTED: '当前 ffmpeg 不支持这种推流协议',
-  UNSUPPORTED_PLATFORM: '当前系统或会话不支持屏幕采集',
+  UNSUPPORTED_PLATFORM: '当前系统暂不支持屏幕推流',
   LIVE_URL_INVALID: '推流地址不合法',
   LIVE_CONNECT_FAILED: '无法连接推流目标',
   LIVE_PUSH_REJECTED: '目标服务器拒绝了推流',
   LIVE_PUSH_INTERRUPTED: '推流被中断',
-  SCREEN_PERMISSION_DENIED: '没有屏幕录制权限',
+  SCREEN_PERMISSION_DENIED: '没有获得屏幕录制权限，请在系统设置中允许 FFmpegFree 录制屏幕后重试',
   CANCELED: '调用已取消',
   INTERNAL: 'ffmpeg 异常退出',
 }
@@ -150,7 +150,7 @@ function urlInvalidDetail(reason: string, url: string): string {
 }
 
 /** 模拟：Start* 的同步校验（契约“Start* 同步返回的错误”），返回标准化地址 */
-function simValidateStart(url: string, options: PushOptions): { normalized: string; redacted: string; scheme: string } {
+function simValidateStart(url: string, options: PushOptions, screen = false): { normalized: string; redacted: string; scheme: string } {
   const inj = simInjection()
   if (inj && inj.when === 'call') simError(inj.code, simMsg(inj.code), injectionDetail(inj))
   checkOptions(options)
@@ -161,8 +161,11 @@ function simValidateStart(url: string, options: PushOptions): { normalized: stri
   if (missing && missing === u.info.scheme) simError('UNSUPPORTED', simMsg('UNSUPPORTED'), `ffmpeg 缺少协议：${missing}`)
   const live = activeSimEntries().filter((e) => e.task.type === 'live_file_push' || e.task.type === 'live_screen_push')
   // 后端两种冲突用 detail 第一行 reason=<值> 区分，detail 里不带任何地址片段
-  if (live.length >= MAX_SESSIONS) simError('TASK_CONFLICT', '进行中的直播会话已达上限', 'reason=max_sessions\n最多同时进行 4 个直播会话')
+  // 判断顺序（后端统一）：duplicate_url → screen_busy → max_sessions
   if (live.some((e) => e.meta?.normalized === u.normalized)) simError('TASK_CONFLICT', '该推流地址已有进行中的会话', 'reason=duplicate_url\n已有会话使用同一推流地址')
+  // 屏幕推流同一时间最多 1 路（含排队、正在停止：activeSimEntries 包含这些状态）
+  if (screen && live.some((e) => e.task.type === 'live_screen_push')) simError('TASK_CONFLICT', '已有进行中的屏幕推流', 'reason=screen_busy\n屏幕推流同一时间只能有 1 路')
+  if (live.length >= MAX_SESSIONS) simError('TASK_CONFLICT', '进行中的直播会话已达上限', 'reason=max_sessions\n最多同时进行 4 个直播会话')
   return { normalized: u.normalized, redacted: u.info.redacted, scheme: u.info.scheme }
 }
 
@@ -213,7 +216,7 @@ export async function startScreenPush(req: ScreenPushRequest): Promise<ApiTask> 
   if (req.screenId && !screens.some((s) => s.id === req.screenId)) simError('INVALID_ARGUMENT', 'screenId 不存在')
   if (req.archiveDir && !isAbs(req.archiveDir)) simError('INVALID_ARGUMENT', 'archiveDir 必须是绝对路径')
   if (req.audio !== 'none' && req.audio !== 'silent') simError('INVALID_ARGUMENT', 'audio 只能是 none 或 silent')
-  const v = simValidateStart(req.url, req.options)
+  const v = simValidateStart(req.url, req.options, true)
   const screen = screens.find((s) => s.id === req.screenId) ?? screens.find((s) => s.primary)!
   return createSimTask({
     type: 'live_screen_push',
