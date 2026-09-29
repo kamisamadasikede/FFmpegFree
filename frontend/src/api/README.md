@@ -108,7 +108,8 @@
 - **错误码表**（原 17）：`UNSUPPORTED_PLATFORM` 文案已定（见上）；`LIVE_PLAY_FAILED` / `LIVE_CORS_BLOCKED` 只由前端播放器产生。契约 §2 的清单是 17 个后端码。
 - **敏感信息**（原 20）：前端已保证完整推流地址和口令只在输入框和调用参数里，不写 localStorage / 日志 / console，列表和标题用脱敏形式；后端 `Task.title` / `params` 已脱敏。无需契约改动，仅记录。
 
+（关于页三项已由产品经理确认：项目地址用 GitHub、许可证句“本应用以木兰宽松许可证第 2 版发布”、许可证链接指向 `blob/master/LICENSE`，常量在 `src/config/about.ts`。）
+
 等**产品经理**：
 
 - `LIVE_CONNECT_FAILED` / `LIVE_URL_INVALID` 各 reason 的文案定稿：**等产品经理贴定稿原文**（设计师已请她再贴一次），现有文案为临时文案，见上“待产品定稿”。
-- 关于页两项：许可证那句话、项目地址用 GitHub 还是 gitee 镜像（集中在 `src/config/about.ts`，先按稿面写）。
