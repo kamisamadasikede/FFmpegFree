@@ -447,6 +447,8 @@ schema_migrations(version PK, applied_at)
 - **会话与任务管理器**：新增 `TypeLiveScreenPush`，`IsLive` 包含它；旧的 `TypeLiveRelay`、`TypeLiveRecordPush` 常量保留（读旧记录、`IsLive` 仍为 true），但 `Submit` 不再接受。不注册重试工厂，`Retry` 得到 `UNSUPPORTED`（message：直播会话不能重试，请重新开始推流）。进行中的会话同时最多 4 个；同一个标准化推流地址同时只能有一个会话（都是 `TASK_CONFLICT`）。应用退出：`Shutdown` 取消 → 优雅停止最多 5 秒 → 状态 `interrupted`；应用崩溃时 ffmpeg 子进程由操作系统回收（Windows 见 Job Object 修订）。
 - **未验证（设计稿的已知风险，实现时要真机验证）**：macOS 屏幕录制授权的检测方式（不用 cgo 时只能靠 ffmpeg 报错或首帧内容判断）；Windows gdigrab 在多显示器 / 非 100% 缩放下偏移和尺寸是否等于物理像素；`x11grab` 在各桌面环境下的表现；上面所有 ffmpeg 报错关键词；RTMP / SRT 在不同服务器（nginx-rtmp、SRS、MediaMTX、常见直播平台）上的兼容性。
 
+- **合并顺序（架构师定）**：#19（Live，本节）→ #22（Edit，6.11）→ #23（Doc，6.12），三份合并后的最终契约版本是 **v0.12**；每个 PR 的头部版本号只在合并时按"保留最高版本号、各自 vX 变更段和小节都保留"处理，本 PR 头部保持 v0.10。
+- **架构师对 Edit / Doc 的 8 项拍板不涉及 Live**，下面 ①~⑨ 仍是待定项，**尚无结论**，实现前需要架构师逐条确认。
 - **待架构师 / 前端拍板**：① 同时进行的直播会话上限 4 个、同一地址只允许一个会话，是否合适；② 屏幕推流 v1 不采集声音（只有 `none` / `silent`），是否接受；③ 始终重编码（不支持 `-c copy` 直推文件），是否接受；④ 允许推到回环 / 内网地址；⑤ 只支持 rtmp / rtmps / srt，不含 rtsp / whip / http-flv 推流；⑥ 存档只用 mp4，且只有屏幕推流有存档，文件推流不需要；⑦ 优雅停止成功记 `succeeded`、强杀记 `canceled`，前端文案按此区分；⑧ 旧的 `live_relay` / `live_record_push` 类型是否还要在任务中心里展示（目前没有代码产生过这两种记录）；⑨ 前端 `AppErrorCode` 需要补 `CANCELED`、直播相关码、`PROBE_FAILED`、`UNSUPPORTED`、`CONVERT_DISK_FULL`。
 
 ## 7. 本地流服务（已取消）
