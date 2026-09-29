@@ -81,6 +81,7 @@ watch(collapsed, (v) => localStorage.setItem(KEY, v ? '1' : '0'))
 }
 .sidebar.collapsed {
   width: var(--ff-sidebar-w-collapsed);
+  overflow: visible; /* 折叠时 ffmpeg 状态的悬停气泡在侧栏外右侧（设计说明 编码设备-v0.1），不能被裁掉；折叠后文字都已 v-show 隐藏 */
 }
 .traffic-space {
   height: var(--ff-titlebar-h);
