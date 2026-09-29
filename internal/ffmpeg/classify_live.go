@@ -64,6 +64,9 @@ func ClassifyLiveError(in LiveClassifyInput) *apperr.AppError {
 
 	if in.Screen {
 		switch {
+		case anyLine(func(l string) bool { return strings.Contains(l, "can't find window") }):
+			// gdigrab：校验之后、ffmpeg 打开之前窗口就没了。detail 只有 kind=window（不带窗口标题）。
+			return apperr.New(apperr.LiveSourceGone, "所选窗口已不可用，请重新选择").WithDetail("kind=window")
 		case anyLine(func(l string) bool {
 			return strings.Contains(l, "avfoundation") &&
 				(strings.Contains(l, "not authorized") || strings.Contains(l, "permission") || strings.Contains(l, "denied") ||

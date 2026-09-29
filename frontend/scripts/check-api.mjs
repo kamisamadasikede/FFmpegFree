@@ -20,6 +20,10 @@ try {
     console.error(fails.join('\n'))
     process.exitCode = 1
   } else console.log('api 自检通过')
+} catch (e) {
+  // 检查代码自己抛异常也必须失败（否则 process.exit(0) 会把它吞掉）
+  console.error('api 自检异常：', e)
+  process.exitCode = 1
 } finally {
   rmSync(dir, { recursive: true, force: true })
   process.exit(process.exitCode ?? 0)

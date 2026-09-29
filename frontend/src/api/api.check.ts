@@ -45,7 +45,8 @@ export async function runApiChecks(): Promise<string[]> {
   eq('clip 首行', parseDetailHead('clip=c_1-a path=/a b/中文.mp4\n原因'), { clipId: 'c_1-a', path: '/a b/中文.mp4' })
   eq('project 首行没有 clip', parseDetailHead('project\n视频轨不能为空'), {})
   eq('toAppError 解析 JSON 的 detail', toAppError('{"code":"TASK_CONFLICT","message":"m","detail":"reason=duplicate_url"}').reason, 'duplicate_url')
-  eq('BACKEND_ERROR_CODES 17 个', BACKEND_ERROR_CODES.length, 17)
+  eq('BACKEND_ERROR_CODES 18 个（v0.14 含 LIVE_SOURCE_GONE）', BACKEND_ERROR_CODES.length, 18)
+  eq('LIVE_SOURCE_GONE 的 kind 首行', [new AppError('LIVE_SOURCE_GONE', 'x', 'kind=window').kind, new AppError('LIVE_SOURCE_GONE', 'x', 'kind=screen').kind, new AppError('LIVE_SOURCE_GONE', 'x', 'kind=other').kind, new AppError('LIVE_SOURCE_GONE', 'x').kind], ['window', 'screen', undefined, undefined])
 
   // ---- TASK_CONFLICT 文案（reason → 文案 一张表）----
   eq('max_sessions 文案', taskConflictText('max_sessions'), '最多同时推 4 路')
@@ -201,6 +202,22 @@ export async function runApiChecks(): Promise<string[]> {
   eq('duplicate_url 文案', taskConflictText(err?.reason), '这个地址已经在推流')
   // 屏幕推流同一时间最多 1 路；判断顺序 duplicate_url → screen_busy → max_sessions
   const screenReq = (url: string): live.ScreenPushRequest => ({ screenId: 'avf:0', url, hideCursor: false, audio: 'none', archiveDir: '', options: live.defaultPushOptions() })
+  // v0.14 采集来源：列表 = 屏幕 + 窗口；来源失效 → LIVE_SOURCE_GONE（detail 首行 kind=）；格式不对 INVALID_ARGUMENT；失败不占会话
+  const sources = await live.listCaptureSources()
+  eq('采集来源：屏幕在前，窗口在后', sources.map((s) => s.kind), ['screen', 'screen', 'window', 'window'])
+  eq('采集来源 id', sources.map((s) => s.id), ['screen:0', 'screen:1', 'window:65890', 'window:131426'])
+  const runningBefore = (await live.listRunning()).length
+  err = await rejects(live.startScreenPush({ ...screenReq('rtmp://g1.example/live/g1'), captureSourceId: 'window:999' }))
+  eq('LIVE_SOURCE_GONE（窗口）', [err?.code, err?.kind, err?.detail], ['LIVE_SOURCE_GONE', 'window', 'kind=window'])
+  err = await rejects(live.startScreenPush({ ...screenReq('rtmp://g1.example/live/g1'), captureSourceId: 'screen:9' }))
+  eq('LIVE_SOURCE_GONE（屏幕）', [err?.code, err?.kind], ['LIVE_SOURCE_GONE', 'screen'])
+  err = await rejects(live.startScreenPush({ ...screenReq('rtmp://g1.example/live/g1'), captureSourceId: 'window:0x10' }))
+  eq('captureSourceId 格式不对', err?.code, 'INVALID_ARGUMENT')
+  eq('来源失败不占会话', (await live.listRunning()).length, runningBefore)
+  const gt = await live.startScreenPush({ ...screenReq('rtmp://g2.example/live/g2'), captureSourceId: 'window:131426' })
+  eq('窗口来源的任务标题与 params', [gt.title.includes('记事本'), JSON.parse(gt.params).captureSourceId], [true, 'window:131426'])
+  await live.stopPush(gt.id)
+  await new Promise((r) => setTimeout(r, 1700)) // 模拟层停止需要一小会儿，之后才能再开屏幕推流
   await live.startScreenPush(screenReq('rtmp://s1.example/live/sk1'))
   err = await rejects(live.startScreenPush(screenReq('rtmp://s2.example/live/sk2')))
   eq('screen_busy', [err?.code, err?.reason], ['TASK_CONFLICT', 'screen_busy'])

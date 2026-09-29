@@ -18,6 +18,7 @@
  *   startScreenPush         LiveService.StartScreenPush(ScreenPushRequest) → Task
  *   getCaptureCapabilities  LiveService.GetCaptureCapabilities()
  *   listScreens             LiveService.ListScreens()
+ *   listCaptureSources      LiveService.ListCaptureSources()（v0.14）
  *   checkPushURL            LiveService.CheckPushURL(url) → PushURLInfo（只校验，不联网）
  *   stopPush                TaskService.Cancel(taskID)
  *   listRunning             TaskService.ListActive()（type = live_*）
@@ -82,6 +83,8 @@ export interface ScreenPushRequest {
   /** 非空 = 同时在本地存一份 mp4（绝对路径）；"" = 不存档 */
   archiveDir: string
   options: PushOptions
+  /** v0.14 可选：ListCaptureSources 返回的 id（screen:<序号> | window:<hwnd 十进制>），原样传回；不传 = 按 screenId（原行为）；传了以它为准。来源已不可用 → LIVE_SOURCE_GONE（detail 首行 kind=window|screen） */
+  captureSourceId?: string
 }
 
 export interface CaptureCapabilities {
@@ -106,6 +109,18 @@ export interface ScreenInfo {
   width: number
   height: number
   scale: number
+}
+
+/** v0.14：一个可选的采集来源（ListCaptureSources）。macOS / Linux 只有 kind=screen */
+export interface CaptureSource {
+  /** 不透明字符串，原样传给 captureSourceId：screen:<序号> | window:<hwnd 十进制> */
+  id: string
+  kind: 'screen' | 'window'
+  /** screen：显示器名（如“显示器 1（主）”）；window：窗口标题原文 */
+  title: string
+  /** 物理像素；查不到为 0 */
+  width: number
+  height: number
 }
 
 export interface PushURLInfo {
@@ -135,6 +150,7 @@ const SIM_MESSAGES: Record<string, string> = {
   LIVE_PUSH_REJECTED: LIVE_PUSH_REJECTED_TEXT,
   LIVE_PUSH_INTERRUPTED: '推流被中断',
   SCREEN_PERMISSION_DENIED: '没有获得屏幕录制权限，请在系统设置中允许 FFmpegFree 录制屏幕后重试',
+  LIVE_SOURCE_GONE: '所选窗口已不可用，请重新选择',
   CANCELED: '调用已取消',
   INTERNAL: 'ffmpeg 异常退出',
 }
@@ -267,13 +283,23 @@ export async function startScreenPush(req: ScreenPushRequest): Promise<ApiTask> 
   if (req.archiveDir && !isAbs(req.archiveDir)) simError('INVALID_ARGUMENT', 'archiveDir 必须是绝对路径')
   if (req.audio !== 'none' && req.audio !== 'silent') simError('INVALID_ARGUMENT', 'audio 只能是 none 或 silent')
   const v = simValidateStart(req.url, req.options, true)
-  const screen = screens.find((s) => s.id === req.screenId) ?? screens.find((s) => s.primary)!
+  let screenName = (screens.find((s) => s.id === req.screenId) ?? screens.find((s) => s.primary)!).name
+  if (req.captureSourceId) {
+    // 与真实后端一致：格式不对 INVALID_ARGUMENT；来源不在当前列表里（窗口已关闭 / 最小化，屏幕序号不存在）→ LIVE_SOURCE_GONE，detail 只有 kind=<值>
+    if (!/^(screen|window):(0|[1-9][0-9]*)$/.test(req.captureSourceId)) simError('INVALID_ARGUMENT', 'captureSourceId 格式不对')
+    const src = (await listCaptureSources()).find((s) => s.id === req.captureSourceId)
+    if (!src) {
+      const kind = req.captureSourceId.startsWith('window:') ? 'window' : 'screen'
+      simError('LIVE_SOURCE_GONE', kind === 'window' ? '所选窗口已不可用，请重新选择' : '所选屏幕已不可用，请重新选择', `kind=${kind}`)
+    }
+    screenName = src.title
+  }
   return createSimTask({
     type: 'live_screen_push',
-    title: `屏幕推流：${screen.name} → ${v.redacted}`,
+    title: `屏幕推流：${screenName} → ${v.redacted}`,
     inputPaths: [],
     outputPath: '',
-    params: JSON.stringify({ kind: 'screen', screenId: req.screenId, url: v.redacted, hideCursor: req.hideCursor, audio: req.audio, archiveDir: req.archiveDir, options: req.options }),
+    params: JSON.stringify({ kind: 'screen', screenId: req.screenId, url: v.redacted, hideCursor: req.hideCursor, audio: req.audio, archiveDir: req.archiveDir, options: req.options, ...(req.captureSourceId ? { captureSourceId: req.captureSourceId } : {}) }),
     live: simLiveSpec(v.scheme),
     meta: { normalized: v.normalized },
   })
@@ -298,6 +324,20 @@ export async function listScreens(): Promise<ScreenInfo[]> {
     { id: 'avf:0', name: '显示器 1（主）', primary: true, x: 0, y: 0, width: 2880, height: 1800, scale: 2 },
     { id: 'avf:1', name: '显示器 2', primary: false, x: 2880, y: 0, width: 1920, height: 1080, scale: 1 },
   ]
+}
+
+/**
+ * v0.14：屏幕推流可选的采集来源（屏幕 + Windows 上的应用窗口）。真实后端 macOS / Linux 只有 screen；不能采集屏幕时 UNSUPPORTED_PLATFORM。
+ * 模拟层按 Windows 的样子返回 2 个屏幕 + 2 个窗口（window:<hwnd> 里的 hwnd 是假的；开始推流前从列表里去掉窗口 = 已关闭，可用 `?sim_source_gone=1` 让窗口消失）。
+ */
+export async function listCaptureSources(): Promise<CaptureSource[]> {
+  if (liveIsReal()) return ((await call(LiveBinding.ListCaptureSources())) ?? []) as CaptureSource[]
+  const screens = (await listScreens()).map((s, i): CaptureSource => ({ id: `screen:${i}`, kind: 'screen', title: s.name, width: s.width, height: s.height }))
+  const windows: CaptureSource[] = simParam('sim_source_gone') === '1' ? [] : [
+    { id: 'window:65890', kind: 'window', title: '演示文稿.pptx - PowerPoint', width: 1600, height: 900 },
+    { id: 'window:131426', kind: 'window', title: '记事本', width: 800, height: 600 },
+  ]
+  return [...screens, ...windows]
 }
 
 /** 只校验地址并返回脱敏后的显示文本，不联网。不通过 LIVE_URL_INVALID */
