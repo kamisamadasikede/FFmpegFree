@@ -63,7 +63,7 @@ export interface TaskItem {
   fps?: number
   bitrateKbps?: number
   droppedFrames?: number
-  /** v0.17（契约 9.7）：实际使用的视频编码器 / 设备 / 是否回退 CPU / 原因；没有视频编码的任务缺省 */
+  /** v0.18（契约 9.7）：实际使用的视频编码器 / 设备 / 是否回退 CPU / 原因；没有视频编码的任务缺省 */
   encoder?: string
   encoderDevice?: string
   hwFallback?: boolean

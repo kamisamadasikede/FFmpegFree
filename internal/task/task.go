@@ -117,7 +117,7 @@ type Claimer interface {
 	Abandoned()
 }
 
-// EncoderReporter 是 Runner 可选实现的接口：返回任务一开始使用的视频编码器信息（契约 v0.17，9.7）。
+// EncoderReporter 是 Runner 可选实现的接口：返回任务一开始使用的视频编码器信息（契约 v0.18，9.7）。
 // Submit 用它填 Task.Encoder / EncoderDevice / HWFallback / HWFallbackReason（Retry 造出的新 Runner 同样适用），
 // 所以 task:created、落库和第一个 task:status 就带着实际编码器；运行中若硬件编码失败回退 CPU，Runner 再用 ReportEncoder 更新。
 // 不返回视频编码器（Encoder 为空）的任务不设置这些字段。
@@ -150,7 +150,7 @@ type ProgressEvent struct {
 	Speed      string  `json:"speed"`
 	EtaSec     float64 `json:"etaSec"`
 	OutTimeSec float64 `json:"outTimeSec"`
-	// 使用了视频编码器的任务才有（契约 v0.17，9.7），与 Task 里的同名字段一致。
+	// 使用了视频编码器的任务才有（契约 v0.18，9.7），与 Task 里的同名字段一致。
 	Encoder          string `json:"encoder,omitempty"`
 	EncoderDevice    string `json:"encoderDevice,omitempty"`
 	HWFallback       bool   `json:"hwFallback,omitempty"`
@@ -182,7 +182,7 @@ type StatusEvent struct {
 	OutputPath string           `json:"outputPath,omitempty"`
 	StartedAt  int64            `json:"startedAt,omitempty"`
 	FinishedAt int64            `json:"finishedAt,omitempty"`
-	// 使用了视频编码器的任务才有（契约 v0.17，9.7）：running 事件、终态事件、以及运行中硬件编码回退 CPU 时补发的 running 事件都带。
+	// 使用了视频编码器的任务才有（契约 v0.18，9.7）：running 事件、终态事件、以及运行中硬件编码回退 CPU 时补发的 running 事件都带。
 	Encoder          string `json:"encoder,omitempty"`
 	EncoderDevice    string `json:"encoderDevice,omitempty"`
 	HWFallback       bool   `json:"hwFallback,omitempty"`

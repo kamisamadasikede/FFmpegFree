@@ -30,7 +30,7 @@ export interface ApiTask {
   fps?: number
   bitrateKbps?: number
   droppedFrames?: number
-  // v0.17（契约 9.7）：任务实际使用的视频编码器；没有视频编码的任务缺省
+  // v0.18（契约 9.7）：任务实际使用的视频编码器；没有视频编码的任务缺省
   /** 如 h264_nvenc / libx264 / libx265 / libvpx-vp9 / gif / copy */
   encoder?: string
   /** 设备 id（nvidia / intel / amd / apple …）；CPU 编码为 'cpu'；copy 缺省 */
@@ -52,7 +52,7 @@ export interface TaskProgressPayload {
   fps?: number
   bitrateKbps?: number
   droppedFrames?: number
-  // v0.17：与 Task 的同名字段一致（缺省 = 没有视频编码器信息）
+  // v0.18：与 Task 的同名字段一致（缺省 = 没有视频编码器信息）
   encoder?: string
   encoderDevice?: string
   hwFallback?: boolean
@@ -69,7 +69,7 @@ export interface TaskStatusPayload {
   /** running 与四种终态事件都带；排队中被取消则缺省 */
   startedAt?: number
   finishedAt?: number
-  /** v0.17：running / 终态事件带；运行中硬件编码回退 CPU 时补发一条 running 事件更新这些字段 */
+  /** v0.18：running / 终态事件带；运行中硬件编码回退 CPU 时补发一条 running 事件更新这些字段 */
   encoder?: string
   encoderDevice?: string
   hwFallback?: boolean

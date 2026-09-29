@@ -62,7 +62,7 @@ type Task struct {
 	Fps           float64 `json:"fps,omitempty"`           // 当前输出帧率
 	BitrateKbps   float64 `json:"bitrateKbps,omitempty"`   // 近 5 秒的输出码率（kbit/s）
 	DroppedFrames int64   `json:"droppedFrames,omitempty"` // ffmpeg 累计丢帧数（不是网络丢包）
-	// 以下四项是硬件编码接入（契约 v0.17，9.7）：任务实际使用的视频编码器与设备。没有视频编码（纯音频转换、非重编码任务）或还没确定时省略。
+	// 以下四项是硬件编码接入（契约 v0.18，9.7）：任务实际使用的视频编码器与设备。没有视频编码（纯音频转换、非重编码任务）或还没确定时省略。
 	// 会落库（迁移 0004），刷新 / 重启后仍能看到；Retry 生成的新任务重新解析。
 	Encoder          string           `json:"encoder,omitempty"`          // 如 h264_nvenc、libx264、libx265、libvpx-vp9、gif、copy
 	EncoderDevice    string           `json:"encoderDevice,omitempty"`    // 设备 id（nvidia / intel / amd / apple 等）；CPU 编码为 "cpu"；copy 时省略

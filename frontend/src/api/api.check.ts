@@ -380,7 +380,7 @@ export async function runApiChecks(): Promise<string[]> {
 
   // ---- 类型守卫 / 绑定查找 ----
   eq('toApiTask 容忍脏数据', ((t: ApiTask) => [t.id, t.progress, t.inputPaths, t.error])(toApiTask({ id: 't', inputPaths: ['a', 1], error: { code: '' } })), ['t', 0, ['a'], null])
-  eq('toApiTask 保留编码器字段（v0.17）', ((t: ApiTask) => [t.encoder, t.encoderDevice, t.hwFallback, t.hwFallbackReason])(toApiTask({ id: 't', encoder: 'libx264', encoderDevice: 'cpu', hwFallback: true, hwFallbackReason: 'nvenc_init_failed' })), ['libx264', 'cpu', true, 'nvenc_init_failed'])
+  eq('toApiTask 保留编码器字段（v0.18）', ((t: ApiTask) => [t.encoder, t.encoderDevice, t.hwFallback, t.hwFallbackReason])(toApiTask({ id: 't', encoder: 'libx264', encoderDevice: 'cpu', hwFallback: true, hwFallbackReason: 'nvenc_init_failed' })), ['libx264', 'cpu', true, 'nvenc_init_failed'])
   eq('toApiTask 没有编码器字段时缺省', ((t: ApiTask) => [t.encoder, t.encoderDevice, t.hwFallback, t.hwFallbackReason])(toApiTask({ id: 't' })), [undefined, undefined, undefined, undefined])
   eq('toApiTask 保留直播字段', ((t: ApiTask) => [t.fps, t.bitrateKbps, t.droppedFrames])(toApiTask({ id: 't', fps: 30, bitrateKbps: 2500, droppedFrames: 0 })), [30, 2500, 0])
   eq('toApiTask null → 空任务不抛错', toApiTask(null).id, '')
