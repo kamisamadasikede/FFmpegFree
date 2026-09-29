@@ -11,8 +11,8 @@
         <button v-if="selectable" type="button" class="fname fbtn" :title="row.path" :aria-pressed="selected" :aria-label="`${row.name}，查看文件信息`" @click.stop="emit('select')">{{ row.name }}</button>
         <div v-else class="fname" :title="row.path">{{ row.name }}</div>
         <div class="finfo">
-          <span class="ellip" :title="state === 'invalid' ? row.path : undefined">{{ infoLine }}</span>
-          <span v-if="toText" class="to">{{ toText }}</span>
+          <span v-if="showInfo" class="ellip" :title="state === 'invalid' ? row.path : undefined">{{ infoLine }}</span>
+          <span v-if="toText" class="to" :class="{ out: state === 'succeeded', solo: !showInfo }" :title="state === 'succeeded' ? task?.outputPath : undefined">{{ toText }}</span>
         </div>
       </div>
 
@@ -85,6 +85,8 @@ const props = defineProps<{
   logText: string | null
   /** ffmpeg 是否就绪：没就绪时“还没读取”的行显示“等待 ffmpeg” */
   ffmpegReady?: boolean
+  /** 列表里只有这 1 个文件：下方信息卡已经写了分辨率 · 编码 · 大小，行内第二行不再重复 */
+  single?: boolean
   /** 多个文件时可点选这一行查看文件信息卡 */
   selectable?: boolean
   selected?: boolean
@@ -143,10 +145,18 @@ function onRowClick(e: MouseEvent) {
 }
 
 const toText = computed(() => {
-  if (props.state === 'invalid' || props.state === 'probing' || props.state === 'waiting') return ''
+  if (props.state === 'invalid' || props.state === 'conflict' || props.state === 'probing' || props.state === 'waiting') return ''
+  // 完成后第二行右侧写“→ 输出文件名”（title 带完整路径），进度区只留“完成”标签
+  if (props.state === 'succeeded' && props.task?.outputPath) return `→ ${fileBaseName(props.task.outputPath)}`
   const label = props.row.label || props.presetShort
   return label ? `转为 ${label}` : ''
 })
+
+/**
+ * 单文件时第二行去重：信息卡（读取成功后一定显示）已经有分辨率 / 编码 / 大小，行内只留“转为 MP4 · H.264”/“→ 输出名”。
+ * 没有别的可显示时（不兼容 / 读取中 / 读取失败）仍保留原第二行，避免整行变空。
+ */
+const showInfo = computed(() => !(props.single && props.row.probe === 'ok' && toText.value))
 
 const percent = computed(() => Math.round(Math.min(1, Math.max(0, props.task?.progress ?? 0)) * 100))
 const showBar = computed(() => ['running', 'failed', 'interrupted'].includes(props.state) && (props.state === 'running' || percent.value > 0))
@@ -173,7 +183,7 @@ const progressText = computed(() => {
       const eta = formatEta(props.task?.etaSec ?? 0)
       return `${percent.value}%${eta ? ` · 剩余 ${eta}` : ''}`
     }
-    case 'succeeded': return props.task?.outputPath ? fileBaseName(props.task.outputPath) : '已完成'
+    case 'succeeded': return ''
     case 'failed':
     case 'interrupted': return percent.value > 0 ? `停在 ${percent.value}%` : ''
     default: return ''
@@ -217,7 +227,7 @@ const errorLine = computed<ErrLine | null>(() => {
   align-items: center;
   gap: var(--ff-space-3);
   padding: var(--ff-space-3) var(--ff-space-2);
-  border-radius: 8px;
+  border-radius: var(--ff-radius-lg);
 }
 .row:hover {
   background: var(--ff-bg-hover);
@@ -256,8 +266,8 @@ const errorLine = computed<ErrLine | null>(() => {
 }
 .dur {
   position: absolute;
-  right: 2px;
-  bottom: 2px;
+  right: var(--ff-space-1);
+  bottom: var(--ff-space-1);
   font-size: var(--ff-fs-xs);
   line-height: 16px;
   padding: 0 4px;
@@ -304,6 +314,17 @@ const errorLine = computed<ErrLine | null>(() => {
   color: var(--ff-text-2);
   flex: none;
 }
+.finfo .to.out {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.finfo .to.solo {
+  max-width: 100%; /* 单文件第二行只剩这一段：不再限制 60% */
+}
 .ellip {
   min-width: 0;
   white-space: nowrap;
@@ -311,7 +332,8 @@ const errorLine = computed<ErrLine | null>(() => {
   text-overflow: ellipsis;
 }
 .prog {
-  width: 160px;
+  /* 200 = 标签约 52 + 间距 8 + 文字 140，“68% · 剩余 1 分 37 秒”约 120px，给 Segoe UI / 雅黑的字宽差留 20px */
+  width: 200px;
   order: 0;
   flex: none;
   display: flex;
@@ -366,7 +388,7 @@ const errorLine = computed<ErrLine | null>(() => {
 .bar i.int { background: var(--ff-interrupted); }
 .ops {
   display: flex;
-  gap: 2px;
+  gap: var(--ff-space-1);
   color: var(--ff-text-2);
   min-width: 28px;
   justify-content: flex-end;
@@ -387,8 +409,8 @@ const errorLine = computed<ErrLine | null>(() => {
   background: var(--ff-bg-hover);
 }
 .iconbtn.sm {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
 }
 .btn.sm {
   height: 24px;

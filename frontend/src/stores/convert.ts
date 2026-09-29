@@ -3,7 +3,7 @@ import { computed, reactive, ref } from 'vue'
 import { store as goStore } from '../../wailsjs/go/models'
 import { call, toAppError } from '@/api/call'
 import { listPresets, MAX_SUBMIT, parseConvertParams, resubmitToDir, submitConvert, type PresetItem } from '@/api/convert'
-import { PROBE_BATCH, probeFiles, thumbnailOf } from '@/api/media'
+import { probeFiles, thumbnailOf } from '@/api/media'
 import { canPickFiles, pickDirectory, pickFiles, revealInFolder, getDefaultOutputDir } from '@/api/system'
 import { hasWailsBackend, previewParams } from '@/services/wails'
 import { useFFmpegStore } from '@/stores/ffmpeg'
@@ -47,6 +47,9 @@ export interface RowTask {
   etaSec: number
   error?: TaskError | null
   outputPath: string
+  /** 开始 / 结束时间（ms）：完成态“用时”由前端用它们相减；0 或缺省 = 未知 */
+  startedAt?: number
+  finishedAt?: number
 }
 
 const VIDEO_CONTAINERS = ['mp4', 'mkv', 'mov', 'webm', 'avi', 'flv', 'gif']
@@ -57,6 +60,12 @@ export function splitPresetName(name: string): { title: string; sub: string } {
   const m = name.match(/^(.*?)[（(](.*)[）)]\s*$/)
   return m ? { title: m[1].trim(), sub: m[2].trim() } : { title: name, sub: '' }
 }
+
+/**
+ * 每一轮 probePending 最多取多少个还没读取的行去探测。列表本身最多 MAX_SUBMIT（50）个，所以这里只是兜底上限，
+ * 与列表上限保持一致；分成小批（PROBE_BATCH）回调由 probeFiles 负责。
+ */
+const PROBE_ROUND_MAX = MAX_SUBMIT
 
 let seq = 0
 const newKey = () => `cf${Date.now().toString(36)}${(seq++).toString(36)}`
@@ -256,7 +265,7 @@ export const useConvertStore = defineStore('convert', () => {
     try {
       for (;;) {
         // probeFiles 内部每 PROBE_BATCH（8）个一批回调一次，界面上能看到“正在读取文件信息（12/50）…”
-        const batch = rows.value.filter((r) => r.probe === 'waiting').slice(0, 50)
+        const batch = rows.value.filter((r) => r.probe === 'waiting').slice(0, PROBE_ROUND_MAX)
         if (!batch.length) break
         for (const r of batch) r.probe = 'probing'
         await probeFiles(batch.map((r) => r.path), (results) => {
@@ -348,7 +357,6 @@ export const useConvertStore = defineStore('convert', () => {
   function focusOn(r: ConvertRow) {
     focusKey.value = focusKey.value === r.key ? '' : r.key
   }
-  const coverQueue = new Set<string>()
   /** 信息卡的 16:9 封面：Thumbnail(path, at, 640)；纯音频没有封面 */
   function ensureCover(r: ConvertRow | undefined) {
     if (!r || r.coverState !== 'idle' || r.probe !== 'ok' || !r.info) return
@@ -357,15 +365,16 @@ export const useConvertStore = defineStore('convert', () => {
       return
     }
     r.coverState = 'loading'
-    coverQueue.add(r.key)
     const at = Math.min(10, (r.info.duration ?? 0) * 0.1)
     thumbnailOf(r.path, at, 640)
       .then((url) => {
         r.cover = url
       })
+      .catch((e) => {
+        console.warn('load cover failed', r.path, e) // 封面只是装饰：失败就保持占位图标
+      })
       .finally(() => {
         r.coverState = 'done'
-        coverQueue.delete(r.key)
       })
   }
 
@@ -531,7 +540,7 @@ export const useConvertStore = defineStore('convert', () => {
     let paths = names.map((n) => `${dir}/${n}`)
     // files：三个视频文件（干净的待转换状态）；probefail：再加一个损坏文件和一个纯音频（不兼容 MP4 预设）
     if (kind === 'files') paths = [paths[0], paths[1], paths[3]]
-    if (kind === 'single') paths = [paths[0]]
+    if (kind === 'single' || kind === 'singledone') paths = [paths[0]]
     if (kind === 'audio') paths = [paths[2]]
     if (kind === 'many') paths = Array.from({ length: 50 }, (_, i) => `${dir}/素材_${String(i + 1).padStart(2, '0')}.mp4`)
     if (kind === 'probefail') paths = [paths[0], paths[1], `${dir}/损坏_采访素材.mp4`, paths[2]]
@@ -544,18 +553,18 @@ export const useConvertStore = defineStore('convert', () => {
         const r = list[i]
         if (!r) return
         r.taskId = t.id
-        r.label = 'MP4'
+        r.label = presetShort.value
         if (fin) {
-          tasks.seedFinal({ id: t.id, status: t.status, error: t.error, outputPath: t.outputPath, progress: t.status === 'succeeded' ? 1 : t.progress, speed: '', etaSec: 0, finishedAt: Date.now(), params: t.params })
+          tasks.seedFinal({ id: t.id, status: t.status, error: t.error, outputPath: t.outputPath, progress: t.status === 'succeeded' ? 1 : t.progress, speed: '', etaSec: 0, startedAt: t.startedAt, finishedAt: Date.now(), params: t.params })
         } else tasks.track([t] as unknown as goStore.Task[])
       }
-      const ok = (i: number, out: string) => put(i, mkTask(`pv${i}`, 'succeeded', 1, { outputPath: `${dir}/输出/${out}` }), true)
+      const ok = (i: number, out: string) => put(i, mkTask(`pv${i}`, 'succeeded', 1, { outputPath: `${dir}/输出/${out}`, ...(kind === 'singledone' ? { startedAt: Date.now() - 302_000 } : {}) }), true)
       if (kind === 'running') {
         put(0, mkTask('pv0', 'running', 0.68, { speed: '2.4x', etaSec: 97 }))
         put(1, mkTask('pv1', 'running', 0.31, { speed: '1.8x', etaSec: 140 }))
         put(2, mkTask('pv2', 'queued', 0, { startedAt: 0 }))
         ok(3, 'screen_record_0928.mp4')
-      } else if (kind === 'done' || kind === 'donemulti') {
+      } else if (kind === 'done' || kind === 'donemulti' || kind === 'singledone') {
         ok(0, '产品发布会_完整版.mp4'); ok(1, 'vlog_杭州西湖.mp4'); ok(2, '访谈录音_第三期.mp4'); ok(3, 'screen_record_0928.mp4')
         // donemulti：输出在两个文件夹里（每个文件保存在各自源文件夹）
         if (kind === 'donemulti') put(3, mkTask('pv3', 'succeeded', 1, { outputPath: '/Users/me/Desktop/录屏/screen_record_0928.mp4' }), true)

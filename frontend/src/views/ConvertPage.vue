@@ -17,7 +17,7 @@
       </div>
       <div v-else-if="cv.mode === 'done'" class="okline" role="status">
         <FIcon name="check" :size="16" />
-        <div class="okbody"><b>转换完成</b>{{ cv.succeededRows.length }} 个文件已保存<template v-if="cv.outputFolder"> · <span class="okdir" :title="cv.outputFolder">{{ cv.outputFolder }}</span></template><template v-else-if="cv.outputFolders.length > 1"> · <span :title="cv.outputFolders.join('\n')">{{ cv.outputFolders.length }} 个文件夹</span></template></div>
+        <div class="okbody"><b>转换完成</b>{{ cv.succeededRows.length }} 个文件已保存<template v-if="elapsedText"> · 用时 {{ elapsedText }}</template><template v-if="cv.outputFolder"> · <span class="okdir" :title="cv.outputFolder">{{ cv.outputFolder }}</span></template><template v-else-if="cv.outputFolders.length > 1"> · <span :title="cv.outputFolders.join('\n')">{{ cv.outputFolders.length }} 个文件夹</span></template></div>
       </div>
 
       <div class="panel list-panel" :style="dropStyle">
@@ -57,7 +57,8 @@
               :conflict="cv.conflictOf(r)"
               :preset-short="cv.presetShort"
               :ffmpeg-ready="ffmpeg.ready"
-              :selectable="cv.rows.length > 1"
+              :single="cv.rows.length === 1"
+              :selectable="cv.rows.length > 1 && r.probe === 'ok'"
               :selected="cv.focusRow === r"
               :log-text="logKey === r.key ? logText : null"
               :busy="tasks.isBusy(r.taskId)"
@@ -86,7 +87,7 @@
               <span v-if="card.duration" class="dur">{{ card.duration }}</span>
             </div>
             <div class="fn" :title="card.path">{{ card.name }}</div>
-            <dl class="kv">
+            <dl class="kv" :style="{ '--cols': card.items.length }">
               <div v-for="k in card.items" :key="k.label"><dt>{{ k.label }}</dt><dd>{{ k.value }}</dd></div>
             </dl>
           </section>
@@ -100,7 +101,7 @@
         <div class="phead"><h2>输出设置</h2><span class="sp" /><span class="sub">应用到全部</span></div>
         <div class="pbody">
           <!-- 页签 + 预设可以滚动；“保存到”固定在下面，窗口矮（1024×680）时也一直看得到 -->
-          <div class="pscroll">
+          <div ref="pscrollEl" class="pscroll" :class="{ more: moreBelow }" @scroll.passive="updateMore">
           <div class="seg" role="tablist" aria-label="预设类别">
             <button v-for="g in GROUPS" :id="`pg-${g.key}`" :key="g.key" type="button" role="tab" :aria-selected="group === g.key" :class="{ on: group === g.key }" @click="pickGroup(g.key)">{{ g.label }}</button>
           </div>
@@ -120,7 +121,7 @@
               :title="p.name"
               @click="cv.selectedPresetId = p.id"
             >
-              <b><FIcon :name="iconOf(p)" :size="15" /><span class="pt">{{ cv.presetTitle(p).replace(' · ', ' ·\u00a0') }}</span></b>
+              <b><span class="pt">{{ cv.presetTitle(p) }}</span></b>
               <small>{{ presetSub(p) }}</small>
             </button>
           </div>
@@ -143,8 +144,8 @@
           </div>
         </div>
 
-        <div v-if="gateText" id="cv-gate" class="gate" role="status">
-          <FIcon name="warn" :size="14" />
+        <div v-if="gateText" id="cv-gate" class="gate" :class="{ info: gateInfo }" role="status">
+          <FIcon :name="gateInfo ? 'refresh' : 'warn'" :size="14" />
           <span>{{ gateText }}<button v-if="cv.startBlockReason === 'ffmpeg'" type="button" class="ff-link" @click="ffmpeg.dialogOpen = true">安装 ffmpeg</button></span>
         </div>
         <div v-if="cv.submitError" class="suberr"><ErrorLine :code="cv.submitError.code" :message="cv.submitError.message" :detail="cv.submitError.detail" :show-log="false" fallback-title="无法开始转换" compact /></div>
@@ -161,15 +162,19 @@
             <button type="button" class="btn pri lg" :title="cv.outputFolders.length > 1 ? `输出在 ${cv.outputFolders.length} 个文件夹里，打开第一个` : undefined" @click="onRevealOutput"><FIcon name="folder" :size="15" />打开输出位置</button>
           </template>
           <template v-else-if="cv.mode === 'failed'">
-            <button type="button" class="btn lg" @click="cv.clear()">再转一个</button>
-            <span class="sp" />
-            <button v-if="cv.succeededRows.length" type="button" class="btn lg" :title="cv.outputFolders.length > 1 ? `输出在 ${cv.outputFolders.length} 个文件夹里，打开第一个` : undefined" @click="onRevealOutput"><FIcon name="folder" :size="15" />打开输出位置</button>
-            <button type="button" class="btn pri lg" :disabled="cv.retryingAll" :aria-busy="cv.retryingAll" @click="cv.retryAllFailed()"><FIcon name="retry" :size="15" />重试失败项</button>
+            <!-- 三个按钮合计 383px 放不进 254px 的页脚：第一行“再转一个”“打开输出位置”，主按钮“重试失败项”单独第二行靠右 -->
+            <div class="frow">
+              <button type="button" class="btn lg" @click="cv.clear()">再转一个</button>
+              <button v-if="cv.succeededRows.length" type="button" class="btn lg" :title="cv.outputFolders.length > 1 ? `输出在 ${cv.outputFolders.length} 个文件夹里，打开第一个` : undefined" @click="onRevealOutput"><FIcon name="folder" :size="15" />打开输出位置</button>
+            </div>
+            <button type="button" class="btn pri lg retry" :disabled="cv.retryingAll" :aria-busy="cv.retryingAll" @click="cv.retryAllFailed()"><FIcon name="retry" :size="15" />重试失败项</button>
           </template>
           <template v-else>
-            <div id="cv-foot-hint" class="fhint">
-              <small v-if="footHint">{{ footHint }}</small>
-              <small v-if="cv.blockedCount && cv.mode === 'ready'" class="skipped">已跳过 {{ cv.blockedCount }} 个无法转换的文件 · <button type="button" class="ff-link" @click="cv.removeBlocked()">移出</button></small>
+            <div v-if="footHint || (cv.blockedCount && cv.mode === 'ready' && !noneConvertible)" id="cv-foot-hint" class="fhint">
+              <!-- 一个都转不了时，把“移出”做进提示句里，不再另占一行（页脚高约 101px，而不是 123px） -->
+              <small v-if="footHint && noneConvertible && cv.blockedCount">没有可以转换的文件，请<button type="button" class="ff-link" @click="cv.removeBlocked()">移出无法转换的文件</button>，或换一个预设。</small>
+              <small v-else-if="footHint">{{ footHint }}</small>
+              <small v-if="cv.blockedCount && cv.mode === 'ready' && !noneConvertible" class="skipped">已跳过 {{ cv.blockedCount }} 个无法转换的文件 · <button type="button" class="ff-link" @click="cv.removeBlocked()">移出</button></small>
             </div>
             <button
               type="button"
@@ -188,12 +193,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import ErrorLine from '@/components/common/ErrorLine.vue'
 import ConvertFileRow from '@/components/convert/ConvertFileRow.vue'
-import type { IconName } from '@/components/icon/icons'
 import { MAX_SUBMIT, type PresetItem } from '@/api/convert'
 import { onFilesDropped } from '@/api/fileDrop'
 import { toAppError } from '@/api/call'
@@ -202,8 +206,8 @@ import { actionErrorText } from '@/errors/errorMessages'
 import { PREVIEW_CONVERT, splitPresetName, useConvertStore, type ConvertRow } from '@/stores/convert'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { useTaskStore } from '@/stores/tasks'
-import { formatBytes, formatEta, formatShortClock } from '@/utils/format'
-import { bitrateText, channelText, codecName, isAudioInfo, sampleRateText } from '@/utils/mediaText'
+import { formatBytes, formatDuration, formatEta, formatShortClock } from '@/utils/format'
+import { channelText, codecName, isAudioInfo, sampleRateText } from '@/utils/mediaText'
 
 const cv = useConvertStore()
 const ffmpeg = useFFmpegStore()
@@ -222,15 +226,6 @@ const group = ref<'video' | 'audio'>('video')
 const AUDIO = ['mp3', 'aac', 'm4a', 'wav', 'flac', 'ogg', 'opus']
 const isAudioPreset = (p: PresetItem) => AUDIO.includes(p.options.container)
 const shownPresets = computed(() => cv.presets.filter((p) => (group.value === 'audio') === isAudioPreset(p)))
-function iconOf(p: PresetItem): IconName {
-  const o = p.options
-  if (isAudioPreset(p)) return 'music'
-  if (o.container === 'gif') return 'gif'
-  if (o.videoCodec === 'h265') return 'zip'
-  if (o.videoCodec === 'copy') return 'convert'
-  if (o.container === 'mp4' && !o.width) return 'phone'
-  return 'play'
-}
 function optionLine(p: PresetItem) {
   return p.options.container.toUpperCase()
 }
@@ -284,6 +279,11 @@ const gateText = computed(() => {
     default: return ''
   }
 })
+// 读取文件信息 / 检测 / 安装 ffmpeg 都是正常过程：用主色软底；只有 ffmpeg 缺失、预设没加载才用警告色
+const gateInfo = computed(() => {
+  const r = cv.startBlockReason
+  return r === 'probing' || (r === 'ffmpeg' && !ffmpegMissing.value)
+})
 const probeText = computed(() => {
   const { done, total } = cv.probeProgress
   return total > 1 ? `正在读取文件信息（${done}/${total}）…` : '正在读取文件信息…'
@@ -297,11 +297,24 @@ const footHint = computed(() => {
   if (cv.canceledCount) return '列表里只剩已取消的文件，点“重新加入”后再开始。'
   return '没有可以转换的文件。'
 })
+const noneConvertible = computed(() => cv.rows.length > 0 && !cv.submittableRows.length)
 const startDisabled = computed(() => !!cv.startBlockReason || cv.submitting)
-const startWhy = computed(() => gateText.value || footHint.value)
+// 规范 7.1：ffmpeg 缺失时被门控按钮的 tooltip 逐字为“需要先安装 ffmpeg”（右栏提示条文案另算）
+const ffmpegMissing = computed(() => cv.startBlockReason === 'ffmpeg' && ffmpeg.status.state !== 'checking' && ffmpeg.status.state !== 'installing')
+const startWhy = computed(() => (ffmpegMissing.value ? '需要先安装 ffmpeg' : gateText.value || footHint.value))
 const startLabel = computed(() => {
   const n = cv.submittableRows.length
   return n > 0 && !cv.startBlockReason ? `开始转换 ${n} 个` : '开始转换'
+})
+
+// ---- 单文件完成态“用时” ----
+// 用时由前端自己算：任务开始到结束时间（startedAt → finishedAt）。只在整个列表就 1 个文件且已成功时显示；
+// 体积变化（源大小 → 输出大小）需要任务对象里有输出文件大小，目前没有，所以不做（也不向后端要字段）。
+const elapsedText = computed(() => {
+  if (cv.rows.length !== 1 || cv.succeededRows.length !== 1) return ''
+  const t = cv.rowTask(cv.succeededRows[0])
+  if (!t?.startedAt || !t.finishedAt || t.finishedAt < t.startedAt) return ''
+  return formatDuration(t.finishedAt - t.startedAt)
 })
 
 // ---- 文件信息卡 ----
@@ -312,12 +325,13 @@ const card = computed(() => {
   const audio = isAudioInfo(i)
   const dash = (v: string) => v || '—'
   const items = audio
-    ? [
-        { label: '采样率', value: dash(sampleRateText(i.sampleRate)) },
-        { label: '声道', value: dash(channelText(i.channels)) },
-        { label: '码率', value: dash(bitrateText(i.bitrate)) },
+    ? // 音频：时长 / 编码 / 采样率 · 声道 / 大小；缺失的项整项省略（不出现单独的“—”），其余列均分
+      [
+        { label: '时长', value: formatShortClock(i.duration) },
+        { label: '编码', value: codecName(i.audioCodec) },
+        { label: '采样率 · 声道', value: [sampleRateText(i.sampleRate), channelText(i.channels)].filter(Boolean).join(' · ') },
         { label: '大小', value: formatBytes(i.size) },
-      ]
+      ].filter((k) => k.value)
     : [
         { label: '时长', value: dash(formatShortClock(i.duration)) },
         { label: '分辨率', value: i.width ? `${i.width}×${i.height}` : '—' },
@@ -327,6 +341,16 @@ const card = computed(() => {
   return { audio, name: r.name, path: r.path, cover: r.cover, duration: formatShortClock(i.duration), items }
 })
 watch(() => [cv.focusRow, cv.focusRow?.probe] as const, ([r]) => cv.ensureCover(r), { immediate: true })
+
+// ---- 预设区“下面还有”提示：内容溢出且没滚到底时，底部 16px 渐隐 ----
+const pscrollEl = ref<HTMLElement | null>(null)
+const moreBelow = ref(false)
+function updateMore() {
+  const el = pscrollEl.value
+  moreBelow.value = !!el && el.scrollHeight - el.scrollTop - el.clientHeight > 2
+}
+let roPscroll: ResizeObserver | null = null
+watch(() => [shownPresets.value.length, group.value, cv.presetsLoaded, cv.presetsError] as const, () => void nextTick(updateMore), { flush: 'post' })
 
 // ---- 行操作 ----
 function onRemove(r: ConvertRow) {
@@ -370,12 +394,20 @@ function closeLog() {
 // ---- 生命周期 ----
 let offDrop: () => void = () => {}
 onMounted(() => {
+  updateMore()
+  if (pscrollEl.value && typeof ResizeObserver !== 'undefined') {
+    roPscroll = new ResizeObserver(updateMore)
+    roPscroll.observe(pscrollEl.value)
+  }
   void cv.init()
   cv.refreshDefaultDir()
   offDrop = onFilesDropped((paths) => cv.addPaths(paths))
   if (PREVIEW_CONVERT && !cv.rows.length && PREVIEW_CONVERT !== 'idle') cv.seedPreview(PREVIEW_CONVERT)
 })
-onUnmounted(() => offDrop())
+onUnmounted(() => {
+  offDrop()
+  roPscroll?.disconnect()
+})
 // ffmpeg 从未就绪变为就绪：补探测之前加进来的文件
 watch(() => ffmpeg.ready, (ok) => {
   if (ok) void cv.probePending()
@@ -528,6 +560,7 @@ void hasWailsBackend
 .dz small {
   font-size: var(--ff-fs-xs);
   color: var(--ff-text-2);
+  margin-top: var(--ff-space-1);
 }
 .dz .soon {
   color: var(--ff-warning-text);
@@ -579,7 +612,7 @@ void hasWailsBackend
   color: var(--ff-warning-text);
 }
 .notice svg {
-  margin-top: 2px;
+  margin-top: var(--ff-space-1);
 }
 .list {
   flex: 1;
@@ -596,17 +629,23 @@ void hasWailsBackend
   display: flex;
   flex-direction: column;
   gap: var(--ff-space-3);
-  /* 封面宽度随窗口高度收缩，保证 1024×680 下封面、信息和列表都放得下 */
-  --cover-w: min(100%, max(192px, calc((100vh - 540px) * 16 / 9)));
+  /* 封面宽度随窗口高度收缩，保证 1024×680 下封面、信息和列表都放得下：
+     宽 = 16/9 × (窗口高 − 其余内容占用的高度)，夹在 [最小宽, 100%] 之间。
+     --cover-rest = 封面以外一屏里其余部分（顶栏、标题、拖入区、文件行、信息卡文字、页边距）大约占的高度；
+     多文件时列表更高，rest 更大、最小宽更小 */
+  --cover-min: 192px;
+  --cover-rest: 540px;
+  --cover-w: min(100%, max(var(--cover-min), calc((100vh - var(--cover-rest)) * 16 / 9)));
 }
 .infocard.multi {
-  --cover-w: min(100%, max(160px, calc((100vh - 640px) * 16 / 9)));
+  --cover-min: 160px;
+  --cover-rest: 640px;
 }
 .cover {
   position: relative;
   width: var(--cover-w);
   aspect-ratio: 16 / 9;
-  margin: 0 auto;
+  margin: 0; /* 左对齐：封面左缘与下面的文件名、四列信息对齐 */
   border-radius: var(--ff-radius-lg);
   overflow: hidden;
   background: var(--ff-bg-hover);
@@ -646,7 +685,7 @@ void hasWailsBackend
 .kv {
   margin: 0;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr));
   gap: var(--ff-space-4);
 }
 .kv dt {
@@ -714,8 +753,8 @@ void hasWailsBackend
   display: flex;
   gap: var(--ff-space-2);
   align-items: flex-start;
-  padding: 8px var(--ff-space-3);
-  border-radius: 8px;
+  padding: var(--ff-space-2) var(--ff-space-3);
+  border-radius: var(--ff-radius-lg);
   background: color-mix(in srgb, var(--ff-success) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--ff-success) 28%, transparent);
   font-size: var(--ff-fs-xs);
@@ -724,7 +763,6 @@ void hasWailsBackend
 }
 .okline svg {
   color: var(--ff-success-text);
-  margin-top: 1px;
 }
 .okbody {
   flex: 1;
@@ -765,8 +803,17 @@ void hasWailsBackend
   flex-direction: column;
   gap: var(--ff-space-4);
   /* 给焦点描边留位置，避免被 overflow 裁掉 */
-  margin: -4px;
-  padding: 4px;
+  margin: calc(-1 * var(--ff-space-1));
+  padding: var(--ff-space-1);
+}
+/* 有溢出时滚动条 6px 可见（覆盖全局“悬停才显示”的透明度），让人看出下面还有 */
+.pscroll::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ff-text-3) 60%, transparent);
+}
+/* 还没滚到底：底部 16px 渐隐，提示下面还有预设 */
+.pscroll.more {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 16px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 16px), transparent);
 }
 .pscroll > * {
   flex: none;
@@ -782,7 +829,7 @@ void hasWailsBackend
   display: flex;
   background: var(--ff-bg-hover);
   border-radius: var(--ff-radius-md);
-  padding: 2px;
+  padding: var(--ff-space-1);
   flex: none;
 }
 .seg button {
@@ -809,11 +856,11 @@ void hasWailsBackend
 }
 .preset {
   border: 1px solid var(--ff-border);
-  border-radius: 8px;
+  border-radius: var(--ff-radius-lg);
   padding: var(--ff-space-3);
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--ff-space-1);
   text-align: left;
   background: transparent;
   color: var(--ff-text-1);
@@ -824,28 +871,25 @@ void hasWailsBackend
 .preset:hover:not(.on):not(:disabled) {
   background: var(--ff-bg-hover);
 }
+/* 标题单行完整显示（“MP4 · H.264”13/500 约 80px，卡片内宽 97px）；.pt 的省略号只作兜底，完整名在 title 里 */
 .preset b {
   font-weight: 500;
   font-size: var(--ff-fs-sm);
-  display: flex;
-  align-items: flex-start;
-  gap: var(--ff-space-2);
+  display: block;
   min-width: 0;
   line-height: 1.5;
+  white-space: nowrap;
 }
 .preset b .pt {
+  display: block;
   min-width: 0;
-  overflow-wrap: anywhere;
-}
-.preset b svg {
-  flex: none;
-  margin-top: 2px;
-  color: var(--ff-text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .preset small {
   font-size: var(--ff-fs-xs);
   color: var(--ff-text-2);
-  line-height: 1.4;
+  line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   line-clamp: 2;
@@ -856,8 +900,7 @@ void hasWailsBackend
   border-color: var(--ff-primary);
   background: var(--ff-primary-soft);
 }
-.preset.on b,
-.preset.on b svg {
+.preset.on b {
   color: var(--ff-primary-text);
 }
 .preset:focus-visible,
@@ -922,8 +965,8 @@ void hasWailsBackend
   gap: var(--ff-space-2);
   align-items: flex-start;
   margin: 0 var(--ff-space-4) var(--ff-space-3);
-  padding: 8px var(--ff-space-3);
-  border-radius: 8px;
+  padding: var(--ff-space-2) var(--ff-space-3);
+  border-radius: var(--ff-radius-lg);
   background: color-mix(in srgb, var(--ff-warning) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--ff-warning) 28%, transparent);
   font-size: var(--ff-fs-xs);
@@ -932,8 +975,16 @@ void hasWailsBackend
 }
 .gate svg {
   color: var(--ff-warning-text);
-  margin-top: 2px;
+  margin-top: var(--ff-space-1);
   flex: none;
+}
+/* 读取文件信息等正常过程：主色软底（规范 7.1“安装中”同款），不用警告色 */
+.gate.info {
+  background: var(--ff-primary-soft);
+  border-color: color-mix(in srgb, var(--ff-primary) 28%, transparent);
+}
+.gate.info svg {
+  color: var(--ff-primary-text);
 }
 .suberr {
   margin: 0 var(--ff-space-4) var(--ff-space-3);
@@ -945,9 +996,27 @@ void hasWailsBackend
   padding: var(--ff-space-3) var(--ff-space-4);
   border-top: 1px solid var(--ff-border);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--ff-space-2);
+  row-gap: var(--ff-space-2);
   flex: none;
+}
+/* 有提示文字时：提示占满一行（254px，最多约 2 行），按钮另起一行靠右 */
+.fhint {
+  flex: 1 1 100%;
+}
+.foot .start {
+  margin-left: auto;
+}
+/* failed：第一行“再转一个”“打开输出位置”，主按钮“重试失败项”单独第二行靠右 */
+.frow {
+  flex: 1 1 100%;
+  display: flex;
+  gap: var(--ff-space-2);
+}
+.foot .retry {
+  margin-left: auto;
 }
 .foot small {
   color: var(--ff-text-2);
@@ -956,7 +1025,7 @@ void hasWailsBackend
 .fhint {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--ff-space-1);
   min-width: 0;
   line-height: 1.5;
 }
