@@ -368,8 +368,8 @@ type EditProject struct {
 }
 type EditOutput struct {
     Format string  `json:"format"` // mp4 | mov | mkv | webm，空 = mp4
-    Width  int     `json:"width"`  // 16~7680，空(0) = 1280；导出时向下取偶数
-    Height int     `json:"height"` // 16~4320，空(0) = 720
+    Width  int     `json:"width"`  // 16~7680，空(0) = 1920（产品经理定，默认导出 1920×1080；前端提交时会显式写宽高，兜底值只给绕过前端的调用）；导出时向下取偶数
+    Height int     `json:"height"` // 16~4320，空(0) = 1080（与 width 的兜底配套：宽高都为 0 时是 1920×1080）
     Fps    float64 `json:"fps"`    // (0,120]，空(0) = 30
 }
 type VideoClip struct {
@@ -473,7 +473,7 @@ type PreviewURL struct {
 ```json
 // ValidateProject 请求（节选）
 { "schemaVersion": 1, "id": "", "name": "旅行 vlog", "sources": ["C:\\Videos\\a.mp4"],
-  "output": { "format": "mp4", "width": 1280, "height": 720, "fps": 30 },
+  "output": { "format": "mp4", "width": 1920, "height": 1080, "fps": 30 },
   "videoTrack": [
     { "id": "c1", "path": "C:\\Videos\\a.mp4", "trackId": "V1", "startSec": 0, "inSec": 0, "outSec": 2, "speed": 1,
       "effectPreset": "none", "transitionToNext": "none", "transitionDurationSec": 0, "blur": 0 },
