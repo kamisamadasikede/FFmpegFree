@@ -78,7 +78,10 @@
             嵌套层级过深，请切换到代码视图
           </div>
           <div v-if="showEmpty" class="rempty">
-            <template v-if="svcError"><ErrorLine :code="svcError.code" :message="svcError.message" :show-log="false" /></template>
+            <template v-if="svcError">
+              <div class="ic err"><FIcon name="warn" :size="20" /></div>
+              {{ svcError }}
+            </template>
             <template v-else>
               <div class="ic"><FIcon name="doc" :size="20" /></div>
               {{ emptyText }}
@@ -105,15 +108,16 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
-import ErrorLine from '@/components/common/ErrorLine.vue'
 import JsonTree from '@/components/json/JsonTree.vue'
 import { formatJson } from '@/api/json/json'
-import { AppError, toAppError } from '@/api/call'
+import { toAppError } from '@/api/call'
 import { applyMonacoTheme, monaco, monoFontFamily } from '@/utils/monacoJson'
 import {
   countLines,
   describeIndent,
+  describeServiceError,
   describeSyntax,
+  errorTokenSpan,
   escapeText,
   localFormat,
   localValidate,
@@ -139,7 +143,8 @@ const resultEl = ref<HTMLElement | null>(null)
 
 const inputText = ref('')
 const inputErr = ref<SyntaxErr | null>(null)
-const svcError = ref<AppError | null>(null)
+/** 结果区的一行中文错误（转义失败、后端非语法错误）；永远不显示标题「出错了」和错误码 */
+const svcError = ref('')
 const result = ref<{ mode: Mode; kind: 'json' | 'text'; text: string }>({ mode: 'format', kind: 'json', text: '' })
 const dragging = ref(false)
 const dropMsg = ref('')
@@ -217,7 +222,7 @@ async function check() {
   const my = ++seq
   const text = inputEditor?.getValue() ?? ''
   inputText.value = text
-  svcError.value = null
+  svcError.value = ''
   if (!text.trim()) {
     inputErr.value = null
     result.value = { mode: 'format', kind: 'json', text: '' }
@@ -236,7 +241,8 @@ async function check() {
   } catch (e) {
     if (my !== seq) return
     inputErr.value = null
-    svcError.value = toAppError(e)
+    const err = toAppError(e)
+    svcError.value = describeServiceError(err.code, err.message, 'format')
   }
 }
 
@@ -247,7 +253,7 @@ function setResult(mode: Mode, text: string) {
 
 async function run(mode: Mode) {
   const text = inputEditor?.getValue() ?? ''
-  svcError.value = null
+  svcError.value = ''
   if (!text.trim()) {
     inputText.value = text
     return
@@ -258,7 +264,7 @@ async function run(mode: Mode) {
     try {
       return setResult(mode, unescapeText(text))
     } catch (e) {
-      svcError.value = new AppError('INVALID_ARGUMENT', (e as Error).message)
+      svcError.value = describeServiceError('INVALID_ARGUMENT', (e as Error).message, 'unescape')
       return
     }
   }
@@ -276,7 +282,8 @@ async function run(mode: Mode) {
     setResult(mode, r.formatted)
   } catch (e) {
     if (my !== seq) return
-    svcError.value = toAppError(e)
+    const err = toAppError(e)
+    svcError.value = describeServiceError(err.code, err.message, mode)
   }
 }
 
@@ -286,12 +293,12 @@ function paintError(err: SyntaxErr | null) {
   const model = inputEditor.getModel()
   if (!err || !model) return errDecos.clear()
   const line = Math.min(Math.max(1, err.line), model.getLineCount())
-  const max = model.getLineMaxColumn(line)
-  const start = Math.min(Math.max(1, err.column), Math.max(1, max - 1))
-  const trailing = model.getLineContent(line).match(/\s*$/)?.[0].length ?? 0
-  const end = Math.max(start + 1, max - trailing)
+  // 波浪线只标出错的那个 token，不拖到行尾（err.column 是 1 基）
+  const span = errorTokenSpan(model.getLineContent(line), err.column - 1)
+  const start = span.start + 1
+  const end = start + span.length
   errDecos.set([
-    { range: new monaco.Range(line, 1, line, 1), options: { isWholeLine: true, className: 'ff-json-errline', glyphMarginClassName: 'ff-json-dot' } },
+    { range: new monaco.Range(line, 1, line, 1), options: { isWholeLine: true, className: 'ff-json-errline', glyphMarginClassName: 'ff-json-dot', marginClassName: 'ff-json-margin' } },
     { range: new monaco.Range(line, start, line, end), options: { inlineClassName: 'ff-json-squiggle' } },
   ])
 }
@@ -450,7 +457,7 @@ onBeforeUnmount(() => {
   color: var(--ff-text-1);
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font: inherit;
   font-size: var(--ff-fs-sm);
   white-space: nowrap;
@@ -461,12 +468,19 @@ onBeforeUnmount(() => {
   background: var(--ff-bg-hover);
 }
 .btn.pri {
-  background: var(--ff-primary);
-  border-color: var(--ff-primary);
+  /* 与 element-override.css 的共享主按钮一致：底色 --ff-badge-bg（浅色 #2f5cd9 配白字 5.75:1，暗色 #5b8cff 配近黑字 6.19:1） */
+  background: var(--ff-badge-bg);
+  border-color: var(--ff-badge-bg);
   color: var(--ff-on-primary);
 }
 .btn.pri:hover {
   background: var(--ff-primary-hover);
+  border-color: var(--ff-primary-hover);
+}
+:root:not(.dark) .btn.pri:hover {
+  /* 浅色下 primary-hover 与 badge-bg 同色，加深一点保留悬停反馈（同 element-override.css） */
+  background: color-mix(in srgb, var(--ff-primary-hover) 88%, #000);
+  border-color: color-mix(in srgb, var(--ff-primary-hover) 88%, #000);
 }
 .btn:focus-visible,
 .af:focus-visible,
@@ -493,7 +507,7 @@ onBeforeUnmount(() => {
   width: 28px;
   height: 16px;
   border-radius: 8px;
-  background: var(--ff-border);
+  background: var(--ff-text-3); /* 关闭态：白滑块在 --ff-border 上只有 1.25:1 */
   position: relative;
   flex: none;
   transition: background var(--ff-dur-fast) var(--ff-ease);
@@ -506,7 +520,7 @@ onBeforeUnmount(() => {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: var(--ff-on-primary);
+  background: var(--ff-switch-knob);
   transition: transform var(--ff-dur-fast) var(--ff-ease);
 }
 .switch.on {
@@ -530,6 +544,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  padding: 0; /* 覆盖 base.css 全局 .panel 的 padding，让表头分隔线 / 状态栏上边线 / 拖入虚线框贴满面板 */
   background: var(--ff-bg-surface);
   border: 1px solid var(--ff-border);
   border-radius: var(--ff-radius-lg);
@@ -552,7 +567,7 @@ onBeforeUnmount(() => {
   flex: 1;
 }
 .sub {
-  color: var(--ff-text-3);
+  color: var(--ff-text-2);
   font-size: var(--ff-fs-xs);
 }
 .seg {
@@ -600,21 +615,21 @@ onBeforeUnmount(() => {
   border-top: 1px solid var(--ff-border);
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   padding: 0 var(--ff-space-3);
   font-size: var(--ff-fs-xs);
-  color: var(--ff-text-3);
+  color: var(--ff-text-2);
   white-space: nowrap;
   overflow: hidden;
 }
 .ok {
-  color: var(--ff-success);
+  color: var(--ff-success-text);
   display: flex;
   align-items: center;
   gap: var(--ff-space-1);
 }
 .bad {
-  color: var(--ff-danger);
+  color: var(--ff-danger-text);
   display: flex;
   align-items: center;
   gap: var(--ff-space-1);
@@ -656,6 +671,10 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
 }
+.rempty .ic.err {
+  color: var(--ff-danger-text);
+  background: color-mix(in srgb, var(--ff-danger) 12%, transparent);
+}
 
 /* 拖入文件：只盖住输入面板的编辑区，不拦截鼠标事件 */
 .dropov {
@@ -681,7 +700,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   gap: var(--ff-space-2);
-  color: var(--ff-primary);
+  color: var(--ff-primary-text);
 }
 .dropov b {
   font-size: var(--ff-fs-lg);
@@ -691,7 +710,7 @@ onBeforeUnmount(() => {
 .dropov small {
   font-size: var(--ff-fs-xs);
   line-height: 16px;
-  color: var(--ff-text-3);
+  color: var(--ff-text-2);
 }
 
 /* Monaco 内部节点由 Monaco 创建，需要 :deep */
@@ -703,9 +722,17 @@ onBeforeUnmount(() => {
   display: block;
   width: 6px;
   height: 6px;
-  margin: 9px 0 0 6px;
   border-radius: 50%;
   background: var(--ff-danger);
+}
+.ed :deep(.ff-json-dot) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ed :deep(.ff-json-margin + .line-numbers) {
+  color: var(--ff-danger-text) !important;
+  font-weight: 700;
 }
 .ed :deep(.ff-json-squiggle) {
   text-decoration: underline wavy var(--ff-danger);
