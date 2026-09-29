@@ -9,7 +9,7 @@ import { ElMessage } from 'element-plus'
 export const dropHandlers: { office?: (paths: string[]) => void; pdf?: (paths: string[]) => void } = {}
 
 /**
- * 文档页两个 Tab 共用的状态：右侧「最近生成的 PDF」列表（doc_recent，OpenPDF 是唯一写入点）和当前预览的路径（用于整行高亮）。
+ * 文档页两个 Tab 共用的状态：右侧「最近打开的 PDF」列表（doc_recent，OpenPDF 是唯一写入点）和当前预览的路径（用于整行高亮）。
  * 列表只放这里，两个 Tab 不各自读一份。
  */
 export const useDocsStore = defineStore('docs', () => {
@@ -24,7 +24,7 @@ export const useDocsStore = defineStore('docs', () => {
     try {
       recent.value = await listRecentPDFs(MAX_RECENT_LIMIT)
     } catch (e) {
-      console.error('读取最近生成的 PDF 失败', e)
+      console.error('读取最近打开的 PDF 失败', e)
     } finally {
       loading.value = false
     }
