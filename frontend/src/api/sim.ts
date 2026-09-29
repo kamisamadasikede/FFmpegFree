@@ -20,7 +20,7 @@ export const simParam = (name: string): string | null => new URLSearchParams(glo
  *   ?sim_when=task|call      强制某个码走任务失败 / 同步抛出（默认按下面的 TASK_ONLY 表判断）
  *   ?sim_reason=<值>         TASK_CONFLICT 的 detail 首行 reason=<值>（缺省不带 reason；填 unknown 可复现未知 reason）
  *   ?sim_detail=<文本>       附加到 detail 第二行
- *   ?sim_kill=1              直播：停止时模拟 5 秒内没退出被强杀（canceled）
+ *   ?sim_kill=1              直播：停止时模拟优雅停止超时被强杀（canceled；带存档的屏幕推流强杀后 outputPath 保留）
  *   ?sim_end=<秒>            直播：推满 N 秒后自然结束（succeeded）
  *   ?sim_missing=rtmp|rtmps|srt   直播：地址 scheme 与之相同时 UNSUPPORTED，detail 是契约 §6.10 的单独一行 `missing=<协议名>`（没有第二行）
  *   ?sim_err=LIVE_URL_INVALID&sim_reason=<值>  直播：detail 首行 reason=<值>（scheme_unsupported|malformed|missing_host|param_not_allowed；unknown=未知值；不带 sim_reason=没有 reason 行）。不注入时，地址本身有问题会按实际原因给 reason
@@ -66,8 +66,10 @@ export interface SimLiveSpec {
   fail?: { code: AppErrorCode; message: string; detail?: string; afterSec?: number }
   /** 非循环文件推流播完自然结束（succeeded） */
   endAfterSec?: number
-  /** 优雅停止失败（5 秒内没退出被强杀）→ canceled */
+  /** 优雅停止失败（超时没退出被强杀；有存档最多等 16 秒）→ canceled */
   forceKill?: boolean
+  /** 屏幕推流带本地存档：task:progress 不带 bitrateKbps；outputPath 为存档路径，强杀后保留；没等到第一条 progress 就结束（空壳）→ outputPath 清空 */
+  archive?: boolean
 }
 
 export interface SimTaskSpec {
@@ -141,6 +143,8 @@ function finish(e: Entry, status: 'succeeded' | 'failed' | 'canceled', error?: A
   t.finishedAt = Date.now()
   if (status === 'succeeded' && !e.spec.live) t.progress = 1
   t.error = error ?? null
+  // 存档空壳：还没推出任何内容就结束 → 后端删掉文件并清空 outputPath（先于终态事件）
+  if (e.spec.live?.archive && !e.firstProgressAt) t.outputPath = ''
   t.fps = t.bitrateKbps = t.droppedFrames = undefined
   bump(e)
   // 契约：优雅停止的 succeeded 和强杀的 canceled 都不带 error
@@ -232,7 +236,7 @@ function runLive(e: Entry) {
       return
     }
     // task:progress：progress 恒为 -1，etaSec 恒为 0，带 fps / bitrateKbps / droppedFrames
-    progress(e, { progress: -1, speed: '1.00x', etaSec: 0, outTimeSec: sec, fps: 30, bitrateKbps: DEMO_BITRATE[n % DEMO_BITRATE.length], droppedFrames: 0 })
+    progress(e, { progress: -1, speed: '1.00x', etaSec: 0, outTimeSec: sec, fps: 30, ...(live.archive ? {} : { bitrateKbps: DEMO_BITRATE[n % DEMO_BITRATE.length] }), droppedFrames: 0 })
     n++
   }, 1000)
 }
@@ -249,7 +253,20 @@ export function cancelSimTask(id: string): void {
   }
   e.stopping = true
   clearInterval(e.timer)
-  e.stopTimer = setTimeout(() => finish(e, e.spec.live!.forceKill ? 'canceled' : 'succeeded'), e.spec.live.forceKill ? 1500 : 600)
+  // 演示用的等待时长（真实：无存档 5 秒、有存档 16 秒后强杀）；有存档的优雅停止多等一会儿，好看到“正在停止…”
+  e.stopTimer = setTimeout(() => finish(e, e.spec.live!.forceKill ? 'canceled' : 'succeeded'), e.spec.live.forceKill ? 1500 : e.spec.live.archive ? 1200 : 600)
+}
+
+/** 模拟“强制停止”：正在停止中的直播会话立即强杀 → canceled（存档按 finish 里的规则保留 / 清空） */
+export function forceKillSimTask(id: string): void {
+  const e = entries.get(id)
+  if (!e) simError('NOT_FOUND', '任务不存在')
+  if (!isActiveStatus(e.task.status)) simError('TASK_CONFLICT', '任务已经结束，不能取消')
+  if (!e.spec.live) return cancelSimTask(id)
+  clearInterval(e.timer)
+  clearTimeout(e.stopTimer)
+  e.stopping = true
+  finish(e, 'canceled')
 }
 
 /** TaskService.Retry 的模拟：直播会话 UNSUPPORTED；进行中 TASK_CONFLICT；其余按原参数重新创建 */

@@ -39,6 +39,18 @@
       </template>
     </FFmpegPanel>
 
+    <!-- 编码设备：后端绑定接通（ENCODER_BACKEND_READY）才显示；纯浏览器只有 ?enc= 才显示模拟层 -->
+    <EncoderDevicePanel v-if="encoderVisible" id="sec-encoder" heading-id="h-encoder" />
+    <!-- 回退提示的展示预览（仅浏览器 ?enc=…&fb=1；真实运行不出现，也没有接线） -->
+    <section v-if="encoderVisible && fbPreview" class="panel group" aria-label="回退提示预览">
+      <div class="phead"><h2>回退提示（展示预览，未接线）</h2></div>
+      <div class="fbp">
+        <EncoderFallbackNotice variant="convert" />
+        <EncoderFallbackNotice variant="live" />
+        <EncoderFallbackNotice variant="row" />
+      </div>
+    </section>
+
     <!-- 转换 -->
     <section id="sec-convert" class="panel group" aria-labelledby="h-convert">
       <div class="phead"><h2 id="h-convert">转换</h2></div>
@@ -80,12 +92,18 @@ import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import FFmpegPanel from '@/components/settings/FFmpegPanel.vue'
 import OutputDirRow from '@/components/settings/OutputDirRow.vue'
+import EncoderDevicePanel from '@/components/encoder/EncoderDevicePanel.vue'
+import EncoderFallbackNotice from '@/components/encoder/EncoderFallbackNotice.vue'
+import { encoderPanelVisible } from '@/api/encoder'
+import { simParam } from '@/api/sim'
 import { toAppError } from '@/api/call'
 import { MAX_CONCURRENT_AUTO, MAX_CONCURRENT_MAX, getMaxConcurrent, setMaxConcurrent } from '@/api/system'
 import { useTheme, type ThemeMode } from '@/composables/useTheme'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 
 const { mode } = useTheme()
+const encoderVisible = encoderPanelVisible()
+const fbPreview = encoderVisible && simParam('fb') === '1'
 const themeOptions: { value: ThemeMode; label: string }[] = [
   { value: 'light', label: '浅色' },
   { value: 'dark', label: '暗色' },
@@ -164,6 +182,12 @@ function step(d: number) {
 </script>
 
 <style scoped>
+.fbp {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 /* 主题卡片 */
 .themes {
   display: flex;
