@@ -1,5 +1,7 @@
-/* FFmpegFree v2 设计变量，来源：设计规范 v0.1 第 1-5 节 */
-:root {
+/* FFmpegFree v2 设计变量，来源：设计规范 v0.1 第 1-5 节。
+   .ff-light / .ff-dark 用于在同一页面里局部强制某个主题（开发预览页、截图），业务页面不需要 */
+:root,
+.ff-light {
   color-scheme: light;
 
   --ff-primary: #3b6ef5;
@@ -34,8 +36,8 @@
   --ff-radius-lg: 10px;
   --ff-radius-xl: 12px;
 
-  --ff-font: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  --ff-font-mono: "JetBrains Mono", Consolas, Menlo, monospace;
+  --ff-font: -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+  --ff-font-mono: "JetBrains Mono", Consolas, Menlo, "Noto Sans Mono CJK SC", monospace;
   --ff-fs-xs: 12px;
   --ff-fs-sm: 13px;
   --ff-fs-md: 14px;
@@ -53,7 +55,8 @@
   --ff-titlebar-h: 40px;
 }
 
-html.dark {
+html.dark,
+.ff-dark {
   color-scheme: dark;
 
   --ff-primary: #5b8cff;

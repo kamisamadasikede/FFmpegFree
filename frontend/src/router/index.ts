@@ -57,6 +57,10 @@ const routes: RouteRecordRaw[] = [
       { path: 'about', meta: { tab: '关于' }, component: () => import('../views/About.vue') },
     ],
   },
+  // 临时开发预览页：只在 dev 下注册，生产构建里不存在
+  ...(import.meta.env.DEV
+    ? [{ path: '/dev/components', meta: { title: '组件预览' }, component: () => import('../views/dev/ComponentsPreview.vue') } as RouteRecordRaw]
+    : []),
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ]
 
