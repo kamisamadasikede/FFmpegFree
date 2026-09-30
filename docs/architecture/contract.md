@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.20）
+# FFmpegFree v2 接口契约（v0.21）
+
+v0.21 变更（只修 Windows 上“打开输出位置”点了没反应，**接口、字段、错误码、路径白名单都没有变**；见 6.8 节）：Windows 不再用 `proc.Configure`（它设的隐藏窗口标志会被 explorer 沿用，进程启动了但窗口不显示），改为手拼命令行：文件 `explorer.exe /select,"<path>"`，文件夹 `explorer.exe "<path>"`，路径始终带双引号，含空格和中文都能识别；Windows 路径里含双引号直接 `INVALID_ARGUMENT`。其他平台不变。窗口是否真的弹出只能 Windows 真机验证。
 
 v0.20 变更（只改设备名兜底文案，**接口、字段、错误码都没有变**；见 9.6 第 5 步）：`EncoderDevice.name` 在读不到具体显卡型号时的兜底名统一改成中文短名，界面可直接显示、不再带编码器名或驱动名：`NVIDIA GPU` → `NVIDIA 显卡`，`Intel GPU` → `Intel 显卡`，`AMD GPU` → `AMD 显卡`，`Apple GPU` / macOS 的 `Apple VideoToolbox（系统硬件编码）` → `系统显卡`，Linux 只有 sysfs 时的 `Intel GPU（i915）` / `NVIDIA GPU（nvidia）` / `AMD GPU（amdgpu）` → 同上不带驱动名的 `Intel 显卡` / `NVIDIA 显卡` / `AMD 显卡`；能读到真实型号时不变。`EncoderDevice.reason` 仍可能含 NVENC / QSV / AMF 等技术词（v0.15 起就说明“界面不必直接显示”），本次不改。
 
@@ -572,7 +574,7 @@ schema_migrations(version PK, applied_at)
 
 ## 6.8 RevealInFolder / PickDirectory（v0.7.3，v0.7.7 修订）
 
-- `RevealInFolder(path)`：path 必须是绝对路径（空 / 相对路径 → `INVALID_ARGUMENT`），必须存在（否则 `NOT_FOUND`）。**范围限制（v0.7.7）**：只允许任务表里登记的输出路径（`Manager.IsTaskOutput`），或 `defaultOutputDir` 之内的路径（目录本身可以）；先 Clean 再 `EvalSymlinks`，用真实路径按目录边界比较（Windows / macOS 不区分大小写），其余一律 `INVALID_ARGUMENT`；任务输出本身是符号链接时拒绝；实际打开的是真实路径。Windows 执行 `explorer /select,<path>`，macOS `open -R <path>`，Linux `xdg-open <所在文件夹>`；path 是文件夹时三个平台都直接打开这个文件夹。命令启动后立即返回，启动失败 `PROCESS_FAILED`。Linux 没有统一的"选中文件"方式，所以只能打开所在文件夹。
+- `RevealInFolder(path)`：path 必须是绝对路径（空 / 相对路径 → `INVALID_ARGUMENT`），必须存在（否则 `NOT_FOUND`）。**范围限制（v0.7.7）**：只允许任务表里登记的输出路径（`Manager.IsTaskOutput`），或 `defaultOutputDir` 之内的路径（目录本身可以）；先 Clean 再 `EvalSymlinks`，用真实路径按目录边界比较（Windows / macOS 不区分大小写），其余一律 `INVALID_ARGUMENT`；任务输出本身是符号链接时拒绝；实际打开的是真实路径。Windows 执行 `explorer.exe /select,"<path>"`（路径带双引号，见 v0.21），macOS `open -R <path>`，Linux `xdg-open <所在文件夹>`；path 是文件夹时三个平台都直接打开这个文件夹。命令启动后立即返回，启动失败 `PROCESS_FAILED`。Linux 没有统一的"选中文件"方式，所以只能打开所在文件夹。
 - `PickDirectory(title string)`：弹出系统选择文件夹对话框，返回绝对路径；取消返回 `""`。应用启动完成前调用返回 `INTERNAL`。**参数不能省略**：Wails v2.11 对 Go 可变参数生成 `Array<string>` 且运行时按参数个数严格检查，做不了可选参数，前端无标题时调用 `PickDirectory('')`。
 - `PickFiles(filter, multiple)`：`filter = {name, patterns[]}`，patterns 形如 `["*.mp4", "*.mkv"]`（单个元素里用分号也行：`"*.mp4;*.mkv"`），只接受 `*.扩展名` 形式（扩展名限字母数字 `_ - + ? *`）和 `*` / `*.*`，其他写法 `INVALID_ARGUMENT`；patterns 为空或含 `*.*` = 不过滤；`name` 为空时用模式串当显示名。返回绝对路径（已 `Clean`、去重）；**用户取消返回空数组 `[]`，不是错误**；`multiple=false` 最多 1 个。启动完成前调用返回 `INTERNAL`。
 

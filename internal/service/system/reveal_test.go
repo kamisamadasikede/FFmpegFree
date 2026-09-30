@@ -22,8 +22,10 @@ func TestRevealCommand(t *testing.T) {
 		name       string
 		args       []string
 	}{
-		{"windows", `C:\a b\x.mp4`, false, "explorer", []string{`/select,C:\a b\x.mp4`}},
-		{"windows", `C:\a b`, true, "explorer", []string{`C:\a b`}},
+		{"windows", `C:\a b\x.mp4`, false, "explorer.exe", []string{`/select,"C:\a b\x.mp4"`}},
+		{"windows", `D:\视频\我的 文件.mp4`, false, "explorer.exe", []string{`/select,"D:\视频\我的 文件.mp4"`}},
+		{"windows", `C:\a b`, true, "explorer.exe", []string{`"C:\a b"`}},
+		{"windows", `D:\输出 目录`, true, "explorer.exe", []string{`"D:\输出 目录"`}},
 		{"darwin", "/Users/a/x.mp4", false, "open", []string{"-R", "/Users/a/x.mp4"}},
 		{"darwin", "/Users/a", true, "open", []string{"/Users/a"}},
 		{"linux", "/home/a/x.mp4", false, "xdg-open", []string{"/home/a"}},
@@ -311,5 +313,23 @@ func TestWithinCaseInsensitive(t *testing.T) {
 	}
 	if !within(true, dir, real) {
 		t.Fatal("不区分大小写时应视为同一目录")
+	}
+}
+
+func TestRawCmdLine(t *testing.T) {
+	name, args := revealCommand("windows", `C:\a b\中文 x.mp4`, false)
+	if got, want := rawCmdLine(name, args), `explorer.exe /select,"C:\a b\中文 x.mp4"`; got != want {
+		t.Fatalf("file cmdline = %q, want %q", got, want)
+	}
+	name, args = revealCommand("windows", `C:\a b`, true)
+	if got, want := rawCmdLine(name, args), `explorer.exe "C:\a b"`; got != want {
+		t.Fatalf("dir cmdline = %q, want %q", got, want)
+	}
+}
+
+func TestRevealWindowsRejectsQuoteInPath(t *testing.T) {
+	err := revealIn("windows", func(string, ...string) error { t.Fatal("must not launch"); return nil }, `/tmp/a"b`, nil)
+	if err == nil {
+		t.Fatal("want error for path containing a double quote")
 	}
 }
