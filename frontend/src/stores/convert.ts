@@ -198,9 +198,11 @@ export const useConvertStore = defineStore('convert', () => {
     if (!rows.value.length) return 'idle'
     const ss = states.value.map((x) => x.s)
     if (ss.some(isActive)) return 'running'
-    if (ss.some((s) => s === 'ready' || s === 'probing' || s === 'waiting' || s === 'invalid' || s === 'conflict')) return 'ready'
+    // 优先级：进行中 > 还有能转的行（待转换 / 读取中 / 等待）> 有失败 > 有已完成 > 其余（只剩坏文件 / 冲突行 / 已取消）。
+    // invalid / conflict 是“剩余项”，不再压过 done / failed：混入冲突行的批次，合法行转完后照常进入完成态（复验 N1）
+    if (ss.some((s) => s === 'ready' || s === 'probing' || s === 'waiting')) return 'ready'
     if (ss.some((s) => isFailed(s))) return 'failed'
-    if (ss.every((s) => s === 'succeeded' || s === 'canceled')) return ss.some((s) => s === 'succeeded') ? 'done' : 'ready'
+    if (ss.some((s) => s === 'succeeded')) return 'done'
     return 'ready'
   })
 
@@ -404,6 +406,18 @@ export const useConvertStore = defineStore('convert', () => {
     rows.value = rows.value.filter((r) => !drop.has(r.key))
     notice.value = ''
   }
+  /**
+   * “再转一个”：清掉已提交的行（完成 / 失败 / 已取消），但保留冲突 / 读取失败的行作为剩余项——它们是用户加进来的文件，不悄悄丢掉；
+   * 想全清用“清空”（clear）。没有剩余项时和 clear 一样。
+   */
+  function startOver() {
+    const keep = new Set(states.value.filter((x) => x.s === 'invalid' || x.s === 'conflict').map((x) => x.r.key))
+    rows.value = rows.value.filter((r) => keep.has(r.key))
+    focusKey.value = ''
+    notice.value = ''
+    submitError.value = null
+    pickSoon.value = ''
+  }
   function clear() {
     rows.value = []
     focusKey.value = ''
@@ -544,7 +558,7 @@ export const useConvertStore = defineStore('convert', () => {
   })
   const outputFolder = computed(() => (outputFolders.value.length === 1 ? outputFolders.value[0] : ''))
 
-  // ---------------- 浏览器预览（无 window.go）：?convert=idle|files|probefail|running|done|failed ----------------
+  // ---------------- 浏览器预览（无 window.go）：?convert=idle|files|probefail|doneconflict|running|done|failed ----------------
   function seedPreview(kind: string) {
     const mkTask = (id: string, status: TaskStatus, progress: number, extra: Partial<TaskItem> = {}) => normalizeTask({
       id, type: 'convert', status, title: '', inputPaths: [], outputPath: '', progress, speed: '', etaSec: 0, params: '', version: 5, createdAt: Date.now() - 60000, startedAt: Date.now() - 30000, finishedAt: 0, ...simEncFields(), ...extra,
@@ -557,6 +571,7 @@ export const useConvertStore = defineStore('convert', () => {
     if (kind === 'single' || kind === 'singledone') paths = [paths[0]]
     if (kind === 'audio') paths = [paths[2]]
     if (kind === 'many') paths = Array.from({ length: 50 }, (_, i) => `${dir}/素材_${String(i + 1).padStart(2, '0')}.mp4`)
+    if (kind === 'doneconflict') paths = [paths[0], paths[1], paths[2]] // 两个视频转完 + 一个纯音频（配 MP4 预设是冲突行）
     if (kind === 'probefail') paths = [paths[0], paths[1], `${dir}/损坏_采访素材.mp4`, paths[2]]
     addPaths(paths)
     // 预览里 Probe 是同步假数据，但仍走 probePending；这里等它跑完再绑定任务
@@ -582,6 +597,8 @@ export const useConvertStore = defineStore('convert', () => {
         ok(0, '产品发布会_完整版.mp4'); ok(1, 'vlog_杭州西湖.mp4'); ok(2, '访谈录音_第三期.mp4'); ok(3, 'screen_record_0928.mp4')
         // donemulti：输出在两个文件夹里（每个文件保存在各自源文件夹）
         if (kind === 'donemulti') put(3, mkTask('pv3', 'succeeded', 1, { outputPath: '/Users/me/Desktop/录屏/screen_record_0928.mp4' }), true)
+      } else if (kind === 'doneconflict') {
+        ok(0, '产品发布会_完整版.mp4'); ok(1, 'vlog_杭州西湖.mp4')
       } else if (kind === 'failed') {
         ok(0, '产品发布会_完整版.mp4')
         put(1, mkTask('pv1', 'failed', 0.31, { error: { code: 'CONVERT_DISK_FULL', message: '磁盘空间不足', detail: 'write /Volumes/Backup/输出/vlog_杭州西湖.mp4.part.mp4: no space left on device' }, params: JSON.stringify({ input: `${dir}/${names[1]}`, options: { container: 'mp4', videoCodec: 'h264', audioCodec: 'aac' }, outputDir: '/Volumes/Backup/输出' }) }), true)
@@ -596,11 +613,11 @@ export const useConvertStore = defineStore('convert', () => {
     rows, presets, presetsLoaded, presetsError, selectedPresetId, selectedPreset, presetShort,
     outputOverride, defaultOutputDir, effectiveOutputDir, outputFolder, outputFolders, submitting, retryingAll, submitError, notice, pickSoon,
     mode, overall, totalBytes, startBlockReason, blockedCount, canceledCount, probeProgress, presetTitle, focusRow, focusOn, ensureCover, removeBlocked, activeRows, failedRows, succeededRows, pendingRows, submittableRows,
-    init, refreshDefaultDir, loadPresets, addPaths, probePending, chooseFiles, ensureThumb, removeRow, clear, unbind,
+    init, refreshDefaultDir, loadPresets, addPaths, probePending, chooseFiles, ensureThumb, removeRow, clear, startOver, unbind,
     chooseOutputDir, submit, cancelRow, cancelAll, retryRow, retryAllFailed, changeOutputAndResubmit, reveal, revealOutput,
     stateOf, rowTask, conflictOf, seedPreview,
   }
 })
 
-/** 浏览器预览参数 ?convert=idle|files|probefail|running|done|failed；真实运行为 null */
+/** 浏览器预览参数 ?convert=idle|files|probefail|doneconflict|running|done|failed；真实运行为 null */
 export const PREVIEW_CONVERT = !hasWailsBackend() ? previewParams.get('convert') : null
