@@ -62,7 +62,8 @@ export const errorMessages: Record<ErrorCode, ErrorMessage> = {
   LIVE_PUSH_REJECTED: overlay('服务器拒绝了推流', '服务器拒绝了推流，请检查推流码是否有效，或是否已被其他推流占用'),
   LIVE_PLAY_FAILED: overlay('拉流失败', '请检查地址和流服务器状态。'),
   LIVE_CORS_BLOCKED: overlay('播放被跨域限制拦截', '需要流服务器允许跨域访问。'),
-  LIVE_PUSH_INTERRUPTED: overlay('推流已中断', '可以点击重试；开启自动重连后会自动重试。', { taskRow: true }),
+  // 直播会话不能重试（后端 Retry 返回 UNSUPPORTED）：不给“重试”，叫法与直播页一致“推流中断”；“自动重连”已作废（设计说明 v0.2）
+  LIVE_PUSH_INTERRUPTED: overlay('推流中断', '推流被中断，请回到直播页重新推流。', { taskRow: true, primary: null }),
   FFMPEG_NOT_FOUND: overlay('未找到 ffmpeg', '请到设置中安装，或手动指定 ffmpeg 路径。', {
     primary: { label: '去设置', action: 'route', to: '/settings' },
   }),
@@ -147,6 +148,16 @@ export const taskErrorMessages: Record<TaskErrorCode, TaskErrorMessage> = {
   },
 }
 
+/**
+ * 后端旧文案“ffmpeg 异常退出（退出码 -1）”“ffmpeg 退出码 1”用户看不懂：PROCESS_FAILED 且 message 是这类时，前端改写成说人话的一句（设计师走查 G4 建议措辞，待产品经理确认）；
+ * 退出码等技术信息在“查看日志”里（detail / 日志），不放主提示。后端新文案（不含“退出码”）原样使用，不改写。
+ */
+export const PROCESS_EXIT_TEXT = '转换被意外中断，可以重试；如果反复出现，请查看日志。'
+const OLD_PROCESS_EXIT = /^ffmpeg\s*(异常退出|退出码)|退出码\s*-?\d+/
+export function rewriteProcessExitText(code: string | null | undefined, message: string): string {
+  return code === 'PROCESS_FAILED' && OLD_PROCESS_EXIT.test(message) ? PROCESS_EXIT_TEXT : message
+}
+
 /** 任务中心里没有专属文案的错误码：标题固定，描述取后端 message */
 export const TASK_FALLBACK_TITLE = '转换失败'
 const DEFAULT_TASK_ACTIONS: TaskErrorAction[] = ['retry', 'viewLog']
@@ -183,7 +194,7 @@ export function resolveTaskError(code?: string | null, fallbackMessage?: string 
   return {
     code: code || 'INTERNAL',
     title: TASK_FALLBACK_TITLE,
-    description: message || FALLBACK_DESCRIPTION,
+    description: rewriteProcessExitText(code, message) || FALLBACK_DESCRIPTION,
     actions: DEFAULT_TASK_ACTIONS,
     known: false,
   }

@@ -28,7 +28,7 @@ export async function probeFiles(paths: string[], onBatch?: (results: ProbeResul
         const info = infos?.[k]
         if (!info) return { path, error: { code: 'INTERNAL', message: '没有拿到这个文件的信息' } }
         if (info.error) return { path, error: { code: info.error.code, message: info.error.message, detail: info.error.detail } }
-        return { path, info }
+        return { path, info: normalizeMediaInfo(info) }
       })
     } catch (e) {
       const err = toAppError(e)
@@ -38,6 +38,16 @@ export async function probeFiles(paths: string[], onBatch?: (results: ProbeResul
     onBatch?.(results)
   }
   return all
+}
+
+/**
+ * 探测成功的媒体：后端 HasVideo / HasAudio 带 omitempty，false 时字段缺失（后端也在去 omitempty，两边互不依赖）。
+ * 探测成功（没有 error）的媒体，缺失 = false；已有的 true / false 原样保留。原地补齐并返回同一个对象。
+ */
+export function normalizeMediaInfo<T extends { hasVideo?: boolean; hasAudio?: boolean }>(info: T): T {
+  if (typeof info.hasVideo !== 'boolean') info.hasVideo = false
+  if (typeof info.hasAudio !== 'boolean') info.hasAudio = false
+  return info
 }
 
 /** 缩略图（data URL，宽度约 width）。没有画面 / 失败返回 ''，调用方显示占位图标 */

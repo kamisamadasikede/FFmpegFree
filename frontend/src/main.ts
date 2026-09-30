@@ -1,5 +1,6 @@
 import {createApp} from 'vue'
 import ElementPlus from 'element-plus'
+import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import 'element-plus/dist/index.css'
 import 'element-plus/theme-chalk/dark/css-vars.css'
 import App from './App.vue'
@@ -41,7 +42,7 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 app.use(pinia)
 app.use(router)
 // 桌面化：控件默认 small（设计规范第 0 节）
-app.use(ElementPlus, { size: 'small' })
+app.use(ElementPlus, { size: 'small', locale: zhCn }) // 全站中文（分页“共 44 条”、组件自带提示等）
 app.mount('#app')
 app.config.errorHandler = (err, vm, info) => {
     console.error("Vue error:", err, info);
