@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { cleanFfmpegVersion } from '@/utils/ffmpegVersion'
 import { computed, ref } from 'vue'
 import * as SystemBinding from '../../wailsjs/go/app/SystemService'
 import { system } from '../../wailsjs/go/models'
@@ -45,7 +46,7 @@ function normalize(raw: system.FFmpegStatus | FFmpegStatus): FFmpegStatus {
   return {
     state: r.state,
     path: r.path || undefined,
-    version: r.version || undefined,
+    version: cleanFfmpegVersion(r.version) || undefined,
     source: r.source || undefined,
     taskId: r.taskId || undefined,
     ffprobeMissing: !!r.ffprobeMissing,
