@@ -160,14 +160,14 @@
             <button type="button" class="btn lg" @click="cv.cancelAll()"><FIcon name="x" :size="15" />取消</button>
           </template>
           <template v-else-if="cv.mode === 'done'">
-            <button type="button" class="btn lg" @click="cv.clear()">再转一个</button>
+            <button type="button" class="btn lg" @click="cv.startOver()">再转一个</button>
             <span class="sp" />
             <button type="button" class="btn pri lg" :title="cv.outputFolders.length > 1 ? `输出在 ${cv.outputFolders.length} 个文件夹里，打开第一个` : undefined" @click="onRevealOutput"><FIcon name="folder" :size="15" />打开输出位置</button>
           </template>
           <template v-else-if="cv.mode === 'failed'">
             <!-- 三个按钮合计 383px 放不进 254px 的页脚：第一行“再转一个”“打开输出位置”，主按钮“重试失败项”单独第二行靠右 -->
             <div class="frow">
-              <button type="button" class="btn lg" @click="cv.clear()">再转一个</button>
+              <button type="button" class="btn lg" @click="cv.startOver()">再转一个</button>
               <button v-if="cv.succeededRows.length" type="button" class="btn lg" :title="cv.outputFolders.length > 1 ? `输出在 ${cv.outputFolders.length} 个文件夹里，打开第一个` : undefined" @click="onRevealOutput"><FIcon name="folder" :size="15" />打开输出位置</button>
             </div>
             <button type="button" class="btn pri lg retry" :disabled="cv.retryingAll" :aria-busy="cv.retryingAll" @click="cv.retryAllFailed()"><FIcon name="retry" :size="15" />重试失败项</button>

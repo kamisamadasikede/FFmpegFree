@@ -1050,6 +1050,46 @@ export async function runApiChecks(): Promise<string[]> {
         eq('S1 冲突：无声视频（hasAudio 缺失）配音频预设 → 冲突；有音轨的不冲突', [!!cs.conflictOf(rc), !!cs.conflictOf(rb), !!cs.conflictOf(ra)], [true, false, false])
         cs.rows = [mkRow('a.mp4', { hasVideo: true }), mkRow('b.mp4', { hasVideo: true })] as never
         eq('S1 整批全冲突：没有可提交的行 → “开始转换”置灰（startBlockReason=empty，页脚有提示），不会静默提交', [cs.submittableRows.length, cs.startBlockReason === 'empty' || cs.startBlockReason === 'ffmpeg', cs.blockedCount], [0, true, 2])
+        // 包 16 N1：mode 判定优先级（进行中 > 还有能转的行 > 有失败 > 有已完成 > 其余）
+        {
+          const tsk = useTaskStore()
+          cs.selectedPresetId = 'mp4'
+          const okRow = (n: string, id: string, st: 'succeeded' | 'failed' | 'running') => { const r = mkRow(n, { hasVideo: true, hasAudio: true }); (r as { taskId: string }).taskId = id; tsk.seedFinal({ id, status: st === 'running' ? 'succeeded' : st, error: st === 'failed' ? { code: 'PROCESS_FAILED', message: 'x' } : null, outputPath: '/o/' + n, progress: 1, speed: '', etaSec: 0, startedAt: 1, finishedAt: 2 } as never); return r }
+          const conf = () => mkRow('c.mp3', { hasAudio: true })
+          const bad = () => mkRow('bad.mp4', undefined, 'error')
+          const setRows = (rs: unknown[]) => { cs.rows = rs as never }
+          setRows([okRow('a.mp4', 't1', 'succeeded'), conf()])
+          eq('N1 mode：有已完成行 + 冲突行 → done（冲突行是剩余项）', [cs.mode, cs.blockedCount], ['done', 1])
+          setRows([okRow('a.mp4', 't2', 'succeeded'), bad()])
+          eq('N1 mode：有已完成行 + 读取失败行 → done', cs.mode, 'done')
+          setRows([okRow('a.mp4', 't3', 'succeeded'), okRow('b.mp4', 't4', 'succeeded')])
+          eq('N1 mode：全部完成无冲突 → done（原行为不变）', cs.mode, 'done')
+          setRows([okRow('a.mp4', 't5', 'succeeded'), okRow('b.mp4', 't6', 'failed'), conf()])
+          eq('N1 mode：部分失败 + 部分完成 + 冲突行 → failed（能重试失败项，完成条不抢）', cs.mode, 'failed')
+          setRows([conf(), conf()])
+          eq('N1 mode：全冲突（没有任何已完成行）→ ready，不可开始', [cs.mode, cs.submittableRows.length, cs.startBlockReason === 'empty' || cs.startBlockReason === 'ffmpeg'], ['ready', 0, true])
+          setRows([okRow('a.mp4', 't7', 'succeeded'), mkRow('n.mp4', { hasVideo: true, hasAudio: true }), conf()])
+          eq('N1 mode：有已完成行但还有新加入的合法行 → ready（可以继续开始）', cs.mode, 'ready')
+          { const r = mkRow('run.mp4', { hasVideo: true, hasAudio: true }); (r as { taskId: string }).taskId = 'trun'
+            tsk.track([{ id: 'trun', type: 'convert', status: 'running', title: 'run', inputPaths: [], outputPath: '/o/run.mp4', progress: 0.3, speed: '', etaSec: 0, params: '', version: 1, createdAt: Date.now(), startedAt: Date.now() }] as never)
+            setRows([r, okRow('a.mp4', 't10', 'succeeded'), conf()])
+            eq('N1 mode：有进行中的行 → running（不受影响，优先于完成 / 冲突）', cs.mode, 'running') }
+          setRows([])
+          eq('N1 mode：空列表 → idle', cs.mode, 'idle')
+          // 再转一个：清掉已提交的行，保留冲突 / 读取失败行；清空：全清
+          setRows([okRow('a.mp4', 't8', 'succeeded'), conf(), bad()])
+          cs.startOver()
+          eq('N1 再转一个：只保留冲突 / 读取失败行，不丢用户的文件', cs.rows.map((r) => r.name), ['c.mp3', 'bad.mp4'])
+          setRows([okRow('a.mp4', 't9', 'succeeded'), conf()])
+          cs.clear()
+          eq('N1 清空：全部清掉', cs.rows.length, 0)
+          const cpSrc = readSrc('src/views/ConvertPage.vue')
+          eq('N1 页面：done / failed 两处“再转一个”走 startOver；完成态下不出现“没有可以转换的文件”（页脚提示只在 ready 分支）', [(cpSrc.match(/@click="cv\.startOver\(\)">再转一个/g) ?? []).length, /<template v-else-if="cv\.mode === 'done'">[\s\S]*?<\/template>/.exec(cpSrc)?.[0].includes('没有可以转换的文件')], [2, false])
+          // N2：冲突行不显示错误码；其他行内错误仍显示（用于排查）
+          const rowSrc = readSrc('src/components/convert/ConvertFileRow.vue')
+          eq('N2 冲突行：hideCode，只显示中文提示；ErrorLine 接 hide-code', [/hideCode: true, code: 'INVALID_ARGUMENT', title: '这个文件不能用当前预设'/.test(rowSrc), /:hide-code="errorLine\.hideCode"/.test(rowSrc)], [true, true])
+          eq('N2 其余行内错误（读取失败 / 提交失败 / 任务失败）不受影响，仍带码', (rowSrc.match(/hideCode: true/g) ?? []).length, 1)
+        }
         eq('S1 提交只带 submittableRows（源码）', /const batch = submittableRows\.value\.slice\(\)/.test(readSrc('src/stores/convert.ts')), true)
         // G11 版本号
         const { cleanFfmpegVersion } = await import('@/utils/ffmpegVersion')

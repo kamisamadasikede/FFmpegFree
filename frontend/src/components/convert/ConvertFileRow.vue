@@ -39,6 +39,7 @@
         compact
         :tone="state === 'interrupted' ? 'interrupted' : 'danger'"
         :code="errorLine.code"
+        :hide-code="errorLine.hideCode"
         :message="errorLine.message"
         :detail="errorLine.detail"
         :title="errorLine.title"
@@ -192,7 +193,7 @@ const progressText = computed(() => {
 
 const canRemove = computed(() => ['waiting', 'probing', 'invalid', 'conflict', 'ready', 'succeeded', 'failed', 'interrupted', 'canceled'].includes(props.state))
 
-interface ErrLine { code: string; message?: string; detail?: string; title?: string; description?: string; retry: boolean; log: boolean }
+interface ErrLine { hideCode?: boolean; code: string; message?: string; detail?: string; title?: string; description?: string; retry: boolean; log: boolean }
 const errorLine = computed<ErrLine | null>(() => {
   const r = props.row
   if (props.state === 'invalid' && r.probeError) {
@@ -200,7 +201,8 @@ const errorLine = computed<ErrLine | null>(() => {
     return { code: e.code, detail: undefined, title: PROBE_ERROR_TITLE, description: probeErrorText(e.code, e.message), retry: false, log: false }
   }
   if (props.state === 'conflict' && props.conflict) {
-    return { code: 'INVALID_ARGUMENT', title: '这个文件不能用当前预设', description: props.conflict, retry: false, log: false }
+    // 预检冲突是用户操作上的不匹配、不是故障：只显示中文提示，不显示错误码（复验 N2）
+    return { hideCode: true, code: 'INVALID_ARGUMENT', title: '这个文件不能用当前预设', description: props.conflict, retry: false, log: false }
   }
   if (r.submitError && !r.taskId) {
     const e = r.submitError
