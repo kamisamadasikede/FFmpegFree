@@ -63,7 +63,7 @@ export const errorMessages: Record<ErrorCode, ErrorMessage> = {
   LIVE_PLAY_FAILED: overlay('拉流失败', '请检查地址和流服务器状态。'),
   LIVE_CORS_BLOCKED: overlay('播放被跨域限制拦截', '需要流服务器允许跨域访问。'),
   // 直播会话不能重试（后端 Retry 返回 UNSUPPORTED）：不给“重试”，叫法与直播页一致“推流中断”；“自动重连”已作废（设计说明 v0.2）
-  LIVE_PUSH_INTERRUPTED: overlay('推流中断', '推流被中断，请回到直播页重新推流。', { taskRow: true, primary: null }),
+  LIVE_PUSH_INTERRUPTED: overlay('推流中断', '请回到直播页重新推流。', { taskRow: true, primary: null }),
   FFMPEG_NOT_FOUND: overlay('未找到 ffmpeg', '请到设置中安装，或手动指定 ffmpeg 路径。', {
     primary: { label: '去设置', action: 'route', to: '/settings' },
   }),

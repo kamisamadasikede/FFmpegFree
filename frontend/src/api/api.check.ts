@@ -1045,6 +1045,8 @@ export async function runApiChecks(): Promise<string[]> {
         const [ra, rb, rc, rd2] = cs.rows
         eq('S1 冲突：纯音频（hasVideo 缺失）配视频预设 → 冲突；正常视频不冲突；探测中不判断', [!!cs.conflictOf(ra), !!cs.conflictOf(rb), !!cs.conflictOf(rc), cs.conflictOf(rd2)], [true, false, false, null])
         eq('S1 冲突：冲突文案 = 设计里的预检文案', cs.conflictOf(ra), '这个文件没有画面，不能转成视频格式。请换一个音频预设，或移出列表。')
+        eq('无声视频配音频预设：冲突文案 = 产品经理定稿（与“没有画面”对称）', (() => { cs.selectedPresetId = 'mp3'; return cs.conflictOf(rc) })(), '这个文件没有声音，不能转成音频格式。请换一个视频预设，或移出列表。')
+        cs.selectedPresetId = 'mp4'
         eq('S1 批量：冲突行不进提交列表，只提交无冲突行（探测中的不算）', [cs.stateOf(ra), cs.stateOf(rb), cs.submittableRows.map((r) => r.name)], ['conflict', 'ready', ['b.mp4', 'c.mp4']])
         cs.selectedPresetId = 'mp3'
         eq('S1 冲突：无声视频（hasAudio 缺失）配音频预设 → 冲突；有音轨的不冲突', [!!cs.conflictOf(rc), !!cs.conflictOf(rb), !!cs.conflictOf(ra)], [true, false, false])
@@ -1104,6 +1106,7 @@ export async function runApiChecks(): Promise<string[]> {
         eq('G4 后端新文案 / 其他码：原样', [em.resolveTaskError('PROCESS_FAILED', '转换没有成功，请查看日志').description, em.resolveTaskError('INTERNAL', 'ffmpeg 异常退出（退出码 -1）').description], ['转换没有成功，请查看日志', 'ffmpeg 异常退出（退出码 -1）'])
         // G8：直播行不给重试，叫“推流中断”，没有“自动重连”
         const lm = em.errorMessages.LIVE_PUSH_INTERRUPTED
+        eq('N3 推流中断：描述“请回到直播页重新推流。”（不再与标题同义重复）；应用退出后中断那句保持原样', [lm.description, /'应用退出时推流被中断，请回到直播页重新推流。'/.test(readSrc('src/views/TaskCenter.vue'))], ['请回到直播页重新推流。', true])
         eq('G8 推流中断：标题“推流中断”、没有“重试”主按钮、文案不含“自动重连”“点击重试”', [lm.title, lm.primary, /自动重连|点击重试/.test(lm.description)], ['推流中断', null, false])
         const tcs = readSrc('src/views/TaskCenter.vue')
         eq('G8 任务中心：行尾“重试”和失败行重试都排除直播任务', [/\(t\.status === 'failed' \|\| t\.status === 'interrupted'\) && !isLiveType\(t\.type\)/.test(tcs), /:hide-retry="t\.status === 'interrupted' \|\| isLiveType\(t\.type\)"/.test(tcs)], [true, true])
