@@ -34,8 +34,8 @@ type MediaInfo struct {
 	Rotation   int              `json:"rotation,omitempty"` // 0 / 90 / 180 / 270，逆时针显示旋转角度
 	SampleRate int              `json:"sampleRate,omitempty"`
 	Channels   int              `json:"channels,omitempty"`
-	HasVideo   bool             `json:"hasVideo,omitempty"`
-	HasAudio   bool             `json:"hasAudio,omitempty"`
+	HasVideo   bool             `json:"hasVideo"`
+	HasAudio   bool             `json:"hasAudio"`
 	Streams    []StreamInfo     `json:"streams,omitempty"`
 	Error      *apperr.AppError `json:"error,omitempty"`
 

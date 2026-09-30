@@ -33,7 +33,7 @@ const (
 type FFmpegStatus struct {
 	State   string `json:"state"`            // checking | ready | missing | outdated | installing | failed
 	Path    string `json:"path"`             // ffmpeg 可执行文件的绝对路径
-	Version string `json:"version"`          // 如 "6.1.1-3ubuntu5"
+	Version string `json:"version"`          // 规范化后的数字版本，如 "9.0.2"、"7.1.5"（契约 v0.22；不含网址 / 构建后缀）
 	Source  string `json:"source"`           // custom | bundled | system | legacy
 	TaskID  string `json:"taskId,omitempty"` // installing 时对应的安装任务
 	// FFprobeMissing 为 true 表示 ffmpeg 可用但没有 ffprobe（v1 的 ffmpeg/ 目录只带 ffmpeg）。

@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.21）
+# FFmpegFree v2 接口契约（v0.22）
+
+v0.22 变更（走查包 12 的后端小修，**接口签名、事件、错误码都没有变**；只有 ① 一个 JSON 字段从“false 时缺失”改成“始终输出”，其余是用户可见文案和版本号显示）：① `MediaInfo.hasVideo` / `hasAudio` 去掉 `omitempty`，**始终输出** `true` / `false`（此前 false 时字段缺失，前端 `=== false` 判断永远不成立，纯音频配视频预设、无声视频配音频预设时不标“冲突”）；`ListRecent` 返回的记录里也是 `false`（不入库，同其他 Probe 字段）；② 任务日志里 FFmpegFree 自己写的显卡编码回退行 `[FFmpegFree] 硬件编码器 h264_nvenc 启动失败（nvenc_init_failed），改用 CPU 编码重试一次` → `[FFmpegFree] 显卡编码启动失败，已自动改用 CPU 重试一次`（不带编码器名；ffmpeg 自己的 stderr 原样保留）；③ `EncoderDevice.reason` / `EncoderPreferenceInfo.reason` 里 FFmpegFree 自己写的文案统一叫“显卡编码”、不带编码器名：`当前 ffmpeg 不包含 NVENC / QSV / AMF / VideoToolbox 编码器` → `当前 ffmpeg 不包含这张显卡对应的显卡编码支持`，`没有可用的硬件编码器` → `没有可用的显卡编码器`，`这张显卡没有对应的硬件编码器支持` → `这张显卡没有对应的显卡编码支持`，`系统没有响应 VideoToolbox 编码` → `系统没有响应显卡编码`，`（Quick Sync 初始化失败）` / `（AMF 初始化失败）` → `（显卡编码初始化失败）`（`试跑失败：<ffmpeg 输出最后一行>` 仍是 ffmpeg 自己的输出，原样）；④ `FFmpegStatus.version` 规范化：只取开头的数字版本，网址 / 构建信息不进这个字段：`9.0.2-https://www.martin-riedl.de` → `9.0.2`，`n7.1` → `7.1`，`7.1-static` → `7.1`，`6.1.1-3ubuntu5` → `6.1.1`；`N-12345-gabcdef` 这类没有数字版本的 git 构建保持原样，日期版去掉网址并最多保留 32 个字符（见第 9 节 `FFmpegStatus`）；主版本判断（≥6）不受影响；⑤ 没有更具体分类的 ffmpeg 非零退出（`PROCESS_FAILED`）的 `message` 从 `ffmpeg 异常退出（退出码 N）`（个别情况 `ffmpeg 执行失败`）改成 `转换被意外中断，可以重试；如果反复出现，请查看日志。`（全角标点，不含退出码）；退出码放进 `detail` 第一行 `ffmpeg 退出码 N`（-1 通常是进程被外部结束或启动后立即崩溃），后面接 stderr 最后 50 行，任务日志里也会有一行 `[FFmpegFree] ffmpeg 退出码 N`。错误码 `PROCESS_FAILED` 不变；直播任务认不出的退出仍是 `INTERNAL`（message `推流异常退出`，没有动）。
 
 v0.21 变更（只修 Windows 上“打开输出位置”点了没反应，**接口、字段、错误码、路径白名单都没有变**；见 6.8 节）：Windows 不再用 `proc.Configure`（它设的隐藏窗口标志会被 explorer 沿用，进程启动了但窗口不显示），改为手拼命令行：文件 `explorer.exe /select,"<path>"`，文件夹 `explorer.exe "<path>"`，路径始终带双引号，含空格和中文都能识别；Windows 路径里含双引号直接 `INVALID_ARGUMENT`。其他平台不变。窗口是否真的弹出只能 Windows 真机验证。
 
@@ -97,7 +99,7 @@ Bind 方法返回 `(T, error)`。error 的 message 是 JSON 字符串，前端 `
 | CANCELED | 调用因应用退出（根 ctx 取消）而被取消，结果作废；前端不需要提示用户（`ConvertService.Submit`、`LiveService.Start*` 等） |
 | UNSUPPORTED | 该操作不支持这个对象（如没有重试工厂的任务类型不能 Retry；直播会话 Retry 也是它；直播（v0.10）：本机 ffmpeg 缺少推流协议时 `Start*` 返回它，`detail` 是 `missing=<协议名>`（协议名取 `rtmp`、`rtmps`、`srt`，如 `missing=srt`），见 2.2） |
 | CONVERT_DISK_FULL | 转换写输出文件时磁盘空间不足（前端标题「磁盘空间不足」，可引导用户换输出目录） |
-| PROCESS_FAILED | 子进程非零退出，detail 带最后 50 行日志 |
+| PROCESS_FAILED | 子进程非零退出，detail 第一行 `ffmpeg 退出码 N`（v0.22），后面是最后 50 行日志；message 不带退出码 |
 | UNSUPPORTED_PLATFORM | 当前系统或会话不支持该功能（如 Linux Wayland 下的屏幕采集、Linux 没有 `DISPLAY`、x11grab 打不开显示） |
 | LIVE_URL_INVALID | 推流地址格式不合法或协议不支持（只允许 rtmp / rtmps / srt，规则见第 4 节 LiveService）；`detail` 第一行 `reason=<值>`，见 2.2 |
 | LIVE_CONNECT_FAILED | 推流**开始前**连接目标失败（DNS、拒绝连接、超时、网络不可达；SRT 的服务器未开与被拒绝无法区分，也归它）：任务在收到第一条 `task:progress` 之前就失败；`detail` 第一行 `scheme=rtmp\|rtmps\|srt`，见 2.2 |
@@ -173,7 +175,7 @@ type MediaInfo struct {
     Bitrate    int64   `json:"bitrate"`
     ThumbURL   string  `json:"thumbUrl"`   // data:image/jpeg;base64,...（v0.8）；无视频画面或生成失败为 ""
     // v0.8 扩展，只在 Probe 时填充、不入库（ListRecent 里为零值 / 省略）：
-    // container, fps, rotation(0/90/180/270), sampleRate, channels, hasVideo, hasAudio,
+    // container, fps, rotation(0/90/180/270), sampleRate, channels, hasVideo, hasAudio（v0.22 起 hasVideo / hasAudio 始终输出，false 时是 false 不是缺失，其余字段仍是零值省略）,
     // streams[]{index,type,codec,profile,width,height,pixFmt,fps,bitrate,duration,rotation,sampleRate,channels,channelLayout,language,attachedPic},
     // probedAt, error?(批量探测时该文件的错误)
 }
@@ -1271,7 +1273,7 @@ AppError（句柄失效）：
 type FFmpegStatus struct {
     State     string `json:"state"`     // checking | ready | missing | outdated | installing | failed
     Path      string `json:"path"`
-    Version   string `json:"version"`
+    Version   string `json:"version"`   // 规范化后的数字版本，如 "9.0.2"、"7.1.5"（v0.22：不含 n 前缀、-static / 发行版后缀和网址）；git 主干构建等没有数字版本时是原样的前 32 个字符
     Source    string `json:"source"`    // custom | bundled | system | legacy
     TaskID    string `json:"taskId,omitempty"` // installing 时对应的安装任务；无值时不输出，TS 中为 taskId?: string
     FFprobeMissing bool `json:"ffprobeMissing"`   // ready 但没有 ffprobe（v1 的 ffmpeg/ 目录），前端提示补全；探测 / 缩略图用 ffmpeg.RequireProbe() 门控
@@ -1330,7 +1332,7 @@ type EncoderPreferenceInfo struct {
 2. `ffmpeg -hide_banner -encoders`，解析出视频编码器集合。这一步失败（命令失败且没有输出）：返回仅 cpu，**不缓存**、不报错。
 3. 枚举显卡名称（失败一律降级为空列表，不报错）：Windows 用 PowerShell `Get-CimInstance Win32_VideoController | Select-Object Name,PNPDeviceID | ConvertTo-Json`（wmic 已废弃）；macOS 用 `system_profiler SPDisplaysDataType -json`；Linux 先 `lspci -nn`，没有或没输出时读 `/sys/class/drm/card*/device/vendor`（只有厂商名）。虚拟适配器（Microsoft Basic Display / Remote Display、Hyper-V、VMware、VirtualBox、QXL 等）忽略。独显判定：NVIDIA 恒为独显；AMD 的 `Radeon Graphics` / `Vega N` / `xxxM` 是集显，其余（RX、Pro）是独显；Intel 只有 Arc 是独显。
 4. 试跑：平台上每个厂商的编码器（nvidia：`h264_nvenc` / `hevc_nvenc`；intel：`h264_qsv` / `hevc_qsv`；amd：`h264_amf` / `hevc_amf`；macOS：`h264_videotoolbox` / `hevc_videotoolbox`；Linux vaapi 本版不做），**只试 ffmpeg 里存在的**；显卡枚举到了就只试有对应显卡的厂商，枚举不出来就全试（试跑才是真相）。命令：`ffmpeg -hide_banner -loglevel error -nostdin -f lavfi -i color=c=black:s=256x256:d=0.1 -frames:v 1 -c:v <enc> -f null -`，**每个编码器 5 秒超时**，同时最多 2 个试跑。某厂商任一编码器试跑成功即 `available=true`，`encoders` 只填成功的那个（h264 成功、hevc 失败则 `hevc` 为 `""`）；都失败则 `available=false`、`reason` 是归类后的一行原因（ffmpeg 不含该编码器 / 无可用显卡或驱动缺失 / 试跑超时 / 其他）。
-5. 组装：`devices[0]` 是 cpu；随后按厂商顺序（nvidia、amd、intel；macOS 只有 apple）每张显卡一项，同厂商多张 id 序号递增。试跑成功但没枚举到名字（lspci 缺失等）给一个只有厂商名的设备，名字是中文短名：`NVIDIA 显卡`、`Intel 显卡`、`AMD 显卡`；macOS 读不到型号时是 `系统显卡`（v0.20 起；此前是 `NVIDIA GPU` / `Apple VideoToolbox（系统硬件编码）` / Linux 只有 sysfs 时的 `Intel GPU（i915）`）。兜底名不含编码器名（NVENC / QSV / AMF / VideoToolbox）、驱动名（i915 / amdgpu / nvidia）和括号后缀，界面可以直接显示；能读到真实型号（如 `NVIDIA GeForce RTX 4060`）时保持原样。枚举到但厂商没有硬件编码器支持的显卡（如 unknown）也列出，`available=false`。
+5. 组装：`devices[0]` 是 cpu；随后按厂商顺序（nvidia、amd、intel；macOS 只有 apple）每张显卡一项，同厂商多张 id 序号递增。试跑成功但没枚举到名字（lspci 缺失等）给一个只有厂商名的设备，名字是中文短名：`NVIDIA 显卡`、`Intel 显卡`、`AMD 显卡`；macOS 读不到型号时是 `系统显卡`（v0.20 起；此前是 `NVIDIA GPU` / `Apple VideoToolbox（系统硬件编码）` / Linux 只有 sysfs 时的 `Intel GPU（i915）`）。兜底名不含编码器名（NVENC / QSV / AMF / VideoToolbox）、驱动名（i915 / amdgpu / nvidia）和括号后缀，界面可以直接显示；能读到真实型号（如 `NVIDIA GeForce RTX 4060`）时保持原样。枚举到但厂商没有显卡编码支持的显卡（如 unknown）也列出，`available=false`。
 6. 探测子进程一律经 `ffmpeg.NewCommand`（Windows 隐藏控制台窗口、单独进程组），不占用任务管理器的槽位，不影响正在运行的任务。应用根 ctx 取消时中断并返回 `CANCELED`。
 
 **缓存**：按 `ffmpeg 路径 + 版本` 缓存整个结果。ffmpeg 状态每次变化（安装完成 / 手动指定 / 重新检测，即每次 `ffmpeg:status`）都使缓存失效；检测过程中发生失效，这次结果不写入缓存。`RefreshEncoderDevices()` 强制重测。有编码器试跑超时的结果**不缓存**（驱动可能只是一时没响应）。没有显卡的机器：`devices` 只有 cpu，不报错，也不试跑。

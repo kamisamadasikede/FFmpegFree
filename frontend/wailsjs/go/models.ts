@@ -1055,8 +1055,8 @@ export namespace store {
 	    rotation?: number;
 	    sampleRate?: number;
 	    channels?: number;
-	    hasVideo?: boolean;
-	    hasAudio?: boolean;
+	    hasVideo: boolean;
+	    hasAudio: boolean;
 	    streams?: StreamInfo[];
 	    error?: apperr.AppError;
 	    probedAt: number;

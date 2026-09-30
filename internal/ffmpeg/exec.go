@@ -59,6 +59,8 @@ type RunResult struct {
 	Stopped bool
 	// StderrTail 是 stderr 的最后若干行。
 	StderrTail string
+	// ExitCode 是 ffmpeg 非零退出时的退出码（含 -1：被外部结束 / 启动后立即崩溃）；正常退出或不是以退出码结束时为 0。
+	ExitCode int
 }
 
 // Run 启动 ffmpeg 并等待结束。
@@ -152,6 +154,10 @@ func Run(ctx context.Context, opts RunOptions) (RunResult, error) {
 		stdinW.Close()
 	}
 	res := RunResult{Stopped: stopped, StderrTail: tail.String()}
+	var exitErr *exec.ExitError
+	if errors.As(waitErr, &exitErr) {
+		res.ExitCode = exitErr.ExitCode()
+	}
 
 	if stopped {
 		if exitedGracefully && (waitErr == nil || !opts.StrictGracefulExit) {
@@ -194,17 +200,22 @@ func classifyExit(opts RunOptions, tail string, exitErr error) error {
 			return e.WithDetail(tail)
 		}
 	}
-	msg := "ffmpeg 执行失败"
+	// 用户看到的 message 不带退出码（-1 通常是进程被外部结束或启动后立即崩溃，其他非 0 是 ffmpeg 处理失败，
+	// 对用户都是“被意外中断”）；退出码放进 detail 第一行，也由 task Runner 写进任务日志。错误码不变。
+	e := apperr.Wrap(apperr.ProcessFailed, MsgUnexpectedExit, exitErr)
+	detail := exitErr.Error()
 	var ee *exec.ExitError
 	if errors.As(exitErr, &ee) {
-		msg = fmt.Sprintf("ffmpeg 异常退出（退出码 %d）", ee.ExitCode())
+		detail = fmt.Sprintf("ffmpeg 退出码 %d", ee.ExitCode())
 	}
-	e := apperr.Wrap(apperr.ProcessFailed, msg, exitErr)
 	if tail != "" {
-		return e.WithDetail(tail)
+		detail += "\n" + tail
 	}
-	return e
+	return e.WithDetail(detail)
 }
+
+// MsgUnexpectedExit 是 ffmpeg 非零退出且没有更具体分类时的用户提示（PROCESS_FAILED）；文案与前端对齐，不含退出码。
+const MsgUnexpectedExit = "转换被意外中断，可以重试；如果反复出现，请查看日志。"
 
 // lineWriter 把字节流按行切开回调。ffmpeg 的进度行以 \n 结尾；stderr 里的进度刷新可能用 \r，一并当作换行。
 type lineWriter struct {

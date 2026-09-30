@@ -1,6 +1,9 @@
 package ffmpeg
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseVersion(t *testing.T) {
 	cases := []struct {
@@ -44,6 +47,48 @@ func TestParseVersion(t *testing.T) {
 				t.Fatalf("Acceptable=%v, 期望 %v", v.Acceptable(), c.acceptable)
 			}
 		})
+	}
+}
+
+func TestNormalizeVersion(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"9.0.2-https://www.martin-riedl.de", "9.0.2"},
+		{"7.1.5-https://www.martin-riedl.de", "7.1.5"},
+		{"n7.1", "7.1"},
+		{"N7.1.1-4-gabc", "7.1.1"},
+		{"7.1-static", "7.1"},
+		{"6.0-static", "6.0"},
+		{"6.1.1-3ubuntu5", "6.1.1"},
+		{"5.1.6-0+deb12u1", "5.1.6"},
+		{"7.1.1", "7.1.1"},
+		{"8", "8"},
+		{"6.1.1-essentials_build-www.gyan.dev", "6.1.1"},
+		{"N-12345-gabcdef", "N-12345-gabcdef"},
+		{"N-118000-g1234567-20250101", "N-118000-g1234567-20250101"},
+		{"2024-05-20-git-abcdef-full_build-www.gyan.dev", "2024-05-20-git-abcdef-full_build"},
+		{"git-2024-05-20-https://example.com/x", "git-2024-05-20"},
+		{"weird-https://a.b/c", "weird"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := NormalizeVersion(c.in); got != c.want {
+			t.Errorf("NormalizeVersion(%q) = %q，期望 %q", c.in, got, c.want)
+		}
+	}
+	// 过长且没有数字版本：截断到 32 个字符，不含网址。
+	long := NormalizeVersion("N-" + strings.Repeat("a1", 40))
+	if n := len([]rune(long)); n > 32 {
+		t.Errorf("过长版本应截断: %q (%d)", long, n)
+	}
+	// 通过 ParseVersion 整行：Raw 保留原样，Display 规范化。
+	v, ok := ParseVersion("ffmpeg version 9.0.2-https://www.martin-riedl.de Copyright (c) 2000-2025 the FFmpeg developers\nbuilt with Apple clang")
+	if !ok || v.Raw != "9.0.2-https://www.martin-riedl.de" || v.Display != "9.0.2" || v.Major != 9 || !v.Known {
+		t.Fatalf("%+v", v)
+	}
+	for _, c := range cases {
+		if strings.Contains(strings.ToLower(NormalizeVersion(c.in)), "http") || strings.Contains(NormalizeVersion(c.in), "://") {
+			t.Errorf("规范化结果不应含网址: %q", c.in)
+		}
 	}
 }
 

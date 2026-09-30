@@ -696,7 +696,7 @@ esac
 			if err != nil {
 				t.Fatal(err)
 			}
-			if info.Version != "7.0-test" || info.Major != 7 {
+			if info.Version != "7.0" || info.Major != 7 {
 				t.Fatalf("%+v", info)
 			}
 		})
