@@ -186,7 +186,7 @@ const SIM_MESSAGES: Record<string, string> = {
   SCREEN_PERMISSION_DENIED: '没有获得屏幕录制权限，请在系统设置中允许 FFmpegFree 录制屏幕后重试',
   LIVE_SOURCE_GONE: '所选窗口已不可用，请重新选择',
   CANCELED: '调用已取消',
-  INTERNAL: 'ffmpeg 异常退出',
+  INTERNAL: '推流异常退出',
 }
 const simMsg = (code: string) => SIM_MESSAGES[code] ?? '模拟错误'
 

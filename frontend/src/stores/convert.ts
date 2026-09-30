@@ -165,8 +165,9 @@ export const useConvertStore = defineStore('convert', () => {
   function conflictOf(r: ConvertRow): string | null {
     if (r.probe !== 'ok' || !r.info || !selectedPreset.value) return null
     const c = selectedPreset.value.options.container
-    if (VIDEO_CONTAINERS.includes(c) && r.info.hasVideo === false) return '这个文件没有画面，不能转成视频格式。请换一个音频预设，或移出列表。'
-    if (AUDIO_CONTAINERS.includes(c) && r.info.hasAudio === false) return '这个文件没有音轨，不能转成音频格式。请换一个视频预设，或移出列表。'
+    // 探测成功的媒体：hasVideo / hasAudio 缺失（后端 omitempty，false 时不发）= false；api/media.ts 已归一化，这里再兜一次（只在 probe ok 后判断，不会把“还没探测”误判）
+    if (VIDEO_CONTAINERS.includes(c) && r.info.hasVideo !== true) return '这个文件没有画面，不能转成视频格式。请换一个音频预设，或移出列表。'
+    if (AUDIO_CONTAINERS.includes(c) && r.info.hasAudio !== true) return '这个文件没有音轨，不能转成音频格式。请换一个视频预设，或移出列表。'
     return null
   }
 

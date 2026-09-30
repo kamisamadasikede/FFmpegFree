@@ -91,7 +91,7 @@
                 <td class="when" :class="{ dim: !t.startedAt && !isTerminal(t.status) }">{{ formatStart(startTime(t)) }}</td>
                 <td>
                   <div class="ops">
-                    <button v-if="t.status === 'failed' || t.status === 'interrupted'" type="button" class="btn sm" :disabled="tasks.isBusy(t.id)" :aria-busy="tasks.isBusy(t.id)" @click="doRetry(t)"><FIcon name="retry" />重试</button>
+                    <button v-if="(t.status === 'failed' || t.status === 'interrupted') && !isLiveType(t.type)" type="button" class="btn sm" :disabled="tasks.isBusy(t.id)" :aria-busy="tasks.isBusy(t.id)" @click="doRetry(t)"><FIcon name="retry" />重试</button>
                     <button v-if="t.status === 'queued' || t.status === 'running'" type="button" class="iconbtn" :title="`取消 ${t.title}`" :aria-label="`取消 ${t.title}`" @click="act(() => tasks.cancel(t.id))"><FIcon name="x" /></button>
                     <button v-if="t.status === 'succeeded' && t.outputPath" type="button" class="iconbtn" :title="`打开输出 ${t.title}`" :aria-label="`打开输出 ${t.title}`" @click="openOutput(t)"><FIcon name="folder" /></button>
                     <button type="button" class="iconbtn" :class="{ on: logId === t.id }" :data-logbtn="t.id" :title="`查看日志 ${t.title}`" :aria-label="`查看日志 ${t.title}`" :aria-pressed="logId === t.id" @click="toggleLog(t.id)"><FIcon name="doc" /></button>
@@ -118,7 +118,7 @@
                     :announce="isFresh(t)"
                     show-retry
                     :busy="tasks.isBusy(t.id)"
-                    :hide-retry="t.status === 'interrupted'"
+                    :hide-retry="t.status === 'interrupted' || isLiveType(t.type)"
                     @retry="doRetry(t)"
                     @change-output="changeOutput(t)"
                     @view-log="toggleLog(t.id, true)"
@@ -129,7 +129,7 @@
                     tone="interrupted"
                     code="INTERRUPTED"
                     title=""
-                    description="应用退出时这个任务被中断，可以重试。"
+                    :description="isLiveType(t.type) ? '应用退出时推流被中断，请回到直播页重新推流。' : '应用退出时这个任务被中断，可以重试。'"
                     hide-code
                     :announce="isFresh(t)"
                     hide-retry

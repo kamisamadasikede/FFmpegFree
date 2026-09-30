@@ -1029,6 +1029,50 @@ export async function runApiChecks(): Promise<string[]> {
       // 模拟层（?enc=）：回退场景
       const s1 = simEncoderScenarioFor('fb-nvenc'); const s2 = simEncoderScenarioFor('gpu-task'); const s3 = simEncoderScenarioFor('copy-task'); const s4 = simEncoderScenarioFor('found')
       eq('?enc= 任务场景：fb-nvenc 回退 / gpu-task 不回退 / copy-task 无设备 / 设备列表场景不改任务', [s1?.hwFallback, s2?.hwFallback, s3?.encoder, s3?.encoderDevice, s4], [true, undefined, 'copy', '', undefined])
+      // ───────── 预览包 15 ─────────
+      {
+        // S1：探测成功的媒体缺 hasVideo / hasAudio（后端 omitempty）→ 兜底 false；已有值保留
+        const { normalizeMediaInfo } = await import('@/api/media')
+        eq('S1 归一化：缺字段 → false / false；已有 true 保留；已有 false 保留', [normalizeMediaInfo({} as { hasVideo?: boolean; hasAudio?: boolean }), normalizeMediaInfo({ hasVideo: true }), normalizeMediaInfo({ hasVideo: false, hasAudio: true })], [{ hasVideo: false, hasAudio: false }, { hasVideo: true, hasAudio: false }, { hasVideo: false, hasAudio: true }])
+        const { useConvertStore } = await import('@/stores/convert')
+        setActivePinia(createPinia())
+        const cs = useConvertStore()
+        const mkRow = (name: string, info: Record<string, unknown> | undefined, probe: 'ok' | 'probing' | 'error' = 'ok') => ({ key: name, path: `/m/${name}`, name, probe, info: info as never, thumb: '', thumbState: 'done' as const, cover: '', coverState: 'done' as const, taskId: '', label: '' })
+        const opt = (container: string) => ({ id: container, name: container, options: { container } }) as never
+        cs.presets = [opt('mp4'), opt('mp3')]
+        cs.selectedPresetId = 'mp4'
+        cs.rows = [mkRow('a.mp3', { hasAudio: true }), mkRow('b.mp4', { hasVideo: true, hasAudio: true }), mkRow('c.mp4', { hasVideo: true }), mkRow('d.mov', undefined, 'probing')] as never
+        const [ra, rb, rc, rd2] = cs.rows
+        eq('S1 冲突：纯音频（hasVideo 缺失）配视频预设 → 冲突；正常视频不冲突；探测中不判断', [!!cs.conflictOf(ra), !!cs.conflictOf(rb), !!cs.conflictOf(rc), cs.conflictOf(rd2)], [true, false, false, null])
+        eq('S1 冲突：冲突文案 = 设计里的预检文案', cs.conflictOf(ra), '这个文件没有画面，不能转成视频格式。请换一个音频预设，或移出列表。')
+        eq('S1 批量：冲突行不进提交列表，只提交无冲突行（探测中的不算）', [cs.stateOf(ra), cs.stateOf(rb), cs.submittableRows.map((r) => r.name)], ['conflict', 'ready', ['b.mp4', 'c.mp4']])
+        cs.selectedPresetId = 'mp3'
+        eq('S1 冲突：无声视频（hasAudio 缺失）配音频预设 → 冲突；有音轨的不冲突', [!!cs.conflictOf(rc), !!cs.conflictOf(rb), !!cs.conflictOf(ra)], [true, false, false])
+        cs.rows = [mkRow('a.mp4', { hasVideo: true }), mkRow('b.mp4', { hasVideo: true })] as never
+        eq('S1 整批全冲突：没有可提交的行 → “开始转换”置灰（startBlockReason=empty，页脚有提示），不会静默提交', [cs.submittableRows.length, cs.startBlockReason === 'empty' || cs.startBlockReason === 'ffmpeg', cs.blockedCount], [0, true, 2])
+        eq('S1 提交只带 submittableRows（源码）', /const batch = submittableRows\.value\.slice\(\)/.test(readSrc('src/stores/convert.ts')), true)
+        // G11 版本号
+        const { cleanFfmpegVersion } = await import('@/utils/ffmpegVersion')
+        eq('G11 版本号：旧（带 URL 尾巴）/ 新（干净）/ 其他尾巴 / 空', ['9.0.2-https://www.martin-riedl.de', '9.0.2', '7.1.1-essentials_build-www.gyan.dev', '6.0', ' 4.4.2-0ubuntu0.22.04.1 ', '', undefined].map((v) => cleanFfmpegVersion(v)), ['9.0.2', '9.0.2', '7.1.1', '6.0', '4.4.2', '', ''])
+        eq('G11 版本号：非数字开头（git 构建）只去 URL 尾巴，其余原样', [cleanFfmpegVersion('N-117000-gabcdef-https://example.com'), cleanFfmpegVersion('N-117000-gabcdef')], ['N-117000-gabcdef', 'N-117000-gabcdef'])
+        eq('G11 版本号：进 store 时清理（源码）', /version: cleanFfmpegVersion\(r\.version\) \|\| undefined/.test(readSrc('src/stores/ffmpeg.ts')), true)
+        // G4：旧文案改写；新文案（后端）原样；退出码不出现在主提示
+        const em = await import('@/errors/errorMessages')
+        const G4 = ['ffmpeg 异常退出（退出码 -1）', 'ffmpeg 退出码 1']
+        eq('G4 旧文案（PROCESS_FAILED）→ 说人话，不含退出码 / ffmpeg', G4.map((m) => em.resolveTaskError('PROCESS_FAILED', m).description), [em.PROCESS_EXIT_TEXT, em.PROCESS_EXIT_TEXT])
+        eq('G4 改写句：全角标点、不含“硬件编码”“转码”、退出码、编码器名', [em.PROCESS_EXIT_TEXT, /硬件编码|转码|退出码|ffmpeg|nvenc|qsv|amf/i.test(em.PROCESS_EXIT_TEXT)], ['转换被意外中断，可以重试；如果反复出现，请查看日志。', false])
+        eq('G4 后端新文案 / 其他码：原样', [em.resolveTaskError('PROCESS_FAILED', '转换没有成功，请查看日志').description, em.resolveTaskError('INTERNAL', 'ffmpeg 异常退出（退出码 -1）').description], ['转换没有成功，请查看日志', 'ffmpeg 异常退出（退出码 -1）'])
+        // G8：直播行不给重试，叫“推流中断”，没有“自动重连”
+        const lm = em.errorMessages.LIVE_PUSH_INTERRUPTED
+        eq('G8 推流中断：标题“推流中断”、没有“重试”主按钮、文案不含“自动重连”“点击重试”', [lm.title, lm.primary, /自动重连|点击重试/.test(lm.description)], ['推流中断', null, false])
+        const tcs = readSrc('src/views/TaskCenter.vue')
+        eq('G8 任务中心：行尾“重试”和失败行重试都排除直播任务', [/\(t\.status === 'failed' \|\| t\.status === 'interrupted'\) && !isLiveType\(t\.type\)/.test(tcs), /:hide-retry="t\.status === 'interrupted' \|\| isLiveType\(t\.type\)"/.test(tcs)], [true, true])
+        // G7：全站 Element Plus 中文 locale
+        const mainSrc = readSrc('src/main.ts')
+        eq('G7 Element Plus 全局 zh-cn locale', [/import zhCn from 'element-plus\/es\/locale\/lang\/zh-cn'/.test(mainSrc), /app\.use\(ElementPlus, \{[^}]*locale: zhCn/.test(mainSrc)], [true, true])
+        const zh = (await import('element-plus/es/locale/lang/zh-cn')).default as { el: { pagination: { total: string } } }
+        eq('G7 分页“共 {total} 条”', zh.el.pagination.total, '共 {total} 条')
+      }
     }
   }
 
