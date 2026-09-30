@@ -323,7 +323,7 @@ func (l *Locator) Check(ctx context.Context, source string, b Binaries) (Info, s
 	if !ok {
 		return info, StateMissing, "ffmpeg -version 输出无法识别"
 	}
-	info.Version, info.Major, info.Known = fv.Raw, fv.Major, fv.Known
+	info.Version, info.Major, info.Known = fv.Display, fv.Major, fv.Known
 
 	probeVer := fv
 	if b.FFprobe == "" {
@@ -345,7 +345,7 @@ func (l *Locator) Check(ctx context.Context, source string, b Binaries) (Info, s
 	}
 
 	if !fv.Acceptable() || !probeVer.Acceptable() {
-		return info, StateOutdated, fmt.Sprintf("版本过低（ffmpeg %s，ffprobe %s），需要 %d 或更高", fv.Raw, probeVer.Raw, MinMajor)
+		return info, StateOutdated, fmt.Sprintf("版本过低（ffmpeg %s，ffprobe %s），需要 %d 或更高", fv.Display, probeVer.Display, MinMajor)
 	}
 
 	out, err = run(ctx, b.FFmpeg, "-hide_banner", "-encoders")

@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -91,5 +93,44 @@ func TestMediaTableDefaultKeepIs1000(t *testing.T) {
 	s.DB().QueryRow(`SELECT MIN(probed_at) FROM media`).Scan(&minAt)
 	if minAt != 101 { // 保留 NEW(5000) + 999 条最新的（101..1099）
 		t.Fatalf("删的应是最旧的: min=%d", minAt)
+	}
+}
+
+// hasVideo / hasAudio 始终输出（契约 v0.22）：false 时也要有字段，前端才能用 === false 判断“没有画面 / 没有音轨”。
+func TestMediaInfoJSONAlwaysHasVideoAudio(t *testing.T) {
+	cases := []struct {
+		name string
+		in   MediaInfo
+		want []string
+	}{
+		{"全 false", MediaInfo{ID: "M1"}, []string{`"hasVideo":false`, `"hasAudio":false`}},
+		{"纯音频", MediaInfo{ID: "M2", HasAudio: true}, []string{`"hasVideo":false`, `"hasAudio":true`}},
+		{"无声视频", MediaInfo{ID: "M3", HasVideo: true}, []string{`"hasVideo":true`, `"hasAudio":false`}},
+		{"都有", MediaInfo{ID: "M4", HasVideo: true, HasAudio: true}, []string{`"hasVideo":true`, `"hasAudio":true`}},
+	}
+	for _, c := range cases {
+		b, err := json.Marshal(c.in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, w := range c.want {
+			if !strings.Contains(string(b), w) {
+				t.Errorf("%s: %s 不含 %s", c.name, b, w)
+			}
+		}
+		var back map[string]any
+		if err := json.Unmarshal(b, &back); err != nil {
+			t.Fatal(err)
+		}
+		for _, k := range []string{"hasVideo", "hasAudio"} {
+			if _, ok := back[k].(bool); !ok {
+				t.Errorf("%s: %s 应是布尔且存在: %v", c.name, k, back[k])
+			}
+		}
+	}
+	// 字段回环：false 也保持 false。
+	var m MediaInfo
+	if err := json.Unmarshal([]byte(`{"id":"M5","hasVideo":false,"hasAudio":true}`), &m); err != nil || m.HasVideo || !m.HasAudio {
+		t.Fatalf("%+v %v", m, err)
 	}
 }

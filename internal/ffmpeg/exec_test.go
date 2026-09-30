@@ -82,10 +82,16 @@ func TestRunSuccessParsesProgress(t *testing.T) {
 func TestRunFailureTailAndClassify(t *testing.T) {
 	_, err := Run(context.Background(), RunOptions{Exe: fakeFFmpeg(t), Args: []string{"fail"}, TailLines: 50})
 	var ae *apperr.AppError
-	if !errors.As(err, &ae) || ae.Code != apperr.ProcessFailed || !strings.Contains(ae.Message, "3") {
+	if !errors.As(err, &ae) || ae.Code != apperr.ProcessFailed || ae.Message != "转换被意外中断，可以重试；如果反复出现，请查看日志。" {
 		t.Fatalf("%v", err)
 	}
-	lines := strings.Split(ae.Detail, "\n")
+	if strings.ContainsAny(ae.Message, "0123456789") || strings.Contains(ae.Message, "退出码") {
+		t.Fatalf("message 不应带退出码: %q", ae.Message)
+	}
+	if !strings.HasPrefix(ae.Detail, "ffmpeg 退出码 3\n") {
+		t.Fatalf("退出码应在 detail 第一行: %q", ae.Detail[:20])
+	}
+	lines := strings.Split(strings.TrimPrefix(ae.Detail, "ffmpeg 退出码 3\n"), "\n")
 	if len(lines) != 50 || lines[49] != "Connection refused" || lines[0] != "line 32" {
 		t.Fatalf("detail 应是最后 50 行: %d %q %q", len(lines), lines[0], lines[len(lines)-1])
 	}

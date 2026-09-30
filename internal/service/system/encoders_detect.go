@@ -144,7 +144,7 @@ func detectEncoderDevices(ctx context.Context, env encoderEnv, ffmpegPath string
 			v := g.Vendor
 			devices = append(devices, EncoderDevice{
 				ID: v + "-" + strconv.Itoa(i[v]), Name: g.Name, Vendor: v, Kind: KindGPU, Discrete: g.Discrete,
-				Reason: "这张显卡没有对应的硬件编码器支持",
+				Reason: reasonUnsupportedGPU,
 			})
 			i[v]++
 		}
@@ -168,9 +168,9 @@ func unavailableReason(vendor string, have map[string]bool, names [2]string, fir
 		return firstFail
 	}
 	if !have[names[0]] && !have[names[1]] {
-		return "当前 ffmpeg 不包含 " + hwLabel[vendor] + " 编码器"
+		return reasonNoEncoderInFFmpeg
 	}
-	return "没有可用的硬件编码器"
+	return reasonNoGPUEncoder
 }
 
 // probeAll 并发试跑 encoders（并发数受限），返回 编码器名 → 结果。

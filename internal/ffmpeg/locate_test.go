@@ -315,7 +315,7 @@ func TestLocateWithRealScripts(t *testing.T) {
 	l.ExeDir = func() (string, error) { return dir, nil }
 
 	res, err := l.Locate(context.Background(), dir)
-	if err != nil || res.State != StateReady || res.Info.Version != "6.1.1-test" || res.Info.Major != 6 {
+	if err != nil || res.State != StateReady || res.Info.Version != "6.1.1" || res.Info.Major != 6 {
 		t.Fatalf("%+v %v", res, err)
 	}
 

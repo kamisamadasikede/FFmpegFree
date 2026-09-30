@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -138,6 +139,10 @@ func (r *FFmpegRunner) Run(ctx context.Context, report func(Progress)) (string, 
 			opts.CanGraceful = started.Load
 		}
 		res, err := ffmpeg.Run(ctx, opts)
+		if err != nil && res.ExitCode != 0 && ctx.Err() == nil {
+			// 退出码不放在界面提示里，写进任务日志方便排查（-1 通常是进程被外部结束或启动后立即崩溃）。
+			io.WriteString(logw, fmt.Sprintf("[FFmpegFree] ffmpeg 退出码 %d\n", res.ExitCode))
+		}
 		return res.StderrTail, lastOut > 0, err
 	}
 
@@ -158,7 +163,8 @@ func (r *FFmpegRunner) Run(ctx context.Context, report func(Progress)) (string, 
 		}
 		info := r.CPUEncoding
 		info.HWFallback, info.HWFallbackReason = true, reason
-		io.WriteString(logw, "[FFmpegFree] 硬件编码器 "+r.HWEncoder+" 启动失败（"+reason+"），改用 CPU 编码重试一次\n")
+		// 日志里 FFmpegFree 自己写的这一行不带编码器名（界面 / 日志统一叫“显卡编码”）；具体原因在上面 ffmpeg 自己的 stderr 里。
+		io.WriteString(logw, "[FFmpegFree] 显卡编码启动失败，已自动改用 CPU 重试一次\n")
 		ReportEncoder(ctx, info)
 		_, _, err = one(r.BuildCPUArgs(part), r.ProgressBase, r.ProgressScale)
 		return err

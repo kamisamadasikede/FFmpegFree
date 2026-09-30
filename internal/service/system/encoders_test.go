@@ -202,19 +202,38 @@ func TestClassifyProbeError(t *testing.T) {
 		timedOut    bool
 		want        string
 	}{
-		{VendorNvidia, "Unknown encoder 'h264_nvenc'", false, "不包含 NVENC"},
+		{VendorNvidia, "Unknown encoder 'h264_nvenc'", false, "不包含这张显卡对应的显卡编码支持"},
 		{VendorNvidia, "[h264_nvenc @ 0x1] No NVENC capable devices found", false, "NVIDIA"},
 		{VendorNvidia, "Cannot load libcuda.so.1", false, "NVIDIA"},
 		{VendorIntel, "Error initializing an internal MFX session: unsupported (-3) qsv device", false, "Intel"},
 		{VendorAMD, "AMF failed to initialise", false, "AMD"},
-		{VendorApple, "videotoolbox error", false, "VideoToolbox"},
+		{VendorApple, "videotoolbox error", false, "系统没有响应显卡编码"},
 		{VendorNvidia, "", true, "超时"},
 		{VendorIntel, "boom\nlast line here", false, "试跑失败：last line here"},
 		{VendorIntel, "", false, "无输出"},
 	}
 	for _, c := range cases {
-		if got := classifyProbeError(c.vendor, c.err, c.timedOut, 5); !strings.Contains(got, c.want) {
+		got := classifyProbeError(c.vendor, c.err, c.timedOut, 5)
+		if !strings.Contains(got, c.want) {
 			t.Errorf("%v: %q 不含 %q", c, got, c.want)
+		}
+		// “试跑失败：”后面带的是 ffmpeg 自己的输出，不检查；其余 reason 是 FFmpegFree 自己的文案。
+		if !strings.HasPrefix(got, "试跑失败：") {
+			assertReasonWording(t, fmt.Sprint(c), got)
+		}
+	}
+	for _, r := range []string{reasonNoEncoderInFFmpeg, reasonNoGPUEncoder, reasonUnsupportedGPU} {
+		assertReasonWording(t, "常量", r)
+	}
+}
+
+// EncoderDevice.reason 的文案：叫“显卡编码”，不含“硬件编码”“转码”和编码器名（大小写不敏感）。
+func assertReasonWording(t *testing.T, where, reason string) {
+	t.Helper()
+	low := strings.ToLower(reason)
+	for _, bad := range []string{"nvenc", "qsv", "quick sync", "amf", "videotoolbox", "硬件编码", "转码", "h264_", "hevc_"} {
+		if strings.Contains(low, bad) {
+			t.Errorf("%s: reason %q 不应含 %q", where, reason, bad)
 		}
 	}
 }
@@ -476,6 +495,9 @@ func TestListEncoderDevicesProbeFailureAndMissing(t *testing.T) {
 	nv, _ := find(l, "nvidia-0")
 	if nv.Available || !strings.Contains(nv.Reason, "NVIDIA") || nv.Encoders.H264 != "" {
 		t.Errorf("nvidia: %+v", nv)
+	}
+	for _, d := range l.Devices {
+		assertReasonWording(t, d.ID, d.Reason)
 	}
 	in, _ := find(l, "intel-0")
 	if in.Available || !strings.Contains(in.Reason, "不包含") {

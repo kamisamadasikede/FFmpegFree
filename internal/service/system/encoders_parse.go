@@ -38,11 +38,6 @@ var hwEncoders = map[string][2]string{
 	VendorApple:  {"h264_videotoolbox", "hevc_videotoolbox"},
 }
 
-// hwLabel 是厂商硬件编码技术的名字，用在原因文案里。
-var hwLabel = map[string]string{
-	VendorNvidia: "NVENC", VendorIntel: "Quick Sync（QSV）", VendorAMD: "AMF", VendorApple: "VideoToolbox",
-}
-
 // vendorBrand 是读不到具体型号时给设备起的名字（会直接显示在界面上）：中文短名，
 // 不含编码器名（NVENC / QSV / AMF / VideoToolbox）、驱动名（i915 / amdgpu / nvidia）和括号后缀。Apple 读不到型号统一叫“系统显卡”。
 var vendorBrand = map[string]string{
@@ -256,25 +251,31 @@ func gpuFromDRM(c drmCard) (gpuInfo, bool) {
 	return g, true
 }
 
+// 设备 reason 文案统一叫“显卡编码”，不带编码器名（NVENC / QSV / AMF / VideoToolbox）；契约 v0.22。
+const (
+	reasonNoEncoderInFFmpeg = "当前 ffmpeg 不包含这张显卡对应的显卡编码支持"
+	reasonNoGPUEncoder      = "没有可用的显卡编码器"
+	reasonUnsupportedGPU    = "这张显卡没有对应的显卡编码支持"
+)
+
 // classifyProbeError 把一次试跑失败归类成给人看的原因。timedOut 表示是超时。
 func classifyProbeError(vendor, errText string, timedOut bool, timeoutSec int) string {
 	lower := strings.ToLower(errText)
-	label := hwLabel[vendor]
 	switch {
 	case timedOut:
 		return "试跑超时（超过 " + strconv.Itoa(timeoutSec) + " 秒），驱动可能没有响应"
 	case strings.Contains(lower, "unknown encoder") || strings.Contains(lower, "encoder not found"):
-		return "当前 ffmpeg 不包含 " + label + " 编码器"
+		return reasonNoEncoderInFFmpeg
 	case strings.Contains(lower, "no nvenc capable devices") || strings.Contains(lower, "cannot load libcuda") ||
 		strings.Contains(lower, "cannot load nvcuda") || strings.Contains(lower, "driver does not support the required nvenc api") ||
 		strings.Contains(lower, "cuda_error_no_device") || strings.Contains(lower, "no cuda-capable device"):
 		return "没有可用的 NVIDIA 显卡，或显卡驱动缺失 / 版本过低"
 	case strings.Contains(lower, "qsv") && (strings.Contains(lower, "device") || strings.Contains(lower, "session") || strings.Contains(lower, "unsupported")):
-		return "没有可用的 Intel 核显 / 显卡，或驱动缺失（Quick Sync 初始化失败）"
+		return "没有可用的 Intel 核显 / 显卡，或驱动缺失（显卡编码初始化失败）"
 	case strings.Contains(lower, "amf") && (strings.Contains(lower, "fail") || strings.Contains(lower, "not found") || strings.Contains(lower, "dll")):
-		return "没有可用的 AMD 显卡，或显卡驱动缺失 / 版本过低（AMF 初始化失败）"
+		return "没有可用的 AMD 显卡，或显卡驱动缺失 / 版本过低（显卡编码初始化失败）"
 	case strings.Contains(lower, "videotoolbox"):
-		return "系统没有响应 VideoToolbox 编码"
+		return "系统没有响应显卡编码"
 	}
 	return "试跑失败：" + lastLine(errText, 160)
 }

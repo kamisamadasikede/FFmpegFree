@@ -133,6 +133,25 @@ func TestHWInitFailureFallsBackToCPU(t *testing.T) {
 	if b, _ := os.ReadFile(out); strings.TrimSpace(string(b)) != "encoded" {
 		t.Fatalf("输出应是 CPU 编码结果: %q", b)
 	}
+	// 任务日志里 FFmpegFree 自己写的行：叫“显卡编码”，不含编码器名 / “硬件编码”“转码”（ffmpeg 自己的 stderr 不管）。
+	logText, _ := f.m.GetLog(tk.ID, 0)
+	var own []string
+	for _, l := range strings.Split(logText, "\n") {
+		if strings.Contains(l, "[FFmpegFree]") {
+			own = append(own, l)
+		}
+	}
+	if len(own) == 0 || !strings.Contains(strings.Join(own, "\n"), "[FFmpegFree] 显卡编码启动失败，已自动改用 CPU 重试一次") {
+		t.Fatalf("日志里应有回退提示: %q", logText)
+	}
+	for _, l := range own {
+		low := strings.ToLower(l)
+		for _, bad := range []string{"nvenc", "qsv", "amf", "videotoolbox", "h264_", "hevc_", "硬件编码", "转码", "nvenc_init_failed"} {
+			if strings.Contains(low, bad) {
+				t.Errorf("FFmpegFree 自己写的日志行不应含 %q: %q", bad, l)
+			}
+		}
+	}
 	st := lastStatus(f, tk.ID)
 	if st.Status != StatusSucceeded || st.Encoder != "libx264" || st.EncoderDevice != "cpu" || !st.HWFallback || st.HWFallbackReason != ffmpeg.ReasonNVENCInit {
 		t.Fatalf("终态事件应带最终编码器: %+v", st)
