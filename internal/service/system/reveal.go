@@ -3,40 +3,30 @@ package system
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 
 	"FFmpegFree/internal/apperr"
-	"FFmpegFree/internal/proc"
 )
 
 // launcher 启动一个不需要等待结果的外部命令（打开文件管理器）。测试里替换。
 type launcher func(name string, args ...string) error
 
-func startDetached(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	proc.Configure(cmd)
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	go func() { _ = cmd.Wait() }() // explorer 选中文件时退出码常常是 1，不当作失败
-	return nil
-}
-
 // revealCommand 返回在文件管理器里显示 path 的命令。isDir 为 true 时打开这个文件夹本身。
 //
-//	Windows: explorer /select,<path>（文件夹直接打开）
-//	macOS:   open -R <path>（文件夹直接 open）
-//	Linux:   xdg-open <文件所在文件夹>（文件夹直接打开）
+//	Windows: explorer.exe /select,"<path>"（文件夹 explorer.exe "<path>"）；路径已经带好引号，
+//	         启动时按原样拼进命令行（rawCmdLine），不能让 Go 再转义一次，否则 explorer 认不出 /select, 后面的路径
+
+// macOS:   open -R <path>（文件夹直接 open）
+// Linux:   xdg-open <文件所在文件夹>（文件夹直接打开）
 func revealCommand(goos, path string, isDir bool) (string, []string) {
 	switch goos {
 	case "windows":
 		if isDir {
-			return "explorer", []string{path}
+			return "explorer.exe", []string{`"` + path + `"`}
 		}
-		return "explorer", []string{"/select," + path}
+		return "explorer.exe", []string{`/select,"` + path + `"`}
 	case "darwin":
 		if isDir {
 			return "open", []string{path}
@@ -117,6 +107,10 @@ func revealIn(goos string, start launcher, path string, allow func(cleaned, real
 		return apperr.New(apperr.InvalidArgument, "路径必须是绝对路径").WithDetail(path)
 	}
 	path = filepath.Clean(path)
+	if goos == "windows" && strings.Contains(path, `"`) {
+		// Windows 文件名本来就不能含双引号；拒绝它，避免在手拼的命令行里破坏引号。
+		return apperr.New(apperr.InvalidArgument, "路径里不能有双引号").WithDetail(path)
+	}
 	fi, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -143,4 +137,10 @@ func (m *Manager) AppContext() context.Context {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.appCtx
+}
+
+// rawCmdLine 把命令和参数用空格原样拼成一条命令行（不做任何转义）。Windows 下给 explorer 用：
+// 调用方保证每个参数已经按需要带好引号。
+func rawCmdLine(name string, args []string) string {
+	return strings.Join(append([]string{name}, args...), " ")
 }
