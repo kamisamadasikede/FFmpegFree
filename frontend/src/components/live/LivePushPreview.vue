@@ -31,7 +31,7 @@
 
 <script setup lang="ts">
 // 推流预览：铺满左栏。地址来自 GetPreviewStream。开关只连接 / 断开这里，不重启推流（契约 6.10.3.2a）。
-import { computed, ref, watch } from 'vue'
+import { computed, onActivated, onDeactivated, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import LivePlayer from './LivePlayer.vue'
@@ -80,30 +80,60 @@ const phase = computed(() => {
 })
 
 let seq = 0
+/** 按当前会话重新取预览地址并新建播放（回来时也走这里，不复用旧连接） */
+async function openPreview(id: string) {
+  const mine = ++seq
+  playUrl.value = ''
+  connected.value = false
+  broken.value = false
+  ended.value = false
+  fail.value = ''
+  try {
+    const s = await getPreviewStream(id)
+    if (mine !== seq) return
+    mime.value = s.mime
+    hasAudio.value = s.hasAudio
+    playUrl.value = s.url
+  } catch (e) {
+    if (mine !== seq) return
+    const k = classifyPreviewError(e)
+    fail.value = k === 'unsupported' ? 'codec' : 'unavailable'
+  }
+}
+function previewTarget() {
+  const r = cur.value
+  if (vis || !r || r.preview === false || (r.status !== 'run' && r.status !== 'stp')) return ''
+  return r.id
+}
 watch(
   () => [cur.value?.id, cur.value?.status, cur.value?.preview !== false] as const,
-  async ([id, status, on]) => {
-    const mine = ++seq
-    playUrl.value = ''
-    connected.value = false
-    broken.value = false
-    ended.value = false
-    fail.value = ''
-    if (vis || !id || !on || (status !== 'run' && status !== 'stp')) return
-    try {
-      const s = await getPreviewStream(id)
-      if (mine !== seq) return
-      mime.value = s.mime
-      hasAudio.value = s.hasAudio
-      playUrl.value = s.url
-    } catch (e) {
-      if (mine !== seq) return
-      const k = classifyPreviewError(e)
-      fail.value = k === 'unsupported' ? 'codec' : 'unavailable'
+  ([id, status, on]) => {
+    if (vis || !id || !on || (status !== 'run' && status !== 'stp')) {
+      seq++
+      playUrl.value = ''
+      connected.value = false
+      broken.value = false
+      ended.value = false
+      fail.value = ''
+      return
     }
+    void openPreview(id)
   },
   { immediate: true },
 )
+// 第一次挂载由上面的 watch 取地址。之后从别的页签 / 别的菜单回来：会话还在且开关开着，就重新取地址。
+let skipActivate = true
+onActivated(() => {
+  if (skipActivate) { skipActivate = false; return }
+  const id = previewTarget()
+  if (id) void openPreview(id)
+})
+onDeactivated(() => {
+  // 离开只断开预览，不停止推流，也不把离开前的画面留下来
+  seq++
+  playUrl.value = ''
+  connected.value = false
+})
 
 async function onRestart() {
   const r = cur.value
