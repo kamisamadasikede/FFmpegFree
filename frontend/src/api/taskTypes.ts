@@ -42,7 +42,7 @@ export interface ApiTask {
   // v0.23（契约 6.14）
   /** 只有 convert 任务有：所属源文件行 */
   sourceId?: string
-  /** 任务中心已隐藏（“隐藏已完成”）；转换页照常显示；原地重试时清回 false */
+  /** 任务中心已隐藏（“隐藏已结束”）；转换页照常显示；原地重试时清回 false */
   hiddenInTaskCenter?: boolean
   /** 只有成功的 convert 任务有：完成时探测输出得到的信息 */
   result?: ApiTaskResult
@@ -96,6 +96,8 @@ export interface TaskStatusPayload {
   result?: ApiTaskResult
   /** v0.23：原地重试发出的那一条 queued 事件为 true（没有 task:created）；前端据此清掉上一轮的进度、编码器、错误、result，并把 hiddenInTaskCenter 清回 false */
   retried?: boolean
+  /** v0.23：只出现在 UnhideInTaskCenter 的事件（false，status 不变，只改这一项和 version）和 retried 事件上 */
+  hiddenInTaskCenter?: boolean
 }
 
 /** 事件 / 接口里的 result → ApiTaskResult（sizeBytes 必须是数；其余只取有限数值） */

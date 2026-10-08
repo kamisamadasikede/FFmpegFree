@@ -148,6 +148,8 @@ interface StatusPayload {
   result?: unknown
   /** v0.23：原地重试（同一个 id 回到 queued；没有 task:created） */
   retried?: boolean
+  /** v0.23：UnhideInTaskCenter 的事件（false；status 是当前状态不变，只改这一项和 version）和 retried 事件带 */
+  hiddenInTaskCenter?: boolean
 }
 interface RemovedPayload { ids: string[] }
 type BufferedEvent =
@@ -532,9 +534,28 @@ export const useTaskStore = defineStore('tasks', () => {
     scheduleRefresh()
   }
 
+  /** UnhideInTaskCenter 的事件：只改 hiddenInTaskCenter 和 version（§5）；不当作终态事件（不改快照、不记结束版本以外的东西） */
+  function applyUnhidden(p: StatusPayload) {
+    const cur = byId[p.id]
+    if (cur) {
+      if (p.version > cur.version) {
+        cur.version = p.version
+        cur.hiddenInTaskCenter = p.hiddenInTaskCenter
+      }
+      return
+    }
+    if ((finishedVersions.get(p.id) ?? -1) < p.version && finishedVersions.has(p.id)) rememberFinished(p.id, p.version)
+    const h = history.value.find((t) => t.id === p.id)
+    if (h && h.version < p.version) {
+      h.version = p.version
+      h.hiddenInTaskCenter = p.hiddenInTaskCenter || undefined
+    } else if (!h && historyLoaded.value) scheduleRefresh() // “显示已隐藏”关闭时：这一行可以回到列表
+  }
+
   function applyStatus(p: StatusPayload) {
     if (removedIds.has(p.id)) return
     if (p.retried) return applyRetried(p)
+    if (p.hiddenInTaskCenter !== undefined) return applyUnhidden(p)
     const cur = byId[p.id]
     if (!cur) {
       if (isTerminal(p.status)) {
@@ -758,7 +779,7 @@ export const useTaskStore = defineStore('tasks', () => {
   }
 
   /**
-   * 任务中心“隐藏已完成”（契约 v0.23 HideFinishedInTaskCenter，替代 ClearFinished / “清除已结束”）：所有类型的已结束任务只从任务中心隐藏
+   * 任务中心“隐藏已结束”（契约 v0.23 HideFinishedInTaskCenter，替代 ClearFinished / “清除已结束”）：所有类型的已结束任务只从任务中心隐藏
    * （hiddenInTaskCenter），不删除记录和文件；转换页的转换记录照常显示。真正的删除只在转换页做。开关为 false 时走模拟（只影响模拟任务）。
    */
   async function hideFinished() {
@@ -771,7 +792,7 @@ export const useTaskStore = defineStore('tasks', () => {
     await loadStats()
   }
 
-  /** “显示已隐藏”里的“取消隐藏”（UnhideInTaskCenter(ids)，#82 最终决定） */
+  /** “显示已隐藏”里的“取消隐藏”（UnhideInTaskCenter(ids)，§6.14.11）：事件会逐条到，这里再重新 List 一次 */
   async function unhide(ids: string[]) {
     if (!ids.length) return
     if (previewMode) {

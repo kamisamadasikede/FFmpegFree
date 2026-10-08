@@ -36,8 +36,16 @@
           <el-select v-model="typeFilter" size="small" class="type-select" aria-label="按类型筛选" @change="onTypeChange">
             <el-option v-for="o in TYPE_FILTERS" :key="o.key" :label="o.label" :value="o.key" />
           </el-select>
-          <button v-if="tab !== 'active'" type="button" class="btn" :disabled="!tasks.historyTotal && !tasks.finishedTotal" @click="askHide"><FIcon name="eyeoff" />隐藏已完成</button>
+          <!-- “显示已隐藏”（契约 v0.23 §6.14.11；设计 state=taskcenter-hidden）。产品可能不要：去掉只需把 SHOW_HIDDEN_TOGGLE 改成 false -->
+          <label v-if="SHOW_HIDDEN_TOGGLE && tab !== 'active'" class="tc-sw">
+            <el-switch :model-value="tasks.historyFilter.includeHidden" size="small" aria-label="显示已隐藏" @update:model-value="(v: string | number | boolean) => setShowHidden(!!v)" />显示已隐藏
+          </label>
+          <button v-if="tab !== 'active'" type="button" class="btn" title="只从任务中心隐藏，转换记录仍保留在转换页" :disabled="!tasks.historyTotal && !tasks.finishedTotal" @click="askHide"><FIcon name="eyeoff" />{{ HIDE_FINISHED_LABEL }}</button>
         </div>
+      </div>
+
+      <div v-if="showingHidden && hiddenShown > 0" class="tc-hint" role="status">
+        <FIcon name="info" :size="14" /><span>正在显示 {{ hiddenShown }} 条已隐藏的任务（置灰）。<span class="w1280">隐藏只影响任务中心，</span>转换记录仍在转换页，要删除请到转换页。</span>
       </div>
 
       <div v-if="tasks.loadError && tab !== 'history' && tab !== 'failed'" class="loaderr">
@@ -65,21 +73,24 @@
           </thead>
           <tbody>
             <template v-for="t in rows" :key="t.id">
-              <tr :class="{ sel: logId === t.id, haserr: hasErrLine(t) || showFallbackNotice(t) }">
+              <tr :class="{ sel: logId === t.id, haserr: hasErrLine(t) || showFallbackNotice(t), hid: isHidden(t) }">
                 <td>
-                  <div class="fname" :title="isSim(t) ? `演示任务（模拟数据） · ${t.title}` : t.title"><span v-if="isSim(t)" class="simtag">演示</span>{{ shownTitle(t) }}</div>
-                  <div class="finfo">{{ subInfo(t) }}</div>
+                  <div class="tc-nm">
+                    <div class="fname tc-dim" :title="isSim(t) ? `演示任务（模拟数据） · ${t.title}` : t.title"><span v-if="isSim(t)" class="simtag">演示</span>{{ shownTitle(t) }}</div>
+                    <span v-if="isHidden(t)" class="tc-hidtag"><FIcon name="eyeoff" :size="12" />已隐藏</span>
+                  </div>
+                  <div class="finfo tc-dim" :title="subTitle(t)">{{ subInfo(t) }}</div>
                 </td>
-                <td>
+                <td class="tc-dim">
                   <span v-if="isLiveType(t.type)" class="tag live">● 直播</span>
                   <span v-else class="tag type">{{ typeLabel(t.type) }}</span>
                 </td>
-                <td>
+                <td class="tc-dim">
                   <span class="tag" :class="STATUS_TAG[t.status].cls">
                     <FIcon v-if="STATUS_TAG[t.status].icon" :name="STATUS_TAG[t.status].icon!" :size="12" />{{ statusLabel(t) }}
                   </span>
                 </td>
-                <td>
+                <td class="tc-dim">
                   <div v-if="showBar(t)" class="prog">
                     <div class="pline"><span>{{ progressText(t) }}</span><span>{{ percent(t) }}%</span></div>
                     <div class="bar" role="progressbar" :aria-label="`${t.title} 进度`" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="percent(t)">
@@ -88,14 +99,17 @@
                   </div>
                   <span v-else class="plain" :class="{ dim: t.status === 'canceled' }">{{ progressText(t) }}</span>
                 </td>
-                <td class="when" :class="{ dim: !t.startedAt && !isTerminal(t.status) }">{{ formatStart(startTime(t)) }}</td>
+                <td class="when tc-dim" :class="{ dim: !t.startedAt && !isTerminal(t.status) }">{{ formatStart(startTime(t)) }}</td>
                 <td>
                   <div class="ops">
-                    <button v-if="(t.status === 'failed' || t.status === 'interrupted') && !isLiveType(t.type)" type="button" class="btn sm" :disabled="tasks.isBusy(t.id)" :aria-busy="tasks.isBusy(t.id)" @click="doRetry(t)"><FIcon name="retry" />重试</button>
+                    <button v-if="canRetry(t)" type="button" class="btn sm" :disabled="tasks.isBusy(t.id)" :aria-busy="tasks.isBusy(t.id)" @click="doRetry(t)"><FIcon name="retry" />重试</button>
+                    <button v-if="isHidden(t)" type="button" class="btn sm tc-unh" :title="`在任务中心重新显示 ${t.title}`" @click="act(() => tasks.unhide([t.id]))"><FIcon name="eye" />取消隐藏</button>
                     <button v-if="t.status === 'queued' || t.status === 'running'" type="button" class="iconbtn" :title="`取消 ${t.title}`" :aria-label="`取消 ${t.title}`" @click="act(() => tasks.cancel(t.id))"><FIcon name="x" /></button>
                     <button v-if="t.status === 'succeeded' && t.outputPath" type="button" class="iconbtn" :title="`打开输出 ${t.title}`" :aria-label="`打开输出 ${t.title}`" @click="openOutput(t)"><FIcon name="folder" /></button>
                     <button type="button" class="iconbtn" :class="{ on: logId === t.id }" :data-logbtn="t.id" :title="`查看日志 ${t.title}`" :aria-label="`查看日志 ${t.title}`" :aria-pressed="logId === t.id" @click="toggleLog(t.id)"><FIcon name="doc" /></button>
-                    <button v-if="isTerminal(t.status)" type="button" class="iconbtn" :title="`删除 ${t.title}`" :aria-label="`删除 ${t.title}`" @click="askRemove(t)"><FIcon name="trash" /></button>
+                    <!-- 转换记录只在格式转换页删除（契约 v0.23：Remove 遇到 convert 整体 INVALID_ARGUMENT），这里换成“在转换页查看” -->
+                    <button v-if="isTerminal(t.status) && t.type === 'convert'" type="button" class="iconbtn" title="转换记录请在转换页删除" :aria-label="`在转换页查看 ${t.title}`" @click="goConvert(t)"><FIcon name="convert" /></button>
+                    <button v-else-if="isTerminal(t.status)" type="button" class="iconbtn" :title="`移除 ${t.title}`" :aria-label="`移除 ${t.title}`" @click="askRemove(t)"><FIcon name="trash" /></button>
                   </div>
                 </td>
               </tr>
@@ -198,12 +212,14 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import ErrorLine from '@/components/common/ErrorLine.vue'
 import EncoderFallbackNotice from '@/components/encoder/EncoderFallbackNotice.vue'
 import { scrollBehavior } from '@/utils/motion'
+import { getSource, parseParams } from '@/api/convertRecords'
+import { recordParamsText } from '@/utils/convertText'
 import { showFallbackNotice, usedDeviceText, useEncoderDeviceList } from '@/api/encoderTask'
 import { ENCODER_DEVICE_CPU_FALLBACK_NAME, ENCODER_DEVICE_CPU_FALLBACK_TITLE, ENCODER_DEVICE_LABEL, ENCODER_FALLBACK_LIVE, ENCODER_FALLBACK_TASK_ROW_DONE, encoderFallbackReasonText } from '@/errors/encoderMessages'
 import { elapsedMs, isLiveType, isTerminal, useTaskStore, type TaskItem, type TaskStatus } from '@/stores/tasks'
@@ -220,6 +236,33 @@ const LIVE_NOTE = '直播推流单独计数，不占转换名额'
 
 const tasks = useTaskStore()
 const route = useRoute()
+const router = useRouter()
+
+/** “显示已隐藏”开关（契约 v0.23 §6.14.11）。产品经理可能不要：改成 false 即整块去掉（开关、提示条、置灰行都不会出现） */
+const SHOW_HIDDEN_TOGGLE = true
+/** 按钮文案（产品经理 2026-10-08 定：隐藏已结束） */
+const HIDE_FINISHED_LABEL = '隐藏已结束'
+const showingHidden = computed(() => SHOW_HIDDEN_TOGGLE && tasks.historyFilter.includeHidden && tab.value !== 'active')
+const isHidden = (t: TaskItem) => showingHidden.value && !!t.hiddenInTaskCenter
+const hiddenShown = computed(() => (showingHidden.value ? rows.value.filter((t) => t.hiddenInTaskCenter).length : 0))
+function setShowHidden(on: boolean) {
+  void act(() => tasks.setShowHidden(on))
+}
+/** 重试（原地，契约 v0.23）：失败 / 已中断 / 已取消的非直播任务 */
+const canRetry = (t: TaskItem) => (t.status === 'failed' || t.status === 'interrupted' || t.status === 'canceled') && !isLiveType(t.type)
+/** “在转换页查看”：跳到转换页并定位到这条记录（设计 §7.3 第 11 条） */
+async function goConvert(t: TaskItem) {
+  // 先用 GetSource 确认这一行还在（v0.23.1）；已被删就留在任务中心并提示
+  if (t.sourceId) {
+    try {
+      await getSource(t.sourceId)
+    } catch (e) {
+      const err = toAppError(e)
+      if (err.code === 'NOT_FOUND') return void ElMessage.info('这条转换记录已被删除')
+    }
+  }
+  void router.push({ path: '/', query: { record: t.id, ...(t.sourceId ? { source: t.sourceId } : {}) } })
+}
 
 type Tab = 'all' | 'active' | 'history' | 'failed'
 const TAB_KEYS: Tab[] = ['all', 'active', 'history', 'failed']
@@ -381,6 +424,8 @@ function progressText(t: TaskItem): string {
 /** 第二行小字：从 params 里取转换选项，取不到就显示输出文件名；参数格式不假设，解析失败静默跳过 */
 function subInfo(t: TaskItem): string {
   if (t.type === 'ffmpeg_install') return '下载并安装到应用目录'
+  // 转换行：和转换页子记录第 2 行同一个格式化函数（不带时间；设计 §7.3 第 14 条）
+  if (t.type === 'convert') return recordParamsText({ ...parseParams(t.params), title: shownTitle(t) }).text
   const parts: string[] = []
   try {
     const p = t.params ? JSON.parse(t.params) : null
@@ -395,6 +440,13 @@ function subInfo(t: TaskItem): string {
   return parts.join(' · ') || typeLabel(t.type)
 }
 
+/** 转换行第二行的悬停：预设记录给出参数摘要（设计 §7.3 第 11 / 14 条） */
+function subTitle(t: TaskItem): string | undefined {
+  if (t.type !== 'convert') return undefined
+  const snap = parseParams(t.params)
+  const p = recordParamsText({ ...snap, title: t.title })
+  return p.preset && p.tip ? p.tip : undefined
+}
 const hasErrLine = (t: TaskItem) => t.status === 'failed' || t.status === 'interrupted'
 /** 页面打开之后才结束的失败：ErrorLine 用 role="alert" 播报；打开页面时就已存在的历史失败只是 group */
 const mountedAt = Date.now()
@@ -487,7 +539,7 @@ function askRemove(t: TaskItem) {
   }
 }
 /**
- * “隐藏已完成”（产品决定 v1：原“清除已结束”改为只隐藏）：已结束的任务只从任务中心列表里隐藏，不删除记录、日志和文件；
+ * “隐藏已结束”（产品决定 v1：原“清除已结束”改为只隐藏）：已结束的任务只从任务中心列表里隐藏，不删除记录、日志和文件；
  * 转换任务的记录仍在格式转换页的“转换记录”里，真正删除只在转换页做。
  */
 function askHide() {
@@ -591,6 +643,8 @@ watch(logId, (v, old) => {
 })
 
 onMounted(async () => {
+  // “显示已隐藏”默认关、不记住（设计 §7.3 第 11 条）：每次进任务中心都从关开始
+  tasks.historyFilter.includeHidden = false
   await tasks.loadStats()
   await loadTab()
 })
@@ -1075,5 +1129,77 @@ th { white-space: nowrap; } /* “开始时间”不换行 */
 }
 .sp {
   flex: 1;
+}
+
+/* “显示已隐藏”（契约 v0.23 §6.14.11；设计 state=taskcenter-hidden） */
+.tc-sw {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ff-text-1);
+  white-space: nowrap;
+  flex: none;
+  cursor: pointer;
+}
+.tc-hint {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 12px 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--ff-text-2);
+  background: var(--ff-bg-hover);
+  white-space: nowrap;
+  min-width: 0;
+}
+.tc-hint > svg {
+  color: var(--ff-text-3);
+  flex: none;
+}
+.tc-hint > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+@media (max-width: 1100px) {
+  .tc-hint .w1280 {
+    display: none;
+  }
+}
+.tc-nm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.tc-nm .fname {
+  min-width: 0;
+}
+/* 已隐藏的行：内容置灰（约 0.55），操作列和“已隐藏”标签不置灰 */
+tr.hid > td {
+  background: color-mix(in srgb, var(--ff-bg-hover) 55%, transparent);
+}
+tr.hid .tc-dim {
+  opacity: 0.55;
+}
+.tc-hidtag {
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  white-space: nowrap;
+  color: var(--ff-text-2);
+  border: 1px dashed var(--ff-text-3);
+}
+.btn.sm.tc-unh {
+  color: var(--ff-primary-text);
 }
 </style>

@@ -16,7 +16,7 @@ import { adoptSimTask, cancelSimTask, createSimTask, getSimTask, hideSimFinished
 import type { ApiTask, ApiTaskResult } from '@/api/taskTypes'
 import type {
   AddSourceResult, ConvertSearchFilter, ConvertSource, ConvertSourceEntry, ConvertSourceFilter, ConvertSourcePage, ConvertSubmitRequest,
-  DeleteFailure, DeleteResult, PreviewURL, RecordOptions, SourcePathCheck, TaskPage, TaskPathCheck, Thumb, V023Task,
+  DeleteFailure, DeleteResult, PreviewURL, RecordOptions, SourcePathCheck, TaskPage, TaskPathCheck, V023Task,
 } from '@/api/convertRecords'
 import { emitSimEvent } from '@/services/wails'
 import type { TaskError, TaskStatus } from '@/stores/tasks'
@@ -72,12 +72,14 @@ const opt = (o: Partial<RecordOptions>): RecordOptions => ({ container: '', vide
 /** 与 api/convert.ts 的预览预设一致（id / 名字），模拟记录里的 presetName 用后端会给的完整名 */
 const PRESET = {
   mp4: { id: 'builtin-mp4-h264', name: 'MP4（H.264 + AAC，通用）', options: opt({ container: 'mp4', videoCodec: 'h264', audioCodec: 'aac' }) },
-  mp41080: { id: 'builtin-mp4-h264-1080p', name: 'MP4 1080p（H.264 + AAC）', options: opt({ container: 'mp4', videoCodec: 'h264', audioCodec: 'aac', width: 1920, height: 1080 }) },
-  mp4720: { id: 'builtin-mp4-h264-720p', name: 'MP4 720p（H.264 + AAC）', options: opt({ container: 'mp4', videoCodec: 'h264', audioCodec: 'aac', width: 1280, height: 720 }) },
+  mp41080: { id: 'builtin-mp4-h264-1080p', name: 'MP4 1080p（H.264 + AAC）', options: opt({ container: 'mp4', videoCodec: 'h264', audioCodec: 'aac', width: 1920 }) },
+  mp4720: { id: 'builtin-mp4-h264-720p', name: 'MP4 720p（H.264 + AAC）', options: opt({ container: 'mp4', videoCodec: 'h264', audioCodec: 'aac', width: 1280 }) },
   h265: { id: 'builtin-mp4-h265', name: 'MP4（H.265 + AAC，体积更小）', options: opt({ container: 'mp4', videoCodec: 'h265', audioCodec: 'aac' }) },
   webm: { id: 'builtin-webm-vp9', name: 'WebM（VP9 + Opus）', options: opt({ container: 'webm', videoCodec: 'vp9', audioCodec: 'opus' }) },
   gif: { id: 'builtin-gif', name: 'GIF 动图（宽 480，12 帧/秒）', options: opt({ container: 'gif', width: 480, fps: 12 }) },
   mp3: { id: 'builtin-mp3', name: 'MP3（192 kbps）', options: opt({ container: 'mp3', audioCodec: 'mp3', audioBitrate: 192000 }) },
+  /** 自定义参数（没有预设快照）：第 2 行“自定义 · H.264 · 1080p · 8.0 Mbps”（设计截图 05、06 的 采访-机位A.mp4） */
+  custom: { id: '', name: '', options: opt({ container: 'mp4', videoCodec: 'h264', audioCodec: 'aac', height: 1080, videoBitrate: 8_000_000 }) },
 } as const
 type PresetKey = keyof typeof PRESET
 
@@ -111,7 +113,7 @@ const K: Record<string, KSpec> = {
   launchGifQ: { src: 'launch', preset: 'gif', out: 'launch-4k.gif', at: [0, '11:53'], st: 'queued', enc: { encoder: 'gif', encoderDevice: 'cpu' } },
   launchCx: { src: 'launch', preset: 'h265', out: 'launch-4k (2).mp4', at: [0, '11:56'], st: 'canceled', p: 0.23, enc: { encoder: 'libx265', encoderDevice: 'cpu' } },
   ivNew: { src: 'iv', preset: 'mp4720', out: '采访-机位A (1).mp4', at: [0, '11:30'], st: 'succeeded', enc: CPU, res: [286, 1280, 720] },
-  ivOld: { src: 'iv', preset: 'mp4', out: '采访-机位A.mp4', at: [0, '10:05'], st: 'succeeded', enc: GPU, res: [1.2 * 1024, 1920, 1080] },
+  ivOld: { src: 'iv', preset: 'custom', out: '采访-机位A.mp4', at: [0, '10:05'], st: 'succeeded', enc: GPU, res: [1.2 * 1024, 1920, 1080] },
   recRun: { src: 'rec', preset: 'mp4', out: '屏幕录制 2026-10-08.mp4', at: [0, '11:58'], st: 'running', p: 0.34, speed: '3.4x', eta: 21, enc: GPU },
   recOk: { src: 'rec', preset: 'mp4', out: '屏幕录制 2026-10-08 (1).mp4', at: [0, '11:58'], st: 'succeeded', enc: GPU, res: [41, 2560, 1440] },
   recGif: { src: 'rec', preset: 'gif', out: '屏幕录制 2026-10-08.gif', at: [0, '11:59'], st: 'succeeded', enc: { encoder: 'gif', encoderDevice: 'cpu' }, res: [9, 480, 270] },
@@ -147,11 +149,13 @@ const SCENES: Record<MockScene, SceneDef> = {
 const AUDIO_CONT = ['mp3', 'aac', 'wav', 'flac', 'm4a', 'ogg', 'opus']
 export function mockParamsSummary(o: Partial<RecordOptions>): string {
   const c = (o.container ?? '').toLowerCase()
-  const seg = [c.toUpperCase()]
+  const seg: string[] = [] // v0.23.1：摘要不再带容器名（界面写“预设名 · 摘要”）
   const audio = AUDIO_CONT.includes(c)
   if (!audio && c !== 'gif') seg.push(({ h264: 'H.264', h265: 'H.265', vp9: 'VP9', copy: '原画质', '': '无画面' } as Record<string, string>)[o.videoCodec ?? ''] ?? (o.videoCodec ?? '').toUpperCase())
+  // 只给宽的预设按常见宽度写成 p 值（后端同规则）：3840/2560/1920/1280/854 → 2160p/1440p/1080p/720p/480p，其它写“宽 N”
+  const P_OF_WIDTH: Record<number, string> = { 3840: '2160p', 2560: '1440p', 1920: '1080p', 1280: '720p', 854: '480p' }
   if (o.height && !o.width) seg.push(`${o.height}p`)
-  else if (o.width && !o.height) seg.push(`宽 ${o.width}`)
+  else if (o.width && !o.height) seg.push(P_OF_WIDTH[o.width] ?? `宽 ${o.width}`)
   else if (o.width && o.height) seg.push(`${o.width}×${o.height}`)
   if (o.fps && o.fps > 0) seg.push(`${o.fps} fps`)
   if (!audio && o.videoBitrate) seg.push(`${(o.videoBitrate / 1_000_000).toFixed(1)} Mbps`)
@@ -315,6 +319,11 @@ export async function ListSources(f: ConvertSourceFilter): Promise<ConvertSource
   const all = byActivity()
   return { items: all.slice(offset, offset + limit).map((m) => entryOf(m, recordLimit)), total: all.length }
 }
+/** v0.23.1：单个源文件行（和 ListSources 的一项同形） */
+export async function GetSource(sourceId: string): Promise<ConvertSourceEntry> {
+  const m = mustSource(sourceId) // 不存在：NOT_FOUND reason=record
+  return entryOf(m, clampFilter({ limit: 1, offset: 0, recordLimit: 0 }).recordLimit)
+}
 export async function ListSourceRecords(sourceId: string, limit: number, offset: number): Promise<TaskPage> {
   mustSource(sourceId)
   const all = recordsOf(sourceId)
@@ -374,7 +383,7 @@ function submitOne(m: MSource, options: RecordOptions, outputDir: string, preset
   const params = JSON.stringify({ input: m.src.path, options, outputDir, presetId, presetName, paramsSummary: summary })
   const t = createSimTask({
     type: 'convert', title: titleOf(m.src.path, options.container), inputPaths: [m.src.path], outputPath: output, params,
-    simSeconds: 8 + (mockSeq++ % 3) * 2, mediaSec: m.probe?.duration ?? 60, resultOf: guessResult, meta: { sourceId: m.src.sourceId },
+    simSeconds: 8 + (mockSeq++ % 3) * 2, mediaSec: m.probe?.duration ?? 60, resultOf: guessResult, sourceId: m.src.sourceId,
   })
   touch(m)
   return toV023(t)
@@ -460,27 +469,35 @@ export async function RevealSource(sourceId: string): Promise<void> {
   if (!m.exists) throw notFoundFile()
   console.info('[模拟] 在文件夹中显示', m.src.path)
 }
-export async function GetSourceThumbnail(sourceId: string): Promise<Thumb> {
+/** §6.14.10：文件不在 NOT_FOUND(reason=file)；纯音频 UNSUPPORTED(reason=format)；否则 data URL（模拟是渐变 SVG） */
+const noPicture = () => new AppError('UNSUPPORTED', '这个文件没有画面', 'reason=format')
+export async function GetSourceThumbnail(sourceId: string): Promise<string> {
   const m = mustSource(sourceId)
-  const audio = m.probe ? !m.probe.width : /\.(mp3|wav|flac|m4a|aac|ogg|opus)$/i.test(m.src.name)
-  return { path: m.src.path, dataUrl: audio || !m.exists ? '' : mockThumbnail(m.src.path), atSec: 1, width: 160 }
+  if (!m.exists) throw notFoundFile()
+  const audio = m.probe ? !m.probe.width : AUDIO_CONT.includes((m.src.name.split('.').pop() ?? '').toLowerCase())
+  if (audio) throw noPicture()
+  return mockThumbnail(m.src.path)
 }
-export async function GetRecordThumbnail(taskId: string): Promise<Thumb> {
+export async function GetRecordThumbnail(taskId: string): Promise<string> {
   ensure()
   const t = getSimTask(taskId)
   if (!t) throw notFoundRecord()
+  if (t.type !== 'convert') throw new AppError('INVALID_ARGUMENT', '不是转换记录')
+  if (t.status !== 'succeeded' || outputGone.has(taskId)) throw notFoundFile()
   let c = ''
   try { c = JSON.parse(t.params).options?.container ?? '' } catch { /* 忽略 */ }
-  // 输出还没有（未成功）或已不在时，后端会怎么给还没定：模拟沿用源文件的画面
-  return { path: t.outputPath, dataUrl: AUDIO_CONT.includes(c) ? '' : mockThumbnail(t.inputPaths[0] ?? t.outputPath), atSec: 1, width: 160 }
+  if (AUDIO_CONT.includes(c)) throw noPicture()
+  return mockThumbnail(t.inputPaths[0] ?? t.outputPath)
 }
 
 // ---------------- TaskService（v0.23 新增 / 改动的部分） ----------------
 export async function HideFinishedInTaskCenter(): Promise<number> {
   return hideSimFinished()
 }
-export async function UnhideInTaskCenter(ids: string[]): Promise<number> {
-  return unhideSimTasks(ids)
+export async function UnhideInTaskCenter(ids: string[]): Promise<void> {
+  if (!ids.length || ids.length > 500) throw new AppError('INVALID_ARGUMENT', '一次最多 500 条')
+  for (const id of ids) if (!isSimTask(id)) throw notFoundRecord()
+  unhideSimTasks(ids)
 }
 export async function List(f: { types: string[]; statuses: TaskStatus[]; limit: number; offset: number; includeHidden: boolean }): Promise<TaskPage> {
   const all = listSimFinished(f.includeHidden).filter((t) => (!f.types.length || f.types.includes(t.type)) && (!f.statuses.length || f.statuses.includes(t.status)))
@@ -516,8 +533,13 @@ export async function OpenWithSystem(taskId: string, which: 'input' | 'output'):
   }
   if (noApp()) throw new AppError('NOT_FOUND', '没有找到能打开这个文件的程序', 'reason=no_app')
 }
-export async function revealOutputPath(path: string): Promise<void> {
-  console.info('[模拟] 在文件夹中显示', path)
+/** v0.23.1：按记录 id 打开所在文件夹；只有已成功、输出还在的记录可以 */
+export async function RevealRecord(taskId: string): Promise<void> {
+  ensure()
+  const t = getSimTask(taskId)
+  if (!t || t.type !== 'convert') throw notFoundRecord()
+  if (t.status !== 'succeeded' || outputGone.has(taskId)) throw notFoundFile()
+  console.info('[模拟] 在文件夹中显示', t.outputPath)
 }
 
 // ---------------- 探测（MediaService.Probe） ----------------

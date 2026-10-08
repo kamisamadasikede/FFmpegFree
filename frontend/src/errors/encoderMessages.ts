@@ -28,6 +28,8 @@ export const encoderComboLabel = (current: string) => `编码设备：${current}
 
 // ---- 显卡编码失败、已自动回退 CPU 的提示（契约 v0.18 §9.7；按功能区分文案，转换 / 直播 / 任务行沿用设计稿，剪辑导出一条是新增；全部待产品经理确认）----
 export const ENCODER_FALLBACK_CONVERT = '显卡编码失败，已自动改用 CPU 转换。'
+/** 转换页 v2 完成的记录下方（设计 §3.2 / §五 “回退（完成）”） */
+export const ENCODER_FALLBACK_CONVERT_DONE = '显卡编码失败，已自动改用 CPU 完成转换。'
 export const ENCODER_FALLBACK_LIVE = '显卡编码启动失败，已自动改用 CPU 推流。'
 /** 任务中心行：已结束的历史任务（产品经理定稿；都不写“继续转换”） */
 export const ENCODER_FALLBACK_TASK_ROW_DONE = '已自动改用 CPU 完成转换。'

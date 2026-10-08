@@ -28,6 +28,7 @@ import { elapsedMs, isKnownTaskType, isLegacyTaskType, useTaskStore } from '@/st
 import { createPinia, setActivePinia } from 'pinia'
 import { emitSimEvent } from '@/services/wails'
 import * as encTask from './encoderTask'
+import { convertV2Checks } from './convertV2.check'
 
 const fails: string[] = []
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -965,11 +966,11 @@ export async function runApiChecks(): Promise<string[]> {
       }
       const fs = await import('node:fs')
       const root = `${process.cwd()}/` // npm run check:api 在 frontend/ 下运行
-      const tplFiles = ['src/views/ConvertPage.vue', 'src/views/TaskCenter.vue', 'src/components/edit/ExportStrip.vue', 'src/components/encoder/EncoderFallbackNotice.vue', 'src/components/live/LiveFallbackNotice.vue']
+      const tplFiles = ['src/views/ConvertPage.vue', 'src/components/convert/ConvertKid.vue', 'src/components/convert/ConvertSourceRow.vue', 'src/components/convert/ConvertPreviewDialog.vue', 'src/components/convert/ConvertSettingsPanel.vue', 'src/components/convert/ConvertDeleteDialog.vue', 'src/views/TaskCenter.vue', 'src/components/edit/ExportStrip.vue', 'src/components/encoder/EncoderFallbackNotice.vue', 'src/components/live/LiveFallbackNotice.vue']
       const tplHits: string[] = []
       for (const f of tplFiles) {
         const src = fs.readFileSync(root + f, 'utf8')
-        const tpl = src.slice(src.indexOf('<template>'), src.indexOf('</template>\n\n<script') + 11)
+        const tpl = src.slice(src.indexOf('<template>'), src.lastIndexOf('</template>') + 11) // 新页面是 script 在前，取第一个 <template> 到最后一个 </template>
         for (const m of tpl.matchAll(/(?:\{\{([^}]*)\}\})|(?:>([^<{]+)<)/g)) {
           const seg = (m[1] ?? m[2] ?? '').replace(/ENCODER_[A-Z_]+/g, '')
           if (/nvenc|qsv|amf|videotoolbox|libx26|x264|x265/i.test(seg) || /\.encoder\b|\.encoderDevice\b/.test(seg)) tplHits.push(`${f}: ${seg.trim()}`)
@@ -995,11 +996,11 @@ export async function runApiChecks(): Promise<string[]> {
       gw.window.matchMedia = oldMM as never
       gw.document = oldDoc
       // G1 / D1：设备名过长只截自己，并有 title 显示全名
-      const cvSrc = readSrc('src/views/ConvertPage.vue')
-      eq('转换页进度条设备名：有 title 全名', /class="dev" :title="deviceFb \? ENCODER_DEVICE_CPU_FALLBACK_TITLE : `\$\{ENCODER_DEVICE_LABEL\} \$\{deviceText\}`"/.test(cvSrc), true)
-      eq('转换页进度条：meta 各段 nowrap，设备名段 min-width:0 + 省略号', [/\.rprog \.meta span \{\s*white-space: nowrap/.test(cvSrc), /\.rprog \.meta \.dev \{[^}]*min-width: 0[^}]*text-overflow: ellipsis/.test(cvSrc)], [true, true])
+      const kidSrc = readSrc('src/components/convert/ConvertKid.vue')
+      eq('转换记录设备名：有 title 全名；回退短标带说明 title', [/<span v-else class="dev" :title="device">/.test(kidSrc), /class="cv-fb" :title="ENCODER_DEVICE_CPU_FALLBACK_TITLE"/.test(kidSrc)], [true, true])
+      eq('转换记录设备名段 min-width:0 + 省略号；回退短标警告色', [/\.cv-km \.l3 \.dev\{min-width:0;overflow:hidden;text-overflow:ellipsis\}/.test(readSrc('src/components/convert/convert-v2.css')), /\.cv-fb\{[^}]*--ff-warning-text/.test(readSrc('src/components/convert/convert-v2.css'))], [true, true])
       eq('剪辑导出条设备名：有 title + 省略号', [/class="ed-dev" :title=/.test(readSrc('src/components/edit/ExportStrip.vue')), /\.ed-dev \{[^}]*text-overflow: ellipsis/.test(readSrc('src/components/edit/edit.css'))], [true, true])
-      eq('设备一栏回退短标：转换页 / 导出条 / 日志头都用 dev-fb（警告色），样式在 base.css', [/class="dev-fb"|'dev-fb': deviceFb/.test(readSrc('src/views/ConvertPage.vue')), /class="dev-fb"/.test(readSrc('src/components/edit/ExportStrip.vue')), /class="dev-fb"/.test(readSrc('src/views/TaskCenter.vue')), /\.dev-fb \{[^}]*--ff-warning-text[^}]*\}/.test(readSrc('src/styles/base.css'))], [true, true, true, true])
+      eq('设备一栏回退短标：转换记录用 cv-fb，导出条 / 日志头用 dev-fb（警告色），样式在 base.css', [/class="cv-fb"/.test(kidSrc), /class="dev-fb"/.test(readSrc('src/components/edit/ExportStrip.vue')), /class="dev-fb"/.test(readSrc('src/views/TaskCenter.vue')), /\.dev-fb \{[^}]*--ff-warning-text[^}]*\}/.test(readSrc('src/styles/base.css'))], [true, true, true, true])
       eq('任务中心日志头设备名：有 title + 省略号', [/class="dv" :title=/.test(readSrc('src/views/TaskCenter.vue')), /\.logdev \.dv \{[^}]*text-overflow: ellipsis/.test(readSrc('src/views/TaskCenter.vue'))], [true, true])
       // G6：查看日志后滚动到日志面板（尊重减少动效）、焦点到面板
       const tcSrc = readSrc('src/views/TaskCenter.vue')
@@ -1034,65 +1035,7 @@ export async function runApiChecks(): Promise<string[]> {
         // S1：探测成功的媒体缺 hasVideo / hasAudio（后端 omitempty）→ 兜底 false；已有值保留
         const { normalizeMediaInfo } = await import('@/api/media')
         eq('S1 归一化：缺字段 → false / false；已有 true 保留；已有 false 保留', [normalizeMediaInfo({} as { hasVideo?: boolean; hasAudio?: boolean }), normalizeMediaInfo({ hasVideo: true }), normalizeMediaInfo({ hasVideo: false, hasAudio: true })], [{ hasVideo: false, hasAudio: false }, { hasVideo: true, hasAudio: false }, { hasVideo: false, hasAudio: true }])
-        const { useConvertStore } = await import('@/stores/convert')
-        setActivePinia(createPinia())
-        const cs = useConvertStore()
-        const mkRow = (name: string, info: Record<string, unknown> | undefined, probe: 'ok' | 'probing' | 'error' = 'ok') => ({ key: name, path: `/m/${name}`, name, probe, info: info as never, thumb: '', thumbState: 'done' as const, cover: '', coverState: 'done' as const, taskId: '', label: '' })
-        const opt = (container: string) => ({ id: container, name: container, options: { container } }) as never
-        cs.presets = [opt('mp4'), opt('mp3')]
-        cs.selectedPresetId = 'mp4'
-        cs.rows = [mkRow('a.mp3', { hasAudio: true }), mkRow('b.mp4', { hasVideo: true, hasAudio: true }), mkRow('c.mp4', { hasVideo: true }), mkRow('d.mov', undefined, 'probing')] as never
-        const [ra, rb, rc, rd2] = cs.rows
-        eq('S1 冲突：纯音频（hasVideo 缺失）配视频预设 → 冲突；正常视频不冲突；探测中不判断', [!!cs.conflictOf(ra), !!cs.conflictOf(rb), !!cs.conflictOf(rc), cs.conflictOf(rd2)], [true, false, false, null])
-        eq('S1 冲突：冲突文案 = 设计里的预检文案', cs.conflictOf(ra), '这个文件没有画面，不能转成视频格式。请换一个音频预设，或移出列表。')
-        eq('无声视频配音频预设：冲突文案 = 产品经理定稿（与“没有画面”对称）', (() => { cs.selectedPresetId = 'mp3'; return cs.conflictOf(rc) })(), '这个文件没有声音，不能转成音频格式。请换一个视频预设，或移出列表。')
-        cs.selectedPresetId = 'mp4'
-        eq('S1 批量：冲突行不进提交列表，只提交无冲突行（探测中的不算）', [cs.stateOf(ra), cs.stateOf(rb), cs.submittableRows.map((r) => r.name)], ['conflict', 'ready', ['b.mp4', 'c.mp4']])
-        cs.selectedPresetId = 'mp3'
-        eq('S1 冲突：无声视频（hasAudio 缺失）配音频预设 → 冲突；有音轨的不冲突', [!!cs.conflictOf(rc), !!cs.conflictOf(rb), !!cs.conflictOf(ra)], [true, false, false])
-        cs.rows = [mkRow('a.mp4', { hasVideo: true }), mkRow('b.mp4', { hasVideo: true })] as never
-        eq('S1 整批全冲突：没有可提交的行 → “开始转换”置灰（startBlockReason=empty，页脚有提示），不会静默提交', [cs.submittableRows.length, cs.startBlockReason === 'empty' || cs.startBlockReason === 'ffmpeg', cs.blockedCount], [0, true, 2])
-        // 包 16 N1：mode 判定优先级（进行中 > 还有能转的行 > 有失败 > 有已完成 > 其余）
-        {
-          const tsk = useTaskStore()
-          cs.selectedPresetId = 'mp4'
-          const okRow = (n: string, id: string, st: 'succeeded' | 'failed' | 'running') => { const r = mkRow(n, { hasVideo: true, hasAudio: true }); (r as { taskId: string }).taskId = id; tsk.seedFinal({ id, status: st === 'running' ? 'succeeded' : st, error: st === 'failed' ? { code: 'PROCESS_FAILED', message: 'x' } : null, outputPath: '/o/' + n, progress: 1, speed: '', etaSec: 0, startedAt: 1, finishedAt: 2 } as never); return r }
-          const conf = () => mkRow('c.mp3', { hasAudio: true })
-          const bad = () => mkRow('bad.mp4', undefined, 'error')
-          const setRows = (rs: unknown[]) => { cs.rows = rs as never }
-          setRows([okRow('a.mp4', 't1', 'succeeded'), conf()])
-          eq('N1 mode：有已完成行 + 冲突行 → done（冲突行是剩余项）', [cs.mode, cs.blockedCount], ['done', 1])
-          setRows([okRow('a.mp4', 't2', 'succeeded'), bad()])
-          eq('N1 mode：有已完成行 + 读取失败行 → done', cs.mode, 'done')
-          setRows([okRow('a.mp4', 't3', 'succeeded'), okRow('b.mp4', 't4', 'succeeded')])
-          eq('N1 mode：全部完成无冲突 → done（原行为不变）', cs.mode, 'done')
-          setRows([okRow('a.mp4', 't5', 'succeeded'), okRow('b.mp4', 't6', 'failed'), conf()])
-          eq('N1 mode：部分失败 + 部分完成 + 冲突行 → failed（能重试失败项，完成条不抢）', cs.mode, 'failed')
-          setRows([conf(), conf()])
-          eq('N1 mode：全冲突（没有任何已完成行）→ ready，不可开始', [cs.mode, cs.submittableRows.length, cs.startBlockReason === 'empty' || cs.startBlockReason === 'ffmpeg'], ['ready', 0, true])
-          setRows([okRow('a.mp4', 't7', 'succeeded'), mkRow('n.mp4', { hasVideo: true, hasAudio: true }), conf()])
-          eq('N1 mode：有已完成行但还有新加入的合法行 → ready（可以继续开始）', cs.mode, 'ready')
-          { const r = mkRow('run.mp4', { hasVideo: true, hasAudio: true }); (r as { taskId: string }).taskId = 'trun'
-            tsk.track([{ id: 'trun', type: 'convert', status: 'running', title: 'run', inputPaths: [], outputPath: '/o/run.mp4', progress: 0.3, speed: '', etaSec: 0, params: '', version: 1, createdAt: Date.now(), startedAt: Date.now() }] as never)
-            setRows([r, okRow('a.mp4', 't10', 'succeeded'), conf()])
-            eq('N1 mode：有进行中的行 → running（不受影响，优先于完成 / 冲突）', cs.mode, 'running') }
-          setRows([])
-          eq('N1 mode：空列表 → idle', cs.mode, 'idle')
-          // 再转一个：清掉已提交的行，保留冲突 / 读取失败行；清空：全清
-          setRows([okRow('a.mp4', 't8', 'succeeded'), conf(), bad()])
-          cs.startOver()
-          eq('N1 再转一个：只保留冲突 / 读取失败行，不丢用户的文件', cs.rows.map((r) => r.name), ['c.mp3', 'bad.mp4'])
-          setRows([okRow('a.mp4', 't9', 'succeeded'), conf()])
-          cs.clear()
-          eq('N1 清空：全部清掉', cs.rows.length, 0)
-          const cpSrc = readSrc('src/views/ConvertPage.vue')
-          eq('N1 页面：done / failed 两处“再转一个”走 startOver；完成态下不出现“没有可以转换的文件”（页脚提示只在 ready 分支）', [(cpSrc.match(/@click="cv\.startOver\(\)">再转一个/g) ?? []).length, /<template v-else-if="cv\.mode === 'done'">[\s\S]*?<\/template>/.exec(cpSrc)?.[0].includes('没有可以转换的文件')], [2, false])
-          // N2：冲突行不显示错误码；其他行内错误仍显示（用于排查）
-          const rowSrc = readSrc('src/components/convert/ConvertFileRow.vue')
-          eq('N2 冲突行：hideCode，只显示中文提示；ErrorLine 接 hide-code', [/hideCode: true, code: 'INVALID_ARGUMENT', title: '这个文件不能用当前预设'/.test(rowSrc), /:hide-code="errorLine\.hideCode"/.test(rowSrc)], [true, true])
-          eq('N2 其余行内错误（读取失败 / 提交失败 / 任务失败）不受影响，仍带码', (rowSrc.match(/hideCode: true/g) ?? []).length, 1)
-        }
-        eq('S1 提交只带 submittableRows（源码）', /const batch = submittableRows\.value\.slice\(\)/.test(readSrc('src/stores/convert.ts')), true)
+        await convertV2Checks(eq, readSrc)
         // G11 版本号
         const { cleanFfmpegVersion } = await import('@/utils/ffmpegVersion')
         eq('G11 版本号：旧（带 URL 尾巴）/ 新（干净）/ 其他尾巴 / 空', ['9.0.2-https://www.martin-riedl.de', '9.0.2', '7.1.1-essentials_build-www.gyan.dev', '6.0', ' 4.4.2-0ubuntu0.22.04.1 ', '', undefined].map((v) => cleanFfmpegVersion(v)), ['9.0.2', '9.0.2', '7.1.1', '6.0', '4.4.2', '', ''])
@@ -1109,7 +1052,7 @@ export async function runApiChecks(): Promise<string[]> {
         eq('N3 推流中断：描述“请回到直播页重新推流。”（不再与标题同义重复）；应用退出后中断那句保持原样', [lm.description, /'应用退出时推流被中断，请回到直播页重新推流。'/.test(readSrc('src/views/TaskCenter.vue'))], ['请回到直播页重新推流。', true])
         eq('G8 推流中断：标题“推流中断”、没有“重试”主按钮、文案不含“自动重连”“点击重试”', [lm.title, lm.primary, /自动重连|点击重试/.test(lm.description)], ['推流中断', null, false])
         const tcs = readSrc('src/views/TaskCenter.vue')
-        eq('G8 任务中心：行尾“重试”和失败行重试都排除直播任务', [/\(t\.status === 'failed' \|\| t\.status === 'interrupted'\) && !isLiveType\(t\.type\)/.test(tcs), /:hide-retry="t\.status === 'interrupted' \|\| isLiveType\(t\.type\)"/.test(tcs)], [true, true])
+        eq('G8 任务中心：行尾“重试”（失败 / 中断 / 已取消）和失败行重试都排除直播任务', [/\(t\.status === 'failed' \|\| t\.status === 'interrupted' \|\| t\.status === 'canceled'\) && !isLiveType\(t\.type\)/.test(tcs), /:hide-retry="t\.status === 'interrupted' \|\| isLiveType\(t\.type\)"/.test(tcs)], [true, true])
         // G7：全站 Element Plus 中文 locale
         const mainSrc = readSrc('src/main.ts')
         eq('G7 Element Plus 全局 zh-cn locale', [/import zhCn from 'element-plus\/es\/locale\/lang\/zh-cn'/.test(mainSrc), /app\.use\(ElementPlus, \{[^}]*locale: zhCn/.test(mainSrc)], [true, true])

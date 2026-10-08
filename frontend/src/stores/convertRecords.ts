@@ -1,6 +1,7 @@
 /**
- * 转换页 v2（转换记录）的 store：把源文件（convert_sources）和转换记录（convert 任务）按 sourceId 合成“父行 + 子记录”。
- * 记录的实时状态来自任务 store（task:* 事件，不轮询）；记录本身（预设、输出信息）来自 api/convertRecords.ts。
+ * 转换页 v2（转换记录）的 store：源文件行（convert_sources）+ 每行内嵌的转换记录（convert 任务），按契约 v0.23 §6.14 的接口取数。
+ * 分页单位是源文件行（ListSources limit / offset，每行内嵌最新 20 条；更多记录用 ListSourceRecords）；搜索走 SearchSources。
+ * 记录的实时状态来自任务 store（task:* 事件，不轮询），这里只保存加载时的样子。
  * 设计：转换页-v2-设计说明-v0.1.md §三 / §四 / §7.3；产品决定 v1（共享任务记录、原地重试、勾选在转换后清空、记录不自动清理）。
  */
 import { defineStore } from 'pinia'
@@ -8,22 +9,23 @@ import { computed, reactive, ref, watch } from 'vue'
 import { toAppError } from '@/api/call'
 import { listPresets, MAX_SUBMIT, type PresetItem } from '@/api/convert'
 import {
-  addSources, checkPaths, checkSources, convertV2IsReal, deleteBySource, deleteRecords, FIRST_PAGE, getRecords, getThumbnail, listRecords, listSources, MORE_PAGE,
-  normalizeSourcePath, previewOutputName, removeSource, revealPath, saveSourceInfo, searchRecords, submitRecords,
-  type ConvertRecord, type ConvertSource, type RecordFilter, type RecordOptions,
+  addSources, checkPaths, checkSources, convertV2IsReal, deleteRecords, deleteSource, getRecordThumbnail, getSourceThumbnail, listSourceRecords, listSources,
+  MORE_RECORDS, previewOutputName, probeSources, reconvert as apiReconvert, RECORD_LIMIT, recordOf, revealRecord, getSource,
+  revealSource as apiRevealSource, searchSources, SOURCE_PAGE, submitSources,
+  type ConvertRecord, type ConvertSource, type ConvertSourceEntry, type DeleteResult, type RecordOptions, type ThumbState, type V023Task,
 } from '@/api/convertRecords'
 import { mockSceneUi } from '@/api/convertRecordsMock'
-import { probeFiles } from '@/api/media'
 import { canPickFiles, getDefaultOutputDir, pickDirectory, pickFiles } from '@/api/system'
 import { hasWailsBackend } from '@/services/wails'
 import { useFFmpegStore } from '@/stores/ffmpeg'
-import { useTaskStore, type TaskError, type TaskStatus } from '@/stores/tasks'
-import { conflictReason, isAudioContainer, isAudioOnly, isToday, splitPresetName, totalProgress } from '@/utils/convertText'
-import { fileBaseName } from '@/utils/format'
+import { useTaskStore, type TaskError, type TaskItem, type TaskStatus } from '@/stores/tasks'
+import { conflictReason, isAudioContainer, isToday, splitPresetName, totalProgress } from '@/utils/convertText'
+import { normalizeSourcePath } from '@/utils/sourcePath'
 import { codecName } from '@/utils/mediaText'
 import type { store as goStore } from '../../wailsjs/go/models'
 
 export type ProbeState = 'pending' | 'probing' | 'ok' | 'error'
+export type RecordFilter = 'all' | 'active' | 'failed'
 
 /** 父行（源文件） */
 export interface SourceRow {
@@ -31,17 +33,24 @@ export interface SourceRow {
   path: string
   name: string
   addedAt: number
+  lastActivityAt: number
+  /** media 表缓存（可能没有；hasVideo / hasAudio 恒为 false，只拿来显示分辨率 / 时长 / 大小） */
+  media?: goStore.MediaInfo
+  /** 本次会话里 MediaService.Probe 的结果：冲突预检只认它 */
   info?: goStore.MediaInfo
   probe: ProbeState
   probeError?: TaskError
   /** false = 原位置找不到；undefined = 没检查过（按存在处理） */
   exists?: boolean
-  thumb: string
-  thumbState: 'idle' | 'loading' | 'done'
+  thumb: ThumbState | null
+  thumbAsked: boolean
   /** 重复添加时闪一下：时间戳，页面据此加高亮动画 */
   flashAt: number
-  /** 是否在 convert_sources 表里（只出现在记录里的输入文件为 false；读取到的信息只回写表里的行） */
-  persisted: boolean
+  /** 后端给的记录总数（本地提交 / 删除时同步加减） */
+  recordCount: number
+  /** 本行已加载的记录 id（含本地新提交的） */
+  loadedIds: string[]
+  loadingMore: boolean
 }
 
 /** 子记录 = 记录 + 任务 store 里的实时状态 */
@@ -52,6 +61,8 @@ export interface KidView extends ConvertRecord {
 export interface ParentView {
   src: SourceRow
   kids: KidView[]
+  /** 这一行还有多少条更早的记录没加载（“显示更早的 N 条记录”） */
+  moreCount: number
   lastActivityAt: number
   open: boolean
   running: number
@@ -62,10 +73,12 @@ export interface ParentView {
   conflict: string | null
   selected: boolean
   checkable: boolean
+  /** 搜索命中的记录 id（高亮） */
+  hits: Set<string> | null
 }
 
 export interface GroupView {
-  key: 'today' | 'earlier'
+  key: 'today' | 'earlier' | 'pinned'
   label: string
   parents: ParentView[]
 }
@@ -109,14 +122,24 @@ export function defaultOpen(kids: readonly { status: string }[], lastActivityAt:
   return isToday(lastActivityAt, now)
 }
 
-/** 父行的最后活动时间：加入时间、记录的创建 / 开始 / 结束时间里最大的 */
-export function lastActivityOf(addedAt: number, kids: readonly { createdAt: number; startedAt: number; finishedAt: number }[]): number {
-  return kids.reduce((m, k) => Math.max(m, k.createdAt || 0, k.startedAt || 0, k.finishedAt || 0), addedAt || 0)
+/** 显示用的媒体信息：当次探测优先；只有 media 缓存时去掉恒为 false 的 hasVideo / hasAudio（按宽高判断是不是纯音频，不显示“没有声音”） */
+export function metaInfoOf(s: { info?: goStore.MediaInfo; media?: goStore.MediaInfo }): (Omit<goStore.MediaInfo, 'hasVideo' | 'hasAudio'> & { hasVideo?: boolean; hasAudio?: boolean }) | undefined {
+  if (s.info) return s.info
+  if (!s.media) return undefined
+  const { hasVideo: _v, hasAudio: _a, ...rest } = s.media as goStore.MediaInfo & Record<string, unknown>
+  void _v
+  void _a
+  return rest as Omit<goStore.MediaInfo, 'hasVideo' | 'hasAudio'>
 }
 
 const ACTIVE: TaskStatus[] = ['queued', 'running']
 const FAILED: TaskStatus[] = ['failed', 'interrupted']
+const TERMINAL: TaskStatus[] = ['succeeded', 'failed', 'canceled', 'interrupted']
 const MOCK_NAMES = ['航拍-西湖日落.mp4', '会议录像-周例会.mkv', '访谈录音_第三期.wav', '产品宣传片-竖版.mov', 'vlog-第7期.mp4']
+const errOf = (e: unknown): TaskError => {
+  const a = toAppError(e)
+  return { code: a.code, message: a.message, ...(a.detail ? { detail: a.detail } : {}) }
+}
 
 export const useConvertRecordsStore = defineStore('convertRecords', () => {
   const tasks = useTaskStore()
@@ -133,15 +156,15 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   const loaded = ref(false)
   const loading = ref(false)
   const loadError = ref<TaskError | null>(null)
+  /** ListSources 的分页：已取到第几行、总行数 */
+  const listOffset = ref(0)
   const listTotal = ref(0)
-  const cursor = ref('')
   const loadingMore = ref(false)
 
   const filter = ref<RecordFilter>('all')
-  const filterIds = ref<Set<string> | null>(null)
   const keyword = ref('')
-  const searchIds = ref<Set<string> | null>(null)
-  const searchSourceIds = ref<Set<string>>(new Set())
+  /** 搜索结果（null = 不在搜索）：行 id 的顺序 + 命中信息 */
+  const searchHits = ref<{ order: string[]; name: Set<string>; tasks: Map<string, Set<string>>; offset: number; total: number } | null>(null)
   const searching = ref(false)
 
   const presets = ref<PresetItem[]>([])
@@ -154,9 +177,18 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   const submitting = ref(false)
   const submitError = ref<TaskError | null>(null)
   const notice = ref('')
+  const toast = ref<{ text: string; at: number } | null>(null)
   const outputName = ref('')
   /** 最近一次添加文件的时间：页面据此滚回顶部 */
   const addedTick = ref(0)
+  /** 任务中心“在转换页查看”：不在已加载页里的行用 GetSource 取来，临时钉在最上面（重新加载 / 翻到它所在的页后取消） */
+  const pinned = ref('')
+  /** 要定位并高亮的记录（页面滚到它、闪一下） */
+  const focus = ref<{ id: string; sourceId: string; at: number } | null>(null)
+
+  function say(text: string) {
+    toast.value = { text, at: Date.now() }
+  }
 
   // ---------------- 预设 ----------------
   const selectedPreset = computed(() => presets.value.find((p) => p.id === selectedPresetId.value))
@@ -187,8 +219,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       if (!selectedPreset.value && presets.value.length) selectedPresetId.value = presets.value[0].id
       if (selectedPreset.value) tab.value = isAudioPreset(selectedPreset.value) ? 'audio' : 'video'
     } catch (e) {
-      const err = toAppError(e)
-      presetsError.value = { code: err.code, message: err.message, detail: err.detail }
+      presetsError.value = errOf(e)
     } finally {
       presetsLoaded.value = true
     }
@@ -201,36 +232,34 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     }
   }
 
-  // ---------------- 源文件 ----------------
-  function upsertSource(s: ConvertSource, persisted: boolean): SourceRow {
+  // ---------------- 源文件 / 记录 ----------------
+  function upsertSource(s: ConvertSource, recordCount?: number): SourceRow {
     const cur = sources[s.sourceId]
     if (cur) {
-      if (s.addedAt && persisted) cur.addedAt = s.addedAt
-      if (s.info && cur.probe !== 'ok') {
-        cur.info = s.info
-        cur.probe = 'ok'
-      }
-      if (s.exists !== undefined) cur.exists = s.exists
-      cur.persisted = cur.persisted || persisted
+      cur.lastActivityAt = Math.max(cur.lastActivityAt, s.lastActivityAt)
+      if (s.media) cur.media = s.media
+      if (recordCount !== undefined) cur.recordCount = recordCount
       return cur
     }
-    const row: SourceRow = {
-      sourceId: s.sourceId, path: s.path, name: fileBaseName(s.path), addedAt: s.addedAt, probe: s.info ? 'ok' : s.probeError ? 'error' : 'pending',
-      ...(s.info ? { info: s.info } : {}), ...(s.probeError ? { probeError: s.probeError } : {}), ...(s.exists !== undefined ? { exists: s.exists } : {}),
-      thumb: '', thumbState: 'idle', flashAt: 0, persisted,
+    sources[s.sourceId] = {
+      sourceId: s.sourceId, path: s.path, name: s.name, addedAt: s.addedAt, lastActivityAt: s.lastActivityAt, ...(s.media ? { media: s.media } : {}),
+      probe: 'pending', thumb: null, thumbAsked: false, flashAt: 0, recordCount: recordCount ?? 0, loadedIds: [], loadingMore: false,
     }
-    sources[s.sourceId] = row
     return sources[s.sourceId]
   }
-  /** 记录的输入文件不在源文件表里时，补一个父行（加入时间按最早一条记录） */
-  function ensureSourceFor(r: ConvertRecord) {
-    if (sources[r.sourceId]) return
-    upsertSource({ sourceId: r.sourceId, path: r.inputPath, addedAt: r.createdAt }, false)
+  function putRecord(t: V023Task | TaskItem) {
+    const r = recordOf(t as V023Task)
+    if (!r.sourceId) return
+    const cur = records[r.id]
+    if (cur && cur.version > r.version) return
+    records[r.id] = r
+    const row = sources[r.sourceId]
+    if (row && !row.loadedIds.includes(r.id)) row.loadedIds.push(r.id)
   }
-  function putRecords(list: ConvertRecord[]) {
-    for (const r of list) {
-      records[r.id] = r
-      ensureSourceFor(r)
+  function putEntries(items: ConvertSourceEntry[]) {
+    for (const e of items) {
+      upsertSource(e.source, e.recordCount)
+      for (const t of e.records) putRecord(t)
     }
   }
 
@@ -240,28 +269,34 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     const t = tasks.taskById(r.id)
     const gone = outputGone.has(r.id)
     if (!t) return { ...r, outputGone: gone }
+    const status = t.status
     return {
       ...r,
-      status: t.status,
-      progress: t.status === 'succeeded' ? 1 : t.progress,
+      status,
+      progress: status === 'succeeded' ? 1 : t.progress,
       speed: t.speed ?? '',
       etaSec: t.etaSec ?? 0,
       error: t.error ?? null,
       outputPath: t.outputPath || r.outputPath,
       startedAt: t.startedAt || r.startedAt,
       finishedAt: t.finishedAt || r.finishedAt,
-      encoder: t.encoder ?? r.encoder,
-      encoderDevice: t.encoderDevice ?? r.encoderDevice,
+      encoder: t.encoder,
+      encoderDevice: t.encoderDevice,
       hwFallback: t.hwFallback,
       hwFallbackReason: t.hwFallbackReason,
-      outputGone: gone,
+      result: status === 'succeeded' ? t.result ?? r.result : undefined,
+      outputGone: status === 'succeeded' ? gone : false,
     }
   }
-  const liveAll = computed(() => Object.values(records).map(liveOf))
-  const liveById = computed(() => new Map(liveAll.value.map((k) => [k.id, k])))
+  const liveById = computed(() => {
+    const m = new Map<string, KidView>()
+    for (const r of Object.values(records)) m.set(r.id, liveOf(r))
+    return m
+  })
 
   // ---------------- 勾选 / 冲突 ----------------
   const isCheckable = (s: SourceRow) => s.exists !== false && s.probe !== 'error'
+  /** 冲突只看当次探测（info），media 缓存的 hasVideo / hasAudio 恒为 false，不能用 */
   function conflictOfSource(s: SourceRow): string | null {
     return conflictReason(s.info, s.probe === 'ok', selectedPreset.value?.options.container)
   }
@@ -269,7 +304,10 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     const s = sources[sourceId]
     if (!s) return
     if (selected.has(sourceId)) selected.delete(sourceId)
-    else if (isCheckable(s)) selected.add(sourceId)
+    else if (isCheckable(s)) {
+      selected.add(sourceId)
+      void probePending()
+    }
   }
   function clearSelection() {
     selected.clear()
@@ -293,38 +331,43 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   }
 
   // ---------------- 列表视图 ----------------
-  const parents = computed<ParentView[]>(() => {
-    const bySrc = new Map<string, KidView[]>()
-    for (const k of liveAll.value) {
-      const l = bySrc.get(k.sourceId)
+  const kidsBySource = computed(() => {
+    const m = new Map<string, KidView[]>()
+    for (const k of liveById.value.values()) {
+      const l = m.get(k.sourceId)
       if (l) l.push(k)
-      else bySrc.set(k.sourceId, [k])
+      else m.set(k.sourceId, [k])
     }
+    for (const l of m.values()) l.sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? 1 : -1))
+    return m
+  })
+  const parents = computed<ParentView[]>(() => {
     const out: ParentView[] = []
-    const fIds = filterIds.value
-    const sIds = searchIds.value
-    const kw = keyword.value.trim().toLowerCase()
-    for (const src of Object.values(sources)) {
-      let kids = (bySrc.get(src.sourceId) ?? []).slice().sort((a, b) => b.createdAt - a.createdAt)
-      const lastActivityAt = lastActivityOf(src.addedAt, kids)
-      if (sIds) {
-        // 搜索：后端返回的记录 + 文件名匹配的源文件（还没有记录的也算）
-        const nameHit = searchSourceIds.value.has(src.sourceId) || (!!kw && src.name.toLowerCase().includes(kw))
-        const hitKids = kids.filter((k) => sIds.has(k.id) || (!!kw && fileBaseName(k.outputPath).toLowerCase().includes(kw)))
-        if (!nameHit && !hitKids.length) continue
-        if (!nameHit) kids = hitKids
-      }
+    const sh = searchHits.value
+    const rows = sh ? sh.order.map((id) => sources[id]).filter((s): s is SourceRow => !!s) : Object.values(sources)
+    for (const src of rows) {
+      const all = kidsBySource.value.get(src.sourceId) ?? []
+      let kids = all
+      let hits: Set<string> | null = null
+      if (sh && !sh.name.has(src.sourceId)) {
+        // 只有输出文件名命中：只显示命中的记录（设计 §四 11）
+        hits = sh.tasks.get(src.sourceId) ?? new Set()
+        kids = all.filter((k) => hits!.has(k.id))
+      } else if (sh) hits = sh.tasks.get(src.sourceId) ?? null
       if (filter.value !== 'all') {
         const want = filter.value === 'active' ? ACTIVE : FAILED
-        kids = kids.filter((k) => want.includes(k.status) || (fIds?.has(k.id) && want.includes(k.status)))
+        kids = kids.filter((k) => want.includes(k.status))
         if (!kids.length) continue
       }
+      const lastActivityAt = src.lastActivityAt
       const running = kids.filter((k) => k.status === 'running')
-      const pv: ParentView = {
+      const filtered = !!sh || filter.value !== 'all'
+      out.push({
         src,
         kids,
+        moreCount: filtered ? 0 : Math.max(0, src.recordCount - all.length),
         lastActivityAt,
-        open: kids.length > 0 && isOpen(src.sourceId, kids, lastActivityAt),
+        open: kids.length > 0 && (filtered || isOpen(src.sourceId, kids, lastActivityAt)),
         running: running.length,
         queued: kids.filter((k) => k.status === 'queued').length,
         failed: kids.filter((k) => FAILED.includes(k.status)).length,
@@ -332,27 +375,32 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
         conflict: selected.has(src.sourceId) ? conflictOfSource(src) : null,
         selected: selected.has(src.sourceId),
         checkable: isCheckable(src),
-      }
-      out.push(pv)
+        hits,
+      })
     }
-    return out.sort((a, b) => b.lastActivityAt - a.lastActivityAt || a.src.name.localeCompare(b.src.name))
+    const pin = pinned.value
+    return out.sort((a, b) => (b.src.sourceId === pin ? 1 : 0) - (a.src.sourceId === pin ? 1 : 0) || b.lastActivityAt - a.lastActivityAt || (a.src.sourceId < b.src.sourceId ? 1 : -1))
   })
   const groups = computed<GroupView[]>(() => {
     const today: ParentView[] = []
     const earlier: ParentView[] = []
-    for (const p of parents.value) (isToday(p.lastActivityAt) ? today : earlier).push(p)
+    const pin: ParentView[] = []
+    for (const p of parents.value) (p.src.sourceId === pinned.value && !isToday(p.lastActivityAt) ? pin : isToday(p.lastActivityAt) ? today : earlier).push(p)
     const g: GroupView[] = []
+    if (pin.length) g.push({ key: 'pinned', label: '更早', parents: pin }) // 定位来的行临时放在最上面
     if (today.length) g.push({ key: 'today', label: '今天', parents: today })
     if (earlier.length) g.push({ key: 'earlier', label: '更早', parents: earlier })
     return g
   })
-  const sourceCount = computed(() => Object.keys(sources).length)
-  /** 记录总数：后端总数和本地已知的取大（新提交 / 删除后本地先变） */
-  const recordCount = computed(() => Math.max(listTotal.value, Object.keys(records).length))
-  const hasMore = computed(() => !!cursor.value)
+  /** 计数“5 个文件 · 8 条记录”：后端总行数和本地已知的取大；记录数按各行的 recordCount 加总（未加载的行不知道，所以是已加载部分） */
+  const sourceCount = computed(() => Math.max(listTotal.value, Object.keys(sources).length))
+  const recordCount = computed(() => Object.values(sources).reduce((n, s) => n + s.recordCount, 0))
+  const hasMore = computed(() => (searchHits.value ? searchHits.value.offset < searchHits.value.total : listOffset.value < listTotal.value))
 
   // ---------------- 总进度 / 本轮完成 ----------------
-  const total = computed(() => totalProgress(liveAll.value))
+  /** 总进度覆盖所有进行中的转换（含没加载到的行），所以直接用任务 store 的活动列表 */
+  const activeConvert = computed(() => tasks.active.filter((t) => t.type === 'convert'))
+  const total = computed(() => totalProgress(activeConvert.value))
   const round = reactive(new Set<string>())
   const roundBanner = ref<{ ok: number; fail: number } | null>(null)
   let bannerTimer: ReturnType<typeof setTimeout> | undefined
@@ -366,16 +414,16 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     bannerTimer = setTimeout(() => (roundBanner.value = null), 5000) // 5 秒后自动收起
   }
   watch(
-    () => liveAll.value.filter((k) => ACTIVE.includes(k.status)).map((k) => k.id).join(','),
+    () => activeConvert.value.map((t) => t.id).join(','),
     (ids) => {
       for (const id of ids ? ids.split(',') : []) round.add(id)
       if (!round.size || ids) return
       let ok = 0
       let fail = 0
       for (const id of round) {
-        const k = liveById.value.get(id)
-        if (k?.status === 'succeeded') ok++
-        else if (k && FAILED.includes(k.status)) fail++
+        const t = tasks.taskById(id)
+        if (t?.status === 'succeeded') ok++
+        else if (t && FAILED.includes(t.status)) fail++
       }
       round.clear()
       if (ok || fail) showBanner(ok, fail)
@@ -401,163 +449,221 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       tab.value = isAudioPreset(selectedPreset.value!) ? 'audio' : 'video'
     }
     if (ui.roundDone.length) showBanner(ui.roundDone.length, 0)
+    void probePending()
   }
   async function reload() {
     loading.value = true
     try {
-      const [srcs, page] = await Promise.all([listSources(), listRecords({ filter: 'all', limit: FIRST_PAGE, cursor: '' })])
-      for (const s of srcs) upsertSource(s, true)
-      putRecords(page.items)
+      const page = await listSources({ limit: SOURCE_PAGE, offset: 0, recordLimit: RECORD_LIMIT })
+      putEntries(page.items)
+      pinned.value = ''
+      listOffset.value = page.items.length
       listTotal.value = page.total
-      cursor.value = page.nextCursor
       loadError.value = null
       loaded.value = true
-      void checkExistence()
+      void checkExistence(page.items)
       void probePending()
     } catch (e) {
-      const err = toAppError(e)
-      loadError.value = { code: err.code, message: err.message, detail: err.detail }
+      loadError.value = errOf(e)
     } finally {
       loading.value = false
     }
   }
-  /** 打开页面时检查一次：输出文件 / 源文件还在不在（设计 §4：只检查一次，打开文件夹前再查一次） */
-  async function checkExistence() {
+  /** 打开页面 / 加载下一页时检查一次：输出文件 / 源文件还在不在（设计 §四 12：只检查一次，预览和打开文件夹前再查一次） */
+  async function checkExistence(items: ConvertSourceEntry[]) {
     try {
-      const done = Object.values(records).filter((r) => liveOf(r).status === 'succeeded').map((r) => r.id)
-      const [paths, srcs] = await Promise.all([done.length ? checkPaths(done) : Promise.resolve([]), checkSources(Object.keys(sources))])
-      for (const c of paths) {
-        if (!c.outputExists) outputGone.add(c.taskId)
-        const r = records[c.taskId]
-        if (r && !c.inputExists && sources[r.sourceId]) sources[r.sourceId].exists = false
+      const done = items.flatMap((e) => e.records).filter((t) => t.status === 'succeeded').map((t) => t.id)
+      const ids = items.map((e) => e.source.sourceId)
+      const [paths, srcs] = await Promise.all([done.length ? checkPaths(done) : Promise.resolve([]), ids.length ? checkSources(ids) : Promise.resolve([])])
+      for (const c of paths) if (c.found && !c.outputExists) outputGone.add(c.taskId)
+      for (const c of srcs) {
+        const s = sources[c.sourceId]
+        if (!s || !c.found) continue
+        s.exists = c.exists
+        if (!c.exists) selected.delete(c.sourceId)
       }
-      for (const c of srcs) if (sources[c.sourceId]) sources[c.sourceId].exists = c.exists
     } catch (e) {
       console.warn('check paths failed', e) // 查不了就按都在处理，打开文件夹前还会再查
     }
   }
-  /** “加载更早的记录”：按当前模式（全部 / 筛选 / 搜索）取下一页 */
+  /** “加载更早的记录”：普通列表取下一页源文件行；搜索时取搜索的下一页 */
   async function loadMore() {
-    if (!cursor.value || loadingMore.value) return
+    if (!hasMore.value || loadingMore.value) return
     loadingMore.value = true
     try {
-      if (searchIds.value) {
-        const p = await searchRecords(keyword.value.trim(), MORE_PAGE, cursor.value)
-        putRecords(p.items)
-        for (const r of p.items) searchIds.value.add(r.id)
-        cursor.value = p.nextCursor
+      const sh = searchHits.value
+      if (sh) {
+        const p = await searchSources({ keyword: keyword.value.trim(), limit: SOURCE_PAGE, offset: sh.offset, recordLimit: RECORD_LIMIT })
+        if (searchHits.value !== sh) return
+        applySearch(p.items, sh)
+        sh.offset += p.items.length
+        sh.total = p.total
       } else {
-        const p = await listRecords({ filter: filter.value, limit: MORE_PAGE, cursor: cursor.value })
-        putRecords(p.items)
-        if (filterIds.value) for (const r of p.items) filterIds.value.add(r.id)
-        cursor.value = p.nextCursor
+        const p = await listSources({ limit: SOURCE_PAGE, offset: listOffset.value, recordLimit: RECORD_LIMIT })
+        putEntries(p.items)
+        if (p.items.some((e) => e.source.sourceId === pinned.value)) pinned.value = '' // 翻到了它本来的位置
+        listOffset.value += p.items.length
+        listTotal.value = p.total
+        void checkExistence(p.items)
       }
       void probePending()
     } catch (e) {
-      notice.value = toAppError(e).message
+      say(errOf(e).message)
     } finally {
       loadingMore.value = false
     }
   }
-  async function setFilter(f: RecordFilter) {
-    filter.value = f
-    if (f === 'all') {
-      filterIds.value = null
-      if (!searchIds.value) {
-        const p = await listRecords({ filter: 'all', limit: FIRST_PAGE, cursor: '' }).catch(() => null)
-        if (p) {
-          putRecords(p.items)
-          listTotal.value = p.total
-          cursor.value = p.nextCursor
-        }
-      }
-      return
-    }
+  /** 一行里“显示更早的 N 条记录”（ListSourceRecords，每次 50 条） */
+  async function loadMoreRecords(sourceId: string) {
+    const s = sources[sourceId]
+    if (!s || s.loadingMore) return
+    s.loadingMore = true
     try {
-      const p = await listRecords({ filter: f, limit: FIRST_PAGE, cursor: '' })
-      if (filter.value !== f) return
-      putRecords(p.items)
-      filterIds.value = new Set(p.items.map((r) => r.id))
-      if (!searchIds.value) cursor.value = p.nextCursor
+      const have = (kidsBySource.value.get(sourceId) ?? []).length
+      const p = await listSourceRecords(sourceId, MORE_RECORDS, have)
+      for (const t of p.items) putRecord(t)
+      s.recordCount = p.total
+      const done = p.items.filter((t) => t.status === 'succeeded').map((t) => t.id)
+      if (done.length) for (const c of await checkPaths(done).catch(() => [])) if (c.found && !c.outputExists) outputGone.add(c.taskId)
     } catch (e) {
-      notice.value = toAppError(e).message
+      say(errOf(e).message)
+    } finally {
+      s.loadingMore = false
+    }
+  }
+  /**
+   * 任务中心“在转换页查看”：展开这条记录所在的源文件行、滚到它、高亮（设计 §7.3 第 11 条）。
+   * 流程（设计 §7.3 第 11 条，UI 10-08）：清掉搜索 / 筛选 → GetSource(sourceId)（v0.23.1）取这一行临时置顶 → 记录不在内嵌的最新 20 条里时
+   * 用 ListSourceRecords 往下取到它为止 → 展开、滚到顶部、高亮 2 秒后 0.4 秒淡出（页面负责滚动和动画）。
+   */
+  async function locate(taskId: string, sourceId?: string) {
+    if (!loaded.value) await reload()
+    if (keyword.value || searchHits.value) await search('')
+    filter.value = 'all'
+    const sid = sourceId || records[taskId]?.sourceId || (tasks.taskById(taskId) as { sourceId?: string } | undefined)?.sourceId || ''
+    if (!sid) return say('没有找到这条转换记录')
+    // 不管这一行在不在已加载的页里，都用 GetSource 取最新的一份，临时放到最上面（不改 lastActivityAt，刷新列表后回到原位置）
+    try {
+      const e = await getSource(sid)
+      putEntries([e])
+      void checkExistence([e])
+      pinned.value = sid
+    } catch (e) {
+      const err = errOf(e)
+      return say(err.code === 'NOT_FOUND' ? '这条转换记录已被删除' : err.message)
+    }
+    for (let i = 0; i < 20 && !records[taskId] && sources[sid] && sources[sid].loadedIds.length < sources[sid].recordCount; i++) {
+      const before = sources[sid].loadedIds.length
+      await loadMoreRecords(sid)
+      if (!sources[sid] || sources[sid].loadedIds.length === before) break
+    }
+    if (!records[taskId]) return say('这条转换记录已被删除')
+    foldSession[sid] = true
+    focus.value = { id: taskId, sourceId: sid, at: Date.now() }
+  }
+  function setFilter(f: RecordFilter) {
+    // 契约没有按状态过滤的源文件列表：筛选只作用于已加载的行（进行中的记录总是在最上面几行，失败的可能需要先“加载更早的记录”）
+    filter.value = f
+  }
+  function applySearch(items: ConvertSourceEntry[], sh: NonNullable<typeof searchHits.value>) {
+    putEntries(items)
+    for (const e of items) {
+      if (!sh.order.includes(e.source.sourceId)) sh.order.push(e.source.sourceId)
+      if (e.nameMatched) sh.name.add(e.source.sourceId)
+      if (e.matchedTaskIds?.length) {
+        sh.tasks.set(e.source.sourceId, new Set(e.matchedTaskIds))
+        foldSession[e.source.sourceId] = true
+      }
     }
   }
   let searchSeq = 0
-  /** 搜索全部记录（后端 SearchConvert，分页）；空关键字退出搜索。防抖在页面里做（300ms） */
+  /** 搜索全部记录（SearchSources，分页）；空关键字退出搜索。防抖在页面里做（300ms） */
   async function search(k: string) {
     keyword.value = k
     const kw = k.trim()
     const seq = ++searchSeq
     if (!kw) {
-      searchIds.value = null
-      searchSourceIds.value = new Set()
+      searchHits.value = null
       searching.value = false
-      await setFilter(filter.value)
       return
     }
     searching.value = true
     try {
-      const p = await searchRecords(kw, FIRST_PAGE, '')
+      const p = await searchSources({ keyword: kw.slice(0, 100), limit: SOURCE_PAGE, offset: 0, recordLimit: RECORD_LIMIT })
       if (seq !== searchSeq) return
-      putRecords(p.items)
-      for (const s of p.sources) upsertSource(s, true)
-      searchIds.value = new Set(p.items.map((r) => r.id))
-      searchSourceIds.value = new Set(p.sources.map((s) => s.sourceId))
-      cursor.value = p.nextCursor
+      const sh = { order: [] as string[], name: new Set<string>(), tasks: new Map<string, Set<string>>(), offset: p.items.length, total: p.total }
+      applySearch(p.items, sh)
+      searchHits.value = sh
+      void checkExistence(p.items)
     } catch (e) {
-      if (seq === searchSeq) notice.value = toAppError(e).message
+      if (seq === searchSeq) say(errOf(e).message)
     } finally {
       if (seq === searchSeq) searching.value = false
     }
   }
 
-  // 别处新建 / 原地重试的转换任务（任务中心重试、另一个窗口提交）：任务 store 里出现了本地不认识的进行中 convert 任务，就取一下记录
-  const fetching = new Set<string>()
-  async function fetchRecords(ids: string[]) {
-    const want = ids.filter((id) => !fetching.has(id))
-    if (!want.length) return
-    for (const id of want) fetching.add(id)
-    try {
-      putRecords(await getRecords(want))
-    } catch (e) {
-      console.warn('get records failed', e)
-    } finally {
-      for (const id of want) fetching.delete(id)
-    }
+  // 别处新建 / 原地重试的转换任务（任务中心重试、旧 Submit）：任务 store 里出现进行中的 convert 任务时同步到记录
+  let topTimer: ReturnType<typeof setTimeout> | undefined
+  function refreshTop() {
+    clearTimeout(topTimer)
+    topTimer = setTimeout(async () => {
+      try {
+        const p = await listSources({ limit: SOURCE_PAGE, offset: 0, recordLimit: RECORD_LIMIT })
+        putEntries(p.items)
+        listTotal.value = p.total
+      } catch (e) {
+        console.warn('refresh sources failed', e)
+      }
+    }, 300)
   }
   watch(
-    () => tasks.active.filter((t) => t.type === 'convert' && !records[t.id]).map((t) => t.id).join(','),
-    (ids) => {
-      if (ids && loaded.value) void fetchRecords(ids.split(','))
-    },
-  )
-  // 刚完成的记录还没有输出信息（大小 / 时长 / 分辨率）：补取一次；同时它的输出文件当然在
-  const resultFetched = new Set<string>()
-  watch(
-    () => liveAll.value.filter((k) => k.status === 'succeeded' && !k.result && !resultFetched.has(k.id)).map((k) => k.id).join(','),
-    (ids) => {
-      if (!ids) return
-      const list = ids.split(',')
-      for (const id of list) resultFetched.add(id)
-      void fetchRecords(list)
+    () => activeConvert.value.map((t) => `${t.id}:${t.version}`).join(','),
+    () => {
+      if (!loaded.value) return
+      for (const t of activeConvert.value) {
+        const r = records[t.id]
+        if (!r) {
+          if (!t.sourceId) continue
+          if (!sources[t.sourceId]) refreshTop()
+          else {
+            putRecord(t)
+            sources[t.sourceId].recordCount++
+          }
+        } else if (TERMINAL.includes(r.status)) {
+          // 原地重试（可能是任务中心点的）：上一次的结果、错误、“文件已被移动”标记都作废
+          records[t.id] = { ...r, status: t.status, version: t.version, error: null, result: undefined, hwFallback: undefined, hwFallbackReason: undefined, progress: 0 }
+          outputGone.delete(t.id)
+          recThumbs.delete(t.id)
+        }
+      }
     },
   )
 
-  // ---------------- 读取媒体信息 / 缩略图 ----------------
+  // ---------------- 读取媒体信息（MediaService.Probe） ----------------
+  /** 需要当次探测的行：勾选的（冲突预检）、没有 media 缓存且在可视区域的（显示信息） */
+  const wantProbe = new Set<string>()
+  function requestMeta(s: SourceRow) {
+    if (s.probe !== 'pending' || s.exists === false) return
+    if (s.media && !selected.has(s.sourceId)) return
+    wantProbe.add(s.sourceId)
+    void probePending()
+  }
   let probing = false
   async function probePending() {
     if (probing || !ffmpeg.ready) return
     probing = true
     try {
       for (;;) {
-        const batch = Object.values(sources).filter((s) => s.probe === 'pending' && s.exists !== false).slice(0, MAX_SUBMIT)
+        const batch = Object.values(sources)
+          .filter((s) => s.probe === 'pending' && s.exists !== false && (selected.has(s.sourceId) || wantProbe.has(s.sourceId)))
+          .slice(0, MAX_SUBMIT)
         if (!batch.length) break
         for (const s of batch) s.probe = 'probing'
-        await probeFiles(batch.map((s) => s.path), (results) => {
+        await probeSources(batch.map((s) => s.path), (results) => {
           for (const res of results) {
             const s = batch.find((b) => b.path === res.path)
             if (!s || !sources[s.sourceId]) continue
+            wantProbe.delete(s.sourceId)
             if (res.info) {
               s.info = res.info
               s.probe = 'ok'
@@ -568,7 +674,6 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
               s.probeError = res.error
               selected.delete(s.sourceId) // 读取失败的不能勾选
             }
-            if (s.persisted && s.probe !== 'pending') void saveSourceInfo(s.sourceId, s.info, s.probeError).catch(() => {})
           }
         })
         if (!ffmpeg.ready) break
@@ -579,6 +684,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   }
   watch(() => ffmpeg.ready, (ok) => ok && void probePending())
 
+  // ---------------- 缩略图（按 id，后端懒生成；行进入可视区域时取） ----------------
   let thumbActive = 0
   const thumbQueue: (() => Promise<void>)[] = []
   function pump() {
@@ -591,28 +697,36 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       })
     }
   }
-  /** 父行缩略图（进入视野时才取） */
   function ensureThumb(s: SourceRow) {
-    if (s.thumbState !== 'idle' || s.probe !== 'ok' || !s.info || s.exists === false) return
-    if (isAudioOnly(s.info)) {
-      s.thumbState = 'done'
+    if (s.thumbAsked) return
+    s.thumbAsked = true
+    if (s.exists === false) {
+      s.thumb = { kind: 'missing' }
       return
     }
-    s.thumbState = 'loading'
     thumbQueue.push(async () => {
-      s.thumb = await getThumbnail(s.path, Math.min(10, (s.info?.duration ?? 0) * 0.1), 128).catch(() => '')
-      s.thumbState = 'done'
+      const t = await getSourceThumbnail(s.sourceId)
+      if (sources[s.sourceId]) sources[s.sourceId].thumb = t
+      if (t.kind === 'missing' && sources[s.sourceId]) sources[s.sourceId].exists = false
     })
     pump()
   }
-  /** 子记录（已完成）的输出缩略图 */
-  const outThumbs = reactive<Record<string, string>>({})
-  const outThumbAsked = new Set<string>()
-  function ensureOutThumb(k: KidView) {
-    if (outThumbAsked.has(k.id) || k.status !== 'succeeded' || k.outputGone || isAudioContainer(k.options.container)) return
-    outThumbAsked.add(k.id)
+  /** 子记录（已完成、输出还在）的缩略图 */
+  const recThumbs = reactive(new Map<string, ThumbState>())
+  const recThumbAsked = new Set<string>()
+  function ensureRecThumb(k: KidView) {
+    if (recThumbs.has(k.id) && recThumbAsked.has(k.id)) return
+    if (k.status !== 'succeeded' || k.outputGone) return
+    if (recThumbAsked.has(k.id)) return
+    recThumbAsked.add(k.id)
+    if (isAudioContainer(k.options.container ?? '')) {
+      recThumbs.set(k.id, { kind: 'type' })
+      return
+    }
     thumbQueue.push(async () => {
-      outThumbs[k.id] = await getThumbnail(k.outputPath, Math.min(10, (k.result?.durationSec ?? 0) * 0.1), 96).catch(() => '')
+      const t = await getRecordThumbnail(k.id)
+      recThumbs.set(k.id, t)
+      if (t.kind === 'missing') outputGone.add(k.id)
     })
     pump()
   }
@@ -630,21 +744,30 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     const take = uniq.slice(0, MAX_SUBMIT)
     if (uniq.length > MAX_SUBMIT) notice.value = `一次最多添加 ${MAX_SUBMIT} 个文件，多出的 ${uniq.length - MAX_SUBMIT} 个没有加入。`
     if (!take.length) return
-    let list: ConvertSource[]
+    let list
     try {
       list = await addSources(take)
     } catch (e) {
-      notice.value = toAppError(e).message
+      notice.value = errOf(e).message
       return
     }
     const now = Date.now()
-    for (const s of list) {
-      const had = !!sources[s.sourceId]
-      const row = upsertSource({ ...s, addedAt: Math.max(s.addedAt, now) }, true)
-      row.addedAt = Math.max(s.addedAt, now) // 重复添加：移到最上面
+    const failed: string[] = []
+    for (const r of list) {
+      if (!r.source) {
+        failed.push(`${r.path.split(/[\\/]/).pop()}：${r.error?.message ?? '没有加入'}`)
+        continue
+      }
+      const had = !!sources[r.source.sourceId]
+      if (!had) listTotal.value++
+      const row = upsertSource(r.source)
+      row.lastActivityAt = Math.max(r.source.lastActivityAt, now) // 重复添加：移到最上面
+      row.exists = true
       if (had) row.flashAt = now
+      if (searchHits.value && !searchHits.value.order.includes(row.sourceId)) searchHits.value.order.unshift(row.sourceId)
       if (isCheckable(row)) selected.add(row.sourceId) // 新加入的自动勾选
     }
+    if (failed.length) notice.value = failed.join('；')
     addedTick.value = now
     void probePending()
   }
@@ -664,7 +787,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       const paths = await pickFiles()
       if (paths.length) await addPaths(paths)
     } catch (e) {
-      notice.value = toAppError(e).message
+      notice.value = errOf(e).message
     }
   }
 
@@ -674,33 +797,43 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     const dir = hasWailsBackend() ? await pickDirectory('选择这次转换的输出文件夹') : 'D:\\Videos\\FFmpegFree'
     if (dir) outputOverride.value = dir
   }
-  /** 单选时页脚“将保存为…”：后端算（同名加序号）；算不出来就不显示 */
+  const optionsOf = (o: Partial<RecordOptions>): RecordOptions => ({
+    container: o.container ?? '', videoCodec: o.videoCodec ?? '', audioCodec: o.audioCodec ?? '', width: o.width ?? 0, height: o.height ?? 0, fps: o.fps ?? 0,
+    videoBitrate: o.videoBitrate ?? 0, audioBitrate: o.audioBitrate ?? 0, crf: o.crf ?? 0, targetSizeMb: o.targetSizeMb ?? 0, trimStart: o.trimStart ?? 0, trimEnd: o.trimEnd ?? 0,
+  })
+  /** 单选时页脚“将保存为…”：PreviewOutputName（不占位，提交时可能不同）；算不出来就不显示 */
   let nameSeq = 0
   watch(
-    () => [submittableRows.value.length === 1 ? submittableRows.value[0].path : '', selectedPreset.value?.id ?? '', outputOverride.value, recordCount.value] as const,
-    async ([path, pid]) => {
+    () => [submittableRows.value.length === 1 ? submittableRows.value[0].sourceId : '', selectedPreset.value?.id ?? '', outputOverride.value, recordCount.value] as const,
+    async ([sid]) => {
       const seq = ++nameSeq
-      if (!path || !pid || !selectedPreset.value) {
+      const p = selectedPreset.value
+      if (!sid || !p) {
         outputName.value = ''
         return
       }
       try {
-        const n = await previewOutputName(path, pid, selectedPreset.value.options.container, outputOverride.value)
-        if (seq === nameSeq) outputName.value = n
+        const full = await previewOutputName(sid, optionsOf(p.options), outputOverride.value)
+        if (seq === nameSeq) outputName.value = full.split(/[\\/]/).pop() ?? ''
       } catch {
         if (seq === nameSeq) outputName.value = ''
       }
     },
   )
 
-  const optionsOf = (p: PresetItem): RecordOptions => ({
-    container: p.options.container, videoCodec: p.options.videoCodec, audioCodec: p.options.audioCodec, width: p.options.width, height: p.options.height, fps: p.options.fps, audioBitrate: p.options.audioBitrate,
-  })
-  const toTaskLike = (r: ConvertRecord) => ({
-    id: r.id, type: 'convert', status: r.status, title: fileBaseName(r.outputPath), inputPaths: [r.inputPath], outputPath: r.outputPath, progress: r.progress, speed: r.speed, etaSec: r.etaSec,
-    outTimeSec: 0, params: '', version: r.version, error: r.error, createdAt: r.createdAt, startedAt: r.startedAt, finishedAt: r.finishedAt,
-  })
-
+  function afterSubmit(list: V023Task[]) {
+    for (const t of list) {
+      putRecord(t)
+      const s = sources[t.sourceId ?? '']
+      if (s) {
+        s.recordCount++
+        s.lastActivityAt = Math.max(s.lastActivityAt, t.createdAt || Date.now())
+        foldSession[s.sourceId] = true
+      }
+      round.add(t.id)
+    }
+    tasks.track(list.filter((t) => ACTIVE.includes(t.status)) as never)
+  }
   /** 转换：只提交勾选里能转的（冲突 / 读取中的跳过）；成功后清空勾选、展开对应父行 */
   async function submit() {
     const p = selectedPreset.value
@@ -709,19 +842,12 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     submitting.value = true
     submitError.value = null
     try {
-      const list = await submitRecords(rows.map((r) => r.path), { id: p.id, name: p.name, options: optionsOf(p) }, outputOverride.value)
-      putRecords(list)
-      listTotal.value += list.length
-      tasks.track(list.filter((r) => ACTIVE.includes(r.status)).map(toTaskLike) as never)
-      for (const r of list) {
-        round.add(r.id)
-        foldSession[r.sourceId] = true
-      }
+      const list = await submitSources({ sourceIds: rows.map((r) => r.sourceId), options: optionsOf(p.options), outputDir: outputOverride.value, presetId: p.id })
+      afterSubmit(list)
       closeBanner()
       clearSelection()
     } catch (e) {
-      const err = toAppError(e)
-      submitError.value = { code: err.code, message: err.message, detail: err.detail }
+      submitError.value = errOf(e)
     } finally {
       submitting.value = false
     }
@@ -729,68 +855,93 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
 
   // ---------------- 记录操作 ----------------
   async function cancel(id: string) {
-    await tasks.cancel(id)
-  }
-  /** 原地重试（失败 / 已中断 / 已取消的“重新转换”）：同一条记录、同一个任务 id，清掉旧错误和回退提示 */
-  async function retry(id: string) {
-    const t = await tasks.retry(id)
-    if (!t) return
-    const r = records[id]
-    if (t.id === id && r) {
-      records[id] = {
-        ...r, status: t.status, progress: 0, speed: '', etaSec: 0, error: null, startedAt: 0, finishedAt: 0, version: t.version,
-        result: undefined, encoder: t.encoder, encoderDevice: t.encoderDevice, hwFallback: undefined, hwFallbackReason: undefined,
-      }
-      outputGone.delete(id)
-      resultFetched.delete(id)
-      delete outThumbs[id]
-      outThumbAsked.delete(id)
-    } else if (t.id !== id) {
-      await fetchRecords([t.id]) // 旧后端：重试生成了新任务
+    try {
+      await tasks.cancel(id)
+    } catch (e) {
+      say(errOf(e).message)
     }
-    round.add(t.id)
-    if (r) foldSession[r.sourceId] = true
   }
-  /** 磁盘空间不足：换个文件夹重新转换（新增一条记录） */
+  /** 原地重试（失败 / 已中断的“重试”，已取消的“重新转换”）：同一条记录、同一个任务 id（TaskService.Retry） */
+  async function retry(id: string) {
+    const r = records[id]
+    try {
+      const t = await tasks.retry(id)
+      if (!t) return
+      if (r && t.id === id) {
+        records[id] = { ...r, status: t.status, progress: 0, speed: '', etaSec: 0, error: null, startedAt: 0, finishedAt: 0, version: t.version, result: undefined, hwFallback: undefined, hwFallbackReason: undefined, outputPath: t.outputPath || r.outputPath }
+        outputGone.delete(id)
+        recThumbs.delete(id)
+        recThumbAsked.delete(id)
+      } else if (t.id !== id) putRecord(t) // 旧后端：重试生成了新任务
+      round.add(t.id)
+      if (r) foldSession[r.sourceId] = true
+    } catch (e) {
+      say(errOf(e).message)
+    }
+  }
+  /** 已完成的记录“又转一次”（ConvertService.Reconvert，新增一条）。设计稿里没有入口，界面暂不放，见交付说明 */
+  async function reconvert(id: string) {
+    try {
+      afterSubmit([await apiReconvert(id)])
+    } catch (e) {
+      say(errOf(e).message)
+    }
+  }
+  /** 磁盘空间不足：换个文件夹重新转换（用这条记录的参数和预设，新增一条记录） */
   async function resubmitTo(id: string, dir: string) {
     const r = records[id]
     if (!r) return
-    const list = await submitRecords([r.inputPath], { id: r.presetId, name: r.presetName, options: r.options }, dir)
-    putRecords(list)
-    listTotal.value += list.length
-    for (const x of list) round.add(x.id)
+    try {
+      afterSubmit(await submitSources({ sourceIds: [r.sourceId], options: optionsOf(r.options), outputDir: dir, presetId: r.presetId ?? '' }))
+    } catch (e) {
+      say(errOf(e).message)
+    }
   }
 
-  /** 打开前先查文件还在不在；不在就标记并返回 false（页面提示“文件已被移动或删除”） */
+  /** 完成记录“打开所在文件夹”：ConvertService.RevealRecord(taskId)（v0.23.1）；文件不在 → NOT_FOUND reason=file → 标成“文件已被移动或删除”，返回 false */
   async function revealOutput(id: string): Promise<boolean> {
-    const k = liveById.value.get(id)
-    if (!k) return false
-    const [c] = await checkPaths([id]).catch(() => [undefined])
-    if (c && !c.outputExists) {
-      outputGone.add(id)
-      return false
+    try {
+      await revealRecord(id)
+      return true
+    } catch (e) {
+      const err = errOf(e)
+      if (err.code === 'NOT_FOUND' && /^reason=file/.test(err.detail ?? '')) {
+        outputGone.add(id)
+        return false
+      }
+      if (err.code === 'NOT_FOUND' && /^reason=record/.test(err.detail ?? '')) {
+        dropRecords([id])
+        return true
+      }
+      say(err.message)
+      return true
     }
-    await revealPath(k.outputPath)
-    return true
   }
   async function revealSource(sourceId: string): Promise<boolean> {
     const s = sources[sourceId]
     if (!s) return false
-    const [c] = await checkSources([sourceId]).catch(() => [undefined])
-    if (c && !c.exists) {
-      s.exists = false
-      selected.delete(sourceId)
-      return false
+    try {
+      await apiRevealSource(sourceId)
+      return true
+    } catch (e) {
+      const err = errOf(e)
+      if (err.code === 'NOT_FOUND' && /^reason=file/.test(err.detail ?? '')) {
+        markSourceGone(sourceId)
+        return false
+      }
+      say(err.message)
+      return true
     }
-    await revealPath(s.path)
-    return true
   }
   function markOutputGone(id: string) {
     outputGone.add(id)
   }
   function markSourceGone(sourceId: string) {
     const s = sources[sourceId]
-    if (s) s.exists = false
+    if (s) {
+      s.exists = false
+      s.thumb = { kind: 'missing' }
+    }
     selected.delete(sourceId)
   }
 
@@ -801,40 +952,47 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       const k = liveById.value.get(id)
       if (!k) return null
       const out = deletable(k)
-      return { kind, id, title: '删除这条转换记录？', name: fileBaseName(k.outputPath), count: 1, activeCount: ACTIVE.includes(k.status) ? 1 : 0, outputs: out ? 1 : 0, outputBytes: out ? k.result?.sizeBytes ?? 0 : 0 }
+      return { kind, id, title: '删除这条转换记录？', name: k.outputPath.split(/[\\/]/).pop() ?? '', count: 1, activeCount: ACTIVE.includes(k.status) ? 1 : 0, outputs: out ? 1 : 0, outputBytes: out ? k.result?.sizeBytes ?? 0 : 0 }
     }
     const s = sources[id]
     if (!s) return null
-    const kids = liveAll.value.filter((k) => k.sourceId === id)
+    const kids = kidsBySource.value.get(id) ?? []
     const outs = kids.filter(deletable)
+    const n = Math.max(s.recordCount, kids.length)
     return {
-      kind, id, title: kids.length ? `删除“${s.name}”和它的 ${kids.length} 条转换记录？` : `从列表里移除“${s.name}”？`, name: s.name, count: kids.length,
-      activeCount: kids.filter((k) => ACTIVE.includes(k.status)).length, outputs: outs.length, outputBytes: outs.reduce((n, k) => n + (k.result?.sizeBytes ?? 0), 0),
+      kind, id, title: n ? `删除“${s.name}”和它的 ${n} 条转换记录？` : `从列表里移除“${s.name}”？`, name: s.name, count: n,
+      activeCount: kids.filter((k) => ACTIVE.includes(k.status)).length, outputs: outs.length, outputBytes: outs.reduce((x, k) => x + (k.result?.sizeBytes ?? 0), 0),
     }
   }
-  /** 执行删除，返回删掉的记录数 */
-  async function confirmDelete(a: DeleteAsk, deleteOutput: boolean): Promise<number> {
-    if (a.kind === 'record') {
-      const n = await deleteRecords([a.id], deleteOutput && a.outputs > 0)
-      dropRecords([a.id])
-      return n
+  /** 执行删除，返回删除结果（页面据此给提示） */
+  async function confirmDelete(a: DeleteAsk, deleteOutput: boolean): Promise<DeleteResult> {
+    const r = a.kind === 'record' ? await deleteRecords([a.id], deleteOutput && a.outputs > 0) : await deleteSource(a.id, deleteOutput && a.outputs > 0)
+    dropRecords(r.deletedTaskIds)
+    for (const sid of r.deletedSourceIds) {
+      if (!sources[sid]) continue
+      delete sources[sid]
+      selected.delete(sid)
+      delete foldUser[sid]
+      listTotal.value = Math.max(0, listTotal.value - 1)
+      listOffset.value = Math.max(0, listOffset.value - 1) // 删掉已加载的一行，后面的行前移一位
+      if (searchHits.value) searchHits.value.order = searchHits.value.order.filter((x) => x !== sid)
     }
-    const ids = Object.values(records).filter((r) => r.sourceId === a.id).map((r) => r.id)
-    const n = a.count ? await deleteBySource(a.id, deleteOutput && a.outputs > 0) : (await removeSource(a.id), 0)
-    dropRecords(ids)
-    delete sources[a.id]
-    selected.delete(a.id)
-    delete foldUser[a.id]
     saveFold(foldUser)
-    return n
+    return r
   }
   function dropRecords(ids: string[]) {
     for (const id of ids) {
+      const r = records[id]
+      if (r && sources[r.sourceId]) {
+        const s = sources[r.sourceId]
+        s.recordCount = Math.max(0, s.recordCount - 1)
+        s.loadedIds = s.loadedIds.filter((x) => x !== id)
+      }
       delete records[id]
       outputGone.delete(id)
       round.delete(id)
+      recThumbs.delete(id)
     }
-    listTotal.value = Math.max(0, listTotal.value - ids.length)
   }
 
   // ---------------- 页脚 ----------------
@@ -850,14 +1008,14 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
 
   return {
     // 数据
-    sources, records, selected, outputGone, outThumbs, loaded, loading, loadError, filter, keyword, searching, notice, addedTick,
+    sources, records, selected, outputGone, recThumbs, loaded, loading, loadError, filter, keyword, searching, searchHits, notice, toast, addedTick, pinned, focus,
     presets, presetsLoaded, presetsError, selectedPresetId, selectedPreset, tab, shownPresets, outputOverride, defaultOutputDir, effectiveOutputDir,
     submitting, submitError, outputName, round, roundBanner,
     // 派生
     parents, groups, sourceCount, recordCount, hasMore, loadingMore, total, liveById, selectedRows, submittableRows, blockedCount, probingSelected, startBlock,
     // 方法
-    init, reload, loadMore, setFilter, search, loadPresets, presetTitle, setTab, isAudioPreset, toggle, clearSelection, isCheckable, conflictOfSource, setOpen,
-    addPaths, chooseFiles, chooseOutputDir, submit, cancel, retry, resubmitTo, revealOutput, revealSource, markOutputGone, markSourceGone,
-    deleteAsk, confirmDelete, ensureThumb, ensureOutThumb, closeBanner, probePending, liveOf,
+    init, reload, loadMore, loadMoreRecords, locate, setFilter, search, loadPresets, presetTitle, setTab, isAudioPreset, toggle, clearSelection, isCheckable, conflictOfSource, setOpen,
+    addPaths, chooseFiles, chooseOutputDir, submit, cancel, retry, reconvert, resubmitTo, revealOutput, revealSource, markOutputGone, markSourceGone,
+    deleteAsk, confirmDelete, ensureThumb, ensureRecThumb, requestMeta, closeBanner, probePending, liveOf, say,
   }
 })

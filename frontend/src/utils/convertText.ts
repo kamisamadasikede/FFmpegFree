@@ -29,20 +29,44 @@ export function splitPresetName(name: string): { title: string; sub: string } {
   return m ? { title: m[1].trim(), sub: m[2].trim() } : { title: name ?? '', sub: '' }
 }
 
-/** 记录第二行里的预设说明：「MP4 720p · H.264 + AAC · 1280×720」「GIF 动图 · 宽 480 · 12 帧/秒」「MP3 · 192 kbps」；去掉“通用 / 体积更小”这类形容词 */
-const ADJ = ['通用', '体积更小']
-export function presetLabel(presetName: string, o: { container: string; videoCodec?: string; audioCodec?: string; width?: number; height?: number }): string {
-  const parts: string[] = []
-  if (presetName) {
-    const { title, sub } = splitPresetName(presetName)
-    parts.push(title, ...sub.split(/[，,]/).map((s) => s.trim()).filter((s) => s && !ADJ.includes(s)))
-  } else {
-    parts.push((o.container || '').toUpperCase())
-    const codecs = [codecName(o.videoCodec), codecName(o.audioCodec)].filter(Boolean).join(' + ')
-    if (codecs) parts.push(codecs)
+/**
+ * 子记录第 2 行 / 预览底栏 / 任务中心转换行第二行共用的“参数”部分（设计 §7.3 第 14 条，已定 UI 10-08）：
+ * - presetId 非空（内置或保存过的预设）→ 预设名；悬停提示 = paramsSummary（preset=true）
+ * - presetId 为空且 paramsSummary 非空（自定义参数、旧 Submit）→ “自定义 · 摘要”；悬停提示 = 整行文字（preset=false）
+ * - 三个快照都为空（v0.23 之前的旧任务）→ title
+ * 前端只拼接、不解析 paramsSummary。
+ */
+export function recordParamsText(r: { presetId?: string; presetName?: string; paramsSummary?: string; title: string }): { text: string; tip: string; preset: boolean } {
+  if (r.presetId) return { text: (r.presetName && splitPresetName(r.presetName).title) || r.presetName || '自定义', tip: r.paramsSummary ?? '', preset: true }
+  if (r.paramsSummary) return { text: `自定义 · ${r.paramsSummary}`, tip: '', preset: false }
+  if (!r.presetName) return { text: r.title, tip: '', preset: false }
+  return { text: '自定义', tip: '', preset: false }
+}
+/** 带前缀（时间 / “… 转换”）和后缀（设备）的整行文字 + 悬停提示：预设记录的提示是 paramsSummary，其余是整行 */
+export function recordLine(r: { presetId?: string; presetName?: string; paramsSummary?: string; title: string }, head: string[], tail: string[] = []): { text: string; title: string } {
+  const p = recordParamsText(r)
+  const text = [...head, p.text, ...tail].filter(Boolean).join(' · ')
+  return { text, title: p.preset && p.tip ? p.tip : text }
+}
+
+/** 删除结果的提示（§6.14.4：前端把 failures 汇总成“有 N 个文件正在被使用，没有删除”之类） */
+const FAIL_TEXT: Record<string, (n: number) => string> = {
+  in_use: (n) => `有 ${n} 个文件正在被使用，没有删除`,
+  permission: (n) => `有 ${n} 个文件没有权限删除`,
+  not_task_output: (n) => `有 ${n} 个文件已被替换或移动，没有删除`,
+  io: (n) => `有 ${n} 个文件删除失败`,
+  still_running: (n) => `有 ${n} 条记录还没停下来，没有删除`,
+}
+export function deleteResultText(r: { deletedTaskIds: string[]; failures: { reason: string; message: string }[] }): string {
+  const parts = [`已删除 ${r.deletedTaskIds.length} 条记录`]
+  const by = new Map<string, { n: number; message: string }>()
+  for (const f of r.failures) {
+    const g = by.get(f.reason) ?? { n: 0, message: f.message }
+    g.n++
+    by.set(f.reason, g)
   }
-  if (o.container !== 'gif' && o.width && o.height) parts.push(`${o.width}×${o.height}`)
-  return parts.filter(Boolean).join(' · ')
+  for (const [reason, g] of by) parts.push(FAIL_TEXT[reason]?.(g.n) ?? `有 ${g.n} 个文件没有删除（${g.message}）`)
+  return parts.join('。') + '。'
 }
 
 /** 记录时间：今天 11:48 / 昨天 21:14 / 9月28日 16:40；跨年带年份 2025年9月28日 16:40 */

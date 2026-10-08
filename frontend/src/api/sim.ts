@@ -95,6 +95,8 @@ export interface SimTaskSpec {
   meta?: Record<string, unknown>
   /** v0.23：成功时的 Task.result（转换记录模拟给出探测输出的样子）；终态事件带上 */
   resultOf?: (t: ApiTask) => ApiTaskResult | undefined
+  /** v0.23：convert 任务所属的源文件行（会进入 Task 和事件） */
+  sourceId?: string
 }
 
 interface Entry {
@@ -211,6 +213,7 @@ export function createSimTask(spec: SimTaskSpec): ApiTask {
   const task: ApiTask = {
     id, type: spec.type, status: 'queued', title: SIM_TITLE_PREFIX + spec.title, inputPaths: [...spec.inputPaths], outputPath: spec.outputPath,
     progress: live ? -1 : 0, speed: '', etaSec: 0, params: spec.params, version: 1, error: null, createdAt: Date.now(), startedAt: 0, finishedAt: 0,
+    hiddenInTaskCenter: false, ...(spec.sourceId ? { sourceId: spec.sourceId } : {}),
   }
   const sc = spec.type === 'convert' || spec.type === 'edit_export' ? simEncoderScenario() : undefined
   if (sc && !spec.encoder) {
@@ -264,13 +267,15 @@ export function hideSimFinished(): number {
   return n
 }
 
-/** TaskService.UnhideInTaskCenter(ids) 的模拟：返回实际取消隐藏的条数；不发事件 */
+/** TaskService.UnhideInTaskCenter(ids) 的模拟（§6.14.3）：幂等；真正取消隐藏的任务 version +1，各发一条 task:status（当前状态不变，带 hiddenInTaskCenter:false） */
 export function unhideSimTasks(ids: string[]): number {
   let n = 0
   for (const id of ids) {
     const e = entries.get(id)
     if (e?.task.hiddenInTaskCenter) {
       e.task.hiddenInTaskCenter = false
+      bump(e)
+      emitSimEvent('task:status', { id, version: e.task.version, status: e.task.status, hiddenInTaskCenter: false })
       n++
     }
   }
