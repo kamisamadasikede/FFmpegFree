@@ -667,7 +667,7 @@ export async function Reconvert(req: ReconvertRequest): Promise<V023Task> {
   if (t.status !== 'succeeded' || t.reconverting) throw new AppError('TASK_CONFLICT', t.reconverting ? '这条记录正在重转' : '只有完成的记录才能重转', 'reason=invalid_state')
   const m = mustSource(t.sourceId ?? '')
   if (!m.exists && m.src.copyState !== 'ready') throw new AppError('NOT_FOUND', '源文件已不存在，不能重转', `reason=file\n${m.src.originalPath || m.src.path}`)
-  if (copyNotReady(m)) throw new AppError('TASK_CONFLICT', '文件复制完成后才能重转', `reason=${m.src.copyState === 'copying' ? 'copying' : 'copy_failed'}\nsourceId=${m.src.sourceId}`)
+  if (copyNotReady(m)) throw new AppError('TASK_CONFLICT', '文件还在准备中，准备好后再重转。', `reason=${m.src.copyState === 'copying' ? 'copying' : 'copy_failed'}\nsourceId=${m.src.sourceId}`)
   if (outputReplaced.has(t.id)) throw new AppError('TASK_CONFLICT', '原来的位置已经有别的文件，不能重转', 'reason=output_moved')
   const old = JSON.parse(t.params)
   const cur = String(old.options?.container ?? '')

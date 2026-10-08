@@ -154,7 +154,7 @@ export const RECONVERT_BLOCK_TIP: Record<string, string> = {
   source_missing: '源文件已不存在，不能重转',
   output_moved: '原来的位置已经有别的文件，不能重转',
   // 设计说明没有写这两种（菜单里一般遇不到：重转只在完成的记录上出现；复制没就绪的行很少有完成的记录），先用这两句，见交付说明
-  copy_not_ready: '文件复制完成后才能重转',
+  copy_not_ready: '文件还在准备中，准备好后再重转。',
   invalid_state: '这条记录现在不能重转',
 }
 /**
