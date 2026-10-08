@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -196,5 +197,34 @@ func TestLegacyTypeRowsUntouchedByDeletes(t *testing.T) {
 	}
 	if !IsLegacyType(TypeLiveRelay) || !IsLegacyType(TypeLiveRecordPush) || !IsLegacyType(TypeEditRender) || IsLegacyType(TypeLiveScreenPush) || IsLegacyType(TypeEditExport) || IsLegacyType(TypeConvert) {
 		t.Fatal("IsLegacyType")
+	}
+}
+
+func TestTaskOutputsInDir(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openTemp(t)
+	dir := filepath.Join(string(filepath.Separator)+"o", "100%")
+	nested := filepath.Join(dir, "sub", "a.mp4")
+	sib := filepath.Join(string(filepath.Separator)+"o", "100%X", "a.mp4")
+	for i, out := range []string{filepath.Join(dir, "a_b.mp4"), nested, sib, ""} {
+		tk := mkTask(fmt.Sprintf("D%d", i), TypeConvert, StatusSucceeded, int64(i))
+		tk.OutputPath = out
+		if err := s.InsertTask(ctx, tk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.TaskOutputsInDir(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 粗筛包含子目录；`_` / `%` 是字面量，兄弟目录 100%X 不能匹配
+	if len(got) != 2 {
+		t.Fatalf("got %v", got)
+	}
+	if got, _ := s.TaskOutputsInDir(ctx, ""); got != nil {
+		t.Fatalf("空目录应返回 nil: %v", got)
+	}
+	if got, _ := s.TaskOutputsInDir(ctx, "rel"); got != nil {
+		t.Fatalf("相对路径应返回 nil: %v", got)
 	}
 }

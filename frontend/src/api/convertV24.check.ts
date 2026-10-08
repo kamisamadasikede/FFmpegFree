@@ -114,7 +114,7 @@ export async function convertV24Checks(eq: Eq, readSrc: (f: string) => string): 
   {
     const st = t24.reconvertState
     eq('reconvertMode=replace / regenerate → 可以重转', [st({ reconvertMode: 'replace', reconvertBlock: '' }, { sourceGone: false, outputGone: false }).mode, st({ reconvertMode: 'regenerate', reconvertBlock: '' }, { sourceGone: false, outputGone: true }).mode], ['replace', 'regenerate'])
-    eq('reconvertMode="" → 置灰 + 原因（output_moved / copy_not_ready / invalid_state）', ['output_moved', 'copy_not_ready', 'invalid_state'].map((b) => st({ reconvertMode: '', reconvertBlock: b }, { sourceGone: false, outputGone: false })), [{ mode: '', tip: '原来的位置已经有别的文件，不能重转' }, { mode: '', tip: '文件复制完成后才能重转' }, { mode: '', tip: '这条记录现在不能重转' }])
+    eq('reconvertMode="" → 置灰 + 原因（output_moved / copy_not_ready / invalid_state）', ['output_moved', 'copy_not_ready', 'invalid_state'].map((b) => st({ reconvertMode: '', reconvertBlock: b }, { sourceGone: false, outputGone: false })), [{ mode: '', tip: '原来的位置已经有别的文件，不能重转' }, { mode: '', tip: '文件还在准备中，准备好后再重转。' }, { mode: '', tip: '这条记录现在不能重转' }])
     eq('源文件不在优先', st({ reconvertMode: 'replace', reconvertBlock: '' }, { sourceGone: true, outputGone: false }), { mode: '', tip: '源文件已不存在，不能重转' })
     eq('还没检查：按本地推断（输出不在 → regenerate）', st(undefined, { sourceGone: false, outputGone: true }).mode, 'regenerate')
     eq('重新生成框文字 / 成功、失败提示', [t24.reconvertBody('regenerate', 'a.mp4'), t24.reconvertDoneToast('a.mp4'), t24.reconvertFailToast('regenerate'), t24.reconvertFailToast('replace', { detail: 'reason=in_use' })], ['原来的文件已经不在了，会按原来的参数重新生成“a.mp4”。', '已重转“a.mp4”。', '重转失败，请稍后重试。', '重转失败，原来的文件没有变动。文件可能正在被其他程序使用，请关闭后再重转。'])
