@@ -72,6 +72,9 @@ type Config struct {
 	Tasks   TaskSubmitter
 	// Require 返回当前 ffmpeg，默认 ffmpeg.Require（缺失返回 FFMPEG_NOT_FOUND）。
 	Require func() (ffmpeg.Binaries, error)
+	// WaitFFmpeg 在转换组件检测进行中时等它有结果（最多到 ctx 结束），默认 ffmpeg.WaitDetected。
+	// 源文件行懒探测前调用：应用启动时转换页的 ListSources 比首次检测先到，不等就探测不了、也不落库。
+	WaitFFmpeg func(ctx context.Context)
 	// DefaultOutputDir 返回 outputDir 传空时用的目录（v0.24：实际输出目录，自定义优先，否则 <base>/output，6.15.2 第 5 条）。
 	// 返回空字符串时（测试、旧配置）退回源文件同目录。可为 nil。
 	DefaultOutputDir func(ctx context.Context) string
@@ -124,6 +127,9 @@ type Service struct {
 func New(ctx context.Context, cfg Config) (*Service, error) {
 	if cfg.Require == nil {
 		cfg.Require = ffmpeg.Require
+	}
+	if cfg.WaitFFmpeg == nil {
+		cfg.WaitFFmpeg = ffmpeg.WaitDetected
 	}
 	if cfg.Sources == nil {
 		if ss, ok := cfg.Presets.(SourceStore); ok {

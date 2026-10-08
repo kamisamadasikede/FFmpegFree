@@ -87,7 +87,7 @@ func TestPreviewIsOutsideTee(t *testing.T) {
 	}
 	// 预览输出之前的最后一个 -map 是 0:v:0，且预览输出不带音频。
 	pv := a[teeAt+2:]
-	// v0.24.3：fifo 封装没有默认编码器，预览这一路必须写 -c:v mjpeg。
+	// v0.24.4：fifo 封装没有默认编码器，预览这一路必须写 -c:v mjpeg。
 	if !has(pv, "-an") || has(pv, "-c:a") || pv[idx(pv, "-c:v", 0)+1] != "mjpeg" {
 		t.Fatalf("预览输出不带音频、编码器是 mjpeg: %v", pv)
 	}
@@ -174,7 +174,7 @@ func TestPreviewProbe(t *testing.T) {
 			t.Errorf("缺 %s 应判不支持", drop)
 		}
 	}
-	// v0.24.3：有 image2 但没有 fifo 封装（预览会反压推流）：不出预览。
+	// v0.24.4：有 image2 但没有 fifo 封装（预览会反压推流）：不出预览。
 	noFifo := map[string]string{}
 	for k, v := range full {
 		noFifo[k] = v
@@ -198,7 +198,7 @@ func TestPreviewProbe(t *testing.T) {
 	}
 }
 
-// v0.24.3（老板：按源帧率推流）：主输出不带任何程序加的帧率 / 尺寸限制；fps=2 只在预览这一路；GOP 跟着源帧率走。
+// v0.24.4（老板：按源帧率推流）：主输出不带任何程序加的帧率 / 尺寸限制；fps=2 只在预览这一路；GOP 跟着源帧率走。
 func TestMainOutputKeepsSourceFpsAndSize(t *testing.T) {
 	mainOf := func(a []string) []string {
 		n := len(PreviewOutputArgs(pvPath))

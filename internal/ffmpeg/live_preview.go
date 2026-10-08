@@ -11,7 +11,7 @@ import (
 // 直播预览（契约 6.10「预览画面」）：在主输出之外再加一路独立的输出，把同一路视频缩成 640 宽、每秒 2 帧的 JPEG，
 // 用 -update 1 反复覆盖同一个文件。它是一个单独的输出（不放进 tee），有自己的 -vf，不影响主输出的帧率、分辨率、编码参数和码率统计。
 //
-// v0.24.3：预览输出包在 fifo 封装里（`-f fifo -fifo_format image2`），由 fifo 自己的线程写文件：
+// v0.24.4：预览输出包在 fifo 封装里（`-f fifo -fifo_format image2`），由 fifo 自己的线程写文件：
 //   - 写预览变慢或卡住时（Windows 上杀毒扫描、读取端占着文件等），队列满了直接丢预览帧（drop_pkts_on_overflow），
 //     不会反压到共用的解码器，主输出（推流）始终按源帧率走；
 //   - 写预览失败时（Windows 上读取端打开着 <path>，改名会被拒绝）只记一行日志，1 秒后重试（attempt_recovery），
@@ -67,7 +67,7 @@ func BuildPullPreviewArgs(p PullPreviewPlan) (args []string, ok bool) {
 	return append(a, PreviewOutputArgs(p.PreviewPath)...), true
 }
 
-// PreviewProbe 检查 ffmpeg 能不能出预览：需要 mjpeg 编码器、image2 和 fifo 封装（v0.24.3）、fps 和 scale 滤镜。结果按 ffmpeg 路径缓存（成功的才缓存）。
+// PreviewProbe 检查 ffmpeg 能不能出预览：需要 mjpeg 编码器、image2 和 fifo 封装（v0.24.4）、fps 和 scale 滤镜。结果按 ffmpeg 路径缓存（成功的才缓存）。
 // 不支持（精简构建）时调用方降级为不加预览输出，不报错。
 type PreviewProbe struct {
 	Run func(ctx context.Context, exe string, args ...string) (string, error) // 默认 ExecRunner(10s)
