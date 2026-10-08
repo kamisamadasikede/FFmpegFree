@@ -16,7 +16,7 @@ import (
 	"FFmpegFree/internal/store"
 )
 
-// ---------- 原地重新转换（契约 v0.24 / v0.24.1，6.17） ----------
+// ---------- 原地重转（契约 v0.24 / v0.24.1，6.17） ----------
 
 // 重转模式（TaskPathCheck.reconvertMode，v0.24.1 架构师定名）。
 const (
@@ -44,7 +44,7 @@ const (
 type ReconvertSpec struct {
 	Params     string   // 新的 params JSON
 	InputPaths []string // 新的 inputPaths（这一行当前的读取路径）
-	Summary    string   // 日志里的 “[FFmpegFree] 重新转换：<summary>”
+	Summary    string   // 日志里的 “[FFmpegFree] 重转：<summary>”
 	Mode       string   // ReconvertReplace | ReconvertRegenerate（调用方用 ReconvertOutputMode 得出）
 }
 
@@ -148,7 +148,7 @@ func InvalidStateError(msg string) error {
 
 // OutputMovedError 是 TASK_CONFLICT reason=output_moved（开始重转前）。
 func OutputMovedError() error {
-	return apperr.New(apperr.TaskConflict, "原来的输出文件已被移动或替换，不能重新转换").WithDetail("reason=output_moved")
+	return apperr.New(apperr.TaskConflict, "原来的输出文件已被移动或替换，不能重转").WithDetail("reason=output_moved")
 }
 
 // Reconvert 在同一条记录上原地重转（6.17.3）：调用方已完成全部同步校验并造好 Runner（直接写 ReconvertTempPath）。
@@ -165,10 +165,10 @@ func (m *Manager) Reconvert(taskID string, spec ReconvertSpec, r Runner) (Task, 
 		return Task{}, apperr.New(apperr.InvalidArgument, "不是转换记录")
 	}
 	if old.Reconverting {
-		return Task{}, InvalidStateError("这条记录正在重新转换")
+		return Task{}, InvalidStateError("这条记录正在重转")
 	}
 	if old.Status != StatusSucceeded {
-		return Task{}, InvalidStateError("只有已完成的记录可以重新转换")
+		return Task{}, InvalidStateError("只有已完成的记录可以重转")
 	}
 	mode, block := ReconvertOutputMode(old)
 	if block != "" || (spec.Mode != "" && mode != spec.Mode) {
@@ -218,11 +218,11 @@ func (m *Manager) Reconvert(taskID string, spec ReconvertSpec, r Runner) (Task, 
 	m.mu.Lock()
 	if m.closing {
 		m.mu.Unlock()
-		return Task{}, apperr.New(apperr.Internal, "应用正在退出，无法重新转换")
+		return Task{}, apperr.New(apperr.Internal, "应用正在退出，无法重转")
 	}
 	if _, dup := m.entries[t.ID]; dup {
 		m.mu.Unlock()
-		return Task{}, InvalidStateError("这条记录正在重新转换")
+		return Task{}, InvalidStateError("这条记录正在重转")
 	}
 	m.entries[t.ID] = e
 	m.mu.Unlock()
@@ -250,7 +250,7 @@ func (m *Manager) Reconvert(taskID string, spec ReconvertSpec, r Runner) (Task, 
 		rollback()
 		return Task{}, apperr.Wrap(apperr.IOError, "保存任务失败", err)
 	}
-	fmt.Fprintf(e.log, "\n[FFmpegFree] 重新转换：%s\n", spec.Summary)
+	fmt.Fprintf(e.log, "\n[FFmpegFree] 重转：%s\n", spec.Summary)
 	snap := e.snapshot()
 	zero, notHidden := 0.0, false
 	m.emit(EventStatus, StatusEvent{
@@ -297,7 +297,7 @@ func (m *Manager) finishReconvert(e *entry, closing bool, err error, out string)
 }
 
 func movedDuringError() *apperr.AppError {
-	return apperr.New(apperr.TaskConflict, "原来的输出文件在重新转换期间被移动或替换，新结果没有保存").WithDetail("reason=output_moved")
+	return apperr.New(apperr.TaskConflict, "原来的输出文件在重转期间被移动或替换，新结果没有保存").WithDetail("reason=output_moved")
 }
 
 // replaceError 把替换失败归到 6.17.5 的 in_use / permission / io。
@@ -349,7 +349,7 @@ func (m *Manager) commitReconvert(e *entry, res *TaskResult) *apperr.AppError {
 		rerr = replaceFile(rc.temp, target)
 	}
 	if rerr != nil {
-		m.logf("重新转换任务 %s 替换输出 %s 失败: %v", e.task.ID, target, rerr)
+		m.logf("重转任务 %s 替换输出 %s 失败: %v", e.task.ID, target, rerr)
 		e.clearPending()
 		return replaceError(rerr, target)
 	}
@@ -414,7 +414,7 @@ func (m *Manager) endReconvert(e *entry, outcome string, aerr *apperr.AppError) 
 	t.Version++
 	if outcome == OutcomeFailed && aerr != nil {
 		t.LastReconvertError = &store.ReconvertError{Code: string(aerr.Code), Message: aerr.Message, Detail: aerr.Detail, At: time.Now().UnixMilli()}
-		fmt.Fprintf(e.log, "[FFmpegFree] 重新转换失败，原来的文件没有变动：%s\n", aerr.Message)
+		fmt.Fprintf(e.log, "[FFmpegFree] 重转失败，原来的文件没有变动：%s\n", aerr.Message)
 	}
 	if outcome != OutcomeInterrupted {
 		e.persistLocked()

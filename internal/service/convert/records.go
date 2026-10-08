@@ -725,11 +725,11 @@ func (s *Service) findPreset(ctx context.Context, presetID string) (*Preset, err
 }
 
 func formatChangeError() error {
-	return apperr.New(apperr.InvalidArgument, "重新转换不能更换输出格式，换格式请重新添加转换").WithDetail("reason=format_change")
+	return apperr.New(apperr.InvalidArgument, "重转不能更换输出格式，换格式请重新添加转换").WithDetail("reason=format_change")
 }
 
 func sourceMissingError(p string) error {
-	return apperr.New(apperr.NotFound, "源文件不存在，无法重新转换").WithDetail("reason=file\n" + p)
+	return apperr.New(apperr.NotFound, "源文件不存在，无法重转").WithDetail("reason=file\n" + p)
 }
 
 // reconvertInput 返回记录当前的读取路径（这一行的副本状态决定，6.15.4 第 4 条）；行不在了（旧记录）用 params.input。
@@ -777,7 +777,7 @@ func (s *Service) reconvertBlock(t task.Task) string {
 	return ""
 }
 
-// Reconvert 在同一条记录上原地重新转换（契约 v0.24 / v0.24.1，6.17）。同步校验的顺序（v0.24.1 架构师定）：
+// Reconvert 在同一条记录上原地重转（契约 v0.24 / v0.24.1，6.17）。同步校验的顺序（v0.24.1 架构师定）：
 // 记录不存在 / 旧类型 → 不是 convert → 状态（invalid_state）→ 副本没就绪（copying / copy_failed）→ 源文件不在（NOT_FOUND reason=file）
 // → 旧输出被移动或替换（output_moved）→ 旧输出不在时不能改参数（params_locked，PM 15a）→ 换格式（format_change）→ 参数与格式检查。
 // 任何同步错误都不改记录、不发事件。
@@ -797,14 +797,14 @@ func (s *Service) Reconvert(ctx context.Context, req ReconvertRequest) (task.Tas
 		return task.Task{}, apperr.New(apperr.InvalidArgument, "不是转换记录")
 	}
 	if old.Reconverting {
-		return task.Task{}, task.InvalidStateError("这条记录正在重新转换")
+		return task.Task{}, task.InvalidStateError("这条记录正在重转")
 	}
 	if old.Status != task.StatusSucceeded {
-		return task.Task{}, task.InvalidStateError("只有已完成的记录可以重新转换")
+		return task.Task{}, task.InvalidStateError("只有已完成的记录可以重转")
 	}
 	var p params
 	if err := json.Unmarshal([]byte(old.Params), &p); err != nil || (p.Input == "" && len(old.InputPaths) == 0) {
-		return task.Task{}, apperr.New(apperr.InvalidArgument, "转换任务参数无效，无法重新转换")
+		return task.Task{}, apperr.New(apperr.InvalidArgument, "转换任务参数无效，无法重转")
 	}
 	in, src, err := s.reconvertInput(ctx, ss, old, p)
 	if err != nil {

@@ -79,7 +79,7 @@ type Task struct {
 	SourceID           string      `json:"sourceId,omitempty"` // 只有 convert 任务有；指向 convert_sources.id
 	HiddenInTaskCenter bool        `json:"hiddenInTaskCenter"` // 始终输出；true = 在任务中心隐藏（转换页照常显示）
 	Result             *TaskResult `json:"result,omitempty"`   // 只有成功的 convert 任务有；探测失败也可能没有
-	// 以下是原地重新转换（契约 v0.24，6.17.2），落库（迁移 0007）。
+	// 以下是原地重转（契约 v0.24，6.17.2），落库（迁移 0008）。
 	Reconverting       bool            `json:"reconverting"`                 // 始终输出；true = 正在原地重转（status 是 queued / running）
 	LastReconvertError *ReconvertError `json:"lastReconvertError,omitempty"` // 最近一次重转失败的信息
 	// ReconvertPrev / ReconvertPending 是重转期间的快照 JSON（不给前端）。
