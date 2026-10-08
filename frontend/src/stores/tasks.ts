@@ -6,7 +6,7 @@ import { call, toAppError } from '@/api/call'
 import { hasWailsBackend, onEvent, onSimEvent, previewParams } from '@/services/wails'
 import { cancelSimTask, getSimTask, isSimTask, listSimFinished, removeSimTasks, retrySimTask } from '@/api/sim'
 import { toInstallProgress, useFFmpegStore } from '@/stores/ffmpeg'
-import { buildPreviewActive, buildPreviewHistory, PREVIEW_LOG } from '@/stores/tasks.preview'
+import { buildPreviewActive, buildPreviewHistory, PREVIEW_LOG, unmappedErrorPreview } from '@/stores/tasks.preview'
 import { mergeEncoderFields, pickEncoderFields } from '@/api/encoderTask'
 import { convertV2IsReal, hideFinishedInTaskCenter, listTasks, unhideInTaskCenter } from '@/api/convertRecords'
 import { toReconvertError, toTaskResult, type ApiReconvertError, type ApiTaskResult } from '@/api/taskTypes'
@@ -761,6 +761,7 @@ export const useTaskStore = defineStore('tasks', () => {
         previewHistory.value = buildPreviewHistory(
           previewParams.has('hist') ? Math.max(0, Number(previewParams.get('hist')) || 0) : 8,
         )
+        if (previewParams.get('q1') === '1') previewHistory.value.unshift(unmappedErrorPreview())
       }
       ready.value = true
       return

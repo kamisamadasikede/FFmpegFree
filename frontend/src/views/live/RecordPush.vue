@@ -76,7 +76,7 @@ import { restoreSourceId, useLiveFormsStore } from '@/stores/liveForms'
 import { useLiveSessionsStore } from '@/stores/liveSessions'
 import { useLiveDockStore } from '@/stores/liveDock'
 import { recordStartEnabled, sourcePickerMode } from '@/utils/liveSource'
-import { LIVE_RECORD_EMPTY_HINT, LIVE_RECORD_EMPTY_HINT_WIN, LIVE_SCREEN_NO_AUDIO_TEXT, LIVE_SOURCE_FIELD_LABEL, LIVE_SOURCE_FIELD_LABEL_SCREEN, LIVE_SOURCE_REFRESH, LIVE_SRT_PASSPHRASE_TEXT, liveSourceGoneText } from '@/errors/errorMessages'
+import { LIVE_RECORD_EMPTY_HINT, LIVE_RECORD_EMPTY_HINT_WIN, LIVE_SCREEN_NO_AUDIO_TEXT, LIVE_SOURCE_FIELD_LABEL, LIVE_SOURCE_FIELD_LABEL_SCREEN, LIVE_SOURCE_REFRESH, LIVE_SRT_PASSPHRASE_TEXT, liveSourceGoneText, publicErrorText} from '@/errors/errorMessages'
 import { LP_KEY_HINT, LP_LIMIT } from '@/errors/livePreviewMessages'
 import { composePushUrl, parsePushUrl } from '@/utils/liveUrl'
 import * as liveApi from '@/api/live'
@@ -150,7 +150,7 @@ async function changeDir() {
     const d = await pickDirectory('选择存档文件夹')
     if (d) archiveDir.value = d
   } catch (e) {
-    ElMessage.error(toAppError(e).message)
+    ElMessage.error(publicErrorText(toAppError(e).message))
   }
 }
 
@@ -223,7 +223,7 @@ async function start() {
       try {
         dir = archiveDir.value = await pickDirectory('选择存档文件夹')
       } catch (e) {
-        return void ElMessage.error(toAppError(e).message)
+        return void ElMessage.error(publicErrorText(toAppError(e).message))
       }
       if (!dir) return // 用户取消
     }

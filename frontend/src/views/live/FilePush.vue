@@ -52,7 +52,7 @@ import { useLiveSessionsStore } from '@/stores/liveSessions'
 import { useLiveDockStore } from '@/stores/liveDock'
 import { useLiveFormsStore } from '@/stores/liveForms'
 import { probeFiles } from '@/api/media'
-import { LIVE_SRT_PASSPHRASE_TEXT } from '@/errors/errorMessages'
+import { LIVE_SRT_PASSPHRASE_TEXT, publicErrorText} from '@/errors/errorMessages'
 import { LP_KEY_HINT, LP_LIMIT } from '@/errors/livePreviewMessages'
 import { composePushUrl, parsePushUrl } from '@/utils/liveUrl'
 import * as liveApi from '@/api/live'
@@ -100,7 +100,7 @@ async function pick() {
     const picked = liveApi.liveIsReal() ? await liveApi.pickMaterial() : liveApi.demoMaterials().slice(0, 1)
     if (picked[0]) material.value = picked[0]
   } catch (e) {
-    ElMessage.error(toAppError(e).message)
+    ElMessage.error(publicErrorText(toAppError(e).message))
   }
 }
 

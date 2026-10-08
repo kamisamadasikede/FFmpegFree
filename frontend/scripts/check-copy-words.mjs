@@ -9,6 +9,10 @@ import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const BANNED = /ffmpeg|剪辑/i
+// 契约 v0.25.3：已知错误码和 reason= 不能出现在界面文案里。注释、比较用的码、detail 载荷不查。
+const KNOWN_CODES = ['INVALID_ARGUMENT','NOT_FOUND','TASK_CONFLICT','IO_ERROR','CANCELED','UNSUPPORTED','INTERNAL','FFMPEG_NOT_FOUND','PROBE_FAILED','PROCESS_FAILED','CONVERT_DISK_FULL','UNSUPPORTED_PLATFORM','LIVE_URL_INVALID','LIVE_CONNECT_FAILED','LIVE_PUSH_REJECTED','LIVE_PUSH_INTERRUPTED','SCREEN_PERMISSION_DENIED','LIVE_SOURCE_GONE','LIVE_PLAY_FAILED','LIVE_CORS_BLOCKED','PDF_PARSE_FAILED']
+const CODE_LEAK = new RegExp('\\b(?:' + KNOWN_CODES.join('|') + ')\\b|reason=')
+const RENDER_KEYS = new Set(['label','title','subtitle','text','description','placeholder','hint','note','tooltip','tip','empty','emptyText','confirmText','cancelText','ariaLabel','heading','caption','content','actionLabel','tag'])
 const HAN = /[\u3400-\u9fff\u3000-\u303f\uff01-\uff5e\u2026\u201c\u201d]/
 const USER_KEYS = new Set(['label', 'title', 'subtitle', 'text', 'description', 'desc', 'message', 'msg', 'tip', 'tooltip', 'hint', 'note', 'detail', 'placeholder', 'content', 'actionLabel', 'ariaLabel', 'tag', 'primary', 'secondary', 'heading', 'caption', 'empty', 'emptyText', 'confirmText', 'cancelText'])
 const USER_ATTRS = /^(title|placeholder|aria-label|aria-description|aria-valuetext|alt|content|label|text|description|message|subtitle|heading|empty-text|confirm-button-text|cancel-button-text|tip|tip-[\w-]+|[\w-]*-text|[\w-]*-label)$/
@@ -106,10 +110,12 @@ function templateHits(tpl, base, push) {
       const a = s.indexOf('{{', k)
       const plain = a < 0 ? s.slice(k) : s.slice(k, a)
       if (BANNED.test(clean(plain))) push(off + k + clean(plain).search(BANNED) , plain.trim())
+      else if (CODE_LEAK.test(plain)) { CODE_LEAK.lastIndex = 0; push(off + k, plain.trim()) }
+      else CODE_LEAK.lastIndex = 0
       if (a < 0) break
       const b = s.indexOf('}}', a + 2)
       const expr = s.slice(a + 2, b < 0 ? s.length : b)
-      for (const l of jsLiterals(expr, off + a + 2)) if (isCopyLike(l.value, l.key)) push(l.start, l.value)
+      for (const l of jsLiterals(expr, off + a + 2)) if (isCopyLike(l.value, l.key) || leakHit(l.value, l.key, true)) push(l.start, l.value)
       k = b < 0 ? s.length : b + 2
     }
   }
@@ -125,8 +131,12 @@ function templateHits(tpl, base, push) {
         const name = m[1]
         const val = m[3] ?? m[4] ?? ''
         const off = base + i + 1 + m.index + m[0].indexOf(val)
-        if (/^[:@#]|^v-/.test(name)) { for (const l of jsLiterals(val, off)) if (isCopyLike(l.value, l.key)) push(l.start, l.value) }
+        const bare = name.replace(/^[:@#]/, '').replace(/^v-bind:/, '')
+        const shownAttr = USER_ATTRS.test(bare)
+        if (/^[:@#]|^v-/.test(name)) { for (const l of jsLiterals(val, off)) if (isCopyLike(l.value, l.key) || leakHit(l.value, l.key, shownAttr)) push(l.start, l.value) }
         else if (BANNED.test(clean(val)) && (USER_ATTRS.test(name) || HAN.test(val))) push(off, `${name}="${val}"`)
+        else if (CODE_LEAK.test(val) && USER_ATTRS.test(name)) { CODE_LEAK.lastIndex = 0; push(off, `${name}="${val}"`) }
+        else CODE_LEAK.lastIndex = 0
       }
       i = j + 1; continue
     }
@@ -135,6 +145,12 @@ function templateHits(tpl, base, push) {
     text(tpl.slice(i, j), base + i)
     i = j
   }
+}
+
+function leakHit(value, key, rendered) {
+  if (!CODE_LEAK.test(value)) return false
+  CODE_LEAK.lastIndex = 0
+  return rendered || (key != null && RENDER_KEYS.has(key))
 }
 
 export function scanFile(path, src) {
@@ -152,9 +168,9 @@ export function scanFile(path, src) {
     if (t0 >= 0 && t1 > t0) { const s = src.indexOf('>', t0) + 1; templateHits(src.slice(s, t1), s, push) }
     const re = /<script[^>]*>([\s\S]*?)<\/script>/g
     let m
-    while ((m = re.exec(src))) { const off = m.index + m[0].indexOf(m[1]); for (const l of jsLiterals(m[1], off)) if (isCopyLike(l.value, l.key)) push(l.start, l.value) }
+    while ((m = re.exec(src))) { const off = m.index + m[0].indexOf(m[1]); for (const l of jsLiterals(m[1], off)) if (isCopyLike(l.value, l.key) || leakHit(l.value, l.key, false)) push(l.start, l.value) }
   } else {
-    for (const l of jsLiterals(src)) if (isCopyLike(l.value, l.key)) push(l.start, l.value)
+    for (const l of jsLiterals(src)) if (isCopyLike(l.value, l.key) || leakHit(l.value, l.key, false)) push(l.start, l.value)
   }
   return hits
 }
@@ -183,9 +199,15 @@ export function runCopyWordCheck() {
   expectHit('注释 / import / 正则 / 事件名 / 产品名', 'a.ts', "import { useFFmpegStore } from '@/stores/ffmpeg'\n// ffmpeg 已就绪\nconst r = /^ffmpeg\\s*退出码/\non('ffmpeg:status'); t = 'ffmpeg_install'; p = 'D:\\\\FFmpegFree\\\\输出'", 0)
   expectHit('已下线功能名', 'a.vue', `<template><span>{{ x }}</span><i title="剪辑导出"></i></template><script setup lang="ts">const L = { edit_export: '剪辑' }</script>`, 2)
   expectHit('忽略标记', 'a.ts', "const a = '需要 ffmpeg' // copy-check-ignore", 0)
+  expectHit('模板里的错误码', 'a.vue', '<template><p>INTERNAL</p></template>', 1)
+  expectHit('模板里的 reason=', 'a.vue', '<template><p>reason=whatever</p></template>', 1)
+  expectHit('说明键里的 reason=', 'a.ts', "const a = { description: '出错了 reason=push' }", 1)
+  expectHit('兜底文案本身', 'a.ts', "export const UNMAPPED_ERROR_TEXT = '出了点问题，请重试。'", 0)
+  expectHit('比较和载荷不算文案', 'a.ts', "if (code === 'INTERNAL') throw new AppError('NOT_FOUND', '文件已被移动或删除', 'reason=file')\n// reason=push LIVE_SOURCE_GONE", 0)
+  expectHit('映射表的键不是文案', 'a.ts', "const errorMessages = { INTERNAL: { title: '出错了', description: '请重试。' } }", 0)
   fails.push(...selfFails)
   for (const p of walk(join(root, 'src'))) {
-    for (const h of scanFile(p, readFileSync(p, 'utf8'))) fails.push(`${relative(root, p)}:${h.line}  界面文字含“ffmpeg”或“剪辑”（ffmpeg 改成“转换组件”）：${h.text}`)
+    for (const h of scanFile(p, readFileSync(p, 'utf8'))) fails.push(`${relative(root, p)}:${h.line}  界面文字含禁用词（ffmpeg / 剪辑 / 错误码 / reason=）：${h.text}`)
   }
   return fails
 }
@@ -193,5 +215,5 @@ export function runCopyWordCheck() {
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const fails = runCopyWordCheck()
   if (fails.length) { console.error(fails.join('\n')); process.exit(1) }
-  console.log('界面文字检查通过：没有“ffmpeg”和“剪辑”')
+  console.log('界面文字检查通过：没有“ffmpeg”、“剪辑”、错误码和 reason=')
 }

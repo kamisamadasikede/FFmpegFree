@@ -8,6 +8,7 @@ import { LIVE_PREVIEW_V25_BACKEND_READY } from './flags'
 import { startPullPreview, stopPullPreview, type PullSession } from './live'
 import { hasWailsBackend, onEvent } from '@/services/wails'
 import { LP_END_PULL, LP_END_PULL_REMOTE, LP_PULL_FAILED, LP_UNAVAILABLE } from '@/errors/livePreviewMessages'
+import { userVisibleMessage } from '@/errors/errorMessages'
 
 export interface PreviewStream {
   url: string
@@ -102,7 +103,7 @@ export function pullEndedView(userStopped: boolean): { title: string; note: stri
  * 没有 message、或 message 写的是推流（后端复用了推流的分类）时用 LP_PULL_FAILED，和后端拉流失败的文案一致。
  */
 export function pullBreakText(message: string | undefined | null): string {
-  const m = (message ?? '').trim()
+  const m = userVisibleMessage(message)
   return !m || m.includes('推流') ? LP_PULL_FAILED : m
 }
 

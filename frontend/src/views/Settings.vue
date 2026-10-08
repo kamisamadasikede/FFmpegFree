@@ -123,6 +123,7 @@ import { toAppError } from '@/api/call'
 import { MAX_CONCURRENT_AUTO, MAX_CONCURRENT_MAX, getMaxConcurrent, setMaxConcurrent, openComponentFolder, componentFolderErrorText } from '@/api/system'
 import { useTheme, type ThemeMode } from '@/composables/useTheme'
 import { useFFmpegStore } from '@/stores/ffmpeg'
+import { publicErrorText } from '@/errors/errorMessages'
 
 const { mode } = useTheme()
 const storageOn = convertV24On()
@@ -179,7 +180,7 @@ async function run(fn: () => Promise<unknown>) {
   try {
     await fn()
   } catch (e) {
-    ElMessage.error(toAppError(e).message)
+    ElMessage.error(publicErrorText(toAppError(e).message))
   } finally {
     busy.value = false
   }
@@ -201,7 +202,7 @@ onMounted(async () => {
     saved = await getMaxConcurrent()
     concurrent.value = saved
   } catch (e) {
-    ElMessage.error(toAppError(e).message)
+    ElMessage.error(publicErrorText(toAppError(e).message))
   } finally {
     loaded.value = true
   }
@@ -220,7 +221,7 @@ async function flush() {
         saved = want
       } catch (e) {
         concurrent.value = saved // 后端拒绝 / IO 出错：整体不生效，回退到已确认的值
-        ElMessage.error(toAppError(e).message)
+        ElMessage.error(publicErrorText(toAppError(e).message))
       }
     }
   } finally {

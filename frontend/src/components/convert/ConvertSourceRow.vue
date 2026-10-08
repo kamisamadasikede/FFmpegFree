@@ -15,6 +15,7 @@ import {
   OPEN_STORAGE_SETTINGS, copyPct, copyProgressText, copyTag, isNoSpace, sourcePathTip, splitPathTail,
 } from '@/utils/convertV24Text'
 import { formatBytes, formatShortClock } from '@/utils/format'
+import { probeErrorText, userVisibleMessage } from '@/errors/errorMessages'
 
 const props = defineProps<{ p: ParentView; focusId?: string }>()
 const emit = defineEmits<{
@@ -46,7 +47,7 @@ const cpText = computed(() => copyProgressText(src.value.copiedBytes ?? 0, src.v
 const cpPct = computed(() => copyPct(src.value.copiedBytes ?? 0, src.value.totalBytes ?? 0))
 const noSpace = computed(() => isNoSpace(src.value.copyError))
 /** 复制失败的说明：后端 copyError.message（空间不足那句后端拼好） */
-const copyMsg = computed(() => src.value.copyError?.message || '复制文件失败')
+const copyMsg = computed(() => userVisibleMessage(src.value.copyError?.message) || '复制文件失败')
 const opath = computed(() => splitPathTail(src.value.originalPath || src.value.path))
 const ptip = computed(() => sourcePathTip(src.value))
 /** 模拟截图：?cv_hover=path 让勾选的行显示路径浮层（截图 25） */
@@ -55,7 +56,7 @@ const pvTip = computed(() => (gone.value ? '源文件已不存在，无法预览
 const isNew = computed(() => src.value.recordCount === 0 && !props.p.kids.length && !gone.value && !tag.value)
 const meta = computed(() => {
   if (gone.value) return { cls: 'gone', text: '原位置找不到这个文件，转换记录仍保留' }
-  if (src.value.probe === 'error') return { cls: 'err', text: src.value.probeError?.message ? `读取失败：${src.value.probeError.message}` : '读取失败' }
+  if (src.value.probe === 'error') return { cls: 'err', text: src.value.probeError ? `读取失败：${probeErrorText(src.value.probeError.code, src.value.probeError.message)}` : '读取失败' }
   if (info.value) {
     // 窄窗口大小优先：最后一段（大小）单独放，前面的参数先省略
     const text = sourceMetaText(info.value, ext.value) // 图片格式不说“没有声音”（走查 D7）

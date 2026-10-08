@@ -25,6 +25,7 @@ import { FALLBACK_BANNER } from '@/utils/convertV24Text'
 import { useTaskStore } from '@/stores/tasks'
 import { deleteToast, revealDeleteFailureText, roughEta, toastText, type DeleteToast } from '@/utils/convertText'
 import { midEllipsisPx } from '@/utils/midEllipsis'
+import { publicErrorText } from '@/errors/errorMessages'
 
 const cv = useConvertRecordsStore()
 const tasks = useTaskStore()
@@ -113,7 +114,7 @@ async function onConfirmDelete(withOutput: boolean) {
     delAsk.value = null
     showDeleteToast(deleteToast(a, r))
   } catch (e) {
-    ElMessage.error(toAppError(e).message)
+    ElMessage.error(publicErrorText(toAppError(e).message))
   } finally {
     deleting.value = false
   }

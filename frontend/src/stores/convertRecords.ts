@@ -7,6 +7,7 @@
 import { defineStore } from 'pinia'
 import { computed, reactive, ref, watch } from 'vue'
 import { toAppError } from '@/api/call'
+import { publicErrorText } from '@/errors/errorMessages'
 import { listPresets, MAX_SUBMIT, type PresetItem } from '@/api/convert'
 import {
   addSources, checkPaths, checkSources, convertV2IsReal, deleteRecords, deleteSource, getRecordThumbnail, getSourceThumbnail, listSourceRecords, listSources as apiListSources,
@@ -878,7 +879,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       pinned.value = sid
     } catch (e) {
       const err = errOf(e)
-      return say(err.code === 'NOT_FOUND' ? '这条转换记录已被删除' : err.message)
+      return say(err.code === 'NOT_FOUND' ? '这条转换记录已被删除' : publicErrorText(err.message))
     }
     for (let i = 0; i < 20 && !records[taskId] && sources[sid] && sources[sid].loadedIds.length < sources[sid].recordCount; i++) {
       const before = sources[sid].loadedIds.length
@@ -1466,7 +1467,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       saySkipped(res.skipped)
     } catch (e) {
       const err = errOf(e)
-      say(submitCopyErrorText(err) || err.message)
+      say(submitCopyErrorText(err) || publicErrorText(err.message))
     }
   }
 
@@ -1485,7 +1486,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
         dropRecords([id])
         return true
       }
-      say(err.message)
+      say(publicErrorText(err.message))
       return true
     }
   }
@@ -1501,7 +1502,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
         markSourceGone(sourceId)
         return false
       }
-      say(err.message)
+      say(publicErrorText(err.message))
       return true
     }
   }

@@ -14,7 +14,7 @@
           <div class="lab">推流地址</div>
           <div class="input bad ff-input-bad">http:/live.example</div>
           <InlineError code="LIVE_URL_INVALID" />
-          <div class="tag">LIVE_URL_INVALID · 行内</div>
+          <div class="tag">流地址不正确 · 行内</div>
         </div>
         <div class="pv surface span2">
           <div class="lab3">任务中心 · 失败行（推流中断 / 连接失败）</div>

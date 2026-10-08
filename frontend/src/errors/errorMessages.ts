@@ -75,7 +75,9 @@ export const errorMessages: Record<ErrorCode, ErrorMessage> = {
 
 /** 未收录的错误码（INTERNAL 等）的兜底文案 */
 export const FALLBACK_TITLE = '出错了'
-export const FALLBACK_DESCRIPTION = '发生了未知错误，请查看日志了解详情。'
+/** 契约 v0.25.3：映射不到的错误一律这一句。错误码和 reason= 不出现在界面上。 */
+export const UNMAPPED_ERROR_TEXT = '出了点问题，请重试。'
+export const FALLBACK_DESCRIPTION = UNMAPPED_ERROR_TEXT
 
 export interface ResolvedError extends ErrorMessage {
   /** 展示用的错误码；未传时为 INTERNAL */
@@ -101,12 +103,12 @@ export function resolveError(code?: string | null, fallbackMessage?: string | nu
     }
     return { ...errorMessages[code], code, known: true }
   }
-  const message = (fallbackMessage ?? '').trim()
+  const message = userVisibleMessage(fallbackMessage)
   return {
     code: code || 'INTERNAL',
     known: false,
     title: FALLBACK_TITLE,
-    description: message || FALLBACK_DESCRIPTION,
+    description: message || UNMAPPED_ERROR_TEXT,
     style: 'overlay',
     primary: RETRY,
     secondary: VIEW_LOG,
@@ -201,14 +203,25 @@ export function resolveTaskError(code?: string | null, fallbackMessage?: string 
     const byScheme = code === 'LIVE_CONNECT_FAILED' && isLiveConnectFailedText(fallbackMessage)
     return { code, title: m.title, description: byScheme ? (fallbackMessage as string) : m.description, actions: DEFAULT_TASK_ACTIONS, known: true }
   }
-  const message = (fallbackMessage ?? '').trim()
+  const message = userVisibleMessage(fallbackMessage)
   return {
     code: code || 'INTERNAL',
     title: taskFallbackTitle(taskType),
-    description: rewriteProcessExitText(code, message) || FALLBACK_DESCRIPTION,
+    description: (message ? rewriteProcessExitText(code, message) : '') || UNMAPPED_ERROR_TEXT,
     actions: DEFAULT_TASK_ACTIONS,
     known: false,
   }
+}
+
+/**
+ * 任务卡上实际画出来的文字。未知码、空 message、detail 只有 reason= 时，说明是「出了点问题，请重试。」。
+ * text 是标题和说明拼在一起，给自检用：里面不能有错误码，也不能有 reason=。
+ */
+export function renderTaskError(code?: string | null, message?: string | null, detail?: string | null, taskType?: string | null): ResolvedTaskError & { text: string } {
+  const fromDetail = detailWithoutPaths(detail).split(/\r?\n/).map((l) => l.trim()).filter(Boolean).pop() ?? ''
+  const resolved = resolveTaskError(code, userVisibleMessage(message) || userVisibleMessage(fromDetail), taskType)
+  const text = `${resolved.title}${resolved.description}`
+  return { ...resolved, text }
 }
 
 // ---- 操作失败提示（toast / 行内）：按钮触发的 Bind 调用返回的 AppError → 用户可读的话 ----
@@ -225,16 +238,33 @@ export function actionErrorText(code: string, backendMessage: string, reason?: s
   if (code === 'TASK_CONFLICT') return taskConflictText(reason)
   // 旧版导出的重试 / 重转：用后端这句，不要收成「该任务暂不支持重试」或「导出失败」
   if (code === 'UNSUPPORTED' && /旧版导出/.test(backendMessage)) return backendMessage
-  return ACTION_ERROR_TEXT[code] ?? (backendMessage || FALLBACK_DESCRIPTION)
+  if (ACTION_ERROR_TEXT[code]) return ACTION_ERROR_TEXT[code]
+  return publicErrorText(backendMessage)
 }
 
-/** detail 里像路径的行不给用户看（组件候选路径、绝对路径）。reason= 这种枚举行留下。 */
+/** detail 里不给用户看的行：reason= / scheme= / kind= / missing=，以及像路径的行。 */
+const MACHINE_LINE = /^(?:reason|scheme|kind|missing)=/
+const KNOWN_CODE_RE = /\b(?:INVALID_ARGUMENT|NOT_FOUND|TASK_CONFLICT|IO_ERROR|CANCELED|UNSUPPORTED|INTERNAL|FFMPEG_NOT_FOUND|PROBE_FAILED|PROCESS_FAILED|CONVERT_DISK_FULL|UNSUPPORTED_PLATFORM|LIVE_URL_INVALID|LIVE_CONNECT_FAILED|LIVE_PUSH_REJECTED|LIVE_PUSH_INTERRUPTED|SCREEN_PERMISSION_DENIED|LIVE_SOURCE_GONE|LIVE_PLAY_FAILED|LIVE_CORS_BLOCKED|PDF_PARSE_FAILED)\b/g
+const UNKNOWN_CODE_RE = /\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/g
+
 export function detailWithoutPaths(detail?: string | null): string {
-  const keep = (detail ?? '').split(/\r?\n/).map((l) => l.trim()).filter((l) => {
-    if (!l || /^reason=/.test(l) || /^scheme=/.test(l) || /^kind=/.test(l)) return !!l && !looksLikePath(l)
-    return !looksLikePath(l)
-  })
+  const keep = (detail ?? '').split(/\r?\n/).map((l) => l.trim()).filter((l) => !!l && !MACHINE_LINE.test(l) && !looksLikePath(l))
   return keep.join('\n')
+}
+
+/** 能给用户看的说明。空的、只有 reason= 或错误码的，返回空串。 */
+export function userVisibleMessage(text?: string | null): string {
+  const lines = (text ?? '').split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !MACHINE_LINE.test(l) && !looksLikePath(l))
+  UNKNOWN_CODE_RE.lastIndex = 0
+  KNOWN_CODE_RE.lastIndex = 0
+  const s = lines.join('\n').replace(/\breason=\S*/g, ' ').replace(UNKNOWN_CODE_RE, ' ').replace(KNOWN_CODE_RE, ' ').replace(/[ \t]{2,}/g, ' ').trim()
+  if (!s || MACHINE_LINE.test(s) || s.includes('reason=')) return ''
+  return s
+}
+
+/** 界面上的一句错误说明：能看的用原文，其余用「出了点问题，请重试。」 */
+export function publicErrorText(message?: string | null): string {
+  return userVisibleMessage(message) || UNMAPPED_ERROR_TEXT
 }
 function looksLikePath(line: string): boolean {
   if (/^[A-Za-z]:[\\/]/.test(line) || /^\\\\/.test(line)) return true
@@ -421,7 +451,7 @@ export const PROBE_ERROR_TITLE = '无法读取这个文件'
 
 /** 探测失败行的说明：已知码用上面的文案，其余用后端 message */
 export function probeErrorText(code: string, backendMessage?: string): string {
-  return PROBE_ERROR_TEXT[code] ?? ((backendMessage ?? '').trim() || FALLBACK_DESCRIPTION)
+  return PROBE_ERROR_TEXT[code] ?? publicErrorText(backendMessage)
 }
 
 /** 提交失败（Submit 整体校验不通过）时没有对应到具体文件的错误标题 */
@@ -519,7 +549,7 @@ function docReasonText(code: string, msg: string, detail: string | undefined, ma
 /** 文档 UNSUPPORTED 的用户文案（任务中心也用）：先看 reason，再兜底 message；认不出的沿用后端 message，不误导用户去“另存为” */
 export function docUnsupportedText(backendMessage?: string, detail?: string, maxPages = 5000): string {
   const msg = (backendMessage ?? '').trim()
-  return docReasonText('UNSUPPORTED', msg, detail, maxPages, true) ?? (msg || FALLBACK_DESCRIPTION)
+  return docReasonText('UNSUPPORTED', msg, detail, maxPages, true) ?? publicErrorText(msg)
 }
 
 /**
@@ -532,7 +562,7 @@ export function docErrorText(code: string, backendMessage?: string, detail?: str
     case 'UNSUPPORTED':
     case 'INVALID_ARGUMENT':
       // 有 reason 的按 reason；路径 / 参数 / 输出目录类的 INVALID_ARGUMENT 没有 reason，沿用后端 message
-      return docReasonText(code, msg, detail, maxPages) ?? (msg || FALLBACK_DESCRIPTION)
+      return docReasonText(code, msg, detail, maxPages) ?? publicErrorText(msg)
     case 'NOT_FOUND':
       return DOC_NOT_FOUND_TEXT
     case 'CONVERT_DISK_FULL':
@@ -542,7 +572,7 @@ export function docErrorText(code: string, backendMessage?: string, detail?: str
     case 'CANCELED':
       return '操作已取消。'
     default:
-      return msg || FALLBACK_DESCRIPTION
+      return publicErrorText(msg)
   }
 }
 
@@ -590,13 +620,13 @@ export function pdfErrorView(code: string, backendMessage?: string, maxPdfBytes 
     case 'INVALID_ARGUMENT':
       if (reason === 'too_large' || (!reason && msg === PDF_TOO_LARGE_MESSAGE)) return { text: `文件超过 ${Math.round(maxPdfBytes / (1024 * 1024))} MiB，暂不支持预览。`, code, retry: false }
       if (reason === 'format' || (!reason && PDF_NOT_PDF_MESSAGES.includes(msg))) return { text: DOC_PDF_INVALID_TEXT, code, retry: false }
-      return { text: msg || FALLBACK_DESCRIPTION, code, retry: false }
+      return { text: publicErrorText(msg), code, retry: false }
     case 'NOT_FOUND':
       return { text: DOC_PDF_NOT_FOUND_TEXT, code, retry: false }
     case 'IO_ERROR':
       return { text: PDF_CHANGED_MESSAGES.includes(msg) ? DOC_PDF_CHANGED_TEXT : DOC_PDF_NO_PERMISSION_TEXT, code, retry: true }
     default:
-      return { text: msg || FALLBACK_DESCRIPTION, code, retry: true }
+      return { text: publicErrorText(msg), code, retry: true }
   }
 }
 /** 浏览器里的模拟环境（没有 window.go）才显示的说明 */
