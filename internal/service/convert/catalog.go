@@ -229,8 +229,18 @@ func (caps *capabilities) encodability(o ffmpeg.ConvertOptions) string {
 	return ""
 }
 
+// catalogDetectWait 是格式目录在转换组件还在检测时最多等待的时间（v0.25.4）。
+// 只在检测进行中才等；必须短于前端自己的超时（8 秒），超时后按未就绪返回，前端等 ffmpeg:status 再取。
+const catalogDetectWait = 6 * time.Second
+
 // capabilities 返回当前转换组件的能力：未就绪返回 reasonCode converter_not_ready，检测失败返回 check_failed。
+// 检测进行中时先等（最多 catalogDetectWait，或调用方 ctx 更短时以 ctx 为准），避免冷启动把“还在检测”当成“尚未就绪”缓存给界面。
 func (s *Service) capabilities(ctx context.Context) (*capabilities, string) {
+	if s.cfg.WaitFFmpeg != nil {
+		wctx, cancel := context.WithTimeout(ctx, catalogDetectWait)
+		s.cfg.WaitFFmpeg(wctx)
+		cancel()
+	}
 	bin, err := s.cfg.Require()
 	if err != nil {
 		return nil, ReasonConverterNotReady
