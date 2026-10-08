@@ -1,4 +1,8 @@
-# FFmpegFree v2 接口契约（v0.24.4）
+# FFmpegFree v2 接口契约（v0.25）
+
+v0.25 变更（**直播预览改成真实视频流**，老板和架构师定，包 21；**只有契约，实现在本 PR 合入后另开**；完整规则见新增的 **6.10.3**，本条只是索引）：① **删除 2 fps 图片预览**：删掉 `LiveService.GetPreview` 和 `Preview` 类型、预览这一路的 `fps=2` image2 输出（`PreviewOutputArgs`）、`PreviewProbe` 对 `mjpeg` / `image2` 的检查，以及 `<数据目录>/tmp/live-preview` 临时目录（启动时如果还在就删掉，不再重建）。6.10「预览画面（v0.17）」整节作废，只作历史记录。② **推流预览 = 推出去的那路流本身**：同一个 ffmpeg 进程，**不多编码一次**。开预览时主输出一律改成 `tee`，多一个 `onfail=ignore` 的预览分支，用 `use_fifo=1` + `drop_pkts_on_overflow=1` 做缓冲，经本机 TCP 交给后端；后端一直读，读出来分发给 HTTP 客户端。预览分支出错、看的人卡住，都不会拖慢或中断推流。带音频，前端默认静音。③ **拉流预览 = 后端转封装**：ffmpeg 读远端流 `-c copy` 成 FLV，用同样的方式提供；`PullSession` 新增 `previewUrl`。④ **本机 HTTP 服务**（v0.5 起“后端不监听任何端口”的规定**只对直播预览放开**）：只监听 `127.0.0.1` 的随机端口，每个会话一个随机 token，会话结束 token 立即作废；`Content-Type: video/x-flv`、分块传输；CORS **只回显 Wails 自己的 origin**，不用 `*`，其他 origin 和没有 `Origin` 的请求返回 403，处理 `OPTIONS` 预检。⑤ **预览开关不影响推流**（新直播页：开始前和会话面板里都有“开启预览”）：推流的预览分支**始终存在**（转换组件有 `tee` 和 `tcp` 时），开关只决定前端连不连 `GetPreviewStream`；会话中途开关预览**绝不重启、不中断推流**，也不改命令行。`FilePushRequest.preview`、`ScreenPushRequest.preview`、`PullPreviewRequest.preview` 字段保留（旧前端照传不报错），**后端忽略**。拉流预览会话总是起 ffmpeg。⑤′ **新接口 `LiveService.GetPreviewStream(sessionId) (PreviewStream, error)`**，返回 `{url, mime, hasVideo, hasAudio}`，推流会话和拉流预览会话都用它。⑥ **编码兼容**：只有 H.264 视频，以及 AAC / MP3 音频能在应用内播放。推流一定是 H.264 + AAC（或没有音频），所以总能预览；拉流时视频不是 H.264（**HEVC 默认算不支持**）返回 `UNSUPPORTED` `reason=codec`，**不转码**；只有音频不支持时去掉音频、只给画面。⑦ **结束与中断**：会话结束时正常收尾 HTTP 响应（发完分块结束标记）。推流沿用 `task:status` 区分正常结束和被中断；拉流预览新增事件 **`live:pull`**。⑧ 2.2 新增取值：`UNSUPPORTED` `reason=codec` / `reason=preview_unavailable`、`NOT_FOUND` `reason=session`。**没有新增错误码**（2.1 仍是 18 个）。⑨ 地址、推流码、token 在所有日志里脱敏。
+
+v0.24.5 变更（直播推流帧率，老板：按源帧率推流；**没有新增错误码、没有接口签名变化**）：① **主输出不加任何程序自定的帧率 / 尺寸限制**（再次确认并加测试）：文件推流 `options.fps=0` 时主输出没有 `fps` 滤镜、没有 `-r`，沿用源帧率；`width/height=0` 时只补偶数（`scale=trunc(iw/2)*2:trunc(ih/2)*2`），保持源尺寸；`-g` = 2×源帧率（探测不到按 30）；用户给了 `fps` / 尺寸才加在主输出上。屏幕推流的帧率由采集端 `-framerate` 决定（`options.fps=0` 仍按 30 采集，屏幕没有“源帧率”），主输出同样没有 `fps` 滤镜。每秒 2 帧只在预览这一路。② **预览输出改为包在 `fifo` 封装里**（6.10「预览画面」）：`-map 0:v:0 -an -sn -dn -vf fps=2,scale=640:-2 -c:v mjpeg -q:v 5 -protocol_whitelist file -f fifo -fifo_format image2 -format_opts update=1:atomic_writing=1 -queue_size 4 -drop_pkts_on_overflow 1 -attempt_recovery 1 -recover_any_error 1 -recovery_wait_time 1 -max_recovery_attempts 0 file:<预览路径>`。原因（实测 ffmpeg 7.1）：同一进程里预览这一路写文件一卡住，会反压到共用的解码器，约 12 秒后推流完全停住；预览文件改名失败（Windows 上读取端正打开着预览文件时 `MoveFileEx` 会被拒绝）会让整个 ffmpeg 以 `Error muxing a packet` 退出、推流一起断掉。包了 `fifo` 后预览写慢就丢预览帧、写失败 1 秒后重试，推流不受影响。`PreviewProbe` 另要求有 `fifo` 封装，没有时这次会话不加预览（同其他降级，不报错）。拉流预览用同一个 `PreviewOutputArgs`。③ 直播推流的完整 ffmpeg 参数（推流地址、密钥脱敏）在启动时写进应用日志；`LiveService` 的日志此前没有接到应用日志，本版接上（写进 v0.24.2 的 `<数据目录>/logs/app.log`）；推流地址整段换成 `<推流地址>`，主机、端口、密钥都不写。④ 本版只是过渡：v0.25 用真实视频流替换 2 fps 图片预览。
 
 v0.24.4 变更（架构师 2026-10-08 定，补 v0.24.1；**没有新增接口、错误码、reason、事件或迁移**。与 v0.24.1 ⑪“没有打开原文件所在位置”冲突时以本条为准）：① **“打开所在文件夹”和“用系统程序打开”都打开用户的原文件**，不打开实际上传目录里的副本（`<base>/uploads/<sourceId>/`，回退时在用户数据目录下）。`RevealSource(sourceId)` 打开 `originalPath` 所在的文件夹并选中原文件；`OpenSourceWithSystem(sourceId)` 用系统程序打开原文件。原文件已经不在（路径为空、不是绝对路径、`Stat` 失败或不是普通文件）时返回 `NOT_FOUND`（`detail` 首行 `reason=file`，message `原文件不存在，无法打开。`），**不退回副本**。扩展名白名单等其余规则不变（6.14.7）。`GetSourcePreviewURL` / `GetSourceThumbnail` 仍用显示路径（6.15.6），本条不改。② **直播本地存档留空时用实际输出目录**，跟转换、文档转 PDF 一样。`Settings.defaultOutputDir` 为空表示 `<base>/output`（6.15.1：`<base>` 默认是程序所在文件夹；该文件夹不可写时两个目录一起回退，Windows 回退到 `%LocalAppData%\FFmpegFree`，macOS / Linux 回退到应用数据目录；macOS `.app` 包直接用应用数据目录，不算回退）。直播页打开“保存存档”、用户没有另选文件夹时，存档目录**显示这个实际绝对路径**（`GetStorageDirs().outputDir`：自定义的 `defaultOutputDir` 优先，否则 `<base>/output`），不显示空的；开始推流时把该路径作为 `StartScreenPush` 的 `archiveDir` 传入。关掉“保存存档”仍传 `archiveDir=""`，表示不存档（6.10 的 `""` = 不存档不变）。用户另选了文件夹就用所选的，直到改回。 ③ **“复制中”的提示改说“准备中”（包 20 用词）**：副本还在复制时，后端给用户看的 message 不再说“复制”：`GetSourcePreviewURL` 改为 `文件还在准备中，准备好后才能预览。`；`SubmitSources` / `Reconvert` 的行还在复制（一行都没就绪时的整体错误）改为 `文件还在准备中，准备好后再转换。`；`RetryCopy` 遇到正在复制的行改为 `文件还在准备中，不需要重试。`（已复制完成的仍是 `文件已经在复制或已复制完成`）。**错误码和 `reason=copying`（及其后的 `sourceId=` 行）都不变**，前端仍按 `reason` 判断。
 
@@ -173,6 +177,7 @@ export type AppErrorCode =
 | DocService 错误（v0.16，`ConvertToPDF` 的同步校验和 `office_pdf` 任务的 `error`、`OpenPDF`、`ReadPDFChunk`；只有下面取值对应的场景，其余 Doc 错误没有 reason） | `reason=<值>` | `too_many_pages`（`UNSUPPORTED`，超过 5000 页，含文字量超限）、`format`（`UNSUPPORTED` 或 `INVALID_ARGUMENT`，格式不受支持：不支持的扩展名、没有扩展名、`OpenPDF` 的扩展名不是 `.pdf` / 内容不是 PDF）、`encrypted`（`UNSUPPORTED`，加密的 Office 文档，OLE 容器；**加密 PDF 能正常打开，不会有这个错误**）、`no_font`（`UNSUPPORTED`，需要 Unicode 字体而没有）、`invalid_ooxml`（`INVALID_ARGUMENT`，不是 zip、缺必需部件、XML 损坏、zip64 目录信息无效）、`too_large`（`INVALID_ARGUMENT`，超大小或超 zip 限制：文件 > 100 MiB、PDF > 512 MiB、zip 条目数 > 100 000、中央目录 > 9 600 000 字节、单个条目解压后 > 256 MiB）（只追加，不改名、不改含义、不删除） | `code` 和 `message` 不变，`message` 是给用户看的短句（精确文案见 6.12.6）；首行之后可以有自由文本行：`ConvertToPDF` 整体校验失败时**第二行是出错文件的绝对路径**（`reason` 行永远在首行），再后面是原因说明；任务的 `error` 没有路径行。取消、磁盘满（`CONVERT_DISK_FULL`）、读写失败（`IO_ERROR`）、`NOT_FOUND`、路径 / 参数 / 输出目录 / 句柄类的 `INVALID_ARGUMENT`、`INTERNAL` **没有 reason**，走该码的通用文案 |
 | 转换记录接口（v0.23，6.14：`ConvertService` 的 `ListSourceRecords` / `PreviewOutputName` / `SubmitSources` / `Reconvert` / `DeleteSource` / `GetSourcePreviewURL` / `OpenSourceWithSystem` / `RevealSource` / `GetSource` / `RevealRecord`（v0.23.1），`GetRecordThumbnail` / `GetSourceThumbnail`，`AddSources` 的单项错误，`TaskService` 的 `GetPreviewURL` / `OpenWithSystem` / `UnhideInTaskCenter`；只有下面取值对应的场景） | `reason=<值>` | `NOT_FOUND`：`record`（任务、源文件行或预设记录不存在，含旧类型 id）、`file`（记录在，但登记的文件已不存在或不是普通文件；任务不是 `succeeded` 时 `which=output` 也是它）、`no_app`（系统没有能打开这个文件的程序，message 固定 `没有找到能打开这个文件的程序`）；`UNSUPPORTED`：`format`（扩展名不在 6.14.7 的预览 / 系统打开白名单；缩略图接口上表示这个文件做不出缩略图，如纯音频，见 6.14.10）（只追加，不改名、不改含义、不删除） | `detail` 只有这一行；`SubmitSources` / `Reconvert` 只用 `reason=record`（id 不存在），**源文件本身的问题（不存在、探测失败、参数不兼容）仍按 6.9：`detail` 第一行是文件路径、没有 reason 行**；其余 6.14 的错误（`INVALID_ARGUMENT`、`TASK_CONFLICT`、`PROCESS_FAILED`、`INTERNAL`）没有 reason，走通用文案 |
 | 存储与副本、格式目录、原地重转（v0.24 / v0.24.1，6.15 / 6.16 / 6.17：`ConvertSource.copyError`、`lastReconvertError.detail`（6.17.5）、`Reconvert` 的同步错误（`TASK_CONFLICT` `reason=invalid_state` / `output_moved`、`INVALID_ARGUMENT` `reason=format_change`、源文件不在时 `NOT_FOUND` `reason=file` + 第二行路径）、`AddSources` 的单项错误、`SubmitSources` / `Submit` / `Reconvert` / `Retry` / `GetSourcePreviewURL` 的同步错误、`CancelCopy` / `RetryCopy`、`OpenStorageFolder`；只有下面取值对应的场景） | `reason=<值>` | `CONVERT_DISK_FULL`：`no_space`（复制前空间不够或复制时写满；**后面固定两行 `needBytes=<整数>`、`freeBytes=<整数>`**，单位字节）；`IO_ERROR`：`in_use` / `permission` / `io`（v0.24 原地重转替换旧输出失败，出现在 `lastReconvertError.detail`，第二行是目标路径，6.17.5）、`source_changed`（复制期间原文件被修改）、`interrupted`（应用退出时还没复制完）；`TASK_CONFLICT`：`invalid_state`（`Reconvert` 的记录不是 `succeeded` 或已在重转，6.17.1）、`output_moved`（`Reconvert` 的旧输出已被移动或替换；也出现在 `lastReconvertError`，6.17.1 / 6.17.5）、`copying`（`SubmitSources` 选中的行**全部**没就绪且有正在复制的、`Reconvert` 的行在复制、`GetSourcePreviewURL` 的行在复制）、`copy_failed`（`SubmitSources` 选中的行全部复制失败或已取消、`Reconvert` 的行复制失败或已取消）（`SubmitSources` / `Reconvert` 的这两个后面一行 `sourceId=<id>`；`GetSourcePreviewURL` 只有一行）；`INVALID_ARGUMENT`：`format_change`（`Reconvert` 换了输出格式，6.17.1）、`params_locked`（v0.24.1：旧输出不在了时 `Reconvert` 给了 `presetId` / `options`，6.17.1）；`UNSUPPORTED`：`format`（格式不可输出，或 `AddSources` 的扩展名不在输入列表）、`encoder`（所选编码在当前转换组件里没有编码器）；`NOT_FOUND`：`file`（原文件不在、自定义保存位置不在）（只追加，不改名、不改含义、不删除） | 首行之后的行只有上面写明的 `needBytes` / `freeBytes` / `sourceId`，前端按 `^(needBytes|freeBytes)=([0-9]+)$`、`^sourceId=([0-9A-Z]+)$` 取；没有 reason 的复制错误（权限、其他读写失败）走该码的通用文案。`TASK_CONFLICT` 的这两个取值是“直播会话冲突以外的 `TASK_CONFLICT` 没有 `reason=` 行”的例外 |
+| 直播预览视频流（v0.25，6.10.3：`GetPreviewStream`、`live:pull` 的 `error`） | `reason=<值>` | `UNSUPPORTED`：`codec`（编码不能在应用内播放，第二行 `video=<编码名>` 或 `audio=<编码名>`）、`preview_unavailable`（这个会话没有预览视频流：转换组件缺 `tee` / `tcp`，或预览分支没连上 / 已断开）；`NOT_FOUND`：`session`（会话不存在或已结束）（只追加） | 首行之后只有 `codec` 的那一行 |
 | 其余所有码（含 `LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`INTERNAL`） | 无固定格式 | — | 前端**不得**解析（上面几行列出的码 / 场景除外） |
 
 统一规则：第一行只有一个 `key=value`，值只含小写字母、数字、下划线（`scheme` 例外；`kind` 的取值是 `window` / `screen`，取值就是上面三个小写单词）；前端用 `^(reason|scheme|kind)=([a-z0-9_]+)$` 匹配 `detail` 的第一行；**没有第一行、格式不对、或值不认识，一律走该错误码的通用文案**，不得猜测含义、不得报错崩溃。测试必须逐码断言第一行精确等于期望值（不是包含）。
@@ -372,8 +377,9 @@ StartFilePush(req FilePushRequest) (Task, error)       // 文件推流（可循�
 StartScreenPush(req ScreenPushRequest) (Task, error)   // 屏幕推流（可同时本地存档）；同一时间最多 1 路：已有进行中的 live_screen_push 返回 TASK_CONFLICT（detail 首行 reason=screen_busy）
 GetCaptureCapabilities() (CaptureCapabilities, error)  // 屏幕采集能不能用、为什么不能用（Linux 读 XDG_SESSION_TYPE 和 DISPLAY，见 6.10「采集能力检测」）
 ListCaptureSources() ([]CaptureSource, error)          // （v0.14）屏幕推流可选的采集来源：屏幕（所有平台）+ 应用窗口（只有 Windows）；不能采集屏幕的平台 / 会话返回 UNSUPPORTED_PLATFORM（同 ListScreens），见 6.10「采集来源」
-GetPreview(sessionID string) (Preview, error)          // （v0.17）会话（推流任务 id 或拉流预览会话 id）最新一帧预览：{data: base64 JPEG, ts: 毫秒时间戳, active}；没有画面（会话不存在 / 已结束、preview=false、还没出第一帧）返回空 data、ts=0，不是错误。前端约 500 毫秒轮询，见 6.10「预览画面」
-StartPullPreview(req PullPreviewRequest) (PullSession, error) // （v0.17）拉流预览会话：后端 ffmpeg 读 rtmp / rtmps / srt / http(s) 远端流，只输出预览；同一地址幂等；同时最多 4 路
+GetPreviewStream(sessionID string) (PreviewStream, error) // （v0.25）推流任务 id 或拉流预览会话 id 的预览视频流：{url: http://127.0.0.1:<端口>/live/<token>.flv, mime: "video/x-flv", hasVideo, hasAudio}，见 6.10.3。会话不存在 NOT_FOUND（reason=session）；没有预览分支 UNSUPPORTED（reason=preview_unavailable）；开关预览只在前端，不重启推流；编码不能播放 UNSUPPORTED（reason=codec）
+// ~~GetPreview(sessionID string) (Preview, error)~~      // v0.25 删除。原说明：（v0.17）会话（推流任务 id 或拉流预览会话 id）最新一帧预览：{data: base64 JPEG, ts: 毫秒时间戳, active}；没有画面（会话不存在 / 已结束、preview=false、还没出第一帧）返回空 data、ts=0，不是错误。前端约 500 毫秒轮询，见 6.10「预览画面」
+StartPullPreview(req PullPreviewRequest) (PullSession, error) // （v0.17）拉流预览会话：后端 ffmpeg 读 rtmp / rtmps / srt / http(s) 远端流，（v0.25）`-c copy` 转封装成 FLV，经本机 HTTP 提供，返回值多 previewUrl，结束状态走 live:pull 事件（6.10.3）；同一地址幂等；同时最多 4 路
 StopPullPreview(sessionID string) error                // （v0.17）停止拉流预览会话并清理预览文件；会话不存在（已结束）无操作
 ListScreens() ([]ScreenInfo, error)                    // 可采集的显示器（Linux 用 xrandr --display $DISPLAY --query，必须带 --display，见 6.10「采集能力检测」）
 CheckPushURL(url string) (PushURLInfo, error)          // 只校验地址并返回脱敏后的显示文本，不联网
@@ -394,7 +400,7 @@ type PushOptions struct {
 type FilePushRequest struct {
     InputPath  string      `json:"inputPath"`  // 绝对路径的普通文件，必须有视频画面（否则 INVALID_ARGUMENT）
     URL        string      `json:"url"`        // 推流地址，规则见下
-    Preview    *bool       `json:"preview"`    // （v0.17）可选：nil / true = 带预览画面（GetPreview）；false = 不加预览输出。只在开始时决定（ffmpeg 已启动无法动态改输出）
+    Preview    *bool       `json:"preview"`    // **v0.25 起后端忽略**（预览分支始终存在，开关只在前端，6.10.3.2a）。原说明：（v0.17）可选：nil / true = 带预览画面（GetPreview）；false = 不加预览输出。只在开始时决定（ffmpeg 已启动无法动态改输出）
     Loop       bool        `json:"loop"`       // true = 循环播放直到用户停止；false = 播完自然结束（任务 succeeded）
     Options    PushOptions `json:"options"`
 }
@@ -420,6 +426,7 @@ type CaptureCapabilities struct {
     Reason       string `json:"reason"`       // 不支持时给用户看的中文原因，支持时 ""
 }
 
+// v0.25 删除 Preview（GetPreview 的返回），改用 PreviewStream（见 6.10.3.1）。以下是 v0.17 原文，只作历史记录。
 // v0.17：GetPreview 的返回。没有画面时 data 为 ""、ts 为 0（不是错误）。
 type Preview struct {
     Data   string `json:"data"`   // 最新一帧 JPEG 的 base64（标准编码，不带 data: 前缀）；没有画面 ""
@@ -429,13 +436,22 @@ type Preview struct {
 
 type PullPreviewRequest struct {
     URL     string `json:"url"`     // rtmp / rtmps / srt / http / https；ws / wss 没有对应的 ffmpeg 协议，LIVE_URL_INVALID（reason=scheme_unsupported）
-    Preview *bool  `json:"preview"` // nil / true = 出预览；false = 不启动 ffmpeg（GetPreview 恒为空）
+    Preview *bool  `json:"preview"` // **v0.25 起后端忽略**（总是起 ffmpeg，6.10.3.2a）。原说明：nil / true = 出预览；false = 不启动 ffmpeg（GetPreview 恒为空）
 }
 
 type PullSession struct {
     ID       string `json:"id"`       // 会话 id，传给 GetPreview / StopPullPreview
     Redacted string `json:"redacted"` // 脱敏后的地址，可直接显示
     Preview  bool   `json:"preview"`  // 是否真的在出预览
+    PreviewURL string `json:"previewUrl"` // （v0.25）预览视频流地址，同 GetPreviewStream(id).url；没有预览视频流（Preview=false）时 ""
+}
+
+// v0.25：GetPreviewStream 的返回（6.10.3.1）。
+type PreviewStream struct {
+    URL      string `json:"url"`      // http://127.0.0.1:<端口>/live/<token>.flv；token 每个会话一个，会话结束作废
+    MIME     string `json:"mime"`     // 恒为 "video/x-flv"
+    HasVideo bool   `json:"hasVideo"` // 推流恒为 true；拉流按探测结果
+    HasAudio bool   `json:"hasAudio"` // 推流：文件推流 true、屏幕推流 audio=silent 时 true；拉流：有 AAC / MP3 音频时 true
 }
 
 // v0.14：一个可采集的来源。ListCaptureSources 返回它的列表：先是所有屏幕（顺序同 ListScreens），Windows 上再是窗口（EnumWindows 的 Z 序，最上面的在前）。
@@ -562,6 +578,7 @@ OpenWithSystem(taskID string, which string) error               // which = "inpu
 | `task:status` | `{ id, version, status, error?, outputPath?, startedAt?, finishedAt?, encoder?, encoderDevice?, hwFallback?, hwFallbackReason?, progress?, result?, retried?, hiddenInTaskCenter?, reconverting?, reconvertOutcome?, lastReconvertError? }`（v0.24：后三项见 6.17.2）（encoder 等四项 v0.18，见 9.7；`progress` / `result` / `retried` / `hiddenInTaskCenter` v0.23，见下） | 状态变化时 |
 | `task:removed` | `{ ids: string[] }` | 每次 |
 | `ffmpeg:status` | `FFmpegStatus`（见第 9 节） | 检测完成、安装状态变化时 |
+| `live:pull` | `{ id, state, error? }`（v0.25，6.10.3.7：拉流预览会话的状态：`playing`（只发一次）/ `ended` / `interrupted` / `failed` / `unsupported`；`error` 是 AppError，地址已脱敏） | 状态变化时 |
 | `convert:copy` | `{ sourceId, seq, copyState, copiedBytes, totalBytes, storedPath, error? }`（v0.24，6.15.4 第 5 条） | 开始、复制中每个副本最多 4 次/秒、结束时 |
 
 **直播指标（v0.10，取代 `live:stats`）**：直播任务的 `task:progress` 除 `speed`（如 `1.00x`，持续明显小于 1 说明编码跟不上）和 `outTimeSec`（已输出的媒体时长）外，还带 `fps`（当前输出帧率）、`bitrateKbps`（**只有没有本地存档的会话才有**：**近 5 秒**平均输出码率，由 ffmpeg `total_size` 和 `out_time` 的增量算出，不用 ffmpeg 自带的 `bitrate=`，那是从开始到现在的累计平均）、`droppedFrames`（ffmpeg 累计丢帧，不是网络丢包）；**有存档的会话没有 `bitrateKbps`（架构师定）**（7.1.5 实测：tee 下 `-progress` 的 `total_size` 和 `bitrate` 恒为 `N/A`，没有可用来源；**不轮询存档文件大小来补**——文件大小含音视频分片和 moov 开销、且不是网络那一路的码率，补出来的数是误导），该字段一律省略，前端显示"—"；`fps` / `droppedFrames` / `speed` / `out_time_us` 在 tee 下正常；`progress` 恒为 -1，`etaSec` 为 0。没有单独的 `uptimeSec`：已推时长 = 现在 − `Task.startedAt`（墙钟），`outTimeSec` 是媒体时间，两者差距变大说明卡顿。这几项同时写进 `Task`（`fps` / `bitrateKbps` / `droppedFrames`，只在内存），页面刷新后 `ListActive` 能立刻显示当前值。
@@ -743,8 +760,8 @@ schema_migrations(version PK, applied_at)
     - **(c) 前端规则**：前端遇到**未知的 `reason` 值或没有 `reason` 行**时，显示通用冲突提示（如"操作冲突，请稍后再试"，文案由前端定），不得猜测含义、不得报错崩溃。
   - `LIVE_URL_INVALID`：协议不是 rtmp / rtmps / srt 时**后端已经是这个码**，`detail` 第一行 `reason=scheme_unsupported`，前端提示"暂不支持这种推流地址，请使用 rtmp、rtmps 或 srt"。同一个码的其他原因用 `reason=malformed` / `missing_host` / `param_not_allowed` 区分（枚举和规则见 2.2，未知值走通用文案），**不要靠 `message` 文本区分**。
 
-- **预览画面（v0.17，架构师定；实现：`internal/ffmpeg/live_preview.go`、`internal/service/live/preview.go`）**：
-  - **预览输出**：推流命令在**主输出之后**追加一路独立输出 `-map 0:v:0 -an -sn -dn -vf fps=2,scale=640:-2 -q:v 5 -protocol_whitelist file -f image2 -update 1 -atomic_writing 1 file:<预览路径>`。有自己的 `-vf`（不复用主输出的滤镜链，宽 640、高按比例取偶数、每秒 2 帧）；不影响主输出的编码参数、`-progress` 与码率统计。**带存档的屏幕推流：预览输出在 tee 之外**，仍是主输出（`-f tee`）之后单独的一路，不写进 tee 描述（测试断言 tee 描述里没有预览、且只有网络与存档两路）。文件推流、屏幕推流（含 Windows gdigrab 窗口采集、存档）用同一个 `PreviewOutputArgs`。
+- **~~预览画面（v0.17）~~ v0.25 作废，由 6.10.3 取代；下面是原文，只作历史记录。（v0.17，架构师定；实现：`internal/ffmpeg/live_preview.go`、`internal/service/live/preview.go`）**：
+  - **预览输出**：推流命令在**主输出之后**追加一路独立输出 `-map 0:v:0 -an -sn -dn -vf fps=2,scale=640:-2 -q:v 5 -protocol_whitelist file -f image2 -update 1 -atomic_writing 1 file:<预览路径>`。**v0.24.5 起包在 `fifo` 封装里**（`-c:v mjpeg ... -f fifo -fifo_format image2 -format_opts update=1:atomic_writing=1 -queue_size 4 -drop_pkts_on_overflow 1 -attempt_recovery 1 -recover_any_error 1 -recovery_wait_time 1 -max_recovery_attempts 0 file:<预览路径>`，见 v0.24.5 ②），预览写慢或写失败都不会拖慢或中断推流。有自己的 `-vf`（不复用主输出的滤镜链，宽 640、高按比例取偶数、每秒 2 帧）；不影响主输出的编码参数、`-progress` 与码率统计。**带存档的屏幕推流：预览输出在 tee 之外**，仍是主输出（`-f tee`）之后单独的一路，不写进 tee 描述（测试断言 tee 描述里没有预览、且只有网络与存档两路）。文件推流、屏幕推流（含 Windows gdigrab 窗口采集、存档）用同一个 `PreviewOutputArgs`。
   - **CPU 说明**：预览输出与主输出共享同一路解码（ffmpeg 的输出端只多一个 fps + scale + mjpeg 编码，每秒 2 帧，开销很小）。当前直播主输出始终重编码（不用 `-c copy`），所以没有额外的解码次数；**如果以后加入"视频流复制（`-c copy`）"或"硬字幕"的推流场景，主输出不解码时预览输出需要单独解码（ffmpeg 会为预览输出自己起解码器），会额外占少量 CPU，那时按需要再评估默认是否关预览。** **【未验证】**高分辨率（4K）屏幕采集、Windows 真机上的预览耗时与 CPU 占用。
   - **读取与半帧**：`-atomic_writing 1` 让 ffmpeg 先写 `<路径>.tmp` 再改名，读取端不会读到半帧；`GetPreview` 读取时仍校验 JPEG：以 SOI（`FF D8`）开头、以 EOI（`FF D9`）结尾（允许末尾少量 0 填充），大小 4 字节~4 MiB，不合格（半帧、空文件、不是 JPEG）一律当没有画面返回空，不返回错误。`ts` 取文件修改时间。
   - **`GetPreview(sessionId)`**：`sessionId` 是推流任务 id（= 会话 id）或 `StartPullPreview` 返回的拉流预览会话 id。返回 `{data, ts, active}`：会话不存在 / 已结束、`preview=false`、ffmpeg 还没出第一帧、读到半帧、预览文件不存在，都是**空 data + ts=0，不是错误**；`active` = 会话是否还在进行（推流：任务没结束；拉流：会话没结束），前端在 `active=false` 或页面不可见时停止轮询，约 500 毫秒一次。预览关闭时 `GetPreview` 返回空（推流会话仍 `active=true`）。
@@ -796,6 +813,145 @@ schema_migrations(version PK, applied_at)
 | 8 | 前端 `AppErrorCode` | `call.ts` 缺若干码 | 按 2.1 清单补全并逐项核对 | 前端（`v2-fe-api-contracts`） |
 
 **ffmpeg 版本复测**：项目默认安装的是 **9.0.2**（`internal/ffmpeg/manifest.json`，martin-riedl 静态构建，SHA-256 与 manifest 一致），契约里的 ffmpeg 行为除注明外已在 **7.1.5 和 9.0.2 上都复测**：`q` 退出码 0；tee + `onfail=abort` 连接被拒退出码 145；tee 转义路径正常；`-protocol_whitelist` 按位置生效（输出侧只写 `rtmp,tcp` 时 `file:` 输入失败退出码 234）；`anullsrc` + `-shortest` 播完即结束；`-flvflags no_duration_filesize` 退出码 0；SRT passphrase 长度 9 / 81 位报 `SRTO_PASSPHRASE` 错、10 / 79 / 80 位通过。**与 7.1.5 不同的两点**：SRT 大写参数名在 9.0.2 报错而不是静默忽略；tee 默认 `onfail=continue` 连接被拒在 9.0.2 上退出码 145（7.1.5 是 0）。
+
+### 6.10.3 直播预览视频流（v0.25，架构师定；取代 6.10「预览画面（v0.17）」）
+
+**目标**：预览看到的就是推出去 / 拉进来的那路流，帧率、分辨率和音频都跟源一样，端到端延迟 < 1.5 秒；预览出任何问题都不能拖慢或中断推流。
+
+#### 6.10.3.1 接口
+
+```go
+GetPreviewStream(sessionID string) (PreviewStream, error) // 推流任务 id 或拉流预览会话 id
+StartPullPreview(req PullPreviewRequest) (PullSession, error) // 签名不变，PullSession 多 previewUrl
+// 删除：GetPreview(sessionID) (Preview, error)、type Preview
+
+type PreviewStream struct {
+    URL      string `json:"url"`      // http://127.0.0.1:<端口>/live/<token>.flv
+    MIME     string `json:"mime"`     // 恒为 "video/x-flv"
+    HasVideo bool   `json:"hasVideo"` // 推流恒为 true；拉流按探测结果（纯音频流为 false）
+    HasAudio bool   `json:"hasAudio"` // 推流：文件推流恒为 true（没有音轨时补的是静音），屏幕推流 audio=silent 时为 true；拉流：有 AAC / MP3 音频才为 true
+}
+
+type PullSession struct {
+    ID         string `json:"id"`
+    Redacted   string `json:"redacted"`
+    Preview    bool   `json:"preview"`    // v0.25：有没有预览视频流（转换组件缺 tee / tcp 时 false），与请求里的 preview 无关
+    PreviewURL string `json:"previewUrl"` // v0.25：同 GetPreviewStream(id).url；Preview=false 时为 ""
+}
+```
+
+- `GetPreviewStream` 的同步错误：会话不存在或已结束 → `NOT_FOUND`（`detail` 单独一行 `reason=session`）；这个会话没有预览视频流（转换组件缺 `tee` 或 `tcp`，或者预览分支 15 秒内没连上 / 已经断开）→ `UNSUPPORTED`（`reason=preview_unavailable`）；编码不能在应用内播放 → `UNSUPPORTED`（`reason=codec`，message 见 6.10.3.6）；HTTP 服务起不来（端口绑不上）→ `INTERNAL`。**推流本身永远不受这些错误影响**。
+- 会话刚开始、ffmpeg 还没输出 FLV 头时就可以调用：URL 先给出去，HTTP 请求最多等 10 秒拿到 FLV 头，等不到返回 `503`（前端按“加载中 → 失败”处理，可以重试）。
+- `StartPullPreview` 的探测在后台进行（同 v0.17），所以 `previewUrl` 立即返回；探测发现编码不支持时，会话以 `live:pull` 的 `unsupported` 结束（6.10.3.7），之后的 `GetPreviewStream` 返回 `NOT_FOUND`。
+- 前端浏览器模拟层：`getPreviewStream` 返回 `UNSUPPORTED`（`reason=preview_unavailable`），`startPullPreview` 的 `previewUrl` 为 ""。
+
+#### 6.10.3.2 推流：同一个 ffmpeg 进程里多一个 tee 分支
+
+- **每个推流会话**（只要转换组件有 `tee` 封装和 `tcp` 协议）的主输出**一律用 tee**，带上预览分支，**与请求里的 `preview` 无关**（没有存档的会话原来是普通输出，现在也用 tee）。不多编码一次，各分支拿到的是同一份编码后的包：
+  ```
+  -flags +global_header -f tee "<网络分支>[|<存档分支>]|<预览分支>"
+  网络分支  [f=<flv|mpegts>:onfail=abort:protocol_whitelist=<同 6.10>(:flvflags=no_duration_filesize，只有 flv)]<推流地址，TeeEscape>
+  存档分支  同 6.10（不变）
+  预览分支  [f=flv:onfail=ignore:use_fifo=1:fifo_options=queue_size=120\:drop_pkts_on_overflow=1:flvflags=no_duration_filesize:flush_packets=1:protocol_whitelist=tcp]tcp\://127.0.0.1\:<端口>?tcp_nodelay=1
+  ```
+  SRT 推流的网络分支仍是 mpegts，预览分支一律是 FLV。只有转换组件缺 `tee` 或 `tcp` 时，命令行才和 v0.24 一样（没有存档就不用 tee），这个会话没有预览。
+- **为什么用本机 TCP，不用 `pipe:1`**：标准输出已经给了 `-progress pipe:1`；Windows 上 `os/exec` 不能把额外的文件描述符传给子进程。
+- **后端接收**：每个会话开一个只监听 `127.0.0.1:0` 的一次性 TCP 监听器，**只接受第一个连接**，并且只在 ffmpeg 启动后 15 秒内接受，接受后立即关闭监听器。读协程一直读，只做 FLV tag 切分并放进会话的分发器，**从不阻塞在客户端上**（6.10.3.4）。15 秒内没有连上，或者连接断了，预览算失败，推流照常。同一用户的其他本机进程如果抢先连上，只能往预览里塞数据，拿不到推流内容，按同用户威胁处理，不另设防。
+- **不会拖慢推流**：tee 的 `onfail=ignore` 管出错（预览连接断了、写失败），`use_fifo=1` + `drop_pkts_on_overflow=1` 管变慢（队列满了丢预览分支的包，不反压编码器）；后端读 socket 永远不等 HTTP 客户端。实测（ffmpeg 7.1，30 fps）：预览分支的 TCP 对端完全不读时，推流 20 秒内保持 30 fps。
+- **码率统计**：tee 下 `-progress` 的 `total_size` 是 `N/A`（6.10 存档已有此情况）。带预览分支的会话改由后端按预览分支收到的字节数算 `bitrateKbps`（不管前端有没有在看）（同一份包，只差 FLV 封装开销，误差 < 2%）；预览分支断了以后不再报 `bitrateKbps`（同存档会话）。
+- 能力检测：开始前检查 `tee` 封装和 `tcp` 协议（复用 `checkProtocols` 的缓存）；缺了**只是不加预览分支**（记日志），推流照常，之后 `GetPreviewStream` 返回 `UNSUPPORTED`（`reason=preview_unavailable`）。
+
+#### 6.10.3.2a 预览开关（开始前、会话进行中都能切换）
+
+- 新直播页在“开始推流”旁边和会话面板里每个会话上都有“开启预览”。**开关只在前端起作用**：打开 = 调 `GetPreviewStream` 拿到地址，用 mpegts.js 连上；关闭 = 销毁播放器、断开 HTTP 连接。后端看到的只是 HTTP 客户端连上或断开，分发器继续读预览分支（6.10.3.4），**推流的 ffmpeg 不重启、不中断、命令行不变，`task:status` / `task:progress` 不受影响**。一个会话可以反复开关，次数不限。重新打开时，后加入的客户端从缓存的最近关键帧开始播（6.10.3.4）。
+- **开始时的 `preview` 字段**：`FilePushRequest.preview` / `ScreenPushRequest.preview` / `PullPreviewRequest.preview` 保留在结构体里，旧前端照传不报错，**后端忽略**，不影响命令行，也不影响 `GetPreviewStream`。“开始前”的开关只是前端在会话开始后要不要立即连接，由前端自己记住；后端不保存它，任务的 `params` 里也不写。
+- 代价：没人看的时候预览分支也在跑。它只是把已经编码好的包经本机 TCP 交给后端，后端只做 FLV 切分，没有客户端时直接丢弃（只保留序列头和最近一个 GOP 的缓存），不另外编码，开销可以忽略。
+
+#### 6.10.3.3 拉流预览：转封装，不转码
+
+- `StartPullPreview`（**总是**起 ffmpeg，请求里的 `preview` 被忽略，见 6.10.3.2a）：先用 ffprobe 探测（同 v0.17：`-rw_timeout 8s`，总共 12 秒），按 6.10.3.6 决定取哪些流，再起 ffmpeg：
+  ```
+  -protocol_whitelist <输入白名单，同 v0.17> -fflags +nobuffer -flags low_delay -analyzeduration 1000000 -probesize 1000000 -i <地址>
+  -map 0:v:0 [-map 0:a:0 | -an] -c copy -f flv -flvflags no_duration_filesize -flush_packets 1 -protocol_whitelist tcp tcp://127.0.0.1:<端口>?tcp_nodelay=1
+  ```
+  探测不出来（没有 ffprobe、超时）时用 `-map 0:v:0? -map 0:a:0?` 让 ffmpeg 自己试；flv 封装拒绝某个编码时（stderr 里有 `codec not currently supported in container` 之类），会话按 `unsupported` 结束。
+- 接收、分发、HTTP 与推流相同（6.10.3.4、6.10.3.5）。幂等、最多 4 路、会话不是任务，这些规则不变（v0.17）。`ws` / `wss` 仍然 `LIVE_URL_INVALID`，前端照旧用 mpegts.js 直接拉。
+- 拉流页的播放改用 `previewUrl`，这样 rtmp / rtmps / srt 地址也能在应用里播。拉流页的“开启预览”开关同样只决定前端连不连（6.10.3.2a）；关掉时后端的转封装会话继续运行（仍在接收远端流），直到 `StopPullPreview`。
+
+#### 6.10.3.4 分发器（每个会话一个）
+
+- 读协程把 FLV 切成 tag，缓存这些：FLV 头（13 字节）、最近一个 `onMetaData` 脚本 tag、AVC 序列头（`AVCPacketType=0`）、AAC 序列头（`AACPacketType=0`），以及**从最近一个视频关键帧开始的 GOP**（上限 10 秒或 8 MiB，超了就清空，等下一个关键帧）。
+- **后加入的客户端**：先发 FLV 头 → metadata → 序列头 → 缓存的 GOP，然后接着发实时数据。时间戳不改写（mpegts.js 的直播模式能处理不从 0 开始的时间戳）。
+- **慢客户端**：每个客户端一个有界队列（约 2 秒的数据，最多 4 MiB）。队列满了就**丢这个客户端的音视频 tag，一直丢到下一个视频关键帧**，再从关键帧接着发（不会发出解不了的半个 GOP）；连续 5 秒都处于丢包状态就断开它（前端重连会拿到新的 GOP）。慢客户端只影响它自己。
+- 每个会话最多 4 个同时连接的 HTTP 客户端，超过返回 `429`。
+
+#### 6.10.3.5 本机 HTTP 服务
+
+- 第一次需要时启动，应用退出时关闭；**只监听 `127.0.0.1`**（不监听 `0.0.0.0`，也不监听 `::1`），端口随机（`127.0.0.1:0`）。只有 `/live/<token>.flv` 一个路径。
+- **token**：每个会话一个，32 字节 `crypto/rand`，base64url 编码（43 个字符）；会话结束时作废。正在传输的响应正常收尾，之后的新请求返回 `404`。token 不写日志，日志里只写 `/live/<已脱敏>`。不需要 Cookie，也不需要别的鉴权头。
+- **方法**：`GET`、`OPTIONS`。其他方法返回 `405`。`Range` 请求头忽略，一律 `200`，从当前的直播位置开始发。
+- **响应头**：`Content-Type: video/x-flv`、`Cache-Control: no-store`、`X-Content-Type-Options: nosniff`、`Access-Control-Allow-Origin: <回显的 origin>`、`Vary: Origin`。不带 `Content-Length`，用分块传输；每批 tag 写完立即 `Flush`。
+- **CORS（只回显 Wails 自己的 origin，绝不用 `*`）**：允许的 origin 按 go.mod 里的 Wails 版本（**v2.11.0**）的实际取值：
+  - Windows（WebView2）：`http://wails.localhost`（`internal/frontend/desktop/windows/frontend.go` 的 `startURL`；设置了 `assetserverport` 时带端口，按实际 `startURL` 算）。
+  - macOS（WKWebView）、Linux（WebKitGTK）：`wails://wails`（`desktop/darwin|linux/frontend.go` 的 `startURL`）。
+  - 只在开发构建（`wails dev`，`dev` build tag）里额外允许：`http://localhost:34115`（Wails 开发服务器）和 wails.json 里 `frontend:dev:serverUrl` 的 origin（Vite 开发服务器）。发布构建不放行这些。
+  - `Origin` 不在允许列表里，或者**请求不带 `Origin`**，一律返回 `403`。mpegts.js 用 fetch 跨源取流，一定会带 `Origin`。
+  - `OPTIONS` 预检：origin 允许时返回 `204`，带 `Access-Control-Allow-Origin`、`Access-Control-Allow-Methods: GET, OPTIONS`、`Access-Control-Allow-Headers: Range`、`Access-Control-Max-Age: 600`、`Vary: Origin`；请求带 `Access-Control-Request-Private-Network: true` 时再加 `Access-Control-Allow-Private-Network: true`（Chromium 的 Private Network Access）。不允许的 origin 返回 `403`。
+- 不写访问日志；`http.Server` 设置 `ReadHeaderTimeout`（5 秒），不设 `WriteTimeout`（直播流是长连接）。
+
+#### 6.10.3.6 编码兼容（v0.25 不转码）
+
+| 流里的编码 | 处理 |
+|---|---|
+| 视频 H.264 | 可以播放 |
+| 视频 HEVC / H.265 | **默认不支持**（WebView2 只有部分机器有 HEVC 解码，MSE 也不一定支持）→ `UNSUPPORTED` `reason=codec` |
+| 视频是其他编码（AV1、VP9、MPEG-2 等） | `UNSUPPORTED` `reason=codec` |
+| 音频 AAC、MP3 | 一起播放 |
+| 音频是其他编码（Opus、PCM、AC-3 等） | **去掉音频，只给画面**（`hasAudio=false`，不算错误） |
+| 只有音频，而且是 AAC / MP3 | 可以播放（`hasVideo=false`） |
+| 只有音频，而且是其他编码 | `UNSUPPORTED` `reason=codec` |
+
+- 推流总是重编码成 H.264（libx264 或硬件 H.264）+ AAC，或者没有音频，所以 v0.25 里推流预览**不会**出现 `reason=codec`。这条规则保留给以后的 `-c copy` 推流。
+- message（给用户看，不出现技术词，1.1）：推流 `这路视频无法在应用内预览，推流不受影响。`；拉流 `这路视频无法在应用内播放。`。`detail` 第一行是 `reason=codec`，第二行是 `video=<编码名>` 或 `audio=<编码名>`（给开发者看）。
+- 只有音频不支持时，选择只给画面而不是报错，理由是：画面才是预览的主要内容，丢掉音频的代价最小；前端按 `hasAudio=false` 把静音按钮置灰。
+
+#### 6.10.3.7 结束与中断
+
+- 会话结束时（推流任务进入终态、`StopPullPreview`、远端流结束、ffmpeg 退出、应用退出），分发器关闭，每个 HTTP 响应把已经排队的数据发完再返回，分块传输正常收尾（发出结束标记，不是直接断开连接）。前端的 mpegts.js 收到 `LOADING_COMPLETE`，再按下面的状态显示文字。
+- **推流**沿用 `task:status`：`succeeded` / `canceled` → `推流已结束`；`failed`（不论错误码）→ `推流被中断，请回到直播页重新推流。`。
+- **拉流预览**新增事件 `live:pull`（拉流预览会话不是任务，没有 `task:status`）：
+  ```
+  live:pull  { id, state, error? }
+  state = "playing"      收到第一个 FLV 头（只发一次）
+        | "ended"        StopPullPreview，或者远端流正常结束（ffmpeg 退出码 0）
+        | "interrupted"  已经 playing 之后 ffmpeg 非零退出（网络断开、远端异常）
+        | "failed"       playing 之前就失败（连不上等），error 是分类后的 AppError（LIVE_CONNECT_FAILED / INTERNAL）
+        | "unsupported"  编码不能播放，error 为 UNSUPPORTED reason=codec
+  ```
+  前端文字：`ended` → `拉流已结束`；`interrupted` → `拉流被中断，请重新开始播放。`（**待产品经理确认**）；`failed` / `unsupported` 用 error 的 message。应用退出时不发。
+- 事件和日志里的地址都用脱敏形式（同 6.10）；token 不出现在任何事件里。
+
+#### 6.10.3.8 延迟（目标：端到端 < 1.5 秒）
+
+- ffmpeg：预览分支 `flush_packets=1`，TCP 用 `tcp_nodelay=1`；拉流输入用 `-fflags +nobuffer -flags low_delay`，探测缩短到 1 秒 / 1 MB（同 v0.17）。推流 libx264 是 `-tune zerolatency`（没有 B 帧、没有 lookahead），硬件编码沿用 9.7 的低延迟参数。
+- 后端：读到一个 tag 就分发，HTTP 每批立即 `Flush`，不攒数据。
+- 前端 mpegts.js：`{ type: 'flv', isLive: true, hasAudio, hasVideo }`，配置 `enableStashBuffer: false`、`liveBufferLatencyChasing: true`、`liveBufferLatencyMaxLatency: 1.5`、`liveBufferLatencyMinRemain: 0.3`（mpegts.js ≥ 1.7.3 可以改用 `liveSync: true`、`liveSyncMaxLatency: 1.2`、`liveSyncTargetLatency: 0.6`），`<video muted>` 默认静音。
+- **GOP**：推流的 `-g` 是 2×帧率（2 秒）。后加入的客户端从缓存的最近关键帧开始，开头最多落后 2 秒，靠追帧在几秒内追到目标延迟。拉流的 GOP 由远端决定，GOP 很长（如 10 秒）的流开头会慢一些，这是转封装方案的固有限制。
+
+#### 6.10.3.9 测试（实现 PR）
+
+- 单元测试：tee 描述（无存档 / 有存档 / SRT，三种）、预览分支转义；HTTP 的 token、CORS 白名单、`OPTIONS`、没有 Origin 时 403、作废 token 404、第 5 个客户端 429、405；FLV 切分、序列头和 GOP 缓存、后加入客户端收到的开头字节；慢客户端丢到关键帧、断开；会话结束后响应正常收尾；日志里没有地址和 token。
+- 集成测试（真实 ffmpeg + MediaMTX，会报数字）：①推流主输出的帧率（从 MediaMTX 拉流用 ffprobe 数 N 秒内的帧）；②预览流的帧率（HTTP 客户端读 N 秒，用 ffprobe 数）；③拉流预览的帧率；④端到端延迟（testsrc2 叠加 `drawtext` 写墙钟时间，或比较帧的 pts 和到达 HTTP 客户端的墙钟时间）；⑤预览 HTTP 客户端连上后不读，推流帧率不下降；⑥预览分支的 TCP 对端不读，推流帧率不下降；⑦停止会话时 HTTP 响应正常结束。
+- 【未验证，Windows 真机】WebView2 里 `http://wails.localhost` → `http://127.0.0.1:<端口>` 的 fetch 与 Private Network Access 的实际表现；macOS WKWebView 和 Linux WebKitGTK 从 `wails://wails` 发出请求时 `Origin` 头的实际取值（WebKitGTK 可能是 `null`，如果是就要单独放行并在契约里写明）；Windows 防火墙对只监听 127.0.0.1 的端口是否弹窗（预期不弹）；硬件编码下的延迟。
+
+#### 6.10.3.10 开放问题（请架构师定）
+
+1. **HEVC**：v0.25 一律算不支持。以后可以改为前端用 `MediaSource.isTypeSupported('video/mp4; codecs="hvc1.1.6.L93.B0"')` 检测后再放行（mpegts.js 支持 Enhanced FLV 的 HEVC），这需要后端知道前端的检测结果。
+2. **不支持的编码要不要转码**：v0.25 不转码（架构师定）。以后可以考虑低码率 H.264 转码预览（这样会多编码一次，要评估 CPU）。
+3. **只有音频不支持时只给画面**：本版这样定（6.10.3.6），也可以改成整体报错。
+4. **为什么不用 Wails AssetServer 提供流**（同源，不需要端口和 CORS）：Windows WebView2 的 AssetServer 能不能持续推送无限长的响应、能不能及时 flush，没有验证过；本机 HTTP 服务的行为是确定的。如果真机验证 AssetServer 可以流式输出，可以以后再换。
+5. **预览分支始终存在**（6.10.3.2a）：这是为了让会话中途开关预览不重启推流。另一种做法是开关时重启 ffmpeg 加上或去掉分支，会让推流断一下，所以没有采用。
+6. 拉流被中断的文字 `拉流被中断，请重新开始播放。` 待产品经理确认。
 
 ## 6.11 EditService 契约（v0.11）——**v0.23.5 已移除，本节只作历史记录**
 
@@ -2145,6 +2301,8 @@ ALTER TABLE tasks ADD COLUMN last_reconvert_error TEXT;    -- ReconvertError JSO
 
 ## 7. 本地流服务（已取消）
 
+> **v0.25 补充**：直播预览新增只监听 `127.0.0.1` 随机端口的本机 HTTP 服务（只提供 `/live/<token>.flv`，见 6.10.3.5）；下面“后端不监听任何端口”的规定只对它放开，其他仍然有效。
+>
 > **v0.5 起取消，v0.10 删除原文。** 没有本地 FLV / WebSocket 流服务，后端不监听任何端口（也就没有 `/ws/record`、`/flv/<id>`、token、`wsURL`）：推流由后端 ffmpeg 直接推到用户填写的地址，播放由前端播放器直接拉取远端地址，屏幕由后端 ffmpeg 直接采集。应用里唯一保留的"HTTP"是 Wails AssetServer 的 `/local/<token>`（本地文件预览，见第 1 节）。直播的设计见第 4 节 LiveService 和 6.10。
 
 ## 8. 迁移步骤
