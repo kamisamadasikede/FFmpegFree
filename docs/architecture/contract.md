@@ -1,5 +1,7 @@
 # FFmpegFree v2 接口契约（v0.24）
 
+v0.23.5 变更（**剪辑功能整体移除**，老板定 2026-10-08，应用只做转换；文档转 PDF、录屏、推流保留；**没有新增接口、错误码或事件，没有迁移**）：① **删除 `EditService` 绑定**及其全部方法（`ValidateProject`、`Export`、`GetPreviewURL`、`SaveProject`、`LoadProject`、`ListProjects`、`DeleteProject`），后端的剪辑服务、工程存储代码、`edit_export` 的导出 Runner 和重试工厂、`models.edit` 生成类型、`frontend/wailsjs/go/app/EditService.*` 一并删除；`/local/<token>` 的 `edit` 登记表随之删除（6.13 只剩 `doc`、`convert` 两张表）。② **保留**共用的部分：`MediaService`（含 `Thumbnail`、`Probe`、`ListRecent`）、`localassets`、转换页的预览 / 缩略图后端都不变。③ **旧的 `edit_export` 任务记录**：不是“旧类型”（不按 `NOT_FOUND` 处理），`TaskService.List`（含任务中心）照常返回，`TaskService.Remove` 照常可以移除（`deleteOutput` 规则同 6.6）；**`Retry` 不论什么状态都返回 `UNSUPPORTED`**，message `剪辑功能已移除，剪辑导出记录不能重试`，`detail` 第一行 `reason=feature_removed`；启动时没跑完的旧导出照常变成 `interrupted`（6.6），没有 Runner，不会被重新执行；应用里不再有任何入口产生 `edit_export` 任务。④ **数据库不动**：`edit_projects` 表和里面的工程数据原样保留（不做删表这类破坏性迁移），只是没有代码再读写它；降级到旧版本仍能看到这些工程。⑤ 可重试类型改为 `convert`、`office_pdf`、`ffmpeg_install`（6.6）；无空格的重名格式 `a(1).mp4` 现在只用于文档转 PDF（6.14.5）。⑥ 6.11 整节作废，只作历史记录保留；文中其他地方（含 v0.24 各节）出现的 `EditService` / 剪辑导出同样只是历史说明，以本条为准。
+
 v0.23.4 变更（转换页 v2 走查 1d109f9 的后端修复，**是 v0.23 实现的修复，在 v0.24 契约之后合入、与 v0.24 的实现并行**，随实现 PR；**没有新增接口、错误码或事件**）：① **源文件行持久化完整的媒体信息**（走查 G3）：迁移 **`0006_convert_source_media.sql`**（**占用了 0006，v0.24 的 `storage_copies` 迁移顺延为 `0007`**，见 6.15.3） 给 `convert_sources` 加 `media`（`MediaInfo` 的 JSON）和 `media_fp`（探测时文件的指纹 `<大小>:<修改时间纳秒>`）两列；`ConvertSource.media` 优先用这份持久化结果，**`hasVideo` / `hasAudio` / `sampleRate` / `channels` / `container` / `fps` / `rotation` / `streams` 都可靠、重启后仍在**（此前关联 `media` 表，`hasVideo` / `hasAudio` 恒为 `false`、没有采样率和声道，重启后音频行和无声视频的“没有声音”就丢了）；写入时机：`AddSources`（**改为顺带探测**，同一次调用里同一行只探测一次，最多 4 个并发、单个 15 秒；探测失败照样有行，`media` 省略）、`MediaService.Probe` 成功时（刷新同一 `path_key` 的行）、`ListSources` / `SearchSources` / `GetSource` / `GetSourcePreviewURL` 发现文件指纹和持久化的不一致（旧行从没探测过，或文件被替换）且文件还在时懒探测补上；文件不变就不重探（探测失败也记下指纹，不反复探测）；文件不在时保留上次的结果；没有持久化结果时仍退回关联 `media` 表（这时 `hasVideo` / `hasAudio` 按编码是否为空推出）。前端可以直接用 `source.media.hasVideo` / `hasAudio` 显示“没有声音”和做冲突预检，不必为此再调 `Probe`。详见 6.14.2、6.14.3、6.14.8。② **应用内预览再按编码挡一层**（走查 G4）：`ConvertService.GetSourcePreviewURL`、`TaskService.GetPreviewURL` 在扩展名白名单之后，按探测出的编码判断：有画面的文件看第一条视频流（ProRes、DNxHD、CineForm、FFV1、HAP、QuickTime RLE、无压缩、Ut Video、MPEG-1/2、MS-MPEG4 / WMV / VC-1、MJPEG 等 WebView 解不了的编码），只有声音的文件看第一条音频流（WMA、APE、AMR、AC-3 / E-AC-3、DTS、TrueHD、MP1 / MP2 等）；命中返回 `UNSUPPORTED`（`reason=format`，前端已按“无法在应用内播放”处理）；探测不到（转换组件没就绪、文件解析失败）时不挡。名单见 6.14.7。③ **`MediaInfo` 新增 `videoCodecName` / `audioCodecName`**（走查 X3）：后端按全应用唯一的一张编码显示名表生成（`ffv1` → `FFV1`、`dnxhd` → `DNxHD`、`mjpeg` → `MJPEG`、`pcm_s16le` → `PCM`、`ac3` → `AC-3`……，与 `paramsSummary` 同一张表），编码为空时省略；前端显示编码名请用它，不再自己首字母大写（“Ffv1”就是前端兜底规则写出来的）。④ 文件读不了时的 `message` 改为 **`无法读取文件“<文件名>”，可能没有读取权限。`**（走查 X8；`IO_ERROR`，`detail` 仍是系统错误，提交时第一行加文件路径），`MediaService.Probe` 和提交转换共用这一句；提交语义不变（任一源文件读不了仍整体不提交）。
 
 v0.24 变更（存储位置、源文件副本、格式目录、面向用户的文字；**只有契约，前后端按本版并行实现**；完整规则见新增的 **1.1、6.15、6.16、6.17**，本条只是索引）：① **面向用户的文字不出现 “ffmpeg”**（1.1，老板定）：错误的 `message`、`DeleteFailure.message`、复制错误、格式目录的不可用原因、任务标题、设置 / 状态文案一律说“**转换组件**”（如 `当前转换组件不支持输出这个格式`、`转换组件已就绪`）；代码标识符、接口名、事件名、日志、只给开发者看的 `detail` 不受限；本文档里给用户看的示例文案已一并改掉（2、2.2、9.x、LiveService）；② **存储位置**（6.15.1~6.15.2）：程序所在文件夹下建 `output`（转换结果）和 `uploads`（添加的源文件副本）；程序所在文件夹不可写（如 Program Files）时**两个一起**改用用户数据目录；macOS 在 `.app` 包里时直接用用户数据目录；默认输出目录从“与源文件同一个文件夹”改为 `<base>/output`（转换、剪辑导出、Office 转 PDF 的 `outputDir` 传空时都用它）；`Settings` 新增 `uploadsDir`，`defaultOutputDir` 的空值含义改变；新增 `SystemService.GetStorageDirs()`（实际路径 + 是否回退）、`SetStorageDirs(StorageDirsUpdate)`、`OpenStorageFolder(kind)`；**改目录只影响之后的新文件，已有文件不搬，旧记录仍指向原位置**；③ **源文件副本**（6.15.3~6.15.8）：`AddSources` 之后后端在后台把源文件复制到 `uploads/<sourceId>/<原文件名>`，**转换只读副本**；`ConvertSource` 新增 `originalPath`、`storedPath`、`copyState`（`none` / `copying` / `ready` / `failed` / `canceled`）、`copiedBytes`、`totalBytes`、`copyError`；新事件 `convert:copy`（进度与结束）；新增 `ConvertService.CancelCopy(sourceId)`、`RetryCopy(sourceId)`；复制前检查磁盘空间（`CONVERT_DISK_FULL`，`reason=no_space`，`detail` 带 `needBytes` / `freeBytes`，message `磁盘空间不足，需要 X，剩余 Y。`）；`SubmitSources` 遇到还没复制好的行**跳过它们、只提交已就绪的**，返回值改为 `ConvertSubmitResult{tasks, skipped[]}`（**签名变化**），一个都没就绪时才返回 `TASK_CONFLICT`（`reason=copying` / `copy_failed`）；复制中的行不能预览（`GetSourcePreviewURL` 返回 `TASK_CONFLICT`，`reason=copying`）；取消复制的行保留、显示“已取消复制”，`RetryCopy` 可以从 `failed` 或 `canceled` 重来；同一个原文件（**原路径、大小、修改时间都相同**，不算哈希）复用同一份副本；新表 `convert_copies`（`ref_count` 记被几行引用）与迁移 **`0007_storage_copies.sql`**；`DeleteSource` 同时删这一行的副本（引用计数归零才删，**永远不删用户的原文件**）；v0.24 之前的旧行（`copyState=none`）继续读原路径，不补做副本；`ListSources` / `SearchSources` 的 `status=active` 把正在复制的行算进去，`status=failed` 把复制失败的行算进去；④ **格式目录**（6.16）：新增 `ConvertService.GetFormatCatalog()`：视频 / 音频 / 图片三类共 34 种输出格式（新增视频 AVI 默认参数、WMV、MPG、VOB、3GP、SWF、OGV，音频 WMA、AMR、M4R、MP2、APE、WV、Opus 正式入目录、MMF，图片 JPG、PNG（PM 已确认）、WebP、ICO、BMP、TIF、TGA），每项带 `category`、`extension`、`displayName`、`aliases`（中文搜索词）、`encodable`（按当前转换组件真实的 muxer / encoder 检测并缓存，不写死）、不可用时的 `reason` / `reasonCode`、**这个格式可用的预设 `presets[]` 和默认预设 `defaultPresetId`**（预设按格式归到“参数”下拉里；每个格式都有一个内置默认预设，内置预设从 12 个增加到 38 个）；`ConvertOptions` 的容器和编码取值随之扩充；图片输出：图片输入出图片，视频输入**取第 1 秒那一帧，不足 1 秒取第一帧**（UI 设计定），不做序列帧；不可输出的格式照样列出，提交时 `UNSUPPORTED`（`reason=format`），所选编码缺编码器时 `reason=encoder`（2.2 新值）；**模糊搜索只在前端做**；⑤ 6.14.7 预览 / 系统打开白名单按新格式扩充，**AVI、FLV 移出应用内预览**（WebView 播不了，改为“用系统程序打开”），新增可预览的 `opus`、`ogv`、`m4r`、`webp`、`bmp`、`ico`、`jpg`、`png`；APE 等只能读不能写的格式可以作为输入；⑥ **成功任务的结果警告**（走查 X1）：`TaskResult` 新增 `warnings []string`（机器码），第一个是 `short_output`（输出时长 < 预期的 90% 且短 2 秒以上，预期 = 输入时长 − 裁剪），记录仍是成功，前端显示徽标“时长偏短”、悬停“转换结果比原文件短很多，原文件可能已损坏，请预览检查。”（PM 已定），阈值由后端定义，见 6.14.6；⑦ **`Reconvert` 改为在同一条记录上原地重转（老板定，细节由 PM / 前端 / 设计定）**：不加新方法，参数改为 `ReconvertRequest{taskId, presetId?, options?}`（不给就沿用原参数快照，给了必须同格式，否则 `INVALID_ARGUMENT` `reason=format_change`）。只用于 `succeeded`，否则 `TASK_CONFLICT` `reason=invalid_state`。同一任务 id、同一输出路径和文件名（不加 “(1)”）。重转中 `reconverting=true`、显示“重转中”和进度，旧 `result` 和旧文件照常可预览 / 打开 / 显示所在文件夹。新结果写同目录临时文件 `<名>.reconvert-<taskId>.part.<扩展名>`，**成功后原子替换**并换上新的 `result` / 参数快照 / `finishedAt`。**失败或取消都恢复成 `succeeded`**，旧结果、参数快照、`finishedAt` 原样恢复，旧文件不动；失败写 `lastReconvertError{code, message, detail, at}`（前端显示“重转失败，原来的文件没有变动。”），取消不写；终态事件带 `reconvertOutcome` 区分两者。临时文件在每条路径上都清理，启动时做崩溃恢复和孤儿扫描。重转中删除先取消再删。旧输出被移动或替换时拒绝（`TASK_CONFLICT` `reason=output_moved`，界面不给入口），源文件不在时 `NOT_FOUND` `reason=file`（界面置灰）；`TaskPathCheck` 新增 `canReconvert` / `reconvertBlock` 供前端提前判断；重转中删除：先取消、删临时文件，`deleteOutputs=true` 时删旧输出。新迁移 `0007_reconvert.sql`。转换页在成功记录上提供入口；任务中心没有入口，`List` 显示状态。见新增的 **6.17**。**没有新增错误码**（2.1 仍是 18 个），新增的是 2.2 的 `reason=` 取值。
@@ -207,6 +209,7 @@ type MediaInfo struct {
 }
 
 type TaskType string // convert | edit_export | office_pdf | live_file_push | live_screen_push | ffmpeg_install
+                     // edit_export：v0.23.5 剪辑移除后不再产生；旧记录照常列出、可以移除，Retry 一律 UNSUPPORTED（reason=feature_removed），不是下面的“旧类型”
                      // 保留但不再产生：live_relay、live_record_push（v0.10 取消）、edit_render（v0.11 起改名 edit_export）。不能提交，任务中心不展示，库里的旧记录按未知类型忽略、不报错
 type TaskStatus string // queued | running | succeeded | failed | canceled | interrupted
 
@@ -330,17 +333,8 @@ RetryCopy(sourceID string) (ConvertSource, error)     // 复制失败 / 已取�
 GetFormatCatalog() ([]FormatEntry, error)             // 格式目录（video / audio / image），前端取一次、自己做模糊搜索
 ```
 
-### EditService（多轨时间线，v0.11 契约，详见 6.11）
-```go
-ValidateProject(project EditProject) (EditPlan, error)                  // 不落盘、不启动导出；探测素材并做全部校验（同 Export 的 6.11.2），返回时长与结构化警告 EditWarning[]
-Export(project EditProject, opts EditExportOptions) (Task, error)       // 提交一个 edit_export 任务；进度走 task:progress，取消走 TaskService.Cancel
-GetPreviewURL(path string) (PreviewURL, error)                          // 预览用的 /local/<token>，见 6.11.4 与 6.13
-SaveProject(project EditProject) (EditProjectMeta, error)               // id 空 = 新建；只校验数量上限（草稿可保存，重叠 / 越界只在 ValidateProject 和 Export 报）；不做后端自动保存
-LoadProject(id string) (LoadedProject, error)                           // 返回工程 + 已丢失的素材路径
-ListProjects(limit int) ([]EditProjectMeta, error)                      // 默认 50，最大 200，按 updatedAt 倒序
-DeleteProject(id string) error                                          // 不存在 NOT_FOUND；不删素材和导出文件
-```
-素材管理不在 EditService：选文件 `SystemService.PickFiles`，探测 `MediaService.Probe`，缩略图 `MediaService.Thumbnail`，最近素材 `MediaService.ListRecent`。素材列表随工程保存在 `EditProject.sources`。
+### ~~EditService~~（v0.23.5 已移除）
+剪辑功能整体移除，`EditService` 不再绑定，它的方法（`ValidateProject`、`Export`、`GetPreviewURL`、`SaveProject`、`LoadProject`、`ListProjects`、`DeleteProject`）全部删除。原来的定义见 6.11（历史记录）。素材探测、缩略图、最近素材仍在 `MediaService`。
 
 ### DocService（Office 转 PDF + PDF 预览，v0.12 契约，详见 6.12）
 ```go
@@ -621,8 +615,8 @@ schema_migrations(version PK, applied_at)
   - **注意（非直播的例外）**：“刚出队但 ctx 已被取消”这条路径上，非直播任务失败 / 取消时管理器一律丢弃 Runner 返回的输出路径（沿用旧行为，见 `finishAfterRun`），所以 `NeverRan` 的返回值只对直播任务在这条路径上生效；前四种场景对所有类型都采信。
   - **原地重试之后（v0.23）**：`Retry` 把任务重置回 `queued`（下面的 `Retry` 条）时已清空 `startedAt` / `finishedAt` / `progress` / `error` / `result`，所以一条曾经运行过、重试后又在排队中被取消的任务，也完全符合上面的表现：没有 `startedAt`、`progress` 为 0、没有 `running` 事件。前端不能用“以前见过它运行”来推断，要以最新事件为准（`version` 规则不变）。重试入队之前删掉的是**上一次运行**留下的 `.part`，`NeverRan` 本身仍然不删任何东西（直播存档 Runner 除外）。
   - **与 v0.18 编码器字段的关系**：`encoder` / `encoderDevice` / `hwFallback` / `hwFallbackReason` 由 `Submit`（v0.23 起也包括原地重试）在任务落库前从 Runner 的 `EncoderReporter` 一次性写入，而 `NeverRan` 只影响输出路径，所以**从未运行的任务上这四个字段是提交时（原地重试后则是重试时）解析出来的值，不是空**（例如排队中被取消的 h264 转换任务带 `libx264` / `cpu`，所选设备当时不可用的带 `hwFallback=true`、`device_unavailable`；实现了 `EncoderReporter` 才有，纯音频转换、Office 转 PDF、ffmpeg 安装这类没有视频编码器的任务本来就为空）。因为 `Run` 没执行过，**不会发生运行中的硬件编码回退**，不会补发 `running` 事件，所以字段不会再变。前端不要把“这四个字段有值”理解为“这个任务真的编码过”，要看是否有 `startedAt`。
-- `Retry`（**v0.23 改为原地重试**，取代“生成新任务”）：**复用原任务的 id**，把同一条记录重置回 `queued` 重新排队；**统一覆盖所有注册了 Factory 的类型，不按类型区分**（目前 `convert`、`edit_export`、`office_pdf`、`ffmpeg_install`；以后新增可重试的类型也按原地重试；v0.22 及之前这里写的“只有 `ffmpeg_install`”已过时）。
-  - **允许的状态**：`failed`、`interrupted`、`canceled`。仍在 `queued` / `running` 返回 `TASK_CONFLICT`（`任务仍在进行，请先取消`）；`succeeded` 返回 `TASK_CONFLICT`（`任务已经成功完成，不能重试`；所有类型都一样；转换任务需要重新转换用 `ConvertService.Reconvert`，v0.24 起是原地的，见 6.17）。没有 Factory 的类型 `UNSUPPORTED`（直播会话同前）；不存在 `NOT_FOUND`；**旧类型（"保留但不再产生"的类型）的 id 先判为 `NOT_FOUND`，不落 `UNSUPPORTED`**（6.10 确认项 ⑧）。
+- `Retry`（**v0.23 改为原地重试**，取代“生成新任务”）：**复用原任务的 id**，把同一条记录重置回 `queued` 重新排队；**统一覆盖所有注册了 Factory 的类型，不按类型区分**（目前 `convert`、`office_pdf`、`ffmpeg_install`；v0.23.5 起 `edit_export` 没有 Factory，旧记录 `Retry` 一律 `UNSUPPORTED`（`reason=feature_removed`）；以后新增可重试的类型也按原地重试；v0.22 及之前这里写的“只有 `ffmpeg_install`”已过时）。
+  - **允许的状态**：`failed`、`interrupted`、`canceled`。仍在 `queued` / `running` 返回 `TASK_CONFLICT`（`任务仍在进行，请先取消`）；`succeeded` 返回 `TASK_CONFLICT`（`任务已经成功完成，不能重试`；所有类型都一样；转换任务需要重新转换用 `ConvertService.Reconvert`，v0.24 起是原地的，见 6.17）。没有 Factory 的类型 `UNSUPPORTED`（直播会话同前；v0.23.5：`edit_export` 的 message `剪辑功能已移除，剪辑导出记录不能重试`，`detail` 第一行 `reason=feature_removed`）；不存在 `NOT_FOUND`；**旧类型（"保留但不再产生"的类型）的 id 先判为 `NOT_FOUND`，不落 `UNSUPPORTED`**（6.10 确认项 ⑧）。
   - **步骤**：① 用 Factory 按 `params` 重建 Runner（重新探测输入、重新校验参数；失败直接返回错误，**记录原样不动、不发事件**，如输入已删除 `NOT_FOUND`）；② 走 `RunWithPart` 的类型：删掉上一次运行在原 `outputPath` 上留下的 `.part`（只删普通文件、不是符号链接、修改时间不早于上一次 `startedAt − 3 秒`；上一次从未运行则不删）；③ 重新占位**原输出名**：原 `outputPath` 仍然可用（规则同 6.14.5：磁盘上没有、没有 `.part`、没被其他未结束任务占）就继续用它，否则按该类型的重名格式顺延（`convert` 是 `a (1).mp4`，其他类型是 `a(1).mp4`，见 6.14.5）；④ 重置字段并落库；⑤ 在任务日志末尾追加一行 `[FFmpegFree] 重新开始（重试）`（日志文件和轮转规则不变）；⑥ 发**一次** `task:status`（`status: "queued"`、`retried: true`、`progress: 0`、新的 `outputPath` 和编码器字段）；⑦ 入队。`Claimer` 的 `Submitted` / `Abandoned` 调用时机与 `Submit` 相同。
   - **重置的字段**：`status` → `queued`；`progress` → 0（直播不会走到这里）；`speed` → `""`；`etaSec` → 0；`startedAt` / `finishedAt` → 0；`encoder` / `encoderDevice` / `hwFallback` / `hwFallbackReason` → 先清空，再按新 Runner 的 `EncoderReporter` 写入（没有就保持空）；`error` → 无；`result` → 无；`outputPath` → 第 ③ 步的结果；`hiddenInTaskCenter` → `false`（任务又在进行了，任务中心要能看到）；`version` +1。
   - **不变的字段**：`id`、`type`、`title`、`inputPaths`、`sourceId`、`createdAt`（所以在列表里的位置不变）、**`params`（含 `presetId` / `presetName` / `paramsSummary`，是提交时的快照，重试不改）**、日志路径。源文件行的 `lastActivityAt` 不更新。
@@ -795,7 +789,9 @@ schema_migrations(version PK, applied_at)
 
 **ffmpeg 版本复测**：项目默认安装的是 **9.0.2**（`internal/ffmpeg/manifest.json`，martin-riedl 静态构建，SHA-256 与 manifest 一致），契约里的 ffmpeg 行为除注明外已在 **7.1.5 和 9.0.2 上都复测**：`q` 退出码 0；tee + `onfail=abort` 连接被拒退出码 145；tee 转义路径正常；`-protocol_whitelist` 按位置生效（输出侧只写 `rtmp,tcp` 时 `file:` 输入失败退出码 234）；`anullsrc` + `-shortest` 播完即结束；`-flvflags no_duration_filesize` 退出码 0；SRT passphrase 长度 9 / 81 位报 `SRTO_PASSPHRASE` 错、10 / 79 / 80 位通过。**与 7.1.5 不同的两点**：SRT 大写参数名在 9.0.2 报错而不是静默忽略；tee 默认 `onfail=continue` 连接被拒在 9.0.2 上退出码 145（7.1.5 是 0）。
 
-## 6.11 EditService 契约（v0.11，只有契约，架构师冻结前不实现）
+## 6.11 EditService 契约（v0.11）——**v0.23.5 已移除，本节只作历史记录**
+
+> **v0.23.5：剪辑功能整体移除**（老板定）。`EditService` 和下面定义的全部方法、数据结构、`edit_export` 导出 Runner 都已删除，本节不再是契约。旧的 `edit_export` 任务记录怎么处理见文首 v0.23.5 条和 6.6 `Retry`；`edit_projects` 表保留不动。
 
 依据：v1 `master` 上 `backend/contollers/video_edit_controller.go`（`/api/edit/sources`、`/api/edit/probe`、`/api/edit/render`）与 `frontend/src/views/VideoEditor.vue`。v1 **没有**：撤销 / 重做、工程保存 / 打开、自动保存、切割（blade）工具、字幕、转场之外的关键帧；v2 首版也不做撤销 / 重做和切割（切割 = 前端把一个 clip 拆成两个 `inSec` / `outSec` 不同的 clip，不需要后端方法）。v1 有的：素材列表（按视频 / 音频过滤）、多视频轨 + 多音轨时间线、拖动 / 边缘裁剪 / 吸附 / 逐帧、按 clip 的速度 / 滤镜预设 / 模糊 / 转场、全局亮度对比度饱和度锐化、canvas 多 `<video>` 合成监视器、导出 mp4 / mov / mkv / webm。
 
@@ -1274,7 +1270,7 @@ AppError（句柄失效）：
 | 4 | Windows 上 `outputDir` 拒绝 `\\?\` / `\\.\` 与数据目录内路径的判断；输出的 `.part` 原子改名（`os.Link` 失败回退到不带 `REPLACE_EXISTING` 的 `MoveFileEx`，同 6.11.3） | 6.12.3、6.12.6 | Windows 上把输出目录设到 U 盘（FAT/exFAT）、网络盘、数据目录内 | 保持 `os.Rename`，接受残余竞态并记录 |
 | 5 | **联调项**：`ReadPDFChunk` 的 `data`（Go 字段 `string`，后端 base64 编码）在真实 Wails 运行时经前端 `atob` 解码后字节正确（**未验证**，没有在真实 Wails 环境跑过） | 6.12.4 第 2 点 | 在 Wails 开发模式下打开一份 PDF，核对拼出的字节以 `%PDF-` 开头即可 | 不符则回来改契约（例如 `models.ts` 的类型与预期不一致） |
 
-## 6.13 本地资源访问 `/local/<token>`（中立章节，EditService、DocService 与转换记录共用；由 #22 引入，#23 引用，v0.23 加 `convert` 表）
+## 6.13 本地资源访问 `/local/<token>`（中立章节，DocService 与转换记录共用；由 #22 引入，#23 引用，v0.23 加 `convert` 表；v0.23.5 删除 `edit` 表）
 
 > **章节位置**：本节编号固定为 6.13，**排在 6.12（DocService，#23 引入）之后**、`## 7.` 之前；#22 单独看时 6.12 还不存在，所以这里紧跟在 6.11 后面，#23 合入时把 6.12 插在 6.11 和本节之间（编号不变，只是位置，所有交叉引用写的都是编号，不受影响）。
 
@@ -1282,7 +1278,7 @@ AppError（句柄失效）：
 
 **用途**：让 WebView 用 `<video>` / `<audio>` / pdf.js 读取用户本机的文件，而不暴露任意路径读取，也不监听任何端口。挂在 Wails AssetServer 的 `Handler`（`options.App.AssetServer.Handler`，只处理静态资源之外的请求）。
 
-1. **登记表分表**：`edit` 表（`EditService.GetPreviewURL`）、`doc` 表（`DocService.OpenPDF` 的大文件 URL）和 **`convert` 表（v0.23：`TaskService.GetPreviewURL`、`ConvertService.GetSourcePreviewURL`，见 6.14）**各自独立，**每表最多 512 项**，满了按最近使用淘汰最旧的（LRU，淘汰的 token 之后返回 404）；三张表互不挤占。删除转换记录时撤销 `convert` 表里对应路径的 token。同一路径在同一张表里复用同一个 token。
+1. **登记表分表**：~~`edit` 表（`EditService.GetPreviewURL`）~~（v0.23.5 随剪辑删除）、`doc` 表（`DocService.OpenPDF` 的大文件 URL）和 **`convert` 表（v0.23：`TaskService.GetPreviewURL`、`ConvertService.GetSourcePreviewURL`，见 6.14）**各自独立，**每表最多 512 项**，满了按最近使用淘汰最旧的（LRU，淘汰的 token 之后返回 404）；三张表互不挤占。删除转换记录时撤销 `convert` 表里对应路径的 token。同一路径在同一张表里复用同一个 token。
 2. **token**：**`crypto/rand` 生成 16 字节，十六进制 32 字符**（不用 `math/rand`、不用时间 / 计数器）；URL 形如 `/local/<32 位十六进制>`，进程内有效，**应用重启后全部失效**。Handler 只按 token 查表，不接受任何路径参数或查询参数。
 3. **登记时**：`filepath.EvalSymlinks` 得到真实路径，`os.Stat` 必须是**普通文件**（不是目录、设备、管道），记录真实路径和当时的 `os.FileInfo`。
 4. **每次请求**：重新 `EvalSymlinks` 并与登记的真实路径比较，再 `os.Stat`，要求仍是普通文件且 `os.SameFile(登记时的 FileInfo, 现在的)` 为真；任何一项不满足（文件被删、被替换成链接 / 目录、被换成另一个文件）→ **404**。
@@ -1524,7 +1520,7 @@ OpenWithSystem(taskID string, which string) error                // which = "inp
   | 格式 | 例子 | 用在 |
   |---|---|---|
   | 带空格 ` (n)` | `a (1).mp4`，`.part` 是 `a (1).part.mp4` | **只有 `convert`**（`SubmitSources` / `Submit` / `Reconvert` 的提交时定名、原地重试的顺延、运行时顺延） |
-  | 无空格 `(n)` | `a(1).mp4`，`.part` 是 `a(1).part.mp4` | 其他所有走 `RunWithPart` 的类型：剪辑导出（6.11.3）、文档转 PDF（6.12.3）；以及按这个格式精确拼候选名的 `.part` 遗留清理（6.11.3 / 6.12.3，编号 1~99），**全部保持现状不变** |
+  | 无空格 `(n)` | `a(1).mp4`，`.part` 是 `a(1).part.mp4` | 其他所有走 `RunWithPart` 的类型：**v0.23.5 起只有文档转 PDF**（6.12.3；剪辑导出已移除）；以及按这个格式精确拼候选名的 `.part` 遗留清理（6.11.3 / 6.12.3，编号 1~99），**全部保持现状不变** |
 
   实现上 `namer` 按任务类型（或调用方传入的后缀格式）选择格式，默认仍是无空格。`.part` 遗留清理只针对 `edit_export` / `office_pdf` 的 `outputPath`，不处理 `convert`，所以不受这次改动影响。v0.22 及之前产生的转换输出（`a(1).mp4`）不改名；它们照样占名字（磁盘上存在就跳过）。
 - **现状差异（实现须改）**：当前代码（`internal/task/part.go` 的 `namer.reserve`）只在 `RunWithPart` 开始运行时才占位，排队中的任务不占名字，两个排队中的同名任务会显示同一个 `outputPath`，直到运行时才分开。v0.23 要求转换任务在提交时就占位；`RunWithPart` 运行时直接用已占的名字，只有这期间磁盘上被别的程序建了同名文件才顺延到下一个可用名，新名字随 `running` 的 `task:status.outputPath` 告知前端。剪辑导出、Office 转 PDF 本版不要求改（可以一起改）。
