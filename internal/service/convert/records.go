@@ -76,6 +76,9 @@ type ConvertSearchFilter struct {
 	Limit       int    `json:"limit"`
 	Offset      int    `json:"offset"`
 	RecordLimit int    `json:"recordLimit"`
+	// Status 与 ConvertSourceFilter.Status 完全相同（契约 v0.23.2）："" | "active" | "failed"，与关键字是 AND；
+	// 只筛行，不筛每行内嵌的记录和 recordCount。
+	Status string `json:"status,omitempty"`
 }
 
 // ConvertSourcePage 是 ListSources / SearchSources 的结果。
@@ -309,13 +312,14 @@ func (s *Service) GetSource(ctx context.Context, sourceID string) (ConvertSource
 	return s.entry(ctx, tr, ss, src, defaultRecordLimit)
 }
 
-// SearchSources 文件名搜索（契约 6.14.9）：源文件名或任一记录的输出文件名包含关键字（不区分大小写的子串）。
+// SearchSources 文件名搜索（契约 6.14.9）：源文件名或任一记录的输出文件名包含关键字（不区分大小写的子串）；
+// filter.status（v0.23.2）同 ListSources，与关键字是 AND。
 func (s *Service) SearchSources(ctx context.Context, f ConvertSearchFilter) (ConvertSourcePage, error) {
 	kw := strings.TrimSpace(f.Keyword)
 	if kw == "" || utf8.RuneCountInString(kw) > maxKeywordRunes {
 		return ConvertSourcePage{}, apperr.New(apperr.InvalidArgument, fmt.Sprintf("关键字为 1~%d 个字", maxKeywordRunes))
 	}
-	return s.listSources(ctx, strings.ToLower(kw), "", f.Limit, f.Offset, f.RecordLimit)
+	return s.listSources(ctx, strings.ToLower(kw), f.Status, f.Limit, f.Offset, f.RecordLimit)
 }
 
 // ListSourceRecords 返回某一行的更多记录（limit 默认 50 最大 200）。

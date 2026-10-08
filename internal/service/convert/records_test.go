@@ -411,3 +411,62 @@ func TestListSourcesStatusFilter(t *testing.T) {
 		}
 	}
 }
+
+// 契约 v0.23.2：SearchSources 的 status 与 ListSources 完全相同，与关键字是 AND，只筛行。
+func TestSearchSourcesStatusFilter(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	a := e.addSource(t, e.genVideo(t, filepath.Join(e.dir, "trip a.mp4"), 1))
+	b := e.addSource(t, e.genVideo(t, filepath.Join(e.dir, "trip b.mp4"), 1))
+	c := e.addSource(t, e.genVideo(t, filepath.Join(e.dir, "trip c.mp4"), 1))
+	d := e.addSource(t, e.genVideo(t, filepath.Join(e.dir, "other.mp4"), 1))
+	o := ffmpeg.ConvertOptions{Container: "mkv", VideoCodec: "copy", AudioCodec: "copy"}
+	out := filepath.Join(e.dir, "o")
+	ra := e.submitSources(t, ConvertSubmitRequest{SourceIDs: []string{a.SourceID, a.SourceID}, Options: o, OutputDir: out})
+	markFailed(t, e.st, ra[0].ID) // a：失败 + 成功
+	rb := e.submitSources(t, ConvertSubmitRequest{SourceIDs: []string{b.SourceID}, Options: o, OutputDir: out})
+	tk, _ := e.st.GetTask(ctx, rb[0].ID) // b：只有已取消
+	tk.Status, tk.Version = task.StatusCanceled, tk.Version+1
+	e.st.UpdateTask(ctx, tk)
+	for i, src := range []ConvertSource{c, d} { // c、d：各一条排队中
+		if err := e.st.InsertTask(ctx, task.Task{ID: "q" + string(rune('0'+i)), Type: task.TypeConvert, Status: task.StatusQueued, SourceID: src.SourceID, CreatedAt: 1, Version: 1}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ids := func(p ConvertSourcePage) string {
+		var out []string
+		for _, it := range p.Items {
+			out = append(out, it.Source.Name)
+		}
+		return strings.Join(out, ",")
+	}
+	all, err := e.svc.SearchSources(ctx, ConvertSearchFilter{Keyword: "trip"})
+	if err != nil || all.Total != 3 {
+		t.Fatalf("%s %v", ids(all), err)
+	}
+	failed, err := e.svc.SearchSources(ctx, ConvertSearchFilter{Keyword: "trip", Status: "failed"})
+	if err != nil || failed.Total != 1 || ids(failed) != "trip a.mp4" {
+		t.Fatalf("failed（canceled 不算）: %s %v", ids(failed), err)
+	}
+	if it := failed.Items[0]; it.RecordCount != 2 || len(it.Records) != 2 || !it.NameMatched {
+		t.Fatalf("内嵌记录不按状态筛: %+v", it)
+	}
+	active, _ := e.svc.SearchSources(ctx, ConvertSearchFilter{Keyword: "TRIP", Status: "active"})
+	if active.Total != 1 || ids(active) != "trip c.mp4" {
+		t.Fatalf("active 与关键字 AND（other.mp4 也在排队但不命中）: %s", ids(active))
+	}
+	// 分页 + 筛选：total 是筛选后的行数，顺序同不筛时
+	p1, _ := e.svc.SearchSources(ctx, ConvertSearchFilter{Keyword: "trip", Limit: 2})
+	p2, _ := e.svc.SearchSources(ctx, ConvertSearchFilter{Keyword: "trip", Limit: 2, Offset: 2, Status: ""})
+	if p1.Total != 3 || p2.Total != 3 || ids(p1)+","+ids(p2) != ids(all) {
+		t.Fatalf("%s | %s | %s", ids(p1), ids(p2), ids(all))
+	}
+	if pf, _ := e.svc.SearchSources(ctx, ConvertSearchFilter{Keyword: "trip", Status: "failed", Limit: 1, Offset: 1}); pf.Total != 1 || len(pf.Items) != 0 {
+		t.Fatalf("%+v", pf)
+	}
+	for _, bad := range []string{"canceled", "Failed", "all"} {
+		if _, err := e.svc.SearchSources(ctx, ConvertSearchFilter{Keyword: "trip", Status: bad}); !apperr.Is(err, apperr.InvalidArgument) {
+			t.Fatalf("%q: %v", bad, err)
+		}
+	}
+}

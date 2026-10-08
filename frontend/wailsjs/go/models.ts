@@ -62,6 +62,7 @@ export namespace convert {
 	    limit: number;
 	    offset: number;
 	    recordLimit: number;
+	    status?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ConvertSearchFilter(source);
@@ -73,6 +74,7 @@ export namespace convert {
 	        this.limit = source["limit"];
 	        this.offset = source["offset"];
 	        this.recordLimit = source["recordLimit"];
+	        this.status = source["status"];
 	    }
 	}
 	export class ConvertSourceEntry {
