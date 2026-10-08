@@ -727,3 +727,80 @@ func TestMeasurePullHLSIsPaced(t *testing.T) {
 		})
 	}
 }
+
+// 回归（契约 v0.25.1，首次拉流停在“正在连接…”）：远端接受连接却一直不给数据时，ffmpeg 原来没有任何超时，
+// 会话永远不出 playing / failed（实测旧参数 40 秒还没退出）。现在探测、转封装都有 -rw_timeout，另有 pullHeaderWait 兜底：
+// 有限时间内以 failed + LIVE_CONNECT_FAILED + 拉流失败文字结束；期间先连上来的播放器请求也随之结束（503），不挂着。
+func TestPullSilentServerFailsInBoundedTime(t *testing.T) {
+	if testing.Short() {
+		t.Skip("-short")
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	var held []net.Conn
+	var heldMu sync.Mutex
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			heldMu.Lock()
+			held = append(held, c) // 接受连接，什么都不回
+			heldMu.Unlock()
+		}
+	}()
+	defer func() {
+		heldMu.Lock()
+		for _, c := range held {
+			c.Close()
+		}
+		heldMu.Unlock()
+	}()
+	old := pullHeaderWait
+	pullHeaderWait = 4 * time.Second
+	defer func() { pullHeaderWait = old }()
+	r := newRealFixture(t, 0)
+	port := ln.Addr().(*net.TCPAddr).Port
+	for _, u := range []string{fmt.Sprintf("rtmp://127.0.0.1:%d/live/x", port), fmt.Sprintf("http://127.0.0.1:%d/live/x.flv", port)} {
+		ch := make(chan PullEvent, 4)
+		r.svc.cfg.Emit = func(name string, p any) {
+			if name == "live:pull" {
+				ch <- p.(PullEvent)
+			}
+		}
+		start := time.Now()
+		ps, err := r.svc.StartPullPreview(context.Background(), PullPreviewRequest{URL: u})
+		if err != nil || ps.PreviewURL == "" {
+			t.Fatalf("%+v %v", ps, err)
+		}
+		// 播放器在 FLV 头之前就连上来：请求挂着等，会话失败时立即 503，不挂满 previewHeaderWait。
+		httpDone := make(chan int, 1)
+		go func() {
+			_, code, _ := readPreview(context.Background(), ps.PreviewURL, "wails://wails")
+			httpDone <- code
+		}()
+		var ev PullEvent
+		select {
+		case ev = <-ch:
+		case <-time.After(pullProbeWait + 20*time.Second):
+			t.Fatalf("%s: %v 内没有 live:pull（一直停在“正在连接…”）", u, pullProbeWait+20*time.Second)
+		}
+		took := time.Since(start)
+		t.Logf("MEASURE 远端不给数据 %s: %v 后 %s（%v）", u, took.Round(100*time.Millisecond), ev.State, ev.Error)
+		if ev.State != "failed" || ev.Error == nil || ev.Error.Code != apperr.LiveConnectFailed || ev.Error.Message != ffmpeg.PullFailedMessage {
+			t.Fatalf("应是 failed + LIVE_CONNECT_FAILED + 拉流文字: %+v %+v", ev, ev.Error)
+		}
+		select {
+		case code := <-httpDone:
+			if code != http.StatusServiceUnavailable && code != http.StatusNotFound {
+				t.Fatalf("等头的播放器请求应以 503 / 404 结束: %d", code)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("会话失败后，等头的播放器请求还挂着")
+		}
+	}
+}

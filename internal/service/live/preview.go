@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"FFmpegFree/internal/apperr"
@@ -30,6 +31,11 @@ const (
 	pullProbeWait   = 12 * time.Second
 	previewMIME     = "video/x-flv"
 )
+
+// pullHeaderWait：拉流的 ffmpeg 启动后，这么久还没收到第一个 FLV 头就停掉它，按 failed 结束（契约 v0.25.1）。
+// 远端接受了连接却一直不给数据时，ffmpeg 自己不会超时（-rw_timeout 只管单次读写，管不到 RTMP 握手后一直不发媒体），
+// 没有这个上限，界面会一直停在“正在连接…”。测试里改小。
+var pullHeaderWait = 15 * time.Second
 
 // defaultDevPreview 由带 dev 标签的文件在 init 里打开。
 var defaultDevPreview bool
@@ -135,6 +141,10 @@ func (s *Service) openFeed(ctx context.Context, bin ffmpeg.Binaries, push, hasVi
 		url:      fmt.Sprintf("http://127.0.0.1:%d/live/%s.flv", httpPort, token),
 		hasVideo: hasVideo, hasAudio: hasAudio, push: push,
 		hub: newFLVHub(), ln: tcpLn, done: make(chan struct{}),
+	}
+	if !push {
+		// 拉流：探测（最多 pullProbeWait）+ 打开远端输入（最多 pullHeaderWait）之后 ffmpeg 才连上来。
+		f.acceptWait = pullProbeWait + pullHeaderWait + 3*time.Second
 	}
 	h.register(f)
 	go f.acceptIngest()
@@ -301,7 +311,24 @@ func (s *Service) runPull(ctx context.Context, sid string, p *pullSession, bin f
 	}()
 	redact := livepkg.NewRedactor(u.FFmpeg)
 	s.logf("拉流预览 %s ffmpeg 参数: %s", sid, redact(strings.ReplaceAll(strings.Join(args, " "), u.FFmpeg, "<拉流地址>")))
-	res, runErr := ffmpeg.Run(ctx, ffmpeg.RunOptions{
+	// 开始播放前的上限：pullHeaderWait 内没有 FLV 头就停掉 ffmpeg，按 failed 结束（不是一直“正在连接…”）。
+	runCtx, stopRun := context.WithCancel(ctx)
+	defer stopRun()
+	var headerTimedOut atomic.Bool
+	go func() {
+		t := time.NewTimer(pullHeaderWait)
+		defer t.Stop()
+		select {
+		case <-p.feed.hub.ready:
+		case <-runCtx.Done():
+		case <-t.C:
+			if !p.feed.hub.hasHeader() {
+				headerTimedOut.Store(true)
+				stopRun()
+			}
+		}
+	}()
+	res, runErr := ffmpeg.Run(runCtx, ffmpeg.RunOptions{
 		Exe: bin.FFmpeg, Args: args, Redact: redact,
 		OnStderr: func(line string) { s.logf("拉流预览 %s: %s", sid, line) },
 	})
@@ -309,6 +336,9 @@ func (s *Service) runPull(ctx context.Context, sid string, p *pullSession, bin f
 		return
 	}
 	switch {
+	case headerTimedOut.Load() && ctx.Err() == nil:
+		s.logf("拉流预览 %s: %v 内没有收到数据，停止", sid, pullHeaderWait)
+		s.emitPull(sid, "failed", ffmpeg.PullTimeoutError(u.Scheme, pullHeaderWait))
 	case ctx.Err() != nil:
 		s.emitPull(sid, "ended", nil)
 	case runErr == nil:

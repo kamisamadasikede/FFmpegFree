@@ -106,7 +106,7 @@ func TestBuildPullRemuxArgs(t *testing.T) {
 func TestBuildPullRemuxArgsProbeWindowAndHLS(t *testing.T) {
 	a, _ := BuildPullRemuxArgs(PullRemuxPlan{URL: "rtmp://h/a/k", InputWhitelist: "rtmp,tcp", Port: 9, Video: true, Audio: true})
 	j := strings.Join(a, " ")
-	if !strings.Contains(j, "-analyzeduration 5000000 -probesize 5000000") || strings.Contains(j, "live_start_index") || has(a, "-re") {
+	if !strings.Contains(j, "-analyzeduration 5000000 -probesize 5000000 -rw_timeout 8000000 -i rtmp://h/a/k") || strings.Contains(j, "live_start_index") || has(a, "-re") {
 		t.Fatalf("非 HLS: %v", a)
 	}
 	h, _ := BuildPullRemuxArgs(PullRemuxPlan{URL: "http://h/live/a/index.m3u8", InputWhitelist: PullInputWhitelist("http"), Port: 9, Video: true, Audio: true, HLS: true})

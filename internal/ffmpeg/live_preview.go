@@ -34,7 +34,9 @@ func BuildPullRemuxArgs(p PullRemuxPlan) (args []string, ok bool) {
 	a := []string{"-protocol_whitelist", p.InputWhitelist, "-fflags", "+nobuffer", "-flags", "low_delay",
 		// 5 秒 / 5 MB：要盖住一个完整 GOP。MediaMTX 的 RTMP 在第一个关键帧前不给 SPS/PPS，GOP 2 秒时 1 秒常常找不到编码参数
 		// （实测 12 次失败 4 次，5 秒 0 次）。探测到全部流的参数就停，不会白等 5 秒。
-		"-analyzeduration", "5000000", "-probesize", "5000000"}
+		"-analyzeduration", "5000000", "-probesize", "5000000",
+		// 单次读写最多等 8 秒（同探测）：远端连上后不再给数据时 ffmpeg 报错退出，而不是一直卡着。
+		"-rw_timeout", "8000000"}
 	if p.HLS {
 		a = append(a, "-live_start_index", "-1")
 	}

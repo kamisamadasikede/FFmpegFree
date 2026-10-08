@@ -1,7 +1,9 @@
 package ffmpeg
 
 import (
+	"fmt"
 	"strings"
+	"time"
 
 	"FFmpegFree/internal/apperr"
 )
@@ -107,6 +109,13 @@ func ClassifyLiveError(in LiveClassifyInput) *apperr.AppError {
 // PullFailedMessage 是拉流预览在开始播放前失败时给用户看的文字（live:pull 的 failed，契约 6.10.3.7）。
 // 文案由产品经理定（设计走查 G3），以后改文案只改这一处。
 const PullFailedMessage = "拉流失败，请检查直播地址和网络。"
+
+// PullTimeoutError 是拉流预览在 wait 内没有收到任何数据（远端接受连接却不发媒体、DNS / 握手卡住）时的错误：
+// 同样是 LIVE_CONNECT_FAILED + PullFailedMessage，detail 第一行 scheme=，第二行说明超时（契约 v0.25.1）。
+func PullTimeoutError(scheme string, wait time.Duration) *apperr.AppError {
+	return apperr.New(apperr.LiveConnectFailed, PullFailedMessage).
+		WithDetail(fmt.Sprintf("scheme=%s\n%d 秒内没有收到数据", scheme, int(wait/time.Second)))
+}
 
 // ClassifyPullError 把拉流预览的 ffmpeg 在开始播放前的非零退出归类（契约 6.10.3.7）。永远不返回 nil。
 // 和推流分开：推流的文字（“连接推流服务器失败”“推流启动失败”）不能出现在拉流里。

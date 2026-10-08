@@ -21,7 +21,9 @@ const (
 	previewGOPBytes   = 8 << 20
 	previewGOPWindow  = 10 * time.Second
 	previewMaxClients = 4
-	previewHeaderWait = 10 * time.Second
+	// previewHeaderWait：播放器在 FLV 头到达之前就连上来时，HTTP 请求最多挂这么久等头（契约 v0.25.1）。
+	// 会话失败 / 预览分支没连上时分发器会关闭，请求立即以 503 结束，不会白等满。
+	previewHeaderWait = 30 * time.Second
 	previewAcceptWait = 15 * time.Second
 	previewDropLimit  = 5 * time.Second
 )
@@ -271,6 +273,8 @@ type previewFeed struct {
 	hasVideo bool
 	hasAudio bool
 	push     bool // 推流会话（文案用）
+	// acceptWait：等 ffmpeg 连上本机 TCP 的时间，0 = previewAcceptWait。拉流要先探测、再打开远端输入才会连上来，用更长的时间。
+	acceptWait time.Duration
 	// paced：HLS 拉流，tag 经 flvPacer 按时间戳匀速送进分发器（要在 ffmpeg 连上之前设好）。
 	paced atomic.Bool
 	hub   *flvHub
@@ -392,7 +396,11 @@ func newPreviewToken() (string, error) {
 // acceptIngest 在 15 秒内接受 ffmpeg 的连接。还没收到 FLV 头时允许再连一次（硬件编码失败后用 CPU 重试会再连一次）。
 func (f *previewFeed) acceptIngest() {
 	defer f.ln.Close()
-	deadline := time.Now().Add(previewAcceptWait)
+	wait := f.acceptWait
+	if wait <= 0 {
+		wait = previewAcceptWait
+	}
+	deadline := time.Now().Add(wait)
 	go func() {
 		<-f.hub.ready
 		f.state.CompareAndSwap(0, 1)
@@ -404,6 +412,7 @@ func (f *previewFeed) acceptIngest() {
 			if f.state.Load() == 0 {
 				f.state.Store(2)
 			}
+			f.hub.closeHub() // 等头的 HTTP 请求立即结束（503），不挂满 previewHeaderWait
 			return
 		}
 		var pacer *flvPacer
@@ -426,7 +435,8 @@ func (f *previewFeed) acceptIngest() {
 			return
 		}
 		if time.Now().After(deadline) || f.state.Load() == 3 {
-			f.state.Store(2)
+			f.state.CompareAndSwap(0, 2)
+			f.hub.closeHub()
 			return
 		}
 		_ = err
