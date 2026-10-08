@@ -1356,7 +1356,7 @@ type ConvertSourceFilter struct {
     Limit       int `json:"limit"`       // 源文件行数，默认 50，最大 200
     Offset      int `json:"offset"`
     RecordLimit int `json:"recordLimit"` // 每行内嵌的记录数，默认 20，最大 100
-    Status      string `json:"status,omitempty"` // v0.23.1，可省略："" 全部行；"active" 至少有一条 queued / running 记录的行；"failed" 至少有一条 failed / interrupted 记录的行（canceled 不算）；其他值 INVALID_ARGUMENT。只筛行，每行内嵌的记录和 recordCount 不按状态筛。v0.24：active 另含副本 copying 的行，failed 另含副本 failed 的行（6.15.6）
+    Status      string `json:"status,omitempty"` // v0.23.1，可省略："" 全部行；"active" 至少有一条 queued / running 记录的行；"failed" 至少有一条 failed / interrupted 记录的行（canceled 不算）；其他值 INVALID_ARGUMENT。只筛行，每行内嵌的记录和 recordCount 不按状态筛。v0.24：active 另含副本 copying 的行，failed 另含副本 failed 的行，副本 canceled 的行不算（6.15.6）
 }
 type ConvertSearchFilter struct {
     Keyword     string `json:"keyword"`  // 去首尾空白后 1~100 个字符
