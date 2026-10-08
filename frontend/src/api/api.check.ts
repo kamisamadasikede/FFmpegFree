@@ -31,6 +31,7 @@ import { convertV2Checks } from './convertV2.check'
 import { convertV24Checks } from './convertV24.check'
 import { liveFormsChecks } from '@/stores/liveForms.check'
 import { readyRelistChecks } from '@/stores/readyRelist.check'
+import { catalogLoadChecks } from '@/stores/catalogLoad.check'
 import { pkg22Checks } from '@/stores/eventOrder.check'
 
 const fails: string[] = []
@@ -957,6 +958,7 @@ export async function runApiChecks(): Promise<string[]> {
         await convertV24Checks(eq, readSrc)
         await liveFormsChecks(eq, readSrc) // 包 20：直播表单持久化 + 推流码遮挡
         await readyRelistChecks(eq, readSrc) // 包 20：就绪后补取列表（#100 配合）+ 走查 D2 / D3 / D4 / D7
+        await catalogLoadChecks(eq, readSrc) // 格式目录：检测中保持骨架，8 秒才超时，就绪后自动再取
         await pkg22Checks(eq, readSrc) // 包 22：契约 v0.25.1（暂存 / 对齐 / 只往终态走）+ 走查 af6a508
         // G11 版本号
         const { cleanFfmpegVersion } = await import('@/utils/ffmpegVersion')
@@ -1140,7 +1142,7 @@ export async function runApiChecks(): Promise<string[]> {
       const em = await import('@/errors/errorMessages')
       eq('N4：没有专属文案时标题按任务类型', [em.resolveTaskError('INTERNAL', '推流异常退出', 'live_file_push').title, em.resolveTaskError('INTERNAL', 'x', 'live_screen_push').title, em.resolveTaskError('INTERNAL', 'x', 'live_pull').title, em.resolveTaskError('INTERNAL', 'x', 'convert').title, em.resolveTaskError('INTERNAL', 'x').title, em.resolveTaskError('PROCESS_FAILED', 'x', 'edit_export').title], ['推流失败', '推流失败', '拉流失败', '转换失败', '转换失败', '导出失败'])
       const tc = fsx(`${process.cwd()}/src/views/TaskCenter.vue`, 'utf8')
-      eq('N4：直播任务意外退出（failed + INTERNAL 等）按「已中断 / 推流被中断」显示，不显示错误码', [/const LIVE_EXIT_CODES = new Set\(\['', 'INTERNAL', 'PROCESS_FAILED', 'LIVE_PUSH_INTERRUPTED'\]\)/.test(tc), /v-if="t\.error && liveBroken\(t\)"[\s\S]{0,200}:title="`\$\{liveTaskVerb\(t\.type\)\}被中断`"[\s\S]{0,120}hide-code/.test(tc), /:task-type="t\.type"/.test(tc)], [true, true, true])
+      eq('N4：直播任务意外退出（failed + INTERNAL 等）按「已中断 / 推流被中断」显示，不显示错误码', [/const LIVE_EXIT_CODES = new Set\(\['', 'INTERNAL', 'PROCESS_FAILED', 'LIVE_PUSH_INTERRUPTED'\]\)/.test(tc), /v-else-if="t\.error && liveBroken\(t\)"[\s\S]{0,240}:title="interruptOf\(t\)\.title"[\s\S]{0,160}hide-code/.test(tc), /:task-type="t\.type"/.test(tc)], [true, true, true])
       eq('N3：旧记录类型叫「旧版导出」，中断说明不提已下线的功能名', [/edit_export: '旧版导出'/.test(tc), /应用退出时这个任务被中断。这类任务已不再支持，不能重试，可以移除这条记录。/.test(tc)], [true, true])
       const lp = await import('@/errors/livePreviewMessages')
       eq('N6：直播页上推流被中断的正文；拉流不变', [lp.LP_BREAK_PUSH, lp.LP_BREAK_PULL], ['推流被中断，请重新推流。', '拉流被中断，请重新拉流。'])

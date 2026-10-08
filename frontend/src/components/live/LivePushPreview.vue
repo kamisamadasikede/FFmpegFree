@@ -19,6 +19,7 @@
       :force-hint="!!vis?.hint"
       :force-full="!!vis?.full"
       :reason="reason"
+      :break-text="interruptText"
       :empty-text="cur && cur.preview === false && !vis ? PREVIEW_OFF_TITLE : undefined"
       @restart="onRestart"
       @media-unsupported="fail = 'codec'"
@@ -35,7 +36,8 @@ import { computed, onActivated, onDeactivated, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import LivePlayer from './LivePlayer.vue'
-import { PREVIEW_OFF_TITLE, PREVIEW_PANEL_TITLE } from '@/errors/livePreviewMessages'
+import { liveInterruptView, PREVIEW_OFF_TITLE, PREVIEW_PANEL_TITLE } from '@/errors/livePreviewMessages'
+import { liveSourceGoneText } from '@/errors/errorMessages'
 import { useLiveSessionsStore, type LiveRow } from '@/stores/liveSessions'
 import { useLiveDockStore } from '@/stores/liveDock'
 import { classifyPreviewError, getPreviewStream } from '@/api/livePreviewStream'
@@ -67,6 +69,12 @@ const clock = computed(() => {
 const fake = computed(() => vis?.fake ?? '')
 const reason = computed(() => vis?.reason || fail.value)
 
+const interruptText = computed(() => {
+  const r = cur.value
+  if (!r || r.status !== 'int') return ''
+  if (r.endCode === 'LIVE_SOURCE_GONE') return liveSourceGoneText(r.endKind)
+  return liveInterruptView({ reason: r.endReason, code: r.endCode, taskType: r.kind === 'screen' ? 'live_screen_push' : 'live_file_push', onLivePage: true })?.sentence ?? ''
+})
 const phase = computed(() => {
   if (vis) return vis.phase
   const r = cur.value

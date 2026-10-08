@@ -71,6 +71,9 @@ import { useLiveDockStore } from '@/stores/liveDock'
 import { PullOutcomeGate, type PullOutcome } from '@/stores/eventOrder'
 import { lpVisual, type LpPhase } from './lpVisual'
 import { classifyPreviewError, getPreviewStream, pullBreakText, pullEndedView, startPullPlayback, stopPullPlayback, watchPull, type PullEvent, type PullPlayback } from '@/api/livePreviewStream'
+import { liveInterruptView } from '@/errors/livePreviewMessages'
+import { liveSourceGoneText } from '@/errors/errorMessages'
+import { parseDetailHead } from '@/api/call'
 
 defineOptions({ name: 'LivePullPlay' })
 
@@ -174,7 +177,7 @@ async function start() {
       gate.startFailed('unsupported')
       return
     }
-    applyMedia(stream)
+    if (pb.mediaKnown) applyMedia(stream)
     playUrl.value = stream.url
     if (pb.session && !pb.mediaKnown) scheduleMediaProbe(pb.session.id)
   } catch (e) {
@@ -184,11 +187,19 @@ async function start() {
   }
 }
 
+function pullInterruptText(e: PullEvent): string {
+  const head = parseDetailHead(e.error?.detail)
+  if (e.error?.code === 'LIVE_SOURCE_GONE') return liveSourceGoneText(head.kind)
+  // 只有声音以 playing 事件的 hasVideo/hasAudio 为准；会话刚开始时 PullSession 没有这两个字段，不能拿它挡住纯音频
+  return liveInterruptView({ reason: head.reason, code: e.error?.code, taskType: 'live_pull', onLivePage: true })?.sentence
+    || pullBreakText(e.error?.message)
+}
 function onPullEvent(e: PullEvent) {
-  // 画面以播放器真的出帧为准（onPlaying）；v0.25.3 起 playing 带 hasVideo / hasAudio，只有声音时播放器按纯音频重建
+  // 画面以播放器真的出帧为准（onPlaying）。playing 一定带 hasVideo / hasAudio；没有这两个字段就不改，避免把“还不知道”当成有画面
   if (e.state === 'playing') return void applyMedia(e)
   if (e.state === 'unsupported') reason.value = reason.value || 'codec'
-  gate.event(e.state, e.state === 'failed' ? pullBreakText(e.error?.message) : undefined)
+  const broken = e.state === 'failed' || e.state === 'interrupted'
+  gate.event(e.state, broken ? pullInterruptText(e) : undefined)
 }
 function onPlaying() {
   if (!busy.value) return

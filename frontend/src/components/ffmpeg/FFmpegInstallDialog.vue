@@ -10,7 +10,7 @@
           <div v-if="ffmpeg.status.state === 'failed' && ffmpeg.status.error" class="perr fail" role="alert">
             <FIcon name="warn" :size="14" />
             <span>
-              下载失败：{{ ffmpeg.status.error.message }}<template v-if="ffmpeg.status.error.detail"><br /><small>{{ ffmpeg.status.error.detail }}</small></template>
+              下载失败：{{ ffmpeg.status.error.message }}<template v-if="safeDetail(ffmpeg.status.error.detail)"><br /><small>{{ safeDetail(ffmpeg.status.error.detail) }}</small></template>
               <button v-if="ffmpeg.canSwitchMirror" type="button" class="ff-link" @click="safe(ffmpeg.retryWithOtherMirror)">换下载源重试</button>
             </span>
           </div>
@@ -24,7 +24,7 @@
           </div>
           <div v-if="pathError" class="perr" role="alert">
             <FIcon name="warn" :size="14" />
-            <span>{{ pathError.message }}<template v-if="pathError.detail"><br /><small>{{ pathError.detail }}</small></template></span>
+            <span>{{ pathError.message }}<template v-if="safeDetail(pathError.detail)"><br /><small>{{ safeDetail(pathError.detail) }}</small></template></span>
           </div>
           <div class="dfoot">
             <el-button size="default" @click="safe(ffmpeg.dismissPrompt)">稍后</el-button>
@@ -65,7 +65,10 @@ import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import { useFFmpegStore } from '@/stores/ffmpeg'
+import { detailWithoutPaths } from '@/errors/errorMessages'
 import { toAppError, type AppError } from '@/api/call'
+
+const safeDetail = (d?: string) => detailWithoutPaths(d)
 
 const ffmpeg = useFFmpegStore()
 const installing = computed(() => ffmpeg.status.state === 'installing')

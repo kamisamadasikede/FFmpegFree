@@ -26,7 +26,8 @@ const ffmpegText = computed(() => {
   return s === 'checking' ? '正在检测转换组件…' : s === 'installing' ? '转换组件正在安装，装好后就可以转换。' : '需要先安装转换组件才能转换。'
 })
 const ffmpegMissing = computed(() => !ffmpeg.ready && ffmpeg.status.state !== 'checking' && ffmpeg.status.state !== 'installing')
-const disabled = computed(() => !!cv.startBlock)
+const catalogBlocked = computed(() => cv.v24 && cv.catalogPhase !== 'shown')
+const disabled = computed(() => !!cv.startBlock || catalogBlocked.value)
 /** 勾选的全在复制：按钮置灰，悬停提示“文件复制完成后才能转换”（截图 22）；?cv_hover=go 模拟悬停 */
 const goTip = computed(() => (cv.startBlock === 'copying' ? COPY_GO_TIP : ''))
 const forceGoTip = !convertV2IsReal() && simParam('cv_hover') === 'go'
@@ -35,10 +36,13 @@ const label = computed(() =>
 )
 /** 按钮下的说明（§二 右栏 4 / §五 按钮说明） */
 const hint = computed<{ text: string; warn?: boolean }>(() => {
+  // 格式还在加载：按钮下只写这一句，最多转 8 秒（到点由格式列换成错误和「重试」）
+  if (cv.v24 && cv.catalogPhase === 'loading') return { text: '正在加载格式…' }
+  if (cv.v24 && cv.catalogPhase === 'error') return { text: '' }
   switch (cv.startBlock) {
     case 'submitting': return { text: '每次转换都会新增一条记录' }
     case 'ffmpeg': return { text: ffmpegMissing.value ? '需要先安装转换组件' : ffmpegText.value }
-    case 'preset': return { text: cv.v24 ? (cv.presetsError ? '没有加载到格式列表' : '正在加载格式…') : cv.presetsError ? '没有加载到输出预设' : '正在加载预设…' }
+    case 'preset': return { text: cv.v24 ? '' : cv.presetsError ? '没有加载到输出预设' : '正在加载预设…' }
     case 'empty': return { text: '先添加文件' }
     case 'none': return { text: '勾选文件后才能转换' }
     case 'probing': return { text: '正在读取文件信息…' }
@@ -115,7 +119,7 @@ const hint = computed<{ text: string; warn?: boolean }>(() => {
         :aria-busy="cv.submitting"
         @click="!disabled && cv.submit()"
       ><FIcon name="convert" />{{ label }}</button>
-      <small id="cv-foot-hint" :class="{ warn: hint.warn }" :title="hint.text">{{ hint.text }}</small>
+      <small v-if="hint.text" id="cv-foot-hint" :class="{ warn: hint.warn }" :title="hint.text">{{ hint.text }}</small>
     </div>
   </section>
 </template>

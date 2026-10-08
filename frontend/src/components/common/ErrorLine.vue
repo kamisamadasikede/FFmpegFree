@@ -37,7 +37,7 @@
 // 平时是 role="group"，不会让读屏软件把每一行都当成紧急提醒；只有新出现的错误（announce）才是 role="alert"。
 import { computed } from 'vue'
 import FIcon from '../icon/FIcon.vue'
-import { resolveTaskError } from '../../errors/errorMessages'
+import { detailWithoutPaths, resolveTaskError } from '../../errors/errorMessages'
 
 const props = withDefaults(
   defineProps<{
@@ -82,7 +82,7 @@ function onChange() {
 }
 
 function lastLine(text?: string): string {
-  const lines = (text ?? '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  const lines = detailWithoutPaths(text).split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
   return lines.length ? lines[lines.length - 1].slice(0, 200) : ''
 }
 
