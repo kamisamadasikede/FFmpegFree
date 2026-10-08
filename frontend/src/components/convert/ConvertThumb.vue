@@ -42,8 +42,8 @@ const kind = computed(() => {
 })
 const ICON: Record<CoverKind, IconName> = { video: 'film', image: 'image', audio: 'music' }
 const COV: Record<CoverKind, string> = { video: 'c-v', image: 'c-i', audio: 'c-a' }
-/** 还在生成：类型封面 + 扫光（还没取到结果；子记录未完成不算） */
-const gen = computed(() => kind.value !== 'gone' && kind.value !== 'img' && !props.pend && !props.state)
+/** 还在生成：类型封面 + 扫光（还没取到结果；子记录未完成不算；音频不取缩略图，直接音符封面，不扫光——§14.3 / 走查 D3） */
+const gen = computed(() => kind.value !== 'gone' && kind.value !== 'img' && kind.value !== 'audio' && !props.pend && !props.state)
 const url = computed(() => (props.state?.kind === 'img' ? props.state.url : ''))
 const btn = computed(() => props.clickable && kind.value !== 'gone')
 </script>

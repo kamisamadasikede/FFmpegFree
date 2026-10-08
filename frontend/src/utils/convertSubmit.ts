@@ -24,6 +24,8 @@ export function submitResultOf<T>(raw: unknown): ConvertSubmitResult<T> {
 
 /** 产品经理定稿（10-08）：普通（info）toast，原样使用 */
 export const SUBMIT_COPYING_TEXT = '文件还在准备中，准备好后再点转换。'
+/** 预览时副本还没复制好（任何错误码带 reason=copying，走查 D4）：不用后端原话，说“准备中” */
+export const PREVIEW_COPYING_TEXT = '文件还在准备中，准备好后才能预览。'
 export const SUBMIT_COPY_FAILED_TEXT = '文件没能准备好，请重新添加后再转换。'
 export const skippedCopyingText = (n: number) => `有 ${n} 个文件还在准备中，已转换其余文件。准备好后再点转换。`
 export const skippedFailedText = (n: number) => `有 ${n} 个文件没能准备好，已转换其余文件。请重新添加后再转换。`
