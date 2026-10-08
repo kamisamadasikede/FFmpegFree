@@ -47,6 +47,8 @@ type Config struct {
 	Logf func(format string, args ...any)
 	// DeleteWait 是 DeleteRecords 等进行中的任务到达终态的总时长，0 用 10 秒（契约 6.14.4）。
 	DeleteWait time.Duration
+	// Now 是时钟（删除失败路径的“可打开所在文件夹”有效期用，契约 v0.23.3）；nil 用 time.Now。测试里注入。
+	Now func() time.Time
 }
 
 // Factory 根据已有任务记录重新构造 Runner，供 Retry 使用（用 Params 重建）。
@@ -64,7 +66,8 @@ type Manager struct {
 	factories map[Type]Factory
 	closing   bool
 	wg        sync.WaitGroup
-	namer     *namer // 输出文件名占用登记（见 part.go）
+	namer     *namer      // 输出文件名占用登记（见 part.go）
+	reveal    revealAllow // 删除失败、文件留下的路径（RevealInFolder 临时放行，见 reveal_allow.go）
 }
 
 // NewManager 创建任务管理器。
