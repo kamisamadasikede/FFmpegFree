@@ -261,7 +261,7 @@ func (m *Manager) GetEncoderPreferenceInfo(ctx context.Context) (EncoderPreferen
 		return EncoderPreferenceInfo{}, err
 	}
 	if !list.FFmpegReady {
-		info.Reason = "ffmpeg 还没有就绪，暂时无法确认这个设备"
+		info.Reason = "转换组件还没有就绪，暂时无法确认这个设备"
 		return info, nil
 	}
 	for _, d := range list.Devices {
@@ -274,7 +274,7 @@ func (m *Manager) GetEncoderPreferenceInfo(ctx context.Context) (EncoderPreferen
 	return info, nil
 }
 
-const missingDeviceReason = "没有检测到这个设备（可能已拔掉、驱动变化，或 ffmpeg 已更换）"
+const missingDeviceReason = "没有检测到这个设备（可能已拔掉、驱动变化，或转换组件已更换）"
 
 func (m *Manager) savedEncoderName(ctx context.Context) string {
 	m.mu.Lock()

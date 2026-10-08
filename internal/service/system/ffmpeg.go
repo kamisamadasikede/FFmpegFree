@@ -182,7 +182,7 @@ func (m *Manager) Recheck(ctx context.Context) (FFmpegStatus, error) {
 	}
 	res, err := cfg.Locator.Locate(ctx, m.customPath(ctx, cfg))
 	if err != nil {
-		st := FFmpegStatus{State: ffmpeg.StateFailed, Error: apperr.Wrap(apperr.Internal, "检测 ffmpeg 被中断", err)}
+		st := FFmpegStatus{State: ffmpeg.StateFailed, Error: apperr.Wrap(apperr.Internal, "检测转换组件被中断", err)}
 		m.setUnlessInstalling(ctx, st, nil)
 		return st, err
 	}
@@ -201,12 +201,12 @@ func statusFromResult(res ffmpeg.Result) (FFmpegStatus, *ffmpeg.Binaries) {
 	case ffmpeg.StateOutdated:
 		return FFmpegStatus{
 			State: ffmpeg.StateOutdated, Path: res.Info.FFmpeg, Version: res.Info.Version, Source: res.Info.Source,
-			Error: apperr.New(apperr.FFmpegNotFound, "ffmpeg 版本过低，需要 6 或更高").WithDetail(attemptsDetail(res.Attempts)),
+			Error: apperr.New(apperr.FFmpegNotFound, "转换组件版本过低，需要 6 或更高").WithDetail(attemptsDetail(res.Attempts)),
 		}, nil
 	default:
 		return FFmpegStatus{
 			State: ffmpeg.StateMissing,
-			Error: apperr.New(apperr.FFmpegNotFound, "未找到可用的 ffmpeg").WithDetail(attemptsDetail(res.Attempts)),
+			Error: apperr.New(apperr.FFmpegNotFound, "未找到可用的转换组件").WithDetail(attemptsDetail(res.Attempts)),
 		}, nil
 	}
 }
@@ -235,15 +235,15 @@ func (m *Manager) SetPath(ctx context.Context, dir string) (FFmpegStatus, error)
 	}
 
 	if _, busy := m.installingStatus(); busy {
-		return FFmpegStatus{}, apperr.New(apperr.TaskConflict, "正在安装 ffmpeg，请等待完成或先取消")
+		return FFmpegStatus{}, apperr.New(apperr.TaskConflict, "正在安装转换组件，请等待完成或先取消")
 	}
 	m.detectMu.Lock()
 	defer m.detectMu.Unlock()
 	info, state, reason := cfg.Locator.CheckCustom(ctx, dir)
 	if state != ffmpeg.StateReady {
-		msg := "所选位置不是可用的 ffmpeg"
+		msg := "所选位置不是可用的转换组件"
 		if state == ffmpeg.StateOutdated {
-			msg = "所选 ffmpeg 版本过低，需要 6 或更高"
+			msg = "所选转换组件版本过低，需要 6 或更高"
 		}
 		return FFmpegStatus{}, apperr.New(apperr.InvalidArgument, msg).WithDetail(reason)
 	}

@@ -53,9 +53,9 @@ func ClassifyConvertError(tail string, _ error) *apperr.AppError {
 	case endsWith("no such file or directory", "the system cannot find the path specified", "the system cannot find the file specified", "the system cannot find the path", "the system cannot find the file"):
 		return apperr.New(apperr.IOError, "找不到文件或输出目录")
 	case contains("unknown encoder", "encoder not found", "unrecognized option 'c:v'"):
-		return apperr.New(apperr.ProcessFailed, "当前 ffmpeg 不包含所需的编码器，请安装完整版 ffmpeg 或换一种编码")
+		return apperr.New(apperr.ProcessFailed, "当前转换组件不包含所需的编码器，请安装完整版转换组件或换一种编码")
 	case contains("no such filter", "filter not found"):
-		return apperr.New(apperr.ProcessFailed, "当前 ffmpeg 不包含所需的滤镜，请安装完整版 ffmpeg")
+		return apperr.New(apperr.ProcessFailed, "当前转换组件不包含所需的滤镜，请安装完整版转换组件")
 	case endsWith("invalid data found when processing input") || contains("moov atom not found", "could not find codec parameters"):
 		return apperr.New(apperr.ProbeFailed, "输入文件已损坏或不是有效的音视频文件")
 	case contains("could not write header", "incorrect codec parameters"):

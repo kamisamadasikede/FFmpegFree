@@ -100,7 +100,7 @@ func (m *Manager) Install(ctx context.Context, mirror string) (task.Task, error)
 	}
 	if t, ok := m.waitInstallTask(); ok {
 		if t.ID == "" {
-			return task.Task{}, apperr.New(apperr.TaskConflict, "ffmpeg 安装正在提交，请稍后再试")
+			return task.Task{}, apperr.New(apperr.TaskConflict, "转换组件安装正在提交，请稍后再试")
 		}
 		return t, nil
 	}
@@ -117,13 +117,13 @@ func (m *Manager) Install(ctx context.Context, mirror string) (task.Task, error)
 		if t, ok := m.waitInstallTask(); ok && t.ID != "" {
 			return t, nil
 		}
-		return task.Task{}, apperr.New(apperr.TaskConflict, "已有 ffmpeg 安装在进行")
+		return task.Task{}, apperr.New(apperr.TaskConflict, "已有转换组件安装在进行")
 	}
 	params, _ := json.Marshal(installParams{Mirror: mirror})
 	r := m.newInstallRunner(cfg, mirror)
 	r.claimed = true
 	t, err := cfg.Tasks.Submit(task.Spec{
-		Type: task.TypeFFmpegInstall, Title: "安装 ffmpeg", OutputPath: cfg.Installer.BinDir, Params: string(params),
+		Type: task.TypeFFmpegInstall, Title: "安装转换组件", OutputPath: cfg.Installer.BinDir, Params: string(params),
 	}, r)
 	if err != nil {
 		r.Abandoned()
@@ -198,7 +198,7 @@ func (m *Manager) registerInstallFactory(cfg Config) {
 		}
 		// 工厂里就占位：造出 Runner 到任务真正开始之间（包括排队期间）都不允许再提交第二个安装。
 		if !m.claimInstall() {
-			return nil, apperr.New(apperr.TaskConflict, "已有 ffmpeg 安装在进行")
+			return nil, apperr.New(apperr.TaskConflict, "已有转换组件安装在进行")
 		}
 		r := m.newInstallRunner(cfg, p.Mirror)
 		r.claimed = true
@@ -262,9 +262,9 @@ func installError(err error) *apperr.AppError {
 	case errors.Is(err, ffmpeg.ErrChecksum):
 		return apperr.Wrap(apperr.Internal, "下载的文件校验失败（SHA256 不一致），请重试或换镜像", err)
 	case ffmpeg.IsUnavailable(err):
-		return apperr.Wrap(apperr.UnsupportedPlatform, "当前系统暂无可用的 ffmpeg 下载源", err)
+		return apperr.Wrap(apperr.UnsupportedPlatform, "当前系统暂无可用的转换组件下载源", err)
 	}
-	return apperr.Wrap(apperr.Internal, "ffmpeg 安装失败，已下载的部分会保留，可点击重试继续", err)
+	return apperr.Wrap(apperr.Internal, "转换组件安装失败，已下载的部分会保留，可点击重试继续", err)
 }
 
 func formatSpeed(bps float64) string {
@@ -326,7 +326,7 @@ func preflightInstall(in *ffmpeg.Installer, mirror string) error {
 	var me *ffmpeg.MirrorError
 	switch {
 	case ffmpeg.IsUnavailable(err):
-		return apperr.Wrap(apperr.UnsupportedPlatform, "当前系统暂无可用的 ffmpeg 下载源，请手动指定 ffmpeg 所在位置", err)
+		return apperr.Wrap(apperr.UnsupportedPlatform, "当前系统暂无可用的转换组件下载源，请手动指定转换组件所在位置", err)
 	case errors.As(err, &me):
 		msg := fmt.Sprintf("当前平台不支持镜像 %q", me.Mirror)
 		detail := "可用的镜像：无，请使用默认源（mirror 传空字符串）"

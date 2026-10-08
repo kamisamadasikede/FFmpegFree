@@ -551,7 +551,7 @@ func (s *Service) probeFilterScript(ctx context.Context, exe string) (string, er
 			return opt, nil
 		}
 	}
-	return "", projectErr(apperr.Unsupported, "当前 ffmpeg 版本不支持从文件读取滤镜图（-/filter_complex、-filter_complex_script 都不可用），无法导出多轨剪辑，请安装应用推荐的 ffmpeg 版本", "missing=filter_complex")
+	return "", projectErr(apperr.Unsupported, "当前转换组件版本不支持从文件读取滤镜图，无法导出多轨剪辑，请安装应用推荐的转换组件版本", "missing=filter_complex")
 }
 
 // tryFilterOption 用 opt 跑一次探测样本：可用 (true, nil)；ffmpeg 不认识该选项 (false, nil)；其他失败返回错误。
@@ -573,7 +573,7 @@ func (s *Service) tryFilterOption(ctx context.Context, exe, opt, script string) 
 	if strings.Contains(strings.ToLower(stderr.String()), "unrecognized option") {
 		return false, nil
 	}
-	return false, apperr.Wrap(apperr.ProcessFailed, "检测 ffmpeg 的滤镜脚本能力失败", err).WithDetail(tailLines(stderr.String(), 10))
+	return false, apperr.Wrap(apperr.ProcessFailed, "检测转换组件的滤镜脚本能力失败", err).WithDetail(tailLines(stderr.String(), 10))
 }
 
 func tailLines(s string, n int) string {

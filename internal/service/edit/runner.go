@@ -121,7 +121,7 @@ func classifyExportError(tail string, exitErr error) *apperr.AppError {
 	low := strings.ToLower(filtered)
 	if strings.Contains(low, "unrecognized option 'filter_complex_script'") || strings.Contains(low, "unrecognized option '/filter_complex'") ||
 		strings.Contains(low, "option filter_complex_script not found") || strings.Contains(low, "option /filter_complex not found") {
-		return apperr.New(apperr.Unsupported, "当前 ffmpeg 版本不支持从文件读取滤镜图，无法导出多轨剪辑").WithDetail("project\nmissing=filter_complex")
+		return apperr.New(apperr.Unsupported, "当前转换组件版本不支持从文件读取滤镜图，无法导出多轨剪辑").WithDetail("project\nmissing=filter_complex")
 	}
 	if strings.Contains(low, "invalid data found when processing input") || strings.Contains(low, "moov atom not found") {
 		return apperr.New(apperr.ProbeFailed, "某个素材文件已损坏或不是有效的音视频文件")
