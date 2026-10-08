@@ -4,6 +4,8 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"FFmpegFree/internal/ffmpeg"
 )
@@ -27,20 +29,7 @@ func ParamsSummary(o ffmpeg.ConvertOptions) string {
 	var segs []string
 	audio := ffmpeg.IsAudioContainer(o.Container)
 	if !audio && o.Container != "gif" {
-		switch o.VideoCodec {
-		case "h264":
-			segs = append(segs, "H.264")
-		case "h265":
-			segs = append(segs, "H.265")
-		case "vp9":
-			segs = append(segs, "VP9")
-		case "copy":
-			segs = append(segs, "原画质")
-		case "":
-			segs = append(segs, "无画面")
-		default:
-			segs = append(segs, strings.ToUpper(o.VideoCodec))
-		}
+		segs = append(segs, VideoCodecDisplayName(o.VideoCodec))
 	}
 	switch {
 	case o.Width > 0 && o.Height > 0:
@@ -78,4 +67,82 @@ func ParamsSummary(o ffmpeg.ConvertOptions) string {
 		s = string(r[:maxSummaryRunes])
 	}
 	return s
+}
+
+// videoCodecNames 是视频编码的显示名（UI 规范：H.264 / H.265 / ProRes……，不用 HEVC、PRORES 这类原样大写）。
+// 键是小写的 ffmpeg 编码名或 ConvertOptions.VideoCodec 的取值。
+var videoCodecNames = map[string]string{
+	"copy": "原画质",
+	"":     "无画面",
+	// ConvertOptions.VideoCodec 允许的值（ffmpeg.ValidateConvertOptions：copy h264 h265 vp9 ""）
+	"h264": "H.264",
+	"h265": "H.265",
+	"vp9":  "VP9",
+	// 常见的 ffmpeg 编码器 / 编码名
+	"libx264":    "H.264",
+	"avc":        "H.264",
+	"hevc":       "H.265",
+	"libx265":    "H.265",
+	"libvpx-vp9": "VP9",
+	"vp8":        "VP8",
+	"libvpx":     "VP8",
+	"av1":        "AV1",
+	"libaom-av1": "AV1",
+	"libsvtav1":  "AV1",
+	"librav1e":   "AV1",
+	"mpeg4":      "MPEG-4",
+	"mpeg2video": "MPEG-2",
+	"mpeg1video": "MPEG-1",
+	"mjpeg":      "MJPEG",
+	"dnxhd":      "DNxHD",
+	"theora":     "Theora",
+	"libtheora":  "Theora",
+	"gif":        "GIF",
+	"h263":       "H.263",
+	"wmv2":       "WMV",
+	"rawvideo":   "无压缩",
+	"ffv1":       "FFV1",
+	"libxvid":    "Xvid",
+	"cinepak":    "Cinepak",
+	"utvideo":    "Ut Video",
+	"qtrle":      "QuickTime RLE",
+	"png":        "PNG",
+	"libwebp":    "WebP",
+	"webp":       "WebP",
+	"apng":       "APNG",
+	"msmpeg4v3":  "MPEG-4",
+	"flv1":       "FLV",
+	"hap":        "HAP",
+	"vvc":        "H.266",
+	"libvvenc":   "H.266",
+	"h266":       "H.266",
+	"cfhd":       "CineForm",
+	"dvvideo":    "DV",
+	"prores":     "ProRes", // 其他 prores* 变体（prores_ks、prores_aw、prores_videotoolbox）按前缀匹配
+}
+
+// VideoCodecDisplayName 返回视频编码的显示名：已知编码用固定写法（H.264、H.265、VP9、AV1、ProRes……）；
+// 硬件编码器后缀（_nvenc / _qsv / _amf / _vaapi / _videotoolbox / _mf / _v4l2m2m）去掉后再查；prores* 一律 ProRes；
+// 其他未知值去掉 "lib" 前缀后首字母大写（如 "foo" → "Foo"），不再原样全大写。
+func VideoCodecDisplayName(codec string) string {
+	c := strings.ToLower(strings.TrimSpace(codec))
+	if n, ok := videoCodecNames[c]; ok {
+		return n
+	}
+	if strings.HasPrefix(c, "prores") {
+		return "ProRes"
+	}
+	for _, suf := range []string{"_nvenc", "_qsv", "_amf", "_vaapi", "_videotoolbox", "_mf", "_v4l2m2m", "_omx", "_mediacodec"} {
+		if base, ok := strings.CutSuffix(c, suf); ok {
+			if n, ok := videoCodecNames[base]; ok {
+				return n
+			}
+		}
+	}
+	c = strings.TrimPrefix(c, "lib")
+	r, size := utf8.DecodeRuneInString(c)
+	if size == 0 {
+		return codec
+	}
+	return string(unicode.ToUpper(r)) + c[size:]
 }

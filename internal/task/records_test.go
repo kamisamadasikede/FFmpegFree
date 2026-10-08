@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -382,6 +383,13 @@ func TestDeleteRecords(t *testing.T) {
 	if len(res.DeletedTaskIDs) != 0 || len(res.Failures) != 1 || res.Failures[0].Reason != DeleteStillRunning ||
 		res.Failures[0].Message != "任务还没停下来，没有删除这条记录" {
 		t.Fatalf("%+v", res)
+	}
+	// still_running 没有文件，path 为空且 JSON 里省略（契约 6.14.2 DeleteFailure）
+	if res.Failures[0].Path != "" {
+		t.Fatalf("%+v", res.Failures[0])
+	}
+	if b, _ := json.Marshal(res.Failures[0]); strings.Contains(string(b), `"path"`) {
+		t.Fatalf("%s", b)
 	}
 	close(stuck)
 	waitTask(t, f.m, hard.ID)

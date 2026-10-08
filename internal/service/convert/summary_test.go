@@ -64,3 +64,43 @@ func TestParamsSummary(t *testing.T) {
 		t.Fatalf("最长 80: %d", n)
 	}
 }
+
+// UI 规范：视频编码显示名统一写法（H.265、ProRes……），不出现 HEVC / PRORES 这类原样大写。
+func TestVideoCodecDisplayName(t *testing.T) {
+	cases := map[string]string{
+		// ConvertOptions.VideoCodec 允许的全部取值
+		"": "无画面", "copy": "原画质", "h264": "H.264", "h265": "H.265", "vp9": "VP9",
+		// H.264 / H.265
+		"libx264": "H.264", "hevc": "H.265", "HEVC": "H.265", "libx265": "H.265", " h265 ": "H.265",
+		"h264_nvenc": "H.264", "hevc_nvenc": "H.265", "hevc_qsv": "H.265", "hevc_amf": "H.265", "hevc_videotoolbox": "H.265",
+		// ProRes
+		"prores": "ProRes", "PRORES": "ProRes", "prores_ks": "ProRes", "prores_aw": "ProRes", "prores_videotoolbox": "ProRes",
+		// AV1 / VP9
+		"av1": "AV1", "libaom-av1": "AV1", "libsvtav1": "AV1", "av1_nvenc": "AV1", "libvpx-vp9": "VP9", "vp9_vaapi": "VP9",
+		// 其他常见
+		"mpeg4": "MPEG-4", "dnxhd": "DNxHD", "mjpeg": "MJPEG",
+		// 未知值：可读的通用写法，不是原样大写
+		"foocodec": "Foocodec", "libfoo": "Foo",
+	}
+	for in, want := range cases {
+		if got := VideoCodecDisplayName(in); got != want {
+			t.Errorf("%q: %q, want %q", in, got, want)
+		}
+	}
+	// ParamsSummary 里同样生效（视频容器）
+	if got := ParamsSummary(ffmpeg.ConvertOptions{Container: "mov", VideoCodec: "prores_ks"}); got != "ProRes" {
+		t.Fatalf("%q", got)
+	}
+	if got := ParamsSummary(ffmpeg.ConvertOptions{Container: "mkv", VideoCodec: "hevc", Height: 1080}); got != "H.265 · 1080p" {
+		t.Fatalf("%q", got)
+	}
+	// 所有内置预设的摘要都不含原样大写的编码名
+	for _, p := range builtinPresets() {
+		got := ParamsSummary(p.Options)
+		for _, bad := range []string{"HEVC", "PRORES", "H264", "H265", "LIBX"} {
+			if strings.Contains(got, bad) {
+				t.Errorf("%s: %q", p.ID, got)
+			}
+		}
+	}
+}

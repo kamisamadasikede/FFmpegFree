@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.23.1）
+# FFmpegFree v2 接口契约（v0.23.2）
+
+v0.23.2 变更（转换页 v2 的小补充，随实现 PR；没有新增错误码、没有新增事件）：① **`ConvertSearchFilter` 新增可选 `status`**，取值和规则与 `ConvertSourceFilter.status` **完全相同**（`""` / `"active"` / `"failed"`，`canceled` 不算失败，其他值 `INVALID_ARGUMENT`；只筛行，不筛每行内嵌的记录和 `recordCount`），与关键字是 **AND**，分页和排序不变，复用同一个 `EXISTS` 子查询（6.14.2、6.14.3）；② **6.14.1“只收 id”规则的唯一例外**：`DeleteRecords` / `DeleteSource` 返回 `failures` 后，转换页可以用第一条 `path` 非空的失败项的 `path` 调旧的 `RevealInFolder(path)`，打开没删掉的文件所在的文件夹（记录已经删了，没有 id 可用；`RevealInFolder` 只打开文件夹，不读不改文件）；**`DeleteFailure.path` 只在文件类失败（`in_use` / `permission` / `not_task_output` / `io`）时有值，`still_running` 时为空（JSON 里省略）**，代码与此一致；③ **`paramsSummary` 的视频编码显示名统一写法**：`H.265`、`ProRes`、`AV1` 等，不再出现原样大写的 `HEVC` / `PRORES`（6.14.5）。
 
 v0.23.1 变更（转换页 v2 的补充，**随实现 PR 一起改**；没有新增错误码、没有新增事件）：① **新增 `ConvertService.RevealRecord(taskId string) error`**：在系统文件管理器里显示转换记录的输出文件（“打开所在文件夹”），路径由后端从记录取，平台命令复用 `RevealInFolder` 的实现（Windows 同样走 `reveal_windows.go`），不走 6.8 的范围白名单；不存在 / 旧类型 `NOT_FOUND`（`reason=record`），不是 `convert` `INVALID_ARGUMENT`，没有输出（不是 `succeeded`）/ 输出文件不在 / 不是普通文件 / 是符号链接 `NOT_FOUND`（`reason=file`）。**转换页不再用 `RevealInFolder(path)`**（源文件用 `RevealSource`，记录用 `RevealRecord`），`RevealInFolder` 保留给其他页面（6.8）；② **新增 `ConvertService.GetSource(sourceId string) (ConvertSourceEntry, error)`**：返回一行，与 `ListSources` 的一项**完全相同**（同样内嵌最新 20 条记录——即 `recordLimit` 的默认值——和 `recordCount`，进行中的带实时进度）；不存在 `NOT_FOUND`（`reason=record`）。用于任务中心的“在转换页查看”：前端拿任务的 `sourceId` 调它，把这一行置顶、展开并高亮那条记录；③ **`paramsSummary` 不再含容器名**（容器由预设名或输出扩展名体现，避免出现“MP4 1080p · MP4 · H.264 · 1080p”），只列视频编码、尺寸、帧率、码率等；**只给宽度时** 3840 / 2560 / 1920 / 1280 / 854 显示成 `2160p` / `1440p` / `1080p` / `720p` / `480p`，其他宽度仍是 `宽 N`，宽高都给仍是 `宽×高`；没有任何段时为 `默认参数`（永远非空）。内置 1080p / 720p 预设只设了宽度，现在显示 `H.264 · 1080p` / `H.264 · 720p`（6.14.5）；④ **三个快照字段的取值规则写死**（6.14.2）：内置预设（以及用户预设）提交的记录 `presetId`、`presetName` 非空、`paramsSummary` 有值；自定义参数提交的记录 `presetId`、`presetName` 都是 `""`、`paramsSummary` 有值；v0.23 之前的旧记录三个键都没有（按 `""` 处理），前端退回显示 `title`。**没有 `presetId: "custom"` 之类的特殊值**；⑤ 产品决定（后端不变）：`Reconvert` 在 v1 转换页**没有入口**（接口保留）；任务中心按钮改名为“**隐藏已结束**”（原“隐藏已完成”，行为不变；契约里的旧称一并改掉）；⑥ **`ListSources` 的 `ConvertSourceFilter` 新增可选 `status`**：`""`（全部，同前）/ `"active"`（至少有一条 `queued` / `running` 记录的行）/ `"failed"`（至少有一条 `failed` / `interrupted` 记录的行，`canceled` 不算），其他值 `INVALID_ARGUMENT`；只筛行，分页、排序不变，每行内嵌的最新记录和 `recordCount` **不按状态筛**；迁移 `0005`（尚未发布，直接改）加索引 `idx_tasks_source_status(source_id, status)`（6.14.3、6.14.8）；⑦ 6.14.12 记录实现 PR 对 v0.23 条文中含糊处的取舍。
 
@@ -621,7 +623,7 @@ schema_migrations(version PK, applied_at)
 ## 6.8 RevealInFolder / PickDirectory（v0.7.3，v0.7.7 修订）
 
 - `RevealInFolder(path)`：path 必须是绝对路径（空 / 相对路径 → `INVALID_ARGUMENT`），必须存在（否则 `NOT_FOUND`）。**范围限制（v0.7.7）**：只允许任务表里登记的输出路径（`Manager.IsTaskOutput`），或 `defaultOutputDir` 之内的路径（目录本身可以）；先 Clean 再 `EvalSymlinks`，用真实路径按目录边界比较（Windows / macOS 不区分大小写），其余一律 `INVALID_ARGUMENT`；任务输出本身是符号链接时拒绝；实际打开的是真实路径。Windows 执行 `explorer.exe /select,"<path>"`（路径带双引号，见 v0.21），macOS `open -R <path>`，Linux `xdg-open <所在文件夹>`；path 是文件夹时三个平台都直接打开这个文件夹。命令启动后立即返回，启动失败 `PROCESS_FAILED`。Linux 没有统一的"选中文件"方式，所以只能打开所在文件夹。
-- **v0.23.1：格式转换页不再调用 `RevealInFolder(path)`**：源文件用 `ConvertService.RevealSource(sourceId)`，转换记录的输出用 `ConvertService.RevealRecord(taskId)`（只收 id，路径由后端从表里取，平台命令与本条相同，不走上面的范围白名单）。`RevealInFolder` 保留给其他页面，行为不变。
+- **v0.23.1：格式转换页不再调用 `RevealInFolder(path)`**：源文件用 `ConvertService.RevealSource(sourceId)`，转换记录的输出用 `ConvertService.RevealRecord(taskId)`（只收 id，路径由后端从表里取，平台命令与本条相同，不走上面的范围白名单）。`RevealInFolder` 保留给其他页面，行为不变。（v0.23.2 例外：删除记录后打开“没删掉的文件”所在文件夹，见 6.14.1。）
 - `PickDirectory(title string)`：弹出系统选择文件夹对话框，返回绝对路径；取消返回 `""`。应用启动完成前调用返回 `INTERNAL`。**参数不能省略**：Wails v2.11 对 Go 可变参数生成 `Array<string>` 且运行时按参数个数严格检查，做不了可选参数，前端无标题时调用 `PickDirectory('')`。
 - `PickFiles(filter, multiple)`：`filter = {name, patterns[]}`，patterns 形如 `["*.mp4", "*.mkv"]`（单个元素里用分号也行：`"*.mp4;*.mkv"`），只接受 `*.扩展名` 形式（扩展名限字母数字 `_ - + ? *`）和 `*` / `*.*`，其他写法 `INVALID_ARGUMENT`；patterns 为空或含 `*.*` = 不过滤；`name` 为空时用模式串当显示名。返回绝对路径（已 `Clean`、去重）；**用户取消返回空数组 `[]`，不是错误**；`multiple=false` 最多 1 个。启动完成前调用返回 `INTERNAL`。
 
@@ -1272,6 +1274,7 @@ AppError（句柄失效）：
 - **转换记录**：每次转换 = 一个 `type=convert` 的任务，`Task.sourceId` 指向它的源文件行。**分组只看 `tasks.source_id`，不按 `inputPaths[0]` 做字符串匹配**。
 - **记录在任务中心和转换页之间是共享的同一条任务**：任务中心的“隐藏已结束”只设 `hiddenInTaskCenter`，**不删记录**（对所有任务类型都一样，不按类型区分）；**转换记录的真删只在转换页**（`DeleteRecords` / `DeleteSource`），**永远不删源文件**；没有回收站。非转换任务的真删用任务中心每行的“移除”（`TaskService.Remove`），`Remove` 拒绝转换任务。
 - **只收 id、不收路径（架构师硬要求 5）**：存在性检查、预览、缩略图、用系统程序打开、打开所在文件夹（`RevealSource` / v0.23.1 的 `RevealRecord`）、取一行（v0.23.1 的 `GetSource`）、删除、取消隐藏，参数只有任务 id（加 `which`）或 `sourceId`；后端从表里取登记的路径，**不接受前端传来的路径**。唯一收路径的入口是 `AddSources`（登记新文件）和兼容保留的 `Submit(inputs …)`。
+  - **唯一的例外（v0.23.2）**：`DeleteRecords` / `DeleteSource` 返回 `failures` 后，转换页可以取**第一条 `path` 非空**的失败项，用它的 `path` 调旧的 `SystemService.RevealInFolder(path)`，打开那个没删掉的文件所在的文件夹（例如“文件正在被使用，没有删除”之后让用户自己去处理）。原因：记录已经删了，没有 id 可用；`RevealInFolder` 只在文件管理器里打开文件夹，**不读、不改、不删文件**。`path` 为空的失败项（`still_running`，记录没删，仍可用 id 接口）不能这样用。**注意**：`RevealInFolder` 的范围限制（6.8）照旧——记录删掉后这个路径已不是“任务表里登记的输出”，所以只有它在当前 `defaultOutputDir` 之内时才会打开；否则返回 `INVALID_ARGUMENT`，前端静默忽略（不弹错误），失败提示里照常显示路径即可。
 - **旧类型**（6.10 确认项 ⑧ 的“保留但不再产生”的类型）的 id 在本节所有接口里一律按不存在处理（`NOT_FOUND`，`reason=record`）。
 - 本节**没有新增错误码**；新增的是 2.2 里 `NOT_FOUND` / `UNSUPPORTED` 在本节接口上的 `reason=` 取值（`record`、`file`、`no_app`、`format`）。本节接口都要等启动完成，之前调用返回 `INTERNAL`（同 6.9）。
 
@@ -1331,6 +1334,7 @@ type ConvertSearchFilter struct {
     Limit       int    `json:"limit"`    // 同上
     Offset      int    `json:"offset"`
     RecordLimit int    `json:"recordLimit"`
+    Status      string `json:"status,omitempty"` // v0.23.2，可省略：与 ConvertSourceFilter.status 完全相同（"" | "active" | "failed"，canceled 不算失败，其他值 INVALID_ARGUMENT），与 keyword 是 AND；只筛行，不筛每行内嵌的记录和 recordCount
 }
 type ConvertSourcePage struct {
     Items []ConvertSourceEntry `json:"items"` // 无结果时是 []
@@ -1371,7 +1375,7 @@ type DeleteResult struct {
 }
 type DeleteFailure struct {
     TaskID  string `json:"taskId"`
-    Path    string `json:"path,omitempty"` // 文件类失败时是那个输出文件；still_running 没有
+    Path    string `json:"path,omitempty"` // 文件类失败（in_use / permission / not_task_output / io）时是那个输出文件的绝对路径；still_running 时为空（JSON 里省略）。v0.23.2：转换页可以拿它调 RevealInFolder，见 6.14.1
     Reason  string `json:"reason"`         // 固定枚举，见 6.14.4
     Message string `json:"message"`        // 固定中文文案，见 6.14.4
 }
@@ -1422,7 +1426,7 @@ OpenWithSystem(taskID string, which string) error                // which = "inp
 | `AddSources(paths)` | 1~500 个（前端按约 50 个一批调用）。逐个 `paths.Normalize`、`os.Stat`：必须是普通文件。同 `path_key` 已有行 → `existed=true`，只把 `lastActivityAt` 设为现在（行移到最上面，`addedAt` 不变）；否则新建一行（`addedAt = lastActivityAt = 现在`）。同一次调用里重复的路径落到同一行。**不探测**（前端随后自己调 `MediaService.Probe`），所以探测失败的文件照样有行。单个失败放进该项 `error`，不影响其他项 | 整体：空列表或超过 500 个 `INVALID_ARGUMENT`；数据库失败 `INTERNAL`。单项：不存在 `NOT_FOUND`（`reason=file`），相对路径 / 目录 / 非普通文件 `INVALID_ARGUMENT`，无权限读取信息 `IO_ERROR` | 无 |
 | `ListSources(filter)` | 按 `lastActivityAt` 倒序、`sourceId` 倒序分页列出**全部**源文件行（含没有记录的），每行内嵌最新的 `recordLimit` 条记录和 `recordCount`；记录里进行中的任务带实时进度（同 `List`）；**`hiddenInTaskCenter` 不影响这里**。**v0.23.1 `filter.status`**（可省略）：`""` 全部行（同前）；`"active"` 只返回至少有一条 `queued` / `running` 记录的行；`"failed"` 只返回至少有一条 `failed` / `interrupted` 记录的行（**`canceled` 不算**）。在 `tasks` 上用 `EXISTS` 子查询筛（只看 `type='convert'`，走 `idx_tasks_source_status`）；**分页和排序不变**，`total` 是筛选后的行数；**每行内嵌的最新记录和 `recordCount` 不按状态筛**（仍是这一行的全部记录） | 参数越界、`status` 不是这三个值 `INVALID_ARGUMENT` | 无 |
 | `ListSourceRecords(sourceId, limit, offset)` | 某一行的更多记录（“展开更多”），`limit` 默认 50 最大 200，排序同上，返回 `TaskPage` | 行不存在 `NOT_FOUND`（`reason=record`）；参数越界 `INVALID_ARGUMENT` | 无 |
-| `SearchSources(filter)` | 文件名搜索，覆盖全部记录：源文件名命中（`nameMatched`），或该行任一记录的输出文件名命中（`matchedTaskIds`）的行都返回；分页和每行内嵌规则同 `ListSources`。匹配方式见 6.14.5 | 关键字为空 / 只有空白 / 超过 100 字 `INVALID_ARGUMENT` | 无 |
+| `SearchSources(filter)` | 文件名搜索，覆盖全部记录：源文件名命中（`nameMatched`），或该行任一记录的输出文件名命中（`matchedTaskIds`）的行都返回；分页和每行内嵌规则同 `ListSources`。匹配方式见 6.14.5。**v0.23.2 `filter.status`**（可省略）：与 `ListSources` 的 `status` 完全相同（`""` / `"active"` / `"failed"`，`canceled` 不算失败），与关键字是 **AND**（两个条件都满足的行才返回），复用同一个 `EXISTS` 子查询；分页、排序不变，`total` 是筛选后的行数；每行内嵌的记录、`recordCount`、`nameMatched` / `matchedTaskIds` 不按状态筛 | 关键字为空 / 只有空白 / 超过 100 字 `INVALID_ARGUMENT`；`status` 不是这三个值 `INVALID_ARGUMENT` | 无 |
 | `CheckSources(sourceIds)` | 1~500 个，结果一一对应：`exists` = 登记的路径现在 `os.Stat` 是普通文件；只有“不存在”算 `false`，其他 stat 错误（如无权限）算 `true`，交给后续操作报错 | 空或超过 500 `INVALID_ARGUMENT`；不存在的 id 不报错（`found=false`） | 无 |
 | `PreviewOutputName(sourceId, opts, outputDir)` | “将保存为”的提示：按 6.14.5 的命名规则算出此刻会用的完整输出路径，**不占位**，真正提交时可能不同 | 行不存在 `NOT_FOUND`（`reason=record`）；参数 / 目录不合法 `INVALID_ARGUMENT` | 无 |
 | `SubmitSources(req)` | 等同 `Submit`（6.9 全部规则：先整体校验再提交、最多 50 个、输出目录解析、不回滚已提交），区别只是输入来自 `convert_sources` 登记的路径：每个任务写 `sourceId`、`params.presetId / presetName / paramsSummary` 快照，并**在提交时定名并占位**（6.14.5）；被提交的行 `lastActivityAt` = 现在 | 6.9 的全部码；`sourceIds` 为空 / 超过 50 `INVALID_ARGUMENT`；任一 `sourceId` 不存在 `NOT_FOUND`（`reason=record`，整体不提交）；`presetId` 非空但不存在 `NOT_FOUND`（`reason=record`）；源文件本身的问题（已不在、探测失败、与参数不兼容）同 6.9，`detail` 第一行是文件路径、没有 reason 行 | 每个任务 `task:created` |
@@ -1484,7 +1488,7 @@ OpenWithSystem(taskID string, which string) error                // which = "inp
 - **现状差异（实现须改）**：当前代码（`internal/task/part.go` 的 `namer.reserve`）只在 `RunWithPart` 开始运行时才占位，排队中的任务不占名字，两个排队中的同名任务会显示同一个 `outputPath`，直到运行时才分开。v0.23 要求转换任务在提交时就占位；`RunWithPart` 运行时直接用已占的名字，只有这期间磁盘上被别的程序建了同名文件才顺延到下一个可用名，新名字随 `running` 的 `task:status.outputPath` 告知前端。剪辑导出、Office 转 PDF 本版不要求改（可以一起改）。
 - 应用重启后没有未结束的任务（6.6 启动时都变成 `interrupted`），所以占位表不需要持久化。
 - **`params.paramsSummary`**：提交时由后端按 `options` 生成，之后不变，**原地重试不改**、`Reconvert` 照抄。各段用 ` · `（空格、U+00B7、空格）连接，最长 80 字符。**v0.23.1：不含容器名**（容器由预设名或输出扩展名体现；否则会出现“MP4 1080p · MP4 · H.264 · 1080p”）：
-  1. 视频（只对视频容器）：`h264` → `H.264`，`h265` → `H.265`，`vp9` → `VP9`，`copy` → `原画质`，`""` → `无画面`；`gif` 和音频容器不写这一段。
+  1. 视频（只对视频容器）：`h264` → `H.264`，`h265` → `H.265`，`vp9` → `VP9`，`copy` → `原画质`，`""` → `无画面`；`gif` 和音频容器不写这一段。**v0.23.2：显示名统一写法**，从不出现原样大写的 `HEVC` / `PRORES`：`hevc` / `libx265` → `H.265`，`libx264` → `H.264`，`prores*` → `ProRes`，`av1` / `libaom-av1` / `libsvtav1` → `AV1`，`libvpx-vp9` → `VP9`（硬件编码器后缀如 `_nvenc` 去掉后同样映射），其他未知编码去掉 `lib` 前缀后首字母大写（`ConvertOptions.videoCodec` 目前只允许上面五个值）。
   2. 尺寸：只给高 → `<高>p`（`1080p`）；**只给宽（v0.23.1）：`3840` → `2160p`、`2560` → `1440p`、`1920` → `1080p`、`1280` → `720p`、`854` → `480p`，其他宽度 → `宽 <宽>`**；都给 → `<宽>×<高>`；都没给不写。
   3. 帧率 `fps > 0` → `<fps> fps`；码率：视频容器设了 `videoBitrate` → `<Mbps> Mbps`（保留 1 位小数），音频容器设了 `audioBitrate` → `<kbps> kbps`；`audioCodec=none` → `无声`。
   4. 裁剪（`trimStart > 0` 或 `trimEnd > 0`）→ `已裁剪`。
