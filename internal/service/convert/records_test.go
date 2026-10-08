@@ -1,9 +1,11 @@
 package convert
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -274,11 +276,21 @@ func TestPreviewAndOpenWhitelist(t *testing.T) {
 	if u, err := e.svc.GetRecordThumbnail(ctx, gif.ID); err != nil || !strings.HasPrefix(u, "data:image/jpeg;base64,") {
 		t.Fatalf("gif 输出可以出缩略图: %v", err)
 	}
+	// 失败写应用日志（包 19 Windows：之前失败一行记录都没有）：哪种缩略图、id、路径、错误码
+	var logBuf bytes.Buffer
+	oldOut := log.Writer()
+	log.SetOutput(&logBuf)
+	defer log.SetOutput(oldOut)
 	os.Remove(in)
 	_, err = e.svc.GetSourceThumbnail(ctx, src.SourceID)
 	wantReason(t, err, apperr.NotFound, "reason=file")
 	_, err = e.svc.GetSourceThumbnail(ctx, "nope")
 	wantReason(t, err, apperr.NotFound, "reason=record")
+	for _, want := range []string{"缩略图: 转换页 source=" + src.SourceID + ` path="` + in + `" code=NOT_FOUND`, `detail="reason=file"`, "source=nope", `detail="reason=record"`} {
+		if !strings.Contains(logBuf.String(), want) {
+			t.Errorf("日志缺少 %q:\n%s", want, logBuf.String())
+		}
+	}
 	wantReason(t, e.svc.OpenSourceWithSystem(ctx, src.SourceID), apperr.NotFound, "reason=file")
 }
 

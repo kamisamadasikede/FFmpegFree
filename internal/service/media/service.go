@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"log"
 	"math"
 	"os"
 	"os/exec"
@@ -158,7 +159,7 @@ func (s *Service) probeOne(ctx context.Context, bin ffmpeg.Binaries, raw string)
 		s.cfg.OnProbed(ctx, key, m, fi)
 	}
 	if m.HasVideo {
-		if t, err := s.thumbnail(ctx, bin, m.Path, key, fi, defaultThumbAt(m.Duration), DefaultThumbWidth); err == nil {
+		if t, err := s.thumbnail(ctx, bin, m.Path, key, fi, autoThumbAt, DefaultThumbWidth); err == nil {
 			m.ThumbURL = t.DataURL
 		}
 	}
@@ -328,6 +329,9 @@ func (s *Service) thumbnail(ctx context.Context, bin ffmpeg.Binaries, p, key str
 		name = cacheName(key, fi.ModTime(), fi.Size(), usedAt, width)
 	}
 	final := s.cache.path(name)
+	if usedAt == autoThumbAt {
+		usedAt = 0 // 默认缩略图：对外按第 0 秒报（实际可能是前 3 秒里第一张不黑的帧）
+	}
 	if err := os.Rename(part, final); err != nil {
 		_ = os.Remove(part)
 		return Thumb{}, apperr.Wrap(apperr.IOError, "保存缩略图失败", err)
@@ -362,7 +366,7 @@ func (s *Service) ListRecent(ctx context.Context, limit int) ([]store.MediaInfo,
 		if err != nil {
 			continue
 		}
-		name := cacheName(key, fi.ModTime(), fi.Size(), defaultThumbAt(it.Duration), DefaultThumbWidth)
+		name := cacheName(key, fi.ModTime(), fi.Size(), autoThumbAt, DefaultThumbWidth)
 		if hit, ok := s.cache.lookup(name); ok {
 			if u, err := dataURL(hit); err == nil {
 				it.ThumbURL = u
@@ -395,15 +399,17 @@ func (s *Service) RemoveRecent(ctx context.Context, ids []string) error {
 	return nil
 }
 
-// DefaultThumbnailDataURL 返回 path 的默认缩略图（与 Probe 附带的相同：时长的 10%、最多 10 秒，宽 320），只返回 data URL
+// DefaultThumbnailDataURL 返回 path 的默认缩略图（与 Probe 附带的相同：第一帧，太暗时取前 3 秒里第一张不黑的，宽 320），只返回 data URL
 // （契约 v0.23，6.14.10：ConvertService.GetRecordThumbnail / GetSourceThumbnail 用，路径由调用方从表里取）。
-// durationHint > 0 时直接用它算截图时间点；否则先探测一次（同时判断有没有画面）。
+// durationHint > 0 表示调用方已经知道它是音视频（v0.24.2 起不再用它算时间点），直接截图；否则先探测一次判断有没有画面。
 // 缓存键包含文件当前的 mtime 和 size（每次调用都先 stat），文件被替换后一定重新生成。
 // 错误：文件不存在 / 不是普通文件 NOT_FOUND（reason=file）；没有画面 UNSUPPORTED（reason=format）；
 // 其余沿用 Thumbnail（FFMPEG_NOT_FOUND、PROBE_FAILED、INTERNAL 等）。
 func (s *Service) DefaultThumbnailDataURL(ctx context.Context, path string, durationHint float64) (string, error) {
 	bin, err := s.cfg.Require()
 	if err != nil {
+		// 包 19 Windows 实测：启动时转换组件还在检测，页面已经来取缩略图，全部落到这里（FFMPEG_NOT_FOUND）。
+		log.Printf("缩略图: 转换组件未就绪（检测中、缺失或缺 ffprobe），没有生成 path=%q err=%v", path, err)
 		return "", err
 	}
 	p, key, fi, err := statMedia(path)
@@ -413,8 +419,7 @@ func (s *Service) DefaultThumbnailDataURL(ctx context.Context, path string, dura
 		}
 		return "", err
 	}
-	dur := durationHint
-	if dur <= 0 || math.IsNaN(dur) || math.IsInf(dur, 0) {
+	if !(durationHint > 0) || math.IsInf(durationHint, 0) {
 		m, _, _, err := s.inspect(ctx, bin, p)
 		if err != nil {
 			return "", err
@@ -422,9 +427,8 @@ func (s *Service) DefaultThumbnailDataURL(ctx context.Context, path string, dura
 		if !m.HasVideo {
 			return "", apperr.New(apperr.Unsupported, "这个文件没有画面").WithDetail("reason=format")
 		}
-		dur = m.Duration
 	}
-	th, err := s.thumbnail(ctx, bin, p, key, fi, defaultThumbAt(dur), DefaultThumbWidth)
+	th, err := s.thumbnail(ctx, bin, p, key, fi, autoThumbAt, DefaultThumbWidth)
 	if err != nil {
 		if apperr.Is(err, apperr.InvalidArgument) { // runThumbOnce："该文件没有视频画面"
 			return "", apperr.New(apperr.Unsupported, "这个文件没有画面").WithDetail("reason=format")
