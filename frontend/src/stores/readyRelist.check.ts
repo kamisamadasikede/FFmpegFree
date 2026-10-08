@@ -133,9 +133,9 @@ export async function readyRelistChecks(eq: Eq, readSrc: (f: string) => string):
 
   // ---------- ② D2 完成横幅 ----------
   const page = readSrc('src/views/ConvertPage.vue')
-  eq('D2 横幅：“结果已保存到输出文件夹” + “打开文件夹”；不再有“源文件下 / 源文件所在”的说法', [
+  eq('D2 横幅：有失败只留“本轮完成 a 项，失败 b 项”，不出现保存说明和打开按钮', [
     page.includes('结果已保存到输出文件夹'),
-    /<button v-if="cv\.roundBanner\.ok" type="button" class="lk" @click="cv\.openRoundOutput\(\)">打开文件夹<\/button>/.test(page),
+    /v-if="cv\.roundBanner\.ok && !cv\.roundBanner\.fail"/.test(page),
     /源文件下(?!面)|源文件所在/.test(page),
   ], [true, true, false])
   eq('D2 打开：自定义文件夹 RevealInFolder，默认 OpenStorageFolder("output")；提交时记下本轮的输出位置', [

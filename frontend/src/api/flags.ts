@@ -35,3 +35,10 @@ export const CONVERT_V2_BACKEND_READY: boolean = true
  * 纯浏览器（没有 window.go，走查 / 截图）：v0.24 的界面全部打开，数据来自模拟，见 api/convertRecords.ts 的 convertV24On()。
  */
 export const CONVERT_V24_BACKEND_READY: boolean = true
+/**
+ * 直播预览 v0.25（包 21，契约已合入 #104）：GetPreviewStream → { url, mime, hasVideo, hasAudio }，PullSession.previewUrl。
+ * 播放器用 mpegts.js。旧的 GetPreview / 每秒 2 帧轮询已从界面删除。
+ * false（现在）：实现还没落地，浏览器模拟层按契约 6.10.3.1 返回 UNSUPPORTED reason=preview_unavailable、previewUrl ""；
+ * 拉流页对 http(s) / ws(s) 仍直接播放用户填的地址。true：调真实绑定（callService，绑定生成后可改成 import）。
+ */
+export const LIVE_PREVIEW_V25_BACKEND_READY: boolean = false

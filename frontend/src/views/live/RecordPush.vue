@@ -2,7 +2,6 @@
   <LiveTabFrame>
     <template #main>
       <LivePushPreview />
-      <LiveSessionList :empty-hint="pickerMode === 'dropdown' ? LIVE_RECORD_EMPTY_HINT_WIN : LIVE_RECORD_EMPTY_HINT" />
     </template>
     <template #panel>
       <LivePanel title="推流设置">
@@ -42,12 +41,15 @@
             </div>
           </LiveField>
         </template>
+        <p class="keep">{{ LP_KEY_HINT }}</p>
         <LiveFormError v-if="err?.where === 'form'" :text="err.text" class="form-err" />
         <template #action-top>
           <PreviewSwitch v-model="previewOn" :disabled="blocked || starting" :note="starting ? PREVIEW_SWITCH_NOTE_STARTING : undefined" />
+          <small class="limit">{{ LP_LIMIT }}</small>
         </template>
         <template #action>
-          <LiveButton variant="pri" lg icon="play" :disabled="!canStart" :tip-when-disabled="blocked ? '需要先安装转换组件' : undefined" @click="start">开始推流</LiveButton>
+          <LiveButton v-if="showRetry" variant="pri" icon="retry" :disabled="blocked" :tip-when-disabled="blocked ? '需要先安装转换组件' : undefined" @click="retry">重新推流</LiveButton>
+          <LiveButton v-else variant="pri" icon="play" :disabled="!canStart" :tip-when-disabled="blocked ? '需要先安装转换组件' : undefined" @click="start">开始推流</LiveButton>
         </template>
       </LivePanel>
     </template>
@@ -57,7 +59,7 @@
 <script setup lang="ts">
 // 录屏推流（设计稿 v0.2 + 直播 v1.1 采集来源选择器，后者设计稿未出）：采集来源（屏幕 / 应用窗口） → 无声音说明 → 推流地址 → 推流码 / 口令 → 保存存档（MP4，目录只读 + 更改）→ 表单级错误 → 开始推流。
 // 后端 #47 已支持带存档：archiveDir 非空时任务的 outputPath = 存档路径，终态事件里的 outputPath 决定“打开所在文件夹”。屏幕推流没有声音（audio 恒为 none）。
-import { computed, nextTick, onMounted, ref, toRefs, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, toRef, toRefs, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import LiveTabFrame from '@/components/live/LiveTabFrame.vue'
@@ -69,13 +71,13 @@ import LiveFormError from '@/components/live/LiveFormError.vue'
 import CaptureSourcePicker from '@/components/live/CaptureSourcePicker.vue'
 import LivePushPreview from '@/components/live/LivePushPreview.vue'
 import PreviewSwitch from '@/components/live/PreviewSwitch.vue'
-import LiveSessionList from '@/components/live/LiveSessionList.vue'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { restoreSourceId, useLiveFormsStore } from '@/stores/liveForms'
 import { useLiveSessionsStore } from '@/stores/liveSessions'
+import { useLiveDockStore } from '@/stores/liveDock'
 import { recordStartEnabled, sourcePickerMode } from '@/utils/liveSource'
 import { LIVE_RECORD_EMPTY_HINT, LIVE_RECORD_EMPTY_HINT_WIN, LIVE_SCREEN_NO_AUDIO_TEXT, LIVE_SOURCE_FIELD_LABEL, LIVE_SOURCE_FIELD_LABEL_SCREEN, LIVE_SOURCE_REFRESH, LIVE_SRT_PASSPHRASE_TEXT, liveSourceGoneText } from '@/errors/errorMessages'
-import { PREVIEW_SWITCH_NOTE_STARTING } from '@/errors/livePreviewMessages'
+import { LP_KEY_HINT, LP_LIMIT, PREVIEW_SWITCH_NOTE_STARTING } from '@/errors/livePreviewMessages'
 import { composePushUrl, parsePushUrl } from '@/utils/liveUrl'
 import * as liveApi from '@/api/live'
 import { toAppError, type AppError } from '@/api/call'
@@ -87,6 +89,7 @@ defineOptions({ name: 'LiveRecordPush' })
 
 const ffmpeg = useFFmpegStore()
 const store = useLiveSessionsStore()
+const dock = useLiveDockStore()
 const blocked = computed(() => ffmpeg.featuresBlocked)
 const DEMO_ARCHIVE_DIR = '~/Movies/FFmpegFree/直播存档'
 
@@ -104,10 +107,26 @@ const pickerMode = computed(() => sourcePickerMode(platform.value, sources.value
 const goneItem = ref<liveApi.CaptureSource | null>(null)
 const goneShown = computed(() => err.value?.where === 'source' && !!goneItem.value && !sourceId.value)
 /** 预览开关：会话启动参数，默认开；产品经理已定：不记住上次选择，每次打开表单默认开 */
-const previewOn = ref(true)
+const previewOn = toRef(dock, 'previewOn')
 const err = ref<PushFormError | null>(null)
 const starting = ref(false)
 const canStart = computed(() => recordStartEnabled({ blocked: blocked.value, starting: starting.value, hasUrl: !!baseUrl.value.trim(), sourceId: sourceId.value, state: srcState.value, gone: goneShown.value }))
+const showRetry = computed(() => store.rows.some((r) => r.status === 'int') && !store.rows.some((r) => r.status === 'run' || r.status === 'stp'))
+async function retry() {
+  const row = store.rows.find((r) => r.status === 'int')
+  if (!row || blocked.value) return
+  starting.value = true
+  try {
+    const res = await store.restart(row.id, previewOn.value)
+    if (res && !res.ok) showError(res.error, 'rtmp')
+    else if (!res) { starting.value = false; await start(); return }
+    else previewOn.value = true
+  } catch (e) {
+    showError(toAppError(e), 'rtmp')
+  } finally {
+    starting.value = false
+  }
+}
 /** 没选来源（列表加载失败 / 没有可选项）时不传来源，后端默认推主屏：表单里给一句轻提示 */
 
 watch([baseUrl, key], () => (err.value = null))
@@ -214,6 +233,7 @@ async function start() {
   starting.value = true
   try {
     const task = await liveApi.startScreenPush(liveApi.buildScreenPushRequest({ url: full, sourceId: sourceId.value, archiveDir: dir, preview: previewOn.value }))
+    store.noteRestart(task.id, { kind: 'screen', url: full, sourceId: sourceId.value, archiveDir: dir, source: pickedSource(sourceId.value) })
     const r = await store.begin(task, { kind: 'screen', redactedUrl: check.info.redacted, archive: !!dir, source: pickedSource(sourceId.value), preview: previewOn.value })
     if (!r.ok) showError(r.error, check.info.scheme)
     else {
@@ -344,7 +364,6 @@ onMounted(async () => {
   outline-offset: 2px;
   border-radius: 2px;
 }
-.form-err {
-  margin-top: 0;
-}
+ .form-err { margin-top: 0; }
+.keep, .limit { margin: 0; font-size: 12px; line-height: 1.5; color: var(--ff-text-2); }
 </style>

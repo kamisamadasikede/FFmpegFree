@@ -5,7 +5,7 @@ import * as liveApi from '@/api/live'
 import { AppError, toAppError, type AppErrorCode } from '@/api/call'
 import { revealInFolder } from '@/api/system'
 import { actionErrorText } from '@/errors/errorMessages'
-import { displayPushUrl } from '@/utils/liveUrl'
+import { displayPushUrl, parsePushUrl } from '@/utils/liveUrl'
 import { hasWailsBackend } from '@/services/wails'
 import { rowsPreview } from '@/views/live/pushPreview'
 
@@ -168,6 +168,27 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
     }
   }
 
+  /** 重新推流用的参数（只在内存里，含完整地址；不进 localStorage、不打日志） */
+  const restarts = new Map<string, { kind: 'file' | 'screen'; url: string; inputPath?: string; sourceId?: string; archiveDir?: string; source?: LiveRow['source'] }>()
+  function noteRestart(id: string, spec: { kind: 'file' | 'screen'; url: string; inputPath?: string; sourceId?: string; archiveDir?: string; source?: LiveRow['source'] }) {
+    restarts.set(id, spec)
+  }
+  /**
+   * 用原来的参数再推一次（不跳页面）。preview 只决定新会话开始后前端连不连预览，不改变推流命令。
+   * 没有记下参数（刷新后接回的会话）时返回 null，调用方改走当前表单。
+   */
+  async function restart(id: string, preview: boolean): Promise<BeginResult | null> {
+    const spec = restarts.get(id)
+    if (!spec) return null
+    const parsed = parsePushUrl(spec.url)
+    const redacted = parsed.ok ? parsed.info.redacted : ''
+    const task = spec.kind === 'file'
+      ? await liveApi.startFilePush({ inputPath: spec.inputPath ?? '', url: spec.url, loop: true, options: liveApi.defaultPushOptions(), preview })
+      : await liveApi.startScreenPush(liveApi.buildScreenPushRequest({ url: spec.url, sourceId: spec.sourceId ?? '', archiveDir: spec.archiveDir ?? '', preview }))
+    noteRestart(task.id, spec)
+    return begin(task, { kind: spec.kind, redactedUrl: redacted, archive: !!spec.archiveDir, preview, ...(spec.source ? { source: spec.source } : {}) })
+  }
+
   /** [移除]：只把这一行从页面列表里去掉，不删除存档、不影响任务中心历史 */
   function remove(id: string) {
     const r = find(id)
@@ -238,5 +259,5 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
   }
 
   const selectPreview = (id: string) => (previewId.value = id)
-  return { rows, previewId, selectPreview, busyCount, begin, recover, stop, forceStop, remove, reveal }
+  return { rows, previewId, selectPreview, busyCount, begin, recover, stop, forceStop, remove, reveal, noteRestart, restart }
 })

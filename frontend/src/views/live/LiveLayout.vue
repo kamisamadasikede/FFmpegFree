@@ -1,15 +1,19 @@
 <template>
   <div class="lv-root">
-    <div v-if="!liveIsReal()" class="lv-demo" role="status">
+    <div v-if="!liveIsReal() && !shot" class="lv-demo" role="status">
       <FIcon name="warn" :size="16" />
       <span>直播功能仍在开发中，当前页面为演示，尚未连接真实推流。</span>
     </div>
     <div class="body">
+    <div class="top">
     <nav class="seg" aria-label="直播工具">
       <RouterLink v-for="t in tabs" :key="t.to" :to="t.to" class="seg-item">
         {{ t.label }}
       </RouterLink>
     </nav>
+    <span class="sp" />
+    <LiveSessionEntry />
+    </div>
     <!-- 直播转码回退提示条：Tab 条下方的通栏条（设计稿 182/190）；只在推流页签（文件 / 录屏）显示，拉流播放不转码 -->
     <LiveFallbackNotice v-if="isPushTab" />
     <!-- KeepAlive：切换页签不打断进行中的推流 / 播放 -->
@@ -28,9 +32,12 @@ import { useRoute } from 'vue-router'
 import FIcon from '@/components/icon/FIcon.vue'
 import LiveFallbackNotice from '@/components/live/LiveFallbackNotice.vue'
 import { liveIsReal } from '@/api/live'
+import LiveSessionEntry from '@/components/live/LiveSessionEntry.vue'
+import { lpVisual } from './lpVisual'
 // 直播页外壳：三个页签（原型 pages.html 的 .seg，宽 360）+ 页签内容。
 const route = useRoute()
 const isPushTab = computed(() => route.path.startsWith('/live/push') || route.path.startsWith('/live/record'))
+const shot = !!lpVisual
 const tabs = [
   { label: '文件推流', to: '/live/push' },
   { label: '录屏推流', to: '/live/record' },
@@ -69,11 +76,13 @@ const tabs = [
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 16px 24px 20px;
+  padding: 16px 20px 20px;
 }
+.top { display: flex; align-items: center; gap: 12px; flex: none; min-width: 0; }
+.top .sp { flex: 1; min-width: 0; }
 .seg {
   display: flex;
-  width: 360px;
+  width: 288px;
   flex: none;
   background: var(--ff-bg-hover);
   border-radius: 6px;
