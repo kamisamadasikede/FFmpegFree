@@ -50,6 +50,10 @@ func TestPreviewTeeWithArchiveAndSRT(t *testing.T) {
 	if !strings.HasPrefix(s, "[f=mpegts:") || !strings.Contains(s, "[f=flv:onfail=ignore") {
 		t.Fatalf("SRT 网络一路是 mpegts，预览一路是 flv: %s", s)
 	}
+	// tee 先按 "|" 切分去一层转义，再按 ":" 解析选项又去一层：fifo_options 里的 ":" 在 argv 里必须是两个反斜杠（实测，只写一个预览分支打不开）。
+	if !strings.Contains(s, `fifo_options=queue_size=120\\:drop_pkts_on_overflow=1:`) {
+		t.Fatalf("fifo_options 的冒号要双重转义: %s", s)
+	}
 }
 
 func TestMainOutputKeepsSourceFpsAndSize(t *testing.T) {
