@@ -152,6 +152,7 @@ func ParseProbe(data []byte, path string) (store.MediaInfo, error) {
 		m.SampleRate = si.SampleRate
 		m.Channels = si.Channels
 	}
+	m.FillCodecNames()
 	return m, nil
 }
 

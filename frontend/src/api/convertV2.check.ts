@@ -6,8 +6,11 @@ import { cancelSimTask, getSimTask, hideSimFinished, listSimFinished, retrySimTa
 import { onSimEvent } from '@/services/wails'
 import { createPinia, setActivePinia } from 'pinia'
 import { useTaskStore } from '@/stores/tasks'
+import { useConvertRecordsStore } from '@/stores/convertRecords'
+import { nextTick } from 'vue'
+import { FFPROBE_MISSING_TEXT, liveFfmpegProtocolMissingText, LIVE_FFMPEG_PROTOCOL_MISSING_TEXT } from '@/errors/errorMessages'
 import { midEllipsis, midTailMin } from '@/utils/midEllipsis'
-import { recordParamsText, recordLine, deleteToast, toastText, revealDeleteFailureText, sourceRemovedParts, conflictReason, CONFLICT_NO_AUDIO, CONFLICT_NO_VIDEO, CONFLICT_TITLE, formatRecordTime } from '@/utils/convertText'
+import { dupPresetTitles, presetShortTitle, setPresetCatalog, recordParamsText, recordLine, deleteToast, toastText, revealDeleteFailureText, sourceRemovedParts, conflictReason, CONFLICT_NO_AUDIO, CONFLICT_NO_VIDEO, CONFLICT_TITLE, formatRecordTime } from '@/utils/convertText'
 import { codecName } from '@/utils/mediaText'
 
 type Eq = (name: string, got: unknown, want: unknown) => void
@@ -77,7 +80,24 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
     eq('MidEllipsis 用在任务中心任务名、源文件名、记录名、删除弹窗、预览标题、移除提示', used, [true, true, true, true, true, true])
     eq('1024“更多”按钮读屏：更多：打开所在文件夹、从列表移除；菜单项 aria-label 从列表移除', [/aria-label="`更多：打开所在文件夹、\$\{SOURCE_REMOVE_LABEL\}`"/.test(readSrc('src/components/convert/ConvertSourceRow.vue')), /role="menuitem" :aria-label="SOURCE_REMOVE_LABEL"/.test(readSrc('src/components/convert/ConvertSourceRow.vue'))], [true, true])
   }
-  eq('编码显示名：H.265 / ProRes，不出现 HEVC / PRORES；其余首字母大写', ['hevc', 'h265', 'prores', 'h264', 'av1', 'pcm_s16le', 'cinepak', 'copy'].map((c) => codecName(c)), ['H.265', 'H.265', 'ProRes', 'H.264', 'AV1', 'PCM', 'Cinepak', '原编码'])
+  eq('编码显示名：H.265 / ProRes，不出现 HEVC / PRORES；表里有的按表', ['hevc', 'h265', 'prores', 'h264', 'av1', 'pcm_s16le', 'cinepak', 'copy'].map((c) => codecName(c)), ['H.265', 'H.265', 'ProRes', 'H.264', 'AV1', 'PCM', 'Cinepak', '原编码'])
+  eq('走查 X3：FFV1 / DNxHD / MJPEG 按表；表里没有的原样大写，不做首字母大写（不出现“Ffv1”）', [codecName('ffv1'), codecName('dnxhd'), codecName('mjpeg'), codecName('foo2'), mock.mockParamsSummary({ container: 'mkv', videoCodec: 'ffv1' })], ['FFV1', 'DNxHD', 'MJPEG', 'FOO2', 'FFV1'])
+  eq('走查 X3：前端只有 mediaText 一张编码名表，没有别处自己首字母大写', [/charAt\(0\)\.toUpperCase\(\)/.test(readSrc('src/utils/mediaText.ts')), /charAt\(0\)\.toUpperCase\(\)/.test(readSrc('src/api/convertRecordsMock.ts')), /codecName\(base\)/.test(readSrc('src/api/convertRecordsMock.ts'))], [false, false, true])
+  {
+    // 走查 G2：第 2 行 / 任务中心 / 预览底栏和预设卡片共用 presetShortTitle：同名预设补编码
+    const names = ['MP4（H.264 + AAC，通用）', 'MP4 1080p（H.264 + AAC）', 'MP4（H.265 + AAC，体积更小）', 'WebM（VP9 + Opus）']
+    const dup = dupPresetTitles(names)
+    eq('dupPresetTitles：只有 MP4 重名', [...dup], ['MP4'])
+    eq('presetShortTitle：MP4 · H.264 / MP4 · H.265；不重名的不补（MP4 1080p、WebM）', [presetShortTitle(names[0], 'h264', dup), presetShortTitle(names[2], 'hevc', dup), presetShortTitle(names[1], 'h264', dup), presetShortTitle(names[3], 'vp9', dup)], ['MP4 · H.264', 'MP4 · H.265', 'MP4 1080p', 'WebM'])
+    const R = (presetName: string, videoCodec: string) => ({ presetId: 'x', presetName, paramsSummary: 's', title: 't', options: { videoCodec } })
+    eq('recordParamsText：H.264 / H.265 记录不再都写“MP4”', [recordParamsText(R(names[0], 'h264'), dup).text, recordParamsText(R(names[2], 'h265'), dup).text, recordLine(R(names[2], 'h265'), ['今天 14:48']).text], ['MP4 · H.264', 'MP4 · H.265', '今天 14:48 · MP4'])
+    setPresetCatalog(names)
+    eq('setPresetCatalog 之后默认用当前预设列表（第 2 行 / 任务中心 / 预览底栏）', [recordLine(R(names[2], 'h265'), ['今天 14:48']).text, recordLine(R(names[0], 'h264'), ['今天 14:48 转换'], ['CPU']).text], ['今天 14:48 · MP4 · H.265', '今天 14:48 转换 · MP4 · H.264 · CPU'])
+    setPresetCatalog([])
+    const st = readSrc('src/stores/convertRecords.ts')
+    eq('G2：卡片标题走 presetShortTitle，取到预设后写入 setPresetCatalog；任务中心进入时也写入', [/presetShortTitle\(p\.name, p\.options\.videoCodec \|\| p\.options\.audioCodec, dup\)/.test(st), /setPresetCatalog\(presets\.value\.map/.test(st), /listPresets\(\)\.then\(\(ps\) => setPresetCatalog/.test(readSrc('src/views/TaskCenter.vue'))], [true, true, true])
+  }
+  eq('PM 10-08 文案：缺推流协议（带 / 不带协议名）、转换组件不完整', [liveFfmpegProtocolMissingText('missing=srt'), LIVE_FFMPEG_PROTOCOL_MISSING_TEXT, FFPROBE_MISSING_TEXT, /FFPROBE_MISSING_TEXT/.test(readSrc('src/components/settings/FFmpegPanel.vue')), /缺少读取文件信息的部分/.test(readSrc('src/components/settings/FFmpegPanel.vue'))], ['当前转换组件不支持 SRT。请到设置的“转换组件”里重新安装或更新。', '当前转换组件不支持这种推流协议。请到设置的“转换组件”里重新安装或更新。', '转换组件不完整，无法读取文件信息。请到设置的“转换组件”里重新安装。', true, false])
   eq('冲突：无画面配视频 / 无声配音频 / 读取中不判断 / 兼容', [conflictReason({ hasAudio: true }, true, 'mp4'), conflictReason({ hasVideo: true }, true, 'mp3'), conflictReason({}, false, 'mp4'), conflictReason({ hasVideo: true, hasAudio: true }, true, 'mp4')], [CONFLICT_NO_VIDEO, CONFLICT_NO_AUDIO, null, null])
   eq('冲突文案定稿（不显示错误码）', [CONFLICT_TITLE, CONFLICT_NO_VIDEO, CONFLICT_NO_AUDIO], ['这个文件不能用当前预设', '没有画面，不能转成视频格式。请换一个音频预设，或取消勾选。', '没有声音，不能转成音频格式。请换一个视频预设，或取消勾选。'])
   {
@@ -235,7 +255,7 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
   eq('删除确认：只删记录；勾选“同时删除输出文件”才提示无法恢复', [/只删除记录，(<b>)?不删除磁盘上的文件/.test(del), del.includes('同时删除输出文件'), del.includes('删除后无法恢复。')], [true, true, true])
   {
     const st = readSrc('src/stores/convertRecords.ts')
-    eq('源文件行删除定稿：标题 / 按钮提示 / 菜单项“从列表移除”；没有旧说法', [/SOURCE_REMOVE_TITLE = '从列表移除这个文件和它的全部记录'/.test(st), /SOURCE_REMOVE_LABEL = '从列表移除'/.test(st), /:aria-label="SOURCE_REMOVE_LABEL" :title="SOURCE_REMOVE_LABEL"/.test(row), /\{\{ SOURCE_REMOVE_LABEL \}\}<\/button>/.test(row), /删除源文件和全部记录/.test(row + del + st + page)], [true, true, true, true, false])
+    eq('源文件行删除定稿：标题 / 按钮提示 / 菜单项“从列表移除”；没有旧说法', [/SOURCE_REMOVE_TITLE = '从列表移除这个文件和它的全部记录'/.test(st), /SOURCE_REMOVE_LABEL = '从列表移除'/.test(st), /:aria-label="`\$\{SOURCE_REMOVE_LABEL\} \$\{src\.name\}`" :title="SOURCE_REMOVE_LABEL"/.test(row), /\{\{ SOURCE_REMOVE_LABEL \}\}<\/button>/.test(row), /删除源文件和全部记录/.test(row + del + st + page)], [true, true, true, true, false])
     eq('源文件行确认按钮：普通“移除”，勾选后红色“移除并删除文件”', [/withOutput\.value \? '移除并删除文件' : '移除'/.test(del), /a\.value\?\.kind === 'record' \|\| withOutput\.value \? 'danger' : 'pri'/.test(del)], [true, true])
     eq('移除弹窗：标题下文件行（名称 · n 条转换记录）；“移除时会先取消它”；未勾选图标中性灰', [/class="cv-delfile"/.test(del) && /\{\{ a\.count \}\} 条转换记录/.test(del), /'移除' : '删除'\}时会先取消它/.test(del), /:class="\{ neutral: !danger \}"/.test(del)], [true, true, true])
     eq('toast：普通 4 秒、警告 8 秒；有失败时带“打开所在文件夹”（RevealInFolder(failures[0].path)）', [/TOAST_MS = 4000/.test(page), /WARN_TOAST_MS = 8000/.test(page), page.includes('打开所在文件夹'), /revealInFolder\(path\)/.test(readSrc('src/api/convertRecords.ts'))], [true, true, true, true])
@@ -246,9 +266,62 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
   eq('第 2 行 / 预览页脚只用快照 presetName，不读当前预设卡片', [/presetLabel|presetTitle/.test(kid + row + pv)], [false])
   eq('失败卡片：ErrorLine 卡片版（操作左、错误码右，同一行）', [(kid.match(/actions-row/g) ?? []).length, /class="arow-line"/.test(readSrc('src/components/common/ErrorLine.vue'))], [2, true])
   eq('任务中心：固定列宽，操作列按内容估算，任务名优先；窄窗口“演示”只在 title', [/\.tbl \{ table-layout: fixed; \}/.test(tc), /'--ops-w': opsWidth \+ 'px'/.test(tc), /\.simtag \{ display: none; \}/.test(tc)], [true, true, true])
-  eq('任务中心：页签计数跟“显示已隐藏”（failedTotal / finishedTotal），失败卡片用 failedCard', [/tasks\.failedCard/.test(tc), /void loadStats\(\) \/\/ 页签计数跟着开关/.test(readSrc('src/stores/tasks.ts'))], [true, true])
+  eq('任务中心（走查 X9）：“失败”卡片和页签同一个数 failedTotal（都跟“显示已隐藏”）；没有 failedCard', [/<small>失败<\/small><b[^>]*>\{\{ tasks\.failedTotal \}\}/.test(tc), /failedCard/.test(tc + readSrc('src/stores/tasks.ts')), /void loadStats\(\) \/\/ 页签计数跟着开关/.test(readSrc('src/stores/tasks.ts'))], [true, false, true])
+  eq('任务中心（走查 X10）：失败 / 已中断的进度条上方只放百分比，原因在错误行', [/<div class="pline"><span>\{\{ barText\(t\) \}\}<\/span>/.test(tc), /const barText = \(t: TaskItem\): string => \(t\.status === 'failed' \|\| t\.status === 'interrupted' \? '' : progressText\(t\)\)/.test(tc)], [true, true])
+  eq('预览（走查 G4）：有画面的文件 loadedmetadata 后 videoWidth = 0 → 无法在应用内播放', [/expectsVideo\.value && \(el as HTMLVideoElement\)\.videoWidth === 0\) \{\s*el\.pause\(\)\s*playing\.value = false\s*stage\.value = 'unplayable'/.test(pv), /const expectsVideo = computed\(\(\) => \(rec\.value \? !isAudioContainer\(container\.value\) : !!srcInfo\.value && !isAudioOnly\(srcInfo\.value\)\)\)/.test(pv)], [true, true])
+  eq('预览（走查 X5）：放不了 / 文件不在 / 出错时控制条收起，音量条不显示', [/const failed = computed\(\(\) => stage\.value === 'unplayable' \|\| stage\.value === 'gone' \|\| stage\.value === 'error'\)/.test(pv), /class="cv-pvbody" :class="\{ nobar: failed \}"/.test(pv), /\.cv-pvbody\.nobar \.ff-player \.ctrl\{display:none\}/.test(readSrc('src/components/convert/convert-v2.css')), /v-if="kind !== 'gif' && !failed" type="button" class="cv-vol"/.test(pv)], [true, true, true, true])
+  eq('转换页提示（走查 X4）：放在左栏栏头下面，两处都带 offset', (page.match(/offset: toastOffset\(\)/g) ?? []).length, 2)
+  eq('1280 垃圾桶（走查 X7）：aria-label 带文件名，title 不变', /:aria-label="`\$\{SOURCE_REMOVE_LABEL\} \$\{src\.name\}`" :title="SOURCE_REMOVE_LABEL"/.test(row), true)
   let oldGone = true
   try { readSrc('src/stores/convert.ts'); oldGone = false } catch { /* 已删除 */ }
   try { readSrc('src/components/convert/ConvertFileRow.vue'); oldGone = false } catch { /* 已删除 */ }
   eq('旧转换页 store / 行组件已删除', oldGone, true)
+  // ---- 走查 S1：记录数只在一处计数（同一个任务 id 只加一次），栏头 / 行 / 移除确认框一致 ----
+  {
+    mock.resetConvertMock('added')
+    setActivePinia(createPinia())
+    const cv = useConvertRecordsStore()
+    const ts = useTaskStore()
+    await cv.reload()
+    const sid = 'mock-src-demo'
+    const c0 = cv.sources[sid]?.recordCount ?? -1
+    const h0 = cv.recordCount
+    const o = { container: 'mp4', videoCodec: 'h264', audioCodec: 'aac', width: 0, height: 0, fps: 0, videoBitrate: 0, audioBitrate: 0, crf: 0, targetSizeMb: 0, trimStart: 0, trimEnd: 0 }
+    const sub = async () => (await mock.SubmitSources({ sourceIds: [sid], options: o, outputDir: '', presetId: 'builtin-mp4-h264' }))[0]
+    // 真实后端里 task:status 可能先于 SubmitSources 返回：先进任务 store（监听里加），再 afterSubmit
+    const t1 = await sub()
+    ts.track([t1] as never)
+    await nextTick()
+    await nextTick()
+    const afterEvent = cv.sources[sid].recordCount
+    cv.afterSubmit([t1])
+    const afterSubmit1 = cv.sources[sid].recordCount
+    // 反过来：先 afterSubmit（里面 track），再收到 task:status
+    const t2 = await sub()
+    cv.afterSubmit([t2])
+    const afterSubmit2 = cv.sources[sid].recordCount
+    ts.track([t2] as never)
+    await nextTick()
+    await nextTick()
+    eq('S1：提交 1 条 +1，收到首个 task:status 不再变（两种先后顺序）', [c0 >= 0, afterEvent - c0, afterSubmit1 - c0, afterSubmit2 - c0, cv.sources[sid].recordCount - c0], [true, 1, 1, 2, 2])
+    eq('S1：栏头总数、行记录数、移除确认框的条数一致', [cv.recordCount - h0, cv.deleteAsk('source', sid)?.count, cv.parents.find((p) => p.src.sourceId === sid)?.kids.length], [2, c0 + 2, c0 + 2])
+    const r = await cv.confirmDelete(cv.deleteAsk('source', sid)!, false)
+    eq('S1：移除后 toast 用的条数 = 确认框里的条数', r.deletedTaskIds.length, c0 + 2)
+    const st = readSrc('src/stores/convertRecords.ts')
+    eq('S1：recordCount++ 只出现在 addRecord 里一处', (st.match(/recordCount\+\+/g) ?? []).length, 1)
+  }
+  // ---- 走查 G1：添加文件后 listOffset 跟着推进，不误出“加载更早的记录” ----
+  {
+    mock.resetConvertMock('added')
+    setActivePinia(createPinia())
+    const cv = useConvertRecordsStore()
+    await cv.reload()
+    const n0 = cv.sourceCount
+    const before = cv.hasMore
+    await cv.addPaths(['D:\\Videos\\走查G1-新文件.mp4'])
+    const afterNew = [cv.hasMore, cv.sourceCount - n0]
+    await cv.addPaths(['D:\\Videos\\走查G1-新文件.mp4'])
+    eq('G1：加载完没有更多 → 添加新文件、重复添加后仍然没有“加载更早的记录”，文件数只加 1', [before, ...afterNew, cv.hasMore, cv.sourceCount - n0], [false, false, 1, false, 1])
+  }
+  mock.resetConvertMock('mixed')
 }

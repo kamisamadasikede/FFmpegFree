@@ -3,12 +3,14 @@ import { formatBytes } from '@/utils/format'
 import type { store as goStore } from '../../wailsjs/go/models'
 
 /**
- * 编码显示名（设计：界面上统一写 H.265、ProRes，和预设卡片“MP4 · H.265 / H.265 + AAC”同一套叫法；不出现 HEVC / PRORES）。
- * 表里没有的：首字母大写（ffmpeg 的编码名都是小写 ASCII）。
+ * 编码显示名——前端唯一的一张表（文件行、信息卡、预览弹窗、预设卡片都用 codecName；界面上统一写 H.265、ProRes，不出现 HEVC / PRORES）。
+ * 后端也在改成一张共用的编码名表（走查 X3）；这里和它保持同样的写法。
+ * 表里没有的：原样转成大写（编码名多是缩写，如 FFV1 / HUFFYUV），不自己做首字母大写（走查 X3：FFV1 被写成“Ffv1”）。
  */
 const CODEC: Record<string, string> = {
-  h264: 'H.264', avc: 'H.264', hevc: 'H.265', h265: 'H.265', prores: 'ProRes', vp9: 'VP9', vp8: 'VP8', av1: 'AV1', mpeg4: 'MPEG-4', mpeg2video: 'MPEG-2', mjpeg: 'MJPEG',
-  dnxhd: 'DNxHD', theora: 'Theora', gif: 'GIF', aac: 'AAC', mp3: 'MP3', opus: 'Opus', vorbis: 'Vorbis', flac: 'FLAC', alac: 'ALAC', ac3: 'AC-3', eac3: 'E-AC-3', dts: 'DTS', wmav2: 'WMA',
+  h264: 'H.264', avc: 'H.264', hevc: 'H.265', h265: 'H.265', prores: 'ProRes', vp9: 'VP9', vp8: 'VP8', av1: 'AV1', mpeg4: 'MPEG-4', mpeg2video: 'MPEG-2', mpeg1video: 'MPEG-1', mjpeg: 'MJPEG',
+  dnxhd: 'DNxHD', ffv1: 'FFV1', theora: 'Theora', gif: 'GIF', png: 'PNG', vc1: 'VC-1', wmv1: 'WMV', wmv2: 'WMV', wmv3: 'WMV', cinepak: 'Cinepak', huffyuv: 'HuffYUV',
+  aac: 'AAC', mp3: 'MP3', mp2: 'MP2', opus: 'Opus', vorbis: 'Vorbis', flac: 'FLAC', alac: 'ALAC', ac3: 'AC-3', eac3: 'E-AC-3', dts: 'DTS', truehd: 'TrueHD', wmav1: 'WMA', wmav2: 'WMA', amr_nb: 'AMR', amr_wb: 'AMR-WB', ape: 'APE', wavpack: 'WavPack',
 }
 
 export function codecName(c?: string): string {
@@ -17,7 +19,7 @@ export function codecName(c?: string): string {
   if (k === 'copy') return '原编码'
   if (CODEC[k]) return CODEC[k]
   if (k.startsWith('pcm')) return 'PCM'
-  return k.charAt(0).toUpperCase() + k.slice(1)
+  return c.toUpperCase()
 }
 
 export function channelText(n?: number): string {

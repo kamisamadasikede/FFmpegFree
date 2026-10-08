@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"FFmpegFree/internal/apperr"
@@ -16,12 +18,18 @@ import (
 
 // ConvertSource 是转换页上的一行（一个源文件），见契约 6.14.2。
 type ConvertSource struct {
-	SourceID       string     `json:"sourceId"`
-	Path           string     `json:"path"`
-	Name           string     `json:"name"`
-	AddedAt        int64      `json:"addedAt"`
-	LastActivityAt int64      `json:"lastActivityAt"`
-	Media          *MediaInfo `json:"media,omitempty"`
+	SourceID       string `json:"sourceId"`
+	Path           string `json:"path"`
+	Name           string `json:"name"`
+	AddedAt        int64  `json:"addedAt"`
+	LastActivityAt int64  `json:"lastActivityAt"`
+	// Media 是这一行持久化的探测结果（契约 v0.23.4：convert_sources.media），hasVideo / hasAudio / sampleRate / channels
+	// 都可靠；没有持久化结果时退回按 path_key 关联 media 表（hasVideo / hasAudio 按编码是否为空推出）；都没有时省略。
+	Media *MediaInfo `json:"media,omitempty"`
+
+	// MediaFP 是持久化探测结果对应的文件指纹（"<大小>:<修改时间纳秒>"），'' = 从没探测过。只在后端用，不给前端。
+	MediaFP string `json:"-"`
+
 	// 以下是 v0.24 的副本字段（契约 6.15.3），来自 copy_id 指向的 convert_copies 行。
 	OriginalPath string           `json:"originalPath"`        // 原文件的绝对路径（= path）
 	StoredPath   string           `json:"storedPath"`          // 副本的绝对路径；copyState=none 时为 ""
@@ -45,19 +53,29 @@ const (
 // convertSourceFrom 是读源文件行时的 FROM（带副本的 LEFT JOIN）。
 const convertSourceFrom = ` FROM convert_sources s LEFT JOIN convert_copies c ON c.id = s.copy_id`
 
-const convertSourceColumns = `s.id, s.path, s.name, s.added_at, s.last_activity_at,
+const convertSourceColumns = `s.id, s.path, s.name, s.added_at, s.last_activity_at, s.media, s.media_fp,
 	s.copy_id, c.stored_path, c.state, c.copied_bytes, c.total_bytes, c.error`
 
 func scanConvertSource(r rowScanner) (ConvertSource, error) {
 	var s ConvertSource
+	var media sql.NullString
 	var copyID, stored, state, errJSON sql.NullString
 	var copied, total sql.NullInt64
-	if err := r.Scan(&s.SourceID, &s.Path, &s.Name, &s.AddedAt, &s.LastActivityAt,
+	if err := r.Scan(&s.SourceID, &s.Path, &s.Name, &s.AddedAt, &s.LastActivityAt, &media, &s.MediaFP,
 		&copyID, &stored, &state, &copied, &total, &errJSON); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ConvertSource{}, err
 		}
 		return ConvertSource{}, fmt.Errorf("读取源文件行失败: %w", err)
+	}
+	if media.Valid && media.String != "" {
+		var m MediaInfo
+		if json.Unmarshal([]byte(media.String), &m) == nil {
+			m.FillCodecNames()
+			s.Media = &m
+		} else {
+			s.MediaFP = "" // JSON 损坏：当作没探测过，下次重探
+		}
 	}
 	s.OriginalPath = s.Path
 	s.CopyState = CopyNone
@@ -76,6 +94,52 @@ func scanConvertSource(r rowScanner) (ConvertSource, error) {
 		}
 	}
 	return s, nil
+}
+
+// SetConvertSourceMedia 写入一行的探测结果和文件指纹（契约 v0.23.4）。m 为 nil 表示这个指纹的文件探测失败（media 置 NULL，
+// 文件不变就不再重探）。thumbUrl、error、id 不入库。行不存在时什么都不做。
+func (s *Store) SetConvertSourceMedia(ctx context.Context, id, fp string, m *MediaInfo) error {
+	v, err := convertSourceMediaJSON(m)
+	if err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE convert_sources SET media = ?, media_fp = ? WHERE id = ?`, v, fp, id); err != nil {
+		return fmt.Errorf("保存源文件媒体信息失败: %w", err)
+	}
+	return nil
+}
+
+// SetConvertSourceMediaByKey 同 SetConvertSourceMedia，按 path_key 定位（MediaService.Probe 成功后顺带刷新同一文件的行）。
+// 没有这一行时什么都不做。
+func (s *Store) SetConvertSourceMediaByKey(ctx context.Context, key, fp string, m *MediaInfo) error {
+	v, err := convertSourceMediaJSON(m)
+	if err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE convert_sources SET media = ?, media_fp = ? WHERE path_key = ?`, v, fp, key); err != nil {
+		return fmt.Errorf("保存源文件媒体信息失败: %w", err)
+	}
+	return nil
+}
+
+// FileFingerprint 是探测结果对应的文件指纹（convert_sources.media_fp）："<大小>:<修改时间纳秒>"。
+// 文件被覆盖或替换后指纹变化，下次列表 / 预览时会重探。
+func FileFingerprint(fi os.FileInfo) string {
+	return strconv.FormatInt(fi.Size(), 10) + ":" + strconv.FormatInt(fi.ModTime().UnixNano(), 10)
+}
+
+func convertSourceMediaJSON(m *MediaInfo) (any, error) {
+	if m == nil {
+		return nil, nil
+	}
+	c := *m
+	c.ID, c.ThumbURL, c.Error = "", "", nil
+	c.FillCodecNames()
+	b, err := json.Marshal(c)
+	if err != nil {
+		return nil, fmt.Errorf("编码媒体信息失败: %w", err)
+	}
+	return string(b), nil
 }
 
 // UpsertConvertSource 按 path_key 找到或新建源文件行（AddSources / Submit 用）：已有 → 只把 last_activity_at 设为 now，existed=true；
@@ -278,8 +342,8 @@ func (s *Store) SourceTaskIDs(ctx context.Context, sourceID string) ([]string, e
 	return out, rows.Err()
 }
 
-// MediaByPathKey 按 path_key 读 media 表（ConvertSource.media 的关联，契约 6.14.2），没有返回 nil。
-// 和 ListRecent 一样 hasVideo / hasAudio 不入库、恒为 false，thumbUrl 为空。
+// MediaByPathKey 按 path_key 读 media 表（ConvertSource.media 没有持久化结果时的退回，契约 6.14.2 / v0.23.4），没有返回 nil。
+// 和 ListRecent 一样 hasVideo / hasAudio 按编码是否为空推出；没有采样率、声道、流信息，thumbUrl 为空。
 func (s *Store) MediaByPathKey(ctx context.Context, key string) (*MediaInfo, error) {
 	var m MediaInfo
 	err := s.db.QueryRowContext(ctx, `SELECT id, path, name, size, duration, width, height, video_codec, audio_codec, bitrate, probed_at
@@ -291,6 +355,9 @@ func (s *Store) MediaByPathKey(ctx context.Context, key string) (*MediaInfo, err
 	if err != nil {
 		return nil, fmt.Errorf("读取媒体信息失败: %w", err)
 	}
+	m.HasVideo = m.VideoCodec != ""
+	m.HasAudio = m.AudioCodec != ""
+	m.FillCodecNames()
 	return &m, nil
 }
 

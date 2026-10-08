@@ -66,8 +66,8 @@ type Manager struct {
 	factories map[Type]Factory
 	closing   bool
 	wg        sync.WaitGroup
-	namer     *namer      // 输出文件名占用登记（见 part.go）
-	reveal    revealAllow // 删除失败、文件留下的路径（RevealInFolder 临时放行，见 reveal_allow.go）
+	namer     *namer           // 输出文件名占用登记（见 part.go）
+	reveal    revealAllow      // 删除失败、文件留下的路径（RevealInFolder 临时放行，见 reveal_allow.go）
 	rcCheck   ReconvertChecker // CheckPaths 的重转检查（转换服务注册，契约 6.17.1）
 }
 

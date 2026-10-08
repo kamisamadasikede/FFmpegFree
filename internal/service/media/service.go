@@ -50,6 +50,10 @@ type Config struct {
 	// （契约 6.13：被 RemoveRecent 撤销后一律 404）。可为 nil。
 	OnRemoved func(paths []string)
 
+	// OnProbed 在 Probe 成功探测并写入 media 表之后被调用（契约 v0.23.4）：用来刷新转换页同一文件的源文件行
+	// （convert_sources.media）。key 是 path_key，fi 是探测前 stat 到的文件信息。可为 nil；失败只影响源文件行，不影响 Probe。
+	OnProbed func(ctx context.Context, key string, m store.MediaInfo, fi os.FileInfo)
+
 	ProbeTimeout  time.Duration
 	ThumbTimeout  time.Duration
 	CacheMaxFiles int
@@ -150,6 +154,9 @@ func (s *Service) probeOne(ctx context.Context, bin ffmpeg.Binaries, raw string)
 		}
 		m.ID = saved.ID
 	}
+	if s.cfg.OnProbed != nil {
+		s.cfg.OnProbed(ctx, key, m, fi)
+	}
 	if m.HasVideo {
 		if t, err := s.thumbnail(ctx, bin, m.Path, key, fi, defaultThumbAt(m.Duration), DefaultThumbWidth); err == nil {
 			m.ThumbURL = t.DataURL
@@ -208,7 +215,8 @@ func statMedia(raw string) (p, key string, fi os.FileInfo, err error) {
 	}
 	f, err := os.Open(p)
 	if err != nil {
-		return "", "", nil, apperr.Wrap(apperr.IOError, "无法打开文件（没有读取权限？）", err)
+		// 走查 X8：说清楚是哪个文件、不用问号；detail 是系统错误（含完整路径），提交时 withInput 再在第一行加上路径。
+		return "", "", nil, apperr.Wrap(apperr.IOError, "无法读取文件“"+filepath.Base(p)+"”，可能没有读取权限。", err)
 	}
 	f.Close()
 	return p, key, fi, nil
