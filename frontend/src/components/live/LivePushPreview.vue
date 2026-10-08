@@ -12,7 +12,7 @@
       :mime="mime"
       :has-audio="hasAudio"
       :clock="clock"
-      :aspect="16 / 9"
+      :aspect="vis?.aspect"
       :fake="fake"
       :force-idle="!!vis?.idle"
       :force-vol="!!vis?.vol"

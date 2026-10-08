@@ -458,8 +458,10 @@ export async function AddSources(paths: string[]): Promise<AddSourceResult[]> {
       pathKey: key, exists: true,
     }
     sources.set(sourceId, m)
+    // ?cv_copyrace=1（走查 S1 复现）：小文件瞬间复制完，copying / ready 两条事件都比 AddSources 返回得早，返回的快照还是复制前的
+    const snap = copySource(m)
     startCopy(m)
-    return { path, source: copySource(m), existed: false }
+    return { path, source: simParam('cv_copyrace') ? snap : copySource(m), existed: false }
   })
 }
 
@@ -494,6 +496,14 @@ function startCopy(m: MSource) {
     return
   }
   if (simParam('cv_copyhold') === '1') return
+  // ?cv_copyrace=1：瞬间复制完，事件比 AddSources 返回早；?cv_copyrace=lost：复制完了但事件丢了（只能靠返回后的对齐查询恢复）
+  const race = simParam('cv_copyrace')
+  if (race === '1' || race === 'lost') {
+    s.copiedBytes = s.totalBytes ?? 0
+    s.copyState = 'ready'
+    if (race === '1') emitCopy(m)
+    return
+  }
   const ms = Number(simParam('cv_copyms')) || 3000
   const t0 = Date.now()
   m.copyTimer = setInterval(() => {

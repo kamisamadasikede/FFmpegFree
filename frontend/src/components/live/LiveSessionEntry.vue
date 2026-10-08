@@ -13,7 +13,8 @@
       <FIcon name="list" :size="18" />
       <i v-if="badge" class="badge" aria-hidden="true">{{ badge }}</i>
     </button>
-    <div v-if="dock.open" class="pop"><LiveSessionPanel :pull="pull" :count="count" /></div>
+    <!-- X4：外层不能也叫 .pop——scoped 样式会同时落到面板根元素（也是 .pop）上，再往下错 8px，实际变成 16px -->
+    <div v-if="dock.open" class="drop"><LiveSessionPanel :pull="pull" :count="count" /></div>
   </span>
 </template>
 
@@ -69,6 +70,6 @@ onBeforeUnmount(() => {
 .sess:hover, .sess.on { color: var(--ff-text-1); background: color-mix(in srgb, var(--ff-text-1) 6%, transparent); }
 .sess:focus-visible { outline: 2px solid var(--ff-primary); outline-offset: 2px; }
 .badge { position: absolute; top: -5px; right: -5px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--ff-badge-bg); color: var(--ff-on-primary); font-size: 12px; font-style: normal; font-weight: 600; line-height: 16px; text-align: center; box-shadow: 0 0 0 2px var(--ff-bg-app); }
-.pop { position: absolute; top: calc(100% + 8px); right: 0; z-index: 6; width: 320px; }
-@media (max-width: 1199px) { .pop { width: 304px; } }
+.drop { position: absolute; top: calc(100% + 8px); right: 0; z-index: 6; width: 320px; }
+@media (max-width: 1199px) { .drop { width: 304px; } }
 </style>

@@ -7,7 +7,7 @@ import { AppError, call, toAppError } from './call'
 import { LIVE_PREVIEW_V25_BACKEND_READY } from './flags'
 import { startPullPreview, stopPullPreview, type PullSession } from './live'
 import { hasWailsBackend, onEvent } from '@/services/wails'
-import { LP_END_PULL, LP_END_PULL_REMOTE, LP_UNAVAILABLE } from '@/errors/livePreviewMessages'
+import { LP_END_PULL, LP_END_PULL_REMOTE, LP_PULL_FAILED, LP_UNAVAILABLE } from '@/errors/livePreviewMessages'
 
 export interface PreviewStream {
   url: string
@@ -81,6 +81,15 @@ export function watchPull(sessionId: string, cb: (e: PullEvent) => void): () => 
  */
 export function pullEndedView(userStopped: boolean): { title: string; note: string; retry: boolean } {
   return userStopped ? { title: LP_END_PULL, note: '', retry: false } : { title: LP_END_PULL, note: LP_END_PULL_REMOTE, retry: true }
+}
+
+/**
+ * 拉流开始前就失败（live:pull failed、StartPullPreview 出错）时画面上的正文（G3）：用后端分类好的 message；
+ * 没有 message、或 message 写的是推流（后端复用了推流的分类）时用 LP_PULL_FAILED，和后端拉流失败的文案一致。
+ */
+export function pullBreakText(message: string | undefined | null): string {
+  const m = (message ?? '').trim()
+  return !m || m.includes('推流') ? LP_PULL_FAILED : m
 }
 
 export type PreviewFailure = 'unsupported' | 'unavailable' | 'ended' | 'failed'
