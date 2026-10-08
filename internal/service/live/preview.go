@@ -407,7 +407,7 @@ func probeStreams(ctx context.Context, ffprobe, url, whitelist string) (StreamPr
 	ctx, cancel := context.WithTimeout(ctx, pullProbeWait)
 	defer cancel()
 	cmd := ffmpeg.NewCommand(ctx, ffprobe, "-v", "error", "-protocol_whitelist", whitelist, "-rw_timeout", "8000000",
-		"-analyzeduration", "5000000", "-probesize", "5000000",
+		"-analyzeduration", ffmpeg.PullProbeWindow(url), "-probesize", ffmpeg.PullProbeWindow(url),
 		"-show_entries", "stream=codec_type,codec_name:format=format_name", "-of", "json", url)
 	var out bytes.Buffer
 	cmd.Stdout = &out

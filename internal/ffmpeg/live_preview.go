@@ -32,9 +32,7 @@ func BuildPullRemuxArgs(p PullRemuxPlan) (args []string, ok bool) {
 		return nil, false
 	}
 	a := []string{"-protocol_whitelist", p.InputWhitelist, "-fflags", "+nobuffer", "-flags", "low_delay",
-		// 5 秒 / 5 MB：要盖住一个完整 GOP。MediaMTX 的 RTMP 在第一个关键帧前不给 SPS/PPS，GOP 2 秒时 1 秒常常找不到编码参数
-		// （实测 12 次失败 4 次，5 秒 0 次）。探测到全部流的参数就停，不会白等 5 秒。
-		"-analyzeduration", "5000000", "-probesize", "5000000",
+		"-analyzeduration", PullProbeWindow(p.URL), "-probesize", PullProbeWindow(p.URL),
 		// 单次读写最多等 8 秒（同探测）：远端连上后不再给数据时 ffmpeg 报错退出，而不是一直卡着。
 		"-rw_timeout", "8000000"}
 	if p.HLS {
@@ -59,6 +57,18 @@ func BuildPullRemuxArgs(p PullRemuxPlan) (args []string, ok bool) {
 	a = append(a, "-c", "copy", "-f", "flv", "-flvflags", "no_duration_filesize", "-flush_packets", "1",
 		"-protocol_whitelist", "tcp", "tcp://127.0.0.1:"+strconv.Itoa(p.Port)+"?tcp_nodelay=1")
 	return a, true
+}
+
+// PullProbeWindow 返回拉流探测和转封装用的 -analyzeduration / -probesize（契约 v0.25.1）。
+// RTMP / RTMPS 用 5 秒 / 5 MB，要盖住一个完整 GOP：MediaMTX 的 RTMP 在第一个关键帧前不给 SPS/PPS，GOP 2 秒时 1 秒常常
+// 找不到编码参数（实测 12 次失败 4 次，5 秒 0 次；探测多花约 0.7 秒）。其他协议仍是 1 秒 / 1 MB：SRT（MPEG-TS）没有文件头，
+// 会一直读到窗口用完，5 秒时探测常常超过 12 秒的上限（实测 6~13 秒），反而丢掉编码检查。
+func PullProbeWindow(rawURL string) string {
+	u := strings.ToLower(rawURL)
+	if strings.HasPrefix(u, "rtmp://") || strings.HasPrefix(u, "rtmps://") {
+		return "5000000"
+	}
+	return "1000000"
 }
 
 // LooksLikeHLS 判断拉流地址是不是 HLS：地址的路径以 .m3u8 结尾（不分大小写，忽略查询串），或者探测到的封装名含 hls。

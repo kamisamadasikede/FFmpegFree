@@ -102,16 +102,20 @@ func TestBuildPullRemuxArgs(t *testing.T) {
 	}
 }
 
-// 契约 v0.25.1：探测和转封装都要盖住一个完整 GOP（5 秒 / 5 MB）；HLS 从最新的分片开始。
+// 契约 v0.25.1：RTMP 的探测窗口要盖住一个完整 GOP（5 秒 / 5 MB），其他仍是 1 秒；都有 -rw_timeout；HLS 从最新的分片开始。
 func TestBuildPullRemuxArgsProbeWindowAndHLS(t *testing.T) {
 	a, _ := BuildPullRemuxArgs(PullRemuxPlan{URL: "rtmp://h/a/k", InputWhitelist: "rtmp,tcp", Port: 9, Video: true, Audio: true})
 	j := strings.Join(a, " ")
 	if !strings.Contains(j, "-analyzeduration 5000000 -probesize 5000000 -rw_timeout 8000000 -i rtmp://h/a/k") || strings.Contains(j, "live_start_index") || has(a, "-re") {
 		t.Fatalf("非 HLS: %v", a)
 	}
+	sr, _ := BuildPullRemuxArgs(PullRemuxPlan{URL: "srt://h:1?streamid=read:a", InputWhitelist: "srt,udp", Port: 9, Video: true, Audio: true})
+	if !strings.Contains(strings.Join(sr, " "), "-analyzeduration 1000000 -probesize 1000000 -rw_timeout 8000000") {
+		t.Fatalf("SRT 仍是 1 秒窗口: %v", sr)
+	}
 	h, _ := BuildPullRemuxArgs(PullRemuxPlan{URL: "http://h/live/a/index.m3u8", InputWhitelist: PullInputWhitelist("http"), Port: 9, Video: true, Audio: true, HLS: true})
 	j = strings.Join(h, " ")
-	if !strings.Contains(j, "-live_start_index -1 -i http://h/live/a/index.m3u8") || has(h, "-re") {
+	if !strings.Contains(j, "-analyzeduration 1000000 -probesize 1000000 -rw_timeout 8000000 -live_start_index -1 -i http://h/live/a/index.m3u8") || has(h, "-re") {
 		t.Fatalf("HLS 应从最新分片开始、不加 -re: %v", h)
 	}
 }
