@@ -55,7 +55,7 @@ function normalize(raw: system.FFmpegStatus | FFmpegStatus): FFmpegStatus {
 }
 
 // 预览模式（仅浏览器里没有 window.go 时）：纯界面模拟，不代表真实状态
-const PREVIEW: Record<string, { status: FFmpegStatus; install?: InstallProgress }> = {
+const PREVIEW: Record<string, { status: FFmpegStatus; install?: InstallProgress; customPath?: boolean }> = {
   ready: { status: { state: 'ready', version: '7.1', source: 'bundled' } },
   missing: { status: { state: 'missing' } },
   installing: {
@@ -63,6 +63,9 @@ const PREVIEW: Record<string, { status: FFmpegStatus; install?: InstallProgress 
     install: { progress: 0.42, stage: 'download', speedText: '6.1 MB/s', remainText: '剩余 48 MB' },
   },
   failed: { status: { state: 'failed', error: { code: 'IO_ERROR', message: '下载超时，请检查网络' } } },
+  // 包 24 N5：手动指定的组件坏了。fallback = 回退到了系统里能用的组件；custombad = 没有能用的组件
+  fallback: { status: { state: 'ready', version: '7.1', source: 'system' }, customPath: true },
+  custombad: { status: { state: 'missing' }, customPath: true },
 }
 
 /** 与契约 9.4 InstallOptions 对齐。mirrors 不含默认源（契约：「可用镜像（不含默认源）」）；defaultMirror 是后端将来可能补的字段，没有时默认源就是 "" */
@@ -85,6 +88,25 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
   const dialogOpen = ref(false)
   const justBecameReady = ref(false)
   const manualInputOpen = ref(false) // 没有目录选择器时，对话框里显示路径输入框
+  /**
+   * 包 24 N5：设置里存着手动指定的路径（Settings.ffmpegPath 非空）。只记有没有，不把路径放进界面。
+   * 不能只看 status.source === 'custom'：手动指定的组件不可用时，后端回退到别的组件（source 不是 custom），
+   * 或者干脆未就绪（source 为空）。
+   */
+  const hasCustomPath = ref(false)
+  /** 手动指定的不可用，已改用默认组件（就绪，但不是来自手动指定） */
+  const customFellBack = computed(() => hasCustomPath.value && status.value.state === 'ready' && status.value.source !== 'custom')
+  /** 手动指定的不可用，也没有别的能用的组件 */
+  const customBroken = computed(() => hasCustomPath.value && (status.value.state === 'missing' || status.value.state === 'outdated'))
+  async function loadCustomPath() {
+    if (previewMode || !hasWailsBackend()) return
+    try {
+      const s = await call(SystemBinding.GetSettings())
+      hasCustomPath.value = !!s?.ffmpegPath?.trim()
+    } catch (e) {
+      console.error('GetSettings failed', e)
+    }
+  }
 
   /** 安装功能可用（绑定已有 InstallFFmpeg）；只有浏览器预览里 ?noinstall 会关闭，用来看"即将上线"样式 */
   const installOptions = ref<InstallOptions | null>(null)
@@ -192,6 +214,7 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
     eventSeq++
     setStatus(normalize(raw))
     maybePrompt()
+    void loadCustomPath() // 状态变了（手动指定、恢复默认、重新检测）就重读一次设置
   }
 
   async function init() {
@@ -200,6 +223,7 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
       if (preview && PREVIEW[preview]) {
         setStatus(PREVIEW[preview].status)
         install.value = PREVIEW[preview].install ?? null
+        hasCustomPath.value = !!PREVIEW[preview].customPath
         dialogOpen.value = previewParams.has('dlg')
         await loadInstallOptions()
       }
@@ -219,6 +243,7 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
     try {
       const s = await call(SystemBinding.GetSettings())
       promptDismissed.value = !!s?.ffmpegPromptDismissed
+      hasCustomPath.value = !!s?.ffmpegPath?.trim()
     } catch (e) {
       console.error('GetSettings failed', e)
     }
@@ -287,15 +312,17 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
     if (previewMode) return
     const seqAtStart = eventSeq
     const st = normalize(await call(SystemBinding.SetFFmpegPath(dir)))
+    hasCustomPath.value = true
     // SetFFmpegPath 成功时后端同时推 ffmpeg:status(ready)，事件已应用过就不用再用返回值覆盖
     if (eventSeq === seqAtStart) setStatus(st)
   }
 
   /** 清除手动指定并重新检测（SetFFmpegPath('')） */
   async function clearCustomPath() {
-    if (previewMode) return
+    if (previewMode) return void (hasCustomPath.value = false)
     const seqAtStart = eventSeq
     const st = normalize(await call(SystemBinding.SetFFmpegPath('')))
+    hasCustomPath.value = false
     if (eventSeq === seqAtStart) setStatus(st)
   }
 
@@ -322,7 +349,7 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
 
   return {
     status, install, promptDismissed, bannerClosed, dialogOpen, justBecameReady,
-    installAvailable, canPickDirectory, manualInputOpen, installOptions, sources, canSwitchMirror,
+    installAvailable, canPickDirectory, manualInputOpen, hasCustomPath, customFellBack, customBroken, installOptions, sources, canSwitchMirror,
     ready, needsAttention, featuresBlocked, dialogVisible, whenSettled, init, startInstall, retryWithOtherMirror, cancelInstall, pickPath, clearCustomPath, recheck, dismissPrompt, updateInstall,
   }
 })

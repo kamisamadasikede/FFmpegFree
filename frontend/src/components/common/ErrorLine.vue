@@ -63,6 +63,8 @@ const props = withDefaults(
     /** 覆盖标题 / 说明（interrupted 且后端没给 error 时用）；title 传空串 = 不显示标题，只有一行说明 */
     title?: string
     description?: string
+    /** 任务类型（任务中心传）：没有专属文案时按类型取标题，直播不会是「转换失败」 */
+    taskType?: string
     /** 不显示错误码（没有错误对象时） */
     hideCode?: boolean
     /** 重试 / 更换输出位置正在处理：这两个链接禁用（aria-busy），忽略点击直到调用返回 */
@@ -84,7 +86,7 @@ function lastLine(text?: string): string {
   return lines.length ? lines[lines.length - 1].slice(0, 200) : ''
 }
 
-const resolved = computed(() => resolveTaskError(props.code, props.message || lastLine(props.detail)))
+const resolved = computed(() => resolveTaskError(props.code, props.message || lastLine(props.detail), props.taskType))
 /** 该错误码是否带「更换输出位置」（磁盘空间不足） */
 const showChange = computed(() => !canceled.value && !props.title && resolved.value.actions.includes('changeOutput'))
 /** CANCELED 不是失败：中性样式，不提供重试 / 更换输出位置 / 查看日志 */

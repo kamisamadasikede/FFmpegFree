@@ -155,6 +155,9 @@ export interface PullSession {
   preview: boolean
   /** v0.25：同 GetPreviewStream 的 url；没有预览视频流时为空串。浏览器模拟层恒为 ""（契约 6.10.3.1） */
   previewUrl: string
+  /** v0.25.3（包 24 N2，后端待合）：这路流有没有画面 / 声音，和 GetPreviewStream 同名。旧后端没有这两个字段 = 不知道 */
+  hasVideo?: boolean
+  hasAudio?: boolean
 }
 
 /** 全零 = 全部使用默认 */
@@ -452,7 +455,10 @@ export const simPullPreviewCount = (): number => simPulls.size
 export async function startPullPreview(req: PullPreviewRequest): Promise<PullSession> {
   if (liveIsReal()) {
     const s = (await call(LiveBinding.StartPullPreview(goLive.PullPreviewRequest.createFrom(req)))) as Partial<PullSession>
-    return { id: s.id ?? '', redacted: s.redacted ?? '', preview: !!s.preview, previewUrl: s.previewUrl ?? '' }
+    return {
+      id: s.id ?? '', redacted: s.redacted ?? '', preview: !!s.preview, previewUrl: s.previewUrl ?? '',
+      ...(typeof s.hasVideo === 'boolean' ? { hasVideo: s.hasVideo } : {}), ...(typeof s.hasAudio === 'boolean' ? { hasAudio: s.hasAudio } : {}),
+    }
   }
   await simDelay(60)
   const redacted = redactPushUrl(req.url)

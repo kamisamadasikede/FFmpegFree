@@ -56,10 +56,15 @@ export const LP_END_PUSH = '推流已结束'
 export const LP_END_PULL = '拉流已结束'
 /** 拉流不是用户点停止而结束（live:pull ended：远端停止发布或连接正常关闭，契约 6.10.3.7 ⑩）时的第二行，旁边是「重新拉流」。产品经理 10-08 定稿；用户自己点停止时没有这一行 */
 export const LP_END_PULL_REMOTE = '直播已停止，或连接已断开。'
-/** 契约 6.10.3.7，产品经理已定（按钮仍是「重新推流」，不跳页面） */
-export const LP_BREAK_PUSH = '推流被中断，请回到直播页重新推流。'
+/**
+ * 直播页上推流被中断时画面中央那句（包 24 N6，产品经理 10-08 定：用户就在直播页，不再说「回到直播页」，与拉流那句对称）。
+ * 按钮仍是「重新推流」，不跳页面。直播页以外（任务中心、错误卡）仍用原句「推流被中断，请回到直播页重新推流。」。
+ */
+export const LP_BREAK_PUSH = '推流被中断，请重新推流。'
 /** 产品经理已定：和按钮同一个动词，不用「请重新开始播放」 */
 export const LP_BREAK_PULL = '拉流被中断，请重新拉流。'
+/** 包 24 N2：拉到的流只有声音时舞台中间那行（设计 10-08 定稿，不带句号） */
+export const LP_AUDIO_ONLY = '这路直播只有声音'
 export const LP_RETRY_PUSH = '重新推流'
 export const LP_RETRY_PULL = '重新拉流'
 export const LP_PULL_HINT = '支持 http://、https://、ws://、wss:// 开头的直播地址'

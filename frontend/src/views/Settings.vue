@@ -30,15 +30,26 @@
     <!-- ffmpeg（与关于页共用 FFmpegPanel；这里带操作按钮） -->
     <FFmpegPanel id="sec-ffmpeg" heading-id="h-ffmpeg">
       <!-- X5（产品经理 10-08）：就绪时只给「打开组件所在文件夹」，不显示路径 -->
+      <!-- 包 24 N5：手动指定的不可用、已回退时，「恢复默认」放在「打开组件所在文件夹」左边 -->
       <template #ready-actions>
-        <button type="button" class="btn" :disabled="busy" @click="openComponentDir"><FIcon name="folder" :size="15" />打开组件所在文件夹</button>
+        <div class="facts">
+          <button v-if="ffmpeg.customFellBack" type="button" class="btn" :disabled="busy" @click="run(ffmpeg.clearCustomPath)">恢复默认</button>
+          <button type="button" class="btn" :disabled="busy" @click="openComponentDir"><FIcon name="folder" :size="15" />打开组件所在文件夹</button>
+        </div>
+      </template>
+      <!-- 包 24 N5：手动指定的不可用、也没有能用的组件：只给「手动指定」「恢复默认」 -->
+      <template #custom-actions>
+        <div class="facts">
+          <button type="button" class="btn" :disabled="busy" @click="run(() => ffmpeg.pickPath())"><FIcon name="folder" :size="15" />手动指定</button>
+          <button type="button" class="btn" :disabled="busy" @click="run(ffmpeg.clearCustomPath)">恢复默认</button>
+        </div>
       </template>
       <!-- 没就绪（未安装 / 过旧 / 安装失败 / 检测中）：安装、重新检测、手动指定位置 -->
       <template #version-actions>
         <button v-if="canInstall" type="button" class="btn pri" @click="ffmpeg.dialogOpen = true"><FIcon name="download" :size="15" />{{ installLabel }}</button>
         <button type="button" class="btn" :disabled="busy || ffmpeg.status.state === 'installing'" @click="run(ffmpeg.recheck)"><FIcon name="refresh" :size="15" />重新检测</button>
         <button v-if="ffmpeg.status.state !== 'installing'" type="button" class="btn" :disabled="busy" @click="run(() => ffmpeg.pickPath())"><FIcon name="folder" :size="15" />手动指定</button>
-        <button v-if="ffmpeg.status.source === 'custom'" type="button" class="btn text" :disabled="busy" @click="run(ffmpeg.clearCustomPath)">恢复默认</button>
+        <button v-if="ffmpeg.hasCustomPath" type="button" class="btn text" :disabled="busy" @click="run(ffmpeg.clearCustomPath)">恢复默认</button>
       </template>
     </FFmpegPanel>
 

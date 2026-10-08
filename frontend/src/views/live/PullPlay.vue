@@ -20,6 +20,8 @@
         :ended-note="endedNote"
         :break-text="breakText"
         :has-audio="hasAudio"
+        :has-video="hasVideo"
+        @media-info="onMediaInfo"
         @restart="start"
         @playing="onPlaying"
         @media-broken="onBroken"
@@ -83,6 +85,33 @@ const phase = ref<LpPhase>(vis?.phase ?? 'empty')
 const reason = ref<'' | 'codec' | 'unavailable'>(vis?.reason ?? '')
 const playUrl = ref('')
 const hasAudio = ref(true)
+/** 包 24 N2：这路流有没有画面。只有声音时播放器按纯音频建，舞台显示「这路直播只有声音」 */
+const hasVideo = ref(!vis?.audioOnly)
+let mediaTimers: ReturnType<typeof setTimeout>[] = []
+function clearMediaTimers() { mediaTimers.forEach(clearTimeout); mediaTimers = [] }
+/** 后端 / 播放器告诉我们的媒体信息（只在知道确切值时改） */
+function applyMedia(m: { hasVideo?: boolean; hasAudio?: boolean }) {
+  if (typeof m.hasAudio === 'boolean') hasAudio.value = m.hasAudio
+  if (typeof m.hasVideo === 'boolean') hasVideo.value = m.hasVideo
+}
+/**
+ * 后端还没在 PullSession / live:pull 里带 hasVideo / hasAudio（v0.25.3 之前）时的兜底：
+ * 连接中隔 2.5 秒、6 秒各问一次 GetPreviewStream（后端探测完以后知道有没有画面）。已经出画 / 已有终态就不问。
+ */
+function scheduleMediaProbe(sessionId: string) {
+  clearMediaTimers()
+  for (const ms of [2500, 6000]) {
+    mediaTimers.push(setTimeout(async () => {
+      if (phase.value !== 'connecting' || gate.settled || playback?.session?.id !== sessionId) return
+      try {
+        const s = await getPreviewStream(sessionId)
+        if (phase.value === 'connecting' && !gate.settled && playback?.session?.id === sessionId && s.hasVideo === false) applyMedia(s)
+      } catch {
+        /* 问不到就算了，播放器自己的超时会处理 */
+      }
+    }, ms))
+  }
+}
 /** 结束时的第二行：只有不是用户点停止而结束时才有 */
 const endedNote = ref(vis?.phase === 'ended' && previewParamsRemote() ? pullEndedView(false).note : '')
 /** 被中断时的正文：failed / 开始失败用后端 message（写着「推流」时换成拉流失败的兜底句），其余用默认的「拉流被中断，请重新拉流。」 */
@@ -124,6 +153,9 @@ async function start() {
   reason.value = ''
   endedNote.value = ''
   breakText.value = ''
+  clearMediaTimers()
+  hasVideo.value = true
+  hasAudio.value = true
   phase.value = 'connecting'
   session.setStarting()
   session.log('开始拉流')
@@ -142,8 +174,9 @@ async function start() {
       gate.startFailed('unsupported')
       return
     }
-    hasAudio.value = stream.hasAudio
+    applyMedia(stream)
     playUrl.value = stream.url
+    if (pb.session && !pb.mediaKnown) scheduleMediaProbe(pb.session.id)
   } catch (e) {
     const k = classifyPreviewError(e)
     reason.value = k === 'unsupported' ? 'codec' : k === 'unavailable' ? 'unavailable' : ''
@@ -152,7 +185,8 @@ async function start() {
 }
 
 function onPullEvent(e: PullEvent) {
-  if (e.state === 'playing') return // 画面以播放器真的出帧为准（onPlaying）
+  // 画面以播放器真的出帧为准（onPlaying）；v0.25.3 起 playing 带 hasVideo / hasAudio，只有声音时播放器按纯音频重建
+  if (e.state === 'playing') return void applyMedia(e)
   if (e.state === 'unsupported') reason.value = reason.value || 'codec'
   gate.event(e.state, e.state === 'failed' ? pullBreakText(e.error?.message) : undefined)
 }
@@ -163,6 +197,7 @@ function onPlaying() {
 }
 /** 终态定下来了（只会来一次，直到下次开始）：停后端会话、换界面 */
 function applyOutcome(o: PullOutcome) {
+  clearMediaTimers()
   playUrl.value = ''
   unwatch?.()
   unwatch = null
@@ -182,6 +217,10 @@ function applyOutcome(o: PullOutcome) {
     session.setIdle()
     if (o.byUser) session.log('已停止播放')
   }
+}
+/** 播放器读到的媒体信息里没有画面（直接拉 ws / wss） */
+function onMediaInfo(m: { hasVideo: boolean; hasAudio: boolean }) {
+  if (busy.value) applyMedia(m)
 }
 function onBroken() {
   if (busy.value) gate.player('interrupted')
@@ -229,16 +268,18 @@ async function resumePreview(my: number) {
   const pb = playback
   if (!pb || gate.settled) return
   phase.value = 'connecting'
-  const apply = (url: string, audio: boolean) => {
+  const apply = (s: { url: string; hasAudio: boolean; hasVideo: boolean }, known = true) => {
     if (my !== resumeSeq || gate.settled) return
-    hasAudio.value = audio
-    playUrl.value = url
+    // GetPreviewStream 的 hasVideo 缺省按 true；只有明确说没有画面时才改，已知是纯音频的不被缺省值改回去
+    if (known && s.hasVideo === false) hasVideo.value = false
+    if (known) hasAudio.value = s.hasAudio
+    playUrl.value = s.url
   }
   try {
     if (pb.session) {
       const stream = await getPreviewStream(pb.session.id)
-      apply(stream.url, stream.hasAudio)
-    } else if (pb.stream?.url) apply(pb.stream.url, pb.stream.hasAudio)
+      apply(stream)
+    } else if (pb.stream?.url) apply(pb.stream, false)
   } catch {
     // 旧连接还占着名额时隔 1 秒再取一次；仍失败就按拉流失败显示，不再干等
     await new Promise((r) => setTimeout(r, 1000))
@@ -248,7 +289,7 @@ async function resumePreview(my: number) {
     }
     try {
       const stream = await getPreviewStream(pb.session.id)
-      apply(stream.url, stream.hasAudio)
+      apply(stream)
     } catch (e2) {
       if (my !== resumeSeq || gate.settled) return
       const k = classifyPreviewError(e2)
@@ -261,6 +302,7 @@ async function resumePreview(my: number) {
   }
 }
 onBeforeUnmount(() => {
+  clearMediaTimers()
   gate.close() // 页面真正卸掉（不是切走）：之后到的事件都不再处理
   unwatch?.()
   void stopPullPlayback(playback)
