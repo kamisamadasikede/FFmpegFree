@@ -54,6 +54,20 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
   const activeRows = computed(() => rows.value.filter((r) => r.status === 'run' || r.status === 'stp'))
   /** n/4 的 n、角标：只数进行中的 */
   const busyCount = computed(() => activeRows.value.length)
+  /**
+   * 包 24 N1：中断后已经有新会话连上过（重新推流或用表单新开），旧的中断行就不再触发「重新推流」。
+   * 只记 id，不改行本身（列表里照样显示“推流中断”）。
+   */
+  const superseded = ref(new Set<string>())
+  /**
+   * 「重新推流」针对的那一行：没有进行中的会话，且最近一行是中断、并且之后没有新会话连上过。
+   * 重新推流成功后再正常停止 / 结束，最近一行变成已结束，按钮回到「开始推流」，再开始就用当前表单。
+   */
+  const retryRow = computed<LiveRow | undefined>(() => {
+    if (activeRows.value.length) return undefined
+    const last = rows.value[0]
+    return last && last.status === 'int' && !superseded.value.has(last.id) ? last : undefined
+  })
   /** 预览区当前显示的会话：选中的 → 第一个进行中的 → 最近一条（被中断时停在这条，显示“重新推流”） */
   const current = computed<LiveRow | undefined>(() => rows.value.find((r) => r.id === previewId.value) ?? activeRows.value[0] ?? rows.value[0])
   /** 这一路的预览开关：只决定前端连不连它的预览地址，不重启推流（契约 v0.25 ⑤） */
@@ -103,6 +117,7 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
       const off = liveApi.watchLiveTask(task.id, {
         onConnected: () => {
           connected = true
+          for (const r of rows.value) if (r.status === 'int') superseded.value.add(r.id)
           add('run', 0)
           previewId.value = task.id // 刚开始的这一路成为预览区的当前会话
           resolve({ ok: true })
@@ -250,6 +265,8 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
       canceled: () => (scr ? [s('r1', 'cnl', t(0, 31, 9), 5006)] : [f('r1', 'cnl', t(0, 31, 9), 4795)]),
       cancelarc: () => [s('r1', 'cnl', t(0, 31, 9), null, true)],
       interrupted: () => (scr ? [s('r1', 'int', t(0, 18, 44), 5120)] : [f('r1', 'int', t(0, 18, 44), 4810)]),
+      // 包 24 N1：被中断 → 重新推流 → 正常停止（最近一行是已结束，底部按钮回到「开始推流」）
+      retried: () => [f('r1', 'ok', t(0, 2, 41), 4802), f('r1', 'int', t(0, 18, 44), 4810)],
       max4: () => [f('r1', 'run', t(1, 3, 27), 4820), f('r2', 'run', t(0, 47, 10), 4790), f('s1', 'run', t(0, 25, 8), 3960), f('r1b', 'run', t(0, 4, 52), 5210)],
       screenlimit: () => [s('r1', 'run', t(0, 12, 36), null, true)],
       all: () => [
@@ -269,5 +286,5 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
   }
 
   const selectPreview = (id: string) => (previewId.value = id)
-  return { rows, previewId, selectPreview, activeRows, busyCount, current, setPreview, begin, recover, stop, forceStop, remove, reveal, noteRestart, restart }
+  return { rows, previewId, selectPreview, activeRows, busyCount, retryRow, current, setPreview, begin, recover, stop, forceStop, remove, reveal, noteRestart, restart }
 })

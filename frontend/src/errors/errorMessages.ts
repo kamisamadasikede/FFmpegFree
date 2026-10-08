@@ -158,8 +158,19 @@ export function rewriteProcessExitText(code: string | null | undefined, message:
   return code === 'PROCESS_FAILED' && OLD_PROCESS_EXIT.test(message) ? PROCESS_EXIT_TEXT : message
 }
 
-/** 任务中心里没有专属文案的错误码：标题固定，描述取后端 message */
+/** 任务中心里没有专属文案的错误码：标题按任务类型（taskFallbackTitle），描述取后端 message。转换类任务用这句 */
 export const TASK_FALLBACK_TITLE = '转换失败'
+/** 包 24 N4：直播任务没有专属文案时的标题，不能是「转换失败」 */
+export const LIVE_PUSH_FALLBACK_TITLE = '推流失败'
+export const LIVE_PULL_FALLBACK_TITLE = '拉流失败'
+/** 直播任务是拉流还是推流（任务类型以 live_ 开头；现在只有推流两种，名字带 pull 的按拉流） */
+export const liveTaskVerb = (type?: string | null): '推流' | '拉流' => (type && /pull/.test(type) ? '拉流' : '推流')
+/** 没有专属文案时的标题：直播推流 / 直播拉流 / 旧版导出 / 其他（转换） */
+export function taskFallbackTitle(type?: string | null): string {
+  if (type && type.startsWith('live_')) return liveTaskVerb(type) === '拉流' ? LIVE_PULL_FALLBACK_TITLE : LIVE_PUSH_FALLBACK_TITLE
+  if (type === 'edit_export') return '导出失败' // 旧版导出记录（包 24 N3）
+  return TASK_FALLBACK_TITLE
+}
 const DEFAULT_TASK_ACTIONS: TaskErrorAction[] = ['retry', 'viewLog']
 
 export interface ResolvedTaskError {
@@ -179,9 +190,9 @@ export function isTaskErrorCode(code: unknown): code is TaskErrorCode {
  * 任务中心失败行的文案：
  * 1. 任务中心专属码（CONVERT_DISK_FULL）用表里的文案；
  * 2. 冻结的直播码（LIVE_PUSH_INTERRUPTED 等）用 errorMessages 里的文案；
- * 3. 其余一律 标题「转换失败」+ 后端 message 作描述，绝不出现「出错了」。
+ * 3. 其余一律 标题按任务类型（转换任务「转换失败」，直播「推流失败」/「拉流失败」）+ 后端 message 作描述，绝不出现「出错了」。
  */
-export function resolveTaskError(code?: string | null, fallbackMessage?: string | null): ResolvedTaskError {
+export function resolveTaskError(code?: string | null, fallbackMessage?: string | null, taskType?: string | null): ResolvedTaskError {
   if (isTaskErrorCode(code)) {
     return { code, ...taskErrorMessages[code], known: true }
   }
@@ -193,7 +204,7 @@ export function resolveTaskError(code?: string | null, fallbackMessage?: string 
   const message = (fallbackMessage ?? '').trim()
   return {
     code: code || 'INTERNAL',
-    title: TASK_FALLBACK_TITLE,
+    title: taskFallbackTitle(taskType),
     description: rewriteProcessExitText(code, message) || FALLBACK_DESCRIPTION,
     actions: DEFAULT_TASK_ACTIONS,
     known: false,

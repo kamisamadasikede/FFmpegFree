@@ -49,6 +49,11 @@ export function buildPreviewHistory(n: number): TaskItem[] {
         type: 'live_screen_push', status: 'failed', title: 'B站直播间推流',
         error: { code: 'LIVE_PUSH_INTERRUPTED', message: '推流被服务器中断', detail: 'Connection reset by peer' },
       },
+      // 包 24 N4：推流进程被杀，后端目前落成 failed + INTERNAL → 任务中心按「已中断 / 推流被中断」显示
+      {
+        type: 'live_file_push', status: 'failed', title: '概念片_终版.mp4',
+        error: { code: 'INTERNAL', message: '推流异常退出', detail: 'signal: killed' },
+      },
       { type: 'convert', status: 'succeeded', title: '课程录像_第3讲.mkv', outputPath: '/Users/me/Movies/FFmpegFree/课程录像_第3讲.mp4' },
       { type: 'office_pdf', status: 'succeeded', title: '2026 Q3 产品回顾.pptx', outputPath: '/Users/me/Documents/2026 Q3 产品回顾.pdf' },
       {
@@ -61,13 +66,13 @@ export function buildPreviewHistory(n: number): TaskItem[] {
       },
       { type: 'convert', status: 'canceled', title: 'vlog_杭州西湖.mkv' },
       { type: 'convert', status: 'interrupted', title: '婚礼现场_全程4K.mp4', params: '{"container":"mp4","targetSizeMb":500}', progress: 0.42, error: null },
-      { type: 'edit_export', status: 'succeeded', title: '周报剪辑.fproj', outputPath: '/Users/me/Movies/FFmpegFree/周报剪辑.mp4' },
-      // 剪辑功能已移除后的旧记录：失败 / 已中断的剪辑导出不显示“重试”，只能移除
+      { type: 'edit_export', status: 'succeeded', title: '周报.fproj', outputPath: '/Users/me/Movies/FFmpegFree/周报.mp4' },
+      // 已下线功能的旧记录（类型显示「旧版导出」）：失败 / 已中断的剪辑导出不显示“重试”，只能移除
       {
         type: 'edit_export', status: 'failed', title: '旅行短片.fproj', progress: 0.55,
         error: { code: 'PROCESS_FAILED', message: '导出没有成功', detail: 'Conversion failed!' },
       },
-      { type: 'edit_export', status: 'interrupted', title: '年会混剪.fproj', progress: 0.2, error: null },
+      { type: 'edit_export', status: 'interrupted', title: '年会.fproj', progress: 0.2, error: null },
     ]
     const k = kinds[i % kinds.length]
     const started = t - (i + 1) * 47 * min

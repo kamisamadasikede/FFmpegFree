@@ -1,4 +1,5 @@
 // node scripts/check-copy-words.mjs —— 界面文字里不能出现“ffmpeg”（不分大小写），统一叫“转换组件”（老板要求，2026-10-08）。
+// 包 24 N3：已下线的功能名“剪辑”也不能出现在界面文字里（旧记录类型叫“旧版导出”）。
 // 只查用户能看到 / 听到的文字：.vue 模板里的文字节点、给人看的静态属性（title、placeholder、aria-label…）、
 // 以及 .vue / .ts 里像文案的字符串字面量（含中文或全角标点、带空格的句子、或者挂在 label / title / text… 这类键上）。
 // 不查：注释、import、标识符、正则字面量、事件名 / 类型 id（如 'ffmpeg:status'、'ffmpeg_install'）、*.check.ts 测试文件。
@@ -7,7 +8,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const BANNED = /ffmpeg/i
+const BANNED = /ffmpeg|剪辑/i
 const HAN = /[\u3400-\u9fff\u3000-\u303f\uff01-\uff5e\u2026\u201c\u201d]/
 const USER_KEYS = new Set(['label', 'title', 'subtitle', 'text', 'description', 'desc', 'message', 'msg', 'tip', 'tooltip', 'hint', 'note', 'detail', 'placeholder', 'content', 'actionLabel', 'ariaLabel', 'tag', 'primary', 'secondary', 'heading', 'caption', 'empty', 'emptyText', 'confirmText', 'cancelText'])
 const USER_ATTRS = /^(title|placeholder|aria-label|aria-description|aria-valuetext|alt|content|label|text|description|message|subtitle|heading|empty-text|confirm-button-text|cancel-button-text|tip|tip-[\w-]+|[\w-]*-text|[\w-]*-label)$/
@@ -16,7 +17,7 @@ const clean = (s) => s.replace(/FFmpegFree/g, '')
 const isCopyLike = (s, key) => {
   const t = clean(s)
   if (!BANNED.test(t)) return false
-  return HAN.test(t) || /ffmpeg\s|\sffmpeg/i.test(t) || (key != null && USER_KEYS.has(key))
+  return /剪辑/.test(t) || HAN.test(t) || /ffmpeg\s|\sffmpeg/i.test(t) || (key != null && USER_KEYS.has(key))
 }
 
 /** 极简 JS 词法：跳过注释和正则，收集字符串字面量（模板字符串只取 ${} 外的文字，${} 里递归）。返回 [{ value, start, key }] */
@@ -180,10 +181,11 @@ export function runCopyWordCheck() {
   expectHit('模板字符串只看文字', 'a.ts', 'const a = `下载中 ${Math.round(ffmpeg.install.progress * 100)}%`', 0)
   expectHit('模板字符串里的 ffmpeg 文字', 'a.ts', 'const a = `ffmpeg ${v}`', 1)
   expectHit('注释 / import / 正则 / 事件名 / 产品名', 'a.ts', "import { useFFmpegStore } from '@/stores/ffmpeg'\n// ffmpeg 已就绪\nconst r = /^ffmpeg\\s*退出码/\non('ffmpeg:status'); t = 'ffmpeg_install'; p = 'D:\\\\FFmpegFree\\\\输出'", 0)
+  expectHit('已下线功能名', 'a.vue', `<template><span>{{ x }}</span><i title="剪辑导出"></i></template><script setup lang="ts">const L = { edit_export: '剪辑' }</script>`, 2)
   expectHit('忽略标记', 'a.ts', "const a = '需要 ffmpeg' // copy-check-ignore", 0)
   fails.push(...selfFails)
   for (const p of walk(join(root, 'src'))) {
-    for (const h of scanFile(p, readFileSync(p, 'utf8'))) fails.push(`${relative(root, p)}:${h.line}  界面文字含“ffmpeg”，请改成“转换组件”：${h.text}`)
+    for (const h of scanFile(p, readFileSync(p, 'utf8'))) fails.push(`${relative(root, p)}:${h.line}  界面文字含“ffmpeg”或“剪辑”（ffmpeg 改成“转换组件”）：${h.text}`)
   }
   return fails
 }
@@ -191,5 +193,5 @@ export function runCopyWordCheck() {
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const fails = runCopyWordCheck()
   if (fails.length) { console.error(fails.join('\n')); process.exit(1) }
-  console.log('界面文字检查通过：没有“ffmpeg”')
+  console.log('界面文字检查通过：没有“ffmpeg”和“剪辑”')
 }
