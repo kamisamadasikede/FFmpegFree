@@ -3,6 +3,7 @@ package ffmpeg
 import (
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // ScreenRegion 是要采集的显示器区域。
@@ -29,8 +30,8 @@ type ScreenPushPlan struct {
 	Enc        LiveEncode
 	// ArchiveTee 不为空时同时存档：是 TeePath 的结果（`file:` + 转义后的路径），命令改用 tee 复合输出。
 	ArchiveTee string
-	// PreviewPath 不为空时在主输出（含 tee）之后追加一路独立的预览输出，不放进 tee。
-	PreviewPath string
+	// PreviewPort > 0 时主输出用 tee，多一个预览分支（和存档分支并列，onfail=ignore）。
+	PreviewPort int
 }
 
 // ScreenInputArgs 生成屏幕采集输入参数（各平台）。
@@ -80,19 +81,7 @@ func BuildScreenPushArgs(p ScreenPushPlan) []string {
 		a = append(a, "-map", audioMap) // 屏幕采集是无限流，不需要 -shortest
 	}
 	a = append(a, liveEncodeArgs(p.Enc, p.Silent)...)
-	if p.ArchiveTee != "" {
-		a = append(a, "-flags", "+global_header", "-f", "tee", TeeDescription(p.Scheme, p.URL, p.ArchiveTee))
-	} else {
-		a = append(a, "-protocol_whitelist", ProtocolWhitelist(p.Scheme), "-f", OutputFormat(p.Scheme))
-		if p.Scheme != "srt" {
-			a = append(a, "-flvflags", "no_duration_filesize")
-		}
-		a = append(a, p.URL)
-	}
-	if p.PreviewPath != "" {
-		a = append(a, PreviewOutputArgs(p.PreviewPath)...)
-	}
-	return a
+	return AppendPushOutput(a, p.Scheme, p.URL, p.ArchiveTee, p.PreviewPort)
 }
 
 // TeeDescription 返回 tee 的输出描述。网络一路写 onfail=abort（默认 continue 会在连接失败时仍然退出码 0），
@@ -101,4 +90,42 @@ func TeeDescription(scheme, url, archiveTee string) string {
 	net := "[f=" + OutputFormat(scheme) + ":onfail=abort:protocol_whitelist=" + ProtocolWhitelist(scheme) + "]" + TeeEscape(url)
 	arc := "[f=mp4:onfail=abort:movflags=+frag_keyframe+empty_moov:flush_packets=1:protocol_whitelist=file]" + archiveTee
 	return net + "|" + arc
+}
+
+// AppendPushOutput 追加推流输出。没有存档也没有预览时是普通封装；否则用 tee（契约 v0.25：预览分支始终和主输出同一份编码）。
+func AppendPushOutput(a []string, scheme, url, archiveTee string, previewPort int) []string {
+	pv := ""
+	if previewPort > 0 {
+		pv = "tcp://127.0.0.1:" + strconv.Itoa(previewPort) + "?tcp_nodelay=1"
+	}
+	if pv == "" && archiveTee != "" {
+		// 只有存档：沿用 6.10 的 tee 描述（测试锁定了它的格式）。
+		return append(a, "-flags", "+global_header", "-f", "tee", TeeDescription(scheme, url, archiveTee))
+	}
+	if pv == "" {
+		a = append(a, "-protocol_whitelist", ProtocolWhitelist(scheme), "-f", OutputFormat(scheme))
+		if scheme != "srt" {
+			a = append(a, "-flvflags", "no_duration_filesize")
+		}
+		return append(a, url)
+	}
+	return append(a, "-flags", "+global_header", "-f", "tee", TeeSlaves(scheme, url, archiveTee, pv))
+}
+
+// TeeSlaves 拼 tee 描述：网络一路（onfail=abort）| 可选存档 | 可选预览（onfail=ignore，写慢就丢，不拖垮推流）。
+// previewTCP 是未转义的 tcp:// 地址。
+func TeeSlaves(scheme, url, archiveTee, previewTCP string) string {
+	net := "[f=" + OutputFormat(scheme) + ":onfail=abort:protocol_whitelist=" + ProtocolWhitelist(scheme)
+	if scheme != "srt" {
+		net += ":flvflags=no_duration_filesize"
+	}
+	net += "]" + TeeEscape(url)
+	parts := []string{net}
+	if archiveTee != "" {
+		parts = append(parts, "[f=mp4:onfail=abort:movflags=+frag_keyframe+empty_moov:flush_packets=1:protocol_whitelist=file]"+archiveTee)
+	}
+	if previewTCP != "" {
+		parts = append(parts, "[f=flv:onfail=ignore:use_fifo=1:fifo_options=queue_size=120\\:drop_pkts_on_overflow=1:flvflags=no_duration_filesize:flush_packets=1:protocol_whitelist=tcp]"+TeeEscape(previewTCP))
+	}
+	return strings.Join(parts, "|")
 }

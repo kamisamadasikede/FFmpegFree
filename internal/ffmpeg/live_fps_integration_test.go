@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -90,15 +91,11 @@ func TestIntegrationFilePushKeepsSourceFps(t *testing.T) {
 	}
 	cases := []struct {
 		name    string
-		preview func(d string) string
+		preview func(t *testing.T) int
 	}{
-		{"预览关", func(string) string { return "" }},
-		{"预览开", func(d string) string { return filepath.Join(d, "pv.jpg") }},
-		{"预览写不进去", func(d string) string {
-			p := filepath.Join(d, "pv.jpg")
-			os.MkdirAll(p, 0o755) // 目标是目录：每次改名都失败
-			return p
-		}},
+		{"预览关", func(*testing.T) int { return 0 }},
+		{"预览开", func(t *testing.T) int { return readPreviewTCP(t) }},
+		{"预览没人读", func(t *testing.T) int { return stallPreviewTCP(t) }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -115,8 +112,8 @@ func TestIntegrationFilePushKeepsSourceFps(t *testing.T) {
 				t.Fatal(err)
 			}
 			time.Sleep(500 * time.Millisecond)
-			pv := tc.preview(d)
-			args := BuildFilePushArgs(FilePushPlan{Input: src, HasAudio: true, Scheme: "rtmp", URL: url, PreviewPath: pv,
+			pvPort := tc.preview(t)
+			args := BuildFilePushArgs(FilePushPlan{Input: src, HasAudio: true, Scheme: "rtmp", URL: url, PreviewPort: pvPort,
 				Enc: LiveEncode{GOPFps: 30, VideoKbps: 1500, AudioKbps: 128}})
 			push := exec.CommandContext(ctx, ffm, append([]string{"-hide_banner", "-nostats", "-y", "-nostdin"}, args...)...)
 			var pushErr bytes.Buffer
@@ -137,13 +134,45 @@ func TestIntegrationFilePushKeepsSourceFps(t *testing.T) {
 			if wall > time.Duration(secs+4)*time.Second {
 				t.Fatalf("推流被拖慢：%d 秒的源用了 %v", secs, wall)
 			}
-			if tc.name == "预览开" {
-				if b, err := os.ReadFile(pv); err != nil || len(b) < 4 || b[0] != 0xFF || b[1] != 0xD8 {
-					t.Fatalf("预览开时应写出 JPEG: %v", err)
-				}
-			}
+
 		})
 	}
+}
+
+func readPreviewTCP(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		io.Copy(io.Discard, c)
+	}()
+	return ln.Addr().(*net.TCPAddr).Port
+}
+
+func stallPreviewTCP(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		time.Sleep(30 * time.Second)
+	}()
+	return ln.Addr().(*net.TCPAddr).Port
 }
 
 func tail(s string, n int) string {
