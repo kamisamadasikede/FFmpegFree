@@ -39,6 +39,22 @@ export interface ApiTask {
   hwFallback?: boolean
   /** 回退原因（固定枚举，一行，不含路径）：device_unavailable / nvenc_init_failed / qsv_init_failed / amf_init_failed / videotoolbox_failed / encoder_unavailable / encoder_start_failed */
   hwFallbackReason?: string
+  // v0.23（契约 6.14）
+  /** 只有 convert 任务有：所属源文件行 */
+  sourceId?: string
+  /** 任务中心已隐藏（“隐藏已结束”）；转换页照常显示；原地重试时清回 false */
+  hiddenInTaskCenter?: boolean
+  /** 只有成功的 convert 任务有：完成时探测输出得到的信息 */
+  result?: ApiTaskResult
+}
+
+/** v0.23 Task.result（6.14.2） */
+export interface ApiTaskResult {
+  sizeBytes: number
+  durationSec?: number
+  width?: number
+  height?: number
+  audioBitrateKbps?: number
 }
 
 /** task:progress 载荷（契约第 5 节；后三项只有直播任务有） */
@@ -74,6 +90,23 @@ export interface TaskStatusPayload {
   encoderDevice?: string
   hwFallback?: boolean
   hwFallbackReason?: string
+  /** v0.23：终态事件一定带（canceled / failed / interrupted 保留结束那一刻的值）；原地重试的 queued 事件带 0 */
+  progress?: number
+  /** v0.23：成功的 convert 任务的终态事件带 */
+  result?: ApiTaskResult
+  /** v0.23：原地重试发出的那一条 queued 事件为 true（没有 task:created）；前端据此清掉上一轮的进度、编码器、错误、result，并把 hiddenInTaskCenter 清回 false */
+  retried?: boolean
+  /** v0.23：只出现在 UnhideInTaskCenter 的事件（false，status 不变，只改这一项和 version）和 retried 事件上 */
+  hiddenInTaskCenter?: boolean
+}
+
+/** 事件 / 接口里的 result → ApiTaskResult（sizeBytes 必须是数；其余只取有限数值） */
+export function toTaskResult(raw: unknown): ApiTaskResult | undefined {
+  const r = asRecord(raw)
+  if (typeof r.sizeBytes !== 'number' || !Number.isFinite(r.sizeBytes)) return undefined
+  const out: ApiTaskResult = { sizeBytes: r.sizeBytes }
+  for (const k of ['durationSec', 'width', 'height', 'audioBitrateKbps'] as const) if (typeof r[k] === 'number' && Number.isFinite(r[k])) out[k] = r[k] as number
+  return out
 }
 
 /** Wails 生成的 store.Task（或事件里的对象）→ ApiTask：error 为 null / 缺省统一成 null，数值缺省补 0 */
@@ -106,6 +139,9 @@ export function toApiTask(raw: unknown): ApiTask {
     ...(str(r.encoderDevice) ? { encoderDevice: str(r.encoderDevice) } : {}),
     ...(r.hwFallback === true ? { hwFallback: true } : {}),
     ...(str(r.hwFallbackReason) ? { hwFallbackReason: str(r.hwFallbackReason) } : {}),
+    ...(str(r.sourceId) ? { sourceId: str(r.sourceId) } : {}),
+    ...(r.hiddenInTaskCenter === true ? { hiddenInTaskCenter: true } : {}),
+    ...(toTaskResult(r.result) ? { result: toTaskResult(r.result) } : {}),
   }
 }
 

@@ -17,6 +17,8 @@
 
 开关为 true 时经 `call.ts` 的 `callService(service, method, ...args)` 按名字取 `window.go`，**不 import wailsjs 生成文件**（没有绑定时 `vue-tsc` / `vite build` 也能过）。绑定不存在会抛 `UNSUPPORTED`，不会悄悄走模拟。
 
+**转换页 v2**（`convertRecords.ts` → `convertRecordsBinding.ts` / `convertRecordsMock.ts`）：`CONVERT_V2_BACKEND_READY = true`，在 Wails 里直接调用生成的 `wailsjs/go/app/ConvertService`、`TaskService`（`call()` 包装、入参用生成类型的 `createFrom`、Go 的 nil 切片补成 `[]`），文件末尾 `BINDING_SHAPES_OK` 在编译期逐个对照前端类型和生成类型的字段；纯浏览器走模拟（`?cv=<场景>`、`?dlg=…`、`?cv_delfail=in_use,permission,io,still_running`、`?cv_revealfail=NOT_FOUND|INVALID_ARGUMENT`）。
+
 ## 方法清单
 
 **Live**（`live.ts`）：`startFilePush(FilePushRequest)→Task`、`startScreenPush(ScreenPushRequest)→Task`、`getCaptureCapabilities()`、`listScreens()`、`listCaptureSources()`（v0.14，屏幕 + Windows 窗口；`ScreenPushRequest.captureSourceId` 可选，失效 → `LIVE_SOURCE_GONE`，`?sim_source_gone=1` 让「演示文稿」窗口在列表被拉过一次之后消失（页面选中它 → 开始 → LIVE_SOURCE_GONE → 自动刷新后它不在了），`?sim_sources=loading|fail|empty|screens` 模拟加载中 / 失败 / 空 / 仅屏幕，`?sim_err=LIVE_SOURCE_GONE&sim_reason=window|screen` 注入）、`checkPushURL(url)→PushURLInfo`；停止 `stopPush(taskId)`（= `TaskService.Cancel`）；`listRunning()`（`TaskService.ListActive` 里的 live_*）；`watchLiveTask(id, handlers)`（`task:progress` / `task:status`）；素材 `pickMaterial()`（`SystemService.PickFiles` + `MediaService.Probe`）。任务类型 `live_file_push` / `live_screen_push`，Task 新增 `fps` / `bitrateKbps` / `droppedFrames`。

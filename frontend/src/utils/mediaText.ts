@@ -2,12 +2,22 @@
 import { formatBytes } from '@/utils/format'
 import type { store as goStore } from '../../wailsjs/go/models'
 
-const CODEC: Record<string, string> = { h264: 'H.264', hevc: 'HEVC', h265: 'H.265', vp9: 'VP9', vp8: 'VP8', av1: 'AV1', mpeg4: 'MPEG-4', aac: 'AAC', mp3: 'MP3', opus: 'Opus', vorbis: 'Vorbis', flac: 'FLAC', ac3: 'AC-3', wmav2: 'WMA' }
+/**
+ * 编码显示名（设计：界面上统一写 H.265、ProRes，和预设卡片“MP4 · H.265 / H.265 + AAC”同一套叫法；不出现 HEVC / PRORES）。
+ * 表里没有的：首字母大写（ffmpeg 的编码名都是小写 ASCII）。
+ */
+const CODEC: Record<string, string> = {
+  h264: 'H.264', avc: 'H.264', hevc: 'H.265', h265: 'H.265', prores: 'ProRes', vp9: 'VP9', vp8: 'VP8', av1: 'AV1', mpeg4: 'MPEG-4', mpeg2video: 'MPEG-2', mjpeg: 'MJPEG',
+  dnxhd: 'DNxHD', theora: 'Theora', gif: 'GIF', aac: 'AAC', mp3: 'MP3', opus: 'Opus', vorbis: 'Vorbis', flac: 'FLAC', alac: 'ALAC', ac3: 'AC-3', eac3: 'E-AC-3', dts: 'DTS', wmav2: 'WMA',
+}
 
 export function codecName(c?: string): string {
   if (!c) return ''
-  if (c.toLowerCase() === 'copy') return '原编码'
-  return CODEC[c.toLowerCase()] ?? (c.startsWith('pcm') ? 'PCM' : c.toUpperCase())
+  const k = c.toLowerCase()
+  if (k === 'copy') return '原编码'
+  if (CODEC[k]) return CODEC[k]
+  if (k.startsWith('pcm')) return 'PCM'
+  return k.charAt(0).toUpperCase() + k.slice(1)
 }
 
 export function channelText(n?: number): string {
