@@ -42,18 +42,17 @@ export function toInstallProgress(progress: number, speed: string, etaSec: numbe
   }
 }
 
-/** 后端事件 / 调用返回的原始状态 → 前端状态（空串字段归一为 undefined） */
+/** 后端事件 / 调用返回的原始状态 → 前端状态（空串字段归一为 undefined）。不读 path：后端已不再下发。 */
 function normalize(raw: system.FFmpegStatus | FFmpegStatus): FFmpegStatus {
-  const r = raw as any
+  const err = raw.error
   return {
-    state: r.state,
-    // 不读 path：下一版会删掉，界面也不显示组件路径
-    version: cleanFfmpegVersion(r.version) || undefined,
-    source: r.source || undefined,
-    taskId: r.taskId || undefined,
-    ffprobeMissing: !!r.ffprobeMissing,
-    ...(typeof r.customPathInvalid === 'boolean' ? { customPathInvalid: r.customPathInvalid } : {}),
-    error: r.error ? { code: r.error.code, message: r.error.message, ...(r.error.detail ? { detail: r.error.detail } : {}) } : null,
+    state: raw.state as FFmpegStatus['state'],
+    version: cleanFfmpegVersion(raw.version) || undefined,
+    source: (raw.source || undefined) as FFmpegStatus['source'],
+    taskId: raw.taskId || undefined,
+    ffprobeMissing: !!raw.ffprobeMissing,
+    ...(typeof raw.customPathInvalid === 'boolean' ? { customPathInvalid: raw.customPathInvalid } : {}),
+    error: err ? { code: err.code, message: err.message, ...(err.detail ? { detail: err.detail } : {}) } : null,
   }
 }
 

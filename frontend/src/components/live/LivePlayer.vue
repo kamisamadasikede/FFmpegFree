@@ -84,6 +84,7 @@
 import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, ref, watch } from 'vue'
 import mpegts from 'mpegts.js'
 import { guardCall, installMseGuard } from './mseGuard'
+import { previewMark, previewRetryDelay } from './previewTiming'
 import FIcon from '@/components/icon/FIcon.vue'
 import {
   LP_BREAK_PULL, LP_BREAK_PUSH, LP_CATCHUP, LP_CONNECTING, LP_EMPTY, LP_END_PULL, LP_END_PUSH, LP_LAG, LP_MUTED_HINT, LP_RETRY_PULL, LP_RETRY_PUSH, LP_UNAVAILABLE, LP_UNAVAILABLE_PULL, LP_UNSUP_PULL, LP_UNSUP_PUSH,
@@ -320,11 +321,13 @@ function afterMseSettles(): Promise<void> {
 }
 const CONNECT_WAIT_MS = 12000
 let connectSince = 0
+let netRetries = 0
 let retryTimer: ReturnType<typeof setTimeout> | undefined
 async function attach(url: string, retry = false) {
   const my = ++attachToken
   if (away.value || props.fake) return
-  if (!retry) connectSince = Date.now()
+  if (!retry) { connectSince = Date.now(); netRetries = 0 }
+  previewMark('player-attach-begin', `retry=${retry ? 1 : 0}`)
   // 先把旧播放器拆干净，再换 <video>。反过来的话 WebKitGTK 会在 MediaSource 已关闭时继续 append / endOfStream。
   destroyPlayer()
   await afterMseSettles()
@@ -343,7 +346,7 @@ async function attach(url: string, retry = false) {
   if (my !== attachToken || away.value || wantUrl.value !== url) return
   quiet = false
   const el = videoEl.value
-  if (!el) return
+  if (!el) { previewMark('player-created', 'no-video'); return }
   if (!mpegts.getFeatureList().mseLivePlayback) { emit('media-unsupported'); return }
   const chase = props.lowLatency
   player = mpegts.createPlayer(
@@ -357,19 +360,24 @@ async function attach(url: string, retry = false) {
       : { enableWorker: false, enableStashBuffer: true, autoCleanupSourceBuffer: true },
   )
   player.on(mpegts.Events.ERROR, (type: string, detail: string) => {
-    if (quiet) return
+    // 用这一次的代号，不用共享的 quiet：拆掉的播放器晚到的错误不能把新播放器拆掉再等 1 秒。
+    if (quiet || my !== attachToken) return
+    previewMark('player-error', `${type}/${detail}`)
     if (detail === mpegts.ErrorDetails.MEDIA_CODEC_UNSUPPORTED || detail === mpegts.ErrorDetails.MEDIA_FORMAT_UNSUPPORTED) emit('media-unsupported')
     else if (props.phase === 'playing' || props.phase === 'buffering') emit('media-broken')
     else if (type === mpegts.ErrorTypes.NETWORK_ERROR && props.phase === 'connecting' && Date.now() - connectSince < CONNECT_WAIT_MS) {
-      // 契约 6.10.3.4：还没收到 FLV 头时本机预览服务回 503（最多约 10 秒），隔 1 秒重连
+      // 还没收到 FLV 头时本机预览服务回 503。前几次 200ms 再连，免得一次失败就把切回来拖过 3 秒；之后仍隔 1 秒，最多约 12 秒。
+      const wait = previewRetryDelay(netRetries++)
+      previewMark('player-retry', `wait=${wait}`)
       clearTimeout(retryTimer)
-      retryTimer = setTimeout(() => { if (wantUrl.value === url) attach(url, true) }, 1000)
+      retryTimer = setTimeout(() => { if (wantUrl.value === url && my === attachToken) attach(url, true) }, wait)
     } else if (detail === mpegts.ErrorDetails.MEDIA_MSE_ERROR && props.phase === 'connecting' && mseRecoveries < 2) {
       // WebKitGTK：拆播放器时 MediaSource 已关闭，append 报 InvalidStateError。换一个新元素再连，不当成断流。
       mseRecoveries++
       freshVideo = true
       clearTimeout(retryTimer)
-      retryTimer = setTimeout(() => { if (wantUrl.value === url && !away.value) void attach(url) }, 300)
+      previewMark('player-mse-retry', `n=${mseRecoveries}`)
+      retryTimer = setTimeout(() => { if (wantUrl.value === url && !away.value && my === attachToken) void attach(url) }, 50)
     } else emit('media-broken')
   })
   player.on(mpegts.Events.MEDIA_INFO, (mi: { hasVideo?: boolean; hasAudio?: boolean } | undefined) => {
@@ -378,14 +386,25 @@ async function attach(url: string, retry = false) {
     emit('media-info', { hasVideo: false, hasAudio: mi.hasAudio !== false })
   })
   player.on(mpegts.Events.LOADING_COMPLETE, () => { if (!quiet) emit('media-ended') })
-  el.addEventListener('playing', () => { mseRecoveries = 0; if (!quiet) emit('playing') }, { once: true })
+  let sawBytes = false
+  el.addEventListener('progress', () => {
+    if (sawBytes || my !== attachToken) return
+    if (el.buffered.length) { sawBytes = true; previewMark('player-first-bytes') }
+  })
+  el.addEventListener('playing', () => {
+    if (my !== attachToken) return
+    mseRecoveries = 0
+    previewMark('player-first-frame')
+    if (!quiet) emit('playing')
+  }, { once: true })
   el.addEventListener('error', () => {
     if (quiet || my !== attachToken || retry) return
     if (mseRecoveries >= 2 || props.phase !== 'connecting') return
     mseRecoveries++
     freshVideo = true
     clearTimeout(retryTimer)
-    retryTimer = setTimeout(() => { if (wantUrl.value === url && !away.value) void attach(url) }, 300)
+    previewMark('video-error-retry', `n=${mseRecoveries}`)
+    retryTimer = setTimeout(() => { if (wantUrl.value === url && !away.value && my === attachToken) void attach(url) }, 50)
   })
   // 缓冲：不加转圈（追帧加速和落后 6 秒跳到最新都不能出转圈，设计 10-08）；超过 2 秒只在读屏里播报「正在缓冲」
   el.addEventListener('waiting', () => {
@@ -411,6 +430,8 @@ async function attach(url: string, retry = false) {
   player.attachMediaElement(el)
   el.muted = muted.value
   player.load()
+  previewMark('player-created')
+  previewMark('player-load')
   lastDecoded = 0
   fpsWin = []
   accBytes = 0
@@ -460,6 +481,7 @@ watch(volume, (v) => { if (videoEl.value) videoEl.value.volume = v / 100 })
 
 // 离开页面（KeepAlive 藏起来，或整页卸载）：拆掉播放器并断开预览连接。不在这里截最后一帧。
 onDeactivated(() => {
+  previewMark('player-away')
   away.value = true
   frozen.value = false
   // 不在这一拍换 video：Vue 会先把元素卸掉，mpegts 的 endOfStream 还在队列里。回来时 attach 再换。
@@ -467,6 +489,7 @@ onDeactivated(() => {
   destroyPlayer()
 })
 onActivated(() => {
+  previewMark('player-back')
   away.value = false
   if (wantUrl.value) void attach(wantUrl.value)
 })

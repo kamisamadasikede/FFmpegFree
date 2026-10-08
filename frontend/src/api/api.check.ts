@@ -964,7 +964,7 @@ export async function runApiChecks(): Promise<string[]> {
         const { cleanFfmpegVersion } = await import('@/utils/ffmpegVersion')
         eq('G11 版本号：旧（带 URL 尾巴）/ 新（干净）/ 其他尾巴 / 空', ['9.0.2-https://www.martin-riedl.de', '9.0.2', '7.1.1-essentials_build-www.gyan.dev', '6.0', ' 4.4.2-0ubuntu0.22.04.1 ', '', undefined].map((v) => cleanFfmpegVersion(v)), ['9.0.2', '9.0.2', '7.1.1', '6.0', '4.4.2', '', ''])
         eq('G11 版本号：非数字开头（git 构建）只去 URL 尾巴，其余原样', [cleanFfmpegVersion('N-117000-gabcdef-https://example.com'), cleanFfmpegVersion('N-117000-gabcdef')], ['N-117000-gabcdef', 'N-117000-gabcdef'])
-        eq('G11 版本号：进 store 时清理（源码）', /version: cleanFfmpegVersion\(r\.version\) \|\| undefined/.test(readSrc('src/stores/ffmpeg.ts')), true)
+        eq('G11 版本号：进 store 时清理（源码）', /version: cleanFfmpegVersion\(raw\.version\) \|\| undefined/.test(readSrc('src/stores/ffmpeg.ts')), true)
         // G4：旧文案改写；新文案（后端）原样；退出码不出现在主提示
         const em = await import('@/errors/errorMessages')
         const G4 = ['ffmpeg 异常退出（退出码 -1）', 'ffmpeg 退出码 1', '转换组件异常退出（退出码 -1）', '转换组件退出码 1']

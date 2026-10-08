@@ -2,7 +2,9 @@
 import { createCatalogController, catalogNotReady, CATALOG_LOAD_TIMEOUT_MS, CATALOG_NOT_READY_CODE } from './catalogLoad'
 import { liveInterruptView, LP_BREAK_PULL, LP_BREAK_PUSH, LP_BREAK_PUSH_AWAY } from '@/errors/livePreviewMessages'
 import { actionErrorText, detailWithoutPaths } from '@/errors/errorMessages'
+import { parseDetailHead } from '@/api/call'
 import { guardCall, isMseStateError } from '@/components/live/mseGuard'
+import { previewRetryDelay } from '@/components/live/previewTiming'
 
 type Eq = (name: string, got: unknown, want: unknown) => void
 
@@ -96,10 +98,13 @@ export async function catalogLoadChecks(eq: Eq, readSrc: (f: string) => string):
     eq('格式列不出现“未就绪 / 尚未就绪”（只有“还没有就绪”这一句）', /未就绪|尚未就绪/.test(panel + foot), false)
     eq('“正在加载格式”在按钮下面，不在格式块上转圈文案', /正在加载格式/.test(foot), true)
     eq('目录加载看 ffmpeg store 的状态，事件名是 ffmpeg:status', [/createCatalogController/.test(store), /ffmpeg\.status\.state/.test(store), /'ffmpeg:status'/.test(readSrc('src/stores/ffmpeg.ts'))], [true, true, true])
-    eq('组件状态不读 path，N5 以 customPathInvalid 为准', [/path: r\.path/.test(readSrc('src/stores/ffmpeg.ts')), /customPathInvalid/.test(readSrc('src/stores/ffmpeg.ts'))], [false, true])
+    const ff = readSrc('src/stores/ffmpeg.ts')
+    const norm = ff.slice(ff.indexOf('function normalize'), ff.indexOf('const PREVIEW'))
+    eq('组件状态不读 path，normalize 不用 as any', [/path: r\.path/.test(ff), /as any/.test(norm), /customPathInvalid/.test(ff)], [false, false, true])
     eq('失败页只查 failed，不含 interrupted', /failed: \['failed'\]/.test(readSrc('src/stores/tasks.ts')), true)
     eq('设备列表在 state 变成 ready 时强制重测', /state === 'ready' && prev !== 'ready'/.test(readSrc('src/components/encoder/EncoderDevicePanel.vue')), true)
   }
+  eq('reason 认前缀，stderr 跟在后面不影响', [parseDetailHead('reason=push\n[flv] error').reason, parseDetailHead('reason=pull leftover').reason, parseDetailHead('kind=window').kind], ['push', 'pull', 'window'])
   eq('reason=push 直播页 / 别处两句；reason=pull 始终拉流那句；不看 message', [
     liveInterruptView({ reason: 'push', onLivePage: true })?.sentence,
     liveInterruptView({ reason: 'push' })?.sentence,
@@ -114,6 +119,7 @@ export async function catalogLoadChecks(eq: Eq, readSrc: (f: string) => string):
   ], [LP_BREAK_PUSH_AWAY, LP_BREAK_PULL, null, null])
   eq('旧版导出的重试文案原样显示', actionErrorText('UNSUPPORTED', '旧版导出记录只能查看和删除，不能重试'), '旧版导出记录只能查看和删除，不能重试')
   eq('detail 里的路径行不给用户看', detailWithoutPaths('reason=push\nC:\\Tools\\ffmpeg.exe\n请重试'), 'reason=push\n请重试')
+  eq('预览 503 前 4 次隔 200ms，之后 1 秒', [previewRetryDelay(0), previewRetryDelay(3), previewRetryDelay(4)], [200, 200, 1000])
   eq('InvalidStateError 被接住，别的错误照旧抛', [
     guardCall(() => { const e = new Error('mse'); e.name = 'InvalidStateError'; throw e }),
     isMseStateError(Object.assign(new Error('x'), { name: 'InvalidAccessError' })),

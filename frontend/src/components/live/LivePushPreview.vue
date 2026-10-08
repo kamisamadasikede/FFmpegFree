@@ -37,6 +37,7 @@ import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import LivePlayer from './LivePlayer.vue'
 import { liveInterruptView, PREVIEW_OFF_TITLE, PREVIEW_PANEL_TITLE } from '@/errors/livePreviewMessages'
+import { previewMark } from './previewTiming'
 import { liveSourceGoneText } from '@/errors/errorMessages'
 import { useLiveSessionsStore, type LiveRow } from '@/stores/liveSessions'
 import { useLiveDockStore } from '@/stores/liveDock'
@@ -91,6 +92,8 @@ let seq = 0
 /** 按当前会话重新取预览地址并新建播放（回来时也走这里，不复用旧连接） */
 async function openPreview(id: string) {
   const mine = ++seq
+  const t = Date.now()
+  previewMark('get-preview-begin', id)
   playUrl.value = ''
   connected.value = false
   broken.value = false
@@ -98,12 +101,14 @@ async function openPreview(id: string) {
   fail.value = ''
   try {
     const s = await getPreviewStream(id)
-    if (mine !== seq) return
+    if (mine !== seq) { previewMark('get-preview-stale', `ms=${Date.now() - t}`); return }
     mime.value = s.mime
     hasAudio.value = s.hasAudio
     playUrl.value = s.url
+    previewMark('get-preview-ok', `ms=${Date.now() - t}`)
   } catch (e) {
     if (mine !== seq) return
+    previewMark('get-preview-fail', `ms=${Date.now() - t}`)
     const k = classifyPreviewError(e)
     fail.value = k === 'unsupported' ? 'codec' : 'unavailable'
   }
@@ -132,12 +137,14 @@ watch(
 // 第一次挂载由上面的 watch 取地址。之后从别的页签 / 别的菜单回来：会话还在且开关开着，就重新取地址。
 let skipActivate = true
 onActivated(() => {
+  previewMark('push-back')
   if (skipActivate) { skipActivate = false; return }
   const id = previewTarget()
   if (id) void openPreview(id)
 })
 onDeactivated(() => {
   // 离开只断开预览，不停止推流，也不把离开前的画面留下来
+  previewMark('push-away')
   seq++
   playUrl.value = ''
   connected.value = false
