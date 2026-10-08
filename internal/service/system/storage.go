@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"FFmpegFree/internal/apperr"
+	"FFmpegFree/internal/ffmpeg"
 	"FFmpegFree/internal/paths"
 )
 
@@ -41,7 +42,12 @@ type StorageDirsUpdate struct {
 const (
 	StorageOutput  = "output"
 	StorageUploads = "uploads"
+	// StorageComponent（PM X5，契约 v0.25.1）：打开当前使用的转换组件可执行文件所在的文件夹，并选中这个文件（Windows / macOS）。
+	StorageComponent = "component"
 )
+
+// componentNotReadyMessage 是 kind=component 时转换组件没就绪或文件不在的提示（契约 1.1：不出现 ffmpeg）。
+const componentNotReadyMessage = "转换组件还没有就绪。"
 
 // SetStorage 注入启动时确定的存储根目录和应用数据目录（app 启动时、Start 之前调用一次）。
 func (m *Manager) SetStorage(st paths.Storage, dataDir string) {
@@ -194,8 +200,10 @@ func (m *Manager) OpenStorageFolder(ctx context.Context, kind string) error {
 	case StorageUploads:
 		custom = m.UploadsDir(ctx) != ""
 		dir = m.ActualUploadsDir(ctx)
+	case StorageComponent:
+		return m.revealComponent()
 	default:
-		return apperr.New(apperr.InvalidArgument, "kind 只能是 output 或 uploads").WithDetail(kind)
+		return apperr.New(apperr.InvalidArgument, "kind 只能是 output、uploads 或 component").WithDetail(kind)
 	}
 	if dir == "" {
 		return apperr.New(apperr.Internal, "存储位置尚未初始化")
@@ -213,6 +221,34 @@ func (m *Manager) OpenStorageFolder(ctx context.Context, kind string) error {
 		start = startDetached
 	}
 	return revealIn(runtime.GOOS, start, dir, nil)
+}
+
+// revealComponent 在文件管理器里显示当前使用的转换组件（ffmpeg 可执行文件）：Windows / macOS 打开所在文件夹并选中它，
+// Linux 打开所在文件夹。路径只取自检测结果（Status().Path），不接受前端传入，所以不走 RevealInFolder 的白名单。
+// 没有就绪（检测中、缺失、版本过旧、安装中……）或文件已经不在：NOT_FOUND，message 是 componentNotReadyMessage。
+func (m *Manager) revealComponent() error {
+	notReady := apperr.New(apperr.NotFound, componentNotReadyMessage).WithDetail("reason=component")
+	st := m.Status()
+	if st.State != ffmpeg.StateReady || st.Path == "" || !filepath.IsAbs(st.Path) {
+		return notReady
+	}
+	fi, err := os.Stat(st.Path)
+	if err != nil || fi.IsDir() {
+		return notReady
+	}
+	start := m.launch
+	if start == nil {
+		start = startDetached
+	}
+	// 路径不回给前端（架构师定）：revealIn 的错误 detail 里可能带路径，换成只有 reason 的错误。
+	if err := revealIn(runtime.GOOS, start, st.Path, nil); err != nil {
+		ae := apperr.From(err)
+		if ae.Code == apperr.NotFound {
+			return notReady
+		}
+		return apperr.New(ae.Code, ae.Message).WithDetail("reason=component")
+	}
+	return nil
 }
 
 func isDir(p string) bool {

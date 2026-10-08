@@ -3,6 +3,7 @@ package live
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -66,6 +67,8 @@ type PullEvent struct {
 type StreamProbe struct {
 	Video string
 	Audio string
+	// Format 是 ffprobe 的 format_name（如 "hls"、"flv"、"mpegts"）；HLS 要匀速送出（见 flvPacer）。
+	Format string
 }
 
 type pullSession struct {
@@ -262,6 +265,7 @@ func (s *Service) runPull(ctx context.Context, sid string, p *pullSession, bin f
 		return
 	}
 	wl := ffmpeg.PullInputWhitelist(u.Scheme)
+	hls := ffmpeg.LooksLikeHLS(u.FFmpeg, "")
 	unknown := true
 	video, audio := true, true
 	if bin.FFprobe != "" {
@@ -273,11 +277,13 @@ func (s *Service) runPull(ctx context.Context, sid string, p *pullSession, bin f
 				return
 			}
 			video, audio = sendV, sendA
+			hls = hls || ffmpeg.LooksLikeHLS("", pr.Format)
 			p.feed.hasVideo, p.feed.hasAudio = sendV, sendA
 		}
 	}
+	p.feed.paced.Store(hls)
 	args, ok := ffmpeg.BuildPullRemuxArgs(ffmpeg.PullRemuxPlan{
-		URL: u.FFmpeg, InputWhitelist: wl, Port: p.feed.port, Unknown: unknown, Video: video, Audio: audio,
+		URL: u.FFmpeg, InputWhitelist: wl, Port: p.feed.port, Unknown: unknown, Video: video, Audio: audio, HLS: hls,
 	})
 	if !ok {
 		s.emitPull(sid, "failed", previewUnavailable(false))
@@ -295,7 +301,7 @@ func (s *Service) runPull(ctx context.Context, sid string, p *pullSession, bin f
 	}()
 	redact := livepkg.NewRedactor(u.FFmpeg)
 	s.logf("拉流预览 %s ffmpeg 参数: %s", sid, redact(strings.ReplaceAll(strings.Join(args, " "), u.FFmpeg, "<拉流地址>")))
-	_, runErr := ffmpeg.Run(ctx, ffmpeg.RunOptions{
+	res, runErr := ffmpeg.Run(ctx, ffmpeg.RunOptions{
 		Exe: bin.FFmpeg, Args: args, Redact: redact,
 		OnStderr: func(line string) { s.logf("拉流预览 %s: %s", sid, line) },
 	})
@@ -310,7 +316,12 @@ func (s *Service) runPull(ctx context.Context, sid string, p *pullSession, bin f
 	case p.feed.state.Load() == 1 || p.feed.hub.hasHeader():
 		s.emitPull(sid, "interrupted", nil)
 	default:
-		s.emitPull(sid, "failed", ffmpeg.ClassifyLiveError(ffmpeg.LiveClassifyInput{Tail: runErr.Error(), Scheme: u.Scheme}))
+		// 拉流有自己的分类和文字（ClassifyPullError），不能用推流的“推流启动失败”。分类看 stderr 尾部（已脱敏）。
+		tail := res.StderrTail
+		if tail == "" {
+			tail = apperr.From(runErr).Detail
+		}
+		s.emitPull(sid, "failed", ffmpeg.ClassifyPullError(ffmpeg.LiveClassifyInput{Tail: tail, Scheme: u.Scheme}))
 	}
 }
 
@@ -366,8 +377,8 @@ func probeStreams(ctx context.Context, ffprobe, url, whitelist string) (StreamPr
 	ctx, cancel := context.WithTimeout(ctx, pullProbeWait)
 	defer cancel()
 	cmd := ffmpeg.NewCommand(ctx, ffprobe, "-v", "error", "-protocol_whitelist", whitelist, "-rw_timeout", "8000000",
-		"-analyzeduration", "1000000", "-probesize", "1000000",
-		"-show_entries", "stream=codec_type,codec_name", "-of", "csv=p=0", url)
+		"-analyzeduration", "5000000", "-probesize", "5000000",
+		"-show_entries", "stream=codec_type,codec_name:format=format_name", "-of", "json", url)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := proc.Run(cmd); err != nil {
@@ -377,29 +388,36 @@ func probeStreams(ctx context.Context, ffprobe, url, whitelist string) (StreamPr
 		}
 		return StreamProbe{}, err
 	}
-	var pr StreamProbe
-	lines := strings.Fields(out.String())
-	if len(lines) == 0 {
+	return parseStreamProbe(out.Bytes())
+}
+
+// parseStreamProbe 解析 ffprobe -of json 的输出（streams 的 codec_type / codec_name，format 的 format_name）。
+func parseStreamProbe(b []byte) (StreamProbe, error) {
+	var v struct {
+		Streams []struct {
+			CodecType string `json:"codec_type"`
+			CodecName string `json:"codec_name"`
+		} `json:"streams"`
+		Format struct {
+			FormatName string `json:"format_name"`
+		} `json:"format"`
+	}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return StreamProbe{}, fmt.Errorf("探测结果解析失败: %v", err)
+	}
+	if len(v.Streams) == 0 {
 		return StreamProbe{}, errors.New("探测不到任何流")
 	}
-	for _, line := range lines {
-		parts := strings.Split(line, ",")
-		if len(parts) < 2 {
-			continue
-		}
-		// ffprobe 按自己的字段顺序输出（codec_name 在 codec_type 前），不按 -show_entries 的顺序，两种都认。
-		kind, name := parts[1], parts[0]
-		if parts[0] == "video" || parts[0] == "audio" {
-			kind, name = parts[0], parts[1]
-		}
-		switch kind {
+	pr := StreamProbe{Format: v.Format.FormatName}
+	for _, st := range v.Streams {
+		switch st.CodecType {
 		case "video":
 			if pr.Video == "" {
-				pr.Video = name
+				pr.Video = st.CodecName
 			}
 		case "audio":
 			if pr.Audio == "" {
-				pr.Audio = name
+				pr.Audio = st.CodecName
 			}
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -193,19 +194,29 @@ func TestGetPreviewStreamErrorsAndCodecGate(t *testing.T) {
 	if _, err := f.svc.GetPreviewStream("nope"); err == nil || !apperr.Is(err, apperr.NotFound) || !strings.Contains(err.(*apperr.AppError).Detail, "reason=session") {
 		t.Fatalf("不存在: %v", err)
 	}
-	var ev PullEvent
+	var evMu sync.Mutex
+	var got PullEvent
 	f.svc.cfg.Emit = func(name string, payload any) {
 		if name != "live:pull" {
 			t.Errorf("事件名 %s", name)
 		}
-		ev = payload.(PullEvent)
+		evMu.Lock()
+		got = payload.(PullEvent)
+		evMu.Unlock()
 	}
 	ps, err := f.svc.StartPullPreview(context.Background(), PullPreviewRequest{URL: "rtmp://127.0.0.1:1935/live/k"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	var ev PullEvent
 	deadline := time.Now().Add(2 * time.Second)
-	for ev.State == "" && time.Now().Before(deadline) {
+	for time.Now().Before(deadline) {
+		evMu.Lock()
+		ev = got
+		evMu.Unlock()
+		if ev.State != "" {
+			break
+		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	if ev.State != "unsupported" || ev.Error == nil || !strings.Contains(ev.Error.Detail, "reason=codec") || !strings.Contains(ev.Error.Detail, "video=hevc") || ev.Error.Message != "这路视频无法在应用内播放。" {
@@ -222,4 +233,88 @@ func protoWithTCP() *ffmpeg.ProtocolProbe {
 	return &ffmpeg.ProtocolProbe{Run: func(context.Context, string, ...string) (string, error) {
 		return "Output:\n  rtmp\n  tee\n  tcp\n", nil
 	}}
+}
+
+func TestParseStreamProbe(t *testing.T) {
+	pr, err := parseStreamProbe([]byte(`{"programs":[],"streams":[{"codec_name":"aac","codec_type":"audio"},{"codec_name":"h264","codec_type":"video"},{"codec_name":"mp3","codec_type":"audio"}],"format":{"format_name":"hls"}}`))
+	if err != nil || pr.Video != "h264" || pr.Audio != "aac" || pr.Format != "hls" {
+		t.Fatalf("%+v %v", pr, err)
+	}
+	if _, err := parseStreamProbe([]byte(`{"streams":[],"format":{"format_name":"flv"}}`)); err == nil {
+		t.Fatal("没有流应报错")
+	}
+	if _, err := parseStreamProbe([]byte(`garbage`)); err == nil {
+		t.Fatal("解析失败应报错")
+	}
+}
+
+// 客户端断开后要立刻离开分发器：反复连上再断开不能把名额占满（修之前第 5 次就是 429）。
+func TestPreviewClientDisconnectFreesSlot(t *testing.T) {
+	h := &previewHTTP{feeds: map[string]*previewFeed{}, dev: true}
+	f := &previewFeed{token: "tok", hub: newFLVHub(), hasVideo: true, hasAudio: true, done: make(chan struct{})}
+	f.state.Store(1)
+	h.register(f)
+	f.hub.setHeader([]byte("FLV\x01\x05\x00\x00\x00\x09\x00\x00\x00\x00"))
+	f.hub.add(parseFLVTag(makeTag(9, 0, []byte{0x17, 0x01, 0, 0, 0, 0xAA})))
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	for i := 0; i < 3*previewMaxClients; i++ {
+		ctx, cancel := context.WithCancel(context.Background())
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/live/tok.flv", nil)
+		req.Header.Set("Origin", "wails://wails")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("第 %d 次连接: HTTP %d", i+1, resp.StatusCode)
+		}
+		buf := make([]byte, 13)
+		io.ReadFull(resp.Body, buf)
+		cancel()
+		resp.Body.Close()
+		deadline := time.Now().Add(2 * time.Second)
+		for {
+			f.hub.mu.Lock()
+			n := len(f.hub.clients)
+			f.hub.mu.Unlock()
+			if n == 0 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("第 %d 次断开后还占着 %d 个名额", i+1, n)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+}
+
+// 后加入的客户端：开头字节和之后的队列在同一把锁里切开，tag 不重复也不遗漏。
+func TestJoinWithPreambleIsAtomic(t *testing.T) {
+	hub := newFLVHub()
+	hub.setHeader([]byte("FLV\x01\x05\x00\x00\x00\x09\x00\x00\x00\x00"))
+	before := makeTag(9, 0, []byte{0x17, 0x01, 0, 0, 0, 0xAA})
+	after := makeTag(9, 40, []byte{0x27, 0x01, 0, 0, 0, 0xBB})
+	hub.add(parseFLVTag(before))
+	c, pre, ok := hub.joinWithPreamble()
+	if !ok {
+		t.Fatal("join")
+	}
+	hub.add(parseFLVTag(after))
+	if !strings.Contains(string(pre), string(before)) || strings.Contains(string(pre), string(after)) {
+		t.Fatal("开头字节应只含加入前的 tag")
+	}
+	select {
+	case b := <-c.ch:
+		if string(b) != string(after) {
+			t.Fatalf("队列里第一个应是加入后的 tag: % x", b)
+		}
+	default:
+		t.Fatal("加入后的 tag 应进队列")
+	}
+	select {
+	case b := <-c.ch:
+		t.Fatalf("队列里不应有重复: % x", b)
+	default:
+	}
 }

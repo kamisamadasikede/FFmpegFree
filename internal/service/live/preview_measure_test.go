@@ -24,6 +24,8 @@ import (
 	"testing"
 	"time"
 
+	"FFmpegFree/internal/apperr"
+	"FFmpegFree/internal/ffmpeg"
 	"FFmpegFree/internal/store"
 	"FFmpegFree/internal/task"
 )
@@ -581,5 +583,147 @@ func TestMeasurePullServerKilled(t *testing.T) {
 	}
 	if readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
 		t.Fatalf("应正常收尾: %v", readErr)
+	}
+}
+
+// 设计走查 G3：拉流连不上时 live:pull 的 failed 带拉流自己的文字，不是“推流启动失败”。
+func TestPullFailedEventUsesPullText(t *testing.T) {
+	if testing.Short() {
+		t.Skip("-short")
+	}
+	m := startMediaMTX(t)
+	r := newRealFixture(t, 0)
+	for _, u := range []string{m.rtmpURL("live/nobody"), fmt.Sprintf("rtmp://127.0.0.1:%d/live/x", freePort(t, false))} {
+		ch := make(chan PullEvent, 4)
+		r.svc.cfg.Emit = func(name string, p any) {
+			if name == "live:pull" {
+				ch <- p.(PullEvent)
+			}
+		}
+		if _, err := r.svc.StartPullPreview(context.Background(), PullPreviewRequest{URL: u}); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case ev := <-ch:
+			if ev.Error != nil {
+				t.Logf("%s: %s %v", ev.State, ev.Error.Code, ev.Error.Message)
+			}
+			if ev.State != "failed" || ev.Error == nil || ev.Error.Message != ffmpeg.PullFailedMessage || ev.Error.Code != apperr.LiveConnectFailed {
+				t.Fatalf("应是 failed + LIVE_CONNECT_FAILED + 拉流文字: %+v %+v", ev, ev.Error)
+			}
+			if strings.Contains(ev.Error.Detail, "live/nobody") || strings.Contains(ev.Error.Detail, "live/x") {
+				t.Fatalf("detail 没有脱敏: %s", ev.Error.Detail)
+			}
+		case <-time.After(30 * time.Second):
+			t.Fatal("没有 live:pull")
+		}
+	}
+}
+
+// 回归（契约 v0.25.1）：HLS 拉流预览按原速输出。不限速时 FLV 每个分片时长（2 秒）一次性到 2 秒的数据，
+// 播放器缓冲忽大忽小、追帧跳到 GOP 中间花屏；排期后匀速到达（最大到达间隔 < 300 毫秒、100 毫秒内不超过 15 帧；修之前约 2 秒、约 60 帧）。
+func TestMeasurePullHLSIsPaced(t *testing.T) {
+	if testing.Short() {
+		t.Skip("-short")
+	}
+	for _, variant := range []string{"mpegts", "lowLatency", "fmp4"} {
+		t.Run(variant, func(t *testing.T) {
+			m := startMediaMTXHLS(t, variant)
+			r := newRealFixture(t, 0)
+			pub := exec.Command(r.ffmpeg, "-hide_banner", "-loglevel", "error", "-re", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30",
+				"-f", "lavfi", "-i", "sine=f=440:r=44100", "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency", "-g", "60",
+				"-pix_fmt", "yuv420p", "-c:a", "aac", "-f", "flv", m.rtmpURL("live/h"))
+			if err := pub.Start(); err != nil {
+				t.Fatal(err)
+			}
+			defer pub.Process.Kill()
+			// 等 HLS 有足够的分片（lowLatency 至少 7 个分片才出播放列表）
+			deadline := time.Now().Add(40 * time.Second)
+			for {
+				resp, err := http.Get(m.hlsURL("live/h"))
+				if err == nil {
+					ok := resp.StatusCode == 200
+					resp.Body.Close()
+					if ok {
+						break
+					}
+				}
+				if time.Now().After(deadline) {
+					t.Skip("HLS 没有就绪")
+				}
+				time.Sleep(time.Second)
+			}
+			ps, err := r.svc.StartPullPreview(context.Background(), PullPreviewRequest{URL: m.hlsURL("live/h")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			// 对照：同时直接读 RTMP（最新的画面）和直接读 HLS（ffmpeg 默认参数、不限速），看预览比它们晚多少。
+			rtmpDirect, err := directReader(ctx, r.ffmpeg, m.rtmpURL("live/h"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			hlsDirect, err := directReader(ctx, r.ffmpeg, m.hlsURL("live/h"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var tags []arrivedTag
+			var code int
+			for i := 0; i < 20; i++ { // 还没收到 FLV 头时是 503
+				if tags, code, _ = readPreview(ctx, ps.PreviewURL, "wails://wails"); code != http.StatusServiceUnavailable {
+					break
+				}
+				time.Sleep(500 * time.Millisecond)
+			}
+			if code != 200 {
+				t.Fatalf("HTTP %d", code)
+			}
+			var v []arrivedTag
+			for _, tg := range tags {
+				if tg.kind == 9 && !tg.seq {
+					v = append(v, tg)
+				}
+			}
+			if len(v) < 300 {
+				t.Fatalf("帧太少: %d", len(v))
+			}
+			// 跳过开头 5 秒（GOP 缓存补发、第一个分片），看到达时间和时间戳的偏差范围。
+			start := v[0].at.Add(5 * time.Second)
+			lo, hi := time.Duration(1<<62), time.Duration(-1<<62)
+			back := 0
+			for i, tg := range v {
+				if i > 0 && tg.ts <= v[i-1].ts {
+					back++
+				}
+				if tg.at.Before(start) {
+					continue
+				}
+				d := time.Duration(tg.ts-v[0].ts)*time.Millisecond - tg.at.Sub(v[0].at)
+				lo, hi = min(lo, d), max(hi, d)
+			}
+			// 一阵一阵的程度：相邻两帧的最大到达间隔、任意 100 毫秒内最多到几帧（修之前约 2 秒、约 60 帧）。
+			maxGap, maxBurst := time.Duration(0), 0
+			for i, tg := range v {
+				if tg.at.Before(start) {
+					continue
+				}
+				maxGap = max(maxGap, tg.at.Sub(v[i-1].at))
+				k := i
+				for k < len(v) && v[k].at.Sub(tg.at) < 100*time.Millisecond {
+					k++
+				}
+				maxBurst = max(maxBurst, k-i)
+			}
+			n, fps := videoFPS(tags, start)
+			cancel()
+			_, lr, _ := relLatency(tags, rtmpDirect(), start)
+			_, lh, _ := relLatency(tags, hlsDirect(), start)
+			t.Logf("MEASURE HLS %s: %d 帧 %.2f fps，最大到达间隔 %v，100ms 内最多 %d 帧，到达节奏与时间戳的偏差范围 %v，时间戳倒退 %d 次；比直接读 RTMP 晚 %v（中位数），比 ffmpeg 直接读 HLS 晚 %v",
+				variant, n, fps, maxGap.Round(time.Millisecond), maxBurst, (hi - lo).Round(time.Millisecond), back, lr.Round(time.Millisecond), lh.Round(time.Millisecond))
+			if maxGap > 300*time.Millisecond || maxBurst > 15 || back > 0 {
+				t.Fatalf("HLS 输出应匀速且时间戳不倒退：最大间隔 %v，100ms 内 %d 帧，倒退 %d", maxGap, maxBurst, back)
+			}
+		})
 	}
 }

@@ -150,6 +150,10 @@ func (h *flvHub) dropClient(c *flvClient) {
 func (h *flvHub) preamble() []byte {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	return h.preambleLocked()
+}
+
+func (h *flvHub) preambleLocked() []byte {
 	var out []byte
 	out = append(out, h.header...)
 	out = append(out, h.meta...)
@@ -163,14 +167,21 @@ func (h *flvHub) preamble() []byte {
 
 // join 加入一个客户端。满员返回 false。会话已结束返回 false。
 func (h *flvHub) join() (*flvClient, bool) {
+	c, _, ok := h.joinWithPreamble()
+	return c, ok
+}
+
+// joinWithPreamble 在同一把锁里取开头字节并加入客户端：锁之前到的 tag 在开头字节里，之后到的进队列，
+// 既不会重复（时间戳倒退），也不会漏掉（缺参考帧花屏）。
+func (h *flvHub) joinWithPreamble() (*flvClient, []byte, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.closed || len(h.clients) >= previewMaxClients {
-		return nil, false
+		return nil, nil, false
 	}
 	c := newFLVClient()
 	h.clients = append(h.clients, c)
-	return c, true
+	return c, h.preambleLocked(), true
 }
 
 func (h *flvHub) leave(c *flvClient) {
@@ -260,9 +271,11 @@ type previewFeed struct {
 	hasVideo bool
 	hasAudio bool
 	push     bool // 推流会话（文案用）
-	hub      *flvHub
-	ln       *net.TCPListener
-	bytes    atomic.Int64
+	// paced：HLS 拉流，tag 经 flvPacer 按时间戳匀速送进分发器（要在 ffmpeg 连上之前设好）。
+	paced atomic.Bool
+	hub   *flvHub
+	ln    *net.TCPListener
+	bytes atomic.Int64
 	// state: 0 等待 ffmpeg，1 正在出流，2 预览分支没了（会话还在），3 会话结束。
 	state atomic.Int32
 	done  chan struct{}
@@ -299,7 +312,11 @@ func (f *previewFeed) stop() {
 }
 
 // readFLV 从 ffmpeg 的连接里切 tag，送进 hub。header 之前断线返回 io.EOF 一类错误，调用方可以再等一次连接。
-func readFLV(r io.Reader, count func(int), h *flvHub) error {
+// add 收切好的 tag（nil 时直接 h.add）。
+func readFLV(r io.Reader, count func(int), h *flvHub, add func(flvTag)) error {
+	if add == nil {
+		add = h.add
+	}
 	buf := make([]byte, 0, 64*1024)
 	tmp := make([]byte, 32*1024)
 	gotHeader := false
@@ -326,7 +343,7 @@ func readFLV(r io.Reader, count func(int), h *flvHub) error {
 			if len(buf) < total {
 				break
 			}
-			h.add(parseFLVTag(buf[:total]))
+			add(parseFLVTag(buf[:total]))
 			buf = append([]byte(nil), buf[total:]...)
 		}
 		if err != nil {
@@ -389,8 +406,17 @@ func (f *previewFeed) acceptIngest() {
 			}
 			return
 		}
-		err = readFLV(c, func(n int) { f.bytes.Add(int64(n)) }, f.hub)
+		var pacer *flvPacer
+		var add func(flvTag)
+		if f.paced.Load() {
+			pacer = newFLVPacer(f.hub.add)
+			add = pacer.push
+		}
+		err = readFLV(c, func(n int) { f.bytes.Add(int64(n)) }, f.hub, add)
 		c.Close()
+		if pacer != nil {
+			pacer.close()
+		}
 		if f.hub.hasHeader() {
 			// 预览分支断了：推流不受影响，但不再报码率，之后的 GetPreviewStream 是 preview_unavailable。
 			if f.state.Load() == 1 {
@@ -508,7 +534,7 @@ func (p *previewHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "preview not ready", http.StatusServiceUnavailable)
 		return
 	}
-	c, ok := f.hub.join()
+	c, pre, ok := f.hub.joinWithPreamble()
 	if !ok {
 		http.Error(w, "too many preview clients", http.StatusTooManyRequests)
 		return
@@ -519,19 +545,37 @@ func (p *previewHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)
 	fl, _ := w.(http.Flusher)
-	write := func(b []byte) {
+	write := func(b []byte) error {
 		if len(b) == 0 {
-			return
+			return nil
 		}
-		w.Write(b)
+		if _, err := w.Write(b); err != nil {
+			return err
+		}
 		if fl != nil {
 			fl.Flush()
 		}
+		return nil
 	}
-	write(f.hub.preamble())
-	for b := range c.ch {
-		write(b)
-		c.wrote(len(b))
+	if write(pre) != nil {
+		return
+	}
+	// 客户端断开（写失败或请求的 context 结束）时立即退出并离开分发器；
+	// 否则断开的客户端一直占着名额，重连几次后就是 429。
+	done := r.Context().Done()
+	for {
+		select {
+		case b, ok := <-c.ch:
+			if !ok {
+				return
+			}
+			if write(b) != nil {
+				return
+			}
+			c.wrote(len(b))
+		case <-done:
+			return
+		}
 	}
 }
 

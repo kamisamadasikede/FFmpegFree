@@ -158,3 +158,40 @@ func TestClassifyLiveErrorWindowGone(t *testing.T) {
 		t.Fatal("非屏幕推流不应识别")
 	}
 }
+
+// 设计走查 G3：拉流失败有自己的分类和文字，不出现推流的文字。
+func TestClassifyPullError(t *testing.T) {
+	if PullFailedMessage != "拉流失败，请检查直播地址和网络。" {
+		t.Fatalf("文案: %q", PullFailedMessage)
+	}
+	cases := []struct {
+		name, tail string
+		code       apperr.Code
+	}{
+		{"拒绝连接", "[tcp @ 0x1] Connection to tcp://127.0.0.1:1935?tcp_nodelay=0 failed: Connection refused\n[in#0 @ 0x2] Error opening input: Connection refused\nError opening input file rtmp://127.0.0.1:1935/live/***.", apperr.LiveConnectFailed},
+		{"HLS 404", "[in#0 @ 0x1] Error opening input: Server returned 404 Not Found\nError opening input file http://h/***.\nError opening input files: Server returned 404 Not Found", apperr.LiveConnectFailed},
+		{"DNS", "[tcp @ 0x1] Failed to resolve hostname nope.invalid: Name or service not known", apperr.LiveConnectFailed},
+		{"RTMP 服务器报错", "[rtmp @ 0x1] Server error: stream not found\n[in#0 @ 0x2] Error opening input: Operation not permitted", apperr.LiveConnectFailed},
+		{"SRT 握手失败", "[srt @ 0x1] Connection to srt://127.0.0.1:9000?streamid=*** failed: Input/output error", apperr.LiveConnectFailed},
+		{"读不出画面参数", "[flv @ 0x1] Could not find codec parameters for stream 0 (Video: h264, none): unspecified size\n[out#0/flv @ 0x2] Could not write header (incorrect codec parameters ?): Invalid argument", apperr.Internal},
+	}
+	for _, c := range cases {
+		e := ClassifyPullError(LiveClassifyInput{Tail: c.tail, Scheme: "rtmp"})
+		if e.Code != c.code || e.Message != PullFailedMessage {
+			t.Errorf("%s: %s %q", c.name, e.Code, e.Message)
+		}
+		if strings.Contains(e.Message, "推流") || strings.Contains(strings.ToLower(e.Message), "ffmpeg") {
+			t.Errorf("%s: 拉流文字不能出现推流或 ffmpeg: %q", c.name, e.Message)
+		}
+		if c.code == apperr.LiveConnectFailed && !strings.HasPrefix(e.Detail, "scheme=rtmp\n") {
+			t.Errorf("%s: detail 首行应是 scheme=: %q", c.name, e.Detail)
+		}
+	}
+	// 推流的文字不变。
+	if e := ClassifyLiveError(LiveClassifyInput{Tail: "something odd"}); e.Message != "推流启动失败" {
+		t.Errorf("推流文字被改了: %q", e.Message)
+	}
+	if e := ClassifyLiveError(LiveClassifyInput{Tail: "Connection refused"}); e.Message != "连接推流服务器失败" {
+		t.Errorf("推流文字被改了: %q", e.Message)
+	}
+}

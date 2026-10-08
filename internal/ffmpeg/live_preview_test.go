@@ -102,6 +102,41 @@ func TestBuildPullRemuxArgs(t *testing.T) {
 	}
 }
 
+// 契约 v0.25.1：探测和转封装都要盖住一个完整 GOP（5 秒 / 5 MB）；HLS 从最新的分片开始。
+func TestBuildPullRemuxArgsProbeWindowAndHLS(t *testing.T) {
+	a, _ := BuildPullRemuxArgs(PullRemuxPlan{URL: "rtmp://h/a/k", InputWhitelist: "rtmp,tcp", Port: 9, Video: true, Audio: true})
+	j := strings.Join(a, " ")
+	if !strings.Contains(j, "-analyzeduration 5000000 -probesize 5000000") || strings.Contains(j, "live_start_index") || has(a, "-re") {
+		t.Fatalf("非 HLS: %v", a)
+	}
+	h, _ := BuildPullRemuxArgs(PullRemuxPlan{URL: "http://h/live/a/index.m3u8", InputWhitelist: PullInputWhitelist("http"), Port: 9, Video: true, Audio: true, HLS: true})
+	j = strings.Join(h, " ")
+	if !strings.Contains(j, "-live_start_index -1 -i http://h/live/a/index.m3u8") || has(h, "-re") {
+		t.Fatalf("HLS 应从最新分片开始、不加 -re: %v", h)
+	}
+}
+
+func TestLooksLikeHLS(t *testing.T) {
+	for _, c := range []struct {
+		url, format string
+		want        bool
+	}{
+		{"http://127.0.0.1:8888/live/a/index.m3u8", "", true},
+		{"https://h/x/PLAYLIST.M3U8?token=a.flv", "", true},
+		{"https://h/x/a.m3u8#frag", "", true},
+		{"http://h/live/a.flv", "", false},
+		{"http://h/live/a.flv?x=.m3u8", "", false},
+		{"rtmp://h/live/a", "", false},
+		{"http://h/play?id=1", "hls", true},
+		{"http://h/play?id=1", "flv", false},
+		{"", "mov,mp4,m4a,3gp,3g2,mj2", false},
+	} {
+		if got := LooksLikeHLS(c.url, c.format); got != c.want {
+			t.Errorf("LooksLikeHLS(%q, %q) = %v", c.url, c.format, got)
+		}
+	}
+}
+
 func TestPreviewPlayable(t *testing.T) {
 	v, a, bad := PreviewPlayable("h264", "aac")
 	if !v || !a || bad {
