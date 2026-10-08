@@ -29,12 +29,15 @@
 
     <!-- ffmpeg（与关于页共用 FFmpegPanel；这里带操作按钮） -->
     <FFmpegPanel id="sec-ffmpeg" heading-id="h-ffmpeg">
+      <!-- X5（产品经理 10-08）：就绪时只给「打开组件所在文件夹」，不显示路径 -->
+      <template #ready-actions>
+        <button type="button" class="btn" :disabled="busy" @click="openComponentDir"><FIcon name="folder" :size="15" />打开组件所在文件夹</button>
+      </template>
+      <!-- 没就绪（未安装 / 过旧 / 安装失败 / 检测中）：安装、重新检测、手动指定位置 -->
       <template #version-actions>
         <button v-if="canInstall" type="button" class="btn pri" @click="ffmpeg.dialogOpen = true"><FIcon name="download" :size="15" />{{ installLabel }}</button>
         <button type="button" class="btn" :disabled="busy || ffmpeg.status.state === 'installing'" @click="run(ffmpeg.recheck)"><FIcon name="refresh" :size="15" />重新检测</button>
-      </template>
-      <template #path-actions>
-        <button type="button" class="btn" :disabled="busy" @click="run(() => ffmpeg.pickPath())"><FIcon name="folder" :size="15" />更换</button>
+        <button v-if="ffmpeg.status.state !== 'installing'" type="button" class="btn" :disabled="busy" @click="run(() => ffmpeg.pickPath())"><FIcon name="folder" :size="15" />手动指定</button>
         <button v-if="ffmpeg.status.source === 'custom'" type="button" class="btn text" :disabled="busy" @click="run(ffmpeg.clearCustomPath)">恢复默认</button>
       </template>
     </FFmpegPanel>
@@ -106,7 +109,7 @@ import EncoderFallbackNotice from '@/components/encoder/EncoderFallbackNotice.vu
 import { encoderPanelVisible } from '@/api/encoder'
 import { simParam } from '@/api/sim'
 import { toAppError } from '@/api/call'
-import { MAX_CONCURRENT_AUTO, MAX_CONCURRENT_MAX, getMaxConcurrent, setMaxConcurrent } from '@/api/system'
+import { MAX_CONCURRENT_AUTO, MAX_CONCURRENT_MAX, getMaxConcurrent, setMaxConcurrent, openComponentFolder, componentFolderErrorText } from '@/api/system'
 import { useTheme, type ThemeMode } from '@/composables/useTheme'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 
@@ -151,6 +154,14 @@ const busy = ref(false)
 const canInstall = computed(() => ['missing', 'outdated', 'failed'].includes(ffmpeg.status.state))
 const installLabel = computed(() => (ffmpeg.status.state === 'failed' ? '重试安装' : '安装…'))
 
+/** X5：打开转换组件所在的文件夹（SystemService.OpenStorageFolder("component")）；NOT_FOUND →「转换组件还没有就绪。」 */
+async function openComponentDir() {
+  try {
+    await openComponentFolder()
+  } catch (e) {
+    ElMessage.error(componentFolderErrorText(e))
+  }
+}
 async function run(fn: () => Promise<unknown>) {
   if (busy.value) return
   busy.value = true

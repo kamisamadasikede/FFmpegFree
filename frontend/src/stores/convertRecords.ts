@@ -24,6 +24,7 @@ import {
 } from '@/utils/convertV24Text'
 import { hasWailsBackend } from '@/services/wails'
 import { useFFmpegStore } from '@/stores/ffmpeg'
+import { canApplySnapshot, createEarlyEvents } from './eventOrder'
 import { createReadyRelist } from '@/stores/readyRelist'
 import { useTaskStore, type TaskError, type TaskItem, type TaskStatus } from '@/stores/tasks'
 import { conflictReason, coverKindOf, dupPresetTitles, extOf, formatRecordTime, isAudioContainer, isAudioOnly, isToday, presetShortTitle, recordParamsText, setPresetCatalog, splitPresetName, totalProgress } from '@/utils/convertText'
@@ -404,12 +405,21 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       probe: 'pending', thumb: null, thumbAsked: false, flashAt: 0, recordCount: recordCount ?? 0, loadedIds: [], loadingMore: false, copySeq: 0,
     }
     applyCopy(sources[s.sourceId], s)
+    // 契约 v0.25.1 ①：这一行入列之前就到了的 convert:copy（走查 S1：小文件的 ready 比 AddSources 返回得早）现在补上
+    const early = earlyCopy.take(s.sourceId)
+    if (early) applyCopyEvent(early)
     return sources[s.sourceId]
   }
+  /** 还没入列的行的 convert:copy：按 sourceId 暂存（契约 v0.25.1 ①，只留 seq 最大的一条），入列时补上 */
+  const earlyCopy = createEarlyEvents<CopyEvent>()
   /** convert:copy（6.15.4 第 5 条）：按 sourceId 记住最大 seq，丢弃更小的；复制失败 / 取消的行不能勾选 */
   function applyCopyEvent(e: CopyEvent) {
     const row = sources[e.sourceId]
-    if (!row || e.seq <= row.copySeq) return
+    if (!row) {
+      earlyCopy.hold(e.sourceId, e) // 不能丢（走查 S1）
+      return
+    }
+    if (e.seq <= row.copySeq) return
     row.copySeq = e.seq
     row.copyState = e.copyState
     row.copiedBytes = e.copiedBytes
@@ -1199,6 +1209,29 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     if (list.length === rejected) return
     addedTick.value = now
     void probePending()
+    if (v24) void reconcileBatch(list.flatMap((r) => (r.source ? [r.source.sourceId] : [])))
+  }
+  /**
+   * 契约 v0.25.1 ②：AddSources 返回后，用这一批的 id 再查一次当前状态对齐（GetSource）。就算 convert:copy 丢了也能自己恢复，不用刷新。
+   * 已经到终态（ready / failed / canceled）的行不用再查；查询在途时这一行又收到了事件（copySeq 变了），以事件为准。
+   */
+  async function reconcileBatch(ids: string[]) {
+    const todo = [...new Set(ids)].filter((id) => {
+      const st = sources[id]?.copyState
+      return st === 'copying' || st === undefined
+    })
+    await Promise.all(todo.map(async (id) => {
+      const before = sources[id]?.copySeq ?? 0
+      try {
+        const e = await getSource(id)
+        const row = sources[id]
+        if (!row || !canApplySnapshot(before, row.copySeq)) return
+        applyCopy(row, e.source)
+        if (e.source.copyState === 'ready') row.exists = true
+      } catch {
+        /* 查不到（刚被移除等）：保持原样，之后的事件照常处理 */
+      }
+    }))
   }
   let mockPick = 0
   async function chooseFiles() {

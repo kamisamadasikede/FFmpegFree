@@ -50,6 +50,8 @@ export const LP_UNSUP_PUSH = '这路视频无法在应用内预览，推流不�
 export const LP_UNSUP_PULL = '这路视频无法在应用内播放。'
 /** 契约 reason=preview_unavailable：和推流编码不支持用同一句（架构师定） */
 export const LP_UNAVAILABLE = LP_UNSUP_PUSH
+/** 拉流页的 preview_unavailable（产品经理 10-08 定，包 22）：和 codec 那句（LP_UNSUP_PULL）分开，两句不混用；推流页仍用 LP_UNAVAILABLE */
+export const LP_UNAVAILABLE_PULL = '这路视频暂时无法在应用内播放。'
 export const LP_END_PUSH = '推流已结束'
 export const LP_END_PULL = '拉流已结束'
 /** 拉流不是用户点停止而结束（live:pull ended：远端停止发布或连接正常关闭，契约 6.10.3.7 ⑩）时的第二行，旁边是「重新拉流」。产品经理 10-08 定稿；用户自己点停止时没有这一行 */
@@ -61,6 +63,17 @@ export const LP_BREAK_PULL = '拉流被中断，请重新拉流。'
 export const LP_RETRY_PUSH = '重新推流'
 export const LP_RETRY_PULL = '重新拉流'
 export const LP_PULL_HINT = '支持 http://、https://、ws://、wss:// 开头的直播地址'
+/** 拉流地址校验报错（X3，产品经理 10-08 定）：和说明一样列全四种前缀 */
+export const LP_PULL_URL_INVALID = '直播地址需要以 http://、https://、ws:// 或 wss:// 开头。'
+/** 拉流地址输入框的占位符（X2：界面不写 flv，照设计稿的示例） */
+export const LP_PULL_PLACEHOLDER = 'https://live.example.com/room/8848'
+/** 拉流开始前就失败（live:pull failed / StartPullPreview 出错）的兜底正文（G3，和后端拉流失败的文案一致）；后端 message 里写着「推流」时也用这句 */
+export const LP_PULL_FAILED = '拉流失败，请检查直播地址和网络。'
+/** 读屏播报（设计说明 §6.2）：开始、缓冲超过 2 秒 */
+export const LP_LIVE_STARTED_PUSH = '推流预览已开始'
+export const LP_LIVE_STARTED_PULL = '拉流已开始'
+export const LP_LIVE_MUTED_SUFFIX = '，已静音'
+export const LP_LIVE_BUFFERING = '正在缓冲'
 export const LP_EMPTY = '还没有进行中的预览'
 export const LP_EMPTY_SESS = '还没有推流会话'
 export const LP_EMPTY_SESS_HINT = '在右侧设置好后点“开始推流”'
