@@ -1,0 +1,66 @@
+package convert
+
+import (
+	"strings"
+	"testing"
+
+	"FFmpegFree/internal/ffmpeg"
+)
+
+// 契约 6.14.5（v0.23.1）：paramsSummary 不含容器名；只给宽度时常见宽度显示成 "<高>p"。
+func TestParamsSummary(t *testing.T) {
+	type O = ffmpeg.ConvertOptions
+	cases := []struct {
+		name string
+		o    O
+		want string
+	}{
+		{"宽 3840", O{Container: "mp4", VideoCodec: "h264", Width: 3840}, "H.264 · 2160p"},
+		{"宽 2560", O{Container: "mp4", VideoCodec: "h264", Width: 2560}, "H.264 · 1440p"},
+		{"宽 1920", O{Container: "mp4", VideoCodec: "h264", Width: 1920}, "H.264 · 1080p"},
+		{"宽 1280", O{Container: "mp4", VideoCodec: "h264", Width: 1280}, "H.264 · 720p"},
+		{"宽 854", O{Container: "mp4", VideoCodec: "h265", Width: 854}, "H.265 · 480p"},
+		{"不在映射里的宽度", O{Container: "mp4", VideoCodec: "h264", Width: 1000}, "H.264 · 宽 1000"},
+		{"宽高都给", O{Container: "mp4", VideoCodec: "h264", Width: 1920, Height: 1080}, "H.264 · 1920×1080"},
+		{"只给高", O{Container: "mkv", VideoCodec: "vp9", Height: 720}, "VP9 · 720p"},
+		{"原画质", O{Container: "mkv", VideoCodec: "copy", AudioCodec: "copy"}, "原画质"},
+		{"音频码率", O{Container: "mp3", AudioCodec: "mp3", AudioBitrate: 192_000}, "192 kbps"},
+		{"gif", O{Container: "gif", Width: 480, Fps: 10, TrimStart: 1}, "宽 480 · 10 fps · 已裁剪"},
+		{"视频码率 + 无声", O{Container: "mp4", VideoCodec: "h264", VideoBitrate: 2_500_000, AudioCodec: "none"}, "H.264 · 2.5 Mbps · 无声"},
+		{"什么都没设", O{Container: "wav", AudioCodec: "pcm"}, "默认参数"},
+	}
+	for _, c := range cases {
+		got := ParamsSummary(c.o)
+		if got != c.want {
+			t.Errorf("%s: %q, want %q", c.name, got, c.want)
+		}
+		up := strings.ToUpper(c.o.Container)
+		for _, seg := range strings.Split(got, " · ") {
+			if seg == up {
+				t.Errorf("%s: 不应含容器名: %q", c.name, got)
+			}
+		}
+	}
+	// 内置 1080p / 720p 预设只设了宽度
+	for _, p := range builtinPresets() {
+		got := ParamsSummary(p.Options)
+		switch p.ID {
+		case "builtin-mp4-h264-1080p":
+			if got != "H.264 · 1080p" {
+				t.Errorf("%s: %q", p.ID, got)
+			}
+		case "builtin-mp4-h264-720p":
+			if got != "H.264 · 720p" {
+				t.Errorf("%s: %q", p.ID, got)
+			}
+		}
+		if got == "" || strings.HasPrefix(got, strings.ToUpper(p.Options.Container)+" ") {
+			t.Errorf("%s: %q", p.ID, got)
+		}
+	}
+	// 最长 80 个字符
+	long := ParamsSummary(O{Container: "mp4", VideoCodec: strings.Repeat("x", 200)})
+	if n := len([]rune(long)); n != 80 {
+		t.Fatalf("最长 80: %d", n)
+	}
+}

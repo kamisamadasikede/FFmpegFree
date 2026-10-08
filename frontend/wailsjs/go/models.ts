@@ -21,6 +21,184 @@ export namespace apperr {
 
 export namespace convert {
 	
+	export class AddSourceResult {
+	    path: string;
+	    source?: store.ConvertSource;
+	    existed: boolean;
+	    error?: apperr.AppError;
+	
+	    static createFrom(source: any = {}) {
+	        return new AddSourceResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.source = this.convertValues(source["source"], store.ConvertSource);
+	        this.existed = source["existed"];
+	        this.error = this.convertValues(source["error"], apperr.AppError);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ConvertSearchFilter {
+	    keyword: string;
+	    limit: number;
+	    offset: number;
+	    recordLimit: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConvertSearchFilter(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.keyword = source["keyword"];
+	        this.limit = source["limit"];
+	        this.offset = source["offset"];
+	        this.recordLimit = source["recordLimit"];
+	    }
+	}
+	export class ConvertSourceEntry {
+	    source: store.ConvertSource;
+	    records: store.Task[];
+	    recordCount: number;
+	    nameMatched?: boolean;
+	    matchedTaskIds?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ConvertSourceEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.source = this.convertValues(source["source"], store.ConvertSource);
+	        this.records = this.convertValues(source["records"], store.Task);
+	        this.recordCount = source["recordCount"];
+	        this.nameMatched = source["nameMatched"];
+	        this.matchedTaskIds = source["matchedTaskIds"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ConvertSourceFilter {
+	    limit: number;
+	    offset: number;
+	    recordLimit: number;
+	    status?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConvertSourceFilter(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.limit = source["limit"];
+	        this.offset = source["offset"];
+	        this.recordLimit = source["recordLimit"];
+	        this.status = source["status"];
+	    }
+	}
+	export class ConvertSourcePage {
+	    items: ConvertSourceEntry[];
+	    total: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConvertSourcePage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.items = this.convertValues(source["items"], ConvertSourceEntry);
+	        this.total = source["total"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ConvertSubmitRequest {
+	    sourceIds: string[];
+	    options: ffmpeg.ConvertOptions;
+	    outputDir: string;
+	    presetId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConvertSubmitRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sourceIds = source["sourceIds"];
+	        this.options = this.convertValues(source["options"], ffmpeg.ConvertOptions);
+	        this.outputDir = source["outputDir"];
+	        this.presetId = source["presetId"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class Preset {
 	    id: string;
 	    name: string;
@@ -56,6 +234,38 @@ export namespace convert {
 		    }
 		    return a;
 		}
+	}
+	export class PreviewURL {
+	    url: string;
+	    mime: string;
+	    size: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new PreviewURL(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.url = source["url"];
+	        this.mime = source["mime"];
+	        this.size = source["size"];
+	    }
+	}
+	export class SourcePathCheck {
+	    sourceId: string;
+	    found: boolean;
+	    exists: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SourcePathCheck(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sourceId = source["sourceId"];
+	        this.found = source["found"];
+	        this.exists = source["exists"];
+	    }
 	}
 
 }
@@ -1108,7 +1318,68 @@ export namespace store {
 		    return a;
 		}
 	}
+	export class ConvertSource {
+	    sourceId: string;
+	    path: string;
+	    name: string;
+	    addedAt: number;
+	    lastActivityAt: number;
+	    media?: MediaInfo;
 	
+	    static createFrom(source: any = {}) {
+	        return new ConvertSource(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sourceId = source["sourceId"];
+	        this.path = source["path"];
+	        this.name = source["name"];
+	        this.addedAt = source["addedAt"];
+	        this.lastActivityAt = source["lastActivityAt"];
+	        this.media = this.convertValues(source["media"], MediaInfo);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	export class TaskResult {
+	    sizeBytes: number;
+	    durationSec?: number;
+	    width?: number;
+	    height?: number;
+	    audioBitrateKbps?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TaskResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sizeBytes = source["sizeBytes"];
+	        this.durationSec = source["durationSec"];
+	        this.width = source["width"];
+	        this.height = source["height"];
+	        this.audioBitrateKbps = source["audioBitrateKbps"];
+	    }
+	}
 	export class Task {
 	    id: string;
 	    type: string;
@@ -1132,6 +1403,9 @@ export namespace store {
 	    createdAt: number;
 	    startedAt: number;
 	    finishedAt: number;
+	    sourceId?: string;
+	    hiddenInTaskCenter: boolean;
+	    result?: TaskResult;
 	
 	    static createFrom(source: any = {}) {
 	        return new Task(source);
@@ -1161,6 +1435,9 @@ export namespace store {
 	        this.createdAt = source["createdAt"];
 	        this.startedAt = source["startedAt"];
 	        this.finishedAt = source["finishedAt"];
+	        this.sourceId = source["sourceId"];
+	        this.hiddenInTaskCenter = source["hiddenInTaskCenter"];
+	        this.result = this.convertValues(source["result"], TaskResult);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1186,6 +1463,7 @@ export namespace store {
 	    statuses: string[];
 	    limit: number;
 	    offset: number;
+	    includeHidden?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new TaskFilter(source);
@@ -1197,6 +1475,7 @@ export namespace store {
 	        this.statuses = source["statuses"];
 	        this.limit = source["limit"];
 	        this.offset = source["offset"];
+	        this.includeHidden = source["includeHidden"];
 	    }
 	}
 	export class TaskPage {
@@ -1433,6 +1712,83 @@ export namespace system {
 	        this.ffmpegPromptDismissed = source["ffmpegPromptDismissed"];
 	        this.defaultOutputDir = source["defaultOutputDir"];
 	        this.maxConcurrent = source["maxConcurrent"];
+	    }
+	}
+
+}
+
+export namespace task {
+	
+	export class DeleteFailure {
+	    taskId: string;
+	    path?: string;
+	    reason: string;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DeleteFailure(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.taskId = source["taskId"];
+	        this.path = source["path"];
+	        this.reason = source["reason"];
+	        this.message = source["message"];
+	    }
+	}
+	export class DeleteResult {
+	    deletedTaskIds: string[];
+	    deletedSourceIds: string[];
+	    deletedFiles: number;
+	    failures: DeleteFailure[];
+	
+	    static createFrom(source: any = {}) {
+	        return new DeleteResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.deletedTaskIds = source["deletedTaskIds"];
+	        this.deletedSourceIds = source["deletedSourceIds"];
+	        this.deletedFiles = source["deletedFiles"];
+	        this.failures = this.convertValues(source["failures"], DeleteFailure);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class TaskPathCheck {
+	    taskId: string;
+	    found: boolean;
+	    inputExists: boolean;
+	    outputExists: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new TaskPathCheck(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.taskId = source["taskId"];
+	        this.found = source["found"];
+	        this.inputExists = source["inputExists"];
+	        this.outputExists = source["outputExists"];
 	    }
 	}
 

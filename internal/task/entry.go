@@ -87,13 +87,17 @@ func (e *entry) start() {
 }
 
 // finish 进入终态：落库并发 task:status。重复调用无效。
-func (e *entry) finish(m *Manager, st Status, aerr *apperr.AppError, output string) {
+func (e *entry) finish(m *Manager, st Status, aerr *apperr.AppError, output string, res ...*TaskResult) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.terminal {
 		return
 	}
 	e.terminal = true
+	var r *TaskResult
+	if len(res) > 0 {
+		r = res[0]
+	}
 	if e.flushTimer != nil {
 		e.flushTimer.Stop()
 	}
@@ -115,14 +119,38 @@ func (e *entry) finish(m *Manager, st Status, aerr *apperr.AppError, output stri
 	if st == StatusSucceeded && !IsLive(e.task.Type) {
 		e.task.Progress = 1
 	}
+	// result 只属于成功的任务（契约 6.14.6）；canceled / failed / interrupted 保留结束那一刻的 progress。
+	if st == StatusSucceeded {
+		e.task.Result = r
+	} else {
+		e.task.Result = nil
+	}
 	e.task.Version++
 	e.persistLocked()
+	prog := e.task.Progress
 	m.emit(EventStatus, StatusEvent{
 		ID: e.task.ID, Version: e.task.Version, Status: st, Error: aerr,
 		OutputPath: e.task.OutputPath, StartedAt: e.task.StartedAt, FinishedAt: e.task.FinishedAt,
 		Encoder: e.task.Encoder, EncoderDevice: e.task.EncoderDevice, HWFallback: e.task.HWFallback, HWFallbackReason: e.task.HWFallbackReason,
+		Progress: &prog, Result: e.task.Result,
 	})
 	e.log.close()
+}
+
+// setOutput 更新运行中任务的输出路径（RunWithPart 运行时顺延了名字）：变化时落库并补发一条 running 的 task:status（带 outputPath）。
+func (e *entry) setOutput(p string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.terminal || e.task.Status != StatusRunning || e.task.OutputPath == p {
+		return
+	}
+	e.task.OutputPath = p
+	e.task.Version++
+	e.persistLocked()
+	e.m.emit(EventStatus, StatusEvent{
+		ID: e.task.ID, Version: e.task.Version, Status: StatusRunning, StartedAt: e.task.StartedAt, OutputPath: p,
+		Encoder: e.task.Encoder, EncoderDevice: e.task.EncoderDevice, HWFallback: e.task.HWFallback, HWFallbackReason: e.task.HWFallbackReason,
+	})
 }
 
 // setEncoder 更新编码器信息（运行中硬件编码回退 CPU）：变化时落库并补发一条 running 的 task:status。

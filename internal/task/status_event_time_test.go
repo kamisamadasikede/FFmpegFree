@@ -209,7 +209,7 @@ func TestCrashRecoveryInterruptedTimes(t *testing.T) {
 	}
 }
 
-// Retry 生成的是新任务：时间从零开始，原任务的 startedAt / finishedAt 不被改动。
+// 原地 Retry（契约 v0.23）：同一条记录的 startedAt / finishedAt 先清零，重新运行后是新一次运行的时间。
 func TestRetryTimes(t *testing.T) {
 	f := newFx(t, 1)
 	f.m.RegisterFactory(TypeConvert, func(Task) (Runner, error) { return ok, nil })
@@ -221,14 +221,13 @@ func TestRetryTimes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if nt.StartedAt != 0 || nt.FinishedAt != 0 {
-		t.Fatalf("新任务刚创建时不应有 startedAt / finishedAt: %+v", nt)
+	if nt.ID != old.ID || nt.StartedAt != 0 || nt.FinishedAt != 0 {
+		t.Fatalf("重试后刚入队时不应有 startedAt / finishedAt: %+v", nt)
 	}
 	done := waitTask(t, f.m, nt.ID)
 	checkTimes(t, f, done, terminalEvent(t, f, nt.ID), true)
-	after := f.m.mustGet(t, first.ID)
-	if after.StartedAt != old.StartedAt || after.FinishedAt != old.FinishedAt {
-		t.Fatalf("原任务的时间被改动: %+v -> %+v", old, after)
+	if done.StartedAt < old.FinishedAt || done.CreatedAt != old.CreatedAt {
+		t.Fatalf("应是新一次运行的时间、createdAt 不变: %+v -> %+v", old, done)
 	}
 }
 
