@@ -122,7 +122,12 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
     const bad = await rejects(mock.ListSources({ limit: 50, offset: 0, recordLimit: 20, status: 'canceled' as never }))
     eq('status 其它值 → INVALID_ARGUMENT', bad?.code, 'INVALID_ARGUMENT')
     eq('status 失败 = failed / interrupted（模拟层定义）', /failed: \['failed', 'interrupted'\]/.test(readSrc('src/api/convertRecordsMock.ts')), true)
-    eq('绑定层：ListSources / SearchSources 都总是带 status（缺省 \'\'）', [/'ListSources', \{ \.\.\.f, status: f\.status \?\? '' \}/.test(readSrc('src/api/convertRecordsBinding.ts')), /'SearchSources', \{ \.\.\.f, status: f\.status \?\? '' \}/.test(readSrc('src/api/convertRecordsBinding.ts')), /interface ConvertSearchFilter extends ConvertSourceFilter \{/.test(readSrc('src/api/convertRecords.ts'))], [true, true, true])
+    eq('绑定层：ListSources / SearchSources 都总是带 status（缺省 \'\'）', [/CS\.ListSources\(convert\.ConvertSourceFilter\.createFrom\(\{ \.\.\.f, status: f\.status \?\? '' \}\)\)/.test(readSrc('src/api/convertRecordsBinding.ts')), /CS\.SearchSources\(convert\.ConvertSearchFilter\.createFrom\(\{ \.\.\.f, status: f\.status \?\? '' \}\)\)/.test(readSrc('src/api/convertRecordsBinding.ts')), /interface ConvertSearchFilter extends ConvertSourceFilter \{/.test(readSrc('src/api/convertRecords.ts'))], [true, true, true])
+    {
+      const b = readSrc('src/api/convertRecordsBinding.ts')
+      eq('联调：CONVERT_V2_BACKEND_READY = true；binding 直接用生成的 ConvertService / TaskService，不再按名字 callService；有生成类型对照', [/CONVERT_V2_BACKEND_READY: boolean = true/.test(readSrc('src/api/flags.ts')), /from '\.\.\/\.\.\/wailsjs\/go\/app\/ConvertService'/.test(b), /from '\.\.\/\.\.\/wailsjs\/go\/app\/TaskService'/.test(b), /callService|V023_METHODS/.test(b), /BINDING_SHAPES_OK/.test(b)], [true, true, true, false, true])
+      eq('纯浏览器仍走模拟（convertV2IsReal 要求 window.go）', /convertV2IsReal = \(\): boolean => CONVERT_V2_BACKEND_READY && hasWailsBackend\(\)/.test(readSrc('src/api/convertRecords.ts')), true)
+    }
     const st = readSrc('src/stores/convertRecords.ts')
     eq('store：筛选走 ListSources(status)；搜索带同样的 status（v0.23.2），有关键字时切筛选重新搜索', [/listSources\(\{[^}]*status \}\)/.test(st), /searchSources\(\{[^}]*, status \}\)/.test(st), /if \(kw\) return search\(keyword\.value\)/.test(st)], [true, true, true])
     eq('store：筛选“失败”时行默认展开（ListSources / SearchSources 两处）', (st.match(/status === 'failed'\) for \(const id of order\) if \(!known\.has\(id\)\) foldSession\[id\] = true|sh\.status === 'failed'\) foldSession/g) ?? []).length, 2)

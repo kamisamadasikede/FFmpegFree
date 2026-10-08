@@ -1,6 +1,6 @@
 /**
  * 接口层开关：每个后端服务一个。false = 走 api/*.ts 里的本地模拟（定时器推进任务进度，走 services/wails.ts 的模拟事件总线）；
- * true = 调用 Wails 绑定（window.go.app.<Service>.<Method>，见 api/call.ts 的 callService）。
+ * true = 调用 Wails 绑定（生成的 wailsjs/go/app/<Service>；还没生成绑定的用 api/call.ts 的 callService 按名字调）。
  * 后端服务落地并生成绑定后，逐个改成 true 即可，页面 / store 不用动。
  */
 /** 直播：后端 LiveService（#31）已合入，联调打开。纯浏览器环境（无 window.go）仍走模拟，见 api/live.ts 的 liveIsReal() */
@@ -25,8 +25,8 @@ export const ABOUT_BACKEND_READY: boolean = true
  */
 export const ENCODER_BACKEND_READY: boolean = true
 /**
- * 转换页 v2（转换记录）：契约 v0.23 §6.14 已合入 v2（da6c6eb），v0.23.1 的 RevealRecord / GetSource 随后端实现 PR 加；后端实现还没合入。
- * 接口名按契约写在 api/convertRecordsBinding.ts 的 V023_METHODS。**false**：转换页的记录列表、源文件、删除、预览地址、任务中心“隐藏已结束”都走
- * api/convertRecordsMock.ts 的模拟（复用 api/sim.ts 的模拟任务引擎和事件总线）；后端实现合入、绑定生成并联调后改成 true 即可，页面 / store 不用动。
+ * 转换页 v2（转换记录）：后端 #83 / #84 / #85（契约 v0.23–v0.23.3 §6.14）已合入 v2（1c4c913），绑定已生成（wailsjs/go/app/ConvertService、TaskService），联调打开。
+ * true 且在 Wails 里：转换页的记录列表、源文件、删除、预览地址、缩略图、任务中心“隐藏已结束 / 显示已隐藏”都调真实绑定（api/convertRecordsBinding.ts）。
+ * 纯浏览器（没有 window.go，previewMode / 截图 / 走查）仍走 api/convertRecordsMock.ts 的模拟，见 api/convertRecords.ts 的 convertV2IsReal()。
  */
-export const CONVERT_V2_BACKEND_READY: boolean = false
+export const CONVERT_V2_BACKEND_READY: boolean = true

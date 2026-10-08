@@ -336,7 +336,7 @@ export const useTaskStore = defineStore('tasks', () => {
         limit: historyFilter.pageSize,
         offset: (historyFilter.page - 1) * historyFilter.pageSize,
       }
-      // v0.23 的 includeHidden 要走转换记录数据层（生成的 TaskFilter 还没有这个字段，createFrom 会丢掉它）；开关没打开时仍用原来的 List
+      // v0.23 的 includeHidden：走转换记录数据层（真实绑定 / 模拟同一套）；开关关掉时仍用原来的 List（旧后端没有隐藏的概念）
       const page = convertV2IsReal()
         ? await listTasks({ ...q, includeHidden: historyFilter.includeHidden })
         : await call(TaskBinding.List(goStore.TaskFilter.createFrom(q)))

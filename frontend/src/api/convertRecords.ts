@@ -1,9 +1,9 @@
 /**
  * 转换页 v2（转换记录）的数据层。页面 / store 只用这里导出的函数和类型。
  *
- * 名字和形状按契约 v0.23（已合入 v2 da6c6eb，docs/architecture/contract.md §6.14、§5、§6.6）。后端实现还在并行开发、绑定还没生成，
- * 所以真实调用集中在 api/convertRecordsBinding.ts（V023_METHODS）。CONVERT_V2_BACKEND_READY（api/flags.ts）为 false、
- * 或纯浏览器（没有 window.go）时，全部走 api/convertRecordsMock.ts 的模拟。后端合入、绑定生成并联调后核对 binding 文件、把开关改成 true。
+ * 名字和形状按契约 v0.23–v0.23.3（docs/architecture/contract.md §6.14、§5、§6.6），后端 #83 / #84 / #85 已合入。
+ * 真实调用在 api/convertRecordsBinding.ts（生成的 Wails 绑定，末尾有和生成类型的编译期对照）；CONVERT_V2_BACKEND_READY（api/flags.ts）为 false、
+ * 或纯浏览器（没有 window.go）时，全部走 api/convertRecordsMock.ts 的模拟。
  */
 import { CONVERT_V2_BACKEND_READY } from '@/api/flags'
 import { hasWailsBackend } from '@/services/wails'
@@ -14,7 +14,7 @@ import type { store as goStore } from '../../wailsjs/go/models'
 import * as real from '@/api/convertRecordsBinding'
 import * as mock from '@/api/convertRecordsMock'
 
-// ---------------- 契约类型（§6.14.2；生成 models.ts 后可换成生成的类型） ----------------
+// ---------------- 契约类型（§6.14.2；与生成的 models.ts 逐字段对照见 convertRecordsBinding.ts 末尾） ----------------
 
 /** Task.result：只有成功的 convert 任务有（探测失败时可能只有 sizeBytes，连 stat 都失败则没有） */
 export interface TaskResult {
