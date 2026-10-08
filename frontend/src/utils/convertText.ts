@@ -189,12 +189,17 @@ export function coverKindOf(ext: string, info?: InfoLike | null): CoverKind {
   return isAudioContainer(e) ? 'audio' : 'video'
 }
 
-/** 父行信息：视频「分辨率 · 编码 · 时长 · 大小」（无声视频在编码后加“没有声音”）；音频「采样率 · 声道 · 时长 · 大小」 */
-export function sourceMetaText(i: InfoLike): string {
+/** 不显示声音信息的格式（走查 D7）：静态图片 + GIF / APNG。GIF 封面按视频，但图片本来就没有声音，不说“没有声音” */
+export const NO_SOUND_INFO_EXTS: readonly string[] = [...IMAGE_CONTAINERS, 'gif', 'apng']
+/**
+ * 父行信息：视频「分辨率 · 编码 · 时长 · 大小」（无声视频在编码后加“没有声音”）；音频「采样率 · 声道 · 时长 · 大小」。
+ * ext：源文件扩展名；图片格式（NO_SOUND_INFO_EXTS）不加“没有声音”（走查 D7）。
+ */
+export function sourceMetaText(i: InfoLike, ext = ''): string {
   const parts: string[] = []
   if (!isAudioOnly(i)) {
     parts.push(`${i.width}×${i.height}`, videoCodecText(i))
-    if (i.hasAudio === false) parts.push('没有声音')
+    if (i.hasAudio === false && !NO_SOUND_INFO_EXTS.includes((ext ?? '').toLowerCase())) parts.push('没有声音')
   } else {
     parts.push(sampleRateText(i.sampleRate), channelText(i.channels))
     if (!i.sampleRate && !i.channels) parts.push(audioCodecText(i))
