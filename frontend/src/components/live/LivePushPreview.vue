@@ -19,6 +19,7 @@
       :force-hint="!!vis?.hint"
       :force-full="!!vis?.full"
       :reason="reason"
+      :empty-text="cur && cur.preview === false && !vis ? PREVIEW_OFF_TITLE : undefined"
       @restart="onRestart"
       @media-unsupported="fail = 'codec'"
       @media-broken="broken = true"
@@ -34,7 +35,7 @@ import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import LivePlayer from './LivePlayer.vue'
-import { PREVIEW_PANEL_TITLE } from '@/errors/livePreviewMessages'
+import { PREVIEW_OFF_TITLE, PREVIEW_PANEL_TITLE } from '@/errors/livePreviewMessages'
 import { useLiveSessionsStore, type LiveRow } from '@/stores/liveSessions'
 import { useLiveDockStore } from '@/stores/liveDock'
 import { classifyPreviewError, getPreviewStream } from '@/api/livePreviewStream'
@@ -56,12 +57,7 @@ const fail = ref<'' | 'codec' | 'unavailable'>('')
 const now = ref(Date.now())
 setInterval(() => (now.value = Date.now()), 1000)
 
-const live = (r: LiveRow) => r.status === 'run' || r.status === 'stp'
-const cur = computed<LiveRow | undefined>(() => {
-  const chosen = store.rows.find((r) => r.id === store.previewId)
-  if (chosen) return chosen
-  return store.rows.find(live) ?? store.rows[0]
-})
+const cur = computed<LiveRow | undefined>(() => store.current)
 const clock = computed(() => {
   if (vis) return vis.clock
   const r = cur.value
@@ -77,7 +73,7 @@ const phase = computed(() => {
   if (!r) return 'empty' as const
   if (r.status === 'int' || broken.value) return 'interrupted' as const
   if (r.status === 'ok' || r.status === 'cnl' || ended.value) return 'ended' as const
-  if (r.preview === false || !dock.previewOn) return 'empty' as const
+  if (r.preview === false) return 'empty' as const
   if (fail.value) return 'unsupported' as const
   if (!connected.value) return 'connecting' as const
   return 'playing' as const
@@ -85,7 +81,7 @@ const phase = computed(() => {
 
 let seq = 0
 watch(
-  () => [cur.value?.id, cur.value?.status, dock.previewOn] as const,
+  () => [cur.value?.id, cur.value?.status, cur.value?.preview !== false] as const,
   async ([id, status, on]) => {
     const mine = ++seq
     playUrl.value = ''
@@ -94,8 +90,6 @@ watch(
     ended.value = false
     fail.value = ''
     if (vis || !id || !on || (status !== 'run' && status !== 'stp')) return
-    const row = store.rows.find((r) => r.id === id)
-    if (row) row.preview = true
     try {
       const s = await getPreviewStream(id)
       if (mine !== seq) return
@@ -110,10 +104,6 @@ watch(
   },
   { immediate: true },
 )
-watch(() => dock.previewOn, (on) => {
-  const r = cur.value
-  if (r && (r.status === 'run' || r.status === 'stp')) r.preview = on
-})
 
 async function onRestart() {
   const r = cur.value

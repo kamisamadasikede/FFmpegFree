@@ -41,6 +41,7 @@ const MAP: Record<string, LpVisual> = {
   'pull-ended': base({ phase: 'ended', kind: 'pull', tab: 'pull', fake: 'b' }),
   broken: base({ phase: 'interrupted', kind: 'push', tab: 'push', fake: 'a' }),
   full: base({ phase: 'playing', kind: 'pull', tab: 'pull', muted: false, full: true, fake: 'b' }),
+  'pull-broken': base({ phase: 'interrupted', kind: 'pull', tab: 'pull', muted: false, fake: 'b' }),
   'full-broken': base({ phase: 'interrupted', kind: 'push', tab: 'push', full: true, fake: 'a' }),
   panel: base({ phase: 'playing', kind: 'push', tab: 'push', hint: true, fake: 'a', panel: true }),
   empty: base({ phase: 'empty', kind: 'push', tab: 'push', panel: true, clock: '' }),

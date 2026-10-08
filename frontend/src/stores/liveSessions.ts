@@ -50,8 +50,17 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
   const offs = new Map<string, () => void>()
   let recovered = false
 
-  /** n/4 的 n：运行中 + 正在停止 */
-  const busyCount = computed(() => rows.value.filter((r) => r.status === 'run' || r.status === 'stp').length)
+  /** 进行中的会话（运行中 + 正在停止）：会话面板只列这些，已结束 / 已中断的离开面板 */
+  const activeRows = computed(() => rows.value.filter((r) => r.status === 'run' || r.status === 'stp'))
+  /** n/4 的 n、角标：只数进行中的 */
+  const busyCount = computed(() => activeRows.value.length)
+  /** 预览区当前显示的会话：选中的 → 第一个进行中的 → 最近一条（被中断时停在这条，显示“重新推流”） */
+  const current = computed<LiveRow | undefined>(() => rows.value.find((r) => r.id === previewId.value) ?? activeRows.value[0] ?? rows.value[0])
+  /** 这一路的预览开关：只决定前端连不连它的预览地址，不重启推流（契约 v0.25 ⑤） */
+  function setPreview(id: string, on: boolean) {
+    const r = rows.value.find((x) => x.id === id)
+    if (r) r.preview = on
+  }
 
   const find = (id: string) => rows.value.find((r) => r.id === id)
 
@@ -95,6 +104,7 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
         onConnected: () => {
           connected = true
           add('run', 0)
+          previewId.value = task.id // 刚开始的这一路成为预览区的当前会话
           resolve({ ok: true })
         },
         onProgress: (p) => applyProgress(task.id, p),
@@ -259,5 +269,5 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
   }
 
   const selectPreview = (id: string) => (previewId.value = id)
-  return { rows, previewId, selectPreview, busyCount, begin, recover, stop, forceStop, remove, reveal, noteRestart, restart }
+  return { rows, previewId, selectPreview, activeRows, busyCount, current, setPreview, begin, recover, stop, forceStop, remove, reveal, noteRestart, restart }
 })

@@ -230,8 +230,15 @@ export async function runApiChecks(): Promise<string[]> {
       eq('没选来源：触发器显示“屏幕 1（主显示器）”，表单里不再有“未选择来源，将推送主屏”', [(await import('@/errors/errorMessages')).LIVE_SOURCE_DEFAULT_MAIN_NAME, 'defaultMainScreenHint' in (await import('@/utils/liveSource')), /LIVE_SOURCE_DEFAULT_MAIN_NAME/.test(rd('src/components/live/CaptureSourcePicker.vue')), /未选择来源|推送主屏|DEFAULT_MAIN_HINT/.test(rd('src/views/live/RecordPush.vue') + rd('src/errors/errorMessages.ts'))], ['屏幕 1（主显示器）', false, true, false])
       eq('触发器主屏名的条件：没选来源、非失效、非首次加载中才显示（源码）', /const showDefaultMain = computed\(\(\) => !current\.value && !props\.gone && props\.state !== 'loading'\)/.test(rd('src/components/live/CaptureSourcePicker.vue')), true)
       // 包 20：开始成功后推流码不再清空（表单原样保留 / 重启恢复），预览开关照旧复位为开
-      const okReset = /else \{\s*(?:\/\/[^\n]*\n\s*)?previewOn\.value = true/
-      eq('previewOn 复位：文件推流 / 录屏推流开始成功后 previewOn = true', [okReset.test(rd('src/views/live/FilePush.vue')), okReset.test(rd('src/views/live/RecordPush.vue'))], [true, true])
+      // 包 21（契约 v0.25 ⑤）：开关在推流中途也能拨，只连接 / 断开播放器；和当前会话双向同步，没有进行中的会话时复位为开
+      const dockSrc = rd('src/stores/liveDock.ts')
+      eq('包 21 预览开关：推流中不置灰；同步当前会话；无会话复位为开', [
+        /<PreviewSwitch v-model="previewOn" \/>/.test(rd('src/views/live/FilePush.vue')), /<PreviewSwitch v-model="previewOn" \/>/.test(rd('src/views/live/RecordPush.vue')),
+        /sessions\.setPreview\(c\.id, on\)/.test(dockSrc), /watch\(\(\) => sessions\.busyCount, \(n\) => \{ if \(n === 0\) previewOn\.value = true \}\)/.test(dockSrc),
+      ], [true, true, true, true])
+      const panelSrc = rd('src/components/live/LiveSessionPanel.vue')
+      eq('包 21 会话面板：只列进行中的；每一行的预览开关可以拨（不再 aria-disabled）', [/v-for="r in store\.activeRows"/.test(panelSrc), /@click="store\.setPreview\(r\.id, r\.preview === false\)"/.test(panelSrc), /aria-disabled/.test(panelSrc)], [true, true, false])
+      eq('包 21 角标只数进行中的', /store\.busyCount/.test(rd('src/components/live/LiveSessionEntry.vue')), true)
       eq('包 20：开始成功后不再清空推流码', [/key\.value = ''/.test(rd('src/views/live/FilePush.vue')), /key\.value = ''/.test(rd('src/views/live/RecordPush.vue'))], [false, false])
       const pullSrc = rd('src/views/live/PullPlay.vue')
       eq('包 21：拉流页用实时播放器，不再轮询预览图、不再写 HTTP-FLV', [/usePreviewPoller|PreviewStage|getPreview\b|HTTP-FLV/.test(pullSrc), /<LivePlayer/.test(pullSrc), /LP_PULL_HINT/.test(pullSrc)], [false, true, true])
@@ -1047,6 +1054,37 @@ export async function runApiChecks(): Promise<string[]> {
       eq('拉流：failed 后 end 不调 Stop', log.length, 1)
     }
 
+    // ---- 包 21：预览开关和会话的同步（真实 store，假行） ----
+    {
+      setActivePinia(createPinia())
+      const { useLiveSessionsStore } = await import('@/stores/liveSessions')
+      const { useLiveDockStore } = await import('@/stores/liveDock')
+      const { nextTick } = await import('vue')
+      const ss = useLiveSessionsStore()
+      const dk = useLiveDockStore()
+      const row = (id: string, status: 'run' | 'int' | 'ok', preview = true) => ({ id, kind: 'file' as const, url: 'rtmp://h/live/****', status, archive: false, outputPath: '', startedAt: 1, endedAt: 0, bitrateKbps: null, preview })
+      ss.rows.push(row('a', 'run'), row('b', 'run'), row('c', 'int'), row('d', 'ok'))
+      await nextTick()
+      eq('包 21：面板 / 角标只数进行中的', [ss.activeRows.map((r) => r.id), ss.busyCount], [['a', 'b'], 2])
+      eq('包 21：当前会话默认是第一个进行中的', ss.current?.id, 'a')
+      dk.previewOn = false
+      await nextTick()
+      eq('包 21：右栏开关关 → 只关当前这一路', [ss.rows[0].preview, ss.rows[1].preview], [false, true])
+      ss.setPreview('a', true)
+      await nextTick()
+      eq('包 21：面板里拨当前这一路 → 右栏开关跟上', dk.previewOn, true)
+      ss.setPreview('b', false)
+      await nextTick()
+      eq('包 21：拨别的那一路 → 右栏开关不动，当前这一路不动', [dk.previewOn, ss.rows[0].preview], [true, true])
+      ss.selectPreview('b')
+      await nextTick()
+      eq('包 21：换当前会话 → 右栏开关显示那一路的值', dk.previewOn, false)
+      ss.rows[0].status = 'int'
+      ss.rows[1].status = 'ok'
+      await nextTick()
+      eq('包 21：没有进行中的会话 → 开关复位为开，角标 0', [dk.previewOn, ss.busyCount], [true, 0])
+    }
+
     // ---- v0.25 模拟层：不出 JPEG 帧 ----
     const stream = await import('./livePreviewStream')
     const denied = await rejects(stream.getPreviewStream('any'))
@@ -1054,6 +1092,6 @@ export async function runApiChecks(): Promise<string[]> {
     eq('v0.25 模拟：拉流回放用户自己的地址', (await stream.startPullPlayback('https://pull.example/a.flv')).stream?.url, 'https://pull.example/a.flv')
     await stream.stopPullPlayback(null)
     // 文案里没有编码器名，时间戳不进文案
-    eq('预览文案锁定（待产品经理确认的自拟部分除外）', [pvMsg.PREVIEW_LOADING_TITLE, pvMsg.PREVIEW_SWITCH_LABEL, pvMsg.PREVIEW_SWITCH_NOTE, pvMsg.PREVIEW_ROW_ON, pvMsg.PREVIEW_ROW_OFF, pvMsg.PREVIEW_OFF_TITLE], ['正在获取画面，通常需要几秒', '开启预览', '开启预览会多占用少量 CPU，只能在开始前选择', '预览：开', '预览：关', '该会话未开启预览'])
+    eq('预览文案锁定（待产品经理确认的自拟部分除外）', [pvMsg.PREVIEW_LOADING_TITLE, pvMsg.PREVIEW_SWITCH_LABEL, pvMsg.PREVIEW_SWITCH_NOTE, pvMsg.PREVIEW_ROW_ON, pvMsg.PREVIEW_ROW_OFF, pvMsg.PREVIEW_OFF_TITLE], ['正在获取画面，通常需要几秒', '开启预览', '开启预览会多占用少量 CPU', '预览：开', '预览：关', '该会话未开启预览'])
   return fails
 }

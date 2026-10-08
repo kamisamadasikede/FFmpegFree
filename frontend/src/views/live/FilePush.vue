@@ -22,7 +22,7 @@
         <p class="keep">{{ LP_KEY_HINT }}</p>
         <LiveFormError v-if="err?.where === 'form'" :text="err.text" class="form-err" />
         <template #action-top>
-          <PreviewSwitch v-model="previewOn" :disabled="blocked || starting" :note="starting ? PREVIEW_SWITCH_NOTE_STARTING : undefined" />
+          <PreviewSwitch v-model="previewOn" />
           <small class="limit">{{ LP_LIMIT }}</small>
         </template>
         <template #action>
@@ -53,7 +53,7 @@ import { useLiveDockStore } from '@/stores/liveDock'
 import { useLiveFormsStore } from '@/stores/liveForms'
 import { probeFiles } from '@/api/media'
 import { LIVE_SRT_PASSPHRASE_TEXT } from '@/errors/errorMessages'
-import { LP_KEY_HINT, LP_LIMIT, PREVIEW_SWITCH_NOTE_STARTING } from '@/errors/livePreviewMessages'
+import { LP_KEY_HINT, LP_LIMIT } from '@/errors/livePreviewMessages'
 import { composePushUrl, parsePushUrl } from '@/utils/liveUrl'
 import * as liveApi from '@/api/live'
 import { toAppError } from '@/api/call'
@@ -84,7 +84,6 @@ async function retry() {
     const res = await store.restart(row.id, previewOn.value)
     if (res && !res.ok) err.value = pushErrorToForm(res.error, 'rtmp')
     else if (!res) { starting.value = false; await start(); return }
-    else previewOn.value = true
   } catch (e) {
     err.value = pushErrorToForm(toAppError(e), 'rtmp')
   } finally {
@@ -121,10 +120,7 @@ async function start() {
     store.noteRestart(task.id, { kind: 'file', url: full, inputPath: material.value.path })
     const r = await store.begin(task, { kind: 'file', redactedUrl: check.info.redacted, archive: false, preview: previewOn.value })
     if (!r.ok) err.value = pushErrorToForm(r.error, check.info.scheme)
-    else {
-      // 包 20：推流码不再在开始后清空（老板要求切换菜单 / 重启后表单原样还在，“重新开始”也要用它）
-      previewOn.value = true // 产品经理已定：不记住上次选择，每次开始推流后复位为开（页面被 KeepAlive 保留时也一样）；没开始成功（报错）时保留用户当前选择
-    }
+    // 包 20：推流码不再在开始后清空。开关不在这里复位：新会话成为当前会话，开关跟着它（stores/liveDock.ts）
   } catch (e) {
     err.value = pushErrorToForm(toAppError(e), check.info.scheme)
   } finally {

@@ -16,7 +16,7 @@
     <div v-if="showVideo" class="lp-video" :class="fake ? 'f' + fake : ''">
       <video v-show="!fake" ref="videoEl" autoplay playsinline :muted="muted" />
     </div>
-    <p v-if="phase === 'empty'" class="lp-wait">{{ LP_EMPTY }}</p>
+    <p v-if="phase === 'empty'" class="lp-wait">{{ emptyText || LP_EMPTY }}</p>
 
     <div v-if="showChip" class="lp-chip" :class="{ play: kind === 'pull' }">
       <i />{{ kind === 'pull' ? '播放中' : '直播中' }}<span class="t">{{ clock }}</span>
@@ -35,7 +35,7 @@
         <template v-else>
           <span class="ic" :class="{ warn: phase === 'interrupted' }"><FIcon :name="phase === 'interrupted' ? 'warn' : phase === 'ended' ? 'stop' : 'block'" :size="20" /></span>
           <p>{{ overlayText }}</p>
-          <button v-if="phase === 'interrupted'" type="button" class="lp-act" @click="retry">{{ kind === 'pull' ? LP_RETRY_PULL : LP_RETRY_PUSH }}</button>
+          <button v-if="phase === 'interrupted'" type="button" class="lp-act" @click="retry"><FIcon name="retry" :size="14" />{{ kind === 'pull' ? LP_RETRY_PULL : LP_RETRY_PUSH }}</button>
         </template>
       </div>
     </div>
@@ -103,6 +103,8 @@ const props = withDefaults(defineProps<{
   /** unsupported 的原因：unavailable 用推流那句，codec 按推流 / 拉流分 */
   reason?: '' | 'codec' | 'unavailable'
   lowLatency?: boolean
+  /** phase=empty 时的文字（默认“还没有进行中的预览”） */
+  emptyText?: string
 }>(), { url: '', mime: 'video/x-flv', hasAudio: true, clock: '00:00:00', aspect: 16 / 9, fake: '', lag: null, reason: '', lowLatency: true })
 
 const emit = defineEmits<{ restart: []; catchup: []; 'media-unsupported': []; 'media-ended': []; 'media-broken': []; playing: []; stats: [s: { kbps: number; fps: number; dropped: number; bytes: number }] }>()
@@ -302,7 +304,7 @@ onBeforeUnmount(() => { destroyPlayer(); document.removeEventListener('fullscree
 .lp-ov .ic { width: 40px; height: 40px; border-radius: 50%; background: rgba(255, 255, 255, .14); display: grid; place-items: center; }
 .lp-ov .ic.warn { color: var(--lp-warn); background: rgba(251, 191, 36, .16); }
 .lp-ov p { margin: 0; font-size: 13px; font-weight: 500; line-height: 1.5; }
-.lp-act { height: 28px; margin-top: 4px; padding: 0 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, .28); background: rgba(255, 255, 255, .14); color: #fff; font: inherit; font-size: 13px; cursor: pointer; }
+.lp-act { display: inline-flex; align-items: center; gap: 6px; height: 28px; margin-top: 4px; padding: 0 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, .28); background: rgba(255, 255, 255, .14); color: #fff; font: inherit; font-size: 13px; cursor: pointer; }
 .lp-spin { width: 28px; height: 28px; border-radius: 50%; border: 2.5px solid rgba(255, 255, 255, .25); border-top-color: #fff; animation: lprot .9s linear infinite; }
 .lp-ov.buf .in { width: 48px; height: 48px; border-radius: 50%; background: var(--lp-scrim); display: grid; place-items: center; gap: 0; }
 .lp-wait { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); text-align: center; font-size: 13px; color: var(--lp-fg-2); margin: 0; }

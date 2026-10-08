@@ -16,6 +16,7 @@
         :force-full="!!vis?.full"
         :lag="vis?.lag ?? null"
         :aspect="vis?.aspect ?? 16 / 9"
+        :empty-text="LP_EMPTY_PULL"
         @restart="start"
         @playing="onPlaying"
         @media-broken="onBroken"
@@ -25,7 +26,7 @@
       />
     </template>
     <template #panel>
-      <LivePanel title="拉流设置" note="不经过本地服务">
+      <LivePanel title="拉流设置">
         <LiveField label="流地址">
           <LiveInput v-model="url" :bad="urlInvalid" :disabled="busy" placeholder="http://live.example.com/live/room.flv" @enter="start" />
           <InlineError v-if="urlInvalid" code="LIVE_URL_INVALID" description="请输入 http:// 或 ws:// 开头的流地址。" />
@@ -33,8 +34,9 @@
         <div class="tip">{{ LP_PULL_HINT }}</div>
         <div class="chk">低延迟追帧<el-switch v-model="lowLatency" size="small" aria-label="低延迟追帧" :disabled="busy" /></div>
         <template #action>
-          <LiveButton v-if="busy" variant="danger" lg icon="x" @click="stop">停止播放</LiveButton>
-          <LiveButton v-else variant="pri" lg icon="play" @click="start">{{ phase === 'interrupted' ? '重新拉流' : '开始播放' }}</LiveButton>
+          <!-- 设计稿 04 / 17：播放中、被中断时是普通按钮「停止播放」（不用 danger，见设计说明 §九 第 11 条）；结束 / 不支持 / 未开始是「开始播放」 -->
+          <LiveButton v-if="busy || phase === 'interrupted'" icon="x" @click="stop">停止播放</LiveButton>
+          <LiveButton v-else variant="pri" icon="play" @click="start">开始播放</LiveButton>
         </template>
       </LivePanel>
     </template>
@@ -44,7 +46,7 @@
 <script setup lang="ts">
 // 拉流播放（包 21 / 契约 v0.25）：画面交给 LivePlayer（mpegts.js）。
 // 开关关闭时 http(s) / ws(s) 直接播用户填的地址，不调用 StartPullPreview / GetPreview。
-import { computed, onBeforeUnmount, ref, toRefs } from 'vue'
+import { computed, onBeforeUnmount, ref, toRefs, watch } from 'vue'
 import LiveTabFrame from '@/components/live/LiveTabFrame.vue'
 import LivePanel from '@/components/live/LivePanel.vue'
 import LiveField from '@/components/live/LiveField.vue'
@@ -52,7 +54,7 @@ import LiveInput from '@/components/live/LiveInput.vue'
 import LiveButton from '@/components/live/LiveButton.vue'
 import LivePlayer from '@/components/live/LivePlayer.vue'
 import InlineError from '@/components/common/InlineError.vue'
-import { LP_PULL_HINT } from '@/errors/livePreviewMessages'
+import { LP_EMPTY_PULL, LP_PULL_HINT } from '@/errors/livePreviewMessages'
 import { formatClock, livePreview, useLiveSession } from '@/composables/useLiveSession'
 import { isValidPullUrl } from '@/errors/playerError'
 import { useLiveFormsStore } from '@/stores/liveForms'
@@ -76,6 +78,12 @@ let playback: PullPlayback | null = null
 
 const busy = computed(() => phase.value === 'connecting' || phase.value === 'playing' || phase.value === 'buffering')
 const clock = computed(() => (vis ? vis.clock : formatClock(session.uptimeSec.value)))
+// 角标 / 面板只数进行中的：被中断、结束、不支持都是 0 路
+watch(busy, (b) => {
+  if (b) dock.pull.active = true
+  else dock.resetPull()
+}, { immediate: true })
+if (vis && (vis.phase === 'playing' || vis.phase === 'buffering')) Object.assign(dock.pull, { bitrate: '5986', fps: '30.0', dropped: '0', bytes: '812.4', unit: 'MB' })
 
 async function start() {
   if (busy.value || vis) return
@@ -113,7 +121,6 @@ async function start() {
 function onPlaying() {
   phase.value = 'playing'
   session.setRunning()
-  dock.pull.active = true
 }
 function onBroken() {
   phase.value = 'interrupted'
@@ -122,7 +129,6 @@ function onBroken() {
 function onEnded() {
   phase.value = 'ended'
   session.setIdle()
-  dock.resetPull()
 }
 function onUnsup() {
   phase.value = 'unsupported'
@@ -130,7 +136,7 @@ function onUnsup() {
   session.fail('UNSUPPORTED', 'reason=codec')
 }
 function onStats(s: { kbps: number; fps: number; dropped: number; bytes: number }) {
-  dock.pull.active = true
+  if (!busy.value) return
   dock.pull.bitrate = String(Math.round(s.kbps))
   dock.pull.fps = String(Math.round(s.fps))
   dock.pull.dropped = String(s.dropped)
@@ -138,13 +144,13 @@ function onStats(s: { kbps: number; fps: number; dropped: number; bytes: number 
   else { dock.pull.bytes = String(Math.max(0, Math.round(s.bytes / 1024))); dock.pull.unit = 'KB' }
 }
 async function stop() {
+  const wasBroken = phase.value === 'interrupted'
   playUrl.value = ''
   await stopPullPlayback(playback)
   playback = null
-  phase.value = 'ended'
+  phase.value = wasBroken ? 'empty' : 'ended'
   session.setIdle()
   session.log('已停止播放')
-  dock.resetPull()
 }
 onBeforeUnmount(() => { void stopPullPlayback(playback) })
 </script>

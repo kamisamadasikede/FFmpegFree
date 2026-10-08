@@ -32,7 +32,8 @@ const dock = useLiveDockStore()
 const store = useLiveSessionsStore()
 const wrap = ref<HTMLElement | null>(null)
 const pull = computed(() => route.path.startsWith('/live/pull'))
-const count = computed(() => (pull.value ? (dock.pull.active ? 1 : 0) : store.rows.length))
+// 只数进行中的：推流 = 运行中 + 正在停止；拉流 = 连接中 / 播放中 / 缓冲中
+const count = computed(() => (pull.value ? (dock.pull.active ? 1 : 0) : store.busyCount))
 const label = computed(() => (pull.value ? `拉流数据，当前 ${count.value} 路` : `推流会话，当前 ${count.value} 路`))
 
 function onDoc(e: MouseEvent) {
@@ -45,21 +46,13 @@ function onKey(e: KeyboardEvent) {
   if (e.key === 'Escape' && dock.open) { dock.open = false; e.stopPropagation() }
 }
 onMounted(() => {
-  if (lpVisual?.phase === 'interrupted' && lpVisual.tab === 'push' && !store.rows.length) {
-    store.rows.push({ id: 'shot-int', kind: 'file', url: 'rtmp://live.example.com/live/****', status: 'int', archive: false, outputPath: '', startedAt: Date.now() - 60000, endedAt: Date.now(), bitrateKbps: 800, preview: true })
+  // 截图（?lpv=，没有后端）：和设计稿一样放一路脱敏地址；已结束 / 被中断的场景这一路是对应终态
+  if (lpVisual && lpVisual.tab === 'push' && lpVisual.phase !== 'empty' && !store.rows.length) {
+    const t = Date.now() - (12 * 60 + 36) * 1000
+    const st = lpVisual.phase === 'ended' ? 'ok' : lpVisual.phase === 'interrupted' ? 'int' : 'run'
+    store.rows.push({ id: 'shot1', kind: 'file', url: 'rtmp://push.example.com/live/****', status: st, archive: false, outputPath: '', startedAt: t, endedAt: st === 'run' ? 0 : Date.now(), bitrateKbps: 4820, preview: true })
   }
-  if (lpVisual?.panel) {
-    dock.open = true
-    // 截图：面板场景没有真实会话，放三路脱敏地址（只在 ?lpv= 且没有后端时）
-    if (lpVisual.phase !== 'empty' && !store.rows.length) {
-      const t = Date.now() - 12 * 60 * 1000
-      store.rows.push(
-        { id: 'shot1', kind: 'file', url: 'rtmp://live.example.com/live/****', status: 'run', archive: false, outputPath: '', startedAt: t, endedAt: 0, bitrateKbps: 2480, preview: true },
-        { id: 'shot2', kind: 'screen', url: 'rtmp://push.example.com/app/****', status: 'run', archive: true, outputPath: '', startedAt: t, endedAt: 0, bitrateKbps: null, preview: true },
-        { id: 'shot3', kind: 'file', url: 'srt://live.example.com:9000/?streamid=****', status: 'ok', archive: false, outputPath: '', startedAt: t - 3600000, endedAt: t, bitrateKbps: 1200, preview: false },
-      )
-    }
-  }
+  if (lpVisual?.panel) dock.open = true
   document.addEventListener('mousedown', onDoc)
   document.addEventListener('keydown', onKey)
 })

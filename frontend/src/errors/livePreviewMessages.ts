@@ -20,9 +20,8 @@ export const PREVIEW_ENDED_NOFRAME_HINT = '没有可显示的画面'
 
 // 表单里的开关（预览是会话启动参数：只在开始前可选；父代理 01:55 按定稿设计说明落地）
 export const PREVIEW_SWITCH_LABEL = '开启预览' // 架构师 / 前端定稿
-export const PREVIEW_SWITCH_NOTE = '开启预览会多占用少量 CPU，只能在开始前选择' // 架构师 / 前端定稿
-export const PREVIEW_SWITCH_NOTE_STARTING = '正在开始推流，暂不能更改' // 产品经理已定：开始中开关和“开始推流”一起置灰（文案自拟）
-export const PREVIEW_SWITCH_NOTE_PLAYING = '播放中不能更改，下次播放生效' // 待产品经理确认
+/** 设计说明 §2.5 的说明去掉“只能在开始前选择”：契约 v0.25 ⑤ 推流中途开关预览只连接 / 断开播放器，不重启推流 */
+export const PREVIEW_SWITCH_NOTE = '开启预览会多占用少量 CPU'
 // 会话行 / 播放器控制条里的只读文字
 export const PREVIEW_ROW_ON = '预览：开' // 架构师 / 前端定稿
 export const PREVIEW_ROW_OFF = '预览：关'
@@ -69,4 +68,3 @@ export const LP_LIMIT = '同时最多 4 路，同一地址只允许 1 路'
 export const LP_LAG = (n: number) => `落后约 ${n} 秒`
 export const LP_CATCHUP = '回到最新'
 export const LP_ESC = '按 Esc 退出全屏'
-export const LP_ROW_SWITCH_TITLE = '推流开始后不能改'

@@ -44,7 +44,7 @@
         <p class="keep">{{ LP_KEY_HINT }}</p>
         <LiveFormError v-if="err?.where === 'form'" :text="err.text" class="form-err" />
         <template #action-top>
-          <PreviewSwitch v-model="previewOn" :disabled="blocked || starting" :note="starting ? PREVIEW_SWITCH_NOTE_STARTING : undefined" />
+          <PreviewSwitch v-model="previewOn" />
           <small class="limit">{{ LP_LIMIT }}</small>
         </template>
         <template #action>
@@ -77,7 +77,7 @@ import { useLiveSessionsStore } from '@/stores/liveSessions'
 import { useLiveDockStore } from '@/stores/liveDock'
 import { recordStartEnabled, sourcePickerMode } from '@/utils/liveSource'
 import { LIVE_RECORD_EMPTY_HINT, LIVE_RECORD_EMPTY_HINT_WIN, LIVE_SCREEN_NO_AUDIO_TEXT, LIVE_SOURCE_FIELD_LABEL, LIVE_SOURCE_FIELD_LABEL_SCREEN, LIVE_SOURCE_REFRESH, LIVE_SRT_PASSPHRASE_TEXT, liveSourceGoneText } from '@/errors/errorMessages'
-import { LP_KEY_HINT, LP_LIMIT, PREVIEW_SWITCH_NOTE_STARTING } from '@/errors/livePreviewMessages'
+import { LP_KEY_HINT, LP_LIMIT } from '@/errors/livePreviewMessages'
 import { composePushUrl, parsePushUrl } from '@/utils/liveUrl'
 import * as liveApi from '@/api/live'
 import { toAppError, type AppError } from '@/api/call'
@@ -120,7 +120,6 @@ async function retry() {
     const res = await store.restart(row.id, previewOn.value)
     if (res && !res.ok) showError(res.error, 'rtmp')
     else if (!res) { starting.value = false; await start(); return }
-    else previewOn.value = true
   } catch (e) {
     showError(toAppError(e), 'rtmp')
   } finally {
@@ -236,10 +235,7 @@ async function start() {
     store.noteRestart(task.id, { kind: 'screen', url: full, sourceId: sourceId.value, archiveDir: dir, source: pickedSource(sourceId.value) })
     const r = await store.begin(task, { kind: 'screen', redactedUrl: check.info.redacted, archive: !!dir, source: pickedSource(sourceId.value), preview: previewOn.value })
     if (!r.ok) showError(r.error, check.info.scheme)
-    else {
-      // 包 20：推流码不再在开始后清空（老板要求切换菜单 / 重启后表单原样还在，“重新开始”也要用它）
-      previewOn.value = true // 产品经理已定：不记住上次选择，每次开始推流后复位为开（页面被 KeepAlive 保留时也一样）；没开始成功（报错）时保留用户当前选择
-    }
+    // 包 20：推流码不再在开始后清空。开关不在这里复位：新会话成为当前会话，开关跟着它（stores/liveDock.ts）
   } catch (e) {
     showError(toAppError(e), check.info.scheme)
   } finally {
