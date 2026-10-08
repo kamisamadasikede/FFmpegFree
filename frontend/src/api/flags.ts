@@ -29,10 +29,9 @@ export const ENCODER_BACKEND_READY: boolean = true
  */
 export const CONVERT_V2_BACKEND_READY: boolean = true
 /**
- * 转换页 v0.24（契约 v0.24 / v0.24.1 §6.15–6.17：存储目录与源文件副本、格式目录与搜索、原地重转、时长偏短）。
- * **先关着（false）**：后端还没实现，前端按契约对着模拟做完（api/convertV24.ts + api/convertRecordsMock.ts）。
- * false 且在 Wails 里：转换页、设置页保持 v0.23 的样子（预设卡片、旧的“保存到”、没有“存储”页、没有重转入口），一个 v0.24 接口都不调。
- * 纯浏览器（没有 window.go，走查 / 截图）：v0.24 的界面全部打开，数据来自模拟，见 api/convertV24.ts 的 convertV24On()。
- * 后端合入（含 v0.24.1）并生成绑定后改成 true，联调时再把 api/convertV24.ts 里按名字调用的地方换成生成的绑定。
+ * 转换页 v0.24（契约 v0.24.1 §6.15–6.17：存储目录与源文件副本、格式目录与搜索、原地重转、时长偏短）。
+ * 后端 #95 已合入 v2（04c45d4），绑定已重新生成，联调打开（true）：在 Wails 里调真实绑定（api/convertRecordsBinding.ts）。
+ * 改回 false 且在 Wails 里：转换页、设置页回到 v0.23 的样子（预设卡片、旧的“保存到”、没有“存储”页、没有重转入口），不调 v0.24 新增的接口。
+ * 纯浏览器（没有 window.go，走查 / 截图）：v0.24 的界面全部打开，数据来自模拟，见 api/convertRecords.ts 的 convertV24On()。
  */
-export const CONVERT_V24_BACKEND_READY: boolean = false
+export const CONVERT_V24_BACKEND_READY: boolean = true

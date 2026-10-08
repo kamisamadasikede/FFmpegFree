@@ -54,6 +54,8 @@ export interface SourceRow {
   exists?: boolean
   thumb: ThumbState | null
   thumbAsked: boolean
+  /** 上次取缩略图时的源文件特征（路径 + 大小）；变了就重取（包 20） */
+  thumbKey?: string
   /** 重复添加时闪一下：时间戳，页面据此加高亮动画 */
   flashAt: number
   /** 后端给的记录总数（本地提交 / 删除时同步加减） */
@@ -278,6 +280,8 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   // v0.24 格式区（设计说明 §八 第 35–38 条）：右栏选“格式”，“参数”下拉是这个格式的预设
   const selectedFormat = computed(() => catalog.value.find((f) => f.extension === selectedPreset.value?.options.container))
   const formatPresets = computed(() => selectedFormat.value?.presets ?? [])
+  /** 格式目录里的分类（封面类型用；目录还没取到或不在目录里时 undefined） */
+  const catalogCategoryOf = (ext: string): string | undefined => catalog.value.find((f) => f.extension === (ext ?? '').toLowerCase())?.category
   const categoryOf = (ext: string): FormatCategory => (catalog.value.find((f) => f.extension === ext)?.category as FormatCategory) ?? 'video'
   /** 选中一个格式：不可输出的不能选；用上次在这个格式下选的预设，没有就用默认预设。搜索时选中不清空搜索词 */
   function selectFormat(ext: string) {
@@ -715,7 +719,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     for (const c of list) {
       if (!c.found) continue
       if (!c.outputExists) outputGone.add(c.taskId)
-      if (typeof c.reconvertMode === 'string') pathChecks.set(c.taskId, { reconvertMode: c.reconvertMode, ...(c.reconvertBlock ? { reconvertBlock: c.reconvertBlock } : {}) })
+      if (typeof c.reconvertMode === 'string') pathChecks.set(c.taskId, { reconvertMode: c.reconvertMode, reconvertBlock: c.reconvertBlock ?? '' })
     }
   }
   /** “加载更早的记录”：普通列表取下一页源文件行；搜索时取搜索的下一页 */
@@ -1003,36 +1007,89 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       })
     }
   }
+  /** 源文件特征：路径 + 大小。变了（同一路径文件被替换、重新探测）就重取缩略图 */
+  const thumbKeyOf = (s: SourceRow) => {
+    const i = s.info ?? s.media
+    return `${s.path}|${i?.size ?? ''}`
+  }
+  /** 失败 / 空结果不永久缓存：再次进入可视区域、源文件变了、任务完成、转换组件就绪时重取；两次之间至少隔 THUMB_RETRY_MS，避免反复刷 */
+  const THUMB_RETRY_MS = 5000
+  const isFailed = (t: ThumbState | null | undefined) => t?.kind === 'type' && !!t.failed
+  const srcThumbInflight = new Set<string>()
+  const srcThumbFailedAt = new Map<string, number>()
+  /**
+   * 取源文件缩略图（行进入可视区域 / 源文件变了时调用）。同一特征取到画面或“没有画面”后不再取；
+   * 请求中显示“生成中”类型封面（thumb = null），返回后自动换成画面（同尺寸，不跳动）；失败显示类型封面并 console.warn 错误码。
+   */
   function ensureThumb(s: SourceRow) {
-    if (s.thumbAsked) return
+    const id = s.sourceId
+    if (srcThumbInflight.has(id)) return
+    const key = thumbKeyOf(s)
+    if (s.thumbAsked && s.thumbKey === key) {
+      if (!isFailed(s.thumb)) return
+      if (Date.now() - (srcThumbFailedAt.get(id) ?? 0) < THUMB_RETRY_MS) return
+    }
     s.thumbAsked = true
+    s.thumbKey = key
     if (s.exists === false) {
       s.thumb = { kind: 'missing' }
       return
     }
+    if (isFailed(s.thumb) || s.thumb?.kind === 'missing') s.thumb = null // 重取期间显示“生成中”
+    srcThumbInflight.add(id)
     thumbQueue.push(async () => {
-      const t = await getSourceThumbnail(s.sourceId)
-      if (sources[s.sourceId]) sources[s.sourceId].thumb = t
-      if (t.kind === 'missing' && sources[s.sourceId]) sources[s.sourceId].exists = false
+      try {
+        const t = await getSourceThumbnail(id)
+        const row = sources[id]
+        if (!row || row.thumbKey !== key) return // 期间文件变了：以后来的那次为准
+        row.thumb = t
+        if (isFailed(t)) srcThumbFailedAt.set(id, Date.now())
+        if (t.kind === 'missing') row.exists = false
+      } finally {
+        srcThumbInflight.delete(id)
+      }
     })
     pump()
   }
-  /** 子记录（已完成、输出还在）的缩略图 */
+  /** 转换组件就绪：失败过的都允许马上重取（已挂载的行由页面的 watch 触发，没挂载的进入可视区域时取） */
+  function retryFailedThumbs() {
+    srcThumbFailedAt.clear()
+    recThumbFailedAt.clear()
+    thumbRetryTick.value++
+  }
+  /** 页面据此重新调用 ensureThumb / ensureRecThumb */
+  const thumbRetryTick = ref(0)
+  watch(() => ffmpeg.ready, (ok) => ok && retryFailedThumbs())
+  /** 子记录（已完成、输出还在）的缩略图；同一条记录同一版本取到结果后不再取（重转后版本变了会重取），失败的规则同源文件 */
   const recThumbs = reactive(new Map<string, ThumbState>())
-  const recThumbAsked = new Set<string>()
+  const recThumbAsked = new Map<string, string>()
+  const recThumbInflight = new Set<string>()
+  const recThumbFailedAt = new Map<string, number>()
   function ensureRecThumb(k: KidView) {
-    if (recThumbs.has(k.id) && recThumbAsked.has(k.id)) return
     if (k.status !== 'succeeded' || k.outputGone) return
-    if (recThumbAsked.has(k.id)) return
-    recThumbAsked.add(k.id)
+    if (recThumbInflight.has(k.id)) return
+    const key = `${k.version}|${k.outputPath}`
+    if (recThumbAsked.get(k.id) === key) {
+      if (!isFailed(recThumbs.get(k.id))) return
+      if (Date.now() - (recThumbFailedAt.get(k.id) ?? 0) < THUMB_RETRY_MS) return
+    }
+    recThumbAsked.set(k.id, key)
     if (isAudioContainer(k.options.container ?? '')) {
-      recThumbs.set(k.id, { kind: 'type' })
+      recThumbs.set(k.id, { kind: 'type' }) // 音频一律音符封面，不调缩略图（§14.3）
       return
     }
+    recThumbs.delete(k.id) // 请求中显示“生成中”
+    recThumbInflight.add(k.id)
     thumbQueue.push(async () => {
-      const t = await getRecordThumbnail(k.id)
-      recThumbs.set(k.id, t)
-      if (t.kind === 'missing') outputGone.add(k.id)
+      try {
+        const t = await getRecordThumbnail(k.id)
+        if (recThumbAsked.get(k.id) !== key) return
+        recThumbs.set(k.id, t)
+        if (isFailed(t)) recThumbFailedAt.set(k.id, Date.now())
+        if (t.kind === 'missing') outputGone.add(k.id)
+      } finally {
+        recThumbInflight.delete(k.id)
+      }
     })
     pump()
   }
@@ -1076,7 +1133,14 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       const row = upsertSource(r.source)
       row.lastActivityAt = Math.max(r.source.lastActivityAt, now) // 重复添加：移到最上面
       row.exists = true
-      if (had) row.flashAt = now
+      if (had) {
+        row.flashAt = now
+        // 再次添加同一文件：之前没取到缩略图（失败 / 文件不在）就重取
+        if (row.thumb?.kind === 'missing' || (row.thumb?.kind === 'type' && row.thumb.failed)) {
+          row.thumbAsked = false
+          ensureThumb(row)
+        }
+      }
       if (searchHits.value && !searchHits.value.order.includes(row.sourceId)) searchHits.value.order.unshift(row.sourceId)
       if (filterHits.value && !filterHits.value.order.includes(row.sourceId)) filterHits.value.order.unshift(row.sourceId) // 刚添加的行在筛选里也先显示出来
       if (isCheckable(row)) selected.add(row.sourceId) // 新加入的自动勾选
@@ -1411,7 +1475,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     // v0.24
     v24, catalog, formatQuery, selectedFormat, formatPresets, storage, showFallback, copyingSelected, selectedHasVideo, pathChecks,
     selectFormat, selectPreset, setFormatQuery, clearFormatQuery, loadStorage, dismissFallback, openStorage, changeOutputDir, cancelCopy, retryCopy,
-    reconvertStateOf, refreshPathCheck, reconvertAsk, startReconvert, isCopying,
+    reconvertStateOf, refreshPathCheck, reconvertAsk, startReconvert, isCopying, catalogCategoryOf,
     presets, presetsLoaded, presetsError, selectedPresetId, selectedPreset, tab, shownPresets, outputOverride, defaultOutputDir, effectiveOutputDir,
     submitting, submitError, outputName, round, roundBanner,
     // 派生
@@ -1419,6 +1483,6 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     // 方法
     init, reload, loadMore, loadMoreRecords, locate, setFilter, search, loadPresets, presetTitle, setTab, isAudioPreset, toggle, clearSelection, isCheckable, conflictOfSource, setOpen,
     addPaths, chooseFiles, chooseOutputDir, submit, afterSubmit, cancel, retry, resubmitTo, revealOutput, revealSource, markOutputGone, markSourceGone,
-    deleteAsk, confirmDelete, ensureThumb, ensureRecThumb, requestMeta, closeBanner, probePending, liveOf, say,
+    deleteAsk, confirmDelete, ensureThumb, ensureRecThumb, thumbRetryTick, requestMeta, closeBanner, probePending, liveOf, say,
   }
 })

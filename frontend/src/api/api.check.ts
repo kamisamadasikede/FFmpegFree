@@ -29,6 +29,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { emitSimEvent } from '@/services/wails'
 import * as encTask from './encoderTask'
 import { convertV2Checks } from './convertV2.check'
+import { convertV24Checks } from './convertV24.check'
 
 const fails: string[] = []
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -939,6 +940,7 @@ export async function runApiChecks(): Promise<string[]> {
         const { normalizeMediaInfo } = await import('@/api/media')
         eq('S1 归一化：缺字段 → false / false；已有 true 保留；已有 false 保留', [normalizeMediaInfo({} as { hasVideo?: boolean; hasAudio?: boolean }), normalizeMediaInfo({ hasVideo: true }), normalizeMediaInfo({ hasVideo: false, hasAudio: true })], [{ hasVideo: false, hasAudio: false }, { hasVideo: true, hasAudio: false }, { hasVideo: false, hasAudio: true }])
         await convertV2Checks(eq, readSrc)
+        await convertV24Checks(eq, readSrc)
         // G11 版本号
         const { cleanFfmpegVersion } = await import('@/utils/ffmpegVersion')
         eq('G11 版本号：旧（带 URL 尾巴）/ 新（干净）/ 其他尾巴 / 空', ['9.0.2-https://www.martin-riedl.de', '9.0.2', '7.1.1-essentials_build-www.gyan.dev', '6.0', ' 4.4.2-0ubuntu0.22.04.1 ', '', undefined].map((v) => cleanFfmpegVersion(v)), ['9.0.2', '9.0.2', '7.1.1', '6.0', '4.4.2', '', ''])

@@ -7,15 +7,14 @@ import ConvertThumb from './ConvertThumb.vue'
 import ConvertKid from './ConvertKid.vue'
 import { metaInfoOf, useConvertRecordsStore, SOURCE_REMOVE_LABEL, type ParentView } from '@/stores/convertRecords'
 import { useTaskStore } from '@/stores/tasks'
-import { CONFLICT_TITLE, CONFLICT_TITLE_V24, isAudioContainer, isAudioOnly, sourceMetaText } from '@/utils/convertText'
+import { CONFLICT_TITLE, CONFLICT_TITLE_V24, coverKindOf, extOf, sourceMetaText } from '@/utils/convertText'
 import { convertV2IsReal } from '@/api/convertRecords'
 import { simParam } from '@/api/sim'
 import {
   COPY_CANCEL_LABEL, COPY_CHECK_TIP_CANCELED, COPY_CHECK_TIP_FAILED, COPY_PREVIEW_TIP_CANCELED, COPY_PREVIEW_TIP_FAILED, COPY_PREVIEW_TIP_RUNNING, COPY_RETRY_LABEL, COPY_RUNNING_NOTE,
   OPEN_STORAGE_SETTINGS, copyPct, copyProgressText, copyTag, isNoSpace, sourcePathTip, splitPathTail,
 } from '@/utils/convertV24Text'
-import { formatBytes } from '@/utils/format'
-import { formatShortClock } from '@/utils/format'
+import { formatBytes, formatShortClock } from '@/utils/format'
 
 const props = defineProps<{ p: ParentView; focusId?: string }>()
 const emit = defineEmits<{
@@ -32,7 +31,10 @@ const tasks = useTaskStore()
 const src = computed(() => props.p.src)
 const gone = computed(() => src.value.exists === false)
 const info = computed(() => metaInfoOf(src.value))
-const audio = computed(() => (info.value ? isAudioOnly(info.value) : isAudioContainer(src.value.name.split('.').pop() ?? '')))
+const ext = computed(() => extOf(src.value.name))
+/** 封面类型（包 20）：图片格式 = 图片；有探测结果按有没有画面；否则按扩展名 */
+const cover = computed(() => coverKindOf(ext.value, info.value, cv.catalogCategoryOf(ext.value)))
+const fmt = computed(() => ext.value.toUpperCase())
 const dur = computed(() => formatShortClock(info.value?.duration ?? 0))
 // ---- v0.24 副本（§13.2；§八 第 39、40、44、62 条） ----
 const v24 = cv.v24
@@ -45,10 +47,7 @@ const cpPct = computed(() => copyPct(src.value.copiedBytes ?? 0, src.value.total
 const noSpace = computed(() => isNoSpace(src.value.copyError))
 /** 复制失败的说明：后端 copyError.message（空间不足那句后端拼好） */
 const copyMsg = computed(() => src.value.copyError?.message || '复制文件失败')
-const opath = computed(() => {
-  const p = src.value.originalPath || src.value.path
-  return { full: p, ...splitPathTail(p) }
-})
+const opath = computed(() => splitPathTail(src.value.originalPath || src.value.path))
 const ptip = computed(() => sourcePathTip(src.value))
 /** 模拟截图：?cv_hover=path 让勾选的行显示路径浮层（截图 25） */
 const forcePath = computed(() => !convertV2IsReal() && simParam('cv_hover') === 'path' && props.p.selected)
@@ -57,7 +56,12 @@ const isNew = computed(() => src.value.recordCount === 0 && !props.p.kids.length
 const meta = computed(() => {
   if (gone.value) return { cls: 'gone', text: '原位置找不到这个文件，转换记录仍保留' }
   if (src.value.probe === 'error') return { cls: 'err', text: src.value.probeError?.message ? `读取失败：${src.value.probeError.message}` : '读取失败' }
-  if (info.value) return { cls: '', text: sourceMetaText(info.value) }
+  if (info.value) {
+    // 窄窗口大小优先：最后一段（大小）单独放，前面的参数先省略
+    const text = sourceMetaText(info.value)
+    const i = info.value.size ? text.lastIndexOf(' · ') : -1
+    return i > 0 ? { cls: 'cv-mm', text, main: text.slice(0, i), size: text.slice(i) } : { cls: '', text }
+  }
   return { cls: 'wait', text: '正在读取…' }
 })
 const n = computed(() => src.value.recordCount || props.p.kids.length)
@@ -97,8 +101,14 @@ onMounted(() => {
   cv.ensureThumb(src.value)
   cv.requestMeta(src.value)
 })
+// 源文件变了（路径 / 大小）或转换组件就绪：重取缩略图（store 里按特征去重；取到过的不重复取，失败的隔 5 秒才重取）
 watch(
-  () => (props.p.open ? props.p.kids.map((k) => `${k.id}:${k.status}:${k.outputGone}`).join(',') : ''),
+  () => `${src.value.path}|${(src.value.info ?? src.value.media)?.size ?? ''}|${cv.thumbRetryTick}`,
+  () => cv.ensureThumb(src.value),
+)
+watch(
+  // 记录完成（status 变成 succeeded）、重转（version）、转换组件就绪（thumbRetryTick）都会重取；失败的在下次挂载时也会重取
+  () => (props.p.open ? props.p.kids.map((k) => `${k.id}:${k.status}:${k.version}:${k.outputGone}`).join(',') + `|${cv.thumbRetryTick}` : ''),
   () => {
     if (props.p.open) for (const k of props.p.kids) cv.ensureRecThumb(k)
   },
@@ -150,7 +160,7 @@ async function revealKid(id: string) {
         :tabindex="p.kids.length ? 0 : -1"
         @click.stop="onFold"
       ><FIcon name="down" /></button>
-      <ConvertThumb :state="src.thumb" :gone="gone" :audio="audio" :dur="dur" :clickable="!gone && !pvTip" :label="`预览源文件 ${src.name}`" @click="!pvTip && emit('preview', 'source', src.sourceId)" />
+      <ConvertThumb :state="src.thumb" :gone="gone" :cover="cover" :fmt="fmt" :dur="cover === 'image' ? '' : dur" :clickable="!gone && !pvTip" :label="`预览源文件 ${src.name}`" @click="!pvTip && emit('preview', 'source', src.sourceId)" />
       <div class="cv-pm" :class="{ 'cv-pmtip': v24, hv: forcePath }">
         <div class="cv-nm">
           <MidEllipsis tag="b" :text="src.name" :title="v24 ? src.name : src.path" />
@@ -162,7 +172,7 @@ async function revealKid(id: string) {
           <div class="bar" :class="{ q: !cpText }" role="progressbar" :aria-valuenow="cpPct" aria-valuemin="0" aria-valuemax="100" :aria-label="`复制进度 ${src.name}`"><i :style="{ width: (cpText ? cpPct : 0) + '%' }" /></div>
           <template v-if="cpText"><span class="num">{{ cpPct }}%</span><span class="cv-d">·</span><span>{{ formatBytes(src.copiedBytes ?? 0) }} / {{ formatBytes(src.totalBytes ?? 0) }}</span></template>
         </div>
-        <div v-else class="m" :class="meta.cls" :title="v24 ? undefined : meta.text">{{ meta.text }}</div>
+        <div v-else class="m" :class="meta.cls" :title="v24 ? undefined : meta.text"><template v-if="meta.size"><span class="mt">{{ meta.main }}</span><span class="cv-sz">{{ meta.size }}</span></template><template v-else>{{ meta.text }}</template></div>
         <div v-if="v24" class="m cv-op" :class="{ hv: forcePath }"><FIcon name="folder" :size="12" /><span class="pp"><span class="h">{{ opath.head }}</span><span class="t">{{ opath.tail }}</span></span></div>
         <div v-if="v24" class="cv-ptip" role="tooltip">
           <div v-for="r in ptip.rows" :key="r.label"><span>{{ r.label }}</span><b>{{ r.path }}</b></div>

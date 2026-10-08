@@ -31,6 +31,12 @@ const tasks = useTaskStore()
 const router = useRouter()
 const route = useRoute()
 const narrow = useNarrow()
+/** 约 900 宽（§14.5 窄窗口）：搜索框占位字缩成“搜索” */
+const tinyMql = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 960px)') : null
+const tiny = ref(!!tinyMql?.matches)
+const onTiny = () => (tiny.value = !!tinyMql?.matches)
+tinyMql?.addEventListener('change', onTiny)
+onUnmounted(() => tinyMql?.removeEventListener('change', onTiny))
 
 /** Wails 的拖放目标：整个左栏都能拖入（设计 §二 左栏 3） */
 const dropStyle = { '--wails-drop-target': 'drop' } as Record<string, string>
@@ -280,7 +286,7 @@ onUnmounted(() => {
           </div>
           <label v-if="hasRows || cv.searchHits" class="cv-search">
             <FIcon name="search" />
-            <input v-model="kw" type="search" placeholder="搜索文件名" aria-label="搜索文件名" maxlength="100" />
+            <input v-model="kw" type="search" :placeholder="tiny ? '搜索' : '搜索文件名'" aria-label="搜索文件名" maxlength="100" />
             <button v-if="kw" type="button" class="clr" aria-label="清空搜索" @click="kw = ''"><FIcon name="x" :size="12" /></button>
           </label>
           <button type="button" class="btn" @click="cv.chooseFiles()"><FIcon name="plus" />添加文件</button>

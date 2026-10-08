@@ -1,7 +1,7 @@
 /**
  * 转换页 v2（转换记录）的数据层。页面 / store 只用这里导出的函数和类型。
  *
- * 名字和形状按契约 v0.23–v0.23.3（docs/architecture/contract.md §6.14、§5、§6.6），后端 #83 / #84 / #85 已合入。
+ * 名字和形状按契约 v0.23–v0.24.1（docs/architecture/contract.md §6.14–§6.17、§5、§6.6），后端 #83 / #84 / #85 / #95 已合入。
  * 真实调用在 api/convertRecordsBinding.ts（生成的 Wails 绑定，末尾有和生成类型的编译期对照）；CONVERT_V2_BACKEND_READY（api/flags.ts）为 false、
  * 或纯浏览器（没有 window.go）时，全部走 api/convertRecordsMock.ts 的模拟。
  */
@@ -15,7 +15,6 @@ import type { CopyState } from '@/utils/convertV24Text'
 import type { store as goStore } from '../../wailsjs/go/models'
 import * as real from '@/api/convertRecordsBinding'
 import * as mock from '@/api/convertRecordsMock'
-import * as v24real from '@/api/convertV24Binding'
 
 // ---------------- 契约类型（§6.14.2；与生成的 models.ts 逐字段对照见 convertRecordsBinding.ts 末尾） ----------------
 
@@ -29,45 +28,8 @@ export interface TaskResult {
   /** v0.24（6.14.6）：结果警告，目前只有 "short_output"；没有时缺省 */
   warnings?: string[]
 }
-/**
- * v0.24 加在已有类型上的字段（契约 v0.24 / v0.24.1）。后端还没实现、绑定还没生成，所以 convertRecordsBinding.ts 末尾的
- * 生成类型对照先把这些键 Omit 掉；后端合入、重新生成绑定后去掉 Omit（V024_EXTRA_KEYS 一起删）。
- */
-export interface V024TaskExtra {
-  /** true = 正在原地重转（status 是 queued / running；旧的 result / outputPath / finishedAt / params 不变，6.17.2） */
-  reconverting?: boolean
-  /** 最近一次重转失败；重转成功、取消或又开始一次时清空 */
-  lastReconvertError?: ApiReconvertError
-}
-export interface V024SourceExtra {
-  /** 原文件的绝对路径（用户的文件，后端永远不删、不改） */
-  originalPath?: string
-  /** 副本路径；copyState=none 时 ""；copying / failed / canceled 时是副本将要 / 曾经所在的位置 */
-  storedPath?: string
-  copyState?: CopyState
-  copiedBytes?: number
-  totalBytes?: number
-  /** 只有 failed 有 */
-  copyError?: TaskError | null
-}
-export interface V024TaskPathCheckExtra {
-  /** v0.24.1：'replace' 旧输出在 → 覆盖重转；'regenerate' 旧输出不在、源文件在 → 按原参数重新生成；'' 不能重转（原因见 reconvertBlock）。取代 canReconvert */
-  reconvertMode?: 'replace' | 'regenerate' | ''
-  /** reconvertMode='' 时：invalid_state | output_moved | source_missing | copy_not_ready（源文件不在优先） */
-  reconvertBlock?: string
-}
-export interface V024SourcePathCheckExtra {
-  originalExists?: boolean
-  /** 副本是普通文件；copyState=none 时 false */
-  storedExists?: boolean
-}
-export interface V024DeleteFailureExtra {
-  /** v0.24：只有副本删不掉的那一条有 */
-  sourceId?: string
-}
-
 /** 契约第 3 节的 Task，含 v0.23 字段（这里只列转换页用到的） */
-export interface V023Task extends V024TaskExtra {
+export interface V023Task {
   id: string
   type: string
   status: TaskStatus
@@ -90,13 +52,13 @@ export interface V023Task extends V024TaskExtra {
   sourceId?: string
   hiddenInTaskCenter: boolean
   result?: TaskResult
-  /** v0.24（6.17.2）：原地重转中；后端总是返回，前端类型先放可选（最小改动） */
-  reconverting?: boolean
-  /** v0.24：最近一次重转失败的信息（成功 / 取消时没有） */
-  lastReconvertError?: { code: string; message: string; detail?: string; at: number } | null
+  /** v0.24（6.17.2）：true = 正在原地重转（status 是 queued / running；旧的 result / outputPath / finishedAt / params 不变） */
+  reconverting: boolean
+  /** v0.24：最近一次重转失败；重转成功、取消或又开始一次时清空 */
+  lastReconvertError?: ApiReconvertError | null
 }
 
-export interface ConvertSource extends V024SourceExtra {
+export interface ConvertSource {
   sourceId: string
   path: string
   name: string
@@ -104,12 +66,14 @@ export interface ConvertSource extends V024SourceExtra {
   lastActivityAt: number
   /** 持久化的媒体信息，可能没有；G3 起 hasVideo / hasAudio 是真实值（可用于显示），冲突预检仍以当次 Probe 为准 */
   media?: goStore.MediaInfo
-  /** v0.24（6.15.3）：副本字段；后端总是返回（copyError 除外），前端类型先放可选（最小改动）。copyState: none | copying | ready | failed | canceled */
-  originalPath?: string
-  storedPath?: string
-  copyState?: string
-  copiedBytes?: number
-  totalBytes?: number
+  /** v0.24（6.15.3）：原文件的绝对路径（用户的文件，后端永远不删、不改） */
+  originalPath: string
+  /** 副本路径；copyState=none（v0.24 之前的旧行）时 ""；copying / failed / canceled 时是副本将要 / 曾经所在的位置 */
+  storedPath: string
+  copyState: CopyState
+  copiedBytes: number
+  totalBytes: number
+  /** 只有 failed 有 */
   copyError?: TaskError | null
 }
 
@@ -182,27 +146,29 @@ export interface ConvertSubmitRequest {
   presetId: string
 }
 
-export interface TaskPathCheck extends V024TaskPathCheckExtra {
+export interface TaskPathCheck {
   taskId: string
   found: boolean
   inputExists: boolean
   outputExists: boolean
-  /** v0.24.1（6.17.1）："replace" | "regenerate" | ""（不能重转，原因见 reconvertBlock） */
-  reconvertMode?: string
-  /** v0.24.1：reconvertMode="" 时 invalid_state | copy_not_ready | source_missing | output_moved */
-  reconvertBlock?: string
+  /** v0.24.1（6.17.1）：'replace' 覆盖重转；'regenerate' 旧输出不在、按原参数重新生成；'' 不能重转（原因见 reconvertBlock）。取代 canReconvert */
+  reconvertMode: 'replace' | 'regenerate' | ''
+  /** reconvertMode='' 时 invalid_state | copy_not_ready | source_missing | output_moved（源文件不在优先）；能重转时 '' */
+  reconvertBlock: string
 }
-export interface SourcePathCheck extends V024SourcePathCheckExtra {
+export interface SourcePathCheck {
   sourceId: string
   found: boolean
   exists: boolean
-  /** v0.24：原文件 / 副本各自是否还在 */
-  originalExists?: boolean
-  storedExists?: boolean
+  /** v0.24：原文件 / 副本各自是否还在（exists = 读取路径在不在）；copyState=none 时 storedExists=false */
+  originalExists: boolean
+  storedExists: boolean
 }
 
-export interface DeleteFailure extends V024DeleteFailureExtra {
+export interface DeleteFailure {
   taskId: string
+  /** v0.24：只有副本删不掉的那一条有（taskId 为 ""） */
+  sourceId?: string
   path?: string
   /** in_use | permission | not_task_output | io | still_running（只追加） */
   reason: string
@@ -216,7 +182,7 @@ export interface DeleteResult {
   failures: DeleteFailure[]
 }
 
-/** v0.24 SubmitSources 的返回值（6.15.4 第 6 条）。v0.23 后端只返回 tasks，这里补 skipped: [] */
+/** v0.24 SubmitSources 的返回值（6.15.4 第 6 条）：没就绪的行跳过，放在 skipped */
 export interface ConvertSubmitResult {
   tasks: V023Task[]
   skipped: SkippedSource[]
@@ -342,22 +308,10 @@ export const checkSources = (ids: string[]): Promise<SourcePathCheck[]> => api()
 export const previewOutputName = (sourceId: string, opts: RecordOptions, outputDir: string): Promise<string> => api().PreviewOutputName(sourceId, opts, outputDir)
 /**
  * 提交。v0.24（6.15.4 第 6 条）返回 {tasks, skipped}：没复制好的行跳过；一行都没就绪时 TASK_CONFLICT（reason=copying / copy_failed）。
- * v0.23 后端（CONVERT_V24_BACKEND_READY=false）只返回任务数组，这里补 skipped: []。
  */
-export const submitSources = async (req: ConvertSubmitRequest): Promise<ConvertSubmitResult> => {
-  if (convertV24IsReal()) return v24real.SubmitSources(req)
-  if (convertV2IsReal()) return { tasks: await real.SubmitSources(req), skipped: [] }
-  return mock.SubmitSources(req)
-}
-/**
- * v0.24 原地重转（6.17）：只用于 succeeded；同一条记录、同一个输出文件名。v0.23 后端的 Reconvert 是“新增一条”，
- * 语义不同，所以开关关着时在 Wails 里直接报 UNSUPPORTED（界面也不给入口）。
- */
-export const reconvert = (req: ReconvertRequest): Promise<V023Task> => {
-  if (convertV24IsReal()) return v24real.Reconvert(req)
-  if (convertV2IsReal()) return Promise.reject(Object.assign(new Error('UNSUPPORTED'), { code: 'UNSUPPORTED', message: '当前版本不支持重转' }))
-  return mock.Reconvert(req)
-}
+export const submitSources = (req: ConvertSubmitRequest): Promise<ConvertSubmitResult> => api().SubmitSources(req)
+/** v0.24 原地重转（6.17）：只用于 succeeded；同一条记录、同一个输出文件名（界面只在 convertV24On() 时给入口） */
+export const reconvert = (req: ReconvertRequest): Promise<V023Task> => api().Reconvert(req)
 export const deleteRecords = (taskIds: string[], deleteOutputs: boolean): Promise<DeleteResult> => api().DeleteRecords(taskIds, deleteOutputs)
 export const deleteSource = (sourceId: string, deleteOutputs: boolean): Promise<DeleteResult> => api().DeleteSource(sourceId, deleteOutputs)
 export const getSourcePreviewURL = (sourceId: string): Promise<PreviewURL> => api().GetSourcePreviewURL(sourceId)
@@ -390,8 +344,8 @@ export const revealDeleteFailure = (path: string): Promise<void> => (hasWailsBac
 export const getSource = (sourceId: string): Promise<ConvertSourceEntry> => api().GetSource(sourceId)
 
 // ---------------- v0.24（6.15–6.17）：格式目录、存储目录、副本、重转中断 ----------------
-// 只在 convertV24On() 时调用。真实后端在 api/convertV24Binding.ts（绑定生成前按名字 callService），模拟在 convertRecordsMock.ts。
-const v24 = () => (convertV24IsReal() ? v24real : mock)
+// 只在 convertV24On() 时调用。真实后端在 api/convertRecordsBinding.ts（生成的绑定），模拟在 convertRecordsMock.ts。
+const v24 = () => api()
 
 /** 格式目录里的一个预设（6.16.1） */
 export interface FormatPreset {
@@ -466,23 +420,32 @@ export const probeSources = (paths: string[], onBatch?: (r: ProbeResult[]) => vo
 
 // ---------------- 缩略图 ----------------
 /**
- * 缩略图三种状态（契约 §6.14.10 + 设计）：
+ * 缩略图状态（契约 §6.14.10 + 设计）：
  *   img     有画面：dataUrl（data:image/jpeg;base64,...）直接放进 <img>
  *   missing 文件不在（NOT_FOUND reason=file，含记录不是 succeeded）：虚线占位
- *   type    做不出缩略图（UNSUPPORTED reason=format，如纯音频；以及 ffmpeg 缺失 / 截图失败 / 超时）：按类型显示图标
- *   gone    记录 / 源文件行已不存在（NOT_FOUND reason=record）：该行会被删掉，先按类型图标显示
+ *   type    做不出缩略图：按类型封面显示（视频胶片 / 图片 / 音符）。
+ *           UNSUPPORTED reason=format（如纯音频）是正常情况；其它错误（转换组件缺失 / 截图失败 / 超时 / 返回空）
+ *           带 failed=true 并 console.warn 错误码，源文件变了或转换组件就绪后会重取
+ *   gone    记录 / 源文件行已不存在（NOT_FOUND reason=record）：该行会被删掉，先按类型封面显示
  */
-export type ThumbState = { kind: 'img'; url: string } | { kind: 'missing' } | { kind: 'type' } | { kind: 'gone' }
-export function thumbStateOf(e: unknown): ThumbState {
-  const err = e as { code?: string; detail?: string }
+export type ThumbState = { kind: 'img'; url: string } | { kind: 'missing' } | { kind: 'type'; failed?: boolean } | { kind: 'gone' }
+export function thumbStateOf(e: unknown, what = ''): ThumbState {
+  const err = e as { code?: string; message?: string; detail?: string }
   const reason = /^reason=(\w+)/.exec(err?.detail ?? '')?.[1]
   if (err?.code === 'NOT_FOUND' && reason === 'file') return { kind: 'missing' }
   if (err?.code === 'NOT_FOUND' && reason === 'record') return { kind: 'gone' }
-  return { kind: 'type' }
+  if (err?.code === 'UNSUPPORTED' && reason === 'format') return { kind: 'type' }
+  console.warn(`[缩略图] 取${what || '缩略图'}失败，改用类型封面`, err?.code ?? 'UNKNOWN', err?.detail ?? '', err?.message ?? e)
+  return { kind: 'type', failed: true }
 }
-const toThumb = (p: Promise<string>): Promise<ThumbState> =>
-  p.then((url) => (url ? ({ kind: 'img', url } as ThumbState) : ({ kind: 'type' } as ThumbState)), thumbStateOf)
+/** 后端返回的必须是能直接放进 <img> 的地址（data: / http(s): / blob:）；空或别的格式按失败处理 */
+export const isThumbUrl = (url: unknown): url is string => typeof url === 'string' && /^(data:image\/|https?:|blob:)/.test(url)
+const toThumb = (p: Promise<string>, what: string): Promise<ThumbState> =>
+  p.then(
+    (url) => (isThumbUrl(url) ? ({ kind: 'img', url } as ThumbState) : thumbStateOf({ code: 'EMPTY_THUMB', detail: `url=${String(url).slice(0, 40)}` }, what)),
+    (e) => thumbStateOf(e, what),
+  )
 /** 源文件行的缩略图（ConvertService.GetSourceThumbnail，行进入可视区域时逐个调用） */
-export const getSourceThumbnail = (sourceId: string): Promise<ThumbState> => toThumb(api().GetSourceThumbnail(sourceId))
+export const getSourceThumbnail = (sourceId: string): Promise<ThumbState> => toThumb(api().GetSourceThumbnail(sourceId), `源文件缩略图 sourceId=${sourceId}`)
 /** 记录输出文件的缩略图（ConvertService.GetRecordThumbnail） */
-export const getRecordThumbnail = (taskId: string): Promise<ThumbState> => toThumb(api().GetRecordThumbnail(taskId))
+export const getRecordThumbnail = (taskId: string): Promise<ThumbState> => toThumb(api().GetRecordThumbnail(taskId), `记录缩略图 taskId=${taskId}`)

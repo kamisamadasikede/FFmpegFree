@@ -305,7 +305,7 @@ function seedScene(scene: MockScene) {
   }
 }
 /** v0.24 源文件行的副本字段（6.15.3） */
-function copyFields(sourceId: string, path: string, size: number, cp: CopySpec): Partial<ConvertSource> {
+function copyFields(sourceId: string, path: string, size: number, cp: CopySpec): Pick<ConvertSource, 'originalPath' | 'storedPath' | 'copyState' | 'copiedBytes' | 'totalBytes' | 'copyError'> {
   const total = Math.round(size)
   const stored = storedPathOf(sourceId, baseOf(path))
   if (cp === 'none') return { originalPath: path, storedPath: '', copyState: 'none', copiedBytes: 0, totalBytes: 0 }
@@ -769,13 +769,25 @@ export async function OpenSourceWithSystem(sourceId: string): Promise<void> {
 export async function RevealSource(sourceId: string): Promise<void> {
   const m = mustSource(sourceId)
   if (!m.exists) throw notFoundFile()
-  console.info('[模拟] 在文件夹中显示', m.src.path)
+  console.info('[模拟] 打开所在文件夹', m.src.path)
 }
 /** §6.14.10：文件不在 NOT_FOUND(reason=file)；纯音频 UNSUPPORTED(reason=format)；否则 data URL（模拟是渐变 SVG） */
 const noPicture = () => new AppError('UNSUPPORTED', '这个文件没有画面', 'reason=format')
+/** ?cv_thumb=fail：模拟 Windows 上截图失败（INTERNAL）；slow：一直在生成；hold：等 releaseMockThumbs() 再返回（自检用） */
+const thumbMode = () => simParam('cv_thumb') ?? ''
+const thumbHolds: (() => void)[] = []
+export function releaseMockThumbs(): void {
+  thumbHolds.splice(0).forEach((r) => r())
+}
+async function thumbFault(): Promise<void> {
+  if (thumbMode() === 'fail') throw new AppError('INTERNAL', '生成缩略图失败', 'reason=thumbnail')
+  if (thumbMode() === 'slow') await new Promise(() => undefined)
+  if (thumbMode() === 'hold') await new Promise<void>((r) => thumbHolds.push(r))
+}
 export async function GetSourceThumbnail(sourceId: string): Promise<string> {
   const m = mustSource(sourceId)
   if (!m.exists) throw notFoundFile()
+  await thumbFault()
   const audio = m.probe ? !m.probe.width : AUDIO_CONT.includes((m.src.name.split('.').pop() ?? '').toLowerCase())
   if (audio) throw noPicture()
   return mockThumbnail(m.src.path)
@@ -789,6 +801,7 @@ export async function GetRecordThumbnail(taskId: string): Promise<string> {
   let c = ''
   try { c = JSON.parse(t.params).options?.container ?? '' } catch { /* 忽略 */ }
   if (AUDIO_CONT.includes(c)) throw noPicture()
+  await thumbFault()
   return mockThumbnail(t.inputPaths[0] ?? t.outputPath)
 }
 
@@ -819,12 +832,12 @@ export async function CheckPaths(taskIds: string[]): Promise<TaskPathCheck[]> {
  * v0.24.1 TaskPathCheck.reconvertMode / reconvertBlock（取代 canReconvert）：源文件不在优先；副本没就绪 copy_not_ready；
  * 旧位置是别的文件 output_moved；旧输出不在 → regenerate；在 → replace。
  */
-function reconvertCheck(t: ApiTask, m: MSource | undefined): { reconvertMode: '' | 'replace' | 'regenerate'; reconvertBlock?: string } {
+function reconvertCheck(t: ApiTask, m: MSource | undefined): { reconvertMode: '' | 'replace' | 'regenerate'; reconvertBlock: string } {
   if (t.status !== 'succeeded' || t.reconverting) return { reconvertMode: '', reconvertBlock: 'invalid_state' }
   if (!m || (!m.exists && m.src.copyState !== 'ready')) return { reconvertMode: '', reconvertBlock: 'source_missing' }
   if (copyNotReady(m)) return { reconvertMode: '', reconvertBlock: 'copy_not_ready' }
   if (outputReplaced.has(t.id)) return { reconvertMode: '', reconvertBlock: 'output_moved' }
-  return { reconvertMode: outputGone.has(t.id) ? 'regenerate' : 'replace' }
+  return { reconvertMode: outputGone.has(t.id) ? 'regenerate' : 'replace', reconvertBlock: '' }
 }
 export async function GetPreviewURL(taskId: string, which: 'input' | 'output'): Promise<PreviewURL> {
   ensure()
@@ -853,7 +866,7 @@ export async function RevealRecord(taskId: string): Promise<void> {
   const t = getSimTask(taskId)
   if (!t || t.type !== 'convert') throw notFoundRecord()
   if (t.status !== 'succeeded' || outputGone.has(taskId)) throw notFoundFile()
-  console.info('[模拟] 在文件夹中显示', t.outputPath)
+  console.info('[模拟] 打开所在文件夹', t.outputPath)
 }
 
 // ---------------- 探测（MediaService.Probe） ----------------
@@ -876,7 +889,7 @@ export async function revealDeleteFailureMock(path: string): Promise<void> {
   const f = simParam('cv_revealfail')
   if (f === 'NOT_FOUND') throw new AppError('NOT_FOUND', '找不到文件', path)
   if (f === 'INVALID_ARGUMENT') throw new AppError('INVALID_ARGUMENT', '不允许打开这个位置', path)
-  console.info('[模拟] 在文件夹中显示', path)
+  console.info('[模拟] 打开所在文件夹', path)
 }
 export function mockMarkOutputGone(id: string): void {
   outputGone.add(id)

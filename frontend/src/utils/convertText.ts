@@ -6,9 +6,10 @@ import { audioCodecText, channelText, codecName, sampleRateText, videoCodecText 
 export const VIDEO_CONTAINERS: readonly string[] = ['mp4', 'mkv', 'mov', 'webm', 'avi', 'flv', 'gif', 'wmv', 'mpg', 'vob', '3gp', 'swf', 'ogv']
 export const AUDIO_CONTAINERS: readonly string[] = ['mp3', 'aac', 'm4a', 'wav', 'flac', 'ogg', 'opus', 'wma', 'amr', 'm4r', 'mp2', 'ape', 'wv', 'mmf']
 /** v0.24 图片格式（契约 6.16.2）：输入要有画面（视频取第 1 秒那一帧） */
-export const IMAGE_CONTAINERS: readonly string[] = ['jpg', 'png', 'webp', 'ico', 'bmp', 'tif', 'tga']
+/** v0.24 格式目录里“图片”分类的输出格式（契约 §6.16.2，7 个） */
+export const IMAGE_OUTPUT_CONTAINERS: readonly string[] = ['jpg', 'png', 'webp', 'ico', 'bmp', 'tif', 'tga']
 export const isAudioContainer = (c: string): boolean => AUDIO_CONTAINERS.includes((c ?? '').toLowerCase())
-export const isImageContainer = (c: string): boolean => IMAGE_CONTAINERS.includes((c ?? '').toLowerCase())
+export const isImageContainer = (c: string): boolean => IMAGE_OUTPUT_CONTAINERS.includes((c ?? '').toLowerCase())
 
 /** 冲突提示（产品决定 v1）：标题不变，不显示错误码；说明里的出路改成“取消勾选”（列表里没有“移出”了） */
 export const CONFLICT_TITLE = '这个文件不能用当前预设'
@@ -32,7 +33,7 @@ export function conflictReason(info: { hasVideo?: boolean; hasAudio?: boolean } 
   const c = container.toLowerCase()
   if (VIDEO_CONTAINERS.includes(c) && info.hasVideo !== true) return v24 ? CONFLICT_NO_VIDEO_V24 : CONFLICT_NO_VIDEO
   if (AUDIO_CONTAINERS.includes(c) && info.hasAudio !== true) return v24 ? CONFLICT_NO_AUDIO_V24 : CONFLICT_NO_AUDIO
-  if (v24 && IMAGE_CONTAINERS.includes(c) && info.hasVideo !== true) return CONFLICT_NO_PICTURE_V24
+  if (v24 && IMAGE_OUTPUT_CONTAINERS.includes(c) && info.hasVideo !== true) return CONFLICT_NO_PICTURE_V24
   return null
 }
 
@@ -172,6 +173,36 @@ export function isToday(ms: number, now: number = Date.now()): boolean {
 interface InfoLike { width?: number; height?: number; videoCodec?: string; audioCodec?: string; videoCodecName?: string; audioCodecName?: string; duration?: number; size?: number; sampleRate?: number; channels?: number; hasVideo?: boolean; hasAudio?: boolean }
 /** 有画面的按视频显示，其余按音频 */
 export const isAudioOnly = (i?: InfoLike): boolean => !!i && (i.hasVideo === false || !i.width)
+
+/** 是否是 H.265（HEVC）：探测的 codec 名（hevc）、转换参数里的编码名（h265 / libx265 / hevc_nvenc 等）都算 */
+export const isHevcCodec = (c?: string): boolean => /^(hevc|h\.?265|(lib)?x265)$|^hevc_|^h265_/i.test((c ?? '').trim())
+/** 预览“无法在应用内播放”的说明（复验 N1）：文件本身是 H.265 时建议转成 MP4 · H.264，其余不变 */
+export const unplayableHint = (hevc: boolean): string =>
+  `这个文件的编码格式应用内播放不了，文件本身没有问题。可以用系统播放器打开，或转成 ${hevc ? 'MP4 · H.264' : 'MP4'} 后再预览。`
+/** 打开文件所在位置的按钮 / 菜单统一叫法（复验 N2） */
+export const REVEAL_LABEL = '打开所在文件夹'
+
+/** 封面类型用的图片格式（静态图）。GIF 跟设计稿场景 35 和 VIDEO_CONTAINERS 一致按视频（胶片封面） */
+export const IMAGE_CONTAINERS: readonly string[] = ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tif', 'tiff', 'ico', 'tga', 'avif', 'heic', 'heif']
+export type CoverKind = 'video' | 'image' | 'audio'
+/** 文件名 / 路径的扩展名（小写，不带点）；没有扩展名返回空 */
+export const extOf = (name: string): string => {
+  const base = (name ?? '').split(/[\\/]/).pop() ?? ''
+  const i = base.lastIndexOf('.')
+  return i > 0 ? base.slice(i + 1).toLowerCase() : ''
+}
+/**
+ * 封面类型（包 20，产品经理 + 设计 10-08）：缩略图没出来 / 正在生成 / 生成失败时按类型显示封面。
+ * 静态图片格式 → image；有探测结果按 isAudioOnly 判断；否则按扩展名（音频容器 → audio，其余 → video）。
+ */
+export function coverKindOf(ext: string, info?: InfoLike | null, category?: string): CoverKind {
+  const e = (ext ?? '').toLowerCase()
+  // v0.24：格式目录（GetFormatCatalog）里属于“图片”分类的格式用图片封面（GIF 在视频分类，仍是胶片）
+  if (category === 'image' || IMAGE_CONTAINERS.includes(e)) return 'image'
+  if (category === 'audio' && !info) return 'audio'
+  if (info) return isAudioOnly(info) ? 'audio' : 'video'
+  return isAudioContainer(e) ? 'audio' : 'video'
+}
 
 /** 父行信息：视频「分辨率 · 编码 · 时长 · 大小」（无声视频在编码后加“没有声音”）；音频「采样率 · 声道 · 时长 · 大小」 */
 export function sourceMetaText(i: InfoLike): string {

@@ -12,7 +12,7 @@ import { simParam } from '@/api/sim'
 import { RECONVERT_CANCEL, RECONVERT_MENU, SHORT_TAG, SHORT_TIP, hasShortOutput } from '@/utils/convertV24Text'
 import { showFallbackNotice, usedDeviceText, useEncoderDeviceList } from '@/api/encoderTask'
 import { ENCODER_DEVICE_CPU_FALLBACK_NAME, ENCODER_DEVICE_CPU_FALLBACK_TITLE, ENCODER_FALLBACK_CONVERT, ENCODER_FALLBACK_CONVERT_DONE } from '@/errors/encoderMessages'
-import { formatRecordTime, isAudioContainer, recordLine, shortEta } from '@/utils/convertText'
+import { coverKindOf, formatRecordTime, isAudioContainer, recordLine, shortEta } from '@/utils/convertText'
 import { fileBaseName, formatBytes, formatShortClock } from '@/utils/format'
 
 const props = defineProps<{
@@ -34,11 +34,31 @@ const v24 = cv.v24
 const forceShort = !convertV2IsReal() && simParam('cv_hover') === 'short'
 
 const devices = useEncoderDeviceList()
+// 窄列表的“更多”菜单（打开所在文件夹、删除记录）
+const menuOpen = ref(false)
+const moreBtn = ref<HTMLElement | null>(null)
+function closeMenu(e?: Event) {
+  if (e && moreBtn.value?.parentElement?.contains(e.target as Node)) return
+  menuOpen.value = false
+}
+watch(menuOpen, (o) => {
+  if (o) {
+    document.addEventListener('pointerdown', closeMenu, true)
+    if (v24) void cv.refreshPathCheck(k.value.id) // v0.24：打开时再查一次“能否重转”（文件可能刚被移走或换掉）
+  } else document.removeEventListener('pointerdown', closeMenu, true)
+})
+onBeforeUnmount(() => document.removeEventListener('pointerdown', closeMenu, true))
+function menu(fn: () => void) {
+  menuOpen.value = false
+  fn()
+}
 const k = computed(() => props.kid)
 const name = computed(() => fileBaseName(k.value.outputPath) || k.value.title)
 const container = computed(() => (k.value.options.container || name.value.split('.').pop() || '').toLowerCase())
 const fmt = computed(() => container.value.toUpperCase())
 const audio = computed(() => isAudioContainer(container.value))
+/** 封面类型：按输出格式（图片格式 = 图片封面，音频容器 = 音符封面，其余含 GIF = 胶片） */
+const cover = computed(() => coverKindOf(container.value, null, cv.catalogCategoryOf(container.value)))
 const pct = computed(() => Math.round(Math.min(1, Math.max(0, k.value.progress)) * 100))
 const active = computed(() => k.value.status === 'running' || k.value.status === 'queued')
 /** v0.24 原地重转中（status 是 queued / running）：旧文件照常预览、打开（§八 第 59 条） */
@@ -49,6 +69,11 @@ const gone = computed(() => done.value && k.value.outputGone)
 const canPreview = computed(() => (done.value || rc.value) && !gone.value)
 /** 时长偏短（§八 第 55 条）：只看 result.warnings 有没有 short_output */
 const short = computed(() => v24 && done.value && hasShortOutput(k.value.result))
+/** 成功记录“更多”里的“重转…”（§八 第 59、64 条；v0.24.1 reconvertMode / reconvertBlock） */
+const rcState = computed(() => (v24 ? cv.reconvertStateOf(k.value) : { mode: '' as const, tip: '' }))
+function onReconvert() {
+  if (rcState.value.mode) menu(() => emit('reconvert'))
+}
 const device = computed(() => usedDeviceText(k.value, devices.value))
 const deviceFb = computed(() => device.value === ENCODER_DEVICE_CPU_FALLBACK_NAME)
 const fallback = computed(() => showFallbackNotice(k.value) && (done.value || k.value.status === 'running'))
@@ -73,7 +98,7 @@ const previewTip = computed(() => {
   return ''
 })
 const tag = computed(() => {
-  if (rc.value) return { cls: 't-run', text: '重转中', icon: '' }
+  if (rc.value) return { cls: 't-run t-rc', text: '重转中', icon: '' }
   switch (k.value.status) {
     case 'queued': return { cls: 't-q', text: '排队中', icon: '' }
     case 'running': return { cls: 't-run', text: '转换中', icon: '' }
@@ -83,28 +108,6 @@ const tag = computed(() => {
     default: return { cls: 't-cx', text: '已取消', icon: '' }
   }
 })
-// ---- 成功记录的“更多”菜单：重转… / 删除记录（§八 第 59、64 条） ----
-const menuOpen = ref(false)
-const moreWrap = ref<HTMLElement | null>(null)
-const rcState = computed(() => (v24 ? cv.reconvertStateOf(k.value) : { mode: '' as const, tip: '' }))
-function closeMenu(e?: Event) {
-  if (e && moreWrap.value?.contains(e.target as Node)) return
-  menuOpen.value = false
-}
-watch(menuOpen, (o) => {
-  if (o) {
-    document.addEventListener('pointerdown', closeMenu, true)
-    void cv.refreshPathCheck(k.value.id) // 打开时再查一次（文件可能刚被移走或换掉）
-  } else document.removeEventListener('pointerdown', closeMenu, true)
-})
-onBeforeUnmount(() => document.removeEventListener('pointerdown', closeMenu, true))
-function menu(fn: () => void) {
-  menuOpen.value = false
-  fn()
-}
-function onReconvert() {
-  if (rcState.value.mode) menu(() => emit('reconvert'))
-}
 </script>
 <template>
   <div class="cv-kid" :class="{ q: k.status === 'queued', hit, focus: focused }" :data-kid="k.id">
@@ -113,17 +116,16 @@ function onReconvert() {
       :state="canPreview ? thumb : null"
       :gone="gone"
       :pend="!done"
-      :audio="audio"
-      :play="canPreview && thumb?.kind === 'img'"
+      :cover="cover"
+      :fmt="fmt"
       :clickable="canPreview"
       :label="`预览 ${name}`"
       @click="emit('preview')"
     />
     <div class="cv-km">
       <div class="l1">
-        <span class="cv-fmt">{{ fmt }}</span>
         <MidEllipsis tag="b" :class="{ gone, lnk: canPreview }" :text="name" @click="canPreview && emit('preview')" />
-        <span class="cv-tag" :class="tag.cls"><FIcon v-if="tag.icon" :name="tag.icon === 'check' ? 'check' : 'warn'" />{{ tag.text }}</span>
+        <span class="cv-tag" :class="tag.cls" :title="tag.text" :aria-label="tag.text"><FIcon v-if="tag.icon" :name="tag.icon === 'check' ? 'check' : 'warn'" /><i class="tx">{{ tag.text }}</i></span>
         <span v-if="short" class="cv-stag" :class="{ hv: forceShort }" tabindex="0" :title="SHORT_TIP" :aria-label="`${SHORT_TAG}：${SHORT_TIP}`"><FIcon name="warn" :size="12" />{{ SHORT_TAG }}<span class="cv-tip" role="tooltip">{{ SHORT_TIP }}</span></span>
       </div>
       <div class="l2" :title="line2.title">{{ line2.text }}</div>
@@ -131,9 +133,9 @@ function onReconvert() {
         <template v-if="k.status === 'running'">
           <div class="bar" role="progressbar" aria-label="转换进度" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="pct"><i class="run" :style="{ width: pct + '%' }" /></div>
           <span class="num">{{ pct }}%</span>
-          <template v-if="k.speed"><span class="cv-d">·</span><span>{{ k.speed }}</span></template>
+          <template v-if="k.speed"><span class="cv-d n9">·</span><span class="n9">{{ k.speed }}</span></template>
           <template v-if="shortEta(k.etaSec)"><span class="cv-d">·</span><span>剩余 {{ shortEta(k.etaSec) }}</span></template>
-          <template v-if="device"><span class="cv-d">·</span><span v-if="deviceFb" class="cv-fb" :title="ENCODER_DEVICE_CPU_FALLBACK_TITLE">{{ device }}</span><span v-else class="dev" :title="device">{{ device }}</span></template>
+          <template v-if="device"><span class="cv-d n9">·</span><span v-if="deviceFb" class="cv-fb n9" :title="ENCODER_DEVICE_CPU_FALLBACK_TITLE">{{ device }}</span><span v-else class="dev n9" :title="device">{{ device }}</span></template>
         </template>
         <template v-else-if="rc && k.status === 'queued'">
           <div class="bar q"><i style="width: 0" /></div>
@@ -155,7 +157,8 @@ function onReconvert() {
           <span class="gone"><FIcon name="warn" />文件已被移动或删除</span>
         </template>
         <template v-else>
-          <template v-for="(t, i) in [result.size, result.dur].filter(Boolean)" :key="i"><span v-if="i" class="cv-d">·</span><span>{{ t }}</span></template>
+          <span v-if="result.size" class="cv-sz">{{ result.size }}</span>
+          <template v-if="result.dur"><span v-if="result.size" class="cv-d">·</span><span>{{ result.dur }}</span></template>
           <template v-if="result.res"><span v-if="result.size || result.dur" class="cv-d only1280">·</span><span class="only1280">{{ result.res }}</span></template>
           <template v-if="device">
             <span v-if="result.size || result.dur || result.res" class="cv-d">·</span>
@@ -197,7 +200,7 @@ function onReconvert() {
     <div class="cv-ops">
       <template v-if="rc">
         <button type="button" class="cv-ib" :aria-label="`预览 ${name}`" title="预览" @click="emit('preview')"><FIcon name="eye" /></button>
-        <button type="button" class="cv-ib" :aria-label="`打开所在文件夹 ${name}`" title="打开所在文件夹" @click="emit('reveal')"><FIcon name="folder" /></button>
+        <button type="button" class="cv-ib nfold" :aria-label="`打开所在文件夹 ${name}`" title="打开所在文件夹" @click="emit('reveal')"><FIcon name="folder" /></button>
         <button type="button" class="cv-ib" :aria-label="RECONVERT_CANCEL" :title="RECONVERT_CANCEL" @click="emit('cancel')"><FIcon name="x" /></button>
       </template>
       <template v-else-if="active">
@@ -216,13 +219,23 @@ function onReconvert() {
       <template v-else>
         <button v-if="gone" type="button" class="cv-ib" aria-disabled="true" :aria-label="`预览 ${name}：${previewTip}`" :data-tip="previewTip"><FIcon name="eye" /></button>
         <button v-else type="button" class="cv-ib" :aria-label="`预览 ${name}`" title="预览" @click="emit('preview')"><FIcon name="eye" /></button>
-        <button v-if="gone" type="button" class="cv-ib" aria-disabled="true" :aria-label="`打开所在文件夹 ${name}：文件已被移动或删除`" data-tip="文件已被移动或删除"><FIcon name="folder" /></button>
-        <button v-else type="button" class="cv-ib" :aria-label="`打开所在文件夹 ${name}`" title="打开所在文件夹" @click="emit('reveal')"><FIcon name="folder" /></button>
-        <button type="button" class="cv-ib del" :class="{ only1280: v24 }" :aria-label="`删除记录 ${name}`" title="删除记录" @click="emit('remove')"><FIcon name="trash" /></button>
-        <span v-if="v24" ref="moreWrap" class="cv-morewrap">
-          <button type="button" class="cv-ib" :aria-label="`更多：${RECONVERT_MENU}、删除记录`" title="更多" aria-haspopup="menu" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><FIcon name="more" /></button>
+        <button v-if="gone" type="button" class="cv-ib nfold" aria-disabled="true" :aria-label="`打开所在文件夹 ${name}：文件已被移动或删除`" data-tip="文件已被移动或删除"><FIcon name="folder" /></button>
+        <button v-else type="button" class="cv-ib nfold" :aria-label="`打开所在文件夹 ${name}`" title="打开所在文件夹" @click="emit('reveal')"><FIcon name="folder" /></button>
+        <button type="button" class="cv-ib del nfold" :class="{ only1280: v24 }" :aria-label="`删除记录 ${name}`" title="删除记录" @click="emit('remove')"><FIcon name="trash" /></button>
+        <!-- v0.24：成功记录（含文件被移走的）总有“更多”：重转… / 删除记录（1024 下删除记录收进来）；列表很窄时打开所在文件夹也收进来 -->
+        <span v-if="v24" class="cv-morewrap">
+          <button ref="moreBtn" type="button" class="cv-ib" :aria-label="`更多：${RECONVERT_MENU}、删除记录 ${name}`" title="更多" aria-haspopup="menu" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><FIcon name="more" /></button>
           <div v-if="menuOpen" class="cv-more-menu" role="menu">
+            <button type="button" role="menuitem" class="cv-nmenu" :aria-disabled="gone || undefined" :title="gone ? '文件已被移动或删除' : undefined" @click="!gone && menu(() => emit('reveal'))"><FIcon name="folder" />打开所在文件夹</button>
             <button type="button" role="menuitem" :aria-disabled="!rcState.mode || undefined" :title="rcState.tip || undefined" :aria-label="rcState.tip ? `${RECONVERT_MENU}（${rcState.tip}）` : RECONVERT_MENU" @click="onReconvert"><FIcon name="retry" />{{ RECONVERT_MENU }}</button>
+            <button type="button" role="menuitem" @click="menu(() => emit('remove'))"><FIcon name="trash" />删除记录</button>
+          </div>
+        </span>
+        <!-- 列表宽度 < 480px（§14.5）：打开所在文件夹、删除记录收进“更多” -->
+        <span v-else class="cv-kmore">
+          <button ref="moreBtn" type="button" class="cv-ib nmore" :aria-label="`更多：打开所在文件夹、删除记录 ${name}`" title="更多" aria-haspopup="menu" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><FIcon name="more" /></button>
+          <div v-if="menuOpen" class="cv-more-menu" role="menu">
+            <button type="button" role="menuitem" :aria-disabled="gone || undefined" :title="gone ? '文件已被移动或删除' : undefined" @click="!gone && menu(() => emit('reveal'))"><FIcon name="folder" />打开所在文件夹</button>
             <button type="button" role="menuitem" @click="menu(() => emit('remove'))"><FIcon name="trash" />删除记录</button>
           </div>
         </span>
