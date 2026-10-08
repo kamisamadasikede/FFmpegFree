@@ -10,6 +10,7 @@ import { hasWailsBackend } from '@/services/wails'
 import { probeFiles, type ProbeResult } from '@/api/media'
 import { revealInFolder } from '@/api/system'
 import type { TaskError, TaskStatus } from '@/stores/tasks'
+import type { ConvertSubmitResult as SubmitResultOf, SkippedSource } from '@/utils/convertSubmit'
 import type { store as goStore } from '../../wailsjs/go/models'
 import * as real from '@/api/convertRecordsBinding'
 import * as mock from '@/api/convertRecordsMock'
@@ -71,6 +72,10 @@ export interface ConvertSource {
   totalBytes?: number
   copyError?: TaskError | null
 }
+
+/** SubmitSources 的返回（v0.24 §6.15.4 第 6 条） */
+export type ConvertSubmitResult = SubmitResultOf<V023Task>
+export type { SkippedSource }
 
 export interface ConvertSourceEntry {
   source: ConvertSource
@@ -270,7 +275,8 @@ export const searchSources = (f: ConvertSearchFilter): Promise<ConvertSourcePage
 export const checkSources = (ids: string[]): Promise<SourcePathCheck[]> => api().CheckSources(ids)
 /** “将保存为”：返回完整输出路径（不占位，提交时可能不同） */
 export const previewOutputName = (sourceId: string, opts: RecordOptions, outputDir: string): Promise<string> => api().PreviewOutputName(sourceId, opts, outputDir)
-export const submitSources = (req: ConvertSubmitRequest): Promise<V023Task[]> => api().SubmitSources(req)
+/** v0.24：{tasks, skipped}；副本没就绪的行进 skipped（6.15.4 第 6 条），一行都没就绪时整体 TASK_CONFLICT（reason=copying / copy_failed） */
+export const submitSources = (req: ConvertSubmitRequest): Promise<ConvertSubmitResult> => api().SubmitSources(req)
 /** 只用于已成功的记录：又转一次，新增一条（其余状态 TASK_CONFLICT；失败 / 取消 / 中断用 TaskService.Retry 原地重试） */
 export const reconvert = (taskId: string): Promise<V023Task> => api().Reconvert(taskId)
 export const deleteRecords = (taskIds: string[], deleteOutputs: boolean): Promise<DeleteResult> => api().DeleteRecords(taskIds, deleteOutputs)

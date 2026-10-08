@@ -6,12 +6,13 @@
  * 前端自己的类型和生成类型的对应关系在文件末尾做编译期检查（字段改名 / 少字段时 vue-tsc 报错）。
  */
 import { call } from '@/api/call'
+import { submitResultOf } from '@/utils/convertSubmit'
 import * as CS from '../../wailsjs/go/app/ConvertService'
 import * as TS from '../../wailsjs/go/app/TaskService'
 import { convert, ffmpeg, store, task } from '../../wailsjs/go/models'
 import type {
   AddSourceResult, ConvertSearchFilter, ConvertSourceFilter, ConvertSourcePage, ConvertSubmitRequest, DeleteResult, PreviewURL,
-  ConvertSourceEntry, RecordOptions, SourcePathCheck, TaskPage, TaskPathCheck, V023Task,
+  ConvertSourceEntry, ConvertSubmitResult, RecordOptions, SkippedSource, SourcePathCheck, TaskPage, TaskPathCheck, V023Task,
 } from '@/api/convertRecords'
 import type { TaskStatus } from '@/stores/tasks'
 
@@ -33,9 +34,9 @@ export const ListSourceRecords = async (sourceId: string, limit: number, offset:
 export const SearchSources = async (f: ConvertSearchFilter) => page(await call(CS.SearchSources(convert.ConvertSearchFilter.createFrom({ ...f, status: f.status ?? '' }))))
 export const CheckSources = async (ids: string[]) => arr(as<SourcePathCheck[] | null>(await call(CS.CheckSources(ids))))
 export const PreviewOutputName = (sourceId: string, o: RecordOptions, outputDir: string) => call(CS.PreviewOutputName(sourceId, opts(o), outputDir))
-/** v0.24：后端返回 {tasks, skipped}；这里先只取 tasks（最小改动，skipped 待前端接入） */
-export const SubmitSources = async (req: ConvertSubmitRequest) =>
-  arr(as<V023Task[] | null>((await call(CS.SubmitSources(convert.ConvertSubmitRequest.createFrom({ ...req, options: opts(req.options) }))))?.tasks))
+/** v0.24：后端返回 {tasks, skipped}（6.15.4 第 6 条）；旧形状（直接 Task[]）和 null 也按 {tasks, skipped: []} 处理 */
+export const SubmitSources = async (req: ConvertSubmitRequest): Promise<ConvertSubmitResult> =>
+  submitResultOf<V023Task>(await call(CS.SubmitSources(convert.ConvertSubmitRequest.createFrom({ ...req, options: opts(req.options) }))))
 /** v0.24：参数改为 ReconvertRequest{taskId, presetId?, options?}；这里先只传 taskId（沿用原参数） */
 export const Reconvert = async (taskId: string) => as<V023Task>(await call(CS.Reconvert(convert.ReconvertRequest.createFrom({ taskId }))))
 export const DeleteRecords = async (ids: string[], deleteOutputs: boolean) => delResult(await call(CS.DeleteRecords(ids, deleteOutputs)))
@@ -78,6 +79,8 @@ export const BINDING_SHAPES_OK = [
   ok<SameKeys<SourcePathCheck, Data<convert.SourcePathCheck>>>(),
   ok<SameKeys<TaskPathCheck, Data<task.TaskPathCheck>>>(),
   ok<SameKeys<DeleteResult, Data<task.DeleteResult>>>(),
+  ok<SameKeys<ConvertSubmitResult, Data<convert.ConvertSubmitResult>>>(),
+  ok<SameKeys<SkippedSource, Data<convert.SkippedSource>>>(),
   ok<SameKeys<DeleteResult['failures'][number], Data<task.DeleteFailure>>>(),
   ok<SameKeys<PreviewURL, Data<convert.PreviewURL>>>(),
 ] as const
