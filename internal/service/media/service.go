@@ -241,7 +241,7 @@ func runProbe(ctx context.Context, ffprobeExe, path string, timeout time.Duratio
 	if err != nil {
 		tail := lastLines(stderr.String(), 50)
 		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
-			return nil, apperr.Wrap(apperr.FFmpegNotFound, "无法运行 ffprobe", err)
+			return nil, apperr.Wrap(apperr.FFmpegNotFound, "无法运行转换组件，读取不了媒体信息", err)
 		}
 		return nil, apperr.New(apperr.ProbeFailed, "无法解析这个文件，可能已损坏或不是音视频文件").WithDetail(tail)
 	}
