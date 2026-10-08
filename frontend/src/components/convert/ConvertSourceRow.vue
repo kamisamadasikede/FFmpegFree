@@ -7,7 +7,7 @@ import ConvertThumb from './ConvertThumb.vue'
 import ConvertKid from './ConvertKid.vue'
 import { metaInfoOf, useConvertRecordsStore, SOURCE_REMOVE_LABEL, type ParentView } from '@/stores/convertRecords'
 import { useTaskStore } from '@/stores/tasks'
-import { CONFLICT_TITLE, isAudioContainer, isAudioOnly, sourceMetaText } from '@/utils/convertText'
+import { CONFLICT_TITLE, coverKindOf, extOf, sourceMetaText } from '@/utils/convertText'
 import { formatShortClock } from '@/utils/format'
 
 const props = defineProps<{ p: ParentView; focusId?: string }>()
@@ -23,13 +23,21 @@ const tasks = useTaskStore()
 const src = computed(() => props.p.src)
 const gone = computed(() => src.value.exists === false)
 const info = computed(() => metaInfoOf(src.value))
-const audio = computed(() => (info.value ? isAudioOnly(info.value) : isAudioContainer(src.value.name.split('.').pop() ?? '')))
+const ext = computed(() => extOf(src.value.name))
+/** 封面类型（包 20）：图片格式 = 图片；有探测结果按有没有画面；否则按扩展名 */
+const cover = computed(() => coverKindOf(ext.value, info.value))
+const fmt = computed(() => ext.value.toUpperCase())
 const dur = computed(() => formatShortClock(info.value?.duration ?? 0))
 const isNew = computed(() => src.value.recordCount === 0 && !props.p.kids.length && !gone.value)
 const meta = computed(() => {
   if (gone.value) return { cls: 'gone', text: '原位置找不到这个文件，转换记录仍保留' }
   if (src.value.probe === 'error') return { cls: 'err', text: src.value.probeError?.message ? `读取失败：${src.value.probeError.message}` : '读取失败' }
-  if (info.value) return { cls: '', text: sourceMetaText(info.value) }
+  if (info.value) {
+    // 窄窗口大小优先：最后一段（大小）单独放，前面的参数先省略
+    const text = sourceMetaText(info.value)
+    const i = info.value.size ? text.lastIndexOf(' · ') : -1
+    return i > 0 ? { cls: 'cv-mm', text, main: text.slice(0, i), size: text.slice(i) } : { cls: '', text }
+  }
   return { cls: 'wait', text: '正在读取…' }
 })
 const n = computed(() => src.value.recordCount || props.p.kids.length)
@@ -66,8 +74,14 @@ onMounted(() => {
   cv.ensureThumb(src.value)
   cv.requestMeta(src.value)
 })
+// 源文件变了（路径 / 大小）或转换组件就绪：重取缩略图（store 里按特征去重；取到过的不重复取，失败的隔 5 秒才重取）
 watch(
-  () => (props.p.open ? props.p.kids.map((k) => `${k.id}:${k.status}:${k.outputGone}`).join(',') : ''),
+  () => `${src.value.path}|${(src.value.info ?? src.value.media)?.size ?? ''}|${cv.thumbRetryTick}`,
+  () => cv.ensureThumb(src.value),
+)
+watch(
+  // 记录完成（status 变成 succeeded）、重转（version）、转换组件就绪（thumbRetryTick）都会重取；失败的在下次挂载时也会重取
+  () => (props.p.open ? props.p.kids.map((k) => `${k.id}:${k.status}:${k.version}:${k.outputGone}`).join(',') + `|${cv.thumbRetryTick}` : ''),
   () => {
     if (props.p.open) for (const k of props.p.kids) cv.ensureRecThumb(k)
   },
@@ -119,14 +133,14 @@ async function revealKid(id: string) {
         :tabindex="p.kids.length ? 0 : -1"
         @click.stop="onFold"
       ><FIcon name="down" /></button>
-      <ConvertThumb :state="src.thumb" :gone="gone" :audio="audio" :dur="dur" :clickable="!gone" :label="`预览源文件 ${src.name}`" @click="emit('preview', 'source', src.sourceId)" />
+      <ConvertThumb :state="src.thumb" :gone="gone" :cover="cover" :fmt="fmt" :dur="cover === 'image' ? '' : dur" :clickable="!gone" :label="`预览源文件 ${src.name}`" @click="emit('preview', 'source', src.sourceId)" />
       <div class="cv-pm">
         <div class="cv-nm">
           <MidEllipsis tag="b" :text="src.name" :title="src.path" />
           <span v-if="isNew" class="cv-tag t-new">新添加</span>
           <span v-if="gone" class="cv-tag t-warn">源文件已不存在</span>
         </div>
-        <div class="m" :class="meta.cls" :title="meta.text">{{ meta.text }}</div>
+        <div class="m" :class="meta.cls" :title="meta.text"><template v-if="meta.size"><span class="mt">{{ meta.main }}</span><span class="cv-sz">{{ meta.size }}</span></template><template v-else>{{ meta.text }}</template></div>
       </div>
       <span v-if="n" class="cv-sum" :style="p.failed && !p.running ? { color: 'var(--ff-danger-text)' } : undefined">
         <template v-if="p.running">

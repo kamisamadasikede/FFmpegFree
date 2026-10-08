@@ -12,7 +12,7 @@ import { MOCK_UNPLAYABLE_URL, MOCK_URL_PREFIX } from '@/api/convertRecordsMock'
 import { metaInfoOf, useConvertRecordsStore } from '@/stores/convertRecords'
 import { usedDeviceText, useEncoderDeviceList } from '@/api/encoderTask'
 import { channelText, sampleRateText, videoCodecText } from '@/utils/mediaText'
-import { formatRecordTime, isAudioContainer, isAudioOnly, recordLine } from '@/utils/convertText'
+import { formatRecordTime, isAudioContainer, isAudioOnly, isHevcCodec, recordLine, REVEAL_LABEL, unplayableHint } from '@/utils/convertText'
 import { fileBaseName, formatBytes, formatShortClock } from '@/utils/format'
 
 export interface PreviewTarget {
@@ -121,6 +121,13 @@ const cover = computed(() => {
   const t = rec.value ? cv.recThumbs.get(rec.value.id) : src.value?.thumb
   return t?.kind === 'img' ? t.url : ''
 })
+/** 复验 N1：文件本身是 H.265 时，建议改成“转成 MP4 · H.264 后再预览” */
+const hevc = computed(() => {
+  const r = rec.value
+  if (r) return isHevcCodec(r.options.videoCodec) || /H\.265/.test(r.paramsSummary ?? '')
+  return isHevcCodec(srcInfo.value?.videoCodec)
+})
+const unplayableText = computed(() => unplayableHint(hevc.value))
 const isMock = computed(() => !!url.value && url.value.url.startsWith(MOCK_URL_PREFIX))
 const playable = computed(() => stage.value === 'ready')
 /** 放不了 / 文件不在 / 出错：舞台显示原因，控制条整条收起（走查 X5：失败时播放键、时间、音量仍可点） */
@@ -441,10 +448,10 @@ onBeforeUnmount(() => {
                   <div class="in">
                     <div class="eic"><FIcon name="info" /></div>
                     <h5>无法在应用内播放</h5>
-                    <p>这个文件的编码格式应用内播放不了，文件本身没有问题。可以用系统播放器打开，或转成 MP4 后再预览。</p>
+                    <p>{{ unplayableText }}</p>
                     <div class="acts">
                       <button type="button" class="btn pri" @click="openSystem"><FIcon name="play" />用系统播放器打开</button>
-                      <button type="button" class="btn" @click="reveal"><FIcon name="folder" />在文件夹中显示</button>
+                      <button type="button" class="btn" @click="reveal"><FIcon name="folder" />{{ REVEAL_LABEL }}</button>
                     </div>
                   </div>
                 </div>

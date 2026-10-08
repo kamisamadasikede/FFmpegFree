@@ -1,6 +1,6 @@
 // 转换页 v2（契约 v0.23 §6.14 + v0.23.1）自检：由 api.check.ts 调用。只测数据层 / 模拟层 / 纯函数和几处源码约定，不渲染组件。
 import { toAppError, type AppError } from './call'
-import { recordOf, parseParams } from './convertRecords'
+import { recordOf, parseParams, thumbStateOf, isThumbUrl } from './convertRecords'
 import * as mock from './convertRecordsMock'
 import { cancelSimTask, getSimTask, hideSimFinished, listSimFinished, retrySimTask, unhideSimTasks } from './sim'
 import { onSimEvent } from '@/services/wails'
@@ -10,7 +10,7 @@ import { useConvertRecordsStore } from '@/stores/convertRecords'
 import { nextTick } from 'vue'
 import { FFPROBE_MISSING_TEXT, liveFfmpegProtocolMissingText, LIVE_FFMPEG_PROTOCOL_MISSING_TEXT } from '@/errors/errorMessages'
 import { midEllipsis, midTailMin } from '@/utils/midEllipsis'
-import { sourceMetaText, dupPresetTitles, presetShortTitle, setPresetCatalog, recordParamsText, recordLine, deleteToast, toastText, revealDeleteFailureText, sourceRemovedParts, conflictReason, CONFLICT_NO_AUDIO, CONFLICT_NO_VIDEO, CONFLICT_TITLE, formatRecordTime } from '@/utils/convertText'
+import { sourceMetaText, dupPresetTitles, presetShortTitle, setPresetCatalog, recordParamsText, recordLine, deleteToast, toastText, revealDeleteFailureText, sourceRemovedParts, conflictReason, CONFLICT_NO_AUDIO, CONFLICT_NO_VIDEO, CONFLICT_TITLE, formatRecordTime, coverKindOf, extOf, isHevcCodec, unplayableHint, REVEAL_LABEL } from '@/utils/convertText'
 import { codecName, rowInfoText, videoCodecText, audioCodecText } from '@/utils/mediaText'
 import { metaInfoOf } from '@/stores/convertRecords'
 import { store as goStore } from '../../wailsjs/go/models'
@@ -26,6 +26,94 @@ async function rejects(p: Promise<unknown>): Promise<AppError | null> {
 }
 
 export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): Promise<void> {
+  // ---- 包 20 封面：类型封面兜底（产品经理 + 设计 10-08）----
+  {
+    const warn = console.warn
+    const warned: unknown[][] = []
+    console.warn = (...a: unknown[]) => void warned.push(a)
+    try {
+      eq('缩略图：NOT_FOUND file → missing；record → gone；UNSUPPORTED format → 类型封面（不算失败、不打日志）', [thumbStateOf({ code: 'NOT_FOUND', detail: 'reason=file' }), thumbStateOf({ code: 'NOT_FOUND', detail: 'reason=record' }), thumbStateOf({ code: 'UNSUPPORTED', detail: 'reason=format' }), warned.length], [{ kind: 'missing' }, { kind: 'gone' }, { kind: 'type' }, 0])
+      const t = thumbStateOf({ code: 'INTERNAL', message: '生成缩略图失败', detail: 'reason=thumbnail' }, '源文件缩略图 sourceId=s1')
+      eq('缩略图：其它错误 → 类型封面 failed=true，console.warn 带错误码（不静默吞掉）', [t, warned.length, warned[0]?.includes('INTERNAL'), String(warned[0]?.[0]).includes('sourceId=s1')], [{ kind: 'type', failed: true }, 1, true, true])
+      eq('缩略图地址：data:image / http(s) / blob 可用；空串、文件路径不可用', [isThumbUrl('data:image/jpeg;base64,xx'), isThumbUrl('blob:x'), isThumbUrl(''), isThumbUrl('C:\\a.jpg'), isThumbUrl(undefined)], [true, true, false, false, false])
+    } finally {
+      console.warn = warn
+    }
+    eq('封面类型：PNG / JPG = 图片，音频容器 = 音符，GIF 和其余 = 视频（设计场景 35）', ['png', 'JPG', 'gif', 'flac', 'm4a', 'mp4', 'mov', ''].map((e) => coverKindOf(e)), ['image', 'image', 'video', 'audio', 'audio', 'video', 'video', 'video'])
+    eq('封面类型：有探测结果按有没有画面（MP4 纯音频 → 音符）；图片格式优先', [coverKindOf('mp4', { width: 0, hasVideo: false }), coverKindOf('mp4', { width: 1920, hasVideo: true }), coverKindOf('png', { width: 320, hasVideo: true })], ['audio', 'video', 'image'])
+    eq('扩展名：路径 / 大小写 / 没有扩展名', [extOf('D:\\a\\SOURCE.MP4'), extOf('/x/y.tar.gz'), extOf('README'), extOf('.env')], ['mp4', 'gz', '', ''])
+    const thumbSrc = readSrc('src/components/convert/ConvertThumb.vue')
+    eq('ConvertThumb：类型封面用胶片 / 图片 / 音符（cv-cov c-v / c-i / c-a），生成中加扫光，不再用灰色文件图标（doc）', [/video: 'film', image: 'image', audio: 'music'/.test(thumbSrc), /video: 'c-v', image: 'c-i', audio: 'c-a'/.test(thumbSrc), /gen/.test(thumbSrc), /name="doc"|'doc'/.test(thumbSrc)], [true, true, true, false])
+    const kidSrc = readSrc('src/components/convert/ConvertKid.vue')
+    const rowSrc = readSrc('src/components/convert/ConvertSourceRow.vue')
+    eq('子记录 / 父行：格式角标进封面，名字旁不再有格式标签；大小用 cv-sz 不截断', [/class="cv-fmt"/.test(kidSrc), /:fmt="fmt"/.test(kidSrc), /:fmt="fmt"/.test(rowSrc), /class="cv-sz"/.test(kidSrc), /class="cv-sz"/.test(rowSrc)], [false, true, true, true, true])
+    const css = readSrc('src/components/convert/convert-v2.css')
+    const last = (re: RegExp) => [...css.matchAll(re)].pop()?.[0] ?? ''
+    eq('样式（设计包 20 段）：子记录无竖线、无卡片边框，封面 64×36 / 56×32，1024 不再缩小父行封面', [/border-left:2px/.test(last(/(^|\n)\.cv-kids\{[^}]*\}/g)), /border:0/.test(last(/(^|\n)\.cv-kid\{[^}]*\}/g)), /\.cv-th,\.cv2\.w1024 \.cv-prow>\.cv-th\{width:64px;height:36px;border-radius:6px\}/.test(css), /\.cv-th\.sm\{width:56px;height:32px;border-radius:5px\}/.test(css), /\.cv-sz\{flex:none/.test(css)], [false, true, true, true, true])
+    // 缩略图取数流程（包 20 验收）：请求中 = 生成中（null）→ 返回后自动换成画面；失败 → 类型封面，不永久缓存，之后再挂载成功就换成画面
+    {
+      const win = (globalThis as unknown as { window: { location: { search: string } } }).window
+      const prev = win.location.search
+      const realNow = Date.now
+      const warn = console.warn
+      console.warn = () => undefined
+      const flush = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setTimeout(r, 0)) }
+      try {
+        setActivePinia(createPinia())
+        const cv = useConvertRecordsStore()
+        mock.resetConvertMock('mixed')
+        const row = (id: string, name: string) => {
+          cv.sources[id] = { sourceId: id, path: `D:\\Footage\\${name}`, name, addedAt: 0, lastActivityAt: 0, probe: 'pending', thumb: null, thumbAsked: false, flashAt: 0, recordCount: 0, loadedIds: [], loadingMore: false }
+          return cv.sources[id]
+        }
+        win.location.search = '?cv_thumb=hold'
+        const s1 = row('mock-src-launch', 'launch-4k.mov')
+        cv.ensureThumb(s1)
+        await flush()
+        const pending = s1.thumb
+        cv.ensureThumb(s1) // 请求中再调用不重复发
+        mock.releaseMockThumbs()
+        await flush()
+        eq('源文件缩略图：请求中 thumb = null（生成中封面）→ 返回后自动换成画面', [pending, s1.thumb?.kind, (s1.thumb as { url?: string })?.url?.startsWith('data:image/')], [null, 'img', true])
+        win.location.search = '?cv_thumb=fail'
+        const s2 = row('mock-src-iv', '采访-机位A.mkv')
+        cv.ensureThumb(s2)
+        await flush()
+        const failed = s2.thumb
+        win.location.search = ''
+        cv.ensureThumb(s2) // 刚失败：5 秒内不重取
+        await flush()
+        const soon = s2.thumb
+        Date.now = () => realNow() + 6000
+        cv.ensureThumb(s2) // 再次挂载：重取成功
+        await flush()
+        eq('源文件缩略图：失败 → 类型封面（failed）；不永久缓存，之后再挂载成功换成画面', [failed, soon, s2.thumb?.kind], [{ kind: 'type', failed: true }, { kind: 'type', failed: true }, 'img'])
+        Date.now = realNow
+        // 子记录：完成后才取；失败后下次重取成功
+        const kid = { id: 'simcv-launchMp4', status: 'succeeded', version: 1, outputPath: 'D:\\Footage\\launch-4k.mp4', outputGone: false, options: { container: 'mp4' } } as unknown as Parameters<typeof cv.ensureRecThumb>[0]
+        cv.ensureRecThumb({ ...kid, status: 'running' } as typeof kid)
+        const notYet = cv.recThumbs.has(kid.id)
+        win.location.search = '?cv_thumb=fail'
+        cv.ensureRecThumb(kid)
+        await flush()
+        const kFail = cv.recThumbs.get(kid.id)
+        win.location.search = ''
+        Date.now = () => realNow() + 6000
+        cv.ensureRecThumb(kid)
+        const kPending = cv.recThumbs.get(kid.id)
+        await flush()
+        eq('记录缩略图：未完成不取；完成后取，失败 → 类型封面；重取时显示生成中，成功换成画面', [notYet, kFail, kPending, cv.recThumbs.get(kid.id)?.kind], [false, { kind: 'type', failed: true }, undefined, 'img'])
+      } finally {
+        Date.now = realNow
+        console.warn = warn
+        win.location.search = prev
+      }
+    }
+    // 复验 N1 / N2
+    eq('无法播放说明：H.265 建议 MP4 · H.264，其余照旧', [isHevcCodec('hevc'), isHevcCodec('libx265'), isHevcCodec('h265'), isHevcCodec('hevc_nvenc'), isHevcCodec('h264'), unplayableHint(true).includes('或转成 MP4 · H.264 后再预览。'), unplayableHint(false).includes('或转成 MP4 后再预览。')], [true, true, true, true, false, true, true])
+    const pv = readSrc('src/components/convert/ConvertPreviewDialog.vue')
+    eq('无法播放面板按钮叫“打开所在文件夹”，不再有“在文件夹中显示”', [REVEAL_LABEL, pv.includes('在文件夹中显示'), pv.includes('{{ REVEAL_LABEL }}')], ['打开所在文件夹', false, true])
+  }
   // ---- 第 2 行（设计 §7.3 第 14 条）：一个格式化函数，三处共用 ----
   const P = { presetId: 'builtin-mp4-h264-1080p', presetName: 'MP4 1080p（H.264 + AAC）', paramsSummary: 'H.264 · 1080p', title: 'a.mov → MP4' }
   eq('第 2 行：presetId 非空 → 预设名（卡片标题），悬停 = paramsSummary', recordParamsText(P), { text: 'MP4 1080p', tip: 'H.264 · 1080p', preset: true })
