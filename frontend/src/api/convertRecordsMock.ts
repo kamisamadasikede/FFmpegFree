@@ -421,7 +421,7 @@ export async function SubmitSources(req: ConvertSubmitRequest): Promise<ConvertS
   const list = all.filter((m) => !SKIP_REASON[m.src.copyState ?? ''])
   if (!list.length) {
     const copying = skipped.some((s) => s.reason === 'copying')
-    throw new AppError('TASK_CONFLICT', copying ? '文件还在复制，请等复制完成后再转换' : '文件复制没有完成，请先重试复制', `reason=${copying ? 'copying' : 'copy_failed'}\nsourceId=${skipped[0].sourceId}`)
+    throw new AppError('TASK_CONFLICT', copying ? '文件还在准备中，准备好后再转换。' : '文件复制没有完成，请先重试复制', `reason=${copying ? 'copying' : 'copy_failed'}\nsourceId=${skipped[0].sourceId}`)
   }
   for (const m of list) if (!m.exists) throw new AppError('NOT_FOUND', '源文件已不存在', m.src.path)
   const preset = Object.values(PRESET).find((p) => p.id === req.presetId)

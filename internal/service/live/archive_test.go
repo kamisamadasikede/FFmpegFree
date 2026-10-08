@@ -545,7 +545,7 @@ func TestArchiveNeverRanCleansPlaceholder(t *testing.T) {
 	}
 }
 
-// v0.24.4：启动时把 ffmpeg 参数记进应用日志，推流地址整段换成占位符（不出现主机、端口、密钥）。
+// v0.24.5：启动时把 ffmpeg 参数记进应用日志，推流地址整段换成占位符（不出现主机、端口、密钥）。
 func TestLiveArgvLoggedWithoutURL(t *testing.T) {
 	af := newArchiveFixture(t)
 	var logs []string

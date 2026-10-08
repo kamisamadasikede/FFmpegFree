@@ -2,7 +2,7 @@
 
 package ffmpeg
 
-// 集成测试（v0.24.4）：真实 ffmpeg 按 BuildFilePushArgs 推 30 fps 的 testsrc2 到本机的 ffmpeg RTMP 监听端（-listen 1），
+// 集成测试（v0.24.5）：真实 ffmpeg 按 BuildFilePushArgs 推 30 fps 的 testsrc2 到本机的 ffmpeg RTMP 监听端（-listen 1），
 // 量收到的帧率：预览关 / 开 / 预览写不进去（目标路径是个目录，改名必失败——相当于 Windows 上读取端占着预览文件）三种情况，
 // 主输出都必须保持源帧率。找不到 ffmpeg / ffprobe 时 Skip；-short 时跳过。
 

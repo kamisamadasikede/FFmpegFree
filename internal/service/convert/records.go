@@ -215,7 +215,7 @@ func readPath(src ConvertSource) string {
 // copyNotReadyError 是副本没就绪时的 TASK_CONFLICT（6.15.4 第 6 条）：copying → reason=copying，其余 → reason=copy_failed。
 func copyNotReadyError(src ConvertSource) error {
 	if src.CopyState == store.CopyCopying {
-		return apperr.New(apperr.TaskConflict, "文件还在复制，请等复制完成后再转换").WithDetail("reason=copying\nsourceId=" + src.SourceID)
+		return apperr.New(apperr.TaskConflict, "文件还在准备中，准备好后再转换。").WithDetail("reason=copying\nsourceId=" + src.SourceID)
 	}
 	return apperr.New(apperr.TaskConflict, "文件复制没有完成，请先重试复制").WithDetail("reason=copy_failed\nsourceId=" + src.SourceID)
 }
@@ -231,6 +231,27 @@ func sourceFile(src ConvertSource) (string, error) {
 		return "", task.FileNotFound()
 	}
 	return p, nil
+}
+
+// originalFile 是用户的原文件（v0.24.3）：始终用 originalPath，不用 uploads 里的副本。
+// 原文件不在、不是普通文件或路径不合法时 NOT_FOUND（reason=file），不退回副本。
+func originalFile(src ConvertSource) (string, error) {
+	p := src.OriginalPath
+	if p == "" {
+		p = src.Path
+	}
+	if p == "" || !filepath.IsAbs(p) {
+		return "", originalFileMissing()
+	}
+	fi, err := os.Stat(p)
+	if err != nil || !fi.Mode().IsRegular() {
+		return "", originalFileMissing()
+	}
+	return p, nil
+}
+
+func originalFileMissing() error {
+	return apperr.New(apperr.NotFound, "原文件不存在，无法打开。").WithDetail("reason=file")
 }
 
 // AddSources 登记源文件（契约 6.14.3）：1~500 个，逐个规范化、stat，同 path_key 已有行只更新 lastActivityAt。不探测。
@@ -426,7 +447,7 @@ func (s *Service) RetryCopy(ctx context.Context, sourceID string) (ConvertSource
 	case store.CopyNone, "":
 		return ConvertSource{}, apperr.New(apperr.InvalidArgument, "这个文件不需要复制")
 	case store.CopyCopying:
-		return ConvertSource{}, apperr.New(apperr.TaskConflict, "文件已经在复制或已复制完成")
+		return ConvertSource{}, apperr.New(apperr.TaskConflict, "文件还在准备中，不需要重试。")
 	case store.CopyReady:
 		if c, err := s.copyStore().GetCopy(ctx, src.CopyID); err == nil && storedOK(c) {
 			return ConvertSource{}, apperr.New(apperr.TaskConflict, "文件已经在复制或已复制完成")
@@ -997,7 +1018,7 @@ func (s *Service) GetSourcePreviewURL(ctx context.Context, sourceID string) (Pre
 		return PreviewURL{}, err
 	}
 	if src.CopyState == store.CopyCopying {
-		return PreviewURL{}, apperr.New(apperr.TaskConflict, "文件还在复制，复制完成后才能预览").WithDetail("reason=copying")
+		return PreviewURL{}, apperr.New(apperr.TaskConflict, "文件还在准备中，准备好后才能预览。").WithDetail("reason=copying")
 	}
 	p, err := sourceFile(src)
 	if err != nil {
@@ -1009,7 +1030,7 @@ func (s *Service) GetSourcePreviewURL(ctx context.Context, sourceID string) (Pre
 	})
 }
 
-// OpenSourceWithSystem 用系统默认程序打开源文件（规则同 TaskService.OpenWithSystem）。
+// OpenSourceWithSystem 用系统默认程序打开用户的原文件（v0.24.3：始终 originalPath，不打开副本）。
 func (s *Service) OpenSourceWithSystem(ctx context.Context, sourceID string) error {
 	_, ss, err := s.records()
 	if err != nil {
@@ -1019,14 +1040,15 @@ func (s *Service) OpenSourceWithSystem(ctx context.Context, sourceID string) err
 	if err != nil {
 		return err
 	}
-	p, err := sourceFile(src)
+	p, err := originalFile(src)
 	if err != nil {
 		return err
 	}
 	return s.open(p)
 }
 
-// RevealSource 在文件管理器里显示源文件（平台命令同 RevealInFolder，路径来自表，不走范围白名单）。
+// RevealSource 在文件管理器里显示用户的原文件（v0.24.3：打开 originalPath 所在文件夹并选中原文件，
+// 不打开 uploads 里的副本；原文件不在时不退回副本）。路径来自表，不走范围白名单。
 func (s *Service) RevealSource(ctx context.Context, sourceID string) error {
 	_, ss, err := s.records()
 	if err != nil {
@@ -1036,14 +1058,15 @@ func (s *Service) RevealSource(ctx context.Context, sourceID string) error {
 	if err != nil {
 		return err
 	}
-	p := displayPath(src)
-	if p == "" || !filepath.IsAbs(p) {
-		return task.FileNotFound()
+	p, err := originalFile(src)
+	if err != nil {
+		return err
 	}
-	if _, err := os.Stat(p); errors.Is(err, os.ErrNotExist) {
-		return task.FileNotFound()
+	err = s.reveal(p)
+	if apperr.Is(err, apperr.NotFound) {
+		return originalFileMissing()
 	}
-	return s.reveal(p)
+	return err
 }
 
 func (s *Service) reveal(p string) error {
