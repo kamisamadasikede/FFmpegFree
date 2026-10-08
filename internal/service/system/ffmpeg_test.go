@@ -181,6 +181,43 @@ func TestStartDetectsInBackgroundAndEmits(t *testing.T) {
 	}
 }
 
+// 启动时界面比首次检测先调接口：Start 一返回就算“检测中”，ffmpeg.WaitDetected 等到检测结果（ready 放行、missing 不放行），
+// 而不是立即拿到 FFMPEG_NOT_FOUND（包 19 Windows 转换页源文件行的媒体信息就是这样没写进去的）。
+func TestStartMarksCheckingForWaitDetected(t *testing.T) {
+	for _, good := range []bool{true, false} {
+		f := newFixture(t)
+		if good {
+			f.loc.BinDir = filepath.Join(f.root, "good", "bin")
+			f.install(t, f.loc.BinDir)
+		}
+		f.start(t)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ffmpeg.WaitDetected(ctx)
+		timedOut := ctx.Err() != nil
+		cancel()
+		if timedOut {
+			t.Fatalf("good=%v：检测结束后应结束等待", good)
+		}
+		_, err := ffmpeg.RequireProbe()
+		if good && err != nil {
+			t.Fatalf("Start 之后等到的应是检测结果（ready），而不是检测前的未就绪: %v", err)
+		}
+		if !good && !apperr.Is(err, apperr.FFmpegNotFound) {
+			t.Fatalf("missing 不放行: %v", err)
+		}
+		// 重新检测期间同样可等
+		if _, err := f.mgr.Recheck(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel = context.WithTimeout(context.Background(), time.Second)
+		ffmpeg.WaitDetected(ctx)
+		if ctx.Err() != nil {
+			t.Fatal("Recheck 返回后不应还在“检测中”")
+		}
+		cancel()
+	}
+}
+
 func TestMissingStatusAndGate(t *testing.T) {
 	f := newFixture(t)
 	f.start(t)

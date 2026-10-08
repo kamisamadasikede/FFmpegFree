@@ -1,6 +1,7 @@
 package ffmpeg
 
 import (
+	"context"
 	"sync"
 
 	"FFmpegFree/internal/apperr"
@@ -9,12 +10,29 @@ import (
 var (
 	curMu sync.RWMutex
 	cur   *Binaries
+	// detecting 非 nil = 检测进行中（启动时的首次检测、重新检测），检测有结果（SetCurrent）时关闭。
+	detecting chan struct{}
 )
 
-// SetCurrent 由 Manager 在检测结果变化时调用：ready 时传入可用路径，否则传 nil。
+// SetChecking 由 Manager 在开始检测时调用：检测期间 Require 照样返回 FFMPEG_NOT_FOUND，
+// 但 WaitDetected 会等到检测有结果。必须配一次 SetCurrent（ready 传路径，其余传 nil）结束等待。
+func SetChecking() {
+	curMu.Lock()
+	defer curMu.Unlock()
+	cur = nil
+	if detecting == nil {
+		detecting = make(chan struct{})
+	}
+}
+
+// SetCurrent 由 Manager 在检测结果变化时调用：ready 时传入可用路径，否则传 nil。同时结束 SetChecking 开始的等待。
 func SetCurrent(b *Binaries) {
 	curMu.Lock()
 	defer curMu.Unlock()
+	if detecting != nil {
+		close(detecting)
+		detecting = nil
+	}
 	if b == nil {
 		cur = nil
 		return
@@ -41,6 +59,22 @@ func Require() (Binaries, error) {
 		return b, nil
 	}
 	return Binaries{}, apperr.New(apperr.FFmpegNotFound, "未找到可用的转换组件，请先安装或手动指定转换组件所在位置")
+}
+
+// WaitDetected 在检测进行中时等检测有结果（最多等到 ctx 结束），没在检测时立即返回。
+// 用于“晚一点拿到结果也比拿不到好”的后台补全（如转换页源文件行的懒探测）：应用启动时页面比检测先到，
+// 直接 Require 会拿到 FFMPEG_NOT_FOUND。检测结束后是否可用仍以 Require / RequireProbe 为准。
+func WaitDetected(ctx context.Context) {
+	curMu.RLock()
+	ch := detecting
+	curMu.RUnlock()
+	if ch == nil {
+		return
+	}
+	select {
+	case <-ch:
+	case <-ctx.Done():
+	}
 }
 
 // RequireProbe 在 Require 的基础上要求 ffprobe 也可用（媒体探测、缩略图前调用）。
