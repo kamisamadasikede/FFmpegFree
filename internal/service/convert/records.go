@@ -900,8 +900,17 @@ func (s *Service) DeleteSource(ctx context.Context, sourceID string, deleteOutpu
 	if err != nil {
 		return task.NewDeleteResult(), err
 	}
-	// 6.15.7 第 1 步：副本在复制中先取消（同 CancelCopy）。
-	if src.CopyState == store.CopyCopying {
+	// 6.15.7 第 1 步：副本在复制中先取消（同 CancelCopy）。v0.24.1 实现取舍：副本还被别的行共享时不取消（取消作用于副本本身，
+	// 会让共享的行一起变成“已取消复制”）；这一行删掉后引用减一，复制照常写完给别的行用。
+	shared := false
+	if src.CopyState == store.CopyCopying && src.CopyID != "" {
+		if cs := s.copyStore(); cs != nil {
+			if c, err := cs.GetCopy(ctx, src.CopyID); err == nil && c.RefCount > 1 {
+				shared = true
+			}
+		}
+	}
+	if src.CopyState == store.CopyCopying && !shared {
 		if err := s.CancelCopy(ctx, sourceID); err != nil && !apperr.Is(err, apperr.TaskConflict) {
 			s.logf("删除前取消复制失败: %v", err)
 		}
