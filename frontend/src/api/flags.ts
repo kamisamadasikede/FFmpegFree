@@ -36,9 +36,9 @@ export const CONVERT_V2_BACKEND_READY: boolean = true
  */
 export const CONVERT_V24_BACKEND_READY: boolean = true
 /**
- * 直播预览 v0.25（包 21，契约已合入 #104）：GetPreviewStream → { url, mime, hasVideo, hasAudio }，PullSession.previewUrl。
- * 播放器用 mpegts.js。旧的 GetPreview / 每秒 2 帧轮询已从界面删除。
- * false（现在）：实现还没落地，浏览器模拟层按契约 6.10.3.1 返回 UNSUPPORTED reason=preview_unavailable、previewUrl ""；
- * 拉流页对 http(s) / ws(s) 仍直接播放用户填的地址。true：调真实绑定（callService，绑定生成后可改成 import）。
+ * 直播预览 v0.25（包 21，契约 6.10.3；后端 #109 已实现，绑定已重新生成）：GetPreviewStream → { url, mime, hasVideo, hasAudio }，
+ * PullSession.previewUrl，事件 live:pull。播放器用 mpegts.js，旧的 2 fps 图片预览已删除。
+ * true（联调打开）：在 Wails 里调真实绑定。纯浏览器（没有 window.go）仍走模拟：GetPreviewStream 返回 UNSUPPORTED reason=preview_unavailable，
+ * 拉流页对 http(s) / ws(s) 直接播放用户填的地址。改回 false：Wails 里也按模拟处理（推流预览显示“暂时无法预览”）。
  */
-export const LIVE_PREVIEW_V25_BACKEND_READY: boolean = false
+export const LIVE_PREVIEW_V25_BACKEND_READY: boolean = true

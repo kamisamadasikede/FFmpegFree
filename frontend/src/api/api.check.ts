@@ -1098,6 +1098,18 @@ export async function runApiChecks(): Promise<string[]> {
     eq('v0.25 模拟：GetPreviewStream 尚未实现 → preview_unavailable', [denied?.code, denied?.reason], ['UNSUPPORTED', 'preview_unavailable'])
     eq('v0.25 模拟：拉流回放用户自己的地址', (await stream.startPullPlayback('https://pull.example/a.flv')).stream?.url, 'https://pull.example/a.flv')
     await stream.stopPullPlayback(null)
+    eq('v0.25 模拟：ws / wss 地址前端直接拉（后端不收）', (await stream.startPullPlayback('wss://pull.example/a.flv')).session, null)
+    eq('v0.25：开关已打开（联调），纯浏览器里仍走模拟', [(await import('./flags')).LIVE_PREVIEW_V25_BACKEND_READY, stream.previewV25IsReal()], [true, false])
+    // 产品经理 10-08 定稿：拉流结束分两种
+    eq('拉流结束：不是用户点停止（live:pull ended / 流读完）→ 标题 + 第二行 + 「重新拉流」', stream.pullEndedView(false), { title: '拉流已结束', note: '直播已停止，或连接已断开。', retry: true })
+    eq('拉流结束：用户自己点「停止播放」→ 只有「拉流已结束」，没有第二行和按钮', stream.pullEndedView(true), { title: '拉流已结束', note: '', retry: false })
+    {
+      const fsx = (await import('node:fs')).readFileSync
+      const pull = fsx(`${process.cwd()}/src/views/live/PullPlay.vue`, 'utf8')
+      const player = fsx(`${process.cwd()}/src/components/live/LivePlayer.vue`, 'utf8')
+      eq('拉流页：用户停止走 pullEndedView(true)，live:pull ended / 流读完走 pullEndedView(false)', [/async function stop\(\) \{\s*userStopped = true\s*endedNote\.value = pullEndedView\(true\)\.note/.test(pull), /function onEnded\(\) \{\s*if \(userStopped[^\n]*\n\s*finish\(\)\s*endedNote\.value = pullEndedView\(false\)\.note/.test(pull), /if \(e\.state === 'ended'\) return onEnded\(\)/.test(pull)], [true, true, true])
+      eq('播放器：结束且有第二行时显示第二行和「重新拉流」（restart 用同一地址）', [/<small v-if="phase === 'ended' && endedNote" class="lp-sub">\{\{ endedNote \}\}<\/small>/.test(player), /v-if="phase === 'interrupted' \|\| \(phase === 'ended' && endedNote\)"/.test(player), /@restart="start"/.test(pull)], [true, true, true])
+    }
     // 文案里没有编码器名，时间戳不进文案
     eq('预览文案锁定（待产品经理确认的自拟部分除外）', [pvMsg.PREVIEW_LOADING_TITLE, pvMsg.PREVIEW_SWITCH_LABEL, pvMsg.PREVIEW_SWITCH_NOTE, pvMsg.PREVIEW_ROW_ON, pvMsg.PREVIEW_ROW_OFF, pvMsg.PREVIEW_OFF_TITLE], ['正在获取画面，通常需要几秒', '开启预览', '开启预览会多占用少量 CPU', '预览：开', '预览：关', '该会话未开启预览'])
   return fails

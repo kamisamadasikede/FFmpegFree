@@ -35,7 +35,8 @@
         <template v-else>
           <span class="ic" :class="{ warn: phase === 'interrupted' }"><FIcon :name="phase === 'interrupted' ? 'warn' : phase === 'ended' ? 'stop' : 'block'" :size="20" /></span>
           <p>{{ overlayText }}</p>
-          <button v-if="phase === 'interrupted'" type="button" class="lp-act" @click="retry"><FIcon name="retry" :size="14" />{{ kind === 'pull' ? LP_RETRY_PULL : LP_RETRY_PUSH }}</button>
+          <small v-if="phase === 'ended' && endedNote" class="lp-sub">{{ endedNote }}</small>
+          <button v-if="phase === 'interrupted' || (phase === 'ended' && endedNote)" type="button" class="lp-act" @click="retry"><FIcon name="retry" :size="14" />{{ kind === 'pull' ? LP_RETRY_PULL : LP_RETRY_PUSH }}</button>
         </template>
       </div>
     </div>
@@ -105,6 +106,10 @@ const props = withDefaults(defineProps<{
   lowLatency?: boolean
   /** phase=empty 时的文字（默认“还没有进行中的预览”） */
   emptyText?: string
+  /** phase=ended 时的第二行（拉流：不是用户点停止而结束）；有它时旁边给「重新拉流」 */
+  endedNote?: string
+  /** phase=interrupted 时换掉默认正文（拉流开始前就失败：用后端 error 的 message） */
+  breakText?: string
 }>(), { url: '', mime: 'video/x-flv', hasAudio: true, clock: '00:00:00', aspect: 16 / 9, fake: '', lag: null, reason: '', lowLatency: true })
 
 const emit = defineEmits<{ restart: []; catchup: []; 'media-unsupported': []; 'media-ended': []; 'media-broken': []; playing: []; stats: [s: { kbps: number; fps: number; dropped: number; bytes: number }] }>()
@@ -128,7 +133,8 @@ const buffering = ref(false)
 const fullOn = computed(() => props.forceFull || full.value)
 const idleOn = computed(() => props.forceIdle || idle.value)
 const volOpen = computed(() => props.forceVol || volHover.value)
-const showVideo = computed(() => props.phase === 'playing' || props.phase === 'buffering' || props.phase === 'ended' || props.phase === 'interrupted')
+// 连接中也要有 <video>（在转圈下面，不可见画面）：播放器要先挂上它才能出第一帧
+const showVideo = computed(() => props.phase === 'connecting' || props.phase === 'playing' || props.phase === 'buffering' || props.phase === 'ended' || props.phase === 'interrupted')
 const dimmed = computed(() => props.phase === 'ended' || props.phase === 'interrupted')
 const showChip = computed(() => props.phase === 'playing' || props.phase === 'buffering' || (props.phase === 'unsupported' && props.kind === 'push'))
 const showBar = computed(() => props.phase === 'playing' || props.phase === 'buffering')
@@ -137,7 +143,7 @@ const showEsc = ref(true)
 const overlay = computed(() => props.phase === 'connecting' || props.phase === 'buffering' || props.phase === 'unsupported' || props.phase === 'ended' || props.phase === 'interrupted')
 const overlayText = computed(() => {
   if (props.phase === 'ended') return props.kind === 'pull' ? LP_END_PULL : LP_END_PUSH
-  if (props.phase === 'interrupted') return props.kind === 'pull' ? LP_BREAK_PULL : LP_BREAK_PUSH
+  if (props.phase === 'interrupted') return props.breakText || (props.kind === 'pull' ? LP_BREAK_PULL : LP_BREAK_PUSH)
   if (props.reason === 'unavailable') return LP_UNAVAILABLE
   return props.kind === 'pull' ? LP_UNSUP_PULL : LP_UNSUP_PUSH
 })
@@ -205,17 +211,24 @@ function onVolDown(e: PointerEvent) {
 
 let statTimer: ReturnType<typeof setInterval> | null = null
 let lastDecoded = 0
+/** 最近几秒的解码帧数：WebKitGTK 的解码计数是成批更新的（实测每秒读数在 18 / 37 之间跳），按 3 秒平均 */
+let fpsWin: number[] = []
 let accBytes = 0
 function stopStats() { if (statTimer) clearInterval(statTimer); statTimer = null }
 function destroyPlayer() {
   clearTimeout(bufTimer)
+  clearTimeout(retryTimer)
   stopStats()
   if (player) {
     try { player.pause(); player.unload(); player.detachMediaElement(); player.destroy() } catch { /* 已销毁 */ }
     player = null
   }
 }
-function attach(url: string) {
+const CONNECT_WAIT_MS = 12000
+let connectSince = 0
+let retryTimer: ReturnType<typeof setTimeout> | undefined
+function attach(url: string, retry = false) {
+  if (!retry) connectSince = Date.now()
   destroyPlayer()
   const el = videoEl.value
   if (!el || props.fake) return
@@ -224,12 +237,19 @@ function attach(url: string) {
   player = mpegts.createPlayer(
     { type: /mp2t|mpegts/i.test(props.mime) ? 'mpegts' : 'flv', isLive: true, url, hasAudio: props.hasAudio, hasVideo: true },
     chase
-      ? { enableWorker: false, enableStashBuffer: false, stashInitialSize: 128, liveBufferLatencyChasing: true, liveBufferLatencyMaxLatency: 1.5, liveBufferLatencyMinRemain: 0.3, autoCleanupSourceBuffer: true }
+      ? // 追帧主要靠略微加速（liveSync，不跳帧）；跳到最新位置只在落后很多时兜底。
+      // 实测 Linux WebKitGTK：分段到达的源（HLS 等）每到一段就超过 1.5 秒，按跳转追帧会落在 GOP 中间，灰色花屏直到下一个关键帧。
+      { enableWorker: false, enableStashBuffer: false, stashInitialSize: 128, liveSync: true, liveSyncMaxLatency: 1.2, liveSyncTargetLatency: 0.6, liveSyncPlaybackRate: 1.2, liveBufferLatencyChasing: true, liveBufferLatencyMaxLatency: 6, liveBufferLatencyMinRemain: 1, autoCleanupSourceBuffer: true }
       : { enableWorker: false, enableStashBuffer: true, autoCleanupSourceBuffer: true },
   )
-  player.on(mpegts.Events.ERROR, (_t: string, detail: string) => {
+  player.on(mpegts.Events.ERROR, (type: string, detail: string) => {
     if (detail === mpegts.ErrorDetails.MEDIA_CODEC_UNSUPPORTED || detail === mpegts.ErrorDetails.MEDIA_FORMAT_UNSUPPORTED) emit('media-unsupported')
     else if (props.phase === 'playing' || props.phase === 'buffering') emit('media-broken')
+    else if (type === mpegts.ErrorTypes.NETWORK_ERROR && props.phase === 'connecting' && Date.now() - connectSince < CONNECT_WAIT_MS) {
+      // 契约 6.10.3.4：还没收到 FLV 头时本机预览服务回 503（最多约 10 秒），隔 1 秒重连
+      clearTimeout(retryTimer)
+      retryTimer = setTimeout(() => { if (wantUrl.value === url) attach(url, true) }, 1000)
+    } else emit('media-broken')
   })
   player.on(mpegts.Events.LOADING_COMPLETE, () => emit('media-ended'))
   el.addEventListener('playing', () => emit('playing'), { once: true })
@@ -238,17 +258,27 @@ function attach(url: string) {
     bufTimer = setTimeout(() => { if (props.phase === 'playing') buffering.value = true }, 500)
   })
   el.addEventListener('playing', () => { clearTimeout(bufTimer); buffering.value = false })
+  // WebKitGTK 不会自己跳过开头的空档：第一段缓冲从 1.x 秒开始而 currentTime 还是 0 时会一直卡在“正在连接”，这里手动跳到缓冲开头
+  const jumpGap = () => {
+    const b = el.buffered
+    if (b.length && el.currentTime < b.start(0) - 0.01) el.currentTime = b.start(0) + 0.05
+  }
+  el.addEventListener('progress', jumpGap)
+  el.addEventListener('loadedmetadata', jumpGap)
   player.attachMediaElement(el)
   el.muted = muted.value
   player.load()
   lastDecoded = 0
+  fpsWin = []
   accBytes = 0
   stopStats()
   statTimer = setInterval(() => {
     const si = (player as { statisticsInfo?: { decodedFrames?: number; speed?: number; droppedFrames?: number } } | null)?.statisticsInfo
+    jumpGap()
     if (!si) return
     const decoded = si.decodedFrames ?? 0
-    const fps = lastDecoded ? Math.max(0, decoded - lastDecoded) : 0
+    if (lastDecoded) fpsWin = [...fpsWin, Math.max(0, decoded - lastDecoded)].slice(-3)
+    const fps = fpsWin.length ? fpsWin.reduce((a, b) => a + b, 0) / fpsWin.length : 0
     lastDecoded = decoded
     accBytes += (si.speed ?? 0) * 1024
     emit('stats', { kbps: (si.speed ?? 0) * 8, fps, dropped: si.droppedFrames ?? 0, bytes: accBytes })
@@ -256,10 +286,12 @@ function attach(url: string) {
   const p = player.play()
   if (p && typeof (p as Promise<void>).catch === 'function') (p as Promise<void>).catch(() => { muted.value = true; hintOn.value = true; void el.play().catch(() => undefined) })
 }
-watch(() => [props.url, props.phase] as const, ([url, phase]) => {
-  if (url && (phase === 'connecting' || phase === 'playing' || phase === 'buffering') && !props.fake) attach(url)
+// 只在地址变了、或从非进行中变成进行中时建播放器；连接中 → 播放中不重建（否则会断开重连一次）
+const wantUrl = computed(() => (props.url && !props.fake && (props.phase === 'connecting' || props.phase === 'playing' || props.phase === 'buffering') ? props.url : ''))
+watch(wantUrl, (url) => {
+  if (url) attach(url)
   else destroyPlayer()
-})
+}, { flush: 'post' }) // 等 <video> 渲染出来再挂
 watch(muted, (m) => { if (videoEl.value) videoEl.value.muted = m })
 watch(volume, (v) => { if (videoEl.value) videoEl.value.volume = v / 100 })
 
@@ -303,6 +335,7 @@ onBeforeUnmount(() => { destroyPlayer(); document.removeEventListener('fullscree
 .lp-ov .in { display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 360px; }
 .lp-ov .ic { width: 40px; height: 40px; border-radius: 50%; background: rgba(255, 255, 255, .14); display: grid; place-items: center; }
 .lp-ov .ic.warn { color: var(--lp-warn); background: rgba(251, 191, 36, .16); }
+.lp-ov .lp-sub { font-size: 12px; color: var(--lp-fg-2); margin-top: -4px; }
 .lp-ov p { margin: 0; font-size: 13px; font-weight: 500; line-height: 1.5; }
 .lp-act { display: inline-flex; align-items: center; gap: 6px; height: 28px; margin-top: 4px; padding: 0 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, .28); background: rgba(255, 255, 255, .14); color: #fff; font: inherit; font-size: 13px; cursor: pointer; }
 .lp-spin { width: 28px; height: 28px; border-radius: 50%; border: 2.5px solid rgba(255, 255, 255, .25); border-top-color: #fff; animation: lprot .9s linear infinite; }

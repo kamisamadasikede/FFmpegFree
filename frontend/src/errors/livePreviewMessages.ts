@@ -52,6 +52,8 @@ export const LP_UNSUP_PULL = '这路视频无法在应用内播放。'
 export const LP_UNAVAILABLE = LP_UNSUP_PUSH
 export const LP_END_PUSH = '推流已结束'
 export const LP_END_PULL = '拉流已结束'
+/** 拉流不是用户点停止而结束（live:pull ended：远端停止发布或连接正常关闭，契约 6.10.3.7 ⑩）时的第二行，旁边是「重新拉流」。产品经理 10-08 定稿；用户自己点停止时没有这一行 */
+export const LP_END_PULL_REMOTE = '直播已停止，或连接已断开。'
 /** 契约 6.10.3.7，产品经理已定（按钮仍是「重新推流」，不跳页面） */
 export const LP_BREAK_PUSH = '推流被中断，请回到直播页重新推流。'
 /** 产品经理已定：和按钮同一个动词，不用「请重新开始播放」 */

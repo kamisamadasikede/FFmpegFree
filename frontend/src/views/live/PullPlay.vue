@@ -17,6 +17,9 @@
         :lag="vis?.lag ?? null"
         :aspect="vis?.aspect ?? 16 / 9"
         :empty-text="LP_EMPTY_PULL"
+        :ended-note="endedNote"
+        :break-text="breakText"
+        :has-audio="hasAudio"
         @restart="start"
         @playing="onPlaying"
         @media-broken="onBroken"
@@ -44,8 +47,9 @@
 </template>
 
 <script setup lang="ts">
-// 拉流播放（包 21 / 契约 v0.25）：画面交给 LivePlayer（mpegts.js）。
-// 开关关闭时 http(s) / ws(s) 直接播用户填的地址，不调用 StartPullPreview / GetPreview。
+// 拉流播放（包 21 / 契约 v0.25 6.10.3.3、6.10.3.7）：http(s) 走后端 StartPullPreview 的 previewUrl（转封装成 FLV），ws(s) 前端直接拉；画面交给 LivePlayer（mpegts.js）。
+// 状态：live:pull playing / ended / interrupted / failed / unsupported；mpegts.js 的 LOADING_COMPLETE 也算结束。
+// 结束分两种（产品经理 10-08）：用户自己点「停止播放」→ 只写「拉流已结束」；不是用户停的（远端停止发布、连接正常关闭）→ 加第二行 LP_END_PULL_REMOTE 和「重新拉流」。
 import { computed, onBeforeUnmount, ref, toRefs, watch } from 'vue'
 import LiveTabFrame from '@/components/live/LiveTabFrame.vue'
 import LivePanel from '@/components/live/LivePanel.vue'
@@ -60,7 +64,7 @@ import { isValidPullUrl } from '@/errors/playerError'
 import { useLiveFormsStore } from '@/stores/liveForms'
 import { useLiveDockStore } from '@/stores/liveDock'
 import { lpVisual, type LpPhase } from './lpVisual'
-import { classifyPreviewError, startPullPlayback, stopPullPlayback, type PullPlayback } from '@/api/livePreviewStream'
+import { classifyPreviewError, pullEndedView, startPullPlayback, stopPullPlayback, watchPull, type PullEvent, type PullPlayback } from '@/api/livePreviewStream'
 
 defineOptions({ name: 'LivePullPlay' })
 
@@ -74,7 +78,17 @@ const vis = lpVisual && lpVisual.tab === 'pull' ? lpVisual : null
 const phase = ref<LpPhase>(vis?.phase ?? 'empty')
 const reason = ref<'' | 'codec' | 'unavailable'>(vis?.reason ?? '')
 const playUrl = ref('')
+const hasAudio = ref(true)
+/** 结束时的第二行：只有不是用户点停止而结束时才有 */
+const endedNote = ref(vis?.phase === 'ended' && previewParamsRemote() ? pullEndedView(false).note : '')
+/** 开始前就失败（live:pull failed）时的正文 */
+const breakText = ref('')
 let playback: PullPlayback | null = null
+let userStopped = false
+let unwatch: (() => void) | null = null
+function previewParamsRemote() {
+  return new URLSearchParams(window.location.search).get('remote') === '1' // 截图：?lpv=pull-ended&remote=1
+}
 
 const busy = computed(() => phase.value === 'connecting' || phase.value === 'playing' || phase.value === 'buffering')
 const clock = computed(() => (vis ? vis.clock : formatClock(session.uptimeSec.value)))
@@ -93,15 +107,21 @@ async function start() {
     session.log('流地址格式不正确')
     return
   }
+  unwatch?.()
+  unwatch = null
   await stopPullPlayback(playback)
   playback = null
+  userStopped = false
   playUrl.value = ''
   reason.value = ''
+  endedNote.value = ''
+  breakText.value = ''
   phase.value = 'connecting'
   session.setStarting()
   session.log('开始拉流')
   try {
     playback = await startPullPlayback(u)
+    if (playback.session) unwatch = watchPull(playback.session.id, onPullEvent)
     const stream = playback.stream
     if (!stream?.url) {
       phase.value = 'unsupported'
@@ -109,6 +129,7 @@ async function start() {
       session.fail('UNSUPPORTED', 'reason=preview_unavailable')
       return
     }
+    hasAudio.value = stream.hasAudio
     playUrl.value = stream.url
   } catch (e) {
     const k = classifyPreviewError(e)
@@ -118,19 +139,47 @@ async function start() {
   }
 }
 
+function onPullEvent(e: PullEvent) {
+  if (userStopped) return
+  if (e.state === 'playing') return // 画面以播放器真的出帧为准（onPlaying）
+  if (e.state === 'ended') return onEnded()
+  if (e.state === 'interrupted') return onBroken()
+  if (e.state === 'unsupported') return onUnsup()
+  if (e.state === 'failed') {
+    // 开始前就失败（连不上等）：用后端分类后的 message，播放器给「重新拉流」
+    breakText.value = e.error?.message || ''
+    return onBroken()
+  }
+}
 function onPlaying() {
+  if (!busy.value) return
   phase.value = 'playing'
   session.setRunning()
 }
+function finish() {
+  playUrl.value = ''
+  unwatch?.()
+  unwatch = null
+  void stopPullPlayback(playback)
+  playback = null
+}
 function onBroken() {
+  if (userStopped || phase.value === 'interrupted' || phase.value === 'unsupported') return
+  finish()
   phase.value = 'interrupted'
   session.fail('LIVE_PLAY_FAILED', '')
 }
+/** 不是用户点停止而结束（live:pull ended，或播放器读到流的结尾）：加第二行和「重新拉流」 */
 function onEnded() {
+  if (userStopped || !busy.value) return
+  finish()
+  endedNote.value = pullEndedView(false).note
   phase.value = 'ended'
   session.setIdle()
 }
 function onUnsup() {
+  if (userStopped || phase.value === 'unsupported') return
+  finish()
   phase.value = 'unsupported'
   reason.value = 'codec'
   session.fail('UNSUPPORTED', 'reason=codec')
@@ -143,15 +192,20 @@ function onStats(s: { kbps: number; fps: number; dropped: number; bytes: number 
   if (s.bytes >= 1048576) { dock.pull.bytes = (s.bytes / 1048576).toFixed(1); dock.pull.unit = 'MB' }
   else { dock.pull.bytes = String(Math.max(0, Math.round(s.bytes / 1024))); dock.pull.unit = 'KB' }
 }
+/** 用户自己点「停止播放」：只写「拉流已结束」，没有第二行 */
 async function stop() {
+  userStopped = true
+  endedNote.value = pullEndedView(true).note
   playUrl.value = ''
+  unwatch?.()
+  unwatch = null
   await stopPullPlayback(playback)
   playback = null
   phase.value = 'ended'
   session.setIdle()
   session.log('已停止播放')
 }
-onBeforeUnmount(() => { void stopPullPlayback(playback) })
+onBeforeUnmount(() => { userStopped = true; unwatch?.(); void stopPullPlayback(playback) })
 </script>
 
 <style scoped>
