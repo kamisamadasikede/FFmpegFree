@@ -92,12 +92,21 @@
                 </td>
                 <td class="tc-dim">
                   <div v-if="showBar(t)" class="prog">
-                    <div class="pline"><span>{{ barText(t) }}</span><span>{{ percent(t) }}%</span></div>
+                    <div class="pline" :title="barText(t) || undefined">
+                      <span class="wide">{{ barText(t) }}</span>
+                      <!-- 1024（复验 N3）：进度列只有 104px，速度单独放、不省略；剩余时间挪到进度条下面，用 m:ss 短写 -->
+                      <span class="narrow spd">{{ narrowSpeed(t) }}</span>
+                      <span>{{ percent(t) }}%</span>
+                    </div>
                     <div class="bar" role="progressbar" :aria-label="`${t.title} 进度`" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="percent(t)">
                       <i :class="barClass(t)" :style="{ width: percent(t) + '%' }" />
                     </div>
+                    <span v-if="narrowEta(t)" class="narrow peta">{{ narrowEta(t) }}</span>
                   </div>
-                  <span v-else class="plain" :class="{ dim: t.status === 'canceled' }">{{ progressText(t) }}</span>
+                  <span v-else class="plain" :class="{ dim: t.status === 'canceled' }" :title="progressShort(t) ? progressText(t) : undefined">
+                    <template v-if="progressShort(t)"><span class="wide">{{ progressText(t) }}</span><span class="narrow">{{ progressShort(t) }}</span></template>
+                    <template v-else>{{ progressText(t) }}</template>
+                  </span>
                 </td>
                 <td class="when tc-dim" :class="{ dim: !t.startedAt && !isTerminal(t.status) }">{{ formatStart(startTime(t)) }}</td>
                 <td>
@@ -443,6 +452,26 @@ function progressText(t: TaskItem): string {
     case 'canceled':
       return isLiveType(t.type) ? LIVE_STOP_TEXT.canceled : '用户取消'
   }
+}
+
+// ---- 1024 下进度列的短写（复验 N3）：列宽 104px，速度不省略、“用时”不折行 ----
+/** 秒数 → m:ss / h:mm:ss（937 → "15:37"） */
+function shortClock(sec: number): string {
+  const s = Math.max(0, Math.round(sec))
+  const p = (n: number) => String(n).padStart(2, '0')
+  return s >= 3600 ? `${Math.floor(s / 3600)}:${p(Math.floor((s % 3600) / 60))}:${p(s % 60)}` : `${Math.floor(s / 60)}:${p(s % 60)}`
+}
+const narrowRun = (t: TaskItem) => t.status === 'running' && !isLiveType(t.type)
+/** 进度条上方左边：只放速度（没有速度时放“处理中”）；其余状态和宽屏一样 */
+const narrowSpeed = (t: TaskItem): string => (narrowRun(t) ? t.speed || (formatEta(t.etaSec) ? '' : '处理中') : barText(t))
+/** 进度条下面：剩余 0:52 */
+const narrowEta = (t: TaskItem): string => (narrowRun(t) && t.etaSec > 0 && isFinite(t.etaSec) ? `剩余 ${shortClock(t.etaSec)}` : '')
+/** 没有进度条的行：完成的“用时 15 分 37 秒”短写成“用时 15:37”；其余不变（返回 ''） */
+function progressShort(t: TaskItem): string {
+  if (t.status !== 'succeeded') return ''
+  const ms = elapsedMs(t.startedAt, t.finishedAt)
+  if (ms === null || ms < 60_000) return ''
+  return `${isLiveType(t.type) ? '推流' : '用时'} ${shortClock(ms / 1000)}`
 }
 
 /** 第二行小字：从 params 里取转换选项，取不到就显示输出文件名；参数格式不假设，解析失败静默跳过 */
@@ -901,6 +930,31 @@ th { white-space: nowrap; } /* “开始时间”不换行 */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.pline span:last-child,
+.pline .spd,
+.plain .narrow,
+.peta {
+  white-space: nowrap;
+}
+.pline .spd {
+  flex: none;
+  overflow: visible;
+}
+.peta {
+  color: var(--ff-text-2);
+}
+.narrow {
+  display: none;
+}
+@media (max-width: 1100px) {
+  .prog .wide,
+  .plain .wide {
+    display: none;
+  }
+  .narrow {
+    display: inline;
+  }
 }
 .bar {
   width: 100%;
