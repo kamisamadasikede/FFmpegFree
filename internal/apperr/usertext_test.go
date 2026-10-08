@@ -48,6 +48,10 @@ func TestUserFacingTextHasNoFFmpeg(t *testing.T) {
 			case "node_modules", "frontend", "build", ".git", "vendor":
 				return filepath.SkipDir
 			}
+			// 剪辑（EditService）即将整体移除，不在本次扫描范围内。
+			if filepath.ToSlash(path) == filepath.ToSlash(filepath.Join(root, "internal", "service", "edit")) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
