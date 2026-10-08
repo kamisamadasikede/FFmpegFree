@@ -1531,7 +1531,7 @@ CREATE INDEX idx_tasks_hidden_created ON tasks(hidden_in_task_center, created_at
 - **只收 id**：`GetRecordThumbnail(taskId)` 取转换记录的输出文件（`outputPath`），`GetSourceThumbnail(sourceId)` 取源文件行登记的 `path`；路径都由后端从表里取，**不接受前端传路径**。
 - **返回值**：一个字符串，就是 `MediaService.Thumbnail` 返回的 `Thumb.dataUrl`（也是 `MediaInfo.thumbUrl` 的格式）：**`data:image/jpeg;base64,<JPEG 文件的标准 base64，带 = 填充、不换行>`**，前端直接放进 `<img src>`。**不返回** `Thumb` 里的 `path`（缓存文件的绝对路径）、`atSec`、`width`：按“只收 id、不往前端暴露路径”的规则只给图片本身。
 - **图片规格**（与 `Probe` 附带的默认缩略图完全相同，6.7）：JPEG，最大宽度 320（`media.DefaultThumbWidth`，源更窄时不放大），高度按比例取偶数，按旋转元数据转正；截图时间点 = 时长的 10%、最多 10 秒、精确到 0.1 秒（`defaultThumbAt`），时长未知取第 0 秒，超出时长退回第 0 秒。时长从记录的 `result.durationSec` / `media` 表取，都没有时先探测一次。封面图（`attached_pic`）不算画面。GIF 输出有画面，可以出缩略图。
-- **懒生成 + 缓存**：首次调用时才生成（同时最多 2 个 ffmpeg 在生成，相同参数并发只生成一次，单次超时 20 秒），复用 6.7 的磁盘缓存 `<数据目录>/thumbs/<sha1(path_key, mtime, size, atSec 毫秒, width)>.jpg`：**文件的修改时间或大小一变，缓存名就变，下次调用自动重新生成**；容量上限和清理规则同 6.7（1000 个文件或 200 MB）。命中缓存不启动 ffmpeg。删除记录不主动删缓存，由容量清理回收。
+- **懒生成 + 缓存**：首次调用时才生成（同时最多 2 个 ffmpeg 在生成，相同参数并发只生成一次，单次超时 20 秒），复用 6.7 的磁盘缓存 `<数据目录>/thumbs/<sha1(path_key, mtime, size, atSec 毫秒, width)>.jpg`。**缓存键必须包含文件的修改时间（mtime）和大小（size）（架构师定）**：同一路径的文件被覆盖或替换后，mtime 或 size 变了，缓存键随之变化，下次调用一定重新生成，不会返回旧文件的缩略图（每次调用都先 `os.Stat` 拿当前的 mtime / size 再算键）；容量上限和清理规则同 6.7（1000 个文件或 200 MB）。命中缓存不启动 ffmpeg。删除记录不主动删缓存，由容量清理回收。
 - **不写进 `result`**，也不放进 `ListSources` / `SearchSources` 的返回值（避免一屏几十张图拖慢列表）；前端在行进入可视区域时逐个调用，失败按下面的规则显示占位。
 - **错误码**：
 
@@ -1539,7 +1539,7 @@ CREATE INDEX idx_tasks_hidden_created ON tasks(hidden_in_task_center, created_at
 |---|---|---|
 | `taskId` / `sourceId` 不存在，或旧类型 | `NOT_FOUND`（`reason=record`） | 不显示该行（记录已被删） |
 | `GetRecordThumbnail` 的任务不是 `convert` | `INVALID_ARGUMENT` | — |
-| 记录不是 `succeeded`（没有输出）、文件已不在、不是普通文件、输出是符号链接 | `NOT_FOUND`（`reason=file`） | “文件已被移动或删除”占位 |
+| **文件不存在**（已被移动或删除），以及记录不是 `succeeded`（没有输出）、不是普通文件、输出是符号链接 | `NOT_FOUND`（`reason=file`）（架构师定） | **显示占位图**（缺失文件的占位图，可配“文件已被移动或删除”提示）；不弹错误 |
 | **没有画面，做不出缩略图**：纯音频（含只带封面图的 mp3 等），或扩展名 / 内容不是音视频 | `UNSUPPORTED`（`reason=format`） | **按类型显示图标**：音频容器（mp3 / m4a / aac / wav / flac / ogg / opus）显示音频图标，其他显示通用文件图标；不当作错误提示 |
 | ffmpeg / ffprobe 缺失 | `FFMPEG_NOT_FOUND` | 类型图标 |
 | 文件损坏、截图失败、超时 | `PROBE_FAILED` 或 `INTERNAL`（沿用 `MediaService.Thumbnail` 的错误） | 类型图标 |
