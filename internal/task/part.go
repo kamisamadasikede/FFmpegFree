@@ -116,6 +116,17 @@ func (n *namer) hold(p, owner string) bool {
 	return true
 }
 
+// claim 让 owner 占用 p，不看磁盘（原地重转沿用自己的输出名，契约 6.17.3 第 2 步）：被别的任务占着时返回 false。
+func (n *namer) claim(p, owner string) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if h, ok := n.held[nameKey(p)]; ok && h.owner != owner {
+		return false
+	}
+	n.held[nameKey(p)] = holder{owner: owner, path: p}
+	return true
+}
+
 // takeHeld 返回 owner 已占的名字（提交时 / 重试时占的）。占着的名字在此期间被别的程序在磁盘上建了同名文件（或 .part）时，
 // 释放它并返回 false，由调用方顺延。
 func (n *namer) takeHeld(owner string) (string, bool) {

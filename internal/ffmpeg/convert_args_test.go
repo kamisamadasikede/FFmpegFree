@@ -116,6 +116,10 @@ func TestPlanConvertTable(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			p := plan(t, c.o, c.src)
+			if c.o.Container != "gif" { // v0.24：所有输出都显式加 -f <muxer>，放在输出路径前面
+				n := len(c.want)
+				c.want = append(append(append([]string{}, c.want[:n-1]...), "-f", ContainerMuxer(c.o.Container)), c.want[n-1])
+			}
 			if !reflect.DeepEqual(p.Final, c.want) {
 				t.Fatalf("\n got: %q\nwant: %q", p.Final, c.want)
 			}

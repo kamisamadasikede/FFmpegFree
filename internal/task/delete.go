@@ -21,11 +21,23 @@ type DeleteResult struct {
 
 // DeleteFailure 是没删成的文件 / 记录（契约 6.14.4 的固定枚举和文案）。
 type DeleteFailure struct {
-	TaskID  string `json:"taskId"`
-	Path    string `json:"path,omitempty"`
-	Reason  string `json:"reason"`
-	Message string `json:"message"`
+	TaskID   string `json:"taskId"`             // 副本删不掉时为 ""
+	SourceID string `json:"sourceId,omitempty"` // v0.24：只有副本删不掉的那一条有（6.15.6）
+	Path     string `json:"path,omitempty"`
+	Reason   string `json:"reason"`
+	Message  string `json:"message"`
 }
+
+// NewCopyDeleteFailure 是副本删不掉的那一条（契约 6.15.7 第 3、4 步）：taskId 为 ""，带 sourceId。
+func NewCopyDeleteFailure(sourceID, path, reason string) DeleteFailure {
+	return DeleteFailure{SourceID: sourceID, Path: path, Reason: reason, Message: deleteMessages[reason]}
+}
+
+// ClassifyRemoveErr 把删除文件的错误归到 in_use / permission / io（副本删除用）。
+func ClassifyRemoveErr(err error) string { return classifyRemoveErr(err) }
+
+// AllowReveal 让删除失败留下的文件在 10 分钟内可以 RevealInFolder（副本删不掉时用，契约 6.15.7 第 4 步）。
+func (m *Manager) AllowReveal(path string) { m.allowRevealOfFailure(path, path) }
 
 // DeleteFailure.Reason 的固定枚举（只追加）。
 const (
@@ -187,12 +199,13 @@ func (m *Manager) DeleteRecords(ids []string, typ Type, deleteOutputs bool, befo
 				m.allowRevealOfFailure(res.Failures[len(res.Failures)-1].Path, t.OutputPath)
 			}
 		}
-		// 4. .part 残留（别的任务正占着这个名字时不碰）。
+		// 4. .part 残留（别的任务正占着这个名字时不碰）；重转的临时文件兜底再删一次（6.17.6，名字里带 taskId）。
 		if t.OutputPath != "" && !m.namer.heldByOther(t.OutputPath, t.ID) {
 			if err := removeStalePart(t.OutputPath, t.StartedAt); err != nil {
 				m.logf("删除任务 %s 的 .part 残留失败: %v", t.ID, err)
 			}
 		}
+		m.removeReconvertTemp(t)
 	}
 
 	// 6. 删记录、删日志、发事件。
@@ -244,7 +257,8 @@ func (m *Manager) TaskFile(taskID, which string) (string, Task, error) {
 		return p, t, nil
 	}
 	p = t.OutputPath
-	if t.Status != StatusSucceeded || p == "" || !absPath(p) {
+	// 重转中的记录按 succeeded 处理，作用在旧文件上（契约 6.17.4）。
+	if (t.Status != StatusSucceeded && !t.Reconverting) || p == "" || !absPath(p) {
 		return "", t, FileNotFound()
 	}
 	fi, err := os.Lstat(p)

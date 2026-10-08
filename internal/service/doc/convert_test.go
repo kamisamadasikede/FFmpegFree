@@ -307,6 +307,31 @@ func TestOutputDirRules(t *testing.T) {
 	if err := os.Symlink(e.data, link); err == nil {
 		wantCode(t, call(link), apperr.InvalidArgument)
 	}
+	wantCode(t, call(filepath.Join(e.data, "outputs")), apperr.InvalidArgument) // 只放行名字恰好是 output 的
+	// v0.24.1：<dataDir>/output 及其子文件夹放行（macOS .app / Linux 回退后 <base>/output 就在这里），
+	// 输出目录默认值（实际输出目录 = <dataDir>/output）同样能用
+	for _, d := range []string{filepath.Join(e.data, "output"), filepath.Join(e.data, "output", "sub")} {
+		ts, err := e.svc.ConvertToPDF(context.Background(), []string{in}, d)
+		if err != nil {
+			t.Fatalf("%s 应放行: %v", d, err)
+		}
+		if tk := e.wait(t, ts[0].ID); tk.Status != task.StatusSucceeded || filepath.Dir(tk.OutputPath) != d {
+			t.Fatalf("%+v %+v", tk.Status, tk.Error)
+		}
+	}
+	e.defOD = filepath.Join(e.data, "output")
+	if ts, err := e.svc.ConvertToPDF(context.Background(), []string{in}, ""); err != nil {
+		t.Fatal(err)
+	} else if tk := e.wait(t, ts[0].ID); tk.Status != task.StatusSucceeded || filepath.Dir(tk.OutputPath) != e.defOD {
+		t.Fatalf("%+v %+v", tk.Status, tk.Error)
+	}
+	e.defOD = ""
+	// 放行只针对 output：logs 和数据目录本身仍然拒绝（上面已断言），经 output 下的符号链接逃到 logs 也拒绝
+	os.MkdirAll(filepath.Join(e.data, "logs"), 0o755)
+	esc := filepath.Join(e.data, "output", "esc")
+	if err := os.Symlink(filepath.Join(e.data, "logs"), esc); err == nil {
+		wantCode(t, call(esc), apperr.InvalidArgument)
+	}
 	// 数据目录的兄弟（前缀相同但不在其内）允许
 	sib := e.data + "-sibling"
 	if err := call(sib); err != nil {

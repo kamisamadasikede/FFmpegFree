@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -56,6 +57,10 @@ type TaskRecords interface {
 	PeekOutputName(desired string, typ task.Type) string
 	DeleteRecords(ids []string, typ task.Type, deleteOutputs bool, beforeRemove func(path string)) (task.DeleteResult, error)
 	TaskFile(taskID, which string) (string, task.Task, error)
+	// v0.24：
+	ListActive() []task.Task
+	Reconvert(taskID string, spec task.ReconvertSpec, r task.Runner) (task.Task, error)
+	SetReconvertChecker(f task.ReconvertChecker)
 }
 
 var _ TaskRecords = (*task.Manager)(nil)
@@ -67,8 +72,11 @@ type Config struct {
 	Tasks   TaskSubmitter
 	// Require 返回当前 ffmpeg，默认 ffmpeg.Require（缺失返回 FFMPEG_NOT_FOUND）。
 	Require func() (ffmpeg.Binaries, error)
-	// DefaultOutputDir 返回设置里的默认输出目录，空字符串表示与源文件同目录。可为 nil。
+	// DefaultOutputDir 返回 outputDir 传空时用的目录（v0.24：实际输出目录，自定义优先，否则 <base>/output，6.15.2 第 5 条）。
+	// 返回空字符串时（测试、旧配置）退回源文件同目录。可为 nil。
 	DefaultOutputDir func(ctx context.Context) string
+	// DataDir 是应用数据目录：输出目录不能在它里面（<DataDir>/output 及其子文件夹除外，契约 v0.24.1 改写的 6.12 规则）。空 = 不检查。
+	DataDir string
 	// Encoder 按用户偏好与设备缓存解析 H.264 / HEVC 编码器（契约 9.7）；nil = 一律 CPU。
 	// 每个任务在提交 / 重试时解析一次。
 	Encoder ffmpeg.EncoderResolver
@@ -86,10 +94,31 @@ type Config struct {
 	Reveal func(path string) error
 	// Now 返回当前时间（Unix 毫秒），测试用；nil 用 time.Now。
 	Now func() int64
+
+	// 以下是 v0.24 的依赖。
+	// UploadsDir 返回实际上传目录（6.15.2）；nil 时 AddSources 不做副本（copyState=none，同 v0.23）。
+	UploadsDir func(ctx context.Context) string
+	// Emitter 发 convert:copy 事件；可为 nil。
+	Emitter task.Emitter
+	// FreeSpace 返回目录所在磁盘的可用空间，测试用；nil 用平台实现。
+	FreeSpace func(dir string) (int64, error)
+	// CopyProgressInterval 是 convert:copy 进度的最小间隔，0 = 250ms，负数不限（测试用）。
+	CopyProgressInterval time.Duration
+	// Logf 记录内部错误；可为 nil。
+	Logf func(format string, args ...any)
+	// InterruptedReconverts 是启动时 task.RecoverReconverts 恢复的条数（TakeInterruptedReconverts 返回一次）。
+	InterruptedReconverts int
+	// CapsProbe 替换格式目录的检测命令（测试用）。
+	CapsProbe func(ctx context.Context, exe string) (muxers, encoders string, err error)
 }
 
-// Service 实现转换：无后台协程。
-type Service struct{ cfg Config }
+// Service 实现转换。v0.24 起有一个后台复制队列（副本，6.15.4）。
+type Service struct {
+	cfg         Config
+	catalog     catalogCache
+	copier      *copier
+	interrupted atomic.Int64
+}
 
 // New 创建 Service，写入内置预设，并注册 convert 任务的重试工厂。
 func New(ctx context.Context, cfg Config) (*Service, error) {
@@ -110,6 +139,9 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 		cfg.Now = func() int64 { return time.Now().UnixMilli() }
 	}
 	s := &Service{cfg: cfg}
+	s.copier = newCopier(s)
+	s.catalog.probe = cfg.CapsProbe
+	s.interrupted.Store(int64(cfg.InterruptedReconverts))
 	if cfg.Presets != nil {
 		var rows []store.PresetRow
 		for i, p := range builtinPresets() {
@@ -121,7 +153,11 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 	}
 	if cfg.Tasks != nil {
 		cfg.Tasks.RegisterFactory(task.TypeConvert, s.retryFactory)
+		if tr, ok := cfg.Tasks.(TaskRecords); ok {
+			tr.SetReconvertChecker(s.reconvertBlock)
+		}
 	}
+	s.recoverCopies(ctx)
 	return s, nil
 }
 
@@ -269,6 +305,9 @@ func (s *Service) submit(ctx context.Context, jobs []submitJob, opts ffmpeg.Conv
 	if err != nil {
 		return nil, err
 	}
+	if err := s.checkFormat(ctx, opts); err != nil { // 6.16.6：整个请求只查一次
+		return nil, err
+	}
 	dir, err := s.resolveOutputDir(ctx, outputDir)
 	if err != nil {
 		return nil, err
@@ -305,7 +344,7 @@ func (s *Service) submit(ctx context.Context, jobs []submitJob, opts ffmpeg.Conv
 		}
 		p := snap
 		p.Input = jb.in
-		t, err := s.submitOne(bin, p, jb.sourceID, preps[i].out, preps[i].dur, preps[i].src)
+		t, err := s.submitOne(bin, p, jb.sourceID, preps[i])
 		if err != nil {
 			s.touch(ctx, touched)
 			return out, err // 已提交的保留（不回滚），调用方按返回的任务列表处理
@@ -328,9 +367,12 @@ type prepared struct {
 	out string
 	dur float64
 	src ffmpeg.ConvertSource
+	// expected 是 short_output 用的预期时长（输入时长已知时 = 输入时长 − 裁剪，否则 0）。
+	expected float64
 }
 
 // prepare 探测输入、确定期望输出路径并用 PlanConvert 验证参数与输入兼容。
+// 输出名按源文件行的原文件名取（6.15.4 第 7 条）：副本 uploads/<sourceId>/<原文件名> 的文件名就是原文件名。
 func (s *Service) prepare(ctx context.Context, in string, opts ffmpeg.ConvertOptions, dir string) (prepared, error) {
 	info, err := s.cfg.Media.Inspect(ctx, in)
 	if err != nil {
@@ -350,7 +392,13 @@ func (s *Service) prepare(ctx context.Context, in string, opts ffmpeg.ConvertOpt
 	if err != nil {
 		return prepared{}, err
 	}
-	return prepared{out: out, dur: plan.OutDurationSec, src: src}, nil
+	j := prepared{out: out, dur: plan.OutDurationSec, src: src}
+	if ffmpeg.IsImageContainer(opts.Container) {
+		j.dur = 0 // 单帧输出没有时长进度（6.16.5）
+	} else if src.DurationSec > 0 {
+		j.expected = plan.OutDurationSec
+	}
+	return j, nil
 }
 
 func firstVideoIndex(m store.MediaInfo) int {
@@ -373,8 +421,8 @@ func withInput(err error, in string) error {
 	return &cp
 }
 
-// resolveOutputDir 解析输出目录：参数 > 设置里的默认目录 > 空（源文件同目录）。
-// 必须是绝对路径；已存在的必须是文件夹；不存在的会在任务开始时创建。
+// resolveOutputDir 解析输出目录：参数 > 实际输出目录（v0.24：自定义优先，否则 <base>/output）> 空（源文件同目录，v0.24 起走不到）。
+// 必须是绝对路径；已存在的必须是文件夹；不能在应用数据目录内（<dataDir>/output 除外）；不存在的会在任务开始时创建。
 func (s *Service) resolveOutputDir(ctx context.Context, dir string) (string, error) {
 	if dir == "" && s.cfg.DefaultOutputDir != nil {
 		dir = s.cfg.DefaultOutputDir(ctx)
@@ -389,10 +437,14 @@ func (s *Service) resolveOutputDir(ctx context.Context, dir string) (string, err
 	if fi, err := os.Stat(dir); err == nil && !fi.IsDir() {
 		return "", apperr.New(apperr.InvalidArgument, "输出位置不是文件夹").WithDetail(dir)
 	}
+	if paths.InsideDataDir(s.cfg.DataDir, dir) {
+		return "", apperr.New(apperr.InvalidArgument, "输出目录不能在应用数据目录内").WithDetail("outputDir 不能在应用数据目录内\n" + dir)
+	}
 	return dir, nil
 }
 
-func (s *Service) newFFmpegRunner(bin ffmpeg.Binaries, in, out string, opts ffmpeg.ConvertOptions, dur float64, src ffmpeg.ConvertSource) *task.FFmpegRunner {
+// newFFmpegRunner 造 convert 的 FFmpegRunner；direct=true 时直接写 out（原地重转的临时文件），不走 RunWithPart。
+func (s *Service) newFFmpegRunner(bin ffmpeg.Binaries, in, out string, direct bool, opts ffmpeg.ConvertOptions, dur float64, src ffmpeg.ConvertSource) *task.FFmpegRunner {
 	// 只有真正重编码 H.264 / H.265 时才用硬件；copy、VP9、GIF、音频转换、两遍编码一律 CPU（契约 9.7）。
 	codec := ffmpeg.ConvertHWCodec(opts)
 	hw, info := ffmpeg.DecideEncoding(context.Background(), s.cfg.Encoder, codec, codec != "")
@@ -420,14 +472,28 @@ func (s *Service) newFFmpegRunner(bin ffmpeg.Binaries, in, out string, opts ffmp
 		BuildArgs:   build(hw),
 		Encoding:    info,
 	}
+	if direct {
+		r.Output, r.DirectOutput = "", out
+	}
 	if hw != "" {
 		r.HWEncoder, r.BuildCPUArgs, r.CPUEncoding = hw, build(""), cpuInfo
+	}
+	// 图片输出、时长未知的视频：-ss 1 没有产出时按第 0 帧重试一次（6.16.5）。
+	if plan, err := ffmpeg.PlanConvertHW(in, out, opts, src, ""); err == nil && len(plan.Fallback) > 0 {
+		r.BuildFallbackArgs = func(part string) []string {
+			p, err := ffmpeg.PlanConvertHW(in, part, opts, src, "")
+			if err != nil {
+				return nil
+			}
+			return p.Fallback
+		}
 	}
 	return r
 }
 
 // submitOne 提交一个 convert 任务：out 是期望名，任务管理器在落库之前按 "a (1).mp4" 格式定名并占位（契约 6.14.5）。
-func (s *Service) submitOne(bin ffmpeg.Binaries, p params, sourceID, out string, dur float64, src ffmpeg.ConvertSource) (task.Task, error) {
+func (s *Service) submitOne(bin ffmpeg.Binaries, p params, sourceID string, j prepared) (task.Task, error) {
+	out := j.out
 	pj, _ := json.Marshal(p)
 	spec := task.Spec{
 		Type:          task.TypeConvert,
@@ -438,7 +504,7 @@ func (s *Service) submitOne(bin ffmpeg.Binaries, p params, sourceID, out string,
 		SourceID:      sourceID,
 		ReserveOutput: true,
 	}
-	return s.cfg.Tasks.Submit(spec, s.newRunner(bin, p.Input, out, p.Options, dur, src))
+	return s.cfg.Tasks.Submit(spec, s.newRunnerTo(bin, p.Input, out, false, p.Options, j))
 }
 
 // retryFactory 用 Params 重建 Runner：重新探测输入（文件可能已变化或被删除），重新验证参数。
@@ -457,14 +523,19 @@ func (s *Service) retryFactory(old task.Task) (task.Runner, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := s.checkFormat(context.Background(), p.Options); err != nil { // 6.16.6 第 4 条
+		return nil, err
+	}
 	j, err := s.prepare(context.Background(), p.Input, p.Options, p.OutputDir)
 	if err != nil {
 		return nil, withInput(err, p.Input)
 	}
-	return s.newRunner(bin, p.Input, j.out, p.Options, j.dur, j.src), nil
+	return s.newRunnerTo(bin, p.Input, j.out, false, p.Options, j), nil
 }
 
-// newRunner 见 newFFmpegRunner；外面包一层 resultRunner，成功后探测输出写 Task.Result（契约 6.14.6）。
-func (s *Service) newRunner(bin ffmpeg.Binaries, in, out string, opts ffmpeg.ConvertOptions, dur float64, src ffmpeg.ConvertSource) task.Runner {
-	return &resultRunner{FFmpegRunner: s.newFFmpegRunner(bin, in, out, opts, dur, src), probe: s.probeResult}
+// newRunnerTo 见 newFFmpegRunner；外面包一层 resultRunner，成功后探测输出写 Task.Result（契约 6.14.6），
+// 图片输出只留 sizeBytes / width / height，其余做 short_output 检查。
+func (s *Service) newRunnerTo(bin ffmpeg.Binaries, in, out string, direct bool, opts ffmpeg.ConvertOptions, j prepared) task.Runner {
+	return &resultRunner{FFmpegRunner: s.newFFmpegRunner(bin, in, out, direct, opts, j.dur, j.src), probe: s.probeResult,
+		image: ffmpeg.IsImageContainer(opts.Container), expected: j.expected}
 }

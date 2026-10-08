@@ -201,6 +201,137 @@ export namespace convert {
 		    return a;
 		}
 	}
+	export class SkippedSource {
+	    sourceId: string;
+	    reason: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SkippedSource(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sourceId = source["sourceId"];
+	        this.reason = source["reason"];
+	    }
+	}
+	export class ConvertSubmitResult {
+	    tasks: store.Task[];
+	    skipped: SkippedSource[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ConvertSubmitResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.tasks = this.convertValues(source["tasks"], store.Task);
+	        this.skipped = this.convertValues(source["skipped"], SkippedSource);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class FormatPreset {
+	    id: string;
+	    name: string;
+	    builtIn: boolean;
+	    paramsSummary: string;
+	    options: ffmpeg.ConvertOptions;
+	
+	    static createFrom(source: any = {}) {
+	        return new FormatPreset(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.builtIn = source["builtIn"];
+	        this.paramsSummary = source["paramsSummary"];
+	        this.options = this.convertValues(source["options"], ffmpeg.ConvertOptions);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class FormatEntry {
+	    category: string;
+	    extension: string;
+	    displayName: string;
+	    aliases: string[];
+	    encodable: boolean;
+	    reason?: string;
+	    reasonCode?: string;
+	    defaultPresetId: string;
+	    presets: FormatPreset[];
+	
+	    static createFrom(source: any = {}) {
+	        return new FormatEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.category = source["category"];
+	        this.extension = source["extension"];
+	        this.displayName = source["displayName"];
+	        this.aliases = source["aliases"];
+	        this.encodable = source["encodable"];
+	        this.reason = source["reason"];
+	        this.reasonCode = source["reasonCode"];
+	        this.defaultPresetId = source["defaultPresetId"];
+	        this.presets = this.convertValues(source["presets"], FormatPreset);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class Preset {
 	    id: string;
 	    name: string;
@@ -253,10 +384,47 @@ export namespace convert {
 	        this.size = source["size"];
 	    }
 	}
+	export class ReconvertRequest {
+	    taskId: string;
+	    presetId?: string;
+	    options?: ffmpeg.ConvertOptions;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReconvertRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.taskId = source["taskId"];
+	        this.presetId = source["presetId"];
+	        this.options = this.convertValues(source["options"], ffmpeg.ConvertOptions);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class SourcePathCheck {
 	    sourceId: string;
 	    found: boolean;
 	    exists: boolean;
+	    originalExists: boolean;
+	    storedExists: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new SourcePathCheck(source);
@@ -267,6 +435,8 @@ export namespace convert {
 	        this.sourceId = source["sourceId"];
 	        this.found = source["found"];
 	        this.exists = source["exists"];
+	        this.originalExists = source["originalExists"];
+	        this.storedExists = source["storedExists"];
 	    }
 	}
 
@@ -1048,6 +1218,12 @@ export namespace store {
 	    addedAt: number;
 	    lastActivityAt: number;
 	    media?: MediaInfo;
+	    originalPath: string;
+	    storedPath: string;
+	    copyState: string;
+	    copiedBytes: number;
+	    totalBytes: number;
+	    copyError?: apperr.AppError;
 	
 	    static createFrom(source: any = {}) {
 	        return new ConvertSource(source);
@@ -1061,6 +1237,12 @@ export namespace store {
 	        this.addedAt = source["addedAt"];
 	        this.lastActivityAt = source["lastActivityAt"];
 	        this.media = this.convertValues(source["media"], MediaInfo);
+	        this.originalPath = source["originalPath"];
+	        this.storedPath = source["storedPath"];
+	        this.copyState = source["copyState"];
+	        this.copiedBytes = source["copiedBytes"];
+	        this.totalBytes = source["totalBytes"];
+	        this.copyError = this.convertValues(source["copyError"], apperr.AppError);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1082,6 +1264,24 @@ export namespace store {
 		}
 	}
 	
+	export class ReconvertError {
+	    code: string;
+	    message: string;
+	    detail?: string;
+	    at: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReconvertError(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.message = source["message"];
+	        this.detail = source["detail"];
+	        this.at = source["at"];
+	    }
+	}
 	
 	export class TaskResult {
 	    sizeBytes: number;
@@ -1089,6 +1289,7 @@ export namespace store {
 	    width?: number;
 	    height?: number;
 	    audioBitrateKbps?: number;
+	    warnings?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new TaskResult(source);
@@ -1101,6 +1302,7 @@ export namespace store {
 	        this.width = source["width"];
 	        this.height = source["height"];
 	        this.audioBitrateKbps = source["audioBitrateKbps"];
+	        this.warnings = source["warnings"];
 	    }
 	}
 	export class Task {
@@ -1129,6 +1331,8 @@ export namespace store {
 	    sourceId?: string;
 	    hiddenInTaskCenter: boolean;
 	    result?: TaskResult;
+	    reconverting: boolean;
+	    lastReconvertError?: ReconvertError;
 	
 	    static createFrom(source: any = {}) {
 	        return new Task(source);
@@ -1161,6 +1365,8 @@ export namespace store {
 	        this.sourceId = source["sourceId"];
 	        this.hiddenInTaskCenter = source["hiddenInTaskCenter"];
 	        this.result = this.convertValues(source["result"], TaskResult);
+	        this.reconverting = source["reconverting"];
+	        this.lastReconvertError = this.convertValues(source["lastReconvertError"], ReconvertError);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1423,6 +1629,7 @@ export namespace system {
 	    ffmpegPath: string;
 	    ffmpegPromptDismissed: boolean;
 	    defaultOutputDir: string;
+	    uploadsDir: string;
 	    maxConcurrent: number;
 	
 	    static createFrom(source: any = {}) {
@@ -1434,7 +1641,52 @@ export namespace system {
 	        this.ffmpegPath = source["ffmpegPath"];
 	        this.ffmpegPromptDismissed = source["ffmpegPromptDismissed"];
 	        this.defaultOutputDir = source["defaultOutputDir"];
+	        this.uploadsDir = source["uploadsDir"];
 	        this.maxConcurrent = source["maxConcurrent"];
+	    }
+	}
+	export class StorageDirs {
+	    outputDir: string;
+	    uploadsDir: string;
+	    outputCustom: boolean;
+	    uploadsCustom: boolean;
+	    defaultOutputDir: string;
+	    defaultUploadsDir: string;
+	    baseKind: string;
+	    fellBack: boolean;
+	    outputAvailable: boolean;
+	    uploadsAvailable: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new StorageDirs(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.outputDir = source["outputDir"];
+	        this.uploadsDir = source["uploadsDir"];
+	        this.outputCustom = source["outputCustom"];
+	        this.uploadsCustom = source["uploadsCustom"];
+	        this.defaultOutputDir = source["defaultOutputDir"];
+	        this.defaultUploadsDir = source["defaultUploadsDir"];
+	        this.baseKind = source["baseKind"];
+	        this.fellBack = source["fellBack"];
+	        this.outputAvailable = source["outputAvailable"];
+	        this.uploadsAvailable = source["uploadsAvailable"];
+	    }
+	}
+	export class StorageDirsUpdate {
+	    outputDir: string;
+	    uploadsDir: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new StorageDirsUpdate(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.outputDir = source["outputDir"];
+	        this.uploadsDir = source["uploadsDir"];
 	    }
 	}
 
@@ -1444,6 +1696,7 @@ export namespace task {
 	
 	export class DeleteFailure {
 	    taskId: string;
+	    sourceId?: string;
 	    path?: string;
 	    reason: string;
 	    message: string;
@@ -1455,6 +1708,7 @@ export namespace task {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.taskId = source["taskId"];
+	        this.sourceId = source["sourceId"];
 	        this.path = source["path"];
 	        this.reason = source["reason"];
 	        this.message = source["message"];
@@ -1501,6 +1755,8 @@ export namespace task {
 	    found: boolean;
 	    inputExists: boolean;
 	    outputExists: boolean;
+	    reconvertMode: string;
+	    reconvertBlock: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new TaskPathCheck(source);
@@ -1512,6 +1768,8 @@ export namespace task {
 	        this.found = source["found"];
 	        this.inputExists = source["inputExists"];
 	        this.outputExists = source["outputExists"];
+	        this.reconvertMode = source["reconvertMode"];
+	        this.reconvertBlock = source["reconvertBlock"];
 	    }
 	}
 

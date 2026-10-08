@@ -5,13 +5,12 @@ package system
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/ffmpeg"
+	"FFmpegFree/internal/paths"
 	"FFmpegFree/internal/task"
 )
 
@@ -78,6 +77,11 @@ type Manager struct {
 	memPath    string
 	memDism    bool
 	memOut     string
+	memUploads string
+
+	stMu       sync.Mutex    // 保护 storage / dataDir（SetStorage 在 Start 之前调用）
+	stBase     paths.Storage // 启动时确定的存储根目录（v0.24，6.15.1）；零值 = 没初始化（测试）
+	dataDir    string        // 应用数据目录：输出目录不能在它里面（<dataDir>/output 除外，v0.24.1）
 	memConc    int
 	memEnc     string // 编码器偏好的内存兜底（Settings 为 nil 时使用）
 	memEncName string
@@ -314,8 +318,10 @@ func (m *Manager) setDismissed(ctx context.Context, v bool) error {
 type Settings struct {
 	FFmpegPath            string `json:"ffmpegPath"`
 	FFmpegPromptDismissed bool   `json:"ffmpegPromptDismissed"`
-	// DefaultOutputDir 是转换等任务的默认输出目录；空字符串表示"与源文件同一个文件夹"。
+	// DefaultOutputDir 是自定义输出目录；v0.24 起 "" 表示默认输出目录 <base>/output（不再是“与源文件同一个文件夹”）。
 	DefaultOutputDir string `json:"defaultOutputDir"`
+	// UploadsDir 是自定义上传目录（v0.24）；"" 表示默认上传目录 <base>/uploads。
+	UploadsDir string `json:"uploadsDir"`
 	// MaxConcurrent 是 batch 池（转换、剪辑、Office、安装）同时运行的任务数：0 = 自动（CPU 核数的一半，限制在 1~3），
 	// 手动取值 1~8，其他值 INVALID_ARGUMENT。修改只影响之后开始的任务，已在运行的不会被打断。
 	MaxConcurrent int `json:"maxConcurrent"`
@@ -330,7 +336,7 @@ func (m *Manager) GetSettings(ctx context.Context) (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	return Settings{FFmpegPath: m.customPath(ctx, cfg), FFmpegPromptDismissed: m.PromptDismissed(ctx), DefaultOutputDir: m.DefaultOutputDir(ctx), MaxConcurrent: m.MaxConcurrent(ctx)}, nil
+	return Settings{FFmpegPath: m.customPath(ctx, cfg), FFmpegPromptDismissed: m.PromptDismissed(ctx), DefaultOutputDir: m.DefaultOutputDir(ctx), UploadsDir: m.UploadsDir(ctx), MaxConcurrent: m.MaxConcurrent(ctx)}, nil
 }
 
 // UpdateSettings 更新设置。ffmpegPath 变化时走 SetPath 校验，defaultOutputDir 非空时必须是
@@ -341,7 +347,11 @@ func (m *Manager) UpdateSettings(ctx context.Context, s Settings) error {
 	if err != nil {
 		return err
 	}
-	outDir, err := validateOutputDir(s.DefaultOutputDir) // 先校验，保证失败时什么都没改
+	outDir, err := m.checkStorageDir(s.DefaultOutputDir, StorageOutput) // 先校验，保证失败时什么都没改（规则同 SetStorageDirs）
+	if err != nil {
+		return err
+	}
+	upDir, err := m.checkStorageDir(s.UploadsDir, StorageUploads)
 	if err != nil {
 		return err
 	}
@@ -357,6 +367,9 @@ func (m *Manager) UpdateSettings(ctx context.Context, s Settings) error {
 		return apperr.Wrap(apperr.IOError, "保存设置失败", err)
 	}
 	if err := m.setOutputDir(ctx, outDir); err != nil {
+		return apperr.Wrap(apperr.IOError, "保存设置失败", err)
+	}
+	if err := m.setUploadsDir(ctx, upDir); err != nil {
 		return apperr.Wrap(apperr.IOError, "保存设置失败", err)
 	}
 	if err := m.setMaxConcurrent(ctx, s.MaxConcurrent); err != nil {
@@ -406,7 +419,7 @@ func (m *Manager) applyConcurrency(n int) {
 	}
 }
 
-// DefaultOutputDir 返回设置里的默认输出目录，空字符串表示与源文件同目录。
+// DefaultOutputDir 返回设置里的自定义输出目录（"" = 没自定义）。需要“实际输出目录”时用 ActualOutputDir。
 func (m *Manager) DefaultOutputDir(ctx context.Context) string {
 	m.mu.Lock()
 	st := m.cfg.Settings
@@ -434,33 +447,4 @@ func (m *Manager) setOutputDir(ctx context.Context, d string) error {
 		return nil
 	}
 	return st.SetSetting(ctx, SettingDefaultOutputDir, d)
-}
-
-// validateOutputDir 校验默认输出目录：空表示"与源文件同目录"；非空必须是绝对路径、存在的文件夹且能创建文件。
-// 返回清理过的路径。
-func validateOutputDir(dir string) (string, error) {
-	if dir == "" {
-		return "", nil
-	}
-	if !filepath.IsAbs(dir) {
-		return "", apperr.New(apperr.InvalidArgument, "默认输出目录必须是绝对路径").WithDetail(dir)
-	}
-	dir = filepath.Clean(dir)
-	fi, err := os.Stat(dir)
-	switch {
-	case err != nil && os.IsNotExist(err):
-		return "", apperr.New(apperr.InvalidArgument, "默认输出目录不存在").WithDetail(dir)
-	case err != nil:
-		return "", apperr.New(apperr.InvalidArgument, "无法访问默认输出目录").WithDetail(dir + ": " + err.Error())
-	case !fi.IsDir():
-		return "", apperr.New(apperr.InvalidArgument, "默认输出目录不是文件夹").WithDetail(dir)
-	}
-	f, err := os.CreateTemp(dir, ".ffmpegfree-write-test-*")
-	if err != nil {
-		return "", apperr.New(apperr.InvalidArgument, "默认输出目录不可写").WithDetail(dir + ": " + err.Error())
-	}
-	name := f.Name()
-	f.Close()
-	os.Remove(name)
-	return dir, nil
 }

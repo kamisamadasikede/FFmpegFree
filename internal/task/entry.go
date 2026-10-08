@@ -29,6 +29,7 @@ type entry struct {
 	flushGen   uint64 // 补发定时器的代数，过期的定时器回调直接忽略
 	flushTimer *time.Timer
 	outTime    float64
+	rc         *reconvertState // 原地重转（契约 6.17）；普通任务为 nil
 }
 
 func newEntry(m *Manager, t Task, r Runner) *entry {
@@ -83,6 +84,7 @@ func (e *entry) start() {
 	e.m.emit(EventStatus, StatusEvent{
 		ID: e.task.ID, Version: e.task.Version, Status: StatusRunning, StartedAt: e.task.StartedAt,
 		Encoder: e.task.Encoder, EncoderDevice: e.task.EncoderDevice, HWFallback: e.task.HWFallback, HWFallbackReason: e.task.HWFallbackReason,
+		Reconverting: rcFlag(e.task),
 	})
 }
 
@@ -132,7 +134,7 @@ func (e *entry) finish(m *Manager, st Status, aerr *apperr.AppError, output stri
 		ID: e.task.ID, Version: e.task.Version, Status: st, Error: aerr,
 		OutputPath: e.task.OutputPath, StartedAt: e.task.StartedAt, FinishedAt: e.task.FinishedAt,
 		Encoder: e.task.Encoder, EncoderDevice: e.task.EncoderDevice, HWFallback: e.task.HWFallback, HWFallbackReason: e.task.HWFallbackReason,
-		Progress: &prog, Result: e.task.Result,
+		Progress: &prog, Result: e.task.Result, Reconverting: rcFlag(e.task),
 	})
 	e.log.close()
 }
@@ -150,6 +152,7 @@ func (e *entry) setOutput(p string) {
 	e.m.emit(EventStatus, StatusEvent{
 		ID: e.task.ID, Version: e.task.Version, Status: StatusRunning, StartedAt: e.task.StartedAt, OutputPath: p,
 		Encoder: e.task.Encoder, EncoderDevice: e.task.EncoderDevice, HWFallback: e.task.HWFallback, HWFallbackReason: e.task.HWFallbackReason,
+		Reconverting: rcFlag(e.task),
 	})
 }
 
@@ -171,6 +174,7 @@ func (e *entry) setEncoder(info ffmpeg.EncoderInfo) {
 	e.m.emit(EventStatus, StatusEvent{
 		ID: e.task.ID, Version: e.task.Version, Status: StatusRunning, StartedAt: e.task.StartedAt,
 		Encoder: e.task.Encoder, EncoderDevice: e.task.EncoderDevice, HWFallback: e.task.HWFallback, HWFallbackReason: e.task.HWFallbackReason,
+		Reconverting: rcFlag(e.task),
 	})
 }
 
