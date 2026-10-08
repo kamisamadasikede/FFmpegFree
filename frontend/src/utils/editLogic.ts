@@ -50,7 +50,7 @@ export const TEXT = {
   exportBusyTip: '正在导出，完成后才能再次导出',
   exportEmptyTip: '先把素材加到时间线才能导出',
   saveEmptyTip: '没有可保存的内容',
-  ffmpegTip: '需要先安装 ffmpeg',
+  ffmpegTip: '需要先安装转换组件',
   warningGeneric: '存在提示',
   transitionOver: '转场不能超过较短片段的一半',
   transitionTooShort: '相邻片段太短，放不下转场',

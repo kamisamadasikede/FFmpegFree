@@ -83,7 +83,7 @@ export async function runApiChecks(): Promise<string[]> {
   eq('Cancel / Remove 的冲突 → 通用', actionErrorText('TASK_CONFLICT', '任务已结束'), '操作冲突，请稍后再试')
   eq('原型链上的键不算 reason', taskConflictText('toString'), TASK_CONFLICT_GENERIC)
   eq('直播停止文案', LIVE_STOP_TEXT, { succeeded: '已结束推流', canceled: '已强制停止' })
-  eq('UNSUPPORTED 起始错误行（无协议名）', liveStartErrorLine({ code: 'UNSUPPORTED' })?.description, '当前 ffmpeg 不支持这种推流协议，请在设置的 ffmpeg 页面重新安装或更新')
+  eq('UNSUPPORTED 起始错误行（无协议名）', liveStartErrorLine({ code: 'UNSUPPORTED' })?.description, '当前转换组件不支持这种推流协议，请在设置的转换组件一栏重新安装或更新')
 
   eq('任务中心：reason=format / encrypted 的 UNSUPPORTED', [docUnsupportedText('暂不支持这种格式', 'reason=format\n/d/a.doc\n.doc：旧版'), docUnsupportedText('暂不支持这种格式', 'reason=encrypted')], [DOC_FORMAT_UNSUPPORTED_TEXT, DOC_ENCRYPTED_TEXT])
   eq('任务中心：超 5000 页沿用后端 message（reason=too_many_pages）', docUnsupportedText('超过 5000 页', 'reason=too_many_pages\n已排到第 5000 页仍未结束'), '超过 5000 页')
@@ -549,12 +549,12 @@ export async function runApiChecks(): Promise<string[]> {
     splitMiddle('ab'),
   ], [{ head: '用户调研报告.docx', tail: '' }, { head: '2026年第三季度华东区域渠道商务拓展与用户增长复盘汇报材料（终稿-已审', tail: '阅-v12）.pptx' }, { head: 'ab', tail: '' }])
   eq('侧栏 ffmpeg 状态：文案 / aria-label / 可点性', (['ready', 'checking', 'missing', 'outdated', 'failed', 'installing'] as const).map((k) => { const v = ffmpegStatusView(k); return [v.tone, v.text, v.label, v.actionLabel, v.clickable] }), [
-    ['ok', 'ffmpeg 已就绪', 'ffmpeg 已就绪', 'ffmpeg 已就绪', false],
-    ['q', 'ffmpeg 检测中…', 'ffmpeg 检测中…', 'ffmpeg 检测中…', false],
-    ['warn', 'ffmpeg 未就绪', 'ffmpeg 未就绪', 'ffmpeg 未就绪，点击打开安装对话框', true],
-    ['warn', 'ffmpeg 未就绪', 'ffmpeg 未就绪', 'ffmpeg 未就绪，点击打开安装对话框', true],
-    ['warn', 'ffmpeg 未就绪', 'ffmpeg 未就绪', 'ffmpeg 未就绪，点击打开安装对话框', true],
-    ['run', 'ffmpeg 安装中…', 'ffmpeg 安装中，点击查看进度', 'ffmpeg 安装中，点击查看进度', true],
+    ['ok', '转换组件已就绪', '转换组件已就绪', '转换组件已就绪', false],
+    ['q', '转换组件检测中…', '转换组件检测中…', '转换组件检测中…', false],
+    ['warn', '转换组件未就绪', '转换组件未就绪', '转换组件未就绪，点击打开安装对话框', true],
+    ['warn', '转换组件未就绪', '转换组件未就绪', '转换组件未就绪，点击打开安装对话框', true],
+    ['warn', '转换组件未就绪', '转换组件未就绪', '转换组件未就绪，点击打开安装对话框', true],
+    ['run', '转换组件安装中…', '转换组件安装中，点击查看进度', '转换组件安装中，点击查看进度', true],
   ])
   eq('缩放档位 50%~200% 步进 25%，两端夹住', [nextZoom(1, -1), nextZoom(0.5, -1), nextZoom(2, 1), nextZoom(1.75, 1), nextZoom(1.3, 1)], [0.75, 0.5, 2, 2, 1.25])
   eq('缩略图窗口：可视范围 ± 2 屏', [thumbWindow(0, 600, 100, 5000), thumbWindow(50000, 600, 100, 5000), thumbWindow(0, 600, 100, 0)], [{ from: 1, to: 18 }, { from: 489, to: 518 }, { from: 1, to: 0 }])
@@ -578,8 +578,8 @@ export async function runApiChecks(): Promise<string[]> {
   const okPass = await live.startFilePush(req('srt://sp2.example:9000?streamid=s&passphrase=abcdefghij'))
   eq('口令 10 位放行', okPass.status, 'queued')
   await live.stopPush(okPass.id)
-  const PROTO_GENERIC = '当前 ffmpeg 不支持这种推流协议，请在设置的 ffmpeg 页面重新安装或更新'
-  const NAME = (n: string) => `当前的 ffmpeg 不支持 ${n}，请在设置的 ffmpeg 页面重新安装或更新`
+  const PROTO_GENERIC = '当前转换组件不支持这种推流协议，请在设置的转换组件一栏重新安装或更新'
+  const NAME = (n: string) => `当前转换组件不支持 ${n}，请在设置的转换组件一栏重新安装或更新`
   eq('缺协议（契约 §6.10）：missing=rtmp|rtmps|srt 带协议名', ['missing=rtmp', 'missing=rtmps', 'missing=srt'].map((d) => liveFfmpegProtocolMissingText(d)), [NAME('RTMP'), NAME('RTMPS'), NAME('SRT')])
   eq('缺协议：某一行严格等于即可（CRLF / 多行）', [liveFfmpegProtocolMissingText('missing=srt\r\n'), liveFfmpegProtocolMissingText('x\nmissing=rtmps')], [NAME('SRT'), NAME('RTMPS')])
   eq('缺协议：missing=tee → 通用句（不显示 tee）', liveFfmpegProtocolMissingText('missing=tee'), PROTO_GENERIC)
@@ -638,7 +638,7 @@ export async function runApiChecks(): Promise<string[]> {
   eq('带存档屏幕推流不再 UNSUPPORTED，outputPath 在存档目录下', /^\/m\/arc\/screen-\d{8}-\d{6}\.mp4$/.test(arcTask.outputPath), true)
   eq('存档路径不含地址 / 推流码', arcTask.outputPath.includes('arc.example') || arcTask.outputPath.includes('arckey'), false)
   eq('UNSUPPORTED + missing=tee → 仍是缺组件通用句（不带 tee，也不再是存档提示）', liveStartErrorLine({ code: 'UNSUPPORTED', detail: 'missing=tee' })?.description, PROTO_GENERIC)
-  eq('UNSUPPORTED + missing=srt → 带协议名', liveStartErrorLine({ code: 'UNSUPPORTED', detail: 'missing=srt' })?.description, '当前的 ffmpeg 不支持 SRT，请在设置的 ffmpeg 页面重新安装或更新')
+  eq('UNSUPPORTED + missing=srt → 带协议名', liveStartErrorLine({ code: 'UNSUPPORTED', detail: 'missing=srt' })?.description, '当前转换组件不支持 SRT，请在设置的转换组件一栏重新安装或更新')
   eq('UNSUPPORTED 无 missing= → 通用句', liveStartErrorLine({ code: 'UNSUPPORTED' })?.description, PROTO_GENERIC)
   const arcProgress: TaskProgressPayload[] = []
   const offA = onSimEvent<TaskProgressPayload>('task:progress', (p) => { if (p.id === arcTask.id) arcProgress.push(p) })
@@ -1043,8 +1043,8 @@ export async function runApiChecks(): Promise<string[]> {
         eq('G11 版本号：进 store 时清理（源码）', /version: cleanFfmpegVersion\(r\.version\) \|\| undefined/.test(readSrc('src/stores/ffmpeg.ts')), true)
         // G4：旧文案改写；新文案（后端）原样；退出码不出现在主提示
         const em = await import('@/errors/errorMessages')
-        const G4 = ['ffmpeg 异常退出（退出码 -1）', 'ffmpeg 退出码 1']
-        eq('G4 旧文案（PROCESS_FAILED）→ 说人话，不含退出码 / ffmpeg', G4.map((m) => em.resolveTaskError('PROCESS_FAILED', m).description), [em.PROCESS_EXIT_TEXT, em.PROCESS_EXIT_TEXT])
+        const G4 = ['ffmpeg 异常退出（退出码 -1）', 'ffmpeg 退出码 1', '转换组件异常退出（退出码 -1）', '转换组件退出码 1']
+        eq('G4 旧文案（PROCESS_FAILED）→ 说人话，不含退出码 / ffmpeg', G4.map((m) => em.resolveTaskError('PROCESS_FAILED', m).description), [em.PROCESS_EXIT_TEXT, em.PROCESS_EXIT_TEXT, em.PROCESS_EXIT_TEXT, em.PROCESS_EXIT_TEXT])
         eq('G4 改写句：全角标点、不含“硬件编码”“转码”、退出码、编码器名', [em.PROCESS_EXIT_TEXT, /硬件编码|转码|退出码|ffmpeg|nvenc|qsv|amf/i.test(em.PROCESS_EXIT_TEXT)], ['转换被意外中断，可以重试；如果反复出现，请查看日志。', false])
         eq('G4 后端新文案 / 其他码：原样', [em.resolveTaskError('PROCESS_FAILED', '转换没有成功，请查看日志').description, em.resolveTaskError('INTERNAL', 'ffmpeg 异常退出（退出码 -1）').description], ['转换没有成功，请查看日志', 'ffmpeg 异常退出（退出码 -1）'])
         // G8：直播行不给重试，叫“推流中断”，没有“自动重连”

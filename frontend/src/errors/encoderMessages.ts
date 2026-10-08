@@ -19,7 +19,7 @@ export const ENCODER_UNAVAILABLE_ACTION = '改回“自动”'
 /** 所选显卡本次检测里找不到（连名字都拿不到）时下拉里显示的占位名 */
 export const ENCODER_UNKNOWN_SELECTED = '所选显卡'
 export const ENCODER_FAILED_NOTE = '显卡检测失败。转换和直播会先使用 CPU，可以点“重新检测”再试一次。'
-export const ENCODER_NO_FFMPEG_NOTE = '需要先安装 ffmpeg 才能检测显卡，安装完成后会自动检测。'
+export const ENCODER_NO_FFMPEG_NOTE = '需要先安装转换组件才能检测显卡，安装完成后会自动检测。'
 /** 设计稿没有这一条：选了 CPU 时状态行的说明（新增，待确认） */
 export const ENCODER_CPU_NOTE = '将使用 CPU 进行转换、剪辑导出和直播推流。'
 export const encoderAutoNote = (n: number, firstName: string) => `检测到 ${n} 张可用显卡。选“自动”时，将优先使用 ${firstName}。`

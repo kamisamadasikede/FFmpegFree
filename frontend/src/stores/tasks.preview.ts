@@ -57,7 +57,7 @@ export function buildPreviewHistory(n: number): TaskItem[] {
       },
       {
         type: 'convert', status: 'failed', title: 'broken_sample.avi',
-        error: { code: 'PROCESS_FAILED', message: 'ffmpeg 退出码 1', detail: 'Invalid data found when processing input' },
+        error: { code: 'PROCESS_FAILED', message: '转换组件退出码 1', detail: 'Invalid data found when processing input' },
       },
       { type: 'convert', status: 'canceled', title: 'vlog_杭州西湖.mkv' },
       { type: 'convert', status: 'interrupted', title: '婚礼现场_全程4K.mp4', params: '{"container":"mp4","targetSizeMb":500}', progress: 0.42, error: null },

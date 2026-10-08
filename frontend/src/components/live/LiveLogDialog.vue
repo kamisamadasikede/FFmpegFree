@@ -1,7 +1,7 @@
 <template>
   <el-dialog v-model="open" title="查看日志" width="560px" append-to-body>
     <pre class="log selectable">{{ lines.length ? lines.join('\n') : '暂无日志' }}</pre>
-    <p class="hint">目前只显示本页记录的事件；接入 Wails 后改为 TaskService.GetLog 返回的 ffmpeg 输出。</p>
+    <p class="hint">目前只显示本页记录的事件；接入 Wails 后改为 TaskService.GetLog 返回的转换组件输出。</p>
     <template #footer>
       <el-button @click="copy">复制</el-button>
       <el-button type="primary" @click="open = false">关闭</el-button>

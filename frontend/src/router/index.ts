@@ -46,7 +46,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/tasks/:pathMatch(.*)*', redirect: '/tasks' },
   {
     path: '/settings',
-    meta: { title: '设置', subtitle: '外观 · ffmpeg · 转换' },
+    meta: { title: '设置', subtitle: '外观 · 转换组件 · 转换' },
     component: () => import('../views/settings/SettingsLayout.vue'),
     redirect: '/settings/general',
     children: [

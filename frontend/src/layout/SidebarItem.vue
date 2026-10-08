@@ -1,5 +1,5 @@
 <template>
-  <el-tooltip v-if="gated" content="需要先安装 ffmpeg" effect="light" placement="right" :show-after="300" :hide-after="0">
+  <el-tooltip v-if="gated" content="需要先安装转换组件" effect="light" placement="right" :show-after="300" :hide-after="0">
     <a
       class="nav-item gated"
       :class="{ active: isActive }"

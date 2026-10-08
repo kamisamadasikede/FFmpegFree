@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { runCopyWordCheck } from './check-copy-words.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const dir = mkdtempSync(join(tmpdir(), 'ffcheck-'))
@@ -15,11 +16,12 @@ try {
   const w = mod.installFakeWails()
   globalThis.window = w
   globalThis.location = w.location
-  const fails = await mod.runFFmpegChecks(w)
+  // 界面文字不能出现“ffmpeg”（统一叫“转换组件”），与 store 自检一起跑
+  const fails = [...runCopyWordCheck(), ...(await mod.runFFmpegChecks(w))]
   if (fails.length) {
     console.error(fails.join('\n'))
     process.exitCode = 1
-  } else console.log('ffmpeg store 自检通过')
+  } else console.log('ffmpeg store 自检通过；界面文字没有“ffmpeg”')
 } finally {
   rmSync(dir, { recursive: true, force: true })
   process.exit(process.exitCode ?? 0)

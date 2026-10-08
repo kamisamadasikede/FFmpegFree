@@ -25,7 +25,7 @@
           <PreviewSwitch v-model="previewOn" :disabled="blocked || starting" :note="starting ? PREVIEW_SWITCH_NOTE_STARTING : undefined" />
         </template>
         <template #action>
-          <LiveButton variant="pri" lg icon="play" :disabled="!canStart" :tip-when-disabled="blocked ? '需要先安装 ffmpeg' : undefined" @click="start">开始推流</LiveButton>
+          <LiveButton variant="pri" lg icon="play" :disabled="!canStart" :tip-when-disabled="blocked ? '需要先安装转换组件' : undefined" @click="start">开始推流</LiveButton>
         </template>
       </LivePanel>
     </template>

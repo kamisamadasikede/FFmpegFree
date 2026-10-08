@@ -40,7 +40,7 @@ interface Item {
 // “编码设备”一项只在这一块会显示时才出现（ENCODER_BACKEND_READY 且在 Wails 里；纯浏览器只有 ?enc=），与 Settings.vue 里面板的显示条件同一个 encoderPanelVisible()
 const items: Item[] = [
   { key: 'appearance', label: '外观', to: '/settings/general', section: 'sec-appearance' },
-  { key: 'ffmpeg', label: 'ffmpeg', to: '/settings/general', section: 'sec-ffmpeg' },
+  { key: 'ffmpeg', label: '转换组件', to: '/settings/general', section: 'sec-ffmpeg' },
   ...(encoderPanelVisible() ? [{ key: 'encoder', label: ENCODER_PANEL_TITLE, to: '/settings/general', section: ENCODER_SECTION_ID }] : []),
   { key: 'convert', label: '转换', to: '/settings/general', section: 'sec-convert' },
   { key: 'about', label: '关于', to: '/settings/about' },
