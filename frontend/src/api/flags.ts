@@ -24,3 +24,9 @@ export const ABOUT_BACKEND_READY: boolean = true
  * 直播页的回退提示变体待 v2-fe-live-preview 合入后再接（见 api/README.md）。
  */
 export const ENCODER_BACKEND_READY: boolean = true
+/**
+ * 转换页 v2（转换记录）：契约 v0.23（转换记录 / convert_sources / 原地重试 / 隐藏已完成 / 预览地址 / 用系统播放器打开 / 搜索）还没合入，
+ * 接口名都是猜的，集中在 api/convertRecordsBinding.ts。**false**：转换页的记录列表、源文件、删除、预览地址、任务中心“隐藏已完成”都走
+ * api/convertRecordsMock.ts 的模拟（复用 api/sim.ts 的模拟任务引擎和事件总线）；v0.23 合入、绑定生成后核对名字，改成 true 即可，页面 / store 不用动。
+ */
+export const CONVERT_V2_BACKEND_READY: boolean = false

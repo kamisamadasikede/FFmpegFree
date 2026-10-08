@@ -7,7 +7,7 @@
  * 调用方只传脱敏后的 title / params，标准化地址仅放在 meta（内存，不发事件、不打印）。
  */
 import { AppError, type AppErrorCode } from '@/api/call'
-import type { ApiTask, ApiTaskError, TaskProgressPayload, TaskStatusPayload } from '@/api/taskTypes'
+import type { ApiTask, ApiTaskError, ApiTaskResult, TaskProgressPayload, TaskStatusPayload } from '@/api/taskTypes'
 import { emitSimEvent } from '@/services/wails'
 
 /** 读预览参数（?live_err=… 等）；没有返回 null */
@@ -93,6 +93,8 @@ export interface SimTaskSpec {
   fallbackTo?: { encoder: string; encoderDevice: string; hwFallback?: boolean; hwFallbackReason?: string }
   /** 只在内存里用的附加信息（如标准化推流地址），不会进入任何事件 */
   meta?: Record<string, unknown>
+  /** v0.23：成功时的 Task.result（转换记录模拟给出探测输出的样子）；终态事件带上 */
+  resultOf?: (t: ApiTask) => ApiTaskResult | undefined
 }
 
 interface Entry {
@@ -109,7 +111,7 @@ const entries = new Map<string, Entry>()
 let seq = 0
 const DEMO_BITRATE = [6020, 5990, 6005, 5960, 6000, 5955, 5990, 5940, 5970, 5965, 5985, 5950]
 
-const snapshot = (t: ApiTask): ApiTask => ({ ...t, inputPaths: [...t.inputPaths], error: t.error ? { ...t.error } : null })
+const snapshot = (t: ApiTask): ApiTask => ({ ...t, inputPaths: [...t.inputPaths], error: t.error ? { ...t.error } : null, ...(t.result ? { result: { ...t.result } } : {}) })
 const isActiveStatus = (s: string) => s === 'queued' || s === 'running'
 
 export const isSimTask = (id: string): boolean => entries.has(id)
@@ -119,10 +121,10 @@ export const getSimTask = (id: string): ApiTask | undefined => {
   return e ? snapshot(e.task) : undefined
 }
 export const listSimActive = (): ApiTask[] => [...entries.values()].filter((e) => isActiveStatus(e.task.status)).map((e) => snapshot(e.task))
-/** 已结束的模拟任务，新的在前 */
-export const listSimFinished = (): ApiTask[] =>
+/** 已结束的模拟任务，新的在前；默认不含任务中心已隐藏的（v0.23 TaskFilter.includeHidden） */
+export const listSimFinished = (includeHidden = false): ApiTask[] =>
   [...entries.values()]
-    .filter((e) => !isActiveStatus(e.task.status))
+    .filter((e) => !isActiveStatus(e.task.status) && (includeHidden || !e.task.hiddenInTaskCenter))
     .map((e) => snapshot(e.task))
     .sort((a, b) => b.createdAt - a.createdAt)
 /** 进行中的模拟任务的 meta（重复地址 / 会话上限检查用） */
@@ -154,12 +156,15 @@ function finish(e: Entry, status: 'succeeded' | 'failed' | 'canceled', error?: A
   t.finishedAt = Date.now()
   if (status === 'succeeded' && !e.spec.live) t.progress = 1
   t.error = error ?? null
+  const result = status === 'succeeded' ? e.spec.resultOf?.(snapshot(t)) : undefined
+  if (result) t.result = result
   // 存档空壳：还没推出任何内容就结束 → 后端删掉文件并清空 outputPath（先于终态事件）
   if (e.spec.live?.archive && !e.firstProgressAt) t.outputPath = ''
   t.fps = t.bitrateKbps = t.droppedFrames = undefined
   bump(e)
   // 契约：优雅停止的 succeeded 和强杀的 canceled 都不带 error
-  emitStatus(e, { outputPath: t.outputPath || undefined, ...(t.startedAt ? { startedAt: t.startedAt } : {}), finishedAt: t.finishedAt, ...(error ? { error } : {}) })
+  // v0.23：终态事件一定带 progress（canceled 保留取消时的值）；成功的转换带 result
+  emitStatus(e, { outputPath: t.outputPath || undefined, ...(t.startedAt ? { startedAt: t.startedAt } : {}), finishedAt: t.finishedAt, progress: t.progress, ...(error ? { error } : {}), ...(result ? { result: { ...result } } : {}) })
 }
 
 function progress(e: Entry, over: Partial<TaskProgressPayload>) {
@@ -222,16 +227,59 @@ export function createSimTask(spec: SimTaskSpec): ApiTask {
   const e: Entry = { task, spec, stopping: false, firstProgressAt: 0 }
   entries.set(id, e)
   emitSimEvent('task:created', snapshot(task))
+  startEntry(e)
+  return snapshot(task)
+}
+
+/** 300ms 后 running，然后定时推进（新建和原地重试共用） */
+function startEntry(e: Entry) {
+  const task = e.task
   e.startTimer = setTimeout(() => {
     task.status = 'running'
     task.startedAt = Date.now()
     bump(e)
     emitStatus(e, { startedAt: task.startedAt })
-    if (live) runLive(e)
+    if (e.spec.live) runLive(e)
     else runBatch(e)
   }, 300)
-  return snapshot(task)
 }
+
+/**
+ * 转换记录模拟（api/convertRecordsMock.ts）用：登记一个已经存在的任务（任意状态），不发事件、不推进。
+ * 进行中的任务停在给定进度（截图 / 走查用的固定画面）；可以取消、删除、原地重试，行为与其它模拟任务一致。
+ */
+export function adoptSimTask(task: ApiTask, spec: SimTaskSpec): void {
+  entries.set(task.id, { task: { ...task, inputPaths: [...task.inputPaths], error: task.error ? { ...task.error } : null }, spec, stopping: false, firstProgressAt: 0 })
+}
+
+/** TaskService.HideFinishedInTaskCenter 的模拟：所有类型的已结束模拟任务只从任务中心历史里隐藏，不删除（转换记录照常显示）；不发事件 */
+export function hideSimFinished(): number {
+  let n = 0
+  for (const e of entries.values()) {
+    if (!isActiveStatus(e.task.status) && !e.task.hiddenInTaskCenter) {
+      e.task.hiddenInTaskCenter = true
+      n++
+    }
+  }
+  return n
+}
+
+/** TaskService.UnhideInTaskCenter(ids) 的模拟：返回实际取消隐藏的条数；不发事件 */
+export function unhideSimTasks(ids: string[]): number {
+  let n = 0
+  for (const id of ids) {
+    const e = entries.get(id)
+    if (e?.task.hiddenInTaskCenter) {
+      e.task.hiddenInTaskCenter = false
+      n++
+    }
+  }
+  return n
+}
+
+/** 所有模拟任务（含已隐藏的），新的在前；转换记录模拟用 */
+export const listSimAll = (type?: ApiTask['type']): ApiTask[] =>
+  [...entries.values()].filter((e) => !type || e.task.type === type).map((e) => snapshot(e.task)).sort((a, b) => b.createdAt - a.createdAt)
 
 function runBatch(e: Entry) {
   const { spec, task } = e
@@ -320,13 +368,31 @@ export function forceKillSimTask(id: string): void {
   finish(e, 'canceled')
 }
 
-/** TaskService.Retry 的模拟：直播会话 UNSUPPORTED；进行中 TASK_CONFLICT；其余按原参数重新创建 */
+/**
+ * TaskService.Retry 的模拟（契约 v0.23 §6.6 / §6.14.6）：直播会话 UNSUPPORTED；进行中 TASK_CONFLICT；成功的 TASK_CONFLICT（转换用 Reconvert）。
+ * 其余（failed / interrupted / canceled）一律原地重试：同一个任务 id，状态回到排队、进度清零、错误 / result / 上一次的编码器字段清掉，
+ * hiddenInTaskCenter 清回 false，version 继续递增；只发一条 task:status（queued、retried:true、progress:0、outputPath、新的编码器字段），不发 task:created。
+ */
 export function retrySimTask(id: string): ApiTask {
   const e = entries.get(id)
   if (!e) simError('NOT_FOUND', '任务不存在')
   if (isActiveStatus(e.task.status)) simError('TASK_CONFLICT', '任务还在进行中，不能重试')
   if (e.spec.live) simError('UNSUPPORTED', '直播会话不能重试，请重新开始推流')
-  return createSimTask(e.spec)
+  if (e.task.status === 'succeeded') simError('TASK_CONFLICT', e.task.type === 'convert' ? '只有已完成的记录可以再转一次' : '任务已经成功，不能重试')
+  const t = e.task
+  const hadEnc = !!t.encoder || !!e.spec.encoder
+  const enc = e.spec.encoder ?? (hadEnc ? { encoder: 'libx264', encoderDevice: 'cpu' } : undefined)
+  Object.assign(t, { status: 'queued', progress: 0, speed: '', etaSec: 0, error: null, startedAt: 0, finishedAt: 0, hiddenInTaskCenter: false })
+  for (const k of ['encoder', 'encoderDevice', 'hwFallback', 'hwFallbackReason', 'result'] as const) delete t[k]
+  if (enc) Object.assign(t, { encoder: enc.encoder, encoderDevice: enc.encoderDevice })
+  // 重试这一次不再注入失败 / 回退（走查时能看到重试成功）
+  e.spec = { ...e.spec, fail: undefined, fallbackAt: undefined, fallbackTo: undefined, ...(enc ? { encoder: { encoder: enc.encoder, encoderDevice: enc.encoderDevice } } : {}) }
+  e.stopping = false
+  e.firstProgressAt = 0
+  bump(e)
+  emitStatus(e, { retried: true, progress: 0, outputPath: t.outputPath })
+  startEntry(e)
+  return snapshot(t)
 }
 
 export function removeSimTasks(ids: string[]): void {

@@ -1,0 +1,112 @@
+/** 转换页 v2 的纯函数：冲突判断（沿用 S1 逻辑）、预设名、记录时间、媒体信息文字。没有副作用，自检直接调用。 */
+import { formatBytes, formatShortClock } from '@/utils/format'
+import { channelText, codecName, sampleRateText } from '@/utils/mediaText'
+
+export const VIDEO_CONTAINERS: readonly string[] = ['mp4', 'mkv', 'mov', 'webm', 'avi', 'flv', 'gif']
+export const AUDIO_CONTAINERS: readonly string[] = ['mp3', 'aac', 'm4a', 'wav', 'flac', 'ogg', 'opus']
+export const isAudioContainer = (c: string): boolean => AUDIO_CONTAINERS.includes((c ?? '').toLowerCase())
+
+/** 冲突提示（产品决定 v1）：标题不变，不显示错误码；说明里的出路改成“取消勾选”（列表里没有“移出”了） */
+export const CONFLICT_TITLE = '这个文件不能用当前预设'
+export const CONFLICT_NO_VIDEO = '没有画面，不能转成视频格式。请换一个音频预设，或取消勾选。'
+export const CONFLICT_NO_AUDIO = '没有声音，不能转成音频格式。请换一个视频预设，或取消勾选。'
+
+/**
+ * 当前预设与文件不兼容的原因，null = 兼容。只在读取成功（probeOk）后判断——还没读完的不算冲突；
+ * 读取成功的媒体 hasVideo / hasAudio 缺失按 false（后端 omitempty，api/media.ts 已归一化，这里再兜一次）。
+ */
+export function conflictReason(info: { hasVideo?: boolean; hasAudio?: boolean } | undefined, probeOk: boolean, container: string | undefined): string | null {
+  if (!probeOk || !info || !container) return null
+  const c = container.toLowerCase()
+  if (VIDEO_CONTAINERS.includes(c) && info.hasVideo !== true) return CONFLICT_NO_VIDEO
+  if (AUDIO_CONTAINERS.includes(c) && info.hasAudio !== true) return CONFLICT_NO_AUDIO
+  return null
+}
+
+/** 预设名「MP4（H.264 + AAC，通用）」→ 标题 MP4 + 说明 H.264 + AAC，通用 */
+export function splitPresetName(name: string): { title: string; sub: string } {
+  const m = (name ?? '').match(/^(.*?)[（(](.*)[）)]\s*$/)
+  return m ? { title: m[1].trim(), sub: m[2].trim() } : { title: name ?? '', sub: '' }
+}
+
+/** 记录第二行里的预设说明：「MP4 720p · H.264 + AAC · 1280×720」「GIF 动图 · 宽 480 · 12 帧/秒」「MP3 · 192 kbps」；去掉“通用 / 体积更小”这类形容词 */
+const ADJ = ['通用', '体积更小']
+export function presetLabel(presetName: string, o: { container: string; videoCodec?: string; audioCodec?: string; width?: number; height?: number }): string {
+  const parts: string[] = []
+  if (presetName) {
+    const { title, sub } = splitPresetName(presetName)
+    parts.push(title, ...sub.split(/[，,]/).map((s) => s.trim()).filter((s) => s && !ADJ.includes(s)))
+  } else {
+    parts.push((o.container || '').toUpperCase())
+    const codecs = [codecName(o.videoCodec), codecName(o.audioCodec)].filter(Boolean).join(' + ')
+    if (codecs) parts.push(codecs)
+  }
+  if (o.container !== 'gif' && o.width && o.height) parts.push(`${o.width}×${o.height}`)
+  return parts.filter(Boolean).join(' · ')
+}
+
+/** 记录时间：今天 11:48 / 昨天 21:14 / 9月28日 16:40；跨年带年份 2025年9月28日 16:40 */
+export function formatRecordTime(ms: number, now: number = Date.now()): string {
+  if (!ms) return ''
+  const d = new Date(ms)
+  const n = new Date(now)
+  const p = (x: number) => String(x).padStart(2, '0')
+  const hm = `${p(d.getHours())}:${p(d.getMinutes())}`
+  const day0 = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  const diff = Math.round((day0(n) - day0(d)) / 86_400_000)
+  if (diff === 0) return `今天 ${hm}`
+  if (diff === 1) return `昨天 ${hm}`
+  const md = `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`
+  return d.getFullYear() === n.getFullYear() ? md : `${d.getFullYear()}年${md}`
+}
+
+/** 是否是今天（分组“今天 / 更早”和默认展开用） */
+export function isToday(ms: number, now: number = Date.now()): boolean {
+  return !!ms && new Date(ms).toDateString() === new Date(now).toDateString()
+}
+
+interface InfoLike { width?: number; height?: number; videoCodec?: string; audioCodec?: string; duration?: number; size?: number; sampleRate?: number; channels?: number; hasVideo?: boolean; hasAudio?: boolean }
+/** 有画面的按视频显示，其余按音频 */
+export const isAudioOnly = (i?: InfoLike): boolean => !!i && (i.hasVideo === false || !i.width)
+
+/** 父行信息：视频「分辨率 · 编码 · 时长 · 大小」（无声视频在编码后加“没有声音”）；音频「采样率 · 声道 · 时长 · 大小」 */
+export function sourceMetaText(i: InfoLike): string {
+  const parts: string[] = []
+  if (!isAudioOnly(i)) {
+    parts.push(`${i.width}×${i.height}`, codecName(i.videoCodec))
+    if (i.hasAudio === false) parts.push('没有声音')
+  } else {
+    parts.push(sampleRateText(i.sampleRate), channelText(i.channels))
+    if (!i.sampleRate && !i.channels) parts.push(codecName(i.audioCodec))
+  }
+  parts.push(formatShortClock(i.duration ?? 0), i.size ? formatBytes(i.size) : '')
+  return parts.filter(Boolean).join(' · ')
+}
+
+/** 总进度：进行中 + 排队中的平均（排队按 0 算）；剩余时间取最大的那个 */
+export function totalProgress(items: readonly { status: string; progress: number; etaSec: number }[]): { running: number; queued: number; pct: number; etaSec: number } {
+  const act = items.filter((t) => t.status === 'running' || t.status === 'queued')
+  const running = act.filter((t) => t.status === 'running').length
+  if (!act.length) return { running: 0, queued: 0, pct: 0, etaSec: 0 }
+  const sum = act.reduce((n, t) => n + (t.status === 'running' ? Math.min(1, Math.max(0, t.progress || 0)) : 0), 0)
+  const eta = act.reduce((m, t) => Math.max(m, t.status === 'running' ? t.etaSec || 0 : 0), 0)
+  return { running, queued: act.length - running, pct: Math.round((sum / act.length) * 100), etaSec: eta }
+}
+
+/** “剩余约 3 分钟”：不到 1 分钟按秒，1 小时以内按分钟（向上取整），更长“1 小时 5 分钟” */
+export function roughEta(sec: number): string {
+  if (!isFinite(sec) || sec <= 0) return ''
+  if (sec < 60) return `${Math.ceil(sec)} 秒`
+  if (sec < 3600) return `${Math.ceil(sec / 60)} 分钟`
+  const h = Math.floor(sec / 3600)
+  const m = Math.ceil((sec % 3600) / 60)
+  return m ? `${h} 小时 ${m} 分钟` : `${h} 小时`
+}
+
+/** 子任务进行中的“剩余 0:52” */
+export function shortEta(sec: number): string {
+  if (!isFinite(sec) || sec <= 0) return ''
+  const s = Math.round(sec)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return s >= 3600 ? `${Math.floor(s / 3600)}:${p(Math.floor((s % 3600) / 60))}:${p(s % 60)}` : `${Math.floor(s / 60)}:${p(s % 60)}`
+}

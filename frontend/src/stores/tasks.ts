@@ -4,10 +4,12 @@ import * as TaskBinding from '../../wailsjs/go/app/TaskService'
 import { store as goStore } from '../../wailsjs/go/models'
 import { call, toAppError } from '@/api/call'
 import { hasWailsBackend, onEvent, onSimEvent, previewParams } from '@/services/wails'
-import { cancelSimTask, isSimTask, listSimFinished, removeSimTasks, retrySimTask } from '@/api/sim'
+import { cancelSimTask, getSimTask, isSimTask, listSimFinished, removeSimTasks, retrySimTask } from '@/api/sim'
 import { toInstallProgress, useFFmpegStore } from '@/stores/ffmpeg'
 import { buildPreviewActive, buildPreviewHistory, PREVIEW_LOG } from '@/stores/tasks.preview'
 import { mergeEncoderFields, pickEncoderFields } from '@/api/encoderTask'
+import { convertV2IsReal, hideFinishedInTaskCenter, listTasks, unhideInTaskCenter } from '@/api/convertRecords'
+import { toTaskResult, type ApiTaskResult } from '@/api/taskTypes'
 
 /** 契约第 3 节。注意 canceled 只有一个 l */
 export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'interrupted'
@@ -69,6 +71,10 @@ export interface TaskItem {
   encoderDevice?: string
   hwFallback?: boolean
   hwFallbackReason?: string
+  /** v0.23（契约 6.14）：convert 任务所属源文件行 / 任务中心已隐藏 / 成功时的输出信息 */
+  sourceId?: string
+  hiddenInTaskCenter?: boolean
+  result?: ApiTaskResult
 }
 
 /** 终态任务的快照（见 useTaskStore 的 finalById） */
@@ -90,6 +96,8 @@ export interface FinalState {
   encoderDevice?: string
   hwFallback?: boolean
   hwFallbackReason?: string
+  /** v0.23：成功的 convert 任务的输出信息（终态事件带） */
+  result?: ApiTaskResult
 }
 
 /** 历史分组 → 状态过滤。failed 组把 interrupted 也算进去（都需要用户手动重试） */
@@ -134,6 +142,12 @@ interface StatusPayload {
   encoderDevice?: string
   hwFallback?: boolean
   hwFallbackReason?: string
+  /** v0.23：终态事件一定带；原地重试的 queued 事件带 0 */
+  progress?: number
+  /** v0.23：成功的 convert 终态事件带 */
+  result?: unknown
+  /** v0.23：原地重试（同一个 id 回到 queued；没有 task:created） */
+  retried?: boolean
 }
 interface RemovedPayload { ids: string[] }
 type BufferedEvent =
@@ -173,6 +187,9 @@ export function normalizeTask(raw: goStore.Task | TaskItem): TaskItem {
     ...(r.encoderDevice ? { encoderDevice: r.encoderDevice } : {}),
     ...(r.hwFallback ? { hwFallback: true } : {}),
     ...(r.hwFallbackReason ? { hwFallbackReason: r.hwFallbackReason } : {}),
+    ...(typeof r.sourceId === 'string' && r.sourceId ? { sourceId: r.sourceId } : {}),
+    ...(r.hiddenInTaskCenter === true ? { hiddenInTaskCenter: true } : {}),
+    ...(toTaskResult(r.result) ? { result: toTaskResult(r.result) } : {}),
   }
 }
 
@@ -195,7 +212,7 @@ export const useTaskStore = defineStore('tasks', () => {
   }
 
   /**
-   * 已收到 task:removed（或本地 remove()/clearFinished 已删除）的任务 id。
+   * 已收到 task:removed（或本地 remove() 已删除）的任务 id。
    * 任务 id 不复用，task:removed 又没有 version，所以之后到达的该 id 的 created/status/progress 一律丢弃，
    * 包括缓冲回放和 Get 补齐。Set 按插入顺序保存，超过上限时淘汰最旧的。
    */
@@ -277,11 +294,13 @@ export const useTaskStore = defineStore('tasks', () => {
   const historyLoading = ref(false)
   const historyLoaded = ref(false)
   const historyError = ref<TaskError | null>(null)
-  const historyFilter = reactive<{ group: HistoryGroup; types: string[]; page: number; pageSize: number }>({
+  /** includeHidden：任务中心“显示已隐藏”开关（v0.23 TaskFilter.includeHidden） */
+  const historyFilter = reactive<{ group: HistoryGroup; types: string[]; page: number; pageSize: number; includeHidden: boolean }>({
     group: 'all',
     types: [],
     page: 1,
     pageSize: 20,
+    includeHidden: false,
   })
   const previewHistory = ref<TaskItem[]>([])
 
@@ -294,14 +313,14 @@ export const useTaskStore = defineStore('tasks', () => {
   async function loadHistory() {
     historyLoaded.value = true
     if (previewMode) {
-      const all = previewHistory.value.filter((t) => GROUP_STATUSES[historyFilter.group].includes(t.status))
+      const all = previewHistory.value.filter((t) => GROUP_STATUSES[historyFilter.group].includes(t.status) && (historyFilter.includeHidden || !t.hiddenInTaskCenter))
       historyTotal.value = all.length
       history.value = all.slice((historyFilter.page - 1) * historyFilter.pageSize, historyFilter.page * historyFilter.pageSize)
       return
     }
     if (!hasWailsBackend()) {
       // 浏览器里没有后端：显示接口层模拟任务（api/sim.ts）产生的历史
-      const all = listSimFinished().map((t) => normalizeTask(t as unknown as goStore.Task)).filter((t) => historyMatches(t))
+      const all = listSimFinished(historyFilter.includeHidden).map((t) => normalizeTask(t as unknown as goStore.Task)).filter((t) => historyMatches(t))
       historyTotal.value = all.length
       history.value = all.slice((historyFilter.page - 1) * historyFilter.pageSize, historyFilter.page * historyFilter.pageSize)
       return
@@ -309,17 +328,20 @@ export const useTaskStore = defineStore('tasks', () => {
     const seq = ++historySeq
     historyLoading.value = true
     try {
-      const filter = goStore.TaskFilter.createFrom({
+      const q = {
         types: [...historyFilter.types],
         statuses: [...GROUP_STATUSES[historyFilter.group]],
         limit: historyFilter.pageSize,
         offset: (historyFilter.page - 1) * historyFilter.pageSize,
-      })
-      const page = await call(TaskBinding.List(filter))
+      }
+      // v0.23 的 includeHidden 要走转换记录数据层（生成的 TaskFilter 还没有这个字段，createFrom 会丢掉它）；开关没打开时仍用原来的 List
+      const page = convertV2IsReal()
+        ? await listTasks({ ...q, includeHidden: historyFilter.includeHidden })
+        : await call(TaskBinding.List(goStore.TaskFilter.createFrom(q)))
       if (seq !== historySeq) return // 更晚的请求已发出
-      const real = (page.items ?? []).map(normalizeTask).filter((t) => isKnownTaskType(t.type)) // 旧 / 未知类型忽略
+      const real = (page.items ?? []).map((t) => normalizeTask(t as unknown as goStore.Task)).filter((t) => isKnownTaskType(t.type)) // 旧 / 未知类型忽略
       // 合并接口层模拟的历史（新的在前）：第一页放在最前面；总数加上模拟条数，翻页时后端 offset 不变，只是第一页多几行
-      const sim = listSimFinished().map((t) => normalizeTask(t as unknown as goStore.Task)).filter((t) => historyMatches(t))
+      const sim = listSimFinished(historyFilter.includeHidden).map((t) => normalizeTask(t as unknown as goStore.Task)).filter((t) => historyMatches(t))
       history.value = historyFilter.page === 1 ? [...sim, ...real] : real
       historyTotal.value = (page.total ?? 0) + sim.length
       historyError.value = null
@@ -345,6 +367,12 @@ export const useTaskStore = defineStore('tasks', () => {
     historyFilter.page = 1
     return loadHistory()
   }
+  /** 任务中心“显示已隐藏”开关 */
+  function setShowHidden(on: boolean) {
+    historyFilter.includeHidden = on
+    historyFilter.page = 1
+    return loadHistory()
+  }
   function setHistoryPage(page: number) {
     historyFilter.page = page
     return loadHistory()
@@ -360,9 +388,10 @@ export const useTaskStore = defineStore('tasks', () => {
     statsLoaded = true
     if (previewMode) {
       const midnight = new Date().setHours(0, 0, 0, 0)
-      todayDone.value = previewHistory.value.filter((t) => t.status === 'succeeded' && t.finishedAt >= midnight).length
-      failedTotal.value = previewHistory.value.filter((t) => t.status === 'failed' || t.status === 'interrupted').length
-      finishedTotal.value = previewHistory.value.length
+      const shown = previewHistory.value.filter((t) => !t.hiddenInTaskCenter)
+      todayDone.value = shown.filter((t) => t.status === 'succeeded' && t.finishedAt >= midnight).length
+      failedTotal.value = shown.filter((t) => t.status === 'failed' || t.status === 'interrupted').length
+      finishedTotal.value = shown.length
       return
     }
     if (!hasWailsBackend()) return
@@ -423,6 +452,28 @@ export const useTaskStore = defineStore('tasks', () => {
     }
   }
 
+  /**
+   * 不在活动列表里的任务收到非终态事件时，要不要去补齐：从没结束过的要；已经结束过的，只有版本比结束时更大才要——
+   * 转换任务原地重试（同一个 id 重新排队，产品决定 v1 / 契约 v0.23 待定）之后的事件就是这种，旧版本的迟到事件仍然丢弃。
+   */
+  function reopenedAfterFinish(id: string, version: number): boolean {
+    if (byId[id]) return false
+    const fv = finishedVersions.get(id)
+    return fv === undefined || version > fv
+  }
+
+  /** 原地重试返回的任务（id 不变）：清掉终态快照和结束版本，放回活动列表；旧的 error / hwFallback 不带过来（normalizeTask 只取返回值里有的字段） */
+  function reopen(raw: goStore.Task | TaskItem) {
+    const t = normalizeTask(raw)
+    delete t.hiddenInTaskCenter
+    delete t.result
+    finishedVersions.delete(t.id)
+    delete finalById[t.id]
+    const cur = byId[t.id]
+    if (!cur || cur.version <= t.version) byId[t.id] = t
+    history.value = history.value.filter((h) => h.id !== t.id)
+  }
+
   function applyCreated(raw: goStore.Task) {
     const t = normalizeTask(raw)
     if (removedIds.has(t.id)) return
@@ -439,7 +490,7 @@ export const useTaskStore = defineStore('tasks', () => {
     if (removedIds.has(p.id)) return
     const cur = byId[p.id]
     if (!cur) {
-      if (!finishedVersions.has(p.id)) recover(p.id)
+      if (reopenedAfterFinish(p.id, p.version)) recover(p.id)
       return
     }
     if (p.version <= cur.version) return
@@ -455,8 +506,35 @@ export const useTaskStore = defineStore('tasks', () => {
     syncInstall(cur)
   }
 
+  /**
+   * 原地重试的那条 queued 事件（retried:true，契约 v0.23 §5 / §6.6）：清掉上一轮的进度、速度、剩余时间、开始 / 结束时间、
+   * 编码器四个字段、错误和 result，hiddenInTaskCenter 清回 false；本地没有这条任务时按 Get 拉一次（模拟任务直接取模拟快照）。
+   */
+  function applyRetried(p: StatusPayload) {
+    const cur = byId[p.id]
+    if (cur) {
+      if (p.version <= cur.version) return
+      Object.assign(cur, { version: p.version, status: p.status, progress: p.progress ?? 0, speed: '', etaSec: 0, outTimeSec: 0, startedAt: 0, finishedAt: 0, error: null })
+      for (const k of ['encoder', 'encoderDevice', 'hwFallback', 'hwFallbackReason', 'result', 'hiddenInTaskCenter'] as const) delete cur[k]
+      if (p.outputPath) cur.outputPath = p.outputPath
+      mergeEncoder(cur, p)
+      return
+    }
+    if ((finishedVersions.get(p.id) ?? -1) >= p.version) return
+    finishedVersions.delete(p.id)
+    delete finalById[p.id]
+    history.value = history.value.filter((h) => h.id !== p.id)
+    const sim = isSimTask(p.id) ? getSimTask(p.id) : undefined
+    if (sim) {
+      const t = normalizeTask(sim as unknown as goStore.Task)
+      if (!isTerminal(t.status) && isKnownTaskType(t.type)) byId[t.id] = t
+    } else recover(p.id)
+    scheduleRefresh()
+  }
+
   function applyStatus(p: StatusPayload) {
     if (removedIds.has(p.id)) return
+    if (p.retried) return applyRetried(p)
     const cur = byId[p.id]
     if (!cur) {
       if (isTerminal(p.status)) {
@@ -465,11 +543,12 @@ export const useTaskStore = defineStore('tasks', () => {
           rememberFinished(p.id, p.version)
           recordFinal({
             id: p.id, status: p.status, error: normalizeError(p.error), outputPath: p.outputPath ?? '',
-            progress: p.status === 'succeeded' ? 1 : 0, speed: '', etaSec: 0, startedAt: p.startedAt || undefined, finishedAt: p.finishedAt ?? Date.now(), params: '', ...pickEncoderFields(p),
+            progress: p.status === 'succeeded' ? 1 : typeof p.progress === 'number' ? p.progress : 0, speed: '', etaSec: 0, startedAt: p.startedAt || undefined, finishedAt: p.finishedAt ?? Date.now(), params: '', ...pickEncoderFields(p),
+            ...(toTaskResult(p.result) ? { result: toTaskResult(p.result) } : {}),
           })
           scheduleRefresh()
         }
-      } else if (!finishedVersions.has(p.id)) {
+      } else if (reopenedAfterFinish(p.id, p.version)) {
         recover(p.id)
       }
       return
@@ -485,10 +564,15 @@ export const useTaskStore = defineStore('tasks', () => {
     if (p.startedAt) cur.startedAt = p.startedAt
     else if (p.status === 'running' && !cur.startedAt) cur.startedAt = Date.now()
     if (isTerminal(p.status)) {
+      // v0.23：终态事件带 progress（canceled 保留取消那一刻的值）；成功恒为 1；成功的转换带 result
+      if (typeof p.progress === 'number' && p.progress >= 0) cur.progress = p.progress
       if (p.status === 'succeeded') cur.progress = 1
+      const result = toTaskResult(p.result)
+      if (result) cur.result = result
       recordFinal({
         id: cur.id, status: p.status, error: cur.error, outputPath: cur.outputPath, progress: cur.progress,
         speed: '', etaSec: 0, startedAt: cur.startedAt, finishedAt: cur.finishedAt || Date.now(), params: cur.params, ...pickEncoderFields(cur),
+        ...(cur.result ? { result: cur.result } : {}),
       })
       delete byId[p.id]
       rememberFinished(p.id, p.version)
@@ -628,7 +712,11 @@ export const useTaskStore = defineStore('tasks', () => {
     }
   }
 
-  /** 重试：用原参数生成新任务，原任务保留在历史里。同一任务已有重试在途时忽略（返回 undefined） */
+  /**
+   * 重试。契约 v0.23：failed / interrupted / canceled 一律原地重试（同一个 id；旧后端仍可能返回新 id，两种都兼容）：
+   * 返回的 id 与原 id 相同 → reopen（清掉旧的终态快照、错误和回退提示）；不同 → 按新任务放进活动列表。
+   * 同一任务已有重试在途时忽略（返回 undefined）。
+   */
   function retry(id: string): Promise<TaskItem | undefined> {
     return exclusive(id, () => doRetry(id)).then((t) => t ?? undefined)
   }
@@ -636,18 +724,19 @@ export const useTaskStore = defineStore('tasks', () => {
     if (previewMode) {
       const old = previewHistory.value.find((t) => t.id === id)
       if (!old) return
-      const t: TaskItem = { ...old, id: 'new_' + id, status: 'queued', error: null, progress: 0, startedAt: 0, finishedAt: 0, createdAt: Date.now() }
+      // v0.23：所有可重试类型都原地重试（同一个 id）
+      const t: TaskItem = { ...old, status: 'queued', error: null, progress: 0, startedAt: 0, finishedAt: 0, version: old.version + 1 }
+      for (const k of ['hwFallback', 'hwFallbackReason', 'result', 'hiddenInTaskCenter'] as const) delete t[k]
+      previewHistory.value = previewHistory.value.filter((h) => h.id !== id)
       byId[t.id] = t
+      await loadHistory()
       return t
     }
-    if (isSimTask(id)) {
-      const nt = normalizeTask(retrySimTask(id) as unknown as goStore.Task)
-      scheduleRefresh()
-      return nt
-    }
-    const t = normalizeTask(await call(TaskBinding.Retry(id)))
-    // task:created 事件会带来同一个对象；先放进去让界面立刻有反馈，版本判断保证不重复
-    applyCreated(t as unknown as goStore.Task)
+    const raw = isSimTask(id) ? (retrySimTask(id) as unknown as goStore.Task) : await call(TaskBinding.Retry(id))
+    const t = normalizeTask(raw)
+    if (t.id === id) reopen(t)
+    // 新 id：task:created 事件会带来同一个对象；先放进去让界面立刻有反馈，版本判断保证不重复
+    else applyCreated(t as unknown as goStore.Task)
     scheduleRefresh()
     return t
   }
@@ -668,20 +757,28 @@ export const useTaskStore = defineStore('tasks', () => {
     history.value = history.value.filter((t) => !ids.includes(t.id))
   }
 
-  async function clearFinished() {
+  /**
+   * 任务中心“隐藏已完成”（契约 v0.23 HideFinishedInTaskCenter，替代 ClearFinished / “清除已结束”）：所有类型的已结束任务只从任务中心隐藏
+   * （hiddenInTaskCenter），不删除记录和文件；转换页的转换记录照常显示。真正的删除只在转换页做。开关为 false 时走模拟（只影响模拟任务）。
+   */
+  async function hideFinished() {
     if (previewMode) {
-      previewHistory.value = previewHistory.value.filter((t) => !isTerminal(t.status))
-      await loadHistory()
-      await loadStats()
-      return
-    }
-    await call(TaskBinding.ClearFinished())
-    // 已加载的历史都是终态任务，全部被清除；没加载的靠后端发来的 task:removed 登记
-    markRemoved(history.value.map((t) => t.id))
+      for (const t of previewHistory.value) if (isTerminal(t.status)) t.hiddenInTaskCenter = true
+    } else await hideFinishedInTaskCenter()
     history.value = []
-    historyTotal.value = 0
     historyFilter.page = 1
-    scheduleRefresh()
+    await loadHistory()
+    await loadStats()
+  }
+
+  /** “显示已隐藏”里的“取消隐藏”（UnhideInTaskCenter(ids)，#82 最终决定） */
+  async function unhide(ids: string[]) {
+    if (!ids.length) return
+    if (previewMode) {
+      for (const t of previewHistory.value) if (ids.includes(t.id)) t.hiddenInTaskCenter = false
+    } else await unhideInTaskCenter(ids)
+    await loadHistory()
+    await loadStats()
   }
 
   /**
@@ -702,6 +799,7 @@ export const useTaskStore = defineStore('tasks', () => {
         recordFinal({
           id: t.id, status: t.status, error: t.error, outputPath: t.outputPath, progress: t.status === 'succeeded' ? 1 : t.progress,
           speed: '', etaSec: 0, startedAt: t.startedAt, finishedAt: t.finishedAt, params: t.params, ...pickEncoderFields(t),
+          ...(t.result ? { result: t.result } : {}),
         })
       } else byId[id] = t
     } catch (e) {
@@ -720,7 +818,7 @@ export const useTaskStore = defineStore('tasks', () => {
     history, historyTotal, historyLoading, historyLoaded, historyError, historyFilter,
     todayDone, todayDoneCapped, failedTotal, finishedTotal,
     // 方法
-    init, refreshActive, loadHistory, setHistoryGroup, setHistoryTypes, setHistoryPage, loadStats,
-    cancel, retry, isBusy, exclusive, remove, clearFinished, getLog, track, fetchFinal, taskById, seedFinal, wasRemoved,
+    init, refreshActive, loadHistory, setHistoryGroup, setHistoryTypes, setHistoryPage, setShowHidden, loadStats,
+    cancel, retry, isBusy, exclusive, remove, hideFinished, unhide, getLog, track, fetchFinal, taskById, seedFinal, wasRemoved,
   }
 })

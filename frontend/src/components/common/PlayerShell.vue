@@ -9,13 +9,15 @@
 
     <div class="ctrl">
       <template v-if="mode === 'vod'">
-        <button type="button" class="ci step" :aria-label="labels.prev ?? '上一帧'" :aria-disabled="disabled || undefined" @click="!disabled && emit('step', -1)"><FIcon name="left" :size="17" /></button>
+        <button v-if="show.step" type="button" class="ci step" :aria-label="labels.prev ?? '上一帧'" :aria-disabled="disabled || undefined" @click="!disabled && emit('step', -1)"><FIcon name="left" :size="17" /></button>
         <button type="button" class="pb" :aria-label="playing ? (labels.pause ?? '暂停') : (labels.play ?? '播放')" :aria-disabled="disabled || undefined" @click="!disabled && togglePlay()">
           <FIcon :name="playing ? 'pause' : 'play'" :size="14" style="fill: #111" />
         </button>
-        <button type="button" class="ci step" :aria-label="labels.next ?? '下一帧'" :aria-disabled="disabled || undefined" @click="!disabled && emit('step', 1)"><FIcon name="right" :size="17" /></button>
-        <span class="tc">{{ fmt(current) }} <em>/ {{ fmt(duration) }}</em></span>
+        <button v-if="show.step" type="button" class="ci step" :aria-label="labels.next ?? '下一帧'" :aria-disabled="disabled || undefined" @click="!disabled && emit('step', 1)"><FIcon name="right" :size="17" /></button>
+        <span v-if="show.time" class="tc">{{ fmt(current) }} <em>/ {{ fmt(duration) }}</em></span>
+        <span v-if="!show.seek" class="grow"></span>
         <div
+          v-if="show.seek"
           ref="seekEl"
           class="seek"
           role="slider"
@@ -39,11 +41,13 @@
         <span class="grow"></span>
       </template>
 
-      <button type="button" class="ci" :aria-label="muted ? '取消静音' : '静音'" @click="muted = !muted">
+      <button v-if="show.mute" type="button" class="ci" :aria-label="muted ? '取消静音' : '静音'" @click="muted = !muted">
         <FIcon :name="muted ? 'mute' : 'vol'" :size="17" />
       </button>
+      <!-- 静音按钮右边的附加控件（转换页预览弹窗的音量条） -->
+      <slot name="extra" />
       <button v-if="chip" type="button" class="chip" @click="emit('chip')">{{ chip }}</button>
-      <button type="button" class="ci" aria-label="全屏" @click="emit('fullscreen')"><FIcon name="full" :size="17" /></button>
+      <button v-if="show.fullscreen" type="button" class="ci" aria-label="全屏" @click="emit('fullscreen')"><FIcon name="full" :size="17" /></button>
     </div>
   </div>
 </template>
@@ -75,11 +79,20 @@ const props = withDefaults(
     disabled?: boolean
     /** 控制条按钮的读屏名称；不传用默认（剪辑页要“停止播放”而不是“暂停”） */
     labels?: { play?: string; pause?: string; prev?: string; next?: string }
-    /** 时间码格式：hms = 00:01:12.08（默认）；ms = 00:12.08，满 1 小时才带小时（剪辑页） */
-    timeFormat?: 'hms' | 'ms'
+    /** 时间码格式：hms = 00:01:12.08（默认）；ms = 00:12.08，满 1 小时才带小时（剪辑页）；clock = 00:48，满 1 小时才带小时、不带帧号（转换页预览） */
+    timeFormat?: 'hms' | 'ms' | 'clock'
+    /** 控制条上显示哪些部件（缺省都显示，编辑页 / 直播页不传）。转换页预览：不要上一帧 / 下一帧；音频不要全屏；GIF 只留播放 / 暂停 */
+    parts?: { step?: boolean; time?: boolean; seek?: boolean; mute?: boolean; fullscreen?: boolean }
   }>(),
-  { mode: 'vod', fps: 25, statusIcon: 'rec', fill: false, disabled: false, labels: () => ({}), timeFormat: 'hms' },
+  { mode: 'vod', fps: 25, statusIcon: 'rec', fill: false, disabled: false, labels: () => ({}), timeFormat: 'hms', parts: () => ({}) },
 )
+const show = computed(() => ({
+  step: props.parts.step ?? true,
+  time: props.parts.time ?? true,
+  seek: props.parts.seek ?? true,
+  mute: props.parts.mute ?? true,
+  fullscreen: props.parts.fullscreen ?? true,
+}))
 
 const playing = defineModel<boolean>('playing', { default: false })
 const muted = defineModel<boolean>('muted', { default: false })
@@ -112,6 +125,7 @@ function fmt(sec: number) {
   const frames = Math.min(props.fps - 1, Math.floor((s - whole) * props.fps + 1e-6)) // 加 1e-6 防止 72.32*25 这类浮点误差少算一帧
   const p = (n: number) => String(n).padStart(2, '0')
   const h = Math.floor(whole / 3600)
+  if (props.timeFormat === 'clock') return `${h ? `${h}:` : ''}${p(Math.floor((whole % 3600) / 60))}:${p(whole % 60)}`
   const hh = props.timeFormat === 'ms' && !h ? '' : `${p(h)}:`
   return `${hh}${p(Math.floor((whole % 3600) / 60))}:${p(whole % 60)}.${p(frames)}`
 }

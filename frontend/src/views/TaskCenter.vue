@@ -36,7 +36,7 @@
           <el-select v-model="typeFilter" size="small" class="type-select" aria-label="按类型筛选" @change="onTypeChange">
             <el-option v-for="o in TYPE_FILTERS" :key="o.key" :label="o.label" :value="o.key" />
           </el-select>
-          <button v-if="tab !== 'active'" type="button" class="btn" :disabled="!tasks.historyTotal && !tasks.finishedTotal" @click="askClear"><FIcon name="trash" />清除已结束</button>
+          <button v-if="tab !== 'active'" type="button" class="btn" :disabled="!tasks.historyTotal && !tasks.finishedTotal" @click="askHide"><FIcon name="eyeoff" />隐藏已完成</button>
         </div>
       </div>
 
@@ -178,7 +178,7 @@
       </div>
     </div>
 
-    <!-- 删除 / 清除确认 -->
+    <!-- 删除 / 隐藏确认 -->
     <Teleport to="body">
       <div v-if="confirm" class="mask" @click.self="confirm = null" @keydown.esc="confirm = null">
         <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="tc-dlg-title">
@@ -188,7 +188,7 @@
           <div class="dfoot">
             <span class="sp" />
             <button type="button" class="btn lg" @click="confirm = null">取消</button>
-            <button type="button" class="btn lg danger" @click="doConfirm">{{ confirm.ok }}</button>
+            <button type="button" class="btn lg" :class="confirm.safe ? 'pri' : 'danger'" @click="doConfirm">{{ confirm.ok }}</button>
           </div>
         </div>
       </div>
@@ -409,6 +409,7 @@ async function act(fn: () => Promise<unknown>) {
     ElMessage.error(actionErrorText(err.code, err.message))
   }
 }
+/** 重试：转换任务原地重试（同一条记录、同一个任务 id，旧错误和回退提示清掉），由任务 store 处理；与转换页的重试是同一条路径 */
 async function doRetry(t: TaskItem) {
   if (tasks.isBusy(t.id)) return // 该任务已有重试 / 换输出位置在途：忽略连点
   await act(async () => {
@@ -469,7 +470,7 @@ async function openOutput(t: TaskItem) {
   }
 }
 
-interface Confirm { title: string; text: string; ok: string; canDeleteOutput: boolean; run: () => Promise<void> }
+interface Confirm { title: string; text: string; ok: string; canDeleteOutput: boolean; run: () => Promise<void>; /** 不删除东西的确认（隐藏）：主按钮用主色，不用红色 */ safe?: boolean }
 const confirm = ref<Confirm | null>(null)
 const deleteOutput = ref(false)
 function askRemove(t: TaskItem) {
@@ -485,15 +486,20 @@ function askRemove(t: TaskItem) {
     },
   }
 }
-function askClear() {
+/**
+ * “隐藏已完成”（产品决定 v1：原“清除已结束”改为只隐藏）：已结束的任务只从任务中心列表里隐藏，不删除记录、日志和文件；
+ * 转换任务的记录仍在格式转换页的“转换记录”里，真正删除只在转换页做。
+ */
+function askHide() {
   confirm.value = {
-    title: '清除所有已结束的任务？',
-    text: '只删除任务记录和日志，不会删除已生成的输出文件。进行中的任务不受影响。',
-    ok: '清除',
+    title: '隐藏所有已结束的任务？',
+    text: '只从任务中心隐藏，不删除记录和文件。转换记录仍可以在格式转换页查看。进行中的任务不受影响。',
+    ok: '隐藏',
     canDeleteOutput: false,
+    safe: true,
     run: async () => {
       closeLog()
-      await tasks.clearFinished()
+      await tasks.hideFinished()
     },
   }
 }
@@ -916,6 +922,11 @@ th { white-space: nowrap; } /* “开始时间”不换行 */
 .btn.lg {
   height: 32px;
   padding: 0 16px;
+}
+.btn.pri {
+  background: var(--ff-badge-bg);
+  border-color: var(--ff-badge-bg);
+  color: var(--ff-on-primary);
 }
 .btn.danger {
   background: var(--ff-danger);
