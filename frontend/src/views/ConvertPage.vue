@@ -17,11 +17,11 @@ import { onFilesDropped } from '@/api/fileDrop'
 import { toAppError } from '@/api/call'
 import { pickDirectory } from '@/api/system'
 import { simParam } from '@/api/sim'
-import { convertV2IsReal, revealDeleteFailure, type DeleteResult } from '@/api/convertRecords'
+import { convertV2IsReal, revealDeleteFailure } from '@/api/convertRecords'
 import { hasWailsBackend } from '@/services/wails'
 import { useConvertRecordsStore, type DeleteAsk, type ParentView } from '@/stores/convertRecords'
 import { useTaskStore } from '@/stores/tasks'
-import { deleteFailureNotice, deleteResultText, revealDeleteFailureText, roughEta, sourceRemovedParts } from '@/utils/convertText'
+import { deleteToast, revealDeleteFailureText, roughEta, type DeleteToast } from '@/utils/convertText'
 
 const cv = useConvertRecordsStore()
 const tasks = useTaskStore()
@@ -100,7 +100,7 @@ async function onConfirmDelete(withOutput: boolean) {
   try {
     const r = await cv.confirmDelete(a, withOutput)
     delAsk.value = null
-    showDeleteToast(a.kind === 'source' ? sourceRemovedParts(a.name, r.deletedTaskIds.length, r.deletedFiles) : deleteResultText({ ...r, failures: [] }), r.failures)
+    showDeleteToast(deleteToast(a, r))
   } catch (e) {
     ElMessage.error(toAppError(e).message)
   } finally {
@@ -110,19 +110,14 @@ async function onConfirmDelete(withOutput: boolean) {
 /** 普通 toast 4 秒；警告 toast 8 秒（Element Plus 的消息悬停时本来就不计时） */
 const TOAST_MS = 4000
 const WARN_TOAST_MS = 8000
-/**
- * 删除 / 移除后的 toast（定稿 10-08）：源文件名单独一段，过长省略、悬停看全名；
- * 有文件没删成时追加一句，警告样式，带“打开所在文件夹”（第一个非空路径；still_running 的路径为空、不算，见 revealDeleteFailure）。
- */
-function showDeleteToast(main: string | { before: string; name: string; after: string }, failures: DeleteResult['failures']) {
-  const { text: fail, path } = deleteFailureNotice(failures) // 文案和“第一个非空路径”都在 deleteFailureNotice 里
-  const head = typeof main === 'string' ? [main] : [main.before, h('span', { class: 'cv-toast-nm', title: main.name }, main.name), main.after]
+/** 删除 / 移除后的 toast：文案和顺序都在 deleteToast（utils/convertText）；名称单独一段，过长省略、悬停看全名；有 failures 时警告样式 8 秒 */
+function showDeleteToast(t: DeleteToast) {
+  const path = t.path
   const msg = h('span', { class: 'cv-toast' }, [
-    ...head,
-    fail ? h('span', null, fail) : null,
-    fail && path ? h('button', { type: 'button', class: 'ff-link cv-toast-act', onClick: () => void revealDeleteFailure(path).catch((e) => ElMessage.error(revealDeleteFailureText(toAppError(e)))) }, '打开所在文件夹') : null,
+    ...t.parts.map((p) => (typeof p === 'string' ? p : h('span', { class: 'cv-toast-nm', title: p.name }, p.name))),
+    path ? h('button', { type: 'button', class: 'ff-link cv-toast-act', onClick: () => void revealDeleteFailure(path).catch((e) => ElMessage.error(revealDeleteFailureText(toAppError(e)))) }, '打开所在文件夹') : null,
   ])
-  ElMessage({ message: msg, type: fail ? 'warning' : 'success', duration: fail ? WARN_TOAST_MS : TOAST_MS, customClass: 'cv-toast-box' })
+  ElMessage({ message: msg, type: t.warn ? 'warning' : 'success', duration: t.warn ? WARN_TOAST_MS : TOAST_MS, customClass: 'cv-toast-box' })
 }
 const logId = ref('')
 const logText = ref('')
@@ -180,7 +175,7 @@ watch(() => route.query.record, (r) => {
   if (r) void locateFromRoute()
 })
 
-// ---- 模拟场景的弹窗（走查 / 截图用：?dlg=video|result|audio|unplayable|delete|delete-checked|delete-kid） ----
+// ---- 模拟场景的弹窗（走查 / 截图用：?dlg=video|result|audio|unplayable|delete|delete-checked|delete-kid|delete-kid-running） ----
 function openMockDialog() {
   if (convertV2IsReal()) return
   switch (simParam('dlg')) {
@@ -196,6 +191,9 @@ function openMockDialog() {
     case 'delete-kid':
       delAsk.value = cv.deleteAsk('record', 'simcv-ivNew')
       delChecked.value = true
+      return
+    case 'delete-kid-running': // 界面上进行中的记录没有删除按钮；只用来模拟 DeleteRecords 撞上 still_running（配 ?cv_delfail=still_running）
+      delAsk.value = cv.deleteAsk('record', 'simcv-launchRun1080')
   }
 }
 

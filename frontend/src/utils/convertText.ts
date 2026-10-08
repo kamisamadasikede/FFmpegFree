@@ -49,42 +49,51 @@ export function recordLine(r: { presetId?: string; presetName?: string; paramsSu
   return { text, title: p.preset && p.tip ? p.tip : text }
 }
 
-/** 删除单条记录的 toast（§四 9）：“已删除 n 条记录。”，有没删成的追加 deleteFailureText */
-export function deleteResultText(r: { deletedTaskIds: string[]; failures: { reason: string; message: string; path?: string }[] }): string {
-  return [`已删除 ${r.deletedTaskIds.length} 条记录。`, deleteFailureText(r.failures)].filter(Boolean).join('')
-}
-
 /**
- * 删除 / 移除后有没删成的（DeleteResult.failures）——文案已定（产品经理 10-08），改文案只改这里：
- * - 有路径的 = 文件没删成：“有 k 个文件没能删除，可能正在被其他程序使用，请关闭后手动删除。”，带“打开所在文件夹”（第一个非空路径）；
- * - 路径为空的（still_running：转换 10 秒内没停下来）单独计数：“有 k 条转换没能及时停止，它们的输出文件没有删除，请稍后手动删除。”（产品经理定稿 10-08），不带文件夹操作；
- * - 两种都有：文件句在前，still_running 句在后；“打开所在文件夹”只在有非空路径时出现。页面用警告样式、8 秒。
+ * 删除 / 移除后的 toast——改文案只改这一段（产品经理 10-08 定稿；DELETE_RECORDS_STILL_RUNNING 为后端提议、待产品确认）。
+ * n = deletedTaskIds.length，m = deletedFiles，k = 各类 failures 条数；行保留 = sourceId 不在 deletedSourceIds 里。
+ * 拼法：主句 + still_running 句 + 文件句（文件句永远在最后）；有 failures 时页面用警告样式、8 秒，
+ * “打开所在文件夹”只在有非空 path 时出现（取第一条非空 path；still_running 的 path 为空）。
+ * - 源文件行移除成功：已从列表移除“名称”和 n 条记录。（删了输出：…，并删除了 m 个文件。没有记录：已从列表移除“名称”。）
+ * - 源文件行因 still_running 保留：已删除 n 条记录。有 k 条转换没能及时停止，“名称”仍保留在列表里，请稍后再移除。（n = 0 时去掉第一句；不以“已从列表移除”开头）
+ * - 删除记录（单条 / 批量）：已删除 n 条记录。有 k 条转换没能及时停止，请稍后再删除。（有 still_running 且 n = 0 时去掉第一句）
+ * - 文件没删成（in_use / permission / not_task_output / io，path 非空）：有 k 个文件没能删除，可能正在被其他程序使用，请关闭后手动删除。
+ * 名称单独一段（{ name }），页面放进可省略、悬停看全名的 span。
  */
+export type ToastPart = string | { name: string }
+export const DELETED_RECORDS = (n: number) => `已删除 ${n} 条记录。`
 export const DELETE_FAILED_FILES = (k: number) => `有 ${k} 个文件没能删除，可能正在被其他程序使用，请关闭后手动删除。`
-export const DELETE_STILL_RUNNING = (k: number) => `有 ${k} 条转换没能及时停止，它们的输出文件没有删除，请稍后手动删除。`
+export const SOURCE_KEPT_STILL_RUNNING = (k: number, name: string): ToastPart[] => [`有 ${k} 条转换没能及时停止，“`, { name }, '”仍保留在列表里，请稍后再移除。']
+/** 后端提议，产品经理未确认：只改这一个常量 */
+export const DELETE_RECORDS_STILL_RUNNING = (k: number) => `有 ${k} 条转换没能及时停止，请稍后再删除。`
+export function sourceRemovedParts(name: string, n: number, m: number): ToastPart[] {
+  const tail = n > 0 ? `和 ${n} 条记录${m > 0 ? `，并删除了 ${m} 个文件` : ''}。` : '。'
+  return ['已从列表移除“', { name }, `”${tail}`]
+}
+export interface DeleteToast { parts: ToastPart[]; warn: boolean; path: string }
+export function deleteToast(
+  ask: { kind: 'source' | 'record'; id: string; name: string },
+  r: { deletedTaskIds: string[]; deletedSourceIds: string[]; deletedFiles: number; failures: readonly { reason: string; path?: string }[] },
+): DeleteToast {
+  const n = r.deletedTaskIds.length
+  const k = r.failures.filter((f) => f.reason === 'still_running').length
+  const files = r.failures.filter((f) => !!f.path)
+  const parts: ToastPart[] = []
+  if (ask.kind === 'source') {
+    if (k > 0 && !r.deletedSourceIds.includes(ask.id)) parts.push(...(n > 0 ? [DELETED_RECORDS(n)] : []), ...SOURCE_KEPT_STILL_RUNNING(k, ask.name))
+    else parts.push(...sourceRemovedParts(ask.name, n, r.deletedFiles))
+  } else {
+    if (n > 0 || k === 0) parts.push(DELETED_RECORDS(n))
+    if (k > 0) parts.push(DELETE_RECORDS_STILL_RUNNING(k))
+  }
+  if (files.length) parts.push(DELETE_FAILED_FILES(files.length))
+  return { parts, warn: r.failures.length > 0, path: files[0]?.path ?? '' }
+}
+/** 纯文字（检查 / 无障碍用） */
+export const toastText = (parts: readonly ToastPart[]): string => parts.map((p) => (typeof p === 'string' ? p : p.name)).join('')
 /** 删除失败提示上“打开所在文件夹”失败（契约 v0.23.3）：文件被移走 NOT_FOUND → 固定文案；其他（含超过 10 分钟 / 重启后的 INVALID_ARGUMENT）→ 普通错误提示（错误自己的文案） */
 export const REVEAL_DELETE_FAILURE_NOT_FOUND = '找不到这个文件。'
 export const revealDeleteFailureText = (e: { code: string; message: string }): string => (e.code === 'NOT_FOUND' ? REVEAL_DELETE_FAILURE_NOT_FOUND : e.message)
-export function deleteFailureNotice(failures: readonly { reason: string; path?: string }[]): { text: string; path: string } {
-  const files = failures.filter((f) => !!f.path)
-  const running = failures.length - files.length
-  return { text: [files.length ? DELETE_FAILED_FILES(files.length) : '', running ? DELETE_STILL_RUNNING(running) : ''].join(''), path: files[0]?.path ?? '' }
-}
-export const deleteFailureText = (failures: readonly { reason: string; path?: string }[]): string => deleteFailureNotice(failures).text
-
-/**
- * 源文件行“从列表移除”后的 toast（定稿 产品经理 10-08）：n = deletedTaskIds.length，m = deletedFiles。
- * 有记录：已从列表移除“名称”和 n 条记录。删了输出：…和 n 条记录，并删除了 m 个文件。没有记录：已从列表移除“名称”。（不出现“0 条记录”）
- * 拆成 before / name / after，页面把名称单独放进可省略、带 title 的 span；改文案只改这里。
- */
-export function sourceRemovedParts(name: string, n: number, m: number): { before: string; name: string; after: string } {
-  const tail = n > 0 ? `和 ${n} 条记录${m > 0 ? `，并删除了 ${m} 个文件` : ''}。` : '。'
-  return { before: '已从列表移除“', name, after: `”${tail}` }
-}
-export const sourceRemovedText = (name: string, n: number, m: number): string => {
-  const p = sourceRemovedParts(name, n, m)
-  return p.before + p.name + p.after
-}
 
 /** 记录时间：今天 11:48 / 昨天 21:14 / 9月28日 16:40；跨年带年份 2025年9月28日 16:40 */
 export function formatRecordTime(ms: number, now: number = Date.now()): string {
