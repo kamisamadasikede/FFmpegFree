@@ -23,7 +23,7 @@ func fullPreviewRun(_ context.Context, _ string, args ...string) (string, error)
 	case "-encoders":
 		return " V....D mjpeg  Motion JPEG\n", nil
 	case "-muxers":
-		return "  E image2  image2 sequence\n", nil
+		return "  E fifo  FIFO queue pseudo-muxer\n  E image2  image2 sequence\n", nil
 	}
 	return " ... fps  V->V  x\n ... scale  V->V  y\n", nil
 }
@@ -54,7 +54,7 @@ func (f *fixture) args(t *testing.T) []string {
 // previewArg 返回 argv 里预览输出的目标路径（file: 前缀去掉），没有预览输出返回 ""。
 func previewArg(args []string) string {
 	for i, a := range args {
-		if a == "image2" && i > 0 && args[i-1] == "-f" {
+		if a == "image2" && i > 0 && args[i-1] == "-fifo_format" {
 			return strings.TrimPrefix(args[len(args)-1], "file:")
 		}
 	}
@@ -282,7 +282,7 @@ func TestPreviewDoesNotChangeMainOutputArgs(t *testing.T) {
 		return ""
 	}
 	w, wo := fromMap(withArgs), fromMap(withoutArgs)
-	if !strings.HasPrefix(w, wo+" -map 0:v:0 -an -sn -dn -vf fps=2,scale=640:-2 -q:v 5") {
+	if !strings.HasPrefix(w, wo+" -map 0:v:0 -an -sn -dn -vf fps=2,scale=640:-2 -c:v mjpeg -q:v 5 -protocol_whitelist file -f fifo -fifo_format image2 ") {
 		t.Fatalf("主输出参数被预览改动:\n%s\n%s", w, wo)
 	}
 }
