@@ -337,8 +337,9 @@ func (r *runner) Run(ctx context.Context, report func(task.Progress)) (string, e
 	return out, err
 }
 
-// liveInterruptedError 保证"开始后中断"的错误码是直播码：LIVE_SOURCE_GONE（所选窗口没了）、LIVE_PUSH_INTERRUPTED 原样，
-// 其他（INTERNAL、PROCESS_FAILED 等，例如进程被外部杀掉、stderr 认不出来）一律改成 LIVE_PUSH_INTERRUPTED，detail 保留。
+// liveInterruptedError 保证"开始后中断"的错误码是直播码：LIVE_SOURCE_GONE（所选窗口没了）原样；
+// LIVE_PUSH_INTERRUPTED 补上 reason=push（已有则不动）；
+// 其他（INTERNAL、PROCESS_FAILED 等，例如进程被外部杀掉、stderr 认不出来）一律改成 LIVE_PUSH_INTERRUPTED，detail 第一行 reason=push。
 // 用户取消的 context.Canceled 不动（任务管理器先按取消处理）。
 func liveInterruptedError(err error) error {
 	if errors.Is(err, context.Canceled) {
@@ -346,10 +347,15 @@ func liveInterruptedError(err error) error {
 	}
 	ae := apperr.From(err)
 	switch ae.Code {
-	case apperr.LivePushInterrupted, apperr.LiveSourceGone:
+	case apperr.LiveSourceGone:
+		return err
+	case apperr.LivePushInterrupted:
+		if ae.Detail == "" || !strings.HasPrefix(ae.Detail, "reason=push") {
+			return apperr.New(apperr.LivePushInterrupted, ae.Message).WithDetail(ffmpeg.InterruptDetail("push", ae.Detail))
+		}
 		return err
 	}
-	return apperr.Wrap(apperr.LivePushInterrupted, ffmpeg.PushInterruptedMessage, err).WithDetail(ae.Detail)
+	return apperr.Wrap(apperr.LivePushInterrupted, ffmpeg.PushInterruptedMessage, err).WithDetail(ffmpeg.InterruptDetail("push", ae.Detail))
 }
 
 // EncoderInfo 实现 task.EncoderReporter。

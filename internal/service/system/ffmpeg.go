@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -29,11 +30,13 @@ const (
 
 // FFmpegStatus 见契约第 9.4 节。
 //
-// Error 在 missing / outdated 时为 FFMPEG_NOT_FOUND（detail 里列出每个候选失败的原因），
+// Error 在 missing / outdated 时为 FFMPEG_NOT_FOUND（detail 是 [来源] 原因，不含组件路径），
 // failed 时为 INTERNAL；ready / checking 时为 nil。
 type FFmpegStatus struct {
-	State   string `json:"state"`   // checking | ready | missing | outdated | installing | failed
-	Path    string `json:"path"`    // ffmpeg 可执行文件的绝对路径
+	State string `json:"state"` // checking | ready | missing | outdated | installing | failed
+	// Path 是当前组件可执行文件的绝对路径，只给后端自己用（打开所在文件夹、编码器缓存）。
+	// 契约 v0.25.4：不进 JSON、不进 Wails 绑定，前端拿不到。打开文件夹走 OpenStorageFolder("component")。
+	Path    string `json:"-"`
 	Version string `json:"version"` // 规范化后的数字版本，如 "9.0.2"、"7.1.5"（契约 v0.22；不含网址 / 构建后缀）
 	// Source（v0.25.3 起始终有值）：ready 时是实际使用的组件来源 custom | bundled | system | legacy；
 	// 其他状态（checking / missing / outdated / installing / failed）没有在用的组件，是用户的设置：
@@ -244,7 +247,7 @@ func (m *Manager) Recheck(ctx context.Context) (FFmpegStatus, error) {
 	res, err := cfg.Locator.Locate(ctx, m.customPath(ctx, cfg))
 	// 检测结果和用时写进应用日志：检测期间依赖 ffmpeg 的接口都返回 FFMPEG_NOT_FOUND（包 19 Windows 的缩略图就是这样丢的）。
 	log.Printf("转换组件检测: state=%s path=%q source=%s version=%q 用时=%s 未通过的候选=%q",
-		res.State, res.Info.FFmpeg, res.Info.Source, res.Info.Version, time.Since(start).Round(time.Millisecond), attemptsDetail(res.Attempts))
+		res.State, res.Info.FFmpeg, res.Info.Source, res.Info.Version, time.Since(start).Round(time.Millisecond), attemptsLog(res.Attempts))
 	if err != nil {
 		st, _ := m.setUnlessInstalling(ctx, FFmpegStatus{State: ffmpeg.StateFailed, Error: apperr.Wrap(apperr.Internal, "检测转换组件被中断", err)}, nil)
 		return st, err
@@ -275,12 +278,49 @@ func statusFromResult(res ffmpeg.Result) (FFmpegStatus, *ffmpeg.Binaries) {
 	}
 }
 
+// attemptsDetail 是 missing / outdated 时给前端的 error.detail（契约 v0.25.4）：
+// 逐行 [来源] 原因，不含组件路径，也不列出候选路径。
 func attemptsDetail(as []ffmpeg.Attempt) string {
+	lines := make([]string, 0, len(as))
+	for _, a := range as {
+		reason := stripComponentPaths(a.Reason)
+		if reason == "" {
+			reason = "不可用"
+		}
+		lines = append(lines, fmt.Sprintf("[%s] %s", a.Source, reason))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// attemptsLog 只写应用日志，保留路径，便于排查检测失败。
+func attemptsLog(as []ffmpeg.Attempt) string {
 	lines := make([]string, 0, len(as))
 	for _, a := range as {
 		lines = append(lines, fmt.Sprintf("[%s] %s: %s", a.Source, a.Path, a.Reason))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// absPathInText 匹配绝对路径（Unix /… 或 Windows C:\…、C:/…），用来从给前端的 detail 里拿掉组件路径。
+var absPathInText = regexp.MustCompile(`(?:[A-Za-z]:[\\/]|/)[^\s;，。'"\n]+`)
+
+// stripComponentPaths 去掉 detail 里的组件路径。按行处理，空行丢掉。
+func stripComponentPaths(s string) string {
+	if s == "" {
+		return ""
+	}
+	lines := strings.Split(s, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = absPathInText.ReplaceAllString(line, "")
+		line = strings.TrimSpace(line)
+		line = strings.Trim(line, ":; ")
+		line = strings.Join(strings.Fields(line), " ")
+		if line != "" {
+			out = append(out, line)
+		}
+	}
+	return strings.Join(out, "\n")
 }
 
 // SetPath 手动指定 ffmpeg 所在目录（也可以直接是 ffmpeg 可执行文件）。
@@ -309,7 +349,7 @@ func (m *Manager) SetPath(ctx context.Context, dir string) (FFmpegStatus, error)
 		if state == ffmpeg.StateOutdated {
 			msg = "所选转换组件版本过低，需要 6 或更高"
 		}
-		return FFmpegStatus{}, apperr.New(apperr.InvalidArgument, msg).WithDetail(reason)
+		return FFmpegStatus{}, apperr.New(apperr.InvalidArgument, msg).WithDetail(stripComponentPaths(reason))
 	}
 	if err := m.setCustomPath(ctx, cfg, dir); err != nil {
 		return FFmpegStatus{}, apperr.Wrap(apperr.IOError, "保存设置失败", err)

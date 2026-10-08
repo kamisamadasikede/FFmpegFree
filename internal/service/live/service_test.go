@@ -592,8 +592,8 @@ func TestFailureClassificationAndRedaction(t *testing.T) {
 	}{
 		{"refused", secretURL, apperr.LiveConnectFailed, "scheme=rtmp", task.StatusFailed},
 		{"rejected", secretURL, apperr.LivePushRejected, "", task.StatusFailed},
-		{"broken", secretURL, apperr.LivePushInterrupted, "", task.StatusInterrupted},
-		{"killed", secretURL, apperr.LivePushInterrupted, "", task.StatusInterrupted},
+		{"broken", secretURL, apperr.LivePushInterrupted, "reason=push", task.StatusInterrupted},
+		{"killed", secretURL, apperr.LivePushInterrupted, "reason=push", task.StatusInterrupted},
 		{"unknown", secretURL, apperr.Internal, "", task.StatusFailed},
 		{"refused", "srt://127.0.0.1:9000?streamid=publish:SECRETKEYabc&passphrase=pw123456xyz", apperr.LiveConnectFailed, "scheme=srt", task.StatusFailed},
 	}

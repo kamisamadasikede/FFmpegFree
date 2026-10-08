@@ -208,3 +208,38 @@ func TestClassifyPullError(t *testing.T) {
 		t.Errorf("推流文字被改了: %q", e.Message)
 	}
 }
+
+// 契约 v0.25.4：LIVE_PUSH_INTERRUPTED 用 detail 第一行区分推流和拉流，不靠文案；窗口没了仍是 LIVE_SOURCE_GONE。
+func TestInterruptReasonPushVsPull(t *testing.T) {
+	push := ClassifyLiveError(LiveClassifyInput{Tail: "Broken pipe", Scheme: "rtmp", Started: true})
+	if push.Code != apperr.LivePushInterrupted || push.Detail != "reason=push\nBroken pipe" {
+		t.Fatalf("推流: %+v", push)
+	}
+	killed := ClassifyLiveError(LiveClassifyInput{Tail: "", Scheme: "rtmp", Started: true})
+	if killed.Code != apperr.LivePushInterrupted || killed.Message != PushInterruptedMessage || killed.Detail != "reason=push" {
+		t.Fatalf("推流被杀: %+v", killed)
+	}
+	pull := PullInterruptedError("Connection reset by peer")
+	if pull.Code != apperr.LivePushInterrupted || pull.Message != PullInterruptedMessage || pull.Detail != "reason=pull\nConnection reset by peer" {
+		t.Fatalf("拉流: %+v", pull)
+	}
+	if PullInterruptedError("").Detail != "reason=pull" {
+		t.Fatal(PullInterruptedError("").Detail)
+	}
+	gone := ClassifyLiveError(LiveClassifyInput{Tail: "[gdigrab @ 1] Can't find window 't', aborting.", Scheme: "rtmp", Screen: true, Started: true})
+	if gone.Code != apperr.LiveSourceGone || gone.Detail != "kind=window" || strings.Contains(gone.Detail, "reason=") {
+		t.Fatalf("窗口没了不应改码: %+v", gone)
+	}
+	exe := "/opt/FFmpegFree/bin/ffmpeg"
+	SetCurrent(&Binaries{FFmpeg: exe, FFprobe: "/opt/FFmpegFree/bin/ffprobe"})
+	t.Cleanup(func() { SetCurrent(nil) })
+	d := InterruptDetail("push", "killed "+exe)
+	if d != "reason=push\nkilled" && d != "reason=push\nkilled " {
+		if strings.Contains(d, exe) || strings.Contains(d, "ffprobe") {
+			t.Fatalf("detail 不应含组件路径: %q", d)
+		}
+	}
+	if strings.Contains(d, "bin/ffmpeg") || strings.Contains(d, "bin/ffprobe") {
+		t.Fatalf("detail 不应含组件路径: %q", d)
+	}
+}

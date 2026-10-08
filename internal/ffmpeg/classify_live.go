@@ -102,10 +102,10 @@ func ClassifyLiveError(in LiveClassifyInput) *apperr.AppError {
 
 	if endsWith("broken pipe", "connection reset by peer", "connection timed out", "input/output error", "connection reset", "end of file") ||
 		contains("error writing trailer", "error muxing a packet", "error submitting a packet to the muxer") {
-		return apperr.New(apperr.LivePushInterrupted, "推流中断，与推流服务器的连接已断开").WithDetail(in.Tail)
+		return apperr.New(apperr.LivePushInterrupted, "推流中断，与推流服务器的连接已断开").WithDetail(InterruptDetail("push", in.Tail))
 	}
 	// 已经开始以后认不出原因的退出（进程被外部杀掉、崩溃等）也是"推流被中断"，不用 INTERNAL（契约 v0.25.3）。
-	return apperr.New(apperr.LivePushInterrupted, PushInterruptedMessage).WithDetail(in.Tail)
+	return apperr.New(apperr.LivePushInterrupted, PushInterruptedMessage).WithDetail(InterruptDetail("push", in.Tail))
 }
 
 // PushInterruptedMessage 是推流开始以后认不出具体原因的中断（进程被杀、崩溃）的 message（契约 v0.25.3），
@@ -120,9 +120,31 @@ const PullFailedMessage = "拉流失败，请检查直播地址和网络。"
 const PullInterruptedMessage = "拉流被中断，请重新拉流。"
 
 // PullInterruptedError 是 live:pull interrupted 带的错误：LIVE_PUSH_INTERRUPTED（推流、拉流共用“开始后断开”这个码，不是 INTERNAL），
-// detail 是脱敏后的 stderr 尾部。
+// detail 第一行是 reason=pull，其后是脱敏后的 stderr 尾部（契约 v0.25.4）。
 func PullInterruptedError(tail string) *apperr.AppError {
-	return apperr.New(apperr.LivePushInterrupted, PullInterruptedMessage).WithDetail(tail)
+	return apperr.New(apperr.LivePushInterrupted, PullInterruptedMessage).WithDetail(InterruptDetail("pull", tail))
+}
+
+// InterruptDetail 是 LIVE_PUSH_INTERRUPTED 的 detail：第一行 reason=push 或 reason=pull，后面是脱敏后的 stderr。
+// 不含当前组件可执行文件路径。所选窗口没了仍用 LIVE_SOURCE_GONE（kind=window），不走这里。
+func InterruptDetail(kind, tail string) string {
+	if b, ok := Current(); ok {
+		if b.FFmpeg != "" {
+			tail = strings.ReplaceAll(tail, b.FFmpeg, "")
+		}
+		if b.FFprobe != "" {
+			tail = strings.ReplaceAll(tail, b.FFprobe, "")
+		}
+	}
+	tail = strings.TrimSpace(tail)
+	line := "reason=" + kind
+	if tail == "" || tail == line {
+		return line
+	}
+	if strings.HasPrefix(tail, line+"\n") {
+		return tail
+	}
+	return line + "\n" + tail
 }
 
 // PullTimeoutError 是拉流预览在 wait 内没有收到任何数据（远端接受连接却不发媒体、DNS / 握手卡住）时的错误：

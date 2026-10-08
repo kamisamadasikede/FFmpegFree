@@ -1563,7 +1563,6 @@ export namespace system {
 	}
 	export class FFmpegStatus {
 	    state: string;
-	    path: string;
 	    version: string;
 	    source: string;
 	    taskId?: string;
@@ -1578,7 +1577,6 @@ export namespace system {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.state = source["state"];
-	        this.path = source["path"];
 	        this.version = source["version"];
 	        this.source = source["source"];
 	        this.taskId = source["taskId"];

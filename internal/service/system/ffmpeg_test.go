@@ -174,10 +174,13 @@ func TestStartDetectsInBackgroundAndEmits(t *testing.T) {
 	raw, _ := json.Marshal(st)
 	var m map[string]any
 	json.Unmarshal(raw, &m)
-	for _, k := range []string{"state", "path", "version", "source", "ffprobeMissing"} {
+	for _, k := range []string{"state", "version", "source", "ffprobeMissing", "customPathInvalid"} {
 		if _, ok := m[k]; !ok {
 			t.Fatalf("JSON 缺字段 %s: %s", k, raw)
 		}
+	}
+	if _, ok := m["path"]; ok {
+		t.Fatalf("path 不应出现在给前端的 JSON 里: %s", raw)
 	}
 }
 
@@ -226,6 +229,13 @@ func TestMissingStatusAndGate(t *testing.T) {
 	if st.Error == nil || st.Error.Code != apperr.FFmpegNotFound {
 		t.Fatalf("missing 应带 FFMPEG_NOT_FOUND: %+v", st)
 	}
+	if strings.Contains(st.Error.Detail, f.root) || strings.Contains(st.Error.Detail, string(filepath.Separator)+"ffmpeg") {
+		t.Fatalf("missing 的 detail 不应含组件路径: %s", st.Error.Detail)
+	}
+	raw, _ := json.Marshal(st)
+	if strings.Contains(string(raw), `"path"`) {
+		t.Fatalf("状态 JSON 不应含 path: %s", raw)
+	}
 	if _, err := ffmpeg.Require(); !apperr.Is(err, apperr.FFmpegNotFound) {
 		t.Fatalf("门控应拒绝: %v", err)
 	}
@@ -257,6 +267,9 @@ func TestSetPath(t *testing.T) {
 	_, err := f.mgr.SetPath(ctx, filepath.Join(f.root, "nothing"))
 	if !apperr.Is(err, apperr.InvalidArgument) {
 		t.Fatalf("期望 INVALID_ARGUMENT: %v", err)
+	}
+	if ae := apperr.From(err); strings.Contains(ae.Detail, f.root) {
+		t.Fatalf("手动指定失败的 detail 不应含路径: %s", ae.Detail)
 	}
 	if f.mgr.Status().State != ffmpeg.StateMissing || len(f.em.states()) != before {
 		t.Fatal("失败不应改状态或发事件")
