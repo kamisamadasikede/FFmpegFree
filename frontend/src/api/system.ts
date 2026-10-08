@@ -90,6 +90,15 @@ export const MEDIA_FILE_FILTER: PickFilter = {
   ],
 }
 
+/** v0.24（契约 6.16.4：输入扩展名表由前端写）：多了图片和新加的音视频格式 */
+export const CONVERT_V24_FILE_FILTER: PickFilter = {
+  name: '音视频和图片文件',
+  patterns: [
+    ...MEDIA_FILE_FILTER.patterns, '*.swf', '*.rm', '*.rmvb', '*.asf', '*.f4v', '*.amr', '*.m4r', '*.mp2', '*.ape', '*.wv', '*.mmf', '*.aif',
+    '*.jpg', '*.jpeg', '*.png', '*.webp', '*.ico', '*.bmp', '*.tif', '*.tiff', '*.tga',
+  ],
+}
+
 const PICK_FILES_SOON = '选择文件功能即将上线，请先把文件拖到这里。'
 
 /**

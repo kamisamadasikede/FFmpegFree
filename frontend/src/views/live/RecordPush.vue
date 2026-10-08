@@ -122,6 +122,9 @@ async function fillDefaultArchiveDir() {
 watch(archiveOn, (on) => {
   if (on) void fillDefaultArchiveDir()
 })
+onMounted(() => {
+  if (archiveOn.value) void fillDefaultArchiveDir() // 恢复的表单（#99）里存档开着但目录空：也补上实际路径
+})
 
 async function changeDir() {
   try {

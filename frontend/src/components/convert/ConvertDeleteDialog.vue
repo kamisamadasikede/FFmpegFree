@@ -5,6 +5,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import type { DeleteAsk } from '@/stores/convertRecords'
 import { formatBytes } from '@/utils/format'
+import { sourceRemoveEmptyBody } from '@/utils/convertV24Text'
 
 const props = defineProps<{ ask: DeleteAsk | null; narrow: boolean; busy: boolean; /** 只给模拟场景（?dlg=delete-kid）用：打开时已勾选 */ checked?: boolean }>()
 const emit = defineEmits<{ close: []; confirm: [deleteOutput: boolean] }>()
@@ -43,6 +44,8 @@ const confirmClass = computed(() => (a.value?.kind === 'record' || withOutput.va
 const activeLine = computed(() => (a.value && a.value.activeCount > 0 ? `其中 ${a.value.activeCount} 项正在转换，${a.value.kind === 'source' ? '移除' : '删除'}时会先取消它。` : ''))
 /** 顶部图标圈：源文件行未勾选时中性灰（只是从列表移除），勾选“同时删除输出文件”或删单条记录时红色 */
 const danger = computed(() => a.value?.kind === 'record' || withOutput.value)
+/** X6（产品 10-08，§八 第 72 条）：没有记录的行按 copyState 选正文；不显示勾选框 */
+const emptyBody = computed(() => sourceRemoveEmptyBody(a.value?.copyState))
 
 function onKey(e: KeyboardEvent) {
   if (!props.ask) return
@@ -73,17 +76,21 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true))
         <div ref="box" class="cv-dlg" role="alertdialog" aria-modal="true" aria-labelledby="cv-del-t" aria-describedby="cv-del-d">
           <div class="big" :class="{ neutral: !danger }"><FIcon name="trash" /></div>
           <h3 id="cv-del-t">{{ a.title }}</h3>
-          <div v-if="a.kind === 'source'" class="cv-delfile"><FIcon :name="a.audio ? 'music' : 'film'" :size="14" /><MidEllipsis :text="a.name" /><template v-if="a.count"><i>·</i><em>{{ a.count }} 条转换记录</em></template></div>
+          <div v-if="a.kind === 'source'" class="cv-delfile"><FIcon :name="a.audio ? 'music' : 'film'" :size="14" /><MidEllipsis :text="a.name" /><template v-if="a.count > 0"><i>·</i><em>{{ a.count }} 条转换记录</em></template></div>
           <p v-if="a.kind === 'record'" id="cv-del-d">
             <template v-if="withOutput">“{{ a.name }}”的记录会从列表里移除，<b>磁盘上的这个文件也会被删除</b>。</template>
             <template v-else>“{{ a.name }}”的记录会从列表里移除。只删除记录，<b>不删除磁盘上的文件</b>。</template>
           </p>
-          <p v-else-if="a.count === 0" id="cv-del-d">只从列表里移除，<b>不删除磁盘上的文件</b>。</p>
+          <p v-else-if="a.count === 0" id="cv-del-d">{{ emptyBody.text }}<b>{{ emptyBody.bold }}</b>。</p>
+          <p v-else-if="a.v24" id="cv-del-d">
+            <template v-if="withOutput">记录、程序里的复制件和 {{ a.outputs }} 个输出文件都会被删除，原文件不会被删除。</template>
+            <template v-else>只删除记录和程序里的复制件，<b>不删除原文件和输出文件</b>。</template>{{ activeLine }}
+          </p>
           <p v-else id="cv-del-d">
             <template v-if="withOutput">记录和 {{ a.outputs }} 个输出文件都会被删除，<b>源文件不会被删除</b>。</template>
             <template v-else>只删除记录，<b>不删除磁盘上的文件</b>。</template>{{ activeLine }}
           </p>
-          <button v-if="a.outputs > 0" type="button" class="cv-opt" :class="{ on: withOutput }" role="checkbox" :aria-checked="withOutput" @click="withOutput = !withOutput">
+          <button v-if="a.outputs > 0 && !(a.kind === 'source' && a.count === 0)" type="button" class="cv-opt" :class="{ on: withOutput }" role="checkbox" :aria-checked="withOutput" @click="withOutput = !withOutput">
             <span class="cv-chk" :class="{ on: withOutput }"><FIcon v-if="withOutput" name="check" /></span>
             <div>同时删除输出文件<small v-if="optSmall">{{ optSmall }}</small><div v-if="withOutput" class="cv-irrev"><FIcon name="warn" />删除后无法恢复。</div></div>
           </button>

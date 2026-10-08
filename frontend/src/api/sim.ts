@@ -99,7 +99,14 @@ export interface SimTaskSpec {
   sourceId?: string
 }
 
+/** v0.24 原地重转（6.17.3）：开始前的快照，失败 / 取消时恢复；newParams 只在成功时换上 */
+interface ReconvertState {
+  prev: Pick<ApiTask, 'params' | 'result' | 'progress' | 'startedAt' | 'finishedAt' | 'encoder' | 'encoderDevice' | 'hwFallback' | 'hwFallbackReason'>
+  newParams: string
+  fail?: { code: AppErrorCode; message: string; detail?: string; atProgress?: number }
+}
 interface Entry {
+  rc?: ReconvertState
   task: ApiTask
   spec: SimTaskSpec
   timer?: ReturnType<typeof setInterval>
@@ -113,7 +120,7 @@ const entries = new Map<string, Entry>()
 let seq = 0
 const DEMO_BITRATE = [6020, 5990, 6005, 5960, 6000, 5955, 5990, 5940, 5970, 5965, 5985, 5950]
 
-const snapshot = (t: ApiTask): ApiTask => ({ ...t, inputPaths: [...t.inputPaths], error: t.error ? { ...t.error } : null, ...(t.result ? { result: { ...t.result } } : {}) })
+const snapshot = (t: ApiTask): ApiTask => ({ ...t, inputPaths: [...t.inputPaths], error: t.error ? { ...t.error } : null, ...(t.result ? { result: { ...t.result, ...(t.result.warnings ? { warnings: [...t.result.warnings] } : {}) } } : {}), ...(t.lastReconvertError ? { lastReconvertError: { ...t.lastReconvertError } } : {}) })
 const isActiveStatus = (s: string) => s === 'queued' || s === 'running'
 
 export const isSimTask = (id: string): boolean => entries.has(id)
@@ -135,7 +142,8 @@ export const activeSimEntries = (type?: ApiTask['type']): { task: ApiTask; meta?
 
 function emitStatus(e: Entry, extra: Partial<TaskStatusPayload> = {}) {
   const t = e.task
-  const p: TaskStatusPayload = { id: t.id, version: t.version, status: t.status, ...encoderFields(t), ...extra }
+  // v0.24（6.17.2）：convert 任务的 task:status 都带 reconverting
+  const p: TaskStatusPayload = { id: t.id, version: t.version, status: t.status, ...encoderFields(t), ...(t.type === 'convert' ? { reconverting: !!t.reconverting } : {}), ...extra }
   emitSimEvent('task:status', p)
 }
 
@@ -153,6 +161,7 @@ function finish(e: Entry, status: 'succeeded' | 'failed' | 'canceled', error?: A
   clearInterval(e.timer)
   clearTimeout(e.startTimer)
   clearTimeout(e.stopTimer)
+  if (e.rc) return finishReconvert(e, status, error)
   const t = e.task
   t.status = status
   t.finishedAt = Date.now()
@@ -167,6 +176,69 @@ function finish(e: Entry, status: 'succeeded' | 'failed' | 'canceled', error?: A
   // 契约：优雅停止的 succeeded 和强杀的 canceled 都不带 error
   // v0.23：终态事件一定带 progress（canceled 保留取消时的值）；成功的转换带 result
   emitStatus(e, { outputPath: t.outputPath || undefined, ...(t.startedAt ? { startedAt: t.startedAt } : {}), finishedAt: t.finishedAt, progress: t.progress, ...(error ? { error } : {}), ...(result ? { result: { ...result } } : {}) })
+}
+
+/**
+ * v0.24 重转结束（6.17.5 / 6.17.6）：成功 → 换上新的 params / result / finishedAt；失败 / 取消 → 恢复成开始前的样子（succeeded），
+ * 失败写 lastReconvertError。终态事件都是 status=succeeded、reconverting=false，带 reconvertOutcome。
+ */
+function finishReconvert(e: Entry, status: 'succeeded' | 'failed' | 'canceled', error?: ApiTaskError) {
+  const t = e.task
+  const rc = e.rc!
+  e.rc = undefined
+  t.reconverting = false
+  t.speed = ''
+  t.etaSec = 0
+  t.error = null
+  let result: ApiTaskResult | undefined
+  if (status === 'succeeded') {
+    t.params = rc.newParams
+    t.finishedAt = Date.now()
+    t.progress = 1
+    result = e.spec.resultOf?.(snapshot(t))
+    if (result) t.result = result
+    delete t.lastReconvertError
+  } else {
+    Object.assign(t, rc.prev)
+    for (const k of ['encoder', 'encoderDevice', 'hwFallback', 'hwFallbackReason', 'result'] as const) if (rc.prev[k] === undefined) delete t[k]
+    if (status === 'failed' && error) t.lastReconvertError = { code: error.code, message: error.message, ...(error.detail ? { detail: error.detail } : {}), at: Date.now() }
+    else delete t.lastReconvertError
+  }
+  t.status = 'succeeded'
+  bump(e)
+  emitStatus(e, {
+    reconverting: false, reconvertOutcome: status, outputPath: t.outputPath, ...(t.startedAt ? { startedAt: t.startedAt } : {}), finishedAt: t.finishedAt, progress: 1,
+    ...(result ? { result: { ...result } } : {}), ...(t.lastReconvertError ? { lastReconvertError: { ...t.lastReconvertError } } : {}),
+  })
+}
+
+/**
+ * ConvertService.Reconvert 的模拟核心（契约 v0.24 6.17.3）：同一个任务 id 原地重转。校验（状态、源文件、旧输出、格式）由 convertRecordsMock 做。
+ * 对外 params / outputPath / result / finishedAt 保持旧的；发一条 queued 的 task:status（reconverting:true、progress:0），不发 task:created。
+ * fail：进度到 atProgress 时失败（走查重转失败提示用）。
+ */
+export function reconvertSimTask(id: string, newParams: string, fail?: ReconvertState['fail']): ApiTask {
+  const e = entries.get(id)
+  if (!e) simError('NOT_FOUND', '任务不存在', 'reason=record')
+  const t = e.task
+  if (t.status !== 'succeeded' || t.reconverting) simError('TASK_CONFLICT', t.reconverting ? '这条记录正在重转' : '只有完成的记录才能重转', 'reason=invalid_state')
+  e.rc = {
+    prev: { params: t.params, result: t.result ? { ...t.result } : undefined, progress: t.progress, startedAt: t.startedAt, finishedAt: t.finishedAt, encoder: t.encoder, encoderDevice: t.encoderDevice, hwFallback: t.hwFallback, hwFallbackReason: t.hwFallbackReason },
+    newParams,
+    ...(fail ? { fail } : {}),
+  }
+  const enc = e.spec.encoder ?? { encoder: 'libx264', encoderDevice: 'cpu' }
+  Object.assign(t, { status: 'queued', reconverting: true, progress: 0, speed: '', etaSec: 0, error: null, hiddenInTaskCenter: false, encoder: enc.encoder, encoderDevice: enc.encoderDevice })
+  delete t.hwFallback
+  delete t.hwFallbackReason
+  delete t.lastReconvertError
+  e.spec = { ...e.spec, fail: fail ? { code: fail.code, message: fail.message, detail: fail.detail, atProgress: fail.atProgress ?? 0.5 } : undefined, fallbackAt: undefined, fallbackTo: undefined, params: newParams }
+  e.stopping = false
+  e.firstProgressAt = 0
+  bump(e)
+  emitStatus(e, { reconverting: true, progress: 0 })
+  startEntry(e)
+  return snapshot(t)
 }
 
 function progress(e: Entry, over: Partial<TaskProgressPayload>) {
@@ -253,6 +325,17 @@ function startEntry(e: Entry) {
  */
 export function adoptSimTask(task: ApiTask, spec: SimTaskSpec): void {
   entries.set(task.id, { task: { ...task, inputPaths: [...task.inputPaths], error: task.error ? { ...task.error } : null }, spec, stopping: false, firstProgressAt: 0 })
+}
+
+/**
+ * 转换记录模拟用：把 adoptSimTask 登记的“重转中”任务（status running、reconverting true、旧 result / finishedAt / params）补上开始前的快照，
+ * 这样取消 / 失败能恢复成 succeeded。预置的重转中记录停在固定进度，不推进。
+ */
+export function markSimReconverting(id: string): void {
+  const e = entries.get(id)
+  if (!e) return
+  const t = e.task
+  e.rc = { prev: { params: t.params, result: t.result ? { ...t.result } : undefined, progress: 1, startedAt: t.startedAt, finishedAt: t.finishedAt, encoder: t.encoder, encoderDevice: t.encoderDevice, hwFallback: t.hwFallback, hwFallbackReason: t.hwFallbackReason }, newParams: t.params }
 }
 
 /** TaskService.HideFinishedInTaskCenter 的模拟：所有类型的已结束模拟任务只从任务中心历史里隐藏，不删除（转换记录照常显示）；不发事件 */
@@ -383,7 +466,7 @@ export function retrySimTask(id: string): ApiTask {
   if (!e) simError('NOT_FOUND', '任务不存在')
   if (isActiveStatus(e.task.status)) simError('TASK_CONFLICT', '任务还在进行中，不能重试')
   if (e.spec.live) simError('UNSUPPORTED', '直播会话不能重试，请重新开始推流')
-  if (e.task.status === 'succeeded') simError('TASK_CONFLICT', e.task.type === 'convert' ? '只有已完成的记录可以再转一次' : '任务已经成功，不能重试')
+  if (e.task.status === 'succeeded') simError('TASK_CONFLICT', e.task.type === 'convert' ? '这条记录已经完成，要再转一次请用“重转”' : '任务已经成功，不能重试')
   const t = e.task
   const hadEnc = !!t.encoder || !!e.spec.encoder
   const enc = e.spec.encoder ?? (hadEnc ? { encoder: 'libx264', encoderDevice: 'cpu' } : undefined)
