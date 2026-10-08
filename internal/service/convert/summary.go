@@ -27,7 +27,7 @@ var widthOnlyLabels = map[int]string{3840: "2160p", 2560: "1440p", 1920: "1080p"
 func ParamsSummary(o ffmpeg.ConvertOptions) string {
 	var segs []string
 	audio := ffmpeg.IsAudioContainer(o.Container)
-	if !audio && o.Container != "gif" && !ffmpeg.IsImageContainer(o.Container) && o.VideoCodec != "" {
+	if !audio && o.Container != "gif" && !ffmpeg.IsImageContainer(o.Container) {
 		segs = append(segs, VideoCodecDisplayName(o.VideoCodec))
 	}
 	switch {

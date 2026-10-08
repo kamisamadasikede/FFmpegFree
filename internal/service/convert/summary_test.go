@@ -104,3 +104,16 @@ func TestVideoCodecDisplayName(t *testing.T) {
 		}
 	}
 }
+
+// v0.24：视频容器去掉画面仍写“无画面”；图片容器不写编码段。
+func TestParamsSummaryNoVideoAndImage(t *testing.T) {
+	if got := ParamsSummary(ffmpeg.ConvertOptions{Container: "mp4", AudioCodec: "aac"}); got != "无画面" {
+		t.Fatalf("mp4 无画面: %q", got)
+	}
+	if got := ParamsSummary(ffmpeg.ConvertOptions{Container: "png"}); got != "默认参数" {
+		t.Fatalf("png: %q", got)
+	}
+	if got := ParamsSummary(ffmpeg.ConvertOptions{Container: "jpg", Width: 1280}); got != "720p" {
+		t.Fatalf("jpg 720p: %q", got)
+	}
+}
