@@ -1169,7 +1169,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       } else clearSelection()
     } catch (e) {
       const err = errOf(e)
-      if (v24 && err.code === 'TASK_CONFLICT' && /^reason=(copying|copy_failed)/.test(err.detail ?? '')) say(SUBMIT_NOT_READY_TOAST) // 勾选不变
+      if (v24 && err.code === 'TASK_CONFLICT' && /^reason=(copying|copy_failed)/.test(err.detail ?? '')) say(err.message || SUBMIT_NOT_READY_TOAST) // §八 第 69 条：显示后端 message；勾选不变
       else submitError.value = err
     } finally {
       submitting.value = false
@@ -1228,7 +1228,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     const presets = st.mode === 'regenerate' ? [] : (fmt?.presets ?? []).filter((x) => x.id !== k.presetId).map((x) => ({ id: x.id, title: presetTitle({ id: x.id, name: x.name, builtIn: x.builtIn, options: x.options as unknown as PresetItem['options'] }), tip: x.paramsSummary }))
     return {
       id, mode: st.mode, name: k.outputPath.split(/[\\/]/).pop() ?? '', container,
-      line: [formatRecordTime(k.finishedAt || k.createdAt), container.toUpperCase(), p.text].filter(Boolean).join(' · '),
+      line: [formatRecordTime(k.finishedAt || k.createdAt), p.text].filter(Boolean).join(' · '), // {时间} · {预设名或自定义摘要}
       current: p.text, currentTip: p.tip, presets,
     }
   }

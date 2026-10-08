@@ -10,6 +10,7 @@ import VirtualList from '@/components/common/VirtualList.vue'
 import ConvertSourceRow from '@/components/convert/ConvertSourceRow.vue'
 import ConvertSettingsPanel from '@/components/convert/ConvertSettingsPanel.vue'
 import ConvertDeleteDialog from '@/components/convert/ConvertDeleteDialog.vue'
+import ConvertReconvertDialog from '@/components/convert/ConvertReconvertDialog.vue'
 import ConvertPreviewDialog, { type PreviewTarget } from '@/components/convert/ConvertPreviewDialog.vue'
 import { useNarrow } from '@/components/convert/useNarrow'
 import '@/components/convert/convert-v2.css'
@@ -19,7 +20,8 @@ import { pickDirectory } from '@/api/system'
 import { simParam } from '@/api/sim'
 import { convertV2IsReal, revealDeleteFailure } from '@/api/convertRecords'
 import { hasWailsBackend } from '@/services/wails'
-import { useConvertRecordsStore, type DeleteAsk, type ParentView } from '@/stores/convertRecords'
+import { useConvertRecordsStore, type DeleteAsk, type ParentView, type ReconvertAsk } from '@/stores/convertRecords'
+import { FALLBACK_BANNER } from '@/utils/convertV24Text'
 import { useTaskStore } from '@/stores/tasks'
 import { deleteToast, revealDeleteFailureText, roughEta, toastText, type DeleteToast } from '@/utils/convertText'
 import { midEllipsisPx } from '@/utils/midEllipsis'
@@ -71,6 +73,8 @@ function estimate(it: Item): number {
   const p = it.p
   let h = 56
   if (p.conflict) h += 52
+  if (cv.v24) h += 16 // 第三行原路径
+  if (p.src.copyState === 'failed') h += 70
   if (p.open && p.kids.length) h += p.kids.reduce((n, k) => n + (k.status === 'failed' ? 150 : 84), 4) + (p.moreCount ? 30 : 0)
   else if (!p.src.recordCount && !p.conflict) h += 30
   return h
@@ -150,6 +154,26 @@ async function onLog(id: string) {
 function closeLog() {
   logId.value = ''
 }
+// ---- v0.24 重转（§八 第 58、59、64 条） ----
+const rcAsk = ref<ReconvertAsk | null>(null)
+const rcBusy = ref(false)
+function onReconvert(id: string) {
+  rcAsk.value = cv.reconvertAsk(id)
+}
+async function onConfirmReconvert(presetId: string) {
+  const a = rcAsk.value
+  if (!a || rcBusy.value) return
+  rcBusy.value = true
+  try {
+    await cv.startReconvert(a.id, a.mode, presetId || undefined)
+    rcAsk.value = null
+  } finally {
+    rcBusy.value = false
+  }
+}
+function openStorageSettings() {
+  void router.push({ path: '/settings/general', query: { section: 'storage' } })
+}
 async function onChangeOutput(id: string) {
   const dir = hasWailsBackend() ? await pickDirectory('选择这次转换的输出文件夹').catch(() => '') : 'D:\\Videos\\FFmpegFree'
   if (dir) await cv.resubmitTo(id, dir)
@@ -157,7 +181,8 @@ async function onChangeOutput(id: string) {
 
 // ---- 提示 ----
 watch(() => cv.toast, (t) => {
-  if (t) ElMessage({ message: t.text, type: 'info', duration: TOAST_MS, offset: toastOffset() })
+  // warn：警告色 8 秒（重转失败等，§八 第 70 条）；其余普通 4 秒
+  if (t) ElMessage({ message: t.text, type: t.warn ? 'warning' : 'info', duration: t.warn ? WARN_TOAST_MS : TOAST_MS, offset: toastOffset() })
 })
 
 // ---- 任务中心“在转换页查看”（?record=&source=）：定位、滚到、高亮 ----
@@ -215,6 +240,15 @@ function openMockDialog() {
     }
     case 'delete-empty': // 没有记录的源文件行（mixed 场景的屏幕录制）
       return onRemove('source', 'mock-src-rec')
+    // ---- v0.24（设计稿 29 / 31 / 33 / 33b）----
+    case 'delete-none': // X6：没有记录的新行（copyState 不是 none）
+      return onRemove('source', 'mock-src-rec')
+    case 'delete-none-old': // X6：没有记录的旧行（copyState=none，?cv=old-none）
+      return onRemove('source', 'mock-src-iv')
+    case 'reconvert':
+      return void cv.refreshPathCheck('simcv-launchMp4Ok').then(() => onReconvert('simcv-launchMp4Ok'))
+    case 'reconvert-moved':
+      return void cv.refreshPathCheck('simcv-launchGone').then(() => onReconvert('simcv-launchGone'))
   }
 }
 
@@ -224,6 +258,7 @@ onMounted(async () => {
   offDrop = onFilesDropped((paths) => void cv.addPaths(paths))
   await cv.init()
   if (route.query.record) await locateFromRoute()
+  else if (!convertV2IsReal() && simParam('cv') === 'settings-storage') void router.replace({ path: '/settings/general', query: { section: 'storage' } })
   else openMockDialog()
 })
 onUnmounted(() => {
@@ -251,6 +286,13 @@ onUnmounted(() => {
           <button type="button" class="btn" @click="cv.chooseFiles()"><FIcon name="plus" />添加文件</button>
         </div>
 
+        <!-- v0.24 改存用户数据目录（§八 第 42 条）：位置同总进度条，两条同时出现时它在上面；关掉后本次运行不再出现 -->
+        <div v-if="cv.showFallback" class="cv-total t-warn" role="status">
+          <FIcon name="warn" />
+          <span class="tx" :title="FALLBACK_BANNER + (cv.storage?.outputDir ?? '')">{{ FALLBACK_BANNER }}<b>{{ cv.storage?.outputDir }}</b></span>
+          <button type="button" class="lk" @click="cv.openStorage('output')">打开文件夹</button>
+          <button type="button" class="x" aria-label="关闭" title="关闭" @click="cv.dismissFallback()"><FIcon name="x" /></button>
+        </div>
         <div v-if="showTotal" class="cv-total" role="status">
           <FIcon name="convert" />
           <b v-if="total.running">正在转换 {{ total.running }} 项</b><b v-else>排队 {{ total.queued }} 项</b>
@@ -277,14 +319,14 @@ onUnmounted(() => {
           <div class="ic"><FIcon name="upload" /></div>
           <h3>拖入视频或音频文件，或点击选择</h3>
           <p>添加后勾选文件，在右侧选择格式，点“转换”。每次转换的结果都会挂在源文件下面，重启后仍在。</p>
-          <small>支持常见视频、音频格式，一次最多 50 个</small>
+          <small>{{ cv.v24 ? '支持常见视频、音频、图片格式，一次最多 50 个' : '支持常见视频、音频格式，一次最多 50 个' }}</small>
           <div class="acts"><button type="button" class="btn pri" @click="cv.chooseFiles()"><FIcon name="plus" />添加文件</button></div>
         </div>
         <div v-else class="cv-list">
           <VirtualList ref="vl" :items="items" :item-key="itemKey" :estimate="estimate">
             <template #header>
               <button type="button" class="cv-drop" @click="cv.chooseFiles()">
-                <span class="ic"><FIcon name="upload" /></span><b>拖入更多文件，或点击选择</b><span class="cv-ds">支持常见视频、音频格式</span>
+                <span class="ic"><FIcon name="upload" /></span><b>拖入更多文件，或点击选择</b><span class="cv-ds">{{ cv.v24 ? '支持常见视频、音频、图片格式' : '支持常见视频、音频格式' }}</span>
               </button>
             </template>
             <template #default="{ item }">
@@ -297,6 +339,8 @@ onUnmounted(() => {
                 @remove="onRemove"
                 @log="onLog"
                 @change-output="onChangeOutput"
+                @reconvert="onReconvert"
+                @open-storage-settings="openStorageSettings"
               />
             </template>
             <template #footer>
@@ -319,6 +363,7 @@ onUnmounted(() => {
     </div>
 
     <ConvertPreviewDialog :target="preview" :narrow="narrow" @close="preview = null" />
+    <ConvertReconvertDialog :ask="rcAsk" :narrow="narrow" :busy="rcBusy" @close="rcAsk = null" @confirm="onConfirmReconvert" />
     <ConvertDeleteDialog :ask="delAsk" :narrow="narrow" :busy="deleting" :checked="delChecked" @close="delAsk = null" @confirm="onConfirmDelete" />
     <Teleport to="body">
       <div v-if="logId" class="cv2 cv-layer" :class="{ w1024: narrow }">

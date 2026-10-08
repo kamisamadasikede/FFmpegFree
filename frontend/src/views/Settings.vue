@@ -81,8 +81,12 @@
           <button type="button" class="sb" tabindex="-1" aria-label="增加" :disabled="!loaded || concurrent >= MAX_CONCURRENT_MAX" @click="step(1)">+</button>
         </div>
       </div>
-      <OutputDirRow class="srow" />
+      <!-- v0.24：默认输出位置移到“存储”（转换结果），这一行不再显示 -->
+      <OutputDirRow v-if="!storageOn" class="srow" />
     </section>
+
+    <!-- 存储（v0.24：转换结果 / 上传文件两个目录；CONVERT_V24_BACKEND_READY 关时真实运行不显示） -->
+    <StoragePanel v-if="storageOn" id="sec-storage" heading-id="h-storage" />
   </div>
 </template>
 
@@ -95,6 +99,8 @@ import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import FFmpegPanel from '@/components/settings/FFmpegPanel.vue'
 import OutputDirRow from '@/components/settings/OutputDirRow.vue'
+import StoragePanel from '@/components/settings/StoragePanel.vue'
+import { convertV24On } from '@/api/convertRecords'
 import EncoderDevicePanel from '@/components/encoder/EncoderDevicePanel.vue'
 import EncoderFallbackNotice from '@/components/encoder/EncoderFallbackNotice.vue'
 import { encoderPanelVisible } from '@/api/encoder'
@@ -105,6 +111,7 @@ import { useTheme, type ThemeMode } from '@/composables/useTheme'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 
 const { mode } = useTheme()
+const storageOn = convertV24On()
 const encoderVisible = encoderPanelVisible()
 
 // 从提示条“编码设置”跳来（?section=encoder）：滚到“编码设备”并把焦点放到它的标题（tabindex=-1，读屏会读出小节名）。
@@ -119,6 +126,16 @@ async function focusEncoderSection() {
   sec.querySelector<HTMLElement>('h2')?.focus({ preventScroll: true })
 }
 watch(() => route.query.section, focusEncoderSection)
+// 从转换页“打开存储设置”跳来（?section=storage）：滚到“存储”
+async function focusStorageSection() {
+  if (route.query.section !== 'storage' || !storageOn) return
+  await nextTick()
+  const sec = document.getElementById('sec-storage')
+  if (!sec) return
+  sec.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
+  sec.querySelector<HTMLElement>('h2')?.focus({ preventScroll: true })
+}
+watch(() => route.query.section, focusStorageSection)
 const fbPreview = encoderVisible && simParam('fb') === '1'
 const themeOptions: { value: ThemeMode; label: string }[] = [
   { value: 'light', label: '浅色' },
@@ -157,6 +174,7 @@ const concurrentHint = computed(() => (concurrent.value === MAX_CONCURRENT_AUTO 
 
 onMounted(async () => {
   void focusEncoderSection()
+  void focusStorageSection()
   try {
     saved = await getMaxConcurrent()
     concurrent.value = saved

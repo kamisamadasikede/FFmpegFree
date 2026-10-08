@@ -28,6 +28,7 @@ import { encoderPanelVisible } from '@/api/encoder'
 import { ENCODER_PANEL_TITLE } from '@/errors/encoderMessages'
 import { ENCODER_SECTION_ID, ENCODER_SECTION_QUERY } from '@/api/encoderTask'
 import { scrollBehavior } from '@/utils/motion'
+import { convertV24On } from '@/api/convertRecords'
 
 interface Item {
   key: string
@@ -43,6 +44,7 @@ const items: Item[] = [
   { key: 'ffmpeg', label: '转换组件', to: '/settings/general', section: 'sec-ffmpeg' },
   ...(encoderPanelVisible() ? [{ key: 'encoder', label: ENCODER_PANEL_TITLE, to: '/settings/general', section: ENCODER_SECTION_ID }] : []),
   { key: 'convert', label: '转换', to: '/settings/general', section: 'sec-convert' },
+  ...(convertV24On() ? [{ key: 'storage', label: '存储', to: '/settings/general', section: 'sec-storage' }] : []),
   { key: 'about', label: '关于', to: '/settings/about' },
 ]
 
@@ -51,6 +53,8 @@ const router = useRouter()
 const section = ref(route.query.section === ENCODER_SECTION_QUERY && encoderPanelVisible() ? 'encoder' : 'appearance')
 // 从提示条的“编码设置”跳来（?section=encoder）时，子导航高亮“编码设备”；定位由 Settings.vue 做
 watch(() => route.query.section, (q) => { if (q === ENCODER_SECTION_QUERY && encoderPanelVisible()) section.value = 'encoder' })
+if (route.query.section === 'storage' && convertV24On()) section.value = 'storage'
+watch(() => route.query.section, (q) => { if (q === 'storage' && convertV24On()) section.value = 'storage' })
 const active = computed(() => (route.path.endsWith('/about') ? 'about' : section.value))
 
 async function go(item: Item) {
