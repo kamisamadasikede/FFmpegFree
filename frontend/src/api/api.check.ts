@@ -1113,6 +1113,48 @@ export async function runApiChecks(): Promise<string[]> {
       eq('播放器：结束且有第二行时显示第二行和「重新拉流」（restart 用同一地址）', [/<small v-if="phase === 'ended' && endedNote" class="lp-sub">\{\{ endedNote \}\}<\/small>/.test(player), /v-if="phase === 'interrupted' \|\| \(phase === 'ended' && endedNote\)"/.test(player), /@restart="start"/.test(pull)], [true, true, true])
     }
     // 文案里没有编码器名，时间戳不进文案
+    // ---- 包 24 ----
+    {
+      setActivePinia(createPinia())
+      const { useLiveSessionsStore } = await import('@/stores/liveSessions')
+      const { nextTick } = await import('vue')
+      const ss = useLiveSessionsStore()
+      const row = (id: string, status: 'run' | 'int' | 'ok' | 'cnl') => ({ id, kind: 'file' as const, url: 'rtmp://h/live/****', status, archive: false, outputPath: '', startedAt: 1, endedAt: 0, bitrateKbps: null })
+      ss.rows.push(row('old', 'int'))
+      await nextTick()
+      eq('N1：最近一行被中断、没有进行中的 → 「重新推流」针对这一行', ss.retryRow?.id, 'old')
+      ss.rows.unshift(row('new', 'run'))
+      await nextTick()
+      eq('N1：重新推流进行中 → 不显示「重新推流」', ss.retryRow, undefined)
+      ss.rows[0].status = 'ok'
+      await nextTick()
+      eq('N1：重新推流后正常停止 → 回到「开始推流」（旧的中断行不再算）', ss.retryRow, undefined)
+      ss.rows[0].status = 'int'
+      await nextTick()
+      eq('N1：新的一路又被中断 → 「重新推流」针对新的这一行', ss.retryRow?.id, 'new')
+      const fsx = (await import('node:fs')).readFileSync
+      for (const f of ['FilePush', 'RecordPush']) {
+        const src = fsx(`${process.cwd()}/src/views/live/${f}.vue`, 'utf8')
+        eq(`N1：${f} 只看 store.retryRow`, [/const showRetry = computed\(\(\) => !!store\.retryRow\)/.test(src), /const row = store\.retryRow/.test(src), /rows\.some\(\(r\) => r\.status === 'int'\)/.test(src)], [true, true, false])
+      }
+      const em = await import('@/errors/errorMessages')
+      eq('N4：没有专属文案时标题按任务类型', [em.resolveTaskError('INTERNAL', '推流异常退出', 'live_file_push').title, em.resolveTaskError('INTERNAL', 'x', 'live_screen_push').title, em.resolveTaskError('INTERNAL', 'x', 'live_pull').title, em.resolveTaskError('INTERNAL', 'x', 'convert').title, em.resolveTaskError('INTERNAL', 'x').title, em.resolveTaskError('PROCESS_FAILED', 'x', 'edit_export').title], ['推流失败', '推流失败', '拉流失败', '转换失败', '转换失败', '导出失败'])
+      const tc = fsx(`${process.cwd()}/src/views/TaskCenter.vue`, 'utf8')
+      eq('N4：直播任务意外退出（failed + INTERNAL 等）按「已中断 / 推流被中断」显示，不显示错误码', [/const LIVE_EXIT_CODES = new Set\(\['', 'INTERNAL', 'PROCESS_FAILED', 'LIVE_PUSH_INTERRUPTED'\]\)/.test(tc), /v-if="t\.error && liveBroken\(t\)"[\s\S]{0,200}:title="`\$\{liveTaskVerb\(t\.type\)\}被中断`"[\s\S]{0,120}hide-code/.test(tc), /:task-type="t\.type"/.test(tc)], [true, true, true])
+      eq('N3：旧记录类型叫「旧版导出」，中断说明不提已下线的功能名', [/edit_export: '旧版导出'/.test(tc), /应用退出时这个任务被中断。这类任务已不再支持，不能重试，可以移除这条记录。/.test(tc)], [true, true])
+      const lp = await import('@/errors/livePreviewMessages')
+      eq('N6：直播页上推流被中断的正文；拉流不变', [lp.LP_BREAK_PUSH, lp.LP_BREAK_PULL], ['推流被中断，请重新推流。', '拉流被中断，请重新拉流。'])
+      eq('N2：只有声音时的说明（不带句号）', lp.LP_AUDIO_ONLY, '这路直播只有声音')
+      const player = fsx(`${process.cwd()}/src/components/live/LivePlayer.vue`, 'utf8')
+      const pullSrc = fsx(`${process.cwd()}/src/views/live/PullPlay.vue`, 'utf8')
+      const lps = fsx(`${process.cwd()}/src/api/livePreviewStream.ts`, 'utf8')
+      eq('N2：播放器不再写死 hasVideo: true；纯音频不给全屏', [/hasVideo: props\.hasVideo \? undefined : false \}/.test(player), /hasVideo: true \}/.test(player), /<button v-if="!audioOnly" type="button" class="lp-btn" :aria-label="fullOn/.test(player)], [true, false, true])
+      eq('N2：拉流读后端的 hasVideo / hasAudio（PullSession、live:pull playing），没有时用 GetPreviewStream 兜底', [/hasVideo: s\.hasVideo \?\? true, hasAudio: s\.hasAudio \?\? true/.test(lps), /if \(e\.state === 'playing'\) return void applyMedia\(e\)/.test(pullSrc), /scheduleMediaProbe\(pb\.session\.id\)/.test(pullSrc)], [true, true, true])
+      const set = fsx(`${process.cwd()}/src/views/Settings.vue`, 'utf8')
+      const fp = fsx(`${process.cwd()}/src/components/settings/FFmpegPanel.vue`, 'utf8')
+      eq('N5：回退时「恢复默认」在「打开组件所在文件夹」左边；坏了且没有能用的组件时只有「手动指定」「恢复默认」', [/v-if="ffmpeg\.customFellBack"[^\n]*恢复默认<\/button>\s*<button[^\n]*打开组件所在文件夹/.test(set), /#custom-actions>\s*<div class="facts">\s*<button[^\n]*手动指定<\/button>\s*<button[^\n]*恢复默认<\/button>/.test(set), /status\.source === 'custom'/.test(set)], [true, true, false])
+      eq('N5：两句文案', [fp.includes('手动指定的转换组件不可用，已改用默认组件。'), fp.includes('转换组件未就绪</span>'), fp.includes('<small>手动指定的转换组件不可用。</small>')], [true, true, true])
+    }
     eq('预览文案锁定（待产品经理确认的自拟部分除外）', [pvMsg.PREVIEW_LOADING_TITLE, pvMsg.PREVIEW_SWITCH_LABEL, pvMsg.PREVIEW_SWITCH_NOTE, pvMsg.PREVIEW_ROW_ON, pvMsg.PREVIEW_ROW_OFF, pvMsg.PREVIEW_OFF_TITLE], ['正在获取画面，通常需要几秒', '开启预览', '开启预览会多占用少量 CPU', '预览：开', '预览：关', '该会话未开启预览'])
   return fails
 }

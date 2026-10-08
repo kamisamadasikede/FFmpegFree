@@ -20,6 +20,8 @@ export interface LpVisual {
   /** codec = 编码不支持；unavailable = 预览流做不出来（同一句推流文案） */
   reason: '' | 'codec' | 'unavailable'
   tab: 'push' | 'pull'
+  /** 包 24 N2：只有声音的拉流 */
+  audioOnly?: boolean
 }
 
 const base = (p: Partial<LpVisual> & Pick<LpVisual, 'phase' | 'kind' | 'tab'>): LpVisual => ({
@@ -44,6 +46,8 @@ const MAP: Record<string, LpVisual> = {
   'pull-broken': base({ phase: 'interrupted', kind: 'pull', tab: 'pull', muted: false, fake: 'b' }),
   'full-broken': base({ phase: 'interrupted', kind: 'push', tab: 'push', full: true, fake: 'a' }),
   panel: base({ phase: 'playing', kind: 'push', tab: 'push', hint: true, fake: 'a', panel: true }),
+  'pull-audio': base({ phase: 'playing', kind: 'pull', tab: 'pull', audioOnly: true }),
+  'pull-audio-muted': base({ phase: 'playing', kind: 'pull', tab: 'pull', audioOnly: true, muted: true, hint: true }),
   empty: base({ phase: 'empty', kind: 'push', tab: 'push', panel: true, clock: '' }),
 }
 

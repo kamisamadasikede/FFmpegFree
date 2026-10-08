@@ -111,9 +111,10 @@ const previewOn = toRef(dock, 'previewOn')
 const err = ref<PushFormError | null>(null)
 const starting = ref(false)
 const canStart = computed(() => recordStartEnabled({ blocked: blocked.value, starting: starting.value, hasUrl: !!baseUrl.value.trim(), sourceId: sourceId.value, state: srcState.value, gone: goneShown.value }))
-const showRetry = computed(() => store.rows.some((r) => r.status === 'int') && !store.rows.some((r) => r.status === 'run' || r.status === 'stp'))
+// 包 24 N1：只看最近一行（stores/liveSessions.ts retryRow），旧的中断行不再让按钮一直停在「重新推流」
+const showRetry = computed(() => !!store.retryRow)
 async function retry() {
-  const row = store.rows.find((r) => r.status === 'int')
+  const row = store.retryRow
   if (!row || blocked.value) return
   starting.value = true
   try {

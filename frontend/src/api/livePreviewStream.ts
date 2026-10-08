@@ -36,6 +36,11 @@ export interface PullPlayback {
   session: PullSession | null
   /** 交给播放器的地址 */
   stream: PreviewStream | null
+  /**
+   * stream.hasVideo / hasAudio 是不是后端给的真实值（包 24 N2）。false = 还不知道，先按有画面有声音，
+   * 再看 live:pull playing 带的字段（v0.25.3）、GetPreviewStream 和播放器读到的媒体信息。
+   */
+  mediaKnown: boolean
 }
 
 /**
@@ -45,7 +50,7 @@ export interface PullPlayback {
  * - 纯浏览器：http(s) / ws(s) 直接播。
  */
 export async function startPullPlayback(url: string): Promise<PullPlayback> {
-  const direct = { session: null, stream: { url, mime: 'video/x-flv', hasVideo: true, hasAudio: true } }
+  const direct = { session: null, stream: { url, mime: 'video/x-flv', hasVideo: true, hasAudio: true }, mediaKnown: false }
   if (/^wss?:\/\//i.test(url)) return direct
   if (previewV25IsReal()) {
     const s = await startPullPreview({ url, preview: true })
@@ -53,10 +58,12 @@ export async function startPullPlayback(url: string): Promise<PullPlayback> {
       await stopPullPreview(s.id).catch(() => undefined)
       throw new AppError('UNSUPPORTED', LP_UNAVAILABLE, 'reason=preview_unavailable')
     }
-    return { session: s, stream: { url: s.previewUrl, mime: 'video/x-flv', hasVideo: true, hasAudio: true } }
+    // 包 24 N2：不再写死有画面有声音；后端带了就用（v0.25.3），没带先按都有，之后再纠正
+    const known = typeof s.hasVideo === 'boolean'
+    return { session: s, stream: { url: s.previewUrl, mime: 'video/x-flv', hasVideo: s.hasVideo ?? true, hasAudio: s.hasAudio ?? true }, mediaKnown: known }
   }
   if (/^https?:\/\//i.test(url)) return direct
-  return { session: null, stream: null }
+  return { session: null, stream: null, mediaKnown: false }
 }
 
 /** 停止拉流的后端会话。没有会话、或 Stop 自己出错，都不抛给界面 */
@@ -66,7 +73,14 @@ export async function stopPullPlayback(p: PullPlayback | null): Promise<void> {
 
 /** live:pull 事件（契约 6.10.3.7）。playing 只发一次；error 是 AppError 形状，地址已脱敏 */
 export type PullState = 'playing' | 'ended' | 'interrupted' | 'failed' | 'unsupported'
-export interface PullEvent { id: string; state: PullState; error?: { code?: string; message?: string; detail?: string } }
+export interface PullEvent {
+  id: string
+  state: PullState
+  error?: { code?: string; message?: string; detail?: string }
+  /** v0.25.3（包 24 N2，后端待合）：playing 事件带上这路流有没有画面 / 声音，和 GetPreviewStream 同名；旧后端没有 */
+  hasVideo?: boolean
+  hasAudio?: boolean
+}
 
 /** 订阅某个拉流预览会话的 live:pull；纯浏览器下什么也不做 */
 export function watchPull(sessionId: string, cb: (e: PullEvent) => void): () => void {

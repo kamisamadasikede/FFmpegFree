@@ -11,14 +11,16 @@
     tabindex="0"
     @mousemove="wake"
     @keydown="onKey"
-    @dblclick="toggleFull"
+    @dblclick="audioOnly || toggleFull()"
   >
     <div v-if="showVideo" class="lp-video" :class="fake ? 'f' + fake : ''">
-      <video :key="videoKey" v-show="!fake && !frozen" ref="videoEl" autoplay playsinline :muted="muted" />
+      <video :key="videoKey" v-show="!fake && !frozen && !audioOnly" ref="videoEl" autoplay playsinline :muted="muted" />
       <!-- G1：结束 / 被中断时停在最后一帧（播放器销毁前把当前画面画到这里），再由 .dim 压暗 -->
       <canvas v-show="frozen && !fake" ref="shotEl" class="lp-shot" aria-hidden="true" />
     </div>
     <p v-if="phase === 'empty'" class="lp-wait">{{ emptyText || LP_EMPTY }}</p>
+    <!-- 包 24 N2：只有声音的流——舞台保持黑色，中间 32 号音符 + 一行 12 号次要色说明；声音照常从 <video> 出 -->
+    <div v-if="audioOnly && showBar" class="lp-audio"><FIcon name="music" :size="32" /><span>{{ LP_AUDIO_ONLY }}</span></div>
 
     <div v-if="showChip" class="lp-chip" :class="{ play: kind === 'pull' }">
       <i />{{ kind === 'pull' ? '播放中' : '直播中' }}<span class="t">{{ clock }}</span>
@@ -64,11 +66,11 @@
         ><i :style="{ width: (muted ? 0 : volume) + '%' }" /><b :style="{ left: (muted ? 0 : volume) + '%' }" /></div>
       </div>
       <span class="sp" />
-      <div v-if="lagShown != null" class="lp-lagbox">
+      <div v-if="lagShown != null && !audioOnly" class="lp-lagbox">
         <span class="lp-lag" aria-hidden="true">{{ LP_LAG(lagShown) }}</span>
         <button type="button" class="lp-live" :aria-label="`回到最新画面，当前落后约 ${lagShown} 秒`" @click="catchUp"><FIcon name="refresh" :size="14" />{{ LP_CATCHUP }}</button>
       </div>
-      <button type="button" class="lp-btn" :aria-label="fullOn ? '退出全屏' : '全屏'" :title="fullOn ? '退出全屏（F 或 Esc）' : '全屏（F）'" @click="toggleFull">
+      <button v-if="!audioOnly" type="button" class="lp-btn" :aria-label="fullOn ? '退出全屏' : '全屏'" :title="fullOn ? '退出全屏（F 或 Esc）' : '全屏（F）'" @click="toggleFull">
         <FIcon :name="fullOn ? 'zip' : 'full'" :size="18" />
       </button>
     </div>
@@ -84,7 +86,7 @@ import mpegts from 'mpegts.js'
 import FIcon from '@/components/icon/FIcon.vue'
 import {
   LP_BREAK_PULL, LP_BREAK_PUSH, LP_CATCHUP, LP_CONNECTING, LP_EMPTY, LP_END_PULL, LP_END_PUSH, LP_LAG, LP_MUTED_HINT, LP_RETRY_PULL, LP_RETRY_PUSH, LP_UNAVAILABLE, LP_UNAVAILABLE_PULL, LP_UNSUP_PULL, LP_UNSUP_PUSH,
-  LP_LIVE_BUFFERING, LP_LIVE_MUTED_SUFFIX, LP_LIVE_STARTED_PULL, LP_LIVE_STARTED_PUSH,
+  LP_LIVE_BUFFERING, LP_LIVE_MUTED_SUFFIX, LP_LIVE_STARTED_PULL, LP_LIVE_STARTED_PUSH, LP_AUDIO_ONLY,
 } from '@/errors/livePreviewMessages'
 import { liveAnnouncement, nextLagShown, stageAspectOf } from './livePlayerLogic'
 
@@ -95,6 +97,8 @@ const props = withDefaults(defineProps<{
   url?: string
   mime?: string
   hasAudio?: boolean
+  /** 包 24 N2：这路流有没有画面（拉流：后端字段 / 播放器媒体信息）。false = 只有声音：按纯音频建播放器，舞台显示音符 */
+  hasVideo?: boolean
   clock?: string
   /** 画面比例：不传时取视频自己的宽高比（G4，竖屏流按舞台高度完整显示），视频还没出来时按 16:9 */
   aspect?: number
@@ -115,9 +119,9 @@ const props = withDefaults(defineProps<{
   endedNote?: string
   /** phase=interrupted 时换掉默认正文（拉流开始前就失败：用后端 error 的 message） */
   breakText?: string
-}>(), { url: '', mime: 'video/x-flv', hasAudio: true, clock: '00:00:00', aspect: undefined, fake: '', lag: null, reason: '', lowLatency: true })
+}>(), { url: '', mime: 'video/x-flv', hasAudio: true, hasVideo: true, clock: '00:00:00', aspect: undefined, fake: '', lag: null, reason: '', lowLatency: true })
 
-const emit = defineEmits<{ restart: []; catchup: []; 'media-unsupported': []; 'media-ended': []; 'media-broken': []; playing: []; stats: [s: { kbps: number; fps: number; dropped: number; bytes: number }] }>()
+const emit = defineEmits<{ 'media-info': [m: { hasVideo: boolean; hasAudio: boolean }]; restart: []; catchup: []; 'media-unsupported': []; 'media-ended': []; 'media-broken': []; playing: []; stats: [s: { kbps: number; fps: number; dropped: number; bytes: number }] }>()
 const muted = defineModel<boolean>('muted', { default: true })
 const volume = ref(70)
 const root = ref<HTMLElement | null>(null)
@@ -156,6 +160,10 @@ let volTimer: ReturnType<typeof setTimeout> | undefined
 let bufTimer: ReturnType<typeof setTimeout> | undefined
 const buffering = ref(false)
 
+/** 播放器自己读到的媒体信息里没有画面（直接拉 ws / wss 时，FLV 头写明只有声音） */
+const mediaNoVideo = ref(false)
+/** 只有声音：不显示视频、不给全屏和「回到最新」，只留音量 */
+const audioOnly = computed(() => !props.hasVideo || mediaNoVideo.value)
 const fullOn = computed(() => props.forceFull || full.value)
 const idleOn = computed(() => props.forceIdle || idle.value)
 const volOpen = computed(() => props.forceVol || volHover.value)
@@ -232,7 +240,7 @@ function retry() {
 function onKey(e: KeyboardEvent) {
   wake()
   if (e.key === ' ' || e.key === 'm' || e.key === 'M') { if ((e.target as HTMLElement).getAttribute('role') === 'slider') return; e.preventDefault(); toggleMute() }
-  else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFull() }
+  else if ((e.key === 'f' || e.key === 'F') && !audioOnly.value) { e.preventDefault(); toggleFull() }
   else if (e.key === 'Escape' && full.value) { full.value = false }
 }
 function setVol(n: number) {
@@ -304,6 +312,7 @@ async function attach(url: string, retry = false) {
   destroyPlayer()
   if (!retry) {
     natural.value = null
+    mediaNoVideo.value = false
     frozen.value = false
     videoKey.value++
     await nextTick()
@@ -315,7 +324,9 @@ async function attach(url: string, retry = false) {
   if (!mpegts.getFeatureList().mseLivePlayback) { emit('media-unsupported'); return }
   const chase = props.lowLatency
   player = mpegts.createPlayer(
-    { type: /mp2t|mpegts/i.test(props.mime) ? 'mpegts' : 'flv', isLive: true, url, hasAudio: props.hasAudio, hasVideo: true },
+    // 包 24 N2：只在确定没有画面 / 声音时才传 false。mpegts 对传进去的布尔值一律当真（传 true 也会盖掉 FLV 头），
+    // 以前写死 hasVideo: true，纯音频流就一直等画面的元数据，停在「正在连接…」。不知道时交给 FLV 头和后续的音视频标签判断。
+    { type: /mp2t|mpegts/i.test(props.mime) ? 'mpegts' : 'flv', isLive: true, url, hasAudio: props.hasAudio ? undefined : false, hasVideo: props.hasVideo ? undefined : false },
     chase
       ? // 追帧主要靠略微加速（liveSync，不跳帧）；跳到最新位置只在落后很多时兜底。
       // 实测 Linux WebKitGTK：分段到达的源（HLS 等）每到一段就超过 1.5 秒，按跳转追帧会落在 GOP 中间，灰色花屏直到下一个关键帧。
@@ -331,6 +342,11 @@ async function attach(url: string, retry = false) {
       clearTimeout(retryTimer)
       retryTimer = setTimeout(() => { if (wantUrl.value === url) attach(url, true) }, 1000)
     } else emit('media-broken')
+  })
+  player.on(mpegts.Events.MEDIA_INFO, (mi: { hasVideo?: boolean; hasAudio?: boolean } | undefined) => {
+    if (quiet || !mi || mi.hasVideo !== false) return
+    mediaNoVideo.value = true
+    emit('media-info', { hasVideo: false, hasAudio: mi.hasAudio !== false })
   })
   player.on(mpegts.Events.LOADING_COMPLETE, () => { if (!quiet) emit('media-ended') })
   el.addEventListener('playing', () => { if (!quiet) emit('playing') }, { once: true })
@@ -390,6 +406,12 @@ watch(wantUrl, (url) => {
     destroyPlayer()
   }
 }, { flush: 'post' }) // 等 <video> 渲染出来再挂
+// 包 24 N2：连接中才知道只有声音（后端 live:pull playing / GetPreviewStream 说没有画面）：按纯音频重建播放器，不然会一直等画面
+watch(() => props.hasVideo, (v, old) => {
+  if (v === old || away.value) return
+  const url = wantUrl.value
+  if (url && props.phase === 'connecting') void attach(url)
+})
 watch(muted, (m) => { if (videoEl.value) videoEl.value.muted = m })
 watch(volume, (v) => { if (videoEl.value) videoEl.value.volume = v / 100 })
 
@@ -449,6 +471,8 @@ onBeforeUnmount(() => { destroyPlayer(); document.removeEventListener('fullscree
 .lp-act { display: inline-flex; align-items: center; gap: 6px; height: 28px; margin-top: 4px; padding: 0 12px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, .28); background: rgba(255, 255, 255, .14); color: #fff; font: inherit; font-size: 13px; cursor: pointer; }
 .lp-spin { width: 28px; height: 28px; border-radius: 50%; border: 2.5px solid rgba(255, 255, 255, .25); border-top-color: #fff; animation: lprot .9s linear infinite; }
 .lp-ov.buf .in { width: 48px; height: 48px; border-radius: 50%; background: var(--lp-scrim); display: grid; place-items: center; gap: 0; }
+.lp-audio { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--lp-fg-2); pointer-events: none; }
+.lp-audio span { font-size: 12px; line-height: 18px; }
 .lp-wait { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); text-align: center; font-size: 13px; color: var(--lp-fg-2); margin: 0; }
 .lp-esc { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 4; height: 32px; padding: 0 14px; border-radius: 16px; background: var(--lp-scrim); display: flex; align-items: center; font-size: 13px; white-space: nowrap; }
 .lp-esc kbd { font-family: var(--ff-font-mono); font-size: 12px; border: 1px solid rgba(255, 255, 255, .4); border-radius: 4px; padding: 0 4px; margin: 0 4px; }
