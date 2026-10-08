@@ -39,6 +39,7 @@ export const iconPaths = {
   'eye': "<path d=\"M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>",
   'window': "<rect x=\"3\" y=\"4\" width=\"18\" height=\"16\" rx=\"2\"/><path d=\"M3 9h18M7 6.5h.01M10 6.5h.01\"/>",
   'monitor': "<rect x=\"2\" y=\"3\" width=\"20\" height=\"14\" rx=\"2\"/><path d=\"M8 21h8M12 17v4\"/>",
+  'image': "<rect x=\"3\" y=\"4\" width=\"18\" height=\"16\" rx=\"2\"/><circle cx=\"9\" cy=\"10\" r=\"2\"/><path d=\"M21 16l-5-5-10 9\"/>",
   'film': "<rect x=\"2\" y=\"3\" width=\"20\" height=\"18\" rx=\"2\"/><path d=\"M7 3v18M17 3v18M2 8h5M2 16h5M17 8h5M17 16h5\"/>",
   'cam': "<path d=\"m23 7-7 5 7 5z\"/><rect x=\"1\" y=\"5\" width=\"15\" height=\"14\" rx=\"2\"/>",
   // 原型没有“隐藏推流码”的图标，这里在 eye 基础上加斜线

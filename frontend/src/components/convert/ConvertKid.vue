@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 转换页子记录（每次转换一条，设计 §3.2）：三行 + 右侧操作。状态来自 KidView（记录 + 任务 store 的实时状态）。
 import MidEllipsis from '@/components/common/MidEllipsis.vue'
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import ErrorLine from '@/components/common/ErrorLine.vue'
 import ConvertThumb from './ConvertThumb.vue'
@@ -9,7 +9,7 @@ import type { ThumbState } from '@/api/convertRecords'
 import type { KidView } from '@/stores/convertRecords'
 import { showFallbackNotice, usedDeviceText, useEncoderDeviceList } from '@/api/encoderTask'
 import { ENCODER_DEVICE_CPU_FALLBACK_NAME, ENCODER_DEVICE_CPU_FALLBACK_TITLE, ENCODER_FALLBACK_CONVERT, ENCODER_FALLBACK_CONVERT_DONE } from '@/errors/encoderMessages'
-import { formatRecordTime, isAudioContainer, recordLine, shortEta } from '@/utils/convertText'
+import { coverKindOf, formatRecordTime, isAudioContainer, recordLine, shortEta } from '@/utils/convertText'
 import { fileBaseName, formatBytes, formatShortClock } from '@/utils/format'
 
 const props = defineProps<{
@@ -27,11 +27,26 @@ const props = defineProps<{
 const emit = defineEmits<{ preview: []; cancel: []; retry: []; reveal: []; remove: []; log: []; changeOutput: [] }>()
 
 const devices = useEncoderDeviceList()
+// 窄列表的“更多”菜单（打开所在文件夹、删除记录）
+const menuOpen = ref(false)
+const moreBtn = ref<HTMLElement | null>(null)
+function closeMenu(e?: Event) {
+  if (e && moreBtn.value?.parentElement?.contains(e.target as Node)) return
+  menuOpen.value = false
+}
+watch(menuOpen, (o) => (o ? document.addEventListener('pointerdown', closeMenu, true) : document.removeEventListener('pointerdown', closeMenu, true)))
+onBeforeUnmount(() => document.removeEventListener('pointerdown', closeMenu, true))
+function menu(fn: () => void) {
+  menuOpen.value = false
+  fn()
+}
 const k = computed(() => props.kid)
 const name = computed(() => fileBaseName(k.value.outputPath) || k.value.title)
 const container = computed(() => (k.value.options.container || name.value.split('.').pop() || '').toLowerCase())
 const fmt = computed(() => container.value.toUpperCase())
 const audio = computed(() => isAudioContainer(container.value))
+/** 封面类型：按输出格式（图片格式 = 图片封面，音频容器 = 音符封面，其余含 GIF = 胶片） */
+const cover = computed(() => coverKindOf(container.value))
 const pct = computed(() => Math.round(Math.min(1, Math.max(0, k.value.progress)) * 100))
 const active = computed(() => k.value.status === 'running' || k.value.status === 'queued')
 const failed = computed(() => k.value.status === 'failed' || k.value.status === 'interrupted')
@@ -77,26 +92,25 @@ const tag = computed(() => {
       :state="canPreview ? thumb : null"
       :gone="gone"
       :pend="!done"
-      :audio="audio"
-      :play="canPreview && thumb?.kind === 'img'"
+      :cover="cover"
+      :fmt="fmt"
       :clickable="canPreview"
       :label="`预览 ${name}`"
       @click="emit('preview')"
     />
     <div class="cv-km">
       <div class="l1">
-        <span class="cv-fmt">{{ fmt }}</span>
         <MidEllipsis tag="b" :class="{ gone, lnk: canPreview }" :text="name" @click="canPreview && emit('preview')" />
-        <span class="cv-tag" :class="tag.cls"><FIcon v-if="tag.icon" :name="tag.icon === 'check' ? 'check' : 'warn'" />{{ tag.text }}</span>
+        <span class="cv-tag" :class="tag.cls" :title="tag.text" :aria-label="tag.text"><FIcon v-if="tag.icon" :name="tag.icon === 'check' ? 'check' : 'warn'" /><i class="tx">{{ tag.text }}</i></span>
       </div>
       <div class="l2" :title="line2.title">{{ line2.text }}</div>
       <div class="l3">
         <template v-if="k.status === 'running'">
           <div class="bar" role="progressbar" aria-label="转换进度" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="pct"><i class="run" :style="{ width: pct + '%' }" /></div>
           <span class="num">{{ pct }}%</span>
-          <template v-if="k.speed"><span class="cv-d">·</span><span>{{ k.speed }}</span></template>
+          <template v-if="k.speed"><span class="cv-d n9">·</span><span class="n9">{{ k.speed }}</span></template>
           <template v-if="shortEta(k.etaSec)"><span class="cv-d">·</span><span>剩余 {{ shortEta(k.etaSec) }}</span></template>
-          <template v-if="device"><span class="cv-d">·</span><span v-if="deviceFb" class="cv-fb" :title="ENCODER_DEVICE_CPU_FALLBACK_TITLE">{{ device }}</span><span v-else class="dev" :title="device">{{ device }}</span></template>
+          <template v-if="device"><span class="cv-d n9">·</span><span v-if="deviceFb" class="cv-fb n9" :title="ENCODER_DEVICE_CPU_FALLBACK_TITLE">{{ device }}</span><span v-else class="dev n9" :title="device">{{ device }}</span></template>
         </template>
         <template v-else-if="k.status === 'queued'">
           <div class="bar q"><i style="width: 0" /></div>
@@ -114,7 +128,8 @@ const tag = computed(() => {
           <span class="gone"><FIcon name="warn" />文件已被移动或删除</span>
         </template>
         <template v-else>
-          <template v-for="(t, i) in [result.size, result.dur].filter(Boolean)" :key="i"><span v-if="i" class="cv-d">·</span><span>{{ t }}</span></template>
+          <span v-if="result.size" class="cv-sz">{{ result.size }}</span>
+          <template v-if="result.dur"><span v-if="result.size" class="cv-d">·</span><span>{{ result.dur }}</span></template>
           <template v-if="result.res"><span v-if="result.size || result.dur" class="cv-d only1280">·</span><span class="only1280">{{ result.res }}</span></template>
           <template v-if="device">
             <span v-if="result.size || result.dur || result.res" class="cv-d">·</span>
@@ -170,9 +185,17 @@ const tag = computed(() => {
       <template v-else>
         <button v-if="gone" type="button" class="cv-ib" aria-disabled="true" :aria-label="`预览 ${name}：${previewTip}`" :data-tip="previewTip"><FIcon name="eye" /></button>
         <button v-else type="button" class="cv-ib" :aria-label="`预览 ${name}`" title="预览" @click="emit('preview')"><FIcon name="eye" /></button>
-        <button v-if="gone" type="button" class="cv-ib" aria-disabled="true" :aria-label="`打开所在文件夹 ${name}：文件已被移动或删除`" data-tip="文件已被移动或删除"><FIcon name="folder" /></button>
-        <button v-else type="button" class="cv-ib" :aria-label="`打开所在文件夹 ${name}`" title="打开所在文件夹" @click="emit('reveal')"><FIcon name="folder" /></button>
-        <button type="button" class="cv-ib del" :aria-label="`删除记录 ${name}`" title="删除记录" @click="emit('remove')"><FIcon name="trash" /></button>
+        <button v-if="gone" type="button" class="cv-ib nfold" aria-disabled="true" :aria-label="`打开所在文件夹 ${name}：文件已被移动或删除`" data-tip="文件已被移动或删除"><FIcon name="folder" /></button>
+        <button v-else type="button" class="cv-ib nfold" :aria-label="`打开所在文件夹 ${name}`" title="打开所在文件夹" @click="emit('reveal')"><FIcon name="folder" /></button>
+        <button type="button" class="cv-ib del nfold" :aria-label="`删除记录 ${name}`" title="删除记录" @click="emit('remove')"><FIcon name="trash" /></button>
+        <!-- 列表宽度 < 480px（§14.5）：打开所在文件夹、删除记录收进“更多” -->
+        <span class="cv-kmore">
+          <button ref="moreBtn" type="button" class="cv-ib nmore" :aria-label="`更多：打开所在文件夹、删除记录 ${name}`" title="更多" aria-haspopup="menu" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><FIcon name="more" /></button>
+          <div v-if="menuOpen" class="cv-more-menu" role="menu">
+            <button type="button" role="menuitem" :aria-disabled="gone || undefined" :title="gone ? '文件已被移动或删除' : undefined" @click="!gone && menu(() => emit('reveal'))"><FIcon name="folder" />打开所在文件夹</button>
+            <button type="button" role="menuitem" @click="menu(() => emit('remove'))"><FIcon name="trash" />删除记录</button>
+          </div>
+        </span>
       </template>
     </div>
   </div>

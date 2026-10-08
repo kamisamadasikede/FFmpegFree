@@ -296,23 +296,32 @@ export const probeSources = (paths: string[], onBatch?: (r: ProbeResult[]) => vo
 
 // ---------------- 缩略图 ----------------
 /**
- * 缩略图三种状态（契约 §6.14.10 + 设计）：
+ * 缩略图状态（契约 §6.14.10 + 设计）：
  *   img     有画面：dataUrl（data:image/jpeg;base64,...）直接放进 <img>
  *   missing 文件不在（NOT_FOUND reason=file，含记录不是 succeeded）：虚线占位
- *   type    做不出缩略图（UNSUPPORTED reason=format，如纯音频；以及 ffmpeg 缺失 / 截图失败 / 超时）：按类型显示图标
- *   gone    记录 / 源文件行已不存在（NOT_FOUND reason=record）：该行会被删掉，先按类型图标显示
+ *   type    做不出缩略图：按类型封面显示（视频胶片 / 图片 / 音符）。
+ *           UNSUPPORTED reason=format（如纯音频）是正常情况；其它错误（转换组件缺失 / 截图失败 / 超时 / 返回空）
+ *           带 failed=true 并 console.warn 错误码，源文件变了或转换组件就绪后会重取
+ *   gone    记录 / 源文件行已不存在（NOT_FOUND reason=record）：该行会被删掉，先按类型封面显示
  */
-export type ThumbState = { kind: 'img'; url: string } | { kind: 'missing' } | { kind: 'type' } | { kind: 'gone' }
-export function thumbStateOf(e: unknown): ThumbState {
-  const err = e as { code?: string; detail?: string }
+export type ThumbState = { kind: 'img'; url: string } | { kind: 'missing' } | { kind: 'type'; failed?: boolean } | { kind: 'gone' }
+export function thumbStateOf(e: unknown, what = ''): ThumbState {
+  const err = e as { code?: string; message?: string; detail?: string }
   const reason = /^reason=(\w+)/.exec(err?.detail ?? '')?.[1]
   if (err?.code === 'NOT_FOUND' && reason === 'file') return { kind: 'missing' }
   if (err?.code === 'NOT_FOUND' && reason === 'record') return { kind: 'gone' }
-  return { kind: 'type' }
+  if (err?.code === 'UNSUPPORTED' && reason === 'format') return { kind: 'type' }
+  console.warn(`[缩略图] 取${what || '缩略图'}失败，改用类型封面`, err?.code ?? 'UNKNOWN', err?.detail ?? '', err?.message ?? e)
+  return { kind: 'type', failed: true }
 }
-const toThumb = (p: Promise<string>): Promise<ThumbState> =>
-  p.then((url) => (url ? ({ kind: 'img', url } as ThumbState) : ({ kind: 'type' } as ThumbState)), thumbStateOf)
+/** 后端返回的必须是能直接放进 <img> 的地址（data: / http(s): / blob:）；空或别的格式按失败处理 */
+export const isThumbUrl = (url: unknown): url is string => typeof url === 'string' && /^(data:image\/|https?:|blob:)/.test(url)
+const toThumb = (p: Promise<string>, what: string): Promise<ThumbState> =>
+  p.then(
+    (url) => (isThumbUrl(url) ? ({ kind: 'img', url } as ThumbState) : thumbStateOf({ code: 'EMPTY_THUMB', detail: `url=${String(url).slice(0, 40)}` }, what)),
+    (e) => thumbStateOf(e, what),
+  )
 /** 源文件行的缩略图（ConvertService.GetSourceThumbnail，行进入可视区域时逐个调用） */
-export const getSourceThumbnail = (sourceId: string): Promise<ThumbState> => toThumb(api().GetSourceThumbnail(sourceId))
+export const getSourceThumbnail = (sourceId: string): Promise<ThumbState> => toThumb(api().GetSourceThumbnail(sourceId), `源文件缩略图 sourceId=${sourceId}`)
 /** 记录输出文件的缩略图（ConvertService.GetRecordThumbnail） */
-export const getRecordThumbnail = (taskId: string): Promise<ThumbState> => toThumb(api().GetRecordThumbnail(taskId))
+export const getRecordThumbnail = (taskId: string): Promise<ThumbState> => toThumb(api().GetRecordThumbnail(taskId), `记录缩略图 taskId=${taskId}`)
