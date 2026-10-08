@@ -9,7 +9,7 @@
       </div>
       <div class="card stat"><small>排队中</small><b>{{ tasks.queuedCount }}</b></div>
       <div class="card stat"><small>今日完成</small><b style="color: var(--ff-success)">{{ tasks.todayDone }}{{ tasks.todayDoneCapped ? '+' : '' }}</b></div>
-      <div class="card stat"><small>失败</small><b style="color: var(--ff-danger)">{{ tasks.failedCard }}</b></div>
+      <div class="card stat"><small>失败</small><b style="color: var(--ff-danger)">{{ tasks.failedTotal }}</b></div>
     </div>
 
     <div class="card main">
@@ -92,7 +92,7 @@
                 </td>
                 <td class="tc-dim">
                   <div v-if="showBar(t)" class="prog">
-                    <div class="pline"><span>{{ progressText(t) }}</span><span>{{ percent(t) }}%</span></div>
+                    <div class="pline"><span>{{ barText(t) }}</span><span>{{ percent(t) }}%</span></div>
                     <div class="bar" role="progressbar" :aria-label="`${t.title} 进度`" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="percent(t)">
                       <i :class="barClass(t)" :style="{ width: percent(t) + '%' }" />
                     </div>
@@ -221,7 +221,7 @@ import EncoderFallbackNotice from '@/components/encoder/EncoderFallbackNotice.vu
 import { scrollBehavior } from '@/utils/motion'
 import { useNarrow } from '@/components/convert/useNarrow'
 import { getSource, parseParams } from '@/api/convertRecords'
-import { recordParamsText } from '@/utils/convertText'
+import { recordParamsText, setPresetCatalog } from '@/utils/convertText'
 import { showFallbackNotice, usedDeviceText, useEncoderDeviceList } from '@/api/encoderTask'
 import { ENCODER_DEVICE_CPU_FALLBACK_NAME, ENCODER_DEVICE_CPU_FALLBACK_TITLE, ENCODER_DEVICE_LABEL, ENCODER_FALLBACK_LIVE, ENCODER_FALLBACK_TASK_ROW_DONE, encoderFallbackReasonText } from '@/errors/encoderMessages'
 import { canRetryTask, elapsedMs, isLiveType, isRetiredType, isTerminal, useTaskStore, type TaskItem, type TaskStatus } from '@/stores/tasks'
@@ -230,7 +230,7 @@ import { toAppError } from '@/api/call'
 import { isSimTask, SIM_TITLE_PREFIX } from '@/api/sim'
 import { actionErrorText, docUnsupportedText, liveFailureMessage, LIVE_STOP_TEXT, schemeFromParams } from '@/errors/errorMessages'
 import { pickDirectory, revealInFolder } from '@/api/system'
-import { parseConvertParams, resubmitToDir } from '@/api/convert'
+import { listPresets, parseConvertParams, resubmitToDir } from '@/api/convert'
 import { fileBaseName, formatClock, formatDuration, formatEta, formatStart } from '@/utils/format'
 
 /** 直播推流的说明文案（统计条和进行中的直播行共用）。角标 runningCount 仍包含直播推流 */
@@ -414,6 +414,8 @@ function showBar(t: TaskItem): boolean {
 }
 const barClass = (t: TaskItem) => ({ run: t.status === 'running', fail: t.status === 'failed', int: t.status === 'interrupted' })
 
+/** 进度条上方的小字：失败 / 已中断只放百分比，原因在下面的错误行（走查 X10：1024 下“应用退出，已中断”被省略成“应用…”） */
+const barText = (t: TaskItem): string => (t.status === 'failed' || t.status === 'interrupted' ? '' : progressText(t))
 function progressText(t: TaskItem): string {
   switch (t.status) {
     case 'running': {
@@ -665,6 +667,8 @@ watch(logId, (v, old) => {
 })
 
 onMounted(async () => {
+  // 转换行第二行的预设名和转换页共用规则：同名预设（MP4 H.264 / H.265）补编码，需要当前预设列表（走查 G2）
+  void listPresets().then((ps) => setPresetCatalog(ps.map((p) => p.name))).catch(() => undefined)
   // “显示已隐藏”默认关、不记住（设计 §7.3 第 11 条）：每次进任务中心都从关开始
   tasks.historyFilter.includeHidden = false
   await tasks.loadStats()

@@ -31,6 +31,7 @@
 // 数据取自 ffmpeg store（与顶部提示条同源），状态变化（安装完成、手动指定）自动刷新。
 import { computed } from 'vue'
 import { useFFmpegStore } from '@/stores/ffmpeg'
+import { FFPROBE_MISSING_TEXT } from '@/errors/errorMessages'
 
 defineProps<{ headingId?: string; readonly?: boolean }>()
 
@@ -42,7 +43,7 @@ const view = computed(() => {
   const from = SOURCE[s.source ?? '']
   switch (s.state) {
     case 'ready':
-      return { tag: '已就绪', tone: 'ok', detail: [s.version && `转换组件版本 ${s.version}`, from && `来自${from}`].filter(Boolean).join(' · ') || '已检测到转换组件' + (s.ffprobeMissing ? '，但缺少读取文件信息的部分' : '') }
+      return { tag: '已就绪', tone: 'ok', detail: s.ffprobeMissing ? FFPROBE_MISSING_TEXT : [s.version && `转换组件版本 ${s.version}`, from && `来自${from}`].filter(Boolean).join(' · ') || '已检测到转换组件' }
     case 'installing':
       return { tag: '安装中', tone: 'run', detail: ffmpeg.install ? `下载中 ${Math.round(ffmpeg.install.progress * 100)}%` : '准备中' }
     case 'failed':

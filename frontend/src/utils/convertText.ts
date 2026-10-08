@@ -1,4 +1,5 @@
 /** 转换页 v2 的纯函数：冲突判断（沿用 S1 逻辑）、预设名、记录时间、媒体信息文字。没有副作用，自检直接调用。 */
+import { shallowRef } from 'vue'
 import { formatBytes, formatShortClock } from '@/utils/format'
 import { channelText, codecName, sampleRateText } from '@/utils/mediaText'
 
@@ -30,20 +31,46 @@ export function splitPresetName(name: string): { title: string; sub: string } {
 }
 
 /**
+ * 预设显示标题（预设卡片、子记录第 2 行、任务中心第二行、预览底栏共用一套规则；走查 G2）：
+ * 括号前的标题；同一个标题在预设列表里出现不止一次（MP4 H.264 / MP4 H.265）时补编码简称，写成「MP4 · H.265」。
+ */
+export function dupPresetTitles(names: readonly string[]): Set<string> {
+  const seen = new Set<string>()
+  const dup = new Set<string>()
+  for (const n of names) {
+    const t = splitPresetName(n).title
+    if (seen.has(t)) dup.add(t)
+    seen.add(t)
+  }
+  return dup
+}
+export function presetShortTitle(name: string, codec: string | undefined, dup: ReadonlySet<string>): string {
+  const t = splitPresetName(name).title
+  const c = dup.has(t) ? codecName(codec) : ''
+  return c ? `${t} · ${c}` : t
+}
+/** 当前预设列表里重名的标题（ListPresets 取到后由转换页 store / 任务中心写入；记录第 2 行据此补编码） */
+const presetDup = shallowRef<ReadonlySet<string>>(new Set())
+export function setPresetCatalog(names: readonly string[]): void {
+  presetDup.value = dupPresetTitles(names)
+}
+
+/**
  * 子记录第 2 行 / 预览底栏 / 任务中心转换行第二行共用的“参数”部分（设计 §7.3 第 14 条，已定 UI 10-08）：
  * - presetId 非空（内置或保存过的预设）→ 预设名；悬停提示 = paramsSummary（preset=true）
  * - presetId 为空且 paramsSummary 非空（自定义参数、旧 Submit）→ “自定义 · 摘要”；悬停提示 = 整行文字（preset=false）
  * - 三个快照都为空（v0.23 之前的旧任务）→ title
  * 前端只拼接、不解析 paramsSummary。
  */
-export function recordParamsText(r: { presetId?: string; presetName?: string; paramsSummary?: string; title: string }): { text: string; tip: string; preset: boolean } {
-  if (r.presetId) return { text: (r.presetName && splitPresetName(r.presetName).title) || r.presetName || '自定义', tip: r.paramsSummary ?? '', preset: true }
+type RecordSnap = { presetId?: string; presetName?: string; paramsSummary?: string; title: string; options?: { videoCodec?: string; audioCodec?: string } }
+export function recordParamsText(r: RecordSnap, dup: ReadonlySet<string> = presetDup.value): { text: string; tip: string; preset: boolean } {
+  if (r.presetId) return { text: (r.presetName && presetShortTitle(r.presetName, r.options?.videoCodec || r.options?.audioCodec, dup)) || r.presetName || '自定义', tip: r.paramsSummary ?? '', preset: true }
   if (r.paramsSummary) return { text: `自定义 · ${r.paramsSummary}`, tip: '', preset: false }
   if (!r.presetName) return { text: r.title, tip: '', preset: false }
   return { text: '自定义', tip: '', preset: false }
 }
 /** 带前缀（时间 / “… 转换”）和后缀（设备）的整行文字 + 悬停提示：预设记录的提示是 paramsSummary，其余是整行 */
-export function recordLine(r: { presetId?: string; presetName?: string; paramsSummary?: string; title: string }, head: string[], tail: string[] = []): { text: string; title: string } {
+export function recordLine(r: RecordSnap, head: string[], tail: string[] = []): { text: string; title: string } {
   const p = recordParamsText(r)
   const text = [...head, p.text, ...tail].filter(Boolean).join(' · ')
   return { text, title: p.preset && p.tip ? p.tip : text }
