@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 	"time"
@@ -136,6 +137,13 @@ func (a *App) startMedia() {
 	}}
 	if a.store != nil { // 避免把 nil *Store 装进接口
 		cfg.Store = a.store
+		st := a.store
+		// 契约 v0.23.4：Probe 成功后顺带刷新转换页同一文件的源文件行（convert_sources.media），失败只记日志。
+		cfg.OnProbed = func(ctx context.Context, key string, m store.MediaInfo, fi os.FileInfo) {
+			if err := st.SetConvertSourceMediaByKey(ctx, key, store.FileFingerprint(fi), &m); err != nil {
+				log.Printf("刷新源文件行的媒体信息失败: %v", err)
+			}
+		}
 	}
 	svc := media.New(cfg)
 	go svc.CleanupCache()

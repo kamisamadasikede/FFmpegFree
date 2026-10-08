@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"FFmpegFree/internal/apperr"
+	"FFmpegFree/internal/codecname"
 )
 
 // MediaInfo 是契约第 3 节的 MediaInfo（v0.8 扩展）。
@@ -28,6 +29,12 @@ type MediaInfo struct {
 	Bitrate    int64   `json:"bitrate"`
 	ThumbURL   string  `json:"thumbUrl"`
 
+	// VideoCodecName / AudioCodecName 是给人看的编码显示名（契约 v0.23.4，走查 X3）：由后端按 internal/codecname
+	// 的唯一一张表生成（ffv1 → FFV1、dnxhd → DNxHD、pcm_s16le → PCM……），前端直接显示，不再自己首字母大写。
+	// 对应的编码为空（没有画面 / 没有声音）时省略。
+	VideoCodecName string `json:"videoCodecName,omitempty"`
+	AudioCodecName string `json:"audioCodecName,omitempty"`
+
 	// 以下字段只在 Probe 时填充，不入库。
 	Container  string           `json:"container,omitempty"`
 	Fps        float64          `json:"fps,omitempty"`
@@ -40,6 +47,17 @@ type MediaInfo struct {
 	Error      *apperr.AppError `json:"error,omitempty"`
 
 	ProbedAt int64 `json:"probedAt"`
+}
+
+// FillCodecNames 按 VideoCodec / AudioCodec 填 VideoCodecName / AudioCodecName（编码为空时清空）。
+func (m *MediaInfo) FillCodecNames() {
+	m.VideoCodecName, m.AudioCodecName = "", ""
+	if m.VideoCodec != "" {
+		m.VideoCodecName = codecname.Video(m.VideoCodec)
+	}
+	if m.AudioCodec != "" {
+		m.AudioCodecName = codecname.Audio(m.AudioCodec)
+	}
 }
 
 // StreamInfo 是一条流的信息（ffprobe -show_streams 的整理结果）。
@@ -118,6 +136,7 @@ func (s *Store) ListRecentMedia(ctx context.Context, limit int) ([]MediaInfo, er
 		}
 		m.HasVideo = m.VideoCodec != ""
 		m.HasAudio = m.AudioCodec != ""
+		m.FillCodecNames()
 		out = append(out, m)
 	}
 	return out, rows.Err()

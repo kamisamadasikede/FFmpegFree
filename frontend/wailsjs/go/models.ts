@@ -1262,6 +1262,8 @@ export namespace store {
 	    audioCodec: string;
 	    bitrate: number;
 	    thumbUrl: string;
+	    videoCodecName?: string;
+	    audioCodecName?: string;
 	    container?: string;
 	    fps?: number;
 	    rotation?: number;
@@ -1290,6 +1292,8 @@ export namespace store {
 	        this.audioCodec = source["audioCodec"];
 	        this.bitrate = source["bitrate"];
 	        this.thumbUrl = source["thumbUrl"];
+	        this.videoCodecName = source["videoCodecName"];
+	        this.audioCodecName = source["audioCodecName"];
 	        this.container = source["container"];
 	        this.fps = source["fps"];
 	        this.rotation = source["rotation"];

@@ -332,3 +332,82 @@ func TestListConvertSourcesStatusFilter(t *testing.T) {
 		t.Fatalf("应走 source_id 索引: %s", plan2)
 	}
 }
+
+// 契约 v0.23.4（走查 G3）：源文件行持久化完整的媒体信息，重启（重新打开数据库）后仍在；探测失败的标记也持久化。
+func TestConvertSourceMediaPersisted(t *testing.T) {
+	ctx := context.Background()
+	s, p := openTemp(t)
+	a, _, err := s.UpsertConvertSource(ctx, "/x/a.wav", "/x/a.wav", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _, _ := s.UpsertConvertSource(ctx, "/x/b.mp4", "/x/b.mp4", 2)
+	c, _, _ := s.UpsertConvertSource(ctx, "/x/c.txt", "/x/c.txt", 3)
+	if a.Media != nil || a.MediaFP != "" {
+		t.Fatalf("新行没有媒体信息: %+v", a)
+	}
+	m := &MediaInfo{ID: "M1", Path: "/x/a.wav", Name: "a.wav", Duration: 20, AudioCodec: "pcm_s16le", SampleRate: 48000, Channels: 2,
+		HasAudio: true, ThumbURL: "data:image/jpeg;base64,xx", Streams: []StreamInfo{{Index: 0, Type: "audio", Codec: "pcm_s16le", SampleRate: 48000, Channels: 2}}}
+	if err := s.SetConvertSourceMedia(ctx, a.SourceID, "10:20", m); err != nil {
+		t.Fatal(err)
+	}
+	silent := &MediaInfo{VideoCodec: "ffv1", Width: 320, Height: 240, HasVideo: true}
+	if err := s.SetConvertSourceMediaByKey(ctx, "/x/b.mp4", "30:40", silent); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetConvertSourceMedia(ctx, c.SourceID, "5:6", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetConvertSourceMediaByKey(ctx, "/x/none", "1:1", silent); err != nil {
+		t.Fatalf("没有这一行时什么都不做: %v", err)
+	}
+	// “重启”：关掉再打开同一个数据库
+	s.Close()
+	s2, err := Open(ctx, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	ga, _ := s2.GetConvertSource(ctx, a.SourceID)
+	if ga.Media == nil || !ga.Media.HasAudio || ga.Media.HasVideo || ga.Media.SampleRate != 48000 || ga.Media.Channels != 2 ||
+		ga.Media.AudioCodecName != "PCM" || len(ga.Media.Streams) != 1 || ga.MediaFP != "10:20" {
+		t.Fatalf("重启后音频信息不全: %+v", ga.Media)
+	}
+	if ga.Media.ThumbURL != "" || ga.Media.ID != "" {
+		t.Fatalf("thumbUrl / id 不入库: %+v", ga.Media)
+	}
+	list, _, _ := s2.ListConvertSources(ctx, "", "", 10, 0)
+	var gb, gc ConvertSource
+	for _, x := range list {
+		switch x.SourceID {
+		case b.SourceID:
+			gb = x
+		case c.SourceID:
+			gc = x
+		}
+	}
+	if gb.Media == nil || !gb.Media.HasVideo || gb.Media.HasAudio || gb.Media.VideoCodecName != "FFV1" || gb.MediaFP != "30:40" {
+		t.Fatalf("无声视频重启后 hasAudio=false 要保留: %+v", gb.Media)
+	}
+	if gc.Media != nil || gc.MediaFP != "5:6" {
+		t.Fatalf("探测失败标记: %+v %q", gc.Media, gc.MediaFP)
+	}
+	// 损坏的 JSON 当作没探测过
+	s2.DB().Exec(`UPDATE convert_sources SET media = '{bad' WHERE id = ?`, a.SourceID)
+	if ga, _ = s2.GetConvertSource(ctx, a.SourceID); ga.Media != nil || ga.MediaFP != "" {
+		t.Fatalf("%+v %q", ga.Media, ga.MediaFP)
+	}
+}
+
+// media 表关联（退回路径）：hasVideo / hasAudio 按编码推出，带编码显示名。
+func TestMediaByPathKeyFallbackFlags(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openTemp(t)
+	if _, err := s.UpsertMedia(ctx, "/x/a.mp3", MediaInfo{ID: "M1", Path: "/x/a.mp3", Name: "a.mp3", AudioCodec: "mp3"}); err != nil {
+		t.Fatal(err)
+	}
+	m, err := s.MediaByPathKey(ctx, "/x/a.mp3")
+	if err != nil || m == nil || m.HasVideo || !m.HasAudio || m.AudioCodecName != "MP3" || m.VideoCodecName != "" {
+		t.Fatalf("%+v %v", m, err)
+	}
+}
