@@ -118,7 +118,7 @@ export async function catalogLoadChecks(eq: Eq, readSrc: (f: string) => string):
     liveInterruptView({ reason: 'other', taskType: 'live_file_push', onLivePage: true }),
   ], [LP_BREAK_PUSH_AWAY, LP_BREAK_PULL, null, null])
   eq('旧版导出的重试文案原样显示', actionErrorText('UNSUPPORTED', '旧版导出记录只能查看和删除，不能重试'), '旧版导出记录只能查看和删除，不能重试')
-  eq('detail 里的路径行不给用户看', detailWithoutPaths('reason=push\nC:\\Tools\\ffmpeg.exe\n请重试'), 'reason=push\n请重试')
+  eq('detail 里的路径行和 reason= 不给用户看', detailWithoutPaths('reason=push\nC:\\Tools\\ffmpeg.exe\n请重试'), '请重试')
   eq('预览 503 前 4 次隔 200ms，之后 1 秒', [previewRetryDelay(0), previewRetryDelay(3), previewRetryDelay(4)], [200, 200, 1000])
   eq('InvalidStateError 被接住，别的错误照旧抛', [
     guardCall(() => { const e = new Error('mse'); e.name = 'InvalidStateError'; throw e }),

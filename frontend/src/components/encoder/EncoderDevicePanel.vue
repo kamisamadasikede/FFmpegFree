@@ -70,6 +70,7 @@ import {
 } from '@/api/encoder'
 import { createSeq, deriveEncoderView } from '@/api/encoderView'
 import { useFFmpegStore } from '@/stores/ffmpeg'
+import { publicErrorText } from '@/errors/errorMessages'
 import {
   ENCODER_OPTION_AUTO, ENCODER_OPTION_CPU, ENCODER_PANEL_TITLE, ENCODER_REDETECT, ENCODER_ROW_DESC, ENCODER_UNAVAILABLE_ACTION, encoderComboLabel,
 } from '@/errors/encoderMessages'
@@ -146,7 +147,7 @@ async function choose(key: string) {
       pref.value = prev
       info.value = prevInfo
     }
-    ElMessage.error(toAppError(e).message)
+    ElMessage.error(publicErrorText(toAppError(e).message))
     return
   }
   try {

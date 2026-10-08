@@ -3,25 +3,22 @@
     class="ff-error-line"
     :class="[`tone-${shownTone}`, { compact, arow: actionsRow }]"
     :role="announce ? 'alert' : 'group'"
-    :aria-label="announce ? undefined : `${shownTitle || shownDescription}`"
+    :aria-label="announce ? undefined : `${shownTitle} ${shownDescription}`.trim()"
   >
     <FIcon name="warn" :size="16" />
     <div class="body">
-      <b v-if="shownTitle">{{ shownTitle }}</b>{{ shownDescription }}<span v-if="compact && showCode" class="code">{{ resolved.code }}</span>
-      <div v-if="actionsRow && !compact && (hasActions || showCode)" class="arow-line">
+      <b v-if="shownTitle">{{ shownTitle }}</b>{{ shownDescription }}
+      <div v-if="actionsRow && !compact && hasActions" class="arow-line">
         <span class="acts">
           <button v-if="retryVisible" type="button" class="ff-link" :class="{ busy }" :disabled="busy" :aria-busy="busy" @click="onRetry">重试</button>
           <button v-if="showChange" type="button" class="ff-link" :class="{ busy }" :disabled="busy" :aria-busy="busy" @click="onChange">更换输出位置</button>
           <button v-if="showLog && !canceled" type="button" class="ff-link" @click="emit('viewLog')">查看日志</button>
         </span>
-        <span v-if="showCode" class="code">{{ resolved.code }}</span>
       </div>
       <template v-else-if="!compact">
         <button v-if="retryVisible" type="button" class="ff-link" :class="{ busy }" :disabled="busy" :aria-busy="busy" @click="onRetry">重试</button>
         <button v-if="showChange" type="button" class="ff-link" :class="{ busy }" :disabled="busy" :aria-busy="busy" @click="onChange">更换输出位置</button>
         <button v-if="showLog && !canceled" type="button" class="ff-link" @click="emit('viewLog')">查看日志</button>
-        <br v-if="showCode" />
-        <span v-if="showCode" class="code">{{ resolved.code }}</span>
       </template>
     </div>
     <div v-if="compact && (retryVisible || showChange || (showLog && !canceled))" class="actions">
@@ -37,7 +34,7 @@
 // 平时是 role="group"，不会让读屏软件把每一行都当成紧急提醒；只有新出现的错误（announce）才是 role="alert"。
 import { computed } from 'vue'
 import FIcon from '../icon/FIcon.vue'
-import { detailWithoutPaths, resolveTaskError } from '../../errors/errorMessages'
+import { renderTaskError, userVisibleMessage, UNMAPPED_ERROR_TEXT } from '../../errors/errorMessages'
 
 const props = withDefaults(
   defineProps<{
@@ -65,7 +62,7 @@ const props = withDefaults(
     description?: string
     /** 任务类型（任务中心传）：没有专属文案时按类型取标题，直播不会是「转换失败」 */
     taskType?: string
-    /** 不显示错误码（没有错误对象时） */
+    /** 保留给旧调用。错误码现在任何情况下都不显示（契约 v0.25.3）。 */
     hideCode?: boolean
     /** 重试 / 更换输出位置正在处理：这两个链接禁用（aria-busy），忽略点击直到调用返回 */
     busy?: boolean
@@ -81,12 +78,7 @@ function onChange() {
   if (!props.busy) emit('changeOutput')
 }
 
-function lastLine(text?: string): string {
-  const lines = detailWithoutPaths(text).split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
-  return lines.length ? lines[lines.length - 1].slice(0, 200) : ''
-}
-
-const resolved = computed(() => resolveTaskError(props.code, props.message || lastLine(props.detail), props.taskType))
+const resolved = computed(() => renderTaskError(props.code, props.message, props.detail, props.taskType))
 /** 该错误码是否带「更换输出位置」（磁盘空间不足） */
 const showChange = computed(() => !canceled.value && !props.title && resolved.value.actions.includes('changeOutput'))
 /** CANCELED 不是失败：中性样式，不提供重试 / 更换输出位置 / 查看日志 */
@@ -94,8 +86,7 @@ const canceled = computed(() => props.code === 'CANCELED')
 const shownTone = computed(() => (canceled.value ? 'neutral' : props.tone))
 const retryVisible = computed(() => props.showRetry && !props.hideRetry && !canceled.value)
 const shownTitle = computed(() => props.title ?? (!resolved.value.known && props.fallbackTitle ? props.fallbackTitle : resolved.value.title))
-const shownDescription = computed(() => props.description ?? resolved.value.description)
-const showCode = computed(() => !props.hideCode)
+const shownDescription = computed(() => userVisibleMessage(props.description ?? resolved.value.description) || UNMAPPED_ERROR_TEXT)
 const hasActions = computed(() => retryVisible.value || showChange.value || (props.showLog && !canceled.value))
 </script>
 

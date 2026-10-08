@@ -45,7 +45,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import { toAppError } from '@/api/call'
-import { OUTPUT_DIR_DEFAULT_TEXT } from '@/errors/errorMessages'
+import { OUTPUT_DIR_DEFAULT_TEXT, publicErrorText} from '@/errors/errorMessages'
 import { getDefaultOutputDir, pickDirectory, setDefaultOutputDir } from '@/api/system'
 import { hasWailsBackend, previewParams } from '@/services/wails'
 
@@ -84,7 +84,7 @@ onMounted(async () => {
   try {
     saved.value = await getDefaultOutputDir()
   } catch (e) {
-    ElMessage.error(toAppError(e).message)
+    ElMessage.error(publicErrorText(toAppError(e).message))
     return
   }
   // 已保存的路径可能已经失效（外接硬盘拔了 / 文件夹被删）：用保存时同一条校验路径（UpdateSettings）再验一次
@@ -119,7 +119,7 @@ async function save(dir: string) {
     if (err.code === 'INVALID_ARGUMENT') {
       rejected.value = dir // 红框显示被拒绝的路径；saved 仍是上一次成功的值
       error.value = true
-    } else ElMessage.error(err.message)
+    } else ElMessage.error(publicErrorText(err.message))
   }
 }
 
@@ -131,7 +131,7 @@ async function choose() {
     if (!dir) return // 用户取消
     await save(dir)
   } catch (e) {
-    ElMessage.error(toAppError(e).message)
+    ElMessage.error(publicErrorText(toAppError(e).message))
   } finally {
     busy.value = false
   }

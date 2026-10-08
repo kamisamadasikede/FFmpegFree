@@ -49,6 +49,7 @@ import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { toAppError } from '@/api/call'
+import { publicErrorText } from '@/errors/errorMessages'
 
 const ffmpeg = useFFmpegStore()
 const router = useRouter()
@@ -71,7 +72,7 @@ async function safe(fn: () => Promise<unknown>) {
   try {
     await fn()
   } catch (e) {
-    ElMessage.error(toAppError(e).message)
+    ElMessage.error(publicErrorText(toAppError(e).message))
   }
 }
 </script>

@@ -43,6 +43,7 @@ import { pickDirectory } from '@/api/system'
 import { getStorageDirs, openStorageFolder, setStorageDirs, type StorageDirs } from '@/api/convertRecords'
 import { hasWailsBackend } from '@/services/wails'
 import { FALLBACK_SETTINGS_NOTE, STORAGE_CHANGED_TOAST, STORAGE_FOOT_NOTE, splitPathLastTwo } from '@/utils/convertV24Text'
+import { publicErrorText } from '@/errors/errorMessages'
 
 withDefaults(defineProps<{ id?: string; headingId?: string }>(), { id: 'sec-storage', headingId: 'h-storage' })
 
@@ -70,7 +71,7 @@ onMounted(async () => {
   try {
     dirs.value = await getStorageDirs()
   } catch (e) {
-    ElMessage.error(toAppError(e).message)
+    ElMessage.error(publicErrorText(toAppError(e).message))
   }
 })
 
@@ -78,14 +79,14 @@ async function open(kind: Kind) {
   try {
     await openStorageFolder(kind)
   } catch (e) {
-    ElMessage.error(toAppError(e).message)
+    ElMessage.error(publicErrorText(toAppError(e).message))
   }
 }
 
 async function change(kind: Kind) {
   if (busy.value) return
   const title = kind === 'output' ? '选择转换结果的保存位置' : '选择上传文件的保存位置'
-  const dir = hasWailsBackend() ? await pickDirectory(title).catch((e) => (ElMessage.error(toAppError(e).message), '')) : kind === 'output' ? 'D:\\Videos\\FFmpegFree' : 'E:\\FFmpegFree 素材\\uploads'
+  const dir = hasWailsBackend() ? await pickDirectory(title).catch((e) => (ElMessage.error(publicErrorText(toAppError(e).message)), '')) : kind === 'output' ? 'D:\\Videos\\FFmpegFree' : 'E:\\FFmpegFree 素材\\uploads'
   if (dir) await save(kind, dir)
 }
 
@@ -105,7 +106,7 @@ async function save(kind: Kind, dir: string) {
     if (x.code === 'INVALID_ARGUMENT' && dir) {
       err[kind] = x.message // 后端 message：保存位置必须是绝对路径 / 不存在 / 不是文件夹 / 无法写入（上传位置同理）
       rejected[kind] = dir
-    } else ElMessage.error(x.message)
+    } else ElMessage.error(publicErrorText(x.message))
   } finally {
     busy.value = false
   }

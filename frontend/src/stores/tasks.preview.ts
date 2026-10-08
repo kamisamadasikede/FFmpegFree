@@ -86,3 +86,21 @@ export function buildPreviewHistory(n: number): TaskItem[] {
 
 export const PREVIEW_LOG = `frame= 12834 fps=142 q=28.0 size=  131072kB time=00:08:13.40 bitrate=2176.4kbits/s speed=5.47x
 frame= 13402 fps=142 q=28.0 size=  136960kB time=00:08:35.12 bitrate=2177.1kbits/s speed=5.46x`
+
+/** ?q1=1：映射不到的失败任务（空 message、detail 只有 reason=）。只给复验用，界面必须收成兜底文案。 */
+export function unmappedErrorPreview(): TaskItem {
+  const t = now()
+  return base({
+    id: 'q1-unmapped',
+    type: 'convert',
+    status: 'failed',
+    title: '神秘.mp4',
+    inputPaths: ['/tmp/神秘.mp4'],
+    progress: 0,
+    error: { code: 'NO_SUCH_CODE', message: '', detail: 'reason=whatever' },
+    createdAt: t - min,
+    startedAt: t - min,
+    finishedAt: t - 30_000,
+  })
+}
+

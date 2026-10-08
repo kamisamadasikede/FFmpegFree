@@ -1140,6 +1140,14 @@ export async function runApiChecks(): Promise<string[]> {
         eq(`N1：${f} 只看 store.retryRow`, [/const showRetry = computed\(\(\) => !!store\.retryRow\)/.test(src), /const row = store\.retryRow/.test(src), /rows\.some\(\(r\) => r\.status === 'int'\)/.test(src)], [true, true, false])
       }
       const em = await import('@/errors/errorMessages')
+      eq('Q1：未知码 + detail 只有 reason=whatever → 出了点问题，请重试。，界面文字不含错误码和 reason=', (() => {
+        const view = em.renderTaskError('NO_SUCH_CODE', '', 'reason=whatever', 'convert')
+        return [view.description, view.text.includes('NO_SUCH_CODE'), view.text.includes('reason='), em.publicErrorText('reason=whatever'), em.actionErrorText('NO_SUCH_CODE', 'reason=whatever')]
+      })(), ['出了点问题，请重试。', false, false, '出了点问题，请重试。', '出了点问题，请重试。'])
+      eq('Q1：已知码仍用映射文案，不带错误码', (() => {
+        const view = em.renderTaskError('CONVERT_DISK_FULL', '', 'reason=no_space', 'convert')
+        return [view.description, view.text.includes('CONVERT_DISK_FULL'), view.text.includes('reason=')]
+      })(), ['输出位置的可用空间不够，请清理空间或换一个输出文件夹。', false, false])
       eq('N4：没有专属文案时标题按任务类型', [em.resolveTaskError('INTERNAL', '推流异常退出', 'live_file_push').title, em.resolveTaskError('INTERNAL', 'x', 'live_screen_push').title, em.resolveTaskError('INTERNAL', 'x', 'live_pull').title, em.resolveTaskError('INTERNAL', 'x', 'convert').title, em.resolveTaskError('INTERNAL', 'x').title, em.resolveTaskError('PROCESS_FAILED', 'x', 'edit_export').title], ['推流失败', '推流失败', '拉流失败', '转换失败', '转换失败', '导出失败'])
       const tc = fsx(`${process.cwd()}/src/views/TaskCenter.vue`, 'utf8')
       eq('N4：直播任务意外退出（failed + INTERNAL 等）按「已中断 / 推流被中断」显示，不显示错误码', [/const LIVE_EXIT_CODES = new Set\(\['', 'INTERNAL', 'PROCESS_FAILED', 'LIVE_PUSH_INTERRUPTED'\]\)/.test(tc), /v-else-if="t\.error && liveBroken\(t\)"[\s\S]{0,240}:title="interruptOf\(t\)\.title"[\s\S]{0,160}hide-code/.test(tc), /:task-type="t\.type"/.test(tc)], [true, true, true])

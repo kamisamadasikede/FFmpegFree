@@ -16,6 +16,7 @@ import { channelText, sampleRateText, videoCodecText } from '@/utils/mediaText'
 import { formatRecordTime, isAudioContainer, isAudioOnly, isHevcCodec, recordLine, REVEAL_LABEL, unplayableHint } from '@/utils/convertText'
 import { fileBaseName, formatBytes, formatShortClock } from '@/utils/format'
 import { PREVIEW_COPYING_TEXT } from '@/utils/convertSubmit'
+import { publicErrorText } from '@/errors/errorMessages'
 
 export interface PreviewTarget {
   kind: 'source' | 'record'
@@ -208,7 +209,7 @@ async function load() {
     } else if (r.code === 'UNSUPPORTED') stage.value = 'unplayable'
     else {
       stage.value = 'error'
-      errText.value = r.message
+      errText.value = publicErrorText(r.message)
     }
   }
 }
@@ -333,7 +334,7 @@ async function openSystem() {
       // v0.24.3：源文件这一侧说“原文件不存在”，记录仍用“文件已被移动或删除”。都不改去打开复制件
       cv.say(t.kind === 'source' ? ORIGINAL_MISSING_OPEN : '文件已被移动或删除')
     }
-    else cv.say(r.message)
+    else cv.say(publicErrorText(r.message))
   }
 }
 async function reveal() {

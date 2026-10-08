@@ -38,7 +38,7 @@ import FIcon from '@/components/icon/FIcon.vue'
 import LivePlayer from './LivePlayer.vue'
 import { liveInterruptView, PREVIEW_OFF_TITLE, PREVIEW_PANEL_TITLE } from '@/errors/livePreviewMessages'
 import { previewMark } from './previewTiming'
-import { liveSourceGoneText } from '@/errors/errorMessages'
+import { liveSourceGoneText, publicErrorText} from '@/errors/errorMessages'
 import { useLiveSessionsStore, type LiveRow } from '@/stores/liveSessions'
 import { useLiveDockStore } from '@/stores/liveDock'
 import { classifyPreviewError, getPreviewStream } from '@/api/livePreviewStream'
@@ -155,10 +155,10 @@ async function onRestart() {
   if (!r) return
   try {
     const res = await store.restart(r.id, dock.previewOn)
-    if (res && !res.ok) ElMessage.error(res.error.message)
+    if (res && !res.ok) ElMessage.error(publicErrorText(res.error.message))
     else if (!res) ElMessage.info('请在右侧再点一次「重新推流」')
   } catch (e) {
-    ElMessage.error(toAppError(e).message)
+    ElMessage.error(publicErrorText(toAppError(e).message))
   }
 }
 </script>

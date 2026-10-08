@@ -112,8 +112,7 @@ import { normalizeTask, useTaskStore, type TaskItem } from '@/stores/tasks'
 import { useDocsStore, dropHandlers } from '@/stores/docs'
 import {
   DOC_BATCH_INVALID_HINT, DOC_DEMO_NOTE, DOC_DROP_HOVER, DOC_DROP_TITLE, DOC_EXPERIMENTAL_LABEL, DOC_EXPERIMENTAL_NOTE, OUTPUT_DIR_DEFAULT_TEXT,
-  SUBMIT_ERROR_TITLE, docErrorPath, docErrorText,
-} from '@/errors/errorMessages'
+  SUBMIT_ERROR_TITLE, docErrorPath, docErrorText, publicErrorText } from '@/errors/errorMessages'
 import { fileBaseName } from '@/utils/format'
 import { extBadge } from '@/utils/docLogic'
 import { ElMessage } from 'element-plus'
@@ -253,7 +252,7 @@ async function choose() {
     const paths = hasWailsBackend() ? await pickFiles(OFFICE_FILE_FILTER, true) : DEMO_OFFICE_PATHS
     addPaths(paths)
   } catch (e) {
-    submitError.value = toAppError(e).message
+    submitError.value = publicErrorText(toAppError(e).message)
   } finally {
     picking.value = false
   }

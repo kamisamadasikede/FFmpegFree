@@ -39,7 +39,7 @@
 import { computed } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import { useFFmpegStore } from '@/stores/ffmpeg'
-import { FFPROBE_MISSING_TEXT } from '@/errors/errorMessages'
+import { FFPROBE_MISSING_TEXT, userVisibleMessage } from '@/errors/errorMessages'
 
 defineProps<{ headingId?: string; readonly?: boolean }>()
 
@@ -55,7 +55,7 @@ const view = computed(() => {
     case 'installing':
       return { tag: '安装中', tone: 'run', detail: ffmpeg.install ? `下载中 ${Math.round(ffmpeg.install.progress * 100)}%` : '准备中' }
     case 'failed':
-      return { tag: '安装失败', tone: 'fail', detail: s.error?.message || '安装没有成功，可以重试或手动指定位置。' }
+      return { tag: '安装失败', tone: 'fail', detail: userVisibleMessage(s.error?.message) || '安装没有成功，可以重试或手动指定位置。' }
     case 'outdated':
       return { tag: '版本过旧', tone: 'warn', detail: `${s.version ? `当前转换组件版本 ${s.version}，` : ''}需要 6.0 或更高版本。` }
     case 'missing':

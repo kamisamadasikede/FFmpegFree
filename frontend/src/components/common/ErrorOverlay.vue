@@ -4,7 +4,7 @@
       <div class="eic"><FIcon name="warn" :size="22" /></div>
       <h5>{{ resolved.title }}</h5>
       <p :title="resolved.description">{{ resolved.description }}</p>
-      <span class="code">{{ resolved.code }}<template v-if="detail"> · {{ detail }}</template></span>
+      <span v-if="extra" class="extra">{{ extra }}</span>
       <div v-if="resolved.secondary || resolved.primary" class="acts">
         <button v-if="resolved.secondary" type="button" class="btn" @click="onClick(resolved.secondary)">
           <FIcon v-if="resolved.secondary.icon" :name="resolved.secondary.icon" :size="15" />{{ resolved.secondary.label }}
@@ -25,7 +25,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import FIcon from '../icon/FIcon.vue'
-import { resolveError, type ErrorButton } from '../../errors/errorMessages'
+import { resolveError, userVisibleMessage, type ErrorButton } from '../../errors/errorMessages'
 
 const props = defineProps<{
   code: string
@@ -37,7 +37,11 @@ const props = defineProps<{
 
 const emit = defineEmits<{ retry: []; viewLog: []; primary: [] }>()
 const router = useRouter()
-const resolved = computed(() => resolveError(props.code, props.message))
+const resolved = computed(() => resolveError(props.code, props.message || props.detail))
+const extra = computed(() => {
+  const d = userVisibleMessage(props.detail)
+  return d && d !== resolved.value.description ? d : ''
+})
 
 function onClick(btn: ErrorButton, isPrimary = false) {
   if (btn.action === 'retry') emit('retry')
@@ -96,7 +100,7 @@ p {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.code {
+.extra, .code {
   display: block;
   font-family: var(--ff-font-mono);
   font-size: 12px;
