@@ -17,7 +17,7 @@ const presetSub = (p: PresetItem) => splitPresetName(p.name).sub || p.options.co
 const ffmpegText = computed(() => {
   if (ffmpeg.ready) return ''
   const s = ffmpeg.status.state
-  return s === 'checking' ? '正在检测 ffmpeg…' : s === 'installing' ? 'ffmpeg 正在安装，装好后就可以转换。' : '需要先安装 ffmpeg 才能转换。'
+  return s === 'checking' ? '正在检测转换组件…' : s === 'installing' ? '转换组件正在安装，装好后就可以转换。' : '需要先安装转换组件才能转换。'
 })
 const ffmpegMissing = computed(() => !ffmpeg.ready && ffmpeg.status.state !== 'checking' && ffmpeg.status.state !== 'installing')
 const disabled = computed(() => !!cv.startBlock)
@@ -26,7 +26,7 @@ const label = computed(() => (cv.submitting ? '正在提交…' : n.value > 0 &&
 const hint = computed<{ text: string; warn?: boolean }>(() => {
   switch (cv.startBlock) {
     case 'submitting': return { text: '每次转换都会新增一条记录' }
-    case 'ffmpeg': return { text: ffmpegMissing.value ? '需要先安装 ffmpeg' : ffmpegText.value }
+    case 'ffmpeg': return { text: ffmpegMissing.value ? '需要先安装转换组件' : ffmpegText.value }
     case 'preset': return { text: cv.presetsError ? '没有加载到输出预设' : '正在加载预设…' }
     case 'empty': return { text: '先添加文件' }
     case 'none': return { text: '勾选文件后才能转换' }
@@ -71,7 +71,7 @@ const hint = computed<{ text: string; warn?: boolean }>(() => {
       </div>
       <div v-if="ffmpegText" class="cv-gate" :class="{ info: !ffmpegMissing }" role="status">
         <FIcon :name="ffmpegMissing ? 'warn' : 'refresh'" />
-        <span>{{ ffmpegText }}<button v-if="ffmpegMissing" type="button" class="ff-link" @click="ffmpeg.dialogOpen = true">安装 ffmpeg</button></span>
+        <span>{{ ffmpegText }}<button v-if="ffmpegMissing" type="button" class="ff-link" @click="ffmpeg.dialogOpen = true">安装转换组件</button></span>
       </div>
       <div class="cv-save">
         <label for="cv-outdir">保存到</label>

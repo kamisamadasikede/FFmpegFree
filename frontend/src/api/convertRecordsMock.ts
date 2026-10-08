@@ -103,7 +103,7 @@ interface KSpec {
   err?: TaskError
 }
 const K: Record<string, KSpec> = {
-  launchFail: { src: 'launch', preset: 'webm', out: 'launch-4k.webm', at: [0, '11:52'], st: 'failed', p: 0.37, enc: { encoder: 'libvpx-vp9', encoderDevice: 'cpu' }, err: { code: 'PROCESS_FAILED', message: 'ffmpeg 异常退出（退出码 -1）', detail: 'Error while filtering: Cannot allocate memory' } },
+  launchFail: { src: 'launch', preset: 'webm', out: 'launch-4k.webm', at: [0, '11:52'], st: 'failed', p: 0.37, enc: { encoder: 'libvpx-vp9', encoderDevice: 'cpu' }, err: { code: 'PROCESS_FAILED', message: '转换组件异常退出（退出码 -1）', detail: 'Error while filtering: Cannot allocate memory' } },
   launchRun1080: { src: 'launch', preset: 'mp41080', out: 'launch-4k (1).mp4', at: [0, '11:48'], st: 'running', p: 0.62, speed: '2.1x', eta: 52, enc: GPU },
   launchMp4: { src: 'launch', preset: 'mp4', out: 'launch-4k.mp4', at: [0, '11:20'], st: 'succeeded', enc: FB, res: [412, 3840, 2160] },
   launchMp4Ok: { src: 'launch', preset: 'mp4', out: 'launch-4k.mp4', at: [0, '11:20'], st: 'succeeded', enc: GPU, res: [412, 3840, 2160] },

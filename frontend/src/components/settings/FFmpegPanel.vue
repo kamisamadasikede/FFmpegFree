@@ -1,7 +1,7 @@
 <template>
   <section class="panel group" :aria-labelledby="headingId">
     <div class="phead">
-      <h2 :id="headingId">ffmpeg</h2>
+      <h2 :id="headingId">转换组件</h2>
       <span class="tag" :class="view.tone">{{ view.tag }}</span>
     </div>
     <div class="srow">
@@ -42,17 +42,17 @@ const view = computed(() => {
   const from = SOURCE[s.source ?? '']
   switch (s.state) {
     case 'ready':
-      return { tag: '已就绪', tone: 'ok', detail: [s.version && `ffmpeg ${s.version}`, from && `来自${from}`].filter(Boolean).join(' · ') || '已检测到 ffmpeg' + (s.ffprobeMissing ? '，但缺少 ffprobe' : '') }
+      return { tag: '已就绪', tone: 'ok', detail: [s.version && `转换组件版本 ${s.version}`, from && `来自${from}`].filter(Boolean).join(' · ') || '已检测到转换组件' + (s.ffprobeMissing ? '，但缺少读取文件信息的部分' : '') }
     case 'installing':
       return { tag: '安装中', tone: 'run', detail: ffmpeg.install ? `下载中 ${Math.round(ffmpeg.install.progress * 100)}%` : '准备中' }
     case 'failed':
       return { tag: '安装失败', tone: 'fail', detail: s.error?.message || '安装没有成功，可以重试或手动指定位置。' }
     case 'outdated':
-      return { tag: '版本过旧', tone: 'warn', detail: `${s.version ? `当前 ffmpeg ${s.version}，` : ''}需要 6.0 或更高版本。` }
+      return { tag: '版本过旧', tone: 'warn', detail: `${s.version ? `当前转换组件版本 ${s.version}，` : ''}需要 6.0 或更高版本。` }
     case 'missing':
       return { tag: '未安装', tone: 'warn', detail: '转换、剪辑、直播暂不可用。' }
     default:
-      return { tag: '检测中', tone: 'q', detail: '正在检测 ffmpeg，请稍候。' }
+      return { tag: '检测中', tone: 'q', detail: '正在检测转换组件，请稍候。' }
   }
 })
 

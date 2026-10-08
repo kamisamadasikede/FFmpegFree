@@ -16,13 +16,13 @@ export interface FFmpegStatusView {
 export function ffmpegStatusView(state: FFmpegState): FFmpegStatusView {
   switch (state) {
     case 'ready':
-      return { tone: 'ok', text: 'ffmpeg 已就绪', label: 'ffmpeg 已就绪', actionLabel: 'ffmpeg 已就绪', clickable: false }
+      return { tone: 'ok', text: '转换组件已就绪', label: '转换组件已就绪', actionLabel: '转换组件已就绪', clickable: false }
     case 'installing':
-      return { tone: 'run', text: 'ffmpeg 安装中…', label: 'ffmpeg 安装中，点击查看进度', actionLabel: 'ffmpeg 安装中，点击查看进度', clickable: true }
+      return { tone: 'run', text: '转换组件安装中…', label: '转换组件安装中，点击查看进度', actionLabel: '转换组件安装中，点击查看进度', clickable: true }
     case 'checking':
-      return { tone: 'q', text: 'ffmpeg 检测中…', label: 'ffmpeg 检测中…', actionLabel: 'ffmpeg 检测中…', clickable: false }
+      return { tone: 'q', text: '转换组件检测中…', label: '转换组件检测中…', actionLabel: '转换组件检测中…', clickable: false }
     default:
       // 缺失、过旧、安装失败都归为“未就绪”，点开安装对话框后在对话框里看失败原因
-      return { tone: 'warn', text: 'ffmpeg 未就绪', label: 'ffmpeg 未就绪', actionLabel: 'ffmpeg 未就绪，点击打开安装对话框', clickable: true }
+      return { tone: 'warn', text: '转换组件未就绪', label: '转换组件未就绪', actionLabel: '转换组件未就绪，点击打开安装对话框', clickable: true }
   }
 }

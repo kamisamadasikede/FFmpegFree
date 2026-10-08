@@ -24,7 +24,7 @@
             <button class="rbtn"><FIcon name="retry" :size="15" />重试</button>
           </div>
           <ErrorLine code="LIVE_PUSH_INTERRUPTED" />
-          <ErrorLine code="INTERNAL" message="ffmpeg exited with code 1" />
+          <ErrorLine code="INTERNAL" message="转换组件异常退出（退出码 1）" />
         </div>
       </div>
 

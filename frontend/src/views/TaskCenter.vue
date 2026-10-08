@@ -503,7 +503,7 @@ async function doRetry(t: TaskItem) {
  */
 async function changeOutput(t: TaskItem) {
   if (t.type === 'ffmpeg_install') {
-    ElMessage.info('ffmpeg 安装位置固定在应用目录，不能更换。')
+    ElMessage.info('转换组件安装在应用目录，位置不能更换。')
     return
   }
   const params = t.type === 'convert' ? parseConvertParams(t.params) : null

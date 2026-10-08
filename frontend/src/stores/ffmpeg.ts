@@ -281,7 +281,7 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
         return
       }
       if (previewMode) return
-      dir = await call<string>(SystemBinding.PickDirectory('选择 ffmpeg 所在文件夹'))
+      dir = await call<string>(SystemBinding.PickDirectory('选择转换组件所在文件夹'))
       if (!dir) return // 用户取消
     }
     if (previewMode) return
