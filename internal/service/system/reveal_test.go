@@ -192,9 +192,10 @@ func TestRevealAllowsRegisteredTaskOutputOutsideDefaultDir(t *testing.T) {
 	if c := revealCode(f.mgr.RevealInFolder(other)); c != apperr.InvalidArgument {
 		t.Fatalf("未登记的同目录文件应拒绝: %v", c)
 	}
-	// 任务输出所在文件夹本身也不是登记的输出 → 拒绝
-	if c := revealCode(f.mgr.RevealInFolder(f.outside)); c != apperr.InvalidArgument {
-		t.Fatalf("输出所在文件夹本身应拒绝: %v", c)
+	// v0.24.6：任务输出所在文件夹本身可以打开（只放行文件夹，细则见 TestRevealAllowsRecordOutputDirOnly）
+	f.launched = nil
+	if err := f.mgr.RevealInFolder(f.outside); err != nil || len(f.launched) != 1 {
+		t.Fatalf("输出所在文件夹本身应允许: %v %v", err, f.launched)
 	}
 	// 记录被删之后不再是登记的输出
 	if err := f.tasks.Remove([]string{done.ID}, false); err != nil {
@@ -202,6 +203,67 @@ func TestRevealAllowsRegisteredTaskOutputOutsideDefaultDir(t *testing.T) {
 	}
 	if c := revealCode(f.mgr.RevealInFolder(done.OutputPath)); c != apperr.InvalidArgument {
 		t.Fatalf("记录删除后应拒绝: %v", c)
+	}
+}
+
+func TestRevealAllowsRecordOutputDirOnly(t *testing.T) {
+	f := newRevealFx(t)
+	picked := filepath.Join(f.outside, "picked")
+	done := f.runTask(t, filepath.Join(picked, "conv.mp4"))
+	f.launched = nil
+	if err := f.mgr.RevealInFolder(picked); err != nil || len(f.launched) != 1 {
+		t.Fatalf("记录输出所在文件夹应允许: %v %v", err, f.launched)
+	}
+	// 同目录里不是登记输出的文件、子文件夹、上级目录都不放行
+	other := f.file(t, filepath.Join(picked, "other.mp4"))
+	sub := filepath.Join(picked, "sub")
+	f.file(t, filepath.Join(sub, "x.mp4"))
+	for _, pth := range []string{other, sub, f.outside} {
+		if c := revealCode(f.mgr.RevealInFolder(pth)); c != apperr.InvalidArgument {
+			t.Fatalf("%s 应拒绝: %v", pth, c)
+		}
+	}
+	err := f.mgr.RevealInFolder(other)
+	var ae *apperr.AppError
+	if !errors.As(err, &ae) || ae.Message != "只能打开任务输出文件或默认输出文件夹里的内容" {
+		t.Fatalf("拒绝文案应保持不变: %v", err)
+	}
+	// 登记的输出文件本身仍按第 1 类放行
+	f.launched = nil
+	if err := f.mgr.RevealInFolder(done.OutputPath); err != nil {
+		t.Fatalf("登记的输出文件应允许: %v", err)
+	}
+	// 原有白名单：实际输出目录之内（目录本身、里面的文件）仍放行；范围外仍拒绝
+	f.setOut(t, f.out)
+	in := f.file(t, filepath.Join(f.out, "a.mp4"))
+	for _, p := range []string{in, f.out} {
+		if err := f.mgr.RevealInFolder(p); err != nil {
+			t.Fatalf("%s 应允许: %v", p, err)
+		}
+	}
+	sib := filepath.Join(f.root, "picked2")
+	f.file(t, filepath.Join(sib, "y.mp4"))
+	if c := revealCode(f.mgr.RevealInFolder(sib)); c != apperr.InvalidArgument {
+		t.Fatalf("没有登记输出的文件夹应拒绝: %v", c)
+	}
+	// 记录删除后，这个文件夹不再放行
+	if err := f.tasks.Remove([]string{done.ID}, false); err != nil {
+		t.Fatal(err)
+	}
+	if c := revealCode(f.mgr.RevealInFolder(picked)); c != apperr.InvalidArgument {
+		t.Fatalf("记录删除后文件夹应拒绝: %v", c)
+	}
+	if runtime.GOOS == "windows" {
+		return
+	}
+	link := filepath.Join(f.root, "picked-link")
+	if err := os.Symlink(picked, link); err != nil {
+		t.Fatal(err)
+	}
+	// 重新登记一条输出，确认符号链接本身不按第 4 类放行
+	f.runTask(t, filepath.Join(picked, "again.mp4"))
+	if c := revealCode(f.mgr.RevealInFolder(link)); c != apperr.InvalidArgument {
+		t.Fatalf("指向输出目录的符号链接应拒绝: %v", c)
 	}
 }
 

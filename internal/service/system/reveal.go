@@ -42,11 +42,12 @@ func revealCommand(goos, path string, isDir bool) (string, []string) {
 
 // RevealInFolder 在系统文件管理器里显示 path（"打开输出位置"）。
 //
-// 只允许两类路径（防止前端被注入后拿它当"打开任意位置"的入口）：
+// 只允许这几类路径（防止前端被注入后拿它当"打开任意位置"的入口）：
 //  1. 任务表里登记的输出文件（成功任务的 outputPath 等，含还在进行的任务）；
-//  2. 当前设置里 defaultOutputDir 之内的路径（目录本身也可以）；
+//  2. 当前实际输出目录或实际上传目录之内的路径（目录本身也可以）；
 //  3. （契约 v0.23.3）10 分钟内 DeleteRecords / DeleteSource 删除失败、留在磁盘上的那个记录输出文件本身
-//     （task.Manager.IsRecentDeleteFailure，按 Clean 后的路径精确匹配，只在内存里）。
+//     （task.Manager.IsRecentDeleteFailure，按 Clean 后的路径精确匹配，只在内存里）；
+//  4. （契约 v0.24.6）某条任务登记的输出文件所在的文件夹本身（只放行这个文件夹，不放行里面的其他文件或子文件夹）。
 //
 // 判断前先 Clean（"../" 穿越会被折叠掉）并 EvalSymlinks，用真实路径比较（Windows / macOS 不区分大小写），
 // 所以符号链接指到允许范围之外的路径会被拒绝；实际打开的也是真实路径。
@@ -58,7 +59,7 @@ func (m *Manager) RevealInFolder(path string) error {
 	tasks := m.cfg.Tasks
 	m.mu.Unlock()
 	allow := func(cleaned, real string) bool {
-		if tasks != nil && (tasks.IsTaskOutput(cleaned) || tasks.IsRecentDeleteFailure(cleaned)) {
+		if tasks != nil && (tasks.IsTaskOutput(cleaned) || tasks.IsRecentDeleteFailure(cleaned) || tasks.IsTaskOutputDir(cleaned)) {
 			return true
 		}
 		// v0.24：第 2 类改为实际输出目录或实际上传目录之内（6.15.2 第 7 条；默认目录也放行）

@@ -370,6 +370,9 @@ func readTail(path string, max int64) (s string, truncated bool, err error) {
 // OutputFinder 是 Store 的可选能力：按文件名粗筛任务表里登记的输出路径（*store.Store 实现）。
 type OutputFinder interface {
 	TaskOutputsByBase(ctx context.Context, base string) ([]string, error)
+	// TaskOutputsInDir 粗筛 output_path 落在 dir 这一层（dir + 分隔符 + 任意后缀）的登记输出，最多 500 条。
+	// 调用方再精确比较目录是否相等；用来判断某个文件夹是不是某条记录的输出所在目录（契约 v0.24.6）。
+	TaskOutputsInDir(ctx context.Context, dir string) ([]string, error)
 }
 
 var _ OutputFinder = (*store.Store)(nil)
@@ -418,4 +421,67 @@ func (m *Manager) IsTaskOutput(path string) bool {
 		}
 	}
 	return false
+}
+
+// IsTaskOutputDir 判断 path 是不是某条任务登记的输出文件所在的文件夹本身（契约 v0.24.6）。
+// 只放行这个文件夹，不放行里面的其他文件或子文件夹。比较规则同 IsTaskOutput：
+// 必须是绝对路径、先 Clean；path 本身是符号链接时返回 false；与登记输出的所在目录
+// 按真实路径比较（Windows / macOS 不区分大小写）。
+func (m *Manager) IsTaskOutputDir(path string) bool {
+	if path == "" || !filepath.IsAbs(path) {
+		return false
+	}
+	path = filepath.Clean(path)
+	fi, err := os.Lstat(path)
+	if err != nil || !fi.IsDir() || fi.Mode()&os.ModeSymlink != 0 {
+		return false
+	}
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return false
+	}
+	realKey := nameKey(real)
+	var cands []string
+	if f, ok := m.cfg.Store.(OutputFinder); ok {
+		list, err := f.TaskOutputsInDir(context.Background(), path)
+		if err != nil {
+			m.logf("查询任务输出目录失败: %v", err)
+			return false
+		}
+		cands = list
+	}
+	m.mu.Lock()
+	for _, e := range m.entries {
+		if e.task.OutputPath != "" {
+			cands = append(cands, e.task.OutputPath)
+		}
+	}
+	m.mu.Unlock()
+	for _, c := range cands {
+		if outputDirKey(c) == nameKey(path) {
+			return true
+		}
+		if d := outputDir(c); d != "" {
+			if rd, err := filepath.EvalSymlinks(d); err == nil && nameKey(rd) == realKey {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// outputDir 返回登记输出的所在目录（绝对路径、已 Clean）；不是绝对路径时返回空。
+func outputDir(output string) string {
+	if output == "" || !filepath.IsAbs(output) {
+		return ""
+	}
+	return filepath.Dir(filepath.Clean(output))
+}
+
+func outputDirKey(output string) string {
+	d := outputDir(output)
+	if d == "" {
+		return ""
+	}
+	return nameKey(d)
 }
