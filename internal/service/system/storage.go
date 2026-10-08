@@ -203,7 +203,7 @@ func (m *Manager) OpenStorageFolder(ctx context.Context, kind string) error {
 	case StorageComponent:
 		return m.revealComponent()
 	default:
-		return apperr.New(apperr.InvalidArgument, "kind 只能是 output、uploads 或 component").WithDetail(kind)
+		return apperr.New(apperr.InvalidArgument, "不支持打开这个文件夹").WithDetail("kind 只能是 output、uploads 或 component：" + kind)
 	}
 	if dir == "" {
 		return apperr.New(apperr.Internal, "存储位置尚未初始化")

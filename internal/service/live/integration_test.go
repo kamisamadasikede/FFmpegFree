@@ -364,7 +364,7 @@ func TestIntegrationServerKilledMidStream(t *testing.T) {
 	if d.Error != nil {
 		t.Logf("interrupted detail:\n%s", d.Error.Detail)
 	}
-	if d.Status != task.StatusFailed || d.Error == nil || d.Error.Code != apperr.LivePushInterrupted {
+	if d.Status != task.StatusInterrupted || d.Error == nil || d.Error.Code != apperr.LivePushInterrupted {
 		t.Fatalf("推流中途杀掉服务器应 LIVE_PUSH_INTERRUPTED: %+v %+v\n%s", d, d.Error, tailLines(r.logText(t, tk.ID), 8))
 	}
 }

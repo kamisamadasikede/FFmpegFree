@@ -5,6 +5,7 @@ package live
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -319,14 +320,36 @@ func (s *Service) ActiveSessions() (n int, hasArchive bool) {
 
 // runner 包装 task.FFmpegRunner：任务结束（含从未运行）时释放会话登记。
 type runner struct {
-	inner *task.FFmpegRunner
-	s     *Service
-	id    string
+	inner   *task.FFmpegRunner
+	s       *Service
+	id      string
+	started *atomic.Bool // 推流已经开始（收到过第一条输出进度）
 }
 
+// Run 跑推流。推流已经开始之后的失败（进程被杀、服务器断开、源没了）包成 task.Interrupted，
+// 任务终态记为 interrupted（契约 v0.25.3）；错误码一定是直播码，不会是 INTERNAL。
 func (r *runner) Run(ctx context.Context, report func(task.Progress)) (string, error) {
 	defer r.s.release(r.id)
-	return r.inner.Run(ctx, report)
+	out, err := r.inner.Run(ctx, report)
+	if err != nil && r.started != nil && r.started.Load() {
+		err = task.Interrupted(liveInterruptedError(err))
+	}
+	return out, err
+}
+
+// liveInterruptedError 保证"开始后中断"的错误码是直播码：LIVE_SOURCE_GONE（所选窗口没了）、LIVE_PUSH_INTERRUPTED 原样，
+// 其他（INTERNAL、PROCESS_FAILED 等，例如进程被外部杀掉、stderr 认不出来）一律改成 LIVE_PUSH_INTERRUPTED，detail 保留。
+// 用户取消的 context.Canceled 不动（任务管理器先按取消处理）。
+func liveInterruptedError(err error) error {
+	if errors.Is(err, context.Canceled) {
+		return err
+	}
+	ae := apperr.From(err)
+	switch ae.Code {
+	case apperr.LivePushInterrupted, apperr.LiveSourceGone:
+		return err
+	}
+	return apperr.Wrap(apperr.LivePushInterrupted, ffmpeg.PushInterruptedMessage, err).WithDetail(ae.Detail)
 }
 
 // EncoderInfo 实现 task.EncoderReporter。
@@ -395,7 +418,7 @@ func (s *Service) newRunner(taskID string, bin ffmpeg.Binaries, u livepkg.PushUR
 		inner.HWEncoder, inner.CPUEncoding = enc.hw, enc.cpuInfo
 		inner.BuildCPUArgs = func(string) []string { return enc.cpuArgs }
 	}
-	return &runner{inner: inner, s: s, id: taskID}
+	return &runner{inner: inner, s: s, id: taskID, started: &started}
 }
 
 // liveEncoding 是一次直播推流的编码器决策。

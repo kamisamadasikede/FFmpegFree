@@ -165,7 +165,7 @@ func (m *Manager) Submit(spec Spec, r Runner) (Task, error) {
 		return Task{}, apperr.New(apperr.InvalidArgument, "任务缺少执行体")
 	}
 	if !validType(spec.Type) {
-		return Task{}, apperr.New(apperr.InvalidArgument, fmt.Sprintf("未知的任务类型 %q", spec.Type))
+		return Task{}, apperr.New(apperr.InvalidArgument, "不支持的任务类型").WithDetail(fmt.Sprintf("未知的任务类型 %q", spec.Type))
 	}
 	if err := validateSpec(spec); err != nil {
 		return Task{}, err
@@ -382,7 +382,7 @@ func (m *Manager) execute(e *entry) {
 func safeRun(ctx context.Context, r Runner, report func(Progress)) (out string, err error) {
 	defer func() {
 		if p := recover(); p != nil {
-			err = apperr.New(apperr.Internal, fmt.Sprintf("任务执行时发生 panic: %v", p))
+			err = apperr.New(apperr.Internal, "任务执行时出错，请重试").WithDetail(fmt.Sprintf("panic: %v", p))
 		}
 	}()
 	return r.Run(ctx, report)
@@ -393,6 +393,7 @@ func safeRun(ctx context.Context, r Runner, report func(Progress)) (out string, 
 //     那是应用退出造成的停止，不是任务自己完成，重启后用户可以看到它被中断）；
 //   - 成功 → succeeded（即使期间收到过用户的取消请求：直播优雅停止就是这种情况，存档已完整）；
 //   - 被取消 → canceled；
+//   - 直播任务开始以后被中断（Runner 返回 InterruptedError）→ interrupted，带错误（契约 v0.25.3）；
 //   - 其他 → failed。
 //
 // Runner 返回的输出路径：成功时一律采信；直播任务在 canceled / failed / interrupted 时也采信
@@ -417,6 +418,9 @@ func (m *Manager) finishAfterRun(e *entry, err error, out string) {
 		e.finish(m, StatusSucceeded, nil, out, resultOf(e.runner))
 	case e.ctx.Err() != nil && (errors.Is(err, context.Canceled) || e.cancelRequested()):
 		e.finish(m, StatusCanceled, nil, carry)
+	case IsLive(e.task.Type) && IsInterrupted(err):
+		// 契约 v0.25.3：直播开始以后被中断（进程被杀、服务器断开等）记为 interrupted，带错误（LIVE_PUSH_INTERRUPTED 等，不会是 INTERNAL）。
+		e.finish(m, StatusInterrupted, apperr.From(err), carry)
 	default:
 		e.finish(m, StatusFailed, apperr.From(err), carry)
 	}
@@ -596,11 +600,10 @@ func (m *Manager) Retry(taskID string) (Task, error) {
 		if IsLive(old.Type) {
 			return Task{}, apperr.New(apperr.Unsupported, "直播会话不能重试，请重新开始推流")
 		}
-		if old.Type == TypeEditExport { // 契约 v0.23.5：剪辑功能已移除，旧的导出记录只能查看和移除
-			return Task{}, apperr.New(apperr.Unsupported, "剪辑功能已移除，剪辑导出记录不能重试").
-				WithDetail("reason=feature_removed\n剪辑功能已在 v0.23.5 移除，edit_export 记录只能查看和移除")
+		if old.Type == TypeEditExport || old.Type == TypeEditRender { // 契约 v0.23.5 / v0.25.3：旧版导出记录只能查看和删除
+			return Task{}, LegacyExportError("重试")
 		}
-		return Task{}, apperr.New(apperr.Unsupported, fmt.Sprintf("%s 类型的任务不支持重试", old.Type))
+		return Task{}, apperr.New(apperr.Unsupported, "这类任务不支持重试").WithDetail(fmt.Sprintf("type=%s", old.Type))
 	}
 	if old.Status == StatusSucceeded {
 		return Task{}, apperr.New(apperr.TaskConflict, "任务已经成功完成，不能重试")

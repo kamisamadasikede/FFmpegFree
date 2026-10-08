@@ -2,6 +2,8 @@
 
 v0.25.4 变更（包 24，老板实机：左下角已是“转换组件已就绪”，转换设置里格式全灰、悬停“转换组件尚未就绪”，并停在“正在加载格式…”；**没有新增接口、错误码、事件或迁移，没有接口签名变化**）：① **根因**：转换页在冷启动时调用 `GetFormatCatalog`，那时转换组件还在检测。目录接口直接把每一项标成 `encodable=false`、`reasonCode=converter_not_ready`、`reason="转换组件尚未就绪"`，并不等检测结束。这次“未就绪”不写入能力缓存，但前端只取一次，检测完成后不再取，格式就一直灰着；左下角读的是稍后的 `ffmpeg:status`（`state=ready`），两边不是同一次判断。② **修复**：`GetFormatCatalog`（以及提交前用同一份能力判断的格式检查）**只在检测进行中**才等，最多 **6 秒**，或调用方自己的超时更短时以调用方为准。6 秒内检测变为就绪，就按真实的 muxer / encoder 返回（可输出的项 `encodable=true`）。6 秒到了仍在检测，照旧返回未就绪（不缓存），前端此时组件状态仍是 `checking`，不要当成最终结果。检测结束为未就绪（没有可用组件）时**立刻**返回未就绪，不等满 6 秒。没在检测时不等。③ **重新加载**：事件名 **`ffmpeg:status`**，payload 是完整的 `FFmpegStatus`（`state`、`path`、`version`、`source` 等，见 9.4）。`state` 变为 **`ready`** 时前端重新调用 `GetFormatCatalog`。前端自己的加载超时必须 **大于 6 秒**（现为 8 秒）；先返回的未就绪目录在 `state` 仍是 `checking` 时继续显示加载，等这个事件再取。④ 能力探测失败、以及未就绪，都不写入缓存；缓存键仍是可执行文件路径 + 大小 + 修改时间（6.16.1），换了组件自动重新检测。见 6.16.1 / 6.16.3。
 
+v0.25.3 变更（包 24，架构师定；**没有新增错误码、事件或迁移**；`TaskStatus` 没有新增取值（`interrupted` 早就有），新增的是它的一种来源；新增字段 `FFmpegStatus.customPathInvalid`、`FFmpegStatus.source` 新增取值 `default`、`PullSession.hasVideo` / `hasAudio`、`live:pull` 的 `hasVideo` / `hasAudio`；Wails 绑定已重新生成）：① **直播任务被中断记为 `interrupted`（N4）**：推流 / 屏幕推流**已经开始以后**（收到过第一条输出进度）非正常结束（服务器断开、进程被杀、所选窗口没了、中途显卡编码失败……），任务终态是 `interrupted`（已中断），**不再是 `failed`**；`error` 照常带上（`LIVE_PUSH_INTERRUPTED`，所选窗口没了是 `LIVE_SOURCE_GONE`），**不会是 `INTERNAL`**：已开始以后认不出原因的退出（例如进程被外部强杀，stderr 里没有可认的行）从 `INTERNAL`「推流异常退出」改成 `LIVE_PUSH_INTERRUPTED`，message `推流被中断，请回到直播页重新推流。`，detail 是脱敏后的 stderr 尾部。**开始之前**的失败（连不上、被拒绝、没有权限、启动失败）仍是 `failed`，错误码不变；用户停止仍是 `succeeded` / `canceled`；应用退出仍是 `interrupted` 且没有 `error`（所以 `interrupted` + 有 `error` = 直播中途被中断，`interrupted` + 没有 `error` = 应用退出时被中断）。`task:status` 终态事件、落库、`ListTasks` 的 `statuses` 筛选和 `total` 都按 `interrupted` 走（`tasks.status` 没有约束，不需要迁移）：按 `["failed"]` 查**不含**它，任务中心的“失败”数和“失败”页只传 `failed` 就不会算进去；“隐藏已结束”（`HideFinishedInTaskCenter`）照常把它当已结束。**重试**：直播任务不管什么状态都不能重试（不变：`Retry` 返回 `UNSUPPORTED`「直播会话不能重试，请重新开始推流」），被中断的也一样，回到直播页重新推流。转换记录的 `status="failed"` 筛选（6.14，只看 `convert` 任务）不受影响。② **拉流预览**的 `live:pull` `interrupted` 也带 `error`：`LIVE_PUSH_INTERRUPTED`（“直播连接在开始以后断开”，推流、拉流共用这个码，不新增码），message `拉流被中断，请重新拉流。`，detail 是脱敏后的 stderr 尾部。标题（“推流被中断” / “拉流被中断”）由前端定，后端除了状态和错误码不需要别的文字。③ **新总则（1.1 新增，架构师定）**：错误码和 `reason` 等 `detail` 枚举只给程序用，**界面上永远不显示**；前端按 `code`（和 2.2 的 `reason`）映射成中文，映射不到的一律显示 `出了点问题，请重试。`。后端的 `message` 必须是给用户看的中文：不含错误码、不夹英文单词或参数名、不用 `%v` 塞英文原文（原文放 `detail`）。按这条改了后端已有的 message：`limit 范围 0~N，offset 不能小于 0` → `分页参数不正确`；`status 只能是 ""、"active" 或 "failed"` → `筛选条件不正确`；`recordLimit 范围 0~N` → `每行记录条数超出范围`；`length 必须在 1 到 1 MiB 之间` / `offset 不能为负` / `offset 超出范围`（`ReadPDFChunk`）→ `读取范围不正确`；`atSec 必须是不小于 0 的数字` → `取帧时间不正确`；`编码器偏好必须是 auto、cpu 或设备 id` → `编码器设置不正确`；`下载的文件校验失败（SHA256 不一致），请重试或换镜像` → `下载的文件校验失败，请重试或换镜像`；`过滤器格式不对，应为 *.mp4 这样的通配符` → `文件类型过滤器格式不对`；`kind 只能是 output、uploads 或 component` → `不支持打开这个文件夹`；`which 只能是 "input" 或 "output"` → `参数不正确`；`未知的任务类型 "<type>"` → `不支持的任务类型`；`任务执行时发生 panic: <原文>` → `任务执行时出错，请重试`；`<type> 类型的任务不支持重试` → `这类任务不支持重试`；原来的英文 / 参数说明都挪进 `detail`，错误码不变。新加测试 `TestUserFacingMessageIsChinese` 扫描后端所有 `apperr.New` / `Wrap` 的 message 字面量（不含错误码、不夹英文单词、不用 `%v`、不出现“剪辑”；允许 `FFmpegFree`、`PDF`、`JSON`、`ID` 等产品名 / 格式名）。④ **组件状态（N5，第 9.4 节）**：`FFmpegStatus.source` **始终有值**：`ready` 时是实际在用的组件来源（`custom` / `bundled` / `system` / `legacy`）；其他状态（`checking` / `missing` / `outdated` / `installing` / `failed`）没有在用的组件，是用户的设置：手动指定了路径为 `custom`，否则为新取值 **`default`**。新增 **`customPathInvalid: boolean`**（始终输出）：用户手动指定的路径不可用（不存在、不是转换组件、版本过低）。手动路径坏了而别处（应用自带目录、系统 PATH、v1 目录）有可用的组件时**用可用的那个**：`state=ready`，`source` 是实际来源（不是 `custom`），设置里的手动路径保留不动，`customPathInvalid=true`；别处也没有时 `missing` / `outdated` + `source=custom` + `customPathInvalid=true`。这个标记只由检测结果决定，`checking` / `installing` / `failed` 时为 `false`；后端不带提示文字（文字由产品经理定、前端显示）。「恢复默认」= `SetFFmpegPath("")`（或 `UpdateSettings` 把 `ffmpegPath` 改成 `""`）：任何状态下都清掉手动路径并立即重新检测，先发 `checking` 再发结果，结果里 `customPathInvalid=false`、`source` 是实际来源或 `default`；安装进行中时清掉设置、返回并保持 `installing`，装完按新设置检测。安装成功时如果设置里还有手动路径，按检测顺序重新检测一次（手动路径能用就继续用它，不能用就用刚装好的并带上标记）。**新字段不含路径**；已有字段里 `path`（当前组件的绝对路径）和 `missing` / `outdated` 时 `error.detail`（逐行列出各候选的路径和失败原因）仍会把路径给到前端，这次没有删（见 9.4 末尾的说明，等架构师定）。⑤ **纯音频拉流（N2）**：`live:pull` 的 `playing` 一定带 **`hasVideo` / `hasAudio`**（按我们送出的 FLV 头里的音视频标志），其他状态不带；`PullSession` 也有这两个字段（同名、可选）：只有会话已经开始播放（`playing` 已发，例如同一地址重复 `StartPullPreview` 拿到已有会话）时才有，新会话刚开始还不知道时省略，前端以 `playing` 为准建播放器（纯音频不等视频）。`GetPreviewStream` 的 `hasVideo` / `hasAudio` 收到 FLV 头以后也按头里的标志。纯音频拉流端到端可用：转封装出只有音频的合法 FLV（头标志 `0x04`），GOP 缓存不等视频关键帧，后加入的客户端马上有音频；探测确认是纯音频时转封装的 `-analyzeduration` / `-probesize` 用 0.5 秒 / 500 KB（原来 RTMP 用 5 秒窗口，FLV 头说有视频，ffmpeg 把窗口等完才输出：MediaMTX 纯音频 RTMP 实测从 `StartPullPreview` 到 `playing` 由 10.7 秒降到 6.2 秒，其中 5.3 秒是探测本身；纯音频 HLS 0.2 秒）。⑥ **旧版导出（N3）**：任务中心把旧的 `edit_export` 记录显示为“旧版导出”，只能查看和删除：`Retry` 返回 `UNSUPPORTED`，message `旧版导出记录只能查看和删除，不能重试`；`ConvertService.Reconvert` / 任务层重转返回 `UNSUPPORTED`，message `旧版导出记录只能查看和删除，不能重转`；`detail` 第一行都是 `reason=feature_removed`（原来 `Retry` 的 message `剪辑功能已移除，剪辑导出记录不能重试` 含“剪辑”，已改）；后端面向用户的文字里不再出现“剪辑”。
+
 v0.25.2 变更（包 23，老板实测：开着推流和拉流、在两个页面之间来回切换后预览冻住；**没有新增接口、错误码、事件或迁移，没有接口签名变化**；行为变化只在本机预览 HTTP 服务，6.10.3.4 / 6.10.3.5 / 6.10.3.9）：① **根因**：切页面时旧播放器的连接没有正常关闭（WebView 挂起、半开、不再读）时，后端仍把它当作正常客户端。系统的套接字缓冲会自动长到几 MB，这样的连接还能再吞几十秒的数据，写不会卡住，5 秒丢帧踢人的规则也就一直不触发；每个会话最多 4 个连接，第 4 次切回来就是 `429`，界面冻住。实测（推流 + 拉流同一路流，每次切换丢下旧连接、socket 不关）：修之前第 4~10 次切回来推流和拉流预览全部 `429`，40 秒后名额仍是 4 / 4，一个也没释放。② **满员时挤掉最早的连接，不再 `429`**（决定）：连上来的只有应用自己（Origin 白名单），最新的连接就是界面上正在显示的播放器，所以第 5 个连接到来时断开最早加入的那个（中止连接，不发结束标记），新连接照常 `200`。不按“同一 origin”区分：所有连接本来就都是 Wails 的 origin。③ **发现不读的连接**：每个播放器连接在本机一侧的发送缓冲限制为 256 KiB；每次写（含 Flush）最多等 2 秒，写不进去就断开这个连接、立即释放名额。被挤掉、太慢（连续丢帧 5 秒）的连接同样立即中止，卡在写上的那次写马上失败，不再先把队列发完。实测不读的连接在系统缓冲吞满后约 2~10 秒内被断开。④ **新连接从不从 GOP 中间开始**：GOP 缓存只从视频关键帧开始（第一个关键帧之前、缓存超限被清空之后不缓存半个 GOP）；缓存里没有 GOP 时，新连接先只收 FLV 头、metadata 和序列头，等到下一个关键帧才开始收音视频。纯音频的流照旧，不等关键帧。⑤ **地址不变（确认，不是改动）**：同一个会话反复调用 `GetPreviewStream` 返回同一个 URL（同一个 token），不会作废正在用的地址；拉流的 `previewUrl` 在会话运行期间一直有效；token 只在会话结束时作废（6.10.3.5）。⑥ **不影响推流和拉流**：分发不阻塞，卡住、被丢弃的播放器不影响推流帧率和拉流转封装。⑦ **实测**：推流到本机 MediaMTX、拉同一路流，模拟 10 次切页面（每次丢下两路的旧连接、不关 socket，再各开一个新连接，停留 4 秒）：10 次全部 `200`，0 次 `429`、0 个错误；每次都从 FLV 头 + 序列头 + 关键帧开始；首个关键帧和连续出帧都在 3 毫秒内（第一次进入拉流页 0.66 秒，等拉流出画面）；推流帧率全程 30.01 fps（源 30 fps）；每次切换后的名额（推 / 拉）最多 3 / 4，最后一次切换后约 10 秒回到 1 / 1。
 
 v0.25.1 变更（架构师 2026-10-08 定；v0.25 实现之后的修复与补充，**没有新增错误码、事件或迁移，没有接口签名变化**；2.2 新增取值 `NOT_FOUND` `reason=component`）：① **`SystemService.OpenStorageFolder(kind)` 新增 `kind="component"`**（PM X5）：在系统文件管理器里打开当前使用的转换组件可执行文件所在的文件夹，Windows / macOS 同时选中这个文件（复用 6.8 `RevealInFolder` 的平台命令：Windows `explorer.exe /select,"<文件>"`，macOS `open -R <文件>`，Linux `xdg-open <所在文件夹>`）。转换组件不是 `ready`（检测中、安装中、没有）或文件不在：`NOT_FOUND`，message `转换组件还没有就绪。`，`detail` 只有一行 `reason=component`。**路径不回给前端**：所有错误的 `detail` 都只有 `reason=component`，不带路径；**不加进 `RevealInFolder` 的放行范围**（6.8 不变）。`output` / `uploads` 不变。签名不变，Wails 绑定不用重新生成。见 6.15.2 第 6 条。② **拉流失败有自己的分类和文字**（设计走查 G3，PM 定稿）：拉流预览在开始播放之前失败（`live:pull` 的 `failed`）不再借用推流的分类（原来会显示 `推流启动失败` / `连接推流服务器失败`）：连接类失败（DNS、拒绝连接、超时、网络不可达、远端没有这路流、读超时）是 `LIVE_CONNECT_FAILED`，`detail` 第一行 `scheme=<rtmp|rtmps|srt|http|https>`；其他是 `INTERNAL`；**两种的 message 都是 `拉流失败，请检查直播地址和网络。`**（后端一个常量 `ffmpeg.PullFailedMessage`，以后改文案只改这一处）。推流的文字不变。见 6.10.3.7。③ **HLS 拉流预览的灰色花屏（修复，行为有变化）**：根因是 HLS 一次到一整个分片——`-c copy` 转出来的 FLV 每隔一个分片时长（MediaMTX 实测约 2 秒）一次性到约 2 秒的数据，然后完全没有数据；播放器缓冲在 0 和 2 秒之间来回，旧的追帧（落后 1.5 秒就跳到最新）每分钟跳几十次，跳到 GOP 中间就是灰色花屏，一直到下一个关键帧。FLV 本身是干净的（ffmpeg 解码我们提供的 FLV 0 个错误、时间戳不倒退、分发器只在关键帧处切），不是转封装丢包。修法：**HLS 输入（地址路径以 `.m3u8` 结尾，或探测到的封装是 `hls`）的 tag 由分发器按时间戳匀速放出**（6.10.3.4 的“HLS 匀速”），并且从最新的分片开始（`-live_start_index -1`）。实测 150 秒（MediaMTX mpegts 变体）：修之前到达节奏和时间戳的偏差 3.96 秒，按旧播放器参数模拟每分钟 30.3 次跳转、9.1 秒灰屏，按新参数（6 秒才跳）不跳但每分钟卡顿 25.8 次共 6.3 秒；修之后偏差 0.5 秒，两套参数都 0 跳转、0 灰屏、0 卡顿；代价是比 RTMP 直连多约 1.8 秒延迟（中位数 1.25 → 3.0 秒），即一个分片的到达间隔，HLS 方案固有。前端不用改。④ **拉流开始阶段有上限，不会一直“正在连接…”**（包 21 实机：第一次拉流停在“正在连接…”约 30 秒）：原来拉流的 ffmpeg 输入没有任何读超时，远端接受了连接却不给数据时 ffmpeg 永远不退出（实测 rtmp / http 旧参数 40 秒还在等），会话不发 `playing` 也不发 `failed`。现在：转封装输入加 `-rw_timeout 8000000`（同探测），并且 ffmpeg 启动后 **15 秒**还没收到第一个 FLV 头就停掉它，以 `failed` 结束（`LIVE_CONNECT_FAILED`，message 同 ②，`detail` 第二行 `15 秒内没有收到数据`）；拉流的本机 TCP 等 ffmpeg 连上的时间从 15 秒改为“探测上限 12 秒 + 15 秒 + 3 秒”（原来探测慢时 TCP 已经关了，预览连不上）；播放器在 FLV 头之前连上来时 HTTP 请求最多挂 30 秒等头（原来 10 秒就 503），会话失败或预览分支没连上时立即 `503` 结束。实测远端不给数据时 12~16 秒内以 `failed` 结束。【未证实】实机那次 30 秒的具体触发点（远端当时为什么不给数据，或 Windows 第一次运行转换组件 / 探测程序时被安全软件扫描拖慢）没能复现；已排除本机 HTTP 服务懒启动（毫秒级）和 MediaMTX HLS 冷启动（首次探测 2.7 秒）。⑤ **RTMP / RTMPS 拉流的探测窗口 1 秒 / 1 MB → 5 秒 / 5 MB**（探测和转封装都改）：MediaMTX 的 RTMP 在第一个关键帧前不给 SPS/PPS，GOP 2 秒时 1 秒常常找不到编码参数（实测 12 次失败 4 次，5 秒 0 次；探测多花约 0.7 秒）。其他协议仍是 1 秒 / 1 MB：SRT（MPEG-TS）没有文件头，会一直读到窗口用完，5 秒时探测常常超过 12 秒上限（实测 6~13 秒），反而丢掉编码检查。⑥ **其他修复**：播放器断开后立即离开分发器（原来断开的连接一直占名额，重连几次就是 `429`）；后加入的客户端在同一把锁里拿开头字节并加入，tag 不重复也不遗漏。⑦ **事件顺序规则**（架构师定，前端已按此实现）：`task:status`、复制完成（`convert:copy`）、`live:pull` 这些事件**可能比创建这一行的调用先返回，也可能乱序到达**。前端对还不在列表里的 id 按 id 暂存事件，这一行加进列表时再应用；`AddSources` 返回后按这一批的 id 重新查询一次对齐。拉流会话的状态**只往终态走**，到了 `ended` 或 `interrupted` 就不再改变；**先到的事件决定状态和文字**：`ended` → `拉流已结束`，用户没按停止时再加一行 `直播已停止，或连接已断开。`；`interrupted` → `拉流被中断，请重新拉流。`；两种都提供「重新拉流」。见第 5 节末尾和 6.10.3.7。⑧ **前端文案**（记录，不是后端改动）：拉流 `preview_unavailable` 的 message 是 `这路视频暂时无法在应用内播放。`（后端已是这句），`codec` 仍是 `这路视频无法在应用内播放。`。
@@ -122,6 +124,7 @@ v0.2 变更：新增 ffmpeg 环境检测与自动安装（第 9 节）；合入�
 - **产品名 `FFmpegFree` 不算违反**（它是应用名，例如 macOS 屏幕录制授权提示里必须写出应用名，用户才能在系统设置里找到它）；是否连产品名也要改，见 PR 的待定问题。
 - 前端自己的文案同样遵守（前端负责，不在本契约里逐条列）；后端改了 `message` 不影响前端对 `code` / `reason` 的判断（前端从不按 `message` 分支，6.12.6 那几条精确匹配的 Doc 文案本来就不含 ffmpeg）。
 - 新增文案时先查本条；测试里对 message 的断言同步改，并加一条测试扫描后端所有面向用户的固定文案不含 `ffmpeg` / `ffprobe`（不区分大小写）。
+- **错误码和 `reason` 只给程序用（v0.25.3，架构师定）**：`code`（如 `INTERNAL`）和 `detail` 里的 `reason=` / `scheme=` / `kind=` 等枚举**界面上永远不显示**。前端按 `code`（需要时再看 2.2 的 `reason`）映射成中文；映射不到的一律显示 `出了点问题，请重试。`。后端的 `message` 是给用户看的中文：不含错误码，不夹英文单词或参数名（`limit`、`kind`、`atSec` 这类），不用 `%v` 把英文原文（Go 错误、panic）拼进去——这些放 `detail`。产品名、格式名、平台名（`FFmpegFree`、`PDF`、`JSON`、`Windows`、`macOS`、`X11`、`Office`、`ID`）可以出现。测试 `TestUserFacingMessageIsChinese`（`internal/apperr`）扫描所有 `apperr.New` / `Wrap` 的 message 字面量。
 
 
 ## 2. 错误约定
@@ -230,9 +233,11 @@ type MediaInfo struct {
 }
 
 type TaskType string // convert | edit_export | office_pdf | live_file_push | live_screen_push | ffmpeg_install
-                     // edit_export：v0.23.5 剪辑移除后不再产生；旧记录照常列出、可以移除，Retry 一律 UNSUPPORTED（reason=feature_removed），不是下面的“旧类型”
+                     // edit_export：v0.23.5 剪辑移除后不再产生；旧记录照常列出（任务中心显示为“旧版导出”，v0.25.3）、只能查看和删除，Retry / Reconvert 一律 UNSUPPORTED（reason=feature_removed，message 不含“剪辑”），不是下面的“旧类型”
                      // 保留但不再产生：live_relay、live_record_push（v0.10 取消）、edit_render（v0.11 起改名 edit_export）。不能提交，任务中心不展示，库里的旧记录按未知类型忽略、不报错
 type TaskStatus string // queued | running | succeeded | failed | canceled | interrupted
+                       // interrupted（已中断，终态）：应用退出时还没结束（error 为空）；v0.25.3 起也表示直播任务开始以后被中断（error 为 LIVE_PUSH_INTERRUPTED / LIVE_SOURCE_GONE，6.10）。
+                       // 它是“已结束”（HideFinishedInTaskCenter 会隐藏它），但不是 failed：ListTasks 按 ["failed"] 筛选不含它
 
 type Task struct {
     ID         string     `json:"id"`
@@ -586,7 +591,7 @@ OpenWithSystem(taskID string, which string) error               // which = "inpu
 | `task:status` | `{ id, version, status, error?, outputPath?, startedAt?, finishedAt?, encoder?, encoderDevice?, hwFallback?, hwFallbackReason?, progress?, result?, retried?, hiddenInTaskCenter?, reconverting?, reconvertOutcome?, lastReconvertError? }`（v0.24：后三项见 6.17.2）（encoder 等四项 v0.18，见 9.7；`progress` / `result` / `retried` / `hiddenInTaskCenter` v0.23，见下） | 状态变化时 |
 | `task:removed` | `{ ids: string[] }` | 每次 |
 | `ffmpeg:status` | `FFmpegStatus`（见第 9 节） | 检测完成、安装状态变化时 |
-| `live:pull` | `{ id, state, error? }`（v0.25，6.10.3.7：拉流预览会话的状态：`playing`（只发一次）/ `ended` / `interrupted` / `failed` / `unsupported`；`error` 是 AppError，地址已脱敏） | 状态变化时 |
+| `live:pull` | `{ id, state, error?, hasVideo?, hasAudio? }`（v0.25，6.10.3.7：拉流预览会话的状态：`playing`（只发一次）/ `ended` / `interrupted` / `failed` / `unsupported`；`error` 是 AppError，地址已脱敏；v0.25.3：`playing` 一定带 `hasVideo` / `hasAudio`，其他状态不带；`interrupted` 带 `LIVE_PUSH_INTERRUPTED`） | 状态变化时 |
 | `convert:copy` | `{ sourceId, seq, copyState, copiedBytes, totalBytes, storedPath, error? }`（v0.24，6.15.4 第 5 条） | 开始、复制中每个副本最多 4 次/秒、结束时 |
 
 **直播指标（v0.10，取代 `live:stats`）**：直播任务的 `task:progress` 除 `speed`（如 `1.00x`，持续明显小于 1 说明编码跟不上）和 `outTimeSec`（已输出的媒体时长）外，还带 `fps`（当前输出帧率）、`bitrateKbps`（**只有没有本地存档的会话才有**：**近 5 秒**平均输出码率，由 ffmpeg `total_size` 和 `out_time` 的增量算出，不用 ffmpeg 自带的 `bitrate=`，那是从开始到现在的累计平均）、`droppedFrames`（ffmpeg 累计丢帧，不是网络丢包）；**有存档的会话没有 `bitrateKbps`（架构师定）**（7.1.5 实测：tee 下 `-progress` 的 `total_size` 和 `bitrate` 恒为 `N/A`，没有可用来源；**不轮询存档文件大小来补**——文件大小含音视频分片和 moov 开销、且不是网络那一路的码率，补出来的数是误导），该字段一律省略，前端显示"—"；`fps` / `droppedFrames` / `speed` / `out_time_us` 在 tee 下正常；`progress` 恒为 -1，`etaSec` 为 0。没有单独的 `uptimeSec`：已推时长 = 现在 − `Task.startedAt`（墙钟），`outTimeSec` 是媒体时间，两者差距变大说明卡顿。这几项同时写进 `Task`（`fps` / `bitrateKbps` / `droppedFrames`，只在内存），页面刷新后 `ListActive` 能立刻显示当前值。
@@ -651,7 +656,7 @@ schema_migrations(version PK, applied_at)
   - **原地重试之后（v0.23）**：`Retry` 把任务重置回 `queued`（下面的 `Retry` 条）时已清空 `startedAt` / `finishedAt` / `progress` / `error` / `result`，所以一条曾经运行过、重试后又在排队中被取消的任务，也完全符合上面的表现：没有 `startedAt`、`progress` 为 0、没有 `running` 事件。前端不能用“以前见过它运行”来推断，要以最新事件为准（`version` 规则不变）。重试入队之前删掉的是**上一次运行**留下的 `.part`，`NeverRan` 本身仍然不删任何东西（直播存档 Runner 除外）。
   - **与 v0.18 编码器字段的关系**：`encoder` / `encoderDevice` / `hwFallback` / `hwFallbackReason` 由 `Submit`（v0.23 起也包括原地重试）在任务落库前从 Runner 的 `EncoderReporter` 一次性写入，而 `NeverRan` 只影响输出路径，所以**从未运行的任务上这四个字段是提交时（原地重试后则是重试时）解析出来的值，不是空**（例如排队中被取消的 h264 转换任务带 `libx264` / `cpu`，所选设备当时不可用的带 `hwFallback=true`、`device_unavailable`；实现了 `EncoderReporter` 才有，纯音频转换、Office 转 PDF、ffmpeg 安装这类没有视频编码器的任务本来就为空）。因为 `Run` 没执行过，**不会发生运行中的硬件编码回退**，不会补发 `running` 事件，所以字段不会再变。前端不要把“这四个字段有值”理解为“这个任务真的编码过”，要看是否有 `startedAt`。
 - `Retry`（**v0.23 改为原地重试**，取代“生成新任务”）：**复用原任务的 id**，把同一条记录重置回 `queued` 重新排队；**统一覆盖所有注册了 Factory 的类型，不按类型区分**（目前 `convert`、`office_pdf`、`ffmpeg_install`；v0.23.5 起 `edit_export` 没有 Factory，旧记录 `Retry` 一律 `UNSUPPORTED`（`reason=feature_removed`）；以后新增可重试的类型也按原地重试；v0.22 及之前这里写的“只有 `ffmpeg_install`”已过时）。
-  - **允许的状态**：`failed`、`interrupted`、`canceled`。仍在 `queued` / `running` 返回 `TASK_CONFLICT`（`任务仍在进行，请先取消`）；`succeeded` 返回 `TASK_CONFLICT`（`任务已经成功完成，不能重试`；所有类型都一样；转换任务需要重转用 `ConvertService.Reconvert`，v0.24 起是原地的，见 6.17）。没有 Factory 的类型 `UNSUPPORTED`（直播会话同前；v0.23.5：`edit_export` 的 message `剪辑功能已移除，剪辑导出记录不能重试`，`detail` 第一行 `reason=feature_removed`）；不存在 `NOT_FOUND`；**旧类型（"保留但不再产生"的类型）的 id 先判为 `NOT_FOUND`，不落 `UNSUPPORTED`**（6.10 确认项 ⑧）。
+  - **允许的状态**：`failed`、`interrupted`、`canceled`（直播类型不管什么状态都是 `UNSUPPORTED`，见上；v0.25.3 起直播中途被中断的 `interrupted` 也一样）。仍在 `queued` / `running` 返回 `TASK_CONFLICT`（`任务仍在进行，请先取消`）；`succeeded` 返回 `TASK_CONFLICT`（`任务已经成功完成，不能重试`；所有类型都一样；转换任务需要重转用 `ConvertService.Reconvert`，v0.24 起是原地的，见 6.17）。没有 Factory 的类型 `UNSUPPORTED`（直播会话同前；v0.23.5：`edit_export` 的 message `剪辑功能已移除，剪辑导出记录不能重试`，`detail` 第一行 `reason=feature_removed`）；不存在 `NOT_FOUND`；**旧类型（"保留但不再产生"的类型）的 id 先判为 `NOT_FOUND`，不落 `UNSUPPORTED`**（6.10 确认项 ⑧）。
   - **步骤**：① 用 Factory 按 `params` 重建 Runner（重新探测输入、重新校验参数；失败直接返回错误，**记录原样不动、不发事件**，如输入已删除 `NOT_FOUND`）；② 走 `RunWithPart` 的类型：删掉上一次运行在原 `outputPath` 上留下的 `.part`（只删普通文件、不是符号链接、修改时间不早于上一次 `startedAt − 3 秒`；上一次从未运行则不删）；③ 重新占位**原输出名**：原 `outputPath` 仍然可用（规则同 6.14.5：磁盘上没有、没有 `.part`、没被其他未结束任务占）就继续用它，否则按该类型的重名格式顺延（`convert` 是 `a (1).mp4`，其他类型是 `a(1).mp4`，见 6.14.5）；④ 重置字段并落库；⑤ 在任务日志末尾追加一行 `[FFmpegFree] 重新开始（重试）`（日志文件和轮转规则不变）；⑥ 发**一次** `task:status`（`status: "queued"`、`retried: true`、`progress: 0`、新的 `outputPath` 和编码器字段）；⑦ 入队。`Claimer` 的 `Submitted` / `Abandoned` 调用时机与 `Submit` 相同。
   - **重置的字段**：`status` → `queued`；`progress` → 0（直播不会走到这里）；`speed` → `""`；`etaSec` → 0；`startedAt` / `finishedAt` → 0；`encoder` / `encoderDevice` / `hwFallback` / `hwFallbackReason` → 先清空，再按新 Runner 的 `EncoderReporter` 写入（没有就保持空）；`error` → 无；`result` → 无；`outputPath` → 第 ③ 步的结果；`hiddenInTaskCenter` → `false`（任务又在进行了，任务中心要能看到）；`version` +1。
   - **不变的字段**：`id`、`type`、`title`、`inputPaths`、`sourceId`、`createdAt`（所以在列表里的位置不变）、**`params`（含 `presetId` / `presetName` / `paramsSummary`，是提交时的快照，重试不改）**、日志路径。源文件行的 `lastActivityAt` 不更新。
@@ -732,7 +737,8 @@ schema_migrations(version PK, applied_at)
   - `started=false`：无法解析主机名 / 连接被拒绝 / 超时 / 网络不可达 → `LIVE_CONNECT_FAILED`；服务器明确拒绝 → `LIVE_PUSH_REJECTED`。**按 ffmpeg 7.1.5 + MediaMTX 1.21.1 实测**：RTMP 鉴权失败的 stderr 是 `[rtmp @ …] Server error: authentication failed` + `Error opening output …: Operation not permitted`（可区分，判为 `LIVE_PUSH_REJECTED`）；RTMP 服务器未开 / 连接被拒是 `Connection refused`，域名解析失败是 `Failed to resolve hostname`（均为 `LIVE_CONNECT_FAILED`）；**SRT 是已知局限**：服务器未开与被拒绝（错误 passphrase / 无权限）在 ffmpeg stderr 里都只有 `Connection to srt://… failed: Input/output error`，无法区分，统一判 `LIVE_CONNECT_FAILED`（`LIVE_PUSH_REJECTED` 对 SRT 实际上不会出现）。
   - `started=true`：`Broken pipe` / `Connection reset` / `Connection timed out` / 写出时 `Input/output error`、`Error writing trailer`（网络中断）→ `LIVE_PUSH_INTERRUPTED`。
   - 屏幕采集：avfoundation 权限相关报错 → `SCREEN_PERMISSION_DENIED`；`x11grab` 打不开显示 → `UNSUPPORTED_PLATFORM`。
-  - 认不出来的非零退出 → `INTERNAL`（不是 `PROCESS_FAILED`），stderr 最后 50 行（已脱敏）放 `detail`。
+  - 认不出来的非零退出 → `INTERNAL`（不是 `PROCESS_FAILED`），stderr 最后 50 行（已脱敏）放 `detail`。**v0.25.3：只限 `started=false`**；`started=true` 时认不出来的（进程被外部强杀、崩溃）→ `LIVE_PUSH_INTERRUPTED`，message `推流被中断，请回到直播页重新推流。`。
+  - **任务终态（v0.25.3，架构师定：直播任务的终态要和直播页一致）**：`started=true` 之后的非正常结束（上面任何一种，含中途显卡编码失败、所选窗口没了）→ 任务 `interrupted`（不是 `failed`），`error` 是 `LIVE_PUSH_INTERRUPTED`（所选窗口没了是 `LIVE_SOURCE_GONE`），保证不是 `INTERNAL` / `PROCESS_FAILED`。`started=false` 时的失败仍是 `failed`。实现：直播 Runner 把开始后的错误包成 `task.Interrupted(err)`，任务管理器对直播类型的这种错误记 `interrupted`（其他类型照旧 `failed`）。用户取消、应用退出的规则不变（取消优先）。
   - **已请求 `Cancel` 之后一律归 `canceled`**（架构师定）：Runner 一旦收到取消（用户 `Cancel` 或应用退出的 ctx 取消），之后 ffmpeg 无论以什么非零码退出（`Broken pipe`、`Connection reset`、被强杀……）都返回取消错误 → 任务 `canceled`（应用退出为 `interrupted`），`error` 为空，**不做错误分类**，不得落 `LIVE_PUSH_INTERRUPTED`、`LIVE_CONNECT_FAILED`、`INTERNAL`。只有"优雅停止成功且退出码 0"才是 `succeeded`。测试：取消后让假 ffmpeg 以 224 / 251 / 255 退出，断言状态是 `canceled` 且 `error == nil`。
   - **连接阶段取消直接强杀**（还没有 `started`）：不发 `q`、不等 5 秒，直接结束进程组。原因（实测）：ffmpeg 卡在连接里时不读 stdin，往不通的地址（`10.255.255.1`）推流，2 秒后发 `q`，它又过了约 3 秒才因连接超时自己退出（退出码 146）。
   - 用户主动停止：优雅退出成功 `succeeded`；超时强杀 `canceled`（没有错误码）。**具体的 ffmpeg 报错措辞（各版本、各服务器不同）必须用真实推流服务器收集样本后落成测试**，设计稿里的关键词只是起点。
@@ -839,7 +845,7 @@ StartPullPreview(req PullPreviewRequest) (PullSession, error) // 签名不变，
 type PreviewStream struct {
     URL      string `json:"url"`      // http://127.0.0.1:<端口>/live/<token>.flv
     MIME     string `json:"mime"`     // 恒为 "video/x-flv"
-    HasVideo bool   `json:"hasVideo"` // 推流恒为 true；拉流按探测结果（纯音频流为 false）
+    HasVideo bool   `json:"hasVideo"` // 推流恒为 true；拉流按探测结果（纯音频流为 false）；v0.25.3：收到 FLV 头以后按头里的标志
     HasAudio bool   `json:"hasAudio"` // 推流：文件推流恒为 true（没有音轨时补的是静音），屏幕推流 audio=silent 时为 true；拉流：有 AAC / MP3 音频才为 true
 }
 
@@ -848,6 +854,8 @@ type PullSession struct {
     Redacted   string `json:"redacted"`
     Preview    bool   `json:"preview"`    // v0.25：有没有预览视频流（转换组件缺 tee / tcp 时 false），与请求里的 preview 无关
     PreviewURL string `json:"previewUrl"` // v0.25：同 GetPreviewStream(id).url；Preview=false 时为 ""
+    HasVideo   *bool  `json:"hasVideo,omitempty"` // v0.25.3：同 PreviewStream；只有会话已经 playing 时才有（按 FLV 头），新会话省略，以 live:pull 的 playing 为准
+    HasAudio   *bool  `json:"hasAudio,omitempty"` // v0.25.3：同上
 }
 ```
 
@@ -933,13 +941,13 @@ type PullSession struct {
 #### 6.10.3.7 结束与中断
 
 - 会话结束时（推流任务进入终态、`StopPullPreview`、远端流结束、ffmpeg 退出、应用退出），分发器关闭，每个 HTTP 响应把已经排队的数据发完再返回，分块传输正常收尾（发出结束标记，不是直接断开连接）。前端的 mpegts.js 收到 `LOADING_COMPLETE`，再按下面的状态显示文字。
-- **推流**沿用 `task:status`：`succeeded` / `canceled` → `推流已结束`；`failed`（不论错误码）→ `推流被中断，请回到直播页重新推流。`。
+- **推流**沿用 `task:status`：`succeeded` / `canceled` → `推流已结束`；`failed`（不论错误码）→ `推流被中断，请回到直播页重新推流。`。**v0.25.3**：开始以后被中断的推流是 `interrupted`（带 `LIVE_PUSH_INTERRUPTED` 等错误，见 6.10 错误分类），直播页同样显示 `推流被中断，请回到直播页重新推流。`；`failed` 只剩开始之前的失败。
 - **拉流预览**新增事件 `live:pull`（拉流预览会话不是任务，没有 `task:status`）：
   ```
-  live:pull  { id, state, error? }
-  state = "playing"      收到第一个 FLV 头（只发一次）
+  live:pull  { id, state, error?, hasVideo?, hasAudio? }
+  state = "playing"      收到第一个 FLV 头（只发一次）；v0.25.3 起带 hasVideo / hasAudio（按 FLV 头里的音视频标志，纯音频 hasVideo=false）
         | "ended"        StopPullPreview，或者远端流正常结束（ffmpeg 退出码 0）
-        | "interrupted"  已经 playing 之后 ffmpeg 非零退出（网络断开、远端异常）
+        | "interrupted"  已经 playing 之后 ffmpeg 非零退出（网络断开、远端异常）；v0.25.3 起带 error：LIVE_PUSH_INTERRUPTED（推流、拉流共用），message “拉流被中断，请重新拉流。”
         | "failed"       playing 之前就失败（连不上、15 秒内没有数据等），error 是分类后的 AppError（LIVE_CONNECT_FAILED / INTERNAL，v0.25.1 起 message 都是“拉流失败，请检查直播地址和网络。”）
         | "unsupported"  编码不能播放，error 为 UNSUPPORTED reason=codec
   ```
@@ -1827,6 +1835,8 @@ CREATE INDEX idx_tasks_hidden_created ON tasks(hidden_in_task_center, created_at
 - **“移除”（`Remove`）只用于非转换任务**：ids 里有 `convert` 任务时整体 `INVALID_ARGUMENT`（6.6），所以任务中心对转换记录的行不显示“移除”。
 - **“重试”是原地的**（6.6 `Retry`）：不会多出一行。收到 `retried: true` 的 `task:status` 时按第 5 节清字段，**上一次运行的显卡编码回退提示（`hwFallback` / `hwFallbackReason`）随之消失**，新运行再回退会重新出现。
 - `UnhideInTaskCenter` 发的 `task:status` 只改 `hiddenInTaskCenter` 和 `version`；“显示已隐藏”关闭时，任务中心收到它可以把这一行加回列表（或直接重新 `List`）。
+- **“失败”数和“失败”页（v0.25.3，架构师定）**：用 `List({statuses: ["failed"]})` 的 `items` / `total`，**不含** `interrupted`（直播中途被中断、应用退出时被中断都是“已中断”，不算失败）。`interrupted` 的行照常出现在“全部”“历史”里，“隐藏已结束”会隐藏它。
+- **“旧版导出”（v0.25.3）**：`edit_export` 记录只能查看和“移除”，不显示“重试”（`Retry` 返回 `UNSUPPORTED` `reason=feature_removed`）。
 
 ### 6.14.12 实现取舍（v0.23.1，随实现 PR 记录）
 
@@ -2375,9 +2385,10 @@ type FFmpegStatus struct {
     State     string `json:"state"`     // checking | ready | missing | outdated | installing | failed
     Path      string `json:"path"`
     Version   string `json:"version"`   // 规范化后的数字版本，如 "9.0.2"、"7.1.5"（v0.22：不含 n 前缀、-static / 发行版后缀和网址）；git 主干构建等没有数字版本时是原样的前 32 个字符
-    Source    string `json:"source"`    // custom | bundled | system | legacy
+    Source    string `json:"source"`    // v0.25.3 起始终有值：ready 时是实际在用的来源 custom | bundled | system | legacy；其他状态是用户的设置：custom（手动指定了路径）| default（没有手动指定）
     TaskID    string `json:"taskId,omitempty"` // installing 时对应的安装任务；无值时不输出，TS 中为 taskId?: string
     FFprobeMissing bool `json:"ffprobeMissing"`   // ready 但没有 ffprobe（v1 的 ffmpeg/ 目录），前端提示补全；探测 / 缩略图用 ffmpeg.RequireProbe() 门控
+    CustomPathInvalid bool `json:"customPathInvalid"` // v0.25.3，始终输出：手动指定的路径不可用。ready + source≠custom = 用的是别处找到的组件、手动路径保留；missing / outdated = 手动路径也不能用。checking / installing / failed 时为 false。后端不带文字
     Error     *AppError `json:"error,omitempty"`  // 无值时不输出，TS 中为 error?: AppError
 }
 
@@ -2389,6 +2400,13 @@ CancelFFmpegInstall() error                  // 取消进行中的安装，保�
 SetFFmpegPath(dir string) (FFmpegStatus, error) // 手动指定，校验失败返回 INVALID_ARGUMENT；传空串清除手动指定并重新检测
 RecheckFFmpeg() (FFmpegStatus, error)
 ```
+
+**v0.25.3（N5）**：
+- `source` 始终有值、`customPathInvalid` 的含义见上面的注释。检测顺序不变（9.1：手动路径优先），所以 `ready` 而 `source` 不是 `custom` 且设置里有手动路径，只能是手动路径不可用、退到了别处。
+- **「恢复默认」用 `SetFFmpegPath("")`**（`UpdateSettings` 把 `ffmpegPath` 改成 `""` 等价）：任何状态（`ready` + 标记、`missing`、`outdated`、`failed`）都清掉手动路径并立即重新检测，发 `checking` 再发结果，返回值和最后一个 `ffmpeg:status` 一致，`customPathInvalid=false`。安装进行中时：清掉设置，返回当前的 `installing`，装完按新设置检测。
+- 安装成功时设置里还有手动路径：按检测顺序重新检测一次（不直接标成 `bundled`），手动路径能用就继续用，不能用就用刚装好的并带标记。
+- 前端提示文字由产品经理定，后端不带文字。
+- **路径**：新字段不含路径。已有的 `path`（当前组件的绝对路径）和 `missing` / `outdated` 时 `error.detail`（逐行 `[来源] 路径: 原因`）仍会把路径给到前端（设置页已经不显示），v0.25.3 没有删；要不要从这两处去掉，等架构师定（`OpenStorageFolder("component")` 内部用的是后端自己的状态，不依赖前端拿到路径）。
 
 `missing` / `outdated` 时 `error` 为 `FFMPEG_NOT_FOUND`（v0.24 起 `message` 不含 “ffmpeg”：`未找到可用的转换组件` / `转换组件版本过低，需要 6 或更高`，1.1），`detail` 逐行列出各候选失败原因（给开发者看，可以含 ffmpeg）；`ready` 时为 null。`GetSettings` / `UpdateSettings`（第 4 节）中 `ffmpegPath`、`ffmpegPromptDismissed` 两项已实现，`UpdateSettings` 改 `ffmpegPath` 时同样校验，失败返回 `INVALID_ARGUMENT` 且整体不生效；其余字段随后续 PR 补充。
 

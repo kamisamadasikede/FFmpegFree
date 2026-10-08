@@ -230,13 +230,13 @@ func notRegular(fi os.FileInfo, p string) error {
 //  4. offset ≥ 当前大小返回 length=0、eof=true；否则读 min(length, 当前大小-offset) 字节。size 字段是本次读取时的当前大小。
 func (s *Service) ReadPDFChunk(hid string, offset int64, length int) (PDFChunk, error) {
 	if length < 1 || length > ChunkBytes {
-		return PDFChunk{}, apperr.New(apperr.InvalidArgument, "length 必须在 1 到 1 MiB 之间").WithDetail(fmt.Sprint(length))
+		return PDFChunk{}, apperr.New(apperr.InvalidArgument, "读取范围不正确").WithDetail(fmt.Sprintf("length=%d，必须在 1 到 1 MiB 之间", length))
 	}
 	if offset < 0 {
-		return PDFChunk{}, apperr.New(apperr.InvalidArgument, "offset 不能为负").WithDetail(fmt.Sprint(offset))
+		return PDFChunk{}, apperr.New(apperr.InvalidArgument, "读取范围不正确").WithDetail(fmt.Sprintf("offset=%d，不能为负", offset))
 	}
 	if offset > math.MaxInt64-int64(length) {
-		return PDFChunk{}, apperr.New(apperr.InvalidArgument, "offset 超出范围").WithDetail(fmt.Sprint(offset))
+		return PDFChunk{}, apperr.New(apperr.InvalidArgument, "读取范围不正确").WithDetail(fmt.Sprintf("offset=%d，超出范围", offset))
 	}
 	h, ok := s.h.get(hid)
 	if !ok {

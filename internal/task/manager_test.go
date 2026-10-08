@@ -171,7 +171,7 @@ func TestFailureRecordsError(t *testing.T) {
 		t.Fatalf("%+v", d.Error)
 	}
 	t3, _ := f.m.Submit(Spec{Type: TypeConvert}, RunnerFunc(func(context.Context, func(Progress)) (string, error) { panic("oops") }))
-	if d := waitTask(t, f.m, t3.ID); d.Status != StatusFailed || !strings.Contains(d.Error.Message, "panic") {
+	if d := waitTask(t, f.m, t3.ID); d.Status != StatusFailed || !strings.Contains(d.Error.Detail, "panic") || strings.Contains(d.Error.Message, "panic") {
 		t.Fatalf("%+v", d)
 	}
 }

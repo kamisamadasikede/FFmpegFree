@@ -38,7 +38,7 @@ func (f FileFilter) NormalizePatterns() ([]string, error) {
 				continue
 			}
 			if !validPattern(p) {
-				return nil, apperr.New(apperr.InvalidArgument, "过滤器格式不对，应为 *.mp4 这样的通配符").WithDetail(p)
+				return nil, apperr.New(apperr.InvalidArgument, "文件类型过滤器格式不对").WithDetail("应为 *.mp4 这样的通配符：" + p)
 			}
 			if k := strings.ToLower(p); !seen[k] {
 				seen[k] = true

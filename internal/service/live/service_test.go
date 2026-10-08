@@ -177,6 +177,10 @@ case "$mode" in
   unknown)
     echo "some unexpected failure $last" >&2
     exit 2 ;;
+  killed)      # 已开始，之后进程被外部强杀（SIGKILL），stderr 没有可认的原因
+    prog 5000 1000000
+    sleep 0.2
+    kill -9 $$ ;;
 esac
 `
 	if err := os.WriteFile(p, []byte(script), 0o755); err != nil {
@@ -578,16 +582,20 @@ func TestNaturalEndIsSucceeded(t *testing.T) {
 // ---------- 错误分类（假 ffmpeg，全部脱敏） ----------
 
 func TestFailureClassificationAndRedaction(t *testing.T) {
+	// 契约 v0.25.3：开始以后被中断（服务器断开、进程被杀）是 interrupted + 直播码，不是 failed，也不是 INTERNAL；
+	// 开始之前的失败仍是 failed。
 	tests := []struct {
 		mode, url string
 		code      apperr.Code
 		first     string
+		status    task.Status
 	}{
-		{"refused", secretURL, apperr.LiveConnectFailed, "scheme=rtmp"},
-		{"rejected", secretURL, apperr.LivePushRejected, ""},
-		{"broken", secretURL, apperr.LivePushInterrupted, ""},
-		{"unknown", secretURL, apperr.Internal, ""},
-		{"refused", "srt://127.0.0.1:9000?streamid=publish:SECRETKEYabc&passphrase=pw123456xyz", apperr.LiveConnectFailed, "scheme=srt"},
+		{"refused", secretURL, apperr.LiveConnectFailed, "scheme=rtmp", task.StatusFailed},
+		{"rejected", secretURL, apperr.LivePushRejected, "", task.StatusFailed},
+		{"broken", secretURL, apperr.LivePushInterrupted, "", task.StatusInterrupted},
+		{"killed", secretURL, apperr.LivePushInterrupted, "", task.StatusInterrupted},
+		{"unknown", secretURL, apperr.Internal, "", task.StatusFailed},
+		{"refused", "srt://127.0.0.1:9000?streamid=publish:SECRETKEYabc&passphrase=pw123456xyz", apperr.LiveConnectFailed, "scheme=srt", task.StatusFailed},
 	}
 	for _, tc := range tests {
 		t.Run(tc.mode+"/"+strings.SplitN(tc.url, ":", 2)[0], func(t *testing.T) {
@@ -598,8 +606,14 @@ func TestFailureClassificationAndRedaction(t *testing.T) {
 				t.Fatal(err)
 			}
 			d := f.wait(t, tk.ID)
-			if d.Status != task.StatusFailed || d.Error == nil || d.Error.Code != tc.code {
-				t.Fatalf("want failed/%s got %+v err=%+v", tc.code, d, d.Error)
+			if d.Status != tc.status || d.Error == nil || d.Error.Code != tc.code {
+				t.Fatalf("want %s/%s got %+v err=%+v", tc.status, tc.code, d, d.Error)
+			}
+			if tc.mode == "killed" && d.Error.Message != ffmpeg.PushInterruptedMessage {
+				t.Fatalf("被杀的推流 message: %q", d.Error.Message)
+			}
+			if ev := f.em.statusEvents(tk.ID); len(ev) == 0 || ev[len(ev)-1].Status != tc.status {
+				t.Fatalf("终态 task:status 应是 %s: %+v", tc.status, ev)
 			}
 			if tc.first != "" && firstLine(d.Error.Detail) != tc.first {
 				t.Fatalf("detail 首行=%q", firstLine(d.Error.Detail))

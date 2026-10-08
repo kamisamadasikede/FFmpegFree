@@ -969,6 +969,8 @@ export namespace live {
 	    redacted: string;
 	    preview: boolean;
 	    previewUrl: string;
+	    hasVideo?: boolean;
+	    hasAudio?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new PullSession(source);
@@ -980,6 +982,8 @@ export namespace live {
 	        this.redacted = source["redacted"];
 	        this.preview = source["preview"];
 	        this.previewUrl = source["previewUrl"];
+	        this.hasVideo = source["hasVideo"];
+	        this.hasAudio = source["hasAudio"];
 	    }
 	}
 	
@@ -1563,6 +1567,7 @@ export namespace system {
 	    version: string;
 	    source: string;
 	    taskId?: string;
+	    customPathInvalid: boolean;
 	    ffprobeMissing: boolean;
 	    error?: apperr.AppError;
 	
@@ -1577,6 +1582,7 @@ export namespace system {
 	        this.version = source["version"];
 	        this.source = source["source"];
 	        this.taskId = source["taskId"];
+	        this.customPathInvalid = source["customPathInvalid"];
 	        this.ffprobeMissing = source["ffprobeMissing"];
 	        this.error = this.convertValues(source["error"], apperr.AppError);
 	    }

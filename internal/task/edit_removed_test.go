@@ -52,8 +52,14 @@ func TestLegacyEditExportRecords(t *testing.T) {
 	for _, id := range []string{"EOK", "EFAIL", "ERUN"} {
 		_, err := f.m.Retry(id)
 		ae := apperr.From(err)
-		if !apperr.Is(err, apperr.Unsupported) || !strings.HasPrefix(ae.Detail, "reason=feature_removed") || !strings.Contains(ae.Message, "剪辑功能已移除") {
+		// v0.25.3：任务中心叫“旧版导出”，只能查看和删除；用户文字里不出现“剪辑”。
+		if !apperr.Is(err, apperr.Unsupported) || !strings.HasPrefix(ae.Detail, "reason=feature_removed") ||
+			ae.Message != "旧版导出记录只能查看和删除，不能重试" || strings.Contains(ae.Message+ae.Detail, "剪辑") {
 			t.Fatalf("Retry(%s) 应 UNSUPPORTED reason=feature_removed: %v (%q)", id, err, ae.Detail)
+		}
+		_, err = f.m.Reconvert(id, ReconvertSpec{}, RunnerFunc(func(context.Context, func(Progress)) (string, error) { return "", nil }))
+		if ae := apperr.From(err); !apperr.Is(err, apperr.Unsupported) || ae.Message != "旧版导出记录只能查看和删除，不能重转" || !strings.HasPrefix(ae.Detail, "reason=feature_removed") {
+			t.Fatalf("Reconvert(%s) 应 UNSUPPORTED reason=feature_removed: %v", id, err)
 		}
 	}
 	if tk, _ := f.m.Get("ERUN"); tk.Status != StatusInterrupted || tk.Version != 2 {

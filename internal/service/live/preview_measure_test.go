@@ -386,8 +386,8 @@ func TestMeasurePushBreakClosesPreview(t *testing.T) {
 	if readErr != io.EOF && readErr != io.ErrUnexpectedEOF {
 		t.Fatalf("应正常收尾: %v", readErr)
 	}
-	if d.Status != task.StatusFailed {
-		t.Fatalf("中断应 failed: %+v", d)
+	if d.Status != task.StatusInterrupted || d.Error == nil || d.Error.Code != apperr.LivePushInterrupted { // v0.25.3：开始后中断记为 interrupted
+		t.Fatalf("中断应 interrupted: %+v", d)
 	}
 	if _, err := r.svc.GetPreviewStream(tk.ID); err == nil {
 		t.Fatal("结束后应 NOT_FOUND")

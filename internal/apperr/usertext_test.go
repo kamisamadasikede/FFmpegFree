@@ -103,3 +103,95 @@ func TestUserFacingTextHasNoFFmpeg(t *testing.T) {
 		t.Fatalf("面向用户的文字里出现了 ffmpeg / ffprobe（契约 1.1，应改称“转换组件”）：\n%s", strings.Join(bad, "\n"))
 	}
 }
+
+// 契约 v0.25.3（架构师定）：错误码和 reason 只给程序用，界面上永远不显示；message 是给用户看的中文。
+// 这里检查 apperr.New / Wrap 的 message 字面量：不含错误码（INTERNAL 等）、不夹英文单词（参数名、英文原句），
+// 格式化的参数不是 %v（%v 常常是英文的错误原文，应放进 detail）。
+func TestUserFacingMessageIsChinese(t *testing.T) {
+	codes := []string{}
+	for _, c := range allCodesForTest {
+		codes = append(codes, string(c))
+	}
+	allowed := map[string]bool{ // 产品名、格式名、平台名：界面上本来就这样写
+		"FFmpegFree": true, "PDF": true, "JSON": true, "Windows": true, "macOS": true, "X11": true, "Office": true, "ID": true,
+	}
+	root := filepath.Join("..", "..")
+	fset := token.NewFileSet()
+	var bad []string
+	check := func(e ast.Expr) {
+		ast.Inspect(e, func(n ast.Node) bool {
+			lit, ok := n.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			s, err := strconv.Unquote(lit.Value)
+			if err != nil {
+				return true
+			}
+			pos := fset.Position(lit.Pos()).String()
+			for _, c := range codes {
+				if strings.Contains(s, c) {
+					bad = append(bad, pos+": 含错误码 "+c+": "+s)
+				}
+			}
+			if strings.Contains(s, "剪辑") { // 契约 v0.23.5 / v0.25.3：剪辑功能已移除，旧记录叫“旧版导出”
+				bad = append(bad, pos+": 出现了“剪辑”: "+s)
+			}
+			if strings.Contains(s, "%v") {
+				bad = append(bad, pos+": message 里用了 %v（英文原文应放进 detail）: "+s)
+			}
+			for _, w := range strings.FieldsFunc(s, func(r rune) bool {
+				return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9')
+			}) {
+				letters := strings.IndexFunc(w, func(r rune) bool { return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' }) >= 0
+				if letters && len(w) >= 2 && !allowed[w] && !strings.HasPrefix(w, "0") {
+					bad = append(bad, pos+": 夹了英文 "+strconv.Quote(w)+": "+s)
+					break
+				}
+			}
+			return true
+		})
+	}
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case "node_modules", "frontend", "build", ".git", "vendor":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		f, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return err
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			x, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			if fn, ok := x.Fun.(*ast.SelectorExpr); ok {
+				if id, ok := fn.X.(*ast.Ident); ok && id.Name == "apperr" && (fn.Sel.Name == "New" || fn.Sel.Name == "Wrap") && len(x.Args) >= 2 {
+					check(x.Args[1])
+				}
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bad) > 0 {
+		t.Fatalf("面向用户的 message 应是中文，不含错误码和英文（契约 v0.25.3）：\n%s", strings.Join(bad, "\n"))
+	}
+}
+
+var allCodesForTest = []Code{InvalidArgument, NotFound, FFmpegNotFound, TaskConflict, IOError, ProcessFailed, UnsupportedPlatform, Internal,
+	ProbeFailed, ConvertDiskFull, Canceled, Unsupported, LiveURLInvalid, LiveConnectFailed, LivePushRejected, LivePushInterrupted,
+	ScreenPermissionDenied, LiveSourceGone}
