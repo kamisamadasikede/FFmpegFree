@@ -3,7 +3,7 @@
     <FIcon :name="kind === 'info' ? 'download' : kind === 'ok' ? 'check' : 'warn'" />
 
     <template v-if="state === 'missing'">
-      <span>未检测到转换组件，转换、剪辑和直播功能暂不可用。</span>
+      <span>未检测到转换组件，转换和直播功能暂不可用。</span>
       <span class="sp" />
       <el-button type="primary" size="small" :disabled="!ffmpeg.installAvailable" @click="safe(() => ffmpeg.startInstall())">{{ ffmpeg.installAvailable ? '立即安装' : '安装功能即将上线' }}</el-button>
       <el-button link type="primary" size="small" @click="safe(ffmpeg.pickPath)">手动指定</el-button>

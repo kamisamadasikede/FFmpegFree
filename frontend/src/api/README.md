@@ -10,7 +10,6 @@
 | 开关 | 文件 | true 时调用 |
 |---|---|---|
 | `LIVE_BACKEND_READY`（已打开，联调中） | `live.ts` | 生成的绑定 `wailsjs/go/app/LiveService`（直接 import，类型用 `models.live.*`），停止走 `TaskService.Cancel`，刷新后 `TaskService.ListActive` 接回。**只有 Wails 里（有 `window.go`）才走真实后端**（`liveIsReal()`），纯浏览器环境仍走模拟；“演示”提示 / 演示素材 / 任务中心“演示”标签只在模拟环境出现 |
-| `EDIT_BACKEND_READY` | `edit.ts` | `window.go.app.EditService.*` |
 | `DOC_BACKEND_READY` | `doc.ts` | 生成绑定 `wailsjs/go/app/DocService`（后端 #29 已合入，开关为 `true`）。纯浏览器（没有 `window.go`）保留模拟，`isDocSim()` 为 true，文档页只在这时显示“演示”提示 |
 | `ABOUT_BACKEND_READY` | `about.ts` | 生成绑定 `wailsjs/go/main/App` 的 `GetAppVersion()` / `GetLicenseText(name)`（后端 #34、#36，已合入，开关为 `true`）。纯浏览器开发环境（没有 `window.go`）始终走模拟：版本“开发版”、许可文本是标注“演示文本”的 OFL 前几行 |
 | `ENCODER_BACKEND_READY`（**`true`**） | `encoder.ts` | `SystemService.ListEncoderDevices()` / `RefreshEncoderDevices()` / `GetEncoderPreference()` / `GetEncoderPreferenceInfo()` / `SetEncoderPreference(id)`（经 `callService`，后端 #60 已合入，绑定在 `wailsjs/go/app/SystemService`）。**已打开**（后端第二个 PR #67 / #68 与前端回退提示接线 #69 都已合入）：Wails 里设置页显示“编码设备”一块并调用真实绑定；纯浏览器（没有 `window.go`）默认不显示，只有地址带 `?enc=` 才显示模拟层（仅开发用）。应急回滚：改回 `false`，设置页和任务里的编码设备界面整体消失 |
@@ -23,7 +22,7 @@
 
 **Live**（`live.ts`）：`startFilePush(FilePushRequest)→Task`、`startScreenPush(ScreenPushRequest)→Task`、`getCaptureCapabilities()`、`listScreens()`、`listCaptureSources()`（v0.14，屏幕 + Windows 窗口；`ScreenPushRequest.captureSourceId` 可选，失效 → `LIVE_SOURCE_GONE`，`?sim_source_gone=1` 让「演示文稿」窗口在列表被拉过一次之后消失（页面选中它 → 开始 → LIVE_SOURCE_GONE → 自动刷新后它不在了），`?sim_sources=loading|fail|empty|screens` 模拟加载中 / 失败 / 空 / 仅屏幕，`?sim_err=LIVE_SOURCE_GONE&sim_reason=window|screen` 注入）、`checkPushURL(url)→PushURLInfo`；停止 `stopPush(taskId)`（= `TaskService.Cancel`）；`listRunning()`（`TaskService.ListActive` 里的 live_*）；`watchLiveTask(id, handlers)`（`task:progress` / `task:status`）；素材 `pickMaterial()`（`SystemService.PickFiles` + `MediaService.Probe`）。任务类型 `live_file_push` / `live_screen_push`，Task 新增 `fps` / `bitrateKbps` / `droppedFrames`。
 
-**Edit**（`edit.ts`）：`validateProject`、`exportProject(EditProject, EditExportOptions)→Task`（契约名 `Export`）、`getPreviewURL(path)`、`saveProject`、`loadProject`、`listProjects(limit)`、`deleteProject`；辅助 `createPreviewSource`（404 后 HEAD 探测、重新取地址）、`findTrackOverlap` / `wouldOverlap`（拖拽 / 放置时拦同轨重叠）、`newVideoClip` / `newAudioClip` / `fillOutSec`（素材加入 clip 时用探测到的时长填 `outSec`，不能是 0）、`checkStructure`（Validate / Export）、`checkSaveLimits`（Save，只查数量上限）、`sanitizeOutputName`。素材用 `system.ts` 的 `pickFiles` 和 `media.ts` 的 `probeFiles` / `thumbnailOf`。任务类型 `edit_export`。
+**Edit**：剪辑功能已整体移除（老板决定，2026-10-08，应用只做转换）。前端不再 import `EditService` 绑定和 `models.edit`；旧的 `edit_export` 任务记录在任务中心照常显示、可以移除，但不能重试（`stores/tasks.ts` 的 `RETIRED_TASK_TYPES`）；旧地址 `#/edit` 重定向到转换页。下文提到剪辑的条目是历史记录。
 
 **Doc**（`doc.ts`）：`getDocCapabilities`、`convertToPDF(inputs, outputDir)→Task[]`（`office_pdf`）、`openPDF(path)→PDFSource`、`readPDFChunk(id, offset, length)`、`readWholePDF(src)`（循环读到 eof，按原始字节处理）、`loadPDF(path)`（≤ 64 MiB 读整份；更大的返回 `/local/<token>`，先 `HEAD` 探测，404 重新 `OpenPDF` 只重试一次）、`listRecentPDFs(limit)`（limit > 200 按 200）、`removeRecentPDFs(ids)`、`listOfficeHistory()`（`TaskService.List` 的 `office_pdf` 终态任务，刷新后接回）；`isExperimental(caps)`。文档页错误文案统一走 `errors/errorMessages.ts` 的 `docErrorText`。
 
