@@ -7,7 +7,8 @@ const SectionTabs = () => import('../views/sections/SectionTabs.vue')
 // 七个一级入口（PRD / 设计规范第 6 节）。有多个子页面的入口用 SectionTabs 渲染页签。
 const routes: RouteRecordRaw[] = [
   { path: '/', name: 'Convert', meta: { title: '格式转换', subtitle: '视频 · 音频 · 转换记录' }, component: () => import('../views/ConvertPage.vue') },
-  { path: '/edit', name: 'Edit', meta: { title: '视频剪辑', subtitle: '多轨时间线 · 单工程最多 100 个片段' }, component: () => import('../views/VideoEditor.vue') },
+  // 剪辑功能已移除（老板决定，2026-10-08，应用只做转换）：旧的 #/edit 地址一律回到转换页
+  { path: '/edit/:pathMatch(.*)*', redirect: '/' },
   {
     path: '/live',
     meta: { title: '直播工具', subtitle: '文件推流 · 录屏推流 · 拉流播放' },
@@ -46,7 +47,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/tasks/:pathMatch(.*)*', redirect: '/tasks' },
   {
     path: '/settings',
-    meta: { title: '设置', subtitle: '外观 · ffmpeg · 转换' },
+    meta: { title: '设置', subtitle: '外观 · 转换组件 · 转换' },
     component: () => import('../views/settings/SettingsLayout.vue'),
     redirect: '/settings/general',
     children: [

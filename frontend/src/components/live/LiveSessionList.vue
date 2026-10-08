@@ -58,7 +58,7 @@ import { formatClock } from '@/composables/useLiveSession'
 defineProps<{ emptyHint: string }>()
 const store = useLiveSessionsStore()
 const ffmpeg = useFFmpegStore()
-const FFMPEG_TIP = '需要先安装 ffmpeg'
+const FFMPEG_TIP = '需要先安装转换组件'
 const blocked = computed(() => ffmpeg.featuresBlocked)
 const now = ref(Date.now())
 const timer = setInterval(() => (now.value = Date.now()), 1000)

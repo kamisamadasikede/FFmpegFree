@@ -3,7 +3,7 @@
     <FIcon :name="kind === 'info' ? 'download' : kind === 'ok' ? 'check' : 'warn'" />
 
     <template v-if="state === 'missing'">
-      <span>未检测到 ffmpeg，转换、剪辑和直播功能暂不可用。</span>
+      <span>未检测到转换组件，转换和直播功能暂不可用。</span>
       <span class="sp" />
       <el-button type="primary" size="small" :disabled="!ffmpeg.installAvailable" @click="safe(() => ffmpeg.startInstall())">{{ ffmpeg.installAvailable ? '立即安装' : '安装功能即将上线' }}</el-button>
       <el-button link type="primary" size="small" @click="safe(ffmpeg.pickPath)">手动指定</el-button>
@@ -11,7 +11,7 @@
     </template>
 
     <template v-else-if="state === 'outdated'">
-      <span>ffmpeg 版本过旧，需要 6.0 或更高版本。</span>
+      <span>转换组件版本过旧，需要 6.0 或更高版本。</span>
       <span class="sp" />
       <el-button link type="primary" @click="safe(ffmpeg.pickPath)">手动指定</el-button>
       <el-button link type="primary" @click="safe(ffmpeg.recheck)">重新检测</el-button>
@@ -20,7 +20,7 @@
     </template>
 
     <template v-else-if="state === 'installing'">
-      <span>正在安装 ffmpeg… {{ percent }}%</span>
+      <span>正在安装转换组件… {{ percent }}%</span>
       <div class="bar"><i :style="{ width: percent + '%' }" /></div>
       <span class="meta" :title="metaText">{{ metaText }}</span>
       <span class="sp" />
@@ -29,7 +29,7 @@
     </template>
 
     <template v-else-if="state === 'failed'">
-      <span>ffmpeg 安装失败：{{ ffmpeg.status.error?.message || '未知错误' }}</span>
+      <span>转换组件安装失败：{{ ffmpeg.status.error?.message || '未知错误' }}</span>
       <span class="sp" />
       <el-button link type="primary" @click="safe(ffmpeg.pickPath)">手动指定</el-button>
       <el-button v-if="ffmpeg.canSwitchMirror" link type="primary" @click="safe(ffmpeg.retryWithOtherMirror)">更换下载源</el-button>
@@ -37,7 +37,7 @@
     </template>
 
     <template v-else-if="kind === 'ok'">
-      <span>ffmpeg 已就绪（版本 {{ ffmpeg.status.version }}）</span>
+      <span>转换组件已就绪（版本 {{ ffmpeg.status.version }}）</span>
     </template>
   </div>
 </template>

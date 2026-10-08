@@ -5,8 +5,8 @@
         <div class="big"><FIcon name="download" :size="24" /></div>
 
         <template v-if="!installing">
-          <h3>需要安装 ffmpeg</h3>
-          <p>应用需要 ffmpeg 才能转换、剪辑和直播。可以现在自动下载安装到应用数据目录，也可以稍后再说。</p>
+          <h3>需要安装转换组件</h3>
+          <p>应用需要转换组件才能转换和直播。可以现在自动下载安装到应用数据目录，也可以稍后再说。</p>
           <div v-if="ffmpeg.status.state === 'failed' && ffmpeg.status.error" class="perr fail" role="alert">
             <FIcon name="warn" :size="14" />
             <span>
@@ -16,10 +16,10 @@
           </div>
           <div v-if="!ffmpeg.installAvailable" class="soon" role="status">
             <FIcon name="warn" :size="14" />
-            <span>安装功能即将上线。已经装过 ffmpeg 的话，可以手动指定位置。</span>
+            <span>安装功能即将上线。已经装过转换组件的话，可以手动指定位置。</span>
           </div>
           <div v-if="ffmpeg.manualInputOpen && !ffmpeg.canPickDirectory" class="manual">
-            <el-input v-model="manualDir" size="default" placeholder="ffmpeg 所在目录，例如 /usr/local/bin" :class="{ 'ff-input-bad': pathError }" @keyup.enter="applyManual" />
+            <el-input v-model="manualDir" size="default" placeholder="转换组件所在文件夹，例如 /usr/local/bin" :class="{ 'ff-input-bad': pathError }" @keyup.enter="applyManual" />
             <el-button size="default" type="primary" :loading="busy" :disabled="!manualDir.trim()" @click="applyManual">确定</el-button>
           </div>
           <div v-if="pathError" class="perr" role="alert">
@@ -37,13 +37,13 @@
             >{{ ffmpeg.installAvailable ? '下载' : '下载（即将上线）' }}</el-button>
           </div>
           <div class="manual-link">
-            <button type="button" class="ff-link" @click="onManual">手动指定 ffmpeg 位置</button>
+            <button type="button" class="ff-link" @click="onManual">手动指定转换组件位置</button>
           </div>
         </template>
 
         <template v-else>
-          <h3>正在安装 ffmpeg</h3>
-          <p>{{ stageText }}，完成后转换、剪辑和直播功能会自动解锁。</p>
+          <h3>正在安装转换组件</h3>
+          <p>{{ stageText }}，完成后转换和直播功能会自动解锁。</p>
           <div class="progress"><i :style="{ width: percent + '%' }" /></div>
           <div class="pmeta">
             <span>{{ percent }}%</span>

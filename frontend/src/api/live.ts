@@ -175,7 +175,7 @@ const SIM_MESSAGES: Record<string, string> = {
   INVALID_ARGUMENT: '参数不合法',
   NOT_FOUND: '输入文件不存在',
   PROBE_FAILED: '无法解析输入文件',
-  FFMPEG_NOT_FOUND: '未找到 ffmpeg 可执行文件',
+  FFMPEG_NOT_FOUND: '未找到转换组件',
   TASK_CONFLICT: '操作冲突，请稍后再试',
   UNSUPPORTED: LIVE_FFMPEG_PROTOCOL_MISSING_TEXT,
   UNSUPPORTED_PLATFORM: '当前系统暂不支持屏幕推流',

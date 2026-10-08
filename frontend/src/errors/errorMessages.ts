@@ -64,7 +64,7 @@ export const errorMessages: Record<ErrorCode, ErrorMessage> = {
   LIVE_CORS_BLOCKED: overlay('播放被跨域限制拦截', '需要流服务器允许跨域访问。'),
   // 直播会话不能重试（后端 Retry 返回 UNSUPPORTED）：不给“重试”，叫法与直播页一致“推流中断”；“自动重连”已作废（设计说明 v0.2）
   LIVE_PUSH_INTERRUPTED: overlay('推流中断', '请回到直播页重新推流。', { taskRow: true, primary: null }),
-  FFMPEG_NOT_FOUND: overlay('未找到 ffmpeg', '请到设置中安装，或手动指定 ffmpeg 路径。', {
+  FFMPEG_NOT_FOUND: overlay('未找到转换组件', '请到设置中安装，或手动指定转换组件的位置。', {
     primary: { label: '去设置', action: 'route', to: '/settings' },
   }),
   // 原型里是弯引号“”，这里跟原型一致
@@ -153,7 +153,7 @@ export const taskErrorMessages: Record<TaskErrorCode, TaskErrorMessage> = {
  * 退出码等技术信息在“查看日志”里（detail / 日志），不放主提示。后端新文案（不含“退出码”）原样使用，不改写。
  */
 export const PROCESS_EXIT_TEXT = '转换被意外中断，可以重试；如果反复出现，请查看日志。'
-const OLD_PROCESS_EXIT = /^ffmpeg\s*(异常退出|退出码)|退出码\s*-?\d+/
+const OLD_PROCESS_EXIT = /^(ffmpeg|转换组件)\s*(异常退出|退出码)|退出码\s*-?\d+/
 export function rewriteProcessExitText(code: string | null | undefined, message: string): string {
   return code === 'PROCESS_FAILED' && OLD_PROCESS_EXIT.test(message) ? PROCESS_EXIT_TEXT : message
 }
@@ -284,7 +284,7 @@ export function liveUrlInvalidText(reason?: string | null): string {
   return (reason && Object.prototype.hasOwnProperty.call(LIVE_URL_INVALID_REASON_TEXT, reason) && LIVE_URL_INVALID_REASON_TEXT[reason]) || LIVE_URL_INVALID_GENERIC
 }
 /** ffmpeg 缺推流协议、detail 里没有认得出的协议名（产品经理定稿） */
-export const LIVE_FFMPEG_PROTOCOL_MISSING_TEXT = '当前 ffmpeg 不支持这种推流协议，请在设置的 ffmpeg 页面重新安装或更新'
+export const LIVE_FFMPEG_PROTOCOL_MISSING_TEXT = '当前转换组件不支持这种推流协议，请在设置的转换组件一栏重新安装或更新'
 /**
  * 开始前 ffmpeg 缺协议（Start* 同步返回 UNSUPPORTED）。格式以契约 §6.10（2.2 错误码 detail 约定表）为准：
  * detail 是单独一行 `missing=<协议名>`，协议名只取 `rtmp` / `rtmps` / `srt`；带本地存档的会话另需 tee，缺时是 `missing=tee`；CheckPushURL 不返回它。
@@ -305,7 +305,7 @@ export function liveMissingProtocolName(detail?: string | null): string | undefi
 }
 export function liveFfmpegProtocolMissingText(detail?: string | null): string {
   const name = liveMissingProtocolName(detail)
-  return name ? `当前的 ffmpeg 不支持 ${name}，请在设置的 ffmpeg 页面重新安装或更新` : LIVE_FFMPEG_PROTOCOL_MISSING_TEXT
+  return name ? `当前转换组件不支持 ${name}，请在设置的转换组件一栏重新安装或更新` : LIVE_FFMPEG_PROTOCOL_MISSING_TEXT
 }
 /** 带存档的会话被强杀且存档保留（status=canceled 且 outputPath 非空）时状态行的文案（设计稿 v0.2 §6.8，产品定稿） */
 export const LIVE_CANCELED_ARCHIVE_KEPT_TEXT = '已强制停止，存档已保留，文件可能不完整'
@@ -385,7 +385,7 @@ const PROBE_ERROR_TEXT: Record<string, string> = {
   NOT_FOUND: '找不到这个文件，可能已被移动或删除。',
   INVALID_ARGUMENT: '这是文件夹或不支持的路径，请选择音视频文件。',
   IO_ERROR: '没有读取这个文件的权限。',
-  FFMPEG_NOT_FOUND: '需要先安装 ffmpeg 才能读取文件信息。',
+  FFMPEG_NOT_FOUND: '需要先安装转换组件才能读取文件信息。',
 }
 export const PROBE_ERROR_TITLE = '无法读取这个文件'
 
