@@ -1,6 +1,6 @@
 # FFmpegFree v2 接口契约（v0.24）
 
-v0.24 变更（存储位置、源文件副本、格式目录、面向用户的文字；**只有契约，前后端按本版并行实现**；完整规则见新增的 **1.1、6.15、6.16、6.17**，本条只是索引）：① **面向用户的文字不出现 “ffmpeg”**（1.1，老板定）：错误的 `message`、`DeleteFailure.message`、复制错误、格式目录的不可用原因、任务标题、设置 / 状态文案一律说“**转换组件**”（如 `当前转换组件不支持输出这个格式`、`转换组件已就绪`）；代码标识符、接口名、事件名、日志、只给开发者看的 `detail` 不受限；本文档里给用户看的示例文案已一并改掉（2、2.2、9.x、LiveService）；② **存储位置**（6.15.1~6.15.2）：程序所在文件夹下建 `output`（转换结果）和 `uploads`（添加的源文件副本）；程序所在文件夹不可写（如 Program Files）时**两个一起**改用用户数据目录；macOS 在 `.app` 包里时直接用用户数据目录；默认输出目录从“与源文件同一个文件夹”改为 `<base>/output`（转换、剪辑导出、Office 转 PDF 的 `outputDir` 传空时都用它）；`Settings` 新增 `uploadsDir`，`defaultOutputDir` 的空值含义改变；新增 `SystemService.GetStorageDirs()`（实际路径 + 是否回退）、`SetStorageDirs(StorageDirsUpdate)`、`OpenStorageFolder(kind)`；**改目录只影响之后的新文件，已有文件不搬，旧记录仍指向原位置**；③ **源文件副本**（6.15.3~6.15.8）：`AddSources` 之后后端在后台把源文件复制到 `uploads/<sourceId>/<原文件名>`，**转换只读副本**；`ConvertSource` 新增 `originalPath`、`storedPath`、`copyState`（`none` / `copying` / `ready` / `failed` / `canceled`）、`copiedBytes`、`totalBytes`、`copyError`；新事件 `convert:copy`（进度与结束）；新增 `ConvertService.CancelCopy(sourceId)`、`RetryCopy(sourceId)`；复制前检查磁盘空间（`CONVERT_DISK_FULL`，`reason=no_space`，`detail` 带 `needBytes` / `freeBytes`，message `磁盘空间不足，需要 X，剩余 Y。`）；`SubmitSources` 遇到还没复制好的行**跳过它们、只提交已就绪的**，返回值改为 `ConvertSubmitResult{tasks, skipped[]}`（**签名变化**），一个都没就绪时才返回 `TASK_CONFLICT`（`reason=copying` / `copy_failed`）；复制中的行不能预览（`GetSourcePreviewURL` 返回 `TASK_CONFLICT`，`reason=copying`）；取消复制的行保留、显示“已取消复制”，`RetryCopy` 可以从 `failed` 或 `canceled` 重来；同一个原文件（**原路径、大小、修改时间都相同**，不算哈希）复用同一份副本；新表 `convert_copies`（`ref_count` 记被几行引用）与迁移 **`0006_storage_copies.sql`**；`DeleteSource` 同时删这一行的副本（引用计数归零才删，**永远不删用户的原文件**）；v0.24 之前的旧行（`copyState=none`）继续读原路径，不补做副本；`ListSources` / `SearchSources` 的 `status=active` 把正在复制的行算进去，`status=failed` 把复制失败的行算进去；④ **格式目录**（6.16）：新增 `ConvertService.GetFormatCatalog()`：视频 / 音频 / 图片三类共 34 种输出格式（新增视频 AVI 默认参数、WMV、MPG、VOB、3GP、SWF、OGV，音频 WMA、AMR、M4R、MP2、APE、WV、Opus 正式入目录、MMF，图片 JPG、PNG（PM 已确认）、WebP、ICO、BMP、TIF、TGA），每项带 `category`、`extension`、`displayName`、`aliases`（中文搜索词）、`encodable`（按当前转换组件真实的 muxer / encoder 检测并缓存，不写死）、不可用时的 `reason` / `reasonCode`、**这个格式可用的预设 `presets[]` 和默认预设 `defaultPresetId`**（预设按格式归到“参数”下拉里；每个格式都有一个内置默认预设，内置预设从 12 个增加到 38 个）；`ConvertOptions` 的容器和编码取值随之扩充；图片输出：图片输入出图片，视频输入**取第 1 秒那一帧，不足 1 秒取第一帧**（UI 设计定），不做序列帧；不可输出的格式照样列出，提交时 `UNSUPPORTED`（`reason=format`），所选编码缺编码器时 `reason=encoder`（2.2 新值）；**模糊搜索只在前端做**；⑤ 6.14.7 预览 / 系统打开白名单按新格式扩充，**AVI、FLV 移出应用内预览**（WebView 播不了，改为“用系统程序打开”），新增可预览的 `opus`、`ogv`、`m4r`、`webp`、`bmp`、`ico`、`jpg`、`png`；APE 等只能读不能写的格式可以作为输入；⑥ **成功任务的结果警告**（走查 X1）：`TaskResult` 新增 `warnings []string`（机器码），第一个是 `short_output`（输出时长 < 预期的 90% 且短 2 秒以上，预期 = 输入时长 − 裁剪），记录仍是成功，前端显示徽标“时长偏短”、悬停“转换结果比原文件短很多，原文件可能已损坏，请预览检查。”（PM 已定），阈值由后端定义，见 6.14.6；⑦ **`Reconvert` 改为原地重新转换（老板定）**：同一任务 id、同一条记录、同一输出路径和文件名（不加 “(1)”）；新结果写同目录临时文件，**成功后才原子替换**旧输出；失败 / 取消时旧输出不动，`result` 保留上一次的；可以换参数（写新快照），不能换格式；不隐藏；替换失败返回任务错误 `IO_ERROR`（`reason=in_use` / `permission` / `io`）；旧输出被用户换掉或挪走时另写新文件，不覆盖别人的文件；事件同原地重试；**签名改为 `Reconvert(ReconvertRequest)`**；转换页在成功记录上提供入口，取代“新增一条、v1 没有入口”。见新增的 **6.17**。**没有新增错误码**（2.1 仍是 18 个），新增的是 2.2 的 `reason=` 取值。
+v0.24 变更（存储位置、源文件副本、格式目录、面向用户的文字；**只有契约，前后端按本版并行实现**；完整规则见新增的 **1.1、6.15、6.16、6.17**，本条只是索引）：① **面向用户的文字不出现 “ffmpeg”**（1.1，老板定）：错误的 `message`、`DeleteFailure.message`、复制错误、格式目录的不可用原因、任务标题、设置 / 状态文案一律说“**转换组件**”（如 `当前转换组件不支持输出这个格式`、`转换组件已就绪`）；代码标识符、接口名、事件名、日志、只给开发者看的 `detail` 不受限；本文档里给用户看的示例文案已一并改掉（2、2.2、9.x、LiveService）；② **存储位置**（6.15.1~6.15.2）：程序所在文件夹下建 `output`（转换结果）和 `uploads`（添加的源文件副本）；程序所在文件夹不可写（如 Program Files）时**两个一起**改用用户数据目录；macOS 在 `.app` 包里时直接用用户数据目录；默认输出目录从“与源文件同一个文件夹”改为 `<base>/output`（转换、剪辑导出、Office 转 PDF 的 `outputDir` 传空时都用它）；`Settings` 新增 `uploadsDir`，`defaultOutputDir` 的空值含义改变；新增 `SystemService.GetStorageDirs()`（实际路径 + 是否回退）、`SetStorageDirs(StorageDirsUpdate)`、`OpenStorageFolder(kind)`；**改目录只影响之后的新文件，已有文件不搬，旧记录仍指向原位置**；③ **源文件副本**（6.15.3~6.15.8）：`AddSources` 之后后端在后台把源文件复制到 `uploads/<sourceId>/<原文件名>`，**转换只读副本**；`ConvertSource` 新增 `originalPath`、`storedPath`、`copyState`（`none` / `copying` / `ready` / `failed` / `canceled`）、`copiedBytes`、`totalBytes`、`copyError`；新事件 `convert:copy`（进度与结束）；新增 `ConvertService.CancelCopy(sourceId)`、`RetryCopy(sourceId)`；复制前检查磁盘空间（`CONVERT_DISK_FULL`，`reason=no_space`，`detail` 带 `needBytes` / `freeBytes`，message `磁盘空间不足，需要 X，剩余 Y。`）；`SubmitSources` 遇到还没复制好的行**跳过它们、只提交已就绪的**，返回值改为 `ConvertSubmitResult{tasks, skipped[]}`（**签名变化**），一个都没就绪时才返回 `TASK_CONFLICT`（`reason=copying` / `copy_failed`）；复制中的行不能预览（`GetSourcePreviewURL` 返回 `TASK_CONFLICT`，`reason=copying`）；取消复制的行保留、显示“已取消复制”，`RetryCopy` 可以从 `failed` 或 `canceled` 重来；同一个原文件（**原路径、大小、修改时间都相同**，不算哈希）复用同一份副本；新表 `convert_copies`（`ref_count` 记被几行引用）与迁移 **`0006_storage_copies.sql`**；`DeleteSource` 同时删这一行的副本（引用计数归零才删，**永远不删用户的原文件**）；v0.24 之前的旧行（`copyState=none`）继续读原路径，不补做副本；`ListSources` / `SearchSources` 的 `status=active` 把正在复制的行算进去，`status=failed` 把复制失败的行算进去；④ **格式目录**（6.16）：新增 `ConvertService.GetFormatCatalog()`：视频 / 音频 / 图片三类共 34 种输出格式（新增视频 AVI 默认参数、WMV、MPG、VOB、3GP、SWF、OGV，音频 WMA、AMR、M4R、MP2、APE、WV、Opus 正式入目录、MMF，图片 JPG、PNG（PM 已确认）、WebP、ICO、BMP、TIF、TGA），每项带 `category`、`extension`、`displayName`、`aliases`（中文搜索词）、`encodable`（按当前转换组件真实的 muxer / encoder 检测并缓存，不写死）、不可用时的 `reason` / `reasonCode`、**这个格式可用的预设 `presets[]` 和默认预设 `defaultPresetId`**（预设按格式归到“参数”下拉里；每个格式都有一个内置默认预设，内置预设从 12 个增加到 38 个）；`ConvertOptions` 的容器和编码取值随之扩充；图片输出：图片输入出图片，视频输入**取第 1 秒那一帧，不足 1 秒取第一帧**（UI 设计定），不做序列帧；不可输出的格式照样列出，提交时 `UNSUPPORTED`（`reason=format`），所选编码缺编码器时 `reason=encoder`（2.2 新值）；**模糊搜索只在前端做**；⑤ 6.14.7 预览 / 系统打开白名单按新格式扩充，**AVI、FLV 移出应用内预览**（WebView 播不了，改为“用系统程序打开”），新增可预览的 `opus`、`ogv`、`m4r`、`webp`、`bmp`、`ico`、`jpg`、`png`；APE 等只能读不能写的格式可以作为输入；⑥ **成功任务的结果警告**（走查 X1）：`TaskResult` 新增 `warnings []string`（机器码），第一个是 `short_output`（输出时长 < 预期的 90% 且短 2 秒以上，预期 = 输入时长 − 裁剪），记录仍是成功，前端显示徽标“时长偏短”、悬停“转换结果比原文件短很多，原文件可能已损坏，请预览检查。”（PM 已定），阈值由后端定义，见 6.14.6；⑦ **`Reconvert` 改为在同一条记录上原地重转（老板定，细节由 PM / 前端 / 设计定）**：不加新方法，参数改为 `ReconvertRequest{taskId, presetId?, options?}`（不给就沿用原参数快照，给了必须同格式，否则 `INVALID_ARGUMENT` `reason=format_change`）。只用于 `succeeded`，否则 `TASK_CONFLICT` `reason=invalid_state`。同一任务 id、同一输出路径和文件名（不加 “(1)”）。重转中 `reconverting=true`、显示“重转中”和进度，旧 `result` 和旧文件照常可预览 / 打开 / 显示所在文件夹。新结果写同目录临时文件 `<名>.reconvert-<taskId>.part.<扩展名>`，**成功后原子替换**并换上新的 `result` / 参数快照 / `finishedAt`。**失败或取消都恢复成 `succeeded`**，旧结果、参数快照、`finishedAt` 原样恢复，旧文件不动；失败写 `lastReconvertError{code, message, detail, at}`（前端显示“重转失败，原来的文件没有变动。”），取消不写；终态事件带 `reconvertOutcome` 区分两者。临时文件在每条路径上都清理，启动时做崩溃恢复和孤儿扫描。重转中删除先取消再删。旧输出被用户换掉时另写新文件，不覆盖。新迁移 `0007_reconvert.sql`。转换页在成功记录上提供入口；任务中心没有入口，`List` 显示状态。见新增的 **6.17**。**没有新增错误码**（2.1 仍是 18 个），新增的是 2.2 的 `reason=` 取值。
 
 v0.23.3 变更（没有新增接口、错误码或事件）：**删除失败后“打开所在文件夹”在任何位置都能用**。`DeleteRecords` / `DeleteSource` 返回的 `failures` 里 `path` 非空的项（`in_use` / `permission` / `not_task_output` / `io`），在**同一次运行里、该删除调用之后 10 分钟内**可以用 `RevealInFolder(path)` 打开所在文件夹，不受 `defaultOutputDir` 范围限制（6.8 第 3 类放行路径）。后端只把**这条记录登记的输出路径本身**放进内存里的放行表（按 Clean 后的路径精确匹配，大小写规则同 6.8；符号链接不算；最多保留最新的 100 个；不落库，重启即清空）；`not_task_output` 也一样——删除只尝试记录登记的输出，所以它的 `path` 就是登记的输出路径，绝不放行任意路径。其他路径的规则不变。6.14.1 的例外说明随之更新（去掉“前端静默忽略 `INVALID_ARGUMENT`”）。
 
@@ -160,7 +160,7 @@ export type AppErrorCode =
 | `LIVE_SOURCE_GONE`（v0.14，`StartScreenPush` 的所选来源已不可用） | `kind=<值>` | `window`（窗口已关闭 / 最小化 / 不可见）、`screen`（屏幕序号不存在）（只追加） | 只有这一行，没有第二行（不带窗口标题、不带地址）；前端用 `^kind=(window\|screen)$` 匹配（未知值按通用文案）；前端不必解析也能工作：码本身就足够提示「所选窗口已不可用」 |
 | DocService 错误（v0.16，`ConvertToPDF` 的同步校验和 `office_pdf` 任务的 `error`、`OpenPDF`、`ReadPDFChunk`；只有下面取值对应的场景，其余 Doc 错误没有 reason） | `reason=<值>` | `too_many_pages`（`UNSUPPORTED`，超过 5000 页，含文字量超限）、`format`（`UNSUPPORTED` 或 `INVALID_ARGUMENT`，格式不受支持：不支持的扩展名、没有扩展名、`OpenPDF` 的扩展名不是 `.pdf` / 内容不是 PDF）、`encrypted`（`UNSUPPORTED`，加密的 Office 文档，OLE 容器；**加密 PDF 能正常打开，不会有这个错误**）、`no_font`（`UNSUPPORTED`，需要 Unicode 字体而没有）、`invalid_ooxml`（`INVALID_ARGUMENT`，不是 zip、缺必需部件、XML 损坏、zip64 目录信息无效）、`too_large`（`INVALID_ARGUMENT`，超大小或超 zip 限制：文件 > 100 MiB、PDF > 512 MiB、zip 条目数 > 100 000、中央目录 > 9 600 000 字节、单个条目解压后 > 256 MiB）（只追加，不改名、不改含义、不删除） | `code` 和 `message` 不变，`message` 是给用户看的短句（精确文案见 6.12.6）；首行之后可以有自由文本行：`ConvertToPDF` 整体校验失败时**第二行是出错文件的绝对路径**（`reason` 行永远在首行），再后面是原因说明；任务的 `error` 没有路径行。取消、磁盘满（`CONVERT_DISK_FULL`）、读写失败（`IO_ERROR`）、`NOT_FOUND`、路径 / 参数 / 输出目录 / 句柄类的 `INVALID_ARGUMENT`、`INTERNAL` **没有 reason**，走该码的通用文案 |
 | 转换记录接口（v0.23，6.14：`ConvertService` 的 `ListSourceRecords` / `PreviewOutputName` / `SubmitSources` / `Reconvert` / `DeleteSource` / `GetSourcePreviewURL` / `OpenSourceWithSystem` / `RevealSource` / `GetSource` / `RevealRecord`（v0.23.1），`GetRecordThumbnail` / `GetSourceThumbnail`，`AddSources` 的单项错误，`TaskService` 的 `GetPreviewURL` / `OpenWithSystem` / `UnhideInTaskCenter`；只有下面取值对应的场景） | `reason=<值>` | `NOT_FOUND`：`record`（任务、源文件行或预设记录不存在，含旧类型 id）、`file`（记录在，但登记的文件已不存在或不是普通文件；任务不是 `succeeded` 时 `which=output` 也是它）、`no_app`（系统没有能打开这个文件的程序，message 固定 `没有找到能打开这个文件的程序`）；`UNSUPPORTED`：`format`（扩展名不在 6.14.7 的预览 / 系统打开白名单；缩略图接口上表示这个文件做不出缩略图，如纯音频，见 6.14.10）（只追加，不改名、不改含义、不删除） | `detail` 只有这一行；`SubmitSources` / `Reconvert` 只用 `reason=record`（id 不存在），**源文件本身的问题（不存在、探测失败、参数不兼容）仍按 6.9：`detail` 第一行是文件路径、没有 reason 行**；其余 6.14 的错误（`INVALID_ARGUMENT`、`TASK_CONFLICT`、`PROCESS_FAILED`、`INTERNAL`）没有 reason，走通用文案 |
-| 存储与副本、格式目录、原地重新转换（v0.24，6.15 / 6.16 / 6.17：`ConvertSource.copyError`、重新转换任务替换旧输出失败时的 `error`、`AddSources` 的单项错误、`SubmitSources` / `Submit` / `Reconvert` / `Retry` / `GetSourcePreviewURL` 的同步错误、`CancelCopy` / `RetryCopy`、`OpenStorageFolder`；只有下面取值对应的场景） | `reason=<值>` | `CONVERT_DISK_FULL`：`no_space`（复制前空间不够或复制时写满；**后面固定两行 `needBytes=<整数>`、`freeBytes=<整数>`**，单位字节）；`IO_ERROR`：`in_use` / `permission` / `io`（v0.24 原地重新转换替换旧输出失败，任务的 `error`，第二行是 `outputPath`，6.17.4）、`source_changed`（复制期间原文件被修改）、`interrupted`（应用退出时还没复制完）；`TASK_CONFLICT`：`copying`（`SubmitSources` 选中的行**全部**没就绪且有正在复制的、`Reconvert` 的行在复制、`GetSourcePreviewURL` 的行在复制）、`copy_failed`（`SubmitSources` 选中的行全部复制失败或已取消、`Reconvert` 的行复制失败或已取消）（`SubmitSources` / `Reconvert` 的这两个后面一行 `sourceId=<id>`；`GetSourcePreviewURL` 只有一行）；`UNSUPPORTED`：`format`（格式不可输出，或 `AddSources` 的扩展名不在输入列表）、`encoder`（所选编码在当前转换组件里没有编码器）；`NOT_FOUND`：`file`（原文件不在、自定义保存位置不在）（只追加，不改名、不改含义、不删除） | 首行之后的行只有上面写明的 `needBytes` / `freeBytes` / `sourceId`，前端按 `^(needBytes|freeBytes)=([0-9]+)$`、`^sourceId=([0-9A-Z]+)$` 取；没有 reason 的复制错误（权限、其他读写失败）走该码的通用文案。`TASK_CONFLICT` 的这两个取值是“直播会话冲突以外的 `TASK_CONFLICT` 没有 `reason=` 行”的例外 |
+| 存储与副本、格式目录、原地重新转换（v0.24，6.15 / 6.16 / 6.17：`ConvertSource.copyError`、`lastReconvertError.detail`（6.17.5）、`Reconvert` 的同步错误（`TASK_CONFLICT` `reason=invalid_state`、`INVALID_ARGUMENT` `reason=format_change`）、`AddSources` 的单项错误、`SubmitSources` / `Submit` / `Reconvert` / `Retry` / `GetSourcePreviewURL` 的同步错误、`CancelCopy` / `RetryCopy`、`OpenStorageFolder`；只有下面取值对应的场景） | `reason=<值>` | `CONVERT_DISK_FULL`：`no_space`（复制前空间不够或复制时写满；**后面固定两行 `needBytes=<整数>`、`freeBytes=<整数>`**，单位字节）；`IO_ERROR`：`in_use` / `permission` / `io`（v0.24 原地重转替换旧输出失败，出现在 `lastReconvertError.detail`，第二行是目标路径，6.17.5）、`source_changed`（复制期间原文件被修改）、`interrupted`（应用退出时还没复制完）；`TASK_CONFLICT`：`invalid_state`（`Reconvert` 的记录不是 `succeeded` 或已在重转，6.17.1）、`copying`（`SubmitSources` 选中的行**全部**没就绪且有正在复制的、`Reconvert` 的行在复制、`GetSourcePreviewURL` 的行在复制）、`copy_failed`（`SubmitSources` 选中的行全部复制失败或已取消、`Reconvert` 的行复制失败或已取消）（`SubmitSources` / `Reconvert` 的这两个后面一行 `sourceId=<id>`；`GetSourcePreviewURL` 只有一行）；`INVALID_ARGUMENT`：`format_change`（`Reconvert` 换了输出格式，6.17.1）；`UNSUPPORTED`：`format`（格式不可输出，或 `AddSources` 的扩展名不在输入列表）、`encoder`（所选编码在当前转换组件里没有编码器）；`NOT_FOUND`：`file`（原文件不在、自定义保存位置不在）（只追加，不改名、不改含义、不删除） | 首行之后的行只有上面写明的 `needBytes` / `freeBytes` / `sourceId`，前端按 `^(needBytes|freeBytes)=([0-9]+)$`、`^sourceId=([0-9A-Z]+)$` 取；没有 reason 的复制错误（权限、其他读写失败）走该码的通用文案。`TASK_CONFLICT` 的这两个取值是“直播会话冲突以外的 `TASK_CONFLICT` 没有 `reason=` 行”的例外 |
 | 其余所有码（含 `LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`INTERNAL`） | 无固定格式 | — | 前端**不得**解析（上面几行列出的码 / 场景除外） |
 
 统一规则：第一行只有一个 `key=value`，值只含小写字母、数字、下划线（`scheme` 例外；`kind` 的取值是 `window` / `screen`，取值就是上面三个小写单词）；前端用 `^(reason|scheme|kind)=([a-z0-9_]+)$` 匹配 `detail` 的第一行；**没有第一行、格式不对、或值不认识，一律走该错误码的通用文案**，不得猜测含义、不得报错崩溃。测试必须逐码断言第一行精确等于期望值（不是包含）。
@@ -234,6 +234,8 @@ type Task struct {
     // 以下三项 v0.23（迁移 0005，见 6.14）：
     SourceID           string      `json:"sourceId,omitempty"` // 只有 convert 任务有：所属源文件行（convert_sources.id）
     HiddenInTaskCenter bool        `json:"hiddenInTaskCenter"` // 始终输出；true = 任务中心已隐藏（“隐藏已结束”），转换页照常显示；原地重试时清回 false
+    Reconverting       bool            `json:"reconverting"`                 // v0.24：始终输出；true = 正在原地重转（6.17）
+    LastReconvertError *ReconvertError `json:"lastReconvertError,omitempty"` // v0.24：最近一次重转失败的信息（6.17.2）
     Result             *TaskResult `json:"result,omitempty"`   // 只有成功的 convert 任务有：完成时探测输出得到 {sizeBytes, durationSec, width, height, audioBitrateKbps, warnings}，见 6.14.2（warnings 是 v0.24，6.14.6）
 }
 
@@ -309,7 +311,7 @@ SearchSources(filter ConvertSearchFilter) (ConvertSourcePage, error)
 CheckSources(sourceIDs []string) ([]SourcePathCheck, error)
 PreviewOutputName(sourceID string, opts ConvertOptions, outputDir string) (string, error)
 SubmitSources(req ConvertSubmitRequest) (ConvertSubmitResult, error) // v0.24：返回 {tasks, skipped}，副本没就绪的行跳过（6.15.4 第 6 条）
-Reconvert(req ReconvertRequest) (Task, error) // v0.24：原地重新转换（同一 id、同一输出路径，成功后才替换旧输出），可换参数不可换格式，见 6.17
+Reconvert(req ReconvertRequest) (Task, error) // v0.24：同一条记录原地重转（只用于 succeeded；成功后原子替换旧输出，失败 / 取消恢复成 succeeded），参数可选、只能同格式，见 6.17
 DeleteRecords(taskIDs []string, deleteOutputs bool) (DeleteResult, error)
 DeleteSource(sourceID string, deleteOutputs bool) (DeleteResult, error)
 GetSourcePreviewURL(sourceID string) (PreviewURL, error)
@@ -551,7 +553,7 @@ OpenWithSystem(taskID string, which string) error               // which = "inpu
 |---|---|---|
 | `task:created` | `Task` | 每次 |
 | `task:progress` | `{ id, version, progress, speed, etaSec, outTimeSec, fps?, bitrateKbps?, droppedFrames?, encoder?, encoderDevice?, hwFallback?, hwFallbackReason? }`（fps / bitrateKbps / droppedFrames 只有直播任务才有，见下；后四项 v0.18，与 `Task` 同名字段一致，见 9.7） | 每任务最多 4 次/秒 |
-| `task:status` | `{ id, version, status, error?, outputPath?, startedAt?, finishedAt?, encoder?, encoderDevice?, hwFallback?, hwFallbackReason?, progress?, result?, retried?, hiddenInTaskCenter? }`（encoder 等四项 v0.18，见 9.7；`progress` / `result` / `retried` / `hiddenInTaskCenter` v0.23，见下） | 状态变化时 |
+| `task:status` | `{ id, version, status, error?, outputPath?, startedAt?, finishedAt?, encoder?, encoderDevice?, hwFallback?, hwFallbackReason?, progress?, result?, retried?, hiddenInTaskCenter?, reconverting?, reconvertOutcome?, lastReconvertError? }`（v0.24：后三项见 6.17.2）（encoder 等四项 v0.18，见 9.7；`progress` / `result` / `retried` / `hiddenInTaskCenter` v0.23，见下） | 状态变化时 |
 | `task:removed` | `{ ids: string[] }` | 每次 |
 | `ffmpeg:status` | `FFmpegStatus`（见第 9 节） | 检测完成、安装状态变化时 |
 | `convert:copy` | `{ sourceId, seq, copyState, copiedBytes, totalBytes, storedPath, error? }`（v0.24，6.15.4 第 5 条） | 开始、复制中每个副本最多 4 次/秒、结束时 |
@@ -616,7 +618,7 @@ schema_migrations(version PK, applied_at)
   - **与 v0.18 编码器字段的关系**：`encoder` / `encoderDevice` / `hwFallback` / `hwFallbackReason` 由 `Submit`（v0.23 起也包括原地重试）在任务落库前从 Runner 的 `EncoderReporter` 一次性写入，而 `NeverRan` 只影响输出路径，所以**从未运行的任务上这四个字段是提交时（原地重试后则是重试时）解析出来的值，不是空**（例如排队中被取消的 h264 转换任务带 `libx264` / `cpu`，所选设备当时不可用的带 `hwFallback=true`、`device_unavailable`；实现了 `EncoderReporter` 才有，纯音频转换、Office 转 PDF、ffmpeg 安装这类没有视频编码器的任务本来就为空）。因为 `Run` 没执行过，**不会发生运行中的硬件编码回退**，不会补发 `running` 事件，所以字段不会再变。前端不要把“这四个字段有值”理解为“这个任务真的编码过”，要看是否有 `startedAt`。
 - `Retry`（**v0.23 改为原地重试**，取代“生成新任务”）：**复用原任务的 id**，把同一条记录重置回 `queued` 重新排队；**统一覆盖所有注册了 Factory 的类型，不按类型区分**（目前 `convert`、`edit_export`、`office_pdf`、`ffmpeg_install`；以后新增可重试的类型也按原地重试；v0.22 及之前这里写的“只有 `ffmpeg_install`”已过时）。
   - **允许的状态**：`failed`、`interrupted`、`canceled`。仍在 `queued` / `running` 返回 `TASK_CONFLICT`（`任务仍在进行，请先取消`）；`succeeded` 返回 `TASK_CONFLICT`（`任务已经成功完成，不能重试`；所有类型都一样；转换任务需要重新转换用 `ConvertService.Reconvert`，v0.24 起是原地的，见 6.17）。没有 Factory 的类型 `UNSUPPORTED`（直播会话同前）；不存在 `NOT_FOUND`；**旧类型（"保留但不再产生"的类型）的 id 先判为 `NOT_FOUND`，不落 `UNSUPPORTED`**（6.10 确认项 ⑧）。
-  - **步骤**：① 用 Factory 按 `params` 重建 Runner（重新探测输入、重新校验参数；失败直接返回错误，**记录原样不动、不发事件**，如输入已删除 `NOT_FOUND`）；② 走 `RunWithPart` 的类型：删掉上一次运行在原 `outputPath` 上留下的 `.part`（只删普通文件、不是符号链接、修改时间不早于上一次 `startedAt − 3 秒`；上一次从未运行则不删）；③ 重新占位**原输出名**（v0.24：`params.replace` 不为空的转换记录按 6.17.4 处理，用同一路径替换、不顺延，也不清 `result`）：原 `outputPath` 仍然可用（规则同 6.14.5：磁盘上没有、没有 `.part`、没被其他未结束任务占）就继续用它，否则按该类型的重名格式顺延（`convert` 是 `a (1).mp4`，其他类型是 `a(1).mp4`，见 6.14.5）；④ 重置字段并落库；⑤ 在任务日志末尾追加一行 `[FFmpegFree] 重新开始（重试）`（日志文件和轮转规则不变）；⑥ 发**一次** `task:status`（`status: "queued"`、`retried: true`、`progress: 0`、新的 `outputPath` 和编码器字段）；⑦ 入队。`Claimer` 的 `Submitted` / `Abandoned` 调用时机与 `Submit` 相同。
+  - **步骤**：① 用 Factory 按 `params` 重建 Runner（重新探测输入、重新校验参数；失败直接返回错误，**记录原样不动、不发事件**，如输入已删除 `NOT_FOUND`）；② 走 `RunWithPart` 的类型：删掉上一次运行在原 `outputPath` 上留下的 `.part`（只删普通文件、不是符号链接、修改时间不早于上一次 `startedAt − 3 秒`；上一次从未运行则不删）；③ 重新占位**原输出名**：原 `outputPath` 仍然可用（规则同 6.14.5：磁盘上没有、没有 `.part`、没被其他未结束任务占）就继续用它，否则按该类型的重名格式顺延（`convert` 是 `a (1).mp4`，其他类型是 `a(1).mp4`，见 6.14.5）；④ 重置字段并落库；⑤ 在任务日志末尾追加一行 `[FFmpegFree] 重新开始（重试）`（日志文件和轮转规则不变）；⑥ 发**一次** `task:status`（`status: "queued"`、`retried: true`、`progress: 0`、新的 `outputPath` 和编码器字段）；⑦ 入队。`Claimer` 的 `Submitted` / `Abandoned` 调用时机与 `Submit` 相同。
   - **重置的字段**：`status` → `queued`；`progress` → 0（直播不会走到这里）；`speed` → `""`；`etaSec` → 0；`startedAt` / `finishedAt` → 0；`encoder` / `encoderDevice` / `hwFallback` / `hwFallbackReason` → 先清空，再按新 Runner 的 `EncoderReporter` 写入（没有就保持空）；`error` → 无；`result` → 无；`outputPath` → 第 ③ 步的结果；`hiddenInTaskCenter` → `false`（任务又在进行了，任务中心要能看到）；`version` +1。
   - **不变的字段**：`id`、`type`、`title`、`inputPaths`、`sourceId`、`createdAt`（所以在列表里的位置不变）、**`params`（含 `presetId` / `presetName` / `paramsSummary`，是提交时的快照，重试不改）**、日志路径。源文件行的 `lastActivityAt` 不更新。
   - **不发** `task:created`，也不发 `task:removed`；前端按 5 节 `retried` 的规则原地更新。
@@ -625,7 +627,7 @@ schema_migrations(version PK, applied_at)
 - 输出文件用 `task.RunWithPart`：选出不冲突的最终路径（重名追加 `(1)`、`(2)`，无空格；`convert` 例外，名字在提交时已按 `a (1).mp4` 定好，见 6.14.5），写 `<name>.part.<原扩展名>`，成功后改名，失败或取消删除 `.part`。**例外：直播屏幕推流的本地存档不走 `RunWithPart`**（分片 mp4 直接写最终文件名，强杀 / 失败后保留，见 6.10）。
 - `task.FFmpegRunner` + `ffmpeg.Run` 是 ffmpeg 任务的通用执行体：自动加 `-hide_banner -nostats -y -progress pipe:1`（不需要 stdin 时再加 `-nostdin`；直播优雅停止和外部 stdin 的任务不加），解析 `out_time_us` / `speed` / `fps` / `bitrate` / `progress=end`，保留 stderr 尾部，提供错误分类钩子（直播的 `LIVE_*` 分类由直播 PR 提供）；`FFmpegRunner` 目前只支持单次 ffmpeg 调用（两遍编码暂缓，见 v0.7.2），`ProgressBase` / `ProgressScale` 用来把一次调用的进度映射到任务整体进度区间（供以后多步骤任务使用）。
 - **子进程回收（v0.9.2）**：所有 ffmpeg / ffprobe 子进程经 `proc.Start` / `proc.Run` 启动。Windows 上会为每个子进程创建一个 Job Object（`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`）并把进程放进去，Job 句柄由应用进程持有：应用崩溃 / 被任务管理器结束时系统关闭句柄，ffmpeg 和它派生的进程一起被系统结束；进程正常退出后应用关闭句柄（同样结束遗留的子孙）。创建 / 加入 Job 失败不影响启动，此时结束进程树走 `taskkill /T /F`。macOS / Linux 不变（`Setpgid` 进程组；应用崩溃时 ffmpeg 不会被自动回收，读不到 stdin / 管道时通常会自己退出）。`proc.Start` 到加入 Job 之间有极短窗口，窗口内派生的孙进程不进 Job（ffmpeg 启动时不会立刻派生）。**没有 Windows 真机验证**，只有交叉编译和 Linux 上的回退顺序 / 登记表测试，Windows 专属测试文件已写但未运行。
-- 启动：`store.MarkInterrupted` 在打开数据库后立即执行，上次未结束的 `queued` / `running` 变 `interrupted`，**不会自动恢复执行**，用户可在任务中心点重试。退出：`Manager.Shutdown` 取消所有任务并等待收尾（最多 8 秒；存在有本地存档的直播会话时最多 16 秒，见 6.10；等待期间前端显示"正在停止…"，超时走强杀），再关闭数据库。**已由 #31 实现**（见 6.10.2 第 3 项）：`app.go` 的 `shutdown` 在有带存档的直播会话时等 16 秒，否则 8 秒。
+- 启动：`store.MarkInterrupted` 在打开数据库后立即执行（v0.24：在它之前先处理 `reconverting=1` 的转换记录，恢复成 `succeeded` 或按成功收尾，不变 `interrupted`，见 6.17.5），上次未结束的 `queued` / `running` 变 `interrupted`，**不会自动恢复执行**，用户可在任务中心点重试。退出：`Manager.Shutdown` 取消所有任务并等待收尾（最多 8 秒；存在有本地存档的直播会话时最多 16 秒，见 6.10；等待期间前端显示"正在停止…"，超时走强杀），再关闭数据库。**已由 #31 实现**（见 6.10.2 第 3 项）：`app.go` 的 `shutdown` 在有带存档的直播会话时等 16 秒，否则 8 秒。
 
 ## 6.7 媒体探测与缩略图实现约定（v0.8）
 
@@ -656,7 +658,7 @@ schema_migrations(version PK, applied_at)
 
 ## 6.9 ConvertService 实现约定（v0.9）
 
-- 绑定：`ListPresets() []Preset`、`SavePreset(p Preset) Preset`、`DeletePreset(id)`、`Submit(inputs []string, opts ConvertOptions, outputDir string) []Task`；**v0.23 新增**（签名见第 4 节和 6.14.3）：`AddSources`、`ListSources`、`ListSourceRecords`、`SearchSources`、`CheckSources`、`PreviewOutputName`、`SubmitSources`、`Reconvert`、`DeleteRecords`、`DeleteSource`、`GetSourcePreviewURL`、`OpenSourceWithSystem`、`RevealSource`、`GetRecordThumbnail`、`GetSourceThumbnail`；**v0.23.1 新增** `GetSource`、`RevealRecord`（Wails 绑定 `window.go.app.ConvertService.GetSource` / `RevealRecord`，`frontend/wailsjs/go/app/ConvertService` 已重新生成）；**v0.24 新增** `CancelCopy`、`RetryCopy`、`GetFormatCatalog`（`window.go.app.ConvertService.*`），SystemService 新增 `GetStorageDirs`、`SetStorageDirs`、`OpenStorageFolder`（`window.go.app.SystemService.*`），新类型 `StorageDirs`、`StorageDirsUpdate`、`FormatEntry`、`FormatPreset`、`ConvertSubmitResult`、`SkippedSource`、`ReconvertRequest`，`SubmitSources` 返回类型改为 `ConvertSubmitResult`，`Reconvert` 参数改为 `ReconvertRequest`，`ConvertSource` / `SourcePathCheck` / `DeleteFailure` / `Settings` 加字段，实现 PR 重新生成 `frontend/wailsjs` 并让 `check:api`、`vue-tsc` 通过。均返回 `INTERNAL`（"转换服务尚未初始化"）直到启动完成。TaskService 的 v0.23 绑定：`HideFinishedInTaskCenter`、`UnhideInTaskCenter`、`CheckPaths`、`GetPreviewURL`、`OpenWithSystem`（另有 `List` / `Retry` / `Remove` / `ClearFinished` 的行为变更）。
+- 绑定：`ListPresets() []Preset`、`SavePreset(p Preset) Preset`、`DeletePreset(id)`、`Submit(inputs []string, opts ConvertOptions, outputDir string) []Task`；**v0.23 新增**（签名见第 4 节和 6.14.3）：`AddSources`、`ListSources`、`ListSourceRecords`、`SearchSources`、`CheckSources`、`PreviewOutputName`、`SubmitSources`、`Reconvert`、`DeleteRecords`、`DeleteSource`、`GetSourcePreviewURL`、`OpenSourceWithSystem`、`RevealSource`、`GetRecordThumbnail`、`GetSourceThumbnail`；**v0.23.1 新增** `GetSource`、`RevealRecord`（Wails 绑定 `window.go.app.ConvertService.GetSource` / `RevealRecord`，`frontend/wailsjs/go/app/ConvertService` 已重新生成）；**v0.24 新增** `CancelCopy`、`RetryCopy`、`GetFormatCatalog`（`window.go.app.ConvertService.*`），SystemService 新增 `GetStorageDirs`、`SetStorageDirs`、`OpenStorageFolder`（`window.go.app.SystemService.*`），新类型 `StorageDirs`、`StorageDirsUpdate`、`FormatEntry`、`FormatPreset`、`ConvertSubmitResult`、`SkippedSource`、`ReconvertRequest`、`ReconvertError`，`SubmitSources` 返回类型改为 `ConvertSubmitResult`，`Reconvert` 参数改为 `ReconvertRequest`，`ConvertSource` / `SourcePathCheck` / `DeleteFailure` / `Settings` 加字段，实现 PR 重新生成 `frontend/wailsjs` 并让 `check:api`、`vue-tsc` 通过。均返回 `INTERNAL`（"转换服务尚未初始化"）直到启动完成。TaskService 的 v0.23 绑定：`HideFinishedInTaskCenter`、`UnhideInTaskCenter`、`CheckPaths`、`GetPreviewURL`、`OpenWithSystem`（另有 `List` / `Retry` / `Remove` / `ClearFinished` 的行为变更）。
 - **预设**：12 个内置（`builtIn=true`，id 形如 `builtin-mp4-h264`：MP4 H.264 / 1080p / 720p / H.265、MKV 只换封装、MOV、WebM VP9、GIF、MP3、M4A、WAV、FLAC；**v0.24 增加到 38 个，每个格式一个默认预设，见 6.16.2**），不能修改或删除（`INVALID_ARGUMENT`，改为"另存为"：`id` 传空新建）。`SavePreset`：`id` 空 = 新建（后端生成 id），否则更新该用户预设（不存在 `NOT_FOUND`）；名称去首尾空白后 1~60 字；`options` 必须通过校验；用户预设最多 100 个；`builtIn` 字段传什么都忽略。`ListPresets` 内置在前，用户预设按创建顺序在后。
 - **容器与编码**（v0.24 扩充的容器、编码、各格式默认参数和单帧图片规则见 6.16.2 / 6.16.5，本条描述 v0.9 的部分）：容器 `mp4 mkv mov webm avi flv gif mp3 aac m4a wav flac ogg opus`；视频编码 `copy h264 h265 vp9`，`""` 表示不要视频（仅对视频容器有意义，等于只保留音频）；音频编码 `copy aac mp3 opus vorbis flac pcm ac3 none`，`""` 取容器默认（mp4/mov/mkv/flv=aac，webm=opus，avi=mp3，mp3/aac/m4a/wav/flac/ogg/opus 对应各自编码），`none` 去掉音轨。每个容器只允许合适的编码组合，不合法返回 `INVALID_ARGUMENT` 并在 message 里列出可选项。音频容器不能设分辨率/帧率、不能 `none`；`gif` 没有音轨、不能设码率；`copy` 不能缩放、不能设 crf/码率。
 - `width` / `height`：只给一个按比例缩放；两个都给时等比缩进该框内并补黑边；输出宽高保证是偶数。`trimStart` / `trimEnd`（秒，`trimEnd=0` 到结尾）；开始时间超过时长返回 `INVALID_ARGUMENT`。`targetSizeMb` 暂缓，>0 返回 `INVALID_ARGUMENT`。**取值范围**（越界一律 `INVALID_ARGUMENT`）：`trimStart` / `trimEnd` ≤ 1e6 秒；`fps` 为 0（保持）或 0.1~240；`videoBitrate` 0 或 ≤ 1e9 bit/s；`audioBitrate` 0 或 8000~1000000 bit/s；`width` / `height` ≤ 8192。
@@ -1313,7 +1315,9 @@ AppError（句柄失效）：
 // Task 新增字段（完整定义见第 3 节）
 SourceID           string      `json:"sourceId,omitempty"`  // 只有 convert 任务有；指向 convert_sources.id
 HiddenInTaskCenter bool        `json:"hiddenInTaskCenter"`  // 始终输出；true = 在任务中心隐藏（转换页照常显示）
-Result             *TaskResult `json:"result,omitempty"`    // 只有成功的 convert 任务有；探测失败也可能没有。v0.24：重新转换中 / 没成功的记录保留上一次的 result（6.17.3）
+Reconverting       bool            `json:"reconverting"`                 // v0.24：始终输出；true = 正在原地重转（6.17）
+LastReconvertError *ReconvertError `json:"lastReconvertError,omitempty"` // v0.24：最近一次重转失败的信息（6.17.2）
+Result             *TaskResult `json:"result,omitempty"`    // 只有成功的 convert 任务有；探测失败也可能没有。v0.24：重转中（reconverting=true）仍是上一次的 result，重转失败 / 取消后原样恢复（6.17）
 
 type TaskResult struct {           // 完成时探测输出文件写入（6.14.6），落库在 tasks.result（JSON）
     SizeBytes        int64   `json:"sizeBytes"`                  // os.Stat 的大小
@@ -1461,7 +1465,7 @@ OpenWithSystem(taskID string, which string) error                // which = "inp
 | `PreviewOutputName(sourceId, opts, outputDir)` | “将保存为”的提示：按 6.14.5 的命名规则算出此刻会用的完整输出路径，**不占位**，真正提交时可能不同 | 行不存在 `NOT_FOUND`（`reason=record`）；参数 / 目录不合法 `INVALID_ARGUMENT` | 无 |
 | `SubmitSources(req)` | 等同 `Submit`（6.9 全部规则：先整体校验再提交、最多 50 个、输出目录解析、不回滚已提交），区别只是输入来自 `convert_sources` 登记的路径：每个任务写 `sourceId`、`params.presetId / presetName / paramsSummary` 快照，并**在提交时定名并占位**（6.14.5）；被提交的行 `lastActivityAt` = 现在 | 6.9 的全部码；`sourceIds` 为空 / 超过 50 `INVALID_ARGUMENT`；任一 `sourceId` 不存在 `NOT_FOUND`（`reason=record`，整体不提交）；`presetId` 非空但不存在 `NOT_FOUND`（`reason=record`）；源文件本身的问题（已不在、探测失败、与参数不兼容）同 6.9，`detail` 第一行是文件路径、没有 reason 行 | 每个任务 `task:created` |
 | `Submit(inputs, opts, outputDir)` | 兼容保留：先按 `path_key` 找到或创建源文件行（同 `AddSources`），再走 `SubmitSources` 的同一流程；`presetId` / `presetName` 为空，`paramsSummary` 照常生成 | 同 6.9 | 同上 |
-| `Reconvert(req)` | **v0.24 起改为原地重新转换，规则全部见 6.17**（取代下面这段 v0.23 规则）。~~v0.23 / v0.23.1：v1 转换页没有入口；只用于 `succeeded`，新提交一条记录（新 id），参数照抄，原记录不动~~ | 见 6.17.1 | 同原地重试：一次 `task:status`（`queued`、`retried: true`），不发 `task:created`（6.17.5） |
+| `Reconvert(req)` | **v0.24 起改为在同一条记录上原地重转，规则全部见 6.17**（取代 v0.23 / v0.23.1 的“新增一条记录、v1 转换页没有入口”）：只用于 `succeeded`，参数可选、只能同格式，重转中旧结果和旧文件照常可用，成功后原子替换；失败 / 取消恢复成 `succeeded` | 见 6.17.1（`TASK_CONFLICT` `reason=invalid_state`、`INVALID_ARGUMENT` `reason=format_change` 等） | `task:status`（`queued`、`reconverting: true`）……终态 `task:status` 带 `reconvertOutcome`；不发 `task:created`（6.17.3、6.17.5） |
 | `DeleteRecords(taskIds, deleteOutputs)` | 删除转换记录，流程见 6.14.4 | 空或超过 500 `INVALID_ARGUMENT`；有不是 `convert` 的任务整体 `INVALID_ARGUMENT`（什么都不做）；有旧类型 id 整体 `NOT_FOUND`；不存在的 id 忽略；**文件没删成不是错误**，放进 `failures` | 进行中的先取消：各自的 `task:status`（`canceled`）；删完一次 `task:removed { ids }` |
 | `DeleteSource(sourceId, deleteOutputs)` | 删掉这一行的全部转换记录（同 `DeleteRecords`），全部删掉后再删 `convert_sources` 行；**不删源文件**。**v0.24**：同时删我们在 `uploads` 里为这一行做的副本（引用计数归零时，6.15.7）；**永远不删用户的原文件**；输出文件只有 `deleteOutputs=true` 时才删 | 行不存在 `NOT_FOUND`（`reason=record`） | 同上 |
 | `GetSourcePreviewURL(sourceId)` | 用登记的路径登记到 6.13 的 **`convert` 登记表**，返回 `PreviewURL`；扩展名白名单见 6.14.7 | 行不存在 `NOT_FOUND`（`reason=record`）；文件不在 / 不是普通文件 `NOT_FOUND`（`reason=file`）；扩展名不在白名单 `UNSUPPORTED`（`reason=format`，前端显示“无法在应用内播放”） | 无 |
@@ -1476,7 +1480,7 @@ OpenWithSystem(taskID string, which string) error                // which = "inp
 | `TaskService.ClearFinished()` | **已废弃**，行为改成和 `HideFinishedInTaskCenter` 完全一样（不再删除），只为不让旧前端误删共享的记录；前端改调 `HideFinishedInTaskCenter` 后可在下个大版本删除 | 同上 | 无 |
 | `TaskService.Remove(ids, deleteOutput)` | 任务中心每行的“移除”，**非转换任务真删的唯一入口**，行为不变（6.6）；**ids 里有 `convert` 任务时整体 `INVALID_ARGUMENT`**（message `转换记录请在格式转换页删除`），什么都不删——真删只在转换页 | 新增上面这一条，其余同 6.6 | 同 6.6 |
 | `TaskService.CheckPaths(taskIds)` | 1~500 个，结果一一对应。`inputExists` = `inputPaths[0]` 现在是普通文件；`outputExists` = 任务是 `succeeded`、`outputPath` 是绝对路径、`os.Lstat` 是普通文件（**不是符号链接**）。只有“不存在”算 `false`，其他 stat 错误算 `true`（同 `CheckSources`）；其余状态的 `outputExists` 一律 `false` | 空或超过 500 `INVALID_ARGUMENT`；不存在 / 旧类型的 id 不报错（`found=false`） | 无 |
-| `TaskService.GetPreviewURL(taskId, which)` | `which=input` 取 `inputPaths[0]`；`which=output` 取 `outputPath`，**只有 `succeeded` 的任务才有输出可预览**（v0.24：重新转换中 / 没成功、保留着旧输出的转换记录也可以，6.17.3），且不能是符号链接。登记到 `convert` 登记表（6.13），扩展名白名单见 6.14.7。不限任务类型（非媒体文件会落到 `reason=format`） | `which` 不是这两个值 `INVALID_ARGUMENT`；任务不存在 / 旧类型 `NOT_FOUND`（`reason=record`）；不是 `succeeded`、路径为空、文件不在或不是普通文件 `NOT_FOUND`（`reason=file`）；扩展名不在白名单 `UNSUPPORTED`（`reason=format`） | 无 |
+| `TaskService.GetPreviewURL(taskId, which)` | `which=input` 取 `inputPaths[0]`；`which=output` 取 `outputPath`，**只有 `succeeded` 的任务才有输出可预览**（v0.24：`reconverting=true` 的记录也可以，预览的是旧文件，6.17.4），且不能是符号链接。登记到 `convert` 登记表（6.13），扩展名白名单见 6.14.7。不限任务类型（非媒体文件会落到 `reason=format`） | `which` 不是这两个值 `INVALID_ARGUMENT`；任务不存在 / 旧类型 `NOT_FOUND`（`reason=record`）；不是 `succeeded`、路径为空、文件不在或不是普通文件 `NOT_FOUND`（`reason=file`）；扩展名不在白名单 `UNSUPPORTED`（`reason=format`） | 无 |
 | `TaskService.OpenWithSystem(taskId, which)` | 取路径同 `GetPreviewURL`，再用系统默认程序打开：Windows `ShellExecuteW`（`open` 动词，路径作为文件参数，不经过命令行拼接）；macOS `open <path>`；Linux `xdg-open <path>`。**只允许媒体扩展名**（6.14.7 的“系统打开白名单”），防止被注入后拿它当“运行任意程序”的入口。macOS / Linux 最多等命令 5 秒拿退出码，超过 5 秒还没退出按成功 | `which` 不合法 `INVALID_ARGUMENT`；任务不存在 `NOT_FOUND`（`reason=record`）；文件不在 `NOT_FOUND`（`reason=file`）；**系统没有能打开它的程序 `NOT_FOUND`（`reason=no_app`，message 固定 `没有找到能打开这个文件的程序`）**：Windows `SE_ERR_NOASSOC` / `SE_ERR_ASSOCINCOMPLETE`，macOS `open` 退出码非 0 且 stderr 含 `No application knows how to open`，Linux `xdg-open` 退出码 3 / 4；扩展名不在白名单 `UNSUPPORTED`（`reason=format`）；命令找不到或其他启动失败 `PROCESS_FAILED` | 无 |
 
 - **`SubmitSources` 收 `sourceId`，而不是按路径自动找 / 建（取舍）**：前端在 `AddSources` 时已经拿到 `sourceId`，提交时传 id，后端从表里取路径，符合“只收 id”；也不会出现“同一个文件在两行”的歧义（路径大小写、`..`、符号链接）。旧 `Submit(paths)` 保留并按路径自动找 / 建，保证任何途径提交的 `convert` 任务都有 `sourceId`。
@@ -1486,7 +1490,7 @@ OpenWithSystem(taskID string, which string) error                // which = "inp
 
 1. **校验**（见上表），通过后按 id 去重。
 2. **进行中的先取消**：`queued` / `running` 的记录先按用户取消处理（与 `Cancel` 相同，发 `task:status` `canceled`），最多一共等 10 秒到达终态；10 秒内没停下来的记录**不删**，在 `failures` 里给一条 `reason=still_running`。`DeleteSource` 只要有一条没删掉，就保留这一行（`deletedSourceIds` 不含它）。
-3. **删输出文件**（`deleteOutputs=true`，前端默认不勾选）：**只删 `succeeded` 记录登记的 `outputPath`**（v0.24：以及重新转换没成功、保留着旧输出的记录，按 `params.replace` 快照判断，6.17.6）（第 2 步刚被取消的不算成功，本来就没有最终文件）；安全条件同 6.6 `Remove`：绝对路径、所在目录及上级不含符号链接、本身不是符号链接、是普通文件、不等于任何输入路径、修改时间不早于 `startedAt − 3 秒`。文件已经不在：跳过，不计数也不算失败。不满足安全条件或删除失败：记录照删，文件留着，`failures` 里给一条。删除前先撤销 `convert` 登记表（6.13）里这些路径的 token。
+3. **删输出文件**（`deleteOutputs=true`，前端默认不勾选）：**只删 `succeeded` 记录登记的 `outputPath`**（v0.24：重转中的记录先取消、恢复成 `succeeded` 后按这条处理，6.17.6）（第 2 步刚被取消的不算成功，本来就没有最终文件）；安全条件同 6.6 `Remove`：绝对路径、所在目录及上级不含符号链接、本身不是符号链接、是普通文件、不等于任何输入路径、修改时间不早于 `startedAt − 3 秒`。文件已经不在：跳过，不计数也不算失败。不满足安全条件或删除失败：记录照删，文件留着，`failures` 里给一条。删除前先撤销 `convert` 登记表（6.13）里这些路径的 token。
 4. **`.part` 残留**：不管 `deleteOutputs`，记录的 `outputPath` 对应的 `.part` 文件（`RunWithPart` 的命名）若还在、是普通文件且修改时间不早于 `startedAt − 3 秒`，一并删掉（这是应用自己的临时文件）；不计入 `deletedFiles`，失败只记日志。
 5. **源文件永远不删**：`convert_sources.path`（原文件）指向的文件不碰；`inputPaths` 指向副本时也不在这一步删，副本只由 `DeleteSource` 在引用计数归零时删（v0.24，6.15.7）。
 6. 在一个事务里删记录，再删日志文件（日志删不掉只记日志），发一次 `task:removed { ids }`。`DeleteSource` 最后删 `convert_sources` 行。
@@ -1506,7 +1510,7 @@ OpenWithSystem(taskID string, which string) error                // which = "inp
 ### 6.14.5 输出命名、占位与参数摘要
 
 - **期望名**：`<输出目录>/<源文件名去扩展名>.<容器扩展名>`（同 6.9）。v0.24：“源文件名”是**原文件名**（`ConvertSource.name`），不是 `uploads` 里副本的名字（两者相同，但副本在 `uploads/<sourceId>/` 下，写死以免实现取错）。
-- **提交时定名并占位**：`SubmitSources` / `Submit` / `Reconvert`（v0.24：`Reconvert` 默认沿用原名，见 6.17.2）在**落库之前**选出最终名并占位（占位人 = 任务 id），一直占到任务进入终态。候选名依次是期望名、`<名> (1).<扩展名>`、`<名> (2).<扩展名>`……（**括号前有一个半角空格，只有 `convert` 用这种格式**），取第一个同时满足以下条件的：磁盘上不存在（`os.Lstat`，含悬空链接）、对应的 `.part` 文件不存在、没有被**任何未结束任务**占位、不等于任何输入路径。同一次提交里的多个文件互相也算占位（`a.mkv`、`a.mov` 都转 MP4 → `a.mp4`、`a (1).mp4`）。比较按 `path_key` 规则（Windows / macOS 不区分大小写）。最大编号沿用现有实现（v0.23.1 说明：现有 `namer` 没有上限，一直往后找到空名为止；99 只是 `.part` 遗留清理精确拼候选名的范围）。
+- **提交时定名并占位**：`SubmitSources` / `Submit` / `Reconvert`（v0.24：`Reconvert` 沿用原名，只有旧输出被用户换掉时才另定新名，见 6.17.3）在**落库之前**选出最终名并占位（占位人 = 任务 id），一直占到任务进入终态。候选名依次是期望名、`<名> (1).<扩展名>`、`<名> (2).<扩展名>`……（**括号前有一个半角空格，只有 `convert` 用这种格式**），取第一个同时满足以下条件的：磁盘上不存在（`os.Lstat`，含悬空链接）、对应的 `.part` 文件不存在、没有被**任何未结束任务**占位、不等于任何输入路径。同一次提交里的多个文件互相也算占位（`a.mkv`、`a.mov` 都转 MP4 → `a.mp4`、`a (1).mp4`）。比较按 `path_key` 规则（Windows / macOS 不区分大小写）。最大编号沿用现有实现（v0.23.1 说明：现有 `namer` 没有上限，一直往后找到空名为止；99 只是 `.part` 遗留清理精确拼候选名的范围）。
 - **两种重名格式各自用在哪里（v0.23 架构师定）**：
 
   | 格式 | 例子 | 用在 |
@@ -1517,7 +1521,7 @@ OpenWithSystem(taskID string, which string) error                // which = "inp
   实现上 `namer` 按任务类型（或调用方传入的后缀格式）选择格式，默认仍是无空格。`.part` 遗留清理只针对 `edit_export` / `office_pdf` 的 `outputPath`，不处理 `convert`，所以不受这次改动影响。v0.22 及之前产生的转换输出（`a(1).mp4`）不改名；它们照样占名字（磁盘上存在就跳过）。
 - **现状差异（实现须改）**：当前代码（`internal/task/part.go` 的 `namer.reserve`）只在 `RunWithPart` 开始运行时才占位，排队中的任务不占名字，两个排队中的同名任务会显示同一个 `outputPath`，直到运行时才分开。v0.23 要求转换任务在提交时就占位；`RunWithPart` 运行时直接用已占的名字，只有这期间磁盘上被别的程序建了同名文件才顺延到下一个可用名，新名字随 `running` 的 `task:status.outputPath` 告知前端。剪辑导出、Office 转 PDF 本版不要求改（可以一起改）。
 - 应用重启后没有未结束的任务（6.6 启动时都变成 `interrupted`），所以占位表不需要持久化。
-- **`params.paramsSummary`**：提交时由后端按 `options` 生成，之后不变，**原地重试不改**；`Reconvert` 换了参数时重新生成（v0.24，6.17.3），没换时不变。各段用 ` · `（空格、U+00B7、空格）连接，最长 80 字符。**v0.23.1：不含容器名**（容器由预设名或输出扩展名体现；否则会出现“MP4 1080p · MP4 · H.264 · 1080p”）：
+- **`params.paramsSummary`**：提交时由后端按 `options` 生成，之后不变，**原地重试不改**；`Reconvert` 换了参数且成功时换成新快照，失败 / 取消时恢复旧的（v0.24，6.17.5）。各段用 ` · `（空格、U+00B7、空格）连接，最长 80 字符。**v0.23.1：不含容器名**（容器由预设名或输出扩展名体现；否则会出现“MP4 1080p · MP4 · H.264 · 1080p”）：
   1. 视频（只对视频容器）：`h264` → `H.264`，`h265` → `H.265`，`vp9` → `VP9`，`copy` → `原画质`，`""` → `无画面`；`gif` 和音频容器不写这一段。**v0.23.2：显示名统一写法**，从不出现原样大写的 `HEVC` / `PRORES`：`hevc` / `libx265` → `H.265`，`libx264` → `H.264`，`prores*` → `ProRes`，`av1` / `libaom-av1` / `libsvtav1` → `AV1`，`libvpx-vp9` → `VP9`（硬件编码器后缀如 `_nvenc` 去掉后同样映射），其他未知编码去掉 `lib` 前缀后首字母大写（`ConvertOptions.videoCodec` 目前只允许上面五个值）。
   2. 尺寸：只给高 → `<高>p`（`1080p`）；**只给宽（v0.23.1）：`3840` → `2160p`、`2560` → `1440p`、`1920` → `1080p`、`1280` → `720p`、`854` → `480p`，其他宽度 → `宽 <宽>`**；都给 → `<宽>×<高>`；都没给不写。
   3. 帧率 `fps > 0` → `<fps> fps`；码率：视频容器设了 `videoBitrate` → `<Mbps> Mbps`（保留 1 位小数），音频容器设了 `audioBitrate` → `<kbps> kbps`；`audioCodec=none` → `无声`。
@@ -1539,7 +1543,7 @@ OpenWithSystem(taskID string, which string) error                // which = "inp
     - **面向用户的文字（PM 已定）**：记录**仍是成功**；前端在这条记录上显示警告徽标 `时长偏短`，悬停文字 `转换结果比原文件短很多，原文件可能已损坏，请预览检查。` 后端同时在任务日志写一行 `[FFmpegFree] short_output: expected=<秒> actual=<秒>`（日志，不给用户看）。
   - `warnings` 随 `result` 一起落库（`tasks.result` JSON，不需要迁移）和随终态 `task:status` 发出；旧记录、v0.24 之前完成的任务没有这个字段。原地重试时随 `result` 一起清空（6.6），重新跑完再算。`warnings` 为空时省略（不发 `[]`）。
 - **取消时的进度（v0.23 明确）**：任务被取消（`canceled`）时 **`progress` 保留取消那一刻最后一次计算出的值（0~1），不清零、不置 1**，并在终态落库（现有实现已经如此，本版写进契约并让终态事件带上它）。含义是“取消时大约转到了哪里”，**不代表有可用的部分结果**：转换类任务取消时 `.part` 已删除，没有输出文件。排队中被取消（从未运行，6.6 `NeverRanner`）是入队时的值 0；直播任务恒为 -1。`failed` / `interrupted`（应用退出时被停止）同样保留当时的值；崩溃恢复变成 `interrupted` 的记录是最后一次落库的值（进度不随时落库，通常是 0）。只有 `succeeded` 是 1。
-- **原地重试与“又转一次”（产品经理已确认）**：规则见 6.6 `Retry`。失败、中断、**已取消**的记录，不管在转换页还是任务中心，都走同一个 `TaskService.Retry`（原地：**同一个任务 id、同一个输出名**，名字被占时才按 6.14.5 顺延），两边看到的记录条数始终一致。转换页上**已取消那一行的按钮文案仍是“重新转换”**，失败 / 中断行是“重试”，两者调的都是 `Retry`。**`Reconvert` 只用于已成功的记录**（v0.24 起是**原地**重新转换：同一条记录、同一输出路径，成功后才替换旧输出；转换页在成功的记录上有“重新转换”入口；见 6.17，取代“新增一条、v1 没有入口”）；对其他状态返回 `TASK_CONFLICT`（重新转换没成功的记录例外，见 6.17.1）。
+- **原地重试与“又转一次”（产品经理已确认）**：规则见 6.6 `Retry`。失败、中断、**已取消**的记录，不管在转换页还是任务中心，都走同一个 `TaskService.Retry`（原地：**同一个任务 id、同一个输出名**，名字被占时才按 6.14.5 顺延），两边看到的记录条数始终一致。转换页上**已取消那一行的按钮文案仍是“重新转换”**，失败 / 中断行是“重试”，两者调的都是 `Retry`。**`Reconvert` 只用于已成功的记录**（v0.24 起在同一条记录上**原地**重转：同一输出路径，成功后才替换旧输出，失败 / 取消恢复成成功；转换页在成功的记录上有“重新转换”入口；见 6.17，取代“新增一条、v1 没有入口”）；对其他状态返回 `TASK_CONFLICT`（`reason=invalid_state`）。
 
 ### 6.14.7 预览与系统打开的扩展名白名单
 
@@ -1611,7 +1615,7 @@ CREATE INDEX idx_tasks_hidden_created ON tasks(hidden_in_task_center, created_at
 |---|---|---|
 | `taskId` / `sourceId` 不存在，或旧类型 | `NOT_FOUND`（`reason=record`） | 不显示该行（记录已被删） |
 | `GetRecordThumbnail` 的任务不是 `convert` | `INVALID_ARGUMENT` | — |
-| **文件不存在**（已被移动或删除），以及记录不是 `succeeded`（没有输出；v0.24 保留着旧输出的重新转换记录除外，6.17.3）、不是普通文件、输出是符号链接 | `NOT_FOUND`（`reason=file`）（架构师定） | **显示占位图**（缺失文件的占位图，可配“文件已被移动或删除”提示）；不弹错误 |
+| **文件不存在**（已被移动或删除），以及记录不是 `succeeded`（没有输出；v0.24 `reconverting=true` 的记录按 `succeeded` 处理，取旧文件，6.17.4）、不是普通文件、输出是符号链接 | `NOT_FOUND`（`reason=file`）（架构师定） | **显示占位图**（缺失文件的占位图，可配“文件已被移动或删除”提示）；不弹错误 |
 | **没有画面，做不出缩略图**：纯音频（含只带封面图的 mp3 等），或扩展名 / 内容不是音视频 | `UNSUPPORTED`（`reason=format`） | **按类型显示图标**：音频容器（mp3 / m4a / aac / wav / flac / ogg / opus）显示音频图标，其他显示通用文件图标；不当作错误提示 |
 | ffmpeg / ffprobe 缺失 | `FFMPEG_NOT_FOUND` | 类型图标 |
 | 文件损坏、截图失败、超时 | `PROBE_FAILED` 或 `INTERNAL`（沿用 `MediaService.Thumbnail` 的错误） | 类型图标 |
@@ -1808,7 +1812,7 @@ GetFormatCatalog() ([]FormatEntry, error)            // 见 6.16
 | `AddSources(paths)` | 见 6.15.4 第 1~3 条 | 单项新增 `UNSUPPORTED`（`reason=format`，扩展名）、`TASK_CONFLICT`（换副本时有进行中的记录） | 新做副本的每一行 `convert:copy` |
 | `ListSources` / `SearchSources`（`status` 筛选） | **`active` = 至少有一条 `queued` / `running` 记录，或副本 `copyState=copying` 的行**（前端要求）；**`failed` = 至少有一条 `failed` / `interrupted` 记录，或副本 `copyState=failed` 的行**（PM 已确认；`canceled` 的记录和 `canceled` 的复制都不算，与 v0.23.1 一致）；在原来的 `EXISTS` 上 `OR` 一个对 `convert_copies` 的条件，分页、排序、内嵌记录规则不变 | 同前 | 无 |
 | `SubmitSources(req) (ConvertSubmitResult, error)` | **签名变化**：返回 `{tasks, skipped}`，没就绪的行跳过，见 6.15.4 第 6、7 条 | 新增：一行都没就绪时 `TASK_CONFLICT`（`reason=copying` / `copy_failed`）；其余同前 | 每个提交的任务 `task:created` |
-| `Reconvert(req)` | **签名变化、改为原地**（6.17）；读这一行当前的读取路径，见 6.15.4 第 6 条 | 新增 `TASK_CONFLICT`（`reason=copying` / `copy_failed`）、换格式 `INVALID_ARGUMENT`；替换失败是任务的 `IO_ERROR`（`reason=in_use` / `permission` / `io`，6.17.4） | 同原地重试（6.17.5） |
+| `Reconvert(req)` | **参数改为结构体、改为原地**（6.17）；读这一行当前的读取路径，见 6.15.4 第 6 条 | 新增 `TASK_CONFLICT`（`reason=copying` / `copy_failed` / `invalid_state`）、换格式 `INVALID_ARGUMENT`（`reason=format_change`）；替换失败记在 `lastReconvertError`（`IO_ERROR`，`reason=in_use` / `permission` / `io`，6.17.5） | 见 6.17.3、6.17.5 |
 | `CheckSources(sourceIds)` | `SourcePathCheck` 新增 `originalExists`、`storedExists`（副本是普通文件；`none` 时 `false`）；**`exists` = 读取路径存在**：`ready` 看副本，其余看原文件 | 同前 | 无 |
 | `GetSourcePreviewURL(sourceId)` | **`copying` 的行不能预览**（UI 设计定）；其余用“显示路径”：`ready` 用 `storedPath`，`none` / `failed` / `canceled` 用 `originalPath`；其余规则同 6.14 | 新增：`copying` 时 `TASK_CONFLICT`，message `文件还在复制，复制完成后才能预览`，`detail` 只有一行 `reason=copying`；其余同前 | 无 |
 | `OpenSourceWithSystem` / `GetSourceThumbnail` | 用“显示路径”：`ready` 用 `storedPath`，其余（`none` / `copying` / `failed` / `canceled`）用 `originalPath`（复制中也可以，读的是原文件）；其余规则同 6.14 | 同前 | 无 |
@@ -1988,83 +1992,127 @@ type FormatPreset struct {
 3. 用的是第 6.16.3 条的同一份缓存；缓存没有时先检测一次。`SavePreset` 不做这项检查（预设只是数据，换了转换组件可能又能用了）。
 4. 原地重试（`TaskService.Retry`）同样在重建 Runner 时做这两项检查，失败时记录原样不动（6.6）。
 
-## 6.17 原地重新转换（`Reconvert`，v0.24，老板定）
+## 6.17 原地重新转换（`Reconvert`，v0.24，老板定；细节由 PM、前端、设计定）
 
-取代 v0.23 / v0.23.1 的“`Reconvert` 新增一条记录、v1 转换页没有入口”。**转换页在已成功的记录上提供“重新转换”入口**，调 `Reconvert`。它对**同一条记录**原地重来：任务 id 和记录都不变，输出路径和文件名也不变（**不加 “(1)”**）；新结果先写临时文件，**成功后才原子替换**旧输出。失败或取消时旧输出原封不动，上一次的成功结果仍然可读。
+取代 v0.23 / v0.23.1 的“`Reconvert` 新增一条记录、v1 转换页没有入口”。**不新增方法，沿用 `Reconvert`，只改语义**：在**同一条记录**上原地重转，任务 id 不变，输出路径和文件名也不变（**不加 “(1)”**）。新结果先写同目录的临时文件，**成功后才原子替换**旧输出。转换页在**已成功**的记录上提供“重新转换”入口。失败和取消的记录仍用 `TaskService.Retry`（按钮文案“重新转换”，6.14.6），不变。
 
-### 6.17.1 接口
+### 6.17.1 接口与同步校验
 
 ```go
-Reconvert(req ReconvertRequest) (Task, error)   // v0.24：签名变化（原来是 Reconvert(taskID string)；v1 前端没有调用方）
+Reconvert(req ReconvertRequest) (Task, error)   // v0.24：参数由 taskID string 改为结构体（v1 前端没有调用方）；返回更新后的记录
 
 type ReconvertRequest struct {
     TaskID   string          `json:"taskId"`
-    Options  *ConvertOptions `json:"options,omitempty"`  // nil = 沿用记录当前的参数快照；非 nil = 用新参数（会写入新的快照，见 6.17.3）
-    PresetID string          `json:"presetId,omitempty"` // 同 SubmitSources：选的是预设且没改时传它的 id；自定义参数传 ""。Options 为 nil 时忽略
+    PresetID string          `json:"presetId,omitempty"` // 可选：选了同格式的某个预设
+    Options  *ConvertOptions `json:"options,omitempty"`  // 可选：自定义参数（或改过的预设参数）
 }
 ```
 
-- **允许的状态**：`succeeded`。另外，**重新转换失败、取消或中断的记录**（`params.replace` 不为空，6.17.3）也可以再调 `Reconvert` 换参数重来；不换参数时前端用 `TaskService.Retry`，两者都按本节的替换方式运行。其余情况一律 `TASK_CONFLICT`：`queued` / `running` 的 message 是 `任务仍在进行，请先取消`；普通的失败 / 取消 / 中断记录（从来没成功过）的 message 是 `只有已完成的记录可以重新转换`，这类记录走 `Retry`。
-- **不能换输出格式**：新 `options.container` 必须和记录当前的容器相同，否则返回 `INVALID_ARGUMENT`（`重新转换不能更换输出格式，换格式请重新提交转换`）。这条保证输出路径和文件名不变；格式不同就是另一条记录，应走 `SubmitSources`。
-- 其余同步校验和 `SubmitSources` 相同：参数校验（6.9）、格式检查（6.16.6）、读取路径与副本状态（6.15.4 第 6 条：读这一行**当前**的读取路径，副本没就绪时 `TASK_CONFLICT`，`reason=copying` / `copy_failed`）、源文件问题（6.9，`detail` 第一行是路径）。不存在或是旧类型时返回 `NOT_FOUND`（`reason=record`）；不是 `convert` 任务时返回 `INVALID_ARGUMENT`。**任何同步错误都不改记录、不发事件。**
+- **参数可选**：`presetId` 和 `options` 都没给时，沿用记录当前的参数快照（`params.options` / `presetId` / `presetName` / `paramsSummary` 全部不变）。只给 `presetId` 时，用这个预设的参数，快照记这个预设。给了 `options` 时用它；这时 `presetId` 的含义同 `SubmitSources`：选了预设且没改就传它的 id，自定义参数传 `""`，快照按 6.14.2 / 6.14.5 重新生成。
+- **只能用同一种格式**：新参数的 `container`（也就是输出扩展名）必须和记录当前的相同，否则返回 `INVALID_ARGUMENT`，message `重新转换不能更换输出格式，换格式请重新添加转换`，`detail` 首行 `reason=format_change`。`presetId` 指向别的格式的预设也是这个错误；预设不存在时返回 `NOT_FOUND`（`reason=record`，同 `SubmitSources`）。**前端可以给的预设** = `GetFormatCatalog()` 里这个扩展名那一项的 `presets[]`（6.16.1，内置在前、用户预设在后，含默认预设）。
+- **只允许 `succeeded` 的 `convert` 记录**，并且它当前不在重转（`reconverting=false`）。其他状态（`queued` / `running` / `failed` / `canceled` / `interrupted`），或已经在重转，都返回 **`TASK_CONFLICT`，`detail` 首行 `reason=invalid_state`**，message 分别是 `只有已完成的记录可以重新转换` 和 `这条记录正在重新转换`。错误码沿用现有的 18 个，没有新增 `INVALID_STATE`（见开放问题）。不是 `convert` 任务返回 `INVALID_ARGUMENT`；不存在或是旧类型返回 `NOT_FOUND`（`reason=record`）。
+- 其余同步校验同 `SubmitSources`：参数校验（6.9）、格式检查（6.16.6，`UNSUPPORTED` `reason=format` / `encoder`）、读取路径与副本状态（读这一行**当前**的读取路径；副本没就绪时 `TASK_CONFLICT`，`reason=copying` / `copy_failed`，6.15.4 第 6 条）、源文件问题（6.9）。**任何同步错误都不改记录、不发事件。**
 
-### 6.17.2 输出路径怎么定（提交时）
+### 6.17.2 新字段
 
-在 `Reconvert` 落库之前，看记录当前的 `outputPath`：
+`Task`（第 3 节）新增，只有 `convert` 任务会用到：
 
-1. **文件还是我们的输出**（满足 6.14.4 第 3 步的安全条件：绝对路径、上级不含符号链接、本身不是符号链接、是普通文件、不等于任何输入路径、修改时间不早于**上一次运行**的 `startedAt − 3 秒`）：**用同一个路径，按“替换”方式运行**。同时把这个文件的 `{path, sizeBytes, mtimeNs}` 记进 `params.replace`（6.17.3）。之后判断“还是不是我们那个文件”只看这份快照，因为 `startedAt` 会被重置。
-2. **文件不在了**（用户删了或挪走了）：仍用同一个路径（6.14.5 的占位条件满足时），按普通方式写，没有东西可替换；`params.replace = null`。
-3. **文件被用户换成了别的文件或挪动过**（存在，但不满足第 1 条，即 `not_task_output` 的情形）：**不覆盖别人的文件**。按 6.14.5 重新定名（`a (1).mp4` …）写一个新输出，`outputPath` 改成新名；`params.replace = null`。
+```go
+Reconverting       bool                `json:"reconverting"`                 // 始终输出；true = 正在原地重转（status 是 queued / running），界面显示“重转中”和进度
+LastReconvertError *ReconvertError     `json:"lastReconvertError,omitempty"` // 最近一次重转失败的信息；重转成功、被取消、或又开始一次重转时清空
 
-占位规则不变（6.14.5）：占位人是这个任务 id，一直占到终态。第 1 条的路径磁盘上本来就有文件，但这是本任务自己的输出，**不算被占**；其他未结束的任务占着这个名字时按第 3 条处理。
+type ReconvertError struct {
+    Code    string `json:"code"`    // AppError.code，如 PROCESS_FAILED、IO_ERROR、CONVERT_DISK_FULL
+    Message string `json:"message"` // AppError.message（面向用户，1.1）
+    Detail  string `json:"detail,omitempty"` // AppError.detail（2.2 规则；替换失败时首行是 reason=in_use / permission / io）
+    At      int64  `json:"at"`      // 失败时间，Unix 毫秒
+}
+```
 
-### 6.17.3 字段：哪些重置、哪些保留
+`task:status` 事件新增两个字段：`reconverting`（凡是 `convert` 任务的 `task:status` 都带）和 `reconvertOutcome`。后者**只在重转结束那一次**的终态事件里出现，取值 `"succeeded"` / `"failed"` / `"canceled"` / `"interrupted"`，其余事件省略。
 
-`Reconvert` 通过校验后，在**一个事务**里更新这条记录：
+库：迁移 **`0007_reconvert.sql`**：
 
-| 字段 | 处理 |
-|---|---|
-| `id`、`type`、`sourceId`、`createdAt`（列表位置不变）、`title`、日志路径 | **不变** |
-| `params` | **新快照**：`input` 换成当前读取路径；`options` / `presetId` / `presetName` / `paramsSummary` 在 `Options` 非 nil 时按新参数重新生成（规则同 `SubmitSources`、6.14.5），为 nil 时不变；`outputDir` 不变；新增 `replace`（6.17.2 第 1 条的快照，其余情况是 `null`）。`inputPaths` 随 `input` 更新 |
-| `status` / `progress` / `speed` / `etaSec` / `startedAt` / `finishedAt` / `error` | 同原地重试：`queued`、0、`""`、0、0、0、无 |
-| `encoder` / `encoderDevice` / `hwFallback` / `hwFallbackReason` | 同原地重试：先清空，再按新 Runner 重新写入 |
-| `outputPath` | 按 6.17.2 定：第 1、2 条不变，第 3 条换成新名 |
-| **`result`** | **保留**（仍是上一次成功输出的信息），**直到这次成功才换掉**；6.17.2 第 3 条换了名字时清空（旧结果描述的已经不是 `outputPath` 上的文件） |
-| `hiddenInTaskCenter` | `false`（**不隐藏**，任务中心也看得到） |
-| `version` | +1 |
-| 源文件行 `lastActivityAt` | 现在 |
+```sql
+ALTER TABLE tasks ADD COLUMN reconverting INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN reconvert_prev TEXT;          -- 重转开始前的快照 JSON（6.17.3），重转中才有，结束后清空
+ALTER TABLE tasks ADD COLUMN reconvert_pending TEXT;       -- 替换前写入的“成功后的新状态” JSON（6.17.5 第 3 步），替换完清空
+ALTER TABLE tasks ADD COLUMN last_reconvert_error TEXT;    -- ReconvertError JSON，可空
+```
 
-日志末尾追加一行 `[FFmpegFree] 重新转换`（参数变了时再追加一行新的 `paramsSummary`）。
+旧行都是 0 / NULL，`reconverting=false`。
 
-**因此 v0.24 起 `result` 不只出现在 `succeeded` 的记录上**：重新转换中或重新转换没成功的记录（`params.replace` 不为空）也带着上一次的 `result`，`outputPath` 上的旧输出仍可预览、打开、显示所在文件夹（`TaskService.GetPreviewURL(taskId, "output")` / `TaskService.OpenWithSystem(taskId, "output")` / `RevealRecord` / `GetRecordThumbnail` 对这类记录照常按 `outputPath` 工作，不再要求 `succeeded`，改为要求“`succeeded`，或 `params.replace` 不为空且带着 `result`”）。前端看到“状态不是成功但有 `result`”，就把它当作“上一次的结果还在”。
+### 6.17.3 开始重转时（`Reconvert` 通过校验后，一个事务）
 
-### 6.17.4 运行与替换
+1. **保存快照** `reconvert_prev`：`params`、`inputPaths`、`outputPath`、`result`、`progress`、`startedAt`、`finishedAt`、`encoder` / `encoderDevice` / `hwFallback` / `hwFallbackReason`，以及旧输出文件的 `{sizeBytes, mtimeNs}`（`outputPath` 上的文件满足 6.14.4 第 3 步安全条件时才记；不满足或不在时记 `null`）。
+2. **定这次写到哪里**：
+   - 旧输出还在、是我们的文件（快照里有 `{sizeBytes, mtimeNs}`）：**目标就是同一个 `outputPath`，成功后替换**。
+   - 旧输出不在了：目标仍是同一个 `outputPath`（6.14.5 的占位条件满足时），成功后直接改名到位。
+   - 旧输出被用户换成了别的文件（存在，但不满足安全条件，即 `not_task_output` 的情形）：**不覆盖别人的文件**，按 6.14.5 另定新名（`a (1).mp4` …）作为目标，成功后 `outputPath` 改成新名。
+   - 目标名按 6.14.5 占位（占位人是这个任务 id，占到重转结束）。
+3. **更新记录**：`reconverting=true`、`status=queued`、`progress=0`、`speed=""`、`etaSec=0`、`error` 无、`lastReconvertError` 清空，编码器字段按新 Runner 写入，`hiddenInTaskCenter=false`（任务中心 `List` 能看到它在跑，见 6.17.7），`version` +1。行的 `lastActivityAt` = 现在。
+4. **不变**（重转期间对外仍是旧的）：`id`、`type`、`title`、`sourceId`、`createdAt`、**`params`（对外仍是旧快照，新参数只在内部 Runner 和 `reconvert_pending` 里）**、`inputPaths`、**`outputPath`**、**`result`**、**`finishedAt`**（旧的完成时间）。`startedAt` 在真正开始运行时改成这次的开始时间（同普通任务）。
+5. 日志末尾追加一行 `[FFmpegFree] 重新转换：<新 paramsSummary>`。发**一次** `task:status`（`status: "queued"`、`reconverting: true`、`progress: 0`、编码器字段；`retried` 不带），然后入队。**不发** `task:created`。
 
-- 走 `RunWithPart`，写同目录下的 `<名>.part.<扩展名>`（命名同 6.6）。**运行中旧输出不碰。**
-- **成功**（ffmpeg 正常结束）时，替换前先复核 `outputPath`：
-  - **文件仍与 `params.replace` 快照一致**（普通文件、不是符号链接、大小和 mtime 都相同）：把 `.part` **原子改名覆盖**到 `outputPath`。同一目录内 rename：Unix 是 `rename(2)`，Windows 是 `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`（Go 的 `os.Rename`）。
-  - **文件不在了**：直接改名到位。
-  - **文件被换成了别的**（不一致）：不覆盖，按 6.14.5 运行时顺延到 `a (1).mp4` 这类新名，`outputPath` 随终态更新。
-  - 替换成功后按 6.14.6 探测，写新的 `result`（含 `warnings`），清掉 `params.replace`，终态 `succeeded`。
-- **替换失败**时任务终态是 `failed`，`error.code = IO_ERROR`，`detail` 第一行是 `reason=<值>`，第二行是 `outputPath`。`.part` 删掉（新结果作废），**旧输出和 `result` 原样保留**，`params.replace` 保留，可以 `Retry` 或再次 `Reconvert`：
+### 6.17.4 重转期间
+
+- 状态照常走 `queued` → `running`，`task:progress` 照常发（界面显示“重转中”和进度）。可以 `TaskService.Cancel`。
+- **旧结果和旧文件照常可用**：`result`、`outputPath`、`finishedAt` 都是旧的。`TaskService.GetPreviewURL(taskId, "output")`、`TaskService.OpenWithSystem(taskId, "output")`、`RevealRecord`、`GetRecordThumbnail` 对 `reconverting=true` 的记录按 `succeeded` 处理，作用在**旧文件**上，直到替换完成（这几个接口的“只有 `succeeded`”条件放宽为“`succeeded` 或 `reconverting`”）。
+- **临时文件**：`<目标所在目录>/<目标文件名去扩展名>.reconvert-<taskId>.part.<扩展名>`，例如 `D:\out\婚礼.reconvert-01J….part.mp4`。和目标同一目录，保证改名是原子的；`.part.<扩展名>` 结尾让 ffmpeg 按扩展名选封装（同 `RunWithPart`）。名字里带 `taskId`，同一时刻每条记录最多一个。
+
+### 6.17.5 结束：成功、失败、取消、中断
+
+**成功**（ffmpeg 正常结束）：
+
+1. 探测临时文件，得到新的 `result`（6.14.6，含 `warnings`；探测失败只有 `sizeBytes`）。
+2. **复核目标**：目标是旧输出时，确认它仍与快照的 `{sizeBytes, mtimeNs}` 一致、仍是普通文件、不是符号链接。不一致（重转期间被用户换掉）就不覆盖，按 6.14.5 运行时顺延到新名。
+3. 把“成功后的新状态”（新 `params` 快照、新 `inputPaths`、最终 `outputPath`、新 `result`）写进 `reconvert_pending` 并落库。
+4. **原子替换**：同目录 rename，把临时文件改名到目标（Unix `rename(2)`；Windows `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`，即 Go 的 `os.Rename`）。
+5. 一个事务里：应用 `reconvert_pending`，`status=succeeded`、`progress=1`、`finishedAt=现在`、`startedAt` 为这次的开始时间，编码器字段为这次的；清空 `reconverting` / `reconvert_prev` / `reconvert_pending` / `lastReconvertError`；`version` +1。
+6. 发终态 `task:status`（`status: "succeeded"`、`reconverting: false`、`reconvertOutcome: "succeeded"`、新的 `outputPath` / `result` / `finishedAt`）。参数可能变了，前端需要时用 `TaskService.Get` 或 `ListSourceRecords` 重新取 `params`（`task:status` 不带 `params`）。
+
+**失败**（ffmpeg 失败，或第 2～4 步出错，包括替换失败）：
+
+- 删掉临时文件。**旧文件不碰。**
+- **整条记录恢复成 `succeeded`**：按 `reconvert_prev` 原样恢复 `params`、`inputPaths`、`outputPath`、`result`、`progress`（即 1）、`startedAt`、`finishedAt`、编码器字段。清空 `reconverting` / `reconvert_prev` / `reconvert_pending`，`error` 为空（记录本身仍是成功的）。
+- **`lastReconvertError` = 这次的错误** `{code, message, detail, at}`，`version` +1。
+- 发终态 `task:status`：`status: "succeeded"`、`reconverting: false`、**`reconvertOutcome: "failed"`**，带 `lastReconvertError`。前端显示“**重转失败，原来的文件没有变动。**”（前端文案），详情可以用 `lastReconvertError.message`。
+- 替换失败时的错误是 `IO_ERROR`，`detail` 首行 `reason=<值>`，第二行是目标路径：
 
   | reason | message | 什么时候 |
   |---|---|---|
-  | `in_use` | `输出文件正被其他程序使用，新结果没能替换进去，请关闭后重试` | 同 6.14.4 的判断（Windows 32 / 33，Unix `EBUSY` / `ETXTBSY`） |
+  | `in_use` | `输出文件正被其他程序使用，新结果没能替换进去` | 同 6.14.4 的判断（Windows 32 / 33，Unix `EBUSY` / `ETXTBSY`） |
   | `permission` | `没有权限替换输出文件` | 权限不足、只读 |
   | `io` | `替换输出文件失败` | 其他错误（详细原因只写日志） |
 
-- **ffmpeg 失败、取消、中断**：同普通任务，删掉 `.part`。**旧输出不碰**，`result` 和 `params.replace` 都保留，`outputPath` 不变。
-- **原地重试**（`TaskService.Retry`）一条 `params.replace` 不为空的记录：6.6 `Retry` 第 ③ 步改为：`outputPath` 上的文件仍与快照一致时，**继续用这个路径并按替换方式运行**（不顺延）；不一致或不在了，再按原规则处理（不在了就用原名，被占了就顺延，顺延时清空 `result` 和 `params.replace`）。重置字段时**不清 `result`**（这是对 6.6 “`result` → 无”的例外，只适用于 `params.replace` 不为空的记录）。
+  ffmpeg 本身失败时的错误同普通转换（6.9 的分类）。
 
-### 6.17.5 事件
+**取消**（`TaskService.Cancel`，或删除前的取消，6.17.6）：
 
-和原地重试完全一样：`Reconvert` 成功后发**一次** `task:status`（`status: "queued"`、`retried: true`、`progress: 0`、`outputPath`、编码器字段，以及保留着的 `result`），然后是正常的 `running` / `task:progress` / 终态 `task:status`。**不发** `task:created` / `task:removed`。前端按 5 节 `retried` 的规则原地更新这一行；参数可能变了，需要的话用 `TaskService.Get` 或 `ListSourceRecords` 重新取 `params` 快照（`task:status` 不带 `params`）。
+- 同失败的恢复步骤，区别只有两点：**`lastReconvertError` 清空，不写错误**；终态事件里是 **`reconvertOutcome: "canceled"`**。前端看到 `canceled` 什么都不显示。
 
-### 6.17.6 删除与其他接口
+**中断**（应用退出时重转还在跑）：
 
-- `DeleteRecords` / `DeleteSource` 的 `deleteOutputs=true`（6.14.4 第 3 步）除了 `succeeded` 记录，也删 **`params.replace` 不为空的记录**保留着的旧输出。“是不是我们的输出”按 `params.replace` 快照判断，不满足时是 `not_task_output`。进行中的先取消（第 2 步），取消后旧输出仍在，照样按这条处理。
+- 退出收尾时按“取消”处理（恢复 + 删临时文件），终态事件 `reconvertOutcome: "interrupted"`，`lastReconvertError` 不写。前端同取消，不显示（见开放问题）。
+
+**两者怎么分**：失败和取消都回到 `succeeded`，前端只看终态事件的 `reconvertOutcome`，或者看记录上有没有 `lastReconvertError`（重新加载列表时用这个；`failed` 有、`canceled` / `interrupted` 没有）。
+
+**启动时的清理（崩溃恢复）**：在 `store.MarkInterrupted` **之前**处理所有 `reconverting=1` 的行（它们不进“`running` → `interrupted`”的规则）：
+
+1. 有 `reconvert_pending`，临时文件**不在**、目标文件在：说明第 4 步的改名已经做了，就按成功收尾（第 5 步），只是不发事件。
+2. 其余情况（没有 `reconvert_pending`，或临时文件还在）：删掉临时文件（只删普通文件、不是符号链接），按 `reconvert_prev` 恢复成 `succeeded`，`lastReconvertError` 不写（同中断）。
+3. **孤儿临时文件扫描**：对每个 `convert` 记录 `outputPath` 所在目录（去重），以及实际输出目录（6.15.1），删掉匹配 `*.reconvert-<taskId>.part.*` 的普通文件，条件是 `<taskId>` 不是“正在重转”的记录（启动时还没有这样的记录，所以全部可删）。不递归，不碰别的文件，失败只记日志。
+
+### 6.17.6 删除、重试与其他接口
+
+- **重转中删除**（`DeleteRecords` / `DeleteSource`）：沿用 6.14.4 第 2 步，先取消，取消按 6.17.5 恢复成 `succeeded` 并删临时文件，然后再删。这时记录已经是 `succeeded`，`deleteOutputs=true` 会删**旧输出**（按恢复后的 `outputPath` 和 `startedAt` 判断安全条件）。删除时再兜底删一次这条记录的临时文件（不管 `deleteOutputs`，同 6.14.4 第 4 步对 `.part` 的处理）。
+- **`TaskService.Retry` 不变**：只用于 `failed` / `canceled` / `interrupted` 的记录（转换页按钮“重新转换”）。重转结束后记录总是 `succeeded`，所以 `Retry` 和重转不会碰到同一条记录。
 - 名字顺延和占位的其余规则不变（6.14.5）；`PreviewOutputName` 与本节无关。
+
+### 6.17.7 任务中心
+
+- v1 任务中心**不提供**“重新转换”入口。
+- `TaskService.List` 照常返回这条记录，带 `reconverting` 和实时的 `status` / `progress`。重转开始时 `hiddenInTaskCenter` 置为 `false`，所以默认列表能看到它在跑。结束后**不恢复**原来的隐藏状态（见开放问题），用户可以再清除。
 
 ## 7. 本地流服务（已取消）
 
