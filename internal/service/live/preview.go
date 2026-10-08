@@ -365,7 +365,7 @@ func (s *Service) runPull(ctx context.Context, sid string, p *pullSession, bin f
 		s.emitPull(sid, "ended", nil)
 	case p.feed.state.Load() == 1 || p.feed.hub.hasHeader():
 		// 契约 v0.25.3：开始播放后断开带错误码 LIVE_PUSH_INTERRUPTED（直播连接在开始后断开，推流、拉流共用这个码，不是 INTERNAL），
-		// message 与前端的“拉流被中断”文字一致，detail 是脱敏后的 stderr 尾部。
+		// message 与前端的“拉流被中断”文字一致，detail 第一行是 reason=pull，其后是脱敏后的 stderr 尾部（v0.25.4）。
 		tail := res.StderrTail
 		if tail == "" && runErr != nil {
 			tail = apperr.From(runErr).Detail
