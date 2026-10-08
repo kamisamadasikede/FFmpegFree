@@ -481,7 +481,7 @@ func (s *Service) CleanupInterruptedParts(ctx context.Context) int {
 	removed := 0
 	for offset := 0; offset < 5000; {
 		page, err := s.cfg.Lister.ListTasks(ctx, store.TaskFilter{
-			Types: []store.TaskType{store.TypeEditExport}, Statuses: []store.TaskStatus{store.StatusInterrupted}, Limit: 200, Offset: offset})
+			Types: []store.TaskType{store.TypeEditExport}, Statuses: []store.TaskStatus{store.StatusInterrupted}, Limit: 200, Offset: offset, IncludeHidden: true})
 		if err != nil || len(page.Items) == 0 {
 			break
 		}

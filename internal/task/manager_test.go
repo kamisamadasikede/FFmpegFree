@@ -504,20 +504,29 @@ func TestRetry(t *testing.T) {
 	})
 	first, _ := f.m.Submit(Spec{Type: TypeConvert, Title: "c", InputPaths: []string{"/a"}, Params: `{"x":1}`},
 		RunnerFunc(func(context.Context, func(Progress)) (string, error) { return "", errors.New("fail once") }))
-	waitTask(t, f.m, first.ID)
+	failed := waitTask(t, f.m, first.ID)
+	createdBefore := f.em.count(EventCreated)
 	nt, err := f.m.Retry(first.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if nt.ID == first.ID || nt.Params != `{"x":1}` || nt.Title != "c" || nt.InputPaths[0] != "/a" {
+	// 原地重试（契约 v0.23）：同一个 id，params / title / inputPaths / createdAt 不变，version +1
+	if nt.ID != first.ID || nt.Params != `{"x":1}` || nt.Title != "c" || nt.InputPaths[0] != "/a" ||
+		nt.CreatedAt != failed.CreatedAt || nt.Version != failed.Version+1 || nt.Status != StatusQueued {
 		t.Fatalf("%+v", nt)
+	}
+	if f.em.count(EventCreated) != createdBefore {
+		t.Fatal("原地重试不应发 task:created")
 	}
 	if d := waitTask(t, f.m, nt.ID); d.Status != StatusSucceeded || d.OutputPath != "/out/retry.mp4" {
 		t.Fatalf("%+v", d)
 	}
-	// 原任务保留
-	if o := f.m.mustGet(t, first.ID); o.Status != StatusFailed {
-		t.Fatalf("%+v", o)
+	if p, _ := f.m.List(Filter{}); p.Total != 1 {
+		t.Fatalf("原地重试不应多出记录: %d", p.Total)
+	}
+	// 已成功的不能重试
+	if _, err := f.m.Retry(first.ID); !apperr.Is(err, apperr.TaskConflict) {
+		t.Fatalf("succeeded 应 TASK_CONFLICT: %v", err)
 	}
 	// 进行中不能重试；未注册类型不能重试；不存在
 	gate := make(chan struct{})
@@ -540,7 +549,7 @@ func TestRemoveAndClearFinished(t *testing.T) {
 	f := newFx(t, 1)
 	out := filepath.Join(f.dir, "out.mp4")
 	os.WriteFile(out, []byte("x"), 0o644)
-	okT, _ := f.m.Submit(Spec{Type: TypeConvert}, RunnerFunc(func(ctx context.Context, _ func(Progress)) (string, error) {
+	okT, _ := f.m.Submit(Spec{Type: TypeEditExport}, RunnerFunc(func(ctx context.Context, _ func(Progress)) (string, error) {
 		io := LogWriter(ctx)
 		io.Write([]byte("hello log\nline2\nline3\n"))
 		os.WriteFile(out, []byte("x"), 0o644) // 输出文件在任务运行期间生成
@@ -553,7 +562,7 @@ func TestRemoveAndClearFinished(t *testing.T) {
 	}
 	// 进行中不能删
 	gate := make(chan struct{})
-	act, _ := f.m.Submit(Spec{Type: TypeConvert}, RunnerFunc(func(ctx context.Context, _ func(Progress)) (string, error) { <-gate; return "", nil }))
+	act, _ := f.m.Submit(Spec{Type: TypeEditExport}, RunnerFunc(func(ctx context.Context, _ func(Progress)) (string, error) { <-gate; return "", nil }))
 	eventually(t, func() bool { return f.m.mustGet(t, act.ID).Status == StatusRunning })
 	if err := f.m.Remove([]string{okT.ID, act.ID}, false); !apperr.Is(err, apperr.TaskConflict) {
 		t.Fatalf("%v", err)
@@ -586,7 +595,7 @@ func TestRemoveAndClearFinished(t *testing.T) {
 	// ClearFinished：不动进行中的，不删输出文件
 	keep := filepath.Join(f.dir, "keep.mp4")
 	os.WriteFile(keep, []byte("y"), 0o644)
-	fin, _ := f.m.Submit(Spec{Type: TypeConvert}, RunnerFunc(func(context.Context, func(Progress)) (string, error) { return keep, nil }))
+	fin, _ := f.m.Submit(Spec{Type: TypeEditExport}, RunnerFunc(func(context.Context, func(Progress)) (string, error) { return keep, nil }))
 	eventually(t, func() bool {
 		return f.m.mustGet(t, fin.ID).Status == StatusQueued || f.m.mustGet(t, fin.ID).Status == StatusRunning
 	})
@@ -594,17 +603,20 @@ func TestRemoveAndClearFinished(t *testing.T) {
 	waitTask(t, f.m, act.ID)
 	waitTask(t, f.m, fin.ID)
 	before := f.em.count(EventRemoved)
-	if err := f.m.ClearFinished(); err != nil {
+	if err := f.m.ClearFinished(); err != nil { // v0.23：已废弃，只隐藏、不删
 		t.Fatal(err)
 	}
 	if p, _ := f.m.List(Filter{}); p.Total != 0 {
 		t.Fatalf("%+v", p)
 	}
+	if p, _ := f.m.List(Filter{IncludeHidden: true}); p.Total != 2 {
+		t.Fatalf("ClearFinished 不应删除记录: %+v", p)
+	}
 	if _, err := os.Stat(keep); err != nil {
 		t.Fatal("ClearFinished 不应删除输出文件")
 	}
-	if f.em.count(EventRemoved) != before+1 {
-		t.Fatal("应发 task:removed")
+	if f.em.count(EventRemoved) != before {
+		t.Fatal("ClearFinished 不应发 task:removed")
 	}
 }
 

@@ -198,3 +198,18 @@ func headReq(h http.Handler, url string) int {
 	h.ServeHTTP(rec, httptest.NewRequest("HEAD", url, nil))
 	return rec.Code
 }
+
+// markFailed 把一条已结束的任务直接在库里改成 failed（v0.23 起 succeeded 不能 Retry，
+// 测试“重试”路径时先把成功的任务变成失败的）。
+func markFailed(t *testing.T, st *store.Store, id string) {
+	t.Helper()
+	tk, err := st.GetTask(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk.Status = task.StatusFailed
+	tk.Version++
+	if err := st.UpdateTask(context.Background(), tk); err != nil {
+		t.Fatal(err)
+	}
+}

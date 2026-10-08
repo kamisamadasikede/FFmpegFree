@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"FFmpegFree/internal/apperr"
@@ -47,6 +48,18 @@ type TaskSubmitter interface {
 	RegisterFactory(t task.Type, f task.Factory)
 }
 
+// TaskRecords 是转换记录（契约 v0.23，6.14）需要的任务管理器能力（*task.Manager 实现）。
+type TaskRecords interface {
+	TaskSubmitter
+	Get(id string) (task.Task, error)
+	Live(ts []task.Task)
+	PeekOutputName(desired string, typ task.Type) string
+	DeleteRecords(ids []string, typ task.Type, deleteOutputs bool, beforeRemove func(path string)) (task.DeleteResult, error)
+	TaskFile(taskID, which string) (string, task.Task, error)
+}
+
+var _ TaskRecords = (*task.Manager)(nil)
+
 // Config 是 Service 的依赖。
 type Config struct {
 	Presets PresetStore
@@ -59,6 +72,20 @@ type Config struct {
 	// Encoder 按用户偏好与设备缓存解析 H.264 / HEVC 编码器（契约 9.7）；nil = 一律 CPU。
 	// 每个任务在提交 / 重试时解析一次。
 	Encoder ffmpeg.EncoderResolver
+
+	// 以下是转换记录（契约 v0.23，6.14）的依赖；为 nil 时相关接口返回 INTERNAL。
+	// Sources 为 nil 且 Presets 实现了 SourceStore（*store.Store）时用 Presets。
+	Sources SourceStore
+	// Thumbs 生成默认缩略图（*media.Service 实现）；为 nil 且 Media 实现了它时用 Media。
+	Thumbs Thumbnailer
+	// Preview 是 6.13 的 convert 登记表（*localassets.Registry）。
+	Preview Previewer
+	// Open 用系统默认程序打开文件（system.Manager.OpenWithDefaultApp）。
+	Open func(path string) error
+	// Reveal 在文件管理器里显示文件（system.Manager.RevealRegisteredPath）。
+	Reveal func(path string) error
+	// Now 返回当前时间（Unix 毫秒），测试用；nil 用 time.Now。
+	Now func() int64
 }
 
 // Service 实现转换：无后台协程。
@@ -68,6 +95,19 @@ type Service struct{ cfg Config }
 func New(ctx context.Context, cfg Config) (*Service, error) {
 	if cfg.Require == nil {
 		cfg.Require = ffmpeg.Require
+	}
+	if cfg.Sources == nil {
+		if ss, ok := cfg.Presets.(SourceStore); ok {
+			cfg.Sources = ss
+		}
+	}
+	if cfg.Thumbs == nil {
+		if th, ok := cfg.Media.(Thumbnailer); ok {
+			cfg.Thumbs = th
+		}
+	}
+	if cfg.Now == nil {
+		cfg.Now = func() int64 { return time.Now().UnixMilli() }
 	}
 	s := &Service{cfg: cfg}
 	if cfg.Presets != nil {
@@ -163,21 +203,42 @@ func validateOptions(o ffmpeg.ConvertOptions) error { return ffmpeg.ValidateConv
 
 // ---------- 提交 ----------
 
-// params 是 convert 任务的 Params JSON（Retry 用它重建 Runner）。
+// params 是 convert 任务的 Params JSON（Retry 用它重建 Runner）。presetId / presetName / paramsSummary 是提交时的快照
+// （契约 v0.23，6.14.2），之后不再变（原地重试不动、Reconvert 照抄）；v0.23 之前的旧任务没有这三个键。
 type params struct {
-	Input     string                `json:"input"`
-	Options   ffmpeg.ConvertOptions `json:"options"`
-	OutputDir string                `json:"outputDir"` // 已解析的最终输出目录
+	Input         string                `json:"input"`
+	Options       ffmpeg.ConvertOptions `json:"options"`
+	OutputDir     string                `json:"outputDir"` // 已解析的最终输出目录
+	PresetID      string                `json:"presetId"`
+	PresetName    string                `json:"presetName"`
+	ParamsSummary string                `json:"paramsSummary"`
 }
 
-// Submit 为每个输入文件提交一个 convert 任务，返回的任务与 inputs 一一对应。
+// Submit 为每个输入文件提交一个 convert 任务，返回的任务与 inputs 一一对应（兼容保留，契约 6.14.3）。
 //
 // 先校验全部输入（ffmpeg 就绪、参数合法、每个文件都能探测且与参数兼容），任何一个不通过整体失败、不提交任何任务，
 // 错误的 detail 指出是哪个文件。最多 50 个文件（更多的由前端分批）。
 // outputDir 为空时用设置里的默认输出目录，仍为空则输出到各自源文件所在的文件夹；输出名为 <源文件名>.<新扩展名>，
-// 重名自动追加 (1)、(2)，绝不覆盖已有文件。
+// 重名自动追加 " (1)"、" (2)"（v0.23 带空格），提交时就定名并占位，绝不覆盖已有文件。
+// 校验通过后按 path_key 找到或创建源文件行（同 AddSources），每个任务都有 sourceId；presetId / presetName 为空。
 func (s *Service) Submit(ctx context.Context, inputs []string, opts ffmpeg.ConvertOptions, outputDir string) ([]task.Task, error) {
-	out, err := s.submit(ctx, inputs, opts, outputDir)
+	if len(inputs) > MaxInputsPerSubmit {
+		return nil, apperr.New(apperr.InvalidArgument, fmt.Sprintf("一次最多提交 %d 个文件，请分批提交", MaxInputsPerSubmit))
+	}
+	jobs := make([]submitJob, len(inputs))
+	for i, raw := range inputs {
+		in, _, err := paths.Normalize(raw)
+		if err != nil {
+			return nil, apperr.Wrap(apperr.InvalidArgument, "路径不合法", err).WithDetail(raw)
+		}
+		jobs[i] = submitJob{in: in}
+	}
+	return s.submitWrap(ctx, jobs, opts, outputDir, "", "")
+}
+
+// submitWrap 把 ctx 取消统一成 CANCELED（已提交的任务仍随返回值带回）。
+func (s *Service) submitWrap(ctx context.Context, jobs []submitJob, opts ffmpeg.ConvertOptions, outputDir, presetID, presetName string) ([]task.Task, error) {
+	out, err := s.submit(ctx, jobs, opts, outputDir, presetID, presetName)
 	if err != nil && ctx.Err() != nil {
 		// ctx 被取消（应用退出等）：不要报 INTERNAL，统一返回 CANCELED；已提交的任务仍随 out 返回。
 		return out, apperr.Wrap(apperr.Canceled, "操作已取消", ctx.Err())
@@ -185,14 +246,20 @@ func (s *Service) Submit(ctx context.Context, inputs []string, opts ffmpeg.Conve
 	return out, err
 }
 
-func (s *Service) submit(ctx context.Context, inputs []string, opts ffmpeg.ConvertOptions, outputDir string) ([]task.Task, error) {
+// submitJob 是一个要提交的文件：in 是规范化后的输入路径；sourceID 为空时校验通过后按路径找到 / 创建源文件行。
+type submitJob struct {
+	in       string
+	sourceID string
+}
+
+func (s *Service) submit(ctx context.Context, jobs []submitJob, opts ffmpeg.ConvertOptions, outputDir, presetID, presetName string) ([]task.Task, error) {
 	if s.cfg.Tasks == nil || s.cfg.Media == nil {
 		return nil, apperr.New(apperr.Internal, "转换服务尚未初始化")
 	}
-	if len(inputs) == 0 {
+	if len(jobs) == 0 {
 		return nil, apperr.New(apperr.InvalidArgument, "没有要转换的文件")
 	}
-	if len(inputs) > MaxInputsPerSubmit {
+	if len(jobs) > MaxInputsPerSubmit {
 		return nil, apperr.New(apperr.InvalidArgument, fmt.Sprintf("一次最多提交 %d 个文件，请分批提交", MaxInputsPerSubmit))
 	}
 	if err := validateOptions(opts); err != nil {
@@ -207,37 +274,54 @@ func (s *Service) submit(ctx context.Context, inputs []string, opts ffmpeg.Conve
 		return nil, err
 	}
 
-	type job struct {
-		in  string
-		out string
-		dur float64
-		src ffmpeg.ConvertSource
-	}
-	jobs := make([]job, len(inputs))
-	for i, raw := range inputs {
+	preps := make([]prepared, len(jobs))
+	for i, jb := range jobs {
 		if err := ctx.Err(); err != nil {
 			return nil, apperr.Wrap(apperr.Canceled, "操作已取消", err)
 		}
-		in, _, err := paths.Normalize(raw)
-		if err != nil {
-			return nil, apperr.Wrap(apperr.InvalidArgument, "路径不合法", err).WithDetail(raw)
+		if jb.in == "" {
+			return nil, apperr.New(apperr.NotFound, "源文件路径无效（记录损坏），请重新添加文件")
 		}
-		j, err := s.prepare(ctx, in, opts, dir)
+		j, err := s.prepare(ctx, jb.in, opts, dir)
 		if err != nil {
-			return nil, withInput(err, in)
+			return nil, withInput(err, jb.in)
 		}
-		jobs[i] = job{in: in, out: j.out, dur: j.dur, src: j.src}
+		preps[i] = j
 	}
 
+	snap := params{Options: opts, OutputDir: dir, PresetID: presetID, PresetName: presetName, ParamsSummary: ParamsSummary(opts)}
 	var out []task.Task
-	for _, j := range jobs {
-		t, err := s.submitOne(bin, j.in, j.out, opts, dir, j.dur, j.src)
+	var touched []string
+	for i, jb := range jobs {
+		if jb.sourceID == "" && s.cfg.Sources != nil {
+			_, key, _ := paths.Normalize(jb.in)
+			src, _, err := s.cfg.Sources.UpsertConvertSource(ctx, jb.in, key, s.cfg.Now())
+			if err != nil {
+				return out, apperr.Wrap(apperr.Internal, "保存源文件行失败", err)
+			}
+			jb.sourceID = src.SourceID
+		} else if jb.sourceID != "" {
+			touched = append(touched, jb.sourceID)
+		}
+		p := snap
+		p.Input = jb.in
+		t, err := s.submitOne(bin, p, jb.sourceID, preps[i].out, preps[i].dur, preps[i].src)
 		if err != nil {
+			s.touch(ctx, touched)
 			return out, err // 已提交的保留（不回滚），调用方按返回的任务列表处理
 		}
 		out = append(out, t)
 	}
+	s.touch(ctx, touched)
 	return out, nil
+}
+
+// touch 把被提交的源文件行的 lastActivityAt 设为现在（失败不影响已提交的任务）。
+func (s *Service) touch(ctx context.Context, ids []string) {
+	if s.cfg.Sources == nil || len(ids) == 0 {
+		return
+	}
+	_ = s.cfg.Sources.TouchConvertSources(ctx, ids, s.cfg.Now())
 }
 
 type prepared struct {
@@ -308,7 +392,7 @@ func (s *Service) resolveOutputDir(ctx context.Context, dir string) (string, err
 	return dir, nil
 }
 
-func (s *Service) newRunner(bin ffmpeg.Binaries, in, out string, opts ffmpeg.ConvertOptions, dur float64, src ffmpeg.ConvertSource) *task.FFmpegRunner {
+func (s *Service) newFFmpegRunner(bin ffmpeg.Binaries, in, out string, opts ffmpeg.ConvertOptions, dur float64, src ffmpeg.ConvertSource) *task.FFmpegRunner {
 	// 只有真正重编码 H.264 / H.265 时才用硬件；copy、VP9、GIF、音频转换、两遍编码一律 CPU（契约 9.7）。
 	codec := ffmpeg.ConvertHWCodec(opts)
 	hw, info := ffmpeg.DecideEncoding(context.Background(), s.cfg.Encoder, codec, codec != "")
@@ -342,16 +426,19 @@ func (s *Service) newRunner(bin ffmpeg.Binaries, in, out string, opts ffmpeg.Con
 	return r
 }
 
-func (s *Service) submitOne(bin ffmpeg.Binaries, in, out string, opts ffmpeg.ConvertOptions, dir string, dur float64, src ffmpeg.ConvertSource) (task.Task, error) {
-	pj, _ := json.Marshal(params{Input: in, Options: opts, OutputDir: dir})
+// submitOne 提交一个 convert 任务：out 是期望名，任务管理器在落库之前按 "a (1).mp4" 格式定名并占位（契约 6.14.5）。
+func (s *Service) submitOne(bin ffmpeg.Binaries, p params, sourceID, out string, dur float64, src ffmpeg.ConvertSource) (task.Task, error) {
+	pj, _ := json.Marshal(p)
 	spec := task.Spec{
-		Type:       task.TypeConvert,
-		Title:      filepath.Base(in) + " → " + strings.ToUpper(opts.Container),
-		InputPaths: []string{in},
-		OutputPath: out,
-		Params:     string(pj),
+		Type:          task.TypeConvert,
+		Title:         filepath.Base(p.Input) + " → " + strings.ToUpper(p.Options.Container),
+		InputPaths:    []string{p.Input},
+		OutputPath:    out,
+		Params:        string(pj),
+		SourceID:      sourceID,
+		ReserveOutput: true,
 	}
-	return s.cfg.Tasks.Submit(spec, s.newRunner(bin, in, out, opts, dur, src))
+	return s.cfg.Tasks.Submit(spec, s.newRunner(bin, p.Input, out, p.Options, dur, src))
 }
 
 // retryFactory 用 Params 重建 Runner：重新探测输入（文件可能已变化或被删除），重新验证参数。
@@ -375,4 +462,9 @@ func (s *Service) retryFactory(old task.Task) (task.Runner, error) {
 		return nil, withInput(err, p.Input)
 	}
 	return s.newRunner(bin, p.Input, j.out, p.Options, j.dur, j.src), nil
+}
+
+// newRunner 见 newFFmpegRunner；外面包一层 resultRunner，成功后探测输出写 Task.Result（契约 6.14.6）。
+func (s *Service) newRunner(bin ffmpeg.Binaries, in, out string, opts ffmpeg.ConvertOptions, dur float64, src ffmpeg.ConvertSource) task.Runner {
+	return &resultRunner{FFmpegRunner: s.newFFmpegRunner(bin, in, out, opts, dur, src), probe: s.probeResult}
 }

@@ -205,8 +205,8 @@ func TestConvertProgressMonotonicToOne(t *testing.T) {
 	if p[len(p)-1] != 1 {
 		t.Fatalf("最后一次进度应为 1: %v", p)
 	}
-	// 输出目录为空 → 源文件同目录，重名 (1)
-	if d.OutputPath != filepath.Join(e.dir, "p(1).mp4") {
+	// 输出目录为空 → 源文件同目录，重名 " (1)"（转换用带空格的序号，契约 6.14.5）
+	if d.OutputPath != filepath.Join(e.dir, "p (1).mp4") {
 		t.Fatalf("输出到源文件同目录且不覆盖输入: %s", d.OutputPath)
 	}
 }
@@ -231,12 +231,12 @@ func TestConvertNameCollisionsAndSpecialNames(t *testing.T) {
 			t.Fatalf("%+v", d)
 		}
 	}
-	// 再提交一次：全部重名 → (1)，第一批输出原样保留
+	// 再提交一次：全部重名 → " (1)"，第一批输出原样保留
 	second := mustSubmit(t, e, ins, o, outDir)
 	for i, tk := range second {
 		d := e.wait(t, tk.ID)
 		stem := strings.TrimSuffix(names[i], ".mp4")
-		if d.Status != task.StatusSucceeded || d.OutputPath != filepath.Join(outDir, stem+"(1).mkv") {
+		if d.Status != task.StatusSucceeded || d.OutputPath != filepath.Join(outDir, stem+" (1).mkv") {
 			t.Fatalf("%s: %+v", names[i], d)
 		}
 		if _, err := os.Stat(filepath.Join(outDir, stem+".mkv")); err != nil {
@@ -313,15 +313,20 @@ func TestConvertFailureAndRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if nt.ID == d.ID {
-		t.Fatal("重试应生成新任务")
+	if nt.ID != d.ID {
+		t.Fatal("原地重试应沿用同一个 id")
 	}
 	d2 := e.wait(t, nt.ID)
 	if d2.Status != task.StatusSucceeded || d2.OutputPath != filepath.Join(badDir, "r.mp4") {
 		t.Fatalf("%+v", d2)
 	}
 	e.probe(t, d2.OutputPath)
-	// 输入文件被删除后重试：工厂重新探测，失败为 NOT_FOUND，不产生任务
+	// 成功后不能再 Retry
+	if _, err := e.tm.Retry(d2.ID); !apperr.Is(err, apperr.TaskConflict) {
+		t.Fatalf("succeeded 重试应 TASK_CONFLICT: %v", err)
+	}
+	// 输入文件被删除后重试：工厂重新探测，失败为 NOT_FOUND，记录不变
+	markFailed(t, e.st, d2.ID)
 	os.Remove(in)
 	if _, err := e.tm.Retry(d2.ID); !apperr.Is(err, apperr.NotFound) {
 		t.Fatalf("输入已删除，重试应 NOT_FOUND: %v", err)
@@ -536,5 +541,20 @@ func TestSubmitCanceledContext(t *testing.T) {
 	}
 	if time.Since(start) > 10*time.Second {
 		t.Fatal("取消后没有及时返回")
+	}
+}
+
+// markFailed 把一条已结束的任务直接在库里改成 failed（v0.23 起 succeeded 不能 Retry，
+// 测试“重试”路径时先把成功的任务变成失败的）。
+func markFailed(t *testing.T, st *store.Store, id string) {
+	t.Helper()
+	tk, err := st.GetTask(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk.Status = task.StatusFailed
+	tk.Version++
+	if err := st.UpdateTask(context.Background(), tk); err != nil {
+		t.Fatal(err)
 	}
 }

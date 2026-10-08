@@ -151,7 +151,7 @@ func revealCode(err error) apperr.Code {
 
 func (f *revealFx) runTask(t *testing.T, out string) task.Task {
 	t.Helper()
-	tk, err := f.tasks.Submit(task.Spec{Type: task.TypeConvert, OutputPath: out}, task.RunnerFunc(func(ctx context.Context, _ func(task.Progress)) (string, error) {
+	tk, err := f.tasks.Submit(task.Spec{Type: task.TypeEditExport, OutputPath: out}, task.RunnerFunc(func(ctx context.Context, _ func(task.Progress)) (string, error) {
 		return task.RunWithPart(ctx, out, func(part string) error { return os.WriteFile(part, []byte("v"), 0o644) })
 	}))
 	if err != nil {

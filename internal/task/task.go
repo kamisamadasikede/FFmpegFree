@@ -28,6 +28,7 @@ type (
 	Filter     = store.TaskFilter
 	Page       = store.TaskPage
 	TaskFilter = store.TaskFilter
+	TaskResult = store.TaskResult
 )
 
 // 任务类型与状态常量（契约第 3 节）。
@@ -137,7 +138,21 @@ type Store interface {
 	GetTask(ctx context.Context, id string) (Task, error)
 	ListTasks(ctx context.Context, f Filter) (Page, error)
 	DeleteTasks(ctx context.Context, ids []string) ([]string, error)
-	DeleteFinishedTasks(ctx context.Context) ([]Task, error)
+	// HideFinishedTasks / UnhideTasks 是任务中心的“隐藏已完成 / 取消隐藏”（契约 v0.23）。
+	HideFinishedTasks(ctx context.Context) (int64, error)
+	UnhideTasks(ctx context.Context, ids []string) ([]Task, error)
+}
+
+// ResultReporter 是 Runner 可选实现的接口（契约 v0.23，6.14.6）：Run 返回 nil 之后、发终态事件之前，
+// 管理器调用一次 Result，非 nil 时写进 Task.Result、落库并随 succeeded 的 task:status 发出。
+type ResultReporter interface {
+	Result() *TaskResult
+}
+
+// DesiredOutputer 是 Runner 可选实现的接口：返回该任务的期望输出名（重名顺延前的名字）。
+// 原地重试时原输出名被占，就从它开始按重名格式顺延（FFmpegRunner 返回 Output）。
+type DesiredOutputer interface {
+	DesiredOutput() string
 }
 
 var _ Store = (*store.Store)(nil)
@@ -187,6 +202,13 @@ type StatusEvent struct {
 	EncoderDevice    string `json:"encoderDevice,omitempty"`
 	HWFallback       bool   `json:"hwFallback,omitempty"`
 	HWFallbackReason string `json:"hwFallbackReason,omitempty"`
+	// 以下四项是契约 v0.23（第 5 节）：Progress 在所有终态事件和原地重试的 queued 事件上一定带（指针，0 也带）；
+	// Result 只有成功的 convert 任务的 succeeded 事件带；Retried 只在原地重试的那一条 queued 事件上为 true；
+	// HiddenInTaskCenter 只出现在 UnhideInTaskCenter 和 retried 事件上（值为 false，指针）。
+	Progress           *float64    `json:"progress,omitempty"`
+	Result             *TaskResult `json:"result,omitempty"`
+	Retried            bool        `json:"retried,omitempty"`
+	HiddenInTaskCenter *bool       `json:"hiddenInTaskCenter,omitempty"`
 }
 
 // RemovedEvent 是 task:removed 的 payload。
@@ -202,6 +224,11 @@ type Spec struct {
 	InputPaths []string
 	OutputPath string // 预期的输出路径（可能在完成时被 Runner 返回的实际路径覆盖）
 	Params     string // 原始参数 JSON，Retry 用它重新构造 Runner
+	// SourceID 是 convert 任务的源文件行（契约 v0.23），其他类型留空。
+	SourceID string
+	// ReserveOutput 为 true 时在落库之前就以 OutputPath 为期望名定名并占位（占位人 = 任务 id，一直占到终态），
+	// 重名格式按任务类型（convert 是 "a (1).mp4"，其余 "a(1).mp4"），见契约 6.14.5。RunWithPart 运行时直接用占好的名字。
+	ReserveOutput bool
 }
 
 // Info 是任务运行时通过 ctx 传给 Runner 的信息。

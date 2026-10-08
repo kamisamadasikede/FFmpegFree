@@ -205,7 +205,7 @@ func TestLegacyTypeIDsAreNotFoundEverywhere(t *testing.T) {
 		recs = append(recs, r)
 	}
 	// 一条合法的已结束任务，用来验证 Remove 整体失败时不被删
-	good := store.Task{ID: "GOOD1", Type: store.TypeConvert, Status: store.StatusFailed, Title: "g", InputPaths: []string{}, Version: 1, CreatedAt: 200}
+	good := store.Task{ID: "GOOD1", Type: store.TypeEditExport, Status: store.StatusFailed, Title: "g", InputPaths: []string{}, Version: 1, CreatedAt: 200}
 	if err := f.st.InsertTask(ctx, good); err != nil {
 		t.Fatal(err)
 	}

@@ -39,10 +39,11 @@ type App struct {
 	conv       atomic.Pointer[convert.Service]
 	docs       atomic.Pointer[doc.Service]
 	edt        atomic.Pointer[edit.Service]
-	// /local/<token> 预览登记表（契约 6.13）：edit 与 doc 分表，各 512 项，互不挤占；main.go 用 localHandler 挂到 AssetServer。
-	editLocal *localassets.Registry
-	docLocal  *localassets.Registry
-	live      atomic.Pointer[live.Service]
+	// /local/<token> 预览登记表（契约 6.13）：edit、doc、convert 分表，各 512 项，互不挤占；main.go 用 localHandler 挂到 AssetServer。
+	editLocal    *localassets.Registry
+	docLocal     *localassets.Registry
+	convertLocal *localassets.Registry // 转换页 / 任务中心的预览（契约 v0.23，6.14.7）
+	live         atomic.Pointer[live.Service]
 }
 
 // editAssets / docAssets 返回两张 /local/<token> 登记表（NewApp 时创建，永不为 nil）。小写，不会被 Wails 暴露。
@@ -50,8 +51,10 @@ type App struct {
 func (a *App) editAssets() *localassets.Registry { return a.editLocal }
 func (a *App) docAssets() *localassets.Registry  { return a.docLocal }
 
-// localHandler 是挂在 Wails AssetServer.Handler 上的处理器，按 token 在两张表里查。
-func (a *App) localHandler() http.Handler { return localassets.MultiHandler(a.editLocal, a.docLocal) }
+// localHandler 是挂在 Wails AssetServer.Handler 上的处理器，按 token 在三张表里查。
+func (a *App) localHandler() http.Handler {
+	return localassets.MultiHandler(a.editLocal, a.docLocal, a.convertLocal)
+}
 
 // docService 返回文档服务；OnStartup 完成前为 nil。小写，不会被 Wails 暴露。
 func (a *App) docService() *doc.Service { return a.docs.Load() }
@@ -76,7 +79,8 @@ func (a *App) liveService() *live.Service { return a.live.Load() }
 func NewApp(sys *system.Manager) *App {
 	// 根 ctx 在构造时就创建，保证绑定方法在 OnStartup 之前被调用也拿到有效的 ctx。
 	ctx, cancel := context.WithCancel(context.Background())
-	return &App{sys: sys, rootCtx: ctx, rootCancel: cancel, editLocal: localassets.New(localassets.Config{}), docLocal: localassets.New(localassets.Config{})}
+	return &App{sys: sys, rootCtx: ctx, rootCancel: cancel, editLocal: localassets.New(localassets.Config{}), docLocal: localassets.New(localassets.Config{}),
+		convertLocal: localassets.New(localassets.Config{})}
 }
 
 // appContext 返回应用根 ctx，shutdown 时被取消。小写，不会被 Wails 暴露。
@@ -151,6 +155,11 @@ func (a *App) startConvert(ctx context.Context) {
 		Tasks:            tm,
 		DefaultOutputDir: a.sys.DefaultOutputDir,
 		Encoder:          a.sys.EncoderResolver(),
+		Sources:          a.store,
+		Thumbs:           med,
+		Preview:          a.convertLocal,
+		Open:             a.sys.OpenWithDefaultApp,
+		Reveal:           a.sys.RevealRegisteredPath,
 	})
 	if err != nil {
 		log.Printf("启动转换服务失败: %v", err)
@@ -272,6 +281,12 @@ func (a *App) initStore(ctx context.Context) error {
 		log.Printf("标记中断任务失败: %v", err)
 	} else if n > 0 {
 		log.Printf("上次退出时有 %d 个任务未完成，已标记为 interrupted", n)
+	}
+	// 契约 v0.23（6.14.8）：回填旧 convert 任务的源文件行和 output_name_key。幂等，失败只记日志、不阻止启动，下次启动再试。
+	if ns, nn, err := s.BackfillConvertSources(ctx); err != nil {
+		log.Printf("回填转换记录失败（下次启动再试）: %v", err)
+	} else if ns > 0 || nn > 0 {
+		log.Printf("已回填 %d 条转换记录的源文件行、%d 条记录的输出文件名", ns, nn)
 	}
 	a.dirs, a.store = dirs, s
 	return nil

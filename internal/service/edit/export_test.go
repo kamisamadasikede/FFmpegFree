@@ -497,6 +497,7 @@ func TestExportFailureClassification(t *testing.T) {
 	// ① 提交后素材被换成损坏文件 → PROBE_FAILED（不落 PROCESS_FAILED）
 	tk := e.export(t, p, EditExportOptions{OutputName: "bad", OutputDir: out})
 	e.wait(t, tk.ID)
+	markFailed(t, e.st, tk.ID)
 	// 换成垃圾文件后 Retry：重新校验探测 → PROBE_FAILED，不产生新任务
 	os.WriteFile(v, []byte(strings.Repeat("not a video", 100)), 0o644)
 	_, err := e.tm.Retry(tk.ID)
@@ -571,6 +572,7 @@ func TestExportRetry(t *testing.T) {
 	out := filepath.Join(e.dir, "o")
 	tk := e.export(t, p, EditExportOptions{OutputName: "r", OutputDir: out})
 	d := e.wait(t, tk.ID)
+	markFailed(t, e.st, d.ID)
 	// 之后改默认输出目录不影响 Retry（沿用原来解析好的目录）
 	e.defA = filepath.Join(e.dir, "other")
 	nt, err := e.tm.Retry(d.ID)

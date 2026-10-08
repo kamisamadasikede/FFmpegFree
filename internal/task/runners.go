@@ -68,6 +68,9 @@ type FFmpegRunner struct {
 	NoBitrate bool
 }
 
+// DesiredOutput 实现 DesiredOutputer：期望的输出路径（重名顺延前）。
+func (r *FFmpegRunner) DesiredOutput() string { return r.Output }
+
 // EncoderInfo 实现 EncoderReporter。
 func (r *FFmpegRunner) EncoderInfo() ffmpeg.EncoderInfo { return r.Encoding }
 

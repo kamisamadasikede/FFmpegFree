@@ -6,6 +6,10 @@ export function Cancel(arg1) {
   return window['go']['app']['TaskService']['Cancel'](arg1);
 }
 
+export function CheckPaths(arg1) {
+  return window['go']['app']['TaskService']['CheckPaths'](arg1);
+}
+
 export function ClearFinished() {
   return window['go']['app']['TaskService']['ClearFinished']();
 }
@@ -18,6 +22,14 @@ export function GetLog(arg1, arg2) {
   return window['go']['app']['TaskService']['GetLog'](arg1, arg2);
 }
 
+export function GetPreviewURL(arg1, arg2) {
+  return window['go']['app']['TaskService']['GetPreviewURL'](arg1, arg2);
+}
+
+export function HideFinishedInTaskCenter() {
+  return window['go']['app']['TaskService']['HideFinishedInTaskCenter']();
+}
+
 export function List(arg1) {
   return window['go']['app']['TaskService']['List'](arg1);
 }
@@ -26,10 +38,18 @@ export function ListActive() {
   return window['go']['app']['TaskService']['ListActive']();
 }
 
+export function OpenWithSystem(arg1, arg2) {
+  return window['go']['app']['TaskService']['OpenWithSystem'](arg1, arg2);
+}
+
 export function Remove(arg1, arg2) {
   return window['go']['app']['TaskService']['Remove'](arg1, arg2);
 }
 
 export function Retry(arg1) {
   return window['go']['app']['TaskService']['Retry'](arg1);
+}
+
+export function UnhideInTaskCenter(arg1) {
+  return window['go']['app']['TaskService']['UnhideInTaskCenter'](arg1);
 }

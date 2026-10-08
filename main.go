@@ -20,7 +20,7 @@ func main() {
 	mainApp := NewApp(sysManager)
 	jsonService := app.NewJsonService()
 	systemService := app.NewSystemService(sysManager)
-	taskService := app.NewTaskService(mainApp.taskManager)
+	taskService := app.NewTaskService(mainApp.taskManager, mainApp.convertService, mainApp.appContext)
 	mediaService := app.NewMediaService(mainApp.mediaService, mainApp.appContext)
 	convertService := app.NewConvertService(mainApp.convertService, mainApp.appContext)
 	docService := app.NewDocService(mainApp.docService, mainApp.appContext)

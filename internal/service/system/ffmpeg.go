@@ -85,6 +85,7 @@ type Manager struct {
 	enc encoderState // 硬件编码器检测缓存（encoders.go）
 
 	launch launcher // 打开文件管理器的函数；nil 用 startDetached（测试里替换）
+	open   opener   // 用系统默认程序打开文件；nil 用 openDefault（测试里替换）
 }
 
 // NewManager 创建 Manager，初始状态 checking。真正的检测由 Start 触发。
