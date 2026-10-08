@@ -25,7 +25,7 @@
           <p v-if="sourceId" class="note"><FIcon name="info" :size="14" />{{ LIVE_SCREEN_NO_AUDIO_TEXT }}</p>
         </LiveField>
         <LiveField label="推流地址">
-          <LiveInput v-model="baseUrl" :bad="err?.where === 'addr'" placeholder="rtmp://、rtmps:// 或 srt://" @enter="start" />
+          <LiveInput v-model="baseUrl" mask-key :bad="err?.where === 'addr'" placeholder="rtmp://、rtmps:// 或 srt://" @enter="start" />
           <LiveFormError v-if="err?.where === 'addr'" :text="err.text" />
         </LiveField>
         <LiveField label="推流码 / 口令">
@@ -57,7 +57,7 @@
 <script setup lang="ts">
 // 录屏推流（设计稿 v0.2 + 直播 v1.1 采集来源选择器，后者设计稿未出）：采集来源（屏幕 / 应用窗口） → 无声音说明 → 推流地址 → 推流码 / 口令 → 保存存档（MP4，目录只读 + 更改）→ 表单级错误 → 开始推流。
 // 后端 #47 已支持带存档：archiveDir 非空时任务的 outputPath = 存档路径，终态事件里的 outputPath 决定“打开所在文件夹”。屏幕推流没有声音（audio 恒为 none）。
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, toRefs, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import LiveTabFrame from '@/components/live/LiveTabFrame.vue'
@@ -71,6 +71,7 @@ import LivePushPreview from '@/components/live/LivePushPreview.vue'
 import PreviewSwitch from '@/components/live/PreviewSwitch.vue'
 import LiveSessionList from '@/components/live/LiveSessionList.vue'
 import { useFFmpegStore } from '@/stores/ffmpeg'
+import { restoreSourceId, useLiveFormsStore } from '@/stores/liveForms'
 import { useLiveSessionsStore } from '@/stores/liveSessions'
 import { recordStartEnabled, sourcePickerMode } from '@/utils/liveSource'
 import { LIVE_RECORD_EMPTY_HINT, LIVE_RECORD_EMPTY_HINT_WIN, LIVE_SCREEN_NO_AUDIO_TEXT, LIVE_SOURCE_FIELD_LABEL, LIVE_SOURCE_FIELD_LABEL_SCREEN, LIVE_SOURCE_REFRESH, LIVE_SRT_PASSPHRASE_TEXT, liveSourceGoneText } from '@/errors/errorMessages'
@@ -89,8 +90,10 @@ const store = useLiveSessionsStore()
 const blocked = computed(() => ffmpeg.featuresBlocked)
 const DEMO_ARCHIVE_DIR = '~/Movies/FFmpegFree/直播存档'
 
+// 表单输入在 stores/liveForms（切换菜单不丢、下次启动恢复）；这里只是引用
+const forms = useLiveFormsStore()
+const { sourceId, baseUrl, key, archiveOn, archiveDir } = toRefs(forms.screen)
 const sources = ref<liveApi.CaptureSource[]>([])
-const sourceId = ref('')
 const srcState = ref<'loading' | 'ready' | 'empty' | 'failed'>('loading')
 let srcSeq = 0
 const picker = ref<InstanceType<typeof CaptureSourcePicker> | null>(null)
@@ -102,10 +105,6 @@ const goneItem = ref<liveApi.CaptureSource | null>(null)
 const goneShown = computed(() => err.value?.where === 'source' && !!goneItem.value && !sourceId.value)
 /** 预览开关：会话启动参数，默认开；产品经理已定：不记住上次选择，每次打开表单默认开 */
 const previewOn = ref(true)
-const baseUrl = ref('')
-const key = ref('')
-const archiveOn = ref(false)
-const archiveDir = ref('')
 const err = ref<PushFormError | null>(null)
 const starting = ref(false)
 const canStart = computed(() => recordStartEnabled({ blocked: blocked.value, starting: starting.value, hasUrl: !!baseUrl.value.trim(), sourceId: sourceId.value, state: srcState.value, gone: goneShown.value }))
@@ -126,7 +125,7 @@ async function changeDir() {
   }
 }
 
-/** 拉采集来源列表。keep=true（刷新）保留仍在列表里的已选项；否则默认选第一个屏幕。窗口标题只放在界面里，不打日志 */
+/** 拉采集来源列表。已选项（含恢复的）仍在列表里就保留，否则默认选第一个屏幕；keep=false（首次）失败时清空。窗口标题只放在界面里，不打日志 */
 async function loadSources(keep = true) {
   const my = ++srcSeq
   srcState.value = 'loading'
@@ -142,7 +141,8 @@ async function loadSources(keep = true) {
     srcState.value = 'ready'
     // 来源已失效（红边 + 错误行）时刷新不自动改选，等用户重选
     if (goneShown.value) return
-    if (!(keep && list.some((x) => x.id === sourceId.value))) sourceId.value = (list.find((x) => x.kind === 'screen') ?? list[0]).id
+    // 刷新（keep）和首次加载都沿用仍在列表里的已选项（首次加载 = 切换菜单回来 / 启动时恢复的来源）；不在了退回第一个屏幕
+    sourceId.value = restoreSourceId(list, sourceId.value)
   } catch {
     if (my !== srcSeq) return
     srcState.value = 'failed'
@@ -206,7 +206,7 @@ async function start() {
     const r = await store.begin(task, { kind: 'screen', redactedUrl: check.info.redacted, archive: !!dir, source: pickedSource(sourceId.value), preview: previewOn.value })
     if (!r.ok) showError(r.error, check.info.scheme)
     else {
-      key.value = ''
+      // 包 20：推流码不再在开始后清空（老板要求切换菜单 / 重启后表单原样还在，“重新开始”也要用它）
       previewOn.value = true // 产品经理已定：不记住上次选择，每次开始推流后复位为开（页面被 KeepAlive 保留时也一样）；没开始成功（报错）时保留用户当前选择
     }
   } catch (e) {

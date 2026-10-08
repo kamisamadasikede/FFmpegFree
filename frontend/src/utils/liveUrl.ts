@@ -36,7 +36,8 @@ export function parseTargets(text: string): string[] {
 
 // ───────────── 推流地址校验 / 脱敏（契约 v0.10 §4 LiveService「推流地址校验规则」「脱敏」，前端镜像）─────────────
 // 后端才是权威：这里只用来在失焦时给出提示、给模拟层用，通过不代表后端一定接受。
-// 完整地址（含推流码）只允许存在于调用参数和内存里：不写 localStorage / 日志 / console，列表和标题一律显示 redactPushUrl 的结果。
+// 完整地址（含推流码）不写日志 / console、不发给除推流目标以外的任何地方，列表和标题一律显示 redactPushUrl 的结果。
+// 例外（包 20，老板要求）：表单输入存在本机 localStorage（stores/liveForms.ts），下次启动恢复；输入框里默认用 maskPushUrlSecret 遮挡推流码。
 
 /** 后端 LIVE_URL_INVALID 的 detail 首行 `reason=` 取值（稳定枚举，只追加）；前端本地校验按同一套归类，模拟层用它 */
 export type LiveUrlInvalidReason = 'scheme_unsupported' | 'malformed' | 'missing_host' | 'param_not_allowed'
@@ -137,3 +138,38 @@ export function parsePushUrl(input: string): PushUrlCheck {
   const normalized = `${p.scheme}://${p.userinfo ? p.userinfo + '@' : ''}${host}${port && port !== defaultPort ? ':' + port : ''}${p.path}${p.query ? '?' + p.query : ''}`
   return { ok: true, normalized, info: { scheme: p.scheme as PushUrlInfo['scheme'], host, port, redacted: redactPushUrl(raw) } }
 }
+
+/** 遮挡用的圆点：固定 8 个，不暴露推流码长度 */
+export const SECRET_DOTS = '••••••••'
+
+/**
+ * 输入框里的显示用遮挡（只改显示，存储和提交的仍是完整地址），规则同 redactPushUrl（契约 RedactURL）：
+ * 用户信息 → ••••@；rtmp / rtmps 只留应用名，后面的路径段（流名 / 推流码）→ ••••••••；所有查询参数值（srt 的 passphrase / streamid 等）→ ••••••••；#… → #••••••••。
+ * 服务器部分原样显示。和 redactPushUrl 不同：保留用户输入的原文（大小写、端口写法），解析不了（还没输完）时原样返回。
+ */
+export function maskPushUrlSecret(raw: string): string {
+  const s = raw ?? ''
+  const m = /^(\s*)([A-Za-z][A-Za-z0-9+.-]*:\/\/)([^/?#]*)([^?#]*)(?:\?([^#]*))?(#.*)?(\s*)$/.exec(s)
+  if (!m) return s
+  const [, lead, scheme, auth, path, query, frag, trail] = m
+  const at = auth.lastIndexOf('@')
+  const host = at >= 0 ? `••••@${auth.slice(at + 1)}` : auth
+  let p = path
+  if (/^rtmps?:/i.test(scheme)) {
+    let seen = false
+    p = path
+      .split('/')
+      .map((seg) => {
+        if (!seg) return seg
+        if (!seen) return ((seen = true), seg)
+        return SECRET_DOTS
+      })
+      .join('/')
+  }
+  const q = query === undefined ? '' : '?' + query.split('&').map((kv) => (kv ? `${kv.split('=')[0]}=${SECRET_DOTS}` : kv)).join('&')
+  const f = frag ? `#${SECRET_DOTS}` : ''
+  return `${lead}${scheme}${host}${p}${q}${f}${trail}`
+}
+
+/** 地址里有需要遮挡的部分（推流码 / 口令 / 用户信息） */
+export const hasPushUrlSecret = (raw: string): boolean => maskPushUrlSecret(raw) !== (raw ?? '')

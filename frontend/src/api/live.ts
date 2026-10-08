@@ -9,7 +9,7 @@
  *   “已经在推”= running 且收到该任务的第一条 task:progress；running 但还没有 progress = “连接中”。
  * - 停止 = TaskService.Cancel(taskID)。优雅停止成功 → succeeded（error 为空）“已结束推流”；5 秒强杀 → canceled（无错误码）“已强制停止”。只看 status。
  * - 指标走 task:progress 的 fps / bitrateKbps / droppedFrames（没有 live:stats、没有 uptimeSec；已推时长 = 现在 − Task.startedAt）。
- * - 推流地址只允许 rtmp / rtmps / srt；完整地址（含推流码）只在调用参数里，不写 localStorage / 日志 / console，展示一律用脱敏形式。
+ * - 推流地址只允许 rtmp / rtmps / srt；完整地址（含推流码）只在调用参数里，不写日志 / console，展示一律用脱敏形式；表单输入只存本机 localStorage（stores/liveForms.ts，包 20）。
  * - Retry 直播任务返回 UNSUPPORTED：“重新开始”= 用表单里的值再调一次 Start*。
  *
  * 对照表：
