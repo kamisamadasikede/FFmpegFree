@@ -14,7 +14,7 @@
     @dblclick="toggleFull"
   >
     <div v-if="showVideo" class="lp-video" :class="fake ? 'f' + fake : ''">
-      <video v-show="!fake && !frozen" ref="videoEl" autoplay playsinline :muted="muted" />
+      <video :key="videoKey" v-show="!fake && !frozen" ref="videoEl" autoplay playsinline :muted="muted" />
       <!-- G1：结束 / 被中断时停在最后一帧（播放器销毁前把当前画面画到这里），再由 .dim 压暗 -->
       <canvas v-show="frozen && !fake" ref="shotEl" class="lp-shot" aria-hidden="true" />
     </div>
@@ -79,7 +79,7 @@
 <script setup lang="ts">
 // 直播播放器（设计说明 v0.1 §二–§六）。不持有业务：地址由父组件给出，mpegts.js 只负责播。
 // 低延迟：enableStashBuffer 关、追帧上限 1.5 秒（契约 6.10.3.8）。默认静音。直播不能暂停、不能拖。
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, ref, watch } from 'vue'
 import mpegts from 'mpegts.js'
 import FIcon from '@/components/icon/FIcon.vue'
 import {
@@ -123,8 +123,12 @@ const volume = ref(70)
 const root = ref<HTMLElement | null>(null)
 const videoEl = ref<HTMLVideoElement | null>(null)
 const shotEl = ref<HTMLCanvasElement | null>(null)
-/** G1：正在显示最后一帧的快照 */
+/** G1：正在显示最后一帧的快照（只在真正结束 / 被中断时；离开页面不留这一帧） */
 const frozen = ref(false)
+/** 每次重连换一个新的 video，不用离开前的那个元素和缓冲 */
+const videoKey = ref(0)
+/** KeepAlive 把页面藏起来了：这期间不建播放器 */
+const away = ref(false)
 /** G4：视频自己的宽高比（videoWidth / videoHeight），没有画面时为 null */
 const natural = ref<number | null>(null)
 const stageAspect = computed(() => stageAspectOf(props.aspect, natural.value))
@@ -143,6 +147,9 @@ const hinted = ref(false)
 const full = ref(false)
 const liveText = ref('')
 let player: mpegts.Player | null = null
+/** 正在拆播放器：拆的过程里 mpegts 会报错 / 报结束，这些不算断流 */
+let quiet = false
+let attachToken = 0
 let idleTimer: ReturnType<typeof setTimeout> | undefined
 let hintTimer: ReturnType<typeof setTimeout> | undefined
 let volTimer: ReturnType<typeof setTimeout> | undefined
@@ -276,6 +283,7 @@ function catchUp() {
   lagOwn.value = null
 }
 function destroyPlayer() {
+  quiet = true
   clearTimeout(bufTimer)
   clearTimeout(bufLongTimer)
   lagOwn.value = null
@@ -289,13 +297,21 @@ function destroyPlayer() {
 const CONNECT_WAIT_MS = 12000
 let connectSince = 0
 let retryTimer: ReturnType<typeof setTimeout> | undefined
-function attach(url: string, retry = false) {
+async function attach(url: string, retry = false) {
+  const my = ++attachToken
+  if (away.value || props.fake) return
   if (!retry) connectSince = Date.now()
   destroyPlayer()
-  if (!retry) natural.value = null
-  frozen.value = false
+  if (!retry) {
+    natural.value = null
+    frozen.value = false
+    videoKey.value++
+    await nextTick()
+  }
+  if (my !== attachToken || away.value || wantUrl.value !== url) return
+  quiet = false
   const el = videoEl.value
-  if (!el || props.fake) return
+  if (!el) return
   if (!mpegts.getFeatureList().mseLivePlayback) { emit('media-unsupported'); return }
   const chase = props.lowLatency
   player = mpegts.createPlayer(
@@ -307,6 +323,7 @@ function attach(url: string, retry = false) {
       : { enableWorker: false, enableStashBuffer: true, autoCleanupSourceBuffer: true },
   )
   player.on(mpegts.Events.ERROR, (type: string, detail: string) => {
+    if (quiet) return
     if (detail === mpegts.ErrorDetails.MEDIA_CODEC_UNSUPPORTED || detail === mpegts.ErrorDetails.MEDIA_FORMAT_UNSUPPORTED) emit('media-unsupported')
     else if (props.phase === 'playing' || props.phase === 'buffering') emit('media-broken')
     else if (type === mpegts.ErrorTypes.NETWORK_ERROR && props.phase === 'connecting' && Date.now() - connectSince < CONNECT_WAIT_MS) {
@@ -315,8 +332,8 @@ function attach(url: string, retry = false) {
       retryTimer = setTimeout(() => { if (wantUrl.value === url) attach(url, true) }, 1000)
     } else emit('media-broken')
   })
-  player.on(mpegts.Events.LOADING_COMPLETE, () => emit('media-ended'))
-  el.addEventListener('playing', () => emit('playing'), { once: true })
+  player.on(mpegts.Events.LOADING_COMPLETE, () => { if (!quiet) emit('media-ended') })
+  el.addEventListener('playing', () => { if (!quiet) emit('playing') }, { once: true })
   // 缓冲：不加转圈（追帧加速和落后 6 秒跳到最新都不能出转圈，设计 10-08）；超过 2 秒只在读屏里播报「正在缓冲」
   el.addEventListener('waiting', () => {
     clearTimeout(bufTimer)
@@ -363,7 +380,11 @@ function attach(url: string, retry = false) {
 // 只在地址变了、或从非进行中变成进行中时建播放器；连接中 → 播放中不重建（否则会断开重连一次）
 const wantUrl = computed(() => (props.url && !props.fake && (props.phase === 'connecting' || props.phase === 'playing' || props.phase === 'buffering') ? props.url : ''))
 watch(wantUrl, (url) => {
-  if (url) attach(url)
+  if (away.value) {
+    destroyPlayer() // 离开页面：只断开，不截最后一帧
+    return
+  }
+  if (url) void attach(url)
   else {
     if (dimmed.value) freeze() // G1：结束 / 中断前留下最后一帧
     destroyPlayer()
@@ -372,6 +393,17 @@ watch(wantUrl, (url) => {
 watch(muted, (m) => { if (videoEl.value) videoEl.value.muted = m })
 watch(volume, (v) => { if (videoEl.value) videoEl.value.volume = v / 100 })
 
+// 离开页面（KeepAlive 藏起来，或整页卸载）：拆掉播放器并断开预览连接。不在这里截最后一帧。
+onDeactivated(() => {
+  away.value = true
+  frozen.value = false
+  destroyPlayer()
+  videoKey.value++
+})
+onActivated(() => {
+  away.value = false
+  if (wantUrl.value) void attach(wantUrl.value)
+})
 onBeforeUnmount(() => { destroyPlayer(); document.removeEventListener('fullscreenchange', onFs); clearTimeout(idleTimer); clearTimeout(hintTimer); clearTimeout(volTimer) })
 </script>
 

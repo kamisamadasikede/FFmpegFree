@@ -53,7 +53,7 @@
 //   · 没点停止：先到 ended → 「拉流已结束」+「直播已停止，或连接已断开。」+「重新拉流」；先到 interrupted / failed →「拉流被中断，请重新拉流。」+「重新拉流」；
 //     后到的事件都不再改文案（产品经理 / 设计 10-08）；
 //   · 播放器读到流结尾（LOADING_COMPLETE）或网络出错时，有后端会话就先等后端的 live:pull（走查 G2），等不到再按播放器的结果定。
-import { computed, onBeforeUnmount, ref, toRefs, watch } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, ref, toRefs, watch } from 'vue'
 import LiveTabFrame from '@/components/live/LiveTabFrame.vue'
 import LivePanel from '@/components/live/LivePanel.vue'
 import LiveField from '@/components/live/LiveField.vue'
@@ -68,7 +68,7 @@ import { useLiveFormsStore } from '@/stores/liveForms'
 import { useLiveDockStore } from '@/stores/liveDock'
 import { PullOutcomeGate, type PullOutcome } from '@/stores/eventOrder'
 import { lpVisual, type LpPhase } from './lpVisual'
-import { classifyPreviewError, pullBreakText, pullEndedView, startPullPlayback, stopPullPlayback, watchPull, type PullEvent, type PullPlayback } from '@/api/livePreviewStream'
+import { classifyPreviewError, getPreviewStream, pullBreakText, pullEndedView, startPullPlayback, stopPullPlayback, watchPull, type PullEvent, type PullPlayback } from '@/api/livePreviewStream'
 
 defineOptions({ name: 'LivePullPlay' })
 
@@ -207,8 +207,61 @@ function stop() {
   if (!busy.value) return
   gate.user()
 }
+// 离开页签或直播菜单：只断开预览播放器，拉流会话继续。回来时重新取地址，换一个新播放器。
+let suspended = false
+let resumeSeq = 0
+onDeactivated(() => {
+  if (vis || gate.settled) return
+  if (phase.value !== 'connecting' && phase.value !== 'playing' && phase.value !== 'buffering') return
+  suspended = true
+  resumeSeq++
+  playUrl.value = ''
+  phase.value = 'connecting'
+})
+onActivated(() => {
+  if (!suspended) return
+  suspended = false
+  if (vis || gate.settled) return
+  const my = ++resumeSeq
+  void resumePreview(my)
+})
+async function resumePreview(my: number) {
+  const pb = playback
+  if (!pb || gate.settled) return
+  phase.value = 'connecting'
+  const apply = (url: string, audio: boolean) => {
+    if (my !== resumeSeq || gate.settled) return
+    hasAudio.value = audio
+    playUrl.value = url
+  }
+  try {
+    if (pb.session) {
+      const stream = await getPreviewStream(pb.session.id)
+      apply(stream.url, stream.hasAudio)
+    } else if (pb.stream?.url) apply(pb.stream.url, pb.stream.hasAudio)
+  } catch {
+    // 旧连接还占着名额时隔 1 秒再取一次；仍失败就按拉流失败显示，不再干等
+    await new Promise((r) => setTimeout(r, 1000))
+    if (my !== resumeSeq || gate.settled || !pb.session) {
+      if (my === resumeSeq && !gate.settled && !pb.session) gate.event('interrupted', pullBreakText(''))
+      return
+    }
+    try {
+      const stream = await getPreviewStream(pb.session.id)
+      apply(stream.url, stream.hasAudio)
+    } catch (e2) {
+      if (my !== resumeSeq || gate.settled) return
+      const k = classifyPreviewError(e2)
+      if (k === 'unsupported' || k === 'unavailable') {
+        reason.value = k === 'unsupported' ? 'codec' : 'unavailable'
+        gate.event('unsupported')
+      } else if (k === 'ended') gate.event('ended')
+      else gate.event('interrupted', pullBreakText(''))
+    }
+  }
+}
 onBeforeUnmount(() => {
-  gate.close() // 之后到的事件都不再处理
+  gate.close() // 页面真正卸掉（不是切走）：之后到的事件都不再处理
   unwatch?.()
   void stopPullPlayback(playback)
   playback = null

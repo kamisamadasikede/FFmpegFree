@@ -16,7 +16,7 @@
     </div>
     <!-- 直播转码回退提示条：Tab 条下方的通栏条（设计稿 182/190）；只在推流页签（文件 / 录屏）显示，拉流播放不转码 -->
     <LiveFallbackNotice v-if="isPushTab" />
-    <!-- KeepAlive：切换页签不打断进行中的推流 / 播放 -->
+    <!-- KeepAlive：切换页签不打断进行中的推流 / 拉流。预览在离开时拆掉，回来时重建 -->
     <RouterView v-slot="{ Component }">
       <KeepAlive>
         <component :is="Component" />
@@ -34,6 +34,7 @@ import LiveFallbackNotice from '@/components/live/LiveFallbackNotice.vue'
 import { liveIsReal } from '@/api/live'
 import LiveSessionEntry from '@/components/live/LiveSessionEntry.vue'
 import { lpVisual } from './lpVisual'
+defineOptions({ name: 'LiveLayout' })
 // 直播页外壳：三个页签（原型 pages.html 的 .seg，宽 360）+ 页签内容。
 const route = useRoute()
 const isPushTab = computed(() => route.path.startsWith('/live/push') || route.path.startsWith('/live/record'))
