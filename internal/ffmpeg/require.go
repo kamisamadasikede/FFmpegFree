@@ -40,7 +40,7 @@ func Require() (Binaries, error) {
 	if b, ok := Current(); ok {
 		return b, nil
 	}
-	return Binaries{}, apperr.New(apperr.FFmpegNotFound, "未找到可用的 ffmpeg，请先安装或手动指定 ffmpeg 所在位置")
+	return Binaries{}, apperr.New(apperr.FFmpegNotFound, "未找到可用的转换组件，请先安装或手动指定转换组件所在位置")
 }
 
 // RequireProbe 在 Require 的基础上要求 ffprobe 也可用（媒体探测、缩略图前调用）。
@@ -51,7 +51,7 @@ func RequireProbe() (Binaries, error) {
 		return Binaries{}, err
 	}
 	if b.FFprobe == "" {
-		return Binaries{}, apperr.New(apperr.FFmpegNotFound, "缺少 ffprobe，请安装 ffmpeg 或手动指定包含 ffprobe 的位置").
+		return Binaries{}, apperr.New(apperr.FFmpegNotFound, "转换组件不完整（缺少媒体信息读取程序），请重新安装转换组件或手动指定完整的转换组件所在位置").
 			WithDetail("当前使用的 ffmpeg 来自 v1 目录，没有附带 ffprobe")
 	}
 	return b, nil

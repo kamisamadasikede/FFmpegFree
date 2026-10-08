@@ -193,7 +193,7 @@ func (s *Service) StartPullPreview(_ context.Context, req PullPreviewRequest) (P
 	path := ""
 	if wantPreview {
 		if s.cfg.PreviewDir == "" || !s.cfg.Preview.Supported(context.Background(), bin.FFmpeg) {
-			return PullSession{}, apperr.New(apperr.Unsupported, "当前 ffmpeg 不支持生成预览画面").WithDetail("missing=preview")
+			return PullSession{}, apperr.New(apperr.Unsupported, "当前转换组件不支持生成预览画面").WithDetail("missing=preview")
 		}
 		if err := ensureWritableDir(s.cfg.PreviewDir); err != nil {
 			return PullSession{}, apperr.Wrap(apperr.IOError, "预览目录不可用", err)
