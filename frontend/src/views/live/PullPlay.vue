@@ -34,8 +34,8 @@
         <div class="tip">{{ LP_PULL_HINT }}</div>
         <div class="chk">低延迟追帧<el-switch v-model="lowLatency" size="small" aria-label="低延迟追帧" :disabled="busy" /></div>
         <template #action>
-          <!-- 设计稿 04 / 17：播放中、被中断时是普通按钮「停止播放」（不用 danger，见设计说明 §九 第 11 条）；结束 / 不支持 / 未开始是「开始播放」 -->
-          <LiveButton v-if="busy || phase === 'interrupted'" icon="x" @click="stop">停止播放</LiveButton>
+          <!-- 设计说明 §4.2 / 场景 17（10-08 改）：只有进行中（连接中 / 播放中 / 缓冲中）是普通按钮「停止播放」（不用 danger，§九 第 11 条）；结束、被中断、不支持、未开始都是「开始播放」 -->
+          <LiveButton v-if="busy" icon="x" @click="stop">停止播放</LiveButton>
           <LiveButton v-else variant="pri" icon="play" @click="start">开始播放</LiveButton>
         </template>
       </LivePanel>
@@ -144,11 +144,10 @@ function onStats(s: { kbps: number; fps: number; dropped: number; bytes: number 
   else { dock.pull.bytes = String(Math.max(0, Math.round(s.bytes / 1024))); dock.pull.unit = 'KB' }
 }
 async function stop() {
-  const wasBroken = phase.value === 'interrupted'
   playUrl.value = ''
   await stopPullPlayback(playback)
   playback = null
-  phase.value = wasBroken ? 'empty' : 'ended'
+  phase.value = 'ended'
   session.setIdle()
   session.log('已停止播放')
 }

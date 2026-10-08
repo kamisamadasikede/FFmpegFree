@@ -238,7 +238,9 @@ export async function runApiChecks(): Promise<string[]> {
       ], [true, true, true, true])
       const panelSrc = rd('src/components/live/LiveSessionPanel.vue')
       eq('包 21 会话面板：只列进行中的；每一行的预览开关可以拨（不再 aria-disabled）', [/v-for="r in store\.activeRows"/.test(panelSrc), /@click="store\.setPreview\(r\.id, r\.preview === false\)"/.test(panelSrc), /aria-disabled/.test(panelSrc)], [true, true, false])
-      eq('包 21 角标只数进行中的', /store\.busyCount/.test(rd('src/components/live/LiveSessionEntry.vue')), true)
+      const entrySrc = rd('src/components/live/LiveSessionEntry.vue')
+      eq('包 21 角标只数进行中的', /store\.busyCount/.test(entrySrc), true)
+      eq('包 21 角标：0 路时整个不显示（推流 / 录屏 / 拉流共用一个入口）', [/<i v-if="badge" class="badge"/.test(entrySrc), /sessionBadge\(count\.value\)/.test(entrySrc)], [true, true])
       eq('包 20：开始成功后不再清空推流码', [/key\.value = ''/.test(rd('src/views/live/FilePush.vue')), /key\.value = ''/.test(rd('src/views/live/RecordPush.vue'))], [false, false])
       const pullSrc = rd('src/views/live/PullPlay.vue')
       eq('包 21：拉流页用实时播放器，不再轮询预览图、不再写 HTTP-FLV', [/usePreviewPoller|PreviewStage|getPreview\b|HTTP-FLV/.test(pullSrc), /<LivePlayer/.test(pullSrc), /LP_PULL_HINT/.test(pullSrc)], [false, true, true])
@@ -1083,6 +1085,11 @@ export async function runApiChecks(): Promise<string[]> {
       ss.rows[1].status = 'ok'
       await nextTick()
       eq('包 21：没有进行中的会话 → 开关复位为开，角标 0', [dk.previewOn, ss.busyCount], [true, 0])
+      const { sessionBadge } = await import('@/stores/liveDock')
+      eq('包 21 拉流页：只有进行中显示「停止播放」，被中断 / 结束 / 不支持都是「开始播放」（场景 17，10-08 改）', /<LiveButton v-if="busy" icon="x" @click="stop">停止播放<\/LiveButton>\s*<LiveButton v-else variant="pri" icon="play" @click="start">开始播放<\/LiveButton>/.test((await import("node:fs")).readFileSync(`${process.cwd()}/src/views/live/PullPlay.vue`, 'utf8')), true)
+      eq('包 21：角标文字 0 路为空（不显示），其余是路数', [sessionBadge(ss.busyCount), sessionBadge(0), sessionBadge(1), sessionBadge(4)], ['', '', '1', '4'])
+      dk.pull.active = true
+      eq('包 21：拉流播放中角标 1，结束后不显示', [sessionBadge(dk.pull.active ? 1 : 0), (dk.resetPull(), sessionBadge(dk.pull.active ? 1 : 0))], ['1', ''])
     }
 
     // ---- v0.25 模拟层：不出 JPEG 帧 ----

@@ -11,7 +11,7 @@
       @click="dock.open = !dock.open"
     >
       <FIcon name="list" :size="18" />
-      <i class="badge" aria-hidden="true">{{ count }}</i>
+      <i v-if="badge" class="badge" aria-hidden="true">{{ badge }}</i>
     </button>
     <div v-if="dock.open" class="pop"><LiveSessionPanel :pull="pull" :count="count" /></div>
   </span>
@@ -23,7 +23,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import FIcon from '@/components/icon/FIcon.vue'
 import LiveSessionPanel from './LiveSessionPanel.vue'
-import { useLiveDockStore } from '@/stores/liveDock'
+import { sessionBadge, useLiveDockStore } from '@/stores/liveDock'
 import { useLiveSessionsStore } from '@/stores/liveSessions'
 import { lpVisual } from '@/views/live/lpVisual'
 
@@ -34,6 +34,7 @@ const wrap = ref<HTMLElement | null>(null)
 const pull = computed(() => route.path.startsWith('/live/pull'))
 // 只数进行中的：推流 = 运行中 + 正在停止；拉流 = 连接中 / 播放中 / 缓冲中
 const count = computed(() => (pull.value ? (dock.pull.active ? 1 : 0) : store.busyCount))
+const badge = computed(() => sessionBadge(count.value))
 const label = computed(() => (pull.value ? `拉流数据，当前 ${count.value} 路` : `推流会话，当前 ${count.value} 路`))
 
 function onDoc(e: MouseEvent) {

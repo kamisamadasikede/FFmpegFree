@@ -7,6 +7,9 @@ import { useLiveSessionsStore } from './liveSessions'
  * previewOn = 设置栏底部的“开启预览”：有进行中的当前会话时和这一路的预览双向同步（会话面板里那一行的开关是同一个值）；
  * 没有进行中的会话时是下一路的初始值，并复位为开（产品经理已定：不记住上次选择）。不写入本机。
  */
+/** 会话入口的角标文字：0 路时不显示角标（设计 / 架构 10-08 定，推流、录屏推流、拉流三页一样），只留图标 */
+export const sessionBadge = (n: number): string => (n > 0 ? String(n) : '')
+
 export const useLiveDockStore = defineStore('liveDock', () => {
   const sessions = useLiveSessionsStore()
   const open = ref(false)

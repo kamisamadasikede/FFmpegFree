@@ -18,7 +18,7 @@
         </div>
         <div class="ops">
           <span>预览</span>
-          <button type="button" class="sw" :class="{ on: r.preview !== false }" role="switch" :aria-checked="r.preview !== false" aria-label="这一路的预览" @click="store.setPreview(r.id, r.preview === false)"></button>
+          <button type="button" class="sw" :class="{ on: r.preview !== false }" role="switch" :aria-checked="r.preview !== false" aria-label="这一路的预览" title="推流中也可以开关，不影响推流" @click="store.setPreview(r.id, r.preview === false)"></button>
           <span class="sp" />
           <button v-if="r.status === 'run'" type="button" class="btn" @click="store.stop(r.id)">停止</button>
         </div>
