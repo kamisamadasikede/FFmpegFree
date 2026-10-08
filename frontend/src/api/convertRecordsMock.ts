@@ -55,8 +55,12 @@ let srcSeq = 0
 // ---- 场景数据（与 proto/convert-v2.html 的 K / SRC 一致）----
 const GB = 1024 ** 3
 const MB = 1024 ** 2
+/** 模拟后端：videoCodecName / audioCodecName 由后端的编码名表生成（契约 v0.23.4），这里用前端同写法的表代替；编码为空时不给 */
 const mi = (o: Partial<goStore.MediaInfo>): goStore.MediaInfo =>
-  goStore.MediaInfo.createFrom({ id: '', path: '', name: '', size: 0, duration: 0, width: 0, height: 0, videoCodec: '', audioCodec: '', bitrate: 0, thumbUrl: '', hasVideo: true, hasAudio: true, probedAt: 0, ...o })
+  goStore.MediaInfo.createFrom({
+    id: '', path: '', name: '', size: 0, duration: 0, width: 0, height: 0, videoCodec: '', audioCodec: '', bitrate: 0, thumbUrl: '', hasVideo: true, hasAudio: true, probedAt: 0,
+    ...(o.videoCodec ? { videoCodecName: codecName(o.videoCodec) } : {}), ...(o.audioCodec ? { audioCodecName: codecName(o.audioCodec) } : {}), ...o,
+  })
 
 const SRC = {
   launch: { path: 'D:\\Footage\\2026\\launch-4k.mov', info: mi({ width: 3840, height: 2160, videoCodec: 'hevc', audioCodec: 'aac', duration: 134, size: 3.8 * GB, container: 'mov' }) },
@@ -188,7 +192,8 @@ const dirOf = (p: string) => p.slice(0, Math.max(p.lastIndexOf('\\'), p.lastInde
 const baseOf = (p: string) => p.slice(Math.max(p.lastIndexOf('\\'), p.lastIndexOf('/')) + 1)
 
 /** media 表缓存的样子：hasVideo / hasAudio 恒为 false（6.14.2），所以页面不能拿它做冲突预检 */
-const cachedMedia = (info: goStore.MediaInfo): goStore.MediaInfo => goStore.MediaInfo.createFrom({ ...info, hasVideo: false, hasAudio: false })
+/** 持久化的媒体信息（G3 起整份入库，hasVideo / hasAudio、采样率、声道、编码显示名都在） */
+const cachedMedia = (info: goStore.MediaInfo): goStore.MediaInfo => goStore.MediaInfo.createFrom({ ...info })
 
 function seedScene(scene: MockScene) {
   const def = SCENES[scene]

@@ -57,7 +57,7 @@ export interface ConvertSource {
   name: string
   addedAt: number
   lastActivityAt: number
-  /** 按 path_key 关联的 media 表缓存，可能没有；**hasVideo / hasAudio 恒为 false，不能拿来做冲突预检**（要以当次 Probe 为准） */
+  /** 持久化的媒体信息，可能没有；G3 起 hasVideo / hasAudio 是真实值（可用于显示），冲突预检仍以当次 Probe 为准 */
   media?: goStore.MediaInfo
 }
 
@@ -288,7 +288,7 @@ export const getSource = (sourceId: string): Promise<ConvertSourceEntry> => api(
 
 // ---------------- 探测（MediaService.Probe） ----------------
 /**
- * 冲突预检要用当次探测的 hasVideo / hasAudio（ConvertSource.media 的这两个字段恒为 false，不能用）。
+ * 冲突预检要用当次探测的 hasVideo / hasAudio（ConvertSource.media 只用来显示，文件可能已经变了）。
  * 真实后端直接 MediaService.Probe；模拟时场景里的源文件给场景的探测结果，其它路径照常探测。
  */
 export const probeSources = (paths: string[], onBatch?: (r: ProbeResult[]) => void): Promise<ProbeResult[]> =>

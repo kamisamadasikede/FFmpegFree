@@ -1,7 +1,7 @@
 /** 转换页 v2 的纯函数：冲突判断（沿用 S1 逻辑）、预设名、记录时间、媒体信息文字。没有副作用，自检直接调用。 */
 import { shallowRef } from 'vue'
 import { formatBytes, formatShortClock } from '@/utils/format'
-import { channelText, codecName, sampleRateText } from '@/utils/mediaText'
+import { audioCodecText, channelText, codecName, sampleRateText, videoCodecText } from '@/utils/mediaText'
 
 export const VIDEO_CONTAINERS: readonly string[] = ['mp4', 'mkv', 'mov', 'webm', 'avi', 'flv', 'gif']
 export const AUDIO_CONTAINERS: readonly string[] = ['mp3', 'aac', 'm4a', 'wav', 'flac', 'ogg', 'opus']
@@ -157,7 +157,7 @@ export function isToday(ms: number, now: number = Date.now()): boolean {
   return !!ms && new Date(ms).toDateString() === new Date(now).toDateString()
 }
 
-interface InfoLike { width?: number; height?: number; videoCodec?: string; audioCodec?: string; duration?: number; size?: number; sampleRate?: number; channels?: number; hasVideo?: boolean; hasAudio?: boolean }
+interface InfoLike { width?: number; height?: number; videoCodec?: string; audioCodec?: string; videoCodecName?: string; audioCodecName?: string; duration?: number; size?: number; sampleRate?: number; channels?: number; hasVideo?: boolean; hasAudio?: boolean }
 /** 有画面的按视频显示，其余按音频 */
 export const isAudioOnly = (i?: InfoLike): boolean => !!i && (i.hasVideo === false || !i.width)
 
@@ -165,11 +165,11 @@ export const isAudioOnly = (i?: InfoLike): boolean => !!i && (i.hasVideo === fal
 export function sourceMetaText(i: InfoLike): string {
   const parts: string[] = []
   if (!isAudioOnly(i)) {
-    parts.push(`${i.width}×${i.height}`, codecName(i.videoCodec))
+    parts.push(`${i.width}×${i.height}`, videoCodecText(i))
     if (i.hasAudio === false) parts.push('没有声音')
   } else {
     parts.push(sampleRateText(i.sampleRate), channelText(i.channels))
-    if (!i.sampleRate && !i.channels) parts.push(codecName(i.audioCodec))
+    if (!i.sampleRate && !i.channels) parts.push(audioCodecText(i))
   }
   parts.push(formatShortClock(i.duration ?? 0), i.size ? formatBytes(i.size) : '')
   return parts.filter(Boolean).join(' · ')
