@@ -225,3 +225,77 @@ func TestParseCaps(t *testing.T) {
 		t.Fatalf("%v", e)
 	}
 }
+
+// v0.25.4：冷启动时检测还要 5 秒，GetFormatCatalog 必须等到就绪再按真实能力返回，而不是 converter_not_ready。
+func TestCatalogWaitsForSlowDetection(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(context.Background(), filepath.Join(dir, "app.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	exe := filepath.Join(dir, "ffmpeg")
+	if err := os.WriteFile(exe, []byte("bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mux, enc := fakeCaps(nil, nil)
+	ffmpeg.SetChecking()
+	t.Cleanup(func() { ffmpeg.SetCurrent(nil) })
+	go func() {
+		time.Sleep(5 * time.Second)
+		ffmpeg.SetCurrent(&ffmpeg.Binaries{FFmpeg: exe, FFprobe: exe})
+	}()
+	svc, err := New(context.Background(), Config{
+		Presets: st,
+		CapsProbe: func(context.Context, string) (string, string, error) {
+			return mux, enc, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	cat, err := svc.GetFormatCatalog(context.Background())
+	elapsed := time.Since(start)
+	t.Logf("GetFormatCatalog elapsed=%s entries=%d", elapsed.Round(time.Millisecond), len(cat))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if elapsed < 4*time.Second || elapsed > catalogDetectWait+2*time.Second {
+		t.Fatalf("应在约 5 秒、且不超过 6 秒窗口内返回，实际 %s", elapsed)
+	}
+	mp4 := entryOf(cat, "mp4")
+	if !mp4.Encodable || mp4.ReasonCode != "" {
+		t.Fatalf("检测完成后应可输出: %+v", mp4)
+	}
+}
+
+// 检测结束仍未就绪时，应在检测结束时立刻返回 converter_not_ready，不能干等满 6 秒。
+func TestCatalogNotReadyReturnsWhenDetectionEnds(t *testing.T) {
+	svc, _ := catalogSvc(t, func(context.Context, string) (string, string, error) {
+		t.Fatal("未就绪不应检测")
+		return "", "", nil
+	}, false)
+	// catalogSvc 的 Require 固定未就绪；等待仍走真实的 WaitDetected（New 的默认）。
+	ffmpeg.SetChecking()
+	t.Cleanup(func() { ffmpeg.SetCurrent(nil) })
+	go func() {
+		time.Sleep(400 * time.Millisecond)
+		ffmpeg.SetCurrent(nil)
+	}()
+	start := time.Now()
+	cat, err := svc.GetFormatCatalog(context.Background())
+	elapsed := time.Since(start)
+	t.Logf("not-ready elapsed=%s", elapsed.Round(time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("检测结束后应马上返回，实际等了 %s", elapsed)
+	}
+	for _, e := range cat {
+		if e.ReasonCode != ReasonConverterNotReady {
+			t.Fatalf("%+v", e)
+		}
+	}
+}
