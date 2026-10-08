@@ -332,3 +332,73 @@ func TestSubmitUnreadableSourceMessage(t *testing.T) {
 }
 
 var pathsNormalize = paths.Normalize
+
+// 包 18 / 19 Windows 实机库：convert_sources.media 两行都是 NULL、media_fp 为空，转换页只靠 media 表退回显示。
+// 原因：转换页是首页，应用启动时 ListSources 比转换组件的首次检测先到，懒探测拿到 FFMPEG_NOT_FOUND 什么都不写，
+// 前端一次会话只列一次，于是每次启动都补不上。现在懒探测前等检测有结果（WaitFFmpeg），同一次 ListSources 就能补上并落库。
+func TestSourceMediaWaitsForStartupDetection(t *testing.T) {
+	bin := realBins(t)
+	e := newEnv(t) // 只用来生成测试文件
+	for _, wait := range []bool{false, true} {
+		dir := t.TempDir()
+		ctx := context.Background()
+		in := e.genVideo(t, filepath.Join(dir, "source.mkv"), 1)
+		st, err := store.Open(ctx, filepath.Join(dir, "app.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		tm := task.NewManager(task.Config{Store: st, Emitter: &rec{prog: map[string][]float64{}}, LogDir: filepath.Join(dir, "logs"),
+			ProgressInterval: -1, Logf: func(string, ...any) {}})
+		// 模拟启动时的检测：检测结束前 Require 返回 FFMPEG_NOT_FOUND（和 ffmpeg.Require 一样）
+		var ready atomic.Bool
+		detected := make(chan struct{})
+		req := func() (ffmpeg.Binaries, error) {
+			if !ready.Load() {
+				return ffmpeg.Binaries{}, apperr.New(apperr.FFmpegNotFound, "未找到可用的转换组件")
+			}
+			return bin, nil
+		}
+		med := media.New(media.Config{Require: req, ThumbsDir: filepath.Join(dir, "thumbs"), Store: st})
+		cfg := Config{Presets: st, Media: med, Thumbs: med, Tasks: tm, Require: req}
+		if wait {
+			cfg.WaitFFmpeg = func(ctx context.Context) {
+				select {
+				case <-detected:
+				case <-ctx.Done():
+				}
+			}
+		} else {
+			cfg.WaitFFmpeg = func(context.Context) {} // 修复前：不等
+		}
+		svc, err := New(ctx, cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		row, _, _ := st.UpsertConvertSource(ctx, in, mustKey(t, in), 1) // 上一次运行加的行，没有持久化结果
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			ready.Store(true)
+			close(detected)
+		}()
+		page, err := svc.ListSources(ctx, ConvertSourceFilter{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := sourceByID(t, page, row.SourceID).Media
+		got, _ := st.GetConvertSource(ctx, row.SourceID)
+		if wait {
+			if m == nil || !m.HasVideo || !m.HasAudio || m.SampleRate == 0 || m.Channels == 0 {
+				t.Fatalf("等到检测结果后应探测到完整信息: %+v", m)
+			}
+			if got.Media == nil || got.MediaFP == "" || got.Media.SampleRate == 0 {
+				t.Fatalf("应落库: %+v fp=%q", got.Media, got.MediaFP)
+			}
+		} else if m != nil || got.Media != nil || got.MediaFP != "" {
+			// 复现实机库的状态：不等检测就什么都没写
+			t.Fatalf("不等检测时应复现实机库（media NULL、media_fp 空）: %+v %+v %q", m, got.Media, got.MediaFP)
+		}
+		<-detected
+		tm.Shutdown(3 * time.Second)
+		st.Close()
+	}
+}
