@@ -35,8 +35,15 @@ type FFmpegStatus struct {
 	State   string `json:"state"`            // checking | ready | missing | outdated | installing | failed
 	Path    string `json:"path"`             // ffmpeg 可执行文件的绝对路径
 	Version string `json:"version"`          // 规范化后的数字版本，如 "9.0.2"、"7.1.5"（契约 v0.22；不含网址 / 构建后缀）
-	Source  string `json:"source"`           // custom | bundled | system | legacy
-	TaskID  string `json:"taskId,omitempty"` // installing 时对应的安装任务
+	// Source（v0.25.3 起始终有值）：ready 时是实际使用的组件来源 custom | bundled | system | legacy；
+	// 其他状态（checking / missing / outdated / installing / failed）没有在用的组件，是用户的设置：
+	// 手动指定了路径为 custom，否则为 default（自动检测）。
+	Source string `json:"source"`
+	TaskID string `json:"taskId,omitempty"` // installing 时对应的安装任务
+	// CustomPathInvalid（v0.25.3）为 true 表示用户手动指定的路径不可用（不存在、不是转换组件或版本过低）：
+	// ready 时表示实际用的是别处找到的组件（source 不是 custom），设置里的手动路径仍保留；missing / outdated 时表示手动路径也试过了、不能用。
+	// 只由检测结果决定，checking / installing / failed 时为 false。后端不带提示文字，文字由前端定；清除手动路径（SetFFmpegPath("")）后为 false。
+	CustomPathInvalid bool `json:"customPathInvalid"`
 	// FFprobeMissing 为 true 表示 ffmpeg 可用但没有 ffprobe（v1 的 ffmpeg/ 目录只带 ffmpeg）。
 	// state 仍是 ready，转换等只依赖 ffmpeg 的功能可用；媒体探测、缩略图需要 ffprobe，
 	// 前端据此提示"补全 ffprobe"，引导一键安装。
@@ -126,25 +133,64 @@ func (m *Manager) Start(ctx context.Context, cfg Config) {
 // Status 返回当前状态的副本。
 func (m *Manager) Status() FFmpegStatus {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.status
+	st := m.status
+	m.mu.Unlock()
+	if st.Source == "" { // 第一次检测还没开始（NewManager 的初始 checking）：按设置补上 source（契约 v0.25.3）
+		st = m.decorate(context.Background(), st)
+	}
+	return st
 }
 
 // set 更新状态并发出 ffmpeg:status 事件；ready 时同步全局门控并重置"稍后"标记。
-func (m *Manager) set(ctx context.Context, s FFmpegStatus, bins *ffmpeg.Binaries) {
-	m.setIf(ctx, s, bins, false)
+func (m *Manager) set(ctx context.Context, s FFmpegStatus, bins *ffmpeg.Binaries) FFmpegStatus {
+	st, _ := m.setIf(ctx, s, bins, false)
+	return st
 }
 
 // setUnlessInstalling 仅在没有安装进行时更新状态，返回是否更新。
-func (m *Manager) setUnlessInstalling(ctx context.Context, s FFmpegStatus, bins *ffmpeg.Binaries) bool {
+func (m *Manager) setUnlessInstalling(ctx context.Context, s FFmpegStatus, bins *ffmpeg.Binaries) (FFmpegStatus, bool) {
 	return m.setIf(ctx, s, bins, true)
 }
 
-func (m *Manager) setIf(ctx context.Context, s FFmpegStatus, bins *ffmpeg.Binaries, skipIfInstalling bool) bool {
+// SourceDefault 是没有在用的组件、也没有手动指定路径时 FFmpegStatus.Source 的值（契约 v0.25.3）。
+const SourceDefault = "default"
+
+// decorate 按设置补上 source 和 customPathInvalid（契约 v0.25.3）：
+//   - 非 ready：source 是 custom（手动指定了路径）或 default；
+//   - ready / missing / outdated（检测结果）：手动指定了路径但没用上（source 不是 custom，或者根本没有就绪）就置 customPathInvalid。
+//
+// 检测顺序是手动路径优先（Locator.Locate），所以 ready 而 source 不是 custom 只能是手动路径不可用、退到了别处的组件。
+func (m *Manager) decorate(ctx context.Context, s FFmpegStatus) FFmpegStatus {
+	m.mu.Lock()
+	cfg := m.cfg
+	m.mu.Unlock()
+	return m.decorateWith(ctx, cfg, s)
+}
+
+// decorateWith 同 decorate，调用方已经拿到 cfg（可以在持有 m.mu 时调用：只读设置，不碰 m.mu）。
+func (m *Manager) decorateWith(ctx context.Context, cfg Config, s FFmpegStatus) FFmpegStatus {
+	custom := strings.TrimSpace(m.customPath(ctx, cfg))
+	if s.State != ffmpeg.StateReady {
+		s.Source = SourceDefault
+		if custom != "" {
+			s.Source = ffmpeg.SourceCustom
+		}
+	}
+	s.CustomPathInvalid = false
+	switch s.State {
+	case ffmpeg.StateReady, ffmpeg.StateMissing, ffmpeg.StateOutdated:
+		s.CustomPathInvalid = custom != "" && !(s.State == ffmpeg.StateReady && s.Source == ffmpeg.SourceCustom)
+	}
+	return s
+}
+
+// setIf 返回补上 source / customPathInvalid 之后实际发出的状态。
+func (m *Manager) setIf(ctx context.Context, s FFmpegStatus, bins *ffmpeg.Binaries, skipIfInstalling bool) (FFmpegStatus, bool) {
+	s = m.decorate(ctx, s)
 	m.mu.Lock()
 	if skipIfInstalling && m.install != nil {
 		m.mu.Unlock()
-		return false
+		return s, false
 	}
 	m.status = s
 	m.invalidateEncoders() // ffmpeg 路径 / 版本 / 就绪状态变化，硬件编码器检测结果作废
@@ -165,7 +211,7 @@ func (m *Manager) setIf(ctx context.Context, s FFmpegStatus, bins *ffmpeg.Binari
 	if s.State == ffmpeg.StateReady && m.PromptDismissed(ctx) {
 		_ = m.setDismissed(ctx, false) // 契约 9.5：变为 ready 后重置
 	}
-	return true
+	return s, true
 }
 
 func (m *Manager) ready() (Config, error) {
@@ -190,7 +236,7 @@ func (m *Manager) Recheck(ctx context.Context) (FFmpegStatus, error) {
 	if st, busy := m.installingStatus(); busy {
 		return st, nil // 安装期间保持 installing，不被重检覆盖
 	}
-	if !m.setUnlessInstalling(ctx, FFmpegStatus{State: ffmpeg.StateChecking}, nil) {
+	if _, ok := m.setUnlessInstalling(ctx, FFmpegStatus{State: ffmpeg.StateChecking}, nil); !ok {
 		st, _ := m.installingStatus()
 		return st, nil
 	}
@@ -200,12 +246,12 @@ func (m *Manager) Recheck(ctx context.Context) (FFmpegStatus, error) {
 	log.Printf("转换组件检测: state=%s path=%q source=%s version=%q 用时=%s 未通过的候选=%q",
 		res.State, res.Info.FFmpeg, res.Info.Source, res.Info.Version, time.Since(start).Round(time.Millisecond), attemptsDetail(res.Attempts))
 	if err != nil {
-		st := FFmpegStatus{State: ffmpeg.StateFailed, Error: apperr.Wrap(apperr.Internal, "检测转换组件被中断", err)}
-		m.setUnlessInstalling(ctx, st, nil)
+		st, _ := m.setUnlessInstalling(ctx, FFmpegStatus{State: ffmpeg.StateFailed, Error: apperr.Wrap(apperr.Internal, "检测转换组件被中断", err)}, nil)
 		return st, err
 	}
 	st, bins := statusFromResult(res)
-	if !m.setUnlessInstalling(ctx, st, bins) {
+	st, ok := m.setUnlessInstalling(ctx, st, bins)
+	if !ok {
 		st, _ = m.installingStatus() // 检测期间开始了安装，以安装状态为准
 	}
 	return st, nil
@@ -269,8 +315,7 @@ func (m *Manager) SetPath(ctx context.Context, dir string) (FFmpegStatus, error)
 		return FFmpegStatus{}, apperr.Wrap(apperr.IOError, "保存设置失败", err)
 	}
 	b := info.Binaries
-	st := FFmpegStatus{State: ffmpeg.StateReady, Path: b.FFmpeg, Version: info.Version, Source: ffmpeg.SourceCustom, FFprobeMissing: info.FFprobeMissing}
-	m.set(ctx, st, &b)
+	st := m.set(ctx, FFmpegStatus{State: ffmpeg.StateReady, Path: b.FFmpeg, Version: info.Version, Source: ffmpeg.SourceCustom, FFprobeMissing: info.FFprobeMissing}, &b)
 	return st, nil
 }
 

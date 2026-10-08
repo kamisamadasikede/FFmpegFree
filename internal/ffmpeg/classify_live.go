@@ -21,7 +21,7 @@ type LiveClassifyInput struct {
 	Screen bool
 }
 
-// ClassifyLiveError 把直播任务的 ffmpeg 非零退出归类为契约错误码（契约 6.10）。永远不返回 nil：认不出来的是 INTERNAL。
+// ClassifyLiveError 把直播任务的 ffmpeg 非零退出归类为契约错误码（契约 6.10）。永远不返回 nil：未开始时认不出来的是 INTERNAL，已开始后认不出来的是 LIVE_PUSH_INTERRUPTED（v0.25.3）。
 // 和 ClassifyConvertError 一样只看 classifiableLines()（剔除 Input # / Output # / Stream mapping / Metadata 段落），
 // 系统错误文本按行尾匹配。
 //
@@ -30,7 +30,8 @@ type LiveClassifyInput struct {
 //	未开始：RTMP 服务器明确拒绝            → LIVE_PUSH_REJECTED（detail = 脱敏 stderr 尾部）
 //	未开始：DNS / 拒绝连接 / 超时 / 不可达 / SRT 握手失败 → LIVE_CONNECT_FAILED（detail 首行 scheme=<协议>，其后是脱敏 stderr 尾部）
 //	已开始：Broken pipe / Connection reset / 写出 Input/output error / Error writing trailer → LIVE_PUSH_INTERRUPTED
-//	其他                                  → INTERNAL
+//	已开始：其他（进程被杀、崩溃）           → LIVE_PUSH_INTERRUPTED（契约 v0.25.3，message 为 PushInterruptedMessage）
+//	未开始：其他                            → INTERNAL
 //
 // SRT 已知局限：服务器没开与被拒绝的 stderr 完全一样，统一 LIVE_CONNECT_FAILED。
 func ClassifyLiveError(in LiveClassifyInput) *apperr.AppError {
@@ -103,12 +104,26 @@ func ClassifyLiveError(in LiveClassifyInput) *apperr.AppError {
 		contains("error writing trailer", "error muxing a packet", "error submitting a packet to the muxer") {
 		return apperr.New(apperr.LivePushInterrupted, "推流中断，与推流服务器的连接已断开").WithDetail(in.Tail)
 	}
-	return apperr.New(apperr.Internal, "推流异常退出").WithDetail(in.Tail)
+	// 已经开始以后认不出原因的退出（进程被外部杀掉、崩溃等）也是"推流被中断"，不用 INTERNAL（契约 v0.25.3）。
+	return apperr.New(apperr.LivePushInterrupted, PushInterruptedMessage).WithDetail(in.Tail)
 }
+
+// PushInterruptedMessage 是推流开始以后认不出具体原因的中断（进程被杀、崩溃）的 message（契约 v0.25.3），
+// 与直播页的"推流被中断"文字一致。
+const PushInterruptedMessage = "推流被中断，请回到直播页重新推流。"
 
 // PullFailedMessage 是拉流预览在开始播放前失败时给用户看的文字（live:pull 的 failed，契约 6.10.3.7）。
 // 文案由产品经理定（设计走查 G3），以后改文案只改这一处。
 const PullFailedMessage = "拉流失败，请检查直播地址和网络。"
+
+// PullInterruptedMessage 是拉流预览开始播放以后断开（live:pull 的 interrupted）的 message，与前端文字一致（契约 v0.25.3）。
+const PullInterruptedMessage = "拉流被中断，请重新拉流。"
+
+// PullInterruptedError 是 live:pull interrupted 带的错误：LIVE_PUSH_INTERRUPTED（推流、拉流共用“开始后断开”这个码，不是 INTERNAL），
+// detail 是脱敏后的 stderr 尾部。
+func PullInterruptedError(tail string) *apperr.AppError {
+	return apperr.New(apperr.LivePushInterrupted, PullInterruptedMessage).WithDetail(tail)
+}
 
 // PullTimeoutError 是拉流预览在 wait 内没有收到任何数据（远端接受连接却不发媒体、DNS / 握手卡住）时的错误：
 // 同样是 LIVE_CONNECT_FAILED + PullFailedMessage，detail 第一行 scheme=，第二行说明超时（契约 v0.25.1）。

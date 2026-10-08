@@ -489,7 +489,7 @@ func (s *Service) fillMediaFallback(ctx context.Context, ss SourceStore, src *Co
 
 func pageArgs(limit, offset, def, max int) (int, int, error) {
 	if limit < 0 || limit > max || offset < 0 {
-		return 0, 0, apperr.New(apperr.InvalidArgument, fmt.Sprintf("limit 范围 0~%d，offset 不能小于 0", max))
+		return 0, 0, apperr.New(apperr.InvalidArgument, "分页参数不正确").WithDetail(fmt.Sprintf("limit 范围 0~%d，offset 不能小于 0", max))
 	}
 	if limit == 0 {
 		limit = def
@@ -515,14 +515,14 @@ func (s *Service) listSources(ctx context.Context, keyword, status string, limit
 		return ConvertSourcePage{}, err
 	}
 	if !store.ValidSourceStatus(status) {
-		return ConvertSourcePage{}, apperr.New(apperr.InvalidArgument, `status 只能是 ""、"active" 或 "failed"`)
+		return ConvertSourcePage{}, apperr.New(apperr.InvalidArgument, "筛选条件不正确").WithDetail(`status 只能是 ""、"active" 或 "failed"`)
 	}
 	limit, offset, err = pageArgs(limit, offset, defaultSourceLimit, maxSourceLimit)
 	if err != nil {
 		return ConvertSourcePage{}, err
 	}
 	if recordLimit < 0 || recordLimit > maxRecordLimit {
-		return ConvertSourcePage{}, apperr.New(apperr.InvalidArgument, fmt.Sprintf("recordLimit 范围 0~%d", maxRecordLimit))
+		return ConvertSourcePage{}, apperr.New(apperr.InvalidArgument, "每行记录条数超出范围").WithDetail(fmt.Sprintf("recordLimit 范围 0~%d", maxRecordLimit))
 	}
 	if recordLimit == 0 {
 		recordLimit = defaultRecordLimit
@@ -822,6 +822,9 @@ func (s *Service) Reconvert(ctx context.Context, req ReconvertRequest) (task.Tas
 			return task.Task{}, task.RecordNotFound()
 		}
 		return task.Task{}, err
+	}
+	if old.Type == task.TypeEditExport || old.Type == task.TypeEditRender {
+		return task.Task{}, task.LegacyExportError("重转")
 	}
 	if old.Type != task.TypeConvert {
 		return task.Task{}, apperr.New(apperr.InvalidArgument, "不是转换记录")

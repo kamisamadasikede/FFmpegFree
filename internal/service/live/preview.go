@@ -60,6 +60,10 @@ type PullSession struct {
 	Redacted   string `json:"redacted"`
 	Preview    bool   `json:"preview"`
 	PreviewURL string `json:"previewUrl"`
+	// HasVideo / HasAudio（契约 v0.25.3，同 PreviewStream）：这一路里有没有视频 / 音频。只有已经开始播放（playing 已发，
+	// 例如同一地址重复 StartPullPreview 拿到的已有会话）时才有；新会话刚开始时还不知道，省略，以 live:pull 的 playing 为准。
+	HasVideo *bool `json:"hasVideo,omitempty"`
+	HasAudio *bool `json:"hasAudio,omitempty"`
 }
 
 // PullEvent 是 live:pull 的 payload。
@@ -67,6 +71,10 @@ type PullEvent struct {
 	ID    string           `json:"id"`
 	State string           `json:"state"`
 	Error *apperr.AppError `json:"error,omitempty"`
+	// HasVideo / HasAudio（契约 v0.25.3）：只有 playing 带（一定带，按 FLV 头里的音视频标志）。纯音频的流 hasVideo=false，
+	// 播放器要按纯音频建（不等视频）。
+	HasVideo *bool `json:"hasVideo,omitempty"`
+	HasAudio *bool `json:"hasAudio,omitempty"`
 }
 
 // StreamProbe 是拉流地址里的编码名（空 = 没有这条流）。
@@ -203,7 +211,16 @@ func (s *Service) GetPreviewStream(sessionID string) (PreviewStream, error) {
 	if f == nil || f.state.Load() == 2 || f.state.Load() == 3 {
 		return PreviewStream{}, previewUnavailable(pushOK)
 	}
-	return PreviewStream{URL: f.url, MIME: previewMIME, HasVideo: f.hasVideo, HasAudio: f.hasAudio}, nil
+	v, a := f.tracks()
+	return PreviewStream{URL: f.url, MIME: previewMIME, HasVideo: v, HasAudio: a}, nil
+}
+
+// emitPullPlaying 发 playing，带这一路的音视频标志（契约 v0.25.3）。
+func (s *Service) emitPullPlaying(id string, video, audio bool) {
+	if s.cfg.Emit == nil || s.closing.Load() {
+		return
+	}
+	s.cfg.Emit("live:pull", PullEvent{ID: id, State: "playing", HasVideo: &video, HasAudio: &audio})
 }
 
 func (s *Service) emitPull(id, state string, err *apperr.AppError) {
@@ -263,6 +280,9 @@ func pullView(id string, p *pullSession) PullSession {
 	out := PullSession{ID: id, Redacted: p.redacted, Preview: p.feed != nil}
 	if p.feed != nil {
 		out.PreviewURL = p.feed.url
+		if v, a, ok := p.feed.hub.headerTracks(); ok {
+			out.HasVideo, out.HasAudio = &v, &a
+		}
 	}
 	return out
 }
@@ -288,7 +308,7 @@ func (s *Service) runPull(ctx context.Context, sid string, p *pullSession, bin f
 			}
 			video, audio = sendV, sendA
 			hls = hls || ffmpeg.LooksLikeHLS("", pr.Format)
-			p.feed.hasVideo, p.feed.hasAudio = sendV, sendA
+			p.feed.setTracks(sendV, sendA)
 		}
 	}
 	p.feed.paced.Store(hls)
@@ -303,8 +323,8 @@ func (s *Service) runPull(ctx context.Context, sid string, p *pullSession, bin f
 	go func() {
 		select {
 		case <-p.feed.hub.ready:
-			if p.feed.hub.hasHeader() && ctx.Err() == nil {
-				s.emitPull(sid, "playing", nil)
+			if v, a, ok := p.feed.hub.headerTracks(); ok && ctx.Err() == nil {
+				s.emitPullPlaying(sid, v, a)
 			}
 		case <-ctx.Done():
 		}
@@ -344,7 +364,13 @@ func (s *Service) runPull(ctx context.Context, sid string, p *pullSession, bin f
 	case runErr == nil:
 		s.emitPull(sid, "ended", nil)
 	case p.feed.state.Load() == 1 || p.feed.hub.hasHeader():
-		s.emitPull(sid, "interrupted", nil)
+		// 契约 v0.25.3：开始播放后断开带错误码 LIVE_PUSH_INTERRUPTED（直播连接在开始后断开，推流、拉流共用这个码，不是 INTERNAL），
+		// message 与前端的“拉流被中断”文字一致，detail 是脱敏后的 stderr 尾部。
+		tail := res.StderrTail
+		if tail == "" && runErr != nil {
+			tail = apperr.From(runErr).Detail
+		}
+		s.emitPull(sid, "interrupted", ffmpeg.PullInterruptedError(tail))
 	default:
 		// 拉流有自己的分类和文字（ClassifyPullError），不能用推流的“推流启动失败”。分类看 stderr 尾部（已脱敏）。
 		tail := res.StderrTail

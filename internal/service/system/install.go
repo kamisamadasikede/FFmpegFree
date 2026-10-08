@@ -54,7 +54,11 @@ func (m *Manager) beginInstallLocked(taskID string) {
 }
 
 func (m *Manager) announceInstallingLocked(taskID string) {
-	st := FFmpegStatus{State: ffmpeg.StateInstalling, TaskID: taskID}
+	ctx := m.appCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	st := m.decorateWith(ctx, m.cfg, FFmpegStatus{State: ffmpeg.StateInstalling, TaskID: taskID})
 	m.status = st
 	ffmpeg.SetCurrent(nil) // 安装期间不放行依赖 ffmpeg 的功能，避免与替换文件冲突
 	if m.cfg.Emitter != nil {
@@ -246,6 +250,12 @@ func (r *installRunner) OnFinish(t task.Task) {
 	}
 	switch t.Status {
 	case task.StatusSucceeded:
+		if cfg, err := m.ready(); err == nil && strings.TrimSpace(m.customPath(ctx, cfg)) != "" {
+			// 设置里有手动路径：按检测顺序（手动路径优先）重新检测，手动路径能用就继续用它，
+			// 不能用就用刚装好的并带上 customPathInvalid（契约 v0.25.3）。
+			_, _ = m.Recheck(ctx)
+			return
+		}
 		b := r.info.Binaries
 		m.set(ctx, FFmpegStatus{State: ffmpeg.StateReady, Path: b.FFmpeg, Version: r.info.Version, Source: r.info.Source}, &b)
 	case task.StatusFailed:
@@ -260,7 +270,7 @@ func (r *installRunner) OnFinish(t task.Task) {
 func installError(err error) *apperr.AppError {
 	switch {
 	case errors.Is(err, ffmpeg.ErrChecksum):
-		return apperr.Wrap(apperr.Internal, "下载的文件校验失败（SHA256 不一致），请重试或换镜像", err)
+		return apperr.Wrap(apperr.Internal, "下载的文件校验失败，请重试或换镜像", err)
 	case ffmpeg.IsUnavailable(err):
 		return apperr.Wrap(apperr.UnsupportedPlatform, "当前系统暂无可用的转换组件下载源", err)
 	}

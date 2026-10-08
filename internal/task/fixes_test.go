@@ -730,7 +730,7 @@ func TestRunWithPartPanicCleansPartAndReleasesName(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := waitTask(t, f.m, tk.ID)
-	if d.Status != StatusFailed || d.Error == nil || !strings.Contains(d.Error.Message, "panic") {
+	if d.Status != StatusFailed || d.Error == nil || !strings.Contains(d.Error.Detail, "panic") || strings.Contains(d.Error.Message, "panic") { // v0.25.3：panic 原文放 detail，message 是中文
 		t.Fatalf("panic 应变成任务失败: %+v", d)
 	}
 	if _, err := os.Stat(PartPath(out)); !os.IsNotExist(err) {

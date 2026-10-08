@@ -263,7 +263,7 @@ func TestReasonPDFErrors(t *testing.T) {
 	_, err = e.svc.ReadPDFChunk("no-such-handle", 0, 1024)
 	wantReason(t, "句柄失效", err, apperr.NotFound, "PDF 句柄已失效，请重新打开", "")
 	_, err = e.svc.ReadPDFChunk(src.ID, 0, 0)
-	wantReason(t, "length 越界", err, apperr.InvalidArgument, "length 必须在 1 到 1 MiB 之间", "")
+	wantReason(t, "length 越界", err, apperr.InvalidArgument, "读取范围不正确", "")
 }
 
 // 加密 PDF 能正常打开（密码由前端 pdf.js 处理），后端不返回错误，所以没有 reason=encrypted 的 PDF 错误；
