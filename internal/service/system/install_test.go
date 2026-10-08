@@ -440,10 +440,13 @@ func TestFFmpegStatusJSON(t *testing.T) {
 	if _, ok := m["taskId"]; ok {
 		t.Fatalf("taskId 为空时不应出现: %s", raw)
 	}
-	for _, k := range []string{"state", "path", "version", "source", "ffprobeMissing"} {
+	for _, k := range []string{"state", "version", "source", "ffprobeMissing", "customPathInvalid"} {
 		if _, ok := m[k]; !ok {
 			t.Fatalf("缺字段 %s: %s", k, raw)
 		}
+	}
+	if _, ok := m["path"]; ok {
+		t.Fatalf("path 不应出现在给前端的 JSON 里: %s", raw)
 	}
 	raw, _ = json.Marshal(FFmpegStatus{State: "failed", TaskID: "T1", Error: apperr.New(apperr.Internal, "x")})
 	m = nil
