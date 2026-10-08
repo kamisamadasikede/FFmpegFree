@@ -70,7 +70,7 @@ type RunResult struct {
 //   - ctx 取消：非优雅模式立即 proc.Kill 整个进程组并返回 ctx.Err()；优雅模式见 GracefulStop。
 func Run(ctx context.Context, opts RunOptions) (RunResult, error) {
 	if opts.Exe == "" {
-		return RunResult{}, apperr.New(apperr.FFmpegNotFound, "未指定 ffmpeg 路径")
+		return RunResult{}, apperr.New(apperr.FFmpegNotFound, "未指定转换组件路径")
 	}
 	// -y：输出是任务自己选好名字的 .part 临时文件，遇到上次残留直接覆盖，绝不能停下来问 y/N；
 	// -nostdin：不需要 stdin 的任务禁止 ffmpeg 读键盘（否则后台运行时可能被 SIGTTIN 挂起或吞掉输入）。
@@ -112,13 +112,13 @@ func Run(ctx context.Context, opts RunOptions) (RunResult, error) {
 	case opts.GracefulStop:
 		w, err := cmd.StdinPipe()
 		if err != nil {
-			return RunResult{}, apperr.Wrap(apperr.Internal, "创建 ffmpeg 输入管道失败", err)
+			return RunResult{}, apperr.Wrap(apperr.Internal, "创建转换组件输入管道失败", err)
 		}
 		stdinW = w
 	}
 
 	if err := proc.Start(cmd); err != nil {
-		return RunResult{}, apperr.Wrap(apperr.ProcessFailed, "启动 ffmpeg 失败", err)
+		return RunResult{}, apperr.Wrap(apperr.ProcessFailed, "启动转换组件失败", err)
 	}
 
 	waitDone := make(chan error, 1)
