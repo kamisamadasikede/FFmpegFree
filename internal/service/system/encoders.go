@@ -200,7 +200,7 @@ func (m *Manager) SetEncoderPreference(ctx context.Context, id string) error {
 	name := ""
 	if id != EncoderAuto && id != EncoderCPU {
 		if !validEncoderID.MatchString(id) {
-			return apperr.New(apperr.InvalidArgument, "编码器偏好必须是 auto、cpu 或设备 id").WithDetail(id)
+			return apperr.New(apperr.InvalidArgument, "编码器设置不正确").WithDetail("编码器偏好必须是 auto、cpu 或设备 id：" + id)
 		}
 		list, err := m.listEncoderDevices(ctx, false, false)
 		if err != nil {

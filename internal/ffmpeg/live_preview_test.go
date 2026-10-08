@@ -160,3 +160,35 @@ func TestPreviewPlayable(t *testing.T) {
 		t.Fatal("纯 Opus 不支持")
 	}
 }
+
+// 契约 v0.25.3：探测确认是纯音频时，转封装用 0.5 秒 / 500 KB 的窗口（不再把 RTMP 的 5 秒窗口等完）；有视频或没探测出来照旧。
+func TestBuildPullRemuxArgsAudioOnlyWindow(t *testing.T) {
+	get := func(p PullRemuxPlan) string {
+		a, ok := BuildPullRemuxArgs(p)
+		if !ok {
+			t.Fatalf("%+v", p)
+		}
+		for i := range a {
+			if a[i] == "-analyzeduration" {
+				return a[i+1] + "/" + a[i+3]
+			}
+		}
+		return ""
+	}
+	base := PullRemuxPlan{URL: "rtmp://h/live/a", InputWhitelist: "rtmp,tcp", Port: 1}
+	audio := base
+	audio.Audio = true
+	if got := get(audio); got != "500000/500000" {
+		t.Fatalf("纯音频: %s", got)
+	}
+	av := base
+	av.Video, av.Audio = true, true
+	if got := get(av); got != "5000000/5000000" {
+		t.Fatalf("音视频: %s", got)
+	}
+	unk := base
+	unk.Unknown = true
+	if got := get(unk); got != "5000000/5000000" {
+		t.Fatalf("没探测: %s", got)
+	}
+}

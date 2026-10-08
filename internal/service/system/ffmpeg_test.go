@@ -584,3 +584,107 @@ func TestMaxConcurrentAppliedAtStart(t *testing.T) {
 		t.Fatalf("启动时应应用已保存的并发数: %d", f.tasks.BatchConcurrency())
 	}
 }
+
+// 契约 v0.25.3（N5）：source 始终有值；手动路径不可用时置 customPathInvalid，有别处可用的组件就用它（ready），
+// 设置里的手动路径保留；清除手动路径（SetPath("")，即「恢复默认」）后立即重新检测、事件里不再带这个标记。
+func TestCustomPathInvalidAndSourceAlways(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	if st := f.mgr.Status(); st.Source != SourceDefault || st.CustomPathInvalid {
+		t.Fatalf("Start 之前也应有 source=default: %+v", st)
+	}
+	f.start(t)
+	waitFor(t, func() bool { return f.mgr.Status().State == ffmpeg.StateMissing })
+	if st := f.mgr.Status(); st.Source != SourceDefault || st.CustomPathInvalid {
+		t.Fatalf("没有手动路径时 missing 应是 source=default、不带标记: %+v", st)
+	}
+	lastEvent := func() FFmpegStatus {
+		f.em.mu.Lock()
+		defer f.em.mu.Unlock()
+		return f.em.events[len(f.em.events)-1]
+	}
+	broken := filepath.Join(f.root, "gone", "bin")
+	check := func(name string, st FFmpegStatus, state, source string, invalid bool) {
+		t.Helper()
+		if st.State != state || st.Source != source || st.CustomPathInvalid != invalid {
+			t.Fatalf("%s: 期望 state=%s source=%s customPathInvalid=%v，得到 %+v", name, state, source, invalid, st)
+		}
+		if ev := lastEvent(); ev.State != st.State || ev.Source != st.Source || ev.CustomPathInvalid != st.CustomPathInvalid {
+			t.Fatalf("%s: 事件应与返回值一致: %+v vs %+v", name, ev, st)
+		}
+		if f.mgr.Status() != st {
+			t.Fatalf("%s: Status 应与返回值一致", name)
+		}
+	}
+	reset := func(name string, wantState, wantSource string) {
+		t.Helper()
+		st, err := f.mgr.SetPath(ctx, "")
+		if err != nil {
+			t.Fatalf("%s: 恢复默认失败: %v", name, err)
+		}
+		check(name+" 恢复默认", st, wantState, wantSource, false)
+		if p, _ := f.set.m[SettingFFmpegPath]; p != "" && p != `""` {
+			t.Fatalf("%s: 恢复默认应清掉手动路径: %q", name, p)
+		}
+	}
+
+	// 1) 手动路径坏了、别处也没有 → missing，source=custom，带标记
+	_ = f.set.SetSetting(ctx, SettingFFmpegPath, broken)
+	st, err := f.mgr.Recheck(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("坏路径 + 没有别的", st, ffmpeg.StateMissing, ffmpeg.SourceCustom, true)
+	reset("坏路径 + 没有别的", ffmpeg.StateMissing, SourceDefault)
+
+	// 2) 手动路径版本过低、别处没有 → outdated，source=custom，带标记
+	oldDir := filepath.Join(f.root, "old", "bin")
+	f.install(t, oldDir)
+	_ = f.set.SetSetting(ctx, SettingFFmpegPath, oldDir)
+	st, _ = f.mgr.Recheck(ctx)
+	check("过低版本", st, ffmpeg.StateOutdated, ffmpeg.SourceCustom, true)
+	reset("过低版本", ffmpeg.StateMissing, SourceDefault)
+
+	// 3) 手动路径坏了、自带目录里有可用的 → ready，source=bundled，带标记，设置保留
+	f.loc.BinDir = filepath.Join(f.root, "data", "good", "bin")
+	f.install(t, f.loc.BinDir)
+	_ = f.set.SetSetting(ctx, SettingFFmpegPath, broken)
+	st, _ = f.mgr.Recheck(ctx)
+	check("坏路径 + 自带可用", st, ffmpeg.StateReady, ffmpeg.SourceBundled, true)
+	if _, err := ffmpeg.Require(); err != nil {
+		t.Fatalf("用上了自带的组件，门控应放行: %v", err)
+	}
+	var saved string
+	f.set.GetSetting(ctx, SettingFFmpegPath, &saved)
+	if saved != broken {
+		t.Fatalf("用户的手动路径应保留: %q", saved)
+	}
+	b, _ := json.Marshal(st)
+	if !strings.Contains(string(b), `"customPathInvalid":true`) || !strings.Contains(string(b), `"source":"bundled"`) {
+		t.Fatalf("JSON: %s", b)
+	}
+	reset("坏路径 + 自带可用", ffmpeg.StateReady, ffmpeg.SourceBundled)
+
+	// 4) 手动路径可用 → ready，source=custom，不带标记
+	goodDir := filepath.Join(f.root, "good", "bin")
+	f.install(t, goodDir)
+	st, err = f.mgr.SetPath(ctx, goodDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("手动可用", st, ffmpeg.StateReady, ffmpeg.SourceCustom, false)
+	reset("手动可用", ffmpeg.StateReady, ffmpeg.SourceBundled)
+
+	// 5) checking 事件也带 source（按设置）
+	_ = f.set.SetSetting(ctx, SettingFFmpegPath, broken)
+	f.em.mu.Lock()
+	f.em.events = nil
+	f.em.mu.Unlock()
+	_, _ = f.mgr.Recheck(ctx)
+	f.em.mu.Lock()
+	first := f.em.events[0]
+	f.em.mu.Unlock()
+	if first.State != ffmpeg.StateChecking || first.Source != ffmpeg.SourceCustom || first.CustomPathInvalid {
+		t.Fatalf("checking 事件: %+v", first)
+	}
+}

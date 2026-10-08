@@ -75,6 +75,17 @@ func (h *flvHub) hasHeader() bool {
 	return h.header != nil
 }
 
+// headerTracks 返回 FLV 头里的音视频标志（第 5 字节：0x04 有音频，0x01 有视频）。还没有头时 ok 为 false。
+// 这是实际送出的流（ffmpeg 按映射到的流写这两个标志），比探测结果可靠（探测不到时两路都映射了“可选”）。
+func (h *flvHub) headerTracks() (video, audio, ok bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.header) < 5 {
+		return false, false, false
+	}
+	return h.header[4]&0x01 != 0, h.header[4]&0x04 != 0, true
+}
+
 func (h *flvHub) waitHeader(d time.Duration) bool {
 	select {
 	case <-h.ready:
@@ -315,9 +326,12 @@ func (c *flvClient) closeQueue() { c.once.Do(func() { close(c.ch) }) }
 
 // previewFeed 是一个会话的预览：本机 TCP 接 ffmpeg，HTTP 用 token 对外。
 type previewFeed struct {
-	token    string
-	port     int
-	url      string
+	token string
+	port  int
+	url   string
+	// hasVideo / hasAudio 是开始时按探测结果设的值，读写都经 tracks / setTracks（拉流的探测在另一个 goroutine 里改它们）；
+	// 收到 FLV 头以后以头里的标志为准。
+	trackMu  sync.Mutex
 	hasVideo bool
 	hasAudio bool
 	push     bool // 推流会话（文案用）
@@ -705,4 +719,20 @@ func previewOriginAllowed(origin string, dev bool) bool {
 		return true
 	}
 	return false
+}
+
+// tracks 返回这一路预览里有没有视频 / 音频（契约 v0.25.3）：收到 FLV 头以后按头里的标志，之前按探测结果。
+func (f *previewFeed) tracks() (video, audio bool) {
+	if v, a, ok := f.hub.headerTracks(); ok {
+		return v, a
+	}
+	f.trackMu.Lock()
+	defer f.trackMu.Unlock()
+	return f.hasVideo, f.hasAudio
+}
+
+func (f *previewFeed) setTracks(video, audio bool) {
+	f.trackMu.Lock()
+	f.hasVideo, f.hasAudio = video, audio
+	f.trackMu.Unlock()
 }

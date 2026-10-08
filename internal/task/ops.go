@@ -116,6 +116,13 @@ func RecordNotFound() error {
 	return apperr.New(apperr.NotFound, "记录不存在").WithDetail(reasonRecord)
 }
 
+// LegacyExportError 是旧版导出记录（edit_export，任务中心里叫“旧版导出”）重试 / 重转时的错误（契约 v0.25.3）：
+// UNSUPPORTED，detail 第一行 reason=feature_removed；用户文字里不出现“剪辑”。verb 是“重试”或“重转”。
+func LegacyExportError(verb string) error {
+	return apperr.New(apperr.Unsupported, "旧版导出记录只能查看和删除，不能"+verb).
+		WithDetail("reason=feature_removed\nedit_export 记录只能查看和删除（v0.23.5 起）")
+}
+
 // FileNotFound 是 6.14 接口“记录在，但登记的文件已不存在或不是普通文件”的错误（NOT_FOUND，reason=file）。
 func FileNotFound() error {
 	return apperr.New(apperr.NotFound, "文件不存在").WithDetail(reasonFile)

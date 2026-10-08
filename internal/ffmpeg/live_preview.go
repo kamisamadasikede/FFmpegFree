@@ -31,8 +31,15 @@ func BuildPullRemuxArgs(p PullRemuxPlan) (args []string, ok bool) {
 	if !p.Unknown && !p.Video && !p.Audio {
 		return nil, false
 	}
+	window := PullProbeWindow(p.URL)
+	if !p.Unknown && !p.Video {
+		// 纯音频（契约 v0.25.3）：探测已确认没有视频。FLV（MediaMTX 的 RTMP）头里的标志仍说有视频，ffmpeg 会把整个窗口等完
+		// 才开始输出（RTMP 5 秒窗口实测：探测 5.3 秒 + 转封装又 5.4 秒，约 10.7 秒才 playing）。音频参数在序列头里，0.5 秒足够
+		// （实测转封装起步约 0.8 秒）。
+		window = "500000"
+	}
 	a := []string{"-protocol_whitelist", p.InputWhitelist, "-fflags", "+nobuffer", "-flags", "low_delay",
-		"-analyzeduration", PullProbeWindow(p.URL), "-probesize", PullProbeWindow(p.URL),
+		"-analyzeduration", window, "-probesize", window,
 		// 单次读写最多等 8 秒（同探测）：远端连上后不再给数据时 ffmpeg 报错退出，而不是一直卡着。
 		"-rw_timeout", "8000000"}
 	if p.HLS {

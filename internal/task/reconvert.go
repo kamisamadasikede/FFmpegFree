@@ -161,6 +161,9 @@ func (m *Manager) Reconvert(taskID string, spec ReconvertSpec, r Runner) (Task, 
 	if err != nil {
 		return Task{}, err
 	}
+	if old.Type == TypeEditExport || old.Type == TypeEditRender {
+		return Task{}, LegacyExportError("重转")
+	}
 	if old.Type != TypeConvert {
 		return Task{}, apperr.New(apperr.InvalidArgument, "不是转换记录")
 	}

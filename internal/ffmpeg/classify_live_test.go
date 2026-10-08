@@ -63,10 +63,23 @@ func TestClassifyLiveErrorStartedDecidesConnectVsInterrupted(t *testing.T) {
 
 func TestClassifyLiveErrorIgnoresMetadataBlocks(t *testing.T) {
 	tail := "Input #0, mov,mp4, from '/tmp/Connection refused.mp4':\n  Metadata:\n    title           : Broken pipe\n  Stream #0:0: Video: h264\nSomething odd happened\n"
-	for _, started := range []bool{false, true} {
-		e := ClassifyLiveError(LiveClassifyInput{Tail: tail, Scheme: "rtmp", Started: started})
-		if e.Code != apperr.Internal {
-			t.Fatalf("started=%v: 元数据里的词不应触发分类: %+v", started, e)
+	// 未开始：认不出 → INTERNAL；已开始：认不出 → LIVE_PUSH_INTERRUPTED + PushInterruptedMessage（v0.25.3），都不是元数据里的词触发的码。
+	e := ClassifyLiveError(LiveClassifyInput{Tail: tail, Scheme: "rtmp", Started: false})
+	if e.Code != apperr.Internal {
+		t.Fatalf("未开始: 元数据里的词不应触发分类: %+v", e)
+	}
+	e = ClassifyLiveError(LiveClassifyInput{Tail: tail, Scheme: "rtmp", Started: true})
+	if e.Code != apperr.LivePushInterrupted || e.Message != PushInterruptedMessage {
+		t.Fatalf("已开始: 元数据里的词不应触发分类，认不出的是兜底的中断: %+v", e)
+	}
+}
+
+// 契约 v0.25.3：推流开始以后进程被杀（stderr 什么都没有）是 LIVE_PUSH_INTERRUPTED，不是 INTERNAL。
+func TestClassifyLiveErrorStartedKillIsInterrupted(t *testing.T) {
+	for _, tail := range []string{"", "frame=  100 fps= 25 q=23.0 size=     512kB time=00:00:04.00\n", "Killed"} {
+		e := ClassifyLiveError(LiveClassifyInput{Tail: tail, Scheme: "rtmp", Started: true})
+		if e.Code != apperr.LivePushInterrupted || e.Message != PushInterruptedMessage {
+			t.Fatalf("%q: %+v", tail, e)
 		}
 	}
 }
