@@ -1,5 +1,6 @@
 <script setup lang="ts">
 // 转换页子记录（每次转换一条，设计 §3.2）：三行 + 右侧操作。状态来自 KidView（记录 + 任务 store 的实时状态）。
+import MidEllipsis from '@/components/common/MidEllipsis.vue'
 import { computed } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import ErrorLine from '@/components/common/ErrorLine.vue'
@@ -85,7 +86,7 @@ const tag = computed(() => {
     <div class="cv-km">
       <div class="l1">
         <span class="cv-fmt">{{ fmt }}</span>
-        <b :class="{ gone, lnk: canPreview }" :title="name" @click="canPreview && emit('preview')">{{ name }}</b>
+        <MidEllipsis tag="b" :class="{ gone, lnk: canPreview }" :text="name" @click="canPreview && emit('preview')" />
         <span class="cv-tag" :class="tag.cls"><FIcon v-if="tag.icon" :name="tag.icon === 'check' ? 'check' : 'warn'" />{{ tag.text }}</span>
       </div>
       <div class="l2" :title="line2.title">{{ line2.text }}</div>

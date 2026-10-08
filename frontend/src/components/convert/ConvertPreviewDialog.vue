@@ -2,6 +2,7 @@
 // 转换页预览弹窗（设计 §六）：复用剪辑页播放器外壳 PlayerShell（不用全屏的 MediaPreviewDialog）。
 // 视频（880 / 784 宽，舞台 440 / 344）、音频（560 宽，封面 + 进度条，无波形、无全屏）、GIF（只留播放 / 暂停）。
 // <video>/<audio> 报错或接口给 UNSUPPORTED reason=format → “无法在应用内播放”；地址 token 过期（404）时重新取一次地址。
+import MidEllipsis from '@/components/common/MidEllipsis.vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import PlayerShell from '@/components/common/PlayerShell.vue'
@@ -389,7 +390,7 @@ onBeforeUnmount(() => {
         <div ref="box" class="cv-pv" :class="{ audio: kind === 'audio', gif: kind === 'gif' }" role="dialog" aria-modal="true" :aria-label="isRecord ? `预览转换结果 ${title}` : `预览 ${title}`" tabindex="-1">
           <div class="cv-pvh">
             <div class="tt">
-              <h3 :title="title">{{ title }}</h3>
+              <MidEllipsis tag="h3" :text="title" />
               <div class="sub" :title="subtitle">{{ subtitle }}</div>
               <div v-if="isRecord && src" class="cv-srcline"><FIcon :name="srcAudio ? 'music' : 'film'" /><span :title="src.path">源文件：<b>{{ src.name }}</b><template v-if="srcLine"> · {{ srcLine }}</template></span></div>
             </div>

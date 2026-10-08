@@ -1,5 +1,6 @@
 <script setup lang="ts">
 // 转换页源文件父行 + 子记录（设计 §3.1 / §3.3）。行进入可视区域（虚拟列表渲染它）时才取缩略图、补读媒体信息。
+import MidEllipsis from '@/components/common/MidEllipsis.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import ConvertThumb from './ConvertThumb.vue'
@@ -121,7 +122,7 @@ async function revealKid(id: string) {
       <ConvertThumb :state="src.thumb" :gone="gone" :audio="audio" :dur="dur" :clickable="!gone" :label="`预览源文件 ${src.name}`" @click="emit('preview', 'source', src.sourceId)" />
       <div class="cv-pm">
         <div class="cv-nm">
-          <b :title="src.path">{{ src.name }}</b>
+          <MidEllipsis tag="b" :text="src.name" :title="src.path" />
           <span v-if="isNew" class="cv-tag t-new">新添加</span>
           <span v-if="gone" class="cv-tag t-warn">源文件已不存在</span>
         </div>
@@ -145,10 +146,10 @@ async function revealKid(id: string) {
         <button v-if="gone" type="button" class="cv-ib only1280" aria-disabled="true" :aria-label="`打开所在文件夹 ${src.name}：源文件已不存在`" data-tip="源文件已不存在"><FIcon name="folder" /></button>
         <button v-else type="button" class="cv-ib only1280" :aria-label="`打开所在文件夹 ${src.name}`" title="打开所在文件夹" @click="revealSrc"><FIcon name="folder" /></button>
         <button type="button" class="cv-ib del only1280" :aria-label="SOURCE_REMOVE_LABEL" :title="SOURCE_REMOVE_LABEL" @click="emit('remove', 'source', src.sourceId)"><FIcon name="trash" /></button>
-        <button ref="moreBtn" type="button" class="cv-ib only1024" :aria-label="`更多：打开所在文件夹、删除 ${src.name}`" title="更多" aria-haspopup="menu" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><FIcon name="more" /></button>
+        <button ref="moreBtn" type="button" class="cv-ib only1024" :aria-label="`更多：打开所在文件夹、${SOURCE_REMOVE_LABEL}`" title="更多" aria-haspopup="menu" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><FIcon name="more" /></button>
         <div v-if="menuOpen" class="cv-more-menu" role="menu">
           <button type="button" role="menuitem" :aria-disabled="gone || undefined" :title="gone ? '源文件已不存在' : undefined" @click="!gone && menu(revealSrc)"><FIcon name="folder" />打开所在文件夹</button>
-          <button type="button" role="menuitem" @click="menu(() => emit('remove', 'source', src.sourceId))"><FIcon name="trash" />{{ SOURCE_REMOVE_LABEL }}</button>
+          <button type="button" role="menuitem" :aria-label="SOURCE_REMOVE_LABEL" @click="menu(() => emit('remove', 'source', src.sourceId))"><FIcon name="trash" />{{ SOURCE_REMOVE_LABEL }}</button>
         </div>
       </div>
     </div>

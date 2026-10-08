@@ -6,6 +6,7 @@ import { cancelSimTask, getSimTask, hideSimFinished, listSimFinished, retrySimTa
 import { onSimEvent } from '@/services/wails'
 import { createPinia, setActivePinia } from 'pinia'
 import { useTaskStore } from '@/stores/tasks'
+import { midEllipsis, midTailMin } from '@/utils/midEllipsis'
 import { recordParamsText, recordLine, deleteToast, toastText, revealDeleteFailureText, sourceRemovedParts, conflictReason, CONFLICT_NO_AUDIO, CONFLICT_NO_VIDEO, CONFLICT_TITLE, formatRecordTime } from '@/utils/convertText'
 import { codecName } from '@/utils/mediaText'
 
@@ -36,7 +37,7 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
   eq('摘要：不含容器名；音频写码率', [S({ container: 'mp3', audioCodec: 'mp3', audioBitrate: 192000 }), /MP4|WEBM|MP3/.test(S({ container: 'webm', videoCodec: 'vp9' }))], ['192 kbps', false])
   // ---- 删除结果 / 冲突 ----
   {
-    // 删除 / 移除 toast（产品经理 10-08 定稿；记录的 still_running 句为后端提议）：主句 + still_running 句 + 文件句
+    // 删除 / 移除 toast（产品经理 10-08 定稿）：主句 + still_running 句 + 文件句
     const F = (path: string) => ({ reason: path ? 'in_use' : 'still_running', path })
     const ids = (n: number) => Array.from({ length: n }, (_, i) => `t${i}`)
     const R = (n: number, srcGone: boolean, m: number, ...fs: ReturnType<typeof F>[]) => ({ deletedTaskIds: ids(n), deletedSourceIds: srcGone ? ['s1'] : [], deletedFiles: m, failures: fs })
@@ -55,9 +56,26 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
     // 删除记录（单条 / 批量）
     eq('删除记录：没有失败 → 已删除 n 条记录。普通样式', T(deleteToast(REC, R(1, false, 0))), ['已删除 1 条记录。', false, ''])
     eq('删除记录 still_running n=0 / n>0', [T(deleteToast(REC, R(0, false, 0, F('')))), T(deleteToast(REC, R(2, false, 0, F(''))))], [['有 1 条转换没能及时停止，请稍后再删除。', true, ''], ['已删除 2 条记录。有 1 条转换没能及时停止，请稍后再删除。', true, '']])
+    // 按 reason 分类（复核 N2 / N3；产品经理 10-08 确认）：被占用 → 没有权限 → 其他，每类一句，都在主句和 still_running 句之后
+    const X = (reason: string, path = 'D:\\x.mp4') => ({ reason, path })
+    eq('文件失败按 reason：permission / not_task_output / io 各自的句子', [T(deleteToast(REC, R(1, false, 0, X('permission')))), T(deleteToast(REC, R(1, false, 0, X('not_task_output'), X('io'))))], [['已删除 1 条记录。有 1 个文件没有权限删除，请手动删除。', true, 'D:\\x.mp4'], ['已删除 1 条记录。有 2 个文件没能删除，请手动删除。', true, 'D:\\x.mp4']])
+    eq('混合顺序：主句 → still_running → 被占用 → 没有权限 → 其他，各自计数（DeleteRecords）', toastText(deleteToast(REC, R(2, false, 0, X('io', 'D:\\io.mp4'), X('permission'), F(''), X('in_use'), X('not_task_output'), X('in_use'))).parts), '已删除 2 条记录。有 1 条转换没能及时停止，请稍后再删除。有 2 个文件没能删除，可能正在被其他程序使用，请关闭后手动删除。有 1 个文件没有权限删除，请手动删除。有 2 个文件没能删除，请手动删除。')
+    eq('混合顺序（DeleteSource 行保留）：同样的顺序；文件夹取第一条非空 path（不管原因）', T(deleteToast(SRC, R(1, false, 0, F(''), X('permission', 'D:\\p.mp4'), X('in_use', 'D:\\u.mp4')))), ['已删除 1 条记录。有 1 条转换没能及时停止，“launch-4k.mov”仍保留在列表里，请稍后再移除。有 1 个文件没能删除，可能正在被其他程序使用，请关闭后手动删除。有 1 个文件没有权限删除，请手动删除。', true, 'D:\\p.mp4'])
+    eq('按 reason 分类而不是按 path：path 为空的文件类失败不算“没能及时停止”；未知 reason 算其他', T(deleteToast(REC, R(1, false, 0, X('io', ''), X('weird')))), ['已删除 1 条记录。有 2 个文件没能删除，请手动删除。', true, 'D:\\x.mp4'])
     eq('删除记录：文件没删成 / 混合（still_running 句在前，文件句在后）', [T(deleteToast(REC, R(1, false, 0, F('D:\\a.mp4')))), T(deleteToast(REC, R(1, false, 0, F('D:\\a.mp4'), F(''))))], [['已删除 1 条记录。' + FILE, true, 'D:\\a.mp4'], ['已删除 1 条记录。有 1 条转换没能及时停止，请稍后再删除。' + FILE, true, 'D:\\a.mp4']])
     const pg = readSrc('src/views/ConvertPage.vue')
-    eq('页面：toast 全走 deleteToast；警告 8 秒；有路径才给“打开所在文件夹”；名称放进带 title 的 span', [/showDeleteToast\(deleteToast\(a, r\)\)/.test(pg), /type: t\.warn \? 'warning' : 'success', duration: t\.warn \? WARN_TOAST_MS : TOAST_MS/.test(pg), /path \? h\('button'/.test(pg), /class: 'cv-toast-nm', title: p\.name/.test(pg), /已从列表移除|没能及时停止/.test(pg)], [true, true, true, true, false])
+    const css = readSrc('src/components/convert/convert-v2.css')
+    eq('toast 排版（复核 D2）：普通行内排版、行高 1.5、按钮不缩进；不再用 inline-flex', [/\.cv-toast-box \.cv-toast\{display:block;[^}]*line-height:1\.5/.test(css), /\.cv-toast-box \.el-message__content\{line-height:1\.5\}/.test(css), /\.cv-toast-act\{display:block;margin:2px 0 0;/.test(css), /cv-toast\{display:inline-flex/.test(css)], [true, true, true, false])
+    eq('页面：toast 全走 deleteToast；警告 8 秒；有路径才给“打开所在文件夹”；整段普通文字（名称先中间省略，悬停看全文）', [/showDeleteToast\(deleteToast\(a, r\)\)/.test(pg), /type: t\.warn \? 'warning' : 'success', duration: t\.warn \? WARN_TOAST_MS : TOAST_MS/.test(pg), /path \? h\('button'/.test(pg), /h\('span', \{ class: 'cv-toast-tx', title: short === full \? undefined : full \}, short\)/.test(pg) && /midEllipsisPx\(p\.name, TOAST_NAME_PX, font\)/.test(pg), /已从列表移除|没能及时停止/.test(pg)], [true, true, true, true, false])
+  }
+  {
+    // 中间省略（复核 N1）：保留扩展名和它前面 1 个字；任务名保留“.mov → MP4”；放得下不动；检查里按字数量宽
+    const L = (s: string) => Array.from(s).length
+    eq('midEllipsis：文件名 / 任务名 / 放得下 / 没有扩展名 / 太窄退回末尾省略', [midEllipsis('launch-4k.mp4', 10, L), midEllipsis('launch-4k.mov → MP4', 14, L), midEllipsis('a.mp4', 10, L), midEllipsis('abcdefghijklmnop', 8, L), midEllipsis('launch-4k.mp4', 4, L)], ['laun…k.mp4', 'la…k.mov → MP4', 'a.mp4', 'abc…mnop', 'lau…'])
+    eq('midEllipsis：结果不超过可用宽度，中文按字切', [L(midEllipsis('采访-机位A-第二天上午.mp4', 12, L)) <= 12, midEllipsis('采访-机位A-第二天上午.mp4', 12, L).endsWith('午.mp4'), midTailMin('x.webm'), midTailMin('noext')], [true, true, 6, 4])
+    const used = ['src/views/TaskCenter.vue', 'src/components/convert/ConvertSourceRow.vue', 'src/components/convert/ConvertKid.vue', 'src/components/convert/ConvertDeleteDialog.vue', 'src/components/convert/ConvertPreviewDialog.vue', 'src/views/ConvertPage.vue'].map((f) => /MidEllipsis|midEllipsisPx/.test(readSrc(f)))
+    eq('MidEllipsis 用在任务中心任务名、源文件名、记录名、删除弹窗、预览标题、移除提示', used, [true, true, true, true, true, true])
+    eq('1024“更多”按钮读屏：更多：打开所在文件夹、从列表移除；菜单项 aria-label 从列表移除', [/aria-label="`更多：打开所在文件夹、\$\{SOURCE_REMOVE_LABEL\}`"/.test(readSrc('src/components/convert/ConvertSourceRow.vue')), /role="menuitem" :aria-label="SOURCE_REMOVE_LABEL"/.test(readSrc('src/components/convert/ConvertSourceRow.vue'))], [true, true])
   }
   eq('编码显示名：H.265 / ProRes，不出现 HEVC / PRORES；其余首字母大写', ['hevc', 'h265', 'prores', 'h264', 'av1', 'pcm_s16le', 'cinepak', 'copy'].map((c) => codecName(c)), ['H.265', 'H.265', 'ProRes', 'H.264', 'AV1', 'PCM', 'Cinepak', '原编码'])
   eq('冲突：无画面配视频 / 无声配音频 / 读取中不判断 / 兼容', [conflictReason({ hasAudio: true }, true, 'mp4'), conflictReason({ hasVideo: true }, true, 'mp3'), conflictReason({}, false, 'mp4'), conflictReason({ hasVideo: true, hasAudio: true }, true, 'mp4')], [CONFLICT_NO_VIDEO, CONFLICT_NO_AUDIO, null, null])
@@ -131,6 +149,11 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
         const r3 = await mock.DeleteSource('mock-src-launch', true)
         const n3 = deleteToast({ kind: 'source', id: 'mock-src-launch', name: 'launch-4k.mov' }, r3)
         eq('两种失败都有：still_running 句在前、文件句在后，各自计数；文件夹取第一条非空 path', [toastText(n3.parts), n3.warn, !!n3.path, n3.path === r3.failures.find((f) => f.path)?.path], ['已删除 2 条记录。有 1 条转换没能及时停止，“launch-4k.mov”仍保留在列表里，请稍后再移除。有 1 个文件没能删除，可能正在被其他程序使用，请关闭后手动删除。', true, true, true])
+        // 模拟：多个文件类原因按文件轮流（in_use,permission）→ 行删掉，两句按顺序
+        mock.resetConvertMock('mixed')
+        win.location.search = '?cv_delfail=permission,in_use'
+        const rp = await mock.DeleteSource('mock-src-iv', true)
+        eq('模拟 DeleteSource 多种文件失败：行删掉；被占用句在没有权限句前面', [rp.deletedSourceIds, rp.failures.map((f) => f.reason).sort(), toastText(deleteToast({ kind: 'source', id: 'mock-src-iv', name: '采访-机位A.mkv' }, rp).parts)], [['mock-src-iv'], ['in_use', 'permission'], '已从列表移除“采访-机位A.mkv”和 2 条记录。有 1 个文件没能删除，可能正在被其他程序使用，请关闭后手动删除。有 1 个文件没有权限删除，请手动删除。'])
         // DeleteRecords：进行中那条停不下来 → 不删、仍可见
         mock.resetConvertMock('mixed')
         win.location.search = '?cv_delfail=still_running'
@@ -143,7 +166,7 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
         win.location.search = '?cv_revealfail=INVALID_ARGUMENT'
         const ia = await rejects(mock.revealDeleteFailureMock('D:\\x.mp4'))
         win.location.search = prev
-        eq('打开所在文件夹失败的提示：NOT_FOUND 固定文案，其他用错误本身的文案；正常不报错', [nf && revealDeleteFailureText(nf), ia && revealDeleteFailureText(ia), await rejects(mock.revealDeleteFailureMock('D:\\x.mp4'))], ['找不到这个文件。', '不允许打开这个位置', null])
+        eq('打开所在文件夹失败的提示：NOT_FOUND / INVALID_ARGUMENT（超时）都写“找不到这个文件”（无句号），其他用错误本身的文案；正常不报错', [nf && revealDeleteFailureText(nf), ia && revealDeleteFailureText(ia), revealDeleteFailureText({ code: 'IO_ERROR', message: '打不开' }), await rejects(mock.revealDeleteFailureMock('D:\\x.mp4'))], ['找不到这个文件', '找不到这个文件', '打不开', null])
         eq('页面：打开所在文件夹失败走 revealDeleteFailureText，不再静默忽略 INVALID_ARGUMENT', [/revealDeleteFailure\(path\)\.catch\(\(e\) => ElMessage\.error\(revealDeleteFailureText\(toAppError\(e\)\)\)\)/.test(readSrc('src/views/ConvertPage.vue')), /INVALID_ARGUMENT/.test(readSrc('src/views/ConvertPage.vue'))], [true, false])
         mock.resetConvertMock('mixed')
         win.location.search = prev

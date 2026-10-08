@@ -21,7 +21,8 @@ import { convertV2IsReal, revealDeleteFailure } from '@/api/convertRecords'
 import { hasWailsBackend } from '@/services/wails'
 import { useConvertRecordsStore, type DeleteAsk, type ParentView } from '@/stores/convertRecords'
 import { useTaskStore } from '@/stores/tasks'
-import { deleteToast, revealDeleteFailureText, roughEta, type DeleteToast } from '@/utils/convertText'
+import { deleteToast, revealDeleteFailureText, roughEta, toastText, type DeleteToast } from '@/utils/convertText'
+import { midEllipsisPx } from '@/utils/midEllipsis'
 
 const cv = useConvertRecordsStore()
 const tasks = useTaskStore()
@@ -110,11 +111,18 @@ async function onConfirmDelete(withOutput: boolean) {
 /** 普通 toast 4 秒；警告 toast 8 秒（Element Plus 的消息悬停时本来就不计时） */
 const TOAST_MS = 4000
 const WARN_TOAST_MS = 8000
-/** 删除 / 移除后的 toast：文案和顺序都在 deleteToast（utils/convertText）；名称单独一段，过长省略、悬停看全名；有 failures 时警告样式 8 秒 */
+/**
+ * 删除 / 移除后的 toast：文案和顺序都在 deleteToast（utils/convertText）。复核 D2：整段是一句普通文字、正常换行（不拆成弹性项），
+ * 行高 1.5；文件名先按 220px 中间省略、保留扩展名，悬停整段看全文（含全名）。“打开所在文件夹”另起一行、不缩进。有 failures 时警告样式 8 秒。
+ */
+const TOAST_NAME_PX = 220
 function showDeleteToast(t: DeleteToast) {
   const path = t.path
-  const msg = h('span', { class: 'cv-toast' }, [
-    ...t.parts.map((p) => (typeof p === 'string' ? p : h('span', { class: 'cv-toast-nm', title: p.name }, p.name))),
+  const font = `13px ${getComputedStyle(document.body).fontFamily}`
+  const short = t.parts.map((p) => (typeof p === 'string' ? p : midEllipsisPx(p.name, TOAST_NAME_PX, font))).join('')
+  const full = toastText(t.parts)
+  const msg = h('div', { class: 'cv-toast' }, [
+    h('span', { class: 'cv-toast-tx', title: short === full ? undefined : full }, short),
     path ? h('button', { type: 'button', class: 'ff-link cv-toast-act', onClick: () => void revealDeleteFailure(path).catch((e) => ElMessage.error(revealDeleteFailureText(toAppError(e)))) }, '打开所在文件夹') : null,
   ])
   ElMessage({ message: msg, type: t.warn ? 'warning' : 'success', duration: t.warn ? WARN_TOAST_MS : TOAST_MS, customClass: 'cv-toast-box' })
@@ -175,7 +183,7 @@ watch(() => route.query.record, (r) => {
   if (r) void locateFromRoute()
 })
 
-// ---- 模拟场景的弹窗（走查 / 截图用：?dlg=video|result|audio|unplayable|delete|delete-checked|delete-kid|delete-kid-running） ----
+// ---- 模拟场景的弹窗（走查 / 截图用：?dlg=video|result|audio|unplayable|delete|delete-checked|delete-kid|delete-kid-running|delete-kid-batch|delete-empty；删除结果配 ?cv_delfail=、打开文件夹失败配 ?cv_revealfail=） ----
 function openMockDialog() {
   if (convertV2IsReal()) return
   switch (simParam('dlg')) {
@@ -194,6 +202,14 @@ function openMockDialog() {
       return
     case 'delete-kid-running': // 界面上进行中的记录没有删除按钮；只用来模拟 DeleteRecords 撞上 still_running（配 ?cv_delfail=still_running）
       delAsk.value = cv.deleteAsk('record', 'simcv-launchRun1080')
+      return
+    case 'delete-kid-batch': { // 一次删两条（失败的 + 进行中的），模拟 DeleteRecords n>0 + still_running
+      const a = cv.deleteAsk('record', 'simcv-launchFail')
+      delAsk.value = a && { ...a, ids: ['simcv-launchFail', 'simcv-launchRun1080'], count: 2, activeCount: 1 }
+      return
+    }
+    case 'delete-empty': // 没有记录的源文件行（mixed 场景的屏幕录制）
+      return onRemove('source', 'mock-src-rec')
   }
 }
 

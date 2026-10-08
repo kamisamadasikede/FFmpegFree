@@ -98,6 +98,8 @@ export interface DeleteAsk {
   outputBytes: number
   /** 源文件是纯音频（弹窗文件行用音符图标） */
   audio?: boolean
+  /** 只有 kind=record：一次删多条（DeleteRecords 的 taskIds）；缺省 = [id] */
+  ids?: string[]
 }
 
 /** 本地记住的折叠状态（按 sourceId）：用户点过的才记，没点过的按默认规则 */
@@ -1054,7 +1056,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   }
   /** 执行删除，返回删除结果（页面据此给提示） */
   async function confirmDelete(a: DeleteAsk, deleteOutput: boolean): Promise<DeleteResult> {
-    const r = a.kind === 'record' ? await deleteRecords([a.id], deleteOutput && a.outputs > 0) : await deleteSource(a.id, deleteOutput && a.outputs > 0)
+    const r = a.kind === 'record' ? await deleteRecords(a.ids ?? [a.id], deleteOutput && a.outputs > 0) : await deleteSource(a.id, deleteOutput && a.outputs > 0)
     dropRecords(r.deletedTaskIds)
     for (const sid of r.deletedSourceIds) {
       if (!sources[sid]) continue

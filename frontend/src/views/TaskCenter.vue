@@ -76,7 +76,7 @@
               <tr :class="{ sel: logId === t.id, haserr: hasErrLine(t) || showFallbackNotice(t), hid: isHidden(t) }">
                 <td>
                   <div class="tc-nm">
-                    <div class="fname tc-dim" :title="isSim(t) ? `演示任务（模拟数据） · ${t.title}` : t.title"><span v-if="isSim(t)" class="simtag">演示</span>{{ shownTitle(t) }}</div>
+                    <div class="fname tc-dim" :title="isSim(t) ? `演示任务（模拟数据） · ${t.title}` : t.title"><span v-if="isSim(t)" class="simtag">演示</span><MidEllipsis :text="shownTitle(t)" :title="isSim(t) ? `演示任务（模拟数据） · ${t.title}` : t.title" /></div>
                     <span v-if="isHidden(t)" class="tc-hidtag"><FIcon name="eyeoff" :size="12" />已隐藏</span>
                   </div>
                   <div class="finfo tc-dim" :title="subTitle(t)">{{ subInfo(t) }}</div>
@@ -211,6 +211,7 @@
 </template>
 
 <script setup lang="ts">
+import MidEllipsis from '@/components/common/MidEllipsis.vue'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -820,8 +821,13 @@ tr.errrow > td {
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
   max-width: 100%;
+  display: flex; /* “演示”标记 + 文件名（MidEllipsis：放不下时中间省略、保留扩展名和“→ 格式”，复核 N1） */
+  align-items: center;
+  min-width: 0;
+}
+.fname :deep(.mid-el) {
+  flex: 0 1 auto;
 }
 td:first-child {
   max-width: 0; /* 让长文件名在表格里省略而不是撑宽列 */
@@ -843,8 +849,8 @@ th { white-space: nowrap; } /* “开始时间”不换行 */
   .simtag { display: none; } /* 窄窗口下“演示”标记只留在 title 里，给文件名让位 */
   tr.hid .tc-rt .lbl { display: none; }
   .c-type { width: 56px; }
-  .c-st { width: 88px; }
-  .c-prog { width: 104px; }
+  .c-st { width: 80px; } /* 复核 N1：稿子 1024 下状态列约 80、进度列约 92，任务列约 250 */
+  .c-prog { width: 92px; }
   .c-when { width: 92px; }
 }
 .finfo {

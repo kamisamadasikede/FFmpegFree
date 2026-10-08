@@ -1,5 +1,6 @@
 <script setup lang="ts">
 // 删除确认（设计 §四 9，截图 13 / 14）：不做回收站；“同时删除输出文件”默认不勾、不记住；默认焦点在“取消”。源文件本身永远不删。
+import MidEllipsis from '@/components/common/MidEllipsis.vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import type { DeleteAsk } from '@/stores/convertRecords'
@@ -72,7 +73,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true))
         <div ref="box" class="cv-dlg" role="alertdialog" aria-modal="true" aria-labelledby="cv-del-t" aria-describedby="cv-del-d">
           <div class="big" :class="{ neutral: !danger }"><FIcon name="trash" /></div>
           <h3 id="cv-del-t">{{ a.title }}</h3>
-          <div v-if="a.kind === 'source'" class="cv-delfile"><FIcon :name="a.audio ? 'music' : 'film'" :size="14" /><span :title="a.name">{{ a.name }}</span><template v-if="a.count"><i>·</i><em>{{ a.count }} 条转换记录</em></template></div>
+          <div v-if="a.kind === 'source'" class="cv-delfile"><FIcon :name="a.audio ? 'music' : 'film'" :size="14" /><MidEllipsis :text="a.name" /><template v-if="a.count"><i>·</i><em>{{ a.count }} 条转换记录</em></template></div>
           <p v-if="a.kind === 'record'" id="cv-del-d">
             <template v-if="withOutput">“{{ a.name }}”的记录会从列表里移除，<b>磁盘上的这个文件也会被删除</b>。</template>
             <template v-else>“{{ a.name }}”的记录会从列表里移除。只删除记录，<b>不删除磁盘上的文件</b>。</template>

@@ -436,7 +436,8 @@ function doDelete(ids: string[], deleteOutputs: boolean): DeleteResult {
   const kept = new Set<string>()
   const fails = (simParam('cv_delfail') ?? '').split(',').filter(Boolean)
   const stuck = fails.includes('still_running')
-  const fail = fails.find((x) => x !== 'still_running') ?? ''
+  const fileFails = fails.filter((x) => x !== 'still_running') // 多个文件类原因时按文件轮流用（检查 / 截图混合提示用）
+  let fi = 0
   const MSG: Record<string, string> = { in_use: '文件正在被使用，没有删除', permission: '没有权限删除这个文件', not_task_output: '文件已被替换或移动，没有删除', io: '删除文件失败', still_running: '任务还没停下来，没有删除这条记录' }
   for (const id of mine) {
     const t = getSimTask(id)!
@@ -450,6 +451,7 @@ function doDelete(ids: string[], deleteOutputs: boolean): DeleteResult {
     }
     if (wasActive) cancelSimTask(id)
     if (deleteOutputs && wasDone && !outputGone.has(id)) {
+      const fail = fileFails.length ? fileFails[fi++ % fileFails.length] : ''
       if (fail && MSG[fail]) failures.push({ taskId: id, path: t.outputPath, reason: fail, message: MSG[fail] })
       else deletedFiles++
     }

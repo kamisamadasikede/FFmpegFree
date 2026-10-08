@@ -418,6 +418,8 @@ html.reduce-motion .cv-kid.focus{animation-timing-function:steps(1,end)}
 .cv-delfile i{font-style:normal;color:var(--ff-text-3)}
 .cv-delfile em{font-style:normal;flex:none}
 /* 删除 / 移除后的 toast（ElMessage 挂在 body 上，不在 .cv2 里）：文件名过长省略，悬停看全名 */
-.cv-toast-box .cv-toast{display:inline-flex;flex-wrap:wrap;align-items:baseline;max-width:520px}
-.cv-toast-box .cv-toast-nm{display:inline-block;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
-.cv-toast-box .cv-toast-act{margin-left:8px;padding:0;border:0;background:transparent;font:inherit;color:var(--ff-primary-text);cursor:pointer}
+.cv-toast-box .el-message__content{line-height:1.5}
+/* 复核 D2：整段普通文字、正常换行，行高 1.5；按钮另起一行、不缩进 */
+.cv-toast-box .cv-toast{display:block;max-width:560px;font-size:13px;line-height:1.5;white-space:normal;word-break:normal;overflow-wrap:anywhere}
+.cv-toast-box .cv-toast-tx{display:inline}
+.cv-toast-box .cv-toast-act{display:block;margin:2px 0 0;padding:0;border:0;background:transparent;font:inherit;line-height:1.5;text-align:left;color:var(--ff-primary-text);cursor:pointer}
