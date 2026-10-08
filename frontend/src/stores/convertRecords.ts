@@ -36,7 +36,7 @@ export interface SourceRow {
   name: string
   addedAt: number
   lastActivityAt: number
-  /** media 表缓存（可能没有；hasVideo / hasAudio 恒为 false，只拿来显示分辨率 / 时长 / 大小） */
+  /** 持久化的媒体信息（可能没有）；G3 起 hasVideo / hasAudio 是真实值，显示走 metaInfoOf（旧数据两个都是 false 时按不知道处理） */
   media?: goStore.MediaInfo
   /** 本次会话里 MediaService.Probe 的结果：冲突预检只认它 */
   info?: goStore.MediaInfo
@@ -128,10 +128,16 @@ export function defaultOpen(kids: readonly { status: string }[], lastActivityAt:
   return isToday(lastActivityAt, now)
 }
 
-/** 显示用的媒体信息：当次探测优先；只有 media 缓存时去掉恒为 false 的 hasVideo / hasAudio（按宽高判断是不是纯音频，不显示“没有声音”） */
+/**
+ * 显示用的媒体信息：当次探测优先，其次 media 缓存。
+ * 后端走查修复（G3，PR #92）起 ConvertSource.media 整份入库，hasVideo / hasAudio 是真实值：保留它们，
+ * 重启后音频行照样显示采样率 · 声道，无声视频照样显示“没有声音”。
+ * 两个都不是 true 的缓存（真实媒体至少有一路，只可能是 G3 之前没补上的旧数据）按“不知道”处理：去掉这两个字段，按宽高判断，不显示“没有声音”。
+ */
 export function metaInfoOf(s: { info?: goStore.MediaInfo; media?: goStore.MediaInfo }): (Omit<goStore.MediaInfo, 'hasVideo' | 'hasAudio'> & { hasVideo?: boolean; hasAudio?: boolean }) | undefined {
   if (s.info) return s.info
   if (!s.media) return undefined
+  if (s.media.hasVideo === true || s.media.hasAudio === true) return s.media
   const { hasVideo: _v, hasAudio: _a, ...rest } = s.media as goStore.MediaInfo & Record<string, unknown>
   void _v
   void _a
@@ -324,7 +330,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
 
   // ---------------- 勾选 / 冲突 ----------------
   const isCheckable = (s: SourceRow) => s.exists !== false && s.probe !== 'error'
-  /** 冲突只看当次探测（info），media 缓存的 hasVideo / hasAudio 恒为 false，不能用 */
+  /** 冲突只看当次探测（info）：勾选时会重新探测，文件可能已经变了，缓存只用来显示 */
   function conflictOfSource(s: SourceRow): string | null {
     return conflictReason(s.info, s.probe === 'ok', selectedPreset.value?.options.container)
   }
