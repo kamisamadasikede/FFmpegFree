@@ -1,6 +1,6 @@
 // 接口层自检（不引入测试框架）：node scripts/check-api.mjs 用 esbuild 打包后运行，失败退出码 1。
-// 覆盖：AppError 的 reason / clipId 解析、TASK_CONFLICT 文案表、推流地址校验与脱敏、Edit 同轨道重叠 / 输出名净化 / 结构校验、
-// 模拟层（Live 两种 TASK_CONFLICT、停止语义、Doc 的 UNSUPPORTED、Edit 的 clip 错误）。
+// 覆盖：AppError 的 reason / clipId 解析、TASK_CONFLICT 文案表、推流地址校验与脱敏、
+// 模拟层（Live 两种 TASK_CONFLICT、停止语义、Doc 的 UNSUPPORTED）。
 import { AppError, parseDetailHead, toAppError, BACKEND_ERROR_CODES, callService, docErrorReason, DOC_ERROR_REASONS } from './call'
 import { toApiTask, type TaskProgressPayload, type TaskStatusPayload, type ApiTask } from './taskTypes'
 import {
@@ -10,7 +10,6 @@ import {
 } from '@/errors/errorMessages'
 import { parsePushUrl, redactPushUrl } from '@/utils/liveUrl'
 import * as live from './live'
-import * as edit from './edit'
 import * as doc from './doc'
 import { docErrorText, docErrorFile, docErrorPath, docReasonOf, pdfErrorView, DOC_TOO_MANY_PAGES_TEXT, DOC_FILE_BROKEN_TEXT, DOC_FORMAT_UNSUPPORTED_TEXT, DOC_ENCRYPTED_TEXT, DOC_NO_FONT_TEXT, DOC_TOO_LARGE_TEXT } from '@/errors/errorMessages'
 import { ffmpegStatusView } from '@/components/ffmpeg/statusView'
@@ -24,7 +23,8 @@ import * as encApi from './encoder'
 import { deriveEncoderView, createSeq } from './encoderView'
 import * as encMsg from '@/errors/encoderMessages'
 import { pushErrorToForm } from '@/views/live/pushErrors'
-import { elapsedMs, isKnownTaskType, isLegacyTaskType, useTaskStore } from '@/stores/tasks'
+import { canRetryTask, elapsedMs, isKnownTaskType, isLegacyTaskType, isRetiredType, useTaskStore } from '@/stores/tasks'
+import { mainNav } from '@/layout/navigation'
 import { createPinia, setActivePinia } from 'pinia'
 import { emitSimEvent } from '@/services/wails'
 import * as encTask from './encoderTask'
@@ -124,94 +124,7 @@ export async function runApiChecks(): Promise<string[]> {
   eq('脱敏 多段流名', redactPushUrl('rtmp://h/live/a/b/c'), 'rtmp://h/live/***')
   eq('脱敏 非法串不回显', redactPushUrl('not a url secret'), '<invalid-url>')
 
-  // ---- Edit：同轨道重叠 / 输出名 / 结构 ----
-  const vc = (id: string, trackId: string, startSec: number, inSec: number, outSec: number, speed = 1): edit.VideoClip => ({
-    id, path: '/m/a.mp4', trackId, startSec, inSec, outSec, speed, effectPreset: 'none', transitionToNext: 'none', transitionDurationSec: 0, blur: 0,
-  })
-  eq('同轨重叠', edit.findTrackOverlap([vc('a', 'V1', 0, 0, 10), vc('b', 'V1', 5, 0, 10)]), { trackId: 'V1', a: 'a', b: 'b' })
-  eq('首尾相接不算重叠', edit.findTrackOverlap([vc('a', 'V1', 0, 0, 10), vc('b', 'V1', 10, 0, 10)]), null)
-  eq('不同轨道（画中画）不算重叠', edit.findTrackOverlap([vc('a', 'V1', 0, 0, 10), vc('b', 'V2', 5, 0, 10)]), null)
-  eq('速度 2 时占用一半', edit.findTrackOverlap([vc('a', 'V1', 0, 0, 10, 2), vc('b', 'V1', 5, 0, 10)]), null)
-  eq('放置检测 wouldOverlap', edit.wouldOverlap([vc('a', 'V1', 0, 0, 10)], vc('n', 'V1', 8, 0, 4)), 'a')
-  eq('拖动自己不冲突', edit.wouldOverlap([vc('a', 'V1', 0, 0, 10)], vc('a', 'V1', 2, 0, 10)), null)
-  eq('输出名允许中日韩', edit.sanitizeOutputName('周报：剪辑/第1版?'), '周报：剪辑第1版')
-  eq('输出名保留设备名', edit.sanitizeOutputName('con'), '_con')
-  eq('输出名保留设备名带扩展名', edit.sanitizeOutputName('CON.txt'), '_CON.txt')
-  eq('输出名空 → 工程名', edit.sanitizeOutputName('', '我的工程'), '我的工程')
-  eq('输出名全非法 → edit', edit.sanitizeOutputName('***'), 'edit')
-  eq('输出名尾部点与空格', edit.sanitizeOutputName('abc. . '), 'abc')
-  eq('输出名 100 字截断', [...edit.sanitizeOutputName('字'.repeat(150))].length, 100)
-  const proj = (): edit.EditProject => ({ ...edit.newEditProject('工程A'), sources: ['/m/a.mp4'], videoTrack: [vc('c1', 'V1', 0, 0, 10)] })
-  const okPlan = await edit.validateProject(proj())
-  eq('Validate 时长', okPlan.durationSec, 10)
-  const overlapProj = proj()
-  overlapProj.videoTrack.push(vc('c2', 'V1', 5, 0, 10))
-  let err = await rejects(edit.validateProject(overlapProj))
-  eq('模拟：同轨重叠 INVALID_ARGUMENT', err?.code, 'INVALID_ARGUMENT')
-  eq('模拟：clip 错误的 clipId / path', [err?.clipId, err?.path], ['c2', '/m/a.mp4'])
-  const noVideo = proj()
-  noVideo.videoTrack = []
-  err = await rejects(edit.validateProject(noVideo))
-  eq('模拟：视频轨为空 → project 首行', [err?.code, err?.clipId, err?.detail?.split('\n')[0]], ['INVALID_ARGUMENT', undefined, 'project'])
-  // ---- 架构师决定 5：SaveProject 不查同轨重叠；outSec=0 一律 INVALID_ARGUMENT ----
-  const saved = await edit.saveProject(overlapProj)
-  eq('SaveProject 允许同轨重叠（草稿）', saved.id.startsWith('sim-proj-'), true)
-  eq('Validate 仍然报同轨重叠', (await rejects(edit.validateProject(overlapProj)))?.code, 'INVALID_ARGUMENT')
-  eq('Export 也报同轨重叠', (await rejects(edit.exportProject(overlapProj, { outputName: '', outputDir: '' })))?.code, 'INVALID_ARGUMENT')
-  await edit.deleteProject(saved.id)
-  const zeroOut = proj()
-  zeroOut.videoTrack[0].outSec = 0
-  err = await rejects(edit.validateProject(zeroOut))
-  eq('Validate：outSec=0 → INVALID_ARGUMENT 且定位 clip', [err?.code, err?.clipId], ['INVALID_ARGUMENT', 'c1'])
-  eq('Export：outSec=0 → INVALID_ARGUMENT', (await rejects(edit.exportProject(zeroOut, { outputName: '', outputDir: '' })))?.code, 'INVALID_ARGUMENT')
-  eq('Save：outSec=0 草稿可保存', (await rejects(edit.saveProject(zeroOut))), null)
-  const eqIn = proj()
-  eqIn.videoTrack[0].inSec = 5
-  eqIn.videoTrack[0].outSec = 5
-  eq('outSec == inSec → INVALID_ARGUMENT', (await rejects(edit.validateProject(eqIn)))?.code, 'INVALID_ARGUMENT')
-  const filled = edit.newVideoClip({ path: '/m/a.mp4', durationSec: 42.5 })
-  eq('素材加入 clip 填探测到的时长', [filled.inSec, filled.outSec, edit.CLIP_ID_RE.test(filled.id)], [0, 42.5, true])
-  eq('素材时长未知不能加入', [(() => { try { edit.newVideoClip({ path: '/m/a.mp4', durationSec: 0 }); return 'ok' } catch (e) { return toAppError(e).code } })()], ['INVALID_ARGUMENT'])
-  eq('音频 clip 填时长且 volume=1', ((c) => [c.outSec, c.volume])(edit.newAudioClip({ path: '/m/a.mp3', durationSec: 10 })), [10, 1])
-  eq('fillOutSec 补 outSec=0', edit.fillOutSec(vc('z', 'V1', 0, 0, 0), 30).outSec, 30)
-  eq('fillOutSec 不动合法值', edit.fillOutSec(vc('z', 'V1', 0, 0, 8), 30).outSec, 8)
-  eq('outSec=0 的 clip 不再占时间线', edit.clipTimelineLength(vc('z', 'V1', 0, 0, 0)), 0)
-  const badSpeed = proj()
-  badSpeed.videoTrack[0].speed = 9
-  err = await rejects(edit.validateProject(badSpeed))
-  eq('模拟：speed 越界报错而不是截断', [err?.code, err?.clipId], ['INVALID_ARGUMENT', 'c1'])
-  eq('Save 不查 speed 范围（只查数量上限）', await rejects(edit.saveProject(badSpeed)), null)
-  const badId = proj()
-  badId.videoTrack[0].id = 'a b'
-  err = await rejects(edit.validateProject(badId))
-  eq('模拟：clip id 字符集', err?.code, 'INVALID_ARGUMENT')
-  const tooMany = proj()
-  tooMany.videoTrack = Array.from({ length: 101 }, (_, i) => vc(`k${i}`, 'V1', i * 10, 0, 5))
-  eq('Save 数量上限 101 个 clip → INVALID_ARGUMENT', (await rejects(edit.saveProject(tooMany)))?.code, 'INVALID_ARGUMENT')
-  const tooManySrc = proj()
-  tooManySrc.sources = Array.from({ length: 101 }, (_, i) => `/m/s${i}.mp4`)
-  eq('Save 素材库上限 101 → INVALID_ARGUMENT', (await rejects(edit.saveProject(tooManySrc)))?.code, 'INVALID_ARGUMENT')
-  eq('默认导出分辨率 1920×1080', [edit.newEditProject().output.width, edit.newEditProject().output.height], [1920, 1080])
-  const meta = await edit.saveProject(proj())
-  eq('SaveProject 新建返回 id', meta.id.startsWith('sim-proj-'), true)
-  eq('LoadProject 缺失素材', (await edit.loadProject(meta.id)).missingPaths, [])
-  eq('ListProjects', (await edit.listProjects()).length, 3) // 前面 Save 的草稿（outSec=0、speed 越界）也在列表里
-  for (const m of await edit.listProjects()) if (m.id !== meta.id) await edit.deleteProject(m.id)
-  eq('清理草稿后只剩一个', (await edit.listProjects()).length, 1)
-  await edit.deleteProject(meta.id)
-  eq('DeleteProject 不存在 NOT_FOUND', (await rejects(edit.deleteProject(meta.id)))?.code, 'NOT_FOUND')
-  // 预览 404 → 重新取
-  const ps = edit.createPreviewSource('/m/a.mp4')
-  const u1 = await ps.load()
-  eq('预览地址形态', u1.url.startsWith('/local/'), true)
-  eq('预览 token 有效时 onMediaError 不重取', await ps.onMediaError(), null)
-  win.location.search = '?sim_preview_404=1'
-  const ps2 = edit.createPreviewSource('/m/a.mp4')
-  const stale = await ps2.load()
-  eq('模拟：第一次的 token 已失效(404)', await edit.isPreviewGone(stale.url), true)
-  const fresh = await ps2.onMediaError()
-  eq('404 后重新调用 GetPreviewURL 拿到新地址', [!!fresh, fresh?.url !== stale.url], [true, true])
-  win.location.search = ''
+  let err: AppError | null
 
   // ---- Live 预览（契约 v0.14）：模拟层最小假实现返回空，不是错误 ----
   eq('模拟 GetPreview 为空', await live.getPreview('any'), { data: '', ts: 0, active: false })
@@ -937,8 +850,8 @@ export async function runApiChecks(): Promise<string[]> {
       const START_FAILED = '显卡编码器启动失败，已改用 CPU。'
       eq('七个原因码 → 定稿文案', enumTexts, { device_unavailable: '所选显卡当时不可用，已改用 CPU。', nvenc_init_failed: START_FAILED, qsv_init_failed: START_FAILED, amf_init_failed: START_FAILED, videotoolbox_failed: START_FAILED, encoder_unavailable: '没有可用的显卡编码器，已改用 CPU。', encoder_start_failed: START_FAILED })
       eq('未知原因兜底句', encMsg.ENCODER_FALLBACK_REASON_GENERIC, '未能确定具体原因，详情见下方日志。')
-      eq('定稿文案：回退提示（转换 / 已完成历史任务 / 导出 / 直播）+ 设备栏 + 无设备句号', [encMsg.ENCODER_FALLBACK_CONVERT, encMsg.ENCODER_FALLBACK_TASK_ROW_DONE, encMsg.ENCODER_FALLBACK_EXPORT, encMsg.ENCODER_FALLBACK_LIVE, encMsg.ENCODER_DEVICE_CPU_FALLBACK_NAME, encMsg.ENCODER_NONE_NOTE], ['显卡编码失败，已自动改用 CPU 转换。', '已自动改用 CPU 完成转换。', '显卡编码失败，已自动改用 CPU 完成导出。', '显卡编码启动失败，已自动改用 CPU 推流。', 'CPU（已回退）', '未检测到可用的显卡，将使用 CPU。'])
-      eq('回退文案都不写“继续转换”', [encMsg.ENCODER_FALLBACK_CONVERT, encMsg.ENCODER_FALLBACK_TASK_ROW, encMsg.ENCODER_FALLBACK_TASK_ROW_DONE, encMsg.ENCODER_FALLBACK_EXPORT, encMsg.ENCODER_FALLBACK_LIVE].filter((t) => /继续/.test(t)), [])
+      eq('定稿文案：回退提示（转换 / 已完成历史任务 / 直播）+ 设备栏 + 无设备句号', [encMsg.ENCODER_FALLBACK_CONVERT, encMsg.ENCODER_FALLBACK_TASK_ROW_DONE, encMsg.ENCODER_FALLBACK_LIVE, encMsg.ENCODER_DEVICE_CPU_FALLBACK_NAME, encMsg.ENCODER_NONE_NOTE], ['显卡编码失败，已自动改用 CPU 转换。', '已自动改用 CPU 完成转换。', '显卡编码启动失败，已自动改用 CPU 推流。', 'CPU（已回退）', '未检测到可用的显卡，将使用 CPU。'])
+      eq('回退文案都不写“继续转换”', [encMsg.ENCODER_FALLBACK_CONVERT, encMsg.ENCODER_FALLBACK_TASK_ROW, encMsg.ENCODER_FALLBACK_TASK_ROW_DONE, encMsg.ENCODER_FALLBACK_LIVE].filter((t) => /继续/.test(t)), [])
       {
         // 源码里用户可见字符串（去掉注释后的 .vue 模板 / .ts 字符串字面量）不含旧用词和编码器名
         const fsu = await import('node:fs')
@@ -966,7 +879,7 @@ export async function runApiChecks(): Promise<string[]> {
       }
       const fs = await import('node:fs')
       const root = `${process.cwd()}/` // npm run check:api 在 frontend/ 下运行
-      const tplFiles = ['src/views/ConvertPage.vue', 'src/components/convert/ConvertKid.vue', 'src/components/convert/ConvertSourceRow.vue', 'src/components/convert/ConvertPreviewDialog.vue', 'src/components/convert/ConvertSettingsPanel.vue', 'src/components/convert/ConvertDeleteDialog.vue', 'src/views/TaskCenter.vue', 'src/components/edit/ExportStrip.vue', 'src/components/encoder/EncoderFallbackNotice.vue', 'src/components/live/LiveFallbackNotice.vue']
+      const tplFiles = ['src/views/ConvertPage.vue', 'src/components/convert/ConvertKid.vue', 'src/components/convert/ConvertSourceRow.vue', 'src/components/convert/ConvertPreviewDialog.vue', 'src/components/convert/ConvertSettingsPanel.vue', 'src/components/convert/ConvertDeleteDialog.vue', 'src/views/TaskCenter.vue', 'src/components/encoder/EncoderFallbackNotice.vue', 'src/components/live/LiveFallbackNotice.vue']
       const tplHits: string[] = []
       for (const f of tplFiles) {
         const src = fs.readFileSync(root + f, 'utf8')
@@ -999,16 +912,15 @@ export async function runApiChecks(): Promise<string[]> {
       const kidSrc = readSrc('src/components/convert/ConvertKid.vue')
       eq('转换记录设备名：有 title 全名；回退短标带说明 title', [/<span v-else class="dev" :title="device">/.test(kidSrc), /class="cv-fb" :title="ENCODER_DEVICE_CPU_FALLBACK_TITLE"/.test(kidSrc)], [true, true])
       eq('转换记录设备名段 min-width:0 + 省略号；回退短标警告色', [/\.cv-km \.l3 \.dev\{min-width:0;overflow:hidden;text-overflow:ellipsis\}/.test(readSrc('src/components/convert/convert-v2.css')), /\.cv-fb\{[^}]*--ff-warning-text/.test(readSrc('src/components/convert/convert-v2.css'))], [true, true])
-      eq('剪辑导出条设备名：有 title + 省略号', [/class="ed-dev" :title=/.test(readSrc('src/components/edit/ExportStrip.vue')), /\.ed-dev \{[^}]*text-overflow: ellipsis/.test(readSrc('src/components/edit/edit.css'))], [true, true])
-      eq('设备一栏回退短标：转换记录用 cv-fb，导出条 / 日志头用 dev-fb（警告色），样式在 base.css', [/class="cv-fb"/.test(kidSrc), /class="dev-fb"/.test(readSrc('src/components/edit/ExportStrip.vue')), /class="dev-fb"/.test(readSrc('src/views/TaskCenter.vue')), /\.dev-fb \{[^}]*--ff-warning-text[^}]*\}/.test(readSrc('src/styles/base.css'))], [true, true, true, true])
+      eq('设备一栏回退短标：转换记录用 cv-fb，日志头用 dev-fb（警告色），样式在 base.css', [/class="cv-fb"/.test(kidSrc), /class="dev-fb"/.test(readSrc('src/views/TaskCenter.vue')), /\.dev-fb \{[^}]*--ff-warning-text[^}]*\}/.test(readSrc('src/styles/base.css'))], [true, true, true])
       eq('任务中心日志头设备名：有 title + 省略号', [/class="dv" :title=/.test(readSrc('src/views/TaskCenter.vue')), /\.logdev \.dv \{[^}]*text-overflow: ellipsis/.test(readSrc('src/views/TaskCenter.vue'))], [true, true])
       // G6：查看日志后滚动到日志面板（尊重减少动效）、焦点到面板
       const tcSrc = readSrc('src/views/TaskCenter.vue')
       eq('任务中心：打开日志会 revealLog（scrollIntoView + scrollBehavior + focus）', [/loadLog\(\)\s*revealLog\(\)/.test(tcSrc), /scrollIntoView\(\{ block: 'nearest', behavior: scrollBehavior\(\) \}\)/.test(tcSrc), /el\.focus\(\{ preventScroll: true \}\)/.test(tcSrc), /ref="logWrapEl" class="logwrap" tabindex="-1" role="region"/.test(tcSrc)], [true, true, true, true])
       // G11：“编码设置”跳转定位 + 子导航
       eq('编码设置跳转目标：设置页 + ?section=encoder', encTask.encoderSettingsLocation(), { path: '/settings/general', query: { section: 'encoder' } })
-      const rawPush = ['src/views/ConvertPage.vue', 'src/components/edit/ExportStrip.vue', 'src/components/live/LiveFallbackNotice.vue'].filter((f) => /router\.push\('\/settings\/general'\)/.test(readSrc(f)))
-      eq('三处“编码设置”链接都用 encoderSettingsLocation（不再直接 push 设置页顶部）', rawPush, [])
+      const rawPush = ['src/views/ConvertPage.vue', 'src/components/live/LiveFallbackNotice.vue'].filter((f) => /router\.push\('\/settings\/general'\)/.test(readSrc(f)))
+      eq('两处“编码设置”链接都用 encoderSettingsLocation（不再直接 push 设置页顶部）', rawPush, [])
       const layoutSrc = readSrc('src/views/settings/SettingsLayout.vue')
       eq('设置子导航：“编码设备”只在 encoderPanelVisible() 时加入，锚点 sec-encoder', [/\.\.\.\(encoderPanelVisible\(\) \? \[\{ key: 'encoder', label: ENCODER_PANEL_TITLE, to: '\/settings\/general', section: ENCODER_SECTION_ID \}\] : \[\]\)/.test(layoutSrc), encTask.ENCODER_SECTION_ID], [true, 'sec-encoder'])
       const setSrc = readSrc('src/views/Settings.vue')
@@ -1018,15 +930,6 @@ export async function runApiChecks(): Promise<string[]> {
       win.location.search = '?enc=found'
       eq('子导航显示条件：?enc= → 显示', encApi.encoderPanelVisible(), true)
       win.location.search = ''
-      // D2：导出条内嵌提示的关闭按钮有区别于外层的读屏名
-      const stripSrc = readSrc('src/components/edit/ExportStrip.vue')
-      eq('导出条：内嵌回退提示不带关闭按钮（no-close），只剩外层一个“关闭提示”', [(stripSrc.match(/<EncoderFallbackNotice[^>]* no-close/g) ?? []).length, /noClose/.test(readSrc('src/components/encoder/EncoderFallbackNotice.vue')), 'ENCODER_FALLBACK_CLOSE_INNER' in encMsg], [2, true, false])
-      const stripTpl = stripSrc.slice(stripSrc.indexOf('<template>'), stripSrc.indexOf('</template>\n\n<script') + 11)
-      const closeLabels = [...stripTpl.matchAll(/aria-label="(关闭[^"]*)"/g)].map((m) => m[1])
-      eq('导出条：aria-label 里“关闭…”只有“关闭提示”（外层的完成条 / 失败条各一个，同一时刻只渲染一个），不出现“关闭回退提示”等第二种', [...new Set(closeLabels)], ['关闭提示'])
-      const branches = stripTpl.split(/<template v-(?:if|else-if|else)/).slice(1)
-      const closeCount = branches.map((b) => (b.match(/class="x"/g) ?? []).length + (b.match(/<EncoderFallbackNotice(?![^>]* no-close)/g) ?? []).length)
-      eq('导出条：每种状态（进行中 / 完成 / 已取消 / 出错）最多一个关闭按钮（内嵌回退提示不算第二个）', [branches.length >= 4, closeCount.every((n) => n <= 1), closeCount.reduce((a, b) => a + b, 0)], [true, true, 2])
       // 模拟层（?enc=）：回退场景
       const s1 = simEncoderScenarioFor('fb-nvenc'); const s2 = simEncoderScenarioFor('gpu-task'); const s3 = simEncoderScenarioFor('copy-task'); const s4 = simEncoderScenarioFor('found')
       eq('?enc= 任务场景：fb-nvenc 回退 / gpu-task 不回退 / copy-task 无设备 / 设备列表场景不改任务', [s1?.hwFallback, s2?.hwFallback, s3?.encoder, s3?.encoderDevice, s4], [true, undefined, 'copy', '', undefined])
@@ -1052,7 +955,13 @@ export async function runApiChecks(): Promise<string[]> {
         eq('N3 推流中断：描述“请回到直播页重新推流。”（不再与标题同义重复）；应用退出后中断那句保持原样', [lm.description, /'应用退出时推流被中断，请回到直播页重新推流。'/.test(readSrc('src/views/TaskCenter.vue'))], ['请回到直播页重新推流。', true])
         eq('G8 推流中断：标题“推流中断”、没有“重试”主按钮、文案不含“自动重连”“点击重试”', [lm.title, lm.primary, /自动重连|点击重试/.test(lm.description)], ['推流中断', null, false])
         const tcs = readSrc('src/views/TaskCenter.vue')
-        eq('G8 任务中心：行尾“重试”（失败 / 中断 / 已取消）和失败行重试都排除直播任务', [/\(t\.status === 'failed' \|\| t\.status === 'interrupted' \|\| t\.status === 'canceled'\) && !isLiveType\(t\.type\)/.test(tcs), /:hide-retry="t\.status === 'interrupted' \|\| isLiveType\(t\.type\)"/.test(tcs)], [true, true])
+        eq('G8 任务中心：行尾“重试”走 canRetryTask；失败行重试排除直播和已下线类型', [/const canRetry = \(t: TaskItem\) => canRetryTask\(t\)/.test(tcs), /:hide-retry="t\.status === 'interrupted' \|\| isLiveType\(t\.type\) \|\| isRetiredType\(t\.type\)"/.test(tcs)], [true, true])
+        eq('canRetryTask：失败 / 中断 / 已取消的转换可重试；直播、剪辑导出（已下线）、成功不可', [
+          canRetryTask({ type: 'convert', status: 'failed' }), canRetryTask({ type: 'convert', status: 'interrupted' }), canRetryTask({ type: 'convert', status: 'canceled' }), canRetryTask({ type: 'office_pdf', status: 'failed' }),
+          canRetryTask({ type: 'live_file_push', status: 'failed' }), canRetryTask({ type: 'edit_export', status: 'failed' }), canRetryTask({ type: 'edit_export', status: 'interrupted' }), canRetryTask({ type: 'convert', status: 'succeeded' }),
+        ], [true, true, true, true, false, false, false, false])
+        eq('剪辑导出：仍是已知类型（旧记录照常显示），但标为已下线', [isKnownTaskType('edit_export'), isRetiredType('edit_export'), isRetiredType('convert')], [true, true, false])
+        eq('剪辑已移除：侧栏没有剪辑入口，#/edit 重定向到转换页', [mainNav.some((i) => i.path === '/edit' || i.label === '剪辑'), /\{ path: '\/edit\/:pathMatch\(\.\*\)\*', redirect: '\/' \}/.test(readSrc('src/router/index.ts')), /VideoEditor/.test(readSrc('src/router/index.ts'))], [false, true, false])
         // G7：全站 Element Plus 中文 locale
         const mainSrc = readSrc('src/main.ts')
         eq('G7 Element Plus 全局 zh-cn locale', [/import zhCn from 'element-plus\/es\/locale\/lang\/zh-cn'/.test(mainSrc), /app\.use\(ElementPlus, \{[^}]*locale: zhCn/.test(mainSrc)], [true, true])

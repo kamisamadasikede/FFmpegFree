@@ -153,7 +153,7 @@ const concurrent = ref(MAX_CONCURRENT_AUTO)
 let saved = MAX_CONCURRENT_AUTO
 const loaded = ref(false)
 const concurrentText = computed(() => (concurrent.value === MAX_CONCURRENT_AUTO ? '自动' : String(concurrent.value)))
-const concurrentHint = computed(() => (concurrent.value === MAX_CONCURRENT_AUTO ? '自动：按 CPU 核数决定，最多同时转换 1 到 3 个。' : '同时进行的转换、剪辑等任务数量，减小不会打断正在运行的任务。'))
+const concurrentHint = computed(() => (concurrent.value === MAX_CONCURRENT_AUTO ? '自动：按 CPU 核数决定，最多同时转换 1 到 3 个。' : '同时进行的转换等任务数量，减小不会打断正在运行的任务。'))
 
 onMounted(async () => {
   void focusEncoderSection()
