@@ -34,10 +34,10 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
       [{ tasks: [1], skipped: [{ sourceId: 'a', reason: 'copying' }] }, { tasks: [1, 2], skipped: [] }, { tasks: [], skipped: [] }, { tasks: [], skipped: [] }])
     const sk = (r: string) => ({ sourceId: 'x', reason: r })
     eq('跳过提示：还在准备中 / 没能准备好 / 两类都有 / 没有', [skippedNotice([sk('copying'), sk('copying')]), skippedNotice([sk('copy_failed'), sk('copy_canceled')]), skippedNotice([sk('copying'), sk('copy_canceled')]), skippedNotice([sk('weird')]), skippedNotice([])],
-      ['有 2 个文件还在准备中，已转换其余文件。准备好后再点转换。', '有 2 个文件没能准备好，已转换其余文件。请重新添加后再转换。', '有 1 个文件还在准备中，已转换其余文件。准备好后再点转换。另有 1 个文件没能准备好，请重新添加后再转换。', '有 1 个文件没能准备好，已转换其余文件。请重新添加后再转换。', ''])
+      ['有 2 个文件还在准备中，已转换其余文件。准备好后再点转换。', '有 2 个文件没能准备好，已转换其余文件。请在列表里点“重试”后再转换。', '有 1 个文件还在准备中，已转换其余文件。准备好后再点转换。另有 1 个文件没能准备好，请在列表里点“重试”。', '有 1 个文件没能准备好，已转换其余文件。请在列表里点“重试”后再转换。', ''])
     eq('整体失败：TASK_CONFLICT reason=copying / copy_failed 给短提示；其余照旧', [submitCopyErrorText({ code: 'TASK_CONFLICT', detail: 'reason=copying\nsourceId=AB12' }), submitCopyErrorText({ code: 'TASK_CONFLICT', detail: 'reason=copy_failed\nsourceId=AB12' }), submitCopyErrorText({ code: 'TASK_CONFLICT', detail: 'reason=duplicate_url' }), submitCopyErrorText({ code: 'NOT_FOUND', detail: 'reason=copying' }), submitCopyErrorText({ code: 'TASK_CONFLICT' })],
-      ['文件还在准备中，准备好后再点转换。', '文件没能准备好，请重新添加后再转换。', '', '', ''])
-    eq('文案定稿', [SUBMIT_COPYING_TEXT, SUBMIT_COPY_FAILED_TEXT], ['文件还在准备中，准备好后再点转换。', '文件没能准备好，请重新添加后再转换。'])
+      ['文件还在准备中，准备好后再点转换。', '文件没能准备好，请在列表里点“重试”后再转换。', '', '', ''])
+    eq('文案定稿', [SUBMIT_COPYING_TEXT, SUBMIT_COPY_FAILED_TEXT], ['文件还在准备中，准备好后再点转换。', '文件没能准备好，请在列表里点“重试”后再转换。'])
     const b = readSrc('src/api/convertRecordsBinding.ts')
     eq('binding：SubmitSources 返回 {tasks, skipped}（submitResultOf），有生成类型对照', [/submitResultOf<V023Task>\(await call\(CS\.SubmitSources/.test(b), /\?\.tasks\)\)/.test(b), /SameKeys<ConvertSubmitResult, Data<convert\.ConvertSubmitResult>>/.test(b), /SameKeys<SkippedSource, Data<convert\.SkippedSource>>/.test(b)], [true, false, true, true])
     const sys = readSrc('src/api/system.ts')
@@ -70,7 +70,7 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
       eq('全部还在准备：短提示（不是“无法开始转换”），勾选不变', [toastText(), cv.submitError, [...cv.selected]], ['文件还在准备中，准备好后再点转换。', null, [ids[0]]])
       mock.mockSetCopyState(ids[0], 'failed')
       await cv.submit()
-      eq('全部复制失败：短提示', toastText(), '文件没能准备好，请重新添加后再转换。')
+      eq('全部复制失败：短提示', toastText(), '文件没能准备好，请在列表里点“重试”后再转换。')
       mock.mockSetCopyState(ids[0], 'ready')
     } else eq('部分跳过自检：模拟场景至少要有 2 个能转换的文件', [ids.length >= 2, !!cv.selectedPreset], [true, true])
   }

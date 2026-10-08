@@ -169,6 +169,20 @@ export async function convertV24Checks(eq: Eq, readSrc: (f: string) => string): 
   eq('edit_export 仍在 RETIRED_TASK_TYPES（重试按钮隐藏）', [RETIRED_TASK_TYPES.includes('edit_export'), isRetiredType('edit_export')], [true, true])
   eq('没有剪辑的默认输出目录（契约 v0.24.1 已去掉）', /editOutputDir|EditOutputDir|defaultEditOutput/.test(readSrc('src/api/system.ts') + readSrc('src/views/Settings.vue') + readSrc('src/components/settings/StoragePanel.vue')), false)
   eq('N3：任务中心 1024 进度列用短格式（速度不截断、用时一行）', /narrowRun|shortClock/.test(readSrc('src/views/TaskCenter.vue')), true)
+  // D5（产品 10-08）：复制失败的行有“重试”，提示改成“请在列表里点“重试””；再次添加同一个文件在同一行重新复制
+  {
+    const cs = await import('@/utils/convertSubmit')
+    eq('D5 文案：全部失败 / 部分失败 / 跟在“准备中”后面', [cs.SUBMIT_COPY_FAILED_TEXT, cs.skippedNotice([{ sourceId: 'a', reason: 'copy_failed' }, { sourceId: 'b', reason: 'copy_canceled' }]), cs.skippedNotice([{ sourceId: 'a', reason: 'copying' }, { sourceId: 'b', reason: 'copy_failed' }])],
+      ['文件没能准备好，请在列表里点“重试”后再转换。', '有 2 个文件没能准备好，已转换其余文件。请在列表里点“重试”后再转换。', '有 1 个文件还在准备中，已转换其余文件。准备好后再点转换。另有 1 个文件没能准备好，请在列表里点“重试”。'])
+    mock.resetConvertMock('copyfail')
+    const before = (await mock.ListSources({ limit: 100, offset: 0 } as unknown as Parameters<typeof mock.ListSources>[0])).items.map((e) => e.source)
+    const bad = before.find((x) => x.copyState === 'failed' || x.copyState === 'canceled')
+    if (bad) {
+      const [r] = await mock.AddSources([bad.originalPath || bad.path])
+      const after = (await mock.ListSources({ limit: 100, offset: 0 } as unknown as Parameters<typeof mock.ListSources>[0])).items
+      eq('再次添加复制失败的文件：同一行（同一个 sourceId、existed=true）重新复制，不新建行', [r.source?.sourceId === bad.sourceId, r.existed, r.source?.copyState, after.length === before.length], [true, true, 'copying', true])
+    } else eq('copyfail 场景里有复制失败的行', false, true)
+  }
   // v0.24.3：打开原文件 / 所在文件夹失败不改去复制件；直播存档空目录显示解析后的真实路径
   eq('打开原文件不在：提示“原文件不存在，无法打开。”', [t24.ORIGINAL_MISSING_OPEN, /ORIGINAL_MISSING_OPEN/.test(readSrc('src/components/convert/ConvertSourceRow.vue') + readSrc('src/components/convert/ConvertPreviewDialog.vue')), /storedPath/.test(readSrc('src/components/convert/ConvertSourceRow.vue').split('revealSrc')[1] ?? '')], ['原文件不存在，无法打开。', true, false])
   eq('直播本地存档：空的 defaultOutputDir 用 GetStorageDirs 解析出的路径（getOutputDirShown）', /getOutputDirShown/.test(readSrc('src/views/live/RecordPush.vue')), true)

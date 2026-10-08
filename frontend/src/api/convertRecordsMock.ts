@@ -438,6 +438,16 @@ export async function AddSources(paths: string[]): Promise<AddSourceResult[]> {
     const cur = [...sources.values()].find((m) => m.pathKey === key)
     if (cur) {
       touch(cur)
+      // 复制失败 / 已取消的行再次添加：在同一行重新复制（这一行有进行中的任务时不动）；不新建行
+      const st = cur.src.copyState
+      const busy = listSimAll().some((t) => t.sourceId === cur.src.sourceId && (t.status === 'queued' || t.status === 'running'))
+      if ((st === 'failed' || st === 'canceled') && !busy) {
+        if (cur.exists) startCopy(cur)
+        else {
+          cur.src.copyError = { code: 'NOT_FOUND', message: '原文件已不存在', detail: 'reason=file' }
+          emitCopy(cur)
+        }
+      }
       return { path, source: copySource(cur), existed: true }
     }
     const now = Date.now()
