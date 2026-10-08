@@ -110,6 +110,11 @@ func (m *Manager) Start(ctx context.Context, cfg Config) {
 	}
 	m.mu.Unlock()
 	m.applyConcurrency(m.MaxConcurrent(ctx)) // 启动时应用上次保存的并发数
+	if cfg.Locator != nil {
+		// 首次检测在后台跑，界面可能比它先调接口：先标记“检测中”，让 ffmpeg.WaitDetected 能等到结果
+		// （Recheck 的 goroutine 还没开始时也算；没有 Locator 时 Recheck 不会出结果，不能标记）。
+		ffmpeg.SetChecking()
+	}
 	go func() {
 		if _, err := m.Recheck(ctx); err != nil {
 			// 只有 ctx 取消（应用退出）才会走到这里，状态已由 Recheck 处理。
@@ -143,9 +148,12 @@ func (m *Manager) setIf(ctx context.Context, s FFmpegStatus, bins *ffmpeg.Binari
 	}
 	m.status = s
 	m.invalidateEncoders() // ffmpeg 路径 / 版本 / 就绪状态变化，硬件编码器检测结果作废
-	if s.State == ffmpeg.StateReady {
+	switch s.State {
+	case ffmpeg.StateReady:
 		ffmpeg.SetCurrent(bins)
-	} else {
+	case ffmpeg.StateChecking:
+		ffmpeg.SetChecking() // 检测中：Require 不放行，WaitDetected 等这次检测的结果
+	default:
 		ffmpeg.SetCurrent(nil)
 	}
 	em := m.cfg.Emitter

@@ -522,6 +522,19 @@ func TestSubmitSourcesAllSkipped(t *testing.T) {
 	if !apperr.Is(err, apperr.TaskConflict) || !strings.HasPrefix(detailOf(err), "reason=copying") {
 		t.Fatalf("%v (%s)", err, detailOf(err))
 	}
+	// v0.24.4：复制中的提示说“准备中”（包 20 用词），reason 不变
+	if m := apperr.From(err).Message; m != "文件还在准备中，准备好后再转换。" {
+		t.Fatalf("message: %q", m)
+	}
+	_, err = e.svc.GetSourcePreviewURL(ctx, r.Source.SourceID)
+	wantReason(t, err, apperr.TaskConflict, "reason=copying")
+	if m := apperr.From(err).Message; m != "文件还在准备中，准备好后才能预览。" {
+		t.Fatalf("preview message: %q", m)
+	}
+	_, err = e.svc.RetryCopy(ctx, r.Source.SourceID)
+	if m := apperr.From(err).Message; !apperr.Is(err, apperr.TaskConflict) || m != "文件还在准备中，不需要重试。" {
+		t.Fatalf("retry: %v", err)
+	}
 }
 
 // pathThumbs 是假的 Thumbnailer：记下被要求截图的路径。

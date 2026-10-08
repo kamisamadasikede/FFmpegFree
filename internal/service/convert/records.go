@@ -215,7 +215,7 @@ func readPath(src ConvertSource) string {
 // copyNotReadyError 是副本没就绪时的 TASK_CONFLICT（6.15.4 第 6 条）：copying → reason=copying，其余 → reason=copy_failed。
 func copyNotReadyError(src ConvertSource) error {
 	if src.CopyState == store.CopyCopying {
-		return apperr.New(apperr.TaskConflict, "文件还在复制，请等复制完成后再转换").WithDetail("reason=copying\nsourceId=" + src.SourceID)
+		return apperr.New(apperr.TaskConflict, "文件还在准备中，准备好后再转换。").WithDetail("reason=copying\nsourceId=" + src.SourceID)
 	}
 	return apperr.New(apperr.TaskConflict, "文件复制没有完成，请先重试复制").WithDetail("reason=copy_failed\nsourceId=" + src.SourceID)
 }
@@ -447,7 +447,7 @@ func (s *Service) RetryCopy(ctx context.Context, sourceID string) (ConvertSource
 	case store.CopyNone, "":
 		return ConvertSource{}, apperr.New(apperr.InvalidArgument, "这个文件不需要复制")
 	case store.CopyCopying:
-		return ConvertSource{}, apperr.New(apperr.TaskConflict, "文件已经在复制或已复制完成")
+		return ConvertSource{}, apperr.New(apperr.TaskConflict, "文件还在准备中，不需要重试。")
 	case store.CopyReady:
 		if c, err := s.copyStore().GetCopy(ctx, src.CopyID); err == nil && storedOK(c) {
 			return ConvertSource{}, apperr.New(apperr.TaskConflict, "文件已经在复制或已复制完成")
@@ -1018,7 +1018,7 @@ func (s *Service) GetSourcePreviewURL(ctx context.Context, sourceID string) (Pre
 		return PreviewURL{}, err
 	}
 	if src.CopyState == store.CopyCopying {
-		return PreviewURL{}, apperr.New(apperr.TaskConflict, "文件还在复制，复制完成后才能预览").WithDetail("reason=copying")
+		return PreviewURL{}, apperr.New(apperr.TaskConflict, "文件还在准备中，准备好后才能预览。").WithDetail("reason=copying")
 	}
 	p, err := sourceFile(src)
 	if err != nil {

@@ -24,6 +24,8 @@ const (
 	sourceProbeTimeout = 15 * time.Second
 	// sourceProbeConcurrency 是一次列表 / 添加里同时探测的文件数。
 	sourceProbeConcurrency = 4
+	// sourceDetectWait 是懒探测前最多等转换组件检测的时间（只在检测进行中才等，通常是应用刚启动的几秒）。
+	sourceDetectWait = 15 * time.Second
 )
 
 // refreshSourceMedia 保证 src.Media 是登记文件当前版本的探测结果：
@@ -31,6 +33,10 @@ const (
 //   - 指纹和持久化的一致：不探测；
 //   - 否则探测并写回：成功写结果；PROBE_FAILED 写“探测失败”标记（文件不变就不再重探）；
 //     转换组件没就绪、被取消、无权限等暂时性错误什么都不写，下次再试。
+//
+// 转换组件还在检测（应用启动时转换页是首页，ListSources 比首次检测先到）时先等检测有结果再探测：
+// 不等的话这一次拿到 FFMPEG_NOT_FOUND 什么都不写，而前端一次会话只列一次，行就一直只有 media 表的退回结果
+// （包 18 / 19 在 Windows 上 convert_sources.media 一直是空的就是这个原因）。
 func (s *Service) refreshSourceMedia(ctx context.Context, ss SourceStore, src *ConvertSource) {
 	ms, ok := ss.(SourceMediaStore)
 	p := displayPath(*src) // v0.24：副本就绪时探测副本（mtime / 大小和原文件一致，指纹相同），原文件拔掉了也能探
@@ -44,6 +50,11 @@ func (s *Service) refreshSourceMedia(ctx context.Context, ss SourceStore, src *C
 	fp := store.FileFingerprint(fi)
 	if fp == src.MediaFP {
 		return
+	}
+	if s.cfg.WaitFFmpeg != nil {
+		wctx, wcancel := context.WithTimeout(ctx, sourceDetectWait)
+		s.cfg.WaitFFmpeg(wctx)
+		wcancel()
 	}
 	pctx, cancel := context.WithTimeout(ctx, sourceProbeTimeout)
 	m, err := s.cfg.Media.Inspect(pctx, p)
