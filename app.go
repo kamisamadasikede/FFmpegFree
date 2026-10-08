@@ -32,12 +32,16 @@ type App struct {
 	rootCtx    context.Context
 	rootCancel context.CancelFunc
 	dirs       paths.Dirs
-	store      *store.Store
-	sys        *system.Manager
-	tasks      atomic.Pointer[task.Manager]
-	media      atomic.Pointer[media.Service]
-	conv       atomic.Pointer[convert.Service]
-	docs       atomic.Pointer[doc.Service]
+	// storage 是启动时确定一次的存储根目录 <base>（契约 v0.24，6.15.1）。
+	storage paths.Storage
+	// interruptedReconverts 是启动时恢复的“上次退出时被中断的重转”条数（v0.24.1，交给 ConvertService.TakeInterruptedReconverts）。
+	interruptedReconverts int
+	store                 *store.Store
+	sys                   *system.Manager
+	tasks                 atomic.Pointer[task.Manager]
+	media                 atomic.Pointer[media.Service]
+	conv                  atomic.Pointer[convert.Service]
+	docs                  atomic.Pointer[doc.Service]
 	// /local/<token> 预览登记表（契约 6.13）：doc、convert 分表，各 512 项，互不挤占；main.go 用 localHandler 挂到 AssetServer。
 	// v0.23.5：剪辑已移除，edit 登记表随之删除。
 	docLocal     *localassets.Registry
@@ -85,10 +89,11 @@ func (a *App) appContext() context.Context { return a.rootCtx }
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	// 应用日志 <数据目录>/logs/app.log（契约 v0.23.6）：Windows 的 GUI 程序没有控制台，不接文件的话 log.Printf 全部丢失。
+	// 应用日志 <数据目录>/logs/app.log（契约 v0.24.2）：Windows 的 GUI 程序没有控制台，不接文件的话 log.Printf 全部丢失。
 	if d, err := paths.Resolve(""); err == nil {
 		setupAppLog(d.Logs)
 	}
+	a.initStorage()
 	if err := a.initStore(ctx); err != nil {
 		// 存储层初始化失败先记录日志，不阻止应用启动（依赖存储的服务会返回 INTERNAL）。
 		log.Printf("初始化本地存储失败: %v", err)
@@ -154,13 +159,19 @@ func (a *App) startConvert(ctx context.Context) {
 		Presets:          a.store,
 		Media:            med,
 		Tasks:            tm,
-		DefaultOutputDir: a.sys.DefaultOutputDir,
+		DefaultOutputDir: a.sys.ActualOutputDir, // v0.24：自定义优先，否则 <base>/output
+		DataDir:          a.dirs.Root,
 		Encoder:          a.sys.EncoderResolver(),
 		Sources:          a.store,
 		Thumbs:           med,
 		Preview:          a.convertLocal,
 		Open:             a.sys.OpenWithDefaultApp,
 		Reveal:           a.sys.RevealRegisteredPath,
+		// v0.24：源文件副本、convert:copy 事件、启动时中断的重转条数
+		UploadsDir:            a.sys.ActualUploadsDir,
+		Emitter:               app.NewWailsEmitter(ctx),
+		Logf:                  log.Printf,
+		InterruptedReconverts: a.interruptedReconverts,
 	})
 	if err != nil {
 		log.Printf("启动转换服务失败: %v", err)
@@ -174,7 +185,7 @@ func (a *App) startConvert(ctx context.Context) {
 func (a *App) startDoc() {
 	cfg := doc.Config{
 		Local:            a.docAssets(),
-		DefaultOutputDir: a.sys.DefaultOutputDir,
+		DefaultOutputDir: a.sys.ActualOutputDir, // v0.24：Office 转 PDF 默认输出到 <base>/output
 		DataDir:          a.dirs.Root,
 	}
 	if a.store != nil { // 避免把 nil *Store 装进接口
@@ -242,6 +253,18 @@ func (a *App) startFFmpegDetect(ctx context.Context) {
 	a.sys.Start(ctx, cfg)
 }
 
+// initStorage 确定存储根目录 <base>（契约 6.15.1，只在启动时判断一次），注入 system.Manager。
+func (a *App) initStorage() {
+	d, err := paths.Resolve("")
+	if err != nil {
+		log.Printf("定位应用数据目录失败: %v", err)
+		return
+	}
+	a.storage = paths.ResolveStorage(d.Root)
+	a.sys.SetStorage(a.storage, d.Root)
+	log.Printf("存储位置：%s（%s，回退=%v）", a.storage.Base, a.storage.BaseKind, a.storage.FellBack)
+}
+
 func (a *App) initStore(ctx context.Context) error {
 	dirs, err := paths.Resolve("")
 	if err != nil {
@@ -253,6 +276,25 @@ func (a *App) initStore(ctx context.Context) error {
 	s, err := store.Open(ctx, dirs.DB)
 	if err != nil {
 		return err
+	}
+	// 契约 v0.24 / v0.24.1（6.17.5）：先恢复上次退出时没结束的原地重转（记录回到 succeeded、删临时文件），再标记中断任务。
+	// 孤儿临时文件扫描额外看实际输出目录（设置还没加载，直接读设置键）。
+	outDir := a.storage.Output
+	var custom string
+	if _, err := s.GetSetting(ctx, system.SettingDefaultOutputDir, &custom); err == nil && custom != "" {
+		outDir = custom
+	}
+	var extra []string
+	if outDir != "" {
+		extra = append(extra, outDir)
+	}
+	if n, err := task.RecoverReconverts(ctx, s, extra, log.Printf); err != nil {
+		log.Printf("恢复中断的重转失败: %v", err)
+	} else {
+		a.interruptedReconverts = n
+		if n > 0 {
+			log.Printf("上次退出时有 %d 条重转被中断，已恢复原来的结果", n)
+		}
 	}
 	if n, err := s.MarkInterrupted(ctx, time.Now()); err != nil {
 		log.Printf("标记中断任务失败: %v", err)
@@ -276,6 +318,9 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 	if l := a.liveService(); l != nil {
 		l.Close() // 停止拉流预览会话（推流任务由下面的任务管理器停止）
+	}
+	if c := a.convertService(); c != nil {
+		c.Close(3 * time.Second) // 停复制队列：正在复制的副本下次启动标记为 failed（reason=interrupted）
 	}
 	if m := a.taskManager(); m != nil {
 		// 先停任务再关数据库：运行中的任务被取消并落库为 interrupted。

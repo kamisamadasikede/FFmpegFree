@@ -401,7 +401,7 @@ func (s *Service) RemoveRecent(ctx context.Context, ids []string) error {
 
 // DefaultThumbnailDataURL 返回 path 的默认缩略图（与 Probe 附带的相同：第一帧，太暗时取前 3 秒里第一张不黑的，宽 320），只返回 data URL
 // （契约 v0.23，6.14.10：ConvertService.GetRecordThumbnail / GetSourceThumbnail 用，路径由调用方从表里取）。
-// durationHint > 0 表示调用方已经知道它是音视频（v0.23.6 起不再用它算时间点），直接截图；否则先探测一次判断有没有画面。
+// durationHint > 0 表示调用方已经知道它是音视频（v0.24.2 起不再用它算时间点），直接截图；否则先探测一次判断有没有画面。
 // 缓存键包含文件当前的 mtime 和 size（每次调用都先 stat），文件被替换后一定重新生成。
 // 错误：文件不存在 / 不是普通文件 NOT_FOUND（reason=file）；没有画面 UNSUPPORTED（reason=format）；
 // 其余沿用 Thumbnail（FFMPEG_NOT_FOUND、PROBE_FAILED、INTERNAL 等）。

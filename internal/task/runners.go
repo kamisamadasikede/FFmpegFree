@@ -6,6 +6,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
@@ -66,6 +67,14 @@ type FFmpegRunner struct {
 	CPUEncoding ffmpeg.EncoderInfo
 	// NoBitrate 为 true 时不计算 bitrateKbps（走 tee 时 ffmpeg 的 total_size 恒为 N/A，契约 6.10：有存档时没有 bitrateKbps）。
 	NoBitrate bool
+
+	// 以下是 v0.24 的扩展。
+
+	// DirectOutput 非空时不走 RunWithPart：直接写到这个路径（原地重转的临时文件，契约 6.17.4），
+	// 失败 / 取消时删掉它；成功时返回它，由任务管理器复核并原子替换。不能和 Output 同时用。
+	DirectOutput string
+	// BuildFallbackArgs 非空时：ffmpeg 结束后没有产出文件（图片输出、时长未知时 -ss 1 越过结尾；不论退出码），用它再跑一次（契约 6.16.5）。
+	BuildFallbackArgs func(partPath string) []string
 }
 
 // DesiredOutput 实现 DesiredOutputer：期望的输出路径（重名顺延前）。
@@ -151,6 +160,13 @@ func (r *FFmpegRunner) Run(ctx context.Context, report func(Progress)) (string, 
 
 	run := func(part string) error {
 		tail, progressed, err := one(r.BuildArgs(part), r.ProgressBase, r.ProgressScale)
+		// 没有产出就退回第一帧：ffmpeg 6 越过结尾时正常退出但不写文件，ffmpeg 7 会以 “Error while opening encoder”（退出码 234）失败，
+		// 两种都按“第 1 秒没有画面”处理；第一帧也失败时报第二次的错误。
+		if r.BuildFallbackArgs != nil && part != "" && !partProduced(part) && ctx.Err() == nil {
+			io.WriteString(logw, "[FFmpegFree] 第 1 秒没有画面，改取第一帧\n")
+			_, _, err = one(r.BuildFallbackArgs(part), r.ProgressBase, r.ProgressScale)
+			return err
+		}
 		if err == nil || r.HWEncoder == "" || r.BuildCPUArgs == nil || ctx.Err() != nil {
 			return err // 成功 / 没用硬件 / 已取消：取消绝不触发回退
 		}
@@ -171,6 +187,20 @@ func (r *FFmpegRunner) Run(ctx context.Context, report func(Progress)) (string, 
 		ReportEncoder(ctx, info)
 		_, _, err = one(r.BuildCPUArgs(part), r.ProgressBase, r.ProgressScale)
 		return err
+	}
+	if r.DirectOutput != "" {
+		if err := mkdirAll(filepath.Dir(r.DirectOutput), 0o755); err != nil {
+			return "", outputIOError("创建输出目录失败", err)
+		}
+		if err := run(r.DirectOutput); err != nil {
+			os.Remove(r.DirectOutput)
+			return "", err
+		}
+		if !partProduced(r.DirectOutput) {
+			os.Remove(r.DirectOutput)
+			return "", apperr.New(apperr.ProcessFailed, "转换没有产生输出文件")
+		}
+		return r.DirectOutput, nil
 	}
 	if r.Output == "" {
 		return "", run("")

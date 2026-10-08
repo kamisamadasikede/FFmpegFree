@@ -5,8 +5,6 @@ package codecname
 
 import (
 	"strings"
-	"unicode"
-	"unicode/utf8"
 )
 
 // videoNames 是视频编码的显示名（UI 规范：H.264 / H.265 / ProRes……，不用 HEVC、PRORES 这类原样大写）。
@@ -140,7 +138,7 @@ var hwSuffixes = []string{"_nvenc", "_qsv", "_amf", "_vaapi", "_videotoolbox", "
 
 // Video 返回视频编码的显示名：已知编码用固定写法（H.264、H.265、VP9、AV1、ProRes、FFV1、DNxHD、MJPEG……）；
 // 硬件编码器后缀（_nvenc / _qsv / _amf / _vaapi / _videotoolbox / _mf …）去掉后再查；prores* 一律 ProRes；
-// 表里没有的值去掉 "lib" 前缀后首字母大写（"foo" → "Foo"，契约 v0.23.2 的兜底规则；常见编码都应进表）。
+// 表里没有的值去掉 "lib" 前缀后全部大写（"foo" → "FOO"、"libfoo" → "FOO"，契约 v0.24.1 的兜底规则；常见编码都应进表）。
 func Video(codec string) string {
 	c := strings.ToLower(strings.TrimSpace(codec))
 	if n, ok := videoNames[c]; ok {
@@ -186,9 +184,8 @@ func Audio(codec string) string {
 
 func fallback(orig, c string) string {
 	c = strings.TrimPrefix(c, "lib")
-	r, size := utf8.DecodeRuneInString(c)
-	if size == 0 {
+	if c == "" {
 		return strings.TrimSpace(orig)
 	}
-	return string(unicode.ToUpper(r)) + c[size:]
+	return strings.ToUpper(c)
 }

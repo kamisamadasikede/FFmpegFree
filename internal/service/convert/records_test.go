@@ -10,10 +10,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/ffmpeg"
 	"FFmpegFree/internal/localassets"
+	"FFmpegFree/internal/paths"
+	"FFmpegFree/internal/store"
 	"FFmpegFree/internal/task"
 )
 
@@ -43,10 +46,11 @@ func (e *env) addSource(t *testing.T, p string) ConvertSource {
 
 func (e *env) submitSources(t *testing.T, req ConvertSubmitRequest) []task.Task {
 	t.Helper()
-	ts, err := e.svc.SubmitSources(context.Background(), req)
+	res, err := e.svc.SubmitSources(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
+	ts := res.Tasks
 	for i := range ts {
 		ts[i] = e.wait(t, ts[i].ID)
 	}
@@ -224,8 +228,10 @@ func TestPreviewAndOpenWhitelist(t *testing.T) {
 	opus := e.submitSources(t, ConvertSubmitRequest{SourceIDs: []string{src.SourceID},
 		Options: ffmpeg.ConvertOptions{Container: "opus", AudioCodec: "opus"}, OutputDir: filepath.Join(e.dir, "o")})
 	if opus[0].Status == task.StatusSucceeded {
-		_, err := e.svc.TaskPreviewURL(ctx, opus[0].ID, "output")
-		wantReason(t, err, apperr.Unsupported, "reason=format")
+		// v0.24：opus 进了应用内预览白名单（6.14.7）
+		if _, err := e.svc.TaskPreviewURL(ctx, opus[0].ID, "output"); err != nil {
+			t.Fatalf("opus 可以预览: %v", err)
+		}
 		if err := e.svc.TaskOpenWithSystem(ctx, opus[0].ID, "output"); err != nil || opened[len(opened)-1] != opus[0].OutputPath {
 			t.Fatalf("opus 可以用系统程序打开: %v", err)
 		}
@@ -234,7 +240,7 @@ func TestPreviewAndOpenWhitelist(t *testing.T) {
 	for _, c := range []struct {
 		ext           string
 		preview, open bool
-	}{{".gif", true, true}, {".MP4", true, true}, {".opus", false, true}, {".wmv", false, true}, {".txt", false, false}, {".exe", false, false}} {
+	}{{".gif", true, true}, {".MP4", true, true}, {".opus", true, true}, {".avi", false, true}, {".flv", false, true}, {".wmv", false, true}, {".txt", false, false}, {".exe", false, false}} {
 		if hasExt(previewExts, "x"+c.ext) != c.preview || hasExt(openExts, "x"+c.ext) != c.open {
 			t.Errorf("%s", c.ext)
 		}
@@ -243,7 +249,18 @@ func TestPreviewAndOpenWhitelist(t *testing.T) {
 	n := len(opened)
 	txt := filepath.Join(e.dir, "notes.txt")
 	os.WriteFile(txt, []byte("x"), 0o644)
-	tsrc := e.addSource(t, txt)
+	// v0.24：AddSources 只收输入格式白名单里的扩展名
+	if res, err := e.svc.AddSources(ctx, []string{txt}); err != nil || len(res) != 1 || res[0].Error == nil {
+		t.Fatalf("%+v %v", res, err)
+	} else {
+		wantReason(t, res[0].Error, apperr.Unsupported, "reason=format")
+	}
+	// 旧版本留下的行（copyState=none）仍可能是任意扩展名：直接写库模拟
+	_, tkey, _ := paths.Normalize(txt)
+	tsrc, _, err := e.st.UpsertConvertSource(ctx, txt, tkey, time.Now().UnixMilli())
+	if err != nil || tsrc.CopyState != store.CopyNone {
+		t.Fatalf("%+v %v", tsrc, err)
+	}
 	wantReason(t, e.svc.OpenSourceWithSystem(ctx, tsrc.SourceID), apperr.Unsupported, "reason=format")
 	if len(opened) != n {
 		t.Fatal("不应调用 Open")
@@ -288,15 +305,15 @@ func TestDeleteSourceAndReconvert(t *testing.T) {
 	if r1.OutputPath != filepath.Join(out, "a.mkv") || r1.Result == nil || r1.Result.SizeBytes <= 0 || r1.Result.DurationSec <= 0 {
 		t.Fatalf("%+v %+v", r1, r1.Result)
 	}
-	// 又转一次：新 id、带空格的序号、快照照抄
-	r2, err := e.svc.Reconvert(ctx, r1.ID)
-	if err != nil || r2.ID == r1.ID || r2.OutputPath != filepath.Join(out, "a (1).mkv") || r2.SourceID != src.SourceID {
+	// v0.24：原地重转，id 和输出路径不变，快照照抄
+	r2, err := e.svc.Reconvert(ctx, ReconvertRequest{TaskID: r1.ID})
+	if err != nil || r2.ID != r1.ID || r2.OutputPath != filepath.Join(out, "a.mkv") || r2.SourceID != src.SourceID || !r2.Reconverting {
 		t.Fatalf("%+v %v", r2, err)
 	}
-	if s1, s2 := snapshot(t, r1), snapshot(t, r2); s1.ParamsSummary != s2.ParamsSummary || s1.PresetID != s2.PresetID {
+	r2 = e.wait(t, r2.ID)
+	if s1, s2 := snapshot(t, r1), snapshot(t, r2); s1.ParamsSummary != s2.ParamsSummary || s1.PresetID != s2.PresetID || r2.Reconverting {
 		t.Fatalf("%+v %+v", s1, s2)
 	}
-	r2 = e.wait(t, r2.ID)
 	// 非 succeeded 不能再转一次
 	e.tm.Cancel(r2.ID)
 	failedOut := filepath.Join(e.dir, "blocker")
@@ -305,10 +322,10 @@ func TestDeleteSourceAndReconvert(t *testing.T) {
 	if bad.Status != task.StatusFailed {
 		t.Fatalf("%+v", bad)
 	}
-	if _, err := e.svc.Reconvert(ctx, bad.ID); !apperr.Is(err, apperr.TaskConflict) {
+	if _, err := e.svc.Reconvert(ctx, ReconvertRequest{TaskID: bad.ID}); detailOf(err) != "reason=invalid_state" {
 		t.Fatalf("%v", err)
 	}
-	if _, err := e.svc.Reconvert(ctx, "nope"); detailOf(err) != "reason=record" {
+	if _, err := e.svc.Reconvert(ctx, ReconvertRequest{TaskID: "nope"}); detailOf(err) != "reason=record" {
 		t.Fatalf("%v", err)
 	}
 	// DeleteRecords：只删一条
@@ -321,14 +338,14 @@ func TestDeleteSourceAndReconvert(t *testing.T) {
 	}
 	// DeleteSource：删掉剩下的记录后删行；源文件不碰
 	res, err = e.svc.DeleteSource(ctx, src.SourceID, false)
-	if err != nil || len(res.DeletedTaskIDs) != 2 || len(res.DeletedSourceIDs) != 1 || res.DeletedSourceIDs[0] != src.SourceID {
+	if err != nil || len(res.DeletedTaskIDs) != 1 || len(res.DeletedSourceIDs) != 1 || res.DeletedSourceIDs[0] != src.SourceID {
 		t.Fatalf("%+v %v", res, err)
 	}
 	if _, err := os.Stat(in); err != nil {
 		t.Fatal("源文件永远不删")
 	}
-	if _, err := os.Stat(r2.OutputPath); err != nil {
-		t.Fatal("deleteOutputs=false 不删输出")
+	if _, err := os.Stat(r2.OutputPath); err == nil {
+		t.Fatal("重转是同一条记录，DeleteRecords(deleteOutputs=true) 已删掉输出")
 	}
 	_, err = e.svc.GetSource(ctx, src.SourceID)
 	wantReason(t, err, apperr.NotFound, "reason=record")

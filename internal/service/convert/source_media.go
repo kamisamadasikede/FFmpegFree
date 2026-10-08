@@ -33,10 +33,11 @@ const (
 //     转换组件没就绪、被取消、无权限等暂时性错误什么都不写，下次再试。
 func (s *Service) refreshSourceMedia(ctx context.Context, ss SourceStore, src *ConvertSource) {
 	ms, ok := ss.(SourceMediaStore)
-	if !ok || s.cfg.Media == nil || src.Path == "" {
+	p := displayPath(*src) // v0.24：副本就绪时探测副本（mtime / 大小和原文件一致，指纹相同），原文件拔掉了也能探
+	if !ok || s.cfg.Media == nil || p == "" {
 		return
 	}
-	fi, err := os.Stat(src.Path)
+	fi, err := os.Stat(p)
 	if err != nil || !fi.Mode().IsRegular() {
 		return
 	}
@@ -45,7 +46,7 @@ func (s *Service) refreshSourceMedia(ctx context.Context, ss SourceStore, src *C
 		return
 	}
 	pctx, cancel := context.WithTimeout(ctx, sourceProbeTimeout)
-	m, err := s.cfg.Media.Inspect(pctx, src.Path)
+	m, err := s.cfg.Media.Inspect(pctx, p)
 	timedOut := pctx.Err() != nil // 必须在 cancel 之前看
 	cancel()
 	var save *store.MediaInfo

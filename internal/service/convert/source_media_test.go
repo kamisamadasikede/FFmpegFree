@@ -255,7 +255,7 @@ func TestPreviewGatedByCodec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tk, err := a.tm.Wait(ctx, ts[0].ID)
+	tk, err := a.tm.Wait(ctx, ts.Tasks[0].ID)
 	if err != nil || tk.Status != task.StatusSucceeded {
 		t.Skipf("转换失败（编码器缺失？）: %+v %v", tk.Error, err)
 	}

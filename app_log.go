@@ -9,7 +9,7 @@ import (
 	"runtime"
 )
 
-// 应用日志（契约 v0.23.6）：<数据目录>/logs/app.log，Windows 上是 %AppData%\FFmpegFree\logs\app.log。
+// 应用日志（契约 v0.24.2）：<数据目录>/logs/app.log，Windows 上是 %AppData%\FFmpegFree\logs\app.log。
 // Windows 包是 GUI 程序，没有控制台，log.Printf 默认写的 stderr 等于丢弃：包 19 的缩略图在 Windows 上全部失败，
 // 却一行记录都没有。现在所有 log.Printf 同时写进这个文件（控制台照旧，写不进去也不影响文件）。
 // 超过 appLogMaxBytes 时启动时轮转一次：app.log → app.log.1（只留一份旧的）。

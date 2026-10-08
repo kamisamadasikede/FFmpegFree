@@ -80,7 +80,7 @@ func newThumbCache(dir string, maxFiles int, maxBytes int64, now func() time.Tim
 }
 
 // thumbCacheVersion 进缓存键：取帧规则变了就加一，旧缓存自然失效（容量清理回收）。
-// 2 = v0.23.6 默认缩略图改成“第一帧，太暗取前 3 秒里第一张不黑的”。
+// 2 = v0.24.2 默认缩略图改成“第一帧，太暗取前 3 秒里第一张不黑的”。
 const thumbCacheVersion = 2
 
 // cacheName 由路径 key、修改时间、大小、时间点（毫秒；默认缩略图是 autoThumbAt）和宽度算出缓存文件名（不含目录）。
@@ -211,7 +211,7 @@ func thumbArgs(in, out string, atSec float64, width int) []string {
 	)
 }
 
-// autoThumbArgs 生成默认缩略图的命令行（契约 v0.23.6，6.14.10）：只读前 autoThumbScanSec 秒，先缩到目标宽度、
+// autoThumbArgs 生成默认缩略图的命令行（契约 v0.24.2，6.14.10）：只读前 autoThumbScanSec 秒，先缩到目标宽度、
 // 转 8 位 yuv420p 再用 signalstats 算平均亮度，metadata 只放行 YAVG > thumbMinLuma 的帧，取第一张。
 // 第一帧不黑就是第一帧；片头黑场时取前 3 秒里第一张不黑的。全黑（或滤镜不可用）时 ffmpeg 不出图，由 runThumb 退回第一帧。
 func autoThumbArgs(in, out string, width int) []string {

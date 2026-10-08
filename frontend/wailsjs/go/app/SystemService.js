@@ -26,12 +26,20 @@ export function GetSettings() {
   return window['go']['app']['SystemService']['GetSettings']();
 }
 
+export function GetStorageDirs() {
+  return window['go']['app']['SystemService']['GetStorageDirs']();
+}
+
 export function InstallFFmpeg(arg1) {
   return window['go']['app']['SystemService']['InstallFFmpeg'](arg1);
 }
 
 export function ListEncoderDevices() {
   return window['go']['app']['SystemService']['ListEncoderDevices']();
+}
+
+export function OpenStorageFolder(arg1) {
+  return window['go']['app']['SystemService']['OpenStorageFolder'](arg1);
 }
 
 export function PickDirectory(arg1) {
@@ -60,6 +68,10 @@ export function SetEncoderPreference(arg1) {
 
 export function SetFFmpegPath(arg1) {
   return window['go']['app']['SystemService']['SetFFmpegPath'](arg1);
+}
+
+export function SetStorageDirs(arg1) {
+  return window['go']['app']['SystemService']['SetStorageDirs'](arg1);
 }
 
 export function UpdateSettings(arg1) {

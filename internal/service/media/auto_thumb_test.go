@@ -40,7 +40,7 @@ func meanLuma(t *testing.T, u string) float64 {
 	return sum / n
 }
 
-// 契约 v0.23.6：默认缩略图取第一帧；片头黑场时取前 3 秒里第一张不黑的；全黑退回第一帧（仍然出图）。GIF 同样。
+// 契约 v0.24.2：默认缩略图取第一帧；片头黑场时取前 3 秒里第一张不黑的；全黑退回第一帧（仍然出图）。GIF 同样。
 func TestDefaultThumbnailSkipsBlackStart(t *testing.T) {
 	e := newEnv(t, nil)
 	ctx := context.Background()

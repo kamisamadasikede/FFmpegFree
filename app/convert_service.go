@@ -159,21 +159,60 @@ func (s *ConvertService) PreviewOutputName(sourceID string, opts ffmpeg.ConvertO
 }
 
 // SubmitSources 按源文件行提交转换（规则同 Submit），写 sourceId 和 presetId / presetName / paramsSummary 快照，提交时定名并占位。
-func (s *ConvertService) SubmitSources(req convert.ConvertSubmitRequest) ([]store.Task, error) {
+// v0.24：返回 {tasks, skipped}，副本没就绪的行跳过；一行都没就绪时 TASK_CONFLICT（reason=copying / copy_failed）。
+func (s *ConvertService) SubmitSources(req convert.ConvertSubmitRequest) (convert.ConvertSubmitResult, error) {
 	c, err := s.svc()
 	if err != nil {
-		return nil, err
+		return convert.ConvertSubmitResult{Tasks: []store.Task{}, Skipped: []convert.SkippedSource{}}, err
 	}
 	return c.SubmitSources(s.rootCtx(), req)
 }
 
-// Reconvert 只用于已成功的记录：照抄原记录的参数新提交一条；其余状态 TASK_CONFLICT（失败 / 取消 / 中断用 TaskService.Retry）。
-func (s *ConvertService) Reconvert(taskID string) (store.Task, error) {
+// Reconvert 在同一条已成功的记录上原地重转（契约 v0.24 / v0.24.1，6.17）：id、输出路径不变，成功后才原子替换旧输出；
+// 失败 / 取消时记录恢复成 succeeded（失败带 lastReconvertError）。
+func (s *ConvertService) Reconvert(req convert.ReconvertRequest) (store.Task, error) {
 	c, err := s.svc()
 	if err != nil {
 		return store.Task{}, err
 	}
-	return c.Reconvert(s.rootCtx(), taskID)
+	return c.Reconvert(s.rootCtx(), req)
+}
+
+// CancelCopy 取消这一行副本的复制（契约 6.15.6）：copying → canceled，行保留。
+func (s *ConvertService) CancelCopy(sourceID string) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.CancelCopy(s.rootCtx(), sourceID)
+}
+
+// RetryCopy 重新复制这一行的副本（契约 6.15.6），返回更新后的行。
+func (s *ConvertService) RetryCopy(sourceID string) (convert.ConvertSource, error) {
+	c, err := s.svc()
+	if err != nil {
+		return convert.ConvertSource{}, err
+	}
+	return c.RetryCopy(s.rootCtx(), sourceID)
+}
+
+// GetFormatCatalog 返回格式目录（契约 6.16）：转换组件没就绪时照样返回，全部 encodable=false。
+func (s *ConvertService) GetFormatCatalog() ([]convert.FormatEntry, error) {
+	c, err := s.svc()
+	if err != nil {
+		return nil, err
+	}
+	return c.GetFormatCatalog(s.rootCtx())
+}
+
+// TakeInterruptedReconverts 返回本次启动时恢复的“上次退出时被中断的重转”条数，第一次调用后清零（契约 v0.24.1）。
+// 签名按架构师定名：TakeInterruptedReconverts() (int)；服务没启动时返回 0。
+func (s *ConvertService) TakeInterruptedReconverts() int {
+	c, err := s.svc()
+	if err != nil {
+		return 0
+	}
+	return c.TakeInterruptedReconverts()
 }
 
 // DeleteRecords 删除转换记录：进行中的先取消（最多等 10 秒），deleteOutputs 时尽量删输出文件，没删成的放进 failures；不删源文件。

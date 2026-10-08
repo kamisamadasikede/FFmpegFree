@@ -21,7 +21,7 @@ func detailOf(err error) string {
 	return ""
 }
 
-// 契约 6.14.10：转换页缩略图 = 默认缩略图（v0.23.6 起第一帧，太暗取前 3 秒里第一张不黑的；宽 320），缓存键含 mtime / size。
+// 契约 6.14.10：转换页缩略图 = 默认缩略图（v0.24.2 起第一帧，太暗取前 3 秒里第一张不黑的；宽 320），缓存键含 mtime / size。
 func TestDefaultThumbnailDataURL(t *testing.T) {
 	e := newEnv(t, nil)
 	ctx := context.Background()

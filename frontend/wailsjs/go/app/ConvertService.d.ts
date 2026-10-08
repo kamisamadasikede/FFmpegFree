@@ -7,6 +7,8 @@ import {ffmpeg} from '../models';
 
 export function AddSources(arg1:Array<string>):Promise<Array<convert.AddSourceResult>>;
 
+export function CancelCopy(arg1:string):Promise<void>;
+
 export function CheckSources(arg1:Array<string>):Promise<Array<convert.SourcePathCheck>>;
 
 export function DeletePreset(arg1:string):Promise<void>;
@@ -14,6 +16,8 @@ export function DeletePreset(arg1:string):Promise<void>;
 export function DeleteRecords(arg1:Array<string>,arg2:boolean):Promise<task.DeleteResult>;
 
 export function DeleteSource(arg1:string,arg2:boolean):Promise<task.DeleteResult>;
+
+export function GetFormatCatalog():Promise<Array<convert.FormatEntry>>;
 
 export function GetRecordThumbnail(arg1:string):Promise<string>;
 
@@ -33,7 +37,9 @@ export function OpenSourceWithSystem(arg1:string):Promise<void>;
 
 export function PreviewOutputName(arg1:string,arg2:ffmpeg.ConvertOptions,arg3:string):Promise<string>;
 
-export function Reconvert(arg1:string):Promise<store.Task>;
+export function Reconvert(arg1:convert.ReconvertRequest):Promise<store.Task>;
+
+export function RetryCopy(arg1:string):Promise<store.ConvertSource>;
 
 export function RevealRecord(arg1:string):Promise<void>;
 
@@ -45,4 +51,6 @@ export function SearchSources(arg1:convert.ConvertSearchFilter):Promise<convert.
 
 export function Submit(arg1:Array<string>,arg2:ffmpeg.ConvertOptions,arg3:string):Promise<Array<store.Task>>;
 
-export function SubmitSources(arg1:convert.ConvertSubmitRequest):Promise<Array<store.Task>>;
+export function SubmitSources(arg1:convert.ConvertSubmitRequest):Promise<convert.ConvertSubmitResult>;
+
+export function TakeInterruptedReconverts():Promise<number>;
