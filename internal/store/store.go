@@ -162,7 +162,7 @@ func (s *Store) MarkInterrupted(ctx context.Context, now time.Time) (int64, erro
 		SET status = 'interrupted',
 		    version = version + 1,
 		    finished_at = ?
-		WHERE status IN ('queued', 'running')`, now.UnixMilli())
+		WHERE status IN ('queued', 'running') AND reconverting = 0`, now.UnixMilli())
 	if err != nil {
 		return 0, fmt.Errorf("标记中断任务失败: %w", err)
 	}

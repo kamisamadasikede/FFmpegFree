@@ -15,9 +15,13 @@ export function GetInstallOptions():Promise<system.InstallOptions>;
 
 export function GetSettings():Promise<system.Settings>;
 
+export function GetStorageDirs():Promise<system.StorageDirs>;
+
 export function InstallFFmpeg(arg1:string):Promise<store.Task>;
 
 export function ListEncoderDevices():Promise<system.EncoderDeviceList>;
+
+export function OpenStorageFolder(arg1:string):Promise<void>;
 
 export function PickDirectory(arg1:string):Promise<string>;
 
@@ -32,5 +36,7 @@ export function RevealInFolder(arg1:string):Promise<void>;
 export function SetEncoderPreference(arg1:string):Promise<void>;
 
 export function SetFFmpegPath(arg1:string):Promise<system.FFmpegStatus>;
+
+export function SetStorageDirs(arg1:system.StorageDirsUpdate):Promise<system.StorageDirs>;
 
 export function UpdateSettings(arg1:system.Settings):Promise<void>;

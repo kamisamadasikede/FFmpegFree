@@ -66,8 +66,9 @@ type Manager struct {
 	factories map[Type]Factory
 	closing   bool
 	wg        sync.WaitGroup
-	namer     *namer      // 输出文件名占用登记（见 part.go）
-	reveal    revealAllow // 删除失败、文件留下的路径（RevealInFolder 临时放行，见 reveal_allow.go）
+	namer     *namer           // 输出文件名占用登记（见 part.go）
+	reveal    revealAllow      // 删除失败、文件留下的路径（RevealInFolder 临时放行，见 reveal_allow.go）
+	rcCheck   ReconvertChecker // CheckPaths 的重转检查（转换服务注册，契约 6.17.1）
 }
 
 // NewManager 创建任务管理器。
@@ -279,7 +280,11 @@ func neverRanOutput(r Runner) string {
 
 // finishNeverRan 结束一个从未开始执行的任务（排队中被取消、退出时还在排队）：落库、发 task:status、调用 OnFinish。
 func (m *Manager) finishNeverRan(e *entry, st Status) {
-	e.finish(m, st, nil, neverRanOutput(e.runner))
+	if e.rc != nil {
+		m.endReconvert(e, outcomeFor(st), nil)
+	} else {
+		e.finish(m, st, nil, neverRanOutput(e.runner))
+	}
 	m.mu.Lock()
 	delete(m.entries, e.task.ID)
 	m.mu.Unlock()
@@ -397,6 +402,10 @@ func (m *Manager) finishAfterRun(e *entry, err error, out string) {
 	m.mu.Lock()
 	closing := m.closing
 	m.mu.Unlock()
+	if e.rc != nil {
+		m.finishReconvert(e, closing, err, out)
+		return
+	}
 	carry := out
 	if err != nil && !IsLive(e.task.Type) {
 		carry = ""
@@ -698,7 +707,7 @@ func (m *Manager) Retry(taskID string) (Task, error) {
 	m.emit(EventStatus, StatusEvent{
 		ID: t.ID, Version: t.Version, Status: StatusQueued, OutputPath: t.OutputPath,
 		Encoder: t.Encoder, EncoderDevice: t.EncoderDevice, HWFallback: t.HWFallback, HWFallbackReason: t.HWFallbackReason,
-		Progress: &zero, Retried: true, HiddenInTaskCenter: &notHidden,
+		Progress: &zero, Retried: true, HiddenInTaskCenter: &notHidden, Reconverting: rcFlag(t),
 	})
 	// ⑦ 入队。
 	m.enqueue(e)

@@ -61,8 +61,9 @@ func (m *Manager) RevealInFolder(path string) error {
 		if tasks != nil && (tasks.IsTaskOutput(cleaned) || tasks.IsRecentDeleteFailure(cleaned)) {
 			return true
 		}
-		if dir := m.DefaultOutputDir(ctx); dir != "" {
-			if within(caseInsensitivePaths(runtime.GOOS), dir, real) {
+		// v0.24：第 2 类改为实际输出目录或实际上传目录之内（6.15.2 第 7 条；默认目录也放行）
+		for _, dir := range []string{m.ActualOutputDir(ctx), m.ActualUploadsDir(ctx)} {
+			if dir != "" && within(caseInsensitivePaths(runtime.GOOS), dir, real) {
 				return true
 			}
 		}

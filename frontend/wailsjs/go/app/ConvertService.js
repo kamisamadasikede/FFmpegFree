@@ -6,6 +6,10 @@ export function AddSources(arg1) {
   return window['go']['app']['ConvertService']['AddSources'](arg1);
 }
 
+export function CancelCopy(arg1) {
+  return window['go']['app']['ConvertService']['CancelCopy'](arg1);
+}
+
 export function CheckSources(arg1) {
   return window['go']['app']['ConvertService']['CheckSources'](arg1);
 }
@@ -20,6 +24,10 @@ export function DeleteRecords(arg1, arg2) {
 
 export function DeleteSource(arg1, arg2) {
   return window['go']['app']['ConvertService']['DeleteSource'](arg1, arg2);
+}
+
+export function GetFormatCatalog() {
+  return window['go']['app']['ConvertService']['GetFormatCatalog']();
 }
 
 export function GetRecordThumbnail(arg1) {
@@ -62,6 +70,10 @@ export function Reconvert(arg1) {
   return window['go']['app']['ConvertService']['Reconvert'](arg1);
 }
 
+export function RetryCopy(arg1) {
+  return window['go']['app']['ConvertService']['RetryCopy'](arg1);
+}
+
 export function RevealRecord(arg1) {
   return window['go']['app']['ConvertService']['RevealRecord'](arg1);
 }
@@ -84,4 +96,8 @@ export function Submit(arg1, arg2, arg3) {
 
 export function SubmitSources(arg1) {
   return window['go']['app']['ConvertService']['SubmitSources'](arg1);
+}
+
+export function TakeInterruptedReconverts() {
+  return window['go']['app']['ConvertService']['TakeInterruptedReconverts']();
 }

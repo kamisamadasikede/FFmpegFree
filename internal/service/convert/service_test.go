@@ -58,7 +58,10 @@ func realBins(t *testing.T) ffmpeg.Binaries {
 	return ffmpeg.Binaries{FFmpeg: fm, FFprobe: fp}
 }
 
-func newEnv(t *testing.T) *env {
+func newEnv(t *testing.T) *env { t.Helper(); return newEnvWith(t, nil) }
+
+// newEnvWith 同 newEnv，mod 可以在 New 之前改 Config（v0.24 的上传目录、启动时中断的重转条数等）。
+func newEnvWith(t *testing.T, mod func(*Config)) *env {
 	t.Helper()
 	bin := realBins(t)
 	dir := t.TempDir()
@@ -73,8 +76,12 @@ func newEnv(t *testing.T) *env {
 	t.Cleanup(func() { e.tm.Shutdown(3 * time.Second) })
 	req := func() (ffmpeg.Binaries, error) { return bin, nil }
 	med := media.New(media.Config{Require: req, ThumbsDir: filepath.Join(dir, "thumbs")})
-	e.svc, err = New(context.Background(), Config{Presets: st, Media: med, Tasks: e.tm, Require: req,
-		DefaultOutputDir: func(context.Context) string { return e.defA }})
+	cfg := Config{Presets: st, Media: med, Tasks: e.tm, Require: req,
+		DefaultOutputDir: func(context.Context) string { return e.defA }}
+	if mod != nil {
+		mod(&cfg)
+	}
+	e.svc, err = New(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

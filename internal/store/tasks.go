@@ -79,6 +79,12 @@ type Task struct {
 	SourceID           string      `json:"sourceId,omitempty"` // 只有 convert 任务有；指向 convert_sources.id
 	HiddenInTaskCenter bool        `json:"hiddenInTaskCenter"` // 始终输出；true = 在任务中心隐藏（转换页照常显示）
 	Result             *TaskResult `json:"result,omitempty"`   // 只有成功的 convert 任务有；探测失败也可能没有
+	// 以下是原地重转（契约 v0.24，6.17.2），落库（迁移 0008）。
+	Reconverting       bool            `json:"reconverting"`                 // 始终输出；true = 正在原地重转（status 是 queued / running）
+	LastReconvertError *ReconvertError `json:"lastReconvertError,omitempty"` // 最近一次重转失败的信息
+	// ReconvertPrev / ReconvertPending 是重转期间的快照 JSON（不给前端）。
+	ReconvertPrev    string `json:"-"`
+	ReconvertPending string `json:"-"`
 
 	// LogPath 不暴露给前端，前端通过 TaskService.GetLog 读取。
 	LogPath string `json:"-"`
@@ -91,6 +97,16 @@ type TaskResult struct {
 	Width            int     `json:"width,omitempty"`            // 显示尺寸；纯音频省略
 	Height           int     `json:"height,omitempty"`           //
 	AudioBitrateKbps int     `json:"audioBitrateKbps,omitempty"` // 第一条音频流的码率（kbit/s，四舍五入）
+	// Warnings 是结果警告的机器码（契约 v0.24，6.14.6），目前只有 "short_output"；为空时省略。
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+// ReconvertError 是最近一次原地重转失败的信息（契约 v0.24，6.17.2）。
+type ReconvertError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Detail  string `json:"detail,omitempty"`
+	At      int64  `json:"at"`
 }
 
 // TaskFilter 是 TaskService.List 的过滤条件。Types、Statuses 为空表示不过滤。
@@ -116,7 +132,7 @@ const (
 
 const taskColumns = `id, type, status, title, input_paths, output_path, params, progress, error,
 	log_path, version, created_at, started_at, finished_at, encoder, encoder_device, hw_fallback, hw_fallback_reason,
-	source_id, hidden_in_task_center, result`
+	source_id, hidden_in_task_center, result, reconverting, reconvert_prev, reconvert_pending, last_reconvert_error`
 
 // InsertTask 新建任务记录。
 func (s *Store) InsertTask(ctx context.Context, t Task) error {
@@ -136,21 +152,39 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 	if err != nil {
 		return err
 	}
+	lre, err := encodeJSON(t.LastReconvertError)
+	if err != nil {
+		return err
+	}
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO tasks (`+taskColumns+`, output_name_key) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		INSERT INTO tasks (`+taskColumns+`, output_name_key) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		t.ID, string(t.Type), string(t.Status), t.Title, string(inputs), t.OutputPath, params, t.Progress,
 		errJSON, t.LogPath, t.Version, t.CreatedAt, t.StartedAt, t.FinishedAt,
 		t.Encoder, t.EncoderDevice, boolInt(t.HWFallback), t.HWFallbackReason,
-		nullStr(t.SourceID), boolInt(t.HiddenInTaskCenter), resJSON, NameKey(t.OutputPath))
+		nullStr(t.SourceID), boolInt(t.HiddenInTaskCenter), resJSON,
+		boolInt(t.Reconverting), nullStr(t.ReconvertPrev), nullStr(t.ReconvertPending), lre, NameKey(t.OutputPath))
 	if err != nil {
 		return fmt.Errorf("写入任务失败: %w", err)
 	}
 	return nil
 }
 
-// UpdateTask 保存任务的可变字段（状态、进度、输出、错误、时间、版本、隐藏标记、结果）。任务不存在时返回 sql.ErrNoRows。
-// output_name_key 随 output_path 同步更新（契约 6.14.9）；source_id、params、created_at 不变。
+// UpdateTask 保存任务的可变字段（状态、进度、输出、错误、时间、版本、隐藏标记、结果、重转字段）。任务不存在时返回 sql.ErrNoRows。
+// output_name_key 随 output_path 同步更新（契约 6.14.9）；source_id、created_at 不变。
+// v0.24：params、input_paths 也写（原地重转成功时换成新快照；其余路径上它们就是读出来的原值）。
 func (s *Store) UpdateTask(ctx context.Context, t Task) error {
+	inputs, err := json.Marshal(nonNil(t.InputPaths))
+	if err != nil {
+		return err
+	}
+	params := t.Params
+	if params == "" {
+		params = "{}"
+	}
+	lre, err := encodeJSON(t.LastReconvertError)
+	if err != nil {
+		return err
+	}
 	errJSON, err := encodeAppError(t.Error)
 	if err != nil {
 		return err
@@ -163,12 +197,14 @@ func (s *Store) UpdateTask(ctx context.Context, t Task) error {
 		UPDATE tasks SET status=?, title=?, output_path=?, output_name_key=?, progress=?, error=?, log_path=?,
 		       version=?, started_at=?, finished_at=?,
 		       encoder=?, encoder_device=?, hw_fallback=?, hw_fallback_reason=?,
-		       hidden_in_task_center=?, result=?
+		       hidden_in_task_center=?, result=?, params=?, input_paths=?,
+		       reconverting=?, reconvert_prev=?, reconvert_pending=?, last_reconvert_error=?
 		WHERE id=?`,
 		string(t.Status), t.Title, t.OutputPath, NameKey(t.OutputPath), t.Progress, errJSON, t.LogPath,
 		t.Version, t.StartedAt, t.FinishedAt,
 		t.Encoder, t.EncoderDevice, boolInt(t.HWFallback), t.HWFallbackReason,
-		boolInt(t.HiddenInTaskCenter), resJSON, t.ID)
+		boolInt(t.HiddenInTaskCenter), resJSON, params, string(inputs),
+		boolInt(t.Reconverting), nullStr(t.ReconvertPrev), nullStr(t.ReconvertPending), lre, t.ID)
 	if err != nil {
 		return fmt.Errorf("更新任务失败: %w", err)
 	}
@@ -382,12 +418,12 @@ type rowScanner interface{ Scan(dest ...any) error }
 func scanTask(r rowScanner) (Task, error) {
 	var t Task
 	var typ, status, inputs string
-	var errJSON, sourceID, resJSON sql.NullString
-	var hwFallback, hidden int
+	var errJSON, sourceID, resJSON, prev, pending, lre sql.NullString
+	var hwFallback, hidden, reconverting int
 	if err := r.Scan(&t.ID, &typ, &status, &t.Title, &inputs, &t.OutputPath, &t.Params, &t.Progress, &errJSON,
 		&t.LogPath, &t.Version, &t.CreatedAt, &t.StartedAt, &t.FinishedAt,
 		&t.Encoder, &t.EncoderDevice, &hwFallback, &t.HWFallbackReason,
-		&sourceID, &hidden, &resJSON); err != nil {
+		&sourceID, &hidden, &resJSON, &reconverting, &prev, &pending, &lre); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Task{}, err
 		}
@@ -397,6 +433,14 @@ func scanTask(r rowScanner) (Task, error) {
 	t.HWFallback = hwFallback != 0
 	t.HiddenInTaskCenter = hidden != 0
 	t.SourceID = sourceID.String
+	t.Reconverting = reconverting != 0
+	t.ReconvertPrev, t.ReconvertPending = prev.String, pending.String
+	if lre.Valid && lre.String != "" && lre.String != "null" {
+		var e ReconvertError
+		if err := json.Unmarshal([]byte(lre.String), &e); err == nil {
+			t.LastReconvertError = &e
+		}
+	}
 	if resJSON.Valid && resJSON.String != "" && resJSON.String != "null" {
 		var r TaskResult
 		if err := json.Unmarshal([]byte(resJSON.String), &r); err == nil {
@@ -435,6 +479,53 @@ func encodeResult(r *TaskResult) (any, error) {
 		return nil, err
 	}
 	return string(b), nil
+}
+
+func encodeJSON[T any](v *T) (any, error) {
+	if v == nil {
+		return nil, nil
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	return string(b), nil
+}
+
+// ListReconvertingTasks 返回 reconverting=1 的任务（启动时的重转崩溃恢复用，契约 6.17.5）。
+func (s *Store) ListReconvertingTasks(ctx context.Context) ([]Task, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+taskColumns+` FROM tasks WHERE reconverting = 1 AND type = 'convert' ORDER BY created_at ASC, id ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("查询重转中的任务失败: %w", err)
+	}
+	defer rows.Close()
+	var out []Task
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// ConvertOutputPaths 返回全部 convert 记录登记的输出路径（去重；孤儿重转临时文件扫描用，契约 6.17.5）。
+func (s *Store) ConvertOutputPaths(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT output_path FROM tasks WHERE type = 'convert' AND output_path <> ''`)
+	if err != nil {
+		return nil, fmt.Errorf("查询输出路径失败: %w", err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }
 
 func nullStr(s string) any {

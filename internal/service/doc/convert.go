@@ -10,7 +10,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"FFmpegFree/internal/apperr"
@@ -247,8 +246,8 @@ func (s *Service) maxPath() int {
 	return s.maxP
 }
 
-// resolveOutputDir 解析输出目录：参数 > 设置里的默认目录 > 空（源文件同目录）。
-// 必须是绝对路径，拒绝 \\?\ 和 \\.\ 前缀，不能在应用数据目录内，已存在的必须是文件夹。
+// resolveOutputDir 解析输出目录：参数 > 实际输出目录（v0.24：自定义优先，否则 <base>/output）> 空（源文件同目录，v0.24 起走不到）。
+// 必须是绝对路径，拒绝 \\?\ 和 \\.\ 前缀，不能在应用数据目录内（<dataDir>/output 除外，v0.24.1），已存在的必须是文件夹。
 func (s *Service) resolveOutputDir(ctx context.Context, dir string) (string, error) {
 	if dir == "" && s.cfg.DefaultOutputDir != nil {
 		dir = s.cfg.DefaultOutputDir(ctx)
@@ -266,45 +265,13 @@ func (s *Service) resolveOutputDir(ctx context.Context, dir string) (string, err
 	if fi, err := os.Stat(dir); err == nil && !fi.IsDir() {
 		return "", apperr.New(apperr.InvalidArgument, "输出位置不是文件夹").WithDetail(dir)
 	}
-	if s.cfg.DataDir != "" && insideDir(s.cfg.DataDir, dir) {
+	if paths.InsideDataDir(s.cfg.DataDir, dir) { // v0.24.1：<dataDir>/output 及其子文件夹放行
 		return "", apperr.New(apperr.InvalidArgument, "输出目录不能在应用数据目录内").WithDetail("outputDir 不能在应用数据目录内\n" + dir)
 	}
 	if err := writableDir(dir); err != nil {
 		return "", err
 	}
 	return dir, nil
-}
-
-// insideDir 判断 p 是否等于 root 或在 root 之内（先 Clean，再对已存在的最长前缀做 EvalSymlinks；Windows / macOS 不区分大小写）。
-func insideDir(root, p string) bool {
-	r, q := realish(root), realish(p)
-	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
-		r, q = strings.ToLower(r), strings.ToLower(q)
-	}
-	if q == r {
-		return true
-	}
-	if !strings.HasSuffix(r, string(filepath.Separator)) {
-		r += string(filepath.Separator)
-	}
-	return strings.HasPrefix(q, r)
-}
-
-// realish 解析路径里已存在部分的符号链接，不存在的尾部原样接上。
-func realish(p string) string {
-	p = filepath.Clean(p)
-	rest := ""
-	for cur := p; ; {
-		if real, err := filepath.EvalSymlinks(cur); err == nil {
-			return filepath.Join(real, rest)
-		}
-		parent := filepath.Dir(cur)
-		if parent == cur {
-			return p
-		}
-		rest = filepath.Join(filepath.Base(cur), rest)
-		cur = parent
-	}
 }
 
 func (s *Service) submitOne(j job) (task.Task, error) {
