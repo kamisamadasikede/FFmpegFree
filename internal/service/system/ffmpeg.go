@@ -32,9 +32,9 @@ const (
 // Error 在 missing / outdated 时为 FFMPEG_NOT_FOUND（detail 里列出每个候选失败的原因），
 // failed 时为 INTERNAL；ready / checking 时为 nil。
 type FFmpegStatus struct {
-	State   string `json:"state"`            // checking | ready | missing | outdated | installing | failed
-	Path    string `json:"path"`             // ffmpeg 可执行文件的绝对路径
-	Version string `json:"version"`          // 规范化后的数字版本，如 "9.0.2"、"7.1.5"（契约 v0.22；不含网址 / 构建后缀）
+	State   string `json:"state"`   // checking | ready | missing | outdated | installing | failed
+	Path    string `json:"path"`    // ffmpeg 可执行文件的绝对路径
+	Version string `json:"version"` // 规范化后的数字版本，如 "9.0.2"、"7.1.5"（契约 v0.22；不含网址 / 构建后缀）
 	// Source（v0.25.3 起始终有值）：ready 时是实际使用的组件来源 custom | bundled | system | legacy；
 	// 其他状态（checking / missing / outdated / installing / failed）没有在用的组件，是用户的设置：
 	// 手动指定了路径为 custom，否则为 default（自动检测）。

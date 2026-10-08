@@ -4,8 +4,8 @@ package live
 
 import (
 	"context"
-	"errors"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
