@@ -1111,7 +1111,8 @@ func (s *Service) GetSourceThumbnail(ctx context.Context, sourceID string) (_ st
 	if err != nil {
 		return "", err
 	}
-	p = src.Path
+	// 显示路径（6.15.6）：副本 ready 用副本，复制中 / 失败 / 已取消 / 旧行用原文件，复制没完成也能出缩略图
+	p = displayPath(src)
 	if _, err = sourceFile(src); err != nil {
 		return "", err
 	}
