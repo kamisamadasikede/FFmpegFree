@@ -7,7 +7,7 @@ export function CheckPushURL(arg1:string):Promise<live.PushURLInfo>;
 
 export function GetCaptureCapabilities():Promise<live.CaptureCapabilities>;
 
-export function GetPreview(arg1:string):Promise<live.Preview>;
+export function GetPreviewStream(arg1:string):Promise<live.PreviewStream>;
 
 export function ListCaptureSources():Promise<Array<live.CaptureSource>>;
 

@@ -32,15 +32,13 @@ func (s *LiveService) ListScreens() ([]live.ScreenInfo, error) {
 	return l.ListScreens(s.rootCtx())
 }
 
-// GetPreview 返回直播会话最新一帧预览（契约 v0.14）：sessionId 是推流任务 id（StartFilePush / StartScreenPush 返回的 Task.id）
-// 或 StartPullPreview 返回的拉流预览会话 id。没有画面（会话不存在或已结束、preview=false、ffmpeg 还没出第一帧、读到半帧）
-// 返回空 data、ts=0，不是错误。前端约每 500 毫秒轮询一次，active=false 或页面不可见时停止。
-func (s *LiveService) GetPreview(sessionID string) (live.Preview, error) {
+// GetPreviewStream 返回会话的预览视频流地址（契约 v0.25）。sessionId 是推流任务 id 或拉流预览会话 id。
+func (s *LiveService) GetPreviewStream(sessionID string) (live.PreviewStream, error) {
 	l, err := s.svc()
 	if err != nil {
-		return live.Preview{}, err
+		return live.PreviewStream{}, err
 	}
-	return l.GetPreview(sessionID)
+	return l.GetPreviewStream(sessionID)
 }
 
 // StartPullPreview 开始拉流预览会话：后端 ffmpeg 读远端流，只输出预览画面（播放仍由前端播放器直接拉地址）。

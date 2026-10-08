@@ -752,7 +752,7 @@ func (s *Service) findPreset(ctx context.Context, presetID string) (*Preset, err
 }
 
 func formatChangeError() error {
-	return apperr.New(apperr.InvalidArgument, "重转不能更换输出格式，要换格式请另外重转一条。").WithDetail("reason=format_change")
+	return apperr.New(apperr.InvalidArgument, "重转不能更换格式，要换格式请新转一条。").WithDetail("reason=format_change")
 }
 
 func sourceMissingError(p string) error {

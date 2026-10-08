@@ -10,8 +10,8 @@ export function GetCaptureCapabilities() {
   return window['go']['app']['LiveService']['GetCaptureCapabilities']();
 }
 
-export function GetPreview(arg1) {
-  return window['go']['app']['LiveService']['GetPreview'](arg1);
+export function GetPreviewStream(arg1) {
+  return window['go']['app']['LiveService']['GetPreviewStream'](arg1);
 }
 
 export function ListCaptureSources() {

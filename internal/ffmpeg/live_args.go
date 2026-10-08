@@ -105,13 +105,13 @@ type FilePushPlan struct {
 	Scheme   string
 	URL      string // 校验并重新组装后的地址
 	Enc      LiveEncode
-	// PreviewPath 不为空时在主输出之后追加预览输出（PreviewOutputArgs）。
-	PreviewPath string
+	// PreviewPort > 0 时主输出改用 tee，多一个 onfail=ignore 的预览分支（契约 v0.25，不多编码一次）。
+	PreviewPort int
 }
 
 // BuildFilePushArgs 生成文件推流的 ffmpeg 参数（不含 -progress 等，由 Run 添加）。
 // 顺序：-protocol_whitelist file [-re] [-stream_loop -1] -i file:<path> [-protocol_whitelist file -f lavfi -i anullsrc]
-// -map ... 编码参数 [-shortest] -protocol_whitelist <输出侧> -f <flv|mpegts> <url>
+// -map ... 编码参数 [-shortest] 然后是输出（普通封装，或 tee，见 AppendPushOutput）。
 func BuildFilePushArgs(p FilePushPlan) []string {
 	a := []string{"-protocol_whitelist", inputWhitelist, "-re"}
 	if p.Loop {
@@ -128,13 +128,5 @@ func BuildFilePushArgs(p FilePushPlan) []string {
 	if !p.HasAudio {
 		a = append(a, "-shortest") // anullsrc 是无限流，不加会永远不结束（7.1.5 实测）
 	}
-	a = append(a, "-protocol_whitelist", ProtocolWhitelist(p.Scheme), "-f", OutputFormat(p.Scheme))
-	if p.Scheme != "srt" {
-		a = append(a, "-flvflags", "no_duration_filesize")
-	}
-	a = append(a, p.URL)
-	if p.PreviewPath != "" {
-		a = append(a, PreviewOutputArgs(p.PreviewPath)...)
-	}
-	return a
+	return AppendPushOutput(a, p.Scheme, p.URL, "", p.PreviewPort)
 }
