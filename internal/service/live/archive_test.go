@@ -544,3 +544,25 @@ func TestArchiveNeverRanCleansPlaceholder(t *testing.T) {
 		t.Fatal("占位应被删")
 	}
 }
+
+// v0.24.5：启动时把 ffmpeg 参数记进应用日志，推流地址整段换成占位符（不出现主机、端口、密钥）。
+func TestLiveArgvLoggedWithoutURL(t *testing.T) {
+	af := newArchiveFixture(t)
+	var logs []string
+	var lm sync.Mutex
+	af.svc.cfg.Logf = func(f string, a ...any) { lm.Lock(); logs = append(logs, fmt.Sprintf(f, a...)); lm.Unlock() }
+	tk, err := af.svc.StartScreenPush(context.Background(), ScreenPushRequest{URL: "rtmp://127.0.0.1:1935/live/SECRETKEYabc", ArchiveDir: af.dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	af.waitProgress(t, tk.ID)
+	af.mgr.Cancel(tk.ID)
+	af.wait(t, tk.ID)
+	lm.Lock()
+	defer lm.Unlock()
+	joined := strings.Join(logs, "\n")
+	if !strings.Contains(joined, "ffmpeg 参数: ") || !strings.Contains(joined, "<推流地址>") || !strings.Contains(joined, "-framerate 30") {
+		t.Fatalf("应记录参数: %q", joined)
+	}
+	assertNoSecrets(t, joined, "SECRETKEYabc", "127.0.0.1", "1935")
+}

@@ -218,7 +218,7 @@ func (a *App) startLive() {
 			previewDir = ""
 		}
 	}
-	a.live.Store(live.New(live.Config{Tasks: tm, Media: med, PreviewDir: previewDir, Encoder: a.sys.EncoderResolver()}))
+	a.live.Store(live.New(live.Config{Tasks: tm, Media: med, PreviewDir: previewDir, Encoder: a.sys.EncoderResolver(), Logf: log.Printf}))
 }
 
 // startFFmpegDetect 在后台检测 ffmpeg，不阻塞界面；状态变化通过 ffmpeg:status 事件推送。
