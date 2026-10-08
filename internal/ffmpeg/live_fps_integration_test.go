@@ -2,21 +2,23 @@
 
 package ffmpeg
 
-// 集成测试（v0.24.5）：真实 ffmpeg 按 BuildFilePushArgs 推 30 fps 的 testsrc2 到本机的 ffmpeg RTMP 监听端（-listen 1），
-// 量收到的帧率：预览关 / 开 / 预览写不进去（目标路径是个目录，改名必失败——相当于 Windows 上读取端占着预览文件）三种情况，
-// 主输出都必须保持源帧率。找不到 ffmpeg / ffprobe 时 Skip；-short 时跳过。
+// 集成测试（v0.24.5 起，v0.25 改成 tee 预览分支）：真实 ffmpeg 按 BuildFilePushArgs 推 30 fps 的 testsrc2 到本机的 ffmpeg RTMP 监听端（-listen 1），
+// 量收到的帧率：没有预览分支 / 预览分支有人读 / 预览分支的 TCP 对端完全不读（接收缓冲只有几 KB）三种情况，
+// 主输出都必须保持源帧率；有人读时预览分支必须真的收到 FLV（防止预览分支因为参数错误打开失败，被 onfail=ignore 吞掉）。
+// 找不到 ffmpeg / ffprobe 时 Skip；-short 时跳过。
 
 import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -91,11 +93,11 @@ func TestIntegrationFilePushKeepsSourceFps(t *testing.T) {
 	}
 	cases := []struct {
 		name    string
-		preview func(t *testing.T) int
+		preview func(t *testing.T) (int, func() int64, func())
 	}{
-		{"预览关", func(*testing.T) int { return 0 }},
-		{"预览开", func(t *testing.T) int { return readPreviewTCP(t) }},
-		{"预览没人读", func(t *testing.T) int { return stallPreviewTCP(t) }},
+		{"预览关", func(*testing.T) (int, func() int64, func()) { return 0, nil, nil }},
+		{"预览开", readPreviewTCP},
+		{"预览没人读", stallPreviewTCP},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -112,13 +114,23 @@ func TestIntegrationFilePushKeepsSourceFps(t *testing.T) {
 				t.Fatal(err)
 			}
 			time.Sleep(500 * time.Millisecond)
-			pvPort := tc.preview(t)
+			pvPort, pvBytes, release := tc.preview(t)
 			args := BuildFilePushArgs(FilePushPlan{Input: src, HasAudio: true, Scheme: "rtmp", URL: url, PreviewPort: pvPort,
 				Enc: LiveEncode{GOPFps: 30, VideoKbps: 1500, AudioKbps: 128}})
 			push := exec.CommandContext(ctx, ffm, append([]string{"-hide_banner", "-nostats", "-y", "-nostdin"}, args...)...)
 			var pushErr bytes.Buffer
 			push.Stderr = &pushErr
 			start := time.Now()
+			// 对端完全不读时，正片推完后 ffmpeg 会卡在预览分支的收尾（fifo 要把队列写完），这不是推流变慢。
+			// 所以在源时长 + 1 秒时先数主输出已经收到多少帧（证明推流期间没被拖慢），再断开预览连接让 ffmpeg 收尾。
+			midFrames := -1
+			if release != nil {
+				timer := time.AfterFunc(time.Duration(secs)*time.Second+time.Second, func() {
+					midFrames, _ = probeVideoFps(t, ffp, got)
+					release()
+				})
+				defer timer.Stop()
+			}
 			if err := push.Run(); err != nil {
 				t.Fatalf("推流失败: %v\n%s", err, tail(pushErr.String(), 20))
 			}
@@ -131,48 +143,94 @@ func TestIntegrationFilePushKeepsSourceFps(t *testing.T) {
 			if fps < 29 || n < (secs-1)*30 {
 				t.Fatalf("主输出应保持源帧率 30 fps：%d 帧 %.2f fps\n%s", n, fps, tail(pushErr.String(), 20))
 			}
+			if release != nil {
+				t.Logf("%s: 源时长 + 1 秒时主输出已收到 %d 帧", tc.name, midFrames)
+				if midFrames < (secs-1)*30 {
+					t.Fatalf("预览分支卡住时推流被拖慢：源时长 + 1 秒时只收到 %d 帧", midFrames)
+				}
+			}
 			if wall > time.Duration(secs+4)*time.Second {
 				t.Fatalf("推流被拖慢：%d 秒的源用了 %v", secs, wall)
+			}
+			// 断开卡住的预览连接后 tee 会报 "Slave muxer #1 failed"（预期，onfail=ignore），其余情况不该出现。
+			if (release == nil && strings.Contains(pushErr.String(), "Slave muxer")) || strings.Contains(pushErr.String(), "Unknown option") {
+				t.Fatalf("tee 分支打开失败:\n%s", tail(pushErr.String(), 20))
+			}
+			if pvBytes != nil {
+				time.Sleep(200 * time.Millisecond)
+				b := pvBytes()
+				t.Logf("%s: 预览分支对端收到 %d 字节", tc.name, b)
+				if tc.name == "预览开" && b < 100_000 {
+					t.Fatalf("预览分支几乎没有数据: %d 字节", b)
+				}
+				if b <= 0 {
+					t.Fatal("预览分支没有连上")
+				}
 			}
 
 		})
 	}
 }
 
-func readPreviewTCP(t *testing.T) int {
+func readPreviewTCP(t *testing.T) (int, func() int64, func()) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { ln.Close() })
+	var n atomic.Int64
 	go func() {
 		c, err := ln.Accept()
 		if err != nil {
 			return
 		}
 		defer c.Close()
-		io.Copy(io.Discard, c)
+		buf := make([]byte, 64<<10)
+		for {
+			k, err := c.Read(buf)
+			n.Add(int64(k))
+			if err != nil {
+				return
+			}
+		}
 	}()
-	return ln.Addr().(*net.TCPAddr).Port
+	return ln.Addr().(*net.TCPAddr).Port, n.Load, nil
 }
 
-func stallPreviewTCP(t *testing.T) int {
+// stallPreviewTCP 接受连接后只读一次（证明连上了），之后完全不读；接收缓冲设成 4 KB，让 ffmpeg 很快写不进去。
+func stallPreviewTCP(t *testing.T) (int, func() int64, func()) {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	lc := net.ListenConfig{Control: func(_, _ string, rc syscall.RawConn) error {
+		var serr error
+		rc.Control(func(fd uintptr) { serr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_RCVBUF, 4096) })
+		return serr
+	}}
+	ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { ln.Close() })
+	var n atomic.Int64
+	conns := make(chan net.Conn, 1)
 	go func() {
 		c, err := ln.Accept()
 		if err != nil {
 			return
 		}
-		defer c.Close()
-		time.Sleep(30 * time.Second)
+		k, _ := c.Read(make([]byte, 13))
+		n.Add(int64(k))
+		conns <- c
 	}()
-	return ln.Addr().(*net.TCPAddr).Port
+	release := func() {
+		select {
+		case c := <-conns:
+			c.Close()
+		default:
+		}
+	}
+	t.Cleanup(release)
+	return ln.Addr().(*net.TCPAddr).Port, n.Load, release
 }
 
 func tail(s string, n int) string {

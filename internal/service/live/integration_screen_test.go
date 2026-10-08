@@ -161,8 +161,9 @@ func TestIntegrationArchiveGracefulStopIsComplete(t *testing.T) {
 	}
 	time.Sleep(3 * time.Second)
 	cur, _ := e.mgr.Get(tk.ID)
-	if cur.BitrateKbps != 0 {
-		t.Fatalf("有存档没有 bitrateKbps: %v", cur.BitrateKbps)
+	// v0.25：有预览分支时码率按预览分支收到的字节算，存档会话也有 bitrateKbps（契约 6.10.3.2）。
+	if cur.BitrateKbps <= 0 {
+		t.Fatalf("有存档 + 预览分支时应有 bitrateKbps: %v", cur.BitrateKbps)
 	}
 	e.mgr.Cancel(tk.ID)
 	d := e.wait(t, tk.ID)

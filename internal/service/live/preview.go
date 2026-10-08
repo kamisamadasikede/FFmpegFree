@@ -387,14 +387,19 @@ func probeStreams(ctx context.Context, ffprobe, url, whitelist string) (StreamPr
 		if len(parts) < 2 {
 			continue
 		}
-		switch parts[0] {
+		// ffprobe 按自己的字段顺序输出（codec_name 在 codec_type 前），不按 -show_entries 的顺序，两种都认。
+		kind, name := parts[1], parts[0]
+		if parts[0] == "video" || parts[0] == "audio" {
+			kind, name = parts[0], parts[1]
+		}
+		switch kind {
 		case "video":
 			if pr.Video == "" {
-				pr.Video = parts[1]
+				pr.Video = name
 			}
 		case "audio":
 			if pr.Audio == "" {
-				pr.Audio = parts[1]
+				pr.Audio = name
 			}
 		}
 	}

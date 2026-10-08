@@ -1,3 +1,5 @@
+//go:build !windows
+
 package live
 
 import (
@@ -91,7 +93,45 @@ func TestPreviewHTTPOriginTokenAndLateJoiner(t *testing.T) {
 	if time.Since(start) > time.Second {
 		t.Fatalf("慢客户端把分发堵住了: %v", time.Since(start))
 	}
+	// 8 MB 灌给一个从不读的客户端（队列上限 4 MB）：先进入丢帧（等下一个关键帧），连续丢 5 秒以上就被踢掉。
+	c.mu.Lock()
+	dropping := c.dropping
+	c.dropFrom = time.Now().Add(-previewDropLimit - time.Second) // 模拟已经连续丢了 6 秒
+	c.mu.Unlock()
+	if !dropping {
+		t.Fatal("队列满了应进入丢帧")
+	}
+	f.hub.add(parseFLVTag(makeTag(9, 2000, []byte{0x27, 0x01, 0, 0, 0, 1})))
+	f.hub.mu.Lock()
+	still := false
+	for _, x := range f.hub.clients {
+		still = still || x == c
+	}
+	f.hub.mu.Unlock()
+	if still {
+		t.Fatal("一直不读的客户端应被踢掉")
+	}
 	f.hub.leave(c)
+
+	// 同时最多 previewMaxClients 个，再来一个 join 失败（HTTP 429）。
+	var cs []*flvClient
+	for i := 0; i < previewMaxClients; i++ {
+		x, ok := f.hub.join()
+		if !ok {
+			t.Fatalf("第 %d 个客户端应能加入", i+1)
+		}
+		cs = append(cs, x)
+	}
+	extra := httptest.NewRequest(http.MethodGet, "/live/tok.flv", nil)
+	extra.Header.Set("Origin", "http://wails.localhost")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, extra)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("第 %d 个客户端应 429: %d", previewMaxClients+1, rec.Code)
+	}
+	for _, x := range cs {
+		f.hub.leave(x)
+	}
 
 	// 会话结束：正在读的客户端正常读完（handler 返回，不是半截挂起）。
 	done := make(chan struct{})

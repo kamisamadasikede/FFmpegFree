@@ -125,7 +125,8 @@ func TeeSlaves(scheme, url, archiveTee, previewTCP string) string {
 		parts = append(parts, "[f=mp4:onfail=abort:movflags=+frag_keyframe+empty_moov:flush_packets=1:protocol_whitelist=file]"+archiveTee)
 	}
 	if previewTCP != "" {
-		parts = append(parts, "[f=flv:onfail=ignore:use_fifo=1:fifo_options=queue_size=120\\:drop_pkts_on_overflow=1:flvflags=no_duration_filesize:flush_packets=1:protocol_whitelist=tcp]"+TeeEscape(previewTCP))
+		// 整个 tee 地址先按 "|" 切分（去掉一层转义），选项再按 ":" 解析（又去一层），所以 fifo_options 里的 ":" 要写成 \\:（argv 里是两个反斜杠）。
+		parts = append(parts, "[f=flv:onfail=ignore:use_fifo=1:fifo_options=queue_size=120\\\\:drop_pkts_on_overflow=1:flvflags=no_duration_filesize:flush_packets=1:protocol_whitelist=tcp]"+TeeEscape(previewTCP))
 	}
 	return strings.Join(parts, "|")
 }
