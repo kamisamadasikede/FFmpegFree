@@ -3,7 +3,7 @@
     ref="root"
     class="lp-stage"
     :class="{ dim: dimmed, idle: idleOn, 'is-full': fullOn }"
-    :style="{ '--ar': String(aspect) }"
+    :style="{ '--ar': String(stageAspect) }"
     role="region"
     :aria-roledescription="'直播播放器'"
     :aria-label="kind === 'pull' ? '拉流画面' : '推流预览'"
@@ -14,7 +14,9 @@
     @dblclick="toggleFull"
   >
     <div v-if="showVideo" class="lp-video" :class="fake ? 'f' + fake : ''">
-      <video v-show="!fake" ref="videoEl" autoplay playsinline :muted="muted" />
+      <video v-show="!fake && !frozen" ref="videoEl" autoplay playsinline :muted="muted" />
+      <!-- G1：结束 / 被中断时停在最后一帧（播放器销毁前把当前画面画到这里），再由 .dim 压暗 -->
+      <canvas v-show="frozen && !fake" ref="shotEl" class="lp-shot" aria-hidden="true" />
     </div>
     <p v-if="phase === 'empty'" class="lp-wait">{{ emptyText || LP_EMPTY }}</p>
 
@@ -62,15 +64,15 @@
         ><i :style="{ width: (muted ? 0 : volume) + '%' }" /><b :style="{ left: (muted ? 0 : volume) + '%' }" /></div>
       </div>
       <span class="sp" />
-      <div v-if="lag != null" class="lp-lagbox">
-        <span class="lp-lag" aria-hidden="true">{{ LP_LAG(lag) }}</span>
-        <button type="button" class="lp-live" :aria-label="`回到最新画面，当前落后约 ${lag} 秒`" @click="emit('catchup')"><FIcon name="refresh" :size="14" />{{ LP_CATCHUP }}</button>
+      <div v-if="lagShown != null" class="lp-lagbox">
+        <span class="lp-lag" aria-hidden="true">{{ LP_LAG(lagShown) }}</span>
+        <button type="button" class="lp-live" :aria-label="`回到最新画面，当前落后约 ${lagShown} 秒`" @click="catchUp"><FIcon name="refresh" :size="14" />{{ LP_CATCHUP }}</button>
       </div>
       <button type="button" class="lp-btn" :aria-label="fullOn ? '退出全屏' : '全屏'" :title="fullOn ? '退出全屏（F 或 Esc）' : '全屏（F）'" @click="toggleFull">
         <FIcon :name="fullOn ? 'zip' : 'full'" :size="18" />
       </button>
     </div>
-    <div class="sr" aria-live="polite">{{ liveText }}</div>
+    <div class="sr" aria-live="polite" data-live>{{ liveText }}</div>
   </div>
 </template>
 
@@ -81,8 +83,10 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import mpegts from 'mpegts.js'
 import FIcon from '@/components/icon/FIcon.vue'
 import {
-  LP_BREAK_PULL, LP_BREAK_PUSH, LP_CATCHUP, LP_CONNECTING, LP_EMPTY, LP_END_PULL, LP_END_PUSH, LP_LAG, LP_MUTED_HINT, LP_RETRY_PULL, LP_RETRY_PUSH, LP_UNAVAILABLE, LP_UNSUP_PULL, LP_UNSUP_PUSH,
+  LP_BREAK_PULL, LP_BREAK_PUSH, LP_CATCHUP, LP_CONNECTING, LP_EMPTY, LP_END_PULL, LP_END_PUSH, LP_LAG, LP_MUTED_HINT, LP_RETRY_PULL, LP_RETRY_PUSH, LP_UNAVAILABLE, LP_UNAVAILABLE_PULL, LP_UNSUP_PULL, LP_UNSUP_PUSH,
+  LP_LIVE_BUFFERING, LP_LIVE_MUTED_SUFFIX, LP_LIVE_STARTED_PULL, LP_LIVE_STARTED_PUSH,
 } from '@/errors/livePreviewMessages'
+import { liveAnnouncement, nextLagShown, stageAspectOf } from './livePlayerLogic'
 
 const props = withDefaults(defineProps<{
   kind: 'push' | 'pull'
@@ -92,6 +96,7 @@ const props = withDefaults(defineProps<{
   mime?: string
   hasAudio?: boolean
   clock?: string
+  /** 画面比例：不传时取视频自己的宽高比（G4，竖屏流按舞台高度完整显示），视频还没出来时按 16:9 */
   aspect?: number
   /** 截图：模拟画面 a/b/c */
   fake?: '' | 'a' | 'b' | 'c'
@@ -101,7 +106,7 @@ const props = withDefaults(defineProps<{
   forceHint?: boolean
   forceFull?: boolean
   lag?: number | null
-  /** unsupported 的原因：unavailable 用推流那句，codec 按推流 / 拉流分 */
+  /** unsupported 的原因：codec 按推流 / 拉流分；unavailable 推流页用推流那句，拉流页用「这路视频暂时无法在应用内播放。」（包 22） */
   reason?: '' | 'codec' | 'unavailable'
   lowLatency?: boolean
   /** phase=empty 时的文字（默认“还没有进行中的预览”） */
@@ -110,13 +115,27 @@ const props = withDefaults(defineProps<{
   endedNote?: string
   /** phase=interrupted 时换掉默认正文（拉流开始前就失败：用后端 error 的 message） */
   breakText?: string
-}>(), { url: '', mime: 'video/x-flv', hasAudio: true, clock: '00:00:00', aspect: 16 / 9, fake: '', lag: null, reason: '', lowLatency: true })
+}>(), { url: '', mime: 'video/x-flv', hasAudio: true, clock: '00:00:00', aspect: undefined, fake: '', lag: null, reason: '', lowLatency: true })
 
 const emit = defineEmits<{ restart: []; catchup: []; 'media-unsupported': []; 'media-ended': []; 'media-broken': []; playing: []; stats: [s: { kbps: number; fps: number; dropped: number; bytes: number }] }>()
 const muted = defineModel<boolean>('muted', { default: true })
 const volume = ref(70)
 const root = ref<HTMLElement | null>(null)
 const videoEl = ref<HTMLVideoElement | null>(null)
+const shotEl = ref<HTMLCanvasElement | null>(null)
+/** G1：正在显示最后一帧的快照 */
+const frozen = ref(false)
+/** G4：视频自己的宽高比（videoWidth / videoHeight），没有画面时为 null */
+const natural = ref<number | null>(null)
+const stageAspect = computed(() => stageAspectOf(props.aspect, natural.value))
+/** 追帧关闭时自己量的落后秒数（「回到最新」胶囊，3 秒出现、1.5 秒收起），null = 不显示 */
+const lagOwn = ref<number | null>(null)
+const lagShown = computed(() => (props.lag != null ? props.lag : props.lowLatency ? null : lagOwn.value))
+/** 缓冲超过 2 秒才播报「正在缓冲」（§6.2） */
+const bufLong = ref(false)
+/** 进入播放中那一刻是否静音（播报「…已开始，已静音」用；之后切换静音不重播） */
+const startMuted = ref(true)
+let bufLongTimer: ReturnType<typeof setTimeout> | undefined
 const idle = ref(false)
 const volHover = ref(false)
 const hintOn = ref(false)
@@ -138,27 +157,46 @@ const showVideo = computed(() => props.phase === 'connecting' || props.phase ===
 const dimmed = computed(() => props.phase === 'ended' || props.phase === 'interrupted')
 const showChip = computed(() => props.phase === 'playing' || props.phase === 'buffering' || (props.phase === 'unsupported' && props.kind === 'push'))
 const showBar = computed(() => props.phase === 'playing' || props.phase === 'buffering')
-const showHint = computed(() => showBar.value && (props.forceHint || hintOn.value))
+// X1：没有声音（录屏推流没选音轨等）时不提示「已静音」
+const showHint = computed(() => showBar.value && (props.forceHint || (hintOn.value && props.hasAudio)))
 const showEsc = ref(true)
 const overlay = computed(() => props.phase === 'connecting' || props.phase === 'buffering' || props.phase === 'unsupported' || props.phase === 'ended' || props.phase === 'interrupted')
 const overlayText = computed(() => {
   if (props.phase === 'ended') return props.kind === 'pull' ? LP_END_PULL : LP_END_PUSH
   if (props.phase === 'interrupted') return props.breakText || (props.kind === 'pull' ? LP_BREAK_PULL : LP_BREAK_PUSH)
-  if (props.reason === 'unavailable') return LP_UNAVAILABLE
+  if (props.reason === 'unavailable') return props.kind === 'pull' ? LP_UNAVAILABLE_PULL : LP_UNAVAILABLE
   return props.kind === 'pull' ? LP_UNSUP_PULL : LP_UNSUP_PUSH
 })
 
-watch(() => props.phase, (p) => {
-  if (p === 'playing' && muted.value && !hinted.value && !props.forceIdle) {
+watch(() => props.phase, (p, prev) => {
+  if (p === 'playing' && prev !== 'playing' && prev !== 'buffering') startMuted.value = muted.value
+  if (p === 'playing' && muted.value && props.hasAudio && !hinted.value && !props.forceIdle) {
     hintOn.value = true
     hinted.value = true
-    liveText.value = props.kind === 'pull' ? '拉流已开始，已静音' : '推流预览已开始，已静音'
     clearTimeout(hintTimer)
     hintTimer = setTimeout(() => (hintOn.value = false), 5000)
   }
-  if (p === 'connecting') liveText.value = LP_CONNECTING
-  if (p !== 'playing' && p !== 'buffering') hintOn.value = false
+  if (p !== 'playing' && p !== 'buffering') {
+    hintOn.value = false
+    bufLong.value = false
+    clearTimeout(bufLongTimer)
+  }
+  if (p === 'connecting' || p === 'empty' || p === 'unsupported') frozen.value = false
 }, { immediate: true })
+// G5：播报区跟着状态走（连接中 → 已开始 → 缓冲超过 2 秒 → 结束 / 中断 / 不支持），不随计时变化
+let lastAnnounced = ''
+watch(
+  () => liveAnnouncement({
+    phase: props.phase, kind: props.kind, startMuted: startMuted.value, hasAudio: props.hasAudio, bufferingLong: bufLong.value, overlayText: overlayText.value,
+    endedNote: props.endedNote ?? '', text: { connecting: LP_CONNECTING, startedPush: LP_LIVE_STARTED_PUSH, startedPull: LP_LIVE_STARTED_PULL, mutedSuffix: LP_LIVE_MUTED_SUFFIX, buffering: LP_LIVE_BUFFERING },
+  }),
+  (t) => {
+    if (t === null || t === lastAnnounced) return
+    lastAnnounced = t
+    liveText.value = t
+  },
+  { immediate: true },
+)
 
 watch(() => props.forceHint, (v) => { if (v) hintOn.value = true })
 
@@ -215,8 +253,32 @@ let lastDecoded = 0
 let fpsWin: number[] = []
 let accBytes = 0
 function stopStats() { if (statTimer) clearInterval(statTimer); statTimer = null }
+/** G1：把当前画面画到快照上（MSE 的 blob 地址同源，画布不会被污染）；没有画面时什么也不做 */
+function freeze() {
+  const v = videoEl.value
+  const c = shotEl.value
+  if (!v || !c || !v.videoWidth || !v.videoHeight) return
+  try {
+    c.width = v.videoWidth
+    c.height = v.videoHeight
+    c.getContext('2d')?.drawImage(v, 0, 0, c.width, c.height)
+    frozen.value = true
+  } catch {
+    frozen.value = false
+  }
+}
+function catchUp() {
+  emit('catchup')
+  const el = videoEl.value
+  if (!el || props.lag != null) return
+  const b = el.buffered
+  if (b.length) el.currentTime = Math.max(el.currentTime, b.end(b.length - 1) - 0.3)
+  lagOwn.value = null
+}
 function destroyPlayer() {
   clearTimeout(bufTimer)
+  clearTimeout(bufLongTimer)
+  lagOwn.value = null
   clearTimeout(retryTimer)
   stopStats()
   if (player) {
@@ -230,6 +292,8 @@ let retryTimer: ReturnType<typeof setTimeout> | undefined
 function attach(url: string, retry = false) {
   if (!retry) connectSince = Date.now()
   destroyPlayer()
+  if (!retry) natural.value = null
+  frozen.value = false
   const el = videoEl.value
   if (!el || props.fake) return
   if (!mpegts.getFeatureList().mseLivePlayback) { emit('media-unsupported'); return }
@@ -253,11 +317,18 @@ function attach(url: string, retry = false) {
   })
   player.on(mpegts.Events.LOADING_COMPLETE, () => emit('media-ended'))
   el.addEventListener('playing', () => emit('playing'), { once: true })
+  // 缓冲：不加转圈（追帧加速和落后 6 秒跳到最新都不能出转圈，设计 10-08）；超过 2 秒只在读屏里播报「正在缓冲」
   el.addEventListener('waiting', () => {
     clearTimeout(bufTimer)
+    clearTimeout(bufLongTimer)
     bufTimer = setTimeout(() => { if (props.phase === 'playing') buffering.value = true }, 500)
+    bufLongTimer = setTimeout(() => { if (props.phase === 'playing' || props.phase === 'buffering') bufLong.value = true }, 2000)
   })
-  el.addEventListener('playing', () => { clearTimeout(bufTimer); buffering.value = false })
+  el.addEventListener('playing', () => { clearTimeout(bufTimer); clearTimeout(bufLongTimer); buffering.value = false; bufLong.value = false })
+  // G4：画面比例按视频自己的宽高（竖屏流铺满舞台高度、左右补黑）
+  const onSize = () => { if (el.videoWidth && el.videoHeight) natural.value = el.videoWidth / el.videoHeight }
+  el.addEventListener('loadedmetadata', onSize)
+  el.addEventListener('resize', onSize)
   // WebKitGTK 不会自己跳过开头的空档：第一段缓冲从 1.x 秒开始而 currentTime 还是 0 时会一直卡在“正在连接”，这里手动跳到缓冲开头
   const jumpGap = () => {
     const b = el.buffered
@@ -275,6 +346,9 @@ function attach(url: string, retry = false) {
   statTimer = setInterval(() => {
     const si = (player as { statisticsInfo?: { decodedFrames?: number; speed?: number; droppedFrames?: number } } | null)?.statisticsInfo
     jumpGap()
+    // 追帧关闭时量落后多少（缓冲末尾 - 当前播放位置），3 秒出现、1.5 秒以下收起
+    if (!props.lowLatency && el.buffered.length) lagOwn.value = nextLagShown(lagOwn.value, el.buffered.end(el.buffered.length - 1) - el.currentTime)
+    else lagOwn.value = null
     if (!si) return
     const decoded = si.decodedFrames ?? 0
     if (lastDecoded) fpsWin = [...fpsWin, Math.max(0, decoded - lastDecoded)].slice(-3)
@@ -290,7 +364,10 @@ function attach(url: string, retry = false) {
 const wantUrl = computed(() => (props.url && !props.fake && (props.phase === 'connecting' || props.phase === 'playing' || props.phase === 'buffering') ? props.url : ''))
 watch(wantUrl, (url) => {
   if (url) attach(url)
-  else destroyPlayer()
+  else {
+    if (dimmed.value) freeze() // G1：结束 / 中断前留下最后一帧
+    destroyPlayer()
+  }
 }, { flush: 'post' }) // 等 <video> 渲染出来再挂
 watch(muted, (m) => { if (videoEl.value) videoEl.value.muted = m })
 watch(volume, (v) => { if (videoEl.value) videoEl.value.volume = v / 100 })
@@ -302,7 +379,7 @@ onBeforeUnmount(() => { destroyPlayer(); document.removeEventListener('fullscree
 .lp-stage { --lp-scrim: rgba(0, 0, 0, .6); --lp-fg: #fff; --lp-fg-2: rgba(255, 255, 255, .78); --lp-hover: rgba(255, 255, 255, .16); --lp-track: rgba(255, 255, 255, .32); --lp-live: #ff4d4f; --lp-play: #22c55e; --lp-warn: #fbbf24; --lp-focus: #7aa2ff; position: relative; overflow: hidden; background: #000; container-type: size; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; color: #fff; outline: none; flex: 1; min-height: 0; width: 100%; }
 .lp-stage:focus-visible { box-shadow: inset 0 0 0 2px var(--lp-focus); }
 .lp-video { width: min(100cqw, calc(100cqh * var(--ar))); aspect-ratio: var(--ar); position: relative; overflow: hidden; background: #000; }
-.lp-video video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+.lp-video video, .lp-video .lp-shot { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
 .lp-stage.dim .lp-video { filter: brightness(.42) saturate(.4); }
 .fa, .lp-video.fa { background: radial-gradient(circle at 28% 42%, #67e8f9 0 11%, rgba(103, 232, 249, 0) 11.5%), radial-gradient(circle at 70% 58%, #f472b6 0 17%, rgba(244, 114, 182, 0) 17.5%), linear-gradient(135deg, #0f172a, #312e81 55%, #0e7490); }
 .lp-video.fb { background: repeating-radial-gradient(ellipse at 50% 120%, rgba(255, 255, 255, .1) 0 6px, rgba(255, 255, 255, 0) 6px 22px), linear-gradient(180deg, #0c4a6e, #0e7490 45%, #14b8a6 70%, #f59e0b); }

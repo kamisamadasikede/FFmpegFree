@@ -13,6 +13,25 @@ export async function openStorageFolder(kind: 'output' | 'uploads'): Promise<voi
   await call(SystemBinding.OpenStorageFolder(kind))
 }
 
+/** X5（产品经理 10-08）：转换组件所在文件夹打不开时的提示 */
+export const COMPONENT_NOT_READY_TEXT = '转换组件还没有就绪。'
+export const COMPONENT_FOLDER_FAILED_TEXT = '没能打开组件所在文件夹，请稍后再试。'
+/**
+ * 打开转换组件所在的文件夹（SystemService.OpenStorageFolder，kind="component"，后端和 HLS / G3 修复一起加）。
+ * 纯浏览器（模拟）：组件没就绪时按 NOT_FOUND，否则什么也不做。
+ */
+export async function openComponentFolder(simReady = true): Promise<void> {
+  if (!hasWailsBackend()) {
+    if (!simReady) throw new AppError('NOT_FOUND', COMPONENT_NOT_READY_TEXT)
+    return
+  }
+  await call(SystemBinding.OpenStorageFolder('component'))
+}
+/** NOT_FOUND（还没就绪 / 找不到）用产品定的那句；其它错误（旧后端不认识 component 等）不把后端原文（可能带路径）给用户看 */
+export function componentFolderErrorText(e: unknown): string {
+  return toAppError(e).code === 'NOT_FOUND' ? COMPONENT_NOT_READY_TEXT : COMPONENT_FOLDER_FAILED_TEXT
+}
+
 /** 系统选择文件夹对话框。用户取消返回 ""（不是错误） */
 export async function pickDirectory(title = ''): Promise<string> {
   return await call(SystemBinding.PickDirectory(title))

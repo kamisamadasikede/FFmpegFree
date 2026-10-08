@@ -31,6 +31,7 @@ import { convertV2Checks } from './convertV2.check'
 import { convertV24Checks } from './convertV24.check'
 import { liveFormsChecks } from '@/stores/liveForms.check'
 import { readyRelistChecks } from '@/stores/readyRelist.check'
+import { pkg22Checks } from '@/stores/eventOrder.check'
 
 const fails: string[] = []
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -956,6 +957,7 @@ export async function runApiChecks(): Promise<string[]> {
         await convertV24Checks(eq, readSrc)
         await liveFormsChecks(eq, readSrc) // 包 20：直播表单持久化 + 推流码遮挡
         await readyRelistChecks(eq, readSrc) // 包 20：就绪后补取列表（#100 配合）+ 走查 D2 / D3 / D4 / D7
+        await pkg22Checks(eq, readSrc) // 包 22：契约 v0.25.1（暂存 / 对齐 / 只往终态走）+ 走查 af6a508
         // G11 版本号
         const { cleanFfmpegVersion } = await import('@/utils/ffmpegVersion')
         eq('G11 版本号：旧（带 URL 尾巴）/ 新（干净）/ 其他尾巴 / 空', ['9.0.2-https://www.martin-riedl.de', '9.0.2', '7.1.1-essentials_build-www.gyan.dev', '6.0', ' 4.4.2-0ubuntu0.22.04.1 ', '', undefined].map((v) => cleanFfmpegVersion(v)), ['9.0.2', '9.0.2', '7.1.1', '6.0', '4.4.2', '', ''])
@@ -1107,7 +1109,7 @@ export async function runApiChecks(): Promise<string[]> {
       const fsx = (await import('node:fs')).readFileSync
       const pull = fsx(`${process.cwd()}/src/views/live/PullPlay.vue`, 'utf8')
       const player = fsx(`${process.cwd()}/src/components/live/LivePlayer.vue`, 'utf8')
-      eq('拉流页：用户停止走 pullEndedView(true)，live:pull ended / 流读完走 pullEndedView(false)', [/async function stop\(\) \{\s*userStopped = true\s*endedNote\.value = pullEndedView\(true\)\.note/.test(pull), /function onEnded\(\) \{\s*if \(userStopped[^\n]*\n\s*finish\(\)\s*endedNote\.value = pullEndedView\(false\)\.note/.test(pull), /if \(e\.state === 'ended'\) return onEnded\(\)/.test(pull)], [true, true, true])
+      eq('拉流页（包 22 先到先定）：用户停止 → gate.user()；终态统一由 applyOutcome 按 byUser 走 pullEndedView', [/function stop\(\) \{\s*if \(!busy\.value\) return\s*gate\.user\(\)/.test(pull), /endedNote\.value = pullEndedView\(o\.byUser\)\.note/.test(pull), /gate\.event\(e\.state/.test(pull)], [true, true, true])
       eq('播放器：结束且有第二行时显示第二行和「重新拉流」（restart 用同一地址）', [/<small v-if="phase === 'ended' && endedNote" class="lp-sub">\{\{ endedNote \}\}<\/small>/.test(player), /v-if="phase === 'interrupted' \|\| \(phase === 'ended' && endedNote\)"/.test(player), /@restart="start"/.test(pull)], [true, true, true])
     }
     // 文案里没有编码器名，时间戳不进文案
