@@ -6,7 +6,7 @@ import { cancelSimTask, getSimTask, hideSimFinished, listSimFinished, retrySimTa
 import { onSimEvent } from '@/services/wails'
 import { createPinia, setActivePinia } from 'pinia'
 import { useTaskStore } from '@/stores/tasks'
-import { recordParamsText, recordLine, deleteResultText, deleteFailureText, sourceRemovedText, sourceRemovedParts, conflictReason, CONFLICT_NO_AUDIO, CONFLICT_NO_VIDEO, CONFLICT_TITLE, formatRecordTime } from '@/utils/convertText'
+import { recordParamsText, recordLine, deleteResultText, deleteFailureText, deleteFailureNotice, revealDeleteFailureText, sourceRemovedText, sourceRemovedParts, conflictReason, CONFLICT_NO_AUDIO, CONFLICT_NO_VIDEO, CONFLICT_TITLE, formatRecordTime } from '@/utils/convertText'
 import { codecName } from '@/utils/mediaText'
 
 type Eq = (name: string, got: unknown, want: unknown) => void
@@ -35,8 +35,14 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
   eq('摘要：其它宽度“宽 N”；宽高都有“宽×高”；只给高“高p”', [S({ container: 'mp4', videoCodec: 'h264', width: 1000 }), S({ container: 'mp4', videoCodec: 'h264', width: 1920, height: 800 }), S({ container: 'mp4', videoCodec: 'h264', height: 1080, videoBitrate: 8_000_000 })], ['H.264 · 宽 1000', 'H.264 · 1920×800', 'H.264 · 1080p · 8.0 Mbps'])
   eq('摘要：不含容器名；音频写码率', [S({ container: 'mp3', audioCodec: 'mp3', audioBitrate: 192000 }), /MP4|WEBM|MP3/.test(S({ container: 'webm', videoCodec: 'vp9' }))], ['192 kbps', false])
   // ---- 删除结果 / 冲突 ----
-  eq('删除结果：有文件没删成 → 追加定稿句（k = failures 数）', deleteResultText({ deletedTaskIds: ['a', 'b'], failures: [{ reason: 'in_use', message: '' }, { reason: 'in_use', message: '' }, { reason: 'permission', message: '' }] }), '已删除 2 条记录。有 3 个文件没能删除，可能正在被其他程序使用，请关闭后手动删除。')
-  eq('删除失败句：still_running 单独一句；没有失败为空', [deleteFailureText([{ reason: 'still_running' }]), deleteFailureText([])], ['有 1 条记录还没停下来，没有删除。', ''])
+  {
+    const F = (path: string) => ({ reason: path ? 'in_use' : 'still_running', message: '', path })
+    eq('删除失败：只有文件没删成 → 文件句 + 打开所在文件夹（第一个非空路径）', deleteFailureNotice([F('D:\\a.mp4'), F('D:\\b.mp4')]), { text: '有 2 个文件没能删除，可能正在被其他程序使用，请关闭后手动删除。', path: 'D:\\a.mp4' })
+    eq('删除失败：只有 still_running（路径为空）→ 转换没停下来，没有文件夹操作', deleteFailureNotice([F(''), F('')]), { text: '有 2 条转换没能及时停止，它们的输出文件没有删除，请稍后手动删除。', path: '' })
+    eq('删除失败：混合 → 两句都有，文件夹用第一个非空路径', deleteFailureNotice([F(''), F('D:\\c.mp4')]), { text: '有 1 个文件没能删除，可能正在被其他程序使用，请关闭后手动删除。有 1 条转换没能及时停止，它们的输出文件没有删除，请稍后手动删除。', path: 'D:\\c.mp4' })
+    eq('删除单条记录 toast：已删除 n 条记录。+ 失败句', [deleteResultText({ deletedTaskIds: ['a'], failures: [F('D:\\a.mp4')] }), deleteFailureText([])], ['已删除 1 条记录。有 1 个文件没能删除，可能正在被其他程序使用，请关闭后手动删除。', ''])
+    eq('toast：警告 8 秒（所有失败情况）；有路径才给“打开所在文件夹”', [/type: fail \? 'warning' : 'success', duration: fail \? WARN_TOAST_MS : TOAST_MS/.test(readSrc('src/views/ConvertPage.vue')), /fail && path \? h\('button'/.test(readSrc('src/views/ConvertPage.vue'))], [true, true])
+  }
   eq('移除 toast：有记录 / 删了输出 / 没有记录（不出现“0 条记录”）', [sourceRemovedText('launch-4k.mov', 3, 0), sourceRemovedText('launch-4k.mov', 3, 1), sourceRemovedText('新文件.mov', 0, 0)], ['已从列表移除“launch-4k.mov”和 3 条记录。', '已从列表移除“launch-4k.mov”和 3 条记录，并删除了 1 个文件。', '已从列表移除“新文件.mov”。'])
   eq('移除 toast：文件名单独一段（页面放进可省略、带 title 的 span）', sourceRemovedParts('a.mov', 2, 0), { before: '已从列表移除“', name: 'a.mov', after: '”和 2 条记录。' })
   eq('编码显示名：H.265 / ProRes，不出现 HEVC / PRORES；其余首字母大写', ['hevc', 'h265', 'prores', 'h264', 'av1', 'pcm_s16le', 'cinepak', 'copy'].map((c) => codecName(c)), ['H.265', 'H.265', 'ProRes', 'H.264', 'AV1', 'PCM', 'Cinepak', '原编码'])
@@ -91,6 +97,38 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
     eq('store：筛选“失败”时行默认展开（ListSources / SearchSources 两处）', (st.match(/status === 'failed'\) for \(const id of order\) if \(!known\.has\(id\)\) foldSession\[id\] = true|sh\.status === 'failed'\) foldSession/g) ?? []).length, 2)
     const pg = readSrc('src/views/ConvertPage.vue')
     eq('页面：没有“已加载的记录里…”提示，筛选为空时是普通空状态（设计 §四 11 文案）；搜索时筛选不置灰', [/已加载的记录里/.test(pg), pg.includes('没有进行中的记录'), pg.includes('没有失败的记录'), /filterOff|搜索时显示全部状态/.test(pg)], [false, true, true, false])
+    // 契约 6.14.4：10 秒内没停下来的记录不删（still_running，path 为空）；DeleteSource 有一条没删就保留这一行
+    {
+      const win = (globalThis as unknown as { window: { location: { search: string } } }).window
+      const prev = win.location.search
+      try {
+        mock.resetConvertMock('mixed')
+        win.location.search = '?cv_delfail=still_running'
+        const r = await mock.DeleteSource('mock-src-launch', true)
+        const left = await mock.GetSource('mock-src-launch')
+        eq('still_running：进行中那条不删、path 为空；其余照删；行保留（deletedSourceIds 为空）', [r.failures.map((f) => [f.reason, f.path]), r.deletedTaskIds.length, r.deletedSourceIds, left.recordCount, left.records.map((x) => x.status)], [[['still_running', '']], 2, [], 1, ['running']])
+        eq('still_running 的提示：只有转换句，没有文件夹操作', deleteFailureNotice(r.failures), { text: '有 1 条转换没能及时停止，它们的输出文件没有删除，请稍后手动删除。', path: '' })
+        mock.resetConvertMock('mixed')
+        win.location.search = '?cv_delfail=in_use,still_running'
+        const r3 = await mock.DeleteSource('mock-src-launch', true)
+        const n3 = deleteFailureNotice(r3.failures)
+        eq('两种失败都有：文件句在前、转换句在后，各自计数；文件夹取第一条非空 path', [n3.text, !!n3.path, n3.path === r3.failures.find((f) => f.path)?.path], ['有 1 个文件没能删除，可能正在被其他程序使用，请关闭后手动删除。有 1 条转换没能及时停止，它们的输出文件没有删除，请稍后手动删除。', true, true])
+        // v0.23.3：打开所在文件夹失败——移走了 NOT_FOUND →“找不到这个文件。”；超过 10 分钟 / 重启 INVALID_ARGUMENT → 普通错误提示
+        win.location.search = '?cv_revealfail=NOT_FOUND'
+        const nf = await rejects(mock.revealDeleteFailureMock('D:\\x.mp4'))
+        win.location.search = '?cv_revealfail=INVALID_ARGUMENT'
+        const ia = await rejects(mock.revealDeleteFailureMock('D:\\x.mp4'))
+        win.location.search = prev
+        eq('打开所在文件夹失败的提示：NOT_FOUND 固定文案，其他用错误本身的文案；正常不报错', [nf && revealDeleteFailureText(nf), ia && revealDeleteFailureText(ia), await rejects(mock.revealDeleteFailureMock('D:\\x.mp4'))], ['找不到这个文件。', '不允许打开这个位置', null])
+        eq('页面：打开所在文件夹失败走 revealDeleteFailureText，不再静默忽略 INVALID_ARGUMENT', [/revealDeleteFailure\(path\)\.catch\(\(e\) => ElMessage\.error\(revealDeleteFailureText\(toAppError\(e\)\)\)\)/.test(readSrc('src/views/ConvertPage.vue')), /INVALID_ARGUMENT/.test(readSrc('src/views/ConvertPage.vue'))], [true, false])
+        mock.resetConvertMock('mixed')
+        win.location.search = prev
+        const r2 = await mock.DeleteSource('mock-src-launch', false)
+        eq('不注入：进行中的先取消再删，行一起删掉', [r2.failures.length, r2.deletedSourceIds], [0, ['mock-src-launch']])
+      } finally {
+        win.location.search = prev
+      }
+    }
     // v0.23.2：SearchSources 的 status 与 ListSources 同语义
     mock.resetConvertMock('mixed')
     const sr = async (keyword: string, status: '' | 'active' | 'failed') => (await mock.SearchSources({ keyword, limit: 50, offset: 0, recordLimit: 20, status })).items.map((e) => e.source.sourceId.replace('mock-src-', ''))

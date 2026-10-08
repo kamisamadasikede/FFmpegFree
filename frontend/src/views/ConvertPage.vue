@@ -21,7 +21,7 @@ import { convertV2IsReal, revealDeleteFailure, type DeleteResult } from '@/api/c
 import { hasWailsBackend } from '@/services/wails'
 import { useConvertRecordsStore, type DeleteAsk, type ParentView } from '@/stores/convertRecords'
 import { useTaskStore } from '@/stores/tasks'
-import { deleteFailureText, deleteResultText, roughEta, sourceRemovedParts } from '@/utils/convertText'
+import { deleteFailureNotice, deleteResultText, revealDeleteFailureText, roughEta, sourceRemovedParts } from '@/utils/convertText'
 
 const cv = useConvertRecordsStore()
 const tasks = useTaskStore()
@@ -112,16 +112,15 @@ const TOAST_MS = 4000
 const WARN_TOAST_MS = 8000
 /**
  * 删除 / 移除后的 toast（定稿 10-08）：源文件名单独一段，过长省略、悬停看全名；
- * 有文件没删成时追加一句，警告样式，带“打开所在文件夹”（failures[0].path，见 revealDeleteFailure）。
+ * 有文件没删成时追加一句，警告样式，带“打开所在文件夹”（第一个非空路径；still_running 的路径为空、不算，见 revealDeleteFailure）。
  */
 function showDeleteToast(main: string | { before: string; name: string; after: string }, failures: DeleteResult['failures']) {
-  const fail = deleteFailureText(failures)
-  const path = failures.find((f) => f.path)?.path ?? ''
+  const { text: fail, path } = deleteFailureNotice(failures) // 文案和“第一个非空路径”都在 deleteFailureNotice 里
   const head = typeof main === 'string' ? [main] : [main.before, h('span', { class: 'cv-toast-nm', title: main.name }, main.name), main.after]
   const msg = h('span', { class: 'cv-toast' }, [
     ...head,
     fail ? h('span', null, fail) : null,
-    fail && path ? h('button', { type: 'button', class: 'ff-link cv-toast-act', onClick: () => void revealDeleteFailure(path).catch((e) => ElMessage.error(toAppError(e).message)) }, '打开所在文件夹') : null,
+    fail && path ? h('button', { type: 'button', class: 'ff-link cv-toast-act', onClick: () => void revealDeleteFailure(path).catch((e) => ElMessage.error(revealDeleteFailureText(toAppError(e)))) }, '打开所在文件夹') : null,
   ])
   ElMessage({ message: msg, type: fail ? 'warning' : 'success', duration: fail ? WARN_TOAST_MS : TOAST_MS, customClass: 'cv-toast-box' })
 }

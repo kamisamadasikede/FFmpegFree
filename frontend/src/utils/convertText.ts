@@ -49,28 +49,28 @@ export function recordLine(r: { presetId?: string; presetName?: string; paramsSu
   return { text, title: p.preset && p.tip ? p.tip : text }
 }
 
-/** 删除结果的提示（§6.14.4：前端把 failures 汇总成“有 N 个文件正在被使用，没有删除”之类） */
-const FAIL_TEXT: Record<string, (n: number) => string> = {
-  in_use: (n) => `有 ${n} 个文件正在被使用，没有删除`,
-  permission: (n) => `有 ${n} 个文件没有权限删除`,
-  not_task_output: (n) => `有 ${n} 个文件已被替换或移动，没有删除`,
-  io: (n) => `有 ${n} 个文件删除失败`,
-  still_running: (n) => `有 ${n} 条记录还没停下来，没有删除`,
-}
-export function deleteResultText(r: { deletedTaskIds: string[]; failures: { reason: string; message: string }[] }): string {
+/** 删除单条记录的 toast（§四 9）：“已删除 n 条记录。”，有没删成的追加 deleteFailureText */
+export function deleteResultText(r: { deletedTaskIds: string[]; failures: { reason: string; message: string; path?: string }[] }): string {
   return [`已删除 ${r.deletedTaskIds.length} 条记录。`, deleteFailureText(r.failures)].filter(Boolean).join('')
 }
 
 /**
- * 删除后有文件没删成（定稿 10-08，k = failures.length）：追加在删除 / 移除 toast 后面，警告样式，带“打开所在文件夹”。
- * still_running（记录还没停下来，不是文件）单独一句。
+ * 删除 / 移除后有没删成的（DeleteResult.failures）——文案已定（产品经理 10-08），改文案只改这里：
+ * - 有路径的 = 文件没删成：“有 k 个文件没能删除，可能正在被其他程序使用，请关闭后手动删除。”，带“打开所在文件夹”（第一个非空路径）；
+ * - 路径为空的（still_running：转换 10 秒内没停下来）单独计数：“有 k 条转换没能及时停止，它们的输出文件没有删除，请稍后手动删除。”（产品经理定稿 10-08），不带文件夹操作；
+ * - 两种都有：文件句在前，still_running 句在后；“打开所在文件夹”只在有非空路径时出现。页面用警告样式、8 秒。
  */
 export const DELETE_FAILED_FILES = (k: number) => `有 ${k} 个文件没能删除，可能正在被其他程序使用，请关闭后手动删除。`
-export function deleteFailureText(failures: readonly { reason: string }[]): string {
-  const running = failures.filter((f) => f.reason === 'still_running').length
-  const files = failures.length - running
-  return [files ? DELETE_FAILED_FILES(files) : '', running ? `${FAIL_TEXT.still_running(running)}。` : ''].join('')
+export const DELETE_STILL_RUNNING = (k: number) => `有 ${k} 条转换没能及时停止，它们的输出文件没有删除，请稍后手动删除。`
+/** 删除失败提示上“打开所在文件夹”失败（契约 v0.23.3）：文件被移走 NOT_FOUND → 固定文案；其他（含超过 10 分钟 / 重启后的 INVALID_ARGUMENT）→ 普通错误提示（错误自己的文案） */
+export const REVEAL_DELETE_FAILURE_NOT_FOUND = '找不到这个文件。'
+export const revealDeleteFailureText = (e: { code: string; message: string }): string => (e.code === 'NOT_FOUND' ? REVEAL_DELETE_FAILURE_NOT_FOUND : e.message)
+export function deleteFailureNotice(failures: readonly { reason: string; path?: string }[]): { text: string; path: string } {
+  const files = failures.filter((f) => !!f.path)
+  const running = failures.length - files.length
+  return { text: [files.length ? DELETE_FAILED_FILES(files.length) : '', running ? DELETE_STILL_RUNNING(running) : ''].join(''), path: files[0]?.path ?? '' }
 }
+export const deleteFailureText = (failures: readonly { reason: string; path?: string }[]): string => deleteFailureNotice(failures).text
 
 /**
  * 源文件行“从列表移除”后的 toast（定稿 产品经理 10-08）：n = deletedTaskIds.length，m = deletedFiles。

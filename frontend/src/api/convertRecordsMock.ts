@@ -428,25 +428,36 @@ export async function Reconvert(taskId: string): Promise<V023Task> {
   return submitOne(m, p.options, p.outputDir ?? '', p.presetId ?? '', p.presetName ?? '', p.paramsSummary ?? mockParamsSummary(p.options), takenKeys())
 }
 
-/** 6.14.4：进行中的先取消；只删成功记录的输出；文件删不掉不是错误（模拟：?cv_delfail=in_use|permission|… 让每个要删的文件都失败） */
+/** 6.14.4：进行中的先取消；只删成功记录的输出；文件删不掉不是错误（模拟：?cv_delfail=in_use|permission|… 让每个要删的文件都失败；still_running 让进行中的停不下来；可用逗号组合，如 in_use,still_running） */
 function doDelete(ids: string[], deleteOutputs: boolean): DeleteResult {
   const mine = [...new Set(ids)].filter((id) => isSimTask(id) && getSimTask(id)?.type === 'convert')
   const failures: DeleteFailure[] = []
   let deletedFiles = 0
-  const fail = simParam('cv_delfail')
-  const MSG: Record<string, string> = { in_use: '文件正在被使用，没有删除', permission: '没有权限删除这个文件', not_task_output: '文件已被替换或移动，没有删除', io: '删除文件失败' }
+  const kept = new Set<string>()
+  const fails = (simParam('cv_delfail') ?? '').split(',').filter(Boolean)
+  const stuck = fails.includes('still_running')
+  const fail = fails.find((x) => x !== 'still_running') ?? ''
+  const MSG: Record<string, string> = { in_use: '文件正在被使用，没有删除', permission: '没有权限删除这个文件', not_task_output: '文件已被替换或移动，没有删除', io: '删除文件失败', still_running: '任务还没停下来，没有删除这条记录' }
   for (const id of mine) {
     const t = getSimTask(id)!
     const wasDone = t.status === 'succeeded'
-    if (t.status === 'queued' || t.status === 'running') cancelSimTask(id)
+    const wasActive = t.status === 'queued' || t.status === 'running'
+    if (stuck && wasActive) {
+      // ?cv_delfail=still_running：进行中的记录 10 秒内没停下来（路径为空，记录不删）
+      failures.push({ taskId: id, path: '', reason: 'still_running', message: MSG.still_running })
+      kept.add(id)
+      continue
+    }
+    if (wasActive) cancelSimTask(id)
     if (deleteOutputs && wasDone && !outputGone.has(id)) {
       if (fail && MSG[fail]) failures.push({ taskId: id, path: t.outputPath, reason: fail, message: MSG[fail] })
       else deletedFiles++
     }
     outputGone.delete(id)
   }
-  if (mine.length) removeSimTasks(mine)
-  return { deletedTaskIds: mine, deletedSourceIds: [], deletedFiles, failures }
+  const gone = mine.filter((id) => !kept.has(id))
+  if (gone.length) removeSimTasks(gone)
+  return { deletedTaskIds: gone, deletedSourceIds: [], deletedFiles, failures }
 }
 export async function DeleteRecords(taskIds: string[], deleteOutputs: boolean): Promise<DeleteResult> {
   ensure()
@@ -456,6 +467,8 @@ export async function DeleteRecords(taskIds: string[], deleteOutputs: boolean): 
 export async function DeleteSource(sourceId: string, deleteOutputs: boolean): Promise<DeleteResult> {
   mustSource(sourceId)
   const r = doDelete(recordsOf(sourceId).map((t) => t.id), deleteOutputs)
+  // 契约 6.14.4：有 still_running（记录没删）时这一行保留，deletedSourceIds 为空
+  if (r.failures.some((f) => f.reason === 'still_running')) return r
   sources.delete(sourceId)
   return { ...r, deletedSourceIds: [sourceId] }
 }
@@ -574,6 +587,13 @@ export async function probeMock(paths: string[], onBatch?: (r: ProbeResult[]) =>
 }
 
 /** 自检用：把某条记录的输出标成“已被移动或删除” */
+/** 模拟 RevealInFolder（删除失败的路径）：?cv_revealfail=NOT_FOUND（文件被移走）| INVALID_ARGUMENT（超过 10 分钟 / 重启后） */
+export async function revealDeleteFailureMock(path: string): Promise<void> {
+  const f = simParam('cv_revealfail')
+  if (f === 'NOT_FOUND') throw new AppError('NOT_FOUND', '找不到文件', path)
+  if (f === 'INVALID_ARGUMENT') throw new AppError('INVALID_ARGUMENT', '不允许打开这个位置', path)
+  console.info('[模拟] 在文件夹中显示', path)
+}
 export function mockMarkOutputGone(id: string): void {
   outputGone.add(id)
 }

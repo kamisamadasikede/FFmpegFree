@@ -278,7 +278,11 @@ export const revealRecord = (taskId: string): Promise<void> => api().RevealRecor
  * 删除后有文件没删成（DeleteResult.failures）时 toast 里的“打开所在文件夹”：记录已经删了，没有 id 可用，
  * 用 failures[0].path 调旧的 SystemService.RevealInFolder（v0.23.2 架构师批准的唯一例外）。模拟时不调用系统。
  */
-export const revealDeleteFailure = (path: string): Promise<void> => (hasWailsBackend() ? revealInFolder(path) : (console.info('[模拟] 在文件夹中显示', path), Promise.resolve()))
+/**
+ * 删除失败后“打开所在文件夹”：旧的 SystemService.RevealInFolder(path)（契约 v0.23.2 例外；v0.23.3：删除后 10 分钟内任何位置都放行）。
+ * 超过 10 分钟 / 重启后 INVALID_ARGUMENT，文件被移走 NOT_FOUND——页面用 revealDeleteFailureText 出提示。
+ */
+export const revealDeleteFailure = (path: string): Promise<void> => (hasWailsBackend() ? revealInFolder(path) : mock.revealDeleteFailureMock(path))
 /** v0.23.1：取单个源文件行 */
 export const getSource = (sourceId: string): Promise<ConvertSourceEntry> => api().GetSource(sourceId)
 
