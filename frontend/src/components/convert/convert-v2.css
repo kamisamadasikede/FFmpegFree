@@ -358,6 +358,7 @@ html.reduce-motion .cv-kid.focus{animation-timing-function:steps(1,end)}
 .cv-pv.audio .cv-pvbody{height:244px}
 .cv-pv.gif .cv-pvbody{height:484px}
 .cv-pvbody .ff-player{border-radius:0;border:0;min-width:0;flex:1}
+.cv-pvbody.nobar .ff-player .ctrl{display:none}
 .cv-pvbody .media{width:100%;height:100%;object-fit:contain;background:#000;display:block}
 .cv-pvbody img.media{object-fit:contain}
 .cv-ph-hidden{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}

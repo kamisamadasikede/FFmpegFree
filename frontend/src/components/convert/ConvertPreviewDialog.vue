@@ -123,9 +123,13 @@ const cover = computed(() => {
 })
 const isMock = computed(() => !!url.value && url.value.url.startsWith(MOCK_URL_PREFIX))
 const playable = computed(() => stage.value === 'ready')
+/** 放不了 / 文件不在 / 出错：舞台显示原因，控制条整条收起（走查 X5：失败时播放键、时间、音量仍可点） */
+const failed = computed(() => stage.value === 'unplayable' || stage.value === 'gone' || stage.value === 'error')
 const parts = computed(() =>
-  kind.value === 'gif' ? { step: false, time: false, seek: false, mute: false, fullscreen: false } : { step: false, fullscreen: kind.value === 'video' },
+  kind.value === 'gif' || failed.value ? { step: false, time: false, seek: false, mute: false, fullscreen: false } : { step: false, fullscreen: kind.value === 'video' },
 )
+/** 确定有画面的文件：结果是视频格式；源文件读到过宽度（没读到信息的不判断，避免把纯音频的 mp4 当成放不了） */
+const expectsVideo = computed(() => (rec.value ? !isAudioContainer(container.value) : !!srcInfo.value && !isAudioOnly(srcInfo.value)))
 
 // ---- 取地址 ----
 let seq = 0
@@ -241,6 +245,13 @@ watch([playing, isMock], ([p, m]) => {
 function onMeta() {
   const el = mediaEl.value
   if (!el) return
+  // 走查 G4：ProRes 等 WebView 解不了画面的编码不会报错，只是 videoWidth = 0、黑屏而时间照走 → 按“无法在应用内播放”处理
+  if (kind.value === 'video' && expectsVideo.value && (el as HTMLVideoElement).videoWidth === 0) {
+    el.pause()
+    playing.value = false
+    stage.value = 'unplayable'
+    return
+  }
   duration.value = isFinite(el.duration) ? el.duration : 0
   el.muted = muted.value
   el.volume = volume.value
@@ -396,7 +407,7 @@ onBeforeUnmount(() => {
             </div>
             <button type="button" class="x" aria-label="关闭" title="关闭" @click="emit('close')"><FIcon name="x" /></button>
           </div>
-          <div ref="playerWrap" class="cv-pvbody">
+          <div ref="playerWrap" class="cv-pvbody" :class="{ nobar: failed }">
             <PlayerShell
               v-model:playing="playing"
               v-model:muted="muted"
@@ -445,7 +456,7 @@ onBeforeUnmount(() => {
                 </div>
               </template>
               <template #extra>
-                <button v-if="kind !== 'gif'" type="button" class="cv-vol" :style="{ '--v': (muted ? 0 : volume * 100) + '%' }" aria-label="音量" @click="setVolume"><i /></button>
+                <button v-if="kind !== 'gif' && !failed" type="button" class="cv-vol" :style="{ '--v': (muted ? 0 : volume * 100) + '%' }" aria-label="音量" @click="setVolume"><i /></button>
               </template>
             </PlayerShell>
           </div>

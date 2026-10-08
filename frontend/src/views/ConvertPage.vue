@@ -116,6 +116,11 @@ const WARN_TOAST_MS = 8000
  * 行高 1.5；文件名先按 220px 中间省略、保留扩展名，悬停整段看全文（含全名）。“打开所在文件夹”另起一行、不缩进。有 failures 时警告样式 8 秒。
  */
 const TOAST_NAME_PX = 220
+/** 提示放到左栏栏头（“转换记录 · n 个文件”）下面，不盖住栏头（走查 X4 / 复核 D3）；取不到栏头时用 96px */
+function toastOffset(): number {
+  const b = document.querySelector('.cv-left .cv-ph')?.getBoundingClientRect().bottom
+  return b && b > 0 ? Math.round(b + 8) : 96
+}
 function showDeleteToast(t: DeleteToast) {
   const path = t.path
   const font = `13px ${getComputedStyle(document.body).fontFamily}`
@@ -125,7 +130,7 @@ function showDeleteToast(t: DeleteToast) {
     h('span', { class: 'cv-toast-tx', title: short === full ? undefined : full }, short),
     path ? h('button', { type: 'button', class: 'ff-link cv-toast-act', onClick: () => void revealDeleteFailure(path).catch((e) => ElMessage.error(revealDeleteFailureText(toAppError(e)))) }, '打开所在文件夹') : null,
   ])
-  ElMessage({ message: msg, type: t.warn ? 'warning' : 'success', duration: t.warn ? WARN_TOAST_MS : TOAST_MS, customClass: 'cv-toast-box' })
+  ElMessage({ message: msg, type: t.warn ? 'warning' : 'success', duration: t.warn ? WARN_TOAST_MS : TOAST_MS, customClass: 'cv-toast-box', offset: toastOffset() })
 }
 const logId = ref('')
 const logText = ref('')
@@ -152,7 +157,7 @@ async function onChangeOutput(id: string) {
 
 // ---- 提示 ----
 watch(() => cv.toast, (t) => {
-  if (t) ElMessage({ message: t.text, type: 'info', duration: TOAST_MS })
+  if (t) ElMessage({ message: t.text, type: 'info', duration: TOAST_MS, offset: toastOffset() })
 })
 
 // ---- 任务中心“在转换页查看”（?record=&source=）：定位、滚到、高亮 ----
