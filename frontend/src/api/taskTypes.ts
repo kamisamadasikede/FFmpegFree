@@ -46,6 +46,19 @@ export interface ApiTask {
   hiddenInTaskCenter?: boolean
   /** 只有成功的 convert 任务有：完成时探测输出得到的信息 */
   result?: ApiTaskResult
+  // v0.24（契约 6.17.2）：只有 convert 任务会用到
+  /** true = 正在原地重转（status 是 queued / running）；旧的 result / outputPath / finishedAt / params 不变 */
+  reconverting?: boolean
+  /** 最近一次重转失败的信息；重转成功、被取消或又开始一次重转时清空 */
+  lastReconvertError?: ApiReconvertError
+}
+
+/** v0.24 Task.lastReconvertError（6.17.2） */
+export interface ApiReconvertError {
+  code: string
+  message: string
+  detail?: string
+  at: number
 }
 
 /** v0.23 Task.result（6.14.2） */
@@ -55,6 +68,8 @@ export interface ApiTaskResult {
   width?: number
   height?: number
   audioBitrateKbps?: number
+  /** v0.24：结果的警告（目前只有 "short_output" = 输出时长不到预期的 90% 且短了 2 秒以上，6.14.6）；没有时缺省 */
+  warnings?: string[]
 }
 
 /** task:progress 载荷（契约第 5 节；后三项只有直播任务有） */
@@ -98,6 +113,12 @@ export interface TaskStatusPayload {
   retried?: boolean
   /** v0.23：只出现在 UnhideInTaskCenter 的事件（false，status 不变，只改这一项和 version）和 retried 事件上 */
   hiddenInTaskCenter?: boolean
+  /** v0.24（6.17.2）：凡是 convert 任务的 task:status 都带 */
+  reconverting?: boolean
+  /** v0.24：只在重转结束那一次的终态事件里出现 */
+  reconvertOutcome?: 'succeeded' | 'failed' | 'canceled' | 'interrupted'
+  /** v0.24：重转失败的终态事件带 */
+  lastReconvertError?: ApiReconvertError
 }
 
 /** 事件 / 接口里的 result → ApiTaskResult（sizeBytes 必须是数；其余只取有限数值） */
@@ -106,6 +127,10 @@ export function toTaskResult(raw: unknown): ApiTaskResult | undefined {
   if (typeof r.sizeBytes !== 'number' || !Number.isFinite(r.sizeBytes)) return undefined
   const out: ApiTaskResult = { sizeBytes: r.sizeBytes }
   for (const k of ['durationSec', 'width', 'height', 'audioBitrateKbps'] as const) if (typeof r[k] === 'number' && Number.isFinite(r[k])) out[k] = r[k] as number
+  if (Array.isArray(r.warnings)) {
+    const w = r.warnings.filter((x): x is string => typeof x === 'string' && !!x)
+    if (w.length) out.warnings = w
+  }
   return out
 }
 
@@ -142,7 +167,16 @@ export function toApiTask(raw: unknown): ApiTask {
     ...(str(r.sourceId) ? { sourceId: str(r.sourceId) } : {}),
     ...(r.hiddenInTaskCenter === true ? { hiddenInTaskCenter: true } : {}),
     ...(toTaskResult(r.result) ? { result: toTaskResult(r.result) } : {}),
+    ...(r.reconverting === true ? { reconverting: true } : {}),
+    ...(toReconvertError(r.lastReconvertError) ? { lastReconvertError: toReconvertError(r.lastReconvertError) } : {}),
   }
+}
+
+/** v0.24 lastReconvertError → ApiReconvertError（code 必须是非空字符串） */
+export function toReconvertError(raw: unknown): ApiReconvertError | undefined {
+  const r = asRecord(raw)
+  if (typeof r.code !== 'string' || !r.code) return undefined
+  return { code: r.code, message: typeof r.message === 'string' ? r.message : '', ...(typeof r.detail === 'string' && r.detail ? { detail: r.detail } : {}), at: typeof r.at === 'number' ? r.at : 0 }
 }
 
 function asRecord(v: unknown): Record<string, unknown> {

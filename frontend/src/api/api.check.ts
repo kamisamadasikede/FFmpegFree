@@ -29,6 +29,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { emitSimEvent } from '@/services/wails'
 import * as encTask from './encoderTask'
 import { convertV2Checks } from './convertV2.check'
+import { convertV24Checks } from './convertV24.check'
 import { liveFormsChecks } from '@/stores/liveForms.check'
 import { readyRelistChecks } from '@/stores/readyRelist.check'
 
@@ -946,6 +947,7 @@ export async function runApiChecks(): Promise<string[]> {
         const { normalizeMediaInfo } = await import('@/api/media')
         eq('S1 归一化：缺字段 → false / false；已有 true 保留；已有 false 保留', [normalizeMediaInfo({} as { hasVideo?: boolean; hasAudio?: boolean }), normalizeMediaInfo({ hasVideo: true }), normalizeMediaInfo({ hasVideo: false, hasAudio: true })], [{ hasVideo: false, hasAudio: false }, { hasVideo: true, hasAudio: false }, { hasVideo: false, hasAudio: true }])
         await convertV2Checks(eq, readSrc)
+        await convertV24Checks(eq, readSrc)
         await liveFormsChecks(eq, readSrc) // 包 20：直播表单持久化 + 推流码遮挡
         await readyRelistChecks(eq, readSrc) // 包 20：就绪后补取列表（#100 配合）+ 走查 D2 / D3 / D4 / D7
         // G11 版本号
