@@ -75,6 +75,8 @@ type Config struct {
 	// DefaultOutputDir 返回 outputDir 传空时用的目录（v0.24：实际输出目录，自定义优先，否则 <base>/output，6.15.2 第 5 条）。
 	// 返回空字符串时（测试、旧配置）退回源文件同目录。可为 nil。
 	DefaultOutputDir func(ctx context.Context) string
+	// DataDir 是应用数据目录：输出目录不能在它里面（<DataDir>/output 及其子文件夹除外，契约 v0.24.1 改写的 6.12 规则）。空 = 不检查。
+	DataDir string
 	// Encoder 按用户偏好与设备缓存解析 H.264 / HEVC 编码器（契约 9.7）；nil = 一律 CPU。
 	// 每个任务在提交 / 重试时解析一次。
 	Encoder ffmpeg.EncoderResolver
@@ -419,8 +421,8 @@ func withInput(err error, in string) error {
 	return &cp
 }
 
-// resolveOutputDir 解析输出目录：参数 > 设置里的默认目录 > 空（源文件同目录）。
-// 必须是绝对路径；已存在的必须是文件夹；不存在的会在任务开始时创建。
+// resolveOutputDir 解析输出目录：参数 > 实际输出目录（v0.24：自定义优先，否则 <base>/output）> 空（源文件同目录，v0.24 起走不到）。
+// 必须是绝对路径；已存在的必须是文件夹；不能在应用数据目录内（<dataDir>/output 除外）；不存在的会在任务开始时创建。
 func (s *Service) resolveOutputDir(ctx context.Context, dir string) (string, error) {
 	if dir == "" && s.cfg.DefaultOutputDir != nil {
 		dir = s.cfg.DefaultOutputDir(ctx)
@@ -434,6 +436,9 @@ func (s *Service) resolveOutputDir(ctx context.Context, dir string) (string, err
 	dir = filepath.Clean(dir)
 	if fi, err := os.Stat(dir); err == nil && !fi.IsDir() {
 		return "", apperr.New(apperr.InvalidArgument, "输出位置不是文件夹").WithDetail(dir)
+	}
+	if paths.InsideDataDir(s.cfg.DataDir, dir) {
+		return "", apperr.New(apperr.InvalidArgument, "输出目录不能在应用数据目录内").WithDetail("outputDir 不能在应用数据目录内\n" + dir)
 	}
 	return dir, nil
 }
