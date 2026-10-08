@@ -583,9 +583,13 @@ func (m *Manager) Retry(taskID string) (Task, error) {
 	m.mu.Lock()
 	f := m.factories[old.Type]
 	m.mu.Unlock()
-	if f == nil { // 没有工厂的类型（直播）不管什么状态都是 UNSUPPORTED，提示更有用
+	if f == nil { // 没有工厂的类型（直播、已移除的剪辑导出）不管什么状态都是 UNSUPPORTED，提示更有用
 		if IsLive(old.Type) {
 			return Task{}, apperr.New(apperr.Unsupported, "直播会话不能重试，请重新开始推流")
+		}
+		if old.Type == TypeEditExport { // 契约 v0.23.5：剪辑功能已移除，旧的导出记录只能查看和移除
+			return Task{}, apperr.New(apperr.Unsupported, "剪辑功能已移除，剪辑导出记录不能重试").
+				WithDetail("reason=feature_removed\n剪辑功能已在 v0.23.5 移除，edit_export 记录只能查看和移除")
 		}
 		return Task{}, apperr.New(apperr.Unsupported, fmt.Sprintf("%s 类型的任务不支持重试", old.Type))
 	}
