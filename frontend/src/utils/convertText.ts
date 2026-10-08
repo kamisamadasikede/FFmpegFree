@@ -3,24 +3,36 @@ import { shallowRef } from 'vue'
 import { formatBytes, formatShortClock } from '@/utils/format'
 import { audioCodecText, channelText, codecName, sampleRateText, videoCodecText } from '@/utils/mediaText'
 
-export const VIDEO_CONTAINERS: readonly string[] = ['mp4', 'mkv', 'mov', 'webm', 'avi', 'flv', 'gif']
-export const AUDIO_CONTAINERS: readonly string[] = ['mp3', 'aac', 'm4a', 'wav', 'flac', 'ogg', 'opus']
+export const VIDEO_CONTAINERS: readonly string[] = ['mp4', 'mkv', 'mov', 'webm', 'avi', 'flv', 'gif', 'wmv', 'mpg', 'vob', '3gp', 'swf', 'ogv']
+export const AUDIO_CONTAINERS: readonly string[] = ['mp3', 'aac', 'm4a', 'wav', 'flac', 'ogg', 'opus', 'wma', 'amr', 'm4r', 'mp2', 'ape', 'wv', 'mmf']
+/** v0.24 图片格式（契约 6.16.2）：输入要有画面（视频取第 1 秒那一帧） */
+export const IMAGE_CONTAINERS: readonly string[] = ['jpg', 'png', 'webp', 'ico', 'bmp', 'tif', 'tga']
 export const isAudioContainer = (c: string): boolean => AUDIO_CONTAINERS.includes((c ?? '').toLowerCase())
+export const isImageContainer = (c: string): boolean => IMAGE_CONTAINERS.includes((c ?? '').toLowerCase())
 
 /** 冲突提示（产品决定 v1）：标题不变，不显示错误码；说明里的出路改成“取消勾选”（列表里没有“移出”了） */
 export const CONFLICT_TITLE = '这个文件不能用当前预设'
 export const CONFLICT_NO_VIDEO = '没有画面，不能转成视频格式。请换一个音频预设，或取消勾选。'
 export const CONFLICT_NO_AUDIO = '没有声音，不能转成音频格式。请换一个视频预设，或取消勾选。'
+/** v0.24（设计说明 §八 第 38、50 条）：右栏选的是“格式”，冲突文案里的“预设”换成“格式”；图片格式多一句 */
+export const CONFLICT_TITLE_V24 = '这个文件不能转成当前格式'
+export const CONFLICT_NO_VIDEO_V24 = '没有画面，不能转成视频格式。请换一个音频格式，或取消勾选。'
+export const CONFLICT_NO_AUDIO_V24 = '没有声音，不能转成音频格式。请换一个视频格式，或取消勾选。'
+export const CONFLICT_NO_PICTURE_V24 = '没有画面，不能转成图片格式。请换一个音频格式，或取消勾选。'
+export const ALL_CONFLICT_HINT = '选中的文件都不能用当前预设'
+export const ALL_CONFLICT_HINT_V24 = '选中的文件都不能转成当前格式'
 
 /**
  * 当前预设与文件不兼容的原因，null = 兼容。只在读取成功（probeOk）后判断——还没读完的不算冲突；
  * 读取成功的媒体 hasVideo / hasAudio 缺失按 false（后端 omitempty，api/media.ts 已归一化，这里再兜一次）。
+ * v24 = true 时用 v0.24 的“格式”文案，并检查图片格式（要有画面）。
  */
-export function conflictReason(info: { hasVideo?: boolean; hasAudio?: boolean } | undefined, probeOk: boolean, container: string | undefined): string | null {
+export function conflictReason(info: { hasVideo?: boolean; hasAudio?: boolean } | undefined, probeOk: boolean, container: string | undefined, v24 = false): string | null {
   if (!probeOk || !info || !container) return null
   const c = container.toLowerCase()
-  if (VIDEO_CONTAINERS.includes(c) && info.hasVideo !== true) return CONFLICT_NO_VIDEO
-  if (AUDIO_CONTAINERS.includes(c) && info.hasAudio !== true) return CONFLICT_NO_AUDIO
+  if (VIDEO_CONTAINERS.includes(c) && info.hasVideo !== true) return v24 ? CONFLICT_NO_VIDEO_V24 : CONFLICT_NO_VIDEO
+  if (AUDIO_CONTAINERS.includes(c) && info.hasAudio !== true) return v24 ? CONFLICT_NO_AUDIO_V24 : CONFLICT_NO_AUDIO
+  if (v24 && IMAGE_CONTAINERS.includes(c) && info.hasVideo !== true) return CONFLICT_NO_PICTURE_V24
   return null
 }
 

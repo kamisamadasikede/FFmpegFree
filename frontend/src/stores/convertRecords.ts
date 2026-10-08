@@ -12,14 +12,20 @@ import {
   addSources, checkPaths, checkSources, convertV2IsReal, deleteRecords, deleteSource, getRecordThumbnail, getSourceThumbnail, listSourceRecords, listSources,
   MORE_RECORDS, previewOutputName, probeSources, reconvert as apiReconvert, RECORD_LIMIT, recordOf, revealRecord, getSource,
   revealSource as apiRevealSource, searchSources, SOURCE_PAGE, submitSources,
+  convertV24On, getFormatCatalog, getStorageDirs, setStorageDirs, openStorageFolder, cancelCopy as apiCancelCopy, retryCopy as apiRetryCopy, onCopyEvent,
   type ConvertRecord, type ConvertSource, type ConvertSourceEntry, type ConvertSourceStatus, type DeleteResult, type RecordOptions, type ThumbState, type V023Task,
+  type CopyEvent, type FormatEntry, type StorageDirs, type TaskPathCheck,
 } from '@/api/convertRecords'
 import { mockSceneUi } from '@/api/convertRecordsMock'
-import { canPickFiles, getDefaultOutputDir, pickDirectory, pickFiles } from '@/api/system'
+import { canPickFiles, CONVERT_V24_FILE_FILTER, getDefaultOutputDir, pickDirectory, pickFiles } from '@/api/system'
+import {
+  addRejectedText, isUnsupportedFormat, reconvertDoneToast, reconvertErrorText, reconvertFailToast, reconvertState, showFallbackBanner, STORAGE_CHANGED_TOAST, submitSkipToast,
+  SUBMIT_NOT_READY_TOAST, SOURCE_REMOVE_TITLE_EMPTY, type CopyState, type FormatCategory, type ReconvertMode,
+} from '@/utils/convertV24Text'
 import { hasWailsBackend } from '@/services/wails'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { useTaskStore, type TaskError, type TaskItem, type TaskStatus } from '@/stores/tasks'
-import { conflictReason, dupPresetTitles, isAudioContainer, isAudioOnly, isToday, presetShortTitle, setPresetCatalog, splitPresetName, totalProgress } from '@/utils/convertText'
+import { conflictReason, dupPresetTitles, formatRecordTime, isAudioContainer, isAudioOnly, isToday, presetShortTitle, recordParamsText, setPresetCatalog, splitPresetName, totalProgress } from '@/utils/convertText'
 import { normalizeSourcePath } from '@/utils/sourcePath'
 import type { store as goStore } from '../../wailsjs/go/models'
 
@@ -28,6 +34,8 @@ export type RecordFilter = 'all' | 'active' | 'failed'
 /** 源文件行删除（定稿 10-08）：按钮提示 / 菜单项“从列表移除”，弹窗标题如下；源文件本身永远不删 */
 export const SOURCE_REMOVE_LABEL = '从列表移除'
 export const SOURCE_REMOVE_TITLE = '从列表移除这个文件和它的全部记录'
+/** v0.24：改存横条关掉后本次运行不再出现（设计说明 §八 第 42 条）——放在模块里，离开转换页再回来也不再出现 */
+let fallbackDismissedThisRun = false
 
 /** 父行（源文件） */
 export interface SourceRow {
@@ -53,6 +61,15 @@ export interface SourceRow {
   /** 本行已加载的记录 id（含本地新提交的） */
   loadedIds: string[]
   loadingMore: boolean
+  // v0.24 副本（契约 6.15.3）：旧后端 / 旧行没有（copyState 缺省或 none = 直接读原文件）
+  originalPath?: string
+  storedPath?: string
+  copyState?: CopyState
+  copiedBytes?: number
+  totalBytes?: number
+  copyError?: TaskError | null
+  /** 收到的 convert:copy 最大 seq（丢弃更小的） */
+  copySeq: number
 }
 
 /** 子记录 = 记录 + 任务 store 里的实时状态 */
@@ -99,6 +116,25 @@ export interface DeleteAsk {
   audio?: boolean
   /** 只有 kind=record：一次删多条（DeleteRecords 的 taskIds）；缺省 = [id] */
   ids?: string[]
+  /** 只有 kind=source：这一行的复制状态（X6：没有记录的行按它决定正文，v0.24.1 6.15.7） */
+  copyState?: CopyState
+  /** v0.24 的界面（正文提到“程序里的复制件”） */
+  v24?: boolean
+}
+
+/** 重转确认框的数据（v0.24.1：replace 覆盖 / regenerate 重新生成） */
+export interface ReconvertAsk {
+  id: string
+  mode: 'replace' | 'regenerate'
+  name: string
+  /** 文件名后面的“· 今天 11:20 · MP4 · H.264” */
+  line: string
+  /** “沿用原来的参数（…）”里的当前参数 */
+  current: string
+  currentTip: string
+  /** 同一格式的其他预设（原来用的那个不再单独列一项）；regenerate 时为空 */
+  presets: { id: string; title: string; tip: string }[]
+  container: string
 }
 
 /** 本地记住的折叠状态（按 sourceId）：用户点过的才记，没点过的按默认规则 */
@@ -190,13 +226,26 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   const presetsLoaded = ref(false)
   const presetsError = ref<TaskError | null>(null)
   const selectedPresetId = ref('')
-  const tab = ref<'video' | 'audio'>('video')
+  const tab = ref<FormatCategory>('video')
   const outputOverride = ref('')
   const defaultOutputDir = ref('')
   const submitting = ref(false)
   const submitError = ref<TaskError | null>(null)
   const notice = ref('')
-  const toast = ref<{ text: string; at: number } | null>(null)
+  const toast = ref<{ text: string; at: number; warn?: boolean } | null>(null)
+  // ---------------- v0.24 ----------------
+  /** v0.24 的界面打开（格式目录 / 存储 / 副本 / 重转）：见 api/convertRecords.ts 的 convertV24On */
+  const v24 = convertV24On()
+  const catalog = ref<FormatEntry[]>([])
+  const formatQuery = ref('')
+  const storage = ref<StorageDirs | null>(null)
+  const fallbackDismissed = ref(fallbackDismissedThisRun)
+  /** TaskPathCheck 的 reconvertMode / reconvertBlock（v0.24.1），按任务 id */
+  const pathChecks = reactive(new Map<string, Pick<TaskPathCheck, 'reconvertMode' | 'reconvertBlock'>>())
+  /** 发起重转时的方式（失败提示按它选文案） */
+  const rcMode = new Map<string, 'replace' | 'regenerate'>()
+  /** 每个格式上次选的预设（切换格式再回来时沿用） */
+  const lastPresetOfExt = new Map<string, string>()
   const outputName = ref('')
   /** 最近一次添加文件的时间：页面据此滚回顶部 */
   const addedTick = ref(0)
@@ -205,8 +254,9 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   /** 要定位并高亮的记录（页面滚到它、闪一下） */
   const focus = ref<{ id: string; sourceId: string; at: number } | null>(null)
 
-  function say(text: string) {
-    toast.value = { text, at: Date.now() }
+  /** 页面监听 toast 弹提示；warn = 警告样式 8 秒（重转失败等） */
+  function say(text: string, warn = false) {
+    toast.value = { text, at: Date.now(), ...(warn ? { warn: true } : {}) }
   }
 
   // ---------------- 预设 ----------------
@@ -219,13 +269,56 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   })
   const presetTitle = (p: PresetItem) => presetTitles.value.get(p.id) ?? splitPresetName(p.name).title
   const shownPresets = computed(() => presets.value.filter((p) => (tab.value === 'audio') === isAudioPreset(p)))
-  function setTab(t: 'video' | 'audio') {
+  function setTab(t: FormatCategory) {
     tab.value = t
+    if (v24) return // v0.24：切换分类只换显示的格式块，选中的格式不变
     const list = presets.value.filter((p) => (t === 'audio') === isAudioPreset(p))
     if (list.length && !list.some((p) => p.id === selectedPresetId.value)) selectedPresetId.value = list[0].id
   }
+  // v0.24 格式区（设计说明 §八 第 35–38 条）：右栏选“格式”，“参数”下拉是这个格式的预设
+  const selectedFormat = computed(() => catalog.value.find((f) => f.extension === selectedPreset.value?.options.container))
+  const formatPresets = computed(() => selectedFormat.value?.presets ?? [])
+  const categoryOf = (ext: string): FormatCategory => (catalog.value.find((f) => f.extension === ext)?.category as FormatCategory) ?? 'video'
+  /** 选中一个格式：不可输出的不能选；用上次在这个格式下选的预设，没有就用默认预设。搜索时选中不清空搜索词 */
+  function selectFormat(ext: string) {
+    const f = catalog.value.find((x) => x.extension === ext)
+    if (!f || !f.encodable) return
+    const last = lastPresetOfExt.get(ext)
+    selectedPresetId.value = last && f.presets.some((p) => p.id === last) ? last : f.defaultPresetId || f.presets[0]?.id || ''
+    if (!formatQuery.value.trim()) tab.value = f.category as FormatCategory
+  }
+  function selectPreset(id: string) {
+    if (!presets.value.some((p) => p.id === id)) return
+    selectedPresetId.value = id
+    const ext = selectedPreset.value?.options.container
+    if (ext) lastPresetOfExt.set(ext, id)
+  }
+  function setFormatQuery(q: string) {
+    formatQuery.value = q
+  }
+  /** 清空搜索（× 或 Esc）：回到选中格式所在的分类 */
+  function clearFormatQuery() {
+    formatQuery.value = ''
+    if (selectedFormat.value) tab.value = selectedFormat.value.category as FormatCategory
+  }
+  async function loadCatalog() {
+    const list = await getFormatCatalog()
+    catalog.value = list
+    presets.value = list.flatMap((f) => f.presets.map((p) => ({ id: p.id, name: p.name, builtIn: p.builtIn, options: { ...p.options } as unknown as PresetItem['options'] })))
+    setPresetCatalog(presets.value.map((p) => p.name))
+    if (!selectedPreset.value) {
+      const first = list.find((f) => f.encodable)
+      if (first) selectedPresetId.value = first.defaultPresetId
+    }
+    if (selectedPreset.value) tab.value = categoryOf(selectedPreset.value.options.container)
+  }
   async function loadPresets() {
     try {
+      if (v24) {
+        await loadCatalog()
+        presetsError.value = null
+        return
+      }
       presets.value = await listPresets()
       setPresetCatalog(presets.value.map((p) => p.name))
       presetsError.value = null
@@ -238,6 +331,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     }
   }
   async function loadDefaultDir() {
+    if (v24) return loadStorage()
     try {
       defaultOutputDir.value = await getDefaultOutputDir()
     } catch (e) {
@@ -245,20 +339,98 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     }
   }
 
+  // ---------------- v0.24 存储目录（6.15.2；设计说明 §八 第 42、43 条） ----------------
+  async function loadStorage() {
+    try {
+      storage.value = await getStorageDirs()
+    } catch (e) {
+      console.warn('read storage dirs failed', e)
+    }
+  }
+  const showFallback = computed(() => v24 && !fallbackDismissed.value && showFallbackBanner(storage.value))
+  function dismissFallback() {
+    fallbackDismissed.value = true
+    fallbackDismissedThisRun = true
+  }
+  async function openStorage(kind: 'output' | 'uploads') {
+    try {
+      await openStorageFolder(kind)
+    } catch (e) {
+      say(errOf(e).message)
+    }
+  }
+  /** “保存到”的“更改”：选好后直接改设置里的“转换结果”目录（和设置页同一个值，只对之后的新文件生效）；上传目录传当前值（自定义的传路径，默认的传 ""） */
+  async function changeOutputDir() {
+    const dir = hasWailsBackend() ? await pickDirectory('选择转换结果的保存位置').catch((e) => (say(errOf(e).message), '')) : 'D:\\Videos\\FFmpegFree'
+    if (!dir) return
+    try {
+      const cur = storage.value ?? (await getStorageDirs())
+      storage.value = await setStorageDirs({ outputDir: dir, uploadsDir: cur.uploadsCustom ? cur.uploadsDir : '' })
+      say(STORAGE_CHANGED_TOAST)
+    } catch (e) {
+      say(errOf(e).message) // 校验失败时显示后端 message（如“保存位置无法写入”）
+    }
+  }
+
   // ---------------- 源文件 / 记录 ----------------
+  /** 快照里的副本字段（ListSources / GetSource / AddSources / RetryCopy 返回的行）：以快照为准，之后再接着收 convert:copy */
+  function applyCopy(row: SourceRow, s: ConvertSource) {
+    if (!s.copyState) return
+    row.originalPath = s.originalPath || s.path
+    row.storedPath = s.storedPath ?? ''
+    row.copyState = s.copyState
+    row.copiedBytes = s.copiedBytes ?? 0
+    row.totalBytes = s.totalBytes ?? 0
+    row.copyError = s.copyError?.code ? { ...s.copyError } : null
+    if (s.copyState === 'failed' || s.copyState === 'canceled') selected.delete(row.sourceId)
+  }
   function upsertSource(s: ConvertSource, recordCount?: number): SourceRow {
     const cur = sources[s.sourceId]
     if (cur) {
       cur.lastActivityAt = Math.max(cur.lastActivityAt, s.lastActivityAt)
       if (s.media) cur.media = s.media
       if (recordCount !== undefined) cur.recordCount = recordCount
+      applyCopy(cur, s)
       return cur
     }
     sources[s.sourceId] = {
       sourceId: s.sourceId, path: s.path, name: s.name, addedAt: s.addedAt, lastActivityAt: s.lastActivityAt, ...(s.media ? { media: s.media } : {}),
-      probe: 'pending', thumb: null, thumbAsked: false, flashAt: 0, recordCount: recordCount ?? 0, loadedIds: [], loadingMore: false,
+      probe: 'pending', thumb: null, thumbAsked: false, flashAt: 0, recordCount: recordCount ?? 0, loadedIds: [], loadingMore: false, copySeq: 0,
     }
+    applyCopy(sources[s.sourceId], s)
     return sources[s.sourceId]
+  }
+  /** convert:copy（6.15.4 第 5 条）：按 sourceId 记住最大 seq，丢弃更小的；复制失败 / 取消的行不能勾选 */
+  function applyCopyEvent(e: CopyEvent) {
+    const row = sources[e.sourceId]
+    if (!row || e.seq <= row.copySeq) return
+    row.copySeq = e.seq
+    row.copyState = e.copyState
+    row.copiedBytes = e.copiedBytes
+    row.totalBytes = e.totalBytes
+    if (e.storedPath) row.storedPath = e.storedPath
+    row.copyError = e.copyState === 'failed' && e.error?.code ? { ...e.error } : null
+    if (e.copyState === 'failed' || e.copyState === 'canceled') selected.delete(row.sourceId)
+    if (e.copyState === 'ready') row.exists = true
+  }
+  async function cancelCopy(sourceId: string) {
+    try {
+      await apiCancelCopy(sourceId)
+    } catch (e) {
+      say(errOf(e).message)
+    }
+  }
+  async function retryCopy(sourceId: string) {
+    try {
+      const s = await apiRetryCopy(sourceId)
+      const row = sources[sourceId]
+      if (row) {
+        applyCopy(row, s)
+        row.copySeq = 0 // 重新复制：之后的事件都要（seq 是全局递增的，新事件一定更大，这里只是保险）
+      }
+    } catch (e) {
+      say(errOf(e).message)
+    }
   }
   function putRecord(t: V023Task | TaskItem) {
     const r = recordOf(t as V023Task)
@@ -304,8 +476,12 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     const gone = outputGone.has(r.id)
     if (!t) return { ...r, outputGone: gone }
     const status = t.status
+    // v0.24：重转中（status 是 queued / running）旧的 result、输出文件照常可用
+    const rc = ACTIVE.includes(status) && !!(t as TaskItem).reconverting
     return {
       ...r,
+      reconverting: rc || undefined,
+      lastReconvertError: rc ? undefined : (t as TaskItem).lastReconvertError ?? r.lastReconvertError,
       status,
       progress: status === 'succeeded' ? 1 : t.progress,
       speed: t.speed ?? '',
@@ -318,8 +494,8 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       encoderDevice: t.encoderDevice,
       hwFallback: t.hwFallback,
       hwFallbackReason: t.hwFallbackReason,
-      result: status === 'succeeded' ? t.result ?? r.result : undefined,
-      outputGone: status === 'succeeded' ? gone : false,
+      result: status === 'succeeded' || rc ? t.result ?? r.result : undefined,
+      outputGone: status === 'succeeded' || rc ? gone : false,
     }
   }
   const liveById = computed(() => {
@@ -329,10 +505,13 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   })
 
   // ---------------- 勾选 / 冲突 ----------------
-  const isCheckable = (s: SourceRow) => s.exists !== false && s.probe !== 'error'
+  /** v0.24：复制失败 / 已取消复制的行不能勾选（复制中的可以） */
+  const copyBlocked = (s: SourceRow) => s.copyState === 'failed' || s.copyState === 'canceled'
+  const isCopying = (s: SourceRow) => s.copyState === 'copying'
+  const isCheckable = (s: SourceRow) => s.exists !== false && s.probe !== 'error' && !copyBlocked(s)
   /** 冲突只看当次探测（info）：勾选时会重新探测，文件可能已经变了，缓存只用来显示 */
   function conflictOfSource(s: SourceRow): string | null {
-    return conflictReason(s.info, s.probe === 'ok', selectedPreset.value?.options.container)
+    return conflictReason(s.info, s.probe === 'ok', selectedPreset.value?.options.container, v24)
   }
   function toggle(sourceId: string) {
     const s = sources[sourceId]
@@ -347,8 +526,12 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     selected.clear()
   }
   const selectedRows = computed(() => [...selected].map((id) => sources[id]).filter((s): s is SourceRow => !!s && isCheckable(s)))
-  const submittableRows = computed(() => selectedRows.value.filter((s) => s.probe === 'ok' && !conflictOfSource(s)))
+  const submittableRows = computed(() => selectedRows.value.filter((s) => s.probe === 'ok' && !conflictOfSource(s) && !isCopying(s)))
   const blockedCount = computed(() => selectedRows.value.filter((s) => !!conflictOfSource(s)).length)
+  /** v0.24：勾选里还在复制的（不冲突的）行：按钮不算它们，提交时一起交给后端，由后端跳过（设计说明 §八 第 41 条） */
+  const copyingSelected = computed(() => selectedRows.value.filter((s) => isCopying(s) && !conflictOfSource(s)))
+  /** 图片分类、勾选里有视频时显示“视频文件会截取第 1 秒的画面”（§八 第 38 条） */
+  const selectedHasVideo = computed(() => selectedRows.value.some((s) => { const i = metaInfoOf(s); return !!i && !isAudioOnly(i) }))
   const probingSelected = computed(() => selectedRows.value.filter((s) => s.probe === 'pending' || s.probe === 'probing').length)
 
   // ---------------- 折叠 ----------------
@@ -450,7 +633,8 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   watch(
     () => activeConvert.value.map((t) => t.id).join(','),
     (ids) => {
-      for (const id of ids ? ids.split(',') : []) round.add(id)
+      // v0.24：重转不算进“本轮完成”（结束时单独提示“已重转…”）
+      for (const t of activeConvert.value) if (!t.reconverting) round.add(t.id)
       if (!round.size || ids) return
       let ok = 0
       let fail = 0
@@ -470,6 +654,10 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     if (inited) return
     inited = true
     await tasks.init()
+    if (v24) {
+      onCopyEvent(applyCopyEvent)
+      tasks.onReconvertEnd(onReconvertEnd)
+    }
     await Promise.all([loadPresets(), loadDefaultDir(), reload()])
     if (!convertV2IsReal()) applyMockUi()
   }
@@ -480,8 +668,9 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     for (const id of ui.open) foldSession[id] = true
     if (ui.presetId && presets.value.some((p) => p.id === ui.presetId)) {
       selectedPresetId.value = ui.presetId
-      tab.value = isAudioPreset(selectedPreset.value!) ? 'audio' : 'video'
+      tab.value = v24 ? categoryOf(selectedPreset.value!.options.container) : isAudioPreset(selectedPreset.value!) ? 'audio' : 'video'
     }
+    if (v24 && ui.formatQuery) formatQuery.value = ui.formatQuery
     if (ui.roundDone.length) showBanner(ui.roundDone.length, 0)
     void probePending()
   }
@@ -510,7 +699,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       const done = items.flatMap((e) => e.records).filter((t) => t.status === 'succeeded').map((t) => t.id)
       const ids = items.map((e) => e.source.sourceId)
       const [paths, srcs] = await Promise.all([done.length ? checkPaths(done) : Promise.resolve([]), ids.length ? checkSources(ids) : Promise.resolve([])])
-      for (const c of paths) if (c.found && !c.outputExists) outputGone.add(c.taskId)
+      applyPathChecks(paths)
       for (const c of srcs) {
         const s = sources[c.sourceId]
         if (!s || !c.found) continue
@@ -519,6 +708,14 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       }
     } catch (e) {
       console.warn('check paths failed', e) // 查不了就按都在处理，打开文件夹前还会再查
+    }
+  }
+  /** CheckPaths 的结果：输出不在的标出来；v0.24.1 记下 reconvertMode / reconvertBlock（重转入口用） */
+  function applyPathChecks(list: readonly TaskPathCheck[]) {
+    for (const c of list) {
+      if (!c.found) continue
+      if (!c.outputExists) outputGone.add(c.taskId)
+      if (typeof c.reconvertMode === 'string') pathChecks.set(c.taskId, { reconvertMode: c.reconvertMode, ...(c.reconvertBlock ? { reconvertBlock: c.reconvertBlock } : {}) })
     }
   }
   /** “加载更早的记录”：普通列表取下一页源文件行；搜索时取搜索的下一页 */
@@ -572,7 +769,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       for (const t of p.items) putRecord(t)
       s.recordCount = p.total
       const done = p.items.filter((t) => t.status === 'succeeded').map((t) => t.id)
-      if (done.length) for (const c of await checkPaths(done).catch(() => [])) if (c.found && !c.outputExists) outputGone.add(c.taskId)
+      if (done.length) applyPathChecks(await checkPaths(done).catch(() => []))
     } catch (e) {
       say(errOf(e).message)
     } finally {
@@ -735,6 +932,9 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
           if (!t.sourceId) continue
           if (!sources[t.sourceId]) refreshTop()
           else addRecord(t) // task:status 可能先于 SubmitSources 返回：和 afterSubmit 共用一处计数（S1）
+        } else if (t.reconverting) {
+          // v0.24 原地重转：旧的 result / 输出 / 完成时间都保留（只是状态变成排队 / 进行中）
+          if (!r.reconverting) records[t.id] = { ...r, reconverting: true, version: Math.max(r.version, t.version), lastReconvertError: undefined }
         } else if (TERMINAL.includes(r.status)) {
           // 原地重试（可能是任务中心点的）：上一次的结果、错误、“文件已被移动”标记都作废
           records[t.id] = { ...r, status: t.status, version: t.version, error: null, result: undefined, hwFallback: undefined, hwFallbackReason: undefined, progress: 0 }
@@ -859,9 +1059,12 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     }
     const now = Date.now()
     const failed: string[] = []
+    let rejected = 0
     for (const r of list) {
       if (!r.source) {
-        failed.push(`${r.path.split(/[\\/]/).pop()}：${r.error?.message ?? '没有加入'}`)
+        // v0.24（§八 第 68 条）：扩展名不在输入列表（UNSUPPORTED reason=format）的汇总成一句普通提示
+        if (v24 && isUnsupportedFormat(r.error)) rejected++
+        else failed.push(`${r.path.split(/[\\/]/).pop()}：${r.error?.message ?? '没有加入'}`)
         continue
       }
       const had = !!sources[r.source.sourceId]
@@ -879,6 +1082,8 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       if (isCheckable(row)) selected.add(row.sourceId) // 新加入的自动勾选
     }
     if (failed.length) notice.value = failed.join('；')
+    if (rejected) say(addRejectedText(rejected))
+    if (list.length === rejected) return
     addedTick.value = now
     void probePending()
   }
@@ -895,7 +1100,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       return
     }
     try {
-      const paths = await pickFiles()
+      const paths = v24 ? await pickFiles(CONVERT_V24_FILE_FILTER) : await pickFiles()
       if (paths.length) await addPaths(paths)
     } catch (e) {
       notice.value = errOf(e).message
@@ -951,13 +1156,21 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     if (submitting.value || !p || !rows.length || !ffmpeg.ready) return
     submitting.value = true
     submitError.value = null
+    // v0.24：还在复制的行也交给后端，由它跳过（返回 skipped）；输出目录传空 = 设置里的“转换结果”目录
+    const ids = [...rows, ...(v24 ? copyingSelected.value : [])].map((r) => r.sourceId)
     try {
-      const list = await submitSources({ sourceIds: rows.map((r) => r.sourceId), options: optionsOf(p.options), outputDir: outputOverride.value, presetId: p.id })
-      afterSubmit(list)
+      const res = await submitSources({ sourceIds: ids, options: optionsOf(p.options), outputDir: v24 ? '' : outputOverride.value, presetId: p.id })
+      afterSubmit(res.tasks)
       closeBanner()
-      clearSelection()
+      if (res.skipped.length) {
+        // 跳过的源文件保持勾选，提交了的照常清空（§八 第 53 条）
+        for (const t of res.tasks) selected.delete(t.sourceId ?? '')
+        say(submitSkipToast(res.tasks.length, res.skipped))
+      } else clearSelection()
     } catch (e) {
-      submitError.value = errOf(e)
+      const err = errOf(e)
+      if (v24 && err.code === 'TASK_CONFLICT' && /^reason=(copying|copy_failed)/.test(err.detail ?? '')) say(SUBMIT_NOT_READY_TOAST) // 勾选不变
+      else submitError.value = err
     } finally {
       submitting.value = false
     }
@@ -989,12 +1202,80 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       say(errOf(e).message)
     }
   }
-  /** 已完成的记录“又转一次”（ConvertService.Reconvert，新增一条）。设计稿里没有入口，界面暂不放，见交付说明 */
-  async function reconvert(id: string) {
+  // ---------------- v0.24 原地重转（契约 6.17；v0.24.1 replace / regenerate；设计说明 §八 第 58、64、65、67、70 条） ----------------
+  /** “重转…”菜单项：按 CheckPaths 的 reconvertMode / reconvertBlock；没查过时按本地知道的情况 */
+  function reconvertStateOf(k: KidView): { mode: ReconvertMode; tip: string } {
+    return reconvertState(pathChecks.get(k.id), { sourceGone: sources[k.sourceId]?.exists === false, outputGone: k.outputGone })
+  }
+  /** 打开“更多”菜单时再查一次（文件可能刚被移走） */
+  async function refreshPathCheck(id: string) {
     try {
-      afterSubmit([await apiReconvert(id)])
+      const [c] = await checkPaths([id])
+      if (c) applyPathChecks([c])
+      if (c?.found && c.outputExists) outputGone.delete(id)
+    } catch {
+      /* 查不了就按上次的结果 */
+    }
+  }
+  function reconvertAsk(id: string): ReconvertAsk | null {
+    const k = liveById.value.get(id)
+    if (!k || k.status !== 'succeeded' || k.reconverting) return null
+    const st = reconvertStateOf(k)
+    if (!st.mode) return null
+    const p = recordParamsText(k)
+    const container = k.options.container ?? ''
+    const fmt = catalog.value.find((f) => f.extension === container)
+    const presets = st.mode === 'regenerate' ? [] : (fmt?.presets ?? []).filter((x) => x.id !== k.presetId).map((x) => ({ id: x.id, title: presetTitle({ id: x.id, name: x.name, builtIn: x.builtIn, options: x.options as unknown as PresetItem['options'] }), tip: x.paramsSummary }))
+    return {
+      id, mode: st.mode, name: k.outputPath.split(/[\\/]/).pop() ?? '', container,
+      line: [formatRecordTime(k.finishedAt || k.createdAt), container.toUpperCase(), p.text].filter(Boolean).join(' · '),
+      current: p.text, currentTip: p.tip, presets,
+    }
+  }
+  /** 开始重转。presetId 不给 = 沿用原来的参数（regenerate 永远不给） */
+  async function startReconvert(id: string, mode: 'replace' | 'regenerate', presetId?: string): Promise<boolean> {
+    const r = records[id]
+    if (!r) return false
+    try {
+      const t = await apiReconvert({ taskId: id, ...(mode === 'replace' && presetId ? { presetId } : {}) })
+      rcMode.set(id, mode)
+      const cur = records[id] ?? r
+      records[id] = { ...cur, reconverting: true, version: Math.max(cur.version, t.version ?? 0), lastReconvertError: undefined }
+      tasks.track([t] as never)
+      foldSession[r.sourceId] = true
+      return true
     } catch (e) {
-      say(errOf(e).message)
+      const err = errOf(e)
+      const reason = /^reason=(\w+)/.exec(err.detail ?? '')?.[1]
+      if (err.code === 'NOT_FOUND' && reason === 'file') markSourceGone(r.sourceId)
+      if (err.code === 'TASK_CONFLICT' && reason === 'output_moved') pathChecks.set(id, { reconvertMode: '', reconvertBlock: 'output_moved' })
+      say(reconvertErrorText(err), true)
+      return false
+    }
+  }
+  /** 重转结束（task:status 的 reconvertOutcome）：成功提示并重新取参数；失败警告 8 秒；取消 / 中断不提示 */
+  function onReconvertEnd(e: { id: string; outcome: string; error?: { code: string; message: string; detail?: string } }) {
+    const r = records[e.id]
+    const mode = rcMode.get(e.id) ?? (outputGone.has(e.id) ? 'regenerate' : 'replace')
+    rcMode.delete(e.id)
+    if (!r) return
+    const name = r.outputPath.split(/[\\/]/).pop() ?? ''
+    records[e.id] = { ...r, reconverting: undefined, ...(e.outcome === 'failed' && e.error ? { lastReconvertError: { ...e.error, at: Date.now() } } : {}) }
+    if (e.outcome === 'succeeded') {
+      outputGone.delete(e.id)
+      recThumbs.delete(e.id)
+      recThumbAsked.delete(e.id)
+      say(reconvertDoneToast(name))
+      void refreshRecord(r.sourceId, e.id)
+    } else if (e.outcome === 'failed') say(reconvertFailToast(mode, e.error), true)
+  }
+  /** 重转成功后参数快照可能变了（task:status 不带 params）：GetSource 重新取这一行 */
+  async function refreshRecord(sourceId: string, id: string) {
+    try {
+      putEntries([await getSource(sourceId)])
+      await refreshPathCheck(id)
+    } catch {
+      /* 取不到就先用旧的 */
     }
   }
   /** 磁盘空间不足：换个文件夹重新转换（用这条记录的参数和预设，新增一条记录） */
@@ -1002,7 +1283,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     const r = records[id]
     if (!r) return
     try {
-      afterSubmit(await submitSources({ sourceIds: [r.sourceId], options: optionsOf(r.options), outputDir: dir, presetId: r.presetId ?? '' }))
+      afterSubmit((await submitSources({ sourceIds: [r.sourceId], options: optionsOf(r.options), outputDir: dir, presetId: r.presetId ?? '' })).tasks)
     } catch (e) {
       say(errOf(e).message)
     }
@@ -1056,7 +1337,8 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   }
 
   // ---------------- 删除 ----------------
-  const deletable = (k: KidView) => k.status === 'succeeded' && !k.outputGone && !!k.outputPath
+  /** 有输出文件可删：成功的；v0.24 重转中的也算（删的是旧文件，§八 第 58 条） */
+  const deletable = (k: KidView) => (k.status === 'succeeded' || !!k.reconverting) && !k.outputGone && !!k.outputPath
   function deleteAsk(kind: 'record' | 'source', id: string): DeleteAsk | null {
     if (kind === 'record') {
       const k = liveById.value.get(id)
@@ -1070,8 +1352,10 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     const outs = kids.filter(deletable)
     const n = Math.max(s.recordCount, kids.length)
     return {
-      kind, id, title: SOURCE_REMOVE_TITLE, name: s.name, count: n, audio: isAudioOnly(metaInfoOf(s)), // 定稿（产品 + 设计 10-08）：不论有几条记录都用这一句
+      // X6（产品 10-08）：没有记录的行标题“从列表移除这个文件”，正文按 copyState（v0.24.1）；有记录的行不变
+      kind, id, title: n > 0 ? SOURCE_REMOVE_TITLE : SOURCE_REMOVE_TITLE_EMPTY, name: s.name, count: n, audio: isAudioOnly(metaInfoOf(s)),
       activeCount: kids.filter((k) => ACTIVE.includes(k.status)).length, outputs: outs.length, outputBytes: outs.reduce((x, k) => x + (k.result?.sizeBytes ?? 0), 0),
+      copyState: s.copyState ?? 'none', v24,
     }
   }
   /** 执行删除，返回删除结果（页面据此给提示） */
@@ -1111,26 +1395,30 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   }
 
   // ---------------- 页脚 ----------------
-  const startBlock = computed<'' | 'ffmpeg' | 'preset' | 'empty' | 'none' | 'probing' | 'conflict' | 'submitting'>(() => {
+  const startBlock = computed<'' | 'ffmpeg' | 'preset' | 'empty' | 'none' | 'probing' | 'conflict' | 'copying' | 'submitting'>(() => {
     if (submitting.value) return 'submitting'
     if (!ffmpeg.ready) return 'ffmpeg'
     if (!selectedPreset.value) return 'preset'
     if (!sourceCount.value) return 'empty'
     if (!selectedRows.value.length) return 'none'
-    if (!submittableRows.value.length) return probingSelected.value ? 'probing' : 'conflict'
+    if (!submittableRows.value.length) return probingSelected.value ? 'probing' : copyingSelected.value.length ? 'copying' : 'conflict'
     return ''
   })
 
   return {
     // 数据
     sources, records, selected, outputGone, recThumbs, loaded, loading, loadError, filter, filterHits, filtering, keyword, searching, searchHits, notice, toast, addedTick, pinned, focus,
+    // v0.24
+    v24, catalog, formatQuery, selectedFormat, formatPresets, storage, showFallback, copyingSelected, selectedHasVideo, pathChecks,
+    selectFormat, selectPreset, setFormatQuery, clearFormatQuery, loadStorage, dismissFallback, openStorage, changeOutputDir, cancelCopy, retryCopy,
+    reconvertStateOf, refreshPathCheck, reconvertAsk, startReconvert, isCopying,
     presets, presetsLoaded, presetsError, selectedPresetId, selectedPreset, tab, shownPresets, outputOverride, defaultOutputDir, effectiveOutputDir,
     submitting, submitError, outputName, round, roundBanner,
     // 派生
     parents, groups, sourceCount, recordCount, hasMore, loadingMore, total, liveById, selectedRows, submittableRows, blockedCount, probingSelected, startBlock,
     // 方法
     init, reload, loadMore, loadMoreRecords, locate, setFilter, search, loadPresets, presetTitle, setTab, isAudioPreset, toggle, clearSelection, isCheckable, conflictOfSource, setOpen,
-    addPaths, chooseFiles, chooseOutputDir, submit, afterSubmit, cancel, retry, reconvert, resubmitTo, revealOutput, revealSource, markOutputGone, markSourceGone,
+    addPaths, chooseFiles, chooseOutputDir, submit, afterSubmit, cancel, retry, resubmitTo, revealOutput, revealSource, markOutputGone, markSourceGone,
     deleteAsk, confirmDelete, ensureThumb, ensureRecThumb, requestMeta, closeBanner, probePending, liveOf, say,
   }
 })

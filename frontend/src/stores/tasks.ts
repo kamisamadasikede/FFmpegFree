@@ -9,7 +9,7 @@ import { toInstallProgress, useFFmpegStore } from '@/stores/ffmpeg'
 import { buildPreviewActive, buildPreviewHistory, PREVIEW_LOG } from '@/stores/tasks.preview'
 import { mergeEncoderFields, pickEncoderFields } from '@/api/encoderTask'
 import { convertV2IsReal, hideFinishedInTaskCenter, listTasks, unhideInTaskCenter } from '@/api/convertRecords'
-import { toTaskResult, type ApiTaskResult } from '@/api/taskTypes'
+import { toReconvertError, toTaskResult, type ApiReconvertError, type ApiTaskResult } from '@/api/taskTypes'
 
 /** 契约第 3 节。注意 canceled 只有一个 l */
 export type TaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'interrupted'
@@ -75,6 +75,10 @@ export interface TaskItem {
   sourceId?: string
   hiddenInTaskCenter?: boolean
   result?: ApiTaskResult
+  /** v0.24（契约 6.17.2）：正在原地重转（status 是 queued / running，旧的 result / outputPath / finishedAt 不变） */
+  reconverting?: boolean
+  /** v0.24：最近一次重转失败的信息 */
+  lastReconvertError?: ApiReconvertError
 }
 
 /** 终态任务的快照（见 useTaskStore 的 finalById） */
@@ -159,6 +163,17 @@ interface StatusPayload {
   retried?: boolean
   /** v0.23：UnhideInTaskCenter 的事件（false；status 是当前状态不变，只改这一项和 version）和 retried 事件带 */
   hiddenInTaskCenter?: boolean
+  /** v0.24（6.17.2）：convert 任务的 task:status 都带 */
+  reconverting?: boolean
+  /** v0.24：重转结束那一次的终态事件才有 */
+  reconvertOutcome?: 'succeeded' | 'failed' | 'canceled' | 'interrupted'
+  lastReconvertError?: unknown
+}
+/** v0.24：重转结束的事件（转换页据此给提示、重新取参数） */
+export interface ReconvertEnd {
+  id: string
+  outcome: 'succeeded' | 'failed' | 'canceled' | 'interrupted'
+  error?: ApiReconvertError
 }
 interface RemovedPayload { ids: string[] }
 type BufferedEvent =
@@ -201,6 +216,8 @@ export function normalizeTask(raw: goStore.Task | TaskItem): TaskItem {
     ...(typeof r.sourceId === 'string' && r.sourceId ? { sourceId: r.sourceId } : {}),
     ...(r.hiddenInTaskCenter === true ? { hiddenInTaskCenter: true } : {}),
     ...(toTaskResult(r.result) ? { result: toTaskResult(r.result) } : {}),
+    ...(r.reconverting === true ? { reconverting: true } : {}),
+    ...(toReconvertError(r.lastReconvertError) ? { lastReconvertError: toReconvertError(r.lastReconvertError) } : {}),
   }
 }
 
@@ -586,8 +603,18 @@ export const useTaskStore = defineStore('tasks', () => {
     } else if (!h && historyLoaded.value) scheduleRefresh() // “显示已隐藏”关闭时：这一行可以回到列表
   }
 
+  /** v0.24：重转结束（reconvertOutcome）的监听者；不管本地有没有这条任务都通知 */
+  const reconvertListeners = new Set<(e: ReconvertEnd) => void>()
+  function onReconvertEnd(cb: (e: ReconvertEnd) => void): () => void {
+    reconvertListeners.add(cb)
+    return () => reconvertListeners.delete(cb)
+  }
   function applyStatus(p: StatusPayload) {
     if (removedIds.has(p.id)) return
+    if (p.reconvertOutcome && (byId[p.id] ? p.version > byId[p.id].version : (finishedVersions.get(p.id) ?? -1) < p.version)) {
+      const ev: ReconvertEnd = { id: p.id, outcome: p.reconvertOutcome, ...(toReconvertError(p.lastReconvertError) ? { error: toReconvertError(p.lastReconvertError) } : {}) }
+      queueMicrotask(() => reconvertListeners.forEach((cb) => cb(ev)))
+    }
     if (p.retried) return applyRetried(p)
     if (p.hiddenInTaskCenter !== undefined) return applyUnhidden(p)
     const cur = byId[p.id]
@@ -604,6 +631,17 @@ export const useTaskStore = defineStore('tasks', () => {
           scheduleRefresh()
         }
       } else if (reopenedAfterFinish(p.id, p.version)) {
+        // v0.24 原地重转（6.17.3）：成功的记录重新排队，只发一条 queued 的 task:status（reconverting:true），不发 task:created
+        if (p.reconverting) {
+          finishedVersions.delete(p.id)
+          delete finalById[p.id]
+          const sim = isSimTask(p.id) ? getSimTask(p.id) : undefined
+          if (sim) {
+            const t = normalizeTask(sim as unknown as goStore.Task)
+            if (!isTerminal(t.status) && isKnownTaskType(t.type)) byId[t.id] = t
+            return
+          }
+        }
         recover(p.id)
       }
       return
@@ -611,6 +649,10 @@ export const useTaskStore = defineStore('tasks', () => {
     if (p.version <= cur.version) return
     cur.version = p.version
     cur.status = p.status
+    if (p.reconverting !== undefined) {
+      if (p.reconverting) cur.reconverting = true
+      else delete cur.reconverting
+    }
     if (p.error) cur.error = normalizeError(p.error)
     if (p.outputPath) cur.outputPath = p.outputPath
     if (p.finishedAt) cur.finishedAt = p.finishedAt
@@ -874,6 +916,6 @@ export const useTaskStore = defineStore('tasks', () => {
     todayDone, todayDoneCapped, failedTotal, finishedTotal,
     // 方法
     init, refreshActive, loadHistory, setHistoryGroup, setHistoryTypes, setHistoryPage, setShowHidden, loadStats,
-    cancel, retry, isBusy, exclusive, remove, hideFinished, unhide, getLog, track, fetchFinal, taskById, seedFinal, wasRemoved,
+    cancel, retry, isBusy, exclusive, remove, hideFinished, unhide, getLog, track, fetchFinal, taskById, seedFinal, wasRemoved, onReconvertEnd,
   }
 })

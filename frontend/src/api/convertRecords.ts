@@ -5,14 +5,17 @@
  * 真实调用在 api/convertRecordsBinding.ts（生成的 Wails 绑定，末尾有和生成类型的编译期对照）；CONVERT_V2_BACKEND_READY（api/flags.ts）为 false、
  * 或纯浏览器（没有 window.go）时，全部走 api/convertRecordsMock.ts 的模拟。
  */
-import { CONVERT_V2_BACKEND_READY } from '@/api/flags'
+import { CONVERT_V2_BACKEND_READY, CONVERT_V24_BACKEND_READY } from '@/api/flags'
 import { hasWailsBackend } from '@/services/wails'
 import { probeFiles, type ProbeResult } from '@/api/media'
 import { revealInFolder } from '@/api/system'
 import type { TaskError, TaskStatus } from '@/stores/tasks'
+import type { ApiReconvertError } from '@/api/taskTypes'
+import type { CopyState } from '@/utils/convertV24Text'
 import type { store as goStore } from '../../wailsjs/go/models'
 import * as real from '@/api/convertRecordsBinding'
 import * as mock from '@/api/convertRecordsMock'
+import * as v24real from '@/api/convertV24Binding'
 
 // ---------------- 契约类型（§6.14.2；与生成的 models.ts 逐字段对照见 convertRecordsBinding.ts 末尾） ----------------
 
@@ -23,10 +26,48 @@ export interface TaskResult {
   width?: number
   height?: number
   audioBitrateKbps?: number
+  /** v0.24（6.14.6）：结果警告，目前只有 "short_output"；没有时缺省 */
+  warnings?: string[]
+}
+/**
+ * v0.24 加在已有类型上的字段（契约 v0.24 / v0.24.1）。后端还没实现、绑定还没生成，所以 convertRecordsBinding.ts 末尾的
+ * 生成类型对照先把这些键 Omit 掉；后端合入、重新生成绑定后去掉 Omit（V024_EXTRA_KEYS 一起删）。
+ */
+export interface V024TaskExtra {
+  /** true = 正在原地重转（status 是 queued / running；旧的 result / outputPath / finishedAt / params 不变，6.17.2） */
+  reconverting?: boolean
+  /** 最近一次重转失败；重转成功、取消或又开始一次时清空 */
+  lastReconvertError?: ApiReconvertError
+}
+export interface V024SourceExtra {
+  /** 原文件的绝对路径（用户的文件，后端永远不删、不改） */
+  originalPath?: string
+  /** 副本路径；copyState=none 时 ""；copying / failed / canceled 时是副本将要 / 曾经所在的位置 */
+  storedPath?: string
+  copyState?: CopyState
+  copiedBytes?: number
+  totalBytes?: number
+  /** 只有 failed 有 */
+  copyError?: TaskError | null
+}
+export interface V024TaskPathCheckExtra {
+  /** v0.24.1：'replace' 旧输出在 → 覆盖重转；'regenerate' 旧输出不在、源文件在 → 按原参数重新生成；'' 不能重转（原因见 reconvertBlock）。取代 canReconvert */
+  reconvertMode?: 'replace' | 'regenerate' | ''
+  /** reconvertMode='' 时：invalid_state | output_moved | source_missing | copy_not_ready（源文件不在优先） */
+  reconvertBlock?: string
+}
+export interface V024SourcePathCheckExtra {
+  originalExists?: boolean
+  /** 副本是普通文件；copyState=none 时 false */
+  storedExists?: boolean
+}
+export interface V024DeleteFailureExtra {
+  /** v0.24：只有副本删不掉的那一条有 */
+  sourceId?: string
 }
 
 /** 契约第 3 节的 Task，含 v0.23 字段（这里只列转换页用到的） */
-export interface V023Task {
+export interface V023Task extends V024TaskExtra {
   id: string
   type: string
   status: TaskStatus
@@ -51,7 +92,7 @@ export interface V023Task {
   result?: TaskResult
 }
 
-export interface ConvertSource {
+export interface ConvertSource extends V024SourceExtra {
   sourceId: string
   path: string
   name: string
@@ -130,19 +171,19 @@ export interface ConvertSubmitRequest {
   presetId: string
 }
 
-export interface TaskPathCheck {
+export interface TaskPathCheck extends V024TaskPathCheckExtra {
   taskId: string
   found: boolean
   inputExists: boolean
   outputExists: boolean
 }
-export interface SourcePathCheck {
+export interface SourcePathCheck extends V024SourcePathCheckExtra {
   sourceId: string
   found: boolean
   exists: boolean
 }
 
-export interface DeleteFailure {
+export interface DeleteFailure extends V024DeleteFailureExtra {
   taskId: string
   path?: string
   /** in_use | permission | not_task_output | io | still_running（只追加） */
@@ -155,6 +196,23 @@ export interface DeleteResult {
   deletedSourceIds: string[]
   deletedFiles: number
   failures: DeleteFailure[]
+}
+
+/** v0.24 SubmitSources 的返回值（6.15.4 第 6 条）。v0.23 后端只返回 tasks，这里补 skipped: [] */
+export interface ConvertSubmitResult {
+  tasks: V023Task[]
+  skipped: SkippedSource[]
+}
+export interface SkippedSource {
+  sourceId: string
+  /** copying | copy_failed | copy_canceled */
+  reason: string
+}
+/** v0.24 Reconvert 的参数（6.17.1）：都不给 = 沿用原来的参数 */
+export interface ReconvertRequest {
+  taskId: string
+  presetId?: string
+  options?: RecordOptions
 }
 
 export interface PreviewURL {
@@ -222,6 +280,9 @@ export interface ConvertRecord {
   encoderDevice?: string
   hwFallback?: boolean
   hwFallbackReason?: string
+  /** v0.24：正在原地重转（status 是 queued / running；outputPath / result / finishedAt 还是旧的） */
+  reconverting?: boolean
+  lastReconvertError?: ApiReconvertError
 }
 export function recordOf(t: V023Task): ConvertRecord {
   const p = parseParams(t.params)
@@ -232,7 +293,9 @@ export function recordOf(t: V023Task): ConvertRecord {
     version: t.version ?? 0, createdAt: t.createdAt ?? 0, startedAt: t.startedAt ?? 0, finishedAt: t.finishedAt ?? 0, options: p.options,
     ...(p.presetId !== undefined ? { presetId: p.presetId } : {}), ...(p.presetName !== undefined ? { presetName: p.presetName } : {}),
     ...(p.paramsSummary !== undefined ? { paramsSummary: p.paramsSummary } : {}),
-    ...(t.status === 'succeeded' && t.result ? { result: { ...t.result } } : {}),
+    ...((t.status === 'succeeded' || t.reconverting) && t.result ? { result: { ...t.result, ...(t.result.warnings ? { warnings: [...t.result.warnings] } : {}) } } : {}),
+    ...(t.reconverting ? { reconverting: true } : {}),
+    ...(t.lastReconvertError?.code ? { lastReconvertError: { ...t.lastReconvertError } } : {}),
     ...(t.encoder ? { encoder: t.encoder } : {}), ...(t.encoderDevice ? { encoderDevice: t.encoderDevice } : {}),
     ...(t.hwFallback ? { hwFallback: true } : {}), ...(t.hwFallbackReason ? { hwFallbackReason: t.hwFallbackReason } : {}),
   }
@@ -243,6 +306,13 @@ export function recordOf(t: V023Task): ConvertRecord {
 /** 是否走真实后端（开关打开且在 Wails 里） */
 export const convertV2IsReal = (): boolean => CONVERT_V2_BACKEND_READY && hasWailsBackend()
 const api = () => (convertV2IsReal() ? real : mock)
+/** v0.24 接口走真实后端：两个开关都打开且在 Wails 里 */
+export const convertV24IsReal = (): boolean => convertV2IsReal() && CONVERT_V24_BACKEND_READY
+/**
+ * v0.24 的界面打开（格式目录、存储、副本状态、重转、时长偏短）：v0.24 走真实后端，或者转换页整体在走模拟（纯浏览器 / v2 开关关着）。
+ * 只有“真实 v0.23 后端 + v0.24 开关关着”时为 false——这时转换页、设置页保持 v0.23 的样子，一个 v0.24 接口都不调。
+ */
+export const convertV24On = (): boolean => convertV24IsReal() || !convertV2IsReal()
 
 // ConvertService
 export const addSources = (paths: string[]): Promise<AddSourceResult[]> => api().AddSources(paths)
@@ -252,9 +322,24 @@ export const searchSources = (f: ConvertSearchFilter): Promise<ConvertSourcePage
 export const checkSources = (ids: string[]): Promise<SourcePathCheck[]> => api().CheckSources(ids)
 /** “将保存为”：返回完整输出路径（不占位，提交时可能不同） */
 export const previewOutputName = (sourceId: string, opts: RecordOptions, outputDir: string): Promise<string> => api().PreviewOutputName(sourceId, opts, outputDir)
-export const submitSources = (req: ConvertSubmitRequest): Promise<V023Task[]> => api().SubmitSources(req)
-/** 只用于已成功的记录：又转一次，新增一条（其余状态 TASK_CONFLICT；失败 / 取消 / 中断用 TaskService.Retry 原地重试） */
-export const reconvert = (taskId: string): Promise<V023Task> => api().Reconvert(taskId)
+/**
+ * 提交。v0.24（6.15.4 第 6 条）返回 {tasks, skipped}：没复制好的行跳过；一行都没就绪时 TASK_CONFLICT（reason=copying / copy_failed）。
+ * v0.23 后端（CONVERT_V24_BACKEND_READY=false）只返回任务数组，这里补 skipped: []。
+ */
+export const submitSources = async (req: ConvertSubmitRequest): Promise<ConvertSubmitResult> => {
+  if (convertV24IsReal()) return v24real.SubmitSources(req)
+  if (convertV2IsReal()) return { tasks: await real.SubmitSources(req), skipped: [] }
+  return mock.SubmitSources(req)
+}
+/**
+ * v0.24 原地重转（6.17）：只用于 succeeded；同一条记录、同一个输出文件名。v0.23 后端的 Reconvert 是“新增一条”，
+ * 语义不同，所以开关关着时在 Wails 里直接报 UNSUPPORTED（界面也不给入口）。
+ */
+export const reconvert = (req: ReconvertRequest): Promise<V023Task> => {
+  if (convertV24IsReal()) return v24real.Reconvert(req)
+  if (convertV2IsReal()) return Promise.reject(Object.assign(new Error('UNSUPPORTED'), { code: 'UNSUPPORTED', message: '当前版本不支持重转' }))
+  return mock.Reconvert(req)
+}
 export const deleteRecords = (taskIds: string[], deleteOutputs: boolean): Promise<DeleteResult> => api().DeleteRecords(taskIds, deleteOutputs)
 export const deleteSource = (sourceId: string, deleteOutputs: boolean): Promise<DeleteResult> => api().DeleteSource(sourceId, deleteOutputs)
 export const getSourcePreviewURL = (sourceId: string): Promise<PreviewURL> => api().GetSourcePreviewURL(sourceId)
@@ -285,6 +370,73 @@ export const revealRecord = (taskId: string): Promise<void> => api().RevealRecor
 export const revealDeleteFailure = (path: string): Promise<void> => (hasWailsBackend() ? revealInFolder(path) : mock.revealDeleteFailureMock(path))
 /** v0.23.1：取单个源文件行 */
 export const getSource = (sourceId: string): Promise<ConvertSourceEntry> => api().GetSource(sourceId)
+
+// ---------------- v0.24（6.15–6.17）：格式目录、存储目录、副本、重转中断 ----------------
+// 只在 convertV24On() 时调用。真实后端在 api/convertV24Binding.ts（绑定生成前按名字 callService），模拟在 convertRecordsMock.ts。
+const v24 = () => (convertV24IsReal() ? v24real : mock)
+
+/** 格式目录里的一个预设（6.16.1） */
+export interface FormatPreset {
+  id: string
+  name: string
+  builtIn: boolean
+  /** 按 6.14.5 由 options 算出，永远非空 */
+  paramsSummary: string
+  options: RecordOptions
+}
+/** 格式目录里的一项（6.16.1）：34 种，按 视频 / 音频 / 图片 */
+export interface FormatEntry {
+  category: 'video' | 'audio' | 'image'
+  extension: string
+  displayName: string
+  aliases: string[]
+  encodable: boolean
+  reason?: string
+  /** converter_not_ready | missing_muxer | missing_encoder | check_failed */
+  reasonCode?: string
+  defaultPresetId: string
+  presets: FormatPreset[]
+}
+/** 6.15.2 */
+export interface StorageDirs {
+  outputDir: string
+  uploadsDir: string
+  outputCustom: boolean
+  uploadsCustom: boolean
+  defaultOutputDir: string
+  defaultUploadsDir: string
+  /** exe_dir | user_data */
+  baseKind: string
+  fellBack: boolean
+  outputAvailable: boolean
+  uploadsAvailable: boolean
+}
+/** 两个字段都要传；"" = 默认 */
+export interface StorageDirsUpdate {
+  outputDir: string
+  uploadsDir: string
+}
+/** convert:copy 事件（6.15.4 第 5 条）：按 sourceId 记住最大 seq，丢弃更小的 */
+export interface CopyEvent {
+  sourceId: string
+  seq: number
+  copyState: CopyState
+  copiedBytes: number
+  totalBytes: number
+  storedPath: string
+  error?: TaskError | null
+}
+export const getFormatCatalog = (): Promise<FormatEntry[]> => v24().GetFormatCatalog()
+export const getStorageDirs = (): Promise<StorageDirs> => v24().GetStorageDirs()
+export const setStorageDirs = (req: StorageDirsUpdate): Promise<StorageDirs> => v24().SetStorageDirs(req)
+export const openStorageFolder = (kind: 'output' | 'uploads'): Promise<void> => v24().OpenStorageFolder(kind)
+export const cancelCopy = (sourceId: string): Promise<void> => v24().CancelCopy(sourceId)
+/** 返回更新后的行；空间不足、原文件不在这类立即失败不是调用错误（返回的行 copyState=failed、copyError 有值） */
+export const retryCopy = (sourceId: string): Promise<ConvertSource> => v24().RetryCopy(sourceId)
+/** v0.24.1：启动时调一次，返回上次退出时被中断的重转条数（取完清零） */
+export const takeInterruptedReconverts = (): Promise<number> => v24().TakeInterruptedReconverts()
+/** 订阅 convert:copy；返回取消订阅 */
+export const onCopyEvent = (cb: (e: CopyEvent) => void): (() => void) => v24().onCopy(cb)
 
 // ---------------- 探测（MediaService.Probe） ----------------
 /**

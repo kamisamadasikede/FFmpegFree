@@ -10,6 +10,7 @@ import * as CS from '../../wailsjs/go/app/ConvertService'
 import * as TS from '../../wailsjs/go/app/TaskService'
 import { convert, ffmpeg, store, task } from '../../wailsjs/go/models'
 import type {
+  V024DeleteFailureExtra, V024SourceExtra, V024SourcePathCheckExtra, V024TaskExtra, V024TaskPathCheckExtra,
   AddSourceResult, ConvertSearchFilter, ConvertSourceFilter, ConvertSourcePage, ConvertSubmitRequest, DeleteResult, PreviewURL,
   ConvertSourceEntry, RecordOptions, SourcePathCheck, TaskPage, TaskPathCheck, V023Task,
 } from '@/api/convertRecords'
@@ -57,24 +58,25 @@ export const GetPreviewURL = async (taskId: string, which: 'input' | 'output'): 
 export const OpenWithSystem = async (taskId: string, which: 'input' | 'output') => void (await call(TS.OpenWithSystem(taskId, which)))
 
 // ---------------- 编译期检查：前端类型 ↔ 生成类型（Go 结构体的 json 名）----------------
+// v0.24 的新字段（V024*Extra、TaskResult.warnings）后端还没生成，先 Omit；重新生成绑定后去掉 Omit。
 /** A 的每个键 B 都有，B 的每个必填键 A 也有 */
 type SameKeys<A, B> = [Exclude<keyof A, keyof B>, Exclude<{ [K in keyof B]-?: undefined extends B[K] ? never : K }[keyof B], keyof A>] extends [never, never] ? true : { onlyFrontend: Exclude<keyof A, keyof B>; missingRequired: Exclude<{ [K in keyof B]-?: undefined extends B[K] ? never : K }[keyof B], keyof A> }
 type Fn<T> = { [K in keyof T as T[K] extends (...a: never[]) => unknown ? K : never]: T[K] }
 type Data<T> = Omit<T, keyof Fn<T>>
 const ok = <T extends true>(): T => true as T
 export const BINDING_SHAPES_OK = [
-  ok<SameKeys<V023Task, Data<store.Task>>>(),
-  ok<SameKeys<NonNullable<V023Task['result']>, Data<store.TaskResult>>>(),
+  ok<SameKeys<Omit<V023Task, keyof V024TaskExtra>, Data<store.Task>>>(),
+  ok<SameKeys<Omit<NonNullable<V023Task['result']>, 'warnings'>, Data<store.TaskResult>>>(),
   ok<SameKeys<ConvertSourceEntry, Data<convert.ConvertSourceEntry>>>(),
-  ok<SameKeys<ConvertSourceEntry['source'], Data<store.ConvertSource>>>(),
+  ok<SameKeys<Omit<ConvertSourceEntry['source'], keyof V024SourceExtra>, Data<store.ConvertSource>>>(),
   ok<SameKeys<ConvertSourceFilter, Data<convert.ConvertSourceFilter>>>(),
   ok<SameKeys<ConvertSearchFilter, Data<convert.ConvertSearchFilter>>>(),
   ok<SameKeys<ConvertSubmitRequest, Data<convert.ConvertSubmitRequest>>>(),
   ok<SameKeys<RecordOptions, Data<ffmpeg.ConvertOptions>>>(),
   ok<SameKeys<AddSourceResult, Data<convert.AddSourceResult>>>(),
-  ok<SameKeys<SourcePathCheck, Data<convert.SourcePathCheck>>>(),
-  ok<SameKeys<TaskPathCheck, Data<task.TaskPathCheck>>>(),
+  ok<SameKeys<Omit<SourcePathCheck, keyof V024SourcePathCheckExtra>, Data<convert.SourcePathCheck>>>(),
+  ok<SameKeys<Omit<TaskPathCheck, keyof V024TaskPathCheckExtra>, Data<task.TaskPathCheck>>>(),
   ok<SameKeys<DeleteResult, Data<task.DeleteResult>>>(),
-  ok<SameKeys<DeleteResult['failures'][number], Data<task.DeleteFailure>>>(),
+  ok<SameKeys<Omit<DeleteResult['failures'][number], keyof V024DeleteFailureExtra>, Data<task.DeleteFailure>>>(),
   ok<SameKeys<PreviewURL, Data<convert.PreviewURL>>>(),
 ] as const

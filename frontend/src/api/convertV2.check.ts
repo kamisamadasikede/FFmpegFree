@@ -132,7 +132,7 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
     eq('模拟记录：预设记录 presetId 非空，摘要按宽写 720p；自定义记录 presetId 为空', [ivNew.presetId, ivNew.paramsSummary, ivOld.presetId, ivOld.presetName, ivOld.paramsSummary], ['builtin-mp4-h264-720p', 'H.264 · 720p', '', '', 'H.264 · 1080p · 8.0 Mbps'])
     eq('模拟记录第 2 行：预设名 / 自定义 · 摘要', [recordParamsText(ivNew).text, recordParamsText(ivOld).text], ['MP4 720p', '自定义 · H.264 · 1080p · 8.0 Mbps'])
     eq('parseParams：旧任务 params 为空 → 三个快照 undefined', [parseParams('').presetId, parseParams('{"options":{"container":"mp4"}}').paramsSummary], [undefined, undefined])
-    eq('Reconvert：只接受成功的记录（v1 没有界面入口，只保留接口）', (await rejects(mock.Reconvert('simcv-nope')))?.code, 'NOT_FOUND')
+    eq('Reconvert：记录不存在 NOT_FOUND', (await rejects(mock.Reconvert({ taskId: 'simcv-nope' })))?.code, 'NOT_FOUND')
   }
   // ---- ListSources status（v0.23.1）：EXISTS 语义，内嵌记录 / recordCount 不过滤，分页排序不变 ----
   {
@@ -302,7 +302,7 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
     const c0 = cv.sources[sid]?.recordCount ?? -1
     const h0 = cv.recordCount
     const o = { container: 'mp4', videoCodec: 'h264', audioCodec: 'aac', width: 0, height: 0, fps: 0, videoBitrate: 0, audioBitrate: 0, crf: 0, targetSizeMb: 0, trimStart: 0, trimEnd: 0 }
-    const sub = async () => (await mock.SubmitSources({ sourceIds: [sid], options: o, outputDir: '', presetId: 'builtin-mp4-h264' }))[0]
+    const sub = async () => (await mock.SubmitSources({ sourceIds: [sid], options: o, outputDir: '', presetId: 'builtin-mp4-h264' })).tasks[0]
     // 真实后端里 task:status 可能先于 SubmitSources 返回：先进任务 store（监听里加），再 afterSubmit
     const t1 = await sub()
     ts.track([t1] as never)
