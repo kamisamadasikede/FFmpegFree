@@ -22,6 +22,18 @@ export function codecName(c?: string): string {
   return c.toUpperCase()
 }
 
+/**
+ * 媒体信息里的编码显示名（契约 v0.23.4）：优先用后端按 internal/codecname 唯一一张表生成的 videoCodecName / audioCodecName，
+ * 前端原样显示（不做大小写处理）；缺了（旧数据、模拟层）才退回上面的 codecName。
+ */
+type CodecInfo = { videoCodec?: string; audioCodec?: string; videoCodecName?: string; audioCodecName?: string }
+export function videoCodecText(i?: CodecInfo): string {
+  return i?.videoCodecName || codecName(i?.videoCodec)
+}
+export function audioCodecText(i?: CodecInfo): string {
+  return i?.audioCodecName || codecName(i?.audioCodec)
+}
+
 export function channelText(n?: number): string {
   if (!n) return ''
   return n === 1 ? '单声道' : n === 2 ? '立体声' : `${n} 声道`
@@ -43,10 +55,10 @@ export function isAudioInfo(i?: goStore.MediaInfo): boolean {
 /** 行内一行信息：分辨率 · 编码 · 大小（音频：采样率 · 声道 · 大小） */
 export function rowInfoText(i: goStore.MediaInfo): string {
   const parts: string[] = []
-  if (!isAudioInfo(i)) parts.push(`${i.width}×${i.height}`, codecName(i.videoCodec))
+  if (!isAudioInfo(i)) parts.push(`${i.width}×${i.height}`, videoCodecText(i))
   else {
     parts.push(sampleRateText(i.sampleRate), channelText(i.channels))
-    if (!i.sampleRate && !i.channels && i.audioCodec) parts.push(codecName(i.audioCodec))
+    if (!i.sampleRate && !i.channels && i.audioCodec) parts.push(audioCodecText(i))
   }
   parts.push(formatBytes(i.size))
   return parts.filter(Boolean).join(' · ')

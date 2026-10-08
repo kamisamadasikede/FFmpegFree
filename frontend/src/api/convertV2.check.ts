@@ -10,8 +10,10 @@ import { useConvertRecordsStore } from '@/stores/convertRecords'
 import { nextTick } from 'vue'
 import { FFPROBE_MISSING_TEXT, liveFfmpegProtocolMissingText, LIVE_FFMPEG_PROTOCOL_MISSING_TEXT } from '@/errors/errorMessages'
 import { midEllipsis, midTailMin } from '@/utils/midEllipsis'
-import { dupPresetTitles, presetShortTitle, setPresetCatalog, recordParamsText, recordLine, deleteToast, toastText, revealDeleteFailureText, sourceRemovedParts, conflictReason, CONFLICT_NO_AUDIO, CONFLICT_NO_VIDEO, CONFLICT_TITLE, formatRecordTime } from '@/utils/convertText'
-import { codecName } from '@/utils/mediaText'
+import { sourceMetaText, dupPresetTitles, presetShortTitle, setPresetCatalog, recordParamsText, recordLine, deleteToast, toastText, revealDeleteFailureText, sourceRemovedParts, conflictReason, CONFLICT_NO_AUDIO, CONFLICT_NO_VIDEO, CONFLICT_TITLE, formatRecordTime } from '@/utils/convertText'
+import { codecName, rowInfoText, videoCodecText, audioCodecText } from '@/utils/mediaText'
+import { metaInfoOf } from '@/stores/convertRecords'
+import { store as goStore } from '../../wailsjs/go/models'
 
 type Eq = (name: string, got: unknown, want: unknown) => void
 async function rejects(p: Promise<unknown>): Promise<AppError | null> {
@@ -83,6 +85,19 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
   eq('编码显示名：H.265 / ProRes，不出现 HEVC / PRORES；表里有的按表', ['hevc', 'h265', 'prores', 'h264', 'av1', 'pcm_s16le', 'cinepak', 'copy'].map((c) => codecName(c)), ['H.265', 'H.265', 'ProRes', 'H.264', 'AV1', 'PCM', 'Cinepak', '原编码'])
   eq('走查 X3：FFV1 / DNxHD / MJPEG 按表；表里没有的原样大写，不做首字母大写（不出现“Ffv1”）', [codecName('ffv1'), codecName('dnxhd'), codecName('mjpeg'), codecName('foo2'), mock.mockParamsSummary({ container: 'mkv', videoCodec: 'ffv1' })], ['FFV1', 'DNxHD', 'MJPEG', 'FOO2', 'FFV1'])
   eq('走查 X3：前端只有 mediaText 一张编码名表，没有别处自己首字母大写', [/charAt\(0\)\.toUpperCase\(\)/.test(readSrc('src/utils/mediaText.ts')), /charAt\(0\)\.toUpperCase\(\)/.test(readSrc('src/api/convertRecordsMock.ts')), /codecName\(base\)/.test(readSrc('src/api/convertRecordsMock.ts'))], [false, false, true])
+  {
+    // 契约 v0.23.4 / PR #92：MediaInfo.videoCodecName / audioCodecName 优先，原样显示；缺了才退回前端的表
+    const V = (o: Partial<goStore.MediaInfo>) => goStore.MediaInfo.createFrom({ id: '', path: '', name: '', size: 0, duration: 60, width: 1920, height: 1080, videoCodec: '', audioCodec: '', bitrate: 0, thumbUrl: '', hasVideo: true, hasAudio: true, probedAt: 0, ...o })
+    eq('编码显示名：后端字段优先，不改大小写；缺了退回 codecName', [videoCodecText({ videoCodec: 'ffv1', videoCodecName: 'FFV1' }), videoCodecText({ videoCodec: 'foo', videoCodecName: 'Foo' }), videoCodecText({ videoCodec: 'ffv1' }), audioCodecText({ audioCodec: 'pcm_s24le', audioCodecName: 'PCM' }), audioCodecText({ audioCodec: 'ac3' }), videoCodecText({})], ['FFV1', 'Foo', 'FFV1', 'PCM', 'AC-3', ''])
+    eq('父行 / 文件行 / 预览底栏都用后端显示名', [sourceMetaText(V({ videoCodec: 'dnxhd', videoCodecName: 'DNxHD后端' })).includes('DNxHD后端'), rowInfoText(V({ videoCodec: 'dnxhd', videoCodecName: 'DNxHD后端' })).includes('DNxHD后端'), /videoCodecText\(i\)/.test(readSrc('src/components/convert/ConvertPreviewDialog.vue')), /codecName\(i\.videoCodec\)|codecName\(i\.audioCodec\)/.test(readSrc('src/components/convert/ConvertPreviewDialog.vue') + readSrc('src/utils/convertText.ts') + readSrc('src/utils/mediaText.ts'))], [true, true, true, false])
+    // G3：media 整份入库后保留 hasVideo / hasAudio
+    const pod = V({ width: 0, height: 0, audioCodec: 'pcm_s16le', audioCodecName: 'PCM', hasVideo: false, sampleRate: 48000, channels: 2, size: 0 })
+    const mute = V({ videoCodec: 'h264', videoCodecName: 'H.264', hasAudio: false, size: 0 })
+    eq('G3：只有 media（重启后）也保留 hasVideo / hasAudio：音频显示采样率 · 声道，无声视频显示“没有声音”', [sourceMetaText(metaInfoOf({ media: pod })!), sourceMetaText(metaInfoOf({ media: mute })!), metaInfoOf({ media: mute })?.hasAudio], ['48 kHz · 立体声 · 01:00', '1920×1080 · H.264 · 没有声音 · 01:00', false])
+    const legacy = metaInfoOf({ media: V({ videoCodec: 'h264', videoCodecName: 'H.264', hasVideo: false, hasAudio: false, size: 0 }) })!
+    eq('G3 之前的旧缓存（两个都是 false）按不知道处理：按宽高当视频，不显示“没有声音”', [legacy.hasVideo, legacy.hasAudio, sourceMetaText(legacy)], [undefined, undefined, '1920×1080 · H.264 · 01:00'])
+    eq('当次探测（info）优先于 media', metaInfoOf({ info: mute, media: pod })?.hasAudio, false)
+  }
   {
     // 走查 G2：第 2 行 / 任务中心 / 预览底栏和预设卡片共用 presetShortTitle：同名预设补编码
     const names = ['MP4（H.264 + AAC，通用）', 'MP4 1080p（H.264 + AAC）', 'MP4（H.265 + AAC，体积更小）', 'WebM（VP9 + Opus）']
