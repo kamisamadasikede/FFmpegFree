@@ -4,7 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import ConvertThumb from './ConvertThumb.vue'
 import ConvertKid from './ConvertKid.vue'
-import { metaInfoOf, useConvertRecordsStore, type ParentView } from '@/stores/convertRecords'
+import { metaInfoOf, useConvertRecordsStore, SOURCE_REMOVE_LABEL, type ParentView } from '@/stores/convertRecords'
 import { useTaskStore } from '@/stores/tasks'
 import { CONFLICT_TITLE, isAudioContainer, isAudioOnly, sourceMetaText } from '@/utils/convertText'
 import { formatShortClock } from '@/utils/format'
@@ -148,11 +148,11 @@ async function revealKid(id: string) {
         <button v-else type="button" class="cv-ib" :aria-label="`预览源文件 ${src.name}`" title="预览源文件" @click="emit('preview', 'source', src.sourceId)"><FIcon name="eye" /></button>
         <button v-if="gone" type="button" class="cv-ib only1280" aria-disabled="true" :aria-label="`打开所在文件夹 ${src.name}：源文件已不存在`" data-tip="源文件已不存在"><FIcon name="folder" /></button>
         <button v-else type="button" class="cv-ib only1280" :aria-label="`打开所在文件夹 ${src.name}`" title="打开所在文件夹" @click="revealSrc"><FIcon name="folder" /></button>
-        <button type="button" class="cv-ib del only1280" :aria-label="`删除 ${src.name} 和全部记录`" title="删除源文件和全部记录" @click="emit('remove', 'source', src.sourceId)"><FIcon name="trash" /></button>
+        <button type="button" class="cv-ib del only1280" :aria-label="SOURCE_REMOVE_LABEL" :title="SOURCE_REMOVE_LABEL" @click="emit('remove', 'source', src.sourceId)"><FIcon name="trash" /></button>
         <button ref="moreBtn" type="button" class="cv-ib only1024" :aria-label="`更多：打开所在文件夹、删除 ${src.name}`" title="更多" aria-haspopup="menu" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><FIcon name="more" /></button>
         <div v-if="menuOpen" class="cv-more-menu" role="menu">
           <button type="button" role="menuitem" :aria-disabled="gone || undefined" :title="gone ? '源文件已不存在' : undefined" @click="!gone && menu(revealSrc)"><FIcon name="folder" />打开所在文件夹</button>
-          <button type="button" role="menuitem" class="danger" @click="menu(() => emit('remove', 'source', src.sourceId))"><FIcon name="trash" />删除源文件和全部记录</button>
+          <button type="button" role="menuitem" @click="menu(() => emit('remove', 'source', src.sourceId))"><FIcon name="trash" />{{ SOURCE_REMOVE_LABEL }}</button>
         </div>
       </div>
     </div>

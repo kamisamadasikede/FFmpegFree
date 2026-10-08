@@ -71,14 +71,23 @@ export interface ConvertSourceEntry {
   matchedTaskIds?: string[]
 }
 
+/**
+ * v0.23.1 ListSources 的 status：'' 全部；active = 有任一排队中 / 进行中记录的行；failed = 有任一失败 / 中断记录的行（已取消不算）。
+ * 其它值 INVALID_ARGUMENT。分页、排序不变；每行内嵌的最新记录和 recordCount 不按状态过滤（要找失败的那条，用户展开这一行）。
+ */
+export type ConvertSourceStatus = '' | 'active' | 'failed'
+export const CONVERT_SOURCE_STATUSES: readonly ConvertSourceStatus[] = ['', 'active', 'failed']
 export interface ConvertSourceFilter {
   /** 源文件行数，默认 50，最大 200 */
   limit: number
   offset: number
   /** 每行内嵌的记录数，默认 20，最大 100 */
   recordLimit: number
+  /** v0.23.1，可选，缺省 = ''（全部） */
+  status?: ConvertSourceStatus
 }
-export interface ConvertSearchFilter extends ConvertSourceFilter {
+/** SearchSources 没有 status 参数 */
+export interface ConvertSearchFilter extends Omit<ConvertSourceFilter, 'status'> {
   keyword: string
 }
 export interface ConvertSourcePage {

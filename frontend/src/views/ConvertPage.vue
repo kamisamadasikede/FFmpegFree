@@ -77,7 +77,9 @@ function estimate(it: Item): number {
 /** VirtualList 是泛型组件，InstanceType 取不到；只用到它暴露的这三个 */
 const vl = ref<{ scrollToKey: (key: string, align?: 'start' | 'nearest') => Promise<void>; scrollToTop: () => void; el: HTMLElement | null } | null>(null)
 const noResult = computed(() => !!cv.searchHits && !cv.searching && !cv.parents.length)
-const filterEmpty = computed(() => !cv.searchHits && cv.filter !== 'all' && hasRows.value && !cv.parents.length)
+const filterEmpty = computed(() => !cv.searchHits && cv.filter !== 'all' && !cv.filtering && !!cv.filterHits && !cv.parents.length)
+/** 搜索时不能按状态筛选（SearchSources 没有 status）：按钮置灰，开始搜索时已回到“全部” */
+const filterOff = computed(() => !!kw.value.trim() || !!cv.searchHits)
 watch(() => cv.addedTick, () => vl.value?.scrollToTop())
 
 // ---- 预览 / 删除 / 日志 ----
@@ -164,7 +166,7 @@ watch(() => route.query.record, (r) => {
   if (r) void locateFromRoute()
 })
 
-// ---- 模拟场景的弹窗（走查 / 截图用：?dlg=video|result|audio|unplayable|delete|delete-kid） ----
+// ---- 模拟场景的弹窗（走查 / 截图用：?dlg=video|result|audio|unplayable|delete|delete-checked|delete-kid） ----
 function openMockDialog() {
   if (convertV2IsReal()) return
   switch (simParam('dlg')) {
@@ -173,6 +175,10 @@ function openMockDialog() {
     case 'audio': return onPreview('record', 'simcv-podMp3')
     case 'unplayable': return onPreview('source', 'mock-src-demo')
     case 'delete': return onRemove('source', 'mock-src-launch')
+    case 'delete-checked':
+      onRemove('source', 'mock-src-launch')
+      delChecked.value = true
+      return
     case 'delete-kid':
       delAsk.value = cv.deleteAsk('record', 'simcv-ivNew')
       delChecked.value = true
@@ -201,8 +207,8 @@ onUnmounted(() => {
           <h2>转换记录</h2>
           <span class="cnt">{{ countText }}</span>
           <span class="sp" />
-          <div v-if="hasRows || cv.searchHits" class="cv-filter" role="tablist" aria-label="筛选">
-            <button v-for="f in FILTERS" :key="f.key" type="button" role="tab" :class="{ on: cv.filter === f.key }" :aria-selected="cv.filter === f.key" @click="cv.setFilter(f.key)">{{ f.label }}</button>
+          <div v-if="hasRows || cv.searchHits" class="cv-filter" :class="{ off: filterOff }" role="tablist" aria-label="筛选" :title="filterOff ? '搜索时显示全部状态' : undefined">
+            <button v-for="f in FILTERS" :key="f.key" type="button" role="tab" :class="{ on: cv.filter === f.key }" :aria-selected="cv.filter === f.key" :disabled="filterOff" :aria-busy="cv.filtering && cv.filter === f.key" @click="cv.setFilter(f.key)">{{ f.label }}</button>
           </div>
           <label v-if="hasRows || cv.searchHits" class="cv-search">
             <FIcon name="search" />
@@ -262,7 +268,12 @@ onUnmounted(() => {
             </template>
             <template #footer>
               <div v-if="noResult" class="cv-noresult">没有找到包含“{{ cv.keyword.trim() }}”的记录</div>
-              <div v-else-if="filterEmpty" class="cv-noresult">{{ cv.filter === 'active' ? '已加载的记录里没有进行中的转换' : '已加载的记录里没有失败的转换' }}</div>
+              <div v-else-if="cv.filtering && !cv.filterHits" class="cv-noresult">正在筛选…</div>
+              <div v-else-if="filterEmpty" class="cv-empty-filter">
+                <FIcon :name="cv.filter === 'active' ? 'convert' : 'check'" :size="20" />
+                <b>{{ cv.filter === 'active' ? '没有进行中的转换' : '没有失败的转换' }}</b>
+                <button type="button" class="ff-link" @click="cv.setFilter('all')">查看全部记录</button>
+              </div>
               <div v-if="cv.hasMore" class="cv-loadmore">
                 <button type="button" class="btn" :disabled="cv.loadingMore" :aria-busy="cv.loadingMore" @click="cv.loadMore()">{{ cv.loadingMore ? '正在加载…' : '加载更早的记录' }}</button>
               </div>

@@ -396,3 +396,10 @@ html.reduce-motion .cv-kid.focus{animation-timing-function:steps(1,end)}
 .cv-log{width:640px;max-width:calc(100vw - 64px)}
 .cv-log pre{margin:0;max-height:360px;overflow:auto;font-family:var(--ff-font-mono);font-size:12px;line-height:1.5;background:var(--ff-bg-hover);border-radius:6px;padding:10px;white-space:pre-wrap;word-break:break-all;color:var(--ff-text-1)}
 .cv-search input::-webkit-search-cancel-button{display:none}
+
+/* 状态筛选（v0.23.1 ListSources status）：搜索时置灰；筛选结果为空 */
+.cv-filter.off{opacity:.5}
+.cv-filter button:disabled{cursor:not-allowed}
+.cv-empty-filter{display:flex;flex-direction:column;align-items:center;gap:8px;padding:40px 16px;text-align:center;color:var(--ff-text-3)}
+.cv-empty-filter b{font-size:13px;font-weight:500;color:var(--ff-text-2)}
+.cv-empty-filter .ff-link{font-size:12px}

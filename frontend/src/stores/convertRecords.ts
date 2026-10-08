@@ -26,6 +26,9 @@ import type { store as goStore } from '../../wailsjs/go/models'
 
 export type ProbeState = 'pending' | 'probing' | 'ok' | 'error'
 export type RecordFilter = 'all' | 'active' | 'failed'
+/** 源文件行删除（定稿 10-08）：按钮提示 / 菜单项“从列表移除”，弹窗标题如下；源文件本身永远不删 */
+export const SOURCE_REMOVE_LABEL = '从列表移除'
+export const SOURCE_REMOVE_TITLE = '从列表移除这个文件和它的全部记录'
 
 /** 父行（源文件） */
 export interface SourceRow {
@@ -166,6 +169,13 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   /** 搜索结果（null = 不在搜索）：行 id 的顺序 + 命中信息 */
   const searchHits = ref<{ order: string[]; name: Set<string>; tasks: Map<string, Set<string>>; offset: number; total: number } | null>(null)
   const searching = ref(false)
+  /**
+   * 全部 / 进行中 / 失败（v0.23.1 ListSources 的 status）：选了进行中 / 失败时按后端返回的行显示（行 id 顺序 + 分页），null = 全部。
+   * 行里的记录不按状态过滤（与后端一致：内嵌记录和 recordCount 不过滤，要找失败的那条，展开这一行）。
+   * 搜索时不能按状态筛选（SearchSources 没有 status）：开始搜索会回到“全部”，页面上筛选按钮置灰。
+   */
+  const filterHits = ref<{ status: Exclude<RecordFilter, 'all'>; order: string[]; offset: number; total: number } | null>(null)
+  const filtering = ref(false)
 
   const presets = ref<PresetItem[]>([])
   const presetsLoaded = ref(false)
@@ -344,7 +354,9 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   const parents = computed<ParentView[]>(() => {
     const out: ParentView[] = []
     const sh = searchHits.value
-    const rows = sh ? sh.order.map((id) => sources[id]).filter((s): s is SourceRow => !!s) : Object.values(sources)
+    const fh = filterHits.value
+    const order = sh ? sh.order : fh ? fh.order : filter.value !== 'all' ? [] : null // 筛选还在取第一页：先不显示行
+    const rows = order ? order.map((id) => sources[id]).filter((s): s is SourceRow => !!s) : Object.values(sources)
     for (const src of rows) {
       const all = kidsBySource.value.get(src.sourceId) ?? []
       let kids = all
@@ -354,14 +366,9 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
         hits = sh.tasks.get(src.sourceId) ?? new Set()
         kids = all.filter((k) => hits!.has(k.id))
       } else if (sh) hits = sh.tasks.get(src.sourceId) ?? null
-      if (filter.value !== 'all') {
-        const want = filter.value === 'active' ? ACTIVE : FAILED
-        kids = kids.filter((k) => want.includes(k.status))
-        if (!kids.length) continue
-      }
       const lastActivityAt = src.lastActivityAt
       const running = kids.filter((k) => k.status === 'running')
-      const filtered = !!sh || filter.value !== 'all'
+      const filtered = !!sh // 状态筛选不过滤行里的记录，只有搜索会
       out.push({
         src,
         kids,
@@ -395,7 +402,10 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   /** 计数“5 个文件 · 8 条记录”：后端总行数和本地已知的取大；记录数按各行的 recordCount 加总（未加载的行不知道，所以是已加载部分） */
   const sourceCount = computed(() => Math.max(listTotal.value, Object.keys(sources).length))
   const recordCount = computed(() => Object.values(sources).reduce((n, s) => n + s.recordCount, 0))
-  const hasMore = computed(() => (searchHits.value ? searchHits.value.offset < searchHits.value.total : listOffset.value < listTotal.value))
+  const hasMore = computed(() => {
+    const p = searchHits.value ?? filterHits.value
+    return p ? p.offset < p.total : listOffset.value < listTotal.value
+  })
 
   // ---------------- 总进度 / 本轮完成 ----------------
   /** 总进度覆盖所有进行中的转换（含没加载到的行），所以直接用任务 store 的活动列表 */
@@ -463,6 +473,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       loaded.value = true
       void checkExistence(page.items)
       void probePending()
+      if (filterHits.value) void loadFiltered(filterHits.value.status)
     } catch (e) {
       loadError.value = errOf(e)
     } finally {
@@ -498,6 +509,15 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
         applySearch(p.items, sh)
         sh.offset += p.items.length
         sh.total = p.total
+      } else if (filterHits.value) {
+        const fh = filterHits.value
+        const p = await listSources({ limit: SOURCE_PAGE, offset: fh.offset, recordLimit: RECORD_LIMIT, status: fh.status })
+        if (filterHits.value !== fh) return
+        putEntries(p.items)
+        for (const e of p.items) if (!fh.order.includes(e.source.sourceId)) fh.order.push(e.source.sourceId)
+        fh.offset += p.items.length
+        fh.total = p.total
+        void checkExistence(p.items)
       } else {
         const p = await listSources({ limit: SOURCE_PAGE, offset: listOffset.value, recordLimit: RECORD_LIMIT })
         putEntries(p.items)
@@ -539,7 +559,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   async function locate(taskId: string, sourceId?: string) {
     if (!loaded.value) await reload()
     if (keyword.value || searchHits.value) await search('')
-    filter.value = 'all'
+    clearFilter()
     const sid = sourceId || records[taskId]?.sourceId || (tasks.taskById(taskId) as { sourceId?: string } | undefined)?.sourceId || ''
     if (!sid) return say('没有找到这条转换记录')
     // 不管这一行在不在已加载的页里，都用 GetSource 取最新的一份，临时放到最上面（不改 lastActivityAt，刷新列表后回到原位置）
@@ -561,9 +581,43 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     foldSession[sid] = true
     focus.value = { id: taskId, sourceId: sid, at: Date.now() }
   }
-  function setFilter(f: RecordFilter) {
-    // 契约没有按状态过滤的源文件列表：筛选只作用于已加载的行（进行中的记录总是在最上面几行，失败的可能需要先“加载更早的记录”）
+  function clearFilter() {
+    filter.value = 'all'
+    filterHits.value = null
+    filterSeq++
+    filtering.value = false
+  }
+  let filterSeq = 0
+  /** 进行中 / 失败：ListSources(status)（v0.23.1）取第一页；limit 用于刷新时保留已翻过的行数 */
+  async function loadFiltered(status: Exclude<RecordFilter, 'all'>, limit = SOURCE_PAGE, keep = false) {
+    const seq = ++filterSeq
+    filtering.value = true
+    try {
+      const p = await listSources({ limit: Math.min(200, Math.max(SOURCE_PAGE, limit)), offset: 0, recordLimit: RECORD_LIMIT, status })
+      if (seq !== filterSeq) return
+      putEntries(p.items)
+      const order = p.items.map((e) => e.source.sourceId)
+      // 刷新（keep）：已显示但不再符合的行先留着（进行中的刚完成、失败的刚重试），重新点筛选或重新加载后才去掉，避免行在眼前消失
+      const prev = keep && filterHits.value?.status === status ? filterHits.value.order.filter((id) => !order.includes(id) && sources[id]) : []
+      filterHits.value = { status, order: [...order, ...prev], offset: p.items.length, total: p.total }
+      void checkExistence(p.items)
+      void probePending()
+    } catch (e) {
+      if (seq !== filterSeq) return
+      say(errOf(e).message)
+      if (!filterHits.value) filter.value = 'all' // 第一次就没取到：回到全部
+    } finally {
+      if (seq === filterSeq) filtering.value = false
+    }
+  }
+  /** 全部 / 进行中 / 失败。搜索时不能用（SearchSources 没有 status），页面上按钮置灰 */
+  async function setFilter(f: RecordFilter) {
+    if (keyword.value.trim() || searchHits.value) return
+    if (f === 'all') return clearFilter()
+    if (f === filter.value && filterHits.value) return
     filter.value = f
+    filterHits.value = null // 切换时先清掉上一种筛选的行，避免闪出不符合的行
+    await loadFiltered(f)
   }
   function applySearch(items: ConvertSourceEntry[], sh: NonNullable<typeof searchHits.value>) {
     putEntries(items)
@@ -587,6 +641,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       searching.value = false
       return
     }
+    if (filter.value !== 'all') clearFilter() // 搜索时显示全部状态（SearchSources 没有 status）
     searching.value = true
     try {
       const p = await searchSources({ keyword: kw.slice(0, 100), limit: SOURCE_PAGE, offset: 0, recordLimit: RECORD_LIMIT })
@@ -601,6 +656,20 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       if (seq === searchSeq) searching.value = false
     }
   }
+
+  // 筛选中：有转换开始 / 结束时重新取一次筛选的第一页（新出现的进行中 / 失败行加进来；已显示的行保留）
+  let filterTimer: ReturnType<typeof setTimeout> | undefined
+  watch(
+    () => activeConvert.value.map((t) => t.id).join(','),
+    () => {
+      const fh = filterHits.value
+      if (!fh) return
+      clearTimeout(filterTimer)
+      filterTimer = setTimeout(() => {
+        if (filterHits.value === fh) void loadFiltered(fh.status, fh.offset, true)
+      }, 400)
+    },
+  )
 
   // 别处新建 / 原地重试的转换任务（任务中心重试、旧 Submit）：任务 store 里出现进行中的 convert 任务时同步到记录
   let topTimer: ReturnType<typeof setTimeout> | undefined
@@ -765,6 +834,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       row.exists = true
       if (had) row.flashAt = now
       if (searchHits.value && !searchHits.value.order.includes(row.sourceId)) searchHits.value.order.unshift(row.sourceId)
+      if (filterHits.value && !filterHits.value.order.includes(row.sourceId)) filterHits.value.order.unshift(row.sourceId) // 刚添加的行在筛选里也先显示出来
       if (isCheckable(row)) selected.add(row.sourceId) // 新加入的自动勾选
     }
     if (failed.length) notice.value = failed.join('；')
@@ -960,7 +1030,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     const outs = kids.filter(deletable)
     const n = Math.max(s.recordCount, kids.length)
     return {
-      kind, id, title: n ? `删除“${s.name}”和它的 ${n} 条转换记录？` : `从列表里移除“${s.name}”？`, name: s.name, count: n,
+      kind, id, title: SOURCE_REMOVE_TITLE, name: s.name, count: n, // 定稿（产品 + 设计 10-08）：不论有几条记录都用这一句
       activeCount: kids.filter((k) => ACTIVE.includes(k.status)).length, outputs: outs.length, outputBytes: outs.reduce((x, k) => x + (k.result?.sizeBytes ?? 0), 0),
     }
   }
@@ -976,6 +1046,11 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       listTotal.value = Math.max(0, listTotal.value - 1)
       listOffset.value = Math.max(0, listOffset.value - 1) // 删掉已加载的一行，后面的行前移一位
       if (searchHits.value) searchHits.value.order = searchHits.value.order.filter((x) => x !== sid)
+      if (filterHits.value) {
+        filterHits.value.order = filterHits.value.order.filter((x) => x !== sid)
+        filterHits.value.offset = Math.max(0, filterHits.value.offset - 1)
+        filterHits.value.total = Math.max(0, filterHits.value.total - 1)
+      }
     }
     saveFold(foldUser)
     return r
@@ -1008,7 +1083,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
 
   return {
     // 数据
-    sources, records, selected, outputGone, recThumbs, loaded, loading, loadError, filter, keyword, searching, searchHits, notice, toast, addedTick, pinned, focus,
+    sources, records, selected, outputGone, recThumbs, loaded, loading, loadError, filter, filterHits, filtering, keyword, searching, searchHits, notice, toast, addedTick, pinned, focus,
     presets, presetsLoaded, presetsError, selectedPresetId, selectedPreset, tab, shownPresets, outputOverride, defaultOutputDir, effectiveOutputDir,
     submitting, submitError, outputName, round, roundBanner,
     // 派生

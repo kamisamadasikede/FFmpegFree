@@ -35,6 +35,9 @@ const optSmall = computed(() => {
   if (a.value.kind === 'record') return sizeText.value
   return `${a.value.outputs} 个文件${sizeText.value ? `，共 ${sizeText.value}` : ''}`
 })
+/** 确认按钮：记录 = 红色“删除”；源文件行 = 普通“移除”，勾了“同时删除输出文件”变红色“移除并删除文件”（定稿 10-08） */
+const confirmText = computed(() => (a.value?.kind === 'record' ? '删除' : withOutput.value ? '移除并删除文件' : '移除'))
+const confirmClass = computed(() => (a.value?.kind === 'record' || withOutput.value ? 'danger' : 'pri'))
 const activeLine = computed(() => (a.value && a.value.activeCount > 0 ? `其中 ${a.value.activeCount} 项正在转换，删除时会先取消它。` : ''))
 
 function onKey(e: KeyboardEvent) {
@@ -73,7 +76,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true))
           <p v-else-if="a.count === 0" id="cv-del-d">只从列表里移除，<b>不删除磁盘上的文件</b>。</p>
           <p v-else id="cv-del-d">
             <template v-if="withOutput">记录和 {{ a.outputs }} 个输出文件都会被删除，<b>源文件不会被删除</b>。</template>
-            <template v-else>只删除记录，<b>不删除磁盘上的文件</b>，源文件也不会被删除。</template>{{ activeLine }}
+            <template v-else>只删除记录，<b>不删除磁盘上的文件</b>。</template>{{ activeLine }}
           </p>
           <button v-if="a.outputs > 0" type="button" class="cv-opt" :class="{ on: withOutput }" role="checkbox" :aria-checked="withOutput" @click="withOutput = !withOutput">
             <span class="cv-chk" :class="{ on: withOutput }"><FIcon v-if="withOutput" name="check" /></span>
@@ -81,7 +84,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true))
           </button>
           <div class="dfoot" style="justify-content: flex-end">
             <button ref="cancelBtn" type="button" class="btn lg" :disabled="busy" @click="emit('close')">取消</button>
-            <button type="button" class="btn lg danger" :disabled="busy" :aria-busy="busy" @click="emit('confirm', withOutput)">{{ a.kind === 'source' && a.count === 0 ? '移除' : '删除' }}</button>
+            <button type="button" class="btn lg" :class="confirmClass" :disabled="busy" :aria-busy="busy" @click="emit('confirm', withOutput)">{{ confirmText }}</button>
           </div>
         </div>
       </div>

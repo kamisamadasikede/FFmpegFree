@@ -45,7 +45,8 @@ const arr = <T>(v: T[] | null | undefined): T[] => v ?? []
 const page = (p: ConvertSourcePage | null): ConvertSourcePage => ({ items: arr(p?.items).map((e) => ({ ...e, records: arr(e.records) })), total: p?.total ?? 0 })
 
 export const AddSources = async (paths: string[]) => arr(await svc<AddSourceResult[]>('AddSources', paths))
-export const ListSources = async (f: ConvertSourceFilter) => page(await svc<ConvertSourcePage>('ListSources', f))
+/** v0.23.1：status 总是带上（缺省 ''） */
+export const ListSources = async (f: ConvertSourceFilter) => page(await svc<ConvertSourcePage>('ListSources', { ...f, status: f.status ?? '' }))
 export const ListSourceRecords = async (sourceId: string, limit: number, offset: number): Promise<TaskPage> => {
   const p = await svc<TaskPage>('ListSourceRecords', sourceId, limit, offset)
   return { items: arr(p?.items), total: p?.total ?? 0 }

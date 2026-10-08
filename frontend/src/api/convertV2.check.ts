@@ -55,6 +55,35 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
     eq('parseParams：旧任务 params 为空 → 三个快照 undefined', [parseParams('').presetId, parseParams('{"options":{"container":"mp4"}}').paramsSummary], [undefined, undefined])
     eq('Reconvert：只接受成功的记录（v1 没有界面入口，只保留接口）', (await rejects(mock.Reconvert('simcv-nope')))?.code, 'NOT_FOUND')
   }
+  // ---- ListSources status（v0.23.1）：EXISTS 语义，内嵌记录 / recordCount 不过滤，分页排序不变 ----
+  {
+    const ids = async (status: '' | 'active' | 'failed', limit = 50, offset = 0) => {
+      const p = await mock.ListSources({ limit, offset, recordLimit: 20, status })
+      return { ids: p.items.map((e) => e.source.sourceId.replace('mock-src-', '')), total: p.total, items: p.items }
+    }
+    mock.resetConvertMock('mixed')
+    const all = await ids('')
+    const act = await ids('active')
+    const fail = await ids('failed')
+    eq('status 筛选（mixed）：全部 5 行；进行中 / 失败都只有 launch', [all.ids, act.ids, fail.ids, act.total, fail.total], [['launch', 'iv', 'rec', 'pod', 'wed'], ['launch'], ['launch'], 1, 1])
+    eq('status 筛选：行内嵌记录和 recordCount 不按状态过滤（含已完成那条）', [fail.items[0].recordCount, fail.items[0].records.map((r) => r.status)], [3, ['failed', 'running', 'succeeded']])
+    eq('status 缺省 = 全部', (await mock.ListSources({ limit: 50, offset: 0, recordLimit: 20 })).total, all.total)
+    mock.resetConvertMock('canceled')
+    eq('status 筛选（canceled）：已取消不算失败，也不算进行中', [(await ids('failed')).ids, (await ids('active')).ids], [[], []])
+    mock.resetConvertMock('running')
+    const r1 = await ids('active')
+    const r2 = await ids('active', 1, 1)
+    eq('status 筛选（running）：排队中 / 进行中都算；排序按最近活动；分页不变', [r1.ids, r1.total, r2.ids, r2.total], [['rec', 'launch'], 2, ['launch'], 2])
+    eq('status 筛选（running）：没有失败行', (await ids('failed')).ids, [])
+    const bad = await rejects(mock.ListSources({ limit: 50, offset: 0, recordLimit: 20, status: 'canceled' as never }))
+    eq('status 其它值 → INVALID_ARGUMENT', bad?.code, 'INVALID_ARGUMENT')
+    eq('status 失败 = failed / interrupted（模拟层定义）', /failed: \['failed', 'interrupted'\]/.test(readSrc('src/api/convertRecordsMock.ts')), true)
+    eq('绑定层：ListSources 总是带 status（缺省 \'\'）；SearchSources 没有 status', [/'ListSources', \{ \.\.\.f, status: f\.status \?\? '' \}/.test(readSrc('src/api/convertRecordsBinding.ts')), /interface ConvertSearchFilter extends Omit<ConvertSourceFilter, 'status'>/.test(readSrc('src/api/convertRecords.ts'))], [true, true])
+    const st = readSrc('src/stores/convertRecords.ts')
+    eq('store：筛选走 ListSources(status)；搜索时不筛选（开始搜索回到全部，setFilter 忽略）', [/listSources\(\{[^}]*status \}\)/.test(st), /if \(keyword\.value\.trim\(\) \|\| searchHits\.value\) return/.test(st), /if \(filter\.value !== 'all'\) clearFilter\(\)/.test(st)], [true, true, true])
+    const pg = readSrc('src/views/ConvertPage.vue')
+    eq('页面：没有“已加载的记录里…”提示，筛选为空时是普通空状态', [/已加载的记录里/.test(pg), pg.includes('没有进行中的转换'), pg.includes('没有失败的转换')], [false, true, true])
+  }
   // ---- 原地重试（含已取消）、隐藏 / 取消隐藏 ----
   mock.resetConvertMock('canceled')
   {
@@ -90,6 +119,11 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
   eq('转换页：没有“再转一个”/ startOver，没有 Reconvert 入口', [/再转一个|startOver/.test(page + panel + row + kid + pv), /\breconvert\(/.test(page + panel + row + kid + pv)], [false, false])
   eq('转换页：“转换 N 个文件”按钮', /转换 \$\{[^}]+\} 个文件/.test(panel), true)
   eq('删除确认：只删记录；勾选“同时删除输出文件”才提示无法恢复', [/只删除记录，(<b>)?不删除磁盘上的文件/.test(del), del.includes('同时删除输出文件'), del.includes('删除后无法恢复。')], [true, true, true])
+  {
+    const st = readSrc('src/stores/convertRecords.ts')
+    eq('源文件行删除定稿：标题 / 按钮提示 / 菜单项“从列表移除”；没有旧说法', [/SOURCE_REMOVE_TITLE = '从列表移除这个文件和它的全部记录'/.test(st), /SOURCE_REMOVE_LABEL = '从列表移除'/.test(st), /:aria-label="SOURCE_REMOVE_LABEL" :title="SOURCE_REMOVE_LABEL"/.test(row), /\{\{ SOURCE_REMOVE_LABEL \}\}<\/button>/.test(row), /删除源文件和全部记录/.test(row + del + st + page)], [true, true, true, true, false])
+    eq('源文件行确认按钮：普通“移除”，勾选后红色“移除并删除文件”', [/withOutput\.value \? '移除并删除文件' : '移除'/.test(del), /a\.value\?\.kind === 'record' \|\| withOutput\.value \? 'danger' : 'pri'/.test(del)], [true, true])
+  }
   eq('三处第 2 行都走 recordLine / recordParamsText', [/recordLine\(/.test(kid), /recordLine\(/.test(pv)], [true, true])
   eq('预览：快捷键空格 / ←→ 5 秒 / F / Esc；token 404 重新取一次地址', [/' '|'Space'/.test(pv), /ArrowLeft/.test(pv) && /ArrowRight/.test(pv), /'f'|'F'/.test(pv), /Escape/.test(pv), /404/.test(pv)], [true, true, true, true, true])
   eq('记录用 RevealRecord（不再用 RevealInFolder(path)）', [/revealRecord\(/.test(readSrc('src/stores/convertRecords.ts')), /RevealInFolder|revealInFolder/.test(readSrc('src/api/convertRecordsBinding.ts'))], [true, false])

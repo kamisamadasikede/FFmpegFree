@@ -313,10 +313,15 @@ export async function AddSources(paths: string[]): Promise<AddSourceResult[]> {
     return { path, source: copySource(m), existed: false }
   })
 }
+/** v0.23.1 status：行里有任一记录满足（EXISTS）；内嵌记录和 recordCount 不过滤 */
+const STATUS_OF: Record<string, readonly TaskStatus[] | null> = { '': null, active: ['queued', 'running'], failed: ['failed', 'interrupted'] }
 export async function ListSources(f: ConvertSourceFilter): Promise<ConvertSourcePage> {
   ensure()
   const { limit, recordLimit, offset } = clampFilter(f)
-  const all = byActivity()
+  const st = f.status ?? ''
+  if (!Object.prototype.hasOwnProperty.call(STATUS_OF, st)) throw new AppError('INVALID_ARGUMENT', '筛选条件不正确', `status=${st}`)
+  const want = STATUS_OF[st]
+  const all = byActivity().filter((m) => !want || recordsOf(m.src.sourceId).some((t) => want.includes(t.status)))
   return { items: all.slice(offset, offset + limit).map((m) => entryOf(m, recordLimit)), total: all.length }
 }
 /** v0.23.1：单个源文件行（和 ListSources 的一项同形） */
