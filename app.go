@@ -209,16 +209,13 @@ func (a *App) startLive() {
 		log.Printf("直播服务未启动：任务管理器或媒体服务不可用")
 		return
 	}
-	// 预览临时目录：<数据目录>/tmp/live-preview。启动时清空上次异常退出遗留的预览文件；目录不可用只是没有预览，不影响直播。
-	previewDir := ""
+	// v0.25 不再用 JPEG 预览目录。上次运行留下的 live-preview 删掉，不重建。
 	if a.dirs.Temp != "" {
-		previewDir = filepath.Join(a.dirs.Temp, live.PreviewDirName)
-		if err := live.CleanupPreviewDir(previewDir); err != nil {
-			log.Printf("清理直播预览临时目录失败，本次运行不出预览: %v", err)
-			previewDir = ""
+		if err := live.CleanupPreviewDir(filepath.Join(a.dirs.Temp, live.PreviewDirName)); err != nil {
+			log.Printf("清理旧的直播预览目录失败: %v", err)
 		}
 	}
-	a.live.Store(live.New(live.Config{Tasks: tm, Media: med, PreviewDir: previewDir, Encoder: a.sys.EncoderResolver(), Logf: log.Printf}))
+	a.live.Store(live.New(live.Config{Tasks: tm, Media: med, Encoder: a.sys.EncoderResolver(), Logf: log.Printf, Emit: app.NewWailsEmitter(a.ctx).Emit}))
 }
 
 // startFFmpegDetect 在后台检测 ffmpeg，不阻塞界面；状态变化通过 ffmpeg:status 事件推送。

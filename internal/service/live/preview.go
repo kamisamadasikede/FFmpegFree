@@ -3,9 +3,9 @@ package live
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,166 +19,188 @@ import (
 	"FFmpegFree/internal/proc"
 )
 
-// 直播预览（契约 v0.14 / 6.10「预览画面」）：推流会话在主输出之外多一路 JPEG 预览输出，
-// 拉流预览会话只读远端流、只输出预览。GetPreview 读取最新一帧。
+// 直播预览视频流（契约 v0.25 / 6.10.3）。v0.17 的 JPEG 预览已删除。
 
 const (
-	// PreviewDirName 是数据目录 tmp 下的预览临时子目录名。
+	// PreviewDirName 是旧版预览临时目录名。v0.25 启动时删掉它，不再重建。
 	PreviewDirName = "live-preview"
-	// MaxPullPreviews 是同时进行的拉流预览会话上限（与推流会话上限分开计）。
+	// MaxPullPreviews 是同时进行的拉流预览会话上限。
 	MaxPullPreviews = 4
-	// maxPreviewBytes 是单帧预览的大小上限；640 宽的 JPEG 通常只有几十 KB，超过说明文件不对。
-	maxPreviewBytes = 4 << 20
 	pullProbeWait   = 12 * time.Second
+	previewMIME     = "video/x-flv"
 )
 
-// Preview 是 GetPreview 的返回。没有可用画面时 Data 为空、TS 为 0（不是错误）。
-type Preview struct {
-	// Data 是最新一帧 JPEG 的 base64（标准编码、无 data: 前缀），没有画面时为空串。
-	Data string `json:"data"`
-	// TS 是这一帧写入的时间（毫秒时间戳）；没有画面时为 0。前端可据此判断画面是否停滞。
-	TS int64 `json:"ts"`
-	// Active 表示会话还在进行（推流任务未结束 / 拉流预览会话未结束）。前端在 Active=false 时停止轮询。
-	Active bool `json:"active"`
+// defaultDevPreview 由带 dev 标签的文件在 init 里打开。
+var defaultDevPreview bool
+
+// PreviewStream 是 GetPreviewStream 的返回。
+type PreviewStream struct {
+	URL      string `json:"url"`
+	MIME     string `json:"mime"`
+	HasVideo bool   `json:"hasVideo"`
+	HasAudio bool   `json:"hasAudio"`
 }
 
-// PullPreviewRequest 是 StartPullPreview 的参数。
+// PullPreviewRequest 是 StartPullPreview 的参数。Preview 保留，后端忽略。
 type PullPreviewRequest struct {
-	URL string `json:"url"` // rtmp / rtmps / srt / http / https 地址
-	// Preview 为 nil（缺省）或 true 时出预览；false 时会话不启动 ffmpeg（GetPreview 恒为空）。
-	Preview *bool `json:"preview"`
+	URL     string `json:"url"`
+	Preview *bool  `json:"preview"`
 }
 
 // PullSession 是拉流预览会话。
 type PullSession struct {
-	ID       string `json:"id"`
-	Redacted string `json:"redacted"` // 脱敏后的地址，可直接显示
-	Preview  bool   `json:"preview"`  // 是否真的在出预览
+	ID         string `json:"id"`
+	Redacted   string `json:"redacted"`
+	Preview    bool   `json:"preview"`
+	PreviewURL string `json:"previewUrl"`
+}
+
+// PullEvent 是 live:pull 的 payload。
+type PullEvent struct {
+	ID    string           `json:"id"`
+	State string           `json:"state"`
+	Error *apperr.AppError `json:"error,omitempty"`
+}
+
+// StreamProbe 是拉流地址里的编码名（空 = 没有这条流）。
+type StreamProbe struct {
+	Video string
+	Audio string
 }
 
 type pullSession struct {
-	key     string
-	preview string // 预览 JPEG 路径；空 = 没有预览
-	cancel  context.CancelFunc
-	done    chan struct{}
+	key      string
+	feed     *previewFeed
+	cancel   context.CancelFunc
+	done     chan struct{}
+	redacted string
 }
 
-// CleanupPreviewDir 清理并重建预览临时目录（应用启动时调用：上次异常退出遗留的预览文件）。
-// 目录名必须是 live-preview，避免误删别的目录。
+// CleanupPreviewDir 删除旧版预览目录（v0.25 不再使用）。目录名必须是 live-preview。不存在不算错。
 func CleanupPreviewDir(dir string) error {
 	if dir == "" || filepath.Base(dir) != PreviewDirName {
 		return fmt.Errorf("预览目录不合法: %q", dir)
 	}
-	if err := os.RemoveAll(dir); err != nil {
-		return err
-	}
-	return os.MkdirAll(dir, 0o755)
+	return os.RemoveAll(dir)
 }
 
-// planPreview 决定这个会话要不要出预览：返回预览 JPEG 路径，"" 表示不加预览输出。
-// 降级不报错：调用方关闭、没配预览目录、ffmpeg 不支持 mjpeg / image2 / fps / scale、目录不可写，都只是不加预览（记日志）。
-func (s *Service) planPreview(ctx context.Context, bin ffmpeg.Binaries, sessionID string, want *bool) string {
-	if want != nil && !*want {
-		return ""
-	}
-	dir := s.cfg.PreviewDir
-	if dir == "" {
-		return ""
-	}
-	if !s.cfg.Preview.Supported(ctx, bin.FFmpeg) {
-		s.logf("当前 ffmpeg 不支持预览输出，本次会话不加预览")
-		return ""
-	}
-	if err := ensureWritableDir(dir); err != nil {
-		s.logf("预览目录不可用，本次会话不加预览: %v", err)
-		return ""
-	}
-	return filepath.Join(dir, sessionID+".jpg")
+func (s *Service) server() *previewHTTP {
+	s.httpOnce.Do(func() {
+		s.http = &previewHTTP{dev: s.cfg.DevPreview}
+	})
+	return s.http
 }
 
-func ensureWritableDir(dir string) error {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(dir, ".probe-*")
+func (s *Service) hasPreviewMux(ctx context.Context, bin ffmpeg.Binaries) bool {
+	p, err := s.cfg.Protocols.OutputProtocols(ctx, bin.FFmpeg)
 	if err != nil {
-		return err
-	}
-	name := f.Name()
-	f.Close()
-	return os.Remove(name)
-}
-
-// removePreviewFiles 删除预览文件和 ffmpeg 原子写入用的 .tmp 文件。
-func removePreviewFiles(path string) {
-	if path == "" {
-		return
-	}
-	os.Remove(path)
-	os.Remove(path + ".tmp")
-}
-
-// readPreviewFrame 读取并校验预览帧：必须以 JPEG SOI（FF D8）开头、以 EOI（FF D9）结尾。半帧或空文件返回 ok=false。
-// ts 取文件修改时间（毫秒）。
-func readPreviewFrame(path string) (data []byte, ts int64, ok bool) {
-	fi, err := os.Stat(path)
-	if err != nil || fi.IsDir() || fi.Size() < 4 || fi.Size() > maxPreviewBytes {
-		return nil, 0, false
-	}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, 0, false
-	}
-	if !validJPEG(b) {
-		return nil, 0, false
-	}
-	return b, fi.ModTime().UnixMilli(), true
-}
-
-// validJPEG 检查 SOI 开头、EOI 结尾（允许结尾有少量 0 填充字节）。
-func validJPEG(b []byte) bool {
-	if len(b) < 4 || b[0] != 0xFF || b[1] != 0xD8 {
+		s.logf("检查预览所需协议失败，本次不加预览: %v", err)
 		return false
 	}
-	end := len(b)
-	for end > 2 && b[end-1] == 0 && len(b)-end < 16 {
-		end--
+	if !p["tee"] || !p["tcp"] {
+		s.logf("当前转换组件不支持预览视频流（缺少 tee 或 tcp），本次不加预览")
+		return false
 	}
-	return b[end-2] == 0xFF && b[end-1] == 0xD9
+	return true
 }
 
-// GetPreview 返回会话（推流任务 id 或拉流预览会话 id）最新一帧预览。会话不存在、已结束、预览关闭、还没有画面、
-// 读到半帧，都返回空 Preview（Data 为空），不是错误。
-func (s *Service) GetPreview(sessionID string) (Preview, error) {
-	path, active := s.previewPath(sessionID)
-	out := Preview{Active: active}
-	if path == "" {
-		return out, nil
+// openFeed 打开预览分支的监听。做不到（缺协议、端口绑不上）返回 nil，推流照常。
+func (s *Service) openFeed(ctx context.Context, bin ffmpeg.Binaries, push, hasVideo, hasAudio bool) *previewFeed {
+	if !s.hasPreviewMux(ctx, bin) {
+		return nil
 	}
-	if b, ts, ok := readPreviewFrame(path); ok {
-		out.Data = base64.StdEncoding.EncodeToString(b)
-		out.TS = ts
+	h := s.server()
+	httpPort, err := h.start()
+	if err != nil {
+		s.logf("预览服务启动失败，本次不加预览: %v", err)
+		return nil
 	}
-	return out, nil
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		s.logf("预览监听失败，本次不加预览: %v", err)
+		return nil
+	}
+	tcpLn := ln.(*net.TCPListener)
+	token, err := newPreviewToken()
+	if err != nil {
+		tcpLn.Close()
+		s.logf("预览令牌生成失败，本次不加预览: %v", err)
+		return nil
+	}
+	f := &previewFeed{
+		token: token, port: ln.Addr().(*net.TCPAddr).Port,
+		url:      fmt.Sprintf("http://127.0.0.1:%d/live/%s.flv", httpPort, token),
+		hasVideo: hasVideo, hasAudio: hasAudio, push: push,
+		hub: newFLVHub(), ln: tcpLn, done: make(chan struct{}),
+	}
+	h.register(f)
+	go f.acceptIngest()
+	return f
 }
 
-func (s *Service) previewPath(sessionID string) (path string, active bool) {
+func (s *Service) dropFeed(f *previewFeed) {
+	if f == nil {
+		return
+	}
+	if s.http != nil {
+		s.http.revoke(f.token)
+	}
+	f.stop()
+}
+
+func sessionNotFound() *apperr.AppError {
+	return apperr.New(apperr.NotFound, "会话不存在或已结束").WithDetail("reason=session")
+}
+
+func previewUnavailable(push bool) *apperr.AppError {
+	msg := "这路视频暂时无法在应用内播放。"
+	if push {
+		msg = "这路视频暂时无法预览，推流不受影响。"
+	}
+	return apperr.New(apperr.Unsupported, msg).WithDetail("reason=preview_unavailable")
+}
+
+func codecUnsupported(push bool, video, audio string) *apperr.AppError {
+	msg := "这路视频无法在应用内播放。"
+	if push {
+		msg = "这路视频无法在应用内预览，推流不受影响。"
+	}
+	line := "audio=" + audio
+	if video != "" {
+		line = "video=" + video
+	}
+	return apperr.New(apperr.Unsupported, msg).WithDetail("reason=codec\n" + line)
+}
+
+// GetPreviewStream 返回会话的预览视频流地址。
+func (s *Service) GetPreviewStream(sessionID string) (PreviewStream, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if x, ok := s.sessions[sessionID]; ok {
-		return x.preview, true
+	sess, pushOK := s.sessions[sessionID]
+	pull, pullOK := s.pulls[sessionID]
+	s.mu.Unlock()
+	var f *previewFeed
+	switch {
+	case pushOK:
+		f = sess.feed
+	case pullOK:
+		f = pull.feed
+	default:
+		return PreviewStream{}, sessionNotFound()
 	}
-	if p, ok := s.pulls[sessionID]; ok {
-		return p.preview, true
+	if f == nil || f.state.Load() == 2 || f.state.Load() == 3 {
+		return PreviewStream{}, previewUnavailable(pushOK)
 	}
-	return "", false
+	return PreviewStream{URL: f.url, MIME: previewMIME, HasVideo: f.hasVideo, HasAudio: f.hasAudio}, nil
 }
 
-// ---------- 拉流预览会话 ----------
+func (s *Service) emitPull(id, state string, err *apperr.AppError) {
+	if s.cfg.Emit == nil || s.closing.Load() {
+		return
+	}
+	s.cfg.Emit("live:pull", PullEvent{ID: id, State: state, Error: err})
+}
 
-// StartPullPreview 开始一个拉流预览会话：后端用 ffmpeg 读远端流，只输出预览 JPEG（不推流、不落盘存档）。
-// 播放本身仍由前端播放器直接拉远端地址。同一个标准化地址已有会话时返回已有会话（幂等）。
-// 纯音频的流没有预览：会话很快自然结束（GetPreview 的 Active 变为 false）。
+// StartPullPreview 开始拉流预览：转封装成 FLV，经本机 HTTP 提供。请求里的 Preview 被忽略。
 func (s *Service) StartPullPreview(_ context.Context, req PullPreviewRequest) (PullSession, error) {
 	bin, err := s.cfg.Require()
 	if err != nil {
@@ -188,24 +210,11 @@ func (s *Service) StartPullPreview(_ context.Context, req PullPreviewRequest) (P
 	if err != nil {
 		return PullSession{}, urlError(err)
 	}
-	wantPreview := req.Preview == nil || *req.Preview
-	sid := id.New()
-	path := ""
-	if wantPreview {
-		if s.cfg.PreviewDir == "" || !s.cfg.Preview.Supported(context.Background(), bin.FFmpeg) {
-			return PullSession{}, apperr.New(apperr.Unsupported, "当前转换组件不支持生成预览画面").WithDetail("missing=preview")
-		}
-		if err := ensureWritableDir(s.cfg.PreviewDir); err != nil {
-			return PullSession{}, apperr.Wrap(apperr.IOError, "预览目录不可用", err)
-		}
-		path = filepath.Join(s.cfg.PreviewDir, sid+".jpg")
-	}
-
 	s.mu.Lock()
 	for pid, p := range s.pulls {
 		if p.key == u.Key {
 			s.mu.Unlock()
-			return PullSession{ID: pid, Redacted: u.Redacted, Preview: p.preview != ""}, nil
+			return pullView(pid, p), nil
 		}
 	}
 	if len(s.pulls) >= MaxPullPreviews {
@@ -213,43 +222,95 @@ func (s *Service) StartPullPreview(_ context.Context, req PullPreviewRequest) (P
 		return PullSession{}, apperr.New(apperr.TaskConflict, "同时进行的拉流预览已达上限").
 			WithDetail(fmt.Sprintf("reason=max_pull_previews\n最多同时预览 %d 路", MaxPullPreviews))
 	}
+	s.mu.Unlock()
+
+	feed := s.openFeed(context.Background(), bin, false, true, true)
+	sid := id.New()
 	ctx, cancel := context.WithCancel(context.Background())
-	p := &pullSession{key: u.Key, preview: path, cancel: cancel, done: make(chan struct{})}
+	p := &pullSession{key: u.Key, feed: feed, cancel: cancel, done: make(chan struct{}), redacted: u.Redacted}
+	s.mu.Lock()
+	for pid, cur := range s.pulls {
+		if cur.key == u.Key {
+			s.mu.Unlock()
+			cancel()
+			s.dropFeed(feed)
+			return pullView(pid, cur), nil
+		}
+	}
 	if s.pulls == nil {
 		s.pulls = map[string]*pullSession{}
 	}
 	s.pulls[sid] = p
 	s.mu.Unlock()
-
-	if path == "" { // preview=false：不启动 ffmpeg，会话只是占位
-		close(p.done)
-		return PullSession{ID: sid, Redacted: u.Redacted, Preview: false}, nil
-	}
 	go s.runPull(ctx, sid, p, bin, u)
-	return PullSession{ID: sid, Redacted: u.Redacted, Preview: true}, nil
+	return pullView(sid, p), nil
+}
+
+func pullView(id string, p *pullSession) PullSession {
+	out := PullSession{ID: id, Redacted: p.redacted, Preview: p.feed != nil}
+	if p.feed != nil {
+		out.PreviewURL = p.feed.url
+	}
+	return out
 }
 
 func (s *Service) runPull(ctx context.Context, sid string, p *pullSession, bin ffmpeg.Binaries, u livepkg.PullURL) {
 	defer close(p.done)
 	defer s.endPull(sid, p)
+	if p.feed == nil {
+		s.emitPull(sid, "failed", previewUnavailable(false))
+		return
+	}
 	wl := ffmpeg.PullInputWhitelist(u.Scheme)
-	hasVideo := true // 探测不出来（没有 ffprobe、连不上）就让 ffmpeg 自己试
+	unknown := true
+	video, audio := true, true
 	if bin.FFprobe != "" {
-		if v, err := s.cfg.ProbeStreams(ctx, bin.FFprobe, u.FFmpeg, wl); err == nil {
-			hasVideo = v
+		if pr, err := s.cfg.ProbeStreams(ctx, bin.FFprobe, u.FFmpeg, wl); err == nil {
+			unknown = false
+			sendV, sendA, bad := ffmpeg.PreviewPlayable(pr.Video, pr.Audio)
+			if bad {
+				s.emitPull(sid, "unsupported", codecUnsupported(false, pr.Video, pr.Audio))
+				return
+			}
+			video, audio = sendV, sendA
+			p.feed.hasVideo, p.feed.hasAudio = sendV, sendA
 		}
 	}
-	args, ok := ffmpeg.BuildPullPreviewArgs(ffmpeg.PullPreviewPlan{URL: u.FFmpeg, InputWhitelist: wl, HasVideo: hasVideo, PreviewPath: p.preview})
+	args, ok := ffmpeg.BuildPullRemuxArgs(ffmpeg.PullRemuxPlan{
+		URL: u.FFmpeg, InputWhitelist: wl, Port: p.feed.port, Unknown: unknown, Video: video, Audio: audio,
+	})
 	if !ok {
-		return // 纯音频：没有预览
+		s.emitPull(sid, "failed", previewUnavailable(false))
+		return
 	}
+	// playing：收到第一个 FLV 头时发一次（契约 6.10.3.7）。hub 关闭时 ready 也会关，用 hasHeader 区分。
+	go func() {
+		select {
+		case <-p.feed.hub.ready:
+			if p.feed.hub.hasHeader() && ctx.Err() == nil {
+				s.emitPull(sid, "playing", nil)
+			}
+		case <-ctx.Done():
+		}
+	}()
 	redact := livepkg.NewRedactor(u.FFmpeg)
-	_, err := ffmpeg.Run(ctx, ffmpeg.RunOptions{
+	s.logf("拉流预览 %s ffmpeg 参数: %s", sid, redact(strings.ReplaceAll(strings.Join(args, " "), u.FFmpeg, "<拉流地址>")))
+	_, runErr := ffmpeg.Run(ctx, ffmpeg.RunOptions{
 		Exe: bin.FFmpeg, Args: args, Redact: redact,
 		OnStderr: func(line string) { s.logf("拉流预览 %s: %s", sid, line) },
 	})
-	if err != nil && ctx.Err() == nil {
-		s.logf("拉流预览 %s 结束: %v", sid, redact(err.Error()))
+	if s.closing.Load() {
+		return
+	}
+	switch {
+	case ctx.Err() != nil:
+		s.emitPull(sid, "ended", nil)
+	case runErr == nil:
+		s.emitPull(sid, "ended", nil)
+	case p.feed.state.Load() == 1 || p.feed.hub.hasHeader():
+		s.emitPull(sid, "interrupted", nil)
+	default:
+		s.emitPull(sid, "failed", ffmpeg.ClassifyLiveError(ffmpeg.LiveClassifyInput{Tail: runErr.Error(), Scheme: u.Scheme}))
 	}
 }
 
@@ -259,10 +320,10 @@ func (s *Service) endPull(sid string, p *pullSession) {
 		delete(s.pulls, sid)
 	}
 	s.mu.Unlock()
-	removePreviewFiles(p.preview)
+	s.dropFeed(p.feed)
 }
 
-// StopPullPreview 停止拉流预览会话并等待 ffmpeg 退出、清理预览文件。会话不存在（已结束）时什么也不做，返回 nil。
+// StopPullPreview 停止拉流预览。会话不存在时什么也不做。
 func (s *Service) StopPullPreview(sessionID string) error {
 	s.mu.Lock()
 	p, ok := s.pulls[sessionID]
@@ -278,8 +339,9 @@ func (s *Service) StopPullPreview(sessionID string) error {
 	return nil
 }
 
-// Close 停止全部拉流预览会话（应用退出时调用）。推流会话由任务管理器的 Shutdown 负责。
+// Close 停止全部拉流预览并关掉预览 HTTP 服务。应用退出时不发 live:pull。
 func (s *Service) Close() {
+	s.closing.Store(true)
 	s.mu.Lock()
 	var ps []*pullSession
 	for _, p := range s.pulls {
@@ -295,32 +357,51 @@ func (s *Service) Close() {
 		case <-time.After(3 * time.Second):
 		}
 	}
+	if s.http != nil {
+		s.http.close()
+	}
 }
 
-// probeStreams 用 ffprobe 看远端流里有没有视频；连不上 / 超时返回错误（调用方按"未知"处理）。
-func probeStreams(ctx context.Context, ffprobe, url, whitelist string) (bool, error) {
+func probeStreams(ctx context.Context, ffprobe, url, whitelist string) (StreamProbe, error) {
 	ctx, cancel := context.WithTimeout(ctx, pullProbeWait)
 	defer cancel()
 	cmd := ffmpeg.NewCommand(ctx, ffprobe, "-v", "error", "-protocol_whitelist", whitelist, "-rw_timeout", "8000000",
-		"-analyzeduration", "1000000", "-probesize", "1000000", // 只要知道有没有视频，探测别拖首帧
-		"-show_entries", "stream=codec_type", "-of", "csv=p=0", url)
+		"-analyzeduration", "1000000", "-probesize", "1000000",
+		"-show_entries", "stream=codec_type,codec_name", "-of", "csv=p=0", url)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := proc.Run(cmd); err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) || ctx.Err() != nil {
-			return false, fmt.Errorf("探测失败: %v", err)
+			return StreamProbe{}, fmt.Errorf("探测失败: %v", err)
 		}
-		return false, err
+		return StreamProbe{}, err
 	}
-	kinds := strings.Fields(out.String())
-	if len(kinds) == 0 {
-		return false, errors.New("探测不到任何流")
+	var pr StreamProbe
+	lines := strings.Fields(out.String())
+	if len(lines) == 0 {
+		return StreamProbe{}, errors.New("探测不到任何流")
 	}
-	for _, k := range kinds {
-		if strings.HasPrefix(k, "video") {
-			return true, nil
+	for _, line := range lines {
+		parts := strings.Split(line, ",")
+		if len(parts) < 2 {
+			continue
+		}
+		// ffprobe 按自己的字段顺序输出（codec_name 在 codec_type 前），不按 -show_entries 的顺序，两种都认。
+		kind, name := parts[1], parts[0]
+		if parts[0] == "video" || parts[0] == "audio" {
+			kind, name = parts[0], parts[1]
+		}
+		switch kind {
+		case "video":
+			if pr.Video == "" {
+				pr.Video = name
+			}
+		case "audio":
+			if pr.Audio == "" {
+				pr.Audio = name
+			}
 		}
 	}
-	return false, nil
+	return pr, nil
 }

@@ -932,20 +932,22 @@ export namespace live {
 		    return a;
 		}
 	}
-	export class Preview {
-	    data: string;
-	    ts: number;
-	    active: boolean;
+	export class PreviewStream {
+	    url: string;
+	    mime: string;
+	    hasVideo: boolean;
+	    hasAudio: boolean;
 	
 	    static createFrom(source: any = {}) {
-	        return new Preview(source);
+	        return new PreviewStream(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.data = source["data"];
-	        this.ts = source["ts"];
-	        this.active = source["active"];
+	        this.url = source["url"];
+	        this.mime = source["mime"];
+	        this.hasVideo = source["hasVideo"];
+	        this.hasAudio = source["hasAudio"];
 	    }
 	}
 	export class PullPreviewRequest {
@@ -966,6 +968,7 @@ export namespace live {
 	    id: string;
 	    redacted: string;
 	    preview: boolean;
+	    previewUrl: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new PullSession(source);
@@ -976,6 +979,7 @@ export namespace live {
 	        this.id = source["id"];
 	        this.redacted = source["redacted"];
 	        this.preview = source["preview"];
+	        this.previewUrl = source["previewUrl"];
 	    }
 	}
 	
