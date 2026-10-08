@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.24.2）
+# FFmpegFree v2 接口契约（v0.24.3）
+
+v0.24.3 变更（**源文件行的媒体信息在启动时补不上**，查包 18 / 19 的 Windows 实机库后修；**没有新增接口、字段、错误码、事件或迁移**）：① **根因**：实机库里 `convert_sources` 两行的 `media` 都是 `NULL`、`media_fp` 都是空（迁移 0006 已应用，0007 还没有，即最后跑的是没有 v0.24 副本的包 19），页面上的信息全靠退回关联 `media` 表（没有采样率、声道和流信息）。转换页是首页，启动时 `ListSources` 比转换组件的首次检测先到，懒探测拿到 `FFMPEG_NOT_FOUND`，按“暂时性错误不记，下次再试”什么都没写；而前端一次会话只列一次，所以每次启动都补不上（和 v0.24.2 ② 缩略图是同一个时序问题）。② **修复**：`ListSources` / `SearchSources` / `GetSource` / `GetSourcePreviewURL` / `AddSources` 的懒探测**只在有行需要探测（指纹不一致）且转换组件正在检测（`checking`）时**，先等检测有结果（最多 15 秒）再探测，同一次调用就能补上并落库；检测结果是 `missing` / `outdated` 等时立即照旧返回（不探测、不记）；没在检测时不等。**前端可见的变化**：应用刚启动、转换组件还在检测时，这几个调用可能多等到检测结束（通常 1~3 秒，最多 15 秒）才返回；返回的 `source.media` 是持久化的完整结果。持久化之后文件不变就不再探测，以后的启动不再受检测时序影响。其他依赖转换组件的接口（缩略图、提交转换等）不等，仍按 9.5 立即返回 `FFMPEG_NOT_FOUND`。
 
 v0.24.2 变更（**默认缩略图取帧规则 + 应用日志**，包 19 Windows 实测转换页缩略图全部是类型图标后修；**没有新增接口、错误码、事件或迁移**）：① **默认缩略图改成“第一帧，太暗就取前 3 秒里第一张不黑的”**（老板、设计定，取代“时长的 10%、最多 10 秒”）：只解码前 3 秒，先缩到目标宽度（320）、转 8 位，按平均亮度 `YAVG > 32` 取第一张；前 3 秒全黑（或这一步失败）退回第一帧，仍然出图。视频和 GIF 一样。适用于 6.14.10 的 `GetRecordThumbnail` / `GetSourceThumbnail` 和 6.7 `Probe` 附带的默认缩略图（`ListRecent` 只查同一个缓存）；**`MediaService.Thumbnail(path, atSec, width)` 指定时间点的不变**；**v0.24 视频转图片的输出不走这段代码，仍按它自己的规则**。缓存键加版本号（`v2`），旧缩略图自动作废、按新规则重新生成。② **包 19 的根因：启动时转换组件还在检测（`checking`），页面已经来取缩略图**，后端只能返回 `FFMPEG_NOT_FOUND`，旧前端整个会话不再重取，全部停在类型图标。前端 #96 起失败不永久缓存、转换组件就绪（`ffmpeg:status` 变成 `ready`）时重取。接口仍是同步的：调用一直等到图生成好（每次 ffmpeg 最多 20 秒，退回第一帧时最多再一次）才返回，不返回空串；失败不缓存，下次调用重新生成。`GetSourceThumbnail` 用显示路径（6.15.6）：副本复制中 / 失败 / 已取消时截原文件，不用等副本。③ **应用日志** `<数据目录>/logs/app.log`（Windows `%AppData%\FFmpegFree\logs\app.log`）：所有后端日志同时写入（Windows 包没有控制台，之前全部丢失），超过 5 MB 启动时轮转成 `app.log.1`。缩略图每次失败记一行：`缩略图: 转换页 source|record=<id> path=… code=… msg=… detail=…`；ffmpeg 本身出错或超时另记 `缩略图: ffmpeg 失败|超时 exe=… in=… out=… at=auto|<秒> exit=<码>(0x<十六进制>) 用时=… stderr=…`；转换组件未就绪记 `缩略图: 转换组件未就绪…`；每次检测转换组件记 `转换组件检测: state=… path=… source=… version=… 用时=…`。
 
@@ -1422,7 +1424,7 @@ type DeleteFailure struct {
 }
 ```
 
-- **`ConvertSource.media`（v0.23.4 起持久化）**：`convert_sources.media` 存这一行的完整探测结果（`MediaInfo`：含 `hasVideo` / `hasAudio` / `sampleRate` / `channels` / `container` / `fps` / `rotation` / `streams` / `videoCodecName` / `audioCodecName`；**不含** `thumbUrl`、`error`，`id` 为空），`media_fp` 存探测时文件的指纹 `<大小>:<修改时间纳秒>`。写入：`AddSources`（顺带探测）、`MediaService.Probe` 成功（同一 `path_key` 的行）、列表 / `GetSource` / `GetSourcePreviewURL` 时指纹不一致且文件还在（懒探测）。文件不变不重探；`PROBE_FAILED` 也记下指纹（`media` 为空），文件不变不再重探；转换组件没就绪、无权限、超时等暂时性错误不记，下次再试。**持久化结果里 `hasVideo` / `hasAudio` 可靠**，前端可以直接用来显示“没有声音”和冲突预检。没有持久化结果时退回按 `path_key` 关联 `media` 表（v0.23 的做法；`hasVideo` / `hasAudio` 按 `videoCodec` / `audioCodec` 是否为空推出，没有采样率、声道和流信息）；都没有时省略，前端按“正在读取…”处理。
+- **`ConvertSource.media`（v0.23.4 起持久化）**：`convert_sources.media` 存这一行的完整探测结果（`MediaInfo`：含 `hasVideo` / `hasAudio` / `sampleRate` / `channels` / `container` / `fps` / `rotation` / `streams` / `videoCodecName` / `audioCodecName`；**不含** `thumbUrl`、`error`，`id` 为空），`media_fp` 存探测时文件的指纹 `<大小>:<修改时间纳秒>`。写入：`AddSources`（顺带探测）、`MediaService.Probe` 成功（同一 `path_key` 的行）、列表 / `GetSource` / `GetSourcePreviewURL` 时指纹不一致且文件还在（懒探测）。文件不变不重探；`PROBE_FAILED` 也记下指纹（`media` 为空），文件不变不再重探；转换组件没就绪、无权限、超时等暂时性错误不记，下次再试（v0.24.3：转换组件正在检测时先等检测结果再探测，启动时的第一次列表也能补上）。**持久化结果里 `hasVideo` / `hasAudio` 可靠**，前端可以直接用来显示“没有声音”和冲突预检。没有持久化结果时退回按 `path_key` 关联 `media` 表（v0.23 的做法；`hasVideo` / `hasAudio` 按 `videoCodec` / `audioCodec` 是否为空推出，没有采样率、声道和流信息）；都没有时省略，前端按“正在读取…”处理。
   - v0.23（已被取代）：只关联 `media` 表，`hasVideo` / `hasAudio` 恒为 `false`，重启后音频行没有采样率和声道、无声视频丢了“没有声音”（走查 G3）。
 - **路径 / 名称规范化**：`path` 走 `paths.Normalize`（`filepath.Clean` + 绝对路径）；`path_key` 与 `media.path_key` 同一函数（Windows / macOS 小写）。`name_key` / `output_name_key` = `strings.ToLower(filepath.Base(path))`（Go 的 Unicode 小写，不用 SQLite 的 `lower()`，后者只管 ASCII）。本版不做 Unicode 规范化（NFC / NFD），**第二版**再考虑。
 
@@ -1613,7 +1615,7 @@ CREATE INDEX idx_tasks_hidden_created ON tasks(hidden_in_task_center, created_at
   ALTER TABLE convert_sources ADD COLUMN media_fp TEXT NOT NULL DEFAULT '';  -- 探测时的文件指纹 "<大小>:<修改时间纳秒>"；'' = 从没探测过
   ```
 
-  **旧行不在启动时回填**（启动时转换组件可能还没检测完，而且大量文件一起探测会拖慢启动）：由 `ListSources` / `SearchSources` / `GetSource` 在文件还在、指纹不一致时懒探测补上（每页最多 4 个并发、单个 15 秒），补上后落库，之后不再探测；文件已不在的旧行保留空值，仍退回关联 `media` 表。`media` 的 JSON 损坏时按“从没探测过”处理，下次重探。降级到旧版本：旧代码按列名读写，新列不影响。
+  **旧行不在启动时回填**（启动时转换组件可能还没检测完，而且大量文件一起探测会拖慢启动）：由 `ListSources` / `SearchSources` / `GetSource` 在文件还在、指纹不一致时懒探测补上（每页最多 4 个并发、单个 15 秒；v0.24.3：转换组件正在检测时先等检测结果，最多 15 秒），补上后落库，之后不再探测；文件已不在的旧行保留空值，仍退回关联 `media` 表。`media` 的 JSON 损坏时按“从没探测过”处理，下次重探。降级到旧版本：旧代码按列名读写，新列不影响。
 
 ### 6.14.9 搜索的匹配方式与索引
 
