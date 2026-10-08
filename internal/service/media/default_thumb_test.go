@@ -21,7 +21,7 @@ func detailOf(err error) string {
 	return ""
 }
 
-// 契约 6.14.10：转换页缩略图 = 默认缩略图（时长 10%、最多 10 秒、宽 320），缓存键含 mtime / size。
+// 契约 6.14.10：转换页缩略图 = 默认缩略图（v0.23.6 起第一帧，太暗取前 3 秒里第一张不黑的；宽 320），缓存键含 mtime / size。
 func TestDefaultThumbnailDataURL(t *testing.T) {
 	e := newEnv(t, nil)
 	ctx := context.Background()
@@ -32,7 +32,7 @@ func TestDefaultThumbnailDataURL(t *testing.T) {
 	}
 	fi, _ := os.Stat(p)
 	_, key, _, _ := statMedia(p)
-	cached := filepath.Join(e.thumbs, cacheName(key, fi.ModTime(), fi.Size(), defaultThumbAt(3), DefaultThumbWidth))
+	cached := filepath.Join(e.thumbs, cacheName(key, fi.ModTime(), fi.Size(), autoThumbAt, DefaultThumbWidth))
 	if _, err := os.Stat(cached); err != nil {
 		t.Fatalf("缓存文件名应按 (path_key, mtime, size, atSec, 320) 计算: %v", err)
 	}

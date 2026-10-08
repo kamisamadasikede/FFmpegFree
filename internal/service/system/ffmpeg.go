@@ -5,10 +5,12 @@ package system
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/ffmpeg"
@@ -180,7 +182,11 @@ func (m *Manager) Recheck(ctx context.Context) (FFmpegStatus, error) {
 		st, _ := m.installingStatus()
 		return st, nil
 	}
+	start := time.Now()
 	res, err := cfg.Locator.Locate(ctx, m.customPath(ctx, cfg))
+	// 检测结果和用时写进应用日志：检测期间依赖 ffmpeg 的接口都返回 FFMPEG_NOT_FOUND（包 19 Windows 的缩略图就是这样丢的）。
+	log.Printf("转换组件检测: state=%s path=%q source=%s version=%q 用时=%s 未通过的候选=%q",
+		res.State, res.Info.FFmpeg, res.Info.Source, res.Info.Version, time.Since(start).Round(time.Millisecond), attemptsDetail(res.Attempts))
 	if err != nil {
 		st := FFmpegStatus{State: ffmpeg.StateFailed, Error: apperr.Wrap(apperr.Internal, "检测转换组件被中断", err)}
 		m.setUnlessInstalling(ctx, st, nil)

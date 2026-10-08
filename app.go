@@ -85,6 +85,10 @@ func (a *App) appContext() context.Context { return a.rootCtx }
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	// 应用日志 <数据目录>/logs/app.log（契约 v0.23.6）：Windows 的 GUI 程序没有控制台，不接文件的话 log.Printf 全部丢失。
+	if d, err := paths.Resolve(""); err == nil {
+		setupAppLog(d.Logs)
+	}
 	if err := a.initStore(ctx); err != nil {
 		// 存储层初始化失败先记录日志，不阻止应用启动（依赖存储的服务会返回 INTERNAL）。
 		log.Printf("初始化本地存储失败: %v", err)

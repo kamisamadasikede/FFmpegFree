@@ -8,8 +8,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -77,10 +79,14 @@ func newThumbCache(dir string, maxFiles int, maxBytes int64, now func() time.Tim
 	return &thumbCache{dir: dir, maxFiles: maxFiles, maxBytes: maxBytes, now: now, locks: map[string]*keyLock{}}
 }
 
-// cacheName 由路径 key、修改时间、大小、时间点（毫秒）和宽度算出缓存文件名（不含目录）。
+// thumbCacheVersion 进缓存键：取帧规则变了就加一，旧缓存自然失效（容量清理回收）。
+// 2 = v0.23.6 默认缩略图改成“第一帧，太暗取前 3 秒里第一张不黑的”。
+const thumbCacheVersion = 2
+
+// cacheName 由路径 key、修改时间、大小、时间点（毫秒；默认缩略图是 autoThumbAt）和宽度算出缓存文件名（不含目录）。
 func cacheName(pathKey string, mtime time.Time, size int64, atSec float64, width int) string {
 	h := sha1.New()
-	fmt.Fprintf(h, "%s\x00%d\x00%d\x00%d\x00%d", pathKey, mtime.UnixNano(), size, int64(math.Round(atSec*1000)), width)
+	fmt.Fprintf(h, "v%d\x00%s\x00%d\x00%d\x00%d\x00%d", thumbCacheVersion, pathKey, mtime.UnixNano(), size, int64(math.Round(atSec*1000)), width)
 	return hex.EncodeToString(h.Sum(nil)) + ".jpg"
 }
 
@@ -205,32 +211,85 @@ func thumbArgs(in, out string, atSec float64, width int) []string {
 	)
 }
 
+// autoThumbArgs 生成默认缩略图的命令行（契约 v0.23.6，6.14.10）：只读前 autoThumbScanSec 秒，先缩到目标宽度、
+// 转 8 位 yuv420p 再用 signalstats 算平均亮度，metadata 只放行 YAVG > thumbMinLuma 的帧，取第一张。
+// 第一帧不黑就是第一帧；片头黑场时取前 3 秒里第一张不黑的。全黑（或滤镜不可用）时 ffmpeg 不出图，由 runThumb 退回第一帧。
+func autoThumbArgs(in, out string, width int) []string {
+	a := []string{"-hide_banner", "-nostdin", "-v", "error", "-t", strconv.Itoa(autoThumbScanSec)}
+	a = append(a, ffmpegPatternArgs(in)...)
+	return append(a,
+		"-i", "file:"+in,
+		"-map", "0:V:0", "-an", "-sn", "-dn",
+		"-vf", fmt.Sprintf("scale=w='min(%d,iw)':h=-2,format=yuv420p,signalstats,"+
+			"metadata=mode=select:key=lavfi.signalstats.YAVG:value=%d:function=greater", width, thumbMinLuma),
+		"-fps_mode", "passthrough",
+		"-frames:v", "1",
+		"-pix_fmt", "yuvj420p", "-q:v", "3",
+		"-f", "image2", "-update", "1", "-y",
+		"file:"+out,
+	)
+}
+
+const (
+	// autoThumbAt 是默认缩略图在缓存键和内部调用里的记号（不是时间点）：第一张不黑的帧，见 autoThumbArgs。
+	// 公开的 Thumbnail 拒绝负数 atSec，不会撞上。
+	autoThumbAt = -1.0
+	// autoThumbScanSec 是找不黑的帧时最多解码的秒数。
+	autoThumbScanSec = 3
+	// thumbMinLuma 是“不算黑”的平均亮度下限（8 位，限制范围的纯黑是 16）。
+	thumbMinLuma = 32
+)
+
 // runThumb 生成一张缩略图到 out（调用方保证 out 是 .part 临时文件），返回实际使用的时间点。
-// 目标时间超出视频长度时 ffmpeg 不出图，此时退回第 0 秒再试一次（返回 0）；超时、取消不重试。
+//   - atSec = autoThumbAt（默认缩略图）：先找前 3 秒里第一张不黑的帧；没有（全黑）或这一步失败时退回第一帧；返回 autoThumbAt。
+//   - 其他：目标时间超出视频长度时 ffmpeg 不出图，此时退回第 0 秒再试一次（返回 0）。
+//
+// 超时、取消、没有画面不重试。
 func runThumb(ctx context.Context, ffmpegExe, in, out string, atSec float64, width int, timeout time.Duration) (float64, error) {
+	if atSec == autoThumbAt {
+		err := runThumbArgs(ctx, ffmpegExe, in, out, "auto", autoThumbArgs(in, out, width), timeout, true)
+		if err == nil || !retryable(ctx, err) {
+			return autoThumbAt, err
+		}
+		return autoThumbAt, runThumbOnce(ctx, ffmpegExe, in, out, 0, width, timeout)
+	}
 	err := runThumbOnce(ctx, ffmpegExe, in, out, atSec, width, timeout)
 	if err == nil {
 		return atSec, nil
 	}
-	var ae *apperr.AppError
-	if atSec > 0 && errors.As(err, &ae) && ae.Code == apperr.ProcessFailed && !errors.Is(err, errThumbTimeout) && ctx.Err() == nil {
+	if atSec > 0 && retryable(ctx, err) {
 		return 0, runThumbOnce(ctx, ffmpegExe, in, out, 0, width, timeout)
 	}
 	return atSec, err
 }
 
+// retryable：ffmpeg 正常跑完但没出图 / 出错（PROCESS_FAILED），且不是超时、不是取消，可以换个取帧方式再试。
+func retryable(ctx context.Context, err error) bool {
+	var ae *apperr.AppError
+	return errors.As(err, &ae) && ae.Code == apperr.ProcessFailed && !errors.Is(err, errThumbTimeout) && ctx.Err() == nil
+}
+
 func runThumbOnce(ctx context.Context, ffmpegExe, in, out string, atSec float64, width int, timeout time.Duration) error {
+	return runThumbArgs(ctx, ffmpegExe, in, out, strconv.FormatFloat(atSec, 'f', 3, 64)+"s", thumbArgs(in, out, atSec, width), timeout, false)
+}
+
+// runThumbArgs 运行一次截图。quietEmpty：ffmpeg 正常退出、只是没出图（默认缩略图找不到不黑的帧）时不记失败日志，
+// 调用方会退回第一帧。
+func runThumbArgs(ctx context.Context, ffmpegExe, in, out, at string, args []string, timeout time.Duration, quietEmpty bool) error {
 	_ = os.Remove(out)
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := ffmpeg.NewCommand(cctx, ffmpegExe, thumbArgs(in, out, atSec, width)...)
+	cmd := ffmpeg.NewCommand(cctx, ffmpegExe, args...)
 	stderr := newTailWriter(maxStderrBytes)
 	cmd.Stderr = stderr
+	start := time.Now()
 	runErr := proc.Run(cmd)
+	elapsed := time.Since(start).Round(time.Millisecond)
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 	if cctx.Err() == context.DeadlineExceeded {
+		logThumbFailure(fmt.Sprintf("超时（%s）", timeout), ffmpegExe, in, out, at, runErr, elapsed, stderr.String())
 		return apperr.Wrap(apperr.ProcessFailed, "生成缩略图超时", errThumbTimeout)
 	}
 	st, statErr := os.Stat(out)
@@ -241,10 +300,35 @@ func runThumbOnce(ctx context.Context, ffmpegExe, in, out string, atSec float64,
 	if strings.Contains(tail, "matches no streams") || strings.Contains(tail, "does not contain any stream") {
 		return apperr.New(apperr.InvalidArgument, "该文件没有视频画面，无法生成缩略图").WithDetail(tail)
 	}
+	empty := runErr == nil
 	if runErr == nil {
 		runErr = errors.New("ffmpeg 没有输出图片")
 	}
+	if !(empty && quietEmpty) {
+		logThumbFailure("失败", ffmpegExe, in, out, at, runErr, elapsed, tail)
+	}
 	return apperr.Wrap(apperr.ProcessFailed, "生成缩略图失败", runErr).WithDetail(tail)
+}
+
+// logThumbFailure 把一次 ffmpeg 截图失败写进应用日志（<数据目录>/logs/app.log）：
+// 输入 / 输出路径、时间点、退出码（Windows 的 NTSTATUS 同时给十六进制，如 0xC0000135 = 缺 DLL）、用时、stderr 最后几行。
+// 失败不缓存（缓存里只放成功的图），下次调用会重新生成，日志里也会再记一次。
+func logThumbFailure(what, ffmpegExe, in, out, at string, runErr error, elapsed time.Duration, stderr string) {
+	log.Printf("缩略图: ffmpeg %s exe=%q in=%q out=%q at=%s %s 用时=%s stderr=%q",
+		what, ffmpegExe, in, out, at, exitText(runErr), elapsed, lastLines(stderr, 6))
+}
+
+// exitText 描述子进程的结束方式：exit=<码>（0x<十六进制>），没启动起来就是 err=<原因>。
+func exitText(err error) string {
+	if err == nil {
+		return "exit=0"
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		code := ee.ExitCode()
+		return fmt.Sprintf("exit=%d(0x%X) err=%q", code, uint32(code), err.Error())
+	}
+	return fmt.Sprintf("err=%q", err.Error())
 }
 
 const (
@@ -326,13 +410,4 @@ func clampWidth(w int) int {
 		return maxThumbWidth
 	}
 	return w
-}
-
-// defaultThumbAt 是 Probe 生成默认缩略图的时间点：时长的 10%，最多 10 秒，精确到 0.1 秒；未知时长取 0。
-func defaultThumbAt(duration float64) float64 {
-	if duration <= 0 {
-		return 0
-	}
-	at := math.Min(duration*0.1, 10)
-	return math.Floor(at*10) / 10
 }

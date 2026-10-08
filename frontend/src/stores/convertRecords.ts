@@ -803,17 +803,42 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       })
     }
   }
+  // 包 19 Windows 实测：启动时转换组件还在检测（checking）页面就取缩略图，后端只能返回 FFMPEG_NOT_FOUND，
+  // 这一行就整个会话停在类型图标。没就绪时先登记、就绪后再取（同探测的 probePending）；
+  // 取的过程中变成未就绪（重新检测 / 安装中）而失败的，也登记下来等就绪重取。
+  const thumbWaiting = new Map<string, () => void>()
+  watch(
+    () => ffmpeg.ready,
+    (ok) => {
+      if (!ok || !thumbWaiting.size) return
+      const jobs = [...thumbWaiting.values()]
+      thumbWaiting.clear()
+      jobs.forEach((f) => f())
+    },
+  )
   function ensureThumb(s: SourceRow) {
     if (s.thumbAsked) return
-    s.thumbAsked = true
     if (s.exists === false) {
+      s.thumbAsked = true
       s.thumb = { kind: 'missing' }
       return
     }
+    const again = () => sources[s.sourceId] && ensureThumb(sources[s.sourceId])
+    if (!ffmpeg.ready) {
+      thumbWaiting.set('s:' + s.sourceId, again)
+      return
+    }
+    s.thumbAsked = true
     thumbQueue.push(async () => {
       const t = await getSourceThumbnail(s.sourceId)
-      if (sources[s.sourceId]) sources[s.sourceId].thumb = t
-      if (t.kind === 'missing' && sources[s.sourceId]) sources[s.sourceId].exists = false
+      const cur = sources[s.sourceId]
+      if (!cur) return
+      cur.thumb = t
+      if (t.kind === 'missing') cur.exists = false
+      if (t.kind === 'type' && !ffmpeg.ready) {
+        cur.thumbAsked = false
+        thumbWaiting.set('s:' + s.sourceId, again)
+      }
     })
     pump()
   }
@@ -829,10 +854,19 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       recThumbs.set(k.id, { kind: 'type' })
       return
     }
+    if (!ffmpeg.ready) {
+      recThumbAsked.delete(k.id)
+      thumbWaiting.set('r:' + k.id, () => ensureRecThumb(k))
+      return
+    }
     thumbQueue.push(async () => {
       const t = await getRecordThumbnail(k.id)
       recThumbs.set(k.id, t)
       if (t.kind === 'missing') outputGone.add(k.id)
+      if (t.kind === 'type' && !ffmpeg.ready) {
+        recThumbAsked.delete(k.id)
+        thumbWaiting.set('r:' + k.id, () => ensureRecThumb(k))
+      }
     })
     pump()
   }

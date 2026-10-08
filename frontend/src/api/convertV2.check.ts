@@ -7,6 +7,7 @@ import { onSimEvent } from '@/services/wails'
 import { createPinia, setActivePinia } from 'pinia'
 import { useTaskStore } from '@/stores/tasks'
 import { useConvertRecordsStore } from '@/stores/convertRecords'
+import { useFFmpegStore } from '@/stores/ffmpeg'
 import { nextTick } from 'vue'
 import { FFPROBE_MISSING_TEXT, liveFfmpegProtocolMissingText, LIVE_FFMPEG_PROTOCOL_MISSING_TEXT } from '@/errors/errorMessages'
 import { midEllipsis, midTailMin } from '@/utils/midEllipsis'
@@ -337,6 +338,28 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
     const afterNew = [cv.hasMore, cv.sourceCount - n0]
     await cv.addPaths(['D:\\Videos\\走查G1-新文件.mp4'])
     eq('G1：加载完没有更多 → 添加新文件、重复添加后仍然没有“加载更早的记录”，文件数只加 1', [before, ...afterNew, cv.hasMore, cv.sourceCount - n0], [false, false, 1, false, 1])
+  }
+  // ---- 包 19 Windows：转换组件还在检测时不取缩略图（取了只会 FFMPEG_NOT_FOUND、整个会话停在类型图标），就绪后自动补取 ----
+  {
+    mock.resetConvertMock('added')
+    setActivePinia(createPinia())
+    const ff = useFFmpegStore()
+    const cv = useConvertRecordsStore()
+    await cv.reload()
+    const row = Object.values(cv.sources).find((s) => s.exists !== false && /\.(mp4|mov|mkv)$/i.test(s.name))
+    eq('缩略图：有一行视频源文件可测', !!row, true)
+    if (row) {
+      eq('缩略图：初始 ffmpeg 未就绪（checking）', ff.ready, false)
+      cv.ensureThumb(row)
+      await new Promise((r) => setTimeout(r, 20))
+      const r1 = cv.sources[row.sourceId]
+      eq('缩略图：未就绪时不取、不标记已取', [r1.thumb, r1.thumbAsked], [null, false])
+      ff.status = { state: 'ready', path: '/x/ffmpeg', version: '9.0.2', source: 'bundled', ffprobeMissing: false } as typeof ff.status
+      await nextTick()
+      await new Promise((r) => setTimeout(r, 50))
+      const r2 = cv.sources[row.sourceId]
+      eq('缩略图：就绪后自动补取到图片', [r2.thumb?.kind, r2.thumbAsked], ['img', true])
+    }
   }
   mock.resetConvertMock('mixed')
 }
