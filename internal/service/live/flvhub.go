@@ -1,6 +1,7 @@
 package live
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
@@ -26,6 +27,12 @@ const (
 	previewHeaderWait = 30 * time.Second
 	previewAcceptWait = 15 * time.Second
 	previewDropLimit  = 5 * time.Second
+	// previewWriteStall（契约 v0.25.2）：一次写（含 Flush）这么久还没写进连接，就当这个播放器已经不读了（页面切走、WebView 挂起、
+	// 半开连接），断开它、释放名额。
+	previewWriteStall = 2 * time.Second
+	// previewSendBuffer：每个播放器连接在本机这一侧的发送缓冲。默认会自动长到几 MB，播放器不读以后还能吞下几十秒的数据，
+	// 写不会卡住，也就发现不了它已经不读了。
+	previewSendBuffer = 256 << 10
 )
 
 type flvTag struct {
@@ -47,6 +54,7 @@ type flvHub struct {
 	aacSeq    []byte
 	gop       []flvTag
 	gopBytes  int
+	sawVideo  bool // 出现过视频 tag：新客户端要从关键帧开始；纯音频的流没有关键帧
 	clients   []*flvClient
 	closed    bool
 	ready     chan struct{}
@@ -101,16 +109,21 @@ func (h *flvHub) add(t flvTag) {
 	case t.seq && t.audio:
 		h.aacSeq = raw
 	}
+	if t.video && !t.seq {
+		h.sawVideo = true
+	}
 	if t.video && t.keyframe {
 		h.gop = nil
 		h.gopBytes = 0
 	}
-	if t.video || t.audio {
+	// GOP 缓存总是从视频关键帧开始（第一个关键帧之前、被清空之后都不缓存半个 GOP）；纯音频的流照常缓存。
+	if (t.video || t.audio) && !t.seq && (len(h.gop) > 0 || (t.video && t.keyframe) || !h.sawVideo) {
 		h.gop = append(h.gop, t)
 		h.gopBytes += len(raw)
 		h.trimGOP()
 	}
-	dead := h.offerLocked(raw, t.video && t.keyframe)
+	resume := (t.video && t.keyframe) || (!h.sawVideo && t.audio)
+	dead := h.offerLocked(raw, resume)
 	for _, c := range dead {
 		h.dropClient(c)
 	}
@@ -138,11 +151,12 @@ func (h *flvHub) offerLocked(raw []byte, keyframe bool) (dead []*flvClient) {
 	return dead
 }
 
+// dropClient 让客户端离开分发器（正常离开、太慢、被新连接挤掉）。被挤掉 / 太慢的连接同时中止，不再把队列发完。
 func (h *flvHub) dropClient(c *flvClient) {
 	for i, x := range h.clients {
 		if x == c {
 			h.clients = append(h.clients[:i], h.clients[i+1:]...)
-			c.closeQueue()
+			c.kickOff()
 			return
 		}
 	}
@@ -178,10 +192,20 @@ func (h *flvHub) join() (*flvClient, bool) {
 func (h *flvHub) joinWithPreamble() (*flvClient, []byte, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.closed || len(h.clients) >= previewMaxClients {
+	if h.closed {
 		return nil, nil, false
 	}
+	// 满了：挤掉最早加入的那个（契约 v0.25.2）。连上来的只有应用自己（Origin 白名单），最新的连接就是界面上正在显示的播放器；
+	// 切页面时旧播放器的连接可能没有正常关闭（WebView 挂起、半开），系统缓冲还能吞几十秒数据，看起来仍“在读”，
+	// 等它超时再放行新连接就是界面冻住（原来是 429）。
+	for len(h.clients) >= previewMaxClients {
+		h.dropClient(h.clients[0])
+	}
 	c := newFLVClient()
+	// 缓存里没有从关键帧开始的 GOP（还没到第一个关键帧，或者缓存刚被清空）：等下一个关键帧再开始发，不发半个 GOP。
+	if h.sawVideo && len(h.gop) == 0 {
+		c.dropping = true
+	}
 	h.clients = append(h.clients, c)
 	return c, h.preambleLocked(), true
 }
@@ -204,7 +228,7 @@ func (h *flvHub) closeHub() {
 	h.clients = nil
 	h.mu.Unlock()
 	for _, c := range cs {
-		c.closeQueue()
+		c.closeQueue() // 会话结束：把队列里的数据发完再正常收尾
 	}
 	h.readyOnce.Do(func() { close(h.ready) })
 }
@@ -216,9 +240,33 @@ type flvClient struct {
 	dropping bool
 	dropFrom time.Time
 	once     sync.Once
+	// kick 关闭 = 被挤掉或太慢，HTTP 处理立即中止；abort 由 HTTP 处理登记，让正卡在写上的那次写立刻失败。
+	kick     chan struct{}
+	kickOnce sync.Once
+	abort    func()
 }
 
-func newFLVClient() *flvClient { return &flvClient{ch: make(chan []byte, 256)} }
+func newFLVClient() *flvClient {
+	return &flvClient{ch: make(chan []byte, 256), kick: make(chan struct{})}
+}
+
+func (c *flvClient) kickOff() {
+	c.kickOnce.Do(func() {
+		close(c.kick)
+		c.mu.Lock()
+		abort := c.abort
+		c.mu.Unlock()
+		if abort != nil {
+			abort()
+		}
+	})
+}
+
+func (c *flvClient) setAbort(f func()) {
+	c.mu.Lock()
+	c.abort = f
+	c.mu.Unlock()
+}
 
 // offer 不阻塞。返回 false 表示这个客户端该断开（连续丢了 5 秒）。
 func (c *flvClient) offer(b []byte, keyframe bool) bool {
@@ -466,9 +514,17 @@ func (p *previewHTTP) start() (int, error) {
 	if p.feeds == nil {
 		p.feeds = map[string]*previewFeed{}
 	}
-	p.srv = &http.Server{Handler: p, ReadHeaderTimeout: 5 * time.Second}
+	p.srv = &http.Server{Handler: p, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, ConnContext: p.connContext}
 	go p.srv.Serve(ln)
 	return ln.Addr().(*net.TCPAddr).Port, nil
+}
+
+// connContext 把每个播放器连接的发送缓冲限制在 previewSendBuffer（见常量说明）。
+func (p *previewHTTP) connContext(ctx context.Context, c net.Conn) context.Context {
+	if tc, ok := c.(*net.TCPConn); ok {
+		tc.SetWriteBuffer(previewSendBuffer)
+	}
+	return ctx
 }
 
 func (p *previewHTTP) register(f *previewFeed) {
@@ -554,33 +610,64 @@ func (p *previewHTTP) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.Set("Cache-Control", "no-store")
 	h.Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)
-	fl, _ := w.(http.Flusher)
+	rc := http.NewResponseController(w)
+	// 被挤掉 / 太慢时让正卡着的写立刻失败（deadline 设成现在）。处理返回后不再碰这个连接。
+	var abortMu sync.Mutex
+	finished := false
+	c.setAbort(func() {
+		abortMu.Lock()
+		defer abortMu.Unlock()
+		if !finished {
+			rc.SetWriteDeadline(time.Now())
+		}
+	})
+	defer func() {
+		abortMu.Lock()
+		finished = true
+		abortMu.Unlock()
+		c.setAbort(nil)
+	}()
 	write := func(b []byte) error {
 		if len(b) == 0 {
 			return nil
 		}
+		select {
+		case <-c.kick:
+			return http.ErrAbortHandler
+		default:
+		}
+		// 每次写最多等 previewWriteStall：写不进去 = 播放器不读了。
+		abortMu.Lock()
+		rc.SetWriteDeadline(time.Now().Add(previewWriteStall))
+		abortMu.Unlock()
 		if _, err := w.Write(b); err != nil {
 			return err
 		}
-		if fl != nil {
-			fl.Flush()
+		if err := rc.Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			return err
 		}
 		return nil
 	}
+	// 写失败、被挤掉：中止连接（不发分块结束标记，客户端看到的是连接断开，不是“直播结束”）。
+	fail := func() { panic(http.ErrAbortHandler) }
 	if write(pre) != nil {
-		return
+		f.hub.leave(c)
+		fail()
 	}
 	// 客户端断开（写失败或请求的 context 结束）时立即退出并离开分发器；
 	// 否则断开的客户端一直占着名额，重连几次后就是 429。
 	done := r.Context().Done()
 	for {
 		select {
+		case <-c.kick:
+			fail()
 		case b, ok := <-c.ch:
 			if !ok {
-				return
+				return // 会话结束：队列已发完，正常收尾
 			}
 			if write(b) != nil {
-				return
+				f.hub.leave(c)
+				fail()
 			}
 			c.wrote(len(b))
 		case <-done:
