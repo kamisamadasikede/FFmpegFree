@@ -13,7 +13,6 @@ export interface NavItem {
 
 export const mainNav: NavItem[] = [
   { key: 'convert', label: '转换', path: '/', icon: 'convert', needsFFmpeg: true },
-  { key: 'edit', label: '剪辑', path: '/edit', icon: 'cut', needsFFmpeg: true },
   { key: 'live', label: '直播', path: '/live', icon: 'live', needsFFmpeg: true },
   { key: 'docs', label: '文档', path: '/docs', icon: 'doc' },
   { key: 'tools', label: '工具', path: '/tools', icon: 'tool' },
@@ -24,7 +23,7 @@ export const bottomNav: NavItem[] = [{ key: 'settings', label: '设置', path: '
 
 /**
  * 路由守卫用：目标路由的一级入口是否依赖 ffmpeg。与侧栏置灰共用 mainNav 里的 needsFFmpeg，不另存一份清单。
- * topPath 是一级路由的 path（如 '/'、'/edit'、'/live'）。
+ * topPath 是一级路由的 path（如 '/'、'/live'）。
  */
 export function routeNeedsFFmpeg(topPath: string | undefined): boolean {
   return !!topPath && mainNav.some((i) => i.needsFFmpeg && i.path === topPath)

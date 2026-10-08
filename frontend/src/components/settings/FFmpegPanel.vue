@@ -50,7 +50,7 @@ const view = computed(() => {
     case 'outdated':
       return { tag: '版本过旧', tone: 'warn', detail: `${s.version ? `当前转换组件版本 ${s.version}，` : ''}需要 6.0 或更高版本。` }
     case 'missing':
-      return { tag: '未安装', tone: 'warn', detail: '转换、剪辑、直播暂不可用。' }
+      return { tag: '未安装', tone: 'warn', detail: '转换和直播暂不可用。' }
     default:
       return { tag: '检测中', tone: 'q', detail: '正在检测转换组件，请稍候。' }
   }

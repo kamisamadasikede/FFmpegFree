@@ -62,6 +62,12 @@ export function buildPreviewHistory(n: number): TaskItem[] {
       { type: 'convert', status: 'canceled', title: 'vlog_杭州西湖.mkv' },
       { type: 'convert', status: 'interrupted', title: '婚礼现场_全程4K.mp4', params: '{"container":"mp4","targetSizeMb":500}', progress: 0.42, error: null },
       { type: 'edit_export', status: 'succeeded', title: '周报剪辑.fproj', outputPath: '/Users/me/Movies/FFmpegFree/周报剪辑.mp4' },
+      // 剪辑功能已移除后的旧记录：失败 / 已中断的剪辑导出不显示“重试”，只能移除
+      {
+        type: 'edit_export', status: 'failed', title: '旅行短片.fproj', progress: 0.55,
+        error: { code: 'PROCESS_FAILED', message: '导出没有成功', detail: 'Conversion failed!' },
+      },
+      { type: 'edit_export', status: 'interrupted', title: '年会混剪.fproj', progress: 0.2, error: null },
     ]
     const k = kinds[i % kinds.length]
     const started = t - (i + 1) * 47 * min

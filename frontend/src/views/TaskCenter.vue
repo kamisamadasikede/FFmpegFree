@@ -132,7 +132,7 @@
                     :announce="isFresh(t)"
                     show-retry
                     :busy="tasks.isBusy(t.id)"
-                    :hide-retry="t.status === 'interrupted' || isLiveType(t.type)"
+                    :hide-retry="t.status === 'interrupted' || isLiveType(t.type) || isRetiredType(t.type)"
                     @retry="doRetry(t)"
                     @change-output="changeOutput(t)"
                     @view-log="toggleLog(t.id, true)"
@@ -143,7 +143,7 @@
                     tone="interrupted"
                     code="INTERRUPTED"
                     title=""
-                    :description="isLiveType(t.type) ? '应用退出时推流被中断，请回到直播页重新推流。' : '应用退出时这个任务被中断，可以重试。'"
+                    :description="isLiveType(t.type) ? '应用退出时推流被中断，请回到直播页重新推流。' : isRetiredType(t.type) ? RETIRED_INTERRUPTED_TEXT : '应用退出时这个任务被中断，可以重试。'"
                     hide-code
                     :announce="isFresh(t)"
                     hide-retry
@@ -224,7 +224,7 @@ import { getSource, parseParams } from '@/api/convertRecords'
 import { recordParamsText } from '@/utils/convertText'
 import { showFallbackNotice, usedDeviceText, useEncoderDeviceList } from '@/api/encoderTask'
 import { ENCODER_DEVICE_CPU_FALLBACK_NAME, ENCODER_DEVICE_CPU_FALLBACK_TITLE, ENCODER_DEVICE_LABEL, ENCODER_FALLBACK_LIVE, ENCODER_FALLBACK_TASK_ROW_DONE, encoderFallbackReasonText } from '@/errors/encoderMessages'
-import { elapsedMs, isLiveType, isTerminal, useTaskStore, type TaskItem, type TaskStatus } from '@/stores/tasks'
+import { canRetryTask, elapsedMs, isLiveType, isRetiredType, isTerminal, useTaskStore, type TaskItem, type TaskStatus } from '@/stores/tasks'
 import type { IconName } from '@/components/icon/icons'
 import { toAppError } from '@/api/call'
 import { isSimTask, SIM_TITLE_PREFIX } from '@/api/sim'
@@ -270,7 +270,7 @@ const opsWidth = computed(() => {
   }
   return w
 })
-const canRetry = (t: TaskItem) => (t.status === 'failed' || t.status === 'interrupted' || t.status === 'canceled') && !isLiveType(t.type)
+const canRetry = (t: TaskItem) => canRetryTask(t)
 /** “在转换页查看”：跳到转换页并定位到这条记录（设计 §7.3 第 11 条） */
 async function goConvert(t: TaskItem) {
   // 先用 GetSource 确认这一行还在（v0.23.1）；已被删就留在任务中心并提示
@@ -315,7 +315,6 @@ function onTabKeydown(e: KeyboardEvent) {
 const TYPE_FILTERS = [
   { key: 'all', label: '全部类型', types: [] as string[] },
   { key: 'convert', label: '转换', types: ['convert'] },
-  { key: 'edit', label: '剪辑', types: ['edit_export'] },
   { key: 'doc', label: '文档', types: ['office_pdf'] },
   { key: 'live', label: '直播', types: ['live_file_push', 'live_screen_push'] },
   { key: 'install', label: '安装', types: ['ffmpeg_install'] },
@@ -337,8 +336,8 @@ const loading = computed(() => {
 })
 
 const emptyText = computed(() => {
-  if (tab.value === 'active') return { title: '没有进行中的任务', hint: '在转换、剪辑或直播页面开始任务后，会显示在这里。' }
-  if (tab.value === 'all') return { title: '还没有任务', hint: '在转换、剪辑或直播页面开始任务后，会显示在这里。' }
+  if (tab.value === 'active') return { title: '没有进行中的任务', hint: '在转换或直播页面开始任务后，会显示在这里。' }
+  if (tab.value === 'all') return { title: '还没有任务', hint: '在转换或直播页面开始任务后，会显示在这里。' }
   if (tab.value === 'failed') return { title: '没有失败的任务', hint: '失败或被中断的任务会显示在这里，可以重试。' }
   return { title: '还没有历史任务', hint: '完成、失败或取消的任务会保留在这里。' }
 })
@@ -362,6 +361,8 @@ function onTypeChange() {
 }
 
 // ---- 展示辅助 ----
+/** 剪辑功能已移除：旧的剪辑导出任务被中断时不再提示“可以重试” */
+const RETIRED_INTERRUPTED_TEXT = '应用退出时这个任务被中断。剪辑功能已移除，不能重试，可以移除这条记录。'
 const TYPE_LABEL: Record<string, string> = {
   convert: '转换', edit_export: '剪辑', office_pdf: '文档', ffmpeg_install: '安装',
   live_file_push: '直播', live_screen_push: '直播',
