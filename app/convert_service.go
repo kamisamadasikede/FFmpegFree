@@ -168,7 +168,7 @@ func (s *ConvertService) SubmitSources(req convert.ConvertSubmitRequest) (conver
 	return c.SubmitSources(s.rootCtx(), req)
 }
 
-// Reconvert 在同一条已成功的记录上原地重新转换（契约 v0.24 / v0.24.1，6.17）：id、输出路径不变，成功后才原子替换旧输出；
+// Reconvert 在同一条已成功的记录上原地重转（契约 v0.24 / v0.24.1，6.17）：id、输出路径不变，成功后才原子替换旧输出；
 // 失败 / 取消时记录恢复成 succeeded（失败带 lastReconvertError）。
 func (s *ConvertService) Reconvert(req convert.ReconvertRequest) (store.Task, error) {
 	c, err := s.svc()
