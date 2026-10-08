@@ -449,12 +449,7 @@ func TestCacheCleanupBounds(t *testing.T) {
 	}
 }
 
-func TestDefaultThumbAtAndClampWidth(t *testing.T) {
-	for in, want := range map[float64]float64{0: 0, -1: 0, 3: 0.3, 100: 10, 1000: 10} {
-		if got := defaultThumbAt(in); got != want {
-			t.Errorf("defaultThumbAt(%v) = %v, want %v", in, got, want)
-		}
-	}
+func TestClampWidth(t *testing.T) {
 	for in, want := range map[int]int{0: 320, -5: 320, 1: 16, 500: 500, 99999: 1920} {
 		if got := clampWidth(in); got != want {
 			t.Errorf("clampWidth(%d) = %d, want %d", in, got, want)

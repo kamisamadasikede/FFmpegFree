@@ -15,12 +15,13 @@ import {
   type ConvertRecord, type ConvertSource, type ConvertSourceEntry, type ConvertSourceStatus, type DeleteResult, type RecordOptions, type ThumbState, type V023Task,
 } from '@/api/convertRecords'
 import { mockSceneUi } from '@/api/convertRecordsMock'
-import { canPickFiles, getDefaultOutputDir, pickDirectory, pickFiles } from '@/api/system'
+import { canPickFiles, getOutputDirShown, pickDirectory, pickFiles } from '@/api/system'
 import { hasWailsBackend } from '@/services/wails'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { useTaskStore, type TaskError, type TaskItem, type TaskStatus } from '@/stores/tasks'
 import { conflictReason, dupPresetTitles, isAudioContainer, isAudioOnly, isToday, presetShortTitle, setPresetCatalog, splitPresetName, totalProgress } from '@/utils/convertText'
 import { normalizeSourcePath } from '@/utils/sourcePath'
+import { skippedNotice, submitCopyErrorText, type SkippedSource } from '@/utils/convertSubmit'
 import type { store as goStore } from '../../wailsjs/go/models'
 
 export type ProbeState = 'pending' | 'probing' | 'ok' | 'error'
@@ -241,7 +242,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   }
   async function loadDefaultDir() {
     try {
-      defaultOutputDir.value = await getDefaultOutputDir()
+      defaultOutputDir.value = await getOutputDirShown() // 只用于显示；提交时 outputDir 传空由后端解析
     } catch (e) {
       console.warn('read default output dir failed', e)
     }
@@ -994,6 +995,10 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     },
   )
 
+  /** 副本没就绪被跳过的行（6.15.4 第 6 条）：普通 toast 提示个数 */
+  function saySkipped(skipped: SkippedSource[]) {
+    if (skipped.length) say(skippedNotice(skipped))
+  }
   function afterSubmit(list: V023Task[]) {
     for (const t of list) {
       addRecord(t) // 只在第一次见到这个 id 时计数（S1）
@@ -1014,12 +1019,18 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     submitting.value = true
     submitError.value = null
     try {
-      const list = await submitSources({ sourceIds: rows.map((r) => r.sourceId), options: optionsOf(p.options), outputDir: outputOverride.value, presetId: p.id })
-      afterSubmit(list)
+      const res = await submitSources({ sourceIds: rows.map((r) => r.sourceId), options: optionsOf(p.options), outputDir: outputOverride.value, presetId: p.id })
+      afterSubmit(res.tasks)
       closeBanner()
-      clearSelection()
+      // v0.24：副本没就绪被跳过的行保持勾选，等准备好了再点一次转换；其余照旧取消勾选
+      const skip = new Set(res.skipped.map((k) => k.sourceId))
+      for (const r of rows) if (!skip.has(r.sourceId)) selected.delete(r.sourceId)
+      saySkipped(res.skipped)
     } catch (e) {
-      submitError.value = errOf(e)
+      const err = errOf(e)
+      const copyText = submitCopyErrorText(err) // 一行都没就绪：短提示，不当作转换失败；勾选不变
+      if (copyText) say(copyText)
+      else submitError.value = err
     } finally {
       submitting.value = false
     }
@@ -1064,9 +1075,12 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     const r = records[id]
     if (!r) return
     try {
-      afterSubmit(await submitSources({ sourceIds: [r.sourceId], options: optionsOf(r.options), outputDir: dir, presetId: r.presetId ?? '' }))
+      const res = await submitSources({ sourceIds: [r.sourceId], options: optionsOf(r.options), outputDir: dir, presetId: r.presetId ?? '' })
+      afterSubmit(res.tasks)
+      saySkipped(res.skipped)
     } catch (e) {
-      say(errOf(e).message)
+      const err = errOf(e)
+      say(submitCopyErrorText(err) || err.message)
     }
   }
 

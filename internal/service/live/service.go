@@ -370,7 +370,7 @@ func (s *Service) newRunner(taskID string, bin ffmpeg.Binaries, u livepkg.PushUR
 			return ffmpeg.ClassifyLiveError(ffmpeg.LiveClassifyInput{Tail: tail, Scheme: u.Scheme, Started: started.Load(), Screen: screen})
 		},
 	}
-	// v0.24.2：完整 argv 记进应用日志，排查帧率、预览这类问题时直接看日志。推流地址整段换成占位符（连主机和端口也不写），
+	// v0.24.3：完整 argv 记进应用日志，排查帧率、预览这类问题时直接看日志。推流地址整段换成占位符（连主机和端口也不写），
 	// 其余再过一遍脱敏。
 	logArgs := func(a []string) string {
 		line := strings.Join(a, " ")

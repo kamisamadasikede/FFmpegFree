@@ -15,7 +15,7 @@ import { probeFiles, type ProbeResult } from '@/api/media'
 import { adoptSimTask, cancelSimTask, createSimTask, getSimTask, hideSimFinished, isSimTask, listSimAll, listSimFinished, removeSimTasks, simParam, SIM_TITLE_PREFIX, unhideSimTasks } from '@/api/sim'
 import type { ApiTask, ApiTaskResult } from '@/api/taskTypes'
 import type {
-  AddSourceResult, ConvertSearchFilter, ConvertSource, ConvertSourceEntry, ConvertSourceFilter, ConvertSourcePage, ConvertSubmitRequest,
+  AddSourceResult, ConvertSearchFilter, ConvertSource, ConvertSourceEntry, ConvertSourceFilter, ConvertSourcePage, ConvertSubmitRequest, ConvertSubmitResult,
   DeleteFailure, DeleteResult, PreviewURL, RecordOptions, SourcePathCheck, TaskPage, TaskPathCheck, V023Task,
 } from '@/api/convertRecords'
 import { emitSimEvent } from '@/services/wails'
@@ -411,16 +411,24 @@ function submitOne(m: MSource, options: RecordOptions, outputDir: string, preset
   touch(m)
   return toV023(t)
 }
-export async function SubmitSources(req: ConvertSubmitRequest): Promise<V023Task[]> {
+/** v0.24（6.15.4 第 6 条）：copying / failed / canceled 的行跳过，只提交就绪的；一行都没就绪时整体 TASK_CONFLICT */
+const SKIP_REASON: Record<string, string> = { copying: 'copying', failed: 'copy_failed', canceled: 'copy_canceled' }
+export async function SubmitSources(req: ConvertSubmitRequest): Promise<ConvertSubmitResult> {
   ensure()
   if (!req.sourceIds.length || req.sourceIds.length > 50) throw new AppError('INVALID_ARGUMENT', '一次最多转换 50 个文件')
-  const list = req.sourceIds.map(mustSource)
+  const all = req.sourceIds.map(mustSource)
+  const skipped = all.filter((m) => SKIP_REASON[m.src.copyState ?? '']).map((m) => ({ sourceId: m.src.sourceId, reason: SKIP_REASON[m.src.copyState ?? ''] }))
+  const list = all.filter((m) => !SKIP_REASON[m.src.copyState ?? ''])
+  if (!list.length) {
+    const copying = skipped.some((s) => s.reason === 'copying')
+    throw new AppError('TASK_CONFLICT', copying ? '文件还在复制，请等复制完成后再转换' : '文件复制没有完成，请先重试复制', `reason=${copying ? 'copying' : 'copy_failed'}\nsourceId=${skipped[0].sourceId}`)
+  }
   for (const m of list) if (!m.exists) throw new AppError('NOT_FOUND', '源文件已不存在', m.src.path)
   const preset = Object.values(PRESET).find((p) => p.id === req.presetId)
   if (req.presetId && !preset) throw notFoundRecord('预设不存在')
   const taken = takenKeys()
   const summary = mockParamsSummary(req.options)
-  return list.map((m) => submitOne(m, req.options, req.outputDir, req.presetId, preset?.name ?? '', summary, taken))
+  return { tasks: list.map((m) => submitOne(m, req.options, req.outputDir, req.presetId, preset?.name ?? '', summary, taken)), skipped }
 }
 export async function Reconvert(taskId: string): Promise<V023Task> {
   ensure()
@@ -617,6 +625,11 @@ export async function revealDeleteFailureMock(path: string): Promise<void> {
 }
 export function mockMarkOutputGone(id: string): void {
   outputGone.add(id)
+}
+/** 自检用：模拟副本状态（v0.24 copyState：none | copying | ready | failed | canceled） */
+export function mockSetCopyState(sourceId: string, copyState: string): void {
+  const m = sources.get(sourceId)
+  if (m) m.src.copyState = copyState
 }
 /** 自检用：模拟源文件被移走 */
 export function mockMarkSourceGone(sourceId: string): void {

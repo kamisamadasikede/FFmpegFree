@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"os"
 	"path/filepath"
@@ -1080,7 +1081,9 @@ func (s *Service) RevealRecord(ctx context.Context, taskID string) error {
 }
 
 // GetRecordThumbnail 返回转换记录输出文件的缩略图 data URL（契约 6.14.10）。
-func (s *Service) GetRecordThumbnail(ctx context.Context, taskID string) (string, error) {
+func (s *Service) GetRecordThumbnail(ctx context.Context, taskID string) (_ string, err error) {
+	var p string
+	defer func() { logThumbErr("record", taskID, p, err) }()
 	tr, _, err := s.records()
 	if err != nil {
 		return "", err
@@ -1097,7 +1100,9 @@ func (s *Service) GetRecordThumbnail(ctx context.Context, taskID string) (string
 }
 
 // GetSourceThumbnail 返回源文件的缩略图 data URL（契约 6.14.10）；时长取自 media 表。
-func (s *Service) GetSourceThumbnail(ctx context.Context, sourceID string) (string, error) {
+func (s *Service) GetSourceThumbnail(ctx context.Context, sourceID string) (_ string, err error) {
+	var p string
+	defer func() { logThumbErr("source", sourceID, p, err) }()
 	_, ss, err := s.records()
 	if err != nil {
 		return "", err
@@ -1106,8 +1111,9 @@ func (s *Service) GetSourceThumbnail(ctx context.Context, sourceID string) (stri
 	if err != nil {
 		return "", err
 	}
-	p, err := sourceFile(src)
-	if err != nil {
+	// 显示路径（6.15.6）：副本 ready 用副本，复制中 / 失败 / 已取消 / 旧行用原文件，复制没完成也能出缩略图
+	p = displayPath(src)
+	if _, err = sourceFile(src); err != nil {
 		return "", err
 	}
 	hint := 0.0
@@ -1116,6 +1122,18 @@ func (s *Service) GetSourceThumbnail(ctx context.Context, sourceID string) (stri
 		hint = src.Media.Duration
 	}
 	return s.thumbnail(ctx, p, hint)
+}
+
+// logThumbErr 把转换页缩略图的失败写进应用日志（<数据目录>/logs/app.log），一次调用一行：
+// 哪种缩略图、id、文件路径、错误码、message 和 detail 第一行。包 19 在 Windows 上全部失败却没有任何记录，前端只显示类型图标。
+// ffmpeg 本身失败时 media 包另有一行带退出码和 stderr 的日志。失败不缓存，下次调用会重新生成。
+func logThumbErr(kind, id, path string, err error) {
+	if err == nil {
+		return
+	}
+	ae := apperr.From(err)
+	detail, _, _ := strings.Cut(ae.Detail, "\n")
+	log.Printf("缩略图: 转换页 %s=%s path=%q code=%s msg=%q detail=%q", kind, id, path, ae.Code, ae.Message, detail)
 }
 
 func (s *Service) thumbnail(ctx context.Context, p string, hint float64) (string, error) {
