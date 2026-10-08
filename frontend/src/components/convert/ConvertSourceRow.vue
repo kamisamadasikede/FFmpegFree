@@ -145,7 +145,7 @@ async function revealKid(id: string) {
         <button v-else type="button" class="cv-ib" :aria-label="`预览源文件 ${src.name}`" title="预览源文件" @click="emit('preview', 'source', src.sourceId)"><FIcon name="eye" /></button>
         <button v-if="gone" type="button" class="cv-ib only1280" aria-disabled="true" :aria-label="`打开所在文件夹 ${src.name}：源文件已不存在`" data-tip="源文件已不存在"><FIcon name="folder" /></button>
         <button v-else type="button" class="cv-ib only1280" :aria-label="`打开所在文件夹 ${src.name}`" title="打开所在文件夹" @click="revealSrc"><FIcon name="folder" /></button>
-        <button type="button" class="cv-ib del only1280" :aria-label="SOURCE_REMOVE_LABEL" :title="SOURCE_REMOVE_LABEL" @click="emit('remove', 'source', src.sourceId)"><FIcon name="trash" /></button>
+        <button type="button" class="cv-ib del only1280" :aria-label="`${SOURCE_REMOVE_LABEL} ${src.name}`" :title="SOURCE_REMOVE_LABEL" @click="emit('remove', 'source', src.sourceId)"><FIcon name="trash" /></button>
         <button ref="moreBtn" type="button" class="cv-ib only1024" :aria-label="`更多：打开所在文件夹、${SOURCE_REMOVE_LABEL}`" title="更多" aria-haspopup="menu" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><FIcon name="more" /></button>
         <div v-if="menuOpen" class="cv-more-menu" role="menu">
           <button type="button" role="menuitem" :aria-disabled="gone || undefined" :title="gone ? '源文件已不存在' : undefined" @click="!gone && menu(revealSrc)"><FIcon name="folder" />打开所在文件夹</button>

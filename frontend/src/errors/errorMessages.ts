@@ -284,7 +284,7 @@ export function liveUrlInvalidText(reason?: string | null): string {
   return (reason && Object.prototype.hasOwnProperty.call(LIVE_URL_INVALID_REASON_TEXT, reason) && LIVE_URL_INVALID_REASON_TEXT[reason]) || LIVE_URL_INVALID_GENERIC
 }
 /** ffmpeg 缺推流协议、detail 里没有认得出的协议名（产品经理定稿） */
-export const LIVE_FFMPEG_PROTOCOL_MISSING_TEXT = '当前转换组件不支持这种推流协议，请在设置的转换组件一栏重新安装或更新'
+export const LIVE_FFMPEG_PROTOCOL_MISSING_TEXT = '当前转换组件不支持这种推流协议。请到设置的“转换组件”里重新安装或更新。'
 /**
  * 开始前 ffmpeg 缺协议（Start* 同步返回 UNSUPPORTED）。格式以契约 §6.10（2.2 错误码 detail 约定表）为准：
  * detail 是单独一行 `missing=<协议名>`，协议名只取 `rtmp` / `rtmps` / `srt`；带本地存档的会话另需 tee，缺时是 `missing=tee`；CheckPushURL 不返回它。
@@ -305,8 +305,10 @@ export function liveMissingProtocolName(detail?: string | null): string | undefi
 }
 export function liveFfmpegProtocolMissingText(detail?: string | null): string {
   const name = liveMissingProtocolName(detail)
-  return name ? `当前转换组件不支持 ${name}，请在设置的转换组件一栏重新安装或更新` : LIVE_FFMPEG_PROTOCOL_MISSING_TEXT
+  return name ? `当前转换组件不支持 ${name}。请到设置的“转换组件”里重新安装或更新。` : LIVE_FFMPEG_PROTOCOL_MISSING_TEXT
 }
+/** 转换组件缺少读取文件信息的部分（ffprobe）：设置 / 关于里的转换组件状态（产品经理 10-08 定稿） */
+export const FFPROBE_MISSING_TEXT = '转换组件不完整，无法读取文件信息。请到设置的“转换组件”里重新安装。'
 /** 带存档的会话被强杀且存档保留（status=canceled 且 outputPath 非空）时状态行的文案（设计稿 v0.2 §6.8，产品定稿） */
 export const LIVE_CANCELED_ARCHIVE_KEPT_TEXT = '已强制停止，存档已保留，文件可能不完整'
 /** 正在停止（已发停止、等后端事件；有存档最多等 16 秒，界面不做超时处理） */

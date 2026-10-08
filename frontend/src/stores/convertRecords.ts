@@ -19,9 +19,8 @@ import { canPickFiles, getDefaultOutputDir, pickDirectory, pickFiles } from '@/a
 import { hasWailsBackend } from '@/services/wails'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { useTaskStore, type TaskError, type TaskItem, type TaskStatus } from '@/stores/tasks'
-import { conflictReason, isAudioContainer, isAudioOnly, isToday, splitPresetName, totalProgress } from '@/utils/convertText'
+import { conflictReason, dupPresetTitles, isAudioContainer, isAudioOnly, isToday, presetShortTitle, setPresetCatalog, splitPresetName, totalProgress } from '@/utils/convertText'
 import { normalizeSourcePath } from '@/utils/sourcePath'
-import { codecName } from '@/utils/mediaText'
 import type { store as goStore } from '../../wailsjs/go/models'
 
 export type ProbeState = 'pending' | 'probing' | 'ok' | 'error'
@@ -207,17 +206,10 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   // ---------------- 预设 ----------------
   const selectedPreset = computed(() => presets.value.find((p) => p.id === selectedPresetId.value))
   const isAudioPreset = (p: PresetItem) => isAudioContainer(p.options.container)
-  /** 预设卡标题：标题重名（MP4 H.264 / H.265）时加编码简称「MP4 · H.265」 */
+  /** 预设卡标题：标题重名（MP4 H.264 / H.265）时加编码简称「MP4 · H.265」；和记录第 2 行共用 presetShortTitle（走查 G2） */
   const presetTitles = computed(() => {
-    const count = new Map<string, number>()
-    for (const p of presets.value) count.set(splitPresetName(p.name).title, (count.get(splitPresetName(p.name).title) ?? 0) + 1)
-    const m = new Map<string, string>()
-    for (const p of presets.value) {
-      const t = splitPresetName(p.name).title
-      const codec = (count.get(t) ?? 0) > 1 ? codecName(p.options.videoCodec || p.options.audioCodec) : ''
-      m.set(p.id, codec ? `${t} · ${codec}` : t)
-    }
-    return m
+    const dup = dupPresetTitles(presets.value.map((p) => p.name))
+    return new Map(presets.value.map((p) => [p.id, presetShortTitle(p.name, p.options.videoCodec || p.options.audioCodec, dup)]))
   })
   const presetTitle = (p: PresetItem) => presetTitles.value.get(p.id) ?? splitPresetName(p.name).title
   const shownPresets = computed(() => presets.value.filter((p) => (tab.value === 'audio') === isAudioPreset(p)))
@@ -229,6 +221,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   async function loadPresets() {
     try {
       presets.value = await listPresets()
+      setPresetCatalog(presets.value.map((p) => p.name))
       presetsError.value = null
       if (!selectedPreset.value && presets.value.length) selectedPresetId.value = presets.value[0].id
       if (selectedPreset.value) tab.value = isAudioPreset(selectedPreset.value) ? 'audio' : 'video'
@@ -270,11 +263,32 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     const row = sources[r.sourceId]
     if (row && !row.loadedIds.includes(r.id)) row.loadedIds.push(r.id)
   }
-  function putEntries(items: ConvertSourceEntry[]) {
+  /** 写入一页源文件行；返回其中本地原来没有的行数（刷新第一页时据此推进 listOffset） */
+  function putEntries(items: ConvertSourceEntry[]): number {
+    let added = 0
     for (const e of items) {
+      if (!sources[e.source.sourceId]) added++
       upsertSource(e.source, e.recordCount)
       for (const t of e.records) putRecord(t)
     }
+    return added
+  }
+  /**
+   * 本地新出现的一条记录（提交返回、task:status 先于提交返回到达、旧后端重试生成新任务）：放进记录表，
+   * 并且只在第一次见到这个任务 id 时给所在行的 recordCount +1（走查 S1：监听和 afterSubmit 各加一次，记录数翻倍）。
+   * 栏头总数、行摘要、“展开更多”、移除确认框都从 recordCount 来，所以这里是唯一计数的地方。返回是否新增。
+   */
+  function addRecord(t: V023Task | TaskItem): boolean {
+    if (records[t.id]) {
+      putRecord(t)
+      return false
+    }
+    putRecord(t)
+    const r = records[t.id]
+    if (!r) return false
+    const s = sources[r.sourceId]
+    if (s) s.recordCount++
+    return true
   }
 
   // ---------------- 实时状态 ----------------
@@ -698,7 +712,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     topTimer = setTimeout(async () => {
       try {
         const p = await listSources({ limit: SOURCE_PAGE, offset: 0, recordLimit: RECORD_LIMIT })
-        putEntries(p.items)
+        listOffset.value += putEntries(p.items) // 新出现在最上面的行算进已加载的部分（走查 G1）
         listTotal.value = p.total
       } catch (e) {
         console.warn('refresh sources failed', e)
@@ -714,10 +728,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
         if (!r) {
           if (!t.sourceId) continue
           if (!sources[t.sourceId]) refreshTop()
-          else {
-            putRecord(t)
-            sources[t.sourceId].recordCount++
-          }
+          else addRecord(t) // task:status 可能先于 SubmitSources 返回：和 afterSubmit 共用一处计数（S1）
         } else if (TERMINAL.includes(r.status)) {
           // 原地重试（可能是任务中心点的）：上一次的结果、错误、“文件已被移动”标记都作废
           records[t.id] = { ...r, status: t.status, version: t.version, error: null, result: undefined, hwFallback: undefined, hwFallbackReason: undefined, progress: 0 }
@@ -848,7 +859,11 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
         continue
       }
       const had = !!sources[r.source.sourceId]
-      if (!had) listTotal.value++
+      if (!had) {
+        // 新行放在最上面，算进已加载的部分（走查 G1：只加 listTotal 会误出“加载更早的记录”）；后端原来就有、只是没加载到的行，总数不变
+        listOffset.value++
+        if (!r.existed) listTotal.value++
+      }
       const row = upsertSource(r.source)
       row.lastActivityAt = Math.max(r.source.lastActivityAt, now) // 重复添加：移到最上面
       row.exists = true
@@ -913,10 +928,9 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
 
   function afterSubmit(list: V023Task[]) {
     for (const t of list) {
-      putRecord(t)
+      addRecord(t) // 只在第一次见到这个 id 时计数（S1）
       const s = sources[t.sourceId ?? '']
       if (s) {
-        s.recordCount++
         s.lastActivityAt = Math.max(s.lastActivityAt, t.createdAt || Date.now())
         foldSession[s.sourceId] = true
       }
@@ -962,7 +976,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
         outputGone.delete(id)
         recThumbs.delete(id)
         recThumbAsked.delete(id)
-      } else if (t.id !== id) putRecord(t) // 旧后端：重试生成了新任务
+      } else if (t.id !== id) addRecord(t) // 旧后端：重试生成了新任务
       round.add(t.id)
       if (r) foldSession[r.sourceId] = true
     } catch (e) {
@@ -1110,7 +1124,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     parents, groups, sourceCount, recordCount, hasMore, loadingMore, total, liveById, selectedRows, submittableRows, blockedCount, probingSelected, startBlock,
     // 方法
     init, reload, loadMore, loadMoreRecords, locate, setFilter, search, loadPresets, presetTitle, setTab, isAudioPreset, toggle, clearSelection, isCheckable, conflictOfSource, setOpen,
-    addPaths, chooseFiles, chooseOutputDir, submit, cancel, retry, reconvert, resubmitTo, revealOutput, revealSource, markOutputGone, markSourceGone,
+    addPaths, chooseFiles, chooseOutputDir, submit, afterSubmit, cancel, retry, reconvert, resubmitTo, revealOutput, revealSource, markOutputGone, markSourceGone,
     deleteAsk, confirmDelete, ensureThumb, ensureRecThumb, requestMeta, closeBanner, probePending, liveOf, say,
   }
 })

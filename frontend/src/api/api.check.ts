@@ -83,7 +83,7 @@ export async function runApiChecks(): Promise<string[]> {
   eq('Cancel / Remove 的冲突 → 通用', actionErrorText('TASK_CONFLICT', '任务已结束'), '操作冲突，请稍后再试')
   eq('原型链上的键不算 reason', taskConflictText('toString'), TASK_CONFLICT_GENERIC)
   eq('直播停止文案', LIVE_STOP_TEXT, { succeeded: '已结束推流', canceled: '已强制停止' })
-  eq('UNSUPPORTED 起始错误行（无协议名）', liveStartErrorLine({ code: 'UNSUPPORTED' })?.description, '当前转换组件不支持这种推流协议，请在设置的转换组件一栏重新安装或更新')
+  eq('UNSUPPORTED 起始错误行（无协议名）', liveStartErrorLine({ code: 'UNSUPPORTED' })?.description, '当前转换组件不支持这种推流协议。请到设置的“转换组件”里重新安装或更新。')
 
   eq('任务中心：reason=format / encrypted 的 UNSUPPORTED', [docUnsupportedText('暂不支持这种格式', 'reason=format\n/d/a.doc\n.doc：旧版'), docUnsupportedText('暂不支持这种格式', 'reason=encrypted')], [DOC_FORMAT_UNSUPPORTED_TEXT, DOC_ENCRYPTED_TEXT])
   eq('任务中心：超 5000 页沿用后端 message（reason=too_many_pages）', docUnsupportedText('超过 5000 页', 'reason=too_many_pages\n已排到第 5000 页仍未结束'), '超过 5000 页')
@@ -491,8 +491,8 @@ export async function runApiChecks(): Promise<string[]> {
   const okPass = await live.startFilePush(req('srt://sp2.example:9000?streamid=s&passphrase=abcdefghij'))
   eq('口令 10 位放行', okPass.status, 'queued')
   await live.stopPush(okPass.id)
-  const PROTO_GENERIC = '当前转换组件不支持这种推流协议，请在设置的转换组件一栏重新安装或更新'
-  const NAME = (n: string) => `当前转换组件不支持 ${n}，请在设置的转换组件一栏重新安装或更新`
+  const PROTO_GENERIC = '当前转换组件不支持这种推流协议。请到设置的“转换组件”里重新安装或更新。'
+  const NAME = (n: string) => `当前转换组件不支持 ${n}。请到设置的“转换组件”里重新安装或更新。`
   eq('缺协议（契约 §6.10）：missing=rtmp|rtmps|srt 带协议名', ['missing=rtmp', 'missing=rtmps', 'missing=srt'].map((d) => liveFfmpegProtocolMissingText(d)), [NAME('RTMP'), NAME('RTMPS'), NAME('SRT')])
   eq('缺协议：某一行严格等于即可（CRLF / 多行）', [liveFfmpegProtocolMissingText('missing=srt\r\n'), liveFfmpegProtocolMissingText('x\nmissing=rtmps')], [NAME('SRT'), NAME('RTMPS')])
   eq('缺协议：missing=tee → 通用句（不显示 tee）', liveFfmpegProtocolMissingText('missing=tee'), PROTO_GENERIC)
@@ -551,7 +551,7 @@ export async function runApiChecks(): Promise<string[]> {
   eq('带存档屏幕推流不再 UNSUPPORTED，outputPath 在存档目录下', /^\/m\/arc\/screen-\d{8}-\d{6}\.mp4$/.test(arcTask.outputPath), true)
   eq('存档路径不含地址 / 推流码', arcTask.outputPath.includes('arc.example') || arcTask.outputPath.includes('arckey'), false)
   eq('UNSUPPORTED + missing=tee → 仍是缺组件通用句（不带 tee，也不再是存档提示）', liveStartErrorLine({ code: 'UNSUPPORTED', detail: 'missing=tee' })?.description, PROTO_GENERIC)
-  eq('UNSUPPORTED + missing=srt → 带协议名', liveStartErrorLine({ code: 'UNSUPPORTED', detail: 'missing=srt' })?.description, '当前转换组件不支持 SRT，请在设置的转换组件一栏重新安装或更新')
+  eq('UNSUPPORTED + missing=srt → 带协议名', liveStartErrorLine({ code: 'UNSUPPORTED', detail: 'missing=srt' })?.description, '当前转换组件不支持 SRT。请到设置的“转换组件”里重新安装或更新。')
   eq('UNSUPPORTED 无 missing= → 通用句', liveStartErrorLine({ code: 'UNSUPPORTED' })?.description, PROTO_GENERIC)
   const arcProgress: TaskProgressPayload[] = []
   const offA = onSimEvent<TaskProgressPayload>('task:progress', (p) => { if (p.id === arcTask.id) arcProgress.push(p) })

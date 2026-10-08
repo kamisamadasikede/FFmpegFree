@@ -21,6 +21,7 @@ import type {
 import { emitSimEvent } from '@/services/wails'
 import type { TaskError, TaskStatus } from '@/stores/tasks'
 import { normalizeSourcePath } from '@/utils/sourcePath'
+import { codecName } from '@/utils/mediaText'
 import { store as goStore } from '../../wailsjs/go/models'
 
 export type MockScene = 'empty' | 'added' | 'running' | 'done' | 'mixed' | 'dup' | 'missing' | 'conflict' | 'conflict-audio' | 'canceled'
@@ -151,7 +152,7 @@ const SCENES: Record<MockScene, SceneDef> = {
 function summaryCodec(v: string): string {
   const base = v.toLowerCase().replace(/_(nvenc|qsv|amf|videotoolbox|vaapi|mf)$/, '')
   const M: Record<string, string> = { h264: 'H.264', libx264: 'H.264', h265: 'H.265', hevc: 'H.265', libx265: 'H.265', vp9: 'VP9', 'libvpx-vp9': 'VP9', av1: 'AV1', prores: 'ProRes', prores_ks: 'ProRes', copy: '原画质', '': '无画面' }
-  return M[base] ?? base.charAt(0).toUpperCase() + base.slice(1)
+  return M[base] ?? codecName(base) // 表里没有的走前端唯一的编码名表，不自己首字母大写（走查 X3）
 }
 /** paramsSummary：后端提交时生成（6.14.5），这里照规则模拟 */
 const AUDIO_CONT = ['mp3', 'aac', 'wav', 'flac', 'm4a', 'ogg', 'opus']
