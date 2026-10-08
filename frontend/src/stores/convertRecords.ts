@@ -9,7 +9,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { toAppError } from '@/api/call'
 import { listPresets, MAX_SUBMIT, type PresetItem } from '@/api/convert'
 import {
-  addSources, checkPaths, checkSources, convertV2IsReal, deleteRecords, deleteSource, getRecordThumbnail, getSourceThumbnail, listSourceRecords, listSources,
+  addSources, checkPaths, checkSources, convertV2IsReal, deleteRecords, deleteSource, getRecordThumbnail, getSourceThumbnail, listSourceRecords, listSources as apiListSources,
   MORE_RECORDS, previewOutputName, probeSources, reconvert as apiReconvert, RECORD_LIMIT, recordOf, revealRecord, getSource,
   revealSource as apiRevealSource, searchSources, SOURCE_PAGE, submitSources,
   convertV24On, getFormatCatalog, getStorageDirs, setStorageDirs, openStorageFolder, cancelCopy as apiCancelCopy, retryCopy as apiRetryCopy, onCopyEvent,
@@ -17,15 +17,16 @@ import {
   type CopyEvent, type FormatEntry, type StorageDirs, type TaskPathCheck,
 } from '@/api/convertRecords'
 import { mockSceneUi } from '@/api/convertRecordsMock'
-import { canPickFiles, CONVERT_V24_FILE_FILTER, getOutputDirShown, pickDirectory, pickFiles } from '@/api/system'
+import { canPickFiles, CONVERT_V24_FILE_FILTER, getOutputDirShown, pickDirectory, pickFiles, revealInFolder } from '@/api/system'
 import {
   addRejectedText, isUnsupportedFormat, reconvertDoneToast, reconvertErrorText, reconvertFailToast, reconvertState, showFallbackBanner, STORAGE_CHANGED_TOAST,
   SOURCE_REMOVE_TITLE_EMPTY, type CopyState, type FormatCategory, type ReconvertMode,
 } from '@/utils/convertV24Text'
 import { hasWailsBackend } from '@/services/wails'
 import { useFFmpegStore } from '@/stores/ffmpeg'
+import { createReadyRelist } from '@/stores/readyRelist'
 import { useTaskStore, type TaskError, type TaskItem, type TaskStatus } from '@/stores/tasks'
-import { conflictReason, dupPresetTitles, formatRecordTime, isAudioContainer, isAudioOnly, isToday, presetShortTitle, recordParamsText, setPresetCatalog, splitPresetName, totalProgress } from '@/utils/convertText'
+import { conflictReason, coverKindOf, dupPresetTitles, extOf, formatRecordTime, isAudioContainer, isAudioOnly, isToday, presetShortTitle, recordParamsText, setPresetCatalog, splitPresetName, totalProgress } from '@/utils/convertText'
 import { normalizeSourcePath } from '@/utils/sourcePath'
 import { skippedNotice, submitCopyErrorText, type SkippedSource } from '@/utils/convertSubmit'
 import type { store as goStore } from '../../wailsjs/go/models'
@@ -624,14 +625,28 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   const activeConvert = computed(() => tasks.active.filter((t) => t.type === 'convert'))
   const total = computed(() => totalProgress(activeConvert.value))
   const round = reactive(new Set<string>())
-  const roundBanner = ref<{ ok: number; fail: number } | null>(null)
+  /** 本轮任务提交时用的输出位置（'' = 默认，即应用的 output 文件夹）：完成横幅“打开文件夹”据此打开（走查 D2） */
+  const roundDirs = new Map<string, string>()
+  /** dir：本轮成功的结果都在同一个自定义文件夹时是那个文件夹，否则 ''（打开应用的 output 文件夹） */
+  const roundBanner = ref<{ ok: number; fail: number; dir: string } | null>(null)
   let bannerTimer: ReturnType<typeof setTimeout> | undefined
+  /** 完成横幅“打开文件夹”：自定义文件夹用 RevealInFolder（文件夹直接打开），默认用 OpenStorageFolder("output") */
+  async function openRoundOutput() {
+    const dir = roundBanner.value?.dir ?? ''
+    if (!hasWailsBackend()) return
+    try {
+      if (dir) await revealInFolder(dir)
+      else await openStorageFolder('output')
+    } catch (e) {
+      say(errOf(e).message)
+    }
+  }
   function closeBanner() {
     roundBanner.value = null
     clearTimeout(bannerTimer)
   }
-  function showBanner(ok: number, fail: number) {
-    roundBanner.value = { ok, fail }
+  function showBanner(ok: number, fail: number, dir = '') {
+    roundBanner.value = { ok, fail, dir }
     clearTimeout(bannerTimer)
     bannerTimer = setTimeout(() => (roundBanner.value = null), 5000) // 5 秒后自动收起
   }
@@ -643,17 +658,46 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       if (!round.size || ids) return
       let ok = 0
       let fail = 0
+      const dirs = new Set<string>()
       for (const id of round) {
         const t = tasks.taskById(id)
-        if (t?.status === 'succeeded') ok++
-        else if (t && FAILED.includes(t.status)) fail++
+        if (t?.status === 'succeeded') {
+          ok++
+          dirs.add(roundDirs.get(id) ?? '')
+        } else if (t && FAILED.includes(t.status)) fail++
       }
       round.clear()
-      if (ok || fail) showBanner(ok, fail)
+      roundDirs.clear()
+      if (ok || fail) showBanner(ok, fail, dirs.size === 1 ? [...dirs][0] : '')
     },
   )
 
   // ---------------- 加载 ----------------
+  /**
+   * 转换组件就绪后补取一次列表（后端 PR #100）：冷启动时列表比组件检测先到，没 media 的行在当次会话里补不上。
+   * 所有 ListSources 都经过 readyRelist.track；组件未就绪时列过、就绪后还有行缺 media，就原地合并刷新一次
+   * （不清勾选、不动滚动位置 / loading、不动复制 / 转换状态）；有列表请求在途时等它结束再补。
+   */
+  const readyRelist = createReadyRelist({
+    isReady: () => ffmpeg.ready,
+    needs: () => inited && (!loaded.value || Object.values(sources).some((s) => !s.media && s.exists !== false)),
+    relist: relistInPlace,
+  })
+  const listSources = (f: Parameters<typeof apiListSources>[0]) => readyRelist.track(() => apiListSources(f))
+  /** 原地刷新已加载的行：只合并（putEntries），新出现在最上面的行算进已加载部分；筛选中顺带刷新筛选的行 */
+  async function relistInPlace() {
+    if (!loaded.value) {
+      if (!loading.value) await reload() // 第一次就没取到：直接重新加载
+      return
+    }
+    const p = await listSources({ limit: Math.min(200, Math.max(SOURCE_PAGE, listOffset.value)), offset: 0, recordLimit: RECORD_LIMIT })
+    listOffset.value += putEntries(p.items)
+    listTotal.value = p.total
+    const fh = filterHits.value
+    if (fh) void loadFiltered(fh.status, fh.offset, true)
+  }
+  watch(() => ffmpeg.ready, (ok) => ok && readyRelist.onReady())
+
   let inited = false
   async function init() {
     if (inited) return
@@ -1036,6 +1080,10 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       s.thumb = { kind: 'missing' }
       return
     }
+    if (coverKindOf(extOf(s.name), metaInfoOf(s)) === 'audio') {
+      s.thumb = { kind: 'type' } // 音频一律音符封面，不调缩略图、不扫光（§14.3，走查 D3）
+      return
+    }
     if (isFailed(s.thumb) || s.thumb?.kind === 'missing') s.thumb = null // 重取期间显示“生成中”
     srcThumbInflight.add(id)
     thumbQueue.push(async () => {
@@ -1228,7 +1276,9 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     // v0.24：还在复制的行也交给后端，由它跳过（返回 skipped）；输出目录传空 = 设置里的“转换结果”目录
     const ids = [...rows, ...(v24 ? copyingSelected.value : [])].map((r) => r.sourceId)
     try {
-      const res = await submitSources({ sourceIds: ids, options: optionsOf(p.options), outputDir: v24 ? '' : outputOverride.value, presetId: p.id })
+      const dir = v24 ? '' : outputOverride.value
+      const res = await submitSources({ sourceIds: ids, options: optionsOf(p.options), outputDir: dir, presetId: p.id })
+      for (const t of res.tasks) roundDirs.set(t.id, dir)
       afterSubmit(res.tasks)
       closeBanner()
       if (res.skipped.length) {
@@ -1354,6 +1404,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     if (!r) return
     try {
       const res = await submitSources({ sourceIds: [r.sourceId], options: optionsOf(r.options), outputDir: dir, presetId: r.presetId ?? '' })
+      for (const t of res.tasks) roundDirs.set(t.id, dir)
       afterSubmit(res.tasks)
       saySkipped(res.skipped)
     } catch (e) {
@@ -1492,6 +1543,6 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     // 方法
     init, reload, loadMore, loadMoreRecords, locate, setFilter, search, loadPresets, presetTitle, setTab, isAudioPreset, toggle, clearSelection, isCheckable, conflictOfSource, setOpen,
     addPaths, chooseFiles, chooseOutputDir, submit, afterSubmit, cancel, retry, resubmitTo, revealOutput, revealSource, markOutputGone, markSourceGone,
-    deleteAsk, confirmDelete, ensureThumb, ensureRecThumb, thumbRetryTick, requestMeta, closeBanner, probePending, liveOf, say,
+    deleteAsk, confirmDelete, openRoundOutput, ensureThumb, ensureRecThumb, thumbRetryTick, requestMeta, closeBanner, probePending, liveOf, say,
   }
 })

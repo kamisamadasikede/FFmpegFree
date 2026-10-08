@@ -15,6 +15,7 @@ import { usedDeviceText, useEncoderDeviceList } from '@/api/encoderTask'
 import { channelText, sampleRateText, videoCodecText } from '@/utils/mediaText'
 import { formatRecordTime, isAudioContainer, isAudioOnly, isHevcCodec, recordLine, REVEAL_LABEL, unplayableHint } from '@/utils/convertText'
 import { fileBaseName, formatBytes, formatShortClock } from '@/utils/format'
+import { PREVIEW_COPYING_TEXT } from '@/utils/convertSubmit'
 
 export interface PreviewTarget {
   kind: 'source' | 'record'
@@ -197,7 +198,10 @@ async function load() {
   } catch (e) {
     if (my !== seq) return
     const r = errReason(e)
-    if (r.code === 'NOT_FOUND' && r.reason === 'file') markGone()
+    if (r.reason === 'copying') {
+      stage.value = 'error' // 副本还没复制好（走查 D4）：不管后端原话和错误码，统一说“准备中”
+      errText.value = PREVIEW_COPYING_TEXT
+    } else if (r.code === 'NOT_FOUND' && r.reason === 'file') markGone()
     else if (r.code === 'NOT_FOUND' && r.reason === 'record') {
       emit('close')
       cv.say('这条转换记录已被删除')

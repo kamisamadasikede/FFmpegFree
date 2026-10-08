@@ -58,7 +58,7 @@ const meta = computed(() => {
   if (src.value.probe === 'error') return { cls: 'err', text: src.value.probeError?.message ? `读取失败：${src.value.probeError.message}` : '读取失败' }
   if (info.value) {
     // 窄窗口大小优先：最后一段（大小）单独放，前面的参数先省略
-    const text = sourceMetaText(info.value)
+    const text = sourceMetaText(info.value, ext.value) // 图片格式不说“没有声音”（走查 D7）
     const i = info.value.size ? text.lastIndexOf(' · ') : -1
     return i > 0 ? { cls: 'cv-mm', text, main: text.slice(0, i), size: text.slice(i) } : { cls: '', text }
   }

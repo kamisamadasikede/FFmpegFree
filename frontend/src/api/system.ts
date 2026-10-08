@@ -8,6 +8,11 @@ export async function revealInFolder(path: string): Promise<void> {
   await call(SystemBinding.RevealInFolder(path))
 }
 
+/** 在文件管理器里打开实际的输出（output）/ 上传（uploads）文件夹本身（v0.24 SystemService.OpenStorageFolder） */
+export async function openStorageFolder(kind: 'output' | 'uploads'): Promise<void> {
+  await call(SystemBinding.OpenStorageFolder(kind))
+}
+
 /** 系统选择文件夹对话框。用户取消返回 ""（不是错误） */
 export async function pickDirectory(title = ''): Promise<string> {
   return await call(SystemBinding.PickDirectory(title))

@@ -31,6 +31,7 @@ import * as encTask from './encoderTask'
 import { convertV2Checks } from './convertV2.check'
 import { convertV24Checks } from './convertV24.check'
 import { liveFormsChecks } from '@/stores/liveForms.check'
+import { readyRelistChecks } from '@/stores/readyRelist.check'
 
 const fails: string[] = []
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -945,6 +946,7 @@ export async function runApiChecks(): Promise<string[]> {
         await convertV2Checks(eq, readSrc)
         await convertV24Checks(eq, readSrc)
         await liveFormsChecks(eq, readSrc) // 包 20：直播表单持久化 + 推流码遮挡
+        await readyRelistChecks(eq, readSrc) // 包 20：就绪后补取列表（#100 配合）+ 走查 D2 / D3 / D4 / D7
         // G11 版本号
         const { cleanFfmpegVersion } = await import('@/utils/ffmpegVersion')
         eq('G11 版本号：旧（带 URL 尾巴）/ 新（干净）/ 其他尾巴 / 空', ['9.0.2-https://www.martin-riedl.de', '9.0.2', '7.1.1-essentials_build-www.gyan.dev', '6.0', ' 4.4.2-0ubuntu0.22.04.1 ', '', undefined].map((v) => cleanFfmpegVersion(v)), ['9.0.2', '9.0.2', '7.1.1', '6.0', '4.4.2', '', ''])

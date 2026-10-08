@@ -111,13 +111,20 @@ const canStart = computed(() => recordStartEnabled({ blocked: blocked.value, sta
 /** 没选来源（列表加载失败 / 没有可选项）时不传来源，后端默认推主屏：表单里给一句轻提示 */
 
 watch([baseUrl, key], () => (err.value = null))
-/** v0.24.3：设置里的输出目录留空 = <base>/output。显示 GetStorageDirs 解析出的真实路径，不显示空文件夹 */
-async function fillArchiveDir() {
+// v0.24.3：存档开关打开且用户没有另选文件夹时，目录是实际输出文件夹
+// （defaultOutputDir 留空 = <base>/output，含不可写时的回退）。关掉开关不填、开始时传空表示不存档。
+async function fillDefaultArchiveDir() {
   if (archiveDir.value) return
-  archiveDir.value = (await getOutputDirShown().catch(() => '')) || (liveApi.liveIsReal() ? '' : DEMO_ARCHIVE_DIR)
+  const d = await getOutputDirShown().catch(() => '')
+  if (archiveDir.value) return
+  archiveDir.value = d || (liveApi.liveIsReal() ? '' : DEMO_ARCHIVE_DIR)
 }
-watch(archiveOn, (on) => { if (on) void fillArchiveDir() })
-onMounted(() => { if (archiveOn.value) void fillArchiveDir() })
+watch(archiveOn, (on) => {
+  if (on) void fillDefaultArchiveDir()
+})
+onMounted(() => {
+  if (archiveOn.value) void fillDefaultArchiveDir() // 恢复的表单（#99）里存档开着但目录空：也补上实际路径
+})
 
 async function changeDir() {
   try {
@@ -191,6 +198,7 @@ async function start() {
   if (!check.ok) return void (err.value = { where: 'addr', text: check.message })
   let dir = ''
   if (archiveOn.value) {
+    if (!archiveDir.value) await fillDefaultArchiveDir()
     dir = archiveDir.value
     if (!dir) {
       try {
@@ -220,6 +228,7 @@ async function start() {
 }
 
 onMounted(async () => {
+  if (archiveOn.value) void fillDefaultArchiveDir()
   void store.recover()
   platform.value = (await liveApi.getCaptureCapabilities().catch(() => null))?.platform ?? ''
   await loadSources(false)
