@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"FFmpegFree/internal/apperr"
@@ -74,18 +75,32 @@ type Task struct {
 	CreatedAt        int64            `json:"createdAt"`
 	StartedAt        int64            `json:"startedAt"`
 	FinishedAt       int64            `json:"finishedAt"`
+	// 以下三项是转换记录（契约 v0.23，6.14.2），落库（迁移 0005）。
+	SourceID           string      `json:"sourceId,omitempty"` // 只有 convert 任务有；指向 convert_sources.id
+	HiddenInTaskCenter bool        `json:"hiddenInTaskCenter"` // 始终输出；true = 在任务中心隐藏（转换页照常显示）
+	Result             *TaskResult `json:"result,omitempty"`   // 只有成功的 convert 任务有；探测失败也可能没有
 
 	// LogPath 不暴露给前端，前端通过 TaskService.GetLog 读取。
 	LogPath string `json:"-"`
 }
 
+// TaskResult 是成功的 convert 任务完成时对最终输出的探测结果（契约 v0.23，6.14.2 / 6.14.6），落库在 tasks.result（JSON）。
+type TaskResult struct {
+	SizeBytes        int64   `json:"sizeBytes"`                  // os.Stat 的大小
+	DurationSec      float64 `json:"durationSec,omitempty"`      // ffprobe format.duration
+	Width            int     `json:"width,omitempty"`            // 显示尺寸；纯音频省略
+	Height           int     `json:"height,omitempty"`           //
+	AudioBitrateKbps int     `json:"audioBitrateKbps,omitempty"` // 第一条音频流的码率（kbit/s，四舍五入）
+}
+
 // TaskFilter 是 TaskService.List 的过滤条件。Types、Statuses 为空表示不过滤。
-// Limit 默认 50，最大 200；结果按创建时间倒序。
+// Limit 默认 50，最大 200；结果按创建时间倒序。IncludeHidden=false（默认）时不返回 hiddenInTaskCenter=true 的任务（契约 v0.23）。
 type TaskFilter struct {
-	Types    []TaskType   `json:"types"`
-	Statuses []TaskStatus `json:"statuses"`
-	Limit    int          `json:"limit"`
-	Offset   int          `json:"offset"`
+	Types         []TaskType   `json:"types"`
+	Statuses      []TaskStatus `json:"statuses"`
+	Limit         int          `json:"limit"`
+	Offset        int          `json:"offset"`
+	IncludeHidden bool         `json:"includeHidden,omitempty"`
 }
 
 // TaskPage 是 List 的分页结果，Total 是符合过滤条件的总数。
@@ -100,7 +115,8 @@ const (
 )
 
 const taskColumns = `id, type, status, title, input_paths, output_path, params, progress, error,
-	log_path, version, created_at, started_at, finished_at, encoder, encoder_device, hw_fallback, hw_fallback_reason`
+	log_path, version, created_at, started_at, finished_at, encoder, encoder_device, hw_fallback, hw_fallback_reason,
+	source_id, hidden_in_task_center, result`
 
 // InsertTask 新建任务记录。
 func (s *Store) InsertTask(ctx context.Context, t Task) error {
@@ -116,31 +132,43 @@ func (s *Store) InsertTask(ctx context.Context, t Task) error {
 	if params == "" {
 		params = "{}"
 	}
+	resJSON, err := encodeResult(t.Result)
+	if err != nil {
+		return err
+	}
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO tasks (`+taskColumns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		INSERT INTO tasks (`+taskColumns+`, output_name_key) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		t.ID, string(t.Type), string(t.Status), t.Title, string(inputs), t.OutputPath, params, t.Progress,
 		errJSON, t.LogPath, t.Version, t.CreatedAt, t.StartedAt, t.FinishedAt,
-		t.Encoder, t.EncoderDevice, boolInt(t.HWFallback), t.HWFallbackReason)
+		t.Encoder, t.EncoderDevice, boolInt(t.HWFallback), t.HWFallbackReason,
+		nullStr(t.SourceID), boolInt(t.HiddenInTaskCenter), resJSON, NameKey(t.OutputPath))
 	if err != nil {
 		return fmt.Errorf("写入任务失败: %w", err)
 	}
 	return nil
 }
 
-// UpdateTask 保存任务的可变字段（状态、进度、输出、错误、时间、版本）。任务不存在时返回 sql.ErrNoRows。
+// UpdateTask 保存任务的可变字段（状态、进度、输出、错误、时间、版本、隐藏标记、结果）。任务不存在时返回 sql.ErrNoRows。
+// output_name_key 随 output_path 同步更新（契约 6.14.9）；source_id、params、created_at 不变。
 func (s *Store) UpdateTask(ctx context.Context, t Task) error {
 	errJSON, err := encodeAppError(t.Error)
 	if err != nil {
 		return err
 	}
+	resJSON, err := encodeResult(t.Result)
+	if err != nil {
+		return err
+	}
 	res, err := s.db.ExecContext(ctx, `
-		UPDATE tasks SET status=?, title=?, output_path=?, progress=?, error=?, log_path=?,
+		UPDATE tasks SET status=?, title=?, output_path=?, output_name_key=?, progress=?, error=?, log_path=?,
 		       version=?, started_at=?, finished_at=?,
-		       encoder=?, encoder_device=?, hw_fallback=?, hw_fallback_reason=?
+		       encoder=?, encoder_device=?, hw_fallback=?, hw_fallback_reason=?,
+		       hidden_in_task_center=?, result=?
 		WHERE id=?`,
-		string(t.Status), t.Title, t.OutputPath, t.Progress, errJSON, t.LogPath,
+		string(t.Status), t.Title, t.OutputPath, NameKey(t.OutputPath), t.Progress, errJSON, t.LogPath,
 		t.Version, t.StartedAt, t.FinishedAt,
-		t.Encoder, t.EncoderDevice, boolInt(t.HWFallback), t.HWFallbackReason, t.ID)
+		t.Encoder, t.EncoderDevice, boolInt(t.HWFallback), t.HWFallbackReason,
+		boolInt(t.HiddenInTaskCenter), resJSON, t.ID)
 	if err != nil {
 		return fmt.Errorf("更新任务失败: %w", err)
 	}
@@ -194,7 +222,7 @@ func (s *Store) ListTasks(ctx context.Context, f TaskFilter) (TaskPage, error) {
 
 // ListTasksByStatus 返回指定状态的全部任务（按创建时间升序），用于启动时恢复排队。
 func (s *Store) ListTasksByStatus(ctx context.Context, statuses ...TaskStatus) ([]Task, error) {
-	where, args := taskWhere(TaskFilter{Statuses: statuses})
+	where, args := taskWhere(TaskFilter{Statuses: statuses, IncludeHidden: true})
 	rows, err := s.db.QueryContext(ctx, `SELECT `+taskColumns+` FROM tasks`+where+` ORDER BY created_at ASC, id ASC`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("查询任务失败: %w", err)
@@ -339,6 +367,9 @@ func taskWhere(f TaskFilter) (string, []any) {
 			args = append(args, string(s))
 		}
 	}
+	if !f.IncludeHidden {
+		conds = append(conds, "hidden_in_task_center = 0")
+	}
 	return " WHERE " + strings.Join(conds, " AND "), args
 }
 
@@ -351,11 +382,12 @@ type rowScanner interface{ Scan(dest ...any) error }
 func scanTask(r rowScanner) (Task, error) {
 	var t Task
 	var typ, status, inputs string
-	var errJSON sql.NullString
-	var hwFallback int
+	var errJSON, sourceID, resJSON sql.NullString
+	var hwFallback, hidden int
 	if err := r.Scan(&t.ID, &typ, &status, &t.Title, &inputs, &t.OutputPath, &t.Params, &t.Progress, &errJSON,
 		&t.LogPath, &t.Version, &t.CreatedAt, &t.StartedAt, &t.FinishedAt,
-		&t.Encoder, &t.EncoderDevice, &hwFallback, &t.HWFallbackReason); err != nil {
+		&t.Encoder, &t.EncoderDevice, &hwFallback, &t.HWFallbackReason,
+		&sourceID, &hidden, &resJSON); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Task{}, err
 		}
@@ -363,6 +395,14 @@ func scanTask(r rowScanner) (Task, error) {
 	}
 	t.Type, t.Status = TaskType(typ), TaskStatus(status)
 	t.HWFallback = hwFallback != 0
+	t.HiddenInTaskCenter = hidden != 0
+	t.SourceID = sourceID.String
+	if resJSON.Valid && resJSON.String != "" && resJSON.String != "null" {
+		var r TaskResult
+		if err := json.Unmarshal([]byte(resJSON.String), &r); err == nil {
+			t.Result = &r
+		}
+	}
 	if err := json.Unmarshal([]byte(inputs), &t.InputPaths); err != nil || t.InputPaths == nil {
 		t.InputPaths = []string{}
 	}
@@ -384,6 +424,73 @@ func encodeAppError(e *apperr.AppError) (any, error) {
 		return nil, err
 	}
 	return string(b), nil
+}
+
+func encodeResult(r *TaskResult) (any, error) {
+	if r == nil {
+		return nil, nil
+	}
+	b, err := json.Marshal(r)
+	if err != nil {
+		return nil, err
+	}
+	return string(b), nil
+}
+
+func nullStr(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// NameKey 是 name_key / output_name_key 的规范化（契约 6.14.2）：Go 的 Unicode 小写的文件名（basename）；空路径为 ""。
+func NameKey(p string) string {
+	if p == "" {
+		return ""
+	}
+	return strings.ToLower(filepath.Base(p))
+}
+
+// HideFinishedTasks 把所有已结束且未隐藏的任务设为在任务中心隐藏（契约 v0.23），返回本次隐藏的条数；
+// 不删任何东西、version 不变（这是任务中心的显示开关，不是任务状态）。
+func (s *Store) HideFinishedTasks(ctx context.Context) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE tasks SET hidden_in_task_center = 1
+		WHERE hidden_in_task_center = 0 AND status NOT IN ('queued','running') AND type NOT IN `+legacyTypesSQL)
+	if err != nil {
+		return 0, fmt.Errorf("隐藏任务失败: %w", err)
+	}
+	return res.RowsAffected()
+}
+
+// UnhideTasks 在一个事务里把 ids 中已隐藏的任务清成未隐藏、version +1，返回真正被改的任务（改后的值）。
+// 本来就没隐藏的 id 什么都不做；不存在 / 旧类型的 id 忽略（调用方先校验）。
+func (s *Store) UnhideTasks(ctx context.Context, ids []string) ([]Task, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var changed []string
+	for _, id := range ids {
+		res, err := tx.ExecContext(ctx, `UPDATE tasks SET hidden_in_task_center = 0, version = version + 1
+			WHERE id = ? AND hidden_in_task_center = 1 AND type NOT IN `+legacyTypesSQL, id)
+		if err != nil {
+			return nil, fmt.Errorf("取消隐藏失败: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			changed = append(changed, id)
+		}
+	}
+	out := make([]Task, 0, len(changed))
+	for _, id := range changed {
+		t, err := scanTask(tx.QueryRowContext(ctx, `SELECT `+taskColumns+` FROM tasks WHERE id = ?`, id))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, tx.Commit()
 }
 
 func nonNil(s []string) []string {

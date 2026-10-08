@@ -26,10 +26,38 @@ func PartPath(final string) string {
 // 所以选名和登记在同一把锁里完成，登记一直保留到任务结束（Manager 在任务结束时统一释放）。
 type namer struct {
 	mu   sync.Mutex
-	held map[string]string // 规范化后的最终路径 → 占用它的任务 ID
+	held map[string]holder // 规范化后的最终路径 → 占用者
 }
 
-func newNamer() *namer { return &namer{held: map[string]string{}} }
+type holder struct {
+	owner string // 任务 ID
+	path  string // 原样的最终路径
+}
+
+func newNamer() *namer { return &namer{held: map[string]holder{}} }
+
+// suffixStyle 是重名后缀格式（契约 6.14.5）：convert 用带空格的 "a (1).mp4"，其余类型 "a(1).mp4"。
+type suffixStyle int
+
+const (
+	styleCompact suffixStyle = iota // a(1).mp4
+	styleSpaced                     // a (1).mp4
+)
+
+// styleFor 按任务类型选择重名格式：只有 convert 带空格。
+func styleFor(t Type) suffixStyle {
+	if t == TypeConvert {
+		return styleSpaced
+	}
+	return styleCompact
+}
+
+func numbered(base string, i int, ext string, st suffixStyle) string {
+	if st == styleSpaced {
+		return fmt.Sprintf("%s (%d)%s", base, i, ext)
+	}
+	return fmt.Sprintf("%s(%d)%s", base, i, ext)
+}
 
 // defaultNamer 供不在任务管理器里运行的调用者（测试、一次性工具）使用。
 var defaultNamer = newNamer()
@@ -44,20 +72,76 @@ func nameKey(p string) string {
 	return p
 }
 
-// reserve 选出一个不与文件系统、.part 文件或其他任务冲突的最终路径（重名依次追加 (1)、(2)），并登记占用。
-func (n *namer) reserve(desired, owner string) string {
+// reserve 选出一个不与文件系统、.part 文件或其他任务冲突的最终路径（重名按 st 依次追加 (1)、(2)），并登记占用。
+func (n *namer) reserve(desired, owner string, st suffixStyle) string {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	cand := n.pickLocked(desired, st)
+	n.held[nameKey(cand)] = holder{owner: owner, path: cand}
+	return cand
+}
+
+// peek 同 reserve 但不登记（PreviewOutputName 的“将保存为”提示）。
+func (n *namer) peek(desired string, st suffixStyle) string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.pickLocked(desired, st)
+}
+
+func (n *namer) freeLocked(cand string) bool {
+	_, taken := n.held[nameKey(cand)]
+	return !taken && !exists(cand) && !exists(PartPath(cand))
+}
+
+func (n *namer) pickLocked(desired string, st suffixStyle) string {
 	ext := filepath.Ext(desired)
 	base := strings.TrimSuffix(desired, ext)
 	cand := desired
 	for i := 1; ; i++ {
-		if _, taken := n.held[nameKey(cand)]; !taken && !exists(cand) && !exists(PartPath(cand)) {
-			n.held[nameKey(cand)] = owner
+		if n.freeLocked(cand) {
 			return cand
 		}
-		cand = fmt.Sprintf("%s(%d)%s", base, i, ext)
+		cand = numbered(base, i, ext, st)
 	}
+}
+
+// hold 原样占用 p（原地重试沿用原输出名）：p 磁盘上没有、没有 .part、没被占时登记并返回 true。
+func (n *namer) hold(p, owner string) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if !n.freeLocked(p) {
+		return false
+	}
+	n.held[nameKey(p)] = holder{owner: owner, path: p}
+	return true
+}
+
+// takeHeld 返回 owner 已占的名字（提交时 / 重试时占的）。占着的名字在此期间被别的程序在磁盘上建了同名文件（或 .part）时，
+// 释放它并返回 false，由调用方顺延。
+func (n *namer) takeHeld(owner string) (string, bool) {
+	if owner == "" {
+		return "", false
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	for k, h := range n.held {
+		if h.owner != owner {
+			continue
+		}
+		if !exists(h.path) && !exists(PartPath(h.path)) {
+			return h.path, true
+		}
+		delete(n.held, k)
+	}
+	return "", false
+}
+
+// heldByOther 判断 p 是否被 owner 以外的任务占着。
+func (n *namer) heldByOther(p, owner string) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	h, ok := n.held[nameKey(p)]
+	return ok && h.owner != owner
 }
 
 func (n *namer) release(p string) {
@@ -71,8 +155,8 @@ func (n *namer) releaseOwner(owner string) {
 		return
 	}
 	n.mu.Lock()
-	for k, o := range n.held {
-		if o == owner {
+	for k, h := range n.held {
+		if h.owner == owner {
 			delete(n.held, k)
 		}
 	}
@@ -87,7 +171,7 @@ func UniquePath(final string) string {
 	base := strings.TrimSuffix(final, ext)
 	cand := final
 	for i := 1; exists(cand) || exists(PartPath(cand)); i++ {
-		cand = fmt.Sprintf("%s(%d)%s", base, i, ext)
+		cand = numbered(base, i, ext, styleCompact)
 	}
 	return cand
 }
@@ -127,18 +211,33 @@ func commitPart(part, final string) error {
 
 // RunWithPart 为写文件的任务提供统一的输出流程：
 //
-//  1. 在任务管理器里选出不冲突的最终路径（重名追加 (1)、(2)）并登记占用，创建输出目录；
+//  1. 任务已在提交 / 原地重试时占了名字（convert，契约 6.14.5）就直接用它，只有占着的名字被别的程序在磁盘上建了同名文件时才顺延，
+//     新名字落库并随 running 的 task:status.outputPath 告知前端；没占过名字的在任务管理器里选出不冲突的最终路径
+//     （重名后缀按任务类型：convert "a (1).mp4"，其余 "a(1).mp4"）并登记占用。然后创建输出目录；
 //  2. 调用 produce(partPath) 让任务写到 <name>.part.<ext>；
 //  3. produce 成功后无覆盖地提交为最终路径（os.Link；万一目标在此期间被别的程序创建，改用下一个 (n) 名字）；
 //     失败或取消则删除 .part。
 //
 // 返回最终路径。produce 必须把完整输出写到 partPath；需要多次调用 ffmpeg 的任务可以在同一个 produce 里依次运行。ctx 不带任务信息时使用进程级登记表。
 func RunWithPart(ctx context.Context, desired string, produce func(partPath string) error) (string, error) {
-	n, owner := defaultNamer, ""
-	if info, ok := InfoFrom(ctx); ok && info.m != nil {
-		n, owner = info.m.namer, info.ID
+	n, owner, st := defaultNamer, "", styleCompact
+	info, inTask := InfoFrom(ctx)
+	if inTask && info.m != nil {
+		n, owner, st = info.m.namer, info.ID, styleFor(info.Type)
 	}
-	final := n.reserve(desired, owner)
+	final, held := n.takeHeld(owner)
+	if !held {
+		final = n.reserve(desired, owner, st)
+	}
+	// 名字和任务记录里的不一样（提交时占的名字被抢了而顺延）时，落库并告知前端。
+	announce := func(p string) {
+		if inTask && info.m != nil {
+			info.m.updateOutput(info.ID, p)
+		}
+	}
+	if held || st == styleSpaced {
+		announce(final)
+	}
 	release := func() { n.release(final) }
 	defer func() { release() }()
 	if err := mkdirAll(filepath.Dir(final), 0o755); err != nil {
@@ -166,7 +265,7 @@ func RunWithPart(ctx context.Context, desired string, produce func(partPath stri
 			return "", outputIOError("保存输出文件失败", err)
 		}
 		// 目标被别的程序抢先创建：换下一个名字，把 .part 改名过去。
-		next := n.reserve(desired, owner)
+		next := n.reserve(desired, owner, st)
 		nextPart := PartPath(next)
 		if err := renameFile(part, nextPart); err != nil {
 			n.release(next)
@@ -175,5 +274,8 @@ func RunWithPart(ctx context.Context, desired string, produce func(partPath stri
 		}
 		n.release(final)
 		final, part = next, nextPart
+		if st == styleSpaced {
+			announce(final)
+		}
 	}
 }

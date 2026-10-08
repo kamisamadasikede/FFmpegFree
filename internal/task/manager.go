@@ -6,10 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -42,6 +45,8 @@ type Config struct {
 	ProgressInterval time.Duration
 	// Logf 记录内部错误（落库失败等）；为空用标准 log。
 	Logf func(format string, args ...any)
+	// DeleteWait 是 DeleteRecords 等进行中的任务到达终态的总时长，0 用 10 秒（契约 6.14.4）。
+	DeleteWait time.Duration
 }
 
 // Factory 根据已有任务记录重新构造 Runner，供 Retry 使用（用 Params 重建）。
@@ -176,7 +181,7 @@ func (m *Manager) Submit(spec Spec, r Runner) (Task, error) {
 	t := Task{
 		ID: taskID, Type: spec.Type, Status: StatusQueued, Title: spec.Title,
 		InputPaths: nonNil(spec.InputPaths), OutputPath: spec.OutputPath, Params: spec.Params,
-		Version: 1, CreatedAt: now,
+		Version: 1, CreatedAt: now, SourceID: spec.SourceID,
 	}
 	if IsLive(spec.Type) {
 		t.Progress = -1 // 契约：直播类任务进度恒为 -1
@@ -202,10 +207,19 @@ func (m *Manager) Submit(spec Spec, r Runner) (Task, error) {
 	m.entries[t.ID] = e
 	m.mu.Unlock()
 
+	// 提交时定名并占位（契约 6.14.5）：在落库之前选出最终名，占位人 = 任务 id，一直占到终态（launch / finishNeverRan 释放）。
+	if spec.ReserveOutput && t.OutputPath != "" {
+		t.OutputPath = m.namer.reserve(t.OutputPath, t.ID, styleFor(t.Type))
+		e.mu.Lock()
+		e.task.OutputPath = t.OutputPath
+		e.mu.Unlock()
+	}
+
 	if err := m.cfg.Store.InsertTask(context.Background(), t); err != nil {
 		m.mu.Lock()
 		delete(m.entries, t.ID)
 		m.mu.Unlock()
+		m.namer.releaseOwner(t.ID)
 		e.log.close()
 		return Task{}, apperr.Wrap(apperr.IOError, "保存任务失败", err)
 	}
@@ -217,8 +231,13 @@ func (m *Manager) Submit(spec Spec, r Runner) (Task, error) {
 	// 与 task:created 事件一致；之后的变化由 task:status / task:progress 事件推送。
 	created := e.snapshot()
 	m.emit(EventCreated, created)
+	m.enqueue(e)
+	return created, nil
+}
 
-	live := IsLive(spec.Type)
+// enqueue 把已登记、已落库、已发事件的任务交给调度池（Submit 和原地 Retry 共用）。
+func (m *Manager) enqueue(e *entry) {
+	live := IsLive(e.task.Type)
 	m.mu.Lock()
 	switch {
 	case m.closing: // 提交与退出并发：直接标记中断
@@ -239,7 +258,6 @@ func (m *Manager) Submit(spec Spec, r Runner) (Task, error) {
 			m.pump()
 		}
 	}
-	return created, nil
 }
 
 // NeverRanner 是 Runner 可选实现的接口：任务在 Run 没有执行的情况下就结束（排队中被取消、提交后立即被取消、退出时还在排队）时，
@@ -384,12 +402,26 @@ func (m *Manager) finishAfterRun(e *entry, err error, out string) {
 	case closing && e.ctx.Err() != nil && !e.cancelRequested() && (err == nil || errors.Is(err, context.Canceled)):
 		e.finish(m, StatusInterrupted, nil, carry)
 	case err == nil:
-		e.finish(m, StatusSucceeded, nil, out)
+		e.finish(m, StatusSucceeded, nil, out, resultOf(e.runner))
 	case e.ctx.Err() != nil && (errors.Is(err, context.Canceled) || e.cancelRequested()):
 		e.finish(m, StatusCanceled, nil, carry)
 	default:
 		e.finish(m, StatusFailed, apperr.From(err), carry)
 	}
+}
+
+// resultOf 调用 Runner 的 ResultReporter（如果实现了），拦截 panic。
+func resultOf(r Runner) (res *TaskResult) {
+	rr, ok := r.(ResultReporter)
+	if !ok {
+		return nil
+	}
+	defer func() {
+		if recover() != nil {
+			res = nil
+		}
+	}()
+	return rr.Result()
 }
 
 // Cancel 请求取消任务。
@@ -523,37 +555,211 @@ func (m *Manager) List(f Filter) (Page, error) {
 	return p, nil
 }
 
-// Retry 用原任务的 Params 重新提交，生成新任务。原任务必须已结束（否则 TASK_CONFLICT）；
-// 该类型没有注册 Factory 时返回 UNSUPPORTED。
+// usesRunWithPart 是走 RunWithPart 的任务类型：原地重试时清理上一次的 .part、重新占位原输出名（契约 6.6）。
+func usesRunWithPart(t Type) bool {
+	return t == TypeConvert || t == TypeEditExport || t == TypeOfficePDF
+}
+
+// retryLogLine 是原地重试时追加到任务日志末尾的一行（契约 6.6 第 ⑤ 步）。
+const retryLogLine = "[FFmpegFree] 重新开始（重试）"
+
+// Retry 原地重试（契约 v0.23，6.6）：复用原任务 id，把同一条记录重置回 queued 重新排队。
+//   - 允许 failed / interrupted / canceled；queued / running → TASK_CONFLICT（任务仍在进行，请先取消）；
+//     succeeded → TASK_CONFLICT（任务已经成功完成，不能重试）；没有 Factory → UNSUPPORTED；不存在 / 旧类型 → NOT_FOUND；
+//   - ① 用 Factory 重建 Runner（失败直接返回，记录不动、不发事件）；② 走 RunWithPart 的类型删掉上一次留下的 .part；
+//     ③ 重新占位原输出名（被占时按该类型的重名格式顺延）；④ 重置字段、version +1、落库；⑤ 日志追加一行；
+//     ⑥ 发一次 task:status（queued、retried、progress 0、hiddenInTaskCenter false）；⑦ 入队。不发 task:created。
 func (m *Manager) Retry(taskID string) (Task, error) {
 	old, err := m.Get(taskID)
 	if err != nil {
 		return Task{}, err
 	}
 	if old.Status.Active() {
-		return Task{}, apperr.New(apperr.TaskConflict, "任务仍在进行，不能重试")
+		return Task{}, apperr.New(apperr.TaskConflict, "任务仍在进行，请先取消")
 	}
 	m.mu.Lock()
 	f := m.factories[old.Type]
 	m.mu.Unlock()
-	if f == nil {
+	if f == nil { // 没有工厂的类型（直播）不管什么状态都是 UNSUPPORTED，提示更有用
 		if IsLive(old.Type) {
 			return Task{}, apperr.New(apperr.Unsupported, "直播会话不能重试，请重新开始推流")
 		}
 		return Task{}, apperr.New(apperr.Unsupported, fmt.Sprintf("%s 类型的任务不支持重试", old.Type))
 	}
+	if old.Status == StatusSucceeded {
+		return Task{}, apperr.New(apperr.TaskConflict, "任务已经成功完成，不能重试")
+	}
 	r, err := f(old)
 	if err != nil {
 		return Task{}, apperr.From(err)
 	}
-	t, err := m.Submit(Spec{Type: old.Type, Title: old.Title, InputPaths: old.InputPaths, OutputPath: old.OutputPath, Params: old.Params}, r)
-	if err != nil {
+	abandon := func() {
 		if c, ok := r.(Claimer); ok {
 			c.Abandoned()
 		}
-		return Task{}, err
 	}
-	return t, nil
+
+	t := old
+	t.InputPaths = nonNil(old.InputPaths)
+	t.Status = StatusQueued
+	t.Progress = 0
+	t.Speed, t.EtaSec = "", 0
+	t.Fps, t.BitrateKbps, t.DroppedFrames = 0, 0, 0
+	t.StartedAt, t.FinishedAt = 0, 0
+	t.Encoder, t.EncoderDevice, t.HWFallback, t.HWFallbackReason = "", "", false, ""
+	if er, ok := r.(EncoderReporter); ok {
+		ei := er.EncoderInfo()
+		t.Encoder, t.EncoderDevice, t.HWFallback, t.HWFallbackReason = ei.Encoder, ei.Device, ei.HWFallback, ei.HWFallbackReason
+	}
+	t.Error, t.Result = nil, nil
+	t.HiddenInTaskCenter = false
+	t.Version = old.Version + 1
+	e := newEntry(m, t, r)
+	if t.LogPath == "" {
+		t.LogPath = e.log.path()
+	}
+	e.task = t
+
+	// 先登记（防止并发的两次 Retry / 与 Delete 交错），再确认库里的记录还是我们读到的那一版。
+	m.mu.Lock()
+	if m.closing {
+		m.mu.Unlock()
+		abandon()
+		return Task{}, apperr.New(apperr.Internal, "应用正在退出，无法重试")
+	}
+	if _, dup := m.entries[t.ID]; dup {
+		m.mu.Unlock()
+		abandon()
+		return Task{}, apperr.New(apperr.TaskConflict, "任务仍在进行，请先取消")
+	}
+	m.entries[t.ID] = e
+	m.mu.Unlock()
+	rollback := func() {
+		m.mu.Lock()
+		delete(m.entries, t.ID)
+		m.mu.Unlock()
+		m.namer.releaseOwner(t.ID)
+		e.log.close()
+		abandon()
+	}
+	if cur, err := m.cfg.Store.GetTask(context.Background(), t.ID); err != nil {
+		rollback()
+		return Task{}, notFoundOr(err, "任务不存在")
+	} else if cur.Version != old.Version || cur.Status != old.Status {
+		rollback()
+		return Task{}, apperr.New(apperr.TaskConflict, "任务状态已变化，请刷新后再试")
+	}
+
+	if usesRunWithPart(t.Type) && old.OutputPath != "" && filepath.IsAbs(old.OutputPath) {
+		// ② 上一次运行留下的 .part（别的任务正占着这个名字时不碰，那是它的 .part）。
+		if !m.namer.heldByOther(old.OutputPath, t.ID) {
+			if err := removeStalePart(old.OutputPath, old.StartedAt); err != nil {
+				m.logf("重试任务 %s 时删除上一次的 .part 失败: %v", t.ID, err)
+			}
+		}
+		// ③ 重新占位原输出名；被占就按该类型的重名格式顺延。
+		st := styleFor(t.Type)
+		out := old.OutputPath
+		if !m.namer.hold(out, t.ID) {
+			base := out
+			if d, ok := r.(DesiredOutputer); ok && d.DesiredOutput() != "" && filepath.IsAbs(d.DesiredOutput()) {
+				base = d.DesiredOutput()
+			} else if st == styleSpaced {
+				base = stripSpacedSuffix(out)
+			}
+			out = m.namer.reserve(base, t.ID, st)
+		}
+		t.OutputPath = out
+		e.mu.Lock()
+		e.task.OutputPath = out
+		e.mu.Unlock()
+	}
+
+	// ④ 落库。
+	if err := m.cfg.Store.UpdateTask(context.Background(), t); err != nil {
+		rollback()
+		return Task{}, apperr.Wrap(apperr.IOError, "保存任务失败", err)
+	}
+	// ⑤ 日志。
+	fmt.Fprintf(e.log, "\n%s\n", retryLogLine)
+	if c, ok := r.(Claimer); ok {
+		c.Submitted(t.ID)
+	}
+	// ⑥ 事件（快照在入队前取，同 Submit）。
+	snap := e.snapshot()
+	zero, notHidden := 0.0, false
+	m.emit(EventStatus, StatusEvent{
+		ID: t.ID, Version: t.Version, Status: StatusQueued, OutputPath: t.OutputPath,
+		Encoder: t.Encoder, EncoderDevice: t.EncoderDevice, HWFallback: t.HWFallback, HWFallbackReason: t.HWFallbackReason,
+		Progress: &zero, Retried: true, HiddenInTaskCenter: &notHidden,
+	})
+	// ⑦ 入队。
+	m.enqueue(e)
+	return snap, nil
+}
+
+// stripSpacedSuffix 去掉 convert 输出名末尾的 " (n)"（n 为 1~99），得到顺延的起点："/o/a (1).mp4" → "/o/a.mp4"。
+func stripSpacedSuffix(p string) string {
+	ext := filepath.Ext(p)
+	stem := strings.TrimSuffix(p, ext)
+	if !strings.HasSuffix(stem, ")") {
+		return p
+	}
+	i := strings.LastIndex(stem, " (")
+	if i < 0 {
+		return p
+	}
+	num := stem[i+2 : len(stem)-1]
+	if n, err := strconv.Atoi(num); err != nil || n < 1 || n > 99 || strconv.Itoa(n) != num {
+		return p
+	}
+	return stem[:i] + ext
+}
+
+// removeStalePart 删除最终输出 final 对应的 .part 残留：只删普通文件（Lstat，不跟随符号链接）、
+// 修改时间不早于 startedAt − 3 秒的；startedAt 为 0（从未运行）不删。文件不在返回 nil。
+func removeStalePart(final string, startedAt int64) error {
+	if final == "" || !filepath.IsAbs(final) || startedAt <= 0 {
+		return nil
+	}
+	p := PartPath(final)
+	fi, err := os.Lstat(p)
+	if err != nil || !fi.Mode().IsRegular() {
+		return nil
+	}
+	if fi.ModTime().UnixMilli() < startedAt-mtimeSlackMs {
+		return nil
+	}
+	if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+// PeekOutputName 返回此刻按 typ 的重名格式会选中的最终输出路径，不占位（ConvertService.PreviewOutputName）。
+func (m *Manager) PeekOutputName(desired string, typ Type) string {
+	return m.namer.peek(desired, styleFor(typ))
+}
+
+// Live 把 ts 里仍在进行的任务换成带实时进度的快照（转换页列表用，同 List）。
+func (m *Manager) Live(ts []Task) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, t := range ts {
+		if e, ok := m.entries[t.ID]; ok {
+			ts[i] = e.snapshot()
+		}
+	}
+}
+
+// updateOutput 见 RunWithPart：运行时顺延了名字。
+func (m *Manager) updateOutput(taskID, p string) {
+	m.mu.Lock()
+	e := m.entries[taskID]
+	m.mu.Unlock()
+	if e != nil {
+		e.setOutput(p)
+	}
 }
 
 func notFoundOr(err error, msg string) error {

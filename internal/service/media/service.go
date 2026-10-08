@@ -386,3 +386,42 @@ func (s *Service) RemoveRecent(ctx context.Context, ids []string) error {
 	}
 	return nil
 }
+
+// DefaultThumbnailDataURL 返回 path 的默认缩略图（与 Probe 附带的相同：时长的 10%、最多 10 秒，宽 320），只返回 data URL
+// （契约 v0.23，6.14.10：ConvertService.GetRecordThumbnail / GetSourceThumbnail 用，路径由调用方从表里取）。
+// durationHint > 0 时直接用它算截图时间点；否则先探测一次（同时判断有没有画面）。
+// 缓存键包含文件当前的 mtime 和 size（每次调用都先 stat），文件被替换后一定重新生成。
+// 错误：文件不存在 / 不是普通文件 NOT_FOUND（reason=file）；没有画面 UNSUPPORTED（reason=format）；
+// 其余沿用 Thumbnail（FFMPEG_NOT_FOUND、PROBE_FAILED、INTERNAL 等）。
+func (s *Service) DefaultThumbnailDataURL(ctx context.Context, path string, durationHint float64) (string, error) {
+	bin, err := s.cfg.Require()
+	if err != nil {
+		return "", err
+	}
+	p, key, fi, err := statMedia(path)
+	if err != nil {
+		if apperr.Is(err, apperr.NotFound) || apperr.Is(err, apperr.InvalidArgument) {
+			return "", apperr.New(apperr.NotFound, "文件不存在").WithDetail("reason=file")
+		}
+		return "", err
+	}
+	dur := durationHint
+	if dur <= 0 || math.IsNaN(dur) || math.IsInf(dur, 0) {
+		m, _, _, err := s.inspect(ctx, bin, p)
+		if err != nil {
+			return "", err
+		}
+		if !m.HasVideo {
+			return "", apperr.New(apperr.Unsupported, "这个文件没有画面").WithDetail("reason=format")
+		}
+		dur = m.Duration
+	}
+	th, err := s.thumbnail(ctx, bin, p, key, fi, defaultThumbAt(dur), DefaultThumbWidth)
+	if err != nil {
+		if apperr.Is(err, apperr.InvalidArgument) { // runThumbOnce："该文件没有视频画面"
+			return "", apperr.New(apperr.Unsupported, "这个文件没有画面").WithDetail("reason=format")
+		}
+		return "", err
+	}
+	return th.DataURL, nil
+}

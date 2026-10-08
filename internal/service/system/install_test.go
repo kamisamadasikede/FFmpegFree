@@ -499,8 +499,8 @@ func TestInstallTaskPersistedAndRetryable(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, func() bool { s := f.mgr.Status(); return s.State == ffmpeg.StateFailed && s.TaskID == nt.ID })
-	if nt.ID == tk.ID {
-		t.Fatal("Retry 应生成新任务")
+	if nt.ID != tk.ID {
+		t.Fatal("原地重试应沿用同一个 id（契约 v0.23）")
 	}
 	// 安装日志可读
 	if log, _ := f.mgr.cfg.Tasks.GetLog(nt.ID, 20); !strings.Contains(log, "开始安装") {
@@ -583,8 +583,8 @@ func TestRetryClaimsInstallingWhileQueued(t *testing.T) {
 	if _, err := f.mgr.cfg.Tasks.Retry(tk.ID); !apperr.Is(err, apperr.TaskConflict) {
 		t.Fatalf("已有安装时 Retry 应 TASK_CONFLICT: %v", err)
 	}
-	if p, _ := f.mgr.cfg.Tasks.List(task.Filter{Types: []task.Type{task.TypeFFmpegInstall}}); p.Total != 2 {
-		t.Fatalf("不应产生第三个安装任务: %d", p.Total)
+	if p, _ := f.mgr.cfg.Tasks.List(task.Filter{Types: []task.Type{task.TypeFFmpegInstall}}); p.Total != 1 {
+		t.Fatalf("原地重试不应产生第二个安装任务: %d", p.Total)
 	}
 	// 取消排队中的重试 → 释放占位，可以重新安装
 	if err := f.mgr.CancelInstall(); err != nil {

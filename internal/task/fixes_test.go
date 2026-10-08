@@ -172,7 +172,7 @@ func TestLogSinkLineCap(t *testing.T) {
 
 func TestLogSinkCapAppliesToRealTask(t *testing.T) {
 	f := newFx(t, 1)
-	tk, _ := f.m.Submit(Spec{Type: TypeConvert}, RunnerFunc(func(ctx context.Context, _ func(Progress)) (string, error) {
+	tk, _ := f.m.Submit(Spec{Type: TypeEditExport}, RunnerFunc(func(ctx context.Context, _ func(Progress)) (string, error) {
 		w := LogWriter(ctx)
 		if s, ok := w.(*logSink); ok {
 			s.maxBytes = 2000
@@ -271,10 +271,12 @@ func TestClaimerCalledBeforeCreated(t *testing.T) {
 		t.Fatal("Submitted 应被调用一次并带任务 ID")
 	}
 	waitTask(t, f.m, tk.ID)
-	// Retry 里 Submit 失败要通知 Abandoned
+	// 原地 Retry 用工厂造出 Runner 后失败（应用正在退出）要通知 Abandoned
+	failed, _ := f.m.Submit(Spec{Type: TypeConvert}, RunnerFunc(func(context.Context, func(Progress)) (string, error) { return "", errors.New("x") }))
+	waitTask(t, f.m, failed.ID)
 	f.m.RegisterFactory(TypeConvert, func(Task) (Runner, error) { return cr, nil })
-	f.m.Shutdown(time.Second) // 之后 Submit 必然失败
-	if _, err := f.m.Retry(tk.ID); err == nil {
+	f.m.Shutdown(time.Second) // 之后 Retry 必然失败
+	if _, err := f.m.Retry(failed.ID); err == nil {
 		t.Fatal("退出后重试应失败")
 	}
 	if cr.abandoned.Load() != 1 {
@@ -318,7 +320,7 @@ func TestSubmitValidatesIDAndPaths(t *testing.T) {
 
 func runTaskWithOutput(t *testing.T, f *fx, inputs []string, out string, prepare func()) Task {
 	t.Helper()
-	tk, err := f.m.Submit(Spec{Type: TypeConvert, InputPaths: inputs, OutputPath: out}, RunnerFunc(func(context.Context, func(Progress)) (string, error) {
+	tk, err := f.m.Submit(Spec{Type: TypeEditExport, InputPaths: inputs, OutputPath: out}, RunnerFunc(func(context.Context, func(Progress)) (string, error) {
 		if prepare != nil {
 			prepare()
 		}
@@ -396,7 +398,7 @@ func TestRemoveDeleteOutputSafety(t *testing.T) {
 	}
 	// 6. 失败任务的输出不删
 	failOut := filepath.Join(f.dir, "fail.mp4")
-	tk, _ := f.m.Submit(Spec{Type: TypeConvert, OutputPath: failOut}, RunnerFunc(func(context.Context, func(Progress)) (string, error) {
+	tk, _ := f.m.Submit(Spec{Type: TypeEditExport, OutputPath: failOut}, RunnerFunc(func(context.Context, func(Progress)) (string, error) {
 		os.WriteFile(failOut, []byte("half"), 0o644)
 		return "", errors.New("boom")
 	}))

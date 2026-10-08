@@ -416,14 +416,20 @@ func TestRetry(t *testing.T) {
 	if p.Input != in {
 		t.Fatalf("%+v", p)
 	}
+	if _, err := e.tm.Retry(tk.ID); !apperr.Is(err, apperr.TaskConflict) {
+		t.Fatalf("succeeded 重试应 TASK_CONFLICT: %v", err)
+	}
+	markFailed(t, e.st, tk.ID)
 	nt, err := e.tm.Retry(tk.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 原地重试：同一个 id；原输出还在 → 非转换类型用紧凑序号 r(1).pdf
 	got := e.wait(t, nt.ID)
-	if got.Status != task.StatusSucceeded || got.ID == tk.ID || filepath.Base(got.OutputPath) != "r(1).pdf" {
+	if got.Status != task.StatusSucceeded || got.ID != tk.ID || filepath.Base(got.OutputPath) != "r(1).pdf" {
 		t.Fatalf("%+v %v", got.Status, got.OutputPath)
 	}
+	markFailed(t, e.st, tk.ID)
 	// 输入被删：NOT_FOUND，不产生新任务
 	os.Remove(in)
 	before, _ := e.tm.List(task.Filter{})

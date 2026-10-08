@@ -52,7 +52,7 @@ func TestFFmpegRunnerEncodeWithPart(t *testing.T) {
 	var seenPart string
 	r := &FFmpegRunner{Exe: fakeFFmpegBin(t), Output: out, DurationSec: 20, ProgressBase: 0, ProgressScale: 0.5,
 		BuildArgs: func(part string) []string { seenPart = part; return []string{"-i", "in.mov", "encode", part} }}
-	tk, _ := f.m.Submit(Spec{Type: TypeConvert, OutputPath: out}, r)
+	tk, _ := f.m.Submit(Spec{Type: TypeEditExport, OutputPath: out}, r)
 	d := waitTask(t, f.m, tk.ID)
 	if d.Status != StatusSucceeded {
 		t.Fatalf("%+v", d)

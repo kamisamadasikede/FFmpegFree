@@ -39,6 +39,12 @@ func (m *Manager) Remove(ids []string, deleteOutput bool) error {
 			return apperr.New(apperr.NotFound, "任务不存在")
 		}
 	}
+	// 契约 v0.23：转换记录的真删只在转换页（ConvertService.DeleteRecords / DeleteSource），ids 里有 convert 任务整体拒绝。
+	for _, id := range ids {
+		if t, err := m.Get(id); err == nil && t.Type == TypeConvert {
+			return apperr.New(apperr.InvalidArgument, "转换记录请在格式转换页删除")
+		}
+	}
 	m.mu.Lock()
 	for _, id := range ids {
 		if _, active := m.entries[id]; active {
@@ -80,24 +86,126 @@ func (m *Manager) Remove(ids []string, deleteOutput bool) error {
 	return nil
 }
 
-// ClearFinished 删除所有已结束（成功、失败、取消、中断）的任务记录和日志，发 task:removed。不删除输出文件。
+// ClearFinished 已废弃（契约 v0.23）：等同 HideFinishedInTaskCenter，不再删除任何记录、日志或文件。
 func (m *Manager) ClearFinished() error {
-	gone, err := m.cfg.Store.DeleteFinishedTasks(context.Background())
+	_, err := m.HideFinishedInTaskCenter()
+	return err
+}
+
+// HideFinishedInTaskCenter 把所有类型、所有已结束且未隐藏的任务设为在任务中心隐藏，返回本次隐藏的条数（契约 v0.23）。
+// 不删记录、不删日志、不删文件，version 不变，不发事件。
+func (m *Manager) HideFinishedInTaskCenter() (int64, error) {
+	n, err := m.cfg.Store.HideFinishedTasks(context.Background())
 	if err != nil {
-		return apperr.Wrap(apperr.IOError, "清理任务失败", err)
+		return 0, apperr.Wrap(apperr.Internal, "隐藏任务失败", err)
 	}
-	if len(gone) == 0 {
-		return nil
+	return n, nil
+}
+
+// maxBatchIDs 是 v0.23 批量 id 接口（UnhideInTaskCenter、CheckPaths、DeleteRecords 等）一次最多的 id 数。
+const maxBatchIDs = 500
+
+// reasonRecord / reasonFile 是 6.14 接口 NOT_FOUND 的 detail（契约 2.2）。
+const (
+	reasonRecord = "reason=record"
+	reasonFile   = "reason=file"
+)
+
+// RecordNotFound 是 6.14 接口“记录不存在 / 旧类型”的错误（NOT_FOUND，reason=record）。
+func RecordNotFound() error {
+	return apperr.New(apperr.NotFound, "记录不存在").WithDetail(reasonRecord)
+}
+
+// FileNotFound 是 6.14 接口“记录在，但登记的文件已不存在或不是普通文件”的错误（NOT_FOUND，reason=file）。
+func FileNotFound() error {
+	return apperr.New(apperr.NotFound, "文件不存在").WithDetail(reasonFile)
+}
+
+// UnhideInTaskCenter 取消隐藏（契约 v0.23）：1~500 个 id，先整体校验（任一不存在 / 旧类型 NOT_FOUND reason=record，什么都不改），
+// 再把其中已隐藏的清成未隐藏、version +1、各发一次 task:status（status 不变，带 hiddenInTaskCenter: false）。幂等。
+func (m *Manager) UnhideInTaskCenter(ids []string) error {
+	if len(ids) == 0 || len(ids) > maxBatchIDs {
+		return apperr.New(apperr.InvalidArgument, fmt.Sprintf("一次取消隐藏 1~%d 个任务", maxBatchIDs))
 	}
-	ids := make([]string, 0, len(gone))
-	for _, t := range gone {
-		ids = append(ids, t.ID)
-		for _, p := range m.cleanupFiles(t, false) {
-			m.logf("清理任务 %s 的日志失败: %s", t.ID, p)
+	ids = dedupe(ids)
+	for _, id := range ids {
+		if _, err := m.Get(id); err != nil {
+			if apperr.Is(err, apperr.NotFound) {
+				return RecordNotFound()
+			}
+			return apperr.Wrap(apperr.Internal, "读取任务失败", err)
 		}
 	}
-	m.emit(EventRemoved, RemovedEvent{IDs: ids})
+	changed, err := m.cfg.Store.UnhideTasks(context.Background(), ids)
+	if err != nil {
+		return apperr.Wrap(apperr.Internal, "取消隐藏失败", err)
+	}
+	notHidden := false
+	for _, t := range changed {
+		m.emit(EventStatus, StatusEvent{ID: t.ID, Version: t.Version, Status: t.Status, HiddenInTaskCenter: &notHidden})
+	}
 	return nil
+}
+
+func dedupe(ids []string) []string {
+	seen := make(map[string]bool, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// TaskPathCheck 是 CheckPaths 的一项（契约 6.14.2）。
+type TaskPathCheck struct {
+	TaskID       string `json:"taskId"`
+	Found        bool   `json:"found"`
+	InputExists  bool   `json:"inputExists"`
+	OutputExists bool   `json:"outputExists"`
+}
+
+// CheckPaths 检查任务登记的输入 / 输出文件现在是否还在（契约 v0.23）：1~500 个，结果与入参一一对应；
+// 不存在 / 旧类型的 id 不报错（found=false）。只有“不存在”算 false，其他 stat 错误算 true。
+func (m *Manager) CheckPaths(ids []string) ([]TaskPathCheck, error) {
+	if len(ids) == 0 || len(ids) > maxBatchIDs {
+		return nil, apperr.New(apperr.InvalidArgument, fmt.Sprintf("一次检查 1~%d 个任务", maxBatchIDs))
+	}
+	out := make([]TaskPathCheck, len(ids))
+	for i, id := range ids {
+		out[i].TaskID = id
+		t, err := m.Get(id)
+		if err != nil {
+			if apperr.Is(err, apperr.NotFound) {
+				continue
+			}
+			return nil, apperr.Wrap(apperr.Internal, "读取任务失败", err)
+		}
+		out[i].Found = true
+		if len(t.InputPaths) > 0 && t.InputPaths[0] != "" {
+			out[i].InputExists = RegularExists(t.InputPaths[0], true)
+		}
+		if t.Status == StatusSucceeded && t.OutputPath != "" && filepath.IsAbs(t.OutputPath) {
+			out[i].OutputExists = RegularExists(t.OutputPath, false)
+		}
+	}
+	return out, nil
+}
+
+// RegularExists 判断 p 现在是不是普通文件：只有“不存在”（或存在但不是普通文件 / 是符号链接而 follow=false）算 false，
+// 其他 stat 错误（如无权限）算 true，交给后续操作报错（契约 6.14.3 CheckSources / CheckPaths）。
+func RegularExists(p string, follow bool) bool {
+	stat := os.Lstat
+	if follow {
+		stat = os.Stat
+	}
+	fi, err := stat(p)
+	if err != nil {
+		return !errors.Is(err, os.ErrNotExist)
+	}
+	return fi.Mode().IsRegular()
 }
 
 // cleanupFiles 删除任务日志（含轮转的 .1），以及（可选）任务的输出文件；返回没能删除的文件说明。
