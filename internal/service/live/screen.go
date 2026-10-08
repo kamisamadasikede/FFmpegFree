@@ -261,6 +261,8 @@ func (s *Service) startScreenPush(ctx context.Context, req ScreenPushRequest) (t
 	default:
 		return task.Task{}, invalidArg("audio 只能是 none 或 silent")
 	}
+	// "" = 不存档。v0.24.3：打开存档且用户没有另选文件夹时，调用方传入实际输出目录
+	// （defaultOutputDir 为空即 <base>/output，含 6.15.1 的可写性回退），这里不把空目录当成存档位置。
 	archiveDir := ""
 	if req.ArchiveDir != "" {
 		if archiveDir, err = checkArchiveDir(req.ArchiveDir); err != nil {
