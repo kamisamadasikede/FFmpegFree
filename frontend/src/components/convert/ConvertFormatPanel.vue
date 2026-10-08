@@ -52,8 +52,11 @@ function showTip(e: Event, f: FormatEntry) {
   tip.value = { text: f.reason || '当前转换组件不支持输出这个格式', top: t.bottom - r.top + 6, right: r.right - t.right }
 }
 const hideTip = () => (tip.value = null)
+// 函数 ref 每次渲染都会调用；只强制一次，否则设置 tip → 重新渲染 → 又设置，死循环
+let forcedTip = false
 function forceTip(el: unknown, f: FormatEntry) {
-  if (!mockHover.startsWith('fmt:') || el === null || mockHover.slice(4).toLowerCase() !== f.extension) return
+  if (forcedTip || !mockHover.startsWith('fmt:') || el === null || mockHover.slice(4).toLowerCase() !== f.extension) return
+  forcedTip = true
   void nextTick(() => {
     const node = el as HTMLElement
     node.classList.add('hv')
