@@ -61,8 +61,34 @@ export const LP_END_PULL_REMOTE = '直播已停止，或连接已断开。'
  * 按钮仍是「重新推流」，不跳页面。直播页以外（任务中心、错误卡）仍用原句「推流被中断，请回到直播页重新推流。」。
  */
 export const LP_BREAK_PUSH = '推流被中断，请重新推流。'
-/** 产品经理已定：和按钮同一个动词，不用「请重新开始播放」 */
+/** 直播页以外（任务中心）：同一句，但告诉用户回到直播页 */
+export const LP_BREAK_PUSH_AWAY = '推流被中断，请回到直播页重新推流。'
+/** 产品经理已定：和按钮同一个动词，不用「请重新开始播放」。拉流不论在哪一页都是这一句 */
 export const LP_BREAK_PULL = '拉流被中断，请重新拉流。'
+
+/**
+ * 直播被中断的那一句。只看 detail 首行 reason（reason=push / reason=pull），不看 message。
+ * 后端还没带 reason 时按任务类型兜底（live_* 里带 pull 的算拉流，其余直播算推流）。
+ * LIVE_SOURCE_GONE 不在这里：窗口 / 屏幕关掉仍用原来的「所选窗口已不可用」。
+ * 返回 null 表示这条不是“被中断”文案。
+ */
+export function liveInterruptView(o: { reason?: string | null; code?: string | null; taskType?: string | null; onLivePage?: boolean }): { title: string; description: string; sentence: string } | null {
+  if (o.code === 'LIVE_SOURCE_GONE') return null
+  const pushSentence = o.onLivePage ? LP_BREAK_PUSH : LP_BREAK_PUSH_AWAY
+  const which = o.reason === 'push' || o.reason === 'pull'
+    ? o.reason
+    : o.reason
+      ? null
+      : o.taskType && /pull/.test(o.taskType)
+        ? 'pull'
+        : o.taskType && o.taskType.startsWith('live_')
+          ? 'push'
+          : null
+  if (!which) return null
+  if (which === 'pull') return { title: '拉流被中断', description: '请重新拉流。', sentence: LP_BREAK_PULL }
+  const description = o.onLivePage ? '请重新推流。' : '请回到直播页重新推流。'
+  return { title: '推流被中断', description, sentence: pushSentence }
+}
 /** 包 24 N2：拉到的流只有声音时舞台中间那行（设计 10-08 定稿，不带句号） */
 export const LP_AUDIO_ONLY = '这路直播只有声音'
 export const LP_RETRY_PUSH = '重新推流'

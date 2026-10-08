@@ -626,3 +626,10 @@ html.reduce-motion .cv-cov.gen::after{animation:none;background:none}
 @media (max-width:960px){.cv2.w1024 .cv-right{width:240px}}
 .cv-more-menu .cv-nmenu{display:none}
 @container cvlist (max-width:479px){.cv-more-menu .cv-nmenu{display:flex}}
+
+/* 格式列三种空态：加载骨架 / 超时 / 组件确实没就绪（不把真实格式块画灰） */
+.cv-fxsk{height:46px;border-radius:8px;background:linear-gradient(105deg,color-mix(in srgb,var(--ff-text-1) 5%,var(--ff-bg-surface)) 40%,color-mix(in srgb,var(--ff-text-1) 14%,var(--ff-bg-surface)) 50%,color-mix(in srgb,var(--ff-text-1) 5%,var(--ff-bg-surface)) 60%);background-size:300% 100%;animation:cv-shine 1.4s linear infinite}
+.cv-fstate{flex:1;min-height:160px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:24px 12px;color:var(--ff-text-2);font-size:13px;line-height:1.6}
+.cv-fstate p{margin:0}
+@media (prefers-reduced-motion:reduce){.cv-fxsk{animation:none}}
+html.reduce-motion .cv-fxsk{animation:none}

@@ -223,7 +223,24 @@ const ACTION_ERROR_TEXT: Record<string, string> = {
 /** 取 toast 文案：有专门说明的码用说明，其余用后端 message */
 export function actionErrorText(code: string, backendMessage: string, reason?: string): string {
   if (code === 'TASK_CONFLICT') return taskConflictText(reason)
+  // 旧版导出的重试 / 重转：用后端这句，不要收成「该任务暂不支持重试」或「导出失败」
+  if (code === 'UNSUPPORTED' && /旧版导出/.test(backendMessage)) return backendMessage
   return ACTION_ERROR_TEXT[code] ?? (backendMessage || FALLBACK_DESCRIPTION)
+}
+
+/** detail 里像路径的行不给用户看（组件候选路径、绝对路径）。reason= 这种枚举行留下。 */
+export function detailWithoutPaths(detail?: string | null): string {
+  const keep = (detail ?? '').split(/\r?\n/).map((l) => l.trim()).filter((l) => {
+    if (!l || /^reason=/.test(l) || /^scheme=/.test(l) || /^kind=/.test(l)) return !!l && !looksLikePath(l)
+    return !looksLikePath(l)
+  })
+  return keep.join('\n')
+}
+function looksLikePath(line: string): boolean {
+  if (/^[A-Za-z]:[\\/]/.test(line) || /^\\\\/.test(line)) return true
+  if (/^\/(usr|home|opt|var|tmp|Users|Applications|private)\b/.test(line)) return true
+  if (/[A-Za-z]:\\[^\s]{3,}/.test(line)) return true
+  return false
 }
 
 // ---- TASK_CONFLICT 的 reason → 文案（契约 6.10：detail 首行 `reason=<值>`，稳定枚举，只追加不改名）----

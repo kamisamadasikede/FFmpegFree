@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as liveApi from '@/api/live'
-import { AppError, toAppError, type AppErrorCode } from '@/api/call'
+import { AppError, parseDetailHead, toAppError, type AppErrorCode } from '@/api/call'
 import { revealInFolder } from '@/api/system'
 import { actionErrorText } from '@/errors/errorMessages'
 import { displayPushUrl, parsePushUrl } from '@/utils/liveUrl'
@@ -31,6 +31,10 @@ export interface LiveRow {
   source?: { title: string; kind: 'screen' | 'window' }
   /** 这一路开始时是否带预览（会话启动参数，运行中不能改）；刷新后接回的会话后端没告诉我们，为 undefined（按“有预览”去取，取不到会转“失败”） */
   preview?: boolean
+  /** 终态错误码 / reason（reason=push|pull）/ LIVE_SOURCE_GONE 的 kind。没有就不填 */
+  endCode?: string
+  endReason?: string
+  endKind?: 'window' | 'screen'
 }
 
 export const MAX_LIVE_SESSIONS = 4
@@ -85,6 +89,12 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
     if (!r.archive && p.bitrateKbps > 0) r.bitrateKbps = Math.round(p.bitrateKbps)
   }
 
+  function stampEnd(r: LiveRow, e: { error?: { code?: string; detail?: string } | null }) {
+    const head = parseDetailHead(e.error?.detail)
+    r.endCode = e.error?.code || ''
+    r.endReason = head.reason || ''
+    if (head.kind) r.endKind = head.kind
+  }
   function applyEnd(id: string, e: liveApi.LiveTaskEnd) {
     offs.get(id)?.()
     offs.delete(id)
@@ -93,6 +103,7 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
     r.status = e.status === 'succeeded' ? 'ok' : e.status === 'canceled' ? 'cnl' : 'int'
     r.outputPath = e.outputPath
     r.endedAt = Date.now()
+    stampEnd(r, e)
   }
 
   function attach(id: string) {
@@ -131,6 +142,8 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
             return
           }
           add(e.status === 'succeeded' ? 'ok' : e.status === 'canceled' ? 'cnl' : 'int', Date.now(), e.outputPath)
+          const row = find(task.id)
+          if (row) stampEnd(row, e)
           resolve({ ok: true })
         },
       })

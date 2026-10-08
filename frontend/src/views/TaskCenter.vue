@@ -132,12 +132,25 @@
               <tr v-if="hasErrLine(t)" class="errrow">
                 <td colspan="6">
                   <ErrorLine
-                    v-if="t.error && liveBroken(t)"
+                    v-if="t.error && t.error.code === 'LIVE_SOURCE_GONE'"
                     compact
                     tone="interrupted"
                     :code="t.error.code"
-                    :title="`${liveTaskVerb(t.type)}被中断`"
-                    :description="`请回到直播页重新${liveTaskVerb(t.type)}。`"
+                    title=""
+                    :description="liveSourceGoneText(goneKind(t))"
+                    hide-code
+                    :announce="isFresh(t)"
+                    hide-retry
+                    :busy="tasks.isBusy(t.id)"
+                    @view-log="toggleLog(t.id, true)"
+                  />
+                  <ErrorLine
+                    v-else-if="t.error && liveBroken(t)"
+                    compact
+                    tone="interrupted"
+                    :code="t.error.code"
+                    :title="interruptOf(t).title"
+                    :description="interruptOf(t).description"
                     hide-code
                     :announce="isFresh(t)"
                     hide-retry
@@ -251,7 +264,9 @@ import { canRetryTask, elapsedMs, isLiveType, isRetiredType, isTerminal, useTask
 import type { IconName } from '@/components/icon/icons'
 import { toAppError } from '@/api/call'
 import { isSimTask, SIM_TITLE_PREFIX } from '@/api/sim'
-import { actionErrorText, docUnsupportedText, liveFailureMessage, liveTaskVerb, LIVE_STOP_TEXT, schemeFromParams } from '@/errors/errorMessages'
+import { actionErrorText, docUnsupportedText, liveFailureMessage, liveSourceGoneText, liveTaskVerb, LIVE_STOP_TEXT, schemeFromParams } from '@/errors/errorMessages'
+import { liveInterruptView } from '@/errors/livePreviewMessages'
+import { parseDetailHead } from '@/api/call'
 import { pickDirectory, revealInFolder } from '@/api/system'
 import { listPresets, parseConvertParams, resubmitToDir } from '@/api/convert'
 import { fileBaseName, formatClock, formatDuration, formatEta, formatStart } from '@/utils/format'
@@ -312,7 +327,7 @@ type Tab = 'all' | 'active' | 'history' | 'failed'
 const TAB_KEYS: Tab[] = ['all', 'active', 'history', 'failed']
 const tab = ref<Tab>(TAB_KEYS.includes(route.query.tab as Tab) ? (route.query.tab as Tab) : 'all')
 
-// 全部 = 进行中 + 已结束；历史 = 已结束（含失败 / 取消 / 中断）；失败 = failed + interrupted
+// 全部 = 进行中 + 已结束；历史 = 已结束（含失败 / 取消 / 中断）；失败只计 failed，不含已中断
 const tabList = computed(() => [
   { key: 'all' as Tab, label: '全部', count: tasks.runningCount + tasks.finishedTotal },
   { key: 'active' as Tab, label: '进行中', count: tasks.runningCount },
@@ -413,6 +428,11 @@ const STATUS_TAG: Record<TaskStatus, { label: string; cls: string; icon?: IconNa
 const LIVE_EXIT_CODES = new Set(['', 'INTERNAL', 'PROCESS_FAILED', 'LIVE_PUSH_INTERRUPTED'])
 const liveBroken = (t: TaskItem) =>
   isLiveType(t.type) && (t.status === 'interrupted' || (t.status === 'failed' && LIVE_EXIT_CODES.has(t.error?.code ?? '')))
+const goneKind = (t: TaskItem) => parseDetailHead(t.error?.detail).kind
+/** reason=push / pull 优先；还没有 reason 时按任务类型。窗口关掉走 LIVE_SOURCE_GONE，不进这里 */
+const interruptOf = (t: TaskItem) =>
+  liveInterruptView({ reason: parseDetailHead(t.error?.detail).reason, code: t.error?.code, taskType: t.type, onLivePage: false })
+  ?? { title: `${liveTaskVerb(t.type)}被中断`, description: `请回到直播页重新${liveTaskVerb(t.type)}。`, sentence: '' }
 const statusTag = (t: TaskItem) => (liveBroken(t) ? STATUS_TAG.interrupted : STATUS_TAG[t.status])
 
 /** 直播任务的停止文案只看 status（契约 v0.10：succeeded=优雅停止，error 为空；canceled=超时强杀，不带错误码）；其他类型沿用通用文案 */
@@ -475,7 +495,7 @@ function progressText(t: TaskItem): string {
     case 'failed':
       return liveBroken(t) ? '已中断' : '失败' // 包 24 N4：直播意外退出按中断显示
     case 'interrupted':
-      return '应用退出，已中断'
+      return isLiveType(t.type) && t.error?.code ? '已中断' : '应用退出，已中断'
     case 'canceled':
       return isLiveType(t.type) ? LIVE_STOP_TEXT.canceled : '用户取消'
   }

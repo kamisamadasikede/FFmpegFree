@@ -83,6 +83,8 @@
 // 低延迟：enableStashBuffer 关、追帧上限 1.5 秒（契约 6.10.3.8）。默认静音。直播不能暂停、不能拖。
 import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, ref, watch } from 'vue'
 import mpegts from 'mpegts.js'
+import { guardCall, installMseGuard } from './mseGuard'
+import { previewMark, previewRetryDelay } from './previewTiming'
 import FIcon from '@/components/icon/FIcon.vue'
 import {
   LP_BREAK_PULL, LP_BREAK_PUSH, LP_CATCHUP, LP_CONNECTING, LP_EMPTY, LP_END_PULL, LP_END_PUSH, LP_LAG, LP_MUTED_HINT, LP_RETRY_PULL, LP_RETRY_PUSH, LP_UNAVAILABLE, LP_UNAVAILABLE_PULL, LP_UNSUP_PULL, LP_UNSUP_PUSH,
@@ -151,6 +153,11 @@ const hinted = ref(false)
 const full = ref(false)
 const liveText = ref('')
 let player: mpegts.Player | null = null
+/** 离开页面后，下一次播放换一个新的 <video> 和新的 MediaSource */
+let freshVideo = false
+/** WebKitGTK 第一次 MSE 失败时，换元素再试，避免停在「正在连接…」 */
+let mseRecoveries = 0
+installMseGuard()
 /** 正在拆播放器：拆的过程里 mpegts 会报错 / 报结束，这些不算断流 */
 let quiet = false
 let attachToken = 0
@@ -286,8 +293,10 @@ function catchUp() {
   emit('catchup')
   const el = videoEl.value
   if (!el || props.lag != null) return
-  const b = el.buffered
-  if (b.length) el.currentTime = Math.max(el.currentTime, b.end(b.length - 1) - 0.3)
+  guardCall(() => {
+    const b = el.buffered
+    if (b.length) el.currentTime = Math.max(el.currentTime, b.end(b.length - 1) - 0.3)
+  })
   lagOwn.value = null
 }
 function destroyPlayer() {
@@ -297,30 +306,47 @@ function destroyPlayer() {
   lagOwn.value = null
   clearTimeout(retryTimer)
   stopStats()
-  if (player) {
-    try { player.pause(); player.unload(); player.detachMediaElement(); player.destroy() } catch { /* 已销毁 */ }
-    player = null
-  }
+  const dying = player
+  player = null
+  if (!dying) return
+  // 只拆一次。unload 会 flush，detach 会 endOfStream；拆的时候元素必须还在文档里。
+  try { dying.pause() } catch { /* 已销毁 */ }
+  try { dying.unload() } catch { /* 已销毁 */ }
+  try { dying.detachMediaElement() } catch { /* 已销毁 */ }
+  try { dying.destroy() } catch { /* 已销毁 */ }
+}
+/** 等一拍，让排队的 updateend / endOfStream 在旧 <video> 还在时跑完，再换元素。 */
+function afterMseSettles(): Promise<void> {
+  return new Promise((r) => setTimeout(r, 0))
 }
 const CONNECT_WAIT_MS = 12000
 let connectSince = 0
+let netRetries = 0
 let retryTimer: ReturnType<typeof setTimeout> | undefined
 async function attach(url: string, retry = false) {
   const my = ++attachToken
   if (away.value || props.fake) return
-  if (!retry) connectSince = Date.now()
+  if (!retry) { connectSince = Date.now(); netRetries = 0 }
+  previewMark('player-attach-begin', `retry=${retry ? 1 : 0}`)
+  // 先把旧播放器拆干净，再换 <video>。反过来的话 WebKitGTK 会在 MediaSource 已关闭时继续 append / endOfStream。
   destroyPlayer()
+  await afterMseSettles()
+  if (my !== attachToken || away.value || wantUrl.value !== url) return
   if (!retry) {
     natural.value = null
     mediaNoVideo.value = false
     frozen.value = false
-    videoKey.value++
-    await nextTick()
+    // 第一次用挂载时那个 <video>（和包 22 一样）。只有离开过页面才换新元素，避免一上来就把 MSE 拆掉。
+    if (freshVideo) {
+      freshVideo = false
+      videoKey.value++
+      await nextTick()
+    }
   }
   if (my !== attachToken || away.value || wantUrl.value !== url) return
   quiet = false
   const el = videoEl.value
-  if (!el) return
+  if (!el) { previewMark('player-created', 'no-video'); return }
   if (!mpegts.getFeatureList().mseLivePlayback) { emit('media-unsupported'); return }
   const chase = props.lowLatency
   player = mpegts.createPlayer(
@@ -334,13 +360,24 @@ async function attach(url: string, retry = false) {
       : { enableWorker: false, enableStashBuffer: true, autoCleanupSourceBuffer: true },
   )
   player.on(mpegts.Events.ERROR, (type: string, detail: string) => {
-    if (quiet) return
+    // 用这一次的代号，不用共享的 quiet：拆掉的播放器晚到的错误不能把新播放器拆掉再等 1 秒。
+    if (quiet || my !== attachToken) return
+    previewMark('player-error', `${type}/${detail}`)
     if (detail === mpegts.ErrorDetails.MEDIA_CODEC_UNSUPPORTED || detail === mpegts.ErrorDetails.MEDIA_FORMAT_UNSUPPORTED) emit('media-unsupported')
     else if (props.phase === 'playing' || props.phase === 'buffering') emit('media-broken')
     else if (type === mpegts.ErrorTypes.NETWORK_ERROR && props.phase === 'connecting' && Date.now() - connectSince < CONNECT_WAIT_MS) {
-      // 契约 6.10.3.4：还没收到 FLV 头时本机预览服务回 503（最多约 10 秒），隔 1 秒重连
+      // 还没收到 FLV 头时本机预览服务回 503。前几次 200ms 再连，免得一次失败就把切回来拖过 3 秒；之后仍隔 1 秒，最多约 12 秒。
+      const wait = previewRetryDelay(netRetries++)
+      previewMark('player-retry', `wait=${wait}`)
       clearTimeout(retryTimer)
-      retryTimer = setTimeout(() => { if (wantUrl.value === url) attach(url, true) }, 1000)
+      retryTimer = setTimeout(() => { if (wantUrl.value === url && my === attachToken) attach(url, true) }, wait)
+    } else if (detail === mpegts.ErrorDetails.MEDIA_MSE_ERROR && props.phase === 'connecting' && mseRecoveries < 2) {
+      // WebKitGTK：拆播放器时 MediaSource 已关闭，append 报 InvalidStateError。换一个新元素再连，不当成断流。
+      mseRecoveries++
+      freshVideo = true
+      clearTimeout(retryTimer)
+      previewMark('player-mse-retry', `n=${mseRecoveries}`)
+      retryTimer = setTimeout(() => { if (wantUrl.value === url && !away.value && my === attachToken) void attach(url) }, 50)
     } else emit('media-broken')
   })
   player.on(mpegts.Events.MEDIA_INFO, (mi: { hasVideo?: boolean; hasAudio?: boolean } | undefined) => {
@@ -349,7 +386,26 @@ async function attach(url: string, retry = false) {
     emit('media-info', { hasVideo: false, hasAudio: mi.hasAudio !== false })
   })
   player.on(mpegts.Events.LOADING_COMPLETE, () => { if (!quiet) emit('media-ended') })
-  el.addEventListener('playing', () => { if (!quiet) emit('playing') }, { once: true })
+  let sawBytes = false
+  el.addEventListener('progress', () => {
+    if (sawBytes || my !== attachToken) return
+    if (el.buffered.length) { sawBytes = true; previewMark('player-first-bytes') }
+  })
+  el.addEventListener('playing', () => {
+    if (my !== attachToken) return
+    mseRecoveries = 0
+    previewMark('player-first-frame')
+    if (!quiet) emit('playing')
+  }, { once: true })
+  el.addEventListener('error', () => {
+    if (quiet || my !== attachToken || retry) return
+    if (mseRecoveries >= 2 || props.phase !== 'connecting') return
+    mseRecoveries++
+    freshVideo = true
+    clearTimeout(retryTimer)
+    previewMark('video-error-retry', `n=${mseRecoveries}`)
+    retryTimer = setTimeout(() => { if (wantUrl.value === url && !away.value && my === attachToken) void attach(url) }, 50)
+  })
   // 缓冲：不加转圈（追帧加速和落后 6 秒跳到最新都不能出转圈，设计 10-08）；超过 2 秒只在读屏里播报「正在缓冲」
   el.addEventListener('waiting', () => {
     clearTimeout(bufTimer)
@@ -364,14 +420,18 @@ async function attach(url: string, retry = false) {
   el.addEventListener('resize', onSize)
   // WebKitGTK 不会自己跳过开头的空档：第一段缓冲从 1.x 秒开始而 currentTime 还是 0 时会一直卡在“正在连接”，这里手动跳到缓冲开头
   const jumpGap = () => {
-    const b = el.buffered
-    if (b.length && el.currentTime < b.start(0) - 0.01) el.currentTime = b.start(0) + 0.05
+    guardCall(() => {
+      const b = el.buffered
+      if (b.length && el.currentTime < b.start(0) - 0.01) el.currentTime = b.start(0) + 0.05
+    })
   }
   el.addEventListener('progress', jumpGap)
   el.addEventListener('loadedmetadata', jumpGap)
   player.attachMediaElement(el)
   el.muted = muted.value
   player.load()
+  previewMark('player-created')
+  previewMark('player-load')
   lastDecoded = 0
   fpsWin = []
   accBytes = 0
@@ -380,8 +440,12 @@ async function attach(url: string, retry = false) {
     const si = (player as { statisticsInfo?: { decodedFrames?: number; speed?: number; droppedFrames?: number } } | null)?.statisticsInfo
     jumpGap()
     // 追帧关闭时量落后多少（缓冲末尾 - 当前播放位置），3 秒出现、1.5 秒以下收起
-    if (!props.lowLatency && el.buffered.length) lagOwn.value = nextLagShown(lagOwn.value, el.buffered.end(el.buffered.length - 1) - el.currentTime)
-    else lagOwn.value = null
+    if (!props.lowLatency) {
+      guardCall(() => {
+        if (el.buffered.length) lagOwn.value = nextLagShown(lagOwn.value, el.buffered.end(el.buffered.length - 1) - el.currentTime)
+        else lagOwn.value = null
+      })
+    } else lagOwn.value = null
     if (!si) return
     const decoded = si.decodedFrames ?? 0
     if (lastDecoded) fpsWin = [...fpsWin, Math.max(0, decoded - lastDecoded)].slice(-3)
@@ -417,12 +481,15 @@ watch(volume, (v) => { if (videoEl.value) videoEl.value.volume = v / 100 })
 
 // 离开页面（KeepAlive 藏起来，或整页卸载）：拆掉播放器并断开预览连接。不在这里截最后一帧。
 onDeactivated(() => {
+  previewMark('player-away')
   away.value = true
   frozen.value = false
+  // 不在这一拍换 video：Vue 会先把元素卸掉，mpegts 的 endOfStream 还在队列里。回来时 attach 再换。
+  freshVideo = true
   destroyPlayer()
-  videoKey.value++
 })
 onActivated(() => {
+  previewMark('player-back')
   away.value = false
   if (wantUrl.value) void attach(wantUrl.value)
 })

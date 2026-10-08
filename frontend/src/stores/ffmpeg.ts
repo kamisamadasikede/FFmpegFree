@@ -10,11 +10,13 @@ import { formatEta } from '@/utils/format'
 /** 与契约 9.4 FFmpegStatus 对齐。生成的类型里 state/source 是 string、error 可能为 null，这里收窄后使用 */
 export interface FFmpegStatus {
   state: 'checking' | 'ready' | 'missing' | 'outdated' | 'installing' | 'failed'
-  path?: string
   version?: string
-  source?: 'custom' | 'bundled' | 'system' | 'legacy'
+  /** ready 时是实际在用的来源；其他状态是用户的设置：custom 或 default（v0.25.3）。旧响应可能没有 */
+  source?: 'custom' | 'bundled' | 'system' | 'legacy' | 'default'
   taskId?: string
   ffprobeMissing?: boolean
+  /** v0.25.3 始终有；旧响应没有时为 undefined，界面改看设置里有没有手动路径 */
+  customPathInvalid?: boolean
   error?: { code: string; message: string; detail?: string } | null
 }
 
@@ -40,17 +42,17 @@ export function toInstallProgress(progress: number, speed: string, etaSec: numbe
   }
 }
 
-/** 后端事件 / 调用返回的原始状态 → 前端状态（空串字段归一为 undefined） */
+/** 后端事件 / 调用返回的原始状态 → 前端状态（空串字段归一为 undefined）。不读 path：后端已不再下发。 */
 function normalize(raw: system.FFmpegStatus | FFmpegStatus): FFmpegStatus {
-  const r = raw as any
+  const err = raw.error
   return {
-    state: r.state,
-    path: r.path || undefined,
-    version: cleanFfmpegVersion(r.version) || undefined,
-    source: r.source || undefined,
-    taskId: r.taskId || undefined,
-    ffprobeMissing: !!r.ffprobeMissing,
-    error: r.error ? { code: r.error.code, message: r.error.message, detail: r.error.detail } : null,
+    state: raw.state as FFmpegStatus['state'],
+    version: cleanFfmpegVersion(raw.version) || undefined,
+    source: (raw.source || undefined) as FFmpegStatus['source'],
+    taskId: raw.taskId || undefined,
+    ffprobeMissing: !!raw.ffprobeMissing,
+    ...(typeof raw.customPathInvalid === 'boolean' ? { customPathInvalid: raw.customPathInvalid } : {}),
+    error: err ? { code: err.code, message: err.message, ...(err.detail ? { detail: err.detail } : {}) } : null,
   }
 }
 
@@ -64,8 +66,8 @@ const PREVIEW: Record<string, { status: FFmpegStatus; install?: InstallProgress;
   },
   failed: { status: { state: 'failed', error: { code: 'IO_ERROR', message: '下载超时，请检查网络' } } },
   // 包 24 N5：手动指定的组件坏了。fallback = 回退到了系统里能用的组件；custombad = 没有能用的组件
-  fallback: { status: { state: 'ready', version: '7.1', source: 'system' }, customPath: true },
-  custombad: { status: { state: 'missing' }, customPath: true },
+  fallback: { status: { state: 'ready', version: '7.1', source: 'system', customPathInvalid: true } },
+  custombad: { status: { state: 'missing', source: 'custom', customPathInvalid: true } },
 }
 
 /** 与契约 9.4 InstallOptions 对齐。mirrors 不含默认源（契约：「可用镜像（不含默认源）」）；defaultMirror 是后端将来可能补的字段，没有时默认源就是 "" */
@@ -89,15 +91,23 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
   const justBecameReady = ref(false)
   const manualInputOpen = ref(false) // 没有目录选择器时，对话框里显示路径输入框
   /**
-   * 包 24 N5：设置里存着手动指定的路径（Settings.ffmpegPath 非空）。只记有没有，不把路径放进界面。
-   * 不能只看 status.source === 'custom'：手动指定的组件不可用时，后端回退到别的组件（source 不是 custom），
-   * 或者干脆未就绪（source 为空）。
+   * 包 24 N5：旧后端没有 customPathInvalid 时，用设置里有没有手动路径来判断（只记有没有，不把路径放进界面）。
+   * v0.25.3 起以 customPathInvalid 为准，不再读这个。
    */
   const hasCustomPath = ref(false)
-  /** 手动指定的不可用，已改用默认组件（就绪，但不是来自手动指定） */
-  const customFellBack = computed(() => hasCustomPath.value && status.value.state === 'ready' && status.value.source !== 'custom')
+  const customFlag = computed(() => status.value.customPathInvalid)
+  /** 手动指定的不可用，已改用默认组件 */
+  const customFellBack = computed(() =>
+    typeof customFlag.value === 'boolean'
+      ? customFlag.value && status.value.state === 'ready'
+      : hasCustomPath.value && status.value.state === 'ready' && status.value.source !== 'custom',
+  )
   /** 手动指定的不可用，也没有别的能用的组件 */
-  const customBroken = computed(() => hasCustomPath.value && (status.value.state === 'missing' || status.value.state === 'outdated'))
+  const customBroken = computed(() =>
+    typeof customFlag.value === 'boolean'
+      ? customFlag.value && (status.value.state === 'missing' || status.value.state === 'outdated')
+      : hasCustomPath.value && (status.value.state === 'missing' || status.value.state === 'outdated'),
+  )
   async function loadCustomPath() {
     if (previewMode || !hasWailsBackend()) return
     try {
@@ -219,11 +229,19 @@ export const useFFmpegStore = defineStore('ffmpeg', () => {
 
   async function init() {
     if (!hasWailsBackend()) {
+      // ?cv_slowdetect=<秒>：冷启动检测变慢。先停在 checking，到点再 ready。
+      // 和真实后端一样走 setStatus（真实路径是事件 ffmpeg:status → applyEvent → setStatus）。
+      const slowSec = Number(previewParams.get('cv_slowdetect') ?? '')
+      if (slowSec > 0) {
+        setStatus({ state: 'checking' })
+        setTimeout(() => setStatus({ state: 'ready', version: '7.1', source: 'bundled' }), slowSec * 1000)
+        return
+      }
       const preview = previewFf
       if (preview && PREVIEW[preview]) {
         setStatus(PREVIEW[preview].status)
         install.value = PREVIEW[preview].install ?? null
-        hasCustomPath.value = !!PREVIEW[preview].customPath
+        hasCustomPath.value = false
         dialogOpen.value = previewParams.has('dlg')
         await loadInstallOptions()
       }
