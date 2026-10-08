@@ -415,6 +415,9 @@ func (s *Service) doCopy(j *copyJob) *apperr.AppError {
 				return s.writeError(werr, c)
 			}
 			s.copyProgress(j)
+			if copyChunkHook != nil {
+				copyChunkHook(j.ctx)
+			}
 		}
 		if rerr == io.EOF {
 			break
@@ -595,6 +598,9 @@ func (s *Service) disposeCopy(ctx context.Context, c store.ConvertCopy, sourceID
 	_ = cs.DeleteCopyRow(ctx, c.ID)
 	return nil
 }
+
+// copyChunkHook 在每写完一块之后调用（只给测试用：让复制停在中途，以便测取消 / 退出）。
+var copyChunkHook func(ctx context.Context)
 
 // removeCopyFile 是删副本文件的入口（测试里替换以模拟“被占用”）。
 var removeCopyFile = os.Remove
