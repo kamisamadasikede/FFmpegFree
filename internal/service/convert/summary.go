@@ -27,7 +27,7 @@ var widthOnlyLabels = map[int]string{3840: "2160p", 2560: "1440p", 1920: "1080p"
 func ParamsSummary(o ffmpeg.ConvertOptions) string {
 	var segs []string
 	audio := ffmpeg.IsAudioContainer(o.Container)
-	if !audio && o.Container != "gif" {
+	if !audio && o.Container != "gif" && !ffmpeg.IsImageContainer(o.Container) && o.VideoCodec != "" {
 		segs = append(segs, VideoCodecDisplayName(o.VideoCodec))
 	}
 	switch {
@@ -69,4 +69,10 @@ func ParamsSummary(o ffmpeg.ConvertOptions) string {
 }
 
 // VideoCodecDisplayName 返回视频编码的显示名，规则和表都在 internal/codecname（全应用唯一的一张表，契约 v0.23.4）。
-func VideoCodecDisplayName(codec string) string { return codecname.Video(codec) }
+// ConvertOptions 的取值 "mpeg2" 不是 ffprobe 的 codec_name（mpeg2video），先换过去再查 codecname 的表。
+func VideoCodecDisplayName(codec string) string {
+	if codec == "mpeg2" {
+		codec = "mpeg2video"
+	}
+	return codecname.Video(codec)
+}

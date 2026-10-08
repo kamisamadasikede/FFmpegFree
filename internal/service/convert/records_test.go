@@ -8,10 +8,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/ffmpeg"
 	"FFmpegFree/internal/localassets"
+	"FFmpegFree/internal/paths"
+	"FFmpegFree/internal/store"
 	"FFmpegFree/internal/task"
 )
 
@@ -223,8 +226,10 @@ func TestPreviewAndOpenWhitelist(t *testing.T) {
 	opus := e.submitSources(t, ConvertSubmitRequest{SourceIDs: []string{src.SourceID},
 		Options: ffmpeg.ConvertOptions{Container: "opus", AudioCodec: "opus"}, OutputDir: filepath.Join(e.dir, "o")})
 	if opus[0].Status == task.StatusSucceeded {
-		_, err := e.svc.TaskPreviewURL(ctx, opus[0].ID, "output")
-		wantReason(t, err, apperr.Unsupported, "reason=format")
+		// v0.24：opus 进了应用内预览白名单（6.14.7）
+		if _, err := e.svc.TaskPreviewURL(ctx, opus[0].ID, "output"); err != nil {
+			t.Fatalf("opus 可以预览: %v", err)
+		}
 		if err := e.svc.TaskOpenWithSystem(ctx, opus[0].ID, "output"); err != nil || opened[len(opened)-1] != opus[0].OutputPath {
 			t.Fatalf("opus 可以用系统程序打开: %v", err)
 		}
@@ -233,7 +238,7 @@ func TestPreviewAndOpenWhitelist(t *testing.T) {
 	for _, c := range []struct {
 		ext           string
 		preview, open bool
-	}{{".gif", true, true}, {".MP4", true, true}, {".opus", false, true}, {".wmv", false, true}, {".txt", false, false}, {".exe", false, false}} {
+	}{{".gif", true, true}, {".MP4", true, true}, {".opus", true, true}, {".avi", false, true}, {".flv", false, true}, {".wmv", false, true}, {".txt", false, false}, {".exe", false, false}} {
 		if hasExt(previewExts, "x"+c.ext) != c.preview || hasExt(openExts, "x"+c.ext) != c.open {
 			t.Errorf("%s", c.ext)
 		}
@@ -242,7 +247,18 @@ func TestPreviewAndOpenWhitelist(t *testing.T) {
 	n := len(opened)
 	txt := filepath.Join(e.dir, "notes.txt")
 	os.WriteFile(txt, []byte("x"), 0o644)
-	tsrc := e.addSource(t, txt)
+	// v0.24：AddSources 只收输入格式白名单里的扩展名
+	if res, err := e.svc.AddSources(ctx, []string{txt}); err != nil || len(res) != 1 || res[0].Error == nil {
+		t.Fatalf("%+v %v", res, err)
+	} else {
+		wantReason(t, res[0].Error, apperr.Unsupported, "reason=format")
+	}
+	// 旧版本留下的行（copyState=none）仍可能是任意扩展名：直接写库模拟
+	_, tkey, _ := paths.Normalize(txt)
+	tsrc, _, err := e.st.UpsertConvertSource(ctx, txt, tkey, time.Now().UnixMilli())
+	if err != nil || tsrc.CopyState != store.CopyNone {
+		t.Fatalf("%+v %v", tsrc, err)
+	}
 	wantReason(t, e.svc.OpenSourceWithSystem(ctx, tsrc.SourceID), apperr.Unsupported, "reason=format")
 	if len(opened) != n {
 		t.Fatal("不应调用 Open")
