@@ -79,7 +79,7 @@ import { PREVIEW_SWITCH_NOTE_STARTING } from '@/errors/livePreviewMessages'
 import { composePushUrl, parsePushUrl } from '@/utils/liveUrl'
 import * as liveApi from '@/api/live'
 import { toAppError, type AppError } from '@/api/call'
-import { getDefaultOutputDir, pickDirectory } from '@/api/system'
+import { getOutputDirShown, pickDirectory } from '@/api/system'
 import { formPreview } from './pushPreview'
 import { pushErrorToForm, type PushFormError } from './pushErrors'
 
@@ -111,9 +111,16 @@ const canStart = computed(() => recordStartEnabled({ blocked: blocked.value, sta
 /** 没选来源（列表加载失败 / 没有可选项）时不传来源，后端默认推主屏：表单里给一句轻提示 */
 
 watch([baseUrl, key], () => (err.value = null))
-watch(archiveOn, async (on) => {
-  if (!on || archiveDir.value) return
-  archiveDir.value = (await getDefaultOutputDir().catch(() => '')) || (liveApi.liveIsReal() ? '' : DEMO_ARCHIVE_DIR)
+// v0.24.3：存档开关打开且用户没有另选文件夹时，目录是实际输出文件夹
+// （defaultOutputDir 留空 = <base>/output，含不可写时的回退）。关掉开关不填、开始时传空表示不存档。
+async function fillDefaultArchiveDir() {
+  if (archiveDir.value) return
+  const d = await getOutputDirShown().catch(() => '')
+  if (archiveDir.value) return
+  archiveDir.value = d || (liveApi.liveIsReal() ? '' : DEMO_ARCHIVE_DIR)
+}
+watch(archiveOn, (on) => {
+  if (on) void fillDefaultArchiveDir()
 })
 
 async function changeDir() {
@@ -188,6 +195,7 @@ async function start() {
   if (!check.ok) return void (err.value = { where: 'addr', text: check.message })
   let dir = ''
   if (archiveOn.value) {
+    if (!archiveDir.value) await fillDefaultArchiveDir()
     dir = archiveDir.value
     if (!dir) {
       try {
@@ -217,6 +225,7 @@ async function start() {
 }
 
 onMounted(async () => {
+  if (archiveOn.value) void fillDefaultArchiveDir()
   void store.recover()
   platform.value = (await liveApi.getCaptureCapabilities().catch(() => null))?.platform ?? ''
   await loadSources(false)

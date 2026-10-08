@@ -522,6 +522,19 @@ func TestSubmitSourcesAllSkipped(t *testing.T) {
 	if !apperr.Is(err, apperr.TaskConflict) || !strings.HasPrefix(detailOf(err), "reason=copying") {
 		t.Fatalf("%v (%s)", err, detailOf(err))
 	}
+	// v0.24.4：复制中的提示说“准备中”（包 20 用词），reason 不变
+	if m := apperr.From(err).Message; m != "文件还在准备中，准备好后再转换。" {
+		t.Fatalf("message: %q", m)
+	}
+	_, err = e.svc.GetSourcePreviewURL(ctx, r.Source.SourceID)
+	wantReason(t, err, apperr.TaskConflict, "reason=copying")
+	if m := apperr.From(err).Message; m != "文件还在准备中，准备好后才能预览。" {
+		t.Fatalf("preview message: %q", m)
+	}
+	_, err = e.svc.RetryCopy(ctx, r.Source.SourceID)
+	if m := apperr.From(err).Message; !apperr.Is(err, apperr.TaskConflict) || m != "文件还在准备中，不需要重试。" {
+		t.Fatalf("retry: %v", err)
+	}
 }
 
 // pathThumbs 是假的 Thumbnailer：记下被要求截图的路径。
@@ -544,4 +557,54 @@ func (p *pathThumbs) last() string {
 		return ""
 	}
 	return p.paths[len(p.paths)-1]
+}
+
+// v0.24.3：打开所在文件夹 / 用系统程序打开都走原文件，副本 ready 也不打开 storedPath；原文件不在时不退回副本。
+func TestOpenAndRevealOriginalNotCopy(t *testing.T) {
+	e := newCopyEnv(t)
+	in := e.file(t, "clip.mov", 64)
+	r := e.add(t, in)
+	if r.Error != nil || r.Source == nil {
+		t.Fatalf("%+v", r)
+	}
+	src := e.waitState(t, r.Source.SourceID, store.CopyReady)
+	if src.StoredPath == "" || src.StoredPath == in {
+		t.Fatalf("应有一份不同于原文件的副本: %+v", src)
+	}
+	var opened, revealed []string
+	e.svc.cfg.Open = func(p string) error { opened = append(opened, p); return nil }
+	e.svc.cfg.Reveal = func(p string) error { revealed = append(revealed, p); return nil }
+	ctx := context.Background()
+	if err := e.svc.OpenSourceWithSystem(ctx, src.SourceID); err != nil || len(opened) != 1 || opened[0] != in {
+		t.Fatalf("应打开原文件 %s: %v %v", in, err, opened)
+	}
+	if err := e.svc.RevealSource(ctx, src.SourceID); err != nil || len(revealed) != 1 || revealed[0] != in {
+		t.Fatalf("应选中原文件: %v %v", err, revealed)
+	}
+	if strings.Contains(opened[0], e.uploads) || strings.Contains(revealed[0], e.uploads) {
+		t.Fatal("不应打开 uploads 里的副本")
+	}
+	if err := os.Remove(in); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"open", "reveal"} {
+		var err error
+		if name == "open" {
+			err = e.svc.OpenSourceWithSystem(ctx, src.SourceID)
+		} else {
+			err = e.svc.RevealSource(ctx, src.SourceID)
+		}
+		wantReason(t, err, apperr.NotFound, "reason=file")
+		if apperr.From(err).Message != "原文件不存在，无法打开。" {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	if len(opened) != 1 || len(revealed) != 1 {
+		t.Fatalf("原文件不在时不应退回副本: open %v reveal %v", opened, revealed)
+	}
+	if _, err := os.Stat(src.StoredPath); err != nil {
+		t.Fatal("副本应还在")
+	}
+	wantReason(t, e.svc.OpenSourceWithSystem(ctx, "nope"), apperr.NotFound, "reason=record")
+	wantReason(t, e.svc.RevealSource(ctx, "nope"), apperr.NotFound, "reason=record")
 }
