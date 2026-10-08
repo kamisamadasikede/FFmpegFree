@@ -175,6 +175,7 @@ func (m *Manager) DeleteRecords(ids []string, typ Type, deleteOutputs bool, befo
 					if !errors.Is(err, os.ErrNotExist) {
 						m.logf("删除任务 %s 的输出 %s 失败: %v", t.ID, t.OutputPath, err)
 						res.Failures = append(res.Failures, newDeleteFailure(id, t.OutputPath, classifyRemoveErr(err)))
+						m.allowRevealOfFailure(res.Failures[len(res.Failures)-1].Path, t.OutputPath)
 					}
 				} else {
 					res.DeletedFiles++
@@ -182,6 +183,8 @@ func (m *Manager) DeleteRecords(ids []string, typ Type, deleteOutputs bool, befo
 			default:
 				m.logf("不删除任务 %s 的输出 %s：%s", t.ID, t.OutputPath, reason)
 				res.Failures = append(res.Failures, newDeleteFailure(id, t.OutputPath, DeleteNotTaskOutput))
+				// not_task_output 的路径也是这条记录登记的输出（删除只尝试登记的输出），只放行它本身。
+				m.allowRevealOfFailure(res.Failures[len(res.Failures)-1].Path, t.OutputPath)
 			}
 		}
 		// 4. .part 残留（别的任务正占着这个名字时不碰）。

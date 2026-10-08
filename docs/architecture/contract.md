@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.23.2）
+# FFmpegFree v2 接口契约（v0.23.3）
+
+v0.23.3 变更（没有新增接口、错误码或事件）：**删除失败后“打开所在文件夹”在任何位置都能用**。`DeleteRecords` / `DeleteSource` 返回的 `failures` 里 `path` 非空的项（`in_use` / `permission` / `not_task_output` / `io`），在**同一次运行里、该删除调用之后 10 分钟内**可以用 `RevealInFolder(path)` 打开所在文件夹，不受 `defaultOutputDir` 范围限制（6.8 第 3 类放行路径）。后端只把**这条记录登记的输出路径本身**放进内存里的放行表（按 Clean 后的路径精确匹配，大小写规则同 6.8；符号链接不算；最多保留最新的 100 个；不落库，重启即清空）；`not_task_output` 也一样——删除只尝试记录登记的输出，所以它的 `path` 就是登记的输出路径，绝不放行任意路径。其他路径的规则不变。6.14.1 的例外说明随之更新（去掉“前端静默忽略 `INVALID_ARGUMENT`”）。
 
 v0.23.2 变更（转换页 v2 的小补充，随实现 PR；没有新增错误码、没有新增事件）：① **`ConvertSearchFilter` 新增可选 `status`**，取值和规则与 `ConvertSourceFilter.status` **完全相同**（`""` / `"active"` / `"failed"`，`canceled` 不算失败，其他值 `INVALID_ARGUMENT`；只筛行，不筛每行内嵌的记录和 `recordCount`），与关键字是 **AND**，分页和排序不变，复用同一个 `EXISTS` 子查询（6.14.2、6.14.3）；② **6.14.1“只收 id”规则的唯一例外**：`DeleteRecords` / `DeleteSource` 返回 `failures` 后，转换页可以用第一条 `path` 非空的失败项的 `path` 调旧的 `RevealInFolder(path)`，打开没删掉的文件所在的文件夹（记录已经删了，没有 id 可用；`RevealInFolder` 只打开文件夹，不读不改文件）；**`DeleteFailure.path` 只在文件类失败（`in_use` / `permission` / `not_task_output` / `io`）时有值，`still_running` 时为空（JSON 里省略）**，代码与此一致；③ **`paramsSummary` 的视频编码显示名统一写法**：`H.265`、`ProRes`、`AV1` 等，不再出现原样大写的 `HEVC` / `PRORES`（6.14.5）。
 
@@ -623,7 +625,7 @@ schema_migrations(version PK, applied_at)
 ## 6.8 RevealInFolder / PickDirectory（v0.7.3，v0.7.7 修订）
 
 - `RevealInFolder(path)`：path 必须是绝对路径（空 / 相对路径 → `INVALID_ARGUMENT`），必须存在（否则 `NOT_FOUND`）。**范围限制（v0.7.7）**：只允许任务表里登记的输出路径（`Manager.IsTaskOutput`），或 `defaultOutputDir` 之内的路径（目录本身可以）；先 Clean 再 `EvalSymlinks`，用真实路径按目录边界比较（Windows / macOS 不区分大小写），其余一律 `INVALID_ARGUMENT`；任务输出本身是符号链接时拒绝；实际打开的是真实路径。Windows 执行 `explorer.exe /select,"<path>"`（路径带双引号，见 v0.21），macOS `open -R <path>`，Linux `xdg-open <所在文件夹>`；path 是文件夹时三个平台都直接打开这个文件夹。命令启动后立即返回，启动失败 `PROCESS_FAILED`。Linux 没有统一的"选中文件"方式，所以只能打开所在文件夹。
-- **v0.23.1：格式转换页不再调用 `RevealInFolder(path)`**：源文件用 `ConvertService.RevealSource(sourceId)`，转换记录的输出用 `ConvertService.RevealRecord(taskId)`（只收 id，路径由后端从表里取，平台命令与本条相同，不走上面的范围白名单）。`RevealInFolder` 保留给其他页面，行为不变。（v0.23.2 例外：删除记录后打开“没删掉的文件”所在文件夹，见 6.14.1。）
+- **v0.23.1：格式转换页不再调用 `RevealInFolder(path)`**：源文件用 `ConvertService.RevealSource(sourceId)`，转换记录的输出用 `ConvertService.RevealRecord(taskId)`（只收 id，路径由后端从表里取，平台命令与本条相同，不走上面的范围白名单）。`RevealInFolder` 保留给其他页面，行为不变。（v0.23.2 例外：删除记录后打开“没删掉的文件”所在文件夹，见 6.14.1。）**v0.23.3：`RevealInFolder` 的放行范围加第 3 类**——`DeleteRecords` / `DeleteSource` 在 10 分钟内返回过的失败项 `path`（这条记录登记的输出文件本身，Clean 后精确匹配，符号链接不算，只在内存里、最多 100 个、同一次运行有效）；文件夹本身、同目录的其他文件仍按原来两类判断。
 - `PickDirectory(title string)`：弹出系统选择文件夹对话框，返回绝对路径；取消返回 `""`。应用启动完成前调用返回 `INTERNAL`。**参数不能省略**：Wails v2.11 对 Go 可变参数生成 `Array<string>` 且运行时按参数个数严格检查，做不了可选参数，前端无标题时调用 `PickDirectory('')`。
 - `PickFiles(filter, multiple)`：`filter = {name, patterns[]}`，patterns 形如 `["*.mp4", "*.mkv"]`（单个元素里用分号也行：`"*.mp4;*.mkv"`），只接受 `*.扩展名` 形式（扩展名限字母数字 `_ - + ? *`）和 `*` / `*.*`，其他写法 `INVALID_ARGUMENT`；patterns 为空或含 `*.*` = 不过滤；`name` 为空时用模式串当显示名。返回绝对路径（已 `Clean`、去重）；**用户取消返回空数组 `[]`，不是错误**；`multiple=false` 最多 1 个。启动完成前调用返回 `INTERNAL`。
 
@@ -1274,7 +1276,7 @@ AppError（句柄失效）：
 - **转换记录**：每次转换 = 一个 `type=convert` 的任务，`Task.sourceId` 指向它的源文件行。**分组只看 `tasks.source_id`，不按 `inputPaths[0]` 做字符串匹配**。
 - **记录在任务中心和转换页之间是共享的同一条任务**：任务中心的“隐藏已结束”只设 `hiddenInTaskCenter`，**不删记录**（对所有任务类型都一样，不按类型区分）；**转换记录的真删只在转换页**（`DeleteRecords` / `DeleteSource`），**永远不删源文件**；没有回收站。非转换任务的真删用任务中心每行的“移除”（`TaskService.Remove`），`Remove` 拒绝转换任务。
 - **只收 id、不收路径（架构师硬要求 5）**：存在性检查、预览、缩略图、用系统程序打开、打开所在文件夹（`RevealSource` / v0.23.1 的 `RevealRecord`）、取一行（v0.23.1 的 `GetSource`）、删除、取消隐藏，参数只有任务 id（加 `which`）或 `sourceId`；后端从表里取登记的路径，**不接受前端传来的路径**。唯一收路径的入口是 `AddSources`（登记新文件）和兼容保留的 `Submit(inputs …)`。
-  - **唯一的例外（v0.23.2）**：`DeleteRecords` / `DeleteSource` 返回 `failures` 后，转换页可以取**第一条 `path` 非空**的失败项，用它的 `path` 调旧的 `SystemService.RevealInFolder(path)`，打开那个没删掉的文件所在的文件夹（例如“文件正在被使用，没有删除”之后让用户自己去处理）。原因：记录已经删了，没有 id 可用；`RevealInFolder` 只在文件管理器里打开文件夹，**不读、不改、不删文件**。`path` 为空的失败项（`still_running`，记录没删，仍可用 id 接口）不能这样用。**注意**：`RevealInFolder` 的范围限制（6.8）照旧——记录删掉后这个路径已不是“任务表里登记的输出”，所以只有它在当前 `defaultOutputDir` 之内时才会打开；否则返回 `INVALID_ARGUMENT`，前端静默忽略（不弹错误），失败提示里照常显示路径即可。
+  - **唯一的例外（v0.23.2）**：`DeleteRecords` / `DeleteSource` 返回 `failures` 后，转换页可以取**第一条 `path` 非空**的失败项，用它的 `path` 调旧的 `SystemService.RevealInFolder(path)`，打开那个没删掉的文件所在的文件夹（例如“文件正在被使用，没有删除”之后让用户自己去处理）。原因：记录已经删了，没有 id 可用；`RevealInFolder` 只在文件管理器里打开文件夹，**不读、不改、不删文件**。`path` 为空的失败项（`still_running`，记录没删，仍可用 id 接口）不能这样用。**v0.23.3**：这些路径在**同一次运行里、该删除调用之后 10 分钟内**可以用 `RevealInFolder` 打开（后端把记录登记的输出路径本身临时放进 6.8 的放行范围，不受 `defaultOutputDir` 限制，见 6.8）；超过 10 分钟或应用重启后按 6.8 原来的规则判断（通常是 `INVALID_ARGUMENT`），文件已被移走则 `NOT_FOUND`。
 - **旧类型**（6.10 确认项 ⑧ 的“保留但不再产生”的类型）的 id 在本节所有接口里一律按不存在处理（`NOT_FOUND`，`reason=record`）。
 - 本节**没有新增错误码**；新增的是 2.2 里 `NOT_FOUND` / `UNSUPPORTED` 在本节接口上的 `reason=` 取值（`record`、`file`、`no_app`、`format`）。本节接口都要等启动完成，之前调用返回 `INTERNAL`（同 6.9）。
 
@@ -1375,7 +1377,7 @@ type DeleteResult struct {
 }
 type DeleteFailure struct {
     TaskID  string `json:"taskId"`
-    Path    string `json:"path,omitempty"` // 文件类失败（in_use / permission / not_task_output / io）时是那个输出文件的绝对路径；still_running 时为空（JSON 里省略）。v0.23.2：转换页可以拿它调 RevealInFolder，见 6.14.1
+    Path    string `json:"path,omitempty"` // 文件类失败（in_use / permission / not_task_output / io）时是那个输出文件的绝对路径；still_running 时为空（JSON 里省略）。v0.23.2 / v0.23.3：转换页可以拿它调 RevealInFolder（删除调用后 10 分钟内有效），见 6.14.1
     Reason  string `json:"reason"`         // 固定枚举，见 6.14.4
     Message string `json:"message"`        // 固定中文文案，见 6.14.4
 }
