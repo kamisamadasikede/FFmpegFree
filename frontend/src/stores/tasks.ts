@@ -112,6 +112,15 @@ const GROUP_STATUSES: Record<HistoryGroup, TaskStatus[]> = {
 
 export const isTerminal = (s: string): boolean => TERMINAL.includes(s as TaskStatus)
 export const isLiveType = (t: string): boolean => t.startsWith('live_')
+/**
+ * 已下线功能的任务类型（剪辑功能已移除，老板决定 2026-10-08）：旧记录照常显示、可以移除，但不能重试。
+ * 后端删掉 EditService 后不会再产生这类任务；仍保留在 KNOWN_TASK_TYPES 里，旧记录才不会被当成未知类型丢掉。
+ */
+export const RETIRED_TASK_TYPES: readonly string[] = ['edit_export']
+export const isRetiredType = (t: string): boolean => RETIRED_TASK_TYPES.includes(t)
+/** 能否重试：失败 / 已中断 / 已取消，且不是直播（直播回直播页重新推流）、不是已下线功能的任务 */
+export const canRetryTask = (t: { status: string; type: string }): boolean =>
+  (t.status === 'failed' || t.status === 'interrupted' || t.status === 'canceled') && !isLiveType(t.type) && !isRetiredType(t.type)
 
 // ---- 事件 payload（契约第 5 节） ----
 interface ProgressPayload {

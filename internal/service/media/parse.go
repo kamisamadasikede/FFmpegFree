@@ -87,7 +87,7 @@ type probeStream struct {
 func ParseProbe(data []byte, path string) (store.MediaInfo, error) {
 	var pj probeJSON
 	if err := json.NewDecoder(bytes.NewReader(data)).Decode(&pj); err != nil {
-		return store.MediaInfo{}, apperr.Wrap(apperr.ProbeFailed, "无法解析 ffprobe 输出", err)
+		return store.MediaInfo{}, apperr.Wrap(apperr.ProbeFailed, "无法解析媒体信息", err)
 	}
 	if len(pj.Streams) == 0 {
 		return store.MediaInfo{}, apperr.New(apperr.ProbeFailed, "没有找到可识别的音视频流")

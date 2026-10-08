@@ -42,7 +42,7 @@ type Installer struct {
 }
 
 // ErrInstallBusy 表示已经有安装在进行。
-var ErrInstallBusy = errors.New("已有 ffmpeg 安装在进行")
+var ErrInstallBusy = errors.New("已有转换组件安装在进行")
 
 // NewInstaller 用默认依赖创建 Installer。
 func NewInstaller(m *Manifest, loc *Locator, binDir, tempDir string) *Installer {

@@ -253,7 +253,7 @@ func gpuFromDRM(c drmCard) (gpuInfo, bool) {
 
 // 设备 reason 文案统一叫“显卡编码”，不带编码器名（NVENC / QSV / AMF / VideoToolbox）；契约 v0.22。
 const (
-	reasonNoEncoderInFFmpeg = "当前 ffmpeg 不包含这张显卡对应的显卡编码支持"
+	reasonNoEncoderInFFmpeg = "当前转换组件不包含这张显卡对应的显卡编码支持"
 	reasonNoGPUEncoder      = "没有可用的显卡编码器"
 	reasonUnsupportedGPU    = "这张显卡没有对应的显卡编码支持"
 )

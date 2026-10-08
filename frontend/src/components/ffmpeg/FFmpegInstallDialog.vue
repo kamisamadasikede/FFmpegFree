@@ -6,7 +6,7 @@
 
         <template v-if="!installing">
           <h3>需要安装转换组件</h3>
-          <p>应用需要转换组件才能转换、剪辑和直播。可以现在自动下载安装到应用数据目录，也可以稍后再说。</p>
+          <p>应用需要转换组件才能转换和直播。可以现在自动下载安装到应用数据目录，也可以稍后再说。</p>
           <div v-if="ffmpeg.status.state === 'failed' && ffmpeg.status.error" class="perr fail" role="alert">
             <FIcon name="warn" :size="14" />
             <span>
@@ -43,7 +43,7 @@
 
         <template v-else>
           <h3>正在安装转换组件</h3>
-          <p>{{ stageText }}，完成后转换、剪辑和直播功能会自动解锁。</p>
+          <p>{{ stageText }}，完成后转换和直播功能会自动解锁。</p>
           <div class="progress"><i :style="{ width: percent + '%' }" /></div>
           <div class="pmeta">
             <span>{{ percent }}%</span>

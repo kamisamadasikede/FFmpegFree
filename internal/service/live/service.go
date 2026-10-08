@@ -237,7 +237,7 @@ func (s *Service) checkProtocols(ctx context.Context, bin ffmpeg.Binaries, schem
 		if ctx.Err() != nil {
 			return apperr.Wrap(apperr.Canceled, "操作已取消", ctx.Err())
 		}
-		return apperr.Wrap(apperr.Internal, "检查 ffmpeg 支持的协议失败", err)
+		return apperr.Wrap(apperr.Internal, "检查转换组件支持的协议失败", err)
 	}
 	var need []string
 	switch scheme {
@@ -253,7 +253,7 @@ func (s *Service) checkProtocols(ctx context.Context, bin ffmpeg.Binaries, schem
 	}
 	for _, n := range need {
 		if !p[n] {
-			return apperr.New(apperr.Unsupported, "当前 ffmpeg 不支持 "+n+"，请安装完整版 ffmpeg").WithDetail("missing=" + n)
+			return apperr.New(apperr.Unsupported, "当前转换组件不支持 "+n+"，请安装完整版转换组件").WithDetail("missing=" + n)
 		}
 	}
 	return nil
