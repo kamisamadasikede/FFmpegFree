@@ -221,7 +221,43 @@ func (s *Service) AddSources(ctx context.Context, in []string) ([]AddSourceResul
 		}
 		out[i].Source, out[i].Existed = &src, existed
 	}
+	// v0.23.4：顺带探测并持久化媒体信息（同一行只探测一次；文件没变不重探；探测失败照样有行，media 省略）。
+	byID := map[string]*ConvertSource{}
+	var uniq []*ConvertSource
+	for i := range out {
+		if out[i].Source == nil {
+			continue
+		}
+		if first, ok := byID[out[i].Source.SourceID]; ok {
+			out[i].Source = first
+			continue
+		}
+		byID[out[i].Source.SourceID] = out[i].Source
+		uniq = append(uniq, out[i].Source)
+	}
+	s.refreshSourcesMedia(ctx, ss, uniq)
+	for _, src := range uniq {
+		s.fillMediaFallback(ctx, ss, src)
+	}
+	for i := range out { // 同一行出现多次时各项各拿一份副本，不共享指针
+		if out[i].Source != nil {
+			c := *out[i].Source
+			out[i].Source = &c
+		}
+	}
 	return out, nil
+}
+
+// fillMediaFallback：没有持久化的探测结果时，退回按 path_key 关联 media 表（契约 6.14.2）。
+func (s *Service) fillMediaFallback(ctx context.Context, ss SourceStore, src *ConvertSource) {
+	if src.Media != nil || src.Path == "" {
+		return
+	}
+	if _, key, err := paths.Normalize(src.Path); err == nil {
+		if m, err := ss.MediaByPathKey(ctx, key); err == nil {
+			src.Media = m
+		}
+	}
 }
 
 func pageArgs(limit, offset, def, max int) (int, int, error) {
@@ -241,13 +277,7 @@ func (s *Service) entry(ctx context.Context, tr TaskRecords, ss SourceStore, src
 		return ConvertSourceEntry{}, apperr.Wrap(apperr.Internal, "查询记录失败", err)
 	}
 	tr.Live(page.Items)
-	if src.Path != "" {
-		if _, key, err := paths.Normalize(src.Path); err == nil {
-			if m, err := ss.MediaByPathKey(ctx, key); err == nil {
-				src.Media = m
-			}
-		}
-	}
+	s.fillMediaFallback(ctx, ss, &src)
 	return ConvertSourceEntry{Source: src, Records: page.Items, RecordCount: page.Total}, nil
 }
 
@@ -273,6 +303,11 @@ func (s *Service) listSources(ctx context.Context, keyword, status string, limit
 	if err != nil {
 		return ConvertSourcePage{}, apperr.Wrap(apperr.Internal, "查询源文件行失败", err)
 	}
+	refs := make([]*ConvertSource, len(srcs))
+	for i := range srcs {
+		refs[i] = &srcs[i]
+	}
+	s.refreshSourcesMedia(ctx, ss, refs) // v0.23.4：缺媒体信息或文件变了的行懒探测补上
 	page := ConvertSourcePage{Items: []ConvertSourceEntry{}, Total: total}
 	for _, src := range srcs {
 		e, err := s.entry(ctx, tr, ss, src, recordLimit)
@@ -309,6 +344,7 @@ func (s *Service) GetSource(ctx context.Context, sourceID string) (ConvertSource
 	if err != nil {
 		return ConvertSourceEntry{}, err
 	}
+	s.refreshSourceMedia(ctx, ss, &src)
 	return s.entry(ctx, tr, ss, src, defaultRecordLimit)
 }
 
@@ -534,13 +570,19 @@ func (s *Service) revoke(path string) {
 	}
 }
 
-// register 把文件登记到 convert 登记表；扩展名不在预览白名单 UNSUPPORTED（reason=format）。
-func (s *Service) register(path string) (PreviewURL, error) {
+// register 把文件登记到 convert 登记表；扩展名不在预览白名单 UNSUPPORTED（reason=format）；
+// v0.23.4：扩展名通过后再按探测出的编码挡一层（media 由 media() 给出，nil = 没探测到，不挡），见 playable.go。
+func (s *Service) register(path string, media func() *store.MediaInfo) (PreviewURL, error) {
 	if s.cfg.Preview == nil {
 		return PreviewURL{}, apperr.New(apperr.Internal, "预览服务尚未初始化")
 	}
 	if !hasExt(previewExts, path) {
 		return PreviewURL{}, formatUnsupported("无法在应用内播放这种文件")
+	}
+	if media != nil {
+		if err := previewGate(media()); err != nil {
+			return PreviewURL{}, err
+		}
 	}
 	e, err := s.cfg.Preview.Register(path)
 	switch {
@@ -578,7 +620,10 @@ func (s *Service) GetSourcePreviewURL(ctx context.Context, sourceID string) (Pre
 	if err != nil {
 		return PreviewURL{}, err
 	}
-	return s.register(p)
+	return s.register(p, func() *store.MediaInfo {
+		s.refreshSourceMedia(ctx, ss, &src) // 持久化的结果对得上当前文件就不重探
+		return src.Media
+	})
 }
 
 // OpenSourceWithSystem 用系统默认程序打开源文件（规则同 TaskService.OpenWithSystem）。
@@ -683,10 +728,9 @@ func (s *Service) GetSourceThumbnail(ctx context.Context, sourceID string) (stri
 		return "", err
 	}
 	hint := 0.0
-	if _, key, err := paths.Normalize(p); err == nil {
-		if m, err := ss.MediaByPathKey(ctx, key); err == nil && m != nil {
-			hint = m.Duration
-		}
+	s.fillMediaFallback(ctx, ss, &src) // 持久化的探测结果优先，没有时退回 media 表
+	if src.Media != nil {
+		hint = src.Media.Duration
 	}
 	return s.thumbnail(ctx, p, hint)
 }
@@ -711,7 +755,7 @@ func (s *Service) TaskPreviewURL(ctx context.Context, taskID, which string) (Pre
 	if err != nil {
 		return PreviewURL{}, err
 	}
-	return s.register(p)
+	return s.register(p, func() *store.MediaInfo { return s.inspectForPreview(ctx, p) })
 }
 
 // TaskOpenWithSystem 是 TaskService.OpenWithSystem（契约 6.14.3）。
