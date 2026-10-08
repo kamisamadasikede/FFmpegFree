@@ -106,13 +106,12 @@ import MiddleEllipsis from '@/components/docs/MiddleEllipsis.vue'
 import { toAppError } from '@/api/call'
 import { DEFAULT_DOC_LIMITS, DEMO_OFFICE_PATHS, OFFICE_FILE_FILTER, convertToPDF, getDocCapabilities, isDocSim, isExperimental, type DocLimits } from '@/api/doc'
 import { simParam } from '@/api/sim'
-import { getDefaultOutputDir, pickDirectory, pickFiles, revealInFolder } from '@/api/system'
-import { convertV24On, getStorageDirs } from '@/api/convertRecords'
+import { getOutputDirShown, pickDirectory, pickFiles, revealInFolder } from '@/api/system'
 import { hasWailsBackend } from '@/services/wails'
 import { normalizeTask, useTaskStore, type TaskItem } from '@/stores/tasks'
 import { useDocsStore, dropHandlers } from '@/stores/docs'
 import {
-  DOC_BATCH_INVALID_HINT, DOC_DEMO_NOTE, DOC_DROP_HOVER, DOC_DROP_TITLE, DOC_EXPERIMENTAL_LABEL, DOC_EXPERIMENTAL_NOTE, DOC_OUTPUT_SAME_AS_SOURCE,
+  DOC_BATCH_INVALID_HINT, DOC_DEMO_NOTE, DOC_DROP_HOVER, DOC_DROP_TITLE, DOC_EXPERIMENTAL_LABEL, DOC_EXPERIMENTAL_NOTE, OUTPUT_DIR_DEFAULT_TEXT,
   SUBMIT_ERROR_TITLE, docErrorPath, docErrorText,
 } from '@/errors/errorMessages'
 import { fileBaseName } from '@/utils/format'
@@ -134,9 +133,7 @@ const experimental = ref(true) // GetDocCapabilities().experimental，缺省 tru
 const picking = ref(false)
 const submitting = ref(false)
 const submitError = ref('')
-const outputDir = ref('') // 本次选的；空 = 用设置里的默认输出位置（后端解析）。v0.24 起默认是 <base>/output（设置“存储”），v0.23 没设置时是源文件所在文件夹
-const storageV24 = convertV24On()
-const DOC_OUTPUT_DEFAULT_V24 = '程序的 output 文件夹'
+const outputDir = ref('') // 本次选的；空 = 用设置里的默认输出位置（后端解析），再空 = 应用的输出文件夹（v0.24.1）
 const defaultDir = ref('')
 const logOpen = ref(false)
 const logText = ref('')
@@ -211,8 +208,7 @@ const countText = computed(() => {
   if (invalidCount.value) return `${invalidCount.value} 个文件不能转换`
   return pendingCount.value === entries.value.length ? `已选 ${entries.value.length} 个文件` : `${entries.value.length} 个文件`
 })
-// v0.24（v0.24.1 §6.12）：输出目录空 = <base>/output（设置“存储”里的转换结果目录），不再是源文件所在文件夹
-const outputText = computed(() => outputDir.value || defaultDir.value || (storageV24 ? DOC_OUTPUT_DEFAULT_V24 : DOC_OUTPUT_SAME_AS_SOURCE))
+const outputText = computed(() => outputDir.value || defaultDir.value || OUTPUT_DIR_DEFAULT_TEXT)
 
 // ---- 拖入悬停（Wails 给放置区加 wails-drop-target-active 类，样式里处理；这里只为模拟环境和覆盖层文案）----
 const hoverShown = computed(() => simHover)
@@ -230,7 +226,7 @@ async function start() {
   }
   submitting.value = true
   try {
-    const created = await convertToPDF(targets.map((e) => e.path), outputDir.value) // 输出目录空 = 由后端解析：设置里的默认位置，没有则源文件所在文件夹
+    const created = await convertToPDF(targets.map((e) => e.path), outputDir.value) // 输出目录空 = 由后端解析：设置里的默认位置，没有则应用的输出文件夹所在文件夹
     const items = created.map((t) => normalizeTask(t as unknown as TaskItem))
     tasks.track(items)
     targets.forEach((e, i) => {
@@ -398,8 +394,7 @@ onMounted(() => {
 onActivated(() => {
   attachDrop()
   adoptActive()
-  if (storageV24) getStorageDirs().then((d) => (defaultDir.value = d.outputDir)).catch(() => undefined)
-  else getDefaultOutputDir().then((d) => (defaultDir.value = d)).catch(() => undefined)
+  getOutputDirShown().then((d) => (defaultDir.value = d)).catch(() => undefined)
   docs.loadRecent()
 })
 onDeactivated(() => {

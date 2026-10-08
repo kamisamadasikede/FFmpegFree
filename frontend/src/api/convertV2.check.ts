@@ -6,6 +6,7 @@ import { cancelSimTask, getSimTask, hideSimFinished, listSimFinished, retrySimTa
 import { onSimEvent } from '@/services/wails'
 import { createPinia, setActivePinia } from 'pinia'
 import { useTaskStore } from '@/stores/tasks'
+import { useFFmpegStore } from '@/stores/ffmpeg'
 import { useConvertRecordsStore } from '@/stores/convertRecords'
 import { nextTick } from 'vue'
 import { FFPROBE_MISSING_TEXT, liveFfmpegProtocolMissingText, LIVE_FFMPEG_PROTOCOL_MISSING_TEXT } from '@/errors/errorMessages'
@@ -13,6 +14,7 @@ import { midEllipsis, midTailMin } from '@/utils/midEllipsis'
 import { sourceMetaText, dupPresetTitles, presetShortTitle, setPresetCatalog, recordParamsText, recordLine, deleteToast, toastText, revealDeleteFailureText, sourceRemovedParts, conflictReason, CONFLICT_NO_AUDIO, CONFLICT_NO_VIDEO, CONFLICT_TITLE, formatRecordTime, coverKindOf, extOf, isHevcCodec, unplayableHint, REVEAL_LABEL } from '@/utils/convertText'
 import { codecName, rowInfoText, videoCodecText, audioCodecText } from '@/utils/mediaText'
 import { metaInfoOf } from '@/stores/convertRecords'
+import { submitResultOf, skippedNotice, submitCopyErrorText, SUBMIT_COPYING_TEXT, SUBMIT_COPY_FAILED_TEXT } from '@/utils/convertSubmit'
 import { store as goStore } from '../../wailsjs/go/models'
 
 type Eq = (name: string, got: unknown, want: unknown) => void
@@ -26,6 +28,52 @@ async function rejects(p: Promise<unknown>): Promise<AppError | null> {
 }
 
 export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): Promise<void> {
+  // ---- 包 20：SubmitSources 的 skipped（v0.24 §6.15.4 第 6 条），文案是产品经理 10-08 定稿 ----
+  {
+    eq('submitResultOf：新形状 / 旧形状 Task[] / null', [submitResultOf({ tasks: [1], skipped: [{ sourceId: 'a', reason: 'copying' }] }), submitResultOf([1, 2]), submitResultOf(null), submitResultOf({ tasks: null, skipped: null })],
+      [{ tasks: [1], skipped: [{ sourceId: 'a', reason: 'copying' }] }, { tasks: [1, 2], skipped: [] }, { tasks: [], skipped: [] }, { tasks: [], skipped: [] }])
+    const sk = (r: string) => ({ sourceId: 'x', reason: r })
+    eq('跳过提示：还在准备中 / 没能准备好 / 两类都有 / 没有', [skippedNotice([sk('copying'), sk('copying')]), skippedNotice([sk('copy_failed'), sk('copy_canceled')]), skippedNotice([sk('copying'), sk('copy_canceled')]), skippedNotice([sk('weird')]), skippedNotice([])],
+      ['有 2 个文件还在准备中，已转换其余文件。准备好后再点转换。', '有 2 个文件没能准备好，已转换其余文件。请重新添加后再转换。', '有 1 个文件还在准备中，已转换其余文件。准备好后再点转换。另有 1 个文件没能准备好，请重新添加后再转换。', '有 1 个文件没能准备好，已转换其余文件。请重新添加后再转换。', ''])
+    eq('整体失败：TASK_CONFLICT reason=copying / copy_failed 给短提示；其余照旧', [submitCopyErrorText({ code: 'TASK_CONFLICT', detail: 'reason=copying\nsourceId=AB12' }), submitCopyErrorText({ code: 'TASK_CONFLICT', detail: 'reason=copy_failed\nsourceId=AB12' }), submitCopyErrorText({ code: 'TASK_CONFLICT', detail: 'reason=duplicate_url' }), submitCopyErrorText({ code: 'NOT_FOUND', detail: 'reason=copying' }), submitCopyErrorText({ code: 'TASK_CONFLICT' })],
+      ['文件还在准备中，准备好后再点转换。', '文件没能准备好，请重新添加后再转换。', '', '', ''])
+    eq('文案定稿', [SUBMIT_COPYING_TEXT, SUBMIT_COPY_FAILED_TEXT], ['文件还在准备中，准备好后再点转换。', '文件没能准备好，请重新添加后再转换。'])
+    const b = readSrc('src/api/convertRecordsBinding.ts')
+    eq('binding：SubmitSources 返回 {tasks, skipped}（submitResultOf），有生成类型对照', [/submitResultOf<V023Task>\(await call\(CS\.SubmitSources/.test(b), /\?\.tasks\)\)/.test(b), /SameKeys<ConvertSubmitResult, Data<convert\.ConvertSubmitResult>>/.test(b), /SameKeys<SkippedSource, Data<convert\.SkippedSource>>/.test(b)], [true, false, true, true])
+    const sys = readSrc('src/api/system.ts')
+    eq('输出位置显示：v0.24.1 留空 = 应用的输出文件夹，不再说源文件所在文件夹', [/GetStorageDirs/.test(sys), /各自源文件所在的文件夹/.test(readSrc('src/components/convert/ConvertSettingsPanel.vue')), /与源文件相同的文件夹/.test(readSrc('src/components/settings/OutputDirRow.vue') + readSrc('src/errors/errorMessages.ts'))], [true, false, false])
+
+    // 模拟后端 + store：部分跳过 → 提交其余、toast、跳过的保持勾选；全部没就绪 → 短提示、不算失败、勾选不变
+    mock.resetConvertMock('added')
+    setActivePinia(createPinia())
+    const cv = useConvertRecordsStore()
+    await cv.reload()
+    await cv.loadPresets()
+    setPresetCatalog([]) // loadPresets 会写入预设目录，别影响后面的标题自检
+    useFFmpegStore().status = { state: 'ready' }
+    const ids = Object.keys(cv.sources).filter((id) => cv.sources[id].exists !== false).slice(0, 3)
+    const toastText = (): string | undefined => (cv.toast as { text: string } | null)?.text
+    if (ids.length >= 2 && cv.selectedPreset) {
+      for (const id of ids) {
+        mock.mockSetCopyState(id, 'ready')
+        cv.sources[id].probe = 'ok' // 不走探测，直接当作读过
+      }
+      mock.mockSetCopyState(ids[0], 'copying')
+      cv.clearSelection()
+      for (const id of ids) cv.toggle(id)
+      const before = cv.submittableRows.length
+      await cv.submit()
+      eq('部分跳过：提交其余、toast 用定稿文案、跳过的那行还勾着、没有错误', [before, toastText(), [...cv.selected], cv.submitError],
+        [ids.length, '有 1 个文件还在准备中，已转换其余文件。准备好后再点转换。', [ids[0]], null])
+      cv.toast = null
+      await cv.submit()
+      eq('全部还在准备：短提示（不是“无法开始转换”），勾选不变', [toastText(), cv.submitError, [...cv.selected]], ['文件还在准备中，准备好后再点转换。', null, [ids[0]]])
+      mock.mockSetCopyState(ids[0], 'failed')
+      await cv.submit()
+      eq('全部复制失败：短提示', toastText(), '文件没能准备好，请重新添加后再转换。')
+      mock.mockSetCopyState(ids[0], 'ready')
+    } else eq('部分跳过自检：模拟场景至少要有 2 个能转换的文件', [ids.length >= 2, !!cv.selectedPreset], [true, true])
+  }
   // ---- 包 20 封面：类型封面兜底（产品经理 + 设计 10-08）----
   {
     const warn = console.warn

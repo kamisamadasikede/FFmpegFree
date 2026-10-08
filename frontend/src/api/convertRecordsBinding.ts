@@ -6,6 +6,7 @@
  * 前端自己的类型和生成类型的对应关系在文件末尾做编译期检查（字段改名 / 少字段时 vue-tsc 报错）。
  */
 import { call } from '@/api/call'
+import { submitResultOf } from '@/utils/convertSubmit'
 import * as CS from '../../wailsjs/go/app/ConvertService'
 import * as TS from '../../wailsjs/go/app/TaskService'
 import * as SS from '../../wailsjs/go/app/SystemService'
@@ -37,10 +38,8 @@ export const SearchSources = async (f: ConvertSearchFilter) => page(await call(C
 export const CheckSources = async (ids: string[]) => arr(as<SourcePathCheck[] | null>(await call(CS.CheckSources(ids))))
 export const PreviewOutputName = (sourceId: string, o: RecordOptions, outputDir: string) => call(CS.PreviewOutputName(sourceId, opts(o), outputDir))
 /** v0.24（6.15.4 第 6 条）：{tasks, skipped}；没就绪的行跳过；一行都没就绪时 TASK_CONFLICT（reason=copying / copy_failed） */
-export const SubmitSources = async (req: ConvertSubmitRequest): Promise<ConvertSubmitResult> => {
-  const r = await call(CS.SubmitSources(convert.ConvertSubmitRequest.createFrom({ ...req, options: opts(req.options) })))
-  return { tasks: arr(as<V023Task[] | null>(r?.tasks)), skipped: arr(as<SkippedSource[] | null>(r?.skipped)) }
-}
+export const SubmitSources = async (req: ConvertSubmitRequest): Promise<ConvertSubmitResult> =>
+  submitResultOf<V023Task>(await call(CS.SubmitSources(convert.ConvertSubmitRequest.createFrom({ ...req, options: opts(req.options) }))))
 /** v0.24 原地重转（6.17.1）：presetId / options 都不给 = 沿用原来的参数（regenerate 时必须都不给） */
 export const Reconvert = async (req: ReconvertRequest) =>
   as<V023Task>(await call(CS.Reconvert(convert.ReconvertRequest.createFrom({ taskId: req.taskId, ...(req.presetId ? { presetId: req.presetId } : {}), ...(req.options ? { options: opts(req.options) } : {}) }))))

@@ -13,7 +13,7 @@
           </div>
         </LiveField>
         <LiveField label="推流地址">
-          <LiveInput v-model="baseUrl" :bad="err?.where === 'addr'" placeholder="rtmp://、rtmps:// 或 srt://" @enter="start" />
+          <LiveInput v-model="baseUrl" mask-key :bad="err?.where === 'addr'" placeholder="rtmp://、rtmps:// 或 srt://" @enter="start" />
           <LiveFormError v-if="err?.where === 'addr'" :text="err.text" />
         </LiveField>
         <LiveField label="推流码 / 口令">
@@ -35,7 +35,7 @@
 <script setup lang="ts">
 // 文件推流（设计稿 v0.2）：推流文件 → 推流地址 → 推流码 / 口令 → 表单级错误 → 开始推流。会话列表是全局的（stores/liveSessions.ts）。
 // 后端调用走 @/api/live（契约 v0.10）：StartFilePush 返回 Task，第一条 task:progress 之后列表里才出现“运行中”。完整地址 / 口令只存在于输入框和调用参数里，不写日志。
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, toRefs, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import LiveTabFrame from '@/components/live/LiveTabFrame.vue'
 import LivePanel from '@/components/live/LivePanel.vue'
@@ -48,6 +48,8 @@ import PreviewSwitch from '@/components/live/PreviewSwitch.vue'
 import LiveSessionList from '@/components/live/LiveSessionList.vue'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { useLiveSessionsStore } from '@/stores/liveSessions'
+import { useLiveFormsStore } from '@/stores/liveForms'
+import { probeFiles } from '@/api/media'
 import { LIVE_SRT_PASSPHRASE_TEXT } from '@/errors/errorMessages'
 import { PREVIEW_SWITCH_NOTE_STARTING } from '@/errors/livePreviewMessages'
 import { composePushUrl, parsePushUrl } from '@/utils/liveUrl'
@@ -62,11 +64,11 @@ const ffmpeg = useFFmpegStore()
 const store = useLiveSessionsStore()
 const blocked = computed(() => ffmpeg.featuresBlocked)
 
-const material = ref<liveApi.LiveMaterial | null>(null)
+// 表单输入在 stores/liveForms（切换菜单不丢、下次启动恢复）；这里只是引用
+const forms = useLiveFormsStore()
+const { material, baseUrl, key } = toRefs(forms.file)
 /** 预览开关：会话启动参数，默认开；产品经理已定：不记住上次选择，每次打开表单默认开 */
 const previewOn = ref(true)
-const baseUrl = ref('')
-const key = ref('')
 const err = ref<PushFormError | null>(null)
 const starting = ref(false)
 const canStart = computed(() => !blocked.value && !starting.value && !!material.value && !!baseUrl.value.trim())
@@ -100,7 +102,7 @@ async function start() {
     const r = await store.begin(task, { kind: 'file', redactedUrl: check.info.redacted, archive: false, preview: previewOn.value })
     if (!r.ok) err.value = pushErrorToForm(r.error, check.info.scheme)
     else {
-      key.value = ''
+      // 包 20：推流码不再在开始后清空（老板要求切换菜单 / 重启后表单原样还在，“重新开始”也要用它）
       previewOn.value = true // 产品经理已定：不记住上次选择，每次开始推流后复位为开（页面被 KeepAlive 保留时也一样）；没开始成功（报错）时保留用户当前选择
     }
   } catch (e) {
@@ -110,8 +112,16 @@ async function start() {
   }
 }
 
+/** 恢复的素材还在不在（真实环境用 MediaService.Probe；浏览器预览 / 模拟层不核对） */
+async function materialUsable(path: string): Promise<boolean> {
+  if (!liveApi.liveIsReal()) return true
+  const [r] = await probeFiles([path])
+  return !!r && !r.error && r.info?.hasVideo !== false
+}
+
 onMounted(() => {
   void store.recover()
+  void forms.validateRestoredMaterial(materialUsable)
   // 浏览器预览：?form=… 预置表单状态（真实运行不读）
   const f = formPreview
   if (!f || f === 'empty') return

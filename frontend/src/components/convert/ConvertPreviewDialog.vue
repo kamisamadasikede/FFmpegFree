@@ -8,6 +8,7 @@ import FIcon from '@/components/icon/FIcon.vue'
 import PlayerShell from '@/components/common/PlayerShell.vue'
 import { toAppError } from '@/api/call'
 import { getPreviewURL, getSourcePreviewURL, openSourceWithSystem, openWithSystem, type PreviewURL } from '@/api/convertRecords'
+import { ORIGINAL_MISSING_OPEN } from '@/utils/convertV24Text'
 import { MOCK_UNPLAYABLE_URL, MOCK_URL_PREFIX } from '@/api/convertRecordsMock'
 import { metaInfoOf, useConvertRecordsStore } from '@/stores/convertRecords'
 import { usedDeviceText, useEncoderDeviceList } from '@/api/encoderTask'
@@ -323,7 +324,11 @@ async function openSystem() {
   } catch (e) {
     const r = errReason(e)
     if (r.code === 'NOT_FOUND' && r.reason === 'no_app') cv.say('没有找到能打开这个文件的程序')
-    else if (r.code === 'NOT_FOUND' && r.reason === 'file') markGone()
+    else if (r.code === 'NOT_FOUND' && r.reason === 'file') {
+      markGone()
+      // v0.24.3：源文件这一侧说“原文件不存在”，记录仍用“文件已被移动或删除”。都不改去打开复制件
+      cv.say(t.kind === 'source' ? ORIGINAL_MISSING_OPEN : '文件已被移动或删除')
+    }
     else cv.say(r.message)
   }
 }
@@ -333,7 +338,7 @@ async function reveal() {
   const ok = t.kind === 'source' ? await cv.revealSource(t.id) : await cv.revealOutput(t.id)
   if (!ok) {
     stage.value = 'gone'
-    cv.say('文件已被移动或删除')
+    cv.say(t.kind === 'source' ? ORIGINAL_MISSING_OPEN : '文件已被移动或删除')
   }
 }
 

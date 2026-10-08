@@ -17,16 +17,17 @@ import {
   type CopyEvent, type FormatEntry, type StorageDirs, type TaskPathCheck,
 } from '@/api/convertRecords'
 import { mockSceneUi } from '@/api/convertRecordsMock'
-import { canPickFiles, CONVERT_V24_FILE_FILTER, getDefaultOutputDir, pickDirectory, pickFiles } from '@/api/system'
+import { canPickFiles, CONVERT_V24_FILE_FILTER, getOutputDirShown, pickDirectory, pickFiles } from '@/api/system'
 import {
-  addRejectedText, isUnsupportedFormat, reconvertDoneToast, reconvertErrorText, reconvertFailToast, reconvertState, showFallbackBanner, STORAGE_CHANGED_TOAST, submitSkipToast,
-  SUBMIT_NOT_READY_TOAST, SOURCE_REMOVE_TITLE_EMPTY, type CopyState, type FormatCategory, type ReconvertMode,
+  addRejectedText, isUnsupportedFormat, reconvertDoneToast, reconvertErrorText, reconvertFailToast, reconvertState, showFallbackBanner, STORAGE_CHANGED_TOAST,
+  SOURCE_REMOVE_TITLE_EMPTY, type CopyState, type FormatCategory, type ReconvertMode,
 } from '@/utils/convertV24Text'
 import { hasWailsBackend } from '@/services/wails'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { useTaskStore, type TaskError, type TaskItem, type TaskStatus } from '@/stores/tasks'
 import { conflictReason, dupPresetTitles, formatRecordTime, isAudioContainer, isAudioOnly, isToday, presetShortTitle, recordParamsText, setPresetCatalog, splitPresetName, totalProgress } from '@/utils/convertText'
 import { normalizeSourcePath } from '@/utils/sourcePath'
+import { skippedNotice, submitCopyErrorText, type SkippedSource } from '@/utils/convertSubmit'
 import type { store as goStore } from '../../wailsjs/go/models'
 
 export type ProbeState = 'pending' | 'probing' | 'ok' | 'error'
@@ -337,7 +338,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   async function loadDefaultDir() {
     if (v24) return loadStorage()
     try {
-      defaultOutputDir.value = await getDefaultOutputDir()
+      defaultOutputDir.value = await getOutputDirShown() // 只用于显示；提交时 outputDir 传空由后端解析
     } catch (e) {
       console.warn('read default output dir failed', e)
     }
@@ -1201,6 +1202,10 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     },
   )
 
+  /** 副本没就绪被跳过的行（6.15.4 第 6 条）：普通 toast 提示个数 */
+  function saySkipped(skipped: SkippedSource[]) {
+    if (skipped.length) say(skippedNotice(skipped))
+  }
   function afterSubmit(list: V023Task[]) {
     for (const t of list) {
       addRecord(t) // 只在第一次见到这个 id 时计数（S1）
@@ -1227,13 +1232,14 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       afterSubmit(res.tasks)
       closeBanner()
       if (res.skipped.length) {
-        // 跳过的源文件保持勾选，提交了的照常清空（§八 第 53 条）
+        // 跳过的源文件保持勾选（包 20：提示说“准备中”，不说“复制”）；提交了的照常清空
         for (const t of res.tasks) selected.delete(t.sourceId ?? '')
-        say(submitSkipToast(res.tasks.length, res.skipped))
+        saySkipped(res.skipped)
       } else clearSelection()
     } catch (e) {
       const err = errOf(e)
-      if (v24 && err.code === 'TASK_CONFLICT' && /^reason=(copying|copy_failed)/.test(err.detail ?? '')) say(err.message || SUBMIT_NOT_READY_TOAST) // §八 第 69 条：显示后端 message；勾选不变
+      const copyText = submitCopyErrorText(err) // 一行都没就绪：短提示，不当作转换失败；勾选不变
+      if (copyText) say(copyText)
       else submitError.value = err
     } finally {
       submitting.value = false
@@ -1347,9 +1353,12 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     const r = records[id]
     if (!r) return
     try {
-      afterSubmit((await submitSources({ sourceIds: [r.sourceId], options: optionsOf(r.options), outputDir: dir, presetId: r.presetId ?? '' })).tasks)
+      const res = await submitSources({ sourceIds: [r.sourceId], options: optionsOf(r.options), outputDir: dir, presetId: r.presetId ?? '' })
+      afterSubmit(res.tasks)
+      saySkipped(res.skipped)
     } catch (e) {
-      say(errOf(e).message)
+      const err = errOf(e)
+      say(submitCopyErrorText(err) || err.message)
     }
   }
 

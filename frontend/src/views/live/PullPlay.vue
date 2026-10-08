@@ -50,7 +50,7 @@
 <script setup lang="ts">
 // 拉流播放：mpegts.js 直接播放远端 FLV 地址，不经过本地服务，也不调用任何后端（契约里的 LiveService.GetPlayURL 不再使用，PRD v0.3）。
 // 播放错误统一走 mapPlayerError → 错误码 → ErrorOverlay。
-import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, toRefs, watch } from 'vue'
 import mpegts from 'mpegts.js'
 import PlayerShell from '@/components/common/PlayerShell.vue'
 import InlineError from '@/components/common/InlineError.vue'
@@ -72,15 +72,17 @@ import LiveLogDialog from '@/components/live/LiveLogDialog.vue'
 import { livePreview, useLiveSession } from '@/composables/useLiveSession'
 import { previewParams } from '@/services/wails'
 import { isValidPullUrl, mapPlayerError } from '@/errors/playerError'
+import { useLiveFormsStore } from '@/stores/liveForms'
 
 defineOptions({ name: 'LivePullPlay' })
 
 const session = useLiveSession('pull')
 const demo = !!livePreview // ?live=… 界面演示（不碰后端）
 
-const url = ref(livePreview === 'invalid' ? 'http:/live.example' : livePreview ? 'http://live.example.com/live/room.flv' : '')
-const lowLatency = ref(true)
-const muted = ref(false)
+// 表单输入（流地址、低延迟追帧、静音）在 stores/liveForms：切换菜单不丢、下次启动恢复。拉流会话随页面卸载结束，不会把值恢复进进行中的会话
+const forms = useLiveFormsStore()
+const { url, lowLatency, muted } = toRefs(forms.pull)
+if (livePreview) url.value = livePreview === 'invalid' ? 'http:/live.example' : 'http://live.example.com/live/room.flv' // 界面演示预置（演示模式不读写本机存档）
 const logOpen = ref(false)
 const urlInvalid = ref(livePreview === 'invalid')
 const videoRef = ref<HTMLVideoElement | null>(null)

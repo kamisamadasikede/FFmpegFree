@@ -11,6 +11,7 @@ import { COPY_GO_HINT_ALL, COPY_GO_TIP, copySkipHint, mixedSkipHint } from '@/ut
 import { useConvertRecordsStore } from '@/stores/convertRecords'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { splitPresetName } from '@/utils/convertText'
+import { OUTPUT_DIR_DEFAULT_TEXT } from '@/errors/errorMessages'
 import type { PresetItem } from '@/api/convert'
 
 const cv = useConvertRecordsStore()
@@ -92,7 +93,7 @@ const hint = computed<{ text: string; warn?: boolean }>(() => {
       <div class="cv-save">
         <label for="cv-outdir">保存到</label>
         <div class="row2">
-          <div id="cv-outdir" class="input" :title="cv.effectiveOutputDir || '各自源文件所在的文件夹'">{{ cv.effectiveOutputDir || '各自源文件所在的文件夹' }}</div>
+          <div id="cv-outdir" class="input" :title="cv.effectiveOutputDir || OUTPUT_DIR_DEFAULT_TEXT">{{ cv.effectiveOutputDir || OUTPUT_DIR_DEFAULT_TEXT }}</div>
           <button type="button" class="btn" style="padding: 0 7px" aria-label="选择文件夹" title="选择文件夹" @click="cv.chooseOutputDir()"><FIcon name="folder" /></button>
         </div>
         <div class="cv-hint">同名文件自动加序号，不会覆盖。<button v-if="cv.outputOverride" type="button" class="ff-link" @click="cv.outputOverride = ''">恢复默认</button></div>

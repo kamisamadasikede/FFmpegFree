@@ -11,7 +11,7 @@ import { CONFLICT_TITLE, CONFLICT_TITLE_V24, coverKindOf, extOf, sourceMetaText 
 import { convertV2IsReal } from '@/api/convertRecords'
 import { simParam } from '@/api/sim'
 import {
-  COPY_CANCEL_LABEL, COPY_CHECK_TIP_CANCELED, COPY_CHECK_TIP_FAILED, COPY_PREVIEW_TIP_CANCELED, COPY_PREVIEW_TIP_FAILED, COPY_PREVIEW_TIP_RUNNING, COPY_RETRY_LABEL, COPY_RUNNING_NOTE,
+  ORIGINAL_MISSING_OPEN, COPY_CANCEL_LABEL, COPY_CHECK_TIP_CANCELED, COPY_CHECK_TIP_FAILED, COPY_PREVIEW_TIP_CANCELED, COPY_PREVIEW_TIP_FAILED, COPY_PREVIEW_TIP_RUNNING, COPY_RETRY_LABEL, COPY_RUNNING_NOTE,
   OPEN_STORAGE_SETTINGS, copyPct, copyProgressText, copyTag, isNoSpace, sourcePathTip, splitPathTail,
 } from '@/utils/convertV24Text'
 import { formatBytes, formatShortClock } from '@/utils/format'
@@ -131,7 +131,7 @@ watch(
 onBeforeUnmount(() => clearTimeout(flashTimer))
 /** 打开所在文件夹之前后端会再查一次；不在了就标出来并提示（§四 8） */
 async function revealSrc() {
-  if (!(await cv.revealSource(src.value.sourceId))) cv.say('文件已被移动或删除')
+  if (!(await cv.revealSource(src.value.sourceId))) cv.say(ORIGINAL_MISSING_OPEN)
 }
 async function revealKid(id: string) {
   if (!(await cv.revealOutput(id))) cv.say('文件已被移动或删除')

@@ -410,6 +410,12 @@ func TestCopyCancelAndRetry(t *testing.T) {
 	if !apperr.Is(err, apperr.TaskConflict) || detailOf(err) != "reason=copying" {
 		t.Fatalf("%v", err)
 	}
+	// 复制中缩略图照常出：用原文件（显示路径，6.15.6），不等副本
+	th := &pathThumbs{}
+	e.svc.cfg.Thumbs = th
+	if u, err := e.svc.GetSourceThumbnail(ctx, src.SourceID); err != nil || u == "" || th.last() != in {
+		t.Fatalf("复制中缩略图应取原文件: %q %v (取的是 %q)", u, err, th.last())
+	}
 	if err := e.svc.CancelCopy(ctx, src.SourceID); err != nil {
 		t.Fatal(err)
 	}
@@ -516,4 +522,26 @@ func TestSubmitSourcesAllSkipped(t *testing.T) {
 	if !apperr.Is(err, apperr.TaskConflict) || !strings.HasPrefix(detailOf(err), "reason=copying") {
 		t.Fatalf("%v (%s)", err, detailOf(err))
 	}
+}
+
+// pathThumbs 是假的 Thumbnailer：记下被要求截图的路径。
+type pathThumbs struct {
+	mu    sync.Mutex
+	paths []string
+}
+
+func (p *pathThumbs) DefaultThumbnailDataURL(_ context.Context, path string, _ float64) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.paths = append(p.paths, path)
+	return "data:image/jpeg;base64,AA==", nil
+}
+
+func (p *pathThumbs) last() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.paths) == 0 {
+		return ""
+	}
+	return p.paths[len(p.paths)-1]
 }

@@ -30,6 +30,7 @@ import { emitSimEvent } from '@/services/wails'
 import * as encTask from './encoderTask'
 import { convertV2Checks } from './convertV2.check'
 import { convertV24Checks } from './convertV24.check'
+import { liveFormsChecks } from '@/stores/liveForms.check'
 
 const fails: string[] = []
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -228,8 +229,10 @@ export async function runApiChecks(): Promise<string[]> {
       const rd = (f: string) => fsx.readFileSync(`${process.cwd()}/${f}`, 'utf8')
       eq('没选来源：触发器显示“屏幕 1（主显示器）”，表单里不再有“未选择来源，将推送主屏”', [(await import('@/errors/errorMessages')).LIVE_SOURCE_DEFAULT_MAIN_NAME, 'defaultMainScreenHint' in (await import('@/utils/liveSource')), /LIVE_SOURCE_DEFAULT_MAIN_NAME/.test(rd('src/components/live/CaptureSourcePicker.vue')), /未选择来源|推送主屏|DEFAULT_MAIN_HINT/.test(rd('src/views/live/RecordPush.vue') + rd('src/errors/errorMessages.ts'))], ['屏幕 1（主显示器）', false, true, false])
       eq('触发器主屏名的条件：没选来源、非失效、非首次加载中才显示（源码）', /const showDefaultMain = computed\(\(\) => !current\.value && !props\.gone && props\.state !== 'loading'\)/.test(rd('src/components/live/CaptureSourcePicker.vue')), true)
-      const okReset = /else \{\s*key\.value = ''\s*previewOn\.value = true/
+      // 包 20：开始成功后推流码不再清空（表单原样保留 / 重启恢复），预览开关照旧复位为开
+      const okReset = /else \{\s*(?:\/\/[^\n]*\n\s*)?previewOn\.value = true/
       eq('previewOn 复位：文件推流 / 录屏推流开始成功后 previewOn = true', [okReset.test(rd('src/views/live/FilePush.vue')), okReset.test(rd('src/views/live/RecordPush.vue'))], [true, true])
+      eq('包 20：开始成功后不再清空推流码', [/key\.value = ''/.test(rd('src/views/live/FilePush.vue')), /key\.value = ''/.test(rd('src/views/live/RecordPush.vue'))], [false, false])
       eq('previewOn 复位：拉流页在会话结束（busy 变 false）后 previewOn = true', /watch\(\(\) => session\.busy\.value, \(b\) => \{\s*if \(!b\) previewOn\.value = true/.test(rd('src/views/live/PullPlay.vue')), true)
       // 回退提示条：Tab 条下方通栏（LiveLayout），不再在推流页左列里
       const lay = rd('src/views/live/LiveLayout.vue')
@@ -941,6 +944,7 @@ export async function runApiChecks(): Promise<string[]> {
         eq('S1 归一化：缺字段 → false / false；已有 true 保留；已有 false 保留', [normalizeMediaInfo({} as { hasVideo?: boolean; hasAudio?: boolean }), normalizeMediaInfo({ hasVideo: true }), normalizeMediaInfo({ hasVideo: false, hasAudio: true })], [{ hasVideo: false, hasAudio: false }, { hasVideo: true, hasAudio: false }, { hasVideo: false, hasAudio: true }])
         await convertV2Checks(eq, readSrc)
         await convertV24Checks(eq, readSrc)
+        await liveFormsChecks(eq, readSrc) // 包 20：直播表单持久化 + 推流码遮挡
         // G11 版本号
         const { cleanFfmpegVersion } = await import('@/utils/ffmpegVersion')
         eq('G11 版本号：旧（带 URL 尾巴）/ 新（干净）/ 其他尾巴 / 空', ['9.0.2-https://www.martin-riedl.de', '9.0.2', '7.1.1-essentials_build-www.gyan.dev', '6.0', ' 4.4.2-0ubuntu0.22.04.1 ', '', undefined].map((v) => cleanFfmpegVersion(v)), ['9.0.2', '9.0.2', '7.1.1', '6.0', '4.4.2', '', ''])

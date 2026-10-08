@@ -18,9 +18,9 @@ import { adoptSimTask, cancelSimTask, createSimTask, getSimTask, hideSimFinished
 import { mockFormatCatalog } from '@/api/formatCatalogMock'
 import type { ApiTask, ApiTaskResult } from '@/api/taskTypes'
 import type {
-  AddSourceResult, ConvertSearchFilter, ConvertSource, ConvertSourceEntry, ConvertSourceFilter, ConvertSourcePage, ConvertSubmitRequest,
+  AddSourceResult, ConvertSearchFilter, ConvertSource, ConvertSourceEntry, ConvertSourceFilter, ConvertSourcePage, ConvertSubmitRequest, ConvertSubmitResult,
   DeleteFailure, DeleteResult, PreviewURL, RecordOptions, SourcePathCheck, TaskPage, TaskPathCheck, V023Task,
-  ConvertSubmitResult, CopyEvent, FormatEntry, ReconvertRequest, SkippedSource, StorageDirs, StorageDirsUpdate,
+  CopyEvent, FormatEntry, ReconvertRequest, SkippedSource, StorageDirs, StorageDirsUpdate,
 } from '@/api/convertRecords'
 import { emitSimEvent, onSimEvent } from '@/services/wails'
 import type { CopyState } from '@/utils/convertV24Text'
@@ -761,15 +761,19 @@ export async function GetSourcePreviewURL(sourceId: string): Promise<PreviewURL>
   return urlFor(m.probe && !m.probe.width ? 'audio' : kindOf(ext), m.probe?.size ?? 0)
 }
 const noApp = () => simParam('cv_noapp') === '1'
+/** v0.24.3：打开的是用户的原文件（originalPath），不是上传目录里的复制件。原文件不在 → NOT_FOUND reason=file，不改用复制件 */
+function originalOrThrow(m: MSource): string {
+  if (!m.exists) throw notFoundFile()
+  return m.src.originalPath || m.src.path
+}
 export async function OpenSourceWithSystem(sourceId: string): Promise<void> {
   const m = mustSource(sourceId)
-  if (!m.exists) throw notFoundFile()
+  originalOrThrow(m)
   if (noApp()) throw new AppError('NOT_FOUND', '没有找到能打开这个文件的程序', 'reason=no_app')
 }
 export async function RevealSource(sourceId: string): Promise<void> {
   const m = mustSource(sourceId)
-  if (!m.exists) throw notFoundFile()
-  console.info('[模拟] 打开所在文件夹', m.src.path)
+  console.info('[模拟] 打开所在文件夹', originalOrThrow(m))
 }
 /** §6.14.10：文件不在 NOT_FOUND(reason=file)；纯音频 UNSUPPORTED(reason=format)；否则 data URL（模拟是渐变 SVG） */
 const noPicture = () => new AppError('UNSUPPORTED', '这个文件没有画面', 'reason=format')
@@ -945,6 +949,11 @@ export function mockResetInterrupted(): void {
   interruptedTaken = false
 }
 
+/** 自检用：模拟副本状态（v0.24 copyState：none | copying | ready | failed | canceled） */
+export function mockSetCopyState(sourceId: string, copyState: ConvertSource['copyState']): void {
+  const m = sources.get(sourceId)
+  if (m) m.src.copyState = copyState
+}
 /** 自检用：模拟源文件被移走 */
 export function mockMarkSourceGone(sourceId: string): void {
   const m = sources.get(sourceId)

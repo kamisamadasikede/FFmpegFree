@@ -215,6 +215,8 @@ export const showFallbackBanner = (d: { fellBack: boolean; outputCustom: boolean
 
 // ---------------- 从列表移除（X6，§八 第 49、72 条） ----------------
 export const SOURCE_REMOVE_TITLE_EMPTY = '从列表移除这个文件'
+/** v0.24.3：打开原文件 / 打开原文件所在文件夹时原文件已不在。不改去打开复制件 */
+export const ORIGINAL_MISSING_OPEN = '原文件不存在，无法打开。'
 /** 没有记录的行：按 copyState（v0.24.1，架构师 10-08）——none（旧行）只从列表移除；其余（copying / ready / failed / canceled）提到复制件 */
 export const sourceRemoveEmptyBody = (copyState: CopyState | undefined): { text: string; bold: string } =>
   !copyState || copyState === 'none' ? { text: '只从列表移除，', bold: '不删除原文件' } : { text: '只删除程序里的复制件，', bold: '不删除原文件' }
