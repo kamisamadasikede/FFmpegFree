@@ -3,6 +3,11 @@
 import { computed } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import ErrorLine from '@/components/common/ErrorLine.vue'
+import ConvertFormatPanel from './ConvertFormatPanel.vue'
+import { convertV2IsReal } from '@/api/convertRecords'
+import { simParam } from '@/api/sim'
+import { ALL_CONFLICT_HINT, ALL_CONFLICT_HINT_V24 } from '@/utils/convertText'
+import { COPY_GO_HINT_ALL, COPY_GO_TIP, copySkipHint, mixedSkipHint } from '@/utils/convertV24Text'
 import { useConvertRecordsStore } from '@/stores/convertRecords'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { splitPresetName } from '@/utils/convertText'
@@ -22,18 +27,28 @@ const ffmpegText = computed(() => {
 })
 const ffmpegMissing = computed(() => !ffmpeg.ready && ffmpeg.status.state !== 'checking' && ffmpeg.status.state !== 'installing')
 const disabled = computed(() => !!cv.startBlock)
-const label = computed(() => (cv.submitting ? '正在提交…' : n.value > 0 && !cv.startBlock ? `转换 ${n.value} 个文件` : '转换'))
+/** 勾选的全在复制：按钮置灰，悬停提示“文件复制完成后才能转换”（截图 22）；?cv_hover=go 模拟悬停 */
+const goTip = computed(() => (cv.startBlock === 'copying' ? COPY_GO_TIP : ''))
+const forceGoTip = !convertV2IsReal() && simParam('cv_hover') === 'go'
+const label = computed(() =>
+  cv.submitting ? '正在提交…' : n.value > 0 && !cv.startBlock ? `转换 ${n.value} 个文件` : cv.startBlock === 'copying' ? `转换 ${cv.copyingSelected.length} 个文件` : '转换',
+)
 /** 按钮下的说明（§二 右栏 4 / §五 按钮说明） */
 const hint = computed<{ text: string; warn?: boolean }>(() => {
   switch (cv.startBlock) {
     case 'submitting': return { text: '每次转换都会新增一条记录' }
     case 'ffmpeg': return { text: ffmpegMissing.value ? '需要先安装转换组件' : ffmpegText.value }
-    case 'preset': return { text: cv.presetsError ? '没有加载到输出预设' : '正在加载预设…' }
+    case 'preset': return { text: cv.v24 ? (cv.presetsError ? '没有加载到格式列表' : '正在加载格式…') : cv.presetsError ? '没有加载到输出预设' : '正在加载预设…' }
     case 'empty': return { text: '先添加文件' }
     case 'none': return { text: '勾选文件后才能转换' }
     case 'probing': return { text: '正在读取文件信息…' }
-    case 'conflict': return { text: '选中的文件都不能用当前预设', warn: true }
+    case 'conflict': return { text: cv.v24 ? ALL_CONFLICT_HINT_V24 : ALL_CONFLICT_HINT, warn: true }
+    case 'copying': return { text: COPY_GO_HINT_ALL }
   }
+  // v0.24（§八 第 41 条）：部分在复制 → “将跳过 k 个还在复制的文件”；和冲突一起 → “将跳过 k 个文件”
+  const copying = cv.v24 ? cv.copyingSelected.length : 0
+  if (copying && cv.blockedCount) return { text: mixedSkipHint(copying + cv.blockedCount), warn: true }
+  if (copying) return { text: copySkipHint(copying), warn: true }
   if (cv.blockedCount) return { text: `将跳过 ${cv.blockedCount} 个不兼容的文件`, warn: true }
   if (n.value === 1 && cv.outputName) return { text: `将保存为“${cv.outputName}”` }
   return { text: '每次转换都会新增一条记录' }
@@ -49,7 +64,8 @@ const hint = computed<{ text: string; warn?: boolean }>(() => {
         <span v-else class="none">未选择文件</span>
       </span>
     </div>
-    <div class="cv-rp">
+    <ConvertFormatPanel v-if="cv.v24" />
+    <div v-else class="cv-rp">
       <div class="seg" role="tablist" aria-label="预设分组">
         <button type="button" role="tab" :class="{ on: cv.tab === 'video' }" :aria-selected="cv.tab === 'video'" @click="cv.setTab('video')">视频</button>
         <button type="button" role="tab" :class="{ on: cv.tab === 'audio' }" :aria-selected="cv.tab === 'audio'" @click="cv.setTab('audio')">音频</button>
@@ -82,10 +98,16 @@ const hint = computed<{ text: string; warn?: boolean }>(() => {
         </div>
         <div class="cv-hint">同名文件自动加序号，不会覆盖。<button v-if="cv.outputOverride" type="button" class="ff-link" @click="cv.outputOverride = ''">恢复默认</button></div>
       </div>
-      <ErrorLine v-if="cv.submitError" compact :code="cv.submitError.code" :message="cv.submitError.message" :detail="cv.submitError.detail" :show-log="false" fallback-title="无法开始转换" />
+      <ErrorLine v-if="cv.submitError && !cv.v24" compact :code="cv.submitError.code" :message="cv.submitError.message" :detail="cv.submitError.detail" :show-log="false" fallback-title="无法开始转换" />
     </div>
+    <div v-if="cv.v24 && cv.submitError" class="cv-rp-err"><ErrorLine compact :code="cv.submitError.code" :message="cv.submitError.message" :detail="cv.submitError.detail" :show-log="false" fallback-title="无法开始转换" /></div>
     <div class="cv-foot">
+      <div v-if="goTip" class="cv-gowrap" :class="{ hv: forceGoTip }">
+        <button type="button" class="btn pri lg" aria-disabled="true" aria-describedby="cv-foot-hint" :aria-label="`转换：${goTip}`"><FIcon name="convert" />{{ label }}</button>
+        <span class="cv-tip cv-gotip" role="tooltip">{{ goTip }}</span>
+      </div>
       <button
+        v-else
         type="button"
         class="btn pri lg"
         :aria-disabled="disabled"

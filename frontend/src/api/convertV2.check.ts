@@ -34,10 +34,10 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
       [{ tasks: [1], skipped: [{ sourceId: 'a', reason: 'copying' }] }, { tasks: [1, 2], skipped: [] }, { tasks: [], skipped: [] }, { tasks: [], skipped: [] }])
     const sk = (r: string) => ({ sourceId: 'x', reason: r })
     eq('跳过提示：还在准备中 / 没能准备好 / 两类都有 / 没有', [skippedNotice([sk('copying'), sk('copying')]), skippedNotice([sk('copy_failed'), sk('copy_canceled')]), skippedNotice([sk('copying'), sk('copy_canceled')]), skippedNotice([sk('weird')]), skippedNotice([])],
-      ['有 2 个文件还在准备中，已转换其余文件。准备好后再点转换。', '有 2 个文件没能准备好，已转换其余文件。请重新添加后再转换。', '有 1 个文件还在准备中，已转换其余文件。准备好后再点转换。另有 1 个文件没能准备好，请重新添加后再转换。', '有 1 个文件没能准备好，已转换其余文件。请重新添加后再转换。', ''])
+      ['有 2 个文件还在准备中，已转换其余文件。准备好后再点转换。', '有 2 个文件没能准备好，已转换其余文件。请在列表里点“重试”后再转换。', '有 1 个文件还在准备中，已转换其余文件。准备好后再点转换。另有 1 个文件没能准备好，请在列表里点“重试”。', '有 1 个文件没能准备好，已转换其余文件。请在列表里点“重试”后再转换。', ''])
     eq('整体失败：TASK_CONFLICT reason=copying / copy_failed 给短提示；其余照旧', [submitCopyErrorText({ code: 'TASK_CONFLICT', detail: 'reason=copying\nsourceId=AB12' }), submitCopyErrorText({ code: 'TASK_CONFLICT', detail: 'reason=copy_failed\nsourceId=AB12' }), submitCopyErrorText({ code: 'TASK_CONFLICT', detail: 'reason=duplicate_url' }), submitCopyErrorText({ code: 'NOT_FOUND', detail: 'reason=copying' }), submitCopyErrorText({ code: 'TASK_CONFLICT' })],
-      ['文件还在准备中，准备好后再点转换。', '文件没能准备好，请重新添加后再转换。', '', '', ''])
-    eq('文案定稿', [SUBMIT_COPYING_TEXT, SUBMIT_COPY_FAILED_TEXT], ['文件还在准备中，准备好后再点转换。', '文件没能准备好，请重新添加后再转换。'])
+      ['文件还在准备中，准备好后再点转换。', '文件没能准备好，请在列表里点“重试”后再转换。', '', '', ''])
+    eq('文案定稿', [SUBMIT_COPYING_TEXT, SUBMIT_COPY_FAILED_TEXT], ['文件还在准备中，准备好后再点转换。', '文件没能准备好，请在列表里点“重试”后再转换。'])
     const b = readSrc('src/api/convertRecordsBinding.ts')
     eq('binding：SubmitSources 返回 {tasks, skipped}（submitResultOf），有生成类型对照', [/submitResultOf<V023Task>\(await call\(CS\.SubmitSources/.test(b), /\?\.tasks\)\)/.test(b), /SameKeys<ConvertSubmitResult, Data<convert\.ConvertSubmitResult>>/.test(b), /SameKeys<SkippedSource, Data<convert\.SkippedSource>>/.test(b)], [true, false, true, true])
     const sys = readSrc('src/api/system.ts')
@@ -70,7 +70,7 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
       eq('全部还在准备：短提示（不是“无法开始转换”），勾选不变', [toastText(), cv.submitError, [...cv.selected]], ['文件还在准备中，准备好后再点转换。', null, [ids[0]]])
       mock.mockSetCopyState(ids[0], 'failed')
       await cv.submit()
-      eq('全部复制失败：短提示', toastText(), '文件没能准备好，请重新添加后再转换。')
+      eq('全部复制失败：短提示', toastText(), '文件没能准备好，请在列表里点“重试”后再转换。')
       mock.mockSetCopyState(ids[0], 'ready')
     } else eq('部分跳过自检：模拟场景至少要有 2 个能转换的文件', [ids.length >= 2, !!cv.selectedPreset], [true, true])
   }
@@ -111,7 +111,7 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
         const cv = useConvertRecordsStore()
         mock.resetConvertMock('mixed')
         const row = (id: string, name: string) => {
-          cv.sources[id] = { sourceId: id, path: `D:\\Footage\\${name}`, name, addedAt: 0, lastActivityAt: 0, probe: 'pending', thumb: null, thumbAsked: false, flashAt: 0, recordCount: 0, loadedIds: [], loadingMore: false }
+          cv.sources[id] = { sourceId: id, path: `D:\\Footage\\${name}`, name, addedAt: 0, lastActivityAt: 0, probe: 'pending', thumb: null, thumbAsked: false, flashAt: 0, recordCount: 0, loadedIds: [], loadingMore: false, copySeq: 0 }
           return cv.sources[id]
         }
         win.location.search = '?cv_thumb=hold'
@@ -268,7 +268,7 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
     eq('模拟记录：预设记录 presetId 非空，摘要按宽写 720p；自定义记录 presetId 为空', [ivNew.presetId, ivNew.paramsSummary, ivOld.presetId, ivOld.presetName, ivOld.paramsSummary], ['builtin-mp4-h264-720p', 'H.264 · 720p', '', '', 'H.264 · 1080p · 8.0 Mbps'])
     eq('模拟记录第 2 行：预设名 / 自定义 · 摘要', [recordParamsText(ivNew).text, recordParamsText(ivOld).text], ['MP4 720p', '自定义 · H.264 · 1080p · 8.0 Mbps'])
     eq('parseParams：旧任务 params 为空 → 三个快照 undefined', [parseParams('').presetId, parseParams('{"options":{"container":"mp4"}}').paramsSummary], [undefined, undefined])
-    eq('Reconvert：只接受成功的记录（v1 没有界面入口，只保留接口）', (await rejects(mock.Reconvert('simcv-nope')))?.code, 'NOT_FOUND')
+    eq('Reconvert：记录不存在 NOT_FOUND', (await rejects(mock.Reconvert({ taskId: 'simcv-nope' })))?.code, 'NOT_FOUND')
   }
   // ---- ListSources status（v0.23.1）：EXISTS 语义，内嵌记录 / recordCount 不过滤，分页排序不变 ----
   {
@@ -418,7 +418,7 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
   eq('失败卡片：ErrorLine 卡片版（操作左、错误码右，同一行）', [(kid.match(/actions-row/g) ?? []).length, /class="arow-line"/.test(readSrc('src/components/common/ErrorLine.vue'))], [2, true])
   eq('任务中心：固定列宽，操作列按内容估算，任务名优先；窄窗口“演示”只在 title', [/\.tbl \{ table-layout: fixed; \}/.test(tc), /'--ops-w': opsWidth \+ 'px'/.test(tc), /\.simtag \{ display: none; \}/.test(tc)], [true, true, true])
   eq('任务中心（走查 X9）：“失败”卡片和页签同一个数 failedTotal（都跟“显示已隐藏”）；没有 failedCard', [/<small>失败<\/small><b[^>]*>\{\{ tasks\.failedTotal \}\}/.test(tc), /failedCard/.test(tc + readSrc('src/stores/tasks.ts')), /void loadStats\(\) \/\/ 页签计数跟着开关/.test(readSrc('src/stores/tasks.ts'))], [true, false, true])
-  eq('任务中心（走查 X10）：失败 / 已中断的进度条上方只放百分比，原因在错误行', [/<div class="pline"><span>\{\{ barText\(t\) \}\}<\/span>/.test(tc), /const barText = \(t: TaskItem\): string => \(t\.status === 'failed' \|\| t\.status === 'interrupted' \? '' : progressText\(t\)\)/.test(tc)], [true, true])
+  eq('任务中心（走查 X10）：失败 / 已中断的进度条上方只放百分比，原因在错误行（N3 后 1024 另有短格式）', [/<div class="pline"[^>]*>\s*<span class="wide">\{\{ barText\(t\) \}\}<\/span>/.test(tc), /const barText = \(t: TaskItem\): string => \(t\.status === 'failed' \|\| t\.status === 'interrupted' \? '' : progressText\(t\)\)/.test(tc)], [true, true])
   eq('预览（走查 G4）：有画面的文件 loadedmetadata 后 videoWidth = 0 → 无法在应用内播放', [/expectsVideo\.value && \(el as HTMLVideoElement\)\.videoWidth === 0\) \{\s*el\.pause\(\)\s*playing\.value = false\s*stage\.value = 'unplayable'/.test(pv), /const expectsVideo = computed\(\(\) => \(rec\.value \? !isAudioContainer\(container\.value\) : !!srcInfo\.value && !isAudioOnly\(srcInfo\.value\)\)\)/.test(pv)], [true, true])
   eq('预览（走查 X5）：放不了 / 文件不在 / 出错时控制条收起，音量条不显示', [/const failed = computed\(\(\) => stage\.value === 'unplayable' \|\| stage\.value === 'gone' \|\| stage\.value === 'error'\)/.test(pv), /class="cv-pvbody" :class="\{ nobar: failed \}"/.test(pv), /\.cv-pvbody\.nobar \.ff-player \.ctrl\{display:none\}/.test(readSrc('src/components/convert/convert-v2.css')), /v-if="kind !== 'gif' && !failed" type="button" class="cv-vol"/.test(pv)], [true, true, true, true])
   eq('转换页提示（走查 X4）：放在左栏栏头下面，两处都带 offset', (page.match(/offset: toastOffset\(\)/g) ?? []).length, 2)

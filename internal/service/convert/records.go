@@ -215,9 +215,14 @@ func readPath(src ConvertSource) string {
 // copyNotReadyError 是副本没就绪时的 TASK_CONFLICT（6.15.4 第 6 条）：copying → reason=copying，其余 → reason=copy_failed。
 func copyNotReadyError(src ConvertSource) error {
 	if src.CopyState == store.CopyCopying {
-		return apperr.New(apperr.TaskConflict, "文件还在准备中，准备好后再转换。").WithDetail("reason=copying\nsourceId=" + src.SourceID)
+		// 提交转换用。重转另有一句，见 reconvertInput（契约 v0.24.6）。
+		return copyingConflict(src, "文件还在准备中，准备好后再转换。")
 	}
 	return apperr.New(apperr.TaskConflict, "文件复制没有完成，请先重试复制").WithDetail("reason=copy_failed\nsourceId=" + src.SourceID)
+}
+
+func copyingConflict(src ConvertSource, msg string) error {
+	return apperr.New(apperr.TaskConflict, msg).WithDetail("reason=copying\nsourceId=" + src.SourceID)
 }
 
 // sourceFile 返回源文件行的显示路径；路径为空、文件不在或不是普通文件 NOT_FOUND（reason=file）。
@@ -747,7 +752,7 @@ func (s *Service) findPreset(ctx context.Context, presetID string) (*Preset, err
 }
 
 func formatChangeError() error {
-	return apperr.New(apperr.InvalidArgument, "重转不能更换输出格式，换格式请重新添加转换").WithDetail("reason=format_change")
+	return apperr.New(apperr.InvalidArgument, "重转不能更换输出格式，要换格式请另外重转一条。").WithDetail("reason=format_change")
 }
 
 func sourceMissingError(p string) error {
@@ -761,6 +766,9 @@ func (s *Service) reconvertInput(ctx context.Context, ss SourceStore, t task.Tas
 		if src, err := ss.GetConvertSource(ctx, t.SourceID); err == nil {
 			in := readPath(src)
 			if in == "" {
+				if src.CopyState == store.CopyCopying {
+					return "", &src, copyingConflict(src, "文件还在准备中，准备好后再重转。")
+				}
 				return "", &src, copyNotReadyError(src)
 			}
 			return in, &src, nil

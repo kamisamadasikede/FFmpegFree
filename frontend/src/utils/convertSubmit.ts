@@ -22,15 +22,15 @@ export function submitResultOf<T>(raw: unknown): ConvertSubmitResult<T> {
   return { tasks: Array.isArray(r.tasks) ? r.tasks : [], skipped: Array.isArray(r.skipped) ? r.skipped.filter((s) => !!s && typeof s.sourceId === 'string') : [] }
 }
 
-/** 产品经理定稿（10-08）：普通（info）toast，原样使用 */
+/** 产品经理定稿（10-08；D5：复制失败的行有“重试”按钮后，“请重新添加”改成“请在列表里点“重试””）：普通（info）toast，原样使用 */
 export const SUBMIT_COPYING_TEXT = '文件还在准备中，准备好后再点转换。'
 /** 预览时副本还没复制好（任何错误码带 reason=copying，走查 D4）：不用后端原话，说“准备中” */
 export const PREVIEW_COPYING_TEXT = '文件还在准备中，准备好后才能预览。'
-export const SUBMIT_COPY_FAILED_TEXT = '文件没能准备好，请重新添加后再转换。'
+export const SUBMIT_COPY_FAILED_TEXT = '文件没能准备好，请在列表里点“重试”后再转换。'
 export const skippedCopyingText = (n: number) => `有 ${n} 个文件还在准备中，已转换其余文件。准备好后再点转换。`
-export const skippedFailedText = (n: number) => `有 ${n} 个文件没能准备好，已转换其余文件。请重新添加后再转换。`
+export const skippedFailedText = (n: number) => `有 ${n} 个文件没能准备好，已转换其余文件。请在列表里点“重试”后再转换。`
 /** 两类都有时，第二句不再重复“已转换其余文件” */
-export const skippedFailedAlsoText = (n: number) => `另有 ${n} 个文件没能准备好，请重新添加后再转换。`
+export const skippedFailedAlsoText = (n: number) => `另有 ${n} 个文件没能准备好，请在列表里点“重试”。`
 
 /** 部分跳过的提示：还在复制（copying）/ 复制失败或已取消（copy_failed、copy_canceled，及不认识的值）分开说，按个数，不带文件名 */
 export function skippedNotice(skipped: SkippedSource[]): string {
