@@ -15,7 +15,7 @@
         :aria-invalid="!!error"
         :title="shown || undefined"
       >
-        <span v-if="!shown" class="ph">与源文件相同的文件夹</span>
+        <span v-if="!shown" class="ph">{{ OUTPUT_DIR_DEFAULT_TEXT }}</span>
         <template v-else>
           <span class="h">{{ pathParts.head }}</span><span class="t">{{ pathParts.tail }}</span>
         </template>
@@ -37,7 +37,7 @@
 
 <script setup lang="ts">
 // 设置页「转换」分组里的「默认输出位置」（设计稿 proto/pages.html ?page=settings&outdir=empty|set|error）。
-// 值就是 Settings.defaultOutputDir：空字符串 = 保存到源文件所在文件夹。
+// 值就是 Settings.defaultOutputDir：空字符串 = 应用的输出文件夹（<base>/output，v0.24.1）。
 // 选择用 SystemService.PickDirectory，保存用 UpdateSettings；后端对不存在 / 不可写 / 非绝对路径返回 INVALID_ARGUMENT，
 // 此时红框里显示被拒绝的那个路径（shown），saved 仍是后端确认过的最后一个值；下一次成功保存后红框消失。
 // 挂载时会对已保存的路径再校验一次（外接硬盘拔掉了 / 文件夹被删了 → 直接进入错误态）。
@@ -45,6 +45,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import { toAppError } from '@/api/call'
+import { OUTPUT_DIR_DEFAULT_TEXT } from '@/errors/errorMessages'
 import { getDefaultOutputDir, pickDirectory, setDefaultOutputDir } from '@/api/system'
 import { hasWailsBackend, previewParams } from '@/services/wails'
 

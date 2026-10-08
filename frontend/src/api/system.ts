@@ -1,6 +1,6 @@
 import * as SystemBinding from '../../wailsjs/go/app/SystemService'
 import { system } from '../../wailsjs/go/models'
-import { AppError, call } from '@/api/call'
+import { AppError, call, toAppError } from '@/api/call'
 import { hasWailsBackend } from '@/services/wails'
 
 /** 在文件管理器里显示文件（文件夹则直接打开）。path 必须是绝对路径且存在，否则 INVALID_ARGUMENT / NOT_FOUND */
@@ -13,7 +13,22 @@ export async function pickDirectory(title = ''): Promise<string> {
   return await call(SystemBinding.PickDirectory(title))
 }
 
-/** 默认输出位置；"" = 保存到源文件所在文件夹 */
+/**
+ * 实际的输出文件夹（只用于显示）：v0.24.1 起 defaultOutputDir 留空 = <base>/output，不再是源文件所在文件夹。
+ * 用 GetStorageDirs().outputDir（自定义或默认的 output），取不到时退回 Settings.defaultOutputDir；浏览器预览返回 ""。
+ */
+export async function getOutputDirShown(): Promise<string> {
+  if (!hasWailsBackend()) return ''
+  try {
+    const d = await call(SystemBinding.GetStorageDirs())
+    if (d?.outputDir) return d.outputDir
+  } catch (e) {
+    console.warn('GetStorageDirs failed', toAppError(e).code)
+  }
+  return await getDefaultOutputDir()
+}
+
+/** 设置里保存的默认输出位置；"" = 应用的输出文件夹（<base>/output，v0.24.1） */
 export async function getDefaultOutputDir(): Promise<string> {
   if (!hasWailsBackend()) return ''
   const s = await call(SystemBinding.GetSettings())
