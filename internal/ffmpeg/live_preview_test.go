@@ -3,6 +3,7 @@ package ffmpeg
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -10,8 +11,11 @@ import (
 const pvPath = "/data/tmp/live-preview/S1.jpg"
 
 var wantPreviewTail = []string{
-	"-map", "0:v:0", "-an", "-sn", "-dn", "-vf", "fps=2,scale=640:-2", "-q:v", "5",
-	"-protocol_whitelist", "file", "-f", "image2", "-update", "1", "-atomic_writing", "1", "file:" + pvPath,
+	"-map", "0:v:0", "-an", "-sn", "-dn", "-vf", "fps=2,scale=640:-2", "-c:v", "mjpeg", "-q:v", "5",
+	"-protocol_whitelist", "file", "-f", "fifo", "-fifo_format", "image2", "-format_opts", "update=1:atomic_writing=1",
+	"-queue_size", "4", "-drop_pkts_on_overflow", "1",
+	"-attempt_recovery", "1", "-recover_any_error", "1", "-recovery_wait_time", "1", "-max_recovery_attempts", "0",
+	"file:" + pvPath,
 }
 
 func TestPreviewOutputArgs(t *testing.T) {
@@ -56,7 +60,7 @@ func TestPreviewArgsAppendedForAllPushKinds(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			endsWithPreview(t, tc.name, tc.with, tc.without)
 			line := strings.Join(tc.with, " ")
-			if strings.Count(line, "-f image2") != 1 {
+			if strings.Count(line, "-fifo_format image2") != 1 {
 				t.Fatalf("应恰好一个预览输出: %s", line)
 			}
 		})
@@ -83,8 +87,9 @@ func TestPreviewIsOutsideTee(t *testing.T) {
 	}
 	// 预览输出之前的最后一个 -map 是 0:v:0，且预览输出不带音频。
 	pv := a[teeAt+2:]
-	if !has(pv, "-an") || has(pv, "-c:a") || has(pv, "-c:v") {
-		t.Fatalf("预览输出不带音频、不指定编码器: %v", pv)
+	// v0.24.2：fifo 封装没有默认编码器，预览这一路必须写 -c:v mjpeg。
+	if !has(pv, "-an") || has(pv, "-c:a") || pv[idx(pv, "-c:v", 0)+1] != "mjpeg" {
+		t.Fatalf("预览输出不带音频、编码器是 mjpeg: %v", pv)
 	}
 }
 
@@ -138,7 +143,7 @@ func TestPullInputWhitelist(t *testing.T) {
 func TestPreviewProbe(t *testing.T) {
 	full := map[string]string{
 		"-encoders": " V....D mjpeg               Motion JPEG\n V....D libx264\n",
-		"-muxers":   "  E image2          image2 sequence\n",
+		"-muxers":   "  E fifo            FIFO queue pseudo-muxer\n  E image2          image2 sequence\n",
 		"-filters":  " ... fps               V->V       Force constant framerate.\n ... scale             V->V       Scale the input video\n",
 	}
 	calls := 0
@@ -169,6 +174,15 @@ func TestPreviewProbe(t *testing.T) {
 			t.Errorf("缺 %s 应判不支持", drop)
 		}
 	}
+	// v0.24.2：有 image2 但没有 fifo 封装（预览会反压推流）：不出预览。
+	noFifo := map[string]string{}
+	for k, v := range full {
+		noFifo[k] = v
+	}
+	noFifo["-muxers"] = "  E image2          image2 sequence\n"
+	if (&PreviewProbe{Run: mk(noFifo, false)}).Supported(context.Background(), "/z") {
+		t.Error("缺 fifo 封装应判不支持")
+	}
 	// 探测命令失败：按不支持处理，且不缓存。
 	bad := &PreviewProbe{Run: mk(full, true)}
 	if bad.Supported(context.Background(), "/z") {
@@ -181,5 +195,57 @@ func TestPreviewProbe(t *testing.T) {
 	// 整词匹配：mjpeg_qsv 不算 mjpeg。
 	if listsName(" V....D mjpeg_qsv  x\n", "mjpeg") {
 		t.Fatal("应整词匹配")
+	}
+}
+
+// v0.24.2（老板：按源帧率推流）：主输出不带任何程序加的帧率 / 尺寸限制；fps=2 只在预览这一路；GOP 跟着源帧率走。
+func TestMainOutputKeepsSourceFpsAndSize(t *testing.T) {
+	mainOf := func(a []string) []string {
+		n := len(PreviewOutputArgs(pvPath))
+		return a[:len(a)-n]
+	}
+	for _, src := range []float64{24, 25, 30, 50, 59.94, 60} {
+		e := LiveEncode{GOPFps: src, VideoKbps: 2500, AudioKbps: 128} // Fps=0：沿用源帧率
+		a := BuildFilePushArgs(FilePushPlan{Input: "/a.mp4", HasAudio: true, Scheme: "rtmp", URL: "rtmp://h/app/k", Enc: e, PreviewPath: pvPath})
+		m := strings.Join(mainOf(a), " ")
+		for _, bad := range []string{"fps=", " -r ", "-framerate", "-fps_mode", "-vsync", " -s ", "scale=640", "-update"} {
+			if strings.Contains(m, bad) {
+				t.Errorf("src=%v 主输出不能有 %q: %s", src, bad, m)
+			}
+		}
+		if mainOf(a)[idx(mainOf(a), "-vf", 0)+1] != "scale=trunc(iw/2)*2:trunc(ih/2)*2" {
+			t.Errorf("src=%v 不设分辨率时主输出只补偶数，保持源尺寸: %s", src, m)
+		}
+		wantG := strconv.Itoa(int(src*2 + 0.5))
+		if g := mainOf(a)[idx(mainOf(a), "-g", 0)+1]; g != wantG {
+			t.Errorf("src=%v GOP 应为 2×源帧率 %s，实际 %s", src, wantG, g)
+		}
+		pv := strings.Join(a[len(mainOf(a)):], " ")
+		if !strings.Contains(pv, "-vf fps=2,scale=640:-2") {
+			t.Errorf("预览这一路应是 fps=2: %s", pv)
+		}
+		if strings.Count(strings.Join(a, " "), "fps=") != 1 {
+			t.Errorf("fps 滤镜只能出现在预览这一路: %v", a)
+		}
+	}
+	// 用户明确给了帧率：只作用在主输出，预览仍是 2 fps。
+	a := BuildFilePushArgs(FilePushPlan{Input: "/a.mp4", HasAudio: true, Scheme: "rtmp", URL: "rtmp://h/app/k",
+		Enc: LiveEncode{Fps: 60, GOPFps: 60, VideoKbps: 2500, AudioKbps: 128}, PreviewPath: pvPath})
+	m := mainOf(a)
+	if m[idx(m, "-vf", 0)+1] != "fps=60,scale=trunc(iw/2)*2:trunc(ih/2)*2" || m[idx(m, "-g", 0)+1] != "120" {
+		t.Errorf("明确帧率应只加在主输出: %v", m)
+	}
+	if !strings.Contains(strings.Join(a[len(m):], " "), "-vf fps=2,") {
+		t.Errorf("预览仍是 2 fps: %v", a[len(m):])
+	}
+	// 屏幕推流：采集端 -framerate 决定帧率，主输出没有 fps 滤镜，GOP = 2×采集帧率。
+	for _, goos := range []string{"windows", "darwin", "linux"} {
+		a := BuildScreenPushArgs(ScreenPushPlan{GOOS: goos, Display: ":0", Scheme: "rtmp", URL: "rtmp://h/app/k", FPS: 60, PreviewPath: pvPath,
+			Region: ScreenRegion{Desktop: true}, Enc: LiveEncode{GOPFps: 60, VideoKbps: 2500, AudioKbps: 128}})
+		m := mainOf(a)
+		ms := strings.Join(m, " ")
+		if m[idx(m, "-framerate", 0)+1] != "60" || strings.Contains(ms, "fps=") || strings.Contains(ms, " -r ") || m[idx(m, "-g", 0)+1] != "120" {
+			t.Errorf("%s 屏幕推流主输出: %s", goos, ms)
+		}
 	}
 }

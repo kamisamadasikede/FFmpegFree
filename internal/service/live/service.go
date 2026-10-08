@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -369,7 +370,20 @@ func (s *Service) newRunner(taskID string, bin ffmpeg.Binaries, u livepkg.PushUR
 			return ffmpeg.ClassifyLiveError(ffmpeg.LiveClassifyInput{Tail: tail, Scheme: u.Scheme, Started: started.Load(), Screen: screen})
 		},
 	}
+	// v0.24.2：完整 argv 记进应用日志，排查帧率、预览这类问题时直接看日志。推流地址整段换成占位符（连主机和端口也不写），
+	// 其余再过一遍脱敏。
+	logArgs := func(a []string) string {
+		line := strings.Join(a, " ")
+		for _, raw := range []string{u.FFmpeg, ffmpeg.TeeEscape(u.FFmpeg), rawURL} {
+			if raw != "" {
+				line = strings.ReplaceAll(line, raw, "<推流地址>")
+			}
+		}
+		return redact(line)
+	}
+	s.logf("直播 %s ffmpeg 参数: %s", taskID, logArgs(args))
 	if enc.hw != "" {
+		s.logf("直播 %s 硬件编码启动失败时的 CPU 参数: %s", taskID, logArgs(enc.cpuArgs))
 		inner.HWEncoder, inner.CPUEncoding = enc.hw, enc.cpuInfo
 		inner.BuildCPUArgs = func(string) []string { return enc.cpuArgs }
 	}
