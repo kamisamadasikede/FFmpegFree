@@ -849,8 +849,8 @@ th { white-space: nowrap; } /* “开始时间”不换行 */
   .simtag { display: none; } /* 窄窗口下“演示”标记只留在 title 里，给文件名让位 */
   tr.hid .tc-rt .lbl { display: none; }
   .c-type { width: 56px; }
-  .c-st { width: 80px; } /* 复核 N1：稿子 1024 下状态列约 80、进度列约 92，任务列约 250 */
-  .c-prog { width: 92px; }
+  .c-st { width: 80px; } /* 复核 N1：状态列收到 80；进度列保留 104（92 时“用时 5 分 34 秒”会折行），任务列仍有约 250 */
+  .c-prog { width: 104px; }
   .c-when { width: 92px; }
 }
 .finfo {
