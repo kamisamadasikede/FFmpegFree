@@ -83,6 +83,9 @@ func TestReconvertServiceInPlace(t *testing.T) {
 	mkv := ffmpeg.ConvertOptions{Container: "mkv", VideoCodec: "h264", AudioCodec: "aac"}
 	_, err = e.svc.Reconvert(ctx, ReconvertRequest{TaskID: d.ID, Options: &mkv})
 	wantR(t, err, apperr.InvalidArgument, "reason=format_change")
+	if m := apperr.From(err).Message; m != "重转不能更换输出格式，要换格式请另外重转一条。" || strings.Contains(m, "重新转换") {
+		t.Fatalf("format_change 文案: %q", m)
+	}
 	_, err = e.svc.Reconvert(ctx, ReconvertRequest{TaskID: d.ID, PresetID: "builtin-mp3"})
 	wantR(t, err, apperr.InvalidArgument, "reason=format_change")
 	_, err = e.svc.Reconvert(ctx, ReconvertRequest{TaskID: "nope"})
@@ -183,6 +186,9 @@ func TestReconvertCopyNotReady(t *testing.T) {
 	<-started
 	_, err := e.svc.Reconvert(ctx, ReconvertRequest{TaskID: d.ID})
 	wantR(t, err, apperr.TaskConflict, "reason=copying")
+	if m := apperr.From(err).Message; m != "文件还在准备中，准备好后再重转。" {
+		t.Fatalf("重转 copying 文案: %q", m)
+	}
 	if cs, _ := e.tm.CheckPaths([]string{d.ID}); cs[0].ReconvertBlock != task.BlockCopyNotReady {
 		t.Fatalf("%+v", cs[0])
 	}
