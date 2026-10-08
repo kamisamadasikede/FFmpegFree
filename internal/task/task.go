@@ -209,6 +209,21 @@ type StatusEvent struct {
 	Result             *TaskResult `json:"result,omitempty"`
 	Retried            bool        `json:"retried,omitempty"`
 	HiddenInTaskCenter *bool       `json:"hiddenInTaskCenter,omitempty"`
+	// 以下三项是契约 v0.24（6.17.2）：Reconverting 在 convert 任务的每条 task:status 上都带（指针，false 也带）；
+	// ReconvertOutcome 只在原地重转结束的那一条终态事件上有（succeeded | failed | canceled | interrupted）；
+	// LastReconvertError 只在 reconvertOutcome=failed 时带。重转事件不带 params（架构师定）。
+	Reconverting       *bool                 `json:"reconverting,omitempty"`
+	ReconvertOutcome   string                `json:"reconvertOutcome,omitempty"`
+	LastReconvertError *store.ReconvertError `json:"lastReconvertError,omitempty"`
+}
+
+// rcFlag 返回 task:status 的 reconverting 字段：只有 convert 任务带。
+func rcFlag(t Task) *bool {
+	if t.Type != TypeConvert {
+		return nil
+	}
+	v := t.Reconverting
+	return &v
 }
 
 // RemovedEvent 是 task:removed 的 payload。

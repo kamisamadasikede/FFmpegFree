@@ -90,6 +90,10 @@ export interface V023Task extends V024TaskExtra {
   sourceId?: string
   hiddenInTaskCenter: boolean
   result?: TaskResult
+  /** v0.24（6.17.2）：原地重转中；后端总是返回，前端类型先放可选（最小改动） */
+  reconverting?: boolean
+  /** v0.24：最近一次重转失败的信息（成功 / 取消时没有） */
+  lastReconvertError?: { code: string; message: string; detail?: string; at: number } | null
 }
 
 export interface ConvertSource extends V024SourceExtra {
@@ -100,6 +104,13 @@ export interface ConvertSource extends V024SourceExtra {
   lastActivityAt: number
   /** 持久化的媒体信息，可能没有；G3 起 hasVideo / hasAudio 是真实值（可用于显示），冲突预检仍以当次 Probe 为准 */
   media?: goStore.MediaInfo
+  /** v0.24（6.15.3）：副本字段；后端总是返回（copyError 除外），前端类型先放可选（最小改动）。copyState: none | copying | ready | failed | canceled */
+  originalPath?: string
+  storedPath?: string
+  copyState?: string
+  copiedBytes?: number
+  totalBytes?: number
+  copyError?: TaskError | null
 }
 
 export interface ConvertSourceEntry {
@@ -176,11 +187,18 @@ export interface TaskPathCheck extends V024TaskPathCheckExtra {
   found: boolean
   inputExists: boolean
   outputExists: boolean
+  /** v0.24.1（6.17.1）："replace" | "regenerate" | ""（不能重转，原因见 reconvertBlock） */
+  reconvertMode?: string
+  /** v0.24.1：reconvertMode="" 时 invalid_state | copy_not_ready | source_missing | output_moved */
+  reconvertBlock?: string
 }
 export interface SourcePathCheck extends V024SourcePathCheckExtra {
   sourceId: string
   found: boolean
   exists: boolean
+  /** v0.24：原文件 / 副本各自是否还在 */
+  originalExists?: boolean
+  storedExists?: boolean
 }
 
 export interface DeleteFailure extends V024DeleteFailureExtra {

@@ -34,8 +34,11 @@ export const ListSourceRecords = async (sourceId: string, limit: number, offset:
 export const SearchSources = async (f: ConvertSearchFilter) => page(await call(CS.SearchSources(convert.ConvertSearchFilter.createFrom({ ...f, status: f.status ?? '' }))))
 export const CheckSources = async (ids: string[]) => arr(as<SourcePathCheck[] | null>(await call(CS.CheckSources(ids))))
 export const PreviewOutputName = (sourceId: string, o: RecordOptions, outputDir: string) => call(CS.PreviewOutputName(sourceId, opts(o), outputDir))
-export const SubmitSources = async (req: ConvertSubmitRequest) => arr(as<V023Task[] | null>(await call(CS.SubmitSources(convert.ConvertSubmitRequest.createFrom({ ...req, options: opts(req.options) })))))
-export const Reconvert = async (taskId: string) => as<V023Task>(await call(CS.Reconvert(taskId)))
+/** v0.24：后端返回 {tasks, skipped}；这里先只取 tasks（最小改动，skipped 待前端接入） */
+export const SubmitSources = async (req: ConvertSubmitRequest) =>
+  arr(as<V023Task[] | null>((await call(CS.SubmitSources(convert.ConvertSubmitRequest.createFrom({ ...req, options: opts(req.options) }))))?.tasks))
+/** v0.24：参数改为 ReconvertRequest{taskId, presetId?, options?}；这里先只传 taskId（沿用原参数） */
+export const Reconvert = async (taskId: string) => as<V023Task>(await call(CS.Reconvert(convert.ReconvertRequest.createFrom({ taskId }))))
 export const DeleteRecords = async (ids: string[], deleteOutputs: boolean) => delResult(await call(CS.DeleteRecords(ids, deleteOutputs)))
 export const DeleteSource = async (sourceId: string, deleteOutputs: boolean) => delResult(await call(CS.DeleteSource(sourceId, deleteOutputs)))
 export const GetSourcePreviewURL = async (sourceId: string): Promise<PreviewURL> => await call(CS.GetSourcePreviewURL(sourceId))

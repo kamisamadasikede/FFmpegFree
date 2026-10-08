@@ -50,40 +50,129 @@ type ConvertPlan struct {
 	Final []string
 	// OutDurationSec 是输出时长（应用裁剪后），用来换算进度；0 表示未知。
 	OutDurationSec float64
+	// Fallback 非空时：Final 正常结束但没有产出文件（图片输出、时长未知时 -ss 1 越过结尾），用它再跑一次（契约 6.16.5）。
+	Fallback []string
 }
 
 type containerSpec struct {
 	audioOnly    bool
+	image        bool     // 图片输出（单帧，契约 v0.24，6.16.5）
 	video        []string // 允许的 VideoCodec（不含 ""）
 	audio        []string // 允许的 AudioCodec（不含 "" 和 none；音频容器必须有音频）
 	defaultAudio string
 	faststart    bool
+	muxer        string   // 显式的 -f（契约 v0.24：所有输出都加，不靠扩展名猜）
+	fixedAudio   []string // 按格式固定的音频参数（如 amr 的 -ar 8000 -ac 1），用户改不了
+	imageCodec   []string // 图片输出的编码参数
 }
 
 var containers = map[string]containerSpec{
-	"mp4":  {video: []string{"copy", "h264", "h265", "vp9"}, audio: []string{"copy", "aac", "mp3", "opus", "ac3"}, defaultAudio: "aac", faststart: true},
-	"mov":  {video: []string{"copy", "h264", "h265"}, audio: []string{"copy", "aac", "mp3", "ac3", "pcm"}, defaultAudio: "aac", faststart: true},
-	"mkv":  {video: []string{"copy", "h264", "h265", "vp9"}, audio: []string{"copy", "aac", "mp3", "opus", "vorbis", "flac", "ac3", "pcm"}, defaultAudio: "aac"},
-	"webm": {video: []string{"copy", "vp9"}, audio: []string{"copy", "opus", "vorbis"}, defaultAudio: "opus"},
-	"avi":  {video: []string{"copy", "h264"}, audio: []string{"copy", "mp3", "aac", "ac3", "pcm"}, defaultAudio: "mp3"},
-	"flv":  {video: []string{"copy", "h264"}, audio: []string{"copy", "aac", "mp3"}, defaultAudio: "aac"},
-	"gif":  {},
-	"mp3":  {audioOnly: true, audio: []string{"mp3", "copy"}, defaultAudio: "mp3"},
-	"aac":  {audioOnly: true, audio: []string{"aac", "copy"}, defaultAudio: "aac"},
-	"m4a":  {audioOnly: true, audio: []string{"aac", "copy"}, defaultAudio: "aac", faststart: true},
-	"wav":  {audioOnly: true, audio: []string{"pcm"}, defaultAudio: "pcm"},
-	"flac": {audioOnly: true, audio: []string{"flac"}, defaultAudio: "flac"},
-	"ogg":  {audioOnly: true, audio: []string{"vorbis", "opus", "copy"}, defaultAudio: "vorbis"},
-	"opus": {audioOnly: true, audio: []string{"opus", "copy"}, defaultAudio: "opus"},
+	"mp4":  {video: []string{"copy", "h264", "h265", "vp9"}, audio: []string{"copy", "aac", "mp3", "opus", "ac3"}, defaultAudio: "aac", faststart: true, muxer: "mp4"},
+	"mov":  {video: []string{"copy", "h264", "h265"}, audio: []string{"copy", "aac", "mp3", "ac3", "pcm"}, defaultAudio: "aac", faststart: true, muxer: "mov"},
+	"mkv":  {video: []string{"copy", "h264", "h265", "vp9"}, audio: []string{"copy", "aac", "mp3", "opus", "vorbis", "flac", "ac3", "pcm"}, defaultAudio: "aac", muxer: "matroska"},
+	"webm": {video: []string{"copy", "vp9"}, audio: []string{"copy", "opus", "vorbis"}, defaultAudio: "opus", muxer: "webm"},
+	"avi":  {video: []string{"copy", "h264", "mpeg4"}, audio: []string{"copy", "mp3", "aac", "ac3", "pcm"}, defaultAudio: "mp3", muxer: "avi"},
+	"flv":  {video: []string{"copy", "h264"}, audio: []string{"copy", "aac", "mp3"}, defaultAudio: "aac", muxer: "flv"},
+	"gif":  {muxer: "gif"},
+	"wmv":  {video: []string{"wmv2"}, audio: []string{"wma"}, defaultAudio: "wma", muxer: "asf"},
+	"mpg":  {video: []string{"mpeg2"}, audio: []string{"mp2", "ac3"}, defaultAudio: "mp2", muxer: "mpeg"},
+	"vob":  {video: []string{"mpeg2"}, audio: []string{"ac3", "mp2"}, defaultAudio: "ac3", muxer: "vob"},
+	"3gp":  {video: []string{"h264"}, audio: []string{"aac", "amr_nb"}, defaultAudio: "aac", muxer: "3gp"},
+	"swf":  {video: []string{"flv1"}, audio: []string{"mp3"}, defaultAudio: "mp3", muxer: "swf", fixedAudio: []string{"-ar", "44100"}},
+	"ogv":  {video: []string{"theora"}, audio: []string{"vorbis", "opus"}, defaultAudio: "vorbis", muxer: "ogg"},
+
+	"mp3":  {audioOnly: true, audio: []string{"mp3", "copy"}, defaultAudio: "mp3", muxer: "mp3"},
+	"aac":  {audioOnly: true, audio: []string{"aac", "copy"}, defaultAudio: "aac", muxer: "adts"},
+	"m4a":  {audioOnly: true, audio: []string{"aac", "copy"}, defaultAudio: "aac", faststart: true, muxer: "ipod"},
+	"wav":  {audioOnly: true, audio: []string{"pcm"}, defaultAudio: "pcm", muxer: "wav"},
+	"flac": {audioOnly: true, audio: []string{"flac"}, defaultAudio: "flac", muxer: "flac"},
+	"ogg":  {audioOnly: true, audio: []string{"vorbis", "opus", "copy"}, defaultAudio: "vorbis", muxer: "ogg"},
+	"opus": {audioOnly: true, audio: []string{"opus", "copy"}, defaultAudio: "opus", muxer: "opus"},
+	"wma":  {audioOnly: true, audio: []string{"wma"}, defaultAudio: "wma", muxer: "asf"},
+	"amr":  {audioOnly: true, audio: []string{"amr_nb"}, defaultAudio: "amr_nb", muxer: "amr", fixedAudio: []string{"-ar", "8000", "-ac", "1"}},
+	"m4r":  {audioOnly: true, audio: []string{"aac", "copy"}, defaultAudio: "aac", faststart: true, muxer: "ipod"},
+	"mp2":  {audioOnly: true, audio: []string{"mp2"}, defaultAudio: "mp2", muxer: "mp2"},
+	"ape":  {audioOnly: true, audio: []string{"ape"}, defaultAudio: "ape", muxer: "ape"},
+	"wv":   {audioOnly: true, audio: []string{"wavpack"}, defaultAudio: "wavpack", muxer: "wv"},
+	"mmf":  {audioOnly: true, audio: []string{"adpcm_yamaha"}, defaultAudio: "adpcm_yamaha", muxer: "mmf", fixedAudio: []string{"-ar", "22050", "-ac", "1"}},
+
+	"jpg":  {image: true, muxer: "image2", imageCodec: []string{"-c:v", "mjpeg", "-q:v", "2"}},
+	"png":  {image: true, muxer: "image2", imageCodec: []string{"-c:v", "png"}},
+	"webp": {image: true, muxer: "image2", imageCodec: []string{"-c:v", "libwebp", "-quality", "80"}},
+	"ico":  {image: true, muxer: "ico", imageCodec: []string{"-c:v", "png"}},
+	"bmp":  {image: true, muxer: "image2", imageCodec: []string{"-c:v", "bmp"}},
+	"tif":  {image: true, muxer: "image2", imageCodec: []string{"-c:v", "tiff", "-compression_algo", "lzw"}},
+	"tga":  {image: true, muxer: "image2", imageCodec: []string{"-c:v", "targa"}},
+}
+
+// containerOrder 是目标容器的固定顺序（错误提示、格式目录用）：视频、音频、图片，组内按契约 6.16.2 的表格顺序。
+var containerOrder = []string{
+	"mp4", "mkv", "mov", "webm", "avi", "flv", "gif", "wmv", "mpg", "vob", "3gp", "swf", "ogv",
+	"mp3", "m4a", "aac", "wav", "flac", "ogg", "opus", "wma", "amr", "m4r", "mp2", "ape", "wv", "mmf",
+	"jpg", "png", "webp", "ico", "bmp", "tif", "tga",
 }
 
 // ContainerNames 返回支持的目标容器（用于错误提示和测试）。
-func ContainerNames() []string {
-	return []string{"mp4", "mkv", "mov", "webm", "avi", "flv", "gif", "mp3", "aac", "m4a", "wav", "flac", "ogg", "opus"}
-}
+func ContainerNames() []string { return append([]string{}, containerOrder...) }
 
 // IsAudioContainer 判断容器是否是纯音频输出。
 func IsAudioContainer(c string) bool { return containers[c].audioOnly }
+
+// IsImageContainer 判断容器是否是图片输出（单帧，契约 6.16.5）。
+func IsImageContainer(c string) bool { return containers[c].image }
+
+// ContainerMuxer 返回容器对应的 muxer 名（-f 的值）；未知容器返回 ""。
+func ContainerMuxer(c string) string { return containers[c].muxer }
+
+// videoEncoders / audioEncoders 是 ConvertOptions 的编码取值对应的 CPU 编码器名（契约 6.16.2 / 6.16.3）。
+var videoEncoders = map[string]string{
+	"h264": "libx264", "h265": "libx265", "vp9": "libvpx-vp9", "mpeg4": "mpeg4", "mpeg2": "mpeg2video",
+	"wmv2": "wmv2", "flv1": "flv", "theora": "libtheora",
+}
+
+var audioEncoders = map[string]string{
+	"aac": "aac", "mp3": "libmp3lame", "opus": "libopus", "vorbis": "libvorbis", "flac": "flac", "pcm": "pcm_s16le",
+	"ac3": "ac3", "wma": "wmav2", "amr_nb": "libopencore_amrnb", "mp2": "mp2", "wavpack": "wavpack",
+	"adpcm_yamaha": "adpcm_yamaha", "ape": "ape",
+}
+
+// RequiredEncoders 返回这组参数实际要用的 muxer 和编码器名（不含 copy；硬件编码器不在这里，契约 6.16.3 / 6.16.6）。
+// 容器未知时 muxer 为 ""。
+func RequiredEncoders(o ConvertOptions) (muxer string, encoders []string) {
+	spec, ok := containers[o.Container]
+	if !ok {
+		return "", nil
+	}
+	muxer = spec.muxer
+	switch {
+	case spec.image:
+		return muxer, []string{spec.imageCodec[1]}
+	case o.Container == "gif":
+		return muxer, []string{"gif"}
+	}
+	if !spec.audioOnly {
+		if e := videoEncoders[o.VideoCodec]; e != "" {
+			encoders = append(encoders, e)
+		}
+	}
+	audio := o.AudioCodec
+	if audio == "" {
+		audio = spec.defaultAudio
+	}
+	if e := audioEncoders[audio]; e != "" {
+		encoders = append(encoders, e)
+	}
+	return muxer, encoders
+}
+
+// imageInputExts 是“图片输入”的扩展名（契约 6.16.5）：转图片时取第 0 帧。
+var imageInputExts = map[string]bool{
+	".jpg": true, ".jpeg": true, ".png": true, ".bmp": true, ".webp": true, ".tif": true, ".tiff": true,
+	".tga": true, ".ico": true, ".gif": true,
+}
+
+// IsImageInput 判断输入文件按扩展名是不是图片（契约 6.16.5）。
+func IsImageInput(p string) bool { return imageInputExts[strings.ToLower(filepath.Ext(p))] }
 
 func invalid(format string, a ...any) error {
 	return apperr.New(apperr.InvalidArgument, fmt.Sprintf(format, a...))
@@ -111,11 +200,11 @@ func ValidateConvertOptions(o ConvertOptions) error {
 	if !ok {
 		return invalid("不支持的输出格式 %q，可选：%s", o.Container, strings.Join(ContainerNames(), " "))
 	}
-	if !contains([]string{"", "copy", "h264", "h265", "vp9"}, o.VideoCodec) {
-		return invalid("不支持的视频编码 %q，可选：copy h264 h265 vp9", o.VideoCodec)
+	if o.VideoCodec != "" && o.VideoCodec != "copy" && videoEncoders[o.VideoCodec] == "" {
+		return invalid("不支持的视频编码 %q，可选：copy h264 h265 vp9 mpeg4 mpeg2 wmv2 flv1 theora", o.VideoCodec)
 	}
-	if !contains([]string{"", "none", "copy", "aac", "mp3", "opus", "vorbis", "flac", "pcm", "ac3"}, o.AudioCodec) {
-		return invalid("不支持的音频编码 %q，可选：copy aac mp3 opus vorbis flac pcm ac3 none", o.AudioCodec)
+	if o.AudioCodec != "" && o.AudioCodec != "none" && o.AudioCodec != "copy" && audioEncoders[o.AudioCodec] == "" {
+		return invalid("不支持的音频编码 %q，可选：copy aac mp3 opus vorbis flac pcm ac3 wma amr_nb mp2 wavpack adpcm_yamaha ape none", o.AudioCodec)
 	}
 	if o.Width < 0 || o.Height < 0 || o.Width > maxDimension || o.Height > maxDimension {
 		return invalid("分辨率必须在 0~%d 之间", maxDimension)
@@ -147,6 +236,16 @@ func ValidateConvertOptions(o ConvertOptions) error {
 		audio = spec.defaultAudio
 	}
 	switch {
+	case spec.image:
+		// 图片输出只允许宽高（契约 6.16.5）；ICO 另有 256 上限。
+		if o.TrimStart > 0 || o.TrimEnd > 0 || o.Fps > 0 || o.VideoBitrate > 0 || o.AudioBitrate > 0 || o.Crf > 0 ||
+			o.VideoCodec != "" || (o.AudioCodec != "" && o.AudioCodec != "none") {
+			return invalid("图片格式不能设置裁剪、帧率、码率或画质")
+		}
+		if o.Container == "ico" && (o.Width > 256 || o.Height > 256) {
+			return invalid("ICO 图标的宽和高不能超过 256")
+		}
+		return nil
 	case spec.audioOnly:
 		if o.AudioCodec == "none" {
 			return invalid("%s 是纯音频格式，不能去掉音轨", o.Container)
@@ -175,6 +274,9 @@ func ValidateConvertOptions(o ConvertOptions) error {
 			return invalid("视频和音频都被去掉了，没有可输出的内容")
 		}
 	}
+	if o.Crf > 0 && o.VideoCodec != "" && o.VideoCodec != "copy" && o.VideoCodec != "h264" && o.VideoCodec != "h265" && o.VideoCodec != "vp9" {
+		return invalid("%s 编码不支持 CRF，请改用码率", o.VideoCodec)
+	}
 	if o.Crf > 51 && (o.VideoCodec == "h264" || o.VideoCodec == "h265") {
 		return invalid("H.264 / H.265 的 CRF 必须在 0~51 之间")
 	}
@@ -197,10 +299,12 @@ func ValidateConvertOptions(o ConvertOptions) error {
 // defaultAudioBitrate 是没指定音频码率时各编码器使用的码率（bit/s），0 表示不使用 -b:a（VBR 质量档或无损）。
 func defaultAudioBitrate(codec string) int64 {
 	switch codec {
-	case "aac", "ac3":
+	case "aac", "ac3", "wma":
 		return 192_000
 	case "opus":
 		return 128_000
+	case "mp2":
+		return 224_000
 	}
 	return 0
 }
@@ -217,8 +321,8 @@ func PlanConvert(in, out string, o ConvertOptions, src ConvertSource) (ConvertPl
 // 其余（-c copy、VP9、GIF、纯音频、无视频、按目标大小的两遍编码）返回 ""，一律走 CPU（契约 9.7）。
 func ConvertHWCodec(o ConvertOptions) string {
 	spec, ok := containers[o.Container]
-	if !ok || spec.audioOnly || o.Container == "gif" || o.TargetSizeMB > 0 {
-		return ""
+	if !ok || spec.audioOnly || spec.image || o.Container == "gif" || o.Container == "3gp" || o.TargetSizeMB > 0 {
+		return "" // 3gp 固定 -profile:v baseline，一律 CPU（v0.24）
 	}
 	var c string
 	switch o.VideoCodec {
@@ -242,20 +346,16 @@ func ConvertEncoderName(o ConvertOptions) string {
 	if !ok || spec.audioOnly {
 		return ""
 	}
+	if spec.image {
+		return spec.imageCodec[1]
+	}
 	if o.Container == "gif" {
 		return "gif"
 	}
-	switch o.VideoCodec {
-	case "copy":
+	if o.VideoCodec == "copy" {
 		return "copy"
-	case "h264":
-		return "libx264"
-	case "h265":
-		return "libx265"
-	case "vp9":
-		return "libvpx-vp9"
 	}
-	return ""
+	return videoEncoders[o.VideoCodec]
 }
 
 // PlanConvertHW 同 PlanConvert，hw 非空（硬件编码器名，如 h264_nvenc）且 o 是 H.264 / H.265 重编码时，视频用该硬件编码器。
@@ -267,6 +367,9 @@ func PlanConvertHW(in, out string, o ConvertOptions, src ConvertSource, hw strin
 		return ConvertPlan{}, invalid("输入或输出路径为空")
 	}
 	spec := containers[o.Container]
+	if spec.image {
+		return planImage(in, out, o, src, spec, src.DurationSec > 0 && src.DurationSec < 1 || IsImageInput(in), src.DurationSec <= 0 && !IsImageInput(in))
+	}
 	audio := o.AudioCodec
 	if audio == "" {
 		audio = spec.defaultAudio
@@ -342,7 +445,16 @@ func PlanConvertHW(in, out string, o ConvertOptions, src ConvertSource, hw strin
 		hw = "" // copy / VP9 / GIF / 两遍编码 / 超出硬件尺寸：一律 CPU
 	}
 	vargs := videoArgs(o, videoBitrate, wantVideo, hw)
+	if wantVideo && o.Container == "3gp" && o.VideoCodec == "h264" {
+		vargs = append(vargs, "-profile:v", "baseline")
+	}
+	if o.Container == "amr" {
+		audioBitrate = 12200 // AMR-NB 固定 12.2 kbps，用户设的码率忽略（契约 6.16.2）
+	}
 	aargs := audioArgs(audio, audioBitrate, wantAudio, spec.audioOnly)
+	if wantAudio && audio != "copy" {
+		aargs = append(aargs, spec.fixedAudio...)
+	}
 
 	tail := []string{"-map_metadata", "0"}
 	if o.Container == "gif" {
@@ -353,6 +465,9 @@ func PlanConvertHW(in, out string, o ConvertOptions, src ConvertSource, hw strin
 	}
 	if o.VideoCodec == "copy" && o.TrimStart > 0 && wantVideo {
 		tail = append(tail, "-avoid_negative_ts", "make_zero")
+	}
+	if o.Container != "gif" && spec.muxer != "" {
+		tail = append(tail, "-f", spec.muxer)
 	}
 
 	a := append([]string{}, pre...)
@@ -418,7 +533,7 @@ func videoArgs(o ConvertOptions, bitrate int64, want bool, hw string) []string {
 		return []string{"-c:v", "copy"}
 	}
 	f, scaled := videoFilters(o)
-	if !scaled && (o.VideoCodec == "h264" || o.VideoCodec == "h265") {
+	if !scaled && o.VideoCodec != "vp9" {
 		f = append(f, "crop=trunc(iw/2)*2:trunc(ih/2)*2") // yuv420p 要求宽高为偶数
 	}
 	var a []string
@@ -473,8 +588,62 @@ func videoArgs(o ConvertOptions, bitrate int64, want bool, hw string) []string {
 			a = append(a, "-crf", strconv.Itoa(crf), "-b:v", "0") // 恒定质量模式必须 -b:v 0
 		}
 		a = append(a, "-pix_fmt", "yuv420p")
+	case "mpeg4", "mpeg2", "wmv2", "flv1", "theora":
+		// 这几种编码不支持 CRF：没设码率时用固定质量 -q:v（契约 6.16.2）。
+		enc := videoEncoders[o.VideoCodec]
+		q := map[string]string{"mpeg4": "4", "mpeg2": "3", "wmv2": "4", "flv1": "5", "theora": "7"}[o.VideoCodec]
+		a = append(a, "-c:v", enc)
+		if o.VideoCodec == "mpeg4" {
+			a = append(a, "-vtag", "xvid")
+		}
+		if bitrate > 0 {
+			a = append(a, "-b:v", strconv.FormatInt(bitrate, 10))
+		} else {
+			a = append(a, "-q:v", q)
+		}
+		a = append(a, "-pix_fmt", "yuv420p")
 	}
 	return a
+}
+
+// planImage 生成单帧图片输出（契约 6.16.5）：firstFrame=true 取第 0 帧（图片输入、视频不足 1 秒），
+// 否则 -ss 1；seekUnknown=true（时长未知的视频）时 Final 用 -ss 1、Fallback 用第 0 帧，调用方在没有产出时重试。
+func planImage(in, out string, o ConvertOptions, src ConvertSource, spec containerSpec, firstFrame, seekUnknown bool) (ConvertPlan, error) {
+	if in == "" || out == "" {
+		return ConvertPlan{}, invalid("输入或输出路径为空")
+	}
+	if !src.HasVideo {
+		return ConvertPlan{}, invalid("输入文件没有视频画面，无法转成 %s", o.Container)
+	}
+	build := func(seek bool) []string {
+		a := []string{"-y"}
+		if seek {
+			a = append(a, "-ss", "1")
+		}
+		a = append(a, ImagePatternArgs(in)...)
+		a = append(a, "-i", "file:"+in, "-map", "0:"+strconv.Itoa(src.VideoIndex), "-frames:v", "1", "-an", "-sn", "-dn")
+		f, scaled := videoFilters(ConvertOptions{Width: o.Width, Height: o.Height})
+		if o.Container == "ico" {
+			if !scaled {
+				f = append(f, "scale='min(256,iw)':'min(256,ih)':force_original_aspect_ratio=decrease")
+			}
+			f = append(f, "format=rgba")
+		}
+		if len(f) > 0 {
+			a = append(a, "-vf", strings.Join(f, ","))
+		}
+		a = append(a, spec.imageCodec...)
+		if spec.muxer == "image2" {
+			a = append(a, "-update", "1")
+		}
+		a = append(a, "-f", spec.muxer, "file:"+out)
+		return a
+	}
+	plan := ConvertPlan{Final: build(!firstFrame)}
+	if seekUnknown {
+		plan.Fallback = build(false)
+	}
+	return plan, nil
 }
 
 func audioArgs(codec string, bitrate int64, want, audioOnly bool) []string {

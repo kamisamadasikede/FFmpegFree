@@ -142,7 +142,7 @@ func (m *Manager) UnhideInTaskCenter(ids []string) error {
 	}
 	notHidden := false
 	for _, t := range changed {
-		m.emit(EventStatus, StatusEvent{ID: t.ID, Version: t.Version, Status: t.Status, HiddenInTaskCenter: &notHidden})
+		m.emit(EventStatus, StatusEvent{ID: t.ID, Version: t.Version, Status: t.Status, HiddenInTaskCenter: &notHidden, Reconverting: rcFlag(t)})
 	}
 	return nil
 }
@@ -165,6 +165,9 @@ type TaskPathCheck struct {
 	Found        bool   `json:"found"`
 	InputExists  bool   `json:"inputExists"`
 	OutputExists bool   `json:"outputExists"`
+	// 以下两项是契约 v0.24.1（6.17.1，取代 v0.24 草稿的 canReconvert）：判断规则同 ConvertService.Reconvert 的同步校验（不校验参数）。
+	ReconvertMode  string `json:"reconvertMode"`  // "replace" | "regenerate" | ""（不能重转，原因见 reconvertBlock）
+	ReconvertBlock string `json:"reconvertBlock"` // reconvertMode="" 时：invalid_state | copy_not_ready | source_missing | output_moved；否则 ""
 }
 
 // CheckPaths 检查任务登记的输入 / 输出文件现在是否还在（契约 v0.23）：1~500 个，结果与入参一一对应；
@@ -187,9 +190,10 @@ func (m *Manager) CheckPaths(ids []string) ([]TaskPathCheck, error) {
 		if len(t.InputPaths) > 0 && t.InputPaths[0] != "" {
 			out[i].InputExists = RegularExists(t.InputPaths[0], true)
 		}
-		if t.Status == StatusSucceeded && t.OutputPath != "" && filepath.IsAbs(t.OutputPath) {
+		if (t.Status == StatusSucceeded || t.Reconverting) && t.OutputPath != "" && filepath.IsAbs(t.OutputPath) {
 			out[i].OutputExists = RegularExists(t.OutputPath, false)
 		}
+		out[i].ReconvertMode, out[i].ReconvertBlock = m.reconvertCheck(t)
 	}
 	return out, nil
 }

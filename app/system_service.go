@@ -112,14 +112,31 @@ func (s *SystemService) PickFiles(filter system.FileFilter, multiple bool) ([]st
 	return system.CleanPickedPaths(picked), nil // 取消时得到 []
 }
 
-// GetSettings 返回设置。目前只有 ffmpegPath 和 ffmpegPromptDismissed，其余字段后续补充。
+// GetSettings 返回设置。v0.24：defaultOutputDir / uploadsDir 是自定义目录，"" = 默认目录（<base>/output、<base>/uploads）。
 func (s *SystemService) GetSettings() (system.Settings, error) {
 	return s.mgr.GetSettings(context.Background())
 }
 
-// UpdateSettings 保存设置。ffmpegPath 变化时会先校验，失败返回 INVALID_ARGUMENT 且整体不生效。
+// UpdateSettings 保存设置。ffmpegPath 变化时会先校验；defaultOutputDir / uploadsDir 按 SetStorageDirs 的规则校验；
+// 失败返回 INVALID_ARGUMENT 且整体不生效。
 func (s *SystemService) UpdateSettings(st system.Settings) error {
 	return s.mgr.UpdateSettings(context.Background(), st)
+}
+
+// GetStorageDirs 返回实际输出 / 上传目录、默认目录、是否回退和当前是否可用（契约 v0.24，6.15.2）。
+func (s *SystemService) GetStorageDirs() (system.StorageDirs, error) {
+	return s.mgr.GetStorageDirs(context.Background())
+}
+
+// SetStorageDirs 校验并保存两个目录（"" = 默认目录），任一失败整体不生效（INVALID_ARGUMENT）；返回新的 StorageDirs。
+// 改目录只影响之后的新文件，已有文件不搬。
+func (s *SystemService) SetStorageDirs(req system.StorageDirsUpdate) (system.StorageDirs, error) {
+	return s.mgr.SetStorageDirs(context.Background(), req)
+}
+
+// OpenStorageFolder 在系统文件管理器里打开实际输出（kind="output"）或上传（kind="uploads"）目录本身。
+func (s *SystemService) OpenStorageFolder(kind string) error {
+	return s.mgr.OpenStorageFolder(context.Background(), kind)
 }
 
 // ListEncoderDevices 返回可选的编码设备（契约 9.6）：第一项永远是 CPU，其后是检测到并试跑确认过的显卡。

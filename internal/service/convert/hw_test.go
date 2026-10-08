@@ -59,7 +59,7 @@ func TestRunnerEncoderSelection(t *testing.T) {
 		if c.o.Container == "mp3" {
 			s2.HasVideo = false
 		}
-		r := s.newFFmpegRunner(bin, "/in/a.mov", "/out/a.mp4", c.o, 10, s2)
+		r := s.newFFmpegRunner(bin, "/in/a.mov", "/out/a.mp4", false, c.o, 10, s2)
 		info := r.EncoderInfo()
 		if info.Encoder != c.wantEnc || info.Device != c.wantDev || info.HWFallback != c.wantFB || info.HWFallbackReason != c.wantReason {
 			t.Errorf("%s: info=%+v", c.name, info)
@@ -85,7 +85,7 @@ func TestRunnerEncoderSelection(t *testing.T) {
 		}
 	}
 	// 没有解析器 = 一律 CPU。
-	r := (&Service{}).newFFmpegRunner(bin, "/in/a.mov", "/out/a.mp4", h264, 10, src)
+	r := (&Service{}).newFFmpegRunner(bin, "/in/a.mov", "/out/a.mp4", false, h264, 10, src)
 	if r.EncoderInfo() != (ffmpeg.EncoderInfo{Encoder: "libx264", Device: "cpu"}) || r.HWEncoder != "" {
 		t.Errorf("无解析器: %+v", r.EncoderInfo())
 	}

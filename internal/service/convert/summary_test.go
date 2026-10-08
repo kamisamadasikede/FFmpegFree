@@ -79,8 +79,8 @@ func TestVideoCodecDisplayName(t *testing.T) {
 		"av1": "AV1", "libaom-av1": "AV1", "libsvtav1": "AV1", "av1_nvenc": "AV1", "libvpx-vp9": "VP9", "vp9_vaapi": "VP9",
 		// 其他常见
 		"mpeg4": "MPEG-4", "dnxhd": "DNxHD", "mjpeg": "MJPEG",
-		// 未知值：可读的通用写法，不是原样大写
-		"foocodec": "Foocodec", "libfoo": "Foo",
+		// 未知值：去掉 lib 后全部大写（v0.24.1）；mpeg2 是 ConvertOptions 的取值，映射到 mpeg2video
+		"foocodec": "FOOCODEC", "libfoo": "FOO", "mpeg2": "MPEG-2",
 	}
 	for in, want := range cases {
 		if got := VideoCodecDisplayName(in); got != want {
@@ -102,5 +102,18 @@ func TestVideoCodecDisplayName(t *testing.T) {
 				t.Errorf("%s: %q", p.ID, got)
 			}
 		}
+	}
+}
+
+// v0.24：视频容器去掉画面仍写“无画面”；图片容器不写编码段。
+func TestParamsSummaryNoVideoAndImage(t *testing.T) {
+	if got := ParamsSummary(ffmpeg.ConvertOptions{Container: "mp4", AudioCodec: "aac"}); got != "无画面" {
+		t.Fatalf("mp4 无画面: %q", got)
+	}
+	if got := ParamsSummary(ffmpeg.ConvertOptions{Container: "png"}); got != "默认参数" {
+		t.Fatalf("png: %q", got)
+	}
+	if got := ParamsSummary(ffmpeg.ConvertOptions{Container: "jpg", Width: 1280}); got != "720p" {
+		t.Fatalf("jpg 720p: %q", got)
 	}
 }
