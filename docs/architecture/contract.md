@@ -1764,8 +1764,10 @@ type ConvertSource struct {             // v0.24 在 6.14.2 的基础上新增 6
    }
    ```
 
+   `reason` 让前端分开两类文案（UI 设计定）：`copying` = **还在复制**（“将跳过 k 个还在复制的文件”）；`copy_failed` / `copy_canceled` = **复制失败或已取消**（前端用另一条文案，两者可以合并显示）。
+
    - 先按 `copyState` 把选中的行分开：`ready` 和 `none` 是**就绪**；`copying`（`reason="copying"`）、`failed`（`"copy_failed"`）、`canceled`（`"copy_canceled"`）进 `skipped`。
-   - **至少有一行就绪**：只对就绪的行走 6.9 的全部规则（先整体校验再提交、一个不通过整体失败、不回滚已提交的），成功时返回 `{tasks, skipped}`，**跳过不是错误**。前端提交前可以按 `copyState` 自己算出 k，确认框显示“**将跳过 k 个还在复制的文件**”（复制失败 / 已取消的同样计入，文案由前端按 reason 细分）；提交后以返回的 `skipped` 为准。被跳过的行不更新 `lastActivityAt`。
+   - **至少有一行就绪**：只对就绪的行走 6.9 的全部规则（先整体校验再提交、一个不通过整体失败、不回滚已提交的），成功时返回 `{tasks, skipped}`，**跳过不是错误**。前端提交前可以按 `copyState` 自己算出 k，还在复制的显示“**将跳过 k 个还在复制的文件**”，复制失败 / 已取消的按 `reason` 用另一条文案；提交后以返回的 `skipped` 为准。被跳过的行不更新 `lastActivityAt`。
    - **一行都没就绪**：整体 `TASK_CONFLICT`，什么都不提交：只要有一行是 `copying`，message `文件还在复制，请等复制完成后再转换`、`detail` 首行 `reason=copying`；否则（全是失败 / 已取消）message `文件复制没有完成，请先重试复制`、`detail` 首行 `reason=copy_failed`；第二行是第一个被跳过的 `sourceId=<id>`。
    - `ready` 但 `storedPath` 不在（用户删了 `uploads` 里的文件）**算就绪**、不跳过，按 6.9 的“文件不存在”处理（`NOT_FOUND`，`detail` 第一行是路径，整体不提交），前端提示后可以“重试”复制（`RetryCopy` 接受这种情况）。
    - **`Reconvert(taskId)`**（单条）：读这一行**当前**的读取路径（不再照抄原记录 `params.input`），其余照抄不变；副本没就绪时直接 `TASK_CONFLICT`（`reason=copying` / `copy_failed`，规则同上，没有“跳过”）。
@@ -1918,7 +1920,7 @@ type FormatPreset struct {
 | `wv` | WV | 无损, WavPack | `wavpack` | — | wv / wavpack | wavpack |
 | `mmf` | MMF | 手机铃声, 彩铃 | `adpcm_yamaha` | 固定 `-ar 22050 -ac 1`（mmf 只支持单声道和 4 / 8 / 11.025 / 22.05 / 44.1 kHz，实测立体声和 48 kHz 都失败） | mmf / adpcm_yamaha | adpcm_yamaha |
 
-**图片**（`category=image`；单帧规则见 6.16.5）
+**图片**（`category=image`；单帧规则见 6.16.5）：输入是视频时，把**第 1 秒那一帧**存成图片（视频不足 1 秒时取第一帧）；输入是图片时直接转格式。不出序列帧。
 
 | extension | displayName | aliases | 默认参数 | 固定参数 / 说明 | 检测用 muxer / encoder |
 |---|---|---|---|---|---|
