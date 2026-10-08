@@ -41,10 +41,11 @@ func (e *env) addSource(t *testing.T, p string) ConvertSource {
 
 func (e *env) submitSources(t *testing.T, req ConvertSubmitRequest) []task.Task {
 	t.Helper()
-	ts, err := e.svc.SubmitSources(context.Background(), req)
+	res, err := e.svc.SubmitSources(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
+	ts := res.Tasks
 	for i := range ts {
 		ts[i] = e.wait(t, ts[i].ID)
 	}
@@ -276,15 +277,15 @@ func TestDeleteSourceAndReconvert(t *testing.T) {
 	if r1.OutputPath != filepath.Join(out, "a.mkv") || r1.Result == nil || r1.Result.SizeBytes <= 0 || r1.Result.DurationSec <= 0 {
 		t.Fatalf("%+v %+v", r1, r1.Result)
 	}
-	// 又转一次：新 id、带空格的序号、快照照抄
-	r2, err := e.svc.Reconvert(ctx, r1.ID)
-	if err != nil || r2.ID == r1.ID || r2.OutputPath != filepath.Join(out, "a (1).mkv") || r2.SourceID != src.SourceID {
+	// v0.24：原地重转，id 和输出路径不变，快照照抄
+	r2, err := e.svc.Reconvert(ctx, ReconvertRequest{TaskID: r1.ID})
+	if err != nil || r2.ID != r1.ID || r2.OutputPath != filepath.Join(out, "a.mkv") || r2.SourceID != src.SourceID || !r2.Reconverting {
 		t.Fatalf("%+v %v", r2, err)
 	}
-	if s1, s2 := snapshot(t, r1), snapshot(t, r2); s1.ParamsSummary != s2.ParamsSummary || s1.PresetID != s2.PresetID {
+	r2 = e.wait(t, r2.ID)
+	if s1, s2 := snapshot(t, r1), snapshot(t, r2); s1.ParamsSummary != s2.ParamsSummary || s1.PresetID != s2.PresetID || r2.Reconverting {
 		t.Fatalf("%+v %+v", s1, s2)
 	}
-	r2 = e.wait(t, r2.ID)
 	// 非 succeeded 不能再转一次
 	e.tm.Cancel(r2.ID)
 	failedOut := filepath.Join(e.dir, "blocker")
@@ -293,10 +294,10 @@ func TestDeleteSourceAndReconvert(t *testing.T) {
 	if bad.Status != task.StatusFailed {
 		t.Fatalf("%+v", bad)
 	}
-	if _, err := e.svc.Reconvert(ctx, bad.ID); !apperr.Is(err, apperr.TaskConflict) {
+	if _, err := e.svc.Reconvert(ctx, ReconvertRequest{TaskID: bad.ID}); detailOf(err) != "reason=invalid_state" {
 		t.Fatalf("%v", err)
 	}
-	if _, err := e.svc.Reconvert(ctx, "nope"); detailOf(err) != "reason=record" {
+	if _, err := e.svc.Reconvert(ctx, ReconvertRequest{TaskID: "nope"}); detailOf(err) != "reason=record" {
 		t.Fatalf("%v", err)
 	}
 	// DeleteRecords：只删一条
@@ -309,14 +310,14 @@ func TestDeleteSourceAndReconvert(t *testing.T) {
 	}
 	// DeleteSource：删掉剩下的记录后删行；源文件不碰
 	res, err = e.svc.DeleteSource(ctx, src.SourceID, false)
-	if err != nil || len(res.DeletedTaskIDs) != 2 || len(res.DeletedSourceIDs) != 1 || res.DeletedSourceIDs[0] != src.SourceID {
+	if err != nil || len(res.DeletedTaskIDs) != 1 || len(res.DeletedSourceIDs) != 1 || res.DeletedSourceIDs[0] != src.SourceID {
 		t.Fatalf("%+v %v", res, err)
 	}
 	if _, err := os.Stat(in); err != nil {
 		t.Fatal("源文件永远不删")
 	}
-	if _, err := os.Stat(r2.OutputPath); err != nil {
-		t.Fatal("deleteOutputs=false 不删输出")
+	if _, err := os.Stat(r2.OutputPath); err == nil {
+		t.Fatal("重转是同一条记录，DeleteRecords(deleteOutputs=true) 已删掉输出")
 	}
 	_, err = e.svc.GetSource(ctx, src.SourceID)
 	wantReason(t, err, apperr.NotFound, "reason=record")

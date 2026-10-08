@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/id"
 	"FFmpegFree/internal/paths"
 )
@@ -21,17 +22,58 @@ type ConvertSource struct {
 	AddedAt        int64      `json:"addedAt"`
 	LastActivityAt int64      `json:"lastActivityAt"`
 	Media          *MediaInfo `json:"media,omitempty"`
+	// 以下是 v0.24 的副本字段（契约 6.15.3），来自 copy_id 指向的 convert_copies 行。
+	OriginalPath string           `json:"originalPath"`        // 原文件的绝对路径（= path）
+	StoredPath   string           `json:"storedPath"`          // 副本的绝对路径；copyState=none 时为 ""
+	CopyState    string           `json:"copyState"`           // none | copying | ready | failed | canceled
+	CopiedBytes  int64            `json:"copiedBytes"`         // 已复制的字节数
+	TotalBytes   int64            `json:"totalBytes"`          // 副本应有的大小
+	CopyError    *apperr.AppError `json:"copyError,omitempty"` // 只有 failed 有
+	// CopyID 是当前引用的副本（只在后端用）。
+	CopyID string `json:"-"`
 }
 
-const convertSourceColumns = `id, path, name, added_at, last_activity_at`
+// 副本状态（契约 6.15.3）。
+const (
+	CopyNone     = "none"
+	CopyCopying  = "copying"
+	CopyReady    = "ready"
+	CopyFailed   = "failed"
+	CopyCanceled = "canceled"
+)
+
+// convertSourceFrom 是读源文件行时的 FROM（带副本的 LEFT JOIN）。
+const convertSourceFrom = ` FROM convert_sources s LEFT JOIN convert_copies c ON c.id = s.copy_id`
+
+const convertSourceColumns = `s.id, s.path, s.name, s.added_at, s.last_activity_at,
+	s.copy_id, c.stored_path, c.state, c.copied_bytes, c.total_bytes, c.error`
 
 func scanConvertSource(r rowScanner) (ConvertSource, error) {
 	var s ConvertSource
-	if err := r.Scan(&s.SourceID, &s.Path, &s.Name, &s.AddedAt, &s.LastActivityAt); err != nil {
+	var copyID, stored, state, errJSON sql.NullString
+	var copied, total sql.NullInt64
+	if err := r.Scan(&s.SourceID, &s.Path, &s.Name, &s.AddedAt, &s.LastActivityAt,
+		&copyID, &stored, &state, &copied, &total, &errJSON); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ConvertSource{}, err
 		}
 		return ConvertSource{}, fmt.Errorf("读取源文件行失败: %w", err)
+	}
+	s.OriginalPath = s.Path
+	s.CopyState = CopyNone
+	if copyID.Valid && state.Valid {
+		s.CopyID = copyID.String
+		s.StoredPath, s.CopyState = stored.String, state.String
+		s.CopiedBytes, s.TotalBytes = copied.Int64, total.Int64
+		if s.CopyState == CopyReady {
+			s.CopiedBytes = s.TotalBytes
+		}
+		if s.CopyState == CopyFailed && errJSON.Valid && errJSON.String != "" {
+			var ae apperr.AppError
+			if json.Unmarshal([]byte(errJSON.String), &ae) == nil {
+				s.CopyError = &ae
+			}
+		}
 	}
 	return s, nil
 }
@@ -44,7 +86,7 @@ func (s *Store) UpsertConvertSource(ctx context.Context, path, key string, now i
 		return ConvertSource{}, false, err
 	}
 	defer tx.Rollback()
-	src, err := scanConvertSource(tx.QueryRowContext(ctx, `SELECT `+convertSourceColumns+` FROM convert_sources WHERE path_key = ?`, key))
+	src, err := scanConvertSource(tx.QueryRowContext(ctx, `SELECT `+convertSourceColumns+convertSourceFrom+` WHERE s.path_key = ?`, key))
 	existed := err == nil
 	switch {
 	case existed:
@@ -54,7 +96,7 @@ func (s *Store) UpsertConvertSource(ctx context.Context, path, key string, now i
 		src.LastActivityAt = now
 	case errors.Is(err, sql.ErrNoRows):
 		name := filepath.Base(path)
-		src = ConvertSource{SourceID: id.New(), Path: path, Name: name, AddedAt: now, LastActivityAt: now}
+		src = ConvertSource{SourceID: id.New(), Path: path, OriginalPath: path, Name: name, AddedAt: now, LastActivityAt: now, CopyState: CopyNone}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO convert_sources (id, path, path_key, name, name_key, added_at, last_activity_at)
 			VALUES (?,?,?,?,?,?,?)`, src.SourceID, path, key, name, NameKey(path), now, now); err != nil {
 			return ConvertSource{}, false, fmt.Errorf("新建源文件行失败: %w", err)
@@ -67,7 +109,7 @@ func (s *Store) UpsertConvertSource(ctx context.Context, path, key string, now i
 
 // GetConvertSource 按 id 读取源文件行，不存在返回 sql.ErrNoRows。
 func (s *Store) GetConvertSource(ctx context.Context, id string) (ConvertSource, error) {
-	return scanConvertSource(s.db.QueryRowContext(ctx, `SELECT `+convertSourceColumns+` FROM convert_sources WHERE id = ?`, id))
+	return scanConvertSource(s.db.QueryRowContext(ctx, `SELECT `+convertSourceColumns+convertSourceFrom+` WHERE s.id = ?`, id))
 }
 
 // TouchConvertSources 把这些行的 last_activity_at 设为 now（提交转换 / 再转一次时）。
@@ -80,13 +122,31 @@ func (s *Store) TouchConvertSources(ctx context.Context, ids []string, now int64
 	return nil
 }
 
-// DeleteConvertSource 删除源文件行（只删行，不碰文件）。
-func (s *Store) DeleteConvertSource(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM convert_sources WHERE id = ?`, id)
+// DeleteConvertSource 删除源文件行（只删行，不碰文件）；同一个事务里把它引用的副本 ref_count − 1（契约 6.15.7 第 3 条），
+// 返回减过之后的副本行（没有副本时 nil），ref_count 为 0 时由调用方删副本文件和副本行。
+func (s *Store) DeleteConvertSource(ctx context.Context, id string) (*ConvertCopy, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("删除源文件行失败: %w", err)
+		return nil, err
 	}
-	return nil
+	defer tx.Rollback()
+	var copyID sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT copy_id FROM convert_sources WHERE id = ?`, id).Scan(&copyID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("读取源文件行失败: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM convert_sources WHERE id = ?`, id); err != nil {
+		return nil, fmt.Errorf("删除源文件行失败: %w", err)
+	}
+	var released *ConvertCopy
+	if copyID.Valid && copyID.String != "" {
+		if released, err = derefCopyTx(ctx, tx, copyID.String); err != nil {
+			return nil, err
+		}
+	}
+	return released, tx.Commit()
 }
 
 // 源文件行的状态筛选（契约 v0.23.1，ConvertSourceFilter.status）。
@@ -97,9 +157,12 @@ const (
 )
 
 // sourceStatusSQL 是各筛选值对应的 EXISTS 子查询（走 idx_tasks_source_status）。
+// v0.24（6.15.6）：active 另算副本正在复制的行，failed 另算副本复制失败的行。
 var sourceStatusSQL = map[string]string{
-	SourceStatusActive: `EXISTS (SELECT 1 FROM tasks t WHERE t.source_id = s.id AND t.type = 'convert' AND t.status IN ('queued','running'))`,
-	SourceStatusFailed: `EXISTS (SELECT 1 FROM tasks t WHERE t.source_id = s.id AND t.type = 'convert' AND t.status IN ('failed','interrupted'))`,
+	SourceStatusActive: `(EXISTS (SELECT 1 FROM tasks t WHERE t.source_id = s.id AND t.type = 'convert' AND t.status IN ('queued','running'))
+		OR EXISTS (SELECT 1 FROM convert_copies cc WHERE cc.id = s.copy_id AND cc.state = 'copying'))`,
+	SourceStatusFailed: `(EXISTS (SELECT 1 FROM tasks t WHERE t.source_id = s.id AND t.type = 'convert' AND t.status IN ('failed','interrupted'))
+		OR EXISTS (SELECT 1 FROM convert_copies cc WHERE cc.id = s.copy_id AND cc.state = 'failed'))`,
 }
 
 // ValidSourceStatus 判断 status 是不是 ConvertSourceFilter.status 允许的值。
@@ -134,7 +197,7 @@ func (s *Store) ListConvertSources(ctx context.Context, keyword, status string, 
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM convert_sources s`+where, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("统计源文件行失败: %w", err)
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT s.id, s.path, s.name, s.added_at, s.last_activity_at FROM convert_sources s`+where+
+	rows, err := s.db.QueryContext(ctx, `SELECT `+convertSourceColumns+convertSourceFrom+where+
 		` ORDER BY s.last_activity_at DESC, s.id DESC LIMIT ? OFFSET ?`, append(args, limit, offset)...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("查询源文件行失败: %w", err)

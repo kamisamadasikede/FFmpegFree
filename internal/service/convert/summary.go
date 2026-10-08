@@ -28,7 +28,11 @@ var widthOnlyLabels = map[int]string{3840: "2160p", 2560: "1440p", 1920: "1080p"
 func ParamsSummary(o ffmpeg.ConvertOptions) string {
 	var segs []string
 	audio := ffmpeg.IsAudioContainer(o.Container)
-	if !audio && o.Container != "gif" {
+	image := ffmpeg.IsImageContainer(o.Container)
+	switch {
+	case image:
+		segs = append(segs, "单帧") // 图片输出（契约 v0.24，6.16.2）：只有“单帧”和尺寸段
+	case !audio && o.Container != "gif":
 		segs = append(segs, VideoCodecDisplayName(o.VideoCodec))
 	}
 	switch {
@@ -78,6 +82,8 @@ var videoCodecNames = map[string]string{
 	"h264": "H.264",
 	"h265": "H.265",
 	"vp9":  "VP9",
+	// v0.24 新增的 ConvertOptions.VideoCodec 取值（mpeg4 / wmv2 / flv1 / theora 在下面的编码器名里）
+	"mpeg2": "MPEG-2",
 	// 常见的 ffmpeg 编码器 / 编码名
 	"libx264":    "H.264",
 	"avc":        "H.264",

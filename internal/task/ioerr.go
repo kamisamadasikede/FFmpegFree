@@ -21,3 +21,6 @@ func outputIOError(msg string, err error) error {
 	}
 	return apperr.Wrap(apperr.IOError, msg, err)
 }
+
+// IsDiskFull 判断 err 是不是“磁盘空间不足”（副本复制用，契约 6.15.4）。
+func IsDiskFull(err error) bool { return isDiskFull(err) }
