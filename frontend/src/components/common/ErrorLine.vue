@@ -1,14 +1,22 @@
 <template>
   <div
     class="ff-error-line"
-    :class="[`tone-${shownTone}`, { compact }]"
+    :class="[`tone-${shownTone}`, { compact, arow: actionsRow }]"
     :role="announce ? 'alert' : 'group'"
     :aria-label="announce ? undefined : `${shownTitle || shownDescription}`"
   >
     <FIcon name="warn" :size="16" />
     <div class="body">
       <b v-if="shownTitle">{{ shownTitle }}</b>{{ shownDescription }}<span v-if="compact && showCode" class="code">{{ resolved.code }}</span>
-      <template v-if="!compact">
+      <div v-if="actionsRow && !compact && (hasActions || showCode)" class="arow-line">
+        <span class="acts">
+          <button v-if="retryVisible" type="button" class="ff-link" :class="{ busy }" :disabled="busy" :aria-busy="busy" @click="onRetry">重试</button>
+          <button v-if="showChange" type="button" class="ff-link" :class="{ busy }" :disabled="busy" :aria-busy="busy" @click="onChange">更换输出位置</button>
+          <button v-if="showLog && !canceled" type="button" class="ff-link" @click="emit('viewLog')">查看日志</button>
+        </span>
+        <span v-if="showCode" class="code">{{ resolved.code }}</span>
+      </div>
+      <template v-else-if="!compact">
         <button v-if="retryVisible" type="button" class="ff-link" :class="{ busy }" :disabled="busy" :aria-busy="busy" @click="onRetry">重试</button>
         <button v-if="showChange" type="button" class="ff-link" :class="{ busy }" :disabled="busy" :aria-busy="busy" @click="onChange">更换输出位置</button>
         <button v-if="showLog && !canceled" type="button" class="ff-link" @click="emit('viewLog')">查看日志</button>
@@ -46,6 +54,8 @@ const props = withDefaults(
     announce?: boolean
     /** 横排紧凑版：标题、说明、错误码在一行，操作靠右 */
     compact?: boolean
+    /** 卡片版（转换页记录卡，设计截图 05）：标题和说明一行；下一行左边“重试 · 查看日志”，右边错误码 */
+    actionsRow?: boolean
     /** danger 红色（失败）；interrupted 灰橙色（已中断） */
     tone?: 'danger' | 'interrupted' | 'neutral'
     /** 没有专属文案的错误码的标题，默认「转换失败」；非任务错误（如列表加载失败）可改成别的，但不会是「出错了」 */
@@ -58,7 +68,7 @@ const props = withDefaults(
     /** 重试 / 更换输出位置正在处理：这两个链接禁用（aria-busy），忽略点击直到调用返回 */
     busy?: boolean
   }>(),
-  { busy: false, showLog: true, showRetry: false, announce: false, compact: false, tone: 'danger', hideCode: false },
+  { busy: false, showLog: true, showRetry: false, announce: false, compact: false, actionsRow: false, tone: 'danger', hideCode: false },
 )
 const emit = defineEmits<{ viewLog: []; retry: []; changeOutput: [] }>()
 
@@ -84,6 +94,7 @@ const retryVisible = computed(() => props.showRetry && !props.hideRetry && !canc
 const shownTitle = computed(() => props.title ?? (!resolved.value.known && props.fallbackTitle ? props.fallbackTitle : resolved.value.title))
 const shownDescription = computed(() => props.description ?? resolved.value.description)
 const showCode = computed(() => !props.hideCode)
+const hasActions = computed(() => retryVisible.value || showChange.value || (props.showLog && !canceled.value))
 </script>
 
 <style scoped>
@@ -142,6 +153,35 @@ b {
   font-family: var(--ff-font-mono);
   font-size: 12px;
   color: var(--ff-text-2);
+}
+/* 卡片版：标题和说明同一行，操作左、错误码右 */
+.arow {
+  gap: 8px;
+  line-height: 1.5;
+}
+.arow b {
+  display: inline;
+  margin-right: 6px;
+}
+.arow-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+.arow-line .acts {
+  display: flex;
+  gap: 12px;
+}
+.arow-line .ff-link {
+  margin-left: 0;
+}
+.arow-line .code {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 /* 横排紧凑版 */
 .compact {

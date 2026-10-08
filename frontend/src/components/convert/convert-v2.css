@@ -397,9 +397,27 @@ html.reduce-motion .cv-kid.focus{animation-timing-function:steps(1,end)}
 .cv-log pre{margin:0;max-height:360px;overflow:auto;font-family:var(--ff-font-mono);font-size:12px;line-height:1.5;background:var(--ff-bg-hover);border-radius:6px;padding:10px;white-space:pre-wrap;word-break:break-all;color:var(--ff-text-1)}
 .cv-search input::-webkit-search-cancel-button{display:none}
 
-/* 状态筛选（v0.23.1 ListSources status）：搜索时置灰；筛选结果为空 */
-.cv-filter.off{opacity:.5}
-.cv-filter button:disabled{cursor:not-allowed}
+/* 状态筛选（ListSources / SearchSources status）：筛选结果为空 */
 .cv-empty-filter{display:flex;flex-direction:column;align-items:center;gap:8px;padding:40px 16px;text-align:center;color:var(--ff-text-3)}
 .cv-empty-filter b{font-size:13px;font-weight:500;color:var(--ff-text-2)}
 .cv-empty-filter .ff-link{font-size:12px}
+
+/* 预审第 5 / 8 条：面板不要全局 .panel 的 16px 内边距（栏头 48px、标题在面板内 16px 处）；
+   页面外边距对齐稿子（1280：16px 24px 20px；1024：12px 16px 16px），抵消 .app-content 的 20px 24px 24px */
+.cv2 .panel{padding:0}
+.cv2:not(.cv-layer){margin:-4px 0;height:calc(100% + 8px)}
+.cv2.w1024:not(.cv-layer){margin:-8px -8px;height:calc(100% + 16px)}
+/* 预审第 9 条：标题下紧接元信息（全局 h3 有外边距） */
+.cv-pvh h3{margin:0;line-height:24px}
+.cv-pvh .sub{margin-top:4px}
+/* 删除 / 移除确认：源文件行的文件行（截图 13 / 18）；未勾选时图标圈中性灰 */
+.cv-dlg .big.neutral{background:var(--ff-bg-hover);color:var(--ff-text-2)}
+.cv-delfile{display:flex;align-items:center;gap:6px;min-width:0;margin-top:-4px;font-size:12px;color:var(--ff-text-2);white-space:nowrap}
+.cv-delfile svg{flex:none;color:var(--ff-text-3)}
+.cv-delfile span{overflow:hidden;text-overflow:ellipsis;min-width:0;color:var(--ff-text-1)}
+.cv-delfile i{font-style:normal;color:var(--ff-text-3)}
+.cv-delfile em{font-style:normal;flex:none}
+/* 删除 / 移除后的 toast（ElMessage 挂在 body 上，不在 .cv2 里）：文件名过长省略，悬停看全名 */
+.cv-toast-box .cv-toast{display:inline-flex;flex-wrap:wrap;align-items:baseline;max-width:520px}
+.cv-toast-box .cv-toast-nm{display:inline-block;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+.cv-toast-box .cv-toast-act{margin-left:8px;padding:0;border:0;background:transparent;font:inherit;color:var(--ff-primary-text);cursor:pointer}

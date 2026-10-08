@@ -145,13 +145,21 @@ const SCENES: Record<MockScene, SceneDef> = {
 }
 
 
+/**
+ * paramsSummary 里的编码名（v0.23.2，与后端一致）：H.265 / ProRes 的写法；显卡编码器写基础编码（h264_nvenc → H.264、hevc_qsv → H.265）。
+ */
+function summaryCodec(v: string): string {
+  const base = v.toLowerCase().replace(/_(nvenc|qsv|amf|videotoolbox|vaapi|mf)$/, '')
+  const M: Record<string, string> = { h264: 'H.264', libx264: 'H.264', h265: 'H.265', hevc: 'H.265', libx265: 'H.265', vp9: 'VP9', 'libvpx-vp9': 'VP9', av1: 'AV1', prores: 'ProRes', prores_ks: 'ProRes', copy: '原画质', '': '无画面' }
+  return M[base] ?? base.charAt(0).toUpperCase() + base.slice(1)
+}
 /** paramsSummary：后端提交时生成（6.14.5），这里照规则模拟 */
 const AUDIO_CONT = ['mp3', 'aac', 'wav', 'flac', 'm4a', 'ogg', 'opus']
 export function mockParamsSummary(o: Partial<RecordOptions>): string {
   const c = (o.container ?? '').toLowerCase()
   const seg: string[] = [] // v0.23.1：摘要不再带容器名（界面写“预设名 · 摘要”）
   const audio = AUDIO_CONT.includes(c)
-  if (!audio && c !== 'gif') seg.push(({ h264: 'H.264', h265: 'H.265', vp9: 'VP9', copy: '原画质', '': '无画面' } as Record<string, string>)[o.videoCodec ?? ''] ?? (o.videoCodec ?? '').toUpperCase())
+  if (!audio && c !== 'gif') seg.push(summaryCodec(o.videoCodec ?? ''))
   // 只给宽的预设按常见宽度写成 p 值（后端同规则）：3840/2560/1920/1280/854 → 2160p/1440p/1080p/720p/480p，其它写“宽 N”
   const P_OF_WIDTH: Record<number, string> = { 3840: '2160p', 2560: '1440p', 1920: '1080p', 1280: '720p', 854: '480p' }
   if (o.height && !o.width) seg.push(`${o.height}p`)
@@ -315,13 +323,16 @@ export async function AddSources(paths: string[]): Promise<AddSourceResult[]> {
 }
 /** v0.23.1 status：行里有任一记录满足（EXISTS）；内嵌记录和 recordCount 不过滤 */
 const STATUS_OF: Record<string, readonly TaskStatus[] | null> = { '': null, active: ['queued', 'running'], failed: ['failed', 'interrupted'] }
+function statusMatcher(status: string | undefined): (m: MSource) => boolean {
+  const st = status ?? ''
+  if (!Object.prototype.hasOwnProperty.call(STATUS_OF, st)) throw new AppError('INVALID_ARGUMENT', '筛选条件不正确', `status=${st}`)
+  const want = STATUS_OF[st]
+  return (m) => !want || recordsOf(m.src.sourceId).some((t) => want.includes(t.status))
+}
 export async function ListSources(f: ConvertSourceFilter): Promise<ConvertSourcePage> {
   ensure()
   const { limit, recordLimit, offset } = clampFilter(f)
-  const st = f.status ?? ''
-  if (!Object.prototype.hasOwnProperty.call(STATUS_OF, st)) throw new AppError('INVALID_ARGUMENT', '筛选条件不正确', `status=${st}`)
-  const want = STATUS_OF[st]
-  const all = byActivity().filter((m) => !want || recordsOf(m.src.sourceId).some((t) => want.includes(t.status)))
+  const all = byActivity().filter(statusMatcher(f.status))
   return { items: all.slice(offset, offset + limit).map((m) => entryOf(m, recordLimit)), total: all.length }
 }
 /** v0.23.1：单个源文件行（和 ListSources 的一项同形） */
@@ -340,8 +351,9 @@ export async function SearchSources(f: ConvertSearchFilter): Promise<ConvertSour
   const k = f.keyword.trim().toLowerCase()
   if (!k || k.length > 100) throw new AppError('INVALID_ARGUMENT', '搜索关键字不正确')
   const { limit, recordLimit, offset } = clampFilter(f)
+  const match = statusMatcher(f.status) // v0.23.2：和 ListSources 同样的 status
   const hits: ConvertSourceEntry[] = []
-  for (const m of byActivity()) {
+  for (const m of byActivity().filter(match)) {
     const nameMatched = m.src.name.toLowerCase().includes(k)
     const matchedTaskIds = recordsOf(m.src.sourceId).filter((t) => baseOf(t.outputPath).toLowerCase().includes(k)).map((t) => t.id)
     if (nameMatched || matchedTaskIds.length) hits.push({ ...entryOf(m, recordLimit), nameMatched, matchedTaskIds })

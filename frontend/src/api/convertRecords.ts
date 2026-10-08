@@ -8,6 +8,7 @@
 import { CONVERT_V2_BACKEND_READY } from '@/api/flags'
 import { hasWailsBackend } from '@/services/wails'
 import { probeFiles, type ProbeResult } from '@/api/media'
+import { revealInFolder } from '@/api/system'
 import type { TaskError, TaskStatus } from '@/stores/tasks'
 import type { store as goStore } from '../../wailsjs/go/models'
 import * as real from '@/api/convertRecordsBinding'
@@ -86,8 +87,8 @@ export interface ConvertSourceFilter {
   /** v0.23.1，可选，缺省 = ''（全部） */
   status?: ConvertSourceStatus
 }
-/** SearchSources 没有 status 参数 */
-export interface ConvertSearchFilter extends Omit<ConvertSourceFilter, 'status'> {
+/** SearchSources 也带同样的 status（v0.23.2，语义与 ListSources 相同） */
+export interface ConvertSearchFilter extends ConvertSourceFilter {
   keyword: string
 }
 export interface ConvertSourcePage {
@@ -271,9 +272,13 @@ export const checkPaths = (taskIds: string[]): Promise<TaskPathCheck[]> => api()
 export const getPreviewURL = (taskId: string, which: 'input' | 'output'): Promise<PreviewURL> => api().GetPreviewURL(taskId, which)
 /** 用系统默认程序打开；没有关联程序 NOT_FOUND（reason=no_app，界面提示“没有找到能打开这个文件的程序”） */
 export const openWithSystem = (taskId: string, which: 'input' | 'output'): Promise<void> => api().OpenWithSystem(taskId, which)
-/** 在文件夹中显示某条记录的输出：#82 没有按任务 id 的接口，沿用 SystemService.RevealInFolder(outputPath)（6.8）；模拟时不调用系统 */
 /** v0.23.1：完成记录“打开所在文件夹”按 id（转换页不再调 RevealInFolder(path)） */
 export const revealRecord = (taskId: string): Promise<void> => api().RevealRecord(taskId)
+/**
+ * 删除后有文件没删成（DeleteResult.failures）时 toast 里的“打开所在文件夹”：记录已经删了，没有 id 可用，
+ * 用 failures[0].path 调旧的 SystemService.RevealInFolder（v0.23.2 架构师批准的唯一例外）。模拟时不调用系统。
+ */
+export const revealDeleteFailure = (path: string): Promise<void> => (hasWailsBackend() ? revealInFolder(path) : (console.info('[模拟] 在文件夹中显示', path), Promise.resolve()))
 /** v0.23.1：取单个源文件行 */
 export const getSource = (sourceId: string): Promise<ConvertSourceEntry> => api().GetSource(sourceId)
 

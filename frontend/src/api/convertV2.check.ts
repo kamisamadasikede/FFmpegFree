@@ -4,7 +4,10 @@ import { recordOf, parseParams } from './convertRecords'
 import * as mock from './convertRecordsMock'
 import { cancelSimTask, getSimTask, hideSimFinished, listSimFinished, retrySimTask, unhideSimTasks } from './sim'
 import { onSimEvent } from '@/services/wails'
-import { recordParamsText, recordLine, deleteResultText, conflictReason, CONFLICT_NO_AUDIO, CONFLICT_NO_VIDEO, CONFLICT_TITLE, formatRecordTime } from '@/utils/convertText'
+import { createPinia, setActivePinia } from 'pinia'
+import { useTaskStore } from '@/stores/tasks'
+import { recordParamsText, recordLine, deleteResultText, deleteFailureText, sourceRemovedText, sourceRemovedParts, conflictReason, CONFLICT_NO_AUDIO, CONFLICT_NO_VIDEO, CONFLICT_TITLE, formatRecordTime } from '@/utils/convertText'
+import { codecName } from '@/utils/mediaText'
 
 type Eq = (name: string, got: unknown, want: unknown) => void
 async function rejects(p: Promise<unknown>): Promise<AppError | null> {
@@ -32,7 +35,11 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
   eq('摘要：其它宽度“宽 N”；宽高都有“宽×高”；只给高“高p”', [S({ container: 'mp4', videoCodec: 'h264', width: 1000 }), S({ container: 'mp4', videoCodec: 'h264', width: 1920, height: 800 }), S({ container: 'mp4', videoCodec: 'h264', height: 1080, videoBitrate: 8_000_000 })], ['H.264 · 宽 1000', 'H.264 · 1920×800', 'H.264 · 1080p · 8.0 Mbps'])
   eq('摘要：不含容器名；音频写码率', [S({ container: 'mp3', audioCodec: 'mp3', audioBitrate: 192000 }), /MP4|WEBM|MP3/.test(S({ container: 'webm', videoCodec: 'vp9' }))], ['192 kbps', false])
   // ---- 删除结果 / 冲突 ----
-  eq('删除结果：按原因汇总', deleteResultText({ deletedTaskIds: ['a', 'b'], failures: [{ reason: 'in_use', message: '' }, { reason: 'in_use', message: '' }, { reason: 'permission', message: '' }] }), '已删除 2 条记录。有 2 个文件正在被使用，没有删除。有 1 个文件没有权限删除。')
+  eq('删除结果：有文件没删成 → 追加定稿句（k = failures 数）', deleteResultText({ deletedTaskIds: ['a', 'b'], failures: [{ reason: 'in_use', message: '' }, { reason: 'in_use', message: '' }, { reason: 'permission', message: '' }] }), '已删除 2 条记录。有 3 个文件没能删除，可能正在被其他程序使用，请关闭后手动删除。')
+  eq('删除失败句：still_running 单独一句；没有失败为空', [deleteFailureText([{ reason: 'still_running' }]), deleteFailureText([])], ['有 1 条记录还没停下来，没有删除。', ''])
+  eq('移除 toast：有记录 / 删了输出 / 没有记录（不出现“0 条记录”）', [sourceRemovedText('launch-4k.mov', 3, 0), sourceRemovedText('launch-4k.mov', 3, 1), sourceRemovedText('新文件.mov', 0, 0)], ['已从列表移除“launch-4k.mov”和 3 条记录。', '已从列表移除“launch-4k.mov”和 3 条记录，并删除了 1 个文件。', '已从列表移除“新文件.mov”。'])
+  eq('移除 toast：文件名单独一段（页面放进可省略、带 title 的 span）', sourceRemovedParts('a.mov', 2, 0), { before: '已从列表移除“', name: 'a.mov', after: '”和 2 条记录。' })
+  eq('编码显示名：H.265 / ProRes，不出现 HEVC / PRORES；其余首字母大写', ['hevc', 'h265', 'prores', 'h264', 'av1', 'pcm_s16le', 'cinepak', 'copy'].map((c) => codecName(c)), ['H.265', 'H.265', 'ProRes', 'H.264', 'AV1', 'PCM', 'Cinepak', '原编码'])
   eq('删除结果：没有失败', deleteResultText({ deletedTaskIds: ['a'], failures: [] }), '已删除 1 条记录。')
   eq('冲突：无画面配视频 / 无声配音频 / 读取中不判断 / 兼容', [conflictReason({ hasAudio: true }, true, 'mp4'), conflictReason({ hasVideo: true }, true, 'mp3'), conflictReason({}, false, 'mp4'), conflictReason({ hasVideo: true, hasAudio: true }, true, 'mp4')], [CONFLICT_NO_VIDEO, CONFLICT_NO_AUDIO, null, null])
   eq('冲突文案定稿（不显示错误码）', [CONFLICT_TITLE, CONFLICT_NO_VIDEO, CONFLICT_NO_AUDIO], ['这个文件不能用当前预设', '没有画面，不能转成视频格式。请换一个音频预设，或取消勾选。', '没有声音，不能转成音频格式。请换一个视频预设，或取消勾选。'])
@@ -78,11 +85,17 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
     const bad = await rejects(mock.ListSources({ limit: 50, offset: 0, recordLimit: 20, status: 'canceled' as never }))
     eq('status 其它值 → INVALID_ARGUMENT', bad?.code, 'INVALID_ARGUMENT')
     eq('status 失败 = failed / interrupted（模拟层定义）', /failed: \['failed', 'interrupted'\]/.test(readSrc('src/api/convertRecordsMock.ts')), true)
-    eq('绑定层：ListSources 总是带 status（缺省 \'\'）；SearchSources 没有 status', [/'ListSources', \{ \.\.\.f, status: f\.status \?\? '' \}/.test(readSrc('src/api/convertRecordsBinding.ts')), /interface ConvertSearchFilter extends Omit<ConvertSourceFilter, 'status'>/.test(readSrc('src/api/convertRecords.ts'))], [true, true])
+    eq('绑定层：ListSources / SearchSources 都总是带 status（缺省 \'\'）', [/'ListSources', \{ \.\.\.f, status: f\.status \?\? '' \}/.test(readSrc('src/api/convertRecordsBinding.ts')), /'SearchSources', \{ \.\.\.f, status: f\.status \?\? '' \}/.test(readSrc('src/api/convertRecordsBinding.ts')), /interface ConvertSearchFilter extends ConvertSourceFilter \{/.test(readSrc('src/api/convertRecords.ts'))], [true, true, true])
     const st = readSrc('src/stores/convertRecords.ts')
-    eq('store：筛选走 ListSources(status)；搜索时不筛选（开始搜索回到全部，setFilter 忽略）', [/listSources\(\{[^}]*status \}\)/.test(st), /if \(keyword\.value\.trim\(\) \|\| searchHits\.value\) return/.test(st), /if \(filter\.value !== 'all'\) clearFilter\(\)/.test(st)], [true, true, true])
+    eq('store：筛选走 ListSources(status)；搜索带同样的 status（v0.23.2），有关键字时切筛选重新搜索', [/listSources\(\{[^}]*status \}\)/.test(st), /searchSources\(\{[^}]*, status \}\)/.test(st), /if \(kw\) return search\(keyword\.value\)/.test(st)], [true, true, true])
+    eq('store：筛选“失败”时行默认展开（ListSources / SearchSources 两处）', (st.match(/status === 'failed'\) for \(const id of order\) if \(!known\.has\(id\)\) foldSession\[id\] = true|sh\.status === 'failed'\) foldSession/g) ?? []).length, 2)
     const pg = readSrc('src/views/ConvertPage.vue')
-    eq('页面：没有“已加载的记录里…”提示，筛选为空时是普通空状态', [/已加载的记录里/.test(pg), pg.includes('没有进行中的转换'), pg.includes('没有失败的转换')], [false, true, true])
+    eq('页面：没有“已加载的记录里…”提示，筛选为空时是普通空状态（设计 §四 11 文案）；搜索时筛选不置灰', [/已加载的记录里/.test(pg), pg.includes('没有进行中的记录'), pg.includes('没有失败的记录'), /filterOff|搜索时显示全部状态/.test(pg)], [false, true, true, false])
+    // v0.23.2：SearchSources 的 status 与 ListSources 同语义
+    mock.resetConvertMock('mixed')
+    const sr = async (keyword: string, status: '' | 'active' | 'failed') => (await mock.SearchSources({ keyword, limit: 50, offset: 0, recordLimit: 20, status })).items.map((e) => e.source.sourceId.replace('mock-src-', ''))
+    eq('SearchSources status：关键字 + 失败 / 进行中 / 全部', [await sr('mov', ''), await sr('mov', 'failed'), await sr('mov', 'active'), await sr('采访', 'failed')], [['launch', 'wed'], ['launch'], ['launch'], []])
+    eq('SearchSources status 其它值 → INVALID_ARGUMENT', (await rejects(mock.SearchSources({ keyword: 'a', limit: 50, offset: 0, recordLimit: 20, status: 'x' as never })))?.code, 'INVALID_ARGUMENT')
   }
   // ---- 原地重试（含已取消）、隐藏 / 取消隐藏 ----
   mock.resetConvertMock('canceled')
@@ -96,6 +109,17 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
     const visibleBefore = listSimFinished(false).map((x) => x.id)
     const n = hideSimFinished()
     eq('隐藏已结束：已结束的都隐藏，记录仍在（GetSource 照常返回）', [n > 0, listSimFinished(false).some((x) => x.id === 'simcv-launchWebmOk'), (await mock.GetSource('mock-src-launch')).records.some((r) => r.id === 'simcv-launchWebmOk')], [true, false, true])
+    {
+      setActivePinia(createPinia())
+      const ts = useTaskStore()
+      await ts.loadStats()
+      const off3 = [ts.finishedTotal, ts.failedTotal, ts.todayDone]
+      ts.historyFilter.includeHidden = true
+      await ts.loadStats()
+      const on3 = [ts.finishedTotal, ts.failedTotal, ts.todayDone]
+      ts.historyFilter.includeHidden = false
+      eq('任务中心计数：隐藏后页签计数不含已隐藏；“显示已隐藏”打开时含（用 total）；今日完成不受开关影响', [off3[0] < on3[0], on3[0] >= listSimFinished(true).filter((x) => x.type === 'convert').length, off3[2] === on3[2], on3[2] > 0], [true, true, true, true])
+    }
     const un: { id: string; hiddenInTaskCenter?: boolean }[] = []
     const off2 = onSimEvent<{ id: string; hiddenInTaskCenter?: boolean }>('task:status', (p) => un.push(p))
     unhideSimTasks(['simcv-launchWebmOk'])
@@ -123,10 +147,16 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
     const st = readSrc('src/stores/convertRecords.ts')
     eq('源文件行删除定稿：标题 / 按钮提示 / 菜单项“从列表移除”；没有旧说法', [/SOURCE_REMOVE_TITLE = '从列表移除这个文件和它的全部记录'/.test(st), /SOURCE_REMOVE_LABEL = '从列表移除'/.test(st), /:aria-label="SOURCE_REMOVE_LABEL" :title="SOURCE_REMOVE_LABEL"/.test(row), /\{\{ SOURCE_REMOVE_LABEL \}\}<\/button>/.test(row), /删除源文件和全部记录/.test(row + del + st + page)], [true, true, true, true, false])
     eq('源文件行确认按钮：普通“移除”，勾选后红色“移除并删除文件”', [/withOutput\.value \? '移除并删除文件' : '移除'/.test(del), /a\.value\?\.kind === 'record' \|\| withOutput\.value \? 'danger' : 'pri'/.test(del)], [true, true])
+    eq('移除弹窗：标题下文件行（名称 · n 条转换记录）；“移除时会先取消它”；未勾选图标中性灰', [/class="cv-delfile"/.test(del) && /\{\{ a\.count \}\} 条转换记录/.test(del), /'移除' : '删除'\}时会先取消它/.test(del), /:class="\{ neutral: !danger \}"/.test(del)], [true, true, true])
+    eq('toast：普通 4 秒、警告 8 秒；有失败时带“打开所在文件夹”（RevealInFolder(failures[0].path)）', [/TOAST_MS = 4000/.test(page), /WARN_TOAST_MS = 8000/.test(page), page.includes('打开所在文件夹'), /revealInFolder\(path\)/.test(readSrc('src/api/convertRecords.ts'))], [true, true, true, true])
   }
   eq('三处第 2 行都走 recordLine / recordParamsText', [/recordLine\(/.test(kid), /recordLine\(/.test(pv)], [true, true])
   eq('预览：快捷键空格 / ←→ 5 秒 / F / Esc；token 404 重新取一次地址', [/' '|'Space'/.test(pv), /ArrowLeft/.test(pv) && /ArrowRight/.test(pv), /'f'|'F'/.test(pv), /Escape/.test(pv), /404/.test(pv)], [true, true, true, true, true])
   eq('记录用 RevealRecord（不再用 RevealInFolder(path)）', [/revealRecord\(/.test(readSrc('src/stores/convertRecords.ts')), /RevealInFolder|revealInFolder/.test(readSrc('src/api/convertRecordsBinding.ts'))], [true, false])
+  eq('第 2 行 / 预览页脚只用快照 presetName，不读当前预设卡片', [/presetLabel|presetTitle/.test(kid + row + pv)], [false])
+  eq('失败卡片：ErrorLine 卡片版（操作左、错误码右，同一行）', [(kid.match(/actions-row/g) ?? []).length, /class="arow-line"/.test(readSrc('src/components/common/ErrorLine.vue'))], [2, true])
+  eq('任务中心：固定列宽，操作列按内容估算，任务名优先；窄窗口“演示”只在 title', [/\.tbl \{ table-layout: fixed; \}/.test(tc), /'--ops-w': opsWidth \+ 'px'/.test(tc), /\.simtag \{ display: none; \}/.test(tc)], [true, true, true])
+  eq('任务中心：页签计数跟“显示已隐藏”（failedTotal / finishedTotal），失败卡片用 failedCard', [/tasks\.failedCard/.test(tc), /void loadStats\(\) \/\/ 页签计数跟着开关/.test(readSrc('src/stores/tasks.ts'))], [true, true])
   let oldGone = true
   try { readSrc('src/stores/convert.ts'); oldGone = false } catch { /* 已删除 */ }
   try { readSrc('src/components/convert/ConvertFileRow.vue'); oldGone = false } catch { /* 已删除 */ }

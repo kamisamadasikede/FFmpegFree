@@ -114,8 +114,7 @@ const footMeta = computed(() => {
   }
   const r = rec.value
   if (!r) return { text: '', title: '' }
-  const preset = r.presetId ? cv.presets.find((x) => x.id === r.presetId) : undefined
-  return recordLine({ ...r, presetName: (preset && cv.presetTitle(preset)) || r.presetName }, [`${formatRecordTime(r.createdAt)} 转换`], [usedDeviceText(r, devices.value)])
+  return recordLine(r, [`${formatRecordTime(r.createdAt)} 转换`], [usedDeviceText(r, devices.value)]) // 只用快照，和任务中心一致
 })
 const cover = computed(() => {
   const t = rec.value ? cv.recThumbs.get(rec.value.id) : src.value?.thumb
@@ -422,7 +421,7 @@ onBeforeUnmount(() => {
               <template #overlay>
                 <audio v-if="playable && url && kind === 'audio' && !isMock" ref="mediaEl" class="cv-ph-hidden" :src="url.url" preload="metadata" @loadedmetadata="onMeta" @timeupdate="onTime" @ended="playing = false" @error="onMediaError" />
                 <div v-if="kind === 'audio' && stage === 'ready'" class="cv-astage solo" style="position: absolute; inset: 0">
-                  <div class="cv-cover" :style="cover ? { background: `center / cover no-repeat url(${cover})` } : undefined"><FIcon v-if="!cover" name="music" /></div>
+                  <div class="cv-cover" :style="cover ? { background: `center / cover no-repeat url(${cover})` } : undefined"><FIcon v-if="!cover" name="music" :size="40" /></div>
                 </div>
                 <span v-if="isRecord && stage === 'ready' && kind !== 'audio'" class="cv-chip">结果 · {{ FMT }}</span>
                 <div v-if="stage === 'loading'" class="cv-loading">正在加载…</div>

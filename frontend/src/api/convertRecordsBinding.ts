@@ -51,7 +51,7 @@ export const ListSourceRecords = async (sourceId: string, limit: number, offset:
   const p = await svc<TaskPage>('ListSourceRecords', sourceId, limit, offset)
   return { items: arr(p?.items), total: p?.total ?? 0 }
 }
-export const SearchSources = async (f: ConvertSearchFilter) => page(await svc<ConvertSourcePage>('SearchSources', f))
+export const SearchSources = async (f: ConvertSearchFilter) => page(await svc<ConvertSourcePage>('SearchSources', { ...f, status: f.status ?? '' }))
 export const CheckSources = async (ids: string[]) => arr(await svc<SourcePathCheck[]>('CheckSources', ids))
 export const PreviewOutputName = (sourceId: string, opts: RecordOptions, outputDir: string) => svc<string>('PreviewOutputName', sourceId, opts, outputDir)
 export const SubmitSources = async (req: ConvertSubmitRequest) => arr(await svc<V023Task[]>('SubmitSources', req))

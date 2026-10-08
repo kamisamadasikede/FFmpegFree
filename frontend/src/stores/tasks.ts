@@ -373,6 +373,7 @@ export const useTaskStore = defineStore('tasks', () => {
   function setShowHidden(on: boolean) {
     historyFilter.includeHidden = on
     historyFilter.page = 1
+    void loadStats() // 页签计数跟着开关
     return loadHistory()
   }
   function setHistoryPage(page: number) {
@@ -381,34 +382,63 @@ export const useTaskStore = defineStore('tasks', () => {
   }
 
   // ---- 统计条（原型 4 格）：运行中 / 排队中 来自活动列表；今日完成 / 失败 来自 List ----
+  // 页签计数（历史 / 失败）跟着当前列表走：“显示已隐藏”打开时含已隐藏的（设计 §7.3：数字用带 includeHidden 的 List 的 total）。
+  // 统计卡片不受开关影响：“今日完成”总是含已隐藏的（今天完成后又被隐藏的仍算今天完成）；“失败”卡片不含已隐藏的（隐藏 = 已经处理过）。
   const todayDone = ref(0)
   const todayDoneCapped = ref(false) // List 单页最多 200，今日完成超过时显示 200+
-  const failedTotal = ref(0)
-  const finishedTotal = ref(0) // 全部已结束任务数（历史页签角标）
+  const failedTotal = ref(0) // “失败”页签计数（跟开关）
+  const failedCard = ref(0) // “失败”统计卡片（不含已隐藏）
+  const finishedTotal = ref(0) // 全部已结束任务数（历史页签角标，跟开关）
   let statsLoaded = false
+  /** 接口层模拟任务（浏览器预览 / 模拟转换记录）的计数 */
+  function simCounts(includeHidden: boolean, midnight: number) {
+    const all = listSimFinished(includeHidden).map((t) => normalizeTask(t as unknown as goStore.Task)).filter((t) => isKnownTaskType(t.type))
+    const failed = (t: TaskItem) => t.status === 'failed' || t.status === 'interrupted'
+    return { finished: all.length, failed: all.filter(failed).length, today: all.filter((t) => t.status === 'succeeded' && t.finishedAt >= midnight).length }
+  }
+  /** v0.23 后端用带 includeHidden 的 List；旧后端没有隐藏的概念，用原来的 List */
+  function listFor(statuses: TaskStatus[], limit: number, includeHidden: boolean) {
+    return convertV2IsReal()
+      ? listTasks({ types: [], statuses, limit, offset: 0, includeHidden })
+      : call(TaskBinding.List(goStore.TaskFilter.createFrom({ types: [], statuses, limit, offset: 0 })))
+  }
   async function loadStats() {
     statsLoaded = true
+    const midnight = new Date().setHours(0, 0, 0, 0)
+    const withHidden = historyFilter.includeHidden
     if (previewMode) {
-      const midnight = new Date().setHours(0, 0, 0, 0)
-      const shown = previewHistory.value.filter((t) => !t.hiddenInTaskCenter)
-      todayDone.value = shown.filter((t) => t.status === 'succeeded' && t.finishedAt >= midnight).length
-      failedTotal.value = shown.filter((t) => t.status === 'failed' || t.status === 'interrupted').length
+      const shown = previewHistory.value.filter((t) => withHidden || !t.hiddenInTaskCenter)
+      const failed = (t: TaskItem) => t.status === 'failed' || t.status === 'interrupted'
+      todayDone.value = previewHistory.value.filter((t) => t.status === 'succeeded' && t.finishedAt >= midnight).length
+      failedTotal.value = shown.filter(failed).length
+      failedCard.value = previewHistory.value.filter((t) => !t.hiddenInTaskCenter && failed(t)).length
       finishedTotal.value = shown.length
       return
     }
-    if (!hasWailsBackend()) return
+    const simTab = simCounts(withHidden, midnight)
+    const simAll = simCounts(true, midnight)
+    const simShown = simCounts(false, midnight)
+    if (!hasWailsBackend()) {
+      finishedTotal.value = simTab.finished
+      failedTotal.value = simTab.failed
+      failedCard.value = simShown.failed
+      todayDone.value = simAll.today
+      todayDoneCapped.value = false
+      return
+    }
     try {
-      const midnight = new Date().setHours(0, 0, 0, 0)
-      const [done, failed, all] = await Promise.all([
-        call(TaskBinding.List(goStore.TaskFilter.createFrom({ types: [], statuses: ['succeeded'], limit: 200, offset: 0 }))),
-        call(TaskBinding.List(goStore.TaskFilter.createFrom({ types: [], statuses: ['failed', 'interrupted'], limit: 1, offset: 0 }))),
-        call(TaskBinding.List(goStore.TaskFilter.createFrom({ types: [], statuses: TERMINAL, limit: 1, offset: 0 }))),
+      const [done, failedTab, failedShown, all] = await Promise.all([
+        listFor(['succeeded'], 200, true),
+        listFor(['failed', 'interrupted'], 1, withHidden),
+        listFor(['failed', 'interrupted'], 1, false),
+        listFor(TERMINAL, 1, withHidden),
       ])
-      finishedTotal.value = all.total ?? 0
+      finishedTotal.value = (all.total ?? 0) + simTab.finished
       const items = done.items ?? []
-      todayDone.value = items.filter((t) => t.finishedAt >= midnight).length
+      todayDone.value = items.filter((t) => t.finishedAt >= midnight).length + simAll.today
       todayDoneCapped.value = items.length >= 200 && items.every((t) => t.finishedAt >= midnight)
-      failedTotal.value = failed.total ?? 0
+      failedTotal.value = (failedTab.total ?? 0) + simTab.failed
+      failedCard.value = (failedShown.total ?? 0) + simShown.failed
     } catch (e) {
       console.error('load task stats failed', e)
     }
@@ -837,7 +867,7 @@ export const useTaskStore = defineStore('tasks', () => {
     // 状态
     ready, loadError, active, runningCount, hasRunning, runningOnly, queuedCount, liveActiveCount, queuePosition,
     history, historyTotal, historyLoading, historyLoaded, historyError, historyFilter,
-    todayDone, todayDoneCapped, failedTotal, finishedTotal,
+    todayDone, todayDoneCapped, failedTotal, failedCard, finishedTotal,
     // 方法
     init, refreshActive, loadHistory, setHistoryGroup, setHistoryTypes, setHistoryPage, setShowHidden, loadStats,
     cancel, retry, isBusy, exclusive, remove, hideFinished, unhide, getLog, track, fetchFinal, taskById, seedFinal, wasRemoved,

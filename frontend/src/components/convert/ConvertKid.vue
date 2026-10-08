@@ -22,7 +22,6 @@ const props = defineProps<{
   /** 任务中心“在转换页查看”定位到这条（闪一下） */
   focused?: boolean
   /** 预设名按预设卡的标题显示（重名时带编码，如“MP4 · H.264”）；预设已不在时用快照里的名字 */
-  presetLabel?: string
 }>()
 const emit = defineEmits<{ preview: []; cancel: []; retry: []; reveal: []; remove: []; log: []; changeOutput: [] }>()
 
@@ -41,8 +40,8 @@ const canPreview = computed(() => done.value && !gone.value)
 const device = computed(() => usedDeviceText(k.value, devices.value))
 const deviceFb = computed(() => device.value === ENCODER_DEVICE_CPU_FALLBACK_NAME)
 const fallback = computed(() => showFallbackNotice(k.value) && (done.value || k.value.status === 'running'))
-/** 第 2 行：时间 · 预设名（悬停 = 参数摘要）/ 时间 · 自定义 · 摘要（§3.2） */
-const line2 = computed(() => recordLine({ ...k.value, presetName: props.presetLabel || k.value.presetName }, [formatRecordTime(k.value.createdAt)]))
+/** 第 2 行：时间 · 预设名（悬停 = 参数摘要）/ 时间 · 自定义 · 摘要（§3.2）。只用快照 presetName，不读当前预设卡片 */
+const line2 = computed(() => recordLine(k.value, [formatRecordTime(k.value.createdAt)]))
 /** 完成：大小 · 时长 · 分辨率（音频是码率；1024 不显示）· 设备 */
 const result = computed(() => {
   const r = k.value.result
@@ -128,6 +127,7 @@ const tag = computed(() => {
         <ErrorLine
           v-if="k.error"
           :tone="k.status === 'interrupted' ? 'interrupted' : 'danger'"
+          actions-row
           :code="k.error.code"
           :message="k.error.message"
           :detail="k.error.detail"
@@ -140,6 +140,7 @@ const tag = computed(() => {
         <ErrorLine
           v-else
           tone="interrupted"
+          actions-row
           code="INTERRUPTED"
           title=""
           description="应用退出时这个转换被中断，可以重试。"

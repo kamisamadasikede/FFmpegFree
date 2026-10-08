@@ -18,10 +18,6 @@ const emit = defineEmits<{
 }>()
 const cv = useConvertRecordsStore()
 const tasks = useTaskStore()
-function presetLabel(id?: string): string {
-  const p = id ? cv.presets.find((x) => x.id === id) : undefined
-  return p ? cv.presetTitle(p) : ''
-}
 
 const src = computed(() => props.p.src)
 const gone = computed(() => src.value.exists === false)
@@ -170,7 +166,6 @@ async function revealKid(id: string) {
         :busy="tasks.isBusy(k.id)"
         :hit="!!p.hits?.has(k.id)"
         :focused="focusId === k.id"
-        :preset-label="presetLabel(k.presetId)"
         @preview="emit('preview', 'record', k.id)"
         @cancel="cv.cancel(k.id)"
         @retry="cv.retry(k.id)"

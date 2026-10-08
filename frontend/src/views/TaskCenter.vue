@@ -9,7 +9,7 @@
       </div>
       <div class="card stat"><small>排队中</small><b>{{ tasks.queuedCount }}</b></div>
       <div class="card stat"><small>今日完成</small><b style="color: var(--ff-success)">{{ tasks.todayDone }}{{ tasks.todayDoneCapped ? '+' : '' }}</b></div>
-      <div class="card stat"><small>失败</small><b style="color: var(--ff-danger)">{{ tasks.failedTotal }}</b></div>
+      <div class="card stat"><small>失败</small><b style="color: var(--ff-danger)">{{ tasks.failedCard }}</b></div>
     </div>
 
     <div class="card main">
@@ -60,14 +60,14 @@
           <span>{{ emptyText.hint }}</span>
         </div>
 
-        <table v-else class="tbl" aria-label="任务列表">
+        <table v-else class="tbl" aria-label="任务列表" :style="{ '--ops-w': opsWidth + 'px' }">
           <thead>
             <tr>
               <th scope="col" class="c-task">任务</th>
-              <th scope="col" style="width: 8%">类型</th>
-              <th scope="col" style="width: 11%">状态</th>
+              <th scope="col" class="c-type">类型</th>
+              <th scope="col" class="c-st">状态</th>
               <th scope="col" class="c-prog">进度</th>
-              <th scope="col">开始时间</th>
+              <th scope="col" class="c-when">开始时间</th>
               <th scope="col" class="opsh"><span class="sr-only">操作</span></th>
             </tr>
           </thead>
@@ -102,7 +102,7 @@
                 <td class="when tc-dim" :class="{ dim: !t.startedAt && !isTerminal(t.status) }">{{ formatStart(startTime(t)) }}</td>
                 <td>
                   <div class="ops">
-                    <button v-if="canRetry(t)" type="button" class="btn sm" :disabled="tasks.isBusy(t.id)" :aria-busy="tasks.isBusy(t.id)" @click="doRetry(t)"><FIcon name="retry" />重试</button>
+                    <button v-if="canRetry(t)" type="button" class="btn sm tc-rt" title="重试" aria-label="重试" :disabled="tasks.isBusy(t.id)" :aria-busy="tasks.isBusy(t.id)" @click="doRetry(t)"><FIcon name="retry" /><span class="lbl">重试</span></button>
                     <button v-if="isHidden(t)" type="button" class="btn sm tc-unh" :title="`在任务中心重新显示 ${t.title}`" @click="act(() => tasks.unhide([t.id]))"><FIcon name="eye" />取消隐藏</button>
                     <button v-if="t.status === 'queued' || t.status === 'running'" type="button" class="iconbtn" :title="`取消 ${t.title}`" :aria-label="`取消 ${t.title}`" @click="act(() => tasks.cancel(t.id))"><FIcon name="x" /></button>
                     <button v-if="t.status === 'succeeded' && t.outputPath" type="button" class="iconbtn" :title="`打开输出 ${t.title}`" :aria-label="`打开输出 ${t.title}`" @click="openOutput(t)"><FIcon name="folder" /></button>
@@ -218,6 +218,7 @@ import FIcon from '@/components/icon/FIcon.vue'
 import ErrorLine from '@/components/common/ErrorLine.vue'
 import EncoderFallbackNotice from '@/components/encoder/EncoderFallbackNotice.vue'
 import { scrollBehavior } from '@/utils/motion'
+import { useNarrow } from '@/components/convert/useNarrow'
 import { getSource, parseParams } from '@/api/convertRecords'
 import { recordParamsText } from '@/utils/convertText'
 import { showFallbackNotice, usedDeviceText, useEncoderDeviceList } from '@/api/encoderTask'
@@ -249,6 +250,25 @@ function setShowHidden(on: boolean) {
   void act(() => tasks.setShowHidden(on))
 }
 /** 重试（原地，契约 v0.23）：失败 / 已中断 / 已取消的非直播任务 */
+/**
+ * 操作列宽（表格 table-layout:fixed，任务列拿剩下的宽度）：按当前页最宽的一行估算——“重试”约 64、“取消隐藏”约 88、图标按钮各 30。
+ * 这样任务名优先显示，不再被操作区挤成“…”（预审第 1 条；稿子 1024 下任务列约 250px）。
+ */
+const narrow = useNarrow()
+const opsWidth = computed(() => {
+  let w = 30
+  for (const t of rows.value) {
+    let x = 0
+    if (canRetry(t)) x += narrow.value && isHidden(t) ? 34 : 64 // 窄窗口下已隐藏行的“重试”只留图标（title 仍是“重试”），给文件名让位
+    if (isHidden(t)) x += 88
+    let icons = 1 // 日志
+    if (t.status === 'queued' || t.status === 'running') icons++
+    if (t.status === 'succeeded' && t.outputPath) icons++
+    if (isTerminal(t.status)) icons++ // 移除 / 在转换页查看
+    w = Math.max(w, x + icons * 30)
+  }
+  return w
+})
 const canRetry = (t: TaskItem) => (t.status === 'failed' || t.status === 'interrupted' || t.status === 'canceled') && !isLiveType(t.type)
 /** “在转换页查看”：跳到转换页并定位到这条记录（设计 §7.3 第 11 条） */
 async function goConvert(t: TaskItem) {
@@ -806,15 +826,26 @@ tr.errrow > td {
 td:first-child {
   max-width: 0; /* 让长文件名在表格里省略而不是撑宽列 */
 }
-/* 任务列多给一些宽度：第二行“转为 MP4 · 压缩到 200 MB”约 170px。窗口最小 1024 宽时表格只有约 774px，
-   其余四列的最小宽度合计约 407px，所以窄窗口下再把单元格左右内边距从 16 收到 12（见下面的 @media） */
-.c-task { width: 32%; }
-.c-prog { width: 22%; }
+/* 固定列宽，任务列拿剩下的（预审第 1 条：任务名优先显示，太长才在末尾省略）。窗口最小 1024 宽时表格约 774px，
+   窄窗口下单元格左右内边距从 16 收到 12，各列也收窄一点（见下面的 @media） */
+.tbl { table-layout: fixed; }
+.c-type { width: 72px; }
+.c-st { width: 104px; }
+.c-prog { width: 20%; }
+.c-when { width: 112px; }
+.opsh { width: calc(var(--ops-w, 120px) + 32px); }
 th { white-space: nowrap; } /* “开始时间”不换行 */
 @media (max-width: 1100px) {
   th,
   td { padding-left: 12px; padding-right: 12px; }
   tr.errrow > td { padding-left: 12px; padding-right: 12px; }
+  .opsh { width: calc(var(--ops-w, 120px) + 24px); }
+  .simtag { display: none; } /* 窄窗口下“演示”标记只留在 title 里，给文件名让位 */
+  tr.hid .tc-rt .lbl { display: none; }
+  .c-type { width: 56px; }
+  .c-st { width: 88px; }
+  .c-prog { width: 104px; }
+  .c-when { width: 92px; }
 }
 .finfo {
   font-size: 12px;
@@ -905,9 +936,6 @@ th { white-space: nowrap; } /* “开始时间”不换行 */
 }
 .when.dim {
   color: var(--ff-text-3);
-}
-.opsh {
-  width: 1%;
 }
 .ops {
   display: flex;

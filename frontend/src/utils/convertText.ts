@@ -58,15 +58,32 @@ const FAIL_TEXT: Record<string, (n: number) => string> = {
   still_running: (n) => `有 ${n} 条记录还没停下来，没有删除`,
 }
 export function deleteResultText(r: { deletedTaskIds: string[]; failures: { reason: string; message: string }[] }): string {
-  const parts = [`已删除 ${r.deletedTaskIds.length} 条记录`]
-  const by = new Map<string, { n: number; message: string }>()
-  for (const f of r.failures) {
-    const g = by.get(f.reason) ?? { n: 0, message: f.message }
-    g.n++
-    by.set(f.reason, g)
-  }
-  for (const [reason, g] of by) parts.push(FAIL_TEXT[reason]?.(g.n) ?? `有 ${g.n} 个文件没有删除（${g.message}）`)
-  return parts.join('。') + '。'
+  return [`已删除 ${r.deletedTaskIds.length} 条记录。`, deleteFailureText(r.failures)].filter(Boolean).join('')
+}
+
+/**
+ * 删除后有文件没删成（定稿 10-08，k = failures.length）：追加在删除 / 移除 toast 后面，警告样式，带“打开所在文件夹”。
+ * still_running（记录还没停下来，不是文件）单独一句。
+ */
+export const DELETE_FAILED_FILES = (k: number) => `有 ${k} 个文件没能删除，可能正在被其他程序使用，请关闭后手动删除。`
+export function deleteFailureText(failures: readonly { reason: string }[]): string {
+  const running = failures.filter((f) => f.reason === 'still_running').length
+  const files = failures.length - running
+  return [files ? DELETE_FAILED_FILES(files) : '', running ? `${FAIL_TEXT.still_running(running)}。` : ''].join('')
+}
+
+/**
+ * 源文件行“从列表移除”后的 toast（定稿 产品经理 10-08）：n = deletedTaskIds.length，m = deletedFiles。
+ * 有记录：已从列表移除“名称”和 n 条记录。删了输出：…和 n 条记录，并删除了 m 个文件。没有记录：已从列表移除“名称”。（不出现“0 条记录”）
+ * 拆成 before / name / after，页面把名称单独放进可省略、带 title 的 span；改文案只改这里。
+ */
+export function sourceRemovedParts(name: string, n: number, m: number): { before: string; name: string; after: string } {
+  const tail = n > 0 ? `和 ${n} 条记录${m > 0 ? `，并删除了 ${m} 个文件` : ''}。` : '。'
+  return { before: '已从列表移除“', name, after: `”${tail}` }
+}
+export const sourceRemovedText = (name: string, n: number, m: number): string => {
+  const p = sourceRemovedParts(name, n, m)
+  return p.before + p.name + p.after
 }
 
 /** 记录时间：今天 11:48 / 昨天 21:14 / 9月28日 16:40；跨年带年份 2025年9月28日 16:40 */

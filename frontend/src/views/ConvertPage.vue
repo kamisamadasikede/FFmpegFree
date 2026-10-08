@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 格式转换页 v2（转换记录）：左栏源文件 + 每次转换的记录（虚拟滚动、按源文件行分页），右栏转换设置。
 // 设计：转换页-v2-设计说明-v0.1.md（定稿 + v0.23.1 + 第 2 行规则）；数据：stores/convertRecords.ts（契约 v0.23 §6.14，后端没合入前走模拟）。
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, h, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
@@ -17,11 +17,11 @@ import { onFilesDropped } from '@/api/fileDrop'
 import { toAppError } from '@/api/call'
 import { pickDirectory } from '@/api/system'
 import { simParam } from '@/api/sim'
-import { convertV2IsReal } from '@/api/convertRecords'
+import { convertV2IsReal, revealDeleteFailure, type DeleteResult } from '@/api/convertRecords'
 import { hasWailsBackend } from '@/services/wails'
 import { useConvertRecordsStore, type DeleteAsk, type ParentView } from '@/stores/convertRecords'
 import { useTaskStore } from '@/stores/tasks'
-import { deleteResultText, roughEta } from '@/utils/convertText'
+import { deleteFailureText, deleteResultText, roughEta, sourceRemovedParts } from '@/utils/convertText'
 
 const cv = useConvertRecordsStore()
 const tasks = useTaskStore()
@@ -76,10 +76,9 @@ function estimate(it: Item): number {
 }
 /** VirtualList 是泛型组件，InstanceType 取不到；只用到它暴露的这三个 */
 const vl = ref<{ scrollToKey: (key: string, align?: 'start' | 'nearest') => Promise<void>; scrollToTop: () => void; el: HTMLElement | null } | null>(null)
+const FILTER_WORD: Record<string, string> = { all: '', active: '进行中的', failed: '失败的' }
 const noResult = computed(() => !!cv.searchHits && !cv.searching && !cv.parents.length)
 const filterEmpty = computed(() => !cv.searchHits && cv.filter !== 'all' && !cv.filtering && !!cv.filterHits && !cv.parents.length)
-/** 搜索时不能按状态筛选（SearchSources 没有 status）：按钮置灰，开始搜索时已回到“全部” */
-const filterOff = computed(() => !!kw.value.trim() || !!cv.searchHits)
 watch(() => cv.addedTick, () => vl.value?.scrollToTop())
 
 // ---- 预览 / 删除 / 日志 ----
@@ -101,14 +100,30 @@ async function onConfirmDelete(withOutput: boolean) {
   try {
     const r = await cv.confirmDelete(a, withOutput)
     delAsk.value = null
-    const text = a.kind === 'source' && a.count === 0 && !r.failures.length ? `已移除“${a.name}”` : deleteResultText(r)
-    if (r.failures.length) ElMessage.warning(text)
-    else ElMessage.success(text)
+    showDeleteToast(a.kind === 'source' ? sourceRemovedParts(a.name, r.deletedTaskIds.length, r.deletedFiles) : deleteResultText({ ...r, failures: [] }), r.failures)
   } catch (e) {
     ElMessage.error(toAppError(e).message)
   } finally {
     deleting.value = false
   }
+}
+/** 普通 toast 4 秒；警告 toast 8 秒（Element Plus 的消息悬停时本来就不计时） */
+const TOAST_MS = 4000
+const WARN_TOAST_MS = 8000
+/**
+ * 删除 / 移除后的 toast（定稿 10-08）：源文件名单独一段，过长省略、悬停看全名；
+ * 有文件没删成时追加一句，警告样式，带“打开所在文件夹”（failures[0].path，见 revealDeleteFailure）。
+ */
+function showDeleteToast(main: string | { before: string; name: string; after: string }, failures: DeleteResult['failures']) {
+  const fail = deleteFailureText(failures)
+  const path = failures.find((f) => f.path)?.path ?? ''
+  const head = typeof main === 'string' ? [main] : [main.before, h('span', { class: 'cv-toast-nm', title: main.name }, main.name), main.after]
+  const msg = h('span', { class: 'cv-toast' }, [
+    ...head,
+    fail ? h('span', null, fail) : null,
+    fail && path ? h('button', { type: 'button', class: 'ff-link cv-toast-act', onClick: () => void revealDeleteFailure(path).catch((e) => ElMessage.error(toAppError(e).message)) }, '打开所在文件夹') : null,
+  ])
+  ElMessage({ message: msg, type: fail ? 'warning' : 'success', duration: fail ? WARN_TOAST_MS : TOAST_MS, customClass: 'cv-toast-box' })
 }
 const logId = ref('')
 const logText = ref('')
@@ -135,7 +150,7 @@ async function onChangeOutput(id: string) {
 
 // ---- 提示 ----
 watch(() => cv.toast, (t) => {
-  if (t) ElMessage.info(t.text)
+  if (t) ElMessage({ message: t.text, type: 'info', duration: TOAST_MS })
 })
 
 // ---- 任务中心“在转换页查看”（?record=&source=）：定位、滚到、高亮 ----
@@ -207,8 +222,8 @@ onUnmounted(() => {
           <h2>转换记录</h2>
           <span class="cnt">{{ countText }}</span>
           <span class="sp" />
-          <div v-if="hasRows || cv.searchHits" class="cv-filter" :class="{ off: filterOff }" role="tablist" aria-label="筛选" :title="filterOff ? '搜索时显示全部状态' : undefined">
-            <button v-for="f in FILTERS" :key="f.key" type="button" role="tab" :class="{ on: cv.filter === f.key }" :aria-selected="cv.filter === f.key" :disabled="filterOff" :aria-busy="cv.filtering && cv.filter === f.key" @click="cv.setFilter(f.key)">{{ f.label }}</button>
+          <div v-if="hasRows || cv.searchHits" class="cv-filter" role="tablist" aria-label="筛选">
+            <button v-for="f in FILTERS" :key="f.key" type="button" role="tab" :class="{ on: cv.filter === f.key }" :aria-selected="cv.filter === f.key" :aria-busy="(cv.filtering || cv.searching) && cv.filter === f.key" @click="cv.setFilter(f.key)">{{ f.label }}</button>
           </div>
           <label v-if="hasRows || cv.searchHits" class="cv-search">
             <FIcon name="search" />
@@ -251,7 +266,7 @@ onUnmounted(() => {
           <VirtualList ref="vl" :items="items" :item-key="itemKey" :estimate="estimate">
             <template #header>
               <button type="button" class="cv-drop" @click="cv.chooseFiles()">
-                <span class="ic"><FIcon name="upload" /></span><b>拖入更多文件，或点击选择</b><span class="cv-ds">· 支持常见视频、音频格式</span>
+                <span class="ic"><FIcon name="upload" /></span><b>拖入更多文件，或点击选择</b><span class="cv-ds">支持常见视频、音频格式</span>
               </button>
             </template>
             <template #default="{ item }">
@@ -267,11 +282,11 @@ onUnmounted(() => {
               />
             </template>
             <template #footer>
-              <div v-if="noResult" class="cv-noresult">没有找到包含“{{ cv.keyword.trim() }}”的记录</div>
+              <div v-if="noResult" class="cv-noresult">没有找到包含“{{ cv.keyword.trim() }}”的{{ FILTER_WORD[cv.filter] }}记录</div>
               <div v-else-if="cv.filtering && !cv.filterHits" class="cv-noresult">正在筛选…</div>
               <div v-else-if="filterEmpty" class="cv-empty-filter">
                 <FIcon :name="cv.filter === 'active' ? 'convert' : 'check'" :size="20" />
-                <b>{{ cv.filter === 'active' ? '没有进行中的转换' : '没有失败的转换' }}</b>
+                <b>{{ cv.filter === 'active' ? '没有进行中的记录' : '没有失败的记录' }}</b>
                 <button type="button" class="ff-link" @click="cv.setFilter('all')">查看全部记录</button>
               </div>
               <div v-if="cv.hasMore" class="cv-loadmore">

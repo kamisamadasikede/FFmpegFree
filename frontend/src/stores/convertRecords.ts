@@ -12,14 +12,14 @@ import {
   addSources, checkPaths, checkSources, convertV2IsReal, deleteRecords, deleteSource, getRecordThumbnail, getSourceThumbnail, listSourceRecords, listSources,
   MORE_RECORDS, previewOutputName, probeSources, reconvert as apiReconvert, RECORD_LIMIT, recordOf, revealRecord, getSource,
   revealSource as apiRevealSource, searchSources, SOURCE_PAGE, submitSources,
-  type ConvertRecord, type ConvertSource, type ConvertSourceEntry, type DeleteResult, type RecordOptions, type ThumbState, type V023Task,
+  type ConvertRecord, type ConvertSource, type ConvertSourceEntry, type ConvertSourceStatus, type DeleteResult, type RecordOptions, type ThumbState, type V023Task,
 } from '@/api/convertRecords'
 import { mockSceneUi } from '@/api/convertRecordsMock'
 import { canPickFiles, getDefaultOutputDir, pickDirectory, pickFiles } from '@/api/system'
 import { hasWailsBackend } from '@/services/wails'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { useTaskStore, type TaskError, type TaskItem, type TaskStatus } from '@/stores/tasks'
-import { conflictReason, isAudioContainer, isToday, splitPresetName, totalProgress } from '@/utils/convertText'
+import { conflictReason, isAudioContainer, isAudioOnly, isToday, splitPresetName, totalProgress } from '@/utils/convertText'
 import { normalizeSourcePath } from '@/utils/sourcePath'
 import { codecName } from '@/utils/mediaText'
 import type { store as goStore } from '../../wailsjs/go/models'
@@ -96,6 +96,8 @@ export interface DeleteAsk {
   activeCount: number
   outputs: number
   outputBytes: number
+  /** 源文件是纯音频（弹窗文件行用音符图标） */
+  audio?: boolean
 }
 
 /** 本地记住的折叠状态（按 sourceId）：用户点过的才记，没点过的按默认规则 */
@@ -167,12 +169,12 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   const filter = ref<RecordFilter>('all')
   const keyword = ref('')
   /** 搜索结果（null = 不在搜索）：行 id 的顺序 + 命中信息 */
-  const searchHits = ref<{ order: string[]; name: Set<string>; tasks: Map<string, Set<string>>; offset: number; total: number } | null>(null)
+  const searchHits = ref<{ status: ConvertSourceStatus; order: string[]; name: Set<string>; tasks: Map<string, Set<string>>; offset: number; total: number } | null>(null)
   const searching = ref(false)
   /**
    * 全部 / 进行中 / 失败（v0.23.1 ListSources 的 status）：选了进行中 / 失败时按后端返回的行显示（行 id 顺序 + 分页），null = 全部。
    * 行里的记录不按状态过滤（与后端一致：内嵌记录和 recordCount 不过滤，要找失败的那条，展开这一行）。
-   * 搜索时不能按状态筛选（SearchSources 没有 status）：开始搜索会回到“全部”，页面上筛选按钮置灰。
+   * 有搜索关键字时不用这里：SearchSources 带同样的 status（v0.23.2），结果在 searchHits。
    */
   const filterHits = ref<{ status: Exclude<RecordFilter, 'all'>; order: string[]; offset: number; total: number } | null>(null)
   const filtering = ref(false)
@@ -504,7 +506,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     try {
       const sh = searchHits.value
       if (sh) {
-        const p = await searchSources({ keyword: keyword.value.trim(), limit: SOURCE_PAGE, offset: sh.offset, recordLimit: RECORD_LIMIT })
+        const p = await searchSources({ keyword: keyword.value.trim(), limit: SOURCE_PAGE, offset: sh.offset, recordLimit: RECORD_LIMIT, status: sh.status })
         if (searchHits.value !== sh) return
         applySearch(p.items, sh)
         sh.offset += p.items.length
@@ -514,7 +516,11 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
         const p = await listSources({ limit: SOURCE_PAGE, offset: fh.offset, recordLimit: RECORD_LIMIT, status: fh.status })
         if (filterHits.value !== fh) return
         putEntries(p.items)
-        for (const e of p.items) if (!fh.order.includes(e.source.sourceId)) fh.order.push(e.source.sourceId)
+        for (const e of p.items) {
+          if (fh.order.includes(e.source.sourceId)) continue
+          fh.order.push(e.source.sourceId)
+          if (fh.status === 'failed') foldSession[e.source.sourceId] = true
+        }
         fh.offset += p.items.length
         fh.total = p.total
         void checkExistence(p.items)
@@ -597,6 +603,8 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       if (seq !== filterSeq) return
       putEntries(p.items)
       const order = p.items.map((e) => e.source.sourceId)
+      const known = new Set(filterHits.value?.status === status ? filterHits.value.order : [])
+      if (status === 'failed') for (const id of order) if (!known.has(id)) foldSession[id] = true // 筛选“失败”时行默认展开（§四 11）；刷新时不改用户已收起的行
       // 刷新（keep）：已显示但不再符合的行先留着（进行中的刚完成、失败的刚重试），重新点筛选或重新加载后才去掉，避免行在眼前消失
       const prev = keep && filterHits.value?.status === status ? filterHits.value.order.filter((id) => !order.includes(id) && sources[id]) : []
       filterHits.value = { status, order: [...order, ...prev], offset: p.items.length, total: p.total }
@@ -610,19 +618,28 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       if (seq === filterSeq) filtering.value = false
     }
   }
-  /** 全部 / 进行中 / 失败。搜索时不能用（SearchSources 没有 status），页面上按钮置灰 */
+  const statusOf = (f: RecordFilter): ConvertSourceStatus => (f === 'all' ? '' : f)
+  /**
+   * 全部 / 进行中 / 失败（ListSources / SearchSources 的 status，v0.23.1 / v0.23.2）。
+   * 有搜索关键字时带着 status 重新搜索；没有关键字时按 status 列行。
+   */
   async function setFilter(f: RecordFilter) {
-    if (keyword.value.trim() || searchHits.value) return
-    if (f === 'all') return clearFilter()
-    if (f === filter.value && filterHits.value) return
+    const kw = keyword.value.trim()
+    if (f === filter.value && (kw ? !!searchHits.value : f === 'all' || !!filterHits.value)) return
     filter.value = f
     filterHits.value = null // 切换时先清掉上一种筛选的行，避免闪出不符合的行
-    await loadFiltered(f)
+    filterSeq++
+    filtering.value = false
+    if (kw) return search(keyword.value)
+    if (f !== 'all') await loadFiltered(f)
   }
   function applySearch(items: ConvertSourceEntry[], sh: NonNullable<typeof searchHits.value>) {
     putEntries(items)
     for (const e of items) {
-      if (!sh.order.includes(e.source.sourceId)) sh.order.push(e.source.sourceId)
+      if (!sh.order.includes(e.source.sourceId)) {
+        sh.order.push(e.source.sourceId)
+        if (sh.status === 'failed') foldSession[e.source.sourceId] = true // 筛选“失败”时行默认展开
+      }
       if (e.nameMatched) sh.name.add(e.source.sourceId)
       if (e.matchedTaskIds?.length) {
         sh.tasks.set(e.source.sourceId, new Set(e.matchedTaskIds))
@@ -639,14 +656,15 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     if (!kw) {
       searchHits.value = null
       searching.value = false
+      if (filter.value !== 'all' && !filterHits.value) void loadFiltered(filter.value) // 退出搜索：回到按状态列行
       return
     }
-    if (filter.value !== 'all') clearFilter() // 搜索时显示全部状态（SearchSources 没有 status）
+    const status = statusOf(filter.value) // v0.23.2：搜索也带 status
     searching.value = true
     try {
-      const p = await searchSources({ keyword: kw.slice(0, 100), limit: SOURCE_PAGE, offset: 0, recordLimit: RECORD_LIMIT })
+      const p = await searchSources({ keyword: kw.slice(0, 100), limit: SOURCE_PAGE, offset: 0, recordLimit: RECORD_LIMIT, status })
       if (seq !== searchSeq) return
-      const sh = { order: [] as string[], name: new Set<string>(), tasks: new Map<string, Set<string>>(), offset: p.items.length, total: p.total }
+      const sh = { status, order: [] as string[], name: new Set<string>(), tasks: new Map<string, Set<string>>(), offset: p.items.length, total: p.total }
       applySearch(p.items, sh)
       searchHits.value = sh
       void checkExistence(p.items)
@@ -1030,7 +1048,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     const outs = kids.filter(deletable)
     const n = Math.max(s.recordCount, kids.length)
     return {
-      kind, id, title: SOURCE_REMOVE_TITLE, name: s.name, count: n, // 定稿（产品 + 设计 10-08）：不论有几条记录都用这一句
+      kind, id, title: SOURCE_REMOVE_TITLE, name: s.name, count: n, audio: isAudioOnly(metaInfoOf(s)), // 定稿（产品 + 设计 10-08）：不论有几条记录都用这一句
       activeCount: kids.filter((k) => ACTIVE.includes(k.status)).length, outputs: outs.length, outputBytes: outs.reduce((x, k) => x + (k.result?.sizeBytes ?? 0), 0),
     }
   }
