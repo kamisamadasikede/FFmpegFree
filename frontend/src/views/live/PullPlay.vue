@@ -11,9 +11,9 @@
         @fullscreen="fullscreen"
       >
         <template v-if="session.busy.value" #status>{{ statusText }} <span class="pvr" :title="PREVIEW_ROW_TITLE">{{ sessionPreviewOn ? PREVIEW_ROW_ON : PREVIEW_ROW_OFF }}</span></template>
-        <!-- 预览开：舞台显示预览帧（设计稿：播放器舞台就是预览区）；video 仍在播放（声音 / 播放统计），只是不显示。预览关：舞台显示真实播放画面 -->
-        <video v-show="hasVideo && !previewShown" ref="videoRef" autoplay playsinline :muted="muted" />
-        <PreviewStage v-if="previewShown" :state="stageState" :data="snap.data" :alt="stageAlt" kind="pull" @retry="retryPreview" />
+        <!-- 包 20：播放中舞台直接显示真实播放画面（<video>，源帧率），不再用后端每秒两帧的预览图顶替。预览关：video 继续播放（声音 / 统计），舞台显示“未开启预览” -->
+        <video v-show="hasVideo && !previewOffShown" ref="videoRef" autoplay playsinline :muted="muted" />
+        <PreviewStage v-if="previewOffShown" state="off" kind="pull" />
         <div v-else-if="!hasVideo" class="idle"><FIcon name="play" :size="28" /><span>输入 HTTP-FLV / WS-FLV 地址后点击“开始播放”</span></div>
         <template #overlay>
           <LiveOverlays
@@ -50,7 +50,7 @@
 <script setup lang="ts">
 // 拉流播放：mpegts.js 直接播放远端 FLV 地址，不经过本地服务，也不调用任何后端（契约里的 LiveService.GetPlayURL 不再使用，PRD v0.3）。
 // 播放错误统一走 mapPlayerError → 错误码 → ErrorOverlay。
-import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, toRefs, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, toRefs, watch } from 'vue'
 import mpegts from 'mpegts.js'
 import PlayerShell from '@/components/common/PlayerShell.vue'
 import InlineError from '@/components/common/InlineError.vue'
@@ -60,13 +60,10 @@ import LiveField from '@/components/live/LiveField.vue'
 import LiveInput from '@/components/live/LiveInput.vue'
 import LiveButton from '@/components/live/LiveButton.vue'
 import LiveStatCards from '@/components/live/LiveStatCards.vue'
-import PreviewStage, { type StageState } from '@/components/live/PreviewStage.vue'
+import PreviewStage from '@/components/live/PreviewStage.vue'
 import PreviewSwitch from '@/components/live/PreviewSwitch.vue'
 import FIcon from '@/components/icon/FIcon.vue'
-import { usePreviewPoller } from '@/composables/usePreviewPoller'
-import { PullPreviewController } from '@/api/pullPreviewSession'
-import * as liveApi from '@/api/live'
-import { PREVIEW_ROW_OFF, PREVIEW_ROW_ON, PREVIEW_ROW_TITLE, PREVIEW_SWITCH_NOTE_PLAYING, previewAlt } from '@/errors/livePreviewMessages'
+import { PREVIEW_ROW_OFF, PREVIEW_ROW_ON, PREVIEW_ROW_TITLE, PREVIEW_SWITCH_NOTE_PLAYING } from '@/errors/livePreviewMessages'
 import LiveOverlays from '@/components/live/LiveOverlays.vue'
 import LiveLogDialog from '@/components/live/LiveLogDialog.vue'
 import { livePreview, useLiveSession } from '@/composables/useLiveSession'
@@ -88,40 +85,15 @@ const urlInvalid = ref(livePreview === 'invalid')
 const videoRef = ref<HTMLVideoElement | null>(null)
 const hasVideo = ref(false)
 
-// ───── 预览（后端拉流预览会话 StartPullPreview / StopPullPreview + GetPreview 轮询）─────
+// ───── 预览开关 ─────
+// 包 20：拉流页不再开后端拉流预览会话、不再轮询每秒两帧的预览图（老板：拉流播放只有每秒两帧）。播放画面就是 <video>（mpegts.js 直接拉远端 FLV，源帧率）。
+// 开关只决定舞台显示不显示 <video>；v0.25（包 21）改用 StartPullPreview 的 previewUrl 播放后再接回后端会话。
 /** 表单里的开关（默认开；产品经理已定：不记住上次选择，每次打开表单默认开）。开始播放后置灰，值保持开始时的值 */
 const previewOn = ref(!(demo && previewParams.get('pvon') === '0')) // 开发演示：?live=running&pvon=0 预置“预览关”
 /** 这一次播放开始时定下的预览值（只读显示用） */
 const sessionPreviewOn = ref(true)
-const { snap, poller } = usePreviewPoller()
-const pullState = ref<'idle' | 'starting' | 'active' | 'off' | 'failed'>('idle')
-const wsUrl = ref(false)
-const pv = new PullPreviewController({ start: liveApi.startPullPreview, stop: liveApi.stopPullPreview }, (st, sess) => {
-  pullState.value = st
-  if (st === 'active' && sess) poller.start(sess.id)
-  else poller.reset()
-})
-// 设计稿：拉流页播放器舞台就是预览区——播放中一直显示预览舞台（画面 / 加载中 / 失败 / 未开启）；<video> 继续播放（声音、统计），只是不显示
-const previewShown = computed(() => session.busy.value)
-const stageState = computed<StageState>(() => {
-  if (!sessionPreviewOn.value) return 'off'
-  if (wsUrl.value) return 'unsupported'
-  if (pullState.value === 'failed') return 'failed'
-  const p = snap.value.phase
-  if (pullState.value === 'active') return p === 'ok' || p === 'failed' || p === 'ended' ? p : 'loading'
-  return 'loading'
-})
-const stageAlt = computed(() => previewAlt('pull', url.value ? url.value.replace(/[?#].*$/, '') : ''))
-async function startPreview(u: string) {
-  sessionPreviewOn.value = previewOn.value
-  wsUrl.value = /^wss?:/i.test(u) // 后端拉流预览不支持 ws / wss
-  await pv.begin(u, previewOn.value && !wsUrl.value)
-}
-function retryPreview() {
-  const u = url.value.trim()
-  if (pullState.value === 'failed') void pv.begin(u, true) // 会话没建成：重新 Start
-  else poller.retry() // 会话在，只是取帧失败：重新计时
-}
+/** 播放中且这次没开预览：舞台显示“未开启预览”，<video> 照常播放（声音、统计） */
+const previewOffShown = computed(() => session.busy.value && !sessionPreviewOn.value)
 
 let player: mpegts.Player | null = null
 let statTimer: ReturnType<typeof setInterval> | null = null
@@ -173,7 +145,7 @@ function start() {
   userStopped = false
   session.setStarting()
   session.log(`开始拉流 ${u}`)
-  void startPreview(u) // 演示模式也走模拟层的拉流预览会话（?preview=… 才出画面）
+  sessionPreviewOn.value = previewOn.value
   if (demo) {
     session.simRunning()
     return
@@ -254,7 +226,6 @@ function sample() {
 
 function onFailed(code: string, detail = '') {
   destroyPlayer()
-  void pv.end() // 播放出错：预览会话必须 Stop
   if (code === 'LIVE_URL_INVALID') {
     session.setIdle()
     urlInvalid.value = true
@@ -267,7 +238,6 @@ function onFailed(code: string, detail = '') {
 function stop() {
   userStopped = true
   destroyPlayer()
-  void pv.end()
   session.setIdle()
   session.log('已停止播放')
 }
@@ -279,25 +249,12 @@ function fullscreen() {
 onMounted(() => {
   if (demo) {
     session.initPreview()
-    if (session.busy.value) void startPreview(url.value.trim()) // ?live=running：预置“播放中”，预览会话一并开
+    if (session.busy.value) sessionPreviewOn.value = previewOn.value // ?live=running：预置“播放中”
   }
-})
-// 页面在 KeepAlive 里：切到别的页签时播放继续（v0.2），但后端预览会话（一个 ffmpeg 在读远端流）不该白占资源 → 离开时 Stop，回来仍在播放就重新开一个
-let previewDropped = false
-onDeactivated(() => {
-  if (pullState.value === 'active' || pullState.value === 'starting') {
-    previewDropped = true
-    void pv.end()
-  }
-})
-onActivated(() => {
-  if (previewDropped && session.busy.value && sessionPreviewOn.value) void startPreview(url.value.trim())
-  previewDropped = false
 })
 onBeforeUnmount(() => {
   userStopped = true
   destroyPlayer()
-  void pv.end() // 离开页面 / 卸载：预览会话必须 Stop
 })
 </script>
 

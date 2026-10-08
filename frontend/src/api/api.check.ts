@@ -235,6 +235,9 @@ export async function runApiChecks(): Promise<string[]> {
       eq('previewOn 复位：文件推流 / 录屏推流开始成功后 previewOn = true', [okReset.test(rd('src/views/live/FilePush.vue')), okReset.test(rd('src/views/live/RecordPush.vue'))], [true, true])
       eq('包 20：开始成功后不再清空推流码', [/key\.value = ''/.test(rd('src/views/live/FilePush.vue')), /key\.value = ''/.test(rd('src/views/live/RecordPush.vue'))], [false, false])
       eq('previewOn 复位：拉流页在会话结束（busy 变 false）后 previewOn = true', /watch\(\(\) => session\.busy\.value, \(b\) => \{\s*if \(!b\) previewOn\.value = true/.test(rd('src/views/live/PullPlay.vue')), true)
+      // 包 20：拉流页播放中显示真实 <video>（源帧率），不再开后端拉流预览会话、不再轮询每秒两帧的预览图
+      const pullSrc = rd('src/views/live/PullPlay.vue')
+      eq('包 20：拉流页不再用预览图顶替 <video>', [/usePreviewPoller|PullPreviewController|startPullPreview|getPreview\b/.test(pullSrc), /previewShown = computed\(\(\) => session\.busy\.value\)/.test(pullSrc), /<video v-show="hasVideo && !previewOffShown"/.test(pullSrc)], [false, false, true])
       // 回退提示条：Tab 条下方通栏（LiveLayout），不再在推流页左列里
       const lay = rd('src/views/live/LiveLayout.vue')
       eq('回退提示条在 LiveLayout 的 Tab 条（nav）之后、RouterView 之前；两个推流页里不再有', [lay.indexOf('</nav>') < lay.indexOf('<LiveFallbackNotice') && lay.indexOf('<LiveFallbackNotice') < lay.indexOf('<RouterView'), rd('src/views/live/FilePush.vue').includes('LiveFallbackNotice'), rd('src/views/live/RecordPush.vue').includes('LiveFallbackNotice')], [true, false, false])
