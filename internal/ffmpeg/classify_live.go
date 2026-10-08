@@ -1,7 +1,9 @@
 package ffmpeg
 
 import (
+	"fmt"
 	"strings"
+	"time"
 
 	"FFmpegFree/internal/apperr"
 )
@@ -102,4 +104,46 @@ func ClassifyLiveError(in LiveClassifyInput) *apperr.AppError {
 		return apperr.New(apperr.LivePushInterrupted, "推流中断，与推流服务器的连接已断开").WithDetail(in.Tail)
 	}
 	return apperr.New(apperr.Internal, "推流异常退出").WithDetail(in.Tail)
+}
+
+// PullFailedMessage 是拉流预览在开始播放前失败时给用户看的文字（live:pull 的 failed，契约 6.10.3.7）。
+// 文案由产品经理定（设计走查 G3），以后改文案只改这一处。
+const PullFailedMessage = "拉流失败，请检查直播地址和网络。"
+
+// PullTimeoutError 是拉流预览在 wait 内没有收到任何数据（远端接受连接却不发媒体、DNS / 握手卡住）时的错误：
+// 同样是 LIVE_CONNECT_FAILED + PullFailedMessage，detail 第一行 scheme=，第二行说明超时（契约 v0.25.1）。
+func PullTimeoutError(scheme string, wait time.Duration) *apperr.AppError {
+	return apperr.New(apperr.LiveConnectFailed, PullFailedMessage).
+		WithDetail(fmt.Sprintf("scheme=%s\n%d 秒内没有收到数据", scheme, int(wait/time.Second)))
+}
+
+// ClassifyPullError 把拉流预览的 ffmpeg 在开始播放前的非零退出归类（契约 6.10.3.7）。永远不返回 nil。
+// 和推流分开：推流的文字（“连接推流服务器失败”“推流启动失败”）不能出现在拉流里。
+//
+//	DNS / 拒绝连接 / 超时 / 不可达 / HTTP 4xx·5xx / RTMP 服务器报错 / SRT 握手失败 / 打不开输入 → LIVE_CONNECT_FAILED（detail 首行 scheme=<协议>，其后是脱敏 stderr 尾部）
+//	其他（例如连上了但读不出画面参数）                                             → INTERNAL（detail = 脱敏 stderr 尾部）
+//
+// 两种情况的 message 都是 PullFailedMessage。
+func ClassifyPullError(in LiveClassifyInput) *apperr.AppError {
+	lines := classifiableLines(in.Tail)
+	connect := false
+	for _, l := range lines {
+		t := strings.TrimRight(l, " \t\r.。!")
+		for _, s := range []string{"connection refused", "connection timed out", "network is unreachable", "no route to host", "host is unreachable",
+			"connection reset by peer", "name or service not known", "no address associated with hostname", "temporary failure in name resolution",
+			"input/output error"} {
+			if strings.HasSuffix(t, s) {
+				connect = true
+			}
+		}
+		if strings.Contains(l, "failed to resolve hostname") || strings.Contains(l, "cannot open connection") ||
+			strings.Contains(l, "server returned 4") || strings.Contains(l, "server returned 5") || strings.Contains(l, "server error:") ||
+			strings.Contains(l, "error opening input") || (strings.Contains(l, "connection to ") && strings.Contains(l, " failed")) {
+			connect = true
+		}
+	}
+	if connect {
+		return apperr.New(apperr.LiveConnectFailed, PullFailedMessage).WithDetail("scheme=" + in.Scheme + "\n" + in.Tail)
+	}
+	return apperr.New(apperr.Internal, PullFailedMessage).WithDetail(in.Tail)
 }
