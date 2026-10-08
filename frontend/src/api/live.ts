@@ -20,7 +20,7 @@
  *   listScreens             LiveService.ListScreens()
  *   listCaptureSources      LiveService.ListCaptureSources()（v0.14）
  *   checkPushURL            LiveService.CheckPushURL(url) → PushURLInfo（只校验，不联网）
- *   getPreview              LiveService.GetPreview(sessionId) → LivePreview（契约 v0.14；最新一帧 JPEG，没有画面返回空 data，不是错误）
+ *   （预览画面）            LiveService.GetPreviewStream(sessionId) → {url, mime}（契约 v0.25，见 api/livePreviewStream.ts；旧的 GetPreview 截图轮询已删除）
  *   startPullPreview        LiveService.StartPullPreview(PullPreviewRequest) → PullSession（拉流预览会话）
  *   stopPullPreview         LiveService.StopPullPreview(sessionId)
  *   stopPush                TaskService.Cancel(taskID)
@@ -34,7 +34,7 @@ import { live as goLive } from '../../wailsjs/go/models'
 import { AppError, call, toAppError } from '@/api/call'
 import { LIVE_BACKEND_READY } from '@/api/flags'
 import { probeFiles } from '@/api/media'
-import { activeSimEntries, cancelSimTask, createSimTask, getSimMeta, isSimTask, forceKillSimTask, getSimTask, injectionDetail, listSimActive, simDelay, simError, simInjection, simParam, type SimLiveSpec } from '@/api/sim'
+import { activeSimEntries, cancelSimTask, createSimTask, forceKillSimTask, getSimTask, injectionDetail, listSimActive, simDelay, simError, simInjection, simParam, type SimLiveSpec } from '@/api/sim'
 import { pickFiles, type PickFilter } from '@/api/system'
 import { toApiTask, type ApiTask, type ApiTaskError, type TaskProgressPayload, type TaskStatusPayload } from '@/api/taskTypes'
 import { hasWailsBackend, onTaskEvent } from '@/services/wails'
@@ -73,7 +73,7 @@ export interface FilePushRequest {
   /** true = 循环直到用户停止；false = 播完自然结束（succeeded） */
   loop: boolean
   options: PushOptions
-  /** 预览画面开关（契约 v0.14）：省略 / true = 带预览（GetPreview 可用）；false = 不加预览输出。只在开始时决定 */
+  /** 预览画面开关（契约 v0.14）：省略 / true = 带预览（GetPreviewStream 可用）；false = 不加预览输出。只在开始时决定 */
   preview?: boolean
 }
 
@@ -138,16 +138,6 @@ export interface PushURLInfo {
   redacted: string
 }
 
-/** GetPreview 的返回（契约 v0.14）：没有画面时 data 为空串、ts 为 0；active=false 表示会话已结束（前端停止轮询） */
-export interface LivePreview {
-  /** 最新一帧 JPEG 的 base64（不带 data: 前缀），没有画面为 '' */
-  data: string
-  /** 这一帧写入的时间（毫秒时间戳），没有画面为 0 */
-  ts: number
-  /** 会话还在进行 */
-  active: boolean
-}
-
 /** 拉流预览会话请求：后端 ffmpeg 读远端流只出预览，播放仍由前端播放器直接拉地址 */
 export interface PullPreviewRequest {
   /** rtmp / rtmps / srt / http / https 地址（ws / wss 后端返回 LIVE_URL_INVALID） */
@@ -157,12 +147,14 @@ export interface PullPreviewRequest {
 }
 
 export interface PullSession {
-  /** 会话 id，传给 getPreview / stopPullPreview */
+  /** 会话 id，传给 stopPullPreview */
   id: string
   /** 脱敏后的地址，可以直接显示 */
   redacted: string
-  /** 是否真的在出预览 */
+  /** v0.25：有没有预览视频流（转换组件缺 tee / tcp 时 false）。浏览器模拟层恒为 false */
   preview: boolean
+  /** v0.25：同 GetPreviewStream 的 url；没有预览视频流时为空串。浏览器模拟层恒为 ""（契约 6.10.3.1） */
+  previewUrl: string
 }
 
 /** 全零 = 全部使用默认 */
@@ -444,103 +436,30 @@ export async function checkPushURL(url: string): Promise<PushURLInfo> {
   return u.info
 }
 
-// ───────────── 预览画面（契约 v0.14）─────────────
+// ───────────── 拉流预览会话 ─────────────
 
-/**
- * 最新一帧预览。真实后端：LiveService.GetPreview（没有画面返回空，不是错误；active=false 表示会话已结束）。
- * 模拟层（浏览器）：默认恒返回空画面（不假装有画面；模拟中的推流 / 拉流会话 active=true，未知会话 active=false）。
- * 开发开关 `?preview=<场景>` 给出可模拟的真实 JPEG 帧（浏览器里用 canvas 画，node 里用内置小图；正式包不读）：
- *   ok（默认）立即出帧 · slow 约 5 秒后出首帧 · never 一直没有画面（10 秒后转失败）· error 每次取帧都出错（连续 5 次转失败）· flaky 偶尔取帧出错 / 偶尔空帧。
- */
-export async function getPreview(sessionId: string): Promise<LivePreview> {
-  if (liveIsReal()) {
-    const p = await call(LiveBinding.GetPreview(sessionId))
-    return { data: p?.data ?? '', ts: p?.ts ?? 0, active: !!p?.active }
-  }
-  return simGetPreview(sessionId)
-}
-
-/** 模拟的拉流预览会话（id → 开始时间 / 是否出预览） */
-const simPulls = new Map<string, { url: string; at: number; preview: boolean }>()
+/** 模拟的拉流预览会话（id → 地址 / 是否出预览） */
+const simPulls = new Map<string, { url: string; preview: boolean }>()
 let simPullSeq = 0
-const simPageAt = Date.now()
 /** 自检用：当前还没 Stop 的模拟拉流预览会话数 */
 export const simPullPreviewCount = (): number => simPulls.size
 
-function simSessionState(id: string): { active: boolean; preview: boolean; at: number } | null {
-  const pull = simPulls.get(id)
-  if (pull) return { active: true, preview: pull.preview, at: pull.at }
-  if (id.startsWith('preview-')) return { active: true, preview: true, at: simPageAt } // 页面里 ?rows= 预置的演示会话（只在 ?preview=… 下才会出帧）
-  if (isSimTask(id)) {
-    const t = getSimTask(id)
-    const active = !!t && (t.status === 'queued' || t.status === 'running')
-    return { active, preview: getSimMeta(id)?.preview !== false, at: t?.startedAt || t?.createdAt || Date.now() }
-  }
-  return null
-}
-
-let simFrameCanvas: HTMLCanvasElement | null = null
-/** 一帧 JPEG（base64，不带前缀）。浏览器里画 640×360 的移动色块 + 会话号；node 里返回内置 16×9 小图 */
-function simFrame(id: string): string {
-  const doc = (globalThis as { document?: Document }).document
-  if (!doc || typeof doc.createElement !== 'function') return SIM_TINY_JPEG
-  try {
-    const c = simFrameCanvas ?? (simFrameCanvas = doc.createElement('canvas'))
-    c.width = 640
-    c.height = 360
-    const g = c.getContext('2d')
-    if (!g) return SIM_TINY_JPEG
-    const t = Date.now() / 1000
-    const grad = g.createLinearGradient(0, 0, 640, 360)
-    grad.addColorStop(0, '#1e3a8a')
-    grad.addColorStop(0.5, '#7c3aed')
-    grad.addColorStop(1, '#f97316')
-    g.fillStyle = grad
-    g.fillRect(0, 0, 640, 360)
-    g.fillStyle = 'rgba(255,255,255,0.85)'
-    g.fillRect(40 + ((t * 80) % 480), 150, 120, 60)
-    g.fillStyle = '#fff'
-    g.font = '20px sans-serif'
-    g.fillText(`DEV 模拟帧 · ${id.slice(-6)} · ${new Date().toLocaleTimeString('en-GB')}`, 24, 40)
-    return c.toDataURL('image/jpeg', 0.7).replace(/^data:image\/jpeg;base64,/, '')
-  } catch {
-    return SIM_TINY_JPEG
-  }
-}
-/** 16×9 纯色 JPEG（node 自检用） */
-const SIM_TINY_JPEG =
-  '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAAJABADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDPooor6w1P/9k='
-
-async function simGetPreview(sessionId: string): Promise<LivePreview> {
-  const st = simSessionState(sessionId)
-  if (!st) return { data: '', ts: 0, active: false }
-  const scenario = simParam('preview')
-  const empty: LivePreview = { data: '', ts: 0, active: st.active }
-  if (scenario === null || !st.preview || !st.active) return empty
-  await simDelay(30)
-  const sc = scenario === '' || scenario === '1' ? 'ok' : scenario
-  const age = Date.now() - st.at
-  if (sc === 'never') return empty
-  if (sc === 'slow' && age < 5000) return empty
-  if (sc === 'error') simError('INTERNAL', '读取预览失败')
-  if (sc === 'flaky') {
-    const n = Math.floor(Date.now() / 500) % 5
-    if (n === 1) simError('INTERNAL', '读取预览失败')
-    if (n === 3) return empty
-  }
-  return { data: simFrame(sessionId), ts: Date.now(), active: true }
-}
-
-/** 开始拉流预览会话。模拟层：只有 ?preview=… 时出画面，否则会话 preview=false；同一地址幂等，与真实后端一致 */
+/**
+ * 开始拉流预览会话（契约 v0.25：PullSession.previewUrl）。同一地址幂等。
+ * 浏览器模拟层（契约 6.10.3.1）：preview 恒为 false，previewUrl 恒为 ""。真实绑定只在
+ * LIVE_PREVIEW_V25_BACKEND_READY 打开时由 api/livePreviewStream.ts 调用。
+ */
 export async function startPullPreview(req: PullPreviewRequest): Promise<PullSession> {
-  if (liveIsReal()) return (await call(LiveBinding.StartPullPreview(goLive.PullPreviewRequest.createFrom(req)))) as PullSession
+  if (liveIsReal()) {
+    const s = (await call(LiveBinding.StartPullPreview(goLive.PullPreviewRequest.createFrom(req)))) as Partial<PullSession>
+    return { id: s.id ?? '', redacted: s.redacted ?? '', preview: !!s.preview, previewUrl: s.previewUrl ?? '' }
+  }
   await simDelay(60)
   const redacted = redactPushUrl(req.url)
-  const on = req.preview !== false && simParam('preview') !== null
-  for (const [id, v] of simPulls) if (v.url === req.url) return { id, redacted, preview: v.preview }
+  for (const [id, v] of simPulls) if (v.url === req.url) return { id, redacted, preview: false, previewUrl: '' }
   const id = `sim-pull-${++simPullSeq}`
-  simPulls.set(id, { url: req.url, at: Date.now(), preview: on })
-  return { id, redacted, preview: on }
+  simPulls.set(id, { url: req.url, preview: false })
+  return { id, redacted, preview: false, previewUrl: '' }
 }
 
 /** 停止拉流预览会话；会话已结束时无操作 */

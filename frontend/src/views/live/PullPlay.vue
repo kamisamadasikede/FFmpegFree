@@ -1,291 +1,214 @@
 <template>
   <LiveTabFrame>
     <template #main>
-      <PlayerShell
+      <LivePlayer
         v-model:muted="muted"
-        fill
-        mode="status"
-        status-icon="play"
-        :status-text="statusText"
-        :status-hint="statusHint"
-        @fullscreen="fullscreen"
-      >
-        <template v-if="session.busy.value" #status>{{ statusText }} <span class="pvr" :title="PREVIEW_ROW_TITLE">{{ sessionPreviewOn ? PREVIEW_ROW_ON : PREVIEW_ROW_OFF }}</span></template>
-        <!-- 包 20：播放中舞台直接显示真实播放画面（<video>，源帧率），不再用后端每秒两帧的预览图顶替。预览关：video 继续播放（声音 / 统计），舞台显示“未开启预览” -->
-        <video v-show="hasVideo && !previewOffShown" ref="videoRef" autoplay playsinline :muted="muted" />
-        <PreviewStage v-if="previewOffShown" state="off" kind="pull" />
-        <div v-else-if="!hasVideo" class="idle"><FIcon name="play" :size="28" /><span>输入 HTTP-FLV / WS-FLV 地址后点击“开始播放”</span></div>
-        <template #overlay>
-          <LiveOverlays
-            :session="session"
-            hud-label="播放中"
-            :hud-lines="hudLines"
-            @retry="start"
-            @view-log="logOpen = true"
-          />
-        </template>
-      </PlayerShell>
-      <LiveStatCards :stats="session.stats" bytes-label="已接收" />
+        kind="pull"
+        :phase="phase"
+        :url="playUrl"
+        :reason="reason"
+        :clock="clock"
+        :low-latency="lowLatency"
+        :fake="vis?.fake || ''"
+        :force-idle="!!vis?.idle"
+        :force-vol="!!vis?.vol"
+        :force-hint="!!vis?.hint"
+        :force-full="!!vis?.full"
+        :lag="vis?.lag ?? null"
+        :aspect="vis?.aspect ?? 16 / 9"
+        :empty-text="LP_EMPTY_PULL"
+        :ended-note="endedNote"
+        :break-text="breakText"
+        :has-audio="hasAudio"
+        @restart="start"
+        @playing="onPlaying"
+        @media-broken="onBroken"
+        @media-ended="onEnded"
+        @media-unsupported="onUnsup"
+        @stats="onStats"
+      />
     </template>
-
     <template #panel>
-      <LivePanel title="拉流设置" note="不经过本地服务">
+      <LivePanel title="拉流设置">
         <LiveField label="流地址">
-          <LiveInput v-model="url" :bad="urlInvalid" :disabled="session.busy.value" placeholder="http://live.example.com/live/room.flv" @enter="start" />
+          <LiveInput v-model="url" :bad="urlInvalid" :disabled="busy" placeholder="http://live.example.com/live/room.flv" @enter="start" />
           <InlineError v-if="urlInvalid" code="LIVE_URL_INVALID" description="请输入 http:// 或 ws:// 开头的流地址。" />
         </LiveField>
-        <div class="tip">支持 HTTP-FLV（http:// 或 https://）和 WS-FLV（ws:// 或 wss://）。</div>
-        <PreviewSwitch v-model="previewOn" :disabled="session.busy.value" :note="session.busy.value ? PREVIEW_SWITCH_NOTE_PLAYING : undefined" />
-        <div class="chk">低延迟追帧<el-switch v-model="lowLatency" size="small" aria-label="低延迟追帧" :disabled="session.busy.value" /></div>
+        <div class="tip">{{ LP_PULL_HINT }}</div>
+        <div class="chk">低延迟追帧<el-switch v-model="lowLatency" size="small" aria-label="低延迟追帧" :disabled="busy" /></div>
         <template #action>
-          <LiveButton v-if="session.busy.value" variant="danger" lg icon="x" @click="stop">停止播放</LiveButton>
-          <LiveButton v-else variant="pri" lg icon="play" @click="start">开始播放</LiveButton>
+          <!-- 设计说明 §4.2 / 场景 17（10-08 改）：只有进行中（连接中 / 播放中 / 缓冲中）是普通按钮「停止播放」（不用 danger，§九 第 11 条）；结束、被中断、不支持、未开始都是「开始播放」 -->
+          <LiveButton v-if="busy" icon="x" @click="stop">停止播放</LiveButton>
+          <LiveButton v-else variant="pri" icon="play" @click="start">开始播放</LiveButton>
         </template>
       </LivePanel>
     </template>
   </LiveTabFrame>
-  <LiveLogDialog v-model="logOpen" :lines="session.logs.value" />
 </template>
 
 <script setup lang="ts">
-// 拉流播放：mpegts.js 直接播放远端 FLV 地址，不经过本地服务，也不调用任何后端（契约里的 LiveService.GetPlayURL 不再使用，PRD v0.3）。
-// 播放错误统一走 mapPlayerError → 错误码 → ErrorOverlay。
-import { computed, onBeforeUnmount, onMounted, ref, toRefs, watch } from 'vue'
-import mpegts from 'mpegts.js'
-import PlayerShell from '@/components/common/PlayerShell.vue'
-import InlineError from '@/components/common/InlineError.vue'
+// 拉流播放（包 21 / 契约 v0.25 6.10.3.3、6.10.3.7）：http(s) 走后端 StartPullPreview 的 previewUrl（转封装成 FLV），ws(s) 前端直接拉；画面交给 LivePlayer（mpegts.js）。
+// 状态：live:pull playing / ended / interrupted / failed / unsupported；mpegts.js 的 LOADING_COMPLETE 也算结束。
+// 结束分两种（产品经理 10-08）：用户自己点「停止播放」→ 只写「拉流已结束」；不是用户停的（远端停止发布、连接正常关闭）→ 加第二行 LP_END_PULL_REMOTE 和「重新拉流」。
+import { computed, onBeforeUnmount, ref, toRefs, watch } from 'vue'
 import LiveTabFrame from '@/components/live/LiveTabFrame.vue'
 import LivePanel from '@/components/live/LivePanel.vue'
 import LiveField from '@/components/live/LiveField.vue'
 import LiveInput from '@/components/live/LiveInput.vue'
 import LiveButton from '@/components/live/LiveButton.vue'
-import LiveStatCards from '@/components/live/LiveStatCards.vue'
-import PreviewStage from '@/components/live/PreviewStage.vue'
-import PreviewSwitch from '@/components/live/PreviewSwitch.vue'
-import FIcon from '@/components/icon/FIcon.vue'
-import { PREVIEW_ROW_OFF, PREVIEW_ROW_ON, PREVIEW_ROW_TITLE, PREVIEW_SWITCH_NOTE_PLAYING } from '@/errors/livePreviewMessages'
-import LiveOverlays from '@/components/live/LiveOverlays.vue'
-import LiveLogDialog from '@/components/live/LiveLogDialog.vue'
-import { livePreview, useLiveSession } from '@/composables/useLiveSession'
-import { previewParams } from '@/services/wails'
-import { isValidPullUrl, mapPlayerError } from '@/errors/playerError'
+import LivePlayer from '@/components/live/LivePlayer.vue'
+import InlineError from '@/components/common/InlineError.vue'
+import { LP_EMPTY_PULL, LP_PULL_HINT } from '@/errors/livePreviewMessages'
+import { formatClock, livePreview, useLiveSession } from '@/composables/useLiveSession'
+import { isValidPullUrl } from '@/errors/playerError'
 import { useLiveFormsStore } from '@/stores/liveForms'
+import { useLiveDockStore } from '@/stores/liveDock'
+import { lpVisual, type LpPhase } from './lpVisual'
+import { classifyPreviewError, pullEndedView, startPullPlayback, stopPullPlayback, watchPull, type PullEvent, type PullPlayback } from '@/api/livePreviewStream'
 
 defineOptions({ name: 'LivePullPlay' })
 
 const session = useLiveSession('pull')
-const demo = !!livePreview // ?live=… 界面演示（不碰后端）
-
-// 表单输入（流地址、低延迟追帧、静音）在 stores/liveForms：切换菜单不丢、下次启动恢复。拉流会话随页面卸载结束，不会把值恢复进进行中的会话
 const forms = useLiveFormsStore()
+const dock = useLiveDockStore()
 const { url, lowLatency, muted } = toRefs(forms.pull)
-if (livePreview) url.value = livePreview === 'invalid' ? 'http:/live.example' : 'http://live.example.com/live/room.flv' // 界面演示预置（演示模式不读写本机存档）
-const logOpen = ref(false)
+if (livePreview) url.value = livePreview === 'invalid' ? 'http:/live.example' : 'http://live.example.com/live/room.flv'
 const urlInvalid = ref(livePreview === 'invalid')
-const videoRef = ref<HTMLVideoElement | null>(null)
-const hasVideo = ref(false)
-
-// ───── 预览开关 ─────
-// 包 20：拉流页不再开后端拉流预览会话、不再轮询每秒两帧的预览图（老板：拉流播放只有每秒两帧）。播放画面就是 <video>（mpegts.js 直接拉远端 FLV，源帧率）。
-// 开关只决定舞台显示不显示 <video>；v0.25（包 21）改用 StartPullPreview 的 previewUrl 播放后再接回后端会话。
-/** 表单里的开关（默认开；产品经理已定：不记住上次选择，每次打开表单默认开）。开始播放后置灰，值保持开始时的值 */
-const previewOn = ref(!(demo && previewParams.get('pvon') === '0')) // 开发演示：?live=running&pvon=0 预置“预览关”
-/** 这一次播放开始时定下的预览值（只读显示用） */
-const sessionPreviewOn = ref(true)
-/** 播放中且这次没开预览：舞台显示“未开启预览”，<video> 照常播放（声音、统计） */
-const previewOffShown = computed(() => session.busy.value && !sessionPreviewOn.value)
-
-let player: mpegts.Player | null = null
-let statTimer: ReturnType<typeof setInterval> | null = null
+const vis = lpVisual && lpVisual.tab === 'pull' ? lpVisual : null
+const phase = ref<LpPhase>(vis?.phase ?? 'empty')
+const reason = ref<'' | 'codec' | 'unavailable'>(vis?.reason ?? '')
+const playUrl = ref('')
+const hasAudio = ref(true)
+/** 结束时的第二行：只有不是用户点停止而结束时才有 */
+const endedNote = ref(vis?.phase === 'ended' && previewParamsRemote() ? pullEndedView(false).note : '')
+/** 开始前就失败（live:pull failed）时的正文 */
+const breakText = ref('')
+let playback: PullPlayback | null = null
 let userStopped = false
-let lastDecoded = 0
-
-const statusText = computed(() => (session.running.value ? '正在播放' : session.busy.value ? '正在连接' : '未开始播放'))
-const statusHint = computed(() => (url.value && session.busy.value ? url.value : '拉流播放'))
-const hudLines = computed(() => {
-  const s = session.stats
-  const res = s.width ? `${s.width}×${s.height} · ` : ''
-  return [`${res}${Math.round(s.fps)} fps`, `${Math.round(s.bitrateKbps)} kbps · 丢帧 ${s.dropped}`]
-})
-
-watch(url, () => (urlInvalid.value = false))
-// 产品经理已定：预览开关不记住上次选择。播放期间开关置灰并显示本次的值，播放结束（停止 / 出错）后复位为开（页面被 KeepAlive 保留时也一样）
-watch(() => session.busy.value, (b) => {
-  if (!b) previewOn.value = true
-})
-watch(muted, (m) => {
-  if (videoRef.value) videoRef.value.muted = m
-})
-
-function destroyPlayer() {
-  if (statTimer) clearInterval(statTimer)
-  statTimer = null
-  if (player) {
-    try {
-      player.pause()
-      player.unload()
-      player.detachMediaElement()
-      player.destroy()
-    } catch {
-      /* 已销毁 */
-    }
-    player = null
-  }
-  hasVideo.value = false
+let unwatch: (() => void) | null = null
+function previewParamsRemote() {
+  return new URLSearchParams(window.location.search).get('remote') === '1' // 截图：?lpv=pull-ended&remote=1
 }
 
-function start() {
-  if (session.busy.value && !player) return
+const busy = computed(() => phase.value === 'connecting' || phase.value === 'playing' || phase.value === 'buffering')
+const clock = computed(() => (vis ? vis.clock : formatClock(session.uptimeSec.value)))
+// 角标 / 面板只数进行中的：被中断、结束、不支持都是 0 路
+watch(busy, (b) => {
+  if (b) dock.pull.active = true
+  else dock.resetPull()
+}, { immediate: true })
+if (vis && (vis.phase === 'playing' || vis.phase === 'buffering')) Object.assign(dock.pull, { bitrate: '5986', fps: '30.0', dropped: '0', bytes: '812.4', unit: 'MB' })
+
+async function start() {
+  if (busy.value || vis) return
   const u = url.value.trim()
   if (!isValidPullUrl(u)) {
     urlInvalid.value = true
     session.log('流地址格式不正确')
     return
   }
+  unwatch?.()
+  unwatch = null
+  await stopPullPlayback(playback)
+  playback = null
   userStopped = false
+  playUrl.value = ''
+  reason.value = ''
+  endedNote.value = ''
+  breakText.value = ''
+  phase.value = 'connecting'
   session.setStarting()
-  session.log(`开始拉流 ${u}`)
-  sessionPreviewOn.value = previewOn.value
-  if (demo) {
-    session.simRunning()
-    return
+  session.log('开始拉流')
+  try {
+    playback = await startPullPlayback(u)
+    if (playback.session) unwatch = watchPull(playback.session.id, onPullEvent)
+    const stream = playback.stream
+    if (!stream?.url) {
+      phase.value = 'unsupported'
+      reason.value = 'unavailable'
+      session.fail('UNSUPPORTED', 'reason=preview_unavailable')
+      return
+    }
+    hasAudio.value = stream.hasAudio
+    playUrl.value = stream.url
+  } catch (e) {
+    const k = classifyPreviewError(e)
+    phase.value = k === 'unsupported' || k === 'unavailable' ? 'unsupported' : 'interrupted'
+    reason.value = k === 'unsupported' ? 'codec' : k === 'unavailable' ? 'unavailable' : ''
+    session.fail('LIVE_PLAY_FAILED', '')
   }
-  open(u)
 }
 
-function open(u: string) {
-  destroyPlayer()
-  const el = videoRef.value
-  if (!el) return
-  if (!mpegts.getFeatureList().mseLivePlayback) {
-    session.fail('LIVE_PLAY_FAILED', '当前环境不支持 FLV 直播播放')
-    return
+function onPullEvent(e: PullEvent) {
+  if (userStopped) return
+  if (e.state === 'playing') return // 画面以播放器真的出帧为准（onPlaying）
+  if (e.state === 'ended') return onEnded()
+  if (e.state === 'interrupted') return onBroken()
+  if (e.state === 'unsupported') return onUnsup()
+  if (e.state === 'failed') {
+    // 开始前就失败（连不上等）：用后端分类后的 message，播放器给「重新拉流」
+    breakText.value = e.error?.message || ''
+    return onBroken()
   }
-  const isWs = /^wss?:/i.test(u)
-  player = mpegts.createPlayer(
-    { type: 'flv', isLive: true, url: u },
-    lowLatency.value
-      ? {
-          enableWorker: true,
-          enableStashBuffer: false,
-          stashInitialSize: 128,
-          lazyLoad: true,
-          lazyLoadMaxDuration: 3,
-          autoCleanupSourceBuffer: true,
-          liveBufferLatencyChasing: true,
-          liveSync: true,
-          liveSyncTargetLatency: 1,
-        }
-      : { enableWorker: true, autoCleanupSourceBuffer: true },
-  )
-  player.on(mpegts.Events.ERROR, (type: string, detail: string, info: { code?: number; msg?: string }) => {
-    if (userStopped) return
-    // mpegts 的 detail 可能是 Exception / HttpStatusCodeInvalid / ConnectingTimeout 等
-    const code = mapPlayerError({ kind: 'mpegts', type, detail, info, url: u })
-    session.log(`播放器错误 ${type} / ${detail}${info?.code !== undefined ? ` / code=${info.code}` : ''}${info?.msg ? ` / ${info.msg}` : ''}`)
-    const status = info?.code && info.code > 0 ? info.code : undefined
-    onFailed(code, status ? `服务器返回 ${status}` : isWs ? 'WebSocket' : '')
-  })
-  player.on(mpegts.Events.MEDIA_INFO, (mi: { width?: number; height?: number }) => {
-    session.stats.width = mi.width ?? 0
-    session.stats.height = mi.height ?? 0
-    session.log(`已收到媒体信息 ${mi.width}×${mi.height}`)
-  })
-  player.attachMediaElement(el)
-  el.muted = muted.value
-  hasVideo.value = true
-  player.load()
-  const p = player.play()
-  if (p && typeof (p as Promise<void>).catch === 'function') (p as Promise<void>).catch(() => undefined)
-  lastDecoded = 0
-  // 播放器出画面后才算“播放中”
-  const onPlaying = () => {
-    el.removeEventListener('playing', onPlaying)
-    if (session.phase.value === 'starting') session.setRunning()
-  }
-  el.addEventListener('playing', onPlaying)
-  statTimer = setInterval(sample, 1000)
 }
-
-function sample() {
-  if (!player) return
-  const si = (player as mpegts.MSEPlayer).statisticsInfo
-  const decoded = si?.decodedFrames ?? 0
-  const kbps = ((si?.speed ?? 0) * 8) // KB/s → kbit/s
-  const fps = lastDecoded ? Math.max(0, decoded - lastDecoded) : 0
-  lastDecoded = decoded
-  if (session.phase.value !== 'running') return
-  session.addSample({
-    bitrateKbps: kbps,
-    fps,
-    dropped: si?.droppedFrames ?? 0,
-    // 已接收字节数按每秒速度累加
-    bytes: session.stats.bytes + (si?.speed ?? 0) * 1024,
-  })
+function onPlaying() {
+  if (!busy.value) return
+  phase.value = 'playing'
+  session.setRunning()
 }
-
-function onFailed(code: string, detail = '') {
-  destroyPlayer()
-  if (code === 'LIVE_URL_INVALID') {
-    session.setIdle()
-    urlInvalid.value = true
-    return
-  }
-  // 设计稿 v0.2：删掉“断线自动重连”，出错直接显示错误遮罩（用户点“重试”再来）
-  session.fail(code, detail)
+function finish() {
+  playUrl.value = ''
+  unwatch?.()
+  unwatch = null
+  void stopPullPlayback(playback)
+  playback = null
 }
-
-function stop() {
+function onBroken() {
+  if (userStopped || phase.value === 'interrupted' || phase.value === 'unsupported') return
+  finish()
+  phase.value = 'interrupted'
+  session.fail('LIVE_PLAY_FAILED', '')
+}
+/** 不是用户点停止而结束（live:pull ended，或播放器读到流的结尾）：加第二行和「重新拉流」 */
+function onEnded() {
+  if (userStopped || !busy.value) return
+  finish()
+  endedNote.value = pullEndedView(false).note
+  phase.value = 'ended'
+  session.setIdle()
+}
+function onUnsup() {
+  if (userStopped || phase.value === 'unsupported') return
+  finish()
+  phase.value = 'unsupported'
+  reason.value = 'codec'
+  session.fail('UNSUPPORTED', 'reason=codec')
+}
+function onStats(s: { kbps: number; fps: number; dropped: number; bytes: number }) {
+  if (!busy.value) return
+  dock.pull.bitrate = String(Math.round(s.kbps))
+  dock.pull.fps = String(Math.round(s.fps))
+  dock.pull.dropped = String(s.dropped)
+  if (s.bytes >= 1048576) { dock.pull.bytes = (s.bytes / 1048576).toFixed(1); dock.pull.unit = 'MB' }
+  else { dock.pull.bytes = String(Math.max(0, Math.round(s.bytes / 1024))); dock.pull.unit = 'KB' }
+}
+/** 用户自己点「停止播放」：只写「拉流已结束」，没有第二行 */
+async function stop() {
   userStopped = true
-  destroyPlayer()
+  endedNote.value = pullEndedView(true).note
+  playUrl.value = ''
+  unwatch?.()
+  unwatch = null
+  await stopPullPlayback(playback)
+  playback = null
+  phase.value = 'ended'
   session.setIdle()
   session.log('已停止播放')
 }
-
-function fullscreen() {
-  videoRef.value?.requestFullscreen?.().catch(() => undefined)
-}
-
-onMounted(() => {
-  if (demo) {
-    session.initPreview()
-    if (session.busy.value) sessionPreviewOn.value = previewOn.value // ?live=running：预置“播放中”
-  }
-})
-onBeforeUnmount(() => {
-  userStopped = true
-  destroyPlayer()
-})
+onBeforeUnmount(() => { userStopped = true; unwatch?.(); void stopPullPlayback(playback) })
 </script>
 
 <style scoped>
-.idle {
-  position: absolute;
-  inset: 0;
-  background: #0b0c0e;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  color: #7c828c;
-  font-size: var(--ff-fs-xs);
-}
-.pvr {
-  margin-left: 8px;
-  font-size: var(--ff-fs-xs);
-  opacity: 0.85;
-}
-.tip {
-  font-size: var(--ff-fs-xs);
-  color: var(--ff-text-2);
-  line-height: 1.5;
-  margin-top: -4px;
-}
-.chk {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: var(--ff-fs-sm);
-}
+.tip { font-size: var(--ff-fs-xs); color: var(--ff-text-2); line-height: 1.5; margin-top: -4px; }
+.chk { display: flex; align-items: center; justify-content: space-between; font-size: var(--ff-fs-sm); }
 </style>

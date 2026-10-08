@@ -18,7 +18,7 @@
 </template>
 
 <script setup lang="ts">
-// 表单里的“开启预览”开关（设计说明 §5.1）：预览是会话的启动参数，只能在开始前选——放在“开始推流”上方 / 拉流地址输入区下方。
+// 设置栏底部的“开启预览”（设计说明 §2.5）。有进行中的当前会话时就是这一路的预览，拨动只连接 / 断开播放器，不重启推流（契约 v0.25 ⑤）；没有时是下一路的初始值。
 // 第一行“开启预览”+ 右侧开关，整行是一个 button role=switch；第二行小字。禁用（ffmpeg 未就绪 / 正在开始 / 播放中）用 aria-disabled（仍可聚焦，读得到原因），聚焦环 2px。
 import { useId } from 'vue'
 import { PREVIEW_SWITCH_LABEL, PREVIEW_SWITCH_NOTE } from '@/errors/livePreviewMessages'
@@ -34,7 +34,7 @@ const noteId = `ff-pvs-n-${uid}`
 .pvs {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
 }
 .pvs.dis {

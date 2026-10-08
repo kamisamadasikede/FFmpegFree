@@ -5,7 +5,7 @@ import * as liveApi from '@/api/live'
 import { AppError, toAppError, type AppErrorCode } from '@/api/call'
 import { revealInFolder } from '@/api/system'
 import { actionErrorText } from '@/errors/errorMessages'
-import { displayPushUrl } from '@/utils/liveUrl'
+import { displayPushUrl, parsePushUrl } from '@/utils/liveUrl'
 import { hasWailsBackend } from '@/services/wails'
 import { rowsPreview } from '@/views/live/pushPreview'
 
@@ -50,8 +50,17 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
   const offs = new Map<string, () => void>()
   let recovered = false
 
-  /** n/4 的 n：运行中 + 正在停止 */
-  const busyCount = computed(() => rows.value.filter((r) => r.status === 'run' || r.status === 'stp').length)
+  /** 进行中的会话（运行中 + 正在停止）：会话面板只列这些，已结束 / 已中断的离开面板 */
+  const activeRows = computed(() => rows.value.filter((r) => r.status === 'run' || r.status === 'stp'))
+  /** n/4 的 n、角标：只数进行中的 */
+  const busyCount = computed(() => activeRows.value.length)
+  /** 预览区当前显示的会话：选中的 → 第一个进行中的 → 最近一条（被中断时停在这条，显示“重新推流”） */
+  const current = computed<LiveRow | undefined>(() => rows.value.find((r) => r.id === previewId.value) ?? activeRows.value[0] ?? rows.value[0])
+  /** 这一路的预览开关：只决定前端连不连它的预览地址，不重启推流（契约 v0.25 ⑤） */
+  function setPreview(id: string, on: boolean) {
+    const r = rows.value.find((x) => x.id === id)
+    if (r) r.preview = on
+  }
 
   const find = (id: string) => rows.value.find((r) => r.id === id)
 
@@ -95,6 +104,7 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
         onConnected: () => {
           connected = true
           add('run', 0)
+          previewId.value = task.id // 刚开始的这一路成为预览区的当前会话
           resolve({ ok: true })
         },
         onProgress: (p) => applyProgress(task.id, p),
@@ -168,6 +178,27 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
     }
   }
 
+  /** 重新推流用的参数（只在内存里，含完整地址；不进 localStorage、不打日志） */
+  const restarts = new Map<string, { kind: 'file' | 'screen'; url: string; inputPath?: string; sourceId?: string; archiveDir?: string; source?: LiveRow['source'] }>()
+  function noteRestart(id: string, spec: { kind: 'file' | 'screen'; url: string; inputPath?: string; sourceId?: string; archiveDir?: string; source?: LiveRow['source'] }) {
+    restarts.set(id, spec)
+  }
+  /**
+   * 用原来的参数再推一次（不跳页面）。preview 只决定新会话开始后前端连不连预览，不改变推流命令。
+   * 没有记下参数（刷新后接回的会话）时返回 null，调用方改走当前表单。
+   */
+  async function restart(id: string, preview: boolean): Promise<BeginResult | null> {
+    const spec = restarts.get(id)
+    if (!spec) return null
+    const parsed = parsePushUrl(spec.url)
+    const redacted = parsed.ok ? parsed.info.redacted : ''
+    const task = spec.kind === 'file'
+      ? await liveApi.startFilePush({ inputPath: spec.inputPath ?? '', url: spec.url, loop: true, options: liveApi.defaultPushOptions(), preview })
+      : await liveApi.startScreenPush(liveApi.buildScreenPushRequest({ url: spec.url, sourceId: spec.sourceId ?? '', archiveDir: spec.archiveDir ?? '', preview }))
+    noteRestart(task.id, spec)
+    return begin(task, { kind: spec.kind, redactedUrl: redacted, archive: !!spec.archiveDir, preview, ...(spec.source ? { source: spec.source } : {}) })
+  }
+
   /** [移除]：只把这一行从页面列表里去掉，不删除存档、不影响任务中心历史 */
   function remove(id: string) {
     const r = find(id)
@@ -238,5 +269,5 @@ export const useLiveSessionsStore = defineStore('liveSessions', () => {
   }
 
   const selectPreview = (id: string) => (previewId.value = id)
-  return { rows, previewId, selectPreview, busyCount, begin, recover, stop, forceStop, remove, reveal }
+  return { rows, previewId, selectPreview, activeRows, busyCount, current, setPreview, begin, recover, stop, forceStop, remove, reveal, noteRestart, restart }
 })
