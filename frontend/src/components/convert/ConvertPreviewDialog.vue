@@ -11,7 +11,7 @@ import { getPreviewURL, getSourcePreviewURL, openSourceWithSystem, openWithSyste
 import { MOCK_UNPLAYABLE_URL, MOCK_URL_PREFIX } from '@/api/convertRecordsMock'
 import { metaInfoOf, useConvertRecordsStore } from '@/stores/convertRecords'
 import { usedDeviceText, useEncoderDeviceList } from '@/api/encoderTask'
-import { codecName, channelText, sampleRateText } from '@/utils/mediaText'
+import { channelText, sampleRateText, videoCodecText } from '@/utils/mediaText'
 import { formatRecordTime, isAudioContainer, isAudioOnly, recordLine } from '@/utils/convertText'
 import { fileBaseName, formatBytes, formatShortClock } from '@/utils/format'
 
@@ -88,7 +88,7 @@ function srcFacts(withDur: boolean): string[] {
   const i = srcInfo.value
   if (!i) return []
   const audio = isAudioOnly(i)
-  const parts = audio ? [sampleRateText(i.sampleRate), channelText(i.channels)] : [i.width ? `${i.width}×${i.height}` : '', codecName(i.videoCodec)]
+  const parts = audio ? [sampleRateText(i.sampleRate), channelText(i.channels)] : [i.width ? `${i.width}×${i.height}` : '', videoCodecText(i)]
   if (withDur) parts.push(formatShortClock(i.duration ?? 0))
   parts.push(i.size ? formatBytes(i.size) : '')
   return parts.filter(Boolean)
