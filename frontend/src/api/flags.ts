@@ -87,10 +87,10 @@ export const LANG_BACKEND_READY: boolean = true
 export const LOGIN_UI_ENABLED: boolean = false
 
 /**
- * Cat 聊天页（原型 cat-v3 / 说明 v0.3，老板已确认）。默认 true：侧栏「语音工具」后出现「Cat」入口，路由 /cat 可达。
- * 改成 false：侧栏不出现入口，直达 #/cat 也回到转换页。
+ * Cat 聊天页（原型 cat-v3 / 说明 v0.3）。默认 false：正式预览包不出现侧栏「Cat」入口，直达 #/cat 也回到转换页。
+ * 改成 true：侧栏「语音工具」后出现「Cat」，路由 /cat 可达（内部看布局用）。
  */
-export const CAT_UI_ENABLED: boolean = true
+export const CAT_UI_ENABLED: boolean = false
 
 /**
  * Cat 后端（架构未定）。false = 所有数据来自 api/catMock.ts，发消息只在本地生成一条示意回复，不调用任何绑定。
