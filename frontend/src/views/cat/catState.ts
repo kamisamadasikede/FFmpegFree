@@ -38,9 +38,11 @@ import {
 } from '@/api/catProjects'
 import {
   CAT_AGENT_BUILD,
+  CAT_CONV_COPY,
   CAT_COPY,
   cancelCatTurn,
   createCatConversation,
+  deleteCatConversation,
   getCatConversation,
   getCatStatus,
   isCatLive,
@@ -114,6 +116,8 @@ export const catState = reactive({
   renaming: '' as string,
   /** 删除确认框对应的项目 id */
   deleting: '' as string,
+  /** 删除确认框对应的对话 id（设计 v0.3 §13；与 deleting 同一个确认框组件） */
+  deletingConv: '' as string,
   plain: (live ? [] : mockPlainConvs()) as CatConv[],
   messages: {} as Record<string, CatBlock[]>,
   /** 新对话正在创建（欢迎页输入框忙） */
@@ -207,7 +211,7 @@ async function loadMessages(id: string) {
   try {
     const d = await getCatConversation(id)
     // 加载期间已经开始一轮（本地已放了用户消息 / 流式文字）就不覆盖
-    if (d && !catState.turns[id] && !(catState.messages[id]?.length)) catState.messages[id] = blocksFrom(d.messages)
+    if (d && findConv(id) && !catState.turns[id] && !(catState.messages[id]?.length)) catState.messages[id] = blocksFrom(d.messages)
   } catch {
     /* 读不到就保持空，不弹错 */
   } finally {
@@ -293,6 +297,8 @@ export async function reloadConversations() {
     const plain: CatConv[] = []
     // 后端已按 6.19.10.6 排好，分组时保持顺序；项目不认识（开关关 / 已删）的放「对话」
     for (const c of list) {
+      // 刚删掉的对话：删除前发出的列表请求晚回来时不让它复活
+      if (removedConvs.has(c.id)) continue
       const p = c.projectId ? byId.get(c.projectId) : undefined
       if (p) p.convs.push(toConv(c))
       else plain.push(toConv(c))
@@ -321,6 +327,8 @@ function assistantBlock(convId: string, messageId: string): Extract<CatBlock, { 
 
 export function handleMessageEvent(e: CatStreamEvent) {
   if (e.role === 'user') return // 用户消息本地已先放
+  // 已不在列表里的对话（刚删掉的）：直接忽略，不报错也不重建状态
+  if (!findConv(e.convId)) return
   const turn = catState.turns[e.convId]
   // 点了停止之后到的文字不再追加（保留已显示的）
   if (turn?.status === 'stopping') return
@@ -351,6 +359,8 @@ export function handleMessageEvent(e: CatStreamEvent) {
 }
 
 export function handleTurnEvent(e: CatTurnEvent) {
+  // 删除时后端可能还会发一条 cat:turn cancelled：对话已不在列表里就忽略
+  if (!findConv(e.convId)) return
   const turn = catState.turns[e.convId]
   if (!turn) return
   if (e.turnId && turn.turnId && e.turnId !== turn.turnId) return
@@ -489,6 +499,8 @@ export async function sendMessage(text: string): Promise<string | undefined> {
     }
   } catch (e) {
     const err = toAppError(e)
+    // 发送途中对话被删了：什么都不做（不重建消息）
+    if (!findConv(id)) return
     if (err.code === 'CAT_PROJECT_MISSING') {
       // 6.19.10.2 第 6 条：后端没存这条用户消息、没启这一轮 → 撤掉本地先放的用户消息，项目标灰
       const turn = catState.turns[id]
@@ -504,6 +516,53 @@ export async function sendMessage(text: string): Promise<string | undefined> {
 }
 
 /** 停止生成：按钮立即置灰；已流出的文字保留，结束后单独一行「已停止生成。」 */
+// ---------- 删除对话（契约 v0.31.2 / 设计 v0.3 §11–15） ----------
+
+/** 已删掉的对话 id：晚到的列表 / 事件不让它复活 */
+const removedConvs = new Set<string>()
+
+/** 清掉一条对话在前端的全部状态（进行中的一轮、流式缓存、停止计时、消息） */
+function dropConvState(id: string) {
+  const turn = catState.turns[id]
+  if (turn?.assistantId) streams.delete(turn.assistantId)
+  clearTimeout(stopTimers.get(id))
+  stopTimers.delete(id)
+  delete catState.turns[id]
+  delete catState.messages[id]
+  loading.delete(id)
+}
+
+/**
+ * 删除对话（确认框确认后调用）。直接调 DeleteCatConversation：回复进行中也一样，后端自己先停（最多等 5 秒），
+ * 前端不先调 CancelCatTurn。成功：移除该行；是当前对话则回到「新对话」欢迎态。失败：行不动，浮提示「删除失败，请重试。」。
+ * 返回 'current' | 'other'（成功，删的是不是当前对话）或 false（失败）。
+ */
+export async function deleteConversation(id: string): Promise<'current' | 'other' | false> {
+  if (!findConv(id)) return 'other'
+  announce(CAT_CONV_COPY.deleting)
+  try {
+    if (import.meta.env.DEV && catSim.has('slowdel')) await new Promise((r) => setTimeout(r, 1500))
+    if (import.meta.env.DEV && catSim.has('delfail')) throw new AppError('INTERNAL', 'sim')
+    await deleteCatConversation(id)
+  } catch {
+    notify(CAT_CONV_COPY.deleteFailed, 'warn')
+    return false
+  }
+  const f = findConv(id)
+  if (!f) return 'other'
+  removedConvs.add(id)
+  if (f.project) f.project.convs = f.project.convs.filter((c) => c.id !== id)
+  else catState.plain = catState.plain.filter((c) => c.id !== id)
+  dropConvState(id)
+  const wasCurrent = catState.sel === id
+  if (wasCurrent) {
+    catState.sel = NEW_CONV
+    catState.newProjectId = ''
+  }
+  announce(CAT_CONV_COPY.deleted)
+  return wasCurrent ? 'current' : 'other'
+}
+
 export async function stopTurn(convId: string = catState.sel) {
   const turn = catState.turns[convId]
   if (!turn || turn.status === 'stopping') return

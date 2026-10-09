@@ -25,6 +25,21 @@ export const CAT_COPY = {
   stopped: '已停止生成。',
 } as const
 
+/**
+ * 删除对话（设计「Cat 项目状态 v0.3」§11–15）。
+ * deleteFailed：产品 10-09 已定（浮提示；失败时对话行保持不动）。
+ */
+export const CAT_CONV_COPY = {
+  menu: '对话操作',
+  del: '删除',
+  delTitle: '删除这个对话？',
+  delBody: '删除后无法恢复。',
+  cancel: '取消',
+  deleting: '正在删除…',
+  deleted: '已删除对话。',
+  deleteFailed: '删除失败，请重试。',
+} as const
+
 /** 事件名（契约 6.19.5） */
 export const CAT_EVENTS = { status: 'cat:status', message: 'cat:message', turn: 'cat:turn' } as const
 
@@ -230,7 +245,13 @@ export async function createCatConversation(req: CreateCatConversationRequest): 
   return mapConv(await call(CatBinding.CreateCatConversation(body)))
 }
 
+/**
+ * 删除对话（契约 v0.31.2）：进行中的一轮由后端先停（最多等 5 秒），前端不先调 CancelCatTurn；
+ * 不存在的 id 返回 nil（可重复删），所以没有 NOT_FOUND 分支。
+ * 浏览器 mock：会话列表就在页面内存里（catState），这里直接成功，由调用方移除。
+ */
 export async function deleteCatConversation(id: string): Promise<void> {
+  if (!id) throw new AppError('INVALID_ARGUMENT', '缺少对话')
   if (!live()) return
   await call(CatBinding.DeleteCatConversation(id))
 }
