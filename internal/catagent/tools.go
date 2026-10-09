@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"FFmpegFree/internal/paths"
 )
 
 // 只读文本扩展名白名单（契约：白名单 TBD；一期保守列表）。
@@ -30,19 +32,29 @@ func IsWriteOrExec(kind string) bool {
 	}
 }
 
-// ResolveUnderRoot 把 path 解析到只读根下；越界返回 false。
+// ResolveUnderRoot 把工具请求里的 rel 按“相对项目根”解析（契约 6.19.10.5）。
+// 一律拒绝：根为空、绝对路径（含盘符 / UNC / 以分隔符开头）、含 .. 跳出根、
+// 以及解析符号链接 / 目录联接后真实路径不在根的真实路径之内的；比较按目录边界，Windows / macOS 不区分大小写（同 6.8）。
+// rel 为空或 "." 表示根本身。
 func ResolveUnderRoot(root, rel string) (abs string, ok bool) {
-	root = filepath.Clean(root)
-	if root == "" || rel == "" {
+	if strings.TrimSpace(root) == "" {
 		return "", false
 	}
-	target := rel
-	if !filepath.IsAbs(rel) {
-		target = filepath.Join(root, rel)
+	root = filepath.Clean(root)
+	rel = strings.TrimSpace(rel)
+	if rel == "" || rel == "." {
+		return root, true
 	}
-	target = filepath.Clean(target)
+	if filepath.IsAbs(rel) || filepath.VolumeName(rel) != "" || strings.HasPrefix(rel, "/") || strings.HasPrefix(rel, `\`) {
+		return "", false
+	}
+	target := filepath.Clean(filepath.Join(root, rel))
 	relOut, err := filepath.Rel(root, target)
-	if err != nil || strings.HasPrefix(relOut, "..") {
+	if err != nil || relOut == ".." || strings.HasPrefix(relOut, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	// 真实路径检查：根与目标都解析已存在部分的符号链接 / junction，再按目录边界比较。
+	if !paths.Within(root, target) {
 		return "", false
 	}
 	return target, true
@@ -51,11 +63,6 @@ func ResolveUnderRoot(root, rel string) (abs string, ok bool) {
 // ListDir 列出目录名（一期只读工具）。
 func ListDir(root, rel string) (string, error) {
 	abs, ok := ResolveUnderRoot(root, rel)
-	if !ok {
-		if rel == "" || rel == "." {
-			abs, ok = root, true
-		}
-	}
 	if !ok || abs == "" {
 		return "", os.ErrPermission
 	}
@@ -105,7 +112,10 @@ func ReadText(root, rel string) (string, error) {
 }
 
 // HandleToolRequests 处理工具请求：写/跑一律拒绝并返回用户可见说明；只读尽量执行。
-func HandleToolRequests(projectPath string, reqs []ToolRequest) []ToolResult {
+// projectRoot 是对话所属项目的文件夹（6.19.10.5）；对话不属于项目时为空，所有项目工具一律拒绝。
+// 被拒绝的请求作为工具失败结果回给适配器，不中断这一轮。
+func HandleToolRequests(projectRoot string, reqs []ToolRequest) []ToolResult {
+	projectPath := projectRoot
 	var out []ToolResult
 	for _, r := range reqs {
 		res := ToolResult{ID: r.ID}
@@ -119,7 +129,7 @@ func HandleToolRequests(projectPath string, reqs []ToolRequest) []ToolResult {
 		case "list_dir", "listdir", "list":
 			if projectPath == "" {
 				res.OK = false
-				res.Content = MsgToolWriteRef
+				res.Content = MsgToolNoProject
 			} else {
 				s, err := ListDir(projectPath, r.Path)
 				if err != nil {
@@ -133,7 +143,7 @@ func HandleToolRequests(projectPath string, reqs []ToolRequest) []ToolResult {
 		case "read_text", "read", "read_file":
 			if projectPath == "" {
 				res.OK = false
-				res.Content = MsgToolWriteRef
+				res.Content = MsgToolNoProject
 			} else {
 				s, err := ReadText(projectPath, r.Path)
 				if err != nil {

@@ -10,8 +10,16 @@ export function CreateCatConversation(arg1) {
   return window['go']['app']['CatService']['CreateCatConversation'](arg1);
 }
 
+export function CreateCatProject(arg1) {
+  return window['go']['app']['CatService']['CreateCatProject'](arg1);
+}
+
 export function DeleteCatConversation(arg1) {
   return window['go']['app']['CatService']['DeleteCatConversation'](arg1);
+}
+
+export function DeleteCatProject(arg1) {
+  return window['go']['app']['CatService']['DeleteCatProject'](arg1);
 }
 
 export function GetCatConversation(arg1) {
@@ -30,12 +38,20 @@ export function ListCatModels(arg1) {
   return window['go']['app']['CatService']['ListCatModels'](arg1);
 }
 
+export function ListCatProjects() {
+  return window['go']['app']['CatService']['ListCatProjects']();
+}
+
 export function ListCatThinkLevels(arg1) {
   return window['go']['app']['CatService']['ListCatThinkLevels'](arg1);
 }
 
 export function RecheckCat() {
   return window['go']['app']['CatService']['RecheckCat']();
+}
+
+export function RenameCatProject(arg1) {
+  return window['go']['app']['CatService']['RenameCatProject'](arg1);
 }
 
 export function SendCatMessage(arg1) {

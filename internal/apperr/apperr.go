@@ -71,6 +71,9 @@ const (
 	// v0.30 Cat 助手（6.19.7）。
 	CatNotReady    Code = "CAT_NOT_READY"
 	CatReplyFailed Code = "CAT_REPLY_FAILED"
+
+	// v0.31 Cat 项目（6.19.10.9）：项目文件夹不见了（SendCatMessage / CreateCatConversation 同步返回），可重试。
+	CatProjectMissing Code = "CAT_PROJECT_MISSING"
 )
 
 // AppError 同时用于 Bind 返回值和持久化到 tasks.error 列。
