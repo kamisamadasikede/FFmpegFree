@@ -15,7 +15,7 @@ export const mainNav: NavItem[] = [
   { key: 'convert', label: '转换', path: '/', icon: 'convert', needsFFmpeg: true },
   { key: 'live', label: '直播', path: '/live', icon: 'live', needsFFmpeg: true },
   { key: 'docs', label: '文档', path: '/docs', icon: 'doc' },
-  { key: 'tools', label: '工具', path: '/tools', icon: 'tool' },
+  { key: 'tools', label: 'JSON工具', path: '/tools', icon: 'tool' },
   { key: 'tasks', label: '任务中心', path: '/tasks', icon: 'task', separatorBefore: true },
 ]
 

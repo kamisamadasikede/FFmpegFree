@@ -32,10 +32,10 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/tools',
-    meta: { title: '工具', subtitle: 'JSON 格式化与校验', fill: true },
+    meta: { title: 'JSON工具', subtitle: 'JSON 格式化与校验', fill: true },
     component: SectionTabs,
     redirect: '/tools/json',
-    children: [{ path: 'json', meta: { tab: 'JSON 工具' }, component: () => import('../views/JsonTools.vue') }],
+    children: [{ path: 'json', meta: { tab: 'JSON工具' }, component: () => import('../views/JsonTools.vue') }],
   },
   {
     path: '/tasks',
@@ -72,7 +72,7 @@ const router = createRouter({
 // ffmpeg 不可用时，直接改地址 / router.push 进入转换、剪辑、直播都会被拦下，行为和点击置灰的侧栏项一致：
 //  - 不进入该页面，并重新打开安装对话框（「稍后」不会让入口恢复）；
 //  - 应用内导航：留在当前页；地址栏直达（首次导航没有「当前页」）：落到任务中心，那里能看到安装进度。
-// 设置、文档、工具、任务中心不依赖 ffmpeg，不受影响。启动时状态还是 checking 不算缺失（与侧栏一致），
+// 设置、文档、JSON工具、任务中心不依赖 ffmpeg，不受影响。启动时状态还是 checking 不算缺失（与侧栏一致），
 // 只有首次导航直达受限页面时才等一下检测结果，否则 #/edit 这类地址在缺失时会漏过去。
 router.beforeEach(async (to, from) => {
   if (!routeNeedsFFmpeg(to.matched[0]?.path)) return true

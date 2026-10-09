@@ -56,6 +56,9 @@
         <header class="phead">
           <h2>结果</h2>
           <span class="sp" />
+          <button class="zoom" type="button" title="放大查看" aria-label="放大查看结果" :disabled="showEmpty" @click="openZoom">
+            <FIcon name="zin" :size="15" />
+          </button>
           <div class="seg" role="tablist" aria-label="结果视图">
             <button
               v-for="v in VIEWS"
@@ -101,6 +104,62 @@
         </footer>
       </section>
     </div>
+
+    <Teleport to="body">
+      <div v-if="zoomOpen" class="zmask" @mousedown.self="closeZoom">
+        <div class="zdlg" role="dialog" aria-modal="true" aria-labelledby="json-zoom-title">
+          <header class="phead">
+            <h2 id="json-zoom-title">结果</h2>
+            <span class="sp" />
+            <div class="seg" role="tablist" aria-label="结果视图">
+              <button
+                v-for="v in VIEWS"
+                :key="v.key"
+                type="button"
+                role="tab"
+                :aria-selected="view === v.key"
+                :class="{ on: view === v.key }"
+                @click="view = v.key"
+              >
+                {{ v.label }}
+              </button>
+            </div>
+            <button ref="zoomCloseEl" class="zoom" type="button" title="关闭" aria-label="关闭" @click="closeZoom">
+              <FIcon name="x" :size="16" />
+            </button>
+          </header>
+          <div class="edwrap">
+            <div v-show="showCode" ref="zoomEl" class="ed" />
+            <JsonTree v-if="showTree" :text="result.text" />
+            <div v-if="treeTooDeep" class="rempty">
+              <div class="ic"><FIcon name="doc" :size="20" /></div>
+              嵌套层级过深，请切换到代码视图
+            </div>
+            <div v-if="showEmpty" class="rempty">
+              <template v-if="svcError">
+                <div class="ic err"><FIcon name="warn" :size="20" /></div>
+                {{ svcError }}
+              </template>
+              <template v-else>
+                <div class="ic"><FIcon name="doc" :size="20" /></div>
+                {{ emptyText }}
+              </template>
+            </div>
+          </div>
+          <footer class="sbar">
+            <template v-if="showEmpty || !result.text">
+              <span class="sp" /><span>UTF-8</span>
+            </template>
+            <template v-else>
+              <span v-if="result.kind === 'json'" class="ok"><FIcon name="check" :size="13" />有效 JSON</span>
+              <span v-else>{{ result.mode === 'escape' ? '已转义' : '已去转义' }}</span>
+              <span>{{ resultLines }} 行<template v-if="result.kind === 'json'"> · {{ resultIndent }}</template></span>
+              <span class="sp" /><span>UTF-8</span>
+            </template>
+          </footer>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -138,8 +197,11 @@ const MSG_MS = 4000
 
 const autoFormat = ref(true) // 默认开启
 const view = ref<'code' | 'tree'>('code')
+const zoomOpen = ref(false)
 const inputEl = ref<HTMLElement | null>(null)
 const resultEl = ref<HTMLElement | null>(null)
+const zoomEl = ref<HTMLElement | null>(null)
+const zoomCloseEl = ref<HTMLButtonElement | null>(null)
 
 const inputText = ref('')
 const inputErr = ref<SyntaxErr | null>(null)
@@ -167,6 +229,7 @@ const emptyText = computed(() =>
 // ---------- Monaco ----------
 let inputEditor: monaco.editor.IStandaloneCodeEditor | null = null
 let resultEditor: monaco.editor.IStandaloneCodeEditor | null = null
+let zoomEditor: monaco.editor.IStandaloneCodeEditor | null = null
 let errDecos: monaco.editor.IEditorDecorationsCollection | null = null
 let themeObserver: MutationObserver | null = null
 
@@ -325,7 +388,71 @@ watch(
     if (resultEditor.getValue() !== text) resultEditor.setValue(text)
   },
 )
-watch(showCode, (v) => v && nextTick(() => resultEditor?.layout()))
+watch(showCode, (v) => {
+  if (v) nextTick(() => resultEditor?.layout())
+  if (zoomOpen.value) void mountZoomEditor()
+})
+
+function openZoom() {
+  if (showEmpty.value) return
+  zoomOpen.value = true
+}
+function closeZoom() {
+  zoomOpen.value = false
+}
+function onZoomKey(e: KeyboardEvent) {
+  if (e.key !== 'Escape') return
+  e.preventDefault()
+  e.stopPropagation()
+  closeZoom()
+}
+function syncZoomEditor() {
+  if (!zoomEditor) return
+  const model = zoomEditor.getModel()
+  if (!model) return
+  monaco.editor.setModelLanguage(model, result.value.kind === 'json' ? 'json' : 'plaintext')
+  if (zoomEditor.getValue() !== result.value.text) zoomEditor.setValue(result.value.text)
+}
+async function mountZoomEditor() {
+  await nextTick()
+  if (!zoomOpen.value || !showCode.value || !zoomEl.value) {
+    zoomEditor?.dispose()
+    zoomEditor = null
+    return
+  }
+  if (!zoomEditor) {
+    zoomEditor = monaco.editor.create(zoomEl.value, {
+      ...baseOptions(),
+      value: result.value.text,
+      readOnly: true,
+      domReadOnly: true,
+      glyphMargin: false,
+      wordWrap: 'on',
+      fontSize: 14,
+    })
+    const model = zoomEditor.getModel()
+    if (model) monaco.editor.setModelLanguage(model, result.value.kind === 'json' ? 'json' : 'plaintext')
+  } else {
+    syncZoomEditor()
+    zoomEditor.layout()
+  }
+}
+watch(zoomOpen, (open) => {
+  if (open) {
+    document.addEventListener('keydown', onZoomKey, true)
+    void mountZoomEditor().then(() => zoomCloseEl.value?.focus())
+  } else {
+    document.removeEventListener('keydown', onZoomKey, true)
+    zoomEditor?.dispose()
+    zoomEditor = null
+  }
+})
+watch(
+  () => [result.value.text, result.value.kind] as const,
+  () => {
+    if (zoomOpen.value) syncZoomEditor()
+  },
+)
 
 // 自动格式化：打开时立刻按当前输入格式化一次
 watch(autoFormat, (on) => on && scheduleCheck(true))
@@ -420,8 +547,10 @@ onBeforeUnmount(() => {
   if (timer) clearTimeout(timer)
   if (msgTimer) clearTimeout(msgTimer)
   themeObserver?.disconnect()
+  document.removeEventListener('keydown', onZoomKey, true)
   inputEditor?.dispose()
   resultEditor?.dispose()
+  zoomEditor?.dispose()
 })
 </script>
 
@@ -485,6 +614,7 @@ onBeforeUnmount(() => {
 .btn:focus-visible,
 .af:focus-visible,
 .seg button:focus-visible,
+.zoom:focus-visible,
 .bad:focus-visible {
   outline: 2px solid var(--ff-primary);
   outline-offset: 1px;
@@ -593,6 +723,46 @@ onBeforeUnmount(() => {
   color: var(--ff-text-1);
   font-weight: 500;
   box-shadow: var(--ff-shadow-1);
+}
+.zoom {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ff-radius-md);
+  background: transparent;
+  color: var(--ff-text-2);
+  cursor: pointer;
+}
+.zoom:hover:not(:disabled) {
+  background: var(--ff-bg-hover);
+  color: var(--ff-text-1);
+}
+.zoom:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.zmask {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0, 0, 0, 0.45);
+  display: grid;
+  place-items: center;
+}
+.zdlg {
+  width: calc(100vw - 48px);
+  height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--ff-bg-surface);
+  border: 1px solid var(--ff-border);
+  border-radius: 12px;
+  box-shadow: var(--ff-shadow-dialog);
 }
 
 .edwrap {
