@@ -214,7 +214,8 @@
         <ErrorLine :code="tasks.historyError.code" :message="tasks.historyError.message" :detail="tasks.historyError.detail" :show-log="false" fallback-title="加载任务失败" announce />
       </div>
 
-      <!-- 日志面板 -->
+      <!-- 日志面板：打开 / 关闭时高度 + 透明度收放（P1 动效），上面的列表跟着平滑让位 -->
+      <MotionCollapse>
       <div v-if="logTask" ref="logWrapEl" class="logwrap" tabindex="-1" role="region" aria-label="任务日志面板">
         <div class="loghead">
           <span>{{ isLogLive ? '实时日志' : '日志' }} · {{ logTask.title }}</span>
@@ -229,6 +230,7 @@
         </div>
         <pre ref="logEl" class="log selectable" tabindex="0" aria-label="任务日志">{{ logText || (logLoading ? '正在读取…' : '（暂无日志）') }}</pre>
       </div>
+      </MotionCollapse>
     </div>
 
     <!-- 删除 / 隐藏确认 -->
@@ -262,7 +264,7 @@ import { useJustDone } from '@/composables/useJustDone'
 import MotionDialog from '@/components/motion/MotionDialog.vue'
 import ErrorLine from '@/components/common/ErrorLine.vue'
 import EncoderFallbackNotice from '@/components/encoder/EncoderFallbackNotice.vue'
-import { scrollBehavior } from '@/utils/motion'
+import { DUR, prefersReducedMotion, scrollBehavior } from '@/utils/motion'
 import { useNarrow } from '@/components/convert/useNarrow'
 import { getSource, parseParams } from '@/api/convertRecords'
 import { recordParamsText, setPresetCatalog } from '@/utils/convertText'
@@ -725,6 +727,8 @@ async function revealLog() {
   if (!el) return
   el.scrollIntoView({ block: 'nearest', behavior: scrollBehavior() })
   el.focus({ preventScroll: true })
+  // 面板是展开着进来的（MotionCollapse，200ms）：展开完再对一次位置，免得只露出半截
+  if (!prefersReducedMotion()) setTimeout(() => logWrapEl.value === el && el.scrollIntoView({ block: 'nearest', behavior: scrollBehavior() }), DUR.base + 20)
 }
 function closeLog() {
   const id = logId.value
