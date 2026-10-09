@@ -477,7 +477,7 @@ func TestAddDocSourcesRejects(t *testing.T) {
 	e := newDocEnv(t, &fakeComp{st: doccomp.Status{State: doccomp.StateMissing}})
 	d := filepath.Join(e.dir, "src")
 	os.MkdirAll(d, 0o755)
-	pdf := writeFile(t, filepath.Join(d, "a.pdf"), []byte("%PDF-1.4"))
+	pdf := writeFile(t, filepath.Join(d, "a.pdf"), []byte("not a pdf")) // v0.28：PDF 可以添加；不是 PDF → DOC_CORRUPT
 	exe := writeFile(t, filepath.Join(d, "a.exe"), []byte("MZ"))
 	noext := writeFile(t, filepath.Join(d, "noext"), []byte("x"))
 	enc := filepath.Join(d, "enc.docx")
@@ -488,13 +488,13 @@ func TestAddDocSourcesRejects(t *testing.T) {
 	f.Truncate(MaxInputBytes + 1)
 	f.Close()
 	res := e.add(t, pdf, exe, noext, enc, bad, big, filepath.Join(d, "missing.docx"), "relative.docx")
-	want := []apperr.Code{apperr.DocPDFInputUnsupported, apperr.DocFormatUnsupported, apperr.DocFormatUnsupported, apperr.DocEncrypted, apperr.DocCorrupt, apperr.InvalidArgument, apperr.NotFound, apperr.InvalidArgument}
+	want := []apperr.Code{apperr.DocCorrupt, apperr.DocFormatUnsupported, apperr.DocFormatUnsupported, apperr.DocEncrypted, apperr.DocCorrupt, apperr.InvalidArgument, apperr.NotFound, apperr.InvalidArgument}
 	for i, r := range res {
 		if r.Source != nil || r.Error == nil || r.Error.Code != want[i] {
 			t.Errorf("%s: %+v，应为 %s", r.Path, r.Error, want[i])
 		}
 	}
-	if res[5].Error.Detail != "reason=too_large" || res[0].Error.Message != "PDF 暂时不能转成其他格式。" || res[1].Error.Message != "不支持这种文件。" {
+	if res[5].Error.Detail != "reason=too_large" || res[1].Error.Message != "不支持这种文件。" {
 		t.Errorf("%+v %+v", res[5].Error, res[0].Error)
 	}
 	if pg, _ := e.svc.ListDocSources(context.Background(), convert.ConvertSourceFilter{Limit: 10}); pg.Total != 0 {

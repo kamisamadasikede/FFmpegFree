@@ -201,6 +201,9 @@ func (m *Manager) view(s Status) Status {
 		default:
 			e.Installed, e.Available = false, false
 		}
+		if e.Installed {
+			e.Families = append(e.Families, "pdf") // v0.28（6.12.59）：组件已装时带 pdf
+		}
 		s.Engines = append(s.Engines, e)
 	}
 	return s

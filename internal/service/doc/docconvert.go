@@ -169,7 +169,7 @@ func (s *Service) GetFormatMatrix(ctx context.Context) DocFormatMatrix {
 	ready := st.State == "ready"
 	return buildMatrix(ready, func(src, target string) []string {
 		ids := doceng.EnginesForTarget(doceng.PrefOrder(pref), engines, skips, src, target)
-		if len(ids) == 0 && ready {
+		if len(ids) == 0 && ready && (src != "pdf" || s.cfg.Engines == nil) {
 			// 只有文档组件且 Registry 尚未填 engines 时
 			ids = []string{engineComponent}
 		}
@@ -191,10 +191,6 @@ func (s *Service) CleanupDocTemp() {
 
 func formatUnsupportedAdd() *apperr.AppError {
 	return apperr.New(apperr.DocFormatUnsupported, "不支持这种文件。")
-}
-
-func pdfInputUnsupported() *apperr.AppError {
-	return apperr.New(apperr.DocPDFInputUnsupported, "PDF 暂时不能转成其他格式。")
 }
 
 // AddDocSources 登记文档页的源文件行（6.12.16）：扩展名、大小、加密、损坏检查都通过才建行（kind=doc），后台复制副本。
@@ -228,12 +224,7 @@ func (s *Service) AddDocSources(ctx context.Context, in []string) ([]AddDocSourc
 			continue
 		}
 		c.p, c.key = p, key
-		raw := extLower(p)
-		if raw == "pdf" {
-			c.err = pdfInputUnsupported()
-			continue
-		}
-		c.ext = normExt(raw)
+		c.ext = normExt(extLower(p))
 		if c.ext == "" {
 			c.err = formatUnsupportedAdd()
 			continue
@@ -249,7 +240,10 @@ func (s *Service) AddDocSources(ctx context.Context, in []string) ([]AddDocSourc
 		case !fi.Mode().IsRegular():
 			c.err = apperr.New(apperr.InvalidArgument, "不是普通文件")
 			continue
-		case fi.Size() > MaxInputBytes:
+		case c.ext == "pdf" && fi.Size() > MaxPDFInputBytes:
+			c.err = errPDFTooLarge() // 6.12.60：PDF 单独 200 MiB
+			continue
+		case c.ext != "pdf" && fi.Size() > MaxInputBytes:
 			c.err = reasonErr(apperr.InvalidArgument, "文件超过 100 MiB", reasonTooLarge, "")
 			continue
 		}
@@ -366,9 +360,32 @@ type docJob struct {
 	desired    string // 期望输出名（重名顺延前）
 	sheetCount int
 	simple     bool // 简易转换（office_pdf）
+	// pdfEngine 是 PDF 源的 params.engine（6.12.61）：component（doc/docx/odt/rtf、有组件时的 html）| go（txt/md、没组件时的 html）。
+	pdfEngine string
+}
+
+// pdfJobEngine 按格式表定 PDF 源的首选引擎（params.engine）。
+func pdfJobEngine(target string, engines []string) string {
+	if pdfLayoutTarget(target) {
+		return engineComponent
+	}
+	if target == "html" {
+		for _, e := range engines {
+			if e == engineComponent {
+				return engineComponent
+			}
+		}
+	}
+	return engineGo
 }
 
 func (j docJob) engine() string {
+	if j.src == "pdf" {
+		if j.pdfEngine == "" {
+			return pdfJobEngine(j.target, nil)
+		}
+		return j.pdfEngine
+	}
 	if j.simple || goPair(j.src, j.target) {
 		return engineGo
 	}
@@ -443,7 +460,7 @@ func (s *Service) SubmitDocConvert(ctx context.Context, req DocSubmitRequest) (c
 		}
 		ds := toDocSource(src)
 		ids := doceng.EnginesForTarget(doceng.PrefOrder(pref), engines, skips, ds.Ext, target)
-		if len(ids) == 0 && ready {
+		if len(ids) == 0 && ready && (ds.Ext != "pdf" || s.cfg.Engines == nil) {
 			ids = []string{engineComponent}
 		}
 		t, ok := targetFor(ds.Ext, target, ready, ids)
@@ -459,8 +476,14 @@ func (s *Service) SubmitDocConvert(ctx context.Context, req DocSubmitRequest) (c
 		if _, err := inspectDoc(ctx, in, ds.Ext); apperr.Is(err, apperr.DocEncrypted) {
 			return res, err
 		}
-		jobs = append(jobs, docJob{sourceID: src.SourceID, in: in, origDir: origDirOf(src, in), name: src.Name,
-			src: ds.Ext, target: target, sheetCount: ds.SheetCount, simple: t.Simple})
+		j := docJob{sourceID: src.SourceID, in: in, origDir: origDirOf(src, in), name: src.Name,
+			src: ds.Ext, target: target, sheetCount: ds.SheetCount, simple: t.Simple}
+		if ds.Ext == "pdf" {
+			// PDF 源的 simple 只是格式表上的标记（纯 Go 提取），不是 office_pdf 简易转换（6.12.61）。
+			j.simple = false
+			j.pdfEngine = pdfJobEngine(target, t.Engines)
+		}
+		jobs = append(jobs, j)
 	}
 	if len(jobs) == 0 {
 		return res, convert.CopyNotReady(*firstSkipped, anyCopying)
@@ -605,7 +628,11 @@ func (r *docRunner) Run(ctx context.Context, report func(task.Progress)) (string
 	}
 	if eng == "simple" && !j.simple {
 		// 引擎全失败回退简易转换
-		res.Warnings = append(res.Warnings, "simple_fallback")
+		res.Warnings = append(res.Warnings, WarningSimpleFallback)
+	}
+	if j.src == "pdf" && j.target == "html" && eng == engineGo {
+		// 6.12.62：没有组件时的简易 html（只保留文字）
+		res.Warnings = append(res.Warnings, WarningSimpleFallback)
 	}
 	r.mu.Lock()
 	r.result = res
@@ -639,6 +666,8 @@ func (r *docRunner) produce(ctx context.Context, dst string, logw io.Writer, rep
 			return errCorrupt("markdown")
 		}
 		return writeOut(dst, h)
+	case j.src == "pdf":
+		return r.producePDF(ctx, dst, logw)
 	case j.src == "html" && j.target == "md":
 		r.usedEngine = engineGo
 		h, err := readTextFile(j.in)
@@ -655,7 +684,13 @@ func (r *docRunner) produce(ctx context.Context, dst string, logw io.Writer, rep
 }
 
 func (r *docRunner) runEngines(ctx context.Context, dst string, logw io.Writer) error {
+	return r.runEnginesTo(ctx, r.j.target, dst, logw)
+}
+
+// runEnginesTo 同 runEngines，但目标格式可以和记录的不同（PDF → txt 的组件回退先导出 html，6.12.62）。
+func (r *docRunner) runEnginesTo(ctx context.Context, target, dst string, logw io.Writer) error {
 	j := r.j
+	j.target = target
 	id := "x"
 	if info, ok := task.InfoFrom(ctx); ok {
 		id = info.ID
@@ -668,7 +703,7 @@ func (r *docRunner) runEngines(ctx context.Context, dst string, logw io.Writer) 
 
 	if r.s.cfg.Engines == nil {
 		// 没有 Registry 时退回只用组件（测试 / 旧接线）
-		return r.runComponentLegacy(ctx, dst, logw, work, deadline)
+		return r.runComponentLegacy(ctx, j, dst, logw, work, deadline)
 	}
 	eng, err := r.s.cfg.Engines.TryConvert(ctx, j.src, j.target, j.in, dst, work, j.origDir, j.name, macro, logf, deadline)
 	if err == nil {
@@ -691,8 +726,7 @@ func (r *docRunner) runEngines(ctx context.Context, dst string, logw io.Writer) 
 }
 
 // runComponentLegacy 仅组件路径（Engines 未接线时）。
-func (r *docRunner) runComponentLegacy(ctx context.Context, dst string, logw io.Writer, work string, deadline time.Time) error {
-	j := r.j
+func (r *docRunner) runComponentLegacy(ctx context.Context, j docJob, dst string, logw io.Writer, work string, deadline time.Time) error {
 	exe := ""
 	if r.s.cfg.Component != nil {
 		exe = r.s.cfg.Component.ExePath()
@@ -769,7 +803,7 @@ func (s *Service) jobFromTask(ctx context.Context, old task.Task, in string) (do
 	if sid == "" {
 		sid = old.SourceID
 	}
-	j := docJob{sourceID: sid, in: p.Input, target: p.Target, outputDir: p.OutputDir, simple: old.Type == task.TypeOfficePDF}
+	j := docJob{sourceID: sid, in: p.Input, target: p.Target, outputDir: p.OutputDir, simple: old.Type == task.TypeOfficePDF, pdfEngine: p.Engine}
 	if j.simple {
 		j.target = "pdf"
 	}
@@ -802,6 +836,10 @@ func (s *Service) jobFromTask(ctx context.Context, old task.Task, in string) (do
 	if j.src == "" || j.target == "" {
 		return docJob{}, formatUnsupportedTarget()
 	}
+	if j.src == "pdf" {
+		j.simple = false
+		j.pdfEngine = s.pdfEngineNow(ctx, j.target)
+	}
 	outDir := j.outputDir
 	if outDir == "" {
 		outDir = filepath.Dir(old.OutputPath)
@@ -815,7 +853,7 @@ func (s *Service) jobFromTask(ctx context.Context, old task.Task, in string) (do
 
 // docRetryFactory 是 doc_convert / 文档页 office_pdf 的重试（原地，6.6）；不可重试的失败返回 UNSUPPORTED（reason=not_retryable）。
 func (s *Service) docRetryFactory(old task.Task) (task.Runner, error) {
-	if old.Error != nil && notRetryable(old.Error.Code) {
+	if old.Error != nil && notRetryableErr(old.Error) {
 		return nil, notRetryableError()
 	}
 	ctx := context.Background()

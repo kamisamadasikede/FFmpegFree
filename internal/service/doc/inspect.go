@@ -78,6 +78,9 @@ func inspectDoc(ctx context.Context, path, ext string) (sheetCount int, err erro
 		return inspectOLE(ctx, f, ext)
 	case "csv":
 		return 1, nil
+	case "pdf":
+		_, err := inspectPDF(ctx, path) // 6.12.60
+		return 0, err
 	}
 	return 0, nil // rtf / txt / html / md：只检查非空和可读
 }
@@ -346,8 +349,23 @@ var errInspectTimeout = errors.New("检查超时")
 // isDocErr 判断是不是“不可重试”的文档错误（6.12.20）。
 func notRetryable(code apperr.Code) bool {
 	switch code {
-	case apperr.DocEncrypted, apperr.DocCorrupt, apperr.DocFormatUnsupported, apperr.DocPDFInputUnsupported:
+	case apperr.DocEncrypted, apperr.DocCorrupt, apperr.DocFormatUnsupported, apperr.DocPDFInputUnsupported, apperr.DocPDFNoText:
 		return true
+	}
+	return false
+}
+
+// notRetryableErr 在 notRetryable 之外，把 PDF 太大 / 页数太多（INVALID_ARGUMENT reason=too_large|too_many_pages）也算不可重试（v0.28）。
+func notRetryableErr(e *apperr.AppError) bool {
+	if e == nil {
+		return false
+	}
+	if notRetryable(e.Code) {
+		return true
+	}
+	if e.Code == apperr.InvalidArgument {
+		first, _, _ := strings.Cut(e.Detail, "\n")
+		return first == "reason="+reasonTooLarge || first == "reason="+reasonTooManyPages
 	}
 	return false
 }

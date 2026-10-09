@@ -73,6 +73,9 @@ func (c *OfficeConverter) comConvert(ctx context.Context, d Detected, src, targe
 	defer ole.CoUninitialize()
 
 	fam := familyOf(src)
+	if fam == FamilyPDF {
+		fam = FamilyText // PDF 只用 Word 打开（重排，6.12.61）
+	}
 	progID, exeBase := progFor(d, fam)
 	if progID == "" {
 		return apperr.New(apperr.DocComponentNotReady, "需要先下载文档组件。").WithDetail("engine=" + d.ID)
@@ -209,7 +212,20 @@ func convertWord(app *ole.IDispatch, inPath, outPath, src, target string) error 
 	defer docs.Release()
 	// Visible:=False 等可选参数用命名较难；先按位置试，失败再简化。
 	var doc *ole.IDispatch
-	if src == "txt" {
+	if src == "pdf" {
+		// 6.12.61：Documents.Open(FileName, ConfirmConversions:=False, ReadOnly:=True, AddToRecentFiles:=False,
+		// PasswordDocument:=<假密码>, PasswordTemplate, Revert, WritePasswordDocument, WritePasswordTemplate,
+		// Format:=wdOpenFormatAuto, Encoding:=msoEncodingAutoDetect, Visible:=False, OpenAndRepair:=False,
+		// DocumentDirection:=wdLeftToRight, NoEncodingDialog:=True)
+		r, err := oleutil.CallMethod(docs, "Open", inPath, false, true, false, fakePassword, "", false, "", "", 0, 50001, false, false, 0, true)
+		if err != nil {
+			r, err = oleutil.CallMethod(docs, "Open", inPath, false, true, false, fakePassword)
+		}
+		if err != nil {
+			return mapCOMErr(err)
+		}
+		doc = r.ToIDispatch()
+	} else if src == "txt" {
 		// Encoding:=65001
 		r, err := oleutil.CallMethod(docs, "Open", inPath, false, true, false, fakePassword, false, false, false, false, 65001, false, true)
 		if err != nil {

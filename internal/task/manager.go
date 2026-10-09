@@ -72,8 +72,9 @@ type Manager struct {
 	reveal    revealAllow      // 删除失败、文件留下的路径（RevealInFolder 临时放行，见 reveal_allow.go）
 	rcCheck   ReconvertChecker // CheckPaths 的重转检查（转换服务注册，契约 6.17.1）
 
-	docQueue   []*entry // 文档组件池排队队列（FIFO，契约 v0.26 6.12.18）
-	docRunning int      // 文档组件池正在运行的数量
+	docQueue   []*entry        // 文档组件池排队队列（FIFO，契约 v0.26 6.12.18）
+	docRunning int             // 文档组件池正在运行的数量
+	docWaiters []chan struct{} // 已在运行的任务中途要组件名额（v0.28 6.12.62：插到组件池最前面）
 
 	qmu    sync.Mutex  // doc:queue 节流
 	qtimer *time.Timer // 待发的 doc:queue

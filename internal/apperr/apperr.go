@@ -52,11 +52,14 @@ const (
 	DocChecksumFailed         Code = "DOC_CHECKSUM_FAILED"
 	DocComponentInstallFailed Code = "DOC_COMPONENT_INSTALL_FAILED"
 	DocFormatUnsupported      Code = "DOC_FORMAT_UNSUPPORTED"
-	DocPDFInputUnsupported    Code = "DOC_PDF_INPUT_UNSUPPORTED"
+	DocPDFInputUnsupported    Code = "DOC_PDF_INPUT_UNSUPPORTED" // v0.28 起不再产生，保留在枚举里（6.12.63）
 
 	// v0.27 本机 Office / WPS（6.12.33）。
 	DocPresentationBusy Code = "DOC_PRESENTATION_BUSY"
 	DocEngineBusy       Code = "DOC_ENGINE_BUSY"
+
+	// v0.28 PDF 作为输入（6.12.63）：PDF 里没有可提取的文字（扫描件），不可重试。
+	DocPDFNoText Code = "DOC_PDF_NO_TEXT"
 )
 
 // AppError 同时用于 Bind 返回值和持久化到 tasks.error 列。
