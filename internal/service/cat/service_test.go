@@ -84,11 +84,12 @@ func TestSendWithFakeBinary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.AssistantMessage == nil || res.AssistantMessage.Content != "收到" {
+	if res.TurnID == "" || res.AssistantMessage != nil || res.UserMessage.Content != "你好" {
 		t.Fatalf("%+v", res)
 	}
+	svc.Wait()
 	detail, err := svc.GetCatConversation(context.Background(), c.ID)
-	if err != nil || len(detail.Messages) != 2 {
+	if err != nil || len(detail.Messages) != 2 || detail.Messages[1].Content != "收到" {
 		t.Fatalf("%+v %v", detail, err)
 	}
 }
