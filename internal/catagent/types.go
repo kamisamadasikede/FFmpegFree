@@ -1,5 +1,6 @@
 // Package catagent 实现 Cat 助手适配器注册表与 Build 适配器（契约 6.19）。
-// 界面与 message 只出现「Cat 助手」；永不出现 grok / CLI / 命令行 / 可执行文件名。
+// 界面文案与 message 只出现「Cat 助手」；永不出现 grok / CLI / 命令行 / 可执行文件名。
+// 例外（老板 10-09 定）：模型选择器直接显示 CLI 返回的真实模型名（如 grok-4.6），不做映射。
 package catagent
 
 import "FFmpegFree/internal/apperr"
@@ -40,8 +41,8 @@ const (
 	// MsgNotReady：PATH 上找不到入口（v0.31.3）。
 	MsgNotReady = "未检测到 Cat 助手，请先安装并确保可在终端直接运行。"
 	// MsgAuthInvalid：入口在但登录 / API Key 失效（仍用 CAT_NOT_READY，detail reason=auth）。
-	MsgAuthInvalid = "登录失效，请重新登录后再试。"
-	MsgReplyFailed = "回复没生成出来，请重试。"
+	MsgAuthInvalid  = "登录失效，请重新登录后再试。"
+	MsgReplyFailed  = "回复没生成出来，请重试。"
 	MsgToolWriteRef = "当前只能查看项目文件，改文件和运行命令下一期开放。"
 
 	// v0.31 项目（6.19.10.8 / 6.19.10.9）。后三句是架构师建议文案，产品改了只改这里。
