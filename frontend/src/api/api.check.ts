@@ -40,6 +40,7 @@ import { pkg22Checks } from '@/stores/eventOrder.check'
 import { catStreamChecks } from './catStream.check'
 import { catProjectsChecks } from './catProjects.check'
 import { catDeleteChecks } from '@/views/cat/catDelete.check'
+import { catThinkChecks } from '@/views/cat/catThink.check'
 
 const fails: string[] = []
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -970,6 +971,7 @@ export async function runApiChecks(): Promise<string[]> {
         catStreamChecks(eq) // Cat 流式：去重 / 乱序缓冲 / 缺口 / replace / done / 旧整段形状
         await catProjectsChecks(eq) // Cat 项目（v0.31 / v0.31.1）：模拟层规则 + 文案映射
         await catDeleteChecks(eq) // Cat 删除对话（v0.31.2）：mock 删除、欢迎态、迟到事件忽略
+        await catThinkChecks(eq) // Cat 思考强度不预选（#196）：刷新不选、没选不带、选了就带、过期清空
         // G11 版本号
         const { cleanFfmpegVersion } = await import('@/utils/ffmpegVersion')
         eq('G11 版本号：旧（带 URL 尾巴）/ 新（干净）/ 其他尾巴 / 空', ['9.0.2-https://www.martin-riedl.de', '9.0.2', '7.1.1-essentials_build-www.gyan.dev', '6.0', ' 4.4.2-0ubuntu0.22.04.1 ', '', undefined].map((v) => cleanFfmpegVersion(v)), ['9.0.2', '9.0.2', '7.1.1', '6.0', '4.4.2', '', ''])

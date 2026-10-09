@@ -73,7 +73,7 @@ import {
 } from '@/api/catMock'
 import { applyStreamEvent, newStreamMsg, type CatStreamEvent, type CatStreamMsg, type CatTurnEvent } from '@/api/catStream'
 import { AppError, toAppError } from '@/api/call'
-import { catSim, catSimOs, catSimPicks, simStream } from './catDevSim'
+import { catSim, catSimOs, catSimPicks, simModels, simStream, simThinks } from './catDevSim'
 
 export const NEW_CONV = 'new'
 
@@ -94,7 +94,10 @@ const live = isCatLive()
 export const catState = reactive({
   /** 当前选中的模型 id（来自 ListCatModels；空列表时为空） */
   model: '' as string,
-  /** 当前选中的思考强度 id（无列表时为空，胶囊不显示「· 强度」） */
+  /**
+   * 当前选中的思考强度 id。不预选：用户没点过就为空，发送时不带强度（后端不传 --reasoning-effort，用组件自己的默认）；
+   * 胶囊显示「默认」。无列表时也为空，胶囊不显示「· 强度」。
+   */
   think: '' as string,
   access: 'ask' as 'ask' | 'full',
   /** 欢迎页模式；一期只能选 build，只影响新对话 */
@@ -140,9 +143,13 @@ export const modelName = computed(() => {
   return m?.displayName ?? ''
 })
 
+/** 没选强度时胶囊 / 菜单显示的中性词（不显示任何一档的名字） */
+export const THINK_DEFAULT_LABEL = '默认'
+
+/** 强度显示名：无列表 → 空（不显示强度半截）；有列表没选 → 「默认」；选了 → 该档 displayName（任意 id 都按 displayName 显示） */
 export const thinkName = computed(() => {
   if (!catState.thinks.length) return ''
-  return catState.thinks.find((t) => t.id === catState.think)?.displayName ?? ''
+  return catState.thinks.find((t) => t.id === catState.think)?.displayName ?? THINK_DEFAULT_LABEL
 })
 
 /** 合一胶囊文案：有强度才拼「·」；都没有时显示「Cat 助手」 */
@@ -232,14 +239,21 @@ export function currentAgentKind(): CatAgentKind {
   return findConv(catState.sel)?.conv.agentKind ?? CAT_AGENT_BUILD
 }
 
-/** 按会话 agentKind 拉模型/强度；无强度则清空 think，不造假 */
+/**
+ * 按会话 agentKind 拉模型/强度，不造假。
+ * 模型：列表非空时预选第一个（组件默认模型）。
+ * 强度：不预选；用户选过且新列表里还有就保留，没有了就清空（发送时不带强度）。
+ */
 export async function refreshCapabilities(agentKind: CatAgentKind = currentAgentKind()) {
-  const [models, thinks] = await Promise.all([listCatModels(agentKind), listCatThinkLevels(agentKind)])
+  const [models, thinks] = await Promise.all(
+    import.meta.env.DEV && catSim.has('caps')
+      ? [Promise.resolve(simModels()), Promise.resolve(simThinks())]
+      : [listCatModels(agentKind), listCatThinkLevels(agentKind)],
+  )
   catState.models = models
   catState.thinks = thinks
   if (!models.find((m) => m.id === catState.model)) catState.model = models[0]?.id ?? ''
-  if (!thinks.length) catState.think = ''
-  else if (!thinks.find((t) => t.id === catState.think)) catState.think = thinks[0]?.id ?? ''
+  if (!thinks.find((t) => t.id === catState.think)) catState.think = ''
 }
 
 // ---------- 进入页面：状态、会话列表、事件 ----------
@@ -478,6 +492,7 @@ export async function sendMessage(text: string): Promise<string | undefined> {
       conversationId: id,
       content: t,
       modelId: catState.model || undefined,
+      // 没选强度就不带（接口层转成空串，后端不传 --reasoning-effort）
       thinkLevelId: catState.think || undefined,
     })
     const turn = catState.turns[id]
