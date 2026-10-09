@@ -194,7 +194,7 @@ function applyPreviewStatus() {
       version: '7.0.0',
       error: {
         code: 'DOC_COMPONENT_NOT_READY',
-        message: canDl ? '系统里的文档组件版本太旧。' : DOC_LINUX_OUTDATED,
+        message: canDl ? '文档组件版本太旧，请重新下载。' : DOC_LINUX_OUTDATED,
       },
     }
   } else if (st === 'downloading') {
@@ -321,16 +321,16 @@ function emitStatus() {
 }
 
 /** 预览参数 &engine=office|wps：模拟本机装了 Office / WPS（只在 Windows 模拟） */
-function simLocalEngine(): 'office' | 'wps' | '' {
+function simLocalEngine(): 'office' | 'wps' | 'both' | '' {
   const e = simParam('engine')
-  return simOs === 'win' && (e === 'office' || e === 'wps') ? e : ''
+  return simOs === 'win' && (e === 'office' || e === 'wps' || e === 'both') ? e : ''
 }
 
 function v27(s: SimStatus): DocComponentStatus {
   const local = simLocalEngine()
   const engines: DocEngineInfo[] = []
-  if (local === 'office') engines.push({ id: 'office', name: 'Microsoft Office', version: '16.0.17928.20114', installed: true, families: ['text', 'sheet', 'slide'], available: true })
-  if (local === 'wps') engines.push({ id: 'wps', name: 'WPS', version: '12.1.0.18276', installed: true, families: ['text', 'sheet', 'slide'], available: true })
+  if (local === 'office' || local === 'both') engines.push({ id: 'office', name: 'Microsoft Office', version: '16.0.17928.20114', installed: true, families: ['text', 'sheet', 'slide'], available: true })
+  if (local === 'wps' || local === 'both') engines.push({ id: 'wps', name: 'WPS', version: '12.1.0.18276', installed: true, families: ['text', 'sheet', 'slide'], available: true })
   const compReady = s.state === 'ready'
   // engines[].source 只有 downloaded|system（#128）；status.source 仍可能是 office/wps
   const engSource: 'downloaded' | 'system' = s.source === 'system' ? 'system' : 'downloaded'
@@ -342,7 +342,7 @@ function v27(s: SimStatus): DocComponentStatus {
     state: overallReady ? 'ready' : s.state,
     componentState: s.state,
     engines,
-    source: local || (compReady ? s.source : ''),
+    source: (local === 'both' ? 'office' : local) || (compReady ? s.source : ''),
     version: local ? engines[0].version : s.version,
   }
 }

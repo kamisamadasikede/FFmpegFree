@@ -1,0 +1,233 @@
+/* 统一预览弹窗外壳：从设计稿 proto/preview-shell.css（v0.3，10-09）原样搬过来，下面「应用补充」一段是实现需要的。 */
+/* ===== 统一预览弹窗外壳 pvx-*（文档页 v2、转换页 v2 共用；v0.3，10-09）=====
+   外壳：遮罩 + 90% 弹窗 + 顶部栏（类型图标、文件名、格式 · 大小｜缩放｜用默认程序打开、打开所在文件夹、关闭）+ 内容区 + 多文件左右切换。
+   各页只换内容区：文档页 = 分页 / 正文 / 表格 / 状态；转换页 = 播放器（控制条在内容区底部）。
+   类型图标颜色：文档页用 doc-v2.css 的 --dc-*；转换页用下面的 t-video / t-audio。 */
+.pvx-mask{position:fixed;inset:0;background:rgba(0,0,0,.6);display:grid;place-items:center;z-index:40}
+.pvx{position:relative;width:90vw;height:90vh;background:var(--ff-bg-surface);border:1px solid var(--ff-border);border-radius:12px;box-shadow:var(--ff-shadow-dialog);display:flex;flex-direction:column;overflow:hidden}
+.pvx-h{flex:none;height:56px;display:flex;align-items:center;gap:8px;padding:0 12px 0 16px;border-bottom:1px solid var(--ff-border)}
+.pvx-ti{width:32px;height:32px;border-radius:6px;display:grid;place-items:center;flex:none}
+.pvx-ti svg{width:18px;height:18px}
+.pvx-ti.t-doc{background:var(--dc-doc-bg);color:var(--dc-doc-fg)}.pvx-ti.t-sheet{background:var(--dc-sheet-bg);color:var(--dc-sheet-fg)}.pvx-ti.t-slide{background:var(--dc-slide-bg);color:var(--dc-slide-fg)}.pvx-ti.t-pdf{background:var(--dc-pdf-bg);color:var(--dc-pdf-fg)}.pvx-ti.t-txt{background:var(--dc-txt-bg);color:var(--dc-txt-fg)}.pvx-ti.t-web{background:var(--dc-web-bg);color:var(--dc-web-fg)}.pvx-ti.t-md{background:var(--dc-md-bg);color:var(--dc-md-fg)}
+.pvx-h .tt{min-width:0;display:flex;flex-direction:column;gap:2px;margin-left:4px}
+.pvx-h h3{font-size:14px;font-weight:600;color:var(--ff-text-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pvx-h .sub{font-size:12px;color:var(--ff-text-2);white-space:nowrap}
+.pvx-h .sp{flex:1}
+.pvx-zm{display:flex;align-items:center;gap:2px;flex:none}
+.pvx-zm .zv{min-width:44px;text-align:center;font-size:12px;color:var(--ff-text-1)}
+.pvx-zm .zv[aria-disabled=true]{color:var(--ff-text-2)}
+.pvx-zm .btn{margin-left:4px}
+.pvx-ib,.pvx-x{width:28px;height:28px;border-radius:6px;display:grid;place-items:center;color:var(--ff-text-2);flex:none}
+.pvx-ib svg,.pvx-x svg{width:16px;height:16px}
+.pvx-ib[aria-disabled=true]{color:var(--ff-text-3)}
+.pvx-dv{width:1px;height:20px;background:var(--ff-border);margin:0 4px;flex:none}
+.pvx-h .btn{flex:none}
+.pvx-x{margin-left:4px}
+.pvx-b{flex:1;min-height:0;position:relative;display:flex;flex-direction:column;background:var(--ff-bg-app)}
+.pvx-scroll{flex:1;min-height:0;overflow:hidden;position:relative}
+/* 按页竖向滚动 */
+:root{--pvx-page:#FFFFFF;--pvx-ink:#C4C9D2;--pvx-ink-strong:#6B717B}
+html.dark{--pvx-page:#F4F5F7}
+.pvx-pgs{padding:24px 0;display:flex;flex-direction:column;align-items:center;gap:16px}
+.pvx-pg{width:600px;aspect-ratio:1/1.414;flex:none;background:var(--pvx-page);border-radius:4px;box-shadow:0 4px 16px rgba(0,0,0,.14);padding:72px 64px;display:flex;flex-direction:column;gap:18px;overflow:hidden}
+.pvx-pg i{display:block;height:8px;border-radius:2px;background:var(--pvx-ink);flex:none}
+.pvx-pg i.hd{height:14px;background:var(--pvx-ink-strong);margin-bottom:12px}
+.pvx-pg i.gp{background:transparent}
+.pvx-pn{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);height:32px;padding:0 14px;border-radius:16px;display:flex;align-items:center;font-size:13px;color:var(--ff-text-1);background:var(--ff-bg-elevated);border:1px solid var(--ff-border);box-shadow:0 4px 16px rgba(0,0,0,.14);font-variant-numeric:tabular-nums}
+/* 多个文件：左右切换 */
+.pvx-nav{position:absolute;top:calc(50% + 28px);transform:translateY(-50%);width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:var(--ff-bg-elevated);border:1px solid var(--ff-border);box-shadow:0 4px 16px rgba(0,0,0,.16);color:var(--ff-text-1);z-index:2}
+.pvx-nav svg{width:20px;height:20px}
+.pvx-nav.prev{left:16px}.pvx-nav.next{right:16px}
+.pvx-nav[aria-disabled=true]{color:var(--ff-text-3);box-shadow:none}
+/* 页面自己渲染：md / 网页 / txt */
+.pvx-doc{max-width:760px;margin:24px auto;background:var(--ff-bg-surface);border:1px solid var(--ff-border);border-radius:8px;padding:32px 40px;color:var(--ff-text-1);font-size:14px;line-height:1.75}
+.pvx-doc h1{font-size:20px;font-weight:600;margin-bottom:4px}
+.pvx-doc .m{color:var(--ff-text-2);font-size:13px}
+.pvx-doc h2{font-size:16px;font-weight:600;margin:20px 0 4px}
+.pvx-doc p{margin:4px 0}
+.pvx-doc ul{padding-left:20px;margin:4px 0}
+.pvx-doc table{border-collapse:collapse;margin:8px 0;font-size:13px}
+.pvx-doc th,.pvx-doc td{border:1px solid var(--ff-border);padding:4px 12px;text-align:left}
+.pvx-doc th{background:var(--ff-bg-hover);font-weight:600}
+.pvx-doc pre{background:var(--ff-bg-hover);border-radius:6px;padding:8px 12px;font-family:var(--ff-mono);font-size:13px;margin:8px 0;white-space:pre-wrap}
+/* 表格：csv / 简易预览 xlsx */
+.pvx-tbl{border-collapse:separate;border-spacing:0;font-size:13px;color:var(--ff-text-1);background:var(--ff-bg-surface);min-width:100%}
+.pvx-tbl th,.pvx-tbl td{padding:0 12px;height:30px;white-space:nowrap;border-right:1px solid var(--ff-border);border-bottom:1px solid var(--ff-border);text-align:left}
+.pvx-tbl th{position:sticky;top:0;background:var(--ff-bg-hover);font-weight:600;font-size:12px;text-align:center}
+.pvx-tbl .n{width:44px;text-align:right;color:var(--ff-text-2);background:var(--ff-bg-hover);font-size:12px}
+.pvx-tbl .r{text-align:right;font-variant-numeric:tabular-nums}
+.pvx-tbl tr.hd td{font-weight:600}
+/* 简易预览提示（固定在内容区顶部） */
+.pvx-rough{flex:none;display:flex;align-items:center;gap:6px;padding:8px 16px;font-size:12px;line-height:16px;color:var(--ff-text-1);background:color-mix(in srgb,var(--ff-warning) 12%,var(--ff-bg-surface));border-bottom:1px solid color-mix(in srgb,var(--ff-warning) 28%,transparent)}
+.pvx-rough svg{width:14px;height:14px;flex:none;color:var(--ff-warning-text)}
+/* 工作表标签：只在简易预览的 xlsx 里有 */
+.pvx-tabs{flex:none;display:flex;gap:2px;padding:0 8px;height:36px;align-items:stretch;background:var(--ff-bg-surface);border-top:1px solid var(--ff-border)}
+.pvx-tabs span{display:flex;align-items:center;padding:0 16px;font-size:13px;color:var(--ff-text-2);border-top:2px solid transparent}
+.pvx-tabs span.on{color:var(--ff-primary-text);border-top-color:var(--ff-primary);font-weight:500;background:var(--ff-bg-app)}
+/* 状态 */
+.pvx-msg{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;padding:24px}
+.pvx-msg h5{font-size:14px;font-weight:600;color:var(--ff-text-1)}
+.pvx-msg p{font-size:12px;line-height:16px;color:var(--ff-text-2)}
+.pvx-spin{width:28px;height:28px;border-radius:50%;border:3px solid var(--ff-border);border-top-color:var(--ff-primary);animation:pvx-spin 1s linear infinite;display:block;margin-bottom:8px}
+@keyframes pvx-spin{to{transform:rotate(360deg)}}
+.pvx-zm .btn[aria-disabled=true]{color:var(--ff-text-3);cursor:not-allowed}
+.pvx-ti.t-video{background:color-mix(in srgb,var(--ff-primary) 14%,var(--ff-bg-surface));color:var(--ff-primary-text)}
+.pvx-ti.t-audio{background:color-mix(in srgb,var(--ff-success) 16%,var(--ff-bg-surface));color:var(--ff-success-text,var(--ff-text-1))}
+.pvx-zm .btn[aria-pressed=true]{background:var(--ff-primary-soft);border-color:color-mix(in srgb,var(--ff-primary) 40%,transparent);color:var(--ff-primary-text)}
+/* 内容区底部的固定说明条（csv 行数上限等） */
+.pvx-foot{flex:none;display:flex;align-items:center;gap:6px;padding:8px 16px;font-size:12px;line-height:16px;color:var(--ff-text-2);background:var(--ff-bg-surface);border-top:1px solid var(--ff-border)}
+.pvx-foot svg{width:14px;height:14px;flex:none;color:var(--ff-text-3)}
+/* 状态图标 */
+.pvx-msg .ic{width:48px;height:48px;border-radius:50%;background:var(--ff-primary-soft);color:var(--ff-primary-text);display:grid;place-items:center;margin-bottom:4px}
+.pvx-msg .ic svg{width:24px;height:24px}
+.pvx-msg.bad .ic{background:color-mix(in srgb,var(--ff-danger) 12%,transparent);color:var(--ff-danger-text)}
+.pvx-msg.warn .ic{background:color-mix(in srgb,var(--ff-warning) 16%,transparent);color:var(--ff-warning-text)}
+.pvx-msg.lock .ic{background:var(--ff-bg-hover);color:var(--ff-text-2)}
+.pvx-msg .acts{display:flex;gap:8px;margin-top:8px}
+.pvx-msg .btn.pri{background:var(--ff-badge-bg);border-color:var(--ff-badge-bg);color:var(--ff-on-primary)}
+.pvx-msg p{max-width:360px}
+/* 引擎预览的 xlsx：按页（表格页） */
+.pvx-pg.sheet{gap:0}
+.pvx-pg.sheet .grid{display:grid;grid-template-columns:repeat(6,1fr);border-top:1px solid #DADDE3;border-left:1px solid #DADDE3}
+.pvx-pg.sheet .grid s{height:26px;border-right:1px solid #DADDE3;border-bottom:1px solid #DADDE3;display:flex;align-items:center;padding:0 6px}
+.pvx-pg.sheet .grid s i{height:6px}
+.pvx-pg.sheet .grid s.h{background:#EEF1F5}
+.pvx-pg.sheet .grid s.h i{background:var(--pvx-ink-strong)}
+/* 转换页：播放器内容区 */
+.pvx-b .pvx-stage{flex:1;min-height:0;background:var(--ff-player-bg);display:grid;place-items:center;position:relative;container-type:size}
+.pvx-b .pvx-stage .ed-frame{border-radius:0}
+.pvx-b .pvx-stage .ed-chip{left:12px;top:12px}
+.pvx-b>.ed-ctl{height:44px}
+.pvx-b .pvx-astage{flex:1;min-height:0;background:var(--ff-player-bg);display:flex;align-items:center;justify-content:center}
+.pvx-info{flex:none;display:flex;align-items:center;gap:8px;padding:8px 16px;font-size:12px;line-height:16px;color:var(--ff-text-2);background:var(--ff-bg-surface);border-top:1px solid var(--ff-border);white-space:nowrap;overflow:hidden}
+.pvx-info span{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.pvx-info b{font-weight:500;color:var(--ff-text-1)}
+.pvx-info svg{width:14px;height:14px;flex:none;color:var(--ff-text-3)}
+/* ===== 编辑（v0.3，老板 10-09）：md 左写右预览；csv 表格编辑；txt / html 改源码 ===== */
+.pvx-dirty{font-size:12px;color:var(--ff-warning-text);display:flex;align-items:center;gap:6px;flex:none;margin-right:4px}
+.pvx-dirty::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--ff-warning)}
+.pvx-h .btn.pri{background:var(--ff-badge-bg);border-color:var(--ff-badge-bg);color:var(--ff-on-primary)}
+.pvx-ed[aria-disabled=true]{color:var(--ff-text-3);cursor:not-allowed}
+.pvx-split{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr}
+.pvx-src{min-width:0;overflow:hidden;background:var(--ff-bg-surface);border-right:1px solid var(--ff-border);font-family:var(--ff-mono);font-size:13px;line-height:22px;color:var(--ff-text-1);padding:12px 0}
+.pvx-src ol{list-style:none;margin:0;padding:0;counter-reset:ln}
+.pvx-src li{display:flex;counter-increment:ln;padding-right:16px;white-space:pre-wrap;word-break:break-all}
+.pvx-src li::before{content:counter(ln);width:44px;flex:none;text-align:right;padding-right:12px;color:var(--ff-text-2);font-size:12px}
+.pvx-src li.cur{background:var(--ff-bg-hover)}
+.pvx-src li span{min-width:0;flex:1}
+.pvx-src .caret{display:inline-block;width:2px;height:16px;background:var(--ff-primary);vertical-align:middle;margin-left:1px}
+.pvx-live{min-width:0;overflow:hidden;background:var(--ff-bg-app)}
+.pvx-doc.in{margin:16px;max-width:none;padding:24px 28px}
+.pvx-etb{flex:none;display:flex;align-items:center;gap:6px;padding:8px 12px;background:var(--ff-bg-surface);border-bottom:1px solid var(--ff-border)}
+.pvx-etb .sp{flex:1}
+.pvx-etb .hint{font-size:12px;color:var(--ff-text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.pvx-tbl.ed tr.sel td.n{background:var(--ff-primary-soft);color:var(--ff-primary-text)}
+.pvx-tbl.ed td.cur{outline:2px solid var(--ff-primary);outline-offset:-2px;background:var(--ff-bg-surface)}
+.pvx-tbl.ed td.cur .in{display:inline-block;min-width:24px;border-right:2px solid var(--ff-primary);padding-right:1px}
+.pvx-tbl.ed td[data-dirty]{background:color-mix(in srgb,var(--ff-warning) 10%,var(--ff-bg-surface))}
+.pvx-top{z-index:60}
+.pvx-tip{z-index:70;white-space:nowrap}
+.pvx-tip{bottom:auto;right:auto}
+/* 文本预览（txt 等）与截断提示 */
+.pvx-txt{margin:0;padding:16px 24px;font-family:var(--ff-mono);font-size:13px;line-height:22px;color:var(--ff-text-1);white-space:pre-wrap;word-break:break-all}
+/* 保存失败：弹窗内错误条，编辑内容保留 */
+.pvx-serr{flex:none;display:flex;align-items:center;gap:8px;padding:8px 12px 8px 16px;font-size:13px;line-height:20px;color:var(--ff-danger-text);background:color-mix(in srgb,var(--ff-danger) 10%,var(--ff-bg-surface));border-bottom:1px solid color-mix(in srgb,var(--ff-danger) 30%,var(--ff-border))}
+.pvx-serr svg{width:16px;height:16px;flex:none}
+.pvx-serr .sp{flex:1}
+.pvx-serr .btn{color:var(--ff-text-1)}
+/* docx 应用内编辑（EigenPal docx-editor） */
+.pvx-dtb{gap:2px}
+.pvx-dtb .pvx-dv{margin:0 6px}
+.pvx-dtb .pvx-ib b,.pvx-dtb .pvx-ib u,.pvx-dtb .pvx-ib .it{font-size:14px;line-height:1;color:inherit;font-style:normal}
+.pvx-dtb .pvx-ib .it{font-style:italic;font-family:Georgia,serif}
+.pvx-dtb .pvx-ib.on{background:var(--ff-bg-hover);color:var(--ff-text-1)}
+.pvx-sel{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 6px 0 10px;border:1px solid var(--ff-border);border-radius:6px;font-size:13px;color:var(--ff-text-1);background:var(--ff-bg-surface);white-space:nowrap}
+.pvx-sel svg{width:14px;height:14px;color:var(--ff-text-2)}
+.pvx-dpg{width:min(794px,calc(100% - 64px));margin:24px auto;background:#fff;color:#1f2329;border-radius:2px;box-shadow:0 1px 3px rgba(0,0,0,.18);padding:56px 72px;font-size:14px;line-height:1.8}
+.pvx-dpg h1{font-size:20px;line-height:1.5;text-align:center;margin:0 0 16px}
+.pvx-dpg p{margin:0 0 8px}
+.pvx-dpg .caret{display:inline-block;width:2px;height:16px;background:#3366ff;vertical-align:middle;margin:0 1px}
+.pvx-ph{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;height:140px;margin:8px 0 12px;border:1px dashed #9aa3ad;border-radius:6px;background:#f3f5f7;color:#4d5560;font-size:13px}
+.pvx-ph svg{width:24px;height:24px}
+.pvx-efoot{flex:none;display:flex;align-items:center;gap:8px;padding:10px 16px;background:var(--ff-bg-surface);border-top:1px solid var(--ff-border)}
+.pvx-efoot .sp{flex:1}
+.pvx-efoot .hint{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ff-text-2);min-width:0;white-space:nowrap}
+.pvx-efoot .hint svg{width:14px;height:14px;flex:none}
+.pvx-b .pvx-toast{position:absolute;left:50%;bottom:72px;transform:translateX(-50%);z-index:5}
+.pvx-toast a{color:var(--ff-primary-text);cursor:pointer;white-space:nowrap}
+.pvx-toast svg{color:var(--ff-success-text,var(--ff-primary-text))}
+.pvx-h .btn.pri[aria-disabled=true]{opacity:.45;cursor:not-allowed}
+.pvx-spin.sm{width:14px;height:14px;border-width:2px;margin:0;border-color:rgba(255,255,255,.35);border-top-color:#fff}
+.pvx-h .btn[aria-disabled=true]:not(.pri){color:var(--ff-text-3);cursor:not-allowed}
+/* 转换页信息条：左右两段 */
+.pvx-info .pvx-sp{flex:1;min-width:16px;overflow:visible}
+.pvx-info .r{flex:none;max-width:45%}
+.pvx-h .tt{flex:0 1 auto}
+.pvx-h .sub{overflow:hidden;text-overflow:ellipsis}
+.pvx-b .pvx-astage .cv-cover{width:160px;height:160px}
+
+/* ===== 应用补充（实现用；弹窗 Teleport 到 body，不在 .cv2 下，按钮样式在这里自带）===== */
+.pvx-mask{z-index:2000}
+.pvx{color:var(--ff-text-1)}
+.pvx .btn{height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--ff-border);background:var(--ff-bg-surface);color:var(--ff-text-1);display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:13px;white-space:nowrap;flex:none;cursor:pointer}
+.pvx .btn svg{width:14px;height:14px}
+.pvx .btn:hover:not(:disabled):not([aria-disabled=true]){background:var(--ff-bg-hover)}
+.pvx .btn.pri{background:var(--ff-badge-bg);border-color:var(--ff-badge-bg);color:var(--ff-on-primary)}
+.pvx .btn.pri:hover:not(:disabled):not([aria-disabled=true]){background:var(--ff-badge-bg);filter:brightness(1.06)}
+.pvx .btn.danger{background:var(--ff-danger);border-color:var(--ff-danger);color:#fff}
+.pvx .btn:disabled,.pvx .btn[aria-disabled=true]{opacity:.45;cursor:not-allowed}
+.pvx .btn.pvx-ed[aria-disabled=true]{opacity:1;color:var(--ff-text-3)}
+.pvx-ib,.pvx-x{border:0;background:transparent;cursor:pointer}
+.pvx-ib:hover:not([aria-disabled=true]),.pvx-x:hover{background:var(--ff-bg-hover);color:var(--ff-text-1)}
+.pvx-ib[aria-disabled=true]{cursor:not-allowed}
+.pvx-nav{cursor:pointer}
+.pvx-nav[aria-disabled=true]{cursor:default}
+.pvx-body{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
+.pvx-yscroll{overflow-y:auto;overflow-x:auto}
+.pvx-xyscroll{overflow:auto}
+.pvx-pdfpg{background:#fff;border-radius:4px;box-shadow:0 4px 16px rgba(0,0,0,.14);flex:none;overflow:hidden}
+.pvx-pdfpg canvas{display:block}
+.pvx-docx{padding:24px 0}
+.pvx-docx section.docx{margin:0 auto 16px !important;box-shadow:0 4px 16px rgba(0,0,0,.14);border-radius:4px}
+.pvx-frame{flex:1;min-height:0;width:100%;border:0;background:var(--ff-bg-surface);display:block}
+.pvx-live .pvx-frame{height:100%}
+.pvx-live{display:flex}
+.pvx-tbl th.cur,.pvx-tbl.ed th.cur{outline:2px solid var(--ff-primary);outline-offset:-2px}
+.pvx-tbl.ed td,.pvx-tbl.ed th{cursor:cell}
+.pvx-cell-in{width:100%;min-width:60px;height:26px;border:0;outline:0;background:transparent;font:inherit;color:inherit;padding:0}
+.pvx-tbl thead th.n{z-index:1}
+.pvx-tabs button{display:flex;align-items:center;padding:0 16px;font-size:13px;color:var(--ff-text-2);border:0;border-top:2px solid transparent;background:transparent;cursor:pointer}
+.pvx-tabs button.on{color:var(--ff-primary-text);border-top-color:var(--ff-primary);font-weight:500;background:var(--ff-bg-app)}
+.pvx-srced{flex:1;min-height:0;min-width:0;display:flex;background:var(--ff-bg-surface);font-family:var(--ff-mono,ui-monospace,Consolas,monospace);font-size:13px;line-height:22px}
+.pvx-srced .gut{flex:none;width:52px;overflow:hidden;padding:12px 12px 12px 0;text-align:right;color:var(--ff-text-2);font-size:12px;border-right:1px solid var(--ff-border);user-select:none}
+.pvx-srced .gut div{height:22px}
+.pvx-srced textarea{flex:1;min-width:0;border:0;outline:0;resize:none;padding:12px 16px;background:transparent;color:var(--ff-text-1);font:inherit;line-height:22px;white-space:pre;tab-size:4}
+.pvx-split .pvx-srced{border-right:1px solid var(--ff-border)}
+.pvx-docxed{flex:1;min-height:0;display:flex;flex-direction:column;position:relative;overflow:hidden}
+.pvx-docxed>*:first-child{flex:1;min-height:0}
+.pvx-docxed .pvx-msg{position:absolute;inset:0;background:var(--ff-bg-app)}
+.pvx-tipwrap{position:relative;display:inline-flex;flex:none}
+.pvx-tip{position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);padding:6px 10px;border-radius:6px;font-size:12px;line-height:16px;background:var(--ff-text-1);color:var(--ff-bg-surface);box-shadow:0 4px 16px rgba(0,0,0,.18);opacity:0;pointer-events:none;transition:opacity .12s}
+.pvx-tipwrap:hover .pvx-tip,.pvx-tipwrap:focus-within .pvx-tip{opacity:1}
+.pvx-asw{position:relative;display:inline-flex;flex:none}
+.pvx-menu{position:absolute;top:calc(100% + 4px);right:0;z-index:6;min-width:140px;padding:4px;border-radius:8px;background:var(--ff-bg-elevated);border:1px solid var(--ff-border);box-shadow:0 8px 24px rgba(0,0,0,.16);display:flex;flex-direction:column}
+.pvx-menu button{height:30px;padding:0 10px;border:0;border-radius:6px;background:transparent;color:var(--ff-text-1);font-size:13px;text-align:left;cursor:pointer}
+.pvx-menu button:hover{background:var(--ff-bg-hover)}
+.pvx-toast{display:flex;align-items:center;gap:8px;height:36px;padding:0 14px;border-radius:8px;font-size:13px;background:var(--ff-bg-elevated);color:var(--ff-text-1);border:1px solid var(--ff-border);box-shadow:0 8px 24px rgba(0,0,0,.16);white-space:nowrap}
+.pvx-toast svg{width:16px;height:16px;flex:none}
+.pvx-body>.pvx-toast{position:absolute;left:50%;bottom:72px;transform:translateX(-50%);z-index:5}
+.pvx-cf{position:absolute;inset:0;z-index:8;background:rgba(0,0,0,.32);display:grid;place-items:center;border-radius:12px}
+.pvx-cf .box{width:400px;max-width:calc(100% - 48px);padding:20px 20px 16px;border-radius:10px;background:var(--ff-bg-elevated);border:1px solid var(--ff-border);box-shadow:var(--ff-shadow-dialog)}
+.pvx-cf h4{font-size:15px;font-weight:600;margin:0 0 8px;color:var(--ff-text-1)}
+.pvx-cf .t{font-size:14px;line-height:22px;color:var(--ff-text-1);margin:0}
+.pvx-cf .s{font-size:12px;color:var(--ff-text-2);margin:4px 0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pvx-cf .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
+.pvx-cf .acts .left{margin-right:auto}
+.pvx-msg.info .ic{background:var(--ff-primary-soft);color:var(--ff-primary-text)}
+.pvx-msg h5{margin:0}
+.pvx-msg p{margin:0}
+.pvx-zm .zv[aria-disabled=true]{color:var(--ff-text-3)}
+.pvx-h h3{margin:0}
+.pvx-efoot .hint{overflow:hidden;text-overflow:ellipsis}
+.pvx{--ff-mono:ui-monospace,SFMono-Regular,Consolas,"Courier New",monospace}
+.pvx-docx section.docx{background:#fff;color:#1f2329}

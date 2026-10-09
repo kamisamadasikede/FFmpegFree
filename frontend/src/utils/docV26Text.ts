@@ -11,14 +11,16 @@ export const DOC_LINUX_MISSING =
 export const DOC_LINUX_OUTDATED =
   '系统里的 LibreOffice 版本太旧，请升级到 7.2 或更高版本，然后重启应用。' // check:copy 白名单 2/2（LIBRE_ALLOWED）
 /** Win/mac 过旧 */
-export const DOC_OUTDATED_DOWNLOAD = '系统里的文档组件版本太旧，请下载新的文档组件。'
+// 产品 10-09 定稿（Win/mac）：取代原来的「系统里的文档组件版本太旧，请下载新的文档组件。」
+export const DOC_OUTDATED_DOWNLOAD = '文档组件版本太旧，请重新下载。'
+export const DOC_OUTDATED_BUTTON = '更新文档组件'
 
 export const DOC_HINT_SIMPLE_BAR = 'Word、ODT、TXT 可以简易转 PDF，md 和网页可以互转'
 export const DOC_NEED_COMPONENT = '需要文档组件'
 export const DOC_SIMPLE_PDF_LABEL = '简易转换（只保留文字）'
 export const DOC_SIMPLE_HINT = '下载文档组件后可保留图片和排版'
 export const DOC_MD_HINT = '转成 Markdown 只保留文字和基本格式，图片和复杂表格会丢失。'
-// 产品 10-09 定稿（契约 / 设计统一）：转成 CSV 只会保留第一个工作表。
+// 产品 10-09 定稿（契约 / 设计统一；格式说明行和 csv_first_sheet_only 结果警告共用）
 export const DOC_CSV_HINT = '转成 CSV 只会保留第一个工作表。'
 export const DOC_PDF_INPUT = 'PDF 暂时不能转成其他格式。'
 export const DOC_PREPARING = '正在准备文档组件…'

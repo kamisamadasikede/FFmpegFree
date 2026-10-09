@@ -7,6 +7,9 @@ import { useDocConvertStore, type DocRow } from '@/stores/docConvert'
 import type { DocRecord } from '@/api/docV26'
 import { DOC_QUEUE_LINE, DOC_SIMPLE_PDF_LABEL, docResultWarnings } from '@/utils/docV26Text'
 import { formatBytes, formatStart } from '@/utils/format'
+import { ElMessageBox } from 'element-plus'
+import { usePreviewStore, type PreviewItem } from '@/stores/docPreview'
+import { EDITED_IN_APP, RECONVERT_EDITED_CONFIRM, engineRecordText } from '@/utils/docV27Text'
 
 const props = defineProps<{ row: DocRow }>()
 // 组件不报进度：转换中只显示不确定进度条 +「已用 m:ss」（设计 v0.2 §二.8）
@@ -14,8 +17,10 @@ const nowMs = ref(Date.now())
 let tick = 0
 onMounted(() => (tick = window.setInterval(() => (nowMs.value = Date.now()), 1000)))
 onBeforeUnmount(() => clearInterval(tick))
+// v0.27.2（6.12.56）：只按 startedAt 算；排队中 / 还没开始为空
 function elapsed(r: DocRecord): string {
-  const s = Math.max(0, Math.floor((nowMs.value - (r.startedAt || r.createdAt)) / 1000))
+  if (!r.startedAt) return ''
+  const s = Math.max(0, Math.floor((nowMs.value - r.startedAt) / 1000))
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 // 标签已写「排队中」，进度条右侧只写「前面还有 n 项」/「下一个」
@@ -69,6 +74,31 @@ const TAG: Record<string, { cls: string; text: string }> = {
   canceled: { cls: 't-cx', text: '已取消' },
   interrupted: { cls: 't-cx', text: '已中断' },
 }
+// ── v0.27 预览：眼睛图标 / 点封面打开统一预览弹窗；多选时 ← → 在选中的文件之间切换 ──
+const pst = usePreviewStore()
+const srcItem = (s: typeof src.value): PreviewItem => ({ req: { sourceId: s.sourceId }, name: s.name, sizeBytes: s.totalBytes ?? 0, converting: false })
+function previewSource(e: Event) {
+  const rows = sel.value && dc.selected.size > 1 ? dc.rows.filter((r) => dc.selected.has(r.src.sourceId)) : [props.row]
+  const list = rows.map((r) => ({ ...srcItem(r.src), converting: r.records.some((x) => x.status === 'running' || x.status === 'queued') }))
+  pst.show(list, Math.max(0, rows.findIndex((r) => r.src.sourceId === src.value.sourceId)), e.currentTarget as HTMLElement)
+}
+const okRecords = computed(() => props.row.records.filter((r) => r.status === 'succeeded'))
+function previewRecord(r: DocRecord, e: Event) {
+  const list = okRecords.value.map((x) => ({ req: { taskId: x.id }, name: x.title, sizeBytes: 0 }))
+  pst.show(list, Math.max(0, okRecords.value.findIndex((x) => x.id === r.id)), e.currentTarget as HTMLElement)
+}
+// 在应用里改过的结果点重转：先确认（6.12.45 / 设计场景 44）
+async function reconvert(r: DocRecord) {
+  if (pst.editedTasks.has(r.id)) {
+    try {
+      await ElMessageBox.confirm(RECONVERT_EDITED_CONFIRM, `重转“${r.title}”`, { confirmButtonText: '重转', cancelButtonText: '取消', type: 'warning', customClass: 'dc-reconv' })
+    } catch {
+      return
+    }
+  }
+  void dc.reconvert(r.id)
+}
+
 const summary = computed(() => {
   const rs = props.row.records
   if (!rs.length) return ''
@@ -87,19 +117,21 @@ const summary = computed(() => {
     <div class="cv-prow" @click="dc.toggle(src.sourceId)">
       <button type="button" class="cv-chk" :class="{ on: sel }" role="checkbox" :aria-checked="sel" :aria-label="`勾选 ${src.name}`" @click.stop="dc.toggle(src.sourceId)"><FIcon v-if="sel" name="check" /></button>
       <button type="button" class="cv-fold" :class="{ closed: !row.open, none: !row.records.length }" :aria-expanded="row.records.length ? row.open : undefined" :aria-label="row.open ? `收起 ${src.name} 的转换记录` : `展开 ${src.name} 的转换记录`" @click.stop="row.open = !row.open"><FIcon name="down" /></button>
-      <DocTypeCover :ext="src.ext" />
+      <button type="button" class="dc-covbtn" :aria-label="`预览 ${src.name}`" @click.stop="previewSource"><DocTypeCover :ext="src.ext" /></button>
       <div class="cv-pm">
         <div class="cv-nm"><b :title="src.name">{{ src.name }}</b><span v-if="row.isNew" class="cv-tag t-new">新添加</span></div>
         <div class="m" :title="meta">{{ meta }}</div>
       </div>
       <span v-if="summary" class="cv-sum">{{ summary }}</span>
       <div class="cv-ops">
+        <button type="button" class="cv-ib" aria-label="预览" title="预览" @click.stop="previewSource"><FIcon name="eye" /></button>
         <button type="button" class="cv-ib" aria-label="从列表移除" title="从列表移除" @click.stop="dc.removeSource(src.sourceId)"><FIcon name="trash" /></button>
       </div>
     </div>
     <div v-if="row.open && row.records.length" class="cv-kids">
       <div v-for="r in row.records" :key="r.id" class="cv-kid" :class="{ q: r.status === 'queued' }" :data-kid="r.id">
-        <DocTypeCover :ext="targetOf(r)" sm />
+        <button v-if="r.status === 'succeeded'" type="button" class="dc-covbtn" :aria-label="`预览 ${r.title}`" @click="previewRecord(r, $event)"><DocTypeCover :ext="targetOf(r)" sm /></button>
+        <DocTypeCover v-else :ext="targetOf(r)" sm />
         <div class="cv-km">
           <div class="l1">
             <b :title="r.title">{{ r.title }}</b>
@@ -109,12 +141,16 @@ const summary = computed(() => {
           <div class="l3">
             <template v-if="r.status === 'running'">
               <div class="bar ind dc-kbar" role="progressbar" aria-label="转换进度" aria-busy="true"><i /></div>
-              <span class="dc-qtx">已用 {{ elapsed(r) }}</span>
+              <span v-if="elapsed(r)" class="dc-qtx">已用 {{ elapsed(r) }}</span>
             </template>
             <template v-else-if="r.status === 'queued'">
               <div class="bar q"><i style="width: 0" /></div>
               <span class="dc-qtx">{{ queueText(r) }}</span>
             </template>
+          </div>
+          <!-- v0.27（6.12.31）：由哪个引擎转的；go / simple / 旧记录不写。改过的结果多一句「在应用里改过」 -->
+          <div v-if="r.status === 'succeeded' && (engineRecordText(r.result?.engine) || pst.editedTasks.has(r.id))" class="dc-eng">
+            <FIcon name="info" /><span>{{ [engineRecordText(r.result?.engine), pst.editedTasks.has(r.id) ? EDITED_IN_APP : ''].filter(Boolean).join(' · ') }}</span>
           </div>
           <div v-if="r.status === 'succeeded' && docResultWarnings(r.result?.warnings).length" class="cv-fnote warn dc-rwarn">
             <FIcon name="info" /><span>{{ docResultWarnings(r.result?.warnings).join(' ') }}</span>
@@ -133,6 +169,8 @@ const summary = computed(() => {
         <div class="cv-ops">
           <button v-if="r.status === 'running' || r.status === 'queued'" type="button" class="cv-ib" aria-label="取消" title="取消" @click="dc.cancel(r.id)"><FIcon name="x" /></button>
           <button v-else-if="r.status === 'failed' && dc.recordError(r)?.retryable" type="button" class="cv-ib" aria-label="重试" title="重试" @click="dc.retry(r.id)"><FIcon name="retry" /></button>
+          <button v-if="r.status === 'succeeded'" type="button" class="cv-ib" aria-label="预览" title="预览" @click="previewRecord(r, $event)"><FIcon name="eye" /></button>
+          <button v-if="r.status === 'succeeded'" type="button" class="cv-ib" aria-label="重转" title="重转" @click="reconvert(r)"><FIcon name="refresh" /></button>
           <button v-if="r.status !== 'running' && r.status !== 'queued'" type="button" class="cv-ib" aria-label="删除记录" title="删除记录" @click="dc.removeRecord(r.id)"><FIcon name="trash" /></button>
         </div>
       </div>

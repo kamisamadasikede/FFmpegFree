@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 文档转换页 v2（契约 v0.26 §6.12.9~6.12.22；设计 文档页-v2-设计说明 v0.2）。
 // 左栏：文档组件引导 + 源文件和记录；右栏：按交集分组的格式。
-import { computed, onActivated, onDeactivated, onMounted, watch } from 'vue'
+import { computed, defineAsyncComponent, onActivated, onDeactivated, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
@@ -13,10 +13,13 @@ import '@/components/convert/convert-v2.css'
 import '@/components/docs/doc-v2.css'
 import { dropHandlers } from '@/stores/docs'
 import { useDocConvertStore } from '@/stores/docConvert'
+import { usePreviewStore } from '@/stores/docPreview'
 
 defineOptions({ name: 'DocConvertPage' })
 
+const DocPreviewModal = defineAsyncComponent(() => import('@/components/docs/preview/DocPreviewModal.vue'))
 const dc = useDocConvertStore()
+const pst = usePreviewStore()
 const router = useRouter()
 const narrow = useNarrow()
 const dropStyle = { '--wails-drop-target': 'drop' } as Record<string, string>
@@ -41,6 +44,7 @@ const onDrop = (paths: string[]) => void dc.addPaths(paths)
 onMounted(() => void dc.init())
 onActivated(() => (dropHandlers.office = onDrop))
 onDeactivated(() => {
+  if (pst.open) void pst.close()
   if (dropHandlers.office === onDrop) dropHandlers.office = undefined
 })
 dropHandlers.office = onDrop
@@ -95,5 +99,6 @@ dropHandlers.office = onDrop
 
       <DocFormatPanel />
     </div>
+    <DocPreviewModal v-if="pst.open" />
   </div>
 </template>
