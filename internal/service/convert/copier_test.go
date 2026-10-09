@@ -135,10 +135,19 @@ func detailOf2(err *apperr.AppError) string {
 }
 
 // 拦住复制：每写完一块等 gate（或 ctx 取消）。返回放行函数。
+// setCopyChunkHook 设置（f 为 nil 时清空）copyChunkHook，只给测试用。
+func setCopyChunkHook(f func(ctx context.Context)) {
+	if f == nil {
+		copyChunkHook.Store(nil)
+		return
+	}
+	copyChunkHook.Store(&f)
+}
+
 func holdCopies(t *testing.T) (started chan struct{}, release func()) {
 	gate := make(chan struct{})
 	started = make(chan struct{}, 64)
-	copyChunkHook = func(ctx context.Context) {
+	setCopyChunkHook(func(ctx context.Context) {
 		select {
 		case started <- struct{}{}:
 		default:
@@ -147,10 +156,10 @@ func holdCopies(t *testing.T) (started chan struct{}, release func()) {
 		case <-gate:
 		case <-ctx.Done():
 		}
-	}
+	})
 	var once sync.Once
 	release = func() { once.Do(func() { close(gate) }) }
-	t.Cleanup(func() { release(); copyChunkHook = nil })
+	t.Cleanup(func() { release(); setCopyChunkHook(nil) })
 	return started, release
 }
 
@@ -435,7 +444,7 @@ func TestCopyCancelAndRetry(t *testing.T) {
 		t.Fatalf("已取消再取消不报错: %v", err)
 	}
 	release()
-	copyChunkHook = nil
+	setCopyChunkHook(nil)
 	if _, err := e.svc.RetryCopy(ctx, src.SourceID); err != nil {
 		t.Fatal(err)
 	}
@@ -450,10 +459,10 @@ func TestCopySourceChanged(t *testing.T) {
 	e := newCopyEnv(t)
 	in := e.file(t, "chg.mov", 3<<20)
 	var once sync.Once
-	copyChunkHook = func(context.Context) {
+	setCopyChunkHook(func(context.Context) {
 		once.Do(func() { os.WriteFile(in, []byte("changed"), 0o644) })
-	}
-	t.Cleanup(func() { copyChunkHook = nil })
+	})
+	t.Cleanup(func() { setCopyChunkHook(nil) })
 	r := e.add(t, in)
 	got := e.waitState(t, r.Source.SourceID, store.CopyFailed)
 	if detailOf2(got.CopyError) != "reason=source_changed" {
@@ -473,7 +482,7 @@ func TestCopyInterruptedByExit(t *testing.T) {
 	if c.State != store.CopyCopying {
 		t.Fatalf("退出时不改库: %+v", c)
 	}
-	copyChunkHook = nil
+	setCopyChunkHook(nil)
 	os.WriteFile(task.PartPath(c.StoredPath), []byte("half"), 0o644) // 进程直接没了的情形
 	e.svc = e.newSvc(t)
 	ent, _ := e.svc.GetSource(ctx, r.Source.SourceID)

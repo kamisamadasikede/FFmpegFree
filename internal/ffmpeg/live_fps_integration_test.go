@@ -57,9 +57,18 @@ func freeTCPPort(t *testing.T) int {
 // probeVideoFps 返回视频包数和按时间戳算的平均帧率（(包数-1)/(最后 pts-最先 pts)）。
 func probeVideoFps(t *testing.T, ffp, path string) (n int, fps float64) {
 	t.Helper()
+	n, fps, err := countVideoFps(ffp, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n, fps
+}
+
+// countVideoFps 是 probeVideoFps 的不带 *testing.T 版本，可以在非测试 goroutine 里调用。
+func countVideoFps(ffp, path string) (n int, fps float64, err error) {
 	out, err := exec.Command(ffp, "-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts_time", "-of", "csv=p=0", path).Output()
 	if err != nil {
-		t.Fatalf("ffprobe %s: %v", path, err)
+		return 0, 0, fmt.Errorf("ffprobe %s: %v", path, err)
 	}
 	var lo, hi float64
 	for _, l := range strings.Fields(string(out)) {
@@ -76,9 +85,9 @@ func probeVideoFps(t *testing.T, ffp, path string) (n int, fps float64) {
 		n++
 	}
 	if n < 2 || hi <= lo {
-		return n, 0
+		return n, 0, nil
 	}
-	return n, float64(n-1) / (hi - lo)
+	return n, float64(n-1) / (hi - lo), nil
 }
 
 func TestIntegrationFilePushKeepsSourceFps(t *testing.T) {
@@ -123,10 +132,16 @@ func TestIntegrationFilePushKeepsSourceFps(t *testing.T) {
 			start := time.Now()
 			// 对端完全不读时，正片推完后 ffmpeg 会卡在预览分支的收尾（fifo 要把队列写完），这不是推流变慢。
 			// 所以在源时长 + 1 秒时先数主输出已经收到多少帧（证明推流期间没被拖慢），再断开预览连接让 ffmpeg 收尾。
-			midFrames := -1
+			// 计时器 goroutine 里数帧，结果经通道交回测试 goroutine（不能直接写共享变量，也不能在那里调 t.Fatal）。
+			type midResult struct {
+				n   int
+				err error
+			}
+			midCh := make(chan midResult, 1)
 			if release != nil {
 				timer := time.AfterFunc(time.Duration(secs)*time.Second+time.Second, func() {
-					midFrames, _ = probeVideoFps(t, ffp, got)
+					n, _, err := countVideoFps(ffp, got)
+					midCh <- midResult{n, err}
 					release()
 				})
 				defer timer.Stop()
@@ -144,6 +159,11 @@ func TestIntegrationFilePushKeepsSourceFps(t *testing.T) {
 				t.Fatalf("主输出应保持源帧率 30 fps：%d 帧 %.2f fps\n%s", n, fps, tail(pushErr.String(), 20))
 			}
 			if release != nil {
+				mid := <-midCh // 推流只有在 release 之后才能收尾，所以计时器一定已经触发
+				if mid.err != nil {
+					t.Fatal(mid.err)
+				}
+				midFrames := mid.n
 				t.Logf("%s: 源时长 + 1 秒时主输出已收到 %d 帧", tc.name, midFrames)
 				if midFrames < (secs-1)*30 {
 					t.Fatalf("预览分支卡住时推流被拖慢：源时长 + 1 秒时只收到 %d 帧", midFrames)

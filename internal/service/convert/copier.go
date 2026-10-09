@@ -415,8 +415,8 @@ func (s *Service) doCopy(j *copyJob) *apperr.AppError {
 				return s.writeError(werr, c)
 			}
 			s.copyProgress(j)
-			if copyChunkHook != nil {
-				copyChunkHook(j.ctx)
+			if h := copyChunkHook.Load(); h != nil {
+				(*h)(j.ctx)
 			}
 		}
 		if rerr == io.EOF {
@@ -600,7 +600,8 @@ func (s *Service) disposeCopy(ctx context.Context, c store.ConvertCopy, sourceID
 }
 
 // copyChunkHook 在每写完一块之后调用（只给测试用：让复制停在中途，以便测取消 / 退出）。
-var copyChunkHook func(ctx context.Context)
+// 用原子指针：测试在复制 goroutine 运行时设置 / 清空它，普通变量会形成 data race。
+var copyChunkHook atomic.Pointer[func(ctx context.Context)]
 
 // removeCopyFile 是删副本文件的入口（测试里替换以模拟“被占用”）。
 var removeCopyFile = os.Remove

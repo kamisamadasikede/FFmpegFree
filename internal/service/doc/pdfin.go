@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -239,7 +240,8 @@ func extractPDFTextTimeout(ctx context.Context, path string, timeout time.Durati
 }
 
 // pdfLibHook 只给测试用：在每页提取前调用（可以 panic 模拟库崩溃）。
-var pdfLibHook func(page int)
+// 用原子指针：超时后提取 goroutine 仍在跑，测试此时清空钩子，普通变量会形成 data race。
+var pdfLibHook atomic.Pointer[func(page int)]
 
 func extractPDFFrom(f io.ReaderAt, size int64, stop <-chan struct{}) (pages []pdfPage, err error) {
 	defer func() {
@@ -270,8 +272,8 @@ func extractPDFFrom(f io.ReaderAt, size int64, stop <-chan struct{}) (pages []pd
 			return nil, &errPDFParse{why: "timeout"}
 		default:
 		}
-		if pdfLibHook != nil {
-			pdfLibHook(i)
+		if h := pdfLibHook.Load(); h != nil {
+			(*h)(i)
 		}
 		p := r.Page(i)
 		if p.V.IsNull() {

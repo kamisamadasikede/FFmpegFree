@@ -2,6 +2,7 @@ package about
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -80,18 +81,23 @@ import (
 
 func main() { fmt.Print(about.AppVersion()) }
 `
-	// 程序必须位于本模块内才能 import internal 包：放到模块根下的临时目录。
+	// 程序必须位于本模块内才能 import internal 包。真文件写在 t.TempDir()，用 go build -overlay
+	// 把它映射到模块根下一个不存在的目录：仓库里不落任何文件（以前在仓库根建 ldflags_probe_*，
+	// 并发跑全量测试时会让 apperr 扫描源码的测试遍历到一半目录消失而失败）。
 	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmp, err := os.MkdirTemp(root, "ldflags_probe_")
+	if err := os.WriteFile(src, []byte(prog), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	virt := filepath.Join(root, "ldflags_probe_overlay", "main.go")
+	ov, err := json.Marshal(map[string]map[string]string{"Replace": {virt: src}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tmp)
-	src = filepath.Join(tmp, "main.go")
-	if err := os.WriteFile(src, []byte(prog), 0o644); err != nil {
+	overlay := filepath.Join(dir, "overlay.json")
+	if err := os.WriteFile(overlay, ov, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	exe := filepath.Join(dir, "probe")
@@ -99,11 +105,11 @@ func main() { fmt.Print(about.AppVersion()) }
 		exe += ".exe"
 	}
 	run := func(ldflags string) string {
-		args := []string{"build", "-o", exe}
+		args := []string{"build", "-overlay", overlay, "-o", exe}
 		if ldflags != "" {
 			args = append(args, "-ldflags", ldflags)
 		}
-		args = append(args, src)
+		args = append(args, virt)
 		cmd := exec.Command(goBin, args...)
 		cmd.Dir = root
 		if out, err := cmd.CombinedOutput(); err != nil {

@@ -380,8 +380,8 @@ func TestPDFNoTextAndPanic(t *testing.T) {
 
 	ok := makePDF(t, filepath.Join(d, "ok.pdf"), pdfSpec{lines: []string{"fine"}})
 	r = e.add(t, ok)
-	pdfLibHook = func(int) { panic("boom") }
-	defer func() { pdfLibHook = nil }()
+	setPDFLibHook(func(int) { panic("boom") })
+	defer func() { setPDFLibHook(nil) }()
 	ts = e.submit(t, "md", r[0].Source.SourceID)
 	done = e.wait(t, ts[0].ID)
 	if done.Status != task.StatusFailed || done.Error == nil || done.Error.Code != apperr.DocCorrupt || !strings.HasPrefix(done.Error.Detail, "engine=go\nparse=panic") {
@@ -410,8 +410,8 @@ func TestPDFExtractTimeout(t *testing.T) {
 	d := t.TempDir()
 	p := makePDF(t, filepath.Join(d, "a.pdf"), pdfSpec{pages: 3, lines: []string{"x"}})
 	block := make(chan struct{})
-	pdfLibHook = func(int) { <-block }
-	defer func() { pdfLibHook = nil; close(block) }()
+	setPDFLibHook(func(int) { <-block })
+	defer func() { setPDFLibHook(nil); close(block) }()
 	_, err := extractPDFTextTimeout(context.Background(), p, 50e6)
 	var pe *errPDFParse
 	if err == nil || !errorsAs(err, &pe) || pe.why != "timeout" {
@@ -463,7 +463,7 @@ func TestRealPDFConvert(t *testing.T) {
 		}
 	}
 	// 纯 Go 失败 → 组件（txt / md）
-	pdfLibHook = func(int) { panic("boom") }
+	setPDFLibHook(func(int) { panic("boom") })
 	for _, tg := range []string{"txt", "md"} {
 		ts := e.submit(t, tg, id)
 		done := e.waitLong(t, ts[0].ID)
@@ -479,7 +479,7 @@ func TestRealPDFConvert(t *testing.T) {
 			t.Errorf("日志：%s", log)
 		}
 	}
-	pdfLibHook = nil
+	setPDFLibHook(nil)
 	// 扫描件：纯 Go 为空 → 组件 → 仍为空 → DOC_PDF_NO_TEXT（engine=component）
 	scan := makePDF(t, filepath.Join(src, "scan.pdf"), pdfSpec{noTextPage: true})
 	r = e.add(t, scan)
@@ -590,4 +590,13 @@ func TestPDFOwnerOnlyEncryption(t *testing.T) {
 			t.Errorf("%s 提取：%v %q", n, err, pagesPlain(pages))
 		}
 	}
+}
+
+// setPDFLibHook 设置（f 为 nil 时清空）pdfLibHook。
+func setPDFLibHook(f func(page int)) {
+	if f == nil {
+		pdfLibHook.Store(nil)
+		return
+	}
+	pdfLibHook.Store(&f)
 }
