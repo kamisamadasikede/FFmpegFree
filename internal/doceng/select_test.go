@@ -1,6 +1,9 @@
 package doceng
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestPrefOrder(t *testing.T) {
 	if got := PrefOrder("auto"); len(got) != 3 || got[0] != IDOffice {
@@ -66,5 +69,48 @@ func TestPrimarySource(t *testing.T) {
 	src, ver = PrimarySource(PrefOrder(IDComponent), engines)
 	if src != "downloaded" || ver != "26" {
 		t.Fatalf("component pref: %s %s", src, ver)
+	}
+}
+
+// v0.28：PDF 源 → Word（≥ 15）→ 文档组件；WPS 永远不用；txt / md / html 只有组件。
+func TestPickPDF(t *testing.T) {
+	office := Detected{ID: IDOffice, Installed: true, Available: true, WordMajor: 16, Families: []string{FamilyText, FamilyPDF}}
+	oldWord := Detected{ID: IDOffice, Installed: true, Available: true, WordMajor: 14, Families: []string{FamilyText, FamilyPDF}}
+	wps := Detected{ID: IDWPS, Installed: true, Available: true, Families: []string{FamilyText, FamilySheet, FamilySlide, FamilyPDF}}
+	comp := Detected{ID: IDComponent, Installed: true, Available: true, Families: []string{FamilyText, FamilySheet, FamilySlide, FamilyPDF}}
+	ids := func(order []string, es []Detected, target string) string {
+		return strings.Join(EnginesForTarget(order, es, nil, "pdf", target), ",")
+	}
+	all := []Detected{office, wps, comp}
+	for _, pref := range []string{"auto", "wps", "office"} {
+		if got := ids(PrefOrder(pref), all, "docx"); got != "office,component" {
+			t.Errorf("%s docx：%s", pref, got)
+		}
+	}
+	if got := ids(PrefOrder("component"), all, "docx"); got != "component,office" {
+		t.Errorf("component 优先：%s", got)
+	}
+	for _, tg := range []string{"txt", "md", "html"} {
+		if got := ids(PrefOrder("auto"), all, tg); got != "component" {
+			t.Errorf("%s：%s", tg, got)
+		}
+	}
+	for _, tg := range []string{"pdf", "xlsx", "pptx", "png", "csv"} {
+		if got := ids(PrefOrder("auto"), all, tg); got != "" {
+			t.Errorf("%s 不该有：%s", tg, got)
+		}
+	}
+	if got := ids(PrefOrder("auto"), []Detected{oldWord, comp}, "rtf"); got != "component" {
+		t.Errorf("Word 2010 不用于 PDF：%s", got)
+	}
+	if got := ids(PrefOrder("auto"), []Detected{office, wps}, "odt"); got != "office" {
+		t.Errorf("没有组件：%s", got)
+	}
+	// 组件没装时 families 不带 pdf（doccomp 只在已装时加）
+	if got := ids(PrefOrder("auto"), []Detected{{ID: IDComponent, Available: true, Families: []string{FamilyText}}}, "docx"); got != "" {
+		t.Errorf("%s", got)
+	}
+	if CanConvert(IDWPS, "pdf", "docx", wps.Families) {
+		t.Error("WPS 不做 PDF")
 	}
 }

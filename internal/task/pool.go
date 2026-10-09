@@ -1,6 +1,7 @@
 package task
 
 import (
+	"context"
 	"time"
 )
 
@@ -64,6 +65,15 @@ func (m *Manager) pumpDoc() {
 	changed := false
 	for {
 		m.mu.Lock()
+		// 中途要名额的运行中任务优先（插到组件池最前面）。
+		if !m.closing && m.docRunning < m.docLimit() && len(m.docWaiters) > 0 {
+			w := m.docWaiters[0]
+			m.docWaiters = m.docWaiters[1:]
+			m.docRunning++
+			m.mu.Unlock()
+			close(w)
+			continue
+		}
 		if m.closing || m.docRunning >= m.docLimit() || len(m.docQueue) == 0 {
 			m.mu.Unlock()
 			break
@@ -160,4 +170,47 @@ func (m *Manager) DocQueue() []string {
 		out[i] = e.task.ID
 	}
 	return out
+}
+
+// AcquireDocSlot 让一个已在运行（不占组件名额）的任务中途占一个文档组件池名额（v0.28 6.12.62：
+// PDF 纯 Go 提取失败改用组件时“插到组件池最前面”，不另起任务）。拿到后返回 release，用完必须调用一次。
+// 不在任务里运行（测试）时直接返回空 release。ctx 取消时放弃等待并返回 ctx.Err()。
+func AcquireDocSlot(ctx context.Context) (release func(), err error) {
+	info, ok := InfoFrom(ctx)
+	if !ok || info.m == nil {
+		return func() {}, nil
+	}
+	return info.m.acquireDocSlot(ctx)
+}
+
+func (m *Manager) acquireDocSlot(ctx context.Context) (func(), error) {
+	w := make(chan struct{})
+	m.mu.Lock()
+	m.docWaiters = append(m.docWaiters, w)
+	m.mu.Unlock()
+	m.pumpDoc()
+	release := func() {
+		m.mu.Lock()
+		m.docRunning--
+		m.mu.Unlock()
+		m.pumpDoc()
+	}
+	select {
+	case <-w:
+		return release, nil
+	case <-ctx.Done():
+		m.mu.Lock()
+		for i, x := range m.docWaiters {
+			if x == w {
+				m.docWaiters = append(m.docWaiters[:i], m.docWaiters[i+1:]...)
+				m.mu.Unlock()
+				return nil, ctx.Err()
+			}
+		}
+		m.mu.Unlock()
+		// 已经拿到名额（与取消同时发生）：还回去
+		<-w
+		release()
+		return nil, ctx.Err()
+	}
 }
