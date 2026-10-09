@@ -6,9 +6,10 @@
   <div v-else class="app-shell">
     <AppSidebar />
     <div class="app-main">
-      <AppTitlebar />
-      <FFmpegBanner />
-      <main class="app-content">
+      <!-- Cat 页（layout=cat）：没有顶栏和转换组件横条，内容区铺满（原型 cat-v3） -->
+      <AppTitlebar v-if="!catLayout" />
+      <FFmpegBanner v-if="!catLayout" />
+      <main class="app-content" :class="{ 'is-cat': catLayout }">
         <!-- 直播页切到别的菜单再回来：整页留着（推流 / 拉流不中断），预览播放器自己在离开时拆掉 -->
         <RouterView v-slot="{ Component }">
           <KeepAlive include="LiveLayout">
@@ -42,6 +43,7 @@ useTaskStore().init()
 
 const route = useRoute()
 const blankLayout = computed(() => route.meta.layout === 'blank')
+const catLayout = computed(() => route.meta.layout === 'cat')
 
 // v0.24.1（§八 第 65 条）：启动时取一次上次退出时被中断的重转条数；n > 0 时普通提示 4 秒，只这一次
 onMounted(async () => {
@@ -80,5 +82,10 @@ onMounted(async () => {
   min-height: 0;
   overflow: auto;
   padding: 20px 24px 24px;
+}
+.app-content.is-cat {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
 }
 </style>

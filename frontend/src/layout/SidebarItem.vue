@@ -17,6 +17,7 @@
   <RouterLink v-else :to="item.path" class="nav-item" :class="{ active: isActive }" :title="collapsed ? item.label : undefined">
     <FIcon :name="item.icon" />
     <span v-show="!collapsed" class="label">{{ item.label }}</span>
+    <span v-if="item.tag && !collapsed" class="tag">{{ item.tag }}</span>
     <span v-if="badge && !collapsed" class="badge">{{ badge }}</span>
   </RouterLink>
 </template>
@@ -82,6 +83,16 @@ const isActive = computed(
 .nav-item.gated:focus-visible {
   outline: 2px solid var(--ff-primary);
   outline-offset: -2px;
+}
+.tag {
+  margin-left: auto;
+  font-size: 10px;
+  line-height: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--ff-primary-soft);
+  color: var(--ff-primary-text);
+  font-weight: 600;
 }
 .badge {
   margin-left: auto;

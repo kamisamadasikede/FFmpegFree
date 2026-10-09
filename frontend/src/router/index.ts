@@ -1,7 +1,8 @@
 import { createRouter, createWebHashHistory, START_LOCATION, type RouteRecordRaw } from 'vue-router'
 import { routeNeedsFFmpeg } from '@/layout/navigation'
 import { useFFmpegStore } from '@/stores/ffmpeg'
-import { LOGIN_UI_ENABLED } from '@/api/flags'
+import { CAT_UI_ENABLED, LOGIN_UI_ENABLED } from '@/api/flags'
+import { rememberCatReturn } from '@/views/cat/catReturn'
 
 const SectionTabs = () => import('../views/sections/SectionTabs.vue')
 import LiveLayout from '../views/live/LiveLayout.vue'
@@ -14,6 +15,19 @@ const routes: RouteRecordRaw[] = [
     name: 'Voice',
     meta: { title: '语音工具', subtitle: '转字幕', fill: true },
     component: () => import('../views/voice/VoicePage.vue'),
+  },
+  // Cat 聊天页（原型 cat-v3）：layout=cat 时侧栏 250ms 收起、不显示顶栏；进入时记下原页面，「返回」回到那里。
+  // CAT_UI_ENABLED=false 时直达 #/cat 也回到转换页。
+  {
+    path: '/cat',
+    name: 'Cat',
+    meta: { title: 'Cat', layout: 'cat' },
+    component: () => import('../views/cat/CatPage.vue'),
+    beforeEnter: (_to, from) => {
+      if (!CAT_UI_ENABLED) return { path: '/', replace: true }
+      rememberCatReturn(from === START_LOCATION ? '/' : from.fullPath)
+      return true
+    },
   },
   // 剪辑功能已移除（老板决定，2026-10-08，应用只做转换）：旧的 #/edit 地址一律回到转换页
   { path: '/edit/:pathMatch(.*)*', redirect: '/' },
