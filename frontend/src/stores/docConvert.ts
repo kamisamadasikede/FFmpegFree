@@ -78,6 +78,8 @@ export const DOC_GROUPS: { key: 'pdf' | 'text' | 'sheet' | 'slide'; label: strin
 
 export interface DocTile extends DocTarget {
   group: 'pdf' | 'text' | 'sheet' | 'slide'
+  /** 组件还在检测中、这一格暂时不可用（或只有简易 PDF）：按中性占位显示，不出「需要文档组件」、不出下载 */
+  pending?: boolean
 }
 
 export interface DocRow {
@@ -107,13 +109,28 @@ export const useDocConvertStore = defineStore('docConvert', () => {
   const roundIds = ref<string[]>([])
 
   // ── 格式表 ──
+  /** 组件整体状态还在检测中（有本机 Office / WPS 时整体已是 ready，不算） */
+  const checking = computed(() => comp.status.state === 'checking')
+  // 请求序号：doc:component 连发时只认比已用结果更新的响应，旧响应晚到直接丢（不倒退）
+  let matrixSeq = 0
+  let matrixApplied = 0
+  /** 当前格式表是不是在「检测完成」后拿到的；是的话检测中再拉到的表不替换它（避免闪成不可用） */
+  let matrixSettled = false
   async function loadMatrix() {
+    const my = ++matrixSeq
     try {
-      matrix.value = await getFormatMatrix()
+      const m = await getFormatMatrix()
+      if (my <= matrixApplied) return
+      matrixApplied = my
       matrixError.value = false
+      if (checking.value && matrix.value && matrixSettled) return
+      matrix.value = m
+      matrixSettled = !checking.value
     } catch (e) {
       console.error('GetFormatMatrix failed', e)
-      matrixError.value = true
+      if (my <= matrixApplied) return
+      // 已有格式表就留着上一份，只有一份都没有时才出「重试」
+      if (!matrix.value) matrixError.value = true
     }
   }
 
@@ -170,8 +187,13 @@ export const useDocConvertStore = defineStore('docConvert', () => {
         })
     }
     const order = ['pdf', 'docx', 'doc', 'odt', 'rtf', 'txt', 'html', 'md', 'xlsx', 'xls', 'ods', 'csv', 'pptx', 'ppt', 'odp']
+    const chk = checking.value
     return list
-      .map((t) => ({ ...t, group: t.ext === 'pdf' ? ('pdf' as const) : docFamilyOf(t.ext) }))
+      .map((t) => ({
+        ...t,
+        group: t.ext === 'pdf' ? ('pdf' as const) : docFamilyOf(t.ext),
+        pending: chk && (!t.available || (t.simple && t.ext === 'pdf')),
+      }))
       .sort((a, b) => order.indexOf(a.ext) - order.indexOf(b.ext))
   })
 
@@ -193,6 +215,12 @@ export const useDocConvertStore = defineStore('docConvert', () => {
 
   /** 说明行（格式区下面） */
   const note = computed<{ text: string; tone: 'info' | 'warn'; download?: boolean } | null>(() => {
+    const n = rawNote.value
+    // 检测中：不出「需要文档组件」/ 简易转换提醒 / 下载入口，检测完再按结果显示
+    if (n && checking.value && (n.tone === 'warn' || n.download || currentTile.value?.pending)) return null
+    return n
+  })
+  const rawNote = computed<{ text: string; tone: 'info' | 'warn'; download?: boolean } | null>(() => {
     const t = currentTile.value
     if (!selectedRows.value.length) return null
     // v0.28：选中里有 PDF 时按 PDF 的提示（排版 / 只提取文字），文案在 utils/docV26Text.ts
@@ -210,19 +238,21 @@ export const useDocConvertStore = defineStore('docConvert', () => {
     return null
   })
 
-  const canSubmit = computed(() => selectedRows.value.length > 0 && !!currentTile.value?.available)
-  const noneUsable = computed(() => selectedRows.value.length > 0 && !tiles.value.some((t) => t.available))
+  const canSubmit = computed(() => selectedRows.value.length > 0 && !!currentTile.value?.available && !currentTile.value.pending)
+  const noneUsable = computed(() => selectedRows.value.length > 0 && !checking.value && !tiles.value.some((t) => t.available))
 
   function ensureTarget() {
     const t = tiles.value
     if (!selectedRows.value.length) return
     if (currentTile.value?.available) return
+    // 检测中暂时不可用的目标先留着，检测完再决定（不在检测中途把用户选的格式换掉）
+    if (currentTile.value?.pending) return
     target.value = t.find((x) => x.ext === 'pdf' && x.available)?.ext ?? t.find((x) => x.available)?.ext ?? ''
   }
 
   function pickTarget(ext: string) {
     const t = tiles.value.find((x) => x.ext === ext)
-    if (!t || (!t.available && selectedRows.value.length)) return
+    if (!t || (!t.available && !t.pending && selectedRows.value.length)) return
     target.value = ext
   }
 
@@ -515,9 +545,8 @@ export const useDocConvertStore = defineStore('docConvert', () => {
         applyPatch(id, rest)
       },
     })
-    await comp.init()
-    await loadMatrix()
-    await reload()
+    // 三个请求并行，各自到了就更新自己那块；格式区不等组件状态 / 文件列表（老板反馈：进页面格式出来慢）
+    await Promise.allSettled([comp.init(), loadMatrix(), reload()])
     ensureTarget()
   }
 
@@ -720,6 +749,7 @@ export const useDocConvertStore = defineStore('docConvert', () => {
   return {
     matrix,
     matrixError,
+    checking,
     rows,
     selected,
     target,
