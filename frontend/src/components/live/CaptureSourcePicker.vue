@@ -33,6 +33,7 @@
       <FIcon name="down" :size="14" class="ar" />
     </button>
     <Teleport to="body">
+      <MotionMenu>
       <div v-if="open" ref="pop" class="pop" :style="popStyle" @keydown="onPopKey" @mousedown.stop>
         <div v-if="state === 'failed' && !sources.length" class="fl" role="alert">
           <FIcon name="warn" :size="20" />
@@ -90,6 +91,7 @@
           </button>
         </div>
       </div>
+      </MotionMenu>
     </Teleport>
   </div>
 
@@ -128,6 +130,7 @@
 //     底栏“共 n 个窗口”+“刷新”；首次加载骨架行；刷新中保留旧列表；空 / 失败 / 刷新失败（旧列表保留）三态；gone=true 时红边 + 尺寸位置换成红字“已不可用”。
 //   mode='list'（macOS / Linux）：屏幕单选列表（v0.2），没有应用窗口分组也没有下拉。
 // 键盘：↑↓ 移动、Home / End、Enter / Space 选择、Esc 关闭并把焦点还给触发器。弹层 Teleport 到 body（避开表单面板的 overflow），滚动 / 改变窗口大小时关闭。窗口标题可能含隐私，只在界面里显示，不写日志。
+import MotionMenu from '@/components/motion/MotionMenu.vue'
 import { computed, inject, nextTick, onBeforeUnmount, ref, useId, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import LiveButton from './LiveButton.vue'
@@ -506,6 +509,7 @@ function hoverOff() {
 }
 .pop {
   position: fixed;
+  transform-origin: top center;
   z-index: 3000;
   box-sizing: border-box;
   background: var(--ff-bg-elevated);

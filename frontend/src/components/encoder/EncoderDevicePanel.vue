@@ -25,6 +25,7 @@
           <span class="txt">{{ view.selectText }}</span>
           <FIcon name="down" :size="14" />
         </div>
+        <MotionMenu>
         <div v-if="open" :id="listId" class="dvm" role="listbox" :aria-label="ENCODER_PANEL_TITLE">
           <div
             v-for="(o, idx) in options"
@@ -39,6 +40,7 @@
             <FIcon name="check" :size="14" /><span class="nm" :title="o.label">{{ o.label }}</span>
           </div>
         </div>
+        </MotionMenu>
       </div>
       <button type="button" class="btn" :aria-disabled="view.redetectDisabled || undefined" @click="!view.redetectDisabled && detect(true)">
         <FIcon name="refresh" :size="15" />{{ ENCODER_REDETECT }}
@@ -59,6 +61,7 @@
 // 设置页“编码设备”面板（设计稿 编码设备-设计说明-v0.1 §2）。下拉是自绘的 combobox/listbox（行高 32、分组“显卡”），置灰用 aria-disabled。
 // 只在 encoderPanelVisible() 为真时由 Settings.vue 渲染：后端绑定接通（ENCODER_BACKEND_READY 且在 Wails 里）才对用户显示；纯浏览器需要 ?enc=。
 // 偏好值存的是 'auto' | 'cpu' | 设备 id；所选设备不可用时偏好保持原值（后端约定），这里不擅自改写。
+import MotionMenu from '@/components/motion/MotionMenu.vue'
 import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
@@ -252,6 +255,7 @@ watch(() => ffmpeg.status.state, (state, prev) => { if (state === 'ready' && pre
 }
 .dvm {
   position: absolute;
+  transform-origin: top left;
   left: 0;
   top: 32px;
   width: 100%;
