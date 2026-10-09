@@ -24,8 +24,11 @@ import (
 
 // ---------- 文档多格式转换（契约 v0.26，6.12.9~6.12.21） ----------
 
+// submitWait 是提交 / 重试 / 重转时，目标格式暂时不可用且文档组件还在检测中，最多等检测结果的时间
+// （避免把“还在检测”当成“没有组件”而拒绝）。GetFormatMatrix 不等（老板反馈：文档页显示格式慢），检测完靠 doc:component 重拉。
+var submitWait = 6 * time.Second
+
 const (
-	matrixWait       = 6 * time.Second // GetFormatMatrix 在 checking 时最多等这么久
 	inspectTimeout   = 5 * time.Second // 添加时每个文件的检查上限
 	inspectParallel  = 4
 	maxDocAddPerCall = 50
@@ -151,30 +154,74 @@ func (s *Service) notReady() error {
 	return s.cfg.Component.NotReadyError()
 }
 
-// GetFormatMatrix 按当前引擎状态生成格式表；组件在 checking 时最多等 6 秒。
-func (s *Service) GetFormatMatrix(ctx context.Context) DocFormatMatrix {
-	st := s.mergedStatus(ctx, matrixWait)
-	pref := "auto"
+// engineSnapshot 是某一刻的引擎状态（格式表、提交、重试、重转共用同一套判断）。
+type engineSnapshot struct {
+	ready     bool // 整体 state=ready
+	compReady bool // 文档组件自己 ready
+	pref      string
+	engines   []doceng.Detected
+	skips     *doceng.SkipTracker
+	hasReg    bool
+}
+
+func (s *Service) snapshot(ctx context.Context) engineSnapshot {
+	st := s.mergedStatus(ctx, 0)
+	sn := engineSnapshot{ready: st.State == "ready", pref: "auto", hasReg: s.cfg.Engines != nil,
+		compReady: s.componentStatus(ctx, 0).State == doccomp.StateReady}
 	if s.cfg.DocEngine != nil {
 		if p := s.cfg.DocEngine(ctx); p != "" {
-			pref = p
+			sn.pref = p
 		}
 	}
-	var engines []doceng.Detected
-	var skips *doceng.SkipTracker
 	if s.cfg.Engines != nil {
-		engines = s.cfg.Engines.Engines(ctx)
-		skips = s.cfg.Engines.Skips()
+		sn.engines = s.cfg.Engines.Engines(ctx)
+		sn.skips = s.cfg.Engines.Skips()
 	}
-	ready := st.State == "ready"
-	return buildMatrix(ready, func(src, target string) []string {
-		ids := doceng.EnginesForTarget(doceng.PrefOrder(pref), engines, skips, src, target)
-		if len(ids) == 0 && ready && (src != "pdf" || s.cfg.Engines == nil) {
-			// 只有文档组件且 Registry 尚未填 engines 时
-			ids = []string{engineComponent}
-		}
-		return ids
-	})
+	return sn
+}
+
+// engineIDs 是现在能做 src → target 的引擎。
+func (sn engineSnapshot) engineIDs(src, target string) []string {
+	ids := doceng.EnginesForTarget(doceng.PrefOrder(sn.pref), sn.engines, sn.skips, src, target)
+	// 只有文档组件且 Registry 尚未填 engines 时把 ready 当作组件可用。有 Registry 时只在组件自己 ready 时这样兜底：
+	// 整体 ready 可能只是因为有 Office / WPS（组件还在检测或没装），不能让只有组件能做的目标显示可用。
+	if len(ids) == 0 && sn.componentFallback() && (src != "pdf" || !sn.hasReg) {
+		ids = []string{engineComponent}
+	}
+	return ids
+}
+
+// componentFallback：没有引擎列表能做时，可不可以把“ready”当作文档组件可用。
+func (sn engineSnapshot) componentFallback() bool {
+	return sn.ready && (!sn.hasReg || sn.compReady)
+}
+
+func (sn engineSnapshot) target(src, target string) (DocTarget, bool) {
+	return targetFor(src, target, sn.componentFallback(), sn.engineIDs(src, target))
+}
+
+// componentChecking：文档组件还在检测（检测完会发 doc:component）。
+func (s *Service) componentChecking() bool {
+	return s.cfg.Component != nil && s.cfg.Component.Status().State == doccomp.StateChecking
+}
+
+// targetNow 算 src → target 现在能不能做；不可用且组件还在检测时，最多等 submitWait 再算一次（*waited 为 true 后不再等）。
+// 只给提交 / 重试 / 重转用，格式表不等。
+func (s *Service) targetNow(ctx context.Context, src, target string, waited *bool) (DocTarget, bool) {
+	t, ok := s.snapshot(ctx).target(src, target)
+	if ok && !t.Available && !*waited && s.componentChecking() {
+		*waited = true
+		_ = s.cfg.Component.Wait(ctx, submitWait)
+		t, ok = s.snapshot(ctx).target(src, target)
+	}
+	return t, ok
+}
+
+// GetFormatMatrix 按当前已知的引擎状态立即生成格式表：组件在 checking 时不等（v0.28.3），
+// 已检测到的 Office / WPS 照常算可用，要组件的目标按“未就绪”返回；检测完成会发 doc:component，前端重拉。
+func (s *Service) GetFormatMatrix(ctx context.Context) DocFormatMatrix {
+	sn := s.snapshot(ctx)
+	return buildMatrixWith(sn.ready, sn.componentFallback(), sn.engineIDs)
 }
 
 // CleanupDocTemp 启动时删除 <数据目录>/tmp/doc/ 与 tmp/docsave/ 下的残留（6.12.18 / 6.12.49）。
@@ -424,20 +471,7 @@ func (s *Service) SubmitDocConvert(ctx context.Context, req DocSubmitRequest) (c
 	if target == "" {
 		return res, formatUnsupportedTarget()
 	}
-	st := s.mergedStatus(ctx, 0)
-	ready := st.State == "ready"
-	pref := "auto"
-	if s.cfg.DocEngine != nil {
-		if p := s.cfg.DocEngine(ctx); p != "" {
-			pref = p
-		}
-	}
-	var engines []doceng.Detected
-	var skips *doceng.SkipTracker
-	if s.cfg.Engines != nil {
-		engines = s.cfg.Engines.Engines(ctx)
-		skips = s.cfg.Engines.Skips()
-	}
+	waited := false
 	var jobs []docJob
 	var firstSkipped *store.ConvertSource
 	anyCopying := false
@@ -459,11 +493,8 @@ func (s *Service) SubmitDocConvert(ctx context.Context, req DocSubmitRequest) (c
 			continue
 		}
 		ds := toDocSource(src)
-		ids := doceng.EnginesForTarget(doceng.PrefOrder(pref), engines, skips, ds.Ext, target)
-		if len(ids) == 0 && ready && (ds.Ext != "pdf" || s.cfg.Engines == nil) {
-			ids = []string{engineComponent}
-		}
-		t, ok := targetFor(ds.Ext, target, ready, ids)
+		// 组件还在检测时最多等 submitWait（整个提交只等一次），不把“检测中”当成没有组件拒绝。
+		t, ok := s.targetNow(ctx, ds.Ext, target, &waited)
 		if !ok {
 			return res, formatUnsupportedTarget()
 		}
@@ -851,6 +882,27 @@ func (s *Service) jobFromTask(ctx context.Context, old task.Task, in string) (do
 	return j, nil
 }
 
+// engineReadyFor 是重试 / 重转前的引擎检查：要引擎的任务，只要本机 Office / WPS 或文档组件有一个能做就放行
+// （同提交；以前只看文档组件，只有 Office 的电脑重试会被误拒）；组件还在检测时最多等 submitWait。
+func (s *Service) engineReadyFor(ctx context.Context, j docJob) error {
+	if j.simple || j.engine() != engineComponent {
+		return nil
+	}
+	waited := false
+	t, ok := s.targetNow(ctx, j.src, j.target, &waited)
+	if !ok {
+		// 格式表里没有这一对（旧记录）：保持以前的规则，只看组件
+		if s.componentStatus(ctx, 0).State != doccomp.StateReady {
+			return s.notReady()
+		}
+		return nil
+	}
+	if !t.Available {
+		return s.notReady()
+	}
+	return nil
+}
+
 // docRetryFactory 是 doc_convert / 文档页 office_pdf 的重试（原地，6.6）；不可重试的失败返回 UNSUPPORTED（reason=not_retryable）。
 func (s *Service) docRetryFactory(old task.Task) (task.Runner, error) {
 	if old.Error != nil && notRetryableErr(old.Error) {
@@ -864,10 +916,8 @@ func (s *Service) docRetryFactory(old task.Task) (task.Runner, error) {
 	if !regularFile(j.in) {
 		return nil, apperr.New(apperr.NotFound, "文件不存在").WithDetail("reason=file")
 	}
-	if !j.simple && j.engine() == engineComponent {
-		if st := s.componentStatus(ctx, 0); st.State != doccomp.StateReady {
-			return nil, s.notReady()
-		}
+	if err := s.engineReadyFor(ctx, j); err != nil {
+		return nil, err
 	}
 	return s.newDocRunner(j, ""), nil
 }
@@ -878,10 +928,8 @@ func (s *Service) docReconverter(ctx context.Context, old task.Task, in, temp st
 	if err != nil {
 		return nil, "", "", err
 	}
-	if !j.simple && j.engine() == engineComponent {
-		if st := s.componentStatus(ctx, 0); st.State != doccomp.StateReady {
-			return nil, "", "", s.notReady()
-		}
+	if err := s.engineReadyFor(ctx, j); err != nil {
+		return nil, "", "", err
 	}
 	if _, err := inspectDoc(ctx, j.in, j.src); apperr.Is(err, apperr.DocEncrypted) {
 		return nil, "", "", err

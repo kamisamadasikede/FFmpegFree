@@ -1,4 +1,7 @@
-# FFmpegFree v2 接口契约（v0.28.2）
+# FFmpegFree v2 接口契约（v0.28.3）
+
+v0.28.3 变更（按前端 #144 / #145、后端 #146 实际合入记录，2026-10-09；见 **6.12.68**）：① `GetFormatMatrix` 在文档组件 `checking` 时**不再等最多 6 秒**，立即按当前已知状态返回：已检测到的 Office / WPS 照常可用，只靠组件的目标按未就绪返回（`componentReady` 可能为 `false`、部分格式置灰）。② 提交、重试、重转在“目标暂时不可用且组件还在检测”时仍**最多等 6 秒**（整个调用只等一次），不把“检测中”误当成没有组件。③ `GetDocComponentStatus` 检测中立即返回 `state=checking`（有 Office 时可能是 `state=ready` + `componentState=checking`）；检测结束（ready / 未安装 / 版本太旧 / 失败）**至少发一次 `doc:component`**，payload 与 `GetDocComponentStatus` 相同。④ 前端：每次收到 `doc:component` 都重拉格式表并丢弃过期的响应；检测中不显示“不可用”闪烁、不出下载入口；检测结束后 0.2 秒淡入刷新；初始化的状态 / 格式表 / 源列表三个请求并行。⑤ 后续项（未做）：组件冷启动仍要跑 `--version` 和一次冒烟转换，没有按版本缓存来跳过。**没有新增错误码（仍 31 个），没有迁移，没有新事件，接口签名不变。**
+
 
 v0.28.2 变更（按前端 #141、后端 #142 实际合入记录，2026-10-09；见 **6.12.67**）：① 新 `hintKey` **`pdf_text`**，用于 pdf → txt 和 pdf → md，文案 `只提取文字，不保留排版和图片。`（产品 10-09 定）；`md_lossy` 只用于**非 PDF 源** → md；pdf → html 的提示不变（没有组件时 `simple_mode`，PDF 源文案同上）。`hintKey` 仍是字符串，**绑定不变**。取代 6.12.66 ③ 里记的 pdf → md 提示前后端不一致。② 确认：pdf → html 组件导出失败时回退纯 Go 简易 html（`simple_fallback`，`engine=go`），用户取消、加密、文件损坏、磁盘满除外（直接报错）。**没有新增错误码（仍 31 个），没有迁移，没有新事件。**
 
@@ -1689,7 +1692,7 @@ type DocTarget struct {
 
 ```go
 // 格式表与组件
-GetFormatMatrix() (DocFormatMatrix, error)                 // 按当前组件状态生成；组件在 checking 时最多等 6 秒（同 6.16 v0.25.4），等不到按未就绪返回
+GetFormatMatrix() (DocFormatMatrix, error)                 // 按当前组件状态生成；~~组件在 checking 时最多等 6 秒（同 6.16 v0.25.4），等不到按未就绪返回~~ **v0.28.3：不等，立即按当前已知状态返回（6.12.68）**
 GetDocComponentStatus() (DocComponentStatus, error)
 InstallDocComponent(mirror string) (DocComponentStatus, error) // mirror 只接受 "" 和 "cn"；开始或继续下载 + 准备，立即返回（downloading / preparing）；幂等；Linux UNSUPPORTED_PLATFORM
 CancelDocComponentInstall() error                          // 没有在下载 / 准备时无操作
@@ -1954,7 +1957,7 @@ type DocEngineInfo struct {
 - **`installBytes`**：如果后端的 v0.26 实现 PR（契约改到 v0.26.1）合入时已经带了这个字段，以它为准；没带就按这里补上。含义：文档组件装好后的大约占用，固定 `1.5 GiB`（1 610 612 736 字节），Linux 为 0；下载引导卡片上的“安装后约占用 1.5GB 磁盘空间”取它。
 - **就绪的判断**：Windows 上检测到 Office 或 WPS 中任何一个（且至少有一类能用）就是 `state=ready`，**不再出下载引导**；`componentState` 照样反映文档组件自己（可能是 `missing`）。设置页的“文档组件”一块（下载、进度、重试）看 `componentState` / `phase` / `receivedBytes`；文档页顶部的下载引导只看 `state`。Office / WPS 用户在设置页仍可以下载文档组件（用来补 WPS 不做的 ODF 格式），`InstallDocComponent` 照常可用。
 - `doc:component` 事件在 `state`、`componentState`、`source`、`engines` 任何一个变化时都发（含设置里改了 `docEngine`）。**前端收到 `doc:component` 一律重新拉 `GetFormatMatrix`**（取代 v0.26 “只在 ready 变化时拉”，表很小）。
-- `checking`：启动时 Office / WPS 和文档组件的检测都没完成前 `state=checking`；Office / WPS 检测只读注册表，通常几十毫秒，先完成就可以先变 `ready`（文档组件还在检测，`componentState=checking`）。
+- `checking`：启动时 Office / WPS 和文档组件的检测都没完成前 `state=checking`；Office / WPS 检测只读注册表，通常几十毫秒，先完成就可以先变 `ready`（文档组件还在检测，`componentState=checking`）。**v0.28.3**：`GetDocComponentStatus` 检测中不等，立即返回；检测结束至少发一次 `doc:component`（payload 与 `GetDocComponentStatus` 相同）；`GetFormatMatrix` 也不再等（6.12.68）。
 - 设置页（产品定）：`文档组件已就绪`，下面一行小字 `正在使用本机 WPS`（按 `source`：`office` → `Microsoft Office`，`wps` → `WPS`，`system` / `downloaded` → `文档组件`）；`engines` 多于一项时显示下拉框（规则见上）。
 
 ### 6.12.29 设置、单次超时与并发
@@ -2700,6 +2703,40 @@ type DocBinarySaveAbort struct {
 - 6.12.66 ③ 记的“pdf → md 前后端提示不一致”就此解决：前后端都用 `pdf_text` 这一句。
 - **确认（#142，`pdfrun.go` 的 `producePDF`）**：pdf → html 走文档组件、组件导出 html 失败时，**回退到纯 Go 的简易 html**，任务成功，`result.engine=go`，`result.warnings` 带 `simple_fallback`。**例外**（直接报错，不回退）：用户取消（`ctx` 已结束）、`DOC_ENCRYPTED`、`DOC_CORRUPT`、`CONVERT_DISK_FULL`。
 - 没有新增错误码（仍 31 个），没有迁移，没有新事件。
+
+### 6.12.68 v0.28.3：格式表和组件状态不再等检测（按 #144 / #145 / #146 记录）
+
+> 背景：老板反馈文档页格式显示慢——`GetFormatMatrix` 在文档组件 `checking` 时会等最多 6 秒。本节取代 6.12.14 里“组件在 checking 时最多等 6 秒”的写法。**没有新增错误码（仍 31 个），没有迁移，没有新事件，接口签名和字段都不变。**
+
+**① `GetFormatMatrix` 立即返回（#146）**：
+
+- 组件在 `checking` 时**不再等**（去掉原来最多 6 秒的等待），按**当前已知**的引擎状态立即生成：
+  - 已经检测到的 Office / WPS（只读注册表，通常几十毫秒就有结果）照常算可用，能做的目标 `available=true`；
+  - **只靠文档组件**的目标按未就绪返回：`available=false`、`needsComponent=true`、`disabledReason=需要文档组件`；纯 Go 的（md ↔ html、PDF 提取文字、简易转换）照常可用。
+  - `componentReady`（= 有任何引擎可用）可能是 `false`；**格式表本身没有 `componentState` 字段**，检测中这个状态要看 `GetDocComponentStatus` / `doc:component` 的 `componentState=checking`。
+- 所以检测中拿到的格式表**可能有部分格式暂时置灰**；检测结束后前端按 ④ 重拉即可。
+
+**② 需要引擎的入口仍然最多等 6 秒（#146）**：
+
+- **提交（`SubmitDocConvert`）、重试（`TaskService.Retry` 的 doc 记录）、重转（`Reconvert` 的 doc 记录）**：目标现在不可用、而文档组件还在 `checking` 时，**最多等 6 秒**检测结果再判断一次（整个调用只等一次，不是每个文件各等 6 秒），不把“检测中”当成“没有组件”拒绝。等完仍不可用再按原规则报错（`DOC_COMPONENT_NOT_READY` 等）。
+- 重试 / 重转改为和提交一样**看全部引擎的快照**（以前只看文档组件，只有 Office 的电脑重试会被误拒）。
+- **添加文件（`AddDocSources`）不等**：添加只做大小、加密、损坏、页数这些检查，不依赖引擎，所以不会因为检测中被误拒。
+- `GetDocComponentStatus`、`ListDocSources`、`GetDocPreview` 都不等 `checking`（预览遇到检测中按 6.12.32 当时的引擎状态处理）。
+
+**③ `GetDocComponentStatus` 与 `doc:component`（#146）**：
+
+- 检测中**立即返回** `state=checking`；Windows 上已检测到 Office / WPS 时可能是 `state=ready` + `componentState=checking`（6.12.28）。
+- **检测结束**（变成 `ready` / `missing` / `outdated` / `failed` 中任何一个）后端**至少发一次 `doc:component`**，payload 是合并后的完整状态（经引擎注册表发出），**与 `GetDocComponentStatus` 的返回相同**。
+
+**④ 前端规则（#144 / #145）**：
+
+- **每次**收到 `doc:component` 都重新调 `GetFormatMatrix`（同 6.12.28），**丢弃过期的响应**（只用最后一次请求的结果，先发后到的旧响应扔掉）。
+- `componentState=checking` 时**不显示“不可用”的闪烁、不出下载文档组件的入口**（置灰的格式在检测中不提示“需要文档组件”）。
+- 检测结束后格式区 **0.2 秒淡入**刷新。
+- 页面初始化时 `GetDocComponentStatus`、`GetFormatMatrix`、源列表（`ListDocSources`）**三个请求并行**发出（订阅事件仍在请求之前，同第 5 节的订阅顺序）。
+- #145 另外调整了文档页的滚动和底部栏（只改界面，不涉及接口）。
+
+**⑤ 后续项（未做）**：文档组件冷启动仍要跑一次 `soffice --version`（60 秒超时）和一次冒烟转换（120 秒超时，6.12.12），**没有按版本缓存检测结果**来跳过。计划：按“组件可执行文件路径 + 大小 + 修改时间 + 版本”缓存通过的结果（同 6.16.1 转换组件的做法），命中时跳过冒烟转换。
 
 ## 6.13 本地资源访问 `/local/<token>`（中立章节，DocService 与转换记录共用；由 #22 引入，#23 引用，v0.23 加 `convert` 表；v0.23.5 删除 `edit` 表）
 

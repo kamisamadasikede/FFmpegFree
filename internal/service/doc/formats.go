@@ -225,6 +225,11 @@ func pdfTargetFor(target string, engineIDs []string) (DocTarget, bool) {
 // buildMatrix 生成格式表（6.12.13 / 6.12.30）。
 // engineFn(src, target) 返回能做这个转换的引擎 id 列表；anyReady 是整体 state=ready。
 func buildMatrix(anyReady bool, engineFn func(src, target string) []string) DocFormatMatrix {
+	return buildMatrixWith(anyReady, anyReady, engineFn)
+}
+
+// buildMatrixWith 同 buildMatrix；fallbackReady 是“没有引擎列表时把组件当作可用”的条件（有 Registry 时只在组件自己 ready 时成立）。
+func buildMatrixWith(anyReady, fallbackReady bool, engineFn func(src, target string) []string) DocFormatMatrix {
 	m := DocFormatMatrix{ComponentReady: anyReady, Inputs: append([]string(nil), docInputs...)}
 	for _, fam := range familyOrder {
 		for _, src := range familyFormats[fam] {
@@ -244,7 +249,7 @@ func buildMatrix(anyReady bool, engineFn func(src, target string) []string) DocF
 				if engineFn != nil {
 					ids = engineFn(src, tg)
 				}
-				if t, ok := targetFor(src, tg, anyReady, ids); ok {
+				if t, ok := targetFor(src, tg, fallbackReady, ids); ok {
 					sf.Targets = append(sf.Targets, t)
 				}
 			}

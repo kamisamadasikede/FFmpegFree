@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 文档页右栏：格式按 PDF / 文档 / 表格 / 演示分组，只显示选中文件都能转的（交集来自后端格式表 6.12.13）
-import { computed, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import { useDocConvertStore, DOC_TILE_SUB, type DocTile } from '@/stores/docConvert'
 import { useDocComponentStore } from '@/stores/docComponent'
@@ -24,6 +24,24 @@ const wide = (t: DocTile) => !!t.simple && t.ext === 'pdf' && !t.pending
 // 「简易转换（只保留文字）」只用于 → PDF；PDF 源的 txt / md / 简易 html 也是 simple，但格式块照常显示（说明行里讲只提取文字）
 const sub = (t: DocTile) => (wide(t) ? DOC_SIMPLE_PDF_LABEL : DOC_TILE_SUB[t.ext] ?? '')
 const tip = (t: DocTile) => (disabled(t) ? t.disabledReason || DOC_NEED_COMPONENT : `${t.displayName}（${sub(t)}）`)
+// 格式区下面还有没露出来的内容时，底部「保存到」上沿加一道淡阴影
+const rpEl = ref<HTMLElement | null>(null)
+const more = ref(false)
+function syncMore() {
+  const el = rpEl.value
+  more.value = !!el && el.scrollHeight - el.scrollTop - el.clientHeight > 1
+}
+let ro: ResizeObserver | undefined
+onMounted(() => {
+  const el = rpEl.value
+  if (!el || typeof ResizeObserver === 'undefined') return
+  ro = new ResizeObserver(syncMore)
+  ro.observe(el)
+  syncMore()
+})
+// 格式表到了、搜索、说明行出现 / 消失都会改变格式区高度
+watch([shown, () => dc.note, () => dc.whyText, () => dc.matrixError], () => void nextTick(syncMore))
+onBeforeUnmount(() => ro?.disconnect())
 const saveName = computed(() => {
   if (nSel.value !== 1 || !dc.target) return ''
   return `${dc.selectedRows[0].src.name.replace(/\.[^.]+$/, '')}.${dc.target}`
@@ -40,7 +58,7 @@ const saveName = computed(() => {
         <span v-else class="none">未选择文件</span>
       </span>
     </div>
-    <div class="cv-rp" style="overflow: auto">
+    <div ref="rpEl" class="cv-rp dc-rp" @scroll.passive="syncMore">
       <label class="cv-fsearch">
         <FIcon name="search" :size="14" />
         <input v-model="q" type="text" placeholder="搜索格式，如 PDF、Word、表格" aria-label="搜索格式" autocomplete="off" spellcheck="false" />
@@ -80,19 +98,22 @@ const saveName = computed(() => {
         <FIcon name="info" />
         <span>{{ dc.note.text }}<button v-if="dc.note.download" type="button" class="lk" @click="comp.install()">下载文档组件</button></span>
       </div>
+    </div>
+    <!-- 「保存到」和转换按钮固定在右栏底部：格式多、说明长时只滚上面的格式区 -->
+    <div class="dc-dock" :class="{ more }">
       <div class="cv-save">
         <label>保存到</label>
         <div class="cv-hint">默认保存到输出文件夹。同名文件自动加序号，不会覆盖。</div>
       </div>
-    </div>
-    <div class="cv-foot">
-      <button type="button" class="btn pri lg" :disabled="!dc.canSubmit" :aria-disabled="!dc.canSubmit || undefined" @click="dc.submit()">
-        <FIcon name="convert" />{{ nSel ? `转换 ${nSel} 个文件` : '转换' }}
-      </button>
-      <small v-if="dc.noneUsable">选中的文件需要文档组件才能转换</small>
-      <small v-else-if="saveName">将保存为“{{ saveName }}”</small>
-      <small v-else-if="nSel">每次转换都会新增一条记录</small>
-      <small v-else>{{ dc.rows.length ? '勾选文件后才能转换' : '先添加文件' }}</small>
+      <div class="cv-foot">
+        <button type="button" class="btn pri lg" :disabled="!dc.canSubmit" :aria-disabled="!dc.canSubmit || undefined" @click="dc.submit()">
+          <FIcon name="convert" />{{ nSel ? `转换 ${nSel} 个文件` : '转换' }}
+        </button>
+        <small v-if="dc.noneUsable">选中的文件需要文档组件才能转换</small>
+        <small v-else-if="saveName">将保存为“{{ saveName }}”</small>
+        <small v-else-if="nSel">每次转换都会新增一条记录</small>
+        <small v-else>{{ dc.rows.length ? '勾选文件后才能转换' : '先添加文件' }}</small>
+      </div>
     </div>
   </section>
 </template>
