@@ -45,7 +45,21 @@ export const LIVE_PREVIEW_V25_BACKEND_READY: boolean = true
 
 /**
  * 文档页 v0.26（契约 6.12.9~6.12.22：文档组件、格式表、doc_convert）。
- * 后端 DocService 新方法尚未生成绑定时保持 false：走 api/docV26.ts 的模拟（?doc=… 走查）。
- * 绑定落地后改 true；纯浏览器（没有 window.go）始终走模拟。
+ * 后端 DocService #128 已合入 v2（8090356），绑定已生成，联调打开（true）。
+ * true 且在 Wails 里：调真实 DocService 绑定（api/docV26.ts → callService）。
+ * 纯浏览器（没有 window.go，?doc=… 走查 / 截图）仍走模拟。
  */
-export const DOC_V26_BACKEND_READY: boolean = false
+export const DOC_V26_BACKEND_READY: boolean = true
+
+/**
+ * 文档页 v0.27 / v0.27.1 / v0.27.2（契约 6.12.23~6.12.57：引擎设置、预览 GetDocPreview / CancelDocPreview / doc:preview、
+ * 文本编辑 SaveDocText / SaveDocTextAs、SystemService.SaveFileDialog、docx 分段保存、OpenStorageFolder('doc_component')）。
+ * 后端绑定落地前保持 false：走 api/docV27.ts 的模拟；纯浏览器始终走模拟。
+ */
+export const DOC_V27_BACKEND_READY: boolean = false
+
+/**
+ * docx 在预览窗口里编辑（v0.27.2，编辑器 @docx-editor.dev/vue，按需加载）。
+ * 老板要先在真机上试，默认 false：「编辑」对 docx 不出现。浏览器走查可加 ?docx_edit=1 临时打开。
+ */
+export const DOCX_EDIT_ENABLED: boolean = false

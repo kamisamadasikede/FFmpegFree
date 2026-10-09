@@ -29,6 +29,9 @@ import { emitSimEvent } from '@/services/wails'
 import * as encTask from './encoderTask'
 import { convertV2Checks } from './convertV2.check'
 import * as d26 from '@/utils/docV26Text'
+import * as d27 from '@/utils/docV27Text'
+import { PREVIEW_CSP, PREVIEW_SANDBOX, buildSrcdoc, extractHeadStyles } from '@/utils/docSafeHtml'
+import { bytesToBase64, chunkRanges, isSameFormat, saveFilters } from '@/api/docV27'
 import { convertV24Checks } from './convertV24.check'
 import { liveFormsChecks } from '@/stores/liveForms.check'
 import { readyRelistChecks } from '@/stores/readyRelist.check'
@@ -1178,6 +1181,51 @@ export async function runApiChecks(): Promise<string[]> {
   eq('v0.26 排队文案', [d26.DOC_QUEUE_AHEAD(0), d26.DOC_QUEUE_AHEAD(2), d26.DOC_QUEUE_LINE(0), d26.DOC_QUEUE_LINE(3)], ['排队中 · 下一个', '排队中 · 前面还有 2 项', '下一个', '前面还有 3 项'])
   eq('v0.27 被占用两码可重试，文案为转换版', [d26.docErrorText('DOC_PRESENTATION_BUSY', ''), d26.docErrorText('DOC_ENGINE_BUSY', ''), d26.docErrorRetryable('DOC_PRESENTATION_BUSY'), d26.docErrorRetryable('DOC_ENGINE_BUSY')], ['请先关闭正在打开的演示文稿，再转换。', '请先关闭正在打开的文档，再转换。', true, true])
   eq('v0.27 结果警告 simple_fallback；未知码不显示', d26.docResultWarnings(['simple_fallback', 'whatever']), ['这次是简易转换，只保留了文字。可以稍后重转。'])
-  eq('v0.26 CSV 说明用设计 v0.2 定稿句', d26.DOC_CSV_HINT, '只会导出第一个工作表。')
+  eq('CSV 说明用产品最终定稿句', d26.DOC_CSV_HINT, '转成 CSV 只会保留第一个工作表。')
+  eq('Win/mac 组件太旧文案 + 按钮', [d26.DOC_OUTDATED_DOWNLOAD, d26.DOC_OUTDATED_BUTTON], ['文档组件版本太旧，请重新下载。', '更新文档组件'])
+  // ---- v0.27 预览 / 编辑 / 引擎文案（6.12.28~6.12.52；设计 v0.3）----
+  eq('v0.27 引擎使用行', [d27.engineInUseText('office'), d27.engineInUseText('wps'), d27.engineInUseText('downloaded'), d27.engineInUseText('system'), d27.engineInUseText('')], ['正在使用本机 Microsoft Office', '正在使用本机 WPS', '正在使用文档组件', '正在使用文档组件', ''])
+  eq('v0.27 记录引擎行（go/simple 不写）', [d27.engineRecordText('office'), d27.engineRecordText('wps'), d27.engineRecordText('component'), d27.engineRecordText('go'), d27.engineRecordText('simple'), d27.engineRecordText(undefined)], ['由本机 Microsoft Office 转换', '由本机 WPS 转换', '由文档组件转换', '', '', ''])
+  eq('v0.27 预览失败只认三码', [d27.previewFailedNotice('DOC_ENCRYPTED').text, d27.previewFailedNotice('DOC_PRESENTATION_BUSY'), d27.previewFailedNotice('DOC_ENGINE_BUSY'), d27.previewFailedNotice('DOC_CORRUPT').text, d27.previewFailedNotice('x').text], [d27.PV_ENCRYPTED, { text: d27.PV_PRESENTATION_BUSY, retry: true }, { text: d27.PV_ENGINE_BUSY, retry: true }, d27.PV_FAILED, d27.PV_FAILED])
+  eq('v0.27 unavailable：Win needs / too_large / outdated；Linux 无按钮', [
+    d27.previewUnavailableNotice('needs_component', { linux: false, outdated: false }),
+    d27.previewUnavailableNotice('too_large_for_simple', { linux: false, outdated: false }),
+    d27.previewUnavailableNotice('needs_component', { linux: false, outdated: true }),
+    d27.previewUnavailableNotice('needs_component', { linux: true, outdated: false }),
+    d27.previewUnavailableNotice('too_large_for_simple', { linux: true, outdated: false }),
+  ], [
+    { text: d27.PV_NEEDS_COMPONENT, download: d27.PV_DOWNLOAD_BUTTON },
+    { text: d27.PV_TOO_LARGE_SIMPLE, download: d27.PV_DOWNLOAD_BUTTON },
+    { text: d26.DOC_OUTDATED_DOWNLOAD, download: d26.DOC_OUTDATED_BUTTON },
+    { text: d26.DOC_LINUX_MISSING },
+    { text: '文件太大，没法简易预览。' },
+  ])
+  eq('v0.27 保存出错：file_changed 另存为优先；in_use；backup；converting 用「转完」', [
+    d27.saveErrorView('TASK_CONFLICT', 'file_changed', 'text'),
+    d27.saveErrorView('IO_ERROR', 'in_use', 'text'),
+    d27.saveErrorView('IO_ERROR', 'backup', 'docx'),
+    d27.saveErrorView('TASK_CONFLICT', 'converting', 'text').text,
+    d27.saveErrorView('INVALID_ARGUMENT', 'checksum', 'docx').text,
+    d27.saveErrorView('NOT_FOUND', 'save_session', 'docx').text,
+  ], [
+    { text: '文件在别处被改过了，请重新打开，或另存为。', actions: ['reopen', 'saveAs'] },
+    { text: '文件正被其他程序占用，请关闭后再保存。', actions: ['retry', 'saveAs'] },
+    { text: '没法在这个文件夹留备份，文件没有保存。请另存为。', actions: ['saveAs'] },
+    d27.EDIT_CONVERTING_TIP,
+    d27.UNMAPPED,
+    d27.UNMAPPED,
+  ])
+  eq('v0.27 重新打开确认（场景 35b，不走未保存确认）', d27.REOPEN_DISCARD_CONFIRM, '重新打开会丢掉你改的内容，确定吗？')
+  eq('v0.27 editBlock 悬停', [d27.editBlockTip('format', 'xlsx'), d27.editBlockTip('too_large', 'md'), d27.editBlockTip('macro', 'docx'), d27.editBlockTip('malformed', 'csv')], [d27.EDIT_FORMAT_TIP, d27.EDIT_TOO_LARGE_TIP, d27.EDIT_MACRO_TIP, d27.EDIT_MALFORMED_CSV_TIP])
+  // CSP / srcdoc（6.12.32.4 / 6.12.44）：sandbox 必须为空；CSP 是 srcdoc 第一个 meta
+  const srcdocHtml = buildSrcdoc('<p>hi</p><script>x</script>', { title: 't' })
+  eq('srcdoc：CSP 是第一个 meta，sandbox 属性值为空', [srcdocHtml.indexOf('<meta http-equiv="Content-Security-Policy"'), srcdocHtml.includes(PREVIEW_CSP), PREVIEW_SANDBOX, /sandbox="[^"]+"/.test('<iframe sandbox="">') === false ? PREVIEW_SANDBOX === '' : false], [srcdocHtml.indexOf('<head>') + 6, true, '', true])
+  eq('srcdoc：不带网络资源允许项', [/script-src|connect-src|frame-src/.test(PREVIEW_CSP), PREVIEW_CSP.includes("default-src 'none'"), PREVIEW_CSP.includes('img-src data:')], [false, true, true])
+  eq('extractHeadStyles：保留 style，去掉 head 其它', extractHeadStyles('<html><head><meta charset=utf-8><style>.a{color:red}</style><script>1</script></head><body><p>x</p></body></html>'), '<style>.a{color:red}</style><p>x</p>')
+  // Range 分段 / base64 / 同格式
+  eq('chunkRanges：每段 ≤ max，覆盖整段', chunkRanges(10_000_000, 4 * 1024 * 1024), [[0, 4194304], [4194304, 8388608], [8388608, 10000000]])
+  eq('bytesToBase64', bytesToBase64(new Uint8Array([72, 105])), btoa('Hi'))
+  eq('另存为同格式', [isSameFormat('md', 'markdown'), isSameFormat('html', 'htm'), isSameFormat('docx', 'doc'), saveFilters('csv')[0].patterns], [true, true, false, ['*.csv']])
+
   return fails
 }
