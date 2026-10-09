@@ -116,6 +116,7 @@ func TestUserFacingMessageIsChinese(t *testing.T) {
 		"FFmpegFree": true, "PDF": true, "JSON": true, "Windows": true, "macOS": true, "X11": true, "Office": true, "ID": true,
 		"Word": true, "ODT": true, "TXT": true, "CSV": true, "Markdown": true, "MD": true, "HTML": true, "DOC": true, "DOCX": true,
 		"XLS": true, "XLSX": true, "PPT": true, "PPTX": true, "ODS": true, "ODP": true, "RTF": true, "GB": true, "MiB": true, "UTF": true,
+		"Cat": true,
 	}
 	linuxLOHints := map[string]bool{ // 契约 6.12.24（v0.27）：只有 Linux 的这两句可以出现 LibreOffice
 		"请先在系统里安装 LibreOffice，然后重启应用。":                 true,
@@ -210,4 +211,5 @@ var allCodesForTest = []Code{InvalidArgument, NotFound, FFmpegNotFound, TaskConf
 	DocEncrypted, DocCorrupt, DocTimeout, DocComponentCrashed, DocComponentNotReady, DocDownloadFailed, DocChecksumFailed,
 	DocComponentInstallFailed, DocFormatUnsupported, DocPDFInputUnsupported,
 	DocPresentationBusy, DocEngineBusy, DocPDFNoText,
-	LangAsrNotReady, LangAsrEmpty, LangAsrFailed, LangDownloadFailed, LangChecksumFailed}
+	LangAsrNotReady, LangAsrEmpty, LangAsrFailed, LangDownloadFailed, LangChecksumFailed,
+	CatNotReady, CatReplyFailed}

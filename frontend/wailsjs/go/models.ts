@@ -2285,6 +2285,7 @@ export namespace system {
 	    maxConcurrent: number;
 	    docEngine: string;
 	    asrTier: string;
+	    catDefaultAgentKind: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -2299,6 +2300,7 @@ export namespace system {
 	        this.maxConcurrent = source["maxConcurrent"];
 	        this.docEngine = source["docEngine"];
 	        this.asrTier = source["asrTier"];
+	        this.catDefaultAgentKind = source["catDefaultAgentKind"];
 	    }
 	}
 	export class StorageDirs {
@@ -2429,6 +2431,49 @@ export namespace task {
 	    }
 	}
 
+
+	export class CatConversation {
+	    id: string;
+	    title: string;
+	    agentKind: string;
+	    accessMode: string;
+	    projectPath: string;
+	    createdAt: number;
+	    updatedAt: number;
+
+	    static createFrom(source: any = {}) {
+	        return new CatConversation(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.agentKind = source["agentKind"];
+	        this.accessMode = source["accessMode"];
+	        this.projectPath = source["projectPath"];
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	}
+	export class CatMessage {
+	    id: string;
+	    role: string;
+	    content: string;
+	    createdAt: number;
+
+	    static createFrom(source: any = {}) {
+	        return new CatMessage(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.role = source["role"];
+	        this.content = source["content"];
+	        this.createdAt = source["createdAt"];
+	    }
+	}
 }
 
 export namespace langasr {
@@ -2566,5 +2611,234 @@ export namespace lang {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
 	    }
+	}
+}
+
+
+export namespace catagent {
+	export class Status {
+	    state: string;
+	    version: string;
+	    canDownload: boolean;
+	    error?: apperr.AppError;
+
+	    static createFrom(source: any = {}) {
+	        return new Status(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.state = source["state"];
+	        this.version = source["version"];
+	        this.canDownload = source["canDownload"];
+	        this.error = this.convertValues(source["error"], apperr.AppError);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Model {
+	    id: string;
+	    displayName: string;
+
+	    static createFrom(source: any = {}) {
+	        return new Model(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.displayName = source["displayName"];
+	    }
+	}
+	export class ThinkLevel {
+	    id: string;
+	    displayName: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ThinkLevel(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.displayName = source["displayName"];
+	    }
+	}
+}
+
+export namespace cat {
+	export class Conversation {
+	    id: string;
+	    title: string;
+	    agentKind: string;
+	    accessMode: string;
+	    projectPath: string;
+	    createdAt: number;
+	    updatedAt: number;
+
+	    static createFrom(source: any = {}) {
+	        return new Conversation(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.agentKind = source["agentKind"];
+	        this.accessMode = source["accessMode"];
+	        this.projectPath = source["projectPath"];
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	}
+	export class Message {
+	    id: string;
+	    role: string;
+	    content: string;
+	    createdAt: number;
+
+	    static createFrom(source: any = {}) {
+	        return new Message(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.role = source["role"];
+	        this.content = source["content"];
+	        this.createdAt = source["createdAt"];
+	    }
+	}
+	export class ConversationDetail {
+	    id: string;
+	    title: string;
+	    agentKind: string;
+	    accessMode: string;
+	    projectPath: string;
+	    createdAt: number;
+	    updatedAt: number;
+	    messages: Message[];
+
+	    static createFrom(source: any = {}) {
+	        return new ConversationDetail(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.agentKind = source["agentKind"];
+	        this.accessMode = source["accessMode"];
+	        this.projectPath = source["projectPath"];
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
+	        this.messages = this.convertValues(source["messages"], Message);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CreateConversationRequest {
+	    agentKind: string;
+	    title: string;
+	    projectPath: string;
+	    accessMode: string;
+
+	    static createFrom(source: any = {}) {
+	        return new CreateConversationRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.agentKind = source["agentKind"];
+	        this.title = source["title"];
+	        this.projectPath = source["projectPath"];
+	        this.accessMode = source["accessMode"];
+	    }
+	}
+	export class SendMessageRequest {
+	    conversationId: string;
+	    content: string;
+	    modelId: string;
+	    thinkLevelId: string;
+	    projectPath: string;
+
+	    static createFrom(source: any = {}) {
+	        return new SendMessageRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conversationId = source["conversationId"];
+	        this.content = source["content"];
+	        this.modelId = source["modelId"];
+	        this.thinkLevelId = source["thinkLevelId"];
+	        this.projectPath = source["projectPath"];
+	    }
+	}
+	export class SendMessageResult {
+	    userMessage: Message;
+	    assistantMessage?: Message;
+	    error?: apperr.AppError;
+
+	    static createFrom(source: any = {}) {
+	        return new SendMessageResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.userMessage = this.convertValues(source["userMessage"], Message);
+	        this.assistantMessage = this.convertValues(source["assistantMessage"], Message);
+	        this.error = this.convertValues(source["error"], apperr.AppError);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 }

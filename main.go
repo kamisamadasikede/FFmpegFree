@@ -26,6 +26,7 @@ func main() {
 	docService := app.NewDocService(mainApp.docService, mainApp.appContext)
 	liveService := app.NewLiveService(mainApp.liveService, mainApp.appContext)
 	langService := app.NewLangService(mainApp.langService, mainApp.appContext)
+	catService := app.NewCatService(mainApp.catService, mainApp.appContext)
 
 	// /local/<token> 本地文件预览（契约 6.13）：doc / convert 两张登记表，Handler 挂在 AssetServer 上。
 
@@ -57,6 +58,7 @@ func main() {
 			docService,
 			liveService,
 			langService,
+			catService,
 		},
 	})
 
