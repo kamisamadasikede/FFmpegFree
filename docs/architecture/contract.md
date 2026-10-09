@@ -1,6 +1,6 @@
 # FFmpegFree v2 接口契约（v0.27）
 
-v0.27 变更（**本机 Office / WPS 引擎 + 文档预览**，老板和产品经理定范围，架构师定方案，2026-10-09；**只有契约**，在 v0.26 的实现合入后接着做，不推倒重来；完整规则见新增的 **6.12.23~6.12.36**，本条只是索引，与 6.12.9~6.12.22 冲突时以新节为准）：① **引擎**：Windows 上按 `Microsoft Office` → `WPS` → 本机已装的 LibreOffice → 应用下载的文档组件的顺序挑（**改动**：v0.26 是应用下载的优先，现在系统安装的优先），四个都没有才走 v0.26 的下载引导或简易转换；macOS / Linux 不变。纯 Go 的 COM 库 `go-ole`（无 cgo，只在 `windows` build tag 下编译），调 Word / Excel / PowerPoint 或 WPS 文字 / 表格 / 演示自己的另存 / 导出 PDF；WPS 各版本的 ProgID（`KWPS` / `KET` / `KWPP` 和旧名 `WPS` / `ET` / `WPP`）需真机验证；检测只读注册表，看 `LocalServer32` 实际指向的程序（WPS 兼容模式会占用 `Word.Application`）。② **安全硬规则**：引擎只打开我们自己的临时拷贝、只读、`AutomationSecurity=3` 并读回确认（确认不了的引擎不收含宏文件）、不更新外部链接、关掉所有提示、窗口不可见、不改任何会保存下来的选项。③ **不碰用户的文档和窗口**：Word / Excel 每个任务新开自己的实例（创建前后拍进程快照，没有新进程就立刻放手换引擎），超时只结束我们自己的 PID；PowerPoint / WPS 演示只要在运行就换引擎，没有可换的返回新码 `DOC_PRESENTATION_BUSY`（可重试，任务保留）。④ **池和超时（架构师定）**：Office / WPS 单独一个池、并发 1，不占文档组件的 2 个名额（文档页最多同时 3 个转换）；单次超时 Office / WPS 3 分钟、组件 5 分钟，整个任务最多 10 分钟；超时或出错自动换下一个引擎，全不行就回退简易转换（`result.warnings` 带 `simple_fallback`）或失败；同一个程序连续 2 次启动失败或超时，本次运行内跳过。⑤ **组件状态**：`DocComponentStatus.source` 加 `office` / `wps`，`state` 变为“任何引擎可用就是 ready”（有 Office / WPS 就不出下载引导），新增 `componentState`（文档组件自己的状态）、`engines`（`DocEngineInfo{id, name, version, source?, families, available}`），以及 v0.26.1 的 `installBytes`（1.5 GiB，Linux 0；后端实现 PR 一并给出）；前端收到 `doc:component` 一律重拉格式表。⑥ **设置** `Settings.docEngine`：`auto`（默认）/ `office` / `wps` / `component`，选中的不可用时按自动顺序，不报错。⑦ **记录**：`TaskResult.engine`（`office` / `wps` / `component` / `go` / `simple`），记录详情显示“由本机 WPS 转换”；`params` 不锁定引擎，重试和重转按当时的设置重新挑。⑧ **格式表**：有任何一个可用引擎能做就 `available=true`（能力表 6.12.27：WPS 一期不做 ODF），新增 `DocTarget.engines`。⑨ **预览**：新方法 `GetDocPreview({sourceId|taskId})`、`CancelDocPreview(previewId)`、`ReadDocPreviewChunk`，新事件 `doc:preview`；Office 类文件由引擎生成临时 PDF 接现有的 PDF 预览（`ReadPDFChunk` / `/local/<token>`），缓存在 `%LocalAppData%\FFmpegFree\cache\preview`（键 = 路径 + 大小 + 修改时间 + 引擎，上限 1 GiB，按最久没打开的删），单独排队、并发 1、不进任务中心，单次 Office 90 秒 / 组件 2 分钟、整个预览最多 3 分钟；md 由后端 goldmark 渲染、html 后端 bluemonday 过滤，前端放进不带 `allow-scripts` 的 sandbox iframe + 严格 CSP + DOMPurify，不加载任何网络资源；文字上限 2 MiB，超过截断并标 `truncated`；没有任何引擎时 docx / xlsx 用前端 `docx-preview` / SheetJS 简易预览（≤ 20 MiB），其余显示 `需要文档组件才能预览。`。⑩ **新增 2 个错误码**（2.1 由 28 个变为 30 个）：`DOC_PRESENTATION_BUSY`、`DOC_ENGINE_BUSY`（架构师定，文字 / 表格类只剩会挂到用户实例上的 Word / Excel / WPS 时用，文案待产品确认），都可以重试；预览没有专门的失败码，前端除密码、被占用以外一律显示 `这个文件暂时无法预览。`。⑪ **没有迁移**（`engine` 在 `tasks.result` 的 JSON 里，设置在键值表，预览缓存不进库）；下一个迁移号是 `0010`。⑫ 未验证事项单列在 6.12.36（ProgID、只读和禁用宏、PPT 被占用判断、实例隔离、超时后进程清理、sandbox CSP 等）。
+v0.27 变更（**本机 Office / WPS 引擎 + 文档预览**，老板和产品经理定范围，架构师定方案，2026-10-09；**只有契约**，在 v0.26 的实现合入后接着做，不推倒重来；完整规则见新增的 **6.12.23~6.12.36**，本条只是索引，与 6.12.9~6.12.22 冲突时以新节为准）：① **引擎**：Windows 上按 `Microsoft Office` → `WPS` → 应用下载的文档组件 → 系统安装的 LibreOffice 的顺序挑（两个文档组件都有时应用下载的优先，与 v0.26 一致），四个都没有才走 v0.26 的下载引导或简易转换；macOS / Linux 不变。纯 Go 的 COM 库 `go-ole`（无 cgo，只在 `windows` build tag 下编译），调 Word / Excel / PowerPoint 或 WPS 文字 / 表格 / 演示自己的另存 / 导出 PDF；WPS 各版本的 ProgID（`KWPS` / `KET` / `KWPP` 和旧名 `WPS` / `ET` / `WPP`）需真机验证；检测只读注册表，看 `LocalServer32` 实际指向的程序（WPS 兼容模式会占用 `Word.Application`）。② **安全硬规则**：引擎只打开我们自己的临时拷贝、只读、`AutomationSecurity=3` 并读回确认（确认不了的引擎不收含宏文件）、不更新外部链接、关掉所有提示、窗口不可见、不改任何会保存下来的选项。③ **不碰用户的文档和窗口**：Word / Excel 每个任务新开自己的实例（创建前后拍进程快照，没有新进程就立刻放手换引擎），超时只结束我们自己的 PID；PowerPoint / WPS 演示只要在运行就换引擎，没有可换的返回新码 `DOC_PRESENTATION_BUSY`（可重试，任务保留）。④ **池和超时（架构师定）**：Office / WPS 单独一个池、并发 1，不占文档组件的 2 个名额（文档页最多同时 3 个转换）；单次超时 Office / WPS 3 分钟、组件 5 分钟，整个任务最多 10 分钟；超时或出错自动换下一个引擎，全不行就回退简易转换（`result.warnings` 带 `simple_fallback`）或失败；同一个程序连续 2 次启动失败或超时，本次运行内跳过。⑤ **组件状态**：`DocComponentStatus.source` 加 `office` / `wps`，`state` 变为“任何引擎可用就是 ready”（有 Office / WPS 就不出下载引导），新增 `componentState`（文档组件自己的状态）、`engines`（`DocEngineInfo{id, name, version, source?, installed, families, available}`；Windows / macOS 始终含 component 项，没下载时 `installed=false`，设置页显示 `文档组件（未下载）`，可以选，选中后前端弹确认框再调 `InstallDocComponent`，后端不自动下载），以及 v0.26.1 的 `installBytes`（1.5 GiB，Linux 0；后端实现 PR 一并给出）；前端收到 `doc:component` 一律重拉格式表。⑥ **设置** `Settings.docEngine`：`auto`（默认）/ `office` / `wps` / `component`，选中的不可用时按自动顺序，不报错。⑦ **记录**：`TaskResult.engine`（`office` / `wps` / `component` / `go` / `simple`），记录详情显示“由本机 WPS 转换”；`params` 不锁定引擎，重试和重转按当时的设置重新挑。⑧ **格式表**：有任何一个可用引擎能做就 `available=true`（能力表 6.12.27：WPS 一期不做 ODF），新增 `DocTarget.engines`。⑨ **预览**：新方法 `GetDocPreview({sourceId|taskId})`、`CancelDocPreview(previewId)`，新事件 `doc:preview`；返回值按 `kind` 区分：`pdf`（Office 类文件由引擎生成临时 PDF，或结果本身是 PDF；给 `/local/<token>` 本地地址，用转换页 localassets 的白名单，只放行这一个文件）、`text` / `md` / `html`（后端按 v0.26 编码规则转成 UTF-8 原文，上限 2 MiB，超过截断并标 `truncated`；md 由前端渲染，md / html 都经 DOMPurify 过滤后放进不带 `allow-scripts` 的 sandbox iframe + 严格 CSP，不加载任何网络资源）、`csv`（解析好的前 1000 行 `rows` + `totalRows`，前端写 `只显示前 1000 行，共 n 行。`）、`raw`（没有引擎时 docx / xlsx 的简易预览，给原文件的本地地址，不用 base64，≤ 50 MiB）、`unavailable`（`reason=too_large_for_simple` / `needs_component`，只给程序用）；生成 PDF 的缓存在 `%LocalAppData%\FFmpegFree\cache\preview`（键 = 路径 + 大小 + 修改时间 + 引擎，上限 1 GiB，按最久没打开的删），单独排队、并发 1、不进任务中心，单次 Office 90 秒 / 组件 2 分钟、整个预览最多 3 分钟；前端的缩放和工作表标签不归契约管。⑩ **新增 2 个错误码**（2.1 由 28 个变为 30 个）：`DOC_PRESENTATION_BUSY`、`DOC_ENGINE_BUSY`（架构师定，文字 / 表格类只剩会挂到用户实例上的 Word / Excel / WPS 时用，文案待产品确认），都可以重试；预览没有专门的失败码，前端除密码、被占用以外一律显示 `这个文件暂时无法预览。`。⑪ **没有迁移**（`engine` 在 `tasks.result` 的 JSON 里，设置在键值表，预览缓存不进库）；下一个迁移号是 `0010`。⑫ 未验证事项单列在 6.12.36（ProgID、只读和禁用宏、PPT 被占用判断、实例隔离、超时后进程清理、sandbox CSP 等）。
 
 
 v0.26 变更（**文档多格式转换一期**，老板提出、产品经理定范围、架构师定方案，2026-10-09；**只有契约，前后端按本版并行实现**；完整规则见新增的 **6.12.9~6.12.22**，本条只是索引）：① **范围**：文字类 doc / docx / odt / rtf / txt / html / md 互转，表格类 xls / xlsx / ods / csv 互转（多工作表转 CSV 只出第一个表，带提示），演示类 ppt / pptx / odp 互转，以上都能转 PDF；跨类不转；PDF 作输入一期不支持；二期（PDF 转图片、PDF 转 Word、epub）只列为后续。② **实现**：「文档组件」= LibreOffice headless，界面只叫文档组件（唯一例外：Linux 未就绪提示 `请先在系统里安装 LibreOffice，然后重启应用。`）；md → html 用 goldmark、html → md 用 html-to-markdown（纯 Go，无 cgo）；md 转其他走 md → html → 文档组件，其他转 md 走 文档组件 → html → md；md 本地图片按 md 所在目录解析，网络图片不下载。③ **组件安装**：先检测系统安装；固定 **LibreOffice 26.2.6**，Windows 下载官方 MSI 用 `msiexec /a` 解到应用自己的目录（不弹 UAC），macOS 下载 dmg 挂载后拷出 .app，Linux 只检测；URL、大小、SHA-256 写死并已实际下载核对；断点续传，校验不过删掉重下；阶段 downloading / preparing（不给百分比，到检测通过为止）/ ready；可取消、可重试。新增 `DocComponentStatus`（`version`、`source=system|downloaded`，`path` 是 `json:"-"`）。④ **并发**：文档组件单独一个池，并发 2，与转换组件的 batch 池互不占用；md ↔ html 和简易转换不占名额、不排队；排队任务带 `queuePosition`，界面 `排队中 · 前面还有 n 项`；每个任务独立 `-env:UserInstallation`，单任务 5 分钟超时、杀整个进程树。⑤ **CSV**：输出 UTF-8 + 逗号；读入合法 UTF-8（含 BOM）按 UTF-8，否则按 GB18030 转 UTF-8，不提示（TXT、MD 同样）。⑥ **加密文件**后端自己检测（OOXML 加密容器、ODF manifest、doc / xls / ppt 加密标志），直接 `DOC_ENCRYPTED`，不交给组件。⑦ **格式表由后端给**：`DocService.GetFormatMatrix()`，每个目标带 `needsComponent` / `simple` / `available` / `hintKey` / `hint` / `disabledReason`，前端多选取交集，`doc:component` 变为 ready 时重新拉；组件未就绪时 md ↔ html 可用，docx / odt / txt → PDF 走简易转换（提示 `下载文档组件后可保留图片和排版`），doc / rtf 及其他置灰（`需要文档组件`）。⑧ **任务**：新类型 `doc_convert`，沿用转换页的记录、事件、重试、重转；`office_pdf` 只给旧记录和简易转换（输入加 odt、txt）。添加文件返回 `sheetCount`（xlsx / ods / xls 实读，csv 1，读不出 -1）。⑨ **新增 10 个错误码**（2.1 由 18 个变为 28 个）：`DOC_ENCRYPTED`、`DOC_CORRUPT`、`DOC_TIMEOUT`、`DOC_COMPONENT_CRASHED`、`DOC_COMPONENT_NOT_READY`、`DOC_DOWNLOAD_FAILED`、`DOC_CHECKSUM_FAILED`、`DOC_COMPONENT_INSTALL_FAILED`、`DOC_FORMAT_UNSUPPORTED`、`DOC_PDF_INPUT_UNSUPPORTED`，文案和是否可重试见 6.12.20；2.2 新增 `UNSUPPORTED` `reason=not_retryable`。⑩ **新方法**（DocService）：`GetFormatMatrix`、`GetDocComponentStatus`、`InstallDocComponent`、`CancelDocComponentInstall`、`RecheckDocComponent`、`AddDocSources`、`ListDocSources`、`SearchDocSources`、`SubmitDocConvert`；**新事件**：`doc:component`、`doc:component-progress`、`doc:queue`；`Task` 新增可选 `queuePosition`（只在内存）。⑪ **迁移 `0009_doc_convert.sql`**：`convert_sources` 加 `kind`（`media` / `doc`）、`sheet_count` 和索引。
@@ -421,9 +421,8 @@ SubmitDocConvert(req DocSubmitRequest) (ConvertSubmitResult, error) // 一个源
 
 v0.27 新增（文档预览，详见 6.12.32；引擎相关的改动在 `DocComponentStatus` 和设置里，没有新方法）：
 ```go
-GetDocPreview(req DocPreviewRequest) (DocPreview, error)        // {sourceId | taskId} 二选一；返回 previewId、kind、state，缓存命中 / 文字类同步就绪
-CancelDocPreview(previewID string) error                         // 关弹窗时调：停止生成或释放句柄；幂等
-ReadDocPreviewChunk(previewID string, offset int64, length int) (PDFChunk, error) // 只用于 simple_docx / simple_xlsx，规则同 ReadPDFChunk
+GetDocPreview(req DocPreviewRequest) (DocPreview, error)        // {sourceId | taskId} 二选一；返回 previewId、kind（pdf | text | csv | html | md | raw | unavailable）、state；pdf / raw 给 /local/<token> 地址，缓存命中 / 文字类同步就绪
+CancelDocPreview(previewID string) error                         // 关弹窗时调：停止生成或作废本地地址；幂等
 ```
 
 ### JsonService（纯函数，不落库）
@@ -649,7 +648,7 @@ OpenWithSystem(taskID string, which string) error               // which = "inpu
 | `doc:component` | `DocComponentStatus`（v0.26，6.12.13，没有路径） | 文档组件状态变化时 |
 | `doc:component-progress` | `{ phase, receivedBytes, totalBytes, progress? }`（v0.26，preparing 不带 progress，6.12.15） | 下载中最多 4 次/秒 |
 | `doc:queue` | `{ items: [{ id, queuePosition }] }`（v0.26，6.12.18） | 文档组件池队列变化时 |
-| `doc:preview` | `{ previewId, state, kind, pdf?, error? }`（v0.27，6.12.32.1：`generating` / `ready` / `failed`；取消后不再发） | 预览状态变化时 |
+| `doc:preview` | `{ previewId, state, kind, url?, error? }`（v0.27，6.12.32.1：`generating` / `ready` / `failed`；取消后不再发） | 预览状态变化时 |
 
 **直播指标（v0.10，取代 `live:stats`）**：直播任务的 `task:progress` 除 `speed`（如 `1.00x`，持续明显小于 1 说明编码跟不上）和 `outTimeSec`（已输出的媒体时长）外，还带 `fps`（当前输出帧率）、`bitrateKbps`（**只有没有本地存档的会话才有**：**近 5 秒**平均输出码率，由 ffmpeg `total_size` 和 `out_time` 的增量算出，不用 ffmpeg 自带的 `bitrate=`，那是从开始到现在的累计平均）、`droppedFrames`（ffmpeg 累计丢帧，不是网络丢包）；**有存档的会话没有 `bitrateKbps`（架构师定）**（7.1.5 实测：tee 下 `-progress` 的 `total_size` 和 `bitrate` 恒为 `N/A`，没有可用来源；**不轮询存档文件大小来补**——文件大小含音视频分片和 moov 开销、且不是网络那一路的码率，补出来的数是误导），该字段一律省略，前端显示"—"；`fps` / `droppedFrames` / `speed` / `out_time_us` 在 tee 下正常；`progress` 恒为 -1，`etaSec` 为 0。没有单独的 `uptimeSec`：已推时长 = 现在 − `Task.startedAt`（墙钟），`outTimeSec` 是媒体时间，两者差距变大说明卡顿。这几项同时写进 `Task`（`fps` / `bitrateKbps` / `droppedFrames`，只在内存），页面刷新后 `ListActive` 能立刻显示当前值。
 
@@ -1802,8 +1801,8 @@ type DocSubmitRequest struct {
 
 ### 6.12.25 引擎顺序与选择
 
-- **自动（`docEngine=auto`）的顺序**：`office` → `wps` → `component`（本机已装的 LibreOffice）→ `component`（应用下载的文档组件）。四个都没有：走 v0.26 的下载引导，或者简易转换（6.12.21）。macOS 和 Linux 只有文档组件，行为和 v0.26 一样。
-  - **改动**：v0.26（6.12.12）写的是“应用下载的优先于系统安装”，本版按老板定的顺序改成**系统安装的优先**。两者都在时 `component` 用系统安装的那个；系统那个版本 < 7.2（`outdated`）或冒烟转换不通过时用应用下载的。
+- **自动（`docEngine=auto`）的顺序**：`office` → `wps` → `component`（应用下载的文档组件）→ `component`（系统安装的 LibreOffice）。四个都没有：走 v0.26 的下载引导，或者简易转换（6.12.21）。macOS 和 Linux 只有文档组件，行为和 v0.26 一样。
+  - 两个文档组件都有时**应用下载的优先**（与 v0.26 的 6.12.12 一致：版本固定、已测过）；它不可用时才用系统安装的（系统那个版本 < 7.2 或冒烟转换不通过就不用）。
 - **用户在设置里选了某个引擎**（`office` / `wps` / `component`）：先用它，再按自动顺序试其余的。选中的引擎不存在、不可用或这个格式它做不了时**直接按自动顺序**，不报错、不提示（设置页照常显示用户选的值，下面一行显示实际在用的，6.12.28）。
 - **按格式挑引擎**：每个转换（源格式 → 目标格式）只在**能做它的**引擎里按上面的顺序挑（能力表 6.12.27）。例如装了 Word 但没装 PowerPoint，演示文稿就走 WPS 或文档组件。
 - **换下一个引擎的情况**（用户看不到，只在任务日志和 `result.engine` 里体现）：启动失败、实例隔离检查不通过（6.12.26 第 4 条）、演示程序被占用（6.12.26 第 5 条）、单次超时、打开或导出报错、产物为空、宏无法确认禁用而文件含宏（6.12.26 第 2 条）。**加密文件不换引擎**（运行前已检测，直接 `DOC_ENCRYPTED`）；`DOC_CORRUPT`（文档组件明确报告打不开）也不再换。
@@ -1898,17 +1897,21 @@ type DocEngineInfo struct {
     ID        string   `json:"id"`        // office | wps | component
     Name      string   `json:"name"`      // Microsoft Office | WPS | 文档组件（后端给，前端直接显示）
     Version   string   `json:"version"`   // 读不出为 ""；office 取 Word 的版本（没有 Word 时取 Excel、PowerPoint）
-    Source    string   `json:"source,omitempty"` // 只有 component 有：system | downloaded
+    Source    string   `json:"source,omitempty"` // 只有已安装的 component 有：downloaded | system（两个都有时是正在用的那个，即 downloaded）
+    Installed bool     `json:"installed"` // office / wps 恒为 true；component：有可用的（应用下载的或系统安装的）为 true，还没下载为 false
     Families  []string `json:"families"`  // 这个引擎能处理的类别：text | sheet | slide（office 按实际装了 Word / Excel / PowerPoint 给出）
-    Available bool     `json:"available"` // false = 本次运行里被跳过（6.12.25 连续 2 次失败）或版本过低；仍列出，设置页可以显示为不可用
+    Available bool     `json:"available"` // 现在能用：installed 且没有被本次运行跳过（6.12.25 连续 2 次失败）、版本不过低；仍列出，设置页可以显示为不可用
 }
 ```
+
+- **`engines` 里始终有 `component` 这一项**（Windows、macOS），还没下载时 `installed=false`、`available=false`、`version=""`、没有 `source`；**Linux 没有下载源，组件没装时不列这一项**（装了系统 LibreOffice 才有）。
+- **设置页下拉框**（产品定）：`自动（推荐）`，再加 `engines` 里的每一项；`installed=false` 的 component 显示为 `文档组件（未下载）`，**也可以选**。选中它时**前端先弹确认框**（下载大小、安装后占用取 `downloadBytes` / `installBytes`），用户确认后前端调 `InstallDocComponent`，并 `UpdateSettings` 保存 `docEngine=component`；**后端不会因为设置成 `component` 而自动下载**。下载完成之前按 6.12.25 退回自动顺序。
 
 - **`installBytes`**：如果后端的 v0.26 实现 PR（契约改到 v0.26.1）合入时已经带了这个字段，以它为准；没带就按这里补上。含义：文档组件装好后的大约占用，固定 `1.5 GiB`（1 610 612 736 字节），Linux 为 0；下载引导卡片上的“安装后约占用 1.5GB 磁盘空间”取它。
 - **就绪的判断**：Windows 上检测到 Office 或 WPS 中任何一个（且至少有一类能用）就是 `state=ready`，**不再出下载引导**；`componentState` 照样反映文档组件自己（可能是 `missing`）。设置页的“文档组件”一块（下载、进度、重试）看 `componentState` / `phase` / `receivedBytes`；文档页顶部的下载引导只看 `state`。Office / WPS 用户在设置页仍可以下载文档组件（用来补 WPS 不做的 ODF 格式），`InstallDocComponent` 照常可用。
 - `doc:component` 事件在 `state`、`componentState`、`source`、`engines` 任何一个变化时都发（含设置里改了 `docEngine`）。**前端收到 `doc:component` 一律重新拉 `GetFormatMatrix`**（取代 v0.26 “只在 ready 变化时拉”，表很小）。
 - `checking`：启动时 Office / WPS 和文档组件的检测都没完成前 `state=checking`；Office / WPS 检测只读注册表，通常几十毫秒，先完成就可以先变 `ready`（文档组件还在检测，`componentState=checking`）。
-- 设置页（产品定）：`文档组件已就绪`，下面一行小字 `正在使用本机 WPS`（按 `source`：`office` → `Microsoft Office`，`wps` → `WPS`，`system` / `downloaded` → `文档组件`）；`engines` 里 `available=true` 的多于一个时显示下拉框：`自动（推荐）` / 各引擎的 `name`。
+- 设置页（产品定）：`文档组件已就绪`，下面一行小字 `正在使用本机 WPS`（按 `source`：`office` → `Microsoft Office`，`wps` → `WPS`，`system` / `downloaded` → `文档组件`）；`engines` 多于一项时显示下拉框（规则见上）。
 
 ### 6.12.29 设置、单次超时与并发
 
@@ -1941,9 +1944,8 @@ type DocEngineInfo struct {
 #### 6.12.32.1 接口（DocService，v0.27 新增）
 
 ```go
-GetDocPreview(req DocPreviewRequest) (DocPreview, error)                 // 开始（或从缓存直接拿）一个预览
-CancelDocPreview(previewID string) error                                 // 弹窗关掉时调：生成中就停止生成；已就绪就释放句柄。不存在的 id 忽略（幂等）
-ReadDocPreviewChunk(previewID string, offset int64, length int) (PDFChunk, error) // 只用于 simple_docx / simple_xlsx：分块读原文件字节；规则同 ReadPDFChunk（6.12.4），length ≤ 1 MiB
+GetDocPreview(req DocPreviewRequest) (DocPreview, error) // 开始（或从缓存直接拿）一个预览
+CancelDocPreview(previewID string) error                 // 弹窗关掉时调：生成中就停止生成；已就绪就撤销本地地址。不存在的 id 忽略（幂等）
 
 type DocPreviewRequest struct {
     SourceID string `json:"sourceId,omitempty"` // 文档页的源文件行（预览原文件）
@@ -1951,83 +1953,89 @@ type DocPreviewRequest struct {
 }
 
 type DocPreview struct {
-    PreviewID  string     `json:"previewId"`  // 随机 128 位十六进制，进程内有效
-    Kind       string     `json:"kind"`       // pdf | html | text | csv | simple_docx | simple_xlsx | unavailable
-    State      string     `json:"state"`      // generating | ready | failed
-    Name       string     `json:"name"`       // 显示用的文件名（原文件名或输出文件名）
-    PDF        *PDFSource `json:"pdf,omitempty"`        // kind=pdf 且 ready：直接交给现有的 PDF 预览（ReadPDFChunk(pdf.id, …)、大文件用 pdf.url）；pdf.path 为 ""（不暴露缓存路径）
-    Text       string     `json:"text,omitempty"`       // kind=html / text / csv 且 ready：UTF-8 文本（html 已在后端过滤，见 6.12.32.4）
-    Truncated  bool       `json:"truncated,omitempty"`  // text 被截断了（6.12.32.4）
-    TotalBytes int64      `json:"totalBytes,omitempty"` // 原文件大小（字节）；simple_* 时前端按它读
+    PreviewID  string     `json:"previewId"`            // 随机 128 位十六进制，进程内有效
+    Kind       string     `json:"kind"`                 // pdf | text | csv | html | md | raw | unavailable
+    State      string     `json:"state"`                // generating | ready | failed（只有 kind=pdf 会经过 generating；其余同步就是 ready 或 failed）
+    Name       string     `json:"name"`                 // 显示用的文件名（原文件名或输出文件名）
+    Ext        string     `json:"ext"`                  // 被预览文件的扩展名（不带点、小写）；raw 时前端按它选 docx-preview 或 SheetJS
+    URL        string     `json:"url,omitempty"`        // kind=pdf / raw 且 ready：本地预览地址 /local/<token>（6.13 的白名单，只放行这一个文件）
+    Text       string     `json:"text,omitempty"`       // kind=text / md / html：UTF-8 原文（后端不渲染、不过滤）
+    Rows       [][]string `json:"rows,omitempty"`       // kind=csv：前 1000 行（含第一行），每行是单元格数组
+    TotalRows  int64      `json:"totalRows,omitempty"`  // kind=csv：文件的总行数（截断时可能是估计，见 6.12.32.4）
+    Truncated  bool       `json:"truncated,omitempty"`  // text / md / html：超过 2 MiB 被截断；csv：读到 2 MiB 上限前没数完行（totalRows 是下限）
+    SizeBytes  int64      `json:"sizeBytes"`            // 被预览文件的大小（字节）
+    Reason     string     `json:"reason,omitempty"`     // kind=unavailable 时：needs_component | too_large_for_simple（只给程序用，界面不显示）
     Error      *AppError  `json:"error,omitempty"`      // state=failed 时有
 }
 ```
 
-- **事件 `doc:preview`**：`{ previewId, state, kind, pdf?, error? }`，在 `generating`（开始排队 / 生成时一次）、`ready`、`failed` 时各发一次；**取消后不再发**。缓存命中、文字类、`simple_*`、`unavailable` 和同步就能判断的失败，`GetDocPreview` 直接返回最终状态，不发事件。事件可能比 `GetDocPreview` 先到，前端按 `previewId` 暂存（同 v0.25.1 的事件顺序规则）。
+- **事件 `doc:preview`**：`{ previewId, state, kind, url?, error? }`，只用于要引擎生成 PDF 的预览：开始排队 / 生成时发一次 `generating`，结束时发一次 `ready`（带 `url`）或 `failed`（带 `error`）；**取消后不再发**。缓存命中、结果本身是 PDF、文字类、csv、raw、unavailable 和同步就能判断的失败，`GetDocPreview` 直接返回最终状态，不发事件。事件可能比 `GetDocPreview` 先返回，前端按 `previewId` 暂存（同 v0.25.1 的事件顺序规则）。
 - **同步返回的 Go 错误只有调用本身的问题**：两个 id 都给或都不给 `INVALID_ARGUMENT`；id 不存在 `NOT_FOUND`（`reason=record`）；不是文档页的行 / 不是文档任务 `UNSUPPORTED`（`reason=format`）；记录不是 `succeeded`（没有输出）或输出文件不在 `NOT_FOUND`（`reason=file`）。**文件本身的问题**（加密、损坏、生成失败、演示程序被占用）放在 `state=failed` + `error` 里返回。
 - **原文件行用哪个文件**：同 6.15.6 的“显示路径”：副本已就绪用副本，复制中 / 失败用原文件（不用等复制）。**结果行**用记录的 `outputPath`。
-- **结果本身是 PDF**：`kind=pdf`、`state=ready`，`pdf` 直接登记这个输出文件（和 `OpenPDF` 一样的句柄和 `/local/<token>`，但**不写 `doc_recent`**，不进 PDF 历史）。
-- 一次最多保留 **8 个**未释放的预览（超过时释放最早的；被释放的 `ReadPDFChunk` / `ReadDocPreviewChunk` 返回 `NOT_FOUND`，前端按 6.12.4 重新 `GetDocPreview` 一次）。
+- **本地地址（`url`）**：登记进 6.13 的 `/local/<token>` 白名单（和转换页 `GetSourcePreviewURL` 同一套 `localassets`：随机 token、登记时和每次请求都 `EvalSymlinks` + 普通文件 + `SameFile` 校验、支持 `HEAD`、单段 Range），**一个 token 只放行这一个文件**；`pdf → application/pdf`，`docx` / `xlsx` 用各自的 Office MIME。`CancelDocPreview` 或预览被释放时 token 作废，之后 `404`；前端遇到 `404` 重新 `GetDocPreview` 一次。**限长沿用 6.13**（每个 Range 响应 ≤ 4 MiB，无 Range 的整体请求 ≤ 32 MiB，更大 413）：pdf.js 本来就按 Range 加载；**raw 文件前端必须按 Range 分段取**（每段 ≤ 4 MiB，拼成整份再交给前端库），不能一次 `fetch` 整份。不再用 base64 分块接口。
+- 结果本身是 PDF 的直接给 `url`，**不写 `doc_recent`**，不进 PDF 历史。
+- 一次最多保留 **8 个**未释放的预览（超过时释放最早的，token 作废）。
 
 #### 6.12.32.2 各种文件怎么预览
 
-| 文件（源文件行或结果行的扩展名） | 有引擎时 | 没有任何引擎时 |
+| 文件（源文件行或结果行的扩展名） | 有能做的引擎时 | 没有任何引擎时 |
 |---|---|---|
-| pdf（只会是结果） | `pdf`，直接预览 | 同左 |
-| doc docx odt rtf / xls xlsx ods / ppt pptx odp | `pdf`：用引擎在后台生成一份临时 PDF（6.12.32.3） | docx → `simple_docx`，xlsx → `simple_xlsx`（6.12.32.5）；其余 `unavailable` |
-| md | `html`：后端用 goldmark 渲染（6.12.32.4） | 同左 |
-| html / htm | `html`：后端给过滤后的 HTML | 同左 |
+| pdf（只会是结果） | `pdf`，直接给 `url` | 同左 |
+| doc docx odt rtf / xls xlsx ods / ppt pptx odp | `pdf`：用引擎在后台生成一份临时 PDF（6.12.32.3），给 `url` | docx / xlsx → `raw`（≤ 50 MiB；更大 `unavailable` + `reason=too_large_for_simple`）；其余 `unavailable` + `reason=needs_component` |
 | txt | `text` | 同左 |
-| csv | `csv` | 同左 |
+| md / markdown | `md`（原文） | 同左 |
+| html / htm | `html`（原文） | 同左 |
+| csv | `csv`（解析好的前 1000 行） | 同左 |
 
-- 挑引擎同 6.12.25（含设置、能力表、换引擎、跳过坏引擎）；预览生成的 PDF 能力表看“该源格式 → pdf”。生成**全部失败不回退到简易转换**（预览要看排版，文字版没有意义）：docx / xlsx 退到 `simple_*`，其余 `failed`。
-- **加密**：生成前按 6.12.19 检测，命中直接 `state=failed`、`DOC_ENCRYPTED`（不交给任何引擎）；`simple_*` 和 csv / txt / md / html 不检测（没有加密或前端库自己会报错）。
-- 引擎生成的预览就是一份 PDF，**不放工作表标签**（产品定）；xlsx 的工作表标签只在 `simple_xlsx` 里有。
+- 挑引擎同 6.12.25（含设置、能力表、换引擎、跳过坏引擎），看“该源格式 → pdf”这一项。生成**全部失败时不回退到简易转换**（预览要看排版）：docx / xlsx 退到 `raw`（同样受 50 MiB 限制），其余 `state=failed`。
+- **加密**：引擎生成前按 6.12.19 检测，命中直接 `state=failed`、`DOC_ENCRYPTED`（不交给任何引擎）；`raw` 也先检测，加密的 docx / xlsx 同样 `failed` + `DOC_ENCRYPTED`（前端库打不开加密文件）。txt / md / html / csv 不检测。
+- 前端的缩放、翻页、工作表标签等显示细节**不归契约管**。
 
 #### 6.12.32.3 用引擎生成 PDF：缓存、排队、超时
 
 - **缓存目录**：Windows `%LocalAppData%\FFmpegFree\cache\preview\`（同组件目录，不放漫游的 `%AppData%`），macOS / Linux `<应用数据目录>/cache/preview/`。文件名 `<key>.pdf`，旁边一个 `index.json` 记每项的键、大小、最后打开时间。
 - **缓存键**：`sha256(规范化路径（path_key）+ "\n" + 大小 + "\n" + 修改时间（纳秒）+ "\n" + 引擎 id)` 的十六进制。文件改了（大小或时间变）自然不命中；换了引擎也重新生成。查缓存时按**这次会用的引擎顺序**依次找，第一个命中的就用（例如上次是 Office 生成的、这次 PowerPoint 被占用，仍可以直接用 Office 那份）。
-- **上限 1 GiB**（总大小），超了按“最后打开时间”从旧到新删；**正在被预览的项（句柄没释放）不删**，全都在用时允许暂时超过。命中时更新“最后打开时间”。启动时删掉 `*.part`、删掉 `index.json` 里没有的文件和文件不在的项，再按上限清一次。后端不提供“清空缓存”接口（以后需要再加）。
+- **上限 1 GiB**（总大小），超了按“最后打开时间”从旧到新删；**正在被预览的项（token 没作废）不删**，全都在用时允许暂时超过。命中时更新“最后打开时间”。启动时删掉 `*.part`、删掉 `index.json` 里没有的文件和文件不在的项，再按上限清一次。后端不提供“清空缓存”接口（以后需要再加）。
 - **单独排队，并发 1**：所有要引擎生成的预览排一条队，**一次只生成一个**；不占转换的任何名额（Office 池、组件池都不占），不进任务中心，不产生任务记录。用户关掉弹窗 → 前端调 `CancelDocPreview` → 还在排队就移出，正在生成就结束我们自己的进程（同 6.12.26 第 4 条）、删临时文件。
   - 预览用的 Office / WPS 实例和转换用的**互不共用**（Word / Excel 各开各的进程；PowerPoint / WPS 演示同一时间只能一个，按 6.12.26 第 4 条的应用内锁：被我们自己的转换占着时有别的引擎就换，没有就等）。文档组件的预览进程用自己的临时配置目录 `<数据目录>/tmp/doc/preview-<previewId>/profile`。所以最坏情况下同时有：1 个 Office / WPS 转换 + 2 个组件转换 + 1 个预览。
 - **预览的超时（架构师定，调整了“2 分钟”的建议）**：Office / WPS **每次 90 秒**，文档组件每次 **2 分钟**，**整个预览最多 3 分钟**（含换引擎）。理由：用户开着弹窗在等，卡在 Office 弹窗上的那次要尽快换到下一个引擎；一个引擎 2 分钟、总共 3 分钟后基本可以认为用户已经不想等了，转换功能不受影响。
-- **生成过程**：引擎把 PDF 写到 `<key>.pdf.part`，完成后改名为 `<key>.pdf`、写 `index.json`，再登记句柄（同 `OpenPDF`，不写 `doc_recent`），`state=ready`、`kind=pdf`，`pdf` 可以直接交给现有的 PDF 预览（6.12.4 的 `ReadPDFChunk` 主路径和 `/local/<token>` 大文件路径都照原样用）。
-- **页数**：引擎生成的 PDF 不限页数，但大于 512 MiB（`MaxPDFBytes`）时按失败处理（`state=failed`，`INTERNAL`，前端显示通用的预览失败文案）。
+- **生成过程**：引擎把 PDF 写到 `<key>.pdf.part`，完成后改名为 `<key>.pdf`、写 `index.json`，再登记 `/local/<token>`，`state=ready`、`kind=pdf`、`url`。前端把 `url` 交给现有的 PDF 预览（pdf.js 按 Range 加载）。
+- 生成的 PDF 大于 512 MiB（`MaxPDFBytes`）按失败处理（`state=failed`，`INTERNAL`）。
 
-#### 6.12.32.4 md、html、txt、csv：前端自己渲染
+#### 6.12.32.4 text、md、html、csv
 
-- **后端给文字**（`DocPreview.text`，同步返回）：
-  - **txt / csv**：按 6.12.17 的规则（合法 UTF-8 含 BOM → UTF-8，否则 GB18030）转成 UTF-8，去掉 BOM。
-  - **md（架构师定：后端渲染）**：先按同样的规则转 UTF-8，再由后端用 goldmark 渲染成 HTML（同 6.12.11 的选项：GFM，**不开 `WithUnsafe`**，md 里的原始 HTML 直接丢掉），然后走和 html 一样的过滤，`kind=html`。理由：和“转成网页”用同一个渲染器，预览看到的就是转出来的样子；前端不用再引入 md 渲染库，过滤只做一套。
-  - **html**：按 `<meta charset>` 或 6.12.17 的规则解码成 UTF-8，后端先用 **`github.com/microcosm-cc/bluemonday`**（纯 Go）过滤一遍：去掉可执行和会加载外部内容的元素（`script`、`iframe`、`frame`、`object`、`embed`、`applet`、`form`、`input`、`button`、`link`、`meta`、`base`、`svg` 里的脚本）、所有 `on*` 属性、`javascript:` / `vbscript:` / `data:`（图片的 `data:image/*` 除外）地址；**`<a>` 的 `href` 一律去掉**（只留文字，防止在预览里跳到网页）；**`img` 只保留 `data:image/*` 的 `src`**，其余图片（网络、本地路径）换成 alt 文字。`style` 属性和 `<style>` 保留（排版需要），但去掉其中的 `url(`、`@import`、`expression(`。
-- **截断**：文字上限 **2 MiB**（UTF-8 转换之后的字节数）。超过就截断：txt / md / html 截在 2 MiB 内最后一个完整的 UTF-8 字符处（html 被截断后由过滤器按宽松规则补全标签），csv 截在最后一个完整的行尾；`truncated=true`，`totalBytes` 是原文件大小。前端在顶部显示一行 `文件较大，只显示了前面一部分。`（**待产品确认文案**）。md 先截断再渲染。
-- **前端显示 html（含 md 渲染结果）的硬规则**：
-  1. 放进 `<iframe sandbox srcdoc="…">`，`sandbox` 属性**为空**（不加 `allow-scripts`，也不加 `allow-same-origin`、`allow-top-navigation`、`allow-popups`、`allow-forms`）。
-  2. `srcdoc` 开头注入严格的 CSP：`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; form-action 'none'; base-uri 'none'">`，**不加载任何网络或本地资源**。
-  3. 前端再用 DOMPurify 过滤一次（同上面的规则，作为第二道防线），然后才放进 `srcdoc`。
-- **txt / csv**：txt 用 `<pre>`（或等价的纯文本组件）显示，不当 HTML 解析；csv 由前端按逗号解析成表格，显示行数上限由前端定（建议 5 000 行，多的提示看不全）。
+- **编码**：都按 6.12.17 的规则（合法 UTF-8 含 BOM → UTF-8 并去掉 BOM，否则 GB18030）转成 UTF-8；html 有 `<meta charset>` 时先按它。
+- **text / md / html：后端只给 UTF-8 原文，不渲染、不过滤**（`text` 字段）。上限 **2 MiB**（转成 UTF-8 之后的字节数），超过就截在 2 MiB 内最后一个完整的 UTF-8 字符处，`truncated=true`。
+- **csv**：后端读最多 2 MiB（UTF-8 之后），按 RFC 4180（逗号、双引号、引号里可以有换行）解析，`rows` 给**前 1000 行**（含第一行，不区分表头），每个单元格最多 32 767 个字符（超出截断）；`totalRows` = 总行数：2 MiB 内读完了就是准确值，`truncated=false`；没读完时继续只数行（不解析单元格内容，最多读完整个文件，≤ 100 MiB）得到准确值，数不完（超时 5 秒）时给已数到的行数并 `truncated=true`。前端在 `totalRows > 1000` 时底部写 `只显示前 1000 行，共 n 行。`（n = `totalRows`）。解析出错的行按原样放进一个单元格，不报错。
+- **前端显示 md 和 html 的硬规则**（md 由前端渲染成 HTML 后同样适用）：
+  1. 先用 DOMPurify 过滤：去掉 `script`、`iframe`、`frame`、`object`、`embed`、`applet`、`form`、`input`、`button`、`link`、`meta`、`base`、所有 `on*` 属性、`javascript:` / `vbscript:` / `data:`（`data:image/*` 除外）地址；`<a>` 的 `href` 去掉（只留文字）；`img` 只保留 `data:image/*` 的 `src`，其余图片换成 alt 文字；`style` 里的 `url(`、`@import`、`expression(` 去掉。md 渲染时**不允许原始 HTML 直接通过**（交给 DOMPurify 之前也要转义或丢弃）。
+  2. 放进 `<iframe sandbox srcdoc="…">`，`sandbox` 属性**为空**（不加 `allow-scripts`，也不加 `allow-same-origin`、`allow-top-navigation`、`allow-popups`、`allow-forms`）。
+  3. `srcdoc` 开头注入严格的 CSP：`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; form-action 'none'; base-uri 'none'">`，**不加载任何网络或本地资源**。
+- **text**：用 `<pre>`（或等价的纯文本组件）显示，不当 HTML 解析。截断时前端在顶部提示一行（文案由产品定）。
 
-#### 6.12.32.5 没有任何引擎时：docx、xlsx 的简易预览
+#### 6.12.32.5 没有任何引擎时：docx、xlsx 的简易预览（`raw`）
 
-- 条件：`state` 不是 `ready`（Office、WPS、文档组件都没有），或者有引擎但这次生成全部失败。只对 **docx 和 xlsx**；**文件 ≤ 20 MiB**（前端库在内存里整份解析，更大的按 `unavailable` 处理）。
-- 后端返回 `kind=simple_docx` / `simple_xlsx`、`state=ready`、`totalBytes`；前端用 **`ReadDocPreviewChunk(previewId, offset, length)`** 分段读原文件（返回值就是 `PDFChunk`，字段和 base64 规则同 6.12.4；登记、每次重新校验文件、`offset` 溢出检查都同 `ReadPDFChunk`），拼好后交给 `docx-preview` / SheetJS（**按需加载**，打开预览时才加载，约 1 MiB）。
-- 简易预览顶部固定一行 `简易预览，排版可能和原文件不一样。`；xlsx 的工作表标签只在这里有。
-- 其他格式（及 > 20 MiB 的 docx / xlsx）`kind=unavailable`、`state=ready`（结果就是“不能预览”，不是失败）：前端显示 `需要文档组件才能预览。`，带「下载文档组件」（`canDownload=false` 的 Linux 显示 v0.26 的 Linux 提示，不给按钮）。
+- 条件：没有任何能做“该格式 → pdf”的可用引擎，或者有引擎但这次生成全部失败。只对 **docx 和 xlsx**，文件 **≤ 50 MiB**：返回 `kind=raw`、`state=ready`、`url`（原文件的本地地址，走 6.13 白名单，只放行这一个文件；**不用 base64**）、`ext`、`sizeBytes`。前端按 Range 分段取回（6.12.32.1），交给 `docx-preview` / SheetJS（**按需加载**，打开预览时才加载）。简易预览顶部固定一行 `简易预览，排版可能和原文件不一样。`。
+- **> 50 MiB**：`kind=unavailable`、`reason=too_large_for_simple`、`state=ready`；前端显示 `文件太大，没法简易预览。下载文档组件后可以完整预览。`，带「下载文档组件」。
+- **其他格式**：`kind=unavailable`、`reason=needs_component`、`state=ready`（结果就是“不能预览”，不是失败）；前端显示 `需要文档组件才能预览。`，带「下载文档组件」。Linux（`canDownload=false`）不给按钮，显示 v0.26 的 Linux 提示。
+- `reason` 只给程序用，**界面不显示**。
 
 #### 6.12.32.6 预览的文案（产品定）
 
 | 情况 | 怎么判断 | 文案 |
 |---|---|---|
 | 生成中 | `state=generating` | `正在生成预览…`（关掉弹窗就取消） |
-| 简易预览 | `kind=simple_*` | 顶部一行 `简易预览，排版可能和原文件不一样。` |
-| 没有引擎 | `kind=unavailable` | `需要文档组件才能预览。` + 「下载文档组件」 |
+| 简易预览 | `kind=raw` | 顶部一行 `简易预览，排版可能和原文件不一样。` |
+| csv 超过 1000 行 | `kind=csv` 且 `totalRows > 1000` | 底部 `只显示前 1000 行，共 n 行。` |
+| 没有引擎 | `kind=unavailable` + `reason=needs_component` | `需要文档组件才能预览。` + 「下载文档组件」 |
+| 太大不能简易预览 | `kind=unavailable` + `reason=too_large_for_simple` | `文件太大，没法简易预览。下载文档组件后可以完整预览。` + 「下载文档组件」 |
 | 有密码 | `failed` + `DOC_ENCRYPTED` | `这个文件有密码保护，不能预览。`（不给重试） |
 | 演示文稿被占用 | `failed` + `DOC_PRESENTATION_BUSY` | `请先关闭正在打开的演示文稿，再预览。` + 「重试」（重新 `GetDocPreview`） |
 | 文档程序被占用 | `failed` + `DOC_ENGINE_BUSY` | `请先关闭正在打开的文档，再预览。` + 「重试」 |
 | 其他所有失败 | `failed` + 其他任何码 | `这个文件暂时无法预览。` |
 
-- 预览**没有专门的“生成失败”错误码**：后端在 `error` 里给实际原因（`DOC_TIMEOUT`、`DOC_COMPONENT_CRASHED`、`DOC_CORRUPT`、`INTERNAL`……），前端除上表点名的码以外一律显示 `这个文件暂时无法预览。`；后端 `message` 照各码原样（转换用的那句），**前端不用后端的 `message` 显示预览错误**。
+- 预览**没有专门的“生成失败”错误码**：后端在 `error` 里给实际原因（`DOC_TIMEOUT`、`DOC_COMPONENT_CRASHED`、`DOC_CORRUPT`、`INTERNAL`……），前端除上表点名的码以外一律显示 `这个文件暂时无法预览。`；**前端不用后端的 `message` 显示预览错误**。
+- 前端未知的 `kind` / `reason` 一律按 `这个文件暂时无法预览。` 处理。
 
 ### 6.12.33 错误码（v0.27 新增 2 个；2.1 由 28 个变为 30 个）
 
@@ -2043,18 +2051,18 @@ type DocPreview struct {
 
 ### 6.12.34 接口、事件、字段汇总（v0.27）
 
-- **新方法**（DocService）：`GetDocPreview`、`CancelDocPreview`、`ReadDocPreviewChunk`。
+- **新方法**（DocService）：`GetDocPreview`、`CancelDocPreview`。
 - **新事件**：`doc:preview`。`doc:component` 的触发条件变宽（6.12.28）。
-- **新 / 改字段**：`DocComponentStatus.componentState`、`engines`（`DocEngineInfo`）、`source` 新增 `office` / `wps`、`state` 含义变为“整体可用”、`installBytes`（v0.26.1）；`Settings.docEngine`；`TaskResult.engine`；`TaskResult.warnings` 新增 `simple_fallback`；`DocTarget.engines`；新类型 `DocPreviewRequest`、`DocPreview`、`DocEngineInfo`。
+- **新 / 改字段**：`DocComponentStatus.componentState`、`engines`（`DocEngineInfo`，含未下载的 component 项 `installed=false`）、`source` 新增 `office` / `wps`、`state` 含义变为“整体可用”、`installBytes`（v0.26.1）；`Settings.docEngine`；`TaskResult.engine`；`TaskResult.warnings` 新增 `simple_fallback`；`DocTarget.engines`；新类型 `DocPreviewRequest`、`DocPreview`、`DocEngineInfo`。
 - **新错误码**：`DOC_PRESENTATION_BUSY`、`DOC_ENGINE_BUSY`。
-- **新依赖**：`github.com/go-ole/go-ole`（由间接改为直接，仅 Windows 代码用）、`github.com/microcosm-cc/bluemonday`（纯 Go）；前端 `docx-preview`、`xlsx`（SheetJS）、`dompurify`（按需加载）。
+- **新依赖**：`github.com/go-ole/go-ole`（由间接改为直接，仅 Windows 代码用）；前端 `docx-preview`、`xlsx`（SheetJS）、md 渲染库、`dompurify`（按需加载）。
 - **没有迁移**；设置键 `docEngine` 写进 settings 表（键值表，不用迁移）。
 
 ### 6.12.35 实现顺序与测试
 
 1. 先合入 v0.26 的后端、前端实现（不等本节）。
-2. 后端：`internal/doceng` 引擎接口（`Detect`、`Capabilities`、`Convert(ctx, in, out, target)`），把 v0.26 的 soffice 调用包成 `component` 引擎；加 Office / WPS（`windows` build tag）；调度器加 Office 池；预览服务和缓存。**Linux / macOS 上能测的都要有单测**：能力表、挑引擎顺序（用假引擎模拟超时、busy、隔离检查不通过、全部失败回退简易转换）、缓存键和 LRU、截断、html 过滤（含 `<script>`、`onerror=`、`javascript:`、`<a href>`、`<img src=http>`、`<meta http-equiv=refresh>`、`<base>`、`style` 里的 `url(`）、`ReadDocPreviewChunk` 的边界。Windows 代码至少 `GOOS=windows go build`、`go vet` 通过。
-3. 前端：设置页下拉框、记录详情的“由本机 … 转换”、预览弹窗各状态；sandbox iframe + CSP + DOMPurify 要有单测（快照里 `sandbox=""`、CSP 原文）。`check:copy` 增加：`Microsoft Office`、`WPS` 允许出现；`LibreOffice` 仍只放行 Linux 那两句。
+2. 后端：`internal/doceng` 引擎接口（`Detect`、`Capabilities`、`Convert(ctx, in, out, target)`），把 v0.26 的 soffice 调用包成 `component` 引擎；加 Office / WPS（`windows` build tag）；调度器加 Office 池；预览服务和缓存。**Linux / macOS 上能测的都要有单测**：能力表、挑引擎顺序（用假引擎模拟超时、busy、隔离检查不通过、全部失败回退简易转换）、缓存键和 LRU、2 MiB 截断（UTF-8 边界）、csv 解析（引号内换行、1000 行、`totalRows`）、raw 的 50 MiB 边界和 `reason`、`/local/<token>` 只放行这一个文件且取消后 404。Windows 代码至少 `GOOS=windows go build`、`go vet` 通过。
+3. 前端：设置页下拉框、记录详情的“由本机 … 转换”、预览弹窗各状态；md / html 的 DOMPurify 过滤要有单测（含 `<script>`、`onerror=`、`javascript:`、`<a href>`、`<img src=http>`、`<meta http-equiv=refresh>`、`<base>`、`style` 里的 `url(`），sandbox iframe 的快照里 `sandbox=""`、CSP 原文；raw 按 Range 分段取。`check:copy` 增加：`Microsoft Office`、`WPS` 允许出现；`LibreOffice` 仍只放行 Linux 那两句。
 
 ### 6.12.36 未验证事项（要在 Windows 真机上验证）
 
@@ -2070,7 +2078,8 @@ type DocPreview struct {
 | 6 | **超时后进程能否清理干净**：结束我们的 PID 后没有残留的 `WINWORD.EXE` / `EXCEL.EXE` / `POWERPNT.EXE` / `wps.exe` / `et.exe` / `wpp.exe`；应用被强制结束时 Job Object 能否带走它们；COM 调用在进程被结束后能否立刻返回（不挂住我们的线程） | 6.12.26 第 4~5 条 | 用一个会弹窗的文件故意卡住，等超时；任务管理器里强制结束应用 | 补 `taskkill /PID <我们的 PID> /T /F` 兜底 |
 | 7 | 导出参数（6.12.26 表里的常量）在 WPS 上是否都认；Excel `xlCSVUTF8`（62）在 2016 早期版本上是否可用；Word 导出 html 的编码 | 6.12.26、6.12.27 | 每个格式转一遍，比对输出 | 改能力表 |
 | 8 | Office 转换 3 分钟、预览 90 秒的单次超时是否够用（大 pptx 导出 PDF） | 6.12.29、6.12.32.3 | 100 MiB 左右的 pptx / xlsx | 调超时 |
-| 9 | 预览的 sandbox iframe + `srcdoc` 里的 CSP meta 在 WebView2 和 WKWebView 上确实生效（脚本不执行、不发任何网络请求） | 6.12.32.4 | 用带 `<script>`、`<img src=http…>` 的 html 预览，抓包 / 看控制台 | 改用后端渲染成纯文本，或前端改用 shadow DOM + 更严格的过滤 |
+| 9 | 预览的 sandbox iframe + `srcdoc` 里的 CSP meta 在 WebView2 和 WKWebView 上确实生效（脚本不执行、不发任何网络请求） | 6.12.32.4 | 用带 `<script>`、`<img src=http…>` 的 html / md 预览，抓包 / 看控制台 | 改成只显示纯文本，或更严格的过滤 |
+| 10 | raw（≤ 50 MiB 的 docx / xlsx）经 `/local/<token>` 按 Range 分段取回在 Windows 上正常（同 6.12.8 第 2 项的 Range 行为） | 6.12.32.1、6.12.32.5 | 预览一个 40 MiB 左右的 xlsx | 把 raw 上限降到 32 MiB 以内，整体请求一次取回 |
 
 
 ## 6.13 本地资源访问 `/local/<token>`（中立章节，DocService 与转换记录共用；由 #22 引入，#23 引用，v0.23 加 `convert` 表；v0.23.5 删除 `edit` 表）
