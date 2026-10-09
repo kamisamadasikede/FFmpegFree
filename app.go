@@ -203,7 +203,11 @@ func (a *App) startDoc() {
 		}
 	}
 	emit := app.NewWailsEmitter(a.ctx).Emit
-	comp := doccomp.New(doccomp.Config{Dir: doccomp.DefaultDir(root), Emit: emit, Logf: log.Printf})
+	// doc:component 一律发合并后的状态（含 Office / WPS，同 GetDocComponentStatus）：组件自己发的那份只有组件，
+	// Registry 建好后改由 Registry 发；之前（启动瞬间）退回组件自己的状态。
+	var regRef atomic.Pointer[doceng.Registry]
+	compEmit := doceng.MergedComponentEmit(emit, regRef.Load)
+	comp := doccomp.New(doccomp.Config{Dir: doccomp.DefaultDir(root), Emit: compEmit, Logf: log.Printf})
 	a.docComp.Store(comp)
 	comp.Start()
 	cfg.Component = comp
@@ -228,6 +232,7 @@ func (a *App) startDoc() {
 	cfg.Emit = emit
 	cfg.DocEngine = a.sys.DocEngine
 	reg := doceng.NewRegistry(doceng.Config{Component: comp, DocEngine: a.sys.DocEngine, Emit: emit, Logf: log.Printf})
+	regRef.Store(reg)
 	reg.StartDetect()
 	cfg.Engines = reg
 	a.sys.DocComponentDir = reg.DownloadedComponentDir

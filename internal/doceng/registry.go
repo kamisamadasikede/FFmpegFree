@@ -74,6 +74,28 @@ func (r *Registry) Recheck() {
 	r.emitStatus()
 }
 
+// MergedComponentEmit 包一层组件的 Emit：doc:component 一律改发合并后的状态（含 Office / WPS，同 GetDocComponentStatus）。
+// reg 返回 nil（Registry 还没建好）时原样发组件自己的状态；其他事件（进度）原样转发。
+func MergedComponentEmit(emit func(string, any), reg func() *Registry) func(string, any) {
+	return func(ev string, p any) {
+		if ev == doccomp.EventComponent {
+			if r := reg(); r != nil {
+				r.EmitStatus()
+				return
+			}
+		}
+		emit(ev, p)
+	}
+}
+
+// SetDetected 直接设定 Office / WPS 的检测结果（测试用；正常由 StartDetect / Recheck 填）。
+func (r *Registry) SetDetected(office, wps *Detected) {
+	r.mu.Lock()
+	r.officeD, r.wpsD, r.detected = office, wps, true
+	r.mu.Unlock()
+}
+
+// EmitStatus 发一次合并后的 doc:component。
 func (r *Registry) EmitStatus() {
 	r.emitStatus()
 }
@@ -129,20 +151,21 @@ func (r *Registry) familyAllSkipped(id string, fams []string) bool {
 	return true
 }
 
-// Status 合并为 DocComponentStatus 形态（给前端）。
+// Status 合并为 DocComponentStatus 形态（给前端）。json 字段名同 DocComponentStatus（6.12.13 / 6.12.28），
+// doc:component 事件直接发这个。
 type StatusView struct {
-	State          string
-	ComponentState string
-	Version        string
-	Source         string
-	Engines        []EngineInfo
-	CanDownload    bool
-	DownloadBytes  int64
-	InstallBytes   int64
-	Phase          string
-	ReceivedBytes  int64
-	Error          *apperr.AppError
-	Path           string
+	State          string           `json:"state"`
+	ComponentState string           `json:"componentState"`
+	Version        string           `json:"version"`
+	Source         string           `json:"source"`
+	Engines        []EngineInfo     `json:"engines"`
+	CanDownload    bool             `json:"canDownload"`
+	DownloadBytes  int64            `json:"downloadBytes"`
+	InstallBytes   int64            `json:"installBytes"`
+	Phase          string           `json:"phase,omitempty"`
+	ReceivedBytes  int64            `json:"receivedBytes,omitempty"`
+	Error          *apperr.AppError `json:"error,omitempty"`
+	Path           string           `json:"-"`
 }
 
 func (r *Registry) Status(ctx context.Context) StatusView {
