@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
@@ -118,6 +119,8 @@ type Config struct {
 
 // Service 实现转换。v0.24 起有一个后台复制队列（副本，6.15.4）。
 type Service struct {
+	docMu       sync.Mutex
+	docRC       DocReconverter
 	cfg         Config
 	catalog     catalogCache
 	copier      *copier

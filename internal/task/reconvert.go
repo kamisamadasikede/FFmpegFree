@@ -127,7 +127,7 @@ func (m *Manager) SetReconvertChecker(f ReconvertChecker) {
 // reconvertCheck 给 CheckPaths 用：返回 (mode, block)，mode="" 表示不能重转。顺序同 Reconvert 的同步校验（v0.24.1）：
 // 状态 → 副本没就绪 → 源文件不在 → 旧输出被换掉。
 func (m *Manager) reconvertCheck(t Task) (string, string) {
-	if t.Type != TypeConvert || t.Status != StatusSucceeded || t.Reconverting {
+	if !IsRecordTask(t) || t.Status != StatusSucceeded || t.Reconverting {
 		return "", BlockInvalidState
 	}
 	m.mu.Lock()
@@ -164,7 +164,7 @@ func (m *Manager) Reconvert(taskID string, spec ReconvertSpec, r Runner) (Task, 
 	if old.Type == TypeEditExport || old.Type == TypeEditRender {
 		return Task{}, LegacyExportError("重转")
 	}
-	if old.Type != TypeConvert {
+	if !IsRecordTask(old) {
 		return Task{}, apperr.New(apperr.InvalidArgument, "不是转换记录")
 	}
 	if old.Reconverting {
@@ -259,7 +259,7 @@ func (m *Manager) Reconvert(taskID string, spec ReconvertSpec, r Runner) (Task, 
 	m.emit(EventStatus, StatusEvent{
 		ID: t.ID, Version: t.Version, Status: StatusQueued, OutputPath: t.OutputPath,
 		Encoder: t.Encoder, EncoderDevice: t.EncoderDevice, HWFallback: t.HWFallback, HWFallbackReason: t.HWFallbackReason,
-		Progress: &zero, HiddenInTaskCenter: &notHidden, Reconverting: rcFlag(t),
+		Progress: &zero, HiddenInTaskCenter: &notHidden, Reconverting: rcFlag(t), QueuePosition: m.predictQueuePosition(e),
 	})
 	m.enqueue(e)
 	return snap, nil
@@ -461,7 +461,7 @@ func removeRegular(p string) error {
 
 // removeReconvertTemp 是删除记录时的兜底（6.17.6 第 ④ 步）：删这条记录的 *.reconvert-<id>.part.*，失败只记日志。
 func (m *Manager) removeReconvertTemp(t Task) {
-	if t.Type != TypeConvert || t.OutputPath == "" || !filepath.IsAbs(t.OutputPath) {
+	if !IsRecordTask(t) || t.OutputPath == "" || !filepath.IsAbs(t.OutputPath) {
 		return
 	}
 	if err := removeRegular(ReconvertTempPath(t.OutputPath, t.ID)); err != nil {

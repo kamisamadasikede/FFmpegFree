@@ -78,6 +78,7 @@ func (e *entry) start() {
 		return
 	}
 	e.task.Status = StatusRunning
+	e.task.QueuePosition = nil
 	e.task.StartedAt = time.Now().UnixMilli()
 	e.task.Version++
 	e.persistLocked()
@@ -96,6 +97,7 @@ func (e *entry) finish(m *Manager, st Status, aerr *apperr.AppError, output stri
 		return
 	}
 	e.terminal = true
+	e.task.QueuePosition = nil
 	var r *TaskResult
 	if len(res) > 0 {
 		r = res[0]

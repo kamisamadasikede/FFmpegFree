@@ -49,6 +49,8 @@ type Config struct {
 	DeleteWait time.Duration
 	// Now 是时钟（删除失败路径的“可打开所在文件夹”有效期用，契约 v0.23.3）；nil 用 time.Now。测试里注入。
 	Now func() time.Time
+	// DocConcurrency 是文档组件池并发数，<=0 用 DefaultDocConcurrency（2，契约 6.12.18）。
+	DocConcurrency int
 }
 
 // Factory 根据已有任务记录重新构造 Runner，供 Retry 使用（用 Params 重建）。
@@ -69,6 +71,13 @@ type Manager struct {
 	namer     *namer           // 输出文件名占用登记（见 part.go）
 	reveal    revealAllow      // 删除失败、文件留下的路径（RevealInFolder 临时放行，见 reveal_allow.go）
 	rcCheck   ReconvertChecker // CheckPaths 的重转检查（转换服务注册，契约 6.17.1）
+
+	docQueue   []*entry // 文档组件池排队队列（FIFO，契约 v0.26 6.12.18）
+	docRunning int      // 文档组件池正在运行的数量
+
+	qmu    sync.Mutex  // doc:queue 节流
+	qtimer *time.Timer // 待发的 doc:queue
+	qlast  time.Time
 }
 
 // NewManager 创建任务管理器。
@@ -213,7 +222,7 @@ func (m *Manager) Submit(spec Spec, r Runner) (Task, error) {
 
 	// 提交时定名并占位（契约 6.14.5）：在落库之前选出最终名，占位人 = 任务 id，一直占到终态（launch / finishNeverRan 释放）。
 	if spec.ReserveOutput && t.OutputPath != "" {
-		t.OutputPath = m.namer.reserve(t.OutputPath, t.ID, styleFor(t.Type))
+		t.OutputPath = m.namer.reserve(t.OutputPath, t.ID, styleForTask(t))
 		e.mu.Lock()
 		e.task.OutputPath = t.OutputPath
 		e.mu.Unlock()
@@ -233,6 +242,7 @@ func (m *Manager) Submit(spec Spec, r Runner) (Task, error) {
 	}
 	// 快照必须在入队前取：入队后任务可能立刻开始甚至跑完，返回给调用方的应当是"刚创建"的状态（queued，version 1），
 	// 与 task:created 事件一致；之后的变化由 task:status / task:progress 事件推送。
+	m.predictQueuePosition(e) // 文档组件池：task:created 就带 queuePosition（6.12.18）
 	created := e.snapshot()
 	m.emit(EventCreated, created)
 	m.enqueue(e)
@@ -241,7 +251,7 @@ func (m *Manager) Submit(spec Spec, r Runner) (Task, error) {
 
 // enqueue 把已登记、已落库、已发事件的任务交给调度池（Submit 和原地 Retry 共用）。
 func (m *Manager) enqueue(e *entry) {
-	live := IsLive(e.task.Type)
+	pool := poolOf(e)
 	m.mu.Lock()
 	switch {
 	case m.closing: // 提交与退出并发：直接标记中断
@@ -252,13 +262,20 @@ func (m *Manager) enqueue(e *entry) {
 		m.mu.Unlock()
 		m.finishNeverRan(e, StatusCanceled)
 	default:
-		if !live {
+		switch pool {
+		case PoolBatch:
 			m.queue = append(m.queue, e)
+		case PoolDoc:
+			m.docQueue = append(m.docQueue, e)
 		}
 		m.mu.Unlock()
-		if live {
-			m.launch(e, false)
-		} else {
+		switch pool {
+		case PoolFree:
+			m.launch(e, PoolFree)
+		case PoolDoc:
+			m.docQueueChanged()
+			m.pumpDoc()
+		default:
 			m.pump()
 		}
 	}
@@ -325,7 +342,7 @@ func validTaskID(s string) bool {
 
 func validType(t Type) bool {
 	switch t {
-	case TypeConvert, TypeEditExport, TypeOfficePDF, TypeLiveFilePush, TypeLiveScreenPush, TypeFFmpegInstall:
+	case TypeConvert, TypeEditExport, TypeOfficePDF, TypeDocConvert, TypeLiveFilePush, TypeLiveScreenPush, TypeFFmpegInstall:
 		return true
 	}
 	return false
@@ -343,26 +360,32 @@ func (m *Manager) pump() {
 		m.queue = m.queue[1:]
 		m.running++
 		m.mu.Unlock()
-		m.launch(e, true)
+		m.launch(e, PoolBatch)
 	}
 }
 
-// launch 在新 goroutine 里执行任务。countBatch 表示占用了 batch 名额，结束时要归还。
-func (m *Manager) launch(e *entry, countBatch bool) {
+// launch 在新 goroutine 里执行任务。pool 是占用名额的池（PoolFree 不占），结束时归还并补位。
+func (m *Manager) launch(e *entry, pool Pool) {
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
 		m.execute(e)
 		m.mu.Lock()
 		delete(m.entries, e.task.ID)
-		if countBatch {
+		switch pool {
+		case PoolBatch:
 			m.running--
+		case PoolDoc:
+			m.docRunning--
 		}
 		m.mu.Unlock()
 		m.namer.releaseOwner(e.task.ID)
 		close(e.done)
-		if countBatch {
+		switch pool {
+		case PoolBatch:
 			m.pump()
+		case PoolDoc:
+			m.pumpDoc()
 		}
 		m.finalize(e)
 	}()
@@ -374,7 +397,7 @@ func (m *Manager) execute(e *entry) {
 		return
 	}
 	e.start()
-	ctx := context.WithValue(e.ctx, ctxKey{}, Info{ID: e.task.ID, Type: e.task.Type, log: e.log, m: m})
+	ctx := context.WithValue(e.ctx, ctxKey{}, Info{ID: e.task.ID, Type: e.task.Type, record: IsRecordTask(e.task), log: e.log, m: m})
 	out, err := safeRun(ctx, e.runner, e.report)
 	m.finishAfterRun(e, err, out)
 }
@@ -467,6 +490,18 @@ func (m *Manager) Cancel(taskID string) error {
 			return nil
 		}
 	}
+	for i, q := range m.docQueue {
+		if q == e {
+			m.docQueue = append(m.docQueue[:i], m.docQueue[i+1:]...)
+			m.mu.Unlock()
+			e.markCancelRequested()
+			e.cancel()
+			e.setQueuePosition(nil)
+			m.finishNeverRan(e, StatusCanceled)
+			m.docQueueChanged()
+			return nil
+		}
+	}
 	m.mu.Unlock()
 	e.markCancelRequested()
 	e.cancel()
@@ -493,8 +528,9 @@ func (m *Manager) Wait(ctx context.Context, taskID string) (Task, error) {
 func (m *Manager) Shutdown(timeout time.Duration) {
 	m.mu.Lock()
 	m.closing = true
-	queued := m.queue
+	queued := append(m.queue, m.docQueue...)
 	m.queue = nil
+	m.docQueue = nil
 	var all []*entry
 	for _, e := range m.entries {
 		all = append(all, e)
@@ -573,7 +609,7 @@ func (m *Manager) List(f Filter) (Page, error) {
 
 // usesRunWithPart 是走 RunWithPart 的任务类型：原地重试时清理上一次的 .part、重新占位原输出名（契约 6.6）。
 func usesRunWithPart(t Type) bool {
-	return t == TypeConvert || t == TypeEditExport || t == TypeOfficePDF
+	return t == TypeConvert || t == TypeEditExport || t == TypeOfficePDF || t == TypeDocConvert
 }
 
 // retryLogLine 是原地重试时追加到任务日志末尾的一行（契约 6.6 第 ⑤ 步）。
@@ -677,7 +713,7 @@ func (m *Manager) Retry(taskID string) (Task, error) {
 			}
 		}
 		// ③ 重新占位原输出名；被占就按该类型的重名格式顺延。
-		st := styleFor(t.Type)
+		st := styleForTask(t)
 		out := old.OutputPath
 		if !m.namer.hold(out, t.ID) {
 			base := out
@@ -705,12 +741,13 @@ func (m *Manager) Retry(taskID string) (Task, error) {
 		c.Submitted(t.ID)
 	}
 	// ⑥ 事件（快照在入队前取，同 Submit）。
+	qp := m.predictQueuePosition(e)
 	snap := e.snapshot()
 	zero, notHidden := 0.0, false
 	m.emit(EventStatus, StatusEvent{
 		ID: t.ID, Version: t.Version, Status: StatusQueued, OutputPath: t.OutputPath,
 		Encoder: t.Encoder, EncoderDevice: t.EncoderDevice, HWFallback: t.HWFallback, HWFallbackReason: t.HWFallbackReason,
-		Progress: &zero, Retried: true, HiddenInTaskCenter: &notHidden, Reconverting: rcFlag(t),
+		Progress: &zero, Retried: true, HiddenInTaskCenter: &notHidden, Reconverting: rcFlag(t), QueuePosition: qp,
 	})
 	// ⑦ 入队。
 	m.enqueue(e)

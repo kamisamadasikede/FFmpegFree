@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"FFmpegFree/internal/apperr"
+	"FFmpegFree/internal/service/convert"
 	"FFmpegFree/internal/service/doc"
 	"FFmpegFree/internal/store"
 )
@@ -97,4 +98,89 @@ func (s *DocService) RemoveRecentPDFs(ids []string) error {
 		return err
 	}
 	return c.RemoveRecentPDFs(s.rootCtx(), ids)
+}
+
+// ---------- v0.26 文档多格式转换（契约 6.12.9~6.12.22） ----------
+
+// GetFormatMatrix 按当前文档组件状态生成格式表；组件在检测中时最多等 6 秒，等不到按未就绪返回。
+// 组件状态变为 ready（或从 ready 变成别的）时前端重新调用（doc:component 事件）。
+func (s *DocService) GetFormatMatrix() (doc.DocFormatMatrix, error) {
+	c, err := s.svc()
+	if err != nil {
+		return doc.DocFormatMatrix{}, err
+	}
+	return c.GetFormatMatrix(s.rootCtx()), nil
+}
+
+// GetDocComponentStatus 返回文档组件状态（checking | ready | missing | outdated | downloading | preparing | failed）。
+func (s *DocService) GetDocComponentStatus() (doc.DocComponentStatus, error) {
+	c, err := s.svc()
+	if err != nil {
+		return doc.DocComponentStatus{}, err
+	}
+	return c.GetDocComponentStatus(s.rootCtx())
+}
+
+// InstallDocComponent 开始或继续下载 + 准备文档组件（mirror 只接受 "" 和 "cn"），立即返回；幂等。
+// 进度走 doc:component-progress，状态走 doc:component。Linux 返回 UNSUPPORTED_PLATFORM；空间不够 CONVERT_DISK_FULL（reason=no_space）。
+func (s *DocService) InstallDocComponent(mirror string) (doc.DocComponentStatus, error) {
+	c, err := s.svc()
+	if err != nil {
+		return doc.DocComponentStatus{}, err
+	}
+	return c.InstallDocComponent(s.rootCtx(), mirror)
+}
+
+// CancelDocComponentInstall 取消下载 / 准备（保留已下载的部分）；没有在进行时无操作。
+func (s *DocService) CancelDocComponentInstall() error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.CancelDocComponentInstall(s.rootCtx())
+}
+
+// RecheckDocComponent 重新检测文档组件（用户自己装了系统版本后）；下载 / 准备中返回当前状态，不打断。
+func (s *DocService) RecheckDocComponent() (doc.DocComponentStatus, error) {
+	c, err := s.svc()
+	if err != nil {
+		return doc.DocComponentStatus{}, err
+	}
+	return c.RecheckDocComponent(s.rootCtx())
+}
+
+// AddDocSources 登记文档页的源文件行（1~50 个，与入参一一对应）；被拒的文件不建行，原因在 error 里。
+func (s *DocService) AddDocSources(paths []string) ([]doc.AddDocSourceResult, error) {
+	c, err := s.svc()
+	if err != nil {
+		return nil, err
+	}
+	return c.AddDocSources(s.rootCtx(), paths)
+}
+
+// ListDocSources 分页列文档页的行（只有文档页添加的行）。
+func (s *DocService) ListDocSources(filter convert.ConvertSourceFilter) (doc.DocSourcePage, error) {
+	c, err := s.svc()
+	if err != nil {
+		return doc.DocSourcePage{Items: []doc.DocSourceEntry{}}, err
+	}
+	return c.ListDocSources(s.rootCtx(), filter)
+}
+
+// SearchDocSources 按关键字搜文档页的行。
+func (s *DocService) SearchDocSources(filter convert.ConvertSearchFilter) (doc.DocSourcePage, error) {
+	c, err := s.svc()
+	if err != nil {
+		return doc.DocSourcePage{Items: []doc.DocSourceEntry{}}, err
+	}
+	return c.SearchDocSources(s.rootCtx(), filter)
+}
+
+// SubmitDocConvert 一个源一个任务；返回 {tasks, skipped}，规则同 ConvertService.SubmitSources。
+func (s *DocService) SubmitDocConvert(req doc.DocSubmitRequest) (convert.ConvertSubmitResult, error) {
+	c, err := s.svc()
+	if err != nil {
+		return convert.ConvertSubmitResult{Tasks: []store.Task{}, Skipped: []convert.SkippedSource{}}, err
+	}
+	return c.SubmitDocConvert(s.rootCtx(), req)
 }

@@ -38,6 +38,9 @@ const (
 // 不等的话这一次拿到 FFMPEG_NOT_FOUND 什么都不写，而前端一次会话只列一次，行就一直只有 media 表的退回结果
 // （包 18 / 19 在 Windows 上 convert_sources.media 一直是空的就是这个原因）。
 func (s *Service) refreshSourceMedia(ctx context.Context, ss SourceStore, src *ConvertSource) {
+	if src.Kind == store.SourceKindDoc { // 文档页的行不探测媒体信息（v0.26）
+		return
+	}
 	ms, ok := ss.(SourceMediaStore)
 	p := displayPath(*src) // v0.24：副本就绪时探测副本（mtime / 大小和原文件一致，指纹相同），原文件拔掉了也能探
 	if !ok || s.cfg.Media == nil || p == "" {

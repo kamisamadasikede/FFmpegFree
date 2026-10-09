@@ -46,10 +46,18 @@ const (
 
 // styleFor 按任务类型选择重名格式：只有 convert 带空格。
 func styleFor(t Type) suffixStyle {
-	if t == TypeConvert {
+	if t == TypeConvert || t == TypeDocConvert { // v0.26：文档页同转换页 "a (1).pdf"（6.12.21）
 		return styleSpaced
 	}
 	return styleCompact
+}
+
+// styleForTask 同 styleFor，另外文档页的简易转换（带 sourceId 的 office_pdf）也用转换页格式（6.12.21）。
+func styleForTask(t Task) suffixStyle {
+	if IsRecordTask(t) {
+		return styleSpaced
+	}
+	return styleFor(t.Type)
 }
 
 func numbered(base string, i int, ext string, st suffixStyle) string {
@@ -235,6 +243,9 @@ func RunWithPart(ctx context.Context, desired string, produce func(partPath stri
 	info, inTask := InfoFrom(ctx)
 	if inTask && info.m != nil {
 		n, owner, st = info.m.namer, info.ID, styleFor(info.Type)
+		if info.record {
+			st = styleSpaced
+		}
 	}
 	final, held := n.takeHeld(owner)
 	if !held {

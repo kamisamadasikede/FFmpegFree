@@ -121,7 +121,7 @@ func (m *Manager) DeleteRecords(ids []string, typ Type, deleteOutputs bool, befo
 			}
 			return res, apperr.Wrap(apperr.Internal, "读取任务失败", err)
 		}
-		if t.Type != typ {
+		if typ == TypeConvert && !IsRecordTask(t) || typ != TypeConvert && t.Type != typ {
 			return res, apperr.New(apperr.InvalidArgument, "只能删除转换记录")
 		}
 		present = append(present, id)

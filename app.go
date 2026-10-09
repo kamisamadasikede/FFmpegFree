@@ -3,6 +3,7 @@ package main
 import (
 	"FFmpegFree/app"
 	"FFmpegFree/internal/about"
+	"FFmpegFree/internal/doccomp"
 	"FFmpegFree/internal/ffmpeg"
 	"FFmpegFree/internal/localassets"
 	"FFmpegFree/internal/paths"
@@ -42,6 +43,8 @@ type App struct {
 	media                 atomic.Pointer[media.Service]
 	conv                  atomic.Pointer[convert.Service]
 	docs                  atomic.Pointer[doc.Service]
+	// docComp 是文档组件（契约 v0.26，6.12.12）：检测、下载、准备；不依赖转换组件。
+	docComp atomic.Pointer[doccomp.Manager]
 	// /local/<token> 预览登记表（契约 6.13）：doc、convert 分表，各 512 项，互不挤占；main.go 用 localHandler 挂到 AssetServer。
 	// v0.23.5：剪辑已移除，edit 登记表随之删除。
 	docLocal     *localassets.Registry
@@ -57,6 +60,9 @@ func (a *App) docAssets() *localassets.Registry { return a.docLocal }
 func (a *App) localHandler() http.Handler {
 	return localassets.MultiHandler(a.docLocal, a.convertLocal)
 }
+
+// docComponent 返回文档组件管理器；OnStartup 完成前为 nil。小写，不会被 Wails 暴露。
+func (a *App) docComponent() *doccomp.Manager { return a.docComp.Load() }
 
 // docService 返回文档服务；OnStartup 完成前为 nil。小写，不会被 Wails 暴露。
 func (a *App) docService() *doc.Service { return a.docs.Load() }
@@ -188,6 +194,23 @@ func (a *App) startDoc() {
 		DefaultOutputDir: a.sys.ActualOutputDir, // v0.24：Office 转 PDF 默认输出到 <base>/output
 		DataDir:          a.dirs.Root,
 	}
+	// v0.26：文档组件在后台检测（不阻塞界面），状态走 doc:component 事件。
+	root := a.dirs.Root
+	if root == "" {
+		if d, err := paths.Resolve(""); err == nil {
+			root = d.Root
+		}
+	}
+	comp := doccomp.New(doccomp.Config{Dir: doccomp.DefaultDir(root), Emit: app.NewWailsEmitter(a.ctx).Emit, Logf: log.Printf})
+	a.docComp.Store(comp)
+	comp.Start()
+	cfg.Component = comp
+	if a.dirs.Temp != "" {
+		cfg.TempRoot = filepath.Join(a.dirs.Temp, "doc")
+	}
+	if c := a.convertService(); c != nil {
+		cfg.Sources = c
+	}
 	if a.store != nil { // 避免把 nil *Store 装进接口
 		cfg.Recent = a.store
 		cfg.Lister = a.store
@@ -196,6 +219,7 @@ func (a *App) startDoc() {
 		cfg.Tasks = tm
 	}
 	svc := doc.New(cfg)
+	svc.CleanupDocTemp()
 	if n := svc.CleanupInterruptedParts(a.rootCtx); n > 0 {
 		log.Printf("已清理 %d 个中断的 Office 转 PDF 临时文件", n)
 	}
@@ -315,6 +339,9 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 	if l := a.liveService(); l != nil {
 		l.Close() // 停止拉流预览会话（推流任务由下面的任务管理器停止）
+	}
+	if dc := a.docComp.Load(); dc != nil {
+		dc.Close() // 取消下载 / 准备（保留 .part / 安装包，下次接着来）
 	}
 	if c := a.convertService(); c != nil {
 		c.Close(3 * time.Second) // 停复制队列：正在复制的副本下次启动标记为 failed（reason=interrupted）

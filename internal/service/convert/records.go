@@ -37,6 +37,14 @@ type SourceStore interface {
 	MediaByPathKey(ctx context.Context, key string) (*store.MediaInfo, error)
 }
 
+// DocSourceStore 是文档页需要的源文件行能力（契约 v0.26，*store.Store 实现）。
+type DocSourceStore interface {
+	UpsertConvertSourceKind(ctx context.Context, path, key, kind string, sheetCount int, now int64) (store.ConvertSource, bool, error)
+	ListConvertSourcesKind(ctx context.Context, kind, keyword, status string, limit, offset int) ([]store.ConvertSource, int64, error)
+}
+
+var _ DocSourceStore = (*store.Store)(nil)
+
 var _ SourceStore = (*store.Store)(nil)
 
 // Thumbnailer 生成默认缩略图并返回 data URL（*media.Service 实现）。
@@ -158,6 +166,12 @@ var previewExts = extSet("mp4 m4v mov webm mkv ogv mp3 m4a m4r aac wav flac ogg 
 // openExts 是“用系统程序打开”的白名单（6.14.7）：可以预览档 + 只能用系统程序打开档。只放媒体扩展名。
 var openExts = extSet("mp4 m4v mov webm mkv ogv mp3 m4a m4r aac wav flac ogg opus gif webp png jpg jpeg bmp ico " +
 	"avi flv wmv mpg mpeg vob 3gp swf ts mts m2ts wma amr ape wv mmf mp2 aif aiff tif tiff tga")
+
+// docOpenExts 是文档页的行和记录（kind=doc / doc_convert / office_pdf）额外能用系统程序打开的扩展名（v0.26，6.12.14）。
+var docOpenExts = extSet("pdf doc docx odt rtf txt html htm md markdown xls xlsx ods csv ppt pptx odp")
+
+// mediaThumbExts 是能做缩略图的扩展名（同 openExts 的媒体部分；文档没有缩略图，6.12.14）。
+var mediaThumbExts = openExts
 
 func extSet(list string) map[string]bool {
 	m := map[string]bool{}
@@ -505,11 +519,17 @@ func (s *Service) entry(ctx context.Context, tr TaskRecords, ss SourceStore, src
 	}
 	tr.Live(page.Items)
 	src = s.liveSource(src)
-	s.fillMediaFallback(ctx, ss, &src)
+	if src.Kind != store.SourceKindDoc {
+		s.fillMediaFallback(ctx, ss, &src)
+	}
 	return ConvertSourceEntry{Source: src, Records: page.Items, RecordCount: page.Total}, nil
 }
 
 func (s *Service) listSources(ctx context.Context, keyword, status string, limit, offset, recordLimit int) (ConvertSourcePage, error) {
+	return s.listSourcesKind(ctx, store.SourceKindMedia, keyword, status, limit, offset, recordLimit)
+}
+
+func (s *Service) listSourcesKind(ctx context.Context, kind, keyword, status string, limit, offset, recordLimit int) (ConvertSourcePage, error) {
 	tr, ss, err := s.records()
 	if err != nil {
 		return ConvertSourcePage{}, err
@@ -527,7 +547,15 @@ func (s *Service) listSources(ctx context.Context, keyword, status string, limit
 	if recordLimit == 0 {
 		recordLimit = defaultRecordLimit
 	}
-	srcs, total, err := ss.ListConvertSources(ctx, keyword, status, limit, offset)
+	var srcs []ConvertSource
+	var total int64
+	if kind == store.SourceKindMedia {
+		srcs, total, err = ss.ListConvertSources(ctx, keyword, status, limit, offset)
+	} else if ds, ok := ss.(DocSourceStore); ok {
+		srcs, total, err = ds.ListConvertSourcesKind(ctx, kind, keyword, status, limit, offset)
+	} else {
+		return ConvertSourcePage{}, apperr.New(apperr.Internal, "转换服务尚未初始化")
+	}
 	if err != nil {
 		return ConvertSourcePage{}, apperr.Wrap(apperr.Internal, "查询源文件行失败", err)
 	}
@@ -579,11 +607,19 @@ func (s *Service) GetSource(ctx context.Context, sourceID string) (ConvertSource
 // SearchSources 文件名搜索（契约 6.14.9）：源文件名或任一记录的输出文件名包含关键字（不区分大小写的子串）；
 // filter.status（v0.23.2）同 ListSources，与关键字是 AND。
 func (s *Service) SearchSources(ctx context.Context, f ConvertSearchFilter) (ConvertSourcePage, error) {
-	kw := strings.TrimSpace(f.Keyword)
-	if kw == "" || utf8.RuneCountInString(kw) > maxKeywordRunes {
-		return ConvertSourcePage{}, apperr.New(apperr.InvalidArgument, fmt.Sprintf("关键字为 1~%d 个字", maxKeywordRunes))
+	kw, err := searchKeyword(f.Keyword)
+	if err != nil {
+		return ConvertSourcePage{}, err
 	}
-	return s.listSources(ctx, strings.ToLower(kw), f.Status, f.Limit, f.Offset, f.RecordLimit)
+	return s.listSources(ctx, kw, f.Status, f.Limit, f.Offset, f.RecordLimit)
+}
+
+func searchKeyword(raw string) (string, error) {
+	kw := strings.TrimSpace(raw)
+	if kw == "" || utf8.RuneCountInString(kw) > maxKeywordRunes {
+		return "", apperr.New(apperr.InvalidArgument, fmt.Sprintf("关键字为 1~%d 个字", maxKeywordRunes))
+	}
+	return strings.ToLower(kw), nil
 }
 
 // ListSourceRecords 返回某一行的更多记录（limit 默认 50 最大 200）。
@@ -826,7 +862,7 @@ func (s *Service) Reconvert(ctx context.Context, req ReconvertRequest) (task.Tas
 	if old.Type == task.TypeEditExport || old.Type == task.TypeEditRender {
 		return task.Task{}, task.LegacyExportError("重转")
 	}
-	if old.Type != task.TypeConvert {
+	if !task.IsRecordTask(old) {
 		return task.Task{}, apperr.New(apperr.InvalidArgument, "不是转换记录")
 	}
 	if old.Reconverting {
@@ -834,6 +870,9 @@ func (s *Service) Reconvert(ctx context.Context, req ReconvertRequest) (task.Tas
 	}
 	if old.Status != task.StatusSucceeded {
 		return task.Task{}, task.InvalidStateError("只有已完成的记录可以重转")
+	}
+	if old.Type != task.TypeConvert {
+		return s.reconvertDoc(ctx, tr, ss, old, req)
 	}
 	var p params
 	if err := json.Unmarshal([]byte(old.Params), &p); err != nil || (p.Input == "" && len(old.InputPaths) == 0) {
@@ -1008,12 +1047,12 @@ func (s *Service) register(path string, media func() *store.MediaInfo) (PreviewU
 }
 
 // open 用系统默认程序打开；扩展名不在“系统打开白名单”UNSUPPORTED（reason=format）。
-func (s *Service) open(path string) error {
+func (s *Service) open(path string, doc bool) error {
 	if s.cfg.Open == nil {
 		return apperr.New(apperr.Internal, "转换服务尚未初始化")
 	}
-	if !hasExt(openExts, path) {
-		return formatUnsupported("只能用系统程序打开音视频文件")
+	if !hasExt(openExts, path) && !(doc && hasExt(docOpenExts, path)) {
+		return formatUnsupported("只能用系统程序打开音视频和文档文件")
 	}
 	return s.cfg.Open(path)
 }
@@ -1055,7 +1094,7 @@ func (s *Service) OpenSourceWithSystem(ctx context.Context, sourceID string) err
 	if err != nil {
 		return err
 	}
-	return s.open(p)
+	return s.open(p, src.Kind == store.SourceKindDoc)
 }
 
 // RevealSource 在文件管理器里显示用户的原文件（v0.24.3：打开 originalPath 所在文件夹并选中原文件，
@@ -1095,7 +1134,7 @@ func (s *Service) reveal(p string) error {
 // 不是 succeeded、文件不在、不是普通文件、是符号链接 NOT_FOUND（reason=file）。
 func (s *Service) recordOutput(tr TaskRecords, taskID string) (string, task.Task, error) {
 	p, t, err := tr.TaskFile(taskID, "output")
-	if t.ID != "" && t.Type != task.TypeConvert {
+	if t.ID != "" && !task.IsRecordTask(t) {
 		return "", t, apperr.New(apperr.InvalidArgument, "不是转换记录")
 	}
 	return p, t, err
@@ -1174,7 +1213,7 @@ func (s *Service) thumbnail(ctx context.Context, p string, hint float64) (string
 	if s.cfg.Thumbs == nil {
 		return "", apperr.New(apperr.Internal, "转换服务尚未初始化")
 	}
-	if !hasExt(openExts, p) { // 扩展名不是音视频：做不出缩略图
+	if !hasExt(mediaThumbExts, p) { // 扩展名不是音视频：做不出缩略图
 		return "", formatUnsupported("这个文件做不出缩略图")
 	}
 	return s.cfg.Thumbs.DefaultThumbnailDataURL(ctx, p, hint)
@@ -1199,11 +1238,11 @@ func (s *Service) TaskOpenWithSystem(ctx context.Context, taskID, which string) 
 	if !ok {
 		return apperr.New(apperr.Internal, "转换服务尚未初始化")
 	}
-	p, _, err := tr.TaskFile(taskID, which)
+	p, t, err := tr.TaskFile(taskID, which)
 	if err != nil {
 		return err
 	}
-	return s.open(p)
+	return s.open(p, t.Type == task.TypeDocConvert || t.Type == task.TypeOfficePDF)
 }
 
 // ---------- 结果信息（契约 6.14.6） ----------

@@ -10,7 +10,12 @@ require (
 	modernc.org/sqlite v1.40.1
 )
 
-require github.com/gorilla/websocket v1.5.3 // indirect
+require (
+	github.com/JohannesKaufmann/dom v0.2.0 // indirect
+	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.0 // indirect
+	github.com/gorilla/websocket v1.5.3 // indirect
+	github.com/yuin/goldmark v1.8.6 // indirect
+)
 
 require (
 	github.com/bep/debounce v1.2.1 // indirect
@@ -31,7 +36,7 @@ require (
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/richardlehane/mscfb v1.0.6 // indirect
+	github.com/richardlehane/mscfb v1.0.6
 	github.com/richardlehane/msoleps v1.0.6 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/samber/lo v1.49.1 // indirect

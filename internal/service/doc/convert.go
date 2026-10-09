@@ -306,6 +306,9 @@ func (s *Service) newRunner(j job) task.Runner {
 
 // retryFactory 用 Params 重建 Runner：重新校验输入（文件被删返回 NOT_FOUND，不产生新任务）和输出目录。
 func (s *Service) retryFactory(old task.Task) (task.Runner, error) {
+	if task.IsRecordTask(old) { // v0.26：文档页的简易转换（带 sourceId）按文档页的规则重试
+		return s.docRetryFactory(old)
+	}
 	var p params
 	if err := json.Unmarshal([]byte(old.Params), &p); err != nil || p.Input == "" {
 		return nil, apperr.New(apperr.InvalidArgument, "转换任务参数无效，无法重试")

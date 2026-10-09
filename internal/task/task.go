@@ -38,6 +38,7 @@ const (
 	// TypeEditRender 已弃用（只为读旧数据），见 store.TypeEditRender。
 	TypeEditRender     = store.TypeEditRender
 	TypeOfficePDF      = store.TypeOfficePDF
+	TypeDocConvert     = store.TypeDocConvert
 	TypeLiveFilePush   = store.TypeLiveFilePush
 	TypeLiveScreenPush = store.TypeLiveScreenPush
 	TypeFFmpegInstall  = store.TypeFFmpegInstall
@@ -215,11 +216,25 @@ type StatusEvent struct {
 	Reconverting       *bool                 `json:"reconverting,omitempty"`
 	ReconvertOutcome   string                `json:"reconvertOutcome,omitempty"`
 	LastReconvertError *store.ReconvertError `json:"lastReconvertError,omitempty"`
+	// QueuePosition（契约 v0.26，6.12.18）：只在文档组件池里排队的任务的 queued 事件上带（前面还有几项，从 0 起）。
+	QueuePosition *int `json:"queuePosition,omitempty"`
 }
 
-// rcFlag 返回 task:status 的 reconverting 字段：只有 convert 任务带。
+// IsRecordTask 判断任务是不是“源文件行的记录”（契约 6.14 / v0.26 6.12.21）：convert、doc_convert，以及带 sourceId 的 office_pdf（文档页的简易转换）。
+// 这些记录共用转换页的删除、重转、重试规则。
+func IsRecordTask(t Task) bool {
+	switch t.Type {
+	case TypeConvert, TypeDocConvert:
+		return true
+	case TypeOfficePDF:
+		return t.SourceID != ""
+	}
+	return false
+}
+
+// rcFlag 返回 task:status 的 reconverting 字段：只有记录类任务（convert、doc_convert、文档页的 office_pdf）带。
 func rcFlag(t Task) *bool {
-	if t.Type != TypeConvert {
+	if !IsRecordTask(t) {
 		return nil
 	}
 	v := t.Reconverting
@@ -248,10 +263,11 @@ type Spec struct {
 
 // Info 是任务运行时通过 ctx 传给 Runner 的信息。
 type Info struct {
-	ID   string
-	Type Type
-	log  *logSink
-	m    *Manager
+	ID     string
+	Type   Type
+	record bool // 转换页 / 文档页的记录（IsRecordTask）：重名用 "a (1)" 格式
+	log    *logSink
+	m      *Manager
 }
 
 type ctxKey struct{}

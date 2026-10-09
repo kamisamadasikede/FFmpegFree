@@ -444,6 +444,98 @@ export namespace convert {
 
 export namespace doc {
 	
+	export class DocSource {
+	    sourceId: string;
+	    path: string;
+	    name: string;
+	    addedAt: number;
+	    lastActivityAt: number;
+	    media?: store.MediaInfo;
+	    originalPath: string;
+	    storedPath: string;
+	    copyState: string;
+	    copiedBytes: number;
+	    totalBytes: number;
+	    copyError?: apperr.AppError;
+	    ext: string;
+	    family: string;
+	    sheetCount: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocSource(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sourceId = source["sourceId"];
+	        this.path = source["path"];
+	        this.name = source["name"];
+	        this.addedAt = source["addedAt"];
+	        this.lastActivityAt = source["lastActivityAt"];
+	        this.media = this.convertValues(source["media"], store.MediaInfo);
+	        this.originalPath = source["originalPath"];
+	        this.storedPath = source["storedPath"];
+	        this.copyState = source["copyState"];
+	        this.copiedBytes = source["copiedBytes"];
+	        this.totalBytes = source["totalBytes"];
+	        this.copyError = this.convertValues(source["copyError"], apperr.AppError);
+	        this.ext = source["ext"];
+	        this.family = source["family"];
+	        this.sheetCount = source["sheetCount"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class AddDocSourceResult {
+	    path: string;
+	    source?: DocSource;
+	    error?: apperr.AppError;
+	
+	    static createFrom(source: any = {}) {
+	        return new AddDocSourceResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.source = this.convertValues(source["source"], DocSource);
+	        this.error = this.convertValues(source["error"], apperr.AppError);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class DocLimits {
 	    maxInputsPerSubmit: number;
 	    maxInputBytes: number;
@@ -536,8 +628,266 @@ export namespace doc {
 		    return a;
 		}
 	}
+	export class DocEngineInfo {
+	    id: string;
+	    name: string;
+	    version: string;
+	    source?: string;
+	    installed: boolean;
+	    families: string[];
+	    available: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocEngineInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.version = source["version"];
+	        this.source = source["source"];
+	        this.installed = source["installed"];
+	        this.families = source["families"];
+	        this.available = source["available"];
+	    }
+	}
+	export class DocComponentStatus {
+	    state: string;
+	    componentState: string;
+	    engines: DocEngineInfo[];
+	    version: string;
+	    source: string;
+	    canDownload: boolean;
+	    downloadBytes: number;
+	    installBytes: number;
+	    phase?: string;
+	    receivedBytes?: number;
+	    error?: apperr.AppError;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocComponentStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.state = source["state"];
+	        this.componentState = source["componentState"];
+	        this.engines = this.convertValues(source["engines"], DocEngineInfo);
+	        this.version = source["version"];
+	        this.source = source["source"];
+	        this.canDownload = source["canDownload"];
+	        this.downloadBytes = source["downloadBytes"];
+	        this.installBytes = source["installBytes"];
+	        this.phase = source["phase"];
+	        this.receivedBytes = source["receivedBytes"];
+	        this.error = this.convertValues(source["error"], apperr.AppError);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	
 	
+	
+	export class DocTarget {
+	    ext: string;
+	    displayName: string;
+	    needsComponent: boolean;
+	    simple: boolean;
+	    available: boolean;
+	    hintKey?: string;
+	    hint?: string;
+	    disabledReason?: string;
+	    engines?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new DocTarget(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ext = source["ext"];
+	        this.displayName = source["displayName"];
+	        this.needsComponent = source["needsComponent"];
+	        this.simple = source["simple"];
+	        this.available = source["available"];
+	        this.hintKey = source["hintKey"];
+	        this.hint = source["hint"];
+	        this.disabledReason = source["disabledReason"];
+	        this.engines = source["engines"];
+	    }
+	}
+	export class DocSourceFormats {
+	    ext: string;
+	    aliases?: string[];
+	    family: string;
+	    targets: DocTarget[];
+	
+	    static createFrom(source: any = {}) {
+	        return new DocSourceFormats(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ext = source["ext"];
+	        this.aliases = source["aliases"];
+	        this.family = source["family"];
+	        this.targets = this.convertValues(source["targets"], DocTarget);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class DocFormatMatrix {
+	    componentReady: boolean;
+	    inputs: string[];
+	    sources: DocSourceFormats[];
+	
+	    static createFrom(source: any = {}) {
+	        return new DocFormatMatrix(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.componentReady = source["componentReady"];
+	        this.inputs = source["inputs"];
+	        this.sources = this.convertValues(source["sources"], DocSourceFormats);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	export class DocSourceEntry {
+	    source: DocSource;
+	    records: store.Task[];
+	    recordCount: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocSourceEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.source = this.convertValues(source["source"], DocSource);
+	        this.records = this.convertValues(source["records"], store.Task);
+	        this.recordCount = source["recordCount"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class DocSourcePage {
+	    items: DocSourceEntry[];
+	    total: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocSourcePage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.items = this.convertValues(source["items"], DocSourceEntry);
+	        this.total = source["total"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class DocSubmitRequest {
+	    sourceIds: string[];
+	    target: string;
+	    outputDir: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocSubmitRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sourceIds = source["sourceIds"];
+	        this.target = source["target"];
+	        this.outputDir = source["outputDir"];
+	    }
+	}
 	
 	export class PDFChunk {
 	    offset: number;
@@ -1298,6 +1648,7 @@ export namespace store {
 	    height?: number;
 	    audioBitrateKbps?: number;
 	    warnings?: string[];
+	    engine?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new TaskResult(source);
@@ -1311,6 +1662,7 @@ export namespace store {
 	        this.height = source["height"];
 	        this.audioBitrateKbps = source["audioBitrateKbps"];
 	        this.warnings = source["warnings"];
+	        this.engine = source["engine"];
 	    }
 	}
 	export class Task {
@@ -1341,6 +1693,7 @@ export namespace store {
 	    result?: TaskResult;
 	    reconverting: boolean;
 	    lastReconvertError?: ReconvertError;
+	    queuePosition?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Task(source);
@@ -1375,6 +1728,7 @@ export namespace store {
 	        this.result = this.convertValues(source["result"], TaskResult);
 	        this.reconverting = source["reconverting"];
 	        this.lastReconvertError = this.convertValues(source["lastReconvertError"], ReconvertError);
+	        this.queuePosition = source["queuePosition"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

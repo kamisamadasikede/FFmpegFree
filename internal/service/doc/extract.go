@@ -336,6 +336,10 @@ func (s *Service) extract(ctx context.Context, path, ext string) (*docModel, err
 		return extractXlsx(ctx, path)
 	case "pptx":
 		return extractPptx(ctx, path)
+	case "odt": // v0.26：只有文档页的简易转换会走到
+		return extractODT(ctx, path)
+	case "txt":
+		return extractTXT(ctx, path)
 	}
 	return nil, reasonErr(apperr.Unsupported, "暂不支持这种格式", reasonFormat, "."+ext)
 }
