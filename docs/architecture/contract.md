@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.31.5）
+# FFmpegFree v2 接口契约（v0.32）
+
+v0.32 变更（**Cat 右侧文件面板**，架构师 10-09 定；完整规则见新增 **6.19.11**，本条只是索引，冲突时以该节为准；**无新错误码，2.1 仍是 39 个；无迁移、无新事件、无新开关**）：**修复：文件面板之前在真后端下也显示的是模拟数据。** ① CatService 新增 **`ListCatFiles({convId, relPath}) → {root, entries[], truncated}`**：只列**一层**（展开时再懒加载），条目 `{name, relPath, isDir, size, modTime}`；根 = 项目对话用项目文件夹，普通对话用对话自己的文件夹；`relPath` 必须是根内相对路径（不许 `..` / 绝对 / 盘符 / UNC），符号链接 / junction 列成不可展开的条目、不跟随；**绝不读文件内容**。② 固定隐藏 `.git`、`node_modules`、`target`、`.DS_Store`、`Thumbs.db`，其他点文件照常显示，一期不读 `.gitignore`；每层最多 500 项，超出 `truncated=true`；文件夹在前，再按名字不区分大小写排序。③ **普通对话的文件夹**：新增 `paths.CatConvDir(convId)`，新位置 `<数据目录>/cat/conversations/<convId>`，**创建对话时就建**；旧对话已有 `<数据目录>/tmp/cat/cwd-<convId>` 的**继续用旧路径**（CLI 续聊按 cwd 找会话，不搬）；删除普通对话时尽力删它自己的文件夹（只删应用自己的目录，失败不影响删除）；**项目文件夹永远不动**。④ CatService 新增 **`RevealCatConversationFolder({convId})`**：在系统文件管理器里打开对话的根（项目对话同 `RevealCatProject`，含 `CAT_PROJECT_MISSING`；普通对话没有就建），复用 `system.Manager.OpenFolder`。⑤ 「变更」页签一期没有后端数据，前端**隐藏**（二期）；只保留「文件」。⑥ 2.2 `INVALID_ARGUMENT` 追加 `reason=path`。⑦ 真机待验见 6.19.11.8。文案（空 / 截断 / 加载失败）待产品确认。
 
 v0.31.5 变更（**Cat Build 模型 / 强度 / 黑名单口径修正**，架构师 10-09；实现 #196、#197；**无新错误码 / 迁移 / 事件 / 开关，2.1 仍是 39 个**；**取代 v0.31.4 中「探测失败回退 CLI 默认列表」及强度相关说法**）：① **模型探测失败**：`grok models` 超时 / 报错 / 解析不出模型 → 模型列表**为空**，发消息**不传 `-m`**（用 CLI 自己的默认模型）；**不再有任何写死的回退模型名**。② **思考强度**：档位 `low` / `medium` / `high` / `xhigh`，显示名 `低` / `中` / `高` / `超高`（**「超高」待产品确认**）；**只有用户选了才传** `--reasoning-effort <level>`，没选不传；没选时界面显示 `默认`。③ **已知风险**：`grok-4.5` 可能不支持 `xhigh`（CLI 本地缓存显示最高 `high`），**未在真机验证**，预期 CLI 忽略不支持的档位，已加入真机待验（6.19.10.10 第 9 条）。④ **黑名单补齐**：`--disallowed-tools` 现为 `run_terminal_cmd,search_replace,write_file,apply_patch,task,Agent,web_search,web_fetch,search_tool,use_tool,image_gen,image_edit,video_gen,bash,edit,write,hashline_edit,run_terminal_command`（新增 `bash`、`edit`、`write`、`hashline_edit`、`run_terminal_command`，覆盖其他工具配置里的同类工具）；白名单不变 `--tools read_file,list_dir,grep`。
 
@@ -294,7 +296,7 @@ export type AppErrorCode =
 | 语音工具转字幕（v0.29，6.18） | `reason=<值>` | `INVALID_ARGUMENT`：`cue_invalid`（导出硬校验）；`NOT_FOUND`：`component`（`OpenStorageFolder("lang_asr")`）（只追加） | 界面不显示 |
 | PDF 输入（v0.28，6.12.60 / 6.12.63：添加 PDF 的 `AddDocSourceResult.error`、`DOC_PDF_NO_TEXT`） | `reason=<值>` | `INVALID_ARGUMENT`：`too_large`（沿用：PDF 超过 200 MiB）、`too_many_pages`（超过 500 页）；`DOC_PDF_NO_TEXT`：`no_text`（第二行 `quality=empty\|garbled` 只给开发者看）（只追加） | 只有第一行；界面不显示 |
 | 文档组件未就绪（v0.27.2，6.12.55：`DOC_COMPONENT_NOT_READY` 的同步错误和任务错误，以及 `DocComponentStatus.error`） | `reason=<值>` | `checking`、`missing`、`outdated`（含 Windows / macOS 应用下载的组件低于 26.2.6）、`downloading`、`preparing`、`failed`，即 `componentState`（只追加） | 只有这一行；`OpenStorageFolder("doc_component")` 的 `NOT_FOUND` 沿用 v0.25.1 的 `reason=component` |
-| `INVALID_ARGUMENT` / `NOT_FOUND` / `TASK_CONFLICT`（v0.31 Cat 项目，6.19.10：`CreateCatProject`、`RenameCatProject`；v0.31.1 加 `RelocateCatProject`） | `reason=<值>` | `INVALID_ARGUMENT`：`project_path`（不是绝对路径 / 不存在 / 不是文件夹）、`project_root`（盘符或文件系统根）、`project_name`（名字为空（改名时）、超过 60 个字符或含控制字符）、`project_duplicate`（v0.31.1：`RelocateCatProject` 的新路径已属于另一个项目）；`TASK_CONFLICT`：`turn_running`（v0.31.1：`RelocateCatProject` 时该项目下有进行中的一轮）（只追加） | 只有 `project_duplicate` 有第二行 `projectId=<已有项目 id>`，前端按 `^projectId=(\S+)$` 取（取不到就重新 `ListCatProjects`、只提示不切换）；其余只有一行。界面按 6.19.10.8 映射；`NOT_FOUND` 项目不存在无固定 detail。`turn_running` 也是“直播会话冲突以外的 `TASK_CONFLICT` 没有 `reason=` 行”的例外 |
+| `INVALID_ARGUMENT` / `NOT_FOUND` / `TASK_CONFLICT`（v0.31 Cat 项目，6.19.10：`CreateCatProject`、`RenameCatProject`；v0.31.1 加 `RelocateCatProject`） | `reason=<值>` | `INVALID_ARGUMENT`：`project_path`（不是绝对路径 / 不存在 / 不是文件夹）、`project_root`（盘符或文件系统根）、`project_name`（名字为空（改名时）、超过 60 个字符或含控制字符）、`project_duplicate`（v0.31.1：`RelocateCatProject` 的新路径已属于另一个项目）；`TASK_CONFLICT`：`turn_running`（v0.31.1：`RelocateCatProject` 时该项目下有进行中的一轮）；`path`（v0.32：`ListCatFiles` 的 `relPath` 不是根内相对路径、含 `..`、绝对 / 盘符 / UNC、解析后出了根，或要穿过符号链接 / junction，6.19.11.3）（只追加） | 只有 `project_duplicate` 有第二行 `projectId=<已有项目 id>`，前端按 `^projectId=(\S+)$` 取（取不到就重新 `ListCatProjects`、只提示不切换）；其余只有一行。界面按 6.19.10.8 映射；`NOT_FOUND` 项目不存在无固定 detail。`turn_running` 也是“直播会话冲突以外的 `TASK_CONFLICT` 没有 `reason=` 行”的例外 |
 | 其余所有码（含 `LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`INTERNAL`） | 无固定格式 | — | 前端**不得**解析（上面几行列出的码 / 场景除外） |
 
 统一规则：第一行只有一个 `key=value`，值只含小写字母、数字、下划线（`scheme` 例外；`kind` 的取值是 `window` / `screen`，取值就是上面三个小写单词）；前端用 `^(reason|scheme|kind)=([a-z0-9_]+)$` 匹配 `detail` 的第一行；**没有第一行、格式不对、或值不认识，一律走该错误码的通用文案**，不得猜测含义、不得报错崩溃。测试必须逐码断言第一行精确等于期望值（不是包含）。
@@ -443,6 +445,8 @@ RenameCatProject(req RenameCatProjectRequest) (CatProject, error)            // 
 DeleteCatProject(req DeleteCatProjectRequest) error                          // 未知 id → nil；不动文件夹里的文件
 RelocateCatProject(req RelocateCatProjectRequest) (CatProject, error)        // v0.31.1：{id, path} 换文件夹，对话保留；missing 也可（6.19.10.2 第 8 条）
 RevealCatProject(req RevealCatProjectRequest) error                          // v0.31.1：{id} 在文件管理器里打开项目文件夹，不写任何东西（第 9 条）
+ListCatFiles(req ListCatFilesRequest) (ListCatFilesResult, error)            // v0.32：{convId, relPath} 列对话根下一层，不读文件内容（6.19.11）
+RevealCatConversationFolder(req RevealCatConversationFolderRequest) error    // v0.32：{convId} 在文件管理器里打开对话根（项目文件夹 / 对话文件夹）（6.19.11.5）
 ListEncoderDevices() (EncoderDeviceList, error)      // 硬件编码设备（9.6）：第一项永远是 cpu；ffmpeg 未就绪时只有 cpu 且 ffmpegReady=false，不报错
 RefreshEncoderDevices() (EncoderDeviceList, error)   // 丢弃缓存重新检测
 GetEncoderPreference() (string, error)               // "auto" | "cpu" | 设备 id，默认 "auto"；所选设备不可用时保持原值
@@ -3938,7 +3942,7 @@ type ExportSubtitleRequest struct {
 ### 6.19.3 Build 适配器（`cat_build`）
 
 - **入口（v0.31.3）**：系统 PATH 上的 `grok` / `grok.exe`（`exec.LookPath`）。路径只进注册表，**不**回前端。组件目录 `%LocalAppData%\FFmpegFree\components\cat\build\<version>\` 仍保留作日后捆绑回退，一期不靠它就绪。  
-- **Headless 调用**（v0.31.4）：`grok -p "<最新一条用户消息>" --output-format streaming-json --cwd <项目绝对路径，无项目则用应用临时目录> -s <会话 UUID>（后续轮 `--resume <会话 UUID>`） --no-auto-update --no-alt-screen --always-approve <只读工具参数，见下>`；用户选了模型 / 强度时每一轮都带 `-m <modelId>`、`--reasoning-effort <level>`。  
+- **Headless 调用**（v0.31.4）：`grok -p "<最新一条用户消息>" --output-format streaming-json --cwd <项目绝对路径，无项目则用对话文件夹 `paths.CatConvDir`（v0.32，6.19.11.4）> -s <会话 UUID>（后续轮 `--resume <会话 UUID>`） --no-auto-update --no-alt-screen --always-approve <只读工具参数，见下>`；用户选了模型 / 强度时每一轮都带 `-m <modelId>`、`--reasoning-effort <level>`。  
 - **streaming-json**（NDJSON；官方 schema 未正式发布，按 CLI 0.2.x 捕获）：`{"type":"text","data"}` 正文增量；`thought` 忽略；`end` 结束；`error` 失败。  
 - **认证**：继承用户环境 `XAI_API_KEY` 或 `~/.grok/auth.json`（`grok login`）。**无** Base URL / API Key 设置。  
 - **一期只读**（v0.31.4 改）：自动批准 + 只读白名单 `--tools read_file,list_dir,grep`，另带 `--disallowed-tools run_terminal_cmd,search_replace,write_file,apply_patch,task,Agent,web_search,web_fetch,search_tool,use_tool,image_gen,image_edit,video_gen,bash,edit,write,hashline_edit,run_terminal_command`（写 / 改 / 跑命令 / 子代理 / 联网 / MCP / 生成，v0.31.5 补 `bash` / `edit` / `write` / `hashline_edit` / `run_terminal_command`）、`--no-subagents`、`--disable-web-search`、`--deny Bash|Edit|Write|WebFetch|WebSearch|MCPTool(*)`；环境 `GROK_SANDBOX=read-only`、`GROK_WRITE_FILE=0`（Windows 上沙箱不生效，只靠工具限制）。真·请求批准二期（`--permission-mode dontAsk` + 批准流）。  
@@ -4319,6 +4323,91 @@ CREATE INDEX idx_cat_conversations_project ON cat_conversations (project_id, upd
 8. **在文件管理器中显示**（v0.31.1）：Windows 资源管理器、macOS 访达各开一次（中文 / 空格路径、网络盘路径）；文件夹不在时返回 `项目文件夹不见了。` 且不会新建文件夹。
 9. **思考强度 `xhigh`**（v0.31.5）：分别用 `grok-4.6`、`grok-4.5` 选「超高」发消息 → 回复正常、不报错（`grok-4.5` 可能只支持到 `high`，预期 CLI 忽略）；不选强度时命令行里没有 `--reasoning-effort`；模型列表拿不到时不带 `-m` 也能正常回复。
 10. **只读**（v0.31.4）：让它新建 / 修改文件、运行命令 → 都被拒绝，项目里无改动（Windows 上沙箱不生效，只靠工具限制）。
+
+### 6.19.11 文件面板（v0.32，架构师 10-09 定）
+
+Cat 聊天页右侧「文件」面板显示**当前对话的根**下的文件树。**修复**：此前面板在真后端下也显示模拟数据。
+
+#### 6.19.11.1 接口（CatService）
+
+```go
+ListCatFiles(req ListCatFilesRequest) (ListCatFilesResult, error)
+RevealCatConversationFolder(req RevealCatConversationFolderRequest) error
+
+type ListCatFilesRequest struct {
+    ConvID  string `json:"convId"`
+    RelPath string `json:"relPath"` // 空 = 根；正斜杠分隔的根内相对路径
+}
+type ListCatFilesResult struct {
+    Root      string         `json:"root"`      // 根的显示路径（本机绝对路径，原样，用于面板标题 / 提示）
+    Entries   []CatFileEntry `json:"entries"`   // 只有一层；始终输出（空为 []）
+    Truncated bool           `json:"truncated"` // 这一层超过 500 项，只返回排序后的前 500 项
+}
+type CatFileEntry struct {
+    Name    string `json:"name"`
+    RelPath string `json:"relPath"` // 相对根，正斜杠
+    IsDir   bool   `json:"isDir"`   // 符号链接 / junction 一律 false（不可展开）
+    Size    int64  `json:"size"`    // 字节；文件夹为 0
+    ModTime int64  `json:"modTime"` // Unix 毫秒（全文约定）；取不到为 0
+}
+type RevealCatConversationFolderRequest struct {
+    ConvID string `json:"convId"`
+}
+```
+
+#### 6.19.11.2 根
+
+1. 对话有 `projectId` → 根 = 项目文件夹（`CatProject.path`）。
+2. 没有项目 → 根 = 对话自己的文件夹 `paths.CatConvDir(convId)`（6.19.11.4）。
+3. 未知 `convId` → `NOT_FOUND`；项目文件夹不在 → `CAT_PROJECT_MISSING`（`项目文件夹不见了。`，同 6.19.10.9）；普通对话的文件夹不在 → `ListCatFiles` 先建再列（结果为空）。
+
+#### 6.19.11.3 `ListCatFiles` 规则
+
+1. **只列一层**；前端展开文件夹时再用该文件夹的 `relPath` 调。
+2. **路径校验**（不过 → `INVALID_ARGUMENT` `reason=path`）：`relPath` 接受 `/` 或 `\`，统一成 `/`；不能是绝对路径、带盘符（`C:`）、UNC（`\\server\share`）或以 `/` 开头；任何一段是 `..` 都拒绝；`filepath.Join(根, relPath)` 后 Clean，必须仍在根下；路径上**任何一段**是符号链接 / junction（含 Windows reparse point）→ 拒绝（不跟随、不穿过）。
+3. `relPath` 指向的东西不存在或不是文件夹 → `NOT_FOUND`。
+4. **符号链接 / junction**：作为条目列出，`isDir=false`、`size=0`，不跟随、不读其目标；前端不能展开。
+5. **固定隐藏**（任何层、精确匹配名字，Windows / macOS 不区分大小写）：`.git`、`node_modules`、`target`、`.DS_Store`、`Thumbs.db`。其余点文件照常显示。一期**不读 `.gitignore`**。
+6. **排序**：文件夹在前，再按名字不区分大小写（Unicode 小写折叠）升序，相同再按名字字节序。
+7. **上限**：每层排序后最多返回 **500** 项，多出的丢弃并 `truncated=true`。
+8. 单个条目 stat 失败（权限、OneDrive 占位等）→ 仍列出，`size=0`、`modTime=0`，不让整层失败；整层读目录失败 → `IO_ERROR`。
+9. **绝不读文件内容**，不触发文件下载（只 `Lstat` / 读目录；OneDrive 占位文件的行为真机验，6.19.11.8）。
+
+#### 6.19.11.4 普通对话的文件夹 `paths.CatConvDir(convId)`
+
+1. 新增 `paths.CatConvDir(convId)`，**适配器（`--cwd`）和 `ListCatFiles` / `RevealCatConversationFolder` 共用**，不各算各的。
+2. 新位置 `<数据目录>/cat/conversations/<convId>`（**不在 `tmp` 下**）。**创建对话时就建**（`CreateCatConversation` 无项目时），不再等第一次发送。建失败不让创建失败，下次用到时再建。
+3. **兼容旧对话**：如果旧路径 `<数据目录>/tmp/cat/cwd-<convId>` 已存在，这个对话**继续用旧路径**（CLI 续聊按 cwd 找会话，搬了会接不上）；**不搬、不复制**。只有新对话用新位置。
+4. **删除普通对话**（`DeleteCatConversation`）：在删记录之后尽力删它自己的文件夹；**只在路径位于 `<数据目录>/cat/conversations/` 或 `<数据目录>/tmp/cat/` 之内时才删**；失败只记日志，不让删除失败。
+5. **项目文件夹永远不动**：删对话、删项目都不删 / 不改项目文件夹里的任何东西（同 6.19.10）。
+
+#### 6.19.11.5 `RevealCatConversationFolder({convId})`
+
+1. 项目对话：行为同 `RevealCatProject`（文件夹不在 → `CAT_PROJECT_MISSING`，绝不建目录）。
+2. 普通对话：打开 `paths.CatConvDir(convId)`，不在就先建。
+3. 未知 `convId` → `NOT_FOUND`。复用 `system.Manager.OpenFolder`（6.19.10.2 第 9 条），启动失败 `PROCESS_FAILED`。
+
+#### 6.19.11.6 「变更」页签
+
+一期没有后端数据来源 → 前端**隐藏「变更」页签**（二期再做），面板只有「文件」。
+
+#### 6.19.11.7 前端规则
+
+1. 真后端模式下面板调 `ListCatFiles`，有 **加载中 / 空 / 出错 / 截断** 四态；模拟数据**只在浏览器模拟模式**（无 `window.go`）下用。
+2. 面板的「刷新」按钮重新拉根及已展开的文件夹；「打开文件夹」调 `RevealCatConversationFolder`。
+3. 文件夹**展开时懒加载**；符号链接条目不可展开。
+4. 搜索框**只在已加载的条目里**前端过滤，不调后端、不递归。
+5. **刷新时机**：切换对话、窗口获得焦点、`cat:turn` 结束（`completed` / `cancelled` / `failed`）。**不做文件监视**。
+6. 文案（**待产品确认**）：空 `这里还没有文件。`；截断 `只显示前 500 项。`；加载失败 `文件列表加载失败，请重试。`；项目文件夹不在沿用 `项目文件夹不见了。`。
+
+#### 6.19.11.8 真机待验证（Windows）
+
+1. 中文 / 空格 / 括号路径的项目和普通对话：列表、展开、打开文件夹。
+2. **OneDrive 占位文件**（仅联机）：列目录不触发下载、`size` / `modTime` 合理、耗时可接受。
+3. 项目里有 **junction / 符号链接指向项目外** → 列成不可展开条目；手动用它的 `relPath` 调 → `INVALID_ARGUMENT` `reason=path`。
+4. 一个文件夹 **超过 500 项** → 只显示前 500 项并提示截断，排序文件夹在前。
+5. **旧对话**（已有 `tmp/cat/cwd-<convId>`）升级后仍能续聊（同一 CLI 会话），文件面板显示旧文件夹内容。
+6. 新建普通对话后立即「打开文件夹」→ 资源管理器打开 `<数据目录>\cat\conversations\<convId>`；删除该对话后文件夹被删，项目文件夹不受影响。
 
 ## 7. 本地流服务（已取消）
 
