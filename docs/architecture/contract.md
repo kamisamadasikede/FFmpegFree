@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.30.2）
+# FFmpegFree v2 接口契约（v0.31）
+
+v0.31 变更（**Cat 助手 · 项目**，产品规则 / 架构 10-09 定；完整规则见新增 **6.19.10**）：① 项目 = 用户选的一个本机文件夹，名字默认文件夹名、可改名、允许重名；新类型 `CatProject{id,name,path,createdAt,updatedAt,missing}`。② CatService 新增 `ListCatProjects`、`CreateCatProject({path,name?}) → {project, existed}`（绝对路径、已存在文件夹、拒绝盘符 / 文件系统根；同一路径（Clean 后比较，Windows 不区分大小写）已建过 → 返回已有项目 `existed=true`、不报错不新建，前端提示「这个文件夹已经建过项目了。」并切过去）、`RenameCatProject({id,name})`、`DeleteCatProject({id})`（未知 id → nil；先取消其下进行中的一轮再在**显式事务**里删记录和对话，**绝不动文件夹里的文件**）；选文件夹复用 `SystemService.PickDirectory`。③ `CatConversation` 新增 `projectId`（可空），**创建时写入、之后不可变**；`CreateCatConversation` 新增可选 `projectId`；**一期没有「移动对话到项目」**，对话只能在项目下新建获得项目。v0.30 的 `projectPath` 字段作废（后端忽略）。④ `missing` 由后端 stat 实时计算（`ListCatProjects`、每次 `SendCatMessage` / `CreateCatConversation`；网络盘 2 秒超时按缺）；变化时发新事件 **`cat:project` `{id, missing}`**；前端窗口获得焦点时刷新列表；文件夹回来自动恢复；不做文件监视。⑤ 项目缺失时 `SendCatMessage` / `CreateCatConversation` 同步 **`CAT_PROJECT_MISSING`**（「项目文件夹不见了。」），不启 turn、不存用户消息。⑥ 项目路径是只读工具的沙箱根：相对路径解析，`..`、绝对路径、符号链接 / junction 逃逸一律拒绝；不属于项目的对话没有项目工具；写 / 执行仍拒绝。⑦ 排序：项目按最近对话活动倒序（无对话用 createdAt），同值按 createdAt；对话按 updatedAt。⑧ **迁移 `0011_cat_projects.sql`**（`0010` 已被 Cat 用掉）：新表 `cat_projects`（`path_key UNIQUE`）+ `cat_conversations.project_id`（可空、不加外键）。⑨ **2.1 由 38 变为 39**（+`CAT_PROJECT_MISSING`）；2.2 `INVALID_ARGUMENT` 新增 `reason=project_path` / `project_root` / `project_name`。⑩ 前端开关不变（`CAT_UI_ENABLED` 仍默认 false）；空状态「还没有项目。」。真机待验：中文 / 空格路径、网络盘、OneDrive 占位文件夹（6.19.10.10）。
 
 v0.30.2 变更（Cat 流式回写对齐后端 #174，架构 10-09；见 **6.19.9**）：① `SendCatMessageResult` 必带 `turnId`；流式下 `assistantMessage` 为空/省略，助手内容只经 `cat:message` / `cat:turn`；同步仍带 `userMessage`；未就绪同步 `CAT_NOT_READY`（不启 turn）。② `CancelCatTurn({convId,turnId})`：`convId` 空 → `INVALID_ARGUMENT`；`turnId` 空取消该会话当前进行中一轮（兼容）；turnId 对不上 / 无进行中 / 重复取消 → nil；取消保留已出文字、无气泡后缀，先 `done`（若已有字）再一次性 `cancelled`，丢弃迟到增量。③ **用户消息不发 `cat:message`**，只助手流式用该事件。④ `seq` 从 **1** 起严格递增；`cat:turn.status` 仅 `running|completed|cancelled|failed`（无 succeeded/canceled）。⑤ **未发布/未就绪**：Send 同步 `CAT_NOT_READY`，界面仅「Cat 助手还没准备好，发布后即可使用。」，官方包不出现助手气泡、不拆字模拟回复；**24 字 append 拆分**仅作组件已就绪但 CLI 真流式未接时的临时适配器回退（切真回复，非假内容），真流式落地后只留测试。无新错误码、无迁移。
 
@@ -199,13 +201,14 @@ Bind 方法返回 `(T, error)`。error 的 message 是 JSON 字符串，前端 `
 | DOC_PDF_NO_TEXT | v0.28 PDF 转 txt / md / 简易 html 时取不出可用的文字（扫描件或乱码）且没有可用的文档组件，不可重试，见 6.12.63 |
 | LANG_ASR_NOT_READY / LANG_ASR_EMPTY / LANG_ASR_FAILED / LANG_DOWNLOAD_FAILED / LANG_CHECKSUM_FAILED | v0.29 语音工具转字幕，见 6.18.8 |
 | CAT_NOT_READY / CAT_REPLY_FAILED | v0.30 Cat 助手，见 6.19.7 |
+| CAT_PROJECT_MISSING | v0.31 Cat 项目文件夹不见了（`SendCatMessage` / `CreateCatConversation` 同步返回），可重试，见 6.19.10.9 |
 | INTERNAL | 其他；直播任务里认不出的 ffmpeg 非零退出也是它（不是 `PROCESS_FAILED`），detail 带（已脱敏的）stderr 最后若干行 |
 
 **直播 / 录屏（v0.10）用到的后端码正好是冻结的这八个：`LIVE_URL_INVALID`、`LIVE_CONNECT_FAILED`、`LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`SCREEN_PERMISSION_DENIED`、`FFMPEG_NOT_FOUND`、`UNSUPPORTED_PLATFORM`、`INTERNAL`**（v0.14 起再加 `LIVE_SOURCE_GONE`，共九个）；此外复用已有的 `INVALID_ARGUMENT`、`NOT_FOUND`、`PROBE_FAILED`（输入文件问题）、`TASK_CONFLICT`（会话上限 / 同地址冲突）、`UNSUPPORTED`（Retry）、`CANCELED`（`Start*` 因应用退出被取消，#10 已加）。**v0.10 没有新增任何错误码**，也没有 `LIVE_START_FAILED` 之类的同义码。用户主动停止不产生错误码（优雅停止成功 = `succeeded`，超时强杀 = `canceled` 状态，`error` 为空）。`LIVE_PLAY_FAILED`（播放器加载或解码失败）和 `LIVE_CORS_BLOCKED`（拉流地址跨域被浏览器拦截）**只在前端由播放器产生**，后端不会返回，也不在 `apperr` 里定义。
 
 ### 2.1 AppErrorCode 完整清单（供前端 `frontend/src/api/call.ts` 对照）
 
-后端 `internal/apperr` 一共 38 个码（v0.14 新增 `LIVE_SOURCE_GONE`；v0.26 新增 10 个 `DOC_*`，文案和是否可重试见 6.12.20；v0.27 新增 `DOC_PRESENTATION_BUSY`、`DOC_ENGINE_BUSY`，见 6.12.33 和下表；v0.28 新增 `DOC_PDF_NO_TEXT`，见 6.12.63；v0.29 新增 5 个 `LANG_*`，见 6.18.8；v0.30 新增 2 个 `CAT_*`，见 6.19.7），前端 `AppErrorCode` 必须全部包含；前端 `frontend/src/api/call.ts` 以本清单为准逐项核对补全（不在契约里写它当前缺几个，现状随前端分支变化）：
+后端 `internal/apperr` 一共 39 个码（v0.14 新增 `LIVE_SOURCE_GONE`；v0.26 新增 10 个 `DOC_*`，文案和是否可重试见 6.12.20；v0.27 新增 `DOC_PRESENTATION_BUSY`、`DOC_ENGINE_BUSY`，见 6.12.33 和下表；v0.28 新增 `DOC_PDF_NO_TEXT`，见 6.12.63；v0.29 新增 5 个 `LANG_*`，见 6.18.8；v0.30 新增 2 个 `CAT_*`，见 6.19.7；v0.31 新增 `CAT_PROJECT_MISSING`，见 6.19.10.9），前端 `AppErrorCode` 必须全部包含；前端 `frontend/src/api/call.ts` 以本清单为准逐项核对补全（不在契约里写它当前缺几个，现状随前端分支变化）：
 
 ```ts
 export type AppErrorCode =
@@ -225,6 +228,8 @@ export type AppErrorCode =
   | 'LANG_ASR_NOT_READY' | 'LANG_ASR_EMPTY' | 'LANG_ASR_FAILED' | 'LANG_DOWNLOAD_FAILED' | 'LANG_CHECKSUM_FAILED'
   // v0.30 Cat 助手（6.19.7）：
   | 'CAT_NOT_READY' | 'CAT_REPLY_FAILED'
+  // v0.31 Cat 项目（6.19.10.9）：
+  | 'CAT_PROJECT_MISSING'
 ```
 
 **文档类错误码能否重试（v0.27 汇总；文案以 6.12.20 / 6.12.33 为准）**：
@@ -251,6 +256,7 @@ export type AppErrorCode =
 | `LANG_CHECKSUM_FAILED` | 是 | v0.29 |
 | `CAT_NOT_READY` | 是（就绪后） | v0.30 |
 | `CAT_REPLY_FAILED` | 是 | v0.30 |
+| `CAT_PROJECT_MISSING` | 是（文件夹回来后） | v0.31 |
 
 - 前端遇到不在清单里的 `code`：按 `INTERNAL` 的通用文案处理，不崩溃。
 - `LIVE_PLAY_FAILED`、`LIVE_CORS_BLOCKED` 只在前端播放器里产生，**不是** `AppErrorCode`，也不出现在后端。
@@ -277,6 +283,7 @@ export type AppErrorCode =
 | 语音工具转字幕（v0.29，6.18） | `reason=<值>` | `INVALID_ARGUMENT`：`cue_invalid`（导出硬校验）；`NOT_FOUND`：`component`（`OpenStorageFolder("lang_asr")`）（只追加） | 界面不显示 |
 | PDF 输入（v0.28，6.12.60 / 6.12.63：添加 PDF 的 `AddDocSourceResult.error`、`DOC_PDF_NO_TEXT`） | `reason=<值>` | `INVALID_ARGUMENT`：`too_large`（沿用：PDF 超过 200 MiB）、`too_many_pages`（超过 500 页）；`DOC_PDF_NO_TEXT`：`no_text`（第二行 `quality=empty\|garbled` 只给开发者看）（只追加） | 只有第一行；界面不显示 |
 | 文档组件未就绪（v0.27.2，6.12.55：`DOC_COMPONENT_NOT_READY` 的同步错误和任务错误，以及 `DocComponentStatus.error`） | `reason=<值>` | `checking`、`missing`、`outdated`（含 Windows / macOS 应用下载的组件低于 26.2.6）、`downloading`、`preparing`、`failed`，即 `componentState`（只追加） | 只有这一行；`OpenStorageFolder("doc_component")` 的 `NOT_FOUND` 沿用 v0.25.1 的 `reason=component` |
+| `INVALID_ARGUMENT` / `NOT_FOUND`（v0.31 Cat 项目，6.19.10：`CreateCatProject`、`RenameCatProject`） | `reason=<值>` | `INVALID_ARGUMENT`：`project_path`（不是绝对路径 / 不存在 / 不是文件夹）、`project_root`（盘符或文件系统根）、`project_name`（名字为空（改名时）、超过 60 个字符或含控制字符）（只追加） | 界面按 6.19.10.8 映射；`NOT_FOUND` 项目不存在无固定 detail |
 | 其余所有码（含 `LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`INTERNAL`） | 无固定格式 | — | 前端**不得**解析（上面几行列出的码 / 场景除外） |
 
 统一规则：第一行只有一个 `key=value`，值只含小写字母、数字、下划线（`scheme` 例外；`kind` 的取值是 `window` / `screen`，取值就是上面三个小写单词）；前端用 `^(reason|scheme|kind)=([a-z0-9_]+)$` 匹配 `detail` 的第一行；**没有第一行、格式不对、或值不认识，一律走该错误码的通用文案**，不得猜测含义、不得报错崩溃。测试必须逐码断言第一行精确等于期望值（不是包含）。
@@ -418,6 +425,11 @@ CreateCatConversation(req CreateCatConversationRequest) (CatConversation, error)
 DeleteCatConversation(id string) error
 SendCatMessage(req SendCatMessageRequest) (SendCatMessageResult, error)
 CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，见 6.19.9
+// v0.31 项目（6.19.10）；CreateCatConversation 的 req 新增可选 projectId（创建后不可变）
+ListCatProjects() ([]CatProject, error)                                      // missing 实时计算
+CreateCatProject(req CreateCatProjectRequest) (CreateCatProjectResult, error) // {path, name?} → {project, existed}；同路径返回已有
+RenameCatProject(req RenameCatProjectRequest) (CatProject, error)            // missing 也可改名
+DeleteCatProject(req DeleteCatProjectRequest) error                          // 未知 id → nil；不动文件夹里的文件
 ListEncoderDevices() (EncoderDeviceList, error)      // 硬件编码设备（9.6）：第一项永远是 cpu；ffmpeg 未就绪时只有 cpu 且 ffmpegReady=false，不报错
 RefreshEncoderDevices() (EncoderDeviceList, error)   // 丢弃缓存重新检测
 GetEncoderPreference() (string, error)               // "auto" | "cpu" | 设备 id，默认 "auto"；所选设备不可用时保持原值
@@ -770,6 +782,10 @@ convert_copies(id PK, owner_source_id, original_path, original_path_key, origina
 presets(id PK, name, built_in, options JSON, sort)
 edit_projects(id PK, name, project JSON, updated_at)
 doc_recent(id PK, path, path_key UNIQUE, name, size, opened_at)
+cat_conversations(id PK, title, agent_kind, access_mode, project_path, created_at, updated_at,  -- 迁移 0010（v0.30），见 6.19；project_path v0.31 起不再读写
+      project_id)                                                             -- 迁移 0011（v0.31），见 6.19.10.7；NULL = 不属于项目
+cat_messages(id PK, conversation_id, role, content, created_at)            -- 迁移 0010（v0.30）
+cat_projects(id PK, name, path, path_key UNIQUE, created_at, updated_at)   -- 迁移 0011（v0.31），见 6.19.10.7
 settings(key PK, value JSON)
 schema_migrations(version PK, applied_at)
 ```
@@ -3970,6 +3986,8 @@ SendCatMessage(req SendCatMessageRequest) (SendCatMessageResult, error)
 // 路由：用会话已存 agentKind，忽略「当前默认」
 // 返回：必带 turnId + userMessage；流式下 assistantMessage 空，见 6.19.9
 CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，见 6.19.9
+// v0.31：ListCatProjects / CreateCatProject / RenameCatProject / DeleteCatProject，见 6.19.10；
+// CreateCatConversation 新增可选 projectId；SendCatMessage 的 projectPath 作废（忽略）
 ```
 
 | 事件 | 含义 |
@@ -3977,6 +3995,7 @@ CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，
 | `cat:status` | `CatStatus` 变化 |
 | `cat:message` | **仅助手流式增量**（用户消息不发）；形态见 6.19.9 |
 | `cat:turn` | 一轮状态 `{ convId, turnId, status }`（`running|completed|cancelled|failed`），见 6.19.9 |
+| `cat:project` | v0.31：项目 `missing` 变化 `{ id, missing }`，见 6.19.10.3 |
 
 设置：`catDefaultAgentKind` 默认 `cat_build`，**仅新建会话预填**。
 
@@ -4072,6 +4091,184 @@ type CancelCatTurnRequest struct {
 - 界面在对话里追加一条**淡色系统行**：`已停止生成。`；停止按钮在点击后**立即置灰**（不等后端确认）。
 
 **无障碍**：`prefers-reduced-motion: reduce` 时，前端**直接追加**收到的文本，不做逐字打字机闪烁动画。
+
+### 6.19.10 项目（v0.31；产品规则 10-09 定，架构师定方案）
+
+> 项目 = 用户选的**一个本机文件夹**；对话可以属于一个项目，也可以不属于任何项目（显示在「对话」下）。项目文件夹同时是该项目下对话的**只读工具沙箱根**。本节与 6.19.1~6.19.9 冲突时以本节为准；会话 `agentKind` 锁定、流式事件、未就绪规则不变。
+
+**产品规则（产品经理定，原样执行）**
+
+1. 项目就是用户选的一个本机文件夹；名字默认取文件夹名，可改名。
+2. 一个对话只属于一个项目，也可以不属于任何项目，放在「对话」下。
+3. 删除项目**只删应用里的记录和它下面的对话**，**绝不动用户文件夹里的任何文件**；删之前确认，文案：`删除项目会同时删除它下面的对话，文件夹里的文件不受影响。`（删除按钮红色，属 UI）。
+4. 文件夹被移走或删掉时，项目标灰，提示 `项目文件夹不见了。`；对话仍能看，**不能继续发消息**。
+
+#### 6.19.10.1 数据结构
+
+```go
+type CatProject struct {
+    ID        string `json:"id"`
+    Name      string `json:"name"`      // 去首尾空白后 1~60 个字符（按 Unicode 字符计）
+    Path      string `json:"path"`      // 用户选的绝对路径（Clean 后原样保存，用于显示与沙箱根）
+    CreatedAt int64  `json:"createdAt"` // Unix 毫秒
+    UpdatedAt int64  `json:"updatedAt"` // 改名时更新；不参与排序
+    Missing   bool   `json:"missing"`   // 后端实时计算（6.19.10.4），不落库；始终输出
+}
+
+type CreateCatProjectRequest struct {
+    Path string `json:"path"`           // 必填：绝对路径、已存在的文件夹、不能是盘符 / 文件系统根
+    Name string `json:"name,omitempty"` // 可选：空 = 文件夹名
+}
+type CreateCatProjectResult struct {
+    Project CatProject `json:"project"`
+    Existed bool       `json:"existed"` // true = 这个路径已经建过项目，返回的是已有的那个，什么都没新建
+}
+
+type RenameCatProjectRequest struct {
+    ID   string `json:"id"`
+    Name string `json:"name"`
+}
+type DeleteCatProjectRequest struct {
+    ID string `json:"id"`
+}
+
+type CatProjectEvent struct { // 事件 cat:project
+    ID      string `json:"id"`
+    Missing bool   `json:"missing"`
+}
+```
+
+`CatConversation`（6.19.4）新增：
+
+```go
+    ProjectID string `json:"projectId,omitempty"` // 所属项目；空 / 省略 = 不属于任何项目（显示在「对话」下）；库里 NULL
+```
+
+`CreateCatConversationRequest` 新增可选 `projectId`（string，空 = 不属于任何项目）。
+
+**规则**：
+
+1. **`projectId` 在创建对话时写入，之后不可变**（与 `agentKind` 锁定同一精神，6.19.2）：没有任何接口能改对话的项目，库里也不允许改。
+2. **一期没有「移动对话到项目」/「移出项目」操作**；对话只能通过「在某个项目下新建」（`CreateCatConversation` 带 `projectId`）获得项目。界面不提供拖拽、菜单等任何移动入口。
+3. **旧字段作废**：v0.30 的 `CreateCatConversationRequest.projectPath`、`SendCatMessageRequest.projectPath`、`CatConversation.projectPath`（库列 `cat_conversations.project_path`）从 v0.31 起**后端一律忽略、不再写入、不再读取**，字段暂留只为绑定兼容（下一次整份重生成绑定时删除）。只读工具的根只来自对话所属项目（6.19.10.5）。旧会话 `project_id` 为 NULL，统统显示在「对话」下。
+
+#### 6.19.10.2 接口（CatService，v0.31 新增 / 修改）
+
+```go
+ListCatProjects() ([]CatProject, error)
+CreateCatProject(req CreateCatProjectRequest) (CreateCatProjectResult, error)
+RenameCatProject(req RenameCatProjectRequest) (CatProject, error)
+DeleteCatProject(req DeleteCatProjectRequest) error
+// 修改：CreateCatConversation(req) 的 req 新增可选 projectId
+// 修改：ListCatConversations() 每项带 projectId（不属于项目的省略）
+```
+
+选文件夹**复用** `SystemService.PickDirectory(title)`（6.8），前端传 `选择项目文件夹`；用户取消返回 `""`，前端什么都不做、不调 `CreateCatProject`。不新增对话框方法。
+
+1. **`ListCatProjects()`**：返回全部项目，每项的 `missing` 在本次调用里实时计算（6.19.10.4）。没有项目返回空数组（不是 null）。排序见 6.19.10.6。
+2. **`CreateCatProject({path, name?})`**：
+   1. `path` 校验：去首尾空白后必须是**绝对路径**、**存在**且是**文件夹**；不满足 → `INVALID_ARGUMENT` `reason=project_path`。是**盘符根或文件系统根**（`filepath.Dir(p) == p`，含 `C:\`、`/`、UNC 共享根 `\\server\share\`）→ `INVALID_ARGUMENT` `reason=project_root`。
+   2. **路径去重**：比较键 `path_key` = `filepath.Clean` 后去掉末尾分隔符；**Windows 不区分大小写**（键转小写），macOS / Linux 原样。不解析符号链接、不展开短文件名（8.3）。同一 `path_key` 已有项目 → **不报错、不新建、不改名**（忽略本次 `name`），返回 `{project: 已有项目, existed: true}`；前端提示 `这个文件夹已经建过项目了。` 并切到该项目。新建成功 `existed=false`。
+   3. **名字**：`name` 去首尾空白；为空则取文件夹名（`filepath.Base`），文件夹名超过 60 个字符时截到前 60 个；用户给的 `name` 超过 60 个字符或含换行 / 控制字符 → `INVALID_ARGUMENT` `reason=project_name`。**名字允许重复**（不同文件夹可以同名）。
+   4. 新建的项目 `missing=false`，`createdAt = updatedAt = 当前时间`。
+3. **`RenameCatProject({id, name})`**：`name` 规则同上，但**不能为空**（去空白后为空 → `INVALID_ARGUMENT` `reason=project_name`）；`id` 不存在 → `NOT_FOUND`（`找不到这个项目。`）。**`missing` 的项目也可以改名**。只改名字和 `updatedAt`，不改排序。返回改名后的项目（`missing` 实时计算）。
+4. **`DeleteCatProject({id})`**：
+   1. `id` 为空 → `INVALID_ARGUMENT`；`id` 不存在 → 返回 **nil**（幂等，可重复删）。
+   2. **`missing` 的项目也可以删**。
+   3. 该项目下任何对话有进行中的一轮：**先按 `CancelCatTurn` 的规则取消**（6.19.9：已出文字先 `done`，再一次性发 `cat:turn` `cancelled`），取消完成后再删。
+   4. 在**一个显式事务**里删除：该项目下所有对话的 `cat_messages` → 这些 `cat_conversations` → `cat_projects` 这一行；任何一步失败整体回滚，返回 `IO_ERROR`（`删除项目失败，请重试。`）。**不依赖外键级联**（见 6.19.10.7）。
+   5. **绝不访问用户文件夹**：不删、不改、不建任何文件；删除前后都不 stat 也可以。
+   6. 删除不发事件；前端在调用成功后从本地列表移除项目及其对话。
+5. **`CreateCatConversation` 带 `projectId`**：`projectId` 非空且不存在 → `NOT_FOUND`（`找不到这个项目。`）；项目 `missing` → `CAT_PROJECT_MISSING`，不创建对话。`agentKind` 校验先于项目校验。
+6. **`SendCatMessage`**：校验顺序：会话存在 → `CAT_NOT_READY`（6.19.9，全局未就绪优先）→ 会话有 `projectId` 时实时检查项目文件夹，`missing` → **同步返回 `CAT_PROJECT_MISSING`**：**不启 turn、不存用户消息、不发任何 `cat:message` / `cat:turn`**；状态由“不缺”变“缺”时同时发 `cat:project`。
+7. **`GetCatConversation` / `DeleteCatConversation`** 对属于 `missing` 项目的对话照常可用（对话能看、能删）。
+
+#### 6.19.10.3 事件
+
+| 事件 | payload | 何时发 |
+|---|---|---|
+| `cat:project` | `{ id, missing }` | 某个项目的 `missing` 计算结果与后端内存里上一次的值**不同**时（变缺或恢复都发）；同一结果不重复发 |
+
+- 后端内存为每个项目记上一次的 `missing`；进程启动后第一次计算只记录、**不发事件**（结果已在 `ListCatProjects` 返回值里）。
+- 新建项目时记 `missing=false`；删除项目时丢弃记录。
+
+#### 6.19.10.4 `missing` 的计算（不用文件监视）
+
+1. `missing = true` 当且仅当对 `path` 的 `os.Stat` 失败（不存在、无权限、网络断开等任何错误）或结果不是文件夹。只看文件夹本身，不读里面的内容。
+2. **何时计算**：每次 `ListCatProjects`（逐个项目）、每次 `SendCatMessage` 和 `CreateCatConversation`（只算该对话 / 请求的项目）、`RenameCatProject` 返回前（只算该项目）。**不做文件监视**。
+3. **前端在窗口重新获得焦点时**（以及进入 Cat 页、刷新列表时）调 `ListCatProjects`；变化经返回值和 `cat:project` 同步到界面。这就是“应用使用过程中状态变化”的全部来源。
+4. **自动恢复**：文件夹回来（同一路径重新存在且是文件夹）后下一次计算 `missing=false`，发 `cat:project`，项目恢复正常、可以继续发消息；不需要用户操作，也没有「重新定位文件夹」功能（一期不做）。
+5. **超时**（网络盘）：每个路径的 stat 最多等 **2 秒**，超时按 `missing=true` 算（后台 stat 结束后丢弃结果，下一次重新算）；`ListCatProjects` 里各项目并行计算，整个调用不超过约 2 秒。
+6. 一轮已经开始后文件夹才消失：**不中断这一轮**；之后只读工具读不到文件按工具失败返回给助手；下一次 Send 时才报 `CAT_PROJECT_MISSING`。
+
+#### 6.19.10.5 只读工具的沙箱根
+
+1. 对话属于项目时，**项目 `path` 就是只读项目工具（读文件 / 列目录等，6.19.1）的唯一根**；对话不属于项目时，**没有项目根，所有项目工具请求一律拒绝**。
+2. 工具请求里的路径按**相对项目根**解析：绝对路径、含 `..` 跳出根、以及解析符号链接 / 目录联接（junction）/ 快捷方式后真实路径（`EvalSymlinks`）不在根的真实路径之内的，**一律拒绝**；比较按目录边界（Windows / macOS 不区分大小写），与 6.8 同口径。
+3. **写文件、执行命令仍一律拒绝**（6.19.1，一期不变）。
+4. 被拒绝的工具请求作为工具失败结果回给适配器，**不**是面向用户的错误码，不中断这一轮。
+
+#### 6.19.10.6 排序
+
+1. **项目**：按“最近对话活动”倒序——项目的活动时间 = 其下对话 `updatedAt` 的最大值；没有对话的项目用自己的 `createdAt`。活动时间相同按 `createdAt` 倒序，再相同按 `id`。
+2. **项目内的对话**、以及「对话」（无项目）下的对话：按 `updatedAt` 倒序，相同按 `createdAt` 倒序，再相同按 `id`（与 v0.30 `ListCatConversations` 一致）。
+3. 改名不改变排序（项目 `updatedAt` 不参与）。后端按此排好；前端分组时保持顺序。
+
+#### 6.19.10.7 存储与迁移 `0011_cat_projects.sql`
+
+下一个空闲迁移号以仓库为准：`0010_cat.sql` 已被 v0.30 用掉，本节用 **`0011`**。
+
+```sql
+CREATE TABLE cat_projects (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    path       TEXT NOT NULL,
+    path_key   TEXT NOT NULL UNIQUE,   -- 6.19.10.2 第 2 条的比较键
+    created_at INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL DEFAULT 0
+);
+ALTER TABLE cat_conversations ADD COLUMN project_id TEXT;   -- NULL = 不属于任何项目；不加外键
+CREATE INDEX idx_cat_conversations_project ON cat_conversations (project_id, updated_at DESC);
+```
+
+- **删除用显式事务，不用外键级联**（架构师定）：`project_id` 不声明 `REFERENCES`，删除顺序和原子性由 `DeleteCatProject` 的事务保证（6.19.10.2 第 4 条）；`cat_messages` 对 `cat_conversations` 已有的 `ON DELETE CASCADE` 保留，但事务里仍显式先删消息，不依赖 `foreign_keys` 开关。
+- `missing` 不落库。旧列 `cat_conversations.project_path` 保留不删（SQLite 不便删列），不再读写。
+- `CreateCatProject` 的去重靠 `path_key UNIQUE`：插入撞唯一键时改为读出已有行，返回 `existed=true`（并发同时创建同一路径也只会有一行）。
+
+#### 6.19.10.8 UI 冻结项（文案产品已定）
+
+| 场景 | 文案 / 表现 |
+|---|---|
+| 没有项目 | 一行淡灰 `还没有项目。` |
+| 选文件夹对话框标题 | `选择项目文件夹` |
+| 同一文件夹已建过项目（`existed=true`） | 提示 `这个文件夹已经建过项目了。`，切到该项目 |
+| 删除项目确认 | `删除项目会同时删除它下面的对话，文件夹里的文件不受影响。`（删除按钮红色） |
+| 项目文件夹不见了（`missing=true` 或 `CAT_PROJECT_MISSING`） | 项目标灰，提示 `项目文件夹不见了。`；对话可看、输入框禁用；改名 / 删除仍可用；不能在其下新建对话 |
+| `INVALID_ARGUMENT` `reason=project_path` | `请选择一个文件夹。` |
+| `INVALID_ARGUMENT` `reason=project_root` | `不能把整个磁盘作为项目，请选择里面的文件夹。` |
+| `INVALID_ARGUMENT` `reason=project_name` | `名字需要 1~60 个字。` |
+
+（后三行是架构师建议文案，产品可改；前端按 `reason` 映射，1.1。）
+
+前端开关**不变**：`CAT_UI_ENABLED` 仍默认 `false`，`CAT_BACKEND_READY` 不变；本版不新增开关。
+
+#### 6.19.10.9 错误码（v0.31 新增 1 个；2.1 由 38 变为 39）
+
+| code | message | 可重试 |
+|---|---|---|
+| `CAT_PROJECT_MISSING` | `项目文件夹不见了。` | 是（文件夹回来后） |
+
+- 场景：`SendCatMessage`、`CreateCatConversation` 遇到 `missing` 的项目（同步返回，无 `detail` 固定格式）。
+- 沿用：`INVALID_ARGUMENT`（新增 `reason=project_path` / `project_root` / `project_name`，见 2.2）、`NOT_FOUND`（项目不存在，`找不到这个项目。`）、`IO_ERROR`（落库失败）。
+
+#### 6.19.10.10 真机待验证（Windows）
+
+1. 路径含**中文、空格**、括号的文件夹：建项目、去重、只读工具读文件。
+2. **网络盘**（映射盘符和 UNC `\\server\share\dir`）：在线 / 断开时的 `missing`、2 秒超时、恢复后自动清除；UNC 共享根被拒绝。
+3. **OneDrive 占位文件夹**（仅联机 / 按需文件）：stat 是否触发下载、只读工具读占位文件时的行为与耗时。
+4. 同一文件夹用不同大小写 / 末尾带不带 `\` 选两次 → `existed=true`。
+5. 项目里的 junction / 符号链接指向项目外 → 被拒。
+6. 删除项目后文件夹里文件一个不少（对比删除前后的文件清单）。
 
 ## 7. 本地流服务（已取消）
 
