@@ -3,11 +3,14 @@
 import { computed } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import { useDocComponentStore } from '@/stores/docComponent'
-import { DOC_HINT_SIMPLE_BAR, DOC_OUTDATED_BUTTON, DOC_PREPARING } from '@/utils/docV26Text'
+import { docHintSimpleBar, DOC_OUTDATED_BUTTON, DOC_PREPARING } from '@/utils/docV26Text'
+import { docV28On } from '@/api/docV26'
 import { formatBytes, formatEta } from '@/utils/format'
 
 const comp = useDocComponentStore()
 const view = computed(() => comp.guideView)
+// v0.28：DOC_V28_BACKEND_READY 打开后横条加上 PDF 那半句；没打开保持原句
+const DOC_HINT_SIMPLE_BAR = docHintSimpleBar(docV28On())
 const speedText = computed(() => (comp.speedBps > 0 ? `${formatBytes(comp.speedBps)}/s` : ''))
 const etaText = computed(() => {
   if (!comp.speedBps) return ''
@@ -118,7 +121,7 @@ const failTitle = computed(() => {
 
   <div v-else-if="view === 'slim'" class="dc-slim" role="status">
     <FIcon name="warn" />
-    <span class="tx" :title="`文档组件未就绪。${DOC_HINT_SIMPLE_BAR}`">文档组件未就绪。<span class="only1280">{{ DOC_HINT_SIMPLE_BAR }}</span></span>
+    <span class="tx" :title="`文档组件未就绪。${DOC_HINT_SIMPLE_BAR}。`">文档组件未就绪。<span class="only1280">{{ DOC_HINT_SIMPLE_BAR }}。</span></span>
     <span class="sp" />
     <button type="button" class="lk" @click="comp.isLinux ? comp.reopenGuide() : comp.install()">{{ comp.isLinux ? '查看说明' : '下载文档组件' }}</button>
   </div>
