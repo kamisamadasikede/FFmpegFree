@@ -35,7 +35,7 @@ func TestDetect_ReadyWhenGrokOnPATH(t *testing.T) {
 		t.Fatalf("status %+v", st)
 	}
 	models, err := a.ListModels()
-	if err != nil || len(models) < 1 || !strings.HasPrefix(models[0].DisplayName, "Cat 助手") {
+	if err != nil || len(models) < 1 || models[0].DisplayName != models[0].ID || strings.Contains(models[0].DisplayName, "Cat 助手") {
 		t.Fatalf("models %v %v", models, err)
 	}
 	thinks, err := a.ListThinkLevels()

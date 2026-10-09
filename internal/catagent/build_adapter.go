@@ -711,19 +711,38 @@ func (a *BuildAdapter) probeGrokModels(exe string) []Model {
 	}
 	models := make([]Model, 0, len(ids))
 	for _, id := range ids {
-		models = append(models, Model{ID: id, DisplayName: modelDisplayName(id)})
+		// 老板 10-09 定：选择器直接显示 CLI 的真实模型名，id 与 label 相同，不再映射。
+		models = append(models, Model{ID: id, DisplayName: id})
 	}
 	return models
 }
 
+// parseGrokModelsList 解析 `grok models` 的纯文本输出（CLI 1.0.40 实测）：
+//
+//	Default model: grok-4.6
+//
+//	Available models:
+//	  * grok-4.6 (default)
+//	  - grok-4.5
+//
+// 未登录时首行另有 "You are not authenticated."。默认模型（"(default)" 标记或
+// "Default model:" 行）排在第一位，供前端作为默认选中。
 func parseGrokModelsList(out string) []string {
 	var ids []string
 	seen := map[string]bool{}
+	defaultID := ""
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
+		if l := strings.ToLower(line); strings.HasPrefix(l, "default model:") {
+			if f := strings.Fields(line[len("default model:"):]); len(f) > 0 {
+				defaultID = f[0]
+			}
+			continue
+		}
+		markedDefault := strings.Contains(strings.ToLower(line), "(default)")
 		line = strings.TrimLeft(line, "*-•")
 		line = strings.TrimSpace(line)
 		lower := strings.ToLower(line)
@@ -751,34 +770,19 @@ func parseGrokModelsList(out string) []string {
 		}
 		seen[id] = true
 		ids = append(ids, id)
+		if markedDefault {
+			defaultID = id
+		}
+	}
+	if defaultID != "" {
+		for i, id := range ids {
+			if id == defaultID && i > 0 {
+				ids = append([]string{id}, append(ids[:i:i], ids[i+1:]...)...)
+				break
+			}
+		}
 	}
 	return ids
-}
-
-func modelDisplayName(id string) string {
-	name := strings.TrimSpace(id)
-	if name == "" {
-		return "Cat 助手"
-	}
-	lower := strings.ToLower(name)
-	switch {
-	case strings.HasPrefix(lower, "grok-"):
-		name = name[len("grok-"):]
-	case strings.HasPrefix(lower, "grok "):
-		name = name[len("grok "):]
-	case lower == "grok":
-		name = ""
-	default:
-		for _, old := range []string{"Grok", "GROK", "grok"} {
-			name = strings.ReplaceAll(name, old, "")
-		}
-		name = strings.Join(strings.Fields(name), " ")
-	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return "Cat 助手"
-	}
-	return "Cat 助手 " + name
 }
 
 func hasPriorAssistant(msgs []WireMessage) bool {
