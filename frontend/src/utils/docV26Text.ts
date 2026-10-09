@@ -18,8 +18,8 @@ export const DOC_NEED_COMPONENT = '需要文档组件'
 export const DOC_SIMPLE_PDF_LABEL = '简易转换（只保留文字）'
 export const DOC_SIMPLE_HINT = '下载文档组件后可保留图片和排版'
 export const DOC_MD_HINT = '转成 Markdown 只保留文字和基本格式，图片和复杂表格会丢失。'
-// 设计 v0.2 §二.6：产品定稿用本句（契约表措辞是「转成 CSV 只保留第一个工作表。」）
-export const DOC_CSV_HINT = '只会导出第一个工作表。'
+// 产品 10-09 定稿（契约 / 设计统一）：转成 CSV 只会保留第一个工作表。
+export const DOC_CSV_HINT = '转成 CSV 只会保留第一个工作表。'
 export const DOC_PDF_INPUT = 'PDF 暂时不能转成其他格式。'
 export const DOC_PREPARING = '正在准备文档组件…'
 export const DOC_QUEUE_NEXT = '排队中 · 下一个'
