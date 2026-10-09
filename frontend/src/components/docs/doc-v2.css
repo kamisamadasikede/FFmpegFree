@@ -138,3 +138,17 @@ html.dark{
 .cv2 .preset.dc-fx.dc-pend small{color:var(--ff-text-3)}
 @media (prefers-reduced-motion:reduce){.cv2 .preset.dc-fx{transition:none}}
 html.reduce-motion .cv2 .preset.dc-fx{transition:none}
+
+/* ===== 右栏滚动 + 底部固定（包 29）：格式区自己滚，「保存到」和转换按钮始终在右栏底部 ===== */
+.cv2 .cv-rp.dc-rp{overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}
+.cv2 .cv-rp.dc-rp>*{flex:none}
+.dc-dock{flex:none;position:relative;border-top:1px solid var(--ff-border);transition:box-shadow var(--ff-dur-fast) var(--ff-ease)}
+.dc-dock.more{box-shadow:0 -6px 12px -8px rgba(0,0,0,.18)}
+.dc-dock .cv-save{padding:12px 16px 0}
+.cv2.w1024 .dc-dock .cv-save{padding:12px 12px 0}
+.dc-dock .cv-foot{border-top:0}
+@media (prefers-reduced-motion:reduce){.dc-dock{transition:none}}
+/* 左栏：源文件列表自己滚，不把页面撑高 */
+.cv2.dc-page .cv-left{min-height:0}
+.cv2.dc-page .cv-list{overflow-y:auto;overscroll-behavior:contain}
+.cv2.dc-page .cv-list>*{flex:none}

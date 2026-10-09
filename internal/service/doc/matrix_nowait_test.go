@@ -132,10 +132,14 @@ func TestMatrixNoWaitWhileChecking(t *testing.T) {
 // 有 Registry、Office 已检测到、组件还在慢慢检测：Office 能做的照常可用，只有组件能做的未就绪。
 func TestMatrixNoWaitWithOffice(t *testing.T) {
 	release := make(chan struct{})
-	defer close(release)
+	var comp *doccomp.Manager
+	defer func() {
+		close(release)
+		comp.Wait(context.Background(), 3*time.Second) // 等检测收尾再删临时目录
+	}()
 	exe := filepath.Join(t.TempDir(), "soffice")
 	os.WriteFile(exe, []byte("x"), 0o755)
-	comp := doccomp.New(doccomp.Config{Dir: t.TempDir(), Candidates: func() []string { return []string{exe} },
+	comp = doccomp.New(doccomp.Config{Dir: t.TempDir(), Candidates: func() []string { return []string{exe} },
 		Validate: func(ctx context.Context, e, tmp string) (string, error) {
 			<-release
 			return "", apperr.New(apperr.DocComponentInstallFailed, "x").WithDetail("check=version")

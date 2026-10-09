@@ -74,6 +74,20 @@ func (r *Registry) Recheck() {
 	r.emitStatus()
 }
 
+// MergedComponentEmit 包一层组件的 Emit：doc:component 一律改发合并后的状态（含 Office / WPS，同 GetDocComponentStatus）。
+// reg 返回 nil（Registry 还没建好）时原样发组件自己的状态；其他事件（进度）原样转发。
+func MergedComponentEmit(emit func(string, any), reg func() *Registry) func(string, any) {
+	return func(ev string, p any) {
+		if ev == doccomp.EventComponent {
+			if r := reg(); r != nil {
+				r.EmitStatus()
+				return
+			}
+		}
+		emit(ev, p)
+	}
+}
+
 // SetDetected 直接设定 Office / WPS 的检测结果（测试用；正常由 StartDetect / Recheck 填）。
 func (r *Registry) SetDetected(office, wps *Detected) {
 	r.mu.Lock()
