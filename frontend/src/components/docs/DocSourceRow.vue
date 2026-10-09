@@ -76,7 +76,7 @@ const TAG: Record<string, { cls: string; text: string }> = {
 }
 // ── v0.27 预览：眼睛图标 / 点封面打开统一预览弹窗；多选时 ← → 在选中的文件之间切换 ──
 const pst = usePreviewStore()
-const srcItem = (s: typeof src.value): PreviewItem => ({ req: { sourceId: s.sourceId }, name: s.name, sizeBytes: s.sizeBytes ?? 0, converting: false })
+const srcItem = (s: typeof src.value): PreviewItem => ({ req: { sourceId: s.sourceId }, name: s.name, sizeBytes: s.totalBytes ?? 0, converting: false })
 function previewSource(e: Event) {
   const rows = sel.value && dc.selected.size > 1 ? dc.rows.filter((r) => dc.selected.has(r.src.sourceId)) : [props.row]
   const list = rows.map((r) => ({ ...srcItem(r.src), converting: r.records.some((x) => x.status === 'running' || x.status === 'queued') }))

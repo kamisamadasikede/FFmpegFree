@@ -554,12 +554,12 @@ export const useDocConvertStore = defineStore('docConvert', () => {
         break
       case 'preview': {
         // v0.27 预览 / 编辑走查：各种类型各一个
-        const html = mkSrc('活动通知.html', { sizeBytes: 3_200 })
-        const csv = mkSrc('订单-10月.csv', { sizeBytes: 46_000 })
-        const txt = mkSrc('说明.txt', { sizeBytes: 1_800 })
-        const md2 = mkSrc('会议纪要.md', { sizeBytes: 12_000 })
-        const longTxt = mkSrc('访问日志-长.txt', { sizeBytes: 3_400_000 })
-        const gone = mkSrc('旧稿-原文件不在.md', { sizeBytes: 6_000 })
+        const html = mkSrc('活动通知.html', { totalBytes: 3_200 })
+        const csv = mkSrc('订单-10月.csv', { totalBytes: 46_000 })
+        const txt = mkSrc('说明.txt', { totalBytes: 1_800 })
+        const md2 = mkSrc('会议纪要.md', { totalBytes: 12_000 })
+        const longTxt = mkSrc('访问日志-长.txt', { totalBytes: 3_400_000 })
+        const gone = mkSrc('旧稿-原文件不在.md', { totalBytes: 6_000 })
         rows.value = [
           row(contract, [mkRec(contract, 'pdf', 'succeeded')]),
           row(budget, [mkRec(budget, 'csv', 'succeeded')], false),
