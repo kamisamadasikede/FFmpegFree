@@ -110,7 +110,7 @@ func TestDecodeTextGB18030(t *testing.T) {
 
 func TestFormatMatrix(t *testing.T) {
 	m := buildMatrix(false, nil)
-	if m.ComponentReady || len(m.Inputs) != 16 || len(m.Sources) != 14 {
+	if m.ComponentReady || len(m.Inputs) != 17 || len(m.Sources) != 15 { // v0.28 加 pdf
 		t.Fatalf("%+v", m)
 	}
 	find := func(m DocFormatMatrix, src, tg string) DocTarget {
@@ -149,7 +149,7 @@ func TestFormatMatrix(t *testing.T) {
 		}
 	}
 	for _, s := range m.Sources {
-		if s.Targets[0].Ext != "pdf" {
+		if s.Ext != "pdf" && s.Targets[0].Ext != "pdf" { // PDF 源没有 pdf 目标（6.12.59）
 			t.Errorf("%s: pdf 应在最前", s.Ext)
 		}
 		for _, tg := range s.Targets {
