@@ -52,6 +52,9 @@ func Pick(order []string, engines []Detected, skips *SkipTracker, src, target st
 		if !CanConvert(id, src, target, e.Families) {
 			continue
 		}
+		if id == IDOffice && fam == FamilyPDF && e.WordMajor < WordMinMajorForPDF {
+			continue // Word < 2013（或版本未知）不用于 PDF（6.12.59）
+		}
 		if id == IDOffice && target == "csv" && e.ExcelMajor > 0 && e.ExcelMajor < 16 {
 			continue
 		}

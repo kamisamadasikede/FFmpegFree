@@ -17,12 +17,14 @@ type Detected struct {
 	Source    string // component: downloaded | system；office/wps 空
 	Installed bool
 	Available bool
-	Families  []string // text | sheet | slide
+	Families  []string // text | sheet | slide | pdf
 	// ProgIDs / exe paths（仅 Windows COM 用；json:"-"）
 	WordProgID, ExcelProgID, PowerPointProgID string
 	WordExe, ExcelExe, PowerPointExe          string
 	// ExcelMajor 是 Excel 主版本（csv UTF-8 需要 ≥ 16）；0 = 未知 / 没有 Excel。
 	ExcelMajor int
+	// WordMajor 是 Word 主版本（PDF 重排需要 ≥ 15）；0 = 未知 / 没有 Word。
+	WordMajor int
 	// ComponentExe 是 soffice 路径（仅 component）。
 	ComponentExe string
 }

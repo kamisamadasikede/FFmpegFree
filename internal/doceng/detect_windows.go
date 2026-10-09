@@ -30,7 +30,11 @@ func DetectOfficeWPS() (office, wps *Detected) {
 		var fams []string
 		if ow != nil && officeMajorOK(ow.version) {
 			d.WordProgID, d.WordExe = ow.progID, ow.exe
+			d.WordMajor = majorOf(ow.version)
 			fams = append(fams, FamilyText)
+			if d.WordMajor >= WordMinMajorForPDF {
+				fams = append(fams, FamilyPDF) // 6.12.59：Word ≥ 2013 时 office 带 pdf
+			}
 			if d.Version == "" {
 				d.Version = ow.version
 			}

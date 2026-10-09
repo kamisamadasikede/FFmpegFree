@@ -9,6 +9,8 @@ const (
 	FamilyText  = "text"
 	FamilySheet = "sheet"
 	FamilySlide = "slide"
+	// FamilyPDF：v0.28（6.12.59）PDF 作为源；不算文字类，目标单独列（pdfTargets）。
+	FamilyPDF = "pdf"
 )
 
 // hintKey 与文案（6.12.13）。
@@ -21,6 +23,11 @@ const (
 	hintMDLossyText       = "转成 Markdown 只保留文字和基本格式，图片和复杂表格会丢失。"
 	hintSimpleModeText    = "下载文档组件后可保留图片和排版"
 	disabledNeedComponent = "需要文档组件"
+
+	// v0.28（6.12.59）：PDF 源。
+	HintPDFLayout        = "pdf_layout"
+	hintPDFLayoutText    = "PDF 转 Word 会尽量还原排版，复杂版式和扫描件可能走样。"
+	hintPDFSimpleModeTxt = "只提取文字，不保留排版和图片。" // simple_mode 在 PDF 源上的文案
 
 	// WarningCSVFirstSheetOnly 是转 CSV 时多工作表的结果警告（6.12.16）。
 	WarningCSVFirstSheetOnly = "csv_first_sheet_only"
@@ -37,12 +44,19 @@ var familyFormats = map[string][]string{
 	FamilyText:  {"doc", "docx", "odt", "rtf", "txt", "html", "md"},
 	FamilySheet: {"xls", "xlsx", "ods", "csv"},
 	FamilySlide: {"ppt", "pptx", "odp"},
+	FamilyPDF:   {"pdf"},
 }
 
-var familyOrder = []string{FamilyText, FamilySheet, FamilySlide}
+var familyOrder = []string{FamilyText, FamilySheet, FamilySlide, FamilyPDF}
+
+// pdfTargets 是 PDF 源能转成的目标（6.12.59，按文字类顺序，没有 pdf / 表格 / 演示文稿 / 图片）。
+var pdfTargets = []string{"doc", "docx", "odt", "rtf", "txt", "html", "md"}
+
+// pdfLayoutTarget：PDF → 这些目标要 Word（≥ 2013）或文档组件。
+func pdfLayoutTarget(t string) bool { return t == "doc" || t == "docx" || t == "odt" || t == "rtf" }
 
 // docInputs 是能添加的扩展名（DocFormatMatrix.inputs）。
-var docInputs = []string{"doc", "docx", "odt", "rtf", "txt", "html", "htm", "md", "markdown", "xls", "xlsx", "ods", "csv", "ppt", "pptx", "odp"}
+var docInputs = []string{"doc", "docx", "odt", "rtf", "txt", "html", "htm", "md", "markdown", "xls", "xlsx", "ods", "csv", "ppt", "pptx", "odp", "pdf"}
 
 var aliasOf = map[string]string{"htm": "html", "markdown": "md"}
 
@@ -124,6 +138,9 @@ type DocTarget struct {
 
 // targetFor 计算 src → target（契约 6.12.30）：engineIDs 是现在能做的引擎（已按设置排序）；anyReady = state=ready。
 func targetFor(src, target string, anyReady bool, engineIDs []string) (DocTarget, bool) {
+	if src == "pdf" {
+		return pdfTargetFor(target, engineIDs)
+	}
 	fam := familyOf(src)
 	if fam == "" || src == target {
 		return DocTarget{}, false
@@ -156,6 +173,58 @@ func targetFor(src, target string, anyReady bool, engineIDs []string) (DocTarget
 	return t, true
 }
 
+// pdfTargetFor 是 PDF 源的目标（6.12.59）。engineIDs 是现在能做 pdf → target 的排版引擎（office / component，
+// 已按设置排序；纯 Go 不在里面）。
+func pdfTargetFor(target string, engineIDs []string) (DocTarget, bool) {
+	ok := false
+	for _, t := range pdfTargets {
+		if t == target {
+			ok = true
+		}
+	}
+	if !ok {
+		return DocTarget{}, false
+	}
+	hasComp := false
+	for _, id := range engineIDs {
+		if id == engineComponent {
+			hasComp = true
+		}
+	}
+	t := DocTarget{Ext: target, DisplayName: displayNames[target]}
+	switch {
+	case pdfLayoutTarget(target):
+		t.NeedsComponent = true
+		t.Available = len(engineIDs) > 0
+		t.Engines = engineIDs
+		t.HintKey, t.Hint = HintPDFLayout, hintPDFLayoutText
+		if !t.Available {
+			t.DisabledReason = disabledNeedComponent
+		}
+	case target == "html":
+		t.Available = true
+		if hasComp {
+			t.Engines = []string{engineComponent}
+		} else {
+			t.Simple = true
+			t.Engines = []string{engineGo}
+			t.HintKey, t.Hint = HintSimpleMode, hintPDFSimpleModeTxt
+		}
+	default: // txt / md：纯 Go，恒可用
+		t.Simple, t.Available = true, true
+		t.Engines = []string{engineGo}
+		if hasComp {
+			t.Engines = append(t.Engines, engineComponent)
+		}
+		if target == "md" {
+			t.HintKey, t.Hint = HintMDLossy, hintMDLossyText
+		} else {
+			t.HintKey, t.Hint = HintSimpleMode, hintPDFSimpleModeTxt
+		}
+	}
+	return t, true
+}
+
 // buildMatrix 生成格式表（6.12.13 / 6.12.30）。
 // engineFn(src, target) 返回能做这个转换的引擎 id 列表；anyReady 是整体 state=ready。
 func buildMatrix(anyReady bool, engineFn func(src, target string) []string) DocFormatMatrix {
@@ -169,7 +238,11 @@ func buildMatrix(anyReady bool, engineFn func(src, target string) []string) DocF
 			case "md":
 				sf.Aliases = []string{"markdown"}
 			}
-			for _, tg := range append([]string{"pdf"}, familyFormats[fam]...) {
+			tgs := append([]string{"pdf"}, familyFormats[fam]...)
+			if fam == FamilyPDF {
+				tgs = pdfTargets
+			}
+			for _, tg := range tgs {
 				var ids []string
 				if engineFn != nil {
 					ids = engineFn(src, tg)
@@ -232,6 +305,8 @@ func inFilterFor(src string) string {
 		return "Text (encoded):UTF8"
 	case "html", "md":
 		return "HTML (StarWriter)"
+	case "pdf":
+		return "writer_pdf_import" // 6.12.61：不加时组件用 Draw 打开 PDF，导不出文字类格式
 	case "csv":
 		return "CSV:44,34,76,1"
 	}
