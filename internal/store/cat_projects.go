@@ -215,3 +215,19 @@ func (s *Store) RelocateCatProject(ctx context.Context, projectID, path, key str
 	}
 	return s.GetCatProject(ctx, projectID)
 }
+
+// SetCatProjectPathKey 只改这一行的 path_key（按新口径重算用，不改 path / name / updated_at）。
+// 撞唯一键返回 ErrCatProjectDuplicate；不存在返回 sql.ErrNoRows。
+func (s *Store) SetCatProjectPathKey(ctx context.Context, projectID, key string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE cat_projects SET path_key = ? WHERE id = ?`, key, projectID)
+	if err != nil {
+		if strings.Contains(strings.ToUpper(err.Error()), "UNIQUE") {
+			return ErrCatProjectDuplicate
+		}
+		return fmt.Errorf("重算项目 path_key 失败: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}

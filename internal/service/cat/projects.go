@@ -6,7 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +15,7 @@ import (
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/catagent"
+	"FFmpegFree/internal/paths"
 	"FFmpegFree/internal/store"
 )
 
@@ -40,19 +41,84 @@ func errProjectMissing() error {
 	return apperr.New(apperr.CatProjectMissing, catagent.MsgProjectMissing)
 }
 
-// projectPathKey 是去重比较键（6.19.10.2 第 2 条）：Clean 后去掉末尾分隔符；Windows 转小写，macOS / Linux 原样。
-// 不解析符号链接、不展开 8.3 短文件名。
-func projectPathKey(p string) string { return projectPathKeyFor(runtime.GOOS, p) }
+// pathKey 是项目去重比较键（6.19.10.2 第 2 条；架构师 10-09 定口径与 paths.Normalize 对齐）：
+// Clean 后，Windows 和 macOS 转小写，Linux 区分大小写。不解析符号链接、不展开 8.3 短文件名。
+// 默认 paths.Key；测试可经 Config.PathKey 注入其他平台的口径。
+func (s *Service) pathKey(p string) string {
+	if s.cfg.PathKey != nil {
+		return s.cfg.PathKey(p)
+	}
+	return paths.Key(p)
+}
 
-func projectPathKeyFor(goos, p string) string {
-	k := filepath.Clean(p)
-	for len(k) > 1 && (strings.HasSuffix(k, "/") || strings.HasSuffix(k, `\`)) && filepath.Dir(k) != k {
-		k = k[:len(k)-1]
+// ensureProjectKeys 按当前口径重算已有项目的 path_key（每个进程成功一次，惰性：List / Create / Relocate 前）。
+// 用途：v0.31 首版在 macOS 上没转小写写入过 path_key。规则：
+//   - 新 key 与旧 key 相同 → 不动；
+//   - 多个项目算出同一个新 key（大小写不同的同一文件夹被建了两次）→ 都不动、只记日志、不删数据；
+//     之后 Create / Relocate 的重复判断会按新 key 找到其中较早创建的那个（findProjectByKey）；
+//   - 其余改成新 key（撞唯一键同样记日志、不动）。
+//
+// Linux 口径与首版相同，不会有任何改动。
+func (s *Service) ensureProjectKeys(ctx context.Context) {
+	s.rekeyMu.Lock()
+	defer s.rekeyMu.Unlock()
+	if s.rekeyed {
+		return
 	}
-	if goos == "windows" {
-		k = strings.ToLower(k)
+	rows, err := s.cfg.Store.ListCatProjects(ctx)
+	if err != nil {
+		s.cfg.Logf("cat project rekey: list: %v", err)
+		return
 	}
-	return k
+	sortProjectsByCreated(rows)
+	groups := map[string][]store.CatProjectRow{}
+	for _, r := range rows {
+		k := s.pathKey(r.Path)
+		groups[k] = append(groups[k], r)
+	}
+	for _, r := range rows {
+		k := s.pathKey(r.Path)
+		if k == r.PathKey {
+			continue
+		}
+		if g := groups[k]; len(g) > 1 {
+			s.cfg.Logf("cat project rekey: %d projects share key, kept unchanged (earliest %s)", len(g), g[0].ID)
+			continue
+		}
+		if err := s.cfg.Store.SetCatProjectPathKey(ctx, r.ID, k); err != nil {
+			s.cfg.Logf("cat project rekey %s: %v (kept unchanged)", r.ID, err)
+		}
+	}
+	s.rekeyed = true
+}
+
+func sortProjectsByCreated(rows []store.CatProjectRow) {
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].CreatedAt != rows[j].CreatedAt {
+			return rows[i].CreatedAt < rows[j].CreatedAt
+		}
+		return rows[i].ID < rows[j].ID
+	})
+}
+
+// findProjectByKey 按 path_key 找项目；表里没有这个 key 时再按当前口径逐个重算比较（覆盖重算时冲突、保持旧 key 的行），
+// 命中多个取较早创建的。没有返回 sql.ErrNoRows。
+func (s *Service) findProjectByKey(ctx context.Context, key string) (store.CatProjectRow, error) {
+	row, err := s.cfg.Store.GetCatProjectByKey(ctx, key)
+	if err == nil || !errors.Is(err, sql.ErrNoRows) {
+		return row, err
+	}
+	rows, lerr := s.cfg.Store.ListCatProjects(ctx)
+	if lerr != nil {
+		return store.CatProjectRow{}, lerr
+	}
+	sortProjectsByCreated(rows)
+	for _, r := range rows {
+		if s.pathKey(r.Path) == key {
+			return r, nil
+		}
+	}
+	return store.CatProjectRow{}, sql.ErrNoRows
 }
 
 // validProjectName 去首尾空白后 1~60 个字符、不含换行 / 控制字符。
@@ -147,6 +213,7 @@ func (s *Service) ListCatProjects(ctx context.Context) ([]Project, error) {
 	if s.cfg.Store == nil {
 		return nil, apperr.New(apperr.Internal, "本地存储尚未初始化")
 	}
+	s.ensureProjectKeys(ctx)
 	rows, err := s.cfg.Store.ListCatProjects(ctx)
 	if err != nil {
 		return nil, apperr.Wrap(apperr.IOError, "读取项目失败", err)
@@ -173,8 +240,9 @@ func (s *Service) CreateCatProject(ctx context.Context, req CreateProjectRequest
 	if err != nil {
 		return CreateProjectResult{}, err
 	}
-	key := projectPathKey(clean)
-	if row, err := s.cfg.Store.GetCatProjectByKey(ctx, key); err == nil {
+	s.ensureProjectKeys(ctx)
+	key := s.pathKey(clean)
+	if row, err := s.findProjectByKey(ctx, key); err == nil {
 		return CreateProjectResult{Project: s.checkProject(row), Existed: true}, nil
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return CreateProjectResult{}, apperr.Wrap(apperr.IOError, "读取项目失败", err)
@@ -323,11 +391,12 @@ func (s *Service) RelocateCatProject(ctx context.Context, req RelocateProjectReq
 	if err != nil {
 		return Project{}, err
 	}
-	key := projectPathKey(clean)
-	if key == row.PathKey {
+	s.ensureProjectKeys(ctx)
+	key := s.pathKey(clean)
+	if key == row.PathKey || key == s.pathKey(row.Path) {
 		return s.checkProject(row), nil // 不改库、不改显示写法、不改 updatedAt
 	}
-	if other, err := s.cfg.Store.GetCatProjectByKey(ctx, key); err == nil {
+	if other, err := s.findProjectByKey(ctx, key); err == nil && other.ID != row.ID {
 		return Project{}, errProjectDuplicate(other.ID)
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return Project{}, apperr.Wrap(apperr.IOError, "读取项目失败", err)
@@ -342,7 +411,7 @@ func (s *Service) RelocateCatProject(ctx context.Context, req RelocateProjectReq
 	updated, err := s.cfg.Store.RelocateCatProject(ctx, pid, clean, key)
 	if errors.Is(err, store.ErrCatProjectDuplicate) { // 并发：别的项目刚占了这个路径
 		otherID := ""
-		if other, e := s.cfg.Store.GetCatProjectByKey(ctx, key); e == nil {
+		if other, e := s.findProjectByKey(ctx, key); e == nil {
 			otherID = other.ID
 		}
 		return Project{}, errProjectDuplicate(otherID)
