@@ -40,7 +40,7 @@ func TestDetect_ReadyWhenGrokOnPATH(t *testing.T) {
 		t.Fatalf("models %v %v", models, err)
 	}
 	thinks, err := a.ListThinkLevels()
-	if err != nil || len(thinks) != 3 {
+	if err != nil || len(thinks) != 4 {
 		t.Fatalf("thinks %v %v", thinks, err)
 	}
 }

@@ -19,7 +19,8 @@ XAI_API_KEY 或 ~/.grok/auth.json（grok login），无 URL/Key UI。
   传 --always-approve（headless 防挂死，一期产品已定保留），同时只读限制（契约 v0.31.4）：
     --tools read_file,list_dir,grep
     --disallowed-tools run_terminal_cmd,search_replace,write_file,apply_patch,task,Agent,
-      web_search,web_fetch,search_tool,use_tool,image_gen,image_edit,video_gen
+      web_search,web_fetch,search_tool,use_tool,image_gen,image_edit,video_gen,
+      bash,edit,write,hashline_edit,run_terminal_command（别名，认不出只告警）
     --no-subagents --disable-web-search
     --deny Bash --deny Edit --deny Write --deny WebFetch --deny WebSearch --deny 'MCPTool(*)'
   工具名常量见 cli_readonly.go。
