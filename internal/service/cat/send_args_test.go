@@ -84,6 +84,13 @@ printf '%s\n' '{"type":"end","stopReason":"end_turn"}'
 	if err != nil || len(thinks) == 0 {
 		t.Fatalf("thinks %+v %v", thinks, err)
 	}
+	hasX := false
+	for _, th := range thinks {
+		hasX = hasX || th.ID == "xhigh"
+	}
+	if !hasX {
+		t.Fatalf("thinks missing xhigh: %+v", thinks)
+	}
 
 	c, err := svc.CreateCatConversation(ctx, cat.CreateConversationRequest{AgentKind: catagent.KindCatBuild})
 	if err != nil {
@@ -99,14 +106,25 @@ printf '%s\n' '{"type":"end","stopReason":"end_turn"}'
 	send("grok-4.5", "high") // 首轮
 	send("grok-4.5", "low")  // 续聊
 	send("", "")             // 没选：不传
+	// 新会话：xhigh 首轮（--session-id）+ 续聊（--resume）
+	c2, err := svc.CreateCatConversation(ctx, cat.CreateConversationRequest{AgentKind: catagent.KindCatBuild})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := svc.SendCatMessage(ctx, cat.SendMessageRequest{ConversationID: c2.ID, Content: "hi", ModelID: "grok-4.6", ThinkLevelID: "xhigh"}); err != nil {
+			t.Fatal(err)
+		}
+		svc.Wait()
+	}
 
 	raw, err := os.ReadFile(argvLog)
 	if err != nil {
 		t.Fatal(err)
 	}
 	calls := strings.Split(strings.TrimSuffix(string(raw), "----\n"), "----\n")
-	if len(calls) != 3 {
-		t.Fatalf("want 3 turn calls, got %d:\n%s", len(calls), raw)
+	if len(calls) != 5 {
+		t.Fatalf("want 5 turn calls, got %d:\n%s", len(calls), raw)
 	}
 	argv := func(i int) []string { return strings.Split(strings.TrimRight(calls[i], "\n"), "\n") }
 	val := func(a []string, flag string) (string, bool) {
@@ -138,6 +156,16 @@ printf '%s\n' '{"type":"end","stopReason":"end_turn"}'
 	}
 	if v, _ := val(second, "--reasoning-effort"); v != "low" {
 		t.Fatalf("turn2 --reasoning-effort = %q: %v", v, second)
+	}
+
+	for i, flag := range map[int]string{3: "--session-id", 4: "--resume"} { // xhigh：首轮与续聊都带
+		a := argv(i)
+		if v, _ := val(a, "--reasoning-effort"); v != "xhigh" {
+			t.Fatalf("turn%d --reasoning-effort = %q: %v", i+1, v, a)
+		}
+		if _, ok := val(a, flag); !ok {
+			t.Fatalf("turn%d missing %s: %v", i+1, flag, a)
+		}
 	}
 
 	third := argv(2)

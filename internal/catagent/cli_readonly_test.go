@@ -15,7 +15,28 @@ var forbiddenInAllowlist = []string{
 	CLIToolShell, CLIToolSearchReplace, CLIToolWriteFile, CLIToolApplyPatch,
 	CLIToolTask, CLIToolAgent, CLIToolWebFetch, CLIToolWebSearch,
 	CLIToolMCPSearch, CLIToolMCPUse, CLIToolImageGen, CLIToolImageEdit, CLIToolVideoGen,
-	"bash", "Bash", "edit", "Edit", "write", "Write",
+	CLIToolAliasBash, CLIToolAliasEdit, CLIToolAliasWrite, CLIToolHashlineEdit, CLIToolRunTerminalCommandAlias,
+	"Bash", "Edit", "Write",
+}
+
+func TestDeniedCLITools_IncludesAliases(t *testing.T) {
+	for _, must := range []string{"bash", "edit", "write", "hashline_edit", "run_terminal_command"} {
+		in := false
+		for _, d := range DeniedCLITools {
+			in = in || d == must
+		}
+		if !in {
+			t.Fatalf("denylist missing alias %q", must)
+		}
+		for _, a := range ReadOnlyCLITools {
+			if a == must {
+				t.Fatalf("allowlist must not contain %q", must)
+			}
+		}
+	}
+	if got := strings.Join(ReadOnlyCLITools, ","); got != "read_file,list_dir,grep" {
+		t.Fatalf("allowlist changed: %s", got)
+	}
 }
 
 func TestReadOnlyCLITools_NoWriteEditExec(t *testing.T) {
@@ -107,7 +128,7 @@ func TestRunTurn_PassesReadOnlyToolArgs(t *testing.T) {
 		if len(dis) != 1 {
 			t.Fatalf("turn %d: --disallowed-tools = %v", i, dis)
 		}
-		for _, must := range []string{"run_terminal_cmd", "search_replace", "write_file", "apply_patch", "task", "Agent", "web_fetch", "use_tool"} {
+		for _, must := range []string{"run_terminal_cmd", "search_replace", "write_file", "apply_patch", "task", "Agent", "web_fetch", "use_tool", "bash", "edit", "write", "hashline_edit", "run_terminal_command"} {
 			if !strings.Contains(","+dis[0]+",", ","+must+",") {
 				t.Fatalf("turn %d: denylist %q missing %q", i, dis[0], must)
 			}

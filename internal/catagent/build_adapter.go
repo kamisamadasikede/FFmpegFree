@@ -39,6 +39,9 @@ var (
 		{ID: "low", DisplayName: "低"},
 		{ID: "medium", DisplayName: "中"},
 		{ID: "high", DisplayName: "高"},
+		// xhigh：CLI --reasoning-effort 文档列出的档位；模型不支持时 CLI 忽略（契约 v0.31.4 ④）。
+		// 显示名「超高」契约 / 文案未指定，待产品确认。
+		{ID: "xhigh", DisplayName: "超高"},
 	}
 )
 

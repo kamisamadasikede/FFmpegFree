@@ -38,6 +38,16 @@ const (
 	CLIToolImageGen      = "image_gen"
 	CLIToolImageEdit     = "image_edit"
 	CLIToolVideoGen      = "video_gen"
+
+	// 别名 / 其它工具集里的写·执行类名字（第二道保险）。黑名单里认不出的名字只告警，
+	// 但这些名字绝不能进白名单（白名单有一个认不出就整体失效）。
+	// hashline_edit / run_terminal_command 在 CLI 1.0.40 二进制字符串里出现过；
+	// bash / edit / write 是常见别名，是否被 --disallowed-tools 识别未验证。
+	CLIToolAliasBash               = "bash"
+	CLIToolAliasEdit               = "edit"
+	CLIToolAliasWrite              = "write"
+	CLIToolHashlineEdit            = "hashline_edit"
+	CLIToolRunTerminalCommandAlias = "run_terminal_command"
 )
 
 // ReadOnlyCLITools 是传给 --tools 的白名单（只读：读文件 / 列目录 / 搜索）。
@@ -50,6 +60,8 @@ var DeniedCLITools = []string{
 	CLIToolWebSearch, CLIToolWebFetch,
 	CLIToolMCPSearch, CLIToolMCPUse,
 	CLIToolImageGen, CLIToolImageEdit, CLIToolVideoGen,
+	CLIToolAliasBash, CLIToolAliasEdit, CLIToolAliasWrite,
+	CLIToolHashlineEdit, CLIToolRunTerminalCommandAlias,
 }
 
 // DenyRules 是 --deny 权限规则（规则层工具类名）。deny 在 always-approve 下仍生效。
