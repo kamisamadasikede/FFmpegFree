@@ -309,7 +309,12 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('keydown', onKey)
 })
-defineExpose({ focus: () => ta.value?.focus(), setDraft: (t: string) => { draft.value = t; nextTick(autosize); ta.value?.focus() } })
+defineExpose({
+  focus: () => ta.value?.focus(),
+  setDraft: (t: string) => { draft.value = t; nextTick(autosize); ta.value?.focus() },
+  /** 发送没成功、后端也没存这条（如 CAT_PROJECT_MISSING）：把文字放回输入框；用户已经又输入了就不覆盖，不抢焦点 */
+  restoreDraft: (t: string) => { if (draft.value.trim()) return; draft.value = t; nextTick(autosize) },
+})
 </script>
 
 <style scoped>

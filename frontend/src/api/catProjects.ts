@@ -1,13 +1,15 @@
 /**
  * Cat 项目接口层（契约 v0.31 §6.19.10 + v0.31.1 RelocateCatProject / RevealCatProject；设计「Cat 项目状态」v0.2）。
  *
- * - CAT_PROJECTS_BACKEND_READY=true 且在 Wails 里且绑定存在：按名字调 CatService（callService，后端合入前不 import 生成文件）
+ * - CAT_PROJECTS_BACKEND_READY=true 且在 Wails 里：调生成的 CatService 绑定（后端 #181，v2 f588fad；wailsjs/go/app/CatService）
  * - 纯浏览器（没有 window.go，走查 / 截图）：内存模拟，规则与契约一致（路径去重 existed、根目录拒绝、名字 1~60、missing 不能新建对话）
  * - Wails 里但开关关：没有项目；新建 / 改名 / 删除 / 显示 / 重新选择都不调后端（UNSUPPORTED → 「下一期开放。」）
  *
  * 用户可见文案统一放在 CAT_PROJECT_COPY（产品可改，只改这里）。
  */
-import { AppError, callService, toAppError } from '@/api/call'
+import * as CatBinding from '../../wailsjs/go/app/CatService'
+import { cat } from '../../wailsjs/go/models'
+import { AppError, call, toAppError } from '@/api/call'
 import { CAT_PROJECTS_BACKEND_READY } from '@/api/flags'
 import { hasWailsBackend, onEvent } from '@/services/wails'
 import { pickDirectory } from '@/api/system'
@@ -81,25 +83,12 @@ export interface CatProjectEvent { id: string; missing: boolean }
 
 export const CAT_PROJECT_EVENT = 'cat:project'
 
-const METHODS = ['ListCatProjects', 'CreateCatProject', 'RenameCatProject', 'DeleteCatProject', 'RevealCatProject', 'RelocateCatProject'] as const
-type Method = (typeof METHODS)[number]
-
-function hasBinding(m: Method): boolean {
-  const svc = (globalThis as { window?: { go?: { app?: { CatService?: Record<string, unknown> } } } }).window?.go?.app?.CatService
-  return typeof svc?.[m] === 'function'
-}
-
 /** 项目接口走真后端：开关打开 + 在 Wails 里 */
 export const catProjectsLive = (): boolean => CAT_PROJECTS_BACKEND_READY && hasWailsBackend()
 /** 走内存模拟：纯浏览器（走查） */
 export const catProjectsSim = (): boolean => !hasWailsBackend()
 /** 项目功能是否可用（真后端或浏览器模拟）；Wails 里开关关时为 false */
 export const catProjectsOn = (): boolean => catProjectsLive() || catProjectsSim()
-
-async function real<T>(m: Method, ...args: unknown[]): Promise<T> {
-  if (!hasBinding(m)) throw new AppError('UNSUPPORTED', CAT_PROJECT_COPY.later)
-  return await callService<T>('CatService', m, ...args)
-}
 
 function off(): never {
   throw new AppError('UNSUPPORTED', CAT_PROJECT_COPY.later)
@@ -227,7 +216,7 @@ export async function pickProjectFolder(relocate = false): Promise<string> {
 
 export async function listCatProjects(): Promise<CatProject[]> {
   if (catProjectsLive()) {
-    const raw = await real<unknown>('ListCatProjects')
+    const raw: unknown = await call(CatBinding.ListCatProjects())
     return Array.isArray(raw) ? raw.map(mapProject) : []
   }
   if (catProjectsSim()) return sim.list.map(simCopy)
@@ -235,7 +224,12 @@ export async function listCatProjects(): Promise<CatProject[]> {
 }
 
 export async function createCatProject(req: CreateCatProjectRequest): Promise<CreateCatProjectResult> {
-  if (catProjectsLive()) return mapResult(await real('CreateCatProject', { path: req.path, name: req.name ?? '' }))
+  if (catProjectsLive()) {
+    const body = cat.CreateProjectRequest.createFrom({ path: req.path })
+    // name 省略 = 用文件夹名（契约 6.19.10.2）；只有用户给了名字才带
+    if (req.name?.trim()) body.name = req.name
+    return mapResult(await call(CatBinding.CreateCatProject(body)))
+  }
   if (!catProjectsSim()) off()
   simValidatePath(req.path)
   const key = pathKey(req.path)
@@ -251,7 +245,7 @@ export async function createCatProject(req: CreateCatProjectRequest): Promise<Cr
 }
 
 export async function renameCatProject(req: RenameCatProjectRequest): Promise<CatProject> {
-  if (catProjectsLive()) return mapProject(await real('RenameCatProject', { id: req.id, name: req.name }))
+  if (catProjectsLive()) return mapProject(await call(CatBinding.RenameCatProject(cat.RenameProjectRequest.createFrom({ id: req.id, name: req.name }))))
   if (!catProjectsSim()) off()
   if (!validProjectName(req.name)) throw new AppError('INVALID_ARGUMENT', CAT_PROJECT_COPY.badName, 'reason=project_name')
   const p = sim.list.find((x) => x.id === req.id)
@@ -264,7 +258,7 @@ export async function renameCatProject(req: RenameCatProjectRequest): Promise<Ca
 export async function deleteCatProject(req: DeleteCatProjectRequest): Promise<void> {
   if (!req.id) throw new AppError('INVALID_ARGUMENT', CAT_PROJECT_COPY.notFound)
   if (catProjectsLive()) {
-    await real('DeleteCatProject', { id: req.id })
+    await call(CatBinding.DeleteCatProject(cat.DeleteProjectRequest.createFrom({ id: req.id })))
     return
   }
   if (!catProjectsSim()) off()
@@ -274,7 +268,7 @@ export async function deleteCatProject(req: DeleteCatProjectRequest): Promise<vo
 /** 在系统文件管理器里显示项目文件夹（文件夹不见了时菜单项禁用，不调用） */
 export async function revealCatProject(req: RevealCatProjectRequest): Promise<void> {
   if (catProjectsLive()) {
-    await real('RevealCatProject', { id: req.id })
+    await call(CatBinding.RevealCatProject(cat.RevealProjectRequest.createFrom({ id: req.id })))
     return
   }
   if (!catProjectsSim()) off()
@@ -286,7 +280,7 @@ export async function revealCatProject(req: RevealCatProjectRequest): Promise<vo
 
 /** 重新选择文件夹（6.19.10.2 第 8 条）：对话保留、名字不变；重复 → INVALID_ARGUMENT reason=project_duplicate（第二行 projectId=） */
 export async function relocateCatProject(req: RelocateCatProjectRequest): Promise<CatProject> {
-  if (catProjectsLive()) return mapProject(await real('RelocateCatProject', { id: req.id, path: req.path }))
+  if (catProjectsLive()) return mapProject(await call(CatBinding.RelocateCatProject(cat.RelocateProjectRequest.createFrom({ id: req.id, path: req.path }))))
   if (!catProjectsSim()) off()
   if (!req.id) throw new AppError('INVALID_ARGUMENT', CAT_PROJECT_COPY.notFound)
   const p = sim.list.find((x) => x.id === req.id)
