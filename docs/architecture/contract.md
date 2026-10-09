@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.31.4）
+# FFmpegFree v2 接口契约（v0.31.5）
+
+v0.31.5 变更（**Cat Build 模型 / 强度 / 黑名单口径修正**，架构师 10-09；实现 #196、#197；**无新错误码 / 迁移 / 事件 / 开关，2.1 仍是 39 个**；**取代 v0.31.4 中「探测失败回退 CLI 默认列表」及强度相关说法**）：① **模型探测失败**：`grok models` 超时 / 报错 / 解析不出模型 → 模型列表**为空**，发消息**不传 `-m`**（用 CLI 自己的默认模型）；**不再有任何写死的回退模型名**。② **思考强度**：档位 `low` / `medium` / `high` / `xhigh`，显示名 `低` / `中` / `高` / `超高`（**「超高」待产品确认**）；**只有用户选了才传** `--reasoning-effort <level>`，没选不传；没选时界面显示 `默认`。③ **已知风险**：`grok-4.5` 可能不支持 `xhigh`（CLI 本地缓存显示最高 `high`），**未在真机验证**，预期 CLI 忽略不支持的档位，已加入真机待验（6.19.10.10 第 9 条）。④ **黑名单补齐**：`--disallowed-tools` 现为 `run_terminal_cmd,search_replace,write_file,apply_patch,task,Agent,web_search,web_fetch,search_tool,use_tool,image_gen,image_edit,video_gen,bash,edit,write,hashline_edit,run_terminal_command`（新增 `bash`、`edit`、`write`、`hashline_edit`、`run_terminal_command`，覆盖其他工具配置里的同类工具）；白名单不变 `--tools read_file,list_dir,grep`。
 
 v0.31.4 变更（**Cat Build 一期权限口径 + 模型 / 强度**，产品 / 老板 / 架构师 10-09；实现 #190、#192 及后续后端 PR；**无新错误码 / 迁移 / 事件 / 开关，2.1 仍是 39 个**；**作废 v0.31.3 第 ⑤ 条「不传 `--always-approve`」**）：① **一期 headless 自动批准，但工具集限定为只读白名单**：每一轮都传 `--always-approve`（headless 无法弹批准，避免挂死），同时**必须**带：`--tools read_file,list_dir,grep`（只读：读文件 / 列目录 / 搜索）、`--disallowed-tools run_terminal_cmd,search_replace,write_file,apply_patch,task,Agent,web_search,web_fetch,search_tool,use_tool,image_gen,image_edit,video_gen`、`--no-subagents`、`--disable-web-search`、`--deny Bash` `--deny Edit` `--deny Write` `--deny WebFetch` `--deny WebSearch` `--deny MCPTool(*)`（deny 在自动批准下仍生效）；环境仍设 `GROK_SANDBOX=read-only`、`GROK_WRITE_FILE=0`。常量在 `internal/catagent/cli_readonly.go`，测试锁死白名单。**白名单里只能放核实过的工具 ID**：CLI 遇到不认识的白名单名字会整体放弃白名单、恢复完整工具集。② **真·请求批准是二期**：二期可改用 `--permission-mode dontAsk`（未明确允许的工具调用直接拒绝；**不能与 `--always-approve` 同时用**），再加批准流。③ **界面不变**：访问模式仍选中「请求批准」，「完全访问」置灰；界面仍只称「Cat 助手」，横幅文案不变。④ **模型 / 思考强度**（老板 22:13 / 22:16 定）：模型列表来自 CLI `grok models`，**模型名按 CLI 给的原样显示**（如 `grok-4.6`），**不再映射成「Cat 助手 …」**（这是界面里唯一允许出现 CLI 原始名字的地方）；思考强度用 CLI 的档位（`low` / `medium` / `high` / `xhigh`，模型不支持时 CLI 忽略）。用户选的模型和强度**每一轮（首轮和后续轮）都传**：`-m <modelId>`、`--reasoning-effort <level>`。**默认强度 = 不传**：用户没选强度时不带 `--reasoning-effort`（用 CLI 自己的默认）；**`grok models` 解析失败 → 模型列表为空、不传 `-m`**（用 CLI 默认模型），不再回退写死的模型名（这两条由后端后续 PR 实现，#194 尚未包含）。⑤ **已知风险 / 待验**：(a) 最终工具集**还没在已登录的真机上验证**，老板需实测：让它写文件、改文件、运行命令，都应被拒绝、项目里不出现改动；(b) **Windows 上沙箱环境变量不生效**（CLI 沙箱只在 Linux / macOS 上有），Windows 的只读**完全靠工具限制**；(c) CLI 版本太旧、不认识这些参数时，每一轮都会失败，界面显示「回复没生成出来，请重试。」（`CAT_REPLY_FAILED`），**绝不会悄悄变成可写**；(d) 用户自己的 CLI 配置（`~/.grok/config.toml` 的 allow 规则、MCP 服务器）由上面的 deny 和黑名单压住（deny 优先于 allow）。
 
@@ -3939,8 +3941,8 @@ type ExportSubtitleRequest struct {
 - **Headless 调用**（v0.31.4）：`grok -p "<最新一条用户消息>" --output-format streaming-json --cwd <项目绝对路径，无项目则用应用临时目录> -s <会话 UUID>（后续轮 `--resume <会话 UUID>`） --no-auto-update --no-alt-screen --always-approve <只读工具参数，见下>`；用户选了模型 / 强度时每一轮都带 `-m <modelId>`、`--reasoning-effort <level>`。  
 - **streaming-json**（NDJSON；官方 schema 未正式发布，按 CLI 0.2.x 捕获）：`{"type":"text","data"}` 正文增量；`thought` 忽略；`end` 结束；`error` 失败。  
 - **认证**：继承用户环境 `XAI_API_KEY` 或 `~/.grok/auth.json`（`grok login`）。**无** Base URL / API Key 设置。  
-- **一期只读**（v0.31.4 改）：自动批准 + 只读白名单 `--tools read_file,list_dir,grep`，另带 `--disallowed-tools`（写 / 改 / 跑命令 / 子代理 / 联网 / MCP / 生成）、`--no-subagents`、`--disable-web-search`、`--deny Bash|Edit|Write|WebFetch|WebSearch|MCPTool(*)`；环境 `GROK_SANDBOX=read-only`、`GROK_WRITE_FILE=0`（Windows 上沙箱不生效，只靠工具限制）。真·请求批准二期（`--permission-mode dontAsk` + 批准流）。  
-- **能力列表**（v0.31.4）：`models` 来自 `grok models`，`displayName` = CLI 给的模型 ID 原样（不映射成「Cat 助手 …」）；探测失败回退 CLI 默认列表。`thinkLevels` 用 CLI 档位 `low` / `medium` / `high` / `xhigh`。  
+- **一期只读**（v0.31.4 改）：自动批准 + 只读白名单 `--tools read_file,list_dir,grep`，另带 `--disallowed-tools run_terminal_cmd,search_replace,write_file,apply_patch,task,Agent,web_search,web_fetch,search_tool,use_tool,image_gen,image_edit,video_gen,bash,edit,write,hashline_edit,run_terminal_command`（写 / 改 / 跑命令 / 子代理 / 联网 / MCP / 生成，v0.31.5 补 `bash` / `edit` / `write` / `hashline_edit` / `run_terminal_command`）、`--no-subagents`、`--disable-web-search`、`--deny Bash|Edit|Write|WebFetch|WebSearch|MCPTool(*)`；环境 `GROK_SANDBOX=read-only`、`GROK_WRITE_FILE=0`（Windows 上沙箱不生效，只靠工具限制）。真·请求批准二期（`--permission-mode dontAsk` + 批准流）。  
+- **能力列表**（v0.31.4）：`models` 来自 `grok models`，`displayName` = CLI 给的模型 ID 原样（不映射成「Cat 助手 …」）；**探测超时 / 报错 / 解析不出 → 空列表，不传 `-m`（用 CLI 默认模型），没有写死的回退模型**（v0.31.5）。`thinkLevels` = `low` / `medium` / `high` / `xhigh`，显示 `低` / `中` / `高` / `超高`（「超高」待产品确认）；只有用户选了才传 `--reasoning-effort`，没选时界面显示 `默认`（v0.31.5）。  
 - **取消**：`CancelCatTurn` → 取消 context → `proc.Kill` 进程树。超时默认 10 分钟。
 
 ### 6.19.4 数据结构
@@ -4315,6 +4317,8 @@ CREATE INDEX idx_cat_conversations_project ON cat_conversations (project_id, upd
 6. 删除项目后文件夹里文件一个不少（对比删除前后的文件清单）。
 7. **重新选择文件夹**（v0.31.1）：把项目文件夹剪切到新位置后重新选择 → 对话、消息都在，可继续发消息，`cat:project` 恢复；新位置分别试 **OneDrive 文件夹**（含仅联机占位）、**网络盘**（映射盘符和 UNC 子目录）；选到别的项目的文件夹（含大小写不同）→ 重复提示且本项目不变；选同一文件夹 → 无变化；新旧文件夹里的文件一个不少。
 8. **在文件管理器中显示**（v0.31.1）：Windows 资源管理器、macOS 访达各开一次（中文 / 空格路径、网络盘路径）；文件夹不在时返回 `项目文件夹不见了。` 且不会新建文件夹。
+9. **思考强度 `xhigh`**（v0.31.5）：分别用 `grok-4.6`、`grok-4.5` 选「超高」发消息 → 回复正常、不报错（`grok-4.5` 可能只支持到 `high`，预期 CLI 忽略）；不选强度时命令行里没有 `--reasoning-effort`；模型列表拿不到时不带 `-m` 也能正常回复。
+10. **只读**（v0.31.4）：让它新建 / 修改文件、运行命令 → 都被拒绝，项目里无改动（Windows 上沙箱不生效，只靠工具限制）。
 
 ## 7. 本地流服务（已取消）
 
