@@ -90,7 +90,7 @@ export const LOGIN_UI_ENABLED: boolean = false
  * Cat 助手页（设计 v0.4 / 契约 v0.30）。默认 false：正式包不出现侧栏「Cat」，直达 #/cat 也回到转换页。
  * 预览包可临时改 true：侧栏「语音工具」后出现「Cat」。
  */
-export const CAT_UI_ENABLED: boolean = false
+export const CAT_UI_ENABLED: boolean = true
 
 /**
  * Cat 真绑定（契约 §6.19）。后端 CatService 骨架 #172 已合入 v2（8597aa3），绑定已生成，联调打开（true）：
