@@ -37,11 +37,14 @@
                 @click="onLater()"
               >更多<FIcon name="down" :size="12" /></button>
             </div>
+            <div v-if="catNotReady" class="ct-banner" role="status" data-testid="cat-not-ready">
+              <FIcon name="info" :size="14" />{{ CAT_COPY.notReady }}
+            </div>
             <CatComposer
               ref="composer"
               welcome
               placeholder="发消息、上传文件、打开文件夹、创建定时任务，或输入 / 唤起命令…"
-              :busy="!!catState.pending"
+              :busy="catState.creating"
               @send="sendMessage"
             />
             <div class="wl-try">
@@ -63,13 +66,18 @@
             <FIcon name="refresh" :size="16" /><FIcon name="more" :size="16" />
           </div>
           <div ref="msgsEl" :key="catState.sel" class="ct-msgs swap">
-            <CatMessages :blocks="messages" :pending="catState.pending === catState.sel" />
+            <CatMessages :blocks="messages" :pending="thinking" />
+          </div>
+          <div v-if="catNotReady" class="ct-banner in-conv" role="status" data-testid="cat-not-ready">
+            <FIcon name="info" :size="14" />{{ CAT_COPY.notReady }}
           </div>
           <CatComposer
             :ctx-name="current.project?.name ?? 'Cat'"
             :ctx-branch="current.project?.branch ?? 'main'"
-            :busy="!!catState.pending"
+            :running="!!turn"
+            :stopping="turn?.status === 'stopping'"
             @send="sendMessage"
+            @stop="stopTurn()"
           />
         </template>
       </section>
@@ -91,10 +99,11 @@ import { ElMessage } from 'element-plus'
 import { CAT_COPY } from '@/api/cat'
 import { CAT_MODES, CAT_TRY, type CatMode } from '@/api/catMock'
 import { catReturnPath } from './catReturn'
-import { catState, findConv, messagesOf, NEW_CONV, refreshCapabilities, sendMessage, tipLater } from './catState'
+import { catNotReady, catState, findConv, initCat, messagesOf, NEW_CONV, refreshCapabilities, sendMessage, stopTurn, tipLater } from './catState'
 
 /**
- * Cat 聊天页（设计 v0.4 / 契约 v0.30）。CAT_BACKEND_READY=false：布局壳 + typed mock；发消息展示未就绪文案。
+ * Cat 聊天页（设计 v0.4 / 契约 v0.30）。Wails 里接真实 CatService：流式回复、停止生成、组件未就绪横条（无下载按钮）。
+ * 纯浏览器走查仍是布局壳 + typed mock。
  * 浏览器走查可加 ?cat=chat 跳过 1.2 秒 loading、?cat_conv=new|c21|d1… 直接打开某条对话（仅纯浏览器，Wails 里无效）。
  */
 defineOptions({ name: 'CatPage' })
@@ -109,6 +118,15 @@ const isNew = computed(() => catState.sel === NEW_CONV)
 const current = computed(() => (isNew.value ? null : findConv(catState.sel)))
 const messages = computed(() => (isNew.value ? [] : messagesOf(catState.sel)))
 const composer = ref<InstanceType<typeof CatComposer>>()
+/** 当前会话进行中的一轮 */
+const turn = computed(() => (isNew.value ? undefined : catState.turns[catState.sel]))
+/** 还没收到第一段文字时显示「正在思考…」 */
+const thinking = computed(() => !!turn.value && !turn.value.assistantId && turn.value.status === 'running')
+/** 流式时文字长度变化也要滚到底 */
+const tailLen = computed(() => {
+  const last = messages.value[messages.value.length - 1]
+  return last && last.kind === 'a' ? last.text.length : 0
+})
 const msgsEl = ref<HTMLElement>()
 
 // 选中的对话不存在（例如本地对话被清掉）时回到欢迎页
@@ -117,11 +135,16 @@ watch(current, (c) => {
 }, { immediate: true })
 
 let timer: ReturnType<typeof setTimeout> | undefined
+let disposeCat: (() => void) | undefined
 onMounted(() => {
   if (phase.value === 'loading') timer = setTimeout(() => (phase.value = 'chat'), 1200)
+  disposeCat = initCat()
   void refreshCapabilities()
 })
-onBeforeUnmount(() => clearTimeout(timer))
+onBeforeUnmount(() => {
+  clearTimeout(timer)
+  disposeCat?.()
+})
 
 watch(() => catState.sel, () => { void refreshCapabilities() })
 
@@ -131,7 +154,7 @@ function scrollToEnd() {
     if (el) el.scrollTop = el.scrollHeight
   })
 }
-watch(() => [catState.sel, messages.value.length, catState.pending, phase.value], scrollToEnd)
+watch(() => [catState.sel, messages.value.length, thinking.value, tailLen.value, phase.value], scrollToEnd)
 
 function goBack() {
   router.push(catReturnPath())
@@ -151,6 +174,30 @@ function onModeClick(m: CatMode) {
 </script>
 
 <style scoped>
+.ct-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 560px;
+  max-width: calc(100% - 32px);
+  margin: 0 auto 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--ff-bg-hover);
+  color: var(--ff-text-2);
+  font-size: 12.5px;
+}
+.ct-banner :deep(svg) {
+  flex: none;
+  color: var(--ff-text-3);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cat-in,
+  .swap,
+  .ct-spin {
+    animation: none;
+  }
+}
 .cat-page {
   flex: 1;
   min-width: 0;

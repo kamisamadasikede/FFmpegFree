@@ -93,7 +93,9 @@ export const LOGIN_UI_ENABLED: boolean = false
 export const CAT_UI_ENABLED: boolean = false
 
 /**
- * Cat 真绑定（契约 §6.19）。false = api/cat.ts 走 typed mock（模型/强度为空、发送未就绪文案）；不调 Wails。
- * 后端骨架合入并生成 CatService 绑定后改 true（下一 PR）；本 PR 保持 false。
+ * Cat 真绑定（契约 §6.19）。后端 CatService 骨架 #172 已合入 v2（8597aa3），绑定已生成，联调打开（true）：
+ * 在 Wails 里调真实绑定（api/cat.ts），订阅 cat:status / cat:message / cat:turn。
+ * 纯浏览器（没有 window.go）仍走 typed mock。页面入口仍由 CAT_UI_ENABLED 控制（正式包默认关）。
+ * 组件未发布时后端返回 missing + canDownload=false：显示「Cat 助手还没准备好，发布后即可使用。」，无下载按钮。
  */
-export const CAT_BACKEND_READY: boolean = false
+export const CAT_BACKEND_READY: boolean = true

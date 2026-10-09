@@ -1,5 +1,5 @@
 /**
- * Cat 聊天页的布局用模拟数据（CAT_BACKEND_READY=false：会话列表 / 欢迎页示意）。
+ * Cat 聊天页的布局用模拟数据（纯浏览器走查：会话列表 / 欢迎页示意；Wails 里走真实 CatService）。
  * 模型与思考强度不在这里造假——由 api/cat.ts 的 List* 返回（未就绪时为空）。
  * 不调用任何 Wails 绑定。
  */
@@ -17,6 +17,10 @@ export type CatBlock =
   | { kind: 'ul'; items: string[] }
   | { kind: 'code'; lang: string; parts: Array<[string, boolean?]>; more?: string }
   | { kind: 'run'; text: string }
+  /** 助手回复（真实会话）：streaming=true 时文字仍在增长 */
+  | { kind: 'a'; id: string; text: string; streaming: boolean }
+  /** 浅灰系统行：已停止生成 / 未就绪 / 回复失败 */
+  | { kind: 'sys'; text: string; tone?: 'err' }
 
 export interface CatConv {
   id: string
