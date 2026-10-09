@@ -4,6 +4,7 @@ import (
 	"FFmpegFree/app"
 	"FFmpegFree/internal/about"
 	"FFmpegFree/internal/doccomp"
+	"FFmpegFree/internal/doceng"
 	"FFmpegFree/internal/ffmpeg"
 	"FFmpegFree/internal/localassets"
 	"FFmpegFree/internal/paths"
@@ -201,7 +202,8 @@ func (a *App) startDoc() {
 			root = d.Root
 		}
 	}
-	comp := doccomp.New(doccomp.Config{Dir: doccomp.DefaultDir(root), Emit: app.NewWailsEmitter(a.ctx).Emit, Logf: log.Printf})
+	emit := app.NewWailsEmitter(a.ctx).Emit
+	comp := doccomp.New(doccomp.Config{Dir: doccomp.DefaultDir(root), Emit: emit, Logf: log.Printf})
 	a.docComp.Store(comp)
 	comp.Start()
 	cfg.Component = comp
@@ -215,11 +217,23 @@ func (a *App) startDoc() {
 	if a.store != nil { // 避免把 nil *Store 装进接口
 		cfg.Recent = a.store
 		cfg.Lister = a.store
+		storeRef := a.store
+		cfg.TaskGet = func(ctx context.Context, id string) (task.Task, error) {
+			return storeRef.GetTask(ctx, id)
+		}
 	}
 	if tm := a.taskManager(); tm != nil {
 		cfg.Tasks = tm
 	}
+	cfg.Emit = emit
+	cfg.DocEngine = a.sys.DocEngine
+	reg := doceng.NewRegistry(doceng.Config{Component: comp, DocEngine: a.sys.DocEngine, Emit: emit, Logf: log.Printf})
+	reg.StartDetect()
+	cfg.Engines = reg
+	a.sys.DocComponentDir = reg.DownloadedComponentDir
+	a.sys.SetDocEngineHook(func(string) { reg.EmitStatus() })
 	svc := doc.New(cfg)
+	reg.SetCompConv(svc.NewComponentConverter())
 	svc.CleanupDocTemp()
 	if n := svc.CleanupInterruptedParts(a.rootCtx); n > 0 {
 		log.Printf("已清理 %d 个中断的 Office 转 PDF 临时文件", n)

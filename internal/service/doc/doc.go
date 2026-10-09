@@ -10,9 +10,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"FFmpegFree/internal/apperr"
+	"FFmpegFree/internal/doceng"
 	"FFmpegFree/internal/localassets"
 	"FFmpegFree/internal/store"
 	"FFmpegFree/internal/task"
@@ -136,6 +138,12 @@ type Config struct {
 	// UploadsDir 返回实际上传目录（另存为路径校验，6.12.42）；nil 时用 <DataDir>/uploads。
 	UploadsDir func(ctx context.Context) string
 
+	// v0.27 引擎与预览：
+	Engines   *doceng.Registry // 可为 nil：只有文档组件（走 Component）
+	DocEngine func(ctx context.Context) string
+	Emit      func(event string, payload any)
+	TaskGet   func(ctx context.Context, id string) (task.Task, error)
+
 	// 以下供测试覆盖。
 	//
 	// EmbeddedFont 为 nil 用内嵌的 Noto Sans SC 子集；DisableEmbedded 模拟“内嵌字体加载失败”。
@@ -158,6 +166,11 @@ type Service struct {
 
 	previews *previewHub
 	saves    *binarySaveHub
+
+	// 引擎 PDF 预览（v0.27）
+	prevOnce  sync.Once
+	prevCache *previewCache
+	prevQueue chan previewJob
 }
 
 // New 创建 Service，并注册 office_pdf 的重试工厂。

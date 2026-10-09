@@ -166,6 +166,9 @@ func (s *Service) BeginDocBinarySave(ctx context.Context, req DocBinarySaveBegin
 		if normExt(filepath.Ext(targetPath)) != "docx" {
 			return DocBinarySaveSession{}, apperr.New(apperr.InvalidArgument, "只能保存成同一种格式。").WithDetail("reason=format")
 		}
+		if err := s.conflictIfTargetBusy(ctx, targetPath); err != nil {
+			return DocBinarySaveSession{}, err
+		}
 	} else {
 		if t.MissingOrig {
 			return DocBinarySaveSession{}, apperr.New(apperr.NotFound, "原文件已经不在了，改完只能另存为。").WithDetail("reason=file")
@@ -320,6 +323,12 @@ func (s *Service) CommitDocBinarySave(ctx context.Context, req DocBinarySaveComm
 			return DocBinarySaveResult{}, apperr.New(apperr.TaskConflict, "文件在别处被改过了，请重新打开，或另存为。").WithDetail("reason=file_changed")
 		}
 	}
+	if sess.mode == "save_as" {
+		// Begin 之后目标可能被别的记录用上：提交前再查一次
+		if err := s.conflictIfTargetBusy(ctx, sess.targetPath); err != nil {
+			return DocBinarySaveResult{}, err
+		}
+	}
 	if err := validateDocxForSave(sess.part); err != nil {
 		return DocBinarySaveResult{}, err
 	}
@@ -343,8 +352,11 @@ func (s *Service) CommitDocBinarySave(ctx context.Context, req DocBinarySaveComm
 	if backupPath != "" {
 		s.allowReveal(backupPath)
 	}
-	data, _ := os.ReadFile(sess.targetPath)
-	s.afterTextSave(ctx, sess.target, data) // 刷新副本 / 结果大小
+	if sess.mode == "overwrite" {
+		// 只有写回原位置时才刷新副本 / 结果大小；另存为写的是别的位置，不能动原行的副本
+		data, _ := os.ReadFile(sess.targetPath)
+		s.afterTextSave(ctx, sess.target, data)
+	}
 	return DocBinarySaveResult{
 		Path: sess.targetPath, Revision: sum, SizeBytes: size,
 		SavedAt: time.Now().UnixMilli(), BackupPath: backupPath,

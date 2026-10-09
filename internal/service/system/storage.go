@@ -44,6 +44,8 @@ const (
 	StorageUploads = "uploads"
 	// StorageComponent（PM X5，契约 v0.25.1）：打开当前使用的转换组件可执行文件所在的文件夹，并选中这个文件（Windows / macOS）。
 	StorageComponent = "component"
+	// StorageDocComponent（v0.27.2，6.12.54）：打开应用下载的文档组件目录。
+	StorageDocComponent = "doc_component"
 )
 
 // componentNotReadyMessage 是 kind=component 时转换组件没就绪或文件不在的提示（契约 1.1：不出现 ffmpeg）。
@@ -202,8 +204,10 @@ func (m *Manager) OpenStorageFolder(ctx context.Context, kind string) error {
 		dir = m.ActualUploadsDir(ctx)
 	case StorageComponent:
 		return m.revealComponent()
+	case StorageDocComponent:
+		return m.revealDocComponent()
 	default:
-		return apperr.New(apperr.InvalidArgument, "不支持打开这个文件夹").WithDetail("kind 只能是 output、uploads 或 component：" + kind)
+		return apperr.New(apperr.InvalidArgument, "不支持打开这个文件夹").WithDetail("kind 只能是 output、uploads、component 或 doc_component：" + kind)
 	}
 	if dir == "" {
 		return apperr.New(apperr.Internal, "存储位置尚未初始化")
@@ -265,4 +269,33 @@ func samePath(a, b string) bool {
 		return strings.EqualFold(a, b)
 	}
 	return a == b
+}
+
+const docComponentNotReadyMessage = "文档组件还没有就绪。"
+
+// revealDocComponent 打开应用下载的文档组件目录（6.12.54）：只有 componentState=ready 且 source=downloaded。
+func (m *Manager) revealDocComponent() error {
+	notReady := apperr.New(apperr.NotFound, docComponentNotReadyMessage).WithDetail("reason=component")
+	m.mu.Lock()
+	fn := m.DocComponentDir
+	m.mu.Unlock()
+	if fn == nil {
+		return notReady
+	}
+	dir := fn()
+	if dir == "" || !isDir(dir) {
+		return notReady
+	}
+	start := m.launch
+	if start == nil {
+		start = startDetached
+	}
+	if err := revealIn(runtime.GOOS, start, dir, nil); err != nil {
+		ae := apperr.From(err)
+		if ae.Code == apperr.NotFound {
+			return notReady
+		}
+		return apperr.New(ae.Code, ae.Message).WithDetail("reason=component")
+	}
+	return nil
 }

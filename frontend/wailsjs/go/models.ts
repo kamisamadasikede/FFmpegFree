@@ -2245,6 +2245,7 @@ export namespace system {
 	    defaultOutputDir: string;
 	    uploadsDir: string;
 	    maxConcurrent: number;
+	    docEngine: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -2257,6 +2258,7 @@ export namespace system {
 	        this.defaultOutputDir = source["defaultOutputDir"];
 	        this.uploadsDir = source["uploadsDir"];
 	        this.maxConcurrent = source["maxConcurrent"];
+	        this.docEngine = source["docEngine"];
 	    }
 	}
 	export class StorageDirs {

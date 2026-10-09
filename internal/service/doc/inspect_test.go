@@ -109,7 +109,7 @@ func TestDecodeTextGB18030(t *testing.T) {
 }
 
 func TestFormatMatrix(t *testing.T) {
-	m := buildMatrix(false)
+	m := buildMatrix(false, nil)
 	if m.ComponentReady || len(m.Inputs) != 16 || len(m.Sources) != 14 {
 		t.Fatalf("%+v", m)
 	}
@@ -142,7 +142,7 @@ func TestFormatMatrix(t *testing.T) {
 		{"docx", "pdf", true, true, false, true, ""},
 		{"pptx", "odp", true, true, false, true, ""},
 	} {
-		got := find(buildMatrix(c.ready), c.src, c.tg)
+		got := find(buildMatrix(c.ready, nil), c.src, c.tg)
 		if got.NeedsComponent != c.needs || got.Simple != c.simple || got.Available != c.avai || got.HintKey != c.hint ||
 			(!got.Available) != (got.DisabledReason == "需要文档组件") {
 			t.Errorf("%s→%s ready=%v: %+v", c.src, c.tg, c.ready, got)

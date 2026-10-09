@@ -67,3 +67,13 @@ func (s *Service) UpdateDocTaskResultSize(ctx context.Context, taskID string, si
 	}
 	return nil
 }
+
+// DocTargetPathUsage 文档另存为目标检查（6.12.42）：目标是否被别的记录用着。
+func (s *Service) DocTargetPathUsage(ctx context.Context, target string) (converting, inUse bool, err error) {
+	st, ok := s.cfg.Sources.(*store.Store)
+	if !ok {
+		return false, false, nil
+	}
+	u, err := st.TargetPathUsage(ctx, target)
+	return u.Converting, u.InUse, err
+}
