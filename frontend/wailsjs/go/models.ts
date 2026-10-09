@@ -2616,6 +2616,21 @@ export namespace lang {
 
 
 export namespace catagent {
+	
+	export class CancelCatTurnRequest {
+	    convId: string;
+	    turnId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CancelCatTurnRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.turnId = source["turnId"];
+	    }
+	}
 	export class Status {
 	    state: string;
 	    version: string;
@@ -2809,6 +2824,7 @@ export namespace cat {
 	}
 	export class SendMessageResult {
 	    userMessage: Message;
+	    turnId: string;
 	    assistantMessage?: Message;
 	    error?: apperr.AppError;
 
@@ -2819,6 +2835,7 @@ export namespace cat {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.userMessage = this.convertValues(source["userMessage"], Message);
+	        this.turnId = source["turnId"];
 	        this.assistantMessage = this.convertValues(source["assistantMessage"], Message);
 	        this.error = this.convertValues(source["error"], apperr.AppError);
 	    }

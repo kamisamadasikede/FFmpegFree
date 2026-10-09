@@ -61,19 +61,51 @@ type ThinkLevel struct {
 	DisplayName string `json:"displayName"`
 }
 
-// MessageEvent 是 cat:message 载荷（可含流式增量；一期先整段）。
-type MessageEvent struct {
-	ConversationID string `json:"conversationId"`
-	MessageID      string `json:"messageId"`
-	Role           string `json:"role"`
-	Content        string `json:"content"`
-	Delta          bool   `json:"delta,omitempty"` // true = 流式增量追加到同 messageId
-	CreatedAt      int64  `json:"createdAt"`
+// cat:message 增量操作（契约 6.19.9）。
+const (
+	OpAppend  = "append"
+	OpReplace = "replace"
+	OpDone    = "done"
+)
+
+// cat:turn 状态（契约 6.19.9）。
+const (
+	TurnRunning   = "running"
+	TurnCancelled = "cancelled"
+	TurnFailed    = "failed"
+	TurnCompleted = "completed"
+)
+
+// BlockText 是正文块类型。
+const BlockText = "text"
+
+// MessageBlock 是 replace 时携带的整块内容。
+type MessageBlock struct {
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
 }
 
-// TurnEvent 是 cat:turn 载荷。
+// MessageEvent 是 cat:message 增量载荷（契约 6.19.9）。
+// 同一 messageId 内 seq 从 1 严格递增；done 之后不再有同 messageId 事件。
+type MessageEvent struct {
+	ConvID    string        `json:"convId"`
+	TurnID    string        `json:"turnId"`
+	MessageID string        `json:"messageId"`
+	Seq       int           `json:"seq"`
+	Op        string        `json:"op"` // append | replace | done
+	Block     *MessageBlock `json:"block,omitempty"`
+	TextDelta string        `json:"textDelta,omitempty"`
+}
+
+// TurnEvent 是 cat:turn 载荷（契约 6.19.9）。
 type TurnEvent struct {
-	ConversationID string           `json:"conversationId"`
-	Status         string           `json:"status"` // succeeded | failed | canceled
-	Error          *apperr.AppError `json:"error,omitempty"`
+	ConvID string `json:"convId"`
+	TurnID string `json:"turnId"`
+	Status string `json:"status"` // running | cancelled | failed | completed
+}
+
+// CancelCatTurnRequest 是 CancelCatTurn 入参（契约 6.19.9）。
+type CancelCatTurnRequest struct {
+	ConvID string `json:"convId"`
+	TurnID string `json:"turnId"`
 }
