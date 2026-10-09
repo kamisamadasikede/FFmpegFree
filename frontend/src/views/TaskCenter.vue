@@ -14,7 +14,8 @@
 
     <div class="card main">
       <div class="tabbar">
-        <div class="tabs" role="tablist" aria-label="任务分类" @keydown="onTabKeydown">
+        <div ref="tabsEl" class="tabs" :class="{ ink: inkReady }" role="tablist" aria-label="任务分类" @keydown="onTabKeydown">
+          <i class="tab-ink" aria-hidden="true" :style="inkStyle" />
           <button
             v-for="t in tabList"
             :id="`tc-tab-${t.key}`"
@@ -54,7 +55,7 @@
         <ErrorLine :code="tasks.loadError.code" :message="tasks.loadError.message" :detail="tasks.loadError.detail" :show-log="false" fallback-title="加载任务失败" />
       </div>
 
-      <div id="tc-panel" class="scroll" role="tabpanel" :aria-labelledby="`tc-tab-${tab}`">
+      <div id="tc-panel" ref="panelEl" class="scroll" role="tabpanel" :aria-labelledby="`tc-tab-${tab}`">
         <!-- 空状态 -->
         <div v-if="rows.length === 0 && !loading" class="empty">
           <div class="eic"><FIcon :name="tab === 'failed' ? 'check' : 'task'" :size="24" /></div>
@@ -259,6 +260,7 @@ import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import MotionCollapse from '@/components/motion/MotionCollapse.vue'
 import { useJustDone } from '@/composables/useJustDone'
+import { useFadeOnChange, useTabInk } from '@/composables/useTabMotion'
 import MotionDialog from '@/components/motion/MotionDialog.vue'
 import ErrorLine from '@/components/common/ErrorLine.vue'
 import EncoderFallbackNotice from '@/components/encoder/EncoderFallbackNotice.vue'
@@ -401,6 +403,11 @@ async function loadTab() {
   tasks.historyFilter.page = 1
   await tasks.loadHistory()
 }
+// 页签切换（动画 P1）：下划线滑到新页签；列表区淡入 150ms
+const tabsEl = ref<HTMLElement | null>(null)
+const panelEl = ref<HTMLElement | null>(null)
+const { style: inkStyle, ready: inkReady } = useTabInk(tabsEl, () => tab.value, '.tab.on')
+useFadeOnChange(() => tab.value, () => panelEl.value)
 function setTab(t: Tab) {
   if (tab.value === t) return
   tab.value = t
@@ -818,8 +825,29 @@ onMounted(async () => {
   border-bottom: 1px solid var(--ff-border);
 }
 .tabs {
+  position: relative;
   display: flex;
   gap: 20px;
+}
+/* 动画 P1：选中下划线是一根滑动的指示条（translate + scale，基准宽 100px = INK_BASE），放好位置后才接管原来的 ::after */
+.tab-ink {
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 100px;
+  height: 2px;
+  background: var(--ff-primary);
+  border-radius: 1px;
+  transform-origin: left center;
+  pointer-events: none;
+  opacity: 0;
+}
+.tabs.ink .tab-ink {
+  opacity: 1;
+  transition: translate var(--ff-dur-base) var(--ff-ease), scale var(--ff-dur-base) var(--ff-ease);
+}
+.tabs.ink .tab.on::after {
+  content: none;
 }
 .tab {
   height: 40px;

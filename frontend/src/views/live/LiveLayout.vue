@@ -4,9 +4,10 @@
       <FIcon name="warn" :size="16" />
       <span>直播功能仍在开发中，当前页面为演示，尚未连接真实推流。</span>
     </div>
-    <div class="body">
+    <div ref="bodyEl" class="body">
     <div class="top">
     <nav class="seg" aria-label="直播工具">
+      <i v-if="segIdx >= 0" class="seg-ink" aria-hidden="true" :style="{ '--i': segIdx, '--n': tabs.length }" />
       <RouterLink v-for="t in tabs" :key="t.to" :to="t.to" class="seg-item">
         {{ t.label }}
       </RouterLink>
@@ -27,7 +28,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { useFadeOnChange } from '@/composables/useTabMotion'
 import { useRoute } from 'vue-router'
 import FIcon from '@/components/icon/FIcon.vue'
 import LiveFallbackNotice from '@/components/live/LiveFallbackNotice.vue'
@@ -37,6 +39,9 @@ import { lpVisual } from './lpVisual'
 defineOptions({ name: 'LiveLayout' })
 // 直播页外壳：三个页签（原型 pages.html 的 .seg，宽 360）+ 页签内容。
 const route = useRoute()
+// 切页签：页签内容（.body 最后一个子元素）淡入；页签条、会话入口、回退提示条不动
+const bodyEl = ref<HTMLElement | null>(null)
+useFadeOnChange(() => route.path, () => bodyEl.value?.lastElementChild)
 const isPushTab = computed(() => route.path.startsWith('/live/push') || route.path.startsWith('/live/record'))
 const shot = !!lpVisual
 const tabs = [
@@ -44,6 +49,7 @@ const tabs = [
   { label: '录屏推流', to: '/live/record' },
   { label: '拉流播放', to: '/live/pull' },
 ]
+const segIdx = computed(() => tabs.findIndex((t) => route.path.startsWith(t.to)))
 </script>
 
 <style scoped>
@@ -111,5 +117,29 @@ const tabs = [
 .seg-item:focus-visible {
   outline: 2px solid var(--ff-primary);
   outline-offset: 1px;
+}
+/* 动画 P1：选中底块是一个滑块，切页签时 translate 滑过去（各项等宽，只动 transform）；减少动效时瞬间 */
+.seg {
+  position: relative;
+}
+.seg-ink {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  height: 24px;
+  width: calc((100% - 4px) / var(--n));
+  translate: calc(var(--i) * 100%) 0;
+  border-radius: 4px;
+  background: var(--ff-bg-surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  transition: translate var(--ff-dur-base) var(--ff-ease);
+  pointer-events: none;
+}
+.seg-item {
+  position: relative;
+}
+.seg:has(.seg-ink) .seg-item.router-link-active {
+  background: transparent;
+  box-shadow: none;
 }
 </style>

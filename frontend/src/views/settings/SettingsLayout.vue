@@ -13,7 +13,7 @@
         {{ item.label }}
       </a>
     </nav>
-    <div class="sbody">
+    <div ref="sbodyEl" class="sbody">
       <RouterView />
     </div>
   </div>
@@ -28,6 +28,7 @@ import { encoderPanelVisible } from '@/api/encoder'
 import { ENCODER_PANEL_TITLE } from '@/errors/encoderMessages'
 import { ENCODER_SECTION_ID, ENCODER_SECTION_QUERY } from '@/api/encoderTask'
 import { scrollBehavior } from '@/utils/motion'
+import { useFadeOnChange } from '@/composables/useTabMotion'
 import { convertV24On } from '@/api/convertRecords'
 
 interface Item {
@@ -51,6 +52,9 @@ const items: Item[] = [
 
 const route = useRoute()
 const router = useRouter()
+// 通用 ↔ 关于：右侧内容淡入（动画 P1）；通用页里点分组只是滚动，不播
+const sbodyEl = ref<HTMLElement | null>(null)
+useFadeOnChange(() => route.path, () => sbodyEl.value)
 const section = ref(route.query.section === ENCODER_SECTION_QUERY && encoderPanelVisible() ? 'encoder' : 'appearance')
 // 从提示条的“编码设置”跳来（?section=encoder）时，子导航高亮“编码设备”；定位由 Settings.vue 做
 watch(() => route.query.section, (q) => { if (q === ENCODER_SECTION_QUERY && encoderPanelVisible()) section.value = 'encoder' })
