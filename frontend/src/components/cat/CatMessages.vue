@@ -1,6 +1,6 @@
 <template>
   <div class="ct-col">
-    <template v-for="(b, i) in blocks" :key="i">
+    <template v-for="(b, i) in blocks" :key="b.kind === 'a' ? 'a:' + b.id : i">
       <div v-if="b.kind === 'user'" class="ct-user">{{ b.text }}</div>
       <div v-else-if="b.kind === 'think'" class="ct-think"><FIcon name="spark" :size="14" />{{ b.text }}<FIcon name="right" :size="14" /></div>
       <p v-else-if="b.kind === 'p'"><InlineText :text="b.text" /></p>
@@ -18,7 +18,7 @@
         class="ct-a"
         :class="{ streaming: b.streaming, calm: reduced }"
         :aria-busy="b.streaming"
-      ><InlineText :text="b.text" /><i v-if="b.streaming && !reduced" class="ct-caret" aria-hidden="true" /></div>
+      ><CatMarkdown :text="b.text" :streaming="b.streaming" /></div>
       <div v-else-if="b.kind === 'sys'" class="ct-sys" :class="{ err: b.tone === 'err' }" role="status">{{ b.text }}</div>
     </template>
     <div v-if="pending" class="ct-run" role="status"><i class="ct-spin sm" aria-hidden="true" />正在思考…</div>
@@ -28,6 +28,7 @@
 <script setup lang="ts">
 import { defineComponent, h } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
+import CatMarkdown from './CatMarkdown.vue'
 import type { CatBlock } from '@/api/catMock'
 import { prefersReducedMotion } from '@/api/catStream'
 
@@ -46,22 +47,9 @@ const InlineText = defineComponent({
 </script>
 
 <style scoped>
+/* 助手回复按 Markdown 显示（CatMarkdown）；用户消息仍是纯文字 pre-wrap */
 .ct-a {
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.ct-caret {
-  display: inline-block;
-  width: 7px;
-  height: 1em;
-  margin-left: 2px;
-  vertical-align: -2px;
-  background: var(--ff-text-3);
-  border-radius: 1px;
-  animation: ct-caret 1s steps(2, start) infinite;
-}
-@keyframes ct-caret {
-  to { visibility: hidden; }
+  min-width: 0;
 }
 .ct-sys {
   font-size: 12px;
@@ -72,9 +60,6 @@ const InlineText = defineComponent({
   color: var(--ff-text-2);
 }
 @media (prefers-reduced-motion: reduce) {
-  .ct-caret {
-    display: none;
-  }
   .ct-spin {
     animation: none;
   }
