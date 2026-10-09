@@ -86,8 +86,12 @@ export interface SendCatMessageRequest {
   projectPath?: string
 }
 
-/** 后端 SendCatMessage 返回（#172：一轮结束后返回；流式时文字靠 cat:message / cat:turn 推进） */
+/**
+ * 后端 SendCatMessage 返回（契约 v0.30.1：必须带 turnId，前端记下用于 CancelCatTurn）。
+ * 流式时文字靠 cat:message / cat:turn 推进；assistantMessage 可能为空。
+ */
 export interface SendCatMessageResult {
+  turnId: string
   userMessage: CatMessage
   assistantMessage?: CatMessage | null
 }
@@ -251,19 +255,21 @@ export async function sendCatMessage(req: SendCatMessageRequest): Promise<SendCa
     ),
   )
   return {
+    // 绑定模型还没生成 turnId 字段时按空串处理（turnId 也会从 cat:turn running / cat:message 里拿到）
+    turnId: String((raw as { turnId?: unknown } | null)?.turnId ?? ''),
     userMessage: mapMsg(raw?.userMessage),
     assistantMessage: raw?.assistantMessage ? mapMsg(raw.assistantMessage) : null,
   }
 }
 
 /**
- * 停止生成（立即返回，幂等）。定稿形状是 { convId, turnId }；
- * 后端 #172 的绑定目前只收 conversationId（同一会话同时只有一轮），turnId 先不下传。
+ * 停止生成（契约 v0.30.1 §6.19.9：CancelCatTurn({ convId, turnId })，立即停止、幂等）。
+ * 过渡：v2 上生成的绑定仍是 #172 的 CancelCatTurn(conversationId string)（同一会话同时只有一轮，按会话取消等价）。
+ * 后端改成 CancelCatTurnRequest 并重新生成绑定后，下面这行会类型报错，届时改成整个 req 下传。
  */
-export async function cancelCatTurn(req: CancelCatTurnRequest | string): Promise<void> {
-  const convId = typeof req === 'string' ? req : req.convId
-  if (!convId || !live()) return
-  await call(CatBinding.CancelCatTurn(convId))
+export async function cancelCatTurn(req: CancelCatTurnRequest): Promise<void> {
+  if (!req.convId || !live()) return
+  await call(CatBinding.CancelCatTurn(req.convId))
 }
 
 // ---------- 事件 ----------

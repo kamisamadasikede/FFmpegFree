@@ -231,6 +231,7 @@ export function handleMessageEvent(e: CatStreamEvent) {
   // 点了停止之后到的文字不再追加（保留已显示的）
   if (turn?.status === 'stopping') return
   if (turn && e.turnId && turn.turnId && e.turnId !== turn.turnId) return
+  if (turn && e.turnId && !turn.turnId) turn.turnId = e.turnId
   const list = catState.messages[e.convId]
   if (!list) return // 这条会话还没打开过，打开时会从后端整段读
 
@@ -260,7 +261,7 @@ export function handleTurnEvent(e: CatTurnEvent) {
   if (!turn) return
   if (e.turnId && turn.turnId && e.turnId !== turn.turnId) return
   if (e.status === 'running') {
-    if (e.turnId) turn.turnId = e.turnId
+    if (e.turnId && !turn.turnId) turn.turnId = e.turnId
     return
   }
   if (e.status === 'completed') endTurn(e.convId, 'completed')
@@ -337,6 +338,7 @@ export async function sendMessage(text: string) {
       thinkLevelId: catState.think || undefined,
     })
     const turn = catState.turns[id]
+    if (turn?.token === token && res.turnId && !turn.turnId) turn.turnId = res.turnId
     if (turn?.token === token && turn.status !== 'stopping' && res.assistantMessage?.content) {
       const a = res.assistantMessage
       const b = assistantBlock(id, a.id)
