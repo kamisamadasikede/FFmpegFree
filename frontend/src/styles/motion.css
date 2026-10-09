@@ -49,6 +49,22 @@
   animation: ff-pop-in var(--ff-dur-base) var(--ff-ease-out);
 }
 
+/* 预览大弹窗关闭（PreviewShell open=false）：遮罩 + 面板淡出 150ms ease-in，面板下沉 8px；不缩放、不加 filter，
+   iframe / PDF / 编辑器保持原样直到整个弹窗卸载；淡出期间不接收点击（另外 guardLeaving 设了 inert） */
+.ff-pvx-leave-active {
+  transition: opacity var(--ff-dur-fast) var(--ff-ease-in);
+  pointer-events: none;
+}
+.ff-pvx-leave-to {
+  opacity: 0;
+}
+.ff-pvx-leave-active .pvx {
+  transition: translate var(--ff-dur-fast) var(--ff-ease-in);
+}
+.ff-pvx-leave-to .pvx {
+  translate: 0 8px;
+}
+
 /* ── 弹窗内小提示：<MotionToast> ── */
 .ff-toast-enter-active {
   transition: opacity var(--ff-dur-base) var(--ff-ease-out), translate var(--ff-dur-base) var(--ff-ease-out), scale var(--ff-dur-base) var(--ff-ease-out);

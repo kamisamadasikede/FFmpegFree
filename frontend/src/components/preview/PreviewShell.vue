@@ -3,9 +3,10 @@
 // 文档页、转换页共用；各页只换顶部右侧按钮和内容区。Esc 关闭、← → 切换（焦点在输入框里时不切）、Tab 在弹窗内循环，关闭后焦点回到入口（调用方负责）。
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
+import { guardLeaving } from '@/utils/motion'
 import './preview-shell.css'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   title: string
   sub?: string
   /** 类型图标的配色类：t-doc / t-sheet / t-slide / t-pdf / t-txt / t-web / t-md / t-video / t-audio */
@@ -18,13 +19,16 @@ const props = defineProps<{
   /** 编辑中等情况：←→ 不切换 */
   lockNav?: boolean
   label?: string
-}>()
-const emit = defineEmits<{ (e: 'close'): void; (e: 'prev'): void; (e: 'next'): void }>()
+  /** false = 正在关闭：遮罩 + 面板淡出 150ms（面板下沉 8px，不缩放），结束后发 closed，调用方再卸载（动画 P1） */
+  open?: boolean
+}>(), { open: true })
+const emit = defineEmits<{ (e: 'close'): void; (e: 'prev'): void; (e: 'next'): void; (e: 'closed'): void }>()
 const root = ref<HTMLElement | null>(null)
 
 const FOCUSABLE = 'button:not([disabled]),[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),iframe,[tabindex]:not([tabindex="-1"])'
 function onKey(e: KeyboardEvent) {
-  if (e.defaultPrevented) return
+  // 关闭淡出那 150ms 里不再响应 Esc / ← → / Tab（弹窗已经 inert）
+  if (e.defaultPrevented || !props.open) return
   const t = e.target as HTMLElement | null
   const typing = !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)
   if (e.key === 'Escape') {
@@ -64,7 +68,8 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
 
 <template>
   <Teleport to="body">
-    <div class="pvx-mask ff-in-mask" @mousedown.self="emit('close')">
+    <Transition name="ff-pvx" @before-leave="guardLeaving" @after-leave="emit('closed')">
+    <div v-if="open" class="pvx-mask ff-in-mask" @mousedown.self="emit('close')">
       <div ref="root" class="pvx ff-in-panel" role="dialog" aria-modal="true" :aria-label="label || title">
         <header class="pvx-h">
           <span class="pvx-ti" :class="tone" aria-hidden="true"><FIcon :name="(icon as any) || 'doc'" /></span>
@@ -86,5 +91,6 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
         <slot name="overlay" />
       </div>
     </div>
+    </Transition>
   </Teleport>
 </template>

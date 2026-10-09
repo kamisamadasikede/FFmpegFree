@@ -61,11 +61,15 @@ import {
 } from '@/utils/docV27Text'
 import { formatBytes } from '@/utils/format'
 
+const emit = defineEmits<{ (e: 'closed'): void }>()
 const PvDocxEdit = defineAsyncComponent(() => import('./PvDocxEdit.vue'))
 const st = usePreviewStore()
 const comp = useDocComponentStore()
-const pv = computed(() => st.preview)
-const it = computed(() => st.current)
+// 关闭淡出那 150ms 里保持关闭前的内容（store 关闭时已经撤销预览、清掉 preview），不闪成空白；淡出结束整个弹窗卸载
+const pv = shallowRef(st.preview)
+watch(() => st.preview, (p) => st.open && (pv.value = p))
+const it = shallowRef(st.current)
+watch(() => st.current, (c) => st.open && (it.value = c))
 
 // ── 顶部栏 ──
 const ext = computed(() => (pv.value?.ext || extOf(it.value?.name ?? '')).toLowerCase())
@@ -409,7 +413,8 @@ const retryPreview = () => {
   localFailed.value = false
   void st.reload()
 }
-const onGone = () => st.onUrlGone()
+// 已经在关闭（地址已撤销）时不再重新取预览
+const onGone = () => st.open && st.onUrlGone()
 </script>
 
 <template>
@@ -422,7 +427,9 @@ const onGone = () => st.onUrlGone()
     :can-prev="st.index > 0"
     :can-next="st.index < st.items.length - 1"
     :lock-nav="mode === 'edit'"
+    :open="st.open"
     @close="requestClose"
+    @closed="emit('closed')"
     @prev="nav(-1)"
     @next="nav(1)"
   >
