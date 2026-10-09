@@ -24,6 +24,7 @@ const (
 	// Deprecated: 用 TypeEditExport。
 	TypeEditRender     TaskType = "edit_render"
 	TypeOfficePDF      TaskType = "office_pdf"
+	TypeDocConvert     TaskType = "doc_convert"
 	TypeLiveFilePush   TaskType = "live_file_push"
 	TypeLiveScreenPush TaskType = "live_screen_push"
 	TypeFFmpegInstall  TaskType = "ffmpeg_install"
@@ -88,6 +89,10 @@ type Task struct {
 
 	// LogPath 不暴露给前端，前端通过 TaskService.GetLog 读取。
 	LogPath string `json:"-"`
+
+	// QueuePosition 是文档组件池里排队任务前面还有几项（从 0 起），只在内存（契约 v0.26，6.12.18）。
+	// 用指针以便 0 也输出；只有文档组件池里 queued 的任务有。
+	QueuePosition *int `json:"queuePosition,omitempty"`
 }
 
 // TaskResult 是成功的 convert 任务完成时对最终输出的探测结果（契约 v0.23，6.14.2 / 6.14.6），落库在 tasks.result（JSON）。
@@ -99,6 +104,8 @@ type TaskResult struct {
 	AudioBitrateKbps int     `json:"audioBitrateKbps,omitempty"` // 第一条音频流的码率（kbit/s，四舍五入）
 	// Warnings 是结果警告的机器码（契约 v0.24，6.14.6），目前只有 "short_output"；为空时省略。
 	Warnings []string `json:"warnings,omitempty"`
+	// Engine 是实际完成转换的引擎（契约 v0.27，6.12.31）：doc_convert / office_pdf 成功时写 component | go | simple（office / wps 在下一个 PR）。
+	Engine string `json:"engine,omitempty"`
 }
 
 // ReconvertError 是最近一次原地重转失败的信息（契约 v0.24，6.17.2）。
@@ -524,7 +531,7 @@ func encodeJSON[T any](v *T) (any, error) {
 
 // ListReconvertingTasks 返回 reconverting=1 的任务（启动时的重转崩溃恢复用，契约 6.17.5）。
 func (s *Store) ListReconvertingTasks(ctx context.Context) ([]Task, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+taskColumns+` FROM tasks WHERE reconverting = 1 AND type = 'convert' ORDER BY created_at ASC, id ASC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+taskColumns+` FROM tasks WHERE reconverting = 1 AND type IN ('convert','doc_convert','office_pdf') ORDER BY created_at ASC, id ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("查询重转中的任务失败: %w", err)
 	}
@@ -542,7 +549,7 @@ func (s *Store) ListReconvertingTasks(ctx context.Context) ([]Task, error) {
 
 // ConvertOutputPaths 返回全部 convert 记录登记的输出路径（去重；孤儿重转临时文件扫描用，契约 6.17.5）。
 func (s *Store) ConvertOutputPaths(ctx context.Context) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT output_path FROM tasks WHERE type = 'convert' AND output_path <> ''`)
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT output_path FROM tasks WHERE type IN ('convert','doc_convert','office_pdf') AND output_path <> ''`)
 	if err != nil {
 		return nil, fmt.Errorf("查询输出路径失败: %w", err)
 	}

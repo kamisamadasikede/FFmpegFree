@@ -114,6 +114,12 @@ func TestUserFacingMessageIsChinese(t *testing.T) {
 	}
 	allowed := map[string]bool{ // 产品名、格式名、平台名：界面上本来就这样写
 		"FFmpegFree": true, "PDF": true, "JSON": true, "Windows": true, "macOS": true, "X11": true, "Office": true, "ID": true,
+		"Word": true, "ODT": true, "TXT": true, "CSV": true, "Markdown": true, "MD": true, "HTML": true, "DOC": true, "DOCX": true,
+		"XLS": true, "XLSX": true, "PPT": true, "PPTX": true, "ODS": true, "ODP": true, "RTF": true, "GB": true, "MiB": true,
+	}
+	linuxLOHints := map[string]bool{ // 契约 6.12.24（v0.27）：只有 Linux 的这两句可以出现 LibreOffice
+		"请先在系统里安装 LibreOffice，然后重启应用。":                 true,
+		"系统里的 LibreOffice 版本太旧，请升级到 7.2 或更高版本，然后重启应用。": true,
 	}
 	root := filepath.Join("..", "..")
 	fset := token.NewFileSet()
@@ -129,6 +135,12 @@ func TestUserFacingMessageIsChinese(t *testing.T) {
 				return true
 			}
 			pos := fset.Position(lit.Pos()).String()
+			if linuxLOHints[s] {
+				return true
+			}
+			if strings.Contains(strings.ToLower(s), "libreoffice") {
+				bad = append(bad, pos+": 含 LibreOffice（只允许 Linux 的两句提示）: "+s)
+			}
 			for _, c := range codes {
 				if strings.Contains(s, c) {
 					bad = append(bad, pos+": 含错误码 "+c+": "+s)
@@ -194,4 +206,6 @@ func TestUserFacingMessageIsChinese(t *testing.T) {
 
 var allCodesForTest = []Code{InvalidArgument, NotFound, FFmpegNotFound, TaskConflict, IOError, ProcessFailed, UnsupportedPlatform, Internal,
 	ProbeFailed, ConvertDiskFull, Canceled, Unsupported, LiveURLInvalid, LiveConnectFailed, LivePushRejected, LivePushInterrupted,
-	ScreenPermissionDenied, LiveSourceGone}
+	ScreenPermissionDenied, LiveSourceGone,
+	DocEncrypted, DocCorrupt, DocTimeout, DocComponentCrashed, DocComponentNotReady, DocDownloadFailed, DocChecksumFailed,
+	DocComponentInstallFailed, DocFormatUnsupported, DocPDFInputUnsupported}

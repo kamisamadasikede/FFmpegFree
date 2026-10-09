@@ -127,6 +127,13 @@ type Config struct {
 	// DataDir 是应用数据目录；输出目录不能在它里面。为空则不检查。
 	DataDir string
 
+	// v0.26 文档多格式转换（6.12.9~）：
+	// Component 是文档组件管理器（可为 nil：一律按未就绪）；Sources 是文档页的源文件行（*convert.Service，可为 nil：文档页接口返回 INTERNAL）；
+	// TempRoot 是每个任务的临时目录根 <数据目录>/tmp/doc（启动时清空）。
+	Component Component
+	Sources   DocSources
+	TempRoot  string
+
 	// 以下供测试覆盖。
 	//
 	// EmbeddedFont 为 nil 用内嵌的 Noto Sans SC 子集；DisableEmbedded 模拟“内嵌字体加载失败”。
@@ -156,6 +163,10 @@ func New(cfg Config) *Service {
 	}
 	if cfg.Tasks != nil {
 		cfg.Tasks.RegisterFactory(task.TypeOfficePDF, s.retryFactory)
+		cfg.Tasks.RegisterFactory(task.TypeDocConvert, s.docRetryFactory)
+	}
+	if cfg.Sources != nil {
+		cfg.Sources.SetDocReconverter(s.docReconverter)
 	}
 	return s
 }

@@ -41,7 +41,7 @@ func (m *Manager) Remove(ids []string, deleteOutput bool) error {
 	}
 	// 契约 v0.23：转换记录的真删只在转换页（ConvertService.DeleteRecords / DeleteSource），ids 里有 convert 任务整体拒绝。
 	for _, id := range ids {
-		if t, err := m.Get(id); err == nil && t.Type == TypeConvert {
+		if t, err := m.Get(id); err == nil && IsRecordTask(t) {
 			return apperr.New(apperr.InvalidArgument, "转换记录请在格式转换页删除")
 		}
 	}

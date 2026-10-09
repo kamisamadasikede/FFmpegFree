@@ -41,6 +41,18 @@ const (
 	ScreenPermissionDenied Code = "SCREEN_PERMISSION_DENIED"
 	// LiveSourceGone：屏幕推流所选的采集来源（窗口 / 屏幕）已不可用（窗口已关闭 / 最小化，屏幕已拔掉）。v0.14 新增。
 	LiveSourceGone Code = "LIVE_SOURCE_GONE"
+
+	// 文档转换（契约 v0.26，6.12.20）。
+	DocEncrypted              Code = "DOC_ENCRYPTED"
+	DocCorrupt                Code = "DOC_CORRUPT"
+	DocTimeout                Code = "DOC_TIMEOUT"
+	DocComponentCrashed       Code = "DOC_COMPONENT_CRASHED"
+	DocComponentNotReady      Code = "DOC_COMPONENT_NOT_READY"
+	DocDownloadFailed         Code = "DOC_DOWNLOAD_FAILED"
+	DocChecksumFailed         Code = "DOC_CHECKSUM_FAILED"
+	DocComponentInstallFailed Code = "DOC_COMPONENT_INSTALL_FAILED"
+	DocFormatUnsupported      Code = "DOC_FORMAT_UNSUPPORTED"
+	DocPDFInputUnsupported    Code = "DOC_PDF_INPUT_UNSUPPORTED"
 )
 
 // AppError 同时用于 Bind 返回值和持久化到 tasks.error 列。

@@ -16,13 +16,23 @@ import (
 	"FFmpegFree/internal/paths"
 )
 
-// ConvertSource 是转换页上的一行（一个源文件），见契约 6.14.2。
+// 源文件行的 kind（契约 v0.26，6.12.21）：media = 转换页，doc = 文档页。
+const (
+	SourceKindMedia = "media"
+	SourceKindDoc   = "doc"
+)
+
+// ConvertSource 是转换页 / 文档页上的一行（一个源文件），见契约 6.14.2 / 6.12.16。
 type ConvertSource struct {
 	SourceID       string `json:"sourceId"`
 	Path           string `json:"path"`
 	Name           string `json:"name"`
 	AddedAt        int64  `json:"addedAt"`
 	LastActivityAt int64  `json:"lastActivityAt"`
+	// Kind 是 media（转换页）或 doc（文档页）；旧行默认 media。
+	Kind string `json:"-"`
+	// SheetCount 是表格类工作表数（契约 6.12.16）；xlsx/ods/xls 实读，csv=1，读不出=-1，非表格=0。
+	SheetCount int `json:"-"`
 	// Media 是这一行持久化的探测结果（契约 v0.23.4：convert_sources.media），hasVideo / hasAudio / sampleRate / channels
 	// 都可靠；没有持久化结果时退回按 path_key 关联 media 表（hasVideo / hasAudio 按编码是否为空推出）；都没有时省略。
 	Media *MediaInfo `json:"media,omitempty"`
@@ -54,7 +64,7 @@ const (
 const convertSourceFrom = ` FROM convert_sources s LEFT JOIN convert_copies c ON c.id = s.copy_id`
 
 const convertSourceColumns = `s.id, s.path, s.name, s.added_at, s.last_activity_at, s.media, s.media_fp,
-	s.copy_id, c.stored_path, c.state, c.copied_bytes, c.total_bytes, c.error`
+	s.copy_id, c.stored_path, c.state, c.copied_bytes, c.total_bytes, c.error, s.kind, s.sheet_count`
 
 func scanConvertSource(r rowScanner) (ConvertSource, error) {
 	var s ConvertSource
@@ -62,7 +72,7 @@ func scanConvertSource(r rowScanner) (ConvertSource, error) {
 	var copyID, stored, state, errJSON sql.NullString
 	var copied, total sql.NullInt64
 	if err := r.Scan(&s.SourceID, &s.Path, &s.Name, &s.AddedAt, &s.LastActivityAt, &media, &s.MediaFP,
-		&copyID, &stored, &state, &copied, &total, &errJSON); err != nil {
+		&copyID, &stored, &state, &copied, &total, &errJSON, &s.Kind, &s.SheetCount); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ConvertSource{}, err
 		}
@@ -143,8 +153,16 @@ func convertSourceMediaJSON(m *MediaInfo) (any, error) {
 }
 
 // UpsertConvertSource 按 path_key 找到或新建源文件行（AddSources / Submit 用）：已有 → 只把 last_activity_at 设为 now，existed=true；
-// 否则新建（added_at = last_activity_at = now）。path / key 由调用方用 paths.Normalize 生成。
+// 否则新建（added_at = last_activity_at = now，kind 默认 media）。path / key 由调用方用 paths.Normalize 生成。
 func (s *Store) UpsertConvertSource(ctx context.Context, path, key string, now int64) (ConvertSource, bool, error) {
+	return s.UpsertConvertSourceKind(ctx, path, key, SourceKindMedia, 0, now)
+}
+
+// UpsertConvertSourceKind 同 UpsertConvertSource，可指定 kind 与 sheetCount（文档页用 kind=doc）。
+func (s *Store) UpsertConvertSourceKind(ctx context.Context, path, key, kind string, sheetCount int, now int64) (ConvertSource, bool, error) {
+	if kind == "" {
+		kind = SourceKindMedia
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return ConvertSource{}, false, err
@@ -154,15 +172,19 @@ func (s *Store) UpsertConvertSource(ctx context.Context, path, key string, now i
 	existed := err == nil
 	switch {
 	case existed:
-		if _, err := tx.ExecContext(ctx, `UPDATE convert_sources SET last_activity_at = ? WHERE id = ?`, now, src.SourceID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE convert_sources SET last_activity_at = ?, sheet_count = CASE WHEN ? <> 0 THEN ? ELSE sheet_count END WHERE id = ?`,
+			now, sheetCount, sheetCount, src.SourceID); err != nil {
 			return ConvertSource{}, false, fmt.Errorf("更新源文件行失败: %w", err)
 		}
 		src.LastActivityAt = now
+		if sheetCount != 0 {
+			src.SheetCount = sheetCount
+		}
 	case errors.Is(err, sql.ErrNoRows):
 		name := filepath.Base(path)
-		src = ConvertSource{SourceID: id.New(), Path: path, OriginalPath: path, Name: name, AddedAt: now, LastActivityAt: now, CopyState: CopyNone}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO convert_sources (id, path, path_key, name, name_key, added_at, last_activity_at)
-			VALUES (?,?,?,?,?,?,?)`, src.SourceID, path, key, name, NameKey(path), now, now); err != nil {
+		src = ConvertSource{SourceID: id.New(), Path: path, OriginalPath: path, Name: name, AddedAt: now, LastActivityAt: now, CopyState: CopyNone, Kind: kind, SheetCount: sheetCount}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO convert_sources (id, path, path_key, name, name_key, added_at, last_activity_at, kind, sheet_count)
+			VALUES (?,?,?,?,?,?,?,?,?)`, src.SourceID, path, key, name, NameKey(path), now, now, kind, sheetCount); err != nil {
 			return ConvertSource{}, false, fmt.Errorf("新建源文件行失败: %w", err)
 		}
 	default:
@@ -223,9 +245,9 @@ const (
 // sourceStatusSQL 是各筛选值对应的 EXISTS 子查询（走 idx_tasks_source_status）。
 // v0.24（6.15.6）：active 另算副本正在复制的行，failed 另算副本复制失败的行。
 var sourceStatusSQL = map[string]string{
-	SourceStatusActive: `(EXISTS (SELECT 1 FROM tasks t WHERE t.source_id = s.id AND t.type = 'convert' AND t.status IN ('queued','running'))
+	SourceStatusActive: `(EXISTS (SELECT 1 FROM tasks t WHERE t.source_id = s.id AND t.type IN ('convert','doc_convert','office_pdf') AND t.status IN ('queued','running'))
 		OR EXISTS (SELECT 1 FROM convert_copies cc WHERE cc.id = s.copy_id AND cc.state = 'copying'))`,
-	SourceStatusFailed: `(EXISTS (SELECT 1 FROM tasks t WHERE t.source_id = s.id AND t.type = 'convert' AND t.status IN ('failed','interrupted'))
+	SourceStatusFailed: `(EXISTS (SELECT 1 FROM tasks t WHERE t.source_id = s.id AND t.type IN ('convert','doc_convert','office_pdf') AND t.status IN ('failed','interrupted'))
 		OR EXISTS (SELECT 1 FROM convert_copies cc WHERE cc.id = s.copy_id AND cc.state = 'failed'))`,
 }
 
@@ -235,15 +257,23 @@ func ValidSourceStatus(status string) bool {
 	return ok || status == SourceStatusAll
 }
 
-// ListConvertSources 按 last_activity_at 倒序、id 倒序分页列出全部源文件行。keyword 非空时只列出源文件名命中、
-// 或任一 convert 记录的输出文件名命中的行（keyword 已由调用方 strings.ToLower，契约 6.14.9：instr 子串匹配）；
-// status 非空时只列出有对应状态记录的行（契约 v0.23.1，值由调用方校验）。
+// ListConvertSources 按 last_activity_at 倒序、id 倒序分页列出源文件行（默认只列 kind=media）。
 func (s *Store) ListConvertSources(ctx context.Context, keyword, status string, limit, offset int) ([]ConvertSource, int64, error) {
+	return s.ListConvertSourcesKind(ctx, SourceKindMedia, keyword, status, limit, offset)
+}
+
+// ListConvertSourcesKind 同 ListConvertSources，可指定 kind（media / doc）。
+func (s *Store) ListConvertSourcesKind(ctx context.Context, kind, keyword, status string, limit, offset int) ([]ConvertSource, int64, error) {
+	if kind == "" {
+		kind = SourceKindMedia
+	}
 	var conds []string
 	args := []any{}
+	conds = append(conds, "s.kind = ?")
+	args = append(args, kind)
 	if keyword != "" {
 		conds = append(conds, `(instr(s.name_key, ?) > 0 OR s.id IN (
-			SELECT t.source_id FROM tasks t WHERE t.type = 'convert' AND t.source_id IS NOT NULL AND instr(t.output_name_key, ?) > 0))`)
+			SELECT t.source_id FROM tasks t WHERE t.type IN ('convert','doc_convert','office_pdf') AND t.source_id IS NOT NULL AND instr(t.output_name_key, ?) > 0))`)
 		args = append(args, keyword, keyword)
 	}
 	if status != SourceStatusAll {
@@ -280,7 +310,7 @@ func (s *Store) ListConvertSources(ctx context.Context, keyword, status string, 
 
 // MatchedSourceTaskIDs 返回该行里输出文件名（output_name_key）包含 keyword 的 convert 记录 id（创建时间倒序，最多 limit 个）。
 func (s *Store) MatchedSourceTaskIDs(ctx context.Context, sourceID, keyword string, limit int) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM tasks WHERE source_id = ? AND type = 'convert' AND instr(output_name_key, ?) > 0
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM tasks WHERE source_id = ? AND type IN ('convert','doc_convert','office_pdf') AND instr(output_name_key, ?) > 0
 		ORDER BY created_at DESC, id DESC LIMIT ?`, sourceID, keyword, limit)
 	if err != nil {
 		return nil, fmt.Errorf("查询记录失败: %w", err)
@@ -299,7 +329,7 @@ func (s *Store) MatchedSourceTaskIDs(ctx context.Context, sourceID, keyword stri
 
 // ListSourceTasks 列出某个源文件行的转换记录（created_at 倒序、id 倒序），不受 hidden_in_task_center 影响。
 func (s *Store) ListSourceTasks(ctx context.Context, sourceID string, limit, offset int) (TaskPage, error) {
-	const where = ` WHERE source_id = ? AND type = 'convert'`
+	const where = ` WHERE source_id = ? AND type IN ('convert','doc_convert','office_pdf')`
 	var total int64
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tasks`+where, sourceID).Scan(&total); err != nil {
 		return TaskPage{}, fmt.Errorf("统计记录失败: %w", err)
