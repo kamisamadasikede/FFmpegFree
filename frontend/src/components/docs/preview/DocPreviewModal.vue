@@ -92,8 +92,8 @@ const notice = computed<(PreviewNotice & { tone: string; icon: string }) | null>
     return { ...n, tone: lock ? 'lock' : n.retry ? 'warn' : 'bad', icon: lock ? 'lock' : 'warn' }
   }
   if (p.kind === 'unavailable') {
-    const n = previewUnavailableNotice(p.reason, { linux: comp.isLinux, outdated: comp.compState === 'outdated' })
-    return { ...n, tone: 'info', icon: 'download' }
+    const n = previewUnavailableNotice(p.reason, { linux: comp.isLinux, outdated: comp.compState === 'outdated', engineReady: comp.ready })
+    return n.download ? { ...n, tone: 'info', icon: 'download' } : { ...n, tone: 'bad', icon: 'warn' }
   }
   if (!KNOWN_KINDS.includes(p.kind) || (p.state !== 'ready' && p.state !== 'generating')) return { text: PV_FAILED, tone: 'bad', icon: 'warn' }
   if (p.kind === 'raw' && !['docx', 'xlsx'].includes(ext.value)) return { text: PV_FAILED, tone: 'bad', icon: 'warn' }
@@ -216,7 +216,7 @@ onBeforeUnmount(() => clearTimeout(toastTimer))
 function fail(e: unknown, m: 'text' | 'textAs' | 'docx' | 'docxAs') {
   const ae = toAppError(e)
   if (ae.code === 'CANCELED') return
-  saveErr.value = saveErrorView(ae.code, ae.reason, m)
+  saveErr.value = saveErrorView(ae.code, ae.reason, m, ae.message)
 }
 
 async function saveText(): Promise<boolean> {

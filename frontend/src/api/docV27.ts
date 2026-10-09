@@ -17,7 +17,7 @@ import { DOC_V27_BACKEND_READY } from '@/api/flags'
 import { simParam } from '@/api/sim'
 import { simPdfBytes } from '@/api/doc'
 import { emitSimEvent, hasWailsBackend, onTaskEvent } from '@/services/wails'
-import type { DocEnginePref } from '@/utils/docV27Text'
+import { SAVE_APP_DIR_TEXT, type DocEnginePref } from '@/utils/docV27Text'
 
 export { DOC_V27_BACKEND_READY }
 const live = () => DOC_V27_BACKEND_READY && hasWailsBackend()
@@ -386,6 +386,7 @@ function simSaveError(mode: 'text' | 'textAs' | 'docx' | 'docxAs', encoding?: st
     disk: ['CONVERT_DISK_FULL'],
     missing: ['NOT_FOUND', 'file'],
   }
+  if (v === 'appdir') throw new AppError('INVALID_ARGUMENT', SAVE_APP_DIR_TEXT)
   const m = map[v]
   if (m) throw mkErr(m[0], m[1])
 }

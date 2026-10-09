@@ -67,7 +67,9 @@ export function previewFailedNotice(code?: string | null): PreviewNotice {
   return { text: PV_FAILED }
 }
 /** kind=unavailable：reason 只给程序用；Linux 不给按钮；组件太旧（6.12.55）换成「文档组件版本太旧，请重新下载。」+「更新文档组件」 */
-export function previewUnavailableNotice(reason: string | undefined, opts: { linux: boolean; outdated: boolean }): PreviewNotice {
+export function previewUnavailableNotice(reason: string | undefined, opts: { linux: boolean; outdated: boolean; engineReady?: boolean }): PreviewNotice {
+  // 已经有能用的引擎（文档组件 / 本机 Office / WPS）却还是 unavailable（例如后端这条预览路线还没接上）：不让用户去下载，只说暂时无法预览
+  if (opts.engineReady) return { text: PV_FAILED }
   // Linux 没有下载源：不给按钮（6.12.32.5），太大的只说前半句
   if (opts.linux) return { text: reason === 'too_large_for_simple' ? '文件太大，没法简易预览。' : DOC_LINUX_MISSING }
   if (opts.outdated) return { text: DOC_OUTDATED_DOWNLOAD, download: DOC_OUTDATED_BUTTON }
@@ -125,7 +127,12 @@ export interface SaveErrorView {
  * 保存出错的文案（6.12.45 定稿 + 6.12.52）。mode：text（SaveDocText）/ textAs（SaveDocTextAs）/ docx / docxAs。
  * 只看 code + reason；后端 message 不直接显示。所有出错都保留编辑内容（调用方负责）。
  */
-export function saveErrorView(code: string | undefined, reason: string | undefined, mode: 'text' | 'textAs' | 'docx' | 'docxAs'): SaveErrorView {
+export const SAVE_APP_DIR_TEXT = '不能保存到应用自己的文件夹里，请换一个位置。'
+/**
+ * message：后端 message，只用来认「另存为到应用目录」这一种（契约里它是 INVALID_ARGUMENT 且没有 reason，
+ * 别的没有 reason 的 INVALID_ARGUMENT 都是参数问题，一律「出了点问题，请重试。」）；不会直接显示。
+ */
+export function saveErrorView(code: string | undefined, reason: string | undefined, mode: 'text' | 'textAs' | 'docx' | 'docxAs', message?: string): SaveErrorView {
   const asMode = mode === 'textAs' || mode === 'docxAs'
   const v = (text: string, ...actions: SaveAction[]): SaveErrorView => ({ text, actions: asMode ? actions.filter((a) => a === 'retry') : actions })
   switch (code) {
@@ -145,7 +152,7 @@ export function saveErrorView(code: string | undefined, reason: string | undefin
       if (reason === 'malformed') return v('文件没能保存，原文件没有改动。请另存为再试。', 'saveAs')
       if (reason === 'format') return mode === 'docx' || mode === 'docxAs' ? v('文件没能保存，原文件没有改动。请另存为再试。', 'saveAs') : v('只能保存成同一种格式。')
       if (reason === 'chunk_order' || reason === 'checksum') return v(UNMAPPED)
-      if (!reason && asMode) return v('不能保存到应用自己的文件夹里，请换一个位置。')
+      if (!reason && asMode && message === SAVE_APP_DIR_TEXT) return v(SAVE_APP_DIR_TEXT)
       return v(UNMAPPED)
     case 'NOT_FOUND':
       if (reason === 'file' || reason === 'record') return v(EDIT_MISSING_BANNER, 'saveAs')

@@ -1200,6 +1200,20 @@ export async function runApiChecks(): Promise<string[]> {
     { text: d26.DOC_LINUX_MISSING },
     { text: '文件太大，没法简易预览。' },
   ])
+  eq('v0.27 unavailable：已有可用引擎时不叫用户下载，只说暂时无法预览（Win / Linux）', [
+    d27.previewUnavailableNotice('needs_component', { linux: false, outdated: false, engineReady: true }),
+    d27.previewUnavailableNotice('too_large_for_simple', { linux: false, outdated: true, engineReady: true }),
+    d27.previewUnavailableNotice('needs_component', { linux: true, outdated: false, engineReady: true }),
+  ], [{ text: d27.PV_FAILED }, { text: d27.PV_FAILED }, { text: d27.PV_FAILED }])
+  eq('v0.27 无 reason 的 INVALID_ARGUMENT：只有应用目录那句按 message 认，其它都是「出了点问题」', [
+    d27.saveErrorView('INVALID_ARGUMENT', undefined, 'textAs', '不能保存到应用自己的文件夹里，请换一个位置。').text,
+    d27.saveErrorView('INVALID_ARGUMENT', undefined, 'docxAs', '出了点问题，请重试。').text,
+    d27.saveErrorView('INVALID_ARGUMENT', undefined, 'textAs', '不支持的编码').text,
+    d27.saveErrorView('INVALID_ARGUMENT', undefined, 'text', '缺少版本信息').text,
+    d27.saveErrorView('INVALID_ARGUMENT', 'chunk_order', 'docx').text,
+    d27.saveErrorView('IO_ERROR', 'in_use', 'textAs'),
+    d27.saveErrorView('INVALID_ARGUMENT', 'encoding', 'text'),
+  ], [d27.SAVE_APP_DIR_TEXT, d27.UNMAPPED, d27.UNMAPPED, d27.UNMAPPED, d27.UNMAPPED, { text: '文件正被其他程序占用，请关闭后再保存。', actions: ['retry'] }, { text: '有些字符没法按原编码保存，请另存为 UTF-8。', actions: ['saveAsUtf8'] }])
   eq('v0.27 保存出错：file_changed 另存为优先；in_use；backup；converting 用「转完」', [
     d27.saveErrorView('TASK_CONFLICT', 'file_changed', 'text'),
     d27.saveErrorView('IO_ERROR', 'in_use', 'text'),
