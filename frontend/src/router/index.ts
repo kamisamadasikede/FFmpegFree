@@ -1,6 +1,7 @@
 import { createRouter, createWebHashHistory, START_LOCATION, type RouteRecordRaw } from 'vue-router'
 import { routeNeedsFFmpeg } from '@/layout/navigation'
 import { useFFmpegStore } from '@/stores/ffmpeg'
+import { LOGIN_UI_ENABLED } from '@/api/flags'
 
 const SectionTabs = () => import('../views/sections/SectionTabs.vue')
 import LiveLayout from '../views/live/LiveLayout.vue'
@@ -67,6 +68,14 @@ const routes: RouteRecordRaw[] = [
   ...(import.meta.env.DEV
     ? [{ path: '/dev/components', meta: { title: '组件预览' }, component: () => import('../views/dev/ComponentsPreview.vue') } as RouteRecordRaw]
     : []),
+  // 登录页 UI 预留：仅 LOGIN_UI_ENABLED=true 可达；默认 false 时直达 /login 也回到转换页。不进侧栏、不作启动页。
+  {
+    path: '/login',
+    name: 'Login',
+    meta: { title: '登录', layout: 'blank' },
+    component: () => import('../views/LoginView.vue'),
+    beforeEnter: () => (LOGIN_UI_ENABLED ? true : { path: '/', replace: true }),
+  },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ]
 

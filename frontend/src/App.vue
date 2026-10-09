@@ -1,5 +1,9 @@
 <template>
-  <div class="app-shell">
+  <!-- 登录等 blank 布局：无侧栏 / 顶栏，全屏；默认 LOGIN_UI_ENABLED=false 时路由会拦到 /，此处不会落到登录 -->
+  <div v-if="blankLayout" class="app-blank">
+    <RouterView />
+  </div>
+  <div v-else class="app-shell">
     <AppSidebar />
     <div class="app-main">
       <AppTitlebar />
@@ -18,6 +22,8 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
 import AppSidebar from './layout/AppSidebar.vue'
 import AppTitlebar from './layout/AppTitlebar.vue'
 import FFmpegBanner from './components/ffmpeg/FFmpegBanner.vue'
@@ -34,6 +40,9 @@ useTheme()
 useFFmpegStore().init()
 useTaskStore().init()
 
+const route = useRoute()
+const blankLayout = computed(() => route.meta.layout === 'blank')
+
 // v0.24.1（§八 第 65 条）：启动时取一次上次退出时被中断的重转条数；n > 0 时普通提示 4 秒，只这一次
 onMounted(async () => {
   if (!convertV24On()) return
@@ -47,6 +56,12 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.app-blank {
+  height: 100vh;
+  min-width: 1024px;
+  min-height: 680px;
+  overflow: hidden;
+}
 .app-shell {
   display: flex;
   height: 100vh;

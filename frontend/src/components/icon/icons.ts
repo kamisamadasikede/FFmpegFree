@@ -62,6 +62,9 @@ export const iconPaths = {
   // 语音工具侧栏（转字幕）
   'mic': "<path d=\"M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z\"/><path d=\"M5 11a7 7 0 0 0 14 0M12 18v3\"/>",
   'caption': "<rect x=\"3\" y=\"5\" width=\"18\" height=\"14\" rx=\"2\"/><path d=\"M7 15h4M13 15h4M7 11h10\"/>",
+  // 登录页卖点（login-v1）
+  'cpu': "<rect x=\"7\" y=\"7\" width=\"10\" height=\"10\" rx=\"1\"/><path d=\"M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4\"/>",
+  'shield': "<path d=\"M12 3 4 7v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V7z\"/>",
 } as const
 
 export type IconName = keyof typeof iconPaths
