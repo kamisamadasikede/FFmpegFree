@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // v0.24 右栏主体（设计说明 §13.1、§八 第 35–38、42、43、66 条；截图 19–25、27、32）：
 // 格式搜索框 → 分段（视频 / 音频 / 图片，搜索时换成“找到 n 个格式”）→ 格式块 → 说明（图片 / M4R）→ 参数 → 保存到。
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import FIcon from '@/components/icon/FIcon.vue'
 import { useConvertRecordsStore } from '@/stores/convertRecords'
@@ -13,6 +13,16 @@ import {
 } from '@/utils/convertV24Text'
 
 const cv = useConvertRecordsStore()
+// 动画 P1：骨架 → 格式块时，格式块淡入（前 8 个各错开 20ms）；只在「加载中 → 有结果」那一下，搜索、换分类、回到页面都不播
+const fromSkel = ref(false)
+let skelTimer: ReturnType<typeof setTimeout> | undefined
+watch(() => cv.catalogPhase, (p, old) => {
+  if (old !== 'loading' || p === 'loading') return
+  fromSkel.value = true
+  clearTimeout(skelTimer)
+  skelTimer = setTimeout(() => (fromSkel.value = false), 400)
+})
+onBeforeUnmount(() => clearTimeout(skelTimer))
 const router = useRouter()
 const goSettings = () => void router.push('/settings/general')
 const FALLBACK_HINT_TIP = '程序所在文件夹无法写入，文件已改存到用户数据目录'
@@ -141,7 +151,7 @@ function clear() {
         <span v-for="i in 9" :key="i" class="cv-fxsk" />
       </div>
     </div>
-    <div v-else ref="grid" class="cv-presets cv-fxs" :class="{ dim: !q && !nSel }" role="radiogroup" aria-label="输出格式" @scroll="hideTip">
+    <div v-else ref="grid" class="cv-presets cv-fxs" :class="{ dim: !q && !nSel, 'ff-fx-in': fromSkel }" role="radiogroup" aria-label="输出格式" @scroll="hideTip">
       <template v-if="q">
         <div v-if="!hitCount" class="cv-fnone">
           <FIcon name="search" />
