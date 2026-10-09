@@ -266,6 +266,9 @@ type TurnOptions struct {
 	ProjectPath    string
 	Messages       []WireMessage
 	Timeout        time.Duration
+	// OnTextDelta 可选：适配器拿到真流式输出时逐段回调（CLI 流式协议 TBD）。
+	// 一轮内只要回调过一次，服务端就以回调累积文本为准，不再拆整段回复。
+	OnTextDelta func(delta string)
 }
 
 // RunTurn 写 request → 调入口 → 读 response；未就绪 / 失败返回约定错误码。

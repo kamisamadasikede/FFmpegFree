@@ -40,8 +40,14 @@ type SendMessageRequest struct {
 }
 
 // SendMessageResult 是 SendCatMessage 返回值。
+// v0.30.1：同步只返回已落库的用户消息与本轮 turnId；助手回复走 cat:message / cat:turn 流式事件。
+// AssistantMessage 保留字段以兼容，流式路径下恒为空。
 type SendMessageResult struct {
 	UserMessage      store.CatMessage  `json:"userMessage"`
+	TurnID           string            `json:"turnId"`
 	AssistantMessage *store.CatMessage `json:"assistantMessage,omitempty"`
 	Error            *apperr.AppError  `json:"error,omitempty"`
 }
+
+// CancelTurnRequest 是 CancelCatTurn 入参（契约 6.19.9）。
+type CancelTurnRequest = catagent.CancelCatTurnRequest

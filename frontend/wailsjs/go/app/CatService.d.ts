@@ -3,7 +3,7 @@
 import {catagent} from '../models';
 import {cat} from '../models';
 
-export function CancelCatTurn(arg1:string):Promise<void>;
+export function CancelCatTurn(arg1:catagent.CancelCatTurnRequest):Promise<void>;
 
 export function CreateCatConversation(arg1:cat.CreateConversationRequest):Promise<cat.Conversation>;
 

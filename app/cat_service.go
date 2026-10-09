@@ -109,10 +109,11 @@ func (s *CatService) SendCatMessage(req cat.SendMessageRequest) (cat.SendMessage
 	return c.SendCatMessage(s.rootCtx(), req)
 }
 
-func (s *CatService) CancelCatTurn(conversationId string) error {
+// CancelCatTurn 立即停止 { convId, turnId } 这一轮（契约 6.19.9）；重复取消幂等。
+func (s *CatService) CancelCatTurn(req catagent.CancelCatTurnRequest) error {
 	c, err := s.svc()
 	if err != nil {
 		return err
 	}
-	return c.CancelCatTurn(s.rootCtx(), conversationId)
+	return c.CancelCatTurn(s.rootCtx(), req)
 }
