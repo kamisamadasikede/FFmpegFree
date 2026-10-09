@@ -13,6 +13,13 @@
         <div v-if="b.more" class="more">{{ b.more }}</div>
       </div>
       <div v-else-if="b.kind === 'run'" class="ct-run"><i class="ct-spin sm" aria-hidden="true" />{{ b.text }}</div>
+      <div
+        v-else-if="b.kind === 'a'"
+        class="ct-a"
+        :class="{ streaming: b.streaming, calm: reduced }"
+        :aria-busy="b.streaming"
+      ><InlineText :text="b.text" /><i v-if="b.streaming && !reduced" class="ct-caret" aria-hidden="true" /></div>
+      <div v-else-if="b.kind === 'sys'" class="ct-sys" :class="{ err: b.tone === 'err' }" role="status">{{ b.text }}</div>
     </template>
     <div v-if="pending" class="ct-run" role="status"><i class="ct-spin sm" aria-hidden="true" />正在思考…</div>
   </div>
@@ -22,8 +29,12 @@
 import { defineComponent, h } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import type { CatBlock } from '@/api/catMock'
+import { prefersReducedMotion } from '@/api/catStream'
 
 defineProps<{ blocks: CatBlock[]; pending?: boolean }>()
+
+/** 减少动效：流式文字直接追加，不显示闪烁光标（也不做打字机效果） */
+const reduced = prefersReducedMotion()
 
 /** `反引号` 包住的片段渲染成行内代码，其余原样文字（不用 v-html） */
 const InlineText = defineComponent({
@@ -35,6 +46,39 @@ const InlineText = defineComponent({
 </script>
 
 <style scoped>
+.ct-a {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ct-caret {
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: var(--ff-text-3);
+  border-radius: 1px;
+  animation: ct-caret 1s steps(2, start) infinite;
+}
+@keyframes ct-caret {
+  to { visibility: hidden; }
+}
+.ct-sys {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ff-text-3);
+}
+.ct-sys.err {
+  color: var(--ff-text-2);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ct-caret {
+    display: none;
+  }
+  .ct-spin {
+    animation: none;
+  }
+}
 .ct-col {
   max-width: 560px;
   margin: 0 auto;

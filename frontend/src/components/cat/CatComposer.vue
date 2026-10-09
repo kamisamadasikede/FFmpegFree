@@ -40,7 +40,17 @@
         >
           <FIcon name="gauge" :size="15" /><span>{{ capsuleLabel }}</span><FIcon name="down" :size="12" class="caret" />
         </button>
-        <button type="button" class="ct-send" aria-label="发送" :aria-disabled="!canSend" @click="send"><FIcon name="up" :size="15" /></button>
+        <button
+          v-if="running"
+          type="button"
+          class="ct-send ct-stop"
+          :aria-label="stopping ? '正在停止' : '停止生成'"
+          :title="stopping ? '正在停止' : '停止生成'"
+          :disabled="stopping"
+          data-testid="cat-stop"
+          @click="onStop"
+        ><i class="sq" aria-hidden="true" /></button>
+        <button v-else type="button" class="ct-send" aria-label="发送" :aria-disabled="!canSend" @click="send"><FIcon name="up" :size="15" /></button>
       </div>
 
       <div v-if="menu" class="mn" :style="menuStyle" @click.stop>
@@ -129,17 +139,29 @@ import { accessShort, capsuleLabel, catState, modelName, thinkName } from '@/vie
  * Cat 输入框（设计 v0.4 / 原型 cat-v3）：访问默认「请求批准」，「完全访问」灰掉；
  * 合一胶囊只显示 List API 有的模型/强度（无强度不显示「·」半截）。
  */
-const props = withDefaults(defineProps<{ welcome?: boolean; placeholder?: string; ctxName?: string; ctxBranch?: string; busy?: boolean }>(), {
-  welcome: false,
-  placeholder: '随心输入',
-  ctxName: 'Cat',
-  ctxBranch: 'main',
-  busy: false,
-})
-const emit = defineEmits<{ send: [text: string] }>()
+const props = withDefaults(
+  defineProps<{ welcome?: boolean; placeholder?: string; ctxName?: string; ctxBranch?: string; busy?: boolean; running?: boolean; stopping?: boolean; notReady?: boolean }>(),
+  {
+    welcome: false,
+    placeholder: '随心输入',
+    ctxName: 'Cat',
+    ctxBranch: 'main',
+    busy: false,
+    running: false,
+    stopping: false,
+    notReady: false,
+  },
+)
+const emit = defineEmits<{ send: [text: string]; stop: [] }>()
+
+/** 停止：父组件把 stopping 置真后按钮立即置灰，重复点击无效 */
+function onStop() {
+  if (props.stopping) return
+  emit('stop')
+}
 
 const draft = ref('')
-const canSend = computed(() => !!draft.value.trim() && !props.busy)
+const canSend = computed(() => !!draft.value.trim() && !props.busy && !props.running && !props.notReady)
 const root = ref<HTMLElement>()
 const inEl = ref<HTMLElement>()
 const ta = ref<HTMLTextAreaElement>()
@@ -409,6 +431,17 @@ html.dark .ct-send {
 }
 html.dark .ct-send:hover {
   background: #fff;
+}
+.ct-stop .sq {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: currentColor;
+}
+.ct-stop:disabled,
+.ct-stop:disabled:hover {
+  cursor: default;
+  opacity: 0.4;
 }
 
 /* 访问模式胶囊（完全访问时橙色） */

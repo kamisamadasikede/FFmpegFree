@@ -37,6 +37,7 @@ import { liveFormsChecks } from '@/stores/liveForms.check'
 import { readyRelistChecks } from '@/stores/readyRelist.check'
 import { catalogLoadChecks } from '@/stores/catalogLoad.check'
 import { pkg22Checks } from '@/stores/eventOrder.check'
+import { catStreamChecks } from './catStream.check'
 
 const fails: string[] = []
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -964,6 +965,7 @@ export async function runApiChecks(): Promise<string[]> {
         await readyRelistChecks(eq, readSrc) // 包 20：就绪后补取列表（#100 配合）+ 走查 D2 / D3 / D4 / D7
         await catalogLoadChecks(eq, readSrc) // 格式目录：检测中保持骨架，8 秒才超时，就绪后自动再取
         await pkg22Checks(eq, readSrc) // 包 22：契约 v0.25.1（暂存 / 对齐 / 只往终态走）+ 走查 af6a508
+        catStreamChecks(eq) // Cat 流式：去重 / 乱序缓冲 / 缺口 / replace / done / 旧整段形状
         // G11 版本号
         const { cleanFfmpegVersion } = await import('@/utils/ffmpegVersion')
         eq('G11 版本号：旧（带 URL 尾巴）/ 新（干净）/ 其他尾巴 / 空', ['9.0.2-https://www.martin-riedl.de', '9.0.2', '7.1.1-essentials_build-www.gyan.dev', '6.0', ' 4.4.2-0ubuntu0.22.04.1 ', '', undefined].map((v) => cleanFfmpegVersion(v)), ['9.0.2', '9.0.2', '7.1.1', '6.0', '4.4.2', '', ''])
