@@ -1,5 +1,10 @@
 <template>
-  <div v-if="project" class="pd-mask" data-testid="cat-project-delete" @mousedown.self="cancel">
+  <div
+    v-if="project || conv"
+    class="pd-mask"
+    :data-testid="conv ? 'cat-conv-delete' : 'cat-project-delete'"
+    @mousedown.self="cancel"
+  >
     <div
       ref="box"
       class="pd"
@@ -7,14 +12,30 @@
       aria-modal="true"
       aria-labelledby="pd-title"
       aria-describedby="pd-body"
+      :aria-busy="busy"
+      tabindex="-1"
       @keydown="onKey"
     >
       <div class="pd-ic"><FIcon name="trash" :size="18" /></div>
-      <h3 id="pd-title">{{ PC.delTitle(project.name) }}</h3>
-      <p id="pd-body">{{ PC.delBody }}</p>
+      <template v-if="conv">
+        <h3 id="pd-title">{{ CC.delTitle }}</h3>
+        <p id="pd-body">{{ CC.delBody }}</p>
+      </template>
+      <template v-else-if="project">
+        <h3 id="pd-title">{{ PC.delTitle(project.name) }}</h3>
+        <p id="pd-body">{{ PC.delBody }}</p>
+      </template>
       <div class="pd-btns">
         <button ref="cancelBtn" type="button" class="pd-b" :disabled="busy" @click="cancel">{{ PC.cancel }}</button>
-        <button type="button" class="pd-b danger" :disabled="busy" data-testid="cat-project-delete-ok" @click="confirm">{{ PC.del }}</button>
+        <button
+          type="button"
+          class="pd-b danger"
+          :disabled="busy"
+          :data-testid="conv ? 'cat-conv-delete-ok' : 'cat-project-delete-ok'"
+          @click="confirm"
+        >
+          <span v-if="conv && busy" class="pd-spin" aria-hidden="true" />{{ conv ? CC.del : PC.del }}
+        </button>
       </div>
     </div>
   </div>
@@ -24,19 +45,25 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import { CAT_PROJECT_COPY as PC } from '@/api/catProjects'
-import { catState, deleteProject } from '@/views/cat/catState'
+import { CAT_CONV_COPY as CC } from '@/api/cat'
+import { catState, deleteConversation, deleteProject, findConv } from '@/views/cat/catState'
 
 /**
  * 删除项目确认（设计「项目状态 v0.1」§04）：420 宽；默认焦点在「取消」（防误删）；Tab 在两个按钮间循环；
  * Esc / 点遮罩 = 取消；「删除项目」红色实心在最右。确认后只删应用里的记录和对话，不动文件夹。
+ *
+ * 删除对话（设计 v0.3 §13–15）共用本组件：标题「删除这个对话？」、正文「删除后无法恢复。」，不显示对话标题；
+ * 点「删除」后按钮前出现小转圈、两个按钮禁用、aria-busy，删除中 Esc / 遮罩 / Tab 都不关框；完成后关框。
  */
-const project = computed(() => catState.projects.find((p) => p.id === catState.deleting))
+const project = computed(() => (catState.deletingConv ? undefined : catState.projects.find((p) => p.id === catState.deleting)))
+const conv = computed(() => (catState.deletingConv ? findConv(catState.deletingConv)?.conv : undefined))
+const target = computed(() => conv.value?.id ?? project.value?.id ?? '')
 const box = ref<HTMLElement>()
 const cancelBtn = ref<HTMLButtonElement>()
 const busy = ref(false)
 let opener: HTMLElement | null = null
 
-watch(project, async (p, old) => {
+watch(target, async (p, old) => {
   if (p && !old) {
     opener = document.activeElement as HTMLElement | null
     await nextTick()
@@ -46,20 +73,43 @@ watch(project, async (p, old) => {
 
 function close() {
   catState.deleting = ''
+  catState.deletingConv = ''
   busy.value = false
 }
 function cancel() {
   if (busy.value) return
+  const c = conv.value?.id
   const id = project.value?.id
   close()
   nextTick(() => {
-    const more = id ? document.querySelector<HTMLElement>(`.pj[data-pid="${CSS.escape(id)}"] [data-testid="cat-project-more"]`) : null
+    const more = c
+      ? document.querySelector<HTMLElement>(`[data-cid="${CSS.escape(c)}"] [data-testid="cat-conv-more"]`)
+      : id ? document.querySelector<HTMLElement>(`.pj[data-pid="${CSS.escape(id)}"] [data-testid="cat-project-more"]`) : null
     ;(more ?? opener)?.focus()
   })
 }
 async function confirm() {
+  if (busy.value) return
+  const c = conv.value
+  if (c) {
+    busy.value = true
+    // 焦点留在对话框上（按钮禁用后不丢到 body）
+    box.value?.focus()
+    const r = await deleteConversation(c.id)
+    close()
+    nextTick(() => {
+      // 删的是当前对话 → 焦点到「新对话」；不是 → 列表里第一个对话；失败 → 回该行「···」
+      const el = r === 'current'
+        ? document.querySelector<HTMLElement>('.ct-it.new')
+        : r === 'other'
+          ? document.querySelector<HTMLElement>('[data-testid="cat-conv-row"]')
+          : document.querySelector<HTMLElement>(`[data-cid="${CSS.escape(c.id)}"] [data-testid="cat-conv-more"]`)
+      el?.focus()
+    })
+    return
+  }
   const p = project.value
-  if (!p || busy.value) return
+  if (!p) return
   busy.value = true
   const ok = await deleteProject(p.id)
   close()
@@ -71,6 +121,10 @@ function onKey(e: KeyboardEvent) {
     e.stopPropagation()
     cancel()
   } else if (e.key === 'Tab') {
+    if (busy.value) {
+      e.preventDefault()
+      return
+    }
     const btns = Array.from(box.value?.querySelectorAll<HTMLButtonElement>('.pd-b') ?? [])
     if (!btns.length) return
     e.preventDefault()
@@ -166,6 +220,30 @@ html.dark .pd {
   opacity: 0.6;
   cursor: default;
 }
+.pd-b.danger:disabled {
+  opacity: 0.85;
+}
+.pd:focus {
+  outline: none;
+}
+.pd-b.danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* 删除中：按钮文字前 12px 白色小转圈（设计 v0.3 §14） */
+.pd-spin {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.45);
+  border-top-color: #fff;
+  animation: pd-spin 0.8s linear infinite;
+  flex: none;
+}
+@keyframes pd-spin {
+  to { transform: rotate(360deg); }
+}
 @keyframes pd-fade {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -178,6 +256,10 @@ html.dark .pd {
   .pd-mask,
   .pd {
     animation: none;
+  }
+  /* 减少动效：转圈放慢，仍能看出在忙 */
+  .pd-spin {
+    animation-duration: 2.4s;
   }
 }
 </style>

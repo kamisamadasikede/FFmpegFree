@@ -9,13 +9,14 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 const entry = join(root, 'src/api/api.check.ts')
 const dir = mkdtempSync(join(tmpdir(), 'apicheck-'))
 const out = join(dir, 'check.mjs')
+// 按正式包的 DEV=false 打包（走查开关 ?cat_sim= 等整段裁掉）
 // 模拟浏览器环境：services/wails.ts 在模块加载时读 window.location.search
 globalThis.window = { location: { search: '' } }
 globalThis.location = globalThis.window.location
 globalThis.btoa = (s) => Buffer.from(s, 'binary').toString('base64')
 globalThis.atob = (s) => Buffer.from(s, 'base64').toString('binary')
 try {
-  await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error', alias: { '@': join(root, 'src') }, loader: { '.vue': 'empty' } })
+  await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error', alias: { '@': join(root, 'src') }, loader: { '.vue': 'empty' }, define: { 'import.meta.env.DEV': 'false' } })
   const { runApiChecks } = await import(pathToFileURL(out).href)
   const fails = await runApiChecks()
   if (fails.length) {

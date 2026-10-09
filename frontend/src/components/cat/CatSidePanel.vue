@@ -115,12 +115,24 @@
                 v-for="c in p.convs"
                 :key="c.id"
                 class="pc"
-                :class="{ on: c.id === catState.sel }"
+                :class="{ on: c.id === catState.sel, menu: cmenuFor === c.id }"
                 role="button"
                 tabindex="0"
-                @click="selectConv(c.id)"
-                @keydown.enter="selectConv(c.id)"
+                :data-cid="c.id"
+                data-testid="cat-conv-row"
+                @click="onConvClick(c.id, $event)"
+                @keydown.enter.self="selectConv(c.id)"
               >
+                <button
+                  type="button"
+                  class="ib c-more"
+                  :aria-label="CC.menu"
+                  :title="CC.menu"
+                  aria-haspopup="menu"
+                  :aria-expanded="cmenuFor === c.id"
+                  data-testid="cat-conv-more"
+                  @click.stop="openConvMenu(c.id, $event)"
+                ><FIcon name="more" :size="14" /></button>
                 <div class="l1">
                   <i class="st" :class="c.st" aria-hidden="true" />
                   <span class="t" :title="c.title">{{ c.title }}</span>
@@ -133,16 +145,31 @@
         </div>
       </div>
       <div class="ct-sec"><span>对话</span></div>
-      <button
+      <!-- 普通对话行：里面要放「···」按钮，所以行本身不能是 <button> -->
+      <div
         v-for="c in catState.plain"
         :key="c.id"
-        type="button"
         class="ct-it dc"
-        :class="{ on: c.id === catState.sel }"
-        @click="selectConv(c.id)"
+        :class="{ on: c.id === catState.sel, menu: cmenuFor === c.id }"
+        role="button"
+        tabindex="0"
+        :data-cid="c.id"
+        data-testid="cat-conv-row"
+        @click="onConvClick(c.id, $event)"
+        @keydown.enter.self="selectConv(c.id)"
       >
         <FIcon name="chat" :size="16" /><span class="t" :title="c.title">{{ c.title }}</span>
-      </button>
+        <button
+          type="button"
+          class="ib c-more"
+          :aria-label="CC.menu"
+          :title="CC.menu"
+          aria-haspopup="menu"
+          :aria-expanded="cmenuFor === c.id"
+          data-testid="cat-conv-more"
+          @click.stop="openConvMenu(c.id, $event)"
+        ><FIcon name="more" :size="14" /></button>
+      </div>
     </div>
     <div class="ct-it"><FIcon name="set" :size="16" /><span class="t">设置</span></div>
 
@@ -187,6 +214,21 @@
         <FIcon name="trash" :size="15" />{{ PC.del }}
       </div>
     </div>
+    <!-- 对话菜单（设计 v0.3 §11/12）：只有红色「删除」；与项目菜单互斥 -->
+    <div
+      v-if="cmenuFor"
+      ref="cmenuEl"
+      class="pj-menu c-menu"
+      role="menu"
+      :aria-label="CC.menu"
+      :style="menuStyle"
+      data-testid="cat-conv-menu"
+      @keydown="onMenuKey"
+    >
+      <div class="mi danger" role="menuitem" tabindex="-1" data-testid="cat-conv-menu-delete" @click="askDeleteConv(cmenuFor)">
+        <FIcon name="trash" :size="15" />{{ CC.del }}
+      </div>
+    </div>
     <div class="sr-only" role="status" aria-live="polite">{{ catState.announce }}</div>
   </section>
 </template>
@@ -195,12 +237,13 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
-import { CAT_COPY } from '@/api/cat'
+import { CAT_CONV_COPY as CC, CAT_COPY } from '@/api/cat'
 import { CAT_PROJECT_COPY as PC, CAT_PROJECT_NAME_MAX } from '@/api/catProjects'
 import type { CatProject } from '@/api/catMock'
 import {
   catState,
   createProject,
+  findConv,
   newConvInProject,
   NEW_CONV,
   relocateProject,
@@ -215,6 +258,7 @@ const laterTip = CAT_COPY.later
 
 const scrollEl = ref<HTMLElement>()
 const menuEl = ref<HTMLElement>()
+const cmenuEl = ref<HTMLElement>()
 const renameEl = ref<HTMLInputElement[] | HTMLInputElement>()
 
 function rowOf(id: string): HTMLElement | null {
@@ -237,6 +281,7 @@ let menuBtn: HTMLElement | null = null
 
 async function openMenu(id: string, e: Event) {
   if (menuFor.value === id) return closeMenu(true)
+  cmenuFor.value = ''
   menuBtn = e.currentTarget as HTMLElement
   const r = menuBtn.getBoundingClientRect()
   menuStyle.value = { left: `${r.left}px`, top: `${r.bottom + 4}px` }
@@ -246,11 +291,41 @@ async function openMenu(id: string, e: Event) {
 }
 function closeMenu(refocus = false) {
   menuFor.value = ''
+  cmenuFor.value = ''
   if (refocus) menuBtn?.focus()
 }
 function items(): HTMLElement[] {
-  return Array.from(menuEl.value?.querySelectorAll<HTMLElement>('.mi:not(.dis)') ?? [])
+  const el = cmenuFor.value ? cmenuEl.value : menuEl.value
+  return Array.from(el?.querySelectorAll<HTMLElement>('.mi:not(.dis)') ?? [])
 }
+
+// ---- 对话菜单（设计 v0.3 §11/12）：点「···」只开菜单、不切换对话 ----
+const cmenuFor = ref('')
+async function openConvMenu(id: string, e: Event) {
+  if (cmenuFor.value === id) return closeMenu(true)
+  menuFor.value = ''
+  menuBtn = e.currentTarget as HTMLElement
+  const r = menuBtn.getBoundingClientRect()
+  menuStyle.value = { left: `${r.left}px`, top: `${r.bottom + 4}px` }
+  cmenuFor.value = id
+  await nextTick()
+  items()[0]?.focus()
+}
+function onConvClick(id: string, e: Event) {
+  if ((e.target as HTMLElement).closest('.c-more')) return
+  selectConv(id)
+}
+function askDeleteConv(id: string) {
+  closeMenu()
+  catState.deletingConv = id
+}
+// 对话没了（删除 / 列表刷新）时收起它的菜单
+watch(
+  () => cmenuFor.value && !findConv(cmenuFor.value),
+  (gone) => {
+    if (gone) cmenuFor.value = ''
+  },
+)
 function onMenuKey(e: KeyboardEvent) {
   const list = items()
   const i = list.indexOf(document.activeElement as HTMLElement)
@@ -268,9 +343,9 @@ function onMenuKey(e: KeyboardEvent) {
   } else if (e.key === 'Tab') closeMenu()
 }
 function onDocDown(e: MouseEvent) {
-  if (!menuFor.value) return
+  if (!menuFor.value && !cmenuFor.value) return
   const t = e.target as Node
-  if (menuEl.value?.contains(t) || menuBtn?.contains(t)) return
+  if (menuEl.value?.contains(t) || cmenuEl.value?.contains(t) || menuBtn?.contains(t)) return
   closeMenu()
 }
 
@@ -419,10 +494,14 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown, true)
   color: var(--ff-text-3);
   display: flex;
 }
-button.ct-it {
+button.ct-it,
+.ct-it.dc {
   cursor: pointer;
 }
 button.ct-it:hover,
+.ct-it.dc:hover,
+.ct-it.dc.menu,
+.pc.menu,
 .pj-row:hover,
 .pc:hover {
   background: var(--ff-bg-hover);
@@ -633,6 +712,7 @@ html.dark .pc.on {
   font-weight: 500;
 }
 button.ct-it:focus-visible,
+.ct-it.dc:focus-visible,
 .pj-row:focus-visible,
 .pc:focus-visible,
 .ct-back:focus-visible {
@@ -768,6 +848,47 @@ button.ib {
 .ren-hint.bad {
   color: var(--ff-danger);
 }
+/* 对话行「···」（设计 v0.3 §11/12）：项目下对话在卡片右上角，普通对话在行右侧垂直居中；hover / 键盘聚焦淡入 120ms */
+.pc {
+  position: relative;
+}
+.c-more {
+  opacity: 0;
+  transition: opacity 120ms ease;
+  flex: none;
+}
+.pc .c-more {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  z-index: 1;
+  background: var(--ff-bg-hover);
+}
+.pc.on .c-more {
+  background: var(--ff-bg-surface);
+}
+html.dark .pc.on .c-more {
+  background: var(--ff-bg-elevated);
+}
+.ct-it.dc .c-more {
+  margin-left: auto;
+}
+.pc:hover .c-more,
+.pc:focus-within .c-more,
+.pc.menu .c-more,
+.ct-it.dc:hover .c-more,
+.ct-it.dc:focus-within .c-more,
+.ct-it.dc.menu .c-more {
+  opacity: 1;
+}
+.pc.menu .c-more,
+.ct-it.dc.menu .c-more {
+  background: var(--ff-border);
+  color: var(--ff-text-1);
+}
+.c-menu {
+  width: 140px;
+}
 /* 项目菜单 */
 .pj-menu {
   position: fixed;
@@ -841,6 +962,9 @@ html.dark .pj-menu {
   .pj.hl,
   .pj-menu {
     animation: none;
+  }
+  .c-more {
+    transition: none;
   }
   .pj.hl .pj-row {
     animation: pj-hl 2.4s steps(1, end) forwards;
