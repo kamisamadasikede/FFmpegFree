@@ -624,6 +624,7 @@ onDeactivated(() => {
   height: 100%;
   background: var(--ff-primary);
   border-radius: 2px;
+  transition: width var(--ff-dur-progress) linear;
 }
 .bt {
   display: flex;

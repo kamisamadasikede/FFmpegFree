@@ -85,6 +85,8 @@
   --ff-dur-slow: 320ms;
   --ff-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ff-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  /* 进度条只过渡真实数值：线性、不超过后端给的值（动画 P1） */
+  --ff-dur-progress: 250ms;
 
   --ff-sidebar-w: 200px;
   --ff-sidebar-w-collapsed: 56px;

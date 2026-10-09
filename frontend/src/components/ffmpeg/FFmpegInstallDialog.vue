@@ -179,7 +179,7 @@ p {
   height: 100%;
   background: var(--ff-primary);
   border-radius: 4px;
-  transition: width var(--ff-dur-base) var(--ff-ease);
+  transition: width var(--ff-dur-progress) linear;
 }
 .pmeta {
   display: flex;
