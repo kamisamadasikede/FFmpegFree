@@ -93,6 +93,12 @@
   pointer-events: none;
 }
 
+/* ── 进度条：数值变化时宽度线性过渡到真实值（不做假进度、不缓出越过、不回弹）；
+   不定进度条（.ind）有自己的循环动画，不受影响。各页自己写了过渡的也统一到同一 token ── */
+[role='progressbar']:not(.ind) > i {
+  transition: width var(--ff-dur-progress) linear;
+}
+
 /* ── 列表新行（表格行不能收高度：任务中心）：淡入 + 下移 4px，删除瞬间完成 ── */
 .ff-row-enter-active {
   transition: opacity var(--ff-dur-base) var(--ff-ease-out), translate var(--ff-dur-base) var(--ff-ease-out);

@@ -1033,7 +1033,7 @@ th { white-space: nowrap; } /* “开始时间”不换行 */
   background: var(--ff-primary);
   border-radius: 2px;
   overflow: hidden;
-  transition: width var(--ff-dur-base) var(--ff-ease);
+  transition: width var(--ff-dur-progress) linear;
 }
 .bar i.fail { background: var(--ff-danger); }
 .bar i.int { background: var(--ff-interrupted); }

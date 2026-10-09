@@ -7,7 +7,7 @@
 .cv2 button{font:inherit;cursor:pointer}
 .cv2 .panel{background:var(--ff-bg-surface);border:1px solid var(--ff-border);border-radius:10px}
 .cv2 .bar{width:120px;height:4px;border-radius:2px;background:var(--ff-border);overflow:hidden;flex:none}
-.cv2 .bar i{display:block;height:100%;background:var(--ff-primary);border-radius:2px;transition:width .25s linear}
+.cv2 .bar i{display:block;height:100%;background:var(--ff-primary);border-radius:2px;transition:width var(--ff-dur-progress) linear}
 .cv2 .btn{height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--ff-border);background:var(--ff-bg-surface);color:var(--ff-text-1);display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:13px;white-space:nowrap;flex:none}
 .cv2 .btn svg{width:15px;height:15px}
 .cv2 .btn:hover:not(:disabled):not([aria-disabled=true]){background:var(--ff-bg-hover)}
