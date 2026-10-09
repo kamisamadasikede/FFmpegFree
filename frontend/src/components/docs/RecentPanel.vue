@@ -12,7 +12,7 @@
         <span>{{ DOC_RECENT_EMPTY_HINT }}</span>
       </template>
     </div>
-    <ul v-else class="rlist" :aria-label="DOC_RECENT_TITLE">
+    <MotionCollapse v-else group tag="ul" class="rlist" :aria-label="DOC_RECENT_TITLE">
       <li v-for="f in docs.recent" :key="f.id" class="rr" :class="{ on: docs.currentPath === f.path, gone: !f.exists }">
         <FIcon name="doc" :size="16" class="rico" />
         <div class="main" role="button" tabindex="0" :title="f.path" @click="open(f)" @keydown.enter.prevent="open(f)" @keydown.delete.prevent="docs.removeRecent(f)">
@@ -22,7 +22,7 @@
         </div>
         <button type="button" class="rx" :aria-label="`从列表移除 ${f.name}`" :title="DOC_RECENT_REMOVE_TIP" @click="docs.removeRecent(f)"><FIcon name="x" :size="14" /></button>
       </li>
-    </ul>
+    </MotionCollapse>
     <div v-if="docs.recent.length >= MAX_RECENT_LIMIT" class="note">{{ DOC_RECENT_LIMIT_NOTE }}</div>
   </aside>
 </template>
@@ -31,6 +31,7 @@
 // 「最近打开的 PDF」（两个 Tab 共用，设计说明 2.4）：点一行 = 用 PDF 预览打开（切到 PDF 预览 Tab）；× 只删记录不删文件；exists=false 仍可点，点开走「找不到文件」失败态。
 import { useRouter } from 'vue-router'
 import FIcon from '@/components/icon/FIcon.vue'
+import MotionCollapse from '@/components/motion/MotionCollapse.vue'
 import MiddleEllipsis from '@/components/docs/MiddleEllipsis.vue'
 import { MAX_RECENT_LIMIT, type PDFFile } from '@/api/doc'
 import {

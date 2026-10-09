@@ -64,8 +64,8 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
 
 <template>
   <Teleport to="body">
-    <div class="pvx-mask" @mousedown.self="emit('close')">
-      <div ref="root" class="pvx" role="dialog" aria-modal="true" :aria-label="label || title">
+    <div class="pvx-mask ff-in-mask" @mousedown.self="emit('close')">
+      <div ref="root" class="pvx ff-in-panel" role="dialog" aria-modal="true" :aria-label="label || title">
         <header class="pvx-h">
           <span class="pvx-ti" :class="tone" aria-hidden="true"><FIcon :name="(icon as any) || 'doc'" /></span>
           <div class="tt">

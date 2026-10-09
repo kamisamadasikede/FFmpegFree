@@ -42,8 +42,9 @@
     </div>
     <div v-if="folderErr" class="srow"><small class="ferr" role="alert">{{ folderErr }}</small></div>
     <!-- 选了未下载的文档组件：先确认（场景 21b） -->
+    <MotionDialog>
     <div v-if="confirmDl" class="fcf-mask" @mousedown.self="cancelDl">
-      <div class="fcf" role="alertdialog" aria-modal="true" aria-labelledby="fcf-t" @keydown.esc="cancelDl">
+      <div class="fcf ff-panel" role="alertdialog" aria-modal="true" aria-labelledby="fcf-t" @keydown.esc="cancelDl">
         <h4 id="fcf-t">下载文档组件</h4>
         <p>{{ componentDownloadConfirmText(comp.status.downloadBytes) }}</p>
         <div class="acts">
@@ -52,6 +53,7 @@
         </div>
       </div>
     </div>
+    </MotionDialog>
   </section>
 </template>
 
@@ -60,6 +62,7 @@
 // v0.27：「正在使用本机 WPS」行、引擎下拉（engines 多于一项）、下载确认；v0.27.2：OpenStorageFolder("doc_component")。
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
+import MotionDialog from '@/components/motion/MotionDialog.vue'
 import { useDocComponentStore } from '@/stores/docComponent'
 import { DOC_OUTDATED_BUTTON, DOC_PREPARING } from '@/utils/docV26Text'
 import {

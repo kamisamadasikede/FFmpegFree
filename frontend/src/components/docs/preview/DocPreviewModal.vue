@@ -5,6 +5,7 @@
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import PreviewShell from '@/components/preview/PreviewShell.vue'
+import MotionToast from '@/components/motion/MotionToast.vue'
 import PreviewConfirm, { type ConfirmButton } from '@/components/preview/PreviewConfirm.vue'
 import PvPdf from './PvPdf.vue'
 import PvRawDocx from './PvRawDocx.vue'
@@ -524,10 +525,12 @@ const onGone = () => st.onUrlGone()
         <div v-if="paged && pages > 0" class="pvx-pn" aria-live="polite">{{ page }} / {{ pages }}</div>
       </template>
 
-      <div v-if="toast" class="pvx-toast" role="status">
-        <FIcon name="check" /><span>{{ toast.text }}</span>
-        <a v-if="toast.path" role="button" tabindex="0" @click="revealSaved(toast.path)" @keydown.enter="revealSaved(toast.path)">打开所在文件夹</a>
-      </div>
+      <MotionToast>
+        <div v-if="toast" class="pvx-toast" role="status">
+          <FIcon name="check" class="ff-check-draw" /><span>{{ toast.text }}</span>
+          <a v-if="toast.path" role="button" tabindex="0" @click="revealSaved(toast.path)" @keydown.enter="revealSaved(toast.path)">打开所在文件夹</a>
+        </div>
+      </MotionToast>
     </div>
 
     <template #overlay>

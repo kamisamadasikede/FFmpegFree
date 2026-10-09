@@ -3,6 +3,7 @@
 import MidEllipsis from '@/components/common/MidEllipsis.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
+import MotionCollapse from '@/components/motion/MotionCollapse.vue'
 import ConvertThumb from './ConvertThumb.vue'
 import ConvertKid from './ConvertKid.vue'
 import { metaInfoOf, useConvertRecordsStore, SOURCE_REMOVE_LABEL, type ParentView } from '@/stores/convertRecords'
@@ -235,7 +236,8 @@ async function revealKid(id: string) {
         <button v-if="noSpace" type="button" @click="emit('openStorageSettings')">{{ OPEN_STORAGE_SETTINGS }}</button>
       </div></div>
     </div>
-    <div v-if="p.open && p.kids.length" class="cv-kids">
+    <MotionCollapse>
+    <MotionCollapse v-if="p.open && p.kids.length" group tag="div" class="cv-kids">
       <ConvertKid
         v-for="k in p.kids"
         :key="k.id"
@@ -254,8 +256,9 @@ async function revealKid(id: string) {
         @change-output="emit('changeOutput', k.id)"
         @reconvert="emit('reconvert', k.id)"
       />
-      <button v-if="p.moreCount > 0" type="button" class="ff-link cv-more" :disabled="src.loadingMore" :aria-busy="src.loadingMore" @click="cv.loadMoreRecords(src.sourceId)">{{ src.loadingMore ? '正在加载…' : `展开更多（还有 ${p.moreCount} 条）` }}</button>
-    </div>
+      <button v-if="p.moreCount > 0" key="cv-more" type="button" class="ff-link cv-more" :disabled="src.loadingMore" :aria-busy="src.loadingMore" @click="cv.loadMoreRecords(src.sourceId)">{{ src.loadingMore ? '正在加载…' : `展开更多（还有 ${p.moreCount} 条）` }}</button>
+    </MotionCollapse>
     <div v-else-if="!n && !p.conflict && !(v24 && (copying || cs === 'failed'))" class="cv-empty-kid">还没有转换记录。勾选后在右侧选择格式，点“转换”。</div>
+    </MotionCollapse>
   </div>
 </template>

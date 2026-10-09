@@ -2,6 +2,7 @@
 // 文档组件引导 / 下载 / 准备 / 失败 / 过旧 / Linux / 收起细条（契约 6.12.12，设计 v0.2 §四）
 import { computed } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
+import MotionCollapse from '@/components/motion/MotionCollapse.vue'
 import { useDocComponentStore } from '@/stores/docComponent'
 import { docHintSimpleBar, DOC_OUTDATED_BUTTON, DOC_PREPARING } from '@/utils/docV26Text'
 import { docV28On } from '@/api/docV26'
@@ -34,6 +35,7 @@ const failTitle = computed(() => {
 </script>
 
 <template>
+  <MotionCollapse>
   <div v-if="view === 'guide'" class="dc-guide" role="region" aria-label="文档组件">
     <div class="gi"><FIcon name="download" /></div>
     <div class="gb">
@@ -125,4 +127,5 @@ const failTitle = computed(() => {
     <span class="sp" />
     <button type="button" class="lk" @click="comp.isLinux ? comp.reopenGuide() : comp.install()">{{ comp.isLinux ? '查看说明' : '下载文档组件' }}</button>
   </div>
+  </MotionCollapse>
 </template>

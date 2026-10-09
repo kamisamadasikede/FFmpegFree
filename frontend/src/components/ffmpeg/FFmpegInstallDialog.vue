@@ -1,7 +1,8 @@
 <template>
   <Teleport to="body">
+    <MotionDialog>
     <div v-if="ffmpeg.dialogVisible" class="mask">
-      <div class="dlg" role="dialog" aria-modal="true">
+      <div class="dlg ff-panel" role="dialog" aria-modal="true">
         <div class="big"><FIcon name="download" :size="24" /></div>
 
         <template v-if="!installing">
@@ -57,6 +58,7 @@
         </template>
       </div>
     </div>
+    </MotionDialog>
   </Teleport>
 </template>
 
@@ -64,6 +66,7 @@
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
+import MotionDialog from '@/components/motion/MotionDialog.vue'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { detailWithoutPaths, publicErrorText } from '@/errors/errorMessages'
 import { toAppError, type AppError } from '@/api/call'

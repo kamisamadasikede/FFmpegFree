@@ -1,0 +1,135 @@
+/* 共用动效（前端动画审计 P0）。规则：
+   1. 只动 transform（这里用独立的 translate / scale 属性，不覆盖元素自己的 transform）和 opacity；
+      高度收放只在 MotionCollapse 里用 WAAPI 做，进入时读一次尺寸。
+   2. 出现 200ms ease-out；消失 150ms ease-in，且消失时不接收点击；强调（完成对勾）320ms。
+   3. 系统「减少动效」或 html.reduce-motion：base.css 已把 transition / animation 时长压成 0，这里不用再写；
+      JS 动画（MotionCollapse）自己判断 prefersReducedMotion()。
+   4. 不给 iframe / PDF / 编辑器内容加 filter 或缩放；预览大弹窗只淡入 + 上移 8px。 */
+
+@keyframes ff-fade-in { from { opacity: 0; } }
+@keyframes ff-rise-in { from { opacity: 0; translate: 0 8px; } }
+@keyframes ff-pop-in { from { opacity: 0; translate: 0 8px; scale: 0.97; } }
+
+/* ── 弹窗：<MotionDialog> 包住带 v-if 的遮罩层；面板加 ff-panel 类 ── */
+.ff-dlg-enter-active,
+.ff-dlg-leave-active {
+  transition: opacity var(--ff-dur-base) var(--ff-ease-out);
+}
+.ff-dlg-leave-active {
+  transition-duration: var(--ff-dur-fast);
+  transition-timing-function: var(--ff-ease-in);
+  pointer-events: none;
+}
+.ff-dlg-enter-from,
+.ff-dlg-leave-to {
+  opacity: 0;
+}
+.ff-dlg-enter-active .ff-panel,
+.ff-dlg-leave-active .ff-panel {
+  transition: translate var(--ff-dur-base) var(--ff-ease-out), scale var(--ff-dur-base) var(--ff-ease-out);
+}
+.ff-dlg-leave-active .ff-panel {
+  transition-duration: var(--ff-dur-fast);
+  transition-timing-function: var(--ff-ease-in);
+}
+.ff-dlg-enter-from .ff-panel,
+.ff-dlg-leave-to .ff-panel {
+  translate: 0 8px;
+  scale: 0.97;
+}
+
+/* 只有进场的弹窗（整个组件随 v-if 卸载、外面包不了 Transition 的：预览大弹窗、预览里的确认框） */
+.ff-in-mask {
+  animation: ff-fade-in var(--ff-dur-base) var(--ff-ease-out);
+}
+.ff-in-panel {
+  animation: ff-rise-in var(--ff-dur-base) var(--ff-ease-out);
+}
+.ff-in-pop {
+  animation: ff-pop-in var(--ff-dur-base) var(--ff-ease-out);
+}
+
+/* ── 弹窗内小提示：<MotionToast> ── */
+.ff-toast-enter-active {
+  transition: opacity var(--ff-dur-base) var(--ff-ease-out), translate var(--ff-dur-base) var(--ff-ease-out), scale var(--ff-dur-base) var(--ff-ease-out);
+}
+.ff-toast-leave-active {
+  transition: opacity var(--ff-dur-fast) var(--ff-ease-in), translate var(--ff-dur-fast) var(--ff-ease-in), scale var(--ff-dur-fast) var(--ff-ease-in);
+  pointer-events: none;
+}
+.ff-toast-enter-from,
+.ff-toast-leave-to {
+  opacity: 0;
+  translate: 0 8px;
+  scale: 0.96;
+}
+
+/* ── 全局消息（Element Plus ElMessage，各页的成功 / 警告提示）：原来从自身高度外滑入、0.4s；
+   改成从上方 8px 淡入 + 0.96→1，200ms ease-out；消失 150ms ease-in；多条叠放时 top 平滑移动 ── */
+.el-message {
+  transition: opacity var(--ff-dur-base) var(--ff-ease-out), transform var(--ff-dur-base) var(--ff-ease-out),
+    translate var(--ff-dur-base) var(--ff-ease-out), scale var(--ff-dur-base) var(--ff-ease-out), top var(--ff-dur-slow) var(--ff-ease-out),
+    bottom var(--ff-dur-slow) var(--ff-ease-out);
+}
+.el-message.el-message-fade-enter-from.is-center,
+.el-message.el-message-fade-leave-to.is-center {
+  transform: translateX(-50%);
+}
+.el-message.el-message-fade-enter-from.is-left,
+.el-message.el-message-fade-enter-from.is-right,
+.el-message.el-message-fade-leave-to.is-left,
+.el-message.el-message-fade-leave-to.is-right {
+  transform: none;
+}
+.el-message.el-message-fade-enter-from,
+.el-message.el-message-fade-leave-to {
+  opacity: 0;
+  translate: 0 -8px;
+  scale: 0.96;
+}
+.el-message.el-message-fade-leave-active {
+  transition-duration: var(--ff-dur-fast);
+  transition-timing-function: var(--ff-ease-in);
+  pointer-events: none;
+}
+
+/* ── 列表新行（表格行不能收高度：任务中心）：淡入 + 下移 4px，删除瞬间完成 ── */
+.ff-row-enter-active {
+  transition: opacity var(--ff-dur-base) var(--ff-ease-out), translate var(--ff-dur-base) var(--ff-ease-out);
+}
+.ff-row-enter-from {
+  opacity: 0;
+  translate: 0 -4px;
+}
+
+/* ── 刚完成：状态标签弹一下 + 对勾描出来（只在 排队/转换中 → 完成 那一刻加 ff-done-pop；
+   页面打开时已经是“完成”的不播） ── */
+@keyframes ff-done-pop {
+  0% { scale: 0.85; opacity: 0.4; }
+  60% { scale: 1.06; opacity: 1; }
+  100% { scale: 1; }
+}
+@keyframes ff-check-draw {
+  from { stroke-dashoffset: 24; }
+  to { stroke-dashoffset: 0; }
+}
+.ff-done-pop {
+  animation: ff-done-pop var(--ff-dur-slow) var(--ff-ease-out);
+}
+.ff-done-pop svg path,
+.ff-check-draw path {
+  stroke-dasharray: 24;
+  animation: ff-check-draw var(--ff-dur-slow) var(--ff-ease-out) 80ms both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ff-done-pop svg path,
+  .ff-check-draw path {
+    animation: none;
+    stroke-dasharray: none;
+  }
+}
+html.reduce-motion .ff-done-pop svg path,
+html.reduce-motion .ff-check-draw path {
+  animation: none;
+  stroke-dasharray: none;
+}

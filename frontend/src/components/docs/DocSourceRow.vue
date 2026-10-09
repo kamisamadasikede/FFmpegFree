@@ -2,6 +2,8 @@
 // 文档页左栏的一行源文件 + 它的转换记录（结构同转换页 v2 的 cv-src / cv-kid）
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
+import MotionCollapse from '@/components/motion/MotionCollapse.vue'
+import { useJustDone } from '@/composables/useJustDone'
 import DocTypeCover from '@/components/docs/DocTypeCover.vue'
 import { useDocConvertStore, type DocRow } from '@/stores/docConvert'
 import type { DocRecord } from '@/api/docV26'
@@ -12,6 +14,8 @@ import { usePreviewStore, type PreviewItem } from '@/stores/docPreview'
 import { EDITED_IN_APP, RECONVERT_EDITED_CONFIRM, engineRecordText } from '@/utils/docV27Text'
 
 const props = defineProps<{ row: DocRow }>()
+/** 排队 / 转换中 → 完成 的那一刻，完成标签弹一下 */
+const justDone = useJustDone(() => props.row.records)
 // 组件不报进度：转换中只显示不确定进度条 +「已用 m:ss」（设计 v0.2 §二.8）
 const nowMs = ref(Date.now())
 let tick = 0
@@ -129,14 +133,15 @@ const summary = computed(() => {
         <button type="button" class="cv-ib" aria-label="从列表移除" title="从列表移除" @click.stop="dc.removeSource(src.sourceId)"><FIcon name="trash" /></button>
       </div>
     </div>
-    <div v-if="row.open && row.records.length" class="cv-kids">
+    <MotionCollapse>
+    <MotionCollapse v-if="row.open && row.records.length" group tag="div" class="cv-kids">
       <div v-for="r in row.records" :key="r.id" class="cv-kid" :class="{ q: r.status === 'queued' }" :data-kid="r.id">
         <button v-if="r.status === 'succeeded'" type="button" class="dc-covbtn" :aria-label="`预览 ${r.title}`" @click="previewRecord(r, $event)"><DocTypeCover :ext="targetOf(r)" sm /></button>
         <DocTypeCover v-else :ext="targetOf(r)" sm />
         <div class="cv-km">
           <div class="l1">
             <b :title="r.title">{{ r.title }}</b>
-            <span class="cv-tag" :class="TAG[r.status]?.cls"><FIcon v-if="r.status === 'succeeded'" name="check" /><FIcon v-else-if="r.status === 'failed'" name="warn" /><i class="tx">{{ TAG[r.status]?.text }}</i></span>
+            <span class="cv-tag" :class="[TAG[r.status]?.cls, { 'ff-done-pop': justDone(r.id) }]"><FIcon v-if="r.status === 'succeeded'" name="check" /><FIcon v-else-if="r.status === 'failed'" name="warn" /><i class="tx">{{ TAG[r.status]?.text }}</i></span>
           </div>
           <div class="l2" :title="line2(r)">{{ line2(r) }}</div>
           <div class="l3">
@@ -175,7 +180,8 @@ const summary = computed(() => {
           <button v-if="r.status !== 'running' && r.status !== 'queued'" type="button" class="cv-ib" aria-label="删除记录" title="删除记录" @click="dc.removeRecord(r.id)"><FIcon name="trash" /></button>
         </div>
       </div>
-    </div>
+    </MotionCollapse>
     <div v-else-if="!row.records.length" class="cv-empty-kid">还没有转换记录。勾选后在右侧选择格式，点“转换”。</div>
+    </MotionCollapse>
   </div>
 </template>

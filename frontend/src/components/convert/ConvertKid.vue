@@ -3,6 +3,7 @@
 import MidEllipsis from '@/components/common/MidEllipsis.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
+import { prefersReducedMotion } from '@/utils/motion'
 import ErrorLine from '@/components/common/ErrorLine.vue'
 import ConvertThumb from './ConvertThumb.vue'
 import type { ThumbState } from '@/api/convertRecords'
@@ -97,6 +98,19 @@ const previewTip = computed(() => {
   if (gone.value) return '文件已被移动或删除，无法预览'
   return ''
 })
+/** 排队 / 转换中 → 完成 的那一刻，完成标签弹一下（打开页面时已完成的、滚回来重新挂载的不播） */
+const justDone = ref(false)
+let doneTimer: ReturnType<typeof setTimeout> | undefined
+watch(
+  () => k.value.status,
+  (s, old) => {
+    if (s !== 'succeeded' || !old || old === 'succeeded' || prefersReducedMotion()) return
+    justDone.value = true
+    clearTimeout(doneTimer)
+    doneTimer = setTimeout(() => (justDone.value = false), 1200)
+  },
+)
+onBeforeUnmount(() => clearTimeout(doneTimer))
 const tag = computed(() => {
   if (rc.value) return { cls: 't-run t-rc', text: '重转中', icon: '' }
   switch (k.value.status) {
@@ -125,7 +139,7 @@ const tag = computed(() => {
     <div class="cv-km">
       <div class="l1">
         <MidEllipsis tag="b" :class="{ gone, lnk: canPreview }" :text="name" @click="canPreview && emit('preview')" />
-        <span class="cv-tag" :class="tag.cls" :title="tag.text" :aria-label="tag.text"><FIcon v-if="tag.icon" :name="tag.icon === 'check' ? 'check' : 'warn'" /><i class="tx">{{ tag.text }}</i></span>
+        <span class="cv-tag" :class="[tag.cls, { 'ff-done-pop': justDone && done }]" :title="tag.text" :aria-label="tag.text"><FIcon v-if="tag.icon" :name="tag.icon === 'check' ? 'check' : 'warn'" /><i class="tx">{{ tag.text }}</i></span>
         <span v-if="short" class="cv-stag" :class="{ hv: forceShort }" tabindex="0" :title="SHORT_TIP" :aria-label="`${SHORT_TAG}：${SHORT_TIP}`"><FIcon name="warn" :size="12" />{{ SHORT_TAG }}<span class="cv-tip" role="tooltip">{{ SHORT_TIP }}</span></span>
       </div>
       <div class="l2" :title="line2.title">{{ line2.text }}</div>

@@ -79,6 +79,12 @@
   --ff-ease: cubic-bezier(0.2, 0, 0, 1);
   --ff-dur-fast: 150ms;
   --ff-dur-base: 200ms;
+  /* 动效规范（前端动画审计 P0）：quick=按下/小反馈，base=出现，slow=强调（完成对勾、整块展开）；
+     出现用 ease-out（快进慢停），消失用 ease-in 且更短。系统「减少动效」时 base.css 把时长压成 0 */
+  --ff-dur-quick: 120ms;
+  --ff-dur-slow: 320ms;
+  --ff-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ff-ease-in: cubic-bezier(0.4, 0, 1, 1);
 
   --ff-sidebar-w: 200px;
   --ff-sidebar-w-collapsed: 56px;

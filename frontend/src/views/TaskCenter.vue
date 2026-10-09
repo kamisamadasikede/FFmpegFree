@@ -44,9 +44,11 @@
         </div>
       </div>
 
+      <MotionCollapse>
       <div v-if="showingHidden && hiddenShown > 0" class="tc-hint" role="status">
         <FIcon name="info" :size="14" /><span>正在显示 {{ hiddenShown }} 条已隐藏的任务（置灰）。<span class="w1280">隐藏只影响任务中心，</span>转换记录仍在转换页，要删除请到转换页。</span>
       </div>
+      </MotionCollapse>
 
       <div v-if="tasks.loadError && tab !== 'history' && tab !== 'failed'" class="loaderr">
         <ErrorLine :code="tasks.loadError.code" :message="tasks.loadError.message" :detail="tasks.loadError.detail" :show-log="false" fallback-title="加载任务失败" />
@@ -71,7 +73,8 @@
               <th scope="col" class="opsh"><span class="sr-only">操作</span></th>
             </tr>
           </thead>
-          <tbody>
+          <!-- 新任务行淡入（换页签 / 筛选 / 翻页时整个 tbody 换 key，不播）；删除瞬间完成，表格行不做收高 -->
+          <TransitionGroup :key="rowsKey" tag="tbody" name="ff-row">
             <template v-for="t in rows" :key="t.id">
               <tr :class="{ sel: logId === t.id, haserr: hasErrLine(t) || showFallbackNotice(t), hid: isHidden(t) }">
                 <td>
@@ -86,7 +89,7 @@
                   <span v-else class="tag type">{{ typeLabel(t.type) }}</span>
                 </td>
                 <td class="tc-dim">
-                  <span class="tag" :class="statusTag(t).cls">
+                  <span class="tag" :class="[statusTag(t).cls, { 'ff-done-pop': justDone(t.id) }]">
                     <FIcon v-if="statusTag(t).icon" :name="statusTag(t).icon!" :size="12" />{{ statusLabel(t) }}
                   </span>
                 </td>
@@ -190,7 +193,7 @@
                 </td>
               </tr>
             </template>
-          </tbody>
+          </TransitionGroup>
         </table>
 
         <div v-if="loading && rows.length === 0" class="loading">正在加载…</div>
@@ -230,8 +233,9 @@
 
     <!-- 删除 / 隐藏确认 -->
     <Teleport to="body">
+      <MotionDialog>
       <div v-if="confirm" class="mask" @click.self="confirm = null" @keydown.esc="confirm = null">
-        <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="tc-dlg-title">
+        <div class="dlg ff-panel" role="dialog" aria-modal="true" aria-labelledby="tc-dlg-title">
           <h3 id="tc-dlg-title">{{ confirm.title }}</h3>
           <p>{{ confirm.text }}</p>
           <label v-if="confirm.canDeleteOutput" class="chk"><el-checkbox v-model="deleteOutput">同时删除输出文件</el-checkbox></label>
@@ -242,6 +246,7 @@
           </div>
         </div>
       </div>
+      </MotionDialog>
     </Teleport>
   </div>
 </template>
@@ -252,6 +257,9 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
+import MotionCollapse from '@/components/motion/MotionCollapse.vue'
+import { useJustDone } from '@/composables/useJustDone'
+import MotionDialog from '@/components/motion/MotionDialog.vue'
 import ErrorLine from '@/components/common/ErrorLine.vue'
 import EncoderFallbackNotice from '@/components/encoder/EncoderFallbackNotice.vue'
 import { scrollBehavior } from '@/utils/motion'
@@ -368,6 +376,10 @@ const rows = computed<TaskItem[]>(() => {
   // 全部：进行中的排在最前（只在第一页），后面是已结束的历史
   return tasks.historyFilter.page === 1 ? [...activeFiltered.value, ...tasks.history] : tasks.history
 })
+/** 换页签 / 类型 / 页码 / 显示已隐藏 时整个 tbody 重建，新行淡入只在同一个列表里新出现任务时播 */
+const rowsKey = computed(() => `${tab.value}|${typeFilter.value}|${tasks.historyFilter.page}|${tasks.historyFilter.includeHidden ? 1 : 0}`)
+/** 运行中 / 排队 → 完成 的那一刻，状态标签弹一下 */
+const justDone = useJustDone(() => rows.value)
 const loading = computed(() => {
   if (tab.value === 'active') return !tasks.ready
   return tasks.historyLoading && !tasks.history.length

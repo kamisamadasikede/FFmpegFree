@@ -3,6 +3,7 @@
 import MidEllipsis from '@/components/common/MidEllipsis.vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
+import MotionDialog from '@/components/motion/MotionDialog.vue'
 import type { DeleteAsk } from '@/stores/convertRecords'
 import { formatBytes } from '@/utils/format'
 import { sourceRemoveEmptyBody } from '@/utils/convertV24Text'
@@ -71,9 +72,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true))
 </script>
 <template>
   <Teleport to="body">
+    <MotionDialog>
     <div v-if="a" class="cv2 cv-layer" :class="{ w1024: narrow }">
       <div class="cv-mask" @click.self="!busy && emit('close')">
-        <div ref="box" class="cv-dlg" role="alertdialog" aria-modal="true" aria-labelledby="cv-del-t" aria-describedby="cv-del-d">
+        <div ref="box" class="cv-dlg ff-panel" role="alertdialog" aria-modal="true" aria-labelledby="cv-del-t" aria-describedby="cv-del-d">
           <div class="big" :class="{ neutral: !danger }"><FIcon name="trash" /></div>
           <h3 id="cv-del-t">{{ a.title }}</h3>
           <div v-if="a.kind === 'source'" class="cv-delfile"><FIcon :name="a.audio ? 'music' : 'film'" :size="14" /><MidEllipsis :text="a.name" /><template v-if="a.count > 0"><i>·</i><em>{{ a.count }} 条转换记录</em></template></div>
@@ -101,5 +103,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true))
         </div>
       </div>
     </div>
+    </MotionDialog>
   </Teleport>
 </template>
