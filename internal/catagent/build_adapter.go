@@ -2,8 +2,11 @@ package catagent
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"crypto/sha1"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -31,8 +34,12 @@ const DefaultBuildTimeout = 10 * time.Minute
 
 // 默认能力（PATH 上找到 grok 后使用；CLI 未提供独立 capabilities 探测）。
 var (
-	defaultModels = []Model{{ID: "default", DisplayName: "Cat 助手"}}
-	defaultThinks = []ThinkLevel{}
+	defaultModelIDs = []string{"grok-4.6", "grok-4.5"}
+	defaultThinks   = []ThinkLevel{
+		{ID: "low", DisplayName: "低"},
+		{ID: "medium", DisplayName: "中"},
+		{ID: "high", DisplayName: "高"},
+	}
 )
 
 // BuildConfig 配置 Build 适配器。
@@ -189,14 +196,19 @@ func (a *BuildAdapter) detect() {
 	a.setStatus(Status{State: StateChecking, CanDownload: false})
 
 	if exe := a.resolveGrokExe(); exe != "" {
+		ver := a.probeGrokVersion(exe)
+		if ver == "" {
+			ver = "path"
+		}
+		models := a.probeGrokModels(exe)
 		a.mu.Lock()
-		a.exe, a.root, a.version = exe, "", "path"
+		a.exe, a.root, a.version = exe, "", ver
 		a.viaPATH = true
-		a.models = append([]Model(nil), defaultModels...)
+		a.models = models
 		a.thinks = append([]ThinkLevel(nil), defaultThinks...)
 		a.checked = true
 		a.mu.Unlock()
-		a.setStatus(Status{State: StateReady, Version: "path", CanDownload: false})
+		a.setStatus(Status{State: StateReady, Version: ver, CanDownload: false})
 		return
 	}
 
@@ -342,15 +354,23 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		"--cwd", cwd,
 		"--no-auto-update",
 		"--no-alt-screen",
+		// headless 无法点批准；与契约「完全访问置灰」不一致，见 PR。
+		"--always-approve",
 	}
 	if sid := strings.TrimSpace(opts.ConversationID); sid != "" {
-		args = append(args, "-s", sid)
+		uuid := sessionIDFromConv(sid)
+		if hasPriorAssistant(opts.Messages) {
+			args = append(args, "--resume", uuid)
+		} else {
+			args = append(args, "--session-id", uuid)
+		}
 	}
 	if mid := strings.TrimSpace(opts.ModelID); mid != "" && mid != "default" {
 		args = append(args, "-m", mid)
 	}
-	// 一期只读：不传 --always-approve；用沙箱 / 关写工具环境变量约束 CLI。
-	_ = opts.ThinkLevelID
+	if tl := strings.TrimSpace(opts.ThinkLevelID); tl != "" {
+		args = append(args, "--reasoning-effort", tl)
+	}
 
 	run := a.cfg.Exec
 	if run == nil {
@@ -485,7 +505,7 @@ func grokTurnEnv(base []string) []string {
 		}
 		out = append(out, e)
 	}
-	// 一期只读：沙箱 read-only、关闭写文件；不传 --always-approve。
+	// 沙箱仍 read-only；另传 --always-approve（与契约不完全一致）。
 	out = append(out,
 		"GROK_SANDBOX=read-only",
 		"GROK_WRITE_FILE=0",
@@ -501,7 +521,7 @@ func isAuthFailure(msg string) bool {
 	keys := []string{
 		"unauthorized", "unauthenticated", "authentication", "not logged", "please log in", "please login",
 		"api key", "api_key", "xai_api_key", "invalid key", "invalid token", "expired token",
-		"auth failed", "auth error", "login required", "not authenticated", "401",
+		"auth failed", "auth error", "login required", "not authenticated", "not signed in", "401",
 		"登录", "未登录", "鉴权", "认证失败",
 	}
 	for _, k := range keys {
@@ -533,41 +553,247 @@ type streamEvent struct {
 
 func scanStreamingJSON(r io.Reader, onText func(string), onErr func(string)) error {
 	sc := bufio.NewScanner(r)
-	// 单行可能很长（工具结果）；放宽到 4 MiB。
 	buf := make([]byte, 0, 64*1024)
 	sc.Buffer(buf, 4*1024*1024)
 	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if line == "" {
+		line := bytes.TrimSpace(sc.Bytes())
+		if len(line) == 0 {
 			continue
 		}
-		var ev streamEvent
-		if err := json.Unmarshal([]byte(line), &ev); err != nil {
-			// 非 JSON 行丢弃（避免把日志当正文）。
+		delta, errMsg, isErr := parseStreamLine(line)
+		if isErr {
+			if onErr != nil && errMsg != "" {
+				onErr(errMsg)
+			}
 			continue
 		}
-		switch strings.ToLower(ev.Type) {
-		case "text":
-			if ev.Data != "" && onText != nil {
-				onText(ev.Data)
-			}
-		case "thought":
-			// 一期不展示思考过程。
-		case "error":
-			if onErr != nil {
-				msg := ev.Message
-				if msg == "" {
-					msg = ev.Data
-				}
-				if msg != "" {
-					onErr(msg)
-				}
-			}
-		case "end":
-			// 回合结束；正文已由 text 增量累积。
-		default:
-			// 未知类型忽略（向前兼容）。
+		if delta != "" && onText != nil {
+			onText(delta)
 		}
 	}
 	return sc.Err()
+}
+
+func parseStreamLine(line []byte) (delta string, errMsg string, isErr bool) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(line, &raw); err != nil {
+		return "", "", false
+	}
+	if typ, ok := rawStr(raw, "type"); ok && strings.EqualFold(typ, "error") {
+		msg, _ := rawStr(raw, "message")
+		if msg == "" {
+			msg, _ = rawStr(raw, "data")
+		}
+		return "", msg, true
+	}
+	if method, ok := rawStr(raw, "method"); ok && method == "session/update" {
+		if params, ok := raw["params"]; ok {
+			var p struct {
+				Update struct {
+					SessionUpdate string          `json:"sessionUpdate"`
+					Content       json.RawMessage `json:"content"`
+				} `json:"update"`
+			}
+			if json.Unmarshal(params, &p) == nil {
+				su := p.Update.SessionUpdate
+				if su == "agent_thought_chunk" || strings.Contains(su, "tool") || su == "plan" {
+					return "", "", false
+				}
+				if su == "agent_message_chunk" || su == "agent_message" {
+					return extractContentDelta(p.Update.Content), "", false
+				}
+			}
+		}
+	}
+	var ev streamEvent
+	if json.Unmarshal(line, &ev) == nil {
+		switch strings.ToLower(ev.Type) {
+		case "text", "delta", "content", "message":
+			if ev.Data != "" {
+				return ev.Data, "", false
+			}
+			if ev.Message != "" {
+				return ev.Message, "", false
+			}
+			if d, _ := rawStr(raw, "text"); d != "" {
+				return d, "", false
+			}
+			if d, _ := rawStr(raw, "delta"); d != "" {
+				return d, "", false
+			}
+		case "thought", "thinking", "end", "tool", "tool_call":
+			return "", "", false
+		}
+	}
+	return "", "", false
+}
+
+func extractContentDelta(content json.RawMessage) string {
+	content = bytes.TrimSpace(content)
+	if len(content) == 0 {
+		return ""
+	}
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(content, &obj) == nil {
+		if t, ok := rawStr(obj, "text"); ok {
+			return t
+		}
+	}
+	var arr []map[string]json.RawMessage
+	if json.Unmarshal(content, &arr) == nil {
+		var b strings.Builder
+		for _, block := range arr {
+			typ, _ := rawStr(block, "type")
+			if typ != "" && typ != "text" {
+				continue
+			}
+			if t, ok := rawStr(block, "text"); ok {
+				b.WriteString(t)
+			}
+		}
+		return b.String()
+	}
+	var s string
+	_ = json.Unmarshal(content, &s)
+	return s
+}
+
+func rawStr(m map[string]json.RawMessage, key string) (string, bool) {
+	v, ok := m[key]
+	if !ok {
+		return "", false
+	}
+	var s string
+	if json.Unmarshal(v, &s) != nil {
+		return "", false
+	}
+	return s, true
+}
+
+func (a *BuildAdapter) runCmd(ctx context.Context, name string, args ...string) *exec.Cmd {
+	if a.cfg.Exec != nil {
+		return a.cfg.Exec(ctx, name, args...)
+	}
+	return exec.CommandContext(ctx, name, args...)
+}
+
+func (a *BuildAdapter) probeGrokVersion(exe string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := a.runCmd(ctx, exe, "-v")
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	_ = cmd.Run()
+	fields := strings.Fields(strings.TrimSpace(out.String()))
+	for i, f := range fields {
+		if strings.EqualFold(f, "grok") && i+1 < len(fields) {
+			return fields[i+1]
+		}
+	}
+	if len(fields) >= 2 {
+		return fields[1]
+	}
+	return ""
+}
+
+func (a *BuildAdapter) probeGrokModels(exe string) []Model {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := a.runCmd(ctx, exe, "models")
+	var out, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	_ = cmd.Run()
+	if errb.Len() > 0 && a.cfg.Logf != nil {
+		a.cfg.Logf("cat build models stderr: %s", truncate(errb.String(), 500))
+	}
+	ids := parseGrokModelsList(out.String())
+	if len(ids) == 0 {
+		ids = append([]string(nil), defaultModelIDs...)
+	}
+	models := make([]Model, 0, len(ids))
+	for _, id := range ids {
+		models = append(models, Model{ID: id, DisplayName: modelDisplayName(id)})
+	}
+	return models
+}
+
+func parseGrokModelsList(out string) []string {
+	var ids []string
+	seen := map[string]bool{}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		line = strings.TrimLeft(line, "*-•")
+		line = strings.TrimSpace(line)
+		lower := strings.ToLower(line)
+		if strings.HasPrefix(lower, "available") || strings.HasPrefix(lower, "default model") ||
+			strings.HasPrefix(lower, "you are") || strings.Contains(lower, "not authenticated") {
+			continue
+		}
+		id := line
+		if i := strings.IndexAny(id, " \t("); i >= 0 {
+			id = id[:i]
+		}
+		id = strings.TrimSpace(id)
+		if id == "" || len(id) > 64 || seen[id] {
+			continue
+		}
+		ok := true
+		for _, r := range id {
+			if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.') {
+				ok = false
+				break
+			}
+		}
+		if !ok {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func modelDisplayName(id string) string {
+	name := strings.TrimSpace(id)
+	if name == "" {
+		return "Cat 助手"
+	}
+	lower := strings.ToLower(name)
+	switch {
+	case strings.HasPrefix(lower, "grok-"):
+		name = name[len("grok-"):]
+	case strings.HasPrefix(lower, "grok "):
+		name = name[len("grok "):]
+	case lower == "grok":
+		name = ""
+	default:
+		for _, old := range []string{"Grok", "GROK", "grok"} {
+			name = strings.ReplaceAll(name, old, "")
+		}
+		name = strings.Join(strings.Fields(name), " ")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "Cat 助手"
+	}
+	return "Cat 助手 " + name
+}
+
+func hasPriorAssistant(msgs []WireMessage) bool {
+	for _, m := range msgs {
+		if m.Role == "assistant" && strings.TrimSpace(m.Content) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func sessionIDFromConv(convID string) string {
+	sum := sha1.Sum([]byte("ffmpegfree/cat/session/" + convID))
+	sum[6] = (sum[6] & 0x0f) | 0x50
+	sum[8] = (sum[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", sum[0:4], sum[4:6], sum[6:8], sum[8:10], sum[10:16])
 }
