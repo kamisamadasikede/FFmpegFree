@@ -2898,6 +2898,32 @@ export namespace cat {
 	        this.id = source["id"];
 	    }
 	}
+	export class RelocateProjectRequest {
+	    id: string;
+	    path: string;
+
+	    static createFrom(source: any = {}) {
+	        return new RelocateProjectRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.path = source["path"];
+	    }
+	}
+	export class RevealProjectRequest {
+	    id: string;
+
+	    static createFrom(source: any = {}) {
+	        return new RevealProjectRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	    }
+	}
 	export class CreateConversationRequest {
 	    agentKind: string;
 	    title: string;

@@ -89,5 +89,16 @@ type DeleteProjectRequest struct {
 	ID string `json:"id"`
 }
 
+// RelocateProjectRequest 是 RelocateCatProjectRequest（v0.31.1）。
+type RelocateProjectRequest struct {
+	ID   string `json:"id"`
+	Path string `json:"path"`
+}
+
+// RevealProjectRequest 是 RevealCatProjectRequest（v0.31.1）。
+type RevealProjectRequest struct {
+	ID string `json:"id"`
+}
+
 // ProjectEvent 是 cat:project 载荷。
 type ProjectEvent = catagent.ProjectEvent

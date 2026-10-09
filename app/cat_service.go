@@ -155,3 +155,21 @@ func (s *CatService) DeleteCatProject(req cat.DeleteProjectRequest) error {
 	}
 	return c.DeleteCatProject(s.rootCtx(), req)
 }
+
+// RelocateCatProject 换项目文件夹（v0.31.1）：对话保留、名字不变；missing 的项目也可以。
+func (s *CatService) RelocateCatProject(req cat.RelocateProjectRequest) (cat.Project, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.Project{}, err
+	}
+	return c.RelocateCatProject(s.rootCtx(), req)
+}
+
+// RevealCatProject 在系统文件管理器里打开项目文件夹（v0.31.1）；只收 id。
+func (s *CatService) RevealCatProject(req cat.RevealProjectRequest) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.RevealCatProject(s.rootCtx(), req)
+}

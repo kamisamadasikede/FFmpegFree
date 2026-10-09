@@ -140,3 +140,21 @@ func TestCatProjectDeleteTransaction(t *testing.T) {
 		t.Fatalf("重复删除应幂等: %v %v", deleted, err)
 	}
 }
+
+func TestCatProjectRelocateStore(t *testing.T) {
+	ctx := context.Background()
+	st, _ := openCatTestStore(t)
+	a, _, _ := st.InsertOrGetCatProject(ctx, CatProjectRow{Name: "A", Path: "/a", PathKey: "/a"})
+	b, _, _ := st.InsertOrGetCatProject(ctx, CatProjectRow{Name: "B", Path: "/b", PathKey: "/b"})
+	if _, err := st.RelocateCatProject(ctx, a.ID, "/b/", "/b"); !errors.Is(err, ErrCatProjectDuplicate) {
+		t.Fatal(err)
+	}
+	if _, err := st.RelocateCatProject(ctx, "nope", "/c", "/c"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatal(err)
+	}
+	got, err := st.RelocateCatProject(ctx, a.ID, "/c", "/c")
+	if err != nil || got.Path != "/c" || got.PathKey != "/c" || got.Name != "A" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	_ = b
+}

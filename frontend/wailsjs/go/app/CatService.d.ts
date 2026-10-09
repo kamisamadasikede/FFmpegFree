@@ -27,6 +27,10 @@ export function ListCatThinkLevels(arg1:string):Promise<Array<catagent.ThinkLeve
 
 export function RecheckCat():Promise<catagent.Status>;
 
+export function RelocateCatProject(arg1:cat.RelocateProjectRequest):Promise<cat.Project>;
+
 export function RenameCatProject(arg1:cat.RenameProjectRequest):Promise<cat.Project>;
+
+export function RevealCatProject(arg1:cat.RevealProjectRequest):Promise<void>;
 
 export function SendCatMessage(arg1:cat.SendMessageRequest):Promise<cat.SendMessageResult>;

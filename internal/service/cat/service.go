@@ -29,6 +29,8 @@ type Config struct {
 	Stat func(path string) (os.FileInfo, error)
 	// StatTimeout 是每个项目路径 stat 的最长等待；0 = DefaultProjectStatTimeout（2 秒）。
 	StatTimeout time.Duration
+	// OpenFolder 在系统文件管理器里打开文件夹本身（v0.31.1 RevealCatProject）；app 里接 system.Manager.OpenFolder，测试注入。
+	OpenFolder func(dir string) error
 }
 
 // Service 是 CatService。

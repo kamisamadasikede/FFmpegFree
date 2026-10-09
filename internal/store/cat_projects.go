@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"FFmpegFree/internal/id"
@@ -185,4 +186,32 @@ func (s *Store) GetCatProjectByKey(ctx context.Context, key string) (CatProjectR
 		return CatProjectRow{}, fmt.Errorf("读取 Cat 项目失败: %w", err)
 	}
 	return p, nil
+}
+
+// ErrCatProjectDuplicate 表示新 path_key 已属于另一个项目（RelocateCatProject 撞 UNIQUE）。
+var ErrCatProjectDuplicate = errors.New("cat project path_key duplicate")
+
+// RelocateCatProject 只改这一行的 path、path_key、updated_at（契约 v0.31.1，6.19.10.2 第 8 条第 2 款）；
+// name 不变，不碰 cat_conversations / cat_messages。不存在返回 sql.ErrNoRows；撞唯一键返回 ErrCatProjectDuplicate。
+func (s *Store) RelocateCatProject(ctx context.Context, projectID, path, key string) (CatProjectRow, error) {
+	now := time.Now().UnixMilli()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return CatProjectRow{}, fmt.Errorf("开始换项目文件夹事务失败: %w", err)
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `UPDATE cat_projects SET path = ?, path_key = ?, updated_at = ? WHERE id = ?`, path, key, now, projectID)
+	if err != nil {
+		if strings.Contains(strings.ToUpper(err.Error()), "UNIQUE") {
+			return CatProjectRow{}, ErrCatProjectDuplicate
+		}
+		return CatProjectRow{}, fmt.Errorf("换项目文件夹失败: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return CatProjectRow{}, sql.ErrNoRows
+	}
+	if err := tx.Commit(); err != nil {
+		return CatProjectRow{}, fmt.Errorf("提交换项目文件夹失败: %w", err)
+	}
+	return s.GetCatProject(ctx, projectID)
 }

@@ -169,16 +169,9 @@ func (s *Service) CreateCatProject(ctx context.Context, req CreateProjectRequest
 	if s.cfg.Store == nil {
 		return CreateProjectResult{}, apperr.New(apperr.Internal, "本地存储尚未初始化")
 	}
-	raw := strings.TrimSpace(req.Path)
-	if raw == "" || !filepath.IsAbs(raw) {
-		return CreateProjectResult{}, errProjectPath()
-	}
-	clean := filepath.Clean(raw)
-	if filepath.Dir(clean) == clean {
-		return CreateProjectResult{}, errProjectRoot()
-	}
-	if s.dirMissing(clean) {
-		return CreateProjectResult{}, errProjectPath()
+	clean, err := s.validateProjectDir(req.Path)
+	if err != nil {
+		return CreateProjectResult{}, err
 	}
 	key := projectPathKey(clean)
 	if row, err := s.cfg.Store.GetCatProjectByKey(ctx, key); err == nil {
@@ -270,4 +263,132 @@ func (s *Service) projectForConversation(ctx context.Context, projectID string) 
 		return p, errProjectMissing()
 	}
 	return p, nil
+}
+
+// validateProjectDir 是 CreateCatProject / RelocateCatProject 共用的路径校验（6.19.10.2 第 2 条第 1 款），返回 Clean 后的路径。
+func (s *Service) validateProjectDir(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || !filepath.IsAbs(raw) {
+		return "", errProjectPath()
+	}
+	clean := filepath.Clean(raw)
+	if filepath.Dir(clean) == clean {
+		return "", errProjectRoot()
+	}
+	if s.dirMissing(clean) {
+		return "", errProjectPath()
+	}
+	return clean, nil
+}
+
+// projectHasRunningTurn 判断这些对话里是否有进行中的一轮。
+func (s *Service) projectHasRunningTurn(convIDs []string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, id := range convIDs {
+		if _, ok := s.turns[id]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func errProjectDuplicate(otherID string) error {
+	d := "reason=project_duplicate"
+	if otherID != "" {
+		d += "\nprojectId=" + otherID
+	}
+	return apperr.New(apperr.InvalidArgument, catagent.MsgProjectDuplicate).WithDetail(d)
+}
+
+// RelocateCatProject 换项目文件夹（契约 v0.31.1，6.19.10.2 第 8 条）：对话和消息原样保留、名字不变；
+// missing 的项目也可以（主要用途）。校验顺序：id → path（同 Create）→ 同 path_key 原样返回 → 属于别的项目 project_duplicate
+// → 有进行中的一轮 turn_running（不自动取消）。只对新路径 stat，绝不访问新旧文件夹里的文件。
+func (s *Service) RelocateCatProject(ctx context.Context, req RelocateProjectRequest) (Project, error) {
+	if s.cfg.Store == nil {
+		return Project{}, apperr.New(apperr.Internal, "本地存储尚未初始化")
+	}
+	pid := strings.TrimSpace(req.ID)
+	if pid == "" {
+		return Project{}, apperr.New(apperr.InvalidArgument, "项目编号不能为空")
+	}
+	row, err := s.cfg.Store.GetCatProject(ctx, pid)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Project{}, errProjectNotFound()
+	}
+	if err != nil {
+		return Project{}, apperr.Wrap(apperr.IOError, "读取项目失败", err)
+	}
+	clean, err := s.validateProjectDir(req.Path)
+	if err != nil {
+		return Project{}, err
+	}
+	key := projectPathKey(clean)
+	if key == row.PathKey {
+		return s.checkProject(row), nil // 不改库、不改显示写法、不改 updatedAt
+	}
+	if other, err := s.cfg.Store.GetCatProjectByKey(ctx, key); err == nil {
+		return Project{}, errProjectDuplicate(other.ID)
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return Project{}, apperr.Wrap(apperr.IOError, "读取项目失败", err)
+	}
+	convIDs, err := s.cfg.Store.CatConversationIDsByProject(ctx, pid)
+	if err != nil {
+		return Project{}, apperr.Wrap(apperr.IOError, "读取项目失败", err)
+	}
+	if s.projectHasRunningTurn(convIDs) {
+		return Project{}, apperr.New(apperr.TaskConflict, catagent.MsgProjectTurnRunning).WithDetail("reason=turn_running")
+	}
+	updated, err := s.cfg.Store.RelocateCatProject(ctx, pid, clean, key)
+	if errors.Is(err, store.ErrCatProjectDuplicate) { // 并发：别的项目刚占了这个路径
+		otherID := ""
+		if other, e := s.cfg.Store.GetCatProjectByKey(ctx, key); e == nil {
+			otherID = other.ID
+		}
+		return Project{}, errProjectDuplicate(otherID)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return Project{}, errProjectNotFound()
+	}
+	if err != nil {
+		return Project{}, apperr.Wrap(apperr.IOError, "换项目文件夹失败", err)
+	}
+	return s.checkProject(updated), nil
+}
+
+// RevealCatProject 在系统文件管理器里打开项目文件夹本身（契约 v0.31.1，6.19.10.2 第 9 条）。
+// 只收 id，路径从表里取；文件夹不在 → CAT_PROJECT_MISSING；启动失败 → PROCESS_FAILED。绝不写任何东西。
+func (s *Service) RevealCatProject(ctx context.Context, req RevealProjectRequest) error {
+	if s.cfg.Store == nil {
+		return apperr.New(apperr.Internal, "本地存储尚未初始化")
+	}
+	pid := strings.TrimSpace(req.ID)
+	if pid == "" {
+		return apperr.New(apperr.InvalidArgument, "项目编号不能为空")
+	}
+	row, err := s.cfg.Store.GetCatProject(ctx, pid)
+	if errors.Is(err, sql.ErrNoRows) {
+		return errProjectNotFound()
+	}
+	if err != nil {
+		return apperr.Wrap(apperr.IOError, "读取项目失败", err)
+	}
+	if s.checkProject(row).Missing {
+		return errProjectMissing()
+	}
+	if s.cfg.OpenFolder == nil {
+		return apperr.New(apperr.ProcessFailed, catagent.MsgProjectRevealFail)
+	}
+	if err := s.cfg.OpenFolder(row.Path); err != nil {
+		switch {
+		case apperr.Is(err, apperr.NotFound): // stat 之后刚好被移走
+			s.observeMissing(row.ID, true)
+			return errProjectMissing()
+		case apperr.Is(err, apperr.InvalidArgument), apperr.Is(err, apperr.ProcessFailed):
+			return err
+		default:
+			return apperr.Wrap(apperr.ProcessFailed, catagent.MsgProjectRevealFail, err)
+		}
+	}
+	return nil
 }

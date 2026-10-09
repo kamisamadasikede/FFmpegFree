@@ -50,8 +50,16 @@ export function RecheckCat() {
   return window['go']['app']['CatService']['RecheckCat']();
 }
 
+export function RelocateCatProject(arg1) {
+  return window['go']['app']['CatService']['RelocateCatProject'](arg1);
+}
+
 export function RenameCatProject(arg1) {
   return window['go']['app']['CatService']['RenameCatProject'](arg1);
+}
+
+export function RevealCatProject(arg1) {
+  return window['go']['app']['CatService']['RevealCatProject'](arg1);
 }
 
 export function SendCatMessage(arg1) {

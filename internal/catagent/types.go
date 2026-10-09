@@ -48,6 +48,10 @@ const (
 	MsgProjectPath     = "请选择一个文件夹。"
 	MsgProjectRoot     = "不能把整个磁盘作为项目，请选择里面的文件夹。"
 	MsgProjectName     = "名字需要 1~60 个字。"
+	// v0.31.1（6.19.10.2 第 8 条 / 6.19.10.8）。
+	MsgProjectDuplicate   = "这个文件夹已经建过项目了。"
+	MsgProjectTurnRunning = "有对话正在回复，请先停止再换文件夹。"
+	MsgProjectRevealFail  = "无法打开文件管理器。"
 	// 工具失败结果（回给适配器，不是界面文案）：对话不属于项目时没有项目根。
 	MsgToolNoProject = "这个对话没有项目文件夹，不能查看文件。"
 )

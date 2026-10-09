@@ -148,3 +148,18 @@ func (m *Manager) AppContext() context.Context {
 func rawCmdLine(name string, args []string) string {
 	return strings.Join(append([]string{name}, args...), " ")
 }
+
+// OpenFolder 在系统文件管理器里打开文件夹 dir 本身（契约 v0.31.1 RevealCatProject，6.19.10.2 第 9 条）。
+// 与 OpenStorageFolder 同一条“path 是文件夹”分支（revealIn），不做放行范围检查——调用方只能传它自己登记过的路径
+// （Cat 项目路径由后端从表里取），不暴露给前端。绝不写任何东西（不 MkdirAll）。
+// dir 不是文件夹 → NOT_FOUND；Windows 路径含双引号 → INVALID_ARGUMENT；启动失败 → PROCESS_FAILED。
+func (m *Manager) OpenFolder(dir string) error {
+	if fi, err := os.Stat(dir); err == nil && !fi.IsDir() {
+		return apperr.New(apperr.NotFound, "文件夹不存在")
+	}
+	start := m.launch
+	if start == nil {
+		start = startDetached
+	}
+	return revealIn(runtime.GOOS, start, dir, nil)
+}
