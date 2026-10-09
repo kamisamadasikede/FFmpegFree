@@ -21,6 +21,15 @@ defineOptions({ name: 'DocConvertPage' })
 const DocPreviewModal = defineAsyncComponent(() => import('@/components/docs/preview/DocPreviewModal.vue'))
 const dc = useDocConvertStore()
 const pst = usePreviewStore()
+// 预览弹窗关闭时先淡出再卸载（动画 P1）：shown 在 open 变 true 时置位，淡出结束（closed）再清；
+// 每次打开换一个 key：淡出中又打开就直接换成新的弹窗（焦点、编辑状态都从头开始）
+const pvShown = ref(pst.open)
+const pvKey = ref(0)
+watch(() => pst.open, (v) => {
+  if (!v) return
+  pvKey.value++
+  pvShown.value = true
+})
 const router = useRouter()
 const narrow = useNarrow()
 const dropStyle = { '--wails-drop-target': 'drop' } as Record<string, string>
@@ -52,6 +61,7 @@ onMounted(() => void dc.init())
 onActivated(() => (dropHandlers.office = onDrop))
 onDeactivated(() => {
   if (pst.open) void pst.close()
+  pvShown.value = false // 离开页面：直接卸载，不在别的页面上淡出
   if (dropHandlers.office === onDrop) dropHandlers.office = undefined
 })
 dropHandlers.office = onDrop
@@ -108,6 +118,6 @@ dropHandlers.office = onDrop
 
       <DocFormatPanel />
     </div>
-    <DocPreviewModal v-if="pst.open" />
+    <DocPreviewModal v-if="pvShown" :key="pvKey" @closed="pvShown = pst.open" />
   </div>
 </template>
