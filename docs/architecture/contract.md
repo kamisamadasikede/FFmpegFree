@@ -1,4 +1,7 @@
-# FFmpegFree v2 接口契约（v0.27）
+# FFmpegFree v2 接口契约（v0.27.1）
+
+v0.27.1 变更（**文档预览里可以编辑 md、txt、csv、html**，老板定，架构师定方案，文案待产品定，2026-10-09；**只有契约**；完整规则见新增的 **6.12.37~6.12.46**，本条只是索引，冲突时以新节为准；后端的 v0.26.1 实现 PR 还没合入，`installBytes` 仍按 6.12.28 的说明）：① **能编辑的**：md（左写右预览）、txt 和 html（改源码）、csv（表格里改）；Word、Excel、PPT、PDF 不能编辑。② **`DocPreview` 新增** `editable`、`editBlock`（`format` / `missing` / `too_large` / `encoding` / `malformed` / `in_use`，只给程序用）、`revision`（读到的原始字节的 SHA-256，架构师定用内容哈希而不是大小 + 修改时间）、`encoding`（`utf8` / `utf8_bom` / `gb18030`）、`lineEnding`（`crlf` / `lf`）。text / md / html 超过 2 MiB 被截断、csv 超过 1000 行或被截断时 `too_large`；源文件行的文字类预览**改为读用户的原文件**（原文件不在时读副本、只读，`missing`）。③ **新方法 `DocService.SaveDocText({sourceId|taskId, revision, text|rows})`**：源文件行写回原文件并把同样内容写进副本（更新 `convert_copies` 的大小和修改时间，不重新复制），结果行写回输出文件并更新 `result.sizeBytes`、发 `task:status`；同目录临时文件 + 原子替换（Windows `ReplaceFileW`，保留权限和属性）；revision 不一致 `TASK_CONFLICT` `reason=file_changed`，正在转换 `TASK_CONFLICT` `reason=in_use`（副本复制中沿用 `reason=copying`），原文件不在 `NOT_FOUND` `reason=file`，没有权限 `IO_ERROR` `reason=permission`，被占用 `IO_ERROR` `reason=in_use`，超过 2 MiB / 1000 行 `INVALID_ARGUMENT` `reason=too_large`；按读取时的编码（含 BOM）和多数行的换行风格写回，GBK 按 GB18030 写；csv 只用逗号、按 RFC 4180 加引号；返回新的 `revision`。④ **新方法 `SaveDocTextAs({sourceId|taskId, targetPath, text|rows, encoding: keep|utf8})`**：不要 revision；扩展名必须同一种格式（`INVALID_ARGUMENT` `reason=format`）；目标不能在应用数据目录内（`output` 除外）和上传目录内；不新建源文件行，保存的路径登记进 `RevealInFolder` 的放行表供「打开所在文件夹」。⑤ **新方法 `SystemService.SaveFileDialog(defaultName, filters)`**：系统保存对话框，取消返回 `""`；`defaultName` 给绝对路径时用它的文件夹作初始位置；覆盖确认由对话框负责，平台不自带时后端补一个确认框。⑥ **保存原样写入**，只做换行和编码两步；html / md 的预览仍是过滤后放进 sandbox iframe。⑦ **没有新增错误码**（2.1 仍是 30 个）；2.2 新增文档编辑一行：`TASK_CONFLICT` 的 `file_changed`、`in_use`，`INVALID_ARGUMENT` 的 `too_large`、`format`，以及沿用的 `NOT_FOUND` `file`、`IO_ERROR` `permission` / `in_use` / `io`、`TASK_CONFLICT` `copying`。⑧ 没有迁移，没有新事件。
+
 
 v0.27 变更（**本机 Office / WPS 引擎 + 文档预览**，老板和产品经理定范围，架构师定方案，2026-10-09；**只有契约**，在 v0.26 的实现合入后接着做，不推倒重来；完整规则见新增的 **6.12.23~6.12.36**，本条只是索引，与 6.12.9~6.12.22 冲突时以新节为准）：① **引擎**：Windows 上按 `Microsoft Office` → `WPS` → 应用下载的文档组件 → 系统安装的 LibreOffice 的顺序挑（两个文档组件都有时应用下载的优先，与 v0.26 一致），四个都没有才走 v0.26 的下载引导或简易转换；macOS / Linux 不变。纯 Go 的 COM 库 `go-ole`（无 cgo，只在 `windows` build tag 下编译），调 Word / Excel / PowerPoint 或 WPS 文字 / 表格 / 演示自己的另存 / 导出 PDF；WPS 各版本的 ProgID（`KWPS` / `KET` / `KWPP` 和旧名 `WPS` / `ET` / `WPP`）需真机验证；检测只读注册表，看 `LocalServer32` 实际指向的程序（WPS 兼容模式会占用 `Word.Application`）。② **安全硬规则**：引擎只打开我们自己的临时拷贝、只读、`AutomationSecurity=3` 并读回确认（确认不了的引擎不收含宏文件）、不更新外部链接、关掉所有提示、窗口不可见、不改任何会保存下来的选项。③ **不碰用户的文档和窗口**：Word / Excel 每个任务新开自己的实例（创建前后拍进程快照，没有新进程就立刻放手换引擎），超时只结束我们自己的 PID；PowerPoint / WPS 演示只要在运行就换引擎，没有可换的返回新码 `DOC_PRESENTATION_BUSY`（可重试，任务保留）。④ **池和超时（架构师定）**：Office / WPS 单独一个池、并发 1，不占文档组件的 2 个名额（文档页最多同时 3 个转换）；单次超时 Office / WPS 3 分钟、组件 5 分钟，整个任务最多 10 分钟；超时或出错自动换下一个引擎，全不行就回退简易转换（`result.warnings` 带 `simple_fallback`）或失败；同一个程序连续 2 次启动失败或超时，本次运行内跳过。⑤ **组件状态**：`DocComponentStatus.source` 加 `office` / `wps`，`state` 变为“任何引擎可用就是 ready”（有 Office / WPS 就不出下载引导），新增 `componentState`（文档组件自己的状态）、`engines`（`DocEngineInfo{id, name, version, source?, installed, families, available}`；Windows / macOS 始终含 component 项，没下载时 `installed=false`，设置页显示 `文档组件（未下载）`，可以选，选中后前端弹确认框再调 `InstallDocComponent`，后端不自动下载），以及 v0.26.1 的 `installBytes`（1.5 GiB，Linux 0；后端实现 PR 一并给出）；前端收到 `doc:component` 一律重拉格式表。⑥ **设置** `Settings.docEngine`：`auto`（默认）/ `office` / `wps` / `component`，选中的不可用时按自动顺序，不报错。⑦ **记录**：`TaskResult.engine`（`office` / `wps` / `component` / `go` / `simple`），记录详情显示“由本机 WPS 转换”；`params` 不锁定引擎，重试和重转按当时的设置重新挑。⑧ **格式表**：有任何一个可用引擎能做就 `available=true`（能力表 6.12.27：WPS 一期不做 ODF），新增 `DocTarget.engines`。⑨ **预览**：新方法 `GetDocPreview({sourceId|taskId})`、`CancelDocPreview(previewId)`，新事件 `doc:preview`；返回值按 `kind` 区分：`pdf`（Office 类文件由引擎生成临时 PDF，或结果本身是 PDF；给 `/local/<token>` 本地地址，用转换页 localassets 的白名单，只放行这一个文件）、`text` / `md` / `html`（后端按 v0.26 编码规则转成 UTF-8 原文，上限 2 MiB，超过截断并标 `truncated`；md 由前端渲染，md / html 都经 DOMPurify 过滤后放进不带 `allow-scripts` 的 sandbox iframe + 严格 CSP，不加载任何网络资源）、`csv`（解析好的前 1000 行 `rows` + `totalRows`，前端写 `只显示前 1000 行，共 n 行。`）、`raw`（没有引擎时 docx / xlsx 的简易预览，给原文件的本地地址，不用 base64，≤ 50 MiB）、`unavailable`（`reason=too_large_for_simple` / `needs_component`，只给程序用）；生成 PDF 的缓存在 `%LocalAppData%\FFmpegFree\cache\preview`（键 = 路径 + 大小 + 修改时间 + 引擎，上限 1 GiB，按最久没打开的删），单独排队、并发 1、不进任务中心，单次 Office 90 秒 / 组件 2 分钟、整个预览最多 3 分钟；前端的缩放和工作表标签不归契约管。⑩ **新增 2 个错误码**（2.1 由 28 个变为 30 个）：`DOC_PRESENTATION_BUSY`、`DOC_ENGINE_BUSY`（架构师定，文字 / 表格类只剩会挂到用户实例上的 Word / Excel / WPS 时用，文案待产品确认），都可以重试；预览没有专门的失败码，前端除密码、被占用以外一律显示 `这个文件暂时无法预览。`。⑪ **没有迁移**（`engine` 在 `tasks.result` 的 JSON 里，设置在键值表，预览缓存不进库）；下一个迁移号是 `0010`。⑫ 未验证事项单列在 6.12.36（ProgID、只读和禁用宏、PPT 被占用判断、实例隔离、超时后进程清理、sandbox CSP 等）。
 
@@ -220,6 +223,7 @@ export type AppErrorCode =
 | 存储与副本、格式目录、原地重转（v0.24 / v0.24.1，6.15 / 6.16 / 6.17：`ConvertSource.copyError`、`lastReconvertError.detail`（6.17.5）、`Reconvert` 的同步错误（`TASK_CONFLICT` `reason=invalid_state` / `output_moved`、`INVALID_ARGUMENT` `reason=format_change`、源文件不在时 `NOT_FOUND` `reason=file` + 第二行路径）、`AddSources` 的单项错误、`SubmitSources` / `Submit` / `Reconvert` / `Retry` / `GetSourcePreviewURL` 的同步错误、`CancelCopy` / `RetryCopy`、`OpenStorageFolder`；只有下面取值对应的场景） | `reason=<值>` | `CONVERT_DISK_FULL`：`no_space`（复制前空间不够或复制时写满；**后面固定两行 `needBytes=<整数>`、`freeBytes=<整数>`**，单位字节）；`IO_ERROR`：`in_use` / `permission` / `io`（v0.24 原地重转替换旧输出失败，出现在 `lastReconvertError.detail`，第二行是目标路径，6.17.5）、`source_changed`（复制期间原文件被修改）、`interrupted`（应用退出时还没复制完）；`TASK_CONFLICT`：`invalid_state`（`Reconvert` 的记录不是 `succeeded` 或已在重转，6.17.1）、`output_moved`（`Reconvert` 的旧输出已被移动或替换；也出现在 `lastReconvertError`，6.17.1 / 6.17.5）、`copying`（`SubmitSources` 选中的行**全部**没就绪且有正在复制的、`Reconvert` 的行在复制、`GetSourcePreviewURL` 的行在复制）、`copy_failed`（`SubmitSources` 选中的行全部复制失败或已取消、`Reconvert` 的行复制失败或已取消）（`SubmitSources` / `Reconvert` 的这两个后面一行 `sourceId=<id>`；`GetSourcePreviewURL` 只有一行）；`INVALID_ARGUMENT`：`format_change`（`Reconvert` 换了输出格式，6.17.1）、`params_locked`（v0.24.1：旧输出不在了时 `Reconvert` 给了 `presetId` / `options`，6.17.1）；`UNSUPPORTED`：`format`（格式不可输出，或 `AddSources` 的扩展名不在输入列表）、`encoder`（所选编码在当前转换组件里没有编码器）；`NOT_FOUND`：`file`（原文件不在、自定义保存位置不在）、`component`（v0.25.1：`OpenStorageFolder("component")` 时转换组件没有就绪或文件不在，只有这一行）（只追加，不改名、不改含义、不删除） | 首行之后的行只有上面写明的 `needBytes` / `freeBytes` / `sourceId`，前端按 `^(needBytes|freeBytes)=([0-9]+)$`、`^sourceId=([0-9A-Z]+)$` 取；没有 reason 的复制错误（权限、其他读写失败）走该码的通用文案。`TASK_CONFLICT` 的这两个取值是“直播会话冲突以外的 `TASK_CONFLICT` 没有 `reason=` 行”的例外 |
 | 直播预览视频流（v0.25，6.10.3：`GetPreviewStream`、`live:pull` 的 `error`） | `reason=<值>` | `UNSUPPORTED`：`codec`（编码不能在应用内播放，第二行 `video=<编码名>` 或 `audio=<编码名>`）、`preview_unavailable`（这个会话没有预览视频流：转换组件缺 `tee` / `tcp`，或预览分支没连上 / 已断开）；`NOT_FOUND`：`session`（会话不存在或已结束）（只追加） | 首行之后只有 `codec` 的那一行 |
 | 文档转换的不可重试记录（v0.26，`TaskService.Retry` 遇到 retryable=否 的 `doc_convert` / `office_pdf` 失败记录） | `reason=<值>` | `UNSUPPORTED`：`not_retryable`（只追加） | 只有这一行；`DOC_*` 码的 `detail` 首行（`exit=` / `msiexec=` 等）前端不解析，见 6.12.20 |
+| 文档编辑（v0.27.1，6.12.41 / 6.12.42：`DocService.SaveDocText`、`SaveDocTextAs` 的同步错误） | `reason=<值>` | `TASK_CONFLICT`：`file_changed`（文件在打开之后被别的程序改过，revision 不一致）、`in_use`（这一行有排队中 / 运行中的转换，或结果记录正在重转）、`copying`（沿用 v0.24：副本还在复制，后面一行 `sourceId=<id>`）；`NOT_FOUND`：`record`、`file`（沿用：原文件 / 输出文件不在了）；`IO_ERROR`：`permission`（没有写权限、只读）、`in_use`（被别的程序锁着）、`io`（其他写入失败）（这三个沿用 v0.24 的取值，这里没有第二行路径）；`INVALID_ARGUMENT`：`too_large`（超过 2 MiB 或 1000 行）、`format`（不能编辑的格式、另存为换了格式、html 声明了不支持的编码）（只追加） | 除 `copying` 外都只有这一行；另存为的目标路径不合法（应用数据目录、上传目录、非绝对路径）是没有 reason 的 `INVALID_ARGUMENT`；磁盘满 `CONVERT_DISK_FULL` 不带 reason；界面不显示错误码和 reason |
 | 其余所有码（含 `LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`INTERNAL`） | 无固定格式 | — | 前端**不得**解析（上面几行列出的码 / 场景除外） |
 
 统一规则：第一行只有一个 `key=value`，值只含小写字母、数字、下划线（`scheme` 例外；`kind` 的取值是 `window` / `screen`，取值就是上面三个小写单词）；前端用 `^(reason|scheme|kind)=([a-z0-9_]+)$` 匹配 `detail` 的第一行；**没有第一行、格式不对、或值不认识，一律走该错误码的通用文案**，不得猜测含义、不得报错崩溃。测试必须逐码断言第一行精确等于期望值（不是包含）。
@@ -333,6 +337,7 @@ type ConvertOptions struct {
 ### SystemService
 ```go
 PickFiles(filter FileFilter, multiple bool) ([]string, error)
+SaveFileDialog(defaultName string, filters []FileFilter) (string, error) // v0.27.1（6.12.43）：系统保存对话框，取消返回 ""；defaultName 是绝对路径时用它的文件夹作初始位置
 PickDirectory(title string) (string, error) // 取消返回 ""
 RevealInFolder(path string) error
 GetEnv() (EnvInfo, error)            // 系统、ffmpeg 版本、数据目录
@@ -423,6 +428,12 @@ v0.27 新增（文档预览，详见 6.12.32；引擎相关的改动在 `DocComp
 ```go
 GetDocPreview(req DocPreviewRequest) (DocPreview, error)        // {sourceId | taskId} 二选一；返回 previewId、kind（pdf | text | csv | html | md | raw | unavailable）、state；pdf / raw 给 /local/<token> 地址，缓存命中 / 文字类同步就绪
 CancelDocPreview(previewID string) error                         // 关弹窗时调：停止生成或作废本地地址；幂等
+```
+
+v0.27.1 新增（文档编辑，详见 6.12.37~6.12.46；`DocPreview` 加 `editable` / `editBlock` / `revision` / `encoding` / `lineEnding`）：
+```go
+SaveDocText(req DocSaveRequest) (DocSaveResult, error)     // {sourceId|taskId, revision, text|rows}：写回原文件 / 输出文件，原子替换，返回新 revision
+SaveDocTextAs(req DocSaveAsRequest) (DocSaveResult, error) // {sourceId|taskId, targetPath, text|rows, encoding: keep|utf8}：另存为，不新建源文件行
 ```
 
 ### JsonService（纯函数，不落库）
@@ -1975,6 +1986,7 @@ type DocPreview struct {
 - **本地地址（`url`）**：登记进 6.13 的 `/local/<token>` 白名单（和转换页 `GetSourcePreviewURL` 同一套 `localassets`：随机 token、登记时和每次请求都 `EvalSymlinks` + 普通文件 + `SameFile` 校验、支持 `HEAD`、单段 Range），**一个 token 只放行这一个文件**；`pdf → application/pdf`，`docx` / `xlsx` 用各自的 Office MIME。`CancelDocPreview` 或预览被释放时 token 作废，之后 `404`；前端遇到 `404` 重新 `GetDocPreview` 一次。**限长沿用 6.13**（每个 Range 响应 ≤ 4 MiB，无 Range 的整体请求 ≤ 32 MiB，更大 413）：pdf.js 本来就按 Range 加载；**raw 文件前端必须按 Range 分段取**（每段 ≤ 4 MiB，拼成整份再交给前端库），不能一次 `fetch` 整份。不再用 base64 分块接口。
 - 结果本身是 PDF 的直接给 `url`，**不写 `doc_recent`**，不进 PDF 历史。
 - 一次最多保留 **8 个**未释放的预览（超过时释放最早的，token 作废）。
+- **v0.27.1**：`DocPreview` 另有 `editable`、`editBlock`、`revision`、`encoding`、`lineEnding`，源文件行的文字类改为读原文件，见 6.12.38~6.12.39。
 
 #### 6.12.32.2 各种文件怎么预览
 
@@ -2080,6 +2092,179 @@ type DocPreview struct {
 | 8 | Office 转换 3 分钟、预览 90 秒的单次超时是否够用（大 pptx 导出 PDF） | 6.12.29、6.12.32.3 | 100 MiB 左右的 pptx / xlsx | 调超时 |
 | 9 | 预览的 sandbox iframe + `srcdoc` 里的 CSP meta 在 WebView2 和 WKWebView 上确实生效（脚本不执行、不发任何网络请求） | 6.12.32.4 | 用带 `<script>`、`<img src=http…>` 的 html / md 预览，抓包 / 看控制台 | 改成只显示纯文本，或更严格的过滤 |
 | 10 | raw（≤ 50 MiB 的 docx / xlsx）经 `/local/<token>` 按 Range 分段取回在 Windows 上正常（同 6.12.8 第 2 项的 Range 行为） | 6.12.32.1、6.12.32.5 | 预览一个 40 MiB 左右的 xlsx | 把 raw 上限降到 32 MiB 以内，整体请求一次取回 |
+
+
+## 6.12.37 文档预览里的编辑（v0.27.1；老板定范围，架构师定方案，文案待产品定）
+
+> 在 6.12.32（文档预览）上加编辑和保存。**只有 md、txt、csv、html 能编辑**：md 左边写、右边实时预览；csv 在表格里改；txt 和 html 改源码。Word、Excel、PPT、PDF 不能编辑。改完可以「保存」或「另存为」。与 6.12.23~6.12.36 冲突时以本节为准。**没有新增错误码**（2.1 仍是 30 个），只在 2.2 加取值；**没有迁移**。
+
+### 6.12.38 `DocPreview` 新增的字段
+
+```go
+type DocPreview struct {
+    // ……6.12.32.1 的字段不变……
+    Editable   bool   `json:"editable"`             // 始终输出
+    EditBlock  string `json:"editBlock,omitempty"`  // editable=false 时的原因（只给程序用，界面不显示）：format | too_large | encoding | malformed | in_use | missing
+    Revision   string `json:"revision,omitempty"`   // kind=text / md / html / csv 时有：读到的那份原始字节的 SHA-256（小写十六进制），前端不解析，保存时原样带回
+    Encoding   string `json:"encoding,omitempty"`   // kind=text / md / html / csv 时有：utf8 | utf8_bom | gb18030（读取时识别出的编码，6.12.17）
+    LineEnding string `json:"lineEnding,omitempty"` // 同上：crlf | lf（读取时多数行的风格，规则见 6.12.40）
+}
+```
+
+**`editBlock` 的判断顺序**（命中第一个就停）：
+
+| 取值 | 什么时候 |
+|---|---|
+| `format` | `kind` 是 `pdf` / `raw` / `unavailable`（Word、Excel、PPT、PDF 一律不能编辑） |
+| `missing` | 源文件行的**原文件已经不在了**（这时预览读的是副本，6.12.39 第 1 条），保存不了，只能另存为 |
+| `too_large` | text / md / html 被截断（`truncated=true`，超过 2 MiB）；csv `totalRows > 1000` 或 `truncated=true` |
+| `encoding` | html 在 `<meta charset>` 里声明了 UTF-8 / GBK / GB2312 / GB18030 以外的编码（如 Big5、Shift_JIS），按原编码写不回去 |
+| `malformed` | csv 有解析不了的行（引号不配对等，6.12.32.4 里“原样放进一个单元格”的那种）。理由：在表格里改完再按 RFC 4180 写回会把这些行改坏 |
+| `in_use` | 这一行有 `queued` / `running` 的记录，或结果记录正在重转（`reconverting=true`），或源文件行的副本还在复制。**打开时的判断只是提示**，保存时会再查一次（6.12.41 第 4 步） |
+
+- `editable=false` 时前端只读显示（与 v0.27 一样）；`missing` / `too_large` / `encoding` / `malformed` 时前端可以给一行灰字说明（文案见 6.12.45）。
+- **`revision` 用内容哈希，不用“大小 + 修改时间”（架构师定）**。理由：能编辑的文件最多 2 MiB，算一次 SHA-256 只要几毫秒；修改时间在 FAT / exFAT、网络盘上精度只有 2 秒甚至更差，同一秒里被别的程序改过会漏判；反过来只是被“碰了一下”（修改时间变了、内容没变）也不该报冲突。
+
+### 6.12.39 预览读哪个文件（对 v0.27 的改动）
+
+1. **源文件行的 text / md / html / csv**：v0.27 用“显示路径”（副本优先）。**v0.27.1 改为读用户的原文件（`originalPath`）**，因为保存写的是原文件，`revision` 必须对应原文件。原文件不在了就退回读副本（`copyState=ready` 时），`editable=false`、`editBlock=missing`；副本也没有返回 `NOT_FOUND`（`reason=file`）。v0.24 之前的旧行（`copyState=none`）本来就读原文件。Word、Excel、PPT 等引擎预览仍按 v0.27 读显示路径。
+2. **结果行**：读记录的 `outputPath`（不变）。
+3. 读取时一并识别 `encoding` 和 `lineEnding`，算 `revision`（对读到的**原始字节**，不是转换后的 UTF-8）。
+
+### 6.12.40 编码与换行（读和写共用）
+
+- **编码**：读取按 6.12.17：合法 UTF-8 → 开头有 BOM 是 `utf8_bom`，没有是 `utf8`；否则 `gb18030`。html 先看 `<meta charset>`：声明 UTF-8 → 按 UTF-8 判断（同上）；声明 GBK / GB2312 / GB18030 → `gb18030`；声明别的 → 只读，`editBlock=encoding`。
+- **写回**（保存，和另存为选 `keep`）按读取时的编码：`utf8` 写 UTF-8 不带 BOM，`utf8_bom` 写 UTF-8 并带 BOM，`gb18030` 用 GB18030 编码（`golang.org/x/text/encoding/simplifiedchinese.GB18030`，能表示所有 Unicode 字符，不会有写不进去的字）。**已知影响**：原来是 GBK 的文件里新加了 GBK 没有的字（如 emoji、生僻字），会写成 GB18030 的四字节序列，只认 GBK 的老软件可能显示乱码。需要时用户可以另存为 UTF-8。
+- **换行风格**：读取时数 `\r\n` 和单独的 `\n` 各有几处，`\r\n` 多就是 `crlf`，否则 `lf`；**一个换行都没有**时 Windows 上是 `crlf`、其他平台 `lf`（架构师定：按用户这台电脑上新建文件的习惯）。只有单独的 `\r`（老 Mac 风格）的文件按 `lf` 处理。
+- **写入时**：前端传来的文字先把 `\r\n` 和单独的 `\r` 都统一成 `\n`（编辑器给的通常就是 `\n`），再按 `lineEnding` 换成 `\r\n` 或保留 `\n`，最后按编码转成字节。**除了这两步不对内容做任何改写**：不加不去结尾的换行，不格式化，html / md 不过滤、不补全标签（6.12.44）。
+
+### 6.12.41 `SaveDocText`：保存到原位置
+
+```go
+SaveDocText(req DocSaveRequest) (DocSaveResult, error)
+
+type DocSaveRequest struct {
+    SourceID string     `json:"sourceId,omitempty"` // 源文件行：写回用户的原文件
+    TaskID   string     `json:"taskId,omitempty"`   // 结果行：写回输出文件；二者必须且只能给一个
+    Revision string     `json:"revision"`           // 打开（或上次保存）时拿到的 revision；SaveDocText 必填
+    Text     *string    `json:"text,omitempty"`     // txt / md / html 用
+    Rows     [][]string `json:"rows,omitempty"`     // csv 用；text 和 rows 按文件类型给其中一个，给错或都给 INVALID_ARGUMENT
+}
+
+type DocSaveResult struct {
+    Path      string `json:"path"`      // 实际写入的文件（原文件或输出文件的绝对路径）
+    Revision  string `json:"revision"`  // 新的 revision（写入的字节的 SHA-256），前端用它继续编辑、再保存
+    SizeBytes int64  `json:"sizeBytes"`
+    SavedAt   int64  `json:"savedAt"`   // Unix 毫秒
+}
+```
+
+**写到哪**：源文件行 → 用户的原文件 `originalPath`；结果行 → 记录的 `outputPath`。
+
+**检查顺序**（报第一个；都是同步错误，`detail` 首行 `reason=`，见 2.2）：
+
+1. 参数：两个 id 都给或都不给、`text` / `rows` 给错 → `INVALID_ARGUMENT`（没有 reason）；`revision` 为空 → `INVALID_ARGUMENT`。
+2. 记录：id 不存在 → `NOT_FOUND` `reason=record`；不是文档页的行 / 不是 `doc_convert`、`office_pdf` 记录 → `UNSUPPORTED` `reason=format`；结果记录不是 `succeeded` → `NOT_FOUND` `reason=file`（同 6.12.32.1）。
+3. 能不能编辑：扩展名不是 txt / md / markdown / html / htm / csv → `INVALID_ARGUMENT` `reason=format`；**大小上限**：`text` 按目标编码写出来的字节超过 **2 MiB**，或 `rows` 超过 **1000 行**、单元格超过 32 767 个字符、写出来超过 2 MiB → `INVALID_ARGUMENT` `reason=too_large`；html 声明了不支持的编码 → `INVALID_ARGUMENT` `reason=format`。
+4. **正在用**：源文件行有 `queued` / `running` 的记录，或结果记录正在重转 → `TASK_CONFLICT` `reason=in_use`；源文件行的副本正在复制 → `TASK_CONFLICT` `reason=copying`（沿用 v0.24 的取值，后面一行 `sourceId=<id>`）。
+5. 文件不在了（`Lstat` 不存在，或不是普通文件）→ `NOT_FOUND` `reason=file`。原文件是符号链接时**写它指向的真实文件**（`EvalSymlinks` 后的路径），链接本身保留。
+6. **冲突**：读当前文件的全部字节算 SHA-256，和 `revision` 不同 → `TASK_CONFLICT` `reason=file_changed`（当前文件超过 2 MiB 也算被改过）。
+7. 写入（见下）：没有写权限、只读属性、只读的盘 → `IO_ERROR` `reason=permission`；被别的程序锁着（Windows 共享冲突）→ `IO_ERROR` `reason=in_use`；磁盘满 → `CONVERT_DISK_FULL`（沿用，不带 reason 行）；其他写入失败 → `IO_ERROR` `reason=io`。**失败时原文件保持原样**（临时文件删掉）。
+
+**怎么写（原子替换）**：
+
+- 在**同一个目录**建临时文件 `.<原文件名>.ffmpegfree-<随机 8 位>.tmp`，写完 `Sync`、关闭，再替换原文件。目录不能建文件（没有权限）按 `IO_ERROR` `reason=permission`（引导另存为），**不退回“直接覆盖写”**：那样写到一半出错会把原文件写坏。
+- **保留原文件的属性**：Windows 用 `ReplaceFileW`（保留原文件的 ACL、属性、创建时间、备用数据流），失败再退回 `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`；macOS / Linux 先把临时文件 `chmod` 成原文件的权限位、尽量 `chown` 成原来的所有者（失败忽略），再 `rename`。**已知限制**：Linux / macOS 上原文件的扩展属性、硬链接关系不保留（替换后是新文件）。
+- 同一个文件的保存**串行**（按真实路径加应用内的锁）；保存和这一行的提交转换（`SubmitDocConvert`、`Retry`、`Reconvert`）互斥：保存进行中提交会等它结束（很快）。第 6 步比对和第 7 步替换之间仍有极短的空档，别的程序恰好在这时写入会被覆盖，这是接受的残余风险。
+
+**保存成功之后**：
+
+- **源文件行**：把同样的字节写进这一行的副本（`storedPath`，同样“临时文件 + 替换”），并把 `convert_copies` 里的 `original_size`、`original_mtime_ns` 改成原文件的新值（同一个事务），这样副本仍算 `ready`、和原文件一致，不用重新复制（架构师定，理由：内容就在手上，直接写比重新复制快，也不会出现“复制中”不能转换的空档）。副本写失败时原文件已经保存成功，照样返回成功，副本置为 `failed`（`copyError` 是 `IO_ERROR` `reason=io`），发 `convert:copy`，用户可以 `RetryCopy`。`copyState=none` 的旧行没有副本，不用管；`failed` / `canceled` 的保持原状。
+- **结果行**：更新这条记录 `result.sizeBytes`，`version` +1，发 `task:status`（状态不变，带新的 `result`）。**注意**：之后对这条记录 `Reconvert` 会按新参数重新生成并替换掉编辑过的内容（6.17 的 `replace` 模式），前端在“编辑过的结果”上点重转时建议先确认（文案见 6.12.45）。
+- **预览缓存**：按原文件和副本的路径删掉 6.12.32.3 里的缓存项（目前 text / md / html / csv 不生成缓存，写上是为了以后不漏）。
+- 返回新的 `revision`。前端继续编辑时用它。
+
+### 6.12.42 `SaveDocTextAs`：另存为
+
+```go
+SaveDocTextAs(req DocSaveAsRequest) (DocSaveResult, error)
+
+type DocSaveAsRequest struct {
+    SourceID   string     `json:"sourceId,omitempty"` // 二者必须且只能给一个；用来确定原格式、原编码和换行
+    TaskID     string     `json:"taskId,omitempty"`
+    TargetPath string     `json:"targetPath"`         // 由 SystemService.SaveFileDialog 拿到的绝对路径
+    Text       *string    `json:"text,omitempty"`
+    Rows       [][]string `json:"rows,omitempty"`
+    Encoding   string     `json:"encoding,omitempty"` // keep（默认，空 = keep）| utf8
+}
+```
+
+- **不需要 `revision`**，不比对冲突；**原文件不在也能另存为**（`editBlock=missing` 的就是靠它）。来源行 / 记录本身要在（`NOT_FOUND` `reason=record`），但不检查“正在用”（写的是别的位置）。
+- **扩展名必须和原文件同一种格式**（不区分大小写）：txt ↔ txt，md ↔ md / markdown，html ↔ html / htm，csv ↔ csv；不同或没有扩展名 → `INVALID_ARGUMENT` `reason=format`。
+- **目标路径的校验**（同 6.12.3 的输出目录规则）：必须是绝对路径；拒绝 `\\?\`、`\\.\` 开头；**不能在应用数据目录内（`<dataDir>/output` 及其子文件夹除外）**，也**不能在实际上传目录（6.15.1 的 `uploads`，副本所在处）内**（副本由应用管理，用户写进去会和引用计数打架）；都返回 `INVALID_ARGUMENT`（没有 reason 行，message 见 6.12.45）；所在文件夹必须已存在；目标是文件夹 → `INVALID_ARGUMENT`。比较方式同 6.12.3（两边 `EvalSymlinks`，按平台处理大小写）。
+- **目标已存在**：由系统保存对话框负责确认覆盖，后端**直接覆盖**（同样“临时文件 + 替换”，保留目标原有的属性）；目标只读 / 没有权限 → `IO_ERROR` `reason=permission`，被锁 → `IO_ERROR` `reason=in_use`。
+- **编码 `encoding`**：`keep` 按原文件的编码和换行写（6.12.40）；`utf8` 写 **UTF-8 不带 BOM**，换行仍按原文件。其他值 `INVALID_ARGUMENT`。**例外**：html 选 `utf8`、而内容里 `<meta charset>` 声明的是别的编码时，写 UTF-8 **带 BOM**（按 HTML 标准 BOM 优先于 meta，浏览器才能读对；内容本身仍不改）。csv 选 `utf8` 不带 BOM 与 6.12.17 一致；Excel 打开不带 BOM 的 UTF-8 CSV 中文会乱码，所以界面上 `keep` 是默认（原来带 BOM 的会继续带）。
+- 大小上限同 `SaveDocText`。
+- **不新建源文件行**，只返回保存后的路径（`DocSaveResult.path`）。**例外**：目标正好是文档页某一行的原文件或某条记录的输出文件时，按 6.12.41 “保存成功之后”同样刷新那一行的副本 / 那条记录的 `result`（不然副本和原文件会不一致）；这一行如果正在转换，返回 `TASK_CONFLICT` `reason=in_use`。
+- **“打开所在文件夹”**：保存成功的目标路径登记进 `RevealInFolder` 的内存放行表（同 v0.23.3 的做法：本次运行有效、只放行这个文件本身、最多保留最新 100 个、不落库），前端用 `RevealInFolder(path)` 打开并选中它。
+
+### 6.12.43 `SystemService.SaveFileDialog`：系统保存对话框（新增）
+
+现有的 `PickFiles` / `PickDirectory` 都不是保存对话框，所以新增：
+
+```go
+SaveFileDialog(defaultName string, filters []FileFilter) (string, error) // 用户取消返回 ""（不是错误）
+```
+
+- `defaultName`：只有文件名时作为默认文件名；**是绝对路径时**取它所在的文件夹作为对话框的初始位置、文件名作为默认文件名（前端传原文件的路径即可，另存为默认就在原文件旁边）。用 Wails `runtime.SaveFileDialog`（`DefaultDirectory`、`DefaultFilename`、`Filters`、`CanCreateDirectories=true`）。
+- `filters`：沿用 `FileFilter{name, patterns}`（6.8），例如 `[{name: "Markdown", patterns: ["*.md", "*.markdown"]}]`；空数组 = 不过滤。
+- **覆盖确认**由系统对话框负责（Windows、macOS 的保存对话框自带）。**某个平台没有自带确认**（Linux 上的 GTK 对话框是否开了覆盖确认**需真机验证**）时，后端在 `SaveFileDialog` 里发现所选文件已存在，就用 `runtime.MessageDialog` 再问一次（`“<文件名>”已存在，要替换它吗？`，选“不替换”按取消处理返回 `""`），不改接口。
+- 返回的路径不登记任何放行表；只有 `SaveDocTextAs` 保存成功后才登记（6.12.42）。
+
+### 6.12.44 安全
+
+- 编辑时 html 和 md 的**预览**仍按 6.12.32.4：DOMPurify 过滤后放进 `sandbox` 为空的 iframe，加严格 CSP，不加载任何网络或本地资源；边写边预览时每次刷新都走同样的过滤（建议 300 毫秒防抖，前端定）。
+- **保存时不对内容做任何改写，原样写入**（只做 6.12.40 的换行和编码两步）。过滤只作用于显示，**绝不**把过滤后的 HTML 存回文件。
+- 写入只发生在：用户的原文件、记录的输出文件、另存为对话框选的路径。后端不接受前端直接给的任意路径做“保存”（`SaveDocText` 只收 id），另存为的路径受 6.12.42 的目录规则限制。
+- 日志只记路径和字节数，不记文件内容。
+
+### 6.12.45 建议文案（待产品定，后端 `message` 先按这些写）
+
+| 场景 | code / reason | 建议文案 | 前端动作 |
+|---|---|---|---|
+| 保存成功 | — | `已保存。` | — |
+| 另存为成功 | — | `已保存到 <路径>` | 「打开所在文件夹」 |
+| 别处改过 | `TASK_CONFLICT` `file_changed` | `文件在别处被修改过，请重新打开后再编辑。` | 「另存为」「重新打开」 |
+| 正在转换 | `TASK_CONFLICT` `in_use` | `这个文件正在转换，转换完成后再保存。` | 「另存为」 |
+| 副本还在准备 | `TASK_CONFLICT` `copying` | `文件还在准备中，准备好后再保存。` | — |
+| 原文件不在了 | `NOT_FOUND` `file` | `原文件不在了，请另存为。` | 「另存为」 |
+| 没有权限 / 只读 | `IO_ERROR` `permission` | `没有权限写入这个文件，请另存为。` | 「另存为」 |
+| 被别的程序占用 | `IO_ERROR` `in_use` | `文件正被别的程序占用，请关闭后再保存，或另存为。` | 「另存为」 |
+| 其他写入失败 | `IO_ERROR` `io` | `保存失败，请重试或另存为。` | 「另存为」 |
+| 磁盘满 | `CONVERT_DISK_FULL` | `磁盘空间不足，没有保存。` | — |
+| 内容太多 | `INVALID_ARGUMENT` `too_large` | `内容太多，不能保存（最多 2 MB 或 1000 行）。` | — |
+| 另存为换了格式 | `INVALID_ARGUMENT` `format` | `只能保存成同一种格式。` | — |
+| 另存为到应用目录 | `INVALID_ARGUMENT` | `不能保存到应用自己的文件夹里，请换一个位置。` | — |
+| 有改动没保存时关弹窗 | — | `有改动还没保存，要保存吗？` | 「保存」「不保存」「取消」 |
+| 编辑过的结果点重转 | — | `重转会覆盖你对这个文件的修改，要继续吗？` | — |
+| 不能编辑：太大 | `editBlock=too_large` | `文件太大，只能查看，不能编辑。` | — |
+| 不能编辑：编码 | `editBlock=encoding` | `这个网页的编码不支持编辑，只能查看。` | — |
+| 不能编辑：csv 格式有问题 | `editBlock=malformed` | `这个 CSV 有格式问题，只能查看，不能编辑。` | — |
+| 不能编辑：原文件不在 | `editBlock=missing` | `原文件不在了，改完只能另存为。`（这种情况前端可以允许编辑、只给「另存为」，产品定） | 「另存为」 |
+| 不能编辑：正在转换 | `editBlock=in_use` | `这个文件正在转换，转换完成后再编辑。` | — |
+
+- 界面**不显示错误码、`reason=`、`editBlock` 的取值**（1.1）；前端按 code + reason 映射，映射不到的显示 `出了点问题，请重试。`。
+
+### 6.12.46 测试与未验证事项
+
+- 单测（Linux / macOS 能跑的都要有）：三种编码 × 两种换行的往返（读出再原样保存，字节完全不变）；GBK 文件加 emoji 后按 GB18030 写回再读出一致；`revision` 冲突；正在转换时 `in_use`；只读文件 `permission`；原文件不在 `NOT_FOUND`；超过 2 MiB / 1000 行 `too_large`；csv 写回（引号、逗号、引号里的换行）；另存为的扩展名、应用数据目录、上传目录、`encoding=utf8`（含 html meta 的 BOM 例外）；保存后副本内容与原文件一致、`convert_copies` 的大小和修改时间已更新；结果行保存后 `result.sizeBytes` 和 `task:status`。
+- **未验证（Windows / macOS / Linux 真机）**：
+
+| # | 项目 | 怎么验证 | 不通过怎么办 |
+|---|---|---|---|
+| 1 | Windows `ReplaceFileW` 在本地盘、U 盘（FAT / exFAT）、网络盘上都能用并保留 ACL 和属性；文件被记事本 / Excel 打开时的表现（Excel 锁住 csv → `in_use`） | 各种盘上保存；Excel 开着 csv 时保存 | 只用 `MoveFileExW`，接受属性丢失 |
+| 2 | 三个平台的保存对话框是否自带覆盖确认（尤其 Linux GTK） | 另存为到已存在的文件 | 后端用 `MessageDialog` 补确认（已写进 6.12.43） |
+| 3 | 编辑器在 Windows 上给出的换行（`\n` 还是 `\r\n`） | 编辑一行后保存，比对字节 | 后端已统一处理，不影响结果；只是确认 |
 
 
 ## 6.13 本地资源访问 `/local/<token>`（中立章节，DocService 与转换记录共用；由 #22 引入，#23 引用，v0.23 加 `convert` 表；v0.23.5 删除 `edit` 表）
