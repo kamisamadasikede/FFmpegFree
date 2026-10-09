@@ -62,6 +62,10 @@ export function RevealInFolder(arg1) {
   return window['go']['app']['SystemService']['RevealInFolder'](arg1);
 }
 
+export function SaveFileDialog(arg1, arg2) {
+  return window['go']['app']['SystemService']['SaveFileDialog'](arg1, arg2);
+}
+
 export function SetEncoderPreference(arg1) {
   return window['go']['app']['SystemService']['SetEncoderPreference'](arg1);
 }

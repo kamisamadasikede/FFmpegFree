@@ -2,6 +2,9 @@ package app
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	goruntime "runtime"
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/service/system"
@@ -184,4 +187,52 @@ func NewWailsEmitter(ctx context.Context) system.Emitter { return wailsEmitter{c
 
 func (e wailsEmitter) Emit(event string, payload any) {
 	runtime.EventsEmit(e.ctx, event, payload)
+}
+
+// SaveFileDialog 系统保存对话框（契约 6.12.43）。用户取消返回 ""。
+func (s *SystemService) SaveFileDialog(defaultName string, filters []system.FileFilter) (string, error) {
+	ctx := s.mgr.AppContext()
+	if ctx == nil {
+		return "", apperr.New(apperr.Internal, "应用尚未初始化")
+	}
+	opts := runtime.SaveDialogOptions{CanCreateDirectories: true}
+	if filepath.IsAbs(defaultName) {
+		opts.DefaultDirectory = filepath.Dir(defaultName)
+		opts.DefaultFilename = filepath.Base(defaultName)
+	} else if defaultName != "" {
+		opts.DefaultFilename = defaultName
+	}
+	for _, f := range filters {
+		name, pattern, ok, err := f.DialogPattern()
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			opts.Filters = append(opts.Filters, runtime.FileFilter{DisplayName: name, Pattern: pattern})
+		}
+	}
+	path, err := runtime.SaveFileDialog(ctx, opts)
+	if err != nil {
+		return "", apperr.Wrap(apperr.Internal, "打开保存对话框失败", err)
+	}
+	if path == "" {
+		return "", nil
+	}
+	// Linux GTK 可能没有自带覆盖确认：补一次
+	if goruntime.GOOS == "linux" {
+		if fi, err := os.Stat(path); err == nil && !fi.IsDir() {
+			sel, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
+				Type:          runtime.QuestionDialog,
+				Title:         "确认替换",
+				Message:       "“" + filepath.Base(path) + "”已存在，要替换它吗？",
+				Buttons:       []string{"替换", "不替换"},
+				DefaultButton: "不替换",
+				CancelButton:  "不替换",
+			})
+			if err != nil || sel != "替换" {
+				return "", nil
+			}
+		}
+	}
+	return path, nil
 }

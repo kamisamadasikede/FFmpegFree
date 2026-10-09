@@ -4,11 +4,19 @@ import {doc} from '../models';
 import {store} from '../models';
 import {convert} from '../models';
 
+export function AbortDocBinarySave(arg1:doc.DocBinarySaveAbort):Promise<void>;
+
 export function AddDocSources(arg1:Array<string>):Promise<Array<doc.AddDocSourceResult>>;
+
+export function AppendDocBinaryChunk(arg1:doc.DocBinaryChunk):Promise<doc.DocBinaryChunkResult>;
+
+export function BeginDocBinarySave(arg1:doc.DocBinarySaveBegin):Promise<doc.DocBinarySaveSession>;
 
 export function CancelDocComponentInstall():Promise<void>;
 
 export function CancelDocPreview(arg1:string):Promise<void>;
+
+export function CommitDocBinarySave(arg1:doc.DocBinarySaveCommit):Promise<doc.DocBinarySaveResult>;
 
 export function ConvertToPDF(arg1:Array<string>,arg2:string):Promise<Array<store.Task>>;
 
@@ -33,6 +41,10 @@ export function ReadPDFChunk(arg1:string,arg2:number,arg3:number):Promise<doc.PD
 export function RecheckDocComponent():Promise<doc.DocComponentStatus>;
 
 export function RemoveRecentPDFs(arg1:Array<string>):Promise<void>;
+
+export function SaveDocText(arg1:doc.DocSaveRequest):Promise<doc.DocSaveResult>;
+
+export function SaveDocTextAs(arg1:doc.DocSaveAsRequest):Promise<doc.DocSaveResult>;
 
 export function SearchDocSources(arg1:convert.ConvertSearchFilter):Promise<doc.DocSourcePage>;
 

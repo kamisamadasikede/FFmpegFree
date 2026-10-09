@@ -177,10 +177,13 @@ func (s *Service) GetFormatMatrix(ctx context.Context) DocFormatMatrix {
 	})
 }
 
-// CleanupDocTemp 启动时删除 <数据目录>/tmp/doc/ 下的残留（6.12.18）。
+// CleanupDocTemp 启动时删除 <数据目录>/tmp/doc/ 与 tmp/docsave/ 下的残留（6.12.18 / 6.12.49）。
 func (s *Service) CleanupDocTemp() {
 	if s.cfg.TempRoot != "" {
 		_ = os.RemoveAll(s.cfg.TempRoot)
+		_ = os.RemoveAll(filepath.Join(filepath.Dir(s.cfg.TempRoot), "docsave"))
+	} else if s.cfg.DataDir != "" {
+		_ = os.RemoveAll(filepath.Join(s.cfg.DataDir, "tmp", "docsave"))
 	}
 }
 

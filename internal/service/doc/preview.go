@@ -1,366 +1,208 @@
 package doc
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/csv"
 	"encoding/hex"
 	"io"
 	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
-	"time"
+	"sync"
 	"unicode/utf8"
 
 	"FFmpegFree/internal/apperr"
-	"FFmpegFree/internal/doceng"
-	"FFmpegFree/internal/paths"
-	"FFmpegFree/internal/store"
-	"FFmpegFree/internal/task"
+	"FFmpegFree/internal/localassets"
 )
 
-// ---------- 文档预览（契约 v0.27，6.12.32） ----------
+// ---------- 文档预览（契约 6.12.32 + 6.12.37~6.12.48；本 PR 实现文字类 / raw / 简易路径） ----------
 
 const (
-	previewTextMax   = 2 << 20 // 2 MiB
-	previewCSVMax    = 2 << 20 // 读入上限
-	previewCSVRows   = 1000
-	previewRawMax    = 50 << 20 // 50 MiB
-	previewMaxActive = 8
-	EventDocPreview  = "doc:preview"
+	maxPreviewTextBytes = 2 << 20  // 2 MiB
+	maxRawPreviewBytes  = 50 << 20 // 50 MiB
+	maxDocxEditBytes    = 20 << 20 // 20 MiB
+	maxLivePreviews     = 8
 )
 
-// DocPreviewRequest / DocPreview 见契约 6.12.32.1 / 6.12.38。
+// DocPreviewRequest 见契约 6.12.32.1。
 type DocPreviewRequest struct {
 	SourceID string `json:"sourceId,omitempty"`
 	TaskID   string `json:"taskId,omitempty"`
 }
 
+// DocPreview 见契约 6.12.32.1 / 6.12.38 / 6.12.48。
 type DocPreview struct {
-	PreviewID string           `json:"previewId"`
-	Kind      string           `json:"kind"`
-	State     string           `json:"state"`
-	Name      string           `json:"name"`
-	Ext       string           `json:"ext"`
-	URL       string           `json:"url,omitempty"`
-	Text      string           `json:"text,omitempty"`
-	Rows      [][]string       `json:"rows,omitempty"`
-	TotalRows int64            `json:"totalRows,omitempty"`
-	Truncated bool             `json:"truncated,omitempty"`
-	SizeBytes int64            `json:"sizeBytes"`
-	Reason    string           `json:"reason,omitempty"`
-	Error     *apperr.AppError `json:"error,omitempty"`
-	// v0.27.1 字段：本 PR 只 stub，不实现保存。
-	Editable   bool   `json:"editable"`
-	EditBlock  string `json:"editBlock,omitempty"`
-	Revision   string `json:"revision,omitempty"`
-	Encoding   string `json:"encoding,omitempty"`
-	LineEnding string `json:"lineEnding,omitempty"`
-	RawURL     string `json:"rawUrl,omitempty"` // v0.27.2；本 PR 暂不填（编辑未实现）
+	PreviewID  string           `json:"previewId"`
+	Kind       string           `json:"kind"`
+	State      string           `json:"state"`
+	Name       string           `json:"name"`
+	Ext        string           `json:"ext"`
+	URL        string           `json:"url,omitempty"`
+	RawURL     string           `json:"rawUrl,omitempty"`
+	Text       string           `json:"text,omitempty"`
+	Rows       [][]string       `json:"rows,omitempty"`
+	TotalRows  int64            `json:"totalRows,omitempty"`
+	Truncated  bool             `json:"truncated,omitempty"`
+	SizeBytes  int64            `json:"sizeBytes"`
+	Reason     string           `json:"reason,omitempty"`
+	Error      *apperr.AppError `json:"error,omitempty"`
+	Editable   bool             `json:"editable"`
+	EditBlock  string           `json:"editBlock,omitempty"`
+	Revision   string           `json:"revision,omitempty"`
+	Encoding   string           `json:"encoding,omitempty"`
+	LineEnding string           `json:"lineEnding,omitempty"`
 }
 
-type DocPreviewEvent struct {
-	PreviewID string           `json:"previewId"`
-	State     string           `json:"state"`
-	Kind      string           `json:"kind"`
-	URL       string           `json:"url,omitempty"`
-	Error     *apperr.AppError `json:"error,omitempty"`
+type previewEntry struct {
+	id     string
+	tokens []string           // localassets token（url / rawUrl / 生成后的 PDF）
+	pin    string             // 预览缓存里钉住的 PDF；空 = 无
+	cancel context.CancelFunc // 引擎生成中可取消；nil = 无
 }
 
-type previewSlot struct {
-	id, token, path string
-	cancel          context.CancelFunc
-	created         time.Time
+// previewHub 进程内未释放的预览（最多 8 个）。
+type previewHub struct {
+	mu   sync.Mutex
+	list []previewEntry
 }
 
-func (s *Service) ensurePreview() {
-	s.prevOnce.Do(func() {
-		root := s.cfg.DataDir
-		if root == "" {
-			root = os.TempDir()
-		}
-		s.prevCache = newPreviewCache(root)
-		s.previews = map[string]*previewSlot{}
-		s.prevQueue = make(chan previewJob, 64)
-		go s.previewWorker()
-	})
+func (s *Service) hub() *previewHub {
+	if s.previews == nil {
+		s.previews = &previewHub{}
+	}
+	return s.previews
 }
 
-type previewJob struct {
-	id, path, ext, pathKey string
-	size, mtime            int64
-	engines                []string
-	hasMacro               bool
-	ctx                    context.Context
-}
-
-// GetDocPreview 开始或从缓存拿预览（6.12.32）。
+// GetDocPreview 开始（或同步返回）一个预览。本 PR：text/md/html/csv/raw/unavailable；引擎 PDF 留给并行 v0.27 PR。
 func (s *Service) GetDocPreview(ctx context.Context, req DocPreviewRequest) (DocPreview, error) {
-	s.ensurePreview()
-	path, name, ext, size, mtime, pathKey, err := s.resolvePreviewFile(ctx, req)
-	id := newPreviewID()
-	out := DocPreview{PreviewID: id, Name: name, Ext: ext, SizeBytes: size, State: "ready"}
+	t, err := s.resolveEditID(ctx, req.SourceID, req.TaskID)
 	if err != nil {
-		if apperr.Is(err, apperr.DocEncrypted) {
-			out.State = "failed"
-			out.Kind = "pdf"
-			out.Error = apperr.From(err)
-			out.Editable, out.EditBlock = false, "format"
-			return out, nil
-		}
 		return DocPreview{}, err
 	}
-
-	switch ext {
-	case "pdf":
-		url, tok, err := s.registerPreviewURL(path)
-		if err != nil {
-			return DocPreview{}, err
-		}
-		s.trackPreview(id, tok, path, nil)
-		out.Kind, out.URL = "pdf", url
-		out.Editable, out.EditBlock = false, "format"
-		return out, nil
-	case "txt":
-		return s.previewText(out, path, "text")
-	case "md", "markdown":
-		out.Ext = "md"
-		return s.previewText(out, path, "md")
-	case "html", "htm":
-		out.Ext = "html"
-		return s.previewText(out, path, "html")
-	case "csv":
-		return s.previewCSV(out, path)
+	fi, err := os.Lstat(t.ReadPath)
+	if err != nil || !fi.Mode().IsRegular() {
+		return DocPreview{}, apperr.New(apperr.NotFound, "原文件已经不在了，改完只能另存为。").WithDetail("reason=file")
 	}
-
-	// Office 类：有引擎 → 生成 PDF；否则 raw / unavailable
-	macro := hasMacro(path, ext)
-	engines := []string{}
-	if s.cfg.Engines != nil {
-		pref := "auto"
-		if s.cfg.DocEngine != nil {
-			pref = s.cfg.DocEngine(ctx)
-		}
-		for _, c := range doceng.Pick(doceng.PrefOrder(pref), s.cfg.Engines.Engines(ctx), s.cfg.Engines.Skips(), ext, "pdf") {
-			engines = append(engines, c.ID)
-		}
+	out := DocPreview{
+		PreviewID: newPreviewID(),
+		State:     "ready",
+		Name:      t.Name,
+		Ext:       t.Ext,
+		SizeBytes: fi.Size(),
 	}
-
-	if len(engines) == 0 {
-		return s.previewNoEngine(out, path, ext, size)
-	}
-
-	// 缓存命中
-	if pdf, _, ok := s.prevCache.Lookup(pathKey, size, mtime, engines); ok {
-		url, tok, err := s.registerPreviewURL(pdf)
-		if err != nil {
-			return DocPreview{}, err
-		}
-		s.prevCache.Pin(pdf, true)
-		s.trackPreview(id, tok, pdf, nil)
-		out.Kind, out.URL, out.Editable, out.EditBlock = "pdf", url, false, "format"
-		return out, nil
-	}
-
-	// 异步生成
-	pctx, cancel := context.WithCancel(context.Background())
-	s.trackPreview(id, "", "", cancel)
-	out.Kind, out.State, out.Editable, out.EditBlock = "pdf", "generating", false, "format"
-	if macro {
-		out.EditBlock = "macro"
-	}
-	job := previewJob{id: id, path: path, ext: ext, pathKey: pathKey, size: size, mtime: mtime, engines: engines, hasMacro: macro, ctx: pctx}
-	select {
-	case s.prevQueue <- job:
-	default:
-		cancel()
-		out.State = "failed"
-		out.Error = apperr.New(apperr.Internal, "出了点问题，请重试。")
-	}
-	s.emitPreview(DocPreviewEvent{PreviewID: id, State: "generating", Kind: "pdf"})
-	return out, nil
-}
-
-func (s *Service) previewNoEngine(out DocPreview, path, ext string, size int64) (DocPreview, error) {
-	out.Editable, out.EditBlock = false, "format"
-	if ext == "docx" || ext == "xlsx" {
-		if size > previewRawMax {
-			out.Kind, out.Reason = "unavailable", "too_large_for_simple"
+	kind := textKindOf(t.Ext)
+	if kind == "" && t.Ext != "pdf" {
+		// 有本机 Office/WPS 或文档组件时：生成 PDF 预览（6.12.32 引擎路径 + 缓存）
+		if engines := s.previewEngines(ctx, t.Ext); len(engines) > 0 {
+			s.fillEnginePreview(ctx, t, &out, engines)
 			return out, nil
 		}
-		if hasMacro(path, ext) {
-			// 加密已在 resolve 外层处理；宏的 raw 仍给，前端库可能打不开含宏的——契约说 raw 也先检测加密
-		}
-		url, tok, err := s.registerPreviewURL(path)
-		if err != nil {
-			return DocPreview{}, err
-		}
-		s.trackPreview(out.PreviewID, tok, path, nil)
-		out.Kind, out.URL = "raw", url
-		return out, nil
 	}
-	out.Kind, out.Reason = "unavailable", "needs_component"
+	switch {
+	case kind != "":
+		s.fillTextPreview(ctx, t, &out, kind)
+	case t.Ext == "pdf":
+		s.fillPDFDirect(t, &out)
+	case t.Ext == "docx" || t.Ext == "xlsx":
+		s.fillRawOrUnavailable(t, &out)
+	default:
+		// doc/xls/ppt/odt/... 无引擎时 unavailable
+		out.Kind = "unavailable"
+		out.Reason = "needs_component"
+		out.Editable = false
+		out.EditBlock = "format"
+	}
+	s.trackPreview(out.PreviewID, out.URL, out.RawURL)
 	return out, nil
 }
 
-func (s *Service) previewText(out DocPreview, path, kind string) (DocPreview, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return DocPreview{}, readErr("读取文件失败", err)
+// CancelDocPreview 释放预览（幂等）。
+func (s *Service) CancelDocPreview(previewID string) error {
+	if previewID == "" {
+		return nil
 	}
-	enc, lineEnd := detectEncodingAndEnding(raw)
-	rev := sha256Hex(raw)
-	text := decodeText(raw)
-	trunc := false
-	if len(text) > previewTextMax {
-		text = text[:previewTextMax]
-		for len(text) > 0 && !utf8.Valid(text) {
-			text = text[:len(text)-1]
+	h := s.hub()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for i, e := range h.list {
+		if e.id == previewID {
+			h.list = append(h.list[:i], h.list[i+1:]...)
+			s.releaseEntry(e)
+			return nil
 		}
-		trunc = true
 	}
-	out.Kind, out.Text, out.Truncated = kind, string(text), trunc
-	out.Revision, out.Encoding, out.LineEnding = rev, enc, lineEnd
-	out.Editable = !trunc && (kind == "text" || kind == "md" || kind == "html")
-	if trunc {
-		out.Editable, out.EditBlock = false, "too_large"
-	}
-	// 本 PR 不实现编辑保存；仍标 editable 供前端编译。Word 类已是 format。
-	s.trackPreview(out.PreviewID, "", path, nil)
-	return out, nil
+	return nil
 }
 
-func (s *Service) previewCSV(out DocPreview, path string) (DocPreview, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return DocPreview{}, readErr("读取文件失败", err)
+// releaseEntry 撤销 token、取消生成、解除缓存钉住。调用方持有 hub 锁。
+func (s *Service) releaseEntry(e previewEntry) {
+	if e.cancel != nil {
+		e.cancel()
 	}
-	enc, lineEnd := detectEncodingAndEnding(raw)
-	rev := sha256Hex(raw)
-	text := decodeText(raw)
-	truncRead := false
-	if len(text) > previewCSVMax {
-		text = text[:previewCSVMax]
-		truncRead = true
-	}
-	r := csv.NewReader(strings.NewReader(string(text)))
-	r.FieldsPerRecord = -1
-	r.LazyQuotes = true
-	var rows [][]string
-	for {
-		rec, err := r.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			// 解析出错的行按原样放进一个单元格
-			rows = append(rows, []string{err.Error()})
-			continue
-		}
-		for i, c := range rec {
-			if len(c) > maxCellRunes {
-				rec[i] = string([]rune(c)[:maxCellRunes])
-			}
-		}
-		rows = append(rows, rec)
-		if len(rows) >= previewCSVRows {
-			break
-		}
-	}
-	total := int64(len(rows))
-	// 若截断了读入，继续数行
-	if truncRead || len(rows) >= previewCSVRows {
-		total = countCSVRows(path)
-		out.Truncated = truncRead
-	}
-	out.Kind, out.Rows, out.TotalRows = "csv", rows, total
-	out.Revision, out.Encoding, out.LineEnding = rev, enc, lineEnd
-	out.Editable = total <= previewCSVRows && !truncRead
-	if !out.Editable {
-		out.EditBlock = "too_large"
-	}
-	s.trackPreview(out.PreviewID, "", path, nil)
-	return out, nil
-}
-
-func countCSVRows(path string) int64 {
-	f, err := os.Open(path)
-	if err != nil {
-		return 0
-	}
-	defer f.Close()
-	deadline := time.Now().Add(5 * time.Second)
-	var n int64
-	buf := make([]byte, 64<<10)
-	var carry byte
-	for {
-		if time.Now().After(deadline) {
-			return n
-		}
-		k, err := f.Read(buf)
-		for i := 0; i < k; i++ {
-			if buf[i] == '\n' {
-				n++
-			}
-			carry = buf[i]
-		}
-		if err == io.EOF {
-			if k > 0 && carry != '\n' {
-				n++
-			}
-			return n
-		}
-		if err != nil {
-			return n
-		}
-	}
-}
-
-func detectEncodingAndEnding(raw []byte) (enc, lineEnd string) {
-	enc = "utf8"
-	if len(raw) >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF {
-		enc = "utf8_bom"
-	} else if !utf8.Valid(bytesTrimBOM(raw)) {
-		enc = "gbk"
-	}
-	crlf, lf := 0, 0
-	for i := 0; i < len(raw); i++ {
-		if raw[i] == '\n' {
-			if i > 0 && raw[i-1] == '\r' {
-				crlf++
-			} else {
-				lf++
+	if s.cfg.Local != nil {
+		for _, tok := range e.tokens {
+			if tok != "" {
+				s.cfg.Local.Revoke(tok)
 			}
 		}
 	}
-	if crlf == 0 && lf == 0 {
-		if isWindows() {
-			lineEnd = "crlf"
-		} else {
-			lineEnd = "lf"
+	if e.pin != "" && s.prevCache != nil {
+		s.prevCache.Pin(e.pin, false)
+	}
+}
+
+func (s *Service) trackPreview(id, url, rawURL string) {
+	s.trackEntry(previewEntry{id: id, tokens: uniqTokens(tokenOfURL(url), tokenOfURL(rawURL))})
+}
+
+func uniqTokens(a, b string) []string {
+	var out []string
+	if a != "" {
+		out = append(out, a)
+	}
+	if b != "" && b != a {
+		out = append(out, b)
+	}
+	return out
+}
+
+func (s *Service) trackEntry(e previewEntry) {
+	h := s.hub()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.list = append(h.list, e)
+	for len(h.list) > maxLivePreviews {
+		old := h.list[0]
+		h.list = h.list[1:]
+		s.releaseEntry(old)
+	}
+}
+
+// updateEntry 生成完成后把 PDF token / 钉住登记到仍存活的预览；预览已释放时返回 false。
+func (s *Service) updateEntry(id, token, pin string) bool {
+	h := s.hub()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for i := range h.list {
+		if h.list[i].id == id {
+			if token != "" {
+				h.list[i].tokens = append(h.list[i].tokens, token)
+			}
+			h.list[i].pin = pin
+			h.list[i].cancel = nil
+			return true
 		}
-	} else if crlf >= lf {
-		lineEnd = "crlf"
-	} else {
-		lineEnd = "lf"
 	}
-	return enc, lineEnd
+	return false
 }
 
-func bytesTrimBOM(b []byte) []byte {
-	if len(b) >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF {
-		return b[3:]
+func tokenOfURL(u string) string {
+	if strings.HasPrefix(u, localassets.Prefix) {
+		return strings.TrimPrefix(u, localassets.Prefix)
 	}
-	return b
-}
-
-func isWindows() bool { return runtime.GOOS == "windows" }
-
-func sha256Hex(b []byte) string {
-	h := sha256.Sum256(b)
-	return hex.EncodeToString(h[:])
+	return ""
 }
 
 func newPreviewID() string {
@@ -369,199 +211,240 @@ func newPreviewID() string {
 	return hex.EncodeToString(b[:])
 }
 
-func (s *Service) registerPreviewURL(path string) (url, token string, err error) {
+func (s *Service) fillTextPreview(ctx context.Context, t *editTarget, out *DocPreview, kind string) {
+	raw, err := os.ReadFile(t.ReadPath)
+	if err != nil {
+		out.State = "failed"
+		out.Kind = kind
+		out.Error = mapReadWriteErr(err)
+		out.Editable = false
+		return
+	}
+	out.Revision = sha256Hex(raw)
+	out.Encoding = detectEncoding(raw)
+	out.LineEnding = detectLineEnding(raw)
+	text, _ := decodeRawText(raw)
+
+	out.Kind = kind
+	truncated := false
+	if kind == "csv" {
+		rows, total, mal, trunc := parseCSVPreview(text)
+		out.Rows, out.TotalRows, truncated = rows, total, trunc
+		out.Truncated = trunc
+		s.applyEditBlock(ctx, t, out, kind, truncated, mal, text)
+		return
+	}
+	if len(raw) > maxPreviewTextBytes || int64(len([]byte(text))) > maxPreviewTextBytes {
+		// 截断按 UTF-8 原文字节
+		b := []byte(text)
+		if len(b) > maxPreviewTextBytes {
+			b = b[:maxPreviewTextBytes]
+			for len(b) > 0 && !utf8.Valid(b) {
+				b = b[:len(b)-1]
+			}
+			text = string(b)
+		}
+		truncated = true
+	}
+	out.Text = text
+	out.Truncated = truncated
+	s.applyEditBlock(ctx, t, out, kind, truncated, false, text)
+}
+
+func (s *Service) applyEditBlock(ctx context.Context, t *editTarget, out *DocPreview, kind string, truncated, csvMalformed bool, text string) {
+	// 顺序：format → missing → too_large → encoding → malformed → converting（6.12.38）
+	out.Editable = true
+	out.EditBlock = ""
+	if kind == "" || (kind != "text" && kind != "md" && kind != "html" && kind != "csv") {
+		out.Editable, out.EditBlock = false, "format"
+		return
+	}
+	if t.MissingOrig {
+		out.Editable, out.EditBlock = false, "missing"
+		// 产品允许前端仍可编辑只给另存为；editable=false 按契约
+		return
+	}
+	if truncated || (kind == "csv" && out.TotalRows > maxEditCSVRows) {
+		out.Editable, out.EditBlock = false, "too_large"
+		return
+	}
+	if kind == "html" {
+		cs := htmlMetaCharset(text)
+		if cs != "" && !htmlEncodingSupported(cs) {
+			out.Editable, out.EditBlock = false, "encoding"
+			return
+		}
+	}
+	if csvMalformed {
+		out.Editable, out.EditBlock = false, "malformed"
+		return
+	}
+	if err := s.sourceBusy(ctx, t); err != nil {
+		out.Editable, out.EditBlock = false, "converting"
+		return
+	}
+}
+
+func parseCSVPreview(text string) (rows [][]string, total int64, malformed, truncated bool) {
+	r := csv.NewReader(strings.NewReader(text))
+	r.FieldsPerRecord = -1
+	r.LazyQuotes = true
+	for {
+		rec, err := r.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			// 解析失败：整行塞进一个单元格（6.12.32.4），并标 malformed
+			malformed = true
+			if len(rows) < maxEditCSVRows {
+				rows = append(rows, []string{""})
+			}
+			total++
+			continue
+		}
+		total++
+		if len(rows) < maxEditCSVRows {
+			rows = append(rows, rec)
+		}
+	}
+	if total > maxEditCSVRows {
+		truncated = true
+	}
+	if rows == nil {
+		rows = [][]string{}
+	}
+	return rows, total, malformed, truncated
+}
+
+func (s *Service) fillPDFDirect(t *editTarget, out *DocPreview) {
+	out.Kind = "pdf"
+	out.Editable = false
+	out.EditBlock = "format"
+	if url := s.registerLocal(t.ReadPath); url != "" {
+		out.URL = url
+	}
+	if sum, _, err := fileSHA256(t.ReadPath); err == nil && out.SizeBytes <= maxDocxEditBytes {
+		out.Revision = sum
+	}
+}
+
+func (s *Service) fillRawOrUnavailable(t *editTarget, out *DocPreview) {
+	// 无引擎：docx/xlsx → raw（≤50MiB）
+	if out.SizeBytes > maxRawPreviewBytes {
+		out.Kind = "unavailable"
+		out.Reason = "too_large_for_simple"
+		out.Editable = false
+		out.EditBlock = "format"
+		return
+	}
+	// 加密检测
+	if _, err := inspectDoc(context.Background(), t.ReadPath, t.Ext); err != nil {
+		if apperr.Is(err, apperr.DocEncrypted) {
+			out.State = "failed"
+			out.Kind = "raw"
+			out.Error = apperr.From(err)
+			out.Editable = false
+			out.EditBlock = "format"
+			return
+		}
+	}
+	out.Kind = "raw"
+	url := s.registerLocal(t.ReadPath)
+	out.URL = url
+	if t.Ext == "docx" {
+		s.fillDocxEdit(t, out, url)
+	} else {
+		out.Editable = false
+		out.EditBlock = "format"
+	}
+}
+
+func (s *Service) fillDocxEdit(t *editTarget, out *DocPreview, rawURL string) {
+	// editBlock 顺序：format → missing → too_large → malformed → macro → converting（6.12.48）
+	out.RawURL = rawURL
+	if out.SizeBytes <= maxDocxEditBytes {
+		if sum, _, err := fileSHA256(t.ReadPath); err == nil {
+			out.Revision = sum
+		}
+	}
+	out.Editable = true
+	out.EditBlock = ""
+	if t.MissingOrig {
+		out.Editable, out.EditBlock = false, "missing"
+		return
+	}
+	if out.SizeBytes > maxDocxEditBytes {
+		out.Editable, out.EditBlock = false, "too_large"
+		return
+	}
+	if bad, reason := docxOpenCheck(t.ReadPath); bad {
+		out.Editable, out.EditBlock = false, reason
+		return
+	}
+	if err := s.sourceBusy(context.Background(), t); err != nil {
+		out.Editable, out.EditBlock = false, "converting"
+		return
+	}
+}
+
+func (s *Service) registerLocal(path string) string {
 	if s.cfg.Local == nil {
-		return "", "", apperr.New(apperr.Internal, "文档服务尚未初始化")
+		return ""
 	}
 	e, err := s.cfg.Local.Register(path)
 	if err != nil {
-		return "", "", apperr.Wrap(apperr.IOError, "无法准备预览", err)
+		return ""
 	}
-	return e.URL, e.Token, nil
+	return e.URL
 }
 
-func (s *Service) trackPreview(id, token, path string, cancel context.CancelFunc) {
-	s.ensurePreview()
-	s.prevMu.Lock()
-	defer s.prevMu.Unlock()
-	if s.previews == nil {
-		s.previews = map[string]*previewSlot{}
-	}
-	s.previews[id] = &previewSlot{id: id, token: token, path: path, cancel: cancel, created: time.Now()}
-	for len(s.previews) > previewMaxActive {
-		var oldest string
-		var t time.Time
-		for k, v := range s.previews {
-			if k == id {
-				continue
-			}
-			if oldest == "" || v.created.Before(t) {
-				oldest, t = k, v.created
-			}
-		}
-		if oldest == "" {
-			break
-		}
-		s.releasePreviewLocked(oldest)
-	}
-}
-
-func (s *Service) releasePreviewLocked(id string) {
-	p, ok := s.previews[id]
-	if !ok {
-		return
-	}
-	delete(s.previews, id)
-	if p.cancel != nil {
-		p.cancel()
-	}
-	if p.token != "" && s.cfg.Local != nil {
-		s.cfg.Local.Revoke(p.token)
-	}
-	if p.path != "" && s.prevCache != nil {
-		s.prevCache.Pin(p.path, false)
-	}
-}
-
-// CancelDocPreview 取消 / 释放预览（幂等）。
-func (s *Service) CancelDocPreview(previewID string) error {
-	s.ensurePreview()
-	s.prevMu.Lock()
-	defer s.prevMu.Unlock()
-	s.releasePreviewLocked(previewID)
-	return nil
-}
-
-func (s *Service) emitPreview(ev DocPreviewEvent) {
-	if s.cfg.Emit != nil {
-		s.cfg.Emit(EventDocPreview, ev)
-	}
-}
-
-func (s *Service) previewWorker() {
-	for job := range s.prevQueue {
-		s.runPreviewJob(job)
-	}
-}
-
-func (s *Service) runPreviewJob(job previewJob) {
-	deadline := time.Now().Add(doceng.TimeoutPreviewMax)
-	work := filepath.Join(s.cfg.TempRoot, "preview-"+job.id)
-	_ = os.MkdirAll(work, 0o755)
-	defer os.RemoveAll(work)
-
-	key := cacheKey(job.pathKey, job.size, job.mtime, job.engines[0]) // 用第一个引擎做 part 名；成功后再按实际引擎提交
-	part := s.prevCache.PartPath(key)
-
-	engineID, err := s.cfg.Engines.TryPreviewPDF(job.ctx, job.ext, job.path, part, work, job.hasMacro, nil, deadline)
+// docxOpenCheck 打开时轻量检查：返回 (blocked, editBlock)。
+func docxOpenCheck(path string) (bool, string) {
+	// 加密 OLE
+	f, err := os.Open(path)
 	if err != nil {
-		// 全部失败：docx/xlsx → 尝试在事件里... 契约：生成全部失败时不回退简易，docx/xlsx 退到 raw
-		s.finishPreviewFailed(job, err)
-		return
+		return true, "malformed"
 	}
-	fi, err := os.Stat(part)
-	if err != nil || fi.Size() > MaxPDFBytes {
-		_ = os.Remove(part)
-		s.finishPreviewFailed(job, apperr.New(apperr.Internal, "出了点问题，请重试。"))
-		return
+	head := make([]byte, 8)
+	n, _ := f.Read(head)
+	f.Close()
+	if n == 8 && bytes.Equal(head, oleMagic) {
+		return true, "malformed"
 	}
-	// 用实际引擎的 key 提交
-	realKey := cacheKey(job.pathKey, job.size, job.mtime, engineID)
-	if realKey != key {
-		realPart := s.prevCache.PartPath(realKey)
-		_ = os.Rename(part, realPart)
-		part = realPart
-		key = realKey
+	if err := checkZipEntries(path); err != nil {
+		return true, "malformed"
 	}
-	final, err := s.prevCache.Commit(key, engineID, fi.Size())
+	zr, err := zip.OpenReader(path)
 	if err != nil {
-		s.finishPreviewFailed(job, apperr.Wrap(apperr.IOError, "无法准备预览", err))
-		return
+		return true, "malformed"
 	}
-	url, tok, err := s.registerPreviewURL(final)
-	if err != nil {
-		s.finishPreviewFailed(job, err)
-		return
+	defer zr.Close()
+	if findEntry(zr, "word/document.xml") == nil {
+		return true, "malformed"
 	}
-	s.prevCache.Pin(final, true)
-	s.prevMu.Lock()
-	if p, ok := s.previews[job.id]; ok {
-		p.token, p.path, p.cancel = tok, final, nil
+	if docxHasMacro(zr) {
+		return true, "macro"
 	}
-	s.prevMu.Unlock()
-	s.emitPreview(DocPreviewEvent{PreviewID: job.id, State: "ready", Kind: "pdf", URL: url})
+	return false, ""
 }
 
-func (s *Service) finishPreviewFailed(job previewJob, err error) {
-	ae := apperr.From(err)
-	// docx/xlsx 全部失败 → 契约说退到 raw；通过事件带 failed，前端可重试 GetDocPreview。
-	// 这里按契约发 failed；若想同步 raw 需前端再调。保持 failed。
-	s.emitPreview(DocPreviewEvent{PreviewID: job.id, State: "failed", Kind: "pdf", Error: ae})
-	s.prevMu.Lock()
-	s.releasePreviewLocked(job.id)
-	s.prevMu.Unlock()
-}
-
-func (s *Service) resolvePreviewFile(ctx context.Context, req DocPreviewRequest) (path, name, ext string, size, mtime int64, pathKey string, err error) {
-	hasS, hasT := req.SourceID != "", req.TaskID != ""
-	if hasS == hasT {
-		return "", "", "", 0, 0, "", apperr.New(apperr.InvalidArgument, "请指定源文件或转换记录")
-	}
-	if hasS {
-		if s.cfg.Sources == nil {
-			return "", "", "", 0, 0, "", s.internalNotReady("文档服务")
-		}
-		src, in, _, e := s.cfg.Sources.DocSourceForSubmit(ctx, req.SourceID)
-		if e != nil {
-			return "", "", "", 0, 0, "", e
-		}
-		if src.Kind != store.SourceKindDoc {
-			return "", "", "", 0, 0, "", apperr.New(apperr.Unsupported, "不支持这种文件。").WithDetail("reason=format")
-		}
-		// 显示路径：副本就绪用副本
-		path = in
-		if path == "" {
-			path = src.Path
-		}
-		name = src.Name
-		ext = normExt(filepath.Ext(path))
-		if ext == "" {
-			ext = normExt(filepath.Ext(name))
-		}
-	} else {
-		if s.cfg.TaskGet == nil {
-			return "", "", "", 0, 0, "", s.internalNotReady("文档服务")
-		}
-		t, e := s.cfg.TaskGet(ctx, req.TaskID)
-		if e != nil {
-			return "", "", "", 0, 0, "", e
-		}
-		if t.Type != task.TypeDocConvert && t.Type != task.TypeOfficePDF {
-			return "", "", "", 0, 0, "", apperr.New(apperr.Unsupported, "不支持这种文件。").WithDetail("reason=format")
-		}
-		if t.Status != task.StatusSucceeded || t.OutputPath == "" {
-			return "", "", "", 0, 0, "", apperr.New(apperr.NotFound, "文件不存在").WithDetail("reason=file")
-		}
-		path, name = t.OutputPath, filepath.Base(t.OutputPath)
-		ext = normExt(filepath.Ext(path))
-	}
-	fi, e := os.Stat(path)
-	if e != nil || !fi.Mode().IsRegular() {
-		return "", "", "", 0, 0, "", apperr.New(apperr.NotFound, "文件不存在").WithDetail("reason=file")
-	}
-	// 加密检测（Office 类）
-	if ext != "txt" && ext != "md" && ext != "html" && ext != "csv" && ext != "pdf" {
-		if _, ie := inspectDoc(ctx, path, ext); apperr.Is(ie, apperr.DocEncrypted) {
-			// 同步返回 failed 形态：契约说文件本身问题放 state=failed
-			// 但 GetDocPreview 的同步错误不含加密——放在返回值里。这里用特殊处理：返回 ready 结构由调用方...
-			// 重读契约：同步 Go 错误只有调用问题；文件问题放 state=failed + error。
-			// 所以这里不 return error，而由上层处理。我们返回一个特殊 sentinel。
-			return path, name, ext, fi.Size(), fi.ModTime().UnixNano(), "", ie
+func docxHasMacro(zr *zip.ReadCloser) bool {
+	for _, f := range zr.File {
+		name := strings.ToLower(f.Name)
+		if strings.HasSuffix(name, "vbaproject.bin") {
+			return true
 		}
 	}
-	_, key, _ := paths.Normalize(path)
-	if key == "" {
-		key = path
+	ct := findEntry(zr, "[Content_Types].xml")
+	if ct == nil {
+		return false
 	}
-	return path, name, ext, fi.Size(), fi.ModTime().UnixNano(), key, nil
+	rc, err := ct.Open()
+	if err != nil {
+		return false
+	}
+	defer rc.Close()
+	b, _ := io.ReadAll(io.LimitReader(rc, 2<<20))
+	return bytes.Contains(bytes.ToLower(b), []byte("macroenabled"))
 }
