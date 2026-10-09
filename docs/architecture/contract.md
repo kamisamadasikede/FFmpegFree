@@ -1,4 +1,7 @@
-# FFmpegFree v2 接口契约（v0.27.1）
+# FFmpegFree v2 接口契约（v0.27.2）
+
+v0.27.2 变更（**docx 在预览窗口里编辑后保存**，老板定范围，架构师定方案，文案产品已定，2026-10-09；**只有契约**；完整规则见新增的 **6.12.47~6.12.57**，本条只是索引，冲突时以新节为准）：① **范围**：只放开 docx；doc / xls / xlsx / ppt / pptx / pdf 仍只能查看（`editBlock=format`，悬停 `这类文件请用默认程序打开编辑`）；前端用什么编辑器由前端定，契约只管读写。② **读取**：`DocPreview` 新增 `rawUrl`（docx 可编辑时原文件字节的 `/local/<token>` 地址；有引擎时 `kind=pdf` 只用来看，编辑用 `rawUrl`）；`editBlock`：> 20 MiB `too_large`、加密或打不开 `malformed`、原文件不在 `missing`（只能另存为）、正在转换 `converting`；`revision` 是整个文件的 SHA-256。③ **分段保存**（DocService 新方法）：`BeginDocBinarySave({sourceId|taskId, mode: overwrite|save_as, targetPath?, revision?, totalBytes})` → `{saveId, maxChunkBytes: 4194304, expiresAt}`；`AppendDocBinaryChunk({saveId, seq, data(base64)})` → `{receivedBytes}`；`CommitDocBinarySave({saveId, sha256})` → `{path, revision, sizeBytes, savedAt, backupPath?}`；`AbortDocBinarySave({saveId})`（幂等）。暂存在 `<数据目录>/tmp/docsave/<saveId>`，Begin 后 10 分钟没 Commit 自动清理，启动时清残留；同一文件同时只允许一个会话（`TASK_CONFLICT` `reason=saving`）；Commit 无论成败都结束会话。④ **完整性检查**：zip 能打开、CRC 全过、条目 ≤ 10 000、解压总量 ≤ 200 MiB、有 `[Content_Types].xml` / `_rels/.rels` / `word/document.xml` 且后者是格式良好的 XML，不过 `reason=malformed`；含 `vbaProject.bin` `reason=format`；原文件不动。⑤ **备份**（只有 overwrite）：替换前复制成同目录 `原名.bak-YYYYMMDD-HHMMSS.docx`（同秒加 `-2`），只删本应用按这个精确格式生成的、同一原名的备份，保留最近 3 份；备份失败不保存；备份不进文档列表。⑥ **2.2 新增取值**：`INVALID_ARGUMENT` 的 `chunk_order`、`checksum`、`malformed`，`NOT_FOUND` 的 `save_session`，`TASK_CONFLICT` 的 `saving`（`too_large`、`format`、`file_changed`、`converting` 等沿用）；**没有新增错误码**（2.1 仍是 30 个），没有迁移，没有新事件。⑦ **文案定稿**写进 6.12.45（原文件不在、编辑过的结果重转确认、保存 / 覆盖保存 / 另存为成功、没有权限、内容太多、docx 不完整），所有出错都保留用户编辑的内容；`checksum` / `chunk_order` / `save_session` / `saving` 映射为 `出了点问题，请重试。`。⑧ **顺带三条**：`SystemService.OpenStorageFolder` 新增 `kind="doc_component"`，打开应用下载的文档组件目录，不是正在用的下载组件时 `NOT_FOUND` `reason=component`，前端按钮只在 `componentState=ready` 且 `engines` 里组件那项 `source=downloaded` 时显示（6.12.54）；Windows / macOS 应用下载的组件低于 26.2.6 且没有别的合格候选时 `componentState=outdated`、`canDownload=true`，提交任务时 `DOC_COMPONENT_NOT_READY` 的 `detail` 第一行 `reason=outdated`（其他情况 `reason=<componentState>`），预览沿用 `kind=unavailable` + `reason=needs_component`（6.12.55）；`doc_convert` 记录必须填 `startedAt`（离开排队、真正开始处理的时刻，排队中为 0），没有迁移（6.12.56）。准备阶段的取消契约仍允许，前端可以不提供（6.12.57）。⑨ 真机待验证加三项：`ReplaceFileW` 替换 docx、备份清理、20 MiB 分段上传耗时。后端 v0.26.1 实现 PR 仍未合入，`installBytes` 按 6.12.28。
+
 
 v0.27.1 变更（**文档预览里可以编辑 md、txt、csv、html**，老板定，架构师定方案，文案待产品定，2026-10-09；**只有契约**；完整规则见新增的 **6.12.37~6.12.46**，本条只是索引，冲突时以新节为准；后端的 v0.26.1 实现 PR 还没合入，`installBytes` 仍按 6.12.28 的说明）：① **能编辑的**：md（左写右预览）、txt 和 html（改源码）、csv（表格里改）；Word、Excel、PPT、PDF 不能编辑。② **`DocPreview` 新增** `editable`、`editBlock`（`format` / `missing` / `too_large` / `encoding` / `malformed` / `in_use`，只给程序用）、`revision`（读到的原始字节的 SHA-256，架构师定用内容哈希而不是大小 + 修改时间）、`encoding`（`utf8` / `utf8_bom` / `gb18030`）、`lineEnding`（`crlf` / `lf`）。text / md / html 超过 2 MiB 被截断、csv 超过 1000 行或被截断时 `too_large`；源文件行的文字类预览**改为读用户的原文件**（原文件不在时读副本、只读，`missing`）。③ **新方法 `DocService.SaveDocText({sourceId|taskId, revision, text|rows})`**：源文件行写回原文件并把同样内容写进副本（更新 `convert_copies` 的大小和修改时间，不重新复制），结果行写回输出文件并更新 `result.sizeBytes`、发 `task:status`；同目录临时文件 + 原子替换（Windows `ReplaceFileW`，保留权限和属性）；revision 不一致 `TASK_CONFLICT` `reason=file_changed`，正在转换 `TASK_CONFLICT` `reason=in_use`（副本复制中沿用 `reason=copying`），原文件不在 `NOT_FOUND` `reason=file`，没有权限 `IO_ERROR` `reason=permission`，被占用 `IO_ERROR` `reason=in_use`，超过 2 MiB / 1000 行 `INVALID_ARGUMENT` `reason=too_large`；按读取时的编码（含 BOM）和多数行的换行风格写回，GBK 按 GB18030 写；csv 只用逗号、按 RFC 4180 加引号；返回新的 `revision`。④ **新方法 `SaveDocTextAs({sourceId|taskId, targetPath, text|rows, encoding: keep|utf8})`**：不要 revision；扩展名必须同一种格式（`INVALID_ARGUMENT` `reason=format`）；目标不能在应用数据目录内（`output` 除外）和上传目录内；不新建源文件行，保存的路径登记进 `RevealInFolder` 的放行表供「打开所在文件夹」。⑤ **新方法 `SystemService.SaveFileDialog(defaultName, filters)`**：系统保存对话框，取消返回 `""`；`defaultName` 给绝对路径时用它的文件夹作初始位置；覆盖确认由对话框负责，平台不自带时后端补一个确认框。⑥ **保存原样写入**，只做换行和编码两步；html / md 的预览仍是过滤后放进 sandbox iframe。⑦ **没有新增错误码**（2.1 仍是 30 个）；2.2 新增文档编辑一行：`TASK_CONFLICT` 的 `file_changed`、`in_use`，`INVALID_ARGUMENT` 的 `too_large`、`format`，以及沿用的 `NOT_FOUND` `file`、`IO_ERROR` `permission` / `in_use` / `io`、`TASK_CONFLICT` `copying`。⑧ 没有迁移，没有新事件。
 
@@ -226,6 +229,8 @@ export type AppErrorCode =
 | 直播预览视频流（v0.25，6.10.3：`GetPreviewStream`、`live:pull` 的 `error`） | `reason=<值>` | `UNSUPPORTED`：`codec`（编码不能在应用内播放，第二行 `video=<编码名>` 或 `audio=<编码名>`）、`preview_unavailable`（这个会话没有预览视频流：转换组件缺 `tee` / `tcp`，或预览分支没连上 / 已断开）；`NOT_FOUND`：`session`（会话不存在或已结束）（只追加） | 首行之后只有 `codec` 的那一行 |
 | 文档转换的不可重试记录（v0.26，`TaskService.Retry` 遇到 retryable=否 的 `doc_convert` / `office_pdf` 失败记录） | `reason=<值>` | `UNSUPPORTED`：`not_retryable`（只追加） | 只有这一行；`DOC_*` 码的 `detail` 首行（`exit=` / `msiexec=` 等）前端不解析，见 6.12.20 |
 | 文档编辑（v0.27.1，6.12.41 / 6.12.42：`DocService.SaveDocText`、`SaveDocTextAs` 的同步错误） | `reason=<值>` | `TASK_CONFLICT`：`file_changed`（文件在打开之后被别的程序改过，revision 不一致）、`converting`（这一行有排队中 / 运行中的转换，或结果记录正在重转；v0.27.1 补充：原写 `in_use`，已改名）、`copying`（沿用 v0.24：副本还在复制，后面一行 `sourceId=<id>`）；`NOT_FOUND`：`record`、`file`（沿用：原文件 / 输出文件不在了）；`IO_ERROR`：`permission`（没有写权限、只读）、`in_use`（被其他程序占用、读不了或替换不了，和 `file_changed` 分开）、`io`（其他写入失败）（这三个沿用 v0.24 的取值，这里没有第二行路径）；`INVALID_ARGUMENT`：`encoding`（v0.27.1 补充：有字符编不进原编码 GBK；后面两行 `char=U+XXXX`、`line=<n>`）、`too_large`（超过 2 MiB 或 1000 行）、`format`（不能编辑的格式、另存为换了格式、html 声明了不支持的编码）（只追加） | 除 `copying`（`sourceId=`）和 `encoding`（`char=` / `line=`）外都只有这一行；另存为的目标路径不合法（应用数据目录、上传目录、非绝对路径）是没有 reason 的 `INVALID_ARGUMENT`；磁盘满 `CONVERT_DISK_FULL` 不带 reason；界面不显示错误码和 reason |
+| docx 分段保存（v0.27.2，6.12.49~6.12.52：`BeginDocBinarySave`、`AppendDocBinaryChunk`、`CommitDocBinarySave` 的同步错误） | `reason=<值>` | `INVALID_ARGUMENT`：`too_large`（沿用：超过 20 MiB）、`chunk_order`（`seq` 不连续，会话不作废）、`checksum`（字节数或 SHA-256 不符）、`malformed`（完整性检查不过）、`format`（沿用：不是 docx、另存为扩展名不对、含宏）；`NOT_FOUND`：`save_session`（会话不在或已过期）、`file` / `record`（沿用）；`TASK_CONFLICT`：`saving`（同一文件已有保存会话，或会话数到上限）、`file_changed` / `converting` / `copying`（沿用 v0.27.1）；`IO_ERROR`：`permission` / `in_use` / `io`（沿用）（只追加） | 都只有这一行；`chunk_order`、`checksum`、`save_session`、`saving` 是前端内部错误，界面一律 `出了点问题，请重试。`；界面不显示错误码和 reason |
+| 文档组件未就绪（v0.27.2，6.12.55：`DOC_COMPONENT_NOT_READY` 的同步错误和任务错误，以及 `DocComponentStatus.error`） | `reason=<值>` | `checking`、`missing`、`outdated`（含 Windows / macOS 应用下载的组件低于 26.2.6）、`downloading`、`preparing`、`failed`，即 `componentState`（只追加） | 只有这一行；`OpenStorageFolder("doc_component")` 的 `NOT_FOUND` 沿用 v0.25.1 的 `reason=component` |
 | 其余所有码（含 `LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`INTERNAL`） | 无固定格式 | — | 前端**不得**解析（上面几行列出的码 / 场景除外） |
 
 统一规则：第一行只有一个 `key=value`，值只含小写字母、数字、下划线（`scheme` 例外；`kind` 的取值是 `window` / `screen`，取值就是上面三个小写单词）；前端用 `^(reason|scheme|kind)=([a-z0-9_]+)$` 匹配 `detail` 的第一行；**没有第一行、格式不对、或值不认识，一律走该错误码的通用文案**，不得猜测含义、不得报错崩溃。测试必须逐码断言第一行精确等于期望值（不是包含）。
@@ -347,7 +352,7 @@ GetSettings() (Settings, error)
 UpdateSettings(s Settings) error      // defaultOutputDir（v0.24：空 = 默认输出目录 <base>/output，不再是“与源文件同目录”）、uploadsDir（v0.24，空 = <base>/uploads）、maxConcurrent（0=自动，1~8）、主题、语言、ffmpegPromptDismissed、ffmpegPath、docEngine（v0.27：auto | office | wps | component，默认 auto，6.12.29）
 GetStorageDirs() (StorageDirs, error)                // v0.24（6.15.2）：实际输出 / 上传目录 + 是否回退到用户数据目录
 SetStorageDirs(req StorageDirsUpdate) (StorageDirs, error) // v0.24：同时设两个目录，"" = 默认；校验失败 INVALID_ARGUMENT、整体不生效
-OpenStorageFolder(kind string) error                 // v0.24：kind = "output" | "uploads"，在文件管理器里打开实际目录；v0.25.1 加 "component"（转换组件所在文件夹，6.15.2 第 6 条）
+OpenStorageFolder(kind string) error                 // v0.24：kind = "output" | "uploads"，在文件管理器里打开实际目录；v0.25.1 加 "component"（转换组件所在文件夹，6.15.2 第 6 条）；v0.27.2 加 "doc_component"（应用下载的文档组件目录，6.12.54）
 ListEncoderDevices() (EncoderDeviceList, error)      // 硬件编码设备（9.6）：第一项永远是 cpu；ffmpeg 未就绪时只有 cpu 且 ffmpegReady=false，不报错
 RefreshEncoderDevices() (EncoderDeviceList, error)   // 丢弃缓存重新检测
 GetEncoderPreference() (string, error)               // "auto" | "cpu" | 设备 id，默认 "auto"；所选设备不可用时保持原值
@@ -436,6 +441,14 @@ v0.27.1 新增（文档编辑，详见 6.12.37~6.12.46；`DocPreview` 加 `edita
 ```go
 SaveDocText(req DocSaveRequest) (DocSaveResult, error)     // {sourceId|taskId, revision, text|rows}：写回原文件 / 输出文件，原子替换，返回新 revision
 SaveDocTextAs(req DocSaveAsRequest) (DocSaveResult, error) // {sourceId|taskId, targetPath, text|rows, encoding: keep|utf8}：另存为，不新建源文件行
+```
+
+v0.27.2 新增（docx 编辑后分段保存，详见 6.12.47~6.12.53；`DocPreview` 加 `rawUrl`）：
+```go
+BeginDocBinarySave(req DocBinarySaveBegin) (DocBinarySaveSession, error)       // {sourceId|taskId, mode: overwrite|save_as, targetPath?, revision?, totalBytes} → {saveId, maxChunkBytes, expiresAt}
+AppendDocBinaryChunk(req DocBinaryChunk) (DocBinaryChunkResult, error)         // {saveId, seq, data(base64，≤ 4 MiB)} → {receivedBytes}
+CommitDocBinarySave(req DocBinarySaveCommit) (DocBinarySaveResult, error)      // {saveId, sha256} → {path, revision, sizeBytes, savedAt, backupPath?}
+AbortDocBinarySave(req DocBinarySaveAbort) error                               // {saveId}，幂等
 ```
 
 ### JsonService（纯函数，不落库）
@@ -2249,7 +2262,25 @@ SaveFileDialog(defaultName string, filters []FileFilter) (string, error) // 用�
 
 - **以上任何一种出错，都保留用户编辑的内容**：前端不关弹窗、不清空编辑器、不自动重新加载文件；「重新打开」由用户自己点（点之前同样走“有改动还没保存”的确认）。后端出错时不改原文件（6.12.41）。
 
-**仍是建议（待产品定，后端先按这些写）**：
+**v0.27.2 定稿（产品已定；文本类和 docx 都适用，与下面“建议”表冲突时以这里为准）**：
+
+| 场景 | code / reason / 条件 | 文案 | 前端动作 |
+|---|---|---|---|
+| 原文件不在 | `editBlock=missing`、`NOT_FOUND` `file` | 弹窗顶部 `原文件已经不在了，改完只能另存为。` | 「保存」置灰，只能「另存为」 |
+| 编辑过的结果点重转 | 结果记录在应用里保存过 | `这个文件在应用里改过。重转会按原文件重新生成一份，你改的内容不会带过去。` | 「重转」「取消」 |
+| 保存成功（文本类） | — | `已保存。` | — |
+| docx 覆盖保存成功 | `backupPath` 非空 | `已保存，原文件备份在同一个文件夹。` | 「打开所在文件夹」（`RevealInFolder(backupPath)`） |
+| 另存为成功 | — | `已另存为“<文件名>”。` | 「打开所在文件夹」 |
+| 没有权限 | `IO_ERROR` `permission` | `没有权限保存到这里，请另存到其他位置。` | 「另存为」 |
+| 内容太多 | `INVALID_ARGUMENT` `too_large` | `内容太多，没法在这里保存。请用默认程序打开编辑。` | — |
+| docx 不完整，拒绝保存 | `INVALID_ARGUMENT` `malformed`（含宏的 `format`） | `文件没能保存，原文件没有改动。请另存为再试。` | 「另存为」 |
+| 前端内部错误 | `checksum`、`chunk_order`、`save_session`、`saving` | `出了点问题，请重试。` | — |
+| 不能编辑的格式 | `editBlock=format` | 悬停 `这类文件请用默认程序打开编辑` | — |
+
+- **所有出错都保留用户编辑的内容**（同上）。
+- “编辑过的结果”怎么知道（架构师定）：前端在本次运行里对这条记录保存成功过就算；跨重启不记（不加字段、不加迁移）。
+
+**仍是建议（待产品定，后端先按这些写；上面已定稿的条目以上面为准）**：
 
 | 场景 | code / reason | 建议文案 | 前端动作 |
 |---|---|---|---|
@@ -2282,6 +2313,197 @@ SaveFileDialog(defaultName string, filters []FileFilter) (string, error) // 用�
 | 2 | 三个平台的保存对话框是否自带覆盖确认（尤其 Linux GTK） | 另存为到已存在的文件 | 后端用 `MessageDialog` 补确认（已写进 6.12.43） |
 | 3 | 编辑器在 Windows 上给出的换行（`\n` 还是 `\r\n`） | 编辑一行后保存，比对字节 | 后端已统一处理，不影响结果；只是确认 |
 
+
+### 6.12.47 docx 在预览窗口里编辑后保存（v0.27.2；老板定范围，架构师定方案，文案产品已定）
+
+> 在 6.12.37~6.12.46（文本类编辑）上**只放开 docx**。doc / xls / xlsx / ppt / pptx / pdf 仍然只能查看（`editBlock=format`），编辑按钮悬停显示 `这类文件请用默认程序打开编辑`。**前端用什么编辑器由前端决定，契约只管读写**：后端给原文件字节的地址，前端编辑后把完整的新 docx 分段传回，后端校验后替换。**没有新增错误码**（2.1 仍是 30 个），只在 2.2 加取值；**没有迁移、没有新事件**。与前面冲突时以本节为准。
+
+### 6.12.48 读取：docx 的 `DocPreview`
+
+- **新增字段 `rawUrl string \`json:"rawUrl,omitempty"\``**：docx 且 `editable=true` 时一定有，是原文件字节的本地地址（`/local/<token>`，6.13 白名单，只放行这一个文件），前端进入编辑时用它取字节（按 Range 分段，同 6.12.32.1 的 raw 规则）。理由（架构师定）：有引擎时 docx 的 `kind` 是 `pdf`（看排版用），`url` 指向的是生成的 PDF，编辑需要的是原 docx；单独给 `rawUrl`，查看和编辑互不影响，`kind=raw` 时 `rawUrl` 与 `url` 相同。
+- **读哪个文件**：同 6.12.39：源文件行读用户的原文件（`originalPath`），原文件不在时读副本、`editable=false`、`editBlock=missing`；结果行读 `outputPath`。`rawUrl` 指向的就是读到的那个文件。**只用于查看的 PDF 预览仍按 v0.27 读显示路径**。
+- **`revision`**：整个文件的 SHA-256（小写十六进制），只在文件 ≤ 20 MiB 时计算和返回（更大的不能编辑，不需要）。
+- **`editBlock` 的判断顺序**（命中第一个就停）：
+
+| 取值 | docx 什么时候 |
+|---|---|
+| `format` | 扩展名不是 docx（doc / xls / xlsx / ppt / pptx / pdf 等） |
+| `missing` | 源文件行的原文件已经不在（只能另存为） |
+| `too_large` | 文件大于 **20 MiB**（20 × 1024 × 1024 = 20 971 520 字节） |
+| `malformed` | 加密（6.12.19 判为加密）或打不开：不是 zip、缺 `word/document.xml`。**打开时只做这个轻量检查**，完整检查在保存时做（6.12.50） |
+| `converting` | 这一行有排队中 / 运行中的转换，或结果记录正在重转（保存时会再查） |
+
+- 文本类的 `editBlock` 规则不变（6.12.38）。
+
+### 6.12.49 分段保存的接口（DocService，v0.27.2 新增）
+
+```go
+BeginDocBinarySave(req DocBinarySaveBegin) (DocBinarySaveSession, error)
+AppendDocBinaryChunk(req DocBinaryChunk) (DocBinaryChunkResult, error)
+CommitDocBinarySave(req DocBinarySaveCommit) (DocBinarySaveResult, error)
+AbortDocBinarySave(req DocBinarySaveAbort) error // 幂等：不存在 / 已结束的 saveId 直接返回 nil
+
+type DocBinarySaveBegin struct {
+    SourceID   string `json:"sourceId,omitempty"`   // 二者必须且只能给一个
+    TaskID     string `json:"taskId,omitempty"`
+    Mode       string `json:"mode"`                 // overwrite | save_as
+    TargetPath string `json:"targetPath,omitempty"` // save_as 必填：SystemService.SaveFileDialog 拿到的绝对路径；overwrite 不给
+    Revision   string `json:"revision,omitempty"`   // overwrite 必填：打开时拿到的 revision；save_as 不看
+    TotalBytes int64  `json:"totalBytes"`           // 新 docx 的总字节数，1 ~ 20 MiB
+}
+type DocBinarySaveSession struct {
+    SaveID        string `json:"saveId"`        // 128 位随机，十六进制
+    MaxChunkBytes int    `json:"maxChunkBytes"` // 4194304（4 MiB，解码后的原始字节）；前端按返回值分段，不写死
+    ExpiresAt     int64  `json:"expiresAt"`     // Unix 毫秒 = Begin 时刻 + 10 分钟
+}
+type DocBinaryChunk struct {
+    SaveID string `json:"saveId"`
+    Seq    int    `json:"seq"`  // 从 0 起连续
+    Data   string `json:"data"` // base64（标准字母表，含 = 填充，同 6.12.4 的 PDFChunk.data），解码后 1 ~ maxChunkBytes 字节
+}
+type DocBinaryChunkResult struct {
+    ReceivedBytes int64 `json:"receivedBytes"` // 累计已收的原始字节
+}
+type DocBinarySaveCommit struct {
+    SaveID string `json:"saveId"`
+    SHA256 string `json:"sha256"` // 整份新 docx 的 SHA-256（小写十六进制），前端用 crypto.subtle 算
+}
+type DocBinarySaveResult struct {
+    Path       string `json:"path"`                 // 实际写入的文件
+    Revision   string `json:"revision"`             // 新 revision = 新文件的 SHA-256
+    SizeBytes  int64  `json:"sizeBytes"`
+    SavedAt    int64  `json:"savedAt"`              // Unix 毫秒
+    BackupPath string `json:"backupPath,omitempty"` // 只有 overwrite 成功时有：这次备份的绝对路径（6.12.51）
+}
+type DocBinarySaveAbort struct {
+    SaveID string `json:"saveId"`
+}
+```
+
+**`BeginDocBinarySave`**（检查顺序，报第一个）：
+
+1. 参数：id 两个都给或都不给、`mode` 不是两者之一、overwrite 没有 `revision` 或给了 `targetPath`、save_as 没有 `targetPath` → `INVALID_ARGUMENT`（没有 reason）；`totalBytes` ≤ 0 → `INVALID_ARGUMENT`；**`totalBytes` > 20 MiB → `INVALID_ARGUMENT` `reason=too_large`**。
+2. 记录：不存在 `NOT_FOUND` `reason=record`；不是文档页的行 / 文档记录 `UNSUPPORTED` `reason=format`；结果记录不是 `succeeded` `NOT_FOUND` `reason=file`；原文件扩展名不是 docx → `INVALID_ARGUMENT` `reason=format`。
+3. **save_as 的目标**：规则同 6.12.42（绝对路径、不是 `\\?\` / `\\.\`、所在文件夹已存在、不是文件夹、**不在应用数据目录内（`output` 除外）、不在上传目录 `uploads` 内**，这几项是没有 reason 的 `INVALID_ARGUMENT`）；扩展名必须是 `.docx`（不区分大小写），否则 `INVALID_ARGUMENT` `reason=format`。目标正好是文档页某一行的原文件或某条记录的输出、而它正在转换 → `TASK_CONFLICT` `reason=converting`。
+4. **overwrite**：正在转换 `TASK_CONFLICT` `reason=converting`（副本复制中 `reason=copying`）；原文件 / 输出文件不在 `NOT_FOUND` `reason=file`；读不了（被锁）`IO_ERROR` `reason=in_use`；**SHA-256 和 `revision` 不同 → `TASK_CONFLICT` `reason=file_changed`**（提前发现，免得白传 20 MiB）。
+5. **同一文件同时只允许一个保存会话**：按要写入的真实路径（`EvalSymlinks` 后，Windows / macOS 不分大小写）加锁；已有未结束的会话（含 `SaveDocText` / `SaveDocTextAs` 正在写同一文件）→ `TASK_CONFLICT` `reason=saving`。
+6. 暂存目录所在磁盘剩余 < `totalBytes` × 2 + 64 MiB（暂存一份、同目录临时文件一份的估算）→ `CONVERT_DISK_FULL`。
+7. 建 `<数据目录>/tmp/docsave/<saveId>/`，返回会话。
+
+**`AppendDocBinaryChunk`**：
+
+- `saveId` 不存在、已结束或已过期 → `NOT_FOUND` `reason=save_session`。
+- `data` 不是合法 base64、解码后为空或超过 `maxChunkBytes` → `INVALID_ARGUMENT`（没有 reason）。
+- **`seq` 必须等于已收到的段数**（从 0 起连续）；不等 → `INVALID_ARGUMENT` `reason=chunk_order`，**会话不作废**（前端可以从正确的 `seq` 接着传；重复发上一段也是这个错误，不会写两次）。
+- 累计字节超过 `totalBytes` 或 20 MiB → `INVALID_ARGUMENT` `reason=too_large`，**立刻删暂存文件、作废 `saveId`**。
+- 写入暂存文件 `<数据目录>/tmp/docsave/<saveId>/data.part`（顺序追加），返回累计字节数。暂存目录写失败 → `IO_ERROR` `reason=io`（磁盘满 `CONVERT_DISK_FULL`），会话作废。
+
+**`CommitDocBinarySave`**（顺序固定；**不管成功还是失败，Commit 之后会话都结束、暂存文件删掉**，失败时前端要重新 Begin 再传。理由：本地传 20 MiB 只要几秒，比维护“失败后还能继续提交”的半截状态简单可靠）：
+
+1. `saveId` 不在 → `NOT_FOUND` `reason=save_session`。
+2. **核对**：累计字节数 ≠ `totalBytes`，或暂存文件的 SHA-256 ≠ 请求里的 `sha256` → `INVALID_ARGUMENT` `reason=checksum`。
+3. **overwrite 再核对一次 revision**（读当前原文件的 SHA-256）：不同 → `TASK_CONFLICT` `reason=file_changed`；原文件不在了 → `NOT_FOUND` `reason=file`；这时正在转换 → `TASK_CONFLICT` `reason=converting`。
+4. **完整性检查**（6.12.50）：不通过 → `INVALID_ARGUMENT` `reason=malformed`（含宏 `reason=format`）。
+5. **备份**（只有 overwrite，6.12.51）：失败就不保存，按 `IO_ERROR` 对应的 reason（`permission` / `in_use` / `io`）或 `CONVERT_DISK_FULL` 返回。
+6. **写入**：把暂存文件复制到**目标所在目录**的临时文件（`.<原文件名>.ffmpegfree-<随机 8 位>.tmp`，`Sync`），再替换：
+   - overwrite：Windows `ReplaceFileW`（保留 ACL、属性、创建时间；失败处理同 6.12.41：`ERROR_UNABLE_TO_REMOVE_REPLACED` / 共享冲突 → `IO_ERROR` `reason=in_use`；`ERROR_UNABLE_TO_MOVE_REPLACEMENT_2` 时复核原文件字节，不一致用备份恢复），macOS / Linux `chmod` / 尽量 `chown` 后 `rename`。
+   - save_as：同目录临时文件 + 原子改名（Windows `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`，Unix `rename`）；**目标已存在时直接覆盖**（`SaveFileDialog` 已确认过，6.12.43），不做备份。
+   - 没有权限 → `IO_ERROR` `reason=permission`；被占用 → `IO_ERROR` `reason=in_use`；其他 → `IO_ERROR` `reason=io`；磁盘满 → `CONVERT_DISK_FULL`。**任何一步失败原文件 / 原目标都不变**，临时文件删掉；overwrite 已经做了的备份**保留**（它是原文件的完整拷贝，留着无害），但不算进“成功”，`backupPath` 不返回。
+7. **之后**（同 6.12.41“保存成功之后”）：源文件行把同样字节写进副本并更新 `convert_copies` 的大小和修改时间（副本写失败只把副本置 `failed`，保存仍算成功）；结果行更新 `result.sizeBytes`、`version` +1、发 `task:status`；删掉这个文件在预览缓存（6.12.32.3）里的项；save_as 的目标正好是某一行 / 某条记录时同样刷新。写入的路径和 `backupPath` 都登记进 `RevealInFolder` 的内存放行表（同 6.12.42），供「打开所在文件夹」。
+8. 返回 `DocBinarySaveResult`。**前端保存成功后重新调一次 `GetDocPreview`**：替换后旧的 `/local/<token>`（`rawUrl`、`url`）按 6.13 的 `SameFile` 校验会失效（404），要拿新地址和新的 PDF 预览。
+
+**会话的生命周期**：
+
+- 暂存只放 `<数据目录>/tmp/docsave/<saveId>/`，**不放用户的文件夹**（同目录临时文件只在 Commit 的第 6 步出现、马上就替换或删除）。
+- **Begin 后 10 分钟没有 Commit 就自动清理**（删目录、作废 `saveId`；后台每分钟扫一次）。过期后再调 Append / Commit → `NOT_FOUND` `reason=save_session`。`AbortDocBinarySave` 立刻清理，幂等。
+- **应用启动时删掉整个 `tmp/docsave/`**（上次没走完的会话）。
+- 同时存在的会话最多 4 个（不同文件），第 5 个 → `TASK_CONFLICT` `reason=saving`（防止前端漏调 Abort 把磁盘占满）。
+
+### 6.12.50 完整性检查（Commit 第 4 步；失败一律不动原文件）
+
+按顺序：
+
+1. **防 zip 炸弹**（先只读中央目录，不解压）：条目数 ≤ **10 000**，所有条目声明的解压后大小之和 ≤ **200 MiB**；任何一项超了 → `reason=malformed`。中央目录、EOCD / zip64 记录的防护复用 6.12.3 的 `checkZipEntries`（中央目录 ≤ 9 600 000 字节等）。
+2. **zip 能打开、CRC 全过**：逐个条目完整解压一遍（只读到丢弃，不落盘），Go `archive/zip` 读到结尾时会校验 CRC-32；**实际解压出的总字节数**也按 200 MiB 封顶（防止声明的大小是假的），超了立即停止 → `reason=malformed`。
+3. **必需部件**：有 `[Content_Types].xml`、`_rels/.rels`、`word/document.xml`（按 OPC 规则，名字不区分大小写）；缺任何一个 → `reason=malformed`。
+4. **`word/document.xml` 是格式良好的 XML**：用 `encoding/xml` 的 `Decoder` 流式读到结尾（`Strict=true`，不展开外部实体），出错 → `reason=malformed`。只检查格式良好，不校验 schema。
+5. **不含宏**：任何名字以 `vbaProject.bin` 结尾的条目（不区分大小写），或 `[Content_Types].xml` 里出现 `macroEnabled` 的内容类型 → **`reason=format`**（不是 malformed：文件是好的，只是这里不允许保存带宏的 docx）。
+6. 加密的 docx（OLE 容器）在第 2 步就打不开，是 `reason=malformed`。
+
+### 6.12.51 备份（只有 overwrite）
+
+- **时机**：完整性检查通过之后、替换之前，把**当前的原文件**复制成同目录的 `<原名去扩展名>.bak-YYYYMMDD-HHMMSS.docx`（本地时间，如 `报告.docx` → `报告.bak-20261009-110400.docx`）；同一秒已有同名文件就加 `-2`、`-3`……（`报告.bak-20261009-110400-2.docx`），直到不冲突。扩展名一律写小写 `.docx`。
+- **怎么复制**：先写同目录临时文件再改名成备份名（不会留下半个备份）；修改时间设成原文件的修改时间（方便用户按时间认出是哪一版）。复制前再核对一次原文件的 SHA-256 仍等于 `revision`（第 3 步之后的极短空档被改了就按 `file_changed` 返回，不备份也不保存）。
+- **失败就不保存**：备份写不了（没有权限、被占用、磁盘满）→ 按 `IO_ERROR` 对应的 reason（`permission` / `in_use` / `io`）或 `CONVERT_DISK_FULL` 返回，原文件不动。
+- **只保留最近 3 份**：**替换成功之后**清理。只看同一目录里、**同一原名**、**精确匹配**本应用格式的文件：`^<原名去扩展名（按字面转义）>\.bak-[0-9]{8}-[0-9]{6}(-[0-9]+)?\.docx$`（Windows / macOS 不区分大小写），且是普通文件、不是符号链接。按文件名里的时间（同秒按 `-n` 序号）从新到旧排，第 4 份及更旧的删掉。**不碰任何不完全匹配的文件**（用户自己改过名的、别的程序的 `.bak`、别的原名的）。清理失败只记应用日志，不影响保存结果。
+- 返回 `backupPath`（这次新建的备份）。**备份文件不加进文档列表**（不建源文件行），也不进预览缓存。
+- 文本类（`SaveDocText`）**不做备份**，规则不变（6.12.41）。理由：文本类改动小、本身就是原样写入；docx 是前端编辑器重新生成的整份文件，丢格式的风险高，所以要留后路。
+
+### 6.12.52 错误汇总（docx 保存；复用已有码，2.1 仍是 30 个）
+
+| code | reason | 出现在 | 前端文案（6.12.45） |
+|---|---|---|---|
+| `INVALID_ARGUMENT` | `too_large` | Begin（`totalBytes` > 20 MiB）、Append（累计超了，会话作废） | `内容太多，没法在这里保存。请用默认程序打开编辑。` |
+| `INVALID_ARGUMENT` | `chunk_order` | Append（`seq` 不连续，会话不作废） | `出了点问题，请重试。` |
+| `INVALID_ARGUMENT` | `checksum` | Commit（字节数或 SHA-256 不符） | `出了点问题，请重试。` |
+| `INVALID_ARGUMENT` | `malformed` | Commit（完整性检查不过） | `文件没能保存，原文件没有改动。请另存为再试。` |
+| `INVALID_ARGUMENT` | `format` | Begin（不是 docx、另存为扩展名不对）、Commit（含宏） | `文件没能保存，原文件没有改动。请另存为再试。`（Begin 的扩展名错误前端可提示 `只能保存成同一种格式。`） |
+| `INVALID_ARGUMENT` | — | 参数、base64、另存为目标在应用目录 / 上传目录 | 应用目录：`不能保存到应用自己的文件夹里，请换一个位置。`；其他 `出了点问题，请重试。` |
+| `NOT_FOUND` | `save_session` | Append、Commit（会话不在 / 过期） | `出了点问题，请重试。` |
+| `NOT_FOUND` | `file` / `record` | Begin、Commit | `原文件已经不在了，改完只能另存为。` |
+| `TASK_CONFLICT` | `file_changed` | Begin、Commit、备份前 | `文件在别处被改过了，请重新打开，或另存为。` |
+| `TASK_CONFLICT` | `converting` / `copying` | Begin、Commit | `文件正在转换，转完再保存。` / `文件还在准备中，准备好后再保存。` |
+| `TASK_CONFLICT` | `saving` | Begin（同一文件已有保存会话，或会话数到上限） | `出了点问题，请重试。` |
+| `IO_ERROR` | `permission` | Commit（备份或替换） | `没有权限保存到这里，请另存到其他位置。` |
+| `IO_ERROR` | `in_use` | Begin（读不了）、Commit（备份或替换） | `文件正被其他程序占用，请关闭后再保存。` |
+| `IO_ERROR` | `io` | Append、Commit | `保存失败，请重试或另存为。` |
+| `CONVERT_DISK_FULL` | — | Begin、Append、Commit | `磁盘空间不足，没有保存。` |
+| `UNSUPPORTED` | `format` | Begin（不是文档页的行 / 文档记录） | `出了点问题，请重试。` |
+
+- **所有出错都保留用户编辑的内容**（不关弹窗、不清空编辑器、不重新加载）。界面不显示错误码和 `reason=`。
+- 前端在任何失败后都调一次 `AbortDocBinarySave`（幂等），关弹窗、放弃保存时也调。
+
+### 6.12.53 测试与未验证事项
+
+- **单测**（Linux / macOS 能跑的都要有）：分段的正常流程；`seq` 跳号 / 重复 → `chunk_order` 且会话仍可用；超 20 MiB（Begin、Append 各一）；`checksum`；过期（把时钟拨快）→ `save_session`；同一文件第二个会话 `saving`；完整性检查（截断的 zip、CRC 错、缺 `word/document.xml`、XML 不闭合、带 `vbaProject.bin`、声明 10 001 个条目、解压后超 200 MiB 的 zip 炸弹）；备份命名（同秒 `-2`）、只保留 3 份、**不删**用户自己的 `报告.bak.docx`、`报告-副本.bak-20261009-110400.docx`、别的原名的备份；备份失败不保存；替换失败原文件不变；save_as 不备份、不能写进 `uploads`；保存后副本、`result.sizeBytes`、旧 `/local/<token>` 404。
+- **真机待验证**（加在 6.12.46 的表后面）：
+
+| # | 项目 | 怎么验证 | 不通过怎么办 |
+|---|---|---|---|
+| 4 | `ReplaceFileW` 替换 docx：本地盘、U 盘、网络盘；Word 正开着这个 docx 时（应返回 `in_use`，原文件不变）；替换后资源管理器里的属性、创建时间 | Windows 上各种盘保存；Word 开着时保存 | 改用 `MoveFileExW`，接受属性丢失 |
+| 5 | 备份清理：连续保存 5 次只剩 3 份；同秒两次保存出现 `-2`；用户自己改名的 `.bak` 文件不被删；中文、空格、括号的原名 | 手动连续保存，看文件夹 | 修正匹配规则 |
+| 6 | 20 MiB 文件分段上传耗时：4 MiB 一段（base64 后约 5.6 MB 一次 Bind 调用）在 Windows WebView2 上是否稳定、总耗时（目标 < 5 秒） | 保存一个 19 MiB 的 docx，记录每段耗时 | 后端把 `maxChunkBytes` 调小（前端按返回值分段，不用改） |
+
+
+### 6.12.54 打开文档组件所在文件夹（`OpenStorageFolder("doc_component")`，v0.27.2）
+
+- **`SystemService.OpenStorageFolder(kind)` 新增 `kind="doc_component"`**：在系统文件管理器里打开**应用下载的文档组件目录**本身——`<组件目录>/doc/<正在用的版本>/`（Windows `%LocalAppData%\FFmpegFree\components\doc\26.2.6\`，macOS `~/Library/Application Support/FFmpegFree/components/doc/26.2.6/`；组件目录见 6.12.12）。平台命令同 6.15.2 第 6 条的“打开文件夹”分支（Windows `explorer.exe "<dir>"`，macOS `open <dir>`），命令启动后立即返回。签名不变（只是多一个取值），Wails 绑定不用重新生成。
+- **只在“正在用应用下载的文档组件”时可用**：`componentState=ready` 且 `engines` 里 `id=component` 那一项的 `source=downloaded`（`DocComponentStatus.source` 是“排第一个的引擎”，可能是 `office` / `wps`，所以**不看顶层 `source`**，看 `engines` 里组件那一项）。其他情况——组件检测中、没下载、下载 / 准备中、失败、版本太旧（6.12.55），或者用的是系统安装的 LibreOffice，或者目录不在了——一律 `NOT_FOUND`，message `文档组件还没有就绪。`，`detail` 只有一行 `reason=component`（沿用 v0.25.1 转换组件同一个 reason；**不带路径**）。Office / WPS 是用户自己的软件，不提供打开它们所在文件夹。
+- **前端**：设置页“文档组件”一块的「打开所在文件夹」**只在 `componentState=ready` 且组件那一项 `source=downloaded` 时显示**；收到上面的错误（状态刚好变了）显示 message 即可。
+- **不加进 `RevealInFolder` 的放行范围**（6.8 不变），路径不回给前端（同 v0.25.1 的 `component`）。Linux 没有应用下载的组件，恒为 `NOT_FOUND` `reason=component`（前端也不会显示这个按钮）。
+
+### 6.12.55 应用下载的文档组件版本太旧（Windows / macOS，v0.27.2）
+
+- **契约写死的版本是 26.2.6**（6.12.11 / 6.12.12）。检测时扫描 `<组件目录>/doc/` 下所有不带 `.staging` 的版本目录；某个目录里的组件按 6.12.12 的方式读出版本，**前三段数字小于 `26.2.6`**（`26.2.6.3` 按 `26.2.6` 比；例如以前的版本留下的 `doc/26.2.5/`）就是“版本太旧”的候选。系统安装的仍按原规则（主版本 ≥ 7.2，6.12.11），**不要求 26.2.6**。
+- **什么时候是 `componentState=outdated`**：沿用 9.4 转换组件的原则——**版本过低的候选只在没有任何合格候选时才算**。所以：有合格的系统 LibreOffice 时是 `ready`（`source=system`），旧的下载组件不用；没有任何合格候选、但有太旧的下载组件时是 `componentState=outdated`。系统 LibreOffice 低于 7.2 的 `outdated`（v0.26 / v0.27 已有）不变。
+- **`outdated` 时**：`canDownload=true`（Windows x64、macOS 本来就是 true；**允许调 `InstallDocComponent`**，下载 26.2.6，装好后变 `ready` 并删掉旧的 `doc/<旧版本>/` 目录，删不掉只记日志）；`version` 是那个旧版本号；`engines` 里组件那一项 `installed=true`、`available=false`、`source=downloaded`、`version` 为旧版本；`error` 为 `DOC_COMPONENT_NOT_READY`，message `文档组件版本太旧，请重新下载。`（建议，待产品定），`detail` 第一行 `reason=outdated`。`state`（整体）仍按 6.12.28：有 Office / WPS 可用就是 `ready`，否则等于 `componentState`（`outdated`）。
+- **提交任务**（`SubmitDocConvert`、任务开始时的兜底、6.12.33 的回退）：需要文档组件、又没有别的可用引擎时返回 `DOC_COMPONENT_NOT_READY`；**`detail` 第一行写 `reason=<componentState>`**（架构师定：`missing` / `outdated` / `downloading` / `preparing` / `failed` / `checking`，组件太旧时就是 `reason=outdated`），message 在 `outdated` 时是上面那句，其他情况不变（6.12.20）。
+- **预览**（`GetDocPreview`）：**沿用已有定义，不改成报错**——没有可用引擎时仍是 `kind=unavailable` + `reason=needs_component`（6.12.32），不是 `DOC_COMPONENT_NOT_READY`。前端在 `componentState=outdated` 时把提示换成 `文档组件版本太旧，请重新下载。` + 「更新文档组件」（按钮文字建议，待产品定；点了调 `InstallDocComponent`）。
+- 格式表（`GetFormatMatrix`）：`componentReady=false`，需要组件的目标置灰，`disabledReason` 仍是 `需要文档组件`（不新增 hintKey）。
+- Linux 不变（没有下载组件）。
+
+### 6.12.56 `doc_convert` 记录的 `startedAt`（v0.27.2）
+
+- `Task.startedAt`（第 3 节，已有字段，`tasks.started_at` 已有列）**`doc_convert` 必须填**：任务**离开排队、真正开始处理**的时刻（Unix 毫秒）——进文档组件池 / 本机办公软件池的任务是**拿到池名额、开始挑引擎启动转换的时刻**；不进池的（md ↔ html）是开始运行的时刻。同时发 `running` 的 `task:status`，带 `startedAt`（6 节已有规则）。
+- **排队中为 0**（JSON 里 `startedAt: 0`；事件里按已有规则省略）。排队中被取消、退出时还在排队而被中断的记录 `startedAt` 保持 0（同第 6 节已有规则）。
+- 原地重试（`Retry`）把它清回 0，重新开始时再填；重转（6.17）按已有规则：重转期间对外仍是旧值，成功后是这次的开始时间，失败恢复旧值。
+- 引擎回退（Office → WPS → 组件，6.12.25）**不重新填**：`startedAt` 是第一次开始处理的时间。
+- `office_pdf`（简易转换）沿用同一规则。**没有迁移**（字段和列都已有，只是把“必须填”写死）。
+
+### 6.12.57 准备阶段的取消（说明，v0.27.2）
+
+- 契约**仍允许**在 `preparing`（解包、检测）时调 `CancelDocComponentInstall`（6.12.12 第 5 条，规则不变）。
+- **前端可以不提供**准备阶段的取消按钮（按设计稿：准备通常一两分钟，中途取消意义不大）；下载阶段的取消照旧。后端不因为前端不调而改变任何行为。
 
 ## 6.13 本地资源访问 `/local/<token>`（中立章节，DocService 与转换记录共用；由 #22 引入，#23 引用，v0.23 加 `convert` 表；v0.23.5 删除 `edit` 表）
 
@@ -2718,7 +2940,7 @@ type StorageDirsUpdate struct {         // SetStorageDirs 的参数：两个字�
 // SystemService（v0.24 新增）
 GetStorageDirs() (StorageDirs, error)
 SetStorageDirs(req StorageDirsUpdate) (StorageDirs, error)
-OpenStorageFolder(kind string) error   // kind = "output" | "uploads" | "component"（v0.25.1）
+OpenStorageFolder(kind string) error   // kind = "output" | "uploads" | "component"（v0.25.1）| "doc_component"（v0.27.2，6.12.54）
 ```
 
 1. **一个读、一个写**：前端（设置页、转换页的“保存到”）只用 `GetStorageDirs` / `SetStorageDirs`。只改一个目录时，另一个传 `GetStorageDirs` 里的当前值（自定义的传路径，没自定义的传 `""`）。
