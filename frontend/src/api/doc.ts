@@ -203,7 +203,7 @@ const simHandles = new Map<string, PDFSource>()
 let simSeq = 0
 
 /** 模拟用的最小 PDF 字节（每页一行“演示 PDF”文字；pdf.js 能重建缺失的 xref，所以不写 xref 表）。pages 缺省 1 页 */
-function simPdfBytes(size: number, pages = 1): Uint8Array {
+export function simPdfBytes(size: number, pages = 1): Uint8Array {
   const kids = Array.from({ length: pages }, (_, i) => `${6 + i * 2} 0 R`).join(' ')
   let body = `%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[${kids}]/Count ${pages}>>endobj\n5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n`
   for (let i = 0; i < pages; i++) {

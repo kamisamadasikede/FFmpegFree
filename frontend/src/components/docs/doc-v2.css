@@ -125,3 +125,10 @@ html.dark{
 .cv2.dc-page{flex:1;min-width:0}
 /* v0.27 成功记录上的结果警告（simple_fallback 等） */
 .cv2 .cv-kid .dc-rwarn{margin-top:6px}
+
+/* ===== v0.27：封面可点预览、记录的引擎行（设计场景 22） ===== */
+.dc-covbtn{padding:0;border:0;background:transparent;cursor:zoom-in;border-radius:6px;flex:none;display:inline-flex}
+.dc-covbtn:focus-visible{outline:2px solid var(--ff-primary);outline-offset:2px}
+.dc-eng{display:flex;align-items:center;gap:4px;margin-top:2px;font-size:12px;line-height:16px;color:var(--ff-text-2);min-width:0}
+.dc-eng svg{width:12px;height:12px;flex:none;color:var(--ff-text-3)}
+.dc-eng span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

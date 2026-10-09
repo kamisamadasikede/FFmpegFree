@@ -13,19 +13,28 @@
     "check:copy": "node scripts/check-copy-words.mjs"
   },
   "dependencies": {
+    "@docx-editor.dev/core": "^2.27.0",
+    "@docx-editor.dev/vue": "^2.27.0",
     "@element-plus/icons-vue": "^2.3.1",
     "@tato30/vue-pdf": "^1.11.4",
     "@wailsapp/runtime": "^1.1.1",
+    "docx-preview": "^0.4.1",
+    "dompurify": "^3.4.16",
     "element-plus": "^2.10.2",
+    "jszip": "^3.10.2",
+    "markdown-it": "^14.3.2",
     "monaco-editor": "^0.45.0",
     "mpegts.js": "1.8.2",
     "pinia": "^3.0.3",
     "vue": "^3.5.13",
-    "vue-router": "^4.5.1"
+    "vue-router": "^4.5.1",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
+    "@types/markdown-it": "^14.2.0",
     "@types/node": "^20.17.0",
     "@vitejs/plugin-vue": "^5.2.1",
+    "jsdom": "^25.0.1",
     "typescript": "~5.6.3",
     "vite": "^5.4.14",
     "vue-tsc": "^2.2.0"
