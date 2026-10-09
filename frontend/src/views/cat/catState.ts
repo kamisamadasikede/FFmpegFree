@@ -41,6 +41,7 @@ import {
 } from '@/api/catMock'
 import { applyStreamEvent, newStreamMsg, type CatStreamEvent, type CatStreamMsg, type CatTurnEvent } from '@/api/catStream'
 import { AppError, toAppError } from '@/api/call'
+import { catSim, simStream } from './catDevSim'
 
 export const NEW_CONV = 'new'
 
@@ -65,7 +66,7 @@ export const catState = reactive({
   mode: 'cat_build',
   workInProject: true,
   sel: live ? NEW_CONV : 'c31',
-  projects: (live ? [] : mockProjects()) as CatProject[],
+  projects: (live || (import.meta.env.DEV && catSim.has('noproj')) ? [] : mockProjects()) as CatProject[],
   plain: (live ? [] : mockPlainConvs()) as CatConv[],
   messages: {} as Record<string, CatBlock[]>,
   /** 新对话正在创建（欢迎页输入框忙） */
@@ -73,8 +74,10 @@ export const catState = reactive({
   /** 进行中的回复，按会话 id */
   turns: {} as Record<string, CatTurnState>,
   /** 组件状态；非 ready 时显示未就绪横条（无下载按钮）；浏览器走查直接按 missing，避免短暂可点发送 */
-  status: (live
+  status: (live || (import.meta.env.DEV && catSim.has('checking'))
     ? { state: 'checking', version: '', canDownload: false, error: null }
+    : (import.meta.env.DEV && catSim.has('stream'))
+      ? { state: 'ready', version: '', canDownload: false, error: null }
     : { state: 'missing', version: '', canDownload: false, error: { code: 'CAT_NOT_READY', message: CAT_COPY.notReady } }) as CatStatus,
   /** 当前会话 agentKind 对应的能力列表（不造假） */
   models: [] as CatModel[],
@@ -104,6 +107,9 @@ export const accessShort = computed(() => CAT_ACCESS.find((a) => a.id === catSta
 
 /** 组件没准备好（检测中不算）：显示未就绪横条 */
 export const catNotReady = computed(() => catState.status.state === 'missing' || catState.status.state === 'failed')
+
+/** 组件检查中：不显示横条，但发送置灰（产品：别让用户点了才被拒） */
+export const catChecking = computed(() => catState.status.state === 'checking')
 
 export function findConv(id: string): { project?: CatProject; conv: CatConv } | null {
   for (const p of catState.projects) {
@@ -190,9 +196,13 @@ export function initCat(): () => void {
     onCatMessage(handleMessageEvent),
     onCatTurn(handleTurnEvent),
   ]
-  void getCatStatus()
-    .then((s) => (catState.status = s))
-    .catch(() => (catState.status = { state: 'missing', version: '', canDownload: false, error: { code: 'CAT_NOT_READY', message: CAT_COPY.notReady } }))
+  // 开发走查（?cat_sim=checking|stream）：保持模拟的组件状态，不被浏览器 mock 的 missing 覆盖
+  const simStatus = import.meta.env.DEV && (catSim.has('checking') || catSim.has('stream'))
+  if (!simStatus) {
+    void getCatStatus()
+      .then((s) => (catState.status = s))
+      .catch(() => (catState.status = { state: 'missing', version: '', canDownload: false, error: { code: 'CAT_NOT_READY', message: CAT_COPY.notReady } }))
+  }
   if (live) void reloadConversations()
   return disposeCat
 }
@@ -302,6 +312,8 @@ export async function sendMessage(text: string) {
   if (!t || catState.creating) return
   let id = catState.sel
   if (id !== NEW_CONV && catState.turns[id]) return
+  // 检查中：按钮已置灰；回车等其它入口也直接忽略
+  if (catState.status.state === 'checking') return
   // 组件未就绪：只展示定稿文案，不启一轮、不造假流式回复（产品锁定）
   if (catState.status.state === 'missing' || catState.status.state === 'failed') {
     if (id === NEW_CONV) {
@@ -344,6 +356,11 @@ export async function sendMessage(text: string) {
   const token = ++seq
   catState.turns[id] = { token, turnId: '', status: 'running', assistantId: '' }
 
+  if (import.meta.env.DEV && catSim.has('stream')) {
+    // 仅 vite dev + 纯浏览器 + ?cat_sim=stream（见 catDevSim.ts）；正式包里 catSim 恒为空
+    simStream(id, handleMessageEvent, handleTurnEvent, () => catState.turns[id]?.token !== token || catState.turns[id]?.status === 'stopping')
+    return
+  }
   try {
     const res = await sendCatMessage({
       conversationId: id,
