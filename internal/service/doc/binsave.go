@@ -66,6 +66,7 @@ type binarySaveSession struct {
 	id         string
 	target     *editTarget
 	mode       string // overwrite | save_as
+	own        bool   // save_as 的目标就是这一行自己的原文件 / 输出：按覆盖保存（备份 + 刷新这一行）
 	targetPath string
 	revision   string
 	total      int64
@@ -158,6 +159,8 @@ func (s *Service) BeginDocBinarySave(ctx context.Context, req DocBinarySaveBegin
 		return DocBinarySaveSession{}, apperr.New(apperr.InvalidArgument, "只能保存成同一种格式。").WithDetail("reason=format")
 	}
 	targetPath := t.WritePath
+	revision := req.Revision
+	own := false
 	if req.Mode == "save_as" {
 		if err := s.validateSaveAsPath(ctx, req.TargetPath); err != nil {
 			return DocBinarySaveSession{}, err
@@ -166,8 +169,18 @@ func (s *Service) BeginDocBinarySave(ctx context.Context, req DocBinarySaveBegin
 		if normExt(filepath.Ext(targetPath)) != "docx" {
 			return DocBinarySaveSession{}, apperr.New(apperr.InvalidArgument, "只能保存成同一种格式。").WithDetail("reason=format")
 		}
-		if err := s.conflictIfTargetBusy(ctx, targetPath); err != nil {
+		o, err := s.saveAsTargetCheck(ctx, t, targetPath)
+		if err != nil {
 			return DocBinarySaveSession{}, err
+		}
+		own = o
+		if own {
+			// 当作覆盖保存：记下现在的内容，提交时按同样的规则备份（文件在这之间被改过 → file_changed）
+			if sum, _, err := fileSHA256(targetPath); err == nil {
+				revision = sum
+			} else if !os.IsNotExist(err) {
+				return DocBinarySaveSession{}, mapReadWriteErr(err)
+			}
 		}
 	} else {
 		if t.MissingOrig {
@@ -217,7 +230,7 @@ func (s *Service) BeginDocBinarySave(ctx context.Context, req DocBinarySaveBegin
 	}
 	exp := time.Now().Add(binarySaveTTL)
 	sess := &binarySaveSession{
-		id: id, target: t, mode: req.Mode, targetPath: targetPath, revision: req.Revision,
+		id: id, target: t, mode: req.Mode, own: own, targetPath: targetPath, revision: revision,
 		total: req.TotalBytes, expires: exp, dir: dir, part: part, file: f, writeKey: writeKey,
 	}
 	h.sessions[id] = sess
@@ -325,15 +338,16 @@ func (s *Service) CommitDocBinarySave(ctx context.Context, req DocBinarySaveComm
 	}
 	if sess.mode == "save_as" {
 		// Begin 之后目标可能被别的记录用上：提交前再查一次
-		if err := s.conflictIfTargetBusy(ctx, sess.targetPath); err != nil {
+		if _, err := s.saveAsTargetCheck(ctx, sess.target, sess.targetPath); err != nil {
 			return DocBinarySaveResult{}, err
 		}
 	}
 	if err := validateDocxForSave(sess.part); err != nil {
 		return DocBinarySaveResult{}, err
 	}
+	overwriteLike := sess.mode == "overwrite" || sess.own
 	var backupPath string
-	if sess.mode == "overwrite" {
+	if overwriteLike && sess.revision != "" {
 		bp, err := backupDocxOverwrite(sess.targetPath, sess.revision)
 		if err != nil {
 			return DocBinarySaveResult{}, err
@@ -345,15 +359,15 @@ func (s *Service) CommitDocBinarySave(ctx context.Context, req DocBinarySaveComm
 	if err := copyAtomic(sess.part, sess.targetPath); err != nil {
 		return DocBinarySaveResult{}, err
 	}
-	if sess.mode == "overwrite" {
+	if backupPath != "" {
 		pruneDocxBackups(sess.targetPath)
 	}
 	s.allowReveal(sess.targetPath)
 	if backupPath != "" {
 		s.allowReveal(backupPath)
 	}
-	if sess.mode == "overwrite" {
-		// 只有写回原位置时才刷新副本 / 结果大小；另存为写的是别的位置，不能动原行的副本
+	if overwriteLike {
+		// 只有写回这一行自己的原文件 / 输出时才刷新副本 / 结果大小；另存为写到别的位置，不能动原行的副本
 		data, _ := os.ReadFile(sess.targetPath)
 		s.afterTextSave(ctx, sess.target, data)
 	}

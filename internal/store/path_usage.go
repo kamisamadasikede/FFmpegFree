@@ -31,6 +31,12 @@ func likeSuffix(base string) string {
 // TargetPathUsage 查 target 是否已被源文件行 / 记录（输入或输出）/ 副本用着。
 // 用文件名做 LIKE 粗筛，再在 Go 里按 paths.Normalize 的 key 精确比较。
 func (s *Store) TargetPathUsage(ctx context.Context, target string) (PathUsage, error) {
+	return s.TargetPathUsageExcept(ctx, target, "", "")
+}
+
+// TargetPathUsageExcept 同 TargetPathUsage，但 ownSourceID 那一行的原文件、ownTaskID 那条记录的输出不算 InUse
+// （另存为写回正在编辑的这一行自己，按覆盖保存处理，架构师定 6.12.42）。Converting 不排除：自己这一行正在转换也要拒绝。
+func (s *Store) TargetPathUsageExcept(ctx context.Context, target, ownSourceID, ownTaskID string) (PathUsage, error) {
 	var u PathUsage
 	key := pathKeyOf(target)
 	if key == "" {
@@ -39,10 +45,27 @@ func (s *Store) TargetPathUsage(ctx context.Context, target string) (PathUsage, 
 	base := filepath.Base(target)
 
 	// 1) 源文件行的原文件
-	var srcID string
-	err := s.db.QueryRowContext(ctx, `SELECT id FROM convert_sources WHERE path_key = ?`, key).Scan(&srcID)
-	if err == nil {
-		u.InUse = true
+	srows, err := s.db.QueryContext(ctx, `SELECT id FROM convert_sources WHERE path_key = ?`, key)
+	if err != nil {
+		return u, fmt.Errorf("查询源文件行失败: %w", err)
+	}
+	var srcIDs []string
+	for srows.Next() {
+		var id string
+		if err := srows.Scan(&id); err != nil {
+			srows.Close()
+			return u, err
+		}
+		srcIDs = append(srcIDs, id)
+	}
+	srows.Close()
+	if err := srows.Err(); err != nil {
+		return u, err
+	}
+	for _, srcID := range srcIDs {
+		if ownSourceID == "" || srcID != ownSourceID {
+			u.InUse = true
+		}
 		if has, e := s.SourceHasActiveTasks(ctx, srcID); e == nil && has {
 			u.Converting = true
 		}
@@ -50,22 +73,24 @@ func (s *Store) TargetPathUsage(ctx context.Context, target string) (PathUsage, 
 
 	// 2) 任务的输入 / 输出
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT status, reconverting, output_path, input_paths FROM tasks
+		`SELECT id, status, reconverting, output_path, input_paths FROM tasks
 		 WHERE (output_path <> '' AND output_path LIKE ? ESCAPE '\') OR input_paths LIKE ? ESCAPE '\' LIMIT 1000`,
 		likeSuffix(base), likeSuffix(base))
 	if err != nil {
 		return u, fmt.Errorf("查询任务路径失败: %w", err)
 	}
 	for rows.Next() {
-		var status, out, inputs string
+		var id, status, out, inputs string
 		var reconv int
-		if err := rows.Scan(&status, &reconv, &out, &inputs); err != nil {
+		if err := rows.Scan(&id, &status, &reconv, &out, &inputs); err != nil {
 			rows.Close()
 			return u, err
 		}
 		active := status == "queued" || status == "running"
 		if out != "" && pathKeyOf(out) == key {
-			u.InUse = true
+			if ownTaskID == "" || id != ownTaskID {
+				u.InUse = true
+			}
 			if active || reconv != 0 {
 				u.Converting = true
 			}
