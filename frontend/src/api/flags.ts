@@ -87,13 +87,13 @@ export const LANG_BACKEND_READY: boolean = true
 export const LOGIN_UI_ENABLED: boolean = false
 
 /**
- * Cat 聊天页（原型 cat-v3 / 说明 v0.3）。默认 false：正式预览包不出现侧栏「Cat」入口，直达 #/cat 也回到转换页。
- * 改成 true：侧栏「语音工具」后出现「Cat」，路由 /cat 可达（内部看布局用）。
+ * Cat 助手页（设计 v0.4 / 契约 v0.30）。默认 false：正式包不出现侧栏「Cat」，直达 #/cat 也回到转换页。
+ * 预览包可临时改 true：侧栏「语音工具」后出现「Cat」。
  */
 export const CAT_UI_ENABLED: boolean = false
 
 /**
- * Cat 后端（架构未定）。false = 所有数据来自 api/catMock.ts，发消息只在本地生成一条示意回复，不调用任何绑定。
- * 后端落地后改成 true，并在 api/cat.ts 里接真实绑定；页面不用动。
+ * Cat 真绑定（契约 §6.19）。false = api/cat.ts 走 typed mock（模型/强度为空、发送未就绪文案）；不调 Wails。
+ * 后端骨架合入并生成 CatService 绑定后改 true（下一 PR）；本 PR 保持 false。
  */
 export const CAT_BACKEND_READY: boolean = false
