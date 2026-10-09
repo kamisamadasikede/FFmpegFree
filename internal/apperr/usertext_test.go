@@ -212,4 +212,4 @@ var allCodesForTest = []Code{InvalidArgument, NotFound, FFmpegNotFound, TaskConf
 	DocComponentInstallFailed, DocFormatUnsupported, DocPDFInputUnsupported,
 	DocPresentationBusy, DocEngineBusy, DocPDFNoText,
 	LangAsrNotReady, LangAsrEmpty, LangAsrFailed, LangDownloadFailed, LangChecksumFailed,
-	CatNotReady, CatReplyFailed}
+	CatNotReady, CatReplyFailed, CatProjectMissing}

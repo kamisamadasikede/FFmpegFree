@@ -351,6 +351,7 @@ func (a *App) startCat() {
 		DefaultAgentKind: func(ctx context.Context) string {
 			return a.sys.CatDefaultAgentKind(ctx)
 		},
+		OpenFolder: a.sys.OpenFolder, // v0.31.1 RevealCatProject：同 OpenStorageFolder 的打开目录分支
 	}
 	if a.store != nil {
 		cfg.Store = a.store

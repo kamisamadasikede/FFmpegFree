@@ -117,3 +117,59 @@ func (s *CatService) CancelCatTurn(req catagent.CancelCatTurnRequest) error {
 	}
 	return c.CancelCatTurn(s.rootCtx(), req)
 }
+
+// ---------- 项目（契约 v0.31，6.19.10） ----------
+
+// ListCatProjects 返回全部项目，missing 实时计算；没有项目返回空数组。
+func (s *CatService) ListCatProjects() ([]cat.Project, error) {
+	c, err := s.svc()
+	if err != nil {
+		return nil, err
+	}
+	return c.ListCatProjects(s.rootCtx())
+}
+
+// CreateCatProject 建项目；同一文件夹已建过 → 返回已有项目 existed=true。
+func (s *CatService) CreateCatProject(req cat.CreateProjectRequest) (cat.CreateProjectResult, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.CreateProjectResult{}, err
+	}
+	return c.CreateCatProject(s.rootCtx(), req)
+}
+
+// RenameCatProject 改项目名。
+func (s *CatService) RenameCatProject(req cat.RenameProjectRequest) (cat.Project, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.Project{}, err
+	}
+	return c.RenameCatProject(s.rootCtx(), req)
+}
+
+// DeleteCatProject 删除项目及其下对话（不动文件夹里的文件）；未知 id 幂等返回 nil。
+func (s *CatService) DeleteCatProject(req cat.DeleteProjectRequest) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.DeleteCatProject(s.rootCtx(), req)
+}
+
+// RelocateCatProject 换项目文件夹（v0.31.1）：对话保留、名字不变；missing 的项目也可以。
+func (s *CatService) RelocateCatProject(req cat.RelocateProjectRequest) (cat.Project, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.Project{}, err
+	}
+	return c.RelocateCatProject(s.rootCtx(), req)
+}
+
+// RevealCatProject 在系统文件管理器里打开项目文件夹（v0.31.1）；只收 id。
+func (s *CatService) RevealCatProject(req cat.RevealProjectRequest) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.RevealCatProject(s.rootCtx(), req)
+}

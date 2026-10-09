@@ -24,10 +24,13 @@ type ConversationDetail struct {
 
 // CreateConversationRequest 创建会话。
 type CreateConversationRequest struct {
-	AgentKind   string `json:"agentKind"`
-	Title       string `json:"title"`
+	AgentKind string `json:"agentKind"`
+	Title     string `json:"title"`
+	// ProjectPath 自 v0.31 作废：后端忽略，只为绑定兼容保留（6.19.10.1 第 3 条）。
 	ProjectPath string `json:"projectPath"`
 	AccessMode  string `json:"accessMode"` // 一期只接受 ask / 空
+	// ProjectID 是所属项目（v0.31，可选；空 = 不属于任何项目）。创建后不可变。
+	ProjectID string `json:"projectId,omitempty"`
 }
 
 // SendMessageRequest 发送消息。
@@ -36,7 +39,8 @@ type SendMessageRequest struct {
 	Content        string `json:"content"`
 	ModelID        string `json:"modelId"`
 	ThinkLevelID   string `json:"thinkLevelId"`
-	ProjectPath    string `json:"projectPath"`
+	// ProjectPath 自 v0.31 作废：后端忽略，只读工具的根只来自对话所属项目（6.19.10.5）。
+	ProjectPath string `json:"projectPath"`
 }
 
 // SendMessageResult 是 SendCatMessage 返回值。
@@ -51,3 +55,50 @@ type SendMessageResult struct {
 
 // CancelTurnRequest 是 CancelCatTurn 入参（契约 6.19.9）。
 type CancelTurnRequest = catagent.CancelCatTurnRequest
+
+// Project 是 CatProject（契约 6.19.10.1）。missing 由后端实时计算，不落库，始终输出。
+type Project struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	CreatedAt int64  `json:"createdAt"`
+	UpdatedAt int64  `json:"updatedAt"`
+	Missing   bool   `json:"missing"`
+}
+
+// CreateProjectRequest 是 CreateCatProjectRequest。
+type CreateProjectRequest struct {
+	Path string `json:"path"`
+	Name string `json:"name,omitempty"`
+}
+
+// CreateProjectResult 是 CreateCatProjectResult：existed=true 表示这个路径已经建过项目，返回的是已有的那个。
+type CreateProjectResult struct {
+	Project Project `json:"project"`
+	Existed bool    `json:"existed"`
+}
+
+// RenameProjectRequest 是 RenameCatProjectRequest。
+type RenameProjectRequest struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// DeleteProjectRequest 是 DeleteCatProjectRequest。
+type DeleteProjectRequest struct {
+	ID string `json:"id"`
+}
+
+// RelocateProjectRequest 是 RelocateCatProjectRequest（v0.31.1）。
+type RelocateProjectRequest struct {
+	ID   string `json:"id"`
+	Path string `json:"path"`
+}
+
+// RevealProjectRequest 是 RevealCatProjectRequest（v0.31.1）。
+type RevealProjectRequest struct {
+	ID string `json:"id"`
+}
+
+// ProjectEvent 是 cat:project 载荷。
+type ProjectEvent = catagent.ProjectEvent

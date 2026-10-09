@@ -5,8 +5,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"FFmpegFree/internal/apperr"
@@ -23,6 +25,12 @@ type Config struct {
 	Logf     func(format string, args ...any)
 	// DefaultAgentKind 读取设置里的新建会话预填（默认 cat_build）。
 	DefaultAgentKind func(ctx context.Context) string
+	// Stat 判断项目文件夹是否还在（6.19.10.4）；nil = os.Stat。测试可注入慢 / 失败的 stat。
+	Stat func(path string) (os.FileInfo, error)
+	// StatTimeout 是每个项目路径 stat 的最长等待；0 = DefaultProjectStatTimeout（2 秒）。
+	StatTimeout time.Duration
+	// OpenFolder 在系统文件管理器里打开文件夹本身（v0.31.1 RevealCatProject）；app 里接 system.Manager.OpenFolder，测试注入。
+	OpenFolder func(dir string) error
 }
 
 // Service 是 CatService。
@@ -32,6 +40,10 @@ type Service struct {
 	mu    sync.Mutex
 	turns map[string]*turnState // convId → 进行中的一轮（同会话同时只有一轮）
 	wg    sync.WaitGroup        // 后台回合，测试 / 关闭时可等待
+
+	statTimeout time.Duration
+	projMu      sync.Mutex
+	projMissing map[string]bool // 项目 id → 上一次计算的 missing（6.19.10.3）
 }
 
 // turnState 是一轮进行中的回复。终态事件只发一次；终态后丢弃迟到增量。
@@ -39,6 +51,7 @@ type turnState struct {
 	convID string
 	turnID string
 	cancel context.CancelFunc
+	done   chan struct{} // 后台 runTurn 返回后关闭（含已出文字落库）
 
 	mu       sync.Mutex
 	msgID    string          // 本轮助手正文 messageId（落库同 id）
@@ -58,7 +71,11 @@ func New(cfg Config) *Service {
 	if cfg.Registry == nil {
 		cfg.Registry = catagent.NewRegistry()
 	}
-	return &Service{cfg: cfg, turns: map[string]*turnState{}}
+	st := cfg.StatTimeout
+	if st <= 0 {
+		st = DefaultProjectStatTimeout
+	}
+	return &Service{cfg: cfg, turns: map[string]*turnState{}, statTimeout: st, projMissing: map[string]bool{}}
 }
 
 func (s *Service) emit(event string, payload any) {
@@ -173,12 +190,26 @@ func (s *Service) CreateCatConversation(ctx context.Context, req CreateConversat
 	if access != catagent.AccessAsk {
 		return Conversation{}, apperr.New(apperr.InvalidArgument, "当前只能使用请求批准")
 	}
+	// v0.31：projectId 校验在 agentKind 之后（6.19.10.2 第 5 条）；req.ProjectPath 作废、忽略。
+	projectID := strings.TrimSpace(req.ProjectID)
+	if projectID != "" {
+		row, err := s.cfg.Store.GetCatProject(ctx, projectID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return Conversation{}, errProjectNotFound()
+		}
+		if err != nil {
+			return Conversation{}, apperr.Wrap(apperr.IOError, "读取项目失败", err)
+		}
+		if s.checkProject(row).Missing {
+			return Conversation{}, errProjectMissing()
+		}
+	}
 	title := strings.TrimSpace(req.Title)
 	c, err := s.cfg.Store.InsertCatConversation(ctx, store.CatConversation{
-		Title:       title,
-		AgentKind:   kind,
-		AccessMode:  access,
-		ProjectPath: strings.TrimSpace(req.ProjectPath),
+		Title:      title,
+		AgentKind:  kind,
+		AccessMode: access,
+		ProjectID:  projectID,
 	})
 	if err != nil {
 		return Conversation{}, apperr.Wrap(apperr.IOError, "创建会话失败", err)
@@ -193,7 +224,7 @@ func (s *Service) DeleteCatConversation(ctx context.Context, convID string) erro
 	if strings.TrimSpace(convID) == "" {
 		return apperr.New(apperr.InvalidArgument, "会话编号不能为空")
 	}
-	s.cancelTurn(convID, "")
+	s.cancelTurnAndWait(convID)
 	err := s.cfg.Store.DeleteCatConversation(ctx, convID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return apperr.New(apperr.NotFound, "找不到这个会话")
@@ -234,15 +265,23 @@ func (s *Service) SendCatMessage(ctx context.Context, req SendMessageRequest) (S
 	if a.Status().State != catagent.StateReady {
 		return SendMessageResult{}, apperr.New(apperr.CatNotReady, catagent.MsgNotReady)
 	}
+	// v0.31（6.19.10.2 第 6 条）：会话属于项目时实时检查文件夹；missing 同步返回，不启 turn、不存用户消息、不发事件。
+	// 只读工具的根只来自所属项目（6.19.10.5）；不属于项目 → 根为空，项目工具一律拒绝。req.ProjectPath 作废、忽略。
+	projectRoot := ""
+	if c.ProjectID != "" {
+		p, err := s.projectForConversation(ctx, c.ProjectID)
+		if err != nil {
+			return SendMessageResult{}, err
+		}
+		projectRoot = p.Path
+	}
 
 	userMsg, err := s.cfg.Store.InsertCatMessage(ctx, c.ID, store.CatMessage{Role: "user", Content: content})
 	if err != nil {
 		return SendMessageResult{}, apperr.Wrap(apperr.IOError, "保存消息失败", err)
 	}
 	if c.Title == "" {
-		_ = s.cfg.Store.TouchCatConversation(ctx, c.ID, titleFrom(content), req.ProjectPath)
-	} else if req.ProjectPath != "" {
-		_ = s.cfg.Store.TouchCatConversation(ctx, c.ID, "", req.ProjectPath)
+		_ = s.cfg.Store.TouchCatConversation(ctx, c.ID, titleFrom(content))
 	}
 
 	hist, err := s.cfg.Store.ListCatMessages(ctx, c.ID)
@@ -253,25 +292,22 @@ func (s *Service) SendCatMessage(ctx context.Context, req SendMessageRequest) (S
 	for _, m := range hist {
 		wires = append(wires, catagent.WireMessage{Role: m.Role, Content: m.Content})
 	}
-	projectPath := req.ProjectPath
-	if projectPath == "" {
-		projectPath = c.ProjectPath
-	}
 
 	// 回合生命周期与调用方 ctx 解耦（绑定层传入的是应用根 ctx，取消只走 CancelCatTurn）。
 	turnCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	t := &turnState{convID: c.ID, turnID: id.New(), cancel: cancel, msgID: id.New()}
+	t := &turnState{convID: c.ID, turnID: id.New(), cancel: cancel, msgID: id.New(), done: make(chan struct{})}
 	s.setTurn(t)
 	s.emit(catagent.EventTurn, catagent.TurnEvent{ConvID: t.convID, TurnID: t.turnID, Status: catagent.TurnRunning})
 
 	opts := catagent.TurnOptions{
 		Ctx: turnCtx, ConversationID: c.ID, TurnID: t.turnID,
 		ModelID: req.ModelID, ThinkLevelID: req.ThinkLevelID,
-		ProjectPath: projectPath, Messages: wires,
+		ProjectPath: projectRoot, Messages: wires,
 	}
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
+		defer close(t.done)
 		s.runTurn(turnCtx, t, a, opts)
 	}()
 	return SendMessageResult{UserMessage: userMsg, TurnID: t.turnID}, nil
@@ -451,8 +487,28 @@ func (s *Service) clearTurn(t *turnState) {
 	t.cancel()
 }
 
+// turnWaitLimit 是删除会话 / 项目时等后台一轮收尾的上限。
+const turnWaitLimit = 5 * time.Second
+
+// cancelTurnAndWait 取消会话当前一轮，并等后台收尾（已出文字落库）后再返回，避免删除后又写回消息。
+func (s *Service) cancelTurnAndWait(convID string) {
+	t := s.cancelTurnState(convID, "")
+	if t == nil || t.done == nil {
+		return
+	}
+	select {
+	case <-t.done:
+	case <-time.After(turnWaitLimit):
+		s.cfg.Logf("cat turn %s did not finish within %s after cancel", t.turnID, turnWaitLimit)
+	}
+}
+
 // cancelTurn 取消会话当前一轮；turnID 非空时须匹配。
 func (s *Service) cancelTurn(convID, turnID string) bool {
+	return s.cancelTurnState(convID, turnID) != nil
+}
+
+func (s *Service) cancelTurnState(convID, turnID string) *turnState {
 	s.mu.Lock()
 	t, ok := s.turns[convID]
 	if ok && (turnID == "" || t.turnID == turnID) {
@@ -462,10 +518,10 @@ func (s *Service) cancelTurn(convID, turnID string) bool {
 	}
 	s.mu.Unlock()
 	if !ok {
-		return false
+		return nil
 	}
 	s.stopTurn(t)
-	return true
+	return t
 }
 
 // stopTurn 立即打断适配器并发 done（若已出字）+ cancelled；之后的迟到增量会被丢弃。

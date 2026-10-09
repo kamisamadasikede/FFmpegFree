@@ -2438,6 +2438,7 @@ export namespace task {
 	    agentKind: string;
 	    accessMode: string;
 	    projectPath: string;
+	    projectId?: string;
 	    createdAt: number;
 	    updatedAt: number;
 
@@ -2452,6 +2453,7 @@ export namespace task {
 	        this.agentKind = source["agentKind"];
 	        this.accessMode = source["accessMode"];
 	        this.projectPath = source["projectPath"];
+	        this.projectId = source["projectId"];
 	        this.createdAt = source["createdAt"];
 	        this.updatedAt = source["updatedAt"];
 	    }
@@ -2631,6 +2633,20 @@ export namespace catagent {
 	        this.turnId = source["turnId"];
 	    }
 	}
+	export class ProjectEvent {
+	    id: string;
+	    missing: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new ProjectEvent(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.missing = source["missing"];
+	    }
+	}
 	export class Status {
 	    state: string;
 	    version: string;
@@ -2704,6 +2720,7 @@ export namespace cat {
 	    agentKind: string;
 	    accessMode: string;
 	    projectPath: string;
+	    projectId?: string;
 	    createdAt: number;
 	    updatedAt: number;
 
@@ -2718,6 +2735,7 @@ export namespace cat {
 	        this.agentKind = source["agentKind"];
 	        this.accessMode = source["accessMode"];
 	        this.projectPath = source["projectPath"];
+	        this.projectId = source["projectId"];
 	        this.createdAt = source["createdAt"];
 	        this.updatedAt = source["updatedAt"];
 	    }
@@ -2746,6 +2764,7 @@ export namespace cat {
 	    agentKind: string;
 	    accessMode: string;
 	    projectPath: string;
+	    projectId?: string;
 	    createdAt: number;
 	    updatedAt: number;
 	    messages: Message[];
@@ -2761,6 +2780,7 @@ export namespace cat {
 	        this.agentKind = source["agentKind"];
 	        this.accessMode = source["accessMode"];
 	        this.projectPath = source["projectPath"];
+	        this.projectId = source["projectId"];
 	        this.createdAt = source["createdAt"];
 	        this.updatedAt = source["updatedAt"];
 	        this.messages = this.convertValues(source["messages"], Message);
@@ -2784,11 +2804,132 @@ export namespace cat {
 		    return a;
 		}
 	}
+	export class Project {
+	    id: string;
+	    name: string;
+	    path: string;
+	    createdAt: number;
+	    updatedAt: number;
+	    missing: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new Project(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.path = source["path"];
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
+	        this.missing = source["missing"];
+	    }
+	}
+	export class CreateProjectRequest {
+	    path: string;
+	    name?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new CreateProjectRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.name = source["name"];
+	    }
+	}
+	export class CreateProjectResult {
+	    project: Project;
+	    existed: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new CreateProjectResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.project = this.convertValues(source["project"], Project);
+	        this.existed = source["existed"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RenameProjectRequest {
+	    id: string;
+	    name: string;
+
+	    static createFrom(source: any = {}) {
+	        return new RenameProjectRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	    }
+	}
+	export class DeleteProjectRequest {
+	    id: string;
+
+	    static createFrom(source: any = {}) {
+	        return new DeleteProjectRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	    }
+	}
+	export class RelocateProjectRequest {
+	    id: string;
+	    path: string;
+
+	    static createFrom(source: any = {}) {
+	        return new RelocateProjectRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.path = source["path"];
+	    }
+	}
+	export class RevealProjectRequest {
+	    id: string;
+
+	    static createFrom(source: any = {}) {
+	        return new RevealProjectRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	    }
+	}
 	export class CreateConversationRequest {
 	    agentKind: string;
 	    title: string;
 	    projectPath: string;
 	    accessMode: string;
+	    projectId?: string;
 
 	    static createFrom(source: any = {}) {
 	        return new CreateConversationRequest(source);
@@ -2800,6 +2941,7 @@ export namespace cat {
 	        this.title = source["title"];
 	        this.projectPath = source["projectPath"];
 	        this.accessMode = source["accessMode"];
+	        this.projectId = source["projectId"];
 	    }
 	}
 	export class SendMessageRequest {

@@ -7,7 +7,11 @@ export function CancelCatTurn(arg1:catagent.CancelCatTurnRequest):Promise<void>;
 
 export function CreateCatConversation(arg1:cat.CreateConversationRequest):Promise<cat.Conversation>;
 
+export function CreateCatProject(arg1:cat.CreateProjectRequest):Promise<cat.CreateProjectResult>;
+
 export function DeleteCatConversation(arg1:string):Promise<void>;
+
+export function DeleteCatProject(arg1:cat.DeleteProjectRequest):Promise<void>;
 
 export function GetCatConversation(arg1:string):Promise<cat.ConversationDetail>;
 
@@ -17,8 +21,16 @@ export function ListCatConversations():Promise<Array<cat.Conversation>>;
 
 export function ListCatModels(arg1:string):Promise<Array<catagent.Model>>;
 
+export function ListCatProjects():Promise<Array<cat.Project>>;
+
 export function ListCatThinkLevels(arg1:string):Promise<Array<catagent.ThinkLevel>>;
 
 export function RecheckCat():Promise<catagent.Status>;
+
+export function RelocateCatProject(arg1:cat.RelocateProjectRequest):Promise<cat.Project>;
+
+export function RenameCatProject(arg1:cat.RenameProjectRequest):Promise<cat.Project>;
+
+export function RevealCatProject(arg1:cat.RevealProjectRequest):Promise<void>;
 
 export function SendCatMessage(arg1:cat.SendMessageRequest):Promise<cat.SendMessageResult>;

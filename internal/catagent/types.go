@@ -32,6 +32,7 @@ const (
 	EventStatus  = "cat:status"
 	EventMessage = "cat:message"
 	EventTurn    = "cat:turn"
+	EventProject = "cat:project" // v0.31，6.19.10.3
 )
 
 // 用户可见文案（契约 6.19.7）。
@@ -39,6 +40,20 @@ const (
 	MsgNotReady     = "Cat 助手还没准备好，发布后即可使用。"
 	MsgReplyFailed  = "回复没生成出来，请重试。"
 	MsgToolWriteRef = "当前只能查看项目文件，改文件和运行命令下一期开放。"
+
+	// v0.31 项目（6.19.10.8 / 6.19.10.9）。后三句是架构师建议文案，产品改了只改这里。
+	MsgProjectMissing  = "项目文件夹不见了。"
+	MsgProjectNotFound = "找不到这个项目。"
+	MsgProjectDelete   = "删除项目失败，请重试。"
+	MsgProjectPath     = "请选择一个文件夹。"
+	MsgProjectRoot     = "不能把整个磁盘作为项目，请选择里面的文件夹。"
+	MsgProjectName     = "名字需要 1~60 个字。"
+	// v0.31.1（6.19.10.2 第 8 条 / 6.19.10.8）。
+	MsgProjectDuplicate   = "这个文件夹已经建过项目了。"
+	MsgProjectTurnRunning = "有对话正在回复，请先停止再换文件夹。"
+	MsgProjectRevealFail  = "无法打开文件管理器。"
+	// 工具失败结果（回给适配器，不是界面文案）：对话不属于项目时没有项目根。
+	MsgToolNoProject = "这个对话没有项目文件夹，不能查看文件。"
 )
 
 // Status 是 CatStatus。
@@ -108,4 +123,10 @@ type TurnEvent struct {
 type CancelCatTurnRequest struct {
 	ConvID string `json:"convId"`
 	TurnID string `json:"turnId"`
+}
+
+// ProjectEvent 是 cat:project 载荷（契约 6.19.10.3）：某个项目的 missing 与上一次计算结果不同时发。
+type ProjectEvent struct {
+	ID      string `json:"id"`
+	Missing bool   `json:"missing"`
 }
