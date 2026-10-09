@@ -29,7 +29,7 @@ export const DOC_CSV_HINT = '转成 CSV 只会保留第一个工作表。'
 // ── v0.28 PDF 转其他格式（契约 6.12.58~6.12.65；产品 10-09 定稿，改文案只改这里） ──
 /** pdf → doc / docx / odt / rtf（hintKey=pdf_layout） */
 export const DOC_PDF_LAYOUT_HINT = 'PDF 转 Word 会尽量保留排版，复杂版式和扫描件可能会走样。'
-/** pdf → txt / md，以及没有文档组件时的 pdf → html（PDF 源上的 simple_mode / md_lossy 都用这句） */
+/** pdf → txt / md（hintKey=pdf_text）；没有组件时的 pdf → html 仍用 simple_mode，但文案同这句。旧后端若给 md_lossy / simple_mode，PDF 源上也兜底用这句，永不显示 md_lossy 那句。 */
 export const DOC_PDF_TEXT_ONLY_HINT = '只提取文字，不保留排版和图片。'
 /** DOC_PDF_NO_TEXT（不可重试，只能移除） */
 export const DOC_PDF_NO_TEXT_TEXT = '这个 PDF 里没有能提取的文字，可能是扫描件。'
@@ -102,9 +102,27 @@ export function docAddErrorText(err: { code?: string | null; message?: string | 
   return docErrorText(err.code, err.message, linux, err.detail)
 }
 
+/** hintKey → 定稿文案。pdf_text 固定「只提取文字…」；md_lossy 只给非 PDF → md（PDF 源请走 docPdfNote，永不显示 md_lossy 那句）。 */
+export function docHintText(hintKey?: string | null): string | undefined {
+  switch (hintKey) {
+    case 'pdf_text':
+      return DOC_PDF_TEXT_ONLY_HINT
+    case 'pdf_layout':
+      return DOC_PDF_LAYOUT_HINT
+    case 'md_lossy':
+      return DOC_MD_HINT
+    case 'csv_first_sheet':
+      return DOC_CSV_HINT
+    case 'simple_mode':
+      return DOC_SIMPLE_HINT
+    default:
+      return undefined
+  }
+}
+
 /**
  * 格式区下面的说明行（v0.28 PDF 源）。selectedFamilies 里有 pdf 时才返回；没有返回 null，走原来的逻辑。
- * Word 类目标 → 排版提示；txt / md → 只提取文字；html 简易（没有组件）→ 只提取文字 + 可下载组件（Linux 不给按钮）。
+ * Word 类目标 → 排版提示；txt / md（hintKey=pdf_text，旧后端 md_lossy 也兜底）→ 只提取文字；html 简易 → 只提取文字 + 可下载组件（Linux 不给按钮）。
  */
 export function docPdfNote(
   families: readonly string[],
@@ -113,7 +131,14 @@ export function docPdfNote(
 ): { text: string; tone: 'info' | 'warn'; download?: boolean } | null {
   if (!target || !target.available || !families.includes('pdf')) return null
   if ((DOC_PDF_WORD_TARGETS as readonly string[]).includes(target.ext) || target.hintKey === 'pdf_layout') return { text: DOC_PDF_LAYOUT_HINT, tone: 'info' }
-  if ((DOC_PDF_TEXT_TARGETS as readonly string[]).includes(target.ext)) return { text: DOC_PDF_TEXT_ONLY_HINT, tone: 'info' }
+  // 新后端 pdf_text；旧后端可能仍给 md_lossy / simple_mode；按扩展名兜底。PDF 源上永不显示 md_lossy 那句。
+  if (
+    target.hintKey === 'pdf_text' ||
+    (DOC_PDF_TEXT_TARGETS as readonly string[]).includes(target.ext) ||
+    target.hintKey === 'md_lossy'
+  ) {
+    return { text: DOC_PDF_TEXT_ONLY_HINT, tone: 'info' }
+  }
   if (target.ext === 'html' && target.simple) return { text: DOC_PDF_TEXT_ONLY_HINT, tone: 'warn', download: !linux }
   return null
 }
