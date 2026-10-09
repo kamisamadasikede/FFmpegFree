@@ -104,9 +104,10 @@ type Manager struct {
 	launch launcher // 打开文件管理器的函数；nil 用 startDetached（测试里替换）
 	open   opener   // 用系统默认程序打开文件；nil 用 openDefault（测试里替换）
 
-	onDocEngine func(string) // docEngine 变更回调（发 doc:component）
-	onAsrTier   func(string) // asrTier 变更回调（刷新语音识别组件引导）
-	memAsrTier  string
+	onDocEngine   func(string) // docEngine 变更回调（发 doc:component）
+	onAsrTier     func(string) // asrTier 变更回调（刷新语音识别组件引导）
+	memAsrTier    string
+	memCatDefault string // catDefaultAgentKind 内存降级
 	// DocComponentDir 返回应用下载的文档组件目录（kind=doc_component）；空 = 未就绪。
 	DocComponentDir func() string
 	// LangAsrDir 返回语音识别组件目录（kind=lang_asr）；空 = 未就绪。
@@ -437,6 +438,8 @@ type Settings struct {
 	DocEngine string `json:"docEngine"`
 	// AsrTier 是语音识别档位（v0.29，6.18.5）：standard | hd，默认 standard；切换不自动下载。
 	AsrTier string `json:"asrTier"`
+	// CatDefaultAgentKind 是新建 Cat 会话预填的 agentKind（v0.30，6.19.5），默认 cat_build；只影响新建。
+	CatDefaultAgentKind string `json:"catDefaultAgentKind"`
 }
 
 // MaxConcurrentLimit 是 Settings.MaxConcurrent 的上限。
@@ -448,7 +451,7 @@ func (m *Manager) GetSettings(ctx context.Context) (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	return Settings{FFmpegPath: m.customPath(ctx, cfg), FFmpegPromptDismissed: m.PromptDismissed(ctx), DefaultOutputDir: m.DefaultOutputDir(ctx), UploadsDir: m.UploadsDir(ctx), MaxConcurrent: m.MaxConcurrent(ctx), DocEngine: m.DocEngine(ctx), AsrTier: m.AsrTier(ctx)}, nil
+	return Settings{FFmpegPath: m.customPath(ctx, cfg), FFmpegPromptDismissed: m.PromptDismissed(ctx), DefaultOutputDir: m.DefaultOutputDir(ctx), UploadsDir: m.UploadsDir(ctx), MaxConcurrent: m.MaxConcurrent(ctx), DocEngine: m.DocEngine(ctx), AsrTier: m.AsrTier(ctx), CatDefaultAgentKind: m.CatDefaultAgentKind(ctx)}, nil
 }
 
 // UpdateSettings 更新设置。ffmpegPath 变化时走 SetPath 校验，defaultOutputDir 非空时必须是
@@ -478,6 +481,10 @@ func (m *Manager) UpdateSettings(ctx context.Context, s Settings) error {
 	if err != nil {
 		return err
 	}
+	catDef, err := validateCatDefaultAgentKind(s.CatDefaultAgentKind)
+	if err != nil {
+		return err
+	}
 	if s.FFmpegPath != m.customPath(ctx, cfg) {
 		if _, err := m.SetPath(ctx, s.FFmpegPath); err != nil {
 			return err
@@ -499,6 +506,9 @@ func (m *Manager) UpdateSettings(ctx context.Context, s Settings) error {
 		return apperr.Wrap(apperr.IOError, "保存设置失败", err)
 	}
 	if err := m.setAsrTier(ctx, asrTier); err != nil {
+		return apperr.Wrap(apperr.IOError, "保存设置失败", err)
+	}
+	if err := m.setCatDefaultAgentKind(ctx, catDef); err != nil {
 		return apperr.Wrap(apperr.IOError, "保存设置失败", err)
 	}
 	m.applyConcurrency(s.MaxConcurrent)

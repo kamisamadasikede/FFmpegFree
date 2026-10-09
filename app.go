@@ -3,12 +3,14 @@ package main
 import (
 	"FFmpegFree/app"
 	"FFmpegFree/internal/about"
+	"FFmpegFree/internal/catagent"
 	"FFmpegFree/internal/doccomp"
 	"FFmpegFree/internal/doceng"
 	"FFmpegFree/internal/ffmpeg"
 	"FFmpegFree/internal/langasr"
 	"FFmpegFree/internal/localassets"
 	"FFmpegFree/internal/paths"
+	"FFmpegFree/internal/service/cat"
 	"FFmpegFree/internal/service/convert"
 	"FFmpegFree/internal/service/doc"
 	"FFmpegFree/internal/service/lang"
@@ -55,6 +57,8 @@ type App struct {
 	live         atomic.Pointer[live.Service]
 	langAsr      atomic.Pointer[langasr.Manager]
 	lang         atomic.Pointer[lang.Service]
+	catReg       atomic.Pointer[catagent.Registry]
+	cat          atomic.Pointer[cat.Service]
 }
 
 // docAssets 返回文档的 /local/<token> 登记表（NewApp 时创建，永不为 nil）。小写，不会被 Wails 暴露。
@@ -89,6 +93,10 @@ func (a *App) langService() *lang.Service { return a.lang.Load() }
 
 func (a *App) langAsrManager() *langasr.Manager { return a.langAsr.Load() }
 
+func (a *App) catService() *cat.Service { return a.cat.Load() }
+
+func (a *App) catRegistry() *catagent.Registry { return a.catReg.Load() }
+
 // NewApp creates a new App application struct
 func NewApp(sys *system.Manager) *App {
 	// 根 ctx 在构造时就创建，保证绑定方法在 OnStartup 之前被调用也拿到有效的 ctx。
@@ -118,6 +126,7 @@ func (a *App) startup(ctx context.Context) {
 	a.startConvert(ctx)
 	a.startDoc()
 	a.startLang()
+	a.startCat()
 	a.startLive()
 	a.startFFmpegDetect(ctx)
 }
@@ -308,6 +317,46 @@ func (a *App) startLang() {
 	}
 	svc := lang.New(cfg)
 	a.lang.Store(svc)
+}
+
+// startCat 创建 Cat 助手服务（契约 6.19）：一期仅注册 cat_build 适配器。
+func (a *App) startCat() {
+	root := a.dirs.Root
+	if root == "" {
+		if d, err := paths.Resolve(""); err == nil {
+			root = d.Root
+		}
+	}
+	emit := app.NewWailsEmitter(a.ctx).Emit
+	temp := ""
+	if a.dirs.Temp != "" {
+		temp = a.dirs.Temp
+	}
+	reg := catagent.NewRegistry()
+	build := catagent.NewBuildAdapter(catagent.BuildConfig{
+		ComponentDir: catagent.DefaultComponentDir(root),
+		DataTemp:     temp,
+		Emit:         emit,
+		Logf:         log.Printf,
+	})
+	reg.Register(build)
+	reg.SetDefaultKind(a.sys.CatDefaultAgentKind(a.rootCtx))
+	a.catReg.Store(reg)
+	build.Start()
+
+	cfg := cat.Config{
+		Registry: reg,
+		Emit:     emit,
+		Logf:     log.Printf,
+		DefaultAgentKind: func(ctx context.Context) string {
+			return a.sys.CatDefaultAgentKind(ctx)
+		},
+	}
+	if a.store != nil {
+		cfg.Store = a.store
+	}
+	svc := cat.New(cfg)
+	a.cat.Store(svc)
 }
 
 // startLive 创建直播服务：需要任务管理器和媒体服务，缺一个就不启动（此时 LiveService 返回 INTERNAL）。

@@ -80,7 +80,7 @@ export async function runApiChecks(): Promise<string[]> {
   eq('clip 首行', parseDetailHead('clip=c_1-a path=/a b/中文.mp4\n原因'), { clipId: 'c_1-a', path: '/a b/中文.mp4' })
   eq('project 首行没有 clip', parseDetailHead('project\n视频轨不能为空'), {})
   eq('toAppError 解析 JSON 的 detail', toAppError('{"code":"TASK_CONFLICT","message":"m","detail":"reason=duplicate_url"}').reason, 'duplicate_url')
-  eq('BACKEND_ERROR_CODES 36 个（v0.26~v0.28 DOC_* + v0.29 5 个 LANG_*）', BACKEND_ERROR_CODES.length, 36)
+  eq('BACKEND_ERROR_CODES 38 个（v0.26~v0.28 DOC_* + v0.29 LANG_* + v0.30 CAT_*）', BACKEND_ERROR_CODES.length, 38)
   eq('LIVE_SOURCE_GONE 的 kind 首行', [new AppError('LIVE_SOURCE_GONE', 'x', 'kind=window').kind, new AppError('LIVE_SOURCE_GONE', 'x', 'kind=screen').kind, new AppError('LIVE_SOURCE_GONE', 'x', 'kind=other').kind, new AppError('LIVE_SOURCE_GONE', 'x').kind], ['window', 'screen', undefined, undefined])
 
   // ---- TASK_CONFLICT 文案（reason → 文案 一张表）----

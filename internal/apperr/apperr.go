@@ -67,6 +67,10 @@ const (
 	LangAsrFailed      Code = "LANG_ASR_FAILED"
 	LangDownloadFailed Code = "LANG_DOWNLOAD_FAILED"
 	LangChecksumFailed Code = "LANG_CHECKSUM_FAILED"
+
+	// v0.30 Cat 助手（6.19.7）。
+	CatNotReady    Code = "CAT_NOT_READY"
+	CatReplyFailed Code = "CAT_REPLY_FAILED"
 )
 
 // AppError 同时用于 Bind 返回值和持久化到 tasks.error 列。
