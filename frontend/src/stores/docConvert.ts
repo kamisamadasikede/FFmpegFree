@@ -22,7 +22,7 @@ import {
   type DocSource,
   type DocTarget,
 } from '@/api/docV26'
-import { toAppError } from '@/api/call'
+import { callService, toAppError } from '@/api/call'
 import { simParam } from '@/api/sim'
 import { pickFiles } from '@/api/system'
 import { useDocComponentStore } from '@/stores/docComponent'
@@ -408,7 +408,25 @@ export const useDocConvertStore = defineStore('docConvert', () => {
       return
     }
     const pooled = (f.rec.params ?? '').includes('component')
-    applyPatch(id, { status: 'queued', error: null, progress: 0, createdAt: now() })
+    applyPatch(id, { status: 'queued', error: null, progress: 0, startedAt: 0, createdAt: now() })
+    if (!pooled) simStart(id, false)
+    simPump()
+  }
+
+  /** 重转（ConvertService.Reconvert，契约 6.17；doc_convert 记录按当时的设置重新挑引擎） */
+  async function reconvert(id: string) {
+    const f = findRecord(id)
+    if (!f) return
+    if (docV26IsReal()) {
+      try {
+        await callService('ConvertService', 'Reconvert', { taskId: id })
+      } catch (e) {
+        toast.value = { text: docErrorText(toAppError(e).code, toAppError(e).message), warn: true, t: now() }
+      }
+      return
+    }
+    const pooled = (f.rec.params ?? '').includes('component')
+    applyPatch(id, { status: 'queued', error: null, progress: 0, startedAt: 0, createdAt: now() })
     if (!pooled) simStart(id, false)
     simPump()
   }
@@ -510,7 +528,10 @@ export const useDocConvertStore = defineStore('docConvert', () => {
       params: JSON.stringify({ target: ext, engine: 'component' }),
       sourceId: src.sourceId,
       createdAt: now(),
+      startedAt: status === 'queued' ? 0 : now() - 42_000,
       finishedAt: TERMINAL.includes(status) ? now() : undefined,
+      // v0.27：成功记录带引擎（?engine=office|wps 模拟本机引擎）
+      result: status === 'succeeded' ? { engine: (extra.params ?? '').includes('"go"') ? 'go' : simParam('engine') === 'office' ? 'office' : simParam('engine') === 'wps' ? 'wps' : 'component' } : null,
       ...extra,
     }
   }
@@ -531,6 +552,29 @@ export const useDocConvertStore = defineStore('docConvert', () => {
       case 'empty':
         rows.value = []
         break
+      case 'preview': {
+        // v0.27 预览 / 编辑走查：各种类型各一个
+        const html = mkSrc('活动通知.html', { sizeBytes: 3_200 })
+        const csv = mkSrc('订单-10月.csv', { sizeBytes: 46_000 })
+        const txt = mkSrc('说明.txt', { sizeBytes: 1_800 })
+        const md2 = mkSrc('会议纪要.md', { sizeBytes: 12_000 })
+        const longTxt = mkSrc('访问日志-长.txt', { sizeBytes: 3_400_000 })
+        const gone = mkSrc('旧稿-原文件不在.md', { sizeBytes: 6_000 })
+        rows.value = [
+          row(contract, [mkRec(contract, 'pdf', 'succeeded')]),
+          row(budget, [mkRec(budget, 'csv', 'succeeded')], false),
+          row(md2, [mkRec(md2, 'html', 'succeeded', { params: JSON.stringify({ target: 'html', engine: 'go' }), result: { engine: 'go' } })], false),
+          row(html, [], false),
+          row(csv, [], false),
+          row(txt, [], false),
+          row(report, [], false),
+          row(longTxt, [], false),
+          row(gone, [], false),
+        ]
+        const pick = simParam('doc_sel')
+        if (pick === 'all') sel(contract, budget, md2)
+        break
+      }
       case 'running': {
         const r1 = mkRec(contract, 'pdf', 'running')
         const r2 = mkRec(report, 'pdf', 'running')
@@ -662,6 +706,7 @@ export const useDocConvertStore = defineStore('docConvert', () => {
     chooseFiles,
     submit,
     retry,
+    reconvert,
     cancel,
     removeRecord,
     removeSource,

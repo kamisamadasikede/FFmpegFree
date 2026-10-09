@@ -3,7 +3,7 @@
 import { computed } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import { useDocComponentStore } from '@/stores/docComponent'
-import { DOC_HINT_SIMPLE_BAR, DOC_PREPARING } from '@/utils/docV26Text'
+import { DOC_HINT_SIMPLE_BAR, DOC_OUTDATED_BUTTON, DOC_PREPARING } from '@/utils/docV26Text'
 import { formatBytes, formatEta } from '@/utils/format'
 
 const comp = useDocComponentStore()
@@ -52,7 +52,7 @@ const failTitle = computed(() => {
       <span v-if="!comp.isLinux && comp.sizeText" class="dc-size">{{ comp.sizeText }}</span>
       <small>在这之前，{{ DOC_HINT_SIMPLE_BAR }}。</small>
       <div class="acts">
-        <button v-if="!comp.isLinux" type="button" class="btn pri" :disabled="comp.busy" @click="comp.install()"><FIcon name="download" />下载文档组件</button>
+        <button v-if="!comp.isLinux" type="button" class="btn pri" :disabled="comp.busy" @click="comp.install()"><FIcon name="download" />{{ DOC_OUTDATED_BUTTON }}</button>
         <button v-else type="button" class="btn" :disabled="comp.busy" @click="comp.recheck()"><FIcon name="refresh" />重新检测</button>
         <button type="button" class="btn" @click="comp.dismissGuide()">先用简易转换</button>
       </div>
