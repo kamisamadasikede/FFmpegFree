@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.29）
+# FFmpegFree v2 接口契约（v0.29.1）
+
+v0.29.1 变更（产品定稿文案，2026-10-09）：`LANG_ASR_FAILED` 的面向用户文案由 `字幕识别失败，请重试。` 改为 **`识别没完成，请稍后重试。`**（6.18.8）。无接口、无新错误码、无迁移。
 
 v0.29 变更（**语音工具 · 一期仅转字幕**，产品 / 架构 10-09 定，2026-10-09；完整规则见新增 **6.18**）：① 侧栏「语音工具」，页内**只出现「转字幕」**；任务类型 `speech_to_subtitle`，任务中心文案「转字幕」。② **语音识别组件**独立下载（默认档 **标准**约 400 MB，设置可换 **高清**约 1–1.5 GB；切换不自动下载）；状态机对齐文档组件。③ 抽音频：转换组件产出临时 **16 kHz mono WAV**（界面不展示）；ASR 池并发 **1**；高清 ASR 运行时硬件编码（NVENC/AMF/QSV）并发 **≤ 1**。④ **适配器协议**（本仓不实现 Python CLI）：组件根入口 `asr`/`asr.exe`，`--request`/`--response` JSON（输入 audioPath/language/tier，输出 cues）；URL/SHA-256 **TBD** 至老板发布包。⑤ 成功返回可编辑 cues；`ExportSubtitleCues` 硬校验（endMs>startMs、不重叠、单条≤80 字）；空识别 `LANG_ASR_EMPTY` 文案「这段音频里没有识别到有效内容。」不可重试。⑥ **2.1 由 31 变为 36**（+`LANG_ASR_NOT_READY`/`LANG_ASR_EMPTY`/`LANG_ASR_FAILED`/`LANG_DOWNLOAD_FAILED`/`LANG_CHECKSUM_FAILED`）；无迁移。⑦ 文字转语音 / 字幕进视频 / 音色克隆：**设计已定、实现延后**（6.18.9），无 UI；音色克隆组件体积占位约 1.5 GB。⑧ `OpenStorageFolder` 增加 `lang_asr`；设置键 `asrTier`。
 
@@ -3812,7 +3814,7 @@ type ExportSubtitleRequest struct {
 |---|---|---|---|
 | `LANG_ASR_NOT_READY` | `需要先下载语音识别组件。` | 是（就绪后） | 提交 / 开始识别时组件非 ready |
 | `LANG_ASR_EMPTY` | `这段音频里没有识别到有效内容。` | **否** | 无有效 cues；换文件再提交 |
-| `LANG_ASR_FAILED` | `字幕识别失败，请重试。` | 是 | CLI 非 0、响应无法解析、超时等（不是空结果） |
+| `LANG_ASR_FAILED` | `识别没完成，请稍后重试。` | 是 | CLI 非 0、响应无法解析、超时等（不是空结果） |
 | `LANG_DOWNLOAD_FAILED` | `语音识别组件下载失败，请检查网络后重试。` | 是 | 含 URL/包尚未配置、解包/准备失败（`detail` 可带 `phase=preparing`，界面不显示） |
 | `LANG_CHECKSUM_FAILED` | `下载的语音识别组件校验失败，请重试。` | 是 | SHA-256 不符 |
 
