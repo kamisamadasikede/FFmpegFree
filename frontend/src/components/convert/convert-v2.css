@@ -104,7 +104,7 @@
 .cv-ib:not([aria-disabled=true]):hover{background:var(--ff-bg-hover);color:var(--ff-text-1)}
 .cv-ib[aria-disabled=true]{color:var(--ff-text-3);opacity:.6}
 .cv-ib.danger{color:var(--ff-danger-text)}
-.cv-tag{height:20px;padding:0 7px;border-radius:4px;font-size:12px;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;flex:none}
+.cv-tag{height:20px;padding:0 7px;border-radius:4px;font-size:12px;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;flex:none;transition:background-color var(--ff-dur-fast) var(--ff-ease),color var(--ff-dur-fast) var(--ff-ease),border-color var(--ff-dur-fast) var(--ff-ease)} /* 动画 P1：排队 → 转换中 → 完成 / 失败 / 已取消 换色时 150ms 过渡 */
 .cv-tag svg{width:12px;height:12px}
 .cv-tag.t-run{background:var(--ff-primary-soft);color:var(--ff-primary-text)}
 .cv-tag.t-ok{background:color-mix(in srgb,var(--ff-success) 14%,transparent);color:var(--ff-success-text)}

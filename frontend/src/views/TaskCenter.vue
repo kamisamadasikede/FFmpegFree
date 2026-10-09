@@ -962,6 +962,8 @@ th { white-space: nowrap; } /* “开始时间”不换行 */
   align-items: center;
   gap: 4px;
   white-space: nowrap;
+  /* 动画 P1：状态换色 150ms 过渡（排队 → 运行中 → 失败 / 已取消） */
+  transition: background-color var(--ff-dur-fast) var(--ff-ease), color var(--ff-dur-fast) var(--ff-ease), border-color var(--ff-dur-fast) var(--ff-ease);
 }
 /* 类型标签默认中性（直播标签是设计稿里的红色例外）；状态列有颜色。文字色用 *-text 变量，浅色主题下在着色底上 ≥4.5:1 */
 .tag.type { background: var(--ff-bg-hover); color: var(--ff-text-2); }
