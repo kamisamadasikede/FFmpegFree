@@ -25,7 +25,9 @@
           <span class="ib" title="新建项目对话" role="button" tabindex="0" @click="select(NEW_CONV)" @keydown.enter="select(NEW_CONV)"><FIcon name="plus" :size="14" /></span>
         </span>
       </div>
-      <div class="pjs">
+      <!-- 一期后端还没有项目实体：没有项目时标题行保留，下面一行淡灰小字（不画插画，一行高） -->
+      <div v-if="!catState.projects.length" class="pj-empty" data-testid="cat-no-projects">还没有项目。</div>
+      <div v-else class="pjs">
         <div v-for="p in catState.projects" :key="p.id" class="pj" :class="{ open: p.open }">
           <div class="pj-row" role="button" tabindex="0" :aria-expanded="p.open" @click="toggle(p, $event)" @keydown.enter="toggle(p, $event)">
             <FIcon name="right" :size="12" class="car" />
@@ -234,6 +236,16 @@ button.ct-it:hover,
 .ib:hover {
   background: var(--ff-bg-hover);
   color: var(--ff-text-1);
+}
+.pj-empty {
+  height: 24px;
+  line-height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+  color: var(--ff-text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .pj-row {
   height: 32px;
