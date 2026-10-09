@@ -69,10 +69,10 @@ export interface DocTarget {
   simple: boolean
   available: boolean
   /**
-   * v0.27：能做这个转换的引擎 id（只供排查，界面不显示）。只会是 office / wps / component（架构师 10-09 纠正：没有 go）。
-   * 前端判断能不能转只看 available / needsComponent / simple，不读这个字段。
+   * v0.27：能做这个转换的引擎 id（只供排查，界面不显示）。6.12.59：PDF 源的 txt / md / 简易 html 这里可以有 go
+   * （状态里的 DocComponentStatus.engines 永远没有 go）。前端判断能不能转只看 available / needsComponent / simple，不读这个字段。
    */
-  engines?: ('office' | 'wps' | 'component' | (string & {}))[]
+  engines?: ('office' | 'wps' | 'component' | 'go' | (string & {}))[]
   hintKey?: string
   hint?: string
   disabledReason?: string
@@ -290,7 +290,7 @@ function pdfTargetsFor(word: boolean, comp: boolean): DocTarget[] {
     if (t === 'html') {
       return comp
         ? { ext: t, displayName: LABELS[t], needsComponent: false, simple: false, available: true, engines: ['component'] }
-        : { ext: t, displayName: LABELS[t], needsComponent: false, simple: true, available: true, engines: [], hintKey: 'simple_mode', hint: DOC_PDF_TEXT_ONLY_HINT }
+        : { ext: t, displayName: LABELS[t], needsComponent: false, simple: true, available: true, engines: ['go'], hintKey: 'simple_mode', hint: DOC_PDF_TEXT_ONLY_HINT }
     }
     return {
       ext: t,
@@ -298,7 +298,7 @@ function pdfTargetsFor(word: boolean, comp: boolean): DocTarget[] {
       needsComponent: false,
       simple: true,
       available: true,
-      engines: comp ? ['component'] : [],
+      engines: comp ? ['go', 'component'] : ['go'],
       hintKey: t === 'md' ? 'md_lossy' : 'simple_mode',
       hint: t === 'md' ? '转成 Markdown 只保留文字和基本格式，图片和复杂表格会丢失。' : DOC_PDF_TEXT_ONLY_HINT,
     }
@@ -512,6 +512,10 @@ export async function addDocSources(paths: string[]): Promise<AddDocSourceResult
     }
     if (ext === 'pdf' && /页数|pages/i.test(name)) {
       return { path, error: { code: 'INVALID_ARGUMENT', message: 'PDF 页数太多，最多 500 页。', detail: 'reason=too_many_pages' } }
+    }
+    // 「权限 / owner」→ DOC_ENCRYPTED reason=owner_only（只设了权限保护的 PDF）
+    if (ext === 'pdf' && /权限|owner/i.test(name)) {
+      return { path, error: { code: 'DOC_ENCRYPTED', message: '这个 PDF 设置了权限保护。', detail: 'reason=owner_only' } }
     }
     const inputs: string[] = [...TEXT, ...SHEET, ...SLIDE, ...(docV28On() ? ['pdf'] : [])]
     if (!(inputs as readonly string[]).includes(ext)) {

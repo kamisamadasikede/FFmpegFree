@@ -297,7 +297,8 @@ export const useDocConvertStore = defineStore('docConvert', () => {
     if (!r.error || r.status !== 'failed') return null
     const e = r.error
     if (e.code === 'CONVERT_DISK_FULL') return { text: docDiskFullText(e.detail, e.message), retryable: true }
-    return { text: docErrorText(e.code, e.message, comp.isLinux), retryable: docErrorRetryable(e.code) }
+    const srcPath = rows.value.find((x) => x.src.sourceId === r.sourceId)?.src.name ?? ''
+    return { text: docAddErrorText({ code: e.code, message: e.message, detail: e.detail }, srcPath, comp.isLinux), retryable: docErrorRetryable(e.code, e.detail) }
   }
 
   // ── 模拟推进 ──
