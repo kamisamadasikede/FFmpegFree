@@ -4,7 +4,7 @@
     <div class="app-main">
       <AppTitlebar />
       <FFmpegBanner />
-      <main class="app-content">
+      <main ref="contentEl" class="app-content">
         <!-- 直播页切到别的菜单再回来：整页留着（推流 / 拉流不中断），预览播放器自己在离开时拆掉 -->
         <RouterView v-slot="{ Component }">
           <KeepAlive include="LiveLayout">
@@ -25,10 +25,17 @@ import FFmpegInstallDialog from './components/ffmpeg/FFmpegInstallDialog.vue'
 import { useTheme } from './composables/useTheme'
 import { useFFmpegStore } from './stores/ffmpeg'
 import { useTaskStore } from './stores/tasks'
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import { useFadeOnChange } from './composables/useTabMotion'
 import { ElMessage } from 'element-plus'
 import { convertV24On, takeInterruptedReconverts } from './api/convertRecords'
 import { interruptedReconvertsText } from './utils/convertV24Text'
+
+// 切换一级菜单（转换 / 直播 / 文档 / 任务中心 / 设置…）：新页面淡入 150ms（动画 P1）；同一菜单里切页签由各自的外壳处理
+const contentEl = ref<HTMLElement | null>(null)
+const route = useRoute()
+useFadeOnChange(() => route.matched[0]?.path, () => contentEl.value)
 
 useTheme()
 useFFmpegStore().init()
