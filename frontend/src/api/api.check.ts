@@ -80,7 +80,7 @@ export async function runApiChecks(): Promise<string[]> {
   eq('clip 首行', parseDetailHead('clip=c_1-a path=/a b/中文.mp4\n原因'), { clipId: 'c_1-a', path: '/a b/中文.mp4' })
   eq('project 首行没有 clip', parseDetailHead('project\n视频轨不能为空'), {})
   eq('toAppError 解析 JSON 的 detail', toAppError('{"code":"TASK_CONFLICT","message":"m","detail":"reason=duplicate_url"}').reason, 'duplicate_url')
-  eq('BACKEND_ERROR_CODES 30 个（v0.26 加 10 个 DOC_*，v0.27 加 2 个 busy）', BACKEND_ERROR_CODES.length, 30)
+  eq('BACKEND_ERROR_CODES 31 个（v0.26 加 10 个 DOC_*，v0.27 加 2 个 busy，v0.28 加 DOC_PDF_NO_TEXT）', BACKEND_ERROR_CODES.length, 31)
   eq('LIVE_SOURCE_GONE 的 kind 首行', [new AppError('LIVE_SOURCE_GONE', 'x', 'kind=window').kind, new AppError('LIVE_SOURCE_GONE', 'x', 'kind=screen').kind, new AppError('LIVE_SOURCE_GONE', 'x', 'kind=other').kind, new AppError('LIVE_SOURCE_GONE', 'x').kind], ['window', 'screen', undefined, undefined])
 
   // ---- TASK_CONFLICT 文案（reason → 文案 一张表）----
@@ -1241,6 +1241,34 @@ export async function runApiChecks(): Promise<string[]> {
   // Range 分段 / base64 / 同格式
   eq('chunkRanges：每段 ≤ max，覆盖整段', chunkRanges(10_000_000, 4 * 1024 * 1024), [[0, 4194304], [4194304, 8388608], [8388608, 10000000]])
   eq('bytesToBase64', bytesToBase64(new Uint8Array([72, 105])), btoa('Hi'))
+  // ---- v0.28 PDF 输入（6.12.58~6.12.65；产品 10-09 定稿）----
+  eq('v0.28 定稿文案', [d26.DOC_PDF_LAYOUT_HINT, d26.DOC_PDF_TEXT_ONLY_HINT, d26.DOC_PDF_NO_TEXT_TEXT, d26.DOC_PDF_TOO_LARGE_TEXT, d26.DOC_PDF_TOO_MANY_PAGES_TEXT], ['PDF 转 Word 会尽量保留排版，复杂版式和扫描件可能会走样。', '只提取文字，不保留排版和图片。', '这个 PDF 里没有能提取的文字，可能是扫描件。', 'PDF 太大了，最多支持 200 MB。', 'PDF 页数太多，最多支持 500 页。'])
+  eq('v0.28 DOC_PDF_NO_TEXT 不可重试', [d26.docErrorText('DOC_PDF_NO_TEXT', '后端原句'), d26.docErrorRetryable('DOC_PDF_NO_TEXT')], [d26.DOC_PDF_NO_TEXT_TEXT, false])
+  eq('v0.28 旧句「PDF 暂时不能…」已删', d26.docErrorText('DOC_PDF_INPUT_UNSUPPORTED', 'PDF 暂时不能转成其他格式。'), '不支持这种文件。')
+  eq('v0.28 添加 PDF：too_large / too_many_pages 用定稿句，不出现 reason=；非 PDF 的 too_large 用后端 message；密码沿用', [
+    d26.docAddErrorText({ code: 'INVALID_ARGUMENT', message: 'PDF 太大了，最大 200 MB。', detail: 'reason=too_large' }, 'D:/a/手册.PDF'),
+    d26.docAddErrorText({ code: 'INVALID_ARGUMENT', message: 'x', detail: 'reason=too_many_pages\n512' }, 'D:/a/b.pdf'),
+    d26.docAddErrorText({ code: 'INVALID_ARGUMENT', message: '文件超过 100 MB', detail: 'reason=too_large' }, 'D:/a/b.docx'),
+    d26.docAddErrorText({ code: 'DOC_ENCRYPTED', message: '' }, 'D:/a/b.pdf'),
+  ], [d26.DOC_PDF_TOO_LARGE_TEXT, d26.DOC_PDF_TOO_MANY_PAGES_TEXT, '文件超过 100 MB', '这个文件有密码保护，不能转换。请先去掉密码再添加。'])
+  eq('v0.28 PDF 说明行', [
+    d26.docPdfNote(['pdf'], { ext: 'docx', available: true, hintKey: 'pdf_layout' })?.text,
+    d26.docPdfNote(['pdf'], { ext: 'txt', available: true, simple: true })?.text,
+    d26.docPdfNote(['pdf'], { ext: 'md', available: true, simple: true, hintKey: 'md_lossy' })?.text,
+    d26.docPdfNote(['pdf'], { ext: 'html', available: true, simple: true })?.download,
+    d26.docPdfNote(['pdf'], { ext: 'html', available: true, simple: true }, true)?.download,
+    d26.docPdfNote(['pdf'], { ext: 'html', available: true, simple: false }),
+    d26.docPdfNote(['text'], { ext: 'docx', available: true }),
+  ], [d26.DOC_PDF_LAYOUT_HINT, d26.DOC_PDF_TEXT_ONLY_HINT, d26.DOC_PDF_TEXT_ONLY_HINT, true, false, null, null])
+  eq('v0.28 交集说明含 PDF', d26.intersectionWhy(['pdf', 'text']), '选中的文件有PDF和文档两类，只显示它们都能转的格式。')
+  {
+    const m = await (await import('@/api/docV26')).getFormatMatrix()
+    const pdf = m.sources.find((x) => x.ext === 'pdf')
+    eq('v0.28 模拟格式表：pdf 家族、7 个目标、没有表格 / 演示 / 图片 / pdf', [m.inputs.includes('pdf'), pdf?.family, pdf?.targets.map((t) => t.ext)], [true, 'pdf', ['doc', 'docx', 'odt', 'rtf', 'txt', 'html', 'md']])
+    eq('v0.28 模拟（没有组件、没有 Word）：Word 类置灰，txt / md / html 可用', pdf?.targets.map((t) => t.available), [false, false, false, false, true, true, true])
+    const added = await (await import('@/api/docV26')).addDocSources(['D:/a/说明书.pdf', 'D:/a/超大.pdf', 'D:/a/页数多.pdf'])
+    eq('v0.28 模拟添加 PDF', [added[0].source?.family, added[1].error?.detail, added[2].error?.detail], ['pdf', 'reason=too_large', 'reason=too_many_pages'])
+  }
   eq('另存为同格式', [isSameFormat('md', 'markdown'), isSameFormat('html', 'htm'), isSameFormat('docx', 'doc'), saveFilters('csv')[0].patterns], [true, true, false, ['*.csv']])
 
   return fails

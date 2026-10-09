@@ -40,6 +40,8 @@ export type AppErrorCode =
   // v0.27 本机 Office / WPS 被占用（6.12.33）
   | 'DOC_PRESENTATION_BUSY'
   | 'DOC_ENGINE_BUSY'
+  // v0.28 PDF 输入（6.12.63）：扫描件 / 乱码且没有文档组件，不可重试
+  | 'DOC_PDF_NO_TEXT'
   | 'LIVE_SOURCE_GONE' // v0.14：屏幕推流所选的窗口 / 屏幕已不可用，detail 首行 kind=window|screen
   // 只在前端由播放器产生，后端不会返回
   | 'LIVE_PLAY_FAILED'
@@ -52,6 +54,7 @@ export const BACKEND_ERROR_CODES: readonly AppErrorCode[] = [
   'LIVE_PUSH_INTERRUPTED', 'SCREEN_PERMISSION_DENIED', 'LIVE_SOURCE_GONE', 'INTERNAL',
   'DOC_COMPONENT_NOT_READY', 'DOC_DOWNLOAD_FAILED', 'DOC_CHECKSUM_FAILED', 'DOC_COMPONENT_INSTALL_FAILED', 'DOC_FORMAT_UNSUPPORTED', 'DOC_PDF_INPUT_UNSUPPORTED', 'DOC_ENCRYPTED', 'DOC_CORRUPT', 'DOC_TIMEOUT', 'DOC_COMPONENT_CRASHED',
   'DOC_PRESENTATION_BUSY', 'DOC_ENGINE_BUSY',
+  'DOC_PDF_NO_TEXT',
 ]
 
 export interface DetailHead {

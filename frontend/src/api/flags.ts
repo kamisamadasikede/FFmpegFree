@@ -60,6 +60,13 @@ export const DOC_V26_BACKEND_READY: boolean = true
 export const DOC_V27_BACKEND_READY: boolean = true
 
 /**
+ * 文档页 v0.28（契约 6.12.58~6.12.65：PDF 作为输入转成 doc / docx / odt / rtf / txt / md / html，新家族 pdf，新码 DOC_PDF_NO_TEXT）。
+ * 后端 v0.28 还没合入，默认 false：在 Wails 里文件选择不列 .pdf、拖入的 PDF 交给后端（旧后端会拒绝，显示「不支持这种文件。」），界面不提 PDF。
+ * 纯浏览器（没有 window.go）始终打开，数据来自 api/docV26.ts 的模拟（?doc=… 走查 / 截图）。后端合入后改成 true 即可，页面不用动。
+ */
+export const DOC_V28_BACKEND_READY: boolean = false
+
+/**
  * docx 在预览窗口里编辑（v0.27.2，编辑器 @docx-editor.dev/vue，按需加载）。
  * 老板要先在真机上试，默认 false：「编辑」对 docx 不出现。浏览器走查可加 ?docx_edit=1 临时打开。
  */

@@ -19,7 +19,8 @@ function match(t: DocTile): boolean {
 const shown = computed(() => dc.groups.map((g) => ({ ...g, items: g.items.filter(match) })).filter((g) => g.items.length))
 // 设计 v0.2 场景 02 / 03：没选文件时也按格式表置灰（组件未就绪时只剩简易 PDF / HTML / MD 可用）
 const disabled = (t: DocTile) => !t.available
-const sub = (t: DocTile) => (t.simple ? DOC_SIMPLE_PDF_LABEL : DOC_TILE_SUB[t.ext] ?? '')
+// 「简易转换（只保留文字）」只用于 → PDF；PDF 源的 txt / md / 简易 html 也是 simple，但格式块照常显示（说明行里讲只提取文字）
+const sub = (t: DocTile) => (t.simple && t.ext === 'pdf' ? DOC_SIMPLE_PDF_LABEL : DOC_TILE_SUB[t.ext] ?? '')
 const tip = (t: DocTile) => (disabled(t) ? t.disabledReason || DOC_NEED_COMPONENT : `${t.displayName}（${sub(t)}）`)
 const saveName = computed(() => {
   if (nSel.value !== 1 || !dc.target) return ''
@@ -59,7 +60,7 @@ const saveName = computed(() => {
               :key="t.ext"
               type="button"
               class="preset cv-fx dc-fx"
-              :class="{ on: nSel > 0 && dc.target === t.ext, off: disabled(t), 'dc-wide': t.simple }"
+              :class="{ on: nSel > 0 && dc.target === t.ext, off: disabled(t), 'dc-wide': t.simple && t.ext === 'pdf' }"
               role="radio"
               :aria-checked="nSel > 0 && dc.target === t.ext"
               :aria-disabled="disabled(t) || undefined"
