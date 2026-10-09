@@ -1,4 +1,8 @@
-# FFmpegFree v2 接口契约（v0.28.3）
+# FFmpegFree v2 接口契约（v0.29）
+
+v0.29 变更（**语音工具 · 一期仅转字幕**，产品 / 架构 10-09 定，2026-10-09；完整规则见新增 **6.18**）：① 侧栏「语音工具」，页内**只出现「转字幕」**；任务类型 `speech_to_subtitle`，任务中心文案「转字幕」。② **语音识别组件**独立下载（默认档 **标准**约 400 MB，设置可换 **高清**约 1–1.5 GB；切换不自动下载）；状态机对齐文档组件。③ 抽音频：转换组件产出临时 **16 kHz mono WAV**（界面不展示）；ASR 池并发 **1**；高清 ASR 运行时硬件编码（NVENC/AMF/QSV）并发 **≤ 1**。④ **适配器协议**（本仓不实现 Python CLI）：组件根入口 `asr`/`asr.exe`，`--request`/`--response` JSON（输入 audioPath/language/tier，输出 cues）；URL/SHA-256 **TBD** 至老板发布包。⑤ 成功返回可编辑 cues；`ExportSubtitleCues` 硬校验（endMs>startMs、不重叠、单条≤80 字）；空识别 `LANG_ASR_EMPTY` 文案「这段音频里没有识别到有效内容。」不可重试。⑥ **2.1 由 31 变为 36**（+`LANG_ASR_NOT_READY`/`LANG_ASR_EMPTY`/`LANG_ASR_FAILED`/`LANG_DOWNLOAD_FAILED`/`LANG_CHECKSUM_FAILED`）；无迁移。⑦ 文字转语音 / 字幕进视频 / 音色克隆：**设计已定、实现延后**（6.18.9），无 UI；音色克隆组件体积占位约 1.5 GB。⑧ `OpenStorageFolder` 增加 `lang_asr`；设置键 `asrTier`。
+
+.29 变更（**语音工具 · 一期仅转字幕**，产品 / 架构 10-09 定，2026-10-09；完整规则见新增 **6.18**）：① 侧栏「语音工具」，页内**只出现「转字幕」**；任务类型 `speech_to_subtitle`，任务中心文案「转字幕」。② **语音识别组件**独立下载（默认档 **标准**约 400 MB，设置可换 **高清**约 1–1.5 GB；切换不自动下载）；状态机对齐文档组件。③ 抽音频：转换组件产出临时 **16 kHz mono WAV**（界面不展示）；ASR 池并发 **1**；高清 ASR 运行时硬件编码（NVENC/AMF/QSV）并发 **≤ 1**。④ **适配器协议**（本仓不实现 Python CLI）：组件根入口 `asr`/`asr.exe`，`--request`/`--response` JSON（输入 audioPath/language/tier，输出 cues）；URL/SHA-256 **TBD** 至老板发布包。⑤ 成功返回可编辑 cues；`ExportSubtitleCues` 硬校验（endMs>startMs、不重叠、单条≤80 字）；空识别 `LANG_ASR_EMPTY` 文案「这段音频里没有识别到有效内容。」不可重试。⑥ **2.1 由 31 变为 36**（+`LANG_ASR_NOT_READY`/`LANG_ASR_EMPTY`/`LANG_ASR_FAILED`/`LANG_DOWNLOAD_FAILED`/`LANG_CHECKSUM_FAILED`）；无迁移。⑦ 文字转语音 / 字幕进视频 / 音色克隆：**设计已定、实现延后**（6.18.9），无 UI；音色克隆组件体积占位约 1.5 GB。⑧ `OpenStorageFolder` 增加 `lang_asr`；设置键 `asrTier`。
 
 v0.28.3 变更（按前端 #144 / #145、后端 #146 实际合入记录，2026-10-09；见 **6.12.68**）：① `GetFormatMatrix` 在文档组件 `checking` 时**不再等最多 6 秒**，立即按当前已知状态返回：已检测到的 Office / WPS 照常可用，只靠组件的目标按未就绪返回（`componentReady` 可能为 `false`、部分格式置灰）。② 提交、重试、重转在“目标暂时不可用且组件还在检测”时仍**最多等 6 秒**（整个调用只等一次），不把“检测中”误当成没有组件。③ `GetDocComponentStatus` 检测中立即返回 `state=checking`（有 Office 时可能是 `state=ready` + `componentState=checking`）；检测结束（ready / 未安装 / 版本太旧 / 失败）**至少发一次 `doc:component`**，payload 与 `GetDocComponentStatus` 相同。④ 前端：每次收到 `doc:component` 都重拉格式表并丢弃过期的响应；检测中不显示“不可用”闪烁、不出下载入口；检测结束后 0.2 秒淡入刷新；初始化的状态 / 格式表 / 源列表三个请求并行。⑤ 后续项（未做）：组件冷启动仍要跑 `--version` 和一次冒烟转换，没有按版本缓存来跳过。**没有新增错误码（仍 31 个），没有迁移，没有新事件，接口签名不变。**
 
@@ -145,6 +149,7 @@ v0.2 变更：新增 ffmpeg 环境检测与自动安装（第 9 节）；合入�
 ### 1.1 面向用户的文字（v0.24，老板定）
 
 - **面向用户的文字里不出现 “ffmpeg”（不分大小写，含 `FFmpeg`、`ffprobe`）**，统一叫“**转换组件**”，按中文习惯组织句子，例如：`当前转换组件不支持输出这个格式`、`转换组件已就绪`、`未找到可用的转换组件，请先安装或手动指定转换组件所在位置`、`安装转换组件`（安装任务的标题）。
+- **v0.29**：同样不出现 Whisper、模型文件名、Python；语音相关只叫「**语音识别组件**」（延后能力的「语音音色」「音色克隆组件」同理），见 6.18.1。
 - **范围**（后端产生、会被前端原样显示的）：`AppError.message`；`detail` 里约定给用户看的行（目前没有：`reason=` / `scheme=` / `kind=` 是机器读的枚举，本身不含 ffmpeg）；`DeleteFailure.message`；`ConvertSource.copyError.message`；`FormatEntry.reason`；`EncoderDevice.reason` / `EncoderPreferenceInfo.reason`；任务 `title`；`FFmpegStatus.error.message`；预设名等后端生成、前端直接显示的名字。
 - **不受限**：代码标识符、包名、接口名和方法名（`FFmpegStatus`、`InstallFFmpeg`、`ffmpeg:status`、`FFMPEG_NOT_FOUND`、`ffmpegPath` 等**全部不改**）、日志（任务日志、应用日志，含 `[FFmpegFree] ffmpeg 退出码 N`）、只给开发者看的 `detail`（如 `PROCESS_FAILED` 的 `ffmpeg 退出码 N` 和 stderr 尾部；`FFMPEG_NOT_FOUND` 的组件状态 detail 自 v0.25.4 起只有 `[来源] 原因`，不含路径）、ffmpeg 自己输出的原文（如 `试跑失败：<ffmpeg 输出最后一行>` 里引用的那一行）、文件路径。
 - **产品名 `FFmpegFree` 不算违反**（它是应用名，例如 macOS 屏幕录制授权提示里必须写出应用名，用户才能在系统设置里找到它）；是否连产品名也要改，见 PR 的待定问题。
@@ -183,13 +188,14 @@ Bind 方法返回 `(T, error)`。error 的 message 是 JSON 字符串，前端 `
 | DOC_ENCRYPTED / DOC_CORRUPT / DOC_TIMEOUT / DOC_COMPONENT_CRASHED / DOC_COMPONENT_NOT_READY / DOC_DOWNLOAD_FAILED / DOC_CHECKSUM_FAILED / DOC_COMPONENT_INSTALL_FAILED / DOC_FORMAT_UNSUPPORTED / DOC_PDF_INPUT_UNSUPPORTED | v0.26 文档多格式转换，含义、message、是否可重试见 6.12.20 |
 | DOC_PRESENTATION_BUSY / DOC_ENGINE_BUSY | v0.27 本机 Office / WPS 被占用（演示程序正在运行 / 只能挂到正在运行的实例上），可重试，见 6.12.33 |
 | DOC_PDF_NO_TEXT | v0.28 PDF 转 txt / md / 简易 html 时取不出可用的文字（扫描件或乱码）且没有可用的文档组件，不可重试，见 6.12.63 |
+| LANG_ASR_NOT_READY / LANG_ASR_EMPTY / LANG_ASR_FAILED / LANG_DOWNLOAD_FAILED / LANG_CHECKSUM_FAILED | v0.29 语音工具转字幕，见 6.18.8 |
 | INTERNAL | 其他；直播任务里认不出的 ffmpeg 非零退出也是它（不是 `PROCESS_FAILED`），detail 带（已脱敏的）stderr 最后若干行 |
 
 **直播 / 录屏（v0.10）用到的后端码正好是冻结的这八个：`LIVE_URL_INVALID`、`LIVE_CONNECT_FAILED`、`LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`SCREEN_PERMISSION_DENIED`、`FFMPEG_NOT_FOUND`、`UNSUPPORTED_PLATFORM`、`INTERNAL`**（v0.14 起再加 `LIVE_SOURCE_GONE`，共九个）；此外复用已有的 `INVALID_ARGUMENT`、`NOT_FOUND`、`PROBE_FAILED`（输入文件问题）、`TASK_CONFLICT`（会话上限 / 同地址冲突）、`UNSUPPORTED`（Retry）、`CANCELED`（`Start*` 因应用退出被取消，#10 已加）。**v0.10 没有新增任何错误码**，也没有 `LIVE_START_FAILED` 之类的同义码。用户主动停止不产生错误码（优雅停止成功 = `succeeded`，超时强杀 = `canceled` 状态，`error` 为空）。`LIVE_PLAY_FAILED`（播放器加载或解码失败）和 `LIVE_CORS_BLOCKED`（拉流地址跨域被浏览器拦截）**只在前端由播放器产生**，后端不会返回，也不在 `apperr` 里定义。
 
 ### 2.1 AppErrorCode 完整清单（供前端 `frontend/src/api/call.ts` 对照）
 
-后端 `internal/apperr` 一共 31 个码（v0.14 新增 `LIVE_SOURCE_GONE`；v0.26 新增 10 个 `DOC_*`，文案和是否可重试见 6.12.20；v0.27 新增 `DOC_PRESENTATION_BUSY`、`DOC_ENGINE_BUSY`，见 6.12.33 和下表；v0.28 新增 `DOC_PDF_NO_TEXT`，见 6.12.63），前端 `AppErrorCode` 必须全部包含；前端 `frontend/src/api/call.ts` 以本清单为准逐项核对补全（不在契约里写它当前缺几个，现状随前端分支变化）：
+后端 `internal/apperr` 一共 36 个码（v0.14 新增 `LIVE_SOURCE_GONE`；v0.26 新增 10 个 `DOC_*`，文案和是否可重试见 6.12.20；v0.27 新增 `DOC_PRESENTATION_BUSY`、`DOC_ENGINE_BUSY`，见 6.12.33 和下表；v0.28 新增 `DOC_PDF_NO_TEXT`，见 6.12.63；v0.29 新增 5 个 `LANG_*`，见 6.18.8），前端 `AppErrorCode` 必须全部包含；前端 `frontend/src/api/call.ts` 以本清单为准逐项核对补全（不在契约里写它当前缺几个，现状随前端分支变化）：
 
 ```ts
 export type AppErrorCode =
@@ -205,6 +211,8 @@ export type AppErrorCode =
   | 'DOC_PRESENTATION_BUSY' | 'DOC_ENGINE_BUSY'
   // v0.28 PDF 输入（6.12.63）：
   | 'DOC_PDF_NO_TEXT'
+  // v0.29 语音工具转字幕（6.18.8）：
+  | 'LANG_ASR_NOT_READY' | 'LANG_ASR_EMPTY' | 'LANG_ASR_FAILED' | 'LANG_DOWNLOAD_FAILED' | 'LANG_CHECKSUM_FAILED'
 ```
 
 **文档类错误码能否重试（v0.27 汇总；文案以 6.12.20 / 6.12.33 为准）**：
@@ -224,6 +232,11 @@ export type AppErrorCode =
 | `DOC_PRESENTATION_BUSY` | **是**（任务保留；预览点「重试」） | v0.27 |
 | `DOC_ENGINE_BUSY` | **是**（任务保留；预览点「重试」） | v0.27 |
 | `DOC_PDF_NO_TEXT` | 否（装好文档组件后可以对这一行新提交） | v0.28 |
+| `LANG_ASR_NOT_READY` | 是（组件就绪后） | v0.29 |
+| `LANG_ASR_EMPTY` | 否（换文件再提交） | v0.29 |
+| `LANG_ASR_FAILED` | 是 | v0.29 |
+| `LANG_DOWNLOAD_FAILED` | 是 | v0.29 |
+| `LANG_CHECKSUM_FAILED` | 是 | v0.29 |
 
 - 前端遇到不在清单里的 `code`：按 `INTERNAL` 的通用文案处理，不崩溃。
 - `LIVE_PLAY_FAILED`、`LIVE_CORS_BLOCKED` 只在前端播放器里产生，**不是** `AppErrorCode`，也不出现在后端。
@@ -247,6 +260,7 @@ export type AppErrorCode =
 | 文档编辑（v0.27.1，6.12.41 / 6.12.42：`DocService.SaveDocText`、`SaveDocTextAs` 的同步错误） | `reason=<值>` | `TASK_CONFLICT`：`file_changed`（文件在打开之后被别的程序改过，revision 不一致）、`converting`（这一行有排队中 / 运行中的转换，或结果记录正在重转；v0.27.1 补充：原写 `in_use`，已改名）、`copying`（沿用 v0.24：副本还在复制，后面一行 `sourceId=<id>`）；`NOT_FOUND`：`record`、`file`（沿用：原文件 / 输出文件不在了）；`IO_ERROR`：`permission`（没有写权限、只读）、`in_use`（被其他程序占用、读不了或替换不了，和 `file_changed` 分开）、`io`（其他写入失败）（这三个沿用 v0.24 的取值，这里没有第二行路径）；`INVALID_ARGUMENT`：`encoding`（v0.27.1 补充：有字符编不进原编码 GBK；后面两行 `char=U+XXXX`、`line=<n>`）、`too_large`（超过 2 MiB 或 1000 行）、`format`（不能编辑的格式、另存为换了格式、html 声明了不支持的编码）（只追加） | 除 `copying`（`sourceId=`）和 `encoding`（`char=` / `line=`）外都只有这一行；另存为的目标路径不合法（应用数据目录、上传目录、非绝对路径）是没有 reason 的 `INVALID_ARGUMENT`；磁盘满 `CONVERT_DISK_FULL` 不带 reason；界面不显示错误码和 reason |
 | docx 分段保存（v0.27.2，6.12.49~6.12.52：`BeginDocBinarySave`、`AppendDocBinaryChunk`、`CommitDocBinarySave` 的同步错误） | `reason=<值>` | `INVALID_ARGUMENT`：`too_large`（沿用：超过 20 MiB）、`chunk_order`（`seq` 不连续，会话不作废）、`checksum`（字节数或 SHA-256 不符）、`malformed`（完整性检查不过）、`format`（沿用：不是 docx、另存为扩展名不对、含宏）；`NOT_FOUND`：`save_session`（会话不在或已过期）、`file` / `record`（沿用）；`TASK_CONFLICT`：`saving`（同一文件已有保存会话，或会话数到上限）、`file_changed` / `converting` / `copying`（沿用 v0.27.1）；`IO_ERROR`：`backup`（v0.27.2 补充：备份失败）、`permission` / `in_use` / `io`（沿用）（只追加） | 都只有这一行；`chunk_order`、`checksum`、`save_session`、`saving` 是前端内部错误，界面一律 `出了点问题，请重试。`；界面不显示错误码和 reason |
 | PDF 权限保护（v0.28.1，6.12.66 ①：添加 / 提交 / 运行时的 `DOC_ENCRYPTED`） | `reason=<值>` | `owner_only`（空用户密码能打开、只有所有者密码、AES-256，纯 Go 库解不了；要用户密码的 `DOC_ENCRYPTED` 仍没有 detail）（只追加） | 只有这一行；不可重试；界面不显示 |
+| 语音工具转字幕（v0.29，6.18） | `reason=<值>` | `INVALID_ARGUMENT`：`cue_invalid`（导出硬校验）；`NOT_FOUND`：`component`（`OpenStorageFolder("lang_asr")`）（只追加） | 界面不显示 |
 | PDF 输入（v0.28，6.12.60 / 6.12.63：添加 PDF 的 `AddDocSourceResult.error`、`DOC_PDF_NO_TEXT`） | `reason=<值>` | `INVALID_ARGUMENT`：`too_large`（沿用：PDF 超过 200 MiB）、`too_many_pages`（超过 500 页）；`DOC_PDF_NO_TEXT`：`no_text`（第二行 `quality=empty\|garbled` 只给开发者看）（只追加） | 只有第一行；界面不显示 |
 | 文档组件未就绪（v0.27.2，6.12.55：`DOC_COMPONENT_NOT_READY` 的同步错误和任务错误，以及 `DocComponentStatus.error`） | `reason=<值>` | `checking`、`missing`、`outdated`（含 Windows / macOS 应用下载的组件低于 26.2.6）、`downloading`、`preparing`、`failed`，即 `componentState`（只追加） | 只有这一行；`OpenStorageFolder("doc_component")` 的 `NOT_FOUND` 沿用 v0.25.1 的 `reason=component` |
 | 其余所有码（含 `LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`INTERNAL`） | 无固定格式 | — | 前端**不得**解析（上面几行列出的码 / 场景除外） |
@@ -292,7 +306,8 @@ type MediaInfo struct {
     // probedAt, error?(批量探测时该文件的错误)
 }
 
-type TaskType string // convert | edit_export | office_pdf | live_file_push | live_screen_push | ffmpeg_install | doc_convert
+type TaskType string // convert | edit_export | office_pdf | live_file_push | live_screen_push | ffmpeg_install | doc_convert | speech_to_subtitle
+                     // speech_to_subtitle（v0.29，6.18）：语音工具「转字幕」；界面只显示「转字幕」
                      // doc_convert（v0.26，6.12.21）：文档页的转换；office_pdf 自 v0.26 起只用于旧记录和组件未就绪时的简易转换
                      // edit_export：v0.23.5 剪辑移除后不再产生；旧记录照常列出（任务中心显示为“旧版导出”，v0.25.3）、只能查看和删除，Retry / Reconvert 一律 UNSUPPORTED（reason=feature_removed，message 不含“剪辑”），不是下面的“旧类型”
                      // 保留但不再产生：live_relay、live_record_push（v0.10 取消）、edit_render（v0.11 起改名 edit_export）。不能提交，任务中心不展示，库里的旧记录按未知类型忽略、不报错
@@ -370,7 +385,14 @@ GetSettings() (Settings, error)
 UpdateSettings(s Settings) error      // defaultOutputDir（v0.24：空 = 默认输出目录 <base>/output，不再是“与源文件同目录”）、uploadsDir（v0.24，空 = <base>/uploads）、maxConcurrent（0=自动，1~8）、主题、语言、ffmpegPromptDismissed、ffmpegPath、docEngine（v0.27：auto | office | wps | component，默认 auto，6.12.29）
 GetStorageDirs() (StorageDirs, error)                // v0.24（6.15.2）：实际输出 / 上传目录 + 是否回退到用户数据目录
 SetStorageDirs(req StorageDirsUpdate) (StorageDirs, error) // v0.24：同时设两个目录，"" = 默认；校验失败 INVALID_ARGUMENT、整体不生效
-OpenStorageFolder(kind string) error                 // v0.24：kind = "output" | "uploads"，在文件管理器里打开实际目录；v0.25.1 加 "component"（转换组件所在文件夹，6.15.2 第 6 条）；v0.27.2 加 "doc_component"（应用下载的文档组件目录，6.12.54）
+OpenStorageFolder(kind string) error                 // v0.24：kind = "output" | "uploads"，在文件管理器里打开实际目录；v0.25.1 加 "component"（转换组件所在文件夹，6.15.2 第 6 条）；v0.27.2 加 "doc_component"（应用下载的文档组件目录，6.12.54）；v0.29 加 "lang_asr"（语音识别组件目录，6.18.3）
+// LangService（v0.29，6.18；一期仅转字幕）
+GetLangAsrStatus() (LangAsrStatus, error)
+InstallLangAsr(tier string) (LangAsrStatus, error)
+CancelLangAsrInstall() error
+RecheckLangAsr() (LangAsrStatus, error)
+SubmitSpeechToSubtitle(req SpeechToSubtitleRequest) (Task, error) // 批量形态见 6.18.5
+ExportSubtitleCues(req ExportSubtitleRequest) (ExportSubtitleResult, error)
 ListEncoderDevices() (EncoderDeviceList, error)      // 硬件编码设备（9.6）：第一项永远是 cpu；ffmpeg 未就绪时只有 cpu 且 ffmpegReady=false，不报错
 RefreshEncoderDevices() (EncoderDeviceList, error)   // 丢弃缓存重新检测
 GetEncoderPreference() (string, error)               // "auto" | "cpu" | 设备 id，默认 "auto"；所选设备不可用时保持原值
@@ -3173,7 +3195,7 @@ type StorageDirsUpdate struct {         // SetStorageDirs 的参数：两个字�
 // SystemService（v0.24 新增）
 GetStorageDirs() (StorageDirs, error)
 SetStorageDirs(req StorageDirsUpdate) (StorageDirs, error)
-OpenStorageFolder(kind string) error   // kind = "output" | "uploads" | "component"（v0.25.1）| "doc_component"（v0.27.2，6.12.54）
+OpenStorageFolder(kind string) error   // kind = "output" | "uploads" | "component"（v0.25.1）| "doc_component"（v0.27.2，6.12.54）| "lang_asr"（v0.29，6.18.3）
 ```
 
 1. **一个读、一个写**：前端（设置页、转换页的“保存到”）只用 `GetStorageDirs` / `SetStorageDirs`。只改一个目录时，另一个传 `GetStorageDirs` 里的当前值（自定义的传路径，没自定义的传 `""`）。
@@ -3604,6 +3626,219 @@ ALTER TABLE tasks ADD COLUMN last_reconvert_error TEXT;    -- ReconvertError JSO
 
 - v1 任务中心**不提供**“重转”入口。
 - `TaskService.List` 照常返回这条记录，带 `reconverting` 和实时的 `status` / `progress`。重转开始时 `hiddenInTaskCenter` 置为 `false`，所以默认列表能看到它在跑。结束后**不恢复**原来的隐藏状态（v0.24.1 架构师定：重转会取消隐藏，并保持不隐藏），用户可以再隐藏。
+
+## 6.18 语音工具（v0.29，一期仅转字幕；产品 / 架构 10-09 定）
+
+> **一期只实现转字幕**（`speech_to_subtitle`）。侧栏一级入口名 **「语音工具」**，页内**只出现「转字幕」这一个标签**（另外三个标签**完全不出现**，不是置灰）。  
+> **语音识别的 Python CLI / 模型由老板另行构建与发布**，本仓库**不实现、不打包**该 CLI；后端只实现 **适配器**（下载组件、按约定工作目录调用入口二进制、解析 JSON 结果）。  
+> 文字转语音 / 字幕进视频 / 音色克隆：**设计已定、实现延后**（6.18.9），本期无 UI 入口、无任务提交。  
+> 文案与命名必须逐字使用「语音工具」「语音识别组件」等（见 6.18.1）；界面与 `message` **不出现** Whisper、模型文件名、`ffmpeg`、Python、错误码（同 1.1）。
+
+### 6.18.1 定稿命名
+
+| 用途 | 定稿文案 | 禁止出现 |
+|---|---|---|
+| 侧栏 / 顶栏 | **语音工具** | 「语言」「语言页」 |
+| ASR 下载包 | **语音识别组件** | Whisper、模型文件名、引擎名、`语言组件` |
+| 任务中心类型（一期） | **转字幕** | 英文 `speech_to_subtitle`、Whisper、ffmpeg |
+| （延后，命名先占位） | **语音音色** / **音色克隆组件**；任务文案「文字转语音」「字幕进视频」「音色克隆」 | 同上技术词 |
+
+侧栏顺序：转换 → **语音工具** → 文档 → 直播 → 工具 → 任务中心。
+
+### 6.18.2 一期范围：`speech_to_subtitle`
+
+| 项 | 规则 |
+|---|---|
+| 任务类型 | `Task.type = speech_to_subtitle`（库内英文；界面只显示「转字幕」） |
+| 依赖 | **语音识别组件** + **转换组件**（抽音频）；缺转换组件 → `FFMPEG_NOT_FOUND`；缺识别组件 → `LANG_ASR_NOT_READY` |
+| 抽音频 | 转换组件产出临时 **16 kHz、单声道 WAV**，落在 `<数据目录>/tmp/lang/<taskId>/`；**永不**出现在界面 / 任务标题 / 「打开所在文件夹」；任务终态删除 |
+| 识别 | 适配器调用组件内入口二进制（6.18.4）；进 **ASR 池，并发固定 1** |
+| 高清 × 硬件编码 | 正在跑 **高清**档 ASR 时，本机 NVENC / AMF / QSV 视频编码并发 **≤ 1** |
+| 成功 | `TaskResult` 带可编辑 `cues`（`id` / `text` / `startMs` / `endMs`）；用户可改字、改起止时间，再 `ExportSubtitleCues`；**不做边听边改** |
+| 空识别 | `LANG_ASR_EMPTY`，**不可重试**，文案 `这段音频里没有识别到有效内容。`；用户换文件再提交 |
+
+### 6.18.3 语音识别组件：状态、档位、下载
+
+形态对齐文档组件状态机（`checking` / `ready` / `missing` / `outdated` / `downloading` / `preparing` / `failed`），可断点续传、SHA-256、下前磁盘检查（空间不足 `CONVERT_DISK_FULL` `reason=no_space`）。
+
+```go
+type LangAsrStatus struct {
+    State         string    `json:"state"`
+    Version       string    `json:"version"`
+    Source        string    `json:"source"`        // ready 时 downloaded；一期无系统安装来源
+    Tier          string    `json:"tier"`          // standard | hd，与 Settings.asrTier 一致
+    CanDownload   bool      `json:"canDownload"`
+    DownloadBytes int64     `json:"downloadBytes"` // 当前档安装包字节；界面「约 xxx MB」
+    InstallBytes  int64     `json:"installBytes,omitempty"`
+    Phase         string    `json:"phase,omitempty"`
+    ReceivedBytes int64     `json:"receivedBytes,omitempty"`
+    Error         *AppError `json:"error,omitempty"`
+    Path          string    `json:"-"`
+}
+```
+
+| 档位 | `Settings.asrTier` | 引导体积（写死在界面，发布前可改数字） | 说明 |
+|---|---|---|---|
+| **标准**（**默认**） | `standard` | **约 400 MB** | 默认档 |
+| **高清** | `hd` | **约 1–1.5 GB** | **只在设置里切换**；**只改下载引导体积与 Install 所选包，切换本身不自动下载** |
+
+- 组件目录：Windows `%LocalAppData%\FFmpegFree\components\lang\asr\<tier>\<version>\`；macOS `~/Library/Application Support/FFmpegFree/components/lang/asr/<tier>/<version>/`（Linux 路径同应用数据目录约定，**TBD** 是否提供下载包）。  
+- 下载 URL / SHA-256 / 精确字节数：**TBD（老板发布组件包后写入）**；契约先留占位，实现用配置或常量，未配置时 `InstallLangAsr` 返回明确错误（建议 `LANG_DOWNLOAD_FAILED`，message `暂时无法下载语音识别组件，请稍后重试。`）。  
+- 引导文案（产品）：标题 `下载语音识别组件，才能转字幕`；正文示例 `需要下载语音识别组件（约 400 MB），现在下载吗？当前是「标准」档；设置里可换「高清」。`；按钮「稍后」「下载」。  
+- `OpenStorageFolder("lang_asr")`：打开当前档已安装目录；不可用 → `NOT_FOUND`，`detail` 一行 `reason=component`（不带路径）。仅 `state=ready` 时前端显示按钮。
+
+### 6.18.4 ASR 适配器协议（本仓只实现调用方）
+
+> **不**实现、**不**捆绑 Python / 模型。老板发布的「语音识别组件」包解压后须满足下列布局与协议；适配器按此调用。
+
+**布局（解压后的 `<组件根>` = 上节 `…/asr/<tier>/<version>/`）**：
+
+| 路径 | 含义 |
+|---|---|
+| `<组件根>/asr.exe`（Windows）或 `<组件根>/asr`（macOS / Linux） | **入口二进制**（名字固定 `asr` / `asr.exe`） |
+| `<组件根>/` 其余文件 | 由发布方自定（模型、运行时等）；适配器**不解释** |
+
+**工作目录**：每次识别在任务临时目录运行，`WorkDir = <数据目录>/tmp/lang/<taskId>/asr/`（先建空目录）。进程的 cwd 设为该目录；组件根只读，通过参数传入。
+
+**调用**（超时、取消随任务 `ctx`；超时建议 **TBD**，可先 30 分钟）：
+
+```text
+asr --component-root <组件根绝对路径> --request <request.json 绝对路径> --response <response.json 绝对路径>
+```
+
+- 退出码 `0`：读 `response.json`。  
+- 非 0：失败；`detail` 可带 `exit=<码>`（只给开发者看）；用户文案走 `LANG_ASR_FAILED` 或归入空结果 / 损坏等（见 6.18.8）。  
+- stderr 写入任务日志（受 1.1 限制：展示给用户的 message 仍不得出现技术词）。
+
+**`request.json`（UTF-8）**：
+
+```json
+{
+  "version": 1,
+  "audioPath": "<16kHz mono wav 绝对路径>",
+  "language": "auto",
+  "tier": "standard"
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `version` | 协议版本，一期固定 `1` |
+| `audioPath` | 抽好的临时 WAV |
+| `language` | `auto` \| `zh` \| `en` \| …（一期允许的取值 **TBD**，至少支持 `auto`） |
+| `tier` | `standard` \| `hd`，与当前组件档一致 |
+
+**`response.json`（UTF-8，成功时）**：
+
+```json
+{
+  "version": 1,
+  "cues": [
+    { "id": "01J…", "text": "你好", "startMs": 0, "endMs": 1200 }
+  ]
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `cues` | 可空数组；**空或全无有效文本** → 任务失败 `LANG_ASR_EMPTY` |
+| `cues[].id` | 非空字符串；CLI 可自生成；后端若发现空 id 则补 ULID |
+| `cues[].text` | 字幕文本 |
+| `cues[].startMs` / `endMs` | 毫秒；须 `endMs > startMs`；导出前再经 6.18.6 硬校验 |
+
+适配器把 `cues` 写入 `TaskResult`（JSON，**无迁移**）。进度：CLI 若在 stderr 打进度行，格式 **TBD**；一期可只靠不确定进度 + 任务 `running`。
+
+### 6.18.5 接口与事件（一期）
+
+```go
+// LangService（名称可微调；Wails Bind）
+GetLangAsrStatus() (LangAsrStatus, error)
+InstallLangAsr(tier string) (LangAsrStatus, error) // "" = Settings.asrTier；standard|hd
+CancelLangAsrInstall() error
+RecheckLangAsr() (LangAsrStatus, error)
+
+SubmitSpeechToSubtitle(req SpeechToSubtitleRequest) (Task /* 或批量结果，TBD */, error)
+ExportSubtitleCues(req ExportSubtitleRequest) (ExportSubtitleResult, error)
+
+type SpeechToSubtitleRequest struct {
+    Paths     []string `json:"paths"`
+    Language  string   `json:"language,omitempty"` // 默认 auto
+    Format    string   `json:"format"`             // 导出意向 srt|vtt
+    OutputDir string   `json:"outputDir,omitempty"`
+}
+type SubtitleCue struct {
+    ID      string `json:"id"`
+    Text    string `json:"text"`
+    StartMs int64  `json:"startMs"`
+    EndMs   int64  `json:"endMs"`
+}
+type ExportSubtitleRequest struct {
+    TaskID     string        `json:"taskId"`
+    Cues       []SubtitleCue `json:"cues"`
+    Format     string        `json:"format"` // srt|vtt
+    TargetPath string        `json:"targetPath,omitempty"`
+}
+```
+
+事件：
+
+| 事件 | payload | 何时 |
+|---|---|---|
+| `lang:asr` | `LangAsrStatus` | 状态变化；检测结束至少一次 |
+| `lang:asr-progress` | `{ phase, receivedBytes, totalBytes, progress? }` | 下载中；preparing 可不带 progress |
+| `task:created` / `task:progress` / `task:status` | 现有第 5 节 | 转字幕任务 |
+
+设置键：`asrTier` = `standard`（默认）\| `hd`；非法值 `INVALID_ARGUMENT`；切换不触发下载。
+
+### 6.18.6 `ExportSubtitleCues` 硬校验
+
+失败 → `INVALID_ARGUMENT`（建议 `reason=cue_invalid`），**不**部分写入、**不**警告放行：
+
+1. 每条 `endMs > startMs`  
+2. 任意两条时间轴**不得重叠**  
+3. 每条 `text` 最多 **80** 个 Unicode 字符  
+
+通过后写 SRT 或 VTT：**UTF-8 不带 BOM**；同步写盘，不新建 task type。
+
+### 6.18.7 任务中心
+
+- 类型列：「转字幕」。  
+- `title` 示例：`采访.mp4 → 字幕`（最终格式可微调，不得出现技术词）。  
+- 进度 / 失败 / 重试走现有任务中心；`LANG_ASR_EMPTY` 不可重试。
+
+### 6.18.8 错误码（v0.29 新增 5 个；2.1 由 31 变为 36）
+
+| code | message | 可重试 | 说明 |
+|---|---|---|---|
+| `LANG_ASR_NOT_READY` | `需要先下载语音识别组件。` | 是（就绪后） | 提交 / 开始识别时组件非 ready |
+| `LANG_ASR_EMPTY` | `这段音频里没有识别到有效内容。` | **否** | 无有效 cues；换文件再提交 |
+| `LANG_ASR_FAILED` | `字幕识别失败，请重试。` | 是 | CLI 非 0、响应无法解析、超时等（不是空结果） |
+| `LANG_DOWNLOAD_FAILED` | `语音识别组件下载失败，请检查网络后重试。` | 是 | 含 URL/包尚未配置、解包/准备失败（`detail` 可带 `phase=preparing`，界面不显示） |
+| `LANG_CHECKSUM_FAILED` | `下载的语音识别组件校验失败，请重试。` | 是 | SHA-256 不符 |
+
+沿用：`FFMPEG_NOT_FOUND`、`CONVERT_DISK_FULL`、`INVALID_ARGUMENT`（含导出 cue 校验、参数）、`CANCELED`、`IO_ERROR`、`NOT_FOUND`（`reason=component` 等）。
+
+### 6.18.9 设计已定、实现延后（无 UI 入口）
+
+下列名称与规则**保留**，避免日后扯皮；**本期不出现标签、不下载、不提交任务**。
+
+| 能力 | 任务类型 | 组件名 | 要点（已定） |
+|---|---|---|---|
+| 文字转语音 | `tts` | **语音音色**（约 80 MB，2 个中文音色） | 整段合成再播；URL 同转换页预览白名单；文稿最多 10000 字，超限 `文字太长，最多 1 万字。`；TTS 池并发 1 |
+| 字幕进视频 | `subtitle_embed` | （仅转换组件） | 软 / 硬字幕各一默认样式；无字体颜色字号设置 |
+| 音色克隆 | `voice_clone` | **音色克隆组件**（引导 **约 1.5 GB**，句式 `需要下载约 1.5 GB。`；发布前可用实测替换） | 仅本机；引导句与授权句见产品定稿；采样 10s–10min、wav/mp3/m4a；`ListTtsVoices` 含 `source=cloned` |
+
+完整字段与接口以仓库外草稿 `/workspace/ffmpegfree/docs-draft/language-contract-v0.1.md`（v0.1.2）为准，实现延期时再开契约修订合入。
+
+### 6.18.10 未决（不阻塞一期适配器）
+
+1. 老板发布后的标准 / 高清包 URL、SHA-256、精确 `downloadBytes` / `installBytes`。  
+2. Linux 是否提供识别组件包。  
+3. `language` 枚举全集；CLI 进度协议。  
+4. 转字幕输入扩展名与时长 / 大小上限。  
+5. `SubmitSpeechToSubtitle` 单文件还是批量返回形态。  
+6. `LANG_ASR_FAILED` 最终文案产品确认。
+
 
 ## 7. 本地流服务（已取消）
 
