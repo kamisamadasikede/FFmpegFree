@@ -17,6 +17,7 @@ export type TaskType =
   | 'convert'
   | 'edit_export'
   | 'office_pdf'
+  | 'doc_convert' // v0.26 文档多格式转换
   | 'live_file_push'
   | 'live_screen_push'
   | 'ffmpeg_install'
@@ -25,7 +26,7 @@ export type TaskType =
  * 任务中心认识的类型（契约 v0.10~v0.12）。库里若还有旧类型记录（后端保留但不再产生）、或将来出现新类型，
  * 一律忽略（不展示、不报错、不影响其他任务）。旧类型 id 只允许出现在 isLegacyTaskType 里。
  */
-export const KNOWN_TASK_TYPES: readonly string[] = ['convert', 'edit_export', 'office_pdf', 'live_file_push', 'live_screen_push', 'ffmpeg_install']
+export const KNOWN_TASK_TYPES: readonly string[] = ['convert', 'edit_export', 'office_pdf', 'doc_convert', 'live_file_push', 'live_screen_push', 'ffmpeg_install']
 const LEGACY_TASK_TYPES: readonly string[] = ['live_relay', 'live_record_push', 'edit_render']
 export const isLegacyTaskType = (t: unknown): boolean => typeof t === 'string' && LEGACY_TASK_TYPES.includes(t)
 export const isKnownTaskType = (t: unknown): boolean => typeof t === 'string' && !isLegacyTaskType(t) && KNOWN_TASK_TYPES.includes(t)
