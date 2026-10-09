@@ -10,3 +10,21 @@ export function openExternal(url: string): void {
   if (hasWailsBackend()) BrowserOpenURL(url)
   else window.open(url, '_blank', 'noopener,noreferrer')
 }
+
+/**
+ * Cat 回复里的链接：http(s) 同 openExternal；另外放行 mailto:（交给系统邮件程序）。其余协议一律不打开。
+ * 不在 webview 里跳转。
+ */
+export function openExternalLink(url: string): boolean {
+  const u = url.trim()
+  if (/^https?:\/\//i.test(u)) {
+    openExternal(u)
+    return true
+  }
+  if (/^mailto:/i.test(u)) {
+    if (hasWailsBackend()) BrowserOpenURL(u)
+    else window.open(u, '_blank', 'noopener,noreferrer')
+    return true
+  }
+  return false
+}
