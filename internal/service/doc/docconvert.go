@@ -14,6 +14,7 @@ import (
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/doccomp"
+	"FFmpegFree/internal/doceng"
 	"FFmpegFree/internal/fsutil"
 	"FFmpegFree/internal/paths"
 	"FFmpegFree/internal/service/convert"
@@ -127,6 +128,22 @@ func (s *Service) componentStatus(ctx context.Context, wait time.Duration) docco
 	return s.cfg.Component.Status()
 }
 
+// mergedStatus 把 Office / WPS / 组件合成 DocComponentStatus 形态。
+func (s *Service) mergedStatus(ctx context.Context, wait time.Duration) doceng.StatusView {
+	if wait > 0 && s.cfg.Component != nil {
+		_ = s.cfg.Component.Wait(ctx, wait)
+	}
+	if s.cfg.Engines != nil {
+		return s.cfg.Engines.Status(ctx)
+	}
+	st := s.componentStatus(ctx, 0)
+	return doceng.StatusView{
+		State: st.State, ComponentState: st.ComponentState, Version: st.Version, Source: st.Source,
+		CanDownload: st.CanDownload, DownloadBytes: st.DownloadBytes, InstallBytes: st.InstallBytes,
+		Phase: st.Phase, ReceivedBytes: st.ReceivedBytes, Error: st.Error, Path: st.Path,
+	}
+}
+
 func (s *Service) notReady() error {
 	if s.cfg.Component == nil {
 		return apperr.New(apperr.DocComponentNotReady, "需要先下载文档组件。")
@@ -134,10 +151,30 @@ func (s *Service) notReady() error {
 	return s.cfg.Component.NotReadyError()
 }
 
-// GetFormatMatrix 按当前组件状态生成格式表；组件在 checking 时最多等 6 秒，等不到按未就绪返回。
+// GetFormatMatrix 按当前引擎状态生成格式表；组件在 checking 时最多等 6 秒。
 func (s *Service) GetFormatMatrix(ctx context.Context) DocFormatMatrix {
-	st := s.componentStatus(ctx, matrixWait)
-	return buildMatrix(st.State == doccomp.StateReady)
+	st := s.mergedStatus(ctx, matrixWait)
+	pref := "auto"
+	if s.cfg.DocEngine != nil {
+		if p := s.cfg.DocEngine(ctx); p != "" {
+			pref = p
+		}
+	}
+	var engines []doceng.Detected
+	var skips *doceng.SkipTracker
+	if s.cfg.Engines != nil {
+		engines = s.cfg.Engines.Engines(ctx)
+		skips = s.cfg.Engines.Skips()
+	}
+	ready := st.State == "ready"
+	return buildMatrix(ready, func(src, target string) []string {
+		ids := doceng.EnginesForTarget(doceng.PrefOrder(pref), engines, skips, src, target)
+		if len(ids) == 0 && ready {
+			// 只有文档组件且 Registry 尚未填 engines 时
+			ids = []string{engineComponent}
+		}
+		return ids
+	})
 }
 
 // CleanupDocTemp 启动时删除 <数据目录>/tmp/doc/ 下的残留（6.12.18）。
@@ -367,7 +404,20 @@ func (s *Service) SubmitDocConvert(ctx context.Context, req DocSubmitRequest) (c
 	if target == "" {
 		return res, formatUnsupportedTarget()
 	}
-	ready := s.componentStatus(ctx, 0).State == doccomp.StateReady
+	st := s.mergedStatus(ctx, 0)
+	ready := st.State == "ready"
+	pref := "auto"
+	if s.cfg.DocEngine != nil {
+		if p := s.cfg.DocEngine(ctx); p != "" {
+			pref = p
+		}
+	}
+	var engines []doceng.Detected
+	var skips *doceng.SkipTracker
+	if s.cfg.Engines != nil {
+		engines = s.cfg.Engines.Engines(ctx)
+		skips = s.cfg.Engines.Skips()
+	}
 	var jobs []docJob
 	var firstSkipped *store.ConvertSource
 	anyCopying := false
@@ -389,7 +439,11 @@ func (s *Service) SubmitDocConvert(ctx context.Context, req DocSubmitRequest) (c
 			continue
 		}
 		ds := toDocSource(src)
-		t, ok := targetFor(ds.Ext, target, ready)
+		ids := doceng.EnginesForTarget(doceng.PrefOrder(pref), engines, skips, ds.Ext, target)
+		if len(ids) == 0 && ready {
+			ids = []string{engineComponent}
+		}
+		t, ok := targetFor(ds.Ext, target, ready, ids)
 		if !ok {
 			return res, formatUnsupportedTarget()
 		}
@@ -474,8 +528,9 @@ type docRunner struct {
 	j      docJob
 	direct string
 
-	mu     sync.Mutex
-	result *task.TaskResult
+	mu         sync.Mutex
+	result     *task.TaskResult
+	usedEngine string
 }
 
 func (s *Service) newDocRunner(j docJob, direct string) *docRunner {
@@ -484,10 +539,21 @@ func (s *Service) newDocRunner(j docJob, direct string) *docRunner {
 
 // Pool：只有真正启动组件进程的任务进文档组件池；md ↔ html 和简易转换直接运行（6.12.18）。
 func (r *docRunner) Pool() task.Pool {
-	if r.j.engine() == engineComponent {
-		return task.PoolDoc
+	if r.j.engine() != engineComponent {
+		return task.PoolFree
 	}
-	return task.PoolFree
+	// 有本机 Office / WPS 可试时用 PoolFree（OfficeConverter 内部串行）；否则进文档组件池。
+	if r.s.cfg.Engines != nil {
+		engines := r.s.cfg.Engines.Engines(context.Background())
+		for _, e := range engines {
+			if (e.ID == doceng.IDOffice || e.ID == doceng.IDWPS) && e.Available {
+				if doceng.CanConvert(e.ID, r.j.src, r.j.target, e.Families) {
+					return task.PoolFree
+				}
+			}
+		}
+	}
+	return task.PoolDoc
 }
 
 func (r *docRunner) DesiredOutput() string { return r.j.desired }
@@ -520,15 +586,23 @@ func (r *docRunner) Run(ctx context.Context, report func(task.Progress)) (string
 	if err != nil {
 		return "", err
 	}
-	res := &task.TaskResult{Engine: j.engine()}
-	if j.simple {
-		res.Engine = "simple"
+	eng := r.usedEngine
+	if eng == "" {
+		eng = j.engine()
+		if j.simple {
+			eng = "simple"
+		}
 	}
+	res := &task.TaskResult{Engine: eng}
 	if fi, err := os.Stat(out); err == nil {
 		res.SizeBytes = fi.Size()
 	}
 	if j.target == "csv" && j.src != "csv" && (j.sheetCount > 1 || j.sheetCount == -1) {
-		res.Warnings = []string{WarningCSVFirstSheetOnly}
+		res.Warnings = append(res.Warnings, WarningCSVFirstSheetOnly)
+	}
+	if eng == "simple" && !j.simple {
+		// 引擎全失败回退简易转换
+		res.Warnings = append(res.Warnings, "simple_fallback")
 	}
 	r.mu.Lock()
 	r.result = res
@@ -541,6 +615,7 @@ func (r *docRunner) produce(ctx context.Context, dst string, logw io.Writer, rep
 	fmt.Fprintf(logw, "文档转换：%s（%s）\n", paramsSummary(j.src, j.target), j.engine())
 	switch {
 	case j.simple:
+		r.usedEngine = "simple"
 		m, err := r.s.extract(ctx, j.in, j.src)
 		if err != nil {
 			return err
@@ -551,6 +626,7 @@ func (r *docRunner) produce(ctx context.Context, dst string, logw io.Writer, rep
 		}
 		return renderPDF(ctx, m, choice, dst, report, logw)
 	case j.src == "md" && j.target == "html":
+		r.usedEngine = engineGo
 		md, err := readTextFile(j.in)
 		if err != nil {
 			return err
@@ -561,6 +637,7 @@ func (r *docRunner) produce(ctx context.Context, dst string, logw io.Writer, rep
 		}
 		return writeOut(dst, h)
 	case j.src == "html" && j.target == "md":
+		r.usedEngine = engineGo
 		h, err := readTextFile(j.in)
 		if err != nil {
 			return err
@@ -571,10 +648,47 @@ func (r *docRunner) produce(ctx context.Context, dst string, logw io.Writer, rep
 		}
 		return writeOut(dst, md)
 	}
-	return r.runComponent(ctx, dst, logw)
+	return r.runEngines(ctx, dst, logw)
 }
 
-func (r *docRunner) runComponent(ctx context.Context, dst string, logw io.Writer) error {
+func (r *docRunner) runEngines(ctx context.Context, dst string, logw io.Writer) error {
+	j := r.j
+	id := "x"
+	if info, ok := task.InfoFrom(ctx); ok {
+		id = info.ID
+	}
+	work := filepath.Join(r.s.cfg.TempRoot, id+"-"+fmt.Sprint(time.Now().UnixNano()))
+	defer os.RemoveAll(work)
+	deadline := time.Now().Add(doceng.TimeoutTaskMax)
+	macro := hasMacro(j.in, j.src)
+	logf := func(format string, args ...any) { fmt.Fprintf(logw, format, args...) }
+
+	if r.s.cfg.Engines == nil {
+		// 没有 Registry 时退回只用组件（测试 / 旧接线）
+		return r.runComponentLegacy(ctx, dst, logw, work, deadline)
+	}
+	eng, err := r.s.cfg.Engines.TryConvert(ctx, j.src, j.target, j.in, dst, work, j.origDir, j.name, macro, logf, deadline)
+	if err == nil {
+		r.usedEngine = eng
+		return nil
+	}
+	if errors.Is(err, doceng.ErrSimpleFallback) {
+		r.usedEngine = "simple"
+		m, err2 := r.s.extract(ctx, j.in, j.src)
+		if err2 != nil {
+			return err2
+		}
+		choice, ok := r.s.fonts.choose(m.runes)
+		if !ok {
+			return errNoFont
+		}
+		return renderPDF(ctx, m, choice, dst, nil, logw)
+	}
+	return err
+}
+
+// runComponentLegacy 仅组件路径（Engines 未接线时）。
+func (r *docRunner) runComponentLegacy(ctx context.Context, dst string, logw io.Writer, work string, deadline time.Time) error {
 	j := r.j
 	exe := ""
 	if r.s.cfg.Component != nil {
@@ -583,76 +697,24 @@ func (r *docRunner) runComponent(ctx context.Context, dst string, logw io.Writer
 	if exe == "" {
 		return r.s.notReady()
 	}
-	id := "x"
-	if info, ok := task.InfoFrom(ctx); ok {
-		id = info.ID
+	d := doceng.Detected{ID: doceng.IDComponent, Name: doceng.NameComponent, ComponentExe: exe, Families: []string{FamilyText, FamilySheet, FamilySlide}, Available: true, Installed: true}
+	cc := r.s.cfg.Engines
+	_ = cc
+	conv := &doceng.ComponentConverter{
+		ConvertToArg: convertToArg, InFilterFor: inFilterFor, FamilyOf: familyOf,
+		MarkdownToHTML: func(md []byte, title, mode, origDir string) ([]byte, error) {
+			return markdownToHTML(md, title, imagesForComponent, origDir)
+		},
+		HTMLToMarkdown: htmlToMarkdown,
+		ReadTextFile:   readTextFile,
+		WriteUTF8Temp:  writeUTF8Temp,
 	}
-	work := filepath.Join(r.s.cfg.TempRoot, id+"-"+fmt.Sprint(time.Now().UnixNano()))
-	defer os.RemoveAll(work)
-	inDir := filepath.Join(work, "in")
-	if err := os.MkdirAll(inDir, 0o755); err != nil {
-		return apperr.Wrap(apperr.IOError, "无法创建临时文件夹", err)
-	}
-	deadline := time.Now().Add(doccomp.DefaultTimeout) // md 的两步共用 5 分钟
-	stem := "input"
-	input := j.in
-	switch j.src {
-	case "txt", "csv":
-		input = filepath.Join(inDir, stem+"."+j.src)
-		if err := writeUTF8Temp(j.in, input); err != nil {
-			return err
-		}
-	case "md":
-		md, err := readTextFile(j.in)
-		if err != nil {
-			return err
-		}
-		h, err := markdownToHTML(md, strings.TrimSuffix(j.name, filepath.Ext(j.name)), imagesForComponent, j.origDir)
-		if err != nil {
-			return errCorrupt("markdown")
-		}
-		input = filepath.Join(inDir, stem+".html")
-		if err := writeOut(input, h); err != nil {
-			return err
-		}
-	default:
-		// 其余直接读副本；组件按扩展名 / 内容识别，所以链接一个固定名字的副本（避免文件名里的特殊字符）
-		input = filepath.Join(inDir, stem+"."+extLower(j.in))
-		if err := os.Link(j.in, input); err != nil {
-			if err := copyFile(j.in, input); err != nil {
-				return err
-			}
-		}
-	}
-	fam := familyOf(j.src)
-	target, outExt := j.target, j.target
-	if j.target == "md" {
-		target, outExt = "html", "html"
-	}
-	job := doccomp.Job{Exe: exe, Input: input, ConvertTo: convertToArg(fam, target), InFilter: inFilterFor(j.src),
-		WorkDir: filepath.Join(work, "run"), OutExt: outExt, Timeout: time.Until(deadline)}
-	fmt.Fprintf(logw, "启动文档组件：--convert-to %s\n", job.ConvertTo)
-	t0 := time.Now()
-	out, err := doccomp.Convert(ctx, job)
-	fmt.Fprintf(logw, "文档组件用时 %s\n", time.Since(t0).Round(time.Millisecond))
-	if err != nil {
-		if ae := apperr.From(err); ae != nil && ae.Detail != "" {
-			fmt.Fprintf(logw, "%s\n%s\n", ae.Code, ae.Detail)
-		}
+	req := doceng.ConvertRequest{SrcExt: j.src, Target: j.target, InputPath: j.in, OutputPath: dst, WorkDir: work, OrigDir: j.origDir, Name: j.name, Timeout: time.Until(deadline), Logf: func(f string, a ...any) { fmt.Fprintf(logw, f, a...) }}
+	if err := conv.Convert(ctx, d, req); err != nil {
 		return err
 	}
-	if j.target == "md" {
-		h, err := os.ReadFile(out)
-		if err != nil {
-			return apperr.Wrap(apperr.IOError, "读取临时文件失败", err)
-		}
-		md, err := htmlToMarkdown(h)
-		if err != nil {
-			return apperr.New(apperr.DocComponentCrashed, "文档组件意外退出，请重试。").WithDetail("exit=0\nhtml_to_md")
-		}
-		return writeOut(dst, md)
-	}
-	return copyFile(out, dst)
+	r.usedEngine = engineComponent
+	return nil
 }
 
 func writeOut(dst string, b []byte) error {

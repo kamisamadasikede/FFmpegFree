@@ -8,11 +8,15 @@ export function AddDocSources(arg1:Array<string>):Promise<Array<doc.AddDocSource
 
 export function CancelDocComponentInstall():Promise<void>;
 
+export function CancelDocPreview(arg1:string):Promise<void>;
+
 export function ConvertToPDF(arg1:Array<string>,arg2:string):Promise<Array<store.Task>>;
 
 export function GetDocCapabilities():Promise<doc.DocCapabilities>;
 
 export function GetDocComponentStatus():Promise<doc.DocComponentStatus>;
+
+export function GetDocPreview(arg1:doc.DocPreviewRequest):Promise<doc.DocPreview>;
 
 export function GetFormatMatrix():Promise<doc.DocFormatMatrix>;
 

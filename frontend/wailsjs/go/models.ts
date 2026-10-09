@@ -804,6 +804,86 @@ export namespace doc {
 		}
 	}
 	
+	export class DocPreview {
+	    previewId: string;
+	    kind: string;
+	    state: string;
+	    name: string;
+	    ext: string;
+	    url?: string;
+	    text?: string;
+	    rows?: string[][];
+	    totalRows?: number;
+	    truncated?: boolean;
+	    sizeBytes: number;
+	    reason?: string;
+	    error?: apperr.AppError;
+	    editable: boolean;
+	    editBlock?: string;
+	    revision?: string;
+	    encoding?: string;
+	    lineEnding?: string;
+	    rawUrl?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.previewId = source["previewId"];
+	        this.kind = source["kind"];
+	        this.state = source["state"];
+	        this.name = source["name"];
+	        this.ext = source["ext"];
+	        this.url = source["url"];
+	        this.text = source["text"];
+	        this.rows = source["rows"];
+	        this.totalRows = source["totalRows"];
+	        this.truncated = source["truncated"];
+	        this.sizeBytes = source["sizeBytes"];
+	        this.reason = source["reason"];
+	        this.error = this.convertValues(source["error"], apperr.AppError);
+	        this.editable = source["editable"];
+	        this.editBlock = source["editBlock"];
+	        this.revision = source["revision"];
+	        this.encoding = source["encoding"];
+	        this.lineEnding = source["lineEnding"];
+	        this.rawUrl = source["rawUrl"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class DocPreviewRequest {
+	    sourceId?: string;
+	    taskId?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocPreviewRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sourceId = source["sourceId"];
+	        this.taskId = source["taskId"];
+	    }
+	}
 	
 	export class DocSourceEntry {
 	    source: DocSource;
@@ -1993,6 +2073,7 @@ export namespace system {
 	    defaultOutputDir: string;
 	    uploadsDir: string;
 	    maxConcurrent: number;
+	    docEngine: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -2005,6 +2086,7 @@ export namespace system {
 	        this.defaultOutputDir = source["defaultOutputDir"];
 	        this.uploadsDir = source["uploadsDir"];
 	        this.maxConcurrent = source["maxConcurrent"];
+	        this.docEngine = source["docEngine"];
 	    }
 	}
 	export class StorageDirs {

@@ -10,6 +10,10 @@ export function CancelDocComponentInstall() {
   return window['go']['app']['DocService']['CancelDocComponentInstall']();
 }
 
+export function CancelDocPreview(arg1) {
+  return window['go']['app']['DocService']['CancelDocPreview'](arg1);
+}
+
 export function ConvertToPDF(arg1, arg2) {
   return window['go']['app']['DocService']['ConvertToPDF'](arg1, arg2);
 }
@@ -20,6 +24,10 @@ export function GetDocCapabilities() {
 
 export function GetDocComponentStatus() {
   return window['go']['app']['DocService']['GetDocComponentStatus']();
+}
+
+export function GetDocPreview(arg1) {
+  return window['go']['app']['DocService']['GetDocPreview'](arg1);
 }
 
 export function GetFormatMatrix() {

@@ -26,6 +26,7 @@ const (
 	SettingFFmpegPromptDismissed = "ffmpegPromptDismissed"
 	SettingDefaultOutputDir      = "defaultOutputDir"
 	SettingMaxConcurrent         = "maxConcurrent"
+	SettingDocEngine             = "docEngine" // v0.27：auto | office | wps | component
 )
 
 // FFmpegStatus 见契约第 9.4 节。
@@ -102,6 +103,10 @@ type Manager struct {
 
 	launch launcher // 打开文件管理器的函数；nil 用 startDetached（测试里替换）
 	open   opener   // 用系统默认程序打开文件；nil 用 openDefault（测试里替换）
+
+	onDocEngine func(string) // docEngine 变更回调（发 doc:component）
+	// DocComponentDir 返回应用下载的文档组件目录（kind=doc_component）；空 = 未就绪。
+	DocComponentDir func() string
 }
 
 // NewManager 创建 Manager，初始状态 checking。真正的检测由 Start 触发。
@@ -424,6 +429,8 @@ type Settings struct {
 	// MaxConcurrent 是 batch 池（转换、剪辑、Office、安装）同时运行的任务数：0 = 自动（CPU 核数的一半，限制在 1~3），
 	// 手动取值 1~8，其他值 INVALID_ARGUMENT。修改只影响之后开始的任务，已在运行的不会被打断。
 	MaxConcurrent int `json:"maxConcurrent"`
+	// DocEngine 是文档转换引擎（v0.27，6.12.29）：auto | office | wps | component，默认 auto。
+	DocEngine string `json:"docEngine"`
 }
 
 // MaxConcurrentLimit 是 Settings.MaxConcurrent 的上限。
@@ -435,7 +442,7 @@ func (m *Manager) GetSettings(ctx context.Context) (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	return Settings{FFmpegPath: m.customPath(ctx, cfg), FFmpegPromptDismissed: m.PromptDismissed(ctx), DefaultOutputDir: m.DefaultOutputDir(ctx), UploadsDir: m.UploadsDir(ctx), MaxConcurrent: m.MaxConcurrent(ctx)}, nil
+	return Settings{FFmpegPath: m.customPath(ctx, cfg), FFmpegPromptDismissed: m.PromptDismissed(ctx), DefaultOutputDir: m.DefaultOutputDir(ctx), UploadsDir: m.UploadsDir(ctx), MaxConcurrent: m.MaxConcurrent(ctx), DocEngine: m.DocEngine(ctx)}, nil
 }
 
 // UpdateSettings 更新设置。ffmpegPath 变化时走 SetPath 校验，defaultOutputDir 非空时必须是
@@ -457,6 +464,10 @@ func (m *Manager) UpdateSettings(ctx context.Context, s Settings) error {
 	if s.MaxConcurrent < 0 || s.MaxConcurrent > MaxConcurrentLimit {
 		return apperr.New(apperr.InvalidArgument, "同时运行的任务数必须是 0（自动）或 1~8").WithDetail(fmt.Sprint(s.MaxConcurrent))
 	}
+	docEng := normalizeDocEngine(s.DocEngine)
+	if docEng == "" && s.DocEngine != "" && s.DocEngine != "auto" {
+		return apperr.New(apperr.InvalidArgument, "文档引擎设置不正确")
+	}
 	if s.FFmpegPath != m.customPath(ctx, cfg) {
 		if _, err := m.SetPath(ctx, s.FFmpegPath); err != nil {
 			return err
@@ -474,7 +485,13 @@ func (m *Manager) UpdateSettings(ctx context.Context, s Settings) error {
 	if err := m.setMaxConcurrent(ctx, s.MaxConcurrent); err != nil {
 		return apperr.Wrap(apperr.IOError, "保存设置失败", err)
 	}
+	if err := m.setDocEngine(ctx, docEng); err != nil {
+		return apperr.Wrap(apperr.IOError, "保存设置失败", err)
+	}
 	m.applyConcurrency(s.MaxConcurrent)
+	if m.onDocEngine != nil {
+		m.onDocEngine(docEng)
+	}
 	return nil
 }
 

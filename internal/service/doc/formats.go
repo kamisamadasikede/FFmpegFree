@@ -17,7 +17,7 @@ const (
 	HintMDLossy       = "md_lossy"
 	HintSimpleMode    = "simple_mode"
 
-	hintCSVFirstSheetText = "转成 CSV 只保留第一个工作表。"
+	hintCSVFirstSheetText = "转成 CSV 只会保留第一个工作表。"
 	hintMDLossyText       = "转成 Markdown 只保留文字和基本格式，图片和复杂表格会丢失。"
 	hintSimpleModeText    = "下载文档组件后可保留图片和排版"
 	disabledNeedComponent = "需要文档组件"
@@ -122,8 +122,8 @@ type DocTarget struct {
 	Engines []string `json:"engines,omitempty"`
 }
 
-// targetFor 计算 src → target 在当前组件状态下的一项；跨类 / 转成自己 / 不认识返回 ok=false。
-func targetFor(src, target string, ready bool) (DocTarget, bool) {
+// targetFor 计算 src → target（契约 6.12.30）：engineIDs 是现在能做的引擎（已按设置排序）；anyReady = state=ready。
+func targetFor(src, target string, anyReady bool, engineIDs []string) (DocTarget, bool) {
 	fam := familyOf(src)
 	if fam == "" || src == target {
 		return DocTarget{}, false
@@ -132,8 +132,15 @@ func targetFor(src, target string, ready bool) (DocTarget, bool) {
 		return DocTarget{}, false
 	}
 	t := DocTarget{Ext: target, DisplayName: displayNames[target], NeedsComponent: !goPair(src, target)}
-	t.Simple = !ready && target == "pdf" && simplePDFInputs[src]
-	t.Available = !t.NeedsComponent || ready || t.Simple
+	hasEngine := len(engineIDs) > 0
+	if !hasEngine && anyReady && t.NeedsComponent {
+		// 测试 / 未接线引擎时：anyReady 视为文档组件可用
+		hasEngine = true
+		engineIDs = []string{engineComponent}
+	}
+	t.Simple = !hasEngine && target == "pdf" && simplePDFInputs[src]
+	t.Available = !t.NeedsComponent || hasEngine || t.Simple
+	t.Engines = engineIDs
 	switch {
 	case t.Simple:
 		t.HintKey, t.Hint = HintSimpleMode, hintSimpleModeText
@@ -145,15 +152,14 @@ func targetFor(src, target string, ready bool) (DocTarget, bool) {
 	if !t.Available {
 		t.DisabledReason = disabledNeedComponent
 	}
-	if t.NeedsComponent && ready {
-		t.Engines = []string{engineComponent}
-	}
+	_ = anyReady
 	return t, true
 }
 
-// buildMatrix 生成格式表（6.12.13）。
-func buildMatrix(ready bool) DocFormatMatrix {
-	m := DocFormatMatrix{ComponentReady: ready, Inputs: append([]string(nil), docInputs...)}
+// buildMatrix 生成格式表（6.12.13 / 6.12.30）。
+// engineFn(src, target) 返回能做这个转换的引擎 id 列表；anyReady 是整体 state=ready。
+func buildMatrix(anyReady bool, engineFn func(src, target string) []string) DocFormatMatrix {
+	m := DocFormatMatrix{ComponentReady: anyReady, Inputs: append([]string(nil), docInputs...)}
 	for _, fam := range familyOrder {
 		for _, src := range familyFormats[fam] {
 			sf := DocSourceFormats{Ext: src, Family: fam, Targets: []DocTarget{}}
@@ -164,7 +170,11 @@ func buildMatrix(ready bool) DocFormatMatrix {
 				sf.Aliases = []string{"markdown"}
 			}
 			for _, tg := range append([]string{"pdf"}, familyFormats[fam]...) {
-				if t, ok := targetFor(src, tg, ready); ok {
+				var ids []string
+				if engineFn != nil {
+					ids = engineFn(src, tg)
+				}
+				if t, ok := targetFor(src, tg, anyReady, ids); ok {
 					sf.Targets = append(sf.Targets, t)
 				}
 			}

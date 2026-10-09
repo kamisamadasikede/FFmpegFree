@@ -208,4 +208,5 @@ var allCodesForTest = []Code{InvalidArgument, NotFound, FFmpegNotFound, TaskConf
 	ProbeFailed, ConvertDiskFull, Canceled, Unsupported, LiveURLInvalid, LiveConnectFailed, LivePushRejected, LivePushInterrupted,
 	ScreenPermissionDenied, LiveSourceGone,
 	DocEncrypted, DocCorrupt, DocTimeout, DocComponentCrashed, DocComponentNotReady, DocDownloadFailed, DocChecksumFailed,
-	DocComponentInstallFailed, DocFormatUnsupported, DocPDFInputUnsupported}
+	DocComponentInstallFailed, DocFormatUnsupported, DocPDFInputUnsupported,
+	DocPresentationBusy, DocEngineBusy}

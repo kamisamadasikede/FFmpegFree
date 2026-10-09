@@ -10,9 +10,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"FFmpegFree/internal/apperr"
+	"FFmpegFree/internal/doceng"
 	"FFmpegFree/internal/localassets"
 	"FFmpegFree/internal/store"
 	"FFmpegFree/internal/task"
@@ -134,6 +136,12 @@ type Config struct {
 	Sources   DocSources
 	TempRoot  string
 
+	// v0.27 引擎与预览：
+	Engines   *doceng.Registry // 可为 nil：只有文档组件（走 Component）
+	DocEngine func(ctx context.Context) string
+	Emit      func(event string, payload any)
+	TaskGet   func(ctx context.Context, id string) (task.Task, error)
+
 	// 以下供测试覆盖。
 	//
 	// EmbeddedFont 为 nil 用内嵌的 Noto Sans SC 子集；DisableEmbedded 模拟“内嵌字体加载失败”。
@@ -153,6 +161,13 @@ type Service struct {
 	maxP  int
 	// started 是服务创建时刻：清理 .part 只删修改时间早于它的文件。
 	started time.Time
+
+	// 预览（v0.27）
+	prevOnce  sync.Once
+	prevCache *previewCache
+	prevMu    sync.Mutex
+	previews  map[string]*previewSlot
+	prevQueue chan previewJob
 }
 
 // New 创建 Service，并注册 office_pdf 的重试工厂。

@@ -184,3 +184,23 @@ func (s *DocService) SubmitDocConvert(req doc.DocSubmitRequest) (convert.Convert
 	}
 	return c.SubmitDocConvert(s.rootCtx(), req)
 }
+
+// ---------- v0.27 文档预览（契约 6.12.32） ----------
+
+// GetDocPreview 开始（或从缓存直接拿）一个预览。
+func (s *DocService) GetDocPreview(req doc.DocPreviewRequest) (doc.DocPreview, error) {
+	c, err := s.svc()
+	if err != nil {
+		return doc.DocPreview{}, err
+	}
+	return c.GetDocPreview(s.rootCtx(), req)
+}
+
+// CancelDocPreview 弹窗关掉时调用：生成中就停止；已就绪就撤销本地地址。不存在的 id 忽略。
+func (s *DocService) CancelDocPreview(previewID string) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.CancelDocPreview(previewID)
+}

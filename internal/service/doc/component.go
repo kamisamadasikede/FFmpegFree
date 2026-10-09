@@ -58,12 +58,21 @@ func (s *Service) installer() (ComponentInstaller, error) {
 	return nil, s.internalNotReady("文档组件")
 }
 
-// GetDocComponentStatus 返回组件状态（不含路径）。
+// GetDocComponentStatus 返回合成状态（v0.27：state=整体可用，componentState=组件自己，engines 含 Office/WPS）。
 func (s *Service) GetDocComponentStatus(ctx context.Context) (DocComponentStatus, error) {
-	if s.cfg.Component == nil {
+	if s.cfg.Component == nil && s.cfg.Engines == nil {
 		return DocComponentStatus{}, s.internalNotReady("文档组件")
 	}
-	return fromStatus(s.cfg.Component.Status()), nil
+	st := s.mergedStatus(ctx, 0)
+	engines := make([]DocEngineInfo, 0, len(st.Engines))
+	for _, e := range st.Engines {
+		engines = append(engines, DocEngineInfo{ID: e.ID, Name: e.Name, Version: e.Version, Source: e.Source, Installed: e.Installed, Families: e.Families, Available: e.Available})
+	}
+	return DocComponentStatus{
+		State: st.State, ComponentState: st.ComponentState, Engines: engines, Version: st.Version, Source: st.Source,
+		CanDownload: st.CanDownload, DownloadBytes: st.DownloadBytes, InstallBytes: st.InstallBytes,
+		Phase: st.Phase, ReceivedBytes: st.ReceivedBytes, Error: st.Error,
+	}, nil
 }
 
 // InstallDocComponent 开始或继续下载 + 准备；幂等；Linux UNSUPPORTED_PLATFORM。
@@ -89,11 +98,19 @@ func (s *Service) CancelDocComponentInstall(ctx context.Context) error {
 	return nil
 }
 
-// RecheckDocComponent 重新检测；下载 / 准备中返回当前状态，不打断。
+// RecheckDocComponent 重新检测组件和本机 Office / WPS；下载 / 准备中不打断组件。
 func (s *Service) RecheckDocComponent(ctx context.Context) (DocComponentStatus, error) {
+	if s.cfg.Engines != nil {
+		s.cfg.Engines.Recheck()
+	}
 	ci, err := s.installer()
 	if err != nil {
+		// still return merged if engines exist
+		if s.cfg.Engines != nil {
+			return s.GetDocComponentStatus(ctx)
+		}
 		return DocComponentStatus{}, err
 	}
-	return fromStatus(ci.Recheck()), nil
+	_ = ci.Recheck()
+	return s.GetDocComponentStatus(ctx)
 }
