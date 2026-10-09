@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.29.1）
+# FFmpegFree v2 接口契约（v0.30）
+
+v0.30 变更（**Cat 助手 · 一期仅 Cat Build**，老板 10-09 定，2026-10-09；完整规则见新增 **6.19**）：① 侧栏「Cat」受 `CAT_UI_ENABLED` 控制（**默认 false**）；`CAT_BACKEND_READY` 控制是否走真绑定。② 欢迎页模式胶囊**只启用「Cat Build」**，其余禁用并提示「下一期开放」；**不**跑 Cat CLI / Cat Code / Codex CLI。③ **会话 `agentKind` 创建后锁定**（一期 `cat_build`）；Send 只走该会话适配器；应用默认 CLI **仅影响新建会话**；适配器注册表一期只注册 `cat_build`。④ Build 适配器调用老板后续发布的 CLI（入口名 / URL / SHA **TBD**）；界面只称「Cat 助手」。⑤ 无 URL/Key；未就绪「Cat 助手还没准备好，发布后即可使用。」；失败「回复没生成出来，请重试。」。⑥ 模型 / 思考强度仅来自对应 CLI；工具只读；「完全访问」置灰；无助手 / 定时任务。⑦ List/Get/Create/Delete、`SendCatMessage`、`cat:status`/`cat:message`/`cat:turn`。⑧ **2.1 由 36 变为 38**（+`CAT_NOT_READY`、`CAT_REPLY_FAILED`）。
 
 v0.29.1 变更（产品定稿文案，2026-10-09）：`LANG_ASR_FAILED` 的面向用户文案由 `字幕识别失败，请重试。` 改为 **`识别没完成，请稍后重试。`**（6.18.8）。无接口、无新错误码、无迁移。
 
@@ -152,6 +154,7 @@ v0.2 变更：新增 ffmpeg 环境检测与自动安装（第 9 节）；合入�
 
 - **面向用户的文字里不出现 “ffmpeg”（不分大小写，含 `FFmpeg`、`ffprobe`）**，统一叫“**转换组件**”，按中文习惯组织句子，例如：`当前转换组件不支持输出这个格式`、`转换组件已就绪`、`未找到可用的转换组件，请先安装或手动指定转换组件所在位置`、`安装转换组件`（安装任务的标题）。
 - **v0.29**：同样不出现 Whisper、模型文件名、Python；语音相关只叫「**语音识别组件**」（延后能力的「语音音色」「音色克隆组件」同理），见 6.18.1。
+- **v0.30**：Cat 相关界面与 message 只出现「**Cat 助手**」，不出现 grok / CLI / 命令行 / 可执行文件名，见 6.19。
 - **范围**（后端产生、会被前端原样显示的）：`AppError.message`；`detail` 里约定给用户看的行（目前没有：`reason=` / `scheme=` / `kind=` 是机器读的枚举，本身不含 ffmpeg）；`DeleteFailure.message`；`ConvertSource.copyError.message`；`FormatEntry.reason`；`EncoderDevice.reason` / `EncoderPreferenceInfo.reason`；任务 `title`；`FFmpegStatus.error.message`；预设名等后端生成、前端直接显示的名字。
 - **不受限**：代码标识符、包名、接口名和方法名（`FFmpegStatus`、`InstallFFmpeg`、`ffmpeg:status`、`FFMPEG_NOT_FOUND`、`ffmpegPath` 等**全部不改**）、日志（任务日志、应用日志，含 `[FFmpegFree] ffmpeg 退出码 N`）、只给开发者看的 `detail`（如 `PROCESS_FAILED` 的 `ffmpeg 退出码 N` 和 stderr 尾部；`FFMPEG_NOT_FOUND` 的组件状态 detail 自 v0.25.4 起只有 `[来源] 原因`，不含路径）、ffmpeg 自己输出的原文（如 `试跑失败：<ffmpeg 输出最后一行>` 里引用的那一行）、文件路径。
 - **产品名 `FFmpegFree` 不算违反**（它是应用名，例如 macOS 屏幕录制授权提示里必须写出应用名，用户才能在系统设置里找到它）；是否连产品名也要改，见 PR 的待定问题。
@@ -191,13 +194,14 @@ Bind 方法返回 `(T, error)`。error 的 message 是 JSON 字符串，前端 `
 | DOC_PRESENTATION_BUSY / DOC_ENGINE_BUSY | v0.27 本机 Office / WPS 被占用（演示程序正在运行 / 只能挂到正在运行的实例上），可重试，见 6.12.33 |
 | DOC_PDF_NO_TEXT | v0.28 PDF 转 txt / md / 简易 html 时取不出可用的文字（扫描件或乱码）且没有可用的文档组件，不可重试，见 6.12.63 |
 | LANG_ASR_NOT_READY / LANG_ASR_EMPTY / LANG_ASR_FAILED / LANG_DOWNLOAD_FAILED / LANG_CHECKSUM_FAILED | v0.29 语音工具转字幕，见 6.18.8 |
+| CAT_NOT_READY / CAT_REPLY_FAILED | v0.30 Cat 助手，见 6.19.7 |
 | INTERNAL | 其他；直播任务里认不出的 ffmpeg 非零退出也是它（不是 `PROCESS_FAILED`），detail 带（已脱敏的）stderr 最后若干行 |
 
 **直播 / 录屏（v0.10）用到的后端码正好是冻结的这八个：`LIVE_URL_INVALID`、`LIVE_CONNECT_FAILED`、`LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`SCREEN_PERMISSION_DENIED`、`FFMPEG_NOT_FOUND`、`UNSUPPORTED_PLATFORM`、`INTERNAL`**（v0.14 起再加 `LIVE_SOURCE_GONE`，共九个）；此外复用已有的 `INVALID_ARGUMENT`、`NOT_FOUND`、`PROBE_FAILED`（输入文件问题）、`TASK_CONFLICT`（会话上限 / 同地址冲突）、`UNSUPPORTED`（Retry）、`CANCELED`（`Start*` 因应用退出被取消，#10 已加）。**v0.10 没有新增任何错误码**，也没有 `LIVE_START_FAILED` 之类的同义码。用户主动停止不产生错误码（优雅停止成功 = `succeeded`，超时强杀 = `canceled` 状态，`error` 为空）。`LIVE_PLAY_FAILED`（播放器加载或解码失败）和 `LIVE_CORS_BLOCKED`（拉流地址跨域被浏览器拦截）**只在前端由播放器产生**，后端不会返回，也不在 `apperr` 里定义。
 
 ### 2.1 AppErrorCode 完整清单（供前端 `frontend/src/api/call.ts` 对照）
 
-后端 `internal/apperr` 一共 36 个码（v0.14 新增 `LIVE_SOURCE_GONE`；v0.26 新增 10 个 `DOC_*`，文案和是否可重试见 6.12.20；v0.27 新增 `DOC_PRESENTATION_BUSY`、`DOC_ENGINE_BUSY`，见 6.12.33 和下表；v0.28 新增 `DOC_PDF_NO_TEXT`，见 6.12.63；v0.29 新增 5 个 `LANG_*`，见 6.18.8），前端 `AppErrorCode` 必须全部包含；前端 `frontend/src/api/call.ts` 以本清单为准逐项核对补全（不在契约里写它当前缺几个，现状随前端分支变化）：
+后端 `internal/apperr` 一共 38 个码（v0.14 新增 `LIVE_SOURCE_GONE`；v0.26 新增 10 个 `DOC_*`，文案和是否可重试见 6.12.20；v0.27 新增 `DOC_PRESENTATION_BUSY`、`DOC_ENGINE_BUSY`，见 6.12.33 和下表；v0.28 新增 `DOC_PDF_NO_TEXT`，见 6.12.63；v0.29 新增 5 个 `LANG_*`，见 6.18.8；v0.30 新增 2 个 `CAT_*`，见 6.19.7），前端 `AppErrorCode` 必须全部包含；前端 `frontend/src/api/call.ts` 以本清单为准逐项核对补全（不在契约里写它当前缺几个，现状随前端分支变化）：
 
 ```ts
 export type AppErrorCode =
@@ -215,6 +219,8 @@ export type AppErrorCode =
   | 'DOC_PDF_NO_TEXT'
   // v0.29 语音工具转字幕（6.18.8）：
   | 'LANG_ASR_NOT_READY' | 'LANG_ASR_EMPTY' | 'LANG_ASR_FAILED' | 'LANG_DOWNLOAD_FAILED' | 'LANG_CHECKSUM_FAILED'
+  // v0.30 Cat 助手（6.19.7）：
+  | 'CAT_NOT_READY' | 'CAT_REPLY_FAILED'
 ```
 
 **文档类错误码能否重试（v0.27 汇总；文案以 6.12.20 / 6.12.33 为准）**：
@@ -239,6 +245,8 @@ export type AppErrorCode =
 | `LANG_ASR_FAILED` | 是 | v0.29 |
 | `LANG_DOWNLOAD_FAILED` | 是 | v0.29 |
 | `LANG_CHECKSUM_FAILED` | 是 | v0.29 |
+| `CAT_NOT_READY` | 是（就绪后） | v0.30 |
+| `CAT_REPLY_FAILED` | 是 | v0.30 |
 
 - 前端遇到不在清单里的 `code`：按 `INTERNAL` 的通用文案处理，不崩溃。
 - `LIVE_PLAY_FAILED`、`LIVE_CORS_BLOCKED` 只在前端播放器里产生，**不是** `AppErrorCode`，也不出现在后端。
@@ -395,6 +403,17 @@ CancelLangAsrInstall() error
 RecheckLangAsr() (LangAsrStatus, error)
 SubmitSpeechToSubtitle(req SpeechToSubtitleRequest) (Task, error) // 批量形态见 6.18.5
 ExportSubtitleCues(req ExportSubtitleRequest) (ExportSubtitleResult, error)
+// CatService（v0.30，6.19；一期仅 cat_build，会话锁定 agentKind）
+GetCatStatus() (CatStatus, error)
+RecheckCat() (CatStatus, error)
+ListCatModels(agentKind string) ([]CatModel, error)
+ListCatThinkLevels(agentKind string) ([]CatThinkLevel, error)
+ListCatConversations() ([]CatConversation, error)
+GetCatConversation(id string) (CatConversationDetail, error)
+CreateCatConversation(req CreateCatConversationRequest) (CatConversation, error)
+DeleteCatConversation(id string) error
+SendCatMessage(req SendCatMessageRequest) (SendCatMessageResult, error)
+CancelCatTurn(conversationId string) error
 ListEncoderDevices() (EncoderDeviceList, error)      // 硬件编码设备（9.6）：第一项永远是 cpu；ffmpeg 未就绪时只有 cpu 且 ffmpegReady=false，不报错
 RefreshEncoderDevices() (EncoderDeviceList, error)   // 丢弃缓存重新检测
 GetEncoderPreference() (string, error)               // "auto" | "cpu" | 设备 id，默认 "auto"；所选设备不可用时保持原值
@@ -3840,6 +3859,140 @@ type ExportSubtitleRequest struct {
 4. 转字幕输入扩展名与时长 / 大小上限。  
 5. `SubmitSpeechToSubtitle` 单文件还是批量返回形态。  
 6. `LANG_ASR_FAILED` 最终文案产品确认。
+
+
+## 6.19 Cat 助手（v0.30，一期仅 Cat Build；产品 / 老板 10-09 定）
+
+> **一期只适配 Grok Build / Cat Build 路径。** 欢迎页模式胶囊里**只有「Cat Build」可点**；「Cat CLI」「Cat Code」「Codex CLI」「更多」等**一律置灰**，悬停 / 旁注文案 **`下一期开放`**（产品可再改字，本期先用这句）。**不**适配 Cat CLI / Cat Code / Codex CLI 的运行时。  
+> 界面与 `message` **只出现「Cat 助手」**；**永不**出现：`grok`、`Grok`、`CLI`、`命令行`、可执行文件名、模型厂商名（同 1.1）。  
+> 本仓实现 **适配器注册表 + Build 适配器**（下载 / 检测组件、按约定调用入口二进制、转发消息与只读工具结果）；**入口二进制名与发布包 URL/SHA-256 TBD**（老板后续提供 grok-build 相关 CLI）。  
+> **会话创建时锁定 `agentKind`**：之后改应用默认 CLI **不得**影响已有会话；Send / 流式始终走该会话自己的适配器（6.19.2）。  
+> 开关：前端 `CAT_UI_ENABLED` **默认 `false`**（侧栏「Cat」入口隐藏；为 true 时出现在「语音工具」后，可带「新」角标）；`CAT_BACKEND_READY` 为 false 时走本地假数据 / 不调真绑定（与前端 flags 对齐）。
+
+### 6.19.1 一期范围与明确不做
+
+| 做 | 不做（一期） |
+|---|---|
+| 侧栏进入 Cat 全屏聊天（收起主侧栏，返回原页） | Cat CLI / Cat Code / Codex CLI **运行时**（胶囊可见但禁用） |
+| 欢迎页 + 会话列表 + 发送 / 回复（事件推进） | URL / API Key 设置页或设置项 |
+| **仅 `cat_build`（Cat Build）** 可创建并运行 | 「助手」「定时任务」入口与功能 |
+| 模型名 / 思考强度**只从该会话 `agentKind` 对应 CLI 的能力列表读取** | 前端写死第三方模型名 |
+| 工具调用：**只读**（读文件 / 列目录等，白名单 TBD） | **完全访问**（入口置灰；不可落到 full） |
+| 组件未就绪文案见下 | 任意写盘、执行任意命令（非只读） |
+
+**未就绪**（组件未发布 / 未安装 / 不可用）：`Cat 助手还没准备好，发布后即可使用。`（一期通常无下载按钮，直至 `canDownload=true`）。  
+**回复失败**：`回复没生成出来，请重试。`（`CAT_REPLY_FAILED`，可重试）。
+
+### 6.19.2 `agentKind` 锁定与适配器注册表（多 CLI 扩展预备）
+
+| `agentKind` | 欢迎胶囊（展示名） | 一期 |
+|---|---|---|
+| `cat_build` | Cat Build | **唯一可创建 / 可发送** |
+| `cat_cli` | Cat CLI | 禁用「下一期开放」；注册表可不注册 |
+| `cat_code` | Cat Code | 同上 |
+| `codex_cli` | Codex CLI | 同上 |
+
+**规则（架构硬性）**：
+
+1. **`CatConversation.agentKind` 在创建时写入，之后不可变**（无 Update 接口改 kind；库内也不允许改）。  
+2. **`CreateCatConversation`（或首条 `SendCatMessage` 隐式建会话）**必须带上用户在欢迎页选中的模式对应的 `agentKind`；一期前端只能传 `cat_build`，其它值 → `INVALID_ARGUMENT`。  
+3. **`SendCatMessage` / 流式 / 取消**一律按**该会话已存的 `agentKind`** 查注册表路由，**绝不**使用「当前应用默认 CLI」。  
+4. **应用级默认** `Settings.catDefaultAgentKind`（默认 `cat_build`）**只作用于新建会话**的预填；改设置不影响旧会话。  
+5. **适配器注册表**（后端进程内）：`agentKind` → `{ executablePath, protocolVersion, … }`。一期**只注册 `cat_build`**；未注册 kind 的会话若因脏数据出现 → `CAT_NOT_READY` 或 `UNSUPPORTED`（实现选一，message 仍用未就绪 / 通用失败口径，不暴露可执行名）。  
+6. **`ListCatConversations` / `GetCatConversation` 返回 `agentKind`**，供 UI 徽章或内部逻辑；**展示给用户仍是「Cat 助手」**，不把 `cat_build` / grok / cli 字样直接打在气泡上（可用中性「Build」等产品另定的短标，**TBD**；禁止技术名）。
+
+### 6.19.3 Build 适配器（`cat_build`）
+
+- 组件目录建议：`%LocalAppData%\FFmpegFree\components\cat\build\<version>\`（macOS 对应 Application Support）；每轮工作目录 `<数据目录>/tmp/cat/<conversationIdOrTurnId>/`。  
+- 入口二进制：**名字 TBD**（占位 `cat-build` / `cat-build.exe`，以老板发布包为准）。路径只进注册表，**不**回前端。  
+- 能力探测：CLI 输出 JSON → `models[]` / `thinkLevels[]`（展示名须为「Cat 助手 …」口径，或后端映射后只把展示名给前端）。**按 agentKind 缓存**；不同 kind 不得混用能力列表。  
+- 一轮对话：写 request（消息、modelId、thinkLevelId、只读工具结果、可选只读项目根）→ 调该 kind 的可执行文件 → 读 response；写类工具请求拒绝。  
+- 协议字段、超时、取消细节：**TBD**（稳定后回写）。  
+- **无** Base URL / API Key 设置。
+
+### 6.19.4 数据结构
+
+```go
+type CatStatus struct {
+    State       string    `json:"state"` // checking | ready | missing | failed
+    Version     string    `json:"version"`
+    CanDownload bool      `json:"canDownload"`
+    Error       *AppError `json:"error,omitempty"`
+}
+
+type CatModel struct {
+    ID          string `json:"id"`
+    DisplayName string `json:"displayName"` // 如「Cat 助手 1.0」
+}
+type CatThinkLevel struct {
+    ID          string `json:"id"`
+    DisplayName string `json:"displayName"` // 如「高」
+}
+
+type CatConversation struct {
+    ID        string `json:"id"`
+    Title     string `json:"title"`
+    AgentKind string `json:"agentKind"` // 创建后不可变；一期仅 cat_build
+    CreatedAt int64  `json:"createdAt"`
+    UpdatedAt int64  `json:"updatedAt"`
+}
+
+type CatMessage struct {
+    ID        string `json:"id"`
+    Role      string `json:"role"` // user | assistant | system
+    Content   string `json:"content"`
+    CreatedAt int64  `json:"createdAt"`
+}
+```
+
+会话表 / JSON 落库须持久化 `agentKind`；**尽量无现有键值或新表，迁移号顺延（下一号以仓库为准，可能为 0010+）**——若实现选 JSON 旁路字段且无迁移，须在实现 PR 注明。
+
+### 6.19.5 接口与事件
+
+```go
+GetCatStatus() (CatStatus, error)
+RecheckCat() (CatStatus, error)
+ListCatModels(agentKind string) ([]CatModel, error)           // 一期只接受 cat_build
+ListCatThinkLevels(agentKind string) ([]CatThinkLevel, error)
+
+ListCatConversations() ([]CatConversation, error) // 每项含 agentKind
+GetCatConversation(id string) (CatConversationDetail, error)
+CreateCatConversation(req CreateCatConversationRequest) (CatConversation, error)
+// req 必填 agentKind（一期 = cat_build）；可选 title
+DeleteCatConversation(id string) error
+
+SendCatMessage(req SendCatMessageRequest) (SendCatMessageResult, error)
+// req: conversationId, content, modelId, thinkLevelId；可选 projectPath（只读根）
+// 路由：用会话已存 agentKind，忽略「当前默认」
+CancelCatTurn(conversationId string) error
+```
+
+| 事件 | 含义 |
+|---|---|
+| `cat:status` | `CatStatus` 变化 |
+| `cat:message` | 某会话消息新增 / 更新（可含流式增量） |
+| `cat:turn` | 一轮结束：`{ conversationId, status: succeeded\|failed\|canceled, error? }` |
+
+设置：`catDefaultAgentKind` 默认 `cat_build`，**仅新建会话预填**。
+
+### 6.19.6 UI 冻结项
+
+- 欢迎页：**仅「Cat Build」可选**；其余禁用 + 「下一期开放」。选中 Build 后 `Create`/`Send` 带 `agentKind=cat_build`。  
+- 合一胶囊：「{模型展示名} · {思考强度展示名}」，选项来自**该会话 agentKind** 的 List API。  
+- 「完全访问」置灰。无「助手」「定时任务」。无 URL/Key 设置。
+
+### 6.19.7 错误码（v0.30 新增 2 个；2.1 由 36 变为 38）
+
+| code | message | 可重试 |
+|---|---|---|
+| `CAT_NOT_READY` | `Cat 助手还没准备好，发布后即可使用。` | 是（就绪后） |
+| `CAT_REPLY_FAILED` | `回复没生成出来，请重试。` | 是 |
+
+非法 `agentKind`、改已有会话 kind 等 → `INVALID_ARGUMENT`。沿用 `NOT_FOUND` / `CANCELED` / `IO_ERROR` 等。
+
+### 6.19.8 延后
+
+`cat_cli` / `cat_code` / `codex_cli` 注册与运行；完全访问；助手；定时任务；URL/Key；组件下载专节。扩展时**只加注册表项与胶囊启用**，会话锁定规则不变。
 
 
 ## 7. 本地流服务（已取消）
