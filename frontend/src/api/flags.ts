@@ -96,7 +96,7 @@ export const CAT_UI_ENABLED: boolean = true
  * Cat 真绑定（契约 §6.19）。后端 CatService 骨架 #172 已合入 v2（8597aa3），绑定已生成，联调打开（true）：
  * 在 Wails 里调真实绑定（api/cat.ts），订阅 cat:status / cat:message / cat:turn。
  * 纯浏览器（没有 window.go）仍走 typed mock。页面入口仍由 CAT_UI_ENABLED 控制（正式包默认关）。
- * 组件未发布时后端返回 missing + canDownload=false：显示「Cat 助手还没准备好，发布后即可使用。」，无下载按钮。
+ * 组件未发布时后端返回 missing + canDownload=false：显示「未检测到 Cat 助手，请先安装并确保可在终端直接运行。」，无下载按钮。
  */
 export const CAT_BACKEND_READY: boolean = true
 

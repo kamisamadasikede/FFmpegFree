@@ -67,7 +67,7 @@
               >更多<FIcon name="down" :size="12" /></button>
             </div>
             <div v-if="catNotReady" class="ct-banner" role="status" data-testid="cat-not-ready">
-              <FIcon name="info" :size="14" />{{ CAT_COPY.notReady }}
+              <FIcon name="info" :size="14" />{{ notReadyText }}
             </div>
             <CatComposer
               ref="composer"
@@ -114,7 +114,7 @@
             <CatMessages :blocks="messages" :pending="thinking" />
           </div>
           <div v-if="catNotReady" class="ct-banner in-conv" role="status" data-testid="cat-not-ready">
-            <FIcon name="info" :size="14" />{{ CAT_COPY.notReady }}
+            <FIcon name="info" :size="14" />{{ notReadyText }}
           </div>
           <CatComposer
             ref="convComposer"
@@ -166,6 +166,7 @@ const q = new URLSearchParams(location.search)
 const phase = ref<'loading' | 'chat'>(preview && q.get('cat') === 'chat' ? 'chat' : 'loading')
 if (preview && q.get('cat_conv')) catState.sel = q.get('cat_conv') as string
 
+const notReadyText = computed(() => catState.status.error?.message || CAT_COPY.notReady)
 const isNew = computed(() => catState.sel === NEW_CONV)
 const current = computed(() => (isNew.value ? null : findConv(catState.sel)))
 const messages = computed(() => (isNew.value ? [] : messagesOf(catState.sel)))

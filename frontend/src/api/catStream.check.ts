@@ -95,5 +95,6 @@ export function catStreamChecks(eq: Eq): void {
   eq('未知状态按 missing', mapCatStatus({ state: 'downloading' }).state, 'missing')
   eq('停止文案', CAT_COPY.stopped, '已停止生成。')
   eq('失败文案', CAT_COPY.replyFailed, '回复没生成出来，请重试。')
-  eq('未就绪文案', CAT_COPY.notReady, 'Cat 助手还没准备好，发布后即可使用。')
+  eq('未就绪文案', CAT_COPY.notReady, '未检测到 Cat 助手，请先安装并确保可在终端直接运行。')
+  eq('登录失效文案', CAT_COPY.authInvalid, '登录失效，请重新登录后再试。')
 }

@@ -37,8 +37,11 @@ const (
 
 // 用户可见文案（契约 6.19.7）。
 const (
-	MsgNotReady     = "Cat 助手还没准备好，发布后即可使用。"
-	MsgReplyFailed  = "回复没生成出来，请重试。"
+	// MsgNotReady：PATH 上找不到入口（v0.31.3）。
+	MsgNotReady = "未检测到 Cat 助手，请先安装并确保可在终端直接运行。"
+	// MsgAuthInvalid：入口在但登录 / API Key 失效（仍用 CAT_NOT_READY，detail reason=auth）。
+	MsgAuthInvalid = "登录失效，请重新登录后再试。"
+	MsgReplyFailed = "回复没生成出来，请重试。"
 	MsgToolWriteRef = "当前只能查看项目文件，改文件和运行命令下一期开放。"
 
 	// v0.31 项目（6.19.10.8 / 6.19.10.9）。后三句是架构师建议文案，产品改了只改这里。

@@ -144,6 +144,19 @@ func (a *BuildAdapter) setStatus(st Status) {
 	}
 }
 
+
+func (a *BuildAdapter) markAuthInvalid() {
+	a.mu.Lock()
+	ver := a.version
+	a.mu.Unlock()
+	a.setStatus(Status{
+		State:       StateFailed,
+		Version:     ver,
+		CanDownload: false,
+		Error:       apperr.New(apperr.CatNotReady, MsgAuthInvalid).WithDetail("reason=auth"),
+	})
+}
+
 func (a *BuildAdapter) lookPath(file string) (string, error) {
 	if a.cfg.LookPath != nil {
 		return a.cfg.LookPath(file)
@@ -390,6 +403,10 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		return TurnResponse{}, apperr.New(apperr.CatReplyFailed, MsgReplyFailed).WithDetail("reason=timeout")
 	}
 	if cliErr != "" {
+		if isAuthFailure(cliErr) {
+			a.markAuthInvalid()
+			return TurnResponse{}, authNotReadyErr()
+		}
 		return TurnResponse{}, apperr.New(apperr.CatReplyFailed, MsgReplyFailed).WithDetail("reason=cli_error " + truncate(cliErr, 500))
 	}
 	if waitErr != nil {
@@ -399,6 +416,11 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 				Version: ProtocolVersion,
 				Message: WireMessage{Role: "assistant", Content: acc.String()},
 			}, nil
+		}
+		errText := waitErr.Error() + " " + stderrBuf.String() + " " + cliErr
+		if isAuthFailure(errText) {
+			a.markAuthInvalid()
+			return TurnResponse{}, authNotReadyErr()
 		}
 		return TurnResponse{}, apperr.Wrap(apperr.CatReplyFailed, MsgReplyFailed, waitErr)
 	}
@@ -470,6 +492,28 @@ func grokTurnEnv(base []string) []string {
 		"GROK_DISABLE_AUTOUPDATER=1",
 	)
 	return out
+}
+
+
+// isAuthFailure 判断 CLI 报错是否像登录 / API Key 失效（不把厂商名写进用户文案）。
+func isAuthFailure(msg string) bool {
+	s := strings.ToLower(msg)
+	keys := []string{
+		"unauthorized", "unauthenticated", "authentication", "not logged", "please log in", "please login",
+		"api key", "api_key", "xai_api_key", "invalid key", "invalid token", "expired token",
+		"auth failed", "auth error", "login required", "not authenticated", "401",
+		"登录", "未登录", "鉴权", "认证失败",
+	}
+	for _, k := range keys {
+		if strings.Contains(s, k) {
+			return true
+		}
+	}
+	return false
+}
+
+func authNotReadyErr() error {
+	return apperr.New(apperr.CatNotReady, MsgAuthInvalid).WithDetail("reason=auth")
 }
 
 func truncate(s string, n int) string {
