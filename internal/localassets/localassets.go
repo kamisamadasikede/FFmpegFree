@@ -222,7 +222,10 @@ var mimeByExt = map[string]string{
 	".mp3": "audio/mpeg", ".wav": "audio/wav", ".aac": "audio/aac", ".m4a": "audio/mp4",
 	".flac": "audio/flac", ".ogg": "audio/ogg", ".opus": "audio/ogg",
 	".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp",
-	".pdf": "application/pdf",
+	".pdf":  "application/pdf",
+	".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 }
 
 // ContentType 按扩展名（不区分大小写）返回 Content-Type，未知为 application/octet-stream。

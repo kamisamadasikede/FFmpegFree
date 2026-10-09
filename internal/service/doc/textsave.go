@@ -161,7 +161,7 @@ func (s *Service) SaveDocTextAs(ctx context.Context, req DocSaveAsRequest) (DocS
 	if int64(len(data)) > maxEditTextBytes || (kind == "csv" && req.Rows != nil && len(req.Rows) > maxEditCSVRows) {
 		return DocSaveResult{}, apperr.New(apperr.InvalidArgument, "内容太多，没法在这里保存。请用默认程序打开编辑。").WithDetail("reason=too_large")
 	}
-	// 目标正好是某行/记录且正在转换
+	// 目标被别的记录用着：正在转换 converting，否则 in_use；都不写
 	if err := s.conflictIfTargetBusy(ctx, target); err != nil {
 		return DocSaveResult{}, err
 	}
@@ -171,7 +171,6 @@ func (s *Service) SaveDocTextAs(ctx context.Context, req DocSaveAsRequest) (DocS
 		return DocSaveResult{}, err
 	}
 	s.allowReveal(target)
-	s.refreshIfTargetMatches(ctx, target, data)
 	return DocSaveResult{
 		Path: target, Revision: sha256Hex(data), SizeBytes: int64(len(data)), SavedAt: time.Now().UnixMilli(),
 	}, nil
@@ -288,15 +287,26 @@ func (s *Service) allowReveal(path string) {
 	}
 }
 
+// conflictIfTargetBusy 另存为目标检查（6.12.42 / 6.12.49，架构师定）：目标是任一记录正在转换的输入或输出
+// → TASK_CONFLICT reason=converting；是某个源文件行的原文件、某条记录的输出或某个副本 → IO_ERROR reason=in_use。
+// 两种情况都拒绝，不写入。
 func (s *Service) conflictIfTargetBusy(ctx context.Context, target string) error {
-	// 轻量：若目标等于某文档行原文件且该行忙，报 converting。完整匹配留给 refresh。
-	_ = ctx
-	_ = target
+	type usage interface {
+		DocTargetPathUsage(ctx context.Context, target string) (converting, inUse bool, err error)
+	}
+	u, ok := s.cfg.Sources.(usage)
+	if !ok {
+		return nil
+	}
+	converting, inUse, err := u.DocTargetPathUsage(ctx, target)
+	if err != nil {
+		return apperr.Wrap(apperr.Internal, "出了点问题，请重试。", err)
+	}
+	if converting {
+		return apperr.New(apperr.TaskConflict, "文件正在转换，转完再保存。").WithDetail("reason=converting")
+	}
+	if inUse {
+		return apperr.New(apperr.IOError, "这个文件正被应用里的其他记录使用，请换一个位置另存。").WithDetail("reason=in_use")
+	}
 	return nil
-}
-
-func (s *Service) refreshIfTargetMatches(ctx context.Context, target string, data []byte) {
-	_ = ctx
-	_ = target
-	_ = data
 }

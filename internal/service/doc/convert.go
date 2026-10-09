@@ -330,9 +330,9 @@ func (s *Service) retryFactory(old task.Task) (task.Runner, error) {
 
 // resolveOutputDirStrict 校验已解析好的输出目录（不再套用默认目录）。
 func (s *Service) resolveOutputDirStrict(dir string) (string, error) {
-	cp := *s
-	cp.cfg.DefaultOutputDir = nil
-	return cp.resolveOutputDir(context.Background(), dir)
+	tmp := &Service{cfg: s.cfg} // 不复制 sync 字段
+	tmp.cfg.DefaultOutputDir = nil
+	return tmp.resolveOutputDir(context.Background(), dir)
 }
 
 // writableDir 检查输出目录可写：已存在的必须是可写目录（IO_ERROR），不存在的则最近的已存在上级必须是可写目录。

@@ -56,8 +56,10 @@ type DocPreview struct {
 }
 
 type previewEntry struct {
-	id    string
-	token string // localassets token；空 = 没有登记
+	id     string
+	tokens []string           // localassets token（url / rawUrl / 生成后的 PDF）
+	pin    string             // 预览缓存里钉住的 PDF；空 = 无
+	cancel context.CancelFunc // 引擎生成中可取消；nil = 无
 }
 
 // previewHub 进程内未释放的预览（最多 8 个）。
@@ -91,6 +93,13 @@ func (s *Service) GetDocPreview(ctx context.Context, req DocPreviewRequest) (Doc
 		SizeBytes: fi.Size(),
 	}
 	kind := textKindOf(t.Ext)
+	if kind == "" && t.Ext != "pdf" {
+		// 有本机 Office/WPS 或文档组件时：生成 PDF 预览（6.12.32 引擎路径 + 缓存）
+		if engines := s.previewEngines(ctx, t.Ext); len(engines) > 0 {
+			s.fillEnginePreview(ctx, t, &out, engines)
+			return out, nil
+		}
+	}
 	switch {
 	case kind != "":
 		s.fillTextPreview(ctx, t, &out, kind)
@@ -119,32 +128,74 @@ func (s *Service) CancelDocPreview(previewID string) error {
 	defer h.mu.Unlock()
 	for i, e := range h.list {
 		if e.id == previewID {
-			if e.token != "" && s.cfg.Local != nil {
-				s.cfg.Local.Revoke(e.token)
-			}
 			h.list = append(h.list[:i], h.list[i+1:]...)
+			s.releaseEntry(e)
 			return nil
 		}
 	}
 	return nil
 }
 
-func (s *Service) trackPreview(id, url, rawURL string) {
-	token := tokenOfURL(url)
-	if token == "" {
-		token = tokenOfURL(rawURL)
+// releaseEntry 撤销 token、取消生成、解除缓存钉住。调用方持有 hub 锁。
+func (s *Service) releaseEntry(e previewEntry) {
+	if e.cancel != nil {
+		e.cancel()
 	}
+	if s.cfg.Local != nil {
+		for _, tok := range e.tokens {
+			if tok != "" {
+				s.cfg.Local.Revoke(tok)
+			}
+		}
+	}
+	if e.pin != "" && s.prevCache != nil {
+		s.prevCache.Pin(e.pin, false)
+	}
+}
+
+func (s *Service) trackPreview(id, url, rawURL string) {
+	s.trackEntry(previewEntry{id: id, tokens: uniqTokens(tokenOfURL(url), tokenOfURL(rawURL))})
+}
+
+func uniqTokens(a, b string) []string {
+	var out []string
+	if a != "" {
+		out = append(out, a)
+	}
+	if b != "" && b != a {
+		out = append(out, b)
+	}
+	return out
+}
+
+func (s *Service) trackEntry(e previewEntry) {
 	h := s.hub()
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.list = append(h.list, previewEntry{id: id, token: token})
+	h.list = append(h.list, e)
 	for len(h.list) > maxLivePreviews {
 		old := h.list[0]
 		h.list = h.list[1:]
-		if old.token != "" && s.cfg.Local != nil {
-			s.cfg.Local.Revoke(old.token)
+		s.releaseEntry(old)
+	}
+}
+
+// updateEntry 生成完成后把 PDF token / 钉住登记到仍存活的预览；预览已释放时返回 false。
+func (s *Service) updateEntry(id, token, pin string) bool {
+	h := s.hub()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for i := range h.list {
+		if h.list[i].id == id {
+			if token != "" {
+				h.list[i].tokens = append(h.list[i].tokens, token)
+			}
+			h.list[i].pin = pin
+			h.list[i].cancel = nil
+			return true
 		}
 	}
+	return false
 }
 
 func tokenOfURL(u string) string {
