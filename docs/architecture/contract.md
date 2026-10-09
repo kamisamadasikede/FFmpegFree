@@ -1,4 +1,7 @@
-# FFmpegFree v2 接口契约（v0.28）
+# FFmpegFree v2 接口契约（v0.28.1）
+
+v0.28.1 变更（**按 #138 / #139 实际合入的内容记录，以实现为准**，2026-10-09；完整内容见新增的 **6.12.66**，本条只是索引）：① `DOC_ENCRYPTED` 新增 `reason=owner_only`：空用户密码能打开、但设了所有者 / 权限密码的 PDF，RC4 和 AES-128 的照常转，**AES-256 的在添加时拒绝**，不可重试，文案 `这个 PDF 设置了权限保护，暂时不能转换。`；要用户密码的不变（原 reason 和原文案）。后续项（未做）：有组件时把 AES-256 只有所有者密码的 PDF 交给组件。② 已接受的偏差：纯 Go 提取失败改用组件时，先导出 html 再取文字；pdf → html 组件导出失败回退简易 html；PDF 的转换结果可以预览。③ 前端：`DOC_V28_BACKEND_READY=true`，`KNOWN_CODE_RE` 含 `DOC_PDF_NO_TEXT`，横条 `Word、ODT、TXT 可以简易转 PDF，md 和网页可以互转，PDF 可以提取文字转成 TXT、md 和简易网页。`；状态的 `engines` 不含 `go`，格式表的 `DocTarget.engines` 保留 `go`。④ 5 条 PDF 文案定稿（按前端标注的“产品 10-09 定稿”常量，与后端一致，见 6.12.66 ④）。**没有新增错误码（仍 31 个），没有迁移，没有新事件，没有接口签名变化**。
+
 
 v0.28 变更（**PDF 作为输入转成其他格式**，用户提出，架构师定方案，文案待产品定，2026-10-09；**只有契约**；完整规则见新增的 **6.12.58~6.12.65**，本条只是索引，冲突时以新节为准）：① **取消“PDF 暂时不能转成其他格式。”**：`.pdf` 可以添加，新家族 `pdf`；目标 doc / docx / odt / rtf（Word ≥ 2013 → 文档组件 `writer_pdf_import`，不用 WPS，`hintKey=pdf_layout`）、txt / md（纯 Go 提取文字，`simple=true`，不需要组件、不占池）、html（有组件用组件，没有用纯 Go 生成简易 html）；表格、演示、图片不列出。② **纯 Go 库** `github.com/ledongthuc/pdf`（BSD-3-Clause）；提取后做**质量判定**（空，或 `U+FFFD` / 私用区 / 控制字符占非空白字符 ≥ 30%），不过时有可用组件就**自动改用组件**（`result.engine=component`），没有才报新码 **`DOC_PDF_NO_TEXT`**（`detail` 写 `quality=empty|garbled`）；Word 只用于 doc / docx / odt / rtf。txt 输出 UTF-8 不带 BOM、换行跟平台。③ **上限**：PDF 200 MiB（`INVALID_ARGUMENT` `reason=too_large`）、500 页（`reason=too_many_pages`，2.2 新增取值）；加密（要用户密码）`DOC_ENCRYPTED` 沿用现有文案，只有所有者密码的照常转。④ **2.1 由 30 个变为 31 个**（加 `DOC_PDF_NO_TEXT`；`DOC_PDF_INPUT_UNSUPPORTED` 保留不再产生）；任务类型仍 `doc_convert`，**没有迁移**，没有新事件、没有新接口；PDF 预览不变。⑤ **定稿**：另存为的目标正好是这条记录自己的源文件 / 输出时按覆盖处理并刷新记录，正在转换仍 `TASK_CONFLICT` `converting`，别的记录的文件 `IO_ERROR` `in_use`（6.12.42、6.12.49 改在原处）。⑥ **实现差异以实现为准**：Office / WPS 用一把全局锁保证并发 1（不单开池）；Office / WPS 进程暂不放 Job Object（后续加固）；组件配置 Writer `Link=0`、Calc `Link=1`（6.12.65）。⑦ 6.12.45 文案定稿：组件太旧 `文档组件版本太旧，请重新下载。` + 「更新文档组件」；「重新打开」二次确认 `重新打开会丢掉你改的内容，确定吗？`「重新打开」（危险）「取消」。
 
@@ -237,6 +240,7 @@ export type AppErrorCode =
 | 文档转换的不可重试记录（v0.26，`TaskService.Retry` 遇到 retryable=否 的 `doc_convert` / `office_pdf` 失败记录） | `reason=<值>` | `UNSUPPORTED`：`not_retryable`（只追加） | 只有这一行；`DOC_*` 码的 `detail` 首行（`exit=` / `msiexec=` 等）前端不解析，见 6.12.20 |
 | 文档编辑（v0.27.1，6.12.41 / 6.12.42：`DocService.SaveDocText`、`SaveDocTextAs` 的同步错误） | `reason=<值>` | `TASK_CONFLICT`：`file_changed`（文件在打开之后被别的程序改过，revision 不一致）、`converting`（这一行有排队中 / 运行中的转换，或结果记录正在重转；v0.27.1 补充：原写 `in_use`，已改名）、`copying`（沿用 v0.24：副本还在复制，后面一行 `sourceId=<id>`）；`NOT_FOUND`：`record`、`file`（沿用：原文件 / 输出文件不在了）；`IO_ERROR`：`permission`（没有写权限、只读）、`in_use`（被其他程序占用、读不了或替换不了，和 `file_changed` 分开）、`io`（其他写入失败）（这三个沿用 v0.24 的取值，这里没有第二行路径）；`INVALID_ARGUMENT`：`encoding`（v0.27.1 补充：有字符编不进原编码 GBK；后面两行 `char=U+XXXX`、`line=<n>`）、`too_large`（超过 2 MiB 或 1000 行）、`format`（不能编辑的格式、另存为换了格式、html 声明了不支持的编码）（只追加） | 除 `copying`（`sourceId=`）和 `encoding`（`char=` / `line=`）外都只有这一行；另存为的目标路径不合法（应用数据目录、上传目录、非绝对路径）是没有 reason 的 `INVALID_ARGUMENT`；磁盘满 `CONVERT_DISK_FULL` 不带 reason；界面不显示错误码和 reason |
 | docx 分段保存（v0.27.2，6.12.49~6.12.52：`BeginDocBinarySave`、`AppendDocBinaryChunk`、`CommitDocBinarySave` 的同步错误） | `reason=<值>` | `INVALID_ARGUMENT`：`too_large`（沿用：超过 20 MiB）、`chunk_order`（`seq` 不连续，会话不作废）、`checksum`（字节数或 SHA-256 不符）、`malformed`（完整性检查不过）、`format`（沿用：不是 docx、另存为扩展名不对、含宏）；`NOT_FOUND`：`save_session`（会话不在或已过期）、`file` / `record`（沿用）；`TASK_CONFLICT`：`saving`（同一文件已有保存会话，或会话数到上限）、`file_changed` / `converting` / `copying`（沿用 v0.27.1）；`IO_ERROR`：`backup`（v0.27.2 补充：备份失败）、`permission` / `in_use` / `io`（沿用）（只追加） | 都只有这一行；`chunk_order`、`checksum`、`save_session`、`saving` 是前端内部错误，界面一律 `出了点问题，请重试。`；界面不显示错误码和 reason |
+| PDF 权限保护（v0.28.1，6.12.66 ①：添加 / 提交 / 运行时的 `DOC_ENCRYPTED`） | `reason=<值>` | `owner_only`（空用户密码能打开、只有所有者密码、AES-256，纯 Go 库解不了；要用户密码的 `DOC_ENCRYPTED` 仍没有 detail）（只追加） | 只有这一行；不可重试；界面不显示 |
 | PDF 输入（v0.28，6.12.60 / 6.12.63：添加 PDF 的 `AddDocSourceResult.error`、`DOC_PDF_NO_TEXT`） | `reason=<值>` | `INVALID_ARGUMENT`：`too_large`（沿用：PDF 超过 200 MiB）、`too_many_pages`（超过 500 页）；`DOC_PDF_NO_TEXT`：`no_text`（第二行 `quality=empty\|garbled` 只给开发者看）（只追加） | 只有第一行；界面不显示 |
 | 文档组件未就绪（v0.27.2，6.12.55：`DOC_COMPONENT_NOT_READY` 的同步错误和任务错误，以及 `DocComponentStatus.error`） | `reason=<值>` | `checking`、`missing`、`outdated`（含 Windows / macOS 应用下载的组件低于 26.2.6）、`downloading`、`preparing`、`failed`，即 `componentState`（只追加） | 只有这一行；`OpenStorageFolder("doc_component")` 的 `NOT_FOUND` 沿用 v0.25.1 的 `reason=component` |
 | 其余所有码（含 `LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`INTERNAL`） | 无固定格式 | — | 前端**不得**解析（上面几行列出的码 / 场景除外） |
@@ -1672,10 +1676,10 @@ type DocTarget struct {
 |---|---|---|
 | `csv_first_sheet` | xls / xlsx / ods → csv | `转成 CSV 只会保留第一个工作表。`（前端在选中文件的 `sheetCount > 1` 或 `= -1` 且目标是 CSV 时显示，6.12.16） |
 | `md_lossy` | 任何格式 → md | `转成 Markdown 只保留文字和基本格式，图片和复杂表格会丢失。` |
-| `simple_mode` | 组件未就绪时 docx / odt / txt → pdf；**v0.28**：pdf → txt、没有组件时的 pdf → html | `下载文档组件后可保留图片和排版`；**PDF 源**：`只提取文字，不保留排版和图片。`（待产品定，6.12.59） |
-| `pdf_layout` | **v0.28**：pdf → doc / docx / odt / rtf | `PDF 转 Word 会尽量还原排版，复杂版式和扫描件可能走样。`（待产品定） |
+| `simple_mode` | 组件未就绪时 docx / odt / txt → pdf；**v0.28**：pdf → txt、没有组件时的 pdf → html | `下载文档组件后可保留图片和排版`；**PDF 源**：`只提取文字，不保留排版和图片。`（v0.28.1 定稿） |
+| `pdf_layout` | **v0.28**：pdf → doc / docx / odt / rtf | `PDF 转 Word 会尽量保留排版，复杂版式和扫描件可能会走样。`（v0.28.1 定稿） |
 
-**组件未就绪时的总提示**（文档页顶部，前端常量，后端不给）：`Word、ODT、TXT 可以简易转 PDF，md 和网页可以互转`。
+**组件未就绪时的总提示**（文档页顶部，前端常量，后端不给）：`Word、ODT、TXT 可以简易转 PDF，md 和网页可以互转`。**v0.28.1**：打开 PDF 输入后为 `Word、ODT、TXT 可以简易转 PDF，md 和网页可以互转，PDF 可以提取文字转成 TXT、md 和简易网页。`
 
 ### 6.12.14 接口（DocService，v0.26 新增）
 
@@ -1774,7 +1778,7 @@ type DocSubmitRequest struct {
 
 | code | message（后端给，前端也按 code 映射成同样的话） | 可重试（retryable） | 出现在 | 说明 |
 |---|---|---|---|---|
-| `DOC_ENCRYPTED` | `这个文件有密码保护，不能转换。请先去掉密码再添加。` | **否** | 添加、提交、任务 | 6.12.19；界面不给“重试”，只能移出 |
+| `DOC_ENCRYPTED` | `这个文件有密码保护，不能转换。请先去掉密码再添加。`；**v0.28.1**：`detail` 为 `reason=owner_only` 时 `这个 PDF 设置了权限保护，暂时不能转换。` | **否** | 添加、提交、任务 | 6.12.19；界面不给“重试”，只能移出；`owner_only` 见 6.12.66 ① |
 | `DOC_CORRUPT` | `文件打不开，可能已损坏或不是有效的文档。` | **否**（只能移出） | 添加、任务 | 容器损坏、组件报告无法加载 |
 | `DOC_TIMEOUT` | `文件处理太久没完成，可能已损坏，请检查后重试。` | 是 | 任务 | 5 分钟超时，已结束进程树 |
 | `DOC_COMPONENT_CRASHED` | `文档组件意外退出，请重试。` | 是 | 任务 | `detail` 第一行 `exit=<码>` |
@@ -2527,7 +2531,7 @@ type DocBinarySaveAbort struct {
 - 契约**仍允许**在 `preparing`（解包、检测）时调 `CancelDocComponentInstall`（6.12.12 第 5 条，规则不变）。
 - **前端可以不提供**准备阶段的取消按钮（按设计稿：准备通常一两分钟，中途取消意义不大）；下载阶段的取消照旧。后端不因为前端不调而改变任何行为。
 
-## 6.12.58 PDF 作为输入转成其他格式（v0.28；用户提出，架构师定方案，文案待产品定）
+## 6.12.58 PDF 作为输入转成其他格式（v0.28；用户提出，架构师定方案；文案 v0.28.1 定稿，见 6.12.66 ④）
 
 > 用户原话：“需要支持 pdf 转成其他格式，现在 pdf 无法上传转换。”本节**取消** 6.12.10 / 6.12.16 / 6.12.20 里“PDF 只作输出、添加时拒绝（`DOC_PDF_INPUT_UNSUPPORTED`，`PDF 暂时不能转成其他格式。`）”的限制。任务类型仍是 `doc_convert`，**没有迁移**（现有最大号仍是 0009，下一个是 0010）。与 6.12.9~6.12.57 冲突时以本节为准。
 
@@ -2546,20 +2550,21 @@ type DocBinarySaveAbort struct {
 - **`DocFormatMatrix.inputs`** 加 `pdf`；`sources` 加一项 `{ext: "pdf", family: "pdf", targets: [...]}`。
 - **`available`**：doc / docx / odt / rtf 需要 Word（≥ 15）或可用的文档组件，都没有时置灰，`disabledReason=需要文档组件`；txt / md **恒为 `true`**（纯 Go）；html 恒为 `true`（没有组件就走简易）。
 - **`engines`**（6.12.30 的 `DocTarget.engines`）：doc / docx / odt / rtf 为 `["office", "component"]` 中现在可用的；txt / md 为 `["go"]`，有可用组件时 `["go", "component"]`；html 有组件 `["component"]`，没有 `["go"]`。
-- **`hintKey`** 新增 `pdf_layout`，文案（**待产品定**）`PDF 转 Word 会尽量还原排版，复杂版式和扫描件可能走样。`。`hint` 一项只放一句：pdf → md 给 `md_lossy`（不再叠加 `simple_mode`），pdf → txt 和没有组件时的 pdf → html 给 `simple_mode`。**`simple_mode` 在 PDF 源上的文案**（待产品定）：`只提取文字，不保留排版和图片。`（与组件未就绪时的 `下载文档组件后可保留图片和排版` 区分：前者是 PDF 源，后者是其他源；后端按源给 `hint`，`hintKey` 相同）。
+- **`hintKey`** 新增 `pdf_layout`，文案（v0.28.1 定稿）`PDF 转 Word 会尽量保留排版，复杂版式和扫描件可能会走样。`。`hint` 一项只放一句：pdf → md 给 `md_lossy`（不再叠加 `simple_mode`），pdf → txt 和没有组件时的 pdf → html 给 `simple_mode`。**`simple_mode` 在 PDF 源上的文案**（v0.28.1 定稿）：`只提取文字，不保留排版和图片。`（与组件未就绪时的 `下载文档组件后可保留图片和排版` 区分：前者是 PDF 源，后者是其他源；后端按源给 `hint`，`hintKey` 相同）。
 - **能力表**（6.12.27）加一列 **PDF**：`office` 源 pdf → 目标 doc docx odt rtf（**只看 Word，且主版本 ≥ 15**）；`wps` **不做**；`component` 源 pdf → 目标 doc docx odt rtf txt md html。纯 Go（`go`）源 pdf → txt md html 不进能力表（与 md ↔ html 一样是内置的）。`DocEngineInfo.families`：Word ≥ 15 时 `office` 带 `pdf`；`component` 已装时带 `pdf`；`wps` 不带。
 - **预览**：PDF 本身的预览（6.12.32，`kind=pdf`）**不变**；PDF 仍不能编辑（`editBlock=format`）。
 
 ### 6.12.60 添加 PDF：检查、大小和页数
 
 - `.pdf` 不再返回 `DOC_PDF_INPUT_UNSUPPORTED`，按 6.12.16 的流程建行（`kind='doc'`、`family='pdf'`、`sheetCount=0`），复制副本，转换读副本。
-- **大小上限：PDF 单独定为 200 MiB**（209 715 200 字节；其他文档仍是 100 MiB）。超过 → `INVALID_ARGUMENT` `reason=too_large`，message（**待产品定**）`PDF 太大了，最大 200 MB。`，不建行。
-- **页数上限：500 页**。添加时用纯 Go 库（6.12.62）读页数（5 秒内，和其他轻量检查同一个超时）：**> 500 → `INVALID_ARGUMENT` `reason=too_many_pages`**（新 reason），message（**待产品定**）`PDF 页数太多，最多 500 页。`，不建行。**读不出页数（库解析不了）不拒绝**：建行，交给引擎；运行前再读一次，仍读不出就照常转（引擎自己能读的 PDF 比纯 Go 库多），引擎的单次超时兜底。理由：纯 Go 库对部分合法 PDF（例如修复过的交叉引用表）解析不了，不能因此拒绝用户本来能转的文件。
+- **大小上限：PDF 单独定为 200 MiB**（209 715 200 字节；其他文档仍是 100 MiB）。超过 → `INVALID_ARGUMENT` `reason=too_large`，message（v0.28.1 定稿）`PDF 太大了，最多支持 200 MB。`，不建行。
+- **页数上限：500 页**。添加时用纯 Go 库（6.12.62）读页数（5 秒内，和其他轻量检查同一个超时）：**> 500 → `INVALID_ARGUMENT` `reason=too_many_pages`**（新 reason），message（v0.28.1 定稿）`PDF 页数太多，最多支持 500 页。`，不建行。**读不出页数（库解析不了）不拒绝**：建行，交给引擎；运行前再读一次，仍读不出就照常转（引擎自己能读的 PDF 比纯 Go 库多），引擎的单次超时兜底。理由：纯 Go 库对部分合法 PDF（例如修复过的交叉引用表）解析不了，不能因此拒绝用户本来能转的文件。
 - **基本检查**：文件开头 1024 字节内没有 `%PDF-` → `DOC_CORRUPT`，不建行。文件为空同样 `DOC_CORRUPT`。
 - **加密**（加进 6.12.19 的表）：trailer（或交叉引用流的字典）里有 `/Encrypt` 时，用**空的用户密码**试打开：
   - 打得开（只有“所有者密码”、限制打印 / 复制的 PDF，很常见）→ **不算加密**，照常转；
   - 打不开（要用户密码）→ **`DOC_ENCRYPTED`**，沿用现有文案 `这个文件有密码保护，不能转换。请先去掉密码再添加。`，不建行；
   - 库不支持这种加密方式（例如它不认的加密处理程序）→ 也按 `DOC_ENCRYPTED`（宁可拒绝也不让 Word / 组件弹密码框卡住）。**需验证**：常见的 AES-256（R6）PDF 走哪一条（6.12.64）。
+  - **v0.28.1（以实现为准，6.12.66 ①）**：RC4 / AES-128 只有所有者密码的照常转；AES-256（R5 / R6）只有所有者密码的添加时拒绝，`DOC_ENCRYPTED` `reason=owner_only`，文案 `这个 PDF 设置了权限保护，暂时不能转换。`；要用户密码的不变。
   - 添加、提交、运行前各检查一次（同 6.12.19）。Word 打开时仍带“固定的假密码”（6.12.26 第 1 条），组件同理不会等输入。
 
 ### 6.12.61 引擎：怎么转
@@ -2603,7 +2608,7 @@ type DocBinarySaveAbort struct {
 
 | code | message | 可重试 | 出现在 | 说明 |
 |---|---|---|---|---|
-| `DOC_PDF_NO_TEXT` | `这个 PDF 里没有可提取的文字，可能是扫描件。`（**待产品定**） | **否** | 任务（pdf → txt / md / 简易 html） | 纯 Go 提取失败且没有可用组件，或组件导出的 txt / md 为空。`detail` 第一行 `reason=no_text`，第二行 `quality=empty\|garbled`（只给开发者看） |
+| `DOC_PDF_NO_TEXT` | `这个 PDF 里没有能提取的文字，可能是扫描件。`（v0.28.1 定稿） | **否** | 任务（pdf → txt / md / 简易 html） | 纯 Go 提取失败且没有可用组件，或组件导出的 txt / md 为空。`detail` 第一行 `reason=no_text`，第二行 `quality=empty\|garbled`（只给开发者看） |
 
 - **为什么加新码而不复用**：已有的 `DOC_CORRUPT`（文件坏了，只能移出）和 `DOC_FORMAT_UNSUPPORTED`（格式不支持）意思都不对；扫描件是好文件，只是没有文字层，用户需要的是“换成转 Word / 等以后的 OCR”，文案必须单独一句。不可重试：同一份文件、同一组引擎结果不会变；用户装了文档组件后可以对这一行**新提交**一次（源文件行还在）。
 - **`DOC_PDF_INPUT_UNSUPPORTED` 保留在枚举里，不再产生**（旧记录、旧前端可能还会见到它；文案不变）。
@@ -2641,6 +2646,46 @@ type DocBinarySaveAbort struct {
 - **文档组件的链接更新设置**（6.12.27 补充，预置进每个任务临时配置目录的 `registrymodifications.xcu`）：宏 `MacroSecurityLevel=3`、`DisableMacrosExecution=true`；外部链接加载时不更新——**Writer `Content/Update/Link=0`、Calc `Content/Update/Link=1`**（两者“从不”的取值不同：Writer 0 = 从不；Calc 0 = 总是、1 = 从不、2 = 询问）。
 
 **③ 文案定稿**：写进 6.12.45 的“v0.28 定稿”表——Windows / macOS 组件太旧 `文档组件版本太旧，请重新下载。` + 「更新文档组件」；场景 35「重新打开」的二次确认 `重新打开会丢掉你改的内容，确定吗？`，按钮「重新打开」（危险样式）「取消」。
+
+### 6.12.66 v0.28.1：按 #138 / #139 实际合入的内容记录（以实现为准）
+
+> 本节只记录已经合入 v2 的实现（前端 #138、后端 #139，以及 #137 的几处偏差），**没有新增错误码（2.1 仍是 31 个）、没有迁移、没有新事件、没有接口签名变化**。与 6.12.58~6.12.65 冲突时以本节为准。
+
+**① `DOC_ENCRYPTED` 新增 `reason=owner_only`（#139）**：
+
+- **含义**：PDF 有 `/Encrypt`，**空的用户密码能通过校验**（不要密码就能打开），但设了所有者 / 权限密码，而且**纯 Go 库解不了这种加密**。
+- **哪些照常转**：库能处理的只有所有者密码的 PDF——**RC4（R2 / R3）和 AES-128（R4）**——照常转换，和 6.12.60 一样。
+- **哪些拒绝**：**AES-256（R5 / R6）**只有所有者密码的 PDF，**添加文件时就拒绝**，`DOC_ENCRYPTED`，`detail` 一行 `reason=owner_only`，**不可重试**；界面文案 `这个 PDF 设置了权限保护，暂时不能转换。`。
+- **真要用户密码的 PDF**：不变，`DOC_ENCRYPTED` 不带 `detail`，沿用原文案 `这个文件有密码保护，不能转换。请先去掉密码再添加。`。
+- **怎么判断**（实现）：后端自己读 trailer / 交叉引用流里的 `/Encrypt`（内联字典或间接对象）和 `/ID`，按 PDF 规范校验空用户密码（R2 算法 4；R3 / R4 算法 5；R5 SHA-256；R6 算法 2.B）；读不懂的（非 `Standard` 处理程序等）仍按“要密码”处理。添加、提交、运行前、重转、库超时兜底、纯 Go 提取都走同一个判断。测试夹具是 qpdf 12.2 生成的 11 个小 PDF（R2~R6、对象流、有无用户密码）。
+- 2.2 新增取值：`DOC_ENCRYPTED` 的 `owner_only`。
+- **后续项（未做）**：有可用的文档组件时，把 AES-256 只有所有者密码的 PDF 交给组件转换，而不是在添加时拒绝。
+
+**② 已接受的 PDF 实现偏差（#137）**：
+
+- **纯 Go 提取失败、改用文档组件时**（6.12.62）：pdf → txt 不让组件直接导出 txt（`writer_pdf_import` 打开的文档直接导出 txt 拿不到文本框里的字），而是**先让组件导出 html，再从 html 里取文字**写成 txt（跳过 head / script / style，块级元素和 `<br>` 换行，连续空行合并，UTF-8 不带 BOM，换行按平台）；pdf → md 本来就是 html → md。取出来仍为空 → `DOC_PDF_NO_TEXT`（`quality=empty`，`engine=component`），同 6.12.62。
+- **pdf → html 走组件但组件在导出 html 时失败**：回退到纯 Go 的简易 html（`result.engine=go`，`result.warnings` 带 `simple_fallback`），不让任务失败。
+- **PDF 的转换结果可以预览**：结果记录按输出格式走 6.12.32 的预览规则（docx / txt / md / html 等），PDF 源本身仍是 `kind=pdf`。前端预览按钮对所有源和成功的记录都显示（含 PDF 源和 PDF 的输出）。
+
+**③ 前端（#138）**：
+
+- `DOC_V28_BACKEND_READY=true`：文件选择允许 `.pdf`，格式表和记录走真实绑定；绑定没有变化。
+- `KNOWN_CODE_RE` 包含 `DOC_PDF_NO_TEXT`。
+- 组件未就绪时的横条（6.12.13，前端常量）改为：`Word、ODT、TXT 可以简易转 PDF，md 和网页可以互转，PDF 可以提取文字转成 TXT、md 和简易网页。`。
+- **两处 `engines` 的区别**：组件状态里的 `DocComponentStatus.engines`（6.12.28）**不含 `go`**（只有 office / wps / component）；格式表的 `DocTarget.engines`（6.12.30 / 6.12.59）**保留 `go`**（如 pdf → txt 为 `["go"]` 或 `["go", "component"]`）。前端判断能不能转只看 `available` / `needsComponent` / `simple`，不读 `engines`；记录详情里 `engine=go` 不显示引擎行。
+- `INVALID_ARGUMENT` 的 `too_large` / `too_many_pages`（添加 PDF 被拒）在界面上不给重试，只能移除。
+- pdf → md 的提示：后端给 `hintKey=md_lossy` 和 md_lossy 的文案；前端在 PDF 源上统一显示 `只提取文字，不保留排版和图片。`（前端常量，不用后端的 `hint`）。
+
+**④ PDF 文案定稿**（6.12.59 / 6.12.60 / 6.12.63 原来标的“待产品定”到此为止）。来源：前端 `frontend/src/utils/docV26Text.ts` 注明“产品 10-09 定稿”的常量，与后端 `message` / `hint` 逐字一致：
+
+| 场景 | code / hintKey | 定稿文案 |
+|---|---|---|
+| pdf → doc / docx / odt / rtf | `pdf_layout` | `PDF 转 Word 会尽量保留排版，复杂版式和扫描件可能会走样。` |
+| pdf → txt、没有组件时的 pdf → html（PDF 源上的 `simple_mode`） | `simple_mode` | `只提取文字，不保留排版和图片。` |
+| 没有可提取的文字 | `DOC_PDF_NO_TEXT` | `这个 PDF 里没有能提取的文字，可能是扫描件。` |
+| PDF 超过 200 MiB | `INVALID_ARGUMENT` `too_large` | `PDF 太大了，最多支持 200 MB。` |
+| PDF 超过 500 页 | `INVALID_ARGUMENT` `too_many_pages` | `PDF 页数太多，最多支持 500 页。` |
+| AES-256 只有所有者密码 | `DOC_ENCRYPTED` `owner_only` | `这个 PDF 设置了权限保护，暂时不能转换。` |
 
 ## 6.13 本地资源访问 `/local/<token>`（中立章节，DocService 与转换记录共用；由 #22 引入，#23 引用，v0.23 加 `convert` 表；v0.23.5 删除 `edit` 表）
 
