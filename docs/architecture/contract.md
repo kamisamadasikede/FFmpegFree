@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.31.1）
+# FFmpegFree v2 接口契约（v0.31.2）
+
+v0.31.2 变更（**Cat 项目口径澄清**，后端 #181 实现后架构师回写；完整规则见 **6.19.10**，冲突时以该节为准；**没有新错误码 / 迁移 / 事件 / 开关，2.1 仍是 39 个**）：① **排序最后一级按 id 倒序**：项目、对话（含无项目「对话」下）活动时间 / `createdAt` 都相同时，再按 `id` **倒序**（6.19.10.6）。② **`path_key` 大小写规则与 `paths.Normalize` 对齐**：**Windows 与 macOS 不区分大小写（键转小写），Linux 区分**；`CreateCatProject` / `RelocateCatProject` 共用。**后端 #181 目前只在 Windows 转小写，macOS 尚未对齐，需跟进修；修完后真机验：同一文件夹用不同大小写选两次 → `existed=true`**（6.19.10.2 第 2 条、6.19.10.10）。③ **`DeleteCatProject` / `DeleteCatConversation`**：有进行中的一轮时**先按 `CancelCatTurn` 取消，最多等 5 秒**等它停再删，避免回复尾巴写回库（6.19.10.2 第 4、7 条）。④ **无项目对话的读文件请求**：只在适配器内失败，说明 `这个对话没有项目文件夹，不能查看文件。`，**不进界面**，也不再用旧的「下一期开放」那句（6.19.10.5）。⑤ **说明（不绑定前端）**：后端内部 `system.Manager.OpenFolder` 被 `OpenStorageFolder` 与 `RevealCatProject` 复用，**不**暴露给前端。
 
 v0.31.1 变更（**Cat 项目：重新选择文件夹 + 在文件管理器中显示**，产品 / 设计 10-09 定，架构师定方案；完整规则见 **6.19.10.2 第 8、9 条**，冲突时以该节为准）：① CatService 新增 **`RelocateCatProject({id, path}) → CatProject`**：换项目文件夹，**对话和消息原样保留**、名字不变；`path` 校验同 `CreateCatProject`（`reason=project_path` / `project_root`）；`path_key` 与当前相同 → 不改任何东西，返回该项目；属于**另一个**项目 → `INVALID_ARGUMENT` `reason=project_duplicate`（第二行 `projectId=<已有项目 id>`），界面提示 `这个文件夹已经建过项目了。` 并可切过去；未知 id → `NOT_FOUND`（`找不到这个项目。`）；该项目下有进行中的一轮 → `TASK_CONFLICT` `reason=turn_running`（不自动取消）。**`missing` 的项目可以重新选择**（主要用途），成功后实时重算 `missing`，变化时发 `cat:project`。选文件夹复用 `SystemService.PickDirectory("选择项目文件夹")`。**取消 v0.31 6.19.10.4 第 4 条“没有重新定位文件夹功能”**。② CatService 新增 **`RevealCatProject({id}) error`**：在系统文件管理器里打开项目文件夹本身（平台命令同 `OpenStorageFolder` / 6.8 的“path 是文件夹”分支）；只收 id、路径从表里取、不进 `RevealInFolder` 放行表；文件夹不在 → `CAT_PROJECT_MISSING`（`项目文件夹不见了。`）；**绝不写任何东西**（不建目录）。③ 名字上限维持 **60 个字符**（v0.31 已是 60，与设计稿 v0.2 一致，无改动）。④ 菜单文案按平台（非规范，前端按运行平台定）：Windows `在资源管理器中显示`、macOS `在访达中显示`、Linux `在文件管理器中显示`。⑤ **没有新错误码，2.1 仍是 39 个**；2.2 追加取值 `INVALID_ARGUMENT` `reason=project_duplicate`、`TASK_CONFLICT` `reason=turn_running`；`CAT_PROJECT_MISSING` 场景加 `RevealCatProject`。没有迁移、没有新事件、没有新开关。真机待验补两项（6.19.10.10 第 7、8 条）。
 
@@ -4096,7 +4098,7 @@ type CancelCatTurnRequest struct {
 
 **无障碍**：`prefers-reduced-motion: reduce` 时，前端**直接追加**收到的文本，不做逐字打字机闪烁动画。
 
-### 6.19.10 项目（v0.31；v0.31.1 补重新选择文件夹 / 在文件管理器中显示；产品规则 10-09 定，架构师定方案）
+### 6.19.10 项目（v0.31；v0.31.1 补重新选择文件夹 / 在文件管理器中显示；v0.31.2 口径澄清；产品规则 10-09 定，架构师定方案）
 
 > 项目 = 用户选的**一个本机文件夹**；对话可以属于一个项目，也可以不属于任何项目（显示在「对话」下）。项目文件夹同时是该项目下对话的**只读工具沙箱根**。本节与 6.19.1~6.19.9 冲突时以本节为准；会话 `agentKind` 锁定、流式事件、未就绪规则不变。
 
@@ -4183,25 +4185,25 @@ RevealCatProject(req RevealCatProjectRequest) error                   // v0.31.1
 1. **`ListCatProjects()`**：返回全部项目，每项的 `missing` 在本次调用里实时计算（6.19.10.4）。没有项目返回空数组（不是 null）。排序见 6.19.10.6。
 2. **`CreateCatProject({path, name?})`**：
    1. `path` 校验：去首尾空白后必须是**绝对路径**、**存在**且是**文件夹**；不满足 → `INVALID_ARGUMENT` `reason=project_path`。是**盘符根或文件系统根**（`filepath.Dir(p) == p`，含 `C:\`、`/`、UNC 共享根 `\\server\share\`）→ `INVALID_ARGUMENT` `reason=project_root`。
-   2. **路径去重**：比较键 `path_key` = `filepath.Clean` 后去掉末尾分隔符；**Windows 不区分大小写**（键转小写），macOS / Linux 原样。不解析符号链接、不展开短文件名（8.3）。同一 `path_key` 已有项目 → **不报错、不新建、不改名**（忽略本次 `name`），返回 `{project: 已有项目, existed: true}`；前端提示 `这个文件夹已经建过项目了。` 并切到该项目。新建成功 `existed=false`。
+   2. **路径去重**：比较键 `path_key` = `filepath.Clean` 后去掉末尾分隔符；**大小写规则与仓库已有 `paths.Normalize` / `media.path_key` 一致**：**Windows 与 macOS 不区分大小写（键转小写），Linux 区分（原样）**。不解析符号链接、不展开短文件名（8.3）。同一 `path_key` 已有项目 → **不报错、不新建、不改名**（忽略本次 `name`），返回 `{project: 已有项目, existed: true}`；前端提示 `这个文件夹已经建过项目了。` 并切到该项目。新建成功 `existed=false`。**实现注意（v0.31.2）**：后端 #181 的 `CreateCatProject` / `RelocateCatProject` 目前**只在 Windows 转小写**，macOS 尚未与 `paths.Normalize` 对齐，需跟进修；修完后按 6.19.10.10 真机验。
    3. **名字**：`name` 去首尾空白；为空则取文件夹名（`filepath.Base`），文件夹名超过 60 个字符时截到前 60 个；用户给的 `name` 超过 60 个字符或含换行 / 控制字符 → `INVALID_ARGUMENT` `reason=project_name`。**名字允许重复**（不同文件夹可以同名）。
    4. 新建的项目 `missing=false`，`createdAt = updatedAt = 当前时间`。
 3. **`RenameCatProject({id, name})`**：`name` 规则同上，但**不能为空**（去空白后为空 → `INVALID_ARGUMENT` `reason=project_name`）；`id` 不存在 → `NOT_FOUND`（`找不到这个项目。`）。**`missing` 的项目也可以改名**。只改名字和 `updatedAt`，不改排序。返回改名后的项目（`missing` 实时计算）。
 4. **`DeleteCatProject({id})`**：
    1. `id` 为空 → `INVALID_ARGUMENT`；`id` 不存在 → 返回 **nil**（幂等，可重复删）。
    2. **`missing` 的项目也可以删**。
-   3. 该项目下任何对话有进行中的一轮：**先按 `CancelCatTurn` 的规则取消**（6.19.9：已出文字先 `done`，再一次性发 `cat:turn` `cancelled`），取消完成后再删。
+   3. 该项目下任何对话有进行中的一轮：**先按 `CancelCatTurn` 的规则取消**（6.19.9：已出文字先 `done`，再一次性发 `cat:turn` `cancelled`），**最多等 5 秒**等这一轮停掉再删，避免回复尾巴写回库；超时仍删（迟到文字丢弃，与 6.19.9 取消口径一致）。
    4. 在**一个显式事务**里删除：该项目下所有对话的 `cat_messages` → 这些 `cat_conversations` → `cat_projects` 这一行；任何一步失败整体回滚，返回 `IO_ERROR`（`删除项目失败，请重试。`）。**不依赖外键级联**（见 6.19.10.7）。
    5. **绝不访问用户文件夹**：不删、不改、不建任何文件；删除前后都不 stat 也可以。
    6. 删除不发事件；前端在调用成功后从本地列表移除项目及其对话。
 5. **`CreateCatConversation` 带 `projectId`**：`projectId` 非空且不存在 → `NOT_FOUND`（`找不到这个项目。`）；项目 `missing` → `CAT_PROJECT_MISSING`，不创建对话。`agentKind` 校验先于项目校验。
 6. **`SendCatMessage`**：校验顺序：会话存在 → `CAT_NOT_READY`（6.19.9，全局未就绪优先）→ 会话有 `projectId` 时实时检查项目文件夹，`missing` → **同步返回 `CAT_PROJECT_MISSING`**：**不启 turn、不存用户消息、不发任何 `cat:message` / `cat:turn`**；状态由“不缺”变“缺”时同时发 `cat:project`。
-7. **`GetCatConversation` / `DeleteCatConversation`** 对属于 `missing` 项目的对话照常可用（对话能看、能删）。
+7. **`GetCatConversation` / `DeleteCatConversation`** 对属于 `missing` 项目的对话照常可用（对话能看、能删）。**`DeleteCatConversation`**（v0.31.2 明确）：有进行中的一轮时同样**先按 `CancelCatTurn` 取消，最多等 5 秒**再删记录，避免回复尾巴写回库；`id` 不存在 → nil（幂等）。
 8. **`RelocateCatProject({id, path})`（v0.31.1，「重新选择文件夹」）**：把项目换到另一个文件夹。**主要用途是 `missing` 的项目**（文件夹搬了家），正常项目也可以用。
    1. **校验顺序**（命中即返回，什么都不改）：
       1. `id` 为空 → `INVALID_ARGUMENT`（无 reason）；`id` 不存在 → `NOT_FOUND`（`找不到这个项目。`）。
       2. `path` 校验**与 `CreateCatProject` 完全相同**（第 2 条第 1 款）：不是绝对路径 / 不存在 / 不是文件夹 → `INVALID_ARGUMENT` `reason=project_path`；盘符根、文件系统根、UNC 共享根 → `INVALID_ARGUMENT` `reason=project_root`。stat 同样最多等 2 秒（6.19.10.4 第 5 条），超时按 `project_path`。
-      3. 新路径算 `path_key`（第 2 条第 2 款同一规则：`filepath.Clean`、去末尾分隔符、Windows 转小写；不解析符号链接、不展开 8.3）。**与本项目当前 `path_key` 相同 → 不改库、不改 `path` 的显示写法、不改 `updatedAt`**，直接返回本项目（`missing` 实时重算；由缺变不缺时照常发 `cat:project`）。
+      3. 新路径算 `path_key`（第 2 条第 2 款同一规则：`filepath.Clean`、去末尾分隔符、**Windows / macOS 转小写、Linux 原样**；不解析符号链接、不展开 8.3）。**与本项目当前 `path_key` 相同 → 不改库、不改 `path` 的显示写法、不改 `updatedAt`**，直接返回本项目（`missing` 实时重算；由缺变不缺时照常发 `cat:project`）。
       4. `path_key` 已属于**另一个**项目 → `INVALID_ARGUMENT` `reason=project_duplicate`，`detail` 第二行 `projectId=<那个项目的 id>`，message `这个文件夹已经建过项目了。`。前端提示这句并**可以**切到那个项目（取不到 `projectId` 行就重新 `ListCatProjects`、只提示不切换）；本项目不变（仍是 `missing` 就仍是 `missing`）。**不合并两个项目的对话**。
       5. 该项目下**任何对话有进行中的一轮** → `TASK_CONFLICT` `reason=turn_running`，**不自动取消**（与 `DeleteCatProject` 不同：换文件夹不是要丢弃回复，由用户先点「停止」）。缺失项目一般不会有进行中的一轮（6.19.10.4 第 6 条的情况除外）。
    2. **更新**：在一个事务里改这一行的 `path`（Clean 后原样保存）、`path_key`、`updated_at = 当前时间`；**`name` 不变**（即使原名是旧文件夹名，也不自动改成新文件夹名）。撞 `path_key UNIQUE`（并发）→ 按第 4 款返回 `project_duplicate`。落库失败 → `IO_ERROR`。
@@ -4209,7 +4211,7 @@ RevealCatProject(req RevealCatProjectRequest) error                   // v0.31.1
    4. **绝不访问新旧两个文件夹里的文件**：不复制、不移动、不删除、不创建任何东西；只对新路径做 stat。
    5. 返回更新后的项目，`missing` 实时重算（刚校验过，一般为 `false`）；与后端内存里上一次的值不同（典型：`true → false`）时发 **`cat:project` `{id, missing}`**，与 6.19.10.3 同一规则。其下对话随即可以继续发消息。
 9. **`RevealCatProject({id})`（v0.31.1，「在资源管理器中显示」等）**：在系统文件管理器里**打开项目文件夹本身**。
-   1. **复用 `SystemService.OpenStorageFolder` 的“打开目录”做法**（6.15.2 第 6 条 = 6.8 的“path 是文件夹”分支）：Windows `explorer.exe "<dir>"`，macOS `open <dir>`，Linux `xdg-open <dir>`；命令启动后立即返回；启动失败 `PROCESS_FAILED`；Windows 路径含双引号 `INVALID_ARGUMENT`（同 6.8）。
+   1. **复用 `SystemService.OpenStorageFolder` 的“打开目录”做法**（6.15.2 第 6 条 = 6.8 的“path 是文件夹”分支）：Windows `explorer.exe "<dir>"`，macOS `open <dir>`，Linux `xdg-open <dir>`；命令启动后立即返回；启动失败 `PROCESS_FAILED`；Windows 路径含双引号 `INVALID_ARGUMENT`（同 6.8）。**实现说明（v0.31.2，不绑定前端）**：后端内部新增 `system.Manager.OpenFolder`，由 `OpenStorageFolder` 与 `RevealCatProject` 共用同一段打开目录代码；**不**暴露给前端 Bind。
    2. **只收 id、不收路径**：路径由后端从 `cat_projects` 取；**不走、也不加入 `RevealInFolder` 的放行范围**（6.8）。不把路径回给前端以外的任何地方（前端本来就有 `CatProject.path`）。
    3. `id` 为空 → `INVALID_ARGUMENT`；`id` 不存在 → `NOT_FOUND`（`找不到这个项目。`）；文件夹不在（按 6.19.10.4 实时 stat，2 秒超时按缺）→ **`CAT_PROJECT_MISSING`**（`项目文件夹不见了。`），状态变化时发 `cat:project`。
    4. **绝不写任何东西**：不 `MkdirAll`、不建 / 改 / 删文件、不改库（与 `OpenStorageFolder` 默认目录会 `MkdirAll` 不同）。
@@ -4238,11 +4240,12 @@ RevealCatProject(req RevealCatProjectRequest) error                   // v0.31.1
 2. 工具请求里的路径按**相对项目根**解析：绝对路径、含 `..` 跳出根、以及解析符号链接 / 目录联接（junction）/ 快捷方式后真实路径（`EvalSymlinks`）不在根的真实路径之内的，**一律拒绝**；比较按目录边界（Windows / macOS 不区分大小写），与 6.8 同口径。
 3. **写文件、执行命令仍一律拒绝**（6.19.1，一期不变）。
 4. 被拒绝的工具请求作为工具失败结果回给适配器，**不**是面向用户的错误码，不中断这一轮。
+5. **无项目对话（v0.31.2）**：读文件 / 列目录等项目工具请求**只在适配器内**失败，失败说明固定为 `这个对话没有项目文件夹，不能查看文件。`；**不进界面、不弹横幅、不发面向用户的错误码**；**不再**使用旧的「下一期开放」那句。
 
 #### 6.19.10.6 排序
 
-1. **项目**：按“最近对话活动”倒序——项目的活动时间 = 其下对话 `updatedAt` 的最大值；没有对话的项目用自己的 `createdAt`。活动时间相同按 `createdAt` 倒序，再相同按 `id`。
-2. **项目内的对话**、以及「对话」（无项目）下的对话：按 `updatedAt` 倒序，相同按 `createdAt` 倒序，再相同按 `id`（与 v0.30 `ListCatConversations` 一致）。
+1. **项目**：按“最近对话活动”倒序——项目的活动时间 = 其下对话 `updatedAt` 的最大值；没有对话的项目用自己的 `createdAt`。活动时间相同按 `createdAt` 倒序，再相同按 **`id` 倒序**（v0.31.2 明确：最后一级是 id 倒序）。
+2. **项目内的对话**、以及「对话」（无项目）下的对话：按 `updatedAt` 倒序，相同按 `createdAt` 倒序，再相同按 **`id` 倒序**（与 v0.30 `ListCatConversations` 一致；v0.31.2 明确最后一级 id 倒序）。
 3. 改名不改变排序（项目 `updatedAt` 不参与）。后端按此排好；前端分组时保持顺序。
 
 #### 6.19.10.7 存储与迁移 `0011_cat_projects.sql`
@@ -4295,12 +4298,12 @@ CREATE INDEX idx_cat_conversations_project ON cat_conversations (project_id, upd
 - 场景：`SendCatMessage`、`CreateCatConversation` 遇到 `missing` 的项目；v0.31.1 加 `RevealCatProject`（同步返回，无 `detail` 固定格式）。`RelocateCatProject` **不**返回它（新路径不在是 `INVALID_ARGUMENT` `reason=project_path`）。
 - 沿用：`INVALID_ARGUMENT`（新增 `reason=project_path` / `project_root` / `project_name`；v0.31.1 加 `project_duplicate`，见 2.2）、`NOT_FOUND`（项目不存在，`找不到这个项目。`）、`IO_ERROR`（落库失败）；v0.31.1：`TASK_CONFLICT` `reason=turn_running`（`RelocateCatProject` 遇到进行中的一轮）、`PROCESS_FAILED`（`RevealCatProject` 启动文件管理器失败）。
 
-#### 6.19.10.10 真机待验证（Windows；第 8 条另含 macOS）
+#### 6.19.10.10 真机待验证（Windows；第 4、8 条另含 macOS）
 
 1. 路径含**中文、空格**、括号的文件夹：建项目、去重、只读工具读文件。
 2. **网络盘**（映射盘符和 UNC `\\server\share\dir`）：在线 / 断开时的 `missing`、2 秒超时、恢复后自动清除；UNC 共享根被拒绝。
 3. **OneDrive 占位文件夹**（仅联机 / 按需文件）：stat 是否触发下载、只读工具读占位文件时的行为与耗时。
-4. 同一文件夹用不同大小写 / 末尾带不带 `\` 选两次 → `existed=true`。
+4. 同一文件夹用不同大小写 / 末尾带不带 `\` 选两次 → `existed=true`（**Windows**；**macOS** 在后端按 v0.31.2 对齐 `paths.Normalize` 之后真机验：同一文件夹不同大小写选两次 → `existed=true`；Linux 大小写不同算两个项目）。
 5. 项目里的 junction / 符号链接指向项目外 → 被拒。
 6. 删除项目后文件夹里文件一个不少（对比删除前后的文件清单）。
 7. **重新选择文件夹**（v0.31.1）：把项目文件夹剪切到新位置后重新选择 → 对话、消息都在，可继续发消息，`cat:project` 恢复；新位置分别试 **OneDrive 文件夹**（含仅联机占位）、**网络盘**（映射盘符和 UNC 子目录）；选到别的项目的文件夹（含大小写不同）→ 重复提示且本项目不变；选同一文件夹 → 无变化；新旧文件夹里的文件一个不少。
