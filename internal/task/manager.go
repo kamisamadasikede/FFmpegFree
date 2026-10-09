@@ -51,6 +51,8 @@ type Config struct {
 	Now func() time.Time
 	// DocConcurrency 是文档组件池并发数，<=0 用 DefaultDocConcurrency（2，契约 6.12.18）。
 	DocConcurrency int
+	// ASRConcurrency 是语音识别池并发数，<=0 用 DefaultASRConcurrency（1，契约 6.18.2）。
+	ASRConcurrency int
 }
 
 // Factory 根据已有任务记录重新构造 Runner，供 Retry 使用（用 Params 重建）。
@@ -75,6 +77,9 @@ type Manager struct {
 	docQueue   []*entry        // 文档组件池排队队列（FIFO，契约 v0.26 6.12.18）
 	docRunning int             // 文档组件池正在运行的数量
 	docWaiters []chan struct{} // 已在运行的任务中途要组件名额（v0.28 6.12.62：插到组件池最前面）
+
+	asrQueue   []*entry // 语音识别池排队（FIFO，契约 6.18.2）
+	asrRunning int
 
 	qmu    sync.Mutex  // doc:queue 节流
 	qtimer *time.Timer // 待发的 doc:queue
@@ -268,6 +273,8 @@ func (m *Manager) enqueue(e *entry) {
 			m.queue = append(m.queue, e)
 		case PoolDoc:
 			m.docQueue = append(m.docQueue, e)
+		case PoolASR:
+			m.asrQueue = append(m.asrQueue, e)
 		}
 		m.mu.Unlock()
 		switch pool {
@@ -276,6 +283,8 @@ func (m *Manager) enqueue(e *entry) {
 		case PoolDoc:
 			m.docQueueChanged()
 			m.pumpDoc()
+		case PoolASR:
+			m.pumpASR()
 		default:
 			m.pump()
 		}
@@ -343,7 +352,7 @@ func validTaskID(s string) bool {
 
 func validType(t Type) bool {
 	switch t {
-	case TypeConvert, TypeEditExport, TypeOfficePDF, TypeDocConvert, TypeLiveFilePush, TypeLiveScreenPush, TypeFFmpegInstall:
+	case TypeConvert, TypeEditExport, TypeOfficePDF, TypeDocConvert, TypeSpeechToSubtitle, TypeLiveFilePush, TypeLiveScreenPush, TypeFFmpegInstall:
 		return true
 	}
 	return false
@@ -378,6 +387,8 @@ func (m *Manager) launch(e *entry, pool Pool) {
 			m.running--
 		case PoolDoc:
 			m.docRunning--
+		case PoolASR:
+			m.asrRunning--
 		}
 		m.mu.Unlock()
 		m.namer.releaseOwner(e.task.ID)
@@ -387,6 +398,8 @@ func (m *Manager) launch(e *entry, pool Pool) {
 			m.pump()
 		case PoolDoc:
 			m.pumpDoc()
+		case PoolASR:
+			m.pumpASR()
 		}
 		m.finalize(e)
 	}()
@@ -503,6 +516,16 @@ func (m *Manager) Cancel(taskID string) error {
 			return nil
 		}
 	}
+	for i, q := range m.asrQueue {
+		if q == e {
+			m.asrQueue = append(m.asrQueue[:i], m.asrQueue[i+1:]...)
+			m.mu.Unlock()
+			e.markCancelRequested()
+			e.cancel()
+			m.finishNeverRan(e, StatusCanceled)
+			return nil
+		}
+	}
 	m.mu.Unlock()
 	e.markCancelRequested()
 	e.cancel()
@@ -529,9 +552,10 @@ func (m *Manager) Wait(ctx context.Context, taskID string) (Task, error) {
 func (m *Manager) Shutdown(timeout time.Duration) {
 	m.mu.Lock()
 	m.closing = true
-	queued := append(m.queue, m.docQueue...)
+	queued := append(append(m.queue, m.docQueue...), m.asrQueue...)
 	m.queue = nil
 	m.docQueue = nil
+	m.asrQueue = nil
 	var all []*entry
 	for _, e := range m.entries {
 		all = append(all, e)

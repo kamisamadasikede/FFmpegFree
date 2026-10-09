@@ -6,10 +6,12 @@ import (
 	"FFmpegFree/internal/doccomp"
 	"FFmpegFree/internal/doceng"
 	"FFmpegFree/internal/ffmpeg"
+	"FFmpegFree/internal/langasr"
 	"FFmpegFree/internal/localassets"
 	"FFmpegFree/internal/paths"
 	"FFmpegFree/internal/service/convert"
 	"FFmpegFree/internal/service/doc"
+	"FFmpegFree/internal/service/lang"
 	"FFmpegFree/internal/service/live"
 	"FFmpegFree/internal/service/media"
 	"FFmpegFree/internal/service/system"
@@ -51,6 +53,8 @@ type App struct {
 	docLocal     *localassets.Registry
 	convertLocal *localassets.Registry // 转换页 / 任务中心的预览（契约 v0.23，6.14.7）
 	live         atomic.Pointer[live.Service]
+	langAsr      atomic.Pointer[langasr.Manager]
+	lang         atomic.Pointer[lang.Service]
 }
 
 // docAssets 返回文档的 /local/<token> 登记表（NewApp 时创建，永不为 nil）。小写，不会被 Wails 暴露。
@@ -81,6 +85,10 @@ func (a *App) convertService() *convert.Service { return a.conv.Load() }
 // liveService 返回直播服务；OnStartup 完成前（或任务管理器 / 媒体服务不可用时）为 nil。小写，不会被 Wails 暴露。
 func (a *App) liveService() *live.Service { return a.live.Load() }
 
+func (a *App) langService() *lang.Service { return a.lang.Load() }
+
+func (a *App) langAsrManager() *langasr.Manager { return a.langAsr.Load() }
+
 // NewApp creates a new App application struct
 func NewApp(sys *system.Manager) *App {
 	// 根 ctx 在构造时就创建，保证绑定方法在 OnStartup 之前被调用也拿到有效的 ctx。
@@ -109,6 +117,7 @@ func (a *App) startup(ctx context.Context) {
 	a.startMedia()
 	a.startConvert(ctx)
 	a.startDoc()
+	a.startLang()
 	a.startLive()
 	a.startFFmpegDetect(ctx)
 }
@@ -169,11 +178,17 @@ func (a *App) startConvert(ctx context.Context) {
 		DefaultOutputDir: a.sys.ActualOutputDir, // v0.24：自定义优先，否则 <base>/output
 		DataDir:          a.dirs.Root,
 		Encoder:          a.sys.EncoderResolver(),
-		Sources:          a.store,
-		Thumbs:           med,
-		Preview:          a.convertLocal,
-		Open:             a.sys.OpenWithDefaultApp,
-		Reveal:           a.sys.RevealRegisteredPath,
+		AcquireHWEncode: func(ctx context.Context) (func(), error) {
+			if s := a.langService(); s != nil {
+				return s.HWAcquire(ctx)
+			}
+			return func() {}, nil
+		},
+		Sources: a.store,
+		Thumbs:  med,
+		Preview: a.convertLocal,
+		Open:    a.sys.OpenWithDefaultApp,
+		Reveal:  a.sys.RevealRegisteredPath,
 		// v0.24：源文件副本、convert:copy 事件、启动时中断的重转条数
 		UploadsDir:            a.sys.ActualUploadsDir,
 		Emitter:               app.NewWailsEmitter(ctx),
@@ -244,6 +259,55 @@ func (a *App) startDoc() {
 		log.Printf("已清理 %d 个中断的 Office 转 PDF 临时文件", n)
 	}
 	a.docs.Store(svc)
+}
+
+// startLang 创建语音工具（转字幕）服务：语音识别组件 + speech_to_subtitle（契约 6.18）。
+func (a *App) startLang() {
+	root := a.dirs.Root
+	if root == "" {
+		if d, err := paths.Resolve(""); err == nil {
+			root = d.Root
+		}
+	}
+	emit := app.NewWailsEmitter(a.ctx).Emit
+	comp := langasr.New(langasr.Config{
+		Dir:  langasr.DefaultDir(root),
+		Tier: func() string { return a.sys.AsrTier(a.rootCtx) },
+		Emit: emit,
+		Logf: log.Printf,
+	})
+	a.langAsr.Store(comp)
+	comp.Start()
+	a.sys.LangAsrDir = func() (string, error) {
+		if s := a.langService(); s != nil {
+			return s.ComponentDir()
+		}
+		return "", nil
+	}
+	a.sys.SetAsrTierHook(func(string) {
+		if s := a.langService(); s != nil {
+			s.OnAsrTierChanged()
+		} else {
+			comp.RefreshTierGuide()
+		}
+	})
+	temp := ""
+	if a.dirs.Temp != "" {
+		temp = filepath.Join(a.dirs.Temp, "lang")
+	}
+	cfg := lang.Config{
+		Asr:             comp,
+		TempRoot:        temp,
+		Tier:            a.sys.AsrTier,
+		Emit:            emit,
+		Logf:            log.Printf,
+		ActualOutputDir: a.sys.ActualOutputDir,
+	}
+	if tm := a.taskManager(); tm != nil {
+		cfg.Tasks = tm
+	}
+	svc := lang.New(cfg)
+	a.lang.Store(svc)
 }
 
 // startLive 创建直播服务：需要任务管理器和媒体服务，缺一个就不启动（此时 LiveService 返回 INTERNAL）。

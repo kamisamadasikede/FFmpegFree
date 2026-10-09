@@ -36,12 +36,13 @@ const (
 	TypeConvert    = store.TypeConvert
 	TypeEditExport = store.TypeEditExport
 	// TypeEditRender 已弃用（只为读旧数据），见 store.TypeEditRender。
-	TypeEditRender     = store.TypeEditRender
-	TypeOfficePDF      = store.TypeOfficePDF
-	TypeDocConvert     = store.TypeDocConvert
-	TypeLiveFilePush   = store.TypeLiveFilePush
-	TypeLiveScreenPush = store.TypeLiveScreenPush
-	TypeFFmpegInstall  = store.TypeFFmpegInstall
+	TypeEditRender       = store.TypeEditRender
+	TypeOfficePDF        = store.TypeOfficePDF
+	TypeDocConvert       = store.TypeDocConvert
+	TypeSpeechToSubtitle = store.TypeSpeechToSubtitle
+	TypeLiveFilePush     = store.TypeLiveFilePush
+	TypeLiveScreenPush   = store.TypeLiveScreenPush
+	TypeFFmpegInstall    = store.TypeFFmpegInstall
 
 	// Deprecated: 只为读旧数据保留，不再产生，Submit 不接受（契约 v0.10）。
 	TypeLiveRelay = store.TypeLiveRelay

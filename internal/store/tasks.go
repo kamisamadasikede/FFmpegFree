@@ -22,12 +22,13 @@ const (
 	// TypeEditRender 是 v0.11 之前的旧名，只为读取旧数据保留，不再产生任务。
 	//
 	// Deprecated: 用 TypeEditExport。
-	TypeEditRender     TaskType = "edit_render"
-	TypeOfficePDF      TaskType = "office_pdf"
-	TypeDocConvert     TaskType = "doc_convert"
-	TypeLiveFilePush   TaskType = "live_file_push"
-	TypeLiveScreenPush TaskType = "live_screen_push"
-	TypeFFmpegInstall  TaskType = "ffmpeg_install"
+	TypeEditRender       TaskType = "edit_render"
+	TypeOfficePDF        TaskType = "office_pdf"
+	TypeDocConvert       TaskType = "doc_convert"
+	TypeSpeechToSubtitle TaskType = "speech_to_subtitle" // v0.29 语音工具转字幕
+	TypeLiveFilePush     TaskType = "live_file_push"
+	TypeLiveScreenPush   TaskType = "live_screen_push"
+	TypeFFmpegInstall    TaskType = "ffmpeg_install"
 
 	// Deprecated: TypeLiveRelay 只为读旧数据保留（契约 v0.10），不再产生，Submit 不接受；
 	// 库里这类旧记录在所有读取路径上按未知类型忽略（不报错）。
@@ -106,6 +107,16 @@ type TaskResult struct {
 	Warnings []string `json:"warnings,omitempty"`
 	// Engine 是实际完成转换的引擎（契约 v0.27，6.12.31）：doc_convert / office_pdf 成功时写 component | go | simple（office / wps 在下一个 PR）。
 	Engine string `json:"engine,omitempty"`
+	// Cues 是转字幕成功时的可编辑条目（契约 v0.29，6.18.2；无迁移）。
+	Cues []SubtitleCue `json:"cues,omitempty"`
+}
+
+// SubtitleCue 是语音工具转字幕的可编辑条目（契约 6.18.5）。
+type SubtitleCue struct {
+	ID      string `json:"id"`
+	Text    string `json:"text"`
+	StartMs int64  `json:"startMs"`
+	EndMs   int64  `json:"endMs"`
 }
 
 // ReconvertError 是最近一次原地重转失败的信息（契约 v0.24，6.17.2）。

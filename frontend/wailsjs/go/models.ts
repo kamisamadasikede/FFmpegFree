@@ -1901,6 +1901,7 @@ export namespace store {
 	    audioBitrateKbps?: number;
 	    warnings?: string[];
 	    engine?: string;
+	    cues?: SubtitleCue[];
 	
 	    static createFrom(source: any = {}) {
 	        return new TaskResult(source);
@@ -1915,6 +1916,43 @@ export namespace store {
 	        this.audioBitrateKbps = source["audioBitrateKbps"];
 	        this.warnings = source["warnings"];
 	        this.engine = source["engine"];
+	        this.cues = this.convertValues(source["cues"], SubtitleCue);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SubtitleCue {
+	    id: string;
+	    text: string;
+	    startMs: number;
+	    endMs: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SubtitleCue(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.text = source["text"];
+	        this.startMs = source["startMs"];
+	        this.endMs = source["endMs"];
 	    }
 	}
 	export class Task {
@@ -2246,6 +2284,7 @@ export namespace system {
 	    uploadsDir: string;
 	    maxConcurrent: number;
 	    docEngine: string;
+	    asrTier: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -2259,6 +2298,7 @@ export namespace system {
 	        this.uploadsDir = source["uploadsDir"];
 	        this.maxConcurrent = source["maxConcurrent"];
 	        this.docEngine = source["docEngine"];
+	        this.asrTier = source["asrTier"];
 	    }
 	}
 	export class StorageDirs {
@@ -2391,3 +2431,140 @@ export namespace task {
 
 }
 
+export namespace langasr {
+	export class Status {
+	    state: string;
+	    version: string;
+	    source: string;
+	    tier: string;
+	    canDownload: boolean;
+	    downloadBytes: number;
+	    installBytes?: number;
+	    phase?: string;
+	    receivedBytes?: number;
+	    error?: apperr.AppError;
+
+	    static createFrom(source: any = {}) {
+	        return new Status(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.state = source["state"];
+	        this.version = source["version"];
+	        this.source = source["source"];
+	        this.tier = source["tier"];
+	        this.canDownload = source["canDownload"];
+	        this.downloadBytes = source["downloadBytes"];
+	        this.installBytes = source["installBytes"];
+	        this.phase = source["phase"];
+	        this.receivedBytes = source["receivedBytes"];
+	        this.error = this.convertValues(source["error"], apperr.AppError);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SubtitleCue {
+	    id: string;
+	    text: string;
+	    startMs: number;
+	    endMs: number;
+
+	    static createFrom(source: any = {}) {
+	        return new SubtitleCue(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.text = source["text"];
+	        this.startMs = source["startMs"];
+	        this.endMs = source["endMs"];
+	    }
+	}
+}
+
+export namespace lang {
+	export class SpeechToSubtitleRequest {
+	    paths: string[];
+	    language?: string;
+	    format: string;
+	    outputDir?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new SpeechToSubtitleRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.paths = source["paths"];
+	        this.language = source["language"];
+	        this.format = source["format"];
+	        this.outputDir = source["outputDir"];
+	    }
+	}
+	export class ExportSubtitleRequest {
+	    taskId: string;
+	    cues: langasr.SubtitleCue[];
+	    format: string;
+	    targetPath?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ExportSubtitleRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.taskId = source["taskId"];
+	        this.cues = this.convertValues(source["cues"], langasr.SubtitleCue);
+	        this.format = source["format"];
+	        this.targetPath = source["targetPath"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ExportSubtitleResult {
+	    path: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ExportSubtitleResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	    }
+	}
+}

@@ -105,8 +105,12 @@ type Manager struct {
 	open   opener   // 用系统默认程序打开文件；nil 用 openDefault（测试里替换）
 
 	onDocEngine func(string) // docEngine 变更回调（发 doc:component）
+	onAsrTier   func(string) // asrTier 变更回调（刷新语音识别组件引导）
+	memAsrTier  string
 	// DocComponentDir 返回应用下载的文档组件目录（kind=doc_component）；空 = 未就绪。
 	DocComponentDir func() string
+	// LangAsrDir 返回语音识别组件目录（kind=lang_asr）；空 = 未就绪。
+	LangAsrDir func() (string, error)
 }
 
 // NewManager 创建 Manager，初始状态 checking。真正的检测由 Start 触发。
@@ -431,6 +435,8 @@ type Settings struct {
 	MaxConcurrent int `json:"maxConcurrent"`
 	// DocEngine 是文档转换引擎（v0.27，6.12.29）：auto | office | wps | component，默认 auto。
 	DocEngine string `json:"docEngine"`
+	// AsrTier 是语音识别档位（v0.29，6.18.5）：standard | hd，默认 standard；切换不自动下载。
+	AsrTier string `json:"asrTier"`
 }
 
 // MaxConcurrentLimit 是 Settings.MaxConcurrent 的上限。
@@ -442,7 +448,7 @@ func (m *Manager) GetSettings(ctx context.Context) (Settings, error) {
 	if err != nil {
 		return Settings{}, err
 	}
-	return Settings{FFmpegPath: m.customPath(ctx, cfg), FFmpegPromptDismissed: m.PromptDismissed(ctx), DefaultOutputDir: m.DefaultOutputDir(ctx), UploadsDir: m.UploadsDir(ctx), MaxConcurrent: m.MaxConcurrent(ctx), DocEngine: m.DocEngine(ctx)}, nil
+	return Settings{FFmpegPath: m.customPath(ctx, cfg), FFmpegPromptDismissed: m.PromptDismissed(ctx), DefaultOutputDir: m.DefaultOutputDir(ctx), UploadsDir: m.UploadsDir(ctx), MaxConcurrent: m.MaxConcurrent(ctx), DocEngine: m.DocEngine(ctx), AsrTier: m.AsrTier(ctx)}, nil
 }
 
 // UpdateSettings 更新设置。ffmpegPath 变化时走 SetPath 校验，defaultOutputDir 非空时必须是
@@ -468,6 +474,10 @@ func (m *Manager) UpdateSettings(ctx context.Context, s Settings) error {
 	if docEng == "" && s.DocEngine != "" && s.DocEngine != "auto" {
 		return apperr.New(apperr.InvalidArgument, "文档引擎设置不正确")
 	}
+	asrTier, err := validateAsrTier(s.AsrTier)
+	if err != nil {
+		return err
+	}
 	if s.FFmpegPath != m.customPath(ctx, cfg) {
 		if _, err := m.SetPath(ctx, s.FFmpegPath); err != nil {
 			return err
@@ -486,6 +496,9 @@ func (m *Manager) UpdateSettings(ctx context.Context, s Settings) error {
 		return apperr.Wrap(apperr.IOError, "保存设置失败", err)
 	}
 	if err := m.setDocEngine(ctx, docEng); err != nil {
+		return apperr.Wrap(apperr.IOError, "保存设置失败", err)
+	}
+	if err := m.setAsrTier(ctx, asrTier); err != nil {
 		return apperr.Wrap(apperr.IOError, "保存设置失败", err)
 	}
 	m.applyConcurrency(s.MaxConcurrent)

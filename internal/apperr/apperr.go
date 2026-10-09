@@ -60,6 +60,13 @@ const (
 
 	// v0.28 PDF 作为输入（6.12.63）：PDF 里没有可提取的文字（扫描件），不可重试。
 	DocPDFNoText Code = "DOC_PDF_NO_TEXT"
+
+	// v0.29 语音工具转字幕（6.18.8）。
+	LangAsrNotReady    Code = "LANG_ASR_NOT_READY"
+	LangAsrEmpty       Code = "LANG_ASR_EMPTY"
+	LangAsrFailed      Code = "LANG_ASR_FAILED"
+	LangDownloadFailed Code = "LANG_DOWNLOAD_FAILED"
+	LangChecksumFailed Code = "LANG_CHECKSUM_FAILED"
 )
 
 // AppError 同时用于 Bind 返回值和持久化到 tasks.error 列。
