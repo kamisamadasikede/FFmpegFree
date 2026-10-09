@@ -11,6 +11,7 @@ import {
   deleteDocSource,
   docFamilyOf,
   docV26IsReal,
+  docV28On,
   getFormatMatrix,
   listDocSources,
   retryDocRecord,
@@ -29,9 +30,10 @@ import { useDocComponentStore } from '@/stores/docComponent'
 import {
   DOC_CSV_HINT,
   DOC_MD_HINT,
-  DOC_PDF_INPUT,
   DOC_SIMPLE_HINT,
+  docAddErrorText,
   docDiskFullText,
+  docPdfNote,
   docErrorRetryable,
   docErrorText,
   intersectionWhy,
@@ -41,6 +43,11 @@ import {
 export const DOC_FILE_FILTER = {
   name: '文档、表格和演示',
   patterns: ['*.doc', '*.docx', '*.odt', '*.rtf', '*.txt', '*.html', '*.htm', '*.md', '*.markdown', '*.xls', '*.xlsx', '*.ods', '*.csv', '*.ppt', '*.pptx', '*.odp'],
+}
+/** v0.28：DOC_V28_BACKEND_READY（或纯浏览器模拟）时文件选择也列 .pdf */
+export function docFileFilter(): { name: string; patterns: string[] } {
+  if (!docV28On()) return DOC_FILE_FILTER
+  return { name: '文档、表格、演示和 PDF', patterns: [...DOC_FILE_FILTER.patterns, '*.pdf'] }
 }
 
 /** 格式块第二行（设计 §三；v0.2 可能调整） */
@@ -187,6 +194,9 @@ export const useDocConvertStore = defineStore('docConvert', () => {
   const note = computed<{ text: string; tone: 'info' | 'warn'; download?: boolean } | null>(() => {
     const t = currentTile.value
     if (!selectedRows.value.length) return null
+    // v0.28：选中里有 PDF 时按 PDF 的提示（排版 / 只提取文字），文案在 utils/docV26Text.ts
+    const pdfNote = docPdfNote(selectedFamilies.value, t, comp.isLinux)
+    if (pdfNote) return pdfNote
     if (t?.simple) return { text: `${t.hint || DOC_SIMPLE_HINT}。`.replace(/。。$/, '。'), tone: 'warn', download: !comp.isLinux }
     if (t?.ext === 'md' && t.available) return { text: t.hint || DOC_MD_HINT, tone: 'info' }
     if (t?.ext === 'csv' && t.available) {
@@ -311,9 +321,18 @@ export const useDocConvertStore = defineStore('docConvert', () => {
     const dur = simParam('doc_scene') === 'running' ? 600_000 : 1800 + Math.random() * 1500
     setTimeout(() => {
       if (pooled) simRunning.delete(id)
-      if (/超时|timeout/i.test(name)) applyPatch(id, { status: 'failed', error: { code: 'DOC_TIMEOUT', message: '' }, finishedAt: now() })
+      const pdfGo = /"engine":"go"/.test(f?.rec.params ?? '') && f?.row.src.family === 'pdf'
+      if (pdfGo && /扫描|scan/i.test(name)) {
+        // 模拟 6.12.62：扫描件取不出文字；有组件就改用组件（多等一会儿后成功），没有就 DOC_PDF_NO_TEXT
+        if ((comp.status.componentState || comp.status.state) === 'ready') applyPatch(id, { status: 'succeeded', progress: 1, finishedAt: now(), result: { engine: 'component' } })
+        else applyPatch(id, { status: 'failed', error: { code: 'DOC_PDF_NO_TEXT', message: '', detail: 'reason=no_text\nquality=empty' }, finishedAt: now() })
+      } else if (/超时|timeout/i.test(name)) applyPatch(id, { status: 'failed', error: { code: 'DOC_TIMEOUT', message: '' }, finishedAt: now() })
       else if (/崩溃|crash/i.test(name)) applyPatch(id, { status: 'failed', error: { code: 'DOC_COMPONENT_CRASHED', message: '', detail: 'exit=1' }, finishedAt: now() })
-      else applyPatch(id, { status: 'succeeded', progress: 1, finishedAt: now() })
+      else {
+        const eng = /"engine":"go"/.test(f?.rec.params ?? '') ? 'go' : simParam('engine') === 'office' ? 'office' : 'component'
+        const simple = /"simple":true/.test(f?.rec.params ?? '') && f?.row.src.family === 'pdf' && /"target":"html"/.test(f?.rec.params ?? '')
+        applyPatch(id, { status: 'succeeded', progress: 1, finishedAt: now(), result: { engine: eng, warnings: simple ? ['simple_fallback'] : [] } })
+      }
       simPump()
     }, dur)
   }
@@ -323,20 +342,17 @@ export const useDocConvertStore = defineStore('docConvert', () => {
     if (!paths.length) return
     try {
       const res = await addDocSources(paths)
-      let pdf = 0
-      let other: string[] = []
+      const other: string[] = []
       for (const r of res) {
         if (r.source) {
           const exists = rows.value.find((x) => x.src.sourceId === r.source!.sourceId)
           if (!exists) rows.value.unshift({ src: r.source, records: [], open: false, isNew: true })
           selected.add(r.source.sourceId)
         } else if (r.error) {
-          if (r.error.code === 'DOC_PDF_INPUT_UNSUPPORTED') pdf++
-          else other.push(docErrorText(r.error.code, r.error.message))
+          other.push(docAddErrorText(r.error, r.path, comp.isLinux))
         }
       }
-      if (pdf) toast.value = { text: DOC_PDF_INPUT, t: now() }
-      else if (other.length) toast.value = { text: other[0], warn: true, t: now() }
+      if (other.length) toast.value = { text: other[0], warn: true, t: now() }
       ensureTarget()
     } catch (e) {
       const ae = toAppError(e)
@@ -346,7 +362,7 @@ export const useDocConvertStore = defineStore('docConvert', () => {
 
   async function chooseFiles() {
     try {
-      const paths = await pickFiles(DOC_FILE_FILTER, true)
+      const paths = await pickFiles(docFileFilter(), true)
       await addPaths(paths)
     } catch (e) {
       toast.value = { text: toAppError(e).message, warn: true, t: now() }
@@ -373,12 +389,14 @@ export const useDocConvertStore = defineStore('docConvert', () => {
       roundIds.value = []
       for (const row of selectedRows.value) {
         const per = targetsOf(row.src.ext).find((x) => x.ext === tile.ext)
-        const pooled = !!per && per.needsComponent && !per.simple
+        // v0.28：PDF → txt / md / 简易 html 走纯 Go（不排队）；PDF → Word 类 / 有组件的 html 进组件池
+        const pdfGo = row.src.family === 'pdf' && (per?.engines ?? []).includes('go') && (per?.engines ?? [])[0] === 'go'
+        const pooled = row.src.family === 'pdf' ? !pdfGo : !!per && per.needsComponent && !per.simple
         const id = `simdoc-${Math.random().toString(36).slice(2, 9)}`
         const base = row.src.name.replace(/\.[^.]+$/, '')
         const rec: DocRecord = {
           id,
-          type: per?.simple ? 'office_pdf' : 'doc_convert',
+          type: per?.simple && row.src.family !== 'pdf' ? 'office_pdf' : 'doc_convert',
           status: 'queued',
           title: `${base}.${tile.ext}`,
           outputPath: `D:\\Tools\\FFmpegFree\\output\\${base}.${tile.ext}`,
@@ -632,9 +650,27 @@ export const useDocConvertStore = defineStore('docConvert', () => {
         rows.value = [row(oldDoc, [mkRec(oldDoc, 'docx', 'succeeded')]), row(xls, [mkRec(xls, 'xlsx', 'succeeded')]), row(ppt, [mkRec(ppt, 'pptx', 'succeeded')])]
         break
       }
-      case 'pdf-drop':
-        rows.value = [row(contract, [mkRec(contract, 'pdf', 'succeeded')], false)]
-        toast.value = { text: DOC_PDF_INPUT, t: now() }
+      case 'pdf':
+      case 'pdf-txt':
+      case 'pdf-html': {
+        // v0.28 PDF 源：选中一个 PDF，目标分别是 Word / TXT / HTML（?doc=missing 看没有组件时）
+        const manual = mkSrc('产品说明书.pdf', { totalBytes: 8_600_000 })
+        const scan = mkSrc('扫描合同.pdf', { totalBytes: 21_000_000 })
+        const go = (ext: string, extra: Partial<DocRecord> = {}) =>
+          mkRec(manual, ext, 'succeeded', { params: JSON.stringify({ target: ext, engine: 'go' }), result: { engine: 'go' }, ...extra })
+        rows.value = [
+          row(manual, [mkRec(manual, 'docx', 'succeeded', { result: { engine: simParam('engine') === 'office' ? 'office' : 'component' } }), go('txt'), go('html', { result: { engine: 'go', warnings: ['simple_fallback'] } })], true, true),
+          row(scan, [mkRec(scan, 'txt', 'failed', { params: JSON.stringify({ target: 'txt', engine: 'go' }), error: { code: 'DOC_PDF_NO_TEXT', message: '', detail: 'reason=no_text\nquality=empty' } })]),
+          row(contract, [mkRec(contract, 'pdf', 'succeeded')], false),
+        ]
+        sel(manual)
+        target.value = scene === 'pdf-txt' ? 'txt' : scene === 'pdf-html' ? 'html' : 'docx'
+        break
+      }
+      case 'pdf-mixed':
+        rows.value = [row(mkSrc('产品说明书.pdf'), [], false, true), row(contract, [], false, true)]
+        sel(rows.value[0].src, contract)
+        target.value = 'docx'
         break
       case 'md':
       case 'docx-md':

@@ -3,10 +3,10 @@
  * DOC_V26_BACKEND_READY=true 且有 Wails 绑定时调真实 DocService；否则走模拟（?doc=… 走查）。
  */
 import { AppError, callService, toAppError } from '@/api/call'
-import { DOC_V26_BACKEND_READY } from '@/api/flags'
+import { DOC_V26_BACKEND_READY, DOC_V28_BACKEND_READY } from '@/api/flags'
 import { simDelay, simParam } from '@/api/sim'
 import { emitSimEvent, hasWailsBackend, onSimEvent, onTaskEvent } from '@/services/wails'
-import { DOC_LINUX_MISSING, DOC_LINUX_OUTDATED } from '@/utils/docV26Text'
+import { DOC_LINUX_MISSING, DOC_LINUX_OUTDATED, DOC_PDF_TEXT_ONLY_HINT } from '@/utils/docV26Text'
 
 export { DOC_V26_BACKEND_READY }
 
@@ -34,7 +34,8 @@ export interface DocEngineInfo {
   source?: 'downloaded' | 'system'
   /** office / wps 恒为 true；component 没下载时 false */
   installed: boolean
-  families: ('text' | 'sheet' | 'slide' | (string & {}))[]
+  /** v0.28：Word ≥ 15 的 office、已装的 component 带 pdf */
+  families: ('text' | 'sheet' | 'slide' | 'pdf' | (string & {}))[]
   available: boolean
 }
 
@@ -58,6 +59,9 @@ export interface DocComponentStatus {
   error?: { code: string; message: string; detail?: string } | null
 }
 
+/** 文档家族；v0.28 新增 pdf（PDF 源，目标 doc docx odt rtf txt md html） */
+export type DocFamily = 'text' | 'sheet' | 'slide' | 'pdf'
+
 export interface DocTarget {
   ext: string
   displayName: string
@@ -74,7 +78,8 @@ export interface DocTarget {
 export interface DocSourceFormats {
   ext: string
   aliases?: string[]
-  family: 'text' | 'sheet' | 'slide'
+  /** v0.28 新增 pdf（6.12.59） */
+  family: DocFamily
   targets: DocTarget[]
 }
 
@@ -96,7 +101,7 @@ export interface DocSource {
   copyError?: { code: string; message: string; detail?: string } | null
   name: string
   ext: string
-  family: 'text' | 'sheet' | 'slide'
+  family: DocFamily
   sheetCount: number
   copyState?: string
   recordCount?: number
@@ -129,6 +134,8 @@ export interface DocQueueItem {
 
 const live = () => DOC_V26_BACKEND_READY && hasWailsBackend()
 export const docV26IsReal = (): boolean => live()
+/** v0.28 PDF 输入：Wails 里看 DOC_V28_BACKEND_READY；纯浏览器（模拟）始终打开 */
+export const docV28On = (): boolean => DOC_V28_BACKEND_READY || !hasWailsBackend()
 export const docV26On = (): boolean => true // 本包始终打开 v0.26 界面；数据源由 isReal 决定
 
 // ─── 模拟状态 ───
@@ -260,10 +267,39 @@ const LABELS: Record<string, string> = {
   odp: '开放演示 (ODP)',
 }
 
-function familyOf(ext: string): 'text' | 'sheet' | 'slide' {
+function familyOf(ext: string): DocFamily {
+  if (ext === 'pdf') return 'pdf'
   if ((SHEET as readonly string[]).includes(ext)) return 'sheet'
   if ((SLIDE as readonly string[]).includes(ext)) return 'slide'
   return 'text'
+}
+
+/** v0.28（6.12.59）：PDF 源的目标。word = 有 Word ≥ 15；comp = 文档组件可用 */
+const PDF_TARGETS = ['doc', 'docx', 'odt', 'rtf', 'txt', 'html', 'md'] as const
+function pdfTargetsFor(word: boolean, comp: boolean): DocTarget[] {
+  return PDF_TARGETS.map((t) => {
+    const wordLike = ['doc', 'docx', 'odt', 'rtf'].includes(t)
+    if (wordLike) {
+      const engines = [...(word ? ['office'] : []), ...(comp ? ['component'] : [])]
+      const avail = engines.length > 0
+      return { ext: t, displayName: LABELS[t] ?? t.toUpperCase(), needsComponent: true, simple: false, available: avail, engines, hintKey: 'pdf_layout', hint: 'PDF 转 Word 会尽量还原排版，复杂版式和扫描件可能走样。', disabledReason: avail ? undefined : '需要文档组件' }
+    }
+    if (t === 'html') {
+      return comp
+        ? { ext: t, displayName: LABELS[t], needsComponent: false, simple: false, available: true, engines: ['component'] }
+        : { ext: t, displayName: LABELS[t], needsComponent: false, simple: true, available: true, engines: ['go'], hintKey: 'simple_mode', hint: DOC_PDF_TEXT_ONLY_HINT }
+    }
+    return {
+      ext: t,
+      displayName: LABELS[t],
+      needsComponent: false,
+      simple: true,
+      available: true,
+      engines: comp ? ['go', 'component'] : ['go'],
+      hintKey: t === 'md' ? 'md_lossy' : 'simple_mode',
+      hint: t === 'md' ? '转成 Markdown 只保留文字和基本格式，图片和复杂表格会丢失。' : DOC_PDF_TEXT_ONLY_HINT,
+    }
+  })
 }
 
 function targetsFor(ext: string, ready: boolean): DocTarget[] {
@@ -301,8 +337,8 @@ function targetsFor(ext: string, ready: boolean): DocTarget[] {
   })
 }
 
-function buildMatrix(ready: boolean): DocFormatMatrix {
-  const inputs = [...TEXT, 'htm', 'markdown', ...SHEET, ...SLIDE]
+function buildMatrix(ready: boolean, pdf?: { word: boolean; comp: boolean }): DocFormatMatrix {
+  const inputs: string[] = [...TEXT, 'htm', 'markdown', ...SHEET, ...SLIDE, ...(pdf ? ['pdf'] : [])]
   const sources: DocSourceFormats[] = [
     ...TEXT.map((ext) => ({
       ext,
@@ -312,6 +348,7 @@ function buildMatrix(ready: boolean): DocFormatMatrix {
     })),
     ...SHEET.map((ext) => ({ ext, family: 'sheet' as const, targets: targetsFor(ext, ready) })),
     ...SLIDE.map((ext) => ({ ext, family: 'slide' as const, targets: targetsFor(ext, ready) })),
+    ...(pdf ? [{ ext: 'pdf', family: 'pdf' as const, targets: pdfTargetsFor(pdf.word, pdf.comp) }] : []),
   ]
   return { componentReady: ready, inputs, sources }
 }
@@ -363,7 +400,9 @@ export async function getDocComponentStatus(): Promise<DocComponentStatus> {
 export async function getFormatMatrix(): Promise<DocFormatMatrix> {
   if (live()) return callService<DocFormatMatrix>('DocService', 'GetFormatMatrix')
   applyPreviewStatus()
-  return buildMatrix(v27(simStatus).state === 'ready')
+  const st = v27(simStatus)
+  const pdf = docV28On() ? { word: st.engines.some((e) => e.id === 'office' && e.available), comp: st.componentState === 'ready' } : undefined
+  return buildMatrix(st.state === 'ready', pdf)
 }
 
 export async function installDocComponent(mirror = ''): Promise<DocComponentStatus> {
@@ -461,10 +500,17 @@ export async function addDocSources(paths: string[]): Promise<AddDocSourceResult
     const name = path.split(/[\\/]/).pop() ?? path
     const raw = (name.split('.').pop() ?? '').toLowerCase()
     const ext = raw === 'htm' ? 'html' : raw === 'markdown' ? 'md' : raw
-    if (ext === 'pdf') {
-      return { path, error: { code: 'DOC_PDF_INPUT_UNSUPPORTED', message: 'PDF 暂时不能转成其他格式。' } }
+    if (ext === 'pdf' && !docV28On()) {
+      return { path, error: { code: 'DOC_PDF_INPUT_UNSUPPORTED', message: '不支持这种文件。' } }
     }
-    const inputs = [...TEXT, ...SHEET, ...SLIDE]
+    // v0.28 模拟：文件名带「超大 / big」→ too_large；「页数 / pages」→ too_many_pages（message 是后端原句，界面用定稿句）
+    if (ext === 'pdf' && /超大|big/i.test(name)) {
+      return { path, error: { code: 'INVALID_ARGUMENT', message: 'PDF 太大了，最大 200 MB。', detail: 'reason=too_large' } }
+    }
+    if (ext === 'pdf' && /页数|pages/i.test(name)) {
+      return { path, error: { code: 'INVALID_ARGUMENT', message: 'PDF 页数太多，最多 500 页。', detail: 'reason=too_many_pages' } }
+    }
+    const inputs: string[] = [...TEXT, ...SHEET, ...SLIDE, ...(docV28On() ? ['pdf'] : [])]
     if (!(inputs as readonly string[]).includes(ext)) {
       return { path, error: { code: 'DOC_FORMAT_UNSUPPORTED', message: '不支持这种文件。' } }
     }
