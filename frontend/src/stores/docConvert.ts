@@ -389,8 +389,9 @@ export const useDocConvertStore = defineStore('docConvert', () => {
       roundIds.value = []
       for (const row of selectedRows.value) {
         const per = targetsOf(row.src.ext).find((x) => x.ext === tile.ext)
-        // v0.28：PDF → txt / md / 简易 html 走纯 Go（不排队）；PDF → Word 类 / 有组件的 html 进组件池
-        const pdfGo = row.src.family === 'pdf' && (per?.engines ?? []).includes('go') && (per?.engines ?? [])[0] === 'go'
+        // v0.28：PDF → txt / md / 简易 html 走纯 Go（不排队）；PDF → Word 类 / 有组件的 html 进组件池。
+        // 只看格式表的 needsComponent / simple（engines 里没有 go，不从那里找）
+        const pdfGo = row.src.family === 'pdf' && !!per && per.available && !per.needsComponent && per.simple
         const pooled = row.src.family === 'pdf' ? !pdfGo : !!per && per.needsComponent && !per.simple
         const id = `simdoc-${Math.random().toString(36).slice(2, 9)}`
         const base = row.src.name.replace(/\.[^.]+$/, '')

@@ -68,8 +68,11 @@ export interface DocTarget {
   needsComponent: boolean
   simple: boolean
   available: boolean
-  /** v0.27：能做这个转换的引擎 id（只供排查，界面不显示） */
-  engines?: string[]
+  /**
+   * v0.27：能做这个转换的引擎 id（只供排查，界面不显示）。只会是 office / wps / component（架构师 10-09 纠正：没有 go）。
+   * 前端判断能不能转只看 available / needsComponent / simple，不读这个字段。
+   */
+  engines?: ('office' | 'wps' | 'component' | (string & {}))[]
   hintKey?: string
   hint?: string
   disabledReason?: string
@@ -287,7 +290,7 @@ function pdfTargetsFor(word: boolean, comp: boolean): DocTarget[] {
     if (t === 'html') {
       return comp
         ? { ext: t, displayName: LABELS[t], needsComponent: false, simple: false, available: true, engines: ['component'] }
-        : { ext: t, displayName: LABELS[t], needsComponent: false, simple: true, available: true, engines: ['go'], hintKey: 'simple_mode', hint: DOC_PDF_TEXT_ONLY_HINT }
+        : { ext: t, displayName: LABELS[t], needsComponent: false, simple: true, available: true, engines: [], hintKey: 'simple_mode', hint: DOC_PDF_TEXT_ONLY_HINT }
     }
     return {
       ext: t,
@@ -295,7 +298,7 @@ function pdfTargetsFor(word: boolean, comp: boolean): DocTarget[] {
       needsComponent: false,
       simple: true,
       available: true,
-      engines: comp ? ['go', 'component'] : ['go'],
+      engines: comp ? ['component'] : [],
       hintKey: t === 'md' ? 'md_lossy' : 'simple_mode',
       hint: t === 'md' ? '转成 Markdown 只保留文字和基本格式，图片和复杂表格会丢失。' : DOC_PDF_TEXT_ONLY_HINT,
     }
@@ -579,6 +582,7 @@ export interface DocRecord {
   queuePosition?: number
   error?: { code: string; message: string; detail?: string } | null
   /** 成功记录的结果（6.14.6 warnings；v0.27 engine = office | wps | component | go | simple） */
+  /** engine：office / wps / component / go（纯 Go 提取文字，只出现在这里，不在 engines 里）/ simple */
   result?: { engine?: 'office' | 'wps' | 'component' | 'go' | 'simple' | (string & {}); warnings?: string[] } | null
   createdAt: number
   startedAt?: number

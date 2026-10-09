@@ -16,6 +16,10 @@ export const DOC_OUTDATED_DOWNLOAD = '文档组件版本太旧，请重新下载
 export const DOC_OUTDATED_BUTTON = '更新文档组件'
 
 export const DOC_HINT_SIMPLE_BAR = 'Word、ODT、TXT 可以简易转 PDF，md 和网页可以互转'
+/** v0.28 打开 PDF 输入后（产品 10-09 定稿）组件未就绪横条的整句：PDF 转 txt / md / 简易网页不需要组件 */
+export const DOC_HINT_SIMPLE_BAR_PDF = 'Word、ODT、TXT 可以简易转 PDF，md 和网页可以互转，PDF 可以提取文字转成 TXT、md 和简易网页'
+/** 组件未就绪横条用的句子（不带句号）；pdfOn = docV28On() */
+export const docHintSimpleBar = (pdfOn: boolean): string => (pdfOn ? DOC_HINT_SIMPLE_BAR_PDF : DOC_HINT_SIMPLE_BAR)
 export const DOC_NEED_COMPONENT = '需要文档组件'
 export const DOC_SIMPLE_PDF_LABEL = '简易转换（只保留文字）'
 export const DOC_SIMPLE_HINT = '下载文档组件后可保留图片和排版'
