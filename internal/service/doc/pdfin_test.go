@@ -278,7 +278,7 @@ func TestPDFFormatMatrix(t *testing.T) {
 				if !tg.Available || tg.NeedsComponent || !tg.Simple || strings.Join(tg.Engines, ",") != strings.Join(c.txtEngines, ",") {
 					t.Errorf("%s %s：%+v", c.name, tg.Ext, tg)
 				}
-				if tg.Ext == "md" && tg.HintKey != "md_lossy" || tg.Ext == "txt" && (tg.HintKey != "simple_mode" || tg.Hint != "只提取文字，不保留排版和图片。") {
+				if tg.HintKey != HintPDFText || tg.Hint != hintPDFTextTxt {
 					t.Errorf("%s %s hint：%+v", c.name, tg.Ext, tg)
 				}
 			case "html":
