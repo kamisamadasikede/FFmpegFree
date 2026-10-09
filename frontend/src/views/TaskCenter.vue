@@ -369,6 +369,7 @@ const TYPE_FILTERS = [
   { key: 'all', label: '全部类型', types: [] as string[] },
   { key: 'convert', label: '转换', types: ['convert'] },
   { key: 'doc', label: '文档', types: ['office_pdf', 'doc_convert'] },
+  { key: 'voice', label: '转字幕', types: ['speech_to_subtitle'] },
   { key: 'live', label: '直播', types: ['live_file_push', 'live_screen_push'] },
   { key: 'install', label: '安装', types: ['ffmpeg_install'] },
 ]
@@ -425,6 +426,7 @@ function onTypeChange() {
 const RETIRED_INTERRUPTED_TEXT = '应用退出时这个任务被中断。这类任务已不再支持，不能重试，可以移除这条记录。'
 const TYPE_LABEL: Record<string, string> = {
   convert: '转换', edit_export: '旧版导出', office_pdf: '文档', doc_convert: '文档', ffmpeg_install: '安装',
+  speech_to_subtitle: '转字幕',
   live_file_push: '直播', live_screen_push: '直播',
 }
 const typeLabel = (t: string) => TYPE_LABEL[t] ?? t

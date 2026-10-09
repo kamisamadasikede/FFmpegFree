@@ -8,6 +8,12 @@ import LiveLayout from '../views/live/LiveLayout.vue'
 // 七个一级入口（PRD / 设计规范第 6 节）。有多个子页面的入口用 SectionTabs 渲染页签。
 const routes: RouteRecordRaw[] = [
   { path: '/', name: 'Convert', meta: { title: '格式转换', subtitle: '视频 · 音频 · 转换记录' }, component: () => import('../views/ConvertPage.vue') },
+  {
+    path: '/voice',
+    name: 'Voice',
+    meta: { title: '语音工具', subtitle: '转字幕', fill: true },
+    component: () => import('../views/voice/VoicePage.vue'),
+  },
   // 剪辑功能已移除（老板决定，2026-10-08，应用只做转换）：旧的 #/edit 地址一律回到转换页
   { path: '/edit/:pathMatch(.*)*', redirect: '/' },
   {
@@ -49,7 +55,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/tasks/:pathMatch(.*)*', redirect: '/tasks' },
   {
     path: '/settings',
-    meta: { title: '设置', subtitle: '外观 · 转换组件 · 文档组件 · 转换' },
+    meta: { title: '设置', subtitle: '外观 · 转换组件 · 语音识别组件 · 文档组件 · 转换' },
     component: () => import('../views/settings/SettingsLayout.vue'),
     redirect: '/settings/general',
     children: [

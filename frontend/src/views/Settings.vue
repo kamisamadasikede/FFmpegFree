@@ -53,6 +53,9 @@
       </template>
     </FFmpegPanel>
 
+    <!-- v0.29 语音识别组件（转字幕） -->
+    <AsrComponentPanel id="sec-asrcomp" heading-id="h-asrcomp" />
+
     <!-- v0.26 文档组件（文档、表格、演示的转换） -->
     <DocComponentPanel id="sec-doccomp" heading-id="h-doccomp" />
 
@@ -116,6 +119,7 @@ import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import FFmpegPanel from '@/components/settings/FFmpegPanel.vue'
 import DocComponentPanel from '@/components/settings/DocComponentPanel.vue'
+import AsrComponentPanel from '@/components/settings/AsrComponentPanel.vue'
 import { useDocComponentStore } from '@/stores/docComponent'
 import OutputDirRow from '@/components/settings/OutputDirRow.vue'
 import StoragePanel from '@/components/settings/StoragePanel.vue'
