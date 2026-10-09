@@ -178,9 +178,35 @@ function previewOs(): 'win' | 'mac' | 'linux' {
   return 'win'
 }
 
+/**
+ * 截图 / 走查用：?doc=checking&doc_check_ms=2500[&doc_check_to=ready|missing|…] 让「检测中」在 N 毫秒后结束（发 doc:component）；
+ * 不带 doc_check_ms 时一直停在检测中（同以前）。?doc_matrix_ms=<毫秒> 让模拟的 GetFormatMatrix 慢 N 毫秒返回。
+ */
+let simCheckDone: DocComponentState | null = null
+let simCheckTimer: ReturnType<typeof setTimeout> | null = null
+function scheduleSimCheckDone() {
+  const ms = Number(simParam('doc_check_ms'))
+  if (simCheckDone || simCheckTimer || !(ms > 0)) return
+  simCheckTimer = setTimeout(() => {
+    const to = simParam('doc_check_to')
+    simCheckDone = (to && to !== 'checking' ? previewStateOf(to) : null) ?? 'missing'
+    applyPreviewStatus()
+    emitStatus()
+  }, ms)
+}
+
 function previewState(): DocComponentState | null {
   const s = simParam('doc') || simParam('doccomp')
   if (!s) return null
+  const st = previewStateOf(s)
+  if (st === 'checking') {
+    if (simCheckDone) return simCheckDone
+    scheduleSimCheckDone()
+  }
+  return st
+}
+
+function previewStateOf(s: string): DocComponentState | null {
   const map: Record<string, DocComponentState> = {
     ready: 'ready',
     missing: 'missing',
@@ -417,6 +443,8 @@ export async function getDocComponentStatus(): Promise<DocComponentStatus> {
 
 export async function getFormatMatrix(): Promise<DocFormatMatrix> {
   if (live()) return callService<DocFormatMatrix>('DocService', 'GetFormatMatrix')
+  const slow = Number(simParam('doc_matrix_ms'))
+  if (slow > 0) await simDelay(slow)
   applyPreviewStatus()
   const st = v27(simStatus)
   const pdf = docV28On() ? { word: st.engines.some((e) => e.id === 'office' && e.available), comp: st.componentState === 'ready' } : undefined

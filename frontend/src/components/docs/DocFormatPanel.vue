@@ -18,9 +18,11 @@ function match(t: DocTile): boolean {
 }
 const shown = computed(() => dc.groups.map((g) => ({ ...g, items: g.items.filter(match) })).filter((g) => g.items.length))
 // 设计 v0.2 场景 02 / 03：没选文件时也按格式表置灰（组件未就绪时只剩简易 PDF / HTML / MD 可用）
-const disabled = (t: DocTile) => !t.available
+// 组件检测中暂时不可用的格（pending）按中性占位显示：不置灰成「不可用」、不出禁用图标和提示，检测完平滑切到结果
+const disabled = (t: DocTile) => !t.available && !t.pending
+const wide = (t: DocTile) => !!t.simple && t.ext === 'pdf' && !t.pending
 // 「简易转换（只保留文字）」只用于 → PDF；PDF 源的 txt / md / 简易 html 也是 simple，但格式块照常显示（说明行里讲只提取文字）
-const sub = (t: DocTile) => (t.simple && t.ext === 'pdf' ? DOC_SIMPLE_PDF_LABEL : DOC_TILE_SUB[t.ext] ?? '')
+const sub = (t: DocTile) => (wide(t) ? DOC_SIMPLE_PDF_LABEL : DOC_TILE_SUB[t.ext] ?? '')
 const tip = (t: DocTile) => (disabled(t) ? t.disabledReason || DOC_NEED_COMPONENT : `${t.displayName}（${sub(t)}）`)
 const saveName = computed(() => {
   if (nSel.value !== 1 || !dc.target) return ''
@@ -51,7 +53,7 @@ const saveName = computed(() => {
       <div v-else-if="!dc.matrix" class="cv-presets cv-fxs" aria-busy="true" aria-label="正在加载格式">
         <div class="cv-fxg"><span v-for="i in 9" :key="i" class="cv-fxsk" /></div>
       </div>
-      <div v-else class="cv-presets cv-fxs" :class="{ dim: !nSel }" role="radiogroup" aria-label="输出格式">
+      <div v-else class="cv-presets cv-fxs" :class="{ dim: !nSel }" role="radiogroup" aria-label="输出格式" :aria-busy="dc.checking || undefined">
         <template v-for="g in shown" :key="g.key">
           <div class="cv-fgrp">{{ g.label }}<i /></div>
           <div class="cv-fxg">
@@ -60,7 +62,7 @@ const saveName = computed(() => {
               :key="t.ext"
               type="button"
               class="preset cv-fx dc-fx"
-              :class="{ on: nSel > 0 && dc.target === t.ext, off: disabled(t), 'dc-wide': t.simple && t.ext === 'pdf' }"
+              :class="{ on: nSel > 0 && dc.target === t.ext, off: disabled(t), 'dc-pend': t.pending, 'dc-wide': wide(t) }"
               role="radio"
               :aria-checked="nSel > 0 && dc.target === t.ext"
               :aria-disabled="disabled(t) || undefined"
