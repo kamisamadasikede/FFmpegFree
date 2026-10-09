@@ -30,6 +30,7 @@ import { useDocComponentStore } from '@/stores/docComponent'
 import {
   DOC_CSV_HINT,
   DOC_MD_HINT,
+  DOC_PDF_TEXT_ONLY_HINT,
   DOC_SIMPLE_HINT,
   docAddErrorText,
   docDiskFullText,
@@ -197,6 +198,8 @@ export const useDocConvertStore = defineStore('docConvert', () => {
     // v0.28：选中里有 PDF 时按 PDF 的提示（排版 / 只提取文字），文案在 utils/docV26Text.ts
     const pdfNote = docPdfNote(selectedFamilies.value, t, comp.isLinux)
     if (pdfNote) return pdfNote
+    // pdf_text：PDF → txt / md（产品定稿）；万一没走 docPdfNote 也直接映射，绝不落到 md_lossy
+    if (t?.hintKey === 'pdf_text' && t.available) return { text: DOC_PDF_TEXT_ONLY_HINT, tone: 'info' }
     if (t?.simple) return { text: `${t.hint || DOC_SIMPLE_HINT}。`.replace(/。。$/, '。'), tone: 'warn', download: !comp.isLinux }
     if (t?.ext === 'md' && t.available) return { text: t.hint || DOC_MD_HINT, tone: 'info' }
     if (t?.ext === 'csv' && t.available) {

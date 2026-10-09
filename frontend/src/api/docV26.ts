@@ -62,6 +62,20 @@ export interface DocComponentStatus {
 /** 文档家族；v0.28 新增 pdf（PDF 源，目标 doc docx odt rtf txt md html） */
 export type DocFamily = 'text' | 'sheet' | 'slide' | 'pdf'
 
+/**
+ * 格式表 hintKey（契约 6.12.x）。
+ * pdf_text：PDF → txt / md（产品定稿「只提取文字…」）；md_lossy 只留给非 PDF → md。
+ * 开放联合，后续再加值不用改这里。
+ */
+// eslint-disable-next-line @typescript-eslint/ban-types
+export type DocHintKey =
+  | 'csv_first_sheet'
+  | 'md_lossy'
+  | 'simple_mode'
+  | 'pdf_layout'
+  | 'pdf_text'
+  | (string & {})
+
 export interface DocTarget {
   ext: string
   displayName: string
@@ -73,7 +87,7 @@ export interface DocTarget {
    * （状态里的 DocComponentStatus.engines 永远没有 go）。前端判断能不能转只看 available / needsComponent / simple，不读这个字段。
    */
   engines?: ('office' | 'wps' | 'component' | 'go' | (string & {}))[]
-  hintKey?: string
+  hintKey?: DocHintKey
   hint?: string
   disabledReason?: string
 }
@@ -292,6 +306,7 @@ function pdfTargetsFor(word: boolean, comp: boolean): DocTarget[] {
         ? { ext: t, displayName: LABELS[t], needsComponent: false, simple: false, available: true, engines: ['component'] }
         : { ext: t, displayName: LABELS[t], needsComponent: false, simple: true, available: true, engines: ['go'], hintKey: 'simple_mode', hint: DOC_PDF_TEXT_ONLY_HINT }
     }
+    // pdf → txt / md：hintKey=pdf_text（产品定稿）；md_lossy 只留给非 PDF → md。html 上面已单独处理，不动。
     return {
       ext: t,
       displayName: LABELS[t],
@@ -299,8 +314,8 @@ function pdfTargetsFor(word: boolean, comp: boolean): DocTarget[] {
       simple: true,
       available: true,
       engines: comp ? ['go', 'component'] : ['go'],
-      hintKey: t === 'md' ? 'md_lossy' : 'simple_mode',
-      hint: t === 'md' ? '转成 Markdown 只保留文字和基本格式，图片和复杂表格会丢失。' : DOC_PDF_TEXT_ONLY_HINT,
+      hintKey: 'pdf_text',
+      hint: DOC_PDF_TEXT_ONLY_HINT,
     }
   })
 }

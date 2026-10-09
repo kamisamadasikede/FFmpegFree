@@ -1254,12 +1254,18 @@ export async function runApiChecks(): Promise<string[]> {
   eq('v0.28 PDF 说明行', [
     d26.docPdfNote(['pdf'], { ext: 'docx', available: true, hintKey: 'pdf_layout' })?.text,
     d26.docPdfNote(['pdf'], { ext: 'txt', available: true, simple: true })?.text,
-    d26.docPdfNote(['pdf'], { ext: 'md', available: true, simple: true, hintKey: 'md_lossy' })?.text,
+    d26.docPdfNote(['pdf'], { ext: 'md', available: true, simple: true, hintKey: 'md_lossy' })?.text, // 旧后端兜底：PDF 源上永不显示 md_lossy 那句
+    d26.docPdfNote(['pdf'], { ext: 'md', available: true, simple: true, hintKey: 'pdf_text' })?.text,
     d26.docPdfNote(['pdf'], { ext: 'html', available: true, simple: true })?.download,
     d26.docPdfNote(['pdf'], { ext: 'html', available: true, simple: true }, true)?.download,
     d26.docPdfNote(['pdf'], { ext: 'html', available: true, simple: false }),
     d26.docPdfNote(['text'], { ext: 'docx', available: true }),
-  ], [d26.DOC_PDF_LAYOUT_HINT, d26.DOC_PDF_TEXT_ONLY_HINT, d26.DOC_PDF_TEXT_ONLY_HINT, true, false, null, null])
+  ], [d26.DOC_PDF_LAYOUT_HINT, d26.DOC_PDF_TEXT_ONLY_HINT, d26.DOC_PDF_TEXT_ONLY_HINT, d26.DOC_PDF_TEXT_ONLY_HINT, true, false, null, null])
+  eq('v0.28 hintKey 映射：pdf_text → 只提取文字；md_lossy 仍是 Markdown 那句（非 PDF）', [
+    d26.docHintText('pdf_text'),
+    d26.docHintText('md_lossy'),
+    d26.docHintText('pdf_layout'),
+  ], [d26.DOC_PDF_TEXT_ONLY_HINT, d26.DOC_MD_HINT, d26.DOC_PDF_LAYOUT_HINT])
   eq('v0.28 组件未就绪横条：开关关时原句，开时加 PDF 半句', [d26.docHintSimpleBar(false), d26.docHintSimpleBar(true) + '。'], ['Word、ODT、TXT 可以简易转 PDF，md 和网页可以互转', 'Word、ODT、TXT 可以简易转 PDF，md 和网页可以互转，PDF 可以提取文字转成 TXT、md 和简易网页。'])
   eq('v0.28 DOC_ENCRYPTED owner_only 单独一句、不可重试；其他密码沿用；PDF 太大 / 页数太多不可重试', [
     d26.docAddErrorText({ code: 'DOC_ENCRYPTED', message: 'x', detail: 'reason=owner_only' }, 'D:/a/b.pdf'),
@@ -1277,6 +1283,12 @@ export async function runApiChecks(): Promise<string[]> {
     eq('v0.28 模拟（没有组件、没有 Word）：Word 类置灰，txt / md / html 可用', pdf?.targets.map((t) => t.available), [false, false, false, false, true, true, true])
     eq('v0.28 状态 engines 里没有 go', (await (await import('@/api/docV26')).getDocComponentStatus()).engines.some((e) => e.id === 'go'), false)
     eq('v0.28 pdf → txt / md / html（没有组件）：不需要组件、简易', pdf?.targets.filter((t) => ['txt', 'md', 'html'].includes(t.ext)).map((t) => [t.needsComponent, t.simple]), [[false, true], [false, true], [false, true]])
+    eq('v0.28 模拟：pdf → txt / md 用 pdf_text；html 简易仍 simple_mode；md_lossy 不出现在 PDF 源', [
+      pdf?.targets.find((x) => x.ext === 'txt')?.hintKey,
+      pdf?.targets.find((x) => x.ext === 'md')?.hintKey,
+      pdf?.targets.find((x) => x.ext === 'html')?.hintKey,
+      pdf?.targets.some((x) => x.hintKey === 'md_lossy'),
+    ], ['pdf_text', 'pdf_text', 'simple_mode', false])
     const added = await (await import('@/api/docV26')).addDocSources(['D:/a/说明书.pdf', 'D:/a/超大.pdf', 'D:/a/页数多.pdf'])
     eq('v0.28 模拟添加 PDF', [added[0].source?.family, added[1].error?.detail, added[2].error?.detail], ['pdf', 'reason=too_large', 'reason=too_many_pages'])
   }
