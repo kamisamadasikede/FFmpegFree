@@ -48,6 +48,9 @@ export type AppErrorCode =
   | 'LANG_ASR_FAILED'
   | 'LANG_DOWNLOAD_FAILED'
   | 'LANG_CHECKSUM_FAILED'
+  // v0.30 Cat 助手（6.19.7）
+  | 'CAT_NOT_READY'
+  | 'CAT_REPLY_FAILED'
   | 'LIVE_SOURCE_GONE' // v0.14：屏幕推流所选的窗口 / 屏幕已不可用，detail 首行 kind=window|screen
   // 只在前端由播放器产生，后端不会返回
   | 'LIVE_PLAY_FAILED'
@@ -62,6 +65,7 @@ export const BACKEND_ERROR_CODES: readonly AppErrorCode[] = [
   'DOC_PRESENTATION_BUSY', 'DOC_ENGINE_BUSY',
   'DOC_PDF_NO_TEXT',
   'LANG_ASR_NOT_READY', 'LANG_ASR_EMPTY', 'LANG_ASR_FAILED', 'LANG_DOWNLOAD_FAILED', 'LANG_CHECKSUM_FAILED',
+  'CAT_NOT_READY', 'CAT_REPLY_FAILED',
 ]
 
 export interface DetailHead {

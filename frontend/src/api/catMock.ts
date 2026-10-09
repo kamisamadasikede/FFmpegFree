@@ -1,7 +1,11 @@
 /**
- * Cat 聊天页的模拟数据（CAT_BACKEND_READY=false 时全部来自这里；原型 cat-v3.html 的同名数据）。
- * 不调用任何 Wails 绑定。发消息只在本地生成一条示意回复（fakeReply）。
+ * Cat 聊天页的布局用模拟数据（CAT_BACKEND_READY=false：会话列表 / 欢迎页示意）。
+ * 模型与思考强度不在这里造假——由 api/cat.ts 的 List* 返回（未就绪时为空）。
+ * 不调用任何 Wails 绑定。
  */
+
+import type { CatAgentKind } from '@/api/cat'
+import { CAT_AGENT_BUILD } from '@/api/cat'
 
 export type CatConvState = 'ok' | 'idle' | 'run'
 
@@ -17,6 +21,8 @@ export type CatBlock =
 export interface CatConv {
   id: string
   title: string
+  /** 创建时锁定，之后不可改（契约 6.19.2） */
+  agentKind: CatAgentKind
   /** 项目对话：第二行摘要、时间、状态点、是否「主要」 */
   sub?: string
   time?: string
@@ -38,31 +44,29 @@ export type CatTreeNode = [number, 'd' | 'c' | 'f', string, boolean?]
 /** 变更文件：名字、增加行数、删除行数 */
 export type CatChange = { path: string; add: number; del: number }
 
-export interface CatModel { id: string; name: string }
-export interface CatThink { id: string; name: string }
-export interface CatAccess { id: 'ask' | 'full'; name: string; short: string; desc: string; icon: 'hand' | 'alert' }
-export interface CatMode { id: string; name: string; icon: 'tool' | 'spark' | 'clock' | 'refresh' }
+export interface CatAccess { id: 'ask' | 'full'; name: string; short: string; desc: string; icon: 'hand' | 'alert'; enabled: boolean }
+export interface CatMode {
+  id: string
+  name: string
+  icon: 'tool' | 'spark' | 'clock' | 'refresh'
+  /** 创建会话时写入的 agentKind；一期只有 build 可点 */
+  agentKind: CatAgentKind
+  enabled: boolean
+}
 
-export const CAT_MODELS: CatModel[] = [
-  { id: 'v10', name: 'Cat 助手 1.0' },
-  { id: 'v09', name: 'Cat 助手 0.9' },
-]
-export const CAT_THINKS: CatThink[] = [
-  { id: 'max', name: '极高' },
-  { id: 'high', name: '高' },
-  { id: 'mid', name: '中' },
-  { id: 'low', name: '低' },
-]
 export const CAT_ACCESS: CatAccess[] = [
-  { id: 'ask', name: '请求批准', short: '请求批准', desc: '编辑外部文件和使用互联网时始终询问', icon: 'hand' },
-  { id: 'full', name: '完全访问权限', short: '完全访问', desc: '可不受限制地访问互联网和你电脑上的任何文件', icon: 'alert' },
+  { id: 'ask', name: '请求批准', short: '请求批准', desc: '编辑外部文件和使用互联网时始终询问', icon: 'hand', enabled: true },
+  { id: 'full', name: '完全访问权限', short: '完全访问', desc: '可不受限制地访问互联网和你电脑上的任何文件', icon: 'alert', enabled: false },
 ]
+
+/** 欢迎页模式：仅 Cat Build 可选；其余灰掉「下一期开放。」（产品 / 契约 6.19.6） */
 export const CAT_MODES: CatMode[] = [
-  { id: 'cli', name: 'Cat CLI', icon: 'tool' },
-  { id: 'code', name: 'Cat Code', icon: 'spark' },
-  { id: 'agent', name: 'Cat Agent', icon: 'clock' },
-  { id: 'build', name: 'Cat Build', icon: 'refresh' },
+  { id: 'cat_cli', name: 'Cat CLI', icon: 'tool', agentKind: 'cat_cli', enabled: false },
+  { id: 'cat_code', name: 'Cat Code', icon: 'spark', agentKind: 'cat_code', enabled: false },
+  { id: 'cat_agent', name: 'Cat Agent', icon: 'clock', agentKind: 'cat_agent', enabled: false },
+  { id: 'cat_build', name: 'Cat Build', icon: 'refresh', agentKind: CAT_AGENT_BUILD, enabled: true },
 ]
+
 export const CAT_TRY = [
   '了解一下这个项目，用大白话告诉我它是做什么的，从哪里入手',
   '帮我找出这个文件夹里重复和没用的文件，列出来让我确认',
@@ -74,29 +78,29 @@ export function mockProjects(): CatProject[] {
     {
       id: 'p1', name: '视频素材整理', open: false, branch: 'main',
       convs: [
-        { id: 'c11', title: '按拍摄日期归档素材', main: true, sub: '素材 / 2026-10', time: '2d', st: 'idle' },
-        { id: 'c12', title: '找出重复的片段', sub: '去重清单', time: '3d', st: 'idle' },
+        { id: 'c11', title: '按拍摄日期归档素材', agentKind: CAT_AGENT_BUILD, main: true, sub: '素材 / 2026-10', time: '2d', st: 'idle' },
+        { id: 'c12', title: '找出重复的片段', agentKind: CAT_AGENT_BUILD, sub: '去重清单', time: '3d', st: 'idle' },
       ],
     },
     {
       id: 'p2', name: '直播推流测试', open: true, branch: 'live',
       convs: [
-        { id: 'c21', title: '推流地址轮换方案', main: true, sub: '我想让三路推流轮流切换地址…', time: '58m', st: 'ok' },
-        { id: 'c22', title: '断线重连日志分析', sub: '重连 4 次，平均 6 秒', time: '3h', st: 'idle' },
+        { id: 'c21', title: '推流地址轮换方案', agentKind: CAT_AGENT_BUILD, main: true, sub: '我想让三路推流轮流切换地址…', time: '58m', st: 'ok' },
+        { id: 'c22', title: '断线重连日志分析', agentKind: CAT_AGENT_BUILD, sub: '重连 4 次，平均 6 秒', time: '3h', st: 'idle' },
       ],
     },
     {
       id: 'p3', name: '字幕项目', open: true, branch: 'test',
-      convs: [{ id: 'c31', title: '校对第 3 集时间轴', main: true, sub: '你先帮我把时间轴整体后移 0.4 秒…', time: '12m', st: 'run' }],
+      convs: [{ id: 'c31', title: '校对第 3 集时间轴', agentKind: CAT_AGENT_BUILD, main: true, sub: '你先帮我把时间轴整体后移 0.4 秒…', time: '12m', st: 'run' }],
     },
   ]
 }
 
 export function mockPlainConvs(): CatConv[] {
   return [
-    { id: 'd1', title: '用 Go 背景逐步教 Rust 语法' },
-    { id: 'd2', title: 'Docker 命令大全' },
-    { id: 'd3', title: '整理本周会议纪要要点和待办事项' },
+    { id: 'd1', title: '用 Go 背景逐步教 Rust 语法', agentKind: CAT_AGENT_BUILD },
+    { id: 'd2', title: 'Docker 命令大全', agentKind: CAT_AGENT_BUILD },
+    { id: 'd3', title: '整理本周会议纪要要点和待办事项', agentKind: CAT_AGENT_BUILD },
   ]
 }
 
@@ -150,17 +154,6 @@ export function mockChanges(id: string): CatChange[] {
   if (id === 'c31') return [{ path: '第3集/第3集.srt', add: 3, del: 3 }]
   if (id === 'c21') return [{ path: '推流地址.txt', add: 6, del: 1 }]
   return []
-}
-
-/** 本地示意回复：不联网、不调后端，只用于演示发送流程 */
-export function fakeReply(text: string, modelName: string): CatBlock[] {
-  const t = text.trim()
-  const short = t.length > 24 ? t.slice(0, 24) + '…' : t
-  return [
-    { kind: 'think', text: '思考完成 · 2 秒' },
-    { kind: 'p', text: `收到：“${short}”。` },
-    { kind: 'p', text: `这是 ${modelName} 的示意回复，Cat 还没有接入正式服务，正式版会在这里给出完整回答。` },
-  ]
 }
 
 /** 首条消息生成对话标题 */

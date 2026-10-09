@@ -19,14 +19,23 @@
                 :key="m.id"
                 type="button"
                 class="wl-mode"
-                :class="{ on: catState.mode === m.id }"
+                :class="{ on: m.enabled && catState.mode === m.id, disabled: !m.enabled }"
                 role="tab"
-                :aria-selected="catState.mode === m.id"
-                @click="catState.mode = m.id"
+                :aria-selected="m.enabled && catState.mode === m.id"
+                :aria-disabled="!m.enabled"
+                :title="m.enabled ? undefined : tipLater()"
+                @click="onModeClick(m)"
               >
                 <FIcon :name="m.icon" :size="15" /><span>{{ m.name }}</span>
               </button>
-              <button type="button" class="wl-mode more" aria-haspopup="true">更多<FIcon name="down" :size="12" /></button>
+              <button
+                type="button"
+                class="wl-mode more disabled"
+                aria-haspopup="true"
+                aria-disabled="true"
+                :title="tipLater()"
+                @click="onLater()"
+              >更多<FIcon name="down" :size="12" /></button>
             </div>
             <CatComposer
               ref="composer"
@@ -78,12 +87,14 @@ import CatSidePanel from '@/components/cat/CatSidePanel.vue'
 import CatFilesPanel from '@/components/cat/CatFilesPanel.vue'
 import CatComposer from '@/components/cat/CatComposer.vue'
 import CatMessages from '@/components/cat/CatMessages.vue'
-import { CAT_MODES, CAT_TRY } from '@/api/catMock'
+import { ElMessage } from 'element-plus'
+import { CAT_COPY } from '@/api/cat'
+import { CAT_MODES, CAT_TRY, type CatMode } from '@/api/catMock'
 import { catReturnPath } from './catReturn'
-import { catState, findConv, messagesOf, NEW_CONV, sendMessage } from './catState'
+import { catState, findConv, messagesOf, NEW_CONV, refreshCapabilities, sendMessage, tipLater } from './catState'
 
 /**
- * Cat 聊天页（原型 cat-v3 / 说明 v0.3）。CAT_BACKEND_READY=false：全部假数据，发消息只在本地生成示意回复。
+ * Cat 聊天页（设计 v0.4 / 契约 v0.30）。CAT_BACKEND_READY=false：布局壳 + typed mock；发消息展示未就绪文案。
  * 浏览器走查可加 ?cat=chat 跳过 1.2 秒 loading、?cat_conv=new|c21|d1… 直接打开某条对话（仅纯浏览器，Wails 里无效）。
  */
 defineOptions({ name: 'CatPage' })
@@ -108,8 +119,11 @@ watch(current, (c) => {
 let timer: ReturnType<typeof setTimeout> | undefined
 onMounted(() => {
   if (phase.value === 'loading') timer = setTimeout(() => (phase.value = 'chat'), 1200)
+  void refreshCapabilities()
 })
 onBeforeUnmount(() => clearTimeout(timer))
+
+watch(() => catState.sel, () => { void refreshCapabilities() })
 
 function scrollToEnd() {
   nextTick(() => {
@@ -121,6 +135,18 @@ watch(() => [catState.sel, messages.value.length, catState.pending, phase.value]
 
 function goBack() {
   router.push(catReturnPath())
+}
+
+function onLater() {
+  ElMessage.info(CAT_COPY.later)
+}
+
+function onModeClick(m: CatMode) {
+  if (!m.enabled) {
+    onLater()
+    return
+  }
+  catState.mode = m.id
 }
 </script>
 
@@ -336,5 +362,25 @@ function goBack() {
 .wl-cmd:focus-visible {
   outline: 2px solid var(--ff-primary);
   outline-offset: -2px;
+}
+.wl-mode.disabled,
+.wl-mode.disabled:hover {
+  color: var(--ff-text-3);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  cursor: not-allowed;
+  opacity: 0.55;
+  font-weight: 400;
+}
+.wl-mode.disabled > :deep(svg) {
+  color: var(--ff-text-3);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ct-spin,
+  .cat-in,
+  .swap {
+    animation: none !important;
+  }
 }
 </style>
