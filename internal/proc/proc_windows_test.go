@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 // 以下测试只有在 Windows 上才会运行（本仓库的 CI / 开发机是 Linux，只做了交叉编译，没有真机验证）。
@@ -53,5 +55,16 @@ func TestRunNormalExitReleasesJob(t *testing.T) {
 	}
 	if jobs.len() != 0 {
 		t.Fatal("正常退出后应释放 Job 句柄")
+	}
+}
+
+func TestConfigureHidesConsoleWindow(t *testing.T) {
+	cmd := exec.Command("cmd", "/c", "exit 0")
+	Configure(cmd)
+	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.HideWindow {
+		t.Fatalf("HideWindow 必须为 true: %+v", cmd.SysProcAttr)
+	}
+	if cmd.SysProcAttr.CreationFlags&windows.CREATE_NO_WINDOW == 0 {
+		t.Fatalf("CreationFlags 必须含 CREATE_NO_WINDOW: %#x", cmd.SysProcAttr.CreationFlags)
 	}
 }

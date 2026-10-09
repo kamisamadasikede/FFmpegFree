@@ -11,11 +11,15 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// configure 隐藏子进程窗口：HideWindow（SW_HIDE）+ CREATE_NO_WINDOW。
+// 后者让控制台程序（ffmpeg、grok，以及 grok.cmd 之类经 cmd.exe 的包装）根本不分配可见控制台，
+// 它再派生的控制台子进程继承这个无窗口控制台，也不会闪黑窗口；对 GUI 程序（soffice）无影响。
 func configure(cmd *exec.Cmd) {
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.HideWindow = true
+	cmd.SysProcAttr.CreationFlags |= windows.CREATE_NO_WINDOW
 }
 
 // jobs 记录每个受管进程对应的 Job Object 句柄。
@@ -86,7 +90,7 @@ func kill(cmd *exec.Cmd) error {
 		},
 		func() error {
 			tk := exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(pid))
-			tk.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+			configure(tk)
 			return tk.Run()
 		},
 		cmd.Process.Kill,
