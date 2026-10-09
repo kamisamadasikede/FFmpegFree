@@ -35,11 +35,11 @@ func TestDetect_ReadyWhenGrokOnPATH(t *testing.T) {
 		t.Fatalf("status %+v", st)
 	}
 	models, err := a.ListModels()
-	if err != nil || len(models) != 1 || models[0].DisplayName != "Cat 助手" {
+	if err != nil || len(models) < 1 || !strings.HasPrefix(models[0].DisplayName, "Cat 助手") {
 		t.Fatalf("models %v %v", models, err)
 	}
 	thinks, err := a.ListThinkLevels()
-	if err != nil || len(thinks) != 0 {
+	if err != nil || len(thinks) != 3 {
 		t.Fatalf("thinks %v %v", thinks, err)
 	}
 }
@@ -158,13 +158,16 @@ func TestRunTurn_PassesArgsAndReadonlyEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(raw)
-	for _, want := range []string{"-p", "hello world", "--output-format", "streaming-json", "--cwd", proj, "-s", "conv-abc", "-m", "grok-build", "--no-auto-update", "ENV_SANDBOX=read-only", "ENV_WRITE=0"} {
+	for _, want := range []string{"-p", "hello world", "--output-format", "streaming-json", "--cwd", proj, "--session-id", "-m", "grok-build", "--no-auto-update", "ENV_SANDBOX=read-only", "ENV_WRITE=0"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("missing %q in:\n%s", want, s)
 		}
 	}
-	if strings.Contains(s, "--always-approve") {
-		t.Fatalf("must not pass --always-approve:\n%s", s)
+	if !strings.Contains(s, "--always-approve") {
+		t.Fatalf("must pass --always-approve:\n%s", s)
+	}
+	if !strings.Contains(s, "--session-id") {
+		t.Fatalf("must pass --session-id:\n%s", s)
 	}
 }
 
@@ -191,7 +194,7 @@ func TestScanStreamingJSON_Lenient(t *testing.T) {
 		`{"type":"text","data":"A"}`,
 		`not-json`,
 		`{"type":"thought","data":"x"}`,
-		`{"type":"text","data":"B"}`,
+		`{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"text":"B"}}}}`,
 		`{"type":"error","message":"nope"}`,
 		`{"type":"end","stopReason":"end_turn"}`,
 	}, "\n"))

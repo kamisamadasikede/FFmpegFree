@@ -16,7 +16,7 @@ XAI_API_KEY 或 ~/.grok/auth.json（grok login），无 URL/Key UI。
        --no-auto-update --no-alt-screen
   可选：-m <modelId>（非 default 时）
   环境：GROK_SANDBOX=read-only GROK_WRITE_FILE=0 GROK_DISABLE_AUTOUPDATER=1
-  不传 --always-approve（一期只读）。
+  传 --always-approve（headless；与契约完全访问置灰不一致，待产品定）。
 
 streaming-json（NDJSON，捕获自 CLI 0.2.x；官方未正式发布 schema）：
   {"type":"text","data":"..."}      → OnTextDelta / cat:message append
