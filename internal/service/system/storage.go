@@ -46,6 +46,8 @@ const (
 	StorageComponent = "component"
 	// StorageDocComponent（v0.27.2，6.12.54）：打开应用下载的文档组件目录。
 	StorageDocComponent = "doc_component"
+	// StorageLangAsr（v0.29，6.18.3）：打开语音识别组件目录。
+	StorageLangAsr = "lang_asr"
 )
 
 // componentNotReadyMessage 是 kind=component 时转换组件没就绪或文件不在的提示（契约 1.1：不出现 ffmpeg）。
@@ -206,8 +208,10 @@ func (m *Manager) OpenStorageFolder(ctx context.Context, kind string) error {
 		return m.revealComponent()
 	case StorageDocComponent:
 		return m.revealDocComponent()
+	case StorageLangAsr:
+		return m.revealLangAsr()
 	default:
-		return apperr.New(apperr.InvalidArgument, "不支持打开这个文件夹").WithDetail("kind 只能是 output、uploads、component 或 doc_component：" + kind)
+		return apperr.New(apperr.InvalidArgument, "不支持打开这个文件夹").WithDetail("kind 只能是 output、uploads、component、doc_component 或 lang_asr：" + kind)
 	}
 	if dir == "" {
 		return apperr.New(apperr.Internal, "存储位置尚未初始化")
@@ -283,6 +287,41 @@ func (m *Manager) revealDocComponent() error {
 		return notReady
 	}
 	dir := fn()
+	if dir == "" || !isDir(dir) {
+		return notReady
+	}
+	start := m.launch
+	if start == nil {
+		start = startDetached
+	}
+	if err := revealIn(runtime.GOOS, start, dir, nil); err != nil {
+		ae := apperr.From(err)
+		if ae.Code == apperr.NotFound {
+			return notReady
+		}
+		return apperr.New(ae.Code, ae.Message).WithDetail("reason=component")
+	}
+	return nil
+}
+
+const langAsrNotReadyMessage = "语音识别组件还没有就绪。"
+
+// revealLangAsr 打开当前档已安装的语音识别组件目录（6.18.3）。
+func (m *Manager) revealLangAsr() error {
+	notReady := apperr.New(apperr.NotFound, langAsrNotReadyMessage).WithDetail("reason=component")
+	m.mu.Lock()
+	fn := m.LangAsrDir
+	m.mu.Unlock()
+	if fn == nil {
+		return notReady
+	}
+	dir, err := fn()
+	if err != nil {
+		if ae := apperr.From(err); ae != nil && ae.Code == apperr.NotFound {
+			return notReady
+		}
+		return err
+	}
 	if dir == "" || !isDir(dir) {
 		return notReady
 	}

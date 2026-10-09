@@ -85,6 +85,8 @@ type Config struct {
 	// Encoder 按用户偏好与设备缓存解析 H.264 / HEVC 编码器（契约 9.7）；nil = 一律 CPU。
 	// 每个任务在提交 / 重试时解析一次。
 	Encoder ffmpeg.EncoderResolver
+	// AcquireHWEncode：高清 ASR 运行时限制硬件编码并发 ≤ 1（契约 6.18.2）；nil = 不限制。
+	AcquireHWEncode func(ctx context.Context) (release func(), err error)
 
 	// 以下是转换记录（契约 v0.23，6.14）的依赖；为 nil 时相关接口返回 INTERNAL。
 	// Sources 为 nil 且 Presets 实现了 SourceStore（*store.Store）时用 Presets。
@@ -546,6 +548,10 @@ func (s *Service) retryFactory(old task.Task) (task.Runner, error) {
 // newRunnerTo 见 newFFmpegRunner；外面包一层 resultRunner，成功后探测输出写 Task.Result（契约 6.14.6），
 // 图片输出只留 sizeBytes / width / height，其余做 short_output 检查。
 func (s *Service) newRunnerTo(bin ffmpeg.Binaries, in, out string, direct bool, opts ffmpeg.ConvertOptions, j prepared) task.Runner {
-	return &resultRunner{FFmpegRunner: s.newFFmpegRunner(bin, in, out, direct, opts, j.dur, j.src), probe: s.probeResult,
+	inner := &resultRunner{FFmpegRunner: s.newFFmpegRunner(bin, in, out, direct, opts, j.dur, j.src), probe: s.probeResult,
 		image: ffmpeg.IsImageContainer(opts.Container), expected: j.expected}
+	if s.cfg.AcquireHWEncode == nil || inner.FFmpegRunner == nil || inner.FFmpegRunner.HWEncoder == "" {
+		return inner
+	}
+	return &hwGateRunner{inner: inner, acquire: s.cfg.AcquireHWEncode}
 }

@@ -15,6 +15,8 @@ const (
 	PoolDoc
 	// PoolFree 不排队、不占任何名额（直播；文档页的 md ↔ html 与简易转换）。
 	PoolFree
+	// PoolASR 是语音识别池：speech_to_subtitle，并发固定 1（契约 6.18.2）。
+	PoolASR
 )
 
 // PoolSelector 是 Runner 可选实现的接口：返回任务进哪个池。没实现的按类型决定（直播 PoolFree，其余 PoolBatch）。
@@ -24,6 +26,9 @@ type PoolSelector interface {
 
 // DefaultDocConcurrency 是文档组件池的并发数（契约 6.12.18：固定 2）。
 const DefaultDocConcurrency = 2
+
+// DefaultASRConcurrency 是语音识别池的并发数（契约 6.18.2：固定 1）。
+const DefaultASRConcurrency = 1
 
 // EventDocQueue 是文档组件池队列变化事件（契约 6.12.15）。
 const EventDocQueue = "doc:queue"
@@ -212,5 +217,29 @@ func (m *Manager) acquireDocSlot(ctx context.Context) (func(), error) {
 		<-w
 		release()
 		return nil, ctx.Err()
+	}
+}
+
+// asrLimit 返回语音识别池并发数。
+func (m *Manager) asrLimit() int {
+	if m.cfg.ASRConcurrency > 0 {
+		return m.cfg.ASRConcurrency
+	}
+	return DefaultASRConcurrency
+}
+
+// pumpASR 在识别池有空位时从队列取任务启动。
+func (m *Manager) pumpASR() {
+	for {
+		m.mu.Lock()
+		if m.closing || m.asrRunning >= m.asrLimit() || len(m.asrQueue) == 0 {
+			m.mu.Unlock()
+			return
+		}
+		e := m.asrQueue[0]
+		m.asrQueue = m.asrQueue[1:]
+		m.asrRunning++
+		m.mu.Unlock()
+		m.launch(e, PoolASR)
 	}
 }
