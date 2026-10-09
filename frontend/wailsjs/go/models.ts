@@ -2733,7 +2733,7 @@ export namespace cat {
 	    projectPath: string;
 	    createdAt: number;
 	    updatedAt: number;
-	    messages: store.CatMessage[];
+	    messages: Message[];
 
 	    static createFrom(source: any = {}) {
 	        return new ConversationDetail(source);
@@ -2748,7 +2748,7 @@ export namespace cat {
 	        this.projectPath = source["projectPath"];
 	        this.createdAt = source["createdAt"];
 	        this.updatedAt = source["updatedAt"];
-	        this.messages = this.convertValues(source["messages"], store.CatMessage);
+	        this.messages = this.convertValues(source["messages"], Message);
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -2808,8 +2808,8 @@ export namespace cat {
 	    }
 	}
 	export class SendMessageResult {
-	    userMessage: store.CatMessage;
-	    assistantMessage?: store.CatMessage;
+	    userMessage: Message;
+	    assistantMessage?: Message;
 	    error?: apperr.AppError;
 
 	    static createFrom(source: any = {}) {
@@ -2818,8 +2818,8 @@ export namespace cat {
 
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.userMessage = this.convertValues(source["userMessage"], store.CatMessage);
-	        this.assistantMessage = this.convertValues(source["assistantMessage"], store.CatMessage);
+	        this.userMessage = this.convertValues(source["userMessage"], Message);
+	        this.assistantMessage = this.convertValues(source["assistantMessage"], Message);
 	        this.error = this.convertValues(source["error"], apperr.AppError);
 	    }
 
