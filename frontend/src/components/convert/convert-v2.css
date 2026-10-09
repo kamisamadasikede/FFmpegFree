@@ -27,6 +27,11 @@
 .cv2 .preset:hover{border-color:color-mix(in srgb,var(--ff-primary) 45%,var(--ff-border))}
 .cv2 .preset.on{border-color:var(--ff-primary);background:var(--ff-primary-soft)}
 .cv2 .preset.on b{color:var(--ff-primary-text)}
+/* 动画 P1：格式块 / 预设卡选中和切换——边框、底色、文字色 150ms 交叉过渡（旧的淡出、新的淡入同时进行），
+   按下轻微缩到 0.97（只动 scale）；置灰的格式不缩。减少动效时 base.css 统一压成瞬间。 */
+.cv2 .preset{transition:border-color var(--ff-dur-fast) var(--ff-ease),background-color var(--ff-dur-fast) var(--ff-ease),scale var(--ff-dur-quick) var(--ff-ease)}
+.cv2 .preset b,.cv2 .preset small{transition:color var(--ff-dur-fast) var(--ff-ease)}
+.cv2 .preset:active:not(.off):not([aria-disabled="true"]):not(:disabled){scale:.97}
 .cv2 .input{height:28px;border:1px solid var(--ff-border);border-radius:6px;display:flex;align-items:center;padding:0 10px;gap:8px;background:var(--ff-bg-surface);font-size:12px;color:var(--ff-text-1);font-family:var(--ff-font-mono);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .cv2 .dfoot{display:flex;align-items:center;gap:8px}
 .cv2 .ff-link{padding:0;border:none;background:transparent;font:inherit;color:var(--ff-primary-text);cursor:pointer;border-radius:2px}

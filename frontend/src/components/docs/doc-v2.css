@@ -133,7 +133,7 @@ html.dark{
 .dc-eng svg{width:12px;height:12px;flex:none;color:var(--ff-text-3)}
 .dc-eng span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* 文档组件检测中：暂不确定的格式按中性占位（不置灰、不出禁用图标），检测完淡入结果；不改尺寸，避免跳动 */
-.cv2 .preset.dc-fx{transition:opacity .2s ease,border-color .2s ease,background-color .2s ease}
+.cv2 .preset.dc-fx{transition:opacity var(--ff-dur-base) var(--ff-ease),border-color var(--ff-dur-fast) var(--ff-ease),background-color var(--ff-dur-fast) var(--ff-ease),scale var(--ff-dur-quick) var(--ff-ease)}
 .cv2 .preset.dc-fx.dc-pend{opacity:.6}
 .cv2 .preset.dc-fx.dc-pend small{color:var(--ff-text-3)}
 @media (prefers-reduced-motion:reduce){.cv2 .preset.dc-fx{transition:none}}
