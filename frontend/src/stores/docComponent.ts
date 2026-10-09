@@ -94,8 +94,8 @@ export const useDocComponentStore = defineStore('docComponent', () => {
   const linuxMissingText = DOC_LINUX_MISSING
 
   const guideView = computed<DocGuideView>(() => {
-    // 有任何可用引擎（含本机 Office / WPS）就不出引导；否则按文档组件自己的状态（此时两者相等）
-    if (status.value.state === 'ready' || status.value.state === 'checking') return 'hidden'
+    // 组件检测中（含 state=ready + componentState=checking）不出下载引导；整体 ready（含本机 Office/WPS）也不出
+    if (status.value.componentState === 'checking' || status.value.state === 'ready' || status.value.state === 'checking') return 'hidden'
     const s = compState.value
     if (s === 'downloading') return 'downloading'
     if (s === 'preparing') return 'preparing'
