@@ -68,8 +68,11 @@ export interface DocTarget {
   needsComponent: boolean
   simple: boolean
   available: boolean
-  /** v0.27：能做这个转换的引擎 id（只供排查，界面不显示） */
-  engines?: string[]
+  /**
+   * v0.27：能做这个转换的引擎 id（只供排查，界面不显示）。6.12.59：PDF 源的 txt / md / 简易 html 这里可以有 go
+   * （状态里的 DocComponentStatus.engines 永远没有 go）。前端判断能不能转只看 available / needsComponent / simple，不读这个字段。
+   */
+  engines?: ('office' | 'wps' | 'component' | 'go' | (string & {}))[]
   hintKey?: string
   hint?: string
   disabledReason?: string
@@ -510,6 +513,10 @@ export async function addDocSources(paths: string[]): Promise<AddDocSourceResult
     if (ext === 'pdf' && /页数|pages/i.test(name)) {
       return { path, error: { code: 'INVALID_ARGUMENT', message: 'PDF 页数太多，最多 500 页。', detail: 'reason=too_many_pages' } }
     }
+    // 「权限 / owner」→ DOC_ENCRYPTED reason=owner_only（只设了权限保护的 PDF）
+    if (ext === 'pdf' && /权限|owner/i.test(name)) {
+      return { path, error: { code: 'DOC_ENCRYPTED', message: '这个 PDF 设置了权限保护。', detail: 'reason=owner_only' } }
+    }
     const inputs: string[] = [...TEXT, ...SHEET, ...SLIDE, ...(docV28On() ? ['pdf'] : [])]
     if (!(inputs as readonly string[]).includes(ext)) {
       return { path, error: { code: 'DOC_FORMAT_UNSUPPORTED', message: '不支持这种文件。' } }
@@ -579,6 +586,7 @@ export interface DocRecord {
   queuePosition?: number
   error?: { code: string; message: string; detail?: string } | null
   /** 成功记录的结果（6.14.6 warnings；v0.27 engine = office | wps | component | go | simple） */
+  /** engine：office / wps / component / go（纯 Go 提取文字，只出现在这里，不在 engines 里）/ simple */
   result?: { engine?: 'office' | 'wps' | 'component' | 'go' | 'simple' | (string & {}); warnings?: string[] } | null
   createdAt: number
   startedAt?: number

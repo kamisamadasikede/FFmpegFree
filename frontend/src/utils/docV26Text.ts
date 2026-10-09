@@ -16,6 +16,10 @@ export const DOC_OUTDATED_DOWNLOAD = '文档组件版本太旧，请重新下载
 export const DOC_OUTDATED_BUTTON = '更新文档组件'
 
 export const DOC_HINT_SIMPLE_BAR = 'Word、ODT、TXT 可以简易转 PDF，md 和网页可以互转'
+/** v0.28 打开 PDF 输入后（产品 10-09 定稿）组件未就绪横条的整句：PDF 转 txt / md / 简易网页不需要组件 */
+export const DOC_HINT_SIMPLE_BAR_PDF = 'Word、ODT、TXT 可以简易转 PDF，md 和网页可以互转，PDF 可以提取文字转成 TXT、md 和简易网页'
+/** 组件未就绪横条用的句子（不带句号）；pdfOn = docV28On() */
+export const docHintSimpleBar = (pdfOn: boolean): string => (pdfOn ? DOC_HINT_SIMPLE_BAR_PDF : DOC_HINT_SIMPLE_BAR)
 export const DOC_NEED_COMPONENT = '需要文档组件'
 export const DOC_SIMPLE_PDF_LABEL = '简易转换（只保留文字）'
 export const DOC_SIMPLE_HINT = '下载文档组件后可保留图片和排版'
@@ -72,8 +76,15 @@ export function docResultWarnings(warnings?: string[] | null): string[] {
   return (warnings ?? []).map((w) => DOC_RESULT_WARNINGS[w]).filter((x): x is string => !!x)
 }
 
-export function docErrorText(code?: string | null, message?: string | null, linux = false): string {
+/** DOC_ENCRYPTED reason=owner_only（PDF 只设了权限 / 所有者密码，后端后续小 PR 发；不可重试，只能移除） */
+export const DOC_PDF_OWNER_ONLY_TEXT = '这个 PDF 设置了权限保护，暂时不能转换。'
+
+const reasonOfDetail = (detail?: string | null): string | undefined =>
+  /^reason=([A-Za-z0-9_-]+)/.exec((detail ?? '').split(/\r?\n/, 1)[0].trim())?.[1]
+
+export function docErrorText(code?: string | null, message?: string | null, linux = false, detail?: string | null): string {
   if (code === 'DOC_COMPONENT_NOT_READY' && linux) return DOC_LINUX_MISSING
+  if (code === 'DOC_ENCRYPTED' && reasonOfDetail(detail) === 'owner_only') return DOC_PDF_OWNER_ONLY_TEXT
   if (code && DOC_ERROR_COPY[code]) return DOC_ERROR_COPY[code].text
   const m = (message ?? '').trim()
   return m || '出了点问题，请重试。'
@@ -84,11 +95,11 @@ export function docErrorText(code?: string | null, message?: string | null, linu
  * 非 PDF 的 too_large 仍用后端 message。
  */
 export function docAddErrorText(err: { code?: string | null; message?: string | null; detail?: string | null }, path = '', linux = false): string {
-  const reason = /^reason=([A-Za-z0-9_-]+)/.exec((err.detail ?? '').split(/\r?\n/, 1)[0].trim())?.[1]
+  const reason = reasonOfDetail(err.detail)
   const isPdf = /\.pdf$/i.test(path)
   if (err.code === 'INVALID_ARGUMENT' && reason === 'too_many_pages') return DOC_PDF_TOO_MANY_PAGES_TEXT
   if (err.code === 'INVALID_ARGUMENT' && reason === 'too_large' && isPdf) return DOC_PDF_TOO_LARGE_TEXT
-  return docErrorText(err.code, err.message, linux)
+  return docErrorText(err.code, err.message, linux, err.detail)
 }
 
 /**
@@ -107,8 +118,13 @@ export function docPdfNote(
   return null
 }
 
-export function docErrorRetryable(code?: string | null): boolean {
+export function docErrorRetryable(code?: string | null, detail?: string | null): boolean {
   if (!code) return true
+  // v0.28：PDF 太大 / 页数太多不可重试，只能移除
+  if (code === 'INVALID_ARGUMENT') {
+    const r = reasonOfDetail(detail)
+    if (r === 'too_large' || r === 'too_many_pages') return false
+  }
   return DOC_ERROR_COPY[code]?.retryable ?? true
 }
 
