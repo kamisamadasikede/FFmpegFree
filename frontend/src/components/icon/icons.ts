@@ -65,6 +65,22 @@ export const iconPaths = {
   // 登录页卖点（login-v1）
   'cpu': "<rect x=\"7\" y=\"7\" width=\"10\" height=\"10\" rx=\"1\"/><path d=\"M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4\"/>",
   'shield': "<path d=\"M12 3 4 7v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V7z\"/>",
+  // Cat 聊天页（原型 cat-v3.html 的同名符号，同一网格）
+  'cat': "<path d=\"M5 4l3 4h8l3-4v9a7 7 0 0 1-14 0z\"/><path d=\"M9.5 13h.01M14.5 13h.01M11 16h2\"/>",
+  'bot': "<rect x=\"4\" y=\"8\" width=\"16\" height=\"12\" rx=\"3\"/><path d=\"M12 4v4M9 14h.01M15 14h.01\"/>",
+  'clock': "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 7v5l3 2\"/>",
+  'chat': "<path d=\"M4 5h16v11H8l-4 4z\"/>",
+  'spark': "<path d=\"M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6\"/>",
+  'bell': "<path d=\"M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z\"/><path d=\"M10 20a2 2 0 0 0 4 0\"/>",
+  'filter': "<path d=\"M4 7h10M18 7h2M4 17h4M12 17h8\"/><circle cx=\"16\" cy=\"7\" r=\"2\"/><circle cx=\"10\" cy=\"17\" r=\"2\"/>",
+  'folder-plus': "<path d=\"M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\"/><path d=\"M12 10v6M9 13h6\"/>",
+  'folder-open': "<path d=\"M3 18V6a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v2\"/><path d=\"M3 18l2.5-7h16L19 18z\"/>",
+  'file': "<path d=\"M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z\"/><path d=\"M14 3v5h5\"/>",
+  'branch': "<circle cx=\"6\" cy=\"6\" r=\"2.5\"/><circle cx=\"18\" cy=\"6\" r=\"2.5\"/><circle cx=\"6\" cy=\"18\" r=\"2.5\"/><path d=\"M6 8.5v7M8.5 6h5a4 4 0 0 1 4 4v0\"/>",
+  'hand': "<path d=\"M8 13V6.5a1.5 1.5 0 0 1 3 0V12\"/><path d=\"M11 12V5.5a1.5 1.5 0 0 1 3 0V12\"/><path d=\"M14 12V6.5a1.5 1.5 0 0 1 3 0V14a5 5 0 0 1-5 5H9.5A4.5 4.5 0 0 1 5 14.5V11a1.5 1.5 0 0 1 3 0v2\"/>",
+  'alert': "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 8v5M12 16.5h.01\"/>",
+  'gauge': "<path d=\"M4.5 16a8 8 0 1 1 15 0\"/><path d=\"m12 15 3.5-4.5\"/><circle cx=\"12\" cy=\"15.5\" r=\"1.2\"/>",
+  'up': "<path d=\"M12 19V5M5 12l7-7 7 7\"/>",
 } as const
 
 export type IconName = keyof typeof iconPaths

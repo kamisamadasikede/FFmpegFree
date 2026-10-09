@@ -220,7 +220,11 @@ export function runCopyWordCheck() {
   expectHit('soffice 进程名在文案里', 'a.vue', '<template><i title="soffice 已退出"></i></template>', 1)
   expectHit('文档错误码不能当文案', 'a.vue', '<template><p>DOC_TIMEOUT</p></template>', 1)
   fails.push(...selfFails)
+  // Cat 页（原型 cat-v3 §9）：页面和模拟数据里整文件都不能出现 ffmpeg / AionUi / Grok（不分大小写，连注释也不行，最省心）
+  const CAT_BANNED = /ffmpeg|aionui|grok/i
+  const CAT_FILES = /[\\/](views[\\/]cat|components[\\/]cat)[\\/]|[\\/]api[\\/]catMock\.ts$/
   for (const p of walk(join(root, 'src'))) {
+    if (CAT_FILES.test(p)) readFileSync(p, 'utf8').split('\n').forEach((l, i) => { if (CAT_BANNED.test(l.replace(/FFmpegFree/g, ''))) fails.push(`${relative(root, p)}:${i + 1}  Cat 页不能出现 ffmpeg / AionUi / Grok：${l.trim()}`) })
     for (const h of scanFile(p, readFileSync(p, 'utf8'))) fails.push(`${relative(root, p)}:${h.line}  界面文字含禁用词（ffmpeg / 剪辑 / LibreOffice / 错误码 / reason=）：${h.text}`)
   }
   return fails

@@ -1,5 +1,6 @@
 <template>
-  <aside class="sidebar" :class="{ collapsed }">
+  <!-- Cat 页（route.meta.layout=cat）：整条侧栏 250ms 收到 0 宽并淡出，期间不可聚焦；离开 Cat 时展开回来（原型 cat-v3） -->
+  <aside class="sidebar" :class="{ collapsed, 'cat-away': catAway, 'cat-leaving': catLeaving }" :inert="catAway || undefined" :aria-hidden="catAway || undefined">
     <div v-if="macFrameless" class="traffic-space" />
     <div class="brand">
       <div class="logo"><FIcon name="play" :size="16" :stroke="2.2" /></div>
@@ -37,6 +38,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { Expand, Fold } from '@element-plus/icons-vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import FFmpegStatusCard from '@/components/ffmpeg/FFmpegStatusCard.vue'
@@ -59,6 +61,16 @@ onMounted(async () => {
     version.value = DEV_VERSION
   }
 })
+const route = useRoute()
+const catAway = computed(() => route.meta.layout === 'cat')
+// 从 Cat 返回时展开也走同样的 250ms（宽度 + 内边距 + 透明度），结束后恢复侧栏自己的过渡
+const catLeaving = ref(false)
+let leaveTimer: ReturnType<typeof setTimeout> | undefined
+watch(catAway, (away, was) => {
+  clearTimeout(leaveTimer)
+  catLeaving.value = !away && !!was
+  if (catLeaving.value) leaveTimer = setTimeout(() => (catLeaving.value = false), 300)
+})
 const ffmpeg = useFFmpegStore()
 const tasks = useTaskStore()
 
@@ -78,6 +90,20 @@ watch(collapsed, (v) => localStorage.setItem(KEY, v ? '1' : '0'))
   border-right: 1px solid var(--ff-border);
   transition: width var(--ff-dur-base) var(--ff-ease);
   overflow: hidden;
+}
+.sidebar.cat-away,
+.sidebar.collapsed.cat-away {
+  width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  opacity: 0;
+  border-right-color: transparent;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.sidebar.cat-away,
+.sidebar.cat-leaving {
+  transition: width 250ms var(--ff-ease), padding 250ms var(--ff-ease), opacity 200ms var(--ff-ease), border-color 250ms var(--ff-ease);
 }
 .sidebar.collapsed {
   width: var(--ff-sidebar-w-collapsed);
