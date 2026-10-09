@@ -132,3 +132,9 @@ html.dark{
 .dc-eng{display:flex;align-items:center;gap:4px;margin-top:2px;font-size:12px;line-height:16px;color:var(--ff-text-2);min-width:0}
 .dc-eng svg{width:12px;height:12px;flex:none;color:var(--ff-text-3)}
 .dc-eng span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 文档组件检测中：暂不确定的格式按中性占位（不置灰、不出禁用图标），检测完淡入结果；不改尺寸，避免跳动 */
+.cv2 .preset.dc-fx{transition:opacity .2s ease,border-color .2s ease,background-color .2s ease}
+.cv2 .preset.dc-fx.dc-pend{opacity:.6}
+.cv2 .preset.dc-fx.dc-pend small{color:var(--ff-text-3)}
+@media (prefers-reduced-motion:reduce){.cv2 .preset.dc-fx{transition:none}}
+html.reduce-motion .cv2 .preset.dc-fx{transition:none}
