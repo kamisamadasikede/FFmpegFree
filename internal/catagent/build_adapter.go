@@ -151,7 +151,6 @@ func (a *BuildAdapter) setStatus(st Status) {
 	}
 }
 
-
 func (a *BuildAdapter) markAuthInvalid() {
 	a.mu.Lock()
 	ver := a.version
@@ -354,9 +353,10 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		"--cwd", cwd,
 		"--no-auto-update",
 		"--no-alt-screen",
-		// headless 无法点批准；与契约「完全访问置灰」不一致，见 PR。
+		// headless 无法点批准，一期保留自动批准防挂死；工具同时收窄成只读（见 cli_readonly.go）。
 		"--always-approve",
 	}
+	args = append(args, readOnlyCLIArgs()...)
 	if sid := strings.TrimSpace(opts.ConversationID); sid != "" {
 		uuid := sessionIDFromConv(sid)
 		if hasPriorAssistant(opts.Messages) {
@@ -505,7 +505,7 @@ func grokTurnEnv(base []string) []string {
 		}
 		out = append(out, e)
 	}
-	// 沙箱仍 read-only；另传 --always-approve（与契约不完全一致）。
+	// 沙箱 read-only 是第三道保险（Linux/macOS 生效；Windows 上 CLI 无沙箱实现）。
 	out = append(out,
 		"GROK_SANDBOX=read-only",
 		"GROK_WRITE_FILE=0",
@@ -513,7 +513,6 @@ func grokTurnEnv(base []string) []string {
 	)
 	return out
 }
-
 
 // isAuthFailure 判断 CLI 报错是否像登录 / API Key 失效（不把厂商名写进用户文案）。
 func isAuthFailure(msg string) bool {
