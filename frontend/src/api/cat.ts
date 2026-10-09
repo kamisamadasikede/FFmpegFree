@@ -10,7 +10,7 @@
 import * as CatBinding from '../../wailsjs/go/app/CatService'
 import { cat, catagent } from '../../wailsjs/go/models'
 import { AppError, call } from '@/api/call'
-import { CAT_BACKEND_READY } from '@/api/flags'
+import { CAT_BACKEND_READY, CAT_PROJECTS_BACKEND_READY } from '@/api/flags'
 import { hasWailsBackend, onTaskEvent } from '@/services/wails'
 import { normalizeMessageEvent, normalizeTurnEvent, type CatStreamEvent, type CatTurnEvent } from '@/api/catStream'
 
@@ -56,7 +56,10 @@ export interface CatConversation {
   title: string
   /** 创建后不可变；一期仅 cat_build */
   agentKind: CatAgentKind
+  /** v0.30 旧字段，v0.31 起后端忽略（只为绑定兼容） */
   projectPath?: string
+  /** v0.31：所属项目，创建时写入、之后不可变；空 = 不属于任何项目（显示在「对话」下） */
+  projectId?: string
   createdAt: number
   updatedAt: number
 }
@@ -76,6 +79,8 @@ export interface CreateCatConversationRequest {
   agentKind: CatAgentKind
   title?: string
   projectPath?: string
+  /** v0.31：只能在创建时给（项目行「+」）；之后没有任何接口能改 */
+  projectId?: string
 }
 
 export interface SendCatMessageRequest {
@@ -132,13 +137,14 @@ export function mapCatStatus(raw: unknown): CatStatus {
 }
 
 const KINDS: CatAgentKind[] = [CAT_AGENT_BUILD, 'cat_cli', 'cat_code', 'cat_agent']
-function mapConv(raw: { id?: string; title?: string; agentKind?: string; projectPath?: string; createdAt?: number; updatedAt?: number }): CatConversation {
+function mapConv(raw: { id?: string; title?: string; agentKind?: string; projectPath?: string; projectId?: string; createdAt?: number; updatedAt?: number }): CatConversation {
   return {
     id: String(raw.id ?? ''),
     title: raw.title?.trim() || '新对话',
     // 原样保留后端存的 agentKind（不改写）；未知值只用于展示，发送仍走会话自己的 id
     agentKind: (KINDS.includes(raw.agentKind as CatAgentKind) ? raw.agentKind : CAT_AGENT_BUILD) as CatAgentKind,
     projectPath: raw.projectPath || undefined,
+    projectId: raw.projectId || undefined,
     createdAt: Number(raw.createdAt) || 0,
     updatedAt: Number(raw.updatedAt) || 0,
   }
@@ -213,21 +219,24 @@ export async function createCatConversation(req: CreateCatConversationRequest): 
       id: `local-${now.toString(36)}`,
       title: req.title?.trim() || '新对话',
       agentKind: CAT_AGENT_BUILD,
+      projectId: req.projectId || undefined,
       createdAt: now,
       updatedAt: now,
     }
   }
-  const raw = await call(
-    CatBinding.CreateCatConversation(
-      cat.CreateConversationRequest.createFrom({
-        agentKind: req.agentKind,
-        title: req.title?.trim() ?? '',
-        projectPath: req.projectPath ?? '',
-        accessMode: 'ask',
-      }),
-    ),
-  )
-  return mapConv(raw)
+  const body = cat.CreateConversationRequest.createFrom({
+    agentKind: req.agentKind,
+    title: req.title?.trim() ?? '',
+    projectPath: req.projectPath ?? '',
+    accessMode: 'ask',
+  })
+  // v0.31 projectId：生成的绑定类还没有这个字段（后端 0011 未合），只在项目接口打开时附加；Wails 按 JSON 传参，多出的键照常带过去
+  if (req.projectId && CAT_PROJECTS_BACKEND_READY) Object.assign(body, { projectId: req.projectId })
+  const raw = await call(CatBinding.CreateCatConversation(body))
+  const conv = mapConv(raw)
+  // 后端还没回 projectId 时以请求为准（归属在创建时决定，之后不变）
+  if (req.projectId && CAT_PROJECTS_BACKEND_READY && !conv.projectId) conv.projectId = req.projectId
+  return conv
 }
 
 export async function deleteCatConversation(id: string): Promise<void> {

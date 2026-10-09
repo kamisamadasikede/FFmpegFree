@@ -1,28 +1,31 @@
 <template>
-  <div ref="root" class="ct-comp" :class="{ bare: welcome }">
+  <div ref="root" class="ct-comp" :class="{ bare: welcome, missing }">
     <div v-if="!welcome" class="ctx-bar" aria-label="项目上下文">
-      <span class="cx"><FIcon name="folder" :size="13" /><b :title="ctxName">{{ ctxName }}</b></span>
+      <span class="cx" :class="{ miss: missing }"><FIcon :name="missing ? 'warn' : 'folder'" :size="13" /><b :title="ctxName">{{ ctxName }}</b></span>
       <span class="cx"><FIcon name="monitor" :size="13" />本地</span>
       <span class="cx"><FIcon name="branch" :size="13" />{{ ctxBranch }}</span>
     </div>
-    <div ref="inEl" class="ct-in">
+    <div ref="inEl" class="ct-in" :aria-disabled="missing || undefined" :aria-describedby="missing ? missId : undefined">
+      <div v-if="missing" :id="missId" class="miss-ph" data-testid="cat-composer-missing"><FIcon name="warn" :size="14" />{{ PC.missing }}</div>
       <textarea
         ref="ta"
         v-model="draft"
         class="ta"
         rows="1"
-        :placeholder="placeholder"
+        :placeholder="missing ? '' : placeholder"
+        :disabled="missing"
         aria-label="输入消息"
         @input="autosize"
         @keydown.enter="onEnter"
       />
       <div class="row">
-        <button type="button" class="ct-plus" title="添加" aria-label="添加"><FIcon name="plus" :size="15" :stroke="2" /></button>
+        <button type="button" class="ct-plus" title="添加" aria-label="添加" :disabled="missing"><FIcon name="plus" :size="15" :stroke="2" /></button>
         <button
           ref="chipAccess"
           type="button"
           class="chip-access"
           :class="{ on: catState.access === 'full' }"
+          :disabled="missing"
           aria-haspopup="menu"
           :aria-expanded="menu === 'access'"
           @click.stop="toggle('access')"
@@ -34,6 +37,7 @@
           ref="chipModel"
           type="button"
           class="chip-model"
+          :disabled="missing"
           aria-haspopup="menu"
           :aria-expanded="menu === 'casc'"
           @click.stop="toggle('casc')"
@@ -54,11 +58,11 @@
           v-else
           type="button"
           class="ct-send"
-          :class="{ blocked: notReady || checking }"
+          :class="{ blocked: notReady || checking || missing }"
           aria-label="发送"
           :aria-disabled="!canSend"
-          :disabled="notReady || checking"
-          :title="notReady ? CAT_COPY.notReady : undefined"
+          :disabled="notReady || checking || missing"
+          :title="missing ? PC.missing : notReady ? CAT_COPY.notReady : undefined"
           data-testid="cat-send"
           @click="send"
         ><FIcon name="up" :size="15" /></button>
@@ -125,7 +129,11 @@
       </div>
     </div>
     <div v-if="welcome" class="wl-tray">
+      <span v-if="projectName" class="wl-proj on static" data-testid="cat-work-in-project">
+        <FIcon name="folder" :size="14" /><span>{{ PC.workIn(projectName) }}</span>
+      </span>
       <button
+        v-else
         type="button"
         class="wl-proj"
         :class="{ on: catState.workInProject }"
@@ -143,6 +151,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, type ComponentPubl
 import FIcon from '@/components/icon/FIcon.vue'
 import { ElMessage } from 'element-plus'
 import { CAT_COPY } from '@/api/cat'
+import { CAT_PROJECT_COPY as PC } from '@/api/catProjects'
 import { CAT_ACCESS } from '@/api/catMock'
 import { accessShort, capsuleLabel, catState, modelName, thinkName } from '@/views/cat/catState'
 
@@ -151,7 +160,7 @@ import { accessShort, capsuleLabel, catState, modelName, thinkName } from '@/vie
  * 合一胶囊只显示 List API 有的模型/强度（无强度不显示「·」半截）。
  */
 const props = withDefaults(
-  defineProps<{ welcome?: boolean; placeholder?: string; ctxName?: string; ctxBranch?: string; busy?: boolean; running?: boolean; stopping?: boolean; notReady?: boolean; checking?: boolean }>(),
+  defineProps<{ welcome?: boolean; placeholder?: string; ctxName?: string; ctxBranch?: string; busy?: boolean; running?: boolean; stopping?: boolean; notReady?: boolean; checking?: boolean; missing?: boolean; projectName?: string }>(),
   {
     welcome: false,
     placeholder: '随心输入',
@@ -163,8 +172,14 @@ const props = withDefaults(
     notReady: false,
     /** 组件检查中：发送同样置灰（样式与未就绪一致），不让用户点了才被拒 */
     checking: false,
+    /** 项目文件夹不见了：输入框禁用，占位换成警示图标 +「项目文件夹不见了。」，胶囊 45% 不可点（设计 §05） */
+    missing: false,
+    /** 欢迎页属于某个项目（项目行「+」进来）：托盘显示「在项目中工作 · {项目}」 */
+    projectName: '',
   },
 )
+let missSeq = 0
+const missId = `ct-miss-${++missSeq}-${Math.random().toString(36).slice(2, 7)}`
 const emit = defineEmits<{ send: [text: string]; stop: [] }>()
 
 /** 停止：父组件把 stopping 置真后按钮立即置灰，重复点击无效 */
@@ -174,7 +189,7 @@ function onStop() {
 }
 
 const draft = ref('')
-const canSend = computed(() => !!draft.value.trim() && !props.busy && !props.running && !props.notReady && !props.checking)
+const canSend = computed(() => !!draft.value.trim() && !props.busy && !props.running && !props.notReady && !props.checking && !props.missing)
 const root = ref<HTMLElement>()
 const inEl = ref<HTMLElement>()
 const ta = ref<HTMLTextAreaElement>()
@@ -298,6 +313,42 @@ defineExpose({ focus: () => ta.value?.focus(), setDraft: (t: string) => { draft.
 </script>
 
 <style scoped>
+.ct-comp.missing .ct-in {
+  background: var(--ff-bg-hover);
+  box-shadow: none;
+}
+.ct-comp.missing .ct-plus,
+.ct-comp.missing .chip-access,
+.ct-comp.missing .chip-model {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.ct-comp.missing .ta {
+  cursor: not-allowed;
+  background: transparent;
+}
+.miss-ph {
+  position: absolute;
+  top: 23px;
+  left: 16px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  color: var(--ff-text-3);
+  pointer-events: none;
+}
+.miss-ph :deep(svg),
+.ctx-bar .cx.miss :deep(svg) {
+  color: var(--ff-warning);
+}
+.ctx-bar .cx.miss b {
+  color: var(--ff-text-3);
+}
+.wl-proj.static {
+  cursor: default;
+}
 .ct-comp {
   position: relative;
   flex: none;
