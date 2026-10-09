@@ -1,4 +1,7 @@
-# FFmpegFree v2 接口契约（v0.28.1）
+# FFmpegFree v2 接口契约（v0.28.2）
+
+v0.28.2 变更（按前端 #141、后端 #142 实际合入记录，2026-10-09；见 **6.12.67**）：① 新 `hintKey` **`pdf_text`**，用于 pdf → txt 和 pdf → md，文案 `只提取文字，不保留排版和图片。`（产品 10-09 定）；`md_lossy` 只用于**非 PDF 源** → md；pdf → html 的提示不变（没有组件时 `simple_mode`，PDF 源文案同上）。`hintKey` 仍是字符串，**绑定不变**。取代 6.12.66 ③ 里记的 pdf → md 提示前后端不一致。② 确认：pdf → html 组件导出失败时回退纯 Go 简易 html（`simple_fallback`，`engine=go`），用户取消、加密、文件损坏、磁盘满除外（直接报错）。**没有新增错误码（仍 31 个），没有迁移，没有新事件。**
+
 
 v0.28.1 变更（**按 #138 / #139 实际合入的内容记录，以实现为准**，2026-10-09；完整内容见新增的 **6.12.66**，本条只是索引）：① `DOC_ENCRYPTED` 新增 `reason=owner_only`：空用户密码能打开、但设了所有者 / 权限密码的 PDF，RC4 和 AES-128 的照常转，**AES-256 的在添加时拒绝**，不可重试，文案 `这个 PDF 设置了权限保护，暂时不能转换。`；要用户密码的不变（原 reason 和原文案）。后续项（未做）：有组件时把 AES-256 只有所有者密码的 PDF 交给组件。② 已接受的偏差：纯 Go 提取失败改用组件时，先导出 html 再取文字；pdf → html 组件导出失败回退简易 html；PDF 的转换结果可以预览。③ 前端：`DOC_V28_BACKEND_READY=true`，`KNOWN_CODE_RE` 含 `DOC_PDF_NO_TEXT`，横条 `Word、ODT、TXT 可以简易转 PDF，md 和网页可以互转，PDF 可以提取文字转成 TXT、md 和简易网页。`；状态的 `engines` 不含 `go`，格式表的 `DocTarget.engines` 保留 `go`。④ 5 条 PDF 文案定稿（按前端标注的“产品 10-09 定稿”常量，与后端一致，见 6.12.66 ④）。**没有新增错误码（仍 31 个），没有迁移，没有新事件，没有接口签名变化**。
 
@@ -1664,7 +1667,7 @@ type DocTarget struct {
     NeedsComponent bool   `json:"needsComponent"` // 这个转换要用文档组件（与组件当前状态无关；md↔html 为 false）
     Simple         bool   `json:"simple"`         // true = 这次会走简易转换（只保留文字）：只在组件未就绪时、docx / odt / txt → pdf 上为 true
     Available      bool   `json:"available"`      // 现在能选：!needsComponent || componentReady || simple
-    HintKey        string `json:"hintKey,omitempty"` // 选中这个目标时显示的一行提示：csv_first_sheet | md_lossy | simple_mode
+    HintKey        string `json:"hintKey,omitempty"` // 选中这个目标时显示的一行提示：csv_first_sheet | md_lossy | simple_mode | pdf_layout | pdf_text（v0.28 / v0.28.2）
     Hint           string `json:"hint,omitempty"`    // 对应文案（见下表），前端可直接显示
     DisabledReason string `json:"disabledReason,omitempty"` // available=false 时的悬停文字：`需要文档组件`
 }
@@ -1675,8 +1678,9 @@ type DocTarget struct {
 | hintKey | 出现在 | 文案 |
 |---|---|---|
 | `csv_first_sheet` | xls / xlsx / ods → csv | `转成 CSV 只会保留第一个工作表。`（前端在选中文件的 `sheetCount > 1` 或 `= -1` 且目标是 CSV 时显示，6.12.16） |
-| `md_lossy` | 任何格式 → md | `转成 Markdown 只保留文字和基本格式，图片和复杂表格会丢失。` |
-| `simple_mode` | 组件未就绪时 docx / odt / txt → pdf；**v0.28**：pdf → txt、没有组件时的 pdf → html | `下载文档组件后可保留图片和排版`；**PDF 源**：`只提取文字，不保留排版和图片。`（v0.28.1 定稿） |
+| `md_lossy` | 任何格式 → md（**v0.28.2：只用于非 PDF 源**） | `转成 Markdown 只保留文字和基本格式，图片和复杂表格会丢失。` |
+| `simple_mode` | 组件未就绪时 docx / odt / txt → pdf；**v0.28 / v0.28.2**：没有组件时的 pdf → html（pdf → txt 自 v0.28.2 起改用 `pdf_text`） | `下载文档组件后可保留图片和排版`；**PDF 源**：`只提取文字，不保留排版和图片。`（v0.28.1 定稿） |
+| `pdf_text` | **v0.28.2**：pdf → txt、pdf → md | `只提取文字，不保留排版和图片。`（产品 10-09 定） |
 | `pdf_layout` | **v0.28**：pdf → doc / docx / odt / rtf | `PDF 转 Word 会尽量保留排版，复杂版式和扫描件可能会走样。`（v0.28.1 定稿） |
 
 **组件未就绪时的总提示**（文档页顶部，前端常量，后端不给）：`Word、ODT、TXT 可以简易转 PDF，md 和网页可以互转`。**v0.28.1**：打开 PDF 输入后为 `Word、ODT、TXT 可以简易转 PDF，md 和网页可以互转，PDF 可以提取文字转成 TXT、md 和简易网页。`
@@ -2542,7 +2546,7 @@ type DocBinarySaveAbort struct {
 | 源 | 目标 | 用什么转（按顺序） | `needsComponent` | `simple` | `hintKey` |
 |---|---|---|---|---|---|
 | pdf | `doc` `docx` `odt` `rtf` | ① Word（Office，**Word ≥ 2013**，即主版本 ≥ 15，PDF 重排从 2013 起有）→ ② 文档组件（应用下载的 → 系统 LibreOffice，`writer_pdf_import`）。**不用 WPS**（WPS 的 PDF 转 Word 是会员功能） | `true` | `false` | `pdf_layout` |
-| pdf | `txt` `md` | ① **纯 Go 提取文字**（6.12.62，不占任何池）→ ② 质量判定不过时**自动改用文档组件**（有可用的才用）。**不用 Word**（Word 只转 doc / docx / odt / rtf） | `false` | `true` | txt：`simple_mode`；md：`md_lossy` |
+| pdf | `txt` `md` | ① **纯 Go 提取文字**（6.12.62，不占任何池）→ ② 质量判定不过时**自动改用文档组件**（有可用的才用）。**不用 Word**（Word 只转 doc / docx / odt / rtf） | `false` | `true` | `pdf_text`（v0.28.2；原为 txt `simple_mode`、md `md_lossy`） |
 | pdf | `html` | 有可用的文档组件：组件 `writer_pdf_import` 导出 html（`simple=false`）；没有：纯 Go 提取文字生成简易 html（`simple=true`）。**不用 Word** | `false` | 没有组件时 `true` | 没有组件时 `simple_mode` |
 
 - **不支持**（矩阵里**不列出**，不是置灰）：xlsx / xls / ods / csv / pptx / ppt / odp、图片、pdf（转成自己）。PDF 转图片放以后。
@@ -2550,7 +2554,7 @@ type DocBinarySaveAbort struct {
 - **`DocFormatMatrix.inputs`** 加 `pdf`；`sources` 加一项 `{ext: "pdf", family: "pdf", targets: [...]}`。
 - **`available`**：doc / docx / odt / rtf 需要 Word（≥ 15）或可用的文档组件，都没有时置灰，`disabledReason=需要文档组件`；txt / md **恒为 `true`**（纯 Go）；html 恒为 `true`（没有组件就走简易）。
 - **`engines`**（6.12.30 的 `DocTarget.engines`）：doc / docx / odt / rtf 为 `["office", "component"]` 中现在可用的；txt / md 为 `["go"]`，有可用组件时 `["go", "component"]`；html 有组件 `["component"]`，没有 `["go"]`。
-- **`hintKey`** 新增 `pdf_layout`，文案（v0.28.1 定稿）`PDF 转 Word 会尽量保留排版，复杂版式和扫描件可能会走样。`。`hint` 一项只放一句：pdf → md 给 `md_lossy`（不再叠加 `simple_mode`），pdf → txt 和没有组件时的 pdf → html 给 `simple_mode`。**`simple_mode` 在 PDF 源上的文案**（v0.28.1 定稿）：`只提取文字，不保留排版和图片。`（与组件未就绪时的 `下载文档组件后可保留图片和排版` 区分：前者是 PDF 源，后者是其他源；后端按源给 `hint`，`hintKey` 相同）。
+- **`hintKey`** 新增 `pdf_layout`，文案（v0.28.1 定稿）`PDF 转 Word 会尽量保留排版，复杂版式和扫描件可能会走样。`。`hint` 一项只放一句：**v0.28.2 起 pdf → txt、pdf → md 给 `pdf_text`**（`md_lossy` 只用于非 PDF 源），没有组件时的 pdf → html 给 `simple_mode`。**`simple_mode` 在 PDF 源上的文案**（v0.28.1 定稿）：`只提取文字，不保留排版和图片。`（与组件未就绪时的 `下载文档组件后可保留图片和排版` 区分：前者是 PDF 源，后者是其他源；后端按源给 `hint`，`hintKey` 相同）。
 - **能力表**（6.12.27）加一列 **PDF**：`office` 源 pdf → 目标 doc docx odt rtf（**只看 Word，且主版本 ≥ 15**）；`wps` **不做**；`component` 源 pdf → 目标 doc docx odt rtf txt md html。纯 Go（`go`）源 pdf → txt md html 不进能力表（与 md ↔ html 一样是内置的）。`DocEngineInfo.families`：Word ≥ 15 时 `office` 带 `pdf`；`component` 已装时带 `pdf`；`wps` 不带。
 - **预览**：PDF 本身的预览（6.12.32，`kind=pdf`）**不变**；PDF 仍不能编辑（`editBlock=format`）。
 
@@ -2664,7 +2668,7 @@ type DocBinarySaveAbort struct {
 **② 已接受的 PDF 实现偏差（#137）**：
 
 - **纯 Go 提取失败、改用文档组件时**（6.12.62）：pdf → txt 不让组件直接导出 txt（`writer_pdf_import` 打开的文档直接导出 txt 拿不到文本框里的字），而是**先让组件导出 html，再从 html 里取文字**写成 txt（跳过 head / script / style，块级元素和 `<br>` 换行，连续空行合并，UTF-8 不带 BOM，换行按平台）；pdf → md 本来就是 html → md。取出来仍为空 → `DOC_PDF_NO_TEXT`（`quality=empty`，`engine=component`），同 6.12.62。
-- **pdf → html 走组件但组件在导出 html 时失败**：回退到纯 Go 的简易 html（`result.engine=go`，`result.warnings` 带 `simple_fallback`），不让任务失败。
+- **pdf → html 走组件但组件在导出 html 时失败**：回退到纯 Go 的简易 html（`result.engine=go`，`result.warnings` 带 `simple_fallback`），不让任务失败。（v0.28.2 已在代码中确认；用户取消、加密、损坏、磁盘满时直接报错，见 6.12.67）
 - **PDF 的转换结果可以预览**：结果记录按输出格式走 6.12.32 的预览规则（docx / txt / md / html 等），PDF 源本身仍是 `kind=pdf`。前端预览按钮对所有源和成功的记录都显示（含 PDF 源和 PDF 的输出）。
 
 **③ 前端（#138）**：
@@ -2674,18 +2678,28 @@ type DocBinarySaveAbort struct {
 - 组件未就绪时的横条（6.12.13，前端常量）改为：`Word、ODT、TXT 可以简易转 PDF，md 和网页可以互转，PDF 可以提取文字转成 TXT、md 和简易网页。`。
 - **两处 `engines` 的区别**：组件状态里的 `DocComponentStatus.engines`（6.12.28）**不含 `go`**（只有 office / wps / component）；格式表的 `DocTarget.engines`（6.12.30 / 6.12.59）**保留 `go`**（如 pdf → txt 为 `["go"]` 或 `["go", "component"]`）。前端判断能不能转只看 `available` / `needsComponent` / `simple`，不读 `engines`；记录详情里 `engine=go` 不显示引擎行。
 - `INVALID_ARGUMENT` 的 `too_large` / `too_many_pages`（添加 PDF 被拒）在界面上不给重试，只能移除。
-- pdf → md 的提示：后端给 `hintKey=md_lossy` 和 md_lossy 的文案；前端在 PDF 源上统一显示 `只提取文字，不保留排版和图片。`（前端常量，不用后端的 `hint`）。
+- pdf → md 的提示：~~后端给 `md_lossy`、前端显示“只提取文字”的不一致~~ **已在 v0.28.2 解决**：pdf → txt / md 统一 `hintKey=pdf_text`，前后端同一句 `只提取文字，不保留排版和图片。`（6.12.67）。
 
 **④ PDF 文案定稿**（6.12.59 / 6.12.60 / 6.12.63 原来标的“待产品定”到此为止）。来源：前端 `frontend/src/utils/docV26Text.ts` 注明“产品 10-09 定稿”的常量，与后端 `message` / `hint` 逐字一致：
 
 | 场景 | code / hintKey | 定稿文案 |
 |---|---|---|
 | pdf → doc / docx / odt / rtf | `pdf_layout` | `PDF 转 Word 会尽量保留排版，复杂版式和扫描件可能会走样。` |
-| pdf → txt、没有组件时的 pdf → html（PDF 源上的 `simple_mode`） | `simple_mode` | `只提取文字，不保留排版和图片。` |
+| pdf → txt / md（v0.28.2 起 `pdf_text`）、没有组件时的 pdf → html（`simple_mode`） | `pdf_text` / `simple_mode` | `只提取文字，不保留排版和图片。` |
 | 没有可提取的文字 | `DOC_PDF_NO_TEXT` | `这个 PDF 里没有能提取的文字，可能是扫描件。` |
 | PDF 超过 200 MiB | `INVALID_ARGUMENT` `too_large` | `PDF 太大了，最多支持 200 MB。` |
 | PDF 超过 500 页 | `INVALID_ARGUMENT` `too_many_pages` | `PDF 页数太多，最多支持 500 页。` |
 | AES-256 只有所有者密码 | `DOC_ENCRYPTED` `owner_only` | `这个 PDF 设置了权限保护，暂时不能转换。` |
+
+### 6.12.67 v0.28.2：PDF 提示 `pdf_text`、简易 html 回退确认（按 #141 / #142 记录）
+
+- **新 `hintKey`：`pdf_text`**（产品 10-09 定）：pdf → txt 和 pdf → md 的 `DocTarget.hintKey=pdf_text`，`hint` 为 `只提取文字，不保留排版和图片。`。
+- **`md_lossy` 只用于非 PDF 源 → md**（doc / docx / odt / rtf / txt / html → md），文案不变。
+- **pdf → html 不变**：有组件时没有提示；没有组件时 `simple_mode`，PDF 源上的文案是 `只提取文字，不保留排版和图片。`（6.12.59）。pdf → doc / docx / odt / rtf 仍是 `pdf_layout`。
+- `hintKey` 仍是字符串（`omitempty`），**Wails 绑定不变**；前端遇到不认识的 `hintKey` 直接显示后端给的 `hint`。
+- 6.12.66 ③ 记的“pdf → md 前后端提示不一致”就此解决：前后端都用 `pdf_text` 这一句。
+- **确认（#142，`pdfrun.go` 的 `producePDF`）**：pdf → html 走文档组件、组件导出 html 失败时，**回退到纯 Go 的简易 html**，任务成功，`result.engine=go`，`result.warnings` 带 `simple_fallback`。**例外**（直接报错，不回退）：用户取消（`ctx` 已结束）、`DOC_ENCRYPTED`、`DOC_CORRUPT`、`CONVERT_DISK_FULL`。
+- 没有新增错误码（仍 31 个），没有迁移，没有新事件。
 
 ## 6.13 本地资源访问 `/local/<token>`（中立章节，DocService 与转换记录共用；由 #22 引入，#23 引用，v0.23 加 `convert` 表；v0.23.5 删除 `edit` 表）
 
