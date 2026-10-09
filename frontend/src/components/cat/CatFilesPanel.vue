@@ -3,7 +3,7 @@
     <div class="ct-tabs" role="tablist">
       <button type="button" role="tab" :aria-selected="tab === 'files'" :class="{ on: tab === 'files' }" @click="tab = 'files'">文件</button>
       <button type="button" role="tab" :aria-selected="tab === 'changes'" :class="{ on: tab === 'changes' }" @click="tab = 'changes'">
-        变更<span v-if="changes.length" class="n">{{ changes.length }}</span>
+        变更
       </button>
       <span class="sp" />
       <span class="ib" title="打开文件夹"><FIcon name="folder" :size="15" /></span>
@@ -93,10 +93,6 @@ watch(
   background: var(--ff-bg-hover);
   color: var(--ff-text-1);
   font-weight: 500;
-}
-.ct-tabs .n {
-  font-size: 11px;
-  color: var(--ff-text-3);
 }
 .ct-tabs .sp {
   flex: 1;

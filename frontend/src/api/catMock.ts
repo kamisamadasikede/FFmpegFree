@@ -60,7 +60,7 @@ export const CAT_ACCESS: CatAccess[] = [
 export const CAT_MODES: CatMode[] = [
   { id: 'cli', name: 'Cat CLI', icon: 'tool' },
   { id: 'code', name: 'Cat Code', icon: 'spark' },
-  { id: 'codex', name: 'Codex CLI', icon: 'clock' },
+  { id: 'agent', name: 'Cat Agent', icon: 'clock' },
   { id: 'build', name: 'Cat Build', icon: 'refresh' },
 ]
 export const CAT_TRY = [
