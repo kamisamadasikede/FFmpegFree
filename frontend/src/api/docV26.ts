@@ -180,6 +180,7 @@ function previewOs(): 'win' | 'mac' | 'linux' {
 
 /**
  * 截图 / 走查用：?doc=checking&doc_check_ms=2500[&doc_check_to=ready|missing|…] 让「检测中」在 N 毫秒后结束（发 doc:component）；
+ * ?doc=checking_office 同 checking，并模拟本机有 Office（整体 state=ready、componentState=checking；结束时发 doc:component）。
  * 不带 doc_check_ms 时一直停在检测中（同以前）。?doc_matrix_ms=<毫秒> 让模拟的 GetFormatMatrix 慢 N 毫秒返回。
  */
 let simCheckDone: DocComponentState | null = null
@@ -219,6 +220,7 @@ function previewStateOf(s: string): DocComponentState | null {
     dlfail: 'failed',
     failed: 'failed',
     checking: 'checking',
+    checking_office: 'checking',
   }
   return map[s] ?? null
 }
@@ -401,10 +403,13 @@ function emitStatus() {
   emitSimEvent('doc:component', v27(simStatus))
 }
 
-/** 预览参数 &engine=office|wps：模拟本机装了 Office / WPS（只在 Windows 模拟） */
+/** 预览参数 &engine=office|wps：模拟本机装了 Office / WPS（只在 Windows 模拟）；?doc=checking_office 也算有 Office */
 function simLocalEngine(): 'office' | 'wps' | 'both' | '' {
   const e = simParam('engine')
-  return simOs === 'win' && (e === 'office' || e === 'wps' || e === 'both') ? e : ''
+  if (simOs === 'win' && (e === 'office' || e === 'wps' || e === 'both')) return e
+  const d = simParam('doc') || simParam('doccomp')
+  if (simOs === 'win' && d === 'checking_office') return 'office'
+  return ''
 }
 
 function v27(s: SimStatus): DocComponentStatus {
@@ -448,7 +453,8 @@ export async function getFormatMatrix(): Promise<DocFormatMatrix> {
   applyPreviewStatus()
   const st = v27(simStatus)
   const pdf = docV28On() ? { word: st.engines.some((e) => e.id === 'office' && e.available), comp: st.componentState === 'ready' } : undefined
-  return buildMatrix(st.state === 'ready', pdf)
+  // 检测中（含整体 ready + componentState=checking）：组件未就绪的目标按未就绪返回，避免前端误显示「需要文档组件」
+  return buildMatrix(st.state === 'ready' && st.componentState !== 'checking', pdf)
 }
 
 export async function installDocComponent(mirror = ''): Promise<DocComponentStatus> {

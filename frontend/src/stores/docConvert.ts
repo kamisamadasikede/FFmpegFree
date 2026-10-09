@@ -109,8 +109,8 @@ export const useDocConvertStore = defineStore('docConvert', () => {
   const roundIds = ref<string[]>([])
 
   // ── 格式表 ──
-  /** 组件整体状态还在检测中（有本机 Office / WPS 时整体已是 ready，不算） */
-  const checking = computed(() => comp.status.state === 'checking')
+  /** 组件还在检测中：state=checking，或有本机 Office/WPS 时 state=ready 且 componentState=checking（契约 6.12.68；不从格式表读） */
+  const checking = computed(() => comp.status.state === 'checking' || comp.status.componentState === 'checking')
   // 请求序号：doc:component 连发时只认比已用结果更新的响应，旧响应晚到直接丢（不倒退）
   let matrixSeq = 0
   let matrixApplied = 0
