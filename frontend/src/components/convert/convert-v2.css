@@ -333,6 +333,10 @@ html.reduce-motion .cv-kid.focus{animation-timing-function:steps(1,end)}
 .cv-ops{position:relative}
 .cv-vl{position:relative}
 .cv-vl-item{position:absolute;left:0;right:0;top:0;display:flow-root}
+/* 动画 P1：源文件行增删（VirtualList animate）。只在增删那一小段时间开 transform 过渡，滚动和平时测量不受影响 */
+.cv-vl-moving>.cv-vl-item{transition:transform var(--ff-dur-base) var(--ff-ease-out)}
+.cv-vl-item.cv-vl-new{animation:ff-row-in var(--ff-dur-base) var(--ff-ease-out)}
+@keyframes ff-row-in{from{opacity:0;translate:0 -4px}}
 .cv-vl-head{display:flow-root}
 /* 预览弹窗 */
 .cv-pv:focus{outline:none}
