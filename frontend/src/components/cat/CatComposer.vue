@@ -38,7 +38,7 @@
           :aria-expanded="menu === 'casc'"
           @click.stop="toggle('casc')"
         >
-          <FIcon name="gauge" :size="15" /><span>{{ modelName }} · {{ thinkName }}</span><FIcon name="down" :size="12" class="caret" />
+          <FIcon name="gauge" :size="15" /><span>{{ capsuleLabel }}</span><FIcon name="down" :size="12" class="caret" />
         </button>
         <button type="button" class="ct-send" aria-label="发送" :aria-disabled="!canSend" @click="send"><FIcon name="up" :size="15" /></button>
       </div>
@@ -51,10 +51,12 @@
             v-for="a in CAT_ACCESS"
             :key="a.id"
             class="mn-acc"
-            :class="{ on: catState.access === a.id }"
+            :class="{ on: catState.access === a.id, disabled: !a.enabled }"
             role="menuitemradio"
             tabindex="0"
             :aria-checked="catState.access === a.id"
+            :aria-disabled="!a.enabled"
+            :title="a.enabled ? undefined : laterTip"
             @click="pickAccess(a.id)"
             @keydown.enter.prevent="pickAccess(a.id)"
           >
@@ -118,12 +120,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, type ComponentPublicInstance } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
-import { CAT_ACCESS, CAT_MODELS, CAT_THINKS } from '@/api/catMock'
-import { accessShort, catState, modelName, thinkName } from '@/views/cat/catState'
+import { ElMessage } from 'element-plus'
+import { CAT_COPY } from '@/api/cat'
+import { CAT_ACCESS } from '@/api/catMock'
+import { accessShort, capsuleLabel, catState, modelName, thinkName } from '@/views/cat/catState'
 
 /**
- * Cat 输入框（原型 cat-v3 §1–3）：背后灰色项目上下文条 + 大圆角气泡；左下「+」和橙色访问模式胶囊，
- * 右下合一胶囊「模型 · 强度」+ 圆形发送。访问菜单和级联菜单互斥；Esc / 点外部 / 再点胶囊全部关闭。
+ * Cat 输入框（设计 v0.4 / 原型 cat-v3）：访问默认「请求批准」，「完全访问」灰掉；
+ * 合一胶囊只显示 List API 有的模型/强度（无强度不显示「·」半截）。
  */
 const props = withDefaults(defineProps<{ welcome?: boolean; placeholder?: string; ctxName?: string; ctxBranch?: string; busy?: boolean }>(), {
   welcome: false,
@@ -154,14 +158,22 @@ function setRowRef(k: SubKind, el: Element | ComponentPublicInstance | null) {
   if (el instanceof HTMLElement) rowEls[k] = el
 }
 
-const rows = computed(() => [
-  { key: 'model' as const, label: '模型', value: modelName.value },
-  { key: 'think' as const, label: '思考强度', value: thinkName.value },
-])
+const laterTip = CAT_COPY.later
+
+const rows = computed(() => {
+  const list: Array<{ key: 'model' | 'think'; label: string; value: string }> = [
+    { key: 'model', label: '模型', value: modelName.value || 'Cat 助手' },
+  ]
+  // 无强度列表时不展示「思考强度」行（设计 v0.4 §5.2）
+  if (catState.thinks.length) {
+    list.push({ key: 'think', label: '思考强度', value: thinkName.value })
+  }
+  return list
+})
 const subItems = computed(() =>
   sub.value === 'model'
-    ? CAT_MODELS.map((m) => ({ id: m.id, name: m.name, on: catState.model === m.id }))
-    : CAT_THINKS.map((t) => ({ id: t.id, name: t.name, on: catState.think === t.id })),
+    ? catState.models.map((m) => ({ id: m.id, name: m.displayName, on: catState.model === m.id }))
+    : catState.thinks.map((t) => ({ id: t.id, name: t.displayName, on: catState.think === t.id })),
 )
 
 function open(kind: Exclude<MenuKind, null>) {
@@ -203,6 +215,11 @@ function pickSub(id: string) {
   close()
 }
 function pickAccess(id: 'ask' | 'full') {
+  const a = CAT_ACCESS.find((x) => x.id === id)
+  if (!a?.enabled) {
+    ElMessage.info(CAT_COPY.later)
+    return
+  }
   catState.access = id
   close()
 }
@@ -552,6 +569,17 @@ html.dark .chip-model[aria-expanded='true'] {
 }
 .mn-acc.on:hover {
   background: rgba(232, 122, 31, 0.08);
+}
+.mn-acc.disabled,
+.mn-acc.disabled:hover {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: transparent;
+  color: var(--ff-text-3);
+}
+.mn-acc.disabled b,
+.mn-acc.disabled small {
+  color: var(--ff-text-3);
 }
 
 .mn-casc {

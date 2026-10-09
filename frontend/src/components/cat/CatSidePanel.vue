@@ -8,8 +8,12 @@
     <button type="button" class="ct-it new" :class="{ on: catState.sel === NEW_CONV }" @click="select(NEW_CONV)">
       <FIcon name="plus" :size="16" /><span class="t">新对话</span><span class="r"><FIcon name="list" :size="16" /></span>
     </button>
-    <div class="ct-it"><FIcon name="bot" :size="16" /><span class="t">助手</span></div>
-    <div class="ct-it"><FIcon name="clock" :size="16" /><span class="t">定时任务</span></div>
+    <button type="button" class="ct-it disabled" aria-disabled="true" :title="laterTip" @click="onLater">
+      <FIcon name="bot" :size="16" /><span class="t">助手</span>
+    </button>
+    <button type="button" class="ct-it disabled" aria-disabled="true" :title="laterTip" @click="onLater">
+      <FIcon name="clock" :size="16" /><span class="t">定时任务</span>
+    </button>
 
     <div class="ct-scroll">
       <div class="ct-sec">
@@ -72,11 +76,14 @@
 </template>
 
 <script setup lang="ts">
+import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
+import { CAT_COPY } from '@/api/cat'
 import type { CatProject } from '@/api/catMock'
 import { catState, NEW_CONV } from '@/views/cat/catState'
 
 const emit = defineEmits<{ back: [] }>()
+const laterTip = CAT_COPY.later
 
 function select(id: string) {
   catState.sel = id
@@ -84,6 +91,9 @@ function select(id: string) {
 function toggle(p: CatProject, e: Event) {
   if ((e.target as HTMLElement).closest('.pj-act')) return
   p.open = !p.open
+}
+function onLater() {
+  ElMessage.info(CAT_COPY.later)
 }
 </script>
 
@@ -367,5 +377,15 @@ button.ct-it:focus-visible,
 .ct-back:focus-visible {
   outline: 2px solid var(--ff-primary);
   outline-offset: -2px;
+}
+.ct-it.disabled,
+.ct-it.disabled:hover {
+  color: var(--ff-text-3);
+  background: transparent;
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.ct-it.disabled > :deep(svg) {
+  color: var(--ff-text-3);
 }
 </style>
