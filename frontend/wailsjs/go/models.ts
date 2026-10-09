@@ -536,6 +536,118 @@ export namespace doc {
 		    return a;
 		}
 	}
+	export class DocBinaryChunk {
+	    saveId: string;
+	    seq: number;
+	    data: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocBinaryChunk(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.saveId = source["saveId"];
+	        this.seq = source["seq"];
+	        this.data = source["data"];
+	    }
+	}
+	export class DocBinaryChunkResult {
+	    receivedBytes: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocBinaryChunkResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.receivedBytes = source["receivedBytes"];
+	    }
+	}
+	export class DocBinarySaveAbort {
+	    saveId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocBinarySaveAbort(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.saveId = source["saveId"];
+	    }
+	}
+	export class DocBinarySaveBegin {
+	    sourceId?: string;
+	    taskId?: string;
+	    mode: string;
+	    targetPath?: string;
+	    revision?: string;
+	    totalBytes: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocBinarySaveBegin(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sourceId = source["sourceId"];
+	        this.taskId = source["taskId"];
+	        this.mode = source["mode"];
+	        this.targetPath = source["targetPath"];
+	        this.revision = source["revision"];
+	        this.totalBytes = source["totalBytes"];
+	    }
+	}
+	export class DocBinarySaveCommit {
+	    saveId: string;
+	    sha256: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocBinarySaveCommit(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.saveId = source["saveId"];
+	        this.sha256 = source["sha256"];
+	    }
+	}
+	export class DocBinarySaveResult {
+	    path: string;
+	    revision: string;
+	    sizeBytes: number;
+	    savedAt: number;
+	    backupPath?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocBinarySaveResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.revision = source["revision"];
+	        this.sizeBytes = source["sizeBytes"];
+	        this.savedAt = source["savedAt"];
+	        this.backupPath = source["backupPath"];
+	    }
+	}
+	export class DocBinarySaveSession {
+	    saveId: string;
+	    maxChunkBytes: number;
+	    expiresAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocBinarySaveSession(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.saveId = source["saveId"];
+	        this.maxChunkBytes = source["maxChunkBytes"];
+	        this.expiresAt = source["expiresAt"];
+	    }
+	}
 	export class DocLimits {
 	    maxInputsPerSubmit: number;
 	    maxInputBytes: number;
@@ -804,6 +916,146 @@ export namespace doc {
 		}
 	}
 	
+	export class DocPreview {
+	    previewId: string;
+	    kind: string;
+	    state: string;
+	    name: string;
+	    ext: string;
+	    url?: string;
+	    rawUrl?: string;
+	    text?: string;
+	    rows?: string[][];
+	    totalRows?: number;
+	    truncated?: boolean;
+	    sizeBytes: number;
+	    reason?: string;
+	    error?: apperr.AppError;
+	    editable: boolean;
+	    editBlock?: string;
+	    revision?: string;
+	    encoding?: string;
+	    lineEnding?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.previewId = source["previewId"];
+	        this.kind = source["kind"];
+	        this.state = source["state"];
+	        this.name = source["name"];
+	        this.ext = source["ext"];
+	        this.url = source["url"];
+	        this.rawUrl = source["rawUrl"];
+	        this.text = source["text"];
+	        this.rows = source["rows"];
+	        this.totalRows = source["totalRows"];
+	        this.truncated = source["truncated"];
+	        this.sizeBytes = source["sizeBytes"];
+	        this.reason = source["reason"];
+	        this.error = this.convertValues(source["error"], apperr.AppError);
+	        this.editable = source["editable"];
+	        this.editBlock = source["editBlock"];
+	        this.revision = source["revision"];
+	        this.encoding = source["encoding"];
+	        this.lineEnding = source["lineEnding"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class DocPreviewRequest {
+	    sourceId?: string;
+	    taskId?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocPreviewRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sourceId = source["sourceId"];
+	        this.taskId = source["taskId"];
+	    }
+	}
+	export class DocSaveAsRequest {
+	    sourceId?: string;
+	    taskId?: string;
+	    targetPath: string;
+	    text?: string;
+	    rows?: string[][];
+	    encoding?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocSaveAsRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sourceId = source["sourceId"];
+	        this.taskId = source["taskId"];
+	        this.targetPath = source["targetPath"];
+	        this.text = source["text"];
+	        this.rows = source["rows"];
+	        this.encoding = source["encoding"];
+	    }
+	}
+	export class DocSaveRequest {
+	    sourceId?: string;
+	    taskId?: string;
+	    revision: string;
+	    text?: string;
+	    rows?: string[][];
+	
+	    static createFrom(source: any = {}) {
+	        return new DocSaveRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sourceId = source["sourceId"];
+	        this.taskId = source["taskId"];
+	        this.revision = source["revision"];
+	        this.text = source["text"];
+	        this.rows = source["rows"];
+	    }
+	}
+	export class DocSaveResult {
+	    path: string;
+	    revision: string;
+	    sizeBytes: number;
+	    savedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DocSaveResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.revision = source["revision"];
+	        this.sizeBytes = source["sizeBytes"];
+	        this.savedAt = source["savedAt"];
+	    }
+	}
 	
 	export class DocSourceEntry {
 	    source: DocSource;

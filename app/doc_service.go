@@ -184,3 +184,77 @@ func (s *DocService) SubmitDocConvert(req doc.DocSubmitRequest) (convert.Convert
 	}
 	return c.SubmitDocConvert(s.rootCtx(), req)
 }
+
+// ---------- v0.27.1 / v0.27.2 文档预览与编辑保存 ----------
+
+// GetDocPreview 开始（或同步返回）一个预览（契约 6.12.32 / 6.12.37）。
+func (s *DocService) GetDocPreview(req doc.DocPreviewRequest) (doc.DocPreview, error) {
+	c, err := s.svc()
+	if err != nil {
+		return doc.DocPreview{}, err
+	}
+	return c.GetDocPreview(s.rootCtx(), req)
+}
+
+// CancelDocPreview 关闭预览（幂等）。
+func (s *DocService) CancelDocPreview(previewID string) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.CancelDocPreview(previewID)
+}
+
+// SaveDocText 写回原位置（契约 6.12.41）。
+func (s *DocService) SaveDocText(req doc.DocSaveRequest) (doc.DocSaveResult, error) {
+	c, err := s.svc()
+	if err != nil {
+		return doc.DocSaveResult{}, err
+	}
+	return c.SaveDocText(s.rootCtx(), req)
+}
+
+// SaveDocTextAs 另存为（契约 6.12.42）。
+func (s *DocService) SaveDocTextAs(req doc.DocSaveAsRequest) (doc.DocSaveResult, error) {
+	c, err := s.svc()
+	if err != nil {
+		return doc.DocSaveResult{}, err
+	}
+	return c.SaveDocTextAs(s.rootCtx(), req)
+}
+
+// BeginDocBinarySave 开始 docx 分段保存（契约 6.12.49）。
+func (s *DocService) BeginDocBinarySave(req doc.DocBinarySaveBegin) (doc.DocBinarySaveSession, error) {
+	c, err := s.svc()
+	if err != nil {
+		return doc.DocBinarySaveSession{}, err
+	}
+	return c.BeginDocBinarySave(s.rootCtx(), req)
+}
+
+// AppendDocBinaryChunk 追加一段。
+func (s *DocService) AppendDocBinaryChunk(req doc.DocBinaryChunk) (doc.DocBinaryChunkResult, error) {
+	c, err := s.svc()
+	if err != nil {
+		return doc.DocBinaryChunkResult{}, err
+	}
+	return c.AppendDocBinaryChunk(s.rootCtx(), req)
+}
+
+// CommitDocBinarySave 提交分段保存。
+func (s *DocService) CommitDocBinarySave(req doc.DocBinarySaveCommit) (doc.DocBinarySaveResult, error) {
+	c, err := s.svc()
+	if err != nil {
+		return doc.DocBinarySaveResult{}, err
+	}
+	return c.CommitDocBinarySave(s.rootCtx(), req)
+}
+
+// AbortDocBinarySave 取消分段保存（幂等）。
+func (s *DocService) AbortDocBinarySave(req doc.DocBinarySaveAbort) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.AbortDocBinarySave(req)
+}

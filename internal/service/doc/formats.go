@@ -17,7 +17,7 @@ const (
 	HintMDLossy       = "md_lossy"
 	HintSimpleMode    = "simple_mode"
 
-	hintCSVFirstSheetText = "转成 CSV 只保留第一个工作表。"
+	hintCSVFirstSheetText = "转成 CSV 只会保留第一个工作表。"
 	hintMDLossyText       = "转成 Markdown 只保留文字和基本格式，图片和复杂表格会丢失。"
 	hintSimpleModeText    = "下载文档组件后可保留图片和排版"
 	disabledNeedComponent = "需要文档组件"

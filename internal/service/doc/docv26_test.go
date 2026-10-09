@@ -84,6 +84,7 @@ func newDocEnv(t *testing.T, comp Component) *docEnv {
 		}
 		t.Cleanup(func() { conv.Close(time.Second) })
 		c.Component, c.Sources, c.TempRoot = comp, conv, filepath.Join(c.DataDir, "tmp", "doc")
+		c.UploadsDir = func(context.Context) string { return filepath.Join(c.DataDir, "..", "uploads") }
 	})
 	de := &docEnv{env: e, conv: conv, out: filepath.Join(e.dir, "out")}
 	e.defOD = de.out

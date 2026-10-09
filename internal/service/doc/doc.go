@@ -133,6 +133,8 @@ type Config struct {
 	Component Component
 	Sources   DocSources
 	TempRoot  string
+	// UploadsDir 返回实际上传目录（另存为路径校验，6.12.42）；nil 时用 <DataDir>/uploads。
+	UploadsDir func(ctx context.Context) string
 
 	// 以下供测试覆盖。
 	//
@@ -153,11 +155,15 @@ type Service struct {
 	maxP  int
 	// started 是服务创建时刻：清理 .part 只删修改时间早于它的文件。
 	started time.Time
+
+	previews *previewHub
+	saves    *binarySaveHub
 }
 
 // New 创建 Service，并注册 office_pdf 的重试工厂。
 func New(cfg Config) *Service {
-	s := &Service{cfg: cfg, fonts: newFontSet(cfg), h: newHandles(), maxP: cfg.WindowsMaxPath, started: time.Now()}
+	s := &Service{cfg: cfg, fonts: newFontSet(cfg), h: newHandles(), maxP: cfg.WindowsMaxPath, started: time.Now(),
+		previews: &previewHub{}, saves: &binarySaveHub{sessions: map[string]*binarySaveSession{}, byPath: map[string]string{}}}
 	if s.maxP == 0 && runtime.GOOS == "windows" {
 		s.maxP = windowsMaxPath
 	}
@@ -168,6 +174,7 @@ func New(cfg Config) *Service {
 	if cfg.Sources != nil {
 		cfg.Sources.SetDocReconverter(s.docReconverter)
 	}
+	go s.sweepSaves()
 	return s
 }
 

@@ -115,7 +115,7 @@ func TestUserFacingMessageIsChinese(t *testing.T) {
 	allowed := map[string]bool{ // 产品名、格式名、平台名：界面上本来就这样写
 		"FFmpegFree": true, "PDF": true, "JSON": true, "Windows": true, "macOS": true, "X11": true, "Office": true, "ID": true,
 		"Word": true, "ODT": true, "TXT": true, "CSV": true, "Markdown": true, "MD": true, "HTML": true, "DOC": true, "DOCX": true,
-		"XLS": true, "XLSX": true, "PPT": true, "PPTX": true, "ODS": true, "ODP": true, "RTF": true, "GB": true, "MiB": true,
+		"XLS": true, "XLSX": true, "PPT": true, "PPTX": true, "ODS": true, "ODP": true, "RTF": true, "GB": true, "MiB": true, "UTF": true,
 	}
 	linuxLOHints := map[string]bool{ // 契约 6.12.24（v0.27）：只有 Linux 的这两句可以出现 LibreOffice
 		"请先在系统里安装 LibreOffice，然后重启应用。":                 true,
