@@ -33,6 +33,8 @@ export function RefreshEncoderDevices():Promise<system.EncoderDeviceList>;
 
 export function RevealInFolder(arg1:string):Promise<void>;
 
+export function SaveFileDialog(arg1:string,arg2:Array<system.FileFilter>):Promise<string>;
+
 export function SetEncoderPreference(arg1:string):Promise<void>;
 
 export function SetFFmpegPath(arg1:string):Promise<system.FFmpegStatus>;

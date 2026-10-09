@@ -208,6 +208,7 @@ func (a *App) startDoc() {
 	if a.dirs.Temp != "" {
 		cfg.TempRoot = filepath.Join(a.dirs.Temp, "doc")
 	}
+	cfg.UploadsDir = a.sys.ActualUploadsDir
 	if c := a.convertService(); c != nil {
 		cfg.Sources = c
 	}
