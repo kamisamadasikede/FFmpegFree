@@ -12,14 +12,34 @@
  *   missing  —— 「字幕项目」的文件夹不见了（项目标灰、输入框禁用）
  *   slowdel  —— 删除对话要 1.5 秒（走查「删除中」小转圈）
  *   delfail  —— 删除对话失败（走查「删除失败，请重试。」浮提示）
+ *   caps     —— 模型 / 思考强度给一份走查用列表（含「超高」等任意档位），走查胶囊「默认」和选档
  *
  * 另：?cat_os=windows|darwin|linux —— 走查时「在…中显示」按指定平台取文案（默认按浏览器 userAgent 猜）。
  * 另：?cat_pick=<路径>[|<路径>…] —— 走查时「选择项目文件夹」依次返回这些路径（空 = 取消）；用完后返回递增的示例路径。
  */
 import type { CatStreamEvent, CatTurnEvent } from '@/api/catStream'
+import type { CatModel, CatThinkLevel } from '@/api/cat'
 
-export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail'
-const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail']
+/** 走查：?cat_sim=caps 时的模型列表（第一项 = 默认模型） */
+export function simModels(): CatModel[] {
+  return [
+    { id: 'sim-model-a', displayName: 'Cat 助手 1.0' },
+    { id: 'sim-model-b', displayName: 'Cat 助手 1.0 快速' },
+  ]
+}
+
+/** 走查：?cat_sim=caps 时的强度列表（按后端返回顺序原样显示，不假设只有低/中/高） */
+export function simThinks(): CatThinkLevel[] {
+  return [
+    { id: 'low', displayName: '低' },
+    { id: 'medium', displayName: '中' },
+    { id: 'high', displayName: '高' },
+    { id: 'xhigh', displayName: '超高' },
+  ]
+}
+
+export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps'
+const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps']
 
 export const catSim: ReadonlySet<CatSimFlag> = (() => {
   if (!import.meta.env.DEV || typeof window === 'undefined') return new Set<CatSimFlag>()
