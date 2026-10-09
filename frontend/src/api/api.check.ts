@@ -1178,6 +1178,6 @@ export async function runApiChecks(): Promise<string[]> {
   eq('v0.26 排队文案', [d26.DOC_QUEUE_AHEAD(0), d26.DOC_QUEUE_AHEAD(2), d26.DOC_QUEUE_LINE(0), d26.DOC_QUEUE_LINE(3)], ['排队中 · 下一个', '排队中 · 前面还有 2 项', '下一个', '前面还有 3 项'])
   eq('v0.27 被占用两码可重试，文案为转换版', [d26.docErrorText('DOC_PRESENTATION_BUSY', ''), d26.docErrorText('DOC_ENGINE_BUSY', ''), d26.docErrorRetryable('DOC_PRESENTATION_BUSY'), d26.docErrorRetryable('DOC_ENGINE_BUSY')], ['请先关闭正在打开的演示文稿，再转换。', '请先关闭正在打开的文档，再转换。', true, true])
   eq('v0.27 结果警告 simple_fallback；未知码不显示', d26.docResultWarnings(['simple_fallback', 'whatever']), ['这次是简易转换，只保留了文字。可以稍后重转。'])
-  eq('v0.26 CSV 说明用设计 v0.2 定稿句', d26.DOC_CSV_HINT, '只会导出第一个工作表。')
+  eq('v0.26 CSV 说明用产品定稿句', d26.DOC_CSV_HINT, '转成 CSV 只会保留第一个工作表。')
   return fails
 }

@@ -363,7 +363,7 @@ export const useDocConvertStore = defineStore('docConvert', () => {
         const r = await submitDocConvert({ sourceIds: ids, target: tile.ext, outputDir })
         for (const t of r.tasks) addRecord(t)
         roundIds.value = r.tasks.map((t) => t.id)
-        if (r.skipped?.length) toast.value = { text: `有 ${r.skipped.length} 个文件还没准备好，这次没有转换。`, t: now() }
+        if (r.skipped.length) toast.value = { text: `有 ${r.skipped.length} 个文件还没准备好，这次没有转换。`, t: now() }
       } catch (e) {
         const ae = toAppError(e)
         toast.value = { text: ae.code === 'CONVERT_DISK_FULL' ? docDiskFullText(ae.detail, ae.message) : docErrorText(ae.code, ae.message, comp.isLinux), warn: true, t: now() }
@@ -493,7 +493,7 @@ export const useDocConvertStore = defineStore('docConvert', () => {
       family: fam,
       sheetCount: fam === 'sheet' ? (ext === 'csv' ? 1 : 3) : 0,
       copyState: 'ready',
-      sizeBytes: 2_400_000,
+      totalBytes: 2_400_000,
       lastActivityAt: now(),
       ...extra,
     }
