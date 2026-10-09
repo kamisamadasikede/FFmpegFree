@@ -127,6 +127,8 @@ export interface SaveErrorView {
  * 保存出错的文案（6.12.45 定稿 + 6.12.52）。mode：text（SaveDocText）/ textAs（SaveDocTextAs）/ docx / docxAs。
  * 只看 code + reason；后端 message 不直接显示。所有出错都保留编辑内容（调用方负责）。
  */
+/** 另存为目标是应用里别的记录的源文件 / 输出（#132，IO_ERROR reason=in_use，按 message 区分于别的程序占用） */
+export const SAVE_AS_IN_USE_BY_RECORD_TEXT = '这个文件正被应用里的其他记录使用，请换一个位置另存。'
 export const SAVE_APP_DIR_TEXT = '不能保存到应用自己的文件夹里，请换一个位置。'
 /**
  * message：后端 message，只用来认「另存为到应用目录」这一种（契约里它是 INVALID_ARGUMENT 且没有 reason，
@@ -142,6 +144,7 @@ export function saveErrorView(code: string | undefined, reason: string | undefin
       if (reason === 'copying') return v('文件还在准备中，准备好后再保存。')
       return v(UNMAPPED) // saving 等前端内部错误
     case 'IO_ERROR':
+      if (reason === 'in_use' && asMode && message === SAVE_AS_IN_USE_BY_RECORD_TEXT) return v(SAVE_AS_IN_USE_BY_RECORD_TEXT)
       if (reason === 'in_use') return v('文件正被其他程序占用，请关闭后再保存。', 'retry', 'saveAs')
       if (reason === 'permission') return v('没有权限保存到这里，请另存到其他位置。', 'saveAs')
       if (reason === 'backup') return v('没法在这个文件夹留备份，文件没有保存。请另存为。', 'saveAs')

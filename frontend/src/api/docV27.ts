@@ -161,7 +161,7 @@ export async function fetchRawBytes(url: string, sizeHint = 0, opts: { fetcher?:
 let simEngine: DocEnginePref = 'auto'
 export async function getDocEngine(): Promise<DocEnginePref> {
   if (!live()) return simEngine
-  const s = (await call(SystemBinding.GetSettings())) as unknown as { docEngine?: string }
+  const s = await call(SystemBinding.GetSettings())
   const v = s?.docEngine ?? ''
   return (['auto', 'office', 'wps', 'component'].includes(v) ? v : 'auto') as DocEnginePref
 }
@@ -170,9 +170,9 @@ export async function setDocEngine(pref: DocEnginePref): Promise<void> {
     simEngine = pref
     return
   }
-  const s = (await call(SystemBinding.GetSettings())) as unknown as Record<string, unknown>
-  // 现有绑定的 Settings 类还没有 docEngine 字段，createFrom 会把它丢掉：这里直接整体传对象（后端按 JSON 解）
-  await call(SystemBinding.UpdateSettings({ ...s, docEngine: pref } as unknown as system.Settings))
+  const s = await call(SystemBinding.GetSettings())
+  // #132：Settings.docEngine（auto|office|wps|component）；GetSettings → 改 → UpdateSettings 整体写回
+  await call(SystemBinding.UpdateSettings(system.Settings.createFrom({ ...s, docEngine: pref })))
 }
 
 /** 6.12.54：打开应用下载的文档组件目录 */
@@ -190,8 +190,7 @@ export async function saveFileDialog(defaultName: string, filters: FileFilter[])
     const dot = base.lastIndexOf('.')
     return `/Users/me/Documents/${dot > 0 ? `${base.slice(0, dot)}（副本）${base.slice(dot)}` : `${base}（副本）`}`
   }
-  const fn = (SystemBinding as unknown as { SaveFileDialog: (n: string, f: unknown[]) => Promise<string> }).SaveFileDialog
-  return (await call(fn(defaultName, filters.map((x) => system.FileFilter.createFrom(x))))) ?? ''
+  return (await call(SystemBinding.SaveFileDialog(defaultName, filters.map((x) => system.FileFilter.createFrom(x))))) ?? ''
 }
 
 // ─── 打开 / 显示（复用已有方法） ───

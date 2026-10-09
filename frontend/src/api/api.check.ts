@@ -1213,7 +1213,9 @@ export async function runApiChecks(): Promise<string[]> {
     d27.saveErrorView('INVALID_ARGUMENT', 'chunk_order', 'docx').text,
     d27.saveErrorView('IO_ERROR', 'in_use', 'textAs'),
     d27.saveErrorView('INVALID_ARGUMENT', 'encoding', 'text'),
-  ], [d27.SAVE_APP_DIR_TEXT, d27.UNMAPPED, d27.UNMAPPED, d27.UNMAPPED, d27.UNMAPPED, { text: '文件正被其他程序占用，请关闭后再保存。', actions: ['retry'] }, { text: '有些字符没法按原编码保存，请另存为 UTF-8。', actions: ['saveAsUtf8'] }])
+    d27.saveErrorView('IO_ERROR', 'in_use', 'textAs', d27.SAVE_AS_IN_USE_BY_RECORD_TEXT),
+    d27.saveErrorView('TASK_CONFLICT', 'converting', 'docxAs'),
+  ], [d27.SAVE_APP_DIR_TEXT, d27.UNMAPPED, d27.UNMAPPED, d27.UNMAPPED, d27.UNMAPPED, { text: '文件正被其他程序占用，请关闭后再保存。', actions: ['retry'] }, { text: '有些字符没法按原编码保存，请另存为 UTF-8。', actions: ['saveAsUtf8'] }, { text: d27.SAVE_AS_IN_USE_BY_RECORD_TEXT, actions: [] }, { text: d27.EDIT_CONVERTING_TIP, actions: [] }])
   eq('v0.27 保存出错：file_changed 另存为优先；in_use；backup；converting 用「转完」', [
     d27.saveErrorView('TASK_CONFLICT', 'file_changed', 'text'),
     d27.saveErrorView('IO_ERROR', 'in_use', 'text'),
