@@ -33,6 +33,9 @@ export interface CatTurnEvent {
   turnId: string
   status: CatTurnStatus
   errorCode?: string
+  /** 这一轮结束后的上下文占用；两个都大于 0 才带上 */
+  contextUsed?: number
+  contextWindow?: number
 }
 
 type Raw = Record<string, unknown>
@@ -72,7 +75,19 @@ export function normalizeTurnEvent(raw: unknown): CatTurnEvent | null {
             : null
   if (!status) return null
   const err = r.error && typeof r.error === 'object' ? (r.error as Raw) : null
-  return { convId, turnId: str(r.turnId), status, errorCode: err ? str(err.code) || undefined : undefined }
+  const used = pos(r.contextUsed)
+  const size = pos(r.contextWindow)
+  const ev: CatTurnEvent = { convId, turnId: str(r.turnId), status, errorCode: err ? str(err.code) || undefined : undefined }
+  if (used && size) {
+    ev.contextUsed = used
+    ev.contextWindow = size
+  }
+  return ev
+}
+
+function pos(v: unknown): number {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() ? Number(v) : NaN
+  return Number.isFinite(n) && n > 0 ? n : 0
 }
 
 /** 一条助手消息的流式拼装状态 */

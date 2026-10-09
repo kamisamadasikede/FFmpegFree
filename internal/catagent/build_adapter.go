@@ -18,6 +18,7 @@ import (
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/id"
+	"FFmpegFree/internal/paths"
 	"FFmpegFree/internal/proc"
 )
 
@@ -49,9 +50,11 @@ var (
 type BuildConfig struct {
 	// ComponentDir 是组件父目录（…/components）；PATH 未命中时回退 …/cat/build/<version>/。
 	ComponentDir string
-	DataTemp     string // <数据目录>/tmp；无项目时用作 --cwd
-	Emit         func(event string, payload any)
-	Logf         func(format string, args ...any)
+	// DataRoot 是应用数据目录。无项目时 --cwd 用 paths.ResolveCatConvDir（与文件面板同一处）。
+	DataRoot string
+	DataTemp string // <数据目录>/tmp；DataRoot 为空时的旧回退
+	Emit     func(event string, payload any)
+	Logf     func(format string, args ...any)
 	// Exec 可覆盖（测试注入假二进制）。
 	Exec func(ctx context.Context, name string, args ...string) *exec.Cmd
 	// LookPath 可覆盖（测试注入）；默认 exec.LookPath。
@@ -329,13 +332,10 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 
 	cwd := strings.TrimSpace(opts.ProjectPath)
 	if cwd == "" {
-		base := a.cfg.DataTemp
-		if base == "" {
-			base = os.TempDir()
-		}
-		cwd = filepath.Join(base, "cat", "cwd-"+safeID(opts.ConversationID))
-		if err := os.MkdirAll(cwd, 0o755); err != nil {
-			return TurnResponse{}, apperr.Wrap(apperr.IOError, "无法创建临时文件夹", err)
+		var err error
+		cwd, err = a.plainCwd(opts.ConversationID)
+		if err != nil {
+			return TurnResponse{}, err
 		}
 	}
 
@@ -450,6 +450,30 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		Version: ProtocolVersion,
 		Message: WireMessage{Role: "assistant", Content: body},
 	}, nil
+}
+
+// plainCwd 是没有项目的对话的 --cwd。有 DataRoot 时与文件面板共用 paths.ResolveCatConvDir；
+// 没有 DataRoot 时仍落到 <DataTemp>/cat/cwd-<id>（旧测试与未配置数据目录）。
+func (a *BuildAdapter) plainCwd(convID string) (string, error) {
+	if root := strings.TrimSpace(a.cfg.DataRoot); root != "" {
+		dir := paths.ResolveCatConvDir(root, convID)
+		if dir == "" {
+			return "", apperr.New(apperr.IOError, "无法创建对话文件夹")
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", apperr.Wrap(apperr.IOError, "无法创建对话文件夹", err)
+		}
+		return dir, nil
+	}
+	base := a.cfg.DataTemp
+	if base == "" {
+		base = os.TempDir()
+	}
+	cwd := filepath.Join(base, "cat", "cwd-"+safeID(convID))
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		return "", apperr.Wrap(apperr.IOError, "无法创建临时文件夹", err)
+	}
+	return cwd, nil
 }
 
 func lastUserContent(msgs []WireMessage) string {

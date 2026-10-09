@@ -34,6 +34,10 @@ export function ListCatConversations() {
   return window['go']['app']['CatService']['ListCatConversations']();
 }
 
+export function ListCatFiles(arg1) {
+  return window['go']['app']['CatService']['ListCatFiles'](arg1);
+}
+
 export function ListCatModels(arg1) {
   return window['go']['app']['CatService']['ListCatModels'](arg1);
 }
@@ -50,6 +54,10 @@ export function RecheckCat() {
   return window['go']['app']['CatService']['RecheckCat']();
 }
 
+export function ReadCatFile(arg1) {
+  return window['go']['app']['CatService']['ReadCatFile'](arg1);
+}
+
 export function RelocateCatProject(arg1) {
   return window['go']['app']['CatService']['RelocateCatProject'](arg1);
 }
@@ -58,10 +66,18 @@ export function RenameCatProject(arg1) {
   return window['go']['app']['CatService']['RenameCatProject'](arg1);
 }
 
+export function RevealCatConversationFolder(arg1) {
+  return window['go']['app']['CatService']['RevealCatConversationFolder'](arg1);
+}
+
 export function RevealCatProject(arg1) {
   return window['go']['app']['CatService']['RevealCatProject'](arg1);
 }
 
 export function SendCatMessage(arg1) {
   return window['go']['app']['CatService']['SendCatMessage'](arg1);
+}
+
+export function WriteCatFile(arg1) {
+  return window['go']['app']['CatService']['WriteCatFile'](arg1);
 }

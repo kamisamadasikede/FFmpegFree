@@ -335,6 +335,7 @@ func (a *App) startCat() {
 	reg := catagent.NewRegistry()
 	build := catagent.NewBuildAdapter(catagent.BuildConfig{
 		ComponentDir: catagent.DefaultComponentDir(root),
+		DataRoot:     root,
 		DataTemp:     temp,
 		Emit:         emit,
 		Logf:         log.Printf,
@@ -352,6 +353,7 @@ func (a *App) startCat() {
 			return a.sys.CatDefaultAgentKind(ctx)
 		},
 		OpenFolder: a.sys.OpenFolder, // v0.31.1 RevealCatProject：同 OpenStorageFolder 的打开目录分支
+		DataRoot:   root,
 	}
 	if a.store != nil {
 		cfg.Store = a.store

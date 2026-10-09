@@ -127,6 +127,16 @@ export const catState = reactive({
   creating: false,
   /** 进行中的回复，按会话 id */
   turns: {} as Record<string, CatTurnState>,
+  /** 各会话最近一次上下文占用（已用 / 容量）。没有真实数字就不放，圆环不画 0%。 */
+  context: (live ? {} : {
+    c11: { used: 48200, window: 256000 },
+    c12: { used: 91000, window: 256000 },
+    c21: { used: 210000, window: 500000 },
+    c22: { used: 64000, window: 256000 },
+    c31: { used: 155377, window: 256000 },
+  }) as Record<string, { used: number; window: number }>,
+  /** 文件面板刷新记号：窗口重新聚焦、一轮结束时加一（不做文件监视） */
+  filesRev: 0,
   /** 组件状态；非 ready 时显示未就绪横条（无下载按钮）；浏览器走查直接按 missing，避免短暂可点发送 */
   status: (live || (import.meta.env.DEV && catSim.has('checking'))
     ? { state: 'checking', version: '', canDownload: false, error: null }
@@ -217,8 +227,10 @@ async function loadMessages(id: string) {
   loading.add(id)
   try {
     const d = await getCatConversation(id)
+    if (!d || !findConv(id)) return
+    if (d.contextUsed > 0 && d.contextWindow > 0) catState.context[id] = { used: d.contextUsed, window: d.contextWindow }
     // 加载期间已经开始一轮（本地已放了用户消息 / 流式文字）就不覆盖
-    if (d && findConv(id) && !catState.turns[id] && !(catState.messages[id]?.length)) catState.messages[id] = blocksFrom(d.messages)
+    if (!catState.turns[id] && !(catState.messages[id]?.length)) catState.messages[id] = blocksFrom(d.messages)
   } catch {
     /* 读不到就保持空，不弹错 */
   } finally {
@@ -375,6 +387,7 @@ export function handleMessageEvent(e: CatStreamEvent) {
 export function handleTurnEvent(e: CatTurnEvent) {
   // 删除时后端可能还会发一条 cat:turn cancelled：对话已不在列表里就忽略
   if (!findConv(e.convId)) return
+  if (e.contextUsed && e.contextWindow) catState.context[e.convId] = { used: e.contextUsed, window: e.contextWindow }
   const turn = catState.turns[e.convId]
   if (!turn) return
   if (e.turnId && turn.turnId && e.turnId !== turn.turnId) return
@@ -403,6 +416,7 @@ function endTurn(convId: string, how: TurnEnd, token?: number) {
   // 收起流式光标，已流出来的文字原样保留（不加后缀）
   for (const b of list) if (b.kind === 'a' && b.streaming) b.streaming = false
   if (turn.assistantId) streams.delete(turn.assistantId)
+  catState.filesRev++
   if (how === 'cancelled') list.push({ kind: 'sys', text: CAT_COPY.stopped })
   else if (how === 'failed') list.push({ kind: 'sys', text: CAT_COPY.replyFailed, tone: 'err' })
   else if (how === 'not_ready') list.push({ kind: 'sys', text: catState.status.error?.message || CAT_COPY.notReady })
@@ -673,6 +687,7 @@ function onWindowFocus() {
   if (now - focusAt < 500) return
   focusAt = now
   void refreshProjects()
+  catState.filesRev++
 }
 
 export function handleProjectEvent(e: CatProjectEvent) {

@@ -34,7 +34,8 @@ streaming-json（NDJSON，捕获自 CLI 0.2.x；官方未正式发布 schema）�
 取消：context 取消 → proc.Kill 进程树。
 
 会话：-s 使用 conversationId，多轮由 CLI 会话续写；应用只传本轮最新用户句。
-无项目：--cwd 落到 <DataTemp>/cat/cwd-<id>/，不把项目工具上下文传给 CLI。
+无项目：--cwd 用 paths.ResolveCatConvDir（新对话 <数据目录>/cat/conversations/<id>，
+已有 <数据目录>/tmp/cat/cwd-<id> 的旧对话继续用旧目录）。DataRoot 未配置时回退到 DataTemp。
 */
 
 // WireMessage 是协议里的一条消息。

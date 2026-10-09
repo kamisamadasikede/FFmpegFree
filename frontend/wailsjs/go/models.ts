@@ -19,6 +19,496 @@ export namespace apperr {
 
 }
 
+export namespace cat {
+	
+	export class ConversationDetail {
+	    id: string;
+	    title: string;
+	    agentKind: string;
+	    accessMode: string;
+	    projectPath: string;
+	    projectId?: string;
+	    createdAt: number;
+	    updatedAt: number;
+	    messages: store.CatMessage[];
+	    contextUsed: number;
+	    contextWindow: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConversationDetail(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.agentKind = source["agentKind"];
+	        this.accessMode = source["accessMode"];
+	        this.projectPath = source["projectPath"];
+	        this.projectId = source["projectId"];
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
+	        this.messages = this.convertValues(source["messages"], store.CatMessage);
+	        this.contextUsed = source["contextUsed"];
+	        this.contextWindow = source["contextWindow"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CreateConversationRequest {
+	    agentKind: string;
+	    title: string;
+	    projectPath: string;
+	    accessMode: string;
+	    projectId?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CreateConversationRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.agentKind = source["agentKind"];
+	        this.title = source["title"];
+	        this.projectPath = source["projectPath"];
+	        this.accessMode = source["accessMode"];
+	        this.projectId = source["projectId"];
+	    }
+	}
+	export class CreateProjectRequest {
+	    path: string;
+	    name?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CreateProjectRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.name = source["name"];
+	    }
+	}
+	export class Project {
+	    id: string;
+	    name: string;
+	    path: string;
+	    createdAt: number;
+	    updatedAt: number;
+	    missing: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Project(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.path = source["path"];
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
+	        this.missing = source["missing"];
+	    }
+	}
+	export class CreateProjectResult {
+	    project: Project;
+	    existed: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CreateProjectResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.project = this.convertValues(source["project"], Project);
+	        this.existed = source["existed"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class DeleteProjectRequest {
+	    id: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DeleteProjectRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	    }
+	}
+	export class RelocateProjectRequest {
+	    id: string;
+	    path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RelocateProjectRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.path = source["path"];
+	    }
+	}
+	export class RenameProjectRequest {
+	    id: string;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RenameProjectRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	    }
+	}
+	export class RevealProjectRequest {
+	    id: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RevealProjectRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	    }
+	}
+	export class FileEntry {
+	    name: string;
+	    relPath: string;
+	    isDir: boolean;
+	    size: number;
+	    modTime: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new FileEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.relPath = source["relPath"];
+	        this.isDir = source["isDir"];
+	        this.size = source["size"];
+	        this.modTime = source["modTime"];
+	    }
+	}
+	export class ListFilesRequest {
+	    convId: string;
+	    relPath: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ListFilesRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.relPath = source["relPath"];
+	    }
+	}
+	export class ListFilesResult {
+	    root: string;
+	    entries: FileEntry[];
+	    truncated: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ListFilesResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.root = source["root"];
+	        this.entries = this.convertValues(source["entries"], FileEntry);
+	        this.truncated = source["truncated"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RevealConversationFolderRequest {
+	    convId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RevealConversationFolderRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	    }
+	}
+	export class ReadFileRequest {
+	    convId: string;
+	    relPath: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ReadFileRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.relPath = source["relPath"];
+	    }
+	}
+	export class ReadFileResult {
+	    relPath: string;
+	    name: string;
+	    kind: string;
+	    size: number;
+	    content: string;
+	    dataBase64: string;
+	    mime: string;
+	    language: string;
+	    editable: boolean;
+	    modTime: number;
+
+	    static createFrom(source: any = {}) {
+	        return new ReadFileResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.relPath = source["relPath"];
+	        this.name = source["name"];
+	        this.kind = source["kind"];
+	        this.size = source["size"];
+	        this.content = source["content"];
+	        this.dataBase64 = source["dataBase64"];
+	        this.mime = source["mime"];
+	        this.language = source["language"];
+	        this.editable = source["editable"];
+	        this.modTime = source["modTime"];
+	    }
+	}
+	export class WriteFileRequest {
+	    convId: string;
+	    relPath: string;
+	    content: string;
+
+	    static createFrom(source: any = {}) {
+	        return new WriteFileRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.relPath = source["relPath"];
+	        this.content = source["content"];
+	    }
+	}
+	export class WriteFileResult {
+	    relPath: string;
+	    size: number;
+	    modTime: number;
+
+	    static createFrom(source: any = {}) {
+	        return new WriteFileResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.relPath = source["relPath"];
+	        this.size = source["size"];
+	        this.modTime = source["modTime"];
+	    }
+	}
+	export class SendMessageRequest {
+	    conversationId: string;
+	    content: string;
+	    modelId: string;
+	    thinkLevelId: string;
+	    projectPath: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SendMessageRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conversationId = source["conversationId"];
+	        this.content = source["content"];
+	        this.modelId = source["modelId"];
+	        this.thinkLevelId = source["thinkLevelId"];
+	        this.projectPath = source["projectPath"];
+	    }
+	}
+	export class SendMessageResult {
+	    userMessage: store.CatMessage;
+	    turnId: string;
+	    assistantMessage?: store.CatMessage;
+	    error?: apperr.AppError;
+	
+	    static createFrom(source: any = {}) {
+	        return new SendMessageResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.userMessage = this.convertValues(source["userMessage"], store.CatMessage);
+	        this.turnId = source["turnId"];
+	        this.assistantMessage = this.convertValues(source["assistantMessage"], store.CatMessage);
+	        this.error = this.convertValues(source["error"], apperr.AppError);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
+export namespace catagent {
+	
+	export class CancelCatTurnRequest {
+	    convId: string;
+	    turnId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CancelCatTurnRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.turnId = source["turnId"];
+	    }
+	}
+	export class Model {
+	    id: string;
+	    displayName: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Model(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.displayName = source["displayName"];
+	    }
+	}
+	export class Status {
+	    state: string;
+	    version: string;
+	    canDownload: boolean;
+	    error?: apperr.AppError;
+	
+	    static createFrom(source: any = {}) {
+	        return new Status(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.state = source["state"];
+	        this.version = source["version"];
+	        this.canDownload = source["canDownload"];
+	        this.error = this.convertValues(source["error"], apperr.AppError);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ThinkLevel {
+	    id: string;
+	    displayName: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ThinkLevel(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.displayName = source["displayName"];
+	    }
+	}
+
+}
+
 export namespace convert {
 	
 	export class AddSourceResult {
@@ -1430,6 +1920,148 @@ export namespace jsontool {
 
 }
 
+export namespace lang {
+	
+	export class ExportSubtitleRequest {
+	    taskId: string;
+	    cues: langasr.SubtitleCue[];
+	    format: string;
+	    targetPath?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExportSubtitleRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.taskId = source["taskId"];
+	        this.cues = this.convertValues(source["cues"], langasr.SubtitleCue);
+	        this.format = source["format"];
+	        this.targetPath = source["targetPath"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ExportSubtitleResult {
+	    path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExportSubtitleResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	    }
+	}
+	export class SpeechToSubtitleRequest {
+	    paths: string[];
+	    language?: string;
+	    format: string;
+	    outputDir?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SpeechToSubtitleRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.paths = source["paths"];
+	        this.language = source["language"];
+	        this.format = source["format"];
+	        this.outputDir = source["outputDir"];
+	    }
+	}
+
+}
+
+export namespace langasr {
+	
+	export class Status {
+	    state: string;
+	    version: string;
+	    source: string;
+	    tier: string;
+	    canDownload: boolean;
+	    downloadBytes: number;
+	    installBytes?: number;
+	    phase?: string;
+	    receivedBytes?: number;
+	    error?: apperr.AppError;
+	
+	    static createFrom(source: any = {}) {
+	        return new Status(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.state = source["state"];
+	        this.version = source["version"];
+	        this.source = source["source"];
+	        this.tier = source["tier"];
+	        this.canDownload = source["canDownload"];
+	        this.downloadBytes = source["downloadBytes"];
+	        this.installBytes = source["installBytes"];
+	        this.phase = source["phase"];
+	        this.receivedBytes = source["receivedBytes"];
+	        this.error = this.convertValues(source["error"], apperr.AppError);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SubtitleCue {
+	    id: string;
+	    text: string;
+	    startMs: number;
+	    endMs: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SubtitleCue(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.text = source["text"];
+	        this.startMs = source["startMs"];
+	        this.endMs = source["endMs"];
+	    }
+	}
+
+}
+
 export namespace live {
 	
 	export class CaptureCapabilities {
@@ -1705,6 +2337,50 @@ export namespace media {
 
 export namespace store {
 	
+	export class CatConversation {
+	    id: string;
+	    title: string;
+	    agentKind: string;
+	    accessMode: string;
+	    projectPath: string;
+	    projectId?: string;
+	    createdAt: number;
+	    updatedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatConversation(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.agentKind = source["agentKind"];
+	        this.accessMode = source["accessMode"];
+	        this.projectPath = source["projectPath"];
+	        this.projectId = source["projectId"];
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	}
+	export class CatMessage {
+	    id: string;
+	    role: string;
+	    content: string;
+	    createdAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatMessage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.role = source["role"];
+	        this.content = source["content"];
+	        this.createdAt = source["createdAt"];
+	    }
+	}
 	export class StreamInfo {
 	    index: number;
 	    type: string;
@@ -1893,6 +2569,24 @@ export namespace store {
 	    }
 	}
 	
+	export class SubtitleCue {
+	    id: string;
+	    text: string;
+	    startMs: number;
+	    endMs: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SubtitleCue(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.text = source["text"];
+	        this.startMs = source["startMs"];
+	        this.endMs = source["endMs"];
+	    }
+	}
 	export class TaskResult {
 	    sizeBytes: number;
 	    durationSec?: number;
@@ -1936,24 +2630,6 @@ export namespace store {
 		    }
 		    return a;
 		}
-	}
-	export class SubtitleCue {
-	    id: string;
-	    text: string;
-	    startMs: number;
-	    endMs: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new SubtitleCue(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.text = source["text"];
-	        this.startMs = source["startMs"];
-	        this.endMs = source["endMs"];
-	    }
 	}
 	export class Task {
 	    id: string;
@@ -2431,573 +3107,5 @@ export namespace task {
 	    }
 	}
 
-
-	export class CatConversation {
-	    id: string;
-	    title: string;
-	    agentKind: string;
-	    accessMode: string;
-	    projectPath: string;
-	    projectId?: string;
-	    createdAt: number;
-	    updatedAt: number;
-
-	    static createFrom(source: any = {}) {
-	        return new CatConversation(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.title = source["title"];
-	        this.agentKind = source["agentKind"];
-	        this.accessMode = source["accessMode"];
-	        this.projectPath = source["projectPath"];
-	        this.projectId = source["projectId"];
-	        this.createdAt = source["createdAt"];
-	        this.updatedAt = source["updatedAt"];
-	    }
-	}
-	export class CatMessage {
-	    id: string;
-	    role: string;
-	    content: string;
-	    createdAt: number;
-
-	    static createFrom(source: any = {}) {
-	        return new CatMessage(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.role = source["role"];
-	        this.content = source["content"];
-	        this.createdAt = source["createdAt"];
-	    }
-	}
 }
 
-export namespace langasr {
-	export class Status {
-	    state: string;
-	    version: string;
-	    source: string;
-	    tier: string;
-	    canDownload: boolean;
-	    downloadBytes: number;
-	    installBytes?: number;
-	    phase?: string;
-	    receivedBytes?: number;
-	    error?: apperr.AppError;
-
-	    static createFrom(source: any = {}) {
-	        return new Status(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.state = source["state"];
-	        this.version = source["version"];
-	        this.source = source["source"];
-	        this.tier = source["tier"];
-	        this.canDownload = source["canDownload"];
-	        this.downloadBytes = source["downloadBytes"];
-	        this.installBytes = source["installBytes"];
-	        this.phase = source["phase"];
-	        this.receivedBytes = source["receivedBytes"];
-	        this.error = this.convertValues(source["error"], apperr.AppError);
-	    }
-
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class SubtitleCue {
-	    id: string;
-	    text: string;
-	    startMs: number;
-	    endMs: number;
-
-	    static createFrom(source: any = {}) {
-	        return new SubtitleCue(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.text = source["text"];
-	        this.startMs = source["startMs"];
-	        this.endMs = source["endMs"];
-	    }
-	}
-}
-
-export namespace lang {
-	export class SpeechToSubtitleRequest {
-	    paths: string[];
-	    language?: string;
-	    format: string;
-	    outputDir?: string;
-
-	    static createFrom(source: any = {}) {
-	        return new SpeechToSubtitleRequest(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.paths = source["paths"];
-	        this.language = source["language"];
-	        this.format = source["format"];
-	        this.outputDir = source["outputDir"];
-	    }
-	}
-	export class ExportSubtitleRequest {
-	    taskId: string;
-	    cues: langasr.SubtitleCue[];
-	    format: string;
-	    targetPath?: string;
-
-	    static createFrom(source: any = {}) {
-	        return new ExportSubtitleRequest(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.taskId = source["taskId"];
-	        this.cues = this.convertValues(source["cues"], langasr.SubtitleCue);
-	        this.format = source["format"];
-	        this.targetPath = source["targetPath"];
-	    }
-
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class ExportSubtitleResult {
-	    path: string;
-
-	    static createFrom(source: any = {}) {
-	        return new ExportSubtitleResult(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.path = source["path"];
-	    }
-	}
-}
-
-
-export namespace catagent {
-	
-	export class CancelCatTurnRequest {
-	    convId: string;
-	    turnId: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new CancelCatTurnRequest(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.convId = source["convId"];
-	        this.turnId = source["turnId"];
-	    }
-	}
-	export class ProjectEvent {
-	    id: string;
-	    missing: boolean;
-
-	    static createFrom(source: any = {}) {
-	        return new ProjectEvent(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.missing = source["missing"];
-	    }
-	}
-	export class Status {
-	    state: string;
-	    version: string;
-	    canDownload: boolean;
-	    error?: apperr.AppError;
-
-	    static createFrom(source: any = {}) {
-	        return new Status(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.state = source["state"];
-	        this.version = source["version"];
-	        this.canDownload = source["canDownload"];
-	        this.error = this.convertValues(source["error"], apperr.AppError);
-	    }
-
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class Model {
-	    id: string;
-	    displayName: string;
-
-	    static createFrom(source: any = {}) {
-	        return new Model(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.displayName = source["displayName"];
-	    }
-	}
-	export class ThinkLevel {
-	    id: string;
-	    displayName: string;
-
-	    static createFrom(source: any = {}) {
-	        return new ThinkLevel(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.displayName = source["displayName"];
-	    }
-	}
-}
-
-export namespace cat {
-	export class Conversation {
-	    id: string;
-	    title: string;
-	    agentKind: string;
-	    accessMode: string;
-	    projectPath: string;
-	    projectId?: string;
-	    createdAt: number;
-	    updatedAt: number;
-
-	    static createFrom(source: any = {}) {
-	        return new Conversation(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.title = source["title"];
-	        this.agentKind = source["agentKind"];
-	        this.accessMode = source["accessMode"];
-	        this.projectPath = source["projectPath"];
-	        this.projectId = source["projectId"];
-	        this.createdAt = source["createdAt"];
-	        this.updatedAt = source["updatedAt"];
-	    }
-	}
-	export class Message {
-	    id: string;
-	    role: string;
-	    content: string;
-	    createdAt: number;
-
-	    static createFrom(source: any = {}) {
-	        return new Message(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.role = source["role"];
-	        this.content = source["content"];
-	        this.createdAt = source["createdAt"];
-	    }
-	}
-	export class ConversationDetail {
-	    id: string;
-	    title: string;
-	    agentKind: string;
-	    accessMode: string;
-	    projectPath: string;
-	    projectId?: string;
-	    createdAt: number;
-	    updatedAt: number;
-	    messages: Message[];
-
-	    static createFrom(source: any = {}) {
-	        return new ConversationDetail(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.title = source["title"];
-	        this.agentKind = source["agentKind"];
-	        this.accessMode = source["accessMode"];
-	        this.projectPath = source["projectPath"];
-	        this.projectId = source["projectId"];
-	        this.createdAt = source["createdAt"];
-	        this.updatedAt = source["updatedAt"];
-	        this.messages = this.convertValues(source["messages"], Message);
-	    }
-
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class Project {
-	    id: string;
-	    name: string;
-	    path: string;
-	    createdAt: number;
-	    updatedAt: number;
-	    missing: boolean;
-
-	    static createFrom(source: any = {}) {
-	        return new Project(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.path = source["path"];
-	        this.createdAt = source["createdAt"];
-	        this.updatedAt = source["updatedAt"];
-	        this.missing = source["missing"];
-	    }
-	}
-	export class CreateProjectRequest {
-	    path: string;
-	    name?: string;
-
-	    static createFrom(source: any = {}) {
-	        return new CreateProjectRequest(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.path = source["path"];
-	        this.name = source["name"];
-	    }
-	}
-	export class CreateProjectResult {
-	    project: Project;
-	    existed: boolean;
-
-	    static createFrom(source: any = {}) {
-	        return new CreateProjectResult(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.project = this.convertValues(source["project"], Project);
-	        this.existed = source["existed"];
-	    }
-
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class RenameProjectRequest {
-	    id: string;
-	    name: string;
-
-	    static createFrom(source: any = {}) {
-	        return new RenameProjectRequest(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	    }
-	}
-	export class DeleteProjectRequest {
-	    id: string;
-
-	    static createFrom(source: any = {}) {
-	        return new DeleteProjectRequest(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	    }
-	}
-	export class RelocateProjectRequest {
-	    id: string;
-	    path: string;
-
-	    static createFrom(source: any = {}) {
-	        return new RelocateProjectRequest(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.path = source["path"];
-	    }
-	}
-	export class RevealProjectRequest {
-	    id: string;
-
-	    static createFrom(source: any = {}) {
-	        return new RevealProjectRequest(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	    }
-	}
-	export class CreateConversationRequest {
-	    agentKind: string;
-	    title: string;
-	    projectPath: string;
-	    accessMode: string;
-	    projectId?: string;
-
-	    static createFrom(source: any = {}) {
-	        return new CreateConversationRequest(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.agentKind = source["agentKind"];
-	        this.title = source["title"];
-	        this.projectPath = source["projectPath"];
-	        this.accessMode = source["accessMode"];
-	        this.projectId = source["projectId"];
-	    }
-	}
-	export class SendMessageRequest {
-	    conversationId: string;
-	    content: string;
-	    modelId: string;
-	    thinkLevelId: string;
-	    projectPath: string;
-
-	    static createFrom(source: any = {}) {
-	        return new SendMessageRequest(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.conversationId = source["conversationId"];
-	        this.content = source["content"];
-	        this.modelId = source["modelId"];
-	        this.thinkLevelId = source["thinkLevelId"];
-	        this.projectPath = source["projectPath"];
-	    }
-	}
-	export class SendMessageResult {
-	    userMessage: Message;
-	    turnId: string;
-	    assistantMessage?: Message;
-	    error?: apperr.AppError;
-
-	    static createFrom(source: any = {}) {
-	        return new SendMessageResult(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.userMessage = this.convertValues(source["userMessage"], Message);
-	        this.turnId = source["turnId"];
-	        this.assistantMessage = this.convertValues(source["assistantMessage"], Message);
-	        this.error = this.convertValues(source["error"], apperr.AppError);
-	    }
-
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-}

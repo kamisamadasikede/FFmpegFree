@@ -14,6 +14,7 @@ import (
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/catagent"
 	"FFmpegFree/internal/id"
+	"FFmpegFree/internal/paths"
 	"FFmpegFree/internal/store"
 )
 
@@ -33,6 +34,8 @@ type Config struct {
 	OpenFolder func(dir string) error
 	// PathKey 是项目去重比较键；nil = paths.Key（Windows / macOS 小写，Linux 区分大小写）。测试注入其他平台口径。
 	PathKey func(p string) string
+	// DataRoot 是应用数据目录。普通对话的文件夹（paths.CatConvDir / 旧 cwd）从这里算。空则不建、不删对话文件夹。
+	DataRoot string
 }
 
 // Service 是 CatService。
@@ -57,11 +60,16 @@ type turnState struct {
 	cancel context.CancelFunc
 	done   chan struct{} // 后台 runTurn 返回后关闭（含已出文字落库）
 
-	mu       sync.Mutex
-	msgID    string          // 本轮助手正文 messageId（落库同 id）
-	seq      int             // 同 messageId 内严格递增，从 1 起
-	text     strings.Builder // 已流出文字
-	finished bool
+	mu            sync.Mutex
+	msgID         string          // 本轮助手正文 messageId（落库同 id）
+	seq           int             // 同 messageId 内严格递增，从 1 起
+	text          strings.Builder // 已流出文字
+	finished      bool
+	usageCwd      string // 这一轮的工作目录，用来读上下文占用
+	contextUsed   int64
+	contextWindow int64
+	emittedUsed   int64
+	emittedWindow int64
 }
 
 // New 创建服务。
@@ -169,7 +177,29 @@ func (s *Service) GetCatConversation(ctx context.Context, convID string) (Conver
 	if err != nil {
 		return ConversationDetail{}, apperr.Wrap(apperr.IOError, "读取消息失败", err)
 	}
-	return ConversationDetail{CatConversation: c, Messages: msgs}, nil
+	used, window := s.lookupContext(ctx, c)
+	return ConversationDetail{CatConversation: c, Messages: msgs, ContextUsed: used, ContextWindow: window}, nil
+}
+
+// lookupContext 读取这个对话最近一次的上下文占用。读不到就返回 0，不让会话详情失败。
+func (s *Service) lookupContext(ctx context.Context, c store.CatConversation) (int64, int64) {
+	cwd := ""
+	if c.ProjectID != "" {
+		p, err := s.projectForConversation(ctx, c.ProjectID)
+		if p.Path != "" {
+			cwd = p.Path
+		} else if err != nil {
+			return 0, 0
+		}
+	}
+	if cwd == "" {
+		cwd = paths.ResolveCatConvDir(s.cfg.DataRoot, c.ID)
+	}
+	used, window, ok := catagent.ReadContextUsage(cwd, c.ID)
+	if !ok {
+		return 0, 0
+	}
+	return used, window
 }
 
 func (s *Service) CreateCatConversation(ctx context.Context, req CreateConversationRequest) (Conversation, error) {
@@ -218,6 +248,10 @@ func (s *Service) CreateCatConversation(ctx context.Context, req CreateConversat
 	if err != nil {
 		return Conversation{}, apperr.Wrap(apperr.IOError, "创建会话失败", err)
 	}
+	// 普通对话创建时就建自己的文件夹（6.19.11.4）。失败不让创建失败，下次用到时再建。
+	if projectID == "" {
+		s.ensureConvDir(c.ID)
+	}
 	return c, nil
 }
 
@@ -226,8 +260,16 @@ func (s *Service) DeleteCatConversation(ctx context.Context, convID string) erro
 	if s.cfg.Store == nil {
 		return apperr.New(apperr.Internal, "本地存储尚未初始化")
 	}
-	if strings.TrimSpace(convID) == "" {
+	convID = strings.TrimSpace(convID)
+	if convID == "" {
 		return apperr.New(apperr.InvalidArgument, "会话编号不能为空")
+	}
+	c, getErr := s.cfg.Store.GetCatConversation(ctx, convID)
+	if errors.Is(getErr, sql.ErrNoRows) {
+		return nil
+	}
+	if getErr != nil {
+		return apperr.Wrap(apperr.IOError, "读取会话失败", getErr)
 	}
 	s.cancelTurnAndWait(convID)
 	err := s.cfg.Store.DeleteCatConversation(ctx, convID)
@@ -236,6 +278,10 @@ func (s *Service) DeleteCatConversation(ctx context.Context, convID string) erro
 	}
 	if err != nil {
 		return apperr.Wrap(apperr.IOError, "删除会话失败", err)
+	}
+	// 只删普通对话自己的文件夹。项目文件夹永远不动（6.19.11.4）。
+	if c.ProjectID == "" {
+		s.removeConvDir(convID)
 	}
 	return nil
 }
@@ -300,7 +346,10 @@ func (s *Service) SendCatMessage(ctx context.Context, req SendMessageRequest) (S
 
 	// 回合生命周期与调用方 ctx 解耦（绑定层传入的是应用根 ctx，取消只走 CancelCatTurn）。
 	turnCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	t := &turnState{convID: c.ID, turnID: id.New(), cancel: cancel, msgID: id.New(), done: make(chan struct{})}
+	t := &turnState{
+		convID: c.ID, turnID: id.New(), cancel: cancel, msgID: id.New(), done: make(chan struct{}),
+		usageCwd: catagent.TurnCwd(s.cfg.DataRoot, projectRoot, c.ID),
+	}
 	s.setTurn(t)
 	s.emit(catagent.EventTurn, catagent.TurnEvent{ConvID: t.convID, TurnID: t.turnID, Status: catagent.TurnRunning})
 
@@ -424,10 +473,43 @@ func (s *Service) appendText(ctx context.Context, t *turnState, delta string) bo
 }
 
 // finish 发该消息 done（若已出过字）与终态 cat:turn；只生效一次。
+// 进程退出后如果用量文件才写完，已收尾的一轮会再补发一次带数字的终态，供圆环更新。
 func (s *Service) finish(t *turnState, status string) bool {
+	s.stampContext(t)
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.finished {
+		s.emitContextUpdateLocked(t, status)
+		return false
+	}
 	return s.finishLocked(t, status)
+}
+
+func (s *Service) stampContext(t *turnState) {
+	if t.usageCwd == "" || t.convID == "" {
+		return
+	}
+	used, window, ok := catagent.ReadContextUsage(t.usageCwd, t.convID)
+	if !ok {
+		return
+	}
+	t.mu.Lock()
+	t.contextUsed, t.contextWindow = used, window
+	t.mu.Unlock()
+}
+
+func (s *Service) emitContextUpdateLocked(t *turnState, status string) {
+	if t.contextUsed <= 0 || t.contextWindow <= 0 {
+		return
+	}
+	if t.contextUsed == t.emittedUsed && t.contextWindow == t.emittedWindow {
+		return
+	}
+	t.emittedUsed, t.emittedWindow = t.contextUsed, t.contextWindow
+	s.emit(catagent.EventTurn, catagent.TurnEvent{
+		ConvID: t.convID, TurnID: t.turnID, Status: status,
+		ContextUsed: t.contextUsed, ContextWindow: t.contextWindow,
+	})
 }
 
 func (s *Service) finishLocked(t *turnState, status string) bool {
@@ -441,7 +523,12 @@ func (s *Service) finishLocked(t *turnState, status string) bool {
 			ConvID: t.convID, TurnID: t.turnID, MessageID: t.msgID, Seq: t.seq, Op: catagent.OpDone,
 		})
 	}
-	s.emit(catagent.EventTurn, catagent.TurnEvent{ConvID: t.convID, TurnID: t.turnID, Status: status})
+	ev := catagent.TurnEvent{ConvID: t.convID, TurnID: t.turnID, Status: status}
+	if t.contextUsed > 0 && t.contextWindow > 0 {
+		ev.ContextUsed, ev.ContextWindow = t.contextUsed, t.contextWindow
+		t.emittedUsed, t.emittedWindow = t.contextUsed, t.contextWindow
+	}
+	s.emit(catagent.EventTurn, ev)
 	return true
 }
 

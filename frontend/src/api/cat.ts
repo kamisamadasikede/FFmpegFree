@@ -87,6 +87,9 @@ export interface CatMessage {
 
 export interface CatConversationDetail extends CatConversation {
   messages: CatMessage[]
+  /** 打开会话时带上的上下文占用；没有真实数字则为 0 */
+  contextUsed: number
+  contextWindow: number
 }
 
 export interface CreateCatConversationRequest {
@@ -216,7 +219,17 @@ export async function getCatConversation(id: string): Promise<CatConversationDet
   if (!live()) return null
   const raw = await call(CatBinding.GetCatConversation(id))
   if (!raw) return null
-  return { ...mapConv(raw), messages: Array.isArray(raw.messages) ? raw.messages.map(mapMsg) : [] }
+  return {
+    ...mapConv(raw),
+    messages: Array.isArray(raw.messages) ? raw.messages.map(mapMsg) : [],
+    contextUsed: positiveNum(raw.contextUsed),
+    contextWindow: positiveNum(raw.contextWindow),
+  }
+}
+
+function positiveNum(v: unknown): number {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() ? Number(v) : NaN
+  return Number.isFinite(n) && n > 0 ? n : 0
 }
 
 /** 创建会话：agentKind 在这里写入，之后任何接口都不再改它（契约 6.19.2） */

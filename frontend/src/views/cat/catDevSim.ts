@@ -106,7 +106,7 @@ export function simStream(
     if (holdAt >= 0 && i >= holdAt) return // 停在未闭合代码块中间，保持「生成中」
     if (i >= text.length) {
       onMessage({ convId, turnId, messageId, seq: ++seq, op: 'done', role: 'assistant', text: '' })
-      onTurn({ convId, turnId, status: 'completed' })
+      onTurn({ convId, turnId, status: 'completed', contextUsed: 180432, contextWindow: 256000 })
       return
     }
     const part = text.slice(i, holdAt >= 0 ? Math.min(i + step, holdAt) : i + step)

@@ -17,9 +17,12 @@ type ThinkLevel = catagent.ThinkLevel
 type Conversation = store.CatConversation
 
 // ConversationDetail 含消息。
+// ContextUsed / ContextWindow 是打开会话时读到的上下文占用；没有则省略。
 type ConversationDetail struct {
 	store.CatConversation
-	Messages []store.CatMessage `json:"messages"`
+	Messages      []store.CatMessage `json:"messages"`
+	ContextUsed   int64              `json:"contextUsed,omitempty"`
+	ContextWindow int64              `json:"contextWindow,omitempty"`
 }
 
 // CreateConversationRequest 创建会话。
@@ -102,3 +105,65 @@ type RevealProjectRequest struct {
 
 // ProjectEvent 是 cat:project 载荷。
 type ProjectEvent = catagent.ProjectEvent
+
+// ListFilesRequest 是 ListCatFiles 入参（契约 6.19.11.1）。RelPath 空 = 根。
+type ListFilesRequest struct {
+	ConvID  string `json:"convId"`
+	RelPath string `json:"relPath"`
+}
+
+// FileEntry 是文件面板的一层条目。符号链接 / junction 的 IsDir 恒为 false。
+type FileEntry struct {
+	Name    string `json:"name"`
+	RelPath string `json:"relPath"`
+	IsDir   bool   `json:"isDir"`
+	Size    int64  `json:"size"`
+	ModTime int64  `json:"modTime"`
+}
+
+// ListFilesResult 是 ListCatFiles 返回值。Entries 始终是数组（空为 []）。
+type ListFilesResult struct {
+	Root      string      `json:"root"`
+	Entries   []FileEntry `json:"entries"`
+	Truncated bool        `json:"truncated"`
+}
+
+// RevealConversationFolderRequest 是 RevealCatConversationFolder 入参。
+type RevealConversationFolderRequest struct {
+	ConvID string `json:"convId"`
+}
+
+// ReadFileRequest 是 ReadCatFile 入参。RelPath 指向根下的一个文件。
+type ReadFileRequest struct {
+	ConvID  string `json:"convId"`
+	RelPath string `json:"relPath"`
+}
+
+// ReadFileResult 是侧边预览的文件内容。文本放 Content，有界的图片和文档放 DataBase64。
+// Kind：text、image、media、pdf、docx、xlsx、pptx、doc、binary、tooLarge。
+type ReadFileResult struct {
+	RelPath    string `json:"relPath"`
+	Name       string `json:"name"`
+	Kind       string `json:"kind"`
+	Size       int64  `json:"size"`
+	Content    string `json:"content"`
+	DataBase64 string `json:"dataBase64"`
+	Mime       string `json:"mime"`
+	Language   string `json:"language"`
+	Editable   bool   `json:"editable"`
+	ModTime    int64  `json:"modTime"`
+}
+
+// WriteFileRequest 是 WriteCatFile 入参。只覆盖已有文本，Content 为完整新内容。
+type WriteFileRequest struct {
+	ConvID  string `json:"convId"`
+	RelPath string `json:"relPath"`
+	Content string `json:"content"`
+}
+
+// WriteFileResult 是保存后的大小和修改时间。
+type WriteFileResult struct {
+	RelPath string `json:"relPath"`
+	Size    int64  `json:"size"`
+	ModTime int64  `json:"modTime"`
+}

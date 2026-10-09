@@ -173,3 +173,39 @@ func (s *CatService) RevealCatProject(req cat.RevealProjectRequest) error {
 	}
 	return c.RevealCatProject(s.rootCtx(), req)
 }
+
+// ListCatFiles 列当前对话根下的一层（契约 6.19.11）。不读文件内容。
+func (s *CatService) ListCatFiles(req cat.ListFilesRequest) (cat.ListFilesResult, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.ListFilesResult{}, err
+	}
+	return c.ListCatFiles(s.rootCtx(), req)
+}
+
+// RevealCatConversationFolder 在系统文件管理器里打开对话的根（契约 6.19.11.5）。
+func (s *CatService) RevealCatConversationFolder(req cat.RevealConversationFolderRequest) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.RevealCatConversationFolder(s.rootCtx(), req)
+}
+
+// ReadCatFile 读取对话根下的一个文件，供侧边预览。
+func (s *CatService) ReadCatFile(req cat.ReadFileRequest) (cat.ReadFileResult, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.ReadFileResult{}, err
+	}
+	return c.ReadCatFile(s.rootCtx(), req)
+}
+
+// WriteCatFile 覆盖对话根下已有的文本文件。
+func (s *CatService) WriteCatFile(req cat.WriteFileRequest) (cat.WriteFileResult, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.WriteFileResult{}, err
+	}
+	return c.WriteCatFile(s.rootCtx(), req)
+}

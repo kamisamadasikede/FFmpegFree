@@ -33,6 +33,7 @@
           <FIcon :name="catState.access === 'full' ? 'alert' : 'hand'" :size="14" /><span>{{ accessShort }}</span>
         </button>
         <span class="sp" />
+        <CatContextRing v-if="contextUsage" :used="contextUsage.used" :size="contextUsage.window" />
         <button
           ref="chipModel"
           type="button"
@@ -149,6 +150,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, type ComponentPublicInstance } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
+import CatContextRing from '@/components/cat/CatContextRing.vue'
 import { ElMessage } from 'element-plus'
 import { CAT_COPY } from '@/api/cat'
 import { CAT_PROJECT_COPY as PC } from '@/api/catProjects'
@@ -190,6 +192,11 @@ function onStop() {
 
 const draft = ref('')
 const canSend = computed(() => !!draft.value.trim() && !props.busy && !props.running && !props.notReady && !props.checking && !props.missing)
+const contextUsage = computed(() => {
+  const u = catState.context[catState.sel]
+  if (!u || u.used <= 0 || u.window <= 0) return null
+  return u
+})
 const root = ref<HTMLElement>()
 const inEl = ref<HTMLElement>()
 const ta = ref<HTMLTextAreaElement>()
