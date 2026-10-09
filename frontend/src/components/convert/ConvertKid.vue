@@ -5,6 +5,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import { prefersReducedMotion } from '@/utils/motion'
 import ErrorLine from '@/components/common/ErrorLine.vue'
+import MotionCollapse from '@/components/motion/MotionCollapse.vue'
 import ConvertThumb from './ConvertThumb.vue'
 import type { ThumbState } from '@/api/convertRecords'
 import { useConvertRecordsStore, type KidView } from '@/stores/convertRecords'
@@ -182,6 +183,7 @@ const tag = computed(() => {
         </template>
       </div>
       <div v-if="fallback" class="cv-note"><FIcon name="warn" /><span>{{ done ? ENCODER_FALLBACK_CONVERT_DONE : ENCODER_FALLBACK_CONVERT }}</span></div>
+      <MotionCollapse>
       <div v-if="failed" class="cv-errwrap">
         <ErrorLine
           v-if="k.error"
@@ -210,8 +212,9 @@ const tag = computed(() => {
           @view-log="emit('log')"
         />
       </div>
+      </MotionCollapse>
     </div>
-    <div class="cv-ops">
+    <div class="cv-ops" :class="{ 'ff-ops-in': justDone && done }">
       <template v-if="rc">
         <button type="button" class="cv-ib" :aria-label="`预览 ${name}`" title="预览" @click="emit('preview')"><FIcon name="eye" /></button>
         <button type="button" class="cv-ib nfold" :aria-label="`打开所在文件夹 ${name}`" title="打开所在文件夹" @click="emit('reveal')"><FIcon name="folder" /></button>

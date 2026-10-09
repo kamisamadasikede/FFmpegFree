@@ -161,6 +161,7 @@ const summary = computed(() => {
           <div v-if="r.status === 'succeeded' && docResultWarnings(r.result?.warnings).length" class="cv-fnote warn dc-rwarn">
             <FIcon name="info" /><span>{{ docResultWarnings(r.result?.warnings).join(' ') }}</span>
           </div>
+          <MotionCollapse>
           <div v-if="dc.recordError(r)" class="cv-err" role="alert">
             <FIcon name="warn" />
             <div class="t">
@@ -171,8 +172,9 @@ const summary = computed(() => {
               </div>
             </div>
           </div>
+          </MotionCollapse>
         </div>
-        <div class="cv-ops">
+        <div class="cv-ops" :class="{ 'ff-ops-in': justDone(r.id) }">
           <button v-if="r.status === 'running' || r.status === 'queued'" type="button" class="cv-ib" aria-label="取消" title="取消" @click="dc.cancel(r.id)"><FIcon name="x" /></button>
           <button v-else-if="r.status === 'failed' && dc.recordError(r)?.retryable" type="button" class="cv-ib" aria-label="重试" title="重试" @click="dc.retry(r.id)"><FIcon name="retry" /></button>
           <button v-if="r.status === 'succeeded'" type="button" class="cv-ib" aria-label="预览" title="预览" @click="previewRecord(r, $event)"><FIcon name="eye" /></button>

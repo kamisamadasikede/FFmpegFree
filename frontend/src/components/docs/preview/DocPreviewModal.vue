@@ -6,6 +6,7 @@ import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, r
 import FIcon from '@/components/icon/FIcon.vue'
 import PreviewShell from '@/components/preview/PreviewShell.vue'
 import MotionToast from '@/components/motion/MotionToast.vue'
+import MotionCollapse from '@/components/motion/MotionCollapse.vue'
 import PreviewConfirm, { type ConfirmButton } from '@/components/preview/PreviewConfirm.vue'
 import PvPdf from './PvPdf.vue'
 import PvRawDocx from './PvRawDocx.vue'
@@ -465,10 +466,12 @@ const onGone = () => st.onUrlGone()
     <div ref="bodyEl" class="pvx-body">
       <!-- 编辑 -->
       <template v-if="mode === 'edit'">
+        <MotionCollapse>
         <div v-if="saveErr" class="pvx-serr" role="alert">
           <FIcon name="warn" /><span>{{ saveErr.text }}</span><span class="sp" />
           <button v-for="a in saveErr.actions" :key="a" type="button" class="btn sm" :class="{ pri: a === 'saveAs' || a === 'saveAsUtf8' }" :aria-disabled="saving || undefined" @click="onErrAction(a)">{{ ERR_LABEL[a] }}</button>
         </div>
+        </MotionCollapse>
         <div v-if="missing" class="pvx-rough" role="status"><FIcon name="info" />{{ EDIT_MISSING_BANNER }}</div>
         <template v-if="editingDocx">
           <PvDocxEdit v-if="docxBytes" ref="docxRef" :bytes="docxBytes" :title="title" @dirty="dirty = true" @failed="saveErr = { text: UNMAPPED, actions: [] }" />
