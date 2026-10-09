@@ -64,6 +64,26 @@
   scale: 0.96;
 }
 
+/* ── 下拉 / 「更多」菜单：<MotionMenu>。淡入 + 4px + 0.98→1，120ms ease-out；收起 100ms ease-in 且不接收点击。
+   默认从右上角（按钮在菜单右上方）展开；左对齐 / 与按钮同宽的菜单在自己的样式里改 transform-origin ── */
+.ff-menu-enter-active,
+.ff-menu-leave-active {
+  transform-origin: top right;
+}
+.ff-menu-enter-active {
+  transition: opacity var(--ff-dur-quick) var(--ff-ease-out), translate var(--ff-dur-quick) var(--ff-ease-out), scale var(--ff-dur-quick) var(--ff-ease-out);
+}
+.ff-menu-leave-active {
+  transition: opacity 100ms var(--ff-ease-in), translate 100ms var(--ff-ease-in), scale 100ms var(--ff-ease-in);
+  pointer-events: none;
+}
+.ff-menu-enter-from,
+.ff-menu-leave-to {
+  opacity: 0;
+  translate: 0 -4px;
+  scale: 0.98;
+}
+
 /* ── 全局消息（Element Plus ElMessage，各页的成功 / 警告提示）：原来从自身高度外滑入、0.4s；
    改成从上方 8px 淡入 + 0.96→1，200ms ease-out；消失 150ms ease-in；多条叠放时 top 平滑移动 ── */
 .el-message {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 // 转换页子记录（每次转换一条，设计 §3.2）：三行 + 右侧操作。状态来自 KidView（记录 + 任务 store 的实时状态）。
+import MotionMenu from '@/components/motion/MotionMenu.vue'
 import MidEllipsis from '@/components/common/MidEllipsis.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
@@ -239,19 +240,23 @@ const tag = computed(() => {
         <!-- v0.24：成功记录（含文件被移走的）总有“更多”：重转… / 删除记录（1024 下删除记录收进来）；列表很窄时打开所在文件夹也收进来 -->
         <span v-if="v24" class="cv-morewrap">
           <button ref="moreBtn" type="button" class="cv-ib" :aria-label="`更多：${RECONVERT_MENU}、删除记录 ${name}`" title="更多" aria-haspopup="menu" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><FIcon name="more" /></button>
+          <MotionMenu>
           <div v-if="menuOpen" class="cv-more-menu" role="menu">
             <button type="button" role="menuitem" class="cv-nmenu" :aria-disabled="gone || undefined" :title="gone ? '文件已被移动或删除' : undefined" @click="!gone && menu(() => emit('reveal'))"><FIcon name="folder" />打开所在文件夹</button>
             <button type="button" role="menuitem" :aria-disabled="!rcState.mode || undefined" :title="rcState.tip || undefined" :aria-label="rcState.tip ? `${RECONVERT_MENU}（${rcState.tip}）` : RECONVERT_MENU" @click="onReconvert"><FIcon name="retry" />{{ RECONVERT_MENU }}</button>
             <button type="button" role="menuitem" @click="menu(() => emit('remove'))"><FIcon name="trash" />删除记录</button>
           </div>
+          </MotionMenu>
         </span>
         <!-- 列表宽度 < 480px（§14.5）：打开所在文件夹、删除记录收进“更多” -->
         <span v-else class="cv-kmore">
           <button ref="moreBtn" type="button" class="cv-ib nmore" :aria-label="`更多：打开所在文件夹、删除记录 ${name}`" title="更多" aria-haspopup="menu" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><FIcon name="more" /></button>
+          <MotionMenu>
           <div v-if="menuOpen" class="cv-more-menu" role="menu">
             <button type="button" role="menuitem" :aria-disabled="gone || undefined" :title="gone ? '文件已被移动或删除' : undefined" @click="!gone && menu(() => emit('reveal'))"><FIcon name="folder" />打开所在文件夹</button>
             <button type="button" role="menuitem" @click="menu(() => emit('remove'))"><FIcon name="trash" />删除记录</button>
           </div>
+          </MotionMenu>
         </span>
       </template>
     </div>

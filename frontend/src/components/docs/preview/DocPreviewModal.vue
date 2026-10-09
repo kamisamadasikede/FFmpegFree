@@ -2,6 +2,7 @@
 // 文档页统一预览弹窗（契约 6.12.32 / 6.12.37~6.12.52；设计 v0.3 §九 / §十一，场景 16~19、25~49）。
 // 查看：pdf / raw(docx、xlsx) / text / md / html / csv / 各种状态；编辑：md（左写右预览）、csv（表格）、txt / html（源码）、docx（开关后）。
 // 所有保存出错都保留编辑内容；错误只按 code + reason 映射，不显示后端原文。
+import MotionMenu from '@/components/motion/MotionMenu.vue'
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import PreviewShell from '@/components/preview/PreviewShell.vue'
@@ -450,10 +451,12 @@ const onGone = () => st.onUrlGone()
         <span v-if="dirty" class="pvx-dirty">已修改</span>
         <span class="pvx-asw">
           <button type="button" class="btn sm" :aria-disabled="saving || undefined" :aria-expanded="offerUtf8 ? asMenu : undefined" @click="onSaveAsClick">另存为<FIcon v-if="offerUtf8" name="down" :size="12" /></button>
+          <MotionMenu>
           <span v-if="asMenu" class="pvx-menu" role="menu" @mouseleave="asMenu = false">
             <button type="button" role="menuitem" @click="asMenu = false; saveAs('keep')">另存为</button>
             <button type="button" role="menuitem" @click="asMenu = false; saveAs('utf8')">{{ SAVE_AS_UTF8_LABEL }}</button>
           </span>
+          </MotionMenu>
         </span>
         <button type="button" class="btn sm" :aria-disabled="saving || undefined" @click="cancelEdit">取消</button>
         <button type="button" class="btn sm pri" :aria-disabled="saving || missing || undefined" :title="missing ? EDIT_MISSING_BANNER : undefined" @click="!saving && !missing && saveText()">
