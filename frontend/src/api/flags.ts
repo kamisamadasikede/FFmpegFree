@@ -101,11 +101,13 @@ export const CAT_UI_ENABLED: boolean = false
 export const CAT_BACKEND_READY: boolean = true
 
 /**
- * Cat 项目（契约 v0.31 §6.19.10 + PM 10-09 补充的 RevealCatProject / RelocateCatProject）。
- * 后端 ListCatProjects / CreateCatProject / RenameCatProject / DeleteCatProject / RevealCatProject / RelocateCatProject
- * 和迁移 0011 还没合入，默认 false：
+ * Cat 项目（契约 v0.31 §6.19.10 + v0.31.1 RevealCatProject / RelocateCatProject）。
+ * 后端 #181 已合入 v2（f588fad，迁移 0011），绑定已生成，联调打开（true）：
+ * - Wails 里：ListCatProjects / CreateCatProject / RenameCatProject / DeleteCatProject / RevealCatProject / RelocateCatProject
+ *   调生成的 CatService 绑定（api/catProjects.ts），订阅 cat:project；进入页面和窗口获得焦点时重新 ListCatProjects；
+ *   新建对话带 projectId（项目行「+」）
  * - 纯浏览器（没有 window.go）：项目走 api/catProjects.ts 里的内存模拟（走查 / 截图）
- * - Wails 里：项目列表为空（「还没有项目。」），新建项目提示「下一期开放。」，不调任何项目接口，新建对话不带 projectId
- * 后端合入并生成绑定后改 true：按名字调 CatService 的上述方法（绑定不存在时仍按未接通处理），订阅 cat:project。
+ * 改回 false 且在 Wails 里：项目列表为空（「还没有项目。」），新建项目提示「下一期开放。」，不调任何项目接口。
+ * 页面入口仍由 CAT_UI_ENABLED 控制（正式包默认关）。
  */
-export const CAT_PROJECTS_BACKEND_READY: boolean = false
+export const CAT_PROJECTS_BACKEND_READY: boolean = true

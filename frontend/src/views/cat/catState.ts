@@ -6,7 +6,7 @@
  * - 访问默认「请求批准」；「完全访问」不可选
  * - 项目（契约 v0.31 §6.19.10）：对话归属在创建时决定（项目行「+」带 projectId），之后不可改，没有「移到项目」；
  *   文件夹不见了 → 项目标灰、对话可看不可发；窗口获得焦点时重新 ListCatProjects；cat:project 更新 missing。
- *   接口见 api/catProjects.ts（CAT_PROJECTS_BACKEND_READY，默认关；浏览器走内存模拟）
+ *   接口见 api/catProjects.ts（CAT_PROJECTS_BACKEND_READY=true 走真绑定；浏览器走内存模拟）
  */
 import { computed, reactive } from 'vue'
 import { Environment } from '../../../wailsjs/runtime/runtime'
@@ -388,8 +388,10 @@ let seq = 0
 
 /**
  * 发送：新对话创建时写入 agentKind（不可再改）；已有对话只带会话 id。
+ * 返回值：后端没收下这条消息（CAT_PROJECT_MISSING：没建对话 / 没存用户消息）且用户还停在原处时返回原文，
+ * 调用方放回输入框（CatComposer.restoreDraft）；其它情况返回 undefined。
  */
-export async function sendMessage(text: string) {
+export async function sendMessage(text: string): Promise<string | undefined> {
   const t = text.trim()
   if (!t || catState.creating) return
   let id = catState.sel
@@ -431,9 +433,9 @@ export async function sendMessage(text: string) {
       catState.newProjectId = ''
     } catch (e) {
       if (project && toAppError(e).code === 'CAT_PROJECT_MISSING') {
-        // 不创建对话；欢迎页随之显示「项目文件夹不见了。」
+        // 不创建对话；欢迎页随之显示「项目文件夹不见了。」，文字放回输入框
         project.missing = true
-        return
+        return catState.sel === NEW_CONV && catState.newProjectId === project.id ? text : undefined
       }
       id = `local-${Date.now().toString(36)}-${++seq}`
       if (project) {
@@ -495,7 +497,7 @@ export async function sendMessage(text: string) {
       for (let i = l.length - 1; i >= 0; i--) if (l[i].kind === 'user' && (l[i] as { text: string }).text === t) { l.splice(i, 1); break }
       const p = findConv(id)?.project
       if (p) p.missing = true
-      return
+      return catState.sel === id ? text : undefined
     }
     endTurn(id, err.code === 'CANCELED' ? 'cancelled' : err.code === 'CAT_NOT_READY' ? 'not_ready' : 'failed', token)
   }

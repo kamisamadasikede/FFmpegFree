@@ -78,7 +78,7 @@
               :checking="catChecking"
               :missing="projectMissing"
               :project-name="currentProject?.name ?? ''"
-              @send="sendMessage"
+              @send="onSend($event, composer)"
             />
             <div class="wl-try">
               <div class="wl-try-hd">试试这些指令</div>
@@ -117,6 +117,7 @@
             <FIcon name="info" :size="14" />{{ CAT_COPY.notReady }}
           </div>
           <CatComposer
+            ref="convComposer"
             :ctx-name="current.project?.name ?? 'Cat'"
             :ctx-branch="current.project?.branch ?? 'main'"
             :running="!!turn"
@@ -124,7 +125,7 @@
             :not-ready="catNotReady"
             :checking="catChecking"
             :missing="projectMissing"
-            @send="sendMessage"
+            @send="onSend($event, convComposer)"
             @stop="stopTurn()"
           />
         </template>
@@ -169,6 +170,12 @@ const isNew = computed(() => catState.sel === NEW_CONV)
 const current = computed(() => (isNew.value ? null : findConv(catState.sel)))
 const messages = computed(() => (isNew.value ? [] : messagesOf(catState.sel)))
 const composer = ref<InstanceType<typeof CatComposer>>()
+const convComposer = ref<InstanceType<typeof CatComposer>>()
+/** 发送；后端没收下（项目文件夹不见了）时把文字放回输入框 */
+async function onSend(text: string, c: InstanceType<typeof CatComposer> | undefined) {
+  const back = await sendMessage(text)
+  if (back) c?.restoreDraft(back)
+}
 /** 当前会话进行中的一轮 */
 const turn = computed(() => (isNew.value ? undefined : catState.turns[catState.sel]))
 /** 还没收到第一段文字时显示「正在思考…」 */
