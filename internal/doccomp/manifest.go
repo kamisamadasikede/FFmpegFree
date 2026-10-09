@@ -38,6 +38,16 @@ const (
 	MinMinor = 2
 )
 
+// DownloadMin* 是应用下载的组件要求的最低版本前三段（契约 6.12.55：26.2.6）。
+const (
+	DownloadMinMajor = 26
+	DownloadMinMinor = 2
+	DownloadMinPatch = 6
+)
+
+// OutdatedDownloadHint 是 Windows / macOS 上应用下载的组件版本太旧时的提示（契约 6.12.55）。
+const OutdatedDownloadHint = "文档组件版本太旧，请重新下载。"
+
 // Manifest 是 manifest.json。
 type Manifest struct {
 	SchemaVersion int                `json:"schemaVersion"`

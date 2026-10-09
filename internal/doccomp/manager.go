@@ -179,17 +179,27 @@ func (m *Manager) pkgPath() string {
 	return filepath.Join(m.tmpDir(), "doc-"+m.version+"-"+m.pkg.SHA256[:12]+"."+m.pkg.Type)
 }
 
-// view 填上派生字段：componentState、engines（v0.27，6.12.28）。
+// view 填上派生字段：componentState、engines（v0.27，6.12.28；v0.27.2 太旧时 engines.source=downloaded|system）。
 func (m *Manager) view(s Status) Status {
 	s.ComponentState = s.State
 	s.Engines = []EngineInfo{}
 	ready := s.State == StateReady
+	outdated := s.State == StateOutdated
+	src := s.Source
+	if !ready {
+		s.Source = "" // 顶层 source 只在 ready 时有（契约）；outdated 时仍用 src 填 engines
+	}
 	// Windows / macOS 始终列出文档组件（没下载时 installed=false）；Linux 没装时不列。
-	if ready || m.pkg != nil {
-		e := EngineInfo{ID: "component", Name: "文档组件", Installed: ready, Available: ready,
-			Families: []string{"text", "sheet", "slide"}}
-		if ready {
-			e.Version, e.Source = s.Version, s.Source
+	if ready || outdated || m.pkg != nil {
+		e := EngineInfo{ID: "component", Name: "文档组件", Families: []string{"text", "sheet", "slide"}}
+		switch {
+		case ready:
+			e.Installed, e.Available, e.Version, e.Source = true, true, s.Version, src
+		case outdated && s.Version != "":
+			// 6.12.55：太旧但仍“装了”——installed=true、available=false，source 为 downloaded 或 system
+			e.Installed, e.Available, e.Version, e.Source = true, false, s.Version, src
+		default:
+			e.Installed, e.Available = false, false
 		}
 		s.Engines = append(s.Engines, e)
 	}
@@ -282,47 +292,82 @@ func (m *Manager) detect(ctx context.Context) {
 func (m *Manager) runDetect(ctx context.Context) Status {
 	_ = os.MkdirAll(m.tmpDir(), 0o755)
 	var cands []struct{ path, source string }
-	if m.version != "" {
-		if p := findInTree(m.finalDir(), 4); p != "" {
+	// 应用下载：扫描 doc/ 下所有非 .staging 的版本目录（6.12.55）；清单版本优先。
+	seenDL := map[string]bool{}
+	addDL := func(dir string) {
+		if p := findInTree(dir, 4); p != "" && !seenDL[p] {
+			seenDL[p] = true
 			cands = append(cands, struct{ path, source string }{p, SourceDownloaded})
+		}
+	}
+	if m.version != "" {
+		addDL(m.finalDir())
+	}
+	if ents, err := os.ReadDir(filepath.Join(m.cfg.Dir, "doc")); err == nil {
+		for _, e := range ents {
+			if !e.IsDir() || strings.HasSuffix(e.Name(), ".staging") || e.Name() == m.version {
+				continue
+			}
+			addDL(filepath.Join(m.cfg.Dir, "doc", e.Name()))
 		}
 	}
 	for _, p := range m.cfg.Candidates() {
 		cands = append(cands, struct{ path, source string }{p, SourceSystem})
 	}
-	outdated := ""
+	outdatedVer, outdatedSrc := "", ""
 	for _, c := range cands {
 		if !regular(c.path) {
 			continue
 		}
 		start := time.Now()
 		v, err := m.cfg.Validate(ctx, c.path, m.tmpDir())
+		// 应用下载的组件还要满足前三段 ≥ 26.2.6（系统安装仍按 ≥ 7.2）
+		if err == nil && c.source == SourceDownloaded && !DownloadVersionOK(v) {
+			err = installFailed("check=outdated")
+		}
 		m.cfg.Logf("文档组件检测 %s（%s）：版本 %q，%v，用时 %s", c.path, c.source, v, err, time.Since(start).Round(time.Millisecond))
 		if err == nil {
 			s := m.base(StateReady)
 			s.Version, s.Source, s.Path = v, c.source, c.path
 			return s
 		}
-		if ae := apperr.From(err); ae != nil && ae.Detail == "check=outdated" && outdated == "" {
-			outdated = v
+		if ae := apperr.From(err); ae != nil && ae.Detail == "check=outdated" && outdatedVer == "" {
+			outdatedVer, outdatedSrc = v, c.source
 		}
 	}
-	if outdated != "" {
+	if outdatedVer != "" {
 		s := m.base(StateOutdated)
-		s.Version = outdated
-		e := m.notReadyError()
-		if m.pkg == nil {
-			e = apperr.New(apperr.DocComponentNotReady, LinuxOutdatedHint) // v0.27（6.12.24）：Linux 上版本太旧的那一句
-		}
-		// 架构师确认（v0.26 实现 PR）：Win/mac 上 componentState=outdated、canDownload=true，提交转换报 DOC_COMPONENT_NOT_READY + reason=outdated
-		s.Error = e.WithDetail("reason=outdated\nversion=" + outdated)
+		s.Version, s.Source = outdatedVer, outdatedSrc // Source 只给 view 填 engines，对外仍清空
+		e := m.outdatedError()
+		s.Error = e.WithDetail("reason=outdated\nversion=" + outdatedVer)
 		return s
 	}
 	s := m.base(StateMissing)
 	if m.pkg == nil {
-		s.Error = m.notReadyError()
+		s.Error = m.notReadyError().WithDetail("reason=missing")
 	}
 	return s
+}
+
+// removeOldDocDirs 装好新版本后删掉 doc/ 下其他版本目录（6.12.55）；删不掉只记日志。
+func (m *Manager) removeOldDocDirs(keep string) {
+	ents, err := os.ReadDir(filepath.Join(m.cfg.Dir, "doc"))
+	if err != nil {
+		return
+	}
+	keep = filepath.Clean(keep)
+	for _, e := range ents {
+		if !e.IsDir() || strings.HasSuffix(e.Name(), ".staging") {
+			continue
+		}
+		dir := filepath.Join(m.cfg.Dir, "doc", e.Name())
+		if filepath.Clean(dir) == keep {
+			continue
+		}
+		if err := os.RemoveAll(dir); err != nil {
+			m.cfg.Logf("删除旧文档组件目录 %s 失败: %v", dir, err)
+		}
+	}
 }
 
 // notReadyError 是 DOC_COMPONENT_NOT_READY（Linux 用唯一允许出现组件名字的那句话）。
@@ -333,16 +378,31 @@ func (m *Manager) notReadyError() *apperr.AppError {
 	return apperr.New(apperr.DocComponentNotReady, "需要先下载文档组件。")
 }
 
-// NotReadyError 是提交 / 开始转换时组件不可用的错误：版本太旧时带 reason=outdated（Linux 用“版本太旧”那句），否则见 notReadyError。
+// outdatedError 是 componentState=outdated 时的 DOC_COMPONENT_NOT_READY（6.12.55）。
+func (m *Manager) outdatedError() *apperr.AppError {
+	if m.pkg == nil {
+		return apperr.New(apperr.DocComponentNotReady, LinuxOutdatedHint)
+	}
+	return apperr.New(apperr.DocComponentNotReady, OutdatedDownloadHint)
+}
+
+// NotReadyError 是提交 / 开始转换时组件不可用的错误：detail 首行 reason=<componentState>（6.12.55）。
 func (m *Manager) NotReadyError() *apperr.AppError {
 	m.mu.Lock()
 	st := m.st
 	m.mu.Unlock()
-	if st.State == StateOutdated && st.Error != nil {
-		e := *st.Error
-		return &e
+	switch st.State {
+	case StateOutdated:
+		if st.Error != nil {
+			e := *st.Error
+			return &e
+		}
+		return m.outdatedError().WithDetail("reason=outdated")
+	case StateMissing, StateDownloading, StatePreparing, StateFailed, StateChecking:
+		return m.notReadyError().WithDetail("reason=" + st.State)
+	default:
+		return m.notReadyError().WithDetail("reason=missing")
 	}
-	return m.notReadyError()
 }
 
 // Install 开始或继续下载 + 准备，立即返回（downloading / preparing）；幂等。
@@ -513,6 +573,7 @@ func (m *Manager) doInstall(ctx context.Context, mirror string, pkgReady bool) e
 	m.cfg.Logf("文档组件准备完成，用时 %s", time.Since(t1).Round(time.Second))
 	r := m.base(StateReady)
 	r.Version, r.Source, r.Path = ver, SourceDownloaded, filepath.Join(final, rel)
+	m.removeOldDocDirs(final)
 	m.set(r)
 	return nil
 }

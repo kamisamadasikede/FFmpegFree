@@ -216,7 +216,27 @@ func ParseVersion(out string) (full string, major, minor int, ok bool) {
 	return m[0], major, minor, true
 }
 
-// VersionOK 判断版本是否 ≥ 7.2（26.2 这类新版本号按数值比较）。
+// VersionOK 判断系统安装版本是否 ≥ 7.2（26.2 这类新版本号按数值比较）。
 func VersionOK(major, minor int) bool {
 	return major > MinMajor || major == MinMajor && minor >= MinMinor
+}
+
+// DownloadVersionOK 判断应用下载的组件是否达到契约写死的版本（前三段 ≥ 26.2.6，6.12.55）。
+func DownloadVersionOK(full string) bool {
+	parts := strings.Split(full, ".")
+	nums := make([]int, 3)
+	for i := 0; i < 3 && i < len(parts); i++ {
+		n, err := strconv.Atoi(parts[i])
+		if err != nil {
+			return false
+		}
+		nums[i] = n
+	}
+	if nums[0] != DownloadMinMajor {
+		return nums[0] > DownloadMinMajor
+	}
+	if nums[1] != DownloadMinMinor {
+		return nums[1] > DownloadMinMinor
+	}
+	return nums[2] >= DownloadMinPatch
 }

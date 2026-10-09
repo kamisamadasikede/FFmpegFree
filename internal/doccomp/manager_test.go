@@ -313,15 +313,60 @@ func TestOutdatedWithPackage(t *testing.T) {
 	m.Start()
 	s := waitState(t, m, StateOutdated)
 	if s.ComponentState != StateOutdated || !s.CanDownload || s.DownloadBytes != 1000 || s.InstallBytes != InstallBytesApprox ||
-		s.Error == nil || s.Error.Message != "需要先下载文档组件。" || !strings.Contains(s.Error.Detail, "reason=outdated") {
+		s.Error == nil || s.Error.Message != OutdatedDownloadHint || !strings.Contains(s.Error.Detail, "reason=outdated") {
 		t.Fatalf("%+v", s)
 	}
 	e := m.NotReadyError()
-	if e.Code != apperr.DocComponentNotReady || !strings.HasPrefix(e.Detail, "reason=outdated\n") || strings.Contains(e.Message, "LibreOffice") {
+	if e.Code != apperr.DocComponentNotReady || e.Message != OutdatedDownloadHint || !strings.HasPrefix(e.Detail, "reason=outdated\n") || strings.Contains(e.Message, "LibreOffice") {
 		t.Fatalf("%+v", e)
 	}
-	if len(s.Engines) != 1 || s.Engines[0].Installed || s.Engines[0].Available {
+	if len(s.Engines) != 1 || !s.Engines[0].Installed || s.Engines[0].Available || s.Engines[0].Source != SourceSystem || s.Engines[0].Version != "7.1.4.2" {
 		t.Fatalf("engines %+v", s.Engines)
+	}
+}
+
+func TestPreferSystemWhenDownloadedOutdated(t *testing.T) {
+	sys := filepath.Join(t.TempDir(), "soffice")
+	os.WriteFile(sys, []byte("x"), 0o755)
+	root := t.TempDir()
+	oldDir := filepath.Join(root, "doc", "26.2.5")
+	os.MkdirAll(filepath.Join(oldDir, "program"), 0o755)
+	oldExe := filepath.Join(oldDir, "program", exeName())
+	os.WriteFile(oldExe, []byte("x"), 0o755)
+	m := New(Config{Dir: root, Version: "26.2.6",
+		Package:    &Package{Type: "msi", Size: 1000, SHA256: strings.Repeat("b", 64), URLs: []string{"http://127.0.0.1:1/x.msi"}},
+		Candidates: func() []string { return []string{sys} },
+		Validate: func(ctx context.Context, e, tmp string) (string, error) {
+			if e == oldExe {
+				return "26.2.5.2", nil // 通过 ≥7.2，但 DownloadVersionOK 会判太旧
+			}
+			if e == sys {
+				return "25.2.3.2", nil
+			}
+			return "", installFailed("check=missing")
+		}})
+	m.Start()
+	s := waitState(t, m, StateReady)
+	if s.Source != SourceSystem || s.Version != "25.2.3.2" || s.ComponentState != StateReady {
+		t.Fatalf("%+v", s)
+	}
+}
+
+func TestDownloadVersionOK(t *testing.T) {
+	for _, c := range []struct {
+		v  string
+		ok bool
+	}{
+		{"26.2.6.3", true},
+		{"26.2.6", true},
+		{"26.2.5.2", false},
+		{"26.1.0", false},
+		{"7.6.4.1", false},
+		{"27.0.0", true},
+	} {
+		if DownloadVersionOK(c.v) != c.ok {
+			t.Errorf("%s → %v", c.v, !c.ok)
+		}
 	}
 }
 
