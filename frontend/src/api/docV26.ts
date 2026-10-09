@@ -1,6 +1,6 @@
 /**
  * DocService v0.26（契约 6.12.9~6.12.22）。
- * DOC_V26_BACKEND_READY=false 或无 Wails 绑定时走模拟；绑定落地后改 flags 即可。
+ * DOC_V26_BACKEND_READY=true 且有 Wails 绑定时调真实 DocService；否则走模拟（?doc=… 走查）。
  */
 import { AppError, callService, toAppError } from '@/api/call'
 import { DOC_V26_BACKEND_READY } from '@/api/flags'
@@ -30,8 +30,8 @@ export interface DocEngineInfo {
   /** 后端给的显示名（Microsoft Office / WPS / 文档组件），前端直接显示 */
   name: string
   version: string
-  /** 只有已安装的 component 有：downloaded | system */
-  source?: 'downloaded' | 'system' | (string & {})
+  /** 只有已安装的 component 有：downloaded | system（#128：没有 component 这个值） */
+  source?: 'downloaded' | 'system'
   /** office / wps 恒为 true；component 没下载时 false */
   installed: boolean
   families: ('text' | 'sheet' | 'slide' | (string & {}))[]
@@ -99,7 +99,6 @@ export interface DocSource {
   family: 'text' | 'sheet' | 'slide'
   sheetCount: number
   copyState?: string
-  sizeBytes?: number
   recordCount?: number
   lastActivityAt?: number
 }
@@ -333,8 +332,10 @@ function v27(s: SimStatus): DocComponentStatus {
   if (local === 'office' || local === 'both') engines.push({ id: 'office', name: 'Microsoft Office', version: '16.0.17928.20114', installed: true, families: ['text', 'sheet', 'slide'], available: true })
   if (local === 'wps' || local === 'both') engines.push({ id: 'wps', name: 'WPS', version: '12.1.0.18276', installed: true, families: ['text', 'sheet', 'slide'], available: true })
   const compReady = s.state === 'ready'
+  // engines[].source 只有 downloaded|system（#128）；status.source 仍可能是 office/wps
+  const engSource: 'downloaded' | 'system' = s.source === 'system' ? 'system' : 'downloaded'
   if (simOs !== 'linux' || compReady)
-    engines.push({ id: 'component', name: '文档组件', version: compReady ? s.version : '', ...(compReady ? { source: s.source || 'downloaded' } : {}), installed: compReady, families: ['text', 'sheet', 'slide'], available: compReady })
+    engines.push({ id: 'component', name: '文档组件', version: compReady ? s.version : '', ...(compReady ? { source: engSource } : {}), installed: compReady, families: ['text', 'sheet', 'slide'], available: compReady })
   const overallReady = !!local || compReady
   return {
     ...s,
@@ -491,7 +492,7 @@ export async function addDocSources(paths: string[]): Promise<AddDocSourceResult
       family: fam,
       sheetCount,
       copyState: 'ready',
-      sizeBytes: 1024 * 100,
+      totalBytes: 1024 * 100,
       recordCount: 0,
       lastActivityAt: Date.now(),
     }
@@ -550,7 +551,8 @@ export interface DocSourcePage {
 }
 export interface ConvertSubmitResult {
   tasks: DocRecord[]
-  skipped?: { sourceId: string; reason: string }[]
+  /** 后端恒为数组（#128）；没有跳过时 [] */
+  skipped: { sourceId: string; reason: string }[]
 }
 
 export async function listDocSources(f: { limit: number; offset: number; recordLimit: number; status?: string }): Promise<DocSourcePage> {

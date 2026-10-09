@@ -1226,5 +1226,6 @@ export async function runApiChecks(): Promise<string[]> {
   eq('chunkRanges：每段 ≤ max，覆盖整段', chunkRanges(10_000_000, 4 * 1024 * 1024), [[0, 4194304], [4194304, 8388608], [8388608, 10000000]])
   eq('bytesToBase64', bytesToBase64(new Uint8Array([72, 105])), btoa('Hi'))
   eq('另存为同格式', [isSameFormat('md', 'markdown'), isSameFormat('html', 'htm'), isSameFormat('docx', 'doc'), saveFilters('csv')[0].patterns], [true, true, false, ['*.csv']])
+
   return fails
 }

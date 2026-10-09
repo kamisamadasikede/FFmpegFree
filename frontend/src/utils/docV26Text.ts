@@ -20,7 +20,7 @@ export const DOC_NEED_COMPONENT = '需要文档组件'
 export const DOC_SIMPLE_PDF_LABEL = '简易转换（只保留文字）'
 export const DOC_SIMPLE_HINT = '下载文档组件后可保留图片和排版'
 export const DOC_MD_HINT = '转成 Markdown 只保留文字和基本格式，图片和复杂表格会丢失。'
-// 产品 10-09 最终定稿（格式说明行和 csv_first_sheet_only 结果警告共用）
+// 产品 10-09 定稿（契约 / 设计统一；格式说明行和 csv_first_sheet_only 结果警告共用）
 export const DOC_CSV_HINT = '转成 CSV 只会保留第一个工作表。'
 export const DOC_PDF_INPUT = 'PDF 暂时不能转成其他格式。'
 export const DOC_PREPARING = '正在准备文档组件…'

@@ -41,7 +41,7 @@ const FAM: Record<string, string> = { text: '文档', sheet: '表格', slide: '�
 const meta = computed(() => {
   const parts = [KIND[src.value.ext] ?? FAM[src.value.family] ?? '']
   if (src.value.family === 'sheet' && src.value.ext !== 'csv' && src.value.sheetCount > 0) parts.push(`${src.value.sheetCount} 个工作表`)
-  if (src.value.sizeBytes) parts.push(formatBytes(src.value.sizeBytes))
+  if (src.value.totalBytes) parts.push(formatBytes(src.value.totalBytes))
   return parts.filter(Boolean).join(' · ')
 })
 
