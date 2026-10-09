@@ -161,14 +161,19 @@ func (s *Service) SaveDocTextAs(ctx context.Context, req DocSaveAsRequest) (DocS
 	if int64(len(data)) > maxEditTextBytes || (kind == "csv" && req.Rows != nil && len(req.Rows) > maxEditCSVRows) {
 		return DocSaveResult{}, apperr.New(apperr.InvalidArgument, "内容太多，没法在这里保存。请用默认程序打开编辑。").WithDetail("reason=too_large")
 	}
-	// 目标被别的记录用着：正在转换 converting，否则 in_use；都不写
-	if err := s.conflictIfTargetBusy(ctx, target); err != nil {
+	// 目标正在转换 → converting；被别的记录用着 → in_use；都不写。
+	// 目标就是这一行自己的原文件 / 输出 → 当作覆盖保存，写完刷新这一行（6.12.42，架构师定）。
+	own, err := s.saveAsTargetCheck(ctx, t, target)
+	if err != nil {
 		return DocSaveResult{}, err
 	}
 	unlock := lockPath(target)
 	defer unlock()
 	if err := writeAtomic(target, data); err != nil {
 		return DocSaveResult{}, err
+	}
+	if own {
+		s.afterTextSave(ctx, t, data)
 	}
 	s.allowReveal(target)
 	return DocSaveResult{
@@ -287,18 +292,55 @@ func (s *Service) allowReveal(path string) {
 	}
 }
 
-// conflictIfTargetBusy 另存为目标检查（6.12.42 / 6.12.49，架构师定）：目标是任一记录正在转换的输入或输出
-// → TASK_CONFLICT reason=converting；是某个源文件行的原文件、某条记录的输出或某个副本 → IO_ERROR reason=in_use。
-// 两种情况都拒绝，不写入。
-func (s *Service) conflictIfTargetBusy(ctx context.Context, target string) error {
+// isOwnTarget 另存为的目标是不是正在编辑的这一行自己的原文件（源文件行）或输出（结果行）。
+func isOwnTarget(t *editTarget, target string) bool {
+	k := pathKey(realPath(target))
+	cands := []string{t.WritePath}
+	if t.Source != nil {
+		cands = append(cands, t.Source.OriginalPath)
+	}
+	if t.Task != nil {
+		cands = append(cands, t.Task.OutputPath)
+	}
+	for _, c := range cands {
+		if c == "" {
+			continue
+		}
+		if pathKey(realPath(c)) == k || pathKey(c) == pathKey(target) {
+			return true
+		}
+	}
+	return false
+}
+
+// saveAsTargetCheck 另存为目标检查（6.12.42 / 6.12.49，架构师定）：
+//   - 目标是任一记录正在转换的输入或输出（含这一行自己正在转换 / 重转）→ TASK_CONFLICT reason=converting；
+//   - 目标是别的源文件行的原文件、别的记录的输出或某个副本 → IO_ERROR reason=in_use；
+//   - 目标就是这一行自己的原文件 / 输出 → own=true，调用方按覆盖保存处理并刷新这一行。
+func (s *Service) saveAsTargetCheck(ctx context.Context, t *editTarget, target string) (own bool, err error) {
+	own = isOwnTarget(t, target)
+	if own {
+		if err := s.sourceBusy(ctx, t); err != nil {
+			return true, err
+		}
+	}
+	return own, s.conflictIfTargetBusy(ctx, target, t)
+}
+
+// conflictIfTargetBusy 目标正在转换 → converting；被别的记录用着 → in_use（这一行自己不算）。
+func (s *Service) conflictIfTargetBusy(ctx context.Context, target string, t *editTarget) error {
 	type usage interface {
-		DocTargetPathUsage(ctx context.Context, target string) (converting, inUse bool, err error)
+		DocTargetPathUsage(ctx context.Context, target, ownSourceID, ownTaskID string) (converting, inUse bool, err error)
 	}
 	u, ok := s.cfg.Sources.(usage)
 	if !ok {
 		return nil
 	}
-	converting, inUse, err := u.DocTargetPathUsage(ctx, target)
+	var ownSrc, ownTask string
+	if t != nil {
+		ownSrc, ownTask = t.SourceID, t.TaskID
+	}
+	converting, inUse, err := u.DocTargetPathUsage(ctx, target, ownSrc, ownTask)
 	if err != nil {
 		return apperr.Wrap(apperr.Internal, "出了点问题，请重试。", err)
 	}
