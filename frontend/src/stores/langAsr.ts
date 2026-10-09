@@ -4,18 +4,23 @@ import {
   exportSubtitleCues,
   getAsrTier,
   getLangAsrStatus,
+  isLangSim,
+  isVoiceDemo,
   mockAsrOutcome,
   MOCK_CUES,
   setAsrTier,
+  submitSpeechToSubtitle,
   validateCues,
+  watchLangAsr,
+  watchLangAsrProgress,
   type AsrTier,
   type LangAsrStatus,
   type SubtitleCue,
 } from '@/api/lang'
 import { pickFiles, MEDIA_FILE_FILTER } from '@/api/system'
 import { toAppError } from '@/api/call'
+import { onTaskEvent } from '@/services/wails'
 import { ASR_EMPTY, ASR_FAIL, EXPORT_BLOCK_BODY, EXPORT_BLOCK_TITLE } from '@/utils/langText'
-import { previewParams } from '@/services/wails'
 
 export type VoicePhase = 'idle' | 'running' | 'done' | 'empty' | 'fail'
 
@@ -34,19 +39,25 @@ export const useLangAsrStore = defineStore('langAsr', () => {
   const loaded = ref(false)
   const filePath = ref('')
   const fileName = ref('')
+  const language = ref('auto')
   const phase = ref<VoicePhase>('idle')
   const progress = ref(0)
   const cues = ref<SubtitleCue[]>([])
+  const taskId = ref('')
   const exportFormat = ref<'srt' | 'vtt'>('srt')
   const exportError = ref('')
   const exportOk = ref('')
   const busy = ref(false)
   let runToken = 0
+  let offAsr: (() => void) | undefined
+  let offProg: (() => void) | undefined
+  let offTaskProg: (() => void) | undefined
+  let offTaskStatus: (() => void) | undefined
 
-  /** 未发布：missing 且 canDownload=false（落地稿 01） */
+  /** 未发布：missing 且 canDownload=false（落地稿 01）——绝不出现下载/安装按钮 */
   const unpublished = computed(() => status.value.state === 'missing' && status.value.canDownload === false)
-  /** 浏览器走查：?voice=demo 允许用假 cues 演示时间轴（组件仍显示未发布卡） */
-  const demoTimeline = computed(() => previewParams.get('voice') === 'demo')
+  /** 浏览器走查：?voice=demo（仅模拟层）允许用假 cues 演示时间轴 */
+  const demoTimeline = computed(() => isVoiceDemo())
   const componentMissing = computed(() => status.value.state === 'missing' || status.value.state === 'checking')
   const canDownload = computed(() => status.value.canDownload === true)
   const hasFile = computed(() => !!filePath.value)
@@ -56,10 +67,37 @@ export const useLangAsrStore = defineStore('langAsr', () => {
   )
   const canExport = computed(() => phase.value === 'done' && cues.value.length > 0 && !busy.value)
 
+  function clearTaskWatch() {
+    offTaskProg?.()
+    offTaskStatus?.()
+    offTaskProg = undefined
+    offTaskStatus = undefined
+  }
+
   async function init() {
     tier.value = await getAsrTier()
     status.value = await getLangAsrStatus()
+    tier.value = status.value.tier
     loaded.value = true
+    if (!offAsr) {
+      offAsr = watchLangAsr((s) => {
+        status.value = s
+        tier.value = s.tier
+      })
+    }
+    if (!offProg) {
+      offProg = watchLangAsrProgress((p) => {
+        if (p.phase === 'downloading' || p.phase === 'preparing') {
+          status.value = {
+            ...status.value,
+            state: p.phase === 'preparing' ? 'preparing' : 'downloading',
+            phase: p.phase,
+            receivedBytes: p.receivedBytes,
+            downloadBytes: p.totalBytes || status.value.downloadBytes,
+          }
+        }
+      })
+    }
   }
 
   async function refreshStatus() {
@@ -82,22 +120,26 @@ export const useLangAsrStore = defineStore('langAsr', () => {
 
   function setFile(path: string) {
     runToken++
+    clearTaskWatch()
     filePath.value = path
     fileName.value = path.replace(/\\/g, '/').split('/').pop() ?? path
     phase.value = 'idle'
     progress.value = 0
     cues.value = []
+    taskId.value = ''
     exportError.value = ''
     exportOk.value = ''
   }
 
   function clearFile() {
     runToken++
+    clearTaskWatch()
     filePath.value = ''
     fileName.value = ''
     phase.value = 'idle'
     progress.value = 0
     cues.value = []
+    taskId.value = ''
     exportError.value = ''
     exportOk.value = ''
   }
@@ -118,17 +160,125 @@ export const useLangAsrStore = defineStore('langAsr', () => {
     if (paths[0]) setFile(paths[0])
   }
 
+  function mapCues(raw: unknown): SubtitleCue[] {
+    if (!Array.isArray(raw)) return []
+    return raw
+      .map((x) => {
+        const c = x as Partial<SubtitleCue>
+        if (typeof c?.id !== 'string' || typeof c?.text !== 'string') return null
+        const startMs = Number(c.startMs)
+        const endMs = Number(c.endMs)
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null
+        return { id: c.id, text: c.text, startMs, endMs }
+      })
+      .filter((x): x is SubtitleCue => !!x)
+  }
+
+  function finishFail(token: number, code?: string) {
+    if (token !== runToken) return
+    busy.value = false
+    clearTaskWatch()
+    if (code === 'LANG_ASR_EMPTY') {
+      phase.value = 'empty'
+      return
+    }
+    phase.value = 'fail'
+  }
+
+  function finishOk(token: number, list: SubtitleCue[]) {
+    if (token !== runToken) return
+    busy.value = false
+    clearTaskWatch()
+    cues.value = list
+    phase.value = 'done'
+    progress.value = 100
+  }
+
+  function watchTask(token: number, id: string) {
+    clearTaskWatch()
+    offTaskProg = onTaskEvent<{ id: string; progress: number }>('task:progress', (p) => {
+      if (token !== runToken || p.id !== id) return
+      if (typeof p.progress === 'number' && p.progress >= 0) {
+        progress.value = Math.min(99, Math.round(p.progress * 100))
+      }
+    })
+    offTaskStatus = onTaskEvent<{
+      id: string
+      status: string
+      error?: { code?: string; message?: string } | null
+      result?: { cues?: SubtitleCue[] }
+      progress?: number
+    }>('task:status', (p) => {
+      if (token !== runToken || p.id !== id) return
+      if (p.status === 'running' || p.status === 'queued') {
+        if (typeof p.progress === 'number' && p.progress >= 0) {
+          progress.value = Math.min(99, Math.round(p.progress * 100))
+        }
+        return
+      }
+      if (p.status === 'succeeded') {
+        const list = mapCues(p.result?.cues)
+        if (list.length) {
+          finishOk(token, list)
+          return
+        }
+        // 偶发事件未带 cues：仍标失败可重试，避免空时间轴当成功
+        finishFail(token, 'LANG_ASR_FAILED')
+        return
+      }
+      if (p.status === 'failed' || p.status === 'interrupted' || p.status === 'canceled') {
+        finishFail(token, p.error?.code)
+      }
+    })
+  }
+
   async function generate() {
     if (!filePath.value || phase.value === 'running') return
     const token = ++runToken
     phase.value = 'running'
     progress.value = 0
     cues.value = []
+    taskId.value = ''
     exportError.value = ''
     exportOk.value = ''
     busy.value = true
+
+    // 真绑定路径
+    if (!isLangSim()) {
+      try {
+        const tasks = await submitSpeechToSubtitle({
+          paths: [filePath.value],
+          language: language.value || 'auto',
+          format: exportFormat.value,
+        })
+        if (token !== runToken) return
+        const t = tasks[0]
+        if (!t?.id) {
+          finishFail(token, 'LANG_ASR_FAILED')
+          return
+        }
+        taskId.value = t.id
+        if (t.status === 'succeeded') {
+          const list = mapCues(t.result?.cues)
+          if (list.length) finishOk(token, list)
+          else finishFail(token, 'LANG_ASR_EMPTY')
+          return
+        }
+        if (t.status === 'failed') {
+          finishFail(token, t.error?.code)
+          return
+        }
+        watchTask(token, t.id)
+      } catch (e) {
+        if (token !== runToken) return
+        const err = toAppError(e)
+        finishFail(token, err.code)
+      }
+      return
+    }
+
+    // 模拟 / ?voice=demo
     const outcome = mockAsrOutcome(filePath.value)
-    // 假进度：约 1.2s
     const steps = 8
     for (let i = 1; i <= steps; i++) {
       await new Promise((r) => setTimeout(r, 140))
@@ -145,7 +295,6 @@ export const useLangAsrStore = defineStore('langAsr', () => {
       phase.value = 'fail'
       return
     }
-    // 组件未发布：仍用假 cues 演示时间轴
     cues.value = MOCK_CUES.map((c) => ({ ...c }))
     phase.value = 'done'
     progress.value = 100
@@ -174,10 +323,18 @@ export const useLangAsrStore = defineStore('langAsr', () => {
     }
     busy.value = true
     try {
-      const { fileName: out } = await exportSubtitleCues(cues.value, exportFormat.value, baseName(filePath.value))
+      const { fileName: out } = await exportSubtitleCues(cues.value, exportFormat.value, baseName(filePath.value), {
+        taskId: taskId.value || undefined,
+      })
       exportOk.value = `已导出“${out}”。`
-    } catch {
-      exportError.value = `${EXPORT_BLOCK_TITLE}。${EXPORT_BLOCK_BODY}`
+    } catch (e) {
+      const err = toAppError(e)
+      // 不把错误码 / reason= 亮给用户；校验类统一定稿句
+      if (err.code === 'INVALID_ARGUMENT') {
+        exportError.value = `${EXPORT_BLOCK_TITLE}。${EXPORT_BLOCK_BODY}`
+      } else {
+        exportError.value = err.message || `${EXPORT_BLOCK_TITLE}。${EXPORT_BLOCK_BODY}`
+      }
     } finally {
       busy.value = false
     }
@@ -189,9 +346,11 @@ export const useLangAsrStore = defineStore('langAsr', () => {
     loaded,
     filePath,
     fileName,
+    language,
     phase,
     progress,
     cues,
+    taskId,
     exportFormat,
     exportError,
     exportOk,

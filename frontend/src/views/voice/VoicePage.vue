@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 语音工具 · 转字幕（契约 v0.29.1 §6.18；落地稿 speech-sub-v1）。一期只有这一页，不画另外三个标签。
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import { useNarrow } from '@/components/convert/useNarrow'
 import AsrComponentCard from '@/components/voice/AsrComponentCard.vue'
@@ -20,7 +20,6 @@ defineOptions({ name: 'VoicePage' })
 
 const store = useLangAsrStore()
 const narrow = useNarrow()
-const language = ref('auto')
 const dropStyle = { '--wails-drop-target': 'drop' } as Record<string, string>
 let offDrop: (() => void) | undefined
 
@@ -140,7 +139,7 @@ function onPick() {
         <div class="lg-ph"><h2>转字幕</h2></div>
         <div class="lg-row">
           <b>识别语言</b>
-          <select v-model="language" class="lg-select" aria-label="识别语言">
+          <select v-model="store.language" class="lg-select" aria-label="识别语言">
             <option value="auto">自动检测</option>
             <option value="zh">中文</option>
             <option value="en">英文</option>
@@ -162,8 +161,10 @@ function onPick() {
         <div class="lg-row">
           <b>语音识别组件</b>
           <div class="lg-st">
-            <i class="miss" />
-            <template v-if="store.unpublished">尚未发布</template>
+            <i :class="store.status.state === 'ready' ? 'ok' : 'miss'" />
+            <template v-if="store.status.state === 'ready'">已就绪 · {{ tierLabel }}<span class="lg-chip">{{ sizeText }}</span></template>
+            <template v-else-if="store.unpublished">尚未发布</template>
+            <template v-else-if="store.status.state === 'checking'">检查中…</template>
             <template v-else>未就绪 · {{ tierLabel }}<span class="lg-chip">{{ sizeText }}</span></template>
           </div>
         </div>

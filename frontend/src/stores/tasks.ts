@@ -124,9 +124,12 @@ export const isLiveType = (t: string): boolean => t.startsWith('live_')
  */
 export const RETIRED_TASK_TYPES: readonly string[] = ['edit_export']
 export const isRetiredType = (t: string): boolean => RETIRED_TASK_TYPES.includes(t)
-/** 能否重试：失败 / 已中断 / 已取消，且不是直播（直播回直播页重新推流）、不是已下线功能的任务 */
-export const canRetryTask = (t: { status: string; type: string }): boolean =>
-  (t.status === 'failed' || t.status === 'interrupted' || t.status === 'canceled') && !isLiveType(t.type) && !isRetiredType(t.type)
+/** 能否重试：失败 / 已中断 / 已取消，且不是直播（直播回直播页重新推流）、不是已下线功能的任务；LANG_ASR_EMPTY 不可重试（6.18.8） */
+export const canRetryTask = (t: { status: string; type: string; error?: { code?: string } | null }): boolean =>
+  (t.status === 'failed' || t.status === 'interrupted' || t.status === 'canceled') &&
+  !isLiveType(t.type) &&
+  !isRetiredType(t.type) &&
+  t.error?.code !== 'LANG_ASR_EMPTY'
 
 // ---- 事件 payload（契约第 5 节） ----
 interface ProgressPayload {
