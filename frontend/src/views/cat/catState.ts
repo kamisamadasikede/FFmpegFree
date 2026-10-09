@@ -391,7 +391,7 @@ function endTurn(convId: string, how: TurnEnd, token?: number) {
   if (turn.assistantId) streams.delete(turn.assistantId)
   if (how === 'cancelled') list.push({ kind: 'sys', text: CAT_COPY.stopped })
   else if (how === 'failed') list.push({ kind: 'sys', text: CAT_COPY.replyFailed, tone: 'err' })
-  else if (how === 'not_ready') list.push({ kind: 'sys', text: CAT_COPY.notReady })
+  else if (how === 'not_ready') list.push({ kind: 'sys', text: catState.status.error?.message || CAT_COPY.notReady })
 }
 
 let seq = 0
@@ -511,7 +511,18 @@ export async function sendMessage(text: string): Promise<string | undefined> {
       if (p) p.missing = true
       return catState.sel === id ? text : undefined
     }
-    endTurn(id, err.code === 'CANCELED' ? 'cancelled' : err.code === 'CAT_NOT_READY' ? 'not_ready' : 'failed', token)
+    if (err.code === 'CAT_NOT_READY') {
+      const auth = (err.detail || '').includes('reason=auth') || err.message === CAT_COPY.authInvalid
+      catState.status = {
+        state: 'failed',
+        version: catState.status.version,
+        canDownload: false,
+        error: { code: 'CAT_NOT_READY', message: auth ? CAT_COPY.authInvalid : err.message || CAT_COPY.notReady },
+      }
+      endTurn(id, 'not_ready', token)
+      return
+    }
+    endTurn(id, err.code === 'CANCELED' ? 'cancelled' : 'failed', token)
   }
 }
 

@@ -18,7 +18,8 @@ export { CAT_BACKEND_READY }
 
 /** 契约 6.19.7 冻结文案（stopped：产品定，停止生成后单独一行浅灰系统提示） */
 export const CAT_COPY = {
-  notReady: 'Cat 助手还没准备好，发布后即可使用。',
+  notReady: '未检测到 Cat 助手，请先安装并确保可在终端直接运行。',
+  authInvalid: '登录失效，请重新登录后再试。',
   replyFailed: '回复没生成出来，请重试。',
   writeRefused: '当前只能查看项目文件，改文件和运行命令下一期开放。',
   later: '下一期开放。',

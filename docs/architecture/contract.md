@@ -1,6 +1,6 @@
 # FFmpegFree v2 接口契约（v0.31.3）
 
-v0.31.3 变更（**Cat Build 接本地 grok CLI**，架构师 / 老板 10-09；实现见 `internal/catagent`；**无新错误码 / 迁移 / 事件 / 开关，2.1 仍是 39 个**）：① **就绪**：`exec.LookPath("grok")`（Windows 亦可 `grok.exe`）命中即 `state=ready`；未命中仍 `missing` + `CAT_NOT_READY`「Cat 助手还没准备好，发布后即可使用。」，`canDownload=false`。② **调用**：`grok -p "<最新用户句>" --output-format streaming-json --cwd <项目绝对路径|应用临时目录> -s <conversationId> --no-auto-update --no-alt-screen`；可选 `-m`。③ **流式**：NDJSON `text.data` → `OnTextDelta` / `cat:message` append；`thought` 忽略；`error` → `CAT_REPLY_FAILED`；`end` 结束；取消 → `proc.Kill` 进程树。④ **认证**：继承 `XAI_API_KEY` 或 `~/.grok/auth.json`，**无** URL/Key UI。⑤ **一期只读**：设 `GROK_SANDBOX=read-only`、`GROK_WRITE_FILE=0`，**不**传 `--always-approve`。⑥ 界面仍只称「Cat 助手」，不暴露可执行名。
+v0.31.3 变更（**Cat Build 接本地 grok CLI**，架构师 / 老板 10-09；实现见 `internal/catagent`；**无新错误码 / 迁移 / 事件 / 开关，2.1 仍是 39 个**）：① **就绪**：`exec.LookPath("grok")`（Windows 亦可 `grok.exe`）命中即 `state=ready`；未命中仍 `missing` + `CAT_NOT_READY`「未检测到 Cat 助手，请先安装并确保可在终端直接运行。」，`canDownload=false`；登录 / API Key 失效同样 `CAT_NOT_READY`（`detail` 含 `reason=auth`），文案「登录失效，请重新登录后再试。」（**无新错误码**）。废弃旧文案「Cat 助手还没准备好，发布后即可使用。」。② **调用**：`grok -p "<最新用户句>" --output-format streaming-json --cwd <项目绝对路径|应用临时目录> -s <conversationId> --no-auto-update --no-alt-screen`；可选 `-m`。③ **流式**：NDJSON `text.data` → `OnTextDelta` / `cat:message` append；`thought` 忽略；`error` → `CAT_REPLY_FAILED`；`end` 结束；取消 → `proc.Kill` 进程树。④ **认证**：继承 `XAI_API_KEY` 或 `~/.grok/auth.json`，**无** URL/Key UI。⑤ **一期只读**：设 `GROK_SANDBOX=read-only`、`GROK_WRITE_FILE=0`，**不**传 `--always-approve`。⑥ 界面仍只称「Cat 助手」，不暴露可执行名。
 
 
 v0.31.2 变更（**Cat 项目口径澄清**，后端 #181 实现后架构师回写；完整规则见 **6.19.10**，冲突时以该节为准；**没有新错误码 / 迁移 / 事件 / 开关，2.1 仍是 39 个**）：① **排序最后一级按 id 倒序**：项目、对话（含无项目「对话」下）活动时间 / `createdAt` 都相同时，再按 `id` **倒序**（6.19.10.6）。② **`path_key` 大小写规则与 `paths.Normalize` 对齐**：**Windows 与 macOS 不区分大小写（键转小写），Linux 区分**；`CreateCatProject` / `RelocateCatProject` 共用。**后端 #181 目前只在 Windows 转小写，macOS 尚未对齐，需跟进修；修完后真机验：同一文件夹用不同大小写选两次 → `existed=true`**（6.19.10.2 第 2 条、6.19.10.10）。③ **`DeleteCatProject` / `DeleteCatConversation`**：有进行中的一轮时**先按 `CancelCatTurn` 取消，最多等 5 秒**等它停再删，避免回复尾巴写回库（6.19.10.2 第 4、7 条）。④ **无项目对话的读文件请求**：只在适配器内失败，说明 `这个对话没有项目文件夹，不能查看文件。`，**不进界面**，也不再用旧的「下一期开放」那句（6.19.10.5）。⑤ **说明（不绑定前端）**：后端内部 `system.Manager.OpenFolder` 被 `OpenStorageFolder` 与 `RevealCatProject` 复用，**不**暴露给前端。
@@ -3909,7 +3909,8 @@ type ExportSubtitleRequest struct {
 | 工具调用：**只读**（读文件 / 列目录等，白名单 TBD） | **完全访问**（入口置灰；不可落到 full） |
 | 组件未就绪文案见下 | 任意写盘、执行任意命令（非只读） |
 
-**未就绪**（组件未发布 / 未安装 / 不可用）：`Cat 助手还没准备好，发布后即可使用。`（一期通常无下载按钮，直至 `canDownload=true`）。  
+**未就绪**（PATH 未检测到入口）：`未检测到 Cat 助手，请先安装并确保可在终端直接运行。`（一期通常无下载按钮，直至 `canDownload=true`）。
+**登录失效**（入口在但鉴权失败，仍 `CAT_NOT_READY` / `reason=auth`）：`登录失效，请重新登录后再试。`。  
 **回复失败**：`回复没生成出来，请重试。`（`CAT_REPLY_FAILED`，可重试）。
 
 ### 6.19.2 `agentKind` 锁定与适配器注册表（多 CLI 扩展预备）
@@ -4019,7 +4020,7 @@ CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，
 
 | code | message | 可重试 |
 |---|---|---|
-| `CAT_NOT_READY` | `Cat 助手还没准备好，发布后即可使用。` | 是（就绪后） |
+| `CAT_NOT_READY` | `未检测到 Cat 助手，请先安装并确保可在终端直接运行。`（`reason=auth` 时：`登录失效，请重新登录后再试。`） | 是（就绪 / 重新登录后） |
 | `CAT_REPLY_FAILED` | `回复没生成出来，请重试。` | 是 |
 
 非法 `agentKind`、改已有会话 kind 等 → `INVALID_ARGUMENT`。沿用 `NOT_FOUND` / `CANCELED` / `IO_ERROR` 等。
@@ -4046,7 +4047,7 @@ type SendCatMessageResult struct {
 - 同步路径：校验 + 落库用户消息后返回 `{ userMessage, turnId }`；助手回复在后台跑，**全靠事件推送**。
 - **流式下 `assistantMessage` 为空或省略**；助手正文只经 `cat:message` / `cat:turn`。
 - **用户消息不发 `cat:message`**（只在同步 `userMessage` 里带）；`cat:message` **仅用于助手流式**。
-- **未就绪**（组件/CLI 未发布或 `state != ready`）：同步返回 `CAT_NOT_READY`，**不启 turn**、不发流式事件；界面只展示「Cat 助手还没准备好，发布后即可使用。」。**官方包禁止**在未就绪时造助手气泡、禁止拆字/模拟回复。
+- **未就绪**（组件/CLI 未发布或 `state != ready`）：同步返回 `CAT_NOT_READY`，**不启 turn**、不发流式事件；界面只展示「未检测到 Cat 助手，请先安装并确保可在终端直接运行。」（鉴权失败时「登录失效，请重新登录后再试。」）。**官方包禁止**在未就绪时造助手气泡、禁止拆字/模拟回复。
 - **临时适配器回退**（组件已就绪、但 CLI 真流式尚未接线）：可将**真实整段回复**按约 24 字拆成多次 `append` 再 `done`（切真内容，非假文案）。真 CLI 流式落地后，该拆分**只留测试**，不得进官方包运行路径。
 
 **`cat:message`（增量；仅助手）**

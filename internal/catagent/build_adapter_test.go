@@ -220,3 +220,38 @@ func TestScanStreamingJSON_RoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestRunTurn_AuthFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix script fake")
+	}
+	fake := filepath.Join(t.TempDir(), "grok-auth")
+	script := `#!/bin/sh
+printf '%s\n' '{"type":"error","message":"unauthorized: invalid api key"}'
+exit 1
+`
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a := NewBuildAdapter(BuildConfig{
+		DataTemp: t.TempDir(),
+		LookPath: func(string) (string, error) { return fake, nil },
+		Exec:     func(ctx context.Context, name string, args ...string) *exec.Cmd { return exec.CommandContext(ctx, fake) },
+	})
+	a.detect()
+	_, err := a.RunTurn(TurnOptions{
+		Ctx: context.Background(), ConversationID: "c1",
+		Messages: []WireMessage{{Role: "user", Content: "x"}},
+		Timeout:  3 * time.Second,
+	})
+	if !apperr.Is(err, apperr.CatNotReady) || apperr.From(err).Message != MsgAuthInvalid {
+		t.Fatalf("%v", err)
+	}
+	if d := apperr.From(err).Detail; d == "" || !strings.Contains(d, "reason=auth") {
+		t.Fatalf("detail %q", d)
+	}
+	st := a.Status()
+	if st.State != StateFailed || st.Error == nil || st.Error.Message != MsgAuthInvalid {
+		t.Fatalf("status %+v", st)
+	}
+}
