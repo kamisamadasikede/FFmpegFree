@@ -99,3 +99,13 @@ export const CAT_UI_ENABLED: boolean = false
  * 组件未发布时后端返回 missing + canDownload=false：显示「Cat 助手还没准备好，发布后即可使用。」，无下载按钮。
  */
 export const CAT_BACKEND_READY: boolean = true
+
+/**
+ * Cat 项目（契约 v0.31 §6.19.10 + PM 10-09 补充的 RevealCatProject / RelocateCatProject）。
+ * 后端 ListCatProjects / CreateCatProject / RenameCatProject / DeleteCatProject / RevealCatProject / RelocateCatProject
+ * 和迁移 0011 还没合入，默认 false：
+ * - 纯浏览器（没有 window.go）：项目走 api/catProjects.ts 里的内存模拟（走查 / 截图）
+ * - Wails 里：项目列表为空（「还没有项目。」），新建项目提示「下一期开放。」，不调任何项目接口，新建对话不带 projectId
+ * 后端合入并生成绑定后改 true：按名字调 CatService 的上述方法（绑定不存在时仍按未接通处理），订阅 cat:project。
+ */
+export const CAT_PROJECTS_BACKEND_READY: boolean = false

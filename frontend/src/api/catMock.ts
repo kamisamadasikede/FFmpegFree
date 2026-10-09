@@ -27,6 +27,8 @@ export interface CatConv {
   title: string
   /** 创建时锁定，之后不可改（契约 6.19.2） */
   agentKind: CatAgentKind
+  /** 所属项目（创建时决定，之后不可改；空 = 「对话」下） */
+  projectId?: string
   /** 项目对话：第二行摘要、时间、状态点、是否「主要」 */
   sub?: string
   time?: string
@@ -34,9 +36,15 @@ export interface CatConv {
   main?: boolean
 }
 
+/** 侧栏里的项目（契约 6.19.10.1 的 CatProject + 界面状态） */
 export interface CatProject {
   id: string
   name: string
+  /** 用户选的文件夹（tooltip 显示完整路径以区分同名项目） */
+  path: string
+  /** 文件夹不见了：项目标灰、对话可看不可发、不能在其下新建对话 */
+  missing: boolean
+  createdAt: number
   open: boolean
   branch: string
   convs: CatConv[]
@@ -80,21 +88,21 @@ export const CAT_TRY = [
 export function mockProjects(): CatProject[] {
   return [
     {
-      id: 'p1', name: '视频素材整理', open: false, branch: 'main',
+      id: 'p1', name: '视频素材整理', path: 'D:\\素材\\视频素材整理', missing: false, createdAt: 3, open: false, branch: 'main',
       convs: [
         { id: 'c11', title: '按拍摄日期归档素材', agentKind: CAT_AGENT_BUILD, main: true, sub: '素材 / 2026-10', time: '2d', st: 'idle' },
         { id: 'c12', title: '找出重复的片段', agentKind: CAT_AGENT_BUILD, sub: '去重清单', time: '3d', st: 'idle' },
       ],
     },
     {
-      id: 'p2', name: '直播推流测试', open: true, branch: 'live',
+      id: 'p2', name: '直播推流测试', path: 'D:\\工作\\直播推流测试', missing: false, createdAt: 2, open: true, branch: 'live',
       convs: [
         { id: 'c21', title: '推流地址轮换方案', agentKind: CAT_AGENT_BUILD, main: true, sub: '我想让三路推流轮流切换地址…', time: '58m', st: 'ok' },
         { id: 'c22', title: '断线重连日志分析', agentKind: CAT_AGENT_BUILD, sub: '重连 4 次，平均 6 秒', time: '3h', st: 'idle' },
       ],
     },
     {
-      id: 'p3', name: '字幕项目', open: true, branch: 'test',
+      id: 'p3', name: '字幕项目', path: 'D:\\工作\\字幕项目', missing: false, createdAt: 1, open: true, branch: 'test',
       convs: [{ id: 'c31', title: '校对第 3 集时间轴', agentKind: CAT_AGENT_BUILD, main: true, sub: '你先帮我把时间轴整体后移 0.4 秒…', time: '12m', st: 'run' }],
     },
   ]

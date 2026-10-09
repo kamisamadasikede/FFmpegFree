@@ -9,7 +9,8 @@
       <span class="ib" title="打开文件夹"><FIcon name="folder" :size="15" /></span>
       <span class="ib" title="刷新"><FIcon name="refresh" :size="15" /></span>
     </div>
-    <template v-if="tab === 'files'">
+    <div v-if="missing" class="ct-empty" data-testid="cat-files-missing"><FIcon name="warn" :size="24" /><span>{{ PC.missing }}</span></div>
+    <template v-else-if="tab === 'files'">
       <div class="ct-search"><FIcon name="search" :size="13" />按文件名搜索</div>
       <div class="ct-tree">
         <div
@@ -42,8 +43,9 @@
 import { computed, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import { mockChanges, mockFiles } from '@/api/catMock'
+import { CAT_PROJECT_COPY as PC } from '@/api/catProjects'
 
-const props = defineProps<{ convId: string }>()
+const props = defineProps<{ convId: string; missing?: boolean }>()
 const tab = ref<'files' | 'changes'>('files')
 const nodes = computed(() => mockFiles(props.convId))
 const changes = computed(() => mockChanges(props.convId))

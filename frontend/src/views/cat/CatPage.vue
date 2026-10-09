@@ -8,9 +8,38 @@
       <CatSidePanel @back="goBack" />
 
       <section class="ct-c" aria-label="对话">
+        <!-- 中间顶部浮提示（设计 §07：重复文件夹等），2.4s 自动消失 -->
+        <div
+          v-if="catState.notice"
+          :key="catState.notice.key"
+          class="ct-notice"
+          :class="[catState.notice.tone, { low: projectMissing }]"
+          role="status"
+          data-testid="cat-notice"
+        >
+          <FIcon :name="catState.notice.tone === 'ok' ? 'check' : catState.notice.tone === 'warn' ? 'warn' : 'info'" :size="14" />{{ catState.notice.text }}
+        </div>
         <!-- 新对话欢迎页 -->
         <template v-if="isNew">
-          <div class="ct-hd"><FIcon name="chat" :size="16" /><h2>新对话</h2><span class="sp" /><FIcon name="more" :size="16" /></div>
+          <div class="ct-hd">
+            <template v-if="currentProject">
+              <span class="crumb-p" :class="{ miss: currentProject.missing }">
+                <FIcon :name="currentProject.missing ? 'warn' : 'folder'" :size="15" />{{ currentProject.name }}
+              </span><span class="slash">/</span>
+            </template>
+            <FIcon v-else name="chat" :size="16" />
+            <h2>新对话</h2><span class="sp" /><FIcon name="more" :size="16" />
+          </div>
+          <div v-if="projectMissing" class="ct-missing" role="status" data-testid="cat-project-missing-bar">
+            <FIcon name="warn" :size="14" /><span class="tx">{{ PC.missing }}</span>
+            <button
+              v-if="currentProject"
+              type="button"
+              class="relink"
+              data-testid="cat-project-relocate-bar"
+              @click="relocateProject(currentProject.id)"
+            >{{ PC.relocate }}</button>
+          </div>
           <div :key="'new'" class="ct-welcome swap">
             <h3 class="wl-hi">Hi，今天有什么安排?</h3>
             <div class="wl-modes" role="tablist" aria-label="模式">
@@ -47,6 +76,8 @@
               :busy="catState.creating"
               :not-ready="catNotReady"
               :checking="catChecking"
+              :missing="projectMissing"
+              :project-name="currentProject?.name ?? ''"
               @send="sendMessage"
             />
             <div class="wl-try">
@@ -59,13 +90,25 @@
         <template v-else-if="current">
           <div class="ct-hd">
             <template v-if="current.project">
-              <span class="crumb-p"><FIcon name="folder" :size="15" />{{ current.project.name }}</span><span class="slash">/</span>
+              <span class="crumb-p" :class="{ miss: current.project.missing }">
+                <FIcon :name="current.project.missing ? 'warn' : 'folder'" :size="15" />{{ current.project.name }}
+              </span><span class="slash">/</span>
             </template>
             <FIcon v-else name="chat" :size="16" />
             <h2 :title="current.conv.title">{{ current.conv.title }}</h2>
             <span v-if="current.conv.main" class="main-tag">主要</span>
             <span class="sp" />
             <FIcon name="refresh" :size="16" /><FIcon name="more" :size="16" />
+          </div>
+          <div v-if="projectMissing" class="ct-missing" role="status" data-testid="cat-project-missing-bar">
+            <FIcon name="warn" :size="14" /><span class="tx">{{ PC.missing }}</span>
+            <button
+              v-if="currentProject"
+              type="button"
+              class="relink"
+              data-testid="cat-project-relocate-bar"
+              @click="relocateProject(currentProject.id)"
+            >{{ PC.relocate }}</button>
           </div>
           <div ref="msgsEl" :key="catState.sel" class="ct-msgs swap">
             <CatMessages :blocks="messages" :pending="thinking" />
@@ -80,14 +123,16 @@
             :stopping="turn?.status === 'stopping'"
             :not-ready="catNotReady"
             :checking="catChecking"
+            :missing="projectMissing"
             @send="sendMessage"
             @stop="stopTurn()"
           />
         </template>
       </section>
 
-      <CatFilesPanel v-if="!isNew" :conv-id="catState.sel" />
+      <CatFilesPanel v-if="!isNew" :conv-id="catState.sel" :missing="projectMissing" />
     </div>
+    <CatProjectDeleteDialog />
   </div>
 </template>
 
@@ -99,11 +144,13 @@ import CatSidePanel from '@/components/cat/CatSidePanel.vue'
 import CatFilesPanel from '@/components/cat/CatFilesPanel.vue'
 import CatComposer from '@/components/cat/CatComposer.vue'
 import CatMessages from '@/components/cat/CatMessages.vue'
+import CatProjectDeleteDialog from '@/components/cat/CatProjectDeleteDialog.vue'
+import { CAT_PROJECT_COPY as PC } from '@/api/catProjects'
 import { ElMessage } from 'element-plus'
 import { CAT_COPY } from '@/api/cat'
 import { CAT_MODES, CAT_TRY, type CatMode } from '@/api/catMock'
 import { catReturnPath } from './catReturn'
-import { catChecking, catNotReady, catState, findConv, initCat, messagesOf, NEW_CONV, refreshCapabilities, sendMessage, stopTurn, tipLater } from './catState'
+import { catChecking, catNotReady, catState, currentProject, findConv, projectMissing, relocateProject, initCat, messagesOf, NEW_CONV, refreshCapabilities, sendMessage, stopTurn, tipLater } from './catState'
 
 /**
  * Cat 聊天页（设计 v0.4 / 契约 v0.30）。Wails 里接真实 CatService：流式回复、停止生成、组件未就绪横条（无下载按钮）。
@@ -178,6 +225,103 @@ function onModeClick(m: CatMode) {
 </script>
 
 <style scoped>
+.ct-c {
+  position: relative;
+}
+.ct-notice {
+  position: absolute;
+  top: 54px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 48px);
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: var(--ff-bg-surface);
+  border: 1px solid var(--ff-border);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+  font-size: 13px;
+  color: var(--ff-text-1);
+  white-space: nowrap;
+  animation: ct-notice 180ms ease both;
+}
+html.dark .ct-notice {
+  background: var(--ff-bg-elevated);
+}
+.ct-notice :deep(svg) {
+  flex: none;
+  color: var(--ff-primary);
+}
+.ct-notice.ok :deep(svg) {
+  color: var(--ff-success);
+}
+.ct-notice.warn {
+  border-color: color-mix(in srgb, var(--ff-warning) 55%, var(--ff-border));
+}
+.ct-notice.warn :deep(svg) {
+  color: var(--ff-warning);
+}
+/* 提示条存在时浮提示下移到提示条下方，不遮挡「重新选择文件夹」（设计 v0.2 §09d） */
+.ct-notice.low {
+  top: 90px;
+}
+@keyframes ct-notice {
+  from { opacity: 0; transform: translate(-50%, -6px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+.ct-missing {
+  height: 34px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 16px;
+  font-size: 12.5px;
+  color: var(--ff-text-2);
+  background: color-mix(in srgb, var(--ff-warning) 7%, transparent);
+  border-bottom: 1px solid var(--ff-border);
+}
+.ct-missing :deep(svg) {
+  color: var(--ff-warning);
+  flex: none;
+}
+.ct-missing .tx {
+  flex: 1;
+  min-width: 0;
+}
+.ct-missing .relink {
+  flex: none;
+  height: 24px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
+  background: var(--ff-primary);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ct-missing .relink:hover {
+  filter: brightness(1.06);
+}
+.ct-missing .relink:focus-visible {
+  outline: 2px solid var(--ff-primary);
+  outline-offset: 2px;
+}
+.crumb-p.miss {
+  color: var(--ff-text-3);
+}
+.crumb-p.miss :deep(svg) {
+  color: var(--ff-warning);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ct-notice {
+    animation: none;
+  }
+}
 .ct-banner {
   display: flex;
   align-items: center;
