@@ -13,7 +13,7 @@ const (
 	FamilyPDF = "pdf"
 )
 
-// hintKey 与文案（6.12.13）。
+// hintKey 与文案（6.12.13；v0.28 另有 pdf_layout / pdf_text）。
 const (
 	HintCSVFirstSheet = "csv_first_sheet"
 	HintMDLossy       = "md_lossy"
@@ -25,9 +25,10 @@ const (
 	disabledNeedComponent = "需要文档组件"
 
 	// v0.28（6.12.59）：PDF 源。
-	HintPDFLayout        = "pdf_layout"
-	hintPDFLayoutText    = "PDF 转 Word 会尽量保留排版，复杂版式和扫描件可能会走样。"
-	hintPDFSimpleModeTxt = "只提取文字，不保留排版和图片。" // simple_mode 在 PDF 源上的文案
+	HintPDFLayout     = "pdf_layout"
+	HintPDFText       = "pdf_text" // pdf → txt / md（产品 10-09：与 md_lossy / simple_mode 分开）
+	hintPDFLayoutText = "PDF 转 Word 会尽量保留排版，复杂版式和扫描件可能会走样。"
+	hintPDFTextTxt    = "只提取文字，不保留排版和图片。"
 
 	// WarningCSVFirstSheetOnly 是转 CSV 时多工作表的结果警告（6.12.16）。
 	WarningCSVFirstSheetOnly = "csv_first_sheet_only"
@@ -208,19 +209,15 @@ func pdfTargetFor(target string, engineIDs []string) (DocTarget, bool) {
 		} else {
 			t.Simple = true
 			t.Engines = []string{engineGo}
-			t.HintKey, t.Hint = HintSimpleMode, hintPDFSimpleModeTxt
+			t.HintKey, t.Hint = HintSimpleMode, hintPDFTextTxt
 		}
-	default: // txt / md：纯 Go，恒可用
+	default: // txt / md：纯 Go，恒可用；hintKey=pdf_text（产品 10-09）
 		t.Simple, t.Available = true, true
 		t.Engines = []string{engineGo}
 		if hasComp {
 			t.Engines = append(t.Engines, engineComponent)
 		}
-		if target == "md" {
-			t.HintKey, t.Hint = HintMDLossy, hintMDLossyText
-		} else {
-			t.HintKey, t.Hint = HintSimpleMode, hintPDFSimpleModeTxt
-		}
+		t.HintKey, t.Hint = HintPDFText, hintPDFTextTxt
 	}
 	return t, true
 }
