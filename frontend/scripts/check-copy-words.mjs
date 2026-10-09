@@ -8,9 +8,17 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const BANNED = /ffmpeg|剪辑/i
+const BANNED_BASE = /ffmpeg|剪辑/i
+// 契约 v0.26 / 设计 v0.2 §四：文档组件在界面上只叫「文档组件」，LibreOffice 只允许出现在 Linux 的这两句（整句放行，别的写法都算违规）
+const LIBRE = /libreoffice|soffice/i
+export const LIBRE_ALLOWED = new Set([
+  '请先在系统里安装 LibreOffice，然后重启应用。',
+  '系统里的 LibreOffice 版本太旧，请升级到 7.2 或更高版本，然后重启应用。',
+])
+const BANNED = { test: (s) => BANNED_BASE.test(s) || (LIBRE.test(s) && !LIBRE_ALLOWED.has(s.trim())) }
+const bannedAt = (s) => { const a = s.search(BANNED_BASE); return a >= 0 ? a : Math.max(0, s.search(LIBRE)) }
 // 契约 v0.25.3：已知错误码和 reason= 不能出现在界面文案里。注释、比较用的码、detail 载荷不查。
-const KNOWN_CODES = ['INVALID_ARGUMENT','NOT_FOUND','TASK_CONFLICT','IO_ERROR','CANCELED','UNSUPPORTED','INTERNAL','FFMPEG_NOT_FOUND','PROBE_FAILED','PROCESS_FAILED','CONVERT_DISK_FULL','UNSUPPORTED_PLATFORM','LIVE_URL_INVALID','LIVE_CONNECT_FAILED','LIVE_PUSH_REJECTED','LIVE_PUSH_INTERRUPTED','SCREEN_PERMISSION_DENIED','LIVE_SOURCE_GONE','LIVE_PLAY_FAILED','LIVE_CORS_BLOCKED','PDF_PARSE_FAILED']
+const KNOWN_CODES = ['INVALID_ARGUMENT','NOT_FOUND','TASK_CONFLICT','IO_ERROR','CANCELED','UNSUPPORTED','INTERNAL','FFMPEG_NOT_FOUND','PROBE_FAILED','PROCESS_FAILED','CONVERT_DISK_FULL','UNSUPPORTED_PLATFORM','LIVE_URL_INVALID','LIVE_CONNECT_FAILED','LIVE_PUSH_REJECTED','LIVE_PUSH_INTERRUPTED','SCREEN_PERMISSION_DENIED','LIVE_SOURCE_GONE','LIVE_PLAY_FAILED','LIVE_CORS_BLOCKED','PDF_PARSE_FAILED','DOC_COMPONENT_NOT_READY','DOC_DOWNLOAD_FAILED','DOC_CHECKSUM_FAILED','DOC_COMPONENT_INSTALL_FAILED','DOC_FORMAT_UNSUPPORTED','DOC_PDF_INPUT_UNSUPPORTED','DOC_ENCRYPTED','DOC_CORRUPT','DOC_TIMEOUT','DOC_COMPONENT_CRASHED','DOC_PRESENTATION_BUSY','DOC_ENGINE_BUSY']
 const CODE_LEAK = new RegExp('\\b(?:' + KNOWN_CODES.join('|') + ')\\b|reason=')
 const RENDER_KEYS = new Set(['label','title','subtitle','text','description','placeholder','hint','note','tooltip','tip','empty','emptyText','confirmText','cancelText','ariaLabel','heading','caption','content','actionLabel','tag'])
 const HAN = /[\u3400-\u9fff\u3000-\u303f\uff01-\uff5e\u2026\u201c\u201d]/
@@ -21,6 +29,7 @@ const clean = (s) => s.replace(/FFmpegFree/g, '')
 const isCopyLike = (s, key) => {
   const t = clean(s)
   if (!BANNED.test(t)) return false
+  if (LIBRE.test(t) && !BANNED_BASE.test(t)) return HAN.test(t) || /\s/.test(t.trim()) || (key != null && USER_KEYS.has(key))
   return /剪辑/.test(t) || HAN.test(t) || /ffmpeg\s|\sffmpeg/i.test(t) || (key != null && USER_KEYS.has(key))
 }
 
@@ -109,7 +118,7 @@ function templateHits(tpl, base, push) {
     while (k < s.length) {
       const a = s.indexOf('{{', k)
       const plain = a < 0 ? s.slice(k) : s.slice(k, a)
-      if (BANNED.test(clean(plain))) push(off + k + clean(plain).search(BANNED) , plain.trim())
+      if (BANNED.test(clean(plain))) push(off + k + bannedAt(clean(plain)), plain.trim())
       else if (CODE_LEAK.test(plain)) { CODE_LEAK.lastIndex = 0; push(off + k, plain.trim()) }
       else CODE_LEAK.lastIndex = 0
       if (a < 0) break
@@ -205,9 +214,14 @@ export function runCopyWordCheck() {
   expectHit('兜底文案本身', 'a.ts', "export const UNMAPPED_ERROR_TEXT = '出了点问题，请重试。'", 0)
   expectHit('比较和载荷不算文案', 'a.ts', "if (code === 'INTERNAL') throw new AppError('NOT_FOUND', '文件已被移动或删除', 'reason=file')\n// reason=push LIVE_SOURCE_GONE", 0)
   expectHit('映射表的键不是文案', 'a.ts', "const errorMessages = { INTERNAL: { title: '出错了', description: '请重试。' } }", 0)
+  expectHit('LibreOffice 在界面文字里', 'a.vue', '<template><p>需要安装 LibreOffice</p></template>', 1)
+  expectHit('LibreOffice 在文案常量里', 'a.ts', "const a = { text: '正在启动 LibreOffice…' }", 1)
+  expectHit('LibreOffice 放行的 Linux 两句', 'a.ts', "const a = '请先在系统里安装 LibreOffice，然后重启应用。'\nconst b = '系统里的 LibreOffice 版本太旧，请升级到 7.2 或更高版本，然后重启应用。'", 0)
+  expectHit('soffice 进程名在文案里', 'a.vue', '<template><i title="soffice 已退出"></i></template>', 1)
+  expectHit('文档错误码不能当文案', 'a.vue', '<template><p>DOC_TIMEOUT</p></template>', 1)
   fails.push(...selfFails)
   for (const p of walk(join(root, 'src'))) {
-    for (const h of scanFile(p, readFileSync(p, 'utf8'))) fails.push(`${relative(root, p)}:${h.line}  界面文字含禁用词（ffmpeg / 剪辑 / 错误码 / reason=）：${h.text}`)
+    for (const h of scanFile(p, readFileSync(p, 'utf8'))) fails.push(`${relative(root, p)}:${h.line}  界面文字含禁用词（ffmpeg / 剪辑 / LibreOffice / 错误码 / reason=）：${h.text}`)
   }
   return fails
 }

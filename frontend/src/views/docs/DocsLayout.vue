@@ -10,20 +10,22 @@
           <component :is="Component" />
         </KeepAlive>
       </RouterView>
-      <RecentPanel />
+      <RecentPanel v-if="!isConvert" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 // 文档页外壳（设计说明 2）：分段控件 240×28（同直播页 .seg）+ 两个 Tab + 两个 Tab 共用的右侧「最近打开的 PDF」。
-import { onBeforeUnmount, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import RecentPanel from '@/components/docs/RecentPanel.vue'
 import { onFilesDropped } from '@/api/fileDrop'
 import { dropHandlers } from '@/stores/docs'
 
 const route = useRoute()
+// v0.26 文档转换页自带左右两栏，不显示「最近打开的 PDF」
+const isConvert = computed(() => route.path.endsWith('/office'))
 // OnFileDrop 只有一个入口：这里注册一次，按当前 Tab 分发（各页 KeepAlive 后自己注册 / 注销会互相清掉监听）
 let offDrop: () => void = () => {}
 onMounted(() => {
@@ -32,7 +34,7 @@ onMounted(() => {
 onBeforeUnmount(() => offDrop())
 
 const tabs = [
-  { label: 'Office 转 PDF', to: '/docs/office' },
+  { label: '文档转换', to: '/docs/office' },
   { label: 'PDF 预览', to: '/docs/pdf' },
 ]
 </script>

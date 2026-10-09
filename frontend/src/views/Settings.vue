@@ -53,6 +53,9 @@
       </template>
     </FFmpegPanel>
 
+    <!-- v0.26 文档组件（文档、表格、演示的转换） -->
+    <DocComponentPanel id="sec-doccomp" heading-id="h-doccomp" />
+
     <!-- 编码设备：后端绑定接通（ENCODER_BACKEND_READY）才显示；纯浏览器只有 ?enc= 才显示模拟层 -->
     <EncoderDevicePanel v-if="encoderVisible" id="sec-encoder" heading-id="h-encoder" />
     <!-- 回退提示的展示预览（仅浏览器 ?enc=…&fb=1；真实运行不出现，也没有接线） -->
@@ -112,6 +115,8 @@ import { scrollBehavior } from '@/utils/motion'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import FFmpegPanel from '@/components/settings/FFmpegPanel.vue'
+import DocComponentPanel from '@/components/settings/DocComponentPanel.vue'
+import { useDocComponentStore } from '@/stores/docComponent'
 import OutputDirRow from '@/components/settings/OutputDirRow.vue'
 import StoragePanel from '@/components/settings/StoragePanel.vue'
 import { convertV24On } from '@/api/convertRecords'
@@ -128,6 +133,7 @@ import { publicErrorText } from '@/errors/errorMessages'
 const { mode } = useTheme()
 const storageOn = convertV24On()
 const encoderVisible = encoderPanelVisible()
+void useDocComponentStore().init()
 
 // 从提示条“编码设置”跳来（?section=encoder）：滚到“编码设备”并把焦点放到它的标题（tabindex=-1，读屏会读出小节名）。
 // 这一块不显示时（标志关 / 纯浏览器没有 ?enc=）什么也不做，停在页顶。
