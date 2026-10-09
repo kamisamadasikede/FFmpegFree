@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.30.1）
+# FFmpegFree v2 接口契约（v0.30.2）
+
+v0.30.2 变更（Cat 流式回写对齐后端 #174，架构 10-09；见 **6.19.9**）：① `SendCatMessageResult` 必带 `turnId`；流式下 `assistantMessage` 为空/省略，助手内容只经 `cat:message` / `cat:turn`；同步仍带 `userMessage`；未就绪同步 `CAT_NOT_READY`（不启 turn）。② `CancelCatTurn({convId,turnId})`：`convId` 空 → `INVALID_ARGUMENT`；`turnId` 空取消该会话当前进行中一轮（兼容）；turnId 对不上 / 无进行中 / 重复取消 → nil；取消保留已出文字、无气泡后缀，先 `done`（若已有字）再一次性 `cancelled`，丢弃迟到增量。③ **用户消息不发 `cat:message`**，只助手流式用该事件。④ `seq` 从 **1** 起严格递增；`cat:turn.status` 仅 `running|completed|cancelled|failed`（无 succeeded/canceled）。⑤ **未发布/未就绪**：Send 同步 `CAT_NOT_READY`，界面仅「Cat 助手还没准备好，发布后即可使用。」，官方包不出现助手气泡、不拆字模拟回复；**24 字 append 拆分**仅作组件已就绪但 CLI 真流式未接时的临时适配器回退（切真回复，非假内容），真流式落地后只留测试。无新错误码、无迁移。
 
 v0.30.1 变更（Cat 流式事件形态，产品 / 架构 10-09 定；**下一个包实现，不是二期**；CLI 流式协议细节待老板，见 **6.19.9**）：`cat:message` 增量（`convId`/`turnId`/`messageId`/`seq`/`op: append|replace|done`/`block?`/`textDelta?`）；`cat:turn`（`running|cancelled|failed|completed`）；`CancelCatTurn({ convId, turnId })` 立即停止、保留已出文字、界面加淡色系统行「已停止生成。」、停止按钮立即置灰；失败仍 `CAT_REPLY_FAILED`「回复没生成出来，请重试。」；reduced-motion 时前端直接追加文字、不做打字机闪烁。无新错误码、无迁移。
 
@@ -415,7 +417,7 @@ GetCatConversation(id string) (CatConversationDetail, error)
 CreateCatConversation(req CreateCatConversationRequest) (CatConversation, error)
 DeleteCatConversation(id string) error
 SendCatMessage(req SendCatMessageRequest) (SendCatMessageResult, error)
-CancelCatTurn(req CancelCatTurnRequest) error // v0.30.1：{ convId, turnId }，见 6.19.9
+CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，见 6.19.9
 ListEncoderDevices() (EncoderDeviceList, error)      // 硬件编码设备（9.6）：第一项永远是 cpu；ffmpeg 未就绪时只有 cpu 且 ffmpegReady=false，不报错
 RefreshEncoderDevices() (EncoderDeviceList, error)   // 丢弃缓存重新检测
 GetEncoderPreference() (string, error)               // "auto" | "cpu" | 设备 id，默认 "auto"；所选设备不可用时保持原值
@@ -3966,14 +3968,15 @@ DeleteCatConversation(id string) error
 SendCatMessage(req SendCatMessageRequest) (SendCatMessageResult, error)
 // req: conversationId, content, modelId, thinkLevelId；可选 projectPath（只读根）
 // 路由：用会话已存 agentKind，忽略「当前默认」
-CancelCatTurn(req CancelCatTurnRequest) error // v0.30.1：{ convId, turnId }，见 6.19.9
+// 返回：必带 turnId + userMessage；流式下 assistantMessage 空，见 6.19.9
+CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，见 6.19.9
 ```
 
 | 事件 | 含义 |
 |---|---|
 | `cat:status` | `CatStatus` 变化 |
-| `cat:message` | 某会话消息新增 / 更新；**v0.30.1 起为流式增量形态**，见 6.19.9 |
-| `cat:turn` | 一轮状态；**v0.30.1 起** `{ convId, turnId, status }`，见 6.19.9 |
+| `cat:message` | **仅助手流式增量**（用户消息不发）；形态见 6.19.9 |
+| `cat:turn` | 一轮状态 `{ convId, turnId, status }`（`running|completed|cancelled|failed`），见 6.19.9 |
 
 设置：`catDefaultAgentKind` 默认 `cat_build`，**仅新建会话预填**。
 
@@ -3997,18 +4000,34 @@ CancelCatTurn(req CancelCatTurnRequest) error // v0.30.1：{ convId, turnId }，
 `cat_cli` / `cat_code` / `codex_cli` 注册与运行；完全访问；助手；定时任务；URL/Key；组件下载专节。（流式事件已提前到 6.19.9，下一个包做。）扩展时**只加注册表项与胶囊启用**，会话锁定规则不变。
 
 
-### 6.19.9 流式事件与取消（v0.30.1；下一个包实现）
+### 6.19.9 流式事件与取消（v0.30.1；v0.30.2 对齐 #174）
 
 > 本节定**应用内事件与绑定形态**；Build CLI 侧流式输出协议（stdout 分帧、如何映射到下面的 op）**待老板发布 CLI 后补**，后端适配器负责把 CLI 输出翻译成本节事件。**不是二期**，排在下一个包。
 
-**`cat:message`（增量）**
+**`SendCatMessage` / `SendCatMessageResult`（v0.30.2）**
+
+```go
+type SendCatMessageResult struct {
+    UserMessage      CatMessage `json:"userMessage"`
+    TurnID           string     `json:"turnId"`                     // 必填；供 CancelCatTurn / 停止按钮
+    AssistantMessage *CatMessage `json:"assistantMessage,omitempty"` // 流式下为空/省略
+}
+```
+
+- 同步路径：校验 + 落库用户消息后返回 `{ userMessage, turnId }`；助手回复在后台跑，**全靠事件推送**。
+- **流式下 `assistantMessage` 为空或省略**；助手正文只经 `cat:message` / `cat:turn`。
+- **用户消息不发 `cat:message`**（只在同步 `userMessage` 里带）；`cat:message` **仅用于助手流式**。
+- **未就绪**（组件/CLI 未发布或 `state != ready`）：同步返回 `CAT_NOT_READY`，**不启 turn**、不发流式事件；界面只展示「Cat 助手还没准备好，发布后即可使用。」。**官方包禁止**在未就绪时造助手气泡、禁止拆字/模拟回复。
+- **临时适配器回退**（组件已就绪、但 CLI 真流式尚未接线）：可将**真实整段回复**按约 24 字拆成多次 `append` 再 `done`（切真内容，非假文案）。真 CLI 流式落地后，该拆分**只留测试**，不得进官方包运行路径。
+
+**`cat:message`（增量；仅助手）**
 
 ```ts
 type CatMessageEvent = {
   convId: string
   turnId: string
-  messageId: string
-  seq: number                       // 同一 messageId 内严格递增，从 0 或 1 起（实现定，单调即可）
+  messageId: string                 // 助手消息入库 id，与事件一致
+  seq: number                       // 同一 messageId 内从 1 起严格递增
   op: 'append' | 'replace' | 'done'
   block?: { type: string; text?: string } // replace 时携带整块内容（如 text / tool_result 等，type 枚举随实现扩展）
   textDelta?: string                // append 时携带追加的文本片段
@@ -4021,6 +4040,7 @@ type CatMessageEvent = {
 | `replace` | 用 `block` 替换该消息当前内容（或当前块，实现定口径须稳定） |
 | `done` | 该消息结束，之后不再有同 `messageId` 事件 |
 
+- 典型顺序：若干 `append`（`seq` = 1, 2, …），最后一次 `done`。
 - 前端按 `(messageId, seq)` 去重 / 丢弃乱序旧包；同一轮可有多条 `messageId`（如助手正文 + 工具块）。
 
 **`cat:turn`**
@@ -4029,12 +4049,12 @@ type CatMessageEvent = {
 type CatTurnEvent = {
   convId: string
   turnId: string
-  status: 'running' | 'cancelled' | 'failed' | 'completed'
+  status: 'running' | 'completed' | 'cancelled' | 'failed'  // 无 succeeded / canceled
 }
 ```
 
+- 一轮开始发 `running`；终态只发一次 `completed` | `cancelled` | `failed`。
 - `failed` 时用户可见文案仍是 **`CAT_REPLY_FAILED`** → `回复没生成出来，请重试。`（错误详情可走同步返回或附加字段，界面不显示 code）。
-- 一轮开始发 `running`；结束发 `completed` / `cancelled` / `failed` 之一。
 
 **`CancelCatTurn`**
 
@@ -4045,10 +4065,11 @@ type CancelCatTurnRequest struct {
 }
 ```
 
-- **立即停止**该轮；**已流出的文字保留**在气泡里，气泡末尾**不加**后缀。
-- 界面在对话里追加一条**淡色系统行**：`已停止生成。`
-- 停止按钮在点击后**立即置灰**（不等后端确认）。
-- 取消后应收到 `cat:turn` `status: cancelled`；重复取消幂等。
+- `convId` 为空 → `INVALID_ARGUMENT`。
+- `turnId` 为空：取消该会话**当前进行中**的一轮（兼容旧调用）。
+- `turnId` 对不上 / 没有进行中的一轮 / 重复取消 → 返回 **nil**（不报错）。
+- 取消时：**已流出文字保留入库**，气泡末尾**不加**后缀；若已出过字则先发该消息的 `done`，再发一次 `cat:turn` `cancelled`；迟到增量丢弃。
+- 界面在对话里追加一条**淡色系统行**：`已停止生成。`；停止按钮在点击后**立即置灰**（不等后端确认）。
 
 **无障碍**：`prefers-reduced-motion: reduce` 时，前端**直接追加**收到的文本，不做逐字打字机闪烁动画。
 
