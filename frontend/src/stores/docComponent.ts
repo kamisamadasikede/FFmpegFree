@@ -34,6 +34,8 @@ const DISMISS_KEY = 'ff.doc.guideDismissed'
 export const useDocComponentStore = defineStore('docComponent', () => {
   const status = ref<DocComponentStatus>({
     state: 'checking',
+    componentState: 'checking',
+    engines: [],
     version: '',
     source: '',
     canDownload: true,
@@ -59,10 +61,13 @@ export const useDocComponentStore = defineStore('docComponent', () => {
     }
   }
 
+  /** v0.27：整体可用（任何引擎可用）。文档页的下载引导、格式置灰只看它 */
   const ready = computed(() => status.value.state === 'ready')
+  /** v0.27：文档组件自己的状态（下载 / 准备 / 过旧 / 失败、设置页「文档组件」块） */
+  const compState = computed(() => status.value.componentState || status.value.state)
   const isLinux = computed(() => !status.value.canDownload)
   const notReady = computed(() => !['ready', 'checking'].includes(status.value.state))
-  const inFlight = computed(() => status.value.state === 'downloading' || status.value.state === 'preparing')
+  const inFlight = computed(() => compState.value === 'downloading' || compState.value === 'preparing')
 
   const pct = computed(() => {
     const p = progress.value
@@ -89,8 +94,9 @@ export const useDocComponentStore = defineStore('docComponent', () => {
   const linuxMissingText = DOC_LINUX_MISSING
 
   const guideView = computed<DocGuideView>(() => {
-    const s = status.value.state
-    if (s === 'ready' || s === 'checking') return 'hidden'
+    // 有任何可用引擎（含本机 Office / WPS）就不出引导；否则按文档组件自己的状态（此时两者相等）
+    if (status.value.state === 'ready' || status.value.state === 'checking') return 'hidden'
+    const s = compState.value
     if (s === 'downloading') return 'downloading'
     if (s === 'preparing') return 'preparing'
     if (actionError.value || s === 'failed') return dismissed.value && s !== 'failed' ? 'slim' : 'failed'
@@ -104,14 +110,16 @@ export const useDocComponentStore = defineStore('docComponent', () => {
     return () => (readyListeners = readyListeners.filter((x) => x !== cb))
   }
 
-  function setStatus(next: DocComponentStatus) {
-    const wasReady = status.value.state === 'ready'
-    status.value = { ...next, installBytes: next.installBytes ?? 0 }
-    if (next.state !== 'downloading') {
+  function setStatus(raw: DocComponentStatus) {
+    // v0.26 后端没有 componentState / engines 时按 state 兜底
+    const next: DocComponentStatus = { ...raw, componentState: raw.componentState || raw.state, engines: raw.engines ?? [], installBytes: raw.installBytes ?? 0 }
+    status.value = next
+    const cs = next.componentState
+    if (cs !== 'downloading') {
       speedBps.value = 0
       lastSample = null
     }
-    if (next.state === 'downloading' && next.receivedBytes != null) {
+    if (cs === 'downloading' && next.receivedBytes != null) {
       progress.value = {
         phase: 'downloading',
         receivedBytes: next.receivedBytes,
@@ -119,11 +127,11 @@ export const useDocComponentStore = defineStore('docComponent', () => {
         progress: next.downloadBytes ? next.receivedBytes / next.downloadBytes : 0,
       }
     }
-    if (next.state === 'preparing') progress.value = { phase: 'preparing', receivedBytes: next.downloadBytes, totalBytes: next.downloadBytes }
-    if (next.state === 'ready' || next.state === 'missing') progress.value = null
-    if (next.state !== 'failed') actionError.value = null
-    const isReadyNow = next.state === 'ready'
-    if (isReadyNow !== wasReady) readyListeners.forEach((f) => f())
+    if (cs === 'preparing') progress.value = { phase: 'preparing', receivedBytes: next.downloadBytes, totalBytes: next.downloadBytes }
+    if (cs === 'ready' || cs === 'missing') progress.value = null
+    if (cs !== 'failed') actionError.value = null
+    // v0.27（6.12.28）：收到 doc:component 一律重拉格式表（不再只在 ready 变化时）
+    readyListeners.forEach((f) => f())
   }
 
   function onProgress(p: DocComponentProgress) {
@@ -211,6 +219,7 @@ export const useDocComponentStore = defineStore('docComponent', () => {
     dismissGuide,
     reopenGuide,
     onReady,
+    compState,
     setStatus,
   }
 })

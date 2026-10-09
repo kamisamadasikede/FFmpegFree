@@ -77,7 +77,7 @@ export async function runApiChecks(): Promise<string[]> {
   eq('clip 首行', parseDetailHead('clip=c_1-a path=/a b/中文.mp4\n原因'), { clipId: 'c_1-a', path: '/a b/中文.mp4' })
   eq('project 首行没有 clip', parseDetailHead('project\n视频轨不能为空'), {})
   eq('toAppError 解析 JSON 的 detail', toAppError('{"code":"TASK_CONFLICT","message":"m","detail":"reason=duplicate_url"}').reason, 'duplicate_url')
-  eq('BACKEND_ERROR_CODES 28 个（v0.26 加 10 个 DOC_*）', BACKEND_ERROR_CODES.length, 28)
+  eq('BACKEND_ERROR_CODES 30 个（v0.26 加 10 个 DOC_*，v0.27 加 2 个 busy）', BACKEND_ERROR_CODES.length, 30)
   eq('LIVE_SOURCE_GONE 的 kind 首行', [new AppError('LIVE_SOURCE_GONE', 'x', 'kind=window').kind, new AppError('LIVE_SOURCE_GONE', 'x', 'kind=screen').kind, new AppError('LIVE_SOURCE_GONE', 'x', 'kind=other').kind, new AppError('LIVE_SOURCE_GONE', 'x').kind], ['window', 'screen', undefined, undefined])
 
   // ---- TASK_CONFLICT 文案（reason → 文案 一张表）----
@@ -1176,6 +1176,8 @@ export async function runApiChecks(): Promise<string[]> {
   eq('v0.26 未映射码 → 兜底，不出现错误码', d26.docErrorText('NO_SUCH', ''), '出了点问题，请重试。')
   eq('v0.26 Linux 组件未就绪', d26.docErrorText('DOC_COMPONENT_NOT_READY', '', true), '请先在系统里安装 LibreOffice，然后重启应用。')
   eq('v0.26 排队文案', [d26.DOC_QUEUE_AHEAD(0), d26.DOC_QUEUE_AHEAD(2), d26.DOC_QUEUE_LINE(0), d26.DOC_QUEUE_LINE(3)], ['排队中 · 下一个', '排队中 · 前面还有 2 项', '下一个', '前面还有 3 项'])
+  eq('v0.27 被占用两码可重试，文案为转换版', [d26.docErrorText('DOC_PRESENTATION_BUSY', ''), d26.docErrorText('DOC_ENGINE_BUSY', ''), d26.docErrorRetryable('DOC_PRESENTATION_BUSY'), d26.docErrorRetryable('DOC_ENGINE_BUSY')], ['请先关闭正在打开的演示文稿，再转换。', '请先关闭正在打开的文档，再转换。', true, true])
+  eq('v0.27 结果警告 simple_fallback；未知码不显示', d26.docResultWarnings(['simple_fallback', 'whatever']), ['这次是简易转换，只保留了文字。可以稍后重转。'])
   eq('v0.26 CSV 说明用设计 v0.2 定稿句', d26.DOC_CSV_HINT, '只会导出第一个工作表。')
   return fails
 }

@@ -550,8 +550,10 @@ export const useDocConvertStore = defineStore('docConvert', () => {
           row(report, [mkRec(report, 'pdf', 'failed', { error: { code: 'DOC_COMPONENT_CRASHED', message: '', detail: 'exit=1' } })]),
           row(budget, [mkRec(budget, 'pdf', 'failed', { error: { code: 'CONVERT_DISK_FULL', message: '', detail: 'reason=no_space\nneedBytes=4509715660\nfreeBytes=1073741824' } })]),
           row(odt, [mkRec(odt, 'pdf', 'failed', { error: { code: 'SOMETHING_NEW', message: '' } })]),
+          row(contract, [mkRec(contract, 'pdf', 'failed', { error: { code: 'DOC_ENGINE_BUSY', message: '' } })]),
+          row(notes, [mkRec(notes, 'pdf', 'failed', { error: { code: 'DOC_PRESENTATION_BUSY', message: '' } })]),
         ]
-        roundBanner.value = { ok: 0, fail: 6 }
+        roundBanner.value = { ok: 0, fail: 8 }
         break
       }
       case 'csv':
@@ -575,9 +577,10 @@ export const useDocConvertStore = defineStore('docConvert', () => {
         rows.value = [
           row(contract, [mkRec(contract, 'pdf', 'succeeded')]),
           row(report, [mkRec(report, 'pdf', 'succeeded')]),
+          row(odt, [mkRec(odt, 'pdf', 'succeeded', { result: { engine: 'simple', warnings: ['simple_fallback'] } })]),
           row(budget, [mkRec(budget, 'pdf', 'succeeded')]),
         ]
-        roundBanner.value = { ok: 3, fail: 0 }
+        roundBanner.value = { ok: 4, fail: 0 }
         break
       case 'legacy': {
         const xls = mkSrc('2010 报表.xls')

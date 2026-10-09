@@ -123,3 +123,5 @@ html.dark{
 .cv2.w1024 .cv-total .dc-tbar{width:72px}
 /* 文档页外壳 .row 是横向 flex：本页占满（不再显示右侧「最近打开的 PDF」） */
 .cv2.dc-page{flex:1;min-width:0}
+/* v0.27 成功记录上的结果警告（simple_fallback 等） */
+.cv2 .cv-kid .dc-rwarn{margin-top:6px}

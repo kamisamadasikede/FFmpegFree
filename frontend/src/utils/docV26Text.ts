@@ -39,6 +39,18 @@ export const DOC_ERROR_COPY: Record<string, { text: string; retryable: boolean }
   DOC_COMPONENT_INSTALL_FAILED: { text: '文档组件准备失败，请重试。', retryable: true },
   DOC_FORMAT_UNSUPPORTED: { text: '不支持这种文件。', retryable: false },
   DOC_PDF_INPUT_UNSUPPORTED: { text: DOC_PDF_INPUT, retryable: false },
+  // v0.27（6.12.33，产品 10-09 定稿；转换用这两句，预览的「再预览。」版本属于下一包）
+  DOC_PRESENTATION_BUSY: { text: '请先关闭正在打开的演示文稿，再转换。', retryable: true },
+  DOC_ENGINE_BUSY: { text: '请先关闭正在打开的文档，再转换。', retryable: true },
+}
+
+/** v0.27 成功记录的结果警告（result.warnings 机器码 → 文案）；未知码不显示 */
+export const DOC_RESULT_WARNINGS: Record<string, string> = {
+  simple_fallback: '这次是简易转换，只保留了文字。可以稍后重转。',
+  csv_first_sheet_only: DOC_CSV_HINT,
+}
+export function docResultWarnings(warnings?: string[] | null): string[] {
+  return (warnings ?? []).map((w) => DOC_RESULT_WARNINGS[w]).filter((x): x is string => !!x)
 }
 
 export function docErrorText(code?: string | null, message?: string | null, linux = false): string {

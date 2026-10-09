@@ -9,22 +9,23 @@
       <div class="l">
         <span class="fok"><i class="fdot" :class="dot" aria-hidden="true" />{{ title }}</span>
         <small v-if="detail">{{ detail }}</small>
-        <div v-if="comp.inFlight && comp.status.state === 'downloading'" class="bar dbar" role="progressbar" aria-label="下载进度" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="comp.pct"><i :style="{ width: comp.pct + '%' }" /></div>
-        <div v-else-if="comp.status.state === 'preparing'" class="bar ind dbar" role="progressbar" :aria-label="DOC_PREPARING" aria-busy="true"><i /></div>
+        <div v-if="comp.inFlight && comp.compState === 'downloading'" class="bar dbar" role="progressbar" aria-label="下载进度" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="comp.pct"><i :style="{ width: comp.pct + '%' }" /></div>
+        <div v-else-if="comp.compState === 'preparing'" class="bar ind dbar" role="progressbar" :aria-label="DOC_PREPARING" aria-busy="true"><i /></div>
       </div>
       <div class="facts">
         <template v-if="!comp.isLinux">
           <button v-if="canDownload" type="button" class="btn pri" :disabled="comp.busy" @click="comp.install()"><FIcon name="download" :size="15" />{{ failed ? '重试' : '下载' }}</button>
-          <button v-if="comp.status.state === 'downloading'" type="button" class="btn" :disabled="comp.busy" @click="comp.cancel()">取消下载</button>
+          <button v-if="comp.compState === 'downloading'" type="button" class="btn" :disabled="comp.busy" @click="comp.cancel()">取消下载</button>
         </template>
-        <button v-if="comp.status.state === 'checking'" type="button" class="btn" disabled>正在检测…</button>
+        <button v-if="comp.compState === 'checking'" type="button" class="btn" disabled>正在检测…</button>
       </div>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-// 设置页「文档组件」块（契约 6.12.12；设计 v0.2 §四）。和「转换组件」同一套行样式。
+// 设置页「文档组件」块（契约 6.12.12 / v0.27 6.12.28：读 componentState，不读整体 state；设计 v0.2 §四）。和「转换组件」同一套行样式。
+// 引擎下拉（engines 多于一项）、「正在使用本机 WPS」属于 v0.27 下一包，这里不做。
 // 契约没有「打开文档组件所在文件夹」的方法（OpenStorageFolder 只有 component=转换组件），就绪时不放这个按钮。
 import { computed } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
@@ -35,16 +36,16 @@ import { formatBytes } from '@/utils/format'
 defineProps<{ headingId?: string }>()
 const comp = useDocComponentStore()
 const SOURCE: Record<string, string> = { downloaded: '应用下载', system: '系统安装' }
-const failed = computed(() => comp.status.state === 'failed')
-const canDownload = computed(() => ['missing', 'outdated', 'failed'].includes(comp.status.state))
+const failed = computed(() => comp.compState === 'failed')
+const canDownload = computed(() => ['missing', 'outdated', 'failed'].includes(comp.compState))
 const dot = computed(() => {
-  const s = comp.status.state
+  const s = comp.compState
   if (s === 'ready') return ''
   if (comp.isLinux || s === 'failed' || s === 'outdated') return 'bad'
   return 'off'
 })
 const title = computed(() => {
-  switch (comp.status.state) {
+  switch (comp.compState) {
     case 'ready':
       return '文档组件已就绪'
     case 'checking':
@@ -61,11 +62,14 @@ const title = computed(() => {
 })
 const detail = computed(() => {
   const s = comp.status
-  switch (s.state) {
+  switch (comp.compState) {
     case 'ready': {
-      const from = SOURCE[s.source] ?? ''
-      if (!s.version) return from
-      return from ? `文档组件版本 ${s.version} · ${from}` : `文档组件版本 ${s.version}`
+      // 文档组件自己的来源在 engines 的 component 项（v0.27：status.source 是整体正在用的引擎，可能是 office / wps）
+      const own = s.engines.find((e) => e.id === 'component')
+      const from = SOURCE[own?.source ?? (['downloaded', 'system'].includes(s.source) ? s.source : '')] ?? ''
+      const ver = own ? own.version : s.version
+      if (!ver) return from
+      return from ? `文档组件版本 ${ver} · ${from}` : `文档组件版本 ${ver}`
     }
     case 'downloading':
       return `${comp.pct}% · ${formatBytes(comp.receivedBytes)} / ${formatBytes(comp.totalBytes)}`

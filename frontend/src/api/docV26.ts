@@ -21,13 +21,32 @@ export type DocComponentState =
 
 /** 文档组件来源。'' = 未就绪；后续版本可能新增值，前端按未知值兜底显示 */
 // eslint-disable-next-line @typescript-eslint/ban-types
-export type DocComponentSource = '' | 'system' | 'downloaded' | (string & {})
+export type DocComponentSource = '' | 'system' | 'downloaded' | 'office' | 'wps' | (string & {})
+
+/** v0.27（6.12.28）：本机检测到的引擎，按自动顺序。本包只类型化 + 模拟，不做引擎下拉 / Office / WPS 界面（下一包） */
+export interface DocEngineInfo {
+  /** office | wps | component（开放联合，后续可能加） */
+  id: 'office' | 'wps' | 'component' | (string & {})
+  /** 后端给的显示名（Microsoft Office / WPS / 文档组件），前端直接显示 */
+  name: string
+  version: string
+  /** 只有已安装的 component 有：downloaded | system */
+  source?: 'downloaded' | 'system' | (string & {})
+  /** office / wps 恒为 true；component 没下载时 false */
+  installed: boolean
+  families: ('text' | 'sheet' | 'slide' | (string & {}))[]
+  available: boolean
+}
 
 export interface DocComponentStatus {
+  /** v0.27 起：文档转换整体是否可用——任何一个引擎可用就是 ready；都不可用时等于 componentState。文档页下载引导只看它 */
   state: DocComponentState
+  /** v0.27 新增：文档组件自己的状态（取值同 v0.26 的 state）。下载 / 准备 / 过旧 / 失败、设置页「文档组件」块看它 */
+  componentState: DocComponentState
+  /** v0.27 新增：全部引擎，始终输出（没有时 []） */
+  engines: DocEngineInfo[]
   version: string
-  /** ready 时 system | downloaded；其他 "" */
-  /** 开放联合：v0.27 可能加 'office' / 'wps'（本地引擎，待定），不在这里收死 */
+  /** ready 时 office | wps（v0.27）| system | downloaded；其他 ""。开放联合，后续再加值不用改这里 */
   source: DocComponentSource
   canDownload: boolean
   /** 安装包字节；界面“约 xxx MB” */
@@ -45,6 +64,8 @@ export interface DocTarget {
   needsComponent: boolean
   simple: boolean
   available: boolean
+  /** v0.27：能做这个转换的引擎 id（只供排查，界面不显示） */
+  engines?: string[]
   hintKey?: string
   hint?: string
   disabledReason?: string
@@ -112,7 +133,9 @@ export const docV26IsReal = (): boolean => live()
 export const docV26On = (): boolean => true // 本包始终打开 v0.26 界面；数据源由 isReal 决定
 
 // ─── 模拟状态 ───
-let simStatus: DocComponentStatus = {
+// 模拟层内部的 state 就是「文档组件自己的状态」；对外经 v27() 换成 v0.27 的形状（state = 整体、componentState、engines）
+type SimStatus = Omit<DocComponentStatus, 'componentState' | 'engines'>
+let simStatus: SimStatus = {
   state: 'missing',
   version: '',
   source: '',
@@ -155,7 +178,7 @@ function applyPreviewStatus() {
   simOs = previewOs()
   const st = previewState()
   const canDl = simOs !== 'linux'
-  const base: DocComponentStatus = {
+  const base: SimStatus = {
     state: st ?? 'missing',
     version: '',
     source: '',
@@ -295,7 +318,32 @@ function buildMatrix(ready: boolean): DocFormatMatrix {
 }
 
 function emitStatus() {
-  emitSimEvent('doc:component', { ...simStatus })
+  emitSimEvent('doc:component', v27(simStatus))
+}
+
+/** 预览参数 &engine=office|wps：模拟本机装了 Office / WPS（只在 Windows 模拟） */
+function simLocalEngine(): 'office' | 'wps' | '' {
+  const e = simParam('engine')
+  return simOs === 'win' && (e === 'office' || e === 'wps') ? e : ''
+}
+
+function v27(s: SimStatus): DocComponentStatus {
+  const local = simLocalEngine()
+  const engines: DocEngineInfo[] = []
+  if (local === 'office') engines.push({ id: 'office', name: 'Microsoft Office', version: '16.0.17928.20114', installed: true, families: ['text', 'sheet', 'slide'], available: true })
+  if (local === 'wps') engines.push({ id: 'wps', name: 'WPS', version: '12.1.0.18276', installed: true, families: ['text', 'sheet', 'slide'], available: true })
+  const compReady = s.state === 'ready'
+  if (simOs !== 'linux' || compReady)
+    engines.push({ id: 'component', name: '文档组件', version: compReady ? s.version : '', ...(compReady ? { source: s.source || 'downloaded' } : {}), installed: compReady, families: ['text', 'sheet', 'slide'], available: compReady })
+  const overallReady = !!local || compReady
+  return {
+    ...s,
+    state: overallReady ? 'ready' : s.state,
+    componentState: s.state,
+    engines,
+    source: local || (compReady ? s.source : ''),
+    version: local ? engines[0].version : s.version,
+  }
 }
 
 function emitProgress(p: DocComponentProgress) {
@@ -308,13 +356,13 @@ function emitProgress(p: DocComponentProgress) {
 export async function getDocComponentStatus(): Promise<DocComponentStatus> {
   if (live()) return callService<DocComponentStatus>('DocService', 'GetDocComponentStatus')
   applyPreviewStatus()
-  return { ...simStatus }
+  return v27(simStatus)
 }
 
 export async function getFormatMatrix(): Promise<DocFormatMatrix> {
   if (live()) return callService<DocFormatMatrix>('DocService', 'GetFormatMatrix')
   applyPreviewStatus()
-  return buildMatrix(simStatus.state === 'ready')
+  return buildMatrix(v27(simStatus).state === 'ready')
 }
 
 export async function installDocComponent(mirror = ''): Promise<DocComponentStatus> {
@@ -323,7 +371,7 @@ export async function installDocComponent(mirror = ''): Promise<DocComponentStat
   if (!simStatus.canDownload) {
     throw new AppError('UNSUPPORTED_PLATFORM', DOC_LINUX_MISSING)
   }
-  if (simStatus.state === 'downloading' || simStatus.state === 'preparing') return { ...simStatus }
+  if (simStatus.state === 'downloading' || simStatus.state === 'preparing') return v27(simStatus)
   // 模拟磁盘满
   if (simParam('doc_err') === 'CONVERT_DISK_FULL' && simStatus.state !== 'failed') {
     simStatus = {
@@ -336,7 +384,7 @@ export async function installDocComponent(mirror = ''): Promise<DocComponentStat
       },
     }
     emitStatus()
-    return { ...simStatus }
+    return v27(simStatus)
   }
   const total = simStatus.downloadBytes || 373_252_096
   let received = simStatus.receivedBytes ?? 0
@@ -368,7 +416,7 @@ export async function installDocComponent(mirror = ''): Promise<DocComponentStat
       }, 1500)
     }
   }, 200)
-  return { ...simStatus }
+  return v27(simStatus)
 }
 
 export async function cancelDocComponentInstall(): Promise<void> {
@@ -392,7 +440,7 @@ export async function recheckDocComponent(): Promise<DocComponentStatus> {
   if (live()) return callService<DocComponentStatus>('DocService', 'RecheckDocComponent')
   applyPreviewStatus()
   emitStatus()
-  return { ...simStatus }
+  return v27(simStatus)
 }
 
 export function dismissDocGuide() {
@@ -483,6 +531,8 @@ export interface DocRecord {
   sourceId?: string
   queuePosition?: number
   error?: { code: string; message: string; detail?: string } | null
+  /** 成功记录的结果（6.14.6 warnings；v0.27 engine = office | wps | component | go | simple） */
+  result?: { engine?: 'office' | 'wps' | 'component' | 'go' | 'simple' | (string & {}); warnings?: string[] } | null
   createdAt: number
   startedAt?: number
   finishedAt?: number

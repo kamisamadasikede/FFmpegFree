@@ -5,7 +5,7 @@ import FIcon from '@/components/icon/FIcon.vue'
 import DocTypeCover from '@/components/docs/DocTypeCover.vue'
 import { useDocConvertStore, type DocRow } from '@/stores/docConvert'
 import type { DocRecord } from '@/api/docV26'
-import { DOC_QUEUE_LINE, DOC_SIMPLE_PDF_LABEL } from '@/utils/docV26Text'
+import { DOC_QUEUE_LINE, DOC_SIMPLE_PDF_LABEL, docResultWarnings } from '@/utils/docV26Text'
 import { formatBytes, formatStart } from '@/utils/format'
 
 const props = defineProps<{ row: DocRow }>()
@@ -48,7 +48,7 @@ function targetOf(r: DocRecord): string {
   }
 }
 function isSimple(r: DocRecord): boolean {
-  if (r.type === 'office_pdf') return true
+  if (r.type === 'office_pdf' || r.result?.engine === 'simple') return true
   try {
     return !!JSON.parse(r.params || '{}').simple
   } catch {
@@ -115,6 +115,9 @@ const summary = computed(() => {
               <div class="bar q"><i style="width: 0" /></div>
               <span class="dc-qtx">{{ queueText(r) }}</span>
             </template>
+          </div>
+          <div v-if="r.status === 'succeeded' && docResultWarnings(r.result?.warnings).length" class="cv-fnote warn dc-rwarn">
+            <FIcon name="info" /><span>{{ docResultWarnings(r.result?.warnings).join(' ') }}</span>
           </div>
           <div v-if="dc.recordError(r)" class="cv-err" role="alert">
             <FIcon name="warn" />
