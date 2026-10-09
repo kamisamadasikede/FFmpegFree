@@ -932,20 +932,22 @@ export namespace live {
 		    return a;
 		}
 	}
-	export class Preview {
-	    data: string;
-	    ts: number;
-	    active: boolean;
+	export class PreviewStream {
+	    url: string;
+	    mime: string;
+	    hasVideo: boolean;
+	    hasAudio: boolean;
 	
 	    static createFrom(source: any = {}) {
-	        return new Preview(source);
+	        return new PreviewStream(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.data = source["data"];
-	        this.ts = source["ts"];
-	        this.active = source["active"];
+	        this.url = source["url"];
+	        this.mime = source["mime"];
+	        this.hasVideo = source["hasVideo"];
+	        this.hasAudio = source["hasAudio"];
 	    }
 	}
 	export class PullPreviewRequest {
@@ -966,6 +968,9 @@ export namespace live {
 	    id: string;
 	    redacted: string;
 	    preview: boolean;
+	    previewUrl: string;
+	    hasVideo?: boolean;
+	    hasAudio?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new PullSession(source);
@@ -976,6 +981,9 @@ export namespace live {
 	        this.id = source["id"];
 	        this.redacted = source["redacted"];
 	        this.preview = source["preview"];
+	        this.previewUrl = source["previewUrl"];
+	        this.hasVideo = source["hasVideo"];
+	        this.hasAudio = source["hasAudio"];
 	    }
 	}
 	
@@ -1555,10 +1563,10 @@ export namespace system {
 	}
 	export class FFmpegStatus {
 	    state: string;
-	    path: string;
 	    version: string;
 	    source: string;
 	    taskId?: string;
+	    customPathInvalid: boolean;
 	    ffprobeMissing: boolean;
 	    error?: apperr.AppError;
 	
@@ -1569,10 +1577,10 @@ export namespace system {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.state = source["state"];
-	        this.path = source["path"];
 	        this.version = source["version"];
 	        this.source = source["source"];
 	        this.taskId = source["taskId"];
+	        this.customPathInvalid = source["customPathInvalid"];
 	        this.ffprobeMissing = source["ffprobeMissing"];
 	        this.error = this.convertValues(source["error"], apperr.AppError);
 	    }

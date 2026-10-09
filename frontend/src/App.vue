@@ -5,7 +5,12 @@
       <AppTitlebar />
       <FFmpegBanner />
       <main class="app-content">
-        <RouterView />
+        <!-- 直播页切到别的菜单再回来：整页留着（推流 / 拉流不中断），预览播放器自己在离开时拆掉 -->
+        <RouterView v-slot="{ Component }">
+          <KeepAlive include="LiveLayout">
+            <component :is="Component" />
+          </KeepAlive>
+        </RouterView>
       </main>
     </div>
     <FFmpegInstallDialog />

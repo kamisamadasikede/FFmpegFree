@@ -93,7 +93,6 @@
           <div class="ic"><FIcon name="warn" :size="24" /></div>
           <h5>{{ DOC_PDF_ERROR_TITLE }}</h5>
           <p>{{ errView.text }}</p>
-          <span class="code">{{ errView.code }}</span>
           <div class="acts">
             <button v-if="errView.retry && current" type="button" class="btn" @click="open(current.path)">重试</button>
             <button type="button" class="btn pri" @click="choose">{{ errView.retry ? '选择其他 PDF' : '选择其他 PDF' }}</button>

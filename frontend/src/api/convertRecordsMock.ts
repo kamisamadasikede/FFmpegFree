@@ -14,7 +14,7 @@
  */
 import { AppError } from '@/api/call'
 import { probeFiles, type ProbeResult } from '@/api/media'
-import { adoptSimTask, cancelSimTask, createSimTask, getSimTask, hideSimFinished, isSimTask, listSimAll, listSimFinished, markSimReconverting, reconvertSimTask, removeSimTasks, simParam, SIM_TITLE_PREFIX, unhideSimTasks } from '@/api/sim'
+import { adoptSimTask, cancelSimTask, createSimTask, getSimTask, hideSimFinished, isSimTask, listSimAll, listSimFinished, markSimReconverting, reconvertSimTask, removeSimTasks, simDelay, simParam, SIM_TITLE_PREFIX, unhideSimTasks } from '@/api/sim'
 import { mockFormatCatalog } from '@/api/formatCatalogMock'
 import type { ApiTask, ApiTaskResult } from '@/api/taskTypes'
 import type {
@@ -458,8 +458,10 @@ export async function AddSources(paths: string[]): Promise<AddSourceResult[]> {
       pathKey: key, exists: true,
     }
     sources.set(sourceId, m)
+    // ?cv_copyrace=1（走查 S1 复现）：小文件瞬间复制完，copying / ready 两条事件都比 AddSources 返回得早，返回的快照还是复制前的
+    const snap = copySource(m)
     startCopy(m)
-    return { path, source: copySource(m), existed: false }
+    return { path, source: simParam('cv_copyrace') ? snap : copySource(m), existed: false }
   })
 }
 
@@ -494,6 +496,14 @@ function startCopy(m: MSource) {
     return
   }
   if (simParam('cv_copyhold') === '1') return
+  // ?cv_copyrace=1：瞬间复制完，事件比 AddSources 返回早；?cv_copyrace=lost：复制完了但事件丢了（只能靠返回后的对齐查询恢复）
+  const race = simParam('cv_copyrace')
+  if (race === '1' || race === 'lost') {
+    s.copiedBytes = s.totalBytes ?? 0
+    s.copyState = 'ready'
+    if (race === '1') emitCopy(m)
+    return
+  }
   const ms = Number(simParam('cv_copyms')) || 3000
   const t0 = Date.now()
   m.copyTimer = setInterval(() => {
@@ -916,8 +926,32 @@ export function mockMarkOutputReplaced(id: string): void {
 export const mockStorage = (): StorageDirs => ({ ...storage })
 
 // ---------------- v0.24：格式目录、存储目录、重转中断（6.15.2 / 6.16 / v0.24.1） ----------------
+/**
+ * 模拟后端检测中的等待上限（真实后端最多等 6 秒）。
+ * ?cv_slowdetect=<秒>：从页面打开算起，检测在第 N 秒才结束（ffmpeg store 同时变成 ready）。
+ * 目录请求最多等到第 6 秒；若那时检测还没结束，整表 reasonCode=converter_not_ready，前端应保持骨架，等就绪后再取。
+ */
+const CATALOG_DETECT_WAIT_MS = 6000
 export async function GetFormatCatalog(): Promise<FormatEntry[]> {
   ensure()
+  const fail = simParam('cv_catfail')
+  if (fail === 'hang') return new Promise(() => {})
+  if (fail === '1' || fail === 'error') throw new AppError('INTERNAL', '格式目录没有返回')
+  const late = Number(simParam('cv_catlate') ?? '')
+  if (late > 0) {
+    await simDelay(late * 1000)
+    return catalog()
+  }
+  const slow = Number(simParam('cv_slowdetect') ?? '')
+  if (slow > 0) {
+    const openedAt = performance.timeOrigin
+    const readyAt = openedAt + slow * 1000
+    const giveUpAt = openedAt + CATALOG_DETECT_WAIT_MS
+    const wait = Math.max(0, Math.min(giveUpAt, readyAt) - Date.now())
+    if (wait) await simDelay(wait)
+    if (Date.now() + 30 < readyAt) return catalog().map((f) => ({ ...f, encodable: false, reasonCode: 'converter_not_ready' }))
+    return catalog()
+  }
   return catalog()
 }
 export async function GetStorageDirs(): Promise<StorageDirs> {

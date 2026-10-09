@@ -3,6 +3,7 @@
 package live
 
 import (
+	"FFmpegFree/internal/apperr"
 	"context"
 	"os"
 	"strings"
@@ -121,7 +122,7 @@ func TestLiveHWFailBeforeStreamFallsBack(t *testing.T) {
 	}
 }
 
-// 推流已建立后中途硬件失败：不自动重试，任务失败（LIVE_PUSH_INTERRUPTED 等），编码器仍是硬件。
+// 推流已建立后中途硬件失败：不自动重试，任务记为 interrupted（v0.25.3，LIVE_PUSH_INTERRUPTED），编码器仍是硬件。
 func TestLiveHWFailMidStreamDoesNotRetry(t *testing.T) {
 	f := newFixture(t, func(c *Config) { c.Encoder = resolverOf("h264_nvenc", "nvidia", false) })
 	f.setMode("hwmid")
@@ -130,7 +131,7 @@ func TestLiveHWFailMidStreamDoesNotRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := f.wait(t, tk.ID)
-	if d.Status != task.StatusFailed {
+	if d.Status != task.StatusInterrupted || d.Error == nil || d.Error.Code != apperr.LivePushInterrupted {
 		t.Fatalf("%+v", d)
 	}
 	if n := len(callsOf(f)); n != 1 {

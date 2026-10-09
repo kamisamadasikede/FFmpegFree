@@ -29,13 +29,27 @@
 
     <!-- ffmpeg（与关于页共用 FFmpegPanel；这里带操作按钮） -->
     <FFmpegPanel id="sec-ffmpeg" heading-id="h-ffmpeg">
+      <!-- X5（产品经理 10-08）：就绪时只给「打开组件所在文件夹」，不显示路径 -->
+      <!-- 包 24 N5：手动指定的不可用、已回退时，「恢复默认」放在「打开组件所在文件夹」左边 -->
+      <template #ready-actions>
+        <div class="facts">
+          <button v-if="ffmpeg.customFellBack" type="button" class="btn" :disabled="busy" @click="run(ffmpeg.clearCustomPath)">恢复默认</button>
+          <button type="button" class="btn" :disabled="busy" @click="openComponentDir"><FIcon name="folder" :size="15" />打开组件所在文件夹</button>
+        </div>
+      </template>
+      <!-- 包 24 N5：手动指定的不可用、也没有能用的组件：只给「手动指定」「恢复默认」 -->
+      <template #custom-actions>
+        <div class="facts">
+          <button type="button" class="btn" :disabled="busy" @click="run(() => ffmpeg.pickPath())"><FIcon name="folder" :size="15" />手动指定</button>
+          <button type="button" class="btn" :disabled="busy" @click="run(ffmpeg.clearCustomPath)">恢复默认</button>
+        </div>
+      </template>
+      <!-- 没就绪（未安装 / 过旧 / 安装失败 / 检测中）：安装、重新检测、手动指定位置 -->
       <template #version-actions>
         <button v-if="canInstall" type="button" class="btn pri" @click="ffmpeg.dialogOpen = true"><FIcon name="download" :size="15" />{{ installLabel }}</button>
         <button type="button" class="btn" :disabled="busy || ffmpeg.status.state === 'installing'" @click="run(ffmpeg.recheck)"><FIcon name="refresh" :size="15" />重新检测</button>
-      </template>
-      <template #path-actions>
-        <button type="button" class="btn" :disabled="busy" @click="run(() => ffmpeg.pickPath())"><FIcon name="folder" :size="15" />更换</button>
-        <button v-if="ffmpeg.status.source === 'custom'" type="button" class="btn text" :disabled="busy" @click="run(ffmpeg.clearCustomPath)">恢复默认</button>
+        <button v-if="ffmpeg.status.state !== 'installing'" type="button" class="btn" :disabled="busy" @click="run(() => ffmpeg.pickPath())"><FIcon name="folder" :size="15" />手动指定</button>
+        <button v-if="ffmpeg.hasCustomPath" type="button" class="btn text" :disabled="busy" @click="run(ffmpeg.clearCustomPath)">恢复默认</button>
       </template>
     </FFmpegPanel>
 
@@ -106,9 +120,10 @@ import EncoderFallbackNotice from '@/components/encoder/EncoderFallbackNotice.vu
 import { encoderPanelVisible } from '@/api/encoder'
 import { simParam } from '@/api/sim'
 import { toAppError } from '@/api/call'
-import { MAX_CONCURRENT_AUTO, MAX_CONCURRENT_MAX, getMaxConcurrent, setMaxConcurrent } from '@/api/system'
+import { MAX_CONCURRENT_AUTO, MAX_CONCURRENT_MAX, getMaxConcurrent, setMaxConcurrent, openComponentFolder, componentFolderErrorText } from '@/api/system'
 import { useTheme, type ThemeMode } from '@/composables/useTheme'
 import { useFFmpegStore } from '@/stores/ffmpeg'
+import { publicErrorText } from '@/errors/errorMessages'
 
 const { mode } = useTheme()
 const storageOn = convertV24On()
@@ -151,13 +166,21 @@ const busy = ref(false)
 const canInstall = computed(() => ['missing', 'outdated', 'failed'].includes(ffmpeg.status.state))
 const installLabel = computed(() => (ffmpeg.status.state === 'failed' ? '重试安装' : '安装…'))
 
+/** X5：打开转换组件所在的文件夹（SystemService.OpenStorageFolder("component")）；NOT_FOUND →「转换组件还没有就绪。」 */
+async function openComponentDir() {
+  try {
+    await openComponentFolder()
+  } catch (e) {
+    ElMessage.error(componentFolderErrorText(e))
+  }
+}
 async function run(fn: () => Promise<unknown>) {
   if (busy.value) return
   busy.value = true
   try {
     await fn()
   } catch (e) {
-    ElMessage.error(toAppError(e).message)
+    ElMessage.error(publicErrorText(toAppError(e).message))
   } finally {
     busy.value = false
   }
@@ -179,7 +202,7 @@ onMounted(async () => {
     saved = await getMaxConcurrent()
     concurrent.value = saved
   } catch (e) {
-    ElMessage.error(toAppError(e).message)
+    ElMessage.error(publicErrorText(toAppError(e).message))
   } finally {
     loaded.value = true
   }
@@ -198,7 +221,7 @@ async function flush() {
         saved = want
       } catch (e) {
         concurrent.value = saved // 后端拒绝 / IO 出错：整体不生效，回退到已确认的值
-        ElMessage.error(toAppError(e).message)
+        ElMessage.error(publicErrorText(toAppError(e).message))
       }
     }
   } finally {

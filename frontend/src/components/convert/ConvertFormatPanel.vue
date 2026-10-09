@@ -2,6 +2,7 @@
 // v0.24 右栏主体（设计说明 §13.1、§八 第 35–38、42、43、66 条；截图 19–25、27、32）：
 // 格式搜索框 → 分段（视频 / 音频 / 图片，搜索时换成“找到 n 个格式”）→ 格式块 → 说明（图片 / M4R）→ 参数 → 保存到。
 import { computed, nextTick, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import FIcon from '@/components/icon/FIcon.vue'
 import { useConvertRecordsStore } from '@/stores/convertRecords'
 import { convertV2IsReal, type FormatEntry } from '@/api/convertRecords'
@@ -12,6 +13,8 @@ import {
 } from '@/utils/convertV24Text'
 
 const cv = useConvertRecordsStore()
+const router = useRouter()
+const goSettings = () => void router.push('/settings/general')
 const FALLBACK_HINT_TIP = '程序所在文件夹无法写入，文件已改存到用户数据目录'
 /** 模拟截图用：?cv_hover=fmt:AMR 强制显示置灰格式的悬停提示 */
 const mockHover = convertV2IsReal() ? '' : (simParam('cv_hover') ?? '')
@@ -46,7 +49,8 @@ const save = computed(() => {
 const rp = ref<HTMLElement | null>(null)
 const tip = ref<{ text: string; top: number; right: number } | null>(null)
 function showTip(e: Event, f: FormatEntry) {
-  if (f.encodable || !rp.value) return
+  // 组件没就绪不靠目录里的旧原因提示；那种结果根本不会画成格式块
+  if (f.encodable || !rp.value || f.reasonCode === 'converter_not_ready') return
   const t = (e.currentTarget as HTMLElement).getBoundingClientRect()
   const r = rp.value.getBoundingClientRect()
   tip.value = { text: f.reason || '当前转换组件不支持输出这个格式', top: t.bottom - r.top + 6, right: r.right - t.right }
@@ -106,7 +110,7 @@ function clear() {
 </script>
 <template>
   <div ref="rp" class="cv-rp cv-rp24" style="position: relative" @scroll.capture="hideTip">
-    <div class="cv-fsearch" :class="{ has: !!cv.formatQuery }">
+    <div v-if="cv.catalogPhase === 'shown' || cv.catalogPhase === 'loading'" class="cv-fsearch" :class="{ has: !!cv.formatQuery }">
       <FIcon name="search" :size="14" />
       <input
         ref="search"
@@ -121,12 +125,23 @@ function clear() {
       />
       <button v-if="cv.formatQuery" type="button" class="x" :aria-label="FORMAT_SEARCH_CLEAR" :title="FORMAT_SEARCH_CLEAR" @click="clear"><FIcon name="x" :size="12" /></button>
     </div>
-    <div v-if="q && hitCount" class="cv-fcount" role="status">{{ formatFoundText(hitCount) }}</div>
-    <div v-else-if="!q" class="seg cv-seg3" role="tablist" aria-label="格式分类">
+    <div v-if="(cv.catalogPhase === 'shown' || cv.catalogPhase === 'loading') && q && hitCount" class="cv-fcount" role="status">{{ formatFoundText(hitCount) }}</div>
+    <div v-else-if="(cv.catalogPhase === 'shown' || cv.catalogPhase === 'loading') && !q" class="seg cv-seg3" role="tablist" aria-label="格式分类">
       <button v-for="c in FORMAT_CATEGORIES" :key="c" type="button" role="tab" :class="{ on: cv.tab === c }" :aria-selected="cv.tab === c" @click="cv.setTab(c)">{{ FORMAT_CATEGORY_LABEL[c] }}</button>
     </div>
-    <div v-if="cv.presetsError" class="cv-gate" role="status"><FIcon name="warn" /><span>没有加载到格式列表。<button type="button" class="ff-link" @click="cv.loadPresets()">重试</button></span></div>
-    <div ref="grid" class="cv-presets cv-fxs" :class="{ dim: !q && !nSel }" role="radiogroup" aria-label="输出格式" @scroll="hideTip">
+    <div v-if="cv.catalogPhase === 'error'" class="cv-fstate" role="alert">
+      <p>格式没能加载出来。</p>
+      <button type="button" class="btn" @click="cv.retryCatalog()">重试</button>
+    </div>
+    <div v-else-if="cv.catalogPhase === 'unready'" class="cv-fstate" role="status">
+      <p>转换组件还没有就绪。<button type="button" class="ff-link" @click="goSettings">去设置</button></p>
+    </div>
+    <div v-else-if="cv.catalogPhase === 'loading'" class="cv-presets cv-fxs" aria-busy="true" aria-label="正在加载格式">
+      <div class="cv-fxg">
+        <span v-for="i in 9" :key="i" class="cv-fxsk" />
+      </div>
+    </div>
+    <div v-else ref="grid" class="cv-presets cv-fxs" :class="{ dim: !q && !nSel }" role="radiogroup" aria-label="输出格式" @scroll="hideTip">
       <template v-if="q">
         <div v-if="!hitCount" class="cv-fnone">
           <FIcon name="search" />

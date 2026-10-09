@@ -2,7 +2,6 @@
   <LiveTabFrame>
     <template #main>
       <LivePushPreview />
-      <LiveSessionList empty-hint="选择文件并填写推流地址，点击“开始推流”" />
     </template>
     <template #panel>
       <LivePanel title="推流设置">
@@ -20,12 +19,15 @@
           <LiveInput v-model="key" secret :bad="err?.where === 'key'" placeholder="推流码或口令" @enter="start" />
           <LiveFormError v-if="err?.where === 'key'" :text="err.text" />
         </LiveField>
+        <p class="keep">{{ LP_KEY_HINT }}</p>
         <LiveFormError v-if="err?.where === 'form'" :text="err.text" class="form-err" />
         <template #action-top>
-          <PreviewSwitch v-model="previewOn" :disabled="blocked || starting" :note="starting ? PREVIEW_SWITCH_NOTE_STARTING : undefined" />
+          <PreviewSwitch v-model="previewOn" />
+          <small class="limit">{{ LP_LIMIT }}</small>
         </template>
         <template #action>
-          <LiveButton variant="pri" lg icon="play" :disabled="!canStart" :tip-when-disabled="blocked ? '需要先安装转换组件' : undefined" @click="start">开始推流</LiveButton>
+          <LiveButton v-if="showRetry" variant="pri" icon="retry" :disabled="blocked" :tip-when-disabled="blocked ? '需要先安装转换组件' : undefined" @click="retry">重新推流</LiveButton>
+          <LiveButton v-else variant="pri" icon="play" :disabled="!canStart" :tip-when-disabled="blocked ? '需要先安装转换组件' : undefined" @click="start">开始推流</LiveButton>
         </template>
       </LivePanel>
     </template>
@@ -35,7 +37,7 @@
 <script setup lang="ts">
 // 文件推流（设计稿 v0.2）：推流文件 → 推流地址 → 推流码 / 口令 → 表单级错误 → 开始推流。会话列表是全局的（stores/liveSessions.ts）。
 // 后端调用走 @/api/live（契约 v0.10）：StartFilePush 返回 Task，第一条 task:progress 之后列表里才出现“运行中”。完整地址 / 口令只存在于输入框和调用参数里，不写日志。
-import { computed, onMounted, ref, toRefs, watch } from 'vue'
+import { computed, onMounted, ref, toRef, toRefs, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import LiveTabFrame from '@/components/live/LiveTabFrame.vue'
 import LivePanel from '@/components/live/LivePanel.vue'
@@ -45,13 +47,13 @@ import LiveButton from '@/components/live/LiveButton.vue'
 import LiveFormError from '@/components/live/LiveFormError.vue'
 import LivePushPreview from '@/components/live/LivePushPreview.vue'
 import PreviewSwitch from '@/components/live/PreviewSwitch.vue'
-import LiveSessionList from '@/components/live/LiveSessionList.vue'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { useLiveSessionsStore } from '@/stores/liveSessions'
+import { useLiveDockStore } from '@/stores/liveDock'
 import { useLiveFormsStore } from '@/stores/liveForms'
 import { probeFiles } from '@/api/media'
-import { LIVE_SRT_PASSPHRASE_TEXT } from '@/errors/errorMessages'
-import { PREVIEW_SWITCH_NOTE_STARTING } from '@/errors/livePreviewMessages'
+import { LIVE_SRT_PASSPHRASE_TEXT, publicErrorText} from '@/errors/errorMessages'
+import { LP_KEY_HINT, LP_LIMIT } from '@/errors/livePreviewMessages'
 import { composePushUrl, parsePushUrl } from '@/utils/liveUrl'
 import * as liveApi from '@/api/live'
 import { toAppError } from '@/api/call'
@@ -62,16 +64,33 @@ defineOptions({ name: 'LiveFilePush' })
 
 const ffmpeg = useFFmpegStore()
 const store = useLiveSessionsStore()
+const dock = useLiveDockStore()
 const blocked = computed(() => ffmpeg.featuresBlocked)
 
 // 表单输入在 stores/liveForms（切换菜单不丢、下次启动恢复）；这里只是引用
 const forms = useLiveFormsStore()
 const { material, baseUrl, key } = toRefs(forms.file)
-/** 预览开关：会话启动参数，默认开；产品经理已定：不记住上次选择，每次打开表单默认开 */
-const previewOn = ref(true)
+const previewOn = toRef(dock, 'previewOn')
 const err = ref<PushFormError | null>(null)
 const starting = ref(false)
 const canStart = computed(() => !blocked.value && !starting.value && !!material.value && !!baseUrl.value.trim())
+// 包 24 N1：只看最近一行（stores/liveSessions.ts retryRow），旧的中断行不再让按钮一直停在「重新推流」
+const showRetry = computed(() => !!store.retryRow)
+async function retry() {
+  const row = store.retryRow
+  if (!row || blocked.value) return
+  err.value = null
+  starting.value = true
+  try {
+    const res = await store.restart(row.id, previewOn.value)
+    if (res && !res.ok) err.value = pushErrorToForm(res.error, 'rtmp')
+    else if (!res) { starting.value = false; await start(); return }
+  } catch (e) {
+    err.value = pushErrorToForm(toAppError(e), 'rtmp')
+  } finally {
+    starting.value = false
+  }
+}
 
 watch([baseUrl, key], () => (err.value = null))
 
@@ -81,7 +100,7 @@ async function pick() {
     const picked = liveApi.liveIsReal() ? await liveApi.pickMaterial() : liveApi.demoMaterials().slice(0, 1)
     if (picked[0]) material.value = picked[0]
   } catch (e) {
-    ElMessage.error(toAppError(e).message)
+    ElMessage.error(publicErrorText(toAppError(e).message))
   }
 }
 
@@ -99,12 +118,10 @@ async function start() {
   starting.value = true
   try {
     const task = await liveApi.startFilePush({ inputPath: material.value.path, url: full, loop: true, options: liveApi.defaultPushOptions(), preview: previewOn.value })
+    store.noteRestart(task.id, { kind: 'file', url: full, inputPath: material.value.path })
     const r = await store.begin(task, { kind: 'file', redactedUrl: check.info.redacted, archive: false, preview: previewOn.value })
     if (!r.ok) err.value = pushErrorToForm(r.error, check.info.scheme)
-    else {
-      // 包 20：推流码不再在开始后清空（老板要求切换菜单 / 重启后表单原样还在，“重新开始”也要用它）
-      previewOn.value = true // 产品经理已定：不记住上次选择，每次开始推流后复位为开（页面被 KeepAlive 保留时也一样）；没开始成功（报错）时保留用户当前选择
-    }
+    // 包 20：推流码不再在开始后清空。开关不在这里复位：新会话成为当前会话，开关跟着它（stores/liveDock.ts）
   } catch (e) {
     err.value = pushErrorToForm(toAppError(e), check.info.scheme)
   } finally {
@@ -185,7 +202,6 @@ onMounted(() => {
   outline-offset: 2px;
   border-radius: 2px;
 }
-.form-err {
-  margin-top: 0;
-}
+.form-err { margin-top: 0; }
+.keep, .limit { margin: 0; font-size: 12px; line-height: 1.5; color: var(--ff-text-2); }
 </style>

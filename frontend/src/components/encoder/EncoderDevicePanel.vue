@@ -70,6 +70,7 @@ import {
 } from '@/api/encoder'
 import { createSeq, deriveEncoderView } from '@/api/encoderView'
 import { useFFmpegStore } from '@/stores/ffmpeg'
+import { publicErrorText } from '@/errors/errorMessages'
 import {
   ENCODER_OPTION_AUTO, ENCODER_OPTION_CPU, ENCODER_PANEL_TITLE, ENCODER_REDETECT, ENCODER_ROW_DESC, ENCODER_UNAVAILABLE_ACTION, encoderComboLabel,
 } from '@/errors/encoderMessages'
@@ -146,7 +147,7 @@ async function choose(key: string) {
       pref.value = prev
       info.value = prevInfo
     }
-    ElMessage.error(toAppError(e).message)
+    ElMessage.error(publicErrorText(toAppError(e).message))
     return
   }
   try {
@@ -187,8 +188,8 @@ onMounted(() => {
   void detect()
 })
 onBeforeUnmount(() => document.removeEventListener('mousedown', onDoc))
-// ffmpeg 安装完成后自动重新检测
-watch(() => ffmpeg.ready, (ok) => ok && void detect())
+// ffmpeg:status 的 state 变成 ready 时重测设备。检测过程中列表只有 CPU，必须强制重测，不能用那次缓存
+watch(() => ffmpeg.status.state, (state, prev) => { if (state === 'ready' && prev !== 'ready') void detect(true) })
 </script>
 
 <style scoped>

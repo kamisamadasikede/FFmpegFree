@@ -3,6 +3,7 @@ import { routeNeedsFFmpeg } from '@/layout/navigation'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 
 const SectionTabs = () => import('../views/sections/SectionTabs.vue')
+import LiveLayout from '../views/live/LiveLayout.vue'
 
 // 七个一级入口（PRD / 设计规范第 6 节）。有多个子页面的入口用 SectionTabs 渲染页签。
 const routes: RouteRecordRaw[] = [
@@ -12,7 +13,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/live',
     meta: { title: '直播工具', subtitle: '文件推流 · 录屏推流 · 拉流播放' },
-    component: () => import('../views/live/LiveLayout.vue'),
+    component: LiveLayout, // 同步引入：KeepAlive 的 include 要靠组件名 LiveLayout，离开直播菜单时整页留着
     redirect: '/live/push',
     children: [
       { path: 'push', component: () => import('../views/live/FilePush.vue') },

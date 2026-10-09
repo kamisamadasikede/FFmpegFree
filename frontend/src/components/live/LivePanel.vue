@@ -32,7 +32,9 @@ defineProps<{ title: string; note?: string; flat?: boolean }>()
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 16px;
+  height: 48px;
+  box-sizing: border-box;
+  padding: 0 16px;
   border-bottom: 1px solid var(--ff-border);
   flex: none;
 }
@@ -46,7 +48,7 @@ h2 {
   padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -64,7 +66,7 @@ h2 {
   min-width: 28px;
 }
 .foot {
-  padding: 12px 16px;
+  padding: 12px 16px 16px;
   border-top: 1px solid var(--ff-border);
   display: flex;
   align-items: center;
@@ -84,10 +86,16 @@ h2 {
 .foot.stack {
   flex-direction: column;
   align-items: stretch;
-  gap: 8px;
+  gap: 6px;
+}
+.foot.stack .top {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 .foot.stack .btns {
   flex: none;
+  margin-top: 6px;
 }
 .foot small {
   color: var(--ff-text-2);
@@ -96,17 +104,10 @@ h2 {
 .sp {
   flex: 1;
 }
-/* 1024 宽：设置面板 320 → 304，表单内边距 16 → 12，字段间距 12 → 8 */
+/* 1024 宽：设置面板 320 → 304；内边距、间距和 1280 相同（直播预览设计说明 §2.5 / live-player.css 的 .lp-form、.lp-fs） */
 @media (max-width: 1199px) {
   .lpanel.form {
     width: 304px;
-  }
-  .pbody:not(.flat) {
-    padding: 12px;
-    gap: 8px;
-  }
-  .foot {
-    padding: 12px;
   }
 }
 </style>

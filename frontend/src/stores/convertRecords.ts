@@ -7,6 +7,7 @@
 import { defineStore } from 'pinia'
 import { computed, reactive, ref, watch } from 'vue'
 import { toAppError } from '@/api/call'
+import { publicErrorText } from '@/errors/errorMessages'
 import { listPresets, MAX_SUBMIT, type PresetItem } from '@/api/convert'
 import {
   addSources, checkPaths, checkSources, convertV2IsReal, deleteRecords, deleteSource, getRecordThumbnail, getSourceThumbnail, listSourceRecords, listSources as apiListSources,
@@ -24,7 +25,9 @@ import {
 } from '@/utils/convertV24Text'
 import { hasWailsBackend } from '@/services/wails'
 import { useFFmpegStore } from '@/stores/ffmpeg'
+import { canApplySnapshot, createEarlyEvents } from './eventOrder'
 import { createReadyRelist } from '@/stores/readyRelist'
+import { createCatalogController, catalogNotReady, type CatalogPhase } from '@/stores/catalogLoad'
 import { useTaskStore, type TaskError, type TaskItem, type TaskStatus } from '@/stores/tasks'
 import { conflictReason, coverKindOf, dupPresetTitles, extOf, formatRecordTime, isAudioContainer, isAudioOnly, isToday, presetShortTitle, recordParamsText, setPresetCatalog, splitPresetName, totalProgress } from '@/utils/convertText'
 import { normalizeSourcePath } from '@/utils/sourcePath'
@@ -241,6 +244,9 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
   /** v0.24 的界面打开（格式目录 / 存储 / 副本 / 重转）：见 api/convertRecords.ts 的 convertV24On */
   const v24 = convertV24On()
   const catalog = ref<FormatEntry[]>([])
+  /** 格式列：loading 骨架 / error 没加载出来 / unready 组件确实没就绪 / shown 正常。只跟 ffmpeg store，不看目录里的旧原因。 */
+  const catalogPhase = ref<CatalogPhase>('loading')
+  const catalogCtl = createCatalogController({ onPhase: (phase) => (catalogPhase.value = phase) })
   const formatQuery = ref('')
   const storage = ref<StorageDirs | null>(null)
   const fallbackDismissed = ref(fallbackDismissedThisRun)
@@ -307,8 +313,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     formatQuery.value = ''
     if (selectedFormat.value) tab.value = selectedFormat.value.category as FormatCategory
   }
-  async function loadCatalog() {
-    const list = await getFormatCatalog()
+  function applyCatalog(list: FormatEntry[]) {
     catalog.value = list
     presets.value = list.flatMap((f) => f.presets.map((p) => ({ id: p.id, name: p.name, builtIn: p.builtIn, options: { ...p.options } as unknown as PresetItem['options'] })))
     setPresetCatalog(presets.value.map((p) => p.name))
@@ -318,11 +323,28 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     }
     if (selectedPreset.value) tab.value = categoryOf(selectedPreset.value.options.container)
   }
-  async function loadPresets() {
+  /**
+   * 取格式目录。组件还在检测（checking）时就算返回了也不展示，等 ffmpeg:status 变成 ready 再取。
+   * 整表 reasonCode=converter_not_ready 是检测完成前的旧结果，不当成“组件没就绪”，也不把格式块画成灰的。
+   */
+  async function loadCatalog(manual = false) {
+    const gen = catalogCtl.start(ffmpeg.status.state, manual)
+    if (catalogCtl.phase === 'unready') return
+    try {
+      const list = await getFormatCatalog()
+      const decision = catalogCtl.resolve(gen, ffmpeg.status.state, catalogNotReady(list))
+      if (decision === 'apply') applyCatalog(list)
+      else if (decision === 'reload') await loadCatalog(false)
+    } catch (e) {
+      catalogCtl.reject(gen)
+      presetsError.value = errOf(e)
+    }
+  }
+  async function loadPresets(manual = false) {
     try {
       if (v24) {
-        await loadCatalog()
-        presetsError.value = null
+        await loadCatalog(manual)
+        if (catalogCtl.phase !== 'error') presetsError.value = null
         return
       }
       presets.value = await listPresets()
@@ -404,12 +426,21 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       probe: 'pending', thumb: null, thumbAsked: false, flashAt: 0, recordCount: recordCount ?? 0, loadedIds: [], loadingMore: false, copySeq: 0,
     }
     applyCopy(sources[s.sourceId], s)
+    // 契约 v0.25.1 ①：这一行入列之前就到了的 convert:copy（走查 S1：小文件的 ready 比 AddSources 返回得早）现在补上
+    const early = earlyCopy.take(s.sourceId)
+    if (early) applyCopyEvent(early)
     return sources[s.sourceId]
   }
+  /** 还没入列的行的 convert:copy：按 sourceId 暂存（契约 v0.25.1 ①，只留 seq 最大的一条），入列时补上 */
+  const earlyCopy = createEarlyEvents<CopyEvent>()
   /** convert:copy（6.15.4 第 5 条）：按 sourceId 记住最大 seq，丢弃更小的；复制失败 / 取消的行不能勾选 */
   function applyCopyEvent(e: CopyEvent) {
     const row = sources[e.sourceId]
-    if (!row || e.seq <= row.copySeq) return
+    if (!row) {
+      earlyCopy.hold(e.sourceId, e) // 不能丢（走查 S1）
+      return
+    }
+    if (e.seq <= row.copySeq) return
     row.copySeq = e.seq
     row.copyState = e.copyState
     row.copiedBytes = e.copiedBytes
@@ -696,9 +727,13 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     const fh = filterHits.value
     if (fh) void loadFiltered(fh.status, fh.offset, true)
   }
-  watch(() => ffmpeg.ready, (ok) => ok && readyRelist.onReady())
-
   let inited = false
+  watch(() => ffmpeg.ready, (ok) => ok && readyRelist.onReady())
+  // 格式目录跟同一个 store。真实后端的事件名是 ffmpeg:status（stores/ffmpeg.ts 里 onEvent），这里看它写进 store 的 state。
+  watch(() => ffmpeg.status.state, (state) => {
+    if (!v24 || !inited) return
+    if (catalogCtl.onStatus(state)) void loadPresets()
+  })
   async function init() {
     if (inited) return
     inited = true
@@ -844,7 +879,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       pinned.value = sid
     } catch (e) {
       const err = errOf(e)
-      return say(err.code === 'NOT_FOUND' ? '这条转换记录已被删除' : err.message)
+      return say(err.code === 'NOT_FOUND' ? '这条转换记录已被删除' : publicErrorText(err.message))
     }
     for (let i = 0; i < 20 && !records[taskId] && sources[sid] && sources[sid].loadedIds.length < sources[sid].recordCount; i++) {
       const before = sources[sid].loadedIds.length
@@ -1199,6 +1234,29 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     if (list.length === rejected) return
     addedTick.value = now
     void probePending()
+    if (v24) void reconcileBatch(list.flatMap((r) => (r.source ? [r.source.sourceId] : [])))
+  }
+  /**
+   * 契约 v0.25.1 ②：AddSources 返回后，用这一批的 id 再查一次当前状态对齐（GetSource）。就算 convert:copy 丢了也能自己恢复，不用刷新。
+   * 已经到终态（ready / failed / canceled）的行不用再查；查询在途时这一行又收到了事件（copySeq 变了），以事件为准。
+   */
+  async function reconcileBatch(ids: string[]) {
+    const todo = [...new Set(ids)].filter((id) => {
+      const st = sources[id]?.copyState
+      return st === 'copying' || st === undefined
+    })
+    await Promise.all(todo.map(async (id) => {
+      const before = sources[id]?.copySeq ?? 0
+      try {
+        const e = await getSource(id)
+        const row = sources[id]
+        if (!row || !canApplySnapshot(before, row.copySeq)) return
+        applyCopy(row, e.source)
+        if (e.source.copyState === 'ready') row.exists = true
+      } catch {
+        /* 查不到（刚被移除等）：保持原样，之后的事件照常处理 */
+      }
+    }))
   }
   let mockPick = 0
   async function chooseFiles() {
@@ -1409,7 +1467,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
       saySkipped(res.skipped)
     } catch (e) {
       const err = errOf(e)
-      say(submitCopyErrorText(err) || err.message)
+      say(submitCopyErrorText(err) || publicErrorText(err.message))
     }
   }
 
@@ -1428,7 +1486,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
         dropRecords([id])
         return true
       }
-      say(err.message)
+      say(publicErrorText(err.message))
       return true
     }
   }
@@ -1444,7 +1502,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
         markSourceGone(sourceId)
         return false
       }
-      say(err.message)
+      say(publicErrorText(err.message))
       return true
     }
   }
@@ -1533,7 +1591,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     // 数据
     sources, records, selected, outputGone, recThumbs, loaded, loading, loadError, filter, filterHits, filtering, keyword, searching, searchHits, notice, toast, addedTick, pinned, focus,
     // v0.24
-    v24, catalog, formatQuery, selectedFormat, formatPresets, storage, showFallback, copyingSelected, selectedHasVideo, pathChecks,
+    v24, catalog, catalogPhase, formatQuery, selectedFormat, formatPresets, storage, showFallback, copyingSelected, selectedHasVideo, pathChecks,
     selectFormat, selectPreset, setFormatQuery, clearFormatQuery, loadStorage, dismissFallback, openStorage, changeOutputDir, cancelCopy, retryCopy,
     reconvertStateOf, refreshPathCheck, reconvertAsk, startReconvert, isCopying, catalogCategoryOf,
     presets, presetsLoaded, presetsError, selectedPresetId, selectedPreset, tab, shownPresets, outputOverride, defaultOutputDir, effectiveOutputDir,
@@ -1541,7 +1599,7 @@ export const useConvertRecordsStore = defineStore('convertRecords', () => {
     // 派生
     parents, groups, sourceCount, recordCount, hasMore, loadingMore, total, liveById, selectedRows, submittableRows, blockedCount, probingSelected, startBlock,
     // 方法
-    init, reload, loadMore, loadMoreRecords, locate, setFilter, search, loadPresets, presetTitle, setTab, isAudioPreset, toggle, clearSelection, isCheckable, conflictOfSource, setOpen,
+    init, reload, loadMore, loadMoreRecords, locate, setFilter, search, loadPresets, retryCatalog: () => loadPresets(true), presetTitle, setTab, isAudioPreset, toggle, clearSelection, isCheckable, conflictOfSource, setOpen,
     addPaths, chooseFiles, chooseOutputDir, submit, afterSubmit, cancel, retry, resubmitTo, revealOutput, revealSource, markOutputGone, markSourceGone,
     deleteAsk, confirmDelete, openRoundOutput, ensureThumb, ensureRecThumb, thumbRetryTick, requestMeta, closeBanner, probePending, liveOf, say,
   }

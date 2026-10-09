@@ -5,6 +5,7 @@ package live
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -68,11 +69,12 @@ type Config struct {
 	Encoder ffmpeg.EncoderResolver
 	// Logf 记录内部信息；只会收到脱敏内容。为空时不记录。
 	Logf func(format string, args ...any)
-	// PreviewDir 是预览 JPEG 的临时目录（<数据目录>/tmp/live-preview）；空 = 不出预览（推流照常，拉流预览返回 UNSUPPORTED）。
-	PreviewDir string
-	// Preview 检查 ffmpeg 能否出预览，默认真实执行 ffmpeg（按路径缓存）；ProbeStreams 探测拉流地址里有没有视频，默认用 ffprobe。
-	Preview      *ffmpeg.PreviewProbe
-	ProbeStreams func(ctx context.Context, ffprobe, url, whitelist string) (hasVideo bool, err error)
+	// Emit 把事件发给前端（live:pull）。为空时不发。
+	Emit func(event string, payload any)
+	// DevPreview 为 true 时预览 HTTP 额外放行开发服务器的 origin（wails dev）。
+	DevPreview bool
+	// ProbeStreams 探测拉流地址的编码，默认用 ffprobe。
+	ProbeStreams func(ctx context.Context, ffprobe, url, whitelist string) (StreamProbe, error)
 }
 
 // Service 实现直播推流。会话登记在内存里（上限 4、同地址 1 个）。
@@ -82,13 +84,17 @@ type Service struct {
 	mu       sync.Mutex
 	sessions map[string]session      // 任务 ID → 会话
 	pulls    map[string]*pullSession // 拉流预览会话 ID → 会话（不占推流会话名额）
+	closing  atomic.Bool
+
+	httpOnce sync.Once
+	http     *previewHTTP
 }
 
 type session struct {
-	key     string // 标准化地址（只在内存里比较，不展示）
-	archive bool   // 有本地存档（优雅停止等 15 秒）
-	screen  bool   // 屏幕推流（同一时间最多 1 路）
-	preview string // 预览 JPEG 路径；空 = 没有预览。会话结束时删除
+	key     string       // 标准化地址（只在内存里比较，不展示）
+	archive bool         // 有本地存档（优雅停止等 15 秒）
+	screen  bool         // 屏幕推流（同一时间最多 1 路）
+	feed    *previewFeed // 预览视频流；nil = 这次没有预览（缺 tee/tcp 或监听失败）
 }
 
 // New 创建 Service。
@@ -123,11 +129,11 @@ func New(cfg Config) *Service {
 	if cfg.Run == nil {
 		cfg.Run = ffmpeg.ExecRunner(10 * time.Second)
 	}
-	if cfg.Preview == nil {
-		cfg.Preview = &ffmpeg.PreviewProbe{}
-	}
 	if cfg.ProbeStreams == nil {
 		cfg.ProbeStreams = probeStreams
+	}
+	if !cfg.DevPreview {
+		cfg.DevPreview = defaultDevPreview
 	}
 	return &Service{cfg: cfg, sessions: map[string]session{}, pulls: map[string]*pullSession{}}
 }
@@ -155,7 +161,7 @@ type FilePushRequest struct {
 	URL       string      `json:"url"`
 	Loop      bool        `json:"loop"`
 	Options   PushOptions `json:"options"`
-	// Preview 为 nil（缺省）或 true 时会话带预览画面（GetPreview）；false 时不加预览输出。
+	// Preview 保留给旧前端，v0.25 起后端忽略（预览分支始终存在，开关只在前端）。
 	Preview *bool `json:"preview"`
 }
 
@@ -267,7 +273,7 @@ func (s *Service) checkProtocols(ctx context.Context, bin ffmpeg.Binaries, schem
 //  1. duplicate_url：同一标准化地址已有会话；
 //  2. screen_busy：要开的是屏幕推流，且已有进行中（含已入队未结束）的屏幕推流会话（屏幕推流同一时间最多 1 路；文件推流不受影响）；
 //  3. max_sessions：会话总数已达上限。
-func (s *Service) reserve(taskID, key string, archive, screen bool, preview string) error {
+func (s *Service) reserve(taskID, key string, archive, screen bool, feed *previewFeed) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	busy := false
@@ -286,7 +292,7 @@ func (s *Service) reserve(taskID, key string, archive, screen bool, preview stri
 		return apperr.New(apperr.TaskConflict, "同时进行的直播会话已达上限").
 			WithDetail(fmt.Sprintf("reason=max_sessions\n最多同时推 %d 路", MaxSessions))
 	}
-	s.sessions[taskID] = session{key: key, archive: archive, screen: screen, preview: preview}
+	s.sessions[taskID] = session{key: key, archive: archive, screen: screen, feed: feed}
 	return nil
 }
 
@@ -295,7 +301,7 @@ func (s *Service) release(taskID string) {
 	x := s.sessions[taskID]
 	delete(s.sessions, taskID)
 	s.mu.Unlock()
-	removePreviewFiles(x.preview) // 会话结束（含从未运行）清理预览文件
+	s.dropFeed(x.feed)
 }
 
 // ActiveSessions 返回进行中的会话数，HasArchiveSession 表示其中有带本地存档的（应用退出时要多等）。
@@ -314,14 +320,42 @@ func (s *Service) ActiveSessions() (n int, hasArchive bool) {
 
 // runner 包装 task.FFmpegRunner：任务结束（含从未运行）时释放会话登记。
 type runner struct {
-	inner *task.FFmpegRunner
-	s     *Service
-	id    string
+	inner   *task.FFmpegRunner
+	s       *Service
+	id      string
+	started *atomic.Bool // 推流已经开始（收到过第一条输出进度）
 }
 
+// Run 跑推流。推流已经开始之后的失败（进程被杀、服务器断开、源没了）包成 task.Interrupted，
+// 任务终态记为 interrupted（契约 v0.25.3）；错误码一定是直播码，不会是 INTERNAL。
 func (r *runner) Run(ctx context.Context, report func(task.Progress)) (string, error) {
 	defer r.s.release(r.id)
-	return r.inner.Run(ctx, report)
+	out, err := r.inner.Run(ctx, report)
+	if err != nil && r.started != nil && r.started.Load() {
+		err = task.Interrupted(liveInterruptedError(err))
+	}
+	return out, err
+}
+
+// liveInterruptedError 保证"开始后中断"的错误码是直播码：LIVE_SOURCE_GONE（所选窗口没了）原样；
+// LIVE_PUSH_INTERRUPTED 补上 reason=push（已有则不动）；
+// 其他（INTERNAL、PROCESS_FAILED 等，例如进程被外部杀掉、stderr 认不出来）一律改成 LIVE_PUSH_INTERRUPTED，detail 第一行 reason=push。
+// 用户取消的 context.Canceled 不动（任务管理器先按取消处理）。
+func liveInterruptedError(err error) error {
+	if errors.Is(err, context.Canceled) {
+		return err
+	}
+	ae := apperr.From(err)
+	switch ae.Code {
+	case apperr.LiveSourceGone:
+		return err
+	case apperr.LivePushInterrupted:
+		if ae.Detail == "" || !strings.HasPrefix(ae.Detail, "reason=push") {
+			return apperr.New(apperr.LivePushInterrupted, ae.Message).WithDetail(ffmpeg.InterruptDetail("push", ae.Detail))
+		}
+		return err
+	}
+	return apperr.Wrap(apperr.LivePushInterrupted, ffmpeg.PushInterruptedMessage, err).WithDetail(ffmpeg.InterruptDetail("push", ae.Detail))
 }
 
 // EncoderInfo 实现 task.EncoderReporter。
@@ -339,7 +373,7 @@ const (
 //
 // enc 是这次推流的编码器决策（resolveLiveEncoder）：硬件编码时 args 已是硬件参数，enc.cpuArgs 是同一推流的 CPU 参数，
 // 只在"推流尚未建立"（还没有第一个输出进度）时硬件编码启动失败才会自动用 CPU 重试一次；推流中途失败不重试。
-func (s *Service) newRunner(taskID string, bin ffmpeg.Binaries, u livepkg.PushURL, rawURL string, args []string, enc liveEncoding, screen, archive bool) *runner {
+func (s *Service) newRunner(taskID string, bin ffmpeg.Binaries, u livepkg.PushURL, rawURL string, args []string, enc liveEncoding, screen, archive bool, feed *previewFeed) *runner {
 	redact := chainRedact(livepkg.NewRedactor(rawURL), livepkg.NewRedactor(u.FFmpeg))
 	var started atomic.Bool
 	grace := graceNoArchive
@@ -358,7 +392,7 @@ func (s *Service) newRunner(taskID string, bin ffmpeg.Binaries, u livepkg.PushUR
 		GracePeriod:               grace,
 		GracefulOnlyAfterProgress: true,
 		StrictGracefulExit:        true,
-		NoBitrate:                 archive, // tee 下 total_size 恒为 N/A，不算 bitrateKbps
+		NoBitrate:                 archive && feed == nil, // 有预览分支时用它的字节数算码率
 		ReportGate: func(p ffmpeg.ProgressUpdate) bool {
 			if !p.End && p.OutTimeSec > 0 {
 				started.Store(true)
@@ -382,12 +416,15 @@ func (s *Service) newRunner(taskID string, bin ffmpeg.Binaries, u livepkg.PushUR
 		return redact(line)
 	}
 	s.logf("直播 %s ffmpeg 参数: %s", taskID, logArgs(args))
+	if feed != nil {
+		inner.BitrateSize = feed.Bytes
+	}
 	if enc.hw != "" {
 		s.logf("直播 %s 硬件编码启动失败时的 CPU 参数: %s", taskID, logArgs(enc.cpuArgs))
 		inner.HWEncoder, inner.CPUEncoding = enc.hw, enc.cpuInfo
 		inner.BuildCPUArgs = func(string) []string { return enc.cpuArgs }
 	}
-	return &runner{inner: inner, s: s, id: taskID}
+	return &runner{inner: inner, s: s, id: taskID, started: &started}
 }
 
 // liveEncoding 是一次直播推流的编码器决策。
@@ -485,18 +522,26 @@ func (s *Service) startFilePush(ctx context.Context, req FilePushRequest) (task.
 		gop = 30
 	}
 	taskID := id.New()
-	previewPath := s.planPreview(ctx, bin, taskID, req.Preview)
+	// v0.25：预览分支始终存在（转换组件有 tee 和 tcp 时），请求里的 Preview 不参与。
+	feed := s.openFeed(ctx, bin, true, true, true)
+	kept := false
+	defer func() {
+		if !kept {
+			s.dropFeed(feed)
+		}
+	}()
 	args, encoding := s.resolveLiveEncoder(ctx, ffmpeg.LiveEncode{
 		Width: req.Options.Width, Height: req.Options.Height, Fps: req.Options.Fps, GOPFps: gop,
 		VideoKbps: req.Options.videoKbps(), AudioKbps: req.Options.audioKbps(),
 	}, func(e ffmpeg.LiveEncode) []string {
 		return ffmpeg.BuildFilePushArgs(ffmpeg.FilePushPlan{
-			Input: in, Loop: req.Loop, HasAudio: info.HasAudio, Scheme: u.Scheme, URL: u.FFmpeg, PreviewPath: previewPath, Enc: e,
+			Input: in, Loop: req.Loop, HasAudio: info.HasAudio, Scheme: u.Scheme, URL: u.FFmpeg, PreviewPort: feed.Port(), Enc: e,
 		})
 	})
-	if err := s.reserve(taskID, u.Key, false, false, previewPath); err != nil {
+	if err := s.reserve(taskID, u.Key, false, false, feed); err != nil {
 		return task.Task{}, err
 	}
+	kept = true
 	pj, _ := json.Marshal(filePushParams{Kind: "file", Input: in, URL: u.Redacted, Loop: req.Loop, Options: req.Options})
 	spec := task.Spec{
 		ID:         taskID,
@@ -505,7 +550,7 @@ func (s *Service) startFilePush(ctx context.Context, req FilePushRequest) (task.
 		InputPaths: []string{in},
 		Params:     string(pj),
 	}
-	t, err := s.cfg.Tasks.Submit(spec, s.newRunner(taskID, bin, u, req.URL, args, encoding, false, false))
+	t, err := s.cfg.Tasks.Submit(spec, s.newRunner(taskID, bin, u, req.URL, args, encoding, false, false, feed))
 	if err != nil {
 		s.release(taskID)
 		return task.Task{}, err

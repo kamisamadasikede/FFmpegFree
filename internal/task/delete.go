@@ -233,7 +233,7 @@ func (m *Manager) DeleteRecords(ids []string, typ Type, deleteOutputs bool, befo
 // 返回任务本身，供调用方检查类型等。
 func (m *Manager) TaskFile(taskID, which string) (string, Task, error) {
 	if which != "input" && which != "output" {
-		return "", Task{}, apperr.New(apperr.InvalidArgument, `which 只能是 "input" 或 "output"`)
+		return "", Task{}, apperr.New(apperr.InvalidArgument, "参数不正确").WithDetail(`which 只能是 "input" 或 "output"`)
 	}
 	t, err := m.Get(taskID)
 	if err != nil {

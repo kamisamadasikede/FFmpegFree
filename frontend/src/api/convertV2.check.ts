@@ -48,9 +48,9 @@ export async function convertV2Checks(eq: Eq, readSrc: (f: string) => string): P
     setActivePinia(createPinia())
     const cv = useConvertRecordsStore()
     await cv.reload()
+    useFFmpegStore().status = { state: 'ready' } // 格式目录只在组件就绪后展示；检测中的结果不会写入预设
     await cv.loadPresets()
     setPresetCatalog([]) // loadPresets 会写入预设目录，别影响后面的标题自检
-    useFFmpegStore().status = { state: 'ready' }
     const ids = Object.keys(cv.sources).filter((id) => cv.sources[id].exists !== false).slice(0, 3)
     const toastText = (): string | undefined => (cv.toast as { text: string } | null)?.text
     if (ids.length >= 2 && cv.selectedPreset) {

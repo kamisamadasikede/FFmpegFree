@@ -86,8 +86,8 @@
                   <span v-else class="tag type">{{ typeLabel(t.type) }}</span>
                 </td>
                 <td class="tc-dim">
-                  <span class="tag" :class="STATUS_TAG[t.status].cls">
-                    <FIcon v-if="STATUS_TAG[t.status].icon" :name="STATUS_TAG[t.status].icon!" :size="12" />{{ statusLabel(t) }}
+                  <span class="tag" :class="statusTag(t).cls">
+                    <FIcon v-if="statusTag(t).icon" :name="statusTag(t).icon!" :size="12" />{{ statusLabel(t) }}
                   </span>
                 </td>
                 <td class="tc-dim">
@@ -132,12 +132,39 @@
               <tr v-if="hasErrLine(t)" class="errrow">
                 <td colspan="6">
                   <ErrorLine
-                    v-if="t.error"
+                    v-if="t.error && t.error.code === 'LIVE_SOURCE_GONE'"
+                    compact
+                    tone="interrupted"
+                    :code="t.error.code"
+                    title=""
+                    :description="liveSourceGoneText(goneKind(t))"
+                    hide-code
+                    :announce="isFresh(t)"
+                    hide-retry
+                    :busy="tasks.isBusy(t.id)"
+                    @view-log="toggleLog(t.id, true)"
+                  />
+                  <ErrorLine
+                    v-else-if="t.error && liveBroken(t)"
+                    compact
+                    tone="interrupted"
+                    :code="t.error.code"
+                    :title="interruptOf(t).title"
+                    :description="interruptOf(t).description"
+                    hide-code
+                    :announce="isFresh(t)"
+                    hide-retry
+                    :busy="tasks.isBusy(t.id)"
+                    @view-log="toggleLog(t.id, true)"
+                  />
+                  <ErrorLine
+                    v-else-if="t.error"
                     compact
                     :tone="t.status === 'interrupted' ? 'interrupted' : 'danger'"
                     :code="t.error.code"
                     :message="errMessage(t)"
                     :detail="t.error.detail"
+                    :task-type="t.type"
                     :announce="isFresh(t)"
                     show-retry
                     :busy="tasks.isBusy(t.id)"
@@ -152,7 +179,7 @@
                     tone="interrupted"
                     code="INTERRUPTED"
                     title=""
-                    :description="isLiveType(t.type) ? '应用退出时推流被中断，请回到直播页重新推流。' : isRetiredType(t.type) ? RETIRED_INTERRUPTED_TEXT : '应用退出时这个任务被中断，可以重试。'"
+                    :description="isLiveType(t.type) ? (liveTaskVerb(t.type) === '拉流' ? '应用退出时拉流被中断，请回到直播页重新拉流。' : '应用退出时推流被中断，请回到直播页重新推流。') : isRetiredType(t.type) ? RETIRED_INTERRUPTED_TEXT : '应用退出时这个任务被中断，可以重试。'"
                     hide-code
                     :announce="isFresh(t)"
                     hide-retry
@@ -237,7 +264,9 @@ import { canRetryTask, elapsedMs, isLiveType, isRetiredType, isTerminal, useTask
 import type { IconName } from '@/components/icon/icons'
 import { toAppError } from '@/api/call'
 import { isSimTask, SIM_TITLE_PREFIX } from '@/api/sim'
-import { actionErrorText, docUnsupportedText, liveFailureMessage, LIVE_STOP_TEXT, schemeFromParams } from '@/errors/errorMessages'
+import { actionErrorText, docUnsupportedText, liveFailureMessage, liveSourceGoneText, liveTaskVerb, LIVE_STOP_TEXT, schemeFromParams } from '@/errors/errorMessages'
+import { liveInterruptView } from '@/errors/livePreviewMessages'
+import { parseDetailHead } from '@/api/call'
 import { pickDirectory, revealInFolder } from '@/api/system'
 import { listPresets, parseConvertParams, resubmitToDir } from '@/api/convert'
 import { fileBaseName, formatClock, formatDuration, formatEta, formatStart } from '@/utils/format'
@@ -298,7 +327,7 @@ type Tab = 'all' | 'active' | 'history' | 'failed'
 const TAB_KEYS: Tab[] = ['all', 'active', 'history', 'failed']
 const tab = ref<Tab>(TAB_KEYS.includes(route.query.tab as Tab) ? (route.query.tab as Tab) : 'all')
 
-// 全部 = 进行中 + 已结束；历史 = 已结束（含失败 / 取消 / 中断）；失败 = failed + interrupted
+// 全部 = 进行中 + 已结束；历史 = 已结束（含失败 / 取消 / 中断）；失败只计 failed，不含已中断
 const tabList = computed(() => [
   { key: 'all' as Tab, label: '全部', count: tasks.runningCount + tasks.finishedTotal },
   { key: 'active' as Tab, label: '进行中', count: tasks.runningCount },
@@ -370,10 +399,13 @@ function onTypeChange() {
 }
 
 // ---- 展示辅助 ----
-/** 剪辑功能已移除：旧的剪辑导出任务被中断时不再提示“可以重试” */
-const RETIRED_INTERRUPTED_TEXT = '应用退出时这个任务被中断。剪辑功能已移除，不能重试，可以移除这条记录。'
+/**
+ * 已下线功能的旧记录（edit_export）：包 24 N3，产品经理 10-08 定——改名不隐藏，类型显示「旧版导出」，
+ * 照样能看、能删，不能重试；界面里不出现那个已下线功能的名字。
+ */
+const RETIRED_INTERRUPTED_TEXT = '应用退出时这个任务被中断。这类任务已不再支持，不能重试，可以移除这条记录。'
 const TYPE_LABEL: Record<string, string> = {
-  convert: '转换', edit_export: '剪辑', office_pdf: '文档', ffmpeg_install: '安装',
+  convert: '转换', edit_export: '旧版导出', office_pdf: '文档', ffmpeg_install: '安装',
   live_file_push: '直播', live_screen_push: '直播',
 }
 const typeLabel = (t: string) => TYPE_LABEL[t] ?? t
@@ -388,13 +420,28 @@ const STATUS_TAG: Record<TaskStatus, { label: string; cls: string; icon?: IconNa
   interrupted: { label: '已中断', cls: 'int', icon: 'warn' },
 }
 
+/**
+ * 包 24 N4：直播任务进程意外退出（kill、崩溃）时，直播页显示“推流被中断”，但后端任务状态目前落成 failed + INTERNAL。
+ * 任务中心按直播页的口径显示：状态「已中断」、标题「推流被中断」/「拉流被中断」，不显示原始错误码，也不用「转换失败」。
+ * 连接阶段的失败（LIVE_CONNECT_FAILED、被服务器拒绝等有专属码的）仍按失败显示。后端改成 interrupted 之后这里自然不再命中 failed 分支。
+ */
+const LIVE_EXIT_CODES = new Set(['', 'INTERNAL', 'PROCESS_FAILED', 'LIVE_PUSH_INTERRUPTED'])
+const liveBroken = (t: TaskItem) =>
+  isLiveType(t.type) && (t.status === 'interrupted' || (t.status === 'failed' && LIVE_EXIT_CODES.has(t.error?.code ?? '')))
+const goneKind = (t: TaskItem) => parseDetailHead(t.error?.detail).kind
+/** reason=push / pull 优先；还没有 reason 时按任务类型。窗口关掉走 LIVE_SOURCE_GONE，不进这里 */
+const interruptOf = (t: TaskItem) =>
+  liveInterruptView({ reason: parseDetailHead(t.error?.detail).reason, code: t.error?.code, taskType: t.type, onLivePage: false })
+  ?? { title: `${liveTaskVerb(t.type)}被中断`, description: `请回到直播页重新${liveTaskVerb(t.type)}。`, sentence: '' }
+const statusTag = (t: TaskItem) => (liveBroken(t) ? STATUS_TAG.interrupted : STATUS_TAG[t.status])
+
 /** 直播任务的停止文案只看 status（契约 v0.10：succeeded=优雅停止，error 为空；canceled=超时强杀，不带错误码）；其他类型沿用通用文案 */
 function statusLabel(t: TaskItem): string {
   if (isLiveType(t.type)) {
     if (t.status === 'succeeded') return LIVE_STOP_TEXT.succeeded
     if (t.status === 'canceled') return LIVE_STOP_TEXT.canceled
   }
-  return STATUS_TAG[t.status].label
+  return statusTag(t).label
 }
 
 /** 失败行的说明：office_pdf 的 UNSUPPORTED 用产品文案（“暂不支持这种格式，请先另存为 docx、xlsx 或 pptx”），其余沿用后端 message */
@@ -446,9 +493,9 @@ function progressText(t: TaskItem): string {
         return ms !== null ? `用时 ${formatDuration(ms)}` : '已完成'
       }
     case 'failed':
-      return '失败'
+      return liveBroken(t) ? '已中断' : '失败' // 包 24 N4：直播意外退出按中断显示
     case 'interrupted':
-      return '应用退出，已中断'
+      return isLiveType(t.type) && t.error?.code ? '已中断' : '应用退出，已中断'
     case 'canceled':
       return isLiveType(t.type) ? LIVE_STOP_TEXT.canceled : '用户取消'
   }

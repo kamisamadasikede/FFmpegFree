@@ -6,7 +6,7 @@ import { call, toAppError } from '@/api/call'
 import { hasWailsBackend, onEvent, onSimEvent, previewParams } from '@/services/wails'
 import { cancelSimTask, getSimTask, isSimTask, listSimFinished, removeSimTasks, retrySimTask } from '@/api/sim'
 import { toInstallProgress, useFFmpegStore } from '@/stores/ffmpeg'
-import { buildPreviewActive, buildPreviewHistory, PREVIEW_LOG } from '@/stores/tasks.preview'
+import { buildPreviewActive, buildPreviewHistory, PREVIEW_LOG, unmappedErrorPreview } from '@/stores/tasks.preview'
 import { mergeEncoderFields, pickEncoderFields } from '@/api/encoderTask'
 import { convertV2IsReal, hideFinishedInTaskCenter, listTasks, unhideInTaskCenter } from '@/api/convertRecords'
 import { toReconvertError, toTaskResult, type ApiReconvertError, type ApiTaskResult } from '@/api/taskTypes'
@@ -104,13 +104,13 @@ export interface FinalState {
   result?: ApiTaskResult
 }
 
-/** 历史分组 → 状态过滤。failed 组把 interrupted 也算进去（都需要用户手动重试） */
+/** 历史分组 → 状态过滤。失败只查 failed：interrupted 是「已中断」，不算失败（v0.25.3） */
 export type HistoryGroup = 'all' | 'succeeded' | 'failed' | 'canceled'
 const TERMINAL: TaskStatus[] = ['succeeded', 'failed', 'canceled', 'interrupted']
 const GROUP_STATUSES: Record<HistoryGroup, TaskStatus[]> = {
   all: TERMINAL,
   succeeded: ['succeeded'],
-  failed: ['failed', 'interrupted'],
+  failed: ['failed'],
   canceled: ['canceled'],
 }
 
@@ -419,8 +419,7 @@ export const useTaskStore = defineStore('tasks', () => {
   /** 接口层模拟任务（浏览器预览 / 模拟转换记录）的计数 */
   function simCounts(includeHidden: boolean, midnight: number) {
     const all = listSimFinished(includeHidden).map((t) => normalizeTask(t as unknown as goStore.Task)).filter((t) => isKnownTaskType(t.type))
-    const failed = (t: TaskItem) => t.status === 'failed' || t.status === 'interrupted'
-    return { finished: all.length, failed: all.filter(failed).length, today: all.filter((t) => t.status === 'succeeded' && t.finishedAt >= midnight).length }
+    return { finished: all.length, failed: all.filter((t) => t.status === 'failed').length, today: all.filter((t) => t.status === 'succeeded' && t.finishedAt >= midnight).length }
   }
   /** v0.23 后端用带 includeHidden 的 List；旧后端没有隐藏的概念，用原来的 List */
   function listFor(statuses: TaskStatus[], limit: number, includeHidden: boolean) {
@@ -434,9 +433,8 @@ export const useTaskStore = defineStore('tasks', () => {
     const withHidden = historyFilter.includeHidden
     if (previewMode) {
       const shown = previewHistory.value.filter((t) => withHidden || !t.hiddenInTaskCenter)
-      const failed = (t: TaskItem) => t.status === 'failed' || t.status === 'interrupted'
       todayDone.value = previewHistory.value.filter((t) => t.status === 'succeeded' && t.finishedAt >= midnight).length
-      failedTotal.value = shown.filter(failed).length
+      failedTotal.value = shown.filter((t) => t.status === 'failed').length
       finishedTotal.value = shown.length
       return
     }
@@ -452,7 +450,7 @@ export const useTaskStore = defineStore('tasks', () => {
     try {
       const [done, failedTab, all] = await Promise.all([
         listFor(['succeeded'], 200, true),
-        listFor(['failed', 'interrupted'], 1, withHidden),
+        listFor(['failed'], 1, withHidden),
         listFor(TERMINAL, 1, withHidden),
       ])
       finishedTotal.value = (all.total ?? 0) + simTab.finished
@@ -763,6 +761,7 @@ export const useTaskStore = defineStore('tasks', () => {
         previewHistory.value = buildPreviewHistory(
           previewParams.has('hist') ? Math.max(0, Number(previewParams.get('hist')) || 0) : 8,
         )
+        if (previewParams.get('q1') === '1') previewHistory.value.unshift(unmappedErrorPreview())
       }
       ready.value = true
       return

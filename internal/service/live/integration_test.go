@@ -65,21 +65,30 @@ func freePort(t *testing.T, udp bool) int {
 type mtx struct {
 	cmd       *exec.Cmd
 	rtmp, srt int
+	hls       int
 	dir       string
 	logPath   string
 }
 
 // startMediaMTX 启动一个只开 RTMP / SRT 的 MediaMTX：路径 auth/ 需要账号 pub / secretpass 才能发布，其余路径可随意发布；所有人可读。
-func startMediaMTX(t *testing.T) *mtx {
+func startMediaMTX(t *testing.T) *mtx { return startMediaMTXHLS(t, "") }
+
+// startMediaMTXHLS 同 startMediaMTX；hlsVariant 非空时另开 HLS（lowLatency / mpegts / fmp4），地址见 hlsURL。
+func startMediaMTXHLS(t *testing.T, hlsVariant string) *mtx {
 	bin := findBin(t, "FFMPEGFREE_MEDIAMTX", "/workspace/tools/mediamtx/mediamtx", "mediamtx")
 	m := &mtx{dir: t.TempDir(), rtmp: freePort(t, false), srt: freePort(t, true)}
+	hls := "hls: no"
+	if hlsVariant != "" {
+		m.hls = freePort(t, false)
+		hls = fmt.Sprintf("hls: yes\nhlsAddress: 127.0.0.1:%d\nhlsVariant: %s\nhlsAlwaysRemux: yes", m.hls, hlsVariant)
+	}
 	cfg := fmt.Sprintf(`logLevel: info
 api: no
 metrics: no
 pprof: no
 playback: no
 rtsp: no
-hls: no
+%s
 webrtc: no
 moq: no
 rtmp: yes
@@ -105,7 +114,7 @@ authInternalUsers:
         path: ~^auth
 paths:
   all_others:
-`, m.rtmp, m.srt)
+`, hls, m.rtmp, m.srt)
 	cfgPath := filepath.Join(m.dir, "mtx.yml")
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
@@ -144,7 +153,10 @@ func (m *mtx) stop() {
 }
 
 func (m *mtx) rtmpURL(path string) string { return fmt.Sprintf("rtmp://127.0.0.1:%d/%s", m.rtmp, path) }
-func (m *mtx) srtURL(q string) string     { return fmt.Sprintf("srt://127.0.0.1:%d?%s", m.srt, q) }
+func (m *mtx) hlsURL(path string) string {
+	return fmt.Sprintf("http://127.0.0.1:%d/%s/index.m3u8", m.hls, path)
+}
+func (m *mtx) srtURL(q string) string { return fmt.Sprintf("srt://127.0.0.1:%d?%s", m.srt, q) }
 
 type realFx struct {
 	*fixture
@@ -352,7 +364,7 @@ func TestIntegrationServerKilledMidStream(t *testing.T) {
 	if d.Error != nil {
 		t.Logf("interrupted detail:\n%s", d.Error.Detail)
 	}
-	if d.Status != task.StatusFailed || d.Error == nil || d.Error.Code != apperr.LivePushInterrupted {
+	if d.Status != task.StatusInterrupted || d.Error == nil || d.Error.Code != apperr.LivePushInterrupted {
 		t.Fatalf("推流中途杀掉服务器应 LIVE_PUSH_INTERRUPTED: %+v %+v\n%s", d, d.Error, tailLines(r.logText(t, tk.ID), 8))
 	}
 }

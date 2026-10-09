@@ -35,3 +35,10 @@ export const CONVERT_V2_BACKEND_READY: boolean = true
  * 纯浏览器（没有 window.go，走查 / 截图）：v0.24 的界面全部打开，数据来自模拟，见 api/convertRecords.ts 的 convertV24On()。
  */
 export const CONVERT_V24_BACKEND_READY: boolean = true
+/**
+ * 直播预览 v0.25（包 21，契约 6.10.3；后端 #109 已实现，绑定已重新生成）：GetPreviewStream → { url, mime, hasVideo, hasAudio }，
+ * PullSession.previewUrl，事件 live:pull。播放器用 mpegts.js，旧的 2 fps 图片预览已删除。
+ * true（联调打开）：在 Wails 里调真实绑定。纯浏览器（没有 window.go）仍走模拟：GetPreviewStream 返回 UNSUPPORTED reason=preview_unavailable，
+ * 拉流页对 http(s) / ws(s) 直接播放用户填的地址。改回 false：Wails 里也按模拟处理（推流预览显示“暂时无法预览”）。
+ */
+export const LIVE_PREVIEW_V25_BACKEND_READY: boolean = true

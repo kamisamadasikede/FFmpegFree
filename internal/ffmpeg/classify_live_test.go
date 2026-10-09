@@ -63,10 +63,23 @@ func TestClassifyLiveErrorStartedDecidesConnectVsInterrupted(t *testing.T) {
 
 func TestClassifyLiveErrorIgnoresMetadataBlocks(t *testing.T) {
 	tail := "Input #0, mov,mp4, from '/tmp/Connection refused.mp4':\n  Metadata:\n    title           : Broken pipe\n  Stream #0:0: Video: h264\nSomething odd happened\n"
-	for _, started := range []bool{false, true} {
-		e := ClassifyLiveError(LiveClassifyInput{Tail: tail, Scheme: "rtmp", Started: started})
-		if e.Code != apperr.Internal {
-			t.Fatalf("started=%v: 元数据里的词不应触发分类: %+v", started, e)
+	// 未开始：认不出 → INTERNAL；已开始：认不出 → LIVE_PUSH_INTERRUPTED + PushInterruptedMessage（v0.25.3），都不是元数据里的词触发的码。
+	e := ClassifyLiveError(LiveClassifyInput{Tail: tail, Scheme: "rtmp", Started: false})
+	if e.Code != apperr.Internal {
+		t.Fatalf("未开始: 元数据里的词不应触发分类: %+v", e)
+	}
+	e = ClassifyLiveError(LiveClassifyInput{Tail: tail, Scheme: "rtmp", Started: true})
+	if e.Code != apperr.LivePushInterrupted || e.Message != PushInterruptedMessage {
+		t.Fatalf("已开始: 元数据里的词不应触发分类，认不出的是兜底的中断: %+v", e)
+	}
+}
+
+// 契约 v0.25.3：推流开始以后进程被杀（stderr 什么都没有）是 LIVE_PUSH_INTERRUPTED，不是 INTERNAL。
+func TestClassifyLiveErrorStartedKillIsInterrupted(t *testing.T) {
+	for _, tail := range []string{"", "frame=  100 fps= 25 q=23.0 size=     512kB time=00:00:04.00\n", "Killed"} {
+		e := ClassifyLiveError(LiveClassifyInput{Tail: tail, Scheme: "rtmp", Started: true})
+		if e.Code != apperr.LivePushInterrupted || e.Message != PushInterruptedMessage {
+			t.Fatalf("%q: %+v", tail, e)
 		}
 	}
 }
@@ -156,5 +169,77 @@ func TestClassifyLiveErrorWindowGone(t *testing.T) {
 	// 文件推流不走这条
 	if e := ClassifyLiveError(LiveClassifyInput{Tail: tail, Scheme: "rtmp"}); e.Code == apperr.LiveSourceGone {
 		t.Fatal("非屏幕推流不应识别")
+	}
+}
+
+// 设计走查 G3：拉流失败有自己的分类和文字，不出现推流的文字。
+func TestClassifyPullError(t *testing.T) {
+	if PullFailedMessage != "拉流失败，请检查直播地址和网络。" {
+		t.Fatalf("文案: %q", PullFailedMessage)
+	}
+	cases := []struct {
+		name, tail string
+		code       apperr.Code
+	}{
+		{"拒绝连接", "[tcp @ 0x1] Connection to tcp://127.0.0.1:1935?tcp_nodelay=0 failed: Connection refused\n[in#0 @ 0x2] Error opening input: Connection refused\nError opening input file rtmp://127.0.0.1:1935/live/***.", apperr.LiveConnectFailed},
+		{"HLS 404", "[in#0 @ 0x1] Error opening input: Server returned 404 Not Found\nError opening input file http://h/***.\nError opening input files: Server returned 404 Not Found", apperr.LiveConnectFailed},
+		{"DNS", "[tcp @ 0x1] Failed to resolve hostname nope.invalid: Name or service not known", apperr.LiveConnectFailed},
+		{"RTMP 服务器报错", "[rtmp @ 0x1] Server error: stream not found\n[in#0 @ 0x2] Error opening input: Operation not permitted", apperr.LiveConnectFailed},
+		{"SRT 握手失败", "[srt @ 0x1] Connection to srt://127.0.0.1:9000?streamid=*** failed: Input/output error", apperr.LiveConnectFailed},
+		{"读不出画面参数", "[flv @ 0x1] Could not find codec parameters for stream 0 (Video: h264, none): unspecified size\n[out#0/flv @ 0x2] Could not write header (incorrect codec parameters ?): Invalid argument", apperr.Internal},
+	}
+	for _, c := range cases {
+		e := ClassifyPullError(LiveClassifyInput{Tail: c.tail, Scheme: "rtmp"})
+		if e.Code != c.code || e.Message != PullFailedMessage {
+			t.Errorf("%s: %s %q", c.name, e.Code, e.Message)
+		}
+		if strings.Contains(e.Message, "推流") || strings.Contains(strings.ToLower(e.Message), "ffmpeg") {
+			t.Errorf("%s: 拉流文字不能出现推流或 ffmpeg: %q", c.name, e.Message)
+		}
+		if c.code == apperr.LiveConnectFailed && !strings.HasPrefix(e.Detail, "scheme=rtmp\n") {
+			t.Errorf("%s: detail 首行应是 scheme=: %q", c.name, e.Detail)
+		}
+	}
+	// 推流的文字不变。
+	if e := ClassifyLiveError(LiveClassifyInput{Tail: "something odd"}); e.Message != "推流启动失败" {
+		t.Errorf("推流文字被改了: %q", e.Message)
+	}
+	if e := ClassifyLiveError(LiveClassifyInput{Tail: "Connection refused"}); e.Message != "连接推流服务器失败" {
+		t.Errorf("推流文字被改了: %q", e.Message)
+	}
+}
+
+// 契约 v0.25.4：LIVE_PUSH_INTERRUPTED 用 detail 第一行区分推流和拉流，不靠文案；窗口没了仍是 LIVE_SOURCE_GONE。
+func TestInterruptReasonPushVsPull(t *testing.T) {
+	push := ClassifyLiveError(LiveClassifyInput{Tail: "Broken pipe", Scheme: "rtmp", Started: true})
+	if push.Code != apperr.LivePushInterrupted || push.Detail != "reason=push\nBroken pipe" {
+		t.Fatalf("推流: %+v", push)
+	}
+	killed := ClassifyLiveError(LiveClassifyInput{Tail: "", Scheme: "rtmp", Started: true})
+	if killed.Code != apperr.LivePushInterrupted || killed.Message != PushInterruptedMessage || killed.Detail != "reason=push" {
+		t.Fatalf("推流被杀: %+v", killed)
+	}
+	pull := PullInterruptedError("Connection reset by peer")
+	if pull.Code != apperr.LivePushInterrupted || pull.Message != PullInterruptedMessage || pull.Detail != "reason=pull\nConnection reset by peer" {
+		t.Fatalf("拉流: %+v", pull)
+	}
+	if PullInterruptedError("").Detail != "reason=pull" {
+		t.Fatal(PullInterruptedError("").Detail)
+	}
+	gone := ClassifyLiveError(LiveClassifyInput{Tail: "[gdigrab @ 1] Can't find window 't', aborting.", Scheme: "rtmp", Screen: true, Started: true})
+	if gone.Code != apperr.LiveSourceGone || gone.Detail != "kind=window" || strings.Contains(gone.Detail, "reason=") {
+		t.Fatalf("窗口没了不应改码: %+v", gone)
+	}
+	exe := "/opt/FFmpegFree/bin/ffmpeg"
+	SetCurrent(&Binaries{FFmpeg: exe, FFprobe: "/opt/FFmpegFree/bin/ffprobe"})
+	t.Cleanup(func() { SetCurrent(nil) })
+	d := InterruptDetail("push", "killed "+exe)
+	if d != "reason=push\nkilled" && d != "reason=push\nkilled " {
+		if strings.Contains(d, exe) || strings.Contains(d, "ffprobe") {
+			t.Fatalf("detail 不应含组件路径: %q", d)
+		}
+	}
+	if strings.Contains(d, "bin/ffmpeg") || strings.Contains(d, "bin/ffprobe") {
+		t.Fatalf("detail 不应含组件路径: %q", d)
 	}
 }

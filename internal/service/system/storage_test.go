@@ -2,6 +2,7 @@ package system
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -180,5 +181,63 @@ func TestRevealAllowsStorageDirs(t *testing.T) {
 	}
 	if c := revealCode(f.mgr.RevealInFolder(f.outside)); c != apperr.InvalidArgument {
 		t.Fatalf("范围外应拒绝: %v", c)
+	}
+}
+
+// PM X5（契约 v0.25.1）：kind=component 打开当前转换组件所在的文件夹并选中它；没就绪或文件不在 NOT_FOUND。
+func TestOpenStorageFolderComponent(t *testing.T) {
+	f, _, _ := storageFx(t)
+	ctx := context.Background()
+	// 没就绪
+	f.mgr.status = FFmpegStatus{State: ffmpeg.StateMissing}
+	err := f.mgr.OpenStorageFolder(ctx, "component")
+	wantErr(t, err, apperr.NotFound, "转换组件还没有就绪。")
+	if strings.Contains(strings.ToLower(err.(*apperr.AppError).Message), "ffmpeg") {
+		t.Fatal("面向用户的文字不能有 ffmpeg")
+	}
+	// 就绪但文件不在
+	exe := filepath.Join(f.root, "tools", "ffmpeg")
+	f.mgr.status = FFmpegStatus{State: ffmpeg.StateReady, Path: exe}
+	wantErr(t, f.mgr.OpenStorageFolder(ctx, "component"), apperr.NotFound, "转换组件还没有就绪。")
+	// 就绪：按平台命令显示这个文件（不受 RevealInFolder 白名单限制）
+	os.MkdirAll(filepath.Dir(exe), 0o755)
+	os.WriteFile(exe, []byte("x"), 0o755)
+	if err := f.mgr.OpenStorageFolder(ctx, "component"); err != nil {
+		t.Fatal(err)
+	}
+	real, _ := filepath.EvalSymlinks(exe)
+	name, args := revealCommand(runtime.GOOS, real, false)
+	got := f.launched[len(f.launched)-1]
+	if got[0] != name || strings.Join(got[1:], " ") != strings.Join(args, " ") {
+		t.Fatalf("应按平台命令显示组件: %v，期望 %s %v", got, name, args)
+	}
+	// 平台命令：Windows / macOS 选中文件，Linux 打开所在文件夹
+	if n, a := revealCommand("windows", `C:\t\ffmpeg.exe`, false); n != "explorer.exe" || a[0] != `/select,"C:\t\ffmpeg.exe"` {
+		t.Fatal(n, a)
+	}
+	if n, a := revealCommand("darwin", "/t/ffmpeg", false); n != "open" || a[0] != "-R" {
+		t.Fatal(n, a)
+	}
+	// 安装中、检测中同样 NOT_FOUND
+	for _, s := range []string{ffmpeg.StateChecking, ffmpeg.StateInstalling} {
+		f.mgr.status = FFmpegStatus{State: s, Path: exe}
+		wantErr(t, f.mgr.OpenStorageFolder(ctx, "component"), apperr.NotFound, "转换组件还没有就绪。")
+	}
+	// 路径不回给前端：所有错误的 detail 只有 reason=component（启动文件管理器失败也一样）
+	f.mgr.status = FFmpegStatus{State: ffmpeg.StateReady, Path: exe}
+	old := f.mgr.launch
+	f.mgr.launch = func(string, ...string) error { return errors.New("boom " + exe) }
+	err = f.mgr.OpenStorageFolder(ctx, "component")
+	if ae, ok := err.(*apperr.AppError); !ok || ae.Code != apperr.ProcessFailed || ae.Detail != "reason=component" || strings.Contains(ae.Message, exe) {
+		t.Fatalf("启动失败: %#v", err)
+	}
+	f.mgr.launch = old
+	f.mgr.status = FFmpegStatus{State: ffmpeg.StateMissing, Path: exe}
+	if ae := f.mgr.OpenStorageFolder(ctx, "component").(*apperr.AppError); ae.Detail != "reason=component" {
+		t.Fatalf("detail 只有 reason: %q", ae.Detail)
+	}
+	// output / uploads 不变
+	if err := f.mgr.OpenStorageFolder(ctx, "output"); err != nil {
+		t.Fatal(err)
 	}
 }

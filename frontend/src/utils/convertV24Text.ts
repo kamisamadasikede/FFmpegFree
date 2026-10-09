@@ -192,6 +192,7 @@ export function reconvertErrorText(e: { code: string; message: string; detail?: 
   if (e.code === 'NOT_FOUND' && reason === 'file') return RECONVERT_BLOCK_TIP.source_missing
   if (e.code === 'NOT_FOUND' && reason === 'record') return '这条记录已被删除，不能重转'
   if (e.code === 'INVALID_ARGUMENT' && reason === 'format_change') return '重转不能更换格式，要换格式请新转一条。'
+  if (e.code === 'UNSUPPORTED' && /旧版导出/.test(e.message)) return e.message
   if (e.code === 'UNSUPPORTED') return '当前转换组件不支持输出这个格式，不能重转'
   return e.message || '重转失败，请稍后重试。'
 }

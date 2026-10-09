@@ -25,6 +25,7 @@ import { FALLBACK_BANNER } from '@/utils/convertV24Text'
 import { useTaskStore } from '@/stores/tasks'
 import { deleteToast, revealDeleteFailureText, roughEta, toastText, type DeleteToast } from '@/utils/convertText'
 import { midEllipsisPx } from '@/utils/midEllipsis'
+import { publicErrorText } from '@/errors/errorMessages'
 
 const cv = useConvertRecordsStore()
 const tasks = useTaskStore()
@@ -113,7 +114,7 @@ async function onConfirmDelete(withOutput: boolean) {
     delAsk.value = null
     showDeleteToast(deleteToast(a, r))
   } catch (e) {
-    ElMessage.error(toAppError(e).message)
+    ElMessage.error(publicErrorText(toAppError(e).message))
   } finally {
     deleting.value = false
   }
@@ -312,8 +313,8 @@ onUnmounted(() => {
           <FIcon name="check" />
           <b v-if="cv.roundBanner.fail">本轮完成 {{ cv.roundBanner.ok }} 项，失败 {{ cv.roundBanner.fail }} 项</b>
           <b v-else>本轮 {{ cv.roundBanner.ok }} 项全部完成</b>
-          <span v-if="cv.roundBanner.ok" class="hide1024">结果已保存到输出文件夹</span>
-          <button v-if="cv.roundBanner.ok" type="button" class="lk" @click="cv.openRoundOutput()">打开文件夹</button>
+          <span v-if="cv.roundBanner.ok && !cv.roundBanner.fail" class="hide1024">结果已保存到输出文件夹</span>
+          <button v-if="cv.roundBanner.ok && !cv.roundBanner.fail" type="button" class="lk" @click="cv.openRoundOutput()">打开文件夹</button>
           <span class="sp" />
           <button type="button" class="x" aria-label="关闭" title="关闭" @click="cv.closeBanner()"><FIcon name="x" /></button>
         </div>

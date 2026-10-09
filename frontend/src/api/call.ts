@@ -64,12 +64,12 @@ export function docErrorReason(reason?: string): DocErrorReason | undefined {
   return (DOC_ERROR_REASONS as readonly string[]).includes(reason ?? '') ? (reason as DocErrorReason) : undefined
 }
 
-const REASON_RE = /^reason=([A-Za-z0-9_-]+)$/
+const REASON_RE = /^reason=([A-Za-z0-9_-]+)/
 const SCHEME_RE = /^scheme=([A-Za-z0-9+.-]+)$/
 const KIND_RE = /^kind=(window|screen)$/
 const CLIP_RE = /^clip=(\S+) path=(.*)$/
 
-/** 解析 AppError.detail 的第一行（契约：TASK_CONFLICT / LIVE_URL_INVALID 的 reason、LIVE_CONNECT_FAILED 的 scheme、Edit 的 clip 定位）。只看第一行，解析不了就什么都不返回。 */
+/** 解析 AppError.detail 的开头（契约：TASK_CONFLICT / LIVE_URL_INVALID 的 reason、LIVE_CONNECT_FAILED 的 scheme、Edit 的 clip 定位）。只看第一行。reason= 认前缀，后面还可以有 stderr，不必整行只有这一个键。解析不了就什么都不返回。 */
 export function parseDetailHead(detail?: string): DetailHead {
   if (!detail) return {}
   const first = detail.split(/\r?\n/, 1)[0].trim()

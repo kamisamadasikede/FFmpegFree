@@ -262,7 +262,7 @@ func runProbe(ctx context.Context, ffprobeExe, path string, timeout time.Duratio
 // 没有视频画面的文件返回 INVALID_ARGUMENT。width<=0 用 320，范围限制在 16~1920。
 func (s *Service) Thumbnail(ctx context.Context, path string, atSec float64, width int) (Thumb, error) {
 	if math.IsNaN(atSec) || math.IsInf(atSec, 0) || atSec < 0 {
-		return Thumb{}, apperr.New(apperr.InvalidArgument, "atSec 必须是不小于 0 的数字")
+		return Thumb{}, apperr.New(apperr.InvalidArgument, "取帧时间不正确").WithDetail("atSec 必须是不小于 0 的数字")
 	}
 	if atSec > maxThumbAt {
 		atSec = maxThumbAt // 再大也超出任何视频长度，会退回第 0 秒；封顶避免换算毫秒时 int64 溢出

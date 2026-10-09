@@ -301,7 +301,7 @@ func TestArchiveKeptAfterGracefulStop(t *testing.T) {
 
 // 空壳（ffprobe 读不出时长）：删除、outputPath 清空，且清理发生在终态事件之前（事件、快照、库一致）。
 func TestArchiveShellDeletedAndOutputPathCleared(t *testing.T) {
-	for _, st := range []string{"refused", "broken", "live"} { // failed / failed / succeeded
+	for _, st := range []string{"refused", "broken", "live"} { // failed / interrupted（v0.25.3）/ succeeded
 		t.Run(st, func(t *testing.T) {
 			af := newArchiveFixture(t)
 			af.setMode(st)

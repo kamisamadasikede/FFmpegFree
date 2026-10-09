@@ -67,6 +67,8 @@ type FFmpegRunner struct {
 	CPUEncoding ffmpeg.EncoderInfo
 	// NoBitrate 为 true 时不计算 bitrateKbps（走 tee 时 ffmpeg 的 total_size 恒为 N/A，契约 6.10：有存档时没有 bitrateKbps）。
 	NoBitrate bool
+	// BitrateSize 非空时用它的字节数算码率（v0.25：预览分支收到的字节）。ok=false 时不报 bitrateKbps。
+	BitrateSize func() (int64, bool)
 
 	// 以下是 v0.24 的扩展。
 
@@ -126,8 +128,12 @@ func (r *FFmpegRunner) Run(ctx context.Context, report func(Progress)) (string, 
 				case r.Live:
 					p.Fraction = -1
 					p.Fps, p.DroppedFrames = u.Fps, u.Dropped
-					if !r.NoBitrate {
-						p.BitrateKbps = rate.add(out, u.TotalSize)
+					size, ok := u.TotalSize, true
+					if r.BitrateSize != nil {
+						size, ok = r.BitrateSize()
+					}
+					if !r.NoBitrate && ok {
+						p.BitrateKbps = rate.add(out, size)
 					}
 				case r.DurationSec > 0:
 					f := out / r.DurationSec
