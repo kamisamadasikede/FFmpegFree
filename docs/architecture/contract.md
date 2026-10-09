@@ -1,4 +1,7 @@
-# FFmpegFree v2 接口契约（v0.25）
+# FFmpegFree v2 接口契约（v0.26）
+
+v0.26 变更（**文档多格式转换一期**，老板提出、产品经理定范围、架构师定方案，2026-10-09；**只有契约，前后端按本版并行实现**；完整规则见新增的 **6.12.9~6.12.22**，本条只是索引）：① **范围**：文字类 doc / docx / odt / rtf / txt / html / md 互转，表格类 xls / xlsx / ods / csv 互转（多工作表转 CSV 只出第一个表，带提示），演示类 ppt / pptx / odp 互转，以上都能转 PDF；跨类不转；PDF 作输入一期不支持；二期（PDF 转图片、PDF 转 Word、epub）只列为后续。② **实现**：「文档组件」= LibreOffice headless，界面只叫文档组件（唯一例外：Linux 未就绪提示 `请先在系统里安装 LibreOffice，然后重启应用。`）；md → html 用 goldmark、html → md 用 html-to-markdown（纯 Go，无 cgo）；md 转其他走 md → html → 文档组件，其他转 md 走 文档组件 → html → md；md 本地图片按 md 所在目录解析，网络图片不下载。③ **组件安装**：先检测系统安装；固定 **LibreOffice 26.2.6**，Windows 下载官方 MSI 用 `msiexec /a` 解到应用自己的目录（不弹 UAC），macOS 下载 dmg 挂载后拷出 .app，Linux 只检测；URL、大小、SHA-256 写死并已实际下载核对；断点续传，校验不过删掉重下；阶段 downloading / preparing（不给百分比，到检测通过为止）/ ready；可取消、可重试。新增 `DocComponentStatus`（`version`、`source=system|downloaded`，`path` 是 `json:"-"`）。④ **并发**：文档组件单独一个池，并发 2，与转换组件的 batch 池互不占用；md ↔ html 和简易转换不占名额、不排队；排队任务带 `queuePosition`，界面 `排队中 · 前面还有 n 项`；每个任务独立 `-env:UserInstallation`，单任务 5 分钟超时、杀整个进程树。⑤ **CSV**：输出 UTF-8 + 逗号；读入合法 UTF-8（含 BOM）按 UTF-8，否则按 GB18030 转 UTF-8，不提示（TXT、MD 同样）。⑥ **加密文件**后端自己检测（OOXML 加密容器、ODF manifest、doc / xls / ppt 加密标志），直接 `DOC_ENCRYPTED`，不交给组件。⑦ **格式表由后端给**：`DocService.GetFormatMatrix()`，每个目标带 `needsComponent` / `simple` / `available` / `hintKey` / `hint` / `disabledReason`，前端多选取交集，`doc:component` 变为 ready 时重新拉；组件未就绪时 md ↔ html 可用，docx / odt / txt → PDF 走简易转换（提示 `下载文档组件后可保留图片和排版`），doc / rtf 及其他置灰（`需要文档组件`）。⑧ **任务**：新类型 `doc_convert`，沿用转换页的记录、事件、重试、重转；`office_pdf` 只给旧记录和简易转换（输入加 odt、txt）。添加文件返回 `sheetCount`（xlsx / ods / xls 实读，csv 1，读不出 -1）。⑨ **新增 10 个错误码**（2.1 由 18 个变为 28 个）：`DOC_ENCRYPTED`、`DOC_CORRUPT`、`DOC_TIMEOUT`、`DOC_COMPONENT_CRASHED`、`DOC_COMPONENT_NOT_READY`、`DOC_DOWNLOAD_FAILED`、`DOC_CHECKSUM_FAILED`、`DOC_COMPONENT_INSTALL_FAILED`、`DOC_FORMAT_UNSUPPORTED`、`DOC_PDF_INPUT_UNSUPPORTED`，文案和是否可重试见 6.12.20；2.2 新增 `UNSUPPORTED` `reason=not_retryable`。⑩ **新方法**（DocService）：`GetFormatMatrix`、`GetDocComponentStatus`、`InstallDocComponent`、`CancelDocComponentInstall`、`RecheckDocComponent`、`AddDocSources`、`ListDocSources`、`SearchDocSources`、`SubmitDocConvert`；**新事件**：`doc:component`、`doc:component-progress`、`doc:queue`；`Task` 新增可选 `queuePosition`（只在内存）。⑪ **迁移 `0009_doc_convert.sql`**：`convert_sources` 加 `kind`（`media` / `doc`）、`sheet_count` 和索引。
+
 
 v0.25.4 变更（包 24，老板实机：左下角已是“转换组件已就绪”，转换设置里格式全灰、悬停“转换组件尚未就绪”，并停在“正在加载格式…”；**没有新增错误码、事件或迁移**；唯一的接口变化是拿掉 `FFmpegStatus.path`，见第⑤⑥条）：① **根因**：转换页在冷启动时调用 `GetFormatCatalog`，那时转换组件还在检测。目录接口直接把每一项标成 `encodable=false`、`reasonCode=converter_not_ready`、`reason="转换组件尚未就绪"`，并不等检测结束。这次“未就绪”不写入能力缓存，但前端只取一次，检测完成后不再取，格式就一直灰着；左下角读的是稍后的 `ffmpeg:status`（`state=ready`），两边不是同一次判断。② **修复**：`GetFormatCatalog`（以及提交前用同一份能力判断的格式检查）**只在检测进行中**才等，最多 **6 秒**，或调用方自己的超时更短时以调用方为准。6 秒内检测变为就绪，就按真实的 muxer / encoder 返回（可输出的项 `encodable=true`）。6 秒到了仍在检测，照旧返回未就绪（不缓存），前端此时组件状态仍是 `checking`，不要当成最终结果。检测结束为未就绪（没有可用组件）时**立刻**返回未就绪，不等满 6 秒。没在检测时不等。③ **重新加载**：事件名 **`ffmpeg:status`**，payload 是完整的 `FFmpegStatus`（`state`、`version`、`source` 等，**没有 `path`**，见 9.4）。`state` 变为 **`ready`** 时前端重新调用 `GetFormatCatalog`。前端自己的加载超时必须 **大于 6 秒**（现为 8 秒）；先返回的未就绪目录在 `state` 仍是 `checking` 时继续显示加载，等这个事件再取。④ 能力探测失败、以及未就绪，都不写入缓存；缓存键仍是可执行文件路径 + 大小 + 修改时间（6.16.1），换了组件自动重新检测。见 6.16.1 / 6.16.3。⑤ **组件路径不再给前端**（#117 合入后，架构师定，仍是 v0.25.4，不另开版本号）：`FFmpegStatus` **没有 `path`**。`missing` / `outdated` 的 `error.detail` 只保留来源和失败原因（`[来源] 原因`），不含组件可执行文件路径，也不逐行列出候选路径。`SetFFmpegPath` 校验失败（`INVALID_ARGUMENT`）的 `detail` 同样不含路径。打开文件夹仍只用 `OpenStorageFolder("component")`。应用日志仍记路径。⑥ **`LIVE_PUSH_INTERRUPTED` 用 `detail` 第一行区分推流和拉流**，不靠 message：推流中途中断是 `reason=push`（没有 stderr 时 detail 就是这一行，有则第二行起仍是脱敏后的 stderr；所选窗口没了仍是 `LIVE_SOURCE_GONE`，`detail` 仍是 `kind=window`）；拉流中断是 `reason=pull`，message 仍是 `拉流被中断，请重新拉流。`。这两处 detail 不含组件可执行文件路径。前端按 `reason` 判断。
 
@@ -154,13 +157,14 @@ Bind 方法返回 `(T, error)`。error 的 message 是 JSON 字符串，前端 `
 | LIVE_PUSH_INTERRUPTED | 推流**已经开始**（收到过 `task:progress`）后被目标服务器或网络中断 |
 | SCREEN_PERMISSION_DENIED | 没有屏幕录制权限（macOS 系统授权），`StartScreenPush` 同步返回或任务失败 |
 | LIVE_SOURCE_GONE | （v0.14）`StartScreenPush` 传了 `captureSourceId`，但所选来源此刻已不可用：窗口已关闭 / 已最小化 / 不可见，或屏幕序号不存在（显示器被拔掉）。同步返回（没有创建任务）；ffmpeg 打开窗口时才发现窗口没了（校验与打开之间的竞态）则是任务失败，码相同。`detail` 第一行 `kind=window` 或 `kind=screen`，**不带窗口标题**。前端提示「所选窗口已不可用，请重新选择」（屏幕：「所选屏幕已不可用，请重新选择」）并重新 `ListCaptureSources` |
+| DOC_ENCRYPTED / DOC_CORRUPT / DOC_TIMEOUT / DOC_COMPONENT_CRASHED / DOC_COMPONENT_NOT_READY / DOC_DOWNLOAD_FAILED / DOC_CHECKSUM_FAILED / DOC_COMPONENT_INSTALL_FAILED / DOC_FORMAT_UNSUPPORTED / DOC_PDF_INPUT_UNSUPPORTED | v0.26 文档多格式转换，含义、message、是否可重试见 6.12.20 |
 | INTERNAL | 其他；直播任务里认不出的 ffmpeg 非零退出也是它（不是 `PROCESS_FAILED`），detail 带（已脱敏的）stderr 最后若干行 |
 
 **直播 / 录屏（v0.10）用到的后端码正好是冻结的这八个：`LIVE_URL_INVALID`、`LIVE_CONNECT_FAILED`、`LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`SCREEN_PERMISSION_DENIED`、`FFMPEG_NOT_FOUND`、`UNSUPPORTED_PLATFORM`、`INTERNAL`**（v0.14 起再加 `LIVE_SOURCE_GONE`，共九个）；此外复用已有的 `INVALID_ARGUMENT`、`NOT_FOUND`、`PROBE_FAILED`（输入文件问题）、`TASK_CONFLICT`（会话上限 / 同地址冲突）、`UNSUPPORTED`（Retry）、`CANCELED`（`Start*` 因应用退出被取消，#10 已加）。**v0.10 没有新增任何错误码**，也没有 `LIVE_START_FAILED` 之类的同义码。用户主动停止不产生错误码（优雅停止成功 = `succeeded`，超时强杀 = `canceled` 状态，`error` 为空）。`LIVE_PLAY_FAILED`（播放器加载或解码失败）和 `LIVE_CORS_BLOCKED`（拉流地址跨域被浏览器拦截）**只在前端由播放器产生**，后端不会返回，也不在 `apperr` 里定义。
 
 ### 2.1 AppErrorCode 完整清单（供前端 `frontend/src/api/call.ts` 对照）
 
-后端 `internal/apperr` 一共 18 个码（v0.14 新增 `LIVE_SOURCE_GONE`），前端 `AppErrorCode` 必须全部包含；前端 `frontend/src/api/call.ts` 以本清单为准逐项核对补全（不在契约里写它当前缺几个，现状随前端分支变化）：
+后端 `internal/apperr` 一共 28 个码（v0.14 新增 `LIVE_SOURCE_GONE`；v0.26 新增 10 个 `DOC_*`，文案和是否可重试见 6.12.20），前端 `AppErrorCode` 必须全部包含；前端 `frontend/src/api/call.ts` 以本清单为准逐项核对补全（不在契约里写它当前缺几个，现状随前端分支变化）：
 
 ```ts
 export type AppErrorCode =
@@ -169,6 +173,9 @@ export type AppErrorCode =
   | 'UNSUPPORTED_PLATFORM' | 'INTERNAL'
   | 'LIVE_URL_INVALID' | 'LIVE_CONNECT_FAILED' | 'LIVE_PUSH_REJECTED' | 'LIVE_PUSH_INTERRUPTED'
   | 'SCREEN_PERMISSION_DENIED' | 'LIVE_SOURCE_GONE'
+  // v0.26 文档转换（6.12.20）：
+  | 'DOC_ENCRYPTED' | 'DOC_CORRUPT' | 'DOC_TIMEOUT' | 'DOC_COMPONENT_CRASHED' | 'DOC_COMPONENT_NOT_READY'
+  | 'DOC_DOWNLOAD_FAILED' | 'DOC_CHECKSUM_FAILED' | 'DOC_COMPONENT_INSTALL_FAILED' | 'DOC_FORMAT_UNSUPPORTED' | 'DOC_PDF_INPUT_UNSUPPORTED'
 ```
 
 - 前端遇到不在清单里的 `code`：按 `INTERNAL` 的通用文案处理，不崩溃。
@@ -189,6 +196,7 @@ export type AppErrorCode =
 | 转换记录接口（v0.23，6.14：`ConvertService` 的 `ListSourceRecords` / `PreviewOutputName` / `SubmitSources` / `Reconvert` / `DeleteSource` / `GetSourcePreviewURL` / `OpenSourceWithSystem` / `RevealSource` / `GetSource` / `RevealRecord`（v0.23.1），`GetRecordThumbnail` / `GetSourceThumbnail`，`AddSources` 的单项错误，`TaskService` 的 `GetPreviewURL` / `OpenWithSystem` / `UnhideInTaskCenter`；只有下面取值对应的场景） | `reason=<值>` | `NOT_FOUND`：`record`（任务、源文件行或预设记录不存在，含旧类型 id）、`file`（记录在，但登记的文件已不存在或不是普通文件；任务不是 `succeeded` 时 `which=output` 也是它）、`no_app`（系统没有能打开这个文件的程序，message 固定 `没有找到能打开这个文件的程序`）；`UNSUPPORTED`：`format`（扩展名不在 6.14.7 的预览 / 系统打开白名单；缩略图接口上表示这个文件做不出缩略图，如纯音频，见 6.14.10）（只追加，不改名、不改含义、不删除） | `detail` 只有这一行；`SubmitSources` / `Reconvert` 只用 `reason=record`（id 不存在），**源文件本身的问题（不存在、探测失败、参数不兼容）仍按 6.9：`detail` 第一行是文件路径、没有 reason 行**；其余 6.14 的错误（`INVALID_ARGUMENT`、`TASK_CONFLICT`、`PROCESS_FAILED`、`INTERNAL`）没有 reason，走通用文案 |
 | 存储与副本、格式目录、原地重转（v0.24 / v0.24.1，6.15 / 6.16 / 6.17：`ConvertSource.copyError`、`lastReconvertError.detail`（6.17.5）、`Reconvert` 的同步错误（`TASK_CONFLICT` `reason=invalid_state` / `output_moved`、`INVALID_ARGUMENT` `reason=format_change`、源文件不在时 `NOT_FOUND` `reason=file` + 第二行路径）、`AddSources` 的单项错误、`SubmitSources` / `Submit` / `Reconvert` / `Retry` / `GetSourcePreviewURL` 的同步错误、`CancelCopy` / `RetryCopy`、`OpenStorageFolder`；只有下面取值对应的场景） | `reason=<值>` | `CONVERT_DISK_FULL`：`no_space`（复制前空间不够或复制时写满；**后面固定两行 `needBytes=<整数>`、`freeBytes=<整数>`**，单位字节）；`IO_ERROR`：`in_use` / `permission` / `io`（v0.24 原地重转替换旧输出失败，出现在 `lastReconvertError.detail`，第二行是目标路径，6.17.5）、`source_changed`（复制期间原文件被修改）、`interrupted`（应用退出时还没复制完）；`TASK_CONFLICT`：`invalid_state`（`Reconvert` 的记录不是 `succeeded` 或已在重转，6.17.1）、`output_moved`（`Reconvert` 的旧输出已被移动或替换；也出现在 `lastReconvertError`，6.17.1 / 6.17.5）、`copying`（`SubmitSources` 选中的行**全部**没就绪且有正在复制的、`Reconvert` 的行在复制、`GetSourcePreviewURL` 的行在复制）、`copy_failed`（`SubmitSources` 选中的行全部复制失败或已取消、`Reconvert` 的行复制失败或已取消）（`SubmitSources` / `Reconvert` 的这两个后面一行 `sourceId=<id>`；`GetSourcePreviewURL` 只有一行）；`INVALID_ARGUMENT`：`format_change`（`Reconvert` 换了输出格式，6.17.1）、`params_locked`（v0.24.1：旧输出不在了时 `Reconvert` 给了 `presetId` / `options`，6.17.1）；`UNSUPPORTED`：`format`（格式不可输出，或 `AddSources` 的扩展名不在输入列表）、`encoder`（所选编码在当前转换组件里没有编码器）；`NOT_FOUND`：`file`（原文件不在、自定义保存位置不在）、`component`（v0.25.1：`OpenStorageFolder("component")` 时转换组件没有就绪或文件不在，只有这一行）（只追加，不改名、不改含义、不删除） | 首行之后的行只有上面写明的 `needBytes` / `freeBytes` / `sourceId`，前端按 `^(needBytes|freeBytes)=([0-9]+)$`、`^sourceId=([0-9A-Z]+)$` 取；没有 reason 的复制错误（权限、其他读写失败）走该码的通用文案。`TASK_CONFLICT` 的这两个取值是“直播会话冲突以外的 `TASK_CONFLICT` 没有 `reason=` 行”的例外 |
 | 直播预览视频流（v0.25，6.10.3：`GetPreviewStream`、`live:pull` 的 `error`） | `reason=<值>` | `UNSUPPORTED`：`codec`（编码不能在应用内播放，第二行 `video=<编码名>` 或 `audio=<编码名>`）、`preview_unavailable`（这个会话没有预览视频流：转换组件缺 `tee` / `tcp`，或预览分支没连上 / 已断开）；`NOT_FOUND`：`session`（会话不存在或已结束）（只追加） | 首行之后只有 `codec` 的那一行 |
+| 文档转换的不可重试记录（v0.26，`TaskService.Retry` 遇到 retryable=否 的 `doc_convert` / `office_pdf` 失败记录） | `reason=<值>` | `UNSUPPORTED`：`not_retryable`（只追加） | 只有这一行；`DOC_*` 码的 `detail` 首行（`exit=` / `msiexec=` 等）前端不解析，见 6.12.20 |
 | 其余所有码（含 `LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`INTERNAL`） | 无固定格式 | — | 前端**不得**解析（上面几行列出的码 / 场景除外） |
 
 统一规则：第一行只有一个 `key=value`，值只含小写字母、数字、下划线（`scheme` 例外；`kind` 的取值是 `window` / `screen`，取值就是上面三个小写单词）；前端用 `^(reason|scheme|kind)=([a-z0-9_]+)$` 匹配 `detail` 的第一行；**没有第一行、格式不对、或值不认识，一律走该错误码的通用文案**，不得猜测含义、不得报错崩溃。测试必须逐码断言第一行精确等于期望值（不是包含）。
@@ -232,7 +240,8 @@ type MediaInfo struct {
     // probedAt, error?(批量探测时该文件的错误)
 }
 
-type TaskType string // convert | edit_export | office_pdf | live_file_push | live_screen_push | ffmpeg_install
+type TaskType string // convert | edit_export | office_pdf | live_file_push | live_screen_push | ffmpeg_install | doc_convert
+                     // doc_convert（v0.26，6.12.21）：文档页的转换；office_pdf 自 v0.26 起只用于旧记录和组件未就绪时的简易转换
                      // edit_export：v0.23.5 剪辑移除后不再产生；旧记录照常列出（任务中心显示为“旧版导出”，v0.25.3）、只能查看和删除，Retry / Reconvert 一律 UNSUPPORTED（reason=feature_removed，message 不含“剪辑”），不是下面的“旧类型”
                      // 保留但不再产生：live_relay、live_record_push（v0.10 取消）、edit_render（v0.11 起改名 edit_export）。不能提交，任务中心不展示，库里的旧记录按未知类型忽略、不报错
 type TaskStatus string // queued | running | succeeded | failed | canceled | interrupted
@@ -269,6 +278,7 @@ type Task struct {
     HiddenInTaskCenter bool        `json:"hiddenInTaskCenter"` // 始终输出；true = 任务中心已隐藏（“隐藏已结束”），转换页照常显示；原地重试时清回 false
     Reconverting       bool            `json:"reconverting"`                 // v0.24：始终输出；true = 正在原地重转（6.17）
     LastReconvertError *ReconvertError `json:"lastReconvertError,omitempty"` // v0.24：最近一次重转失败的信息（6.17.2）
+    QueuePosition      *int        `json:"queuePosition,omitempty"` // v0.26：只有文档组件池里 queued 的 doc_convert 任务有，前面还有几项（0 起），只在内存（6.12.18）
     Result             *TaskResult `json:"result,omitempty"`   // 只有成功的 convert 任务有：完成时探测输出得到 {sizeBytes, durationSec, width, height, audioBitrateKbps, warnings}，见 6.14.2（warnings 是 v0.24，6.14.6）
 }
 
@@ -372,6 +382,19 @@ ListRecentPDFs(limit int) ([]PDFFile, error)                        // 默认 20
 RemoveRecentPDFs(ids []string) error                                // 一次最多 500 个；只删记录、不删文件；同时撤销句柄和 /local/<token>
 ```
 `GetPDFURL(path) string` 在 v0.12 删除（未实现过，无迁移）。
+
+v0.26 新增（文档多格式转换，详见 6.12.9~6.12.22；`ConvertToPDF` / `GetDocCapabilities` 保留给旧前端，新文档页不用）：
+```go
+GetFormatMatrix() (DocFormatMatrix, error)                      // 后端给的格式表：每个源格式能转成什么、要不要组件、是否简易转换、提示
+GetDocComponentStatus() (DocComponentStatus, error)              // 文档组件状态（没有路径）
+InstallDocComponent(mirror string) (DocComponentStatus, error)   // 下载 + 准备（"" | "cn"），幂等、断点续传；Linux UNSUPPORTED_PLATFORM
+CancelDocComponentInstall() error
+RecheckDocComponent() (DocComponentStatus, error)
+AddDocSources(paths []string) ([]AddDocSourceResult, error)      // 带 sheetCount；被拒原因见 6.12.20
+ListDocSources(filter ConvertSourceFilter) (DocSourcePage, error)
+SearchDocSources(filter ConvertSearchFilter) (DocSourcePage, error)
+SubmitDocConvert(req DocSubmitRequest) (ConvertSubmitResult, error) // 一个源一个 doc_convert（或简易转换的 office_pdf）任务
+```
 
 ### JsonService（纯函数，不落库）
 ```go
@@ -593,6 +616,9 @@ OpenWithSystem(taskID string, which string) error               // which = "inpu
 | `ffmpeg:status` | `FFmpegStatus`（见第 9 节） | 检测完成、安装状态变化时 |
 | `live:pull` | `{ id, state, error?, hasVideo?, hasAudio? }`（v0.25，6.10.3.7：拉流预览会话的状态：`playing`（只发一次）/ `ended` / `interrupted` / `failed` / `unsupported`；`error` 是 AppError，地址已脱敏；v0.25.3：`playing` 一定带 `hasVideo` / `hasAudio`，其他状态不带；`interrupted` 带 `LIVE_PUSH_INTERRUPTED`，detail 第一行 `reason=pull`） | 状态变化时 |
 | `convert:copy` | `{ sourceId, seq, copyState, copiedBytes, totalBytes, storedPath, error? }`（v0.24，6.15.4 第 5 条） | 开始、复制中每个副本最多 4 次/秒、结束时 |
+| `doc:component` | `DocComponentStatus`（v0.26，6.12.13，没有路径） | 文档组件状态变化时 |
+| `doc:component-progress` | `{ phase, receivedBytes, totalBytes, progress? }`（v0.26，preparing 不带 progress，6.12.15） | 下载中最多 4 次/秒 |
+| `doc:queue` | `{ items: [{ id, queuePosition }] }`（v0.26，6.12.18） | 文档组件池队列变化时 |
 
 **直播指标（v0.10，取代 `live:stats`）**：直播任务的 `task:progress` 除 `speed`（如 `1.00x`，持续明显小于 1 说明编码跟不上）和 `outTimeSec`（已输出的媒体时长）外，还带 `fps`（当前输出帧率）、`bitrateKbps`（**只有没有本地存档的会话才有**：**近 5 秒**平均输出码率，由 ffmpeg `total_size` 和 `out_time` 的增量算出，不用 ffmpeg 自带的 `bitrate=`，那是从开始到现在的累计平均）、`droppedFrames`（ffmpeg 累计丢帧，不是网络丢包）；**有存档的会话没有 `bitrateKbps`（架构师定）**（7.1.5 实测：tee 下 `-progress` 的 `total_size` 和 `bitrate` 恒为 `N/A`，没有可用来源；**不轮询存档文件大小来补**——文件大小含音视频分片和 moov 开销、且不是网络那一路的码率，补出来的数是误导），该字段一律省略，前端显示"—"；`fps` / `droppedFrames` / `speed` / `out_time_us` 在 tee 下正常；`progress` 恒为 -1，`etaSec` 为 0。没有单独的 `uptimeSec`：已推时长 = 现在 − `Task.startedAt`（墙钟），`outTimeSec` 是媒体时间，两者差距变大说明卡顿。这几项同时写进 `Task`（`fps` / `bitrateKbps` / `droppedFrames`，只在内存），页面刷新后 `ListActive` 能立刻显示当前值。
 
@@ -615,6 +641,7 @@ tasks(id PK, type, status, title, input_paths JSON, output_path, params JSON, pr
       encoder, encoder_device, hw_fallback, hw_fallback_reason,   -- 这四列：迁移 0004（v0.18），见 9.7；旧行为空 / 0
       source_id, hidden_in_task_center, result JSON, output_name_key) -- 这四列：迁移 0005（v0.23），见 6.14.8；旧行 NULL / 0 / NULL / ''（回填后有 source_id 和 output_name_key）
 convert_sources(id PK, path, path_key UNIQUE, name, name_key, added_at, last_activity_at,  -- 迁移 0005（v0.23），见 6.14.8
+      kind, sheet_count,                                                      -- 迁移 0009（v0.26），见 6.12.21；kind = media | doc，旧行 media / 0
       media JSON, media_fp,                                                   -- 迁移 0006（v0.23.4），见 6.14.8；旧行 NULL / ''，懒探测补上
       copy_id)                                                                -- 迁移 0007（v0.24），见 6.15.3；NULL = 没有副本
 convert_copies(id PK, owner_source_id, original_path, original_path_key, original_size, original_mtime_ns, stored_path,
@@ -1206,7 +1233,9 @@ type PreviewURL struct {
 | 3 | WebView2 收到被截短到 4 MiB 的 `206` 之后是否继续请求后续 Range（Range 续传） | 6.11.4 第 4 点、6.13 第 9 点 | 预览包里播放 > 32 MiB 的视频并拖动进度 | **验证不通过时的回退方案（首版不实现）**：走 `edit_proxy`，见 6.11.4 第 4 点 |
 | 4 | `HEAD` 请求在 WebView2 里的实际表现，`token` 失效 404 后前端重新 `GetPreviewURL` 的流程 | 6.13 | 预览包里让 token 失效（删除素材后）再播放 | 前端改为直接重新 `GetPreviewURL` 不探测 |
 
-## 6.12 DocService 契约（v0.12，只有契约，架构师冻结前不实现）
+## 6.12 DocService 契约（v0.12，只有契约，架构师冻结前不实现；v0.26 扩展为文档多格式转换，见 6.12.9）
+
+> **v0.26**：6.12.1~6.12.8 现在只描述**简易转换**（组件未就绪时 docx / odt / txt → PDF，纯 Go 取文字）和 PDF 预览；“不用 LibreOffice”“odt / rtf / csv / txt 不支持”等说法只对简易转换成立。文档多格式转换见 **6.12.9~6.12.22**，冲突时以后者为准。
 
 依据：v1 `master` 上 `backend/contollers/office_controller.go`、`pdf_controller.go`、`frontend/src/views/OfficeConvert.vue`、`PDFPreview.vue`。v1 真实功能：Office → PDF（**纯 Go**，`archive/zip` + `encoding/xml` + `excelize` + `go-pdf/fpdf`，不用 LibreOffice）、PDF 上传 / 列表 / 删除、PDF 预览（前端 `@tato30/vue-pdf`：缩放、翻页、缩略图侧栏、历史列表）。v1 **没有** PDF 合并 / 拆分 / 旋转 / 提取 / 加水印 / 文本提取 / OCR，v2 首版同样不做。
 
@@ -1458,6 +1487,268 @@ AppError（句柄失效）：
 | 3 | 64 MiB 整份读入阈值（峰值内存约文件大小 × 2）是估计值 | 6.12.4 第 5 点 | 真机打开 60 MiB 左右的 PDF，看内存和耗时 | 调整阈值（契约变更） |
 | 4 | Windows 上 `outputDir` 拒绝 `\\?\` / `\\.\` 与数据目录内路径的判断；输出的 `.part` 原子改名（`os.Link` 失败回退到不带 `REPLACE_EXISTING` 的 `MoveFileEx`，同 6.11.3） | 6.12.3、6.12.6 | Windows 上把输出目录设到 U 盘（FAT/exFAT）、网络盘、数据目录内 | 保持 `os.Rename`，接受残余竞态并记录 |
 | 5 | **联调项**：`ReadPDFChunk` 的 `data`（Go 字段 `string`，后端 base64 编码）在真实 Wails 运行时经前端 `atob` 解码后字节正确（**未验证**，没有在真实 Wails 环境跑过） | 6.12.4 第 2 点 | 在 Wails 开发模式下打开一份 PDF，核对拼出的字节以 `%PDF-` 开头即可 | 不符则回来改契约（例如 `models.ts` 的类型与预期不一致） |
+
+## 6.12.9 文档多格式转换（v0.26，一期；架构师定，范围由老板和产品经理定）
+
+> **v0.26 扩展 6.12**：6.12.1~6.12.8 保留，含义收窄为“**简易转换**（纯 Go 取文字转 PDF）+ PDF 预览”；本节（6.12.9~6.12.22）是新的文档多格式转换。两边冲突时以本节为准。**只有契约，前后端按本版并行实现。**
+
+### 6.12.10 范围
+
+| 类别（`family`） | 格式（源和目标都在这个列表里） | 同类互转 | 转 PDF |
+|---|---|---|---|
+| 文字 `text` | `doc` `docx` `odt` `rtf` `txt` `html`（含 `.htm`，输出一律 `.html`） `md`（含 `.markdown`，输出一律 `.md`） | 任意两种之间（不转成自己） | 都可以 |
+| 表格 `sheet` | `xls` `xlsx` `ods` `csv` | 任意两种之间 | 都可以 |
+| 演示 `slide` | `ppt` `pptx` `odp` | 任意两种之间 | 都可以 |
+
+- **跨类不转**（如 docx → xlsx、csv → txt 都没有）。`pdf` 只作输出；**PDF 作为输入一期不支持**（添加时拒绝，`DOC_PDF_INPUT_UNSUPPORTED`，6.12.20）。
+- **多工作表转 CSV 只输出第一个工作表**，格式表给一行提示（`hintKey=csv_first_sheet`），添加文件时给出 `sheetCount`（6.12.16）。
+- **二期（只列为后续，本版不做、不留接口）**：PDF 按页转图片、PDF 转 Word、epub（读和写）。
+- 输入大小上限沿用 6.12.2 `maxInputBytes`（100 MiB），一次最多添加 / 提交 50 个。
+
+### 6.12.11 实现方式
+
+- **文档组件 = LibreOffice，以 headless 方式运行**（`soffice --headless --convert-to`）。**界面上只叫「文档组件」**，`message`、任务标题、格式表、状态文字都不出现 `LibreOffice` / `soffice` / `ffmpeg`（1.1 扩展到文档组件）。**唯一例外**：Linux 上文档组件未就绪时的提示 `请先在系统里安装 LibreOffice，然后重启应用。`（`DOC_COMPONENT_NOT_READY` 在 Linux 上的 `message`，以及 Linux `missing` 状态的 `error.message`）。代码标识符、日志、只给开发者看的 `detail` 不受限。`TestUserFacingMessageIsChinese` 增加断言：除这一句外后端 message 字面量不含 `LibreOffice`（不区分大小写）。
+- **Markdown（纯 Go，不需要 cgo，三平台照常交叉编译）**：
+  - md → html：`github.com/yuin/goldmark`，开 GFM 扩展（表格、删除线、自动链接、任务列表），**不开** `html.WithUnsafe`（md 里的原始 HTML 被丢弃，防止脚本）。输出完整的 HTML 文档：`<!DOCTYPE html><html><head><meta charset="utf-8"><title>文件名</title></head><body>…</body></html>`。
+  - html → md：`github.com/JohannesKaufmann/html-to-markdown/v2`（加表格插件），输出 UTF-8、`\n` 换行、无 BOM。`<script>` / `<style>` 内容丢弃。
+  - **md → 其他格式**（docx / doc / odt / rtf / txt / pdf）：先按上面转成临时 HTML，再交给文档组件（输入过滤器 `HTML (StarWriter)`）。
+  - **其他格式 → md**（doc / docx / odt / rtf / txt）：先由文档组件转成临时 HTML（`html:XHTML Writer File:UTF8`），再用 html-to-markdown 转 md；组件导出的图片文件丢弃（md 只保留文字和基本格式，格式表提示 `md_lossy`）。
+  - **md 里的图片**：本地相对路径按 **md 文件所在目录**解析（转换页添加时会复制副本，6.15；解析时用**原文件**所在目录 `originalPath`，原文件已不在时用副本目录），绝对路径原样；解析后转成 `file:///` 绝对 URL 写进临时 HTML，文件不存在的图片换成它的 alt 文字。**网络图片（`http:` / `https:` / `//` 开头）不下载**：在交给组件之前替换成 alt 文字（没有 alt 时去掉），组件不会发出网络请求。md → html 时网络图片的 `<img src>` 原样保留（只是文本，不下载）。
+- **其余转换**全部交给文档组件，每个任务一条命令（参数原文）：
+  ```
+  soffice --headless --invisible --norestore --nologo --nodefault --nolockcheck --nofirststartwizard
+          -env:UserInstallation=file:///<临时配置目录> [--infilter=<输入过滤器>]
+          --convert-to <目标> --outdir <临时输出目录> <输入文件>
+  ```
+  Windows 用 `program\soffice.com`（控制台版，等待转换结束并有退出码），macOS `LibreOffice.app/Contents/MacOS/soffice`，Linux `soffice`。子进程一律经 `proc.Start`（Windows Job Object、隐藏窗口；其他平台进程组），见 6.6 v0.9.2。
+- **目标参数**（`--convert-to` 的值）：
+
+  | 目标 | 文字类 | 表格类 | 演示类 |
+  |---|---|---|---|
+  | pdf | `pdf:writer_pdf_Export` | `pdf:calc_pdf_Export` | `pdf:impress_pdf_Export` |
+  | docx / doc / odt / rtf | `docx:"MS Word 2007 XML"` / `doc:"MS Word 97"` / `odt:writer8` / `rtf:"Rich Text Format"` | — | — |
+  | txt | `txt:"Text (encoded)":UTF8` | — | — |
+  | html | `html:"XHTML Writer File":UTF8` | — | — |
+  | xlsx / xls / ods | — | `xlsx:"Calc MS Excel 2007 XML"` / `xls:"MS Excel 97"` / `ods:calc8` | — |
+  | csv | — | `csv:"Text - txt - csv (StarCalc)":44,34,76,1,,0,false,true,false,false,false,1`（逗号、双引号、UTF-8、第 12 项 `1` = 只导出第一个工作表） | — |
+  | pptx / ppt / odp | — | — | `pptx:"Impress MS PowerPoint 2007 XML"` / `ppt:"MS PowerPoint 97"` / `odp:impress8` |
+
+  输入过滤器：`txt` 用 `--infilter="Text (encoded):UTF8"`；`html` 和 md 生成的临时 HTML 用 `--infilter="HTML (StarWriter)"`（在 Writer 里打开，不进 Writer/Web）；`csv` 用 `--infilter="CSV:44,34,76,1"`（先按 6.12.17 转成 UTF-8）；其余由组件按内容识别。`txt` / `md` 输入同样先按 6.12.17 的编码规则转成 UTF-8（与 CSV 同一个函数）。
+- **输出落盘**：组件写进本任务的临时输出目录，后端找到唯一的目标文件（找不到 = `DOC_COMPONENT_CRASHED`，6.12.20），再按 6.6 `RunWithPart` 的方式移到最终位置；最终名在提交时定名并占位，重名用转换页的格式 `a (1).docx`（6.14.5）。临时配置目录、临时输出目录在任务结束（任何终态）时删除。
+- **最低版本**：系统安装的文档组件主版本需 **≥ 7.2**（CSV 导出选工作表的第 12 项从 7.2 起有）；新版本号 `26.2` 这类按数值比较，大于 7。
+
+### 6.12.12 文档组件的检测、下载与安装
+
+**固定版本：LibreOffice 26.2.6**（构建号 26.2.6.3，TDF 2026 年 10 月在 `stable/` 下的较成熟分支；26.8.x 是更新的分支，一期不用）。下面的大小和 SHA-256 **在箱子上实际下载核对过**（与官方 `.sha256` 文件一致，2026-10-09）：
+
+| 平台 | 主地址 | 大小（字节） | SHA-256 |
+|---|---|---|---|
+| windows-amd64（MSI） | `https://download.documentfoundation.org/libreoffice/stable/26.2.6/win/x86_64/LibreOffice_26.2.6_Win_x86-64.msi` | 373 252 096 | `f9877032fd908beb9c0ddf06df4af5c2e85f419c42e14876c4cce5aae5fb2660` |
+| darwin-amd64（dmg） | `https://download.documentfoundation.org/libreoffice/stable/26.2.6/mac/x86_64/LibreOffice_26.2.6_MacOS_x86-64.dmg` | 308 308 875 | `135b8a95b8133396d54bf8e726dbc0066145efa0d785963fc3d4592acbfcfe5b` |
+| darwin-arm64（dmg） | `https://download.documentfoundation.org/libreoffice/stable/26.2.6/mac/aarch64/LibreOffice_26.2.6_MacOS_aarch64.dmg` | 297 798 926 | `94bb3248df074c225490a8a6d1d9dc87c7d6783dbb7a8e9f0d0c3d94348552af` |
+| linux | 不下载，只检测 | — | — |
+
+- **备用地址（按顺序尝试，同一个文件、同一个 SHA-256，已核对）**：① 官方归档（永久保留，`stable/` 换版本后主地址会失效）：`https://downloadarchive.documentfoundation.org/libreoffice/old/26.2.6.3/win/x86_64/LibreOffice_26.2.6.3_Win_x86-64.msi`、`…/26.2.6.3/mac/x86_64/LibreOffice_26.2.6.3_MacOS_x86-64.dmg`、`…/26.2.6.3/mac/aarch64/LibreOffice_26.2.6.3_MacOS_aarch64.dmg`；② 国内镜像 `cn`（只核对了 Windows 包，大小一致）：`https://mirrors.ustc.edu.cn/tdf/libreoffice/stable/26.2.6/<同主地址的路径>`。主地址是 TDF 的重定向器，会 302 到就近镜像。清单写进 `internal/doccomp/manifest.json`（`go:embed`），字段同 9.3 的 ffmpeg 清单（URL 列表、大小、SHA-256、版本）；**不用 latest 地址**，以后换版本走契约变更。
+- **检测顺序**（启动时后台执行，不阻塞界面；文档页打开时如果还没检测过也触发）：① 应用下载的组件（`<组件目录>/doc/26.2.6/`，见下）；② 系统安装：Windows 读注册表 `HKLM\SOFTWARE\LibreOffice\UNO\InstallPath`（再看 `WOW6432Node`），再看 `%ProgramFiles%\LibreOffice\program\soffice.com`；macOS `/Applications/LibreOffice.app`、`~/Applications/LibreOffice.app`；Linux `PATH` 里的 `soffice` / `libreoffice`，再看 `/usr/lib/libreoffice/program/soffice`、`/usr/lib64/libreoffice/program/soffice`、`/opt/libreoffice*/program/soffice`（snap / flatpak 不支持）。**校验**：`soffice --headless --version`（60 秒超时，第一次运行慢）解析出版本号 ≥ 7.2，再用临时配置目录做一次 1 行 txt → pdf 的冒烟转换（120 秒超时），产出非空 PDF 才算通过。第一个通过的就是当前组件。应用下载的优先于系统安装（版本固定、已测过）。
+- **组件目录**：Windows `%LocalAppData%\FFmpegFree\components\`（**不放** `%AppData%`：解包后约 1.5 GiB，漫游配置不适合），macOS `~/Library/Application Support/FFmpegFree/components/`。不改系统 PATH、不写注册表、不出现在系统的“已安装程序”里。
+- **下载**（`InstallDocComponent`，不是任务，不进任务中心，进度走事件 6.12.15）：
+  1. 下载前检查组件目录所在磁盘的剩余空间：需要 `包大小 + 2 GiB`，不够返回 `CONVERT_DISK_FULL`（`reason=no_space` + `needBytes` / `freeBytes`，沿用 2.2），不开始下载。
+  2. 写 `<组件目录>/tmp/doc-26.2.6-<sha 前 12 位>.part`，**支持断点续传**（HTTP `Range`；服务器不支持 Range 时从头下；断线自动重试 3 次再换下一个地址）。取消、失败都**保留** `.part`，下次 `InstallDocComponent` 接着下。
+  3. 下完校验 SHA-256：**不通过就删掉 `.part`、`receivedBytes` 和进度归 0，从头重下一次**（换下一个地址）；仍不通过则失败，`DOC_CHECKSUM_FAILED`。
+  4. **preparing（准备）阶段**：
+     - **Windows**：`msiexec /a "<msi>" /qn TARGETDIR="<组件目录>\doc\26.2.6.staging" /L*v "<组件目录>\tmp\doc-msi.log"`。管理员解包（administrative install）只是把文件解到目标目录，**不需要管理员权限、不弹 UAC**、不登记已安装程序。按 MSI 内的目录结构，`soffice.com` 预期在 `<TARGETDIR>\LibreOffice\program\`（箱子上用 msitools 看过包内结构：`LibreOffice/program/soffice.exe`、`soffice.com`、`soffice.bin` 都在；**管理员解包后的实际层级未在 Windows 真机验证**，实现在 TARGETDIR 下最多 4 层内找 `program\soffice.com`）。msiexec 退出码非 0 / 1641 / 3010 → `DOC_COMPONENT_INSTALL_FAILED`（`detail` 第一行 `msiexec=<退出码>`，后面是日志尾部，**不含路径**）。
+     - **macOS**：`hdiutil attach -nobrowse -readonly -noautoopen -mountpoint <临时挂载点> <dmg>`，`ditto <挂载点>/LibreOffice.app <组件目录>/doc/26.2.6.staging/LibreOffice.app`，`hdiutil detach <挂载点>`（失败加 `-force` 再试一次）；拷完 `xattr -dr com.apple.quarantine`（我们自己下载的文件通常没有这个属性，有就清）。【未验证】dmg 是否带需要同意的许可协议（带的话 `attach` 会卡住，需加 `-noverify` 并通过 stdin 应答，实现时实测）。
+     - 解包后执行上面的**检测校验**（版本 + 冒烟转换），通过后把 `.staging` 原子改名为 `doc/26.2.6/`（旧目录先改名再删，失败回滚），删掉 `.part` 和安装包，状态变 `ready`。**preparing 一直持续到检测通过**，界面显示 `正在准备文档组件…`，**不给百分比**（前端用不确定进度条）；所以不会出现“进度条到 100% 停住”。
+  5. **取消**（`CancelDocComponentInstall`）：下载中取消保留 `.part`；准备中取消会结束 msiexec / hdiutil 进程树、删 `.staging`，保留安装包（下次直接从准备开始）。取消后重新检测（有系统安装就是 `ready`，否则 `missing`）。
+  6. **重试**：失败（`failed`）或取消后再调 `InstallDocComponent` 即可，从断点继续。`InstallDocComponent` 幂等：已在下载或准备时直接返回当前状态，不开第二个。
+  7. Linux 调 `InstallDocComponent` 返回 `UNSUPPORTED_PLATFORM`（message `请先在系统里安装 LibreOffice，然后重启应用。`）。
+- 文档组件**不影响转换组件**：两者各自检测、各自下载，状态互不影响；转换页、直播不依赖文档组件，文档页不依赖转换组件（DocService 任何方法都不返回 `FFMPEG_NOT_FOUND`，9.5 不变）。
+
+### 6.12.13 数据结构
+
+```go
+type DocComponentStatus struct {
+    State         string    `json:"state"`         // checking | ready | missing | outdated | downloading | preparing | failed
+    Version       string    `json:"version"`       // 当前组件的版本号（系统安装和应用下载的都读，取 --version 输出里的数字版本如 "26.2.6.3"、"7.6.4.1"）；读不出或没有组件时为 ""
+    Source        string    `json:"source"`        // ready 时：system（系统安装）| downloaded（应用下载）；其他状态为 ""
+    CanDownload   bool      `json:"canDownload"`   // 当前平台有下载源（Windows x64、macOS x64 / arm64 为 true，Linux 为 false）
+    DownloadBytes int64     `json:"downloadBytes"` // 安装包大小（字节），没有下载源时为 0；界面“约 xxx MB”
+    Phase         string    `json:"phase,omitempty"`         // downloading | preparing，只在这两个状态时有（与 state 相同，方便前端直接用）
+    ReceivedBytes int64     `json:"receivedBytes,omitempty"` // downloading 时已下载字节（含续传前已有的部分）
+    Error         *AppError `json:"error,omitempty"`         // missing（Linux）/ outdated / failed 时有；detail 不含路径
+    Path          string    `json:"-"`                       // 当前组件可执行文件路径，只在后端用，**不给前端**（同 9.4 v0.25.4）
+}
+
+type DocFormatMatrix struct {
+    ComponentReady bool             `json:"componentReady"` // 生成这张表时文档组件是否 ready
+    Inputs         []string         `json:"inputs"`         // 可以添加的扩展名（不带点、小写）：doc docx odt rtf txt html htm md markdown xls xlsx ods csv ppt pptx odp
+    Sources        []DocSourceFormats `json:"sources"`      // 每个源格式一项（htm / markdown 与 html / md 共用一项，见 aliases）
+}
+type DocSourceFormats struct {
+    Ext     string      `json:"ext"`               // 源格式
+    Aliases []string    `json:"aliases,omitempty"` // html → ["htm"]，md → ["markdown"]
+    Family  string      `json:"family"`            // text | sheet | slide
+    Targets []DocTarget `json:"targets"`           // 能转成的目标，固定顺序：pdf 在最前，其余按 6.12.10 表里的顺序；不含自己
+}
+type DocTarget struct {
+    Ext            string `json:"ext"`            // pdf docx doc odt rtf txt html md xlsx xls ods csv pptx ppt odp
+    DisplayName    string `json:"displayName"`    // 如 "PDF"、"Word (DOCX)"、"Word 97-2003 (DOC)"、"Markdown (MD)"、"网页 (HTML)"
+    NeedsComponent bool   `json:"needsComponent"` // 这个转换要用文档组件（与组件当前状态无关；md↔html 为 false）
+    Simple         bool   `json:"simple"`         // true = 这次会走简易转换（只保留文字）：只在组件未就绪时、docx / odt / txt → pdf 上为 true
+    Available      bool   `json:"available"`      // 现在能选：!needsComponent || componentReady || simple
+    HintKey        string `json:"hintKey,omitempty"` // 选中这个目标时显示的一行提示：csv_first_sheet | md_lossy | simple_mode
+    Hint           string `json:"hint,omitempty"`    // 对应文案（见下表），前端可直接显示
+    DisabledReason string `json:"disabledReason,omitempty"` // available=false 时的悬停文字：`需要文档组件`
+}
+```
+
+**提示文案（`hintKey` → `hint`）**：
+
+| hintKey | 出现在 | 文案 |
+|---|---|---|
+| `csv_first_sheet` | xls / xlsx / ods → csv | `转成 CSV 只保留第一个工作表。`（前端在选中文件的 `sheetCount > 1` 或 `= -1` 且目标是 CSV 时显示，6.12.16） |
+| `md_lossy` | 任何格式 → md | `转成 Markdown 只保留文字和基本格式，图片和复杂表格会丢失。` |
+| `simple_mode` | 组件未就绪时 docx / odt / txt → pdf | `下载文档组件后可保留图片和排版` |
+
+**组件未就绪时的总提示**（文档页顶部，前端常量，后端不给）：`Word、ODT、TXT 可以简易转 PDF，md 和网页可以互转`。
+
+### 6.12.14 接口（DocService，v0.26 新增）
+
+```go
+// 格式表与组件
+GetFormatMatrix() (DocFormatMatrix, error)                 // 按当前组件状态生成；组件在 checking 时最多等 6 秒（同 6.16 v0.25.4），等不到按未就绪返回
+GetDocComponentStatus() (DocComponentStatus, error)
+InstallDocComponent(mirror string) (DocComponentStatus, error) // mirror 只接受 "" 和 "cn"；开始或继续下载 + 准备，立即返回（downloading / preparing）；幂等；Linux UNSUPPORTED_PLATFORM
+CancelDocComponentInstall() error                          // 没有在下载 / 准备时无操作
+RecheckDocComponent() (DocComponentStatus, error)          // 重新检测（用户自己装了系统版本后）；下载 / 准备中返回当前状态，不打断
+
+// 文档页的源文件行与提交（复用转换页的记录结构，6.12.16）
+AddDocSources(paths []string) ([]AddDocSourceResult, error)
+ListDocSources(filter ConvertSourceFilter) (DocSourcePage, error)
+SearchDocSources(filter ConvertSearchFilter) (DocSourcePage, error)
+SubmitDocConvert(req DocSubmitRequest) (ConvertSubmitResult, error) // 一个源一个任务；返回 {tasks, skipped}，规则同 SubmitSources
+```
+
+```go
+type AddDocSourceResult struct {   // 与入参一一对应
+    Path   string        `json:"path"`
+    Source *DocSource    `json:"source,omitempty"`
+    Error  *AppError     `json:"error,omitempty"`  // 被拒的原因，6.12.20：DOC_PDF_INPUT_UNSUPPORTED / DOC_FORMAT_UNSUPPORTED / DOC_ENCRYPTED / DOC_CORRUPT / NOT_FOUND / IO_ERROR / INVALID_ARGUMENT（> 100 MiB，reason=too_large）
+}
+type DocSource struct {
+    ConvertSource                        // 同 6.14.2 / 6.15.3（id、originalPath、storedPath、copyState…），media 恒为空
+    Ext        string `json:"ext"`        // 规范化后的源格式（htm → html，markdown → md）
+    Family     string `json:"family"`     // text | sheet | slide
+    SheetCount int    `json:"sheetCount"` // 只对表格类有意义：xlsx / ods / xls 实际读出的工作表数，csv 固定 1，读不出为 -1；其他类别为 0
+}
+type DocSourceEntry struct { Source DocSource `json:"source"`; Records []Task `json:"records"`; RecordCount int64 `json:"recordCount"` } // 同 ConvertSourceEntry
+type DocSourcePage struct { Items []DocSourceEntry `json:"items"`; Total int64 `json:"total"` }
+type DocSubmitRequest struct {
+    SourceIDs []string `json:"sourceIds"` // 1~50
+    Target    string   `json:"target"`    // 目标扩展名；必须对每个源都 available（多选取交集，前端保证，后端再校验）
+    OutputDir string   `json:"outputDir"` // 空 = defaultOutputDir，仍空 = <base>/output（同 6.12.3 / 6.15）
+}
+```
+
+- 按 id 操作的接口**直接复用 ConvertService / TaskService**，对文档页的行同样有效：`GetSource`、`ListSourceRecords`、`CheckSources`、`DeleteRecords`、`DeleteSource`、`CancelCopy`、`RetryCopy`、`RevealSource`、`RevealRecord`、`OpenSourceWithSystem`、`TaskService.Retry` / `CheckPaths` / `OpenWithSystem` / `GetLog`。`GetSourcePreviewURL` / `GetRecordThumbnail` / `GetSourceThumbnail` 对文档行返回 `UNSUPPORTED`（`reason=format`），前端不调。PDF 输出的预览用 6.12.4 的 `OpenPDF(outputPath)`。
+- `ConvertService.ListSources` / `SearchSources` 只返回 `kind='media'` 的行，`DocService.ListDocSources` / `SearchDocSources` 只返回 `kind='doc'` 的行（迁移 0009，6.12.21）。两页能添加的扩展名不重叠，同一路径不会同时属于两页。
+- **旧接口**：`ConvertToPDF`、`GetDocCapabilities` 保留（旧前端、旧记录），新文档页不再调用。
+
+### 6.12.15 事件（v0.26 新增）
+
+| 事件名 | payload | 频率 |
+|---|---|---|
+| `doc:component` | `DocComponentStatus`（完整，没有路径） | 状态变化时（检测完成、开始下载、进入准备、ready、failed、取消） |
+| `doc:component-progress` | `{ phase, receivedBytes, totalBytes, progress? }`：`phase=downloading` 时带 `progress`（0~1）；**`phase=preparing` 时不带 `progress`**（不确定进度）；SHA-256 不通过重下时发一条 `receivedBytes=0, progress=0` | 下载中最多 4 次/秒；进入 preparing 时 1 次 |
+| `doc:queue` | `{ items: [{ id, queuePosition }] }`：文档组件池里所有排队任务的当前位置（6.12.18） | 文档组件池的队列变化时（入队、出队、取消），节流 4 次/秒 |
+
+- 前端：`doc:component` 的 `state` 变为 `ready`（或从 `ready` 变为别的）时**重新调 `GetFormatMatrix`**；页面初始化先订阅事件再调 `GetDocComponentStatus`、`GetFormatMatrix`（同第 5 节的订阅顺序）。
+- 文档任务的进度和状态仍走 `task:created` / `task:progress` / `task:status`（第 5 节），事件顺序规则同 v0.25.1。
+
+### 6.12.16 添加文件
+
+- 只收 `DocFormatMatrix.inputs` 里的扩展名（不区分大小写）。`.pdf` → `DOC_PDF_INPUT_UNSUPPORTED`；其他扩展名（含没有扩展名）→ `DOC_FORMAT_UNSUPPORTED`。
+- 添加时同步做轻量检查（每个文件最多 5 秒，最多 4 个并发）：大小 ≤ 100 MiB；**加密检测**（6.12.19）命中 → `DOC_ENCRYPTED`，**不建行**；容器明显损坏（OOXML / ODF 不是 zip 或缺必需部件、OLE 头错、文件为空）→ `DOC_CORRUPT`，不建行。rtf / txt / html / md / csv 只检查非空和可读。
+- 通过后建 `convert_sources` 行（`kind='doc'`），后台复制副本（6.15，事件 `convert:copy`），转换只读副本。
+- **`sheetCount`**：xlsx 读 `xl/workbook.xml` 里 `<sheet>` 的个数；ods 读 `content.xml` 里 `<table:table>` 的个数（流式解析，不整份读入）；xls 数 Workbook 流里 BOUNDSHEET（0x0085）记录的个数；csv 固定 `1`；读不出（解析失败、超时）为 `-1`；文字、演示类为 `0`。持久化在行上，不重复读。
+- **转 CSV 的结果警告**：源 `sheetCount > 1`（或 `-1` 且组件实际只导出了第一个）时，成功任务的 `result.warnings` 带 `csv_first_sheet_only`（6.14.6 的 warnings 机制），前端可在记录上显示同一句提示。
+
+### 6.12.17 CSV、TXT、MD 的编码
+
+- **输出 CSV**：固定 **UTF-8（不带 BOM）+ 逗号分隔 + 双引号包裹**，第一行原样输出（见 6.12.11 的导出参数）。
+- **读入 CSV / TXT / MD**：内容是合法 UTF-8（开头有 BOM 也算，BOM 去掉）就按 UTF-8；否则按 **GB18030**（兼容 GBK / GB2312，`golang.org/x/text/encoding/simplifiedchinese`，纯 Go）解码，转成 UTF-8 写进临时文件再交给组件 / goldmark。**不提示用户**、没有设置项。判断看整份文件（≤ 100 MiB），不只看开头。
+- 读入 CSV 一期只认逗号分隔；分号、制表符分隔的文件会被当成一列（后续再说）。
+
+### 6.12.18 并发、排队与超时
+
+- **文档组件池**：只有**真正启动文档组件进程的 `doc_convert` 任务**进这个池，**并发上限固定 2**（不跟 `Settings.maxConcurrent` 走），FIFO 排队。它是**单独的池**，和转换页 / 安装用的 batch 池（转换组件）**互不占用名额**：转换页满了不影响文档页，反之亦然。
+- **不进池、不排队**：md ↔ html（纯 Go）和简易转换（纯 Go，`office_pdf`）提交后直接开始运行（各自一个 goroutine，不受 2 个名额限制，也不占 batch 池）。
+- **排队位置**：文档组件池里排队的任务带 **`queuePosition`**（前面还有几项，从 0 开始：0 = 下一个就轮到它）。`Task` 新增可选字段 `queuePosition int \`json:"queuePosition,omitempty"\``（只在内存，不落库；只有文档组件池里 `queued` 的任务有，Go 用指针以便 0 也输出）；`task:created`、排队中的 `task:status`、`Get` / `List` / `ListActive` 都带；位置变化时发 `doc:queue`（6.12.15）。界面显示 **`排队中 · 前面还有 n 项`**（n = `queuePosition`；n = 0 时前端可显示 `排队中 · 下一个`，文案由产品定）。
+- **每个任务独立的临时配置目录**：`<数据目录>/tmp/doc/<任务id>/profile`，以 `-env:UserInstallation=file:///<该目录，正斜杠，空格等按 URL 编码>` 传入（文档组件同一个配置目录只允许一个进程）。临时输出目录 `<数据目录>/tmp/doc/<任务id>/out`。任务结束删除整个 `<任务id>` 目录；启动时删除 `tmp/doc/` 下的残留。
+- **超时**：单个任务（从启动组件到退出）**5 分钟**；到时结束**整个进程树**（Windows 先终结 Job Object，失败 `taskkill /T /F`；其他平台杀进程组；`soffice` 会派生 `soffice.bin`，必须一起结束），任务 `failed`，`DOC_TIMEOUT`。取消同样结束进程树，状态 `canceled`。md 转其他格式、其他格式转 md 的两步算一个任务、共用 5 分钟。
+- **组件崩溃**：组件非零退出、被信号结束、正常退出但没有产出目标文件 → `DOC_COMPONENT_CRASHED`（`detail` 第一行 `exit=<退出码>`，后面是 stderr 尾部，不含路径）。组件能明确报告“打不开文件”的（stderr 含 `Error: source file could not be loaded`）→ `DOC_CORRUPT`。
+- 进度：文档组件不报进度，任务 `progress` 在开始时 0、完成时 1，中间不发 `task:progress`（前端用不确定进度条）；md ↔ html、简易转换同样。
+
+### 6.12.19 加密文件检测（后端自己做，不交给组件）
+
+转换前（添加时、提交时、运行前各检查一次；运行前那次防止文件被替换）按文件内容判断，命中直接返回 **`DOC_ENCRYPTED`**，**不启动组件**（组件遇到加密文件会等密码而卡住）：
+
+| 文件 | 判断方法 |
+|---|---|
+| docx / xlsx / pptx（OOXML） | 文件是 OLE 复合文档（头 `D0 CF 11 E0 A1 B1 1A E1`）且包含 `EncryptionInfo` 和 `EncryptedPackage` 两个流 |
+| odt / ods / odp（ODF） | zip 里 `META-INF/manifest.xml` 含 `<manifest:encryption-data` |
+| doc | OLE 里 `WordDocument` 流的 FIB：偏移 0x0A 的 16 位标志里 `fEncrypted`（0x0100）为 1 |
+| xls | OLE 里 `Workbook`（或 `Book`）流的全局子流中，BOF 之后出现 `FILEPASS`（0x002F）记录 |
+| ppt | OLE 里有 `EncryptedSummary` 流，或 `Current User` 流的 headerToken 是 `0xF3D1C4DF` |
+| rtf / txt / html / md / csv | 不检测（没有加密格式） |
+
+- OLE 解析用纯 Go 只读实现（如 `github.com/richardlehane/mscfb`），对越界做检查，损坏返回 `DOC_CORRUPT` 而不是 panic。
+- docx / xlsx / pptx 扩展名但是 OLE 且**没有**加密流（旧格式改了扩展名）：不算加密，交给组件按内容识别。
+
+### 6.12.20 错误码（v0.26 新增 10 个；2.1 由 18 个变为 28 个）
+
+| code | message（后端给，前端也按 code 映射成同样的话） | 可重试（retryable） | 出现在 | 说明 |
+|---|---|---|---|---|
+| `DOC_ENCRYPTED` | `这个文件有密码保护，不能转换。请先去掉密码再添加。` | **否** | 添加、提交、任务 | 6.12.19；界面不给“重试”，只能移出 |
+| `DOC_CORRUPT` | `文件打不开，可能已损坏或不是有效的文档。` | **否**（只能移出） | 添加、任务 | 容器损坏、组件报告无法加载 |
+| `DOC_TIMEOUT` | `文件处理太久没完成，可能已损坏，请检查后重试。` | 是 | 任务 | 5 分钟超时，已结束进程树 |
+| `DOC_COMPONENT_CRASHED` | `文档组件意外退出，请重试。` | 是 | 任务 | `detail` 第一行 `exit=<码>` |
+| `DOC_COMPONENT_NOT_READY` | `需要先下载文档组件。`；**Linux：`请先在系统里安装 LibreOffice，然后重启应用。`** | 是（组件就绪后） | 提交、任务开始时 | 提交了需要组件的转换而组件不是 `ready`（前端已置灰，这是后端兜底） |
+| `DOC_DOWNLOAD_FAILED` | `文档组件下载失败，请检查网络后重试。` | 是 | `DocComponentStatus.error` | 所有地址都失败；保留 `.part` |
+| `DOC_CHECKSUM_FAILED` | `下载的文档组件校验失败，请重试。` | 是 | `DocComponentStatus.error` | 重下一次仍不通过 |
+| `DOC_COMPONENT_INSTALL_FAILED` | `文档组件准备失败，请重试。` | 是 | `DocComponentStatus.error` | msiexec / hdiutil 失败或解包后检测不通过；`detail` 第一行 `msiexec=<码>` / `hdiutil=<码>` / `check=<原因>` |
+| `DOC_FORMAT_UNSUPPORTED` | `不支持这种文件。`（添加时）/ `不支持转成这个格式。`（提交时目标不在格式表里） | 否 | 添加、提交 | |
+| `DOC_PDF_INPUT_UNSUPPORTED` | `PDF 暂时不能转成其他格式。` | 否 | 添加 | 与通用“格式不支持”分开 |
+
+- `detail` 第一行的 `exit=` / `msiexec=` / `hdiutil=` / `check=` 只给开发者看，前端**不解析**（不属于 2.2 的 `reason|scheme|kind`）。
+
+- **沿用的码**：磁盘满 `CONVERT_DISK_FULL`（输出写满，或下载前空间不够 `reason=no_space`）；读写失败 `IO_ERROR`；源 / 记录不在 `NOT_FOUND`（`reason=record|file`）；超过 100 MiB `INVALID_ARGUMENT`（`reason=too_large`）；Linux 调下载 `UNSUPPORTED_PLATFORM`；未知错误 `INTERNAL`。
+- **重试规则**：retryable=否 的失败记录，`TaskService.Retry` 返回 `UNSUPPORTED`（message `这个文件不能重试，请移出后重新添加。`，`detail` 第一行 `reason=not_retryable`），前端不显示重试按钮；其余按 6.6 原地重试。
+- **界面永远不显示错误码和 `reason=` 等枚举**（1.1 v0.25.3）；前端按 code 映射上表文案，映射不到的显示 `出了点问题，请重试。`。`detail` 不含任何路径（组件路径、临时目录）；`message` 不含 `ffmpeg`，除 Linux 那一句外不含 `LibreOffice`。
+
+### 6.12.21 任务类型、记录与迁移
+
+- **新任务类型 `doc_convert`**：文档页的所有转换（组件转换、md ↔ html）都是它。`title` 形如 `报告.docx → PDF`；`inputPaths=[副本路径]`；`params={sourceId, input, target, outputDir, engine}`（`engine` = `component` | `go`，提交时按格式表决定）；`params` 里另有 `paramsSummary`（如 `Word → PDF`、`Markdown → 网页`），`presetId` / `presetName` 为 `""`。没有编码器字段。
+- **`office_pdf` 只用于旧记录和简易转换**：组件未就绪时 docx / odt / txt → PDF 提交成 `office_pdf` 任务（带 `sourceId`，出现在文档页的记录里），走 6.12.1 的纯 Go 取文字路径；**v0.26 起 `office_pdf` 的输入扩展名加 `odt`、`txt`**（odt 读 `content.xml` 的段落文字；txt 按 6.12.17 解码后逐行），其余规则（5000 页、字体、折行）不变。组件未就绪时 doc / rtf → PDF 置灰（纯 Go 读不了）。
+- **记录结构、事件、重试、重转全部沿用转换页**（6.14 / 6.15 / 6.17）：`Retry`（失败 / 中断 / 已取消，原地，6.6，`doc_convert` 和 `office_pdf` 都注册 Factory；retryable=否 的除外）；`ConvertService.Reconvert` 接受 `doc_convert` 和带 `sourceId` 的 `office_pdf` 记录（只用于 `succeeded`，同目标格式，不接受 `presetId` / `options`，给了返回 `INVALID_ARGUMENT` `reason=params_locked`；原地替换规则同 6.17）。**组件状态变化不改写旧记录**：简易转换的记录重转仍是简易转换，要保留排版需要新转一条。
+- 输出名：`<源文件名去扩展名>.<目标扩展名>`，提交时定名并占位，重名 `a (1).pdf`（6.14.5 转换页格式）。
+- **迁移 `0009_doc_convert.sql`**（顺延现有最大号 0008）：
+  ```sql
+  ALTER TABLE convert_sources ADD COLUMN kind TEXT NOT NULL DEFAULT 'media';   -- media（转换页）| doc（文档页）
+  ALTER TABLE convert_sources ADD COLUMN sheet_count INTEGER NOT NULL DEFAULT 0; -- DocSource.sheetCount
+  CREATE INDEX idx_convert_sources_kind_activity ON convert_sources(kind, last_activity_at);
+  ```
+  旧行都是 `media`。`tasks.type` 没有约束，`doc_convert` 不需要迁移。
+
+### 6.12.22 未验证与开放问题
+
+| # | 项目 | 说明 |
+|---|---|---|
+| 1 | Windows `msiexec /a` 不弹 UAC、解包后的目录层级、解包耗时 | 只看了 MSI 包内结构（msitools），未在 Windows 真机跑；解包后文件总量约 1.5 GiB（按 MSI File 表统计） |
+| 2 | macOS dmg 挂载是否需要同意许可协议、拷出的 .app 能否直接 headless 运行（Gatekeeper） | 未在 macOS 真机验证 |
+| 3 | 5 分钟超时和并发 2 是否合适 | 按大文件实测再调，属契约变更 |
+| 4 | html 输入里的网络图片 | 一期 html 原样交给组件（组件可能去取网络图片）；md 的网络图片已在交给组件前去掉 |
+| 5 | 读入 CSV 只认逗号 | 分号 / 制表符分隔后续再定 |
 
 ## 6.13 本地资源访问 `/local/<token>`（中立章节，DocService 与转换记录共用；由 #22 引入，#23 引用，v0.23 加 `convert` 表；v0.23.5 删除 `edit` 表）
 
