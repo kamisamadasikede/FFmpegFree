@@ -117,7 +117,7 @@ func expandXDG(v, home string) string {
 }
 
 // caseInsensitiveFS 表示当前平台默认文件系统大小写不敏感。
-var caseInsensitiveFS = runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+var caseInsensitiveFS = CaseInsensitiveGOOS(runtime.GOOS)
 
 // Normalize 把路径转成干净的绝对路径，返回用于显示的 path 和用于唯一约束的 key。
 // Windows 和 macOS 上 key 转小写，避免同一个文件因大小写不同被记录两次。
@@ -136,3 +136,19 @@ func Normalize(p string) (path string, key string, err error) {
 	}
 	return abs, key, nil
 }
+
+// CaseInsensitiveGOOS 表示该平台默认文件系统大小写不敏感（windows、darwin），与 Normalize 的 key 口径一致。
+func CaseInsensitiveGOOS(goos string) bool { return goos == "windows" || goos == "darwin" }
+
+// KeyFor 按 goos 的口径给一个已是绝对路径的 p 算唯一约束 key（Clean；windows / darwin 转小写，其他原样）。
+// 与 Normalize 返回的 key 同一规则，只是不做 Abs、平台可指定（给需要跨平台测试或重算 key 的调用方用）。
+func KeyFor(goos, p string) string {
+	k := filepath.Clean(p)
+	if CaseInsensitiveGOOS(goos) {
+		k = strings.ToLower(k)
+	}
+	return k
+}
+
+// Key 是当前平台的 KeyFor。
+func Key(p string) string { return KeyFor(runtime.GOOS, p) }

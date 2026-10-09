@@ -74,3 +74,19 @@ func TestParseUserDirs(t *testing.T) {
 		t.Fatalf("等于 $HOME 表示禁用，应返回空: %s", got)
 	}
 }
+
+func TestKeyForCaseRules(t *testing.T) {
+	if got := KeyFor("windows", `C:\Users\Foo\Proj`); got != `c:\users\foo\proj` {
+		t.Fatalf("windows 应转小写: %q", got)
+	}
+	if got := KeyFor("darwin", "/Users/Foo/Proj/"); got != "/users/foo/proj" {
+		t.Fatalf("darwin 应转小写并 Clean: %q", got)
+	}
+	if got := KeyFor("linux", "/home/Foo/Proj/"); got != "/home/Foo/Proj" {
+		t.Fatalf("linux 区分大小写: %q", got)
+	}
+	abs, key, err := Normalize("/tmp/Some/Dir")
+	if err != nil || key != Key(abs) {
+		t.Fatalf("Key 应与 Normalize 的 key 一致: %q %q %v", key, Key(abs), err)
+	}
+}

@@ -31,6 +31,8 @@ type Config struct {
 	StatTimeout time.Duration
 	// OpenFolder 在系统文件管理器里打开文件夹本身（v0.31.1 RevealCatProject）；app 里接 system.Manager.OpenFolder，测试注入。
 	OpenFolder func(dir string) error
+	// PathKey 是项目去重比较键；nil = paths.Key（Windows / macOS 小写，Linux 区分大小写）。测试注入其他平台口径。
+	PathKey func(p string) string
 }
 
 // Service 是 CatService。
@@ -44,6 +46,8 @@ type Service struct {
 	statTimeout time.Duration
 	projMu      sync.Mutex
 	projMissing map[string]bool // 项目 id → 上一次计算的 missing（6.19.10.3）
+	rekeyMu     sync.Mutex
+	rekeyed     bool // ensureProjectKeys 已成功跑过
 }
 
 // turnState 是一轮进行中的回复。终态事件只发一次；终态后丢弃迟到增量。

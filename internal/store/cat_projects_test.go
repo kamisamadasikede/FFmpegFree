@@ -158,3 +158,22 @@ func TestCatProjectRelocateStore(t *testing.T) {
 	}
 	_ = b
 }
+
+func TestSetCatProjectPathKey(t *testing.T) {
+	ctx := context.Background()
+	st, _ := openCatTestStore(t)
+	a, _, _ := st.InsertOrGetCatProject(ctx, CatProjectRow{Name: "A", Path: "/A", PathKey: "/A"})
+	_, _, _ = st.InsertOrGetCatProject(ctx, CatProjectRow{Name: "b", Path: "/b", PathKey: "/b"})
+	if err := st.SetCatProjectPathKey(ctx, a.ID, "/b"); !errors.Is(err, ErrCatProjectDuplicate) {
+		t.Fatal(err)
+	}
+	if err := st.SetCatProjectPathKey(ctx, "nope", "/x"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatal(err)
+	}
+	if err := st.SetCatProjectPathKey(ctx, a.ID, "/a"); err != nil {
+		t.Fatal(err)
+	}
+	if g, _ := st.GetCatProject(ctx, a.ID); g.PathKey != "/a" || g.Path != "/A" || g.UpdatedAt != a.UpdatedAt {
+		t.Fatalf("%+v", g)
+	}
+}
