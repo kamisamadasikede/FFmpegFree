@@ -516,3 +516,78 @@ func readOutText(t *testing.T, p, ext string) string {
 func jsonUnmarshal(s string, v any) error { return json.Unmarshal([]byte(s), v) }
 
 func errorsAs(err error, target any) bool { return errors.As(err, target) }
+
+// owner_only：库解不了的加密（AES-256 R5/R6）里，空用户密码能打开的单独报权限保护；要密码的照旧。
+func TestPDFOwnerOnlyEncryption(t *testing.T) {
+	ctx := context.Background()
+	fx := func(n string) string { return filepath.Join("testdata", "pdfenc", n+".pdf") }
+	cls := map[string]pdfEncState{
+		"aes256_owner": pdfEncOwnerOnly, "aes256r5_owner": pdfEncOwnerOnly, "aes256_owner_objstm": pdfEncOwnerOnly,
+		"aes128_owner": pdfEncOwnerOnly, "rc4_128_owner": pdfEncOwnerOnly, "rc4_40_owner": pdfEncOwnerOnly,
+		"aes256_user": pdfEncUser, "aes256r5_user": pdfEncUser, "aes128_user": pdfEncUser, "rc4_128_user": pdfEncUser, "rc4_40_user": pdfEncUser,
+	}
+	for n, want := range cls {
+		f, err := os.Open(fx(n))
+		if err != nil {
+			t.Fatal(err)
+		}
+		fi, _ := f.Stat()
+		if got := classifyPDFEncryption(f, fi.Size()); got != want {
+			t.Errorf("%s：%v，应为 %v", n, got, want)
+		}
+		f.Close()
+	}
+	// fpdf 生成的 RC4（R2）也能分清
+	d := t.TempDir()
+	for _, c := range []struct {
+		sp   pdfSpec
+		want pdfEncState
+	}{
+		{pdfSpec{lines: []string{"x"}, protect: true, own: "o"}, pdfEncOwnerOnly},
+		{pdfSpec{lines: []string{"x"}, protect: true, user: "u", own: "o"}, pdfEncUser},
+		{pdfSpec{lines: []string{"x"}}, pdfEncNone},
+	} {
+		p := makePDF(t, filepath.Join(d, "f.pdf"), c.sp)
+		f, _ := os.Open(p)
+		fi, _ := f.Stat()
+		if got := classifyPDFEncryption(f, fi.Size()); got != c.want {
+			t.Errorf("fpdf %+v：%v", c.sp, got)
+		}
+		f.Close()
+	}
+
+	const ownerMsg = "这个 PDF 设置了权限保护，暂时不能转换。"
+	const userMsg = "这个文件有密码保护，不能转换。请先去掉密码再添加。"
+	for _, n := range []string{"aes256_owner", "aes256r5_owner", "aes256_owner_objstm"} {
+		_, err := inspectPDF(ctx, fx(n))
+		e := apperr.From(err)
+		if !apperr.Is(err, apperr.DocEncrypted) || e.Message != ownerMsg || e.Detail != "reason=owner_only" || !notRetryableErr(e) {
+			t.Errorf("%s：%v", n, err)
+		}
+		if _, err := extractPDFText(ctx, fx(n)); apperr.From(err).Detail != "reason=owner_only" {
+			t.Errorf("%s 提取：%v", n, err)
+		}
+		if _, err := inspectDoc(ctx, fx(n), "pdf"); apperr.From(err).Message != ownerMsg {
+			t.Errorf("%s inspectDoc：%v", n, err)
+		}
+	}
+	for _, n := range []string{"aes256_user", "aes256r5_user", "aes128_user", "rc4_128_user", "rc4_40_user"} {
+		_, err := inspectPDF(ctx, fx(n))
+		if e := apperr.From(err); !apperr.Is(err, apperr.DocEncrypted) || e.Message != userMsg || e.Detail == "reason=owner_only" {
+			t.Errorf("%s：%v", n, err)
+		}
+	}
+	// 库能处理的只有所有者密码（RC4 / AES-128）照常转
+	for _, n := range []string{"aes128_owner", "rc4_128_owner", "rc4_40_owner"} {
+		if _, err := inspectPDF(ctx, fx(n)); err != nil {
+			t.Errorf("%s 应能转：%v", n, err)
+		}
+		if n == "rc4_40_owner" {
+			continue // qpdf 的 40 位 RC4 库能打开但解不开流（原有行为，走组件 / 解析失败），这里只看不拒收
+		}
+		pages, err := extractPDFText(ctx, fx(n))
+		if err != nil || !strings.Contains(pagesPlain(pages), "owner only hello") {
+			t.Errorf("%s 提取：%v %q", n, err, pagesPlain(pages))
+		}
+	}
+}

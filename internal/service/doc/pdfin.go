@@ -132,13 +132,17 @@ type pdfOpenResult struct {
 
 // probePDF 检查加密和页数（6.12.60）：
 //   - 没有 /Encrypt，或空用户密码能打开（只有所有者密码）→ 不算加密；
-//   - 要用户密码，或库不支持这种加密 → DOC_ENCRYPTED；
+//   - 要用户密码 → DOC_ENCRYPTED；库不支持这种加密但空用户密码能通过 → DOC_ENCRYPTED reason=owner_only；
 //   - 库解析不了（没有 /Encrypt）→ 不拒绝，pages=-1。
 func probePDF(f io.ReaderAt, size int64) pdfOpenResult {
 	r, err := openPDFLib(f, size)
 	if err != nil {
-		if errors.Is(err, pdf.ErrInvalidPassword) || strings.Contains(err.Error(), "encrypt") || rawHasEncrypt(f, size) {
-			return pdfOpenResult{pages: -1, err: errEncrypted()}
+		if errors.Is(err, pdf.ErrInvalidPassword) {
+			return pdfOpenResult{pages: -1, err: errEncrypted()} // 库认得这种加密，空密码打不开
+		}
+		if strings.Contains(err.Error(), "encrypt") || rawHasEncrypt(f, size) {
+			// 库不支持的加密（如 AES-256）：空用户密码能打开 → owner_only，否则要密码
+			return pdfOpenResult{pages: -1, err: pdfEncryptErr(f, size)}
 		}
 		return pdfOpenResult{pages: -1, parse: err.Error()}
 	}
@@ -177,7 +181,7 @@ func inspectPDF(ctx context.Context, path string) (int, error) {
 		// 库太慢：页数按读不出处理（交给引擎，引擎的单次超时兜底）；加密在库外再保守查一次。
 		// 返回后 f 被关闭，库那边的读取会出错结束（panic 已 recover），结果丢进有缓冲的 ch。
 		if rawHasEncrypt(f, size) {
-			return -1, errEncrypted()
+			return -1, pdfEncryptErr(f, size)
 		}
 		return -1, nil
 	case <-ctx.Done():
@@ -245,8 +249,11 @@ func extractPDFFrom(f io.ReaderAt, size int64, stop <-chan struct{}) (pages []pd
 	}()
 	r, err := openPDFLib(f, size)
 	if err != nil {
-		if errors.Is(err, pdf.ErrInvalidPassword) || strings.Contains(err.Error(), "encrypt") {
+		if errors.Is(err, pdf.ErrInvalidPassword) {
 			return nil, errEncrypted()
+		}
+		if strings.Contains(err.Error(), "encrypt") {
+			return nil, pdfEncryptErr(f, size)
 		}
 		return nil, &errPDFParse{why: err.Error()}
 	}
