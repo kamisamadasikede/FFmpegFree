@@ -193,7 +193,7 @@ func TestReconvertCopyNotReady(t *testing.T) {
 		t.Fatalf("%+v", cs[0])
 	}
 	release()
-	copyChunkHook = nil
+	setCopyChunkHook(nil)
 	waitCopy(t, e.svc, sid, store.CopyReady)
 	if cs, _ := e.tm.CheckPaths([]string{d.ID}); cs[0].ReconvertMode != task.ReconvertReplace {
 		t.Fatalf("%+v", cs[0])
