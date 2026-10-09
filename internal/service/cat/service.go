@@ -221,6 +221,7 @@ func (s *Service) CreateCatConversation(ctx context.Context, req CreateConversat
 	return c, nil
 }
 
+// DeleteCatConversation 删除会话及其消息（先取消进行中的一轮，最多等 5 秒）；空 id INVALID_ARGUMENT，不存在的 id 返回 nil（契约 v0.31.2）。
 func (s *Service) DeleteCatConversation(ctx context.Context, convID string) error {
 	if s.cfg.Store == nil {
 		return apperr.New(apperr.Internal, "本地存储尚未初始化")
@@ -231,7 +232,7 @@ func (s *Service) DeleteCatConversation(ctx context.Context, convID string) erro
 	s.cancelTurnAndWait(convID)
 	err := s.cfg.Store.DeleteCatConversation(ctx, convID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return apperr.New(apperr.NotFound, "找不到这个会话")
+		return nil // v0.31.2：不存在的 id 幂等返回 nil，可重复删
 	}
 	if err != nil {
 		return apperr.Wrap(apperr.IOError, "删除会话失败", err)
