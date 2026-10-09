@@ -35,7 +35,8 @@ func TestDetect_ReadyWhenGrokOnPATH(t *testing.T) {
 		t.Fatalf("status %+v", st)
 	}
 	models, err := a.ListModels()
-	if err != nil || len(models) < 1 || models[0].DisplayName != models[0].ID || strings.Contains(models[0].DisplayName, "Cat 助手") {
+	// 假二进制跑不起 `grok models` → 解析失败 → 空列表（无写死回退）。
+	if err != nil || models == nil || len(models) != 0 {
 		t.Fatalf("models %v %v", models, err)
 	}
 	thinks, err := a.ListThinkLevels()
@@ -115,7 +116,9 @@ func TestRunTurn_CLIErrorEvent(t *testing.T) {
 	a := NewBuildAdapter(BuildConfig{
 		DataTemp: t.TempDir(),
 		LookPath: func(string) (string, error) { return fake, nil },
-		Exec:     func(ctx context.Context, name string, args ...string) *exec.Cmd { return exec.CommandContext(ctx, fake) },
+		Exec: func(ctx context.Context, name string, args ...string) *exec.Cmd {
+			return exec.CommandContext(ctx, fake)
+		},
 	})
 	a.detect()
 	_, err := a.RunTurn(TurnOptions{
@@ -142,7 +145,9 @@ func TestRunTurn_PassesArgsAndReadonlyEnv(t *testing.T) {
 	a := NewBuildAdapter(BuildConfig{
 		DataTemp: t.TempDir(),
 		LookPath: func(string) (string, error) { return fake, nil },
-		Exec:     func(ctx context.Context, name string, args ...string) *exec.Cmd { return exec.CommandContext(ctx, name, args...) },
+		Exec: func(ctx context.Context, name string, args ...string) *exec.Cmd {
+			return exec.CommandContext(ctx, name, args...)
+		},
 	})
 	a.detect()
 	_, err := a.RunTurn(TurnOptions{
@@ -239,7 +244,9 @@ exit 1
 	a := NewBuildAdapter(BuildConfig{
 		DataTemp: t.TempDir(),
 		LookPath: func(string) (string, error) { return fake, nil },
-		Exec:     func(ctx context.Context, name string, args ...string) *exec.Cmd { return exec.CommandContext(ctx, fake) },
+		Exec: func(ctx context.Context, name string, args ...string) *exec.Cmd {
+			return exec.CommandContext(ctx, fake)
+		},
 	})
 	a.detect()
 	_, err := a.RunTurn(TurnOptions{

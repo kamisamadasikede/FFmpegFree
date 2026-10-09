@@ -32,10 +32,10 @@ const (
 // DefaultBuildTimeout 是一轮对话超时。
 const DefaultBuildTimeout = 10 * time.Minute
 
-// 默认能力（PATH 上找到 grok 后使用；CLI 未提供独立 capabilities 探测）。
+// 默认思考强度档位（CLI 不报告每档/默认档，只能写死；不预选、不标默认，未选时不传 --reasoning-effort）。
+// 模型列表无写死回退：`grok models` 解析失败即空列表，发送时不传 -m（契约 v0.31.4 后续）。
 var (
-	defaultModelIDs = []string{"grok-4.6", "grok-4.5"}
-	defaultThinks   = []ThinkLevel{
+	defaultThinks = []ThinkLevel{
 		{ID: "low", DisplayName: "低"},
 		{ID: "medium", DisplayName: "中"},
 		{ID: "high", DisplayName: "高"},
@@ -695,8 +695,11 @@ func (a *BuildAdapter) probeGrokVersion(exe string) string {
 	return ""
 }
 
+// modelsProbeTimeout 是 `grok models` 探测超时（测试可改小）。
+var modelsProbeTimeout = 30 * time.Second
+
 func (a *BuildAdapter) probeGrokModels(exe string) []Model {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), modelsProbeTimeout)
 	defer cancel()
 	cmd := a.runCmd(ctx, exe, "models")
 	var out, errb bytes.Buffer
@@ -705,10 +708,15 @@ func (a *BuildAdapter) probeGrokModels(exe string) []Model {
 	if errb.Len() > 0 && a.cfg.Logf != nil {
 		a.cfg.Logf("cat build models stderr: %s", truncate(errb.String(), 500))
 	}
-	ids := parseGrokModelsList(out.String())
-	if len(ids) == 0 {
-		ids = append([]string(nil), defaultModelIDs...)
+	if ctx.Err() != nil {
+		// 超时：输出可能不完整，按失败处理 → 空列表（不传 -m，用 CLI 自己的默认模型）。
+		if a.cfg.Logf != nil {
+			a.cfg.Logf("cat build models probe timed out")
+		}
+		return []Model{}
 	}
+	// 未登录时 CLI 仍会列出模型，能解析到就照常用；解析不到（报错 / 输出不认识）→ 空列表。
+	ids := parseGrokModelsList(out.String())
 	models := make([]Model, 0, len(ids))
 	for _, id := range ids {
 		// 老板 10-09 定：选择器直接显示 CLI 的真实模型名，id 与 label 相同，不再映射。
@@ -731,6 +739,7 @@ func parseGrokModelsList(out string) []string {
 	var ids []string
 	seen := map[string]bool{}
 	defaultID := ""
+	inList := false
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -743,6 +752,16 @@ func parseGrokModelsList(out string) []string {
 			continue
 		}
 		markedDefault := strings.Contains(strings.ToLower(line), "(default)")
+		if strings.HasPrefix(strings.ToLower(line), "available models") {
+			inList = true
+			continue
+		}
+		// 只认「Available models:」段内的行或带列表符号（* / - / •）的行；
+		// 其它行（报错、提示）一律不当模型名，避免把 "Error" 之类解析成模型。
+		bulleted := strings.HasPrefix(line, "*") || strings.HasPrefix(line, "-") || strings.HasPrefix(line, "•")
+		if !inList && !bulleted {
+			continue
+		}
 		line = strings.TrimLeft(line, "*-•")
 		line = strings.TrimSpace(line)
 		lower := strings.ToLower(line)
