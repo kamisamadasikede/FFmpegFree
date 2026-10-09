@@ -61,7 +61,14 @@ export interface ApiReconvertError {
   at: number
 }
 
-/** v0.23 Task.result（6.14.2） */
+/** v0.23 Task.result（6.14.2）；v0.29 转字幕成功时带 cues（6.18） */
+export interface ApiSubtitleCue {
+  id: string
+  text: string
+  startMs: number
+  endMs: number
+}
+
 export interface ApiTaskResult {
   sizeBytes: number
   durationSec?: number
@@ -70,6 +77,8 @@ export interface ApiTaskResult {
   audioBitrateKbps?: number
   /** v0.24：结果的警告（目前只有 "short_output" = 输出时长不到预期的 90% 且短了 2 秒以上，6.14.6）；没有时缺省 */
   warnings?: string[]
+  /** v0.29：speech_to_subtitle 成功时的可编辑字幕条目 */
+  cues?: ApiSubtitleCue[]
 }
 
 /** task:progress 载荷（契约第 5 节；后三项只有直播任务有） */
@@ -121,16 +130,31 @@ export interface TaskStatusPayload {
   lastReconvertError?: ApiReconvertError
 }
 
-/** 事件 / 接口里的 result → ApiTaskResult（sizeBytes 必须是数；其余只取有限数值） */
+/** 事件 / 接口里的 result → ApiTaskResult（sizeBytes 为有限数，或带 cues 的转字幕结果；其余只取有限数值） */
 export function toTaskResult(raw: unknown): ApiTaskResult | undefined {
   const r = asRecord(raw)
-  if (typeof r.sizeBytes !== 'number' || !Number.isFinite(r.sizeBytes)) return undefined
-  const out: ApiTaskResult = { sizeBytes: r.sizeBytes }
+  const cuesRaw = Array.isArray(r.cues) ? r.cues : null
+  const cues: ApiSubtitleCue[] | undefined = cuesRaw
+    ? cuesRaw
+        .map((x) => {
+          const c = asRecord(x)
+          if (typeof c.id !== 'string' || typeof c.text !== 'string') return null
+          const startMs = typeof c.startMs === 'number' && Number.isFinite(c.startMs) ? c.startMs : Number(c.startMs)
+          const endMs = typeof c.endMs === 'number' && Number.isFinite(c.endMs) ? c.endMs : Number(c.endMs)
+          if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null
+          return { id: c.id, text: c.text, startMs, endMs }
+        })
+        .filter((x): x is ApiSubtitleCue => !!x)
+    : undefined
+  const hasSize = typeof r.sizeBytes === 'number' && Number.isFinite(r.sizeBytes)
+  if (!hasSize && !(cues && cues.length)) return undefined
+  const out: ApiTaskResult = { sizeBytes: hasSize ? (r.sizeBytes as number) : 0 }
   for (const k of ['durationSec', 'width', 'height', 'audioBitrateKbps'] as const) if (typeof r[k] === 'number' && Number.isFinite(r[k])) out[k] = r[k] as number
   if (Array.isArray(r.warnings)) {
     const w = r.warnings.filter((x): x is string => typeof x === 'string' && !!x)
     if (w.length) out.warnings = w
   }
+  if (cues && cues.length) out.cues = cues
   return out
 }
 

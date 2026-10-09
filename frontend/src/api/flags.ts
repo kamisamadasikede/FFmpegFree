@@ -73,8 +73,8 @@ export const DOC_V28_BACKEND_READY: boolean = true
 export const DOCX_EDIT_ENABLED: boolean = false
 
 /**
- * 语音工具（转字幕 / 语音识别组件，契约 v0.29 §6.18）。
- * false = 走 api/lang.ts 模拟（组件包未发布：missing + canDownload=false）。
- * 后端骨架 + 绑定生成且组件可下载后改 true。
+ * 语音工具（转字幕 / 语音识别组件，契约 v0.29.1 §6.18）。
+ * 后端 #164 LangService 骨架已合入；true = 在 Wails 里调真实绑定（api/lang.ts）。
+ * 纯浏览器（没有 window.go）仍走模拟；组件包未发布时后端仍返回 missing + canDownload=false（无下载按钮）。
  */
-export const LANG_BACKEND_READY: boolean = false
+export const LANG_BACKEND_READY: boolean = true

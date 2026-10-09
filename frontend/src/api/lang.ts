@@ -1,10 +1,15 @@
 /**
- * 语音工具接口层（首期只做转字幕 speech_to_subtitle）。
- * LANG_BACKEND_READY=false：本地模拟（组件未发布 missing/canDownload=false；假 cues 演示时间轴）。
- * 真绑定合入后在此接 LangService，页面 / store 不用大改。
+ * 语音工具接口层（首期只做转字幕 speech_to_subtitle，契约 v0.29.1 §6.18）。
+ * LANG_BACKEND_READY=true 且有 Wails：调 LangService / Settings.asrTier。
+ * 纯浏览器（无 window.go）仍走模拟；?voice=demo 可演示时间轴。
+ * 未发布（missing + canDownload=false）：界面不出现下载/安装按钮。
  */
+import * as LangBinding from '../../wailsjs/go/app/LangService'
+import * as SystemBinding from '../../wailsjs/go/app/SystemService'
+import { lang, langasr, system } from '../../wailsjs/go/models'
+import { AppError, call, toAppError } from '@/api/call'
 import { LANG_BACKEND_READY } from '@/api/flags'
-import { hasWailsBackend } from '@/services/wails'
+import { hasWailsBackend, onTaskEvent, previewParams } from '@/services/wails'
 import { CUE_MAX_CHARS } from '@/utils/langText'
 
 export { LANG_BACKEND_READY }
@@ -32,6 +37,13 @@ export interface LangAsrStatus {
   error?: { code: string; message: string; detail?: string } | null
 }
 
+export interface LangAsrProgress {
+  phase: string
+  receivedBytes: number
+  totalBytes: number
+  progress?: number
+}
+
 export interface SubtitleCue {
   id: string
   text: string
@@ -45,11 +57,14 @@ const TIER_KEY = 'ff-asr-tier'
 const live = () => LANG_BACKEND_READY && hasWailsBackend()
 export const isLangSim = (): boolean => !live()
 
-/** 未发布：标准约 400MB / 高清约 1.2GB（引导数字；canDownload=false 时不真正下载） */
+/** 浏览器走查：?voice=demo（仅无 Wails 时生效） */
+export const isVoiceDemo = (): boolean => isLangSim() && previewParams.get('voice') === 'demo'
+
+/** 未发布引导体积：标准约 400MB / 高清约 1.2GB（canDownload=false 时不真正下载） */
 const BYTES_STANDARD = 400 * 1024 * 1024
 const BYTES_HD = Math.round(1.2 * 1024 * 1024 * 1024)
 
-function readTier(): AsrTier {
+function readTierLocal(): AsrTier {
   try {
     const v = localStorage.getItem(TIER_KEY)
     if (v === 'hd' || v === 'standard') return v
@@ -59,17 +74,7 @@ function readTier(): AsrTier {
   return 'standard'
 }
 
-export async function getAsrTier(): Promise<AsrTier> {
-  if (live()) {
-    // 真绑定后读 Settings.asrTier
-    return readTier()
-  }
-  return readTier()
-}
-
-/** 切换档位只改引导体积，不自动下载 */
-export async function setAsrTier(tier: AsrTier): Promise<void> {
-  if (tier !== 'standard' && tier !== 'hd') return
+function writeTierLocal(tier: AsrTier) {
   try {
     localStorage.setItem(TIER_KEY, tier)
   } catch {
@@ -77,13 +82,32 @@ export async function setAsrTier(tier: AsrTier): Promise<void> {
   }
 }
 
-export async function getLangAsrStatus(): Promise<LangAsrStatus> {
-  const tier = await getAsrTier()
-  if (live()) {
-    // 真绑定后调 GetLangAsrStatus
-    return unpublishedStatus(tier)
+function normTier(v: unknown): AsrTier {
+  return v === 'hd' ? 'hd' : 'standard'
+}
+
+function mapStatus(raw: langasr.Status | LangAsrStatus | null | undefined, fallbackTier?: AsrTier): LangAsrStatus {
+  const tier = normTier(raw?.tier || fallbackTier)
+  if (!raw) return unpublishedStatus(tier)
+  const err = raw.error
+  return {
+    state: (raw.state as LangComponentState) || 'missing',
+    version: raw.version ?? '',
+    source: raw.source ?? '',
+    tier,
+    canDownload: raw.canDownload === true,
+    downloadBytes: typeof raw.downloadBytes === 'number' ? raw.downloadBytes : tier === 'hd' ? BYTES_HD : BYTES_STANDARD,
+    installBytes: typeof raw.installBytes === 'number' ? raw.installBytes : 0,
+    ...(raw.phase ? { phase: raw.phase } : {}),
+    ...(typeof raw.receivedBytes === 'number' ? { receivedBytes: raw.receivedBytes } : {}),
+    error: err && typeof (err as { code?: string }).code === 'string'
+      ? {
+          code: (err as { code: string }).code,
+          message: (err as { message?: string }).message ?? '',
+          detail: (err as { detail?: string }).detail,
+        }
+      : null,
   }
-  return unpublishedStatus(tier)
 }
 
 function unpublishedStatus(tier: AsrTier): LangAsrStatus {
@@ -99,7 +123,105 @@ function unpublishedStatus(tier: AsrTier): LangAsrStatus {
   }
 }
 
-/** 演示用假字幕（组件未发布时走这条） */
+export async function getAsrTier(): Promise<AsrTier> {
+  if (live()) {
+    const s = await call(SystemBinding.GetSettings())
+    return normTier(s?.asrTier)
+  }
+  return readTierLocal()
+}
+
+/** 切换档位只改引导体积，不自动下载 */
+export async function setAsrTier(tier: AsrTier): Promise<void> {
+  if (tier !== 'standard' && tier !== 'hd') return
+  if (live()) {
+    const s = await call(SystemBinding.GetSettings())
+    await call(SystemBinding.UpdateSettings(system.Settings.createFrom({ ...s, asrTier: tier })))
+    return
+  }
+  writeTierLocal(tier)
+}
+
+export async function getLangAsrStatus(): Promise<LangAsrStatus> {
+  const tier = await getAsrTier()
+  if (live()) {
+    const st = await call(LangBinding.GetLangAsrStatus())
+    return mapStatus(st, tier)
+  }
+  return unpublishedStatus(tier)
+}
+
+export async function recheckLangAsr(): Promise<LangAsrStatus> {
+  if (live()) {
+    const st = await call(LangBinding.RecheckLangAsr())
+    return mapStatus(st)
+  }
+  return getLangAsrStatus()
+}
+
+/**
+ * 安装/下载语音识别组件。仅 canDownload=true 时由 UI 调用。
+ * 未配置 URL 时后端返回 LANG_DOWNLOAD_FAILED「暂时无法下载…」——UI 不应走到这里。
+ */
+export async function installLangAsr(tier?: AsrTier): Promise<LangAsrStatus> {
+  if (live()) {
+    const st = await call(LangBinding.InstallLangAsr(tier ?? ''))
+    return mapStatus(st)
+  }
+  return getLangAsrStatus()
+}
+
+export async function cancelLangAsrInstall(): Promise<void> {
+  if (live()) await call(LangBinding.CancelLangAsrInstall())
+}
+
+export function watchLangAsr(cb: (s: LangAsrStatus) => void): () => void {
+  return onTaskEvent<langasr.Status | LangAsrStatus>('lang:asr', (raw) => cb(mapStatus(raw)))
+}
+
+export function watchLangAsrProgress(cb: (p: LangAsrProgress) => void): () => void {
+  return onTaskEvent<LangAsrProgress>('lang:asr-progress', cb)
+}
+
+/** 提交转字幕；返回新建任务列表（通常 1 条） */
+export async function submitSpeechToSubtitle(req: {
+  paths: string[]
+  language?: string
+  format: 'srt' | 'vtt'
+  outputDir?: string
+}): Promise<Array<{ id: string; status: string; progress: number; result?: { cues?: SubtitleCue[] }; error?: { code: string; message: string } | null }>> {
+  if (!live()) throw new AppError('UNSUPPORTED', '模拟层请走本地假识别')
+  const tasks = await call(
+    LangBinding.SubmitSpeechToSubtitle(
+      lang.SpeechToSubtitleRequest.createFrom({
+        paths: req.paths,
+        language: req.language || 'auto',
+        format: req.format,
+        ...(req.outputDir ? { outputDir: req.outputDir } : {}),
+      }),
+    ),
+  )
+  return (tasks ?? []).map((t) => ({
+    id: t.id,
+    status: t.status,
+    progress: typeof t.progress === 'number' ? t.progress : 0,
+    result: t.result
+      ? {
+          cues: Array.isArray(t.result.cues)
+            ? t.result.cues.map((c) => ({
+                id: c.id,
+                text: c.text,
+                startMs: Number(c.startMs) || 0,
+                endMs: Number(c.endMs) || 0,
+              }))
+            : undefined,
+        }
+      : undefined,
+    error: t.error ? { code: t.error.code, message: t.error.message ?? '' } : null,
+  }))
+}
+
+/** 演示用假字幕（仅模拟 / ?voice=demo） */
 export const MOCK_CUES: SubtitleCue[] = [
   { id: 'c1', text: '欢迎收看本期产品介绍。', startMs: 1200, endMs: 4800 },
   { id: 'c2', text: '今天我们来看语音工具里的转字幕。', startMs: 5100, endMs: 9400 },
@@ -173,24 +295,38 @@ export function cuesToVtt(cues: SubtitleCue[]): string {
   )
 }
 
-/** 浏览器模拟导出：触发下载；Wails 真机接 ExportSubtitleCues */
+/**
+ * 导出字幕。真机：ExportSubtitleCues（可空 targetPath → 写到实际输出目录）。
+ * 模拟：浏览器触发下载。
+ */
 export async function exportSubtitleCues(
   cues: SubtitleCue[],
   format: 'srt' | 'vtt',
   baseName: string,
-): Promise<{ fileName: string }> {
+  opts?: { taskId?: string; targetPath?: string },
+): Promise<{ fileName: string; path?: string }> {
   const v = validateCues(cues)
   if (!v.ok) {
-    const err = new Error('INVALID_ARGUMENT') as Error & { code: string }
-    err.code = 'INVALID_ARGUMENT'
+    const err = new AppError('INVALID_ARGUMENT', '还不能导出')
     throw err
   }
-  const body = format === 'vtt' ? cuesToVtt(cues) : cuesToSrt(cues)
   const fileName = `${baseName || '字幕'}.${format}`
   if (live()) {
-    // 真绑定后调 ExportSubtitleCues
-    return { fileName }
+    const res = await call(
+      LangBinding.ExportSubtitleCues(
+        lang.ExportSubtitleRequest.createFrom({
+          taskId: opts?.taskId ?? '',
+          cues: cues.map((c) => langasr.SubtitleCue.createFrom(c)),
+          format,
+          ...(opts?.targetPath ? { targetPath: opts.targetPath } : {}),
+        }),
+      ),
+    )
+    const path = res?.path ?? ''
+    const name = path ? path.replace(/\\/g, '/').split('/').pop() || fileName : fileName
+    return { fileName: name, path: path || undefined }
   }
+  const body = format === 'vtt' ? cuesToVtt(cues) : cuesToSrt(cues)
   if (typeof document !== 'undefined') {
     const blob = new Blob([body], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -202,3 +338,5 @@ export async function exportSubtitleCues(
   }
   return { fileName }
 }
+
+export { toAppError }

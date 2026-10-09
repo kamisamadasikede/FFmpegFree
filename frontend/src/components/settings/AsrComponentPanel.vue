@@ -6,9 +6,13 @@
     </div>
     <div class="srow fcomp">
       <div class="l">
-        <span class="fok"><i class="fdot off" aria-hidden="true" />语音识别组件未就绪</span>
-        <small>{{ ASR_NOT_PUBLISHED }}</small>
+        <span class="fok">
+          <i class="fdot" :class="{ off: !ready }" aria-hidden="true" />
+          {{ statusLine }}
+        </span>
+        <small>{{ statusHint }}</small>
       </div>
+      <!-- canDownload=false：绝不出现下载/安装按钮（落地稿 01 / 产品锁） -->
     </div>
     <div class="srow feng">
       <div class="l">
@@ -47,7 +51,7 @@
 </template>
 
 <script setup lang="ts">
-// 设置页「语音识别组件」块（契约 6.18.3 / asrTier）。组件未发布：无下载按钮。
+// 设置页「语音识别组件」块（契约 6.18.3 / asrTier）。未发布：无下载按钮。
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import { useLangAsrStore } from '@/stores/langAsr'
@@ -64,6 +68,20 @@ const options = [
   { id: 'hd' as AsrTier, label: '高清', hint: TIER_HD_SIZE },
 ]
 const currentLabel = computed(() => options.find((o) => o.id === store.tier)?.label ?? '标准')
+const ready = computed(() => store.status.state === 'ready')
+const statusLine = computed(() => {
+  if (ready.value) return '语音识别组件已就绪'
+  if (store.status.state === 'checking') return '正在检查语音识别组件…'
+  return '语音识别组件未就绪'
+})
+const statusHint = computed(() => {
+  if (ready.value) {
+    const ver = store.status.version ? `版本 ${store.status.version}。` : ''
+    return `${ver}当前档位「${currentLabel.value}」。`
+  }
+  if (store.unpublished || !store.canDownload) return ASR_NOT_PUBLISHED
+  return ASR_NOT_PUBLISHED
+})
 
 async function choose(id: AsrTier) {
   ddOpen.value = false
