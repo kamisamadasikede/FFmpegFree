@@ -26,7 +26,7 @@ const (
 
 	// v0.28（6.12.59）：PDF 源。
 	HintPDFLayout        = "pdf_layout"
-	hintPDFLayoutText    = "PDF 转 Word 会尽量还原排版，复杂版式和扫描件可能走样。"
+	hintPDFLayoutText    = "PDF 转 Word 会尽量保留排版，复杂版式和扫描件可能会走样。"
 	hintPDFSimpleModeTxt = "只提取文字，不保留排版和图片。" // simple_mode 在 PDF 源上的文案
 
 	// WarningCSVFirstSheetOnly 是转 CSV 时多工作表的结果警告（6.12.16）。
