@@ -1,4 +1,7 @@
-# FFmpegFree v2 接口契约（v0.27.2）
+# FFmpegFree v2 接口契约（v0.28）
+
+v0.28 变更（**PDF 作为输入转成其他格式**，用户提出，架构师定方案，文案待产品定，2026-10-09；**只有契约**；完整规则见新增的 **6.12.58~6.12.65**，本条只是索引，冲突时以新节为准）：① **取消“PDF 暂时不能转成其他格式。”**：`.pdf` 可以添加，新家族 `pdf`；目标 doc / docx / odt / rtf（Word ≥ 2013 → 文档组件 `writer_pdf_import`，不用 WPS，`hintKey=pdf_layout`）、txt / md（纯 Go 提取文字，`simple=true`，不需要组件、不占池）、html（有组件用组件，没有用纯 Go 生成简易 html）；表格、演示、图片不列出。② **纯 Go 库** `github.com/ledongthuc/pdf`（BSD-3-Clause）；提取后做**质量判定**（空，或 `U+FFFD` / 私用区 / 控制字符占非空白字符 ≥ 30%），不过时有可用组件就**自动改用组件**（`result.engine=component`），没有才报新码 **`DOC_PDF_NO_TEXT`**（`detail` 写 `quality=empty|garbled`）；Word 只用于 doc / docx / odt / rtf。txt 输出 UTF-8 不带 BOM、换行跟平台。③ **上限**：PDF 200 MiB（`INVALID_ARGUMENT` `reason=too_large`）、500 页（`reason=too_many_pages`，2.2 新增取值）；加密（要用户密码）`DOC_ENCRYPTED` 沿用现有文案，只有所有者密码的照常转。④ **2.1 由 30 个变为 31 个**（加 `DOC_PDF_NO_TEXT`；`DOC_PDF_INPUT_UNSUPPORTED` 保留不再产生）；任务类型仍 `doc_convert`，**没有迁移**，没有新事件、没有新接口；PDF 预览不变。⑤ **定稿**：另存为的目标正好是这条记录自己的源文件 / 输出时按覆盖处理并刷新记录，正在转换仍 `TASK_CONFLICT` `converting`，别的记录的文件 `IO_ERROR` `in_use`（6.12.42、6.12.49 改在原处）。⑥ **实现差异以实现为准**：Office / WPS 用一把全局锁保证并发 1（不单开池）；Office / WPS 进程暂不放 Job Object（后续加固）；组件配置 Writer `Link=0`、Calc `Link=1`（6.12.65）。⑦ 6.12.45 文案定稿：组件太旧 `文档组件版本太旧，请重新下载。` + 「更新文档组件」；「重新打开」二次确认 `重新打开会丢掉你改的内容，确定吗？`「重新打开」（危险）「取消」。
+
 
 v0.27.2 变更（**docx 在预览窗口里编辑后保存**，老板定范围，架构师定方案，文案产品已定，2026-10-09；**只有契约**；完整规则见新增的 **6.12.47~6.12.57**，本条只是索引，冲突时以新节为准）：① **范围**：只放开 docx；doc / xls / xlsx / ppt / pptx / pdf 仍只能查看（`editBlock=format`，悬停 `这类文件请用默认程序打开编辑`）；前端用什么编辑器由前端定，契约只管读写。② **读取**：`DocPreview` 新增 `rawUrl`（docx 可编辑时原文件字节的 `/local/<token>` 地址；有引擎时 `kind=pdf` 只用来看，编辑用 `rawUrl`）；`editBlock`：> 20 MiB `too_large`、加密或打不开 `malformed`、原文件不在 `missing`（只能另存为）、正在转换 `converting`；`revision` 是整个文件的 SHA-256。③ **分段保存**（DocService 新方法）：`BeginDocBinarySave({sourceId|taskId, mode: overwrite|save_as, targetPath?, revision?, totalBytes})` → `{saveId, maxChunkBytes: 4194304, expiresAt}`；`AppendDocBinaryChunk({saveId, seq, data(base64)})` → `{receivedBytes}`；`CommitDocBinarySave({saveId, sha256})` → `{path, revision, sizeBytes, savedAt, backupPath?}`；`AbortDocBinarySave({saveId})`（幂等）。暂存在 `<数据目录>/tmp/docsave/<saveId>`，Begin 后 10 分钟没 Commit 自动清理，启动时清残留；同一文件同时只允许一个会话（`TASK_CONFLICT` `reason=saving`）；Commit 无论成败都结束会话。④ **完整性检查**：zip 能打开、CRC 全过、条目 ≤ 10 000、解压总量 ≤ 200 MiB、有 `[Content_Types].xml` / `_rels/.rels` / `word/document.xml` 且后者是格式良好的 XML，不过 `reason=malformed`；含 `vbaProject.bin` `reason=format`；原文件不动。⑤ **备份**（只有 overwrite）：替换前复制成同目录 `原名.bak-YYYYMMDD-HHMMSS.docx`（同秒加 `-2`），只删本应用按这个精确格式生成的、同一原名的备份，保留最近 3 份；备份失败不保存；备份不进文档列表。⑥ **2.2 新增取值**：`INVALID_ARGUMENT` 的 `chunk_order`、`checksum`、`malformed`，`NOT_FOUND` 的 `save_session`，`TASK_CONFLICT` 的 `saving`（`too_large`、`format`、`file_changed`、`converting` 等沿用）；**没有新增错误码**（2.1 仍是 30 个），没有迁移，没有新事件。⑦ **文案定稿**写进 6.12.45（原文件不在、编辑过的结果重转确认、保存 / 覆盖保存 / 另存为成功、没有权限、内容太多、docx 不完整），所有出错都保留用户编辑的内容；`checksum` / `chunk_order` / `save_session` / `saving` 映射为 `出了点问题，请重试。`。⑧ **顺带三条**：`SystemService.OpenStorageFolder` 新增 `kind="doc_component"`，打开应用下载的文档组件目录，不是正在用的下载组件时 `NOT_FOUND` `reason=component`，前端按钮只在 `componentState=ready` 且 `engines` 里组件那项 `source=downloaded` 时显示（6.12.54）；Windows / macOS 应用下载的组件低于 26.2.6 且没有别的合格候选时 `componentState=outdated`、`canDownload=true`，提交任务时 `DOC_COMPONENT_NOT_READY` 的 `detail` 第一行 `reason=outdated`（其他情况 `reason=<componentState>`），预览沿用 `kind=unavailable` + `reason=needs_component`（6.12.55）；`doc_convert` 记录必须填 `startedAt`（离开排队、真正开始处理的时刻，排队中为 0），没有迁移（6.12.56）。准备阶段的取消契约仍允许，前端可以不提供（6.12.57）。⑨ **v0.27.2 补充**（同版本、合入后追加）：CSV 提示统一为 `转成 CSV 只会保留第一个工作表。`；带宏的 docx 在 `GetDocPreview` 时就 `editable=false`、`editBlock=macro`（悬停 `这个文件带宏，请用默认程序打开编辑。`），保存时的 `vbaProject.bin` 检查保留作兜底（`reason=format`）；备份失败一律 `IO_ERROR` `reason=backup`，文案 `没法在这个文件夹留备份，文件没有保存。请另存为。` + 「另存为」。⑩ 真机待验证加三项：`ReplaceFileW` 替换 docx、备份清理、20 MiB 分段上传耗时。后端 v0.26.1 实现 PR 仍未合入，`installBytes` 按 6.12.28。
 
@@ -170,13 +173,14 @@ Bind 方法返回 `(T, error)`。error 的 message 是 JSON 字符串，前端 `
 | LIVE_SOURCE_GONE | （v0.14）`StartScreenPush` 传了 `captureSourceId`，但所选来源此刻已不可用：窗口已关闭 / 已最小化 / 不可见，或屏幕序号不存在（显示器被拔掉）。同步返回（没有创建任务）；ffmpeg 打开窗口时才发现窗口没了（校验与打开之间的竞态）则是任务失败，码相同。`detail` 第一行 `kind=window` 或 `kind=screen`，**不带窗口标题**。前端提示「所选窗口已不可用，请重新选择」（屏幕：「所选屏幕已不可用，请重新选择」）并重新 `ListCaptureSources` |
 | DOC_ENCRYPTED / DOC_CORRUPT / DOC_TIMEOUT / DOC_COMPONENT_CRASHED / DOC_COMPONENT_NOT_READY / DOC_DOWNLOAD_FAILED / DOC_CHECKSUM_FAILED / DOC_COMPONENT_INSTALL_FAILED / DOC_FORMAT_UNSUPPORTED / DOC_PDF_INPUT_UNSUPPORTED | v0.26 文档多格式转换，含义、message、是否可重试见 6.12.20 |
 | DOC_PRESENTATION_BUSY / DOC_ENGINE_BUSY | v0.27 本机 Office / WPS 被占用（演示程序正在运行 / 只能挂到正在运行的实例上），可重试，见 6.12.33 |
+| DOC_PDF_NO_TEXT | v0.28 PDF 转 txt / md / 简易 html 时取不出可用的文字（扫描件或乱码）且没有可用的文档组件，不可重试，见 6.12.63 |
 | INTERNAL | 其他；直播任务里认不出的 ffmpeg 非零退出也是它（不是 `PROCESS_FAILED`），detail 带（已脱敏的）stderr 最后若干行 |
 
 **直播 / 录屏（v0.10）用到的后端码正好是冻结的这八个：`LIVE_URL_INVALID`、`LIVE_CONNECT_FAILED`、`LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`SCREEN_PERMISSION_DENIED`、`FFMPEG_NOT_FOUND`、`UNSUPPORTED_PLATFORM`、`INTERNAL`**（v0.14 起再加 `LIVE_SOURCE_GONE`，共九个）；此外复用已有的 `INVALID_ARGUMENT`、`NOT_FOUND`、`PROBE_FAILED`（输入文件问题）、`TASK_CONFLICT`（会话上限 / 同地址冲突）、`UNSUPPORTED`（Retry）、`CANCELED`（`Start*` 因应用退出被取消，#10 已加）。**v0.10 没有新增任何错误码**，也没有 `LIVE_START_FAILED` 之类的同义码。用户主动停止不产生错误码（优雅停止成功 = `succeeded`，超时强杀 = `canceled` 状态，`error` 为空）。`LIVE_PLAY_FAILED`（播放器加载或解码失败）和 `LIVE_CORS_BLOCKED`（拉流地址跨域被浏览器拦截）**只在前端由播放器产生**，后端不会返回，也不在 `apperr` 里定义。
 
 ### 2.1 AppErrorCode 完整清单（供前端 `frontend/src/api/call.ts` 对照）
 
-后端 `internal/apperr` 一共 30 个码（v0.14 新增 `LIVE_SOURCE_GONE`；v0.26 新增 10 个 `DOC_*`，文案和是否可重试见 6.12.20；v0.27 新增 `DOC_PRESENTATION_BUSY`、`DOC_ENGINE_BUSY`，见 6.12.33 和下表），前端 `AppErrorCode` 必须全部包含；前端 `frontend/src/api/call.ts` 以本清单为准逐项核对补全（不在契约里写它当前缺几个，现状随前端分支变化）：
+后端 `internal/apperr` 一共 31 个码（v0.14 新增 `LIVE_SOURCE_GONE`；v0.26 新增 10 个 `DOC_*`，文案和是否可重试见 6.12.20；v0.27 新增 `DOC_PRESENTATION_BUSY`、`DOC_ENGINE_BUSY`，见 6.12.33 和下表；v0.28 新增 `DOC_PDF_NO_TEXT`，见 6.12.63），前端 `AppErrorCode` 必须全部包含；前端 `frontend/src/api/call.ts` 以本清单为准逐项核对补全（不在契约里写它当前缺几个，现状随前端分支变化）：
 
 ```ts
 export type AppErrorCode =
@@ -190,6 +194,8 @@ export type AppErrorCode =
   | 'DOC_DOWNLOAD_FAILED' | 'DOC_CHECKSUM_FAILED' | 'DOC_COMPONENT_INSTALL_FAILED' | 'DOC_FORMAT_UNSUPPORTED' | 'DOC_PDF_INPUT_UNSUPPORTED'
   // v0.27 本机 Office / WPS（6.12.33）：
   | 'DOC_PRESENTATION_BUSY' | 'DOC_ENGINE_BUSY'
+  // v0.28 PDF 输入（6.12.63）：
+  | 'DOC_PDF_NO_TEXT'
 ```
 
 **文档类错误码能否重试（v0.27 汇总；文案以 6.12.20 / 6.12.33 为准）**：
@@ -205,9 +211,10 @@ export type AppErrorCode =
 | `DOC_CHECKSUM_FAILED` | 是 | v0.26 |
 | `DOC_COMPONENT_INSTALL_FAILED` | 是 | v0.26 |
 | `DOC_FORMAT_UNSUPPORTED` | 否 | v0.26 |
-| `DOC_PDF_INPUT_UNSUPPORTED` | 否 | v0.26 |
+| `DOC_PDF_INPUT_UNSUPPORTED` | 否（v0.28 起不再产生，保留给旧记录） | v0.26 |
 | `DOC_PRESENTATION_BUSY` | **是**（任务保留；预览点「重试」） | v0.27 |
 | `DOC_ENGINE_BUSY` | **是**（任务保留；预览点「重试」） | v0.27 |
+| `DOC_PDF_NO_TEXT` | 否（装好文档组件后可以对这一行新提交） | v0.28 |
 
 - 前端遇到不在清单里的 `code`：按 `INTERNAL` 的通用文案处理，不崩溃。
 - `LIVE_PLAY_FAILED`、`LIVE_CORS_BLOCKED` 只在前端播放器里产生，**不是** `AppErrorCode`，也不出现在后端。
@@ -230,6 +237,7 @@ export type AppErrorCode =
 | 文档转换的不可重试记录（v0.26，`TaskService.Retry` 遇到 retryable=否 的 `doc_convert` / `office_pdf` 失败记录） | `reason=<值>` | `UNSUPPORTED`：`not_retryable`（只追加） | 只有这一行；`DOC_*` 码的 `detail` 首行（`exit=` / `msiexec=` 等）前端不解析，见 6.12.20 |
 | 文档编辑（v0.27.1，6.12.41 / 6.12.42：`DocService.SaveDocText`、`SaveDocTextAs` 的同步错误） | `reason=<值>` | `TASK_CONFLICT`：`file_changed`（文件在打开之后被别的程序改过，revision 不一致）、`converting`（这一行有排队中 / 运行中的转换，或结果记录正在重转；v0.27.1 补充：原写 `in_use`，已改名）、`copying`（沿用 v0.24：副本还在复制，后面一行 `sourceId=<id>`）；`NOT_FOUND`：`record`、`file`（沿用：原文件 / 输出文件不在了）；`IO_ERROR`：`permission`（没有写权限、只读）、`in_use`（被其他程序占用、读不了或替换不了，和 `file_changed` 分开）、`io`（其他写入失败）（这三个沿用 v0.24 的取值，这里没有第二行路径）；`INVALID_ARGUMENT`：`encoding`（v0.27.1 补充：有字符编不进原编码 GBK；后面两行 `char=U+XXXX`、`line=<n>`）、`too_large`（超过 2 MiB 或 1000 行）、`format`（不能编辑的格式、另存为换了格式、html 声明了不支持的编码）（只追加） | 除 `copying`（`sourceId=`）和 `encoding`（`char=` / `line=`）外都只有这一行；另存为的目标路径不合法（应用数据目录、上传目录、非绝对路径）是没有 reason 的 `INVALID_ARGUMENT`；磁盘满 `CONVERT_DISK_FULL` 不带 reason；界面不显示错误码和 reason |
 | docx 分段保存（v0.27.2，6.12.49~6.12.52：`BeginDocBinarySave`、`AppendDocBinaryChunk`、`CommitDocBinarySave` 的同步错误） | `reason=<值>` | `INVALID_ARGUMENT`：`too_large`（沿用：超过 20 MiB）、`chunk_order`（`seq` 不连续，会话不作废）、`checksum`（字节数或 SHA-256 不符）、`malformed`（完整性检查不过）、`format`（沿用：不是 docx、另存为扩展名不对、含宏）；`NOT_FOUND`：`save_session`（会话不在或已过期）、`file` / `record`（沿用）；`TASK_CONFLICT`：`saving`（同一文件已有保存会话，或会话数到上限）、`file_changed` / `converting` / `copying`（沿用 v0.27.1）；`IO_ERROR`：`backup`（v0.27.2 补充：备份失败）、`permission` / `in_use` / `io`（沿用）（只追加） | 都只有这一行；`chunk_order`、`checksum`、`save_session`、`saving` 是前端内部错误，界面一律 `出了点问题，请重试。`；界面不显示错误码和 reason |
+| PDF 输入（v0.28，6.12.60 / 6.12.63：添加 PDF 的 `AddDocSourceResult.error`、`DOC_PDF_NO_TEXT`） | `reason=<值>` | `INVALID_ARGUMENT`：`too_large`（沿用：PDF 超过 200 MiB）、`too_many_pages`（超过 500 页）；`DOC_PDF_NO_TEXT`：`no_text`（第二行 `quality=empty\|garbled` 只给开发者看）（只追加） | 只有第一行；界面不显示 |
 | 文档组件未就绪（v0.27.2，6.12.55：`DOC_COMPONENT_NOT_READY` 的同步错误和任务错误，以及 `DocComponentStatus.error`） | `reason=<值>` | `checking`、`missing`、`outdated`（含 Windows / macOS 应用下载的组件低于 26.2.6）、`downloading`、`preparing`、`failed`，即 `componentState`（只追加） | 只有这一行；`OpenStorageFolder("doc_component")` 的 `NOT_FOUND` 沿用 v0.25.1 的 `reason=component` |
 | 其余所有码（含 `LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`INTERNAL`） | 无固定格式 | — | 前端**不得**解析（上面几行列出的码 / 场景除外） |
 
@@ -1556,7 +1564,7 @@ AppError（句柄失效）：
 | 表格 `sheet` | `xls` `xlsx` `ods` `csv` | 任意两种之间 | 都可以 |
 | 演示 `slide` | `ppt` `pptx` `odp` | 任意两种之间 | 都可以 |
 
-- **跨类不转**（如 docx → xlsx、csv → txt 都没有）。`pdf` 只作输出；**PDF 作为输入一期不支持**（添加时拒绝，`DOC_PDF_INPUT_UNSUPPORTED`，6.12.20）。
+- **跨类不转**（如 docx → xlsx、csv → txt 都没有）。`pdf` 只作输出；**PDF 作为输入一期不支持**（添加时拒绝，`DOC_PDF_INPUT_UNSUPPORTED`，6.12.20）。**v0.28 取消这条限制，见 6.12.58~6.12.64**。
 - **多工作表转 CSV 只输出第一个工作表**，格式表给一行提示（`hintKey=csv_first_sheet`），添加文件时给出 `sheetCount`（6.12.16）。
 - **二期（只列为后续，本版不做、不留接口）**：PDF 按页转图片、PDF 转 Word、epub（读和写）。
 - 输入大小上限沿用 6.12.2 `maxInputBytes`（100 MiB），一次最多添加 / 提交 50 个。
@@ -1643,7 +1651,7 @@ type DocFormatMatrix struct {
 type DocSourceFormats struct {
     Ext     string      `json:"ext"`               // 源格式
     Aliases []string    `json:"aliases,omitempty"` // html → ["htm"]，md → ["markdown"]
-    Family  string      `json:"family"`            // text | sheet | slide
+    Family  string      `json:"family"`            // text | sheet | slide | pdf（v0.28）
     Targets []DocTarget `json:"targets"`           // 能转成的目标，固定顺序：pdf 在最前，其余按 6.12.10 表里的顺序；不含自己
 }
 type DocTarget struct {
@@ -1664,7 +1672,8 @@ type DocTarget struct {
 |---|---|---|
 | `csv_first_sheet` | xls / xlsx / ods → csv | `转成 CSV 只会保留第一个工作表。`（前端在选中文件的 `sheetCount > 1` 或 `= -1` 且目标是 CSV 时显示，6.12.16） |
 | `md_lossy` | 任何格式 → md | `转成 Markdown 只保留文字和基本格式，图片和复杂表格会丢失。` |
-| `simple_mode` | 组件未就绪时 docx / odt / txt → pdf | `下载文档组件后可保留图片和排版` |
+| `simple_mode` | 组件未就绪时 docx / odt / txt → pdf；**v0.28**：pdf → txt、没有组件时的 pdf → html | `下载文档组件后可保留图片和排版`；**PDF 源**：`只提取文字，不保留排版和图片。`（待产品定，6.12.59） |
+| `pdf_layout` | **v0.28**：pdf → doc / docx / odt / rtf | `PDF 转 Word 会尽量还原排版，复杂版式和扫描件可能走样。`（待产品定） |
 
 **组件未就绪时的总提示**（文档页顶部，前端常量，后端不给）：`Word、ODT、TXT 可以简易转 PDF，md 和网页可以互转`。
 
@@ -1694,7 +1703,7 @@ type AddDocSourceResult struct {   // 与入参一一对应
 type DocSource struct {
     ConvertSource                        // 同 6.14.2 / 6.15.3（id、originalPath、storedPath、copyState…），media 恒为空
     Ext        string `json:"ext"`        // 规范化后的源格式（htm → html，markdown → md）
-    Family     string `json:"family"`     // text | sheet | slide
+    Family     string `json:"family"`     // text | sheet | slide | pdf（v0.28）
     SheetCount int    `json:"sheetCount"` // 只对表格类有意义：xlsx / ods / xls 实际读出的工作表数，csv 固定 1，读不出为 -1；其他类别为 0
 }
 type DocSourceEntry struct { Source DocSource `json:"source"`; Records []Task `json:"records"`; RecordCount int64 `json:"recordCount"` } // 同 ConvertSourceEntry
@@ -1723,7 +1732,7 @@ type DocSubmitRequest struct {
 
 ### 6.12.16 添加文件
 
-- 只收 `DocFormatMatrix.inputs` 里的扩展名（不区分大小写）。`.pdf` → `DOC_PDF_INPUT_UNSUPPORTED`；其他扩展名（含没有扩展名）→ `DOC_FORMAT_UNSUPPORTED`。
+- 只收 `DocFormatMatrix.inputs` 里的扩展名（不区分大小写）。`.pdf` → `DOC_PDF_INPUT_UNSUPPORTED`（**v0.28 起可以添加**，大小 200 MiB、500 页，见 6.12.60）；其他扩展名（含没有扩展名）→ `DOC_FORMAT_UNSUPPORTED`。
 - 添加时同步做轻量检查（每个文件最多 5 秒，最多 4 个并发）：大小 ≤ 100 MiB；**加密检测**（6.12.19）命中 → `DOC_ENCRYPTED`，**不建行**；容器明显损坏（OOXML / ODF 不是 zip 或缺必需部件、OLE 头错、文件为空）→ `DOC_CORRUPT`，不建行。rtf / txt / html / md / csv 只检查非空和可读。
 - 通过后建 `convert_sources` 行（`kind='doc'`），后台复制副本（6.15，事件 `convert:copy`），转换只读副本。
 - **`sheetCount`**：xlsx 读 `xl/workbook.xml` 里 `<sheet>` 的个数；ods 读 `content.xml` 里 `<table:table>` 的个数（流式解析，不整份读入）；xls 数 Workbook 流里 BOUNDSHEET（0x0085）记录的个数；csv 固定 `1`；读不出（解析失败、超时）为 `-1`；文字、演示类为 `0`。持久化在行上，不重复读。
@@ -1774,7 +1783,7 @@ type DocSubmitRequest struct {
 | `DOC_CHECKSUM_FAILED` | `下载的文档组件校验失败，请重试。` | 是 | `DocComponentStatus.error` | 重下一次仍不通过 |
 | `DOC_COMPONENT_INSTALL_FAILED` | `文档组件准备失败，请重试。` | 是 | `DocComponentStatus.error` | msiexec / hdiutil 失败或解包后检测不通过；`detail` 第一行 `msiexec=<码>` / `hdiutil=<码>` / `check=<原因>` |
 | `DOC_FORMAT_UNSUPPORTED` | `不支持这种文件。`（添加时）/ `不支持转成这个格式。`（提交时目标不在格式表里） | 否 | 添加、提交 | |
-| `DOC_PDF_INPUT_UNSUPPORTED` | `PDF 暂时不能转成其他格式。` | 否 | 添加 | 与通用“格式不支持”分开 |
+| `DOC_PDF_INPUT_UNSUPPORTED` | `PDF 暂时不能转成其他格式。` | 否 | 添加 | 与通用“格式不支持”分开；**v0.28 起不再产生**（6.12.63） |
 
 - `detail` 第一行的 `exit=` / `msiexec=` / `hdiutil=` / `check=` 只给开发者看，前端**不解析**（不属于 2.2 的 `reason|scheme|kind`）。
 
@@ -1867,7 +1876,7 @@ type DocSubmitRequest struct {
 4. **绝不碰用户自己的文档、窗口和进程**（产品定的硬规则）：
    - **Word 和 Excel：每个任务（或预览）新开一个只属于我们的实例**（`CoCreateInstance`，Word / Excel 默认每次都起新进程），用完 `Close(SaveChanges:=False)` 关掉我们的文档，再 `Quit`。
    - **实例隔离检查**：创建实例时持一把全局锁，创建前后各拍一次进程快照（同名 exe），**多出来的那个 PID 就是我们的**；没有多出新进程（说明挂到了已经在运行的实例上，可能是用户的）时**立刻释放这个 COM 对象，不设任何属性、不打开文件、不调 `Quit`**，把这个程序当作这次不可用，换下一个引擎。WPS 文字 / 表格同样做这个检查（WPS 会不会每次起新进程**需真机验证**；会挂到用户的 WPS 上就一律换引擎）。
-   - 我们的进程拿到句柄后放进一个 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 的 Job Object（应用崩溃时系统会回收它；放不进去只记日志）。**超时只结束我们自己的那个 PID**（`TerminateProcess`，不用按名字的 `taskkill /IM`），绝不碰其他同名进程。
+   - 我们的进程拿到句柄后放进一个 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 的 Job Object（应用崩溃时系统会回收它；放不进去只记日志）。**v0.28 记录实现差异：暂未放进 Job Object，列为后续加固项，见 6.12.65。****超时只结束我们自己的那个 PID**（`TerminateProcess`，不用按名字的 `taskkill /IM`），绝不碰其他同名进程。
    - `Quit` 之前再看一眼 `Documents.Count` / `Workbooks.Count`：除了我们的还有别的（转换期间用户的文件被系统送进了这个实例）就**不 `Quit`、只释放对象**，进程留给用户（这种情况会不会发生**需真机验证**）。
    - **PowerPoint 和 WPS 演示：系统里只能有一个实例**。转换前先查进程：`POWERPNT.EXE`（用 Office）/ `wpp.exe`，以及一体化 WPS 的 `wps.exe`（用 WPS 演示）**只要在运行（包括用户开着的），这个引擎这次就不用**，自动换下一个；没有引擎可换，返回 `DOC_PRESENTATION_BUSY`（6.12.33），任务失败但**可以重试**，记录保留。我们自己的另一个任务（转换和预览之间）正在用 PowerPoint / WPS 演示时，**有下一个引擎就换，没有就排队等它用完**（应用内一把锁，不报 busy，因为那是我们自己的、马上会结束）。查进程和启动之间有极短的竞态，所以启动后同样做实例隔离检查。
 5. **单次超时**（每次调用一个引擎算一次；见 6.12.29）。超时后：结束我们自己的进程（第 4 条），删掉临时文件，换下一个引擎；全都不行按 6.12.25 回退或失败。弹窗卡住（未激活提示、受保护视图、修复提示、字体缺失提示等）**一律靠超时兜底**，不去识别、不去点。
@@ -1900,6 +1909,7 @@ type DocSubmitRequest struct {
 | `component` | 6.12.10 的全部 | 全部 | 全部 |
 
 - WPS 的 ODF 读写不可靠，一期不交给它（这些转换在只有 WPS 时走文档组件；没有组件就置灰，`disabledReason=需要文档组件`）。WPS 这一行**整行需真机验证**，验证后可以放宽。
+- **v0.28**：能力表加 PDF 一列（`office` 只看 Word ≥ 15，pdf → doc docx odt rtf；`wps` 不做；`component` pdf → doc docx odt rtf txt md html），见 6.12.59。文档组件每个任务的临时配置里：宏禁用，外部链接不更新——Writer `Content/Update/Link=0`、Calc `Content/Update/Link=1`（以实现为准，6.12.65）。
 
 ### 6.12.28 组件状态的改动（`DocComponentStatus`，v0.26.1 / v0.27）
 
@@ -1925,7 +1935,7 @@ type DocEngineInfo struct {
     Version   string   `json:"version"`   // 读不出为 ""；office 取 Word 的版本（没有 Word 时取 Excel、PowerPoint）
     Source    string   `json:"source,omitempty"` // 只有已安装的 component 有：downloaded | system（两个都有时是正在用的那个，即 downloaded）
     Installed bool     `json:"installed"` // office / wps 恒为 true；component：有可用的（应用下载的或系统安装的）为 true，还没下载为 false
-    Families  []string `json:"families"`  // 这个引擎能处理的类别：text | sheet | slide（office 按实际装了 Word / Excel / PowerPoint 给出）
+    Families  []string `json:"families"`  // 这个引擎能处理的类别：text | sheet | slide | pdf（office 按实际装了 Word / Excel / PowerPoint 给出；v0.28：Word ≥ 15 时 office 带 pdf，已装的 component 带 pdf，wps 不带）
     Available bool     `json:"available"` // 现在能用：installed 且没有被本次运行跳过（6.12.25 连续 2 次失败）、版本不过低；仍列出，设置页可以显示为不可用
 }
 ```
@@ -1942,6 +1952,7 @@ type DocEngineInfo struct {
 ### 6.12.29 设置、单次超时与并发
 
 - **`Settings.docEngine`**（string，settings 表键 `docEngine`）：`auto` | `office` | `wps` | `component`，**默认 `auto`**；空值按 `auto`；其他值 `UpdateSettings` 返回 `INVALID_ARGUMENT`（message `文档引擎设置不正确`，整体不生效，同 v0.7.6 的原子规则）。选了当前不存在的引擎**允许保存**（例如换了电脑），运行时按 6.12.25 退回自动顺序，不报错。macOS / Linux 也接受这四个值（只是 `office` / `wps` 永远不可用）。
+- **v0.28 记录实现差异（以实现为准）**：没有单开池，是 `OfficeConverter` 的一把全局锁保证并发 1，能用 Office / WPS 的任务不进组件池、直接开始并在锁上等；语义等价，细节见 6.12.65。
 - **Office / WPS 单独一个池（架构师定）**：池名“本机办公软件池”，**并发 1**（Word、Excel、PowerPoint、WPS 合在一起一次只跑一个转换任务）。**不占**文档组件那 2 个名额。理由：① Office / WPS 是完整的桌面程序，同时开两个自动化实例内存和稳定性都差，PowerPoint / WPS 演示本来就只能有一个；② 文档组件的 2 个名额是给 soffice 进程算的，Office 任务占着它没有意义，反而让需要组件的格式（如 WPS 用户的 ODF）白白排队；③ Office 失败换到文档组件时直接进组件池，不用和自己抢名额。所以文档页同时最多跑 **3 个转换**（1 个 Office / WPS + 2 个文档组件），md ↔ html 和简易转换仍不进池（6.12.18）。
 - **排队**：文档页仍是**一条 FIFO 队列**，每个排队任务在派发时按 6.12.25 挑好要用的引擎，等那个引擎的池有空位；调度器按顺序找**第一个**它要的池有空位的任务启动（前面的任务等 Office 时，后面要用组件的任务可以先跑）。**不因为 Office 池忙就改用组件**：引擎按“能不能用”挑，不按“忙不忙”挑，同一种转换效果才稳定。`queuePosition` 仍是“文档队列里排在它前面的排队任务数”，`doc:queue` 不变。任务从 Office 换到组件时**插到组件池的最前面**（它已经等过一次了）。
 - **转换的单次超时（架构师定）**：Office / WPS **每次 3 分钟**，文档组件每次 **5 分钟**（v0.26 不变），**整个任务（含换引擎）最多 10 分钟**，到了就停在当前引擎、按 6.12.33 失败。理由：弹窗卡住的那次永远不会自己结束，等满 5 分钟再换引擎太久；Office 转 100 MiB 以内的文件正常远少于 3 分钟（**需真机验证**，不够再调，属契约变更）。
@@ -2224,7 +2235,7 @@ type DocSaveAsRequest struct {
 - **目标已存在**：由系统保存对话框负责确认覆盖，后端**直接覆盖**（同样“临时文件 + 替换”，保留目标原有的属性）；目标只读 / 没有权限 → `IO_ERROR` `reason=permission`，被锁 → `IO_ERROR` `reason=in_use`。
 - **编码 `encoding`**：`keep` 按原文件的编码和换行写（6.12.40；原来是 `gbk` 的同样严格按 GBK，编不进去返回 `INVALID_ARGUMENT` `reason=encoding`）；**允许设 `encoding=utf8`**（这就是编码存不了时的出路）；`utf8` 写 **UTF-8 不带 BOM**，换行仍按原文件。其他值 `INVALID_ARGUMENT`。**例外**：html 选 `utf8`、而内容里 `<meta charset>` 声明的是别的编码时，写 UTF-8 **带 BOM**（按 HTML 标准 BOM 优先于 meta，浏览器才能读对；内容本身仍不改）。csv 选 `utf8` 不带 BOM 与 6.12.17 一致；Excel 打开不带 BOM 的 UTF-8 CSV 中文会乱码，所以界面上 `keep` 是默认（原来带 BOM 的会继续带）。
 - 大小上限同 `SaveDocText`。
-- **不新建源文件行**，只返回保存后的路径（`DocSaveResult.path`）。**例外**：目标正好是文档页某一行的原文件或某条记录的输出文件时，按 6.12.41 “保存成功之后”同样刷新那一行的副本 / 那条记录的 `result`（不然副本和原文件会不一致）；这一行如果正在转换，返回 `TASK_CONFLICT` `reason=converting`。
+- **不新建源文件行**，只返回保存后的路径（`DocSaveResult.path`）。**v0.28 定稿（取代原来的“例外”写法）**：目标正好是**这条记录自己的**源文件或输出 → 不拒绝，按覆盖处理，等同于对该文件“保存”，保存后刷新这条记录（副本 / `result`、返回新的 `revision` 和大小）；这条记录正在转换仍是 `TASK_CONFLICT` `reason=converting`；目标是**别的记录**的源文件、输出或副本 → `IO_ERROR` `reason=in_use`。详见 6.12.65 ①。
 - **“打开所在文件夹”**：保存成功的目标路径登记进 `RevealInFolder` 的内存放行表（同 v0.23.3 的做法：本次运行有效、只放行这个文件本身、最多保留最新 100 个、不落库），前端用 `RevealInFolder(path)` 打开并选中它。
 
 ### 6.12.43 `SystemService.SaveFileDialog`：系统保存对话框（新增）
@@ -2281,6 +2292,13 @@ SaveFileDialog(defaultName string, filters []FileFilter) (string, error) // 用�
 
 - **所有出错都保留用户编辑的内容**（同上）。
 - “编辑过的结果”怎么知道（架构师定）：前端在本次运行里对这条记录保存成功过就算；跨重启不记（不加字段、不加迁移）。
+
+**v0.28 定稿（产品已定）**：
+
+| 场景 | code / 条件 | 文案 | 前端动作 |
+|---|---|---|---|
+| Windows / macOS 文档组件太旧 | `componentState=outdated`、`DOC_COMPONENT_NOT_READY` `reason=outdated` | `文档组件版本太旧，请重新下载。` | 「更新文档组件」（调 `InstallDocComponent`） |
+| 场景 35：有未保存的改动时点「重新打开」 | 编辑器有改动 | `重新打开会丢掉你改的内容，确定吗？` | 「重新打开」（危险样式）「取消」 |
 
 **仍是建议（待产品定，后端先按这些写；上面已定稿的条目以上面为准）**：
 
@@ -2387,7 +2405,7 @@ type DocBinarySaveAbort struct {
 
 1. 参数：id 两个都给或都不给、`mode` 不是两者之一、overwrite 没有 `revision` 或给了 `targetPath`、save_as 没有 `targetPath` → `INVALID_ARGUMENT`（没有 reason）；`totalBytes` ≤ 0 → `INVALID_ARGUMENT`；**`totalBytes` > 20 MiB → `INVALID_ARGUMENT` `reason=too_large`**。
 2. 记录：不存在 `NOT_FOUND` `reason=record`；不是文档页的行 / 文档记录 `UNSUPPORTED` `reason=format`；结果记录不是 `succeeded` `NOT_FOUND` `reason=file`；原文件扩展名不是 docx → `INVALID_ARGUMENT` `reason=format`。
-3. **save_as 的目标**：规则同 6.12.42（绝对路径、不是 `\\?\` / `\\.\`、所在文件夹已存在、不是文件夹、**不在应用数据目录内（`output` 除外）、不在上传目录 `uploads` 内**，这几项是没有 reason 的 `INVALID_ARGUMENT`）；扩展名必须是 `.docx`（不区分大小写），否则 `INVALID_ARGUMENT` `reason=format`。目标正好是文档页某一行的原文件或某条记录的输出、而它正在转换 → `TASK_CONFLICT` `reason=converting`。
+3. **save_as 的目标**：规则同 6.12.42（绝对路径、不是 `\\?\` / `\\.\`、所在文件夹已存在、不是文件夹、**不在应用数据目录内（`output` 除外）、不在上传目录 `uploads` 内**，这几项是没有 reason 的 `INVALID_ARGUMENT`）；扩展名必须是 `.docx`（不区分大小写），否则 `INVALID_ARGUMENT` `reason=format`。**v0.28 定稿**：目标正好是这条记录自己的原文件 / 输出 → 按 overwrite 处理（不比对 `revision`，做完整性检查和备份、返回 `backupPath`），正在转换 → `TASK_CONFLICT` `reason=converting`；目标是别的记录的原文件、输出或副本 → `IO_ERROR` `reason=in_use`（6.12.65 ①）。
 4. **overwrite**：正在转换 `TASK_CONFLICT` `reason=converting`（副本复制中 `reason=copying`）；原文件 / 输出文件不在 `NOT_FOUND` `reason=file`；读不了（被锁）`IO_ERROR` `reason=in_use`；**SHA-256 和 `revision` 不同 → `TASK_CONFLICT` `reason=file_changed`**（提前发现，免得白传 20 MiB）。
 5. **同一文件同时只允许一个保存会话**：按要写入的真实路径（`EvalSymlinks` 后，Windows / macOS 不分大小写）加锁；已有未结束的会话（含 `SaveDocText` / `SaveDocTextAs` 正在写同一文件）→ `TASK_CONFLICT` `reason=saving`。
 6. 暂存目录所在磁盘剩余 < `totalBytes` × 2 + 64 MiB（暂存一份、同目录临时文件一份的估算）→ `CONVERT_DISK_FULL`。
@@ -2490,9 +2508,9 @@ type DocBinarySaveAbort struct {
 
 - **契约写死的版本是 26.2.6**（6.12.11 / 6.12.12）。检测时扫描 `<组件目录>/doc/` 下所有不带 `.staging` 的版本目录；某个目录里的组件按 6.12.12 的方式读出版本，**前三段数字小于 `26.2.6`**（`26.2.6.3` 按 `26.2.6` 比；例如以前的版本留下的 `doc/26.2.5/`）就是“版本太旧”的候选。系统安装的仍按原规则（主版本 ≥ 7.2，6.12.11），**不要求 26.2.6**。
 - **什么时候是 `componentState=outdated`**：沿用 9.4 转换组件的原则——**版本过低的候选只在没有任何合格候选时才算**。所以：有合格的系统 LibreOffice 时是 `ready`（`source=system`），旧的下载组件不用；没有任何合格候选、但有太旧的下载组件时是 `componentState=outdated`。系统 LibreOffice 低于 7.2 的 `outdated`（v0.26 / v0.27 已有）不变。
-- **`outdated` 时**：`canDownload=true`（Windows x64、macOS 本来就是 true；**允许调 `InstallDocComponent`**，下载 26.2.6，装好后变 `ready` 并删掉旧的 `doc/<旧版本>/` 目录，删不掉只记日志）；`version` 是那个旧版本号；`engines` 里组件那一项 `installed=true`、`available=false`、`source=downloaded`、`version` 为旧版本；`error` 为 `DOC_COMPONENT_NOT_READY`，message `文档组件版本太旧，请重新下载。`（建议，待产品定），`detail` 第一行 `reason=outdated`。`state`（整体）仍按 6.12.28：有 Office / WPS 可用就是 `ready`，否则等于 `componentState`（`outdated`）。
+- **`outdated` 时**：`canDownload=true`（Windows x64、macOS 本来就是 true；**允许调 `InstallDocComponent`**，下载 26.2.6，装好后变 `ready` 并删掉旧的 `doc/<旧版本>/` 目录，删不掉只记日志）；`version` 是那个旧版本号；`engines` 里组件那一项 `installed=true`、`available=false`、`source=downloaded`、`version` 为旧版本；`error` 为 `DOC_COMPONENT_NOT_READY`，message `文档组件版本太旧，请重新下载。`（v0.28 定稿），`detail` 第一行 `reason=outdated`。`state`（整体）仍按 6.12.28：有 Office / WPS 可用就是 `ready`，否则等于 `componentState`（`outdated`）。
 - **提交任务**（`SubmitDocConvert`、任务开始时的兜底、6.12.33 的回退）：需要文档组件、又没有别的可用引擎时返回 `DOC_COMPONENT_NOT_READY`；**`detail` 第一行写 `reason=<componentState>`**（架构师定：`missing` / `outdated` / `downloading` / `preparing` / `failed` / `checking`，组件太旧时就是 `reason=outdated`），message 在 `outdated` 时是上面那句，其他情况不变（6.12.20）。
-- **预览**（`GetDocPreview`）：**沿用已有定义，不改成报错**——没有可用引擎时仍是 `kind=unavailable` + `reason=needs_component`（6.12.32），不是 `DOC_COMPONENT_NOT_READY`。前端在 `componentState=outdated` 时把提示换成 `文档组件版本太旧，请重新下载。` + 「更新文档组件」（按钮文字建议，待产品定；点了调 `InstallDocComponent`）。
+- **预览**（`GetDocPreview`）：**沿用已有定义，不改成报错**——没有可用引擎时仍是 `kind=unavailable` + `reason=needs_component`（6.12.32），不是 `DOC_COMPONENT_NOT_READY`。前端在 `componentState=outdated` 时把提示换成 `文档组件版本太旧，请重新下载。` + 「更新文档组件」（v0.28 定稿；点了调 `InstallDocComponent`）。
 - 格式表（`GetFormatMatrix`）：`componentReady=false`，需要组件的目标置灰，`disabledReason` 仍是 `需要文档组件`（不新增 hintKey）。
 - Linux 不变（没有下载组件）。
 
@@ -2508,6 +2526,121 @@ type DocBinarySaveAbort struct {
 
 - 契约**仍允许**在 `preparing`（解包、检测）时调 `CancelDocComponentInstall`（6.12.12 第 5 条，规则不变）。
 - **前端可以不提供**准备阶段的取消按钮（按设计稿：准备通常一两分钟，中途取消意义不大）；下载阶段的取消照旧。后端不因为前端不调而改变任何行为。
+
+## 6.12.58 PDF 作为输入转成其他格式（v0.28；用户提出，架构师定方案，文案待产品定）
+
+> 用户原话：“需要支持 pdf 转成其他格式，现在 pdf 无法上传转换。”本节**取消** 6.12.10 / 6.12.16 / 6.12.20 里“PDF 只作输出、添加时拒绝（`DOC_PDF_INPUT_UNSUPPORTED`，`PDF 暂时不能转成其他格式。`）”的限制。任务类型仍是 `doc_convert`，**没有迁移**（现有最大号仍是 0009，下一个是 0010）。与 6.12.9~6.12.57 冲突时以本节为准。
+
+### 6.12.59 范围与格式表
+
+- **新家族 `pdf`**：`family` 的取值加 `pdf`（`DocSource.family`、`DocSourceFormats.family`、`DocEngineInfo.families` 都可能出现）。源格式只有 `pdf` 一个；**PDF 不算文字类**，所以不和 text 家族互转规则混在一起，目标单独列：
+
+| 源 | 目标 | 用什么转（按顺序） | `needsComponent` | `simple` | `hintKey` |
+|---|---|---|---|---|---|
+| pdf | `doc` `docx` `odt` `rtf` | ① Word（Office，**Word ≥ 2013**，即主版本 ≥ 15，PDF 重排从 2013 起有）→ ② 文档组件（应用下载的 → 系统 LibreOffice，`writer_pdf_import`）。**不用 WPS**（WPS 的 PDF 转 Word 是会员功能） | `true` | `false` | `pdf_layout` |
+| pdf | `txt` `md` | ① **纯 Go 提取文字**（6.12.62，不占任何池）→ ② 质量判定不过时**自动改用文档组件**（有可用的才用）。**不用 Word**（Word 只转 doc / docx / odt / rtf） | `false` | `true` | txt：`simple_mode`；md：`md_lossy` |
+| pdf | `html` | 有可用的文档组件：组件 `writer_pdf_import` 导出 html（`simple=false`）；没有：纯 Go 提取文字生成简易 html（`simple=true`）。**不用 Word** | `false` | 没有组件时 `true` | 没有组件时 `simple_mode` |
+
+- **不支持**（矩阵里**不列出**，不是置灰）：xlsx / xls / ods / csv / pptx / ppt / odp、图片、pdf（转成自己）。PDF 转图片放以后。
+- **目标顺序**：按 6.12.10 文字类的顺序 `doc` `docx` `odt` `rtf` `txt` `html` `md`（没有 pdf）。
+- **`DocFormatMatrix.inputs`** 加 `pdf`；`sources` 加一项 `{ext: "pdf", family: "pdf", targets: [...]}`。
+- **`available`**：doc / docx / odt / rtf 需要 Word（≥ 15）或可用的文档组件，都没有时置灰，`disabledReason=需要文档组件`；txt / md **恒为 `true`**（纯 Go）；html 恒为 `true`（没有组件就走简易）。
+- **`engines`**（6.12.30 的 `DocTarget.engines`）：doc / docx / odt / rtf 为 `["office", "component"]` 中现在可用的；txt / md 为 `["go"]`，有可用组件时 `["go", "component"]`；html 有组件 `["component"]`，没有 `["go"]`。
+- **`hintKey`** 新增 `pdf_layout`，文案（**待产品定**）`PDF 转 Word 会尽量还原排版，复杂版式和扫描件可能走样。`。`hint` 一项只放一句：pdf → md 给 `md_lossy`（不再叠加 `simple_mode`），pdf → txt 和没有组件时的 pdf → html 给 `simple_mode`。**`simple_mode` 在 PDF 源上的文案**（待产品定）：`只提取文字，不保留排版和图片。`（与组件未就绪时的 `下载文档组件后可保留图片和排版` 区分：前者是 PDF 源，后者是其他源；后端按源给 `hint`，`hintKey` 相同）。
+- **能力表**（6.12.27）加一列 **PDF**：`office` 源 pdf → 目标 doc docx odt rtf（**只看 Word，且主版本 ≥ 15**）；`wps` **不做**；`component` 源 pdf → 目标 doc docx odt rtf txt md html。纯 Go（`go`）源 pdf → txt md html 不进能力表（与 md ↔ html 一样是内置的）。`DocEngineInfo.families`：Word ≥ 15 时 `office` 带 `pdf`；`component` 已装时带 `pdf`；`wps` 不带。
+- **预览**：PDF 本身的预览（6.12.32，`kind=pdf`）**不变**；PDF 仍不能编辑（`editBlock=format`）。
+
+### 6.12.60 添加 PDF：检查、大小和页数
+
+- `.pdf` 不再返回 `DOC_PDF_INPUT_UNSUPPORTED`，按 6.12.16 的流程建行（`kind='doc'`、`family='pdf'`、`sheetCount=0`），复制副本，转换读副本。
+- **大小上限：PDF 单独定为 200 MiB**（209 715 200 字节；其他文档仍是 100 MiB）。超过 → `INVALID_ARGUMENT` `reason=too_large`，message（**待产品定**）`PDF 太大了，最大 200 MB。`，不建行。
+- **页数上限：500 页**。添加时用纯 Go 库（6.12.62）读页数（5 秒内，和其他轻量检查同一个超时）：**> 500 → `INVALID_ARGUMENT` `reason=too_many_pages`**（新 reason），message（**待产品定**）`PDF 页数太多，最多 500 页。`，不建行。**读不出页数（库解析不了）不拒绝**：建行，交给引擎；运行前再读一次，仍读不出就照常转（引擎自己能读的 PDF 比纯 Go 库多），引擎的单次超时兜底。理由：纯 Go 库对部分合法 PDF（例如修复过的交叉引用表）解析不了，不能因此拒绝用户本来能转的文件。
+- **基本检查**：文件开头 1024 字节内没有 `%PDF-` → `DOC_CORRUPT`，不建行。文件为空同样 `DOC_CORRUPT`。
+- **加密**（加进 6.12.19 的表）：trailer（或交叉引用流的字典）里有 `/Encrypt` 时，用**空的用户密码**试打开：
+  - 打得开（只有“所有者密码”、限制打印 / 复制的 PDF，很常见）→ **不算加密**，照常转；
+  - 打不开（要用户密码）→ **`DOC_ENCRYPTED`**，沿用现有文案 `这个文件有密码保护，不能转换。请先去掉密码再添加。`，不建行；
+  - 库不支持这种加密方式（例如它不认的加密处理程序）→ 也按 `DOC_ENCRYPTED`（宁可拒绝也不让 Word / 组件弹密码框卡住）。**需验证**：常见的 AES-256（R6）PDF 走哪一条（6.12.64）。
+  - 添加、提交、运行前各检查一次（同 6.12.19）。Word 打开时仍带“固定的假密码”（6.12.26 第 1 条），组件同理不会等输入。
+
+### 6.12.61 引擎：怎么转
+
+**Word（Office）**，只用于 → doc / docx / odt / rtf：
+
+- 沿用 6.12.26 的全部硬规则：**只打开我们自己的临时拷贝**、`AutomationSecurity=3`、私有实例 + 实例隔离检查、`DisplayAlerts=0`、窗口不可见、单次超时 3 分钟、超时只结束我们的 PID。
+- 打开：`Documents.Open(FileName, ConfirmConversions:=False, ReadOnly:=True, AddToRecentFiles:=False, PasswordDocument:=<固定的假密码>, Visible:=False, OpenAndRepair:=False, NoEncodingDialog:=True)`（Word 2013+ 打开 PDF 时会做“PDF 重排”，转成可编辑的文档）；然后 `SaveAs2(FileName, FileFormat:=16 / 0 / 23 / 6)`（docx / doc / odt / rtf，同 6.12.26 导出表）。
+- Word 重排时的“Word 现在会把 PDF 转换为可编辑文档……”提示：靠 `DisplayAlerts=0` 关掉；**不改** Word 的选项（6.12.26 第 3 条：不改会保存下来的设置）。关不掉就会卡到 3 分钟超时、换文档组件（**需真机验证**）。
+- Word < 15 不用于 PDF；Word 打不开（报错、产物为空）按 6.12.25 换下一个引擎（文档组件）。
+
+**文档组件**（应用下载的优先，再系统 LibreOffice），用于 → doc / docx / odt / rtf / html，以及 txt / md 的回退：
+
+- `soffice --headless --infilter=writer_pdf_import --convert-to <过滤器> ...`（`writer_pdf_import` 把 PDF 当作 Writer 文档打开，版式用文本框还原，**质量比 Word 差**；不加 `--infilter` 时组件会用 Draw 打开 PDF，导不出这些格式）。导出过滤器沿用 6.12.11 文字类的写法（doc / docx / odt / rtf / html / txt）；md 先导出 html，再 html-to-markdown（6.12.26 的 md 规则）。
+- 进文档组件池（并发 2）；Word 失败换到组件时的规则同 6.12.29（实际以 6.12.65 记的实现为准）。临时配置目录、宏和链接设置（6.12.27）不变。
+
+**纯 Go**（`engine=go`），用于 → txt / md，以及没有组件时的 → html：见 6.12.62。不进任何池（同 md ↔ html，提交后直接开始运行，`startedAt` 就是开始时间）。
+
+- **`TaskResult.engine`**（6.12.31）：实际完成的那个——Word 是 `office`，组件是 `component`，纯 Go 是 `go`（**pdf → txt / md / 简易 html 记 `go`，不记 `simple`**：`simple` 留给“排版引擎都失败后的回退”；PDF 的纯 Go 提取本来就是首选方式）。纯 Go 质量不过、改用组件成功时记 `component`。
+- **`params.engine`**（6.12.21）：提交时按格式表定的首选：doc / docx / odt / rtf / 有组件的 html 为 `component`（含先试 Word，沿用 v0.27 的含义），txt / md / 没组件的 html 为 `go`。
+- 超时：整个任务最多 10 分钟（6.12.29 不变）；纯 Go 提取单次 **2 分钟**（在单独的 goroutine 里跑，到时放弃这次结果按“提取失败”处理）。
+
+### 6.12.62 纯 Go 提取文字与质量判定
+
+- **库：`github.com/ledongthuc/pdf`**（`go.mod` 固定到 `v0.0.0-20260907135840-6c8c28e0e8a0`，即 2026-09-07 的 master，**许可证 BSD-3-Clause**，可以随应用分发、不传染）。选择理由：① 纯 Go、不用 cgo，三个平台同一份代码；② 它是 Go 官方作者 `rsc.io/pdf` 的维护分支，在其上加了按页取纯文本（`GetPlainText` / 按行按字）和页数（`NumPage`）、处理 ToUnicode 字体映射，正好覆盖“取文字”的需要；③ 体积小、没有其他依赖。没选的：`pdfcpu`（Apache-2.0，擅长改 PDF，取文字能力弱）；`unidoc/unipdf`（AGPL / 商业许可，不能用）；调用外部 `pdftotext`（要随包带 poppler，违背纯 Go）。**已知局限**：遇到损坏或少见结构的 PDF 可能报错甚至 panic（rsc.io/pdf 的传统）→ 一律在单独的 goroutine 里 `recover`，panic 和报错都按“解析失败”处理，不让应用崩溃；对越界、超大对象由库自身和 2 分钟超时兜底。
+- **提取**：逐页取纯文本（最多 500 页，与上限一致）；页内按库给的行；页与页之间空一行。
+- **质量判定**（每次纯 Go 提取后都做；**提取失败**的两种情况，`detail` 第二行写 `quality=empty` / `quality=garbled`，**只给开发者看**，前端不解析）：
+  - **`empty`**：去掉所有空白（Unicode `White_Space`）后一个字符都没有。
+  - **`garbled`**：在所有**非空白字符**里，下面三类加起来**占 30% 及以上**：替换符 `U+FFFD`；私用区字符（`U+E000–U+F8FF`、`U+F0000–U+FFFFD`、`U+100000–U+10FFFD`）；控制字符（Unicode 类别 `Cc`，换行、回车、制表符本来就算空白，不计入）。理由：没有 ToUnicode 映射的字体常被取成私用区或替换符，30% 以上时文字基本不可读，不如交给组件或直接告诉用户。
+  - 解析失败（报错、panic、2 分钟超时）**不算质量问题**，按下面同样“改用组件”处理；没有组件时报 `DOC_CORRUPT`（`detail` 第一行 `engine=go`，第二行 `parse=<简短原因>`）。
+- **提取失败时**（txt / md / 没组件时的 html）：
+  1. **有可用的文档组件**（应用下载的或系统 LibreOffice，`componentState=ready`）→ **自动改用组件** `writer_pdf_import` 导出 txt / md / html（md 走 html → md），任务继续（日志写 `[FFmpegFree] PDF 文字提取失败（garbled），改用文档组件`），成功则 `result.engine=component`。改用组件时**进组件池**排队（插到组件池最前面，同 6.12.29“已经等过一次”的规则），不另起任务。
+  2. **没有可用的组件** → 失败，**`DOC_PDF_NO_TEXT`**（新增码，6.12.63），`detail` 第一行 `reason=no_text`，第二行 `quality=empty|garbled`。
+  3. 组件导出的 txt / md 去掉空白后为空（扫描件常见：组件只还原出图片框）→ 同样 `DOC_PDF_NO_TEXT`（`detail` 第二行 `quality=empty`，第三行 `engine=component`）。组件导出的 html 不做这个检查（可能只有图片，也是有效结果）。
+- **输出 txt**：**UTF-8 不带 BOM**，换行 Windows 写 `\r\n`、macOS / Linux 写 `\n`。理由：① 和 6.12.17 / 6.12.26 已定的“csv、txt 输出一律不带 BOM”一致（同一个文档页，同一种 txt 不该有两种写法）；② Windows 10 1903 起的记事本、各平台编辑器默认按 UTF-8 打开不带 BOM 的文件，BOM 反而会让脚本和其他程序读到多余的字节；③ 换行跟平台走，老记事本也能正常显示。组件导出的 txt 同样去掉 BOM（6.12.26 已有）。
+- **输出 md**（纯 Go）：每段文字一段，段与段之间空一行，页与页之间也空一行；行首的 Markdown 特殊字符（`#` `>` `-` `+` `*` `|`、`数字.`）和行内的 `\` `` ` `` `*` `_` `[` `]` `<` 加反斜杠转义，避免原文被当成标题、列表或链接。UTF-8 不带 BOM，换行 `\n`（md 统一用 `\n`，与 6.12.11 一致）。
+- **输出简易 html**（纯 Go，没有组件时）：`<!DOCTYPE html><html><head><meta charset="utf-8"><title>原文件名</title></head><body>` + 每段一个 `<p>`（HTML 转义）+ 页与页之间 `<hr>` + `</body></html>`；`result.warnings` 带 `simple_fallback`（复用 v0.27 的 warning：记录上显示 `这次是简易转换，只保留了文字。可以稍后重转。`）。
+- **不占组件槽位**：纯 Go 这一步在 PoolFree 里跑，不受文档组件池 2 个名额和 Office 锁的限制。
+
+### 6.12.63 错误码（v0.28 新增 1 个；2.1 由 30 个变为 31 个）
+
+| code | message | 可重试 | 出现在 | 说明 |
+|---|---|---|---|---|
+| `DOC_PDF_NO_TEXT` | `这个 PDF 里没有可提取的文字，可能是扫描件。`（**待产品定**） | **否** | 任务（pdf → txt / md / 简易 html） | 纯 Go 提取失败且没有可用组件，或组件导出的 txt / md 为空。`detail` 第一行 `reason=no_text`，第二行 `quality=empty\|garbled`（只给开发者看） |
+
+- **为什么加新码而不复用**：已有的 `DOC_CORRUPT`（文件坏了，只能移出）和 `DOC_FORMAT_UNSUPPORTED`（格式不支持）意思都不对；扫描件是好文件，只是没有文字层，用户需要的是“换成转 Word / 等以后的 OCR”，文案必须单独一句。不可重试：同一份文件、同一组引擎结果不会变；用户装了文档组件后可以对这一行**新提交**一次（源文件行还在）。
+- **`DOC_PDF_INPUT_UNSUPPORTED` 保留在枚举里，不再产生**（旧记录、旧前端可能还会见到它；文案不变）。
+- 沿用的码：太大 `INVALID_ARGUMENT` `reason=too_large`（PDF 上限 200 MiB）；页数太多 `INVALID_ARGUMENT` `reason=too_many_pages`（**2.2 新增取值**）；加密 `DOC_ENCRYPTED`；不是 PDF / 解析失败且没有组件 `DOC_CORRUPT`；Word / 组件出错、超时同 6.12.33。
+- 2.1 的 TS 联合类型加 `'DOC_PDF_NO_TEXT'`；“文档类错误码能否重试”表加一行（否，v0.28）。
+
+### 6.12.64 测试与未验证事项
+
+- **单测**（纯 Go 部分 Linux / macOS 都能跑）：添加 PDF 建行、`family=pdf`；201 MiB → `too_large`；501 页 → `too_many_pages`；读不出页数仍建行；只有所有者密码的 PDF 能转、要用户密码的 → `DOC_ENCRYPTED`；不是 PDF → `DOC_CORRUPT`；质量判定（全空白 → empty；30% 私用区 → garbled；29% → 通过；`\n\t` 不计入）；提取失败 + 有组件 → 改用组件、`engine=component`；提取失败 + 没组件 → `DOC_PDF_NO_TEXT` 且 `detail` 第二行正确；库 panic 不崩溃；txt 不带 BOM、换行按平台；md 转义；格式表里 pdf 的目标、`simple`、`hintKey`、`available`（有 / 没有 Word、有 / 没有组件四种组合）；WPS 不出现在 pdf 的 `engines` 里。
+- **真机待验证**：
+
+| # | 项目 | 怎么验证 | 不通过怎么办 |
+|---|---|---|---|
+| 1 | Word 打开 PDF 时的重排提示能否被 `DisplayAlerts=0` 关掉；Word 2013 / 2016 / 365 各一 | 转一个 PDF，看是否卡到超时 | 卡住就靠超时换组件；仍不行则 Word 不用于 PDF（改能力表） |
+| 2 | Word 重排 500 页 / 200 MiB 的 PDF 耗时是否超过 3 分钟 | 准备大文件实测 | 调 PDF 的单次超时（契约变更） |
+| 3 | 组件 `writer_pdf_import` 导出 docx / html / txt 的效果和耗时（26.2.6 与系统 7.x） | 同一批 PDF 对比 | 只改提示文案 |
+| 4 | `ledongthuc/pdf` 对 AES-256（R6）、交叉引用流、对象流、中文 CID 字体的支持 | 一批真实 PDF（含 WPS / Word 导出的、扫描件、加密的） | 不支持的加密按 `DOC_ENCRYPTED`；取不出的靠组件回退 |
+| 5 | 30% 阈值是否合适 | 真实乱码 PDF 统计 | 调阈值（契约变更） |
+
+### 6.12.65 v0.28 顺带定稿与实现差异记录
+
+**① 另存为的目标正好是这条记录自己的文件（定稿，改 6.12.42 和 6.12.49 第 3 步）**：
+
+- `SaveDocTextAs` / `BeginDocBinarySave(mode=save_as)` 的 `targetPath`（按 6.12.3 的方式比较：`EvalSymlinks`，Windows / macOS 不分大小写）**正好是请求里这条记录自己的文件**——源文件行（`sourceId`）的原文件 `originalPath`，或结果记录（`taskId`）的输出 `outputPath`——时**不拒绝，按覆盖处理**，等同于对这个文件“保存”：
+  - 文本类：照 6.12.41 写入（临时文件 + 原子替换，编码按请求的 `encoding`），**不比对 `revision`**（用户已在系统对话框里确认覆盖）；docx：照 6.12.49 的 overwrite 走 Commit（含完整性检查和**备份**，返回 `backupPath`），同样不比对 `revision`。
+  - 保存后**刷新这条记录**：源文件行同步副本、更新 `convert_copies` 的大小和修改时间；结果记录更新 `result.sizeBytes`、`version` +1、发 `task:status`；返回新的 `revision` 和 `sizeBytes`，前端用它们替换编辑器里记着的值（之后点「保存」不会误报 `file_changed`）。
+  - 这条记录**正在转换**（或副本复制中）→ 仍是 `TASK_CONFLICT` `reason=converting`（`copying`）。
+- 目标是**别的记录**的源文件、输出或副本 → **`IO_ERROR` `reason=in_use`**（不管那条记录在不在转换；取代 6.12.42 原来“同样刷新那一行”的写法）。副本通常在上传目录里，先被“不能写进上传目录”的规则挡住（`INVALID_ARGUMENT`）；改过上传目录后留在旧位置的副本（6.15.2 第 4 条）才会走到这一条。
+- 目标不是任何记录的文件：规则不变（直接覆盖已有文件，不备份）。
+
+**② 记录后端实现与契约的差异（以实现为准）**：
+
+- **Office / WPS 的并发 1**：实现**没有单开“本机办公软件池”**，而是 `OfficeConverter` 里**一把全局锁**（转换和预览共用）保证同一时刻只有一个 Office / WPS 调用；能用 Office / WPS 的 `doc_convert` 任务**不进文档组件池**（`PoolFree`），提交后直接开始、在锁上等。语义与 6.12.29 等价（不占组件的 2 个名额，同时最多 1 个 Office / WPS 调用）。对外差别：在锁上等的任务对外已是 `running`（`startedAt` 是开始等锁的时刻，没有 `queuePosition`）；6.12.56 的“离开排队”对这类任务就是这个时刻。
+- **Job Object**：Office / WPS 进程**暂不放进 Job Object**（`attachJob` 现在是空的），只靠“超时只结束我们自己启动的那个 PID”（`TerminateProcess`）满足 6.12.26 第 4 条的硬规则。**列为后续加固项**：应用被强制结束时 Office / WPS 进程可能残留（6.12.36 第 6 项真机验证时记录）。
+- **文档组件的链接更新设置**（6.12.27 补充，预置进每个任务临时配置目录的 `registrymodifications.xcu`）：宏 `MacroSecurityLevel=3`、`DisableMacrosExecution=true`；外部链接加载时不更新——**Writer `Content/Update/Link=0`、Calc `Content/Update/Link=1`**（两者“从不”的取值不同：Writer 0 = 从不；Calc 0 = 总是、1 = 从不、2 = 询问）。
+
+**③ 文案定稿**：写进 6.12.45 的“v0.28 定稿”表——Windows / macOS 组件太旧 `文档组件版本太旧，请重新下载。` + 「更新文档组件」；场景 35「重新打开」的二次确认 `重新打开会丢掉你改的内容，确定吗？`，按钮「重新打开」（危险样式）「取消」。
 
 ## 6.13 本地资源访问 `/local/<token>`（中立章节，DocService 与转换记录共用；由 #22 引入，#23 引用，v0.23 加 `convert` 表；v0.23.5 删除 `edit` 表）
 

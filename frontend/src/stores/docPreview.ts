@@ -127,21 +127,23 @@ export const usePreviewStore = defineStore('docPreview', () => {
     void load()
   }
   /** 保存成功后重新拿一次预览（6.12.49：旧的本地地址会失效），不经过「加载中」，旧的拿到新的之后再撤销 */
-  async function refresh() {
+  async function refresh(): Promise<DocPreview | null> {
     const it = current.value
     const old = preview.value
-    if (!it || !old) return
+    if (!it || !old) return null
     const comp = useDocComponentStore()
     try {
       const p = await getDocPreview(it.req, { name: it.name, sizeBytes: it.sizeBytes, engineReady: comp.ready, converting: it.converting, missing: it.missing })
       if (!open.value || preview.value !== old) {
         void cancelDocPreview(p.previewId).catch(() => {})
-        return
+        return null
       }
       preview.value = p
       void cancelDocPreview(old.previewId).catch(() => {})
+      return p
     } catch {
       /* 保持旧的 */
+      return null
     }
   }
   const reload = () => {

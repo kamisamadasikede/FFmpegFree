@@ -92,8 +92,8 @@ const notice = computed<(PreviewNotice & { tone: string; icon: string }) | null>
     return { ...n, tone: lock ? 'lock' : n.retry ? 'warn' : 'bad', icon: lock ? 'lock' : 'warn' }
   }
   if (p.kind === 'unavailable') {
-    const n = previewUnavailableNotice(p.reason, { linux: comp.isLinux, outdated: comp.compState === 'outdated' })
-    return { ...n, tone: 'info', icon: 'download' }
+    const n = previewUnavailableNotice(p.reason, { linux: comp.isLinux, outdated: comp.compState === 'outdated', engineReady: comp.ready })
+    return n.download ? { ...n, tone: 'info', icon: 'download' } : { ...n, tone: 'bad', icon: 'warn' }
   }
   if (!KNOWN_KINDS.includes(p.kind) || (p.state !== 'ready' && p.state !== 'generating')) return { text: PV_FAILED, tone: 'bad', icon: 'warn' }
   if (p.kind === 'raw' && !['docx', 'xlsx'].includes(ext.value)) return { text: PV_FAILED, tone: 'bad', icon: 'warn' }
@@ -216,7 +216,7 @@ onBeforeUnmount(() => clearTimeout(toastTimer))
 function fail(e: unknown, m: 'text' | 'textAs' | 'docx' | 'docxAs') {
   const ae = toAppError(e)
   if (ae.code === 'CANCELED') return
-  saveErr.value = saveErrorView(ae.code, ae.reason, m)
+  saveErr.value = saveErrorView(ae.code, ae.reason, m, ae.message)
 }
 
 async function saveText(): Promise<boolean> {
@@ -269,12 +269,27 @@ async function saveAs(encoding: 'keep' | 'utf8'): Promise<boolean> {
     const r = await saveDocTextAs({ ...target(), targetPath: path, ...textPayload(), encoding })
     dirty.value = false
     showToast(savedAsToast(baseName(r.path || path)), r.path || path)
+    await afterSaveAs(r.revision)
     return true
   } catch (e) {
     fail(e, 'textAs')
     return false
   } finally {
     saving.value = false
+  }
+}
+
+/**
+ * 另存为之后重新拿一次预览：如果另存为的目标就是这条记录自己的文件（后端允许，等于覆盖），
+ * 新预览的 revision 会等于这次保存的 revision → 跟着换 revision（不然下次「保存」会误报「文件在别处被改过」），并记「在应用里改过」。
+ * 目标是别处时新预览 revision 不变，什么都不动。
+ */
+async function afterSaveAs(savedRevision: string) {
+  const p = await st.refresh()
+  if (p && savedRevision && p.revision === savedRevision && savedRevision !== revision.value) {
+    revision.value = savedRevision
+    if (isDocx.value) docxSavedOnce.value = true
+    st.markEdited(it.value?.req.taskId)
   }
 }
 
@@ -302,7 +317,10 @@ async function saveDocx(m: 'overwrite' | 'save_as'): Promise<boolean> {
       docxSavedOnce.value = true
       st.markEdited(it.value?.req.taskId)
       showToast(SAVED_BACKUP_TOAST, r.backupPath || r.path)
-    } else showToast(savedAsToast(baseName(r.path || path || '')), r.path || path)
+    } else {
+      showToast(savedAsToast(baseName(r.path || path || '')), r.path || path)
+      await afterSaveAs(r.revision)
+    }
     return true
   } catch (e) {
     fail(e, m === 'overwrite' ? 'docx' : 'docxAs')
