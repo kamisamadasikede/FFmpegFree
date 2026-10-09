@@ -1,7 +1,8 @@
 <template>
   <Teleport to="body">
+    <MotionDialog>
     <div v-if="modelValue" class="mask" @mousedown.self.prevent="close">
-      <div ref="dlgRef" class="dlg lic" role="dialog" aria-modal="true" :aria-labelledby="titleId">
+      <div ref="dlgRef" class="dlg lic ff-panel" role="dialog" aria-modal="true" :aria-labelledby="titleId">
         <h3 :id="titleId">{{ title }}</h3>
         <div class="lic-slot">
           <div v-if="state === 'ok'" ref="bodyRef" class="lic-body" tabindex="0" role="region" aria-label="许可全文（只读，可滚动）"><pre>{{ text }}</pre></div>
@@ -18,6 +19,7 @@
         </div>
       </div>
     </div>
+    </MotionDialog>
   </Teleport>
 </template>
 
@@ -27,6 +29,7 @@
 // 焦点：打开后落在「关闭」；Tab 在弹窗内循环；Esc / 点遮罩 / 点按钮关闭；关闭后焦点回到打开前的元素（「查看许可文本」链接）。
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
+import MotionDialog from '@/components/motion/MotionDialog.vue'
 import { getLicenseText, type LicenseName } from '@/api/about'
 
 const props = defineProps<{ modelValue: boolean; name: LicenseName; title: string }>()

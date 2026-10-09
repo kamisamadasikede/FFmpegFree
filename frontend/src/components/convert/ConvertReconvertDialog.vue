@@ -4,6 +4,7 @@
 import MidEllipsis from '@/components/common/MidEllipsis.vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
+import MotionDialog from '@/components/motion/MotionDialog.vue'
 import type { ReconvertAsk } from '@/stores/convertRecords'
 import { isAudioContainer } from '@/utils/convertText'
 import { RECONVERT_FORMAT_NOTE, RECONVERT_TITLE, reconvertBody, reconvertKeepLabel } from '@/utils/convertV24Text'
@@ -59,9 +60,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true))
 </script>
 <template>
   <Teleport to="body">
+    <MotionDialog>
     <div v-if="a" class="cv2 cv-layer" :class="{ w1024: narrow }">
       <div class="cv-mask" @click.self="!busy && emit('close')">
-        <div ref="box" class="cv-dlg" role="alertdialog" aria-modal="true" aria-labelledby="cv-rc-t" aria-describedby="cv-rc-d">
+        <div ref="box" class="cv-dlg ff-panel" role="alertdialog" aria-modal="true" aria-labelledby="cv-rc-t" aria-describedby="cv-rc-d">
           <div class="big neutral"><FIcon name="retry" /></div>
           <h3 id="cv-rc-t">{{ RECONVERT_TITLE }}</h3>
           <div class="cv-delfile"><FIcon :name="audio ? 'music' : 'film'" :size="14" /><MidEllipsis :text="a.name" /><template v-if="a.line"><i>·</i><em>{{ a.line }}</em></template></div>
@@ -84,5 +86,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true))
         </div>
       </div>
     </div>
+    </MotionDialog>
   </Teleport>
 </template>

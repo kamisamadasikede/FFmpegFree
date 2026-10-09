@@ -1,4 +1,5 @@
 <template>
+  <MotionCollapse>
   <div v-if="kind" class="banner" :class="kind">
     <FIcon :name="kind === 'info' ? 'download' : kind === 'ok' ? 'check' : 'warn'" />
 
@@ -40,6 +41,7 @@
       <span>转换组件已就绪（版本 {{ ffmpeg.status.version }}）</span>
     </template>
   </div>
+  </MotionCollapse>
 </template>
 
 <script setup lang="ts">
@@ -47,6 +49,7 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
+import MotionCollapse from '@/components/motion/MotionCollapse.vue'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { toAppError } from '@/api/call'
 import { publicErrorText } from '@/errors/errorMessages'

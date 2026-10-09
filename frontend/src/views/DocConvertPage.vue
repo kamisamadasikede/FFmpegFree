@@ -1,10 +1,11 @@
 <script setup lang="ts">
 // 文档转换页 v2（契约 v0.26 §6.12.9~6.12.22；设计 文档页-v2-设计说明 v0.2）。
 // 左栏：文档组件引导 + 源文件和记录；右栏：按交集分组的格式。
-import { computed, defineAsyncComponent, onActivated, onDeactivated, onMounted, watch } from 'vue'
+import { computed, defineAsyncComponent, onActivated, onDeactivated, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
+import MotionCollapse from '@/components/motion/MotionCollapse.vue'
 import DocComponentCard from '@/components/docs/DocComponentCard.vue'
 import DocFormatPanel from '@/components/docs/DocFormatPanel.vue'
 import DocSourceRow from '@/components/docs/DocSourceRow.vue'
@@ -34,6 +35,9 @@ const countText = computed(() => {
   const rec = dc.rows.reduce((a, r) => a + r.records.length, 0)
   return `${n} 个文件 · ${rec} 条记录`
 })
+// 首次读到源文件列表那一批不播插入动画，之后添加 / 移除才播
+const listArmed = ref(false)
+watch(() => dc.loaded, (v) => v && setTimeout(() => (listArmed.value = true)), { immediate: true })
 const showTotal = computed(() => dc.total.running + dc.total.queued > 0)
 const totalPct = computed(() => (dc.total.inRound ? Math.round((dc.total.roundDone / dc.total.inRound) * 100) : 0))
 
@@ -67,6 +71,7 @@ dropHandlers.office = onDrop
         <DocComponentCard />
 
         <!-- 设计 v0.2 §二.8：只写「正在转换 n 项 · 排队 k 项」和已完成计数，不写并发上限 -->
+        <MotionCollapse>
         <div v-if="showTotal" class="cv-total" role="status">
           <FIcon name="convert" />
           <b v-if="dc.total.running">正在转换 {{ dc.total.running }} 项</b><b v-else>排队中</b>
@@ -77,13 +82,14 @@ dropHandlers.office = onDrop
           <button type="button" class="lk" @click="router.push('/tasks')">任务中心</button>
         </div>
         <div v-else-if="dc.roundBanner" class="cv-total" :class="{ 't-ok': !dc.roundBanner.fail }" role="status">
-          <FIcon :name="dc.roundBanner.fail ? 'warn' : 'check'" />
+          <FIcon :name="dc.roundBanner.fail ? 'warn' : 'check'" :class="{ 'ff-check-draw': !dc.roundBanner.fail }" />
           <b v-if="dc.roundBanner.fail">本轮完成 {{ dc.roundBanner.ok }} 项，失败 {{ dc.roundBanner.fail }} 项</b>
           <b v-else>本轮 {{ dc.roundBanner.ok }} 项全部完成</b>
           <span v-if="!dc.roundBanner.fail" class="hide1024">结果已保存到输出文件夹</span>
           <span class="sp" />
           <button type="button" class="x" aria-label="关闭" title="关闭" @click="dc.roundBanner = null"><FIcon name="x" /></button>
         </div>
+        </MotionCollapse>
 
         <div v-if="dc.loaded && !dc.rows.length" class="cv-hero">
           <div class="ic"><FIcon name="upload" /></div>
@@ -92,12 +98,12 @@ dropHandlers.office = onDrop
           <small>{{ SUP }}，一次最多 50 个</small>
           <div class="acts"><button type="button" class="btn pri" @click="dc.chooseFiles()"><FIcon name="plus" />添加文件</button></div>
         </div>
-        <div v-else class="cv-list" style="overflow: auto">
-          <button type="button" class="cv-drop" @click="dc.chooseFiles()">
+        <MotionCollapse v-else group tag="div" class="cv-list" style="overflow: auto" :paused="!listArmed">
+          <button key="cv-drop" type="button" class="cv-drop" @click="dc.chooseFiles()">
             <span class="ic"><FIcon name="upload" /></span><b>拖入更多文件，或点击选择</b><span class="cv-ds" :title="SUP">{{ SUP }}</span>
           </button>
           <DocSourceRow v-for="r in dc.rows" :key="r.src.sourceId" :row="r" />
-        </div>
+        </MotionCollapse>
       </section>
 
       <DocFormatPanel />

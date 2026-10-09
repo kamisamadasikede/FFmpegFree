@@ -106,8 +106,9 @@
     </div>
 
     <Teleport to="body">
+    <MotionDialog>
       <div v-if="zoomOpen" class="zmask" @mousedown.self="closeZoom">
-        <div class="zdlg" role="dialog" aria-modal="true" aria-labelledby="json-zoom-title">
+        <div class="zdlg ff-panel" role="dialog" aria-modal="true" aria-labelledby="json-zoom-title">
           <header class="phead">
             <h2 id="json-zoom-title">结果</h2>
             <span class="sp" />
@@ -159,6 +160,7 @@
           </footer>
         </div>
       </div>
+    </MotionDialog>
     </Teleport>
   </div>
 </template>
@@ -167,6 +169,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
+import MotionDialog from '@/components/motion/MotionDialog.vue'
 import JsonTree from '@/components/json/JsonTree.vue'
 import { formatJson } from '@/api/json/json'
 import { toAppError } from '@/api/call'

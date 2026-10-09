@@ -5,6 +5,7 @@
 import MidEllipsis from '@/components/common/MidEllipsis.vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
+import MotionDialog from '@/components/motion/MotionDialog.vue'
 import PlayerShell from '@/components/common/PlayerShell.vue'
 import { toAppError } from '@/api/call'
 import { getPreviewURL, getSourcePreviewURL, openSourceWithSystem, openWithSystem, type PreviewURL } from '@/api/convertRecords'
@@ -413,9 +414,10 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <Teleport to="body">
+    <MotionDialog>
     <div v-if="target" class="cv2 cv-layer" :class="{ w1024: narrow }">
       <div class="cv-mask" @click.self="emit('close')">
-        <div ref="box" class="cv-pv" :class="{ audio: kind === 'audio', gif: kind === 'gif' }" role="dialog" aria-modal="true" :aria-label="isRecord ? `预览转换结果 ${title}` : `预览 ${title}`" tabindex="-1">
+        <div ref="box" class="cv-pv ff-panel" :class="{ audio: kind === 'audio', gif: kind === 'gif' }" role="dialog" aria-modal="true" :aria-label="isRecord ? `预览转换结果 ${title}` : `预览 ${title}`" tabindex="-1">
           <div class="cv-pvh">
             <div class="tt">
               <MidEllipsis tag="h3" :text="title" />
@@ -486,5 +488,6 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
+    </MotionDialog>
   </Teleport>
 </template>

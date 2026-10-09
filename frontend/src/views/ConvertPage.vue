@@ -5,6 +5,8 @@ import { computed, h, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
+import MotionCollapse from '@/components/motion/MotionCollapse.vue'
+import MotionDialog from '@/components/motion/MotionDialog.vue'
 import ErrorLine from '@/components/common/ErrorLine.vue'
 import VirtualList from '@/components/common/VirtualList.vue'
 import ConvertSourceRow from '@/components/convert/ConvertSourceRow.vue'
@@ -294,12 +296,15 @@ onUnmounted(() => {
         </div>
 
         <!-- v0.24 改存用户数据目录（§八 第 42 条）：位置同总进度条，两条同时出现时它在上面；关掉后本次运行不再出现 -->
+        <MotionCollapse>
         <div v-if="cv.showFallback" class="cv-total t-warn" role="status">
           <FIcon name="warn" />
           <span class="tx" :title="FALLBACK_BANNER + (cv.storage?.outputDir ?? '')">{{ FALLBACK_BANNER }}<b>{{ cv.storage?.outputDir }}</b></span>
           <button type="button" class="lk" @click="cv.openStorage('output')">打开文件夹</button>
           <button type="button" class="x" aria-label="关闭" title="关闭" @click="cv.dismissFallback()"><FIcon name="x" /></button>
         </div>
+        </MotionCollapse>
+        <MotionCollapse>
         <div v-if="showTotal" class="cv-total" role="status">
           <FIcon name="convert" />
           <b v-if="total.running">正在转换 {{ total.running }} 项</b><b v-else>排队 {{ total.queued }} 项</b>
@@ -310,7 +315,7 @@ onUnmounted(() => {
           <button type="button" class="lk" @click="router.push('/tasks')">任务中心</button>
         </div>
         <div v-else-if="cv.roundBanner" class="cv-total t-ok" role="status">
-          <FIcon name="check" />
+          <FIcon name="check" :class="{ 'ff-check-draw': !cv.roundBanner.fail }" />
           <b v-if="cv.roundBanner.fail">本轮完成 {{ cv.roundBanner.ok }} 项，失败 {{ cv.roundBanner.fail }} 项</b>
           <b v-else>本轮 {{ cv.roundBanner.ok }} 项全部完成</b>
           <span v-if="cv.roundBanner.ok && !cv.roundBanner.fail" class="hide1024">结果已保存到输出文件夹</span>
@@ -318,7 +323,10 @@ onUnmounted(() => {
           <span class="sp" />
           <button type="button" class="x" aria-label="关闭" title="关闭" @click="cv.closeBanner()"><FIcon name="x" /></button>
         </div>
-        <div v-if="cv.notice" class="cv-notice" role="status"><FIcon name="warn" /><span>{{ cv.notice }}</span><button type="button" aria-label="关闭提示" @click="cv.notice = ''"><FIcon name="x" :size="14" /></button></div>
+        </MotionCollapse>
+        <MotionCollapse>
+          <div v-if="cv.notice" class="cv-notice" role="status"><FIcon name="warn" /><span>{{ cv.notice }}</span><button type="button" aria-label="关闭提示" @click="cv.notice = ''"><FIcon name="x" :size="14" /></button></div>
+        </MotionCollapse>
 
         <div v-if="cv.loadError && !cv.loaded" class="cv-list" style="padding: 16px">
           <ErrorLine :code="cv.loadError.code" :message="cv.loadError.message" :detail="cv.loadError.detail" :show-log="false" fallback-title="没有读到转换记录" show-retry @retry="cv.reload()" />
@@ -374,14 +382,16 @@ onUnmounted(() => {
     <ConvertReconvertDialog :ask="rcAsk" :narrow="narrow" :busy="rcBusy" @close="rcAsk = null" @confirm="onConfirmReconvert" />
     <ConvertDeleteDialog :ask="delAsk" :narrow="narrow" :busy="deleting" :checked="delChecked" @close="delAsk = null" @confirm="onConfirmDelete" />
     <Teleport to="body">
+      <MotionDialog>
       <div v-if="logId" class="cv2 cv-layer" :class="{ w1024: narrow }">
         <div class="cv-mask" @click.self="closeLog" @keydown.esc="closeLog">
-          <div class="cv-dlg cv-log" role="dialog" aria-modal="true" aria-label="转换日志">
+          <div class="cv-dlg cv-log ff-panel" role="dialog" aria-modal="true" aria-label="转换日志">
             <div class="dfoot"><h3 style="flex: 1">转换日志</h3><button type="button" class="btn" @click="closeLog">关闭</button></div>
             <pre>{{ logLoading ? '正在读取日志…' : logText }}</pre>
           </div>
         </div>
       </div>
+      </MotionDialog>
     </Teleport>
   </div>
 </template>
