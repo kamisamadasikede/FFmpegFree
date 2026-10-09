@@ -140,7 +140,7 @@ import { accessShort, capsuleLabel, catState, modelName, thinkName } from '@/vie
  * 合一胶囊只显示 List API 有的模型/强度（无强度不显示「·」半截）。
  */
 const props = withDefaults(
-  defineProps<{ welcome?: boolean; placeholder?: string; ctxName?: string; ctxBranch?: string; busy?: boolean; running?: boolean; stopping?: boolean }>(),
+  defineProps<{ welcome?: boolean; placeholder?: string; ctxName?: string; ctxBranch?: string; busy?: boolean; running?: boolean; stopping?: boolean; notReady?: boolean }>(),
   {
     welcome: false,
     placeholder: '随心输入',
@@ -149,6 +149,7 @@ const props = withDefaults(
     busy: false,
     running: false,
     stopping: false,
+    notReady: false,
   },
 )
 const emit = defineEmits<{ send: [text: string]; stop: [] }>()
@@ -160,7 +161,7 @@ function onStop() {
 }
 
 const draft = ref('')
-const canSend = computed(() => !!draft.value.trim() && !props.busy && !props.running)
+const canSend = computed(() => !!draft.value.trim() && !props.busy && !props.running && !props.notReady)
 const root = ref<HTMLElement>()
 const inEl = ref<HTMLElement>()
 const ta = ref<HTMLTextAreaElement>()

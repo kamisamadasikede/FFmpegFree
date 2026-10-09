@@ -8,7 +8,7 @@
  * 用户可见文案只出现「Cat 助手」；未就绪 / 回复失败 / 已停止文案见 CAT_COPY。
  */
 import * as CatBinding from '../../wailsjs/go/app/CatService'
-import { cat } from '../../wailsjs/go/models'
+import { cat, catagent } from '../../wailsjs/go/models'
 import { AppError, call } from '@/api/call'
 import { CAT_BACKEND_READY } from '@/api/flags'
 import { hasWailsBackend, onTaskEvent } from '@/services/wails'
@@ -87,8 +87,8 @@ export interface SendCatMessageRequest {
 }
 
 /**
- * 后端 SendCatMessage 返回（契约 v0.30.1：必须带 turnId，前端记下用于 CancelCatTurn）。
- * 流式时文字靠 cat:message / cat:turn 推进；assistantMessage 可能为空。
+ * 后端 SendCatMessage 返回（契约 v0.30.1：用户消息落库、本轮开始后立即返回，带 turnId，前端记下用于 CancelCatTurn）。
+ * 助手回复走 cat:message / cat:turn；assistantMessage 只为兼容保留（流式路径下为空）。
  */
 export interface SendCatMessageResult {
   turnId: string
@@ -255,21 +255,16 @@ export async function sendCatMessage(req: SendCatMessageRequest): Promise<SendCa
     ),
   )
   return {
-    // 绑定模型还没生成 turnId 字段时按空串处理（turnId 也会从 cat:turn running / cat:message 里拿到）
-    turnId: String((raw as { turnId?: unknown } | null)?.turnId ?? ''),
+    turnId: String(raw?.turnId ?? ''),
     userMessage: mapMsg(raw?.userMessage),
     assistantMessage: raw?.assistantMessage ? mapMsg(raw.assistantMessage) : null,
   }
 }
 
-/**
- * 停止生成（契约 v0.30.1 §6.19.9：CancelCatTurn({ convId, turnId })，立即停止、幂等）。
- * 过渡：v2 上生成的绑定仍是 #172 的 CancelCatTurn(conversationId string)（同一会话同时只有一轮，按会话取消等价）。
- * 后端改成 CancelCatTurnRequest 并重新生成绑定后，下面这行会类型报错，届时改成整个 req 下传。
- */
+/** 停止生成（契约 v0.30.1 §6.19.9：CancelCatTurn({ convId, turnId })，立即停止、幂等） */
 export async function cancelCatTurn(req: CancelCatTurnRequest): Promise<void> {
   if (!req.convId || !live()) return
-  await call(CatBinding.CancelCatTurn(req.convId))
+  await call(CatBinding.CancelCatTurn(catagent.CancelCatTurnRequest.createFrom({ convId: req.convId, turnId: req.turnId ?? '' })))
 }
 
 // ---------- 事件 ----------

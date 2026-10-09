@@ -19,7 +19,7 @@ export interface CatStreamEvent {
   /** 无 seq（旧形状）时为 undefined，按到达顺序应用 */
   seq?: number
   op: CatStreamOp
-  /** user 消息由前端本地先放，事件里的 user 一律忽略 */
+  /** v0.30.1 事件不带 role（只推助手消息），缺省 assistant；旧形状的 user 由前端本地先放，忽略 */
   role: 'assistant' | 'user' | 'system'
   blockType?: string
   /** append：增量；replace：整段 */

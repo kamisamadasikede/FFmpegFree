@@ -72,8 +72,10 @@ export const catState = reactive({
   creating: false,
   /** 进行中的回复，按会话 id */
   turns: {} as Record<string, CatTurnState>,
-  /** 组件状态；非 ready 时显示未就绪横条（无下载按钮） */
-  status: { state: 'checking', version: '', canDownload: false, error: null } as CatStatus,
+  /** 组件状态；非 ready 时显示未就绪横条（无下载按钮）；浏览器走查直接按 missing，避免短暂可点发送 */
+  status: (live
+    ? { state: 'checking', version: '', canDownload: false, error: null }
+    : { state: 'missing', version: '', canDownload: false, error: { code: 'CAT_NOT_READY', message: CAT_COPY.notReady } }) as CatStatus,
   /** 当前会话 agentKind 对应的能力列表（不造假） */
   models: [] as CatModel[],
   thinks: [] as CatThinkLevel[],
@@ -300,6 +302,18 @@ export async function sendMessage(text: string) {
   if (!t || catState.creating) return
   let id = catState.sel
   if (id !== NEW_CONV && catState.turns[id]) return
+  // 组件未就绪：只展示定稿文案，不启一轮、不造假流式回复（产品锁定）
+  if (catState.status.state === 'missing' || catState.status.state === 'failed') {
+    if (id === NEW_CONV) {
+      // 欢迎页：不建会话，只在当前页提示；已有会话则追加一条系统行
+      return
+    }
+    const list = messagesOf(id)
+    if (!list.some((b) => b.kind === 'sys' && b.text === CAT_COPY.notReady)) {
+      list.push({ kind: 'sys', text: CAT_COPY.notReady })
+    }
+    return
+  }
 
   if (id === NEW_CONV) {
     const mode = CAT_MODES.find((m) => m.id === catState.mode)
@@ -339,13 +353,21 @@ export async function sendMessage(text: string) {
     })
     const turn = catState.turns[id]
     if (turn?.token === token && res.turnId && !turn.turnId) turn.turnId = res.turnId
-    if (turn?.token === token && turn.status !== 'stopping' && res.assistantMessage?.content) {
-      const a = res.assistantMessage
-      const b = assistantBlock(id, a.id)
-      if (!b) messagesOf(id).push({ kind: 'a', id: a.id, text: a.content, streaming: false })
-      else if (!b.text) b.text = a.content
+    // Send 还没返回时就点了停止：那时后端可能还没登记这一轮，拿到 turnId 后再取消一次（幂等）
+    if (turn?.token === token && turn.status === 'stopping' && res.turnId) {
+      void cancelCatTurn({ convId: id, turnId: res.turnId }).catch(() => undefined)
     }
-    endTurn(id, 'completed', token)
+    // v0.30.1：Send 在本轮开始后立即返回，结束由 cat:turn 决定；
+    // 只有兼容旧的同步返回（直接带了助手回复）时才在这里收尾
+    if (turn?.token === token && res.assistantMessage?.content) {
+      if (turn.status !== 'stopping') {
+        const a = res.assistantMessage
+        const b = assistantBlock(id, a.id)
+        if (!b) messagesOf(id).push({ kind: 'a', id: a.id, text: a.content, streaming: false })
+        else if (!b.text) b.text = a.content
+      }
+      endTurn(id, 'completed', token)
+    }
   } catch (e) {
     const err = toAppError(e)
     endTurn(id, err.code === 'CANCELED' ? 'cancelled' : err.code === 'CAT_NOT_READY' ? 'not_ready' : 'failed', token)

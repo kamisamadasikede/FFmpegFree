@@ -45,6 +45,7 @@
               welcome
               placeholder="发消息、上传文件、打开文件夹、创建定时任务，或输入 / 唤起命令…"
               :busy="catState.creating"
+              :not-ready="catNotReady"
               @send="sendMessage"
             />
             <div class="wl-try">
@@ -76,6 +77,7 @@
             :ctx-branch="current.project?.branch ?? 'main'"
             :running="!!turn"
             :stopping="turn?.status === 'stopping'"
+            :not-ready="catNotReady"
             @send="sendMessage"
             @stop="stopTurn()"
           />

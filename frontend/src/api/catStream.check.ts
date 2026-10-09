@@ -77,6 +77,19 @@ export function catStreamChecks(eq: Eq): void {
   applyStreamEvent(m, ev(undefined, 'replace', '丙'))
   eq('无 seq 整段替换', m.text, '丙')
 
+  // 后端 #174：seq 从 1 起，若干 append 后 done，无 role（缺省 assistant）
+  m = newStreamMsg('m9')
+  const reply = '这是一段比较长的回复，用来模拟后端把文字按二十四个字切成几段追加，然后发结束。'
+  const parts = reply.match(/.{1,24}/gu) ?? []
+  const evs = parts.map((p, i) => normalizeMessageEvent({ convId: 'c', turnId: 't', messageId: 'm9', seq: i + 1, op: 'append', textDelta: p })!)
+  evs.push(normalizeMessageEvent({ convId: 'c', turnId: 't', messageId: 'm9', seq: parts.length + 1, op: 'done' })!)
+  eq('#174 事件无 role 时按助手', evs[0].role, 'assistant')
+  // 打乱顺序并混入重复，结果应与顺序到达一致
+  const shuffled = [evs[1], evs[0], evs[0], ...evs.slice(2, -1).reverse(), evs[evs.length - 1], evs[1]]
+  for (const e of shuffled) applyStreamEvent(m, e)
+  eq('#174 乱序 + 重复后拼出完整回复', m.text, reply)
+  eq('#174 done 后完成', m.done, true)
+
   // 组件状态：一期永远没有下载入口
   eq('canDownload 恒 false', mapCatStatus({ state: 'missing', version: '', canDownload: true }).canDownload, false)
   eq('未知状态按 missing', mapCatStatus({ state: 'downloading' }).state, 'missing')
