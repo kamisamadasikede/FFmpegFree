@@ -54,9 +54,10 @@ export const DOC_V26_BACKEND_READY: boolean = true
 /**
  * 文档页 v0.27 / v0.27.1 / v0.27.2（契约 6.12.23~6.12.57：引擎设置、预览 GetDocPreview / CancelDocPreview / doc:preview、
  * 文本编辑 SaveDocText / SaveDocTextAs、SystemService.SaveFileDialog、docx 分段保存、OpenStorageFolder('doc_component')）。
- * 后端绑定落地前保持 false：走 api/docV27.ts 的模拟；纯浏览器始终走模拟。
+ * 后端线 C #131（文本保存 / docx 分段保存 / 文字类预览 / SaveFileDialog）已合入 v2（177dea6），线 B（引擎、Office/WPS、转出来的 PDF 预览、
+ * OpenStorageFolder('doc_component')）合入后联调打开（true）：在 Wails 里调真实绑定（api/docV27.ts）。纯浏览器（没有 window.go）仍走模拟。
  */
-export const DOC_V27_BACKEND_READY: boolean = false
+export const DOC_V27_BACKEND_READY: boolean = true
 
 /**
  * docx 在预览窗口里编辑（v0.27.2，编辑器 @docx-editor.dev/vue，按需加载）。
