@@ -46,6 +46,7 @@
               placeholder="发消息、上传文件、打开文件夹、创建定时任务，或输入 / 唤起命令…"
               :busy="catState.creating"
               :not-ready="catNotReady"
+              :checking="catChecking"
               @send="sendMessage"
             />
             <div class="wl-try">
@@ -78,6 +79,7 @@
             :running="!!turn"
             :stopping="turn?.status === 'stopping'"
             :not-ready="catNotReady"
+            :checking="catChecking"
             @send="sendMessage"
             @stop="stopTurn()"
           />
@@ -101,7 +103,7 @@ import { ElMessage } from 'element-plus'
 import { CAT_COPY } from '@/api/cat'
 import { CAT_MODES, CAT_TRY, type CatMode } from '@/api/catMock'
 import { catReturnPath } from './catReturn'
-import { catNotReady, catState, findConv, initCat, messagesOf, NEW_CONV, refreshCapabilities, sendMessage, stopTurn, tipLater } from './catState'
+import { catChecking, catNotReady, catState, findConv, initCat, messagesOf, NEW_CONV, refreshCapabilities, sendMessage, stopTurn, tipLater } from './catState'
 
 /**
  * Cat 聊天页（设计 v0.4 / 契约 v0.30）。Wails 里接真实 CatService：流式回复、停止生成、组件未就绪横条（无下载按钮）。

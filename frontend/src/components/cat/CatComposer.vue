@@ -50,7 +50,18 @@
           data-testid="cat-stop"
           @click="onStop"
         ><i class="sq" aria-hidden="true" /></button>
-        <button v-else type="button" class="ct-send" aria-label="发送" :aria-disabled="!canSend" @click="send"><FIcon name="up" :size="15" /></button>
+        <button
+          v-else
+          type="button"
+          class="ct-send"
+          :class="{ blocked: notReady || checking }"
+          aria-label="发送"
+          :aria-disabled="!canSend"
+          :disabled="notReady || checking"
+          :title="notReady ? CAT_COPY.notReady : undefined"
+          data-testid="cat-send"
+          @click="send"
+        ><FIcon name="up" :size="15" /></button>
       </div>
 
       <div v-if="menu" class="mn" :style="menuStyle" @click.stop>
@@ -140,7 +151,7 @@ import { accessShort, capsuleLabel, catState, modelName, thinkName } from '@/vie
  * 合一胶囊只显示 List API 有的模型/强度（无强度不显示「·」半截）。
  */
 const props = withDefaults(
-  defineProps<{ welcome?: boolean; placeholder?: string; ctxName?: string; ctxBranch?: string; busy?: boolean; running?: boolean; stopping?: boolean; notReady?: boolean }>(),
+  defineProps<{ welcome?: boolean; placeholder?: string; ctxName?: string; ctxBranch?: string; busy?: boolean; running?: boolean; stopping?: boolean; notReady?: boolean; checking?: boolean }>(),
   {
     welcome: false,
     placeholder: '随心输入',
@@ -150,6 +161,8 @@ const props = withDefaults(
     running: false,
     stopping: false,
     notReady: false,
+    /** 组件检查中：发送同样置灰（样式与未就绪一致），不让用户点了才被拒 */
+    checking: false,
   },
 )
 const emit = defineEmits<{ send: [text: string]; stop: [] }>()
@@ -161,7 +174,7 @@ function onStop() {
 }
 
 const draft = ref('')
-const canSend = computed(() => !!draft.value.trim() && !props.busy && !props.running && !props.notReady)
+const canSend = computed(() => !!draft.value.trim() && !props.busy && !props.running && !props.notReady && !props.checking)
 const root = ref<HTMLElement>()
 const inEl = ref<HTMLElement>()
 const ta = ref<HTMLTextAreaElement>()
@@ -424,6 +437,12 @@ html.dark .ct-plus {
 }
 .ct-send[aria-disabled='true'] {
   cursor: default;
+}
+/* 未就绪 / 检查中：发送置灰（两种状态同一样式） */
+.ct-send.blocked,
+.ct-send.blocked:hover {
+  cursor: default;
+  opacity: 0.4;
 }
 html.dark .ct-send {
   background: #f2f3f5;
