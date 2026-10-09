@@ -4,8 +4,38 @@
  * - 纯浏览器（走查）：会话列表用 catMock，发送返回未就绪
  * - 新建对话创建时写入 agentKind=cat_build；已有对话永不改 agentKind（发送只带会话 id）
  * - 访问默认「请求批准」；「完全访问」不可选
+ * - 项目（契约 v0.31 §6.19.10）：对话归属在创建时决定（项目行「+」带 projectId），之后不可改，没有「移到项目」；
+ *   文件夹不见了 → 项目标灰、对话可看不可发；窗口获得焦点时重新 ListCatProjects；cat:project 更新 missing。
+ *   接口见 api/catProjects.ts（CAT_PROJECTS_BACKEND_READY，默认关；浏览器走内存模拟）
  */
 import { computed, reactive } from 'vue'
+import { Environment } from '../../../wailsjs/runtime/runtime'
+import { hasWailsBackend } from '@/services/wails'
+import {
+  CAT_PROJECT_COPY,
+  CAT_PROJECT_NAME_MAX,
+  catProjectsOn,
+  catProjectsSim,
+  createCatProject,
+  deleteCatProject,
+  duplicateProjectId,
+  folderName,
+  guessPlatform,
+  listCatProjects,
+  onCatProject,
+  pickProjectFolder,
+  projectErrorText,
+  queueSimPick,
+  relocateCatProject,
+  renameCatProject,
+  resetCatProjectSim,
+  revealCatProject,
+  revealLabel,
+  validProjectName,
+  type CatPlatform,
+  type CatProject as ApiCatProject,
+  type CatProjectEvent,
+} from '@/api/catProjects'
 import {
   CAT_AGENT_BUILD,
   CAT_COPY,
@@ -41,9 +71,12 @@ import {
 } from '@/api/catMock'
 import { applyStreamEvent, newStreamMsg, type CatStreamEvent, type CatStreamMsg, type CatTurnEvent } from '@/api/catStream'
 import { AppError, toAppError } from '@/api/call'
-import { catSim, simStream } from './catDevSim'
+import { catSim, catSimOs, catSimPicks, simStream } from './catDevSim'
 
 export const NEW_CONV = 'new'
+
+/** 浮提示语气：info（信息图标）/ ok（成功绿勾）/ warn（警示色图标与描边，设计 v0.2 §10b） */
+export type CatNoticeTone = 'info' | 'ok' | 'warn'
 
 /** 一轮回复的前端状态：running = 生成中（显示停止）；stopping = 已点停止（按钮立即置灰） */
 export interface CatTurnState {
@@ -67,6 +100,20 @@ export const catState = reactive({
   workInProject: true,
   sel: live ? NEW_CONV : 'c31',
   projects: (live || (import.meta.env.DEV && catSim.has('noproj')) ? [] : mockProjects()) as CatProject[],
+  /** 欢迎页（sel=new）属于哪个项目：从项目行「+」进来时为该项目 id；「新对话」/ 欢迎页为空 */
+  newProjectId: '' as string,
+  /** 新建 / 重复定位的项目行高亮（2.4s 后清除） */
+  highlight: '' as string,
+  /** 中间顶部浮提示（2.4s 自动消失）；key 变化用于重新播放动画 */
+  notice: null as { text: string; key: number; tone: CatNoticeTone } | null,
+  /** 读屏播报（不可见） */
+  announce: '' as string,
+  /** 系统平台（「在 … 中显示」文案） */
+  platform: ((import.meta.env.DEV && catSimOs) || guessPlatform()) as CatPlatform,
+  /** 正在行内改名的项目 id */
+  renaming: '' as string,
+  /** 删除确认框对应的项目 id */
+  deleting: '' as string,
   plain: (live ? [] : mockPlainConvs()) as CatConv[],
   messages: {} as Record<string, CatBlock[]>,
   /** 新对话正在创建（欢迎页输入框忙） */
@@ -110,6 +157,17 @@ export const catNotReady = computed(() => catState.status.state === 'missing' ||
 
 /** 组件检查中：不显示横条，但发送置灰（产品：别让用户点了才被拒） */
 export const catChecking = computed(() => catState.status.state === 'checking')
+
+/** 当前视图所属项目：对话的项目，或从项目「+」进来的欢迎页的项目 */
+export const currentProject = computed<CatProject | undefined>(() => {
+  if (catState.sel === NEW_CONV) return catState.projects.find((p) => p.id === catState.newProjectId)
+  return findConv(catState.sel)?.project
+})
+
+/** 当前项目文件夹不见了：输入框禁用 + 提示「项目文件夹不见了。」 */
+export const projectMissing = computed(() => !!currentProject.value?.missing)
+
+export const revealText = computed(() => revealLabel(catState.platform))
 
 export function findConv(id: string): { project?: CatProject; conv: CatConv } | null {
   for (const p of catState.projects) {
@@ -158,7 +216,7 @@ async function loadMessages(id: string) {
 }
 
 function toConv(c: CatConversation): CatConv {
-  return { id: c.id, title: c.title, agentKind: c.agentKind }
+  return { id: c.id, title: c.title, agentKind: c.agentKind, projectId: c.projectId }
 }
 
 /** 当前选中对话的 agentKind；新对话用欢迎页选中模式（一期强制 cat_build） */
@@ -195,7 +253,20 @@ export function initCat(): () => void {
     }),
     onCatMessage(handleMessageEvent),
     onCatTurn(handleTurnEvent),
+    onCatProject(handleProjectEvent),
   ]
+  if (typeof window !== 'undefined') {
+    window.addEventListener('focus', onWindowFocus)
+    offs.push(() => window.removeEventListener('focus', onWindowFocus))
+  }
+  if (hasWailsBackend()) {
+    void Environment()
+      .then((e) => {
+        if (e?.platform === 'windows' || e?.platform === 'darwin' || e?.platform === 'linux') catState.platform = e.platform
+      })
+      .catch(() => undefined)
+  }
+  if (catProjectsSim()) seedProjectSim()
   // 开发走查（?cat_sim=checking|stream）：保持模拟的组件状态，不被浏览器 mock 的 missing 覆盖
   const simStatus = import.meta.env.DEV && (catSim.has('checking') || catSim.has('stream'))
   if (!simStatus) {
@@ -204,6 +275,7 @@ export function initCat(): () => void {
       .catch(() => (catState.status = { state: 'missing', version: '', canDownload: false, error: { code: 'CAT_NOT_READY', message: CAT_COPY.notReady } }))
   }
   if (live) void reloadConversations()
+  else void refreshProjects()
   return disposeCat
 }
 
@@ -214,8 +286,18 @@ export function disposeCat() {
 
 export async function reloadConversations() {
   try {
-    const list = await listCatConversations()
-    catState.plain = list.map(toConv)
+    const [list, projects] = await Promise.all([listCatConversations(), listCatProjects().catch(() => null)])
+    if (projects) mergeProjects(projects, true)
+    const byId = new Map(catState.projects.map((p) => [p.id, p]))
+    for (const p of catState.projects) p.convs = []
+    const plain: CatConv[] = []
+    // 后端已按 6.19.10.6 排好，分组时保持顺序；项目不认识（开关关 / 已删）的放「对话」
+    for (const c of list) {
+      const p = c.projectId ? byId.get(c.projectId) : undefined
+      if (p) p.convs.push(toConv(c))
+      else plain.push(toConv(c))
+    }
+    catState.plain = plain
     // 没有进行中回复的会话下次打开时重新读（离开页面期间可能错过事件）
     for (const id of Object.keys(catState.messages)) if (!catState.turns[id]) delete catState.messages[id]
   } catch {
@@ -327,19 +409,37 @@ export async function sendMessage(text: string) {
     return
   }
 
+  // 项目文件夹不见了：输入框已禁用；回车等其它入口也直接忽略（对话可看不可发）
+  if (projectMissing.value) return
+
   if (id === NEW_CONV) {
     const mode = CAT_MODES.find((m) => m.id === catState.mode)
     if (!mode?.enabled) catState.mode = 'cat_build'
     // 一期前端只能传 cat_build
     const agentKind: CatAgentKind = CAT_AGENT_BUILD
+    const project = catState.projects.find((p) => p.id === catState.newProjectId)
     catState.creating = true
     try {
-      const created = await createCatConversation({ agentKind, title: titleFrom(t) })
+      const created = await createCatConversation({ agentKind, title: titleFrom(t), projectId: project?.id })
       id = created.id
-      catState.plain.unshift(toConv(created))
-    } catch {
+      const conv = toConv(created)
+      if (project) {
+        conv.projectId = project.id
+        project.convs.unshift(conv)
+        project.open = true
+      } else catState.plain.unshift(conv)
+      catState.newProjectId = ''
+    } catch (e) {
+      if (project && toAppError(e).code === 'CAT_PROJECT_MISSING') {
+        // 不创建对话；欢迎页随之显示「项目文件夹不见了。」
+        project.missing = true
+        return
+      }
       id = `local-${Date.now().toString(36)}-${++seq}`
-      catState.plain.unshift({ id, title: titleFrom(t), agentKind })
+      if (project) {
+        project.convs.unshift({ id, title: titleFrom(t), agentKind, projectId: project.id })
+        catState.newProjectId = ''
+      } else catState.plain.unshift({ id, title: titleFrom(t), agentKind })
       catState.messages[id] = [{ kind: 'user', text: t }, { kind: 'sys', text: CAT_COPY.replyFailed, tone: 'err' }]
       catState.sel = id
       return
@@ -387,6 +487,16 @@ export async function sendMessage(text: string) {
     }
   } catch (e) {
     const err = toAppError(e)
+    if (err.code === 'CAT_PROJECT_MISSING') {
+      // 6.19.10.2 第 6 条：后端没存这条用户消息、没启这一轮 → 撤掉本地先放的用户消息，项目标灰
+      const turn = catState.turns[id]
+      if (turn?.token === token) delete catState.turns[id]
+      const l = messagesOf(id)
+      for (let i = l.length - 1; i >= 0; i--) if (l[i].kind === 'user' && (l[i] as { text: string }).text === t) { l.splice(i, 1); break }
+      const p = findConv(id)?.project
+      if (p) p.missing = true
+      return
+    }
     endTurn(id, err.code === 'CANCELED' ? 'cancelled' : err.code === 'CAT_NOT_READY' ? 'not_ready' : 'failed', token)
   }
 }
@@ -414,4 +524,241 @@ export function tipLater() {
 
 export function asAppError(e: unknown): AppError {
   return e instanceof AppError ? e : new AppError('CAT_REPLY_FAILED', CAT_COPY.replyFailed)
+}
+
+// ---------- 项目（契约 v0.31 §6.19.10） ----------
+
+/** 浏览器走查：把侧栏的示意项目放进内存模拟，规则（去重、missing）由 api/catProjects.ts 统一处理 */
+function seedProjectSim() {
+  const missing = import.meta.env.DEV && catSim.has('missing')
+  resetCatProjectSim(
+    catState.projects.map((p) => ({ id: p.id, name: p.name, path: p.path, createdAt: p.createdAt, updatedAt: p.createdAt, missing: missing && p.id === 'p3' })),
+  )
+  if (catSimPicks.length) queueSimPick(...catSimPicks)
+}
+
+/** 把后端列表合进侧栏：保留展开状态和已加载的对话；顺序以后端为准（6.19.10.6） */
+function mergeProjects(list: ApiCatProject[], replaceOrder = true) {
+  const old = new Map(catState.projects.map((p) => [p.id, p]))
+  const next: CatProject[] = list.map((a) => {
+    const p = old.get(a.id)
+    if (p) {
+      p.name = a.name
+      p.path = a.path
+      p.missing = a.missing
+      p.createdAt = a.createdAt
+      return p
+    }
+    return { id: a.id, name: a.name, path: a.path, missing: a.missing, createdAt: a.createdAt, open: false, branch: '', convs: [] }
+  })
+  if (replaceOrder) {
+    // 已不存在的项目（别处删了）：它的对话也不再显示；正在看的话回到欢迎页
+    const gone = catState.projects.filter((p) => !list.some((a) => a.id === p.id))
+    for (const p of gone) dropProjectConvs(p)
+    catState.projects = next
+  }
+}
+
+function dropProjectConvs(p: CatProject) {
+  for (const c of p.convs) {
+    delete catState.messages[c.id]
+    if (catState.sel === c.id) catState.sel = NEW_CONV
+  }
+  if (catState.newProjectId === p.id) {
+    catState.newProjectId = ''
+  }
+}
+
+/** 重新读项目列表（进入页面、窗口获得焦点）：只更新项目本身（名字 / missing / 增删），不重读对话 */
+export async function refreshProjects() {
+  if (!catProjectsOn()) return
+  try {
+    mergeProjects(await listCatProjects())
+  } catch {
+    /* 保持现有列表 */
+  }
+}
+
+let focusAt = 0
+function onWindowFocus() {
+  // 焦点抖动时不重复打（0.5s 内只算一次）
+  const now = Date.now()
+  if (now - focusAt < 500) return
+  focusAt = now
+  void refreshProjects()
+}
+
+export function handleProjectEvent(e: CatProjectEvent) {
+  const p = catState.projects.find((x) => x.id === e.id)
+  if (p) p.missing = e.missing
+}
+
+let noticeSeq = 0
+let noticeTimer: ReturnType<typeof setTimeout> | undefined
+/** 中间顶部浮提示，2.4s 后自动消失（设计 §07） */
+export function notify(text: string, tone: CatNoticeTone = 'info') {
+  clearTimeout(noticeTimer)
+  catState.notice = { text, key: ++noticeSeq, tone }
+  noticeTimer = setTimeout(() => (catState.notice = null), 2400)
+}
+
+function announce(text: string) {
+  catState.announce = ''
+  setTimeout(() => (catState.announce = text), 30)
+}
+
+let hlTimer: ReturnType<typeof setTimeout> | undefined
+/** 展开、滚到可见并高亮项目行（侧栏监听 highlight 负责滚动和焦点） */
+export function focusProject(id: string) {
+  const p = catState.projects.find((x) => x.id === id)
+  if (!p) return
+  p.open = true
+  clearTimeout(hlTimer)
+  catState.highlight = ''
+  setTimeout(() => {
+    catState.highlight = id
+    hlTimer = setTimeout(() => (catState.highlight = ''), 2400)
+  }, 0)
+}
+
+/** 新建项目：选文件夹 → CreateCatProject；existed → 提示并定位已有项目；新建 → 插顶部、展开、进入该项目的新对话 */
+export async function createProject() {
+  if (!catProjectsOn()) {
+    notify(CAT_PROJECT_COPY.later)
+    return
+  }
+  let path = ''
+  try {
+    path = await pickProjectFolder()
+  } catch (e) {
+    notify(projectErrorText(e), 'warn')
+    return
+  }
+  if (!path) return // 用户取消：什么都不做
+  try {
+    const r = await createCatProject({ path })
+    if (r.existed) {
+      if (!catState.projects.some((p) => p.id === r.project.id)) await refreshProjects()
+      notify(CAT_PROJECT_COPY.existed)
+      focusProject(r.project.id)
+      return
+    }
+    const a = r.project
+    catState.projects = catState.projects.filter((p) => p.id !== a.id)
+    catState.projects.unshift({ id: a.id, name: a.name, path: a.path, missing: a.missing, createdAt: a.createdAt, open: true, branch: '', convs: [] })
+    catState.sel = NEW_CONV
+    catState.newProjectId = a.id
+    focusProject(a.id)
+    announce(CAT_PROJECT_COPY.added(a.name))
+  } catch (e) {
+    notify(projectErrorText(e), 'warn')
+  }
+}
+
+/** 项目行「+」：在这个项目里新建对话（文件夹不见了时不可用） */
+export function newConvInProject(id: string) {
+  const p = catState.projects.find((x) => x.id === id)
+  if (!p || p.missing) return
+  catState.sel = NEW_CONV
+  catState.newProjectId = id
+}
+
+/** 选中某条对话 / 「新对话」（不属于任何项目） */
+export function selectConv(id: string) {
+  catState.sel = id
+  if (id === NEW_CONV) catState.newProjectId = ''
+}
+
+/**
+ * 改名：去首尾空白；清空 = 恢复为文件夹名（设计 §03）；1~60 个字（契约），不合法提示「名字需要 1~60 个字。」并保持编辑。
+ * 返回 true = 结束编辑。
+ */
+export async function renameProject(id: string, raw: string): Promise<boolean> {
+  const p = catState.projects.find((x) => x.id === id)
+  if (!p) return true
+  let name = raw.trim()
+  if (!name) name = [...folderName(p.path)].slice(0, CAT_PROJECT_NAME_MAX).join('') || p.name
+  if (name === p.name) return true
+  // 超长在输入框里实时提示（设计 v0.2 §10c），这里只是兜底：不保存、保持编辑
+  if (!validProjectName(name)) return false
+  try {
+    const r = await renameCatProject({ id, name })
+    p.name = r.name || name
+    p.missing = r.missing
+    return true
+  } catch (e) {
+    notify(projectErrorText(e), 'warn')
+    return toAppError(e).code !== 'INVALID_ARGUMENT'
+  }
+}
+
+/** 删除项目（确认框确认后调用）：只删应用里的记录和它下面的对话，不动文件夹 */
+export async function deleteProject(id: string): Promise<boolean> {
+  const p = catState.projects.find((x) => x.id === id)
+  if (!p) return true
+  // 进行中的一轮由后端先取消（6.19.10.2 第 4 条）；前端收尾本地状态
+  try {
+    await deleteCatProject({ id })
+  } catch (e) {
+    const err = toAppError(e)
+    notify(err.code === 'UNSUPPORTED' ? CAT_PROJECT_COPY.later : CAT_PROJECT_COPY.deleteFailed)
+    return false
+  }
+  for (const c of p.convs) {
+    delete catState.turns[c.id]
+  }
+  dropProjectConvs(p)
+  catState.projects = catState.projects.filter((x) => x.id !== id)
+  announce(CAT_PROJECT_COPY.deleted(p.name))
+  return true
+}
+
+/** 在资源管理器 / 访达 / 文件管理器中显示 */
+export async function revealProject(id: string) {
+  try {
+    await revealCatProject({ id })
+  } catch (e) {
+    const err = toAppError(e)
+    if (err.code === 'CAT_PROJECT_MISSING') handleProjectEvent({ id, missing: true })
+    notify(projectErrorText(e), 'warn')
+  }
+}
+
+/**
+ * 重新选择文件夹（契约 v0.31.1 第 8 条 / 设计 v0.2 §09）：路径更新、名字不变、对话保留；成功浮提示「已重新选择文件夹。」并高亮该行。
+ * 新路径属于别的项目（project_duplicate）→ 提示「这个文件夹已经建过项目了。」并定位那个项目；本项目保持原状态（仍灰就仍灰）。
+ */
+export async function relocateProject(id: string) {
+  let path = ''
+  try {
+    path = await pickProjectFolder(true)
+  } catch (e) {
+    notify(projectErrorText(e), 'warn')
+    return
+  }
+  if (!path) return
+  try {
+    const r = await relocateCatProject({ id, path })
+    const p = catState.projects.find((x) => x.id === id)
+    if (p) {
+      p.path = r.path || path
+      p.missing = r.missing
+    }
+    notify(CAT_PROJECT_COPY.relocated, 'ok')
+    focusProject(id)
+  } catch (e) {
+    const err = toAppError(e)
+    if (err.code === 'INVALID_ARGUMENT' && err.reason === 'project_duplicate') {
+      notify(CAT_PROJECT_COPY.existed)
+      const other = duplicateProjectId(err)
+      if (!other) {
+        void refreshProjects()
+        return
+      }
+      if (!catState.projects.some((x) => x.id === other)) await refreshProjects()
+      focusProject(other)
+      return
+    }
+    notify(projectErrorText(err), 'warn')
+  }
 }

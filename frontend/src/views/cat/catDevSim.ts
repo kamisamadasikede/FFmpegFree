@@ -9,16 +9,36 @@
  *   checking —— 组件状态停在「检查中」（发送置灰）
  *   stream   —— 组件状态 ready；发送后按定稿事件形状（cat:message append/done + cat:turn）推一段走查用文字，可点「停止」
  *   noproj   —— 没有项目（项目栏显示「还没有项目。」）
+ *   missing  —— 「字幕项目」的文件夹不见了（项目标灰、输入框禁用）
+ *
+ * 另：?cat_os=windows|darwin|linux —— 走查时「在…中显示」按指定平台取文案（默认按浏览器 userAgent 猜）。
+ * 另：?cat_pick=<路径>[|<路径>…] —— 走查时「选择项目文件夹」依次返回这些路径（空 = 取消）；用完后返回递增的示例路径。
  */
 import type { CatStreamEvent, CatTurnEvent } from '@/api/catStream'
 
-export type CatSimFlag = 'checking' | 'stream' | 'noproj'
+export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing'
 
 export const catSim: ReadonlySet<CatSimFlag> = (() => {
   if (!import.meta.env.DEV || typeof window === 'undefined') return new Set<CatSimFlag>()
   if ((window as unknown as { go?: unknown }).go) return new Set<CatSimFlag>()
   const v = new URLSearchParams(window.location.search).get('cat_sim') ?? ''
-  return new Set(v.split(',').map((x) => x.trim()).filter((x): x is CatSimFlag => x === 'checking' || x === 'stream' || x === 'noproj'))
+  return new Set(v.split(',').map((x) => x.trim()).filter((x): x is CatSimFlag => x === 'checking' || x === 'stream' || x === 'noproj' || x === 'missing'))
+})()
+
+/** 走查：?cat_pick=… 指定的选文件夹结果（仅 vite dev + 纯浏览器） */
+export const catSimPicks: string[] = (() => {
+  if (!import.meta.env.DEV || typeof window === 'undefined') return []
+  if ((window as unknown as { go?: unknown }).go) return []
+  const v = new URLSearchParams(window.location.search).get('cat_pick')
+  return v === null ? [] : v.split('|')
+})()
+
+/** 走查：?cat_os=… 指定平台（仅 vite dev + 纯浏览器） */
+export const catSimOs: 'windows' | 'darwin' | 'linux' | '' = (() => {
+  if (!import.meta.env.DEV || typeof window === 'undefined') return ''
+  if ((window as unknown as { go?: unknown }).go) return ''
+  const v = new URLSearchParams(window.location.search).get('cat_os')
+  return v === 'windows' || v === 'darwin' || v === 'linux' ? v : ''
 })()
 
 const SIM_TEXT =

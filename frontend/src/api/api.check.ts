@@ -38,6 +38,7 @@ import { readyRelistChecks } from '@/stores/readyRelist.check'
 import { catalogLoadChecks } from '@/stores/catalogLoad.check'
 import { pkg22Checks } from '@/stores/eventOrder.check'
 import { catStreamChecks } from './catStream.check'
+import { catProjectsChecks } from './catProjects.check'
 
 const fails: string[] = []
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -81,7 +82,7 @@ export async function runApiChecks(): Promise<string[]> {
   eq('clip 首行', parseDetailHead('clip=c_1-a path=/a b/中文.mp4\n原因'), { clipId: 'c_1-a', path: '/a b/中文.mp4' })
   eq('project 首行没有 clip', parseDetailHead('project\n视频轨不能为空'), {})
   eq('toAppError 解析 JSON 的 detail', toAppError('{"code":"TASK_CONFLICT","message":"m","detail":"reason=duplicate_url"}').reason, 'duplicate_url')
-  eq('BACKEND_ERROR_CODES 38 个（v0.26~v0.29 DOC_/LANG_* + v0.30 2 个 CAT_*）', BACKEND_ERROR_CODES.length, 38)
+  eq('BACKEND_ERROR_CODES 39 个（v0.26~v0.29 DOC_/LANG_* + v0.30 2 个 CAT_* + v0.31 CAT_PROJECT_MISSING）', BACKEND_ERROR_CODES.length, 39)
   eq('LIVE_SOURCE_GONE 的 kind 首行', [new AppError('LIVE_SOURCE_GONE', 'x', 'kind=window').kind, new AppError('LIVE_SOURCE_GONE', 'x', 'kind=screen').kind, new AppError('LIVE_SOURCE_GONE', 'x', 'kind=other').kind, new AppError('LIVE_SOURCE_GONE', 'x').kind], ['window', 'screen', undefined, undefined])
 
   // ---- TASK_CONFLICT 文案（reason → 文案 一张表）----
@@ -966,6 +967,7 @@ export async function runApiChecks(): Promise<string[]> {
         await catalogLoadChecks(eq, readSrc) // 格式目录：检测中保持骨架，8 秒才超时，就绪后自动再取
         await pkg22Checks(eq, readSrc) // 包 22：契约 v0.25.1（暂存 / 对齐 / 只往终态走）+ 走查 af6a508
         catStreamChecks(eq) // Cat 流式：去重 / 乱序缓冲 / 缺口 / replace / done / 旧整段形状
+        await catProjectsChecks(eq) // Cat 项目（v0.31 / v0.31.1）：模拟层规则 + 文案映射
         // G11 版本号
         const { cleanFfmpegVersion } = await import('@/utils/ffmpegVersion')
         eq('G11 版本号：旧（带 URL 尾巴）/ 新（干净）/ 其他尾巴 / 空', ['9.0.2-https://www.martin-riedl.de', '9.0.2', '7.1.1-essentials_build-www.gyan.dev', '6.0', ' 4.4.2-0ubuntu0.22.04.1 ', '', undefined].map((v) => cleanFfmpegVersion(v)), ['9.0.2', '9.0.2', '7.1.1', '6.0', '4.4.2', '', ''])
