@@ -375,15 +375,9 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		args = append(args, "--reasoning-effort", tl)
 	}
 
-	run := a.cfg.Exec
-	if run == nil {
-		run = exec.CommandContext
-	}
-	cmd := run(runCtx, exe, args...)
+	cmd := a.runCmd(runCtx, exe, args...)
 	cmd.Dir = cwd
 	cmd.Env = grokTurnEnv(os.Environ())
-	proc.Configure(cmd)
-	cmd.Cancel = func() error { return proc.Kill(cmd) }
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -672,11 +666,19 @@ func rawStr(m map[string]json.RawMessage, key string) (string, bool) {
 	return s, true
 }
 
+// runCmd 是本包构造子进程的唯一入口（源码检查测试锁定）：
+// proc.Configure 在 Windows 上隐藏窗口（HideWindow + CREATE_NO_WINDOW），
+// 其它平台单独成组；取消 / 超时时结束整个进程树。
 func (a *BuildAdapter) runCmd(ctx context.Context, name string, args ...string) *exec.Cmd {
+	var cmd *exec.Cmd
 	if a.cfg.Exec != nil {
-		return a.cfg.Exec(ctx, name, args...)
+		cmd = a.cfg.Exec(ctx, name, args...)
+	} else {
+		cmd = exec.CommandContext(ctx, name, args...)
 	}
-	return exec.CommandContext(ctx, name, args...)
+	proc.Configure(cmd)
+	cmd.Cancel = func() error { return proc.Kill(cmd) }
+	return cmd
 }
 
 func (a *BuildAdapter) probeGrokVersion(exe string) string {
