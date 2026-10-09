@@ -143,8 +143,8 @@ async function save(kind: Kind, dir: string) {
   flex-direction: column;
   gap: 8px;
 }
-:global(html.w1024) .sdc,
-:global(.w1024) .sdc {
+html.w1024 .sdc,
+.w1024 .sdc {
   width: 300px;
 }
 @media (max-width: 1100px) {

@@ -214,7 +214,7 @@ function onSubmit() {
   color: #e8eef8;
   background: linear-gradient(155deg, #0b1220 0%, #121a2e 42%, #0e1830 100%);
 }
-:global(html.dark) .lg-visual {
+html.dark .lg-visual {
   background: linear-gradient(155deg, #060910 0%, #0a101c 50%, #081018 100%);
 }
 .lg-visual .grid {
@@ -396,7 +396,7 @@ function onSubmit() {
   background: var(--ff-bg-app);
   position: relative;
 }
-:global(html.dark) .lg-panel {
+html.dark .lg-panel {
   background: #0e131c;
 }
 .lg-panel::before {
@@ -406,7 +406,7 @@ function onSubmit() {
   pointer-events: none;
   background: radial-gradient(ellipse 80% 60% at 50% 40%, color-mix(in srgb, var(--ff-primary) 6%, transparent), transparent 70%);
 }
-:global(html.dark) .lg-panel::before {
+html.dark .lg-panel::before {
   background: radial-gradient(ellipse 70% 50% at 50% 35%, rgba(79, 124, 255, 0.07), transparent 70%);
 }
 .lg-form-wrap {
@@ -470,7 +470,7 @@ function onSubmit() {
   border-color: var(--ff-danger);
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--ff-danger) 14%, transparent);
 }
-:global(html.dark) .lg-field .box {
+html.dark .lg-field .box {
   background: #151b26;
   border-color: #252c3a;
 }
@@ -638,7 +638,7 @@ function onSubmit() {
   cursor: pointer;
   padding: 0;
 }
-:global(html.dark) .lg-theme {
+html.dark .lg-theme {
   background: #151b26;
   border-color: #252c3a;
 }
@@ -657,16 +657,16 @@ function onSubmit() {
     animation: none !important;
   }
 }
-:global(html.reduce-motion) .lg-orb {
+html.reduce-motion .lg-orb {
   animation: none !important;
 }
-:global(html.reduce-motion) .lg-stagger {
+html.reduce-motion .lg-stagger {
   transition: none !important;
   opacity: 1;
   translate: 0 0;
 }
-:global(html.reduce-motion) .lg-submit .spin,
-:global(html.reduce-motion) .lg-visual .lead .caret {
+html.reduce-motion .lg-submit .spin,
+html.reduce-motion .lg-visual .lead .caret {
   animation: none !important;
 }
 </style>
