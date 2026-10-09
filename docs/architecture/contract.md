@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.31.3）
+# FFmpegFree v2 接口契约（v0.31.4）
+
+v0.31.4 变更（**Cat Build 一期权限口径 + 模型 / 强度**，产品 / 老板 / 架构师 10-09；实现 #190、#192 及后续后端 PR；**无新错误码 / 迁移 / 事件 / 开关，2.1 仍是 39 个**；**作废 v0.31.3 第 ⑤ 条「不传 `--always-approve`」**）：① **一期 headless 自动批准，但工具集限定为只读白名单**：每一轮都传 `--always-approve`（headless 无法弹批准，避免挂死），同时**必须**带：`--tools read_file,list_dir,grep`（只读：读文件 / 列目录 / 搜索）、`--disallowed-tools run_terminal_cmd,search_replace,write_file,apply_patch,task,Agent,web_search,web_fetch,search_tool,use_tool,image_gen,image_edit,video_gen`、`--no-subagents`、`--disable-web-search`、`--deny Bash` `--deny Edit` `--deny Write` `--deny WebFetch` `--deny WebSearch` `--deny MCPTool(*)`（deny 在自动批准下仍生效）；环境仍设 `GROK_SANDBOX=read-only`、`GROK_WRITE_FILE=0`。常量在 `internal/catagent/cli_readonly.go`，测试锁死白名单。**白名单里只能放核实过的工具 ID**：CLI 遇到不认识的白名单名字会整体放弃白名单、恢复完整工具集。② **真·请求批准是二期**：二期可改用 `--permission-mode dontAsk`（未明确允许的工具调用直接拒绝；**不能与 `--always-approve` 同时用**），再加批准流。③ **界面不变**：访问模式仍选中「请求批准」，「完全访问」置灰；界面仍只称「Cat 助手」，横幅文案不变。④ **模型 / 思考强度**（老板 22:13 / 22:16 定）：模型列表来自 CLI `grok models`，**模型名按 CLI 给的原样显示**（如 `grok-4.6`），**不再映射成「Cat 助手 …」**（这是界面里唯一允许出现 CLI 原始名字的地方）；思考强度用 CLI 的档位（`low` / `medium` / `high` / `xhigh`，模型不支持时 CLI 忽略）。用户选的模型和强度**每一轮（首轮和后续轮）都传**：`-m <modelId>`、`--reasoning-effort <level>`。⑤ **已知风险 / 待验**：(a) 最终工具集**还没在已登录的真机上验证**，老板需实测：让它写文件、改文件、运行命令，都应被拒绝、项目里不出现改动；(b) **Windows 上沙箱环境变量不生效**（CLI 沙箱只在 Linux / macOS 上有），Windows 的只读**完全靠工具限制**；(c) CLI 版本太旧、不认识这些参数时，每一轮都会失败，界面显示「回复没生成出来，请重试。」（`CAT_REPLY_FAILED`），**绝不会悄悄变成可写**；(d) 用户自己的 CLI 配置（`~/.grok/config.toml` 的 allow 规则、MCP 服务器）由上面的 deny 和黑名单压住（deny 优先于 allow）。
 
 v0.31.3 变更（**Cat Build 接本地 grok CLI**，架构师 / 老板 10-09；实现见 `internal/catagent`；**无新错误码 / 迁移 / 事件 / 开关，2.1 仍是 39 个**）：① **就绪**：`exec.LookPath("grok")`（Windows 亦可 `grok.exe`）命中即 `state=ready`；未命中仍 `missing` + `CAT_NOT_READY`「未检测到 Cat 助手，请先安装并确保可在终端直接运行。」，`canDownload=false`；登录 / API Key 失效同样 `CAT_NOT_READY`（`detail` 含 `reason=auth`），文案「登录失效，请重新登录后再试。」（**无新错误码**）。废弃旧文案「Cat 助手还没准备好，发布后即可使用。」。② **调用**：`grok -p "<最新用户句>" --output-format streaming-json --cwd <项目绝对路径|应用临时目录> -s <conversationId> --no-auto-update --no-alt-screen`；可选 `-m`。③ **流式**：NDJSON `text.data` → `OnTextDelta` / `cat:message` append；`thought` 忽略；`error` → `CAT_REPLY_FAILED`；`end` 结束；取消 → `proc.Kill` 进程树。④ **认证**：继承 `XAI_API_KEY` 或 `~/.grok/auth.json`，**无** URL/Key UI。⑤ **一期只读**：设 `GROK_SANDBOX=read-only`、`GROK_WRITE_FILE=0`，**不**传 `--always-approve`。⑥ 界面仍只称「Cat 助手」，不暴露可执行名。
 
@@ -3906,7 +3908,7 @@ type ExportSubtitleRequest struct {
 | 欢迎页 + 会话列表 + 发送 / 回复（事件推进） | URL / API Key 设置页或设置项 |
 | **仅 `cat_build`（Cat Build）** 可创建并运行 | 「助手」「定时任务」入口与功能 |
 | 模型名 / 思考强度**只从该会话 `agentKind` 对应 CLI 的能力列表读取** | 前端写死第三方模型名 |
-| 工具调用：**只读**（读文件 / 列目录等，白名单 TBD） | **完全访问**（入口置灰；不可落到 full） |
+| 工具调用：**只读**（v0.31.4 白名单 `read_file` / `list_dir` / `grep`；headless 自动批准） | **完全访问**（入口置灰；不可落到 full） |
 | 组件未就绪文案见下 | 任意写盘、执行任意命令（非只读） |
 
 **未就绪**（PATH 未检测到入口）：`未检测到 Cat 助手，请先安装并确保可在终端直接运行。`（一期通常无下载按钮，直至 `canDownload=true`）。
@@ -3934,11 +3936,11 @@ type ExportSubtitleRequest struct {
 ### 6.19.3 Build 适配器（`cat_build`）
 
 - **入口（v0.31.3）**：系统 PATH 上的 `grok` / `grok.exe`（`exec.LookPath`）。路径只进注册表，**不**回前端。组件目录 `%LocalAppData%\FFmpegFree\components\cat\build\<version>\` 仍保留作日后捆绑回退，一期不靠它就绪。  
-- **Headless 调用**：`grok -p "<最新一条用户消息>" --output-format streaming-json --cwd <项目绝对路径，无项目则用应用临时目录> -s <conversationId> --no-auto-update --no-alt-screen`；可选 `-m <modelId>`。  
+- **Headless 调用**（v0.31.4）：`grok -p "<最新一条用户消息>" --output-format streaming-json --cwd <项目绝对路径，无项目则用应用临时目录> -s <会话 UUID>（后续轮 `--resume <会话 UUID>`） --no-auto-update --no-alt-screen --always-approve <只读工具参数，见下>`；用户选了模型 / 强度时每一轮都带 `-m <modelId>`、`--reasoning-effort <level>`。  
 - **streaming-json**（NDJSON；官方 schema 未正式发布，按 CLI 0.2.x 捕获）：`{"type":"text","data"}` 正文增量；`thought` 忽略；`end` 结束；`error` 失败。  
 - **认证**：继承用户环境 `XAI_API_KEY` 或 `~/.grok/auth.json`（`grok login`）。**无** Base URL / API Key 设置。  
-- **一期只读**：环境 `GROK_SANDBOX=read-only`、`GROK_WRITE_FILE=0`；**不**传 `--always-approve`。写类工具请求仍拒绝。  
-- **能力列表**：PATH 就绪后默认 `models=[{id:default, displayName:Cat 助手}]`，`thinkLevels=[]`（前端隐藏强度）；日后可改为 CLI 探测。  
+- **一期只读**（v0.31.4 改）：自动批准 + 只读白名单 `--tools read_file,list_dir,grep`，另带 `--disallowed-tools`（写 / 改 / 跑命令 / 子代理 / 联网 / MCP / 生成）、`--no-subagents`、`--disable-web-search`、`--deny Bash|Edit|Write|WebFetch|WebSearch|MCPTool(*)`；环境 `GROK_SANDBOX=read-only`、`GROK_WRITE_FILE=0`（Windows 上沙箱不生效，只靠工具限制）。真·请求批准二期（`--permission-mode dontAsk` + 批准流）。  
+- **能力列表**（v0.31.4）：`models` 来自 `grok models`，`displayName` = CLI 给的模型 ID 原样（不映射成「Cat 助手 …」）；探测失败回退 CLI 默认列表。`thinkLevels` 用 CLI 档位 `low` / `medium` / `high` / `xhigh`。  
 - **取消**：`CancelCatTurn` → 取消 context → `proc.Kill` 进程树。超时默认 10 分钟。
 
 ### 6.19.4 数据结构
