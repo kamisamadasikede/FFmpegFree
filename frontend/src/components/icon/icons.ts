@@ -59,6 +59,9 @@ export const iconPaths = {
   'lock': "<rect x=\"4\" y=\"11\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M8 11V7a4 4 0 0 1 8 0v4\"/>",
   'magic': "<path d=\"m15 4 1 2 2 1-2 1-1 2-1-2-2-1 2-1zM5 14l1 2 2 1-2 1-1 2-1-2-2-1 2-1zM19 13l-8 8M16 10l-2 2\"/>",
   'block': "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"m5.6 5.6 12.8 12.8\"/>",
+  // 语音工具侧栏（转字幕）
+  'mic': "<path d=\"M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z\"/><path d=\"M5 11a7 7 0 0 0 14 0M12 18v3\"/>",
+  'caption': "<rect x=\"3\" y=\"5\" width=\"18\" height=\"14\" rx=\"2\"/><path d=\"M7 15h4M13 15h4M7 11h10\"/>",
 } as const
 
 export type IconName = keyof typeof iconPaths

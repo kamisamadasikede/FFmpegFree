@@ -71,3 +71,10 @@ export const DOC_V28_BACKEND_READY: boolean = true
  * 老板要先在真机上试，默认 false：「编辑」对 docx 不出现。浏览器走查可加 ?docx_edit=1 临时打开。
  */
 export const DOCX_EDIT_ENABLED: boolean = false
+
+/**
+ * 语音工具（转字幕 / 语音识别组件，契约 v0.29 §6.18）。
+ * false = 走 api/lang.ts 模拟（组件包未发布：missing + canDownload=false）。
+ * 后端骨架 + 绑定生成且组件可下载后改 true。
+ */
+export const LANG_BACKEND_READY: boolean = false
