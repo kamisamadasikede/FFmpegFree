@@ -7,62 +7,49 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	"FFmpegFree/internal/apperr"
 )
 
-func TestRunTurn_FakeBinarySuccess(t *testing.T) {
-	root, temp := setupBuildDirs(t)
-	touchEntry(t, root)
+func TestDetect_ReadyWhenGrokOnPATH(t *testing.T) {
+	fake := filepath.Join(t.TempDir(), "grok")
+	if runtime.GOOS == "windows" {
+		fake += ".exe"
+	}
+	_ = os.WriteFile(fake, []byte("x"), 0o755)
 	a := NewBuildAdapter(BuildConfig{
-		ComponentDir: filepath.Dir(filepath.Dir(root)), // …/components — wait: root is …/cat/build/ver
-		DataTemp:     temp,
-		Exec: fakeBuild(t, func(mode string, req TurnRequest, outPath string) int {
-			if mode == "cap" {
-				writeJSON(t, outPath, Capabilities{
-					Version: 1,
-					Models:  []Model{{ID: "m1", DisplayName: "Cat 助手 1.0"}},
-				})
-				return 0
+		DataTemp: t.TempDir(),
+		LookPath: func(file string) (string, error) {
+			if file == "grok" || file == "grok.exe" {
+				return fake, nil
 			}
-			if req.Version != 1 || len(req.Messages) == 0 {
-				t.Fatalf("bad req %+v", req)
-			}
-			writeJSON(t, outPath, TurnResponse{
-				Version: 1,
-				Message: WireMessage{Role: "assistant", Content: "你好"},
-			})
-			return 0
-		}),
+			return "", exec.ErrNotFound
+		},
 	})
-	// ComponentDir should be parent of cat/: root = ComponentDir/cat/build/ver
-	comp := filepath.Dir(filepath.Dir(filepath.Dir(root)))
-	a.cfg.ComponentDir = comp
 	a.detect()
-	if a.Status().State != StateReady {
-		t.Fatalf("status %+v", a.Status())
+	st := a.Status()
+	if st.State != StateReady || st.Version != "path" {
+		t.Fatalf("status %+v", st)
 	}
 	models, err := a.ListModels()
-	if err != nil || len(models) != 1 || models[0].DisplayName != "Cat 助手 1.0" {
+	if err != nil || len(models) != 1 || models[0].DisplayName != "Cat 助手" {
 		t.Fatalf("models %v %v", models, err)
 	}
 	thinks, err := a.ListThinkLevels()
 	if err != nil || len(thinks) != 0 {
-		t.Fatalf("thinks should be empty: %v %v", thinks, err)
-	}
-	resp, err := a.RunTurn(TurnOptions{
-		Ctx: context.Background(), ConversationID: "c1",
-		Messages: []WireMessage{{Role: "user", Content: "hi"}},
-	})
-	if err != nil || resp.Message.Content != "你好" {
-		t.Fatalf("%+v %v", resp, err)
+		t.Fatalf("thinks %v %v", thinks, err)
 	}
 }
 
-func TestRunTurn_MissingEntry(t *testing.T) {
-	a := NewBuildAdapter(BuildConfig{ComponentDir: t.TempDir(), DataTemp: t.TempDir()})
+func TestDetect_MissingWithoutGrok(t *testing.T) {
+	a := NewBuildAdapter(BuildConfig{
+		ComponentDir: t.TempDir(),
+		DataTemp:     t.TempDir(),
+		LookPath:     func(string) (string, error) { return "", exec.ErrNotFound },
+	})
 	a.detect()
 	st := a.Status()
 	if st.State != StateMissing || st.CanDownload || st.Error == nil || st.Error.Message != MsgNotReady {
@@ -74,27 +61,110 @@ func TestRunTurn_MissingEntry(t *testing.T) {
 	}
 }
 
-func TestRunTurn_NonZeroExit(t *testing.T) {
-	root, temp := setupBuildDirs(t)
-	touchEntry(t, root)
-	comp := filepath.Dir(filepath.Dir(filepath.Dir(root)))
+func TestRunTurn_StreamingJSON(t *testing.T) {
+	fake := filepath.Join(t.TempDir(), "grok-fake")
+	script := `#!/bin/sh
+# echo NDJSON text deltas then end
+printf '%s\n' '{"type":"text","data":"你"}'
+printf '%s\n' '{"type":"text","data":"好"}'
+printf '%s\n' '{"type":"thought","data":"ignore"}'
+printf '%s\n' '{"type":"end","stopReason":"end_turn","sessionId":"s1"}'
+exit 0
+`
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script fake is unix-only; LookPath+Exec covered on Windows via other tests")
+	}
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var deltas []string
 	a := NewBuildAdapter(BuildConfig{
-		ComponentDir: comp, DataTemp: temp,
-		Exec: fakeBuild(t, func(mode string, _ TurnRequest, outPath string) int {
-			if mode == "cap" {
-				writeJSON(t, outPath, Capabilities{Version: 1, Models: []Model{{ID: "m1", DisplayName: "Cat 助手 1.0"}}})
-				return 0
-			}
-			return 3
-		}),
+		DataTemp: t.TempDir(),
+		LookPath: func(string) (string, error) { return fake, nil },
+		Exec: func(ctx context.Context, name string, args ...string) *exec.Cmd {
+			return exec.CommandContext(ctx, fake)
+		},
+	})
+	a.detect()
+	if a.Status().State != StateReady {
+		t.Fatalf("%+v", a.Status())
+	}
+	resp, err := a.RunTurn(TurnOptions{
+		Ctx: context.Background(), ConversationID: "c1",
+		Messages:    []WireMessage{{Role: "user", Content: "hi"}},
+		OnTextDelta: func(d string) { deltas = append(deltas, d) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Message.Content != "你好" {
+		t.Fatalf("content %q", resp.Message.Content)
+	}
+	if strings.Join(deltas, "") != "你好" {
+		t.Fatalf("deltas %v", deltas)
+	}
+}
+
+func TestRunTurn_CLIErrorEvent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix script fake")
+	}
+	fake := filepath.Join(t.TempDir(), "grok-err")
+	script := "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"error\",\"message\":\"boom\"}'\nexit 0\n"
+	_ = os.WriteFile(fake, []byte(script), 0o755)
+	a := NewBuildAdapter(BuildConfig{
+		DataTemp: t.TempDir(),
+		LookPath: func(string) (string, error) { return fake, nil },
+		Exec:     func(ctx context.Context, name string, args ...string) *exec.Cmd { return exec.CommandContext(ctx, fake) },
 	})
 	a.detect()
 	_, err := a.RunTurn(TurnOptions{
-		Ctx: context.Background(), ConversationID: "c1", Timeout: 3 * time.Second,
+		Ctx: context.Background(), ConversationID: "c1",
 		Messages: []WireMessage{{Role: "user", Content: "x"}},
+		Timeout:  3 * time.Second,
 	})
 	if !apperr.Is(err, apperr.CatReplyFailed) || apperr.From(err).Message != MsgReplyFailed {
 		t.Fatalf("%v", err)
+	}
+}
+
+func TestRunTurn_PassesArgsAndReadonlyEnv(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix script fake")
+	}
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "grok-args")
+	out := filepath.Join(dir, "args.txt")
+	script := "#!/bin/sh\necho \"$0\" \"$@\" > '" + out + "'\necho \"ENV_SANDBOX=$GROK_SANDBOX\" >> '" + out + "'\necho \"ENV_WRITE=$GROK_WRITE_FILE\" >> '" + out + "'\nprintf '%s\\n' '{\"type\":\"text\",\"data\":\"ok\"}'\nprintf '%s\\n' '{\"type\":\"end\",\"stopReason\":\"end_turn\"}'\n"
+	_ = os.WriteFile(fake, []byte(script), 0o755)
+	proj := filepath.Join(dir, "proj")
+	_ = os.MkdirAll(proj, 0o755)
+	a := NewBuildAdapter(BuildConfig{
+		DataTemp: t.TempDir(),
+		LookPath: func(string) (string, error) { return fake, nil },
+		Exec:     func(ctx context.Context, name string, args ...string) *exec.Cmd { return exec.CommandContext(ctx, name, args...) },
+	})
+	a.detect()
+	_, err := a.RunTurn(TurnOptions{
+		Ctx: context.Background(), ConversationID: "conv-abc",
+		ProjectPath: proj, ModelID: "grok-build",
+		Messages: []WireMessage{{Role: "user", Content: "hello world"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	for _, want := range []string{"-p", "hello world", "--output-format", "streaming-json", "--cwd", proj, "-s", "conv-abc", "-m", "grok-build", "--no-auto-update", "ENV_SANDBOX=read-only", "ENV_WRITE=0"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing %q in:\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, "--always-approve") {
+		t.Fatalf("must not pass --always-approve:\n%s", s)
 	}
 }
 
@@ -114,74 +184,39 @@ func TestHandleToolRequests_ListDir(t *testing.T) {
 	}
 }
 
-func setupBuildDirs(t *testing.T) (root, temp string) {
-	t.Helper()
-	comp := t.TempDir()
-	root = filepath.Join(comp, "cat", "build", "0.0.0-test")
-	if err := os.MkdirAll(root, 0o755); err != nil {
+func TestScanStreamingJSON_Lenient(t *testing.T) {
+	var got []string
+	var errMsg string
+	in := strings.NewReader(strings.Join([]string{
+		`{"type":"text","data":"A"}`,
+		`not-json`,
+		`{"type":"thought","data":"x"}`,
+		`{"type":"text","data":"B"}`,
+		`{"type":"error","message":"nope"}`,
+		`{"type":"end","stopReason":"end_turn"}`,
+	}, "\n"))
+	if err := scanStreamingJSON(in, func(d string) { got = append(got, d) }, func(m string) { errMsg = m }); err != nil {
 		t.Fatal(err)
 	}
-	return root, t.TempDir()
-}
-
-func touchEntry(t *testing.T, root string) {
-	t.Helper()
-	name := entryNameUnix
-	if runtime.GOOS == "windows" {
-		name = entryNameWindows
-	}
-	if err := os.WriteFile(filepath.Join(root, name), []byte("placeholder"), 0o755); err != nil {
-		t.Fatal(err)
+	if strings.Join(got, "") != "AB" || errMsg != "nope" {
+		t.Fatalf("got=%v err=%q", got, errMsg)
 	}
 }
 
-func writeJSON(t *testing.T, path string, v any) {
-	t.Helper()
-	b, _ := json.Marshal(v)
-	if err := os.WriteFile(path, b, 0o644); err != nil {
-		t.Fatal(err)
+func TestScanStreamingJSON_RoundTrip(t *testing.T) {
+	// 确保事件能被 json 编解码（防字段漂移）。
+	lines := []streamEvent{
+		{Type: "text", Data: "hi"},
+		{Type: "end"},
 	}
-}
-
-func fakeBuild(t *testing.T, handle func(mode string, req TurnRequest, outPath string) int) func(ctx context.Context, name string, args ...string) *exec.Cmd {
-	t.Helper()
-	return func(ctx context.Context, name string, args ...string) *exec.Cmd {
-		mode, reqPath, outPath := "turn", "", ""
-		for i := 0; i+1 < len(args); i++ {
-			switch args[i] {
-			case "--request":
-				reqPath = args[i+1]
-			case "--response":
-				outPath = args[i+1]
-			case "--capabilities":
-				mode = "cap"
-				outPath = args[i+1]
-			}
+	for _, ev := range lines {
+		b, err := json.Marshal(ev)
+		if err != nil {
+			t.Fatal(err)
 		}
-		var req TurnRequest
-		if reqPath != "" {
-			if raw, err := os.ReadFile(reqPath); err == nil {
-				_ = json.Unmarshal(raw, &req)
-			}
+		var back streamEvent
+		if err := json.Unmarshal(b, &back); err != nil || back.Type != ev.Type {
+			t.Fatalf("%v %v", back, err)
 		}
-		code := handle(mode, req, outPath)
-		if runtime.GOOS == "windows" {
-			return exec.CommandContext(ctx, "cmd", "/C", "exit", itoa(code))
-		}
-		return exec.CommandContext(ctx, "sh", "-c", "exit "+itoa(code))
 	}
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var b [16]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(b[i:])
 }

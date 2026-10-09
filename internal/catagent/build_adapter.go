@@ -1,8 +1,10 @@
 package catagent
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,38 +15,51 @@ import (
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/id"
+	"FFmpegFree/internal/proc"
 )
 
-// 占位入口名（老板发布包后以实际名为准；路径只进注册表，不回前端）。
+// 占位入口名（组件目录回退；正式路径以 PATH 上的 grok 为准，不回前端）。
 const (
 	entryNameUnix    = "cat-build"
 	entryNameWindows = "cat-build.exe"
+	grokEntryUnix    = "grok"
+	grokEntryWindows = "grok.exe"
 )
 
-// DefaultBuildTimeout 是一轮对话超时（协议 TBD）。
+// DefaultBuildTimeout 是一轮对话超时。
 const DefaultBuildTimeout = 10 * time.Minute
+
+// 默认能力（PATH 上找到 grok 后使用；CLI 未提供独立 capabilities 探测）。
+var (
+	defaultModels = []Model{{ID: "default", DisplayName: "Cat 助手"}}
+	defaultThinks = []ThinkLevel{}
+)
 
 // BuildConfig 配置 Build 适配器。
 type BuildConfig struct {
-	// ComponentDir 是组件父目录（…/components）；实际根为 …/cat/build/<version>/。
+	// ComponentDir 是组件父目录（…/components）；PATH 未命中时回退 …/cat/build/<version>/。
 	ComponentDir string
-	DataTemp     string // <数据目录>/tmp，工作目录在 cat/<id>/
+	DataTemp     string // <数据目录>/tmp；无项目时用作 --cwd
 	Emit         func(event string, payload any)
 	Logf         func(format string, args ...any)
 	// Exec 可覆盖（测试注入假二进制）。
 	Exec func(ctx context.Context, name string, args ...string) *exec.Cmd
+	// LookPath 可覆盖（测试注入）；默认 exec.LookPath。
+	LookPath func(file string) (string, error)
 	// Now 可覆盖。
 	Now func() time.Time
 }
 
-// BuildAdapter 是 cat_build 适配器。
+// BuildAdapter 是 cat_build 适配器：优先 PATH 上的 grok，调 headless streaming-json。
 type BuildAdapter struct {
 	cfg BuildConfig
 
 	mu      sync.Mutex
 	st      Status
-	version string // 探测到的版本目录名
-	root    string // 组件根（含入口）
+	version string // 探测到的版本标签（path / 组件目录名）
+	root    string // 组件根（仅组件回退时有值）
+	exe     string // 绝对或 PATH 解析后的入口路径（不回前端）
+	viaPATH bool   // true = grok CLI；false = 旧组件入口（仍走 grok 参数若名为 grok）
 	models  []Model
 	thinks  []ThinkLevel
 	checked bool
@@ -58,19 +73,21 @@ func NewBuildAdapter(cfg BuildConfig) *BuildAdapter {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
+	if cfg.LookPath == nil {
+		cfg.LookPath = exec.LookPath
+	}
 	a := &BuildAdapter{cfg: cfg}
 	a.st = Status{State: StateChecking, CanDownload: false}
 	return a
 }
 
-func (a *BuildAdapter) Kind() string           { return KindCatBuild }
-func (a *BuildAdapter) ProtocolVersion() int   { return ProtocolVersion }
-func (a *BuildAdapter) ExecutablePath() string { return a.entryPathLocked() }
+func (a *BuildAdapter) Kind() string         { return KindCatBuild }
+func (a *BuildAdapter) ProtocolVersion() int { return ProtocolVersion }
 
-func (a *BuildAdapter) entryPathLocked() string {
+func (a *BuildAdapter) ExecutablePath() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return EntryBinary(a.root)
+	return a.exe
 }
 
 // EntryBinary 返回组件根下的入口路径；不存在返回 ""。
@@ -127,15 +144,56 @@ func (a *BuildAdapter) setStatus(st Status) {
 	}
 }
 
+func (a *BuildAdapter) lookPath(file string) (string, error) {
+	if a.cfg.LookPath != nil {
+		return a.cfg.LookPath(file)
+	}
+	return exec.LookPath(file)
+}
+
+// resolveGrokExe 按 PATH 找 grok / grok.exe。
+func (a *BuildAdapter) resolveGrokExe() string {
+	candidates := []string{grokEntryUnix}
+	if runtime.GOOS == "windows" {
+		candidates = []string{grokEntryWindows, grokEntryUnix}
+	}
+	for _, name := range candidates {
+		p, err := a.lookPath(name)
+		if err == nil && p != "" {
+			if fi, e := os.Stat(p); e == nil && !fi.IsDir() {
+				return p
+			}
+			// 测试注入的假路径可能不存在文件，仍接受（由 Exec 接管）。
+			if a.cfg.Exec != nil {
+				return p
+			}
+		}
+	}
+	return ""
+}
+
 func (a *BuildAdapter) detect() {
 	a.setStatus(Status{State: StateChecking, CanDownload: false})
+
+	if exe := a.resolveGrokExe(); exe != "" {
+		a.mu.Lock()
+		a.exe, a.root, a.version = exe, "", "path"
+		a.viaPATH = true
+		a.models = append([]Model(nil), defaultModels...)
+		a.thinks = append([]ThinkLevel(nil), defaultThinks...)
+		a.checked = true
+		a.mu.Unlock()
+		a.setStatus(Status{State: StateReady, Version: "path", CanDownload: false})
+		return
+	}
+
+	// 回退：组件目录里的 cat-build（旧占位；仍按 grok 协议调不了，标 missing）。
 	base := a.buildRootBase()
 	root, ver := findLatestBuildRoot(base)
 	exe := EntryBinary(root)
 	if exe == "" {
-		// 一期未发布：canDownload=false，无下载按钮。
 		a.mu.Lock()
-		a.root, a.version, a.models, a.thinks, a.checked = "", "", nil, nil, true
+		a.exe, a.root, a.version, a.models, a.thinks, a.viaPATH, a.checked = "", "", "", nil, nil, false, true
 		a.mu.Unlock()
 		a.setStatus(Status{
 			State:       StateMissing,
@@ -144,25 +202,17 @@ func (a *BuildAdapter) detect() {
 		})
 		return
 	}
-	caps, err := a.probeCapabilities(root, exe)
-	if err != nil {
-		a.mu.Lock()
-		a.root, a.version, a.checked = root, ver, true
-		a.mu.Unlock()
-		a.setStatus(Status{
-			State:       StateFailed,
-			Version:     ver,
-			CanDownload: false,
-			Error:       apperr.From(err),
-		})
-		return
-	}
+	// 组件入口不是 grok CLI：一期不跑旧 request/response 协议，当作未就绪，避免假回复。
 	a.mu.Lock()
-	a.root, a.version = root, ver
-	a.models, a.thinks = caps.Models, caps.ThinkLevels
-	a.checked = true
+	a.exe, a.root, a.version, a.viaPATH, a.checked = exe, root, ver, false, true
+	a.models, a.thinks = nil, nil
 	a.mu.Unlock()
-	a.setStatus(Status{State: StateReady, Version: ver, CanDownload: false})
+	a.setStatus(Status{
+		State:       StateMissing,
+		Version:     ver,
+		CanDownload: false,
+		Error:       apperr.New(apperr.CatNotReady, MsgNotReady).WithDetail("reason=need_grok_on_path"),
+	})
 }
 
 func findLatestBuildRoot(base string) (root, version string) {
@@ -170,7 +220,6 @@ func findLatestBuildRoot(base string) (root, version string) {
 	if err != nil {
 		return "", ""
 	}
-	// 选名字字典序最大的目录（版本号字符串 TBD；占位可用 "0.0.0-dev"）。
 	var best string
 	for _, e := range entries {
 		if !e.IsDir() {
@@ -188,44 +237,6 @@ func findLatestBuildRoot(base string) (root, version string) {
 		return "", ""
 	}
 	return filepath.Join(base, best), best
-}
-
-func (a *BuildAdapter) probeCapabilities(root, exe string) (Capabilities, error) {
-	work := filepath.Join(a.cfg.DataTemp, "cat", "cap-"+id.New())
-	if err := os.MkdirAll(work, 0o755); err != nil {
-		return Capabilities{}, apperr.Wrap(apperr.IOError, "无法创建临时文件夹", err)
-	}
-	defer os.RemoveAll(work)
-	capPath := filepath.Join(work, "capabilities.json")
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	run := a.cfg.Exec
-	if run == nil {
-		run = exec.CommandContext
-	}
-	cmd := run(ctx, exe, "--component-root", root, "--capabilities", capPath)
-	cmd.Dir = work
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	cmd.Stdout = &stderr
-	if err := cmd.Run(); err != nil {
-		return Capabilities{}, apperr.Wrap(apperr.CatNotReady, MsgNotReady, err).WithDetail("reason=capabilities_failed")
-	}
-	raw, err := os.ReadFile(capPath)
-	if err != nil {
-		return Capabilities{}, apperr.Wrap(apperr.CatNotReady, MsgNotReady, err).WithDetail("reason=capabilities_missing")
-	}
-	var caps Capabilities
-	if err := json.Unmarshal(raw, &caps); err != nil {
-		return Capabilities{}, apperr.Wrap(apperr.CatNotReady, MsgNotReady, err).WithDetail("reason=capabilities_invalid")
-	}
-	if caps.Models == nil {
-		caps.Models = []Model{}
-	}
-	if caps.ThinkLevels == nil {
-		caps.ThinkLevels = []ThinkLevel{}
-	}
-	return caps, nil
 }
 
 func (a *BuildAdapter) ListModels() ([]Model, error) {
@@ -266,51 +277,40 @@ type TurnOptions struct {
 	ProjectPath    string
 	Messages       []WireMessage
 	Timeout        time.Duration
-	// OnTextDelta 可选：适配器拿到真流式输出时逐段回调（CLI 流式协议 TBD）。
+	// OnTextDelta 可选：适配器拿到真流式输出时逐段回调。
 	// 一轮内只要回调过一次，服务端就以回调累积文本为准，不再拆整段回复。
 	OnTextDelta func(delta string)
 }
 
-// RunTurn 写 request → 调入口 → 读 response；未就绪 / 失败返回约定错误码。
+// RunTurn 调 PATH 上的 grok headless：streaming-json → OnTextDelta；取消杀进程树。
 func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	st := a.Status()
 	if st.State != StateReady {
 		return TurnResponse{}, apperr.New(apperr.CatNotReady, MsgNotReady)
 	}
 	a.mu.Lock()
-	root := a.root
+	exe := a.exe
 	a.mu.Unlock()
-	exe := EntryBinary(root)
 	if exe == "" {
 		return TurnResponse{}, apperr.New(apperr.CatNotReady, MsgNotReady)
 	}
-	turnID := opts.TurnID
-	if turnID == "" {
-		turnID = id.New()
+
+	prompt := lastUserContent(opts.Messages)
+	if strings.TrimSpace(prompt) == "" {
+		return TurnResponse{}, apperr.New(apperr.InvalidArgument, "消息不能为空")
 	}
-	work := filepath.Join(a.cfg.DataTemp, "cat", opts.ConversationID+"-"+turnID)
-	if err := os.MkdirAll(work, 0o755); err != nil {
-		return TurnResponse{}, apperr.Wrap(apperr.IOError, "无法创建临时文件夹", err)
+
+	cwd := strings.TrimSpace(opts.ProjectPath)
+	if cwd == "" {
+		base := a.cfg.DataTemp
+		if base == "" {
+			base = os.TempDir()
+		}
+		cwd = filepath.Join(base, "cat", "cwd-"+safeID(opts.ConversationID))
+		if err := os.MkdirAll(cwd, 0o755); err != nil {
+			return TurnResponse{}, apperr.Wrap(apperr.IOError, "无法创建临时文件夹", err)
+		}
 	}
-	reqPath := filepath.Join(work, "request.json")
-	respPath := filepath.Join(work, "response.json")
-	req := TurnRequest{
-		Version:        ProtocolVersion,
-		ConversationID: opts.ConversationID,
-		TurnID:         turnID,
-		ModelID:        opts.ModelID,
-		ThinkLevelID:   opts.ThinkLevelID,
-		ProjectPath:    opts.ProjectPath,
-		Messages:       opts.Messages,
-	}
-	b, err := json.Marshal(req)
-	if err != nil {
-		return TurnResponse{}, apperr.Wrap(apperr.Internal, "内部错误", err)
-	}
-	if err := os.WriteFile(reqPath, b, 0o644); err != nil {
-		return TurnResponse{}, apperr.Wrap(apperr.IOError, "无法写入请求", err)
-	}
-	_ = os.Remove(respPath)
 
 	timeout := opts.Timeout
 	if timeout <= 0 {
@@ -323,42 +323,207 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	args := []string{
+		"-p", prompt,
+		"--output-format", "streaming-json",
+		"--cwd", cwd,
+		"--no-auto-update",
+		"--no-alt-screen",
+	}
+	if sid := strings.TrimSpace(opts.ConversationID); sid != "" {
+		args = append(args, "-s", sid)
+	}
+	if mid := strings.TrimSpace(opts.ModelID); mid != "" && mid != "default" {
+		args = append(args, "-m", mid)
+	}
+	// 一期只读：不传 --always-approve；用沙箱 / 关写工具环境变量约束 CLI。
+	_ = opts.ThinkLevelID
+
 	run := a.cfg.Exec
 	if run == nil {
 		run = exec.CommandContext
 	}
-	cmd := run(runCtx, exe,
-		"--component-root", root,
-		"--request", reqPath,
-		"--response", respPath,
-	)
-	cmd.Dir = work
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	cmd.Stdout = &stderr
-	err = cmd.Run()
-	if a.cfg.Logf != nil && stderr.Len() > 0 {
-		a.cfg.Logf("cat build turn stderr: %s", stderr.String())
+	cmd := run(runCtx, exe, args...)
+	cmd.Dir = cwd
+	cmd.Env = grokTurnEnv(os.Environ())
+	proc.Configure(cmd)
+	cmd.Cancel = func() error { return proc.Kill(cmd) }
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return TurnResponse{}, apperr.Wrap(apperr.CatReplyFailed, MsgReplyFailed, err).WithDetail("reason=stdout_pipe")
 	}
+	var stderrBuf strings.Builder
+	cmd.Stderr = &stderrBuf
+
+	if err := cmd.Start(); err != nil {
+		return TurnResponse{}, apperr.Wrap(apperr.CatReplyFailed, MsgReplyFailed, err).WithDetail("reason=start_failed")
+	}
+
+	var (
+		acc      strings.Builder
+		streamed bool
+		cliErr   string
+	)
+	scanErr := scanStreamingJSON(stdout, func(delta string) {
+		streamed = true
+		acc.WriteString(delta)
+		if opts.OnTextDelta != nil {
+			opts.OnTextDelta(delta)
+		}
+	}, func(msg string) {
+		cliErr = msg
+	})
+
+	waitErr := cmd.Wait()
+	if a.cfg.Logf != nil && stderrBuf.Len() > 0 {
+		a.cfg.Logf("cat build turn stderr: %s", truncate(stderrBuf.String(), 2000))
+	}
+	if scanErr != nil && a.cfg.Logf != nil {
+		a.cfg.Logf("cat build stream scan: %v", scanErr)
+	}
+
 	if runCtx.Err() != nil {
 		if ctx.Err() != nil {
 			return TurnResponse{}, apperr.New(apperr.Canceled, "已取消")
 		}
 		return TurnResponse{}, apperr.New(apperr.CatReplyFailed, MsgReplyFailed).WithDetail("reason=timeout")
 	}
-	if err != nil {
-		return TurnResponse{}, apperr.Wrap(apperr.CatReplyFailed, MsgReplyFailed, err)
+	if cliErr != "" {
+		return TurnResponse{}, apperr.New(apperr.CatReplyFailed, MsgReplyFailed).WithDetail("reason=cli_error " + truncate(cliErr, 500))
 	}
-	raw, err := os.ReadFile(respPath)
-	if err != nil {
-		return TurnResponse{}, apperr.Wrap(apperr.CatReplyFailed, MsgReplyFailed, err).WithDetail("reason=response_missing")
+	if waitErr != nil {
+		// 已有流式正文时，非零退出仍把已出文字交回（取消另走上面分支）。
+		if streamed && strings.TrimSpace(acc.String()) != "" {
+			return TurnResponse{
+				Version: ProtocolVersion,
+				Message: WireMessage{Role: "assistant", Content: acc.String()},
+			}, nil
+		}
+		return TurnResponse{}, apperr.Wrap(apperr.CatReplyFailed, MsgReplyFailed, waitErr)
 	}
-	var resp TurnResponse
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		return TurnResponse{}, apperr.Wrap(apperr.CatReplyFailed, MsgReplyFailed, err).WithDetail("reason=response_invalid")
+
+	body := acc.String()
+	if strings.TrimSpace(body) == "" {
+		return TurnResponse{}, apperr.New(apperr.CatReplyFailed, MsgReplyFailed).WithDetail("reason=empty_reply")
 	}
-	if resp.Message.Role == "" {
-		resp.Message.Role = "assistant"
+	return TurnResponse{
+		Version: ProtocolVersion,
+		Message: WireMessage{Role: "assistant", Content: body},
+	}, nil
+}
+
+func lastUserContent(msgs []WireMessage) string {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == "user" && strings.TrimSpace(msgs[i].Content) != "" {
+			return msgs[i].Content
+		}
 	}
-	return resp, nil
+	if len(msgs) > 0 {
+		return msgs[len(msgs)-1].Content
+	}
+	return ""
+}
+
+func safeID(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return id.New()
+	}
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	out := b.String()
+	if out == "" {
+		return id.New()
+	}
+	if len(out) > 80 {
+		out = out[:80]
+	}
+	return out
+}
+
+func grokTurnEnv(base []string) []string {
+	out := make([]string, 0, len(base)+4)
+	skip := map[string]bool{
+		"GROK_SANDBOX":             true,
+		"GROK_WRITE_FILE":          true,
+		"GROK_DISABLE_AUTOUPDATER": true,
+	}
+	for _, e := range base {
+		if i := strings.IndexByte(e, '='); i > 0 {
+			if skip[e[:i]] {
+				continue
+			}
+		}
+		out = append(out, e)
+	}
+	// 一期只读：沙箱 read-only、关闭写文件；不传 --always-approve。
+	out = append(out,
+		"GROK_SANDBOX=read-only",
+		"GROK_WRITE_FILE=0",
+		"GROK_DISABLE_AUTOUPDATER=1",
+	)
+	return out
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
+
+// streamEvent 是 grok --output-format streaming-json 的一行（捕获自 CLI 0.2.x；官方未正式发布 schema）。
+// text.data = 助手正文增量；thought 忽略；error.message = 失败；end = 回合结束。
+type streamEvent struct {
+	Type    string `json:"type"`
+	Data    string `json:"data"`
+	Message string `json:"message"`
+}
+
+func scanStreamingJSON(r io.Reader, onText func(string), onErr func(string)) error {
+	sc := bufio.NewScanner(r)
+	// 单行可能很长（工具结果）；放宽到 4 MiB。
+	buf := make([]byte, 0, 64*1024)
+	sc.Buffer(buf, 4*1024*1024)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		var ev streamEvent
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			// 非 JSON 行丢弃（避免把日志当正文）。
+			continue
+		}
+		switch strings.ToLower(ev.Type) {
+		case "text":
+			if ev.Data != "" && onText != nil {
+				onText(ev.Data)
+			}
+		case "thought":
+			// 一期不展示思考过程。
+		case "error":
+			if onErr != nil {
+				msg := ev.Message
+				if msg == "" {
+					msg = ev.Data
+				}
+				if msg != "" {
+					onErr(msg)
+				}
+			}
+		case "end":
+			// 回合结束；正文已由 text 增量累积。
+		default:
+			// 未知类型忽略（向前兼容）。
+		}
+	}
+	return sc.Err()
 }

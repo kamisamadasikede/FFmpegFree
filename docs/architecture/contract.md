@@ -1,4 +1,7 @@
-# FFmpegFree v2 接口契约（v0.31.2）
+# FFmpegFree v2 接口契约（v0.31.3）
+
+v0.31.3 变更（**Cat Build 接本地 grok CLI**，架构师 / 老板 10-09；实现见 `internal/catagent`；**无新错误码 / 迁移 / 事件 / 开关，2.1 仍是 39 个**）：① **就绪**：`exec.LookPath("grok")`（Windows 亦可 `grok.exe`）命中即 `state=ready`；未命中仍 `missing` + `CAT_NOT_READY`「Cat 助手还没准备好，发布后即可使用。」，`canDownload=false`。② **调用**：`grok -p "<最新用户句>" --output-format streaming-json --cwd <项目绝对路径|应用临时目录> -s <conversationId> --no-auto-update --no-alt-screen`；可选 `-m`。③ **流式**：NDJSON `text.data` → `OnTextDelta` / `cat:message` append；`thought` 忽略；`error` → `CAT_REPLY_FAILED`；`end` 结束；取消 → `proc.Kill` 进程树。④ **认证**：继承 `XAI_API_KEY` 或 `~/.grok/auth.json`，**无** URL/Key UI。⑤ **一期只读**：设 `GROK_SANDBOX=read-only`、`GROK_WRITE_FILE=0`，**不**传 `--always-approve`。⑥ 界面仍只称「Cat 助手」，不暴露可执行名。
+
 
 v0.31.2 变更（**Cat 项目口径澄清**，后端 #181 实现后架构师回写；完整规则见 **6.19.10**，冲突时以该节为准；**没有新错误码 / 迁移 / 事件 / 开关，2.1 仍是 39 个**）：① **排序最后一级按 id 倒序**：项目、对话（含无项目「对话」下）活动时间 / `createdAt` 都相同时，再按 `id` **倒序**（6.19.10.6）。② **`path_key` 大小写规则与 `paths.Normalize` 对齐**：**Windows 与 macOS 不区分大小写（键转小写），Linux 区分**；`CreateCatProject` / `RelocateCatProject` 共用。**后端 #181 目前只在 Windows 转小写，macOS 尚未对齐，需跟进修；修完后真机验：同一文件夹用不同大小写选两次 → `existed=true`**（6.19.10.2 第 2 条、6.19.10.10）。③ **`DeleteCatProject` / `DeleteCatConversation`**：有进行中的一轮时**先按 `CancelCatTurn` 取消，最多等 5 秒**等它停再删，避免回复尾巴写回库（6.19.10.2 第 4、7 条）。④ **无项目对话的读文件请求**：只在适配器内失败，说明 `这个对话没有项目文件夹，不能查看文件。`，**不进界面**，也不再用旧的「下一期开放」那句（6.19.10.5）。⑤ **说明（不绑定前端）**：后端内部 `system.Manager.OpenFolder` 被 `OpenStorageFolder` 与 `RevealCatProject` 复用，**不**暴露给前端。
 
@@ -3929,12 +3932,13 @@ type ExportSubtitleRequest struct {
 
 ### 6.19.3 Build 适配器（`cat_build`）
 
-- 组件目录建议：`%LocalAppData%\FFmpegFree\components\cat\build\<version>\`（macOS 对应 Application Support）；每轮工作目录 `<数据目录>/tmp/cat/<conversationIdOrTurnId>/`。  
-- 入口二进制：**名字 TBD**（占位 `cat-build` / `cat-build.exe`，以老板发布包为准）。路径只进注册表，**不**回前端。  
-- 能力探测：CLI 输出 JSON → `models[]` / `thinkLevels[]`（展示名须为「Cat 助手 …」口径，或后端映射后只把展示名给前端）。**按 agentKind 缓存**；不同 kind 不得混用能力列表。  
-- 一轮对话：写 request（消息、modelId、thinkLevelId、只读工具结果、可选只读项目根）→ 调该 kind 的可执行文件 → 读 response；写类工具请求拒绝。  
-- 协议字段、超时、取消细节：**TBD**（稳定后回写）。  
-- **无** Base URL / API Key 设置。
+- **入口（v0.31.3）**：系统 PATH 上的 `grok` / `grok.exe`（`exec.LookPath`）。路径只进注册表，**不**回前端。组件目录 `%LocalAppData%\FFmpegFree\components\cat\build\<version>\` 仍保留作日后捆绑回退，一期不靠它就绪。  
+- **Headless 调用**：`grok -p "<最新一条用户消息>" --output-format streaming-json --cwd <项目绝对路径，无项目则用应用临时目录> -s <conversationId> --no-auto-update --no-alt-screen`；可选 `-m <modelId>`。  
+- **streaming-json**（NDJSON；官方 schema 未正式发布，按 CLI 0.2.x 捕获）：`{"type":"text","data"}` 正文增量；`thought` 忽略；`end` 结束；`error` 失败。  
+- **认证**：继承用户环境 `XAI_API_KEY` 或 `~/.grok/auth.json`（`grok login`）。**无** Base URL / API Key 设置。  
+- **一期只读**：环境 `GROK_SANDBOX=read-only`、`GROK_WRITE_FILE=0`；**不**传 `--always-approve`。写类工具请求仍拒绝。  
+- **能力列表**：PATH 就绪后默认 `models=[{id:default, displayName:Cat 助手}]`，`thinkLevels=[]`（前端隐藏强度）；日后可改为 CLI 探测。  
+- **取消**：`CancelCatTurn` → 取消 context → `proc.Kill` 进程树。超时默认 10 分钟。
 
 ### 6.19.4 数据结构
 

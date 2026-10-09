@@ -2,7 +2,6 @@ package cat_test
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -102,52 +101,37 @@ func setupSvc(t *testing.T, withBinary bool) (*cat.Service, string, func()) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	comp := filepath.Join(dir, "components")
 	temp := filepath.Join(dir, "tmp")
 	_ = os.MkdirAll(temp, 0o755)
-	var root string
-	if withBinary {
-		root = filepath.Join(comp, "cat", "build", "0.0.0-test")
-		_ = os.MkdirAll(root, 0o755)
-		name := "cat-build"
-		if runtime.GOOS == "windows" {
-			name = "cat-build.exe"
-		}
-		_ = os.WriteFile(filepath.Join(root, name), []byte("x"), 0o755)
-	}
 	reg := catagent.NewRegistry()
-	build := catagent.NewBuildAdapter(catagent.BuildConfig{
-		ComponentDir: comp,
+	cfg := catagent.BuildConfig{
+		ComponentDir: filepath.Join(dir, "components"),
 		DataTemp:     temp,
-		Exec: func(ctx context.Context, name string, args ...string) *exec.Cmd {
-			mode, outPath, reqPath := "turn", "", ""
-			for i := 0; i+1 < len(args); i++ {
-				switch args[i] {
-				case "--capabilities":
-					mode, outPath = "cap", args[i+1]
-				case "--response":
-					outPath = args[i+1]
-				case "--request":
-					reqPath = args[i+1]
-				}
+		LookPath:     func(string) (string, error) { return "", exec.ErrNotFound },
+	}
+	var fake string
+	if withBinary {
+		fake = filepath.Join(dir, "grok-fake")
+		if runtime.GOOS == "windows" {
+			// Windows：用 cmd 打出一行 streaming-json。
+			bat := fake + ".bat"
+			_ = os.WriteFile(bat, []byte("@echo {\"type\":\"text\",\"data\":\"收到\"}\r\n@echo {\"type\":\"end\",\"stopReason\":\"end_turn\"}\r\n"), 0o755)
+			fake = bat
+		} else {
+			script := "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"text\",\"data\":\"收到\"}'\nprintf '%s\\n' '{\"type\":\"end\",\"stopReason\":\"end_turn\"}'\n"
+			_ = os.WriteFile(fake, []byte(script), 0o755)
+		}
+		cfg.LookPath = func(file string) (string, error) {
+			if file == "grok" || file == "grok.exe" {
+				return fake, nil
 			}
-			if mode == "cap" {
-				b, _ := json.Marshal(catagent.Capabilities{Version: 1, Models: []catagent.Model{{ID: "m1", DisplayName: "Cat 助手 1.0"}}})
-				_ = os.WriteFile(outPath, b, 0o644)
-			} else {
-				var req catagent.TurnRequest
-				if raw, e := os.ReadFile(reqPath); e == nil {
-					_ = json.Unmarshal(raw, &req)
-				}
-				b, _ := json.Marshal(catagent.TurnResponse{Version: 1, Message: catagent.WireMessage{Role: "assistant", Content: "收到"}})
-				_ = os.WriteFile(outPath, b, 0o644)
-			}
-			if runtime.GOOS == "windows" {
-				return exec.CommandContext(ctx, "cmd", "/C", "exit", "0")
-			}
-			return exec.CommandContext(ctx, "sh", "-c", "exit 0")
-		},
-	})
+			return "", exec.ErrNotFound
+		}
+		cfg.Exec = func(ctx context.Context, name string, args ...string) *exec.Cmd {
+			return exec.CommandContext(ctx, fake)
+		}
+	}
+	build := catagent.NewBuildAdapter(cfg)
 	reg.Register(build)
 	if withBinary {
 		build.Start()
@@ -155,5 +139,5 @@ func setupSvc(t *testing.T, withBinary bool) (*cat.Service, string, func()) {
 		build.Recheck()
 	}
 	svc := cat.New(cat.Config{Store: st, Registry: reg})
-	return svc, root, func() { _ = st.Close() }
+	return svc, fake, func() { _ = st.Close() }
 }
