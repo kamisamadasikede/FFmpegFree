@@ -78,3 +78,10 @@ export const DOCX_EDIT_ENABLED: boolean = false
  * 纯浏览器（没有 window.go）仍走模拟；组件包未发布时后端仍返回 missing + canDownload=false（无下载按钮）。
  */
 export const LANG_BACKEND_READY: boolean = true
+
+/**
+ * 登录页 UI 预留（设计说明 login-v1）。默认 false：不进侧栏、不作启动页、生产包无任何打开入口。
+ * 路由 /login 与 LoginView 已存在；仅当本开关为 true 时可达，默认启动与侧栏完全绕开。
+ * 未接真登录 / 账号 / 后端；打开后仅作界面预留与本地表单态。
+ */
+export const LOGIN_UI_ENABLED: boolean = false
