@@ -23,7 +23,10 @@ const pst = usePreviewStore()
 const router = useRouter()
 const narrow = useNarrow()
 const dropStyle = { '--wails-drop-target': 'drop' } as Record<string, string>
-const SUP = '支持 Word、Excel、PowerPoint、文本、网页、Markdown'
+import { docV28On } from '@/api/docV26'
+// v0.28：PDF 输入打开后（DOC_V28_BACKEND_READY 或纯浏览器模拟）提示里加 PDF
+const SUP = docV28On() ? '支持 Word、Excel、PowerPoint、PDF、文本、网页、Markdown' : '支持 Word、Excel、PowerPoint、文本、网页、Markdown'
+const DROP_TITLE = docV28On() ? '拖入文档、表格、演示或 PDF 文件，或点击选择' : '拖入文档、表格或演示文件，或点击选择'
 
 const countText = computed(() => {
   const n = dc.rows.length
@@ -84,7 +87,7 @@ dropHandlers.office = onDrop
 
         <div v-if="dc.loaded && !dc.rows.length" class="cv-hero">
           <div class="ic"><FIcon name="upload" /></div>
-          <h3>拖入文档、表格或演示文件，或点击选择</h3>
+          <h3>{{ DROP_TITLE }}</h3>
           <p>添加后勾选文件，在右侧选择格式，点“转换”。每次转换的结果都会挂在源文件下面，重启后仍在。</p>
           <small>{{ SUP }}，一次最多 50 个</small>
           <div class="acts"><button type="button" class="btn pri" @click="dc.chooseFiles()"><FIcon name="plus" />添加文件</button></div>

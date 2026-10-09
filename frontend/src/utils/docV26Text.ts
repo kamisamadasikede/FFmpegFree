@@ -22,7 +22,21 @@ export const DOC_SIMPLE_HINT = '下载文档组件后可保留图片和排版'
 export const DOC_MD_HINT = '转成 Markdown 只保留文字和基本格式，图片和复杂表格会丢失。'
 // 产品 10-09 定稿（契约 / 设计统一；格式说明行和 csv_first_sheet_only 结果警告共用）
 export const DOC_CSV_HINT = '转成 CSV 只会保留第一个工作表。'
-export const DOC_PDF_INPUT = 'PDF 暂时不能转成其他格式。'
+// ── v0.28 PDF 转其他格式（契约 6.12.58~6.12.65；产品 10-09 定稿，改文案只改这里） ──
+/** pdf → doc / docx / odt / rtf（hintKey=pdf_layout） */
+export const DOC_PDF_LAYOUT_HINT = 'PDF 转 Word 会尽量保留排版，复杂版式和扫描件可能会走样。'
+/** pdf → txt / md，以及没有文档组件时的 pdf → html（PDF 源上的 simple_mode / md_lossy 都用这句） */
+export const DOC_PDF_TEXT_ONLY_HINT = '只提取文字，不保留排版和图片。'
+/** DOC_PDF_NO_TEXT（不可重试，只能移除） */
+export const DOC_PDF_NO_TEXT_TEXT = '这个 PDF 里没有能提取的文字，可能是扫描件。'
+/** 添加 PDF：INVALID_ARGUMENT reason=too_large（200 MiB） */
+export const DOC_PDF_TOO_LARGE_TEXT = 'PDF 太大了，最多支持 200 MB。'
+/** 添加 PDF：INVALID_ARGUMENT reason=too_many_pages（500 页） */
+export const DOC_PDF_TOO_MANY_PAGES_TEXT = 'PDF 页数太多，最多支持 500 页。'
+/** PDF 能转成的 Word 类目标（带 pdf_layout 提示） */
+export const DOC_PDF_WORD_TARGETS = ['doc', 'docx', 'odt', 'rtf'] as const
+/** PDF 只提取文字的目标 */
+export const DOC_PDF_TEXT_TARGETS = ['txt', 'md'] as const
 export const DOC_PREPARING = '正在准备文档组件…'
 export const DOC_QUEUE_NEXT = '排队中 · 下一个'
 /** 子记录进度条右侧：0 → 下一个（设计 v0.2 §二.8） */
@@ -40,7 +54,10 @@ export const DOC_ERROR_COPY: Record<string, { text: string; retryable: boolean }
   DOC_CHECKSUM_FAILED: { text: '下载的文档组件校验失败，请重试。', retryable: true },
   DOC_COMPONENT_INSTALL_FAILED: { text: '文档组件准备失败，请重试。', retryable: true },
   DOC_FORMAT_UNSUPPORTED: { text: '不支持这种文件。', retryable: false },
-  DOC_PDF_INPUT_UNSUPPORTED: { text: DOC_PDF_INPUT, retryable: false },
+  // v0.28 起后端不再产生；旧后端 / 旧记录仍可能见到，按“格式不支持”显示（旧句「PDF 暂时不能…」已删，产品 10-09）
+  DOC_PDF_INPUT_UNSUPPORTED: { text: '不支持这种文件。', retryable: false },
+  // v0.28（6.12.63）
+  DOC_PDF_NO_TEXT: { text: DOC_PDF_NO_TEXT_TEXT, retryable: false },
   // v0.27（6.12.33，产品 10-09 定稿；转换用这两句，预览的「再预览。」版本属于下一包）
   DOC_PRESENTATION_BUSY: { text: '请先关闭正在打开的演示文稿，再转换。', retryable: true },
   DOC_ENGINE_BUSY: { text: '请先关闭正在打开的文档，再转换。', retryable: true },
@@ -60,6 +77,34 @@ export function docErrorText(code?: string | null, message?: string | null, linu
   if (code && DOC_ERROR_COPY[code]) return DOC_ERROR_COPY[code].text
   const m = (message ?? '').trim()
   return m || '出了点问题，请重试。'
+}
+
+/**
+ * 添加文件（AddDocSources 的 error）的文案：PDF 的大小 / 页数上限按 reason 给定稿句子（界面不出现 reason），其他同 docErrorText。
+ * 非 PDF 的 too_large 仍用后端 message。
+ */
+export function docAddErrorText(err: { code?: string | null; message?: string | null; detail?: string | null }, path = '', linux = false): string {
+  const reason = /^reason=([A-Za-z0-9_-]+)/.exec((err.detail ?? '').split(/\r?\n/, 1)[0].trim())?.[1]
+  const isPdf = /\.pdf$/i.test(path)
+  if (err.code === 'INVALID_ARGUMENT' && reason === 'too_many_pages') return DOC_PDF_TOO_MANY_PAGES_TEXT
+  if (err.code === 'INVALID_ARGUMENT' && reason === 'too_large' && isPdf) return DOC_PDF_TOO_LARGE_TEXT
+  return docErrorText(err.code, err.message, linux)
+}
+
+/**
+ * 格式区下面的说明行（v0.28 PDF 源）。selectedFamilies 里有 pdf 时才返回；没有返回 null，走原来的逻辑。
+ * Word 类目标 → 排版提示；txt / md → 只提取文字；html 简易（没有组件）→ 只提取文字 + 可下载组件（Linux 不给按钮）。
+ */
+export function docPdfNote(
+  families: readonly string[],
+  target: { ext: string; available: boolean; simple?: boolean; hintKey?: string } | null,
+  linux = false,
+): { text: string; tone: 'info' | 'warn'; download?: boolean } | null {
+  if (!target || !target.available || !families.includes('pdf')) return null
+  if ((DOC_PDF_WORD_TARGETS as readonly string[]).includes(target.ext) || target.hintKey === 'pdf_layout') return { text: DOC_PDF_LAYOUT_HINT, tone: 'info' }
+  if ((DOC_PDF_TEXT_TARGETS as readonly string[]).includes(target.ext)) return { text: DOC_PDF_TEXT_ONLY_HINT, tone: 'info' }
+  if (target.ext === 'html' && target.simple) return { text: DOC_PDF_TEXT_ONLY_HINT, tone: 'warn', download: !linux }
+  return null
 }
 
 export function docErrorRetryable(code?: string | null): boolean {
@@ -106,11 +151,12 @@ export function docSizeGuideText(downloadBytes: number, installBytes = 0): strin
 }
 
 export function intersectionWhy(families: string[]): string {
-  const map: Record<string, string> = { text: '文档', sheet: '表格', slide: '演示' }
+  const map: Record<string, string> = { pdf: 'PDF', text: '文档', sheet: '表格', slide: '演示' }
   const names = [...new Set(families)].map((f) => map[f] ?? f).filter(Boolean)
   if (names.length <= 1) return ''
   if (names.length === 2) return `选中的文件有${names[0]}和${names[1]}两类，只显示它们都能转的格式。`
-  return `选中的文件有${names.join('、')}三类，只显示它们都能转的格式。`
+  const cn = ['', '', '两', '三', '四'][names.length] ?? String(names.length)
+  return `选中的文件有${names.join('、')}${cn}类，只显示它们都能转的格式。`
 }
 
 export function sameFamilyWhy(exts: string[], labels: Record<string, string>): string {

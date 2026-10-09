@@ -36,8 +36,9 @@ const KIND: Record<string, string> = {
   doc: 'Word 文档（旧格式）', docx: 'Word 文档', odt: '开放文档', rtf: '富文本', txt: '纯文本', html: '网页', md: 'Markdown',
   xls: 'Excel 表格（旧格式）', xlsx: 'Excel 表格', ods: '开放表格', csv: 'CSV 表格',
   ppt: 'PowerPoint 演示（旧格式）', pptx: 'PowerPoint 演示', odp: '开放演示',
+  pdf: 'PDF 文档',
 }
-const FAM: Record<string, string> = { text: '文档', sheet: '表格', slide: '演示' }
+const FAM: Record<string, string> = { text: '文档', sheet: '表格', slide: '演示', pdf: 'PDF' }
 const meta = computed(() => {
   const parts = [KIND[src.value.ext] ?? FAM[src.value.family] ?? '']
   if (src.value.family === 'sheet' && src.value.ext !== 'csv' && src.value.sheetCount > 0) parts.push(`${src.value.sheetCount} 个工作表`)
