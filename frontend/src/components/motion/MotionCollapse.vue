@@ -7,7 +7,8 @@ import { collapseIn, collapseOut, stopAnim } from '@/utils/motion'
 
 defineOptions({ inheritAttrs: false })
 // paused：首次读到列表时由调用方置 true，那一批直接出现
-const props = withDefaults(defineProps<{ group?: boolean; tag?: string; batchLimit?: number; paused?: boolean }>(), { group: false, tag: 'div', batchLimit: 6, paused: false })
+// appear：单个模式下，随父级一起挂载时也展开一次（只给「刚刚失败」这种调用方自己判断过的场景用）
+const props = withDefaults(defineProps<{ group?: boolean; tag?: string; batchLimit?: number; paused?: boolean; appear?: boolean }>(), { group: false, tag: 'div', batchLimit: 6, paused: false, appear: false })
 
 let pending: { el: Element; done: () => void }[] = []
 function onEnter(el: Element, done: () => void) {
@@ -28,5 +29,5 @@ const onCancel = (el: Element) => stopAnim(el)
 
 <template>
   <TransitionGroup v-if="group" :tag="tag" v-bind="$attrs" :css="false" @enter="onEnter" @leave="onLeave" @enter-cancelled="onCancel" @leave-cancelled="onCancel"><slot /></TransitionGroup>
-  <Transition v-else :css="false" @enter="onEnter" @leave="onLeave" @enter-cancelled="onCancel" @leave-cancelled="onCancel"><slot /></Transition>
+  <Transition v-else :appear="appear" :css="false" @enter="onEnter" @leave="onLeave" @enter-cancelled="onCancel" @leave-cancelled="onCancel"><slot /></Transition>
 </template>

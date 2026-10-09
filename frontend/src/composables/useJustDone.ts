@@ -4,7 +4,8 @@ import { onScopeDispose, reactive, watch } from 'vue'
 
 type Item = { id: string; status: string }
 
-export function useJustDone(list: () => readonly Item[] | undefined, ms = 1200) {
+/** isDone：哪些状态算「刚到达」，默认 succeeded；任务中心用它标记「刚失败」 */
+export function useJustDone(list: () => readonly Item[] | undefined, ms = 1200, isDone: (s: string) => boolean = (s) => s === 'succeeded') {
   const just = reactive(new Set<string>())
   const timers = new Set<ReturnType<typeof setTimeout>>()
   let prev: Map<string, string> | null = null
@@ -15,7 +16,7 @@ export function useJustDone(list: () => readonly Item[] | undefined, ms = 1200) 
       if (prev) {
         for (const [id, s] of next) {
           const p = prev.get(id)
-          if (s === 'succeeded' && p && p !== 'succeeded') {
+          if (isDone(s) && p && !isDone(p)) {
             just.add(id)
             const t = setTimeout(() => {
               timers.delete(t)

@@ -134,62 +134,67 @@
               <!-- 失败 / 已中断行：共享 ErrorLine；错误码来自 Task.error.code，未知码走兜底文案（带后端 message） -->
               <tr v-if="hasErrLine(t)" class="errrow">
                 <td colspan="6">
-                  <ErrorLine
-                    v-if="t.error && t.error.code === 'LIVE_SOURCE_GONE'"
-                    compact
-                    tone="interrupted"
-                    :code="t.error.code"
-                    title=""
-                    :description="liveSourceGoneText(goneKind(t))"
-                    hide-code
-                    :announce="isFresh(t)"
-                    hide-retry
-                    :busy="tasks.isBusy(t.id)"
-                    @view-log="toggleLog(t.id, true)"
-                  />
-                  <ErrorLine
-                    v-else-if="t.error && liveBroken(t)"
-                    compact
-                    tone="interrupted"
-                    :code="t.error.code"
-                    :title="interruptOf(t).title"
-                    :description="interruptOf(t).description"
-                    hide-code
-                    :announce="isFresh(t)"
-                    hide-retry
-                    :busy="tasks.isBusy(t.id)"
-                    @view-log="toggleLog(t.id, true)"
-                  />
-                  <ErrorLine
-                    v-else-if="t.error"
-                    compact
-                    :tone="t.status === 'interrupted' ? 'interrupted' : 'danger'"
-                    :code="t.error.code"
-                    :message="errMessage(t)"
-                    :detail="t.error.detail"
-                    :task-type="t.type"
-                    :announce="isFresh(t)"
-                    show-retry
-                    :busy="tasks.isBusy(t.id)"
-                    :hide-retry="t.status === 'interrupted' || isLiveType(t.type) || isRetiredType(t.type)"
-                    @retry="doRetry(t)"
-                    @change-output="changeOutput(t)"
-                    @view-log="toggleLog(t.id, true)"
-                  />
-                  <ErrorLine
-                    v-else
-                    compact
-                    tone="interrupted"
-                    code="INTERRUPTED"
-                    title=""
-                    :description="isLiveType(t.type) ? (liveTaskVerb(t.type) === '拉流' ? '应用退出时拉流被中断，请回到直播页重新拉流。' : '应用退出时推流被中断，请回到直播页重新推流。') : isRetiredType(t.type) ? RETIRED_INTERRUPTED_TEXT : '应用退出时这个任务被中断，可以重试。'"
-                    hide-code
-                    :announce="isFresh(t)"
-                    hide-retry
-                    :busy="tasks.isBusy(t.id)"
-                    @retry="doRetry(t)"
-                    @view-log="toggleLog(t.id, true)"
-                  />
+                  <!-- 刚失败的那一刻：错误说明展开出来，不让行高突变（动画 P1）；页面打开时已失败的、换页签 / 翻页重渲染的不播 -->
+                  <MotionCollapse :appear="justFailed(t.id)">
+                  <div class="errin">
+                    <ErrorLine
+                      v-if="t.error && t.error.code === 'LIVE_SOURCE_GONE'"
+                      compact
+                      tone="interrupted"
+                      :code="t.error.code"
+                      title=""
+                      :description="liveSourceGoneText(goneKind(t))"
+                      hide-code
+                      :announce="isFresh(t)"
+                      hide-retry
+                      :busy="tasks.isBusy(t.id)"
+                      @view-log="toggleLog(t.id, true)"
+                    />
+                    <ErrorLine
+                      v-else-if="t.error && liveBroken(t)"
+                      compact
+                      tone="interrupted"
+                      :code="t.error.code"
+                      :title="interruptOf(t).title"
+                      :description="interruptOf(t).description"
+                      hide-code
+                      :announce="isFresh(t)"
+                      hide-retry
+                      :busy="tasks.isBusy(t.id)"
+                      @view-log="toggleLog(t.id, true)"
+                    />
+                    <ErrorLine
+                      v-else-if="t.error"
+                      compact
+                      :tone="t.status === 'interrupted' ? 'interrupted' : 'danger'"
+                      :code="t.error.code"
+                      :message="errMessage(t)"
+                      :detail="t.error.detail"
+                      :task-type="t.type"
+                      :announce="isFresh(t)"
+                      show-retry
+                      :busy="tasks.isBusy(t.id)"
+                      :hide-retry="t.status === 'interrupted' || isLiveType(t.type) || isRetiredType(t.type)"
+                      @retry="doRetry(t)"
+                      @change-output="changeOutput(t)"
+                      @view-log="toggleLog(t.id, true)"
+                    />
+                    <ErrorLine
+                      v-else
+                      compact
+                      tone="interrupted"
+                      code="INTERRUPTED"
+                      title=""
+                      :description="isLiveType(t.type) ? (liveTaskVerb(t.type) === '拉流' ? '应用退出时拉流被中断，请回到直播页重新拉流。' : '应用退出时推流被中断，请回到直播页重新推流。') : isRetiredType(t.type) ? RETIRED_INTERRUPTED_TEXT : '应用退出时这个任务被中断，可以重试。'"
+                      hide-code
+                      :announce="isFresh(t)"
+                      hide-retry
+                      :busy="tasks.isBusy(t.id)"
+                      @retry="doRetry(t)"
+                      @view-log="toggleLog(t.id, true)"
+                    />
+                  </div>
+                  </MotionCollapse>
                 </td>
               </tr>
             </template>
@@ -565,6 +570,8 @@ const hasErrLine = (t: TaskItem) => t.status === 'failed' || t.status === 'inter
 /** 页面打开之后才结束的失败：ErrorLine 用 role="alert" 播报；打开页面时就已存在的历史失败只是 group */
 const mountedAt = Date.now()
 const isFresh = (t: TaskItem) => t.finishedAt > mountedAt
+/** 排队 / 运行中 → 失败 / 中断 的那一刻（错误说明展开一次） */
+const justFailed = useJustDone(() => [...tasks.active, ...tasks.history], 1200, (s) => s === 'failed' || s === 'interrupted')
 
 // ---- 动作 ----
 async function act(fn: () => Promise<unknown>) {
@@ -900,7 +907,11 @@ tr.haserr > td {
   padding-bottom: 6px;
 }
 tr.errrow > td {
-  padding: 0 16px 12px;
+  padding: 0 16px;
+}
+/* 下边距放在里层，展开 / 收起时一起收放 */
+.errin {
+  padding-bottom: 12px;
 }
 .simtag {
   display: inline-block;
