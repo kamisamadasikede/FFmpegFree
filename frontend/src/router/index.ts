@@ -23,11 +23,12 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/docs',
-    meta: { title: '文档', subtitle: 'Office 转 PDF · PDF 预览', fill: true },
+    meta: { title: '文档', subtitle: '文档转换 · PDF 预览', fill: true },
     component: () => import('../views/docs/DocsLayout.vue'), // 分段控件 + KeepAlive + 共用的最近列表（设计说明 2）
     redirect: '/docs/office',
     children: [
-      { path: 'office', component: () => import('../views/OfficeConvert.vue') },
+      // v0.26：文档多格式转换（旧的 Office 转 PDF 页 OfficeConvert.vue 不再挂路由，旧记录在新页面里照常显示）
+      { path: 'office', meta: { title: '文档转换', subtitle: '文档 · 表格 · 演示 · 转换记录' }, component: () => import('../views/DocConvertPage.vue') },
       { path: 'pdf', component: () => import('../views/PDFPreview.vue') },
     ],
   },
@@ -48,7 +49,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/tasks/:pathMatch(.*)*', redirect: '/tasks' },
   {
     path: '/settings',
-    meta: { title: '设置', subtitle: '外观 · 转换组件 · 转换' },
+    meta: { title: '设置', subtitle: '外观 · 转换组件 · 文档组件 · 转换' },
     component: () => import('../views/settings/SettingsLayout.vue'),
     redirect: '/settings/general',
     children: [

@@ -42,6 +42,7 @@ interface Item {
 const items: Item[] = [
   { key: 'appearance', label: '外观', to: '/settings/general', section: 'sec-appearance' },
   { key: 'ffmpeg', label: '转换组件', to: '/settings/general', section: 'sec-ffmpeg' },
+  { key: 'doccomp', label: '文档组件', to: '/settings/general', section: 'sec-doccomp' },
   ...(encoderPanelVisible() ? [{ key: 'encoder', label: ENCODER_PANEL_TITLE, to: '/settings/general', section: ENCODER_SECTION_ID }] : []),
   { key: 'convert', label: '转换', to: '/settings/general', section: 'sec-convert' },
   ...(convertV24On() ? [{ key: 'storage', label: '存储', to: '/settings/general', section: 'sec-storage' }] : []),

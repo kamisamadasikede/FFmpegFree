@@ -21,7 +21,10 @@ const route = useRoute()
 const { mode, isDark } = useTheme()
 
 const meta = computed(() => {
-  const top = route.matched[0]?.meta ?? {}
+  const root = route.matched[0]?.meta ?? {}
+  // 子路由自己带 title 时用子路由的（v0.26 文档转换页：「文档转换 / 文档 · 表格 · 演示 · 转换记录」）
+  const leaf = route.matched[route.matched.length - 1]?.meta ?? {}
+  const top = leaf.title ? leaf : root
   return { title: (top.title as string) || 'FFmpegFree', subtitle: top.subtitle as string | undefined }
 })
 

@@ -28,6 +28,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { emitSimEvent } from '@/services/wails'
 import * as encTask from './encoderTask'
 import { convertV2Checks } from './convertV2.check'
+import * as d26 from '@/utils/docV26Text'
 import { convertV24Checks } from './convertV24.check'
 import { liveFormsChecks } from '@/stores/liveForms.check'
 import { readyRelistChecks } from '@/stores/readyRelist.check'
@@ -76,7 +77,7 @@ export async function runApiChecks(): Promise<string[]> {
   eq('clip 首行', parseDetailHead('clip=c_1-a path=/a b/中文.mp4\n原因'), { clipId: 'c_1-a', path: '/a b/中文.mp4' })
   eq('project 首行没有 clip', parseDetailHead('project\n视频轨不能为空'), {})
   eq('toAppError 解析 JSON 的 detail', toAppError('{"code":"TASK_CONFLICT","message":"m","detail":"reason=duplicate_url"}').reason, 'duplicate_url')
-  eq('BACKEND_ERROR_CODES 18 个（v0.14 含 LIVE_SOURCE_GONE）', BACKEND_ERROR_CODES.length, 18)
+  eq('BACKEND_ERROR_CODES 28 个（v0.26 加 10 个 DOC_*）', BACKEND_ERROR_CODES.length, 28)
   eq('LIVE_SOURCE_GONE 的 kind 首行', [new AppError('LIVE_SOURCE_GONE', 'x', 'kind=window').kind, new AppError('LIVE_SOURCE_GONE', 'x', 'kind=screen').kind, new AppError('LIVE_SOURCE_GONE', 'x', 'kind=other').kind, new AppError('LIVE_SOURCE_GONE', 'x').kind], ['window', 'screen', undefined, undefined])
 
   // ---- TASK_CONFLICT 文案（reason → 文案 一张表）----
@@ -1166,5 +1167,15 @@ export async function runApiChecks(): Promise<string[]> {
       eq('N5：两句文案', [fp.includes('手动指定的转换组件不可用，已改用默认组件。'), fp.includes('转换组件未就绪</span>'), fp.includes('<small>手动指定的转换组件不可用。</small>')], [true, true, true])
     }
     eq('预览文案锁定（待产品经理确认的自拟部分除外）', [pvMsg.PREVIEW_LOADING_TITLE, pvMsg.PREVIEW_SWITCH_LABEL, pvMsg.PREVIEW_SWITCH_NOTE, pvMsg.PREVIEW_ROW_ON, pvMsg.PREVIEW_ROW_OFF, pvMsg.PREVIEW_OFF_TITLE], ['正在获取画面，通常需要几秒', '开启预览', '开启预览会多占用少量 CPU', '预览：开', '预览：关', '该会话未开启预览'])
+  // ---- v0.26 文档转换文案（设计 v0.2 §六；数字只从后端字段来）----
+  eq('v0.26 大小句：installBytes>0 带安装后占用', d26.docSizeGuideText(373_252_096, 1_610_612_736), '需要下载约 356 MB，安装后约占用 1.5 GB 磁盘空间。')
+  eq('v0.26 大小句：installBytes=0 不写安装后占用', d26.docSizeGuideText(373_252_096, 0).includes('安装后'), false)
+  eq('v0.26 大小句：downloadBytes=0 不出句子', d26.docSizeGuideText(0, 0), '')
+  eq('v0.26 磁盘不够：needBytes 来自 detail，不显示 reason=', d26.docDiskFullText('reason=no_space\nneedBytes=2520000000\nfreeBytes=100', 'x'), '磁盘空间不够，至少需要 2.4 GB 可用空间。')
+  eq('v0.26 密码 / 坏文件不可重试，超时 / 崩溃可重试', ['DOC_ENCRYPTED', 'DOC_CORRUPT', 'DOC_TIMEOUT', 'DOC_COMPONENT_CRASHED'].map((c) => d26.docErrorRetryable(c)), [false, false, true, true])
+  eq('v0.26 未映射码 → 兜底，不出现错误码', d26.docErrorText('NO_SUCH', ''), '出了点问题，请重试。')
+  eq('v0.26 Linux 组件未就绪', d26.docErrorText('DOC_COMPONENT_NOT_READY', '', true), '请先在系统里安装 LibreOffice，然后重启应用。')
+  eq('v0.26 排队文案', [d26.DOC_QUEUE_AHEAD(0), d26.DOC_QUEUE_AHEAD(2), d26.DOC_QUEUE_LINE(0), d26.DOC_QUEUE_LINE(3)], ['排队中 · 下一个', '排队中 · 前面还有 2 项', '下一个', '前面还有 3 项'])
+  eq('v0.26 CSV 说明用设计 v0.2 定稿句', d26.DOC_CSV_HINT, '只会导出第一个工作表。')
   return fails
 }

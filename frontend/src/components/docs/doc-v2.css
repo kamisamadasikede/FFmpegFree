@@ -1,0 +1,125 @@
+/* 文档页 v2（v0.26）新增样式：从设计原型 proto/doc-v2.css（v0.1）移植，html.w1024 换成 .cv2.w1024。设计 v0.2 出来后再对齐像素。 */
+/* ===== 类型封面（和转换页 §十四 同一风格：浅底 + 线性图标 + 左上格式角标），浅 / 暗各一套 ===== */
+:root{
+ --dc-doc-bg:#E4ECFD;--dc-doc-fg:#2F5BD3;   /* 文档：doc docx odt rtf */
+ --dc-sheet-bg:#DCF3E4;--dc-sheet-fg:#157A3C; /* 表格：xls xlsx ods csv */
+ --dc-slide-bg:#FDE6D8;--dc-slide-fg:#B8460B; /* 演示：ppt pptx odp */
+ --dc-pdf-bg:#FDE3E3;--dc-pdf-fg:#C02626;     /* PDF */
+ --dc-txt-bg:#ECEEF1;--dc-txt-fg:#4B5563;     /* 文本：txt */
+ --dc-web-bg:#EEE8FD;--dc-web-fg:#6B3FD4;     /* 网页：html */
+ --dc-md-bg:#DDF3EE;--dc-md-fg:#0B7466;       /* Markdown：md */
+}
+html.dark{
+ --dc-doc-bg:#22304F;--dc-doc-fg:#93B4FF;
+ --dc-sheet-bg:#173A26;--dc-sheet-fg:#6EDB98;
+ --dc-slide-bg:#43281A;--dc-slide-fg:#FFAA7A;
+ --dc-pdf-bg:#451F22;--dc-pdf-fg:#FF8F8F;
+ --dc-txt-bg:#2C2F36;--dc-txt-fg:#B8BEC8;
+ --dc-web-bg:#2F2650;--dc-web-fg:#B9A2FF;
+ --dc-md-bg:#163A36;--dc-md-fg:#62D3C3;
+}
+.cv-cov.t-doc{background:var(--dc-doc-bg);color:var(--dc-doc-fg)}
+.cv-cov.t-sheet{background:var(--dc-sheet-bg);color:var(--dc-sheet-fg)}
+.cv-cov.t-slide{background:var(--dc-slide-bg);color:var(--dc-slide-fg)}
+.cv-cov.t-pdf{background:var(--dc-pdf-bg);color:var(--dc-pdf-fg)}
+.cv-cov.t-txt{background:var(--dc-txt-bg);color:var(--dc-txt-fg)}
+.cv-cov.t-web{background:var(--dc-web-bg);color:var(--dc-web-fg)}
+.cv-cov.t-md{background:var(--dc-md-bg);color:var(--dc-md-fg)}
+/* 旧格式（doc xls ppt）：同类颜色，图标右下多一个小“时钟”标记，角标照写扩展名 */
+.cv-cov .dc-old{position:absolute;right:3px;bottom:3px;width:10px;height:10px;border-radius:50%;background:currentColor;display:grid;place-items:center}
+.cv-cov .dc-old svg{width:8px;height:8px;color:var(--ff-bg-surface);stroke-width:2.5}
+/* ===== 文档组件引导卡片（02 / 02L / 03 / 03b / 04）：放在左栏标题下面、列表上面 ===== */
+.dc-guide{flex:none;margin:12px 12px 0;padding:14px 16px;border-radius:10px;border:1px solid color-mix(in srgb,var(--ff-primary) 28%,transparent);background:color-mix(in srgb,var(--ff-primary) 6%,var(--ff-bg-surface));display:flex;gap:12px;align-items:flex-start}
+.dc-guide .gi{width:36px;height:36px;border-radius:50%;flex:none;display:grid;place-items:center;background:var(--ff-primary-soft);color:var(--ff-primary-text)}
+.dc-guide .gi svg{width:18px;height:18px}
+.dc-guide.fail{border-color:color-mix(in srgb,var(--ff-danger) 28%,transparent);background:color-mix(in srgb,var(--ff-danger) 5%,var(--ff-bg-surface))}
+.dc-guide.fail .gi{background:color-mix(in srgb,var(--ff-danger) 14%,transparent);color:var(--ff-danger-text)}
+.dc-guide.lnx{border-color:color-mix(in srgb,var(--ff-warning) 32%,transparent);background:color-mix(in srgb,var(--ff-warning) 7%,var(--ff-bg-surface))}
+.dc-guide.lnx .gi{background:color-mix(in srgb,var(--ff-warning) 16%,transparent);color:var(--ff-warning-text)}
+.dc-guide .gb{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.dc-guide h3{font-size:14px;font-weight:600;line-height:20px}
+.dc-guide p{font-size:13px;line-height:1.5;color:var(--ff-text-2)}
+.dc-guide p b{font-weight:500;color:var(--ff-text-1)}
+.dc-guide small{font-size:12px;line-height:1.5;color:var(--ff-text-2)}
+.dc-guide .acts{display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap}
+.dc-guide .btn.pri{background:var(--ff-badge-bg);border-color:var(--ff-badge-bg);color:var(--ff-on-primary)}
+.dc-guide .dfail{display:flex;align-items:flex-start;gap:6px;font-size:12px;line-height:1.5;color:var(--ff-danger-text)}
+.dc-guide .dfail svg{width:14px;height:14px;flex:none;margin-top:2px}
+/* 下载进度：和转换组件下载框（pages.html .dlg.inst .dpg）同一套：上行“状态 + 百分比”，进度条，下行“大小 · 速度 / 剩余” */
+.dc-guide .dpg{display:flex;flex-direction:column;gap:6px;margin-top:2px}
+.dc-guide .dpg .top{display:flex;align-items:baseline;justify-content:space-between;font-size:13px;color:var(--ff-text-2)}
+.dc-guide .dpg .top b{font-size:14px;font-weight:600;color:var(--ff-text-1);font-family:var(--ff-mono)}
+.dc-guide .dpg .bar{width:100%;background:var(--ff-border)}
+.dc-guide .dpg .mt{display:flex;justify-content:space-between;gap:12px;font-size:12px;line-height:16px;color:var(--ff-text-2);white-space:nowrap}
+/* 准备中（下载完成后解包）：不定进度，一段主色在轨道里来回移动；截图里停在中间 */
+.dc-guide .bar.ind{position:relative}
+.dc-guide .bar.ind i{position:absolute;left:30%;width:32%;animation:dc-ind 1.4s ease-in-out infinite}
+@keyframes dc-ind{0%{left:-32%}100%{left:100%}}
+@media (prefers-reduced-motion:reduce){.dc-guide .bar.ind i{animation:none;left:0;width:100%;opacity:.5}}
+/* 组件未就绪、卡片收起后的细条（05 / 05b） */
+.dc-slim{flex:none;margin:12px 12px 0;height:36px;display:flex;align-items:center;gap:8px;padding:0 12px;border-radius:8px;font-size:12px;color:var(--ff-text-1);background:color-mix(in srgb,var(--ff-warning) 9%,var(--ff-bg-surface));border:1px solid color-mix(in srgb,var(--ff-warning) 30%,transparent);white-space:nowrap}
+.dc-slim>svg{width:14px;height:14px;color:var(--ff-warning-text);flex:none}
+.dc-slim .tx{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.dc-slim .sp{flex:1}
+.dc-slim a{color:var(--ff-primary-text);flex:none}
+/* ===== 右栏：格式按分组显示（PDF / 文档 / 表格 / 演示），只显示选中文件能转的组 ===== */
+.dc-why{flex:none;font-size:12px;line-height:1.5;color:var(--ff-text-2);display:flex;gap:6px;align-items:flex-start;padding:6px 8px;border-radius:6px;background:var(--ff-bg-hover)}
+.dc-why svg{width:14px;height:14px;flex:none;margin-top:2px;color:var(--ff-text-3)}
+.cv-presets.cv-fxs{overflow:hidden}
+.cv-fxg .dc-wide{grid-column:1/-1;flex-direction:row;align-items:center;gap:8px}
+.cv-presets .preset.cv-fx.dc-wide small{flex:1;min-width:0}
+.dc-fx-tip{position:absolute;z-index:30}
+/* 简易转换的说明行（组件没就绪时，紧跟在 PDF 下面） */
+.cv-fnote a{color:var(--ff-primary-text);margin-left:4px;white-space:nowrap}
+.cv-fnote.warn{background:color-mix(in srgb,var(--ff-warning) 9%,transparent)}
+.cv-fnote.warn svg{color:var(--ff-warning-text)}
+/* ===== 子记录：简易转换小标、密码等不能重试的失败 ===== */
+.dc-simple{height:18px;padding:0 6px;border-radius:4px;font-size:12px;display:inline-flex;align-items:center;flex:none;white-space:nowrap;color:var(--ff-text-2);border:1px dashed var(--ff-text-3)}
+.cv-err .acts .dc-noretry{color:var(--ff-text-2)}
+/* ===== 设置页：转换组件 / 文档组件（排法同 设置页-转换组件-说明.md） ===== */
+.dc-comp .srow{align-items:center}
+.dc-st{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:500;color:var(--ff-text-1)}
+.dc-st i{width:8px;height:8px;border-radius:50%;display:block;flex:none;background:var(--ff-success)}
+.dc-st i.off{background:var(--ff-text-3)}
+.dc-st i.warn{background:var(--ff-warning)}
+.dc-comp .l small{display:block;font-size:12px;line-height:1.5;color:var(--ff-text-2);margin-top:2px}
+.dc-comp .btn.pri{background:var(--ff-badge-bg);border-color:var(--ff-badge-bg);color:var(--ff-on-primary)}
+.dc-comp .acts{display:flex;gap:8px;flex:none}
+.dc-comp .dpg{width:260px;flex:none;display:flex;flex-direction:column;gap:6px}
+.cv2.w1024 .dc-comp .dpg{width:200px}
+/* 1024：卡片按钮可以折行；细条只留一句 */
+.cv2.w1024 .dc-guide{padding:12px}
+.cv2.w1024 .dc-slim .only1280{display:none}
+.cv-presets .preset.cv-fx.dc-wide{gap:8px}
+/* ===== 10-09 第二轮：对比度修正（只改颜色，不改布局）=====
+   搜索框占位字、“未选择文件”、设置页块的副标题原来是 --ff-text-3（浅 3.31），改用 --ff-text-2；
+   选中的格式块扩展名原来是 --ff-primary（浅色在浅主色底上不到 4.5），改用 --ff-primary-text */
+.cv-search,.cv-fsearch .ph,.cv-selh .none,.dc-comp .phead .sub{color:var(--ff-text-2)}
+.cv-presets .preset.cv-fx.on b{color:var(--ff-primary-text)}
+.cv2.w1024 .cv-fxg{gap:4px} /* 1024：让“Markdown”这类 8 个字母的说明放得下 */
+/* ===== 10-09 定稿 ===== */
+/* 下载失败 / 校验失败 / 准备失败：重试会怎样（灰字一行） */
+.dc-guide .dc-done{font-size:12px;line-height:1.5;color:var(--ff-text-2)}
+/* 15：拖入 PDF 的提示（左栏底部居中，4 秒后消失） */
+.cv-left{position:relative}
+.dc-toast{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:8px;font-size:13px;line-height:20px;white-space:nowrap;color:var(--ff-text-1);background:var(--ff-bg-surface);border:1px solid var(--ff-border);box-shadow:0 6px 20px rgba(0,0,0,.16);z-index:5}
+.dc-toast svg{width:16px;height:16px;flex:none;color:var(--ff-primary-text)}
+/* ===== 前端补充（v0.26 包 1） ===== */
+.dc-guide .dc-size{font-size:12px;line-height:1.5;color:var(--ff-text-2)}
+.dc-slim button.lk{background:none;border:0;padding:0;color:var(--ff-primary-text);flex:none;font-size:12px}
+.cv-fnote button.lk{background:none;border:0;padding:0;margin-left:4px;color:var(--ff-primary-text);font-size:12px}
+.dc-fx{position:relative}
+.cv2 .preset.dc-fx.off{border-style:dashed;opacity:.55;cursor:not-allowed}
+.cv2 .preset.dc-fx.off b svg{width:12px;height:12px}
+.dc-fx[data-tip]:hover::after,.dc-fx[data-tip]:focus-visible::after{content:attr(data-tip);position:absolute;left:50%;top:-30px;transform:translateX(-50%);white-space:nowrap;padding:4px 8px;border-radius:6px;font-size:12px;background:var(--ff-text-1);color:var(--ff-bg-surface);z-index:20;pointer-events:none}
+.dc-qtx{font-size:12px;color:var(--ff-text-2)}
+.bar.ind.dc-kbar{position:relative}
+.bar.ind.dc-kbar i{position:absolute;left:30%;width:32%;animation:dc-ind 1.4s ease-in-out infinite}
+.dc-comp-row{display:flex;align-items:center;gap:12px}
+/* v0.2 总进度条：正在转换 n 项 · 排队 k 项 ▬▬ 已完成 a / b */
+.cv2 .cv-total .dc-tbar{width:120px;flex:none;height:4px}
+.cv2 .cv-total .dc-tdone{color:var(--ff-text-2)}
+.cv2 .cv-total .dc-tdone b{font-size:12px}
+.cv2.w1024 .cv-total .dc-tbar{width:72px}
+/* 文档页外壳 .row 是横向 flex：本页占满（不再显示右侧「最近打开的 PDF」） */
+.cv2.dc-page{flex:1;min-width:0}

@@ -42,3 +42,10 @@ export const CONVERT_V24_BACKEND_READY: boolean = true
  * 拉流页对 http(s) / ws(s) 直接播放用户填的地址。改回 false：Wails 里也按模拟处理（推流预览显示“暂时无法预览”）。
  */
 export const LIVE_PREVIEW_V25_BACKEND_READY: boolean = true
+
+/**
+ * 文档页 v0.26（契约 6.12.9~6.12.22：文档组件、格式表、doc_convert）。
+ * 后端 DocService 新方法尚未生成绑定时保持 false：走 api/docV26.ts 的模拟（?doc=… 走查）。
+ * 绑定落地后改 true；纯浏览器（没有 window.go）始终走模拟。
+ */
+export const DOC_V26_BACKEND_READY: boolean = false
