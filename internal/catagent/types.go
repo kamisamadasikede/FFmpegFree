@@ -118,12 +118,14 @@ type MessageEvent struct {
 
 // TurnEvent 是 cat:turn 载荷（契约 6.19.9）。
 // ContextUsed / ContextWindow 是这一轮结束后的上下文占用；没有真实数字时省略，界面不画 0%。
+// Error 只在失败时带上，message 是这一轮看到的原文。
 type TurnEvent struct {
-	ConvID        string `json:"convId"`
-	TurnID        string `json:"turnId"`
-	Status        string `json:"status"` // running | cancelled | failed | completed
-	ContextUsed   int64  `json:"contextUsed,omitempty"`
-	ContextWindow int64  `json:"contextWindow,omitempty"`
+	ConvID        string           `json:"convId"`
+	TurnID        string           `json:"turnId"`
+	Status        string           `json:"status"` // running | cancelled | failed | completed
+	ContextUsed   int64            `json:"contextUsed,omitempty"`
+	ContextWindow int64            `json:"contextWindow,omitempty"`
+	Error         *apperr.AppError `json:"error,omitempty"`
 }
 
 // CancelCatTurnRequest 是 CancelCatTurn 入参（契约 6.19.9）。

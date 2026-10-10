@@ -1,4 +1,8 @@
-# FFmpegFree v2 接口契约（v0.32）
+# FFmpegFree v2 接口契约（v0.34）
+
+v0.34 变更（**思考占位、失败原文、批准方式**，老板 10-10；**无新错误码 / 迁移 / 事件名 / 开关，2.1 仍是 39 个**）：① 发送后，这一轮还没有思考、工具或正文时立刻显示「正在思考…」。② `type=error`、`type=result` 且 `is_error` 或 `subtype` 以 `error_` 开头、以及标准错误里的超时 / 断网原文，显示在对话里；进程非零退出即失败，即使已经流出部分正文。失败的 `cat:turn` 带 `error.message`（码仍是 `CAT_REPLY_FAILED`）。没有原文时仍用「回复没生成出来，请重试。」。③ 输入框菜单是普通模式 / Plan / 自动审查 / 全部批准，按对话记在本机。分别传 `--permission-mode default`、`--permission-mode plan`、`--permission-mode auto`、`--always-approve`，不同时传两个。没选过的对话仍是全部批准。创建会话的 `accessMode` 仍只接受 `ask`。普通模式点不到确认框，卡住时按停止。
+
+v0.33 变更（**Cat 保留 grok CLI 的完整工具**，老板 10-10；**无新错误码 / 迁移 / 事件 / 开关，2.1 仍是 39 个**）：每一轮仍传 `--always-approve`（headless 没人点批准，避免挂死）。**不再传** `--tools`、`--disallowed-tools`、`--deny`、`--no-subagents`、`--disable-web-search`，也**不再设置** `GROK_SANDBOX=read-only`、`GROK_WRITE_FILE=0`。工具集是本机 grok 自己的完整集合（写文件、改文件、跑命令、联网、MCP、子代理等，以 CLI 当前版本为准）。仍设 `GROK_DISABLE_AUTOUPDATER=1`。界面上的「请求批准 / 完全访问」胶囊不改，「完全访问」仍置灰；这不代表工具被关掉。作废 v0.31.4 / v0.31.5 里「必须带只读白名单和黑名单」的现行要求（那两段保留作当时的记录）。
 
 v0.32 变更（**Cat 右侧文件面板**，架构师 10-09 定；完整规则见新增 **6.19.11**，本条只是索引，冲突时以该节为准；**无新错误码，2.1 仍是 39 个；无迁移、无新事件、无新开关**）：**修复：文件面板之前在真后端下也显示的是模拟数据。** ① CatService 新增 **`ListCatFiles({convId, relPath}) → {root, entries[], truncated}`**：只列**一层**（展开时再懒加载），条目 `{name, relPath, isDir, size, modTime}`；根 = 项目对话用项目文件夹，普通对话用对话自己的文件夹；`relPath` 必须是根内相对路径（不许 `..` / 绝对 / 盘符 / UNC），符号链接 / junction 列成不可展开的条目、不跟随；**绝不读文件内容**。② 固定隐藏 `.git`、`node_modules`、`target`、`.DS_Store`、`Thumbs.db`，其他点文件照常显示，一期不读 `.gitignore`；每层最多 500 项，超出 `truncated=true`；文件夹在前，再按名字不区分大小写排序。③ **普通对话的文件夹**：新增 `paths.CatConvDir(convId)`，新位置 `<数据目录>/cat/conversations/<convId>`，**创建对话时就建**；旧对话已有 `<数据目录>/tmp/cat/cwd-<convId>` 的**继续用旧路径**（CLI 续聊按 cwd 找会话，不搬）；删除普通对话时尽力删它自己的文件夹（只删应用自己的目录，失败不影响删除）；**项目文件夹永远不动**。④ CatService 新增 **`RevealCatConversationFolder({convId})`**：在系统文件管理器里打开对话的根（项目对话同 `RevealCatProject`，含 `CAT_PROJECT_MISSING`；普通对话没有就建），复用 `system.Manager.OpenFolder`。⑤ 「变更」页签一期没有后端数据，前端**隐藏**（二期）；只保留「文件」。⑥ 2.2 `INVALID_ARGUMENT` 追加 `reason=path`。⑦ 真机待验见 6.19.11.8。文案（空 / 截断 / 加载失败）待产品确认。
 
@@ -6,7 +10,7 @@ v0.31.5 变更（**Cat Build 模型 / 强度 / 黑名单口径修正**，架构�
 
 v0.31.4 变更（**Cat Build 一期权限口径 + 模型 / 强度**，产品 / 老板 / 架构师 10-09；实现 #190、#192 及后续后端 PR；**无新错误码 / 迁移 / 事件 / 开关，2.1 仍是 39 个**；**作废 v0.31.3 第 ⑤ 条「不传 `--always-approve`」**）：① **一期 headless 自动批准，但工具集限定为只读白名单**：每一轮都传 `--always-approve`（headless 无法弹批准，避免挂死），同时**必须**带：`--tools read_file,list_dir,grep`（只读：读文件 / 列目录 / 搜索）、`--disallowed-tools run_terminal_cmd,search_replace,write_file,apply_patch,task,Agent,web_search,web_fetch,search_tool,use_tool,image_gen,image_edit,video_gen`、`--no-subagents`、`--disable-web-search`、`--deny Bash` `--deny Edit` `--deny Write` `--deny WebFetch` `--deny WebSearch` `--deny MCPTool(*)`（deny 在自动批准下仍生效）；环境仍设 `GROK_SANDBOX=read-only`、`GROK_WRITE_FILE=0`。常量在 `internal/catagent/cli_readonly.go`，测试锁死白名单。**白名单里只能放核实过的工具 ID**：CLI 遇到不认识的白名单名字会整体放弃白名单、恢复完整工具集。② **真·请求批准是二期**：二期可改用 `--permission-mode dontAsk`（未明确允许的工具调用直接拒绝；**不能与 `--always-approve` 同时用**），再加批准流。③ **界面不变**：访问模式仍选中「请求批准」，「完全访问」置灰；界面仍只称「Cat 助手」，横幅文案不变。④ **模型 / 思考强度**（老板 22:13 / 22:16 定）：模型列表来自 CLI `grok models`，**模型名按 CLI 给的原样显示**（如 `grok-4.6`），**不再映射成「Cat 助手 …」**（这是界面里唯一允许出现 CLI 原始名字的地方）；思考强度用 CLI 的档位（`low` / `medium` / `high` / `xhigh`，模型不支持时 CLI 忽略）。用户选的模型和强度**每一轮（首轮和后续轮）都传**：`-m <modelId>`、`--reasoning-effort <level>`。**默认强度 = 不传**：用户没选强度时不带 `--reasoning-effort`（用 CLI 自己的默认）；**`grok models` 解析失败 → 模型列表为空、不传 `-m`**（用 CLI 默认模型），不再回退写死的模型名（这两条由后端后续 PR 实现，#194 尚未包含）。⑤ **已知风险 / 待验**：(a) 最终工具集**还没在已登录的真机上验证**，老板需实测：让它写文件、改文件、运行命令，都应被拒绝、项目里不出现改动；(b) **Windows 上沙箱环境变量不生效**（CLI 沙箱只在 Linux / macOS 上有），Windows 的只读**完全靠工具限制**；(c) CLI 版本太旧、不认识这些参数时，每一轮都会失败，界面显示「回复没生成出来，请重试。」（`CAT_REPLY_FAILED`），**绝不会悄悄变成可写**；(d) 用户自己的 CLI 配置（`~/.grok/config.toml` 的 allow 规则、MCP 服务器）由上面的 deny 和黑名单压住（deny 优先于 allow）。
 
-v0.31.3 变更（**Cat Build 接本地 grok CLI**，架构师 / 老板 10-09；实现见 `internal/catagent`；**无新错误码 / 迁移 / 事件 / 开关，2.1 仍是 39 个**）：① **就绪**：`exec.LookPath("grok")`（Windows 亦可 `grok.exe`）命中即 `state=ready`；未命中仍 `missing` + `CAT_NOT_READY`「未检测到 Cat 助手，请先安装并确保可在终端直接运行。」，`canDownload=false`；登录 / API Key 失效同样 `CAT_NOT_READY`（`detail` 含 `reason=auth`），文案「登录失效，请重新登录后再试。」（**无新错误码**）。废弃旧文案「Cat 助手还没准备好，发布后即可使用。」。② **调用**：`grok -p "<最新用户句>" --output-format streaming-json --cwd <项目绝对路径|应用临时目录> -s <conversationId> --no-auto-update --no-alt-screen`；可选 `-m`。③ **流式**：NDJSON `text.data` → `OnTextDelta` / `cat:message` append；`thought` 忽略；`error` → `CAT_REPLY_FAILED`；`end` 结束；取消 → `proc.Kill` 进程树。④ **认证**：继承 `XAI_API_KEY` 或 `~/.grok/auth.json`，**无** URL/Key UI。⑤ **一期只读**：设 `GROK_SANDBOX=read-only`、`GROK_WRITE_FILE=0`，**不**传 `--always-approve`。⑥ 界面仍只称「Cat 助手」，不暴露可执行名。
+v0.31.3 变更（**Cat Build 接本地 grok CLI**，架构师 / 老板 10-09；实现见 `internal/catagent`；**无新错误码 / 迁移 / 事件 / 开关，2.1 仍是 39 个**）：① **就绪**：`exec.LookPath("grok")`（Windows 亦可 `grok.exe`）命中即 `state=ready`；未命中仍 `missing` + `CAT_NOT_READY`「未检测到 Cat 助手，请先安装并确保可在终端直接运行。」，`canDownload=false`；登录 / API Key 失效同样 `CAT_NOT_READY`（`detail` 含 `reason=auth`），文案「登录失效，请重新登录后再试。」（**无新错误码**）。废弃旧文案「Cat 助手还没准备好，发布后即可使用。」。② **调用**：`grok -p "<最新用户句>" --output-format streaming-json --cwd <项目绝对路径|应用临时目录> -s <conversationId> --no-auto-update --no-alt-screen`；可选 `-m`。③ **流式**：NDJSON `text.data` → `OnTextDelta` / `cat:message` append；`thought` 与工具调用单独显示、不写入助手正文；`error` → `CAT_REPLY_FAILED`；`end` 结束；取消 → `proc.Kill` 进程树。④ **认证**：继承 `XAI_API_KEY` 或 `~/.grok/auth.json`，**无** URL/Key UI。⑤ **一期只读**：设 `GROK_SANDBOX=read-only`、`GROK_WRITE_FILE=0`，**不**传 `--always-approve`。⑥ 界面仍只称「Cat 助手」，不暴露可执行名。
 
 
 v0.31.2 变更（**Cat 项目口径澄清**，后端 #181 实现后架构师回写；完整规则见 **6.19.10**，冲突时以该节为准；**没有新错误码 / 迁移 / 事件 / 开关，2.1 仍是 39 个**）：① **排序最后一级按 id 倒序**：项目、对话（含无项目「对话」下）活动时间 / `createdAt` 都相同时，再按 `id` **倒序**（6.19.10.6）。② **`path_key` 大小写规则与 `paths.Normalize` 对齐**：**Windows 与 macOS 不区分大小写（键转小写），Linux 区分**；`CreateCatProject` / `RelocateCatProject` 共用。**后端 #181 目前只在 Windows 转小写，macOS 尚未对齐，需跟进修；修完后真机验：同一文件夹用不同大小写选两次 → `existed=true`**（6.19.10.2 第 2 条、6.19.10.10）。③ **`DeleteCatProject` / `DeleteCatConversation`**：有进行中的一轮时**先按 `CancelCatTurn` 取消，最多等 5 秒**等它停再删，避免回复尾巴写回库（6.19.10.2 第 4、7 条）。④ **无项目对话的读文件请求**：只在适配器内失败，说明 `这个对话没有项目文件夹，不能查看文件。`，**不进界面**，也不再用旧的「下一期开放」那句（6.19.10.5）。⑤ **说明（不绑定前端）**：后端内部 `system.Manager.OpenFolder` 被 `OpenStorageFolder` 与 `RevealCatProject` 复用，**不**暴露给前端。
@@ -801,7 +805,7 @@ edit_projects(id PK, name, project JSON, updated_at)
 doc_recent(id PK, path, path_key UNIQUE, name, size, opened_at)
 cat_conversations(id PK, title, agent_kind, access_mode, project_path, created_at, updated_at,  -- 迁移 0010（v0.30），见 6.19；project_path v0.31 起不再读写
       project_id)                                                             -- 迁移 0011（v0.31），见 6.19.10.7；NULL = 不属于项目
-cat_messages(id PK, conversation_id, role, content, created_at)            -- 迁移 0010（v0.30）
+cat_messages(id PK, conversation_id, role, content, created_at)            -- 迁移 0010（v0.30）。表还在，对话正文不再写入；点开对话用 CLI 的 `grok export`（6.19.9）
 cat_projects(id PK, name, path, path_key UNIQUE, created_at, updated_at)   -- 迁移 0011（v0.31），见 6.19.10.7
 settings(key PK, value JSON)
 schema_migrations(version PK, applied_at)
@@ -3902,7 +3906,7 @@ type ExportSubtitleRequest struct {
 
 > **一期只适配 Grok Build / Cat Build 路径。** 欢迎页模式胶囊里**只有「Cat Build」可点**；「Cat CLI」「Cat Code」「Codex CLI」「更多」等**一律置灰**，悬停 / 旁注文案 **`下一期开放`**（产品可再改字，本期先用这句）。**不**适配 Cat CLI / Cat Code / Codex CLI 的运行时。  
 > 界面与 `message` **只出现「Cat 助手」**；**永不**出现：`grok`、`Grok`、`CLI`、`命令行`、可执行文件名、模型厂商名（同 1.1）。  
-> 本仓实现 **适配器注册表 + Build 适配器**（下载 / 检测组件、按约定调用入口二进制、转发消息与只读工具结果）；**入口二进制名与发布包 URL/SHA-256 TBD**（老板后续提供 grok-build 相关 CLI）。  
+> 本仓实现 **适配器注册表 + Build 适配器**（下载 / 检测组件、按约定调用入口二进制、转发消息；工具由 CLI 自己执行）；**入口二进制名与发布包 URL/SHA-256 TBD**（老板后续提供 grok-build 相关 CLI）。  
 > **会话创建时锁定 `agentKind`**：之后改应用默认 CLI **不得**影响已有会话；Send / 流式始终走该会话自己的适配器（6.19.2）。  
 > 开关：前端 `CAT_UI_ENABLED` **默认 `false`**（侧栏「Cat」入口隐藏；为 true 时出现在「语音工具」后，可带「新」角标）；`CAT_BACKEND_READY` 为 false 时走本地假数据 / 不调真绑定（与前端 flags 对齐）。
 
@@ -3914,8 +3918,8 @@ type ExportSubtitleRequest struct {
 | 欢迎页 + 会话列表 + 发送 / 回复（事件推进） | URL / API Key 设置页或设置项 |
 | **仅 `cat_build`（Cat Build）** 可创建并运行 | 「助手」「定时任务」入口与功能 |
 | 模型名 / 思考强度**只从该会话 `agentKind` 对应 CLI 的能力列表读取** | 前端写死第三方模型名 |
-| 工具调用：**只读**（v0.31.4 白名单 `read_file` / `list_dir` / `grep`；headless 自动批准） | **完全访问**（入口置灰；不可落到 full） |
-| 组件未就绪文案见下 | 任意写盘、执行任意命令（非只读） |
+| 工具调用：本机 grok 的完整工具集（v0.33 不传白名单 / 黑名单；v0.34 批准方式可选，没选过是全部批准） | 应用内再做一套批准框 |
+| 组件未就绪文案见下 | 在命令行上禁止写文件、跑命令、联网、MCP、子代理 |
 
 **未就绪**（PATH 未检测到入口）：`未检测到 Cat 助手，请先安装并确保可在终端直接运行。`（一期通常无下载按钮，直至 `canDownload=true`）。
 **登录失效**（入口在但鉴权失败，仍 `CAT_NOT_READY` / `reason=auth`）：`登录失效，请重新登录后再试。`。  
@@ -3942,10 +3946,10 @@ type ExportSubtitleRequest struct {
 ### 6.19.3 Build 适配器（`cat_build`）
 
 - **入口（v0.31.3）**：系统 PATH 上的 `grok` / `grok.exe`（`exec.LookPath`）。路径只进注册表，**不**回前端。组件目录 `%LocalAppData%\FFmpegFree\components\cat\build\<version>\` 仍保留作日后捆绑回退，一期不靠它就绪。  
-- **Headless 调用**（v0.31.4）：`grok -p "<最新一条用户消息>" --output-format streaming-json --cwd <项目绝对路径，无项目则用对话文件夹 `paths.CatConvDir`（v0.32，6.19.11.4）> -s <会话 UUID>（后续轮 `--resume <会话 UUID>`） --no-auto-update --no-alt-screen --always-approve <只读工具参数，见下>`；用户选了模型 / 强度时每一轮都带 `-m <modelId>`、`--reasoning-effort <level>`。  
-- **streaming-json**（NDJSON；官方 schema 未正式发布，按 CLI 0.2.x 捕获）：`{"type":"text","data"}` 正文增量；`thought` 忽略；`end` 结束；`error` 失败。  
+- **Headless 调用**（v0.33）：`grok -p "<最新一条用户消息>" --output-format streaming-json --cwd <项目绝对路径，无项目则用对话文件夹 `paths.CatConvDir`（v0.32，6.19.11.4）> -s <会话 UUID>（后续轮 `--resume <会话 UUID>`） --no-auto-update --no-alt-screen`，再按这一轮的批准方式带一个开关（v0.34：全部批准 / 未选只带 `--always-approve`；普通模式 `--permission-mode default`；Plan `--permission-mode plan`；自动审查 `--permission-mode auto`；不同时带两个）。用户选了模型 / 强度时每一轮都带 `-m <modelId>`、`--reasoning-effort <level>`。不附加工具白名单或黑名单。  
+- **streaming-json**（NDJSON；官方 schema 未正式发布，按 CLI 0.2.x 捕获）：`{"type":"text","data"}` 正文增量；`thought` 与工具调用单独显示、不写入助手正文；`end` 结束；`error` 失败。  
 - **认证**：继承用户环境 `XAI_API_KEY` 或 `~/.grok/auth.json`（`grok login`）。**无** Base URL / API Key 设置。  
-- **一期只读**（v0.31.4 改）：自动批准 + 只读白名单 `--tools read_file,list_dir,grep`，另带 `--disallowed-tools run_terminal_cmd,search_replace,write_file,apply_patch,task,Agent,web_search,web_fetch,search_tool,use_tool,image_gen,image_edit,video_gen,bash,edit,write,hashline_edit,run_terminal_command`（写 / 改 / 跑命令 / 子代理 / 联网 / MCP / 生成，v0.31.5 补 `bash` / `edit` / `write` / `hashline_edit` / `run_terminal_command`）、`--no-subagents`、`--disable-web-search`、`--deny Bash|Edit|Write|WebFetch|WebSearch|MCPTool(*)`；环境 `GROK_SANDBOX=read-only`、`GROK_WRITE_FILE=0`（Windows 上沙箱不生效，只靠工具限制）。真·请求批准二期（`--permission-mode dontAsk` + 批准流）。  
+- **工具**（v0.33）：不传 `--tools`、`--disallowed-tools`、`--deny`、`--no-subagents`、`--disable-web-search`，环境不设 `GROK_SANDBOX` / `GROK_WRITE_FILE`。写文件、改文件、跑命令、联网、MCP、子代理都按本机 grok 的默认工具集。全部批准时带 `--always-approve`，这些动作不会弹出批准框；其它模式不带这个开关（v0.34）。普通模式在这个窗口里点不到确认，可能停住，需要按停止。仍设 `GROK_DISABLE_AUTOUPDATER=1`。  
 - **能力列表**（v0.31.4）：`models` 来自 `grok models`，`displayName` = CLI 给的模型 ID 原样（不映射成「Cat 助手 …」）；**探测超时 / 报错 / 解析不出 → 空列表，不传 `-m`（用 CLI 默认模型），没有写死的回退模型**（v0.31.5）。`thinkLevels` = `low` / `medium` / `high` / `xhigh`，显示 `低` / `中` / `高` / `超高`（「超高」待产品确认）；只有用户选了才传 `--reasoning-effort`，没选时界面显示 `默认`（v0.31.5）。  
 - **取消**：`CancelCatTurn` → 取消 context → `proc.Kill` 进程树。超时默认 10 分钟。
 
@@ -3978,7 +3982,7 @@ type CatConversation struct {
 
 type CatMessage struct {
     ID        string `json:"id"`
-    Role      string `json:"role"` // user | assistant | system
+    Role      string `json:"role"` // user | assistant | system | thought | tool。来自 CLI 导出，不是 cat_messages 表
     Content   string `json:"content"`
     CreatedAt int64  `json:"createdAt"`
 }
@@ -4022,7 +4026,7 @@ CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，
 
 - 欢迎页：**仅「Cat Build」可选**；其余禁用 + 「下一期开放」。选中 Build 后 `Create`/`Send` 带 `agentKind=cat_build`。  
 - 合一胶囊：「{模型展示名} · {思考强度展示名}」，选项来自**该会话 agentKind** 的 List API。  
-- 「完全访问」置灰。无「助手」「定时任务」。无 URL/Key 设置。
+- 批准方式按对话记住：普通模式、Plan、自动审查、全部批准（v0.34）。没选过是全部批准。无「助手」「定时任务」。无 URL/Key 设置。
 
 ### 6.19.7 错误码（v0.30 新增 2 个；2.1 由 36 变为 38）
 
@@ -4052,7 +4056,7 @@ type SendCatMessageResult struct {
 }
 ```
 
-- 同步路径：校验 + 落库用户消息后返回 `{ userMessage, turnId }`；助手回复在后台跑，**全靠事件推送**。
+- 同步路径：校验后返回 `{ userMessage, turnId }`。`userMessage` 只在这次返回值里，**不写入 `cat_messages`**。助手回复在后台跑，**全靠事件推送**。对话正文以 CLI 会话为准：侧栏一条对话只留服务商（`agentKind`）和对话 id；点开时后端执行 `grok export <由对话 id 派生的会话 UUID>`，把导出的 `## User` / `## Assistant` / `## Tools` / `## Thinking` 填进 `GetCatConversation.messages`。CLI 里还没有这个会话时消息为空。下一句是否 `--resume` 只看 CLI 会话目录在不在，不看 SQLite。侧栏名字也从 CLI 会话的第一句用户话现读，不写回 `cat_conversations.title`。进行中的回复、切走后的未读点只留在当前这次运行里，不进数据库。
 - **流式下 `assistantMessage` 为空或省略**；助手正文只经 `cat:message` / `cat:turn`。
 - **用户消息不发 `cat:message`**（只在同步 `userMessage` 里带）；`cat:message` **仅用于助手流式**。
 - **未就绪**（组件/CLI 未发布或 `state != ready`）：同步返回 `CAT_NOT_READY`，**不启 turn**、不发流式事件；界面只展示「未检测到 Cat 助手，请先安装并确保可在终端直接运行。」（鉴权失败时「登录失效，请重新登录后再试。」）。**官方包禁止**在未就绪时造助手气泡、禁止拆字/模拟回复。
@@ -4251,7 +4255,7 @@ RevealCatProject(req RevealCatProjectRequest) error                   // v0.31.1
 
 1. 对话属于项目时，**项目 `path` 就是只读项目工具（读文件 / 列目录等，6.19.1）的唯一根**；对话不属于项目时，**没有项目根，所有项目工具请求一律拒绝**。
 2. 工具请求里的路径按**相对项目根**解析：绝对路径、含 `..` 跳出根、以及解析符号链接 / 目录联接（junction）/ 快捷方式后真实路径（`EvalSymlinks`）不在根的真实路径之内的，**一律拒绝**；比较按目录边界（Windows / macOS 不区分大小写），与 6.8 同口径。
-3. **写文件、执行命令仍一律拒绝**（6.19.1，一期不变）。
+3. **写文件和执行命令由本机 grok 自己的工具完成**（v0.33）。下面第 4、5 条只约束适配器交回应用的 `toolRequests`；当前 grok 适配器不回传，不会走到。
 4. 被拒绝的工具请求作为工具失败结果回给适配器，**不**是面向用户的错误码，不中断这一轮。
 5. **无项目对话（v0.31.2）**：读文件 / 列目录等项目工具请求**只在适配器内**失败，失败说明固定为 `这个对话没有项目文件夹，不能查看文件。`；**不进界面、不弹横幅、不发面向用户的错误码**；**不再**使用旧的「下一期开放」那句。
 
@@ -4322,7 +4326,7 @@ CREATE INDEX idx_cat_conversations_project ON cat_conversations (project_id, upd
 7. **重新选择文件夹**（v0.31.1）：把项目文件夹剪切到新位置后重新选择 → 对话、消息都在，可继续发消息，`cat:project` 恢复；新位置分别试 **OneDrive 文件夹**（含仅联机占位）、**网络盘**（映射盘符和 UNC 子目录）；选到别的项目的文件夹（含大小写不同）→ 重复提示且本项目不变；选同一文件夹 → 无变化；新旧文件夹里的文件一个不少。
 8. **在文件管理器中显示**（v0.31.1）：Windows 资源管理器、macOS 访达各开一次（中文 / 空格路径、网络盘路径）；文件夹不在时返回 `项目文件夹不见了。` 且不会新建文件夹。
 9. **思考强度 `xhigh`**（v0.31.5）：分别用 `grok-4.6`、`grok-4.5` 选「超高」发消息 → 回复正常、不报错（`grok-4.5` 可能只支持到 `high`，预期 CLI 忽略）；不选强度时命令行里没有 `--reasoning-effort`；模型列表拿不到时不带 `-m` 也能正常回复。
-10. **只读**（v0.31.4）：让它新建 / 修改文件、运行命令 → 都被拒绝，项目里无改动（Windows 上沙箱不生效，只靠工具限制）。
+10. **完整工具**（v0.33）：让它新建 / 修改项目里的文件、运行命令 → 应能做到，且没有批准框卡住；命令行里没有 `--tools` / `--disallowed-tools` / `--deny`。
 
 ### 6.19.11 文件面板（v0.32，架构师 10-09 定）
 

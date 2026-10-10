@@ -42,6 +42,8 @@ type SendMessageRequest struct {
 	Content        string `json:"content"`
 	ModelID        string `json:"modelId"`
 	ThinkLevelID   string `json:"thinkLevelId"`
+	// PermissionMode 是这一轮的批准方式（normal / plan / auto / approve）。空等于全部批准。不写入数据库。
+	PermissionMode string `json:"permissionMode"`
 	// ProjectPath 自 v0.31 作废：后端忽略，只读工具的根只来自对话所属项目（6.19.10.5）。
 	ProjectPath string `json:"projectPath"`
 }

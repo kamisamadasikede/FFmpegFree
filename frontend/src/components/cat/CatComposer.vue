@@ -24,13 +24,13 @@
           ref="chipAccess"
           type="button"
           class="chip-access"
-          :class="{ on: catState.access === 'full' }"
+          :class="{ on: catState.access === 'approve' }"
           :disabled="missing"
           aria-haspopup="menu"
           :aria-expanded="menu === 'access'"
           @click.stop="toggle('access')"
         >
-          <FIcon :name="catState.access === 'full' ? 'alert' : 'hand'" :size="14" /><span>{{ accessShort }}</span>
+          <FIcon :name="accessMeta.icon" :size="14" /><span>{{ accessMeta.short }}</span>
         </button>
         <span class="sp" />
         <CatContextRing v-if="contextUsage" :used="contextUsage.used" :size="contextUsage.window" />
@@ -155,10 +155,10 @@ import { ElMessage } from 'element-plus'
 import { CAT_COPY } from '@/api/cat'
 import { CAT_PROJECT_COPY as PC } from '@/api/catProjects'
 import { CAT_ACCESS } from '@/api/catMock'
-import { accessShort, capsuleLabel, catState, modelName, thinkName } from '@/views/cat/catState'
+import { accessMeta, capsuleLabel, catState, chooseAccess, chooseModel, chooseThink, modelName, thinkName } from '@/views/cat/catState'
 
 /**
- * Cat 输入框（设计 v0.4 / 原型 cat-v3）：访问默认「请求批准」，「完全访问」灰掉；
+ * Cat 输入框：批准方式可选普通模式 / Plan / 自动审查 / 全部批准，没选过是全部批准。
  * 合一胶囊只显示 List API 有的模型/强度（无强度不显示「·」半截）。
  */
 const props = withDefaults(
@@ -267,17 +267,17 @@ async function showSub(k: SubKind) {
   else if (r.top < 8) subTop.value = top + 8 - r.top
 }
 function pickSub(id: string) {
-  if (sub.value === 'model') catState.model = id
-  else catState.think = id
+  if (sub.value === 'model') chooseModel(id)
+  else chooseThink(id)
   close()
 }
-function pickAccess(id: 'ask' | 'full') {
+function pickAccess(id: 'normal' | 'plan' | 'auto' | 'approve') {
   const a = CAT_ACCESS.find((x) => x.id === id)
   if (!a?.enabled) {
     ElMessage.info(CAT_COPY.later)
     return
   }
-  catState.access = id
+  chooseAccess(id)
   close()
 }
 
@@ -365,8 +365,9 @@ defineExpose({
   position: relative;
   flex: none;
   margin: 0 auto 16px;
-  width: 560px;
-  max-width: calc(100% - 32px);
+  width: min(560px, calc(100% - 32px));
+  min-width: 0;
+  box-sizing: border-box;
   padding-top: 22px;
 }
 .ct-comp.bare {
@@ -400,8 +401,11 @@ html.dark .ctx-bar {
   white-space: nowrap;
 }
 .ctx-bar .cx:first-child {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   overflow: hidden;
+}
+.ctx-bar .cx:not(:first-child) {
+  flex: none;
 }
 .ctx-bar .cx b {
   font-weight: 500;
@@ -414,6 +418,7 @@ html.dark .ctx-bar {
 .ct-in {
   position: relative;
   z-index: 1;
+  min-width: 0;
   border: 1px solid #dcdde1;
   border-radius: 22px;
   padding: 14px 14px 10px;
@@ -454,6 +459,7 @@ html.dark .ct-in {
 }
 .row {
   min-height: 52px; /* 与原型实测一致（输入框里控件行 52 高） */
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -526,9 +532,10 @@ html.dark .ct-send:hover {
   opacity: 0.4;
 }
 
-/* 访问模式胶囊（完全访问时橙色） */
+/* 批准方式胶囊（全部批准时橙色） */
 .chip-access {
   height: 28px;
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -563,6 +570,8 @@ html.dark .ct-send:hover {
 /* 合一模型胶囊 */
 .chip-model {
   height: 30px;
+  min-width: 0;
+  flex: 0 1 auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -577,7 +586,13 @@ html.dark .ct-send:hover {
   transition: background var(--ff-dur-quick);
 }
 .chip-model > :deep(svg) {
+  flex: none;
   color: var(--ff-text-2);
+}
+.chip-model span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .chip-model > :deep(svg.caret) {
   color: var(--ff-text-3);
@@ -613,7 +628,8 @@ html.dark .chip-model[aria-expanded='true'] {
   to { opacity: 1; transform: none; }
 }
 .mn-access {
-  width: 340px;
+  width: min(340px, 100%);
+  box-sizing: border-box;
   padding: 10px;
   background: var(--ff-bg-elevated);
   border: 1px solid var(--ff-border);

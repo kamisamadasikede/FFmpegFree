@@ -15,21 +15,19 @@ XAI_API_KEY 或 ~/.grok/auth.json（grok login），无 URL/Key UI。
        --cwd <projectAbsPath|应用临时目录> -s <conversationId> \
        --no-auto-update --no-alt-screen
   可选：-m <modelId>（非 default 时）
-  环境：GROK_SANDBOX=read-only GROK_WRITE_FILE=0 GROK_DISABLE_AUTOUPDATER=1
-  传 --always-approve（headless 防挂死，一期产品已定保留），同时只读限制（契约 v0.31.4）：
-    --tools read_file,list_dir,grep
-    --disallowed-tools run_terminal_cmd,search_replace,write_file,apply_patch,task,Agent,
-      web_search,web_fetch,search_tool,use_tool,image_gen,image_edit,video_gen,
-      bash,edit,write,hashline_edit,run_terminal_command（别名，认不出只告警）
-    --no-subagents --disable-web-search
-    --deny Bash --deny Edit --deny Write --deny WebFetch --deny WebSearch --deny 'MCPTool(*)'
-  工具名常量见 cli_readonly.go。
+  批准方式只带一个开关：全部批准 / 空 → --always-approve；
+  普通模式 → --permission-mode default；plan → --permission-mode plan；
+  自动审查 → --permission-mode auto。不与 --always-approve 同时传。
+  环境：只强制 GROK_DISABLE_AUTOUPDATER=1。不设置 GROK_SANDBOX、GROK_WRITE_FILE。
+  不传 --tools、--disallowed-tools、--deny、--no-subagents、--disable-web-search。
+  工具集是本机 grok 自己的完整集合（写、改、跑命令、联网、MCP、子代理等，以 CLI 当前版本为准）。
 
-streaming-json（NDJSON，捕获自 CLI 0.2.x；官方未正式发布 schema）：
-  {"type":"text","data":"..."}      → OnTextDelta / cat:message append
-  {"type":"thought","data":"..."}   → 忽略
-  {"type":"end","stopReason":"...","sessionId":"..."} → 回合结束
-  {"type":"error","message":"..."}  → CAT_REPLY_FAILED
+streaming-json（NDJSON，ACP session/update，或旧的 type/data）：
+  正文增量                         → OnTextDelta / cat:message append（助手正文）
+  agent_thought_chunk / thought    → OnActivity thought（界面单独一行，不写入助手正文）
+  tool_call / tool_call_update     → OnActivity tool（界面单独一行）
+  end                              → 回合结束
+  error / result.is_error / 超时类标准错误 → CAT_REPLY_FAILED（message 用原文）
 
 取消：context 取消 → proc.Kill 进程树。
 

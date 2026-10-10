@@ -33,6 +33,8 @@ export interface CatTurnEvent {
   turnId: string
   status: CatTurnStatus
   errorCode?: string
+  /** 失败时的原文。没有就不带，界面再用通用失败文案 */
+  errorMessage?: string
   /** 这一轮结束后的上下文占用；两个都大于 0 才带上 */
   contextUsed?: number
   contextWindow?: number
@@ -77,7 +79,14 @@ export function normalizeTurnEvent(raw: unknown): CatTurnEvent | null {
   const err = r.error && typeof r.error === 'object' ? (r.error as Raw) : null
   const used = pos(r.contextUsed)
   const size = pos(r.contextWindow)
-  const ev: CatTurnEvent = { convId, turnId: str(r.turnId), status, errorCode: err ? str(err.code) || undefined : undefined }
+  const errorMessage = err ? str(err.message).trim() : ''
+  const ev: CatTurnEvent = {
+    convId,
+    turnId: str(r.turnId),
+    status,
+    errorCode: err ? str(err.code) || undefined : undefined,
+    errorMessage: errorMessage || undefined,
+  }
   if (used && size) {
     ev.contextUsed = used
     ev.contextWindow = size

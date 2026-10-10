@@ -1,5 +1,5 @@
 /**
- * Cat 侧边文件预览。树只提交路径；这里按种类打开查看，文本可以改完再写回。
+ * Cat 侧边文件预览。树只提交路径；这里按种类打开查看，文本改完自动写回。
  * 浏览器走查不调用后端，用 mockCatFileBody。
  */
 import * as CatBinding from '../../wailsjs/go/app/CatService'
@@ -21,7 +21,11 @@ export const CAT_PREVIEW_COPY = {
   source: '源码',
   unsaved: '还有未保存的修改。',
   discard: '放弃',
+  htmlPreview: '预览',
 } as const
+
+/** 停下输入这么久就写入，不再放保存按钮 */
+export const CAT_AUTOSAVE_MS = 600
 
 const KINDS = ['text', 'image', 'media', 'pdf', 'docx', 'xlsx', 'pptx', 'doc', 'binary', 'tooLarge'] as const
 
@@ -60,17 +64,18 @@ export function mapFileBody(raw: unknown): CatFileBody {
   }
 }
 
-/** markdown 和 svg 先给预览，源码仍是同一份文本。其余文本直接进编辑器。 */
-export function previewModeFor(name: string): 'markdown' | 'svg' | 'code' {
+/** markdown 和 svg 先给预览。html 页默认看源码，点预览图标再在里面渲染。其余文本直接进编辑器。 */
+export function previewModeFor(name: string): 'markdown' | 'svg' | 'html' | 'code' {
   const n = name.toLowerCase()
   if (n.endsWith('.md') || n.endsWith('.markdown')) return 'markdown'
   if (n.endsWith('.svg')) return 'svg'
+  if (n.endsWith('.html') || n.endsWith('.htm')) return 'html'
   return 'code'
 }
 
 export function mockCatFileBody(name: string): CatFileBody {
   const mode = previewModeFor(name)
-  const content = mode === 'markdown' ? `# ${name}\n\n这是预览。\n` : `${name}\n`
+  const content = mode === 'markdown' ? `# ${name}\n\n这是预览。\n` : mode === 'html' ? `<!doctype html><title>${name}</title>\n` : `${name}\n`
   return {
     relPath: name,
     name,
@@ -78,8 +83,8 @@ export function mockCatFileBody(name: string): CatFileBody {
     size: content.length,
     content,
     dataBase64: '',
-    mime: mode === 'svg' ? 'image/svg+xml' : 'text/plain',
-    language: mode === 'markdown' ? 'markdown' : mode === 'svg' ? 'xml' : 'plaintext',
+    mime: mode === 'svg' ? 'image/svg+xml' : mode === 'html' ? 'text/html' : 'text/plain',
+    language: mode === 'markdown' ? 'markdown' : mode === 'svg' ? 'xml' : mode === 'html' ? 'html' : 'plaintext',
     editable: true,
     modTime: 0,
   }

@@ -44,9 +44,11 @@ a {
   text-decoration: none;
 }
 
-/* 外壳禁止整页选中，输入框、日志、代码区域除外 */
+/* 外壳禁止整页选中。输入框、日志、代码、内嵌页面除外。
+   iframe 必须写在元素自己身上：继承来的 none 会让 WebView2 拒绝在页面里拖选。 */
 .app-shell {
   user-select: none;
+  -webkit-user-select: none;
 }
 .app-shell input,
 .app-shell textarea,
@@ -54,8 +56,20 @@ a {
 .app-shell code,
 .app-shell [contenteditable],
 .app-shell .selectable,
-.app-shell .monaco-editor {
+.app-shell .monaco-editor,
+.app-shell iframe {
   user-select: text;
+  -webkit-user-select: text;
+}
+/* 中间对话：外壳的 none 在 WebView2 里会挡住子孙划选，必须连里面的文字一起强制放开，Ctrl+C 才有选区。 */
+.app-shell .ct-msgs,
+.app-shell .ct-msgs * {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+  --wails-draggable: no-drag;
+}
+.app-shell .ct-msgs {
+  cursor: text;
 }
 
 /* 细滚动条，悬停时显示 */

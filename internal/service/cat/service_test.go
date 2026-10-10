@@ -88,8 +88,8 @@ func TestSendWithFakeBinary(t *testing.T) {
 	}
 	svc.Wait()
 	detail, err := svc.GetCatConversation(context.Background(), c.ID)
-	if err != nil || len(detail.Messages) != 2 || detail.Messages[1].Content != "收到" {
-		t.Fatalf("%+v %v", detail, err)
+	if err != nil || len(detail.Messages) != 0 {
+		t.Fatalf("正文不进 sqlite，假 CLI 也没有会话可导出: %+v %v", detail, err)
 	}
 }
 

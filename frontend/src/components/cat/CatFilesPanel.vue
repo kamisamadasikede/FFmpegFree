@@ -1,5 +1,25 @@
 <template>
-  <section class="ct-r" :class="{ wide: !!openRel }" aria-label="文件" data-testid="cat-files">
+  <section
+    ref="rootEl"
+    class="ct-r"
+    :class="{ wide: !!openRel }"
+    :style="openRel ? { width: panelWidth + 'px' } : undefined"
+    aria-label="文件"
+    data-testid="cat-files"
+  >
+    <div
+      v-if="openRel"
+      class="ct-resize"
+      role="separator"
+      tabindex="0"
+      aria-orientation="vertical"
+      aria-label="拖动调整文件预览宽度"
+      :aria-valuenow="previewW"
+      :aria-valuemin="160"
+      data-testid="cat-file-resize"
+      @pointerdown="onResizeDown"
+      @keydown="onResizeKey"
+    />
     <CatFilePreview
       v-if="openRel"
       ref="previewEl"
@@ -75,7 +95,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import { mockFiles, type CatTreeNode } from '@/api/catMock'
 import { CAT_PROJECT_COPY as PC } from '@/api/catProjects'
@@ -92,6 +112,12 @@ import {
   type CatFileRow,
 } from '@/api/catFiles'
 import { catState, notify } from '@/views/cat/catState'
+import {
+  CAT_PREVIEW_WIDTH_KEY,
+  CAT_TREE_WIDTH,
+  clampPreviewWidth,
+  readPreviewWidth,
+} from './catPreviewWidth'
 
 const CatFilePreview = defineAsyncComponent(() => import('./CatFilePreview.vue'))
 
@@ -108,7 +134,67 @@ const openRel = ref('')
 const openName = ref('')
 const pending = ref<{ rel: string; name: string; picked: number | string } | null>(null)
 const previewEl = ref<{ requestClose: () => boolean } | null>(null)
+const rootEl = ref<HTMLElement>()
+const previewW = ref(readPreviewWidth(typeof localStorage !== 'undefined' ? localStorage.getItem(CAT_PREVIEW_WIDTH_KEY) : null))
+const panelWidth = computed(() => CAT_TREE_WIDTH + previewW.value)
 let token = 0
+
+function pageBox(): { total: number; side: number } {
+  const page = rootEl.value?.closest('.ct') as HTMLElement | null
+  const side = (page?.querySelector('.ct-l') as HTMLElement | null)?.offsetWidth ?? 248
+  return { total: page?.clientWidth ?? window.innerWidth, side }
+}
+
+function fit(want: number): number {
+  const { total, side } = pageBox()
+  return clampPreviewWidth(want, total, side)
+}
+
+function rememberWidth() {
+  try {
+    localStorage.setItem(CAT_PREVIEW_WIDTH_KEY, String(previewW.value))
+  } catch {
+    /* 隐私模式写不进就只在这次运行里生效 */
+  }
+}
+
+function onResizeDown(e: PointerEvent) {
+  if (e.button !== 0) return
+  e.preventDefault()
+  const handle = e.currentTarget as HTMLElement
+  handle.setPointerCapture(e.pointerId)
+  const startX = e.clientX
+  const startW = previewW.value
+  const prevCursor = document.body.style.cursor
+  const prevSelect = document.body.style.userSelect
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+  const move = (ev: PointerEvent) => {
+    previewW.value = fit(startW + (startX - ev.clientX))
+  }
+  const up = (ev: PointerEvent) => {
+    if (handle.hasPointerCapture(ev.pointerId)) handle.releasePointerCapture(ev.pointerId)
+    handle.removeEventListener('pointermove', move)
+    handle.removeEventListener('pointerup', up)
+    document.body.style.cursor = prevCursor
+    document.body.style.userSelect = prevSelect
+    rememberWidth()
+  }
+  handle.addEventListener('pointermove', move)
+  handle.addEventListener('pointerup', up)
+}
+
+function onResizeKey(e: KeyboardEvent) {
+  const step = e.shiftKey ? 80 : 24
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+  e.preventDefault()
+  previewW.value = fit(previewW.value + (e.key === 'ArrowLeft' ? step : -step))
+  rememberWidth()
+}
+
+function onWindowResize() {
+  if (openRel.value) previewW.value = fit(previewW.value)
+}
 
 const mockRows = computed(() => {
   const q = query.value.trim().toLowerCase()
@@ -284,6 +370,12 @@ function onPreviewClose() {
   openName.value = ''
 }
 
+watch(openRel, (rel) => {
+  if (rel) void nextTick(() => { previewW.value = fit(previewW.value) })
+})
+onMounted(() => window.addEventListener('resize', onWindowResize))
+onBeforeUnmount(() => window.removeEventListener('resize', onWindowResize))
+
 function onMock(n: CatTreeNode, i: number) {
   if (n[1] !== 'f') return
   wantFile(String(n[2]), String(n[2]), i)
@@ -314,10 +406,41 @@ function onRow(row: CatFileRow) {
   flex-direction: row;
   border-left: 1px solid var(--ff-border);
   background: var(--ff-bg-surface);
+  min-width: 0;
   min-height: 0;
 }
 .ct-r.wide {
-  width: min(820px, 68vw);
+  position: relative;
+  overflow: hidden;
+}
+.ct-resize {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  z-index: 5;
+  touch-action: none;
+}
+.ct-resize::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+}
+.ct-resize:hover::after,
+.ct-resize:focus-visible::after {
+  background: var(--ff-primary);
+}
+.ct-resize:focus-visible {
+  outline: none;
 }
 .ct-col {
   width: 236px;

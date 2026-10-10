@@ -110,8 +110,10 @@
               @click="relocateProject(currentProject.id)"
             >{{ PC.relocate }}</button>
           </div>
-          <div ref="msgsEl" :key="catState.sel" class="ct-msgs swap">
-            <CatMessages :blocks="messages" :pending="thinking" />
+          <div ref="msgsEl" :key="catState.sel" class="ct-msgs swap" @scroll.passive="onMsgsScroll">
+            <div ref="msgsBody">
+              <CatMessages :blocks="messages" :pending="thinking" />
+            </div>
           </div>
           <div v-if="catNotReady" class="ct-banner in-conv" role="status" data-testid="cat-not-ready">
             <FIcon name="info" :size="14" />{{ notReadyText }}
@@ -151,7 +153,11 @@ import { ElMessage } from 'element-plus'
 import { CAT_COPY } from '@/api/cat'
 import { CAT_MODES, CAT_TRY, type CatMode } from '@/api/catMock'
 import { catReturnPath } from './catReturn'
+import { nearBottom, keepFollowing } from './catFollow'
+import { awaitingTurnOutput } from './catPending'
 import { catChecking, catNotReady, catState, currentProject, findConv, projectMissing, relocateProject, initCat, messagesOf, NEW_CONV, refreshCapabilities, sendMessage, stopTurn, tipLater } from './catState'
+import { hasWailsBackend } from '@/services/wails'
+import { ClipboardSetText } from '../../../wailsjs/runtime/runtime'
 
 /**
  * Cat 聊天页（设计 v0.4 / 契约 v0.30）。Wails 里接真实 CatService：流式回复、停止生成、组件未就绪横条（无下载按钮）。
@@ -174,46 +180,114 @@ const composer = ref<InstanceType<typeof CatComposer>>()
 const convComposer = ref<InstanceType<typeof CatComposer>>()
 /** 发送；后端没收下（项目文件夹不见了）时把文字放回输入框 */
 async function onSend(text: string, c: InstanceType<typeof CatComposer> | undefined) {
+  stick.value = true
   const back = await sendMessage(text)
   if (back) c?.restoreDraft(back)
+  nextTick(pinBottom)
 }
 /** 当前会话进行中的一轮 */
 const turn = computed(() => (isNew.value ? undefined : catState.turns[catState.sel]))
-/** 还没收到第一段文字时显示「正在思考…」 */
-const thinking = computed(() => !!turn.value && !turn.value.assistantId && turn.value.status === 'running')
-/** 流式时文字长度变化也要滚到底 */
-const tailLen = computed(() => {
-  const last = messages.value[messages.value.length - 1]
-  return last && last.kind === 'a' ? last.text.length : 0
+/** 这一轮还没收到正文、思考或工具调用时马上显示「正在思考…」。上一轮的内容不算。 */
+const thinking = computed(() => {
+  if (!turn.value || turn.value.status !== 'running') return false
+  return awaitingTurnOutput(messages.value)
 })
 const msgsEl = ref<HTMLElement>()
+const msgsBody = ref<HTMLElement>()
+/** 人在看最新一条时，回复变高就跟着往下；往上翻过之后停住 */
+const stick = ref(true)
+let pinning = false
+let pinnedOnce = false
+let followObserver: ResizeObserver | undefined
 
-// 选中的对话不存在（例如本地对话被清掉）时回到欢迎页
+// 选中的对话不存在（例如被删掉）时回到欢迎页。列表还在加载时先不判断，避免把记下的对话清掉
 watch(current, (c) => {
+  if (!catState.convListReady) return
   if (!isNew.value && !c) catState.sel = NEW_CONV
-}, { immediate: true })
+})
 
 let timer: ReturnType<typeof setTimeout> | undefined
 let disposeCat: (() => void) | undefined
+let stopReady: (() => void) | undefined
+function pinBottom() {
+  const el = msgsEl.value
+  if (!el || !stick.value) return
+  const top = el.scrollHeight - el.clientHeight
+  if (top <= 0 || el.scrollTop >= top - 1) {
+    pinnedOnce = true
+    return
+  }
+  pinning = true
+  el.scrollTop = el.scrollHeight
+  pinning = false
+  pinnedOnce = true
+}
+function onMsgsScroll() {
+  if (pinning || !pinnedOnce) return
+  const el = msgsEl.value
+  if (!el) return
+  stick.value = keepFollowing(true, nearBottom(el.scrollTop, el.scrollHeight, el.clientHeight), stick.value)
+}
+if (typeof ResizeObserver !== 'undefined') {
+  // 正文按帧才画出来，工具和文件改动也是原地变高。高度变了再贴底，才跟得上输出。
+  followObserver = new ResizeObserver(() => pinBottom())
+}
+/** 对话里划中的文字用 Ctrl/Cmd+C 写入剪贴板。输入框不在这块里，不拦它们自己的复制。 */
+function onCopyKey(e: KeyboardEvent) {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || (e.key !== 'c' && e.key !== 'C')) return
+  const sel = window.getSelection()
+  const text = sel?.toString() ?? ''
+  if (!text) return
+  const node = sel?.anchorNode
+  const el = node instanceof Element ? node : node?.parentElement
+  if (!el?.closest('.ct-msgs')) return
+  e.preventDefault()
+  const write = hasWailsBackend() ? ClipboardSetText(text) : navigator.clipboard.writeText(text)
+  void write.catch(() => undefined)
+}
 onMounted(() => {
-  if (phase.value === 'loading') timer = setTimeout(() => (phase.value = 'chat'), 1200)
+  window.addEventListener('keydown', onCopyKey)
+  if (msgsBody.value) followObserver?.observe(msgsBody.value)
   disposeCat = initCat()
   void refreshCapabilities()
+  if (phase.value !== 'loading') return
+  // 至少停 1.2 秒；会话列表没回来之前继续停，避免先闪出「新对话」再跳到上次的对话
+  const start = Date.now()
+  const show = () => {
+    timer = setTimeout(() => (phase.value = 'chat'), Math.max(0, 1200 - (Date.now() - start)))
+  }
+  if (catState.convListReady) show()
+  else {
+    stopReady = watch(() => catState.convListReady, (ready) => {
+      if (!ready) return
+      stopReady?.()
+      stopReady = undefined
+      show()
+    })
+  }
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onCopyKey)
   clearTimeout(timer)
+  stopReady?.()
   disposeCat?.()
+  followObserver?.disconnect()
 })
 
-watch(() => catState.sel, () => { void refreshCapabilities() })
+watch(() => catState.sel, () => {
+  stick.value = true
+  pinnedOnce = false
+  void refreshCapabilities()
+})
 
-function scrollToEnd() {
-  nextTick(() => {
-    const el = msgsEl.value
-    if (el) el.scrollTop = el.scrollHeight
-  })
-}
-watch(() => [catState.sel, messages.value.length, thinking.value, tailLen.value, phase.value], scrollToEnd)
+watch(msgsBody, (el, prev) => {
+  if (prev) followObserver?.unobserve(prev)
+  pinnedOnce = false
+  stick.value = true
+  if (!el) return
+  followObserver?.observe(el)
+  nextTick(pinBottom)
+})
 
 function goBack() {
   router.push(catReturnPath())
@@ -408,6 +482,7 @@ html.dark .ct-notice {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow-x: clip;
   background: var(--ff-bg-surface);
 }
 .ct-hd {
@@ -461,6 +536,9 @@ html.dark .ct-notice {
   min-height: 0;
   overflow-y: auto;
   padding: 16px 0;
+  overflow-anchor: none;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* 新对话欢迎页 */

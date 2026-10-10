@@ -31,8 +31,8 @@ export namespace cat {
 	    createdAt: number;
 	    updatedAt: number;
 	    messages: store.CatMessage[];
-	    contextUsed: number;
-	    contextWindow: number;
+	    contextUsed?: number;
+	    contextWindow?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ConversationDetail(source);
@@ -171,46 +171,6 @@ export namespace cat {
 	        this.id = source["id"];
 	    }
 	}
-	export class RelocateProjectRequest {
-	    id: string;
-	    path: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new RelocateProjectRequest(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.path = source["path"];
-	    }
-	}
-	export class RenameProjectRequest {
-	    id: string;
-	    name: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new RenameProjectRequest(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	    }
-	}
-	export class RevealProjectRequest {
-	    id: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new RevealProjectRequest(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	    }
-	}
 	export class FileEntry {
 	    name: string;
 	    relPath: string;
@@ -279,26 +239,15 @@ export namespace cat {
 		    return a;
 		}
 	}
-	export class RevealConversationFolderRequest {
-	    convId: string;
 	
-	    static createFrom(source: any = {}) {
-	        return new RevealConversationFolderRequest(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.convId = source["convId"];
-	    }
-	}
 	export class ReadFileRequest {
 	    convId: string;
 	    relPath: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ReadFileRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -316,11 +265,11 @@ export namespace cat {
 	    language: string;
 	    editable: boolean;
 	    modTime: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ReadFileResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.relPath = source["relPath"];
@@ -335,36 +284,56 @@ export namespace cat {
 	        this.modTime = source["modTime"];
 	    }
 	}
-	export class WriteFileRequest {
-	    convId: string;
-	    relPath: string;
-	    content: string;
-
+	export class RelocateProjectRequest {
+	    id: string;
+	    path: string;
+	
 	    static createFrom(source: any = {}) {
-	        return new WriteFileRequest(source);
+	        return new RelocateProjectRequest(source);
 	    }
-
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.path = source["path"];
+	    }
+	}
+	export class RenameProjectRequest {
+	    id: string;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RenameProjectRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	    }
+	}
+	export class RevealConversationFolderRequest {
+	    convId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RevealConversationFolderRequest(source);
+	    }
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
-	        this.relPath = source["relPath"];
-	        this.content = source["content"];
 	    }
 	}
-	export class WriteFileResult {
-	    relPath: string;
-	    size: number;
-	    modTime: number;
-
+	export class RevealProjectRequest {
+	    id: string;
+	
 	    static createFrom(source: any = {}) {
-	        return new WriteFileResult(source);
+	        return new RevealProjectRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.relPath = source["relPath"];
-	        this.size = source["size"];
-	        this.modTime = source["modTime"];
+	        this.id = source["id"];
 	    }
 	}
 	export class SendMessageRequest {
@@ -372,6 +341,7 @@ export namespace cat {
 	    content: string;
 	    modelId: string;
 	    thinkLevelId: string;
+	    permissionMode: string;
 	    projectPath: string;
 	
 	    static createFrom(source: any = {}) {
@@ -384,6 +354,7 @@ export namespace cat {
 	        this.content = source["content"];
 	        this.modelId = source["modelId"];
 	        this.thinkLevelId = source["thinkLevelId"];
+	        this.permissionMode = source["permissionMode"];
 	        this.projectPath = source["projectPath"];
 	    }
 	}
@@ -422,6 +393,38 @@ export namespace cat {
 		    }
 		    return a;
 		}
+	}
+	export class WriteFileRequest {
+	    convId: string;
+	    relPath: string;
+	    content: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new WriteFileRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.relPath = source["relPath"];
+	        this.content = source["content"];
+	    }
+	}
+	export class WriteFileResult {
+	    relPath: string;
+	    size: number;
+	    modTime: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new WriteFileResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.relPath = source["relPath"];
+	        this.size = source["size"];
+	        this.modTime = source["modTime"];
+	    }
 	}
 
 }

@@ -80,7 +80,7 @@ export interface CatConversation {
 
 export interface CatMessage {
   id: string
-  role: 'user' | 'assistant' | 'system'
+  role: 'user' | 'assistant' | 'system' | 'thought' | 'tool'
   content: string
   createdAt: number
 }
@@ -104,6 +104,8 @@ export interface SendCatMessageRequest {
   content: string
   modelId?: string
   thinkLevelId?: string
+  /** normal / plan / auto / approve。空等于全部批准 */
+  permissionMode?: string
 }
 
 /**
@@ -165,7 +167,8 @@ function mapConv(raw: { id?: string; title?: string; agentKind?: string; project
 }
 
 function mapMsg(raw: { id?: string; role?: string; content?: string; createdAt?: number } | null | undefined): CatMessage {
-  const role = raw?.role === 'user' || raw?.role === 'system' ? raw.role : 'assistant'
+  const r = raw?.role
+  const role = r === 'user' || r === 'system' || r === 'thought' || r === 'tool' ? r : 'assistant'
   return { id: String(raw?.id ?? ''), role, content: String(raw?.content ?? ''), createdAt: Number(raw?.createdAt) || 0 }
 }
 
@@ -285,6 +288,7 @@ export async function sendCatMessage(req: SendCatMessageRequest): Promise<SendCa
         content: req.content,
         modelId: req.modelId ?? '',
         thinkLevelId: req.thinkLevelId ?? '',
+        permissionMode: req.permissionMode ?? '',
         projectPath: '',
       }),
     ),

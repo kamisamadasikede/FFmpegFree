@@ -126,15 +126,18 @@ func TestRunTurn_CLIErrorEvent(t *testing.T) {
 		Messages: []WireMessage{{Role: "user", Content: "x"}},
 		Timeout:  3 * time.Second,
 	})
-	if !apperr.Is(err, apperr.CatReplyFailed) || apperr.From(err).Message != MsgReplyFailed {
+	ae := apperr.From(err)
+	if !apperr.Is(err, apperr.CatReplyFailed) || ae == nil || !strings.Contains(ae.Message, "boom") {
 		t.Fatalf("%v", err)
 	}
 }
 
-func TestRunTurn_PassesArgsAndReadonlyEnv(t *testing.T) {
+func TestRunTurn_PassesArgsWithoutToolLock(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("unix script fake")
 	}
+	t.Setenv("GROK_SANDBOX", "")
+	t.Setenv("GROK_WRITE_FILE", "")
 	dir := t.TempDir()
 	fake := filepath.Join(dir, "grok-args")
 	out := filepath.Join(dir, "args.txt")
@@ -163,13 +166,15 @@ func TestRunTurn_PassesArgsAndReadonlyEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(raw)
-	for _, want := range []string{"-p", "hello world", "--output-format", "streaming-json", "--cwd", proj, "--session-id", "-m", "grok-build", "--no-auto-update", "ENV_SANDBOX=read-only", "ENV_WRITE=0"} {
+	for _, want := range []string{"-p", "hello world", "--output-format", "streaming-json", "--cwd", proj, "--session-id", "-m", "grok-build", "--no-auto-update", "--always-approve"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("missing %q in:\n%s", want, s)
 		}
 	}
-	if !strings.Contains(s, "--always-approve") {
-		t.Fatalf("must pass --always-approve:\n%s", s)
+	for _, banned := range []string{"--tools", "--disallowed-tools", "--deny", "--no-subagents", "--disable-web-search", "ENV_SANDBOX=read-only", "ENV_WRITE=0"} {
+		if strings.Contains(s, banned) {
+			t.Fatalf("must not pass %q:\n%s", banned, s)
+		}
 	}
 	if !strings.Contains(s, "--session-id") {
 		t.Fatalf("must pass --session-id:\n%s", s)
@@ -193,21 +198,175 @@ func TestHandleToolRequests_ListDir(t *testing.T) {
 }
 
 func TestScanStreamingJSON_Lenient(t *testing.T) {
-	var got []string
+	var texts, thoughts, tools []string
 	var errMsg string
 	in := strings.NewReader(strings.Join([]string{
 		`{"type":"text","data":"A"}`,
 		`not-json`,
 		`{"type":"thought","data":"x"}`,
+		`{"type":"tool_call","name":"read_file","title":"读取文件"}`,
 		`{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"text":"B"}}}}`,
+		`{"method":"session/update","params":{"update":{"sessionUpdate":"agent_thought_chunk","content":{"text":"想"}}}}`,
+		`{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call","toolCallId":"t1","title":"grep","status":"in_progress"}}}`,
 		`{"type":"error","message":"nope"}`,
 		`{"type":"end","stopReason":"end_turn"}`,
 	}, "\n"))
-	if err := scanStreamingJSON(in, func(d string) { got = append(got, d) }, func(m string) { errMsg = m }); err != nil {
+	if err := scanStreamingJSON(in, func(p streamPiece) {
+		switch p.Kind {
+		case "thought":
+			thoughts = append(thoughts, p.Text)
+		case "tool":
+			tools = append(tools, p.Text)
+		default:
+			texts = append(texts, p.Text)
+		}
+	}, func(m string) { errMsg = m }); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(got, "") != "AB" || errMsg != "nope" {
-		t.Fatalf("got=%v err=%q", got, errMsg)
+	if strings.Join(texts, "") != "AB" || strings.Join(thoughts, "") != "x想" || strings.Join(tools, ",") != "读取文件,grep" || errMsg != "nope" {
+		t.Fatalf("text=%v thought=%v tool=%v err=%q", texts, thoughts, tools, errMsg)
+	}
+}
+
+func TestScanStreamingJSON_ToolCallFiles(t *testing.T) {
+	var tools []string
+	in := strings.NewReader(strings.Join([]string{
+		`{"type":"tool_call","toolCallId":"call_1","toolName":"read_file","kind":"read","status":"in_progress","rawInput":{"path":"src/main.rs"},"locations":[]}`,
+		`{"type":"tool_call_update","toolCallId":"call_1","status":"completed","locations":[{"path":"src/main.rs"},{"path":"src/lib.rs"}]}`,
+		`{"type":"tool_call","toolCallId":"call_2","toolName":"grep","status":"in_progress","rawInput":{"pattern":"foo","path":"src"}}`,
+		`{"method":"session/update","params":{"update":{"sessionUpdate":"tool_call","toolCallId":"call_3","title":"Edit","kind":"edit","status":"completed","rawInput":{"file_path":"a.go"}}}}`,
+	}, "\n"))
+	if err := scanStreamingJSON(in, func(p streamPiece) {
+		if p.Kind == "tool" {
+			tools = append(tools, p.Text)
+		}
+	}, func(string) {}); err != nil {
+		t.Fatal(err)
+	}
+	if len(tools) != 4 {
+		t.Fatalf("%v", tools)
+	}
+	if tools[0] != "read_file\nsrc/main.rs" {
+		t.Fatalf("start %q", tools[0])
+	}
+	if tools[1] != "read_file\nsrc/main.rs\nsrc/lib.rs" {
+		t.Fatalf("update %q", tools[1])
+	}
+	if tools[2] != "grep · foo\nsrc" {
+		t.Fatalf("search %q", tools[2])
+	}
+	if tools[3] != "Edit\na.go" {
+		t.Fatalf("edit %q", tools[3])
+	}
+}
+
+func TestToolCallKeepsWriteAndEditDiff(t *testing.T) {
+	line := func(update any) string {
+		b, err := json.Marshal(map[string]any{"method": "session/update", "params": map[string]any{"update": update}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	var tools []string
+	in := strings.NewReader(strings.Join([]string{
+		line(map[string]any{
+			"sessionUpdate": "tool_call", "toolCallId": "w1", "title": "write",
+			"rawInput": map[string]any{"file_path": "a.yml", "content": "name: nginx\nports:\n"},
+		}),
+		line(map[string]any{
+			"sessionUpdate": "tool_call_update", "toolCallId": "w1", "kind": "edit", "title": "Write `a.yml`",
+			"content": []any{map[string]any{"type": "diff", "path": "a.yml", "oldText": "", "newText": "name: nginx\n"}},
+			"locations": []any{map[string]any{"path": "a.yml"}},
+		}),
+		line(map[string]any{
+			"sessionUpdate": "tool_call", "toolCallId": "e1", "title": "search_replace",
+			"rawInput": map[string]any{"file_path": "deploy.ps1", "old_string": "HTTP_PORT=8080", "new_string": "HTTP_PORT=8081"},
+		}),
+		line(map[string]any{
+			"sessionUpdate": "tool_call", "toolCallId": "r1", "title": "read_file",
+			"rawInput": map[string]any{"target_file": "deploy.ps1", "content": "should-not-show"},
+		}),
+	}, "\n"))
+	if err := scanStreamingJSON(in, func(p streamPiece) {
+		if p.Kind == "tool" {
+			tools = append(tools, p.Text)
+		}
+	}, func(string) {}); err != nil {
+		t.Fatal(err)
+	}
+	if len(tools) != 4 {
+		t.Fatalf("%v", tools)
+	}
+	if tools[0] != "write\na.yml\n\n+name: nginx\n+ports:" {
+		t.Fatalf("write %q", tools[0])
+	}
+	if tools[1] != "Write `a.yml`\na.yml\n\n+name: nginx" {
+		t.Fatalf("write update %q", tools[1])
+	}
+	if tools[2] != "search_replace\ndeploy.ps1\n\n-HTTP_PORT=8080\n+HTTP_PORT=8081" {
+		t.Fatalf("edit %q", tools[2])
+	}
+	if tools[3] != "read_file\ndeploy.ps1" || strings.Contains(tools[3], "should-not-show") {
+		t.Fatalf("read %q", tools[3])
+	}
+}
+
+func TestPermissionCLIArgs(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+		ban  string
+	}{
+		{"", "--always-approve", "--permission-mode"},
+		{"approve", "--always-approve", "--permission-mode"},
+		{"always-approve", "--always-approve", "--permission-mode"},
+		{"full", "--always-approve", "--permission-mode"},
+		{"plan", "--permission-mode\x00plan", "--always-approve"},
+		{"auto", "--permission-mode\x00auto", "--always-approve"},
+		{"auto-review", "--permission-mode\x00auto", "--always-approve"},
+		{"normal", "--permission-mode\x00default", "--always-approve"},
+		{"ask", "--permission-mode\x00default", "--always-approve"},
+		{"default", "--permission-mode\x00default", "--always-approve"},
+	}
+	for _, tc := range cases {
+		got := strings.Join(permissionCLIArgs(tc.in), "\x00")
+		if got != tc.want {
+			t.Fatalf("%q: got %q want %q", tc.in, got, tc.want)
+		}
+		if strings.Contains(got, tc.ban) {
+			t.Fatalf("%q still has %s: %q", tc.in, tc.ban, got)
+		}
+	}
+}
+
+func TestScanStreamingJSON_ResultError(t *testing.T) {
+	var errMsg string
+	var texts []string
+	in := strings.NewReader(strings.Join([]string{
+		`{"type":"text","data":"已写到一半"}`,
+		`{"type":"result","subtype":"error_during_execution","is_error":true,"errors":["network timeout"]}`,
+		`{"type":"result","subtype":"success","is_error":false,"result":"不要当成失败"}`,
+	}, "\n"))
+	if err := scanStreamingJSON(in, func(p streamPiece) {
+		if p.Kind == "" || p.Kind == "text" {
+			texts = append(texts, p.Text)
+		}
+	}, func(m string) { errMsg = m }); err != nil {
+		t.Fatal(err)
+	}
+	if errMsg != "network timeout" || strings.Join(texts, "") != "已写到一半" {
+		t.Fatalf("err=%q text=%v", errMsg, texts)
+	}
+}
+
+func TestStderrSummary_TimeoutNotUpdater(t *testing.T) {
+	strong, other := stderrSummary("new version available: 1.2.3\nread tcp 10.0.0.1:443: i/o timeout\n")
+	if !strings.Contains(strong, "i/o timeout") {
+		t.Fatalf("strong %q", strong)
+	}
+	if strings.Contains(strong, "new version") || strings.Contains(other, "new version") || strings.Contains(other, "i/o timeout") {
+		t.Fatalf("strong %q other %q", strong, other)
 	}
 }
 

@@ -12,11 +12,11 @@ export type CatConvState = 'ok' | 'idle' | 'run'
 /** 一段消息内容。p / li 里的 `反引号` 渲染成行内代码；code 的 parts 第二项为 true 时按关键字上色 */
 export type CatBlock =
   | { kind: 'user'; text: string }
-  | { kind: 'think'; text: string }
+  | { kind: 'think'; text: string; id?: string; streaming?: boolean }
   | { kind: 'p'; text: string }
   | { kind: 'ul'; items: string[] }
   | { kind: 'code'; lang: string; parts: Array<[string, boolean?]>; more?: string }
-  | { kind: 'run'; text: string }
+  | { kind: 'run'; text: string; id?: string; streaming?: boolean }
   /** 助手回复（真实会话）：streaming=true 时文字仍在增长 */
   | { kind: 'a'; id: string; text: string; streaming: boolean }
   /** 浅灰系统行：已停止生成 / 未就绪 / 回复失败 */
@@ -56,7 +56,7 @@ export type CatTreeNode = [number, 'd' | 'c' | 'f', string, boolean?]
 /** 变更文件：名字、增加行数、删除行数 */
 export type CatChange = { path: string; add: number; del: number }
 
-export interface CatAccess { id: 'ask' | 'full'; name: string; short: string; desc: string; icon: 'hand' | 'alert'; enabled: boolean }
+export interface CatAccess { id: 'normal' | 'plan' | 'auto' | 'approve'; name: string; short: string; desc: string; icon: 'hand' | 'list' | 'shield' | 'alert'; enabled: boolean }
 export interface CatMode {
   id: string
   name: string
@@ -67,8 +67,10 @@ export interface CatMode {
 }
 
 export const CAT_ACCESS: CatAccess[] = [
-  { id: 'ask', name: '请求批准', short: '请求批准', desc: '编辑外部文件和使用互联网时始终询问', icon: 'hand', enabled: true },
-  { id: 'full', name: '完全访问权限', short: '完全访问', desc: '可不受限制地访问互联网和你电脑上的任何文件', icon: 'alert', enabled: false },
+  { id: 'normal', name: '普通模式', short: '普通', desc: '按平时的规则询问。这个窗口点不到确认，卡住时请按停止。', icon: 'hand', enabled: true },
+  { id: 'plan', name: 'Plan', short: 'Plan', desc: '先整理计划再动手，这一阶段只看不改。', icon: 'list', enabled: true },
+  { id: 'auto', name: '自动审查', short: '自动审查', desc: '自己判断能不能做。被拦住的步骤会失败并写在对话里，不会一直等确认。', icon: 'shield', enabled: true },
+  { id: 'approve', name: '全部批准', short: '全部批准', desc: '工具调用直接执行，不再询问。', icon: 'alert', enabled: true },
 ]
 
 /** 欢迎页模式：仅 Cat Build 可选；其余灰掉「下一期开放。」（产品 / 契约 6.19.6） */

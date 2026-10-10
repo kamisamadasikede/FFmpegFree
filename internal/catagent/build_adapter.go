@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -61,6 +62,8 @@ type BuildConfig struct {
 	LookPath func(file string) (string, error)
 	// Now 可覆盖。
 	Now func() time.Time
+	// SessionsRoot 可覆盖 CLI 会话目录（测试）。空 = ~/.grok/sessions。
+	SessionsRoot string
 }
 
 // BuildAdapter 是 cat_build 适配器：优先 PATH 上的 grok，调 headless streaming-json。
@@ -306,10 +309,18 @@ type TurnOptions struct {
 	ThinkLevelID   string
 	ProjectPath    string
 	Messages       []WireMessage
-	Timeout        time.Duration
+	// Resume 为真时接上 CLI 已有会话（--resume）。不靠应用数据库里的历史判断。
+	Resume  bool
+	Timeout time.Duration
 	// OnTextDelta 可选：适配器拿到真流式输出时逐段回调。
 	// 一轮内只要回调过一次，服务端就以回调累积文本为准，不再拆整段回复。
 	OnTextDelta func(delta string)
+	// OnActivity 是思考 / 工具调用。不并入助手正文。replace 为真时 text 是这一条的完整标签，不是增量。
+	OnActivity func(kind, id, text string, replace bool)
+	// PermissionMode 是这一轮的批准方式：normal/default、plan、auto、approve。空等于全部批准。
+	PermissionMode string
+	// OnError 在失败原文出现时立刻回调（进程还没退出也会调）。同一句可能来自标准输出和标准错误，调用方自己去重。
+	OnError func(msg string)
 }
 
 // RunTurn 调 PATH 上的 grok headless：streaming-json → OnTextDelta；取消杀进程树。
@@ -356,13 +367,13 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		"--cwd", cwd,
 		"--no-auto-update",
 		"--no-alt-screen",
-		// headless 无法点批准，一期保留自动批准防挂死；工具同时收窄成只读（见 cli_readonly.go）。
-		"--always-approve",
+		// 不传 --tools / --disallowed-tools / --deny / --no-subagents / --disable-web-search，
+		// 工具集用本机 grok 自己的完整集合。批准方式只带一个开关。
 	}
-	args = append(args, readOnlyCLIArgs()...)
+	args = append(args, permissionCLIArgs(opts.PermissionMode)...)
 	if sid := strings.TrimSpace(opts.ConversationID); sid != "" {
 		uuid := sessionIDFromConv(sid)
-		if hasPriorAssistant(opts.Messages) {
+		if opts.Resume || hasPriorAssistant(opts.Messages) {
 			args = append(args, "--resume", uuid)
 		} else {
 			args = append(args, "--session-id", uuid)
@@ -379,67 +390,135 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	cmd.Dir = cwd
 	cmd.Env = grokTurnEnv(os.Environ())
 
+	// 管道上的 stdout 经常要攒满一块才吐出来。会话文件是逐条追加的，有它就跟着文件走。
+	var followMode int32
+	updatesPath := sessionUpdatesPath(a.sessionRoot(), cwd, opts.ConversationID)
+	var updatesOff int64
+	if updatesPath != "" {
+		if st, err := os.Stat(updatesPath); err == nil {
+			updatesOff = st.Size()
+		}
+	}
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return TurnResponse{}, apperr.Wrap(apperr.CatReplyFailed, MsgReplyFailed, err).WithDetail("reason=stdout_pipe")
 	}
-	var stderrBuf strings.Builder
-	cmd.Stderr = &stderrBuf
+	var errMu sync.Mutex
+	var cliErr string
+	seenErr := map[string]struct{}{}
+	noteErr := func(msg string) {
+		msg = truncate(strings.TrimSpace(msg), 500)
+		if msg == "" {
+			return
+		}
+		errMu.Lock()
+		if cliErr == "" {
+			cliErr = msg
+		}
+		_, dup := seenErr[msg]
+		if !dup {
+			seenErr[msg] = struct{}{}
+		}
+		errMu.Unlock()
+		if dup || opts.OnError == nil {
+			return
+		}
+		opts.OnError(msg)
+	}
+	stderrTap := &stderrTap{onLine: func(line string) {
+		if !strongCLIError(line) {
+			return
+		}
+		noteErr(line)
+	}}
+	cmd.Stderr = stderrTap
 
 	if err := cmd.Start(); err != nil {
 		return TurnResponse{}, apperr.Wrap(apperr.CatReplyFailed, MsgReplyFailed, err).WithDetail("reason=start_failed")
 	}
 
-	var (
-		acc      strings.Builder
-		streamed bool
-		cliErr   string
-	)
-	scanErr := scanStreamingJSON(stdout, func(delta string) {
-		streamed = true
-		acc.WriteString(delta)
-		if opts.OnTextDelta != nil {
-			opts.OnTextDelta(delta)
+	var acc strings.Builder
+	emitPiece := func(p streamPiece) {
+		switch p.Kind {
+		case "thought", "tool":
+			if opts.OnActivity != nil && p.Text != "" {
+				opts.OnActivity(p.Kind, p.ID, p.Text, p.Replace)
+			}
+		default:
+			if p.Text == "" {
+				return
+			}
+			acc.WriteString(p.Text)
+			if opts.OnTextDelta != nil {
+				opts.OnTextDelta(p.Text)
+			}
 		}
-	}, func(msg string) {
-		cliErr = msg
-	})
+	}
+	stopFollow := make(chan struct{})
+	followDone := make(chan struct{})
+	go func() {
+		defer close(followDone)
+		followSessionUpdates(updatesPath, updatesOff, &followMode, stopFollow, emitPiece, noteErr)
+	}()
+	scanErr := scanStreamingJSON(stdout, func(p streamPiece) {
+		if !claimFollow(&followMode, followStdout) {
+			return
+		}
+		emitPiece(p)
+	}, noteErr)
 
 	waitErr := cmd.Wait()
-	if a.cfg.Logf != nil && stderrBuf.Len() > 0 {
-		a.cfg.Logf("cat build turn stderr: %s", truncate(stderrBuf.String(), 2000))
+	stderrTap.flush()
+	close(stopFollow)
+	<-followDone
+	stderrText := stderrTap.String()
+	errMu.Lock()
+	cliMsg := cliErr
+	errMu.Unlock()
+	if a.cfg.Logf != nil && stderrText != "" {
+		a.cfg.Logf("cat build turn stderr: %s", truncate(stderrText, 2000))
 	}
 	if scanErr != nil && a.cfg.Logf != nil {
 		a.cfg.Logf("cat build stream scan: %v", scanErr)
 	}
 
+	strong, other := stderrSummary(stderrText)
+	if cliMsg == "" {
+		cliMsg = strong
+	}
+	authText := cliMsg + "\n" + stderrText
+	if waitErr != nil {
+		authText += "\n" + waitErr.Error()
+	}
+	if isAuthFailure(authText) {
+		a.markAuthInvalid()
+		return TurnResponse{}, authNotReadyErr()
+	}
 	if runCtx.Err() != nil {
 		if ctx.Err() != nil {
 			return TurnResponse{}, apperr.New(apperr.Canceled, "已取消")
 		}
-		return TurnResponse{}, apperr.New(apperr.CatReplyFailed, MsgReplyFailed).WithDetail("reason=timeout")
+		msg := cliMsg
+		if msg == "" {
+			msg = "回复超时"
+		}
+		return TurnResponse{}, apperr.New(apperr.CatReplyFailed, msg).WithDetail("reason=timeout")
 	}
-	if cliErr != "" {
-		if isAuthFailure(cliErr) {
-			a.markAuthInvalid()
-			return TurnResponse{}, authNotReadyErr()
+	// 非零退出、流里的失败、或标准错误里的超时 / 断网，都按失败结束。已经流出的正文留在界面上。
+	if cliMsg != "" || waitErr != nil {
+		msg := cliMsg
+		if msg == "" {
+			msg = other
 		}
-		return TurnResponse{}, apperr.New(apperr.CatReplyFailed, MsgReplyFailed).WithDetail("reason=cli_error " + truncate(cliErr, 500))
-	}
-	if waitErr != nil {
-		// 已有流式正文时，非零退出仍把已出文字交回（取消另走上面分支）。
-		if streamed && strings.TrimSpace(acc.String()) != "" {
-			return TurnResponse{
-				Version: ProtocolVersion,
-				Message: WireMessage{Role: "assistant", Content: acc.String()},
-			}, nil
+		if msg == "" {
+			msg = MsgReplyFailed
 		}
-		errText := waitErr.Error() + " " + stderrBuf.String() + " " + cliErr
-		if isAuthFailure(errText) {
-			a.markAuthInvalid()
-			return TurnResponse{}, authNotReadyErr()
+		detail := "reason=cli_error"
+		if waitErr != nil && cliMsg == "" {
+			detail = "reason=exit"
 		}
-		return TurnResponse{}, apperr.Wrap(apperr.CatReplyFailed, MsgReplyFailed, waitErr)
+		return TurnResponse{}, apperr.New(apperr.CatReplyFailed, truncate(msg, 500)).WithDetail(detail)
 	}
 
 	body := acc.String()
@@ -512,26 +591,217 @@ func safeID(s string) string {
 }
 
 func grokTurnEnv(base []string) []string {
-	out := make([]string, 0, len(base)+4)
-	skip := map[string]bool{
-		"GROK_SANDBOX":             true,
-		"GROK_WRITE_FILE":          true,
-		"GROK_DISABLE_AUTOUPDATER": true,
-	}
+	out := make([]string, 0, len(base)+1)
 	for _, e := range base {
-		if i := strings.IndexByte(e, '='); i > 0 {
-			if skip[e[:i]] {
-				continue
-			}
+		if i := strings.IndexByte(e, '='); i > 0 && e[:i] == "GROK_DISABLE_AUTOUPDATER" {
+			continue
 		}
 		out = append(out, e)
 	}
-	// 沙箱 read-only 是第三道保险（Linux/macOS 生效；Windows 上 CLI 无沙箱实现）。
-	out = append(out,
-		"GROK_SANDBOX=read-only",
-		"GROK_WRITE_FILE=0",
-		"GROK_DISABLE_AUTOUPDATER=1",
-	)
+	// 不改 GROK_SANDBOX / GROK_WRITE_FILE：写文件、跑命令、联网都留给 CLI 自己的工具。
+	out = append(out, "GROK_DISABLE_AUTOUPDATER=1")
+	return out
+}
+
+// permissionCLIArgs 把这一轮的批准方式变成一个开关。空和全部批准用 --always-approve；其余用 --permission-mode。两者不一起传。
+func permissionCLIArgs(mode string) []string {
+	switch canonicalPermissionMode(mode) {
+	case "plan":
+		return []string{"--permission-mode", "plan"}
+	case "auto":
+		return []string{"--permission-mode", "auto"}
+	case "default":
+		return []string{"--permission-mode", "default"}
+	default:
+		return []string{"--always-approve"}
+	}
+}
+
+func canonicalPermissionMode(mode string) string {
+	s := strings.ToLower(strings.TrimSpace(mode))
+	s = strings.ReplaceAll(s, "_", "-")
+	s = strings.ReplaceAll(s, " ", "")
+	switch s {
+	case "plan":
+		return "plan"
+	case "auto", "auto-review", "autoreview":
+		return "auto"
+	case "default", "ask", "normal":
+		return "default"
+	default:
+		return "approve"
+	}
+}
+
+// stderrTap 收下标准错误，并在完整的一行出现时通知。
+type stderrTap struct {
+	mu      sync.Mutex
+	buf     strings.Builder
+	partial string
+	onLine  func(string)
+}
+
+func (w *stderrTap) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	w.buf.Write(p)
+	w.partial += string(p)
+	var lines []string
+	for {
+		i := strings.IndexByte(w.partial, '\n')
+		if i < 0 {
+			break
+		}
+		line := strings.TrimSpace(w.partial[:i])
+		w.partial = w.partial[i+1:]
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	fn := w.onLine
+	w.mu.Unlock()
+	if fn != nil {
+		for _, line := range lines {
+			fn(line)
+		}
+	}
+	return len(p), nil
+}
+
+func (w *stderrTap) flush() {
+	w.mu.Lock()
+	line := strings.TrimSpace(w.partial)
+	w.partial = ""
+	fn := w.onLine
+	w.mu.Unlock()
+	if line != "" && fn != nil {
+		fn(line)
+	}
+}
+
+func (w *stderrTap) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.String()
+}
+
+var strongCLIErrorRe = regexp.MustCompile(`(?i)(timed?\s*out|timeout|deadline exceeded|i/o timeout|connection refused|connection reset|no such host|network is unreachable|network unreachable|tls handshake|certificate|dial tcp|context deadline|超时|网络错误|网络超时)`)
+
+func stderrNoise(line string) bool {
+	s := strings.ToLower(line)
+	for _, k := range []string{
+		"new version available",
+		"already up to date",
+		"auto-update",
+		"autoupdate",
+		"updating grok",
+		"update check",
+	} {
+		if strings.Contains(s, k) {
+			return true
+		}
+	}
+	return false
+}
+
+func strongCLIError(line string) bool {
+	line = strings.TrimSpace(line)
+	if line == "" || stderrNoise(line) {
+		return false
+	}
+	return strongCLIErrorRe.MatchString(line)
+}
+
+// stderrSummary 把标准错误分成「要显示的失败」和「退出失败时可以带上的其余原文」。更新提示不算失败。
+func stderrSummary(stderr string) (strong, other string) {
+	var strongLines, otherLines []string
+	for _, line := range strings.Split(stderr, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || stderrNoise(line) {
+			continue
+		}
+		if strongCLIError(line) {
+			strongLines = append(strongLines, line)
+		} else {
+			otherLines = append(otherLines, line)
+		}
+	}
+	return truncate(strings.Join(strongLines, "\n"), 500), truncate(strings.Join(otherLines, "\n"), 500)
+}
+
+func resultIsError(raw map[string]json.RawMessage) bool {
+	if b, ok := rawBool(raw, "is_error"); ok && b {
+		return true
+	}
+	sub, ok := rawStr(raw, "subtype")
+	if !ok {
+		return false
+	}
+	s := strings.ToLower(sub)
+	return s == "error" || strings.HasPrefix(s, "error_")
+}
+
+func resultErrorText(raw map[string]json.RawMessage) string {
+	if lines := rawErrorList(raw, "errors"); len(lines) > 0 {
+		return strings.Join(lines, "\n")
+	}
+	if msg, ok := rawStr(raw, "message"); ok && strings.TrimSpace(msg) != "" {
+		return strings.TrimSpace(msg)
+	}
+	if msg, ok := rawStr(raw, "result"); ok && strings.TrimSpace(msg) != "" {
+		return strings.TrimSpace(msg)
+	}
+	if sub, ok := rawStr(raw, "subtype"); ok && sub != "" {
+		return sub
+	}
+	return MsgReplyFailed
+}
+
+func rawBool(m map[string]json.RawMessage, key string) (bool, bool) {
+	v, ok := m[key]
+	if !ok {
+		return false, false
+	}
+	var b bool
+	if json.Unmarshal(v, &b) != nil {
+		return false, false
+	}
+	return b, true
+}
+
+func rawErrorList(m map[string]json.RawMessage, key string) []string {
+	v, ok := m[key]
+	if !ok {
+		return nil
+	}
+	var strs []string
+	if json.Unmarshal(v, &strs) == nil {
+		return nonempty(strs)
+	}
+	var objs []map[string]string
+	if json.Unmarshal(v, &objs) != nil {
+		return nil
+	}
+	out := make([]string, 0, len(objs))
+	for _, o := range objs {
+		s := strings.TrimSpace(o["message"])
+		if s == "" {
+			s = strings.TrimSpace(o["error"])
+		}
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func nonempty(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			out = append(out, s)
+		}
+	}
 	return out
 }
 
@@ -563,65 +833,67 @@ func truncate(s string, n int) string {
 	return s[:n] + "…"
 }
 
-// streamEvent 是 grok --output-format streaming-json 的一行（捕获自 CLI 0.2.x；官方未正式发布 schema）。
-// text.data = 助手正文增量；thought 忽略；error.message = 失败；end = 回合结束。
+// streamEvent 是 grok --output-format streaming-json 的一行（ACP session update，或旧的 type/data）。
+// text = 助手正文增量；thought = 思考；tool = 工具调用（replace 时 text 是完整标签）。error.message = 失败；end = 回合结束。
 type streamEvent struct {
 	Type    string `json:"type"`
 	Data    string `json:"data"`
 	Message string `json:"message"`
+	Name    string `json:"name"`
+	Title   string `json:"title"`
 }
 
-func scanStreamingJSON(r io.Reader, onText func(string), onErr func(string)) error {
+// streamPiece 是解析后交给界面的一段。Kind 为 text / thought / tool。
+type streamPiece struct {
+	Kind    string
+	ID      string
+	Text    string
+	Replace bool
+}
+
+func scanStreamingJSON(r io.Reader, onPiece func(streamPiece), onErr func(string)) error {
 	sc := bufio.NewScanner(r)
 	buf := make([]byte, 0, 64*1024)
 	sc.Buffer(buf, 4*1024*1024)
+	tools := map[string]*toolSnap{}
 	for sc.Scan() {
 		line := bytes.TrimSpace(sc.Bytes())
 		if len(line) == 0 {
 			continue
 		}
-		delta, errMsg, isErr := parseStreamLine(line)
+		piece, errMsg, isErr := parseStreamLine(line, tools)
 		if isErr {
 			if onErr != nil && errMsg != "" {
 				onErr(errMsg)
 			}
 			continue
 		}
-		if delta != "" && onText != nil {
-			onText(delta)
+		if piece.Text != "" && onPiece != nil {
+			onPiece(piece)
 		}
 	}
 	return sc.Err()
 }
 
-func parseStreamLine(line []byte) (delta string, errMsg string, isErr bool) {
+func parseStreamLine(line []byte, tools map[string]*toolSnap) (piece streamPiece, errMsg string, isErr bool) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(line, &raw); err != nil {
-		return "", "", false
+		return streamPiece{}, "", false
 	}
 	if typ, ok := rawStr(raw, "type"); ok && strings.EqualFold(typ, "error") {
 		msg, _ := rawStr(raw, "message")
 		if msg == "" {
 			msg, _ = rawStr(raw, "data")
 		}
-		return "", msg, true
+		return streamPiece{}, msg, true
+	}
+	if typ, ok := rawStr(raw, "type"); ok && strings.EqualFold(typ, "result") && resultIsError(raw) {
+		return streamPiece{}, resultErrorText(raw), true
 	}
 	if method, ok := rawStr(raw, "method"); ok && method == "session/update" {
 		if params, ok := raw["params"]; ok {
-			var p struct {
-				Update struct {
-					SessionUpdate string          `json:"sessionUpdate"`
-					Content       json.RawMessage `json:"content"`
-				} `json:"update"`
-			}
-			if json.Unmarshal(params, &p) == nil {
-				su := p.Update.SessionUpdate
-				if su == "agent_thought_chunk" || strings.Contains(su, "tool") || su == "plan" {
-					return "", "", false
-				}
-				if su == "agent_message_chunk" || su == "agent_message" {
-					return extractContentDelta(p.Update.Content), "", false
-				}
+			if p, ok := parseSessionUpdate(params, tools); ok {
+				return p, "", false
 			}
 		}
 	}
@@ -630,22 +902,449 @@ func parseStreamLine(line []byte) (delta string, errMsg string, isErr bool) {
 		switch strings.ToLower(ev.Type) {
 		case "text", "delta", "content", "message":
 			if ev.Data != "" {
-				return ev.Data, "", false
+				return streamPiece{Kind: "text", Text: ev.Data}, "", false
 			}
 			if ev.Message != "" {
-				return ev.Message, "", false
+				return streamPiece{Kind: "text", Text: ev.Message}, "", false
 			}
 			if d, _ := rawStr(raw, "text"); d != "" {
-				return d, "", false
+				return streamPiece{Kind: "text", Text: d}, "", false
 			}
 			if d, _ := rawStr(raw, "delta"); d != "" {
-				return d, "", false
+				return streamPiece{Kind: "text", Text: d}, "", false
 			}
-		case "thought", "thinking", "end", "tool", "tool_call":
-			return "", "", false
+		case "thought", "thinking":
+			text := ev.Data
+			if text == "" {
+				text = ev.Message
+			}
+			return streamPiece{Kind: "thought", Text: text}, "", false
+		case "tool", "tool_call", "tool_use", "tool_call_update":
+			return applyToolLine(tools, line), "", false
+		case "end":
+			return streamPiece{}, "", false
 		}
 	}
-	return "", "", false
+	return streamPiece{}, "", false
+}
+
+func parseSessionUpdate(params json.RawMessage, tools map[string]*toolSnap) (streamPiece, bool) {
+	var p struct {
+		Update toolWire `json:"update"`
+	}
+	if json.Unmarshal(params, &p) != nil {
+		return streamPiece{}, false
+	}
+	u := p.Update
+	switch u.SessionUpdate {
+	case "agent_message_chunk", "agent_message":
+		return streamPiece{Kind: "text", Text: extractContentDelta(u.Content)}, true
+	case "agent_thought_chunk", "agent_thought":
+		return streamPiece{Kind: "thought", Text: extractContentDelta(u.Content)}, true
+	case "tool_call", "tool_call_update":
+		return applyTool(tools, u), true
+	case "plan":
+		var b strings.Builder
+		for _, e := range u.Entries {
+			line := strings.TrimSpace(e.Content)
+			if line == "" {
+				continue
+			}
+			if b.Len() > 0 {
+				b.WriteByte('\n')
+			}
+			b.WriteString(line)
+		}
+		if b.Len() == 0 {
+			return streamPiece{}, false
+		}
+		return streamPiece{Kind: "thought", ID: "plan", Text: b.String(), Replace: true}, true
+	default:
+		if strings.Contains(u.SessionUpdate, "tool") {
+			return applyTool(tools, u), true
+		}
+	}
+	return streamPiece{}, false
+}
+
+// toolWire 是 streaming-json 的 tool_call / tool_call_update，也是 ACP session/update 里的同一组字段。
+type toolWire struct {
+	SessionUpdate string          `json:"sessionUpdate"`
+	Type          string          `json:"type"`
+	ToolCallID    string          `json:"toolCallId"`
+	Title         string          `json:"title"`
+	Kind          string          `json:"kind"`
+	Status        string          `json:"status"`
+	ToolName      string          `json:"toolName"`
+	Name          string          `json:"name"`
+	Data          string          `json:"data"`
+	RawInput      json.RawMessage `json:"rawInput"`
+	Locations     json.RawMessage `json:"locations"`
+	Content       json.RawMessage `json:"content"`
+	Entries       []struct {
+		Content string `json:"content"`
+	} `json:"entries"`
+}
+
+// toolSnap 按 toolCallId 合并同一次调用。后续 update 往往不再带名字，只补文件。
+type toolSnap struct {
+	title, toolName, kind, status, query string
+	paths                                []string
+	seen                                 map[string]struct{}
+	body                                 string // 写入的全文，或改动的红绿对比
+}
+
+func applyToolLine(tools map[string]*toolSnap, line []byte) streamPiece {
+	var w toolWire
+	if json.Unmarshal(line, &w) != nil {
+		return streamPiece{}
+	}
+	return applyTool(tools, w)
+}
+
+func applyTool(tools map[string]*toolSnap, w toolWire) streamPiece {
+	id := strings.TrimSpace(w.ToolCallID)
+	if id == "" {
+		id = strings.TrimSpace(w.Name)
+	}
+	if id == "" {
+		id = strings.TrimSpace(w.ToolName)
+	}
+	if id == "" {
+		id = "tool"
+	}
+	s := tools[id]
+	if s == nil {
+		s = &toolSnap{seen: map[string]struct{}{}}
+		tools[id] = s
+	}
+	if t := strings.TrimSpace(w.Title); t != "" {
+		s.title = t
+	}
+	if t := strings.TrimSpace(w.ToolName); t != "" {
+		s.toolName = t
+	} else if s.toolName == "" && s.title == "" {
+		if t := strings.TrimSpace(w.Name); t != "" {
+			s.toolName = t
+		}
+	}
+	if t := strings.TrimSpace(w.Kind); t != "" {
+		s.kind = t
+	}
+	if s.title == "" && s.toolName == "" && s.kind == "" {
+		if t := strings.TrimSpace(w.Data); t != "" && !strings.HasPrefix(t, "{") && !strings.Contains(t, "\n") {
+			s.title = t
+		}
+	}
+	if t := strings.TrimSpace(w.Status); t != "" {
+		s.status = t
+	}
+	if q := inputQuery(w.RawInput); q != "" {
+		s.query = q
+	}
+	for _, p := range collectToolPaths(w) {
+		if _, ok := s.seen[p]; ok {
+			continue
+		}
+		s.seen[p] = struct{}{}
+		s.paths = append(s.paths, p)
+		if len(s.paths) >= 40 {
+			break
+		}
+	}
+	if body := changeBody(w, s); body != "" {
+		s.body = body
+	}
+	return streamPiece{Kind: "tool", ID: id, Text: s.text(), Replace: true}
+}
+
+func (s *toolSnap) text() string {
+	label := strings.TrimSpace(s.title)
+	if label == "" {
+		label = strings.TrimSpace(s.toolName)
+	}
+	if label == "" {
+		label = strings.TrimSpace(s.kind)
+	}
+	if label == "" {
+		label = strings.TrimSpace(s.query)
+	}
+	if label == "" {
+		label = "工具"
+	}
+	if strings.EqualFold(strings.TrimSpace(s.status), "failed") && !strings.Contains(label, "失败") {
+		label += " · 失败"
+	}
+	if s.query != "" && s.query != label && !strings.Contains(label, s.query) {
+		label += " · " + s.query
+	}
+	var b strings.Builder
+	b.WriteString(label)
+	for _, p := range s.paths {
+		b.WriteByte('\n')
+		b.WriteString(p)
+	}
+	if s.body != "" {
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(s.body)
+	}
+	return b.String()
+}
+
+// fileEditRe 识别写入和修改。读文件、列目录、跑命令不进来。
+var fileEditRe = regexp.MustCompile(`(?i)(?:^|[^a-z])(?:search_replace|str_replace|apply_patch|patch|writes?|writing|wrote|edits?|edited|editing)(?:[^a-z]|$)`)
+
+// changeBody 取出这次写入或修改的对比。新文件每行以 + 开头，删掉的以 - 开头，没变的以空格开头。
+// 后来的更新没有对比时，保留已经拿到的内容。
+func changeBody(w toolWire, s *toolSnap) string {
+	if body := diffFromContent(w.Content); body != "" {
+		return body
+	}
+	label := strings.Join([]string{s.title, s.toolName, s.kind, w.Title, w.ToolName, w.Kind}, " ")
+	if !fileEditRe.MatchString(label) {
+		return ""
+	}
+	raw := bytes.TrimSpace(w.RawInput)
+	if len(raw) == 0 || raw[0] != '{' {
+		return ""
+	}
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(raw, &obj) != nil {
+		return ""
+	}
+	old := firstRawString(obj, "old_string", "oldString", "old_text", "oldText")
+	neu := firstRawString(obj, "new_string", "newString", "new_text", "newText", "content", "contents")
+	if old == "" && neu == "" {
+		return ""
+	}
+	return capDiff(formatChange(old, neu))
+}
+
+func diffFromContent(raw json.RawMessage) string {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || raw[0] != '[' {
+		return ""
+	}
+	var items []struct {
+		Type    string `json:"type"`
+		OldText string `json:"oldText"`
+		NewText string `json:"newText"`
+	}
+	if json.Unmarshal(raw, &items) != nil {
+		return ""
+	}
+	var b strings.Builder
+	n := 0
+	for _, it := range items {
+		if it.Type != "" && !strings.EqualFold(it.Type, "diff") {
+			continue
+		}
+		if it.OldText == "" && it.NewText == "" {
+			continue
+		}
+		piece := formatChange(it.OldText, it.NewText)
+		if piece == "" {
+			continue
+		}
+		if n > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(piece)
+		n++
+	}
+	return capDiff(b.String())
+}
+
+func firstRawString(obj map[string]json.RawMessage, keys ...string) string {
+	for _, k := range keys {
+		if s, ok := rawStr(obj, k); ok && s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+const diffLineCap = 400
+
+func capDiff(s string) string {
+	s = strings.TrimRight(s, "\n")
+	if s == "" {
+		return ""
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) <= diffLineCap {
+		return s
+	}
+	return strings.Join(lines[:diffLineCap], "\n") + "\n…其余已省略"
+}
+
+func prefixLines(mark, s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.TrimRight(s, "\n")
+	if s == "" {
+		return ""
+	}
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = mark + line
+	}
+	return strings.Join(lines, "\n")
+}
+
+func formatChange(old, neu string) string {
+	old = strings.TrimRight(strings.ReplaceAll(old, "\r\n", "\n"), "\n")
+	neu = strings.TrimRight(strings.ReplaceAll(neu, "\r\n", "\n"), "\n")
+	if old == "" && neu == "" {
+		return ""
+	}
+	if old == "" {
+		return prefixLines("+", neu)
+	}
+	if neu == "" {
+		return prefixLines("-", old)
+	}
+	a := strings.Split(old, "\n")
+	b := strings.Split(neu, "\n")
+	if len(a) > 250 || len(b) > 250 {
+		return prefixLines("-", old) + "\n" + prefixLines("+", neu)
+	}
+	return renderLineDiff(a, b)
+}
+
+func renderLineDiff(a, b []string) string {
+	n, m := len(a), len(b)
+	dp := make([][]int, n+1)
+	for i := range dp {
+		dp[i] = make([]int, m+1)
+	}
+	for i := n - 1; i >= 0; i-- {
+		for j := m - 1; j >= 0; j-- {
+			if a[i] == b[j] {
+				dp[i][j] = dp[i+1][j+1] + 1
+			} else if dp[i+1][j] >= dp[i][j+1] {
+				dp[i][j] = dp[i+1][j]
+			} else {
+				dp[i][j] = dp[i][j+1]
+			}
+		}
+	}
+	var bld strings.Builder
+	i, j := 0, 0
+	first := true
+	write := func(line string) {
+		if !first {
+			bld.WriteByte('\n')
+		}
+		first = false
+		bld.WriteString(line)
+	}
+	for i < n && j < m {
+		if a[i] == b[j] {
+			write(" " + a[i])
+			i++
+			j++
+			continue
+		}
+		if dp[i+1][j] >= dp[i][j+1] {
+			write("-" + a[i])
+			i++
+			continue
+		}
+		write("+" + b[j])
+		j++
+	}
+	for ; i < n; i++ {
+		write("-" + a[i])
+	}
+	for ; j < m; j++ {
+		write("+" + b[j])
+	}
+	return bld.String()
+}
+
+func collectToolPaths(w toolWire) []string {
+	var out []string
+	out = appendPathValues(out, w.Locations)
+	out = appendInputPaths(out, w.RawInput)
+	out = appendPathValues(out, w.Content)
+	return out
+}
+
+func appendPathValues(dst []string, raw json.RawMessage) []string {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || string(raw) == "null" {
+		return dst
+	}
+	var objs []struct {
+		Path string `json:"path"`
+	}
+	if json.Unmarshal(raw, &objs) == nil {
+		for _, o := range objs {
+			if p := strings.TrimSpace(o.Path); p != "" {
+				dst = append(dst, p)
+			}
+		}
+		if len(objs) > 0 {
+			return dst
+		}
+	}
+	var strs []string
+	if json.Unmarshal(raw, &strs) == nil {
+		for _, p := range strs {
+			if p = strings.TrimSpace(p); p != "" {
+				dst = append(dst, p)
+			}
+		}
+	}
+	return dst
+}
+
+func appendInputPaths(dst []string, raw json.RawMessage) []string {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || string(raw) == "null" || raw[0] != '{' {
+		return dst
+	}
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(raw, &obj) != nil {
+		return dst
+	}
+	for _, key := range []string{"path", "file_path", "filePath", "target_file", "filename", "directory", "target_directory", "file"} {
+		if p, ok := rawStr(obj, key); ok {
+			if p = strings.TrimSpace(p); p != "" {
+				dst = append(dst, p)
+			}
+		}
+	}
+	for _, key := range []string{"paths", "files", "target_files"} {
+		v, ok := obj[key]
+		if !ok {
+			continue
+		}
+		dst = appendPathValues(dst, v)
+	}
+	return dst
+}
+
+func inputQuery(raw json.RawMessage) string {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || string(raw) == "null" || raw[0] != '{' {
+		return ""
+	}
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(raw, &obj) != nil {
+		return ""
+	}
+	for _, key := range []string{"pattern", "query", "glob"} {
+		if q, ok := rawStr(obj, key); ok {
+			q = strings.TrimSpace(q)
+			if q != "" {
+				return q
+			}
+		}
+	}
+	return ""
 }
 
 func extractContentDelta(content json.RawMessage) string {

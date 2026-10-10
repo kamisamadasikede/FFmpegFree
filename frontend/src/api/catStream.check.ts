@@ -24,6 +24,8 @@ export function catStreamChecks(eq: Eq): void {
   eq('turn succeeded → completed', normalizeTurnEvent({ conversationId: 'c', status: 'succeeded' })?.status, 'completed')
   eq('turn canceled → cancelled', normalizeTurnEvent({ conversationId: 'c', status: 'canceled' })?.status, 'cancelled')
   eq('turn failed 带错误码', normalizeTurnEvent({ conversationId: 'c', status: 'failed', error: { code: 'CAT_REPLY_FAILED' } })?.errorCode, 'CAT_REPLY_FAILED')
+  eq('turn failed 带错误原文', normalizeTurnEvent({ convId: 'c', status: 'failed', error: { code: 'CAT_REPLY_FAILED', message: 'i/o timeout' } })?.errorMessage, 'i/o timeout')
+  eq('turn failed 没有原文就不带', normalizeTurnEvent({ convId: 'c', status: 'failed', error: { code: 'CAT_REPLY_FAILED' } })?.errorMessage, undefined)
   eq('未知 turn 状态丢弃', normalizeTurnEvent({ convId: 'c', status: 'weird' }), null)
   eq('turn 带上下文占用', [normalizeTurnEvent({ convId: 'c', status: 'completed', contextUsed: 1200, contextWindow: 256000 })?.contextUsed, normalizeTurnEvent({ convId: 'c', status: 'completed', contextUsed: 1200, contextWindow: 256000 })?.contextWindow], [1200, 256000])
   eq('turn 占用为 0 不带', normalizeTurnEvent({ convId: 'c', status: 'completed', contextUsed: 0, contextWindow: 256000 })?.contextUsed, undefined)

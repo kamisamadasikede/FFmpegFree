@@ -135,7 +135,8 @@
                 ><FIcon name="more" :size="14" /></button>
                 <div class="l1">
                   <i class="st" :class="c.st" aria-hidden="true" />
-                  <span class="t" :title="c.title">{{ c.title }}</span>
+                  <i v-if="catState.unseen[c.id]" class="note" aria-label="有新回复" />
+                  <span class="t" :title="c.title || '新对话'">{{ c.title || '新对话' }}</span>
                   <span v-if="c.main" class="main-tag">主要</span>
                 </div>
                 <div v-if="c.sub || c.time" class="l2"><span class="t" :title="c.sub">{{ c.sub }}</span><span class="tm">{{ c.time }}</span></div>
@@ -158,7 +159,7 @@
         @click="onConvClick(c.id, $event)"
         @keydown.enter.self="selectConv(c.id)"
       >
-        <FIcon name="chat" :size="16" /><span class="t" :title="c.title">{{ c.title }}</span>
+        <FIcon name="chat" :size="16" /><i v-if="catState.unseen[c.id]" class="note" aria-label="有新回复" /><span class="t" :title="c.title || '新对话'">{{ c.title || '新对话' }}</span>
         <button
           type="button"
           class="ib c-more"
@@ -696,6 +697,13 @@ html.dark .pc.on {
   border: 2px solid var(--ff-warning);
   border-right-color: transparent;
   animation: ct-spin 1s linear infinite;
+}
+.note {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--ff-primary);
 }
 @keyframes ct-spin {
   to { transform: rotate(360deg); }

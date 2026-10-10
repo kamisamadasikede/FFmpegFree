@@ -28,9 +28,9 @@ export function ListCatProjects():Promise<Array<cat.Project>>;
 
 export function ListCatThinkLevels(arg1:string):Promise<Array<catagent.ThinkLevel>>;
 
-export function RecheckCat():Promise<catagent.Status>;
-
 export function ReadCatFile(arg1:cat.ReadFileRequest):Promise<cat.ReadFileResult>;
+
+export function RecheckCat():Promise<catagent.Status>;
 
 export function RelocateCatProject(arg1:cat.RelocateProjectRequest):Promise<cat.Project>;
 

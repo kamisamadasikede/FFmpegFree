@@ -50,12 +50,12 @@ export function ListCatThinkLevels(arg1) {
   return window['go']['app']['CatService']['ListCatThinkLevels'](arg1);
 }
 
-export function RecheckCat() {
-  return window['go']['app']['CatService']['RecheckCat']();
-}
-
 export function ReadCatFile(arg1) {
   return window['go']['app']['CatService']['ReadCatFile'](arg1);
+}
+
+export function RecheckCat() {
+  return window['go']['app']['CatService']['RecheckCat']();
 }
 
 export function RelocateCatProject(arg1) {

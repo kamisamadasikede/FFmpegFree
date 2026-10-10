@@ -40,11 +40,18 @@ import { pkg22Checks } from '@/stores/eventOrder.check'
 import { catStreamChecks } from './catStream.check'
 import { catProjectsChecks } from './catProjects.check'
 import { catDeleteChecks } from '@/views/cat/catDelete.check'
+import { catConvPrefsChecks } from '@/views/cat/catConvPrefs.check'
 import { catThinkChecks } from '@/views/cat/catThink.check'
+import { catLastConvChecks } from '@/views/cat/catLastConv.check'
 import { catMarkdownChecks } from '@/utils/catMarkdown.check'
 import { catFilesChecks } from './catFiles.check'
 import { catFilePreviewChecks } from './catFilePreview.check'
 import { catContextUsageChecks } from '@/components/cat/catContextUsage.check'
+import { catActivityChecks } from '@/components/cat/catActivity.check'
+import { catPreviewWidthChecks } from '@/components/cat/catPreviewWidth.check'
+import { catFollowChecks } from '@/views/cat/catFollow.check'
+import { catPendingChecks } from '@/views/cat/catPending.check'
+import { catStopChecks } from '@/views/cat/catStop.check'
 
 const fails: string[] = []
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -975,11 +982,18 @@ export async function runApiChecks(): Promise<string[]> {
         catStreamChecks(eq) // Cat 流式：去重 / 乱序缓冲 / 缺口 / replace / done / 旧整段形状
         await catProjectsChecks(eq) // Cat 项目（v0.31 / v0.31.1）：模拟层规则 + 文案映射
         await catDeleteChecks(eq) // Cat 删除对话（v0.31.2）：mock 删除、欢迎态、迟到事件忽略
-        await catThinkChecks(eq) // Cat 思考强度不预选（#196）：刷新不选、没选不带、选了就带、过期清空
+        catConvPrefsChecks(eq) // Cat 每条对话自己的模型和思考强度
+        await catThinkChecks(eq) // Cat 模型和思考强度按对话记住：刷新还在，换对话互不影响
+        await catLastConvChecks(eq) // Cat 重新进入：回到上次对话；新对话不记；删了的回到欢迎页
         await catMarkdownChecks(eq) // Cat 助手回复 Markdown：元素、原始 HTML、链接协议、图片不加载、流式未闭合围栏
         catFilesChecks(eq) // Cat 文件面板：已加载树的过滤、截断行、列表映射
         catFilePreviewChecks(eq) // Cat 侧边预览：种类映射、二进制不带文本、markdown / svg 切换
         catContextUsageChecks(eq) // Cat 上下文圆环：百分比、弧长、悬停摘要
+        catActivityChecks(eq) // Cat 消息：工具调用和文件查找默认收起，文件改动和正文展开，结束后不转圈
+        catPreviewWidthChecks(eq) // Cat 文件预览宽度：可拖，并给中间对话留空
+        catFollowChecks(eq) // Cat 回复变高时中间跟着往下滚；人往上翻则停住
+        catPendingChecks(eq) // Cat 发送后立刻显示正在思考，不看上一轮
+        catStopChecks(eq) // Cat 停止后思考不再转，迟到的思考和工具不再追加
         // G11 版本号
         const { cleanFfmpegVersion } = await import('@/utils/ffmpegVersion')
         eq('G11 版本号：旧（带 URL 尾巴）/ 新（干净）/ 其他尾巴 / 空', ['9.0.2-https://www.martin-riedl.de', '9.0.2', '7.1.1-essentials_build-www.gyan.dev', '6.0', ' 4.4.2-0ubuntu0.22.04.1 ', '', undefined].map((v) => cleanFfmpegVersion(v)), ['9.0.2', '9.0.2', '7.1.1', '6.0', '4.4.2', '', ''])

@@ -6,8 +6,8 @@
 
 <script setup lang="ts">
 // 助手回复的 Markdown 显示（安全规则见 utils/catMarkdown.ts）。
-// 流式：文字增长时按 requestAnimationFrame 合并成每帧最多渲染一次；按顶层块 v-html，
-// 没变的块字符串相同、Vue 不会动它的 DOM，所以已完成的段落 / 代码块不闪、不重建。
+// 流式：一帧最多画一次。小增量当帧就跟上；一次进来的大段按帧拆开，避免整段 Markdown 卡死一帧。
+// 按顶层块 v-html，没变的块字符串相同、Vue 不会动它的 DOM。
 import { onBeforeUnmount, shallowRef, watch } from 'vue'
 import { renderCatMarkdown, CAT_MD_COPIED, CAT_MD_COPY, type CatMdBlock } from '@/utils/catMarkdown'
 import { openExternalLink } from '@/utils/openExternal'
@@ -20,29 +20,56 @@ const reduced = prefersReducedMotion()
 const blocks = shallowRef<CatMdBlock[]>([])
 
 let raf = 0
-const render = () => {
-  raf = 0
-  blocks.value = renderCatMarkdown(props.text, !!props.streaming)
+let shown = ''
+
+function paint(text: string, streaming: boolean) {
+  blocks.value = renderCatMarkdown(text, streaming)
 }
-const schedule = () => {
-  if (raf) return
-  if (typeof requestAnimationFrame === 'function') raf = requestAnimationFrame(render)
-  else render()
+function stopRaf() {
+  if (!raf) return
+  cancelAnimationFrame(raf)
+  raf = 0
+}
+/** 把还没画出来的尾巴往前赶一截。短尾巴一次画完，长尾巴每帧只吃一段。 */
+function step() {
+  raf = 0
+  const full = props.text
+  const streaming = !!props.streaming
+  if (!streaming || reduced) {
+    shown = full
+    paint(shown, streaming)
+    return
+  }
+  if (!full.startsWith(shown)) shown = ''
+  const behind = full.length - shown.length
+  if (behind <= 32) {
+    shown = full
+    paint(shown, true)
+    return
+  }
+  const take = Math.min(behind, Math.max(48, Math.ceil(behind / 6)))
+  shown = full.slice(0, shown.length + take)
+  paint(shown, true)
+  if (shown.length < full.length && typeof requestAnimationFrame === 'function') {
+    raf = requestAnimationFrame(step)
+  }
 }
 watch(
   () => [props.text, props.streaming] as const,
-  ([, s]) => {
-    if (s) schedule()
-    else {
-      // 结束（或整段读入）：立刻出最终结果
-      if (raf) cancelAnimationFrame(raf)
-      render()
+  ([text, streaming]) => {
+    stopRaf()
+    if (!streaming) {
+      shown = text
+      paint(shown, false)
+      return
     }
+    if (typeof requestAnimationFrame === 'function') raf = requestAnimationFrame(step)
+    else step()
   },
   { immediate: true },
 )
 onBeforeUnmount(() => {
-  if (raf) cancelAnimationFrame(raf)
+  stopRaf()
 })
 
 async function copyText(text: string): Promise<boolean> {
@@ -89,6 +116,8 @@ function onAux(e: MouseEvent) {
 .cat-md {
   word-break: break-word;
   overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
 }
 .cat-md-blk + .cat-md-blk {
   margin-top: 8px;

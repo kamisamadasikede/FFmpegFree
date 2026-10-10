@@ -3,12 +3,12 @@
  * - CAT_BACKEND_READY=true 且在 Wails 里：会话列表 / 消息 / 发送 / 停止走真实 CatService；cat:message 流式拼进助手气泡
  * - 纯浏览器（走查）：会话列表用 catMock，发送返回未就绪
  * - 新建对话创建时写入 agentKind=cat_build；已有对话永不改 agentKind（发送只带会话 id）
- * - 访问默认「请求批准」；「完全访问」不可选
+ * - 批准方式按对话记住：普通模式 / Plan / 自动审查 / 全部批准。没选过是全部批准
  * - 项目（契约 v0.31 §6.19.10）：对话归属在创建时决定（项目行「+」带 projectId），之后不可改，没有「移到项目」；
  *   文件夹不见了 → 项目标灰、对话可看不可发；窗口获得焦点时重新 ListCatProjects；cat:project 更新 missing。
  *   接口见 api/catProjects.ts（CAT_PROJECTS_BACKEND_READY=true 走真绑定；浏览器走内存模拟）
  */
-import { computed, reactive } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import { Environment } from '../../../wailsjs/runtime/runtime'
 import { hasWailsBackend } from '@/services/wails'
 import {
@@ -74,8 +74,42 @@ import {
 import { applyStreamEvent, newStreamMsg, type CatStreamEvent, type CatStreamMsg, type CatTurnEvent } from '@/api/catStream'
 import { AppError, toAppError } from '@/api/call'
 import { catSim, catSimOs, catSimPicks, simModels, simStream, simThinks } from './catDevSim'
+import {
+  CAT_CONV_PREFS_KEY,
+  carryPref,
+  dropPref,
+  prefOf,
+  putPref,
+  readConvPrefs,
+  resolveAccess,
+  resolveConvPref,
+  writeConvPrefs,
+  type CatAccessId,
+  type CatConvPrefMap,
+} from './catConvPrefs'
 
 export const NEW_CONV = 'new'
+
+/** 上次看的对话。重新进入 Cat、下次启动都回到这一条；「新对话」不记 */
+const LAST_CONV_KEY = 'ffmpegfree.cat.lastConv'
+
+function readLastConv(): string {
+  try {
+    const v = globalThis.localStorage?.getItem(LAST_CONV_KEY)?.trim() ?? ''
+    return v && v !== NEW_CONV ? v : ''
+  } catch {
+    return ''
+  }
+}
+
+function writeLastConv(id: string) {
+  try {
+    if (!id || id === NEW_CONV) globalThis.localStorage?.removeItem(LAST_CONV_KEY)
+    else globalThis.localStorage?.setItem(LAST_CONV_KEY, id)
+  } catch {
+    /* 无 localStorage 时只在本次运行里记住 */
+  }
+}
 
 /** 浮提示语气：info（信息图标）/ ok（成功绿勾）/ warn（警示色图标与描边，设计 v0.2 §10b） */
 export type CatNoticeTone = 'info' | 'ok' | 'warn'
@@ -87,23 +121,63 @@ export interface CatTurnState {
   status: 'running' | 'stopping'
   /** 收到第一段助手文字后记下（之前显示「正在思考…」） */
   assistantId: string
+  /** 这一轮已经看到的失败原文 */
+  failMsg?: string
 }
 
 const live = isCatLive()
 
+/** 本机按对话记下的模型和思考强度。没记过的对话不继承别的对话。localStorage 不可用时只在这次运行里记。 */
+let memoryPrefs: CatConvPrefMap = {}
+/** 能力列表已经拉过（哪怕是空的）。没拉过时先显示记下的 id，不把上一条对话的选择带过来。 */
+let capsLoaded = false
+let capsTicket = 0
+
+function loadPrefMap(): CatConvPrefMap {
+  try {
+    if (globalThis.localStorage) return readConvPrefs(globalThis.localStorage.getItem(CAT_CONV_PREFS_KEY))
+  } catch {
+    /* 读不到就当没记过 */
+  }
+  return memoryPrefs
+}
+
+function savePrefMap(map: CatConvPrefMap) {
+  try {
+    if (globalThis.localStorage) {
+      globalThis.localStorage.setItem(CAT_CONV_PREFS_KEY, writeConvPrefs(map))
+      return
+    }
+  } catch {
+    /* 隐私模式写不进去时，这次运行里仍按对话分开记 */
+  }
+  memoryPrefs = map
+}
+
+function bootPref() {
+  const id = live ? readLastConv() || NEW_CONV : 'c31'
+  const pref = prefOf(loadPrefMap(), id)
+  return { model: pref?.model ?? '', think: pref?.think ?? '', access: resolveAccess(pref?.access) }
+}
+
+const boot = bootPref()
+
 export const catState = reactive({
-  /** 当前选中的模型 id（来自 ListCatModels；空列表时为空） */
-  model: '' as string,
+  /** 当前对话的模型 id。每条对话分开记；没记过时列表回来后用第一个。 */
+  model: boot.model,
   /**
-   * 当前选中的思考强度 id。不预选：用户没点过就为空，发送时不带强度（后端不传 --reasoning-effort，用组件自己的默认）；
-   * 胶囊显示「默认」。无列表时也为空，胶囊不显示「· 强度」。
+   * 当前对话的思考强度 id。没点过就为空，发送时不带强度（后端不传 --reasoning-effort）；
+   * 胶囊显示「默认」。换对话只换这一条的记录。
    */
-  think: '' as string,
-  access: 'ask' as 'ask' | 'full',
+  think: boot.think,
+  /** 当前对话的批准方式。没记过是全部批准。 */
+  access: boot.access as CatAccessId,
   /** 欢迎页模式；一期只能选 build，只影响新对话 */
   mode: 'cat_build',
   workInProject: true,
-  sel: live ? NEW_CONV : 'c31',
+  sel: live ? readLastConv() || NEW_CONV : 'c31',
+  /** 会话列表已从后端读完。没读完时不要因为「暂时找不到」把选中打回新对话 */
+  convListReady: !live,
   projects: (live || (import.meta.env.DEV && catSim.has('noproj')) ? [] : mockProjects()) as CatProject[],
   /** 欢迎页（sel=new）属于哪个项目：从项目行「+」进来时为该项目 id；「新对话」/ 欢迎页为空 */
   newProjectId: '' as string,
@@ -125,8 +199,10 @@ export const catState = reactive({
   messages: {} as Record<string, CatBlock[]>,
   /** 新对话正在创建（欢迎页输入框忙） */
   creating: false,
-  /** 进行中的回复，按会话 id */
+  /** 进行中的回复，按会话 id。切换对话不取消这些回合 */
   turns: {} as Record<string, CatTurnState>,
+  /** 回复结束时用户不在该对话上：侧栏蓝点。点进该对话后清掉 */
+  unseen: {} as Record<string, boolean>,
   /** 各会话最近一次上下文占用（已用 / 容量）。没有真实数字就不放，圆环不画 0%。 */
   context: (live ? {} : {
     c11: { used: 48200, window: 256000 },
@@ -171,7 +247,7 @@ export const capsuleLabel = computed(() => {
   return 'Cat 助手'
 })
 
-export const accessShort = computed(() => CAT_ACCESS.find((a) => a.id === catState.access)?.short ?? '请求批准')
+export const accessMeta = computed(() => CAT_ACCESS.find((a) => a.id === catState.access) ?? CAT_ACCESS[CAT_ACCESS.length - 1])
 
 /** 组件没准备好（检测中不算）：显示未就绪横条 */
 export const catNotReady = computed(() => catState.status.state === 'missing' || catState.status.state === 'failed')
@@ -215,24 +291,29 @@ export function messagesOf(id: string): CatBlock[] {
 }
 
 function blocksFrom(list: CatMessage[]): CatBlock[] {
-  return list.map((m): CatBlock =>
-    m.role === 'user' ? { kind: 'user', text: m.content }
-      : m.role === 'system' ? { kind: 'sys', text: m.content }
-        : { kind: 'a', id: m.id, text: m.content, streaming: false },
-  )
+  return list.map((m): CatBlock => {
+    if (m.role === 'user') return { kind: 'user', text: m.content }
+    if (m.role === 'system') return { kind: 'sys', text: m.content, tone: 'err' }
+    if (m.role === 'thought') return { kind: 'think', id: m.id, text: m.content }
+    if (m.role === 'tool') return { kind: 'run', id: m.id, text: m.content }
+    return { kind: 'a', id: m.id, text: m.content, streaming: false }
+  })
 }
 
 async function loadMessages(id: string) {
   if (loading.has(id) || id.startsWith('local-')) return
+  // 这一轮还在往外流：屏幕上就是最新的，不去用 CLI 里还没写完的记录覆盖
+  if (catState.turns[id]) return
   loading.add(id)
   try {
     const d = await getCatConversation(id)
-    if (!d || !findConv(id)) return
+    if (!d || !findConv(id) || catState.turns[id]) return
     if (d.contextUsed > 0 && d.contextWindow > 0) catState.context[id] = { used: d.contextUsed, window: d.contextWindow }
-    // 加载期间已经开始一轮（本地已放了用户消息 / 流式文字）就不覆盖
-    if (!catState.turns[id] && !(catState.messages[id]?.length)) catState.messages[id] = blocksFrom(d.messages)
+    const found = findConv(id)
+    if (found && d.title) found.conv.title = d.title
+    catState.messages[id] = blocksFrom(d.messages)
   } catch {
-    /* 读不到就保持空，不弹错 */
+    if (catState.sel === id) notify('没能从助手里读出这段对话。', 'warn')
   } finally {
     loading.delete(id)
   }
@@ -251,21 +332,66 @@ export function currentAgentKind(): CatAgentKind {
   return findConv(catState.sel)?.conv.agentKind ?? CAT_AGENT_BUILD
 }
 
+/** 把当前对话记下的模型和强度摆到界面上。列表还没到时先用记下的 id。 */
+function showConvPref(convId: string) {
+  const pref = prefOf(loadPrefMap(), convId)
+  catState.access = resolveAccess(pref?.access)
+  if (!capsLoaded) {
+    catState.model = pref?.model ?? ''
+    catState.think = pref?.think ?? ''
+    return
+  }
+  const resolved = resolveConvPref(pref, catState.models, catState.thinks)
+  catState.model = resolved.model
+  catState.think = resolved.think
+}
+
+/** 用户点了模型、强度或批准方式：只写当前这条对话。 */
+function rememberSelection() {
+  const id = catState.sel
+  if (!id) return
+  savePrefMap(putPref(loadPrefMap(), id, { model: catState.model, think: catState.think, access: catState.access }))
+}
+
+export function chooseModel(id: string) {
+  if (!id) return
+  catState.model = id
+  rememberSelection()
+}
+
+export function chooseThink(id: string) {
+  if (!id) return
+  catState.think = id
+  rememberSelection()
+}
+
+export function chooseAccess(id: string) {
+  catState.access = resolveAccess(id)
+  rememberSelection()
+}
+
+/** 欢迎页上选的模型和强度跟着新对话走，不写到别的对话上。 */
+function carryDraftPref(toId: string) {
+  savePrefMap(carryPref(loadPrefMap(), NEW_CONV, toId))
+}
+
 /**
  * 按会话 agentKind 拉模型/强度，不造假。
- * 模型：列表非空时预选第一个（组件默认模型）。
- * 强度：不预选；用户选过且新列表里还有就保留，没有了就清空（发送时不带强度）。
+ * 拉完后只套当前对话记下的选择：模型不在列表里用第一个，强度不在列表里留空。
+ * 退回的值不写回记录，所以别的对话、以及这档以后又出现时，都还是原来选的。
  */
 export async function refreshCapabilities(agentKind: CatAgentKind = currentAgentKind()) {
+  const ticket = ++capsTicket
   const [models, thinks] = await Promise.all(
     import.meta.env.DEV && catSim.has('caps')
       ? [Promise.resolve(simModels()), Promise.resolve(simThinks())]
       : [listCatModels(agentKind), listCatThinkLevels(agentKind)],
   )
+  if (ticket !== capsTicket) return
   catState.models = models
   catState.thinks = thinks
-  if (!models.find((m) => m.id === catState.model)) catState.model = models[0]?.id ?? ''
-  if (!thinks.find((t) => t.id === catState.think)) catState.think = ''
+  capsLoaded = true
+  showConvPref(catState.sel)
 }
 
 // ---------- 进入页面：状态、会话列表、事件 ----------
@@ -309,12 +435,19 @@ export function initCat(): () => void {
   return disposeCat
 }
 
+// 同步写入：点完对话马上关掉窗口也不会丢掉。换对话立刻换成那一条自己的模型和强度。
+watch(() => catState.sel, (id) => {
+  if (isCatLive()) writeLastConv(id)
+  showConvPref(id)
+}, { flush: 'sync' })
+
 export function disposeCat() {
   offs.forEach((f) => f())
   offs = []
 }
 
 export async function reloadConversations() {
+  catState.convListReady = false
   try {
     const [list, projects] = await Promise.all([listCatConversations(), listCatProjects().catch(() => null)])
     if (projects) mergeProjects(projects, true)
@@ -330,11 +463,26 @@ export async function reloadConversations() {
       else plain.push(toConv(c))
     }
     catState.plain = plain
+    keepLastConv()
     // 没有进行中回复的会话下次打开时重新读（离开页面期间可能错过事件）
     for (const id of Object.keys(catState.messages)) if (!catState.turns[id]) delete catState.messages[id]
   } catch {
     /* 保持现有列表 */
+  } finally {
+    catState.convListReady = true
   }
+}
+
+/** 列表到位后：上次的对话还在就留在上面，并展开它所在的项目；已经删了才回新对话 */
+function keepLastConv() {
+  const id = catState.sel
+  if (!id || id === NEW_CONV) return
+  const found = findConv(id)
+  if (!found) {
+    catState.sel = NEW_CONV
+    return
+  }
+  if (found.project) found.project.open = true
 }
 
 // ---------- 流式 ----------
@@ -351,15 +499,58 @@ function assistantBlock(convId: string, messageId: string): Extract<CatBlock, { 
   return undefined
 }
 
+function activityBlock(convId: string, messageId: string): Extract<CatBlock, { kind: 'think' | 'run' }> | undefined {
+  const list = catState.messages[convId]
+  if (!list) return undefined
+  for (let i = list.length - 1; i >= 0; i--) {
+    const b = list[i]
+    if ((b.kind === 'think' || b.kind === 'run') && b.id === messageId) return b
+  }
+  return undefined
+}
+
+/** 已经收尾的轮次。迟到事件不能再开转圈，也不能写进下一轮。 */
+const sealedTurns = new Set<string>()
+
+function sealTurn(turnId: string) {
+  const id = turnId.trim()
+  if (!id) return
+  sealedTurns.delete(id)
+  sealedTurns.add(id)
+  while (sealedTurns.size > 100) {
+    const oldest = sealedTurns.values().next().value
+    if (!oldest) break
+    sealedTurns.delete(oldest)
+  }
+}
+
+/** 思考、工具和正文停掉转圈。点停止和回合结束都走这里。 */
+function quietStreaming(convId: string) {
+  const list = catState.messages[convId]
+  if (!list) return
+  for (const b of list) {
+    if ((b.kind === 'a' || b.kind === 'think' || b.kind === 'run') && b.streaming) b.streaming = false
+    if ((b.kind === 'think' || b.kind === 'run') && b.id) streams.delete(b.id)
+  }
+}
+
 export function handleMessageEvent(e: CatStreamEvent) {
   if (e.role === 'user') return // 用户消息本地已先放
   // 已不在列表里的对话（刚删掉的）：直接忽略，不报错也不重建状态
   if (!findConv(e.convId)) return
   const turn = catState.turns[e.convId]
-  // 点了停止之后到的文字不再追加（保留已显示的）
-  if (turn?.status === 'stopping') return
-  if (turn && e.turnId && turn.turnId && e.turnId !== turn.turnId) return
-  if (turn && e.turnId && !turn.turnId) turn.turnId = e.turnId
+  // 这一轮已经停止或收尾：不再追加，也不要把思考重新转起来。
+  // 下一轮已经开始时，只丢掉旧编号，不能把新一轮的转圈清掉。
+  if (e.turnId && sealedTurns.has(e.turnId)) {
+    if (!turn || turn.turnId === e.turnId || turn.status === 'stopping') quietStreaming(e.convId)
+    return
+  }
+  if (!turn || turn.status === 'stopping') {
+    quietStreaming(e.convId)
+    return
+  }
+  if (e.turnId && turn.turnId && e.turnId !== turn.turnId) return
+  if (e.turnId && !turn.turnId) turn.turnId = e.turnId
   const list = catState.messages[e.convId]
   if (!list) return // 这条会话还没打开过，打开时会从后端整段读
 
@@ -371,6 +562,29 @@ export function handleMessageEvent(e: CatStreamEvent) {
   }
   const changed = applyStreamEvent(m, e)
   if (!changed) return
+  if (e.blockType === 'error') {
+    const text = m.text.trim()
+    if (text) {
+      const dup = list.some((b) => b.kind === 'sys' && b.tone === 'err' && b.text === text)
+      if (!dup) list.push({ kind: 'sys', text, tone: 'err' })
+      if (turn && !turn.failMsg) turn.failMsg = text
+    }
+    streams.delete(e.messageId)
+    return
+  }
+  if (e.blockType === 'thought' || e.blockType === 'tool') {
+    const kind = e.blockType === 'thought' ? 'think' : 'run'
+    let row = activityBlock(e.convId, e.messageId)
+    if (!row) {
+      if (!m.text && m.done) return
+      list.push({ kind, id: e.messageId, text: m.text, streaming: !m.done })
+    } else {
+      row.text = m.text
+      row.streaming = !m.done
+    }
+    if (m.done) streams.delete(e.messageId)
+    return
+  }
   let b = assistantBlock(e.convId, e.messageId)
   if (!b) {
     if (!m.text && m.done) return
@@ -389,12 +603,26 @@ export function handleTurnEvent(e: CatTurnEvent) {
   if (!findConv(e.convId)) return
   if (e.contextUsed && e.contextWindow) catState.context[e.convId] = { used: e.contextUsed, window: e.contextWindow }
   const turn = catState.turns[e.convId]
-  if (!turn) return
+  // 旧轮次的终态迟到：这一轮还在本地就继续收尾；已经收掉、或已经是下一轮，就只停转圈
+  if (e.turnId && sealedTurns.has(e.turnId) && turn?.turnId !== e.turnId) {
+    if ((!turn || turn.status === 'stopping') && e.status !== 'running') quietStreaming(e.convId)
+    return
+  }
+  if (!turn) {
+    if (e.status !== 'running') {
+      if (e.turnId) sealTurn(e.turnId)
+      quietStreaming(e.convId)
+    }
+    return
+  }
   if (e.turnId && turn.turnId && e.turnId !== turn.turnId) return
   if (e.status === 'running') {
     if (e.turnId && !turn.turnId) turn.turnId = e.turnId
     return
   }
+  const incoming = (e.errorMessage || '').trim()
+  if (incoming && incoming !== CAT_COPY.replyFailed) turn.failMsg = incoming
+  else if (!turn.failMsg && incoming) turn.failMsg = incoming
   if (e.status === 'completed') endTurn(e.convId, 'completed')
   else if (e.status === 'cancelled') endTurn(e.convId, 'cancelled')
   else endTurn(e.convId, e.errorCode === 'CAT_NOT_READY' ? 'not_ready' : 'failed')
@@ -409,16 +637,25 @@ function endTurn(convId: string, how: TurnEnd, token?: number) {
   const turn = catState.turns[convId]
   if (!turn || (token !== undefined && turn.token !== token)) return
   if (turn.status === 'stopping') how = 'cancelled'
+  if (turn.turnId) sealTurn(turn.turnId)
   clearTimeout(stopTimers.get(convId))
   stopTimers.delete(convId)
   delete catState.turns[convId]
   const list = catState.messages[convId] ?? (catState.messages[convId] = [])
   // 收起流式光标，已流出来的文字原样保留（不加后缀）
-  for (const b of list) if (b.kind === 'a' && b.streaming) b.streaming = false
+  quietStreaming(convId)
+  // 人已经离开这个对话：结束后在侧栏打蓝点。人还在看就不打
+  if (how === 'completed' && catState.sel !== convId) catState.unseen[convId] = true
+  else delete catState.unseen[convId]
   if (turn.assistantId) streams.delete(turn.assistantId)
   catState.filesRev++
   if (how === 'cancelled') list.push({ kind: 'sys', text: CAT_COPY.stopped })
-  else if (how === 'failed') list.push({ kind: 'sys', text: CAT_COPY.replyFailed, tone: 'err' })
+  else if (how === 'failed') {
+    const text = (turn.failMsg || '').trim() || CAT_COPY.replyFailed
+    if (!list.some((b) => b.kind === 'sys' && b.tone === 'err' && b.text === text)) {
+      list.push({ kind: 'sys', text, tone: 'err' })
+    }
+  }
   else if (how === 'not_ready') list.push({ kind: 'sys', text: catState.status.error?.message || CAT_COPY.notReady })
 }
 
@@ -460,9 +697,10 @@ export async function sendMessage(text: string): Promise<string | undefined> {
     const project = catState.projects.find((p) => p.id === catState.newProjectId)
     catState.creating = true
     try {
-      const created = await createCatConversation({ agentKind, title: titleFrom(t), projectId: project?.id })
+      const created = await createCatConversation({ agentKind, projectId: project?.id })
       id = created.id
       const conv = toConv(created)
+      if (!conv.title) conv.title = titleFrom(t)
       if (project) {
         conv.projectId = project.id
         project.convs.unshift(conv)
@@ -480,12 +718,14 @@ export async function sendMessage(text: string): Promise<string | undefined> {
         project.convs.unshift({ id, title: titleFrom(t), agentKind, projectId: project.id })
         catState.newProjectId = ''
       } else catState.plain.unshift({ id, title: titleFrom(t), agentKind })
+      carryDraftPref(id)
       catState.messages[id] = [{ kind: 'user', text: t }, { kind: 'sys', text: CAT_COPY.replyFailed, tone: 'err' }]
       catState.sel = id
       return
     } finally {
       catState.creating = false
     }
+    carryDraftPref(id)
     catState.messages[id] = []
     catState.sel = id
   }
@@ -508,12 +748,17 @@ export async function sendMessage(text: string): Promise<string | undefined> {
       modelId: catState.model || undefined,
       // 没选强度就不带（接口层转成空串，后端不传 --reasoning-effort）
       thinkLevelId: catState.think || undefined,
+      permissionMode: catState.access,
     })
     const turn = catState.turns[id]
     if (turn?.token === token && res.turnId && !turn.turnId) turn.turnId = res.turnId
     // Send 还没返回时就点了停止：那时后端可能还没登记这一轮，拿到 turnId 后再取消一次（幂等）
-    if (turn?.token === token && turn.status === 'stopping' && res.turnId) {
+    if (res.turnId && turn?.token === token && turn.status === 'stopping') {
+      sealTurn(res.turnId)
       void cancelCatTurn({ convId: id, turnId: res.turnId }).catch(() => undefined)
+    } else if (res.turnId && (!turn || turn.token !== token)) {
+      // 这一轮已经收尾之后 Send 才返回：记下编号，下一轮不会吃到它的迟到事件
+      sealTurn(res.turnId)
     }
     // v0.30.1：Send 在本轮开始后立即返回，结束由 cat:turn 决定；
     // 只有兼容旧的同步返回（直接带了助手回复）时才在这里收尾
@@ -551,6 +796,9 @@ export async function sendMessage(text: string): Promise<string | undefined> {
       endTurn(id, 'not_ready', token)
       return
     }
+    const failed = catState.turns[id]
+    const msg = (err.message || '').trim()
+    if (failed?.token === token && msg && msg !== CAT_COPY.replyFailed) failed.failMsg = msg
     endTurn(id, err.code === 'CANCELED' ? 'cancelled' : 'failed', token)
   }
 }
@@ -569,7 +817,9 @@ function dropConvState(id: string) {
   stopTimers.delete(id)
   delete catState.turns[id]
   delete catState.messages[id]
+  delete catState.unseen[id]
   loading.delete(id)
+  savePrefMap(dropPref(loadPrefMap(), id))
 }
 
 /**
@@ -607,6 +857,8 @@ export async function stopTurn(convId: string = catState.sel) {
   const turn = catState.turns[convId]
   if (!turn || turn.status === 'stopping') return
   turn.status = 'stopping'
+  if (turn.turnId) sealTurn(turn.turnId)
+  quietStreaming(convId)
   const token = turn.token
   clearTimeout(stopTimers.get(convId))
   // 后端没在合理时间内回 cat:turn / 返回，也按已停止收尾
@@ -765,10 +1017,13 @@ export function newConvInProject(id: string) {
   catState.newProjectId = id
 }
 
-/** 选中某条对话 / 「新对话」（不属于任何项目） */
+/** 选中某条对话 / 「新对话」。不停止其它对话里还在跑的回复 */
 export function selectConv(id: string) {
   catState.sel = id
   if (id === NEW_CONV) catState.newProjectId = ''
+  delete catState.unseen[id]
+  // 点开对话就向 CLI 要这段记录。服务商和对话 id 在侧栏，正文不在本地库。
+  if (id !== NEW_CONV && live) void loadMessages(id)
 }
 
 /**

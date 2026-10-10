@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -53,6 +54,14 @@ type Service struct {
 	rekeyed     bool // ensureProjectKeys 已成功跑过
 }
 
+// actRec 是一条思考或一次工具调用。界面单独画，不写进助手正文。
+type actRec struct {
+	kind string
+	id   string
+	seq  int
+	text string
+}
+
 // turnState 是一轮进行中的回复。终态事件只发一次；终态后丢弃迟到增量。
 type turnState struct {
 	convID string
@@ -64,7 +73,11 @@ type turnState struct {
 	msgID         string          // 本轮助手正文 messageId（落库同 id）
 	seq           int             // 同 messageId 内严格递增，从 1 起
 	text          strings.Builder // 已流出文字
+	acts          []*actRec       // 思考 / 工具，按出现顺序；不并入正文
+	actBy         map[string]*actRec
 	finished      bool
+	failMsg       string
+	errSeen       map[string]struct{}
 	usageCwd      string // 这一轮的工作目录，用来读上下文占用
 	contextUsed   int64
 	contextWindow int64
@@ -156,7 +169,14 @@ func (s *Service) ListCatConversations(ctx context.Context) ([]Conversation, err
 	if s.cfg.Store == nil {
 		return nil, apperr.New(apperr.Internal, "本地存储尚未初始化")
 	}
-	return s.cfg.Store.ListCatConversations(ctx)
+	list, err := s.cfg.Store.ListCatConversations(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range list {
+		s.applyCLITitle(ctx, &list[i])
+	}
+	return list, nil
 }
 
 func (s *Service) GetCatConversation(ctx context.Context, convID string) (ConversationDetail, error) {
@@ -173,12 +193,80 @@ func (s *Service) GetCatConversation(ctx context.Context, convID string) (Conver
 	if err != nil {
 		return ConversationDetail{}, apperr.Wrap(apperr.IOError, "读取会话失败", err)
 	}
-	msgs, err := s.cfg.Store.ListCatMessages(ctx, convID)
+	msgs, err := s.loadTranscript(ctx, c)
 	if err != nil {
-		return ConversationDetail{}, apperr.Wrap(apperr.IOError, "读取消息失败", err)
+		return ConversationDetail{}, err
 	}
+	s.applyCLITitle(ctx, &c)
 	used, window := s.lookupContext(ctx, c)
 	return ConversationDetail{CatConversation: c, Messages: msgs, ContextUsed: used, ContextWindow: window}, nil
+}
+
+// applyCLITitle 用 CLI 会话里的第一句当展示名。库里的 title 不更新。
+func (s *Service) applyCLITitle(ctx context.Context, c *store.CatConversation) {
+	if label := catagent.SessionLabel(s.cwdFor(ctx, *c), c.ID); label != "" {
+		c.Title = label
+	}
+}
+
+// cwdFor 是这条对话在 CLI 里的工作目录：项目用项目文件夹，否则用会话目录。
+func (s *Service) cwdFor(ctx context.Context, c store.CatConversation) string {
+	if c.ProjectID != "" {
+		if row, err := s.cfg.Store.GetCatProject(ctx, c.ProjectID); err == nil {
+			if p := strings.TrimSpace(row.Path); p != "" {
+				return p
+			}
+		}
+	}
+	return catagent.TurnCwd(s.cfg.DataRoot, "", c.ID)
+}
+
+// loadTranscript 从 CLI 导出会话记录。侧栏只留服务商（agentKind）和对话 id，正文不进 SQLite。
+// 测试用的假适配器没有这条能力时返回空列表。
+func (s *Service) loadTranscript(ctx context.Context, c store.CatConversation) ([]store.CatMessage, error) {
+	a, err := s.adapter(c.AgentKind)
+	if err != nil {
+		return []store.CatMessage{}, nil
+	}
+	loader, ok := a.(interface {
+		LoadTranscript(context.Context, string, string) ([]catagent.WireMessage, error)
+	})
+	if !ok {
+		return []store.CatMessage{}, nil
+	}
+	cwd := ""
+	if c.ProjectID != "" {
+		p, perr := s.projectForConversation(ctx, c.ProjectID)
+		if p.Path != "" {
+			cwd = p.Path
+		} else if perr != nil {
+			return nil, perr
+		}
+	}
+	if cwd == "" {
+		cwd = catagent.TurnCwd(s.cfg.DataRoot, "", c.ID)
+	}
+	wires, err := loader.LoadTranscript(ctx, c.ID, cwd)
+	if err != nil {
+		return nil, err
+	}
+	return wiresToMessages(c.ID, wires), nil
+}
+
+func wiresToMessages(convID string, wires []catagent.WireMessage) []store.CatMessage {
+	out := make([]store.CatMessage, 0, len(wires))
+	for i, w := range wires {
+		role := w.Role
+		switch role {
+		case "user", "assistant", "system", "thought", "tool":
+		default:
+			role = "assistant"
+		}
+		out = append(out, store.CatMessage{
+			ID: convID + ":" + strconv.Itoa(i), Role: role, Content: w.Content, CreatedAt: int64(i + 1),
+		})
+	}
+	return out
 }
 
 // lookupContext 读取这个对话最近一次的上下文占用。读不到就返回 0，不让会话详情失败。
@@ -327,22 +415,12 @@ func (s *Service) SendCatMessage(ctx context.Context, req SendMessageRequest) (S
 		projectRoot = p.Path
 	}
 
-	userMsg, err := s.cfg.Store.InsertCatMessage(ctx, c.ID, store.CatMessage{Role: "user", Content: content})
-	if err != nil {
-		return SendMessageResult{}, apperr.Wrap(apperr.IOError, "保存消息失败", err)
+	// 只刷新这条标签的排序时间。句子本身不写入数据库，历史在 CLI。
+	if err := s.cfg.Store.TouchCatConversation(ctx, c.ID, ""); err != nil {
+		s.cfg.Logf("cat touch conversation: %v", err)
 	}
-	if c.Title == "" {
-		_ = s.cfg.Store.TouchCatConversation(ctx, c.ID, titleFrom(content))
-	}
-
-	hist, err := s.cfg.Store.ListCatMessages(ctx, c.ID)
-	if err != nil {
-		return SendMessageResult{}, apperr.Wrap(apperr.IOError, "读取消息失败", err)
-	}
-	wires := make([]catagent.WireMessage, 0, len(hist))
-	for _, m := range hist {
-		wires = append(wires, catagent.WireMessage{Role: m.Role, Content: m.Content})
-	}
+	userMsg := store.CatMessage{ID: id.New(), Role: "user", Content: content, CreatedAt: time.Now().UnixMilli()}
+	cwd := catagent.TurnCwd(s.cfg.DataRoot, projectRoot, c.ID)
 
 	// 回合生命周期与调用方 ctx 解耦（绑定层传入的是应用根 ctx，取消只走 CancelCatTurn）。
 	turnCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
@@ -356,7 +434,10 @@ func (s *Service) SendCatMessage(ctx context.Context, req SendMessageRequest) (S
 	opts := catagent.TurnOptions{
 		Ctx: turnCtx, ConversationID: c.ID, TurnID: t.turnID,
 		ModelID: req.ModelID, ThinkLevelID: req.ThinkLevelID,
-		ProjectPath: projectRoot, Messages: wires,
+		PermissionMode: req.PermissionMode,
+		ProjectPath:    projectRoot,
+		Resume:         catagent.SessionStarted(cwd, c.ID),
+		Messages:       []catagent.WireMessage{{Role: "user", Content: content}},
 	}
 	s.wg.Add(1)
 	go func() {
@@ -378,6 +459,12 @@ func (s *Service) runTurn(ctx context.Context, t *turnState, a catagent.Adapter,
 		streamed = true
 		s.appendText(ctx, t, delta)
 	}
+	opts.OnActivity = func(kind, id, text string, replace bool) {
+		s.appendActivity(ctx, t, kind, id, text, replace)
+	}
+	opts.OnError = func(msg string) {
+		s.noteTurnError(ctx, t, msg)
+	}
 
 	resp, runErr := a.RunTurn(opts)
 	if runErr != nil {
@@ -386,11 +473,15 @@ func (s *Service) runTurn(ctx context.Context, t *turnState, a catagent.Adapter,
 			return
 		}
 		s.cfg.Logf("cat turn failed: %v", runErr)
+		if ae := apperr.From(runErr); ae != nil {
+			s.noteTurnError(ctx, t, ae.Message)
+		}
 		s.finish(t, catagent.TurnFailed)
 		return
 	}
 
-	// 工具：写/跑拒绝；只读尽量执行。一期若有 toolRequests，把拒绝说明并入助手回复。
+	// grok 在自己的进程里执行工具，不把 ToolRequests 交回来。
+	// 下面只覆盖仍把工具请求交回应用的适配器。
 	extra := ""
 	if len(resp.ToolRequests) > 0 {
 		results := catagent.HandleToolRequests(opts.ProjectPath, resp.ToolRequests)
@@ -433,17 +524,11 @@ func (s *Service) runTurn(ctx context.Context, t *turnState, a catagent.Adapter,
 		return
 	}
 	text := strings.TrimSpace(t.currentText())
-	if text == "" {
+	if text == "" && !t.hasActivity() {
 		s.finish(t, catagent.TurnFailed)
 		return
 	}
-	if _, err := s.cfg.Store.InsertCatMessage(context.WithoutCancel(ctx), t.convID, store.CatMessage{
-		ID: t.msgID, Role: "assistant", Content: text,
-	}); err != nil {
-		s.cfg.Logf("cat save assistant message: %v", err)
-		s.finish(t, catagent.TurnFailed)
-		return
-	}
+	// 回复留在 CLI 的会话里。点开对话时再 grok export，不写入 cat_messages。
 	s.finish(t, catagent.TurnCompleted)
 }
 
@@ -451,6 +536,126 @@ func (t *turnState) currentText() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.text.String()
+}
+
+func (t *turnState) hasActivity() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return len(t.acts) > 0
+}
+
+// noteTurnError 记下失败原文，并立刻在对话里放一行。同一句只放一次。
+func (s *Service) noteTurnError(ctx context.Context, t *turnState, msg string) {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return
+	}
+	t.mu.Lock()
+	if t.finished || ctx.Err() != nil {
+		t.mu.Unlock()
+		return
+	}
+	if t.failMsg == "" || (t.failMsg == catagent.MsgReplyFailed && msg != catagent.MsgReplyFailed) {
+		t.failMsg = msg
+	}
+	if msg == catagent.MsgReplyFailed {
+		t.mu.Unlock()
+		return
+	}
+	if t.errSeen == nil {
+		t.errSeen = map[string]struct{}{}
+	}
+	if _, ok := t.errSeen[msg]; ok {
+		t.mu.Unlock()
+		return
+	}
+	t.errSeen[msg] = struct{}{}
+	n := len(t.errSeen)
+	t.mu.Unlock()
+	s.emit(catagent.EventMessage, catagent.MessageEvent{
+		ConvID: t.convID, TurnID: t.turnID, MessageID: t.turnID + ":err:" + strconv.Itoa(n),
+		Seq: 1, Op: catagent.OpReplace, TextDelta: msg,
+		Block: &catagent.MessageBlock{Type: "error", Text: msg},
+	})
+}
+
+// appendActivity 把思考增量或工具标签推到界面。思考按段追加；工具按 id 整段替换。
+func (s *Service) appendActivity(ctx context.Context, t *turnState, kind, key, text string, replace bool) {
+	if text == "" || (kind != "thought" && kind != "tool") {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.finished || ctx.Err() != nil {
+		return
+	}
+	if key == "" {
+		key = kind
+	}
+	if t.actBy == nil {
+		t.actBy = map[string]*actRec{}
+	}
+	rec := t.actBy[kind+":"+key]
+	if rec == nil {
+		// 正文已经开始之后又出现新的思考或工具：先收起这一段，后面的句子另起一段，留在工具下面
+		if t.seq > 0 {
+			s.rotateTextLocked(t)
+		}
+		rec = &actRec{kind: kind, id: t.msgID + ":" + kind + ":" + sanitizeActKey(key)}
+		t.actBy[kind+":"+key] = rec
+		t.acts = append(t.acts, rec)
+	} else if replace && rec.text == text {
+		return
+	}
+	if replace {
+		rec.text = text
+	} else {
+		rec.text += text
+	}
+	rec.seq++
+	s.emit(catagent.EventMessage, catagent.MessageEvent{
+		ConvID: t.convID, TurnID: t.turnID, MessageID: rec.id,
+		Seq: rec.seq, Op: catagent.OpReplace, TextDelta: rec.text,
+		Block: &catagent.MessageBlock{Type: kind, Text: rec.text},
+	})
+}
+
+func sanitizeActKey(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "0"
+	}
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	out := b.String()
+	if out == "" {
+		return "0"
+	}
+	if len(out) > 40 {
+		out = out[:40]
+	}
+	return out
+}
+
+// rotateTextLocked 结束当前正文段。下一段用新的 messageId，从 seq 1 重新计。
+// 调用时已持有 t.mu。
+func (s *Service) rotateTextLocked(t *turnState) {
+	if t.seq == 0 {
+		return
+	}
+	t.seq++
+	prev, seq := t.msgID, t.seq
+	t.msgID = id.New()
+	t.seq = 0
+	s.emit(catagent.EventMessage, catagent.MessageEvent{
+		ConvID: t.convID, TurnID: t.turnID, MessageID: prev, Seq: seq, Op: catagent.OpDone,
+	})
 }
 
 // appendText 发一条 append；回合已终态或已取消时丢弃并返回 false。
@@ -524,6 +729,13 @@ func (s *Service) finishLocked(t *turnState, status string) bool {
 		})
 	}
 	ev := catagent.TurnEvent{ConvID: t.convID, TurnID: t.turnID, Status: status}
+	if status == catagent.TurnFailed {
+		msg := strings.TrimSpace(t.failMsg)
+		if msg == "" {
+			msg = catagent.MsgReplyFailed
+		}
+		ev.Error = apperr.New(apperr.CatReplyFailed, msg)
+	}
 	if t.contextUsed > 0 && t.contextWindow > 0 {
 		ev.ContextUsed, ev.ContextWindow = t.contextUsed, t.contextWindow
 		t.emittedUsed, t.emittedWindow = t.contextUsed, t.contextWindow
@@ -532,18 +744,9 @@ func (s *Service) finishLocked(t *turnState, status string) bool {
 	return true
 }
 
-// finishCancelled 收尾被取消的一轮：已流出文字落库保留（不加后缀），并确保发过 cancelled。
+// finishCancelled 收尾被取消的一轮。已流出的文字只留在当前界面和 CLI 会话里，不写入 SQLite。
 func (s *Service) finishCancelled(t *turnState) {
 	s.finish(t, catagent.TurnCancelled) // 通常 stopTurn 已发过，这里幂等
-	text := strings.TrimSpace(t.currentText())
-	if text == "" {
-		return
-	}
-	if _, err := s.cfg.Store.InsertCatMessage(context.Background(), t.convID, store.CatMessage{
-		ID: t.msgID, Role: "assistant", Content: text,
-	}); err != nil {
-		s.cfg.Logf("cat save partial assistant message: %v", err)
-	}
 }
 
 // CancelCatTurn 立即停止 { convId, turnId } 这一轮；不匹配或已结束则幂等返回 nil。
@@ -637,16 +840,4 @@ func splitRunes(s string, n int) []string {
 		out = append(out, string(r[i:j]))
 	}
 	return out
-}
-
-func titleFrom(text string) string {
-	t := strings.Join(strings.Fields(text), " ")
-	r := []rune(t)
-	if len(r) > 18 {
-		return string(r[:18]) + "…"
-	}
-	if t == "" {
-		return "新对话"
-	}
-	return t
 }

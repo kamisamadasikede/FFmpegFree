@@ -2,29 +2,35 @@
   <section class="pv" data-testid="cat-file-preview" :aria-label="title">
     <header class="hd">
       <span class="nm" :title="title">{{ title }}</span>
-      <span v-if="dirty" class="dot" :title="COPY.unsaved" />
+      <span v-if="dirty || saving" class="dot" :title="COPY.saving" />
       <span class="sp" />
       <div v-if="toggle" class="seg" role="tablist">
         <button type="button" :class="{ on: mode === 'preview' }" @click="mode = 'preview'">{{ COPY.preview }}</button>
         <button type="button" :class="{ on: mode === 'source' }" @click="mode = 'source'">{{ COPY.source }}</button>
       </div>
-      <button v-if="doc?.editable && (showEditor || dirty)" type="button" class="save" data-testid="cat-file-save" :disabled="!dirty || saving" @click="save">
-        {{ saving ? COPY.saving : COPY.save }}
+      <button
+        v-if="htmlPage"
+        type="button"
+        class="icon-btn"
+        :class="{ on: mode === 'preview' }"
+        data-testid="cat-html-preview"
+        :aria-pressed="mode === 'preview'"
+        :aria-label="COPY.htmlPreview"
+        :title="COPY.htmlPreview"
+        @click="mode = mode === 'preview' ? 'source' : 'preview'"
+      >
+        <FIcon name="eye" :size="15" />
       </button>
       <button type="button" class="x" data-testid="cat-file-close" @click="onClose">{{ COPY.close }}</button>
     </header>
-    <div v-if="blocked" class="hold">
-      <span>{{ COPY.unsaved }}</span>
-      <button type="button" @click="save">{{ COPY.save }}</button>
-      <button type="button" @click="discard">{{ COPY.discard }}</button>
-    </div>
     <div v-if="loading && !ready" class="state">{{ COPY.loading }}</div>
     <div v-else-if="error" class="state">{{ error }}</div>
     <template v-else-if="ready && doc">
       <iframe v-if="showMd && mdHtml" class="md" sandbox="" :title="title" :srcdoc="mdHtml" />
       <div v-else-if="showMd" class="state">{{ COPY.loading }}</div>
       <img v-else-if="showSvg && svgUrl" class="svg" :src="svgUrl" alt="" />
-      <CatFileEditor v-else-if="showEditor" :key="editorKey" :text="draft" :language="doc.language || 'plaintext'" :read-only="!doc.editable" @change="draft = $event" @save="save" />
+      <iframe v-else-if="showHtml" class="md" sandbox="allow-scripts" referrerpolicy="no-referrer" :title="title" :srcdoc="draft" />
+      <CatFileEditor v-else-if="showEditor" :key="editorKey" :text="draft" :language="doc.language || 'plaintext'" :read-only="!doc.editable" @change="draft = $event" @save="flushSave" />
       <CatFileRich v-else-if="rich" :kind="doc.kind" :mime="doc.mime" :b64="doc.dataBase64" :name="doc.name" />
       <div v-else class="state">{{ message }}</div>
     </template>
@@ -32,12 +38,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import FIcon from '@/components/icon/FIcon.vue'
 import CatFileEditor from './CatFileEditor.vue'
 import CatFileRich from './CatFileRich.vue'
 import { buildSrcdoc, renderMarkdown } from '@/utils/docSafeHtml'
 import { notify } from '@/views/cat/catState'
 import {
+  CAT_AUTOSAVE_MS,
   CAT_PREVIEW_COPY as COPY,
   catPreviewErrorText,
   mockCatFileBody,
@@ -57,19 +65,24 @@ const loading = ref(false)
 const ready = ref(false)
 const saving = ref(false)
 const error = ref('')
-const blocked = ref(false)
 const mdHtml = ref('')
 const editorKey = ref(0)
 let token = 0
 let mdToken = 0
+let saveTimer: ReturnType<typeof setTimeout> | undefined
+let writing = false
+let writeAgain = false
 let leaveAfterSave = false
 
 const title = computed(() => doc.value?.name || props.name || props.relPath)
-const view = computed(() => previewModeFor(doc.value?.name || props.name))
-const toggle = computed(() => doc.value?.kind === 'text' && view.value !== 'code')
+const view = computed(() => previewModeFor(doc.value?.name || props.name || props.relPath))
+const toggle = computed(() => !!doc.value && doc.value.kind === 'text' && (view.value === 'markdown' || view.value === 'svg'))
+const htmlPage = computed(() => !!doc.value && doc.value.kind === 'text' && view.value === 'html')
 const showMd = computed(() => !!doc.value && doc.value.kind === 'text' && view.value === 'markdown' && mode.value === 'preview')
 const showSvg = computed(() => !!doc.value && doc.value.kind === 'text' && view.value === 'svg' && mode.value === 'preview')
-const showEditor = computed(() => !!doc.value && doc.value.kind === 'text' && (!toggle.value || mode.value === 'source'))
+/** html 页用独立来源的 iframe 渲染：脚本能跑，但碰不到外面的应用 */
+const showHtml = computed(() => htmlPage.value && mode.value === 'preview')
+const showEditor = computed(() => !!doc.value && doc.value.kind === 'text' && !showMd.value && !showSvg.value && !showHtml.value)
 const rich = computed(() => !!doc.value && ['image', 'media', 'pdf', 'docx', 'xlsx', 'pptx'].includes(doc.value.kind))
 const dirty = computed(() => !!doc.value?.editable && draft.value !== doc.value.content)
 const svgUrl = computed(() => (showSvg.value ? 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(draft.value) : ''))
@@ -91,6 +104,12 @@ watch([showMd, draft], () => {
   void paintMarkdown()
 })
 
+watch(draft, () => {
+  const body = doc.value
+  if (!body?.editable || draft.value === body.content) return
+  scheduleSave()
+})
+
 async function load(resetMode: boolean) {
   const my = ++token
   const id = props.convId
@@ -98,8 +117,8 @@ async function load(resetMode: boolean) {
   loading.value = true
   ready.value = false
   error.value = ''
-  blocked.value = false
   leaveAfterSave = false
+  clearTimeout(saveTimer)
   try {
     const body = props.live ? await readCatFile(id, rel) : mockCatFileBody(props.name || rel)
     if (my !== token || props.convId !== id || props.relPath !== rel) return
@@ -107,7 +126,10 @@ async function load(resetMode: boolean) {
     draft.value = body.content
     editorKey.value++
     ready.value = true
-    if (resetMode) mode.value = previewModeFor(body.name) === 'code' ? 'source' : 'preview'
+    if (resetMode) {
+      const kind = previewModeFor(body.name)
+      mode.value = kind === 'markdown' || kind === 'svg' ? 'preview' : 'source'
+    }
   } catch (e) {
     if (my !== token || props.convId !== id || props.relPath !== rel) return
     doc.value = null
@@ -130,49 +152,81 @@ async function paintMarkdown() {
   mdHtml.value = buildSrcdoc(html, { dark, title: title.value })
 }
 
-async function save() {
+function scheduleSave() {
+  clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => { void writeDraft() }, CAT_AUTOSAVE_MS)
+}
+
+function flushSave() {
+  clearTimeout(saveTimer)
+  void writeDraft()
+}
+
+async function writeDraft() {
+  clearTimeout(saveTimer)
   const body = doc.value
-  if (!body?.editable || saving.value) return
-  if (draft.value === body.content) {
+  if (!body?.editable) {
     if (leaveAfterSave) finishLeave()
     return
   }
+  const text = draft.value
+  if (text === body.content) {
+    if (leaveAfterSave) finishLeave()
+    return
+  }
+  if (writing) {
+    writeAgain = true
+    return
+  }
+  writing = true
   saving.value = true
+  let failed = false
   try {
     if (props.live) {
-      const wrote = await writeCatFile(props.convId, body.relPath, draft.value)
+      const wrote = await writeCatFile(props.convId, body.relPath, text)
       if (doc.value !== body) return
       body.size = wrote.size
       body.modTime = wrote.modTime
     }
-    body.content = draft.value
-    notify(COPY.saved, 'ok')
-    if (leaveAfterSave) finishLeave()
+    if (doc.value !== body) return
+    if (draft.value === text) body.content = text
   } catch (e) {
-    notify(catPreviewErrorText(e, COPY.saveFailed), 'warn')
+    failed = true
+    if (doc.value === body) notify(catPreviewErrorText(e, COPY.saveFailed), 'warn')
+    leaveAfterSave = false
   } finally {
+    writing = false
     saving.value = false
+    if (doc.value !== body) return
+    if (!failed && (writeAgain || draft.value !== body.content)) {
+      writeAgain = false
+      if (leaveAfterSave) void writeDraft()
+      else scheduleSave()
+      return
+    }
+    writeAgain = false
+    if (leaveAfterSave && !failed) finishLeave()
   }
 }
 
-function discard() {
-  draft.value = doc.value?.content ?? ''
-  editorKey.value++
-  finishLeave()
-}
-
 function finishLeave() {
-  blocked.value = false
   leaveAfterSave = false
   emit('close')
 }
 
 function requestClose(): boolean {
-  if (!dirty.value) return true
-  blocked.value = true
+  if (!doc.value?.editable || (!dirty.value && !saving.value)) return true
   leaveAfterSave = true
+  flushSave()
   return false
 }
+
+onBeforeUnmount(() => {
+  clearTimeout(saveTimer)
+  const body = doc.value
+  if (!body?.editable || !props.live || draft.value === body.content) return
+  void writeCatFile(props.convId, body.relPath, draft.value)
+})
 
 function onClose() {
   if (!requestClose()) return
@@ -207,6 +261,8 @@ defineExpose({ requestClose })
   white-space: nowrap;
   font-size: 13px;
   color: var(--ff-text-1);
+  user-select: text;
+  -webkit-user-select: text;
 }
 .dot {
   width: 6px;
@@ -225,9 +281,8 @@ defineExpose({ requestClose })
   background: var(--ff-bg-hover);
 }
 .seg button,
-.save,
-.x,
-.hold button {
+.icon-btn,
+.x {
   border: none;
   background: transparent;
   color: var(--ff-text-2);
@@ -237,32 +292,18 @@ defineExpose({ requestClose })
   padding: 3px 8px;
   cursor: pointer;
 }
-.seg button.on,
-.save:not(:disabled),
-.hold button {
-  color: var(--ff-text-1);
-}
-.save:not(:disabled),
-.hold button {
-  background: var(--ff-bg-hover);
-}
-.save:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.hold {
-  flex: none;
-  display: flex;
+.icon-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  font-size: 12px;
-  color: var(--ff-text-2);
-  background: color-mix(in srgb, var(--ff-warning) 8%, transparent);
-  border-bottom: 1px solid var(--ff-border);
+  justify-content: center;
+  padding: 0;
 }
-.hold span {
-  flex: 1;
+.seg button.on,
+.icon-btn.on {
+  color: var(--ff-text-1);
+  background: var(--ff-bg-hover);
 }
 .state {
   flex: 1;
@@ -273,6 +314,8 @@ defineExpose({ requestClose })
   text-align: center;
   color: var(--ff-text-3);
   font-size: 13px;
+  user-select: text;
+  -webkit-user-select: text;
 }
 .md,
 .svg {
@@ -281,6 +324,8 @@ defineExpose({ requestClose })
   width: 100%;
   border: none;
   background: var(--ff-bg-app);
+  user-select: text;
+  -webkit-user-select: text;
 }
 .svg {
   object-fit: contain;

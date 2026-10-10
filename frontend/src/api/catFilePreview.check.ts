@@ -33,6 +33,6 @@ export function catFilePreviewChecks(eq: Eq): void {
     mapFileBody({ kind: 'exe', name: 'a.bin', relPath: 'a.bin', content: 'x', editable: true, dataBase64: 'aaa' }),
     { ...empty, name: 'a.bin', relPath: 'a.bin' },
   )
-  eq('预览切换：markdown / svg / 其他', [previewModeFor('A.MD'), previewModeFor('readme.markdown'), previewModeFor('icon.SVG'), previewModeFor('main.go')], ['markdown', 'markdown', 'svg', 'code'])
+  eq('预览切换：markdown / svg / html / 其他', [previewModeFor('A.MD'), previewModeFor('readme.markdown'), previewModeFor('icon.SVG'), previewModeFor('page.HTML'), previewModeFor('a.htm'), previewModeFor('main.go'), previewModeFor('App.vue')], ['markdown', 'markdown', 'svg', 'html', 'html', 'code', 'code'])
   eq('模拟预览是可编辑文本', [mockCatFileBody('main.rs').kind, mockCatFileBody('main.rs').editable, mockCatFileBody('说明.md').language], ['text', true, 'markdown'])
 }

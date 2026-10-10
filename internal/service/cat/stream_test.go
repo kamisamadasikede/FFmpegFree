@@ -136,8 +136,8 @@ func TestStreamCompletedChunksWholeReply(t *testing.T) {
 		t.Fatalf("order %v", rec.order)
 	}
 	d, _ := svc.GetCatConversation(context.Background(), conv)
-	if len(d.Messages) != 2 || d.Messages[1].ID != rec.msgs[0].MessageID || d.Messages[1].Content != long {
-		t.Fatalf("%+v", d.Messages)
+	if len(d.Messages) != 0 {
+		t.Fatalf("正文不进 sqlite: %+v", d.Messages)
 	}
 }
 
@@ -152,14 +152,68 @@ func TestStreamRealDeltas(t *testing.T) {
 	}
 	svc.Wait()
 	d, _ := svc.GetCatConversation(context.Background(), conv)
-	if len(d.Messages) != 2 || d.Messages[1].Content != "你好" {
-		t.Fatalf("%+v", d.Messages)
+	if len(d.Messages) != 0 {
+		t.Fatalf("正文不进 sqlite: %+v", d.Messages)
 	}
 	rec.mu.Lock()
 	defer rec.mu.Unlock()
 	checkSeq(t, rec.msgs)
 	if len(rec.msgs) != 3 {
 		t.Fatalf("%+v", rec.msgs)
+	}
+}
+
+func TestStreamTextSplitsAroundTools(t *testing.T) {
+	svc, rec, conv := setupFake(t, func(o catagent.TurnOptions) (catagent.TurnResponse, error) {
+		o.OnActivity("thought", "t", "先看目录", true)
+		o.OnTextDelta("我先看一下。")
+		o.OnActivity("tool", "c1", "list_dir\nD:\\GoProject\\test", true)
+		o.OnTextDelta("再写配置。")
+		o.OnActivity("tool", "c2", "write\ndocker-compose.yml", true)
+		o.OnTextDelta("用法在下面。")
+		return catagent.TurnResponse{Message: catagent.WireMessage{Content: "ignored"}}, nil
+	})
+	if _, err := svc.SendCatMessage(context.Background(), cat.SendMessageRequest{ConversationID: conv, Content: "做一份脚本"}); err != nil {
+		t.Fatal(err)
+	}
+	svc.Wait()
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	checkSeq(t, rec.msgs)
+	var parts []string
+	for _, e := range rec.msgs {
+		if e.Op == catagent.OpDone {
+			continue
+		}
+		kind := "text"
+		if e.Block != nil && e.Block.Type != "" {
+			kind = e.Block.Type
+		}
+		parts = append(parts, kind+":"+e.TextDelta)
+	}
+	want := []string{
+		"thought:先看目录",
+		"text:我先看一下。",
+		"tool:list_dir\nD:\\GoProject\\test",
+		"text:再写配置。",
+		"tool:write\ndocker-compose.yml",
+		"text:用法在下面。",
+	}
+	if strings.Join(parts, "|") != strings.Join(want, "|") {
+		t.Fatalf("%v", parts)
+	}
+	seen := map[string]struct{}{}
+	for _, e := range rec.msgs {
+		if e.Op != catagent.OpAppend {
+			continue
+		}
+		if _, ok := seen[e.MessageID]; ok {
+			t.Fatalf("同一段正文不该拆成两条消息: %+v", rec.msgs)
+		}
+		seen[e.MessageID] = struct{}{}
+	}
+	if len(seen) != 3 {
+		t.Fatalf("三段正文应各有自己的编号: %+v", rec.msgs)
 	}
 }
 
@@ -214,8 +268,8 @@ func TestStreamCancelKeepsPartialAndIsIdempotent(t *testing.T) {
 		t.Fatalf("got %s turns %+v", got, rec.turns)
 	}
 	d, _ := svc.GetCatConversation(context.Background(), conv)
-	if len(d.Messages) != 2 || d.Messages[1].Content != "已出" {
-		t.Fatalf("%+v", d.Messages)
+	if len(d.Messages) != 0 {
+		t.Fatalf("取消后也不把片段写入 sqlite: %+v", d.Messages)
 	}
 }
 
@@ -233,8 +287,43 @@ func TestStreamFailed(t *testing.T) {
 		t.Fatalf("%v", rec.order)
 	}
 	d, _ := svc.GetCatConversation(context.Background(), conv)
-	if len(d.Messages) != 1 {
-		t.Fatalf("%+v", d.Messages)
+	if len(d.Messages) != 0 {
+		t.Fatalf("失败也不写入 sqlite: %+v", d.Messages)
+	}
+}
+
+func TestStreamFailedShowsCLITextAndMode(t *testing.T) {
+	var mode string
+	svc, rec, conv := setupFake(t, func(o catagent.TurnOptions) (catagent.TurnResponse, error) {
+		mode = o.PermissionMode
+		if o.OnError != nil {
+			o.OnError("i/o timeout")
+		}
+		return catagent.TurnResponse{}, apperr.New(apperr.CatReplyFailed, "i/o timeout")
+	})
+	if _, err := svc.SendCatMessage(context.Background(), cat.SendMessageRequest{
+		ConversationID: conv, Content: "hi", PermissionMode: "plan",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc.Wait()
+	if mode != "plan" {
+		t.Fatalf("mode %q", mode)
+	}
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	last := rec.turns[len(rec.turns)-1]
+	if last.Status != catagent.TurnFailed || last.Error == nil || last.Error.Message != "i/o timeout" {
+		t.Fatalf("%+v", last.Error)
+	}
+	saw := 0
+	for _, m := range rec.msgs {
+		if m.Block != nil && m.Block.Type == "error" && m.Block.Text == "i/o timeout" {
+			saw++
+		}
+	}
+	if saw != 1 {
+		t.Fatalf("error rows %d %+v", saw, rec.msgs)
 	}
 }
 
