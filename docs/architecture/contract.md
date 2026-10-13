@@ -1,4 +1,7 @@
-# FFmpegFree v2 接口契约（v0.39）
+# FFmpegFree v2 接口契约（v0.40）
+
+v0.40 变更（**Git 地址克隆成项目 + 普通对话完成通知 + 定时选服务商**，缺口对照 v0.1 P0-1/P0-2/N1 + 产品口径锁 v0.40–0.42，架构师 10-14；完整规则见 **6.19.10.11** / **6.19.12.10** / **6.19.13**；**无新错误码，2.1 仍是 39 个**；新事件 `cat:clone` / `cat:notify`；新迁移 `0013_cat_schedule_agent_kind.sql`；无新开关）：① **添加项目双入口**：「本机文件夹」｜「从 Git 克隆」。新增 `CloneCatProject({url, parentDir?, name?})` → 成功路径调现有 `CreateCatProject`；进度 / 取消经 `cat:clone`；缺 git / 鉴权 / 不可写文案见 6.19.10.11（与产品口径逐字一致）。**私有仓**一期只靠本机 SSH / credential helper，**不做** App 内登录。② **`notifyOnFinish` 语义扩展**（设置名「完成后通知」不变）：控制**普通 turn** 终态 `completed`/`failed` **与**定时完成/失败；**`cancelled` / 用户停答不发**。后台（窗口不在前台）→ 系统通知；前台 → 仅应用内 toast。点系统通知 → 拉前台 + `openConvId`（事件 `cat:notify`，与定时同打开逻辑）。**显式改写** v0.35.5 ④「一期只有定时」口径（见 6.19.12.10）。③ **定时任务选服务商**：`CatSchedule.agentKind`（`cat_build`/`claude_cli`/`codex_cli`）；新建默认 = `CatSettings.defaultAgentKind`（空则 `cat_build`）；运行按任务上的 kind，不再锁死 Build。④ **不做（本版）**：冲突解决 / 切已有分支（→ v0.41）；办公画布组件（→ v0.42）；App 内 Git 登录；子模块深选项；真 WebView；stash。
+
 
 v0.39 变更（**技能 + MCP 统一管理；项目内技能根**，拆期设计草稿 v0.2 §6 Phase 3 + 产品 §8 拍板 + 设计说明 v0.1.1 场景 26，架构师 10-13；完整规则见 **6.19.12.9**；**无新错误码 / 迁移 / 事件名 / 开关，2.1 仍是 39 个**）：① **技能目录**锁定 `<project>/.ffmpegfree/cat/skills`；**MCP** 同级 `<project>/.ffmpegfree/cat/mcp.json`；**项目一份、三家共用**（`cat_build` / `claude_cli` / `codex_cli`）。② **默认只读项目内技能，不回落全局**用户目录。③ **App 内只做**：列表 + **启用/停用** +「打开目录」；**不做**安装 / 卸载。④ **`InspectCatConfig`** 升级为可管理入口（仍列五类；返回 `skillsRoot` / `mcpConfigPath` / `skillsRootExists`）；新增 `SetCatInspectItemEnabled`、`RevealCatSkillsDir`、`EnsureCreateCatSkillsDir`。⑤ **目录不存在**：Reveal 回 `skillsRootExists=false`（不报错）→ 前端提示「项目里还没有技能目录。」+ 主按钮「创建并打开」→ `EnsureCreateCatSkillsDir` 建空目录并打开；**绝不**自动改用户项目 `.gitignore`（文档给示例即可）。⑥ **适配器** `RunTurn` / Inspect 须把技能根与 MCP 路径指到上述项目路径（注入机制见 6.19.14 **D***，未确认标 GUESS）。⑦ 前端相关调用**应传 `agentKind`**（空 = `cat_build`），但**目录与启用态按项目共享**，不按家分三套。⑧ **不做**：改 URL/Key（v0.38 已交付）、消息尾字段变更（v0.37.1）、App 内安装卸载、改名 `cat_build`、自动改 gitignore。
 
@@ -14,7 +17,7 @@ v0.35.7 变更（**只改文案**，产品 10-13；**无新接口 / 错误码 / 
 
 v0.35.6 变更（**文案 + 托盘口径说明**，产品 / 架构师 10-13；**无新接口 / 错误码 / 迁移 / 事件 / 开关**）：① 应用退出时仍在运行、下次启动标为 `failed` 的定时运行，说明改为 `FFmpegFree 关了，这次运行没跑完。`（替代 v0.35.5 ③ 的待定文案）。② **托盘现状**：v2 目前**没有托盘、也没有「关闭即隐藏」**，点关闭就是退出应用。「最小化到托盘也算打开、照常运行」的规则在托盘功能加上之后才生效；加托盘时**隐藏窗口必须走统一的 `hideWindow`**（便于调度器与「是否在前台」判断一致）。③ 「窗口在前台」口径不变：窗口隐藏（含将来隐藏到托盘）或最小化都算**不在前台**。④ 定时任务列表常驻提示文案**暂不改**（仍为 6.19.13.8 那句，产品在定）。
 
-v0.35.5 变更（**对齐后端 #214**，架构师 10-13；**无新错误码 / 迁移 / 开关**；`cat:schedule` 增加一个可选字段）：① **生成的 TS 类型名**：Go 端在 `internal/service/cat` 包里叫 `Schedule` / `ScheduleRun` / `Settings`，Wails 生成到 `models.ts` 为 **`cat.Schedule` / `cat.ScheduleRun` / `cat.Settings`**；契约里的 `CatSchedule` / `CatScheduleRun` / `CatSettings` 分别对应它们，字段形状不变（前端按生成名引用）。② **`cat:schedule` 可带可选 `openConvId`**：用户点系统通知时发出；后端先把窗口拉到前台（含从托盘恢复、取消最小化），前端收到后打开这条对话（只带 `openConvId` 时不改列表行）。③ **应用退出时仍在运行的定时运行**：下次启动时标为 `failed`，说明 `应用关闭，这次运行中断了。`（v0.35.6 改为 `FFmpegFree 关了，这次运行没跑完。`），**不发通知**；排队中的仍按 v0.35.3 记 `missed`（`closed`）。④ **一期只有定时运行发通知**：普通对话回复完成**不发**系统通知或浮提示；`notifyOnFinish` 只控制定时任务通知（替代 6.19.12.7-2 里「普通对话也通知」）。⑤ **「窗口在前台」** = 窗口可见且未最小化（不要求获得焦点）；隐藏到托盘、最小化都算**不在前台**（→ 发系统通知），在前台时改用应用内浮提示。
+v0.35.5 变更（**对齐后端 #214**，架构师 10-13；**无新错误码 / 迁移 / 开关**；`cat:schedule` 增加一个可选字段）：① **生成的 TS 类型名**：Go 端在 `internal/service/cat` 包里叫 `Schedule` / `ScheduleRun` / `Settings`，Wails 生成到 `models.ts` 为 **`cat.Schedule` / `cat.ScheduleRun` / `cat.Settings`**；契约里的 `CatSchedule` / `CatScheduleRun` / `CatSettings` 分别对应它们，字段形状不变（前端按生成名引用）。② **`cat:schedule` 可带可选 `openConvId`**：用户点系统通知时发出；后端先把窗口拉到前台（含从托盘恢复、取消最小化），前端收到后打开这条对话（只带 `openConvId` 时不改列表行）。③ **应用退出时仍在运行的定时运行**：下次启动时标为 `failed`，说明 `应用关闭，这次运行中断了。`（v0.35.6 改为 `FFmpegFree 关了，这次运行没跑完。`），**不发通知**；排队中的仍按 v0.35.3 记 `missed`（`closed`）。④ **一期只有定时运行发通知**：普通对话回复完成**不发**系统通知或浮提示；`notifyOnFinish` 只控制定时任务通知（替代 6.19.12.7-2 里「普通对话也通知」）。**（v0.40 起废止本条：普通 turn `completed`/`failed` 亦受 `notifyOnFinish`；见 6.19.12.10。）**⑤ **「窗口在前台」** = 窗口可见且未最小化（不要求获得焦点）；隐藏到托盘、最小化都算**不在前台**（→ 发系统通知），在前台时改用应用内浮提示。
 
 v0.35.4 变更（**排队位置**，架构师 10-13；**无新接口 / 错误码 / 迁移 / 事件 / 开关**）：`CatScheduleRun` 增加可选 `queuePosition`（int，**只在 `status=queued` 时出现**，= 排在它前面的运行数，从 0 起）；不落库，由调度器内存队列计算，随 `cat:schedule` 推送和 `ListCatScheduleRuns` / `ListCatSchedules.lastRun` 返回；队列变化时对每个仍在排队的运行重新推送。界面：`0` → `下一个就轮到它`；`>0` → `前面还有 N 个任务`；字段不存在 → 不显示。
 
@@ -326,7 +329,7 @@ export type AppErrorCode =
 | 语音工具转字幕（v0.29，6.18） | `reason=<值>` | `INVALID_ARGUMENT`：`cue_invalid`（导出硬校验）；`NOT_FOUND`：`component`（`OpenStorageFolder("lang_asr")`）（只追加） | 界面不显示 |
 | PDF 输入（v0.28，6.12.60 / 6.12.63：添加 PDF 的 `AddDocSourceResult.error`、`DOC_PDF_NO_TEXT`） | `reason=<值>` | `INVALID_ARGUMENT`：`too_large`（沿用：PDF 超过 200 MiB）、`too_many_pages`（超过 500 页）；`DOC_PDF_NO_TEXT`：`no_text`（第二行 `quality=empty\|garbled` 只给开发者看）（只追加） | 只有第一行；界面不显示 |
 | 文档组件未就绪（v0.27.2，6.12.55：`DOC_COMPONENT_NOT_READY` 的同步错误和任务错误，以及 `DocComponentStatus.error`） | `reason=<值>` | `checking`、`missing`、`outdated`（含 Windows / macOS 应用下载的组件低于 26.2.6）、`downloading`、`preparing`、`failed`，即 `componentState`（只追加） | 只有这一行；`OpenStorageFolder("doc_component")` 的 `NOT_FOUND` 沿用 v0.25.1 的 `reason=component` |
-| `INVALID_ARGUMENT` / `NOT_FOUND` / `TASK_CONFLICT`（v0.31 Cat 项目，6.19.10：`CreateCatProject`、`RenameCatProject`；v0.31.1 加 `RelocateCatProject`） | `reason=<值>` | `INVALID_ARGUMENT`：`project_path`（不是绝对路径 / 不存在 / 不是文件夹）、`project_root`（盘符或文件系统根）、`project_name`（名字为空（改名时）、超过 60 个字符或含控制字符）、`project_duplicate`（v0.31.1：`RelocateCatProject` 的新路径已属于另一个项目）；`TASK_CONFLICT`：`turn_running`（v0.31.1：`RelocateCatProject` 时该项目下有进行中的一轮）；`path`（v0.32：`ListCatFiles` 的 `relPath` 不是根内相对路径、含 `..`、绝对 / 盘符 / UNC、解析后出了根，或要穿过符号链接 / junction，6.19.11.3）（只追加）；`project`（v0.39：`SetCatInspectItemEnabled` / `RevealCatSkillsDir` / `EnsureCreateCatSkillsDir` 的 `projectId` 空，6.19.12.9） | 只有 `project_duplicate` 有第二行 `projectId=<已有项目 id>`，前端按 `^projectId=(\S+)$` 取（取不到就重新 `ListCatProjects`、只提示不切换）；其余只有一行。界面按 6.19.10.8 映射；`NOT_FOUND` 项目不存在无固定 detail。`turn_running` 也是“直播会话冲突以外的 `TASK_CONFLICT` 没有 `reason=` 行”的例外 |
+| `INVALID_ARGUMENT` / `NOT_FOUND` / `TASK_CONFLICT`（v0.31 Cat 项目，6.19.10：`CreateCatProject`、`RenameCatProject`；v0.31.1 加 `RelocateCatProject`） | `reason=<值>` | `INVALID_ARGUMENT`：`project_path`（不是绝对路径 / 不存在 / 不是文件夹）、`project_root`（盘符或文件系统根）、`project_name`（名字为空（改名时）、超过 60 个字符或含控制字符）、`project_duplicate`（v0.31.1：`RelocateCatProject` 的新路径已属于另一个项目）；`TASK_CONFLICT`：`turn_running`（v0.31.1：`RelocateCatProject` 时该项目下有进行中的一轮）；`path`（v0.32：`ListCatFiles` 的 `relPath` 不是根内相对路径、含 `..`、绝对 / 盘符 / UNC、解析后出了根，或要穿过符号链接 / junction，6.19.11.3）（只追加）；`project`（v0.39：`SetCatInspectItemEnabled` / `RevealCatSkillsDir` / `EnsureCreateCatSkillsDir` 的 `projectId` 空，6.19.12.9）；`git_url` / `clone_exists`（v0.40：`CloneCatProject`，6.19.10.11）；`TASK_CONFLICT` 另增 `clone_busy`（同节） | 只有 `project_duplicate` 有第二行 `projectId=<已有项目 id>`，前端按 `^projectId=(\S+)$` 取（取不到就重新 `ListCatProjects`、只提示不切换）；其余只有一行。界面按 6.19.10.8 映射；`NOT_FOUND` 项目不存在无固定 detail。`turn_running` 也是“直播会话冲突以外的 `TASK_CONFLICT` 没有 `reason=` 行”的例外 |
 | 其余所有码（含 `LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`INTERNAL`） | 无固定格式 | — | 前端**不得**解析（上面几行列出的码 / 场景除外） |
 
 统一规则：第一行只有一个 `key=value`，值只含小写字母、数字、下划线（`scheme` 例外；`kind` 的取值是 `window` / `screen`，取值就是上面三个小写单词）；前端用 `^(reason|scheme|kind)=([a-z0-9_]+)$` 匹配 `detail` 的第一行；**没有第一行、格式不对、或值不认识，一律走该错误码的通用文案**，不得猜测含义、不得报错崩溃。测试必须逐码断言第一行精确等于期望值（不是包含）。
@@ -475,6 +478,8 @@ RenameCatProject(req RenameCatProjectRequest) (CatProject, error)            // 
 DeleteCatProject(req DeleteCatProjectRequest) error                          // 未知 id → nil；不动文件夹里的文件
 RelocateCatProject(req RelocateCatProjectRequest) (CatProject, error)        // v0.31.1：{id, path} 换文件夹，对话保留；missing 也可（6.19.10.2 第 8 条）
 RevealCatProject(req RevealCatProjectRequest) error                          // v0.31.1：{id} 在文件管理器里打开项目文件夹，不写任何东西（第 9 条）
+CloneCatProject(req CloneCatProjectRequest) (CloneCatProjectResult, error)   // v0.40：{url, parentDir?, name?} git clone 后 CreateCatProject（6.19.10.11）
+CancelCloneCatProject(req CancelCloneCatProjectRequest) error               // v0.40：{cloneId} 取消进行中的克隆（幂等）
 ListCatFiles(req ListCatFilesRequest) (ListCatFilesResult, error)            // v0.32：{convId, relPath} 列对话根下一层，不读文件内容（6.19.11）
 RevealCatConversationFolder(req RevealCatConversationFolderRequest) error    // v0.32：{convId} 在文件管理器里打开对话根（项目文件夹 / 对话文件夹）（6.19.11.5）
 ListEncoderDevices() (EncoderDeviceList, error)      // 硬件编码设备（9.6）：第一项永远是 cpu；ffmpeg 未就绪时只有 cpu 且 ffmpegReady=false，不报错
@@ -3931,8 +3936,9 @@ type ExportSubtitleRequest struct {
 6. `LANG_ASR_FAILED` 最终文案产品确认。
 
 
-## 6.19 Cat 助手（v0.30；v0.36 起欢迎页三家可点；v0.37 Claude / Codex 真适配；v0.37.1 消息尾；v0.38 自定义服务商；v0.39 技能/MCP 项目目录；产品 / 老板 10-09 定，v0.36 老板确认设计 v0.4，v0.37–v0.39 对齐拆期草稿 v0.2）
+## 6.19 Cat 助手（v0.30；v0.36 起欢迎页三家可点；v0.37 Claude / Codex 真适配；v0.37.1 消息尾；v0.38 自定义服务商；v0.39 技能/MCP 项目目录；v0.40 Git 克隆 + 完成通知 + 定时选服务商；产品 / 老板 10-09 定，v0.36 老板确认设计 v0.4，v0.37–v0.39 对齐拆期草稿 v0.2，v0.40 对齐缺口对照 v0.1 / 产品口径锁）
 
+> **v0.40**：添加项目支持 **从 Git 地址克隆**（`CloneCatProject`，见 **6.19.10.11**）；`notifyOnFinish` 覆盖**普通 turn** `completed`/`failed` 与定时（**cancelled 不发**，见 **6.19.12.10**）；定时任务可选服务商（`CatSchedule.agentKind`）。  
 > **v0.39**：设置「技能与扩展」从只读升级为可管理——项目内技能根 + 同级 `mcp.json`；列表启停 +「打开目录」/「创建并打开」；三家共用、不回落全局；规则见 **6.19.12.9**。  
 > **v0.38**：设置「通用」各服务商块可折叠「自定义服务商」——三家均可配 API URL / API Key（OpenAI / Anthropic 协议）；启用自定义只用设置、不写系统 env；Key 只回显「已保存」（`apiKeySet`）；规则见 **6.19.12.8**。  
 > **v0.37.1**：助手回复**终态**后气泡下方消息尾：`完成于 HH:mm` · `共 N token` · `约 M token/s`（规则见 6.19.9「消息尾」）；进行中不出现；无字段不伪造。  
@@ -3948,8 +3954,8 @@ type ExportSubtitleRequest struct {
 | 做 | 不做（一期） |
 |---|---|
 | 侧栏进入 Cat 全屏聊天（收起主侧栏，返回原页） | `cat_cli` / `cat_code` **创建与运行**（胶囊可见但禁用「下一期开放」） |
-| 欢迎页 + 会话列表 + 发送 / 回复（事件推进）；**v0.37.1 消息尾**（完成时间 / token / token/s，见 6.19.9）；**v0.38 自定义服务商**（API URL / Key，OpenAI / Anthropic，见 6.19.12.8）；**v0.39 技能/MCP 可管理 + 项目内技能根**（见 6.19.12.9） | App 内技能 / MCP **安装 / 卸载**（仍在各 CLI / 终端）；自动改用户 `.gitignore` |
-| **`cat_build` / `claude_cli` / `codex_cli` 可创建 / 可发送**（欢迎胶囊「Grok Build」/「Claude」/「Codex」；v0.37 三家均为真适配器；未安装 / 鉴权失败时 Send 返回未就绪） | 「助手」入口与功能（「定时任务」v0.35 起一期做，见 6.19.13；定时任务选服务商仍下一小版；**本版仍锁 `cat_build`**） |
+| 欢迎页 + 会话列表 + 发送 / 回复（事件推进）；**v0.37.1 消息尾**；**v0.38 自定义服务商**；**v0.39 技能/MCP 可管理**；**v0.40 从 Git 克隆项目**（6.19.10.11）+ **完成后通知含普通 turn**（6.19.12.10）+ **定时选服务商** | App 内技能 / MCP **安装 / 卸载**；自动改用户 `.gitignore`；App 内 Git 登录；冲突解决 / 三栏合并（→ v0.41）；办公画布（→ v0.42） |
+| **`cat_build` / `claude_cli` / `codex_cli` 可创建 / 可发送**（欢迎胶囊「Grok Build」/「Claude」/「Codex」；v0.37 三家均为真适配器；未安装 / 鉴权失败时 Send 返回未就绪） | 「助手」入口与功能（「定时任务」v0.35 起一期做，见 6.19.13；**v0.40 起任务可选服务商**） |
 | 模型名 / 思考强度**只从该会话 `agentKind` 对应 CLI 的真实能力列表读取**（禁止原型假数据） | 前端写死第三方模型名或擅自改已有参数逻辑 |
 | 工具调用：本机 grok 的完整工具集（v0.33 不传白名单 / 黑名单；v0.34 批准方式可选，没选过是全部批准）；其它家按各自适配器 | 应用内再做一套批准框 |
 | 组件未就绪文案见下 | 在命令行上禁止写文件、跑命令、联网、MCP、子代理 |
@@ -4096,6 +4102,8 @@ CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，
 | `cat:message` | **仅助手流式增量**（用户消息不发）；形态见 6.19.9 |
 | `cat:turn` | 一轮状态 `{ convId, turnId, status }`（`running|completed|cancelled|failed`）；**v0.37.1** 终态可带 `finishedAt` / `tokenTotal` / `tokensPerSec` / `messageId`，见 6.19.9 |
 | `cat:project` | v0.31：项目 `missing` 变化 `{ id, missing }`，见 6.19.10.3 |
+| `cat:clone` | `{ cloneId, status, url?, parentDir?, name?, progress?, project?, error?, canceled? }`（v0.40，6.19.10.11） | Git 克隆进度 / 终态 |
+| `cat:notify` | `{ openConvId }`（v0.40，6.19.12.10；点普通 turn 系统通知时） | 拉前台后打开对话；与 `cat:schedule.openConvId` 同打开逻辑 |
 
 设置：`CatSettings.defaultAgentKind` 默认 `cat_build`，**仅新建会话预填**（见 6.19.12）；旧键 `catDefaultAgentKind` 读时等同。
 
@@ -4116,7 +4124,7 @@ CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，
 
 ### 6.19.8 延后
 
-`cat_cli` / `cat_code` 的创建与运行（胶囊继续置灰）；完全访问；助手；定时任务的 cron / 续接已有对话 / 开机自启 / **任务编辑选服务商**（**定时运行仍锁 `cat_build`**，见 6.19.13；插在真适配稳定后的小版）；**技能 / MCP App 内安装与卸载**（启停 + 打开目录已由 **v0.39** 交付，见 6.19.12.9）；组件下载专节；自定义服务商「测试连接」按钮（可选后加）；**自动改用户项目 `.gitignore`**。（流式事件已提前到 6.19.9；**消息尾已由 v0.37.1 交付**；**URL/Key 已由 v0.38 交付**，见 6.19.12.8；**项目技能根已由 v0.39 交付**。）`claude_cli` / `codex_cli` **v0.36 已可创建，v0.37 起须真适配**（禁止再交未就绪桩）。扩展时**只加注册表项与胶囊启用**，会话锁定规则不变。
+`cat_cli` / `cat_code` 的创建与运行（胶囊继续置灰）；完全访问；助手；定时任务的 cron / 续接已有对话 / 开机自启；**技能 / MCP App 内安装与卸载**（启停 + 打开目录已由 **v0.39** 交付）；自定义服务商「测试连接」；**自动改用户项目 `.gitignore`**；App 内 GitHub/GitLab 登录；Git 冲突解决 / 切已有分支（→ **v0.41**）；办公画布组件（→ **v0.42**）；真 WebView；stash。（**从 Git 克隆 / 普通 turn 完成通知 / 定时选服务商已由 v0.40 交付**，见 6.19.10.11 / 6.19.12.10 / 6.19.13；消息尾 v0.37.1；URL/Key v0.38；项目技能根 v0.39。）`claude_cli` / `codex_cli` **v0.36 已可创建，v0.37 起须真适配**。扩展时**只加注册表项与胶囊启用**，会话锁定规则不变。
 
 
 ### 6.19.9 流式事件与取消（v0.30.1；v0.30.2 对齐 #174；v0.37.1 消息尾）
@@ -4456,6 +4464,78 @@ CREATE INDEX idx_cat_conversations_project ON cat_conversations (project_id, upd
 9. **思考强度 `xhigh`**（v0.31.5）：分别用 `grok-4.6`、`grok-4.5` 选「极高」发消息 → 回复正常、不报错（`grok-4.5` 可能只支持到 `high`，预期 CLI 忽略）；不选强度时命令行里没有 `--reasoning-effort`；模型列表拿不到时不带 `-m` 也能正常回复。
 10. **完整工具**（v0.33）：让它新建 / 修改项目里的文件、运行命令 → 应能做到，且没有批准框卡住；命令行里没有 `--tools` / `--disallowed-tools` / `--deny`。
 
+
+#### 6.19.10.11 从 Git 克隆成项目（v0.40）
+
+对齐缺口对照 v0.1 P0-1、产品口径锁「v0.40 · A」。**不回退**本机选文件夹入口。
+
+**UI（产品锁定）**
+
+- 添加项目对话框**双入口并列**（不进设置）：「本机文件夹」→ 现有 `PickDirectory` → `CreateCatProject`；「从 Git 克隆」。
+- **表单**
+  - **地址**：必填；占位 `HTTPS 或 SSH 地址，例如 https://github.com/org/repo.git`
+  - **保存到**：可选；默认上次选用的父目录，若无则用户主目录；按钮「选择文件夹」→ `PickDirectory("选择保存位置")`
+  - **项目名**：可选；默认取仓库名（URL 最后一段去 `.git`）；与已有项目**显示名**冲突时后缀 `-2`、`-3`…（仅影响 `name`，不改文件夹名冲突处理——文件夹已存在则失败，见下）
+- **进行中**：标题 `正在克隆…`；可「取消」；禁重复提交（同一 UI 一次只跑一个 cloneId）
+- **成功**：自动走现有 `CreateCatProject` → 展开该项目并进入可聊状态（与添加本机文件夹一致：新对话或空欢迎，前端现口径）
+- **不做（本版）**：App 内 GitHub/GitLab 登录；子模块 / 深度 / 稀疏克隆高级选项；为 clone 下组件
+
+**接口**
+
+```go
+type CloneCatProjectRequest struct {
+    URL       string `json:"url"`                 // 必填；HTTPS 或 SSH
+    ParentDir string `json:"parentDir,omitempty"` // 可选；空 = 默认父目录（见上）
+    Name      string `json:"name,omitempty"`      // 可选；空 = 仓库名
+}
+type CloneCatProjectResult struct {
+    CloneID string     `json:"cloneId"`           // 进行中也可先返回；终态再带 project
+    Status  string     `json:"status"`            // starting | cloning | creating | succeeded | failed | canceled
+    Project *CatProject `json:"project,omitempty"` // 仅 succeeded
+}
+type CancelCloneCatProjectRequest struct {
+    CloneID string `json:"cloneId"`
+}
+CloneCatProject(req CloneCatProjectRequest) (CloneCatProjectResult, error)
+CancelCloneCatProject(req CancelCloneCatProjectRequest) error // 未知 / 已结束 → nil（幂等）
+```
+
+**事件 `cat:clone`**：`{ cloneId, status, url?, parentDir?, name?, progress?, project?, error?, canceled? }`  
+- `progress` 可选 `0~1` 或省略（git 无可靠百分比时前端用不确定进度条）。  
+- `starting` → `cloning` →（成功）`creating` → `succeeded`（带 `project`）；失败 `failed`（带 `error`）；取消 `canceled`。  
+- 节流建议 ≤ 4 次/秒。
+
+**行为**
+
+1. **校验 URL**：去空白后空 / 明显非 git URL（无 `http(s)://`、无 `git@`、无 `ssh://`、且不含 `*` / `*.git` 形态）→ 同步 `INVALID_ARGUMENT`，message **`请输入有效的 Git 地址。`**（`detail` 第一行 `reason=git_url`，只追加到 2.2）。  
+2. **父目录**：`ParentDir` 非空时须为绝对路径且已存在的文件夹；否则 `INVALID_ARGUMENT` `reason=project_path`（复用）。空则用「上次成功克隆的父目录」或用户主目录（实现持久化在本机偏好 / 设置旁路，**不**进 `CatSettings` 契约字段）。  
+3. **目标路径** = `filepath.Join(parentDir, folderName)`；`folderName` = 仓库名（URL Base 去 `.git`）；若目录已存在且非空 → `INVALID_ARGUMENT`，message `克隆失败：目标文件夹已存在。`（`reason=clone_exists`）。  
+4. **依赖 git**：`exec.LookPath("git")` 失败 → `NOT_FOUND`，message **`没有找到 git。`**（与现网 Git 面板口径一致；界面可附简短安装说明，不新错误码）。  
+5. **执行**：`git clone -- <url> <target>`（可加 `--progress`；**不**传 `--recurse-submodules` 除非后续契约打开）。超时建议 **30 分钟**；环境 `GIT_TERMINAL_PROMPT=0`（与现 `GitCat*` 一致），**禁止** App 弹登录。私有仓失败走鉴权文案。  
+6. **取消**：`CancelCloneCatProject` 取消 context / 杀 clone 进程树；尽力删未完成的目标目录（只删本次创建的空/半拉目录，失败只记日志）；发 `cat:clone` `canceled`。  
+7. **成功**：对目标路径调现有 **`CreateCatProject({path, name?})`**（`name` 按表单；重名显示名加 `-2` 在调 Create **之前**由后端或前端生成最终 name，Create 本身仍允许重名）。`existed=true`（同 path_key 已是项目）→ 仍算克隆成功，返回已有项目并提示 `这个文件夹已经建过项目了。`（与本机添加一致）。  
+8. **并发**：全局同时最多 **1** 个克隆；第二个同步 `TASK_CONFLICT` `reason=clone_busy`（message `已有克隆在进行。`）。
+
+**失败文案（产品锁定，同步 error.message 或终态 `cat:clone.error.message`）**
+
+| 情况 | message |
+|---|---|
+| 地址无效 | `请输入有效的 Git 地址。` |
+| 未安装 git | `没有找到 git。` |
+| 鉴权 / 私有仓 | `克隆失败：仓库需要登录。请先在本机配置 SSH 或凭据后再试。` |
+| 目标不可写 / 磁盘 | `克隆失败：无法写入目标文件夹。` |
+| 其它 | `克隆失败：` + 截断后的 git 短因（≤ 120 字；不含完整 URL 密钥片段） |
+
+鉴权判定：stderr / 退出信息含 `Authentication failed` / `Permission denied` / `could not read Username` / `Host key verification failed` 等（实现可扩；认不出则走「其它」）。
+
+**2.2 追加**（无新错误码）：`INVALID_ARGUMENT` 增加 `git_url` / `clone_exists`；`TASK_CONFLICT` 增加 `clone_busy`。
+
+**真机待验**
+
+1. HTTPS / SSH 公有仓 → 进度 → 项目出现且可聊。  
+2. 无 git → `没有找到 git。`；取消中途 → 无半残项目记录。  
+3. 私有仓未配凭据 → 鉴权文案；不弹 App 登录框。
+
 ### 6.19.11 文件面板（v0.32，架构师 10-09 定）
 
 Cat 聊天页右侧「文件」面板显示**当前对话的根**下的文件树。**修复**：此前面板在真后端下也显示模拟数据。
@@ -4759,14 +4839,42 @@ EnsureCreateCatSkillsDir(req struct {
 #### 6.19.12.7 v0.35.1 补充
 
 1. **保存方式**：改动即时调 `SaveCatSettings`（整体提交）；成功后行尾显示 `已保存` 1.5 秒；**失败：该项回滚到保存前的值**，浮提示 `保存失败，请重试。`。自定义指令按「保存」按钮提交，失败时保留输入框内容、提示同上（设计：底部「已保存 · N / 4000 字」，超限「最多 4000 字。」并禁止保存，「恢复上次保存」）。
-2. **`notifyOnFinish`**（「完成时发系统通知」，默认开）：关掉后定时任务完成 / 失败都不发通知（v0.35.5：一期普通对话回复完成本来就不通知）。
+2. **`notifyOnFinish`**（「完成后通知」，默认开）：**v0.40** 起同时控制普通 turn 与定时（见 **6.19.12.10**）；关掉后二者都不发系统通知、也不发完成 toast。（废止 v0.35.5「一期只有定时」。）
 3. 设计稿里「新对话放在」「回复逐字显示」「快捷键」是**前端本机偏好**（localStorage），不进 `CatSettings`；「外观」只读跟随应用；「历史保留」置灰 `下一期开放。`。
 4. 「技能与扩展」页设计只有三张卡（技能 / 扩展 / 钩子）：前端把 `plugins` 与 `mcpServers` 合并显示在「扩展」卡，`agents` 一期不显示；空 `还没有安装。`，失败（`reason` 非空且不是 `no_project`）`列表加载失败，请重试。` + 重试。**v0.39**：行尾为**开关**（启停），卡头 / 页顶有「打开目录」；未选项目走 6.19.12.9 空态；目录缺失走「创建并打开」。不再显示「只读…下一期开放」。
 5. 模型下拉显示名仍以 6.19.3 为准（CLI 给的模型 ID 原样）；设计稿里「展示名 Cat 助手 …」是旧口径，**以契约为准**。
 
+
+#### 6.19.12.10 完成后通知（v0.40；改写 v0.35.5 ④）
+
+对齐产品口径锁「v0.40 · B」。设置名仍是「完成后通知」；字段仍是 `CatSettings.notifyOnFinish`（默认 true）。
+
+**范围**
+
+| 发 | 不发 |
+|---|---|
+| 普通 turn 终态 **`completed`** / **`failed`** | 普通 turn **`cancelled`**（用户停答） |
+| 定时任务运行 **完成** / **失败**（沿用 6.19.13；`stopped`/`missed`/`skipped`/`queued` 仍不发） | 开关 **关** 时：普通 turn 与定时均不发系统通知、**也不发**完成 toast |
+
+**前台判定**（沿用 v0.35.5 ⑤）：「窗口在前台」= 窗口可见且未最小化（不要求键盘焦点）；隐藏到托盘、最小化 = **不在前台**。
+
+**后台（不在前台）→ 系统通知**
+
+| 场景 | 标题 | 正文 |
+|---|---|---|
+| 普通 turn 完成 | `Cat 已回复` | 对话标题；空则 `新对话`；过长截断（建议 ≤ 80 字） |
+| 普通 turn 失败 | `Cat 回复失败` | 短错误（`error.message` 优先）或对话标题 |
+| 定时 | 仍按 6.19.13.10-6（`定时任务已完成：<名称>` 等） | 沿用 |
+
+**前台 → 仅应用内 toast**（完成 / 失败各一短句，语气同标题，如 `Cat 已回复` / `Cat 回复失败`）；**不再**叠系统通知。
+
+**点击系统通知**：后端先把窗口拉到前台（同 v0.35.5），再发 **`cat:notify` `{ openConvId }`**；前端打开该对话（与 `cat:schedule` 带 `openConvId` 同一套打开逻辑）。定时点击仍可走 `cat:schedule.openConvId`（不必改现网）；实现也可统一改发 `cat:notify`，但打开行为必须一致。
+
+**与消息尾**：消息尾（v0.37.1）照常写字段；通知是另一通道，互不替代。
+
 ### 6.19.13 定时任务（v0.35，老板 10-13 提出，架构师定）
 
-入口：Cat 侧栏「定时任务」（去掉禁用和「下一期开放」）→ 列表页；新建 / 编辑用弹窗。界面不出现 `grok` / `xAI` / `CLI` / `命令行`。**v0.36 / v0.37：任务编辑暂不选服务商，运行路径仍锁 `cat_build`（见 6.19.13.4）；选服务商插在真适配稳定后的小版。**
+入口：Cat 侧栏「定时任务」（去掉禁用和「下一期开放」）→ 列表页；新建 / 编辑用弹窗。界面不出现 `grok` / `xAI` / `CLI` / `命令行`（服务商下拉写三家本名除外）。**v0.40：任务编辑可选服务商（`agentKind`）；运行按任务上的 kind，不再锁死 `cat_build`。**
 
 #### 6.19.13.1 数据结构
 
@@ -4799,6 +4907,7 @@ type CatSchedule struct {
     Model          string          `json:"model"`     // 空 = 默认
     Effort         string          `json:"effort"`    // 空 = 默认；low|medium|high|xhigh
     ApprovalMode   string          `json:"approvalMode"` // normal|plan|auto|approve，新建默认 plan
+    AgentKind      string          `json:"agentKind"`    // v0.40：cat_build | claude_cli | codex_cli
     Enabled        bool            `json:"enabled"`
     ProjectDeleted bool            `json:"projectDeleted"`
     NextRunAt      int64           `json:"nextRunAt,omitempty"` // 暂停 / once 已跑过 / 项目已删 → 0
@@ -4809,6 +4918,8 @@ type CatSchedule struct {
 ```
 
 **没有**单个任务的附加指令字段：全局自定义指令（6.19.12）自动带上。
+
+**v0.40 `agentKind`**：界面标签「服务商」；选项与设置三家一致（展示名 Grok Build / Claude / Codex）。新建默认 = 当时的 `CatSettings.defaultAgentKind`（空 / 非法 → `cat_build`）。非法值 → `INVALID_ARGUMENT`。已有任务（迁移前）读出时缺列 → 视为 `cat_build`。
 
 #### 6.19.13.2 接口
 
@@ -4824,7 +4935,7 @@ ListCatScheduleRuns(req struct{ ScheduleID string; Limit int }) ([]CatScheduleRu
 ClearAllCatConversations() error                          // 见 6.19.13.7
 ```
 
-`CatScheduleInput` = `CatSchedule` 里的 `name, prompt, projectId, frequency, time, weekdays, runAt, model, effort, approvalMode`（`enabled` 新建默认 true）。
+`CatScheduleInput` = `CatSchedule` 里的 `name, prompt, projectId, frequency, time, weekdays, runAt, model, effort, approvalMode, agentKind`（v0.40；`enabled` 新建默认 true）。
 
 校验：字段缺失 / 越界 / `once` 的 `runAt` 不晚于现在 / 强度或批准方式非法 → `INVALID_ARGUMENT`；`id` 或 `projectId` 不存在 → `NOT_FOUND`；`Resume` 一个 `projectDeleted` 的任务 → `INVALID_ARGUMENT`（先编辑换项目）；编辑时换成有效项目 → 清掉 `projectDeleted`。`RunNow` 对暂停的任务也可以；上一次还在跑 → 不报错，返回一条 `skipped`。
 
@@ -4839,7 +4950,7 @@ ClearAllCatConversations() error                          // 见 6.19.13.7
 #### 6.19.13.4 一次运行
 
 1. 校验项目：项目不在（`missing`）→ 运行 `failed`，`error.code=CAT_PROJECT_MISSING`（`项目文件夹不见了。`），不建对话；Cat 未就绪 → `failed` + `CAT_NOT_READY`。
-2. 在该项目里新建一条**普通对话**（**本版仍固定 `agentKind=cat_build`**；任务编辑选服务商下一小版补字段后才跟设置里的默认家走；标题 = 任务名 + 计划时间，如 `每日检查 · 10-14 09:00`），对话偏好 = 任务的模型 / 强度 / 批准方式；然后按 `SendCatMessage` 发 `prompt`。全局自定义指令按 6.19.12 带 `--rules`。这条对话和手动建的对话完全一样（列表里可见，可继续聊），只是 `cat_schedule_runs.conversation_id` 指向它。
+2. 在该项目里新建一条**普通对话**（**v0.40：`agentKind` = 该任务的 `agentKind`**；标题 = 任务名 + 计划时间，如 `每日检查 · 10-14 09:00`），对话偏好 = 任务的模型 / 强度 / 批准方式；然后按 `SendCatMessage` 发 `prompt`。全局自定义指令按 6.19.12 注入。这条对话和手动建的对话完全一样（列表里可见，可继续聊），只是 `cat_schedule_runs.conversation_id` 指向它。该家 CLI 未就绪 → 本次运行 `failed` + `CAT_NOT_READY`。
 3. 一轮的结果映射：`cat:turn` `completed` → `succeeded`；`failed` → `failed`（带原 error）；`cancelled` → `stopped`（「已手动停止」，用户在对话里按停止）。
 4. 结束时发**系统通知**：标题 = 任务名，正文 `已完成` / `运行失败` / `已手动停止`（设计稿可改），点击打开该对话。`missed` / `skipped` 不发通知。
 5. 批准方式选「全部批准」时，弹窗里该选项下显示**橙色提示**（文案见设计稿；建议 `会自动执行改文件、运行命令等操作，无人确认。`）。「普通模式」在无人值守下可能卡住（提示文案见 6.19.13.10）。每次定时运行最长 **30 分钟**（v0.35.3），超时杀进程树、记 `failed`，说明 `超过 30 分钟没跑完。`，发「运行失败」通知。
@@ -4851,6 +4962,8 @@ ClearAllCatConversations() error                          // 见 6.19.13.7
 #### 6.19.13.6 迁移 `0012_cat_schedules.sql`
 
 建 `cat_schedules`、`cat_schedule_runs`（见第 6 节表清单），索引 `cat_schedule_runs(schedule_id, scheduled_for DESC)`。`project_id` 不加外键级联（删除项目由代码处理，见下）。
+
+**v0.40 追加迁移 `0013_cat_schedule_agent_kind.sql`**：`cat_schedules` 增加 `agent_kind TEXT NOT NULL DEFAULT 'cat_build'`（已有行 = `cat_build`）。无新表。
 
 #### 6.19.13.7 与项目 / 对话的关系
 
@@ -4933,6 +5046,9 @@ ClearAllCatConversations() error                          // 见 6.19.13.7
 **v0.38 补充验收（相对拆期草稿 §5.4；C1–C5 未确认前不得声称某 flag 已交付）**：见 6.19.12.8 验收 1–6。
 
 **v0.39 补充验收（相对拆期草稿 §6.4；D1–D5 / D7 未确认前不得声称某注入 flag 已交付）**：见 6.19.12.9 验收 1–5。
+
+**v0.40 补充验收**（产品口径）：① HTTPS/SSH 克隆 → 项目可聊；无 git / 鉴权失败文案对。② 切走窗口等回复完 → 系统通知 → 点击回对话；设置关则无；停答不通知。③ 定时任务可选三家服务商并按该家运行。
+
 
 ## 7. 本地流服务（已取消）
 
