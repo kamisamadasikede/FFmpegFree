@@ -79,6 +79,8 @@ type BuildAdapter struct {
 	models  []Model
 	thinks  []ThinkLevel
 	checked bool
+	// provider 是 v0.38 自定义服务商叠加；仅影响子进程 env（List/Recheck 探测与 RunTurn 旁路字段配合）。
+	provider ProviderOverlay
 }
 
 // NewBuildAdapter 创建适配器（不立即检测）。
@@ -104,6 +106,20 @@ func (a *BuildAdapter) ExecutablePath() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.exe
+}
+
+// SetProviderOverlay 供服务层在 List/Recheck 前写入自定义服务商（契约 6.19.12.8）。
+// 从不调用 os.Setenv。
+func (a *BuildAdapter) SetProviderOverlay(o ProviderOverlay) {
+	a.mu.Lock()
+	a.provider = o
+	a.mu.Unlock()
+}
+
+func (a *BuildAdapter) providerOverlay() ProviderOverlay {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.provider
 }
 
 // EntryBinary 返回组件根下的入口路径；不存在返回 ""。
@@ -277,6 +293,21 @@ func (a *BuildAdapter) ListModels() ([]Model, error) {
 	if st.State != StateReady {
 		return nil, apperr.New(apperr.CatNotReady, MsgNotReady)
 	}
+	// C6：启用自定义时列表探测与 RunTurn 同一套 URL/Key → 重新探测。
+	if o := a.providerOverlay(); o.Enabled {
+		a.mu.Lock()
+		exe := a.exe
+		a.mu.Unlock()
+		models := a.probeGrokModels(exe)
+		a.mu.Lock()
+		a.models = models
+		out := append([]Model(nil), models...)
+		a.mu.Unlock()
+		if out == nil {
+			out = []Model{}
+		}
+		return out, nil
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	out := append([]Model(nil), a.models...)
@@ -323,6 +354,8 @@ type TurnOptions struct {
 	Files []PromptFile
 	// Rules 是全局自定义指令（契约 v0.35 6.19.12.4）。非空时每一轮都带 --rules=<指令>，空则不带。
 	Rules string
+	// Provider 是 v0.38 自定义服务商；Enabled 时只注入子进程 env，不写父进程（6.19.12.8）。
+	Provider ProviderOverlay
 	// OnError 在失败原文出现时立刻回调（进程还没退出也会调）。同一句可能来自标准输出和标准错误，调用方自己去重。
 	OnError func(msg string)
 }
@@ -400,7 +433,7 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 
 	cmd := a.runCmd(runCtx, exe, args...)
 	cmd.Dir = cwd
-	cmd.Env = grokTurnEnv(os.Environ())
+	cmd.Env = MergeProviderEnv(grokTurnEnv(os.Environ()), opts.Provider)
 
 	// 管道上的 stdout 经常要攒满一块才吐出来。会话文件是逐条追加的，有它就跟着文件走。
 	var followMode int32
@@ -1506,6 +1539,7 @@ func (a *BuildAdapter) probeGrokModels(exe string) []Model {
 	ctx, cancel := context.WithTimeout(context.Background(), modelsProbeTimeout)
 	defer cancel()
 	cmd := a.runCmd(ctx, exe, "models")
+	cmd.Env = MergeProviderEnv(grokTurnEnv(os.Environ()), a.providerOverlay())
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	_ = cmd.Run()
