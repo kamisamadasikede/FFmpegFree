@@ -13,6 +13,8 @@ export function ClearCatProviderKey(arg1:cat.ClearProviderKeyRequest):Promise<ca
 export function CreateCatConversation(arg1:cat.CreateConversationRequest):Promise<store.CatConversation>;
 
 export function CreateCatProject(arg1:cat.CreateProjectRequest):Promise<cat.CreateProjectResult>;
+export function CloneCatProject(arg1:cat.CloneCatProjectRequest):Promise<cat.CloneCatProjectResult>;
+export function CancelCloneCatProject(arg1:cat.CancelCloneCatProjectRequest):Promise<void>;
 
 export function CreateCatSchedule(arg1:cat.ScheduleInput):Promise<cat.Schedule>;
 

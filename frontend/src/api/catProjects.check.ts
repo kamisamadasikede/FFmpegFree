@@ -2,16 +2,19 @@
 import { AppError } from './call'
 import {
   CAT_PROJECT_COPY,
+  cloneErrorPlacement,
   createCatProject,
   deleteCatProject,
   duplicateProjectId,
   folderName,
   isRootPath,
   listCatProjects,
+  looksLikeGitUrl,
   pathKey,
   projectErrorText,
   relocateCatProject,
   renameCatProject,
+  repoNameFromUrl,
   resetCatProjectSim,
   revealCatProject,
   revealLabel,
@@ -67,5 +70,7 @@ export async function catProjectsChecks(eq: Eq): Promise<void> {
     duplicateProjectId(new AppError('INVALID_ARGUMENT', 'x', 'reason=project_duplicate')),
   ], ['请选择一个文件夹。', '不能把整个磁盘作为项目，请选择里面的文件夹。', '名字需要 1~60 个字。', '有对话正在回复，请先停止再换文件夹。', '项目文件夹不见了。', CAT_PROJECT_COPY.failed, ''])
   eq('项目：显示文件夹按平台', ['windows', 'darwin', 'linux'].map(revealLabel), ['在资源管理器中显示', '在访达中显示', '在文件管理器中显示'])
+  eq('克隆：URL 粗校验 / 仓库名', [looksLikeGitUrl(''), looksLikeGitUrl('https://github.com/org/repo.git'), looksLikeGitUrl('git@host:org/repo.git'), looksLikeGitUrl('not-a-url'), repoNameFromUrl('https://github.com/org/ffmpeg-demo.git'), repoNameFromUrl('git@github.com:org/ffmpeg-demo.git')], [false, true, true, false, 'ffmpeg-demo', 'ffmpeg-demo'])
+  eq('克隆：行内错误归位', [cloneErrorPlacement(new AppError('INVALID_ARGUMENT', CAT_PROJECT_COPY.badGitUrl, 'reason=git_url')).place, cloneErrorPlacement(new AppError('IO_ERROR', CAT_PROJECT_COPY.cloneUnwritable)).place, cloneErrorPlacement(new AppError('PROCESS_FAILED', CAT_PROJECT_COPY.cloneAuth)).place], ['url', 'parent', 'banner'])
   resetCatProjectSim()
 }

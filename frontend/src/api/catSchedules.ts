@@ -1,5 +1,5 @@
 /**
- * Cat 定时任务接口层（契约 v0.35.1~v0.35.2 §6.19.13，设计《Cat-设置与定时任务-设计说明-v0.3.1》§4）。
+ * Cat 定时任务接口层（契约 v0.35.1~v0.40 §6.19.13，设计《Cat-设置与定时任务-设计说明-v0.3.1》§4）。
  * CAT_SCHEDULE_BACKEND_READY=true 且在 Wails 里：调生成的 CatService 绑定（后端 #214，类型 cat.Schedule / cat.ScheduleRun），订阅 cat:schedule。
  * 否则：只有 vite dev 下走内存模拟（变化经模拟事件总线发 cat:schedule；走查开关 ?cat_sim=schedempty / schedfail），正式包里没有模拟数据。
  */
@@ -8,6 +8,7 @@ import { cat } from '../../wailsjs/go/models'
 import { AppError, call } from '@/api/call'
 import { CAT_SCHEDULE_BACKEND_READY } from '@/api/flags'
 import { emitSimEvent, hasWailsBackend, onTaskEvent } from '@/services/wails'
+import { CAT_AGENT_BUILD, normalizeProviderKind, type CatProviderKind } from '@/api/catAgents'
 import { catSim } from '@/views/cat/catDevSim'
 
 export { CAT_SCHEDULE_BACKEND_READY }
@@ -41,12 +42,15 @@ export interface CatScheduleInput {
   model: string
   effort: string
   approvalMode: string
+  /** v0.40：cat_build | claude_cli | codex_cli；缺省 / 迁移前视为 cat_build */
+  agentKind?: CatProviderKind | string
   /** 新建时用；编辑时由暂停 / 恢复控制 */
   enabled?: boolean
 }
 
-export interface CatSchedule extends CatScheduleInput {
+export interface CatSchedule extends Omit<CatScheduleInput, 'agentKind'> {
   id: string
+  agentKind: CatProviderKind | string
   timezone: string
   enabled: boolean
   projectDeleted: boolean
@@ -132,6 +136,7 @@ export const CAT_SCHED_COPY = {
   project: '所属项目',
   projectPh: '选择项目',
   approval: '批准方式',
+  agentKind: '服务商',
   approveWarn: '无人看着时，Cat 助手会直接改文件、运行命令，不再询问。建议用 Plan。',
   normalHint: '无人看着时没人能确认，任务会停住，30 分钟后算失败。',
   more2: '更多选项',
@@ -227,6 +232,7 @@ export function normalizeSchedule(raw: unknown): CatSchedule {
     model: s('model'),
     effort: s('effort'),
     approvalMode: s('approvalMode') || 'plan',
+    agentKind: normalizeProviderKind(s('agentKind')),
     enabled: r.enabled !== false,
     projectDeleted: r.projectDeleted === true,
     nextRunAt: Number(r.nextRunAt) || 0,
@@ -321,7 +327,7 @@ function mkRun(scheduleId: string, status: CatScheduleRunStatus, ago: number, ex
 function mkSched(id: string, p: Partial<CatSchedule>, runs: CatScheduleRun[]): CatSchedule {
   const base: CatSchedule = {
     id, name: '', prompt: '检查项目里的改动并给出建议。', projectId: 'p2', frequency: 'daily', time: '09:00', weekdays: [], runAt: 0,
-    timezone: 'Asia/Shanghai', model: '', effort: '', approvalMode: 'plan', enabled: true, projectDeleted: false, nextRunAt: 0,
+    timezone: 'Asia/Shanghai', model: '', effort: '', approvalMode: 'plan', agentKind: CAT_AGENT_BUILD, enabled: true, projectDeleted: false, nextRunAt: 0,
     createdAt: Date.now() - Number(id.slice(1)) * HOUR, updatedAt: Date.now(), ...p,
   }
   if (!base.nextRunAt && base.enabled && !base.projectDeleted) base.nextRunAt = computeNextRun(base)
@@ -412,6 +418,7 @@ function toInput(req: CatScheduleInput) {
   return {
     name: req.name, prompt: req.prompt, projectId: req.projectId, frequency: req.frequency, time: req.time,
     weekdays: req.weekdays, runAt: req.runAt, model: req.model, effort: req.effort, approvalMode: req.approvalMode,
+    agentKind: normalizeProviderKind(req.agentKind),
   }
 }
 

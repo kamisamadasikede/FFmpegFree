@@ -79,7 +79,7 @@ import { previewKind, type CatShownFile } from '@/components/cat/catMedia'
 import { applyStreamEvent, newStreamMsg, type CatStreamEvent, type CatStreamMsg, type CatTurnEvent } from '@/api/catStream'
 import { liveTurnPlan, transcriptChanged } from './catLive'
 import { AppError, toAppError } from '@/api/call'
-import { catPanels, defaultConvPref } from './catPanels'
+import { catPanels, showTurnFinishToast, defaultConvPref } from './catPanels'
 import { rememberNewConvProject, resolveNewConvProject } from './catLocalPrefs'
 import { catSim, catSimOs, catSimPicks, simModels, simStream, simThinks } from './catDevSim'
 import {
@@ -201,6 +201,8 @@ export const catState = reactive({
   platform: ((import.meta.env.DEV && catSimOs) || guessPlatform()) as CatPlatform,
   /** 正在行内改名的项目 id */
   renaming: '' as string,
+  /** v0.40：添加项目双入口对话框 */
+  addingProject: false,
   /** 删除确认框对应的项目 id */
   deleting: '' as string,
   /** 删除确认框对应的对话 id（设计 v0.3 §13；与 deleting 同一个确认框组件） */
@@ -900,6 +902,12 @@ function endTurn(convId: string, how: TurnEnd, token?: number, ev?: CatTurnEvent
     }
   }
   else if (how === 'not_ready') list.push({ kind: 'sys', text: catState.status.error?.message || CAT_COPY.notReady })
+  // v0.40：完成后通知 — 前台 toast；cancelled 不发；开关关则不发（系统通知由后端在后台发）
+  if (how === 'completed' || how === 'failed' || how === 'not_ready') {
+    const title = findConv(convId)?.conv.title || ''
+    const errText = how === 'completed' ? '' : ((turn.failMsg || '').trim() || (how === 'not_ready' ? (catState.status.error?.message || CAT_COPY.notReady) : CAT_COPY.replyFailed))
+    showTurnFinishToast(convId, how === 'completed' ? 'completed' : 'failed', title, errText)
+  }
 }
 
 function fileChips(files: CatOutgoingFile[]): CatShownFile[] | undefined {
@@ -1238,8 +1246,40 @@ export function focusProject(id: string) {
   }, 0)
 }
 
-/** 新建项目：选文件夹 → CreateCatProject；existed → 提示并定位已有项目；新建 → 插顶部、展开、进入该项目的新对话 */
-export async function createProject() {
+/** v0.40：打开添加项目双入口对话框（本机文件夹 | 从 Git 克隆） */
+export function createProject() {
+  if (!catProjectsOn()) {
+    notify(CAT_PROJECT_COPY.later)
+    return
+  }
+  catState.addingProject = true
+}
+
+export function closeAddProject() {
+  catState.addingProject = false
+}
+
+/** 成功添加 / 克隆后：插顶部、展开、进入可聊（与本机添加一致） */
+export function applyAddedProject(a: { id: string; name: string; path: string; missing: boolean; createdAt: number }, existed: boolean) {
+  if (existed) {
+    if (!catState.projects.some((p) => p.id === a.id)) {
+      catState.projects.unshift({ id: a.id, name: a.name, path: a.path, missing: a.missing, createdAt: a.createdAt, open: true, branch: '', convs: [] })
+    }
+    notify(CAT_PROJECT_COPY.existed)
+    focusProject(a.id)
+    return
+  }
+  catState.projects = catState.projects.filter((p) => p.id !== a.id)
+  catState.projects.unshift({ id: a.id, name: a.name, path: a.path, missing: a.missing, createdAt: a.createdAt, open: true, branch: '', convs: [] })
+  catState.sel = NEW_CONV
+  catState.newProjectId = a.id
+  focusProject(a.id)
+  announce(CAT_PROJECT_COPY.added(a.name))
+  notify(CAT_PROJECT_COPY.added(a.name))
+}
+
+/** 本机文件夹入口：选目录 → CreateCatProject */
+export async function createProjectFromFolder() {
   if (!catProjectsOn()) {
     notify(CAT_PROJECT_COPY.later)
     return
@@ -1251,22 +1291,15 @@ export async function createProject() {
     notify(projectErrorText(e), 'warn')
     return
   }
-  if (!path) return // 用户取消：什么都不做
+  if (!path) return
   try {
     const r = await createCatProject({ path })
     if (r.existed) {
       if (!catState.projects.some((p) => p.id === r.project.id)) await refreshProjects()
-      notify(CAT_PROJECT_COPY.existed)
-      focusProject(r.project.id)
+      applyAddedProject(r.project, true)
       return
     }
-    const a = r.project
-    catState.projects = catState.projects.filter((p) => p.id !== a.id)
-    catState.projects.unshift({ id: a.id, name: a.name, path: a.path, missing: a.missing, createdAt: a.createdAt, open: true, branch: '', convs: [] })
-    catState.sel = NEW_CONV
-    catState.newProjectId = a.id
-    focusProject(a.id)
-    announce(CAT_PROJECT_COPY.added(a.name))
+    applyAddedProject(r.project, false)
   } catch (e) {
     notify(projectErrorText(e), 'warn')
   }

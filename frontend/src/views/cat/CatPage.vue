@@ -227,6 +227,7 @@
       </div>
     </div>
     <CatProjectDeleteDialog />
+    <CatAddProjectDialog />
     <CatScheduleToast />
   </div>
 </template>
@@ -241,6 +242,7 @@ import CatComposer from '@/components/cat/CatComposer.vue'
 import CatMessages from '@/components/cat/CatMessages.vue'
 import CatConvSearch from '@/components/cat/CatConvSearch.vue'
 import CatProjectDeleteDialog from '@/components/cat/CatProjectDeleteDialog.vue'
+import CatAddProjectDialog from '@/components/cat/CatAddProjectDialog.vue'
 import CatSettingsView from '@/components/cat/panels/CatSettingsView.vue'
 import CatAgentMark from '@/components/cat/CatAgentMark.vue'
 import CatSchedulesView from '@/components/cat/panels/CatSchedulesView.vue'
