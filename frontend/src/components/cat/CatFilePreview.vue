@@ -326,7 +326,7 @@ defineExpose({ requestClose })
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--ff-bg-surface);
+  background: var(--cat-surface);
 }
 .hd {
   height: 44px;
@@ -335,7 +335,7 @@ defineExpose({ requestClose })
   align-items: center;
   gap: 6px;
   padding: 0 10px;
-  border-bottom: 1px solid var(--ff-border);
+  border-bottom: 1px solid var(--cat-border);
 }
 .nm {
   min-width: 0;
@@ -343,7 +343,7 @@ defineExpose({ requestClose })
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
-  color: var(--ff-text-1);
+  color: var(--cat-text);
   user-select: text;
   -webkit-user-select: text;
 }
@@ -352,7 +352,7 @@ defineExpose({ requestClose })
   height: 6px;
   flex: none;
   border-radius: 50%;
-  background: var(--ff-warning);
+  background: var(--cat-warn);
 }
 .sp {
   flex: 1;
@@ -361,14 +361,14 @@ defineExpose({ requestClose })
   display: flex;
   padding: 2px;
   border-radius: 6px;
-  background: var(--ff-bg-hover);
+  background: var(--cat-hover);
 }
 .seg button,
 .icon-btn,
 .x {
   border: none;
   background: transparent;
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
   font: inherit;
   font-size: 12px;
   border-radius: 5px;
@@ -385,8 +385,8 @@ defineExpose({ requestClose })
 }
 .seg button.on,
 .icon-btn.on {
-  color: var(--ff-text-1);
-  background: var(--ff-bg-hover);
+  color: var(--cat-text);
+  background: var(--cat-hover);
 }
 .state {
   flex: 1;
@@ -395,7 +395,7 @@ defineExpose({ requestClose })
   justify-content: center;
   padding: 24px 16px;
   text-align: center;
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
   font-size: 13px;
   user-select: text;
   -webkit-user-select: text;
@@ -406,7 +406,7 @@ defineExpose({ requestClose })
   min-height: 0;
   width: 100%;
   border: none;
-  background: var(--ff-bg-app);
+  background: var(--cat-bg);
   user-select: text;
   -webkit-user-select: text;
 }

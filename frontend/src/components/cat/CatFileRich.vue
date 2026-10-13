@@ -247,7 +247,7 @@ async function renderSlides(bytes: Uint8Array, my: number) {
   margin: 0;
   padding: 24px 16px;
   text-align: center;
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
   font-size: 13px;
 }
 .slide .muted {
@@ -261,7 +261,7 @@ async function renderSlides(bytes: Uint8Array, my: number) {
   min-height: 0;
   width: 100%;
   border: none;
-  background: var(--ff-bg-app);
+  background: var(--cat-bg);
   object-fit: contain;
 }
 .media {
@@ -277,7 +277,7 @@ async function renderSlides(bytes: Uint8Array, my: number) {
 .tab {
   border: none;
   background: transparent;
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
   border-radius: 6px;
   padding: 4px 8px;
   font: inherit;
@@ -285,16 +285,16 @@ async function renderSlides(bytes: Uint8Array, my: number) {
   cursor: pointer;
 }
 .tab.on {
-  background: var(--ff-bg-hover);
-  color: var(--ff-text-1);
+  background: var(--cat-hover);
+  color: var(--cat-text);
 }
 .grid {
   border-collapse: collapse;
   font-size: 12px;
-  color: var(--ff-text-1);
+  color: var(--cat-text);
 }
 .grid td {
-  border: 1px solid var(--ff-border);
+  border: 1px solid var(--cat-border);
   padding: 4px 8px;
   white-space: nowrap;
   max-width: 240px;
@@ -304,7 +304,7 @@ async function renderSlides(bytes: Uint8Array, my: number) {
 .slide {
   margin: 0 0 12px;
   padding: 12px;
-  border: 1px solid var(--ff-border);
+  border: 1px solid var(--cat-border);
   border-radius: 8px;
 }
 .slide h3 {

@@ -193,16 +193,16 @@ function onAux(e: MouseEvent) {
 .cat-md :deep(h6) { font-size: 13px; }
 .cat-md :deep(hr) {
   border: 0;
-  border-top: 1px solid var(--ff-border);
+  border-top: 1px solid var(--cat-border);
   margin: 4px 0;
 }
 .cat-md :deep(blockquote) {
   padding: 2px 0 2px 12px;
-  border-left: 3px solid var(--ff-border);
-  color: var(--ff-text-2);
+  border-left: 3px solid var(--cat-border);
+  color: var(--cat-text-2);
 }
 .cat-md :deep(a) {
-  color: var(--ff-primary-text);
+  color: var(--cat-active-text);
   text-decoration: underline;
   text-underline-offset: 2px;
   cursor: pointer;
@@ -217,12 +217,12 @@ function onAux(e: MouseEvent) {
   font-size: 12px;
   padding: 1px 5px;
   border-radius: 4px;
-  background: var(--ff-bg-hover);
+  background: var(--cat-sunken);
 }
 .cat-md :deep(.cat-md-code) {
-  border: 1px solid var(--ff-border);
-  border-radius: 8px;
-  background: var(--ff-bg-app);
+  border: 1px solid var(--cat-border);
+  border-radius: var(--cat-radius-md);
+  background: var(--cat-code-bg);
   overflow: hidden;
 }
 .cat-md :deep(.cat-md-bar) {
@@ -232,26 +232,27 @@ function onAux(e: MouseEvent) {
   justify-content: space-between;
   padding: 0 6px 0 12px;
   font-size: 11px;
-  color: var(--ff-text-3);
-  border-bottom: 1px solid var(--ff-border);
+  color: var(--cat-muted);
+  border-bottom: 1px solid var(--cat-border);
 }
 .cat-md :deep(.cat-md-copy) {
   border: 0;
   background: transparent;
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
   font: inherit;
   font-size: 11px;
   padding: 2px 6px;
   border-radius: 4px;
   cursor: pointer;
+  transition: background var(--ff-dur-quick), color var(--ff-dur-quick);
 }
 .cat-md :deep(.cat-md-copy:hover) {
-  background: var(--ff-bg-hover);
-  color: var(--ff-text-1);
+  background: var(--cat-hover);
+  color: var(--cat-text);
 }
 .cat-md :deep(.cat-md-copy:focus-visible) {
-  outline: 2px solid var(--ff-primary);
-  outline-offset: 1px;
+  outline: none;
+  box-shadow: var(--cat-focus);
 }
 .cat-md :deep(.cat-md-code pre) {
   padding: 8px 14px 10px;
@@ -279,13 +280,13 @@ function onAux(e: MouseEvent) {
 }
 .cat-md :deep(th),
 .cat-md :deep(td) {
-  border: 1px solid var(--ff-border);
+  border: 1px solid var(--cat-border);
   padding: 4px 10px;
   text-align: left;
   white-space: nowrap;
 }
 .cat-md :deep(th) {
-  background: var(--ff-bg-hover);
+  background: var(--cat-sunken);
   font-weight: 600;
 }
 /* 流式光标：只挂在最后一块的最后一段文字后面（减少动效时不显示） */
@@ -297,7 +298,7 @@ function onAux(e: MouseEvent) {
   height: 1em;
   margin-left: 2px;
   vertical-align: -2px;
-  background: var(--ff-text-3);
+  background: var(--cat-accent);
   border-radius: 1px;
   animation: cat-md-caret 1s steps(2, start) infinite;
 }

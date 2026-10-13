@@ -76,7 +76,7 @@
         </div>
       </div>
     </template>
-    <div v-if="pending" class="ct-act think" role="status">
+    <div v-if="pending" class="ct-act think pend" role="status">
       <div class="ct-fold static">
         <span class="car" aria-hidden="true" />
         <i class="ct-spin" aria-hidden="true" />
@@ -150,10 +150,10 @@ const InlineText = defineComponent({
 .ct-sys {
   font-size: 12px;
   line-height: 1.6;
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
 }
 .ct-sys.err {
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
 }
 @media (prefers-reduced-motion: reduce) {
   .ct-spin {
@@ -168,7 +168,7 @@ const InlineText = defineComponent({
   gap: 12px;
   font-size: 13px;
   line-height: 1.75;
-  color: var(--ff-text-1);
+  color: var(--cat-text);
   padding: 0 16px;
   user-select: text;
   -webkit-user-select: text;
@@ -193,8 +193,8 @@ ul {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: var(--ff-danger);
-  color: #fff;
+  background: var(--cat-danger);
+  color: var(--cat-on-danger);
   font-size: 13px;
   font-weight: 700;
   line-height: 18px;
@@ -223,8 +223,8 @@ ul {
   padding: 4px 8px;
   border: none;
   border-radius: 8px;
-  background: #f4f5f7;
-  color: var(--ff-text-2);
+  background: var(--cat-user-bubble);
+  color: var(--cat-text-2);
   font: inherit;
   font-size: 12px;
   line-height: 1.3;
@@ -262,12 +262,9 @@ ul {
   white-space: nowrap;
   font-weight: 500;
 }
-html.dark .ct-user-card {
-  background: var(--ff-bg-hover);
-}
 .ct-user {
   max-width: 440px;
-  background: var(--ff-bg-hover);
+  background: var(--cat-user-bubble);
   border-radius: 10px;
   padding: 8px 12px;
   white-space: pre-wrap;
@@ -278,11 +275,35 @@ html.dark .ct-user-card {
   line-height: 1.6;
 }
 .ct-act.think {
-  color: var(--ff-primary-text);
+  color: var(--cat-active-text);
+}
+/* F1 「正在思考…」文字闪光；减少动效下静态次要色 */
+/* 只闪文字；同屏只留一个循环动画，等待时不再转圈 */
+.ct-act.pend .ct-spin {
+  display: none;
+}
+.ct-act.pend .sum {
+  background: linear-gradient(90deg, var(--cat-text-2) 0%, var(--cat-text-2) 40%, var(--cat-accent) 50%, var(--cat-text-2) 60%, var(--cat-text-2) 100%);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: cat-shimmer 1.6s linear infinite;
+}
+@keyframes cat-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: 0 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ct-act.pend .sum {
+    animation: none;
+    background: none;
+    color: var(--cat-text-2);
+  }
 }
 .ct-act.tool,
 .ct-act.change {
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
 }
 .ct-fold {
   display: flex;
@@ -303,7 +324,7 @@ html.dark .ct-user-card {
   cursor: default;
 }
 .ct-fold:focus-visible {
-  outline: 2px solid var(--ff-primary);
+  outline: 2px solid var(--cat-accent);
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -314,7 +335,7 @@ html.dark .ct-user-card {
   place-items: center;
   flex: none;
   margin-top: 2px;
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
 }
 .ct-fold .sum {
   flex: 1;
@@ -324,19 +345,19 @@ html.dark .ct-user-card {
 }
 .ct-act.tool .ct-fold:hover .sum,
 .ct-act.change .ct-fold:hover .sum {
-  color: var(--ff-text-1);
+  color: var(--cat-text);
 }
 .ct-body {
   margin: 4px 0 0 18px;
   white-space: pre-wrap;
   word-break: break-word;
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
 }
 .ct-body.mono {
   padding: 8px 10px;
-  border: 1px solid var(--ff-border);
+  border: 1px solid var(--cat-border);
   border-radius: 8px;
-  background: var(--ff-bg-app);
+  background: var(--cat-code-bg);
   font-family: var(--ff-font-mono);
   font-size: 12px;
   line-height: 1.6;
@@ -350,17 +371,17 @@ html.dark .ct-user-card {
   word-break: break-word;
 }
 .ct-diff-line.add {
-  color: var(--ff-success-text);
-  background: color-mix(in srgb, var(--ff-success) 16%, transparent);
+  color: var(--cat-success-text);
+  background: color-mix(in srgb, var(--cat-success) 16%, transparent);
 }
 .ct-diff-line.del {
-  color: var(--ff-danger-text);
-  background: color-mix(in srgb, var(--ff-danger) 14%, transparent);
+  color: var(--cat-danger-text);
+  background: color-mix(in srgb, var(--cat-danger) 14%, transparent);
 }
 .ct-code {
-  border: 1px solid var(--ff-border);
+  border: 1px solid var(--cat-border);
   border-radius: 8px;
-  background: var(--ff-bg-app);
+  background: var(--cat-code-bg);
   overflow: hidden;
 }
 .ct-code .bar {
@@ -370,7 +391,7 @@ html.dark .ct-user-card {
   justify-content: space-between;
   padding: 0 10px;
   font-size: 11px;
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
 }
 .ct-code pre {
   margin: 0;
@@ -382,25 +403,22 @@ html.dark .ct-user-card {
   overflow-x: auto;
 }
 .ct-code .kw {
-  color: #2f5bd3;
-}
-html.dark .ct-code .kw {
-  color: #93b4ff;
+  color: var(--cat-code-kw);
 }
 .ct-code .more {
   height: 28px;
   display: grid;
   place-items: center;
   font-size: 12px;
-  color: var(--ff-text-2);
-  border-top: 1px solid var(--ff-border);
+  color: var(--cat-text-2);
+  border-top: 1px solid var(--cat-border);
 }
 .ct-col :deep(code) {
   font-family: var(--ff-font-mono);
   font-size: 12px;
   padding: 1px 5px;
   border-radius: 4px;
-  background: var(--ff-bg-hover);
+  background: var(--cat-hover);
   font-weight: 600;
 }
 .ct-spin {
@@ -410,8 +428,8 @@ html.dark .ct-code .kw {
   box-sizing: border-box;
   margin-top: 3px;
   border-radius: 50%;
-  border: 2px solid var(--ff-border);
-  border-top-color: var(--ff-primary);
+  border: 2px solid var(--cat-border);
+  border-top-color: var(--cat-accent);
   animation: ct-spin 0.9s linear infinite;
 }
 @keyframes ct-spin {

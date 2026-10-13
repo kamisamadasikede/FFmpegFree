@@ -1,6 +1,7 @@
-/** 每条对话自己的模型、思考强度和批准方式。只记 id，正文仍在 CLI。 */
+/** 每条对话自己的模型、思考强度和批准方式。只记 id，正文不在本地。 */
 
-export const CAT_CONV_PREFS_KEY = 'ffmpegfree.cat.convPrefs'
+export { CAT_CONV_PREFS_KEY } from '@/api/catStorageKeys'
+import { CAT_CONV_PREFS_KEY } from '@/api/catStorageKeys'
 
 /** 批准方式。没记过按全部批准。 */
 export type CatAccessId = 'normal' | 'plan' | 'auto' | 'approve'

@@ -141,24 +141,19 @@ function onKey(e: KeyboardEvent) {
   z-index: 3100;
   display: grid;
   place-items: center;
-  background: rgba(0, 0, 0, 0.32);
-  animation: pd-fade 150ms ease both;
-}
-html.dark .pd-mask {
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--cat-scrim);
+  animation: pd-fade var(--ff-dur-base) var(--ff-ease-out) both;
 }
 .pd {
   width: 420px;
   max-width: calc(100vw - 32px);
   padding: 20px 20px 16px;
   border-radius: 12px;
-  background: var(--ff-bg-surface);
-  border: 1px solid var(--ff-border);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.18);
-  animation: pd-pop 160ms ease both;
-}
-html.dark .pd {
-  background: var(--ff-bg-elevated);
+  background: var(--cat-elevated);
+  border: 1px solid var(--cat-border);
+  border-radius: var(--cat-radius-xl);
+  box-shadow: var(--cat-shadow-lg);
+  animation: pd-pop var(--ff-dur-slow) var(--ff-ease-out) both;
 }
 .pd-ic {
   width: 36px;
@@ -166,22 +161,22 @@ html.dark .pd {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  color: var(--ff-danger);
-  background: color-mix(in srgb, var(--ff-danger) 12%, transparent);
+  color: var(--cat-danger);
+  background: color-mix(in srgb, var(--cat-danger) 12%, transparent);
   margin-bottom: 12px;
 }
 .pd h3 {
   margin: 0 0 6px;
   font-size: 15px;
   font-weight: 600;
-  color: var(--ff-text-1);
+  color: var(--cat-text);
   word-break: break-all;
 }
 .pd p {
   margin: 0;
   font-size: 13px;
   line-height: 1.6;
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
 }
 .pd-btns {
   display: flex;
@@ -193,28 +188,28 @@ html.dark .pd {
   height: 32px;
   padding: 0 14px;
   border-radius: 7px;
-  border: 1px solid var(--ff-border);
-  background: var(--ff-bg-surface);
-  color: var(--ff-text-1);
+  border: 1px solid var(--cat-border);
+  background: var(--cat-surface);
+  color: var(--cat-text);
   font: inherit;
   font-size: 13px;
   cursor: pointer;
 }
 .pd-b:hover {
-  background: var(--ff-bg-hover);
+  background: var(--cat-hover);
 }
 .pd-b.danger {
-  border-color: var(--ff-danger);
-  background: var(--ff-danger);
-  color: #fff;
+  border-color: var(--cat-danger);
+  background: var(--cat-danger);
+  color: var(--cat-on-danger);
   font-weight: 500;
 }
 .pd-b.danger:hover {
   filter: brightness(0.94);
 }
 .pd-b:focus-visible {
-  outline: 2px solid var(--ff-primary);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: var(--cat-focus);
 }
 .pd-b:disabled {
   opacity: 0.6;
@@ -236,8 +231,8 @@ html.dark .pd {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  border: 1.5px solid rgba(255, 255, 255, 0.45);
-  border-top-color: #fff;
+  border: 1.5px solid color-mix(in srgb, var(--cat-on-danger) 45%, transparent);
+  border-top-color: var(--cat-on-danger);
   animation: pd-spin 0.8s linear infinite;
   flex: none;
 }
@@ -249,7 +244,7 @@ html.dark .pd {
   to { opacity: 1; }
 }
 @keyframes pd-pop {
-  from { opacity: 0; transform: scale(0.96); }
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
   to { opacity: 1; transform: none; }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -1,5 +1,6 @@
 /** 文件预览宽度。树宽固定，预览宽度由用户拖动，并给中间对话留出位置。 */
-export const CAT_PREVIEW_WIDTH_KEY = 'ffmpegfree.cat.previewWidth'
+export { CAT_PREVIEW_WIDTH_KEY } from '@/api/catStorageKeys'
+import { CAT_PREVIEW_WIDTH_KEY } from '@/api/catStorageKeys'
 export const CAT_TREE_WIDTH = 236
 export const CAT_PREVIEW_MIN = 280
 export const CAT_PREVIEW_DEFAULT = 480

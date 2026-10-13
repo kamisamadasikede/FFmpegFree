@@ -10,6 +10,7 @@ import './styles/element-override.css'
 import './styles/base.css'
 import './styles/motion.css'
 import './styles/settings-panels.css'
+import './styles/cat-tokens.css'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import { createPinia } from 'pinia'
 const app = createApp(App)
