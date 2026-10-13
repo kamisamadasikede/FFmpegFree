@@ -1,9 +1,10 @@
 /**
- * Cat 设置接口层（契约 v0.35.1 §6.19.12；v0.36 defaultsByAgent；v0.38 providersByAgent）。
- * CAT_SETTINGS_BACKEND_READY=true 且在 Wails 里：调生成的 CatService 绑定。
- * 否则走内存模拟；走查开关见 views/cat/catDevSim.ts（savefail / inspectfail / inspectslow / inspectempty / clearfail / keyfail）。
+ * Cat 设置接口层（契约 v0.35.1–v0.39 §6.19.12；v0.36 defaultsByAgent；v0.38 providersByAgent；v0.39 技能/MCP 可管理）。
+ * CAT_SETTINGS_BACKEND_READY=true 且在 Wails 里：调生成的 CatService 绑定（含 v0.39 技能管理）。
+ * 否则走内存模拟；走查开关见 views/cat/catDevSim.ts（savefail / inspect* / clearfail / keyfail / skillsmissing / setenablefail）。
  *
  * Save 走生成的 cat.Settings（v0.36 defaultsByAgent + v0.38 providersByAgent；Key 走 Save/ClearCatProviderKey）。
+ * v0.39：InspectCatConfig + SetCatInspectItemEnabled / RevealCatSkillsDir / EnsureCreateCatSkillsDir。
  */
 import * as CatBinding from '../../wailsjs/go/app/CatService'
 import { cat } from '../../wailsjs/go/models'
@@ -86,6 +87,8 @@ export interface CatInspectItem {
   enabled: boolean
 }
 
+export type CatInspectCategory = 'skill' | 'mcp' | 'plugin' | 'hook'
+
 export interface CatInspectResult {
   skills: CatInspectItem[]
   plugins: CatInspectItem[]
@@ -93,7 +96,19 @@ export interface CatInspectResult {
   mcpServers: CatInspectItem[]
   agents: CatInspectItem[]
   version?: string
-  reason?: '' | 'not_ready' | 'timeout' | 'parse' | string
+  /** 空 = 成功；not_ready | timeout | parse | unsupported | no_project */
+  reason?: '' | 'not_ready' | 'timeout' | 'parse' | 'unsupported' | 'no_project' | string
+  /** v0.39：绝对路径；无项目时省略 */
+  skillsRoot?: string
+  mcpConfigPath?: string
+  skillsRootExists?: boolean
+}
+
+export interface CatSkillsDirResult {
+  skillsRoot: string
+  mcpConfigPath: string
+  skillsRootExists: boolean
+  opened: boolean
 }
 
 export const CAT_INSTRUCTION_MAX = 4000
@@ -155,9 +170,21 @@ export const CAT_SETTINGS_COPY = {
   instrOver: '最多 4000 字。',
   instrSave: '保存',
   instrRevert: '恢复上次保存',
-  extTip: '这里只读显示 Cat 助手在本机已安装的内容。增删改请在 Cat 助手里操作，下一期开放在这里管理。',
+  /** v0.39：页顶路径说明（无 skillsRoot 时用模板路径） */
+  extTipBefore: '技能与 MCP 按',
+  extTipProject: '当前项目',
+  extTipMid: '存放，三家共用。路径：',
+  extTipPathFallback: '<项目>/.ffmpegfree/cat/skills',
+  extTipAfter: '（MCP：同级 mcp.json）。在此只能启用或停用；安装与卸载请在对应 CLI 或系统终端完成。',
+  openDir: '打开目录',
+  createAndOpen: '创建并打开',
+  noSkillsDir: '项目里还没有技能目录。',
+  noSkillsDirBody: '将在当前项目下创建 `.ffmpegfree/cat/skills`，并打开该文件夹。',
+  noProjectExt: '先打开或选择一个项目，再管理技能与扩展。',
+  pickProject: '选择项目…',
   skills: '技能',
   exts: '扩展',
+  extsFull: '扩展（MCP 与插件）',
   hooks: '钩子',
   extEmpty: '还没有安装。',
   extFailed: '列表加载失败，请重试。',
@@ -405,7 +432,17 @@ export async function clearCatProviderKey(agentKind: CatProviderKind): Promise<C
   return { ...next }
 }
 
-const emptyInspect = (reason: string): CatInspectResult => ({ skills: [], plugins: [], hooks: [], mcpServers: [], agents: [], reason })
+const emptyInspect = (reason: string): CatInspectResult => ({
+  skills: [],
+  plugins: [],
+  hooks: [],
+  mcpServers: [],
+  agents: [],
+  reason,
+  skillsRoot: '',
+  mcpConfigPath: '',
+  skillsRootExists: false,
+})
 
 function items(raw: unknown): CatInspectItem[] {
   if (!Array.isArray(raw)) return []
@@ -417,9 +454,22 @@ function items(raw: unknown): CatInspectItem[] {
     })
 }
 
+function oneItem(raw: unknown): CatInspectItem {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  return {
+    name: typeof r.name === 'string' ? r.name : '',
+    description: typeof r.description === 'string' ? r.description : '',
+    source: typeof r.source === 'string' ? r.source : '',
+    enabled: r.enabled !== false,
+  }
+}
+
 export function normalizeInspect(raw: unknown): CatInspectResult {
   if (!raw || typeof raw !== 'object') return emptyInspect('parse')
   const r = raw as Record<string, unknown>
+  const reason = typeof r.reason === 'string' ? r.reason : ''
+  const skillsRoot = typeof r.skillsRoot === 'string' ? r.skillsRoot : ''
+  const mcpConfigPath = typeof r.mcpConfigPath === 'string' ? r.mcpConfigPath : ''
   return {
     skills: items(r.skills),
     plugins: items(r.plugins),
@@ -427,8 +477,27 @@ export function normalizeInspect(raw: unknown): CatInspectResult {
     mcpServers: items(r.mcpServers),
     agents: items(r.agents),
     version: typeof r.version === 'string' ? r.version : '',
-    reason: typeof r.reason === 'string' ? r.reason : '',
+    reason,
+    skillsRoot,
+    mcpConfigPath,
+    skillsRootExists: r.skillsRootExists === true,
   }
+}
+
+export function normalizeSkillsDir(raw: unknown): CatSkillsDirResult {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  return {
+    skillsRoot: typeof r.skillsRoot === 'string' ? r.skillsRoot : '',
+    mcpConfigPath: typeof r.mcpConfigPath === 'string' ? r.mcpConfigPath : '',
+    skillsRootExists: r.skillsRootExists === true,
+    opened: r.opened === true,
+  }
+}
+
+/** 页顶路径展示：有 skillsRoot 时尽量显示「项目名/.ffmpegfree/cat/skills」；否则模板。 */
+export function skillsPathLabel(_skillsRoot: string | undefined, projectName: string): string {
+  if (projectName) return `${projectName}/.ffmpegfree/cat/skills`
+  return CAT_SETTINGS_COPY.extTipPathFallback
 }
 
 /** 扩展卡：plugins + mcpServers 合并；agents 一期不显示（契约 6.19.12.7-4） */
@@ -443,30 +512,151 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: () => T): Promise<T
   })
 }
 
-/** 只读；失败一律空列表 + reason，不抛错。前端再兜一层 15 秒超时。 */
-export async function inspectCatConfig(projectId = ''): Promise<CatInspectResult> {
+const MOCK_SKILLS_ROOT = '/mock/字幕项目/.ffmpegfree/cat/skills'
+const MOCK_MCP_PATH = '/mock/字幕项目/.ffmpegfree/cat/mcp.json'
+
+type MockInspectStore = {
+  skills: CatInspectItem[]
+  plugins: CatInspectItem[]
+  hooks: CatInspectItem[]
+  mcpServers: CatInspectItem[]
+  agents: CatInspectItem[]
+  skillsRootExists: boolean
+}
+
+function defaultMockInspect(): MockInspectStore {
+  return {
+    skills: [
+      { name: 'srt-fixer', description: '字幕时间轴校准与合并', source: 'project', enabled: true },
+      { name: 'release-notes', description: '按提交生成更新说明', source: 'project', enabled: true },
+      { name: 'pdf-reader', description: '读取 PDF 正文', source: 'user', enabled: false },
+    ],
+    plugins: [{ name: 'srt-tools', description: '字幕格式转换', source: 'plugin', enabled: false }],
+    hooks: [{ name: 'pre-commit-lint', description: '提交前检查代码格式', source: 'project', enabled: true }],
+    mcpServers: [
+      { name: 'filesystem', description: '读写项目文件', source: 'user', enabled: true },
+      { name: 'web-search', description: '网页搜索', source: 'user', enabled: true },
+    ],
+    agents: [{ name: 'reviewer', enabled: true }],
+    skillsRootExists: true,
+  }
+}
+
+let mockInspect = defaultMockInspect()
+
+function mockPaths(projectId: string) {
+  if (!projectId) return { skillsRoot: '', mcpConfigPath: '' }
+  return { skillsRoot: MOCK_SKILLS_ROOT, mcpConfigPath: MOCK_MCP_PATH }
+}
+
+function snapshotMockInspect(projectId: string, reason = ''): CatInspectResult {
+  const paths = mockPaths(projectId)
+  return {
+    skills: mockInspect.skills.map((x) => ({ ...x })),
+    plugins: mockInspect.plugins.map((x) => ({ ...x })),
+    hooks: mockInspect.hooks.map((x) => ({ ...x })),
+    mcpServers: mockInspect.mcpServers.map((x) => ({ ...x })),
+    agents: mockInspect.agents.map((x) => ({ ...x })),
+    version: '1.0.0',
+    reason,
+    skillsRoot: paths.skillsRoot,
+    mcpConfigPath: paths.mcpConfigPath,
+    skillsRootExists: !!projectId && mockInspect.skillsRootExists,
+  }
+}
+
+/** Inspect：须带 projectId + 应传 agentKind；无项目 → reason=no_project。失败空列表 + reason，不抛错。 */
+export async function inspectCatConfig(projectId = '', agentKind = ''): Promise<CatInspectResult> {
+  if (!projectId) return emptyInspect('no_project')
   if (live()) {
     return withTimeout(
-      call(CatBinding.InspectCatConfig(cat.InspectRequest.createFrom({ projectId }))).then(normalizeInspect),
+      call(
+        CatBinding.InspectCatConfig(
+          cat.InspectRequest.createFrom({ projectId, agentKind: agentKind || '' }),
+        ),
+      ).then(normalizeInspect),
       CAT_INSPECT_TIMEOUT_MS + 1000,
       () => emptyInspect('timeout'),
     )
   }
-  await wait(sim('inspectslow') ? 4000 : 600)
-  if (sim('inspectfail')) return emptyInspect('timeout')
-  if (sim('inspectempty')) return emptyInspect('')
-  return {
-    skills: [
-      { name: 'subtitle-check', description: '检查字幕时间轴和重叠', source: 'user', enabled: true },
-      { name: 'release-notes', description: '按提交记录整理更新说明', source: 'project', enabled: false },
-    ],
-    plugins: [{ name: 'image-tools', description: '图片压缩和格式转换', source: 'plugin', enabled: true }],
-    hooks: [],
-    mcpServers: [{ name: 'files', description: '读取本机文件夹', source: 'user', enabled: true }],
-    agents: [{ name: 'reviewer', enabled: true }],
-    version: '1.0.0',
-    reason: '',
+  await wait(sim('inspectslow') ? 4000 : 400)
+  if (sim('inspectfail')) return { ...emptyInspect('timeout'), ...mockPaths(projectId), skillsRootExists: mockInspect.skillsRootExists }
+  if (sim('inspectempty')) {
+    return {
+      ...emptyInspect(''),
+      ...mockPaths(projectId),
+      skillsRootExists: mockInspect.skillsRootExists,
+      version: '1.0.0',
+    }
   }
+  if (sim('skillsmissing')) mockInspect.skillsRootExists = false
+  return snapshotMockInspect(projectId, '')
+}
+
+/** v0.39：启停；失败抛错由 UI 回滚 + toast */
+export async function setCatInspectItemEnabled(req: {
+  projectId: string
+  agentKind?: string
+  category: CatInspectCategory
+  name: string
+  enabled: boolean
+}): Promise<CatInspectItem> {
+  if (!req.projectId) throw new AppError('INVALID_ARGUMENT', 'project')
+  if (!req.name) throw new AppError('INVALID_ARGUMENT', 'name')
+  if (live()) {
+    return oneItem(
+      await call(
+        CatBinding.SetCatInspectItemEnabled(
+          cat.SetInspectItemEnabledRequest.createFrom({
+            projectId: req.projectId,
+            agentKind: req.agentKind || '',
+            category: req.category,
+            name: req.name,
+            enabled: req.enabled,
+          }),
+        ),
+      ),
+    )
+  }
+  await wait(200)
+  if (sim('setenablefail')) throw new AppError('IO_ERROR', 'sim')
+  const listKey =
+    req.category === 'skill' ? 'skills' : req.category === 'hook' ? 'hooks' : req.category === 'plugin' ? 'plugins' : 'mcpServers'
+  const list = mockInspect[listKey]
+  const hit = list.find((x) => x.name === req.name)
+  if (!hit) throw new AppError('INVALID_ARGUMENT', 'name')
+  hit.enabled = req.enabled
+  return { ...hit }
+}
+
+/** v0.39：打开技能目录；不存在 → exists=false、opened=false、不抛错 */
+export async function revealCatSkillsDir(projectId: string): Promise<CatSkillsDirResult> {
+  if (!projectId) throw new AppError('INVALID_ARGUMENT', 'project')
+  if (live()) {
+    return normalizeSkillsDir(
+      await call(CatBinding.RevealCatSkillsDir(cat.SkillsDirRequest.createFrom({ projectId }))),
+    )
+  }
+  await wait(200)
+  const paths = mockPaths(projectId)
+  if (sim('skillsmissing') || !mockInspect.skillsRootExists) {
+    return { ...paths, skillsRootExists: false, opened: false }
+  }
+  return { ...paths, skillsRootExists: true, opened: true }
+}
+
+/** v0.39：创建空技能目录并打开；不写 mcp.json / gitignore */
+export async function ensureCreateCatSkillsDir(projectId: string): Promise<CatSkillsDirResult> {
+  if (!projectId) throw new AppError('INVALID_ARGUMENT', 'project')
+  if (live()) {
+    return normalizeSkillsDir(
+      await call(CatBinding.EnsureCreateCatSkillsDir(cat.SkillsDirRequest.createFrom({ projectId }))),
+    )
+  }
+  await wait(300)
+  mockInspect.skillsRootExists = true
+  const paths = mockPaths(projectId)
+  return { ...paths, skillsRootExists: true, opened: true }
 }
 
 export async function clearAllCatConversations(): Promise<void> {

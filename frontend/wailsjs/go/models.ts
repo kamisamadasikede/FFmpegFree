@@ -389,6 +389,7 @@ export namespace cat {
 	}
 	export class InspectRequest {
 	    projectId: string;
+	    agentKind?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new InspectRequest(source);
@@ -397,6 +398,7 @@ export namespace cat {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.projectId = source["projectId"];
+	        this.agentKind = source["agentKind"];
 	    }
 	}
 	export class ListFilesRequest {
@@ -987,6 +989,56 @@ export namespace cat {
 	        this.agentKind = source["agentKind"];
 	    }
 	}
+	export class SetInspectItemEnabledRequest {
+	    projectId: string;
+	    agentKind?: string;
+	    category: string;
+	    name: string;
+	    enabled: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new SetInspectItemEnabledRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.projectId = source["projectId"];
+	        this.agentKind = source["agentKind"];
+	        this.category = source["category"];
+	        this.name = source["name"];
+	        this.enabled = source["enabled"];
+	    }
+	}
+	export class SkillsDirRequest {
+	    projectId: string;
+
+	    static createFrom(source: any = {}) {
+	        return new SkillsDirRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.projectId = source["projectId"];
+	    }
+	}
+	export class SkillsDirResult {
+	    skillsRoot: string;
+	    mcpConfigPath: string;
+	    skillsRootExists: boolean;
+	    opened: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new SkillsDirResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.skillsRoot = source["skillsRoot"];
+	        this.mcpConfigPath = source["mcpConfigPath"];
+	        this.skillsRootExists = source["skillsRootExists"];
+	        this.opened = source["opened"];
+	    }
+	}
 	export class Settings {
 	    // v0.36
 	    defaultAgentKind: string;
@@ -1211,6 +1263,9 @@ export namespace catagent {
 	    agents: InspectItem[];
 	    version?: string;
 	    reason?: string;
+	    skillsRoot?: string;
+	    mcpConfigPath?: string;
+	    skillsRootExists?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new InspectResult(source);
@@ -1225,6 +1280,9 @@ export namespace catagent {
 	        this.agents = this.convertValues(source["agents"], InspectItem);
 	        this.version = source["version"];
 	        this.reason = source["reason"];
+	        this.skillsRoot = source["skillsRoot"];
+	        this.mcpConfigPath = source["mcpConfigPath"];
+	        this.skillsRootExists = source["skillsRootExists"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

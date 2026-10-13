@@ -86,6 +86,18 @@ export function InspectCatConfig(arg1) {
   return window['go']['app']['CatService']['InspectCatConfig'](arg1);
 }
 
+export function SetCatInspectItemEnabled(arg1) {
+  return window['go']['app']['CatService']['SetCatInspectItemEnabled'](arg1);
+}
+
+export function RevealCatSkillsDir(arg1) {
+  return window['go']['app']['CatService']['RevealCatSkillsDir'](arg1);
+}
+
+export function EnsureCreateCatSkillsDir(arg1) {
+  return window['go']['app']['CatService']['EnsureCreateCatSkillsDir'](arg1);
+}
+
 export function ListCatConversations() {
   return window['go']['app']['CatService']['ListCatConversations']();
 }
