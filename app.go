@@ -54,6 +54,7 @@ type App struct {
 	// v0.23.5：剪辑已移除，edit 登记表随之删除。
 	docLocal     *localassets.Registry
 	convertLocal *localassets.Registry // 转换页 / 任务中心的预览（契约 v0.23，6.14.7）
+	catLocal     *localassets.Registry // 对话里的图片、视频和文档预览
 	live         atomic.Pointer[live.Service]
 	langAsr      atomic.Pointer[langasr.Manager]
 	lang         atomic.Pointer[lang.Service]
@@ -67,7 +68,7 @@ func (a *App) docAssets() *localassets.Registry { return a.docLocal }
 
 // localHandler 是挂在 Wails AssetServer.Handler 上的处理器，按 token 在两张表里查。
 func (a *App) localHandler() http.Handler {
-	return localassets.MultiHandler(a.docLocal, a.convertLocal)
+	return localassets.MultiHandler(a.docLocal, a.convertLocal, a.catLocal)
 }
 
 // docComponent 返回文档组件管理器；OnStartup 完成前为 nil。小写，不会被 Wails 暴露。
@@ -102,7 +103,7 @@ func NewApp(sys *system.Manager) *App {
 	// 根 ctx 在构造时就创建，保证绑定方法在 OnStartup 之前被调用也拿到有效的 ctx。
 	ctx, cancel := context.WithCancel(context.Background())
 	return &App{sys: sys, rootCtx: ctx, rootCancel: cancel, docLocal: localassets.New(localassets.Config{}),
-		convertLocal: localassets.New(localassets.Config{})}
+		convertLocal: localassets.New(localassets.Config{}), catLocal: localassets.New(localassets.Config{})}
 }
 
 // appContext 返回应用根 ctx，shutdown 时被取消。小写，不会被 Wails 暴露。
@@ -354,6 +355,7 @@ func (a *App) startCat() {
 		},
 		OpenFolder: a.sys.OpenFolder, // v0.31.1 RevealCatProject：同 OpenStorageFolder 的打开目录分支
 		DataRoot:   root,
+		Preview:    a.catLocal,
 	}
 	if a.store != nil {
 		cfg.Store = a.store

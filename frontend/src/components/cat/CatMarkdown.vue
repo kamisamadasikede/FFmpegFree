@@ -1,71 +1,107 @@
 <template>
-  <div class="cat-md" :class="{ streaming, calm: reduced }" @click="onClick" @auxclick="onAux">
+  <div class="cat-md" :class="{ streaming: caret, calm: reduced }" @click="onClick" @auxclick="onAux">
     <div v-for="b in blocks" :key="b.key" class="cat-md-blk" v-html="b.html" />
   </div>
 </template>
 
 <script setup lang="ts">
 // 助手回复的 Markdown 显示（安全规则见 utils/catMarkdown.ts）。
-// 流式：一帧最多画一次。小增量当帧就跟上；一次进来的大段按帧拆开，避免整段 Markdown 卡死一帧。
+// 这一轮新出现的文字一个字一个字打出来。积压多了加快，但一帧最多八个字，回复结束也不整段跳出。
+// 打开以前的对话（没有 reveal）直接显示全文。减少动效时也不打字。
 // 按顶层块 v-html，没变的块字符串相同、Vue 不会动它的 DOM。
-import { onBeforeUnmount, shallowRef, watch } from 'vue'
+import { onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { renderCatMarkdown, CAT_MD_COPIED, CAT_MD_COPY, type CatMdBlock } from '@/utils/catMarkdown'
 import { openExternalLink } from '@/utils/openExternal'
 import { prefersReducedMotion } from '@/api/catStream'
 import { hasWailsBackend } from '@/services/wails'
 import { ClipboardSetText } from '../../../wailsjs/runtime/runtime'
+import { advanceText, paintedIndex, rememberPainted, typewriterTake } from './catTypewriter'
 
-const props = defineProps<{ text: string; streaming?: boolean }>()
+const props = defineProps<{ text: string; streaming?: boolean; reveal?: boolean; id?: string }>()
+const emit = defineEmits<{ settled: [] }>()
 const reduced = prefersReducedMotion()
 const blocks = shallowRef<CatMdBlock[]>([])
+const caret = ref(false)
 
 let raf = 0
 let shown = ''
+let live = false
+let told = false
 
 function paint(text: string, streaming: boolean) {
   blocks.value = renderCatMarkdown(text, streaming)
+  caret.value = streaming && !reduced
 }
 function stopRaf() {
   if (!raf) return
   cancelAnimationFrame(raf)
   raf = 0
 }
-/** 把还没画出来的尾巴往前赶一截。短尾巴一次画完，长尾巴每帧只吃一段。 */
+function remember() {
+  if (props.id) rememberPainted(props.id, shown.length)
+}
+function schedule() {
+  if (raf) return
+  if (typeof requestAnimationFrame === 'function') raf = requestAnimationFrame(step)
+  else step()
+}
+/** 还没画完就再打几个字。画完且回复已经结束，才收起光标。 */
 function step() {
   raf = 0
-  const full = props.text
+  const full = props.text ?? ''
   const streaming = !!props.streaming
-  if (!streaming || reduced) {
-    shown = full
-    paint(shown, streaming)
-    return
-  }
   if (!full.startsWith(shown)) shown = ''
   const behind = full.length - shown.length
-  if (behind <= 32) {
-    shown = full
-    paint(shown, true)
+  if (behind <= 0) {
+    paint(shown, streaming)
+    remember()
+    if (!streaming && !told) {
+      told = true
+      emit('settled')
+    }
     return
   }
-  const take = Math.min(behind, Math.max(48, Math.ceil(behind / 6)))
-  shown = full.slice(0, shown.length + take)
-  paint(shown, true)
-  if (shown.length < full.length && typeof requestAnimationFrame === 'function') {
-    raf = requestAnimationFrame(step)
+  told = false
+  const next = advanceText(full, shown.length, typewriterTake(behind))
+  shown = full.slice(0, next)
+  const more = shown.length < full.length
+  paint(shown, more || streaming)
+  remember()
+  if (more) schedule()
+  else if (!streaming && !told) {
+    told = true
+    emit('settled')
   }
 }
-watch(
-  () => [props.text, props.streaming] as const,
-  ([text, streaming]) => {
+function kick() {
+  const full = props.text ?? ''
+  if (reduced) {
     stopRaf()
-    if (!streaming) {
-      shown = text
-      paint(shown, false)
+    live = false
+    shown = full
+    paint(full, false)
+    return
+  }
+  if (!live && !props.streaming && !props.reveal) {
+    const saved = props.id ? paintedIndex(props.id) : undefined
+    if (saved === undefined || saved >= full.length) {
+      stopRaf()
+      shown = full
+      paint(full, false)
       return
     }
-    if (typeof requestAnimationFrame === 'function') raf = requestAnimationFrame(step)
-    else step()
-  },
+  }
+  if (!live) {
+    live = true
+    const saved = props.id ? paintedIndex(props.id) ?? 0 : 0
+    shown = saved > 0 && saved <= full.length ? full.slice(0, saved) : ''
+  }
+  // 第一个字当帧就出现；后面的字交给下一帧，避免同一帧打两次
+  if (!raf) step()
+}
+watch(
+  () => [props.text, props.streaming, props.reveal] as const,
+  () => kick(),
   { immediate: true },
 )
 onBeforeUnmount(() => {

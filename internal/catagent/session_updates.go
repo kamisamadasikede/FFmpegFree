@@ -35,6 +35,10 @@ func ProjectSessionUpdates(data []byte) ([]WireMessage, error) {
 	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	var rows []*WireMessage
 	cur := newUpdateTurn()
+	pendingRetry := ""
+	userOpen := false
+	clearRetry := func() { pendingRetry = "" }
+	closeUser := func() { userOpen = false }
 	for sc.Scan() {
 		line := bytes.TrimSpace(sc.Bytes())
 		if len(line) == 0 {
@@ -43,22 +47,43 @@ func ProjectSessionUpdates(data []byte) ([]WireMessage, error) {
 		if name, content, ok := peekSessionUpdate(line); ok {
 			switch name {
 			case "user_message_chunk":
-				text := strings.TrimSpace(extractContentDelta(content))
-				if text == "" {
+				text, media := userChunkParts(content)
+				text = strings.TrimSpace(text)
+				if text == "" && len(media) == 0 {
+					continue
+				}
+				clearRetry()
+				if userOpen && len(rows) > 0 && rows[len(rows)-1].Role == "user" {
+					prev := rows[len(rows)-1]
+					if text != "" {
+						if prev.Content != "" {
+							prev.Content += "\n"
+						}
+						prev.Content += text
+					}
+					prev.Media = mergeMedia(prev.Media, media)
 					continue
 				}
 				cur = newUpdateTurn()
-				row := &WireMessage{Role: "user", Content: text}
-				rows = append(rows, row)
+				rows = append(rows, &WireMessage{Role: "user", Content: text, Media: media})
+				userOpen = true
 				continue
 			case "turn_completed":
+				clearRetry()
+				closeUser()
 				cur = newUpdateTurn()
 				continue
 			}
 		}
 		piece, errMsg, isErr := parseStreamLine(line, cur.snaps)
+		if piece.Kind == "retry" {
+			pendingRetry = strings.TrimSpace(piece.Text)
+			continue
+		}
 		if isErr {
 			if msg := strings.TrimSpace(errMsg); msg != "" {
+				clearRetry()
+				closeUser()
 				rows = append(rows, &WireMessage{Role: "system", Content: msg})
 			}
 			continue
@@ -66,6 +91,8 @@ func ProjectSessionUpdates(data []byte) ([]WireMessage, error) {
 		if piece.Text == "" {
 			continue
 		}
+		clearRetry()
+		closeUser()
 		switch piece.Kind {
 		case "thought":
 			key := piece.ID
@@ -108,9 +135,12 @@ func ProjectSessionUpdates(data []byte) ([]WireMessage, error) {
 	if err := sc.Err(); err != nil {
 		return nil, err
 	}
+	if strings.TrimSpace(pendingRetry) != "" {
+		rows = append(rows, &WireMessage{Role: "status", Content: pendingRetry})
+	}
 	out := make([]WireMessage, 0, len(rows))
 	for _, row := range rows {
-		if strings.TrimSpace(row.Content) == "" {
+		if strings.TrimSpace(row.Content) == "" && len(row.Media) == 0 {
 			continue
 		}
 		out = append(out, *row)
@@ -136,13 +166,136 @@ func newUpdateTurn() *updateTurn {
 	}
 }
 
+// 刷新时带进界面的图片数据上限。再大就不放进缩略图，避免把整段编码写进对话。
+const maxShownImageData = 200_000
+
+// userChunkParts 把一条用户内容收成可显示的文字，以及能预览的附件。
+// 图片文字只留「图片」，数据放在附件里。单独成行的本机路径收成附件，文字原样保留。
+func userChunkParts(content json.RawMessage) (string, []WireMedia) {
+	content = bytes.TrimSpace(content)
+	if len(content) == 0 || string(content) == "null" {
+		return "", nil
+	}
+	if content[0] == '[' {
+		var arr []json.RawMessage
+		if json.Unmarshal(content, &arr) != nil {
+			return "", nil
+		}
+		var parts []string
+		var media []WireMedia
+		for _, item := range arr {
+			t, m := oneUserParts(item)
+			if t != "" {
+				parts = append(parts, t)
+			}
+			media = mergeMedia(media, m)
+		}
+		return strings.Join(parts, "\n"), media
+	}
+	if content[0] == '"' {
+		var s string
+		if json.Unmarshal(content, &s) == nil {
+			return s, mediaFromText(s)
+		}
+	}
+	return oneUserParts(content)
+}
+
+func oneUserParts(content json.RawMessage) (string, []WireMedia) {
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(content, &obj) != nil {
+		return "", nil
+	}
+	typ, _ := rawStr(obj, "type")
+	switch typ {
+	case "", "text":
+		t, _ := rawStr(obj, "text")
+		return t, mediaFromText(t)
+	case "image":
+		mime, _ := rawStr(obj, "mimeType")
+		if mime == "" {
+			mime, _ = rawStr(obj, "mime_type")
+		}
+		data, _ := rawStr(obj, "data")
+		if data == "" || len(data) > maxShownImageData {
+			return "图片", nil
+		}
+		return "图片", []WireMedia{{Kind: "image", Name: "图片", Mime: mime, Data: data}}
+	case "resource_link", "resource":
+		if name, ok := rawStr(obj, "name"); ok && strings.TrimSpace(name) != "" {
+			name = strings.TrimSpace(name)
+			return name, mediaFromText(name)
+		}
+		return "文件", nil
+	default:
+		if t, ok := rawStr(obj, "text"); ok {
+			return t, mediaFromText(t)
+		}
+		return "", nil
+	}
+}
+
+func mediaFromText(text string) []WireMedia {
+	var out []WireMedia
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !filepath.IsAbs(line) {
+			continue
+		}
+		kind, mime, ok := MediaKind(line)
+		if !ok {
+			continue
+		}
+		out = mergeMedia(out, []WireMedia{{
+			Kind: kind,
+			Name: filepath.Base(line),
+			Path: line,
+			Mime: mime,
+		}})
+	}
+	return out
+}
+
+func mergeMedia(dst, more []WireMedia) []WireMedia {
+	if len(more) == 0 {
+		return dst
+	}
+	seen := map[string]struct{}{}
+	for _, m := range dst {
+		seen[mediaKey(m)] = struct{}{}
+	}
+	for _, m := range more {
+		k := mediaKey(m)
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		dst = append(dst, m)
+	}
+	return dst
+}
+
+func mediaKey(m WireMedia) string {
+	if m.Path != "" {
+		return "p:" + strings.ToLower(filepath.Clean(m.Path))
+	}
+	if m.Data != "" {
+		n := len(m.Data)
+		if n > 48 {
+			n = 48
+		}
+		return "d:" + m.Mime + ":" + m.Data[:n]
+	}
+	return "n:" + m.Kind + ":" + m.Name
+}
+
 func peekSessionUpdate(line []byte) (name string, content json.RawMessage, ok bool) {
 	var raw map[string]json.RawMessage
 	if json.Unmarshal(line, &raw) != nil {
 		return "", nil, false
 	}
 	method, okm := rawStr(raw, "method")
-	if !okm || method != "session/update" {
+	if !okm || !isSessionUpdateMethod(method) {
 		return "", nil, false
 	}
 	params, okp := raw["params"]
@@ -183,7 +336,7 @@ func followSessionUpdates(path string, offset int64, mode *int32, stop <-chan st
 		onPiece(streamPiece{Kind: "text", Text: text})
 	}
 	emit := func(p streamPiece) bool {
-		if p.Text == "" {
+		if p.Text == "" && p.Kind != "retry" {
 			return false
 		}
 		if p.Kind == "text" || p.Kind == "" {
@@ -252,7 +405,7 @@ func followSessionUpdates(path string, offset int64, mode *int32, stop <-chan st
 				}
 				continue
 			}
-			if piece.Text == "" {
+			if piece.Text == "" && piece.Kind != "retry" {
 				continue
 			}
 			if emit(piece) {

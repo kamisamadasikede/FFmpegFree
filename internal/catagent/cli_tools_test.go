@@ -2,6 +2,7 @@ package catagent
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"strings"
@@ -10,7 +11,7 @@ import (
 	"FFmpegFree/internal/apperr"
 )
 
-// init 必须早于 testing 的 flag.Parse。子进程的参数是 grok 的 -p / --cwd，
+// init 必须早于 testing 的 flag.Parse。子进程的参数是 grok 的 --cwd / --prompt-file，
 // 若拖到 TestMain，测试框架会把它们当成未知测试开关直接退出。
 func init() {
 	if os.Getenv("FFMPEG_CAT_FAKE_GROK") == "1" {
@@ -34,6 +35,20 @@ func fakeGrokProcess() int {
 	b.WriteString("ENV_UPDATER=" + os.Getenv("GROK_DISABLE_AUTOUPDATER") + "\n")
 	if err := os.WriteFile(out, []byte(b.String()), 0o644); err != nil {
 		return 1
+	}
+	if dest := os.Getenv("FFMPEG_CAT_FAKE_PROMPT"); dest != "" {
+		for i, a := range os.Args {
+			if a == "--prompt-file" && i+1 < len(os.Args) {
+				body, err := os.ReadFile(os.Args[i+1])
+				if err != nil {
+					return 1
+				}
+				if err := os.WriteFile(dest, body, 0o644); err != nil {
+					return 1
+				}
+				break
+			}
+		}
 	}
 	if msg := os.Getenv("FFMPEG_CAT_FAKE_STDERR"); msg != "" {
 		os.Stderr.WriteString(msg + "\n")
@@ -138,6 +153,118 @@ func TestRunTurn_KeepsFullCLITools(t *testing.T) {
 		if !strings.Contains(text, "\nENV_UPDATER=1\n") && !strings.HasSuffix(text, "\nENV_UPDATER=1") {
 			t.Fatalf("turn %d: autoupdater:\n%s", i, raw)
 		}
+	}
+}
+
+func TestRunTurn_DashPromptGoesToFile(t *testing.T) {
+	out := t.TempDir() + string(os.PathSeparator) + "argv.txt"
+	copied := t.TempDir() + string(os.PathSeparator) + "prompt.txt"
+	t.Setenv("FFMPEG_CAT_FAKE_GROK", "1")
+	t.Setenv("FFMPEG_CAT_FAKE_OUT", out)
+	t.Setenv("FFMPEG_CAT_FAKE_PROMPT", copied)
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := NewBuildAdapter(BuildConfig{
+		DataTemp: t.TempDir(),
+		LookPath: func(string) (string, error) { return exe, nil },
+		Exec: func(ctx context.Context, name string, args ...string) *exec.Cmd {
+			return exec.CommandContext(ctx, name, args...)
+		},
+	})
+	a.detect()
+	prompt := "----- 结束 -----\n第 5 页接口已打印\n  File \"C:\\a.py\", line 1\n    listing\n"
+	if _, err := a.RunTurn(TurnOptions{
+		Ctx: context.Background(), ConversationID: "conv-dash",
+		Messages: []WireMessage{{Role: "user", Content: prompt}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	if strings.Contains(text, "----- 结束 -----") || strings.Contains(text, "\n-p\n") {
+		t.Fatalf("prompt leaked onto the command line:\n%s", text)
+	}
+	if !strings.Contains(text, "--prompt-file\n") {
+		t.Fatalf("missing --prompt-file:\n%s", text)
+	}
+	body, err := os.ReadFile(copied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != prompt {
+		t.Fatalf("file %q", body)
+	}
+}
+
+func TestRunTurn_ImageUsesPromptJSON(t *testing.T) {
+	out := t.TempDir() + string(os.PathSeparator) + "argv.txt"
+	t.Setenv("FFMPEG_CAT_FAKE_GROK", "1")
+	t.Setenv("FFMPEG_CAT_FAKE_OUT", out)
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := NewBuildAdapter(BuildConfig{
+		DataTemp: t.TempDir(),
+		LookPath: func(string) (string, error) { return exe, nil },
+		Exec: func(ctx context.Context, name string, args ...string) *exec.Cmd {
+			return exec.CommandContext(ctx, name, args...)
+		},
+	})
+	a.detect()
+	dir := t.TempDir()
+	img := dir + string(os.PathSeparator) + "shot.png"
+	writePNG(t, img, 4, 4)
+	note := dir + string(os.PathSeparator) + "n.txt"
+	if err := os.WriteFile(note, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prompt := "----- 结束 -----"
+	if _, err := a.RunTurn(TurnOptions{
+		Ctx: context.Background(), ConversationID: "conv-img",
+		Messages: []WireMessage{{Role: "user", Content: prompt}},
+		Files:    []PromptFile{{Name: "shot.png", Path: img}, {Name: "n.txt", Path: note}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	if strings.Contains(text, "--prompt-file\n") || strings.Contains(text, "\n-p\n") {
+		t.Fatalf("image turn used the text prompt flag:\n%s", text)
+	}
+	if !strings.Contains(text, "--prompt-json\n") {
+		t.Fatalf("missing --prompt-json:\n%s", text)
+	}
+	var payload string
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		if line == "--prompt-json" && i+1 < len(lines) {
+			payload = lines[i+1]
+		}
+	}
+	var blocks []contentBlock
+	if err := json.Unmarshal([]byte(payload), &blocks); err != nil {
+		t.Fatalf("payload: %v\n%s", err, payload)
+	}
+	sawText, sawImage := false, false
+	for _, b := range blocks {
+		if b.Type == "text" && strings.Contains(b.Text, prompt) && strings.Contains(b.Text, note) {
+			sawText = true
+		}
+		if b.Type == "image" && b.MimeType == "image/png" && b.Data != "" {
+			sawImage = true
+		}
+	}
+	if !sawText || !sawImage {
+		t.Fatalf("blocks %+v", blocks)
 	}
 }
 

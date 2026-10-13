@@ -35,12 +35,21 @@
   --ff-player-line: #33363d;
   --ff-player-scrim: rgba(11, 12, 14, 0.9); /* 预览失败态遮罩 */
 
-  /* JSON 语法色（工具页代码 / 树形共用），来源：设计原型 extra.css */
+  /* 代码编辑器语法色。关键字、函数、类型、字符串、数字、注释分开。JSON 页继续用 --ff-syntax-*。 */
+  --ff-code-keyword: #af00db;
+  --ff-code-function: #795e26;
+  --ff-code-type: #267f99;
+  --ff-code-string: #a31515;
+  --ff-code-number: #098658;
+  --ff-code-comment: #6a737d;
   --ff-syntax-key: var(--ff-primary-text);
   --ff-syntax-string: #15803d;
   --ff-syntax-number: #c2410c;
   --ff-syntax-bool: #7c3aed;
   --ff-syntax-null: #0e7490;
+  --ff-syntax-comment: #6a737d;
+  --ff-syntax-keyword: #0550ae;
+  --ff-syntax-type: #953800;
 
   --ff-bg-app: #f5f6f8;
   --ff-bg-sidebar: #eef0f3;
@@ -125,11 +134,20 @@ html.dark,
   --ff-player-line: #33363d;
   --ff-player-scrim: rgba(11, 12, 14, 0.9);
 
+  --ff-code-keyword: #c586c0;
+  --ff-code-function: #dcdcaa;
+  --ff-code-type: #4ec9b0;
+  --ff-code-string: #ce9178;
+  --ff-code-number: #b5cea8;
+  --ff-code-comment: #6a9955;
   --ff-syntax-key: var(--ff-primary-text);
   --ff-syntax-string: #7ec699;
   --ff-syntax-number: #f5a860;
   --ff-syntax-bool: #c792ea;
   --ff-syntax-null: #56c2d6;
+  --ff-syntax-comment: #8b949e;
+  --ff-syntax-keyword: #79c0ff;
+  --ff-syntax-type: #ffa657;
 
   --ff-bg-app: #141518;
   --ff-bg-sidebar: #1a1b1f;

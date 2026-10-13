@@ -2,7 +2,36 @@
   <div class="ct-col">
     <template v-for="row in rows" :key="row.key">
       <template v-if="row.kind === 'block'">
-        <div v-if="row.block.kind === 'user'" class="ct-user">{{ row.block.text }}</div>
+        <div v-if="row.block.kind === 'user'" class="ct-user-row">
+          <span v-if="row.block.failed" class="ct-fail" title="这句没有得到回复" aria-label="这句没有得到回复" data-testid="cat-user-fail">!</span>
+          <div class="ct-user-stack" :data-cat-user="shownText(row.block) ? undefined : row.key">
+            <div v-if="row.block.files?.length" class="ct-user-files">
+              <button
+                v-for="(f, i) in row.block.files"
+                :key="i"
+                type="button"
+                class="ct-user-card"
+                :class="{ thumb: showsThumb(f.kind), on: canPreview(f.kind) }"
+                @click="openFile(f)"
+              >
+                <CatThumb v-if="showsThumb(f.kind)" :file="f" />
+                <template v-else>
+                  <FIcon name="file" :size="12" />
+                  <b :title="f.name">{{ f.name }}</b>
+                </template>
+              </button>
+            </div>
+            <div v-if="shownText(row.block)" class="ct-user" :data-cat-user="row.key">{{ shownText(row.block) }}</div>
+          </div>
+        </div>
+        <div v-else-if="row.block.kind === 'status'" class="ct-act think" role="status" data-testid="cat-retry-status">
+          <div class="ct-fold static">
+            <span class="car" aria-hidden="true" />
+            <i v-if="row.block.streaming" class="ct-spin" aria-hidden="true" />
+            <FIcon v-else name="retry" :size="14" />
+            <span class="sum">{{ row.block.text }}</span>
+          </div>
+        </div>
         <p v-else-if="row.block.kind === 'p'"><InlineText :text="row.block.text" /></p>
         <ul v-else-if="row.block.kind === 'ul'">
           <li v-for="(it, j) in row.block.items" :key="j"><InlineText :text="it" /></li>
@@ -17,7 +46,7 @@
           class="ct-a"
           :class="{ streaming: row.block.streaming, calm: reduced }"
           :aria-busy="row.block.streaming"
-        ><CatMarkdown :text="row.block.text" :streaming="row.block.streaming" /></div>
+        ><CatMarkdown :id="row.block.id" :text="row.block.text" :streaming="row.block.streaming" :reveal="row.block.reveal" @settled="row.block.reveal = false" /></div>
         <div v-else-if="row.block.kind === 'sys'" class="ct-sys" :class="{ err: row.block.tone === 'err' }" role="status">{{ row.block.text }}</div>
       </template>
       <div v-else class="ct-act" :class="row.fold.tone" :aria-busy="row.fold.streaming || undefined">
@@ -54,6 +83,7 @@
         <span class="sum">正在思考…</span>
       </div>
     </div>
+    <CatPreviewDialog v-model:open="previewOn" :file="previewFile" />
   </div>
 </template>
 
@@ -61,11 +91,27 @@
 import { computed, defineComponent, h, ref } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import CatMarkdown from './CatMarkdown.vue'
+import CatThumb from './CatThumb.vue'
+import CatPreviewDialog from './CatPreviewDialog.vue'
 import type { CatBlock } from '@/api/catMock'
 import { prefersReducedMotion } from '@/api/catStream'
 import { diffLineKind, foldBodyMono, foldIcon, presentCatBlocks, type CatFold } from './catActivity'
+import { canPreview, showsThumb, userDisplayText, type CatShownFile } from './catMedia'
 
 const props = defineProps<{ blocks: CatBlock[]; pending?: boolean }>()
+
+const previewOn = ref(false)
+const previewFile = ref<CatShownFile | null>(null)
+
+function shownText(block: Extract<CatBlock, { kind: 'user' }>): string {
+  return userDisplayText(block.text, block.files)
+}
+
+function openFile(file: CatShownFile) {
+  if (!canPreview(file.kind)) return
+  previewFile.value = file
+  previewOn.value = true
+}
 
 /** 减少动效：流式文字直接追加，不显示闪烁光标（也不做打字机效果） */
 const reduced = prefersReducedMotion()
@@ -134,8 +180,92 @@ ul {
 ul {
   padding-left: 18px;
 }
-.ct-user {
+.ct-user-row {
   align-self: flex-end;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 100%;
+}
+.ct-fail {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--ff-danger);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+.ct-user-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.ct-user-files {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 440px;
+}
+.ct-user-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 180px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 8px;
+  background: #f4f5f7;
+  color: var(--ff-text-2);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: left;
+  cursor: default;
+}
+.ct-user-card.on {
+  cursor: pointer;
+}
+.ct-user-card.thumb {
+  flex-direction: column;
+  align-items: stretch;
+  width: 108px;
+  height: 92px;
+  max-width: 108px;
+  padding: 0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.ct-user-card.thumb :deep(.pic) {
+  flex: 1;
+  min-height: 0;
+}
+.ct-user-card.thumb b {
+  flex: none;
+  height: 28px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+}
+.ct-user-card b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+html.dark .ct-user-card {
+  background: var(--ff-bg-hover);
+}
+.ct-user {
   max-width: 440px;
   background: var(--ff-bg-hover);
   border-radius: 10px;

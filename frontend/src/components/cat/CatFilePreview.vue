@@ -23,14 +23,26 @@
       </button>
       <button type="button" class="x" data-testid="cat-file-close" @click="onClose">{{ COPY.close }}</button>
     </header>
-    <div v-if="loading && !ready" class="state">{{ COPY.loading }}</div>
+    <CatFileEditor
+      v-if="deletedView && baseOriginal != null"
+      :key="'gone:' + relPath"
+      :text="baseOriginal"
+      language=""
+      :name="title"
+      read-only
+      :marks="deletedMarks"
+      data-testid="cat-file-diff"
+    />
+    <div v-else-if="showDiff && diffBinary" class="state">{{ GIT.diffBinary }}</div>
+    <div v-else-if="loading && !ready" class="state">{{ COPY.loading }}</div>
     <div v-else-if="error" class="state">{{ error }}</div>
+    <div v-else-if="showDiff && diffError && !ready" class="state">{{ diffError }}</div>
     <template v-else-if="ready && doc">
       <iframe v-if="showMd && mdHtml" class="md" sandbox="" :title="title" :srcdoc="mdHtml" />
       <div v-else-if="showMd" class="state">{{ COPY.loading }}</div>
       <img v-else-if="showSvg && svgUrl" class="svg" :src="svgUrl" alt="" />
       <iframe v-else-if="showHtml" class="md" sandbox="allow-scripts" referrerpolicy="no-referrer" :title="title" :srcdoc="draft" />
-      <CatFileEditor v-else-if="showEditor" :key="editorKey" :text="draft" :language="doc.language || 'plaintext'" :read-only="!doc.editable" @change="draft = $event" @save="flushSave" />
+      <CatFileEditor v-else-if="showEditor" :key="editorKey" :text="draft" :language="doc.language || 'plaintext'" :name="doc.name" :read-only="!doc.editable" :marks="editorMarks" @change="draft = $event" @save="flushSave" />
       <CatFileRich v-else-if="rich" :kind="doc.kind" :mime="doc.mime" :b64="doc.dataBase64" :name="doc.name" />
       <div v-else class="state">{{ message }}</div>
     </template>
@@ -42,6 +54,8 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import CatFileEditor from './CatFileEditor.vue'
 import CatFileRich from './CatFileRich.vue'
+import { CAT_GIT_COPY as GIT, catGitError, gitCatDiff } from '@/api/catGit'
+import { diffSides, editorDiffMarks, removedFileMarks, type EditorDiffMarks } from './catInlineDiff'
 import { buildSrcdoc, renderMarkdown } from '@/utils/docSafeHtml'
 import { notify } from '@/views/cat/catState'
 import {
@@ -55,7 +69,7 @@ import {
   type CatFileBody,
 } from '@/api/catFilePreview'
 
-const props = defineProps<{ convId: string; relPath: string; name: string; live: boolean }>()
+const props = defineProps<{ convId: string; relPath: string; name: string; live: boolean; compare?: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
 const doc = ref<CatFileBody | null>(null)
@@ -67,8 +81,15 @@ const saving = ref(false)
 const error = ref('')
 const mdHtml = ref('')
 const editorKey = ref(0)
+const diffLoading = ref(false)
+const diffError = ref('')
+const diffText = ref('')
+const diffBinary = ref(false)
+const baseOriginal = ref<string | null>(null)
+let capturedFor = ''
 let token = 0
 let mdToken = 0
+let diffToken = 0
 let saveTimer: ReturnType<typeof setTimeout> | undefined
 let writing = false
 let writeAgain = false
@@ -91,6 +112,16 @@ const message = computed(() => {
   if (doc.value?.kind === 'doc') return COPY.doc
   return COPY.binary
 })
+/** 只有从源代码管理打开时，才把新增和删除标进正文。编辑器本身保持可改。 */
+const showDiff = computed(() => props.compare === true && props.live)
+const deletedView = computed(() => showDiff.value && !ready.value && !!error.value && baseOriginal.value != null)
+const deletedMarks = computed(() => (baseOriginal.value != null ? removedFileMarks(baseOriginal.value) : null))
+const editorMarks = computed((): EditorDiffMarks | null => {
+  if (!showDiff.value || !ready.value || baseOriginal.value == null) return null
+  const marks = editorDiffMarks(baseOriginal.value, draft.value)
+  if (!marks.added.length && !marks.deleted.length) return null
+  return marks
+})
 
 watch(
   () => [props.convId, props.relPath] as const,
@@ -98,6 +129,35 @@ watch(
     void load(true)
   },
   { immediate: true },
+)
+
+watch(
+  () => [props.convId, props.relPath, props.compare] as const,
+  () => {
+    baseOriginal.value = null
+    capturedFor = ''
+    void loadDiff()
+  },
+  { immediate: true },
+)
+
+watch(
+  () => [props.relPath, props.compare, diffText.value, diffBinary.value, diffLoading.value, ready.value, error.value, editorKey.value] as const,
+  () => {
+    if (!props.compare || diffBinary.value || diffLoading.value || !diffText.value) {
+      if (!props.compare || diffBinary.value) {
+        baseOriginal.value = null
+        capturedFor = ''
+      }
+      return
+    }
+    if (!ready.value && !error.value) return
+    const key = `${props.relPath}:${editorKey.value}:${error.value ? 'gone' : 'file'}`
+    if (capturedFor === key) return
+    const sides = diffSides(ready.value ? draft.value : '', diffText.value)
+    capturedFor = key
+    baseOriginal.value = sides ? sides.original : null
+  },
 )
 
 watch([showMd, draft], () => {
@@ -109,6 +169,29 @@ watch(draft, () => {
   if (!body?.editable || draft.value === body.content) return
   scheduleSave()
 })
+
+async function loadDiff() {
+  const my = ++diffToken
+  const id = props.convId
+  const rel = props.relPath
+  const want = props.compare === true && props.live
+  diffError.value = ''
+  diffText.value = ''
+  diffBinary.value = false
+  diffLoading.value = want
+  if (!want) return
+  try {
+    const body = await gitCatDiff(id, rel)
+    if (my !== diffToken || props.convId !== id || props.relPath !== rel || props.compare !== true) return
+    diffText.value = body.text
+    diffBinary.value = body.binary
+  } catch (e) {
+    if (my !== diffToken || props.convId !== id || props.relPath !== rel) return
+    diffError.value = catGitError(e)
+  } finally {
+    if (my === diffToken) diffLoading.value = false
+  }
+}
 
 async function load(resetMode: boolean) {
   const my = ++token
@@ -128,7 +211,7 @@ async function load(resetMode: boolean) {
     ready.value = true
     if (resetMode) {
       const kind = previewModeFor(body.name)
-      mode.value = kind === 'markdown' || kind === 'svg' ? 'preview' : 'source'
+      mode.value = props.compare ? 'source' : kind === 'markdown' || kind === 'svg' ? 'preview' : 'source'
     }
   } catch (e) {
     if (my !== token || props.convId !== id || props.relPath !== rel) return

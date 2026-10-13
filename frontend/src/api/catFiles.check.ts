@@ -1,5 +1,5 @@
 // Cat 文件树摊平自检（api.check.ts 调用）：只过滤已加载的名字，截断行跟着已展开的目录。
-import { flattenCatFiles, mapFileList, type CatFileNode } from './catFiles'
+import { flattenCatFiles, mapFileList, mapSearchResult, type CatFileNode } from './catFiles'
 
 type Eq = (name: string, got: unknown, want: unknown) => void
 
@@ -40,4 +40,5 @@ export function catFilesChecks(eq: Eq): void {
     mapFileList({ root: 'D:\\p', truncated: true, entries: [{ name: 'a.txt', relPath: 'a.txt', isDir: false, size: 3, modTime: 1 }, { relPath: 'x' }, { name: 'd', relPath: 'd', isDir: true }] }),
     { root: 'D:\\p', entries: [{ name: 'a.txt', relPath: 'a.txt', isDir: false, size: 3, modTime: 1 }, { name: 'd', relPath: 'd', isDir: true, size: 0, modTime: 0 }], truncated: true },
   )
+  eq('查找映射：空和有行号的命中', mapSearchResult({ truncated: true, hits: [{ name: 'a.go', relPath: 'src/a.go', line: 2, text: 'func Hello' }, {}] }), { hits: [{ name: 'a.go', relPath: 'src/a.go', isDir: false, line: 2, text: 'func Hello' }], truncated: true })
 }

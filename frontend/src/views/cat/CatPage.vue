@@ -110,10 +110,39 @@
               @click="relocateProject(currentProject.id)"
             >{{ PC.relocate }}</button>
           </div>
-          <div ref="msgsEl" :key="catState.sel" class="ct-msgs swap" @scroll.passive="onMsgsScroll">
-            <div ref="msgsBody">
-              <CatMessages :blocks="messages" :pending="thinking" />
+          <div class="ct-stream">
+            <div ref="msgsEl" :key="catState.sel" class="ct-msgs swap" @scroll.passive="onMsgsScroll">
+              <div ref="msgsBody">
+                <CatMessages :blocks="messages" :pending="thinking" />
+              </div>
             </div>
+            <div v-show="overflowing" ref="railEl" class="ct-rail" data-testid="cat-msg-rail" aria-label="消息位置" @pointerdown="onTrackDown">
+              <button
+                v-for="t in ticks"
+                :key="t.key"
+                type="button"
+                class="ct-tick"
+                :style="{ top: t.top + 'px' }"
+                :title="t.label || '用户消息'"
+                :aria-label="t.label || '用户消息'"
+                data-testid="cat-msg-tick"
+                @click.stop="jumpUser(t.offset)"
+              />
+              <div
+                v-if="thumb"
+                class="ct-thumb"
+                :style="{ top: thumb.top + 'px', height: thumb.height + 'px' }"
+                title="拖动滚动"
+                role="scrollbar"
+                aria-orientation="vertical"
+                aria-label="拖动滚动"
+                data-testid="cat-msg-thumb"
+                @pointerdown.stop="onThumbDown"
+              />
+            </div>
+            <button v-if="away" type="button" class="ct-jump" title="回到底部" aria-label="回到底部" data-testid="cat-jump-bottom" @click="jumpBottom">
+              <FIcon name="down" :size="16" />
+            </button>
           </div>
           <div v-if="catNotReady" class="ct-banner in-conv" role="status" data-testid="cat-not-ready">
             <FIcon name="info" :size="14" />{{ notReadyText }}
@@ -154,6 +183,7 @@ import { CAT_COPY } from '@/api/cat'
 import { CAT_MODES, CAT_TRY, type CatMode } from '@/api/catMock'
 import { catReturnPath } from './catReturn'
 import { nearBottom, keepFollowing } from './catFollow'
+import { railThumb, railTickTops, scrollTopForThumb } from './catRail'
 import { awaitingTurnOutput } from './catPending'
 import { catChecking, catNotReady, catState, currentProject, findConv, projectMissing, relocateProject, initCat, messagesOf, NEW_CONV, refreshCapabilities, sendMessage, stopTurn, tipLater } from './catState'
 import { hasWailsBackend } from '@/services/wails'
@@ -178,11 +208,14 @@ const current = computed(() => (isNew.value ? null : findConv(catState.sel)))
 const messages = computed(() => (isNew.value ? [] : messagesOf(catState.sel)))
 const composer = ref<InstanceType<typeof CatComposer>>()
 const convComposer = ref<InstanceType<typeof CatComposer>>()
-/** 发送；后端没收下（项目文件夹不见了）时把文字放回输入框 */
-async function onSend(text: string, c: InstanceType<typeof CatComposer> | undefined) {
+/** 发送；后端没收下（项目文件夹不见了）时把文字和文件放回输入框 */
+async function onSend(payload: { text: string; files: { name: string; path: string }[] }, c: InstanceType<typeof CatComposer> | undefined) {
   stick.value = true
-  const back = await sendMessage(text)
-  if (back) c?.restoreDraft(back)
+  const back = await sendMessage(payload.text, payload.files)
+  if (back) {
+    c?.restoreDraft(back.text)
+    c?.restoreFiles(back.files)
+  }
   nextTick(pinBottom)
 }
 /** 当前会话进行中的一轮 */
@@ -194,11 +227,53 @@ const thinking = computed(() => {
 })
 const msgsEl = ref<HTMLElement>()
 const msgsBody = ref<HTMLElement>()
+const railEl = ref<HTMLElement>()
 /** 人在看最新一条时，回复变高就跟着往下；往上翻过之后停住 */
 const stick = ref(true)
+/** 人把消息往上翻开之后才出现「回到底部」 */
+const away = ref(false)
+const overflowing = ref(false)
+const ticks = ref<{ key: string; top: number; offset: number; label: string }[]>([])
+const thumb = ref<{ top: number; height: number } | null>(null)
+/** 和 .ct-rail 的 top/bottom 留白一致 */
+const RAIL_INSET = 8
 let pinning = false
 let pinnedOnce = false
 let followObserver: ResizeObserver | undefined
+
+function trackHeight(el: HTMLElement): number {
+  return Math.max(0, el.clientHeight - RAIL_INSET * 2)
+}
+
+function measureRail() {
+  const el = msgsEl.value
+  if (!el) {
+    overflowing.value = false
+    ticks.value = []
+    thumb.value = null
+    away.value = false
+    return
+  }
+  const sh = el.scrollHeight
+  const ch = el.clientHeight
+  const track = trackHeight(el)
+  overflowing.value = sh > ch + 1
+  away.value = pinnedOnce && !nearBottom(el.scrollTop, sh, ch)
+  const nodes = Array.from(el.querySelectorAll<HTMLElement>('[data-cat-user]'))
+  const tops = railTickTops(nodes.length, track)
+  const next = nodes.map((n, i) => {
+    const offset = n.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop
+    const label = (n.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80)
+    return {
+      key: n.dataset.catUser || String(i),
+      top: tops[i] ?? 0,
+      offset,
+      label,
+    }
+  })
+  ticks.value = next
+  thumb.value = railThumb(el.scrollTop, sh, ch, track)
+}
 
 // 选中的对话不存在（例如被删掉）时回到欢迎页。列表还在加载时先不判断，避免把记下的对话清掉
 watch(current, (c) => {
@@ -221,16 +296,73 @@ function pinBottom() {
   el.scrollTop = el.scrollHeight
   pinning = false
   pinnedOnce = true
+  measureRail()
 }
 function onMsgsScroll() {
   if (pinning || !pinnedOnce) return
   const el = msgsEl.value
   if (!el) return
   stick.value = keepFollowing(true, nearBottom(el.scrollTop, el.scrollHeight, el.clientHeight), stick.value)
+  measureRail()
+}
+function jumpUser(offset: number) {
+  const el = msgsEl.value
+  if (!el) return
+  el.scrollTop = Math.max(0, offset - 8)
+  stick.value = nearBottom(el.scrollTop, el.scrollHeight, el.clientHeight)
+  measureRail()
+}
+function jumpBottom() {
+  stick.value = true
+  pinBottom()
+  away.value = false
+}
+function onTrackDown(e: PointerEvent) {
+  const target = e.target
+  if (!(target instanceof Element) || target.closest('.ct-tick, .ct-thumb')) return
+  const el = msgsEl.value
+  const rail = railEl.value
+  if (!el || !rail) return
+  const y = e.clientY - rail.getBoundingClientRect().top
+  const half = (thumb.value?.height ?? 0) / 2
+  el.scrollTop = scrollTopForThumb(y - half, el.scrollHeight, el.clientHeight, trackHeight(el))
+}
+function onThumbDown(e: PointerEvent) {
+  const el = msgsEl.value
+  const box = thumb.value
+  if (!el || !box) return
+  e.preventDefault()
+  const handle = e.currentTarget
+  if (!(handle instanceof HTMLElement)) return
+  handle.setPointerCapture(e.pointerId)
+  const startY = e.clientY
+  const startTop = box.top
+  const move = (ev: PointerEvent) => {
+    const scroller = msgsEl.value
+    if (!scroller) return
+    scroller.scrollTop = scrollTopForThumb(startTop + ev.clientY - startY, scroller.scrollHeight, scroller.clientHeight, trackHeight(scroller))
+  }
+  const up = (ev: PointerEvent) => {
+    if (handle.hasPointerCapture(ev.pointerId)) handle.releasePointerCapture(ev.pointerId)
+    handle.removeEventListener('pointermove', move)
+    handle.removeEventListener('pointerup', up)
+    handle.removeEventListener('pointercancel', up)
+  }
+  handle.addEventListener('pointermove', move)
+  handle.addEventListener('pointerup', up)
+  handle.addEventListener('pointercancel', up)
+}
+function observeFollow() {
+  followObserver?.disconnect()
+  if (msgsBody.value) followObserver?.observe(msgsBody.value)
+  if (msgsEl.value) followObserver?.observe(msgsEl.value)
 }
 if (typeof ResizeObserver !== 'undefined') {
   // 正文按帧才画出来，工具和文件改动也是原地变高。高度变了再贴底，才跟得上输出。
-  followObserver = new ResizeObserver(() => pinBottom())
+  followObserver = new ResizeObserver(() => {
+    pinBottom()
+    measureRail()
+  })
 }
 /** 对话里划中的文字用 Ctrl/Cmd+C 写入剪贴板。输入框不在这块里，不拦它们自己的复制。 */
 function onCopyKey(e: KeyboardEvent) {
@@ -247,7 +379,7 @@ function onCopyKey(e: KeyboardEvent) {
 }
 onMounted(() => {
   window.addEventListener('keydown', onCopyKey)
-  if (msgsBody.value) followObserver?.observe(msgsBody.value)
+  observeFollow()
   disposeCat = initCat()
   void refreshCapabilities()
   if (phase.value !== 'loading') return
@@ -276,17 +408,23 @@ onBeforeUnmount(() => {
 
 watch(() => catState.sel, () => {
   stick.value = true
+  away.value = false
   pinnedOnce = false
+  ticks.value = []
+  thumb.value = null
   void refreshCapabilities()
 })
 
-watch(msgsBody, (el, prev) => {
-  if (prev) followObserver?.unobserve(prev)
+watch(msgsBody, (el) => {
   pinnedOnce = false
   stick.value = true
+  away.value = false
   if (!el) return
-  followObserver?.observe(el)
-  nextTick(pinBottom)
+  observeFollow()
+  nextTick(() => {
+    pinBottom()
+    measureRail()
+  })
 })
 
 function goBack() {
@@ -531,14 +669,100 @@ html.dark .ct-notice {
   background: var(--ff-bg-hover);
   font-weight: 500;
 }
+.ct-stream {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .ct-msgs {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px 0;
+  padding: 16px 22px 16px 0;
   overflow-anchor: none;
   user-select: text;
   -webkit-user-select: text;
+  scrollbar-width: none;
+}
+.ct-msgs::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+.ct-rail {
+  position: absolute;
+  right: 2px;
+  top: 8px;
+  bottom: 8px;
+  width: 18px;
+  z-index: 3;
+}
+.ct-tick {
+  position: absolute;
+  left: 0;
+  width: 12px;
+  height: 8px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+.ct-tick::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 3px;
+  width: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--ff-text-3);
+}
+.ct-tick:hover::before,
+.ct-tick:focus-visible::before {
+  background: var(--ff-text-1);
+}
+.ct-tick:focus-visible {
+  outline: none;
+}
+.ct-thumb {
+  position: absolute;
+  right: 0;
+  width: 5px;
+  border-radius: 999px;
+  background: var(--ff-text-3);
+  opacity: 0.7;
+  cursor: grab;
+  touch-action: none;
+}
+.ct-thumb:hover,
+.ct-thumb:active {
+  opacity: 1;
+  cursor: grabbing;
+}
+.ct-jump {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  z-index: 4;
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  transform: translateX(-50%);
+  border: 1px solid var(--ff-border);
+  border-radius: 50%;
+  background: var(--ff-bg-surface);
+  color: var(--ff-text-2);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+}
+.ct-jump:hover {
+  color: var(--ff-text-1);
+  background: var(--ff-bg-hover);
 }
 
 /* 新对话欢迎页 */

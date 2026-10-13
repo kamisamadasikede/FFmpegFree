@@ -5,6 +5,7 @@
  */
 import type { IconName } from '@/components/icon/icons'
 import type { CatBlock } from '@/api/catMock'
+import { userSendFailed } from '@/views/cat/catPending'
 
 export interface CatFold {
   key: string
@@ -162,7 +163,10 @@ export function presentCatBlocks(blocks: CatBlock[]): CatRow[] {
       return
     }
     if (b.kind === 'think') rows.push(thinkFold(b, i))
-    else rows.push({ kind: 'block', key: blockKey(b, i), block: b })
+    else if (b.kind === 'user') {
+      const block = userSendFailed(blocks, i) ? { ...b, failed: true } : b
+      rows.push({ kind: 'block', key: blockKey(b, i), block })
+    } else rows.push({ kind: 'block', key: blockKey(b, i), block: b })
   })
   return rows
 }

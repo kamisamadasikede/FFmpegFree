@@ -141,7 +141,7 @@ func TestRunTurn_PassesArgsWithoutToolLock(t *testing.T) {
 	dir := t.TempDir()
 	fake := filepath.Join(dir, "grok-args")
 	out := filepath.Join(dir, "args.txt")
-	script := "#!/bin/sh\necho \"$0\" \"$@\" > '" + out + "'\necho \"ENV_SANDBOX=$GROK_SANDBOX\" >> '" + out + "'\necho \"ENV_WRITE=$GROK_WRITE_FILE\" >> '" + out + "'\nprintf '%s\\n' '{\"type\":\"text\",\"data\":\"ok\"}'\nprintf '%s\\n' '{\"type\":\"end\",\"stopReason\":\"end_turn\"}'\n"
+	script := "#!/bin/sh\nprintf '%s\\n' \"$0\" \"$@\" > '" + out + "'\nprev=\nfor a in \"$@\"; do\n  if [ \"$prev\" = \"--prompt-file\" ]; then body=$(cat \"$a\"); printf 'PROMPT:%s' \"$body\" >> '" + out + "'; fi\n  prev=$a\ndone\necho \"ENV_SANDBOX=$GROK_SANDBOX\" >> '" + out + "'\necho \"ENV_WRITE=$GROK_WRITE_FILE\" >> '" + out + "'\nprintf '%s\\n' '{\"type\":\"text\",\"data\":\"ok\"}'\nprintf '%s\\n' '{\"type\":\"end\",\"stopReason\":\"end_turn\"}'\n"
 	_ = os.WriteFile(fake, []byte(script), 0o755)
 	proj := filepath.Join(dir, "proj")
 	_ = os.MkdirAll(proj, 0o755)
@@ -166,10 +166,16 @@ func TestRunTurn_PassesArgsWithoutToolLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(raw)
-	for _, want := range []string{"-p", "hello world", "--output-format", "streaming-json", "--cwd", proj, "--session-id", "-m", "grok-build", "--no-auto-update", "--always-approve"} {
+	for _, want := range []string{"--prompt-file", "--output-format", "streaming-json", "--cwd", proj, "--session-id", "-m", "grok-build", "--no-auto-update", "--always-approve"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("missing %q in:\n%s", want, s)
 		}
+	}
+	if strings.Contains(s, "\n-p\n") || strings.Contains(s, "\nhello world\n") {
+		t.Fatalf("prompt must stay in the file, not on the command line:\n%s", s)
+	}
+	if !strings.Contains(s, "PROMPT:hello world") {
+		t.Fatalf("prompt file was not passed:\n%s", s)
 	}
 	for _, banned := range []string{"--tools", "--disallowed-tools", "--deny", "--no-subagents", "--disable-web-search", "ENV_SANDBOX=read-only", "ENV_WRITE=0"} {
 		if strings.Contains(s, banned) {
@@ -276,7 +282,7 @@ func TestToolCallKeepsWriteAndEditDiff(t *testing.T) {
 		}),
 		line(map[string]any{
 			"sessionUpdate": "tool_call_update", "toolCallId": "w1", "kind": "edit", "title": "Write `a.yml`",
-			"content": []any{map[string]any{"type": "diff", "path": "a.yml", "oldText": "", "newText": "name: nginx\n"}},
+			"content":   []any{map[string]any{"type": "diff", "path": "a.yml", "oldText": "", "newText": "name: nginx\n"}},
 			"locations": []any{map[string]any{"path": "a.yml"}},
 		}),
 		line(map[string]any{

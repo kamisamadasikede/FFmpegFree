@@ -134,7 +134,13 @@
                   @click.stop="openConvMenu(c.id, $event)"
                 ><FIcon name="more" :size="14" /></button>
                 <div class="l1">
-                  <i class="st" :class="c.st" aria-hidden="true" />
+                  <i
+                    class="st"
+                    :class="rowDot(c.id, c.st)"
+                    :role="rowDotLabel(c.id, c.st) ? 'img' : undefined"
+                    :aria-label="rowDotLabel(c.id, c.st) || undefined"
+                    :aria-hidden="rowDotLabel(c.id, c.st) ? undefined : true"
+                  />
                   <i v-if="catState.unseen[c.id]" class="note" aria-label="有新回复" />
                   <span class="t" :title="c.title || '新对话'">{{ c.title || '新对话' }}</span>
                   <span v-if="c.main" class="main-tag">主要</span>
@@ -159,7 +165,7 @@
         @click="onConvClick(c.id, $event)"
         @keydown.enter.self="selectConv(c.id)"
       >
-        <FIcon name="chat" :size="16" /><i v-if="catState.unseen[c.id]" class="note" aria-label="有新回复" /><span class="t" :title="c.title || '新对话'">{{ c.title || '新对话' }}</span>
+        <FIcon name="chat" :size="16" /><i v-if="rowDot(c.id, c.st)" class="st" :class="rowDot(c.id, c.st)" role="img" :aria-label="rowDotLabel(c.id, c.st)" /><i v-if="catState.unseen[c.id]" class="note" aria-label="有新回复" /><span class="t" :title="c.title || '新对话'">{{ c.title || '新对话' }}</span>
         <button
           type="button"
           class="ib c-more"
@@ -241,6 +247,7 @@ import FIcon from '@/components/icon/FIcon.vue'
 import { CAT_CONV_COPY as CC, CAT_COPY } from '@/api/cat'
 import { CAT_PROJECT_COPY as PC, CAT_PROJECT_NAME_MAX } from '@/api/catProjects'
 import type { CatProject } from '@/api/catMock'
+import { convDot, convDotLabel } from '@/views/cat/catConvDot'
 import {
   catState,
   createProject,
@@ -253,6 +260,14 @@ import {
   revealText,
   selectConv,
 } from '@/views/cat/catState'
+
+/** 标题左边的点：进行中读 turns，上次结果读 outcome，走查数据才用 c.st */
+function rowDot(id: string, stored?: string) {
+  return convDot(!!catState.turns[id], catState.outcome[id] ?? '', stored)
+}
+function rowDotLabel(id: string, stored?: string) {
+  return convDotLabel(rowDot(id, stored))
+}
 
 const emit = defineEmits<{ back: [] }>()
 const laterTip = CAT_COPY.later
@@ -682,6 +697,7 @@ html.dark .pc.on {
   border-radius: 50%;
   flex: none;
   background: var(--ff-text-3);
+  box-sizing: border-box;
 }
 .st.ok {
   background: var(--ff-success);
@@ -693,10 +709,44 @@ html.dark .pc.on {
   height: 7px;
 }
 .st.run {
+  width: 10px;
+  height: 10px;
   background: transparent;
-  border: 2px solid var(--ff-warning);
+  border: 2px solid #eab308;
   border-right-color: transparent;
-  animation: ct-spin 1s linear infinite;
+  animation: ct-spin 0.75s linear infinite;
+}
+html.dark .st.run {
+  border-color: #facc15;
+  border-right-color: transparent;
+}
+.st.bad {
+  width: auto;
+  height: auto;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: #ea580c;
+  font-style: normal;
+  font-weight: 800;
+  font-size: 15px;
+  line-height: 1;
+  font-family: inherit;
+}
+.st.bad::before {
+  content: '!';
+}
+html.dark .st.bad {
+  color: #fb923c;
+}
+@media (prefers-reduced-motion: reduce) {
+  .st.run {
+    animation: none;
+    border-color: #eab308;
+  }
+  html.dark .st.run {
+    border-color: #facc15;
+  }
 }
 .note {
   width: 8px;

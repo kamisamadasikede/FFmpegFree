@@ -45,13 +45,21 @@ import { catThinkChecks } from '@/views/cat/catThink.check'
 import { catLastConvChecks } from '@/views/cat/catLastConv.check'
 import { catMarkdownChecks } from '@/utils/catMarkdown.check'
 import { catFilesChecks } from './catFiles.check'
+import { catGitChecks } from './catGit.check'
 import { catFilePreviewChecks } from './catFilePreview.check'
 import { catContextUsageChecks } from '@/components/cat/catContextUsage.check'
 import { catActivityChecks } from '@/components/cat/catActivity.check'
+import { catInlineDiffChecks } from '@/components/cat/catInlineDiff.check'
+import { catSyntaxChecks } from '@/components/cat/catSyntax.check'
 import { catPreviewWidthChecks } from '@/components/cat/catPreviewWidth.check'
 import { catFollowChecks } from '@/views/cat/catFollow.check'
+import { catRailChecks } from '@/views/cat/catRail.check'
+import { catAttachChecks } from '@/components/cat/catAttach.check'
 import { catPendingChecks } from '@/views/cat/catPending.check'
 import { catStopChecks } from '@/views/cat/catStop.check'
+import { catConvDotChecks } from '@/views/cat/catConvDot.check'
+import { catTypewriterChecks } from '@/components/cat/catTypewriter.check'
+import { catLiveChecks } from '@/views/cat/catLive.check'
 
 const fails: string[] = []
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -987,13 +995,21 @@ export async function runApiChecks(): Promise<string[]> {
         await catLastConvChecks(eq) // Cat 重新进入：回到上次对话；新对话不记；删了的回到欢迎页
         await catMarkdownChecks(eq) // Cat 助手回复 Markdown：元素、原始 HTML、链接协议、图片不加载、流式未闭合围栏
         catFilesChecks(eq) // Cat 文件面板：已加载树的过滤、截断行、列表映射
+        catGitChecks(eq) // Cat 源代码管理：文件夹标记、状态映射、更改 / 已暂存 / 未跟踪分组
         catFilePreviewChecks(eq) // Cat 侧边预览：种类映射、二进制不带文本、markdown / svg 切换
         catContextUsageChecks(eq) // Cat 上下文圆环：百分比、弧长、悬停摘要
         catActivityChecks(eq) // Cat 消息：工具调用和文件查找默认收起，文件改动和正文展开，结束后不转圈
+        catInlineDiffChecks(eq) // Cat 从 git 打开文件：红绿嵌在正文里
+        catSyntaxChecks(eq) // Cat 代码着色：十种语言的关键字、函数、类型、字符串、数字、注释
         catPreviewWidthChecks(eq) // Cat 文件预览宽度：可拖，并给中间对话留空
         catFollowChecks(eq) // Cat 回复变高时中间跟着往下滚；人往上翻则停住
+        catRailChecks(eq) // Cat 右侧消息轨道：用户消息记号排紧、长滑块位置
+        catAttachChecks(eq) // Cat 输入框附件：最多露出四个，剩下的收进角标
         catPendingChecks(eq) // Cat 发送后立刻显示正在思考，不看上一轮
         catStopChecks(eq) // Cat 停止后思考不再转，迟到的思考和工具不再追加
+        catConvDotChecks(eq) // Cat 侧栏状态点：进行中黄圈，成功绿点，失败感叹号
+        catTypewriterChecks(eq) // Cat 回复逐字打出：积压多了加快，但不整段跳出
+        catLiveChecks(eq) // Cat 刷新后接回还在回复的对话
         // G11 版本号
         const { cleanFfmpegVersion } = await import('@/utils/ffmpegVersion')
         eq('G11 版本号：旧（带 URL 尾巴）/ 新（干净）/ 其他尾巴 / 空', ['9.0.2-https://www.martin-riedl.de', '9.0.2', '7.1.1-essentials_build-www.gyan.dev', '6.0', ' 4.4.2-0ubuntu0.22.04.1 ', '', undefined].map((v) => cleanFfmpegVersion(v)), ['9.0.2', '9.0.2', '7.1.1', '6.0', '4.4.2', '', ''])

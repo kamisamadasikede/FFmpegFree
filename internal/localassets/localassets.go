@@ -222,6 +222,8 @@ var mimeByExt = map[string]string{
 	".mp3": "audio/mpeg", ".wav": "audio/wav", ".aac": "audio/aac", ".m4a": "audio/mp4",
 	".flac": "audio/flac", ".ogg": "audio/ogg", ".opus": "audio/ogg",
 	".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp",
+	".bmp": "image/bmp", ".ico": "image/x-icon", ".avif": "image/avif", ".svg": "image/svg+xml",
+	".html": "text/html", ".htm": "text/html", ".md": "text/markdown", ".markdown": "text/markdown",
 	".pdf":  "application/pdf",
 	".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 	".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

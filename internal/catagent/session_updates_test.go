@@ -1,6 +1,7 @@
 package catagent
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,9 +40,81 @@ func TestProjectSessionUpdates_MatchesLiveShape(t *testing.T) {
 		t.Fatalf("%d %+v", len(got), got)
 	}
 	for i := range want {
-		if got[i] != want[i] {
+		if !wireEqual(got[i], want[i]) {
 			t.Fatalf("[%d] got %+v want %+v", i, got[i], want[i])
 		}
+	}
+}
+
+func wireEqual(a, b WireMessage) bool {
+	if a.Role != b.Role || a.Content != b.Content || len(a.Media) != len(b.Media) {
+		return false
+	}
+	for i := range a.Media {
+		if a.Media[i] != b.Media[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestProjectSessionUpdates_ImageDoesNotDumpData(t *testing.T) {
+	in := strings.Join([]string{
+		`{"method":"session/update","params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"看这张"}}}}`,
+		`{"method":"session/update","params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"image","data":"AAAA","mimeType":"image/png"}}}}`,
+		`{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"text":"看到了"}}}}`,
+		`{"method":"session/update","params":{"update":{"sessionUpdate":"turn_completed"}}}`,
+		`{"method":"session/update","params":{"update":{"sessionUpdate":"user_message_chunk","content":{"type":"image","data":"BBBB","mimeType":"image/png"}}}}`,
+		``,
+	}, "\n")
+	got, err := ProjectSessionUpdates([]byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("%d %+v", len(got), got)
+	}
+	if got[0].Role != "user" || got[0].Content != "看这张\n图片" {
+		t.Fatalf("user %+v", got[0])
+	}
+	if strings.Contains(got[0].Content, "AAAA") || strings.Contains(got[2].Content, "BBBB") {
+		t.Fatalf("image data leaked: %+v", got)
+	}
+	if len(got[0].Media) != 1 || got[0].Media[0].Kind != "image" || got[0].Media[0].Mime != "image/png" || got[0].Media[0].Data != "AAAA" {
+		t.Fatalf("media %+v", got[0].Media)
+	}
+	if got[2].Role != "user" || got[2].Content != "图片" {
+		t.Fatalf("second %+v", got[2])
+	}
+	if len(got[2].Media) != 1 || got[2].Media[0].Data != "BBBB" {
+		t.Fatalf("second media %+v", got[2].Media)
+	}
+}
+
+func TestProjectSessionUpdates_PreviewPathStaysInText(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "a.mp4")
+	text := "看这个\n" + path + "\nnotes.txt"
+	raw, err := json.Marshal(map[string]any{
+		"method": "session/update",
+		"params": map[string]any{
+			"update": map[string]any{
+				"sessionUpdate": "user_message_chunk",
+				"content":       map[string]any{"type": "text", "text": text},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ProjectSessionUpdates(append(raw, '\n'))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Content != text {
+		t.Fatalf("content %+v", got)
+	}
+	if len(got[0].Media) != 1 || got[0].Media[0].Kind != "video" || got[0].Media[0].Path != path || got[0].Media[0].Name != "a.mp4" {
+		t.Fatalf("media %+v", got[0].Media)
 	}
 }
 
@@ -73,9 +146,34 @@ func TestProjectSessionUpdates_TextStaysBetweenTools(t *testing.T) {
 		t.Fatalf("%d %+v", len(got), got)
 	}
 	for i := range want {
-		if got[i] != want[i] {
+		if !wireEqual(got[i], want[i]) {
 			t.Fatalf("[%d] got %+v want %+v", i, got[i], want[i])
 		}
+	}
+}
+
+func TestProjectSessionUpdates_RetryStaysOnlyWhileCurrent(t *testing.T) {
+	retry := `{"method":"_x.ai/session/update","params":{"update":{"sessionUpdate":"retry_state","type":"retrying","attempt":1,"max_retries":15,"reason":"transport"}}}`
+	msg := `{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"text":"好了"}}}}`
+	recovered, err := ProjectSessionUpdates([]byte(retry + "\n" + msg + "\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recovered) != 1 || recovered[0].Role != "assistant" || recovered[0].Content != "好了" {
+		t.Fatalf("recovered %+v", recovered)
+	}
+	live, err := ProjectSessionUpdates([]byte(msg + "\n" + retry + "\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(live) != 2 || live[1].Role != "status" || live[1].Content != "正在重试（1/15）" {
+		t.Fatalf("live %+v", live)
+	}
+}
+
+func TestRetryStatusText(t *testing.T) {
+	if retryStatusText(2, 15) != "正在重试（2/15）" || retryStatusText(3, 0) != "正在重试（第 3 次）" || retryStatusText(0, 0) != "正在重试" {
+		t.Fatalf("%q %q %q", retryStatusText(2, 15), retryStatusText(3, 0), retryStatusText(0, 0))
 	}
 }
 

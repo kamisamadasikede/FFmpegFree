@@ -46,9 +46,11 @@ export const iconPaths = {
   // 原型没有“隐藏推流码”的图标，这里在 eye 基础上加斜线
   // 关于页链接图标，取自原型 pages.html 的 #i-link
   'link': "<path d=\"M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7\"/><path d=\"M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7\"/>",
+  'external': "<path d=\"M14 5h5v5\"/><path d=\"M19 5 10 14\"/><path d=\"M17 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h5\"/>",
   'eyeoff': "<path d=\"M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M3 3l18 18\"/>",
   // 剪辑页新增（来自原型 pages.html 的剪辑页图标）
   'plus': "<path d=\"M12 5v14M5 12h14\"/>",
+  'minus': "<path d=\"M5 12h14\"/>",
   'split': "<path d=\"M12 3v18M5 8l-3 4 3 4M19 8l3 4-3 4\"/>",
   'zin': "<circle cx=\"11\" cy=\"11\" r=\"7\"/><path d=\"m20 20-3.5-3.5M8 11h6M11 8v6\"/>",
   'zout': "<circle cx=\"11\" cy=\"11\" r=\"7\"/><path d=\"m20 20-3.5-3.5M8 11h6\"/>",

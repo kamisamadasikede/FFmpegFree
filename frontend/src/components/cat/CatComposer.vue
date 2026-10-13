@@ -6,6 +6,25 @@
       <span class="cx"><FIcon name="branch" :size="13" />{{ ctxBranch }}</span>
     </div>
     <div ref="inEl" class="ct-in" :aria-disabled="missing || undefined" :aria-describedby="missing ? missId : undefined">
+      <div v-if="shownFiles.length" class="ct-files" data-testid="cat-attach-row">
+        <div v-for="f in shownFiles" :key="f.id" class="ct-card" :class="{ open: canPreview(f.kind), media: showsThumb(f.kind) }" data-testid="cat-attach-card">
+          <button type="button" class="rm" :aria-label="'移除 ' + f.name" :title="'移除 ' + f.name" @click="removeFile(f.id)"><FIcon name="x" :size="11" /></button>
+          <div
+            class="face"
+            :role="canPreview(f.kind) ? 'button' : undefined"
+            :tabindex="canPreview(f.kind) ? 0 : undefined"
+            :aria-label="canPreview(f.kind) ? '预览 ' + f.name : undefined"
+            @click="openPreview(shownOf(f))"
+            @keydown.enter.prevent="openPreview(shownOf(f))"
+          >
+            <CatThumb v-if="showsThumb(f.kind)" :file="shownOf(f)" />
+            <template v-else>
+              <span class="pic"><FIcon name="file" :size="22" /></span>
+              <span class="nm"><FIcon name="file" :size="12" /><b :title="f.name">{{ f.name }}</b></span>
+            </template>
+          </div>
+        </div>
+      </div>
       <div v-if="missing" :id="missId" class="miss-ph" data-testid="cat-composer-missing"><FIcon name="warn" :size="14" />{{ PC.missing }}</div>
       <textarea
         ref="ta"
@@ -19,7 +38,33 @@
         @keydown.enter="onEnter"
       />
       <div class="row">
-        <button type="button" class="ct-plus" title="添加" aria-label="添加" :disabled="missing"><FIcon name="plus" :size="15" :stroke="2" /></button>
+        <button type="button" class="ct-plus" title="添加" aria-label="添加" :disabled="missing" data-testid="cat-attach-add" @click="addFiles"><FIcon name="plus" :size="15" :stroke="2" /></button>
+        <button
+          v-if="extraFiles.length"
+          type="button"
+          class="ct-more"
+          :aria-expanded="extraOpen"
+          :aria-label="'还有 ' + extraFiles.length + ' 个文件'"
+          title="其余文件"
+          data-testid="cat-attach-more"
+          @click.stop="extraOpen = !extraOpen"
+        >
+          <FIcon name="file" :size="16" />
+          <span class="badge">{{ extraFiles.length }}</span>
+        </button>
+        <div v-if="extraOpen" class="ct-extra" data-testid="cat-attach-extra" @click.stop>
+          <div v-for="f in extraFiles" :key="f.id" class="ex">
+            <button type="button" class="ex-open" :class="{ on: canPreview(f.kind), media: showsThumb(f.kind) }" :aria-label="showsThumb(f.kind) ? '预览 ' + f.name : undefined" @click="openPreview(shownOf(f))">
+              <CatThumb v-if="showsThumb(f.kind)" :file="shownOf(f)" tile />
+              <template v-else>
+                <FIcon name="file" :size="14" />
+                <b :title="f.name">{{ f.name }}</b>
+              </template>
+            </button>
+            <button type="button" class="rx" :aria-label="'移除 ' + f.name" @click="removeFile(f.id)"><FIcon name="x" :size="12" /></button>
+          </div>
+        </div>
+        <CatPreviewDialog v-model:open="previewOn" :file="previewFile" />
         <button
           ref="chipAccess"
           type="button"
@@ -155,6 +200,12 @@ import { ElMessage } from 'element-plus'
 import { CAT_COPY } from '@/api/cat'
 import { CAT_PROJECT_COPY as PC } from '@/api/catProjects'
 import { CAT_ACCESS } from '@/api/catMock'
+import { pickFiles } from '@/api/system'
+import { toAppError } from '@/api/call'
+import { CAT_ATTACH_MAX, fileBaseName, splitAttach, type CatOutgoingFile } from '@/components/cat/catAttach'
+import { canPreview, previewKind, showsThumb, type CatPreviewKind, type CatShownFile } from '@/components/cat/catMedia'
+import CatThumb from '@/components/cat/CatThumb.vue'
+import CatPreviewDialog from '@/components/cat/CatPreviewDialog.vue'
 import { accessMeta, capsuleLabel, catState, chooseAccess, chooseModel, chooseThink, modelName, thinkName } from '@/views/cat/catState'
 
 /**
@@ -182,7 +233,7 @@ const props = withDefaults(
 )
 let missSeq = 0
 const missId = `ct-miss-${++missSeq}-${Math.random().toString(36).slice(2, 7)}`
-const emit = defineEmits<{ send: [text: string]; stop: [] }>()
+const emit = defineEmits<{ send: [payload: { text: string; files: CatOutgoingFile[] }]; stop: [] }>()
 
 /** 停止：父组件把 stopping 置真后按钮立即置灰，重复点击无效 */
 function onStop() {
@@ -191,7 +242,16 @@ function onStop() {
 }
 
 const draft = ref('')
-const canSend = computed(() => !!draft.value.trim() && !props.busy && !props.running && !props.notReady && !props.checking && !props.missing)
+interface DraftFile extends CatOutgoingFile {
+  id: number
+  kind: CatPreviewKind
+}
+let fileSeq = 0
+const atts = ref<DraftFile[]>([])
+const extraOpen = ref(false)
+const shownFiles = computed(() => splitAttach(atts.value).shown)
+const extraFiles = computed(() => splitAttach(atts.value).extra)
+const canSend = computed(() => (!!draft.value.trim() || atts.value.length > 0) && !props.busy && !props.running && !props.notReady && !props.checking && !props.missing)
 const contextUsage = computed(() => {
   const u = catState.context[catState.sel]
   if (!u || u.used <= 0 || u.window <= 0) return null
@@ -287,10 +347,55 @@ function autosize() {
   el.style.height = 'auto'
   el.style.height = Math.min(el.scrollHeight, 160) + 'px'
 }
+function toDraft(f: CatOutgoingFile): DraftFile {
+  const name = f.name || fileBaseName(f.path)
+  return { id: ++fileSeq, name, path: f.path, kind: previewKind(name || f.path) }
+}
+function shownOf(f: DraftFile): CatShownFile {
+  return { name: f.name, path: f.path, kind: f.kind }
+}
+const previewOn = ref(false)
+const previewFile = ref<CatShownFile | null>(null)
+function openPreview(f: CatShownFile) {
+  if (!canPreview(f.kind)) return
+  previewFile.value = f
+  previewOn.value = true
+}
+async function addFiles() {
+  if (props.missing || props.busy) return
+  let paths: string[] = []
+  try {
+    paths = await pickFiles({ name: '所有文件', patterns: ['*'] }, true)
+  } catch (e) {
+    ElMessage.warning(toAppError(e).message || '没能打开文件')
+    return
+  }
+  if (!paths?.length) return
+  const next = atts.value.slice()
+  const same = (a: string, b: string) => a.replace(/\//g, '\\').toLowerCase() === b.replace(/\//g, '\\').toLowerCase()
+  let capped = false
+  for (const p of paths) {
+    if (!p || next.some((f) => same(f.path, p))) continue
+    if (next.length >= CAT_ATTACH_MAX) {
+      capped = true
+      break
+    }
+    next.push(toDraft({ name: fileBaseName(p), path: p }))
+  }
+  atts.value = next
+  if (capped) ElMessage.warning('一次最多 20 个文件')
+}
+function removeFile(id: number) {
+  atts.value = atts.value.filter((f) => f.id !== id)
+  if (!extraFiles.value.length) extraOpen.value = false
+}
 function send() {
   if (!canSend.value) return
-  emit('send', draft.value)
+  const files = atts.value.map((f) => ({ name: f.name, path: f.path }))
+  emit('send', { text: draft.value, files })
   draft.value = ''
+  atts.value = []
+  extraOpen.value = false
   nextTick(autosize)
 }
 function onEnter(e: KeyboardEvent) {
@@ -300,7 +405,10 @@ function onEnter(e: KeyboardEvent) {
 }
 
 function onDocClick(e: MouseEvent) {
-  if (menu.value && !(e.target instanceof Node && root.value?.querySelector('.mn')?.contains(e.target))) close()
+  const t = e.target
+  if (!(t instanceof Node) || !root.value) return
+  if (menu.value && !root.value.querySelector('.mn')?.contains(t)) close()
+  if (extraOpen.value && !root.value.querySelector('.ct-more')?.contains(t) && !root.value.querySelector('.ct-extra')?.contains(t)) extraOpen.value = false
 }
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Escape' && menu.value) {
@@ -321,6 +429,10 @@ defineExpose({
   setDraft: (t: string) => { draft.value = t; nextTick(autosize); ta.value?.focus() },
   /** 发送没成功、后端也没存这条（如 CAT_PROJECT_MISSING）：把文字放回输入框；用户已经又输入了就不覆盖，不抢焦点 */
   restoreDraft: (t: string) => { if (draft.value.trim()) return; draft.value = t; nextTick(autosize) },
+  restoreFiles: (files: CatOutgoingFile[]) => {
+    if (atts.value.length || !files?.length) return
+    atts.value = files.filter((f) => f.path).map(toDraft)
+  },
 })
 </script>
 
@@ -330,6 +442,7 @@ defineExpose({
   box-shadow: none;
 }
 .ct-comp.missing .ct-plus,
+.ct-comp.missing .ct-more,
 .ct-comp.missing .chip-access,
 .ct-comp.missing .chip-model {
   opacity: 0.45;
@@ -457,7 +570,87 @@ html.dark .ct-in {
   padding: 1px 2px 0;
   min-height: 0;
 }
+.ct-files {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+.ct-card {
+  position: relative;
+  flex: 0 0 108px;
+  width: 108px;
+  height: 92px;
+  border-radius: 12px;
+  background: #f3f4f6;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+html.dark .ct-card {
+  background: var(--ff-bg-hover);
+}
+.ct-card .face {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  border-radius: inherit;
+}
+.ct-card.open .face {
+  cursor: pointer;
+}
+.ct-card .pic {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: var(--ff-text-3);
+  min-height: 0;
+}
+.ct-card .nm {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 8px;
+  color: var(--ff-text-2);
+  min-width: 0;
+}
+.ct-card .nm b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 500;
+}
+.ct-card .rm {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 50%;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--ff-text-3);
+  cursor: pointer;
+}
+.ct-card .rm:hover {
+  color: var(--ff-text-1);
+}
+html.dark .ct-card .rm {
+  background: rgba(0, 0, 0, 0.45);
+}
 .row {
+  position: relative;
   min-height: 52px; /* 与原型实测一致（输入框里控件行 52 高） */
   min-width: 0;
   display: flex;
@@ -487,6 +680,121 @@ button {
 }
 html.dark .ct-plus {
   background: var(--ff-bg-hover);
+}
+.ct-more {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ff-text-2);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex: none;
+}
+.ct-more:hover,
+.ct-more[aria-expanded='true'] {
+  background: #f2f3f5;
+}
+html.dark .ct-more:hover,
+html.dark .ct-more[aria-expanded='true'] {
+  background: var(--ff-bg-hover);
+}
+.ct-more .badge {
+  position: absolute;
+  top: -1px;
+  right: -2px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: #1f2328;
+  color: #fff;
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+}
+html.dark .ct-more .badge {
+  background: #fff;
+  color: #1f2328;
+}
+.ct-extra {
+  position: absolute;
+  left: 38px;
+  bottom: calc(100% + 6px);
+  z-index: 5;
+  width: min(240px, 70vw);
+  max-height: 220px;
+  overflow: auto;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--ff-bg-elevated);
+  border: 1px solid var(--ff-border);
+  box-shadow: var(--ff-shadow-dialog);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ct-extra .ex {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  color: var(--ff-text-1);
+  border-radius: 8px;
+  padding: 4px 6px 4px 4px;
+}
+.ct-extra .ex-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 2px 4px;
+  text-align: left;
+  cursor: default;
+}
+.ct-extra .ex-open.on {
+  cursor: pointer;
+}
+.ct-extra .ex-open.media {
+  flex: none;
+  padding: 0;
+}
+.ct-extra .ex:hover {
+  background: var(--ff-bg-hover);
+}
+.ct-extra .rx {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  color: var(--ff-text-3);
+  cursor: pointer;
+}
+.ct-extra .rx:hover {
+  color: var(--ff-text-1);
+}
+.ct-extra .ex b {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 500;
 }
 .ct-send {
   width: 32px;
@@ -607,6 +915,7 @@ html.dark .chip-model[aria-expanded='true'] {
 }
 .chip-model:focus-visible,
 .ct-plus:focus-visible,
+.ct-more:focus-visible,
 .ct-send:focus-visible {
   outline: 2px solid var(--ff-primary);
   outline-offset: 1px;

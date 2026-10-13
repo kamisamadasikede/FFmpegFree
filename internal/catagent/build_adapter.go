@@ -319,6 +319,8 @@ type TurnOptions struct {
 	OnActivity func(kind, id, text string, replace bool)
 	// PermissionMode 是这一轮的批准方式：normal/default、plan、auto、approve。空等于全部批准。
 	PermissionMode string
+	// Files 是这一轮附上的本机文件。图片收成内容块，其它文件把路径写进文字。
+	Files []PromptFile
 	// OnError 在失败原文出现时立刻回调（进程还没退出也会调）。同一句可能来自标准输出和标准错误，调用方自己去重。
 	OnError func(msg string)
 }
@@ -337,9 +339,6 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	}
 
 	prompt := lastUserContent(opts.Messages)
-	if strings.TrimSpace(prompt) == "" {
-		return TurnResponse{}, apperr.New(apperr.InvalidArgument, "消息不能为空")
-	}
 
 	cwd := strings.TrimSpace(opts.ProjectPath)
 	if cwd == "" {
@@ -361,8 +360,18 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	// 纯文字写进临时文件再传 --prompt-file，避免以 - 开头的句子被当成开关。
+	// 带了图片就改用 --prompt-json 内容块（data + mimeType）。进程结束后删掉临时文件。
+	spec, err := preparePrompt(prompt, opts.Files)
+	if err != nil {
+		return TurnResponse{}, err
+	}
+	if spec.clean != nil {
+		defer spec.clean()
+	}
+
 	args := []string{
-		"-p", prompt,
+		spec.flag, spec.value,
 		"--output-format", "streaming-json",
 		"--cwd", cwd,
 		"--no-auto-update",
@@ -443,6 +452,10 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		switch p.Kind {
 		case "thought", "tool":
 			if opts.OnActivity != nil && p.Text != "" {
+				opts.OnActivity(p.Kind, p.ID, p.Text, p.Replace)
+			}
+		case "retry":
+			if opts.OnActivity != nil {
 				opts.OnActivity(p.Kind, p.ID, p.Text, p.Replace)
 			}
 		default:
@@ -553,6 +566,24 @@ func (a *BuildAdapter) plainCwd(convID string) (string, error) {
 		return "", apperr.Wrap(apperr.IOError, "无法创建临时文件夹", err)
 	}
 	return cwd, nil
+}
+
+func writePromptFile(prompt string) (string, error) {
+	f, err := os.CreateTemp("", "cat-prompt-*.txt")
+	if err != nil {
+		return "", err
+	}
+	path := f.Name()
+	_, werr := io.WriteString(f, prompt)
+	cerr := f.Close()
+	if werr != nil || cerr != nil {
+		os.Remove(path)
+		if werr != nil {
+			return "", werr
+		}
+		return "", cerr
+	}
+	return path, nil
 }
 
 func lastUserContent(msgs []WireMessage) string {
@@ -868,7 +899,7 @@ func scanStreamingJSON(r io.Reader, onPiece func(streamPiece), onErr func(string
 			}
 			continue
 		}
-		if piece.Text != "" && onPiece != nil {
+		if onPiece != nil && (piece.Kind == "retry" || piece.Text != "") {
 			onPiece(piece)
 		}
 	}
@@ -890,7 +921,7 @@ func parseStreamLine(line []byte, tools map[string]*toolSnap) (piece streamPiece
 	if typ, ok := rawStr(raw, "type"); ok && strings.EqualFold(typ, "result") && resultIsError(raw) {
 		return streamPiece{}, resultErrorText(raw), true
 	}
-	if method, ok := rawStr(raw, "method"); ok && method == "session/update" {
+	if method, ok := rawStr(raw, "method"); ok && isSessionUpdateMethod(method) {
 		if params, ok := raw["params"]; ok {
 			if p, ok := parseSessionUpdate(params, tools); ok {
 				return p, "", false
@@ -928,7 +959,49 @@ func parseStreamLine(line []byte, tools map[string]*toolSnap) (piece streamPiece
 	return streamPiece{}, "", false
 }
 
+func isSessionUpdateMethod(method string) bool {
+	return method == "session/update" || method == "_x.ai/session/update" || method == "x.ai/session/update"
+}
+
+// retryStatusText 是超时重试时界面上的那一行。次数按会话事件里的 attempt / max_retries。
+func retryStatusText(attempt, max int) string {
+	if attempt > 0 && max > 0 {
+		return fmt.Sprintf("正在重试（%d/%d）", attempt, max)
+	}
+	if attempt > 0 {
+		return fmt.Sprintf("正在重试（第 %d 次）", attempt)
+	}
+	return "正在重试"
+}
+
+func parseRetryState(params json.RawMessage) (streamPiece, bool) {
+	var p struct {
+		Update struct {
+			SessionUpdate string `json:"sessionUpdate"`
+			Type          string `json:"type"`
+			Attempt       int    `json:"attempt"`
+			MaxRetries    int    `json:"max_retries"`
+			MaxRetriesAlt int    `json:"maxRetries"`
+		} `json:"update"`
+	}
+	if json.Unmarshal(params, &p) != nil || p.Update.SessionUpdate != "retry_state" {
+		return streamPiece{}, false
+	}
+	typ := strings.ToLower(strings.TrimSpace(p.Update.Type))
+	if typ != "retrying" && typ != "retry" {
+		return streamPiece{Kind: "retry", ID: "retry", Replace: true}, true
+	}
+	max := p.Update.MaxRetries
+	if max == 0 {
+		max = p.Update.MaxRetriesAlt
+	}
+	return streamPiece{Kind: "retry", ID: "retry", Text: retryStatusText(p.Update.Attempt, max), Replace: true}, true
+}
+
 func parseSessionUpdate(params json.RawMessage, tools map[string]*toolSnap) (streamPiece, bool) {
+	if piece, ok := parseRetryState(params); ok {
+		return piece, true
+	}
 	var p struct {
 		Update toolWire `json:"update"`
 	}

@@ -30,6 +30,38 @@ export function GetCatStatus() {
   return window['go']['app']['CatService']['GetCatStatus']();
 }
 
+export function GitCatBranch(arg1) {
+  return window['go']['app']['CatService']['GitCatBranch'](arg1);
+}
+
+export function GitCatCommit(arg1) {
+  return window['go']['app']['CatService']['GitCatCommit'](arg1);
+}
+
+export function GitCatDiff(arg1) {
+  return window['go']['app']['CatService']['GitCatDiff'](arg1);
+}
+
+export function GitCatPullRequest(arg1) {
+  return window['go']['app']['CatService']['GitCatPullRequest'](arg1);
+}
+
+export function GitCatRemote(arg1) {
+  return window['go']['app']['CatService']['GitCatRemote'](arg1);
+}
+
+export function GitCatStage(arg1) {
+  return window['go']['app']['CatService']['GitCatStage'](arg1);
+}
+
+export function GitCatStatus(arg1) {
+  return window['go']['app']['CatService']['GitCatStatus'](arg1);
+}
+
+export function GitCatUnstage(arg1) {
+  return window['go']['app']['CatService']['GitCatUnstage'](arg1);
+}
+
 export function ListCatConversations() {
   return window['go']['app']['CatService']['ListCatConversations']();
 }
@@ -48,6 +80,14 @@ export function ListCatProjects() {
 
 export function ListCatThinkLevels(arg1) {
   return window['go']['app']['CatService']['ListCatThinkLevels'](arg1);
+}
+
+export function ListLiveCatTurns() {
+  return window['go']['app']['CatService']['ListLiveCatTurns']();
+}
+
+export function PreviewCatMedia(arg1) {
+  return window['go']['app']['CatService']['PreviewCatMedia'](arg1);
 }
 
 export function ReadCatFile(arg1) {
@@ -72,6 +112,10 @@ export function RevealCatConversationFolder(arg1) {
 
 export function RevealCatProject(arg1) {
   return window['go']['app']['CatService']['RevealCatProject'](arg1);
+}
+
+export function SearchCatFiles(arg1) {
+  return window['go']['app']['CatService']['SearchCatFiles'](arg1);
 }
 
 export function SendCatMessage(arg1) {

@@ -109,6 +109,24 @@ func (s *CatService) SendCatMessage(req cat.SendMessageRequest) (cat.SendMessage
 	return c.SendCatMessage(s.rootCtx(), req)
 }
 
+// PreviewCatMedia 返回本机图片、视频或文档的预览地址。
+func (s *CatService) PreviewCatMedia(path string) (cat.MediaPreview, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.MediaPreview{}, err
+	}
+	return c.PreviewCatMedia(s.rootCtx(), path)
+}
+
+// ListLiveCatTurns 返回刷新后仍在回复的对话。
+func (s *CatService) ListLiveCatTurns() ([]cat.LiveTurn, error) {
+	c, err := s.svc()
+	if err != nil {
+		return nil, err
+	}
+	return c.ListLiveCatTurns(s.rootCtx())
+}
+
 // CancelCatTurn 立即停止 { convId, turnId } 这一轮（契约 6.19.9）；重复取消幂等。
 func (s *CatService) CancelCatTurn(req catagent.CancelCatTurnRequest) error {
 	c, err := s.svc()
@@ -208,4 +226,85 @@ func (s *CatService) WriteCatFile(req cat.WriteFileRequest) (cat.WriteFileResult
 		return cat.WriteFileResult{}, err
 	}
 	return c.WriteCatFile(s.rootCtx(), req)
+}
+
+// GitCatStatus 读取对话文件夹的分支和改动。不是仓库时 Repo 为 false。
+func (s *CatService) GitCatStatus(req cat.GitStatusRequest) (cat.GitStatusResult, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.GitStatusResult{}, err
+	}
+	return c.GitCatStatus(s.rootCtx(), req)
+}
+
+// GitCatStage 暂存改动。Paths 为空时暂存对话根下的全部改动。
+func (s *CatService) GitCatStage(req cat.GitPathsRequest) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.GitCatStage(s.rootCtx(), req)
+}
+
+// GitCatUnstage 取消暂存指定路径。
+func (s *CatService) GitCatUnstage(req cat.GitPathsRequest) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.GitCatUnstage(s.rootCtx(), req)
+}
+
+// GitCatCommit 用说明提交。没有已暂存的改动时先暂存再提交。
+func (s *CatService) GitCatCommit(req cat.GitPathsRequest) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.GitCatCommit(s.rootCtx(), req)
+}
+
+// GitCatDiff 返回这个文件和上一版提交的行对比。
+func (s *CatService) GitCatDiff(req cat.GitDiffRequest) (cat.GitDiffResult, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.GitDiffResult{}, err
+	}
+	return c.GitCatDiff(s.rootCtx(), req)
+}
+
+// GitCatPullRequest 返回 GitHub 比较页地址，不推送。
+func (s *CatService) GitCatPullRequest(req cat.GitStatusRequest) (cat.GitPRResult, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.GitPRResult{}, err
+	}
+	return c.GitCatPullRequest(s.rootCtx(), req)
+}
+
+// GitCatRemote 推送、拉取、获取或同步当前分支。
+func (s *CatService) GitCatRemote(req cat.GitRemoteRequest) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.GitCatRemote(s.rootCtx(), req)
+}
+
+// GitCatBranch 新建分支并切过去。
+func (s *CatService) GitCatBranch(req cat.GitBranchRequest) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.GitCatBranch(s.rootCtx(), req)
+}
+
+// SearchCatFiles 在对话根下按名称或内容查找。
+func (s *CatService) SearchCatFiles(req cat.SearchFilesRequest) (cat.SearchFilesResult, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.SearchFilesResult{}, err
+	}
+	return c.SearchCatFiles(s.rootCtx(), req)
 }

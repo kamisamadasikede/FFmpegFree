@@ -9,10 +9,11 @@
  */
 import * as CatBinding from '../../wailsjs/go/app/CatService'
 import { cat, catagent } from '../../wailsjs/go/models'
-import { AppError, call } from '@/api/call'
+import { AppError, call, callService } from '@/api/call'
 import { CAT_BACKEND_READY } from '@/api/flags'
 import { hasWailsBackend, onTaskEvent } from '@/services/wails'
 import { normalizeMessageEvent, normalizeTurnEvent, type CatStreamEvent, type CatTurnEvent } from '@/api/catStream'
+import { asPreviewKind, type CatShownFile } from '@/components/cat/catMedia'
 
 export { CAT_BACKEND_READY }
 
@@ -80,9 +81,11 @@ export interface CatConversation {
 
 export interface CatMessage {
   id: string
-  role: 'user' | 'assistant' | 'system' | 'thought' | 'tool'
+  role: 'user' | 'assistant' | 'system' | 'thought' | 'tool' | 'status'
   content: string
   createdAt: number
+  /** 刷新后从会话记录里读出的图片、视频和可预览文档 */
+  media?: CatShownFile[]
 }
 
 export interface CatConversationDetail extends CatConversation {
@@ -106,6 +109,8 @@ export interface SendCatMessageRequest {
   thinkLevelId?: string
   /** normal / plan / auto / approve。空等于全部批准 */
   permissionMode?: string
+  /** 这一轮附上的本机文件。图片按内容块发送，其它文件带路径 */
+  attachments?: { name: string; path: string }[]
 }
 
 /**
@@ -166,10 +171,38 @@ function mapConv(raw: { id?: string; title?: string; agentKind?: string; project
   }
 }
 
-function mapMsg(raw: { id?: string; role?: string; content?: string; createdAt?: number } | null | undefined): CatMessage {
+function mapMedia(raw: unknown): CatShownFile[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const out: CatShownFile[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const r = item as Record<string, unknown>
+    const name = typeof r.name === 'string' ? r.name.trim() : ''
+    const path = typeof r.path === 'string' ? r.path : ''
+    const data = typeof r.data === 'string' ? r.data : ''
+    const kind = asPreviewKind(typeof r.kind === 'string' ? r.kind : '')
+    if (!name && !path && !data) continue
+    out.push({
+      name: name || '文件',
+      path: path || undefined,
+      kind,
+      mime: typeof r.mime === 'string' ? r.mime : undefined,
+      data: data || undefined,
+    })
+  }
+  return out.length ? out : undefined
+}
+
+function mapMsg(raw: { id?: string; role?: string; content?: string; createdAt?: number; media?: unknown } | null | undefined): CatMessage {
   const r = raw?.role
   const role = r === 'user' || r === 'system' || r === 'thought' || r === 'tool' ? r : 'assistant'
-  return { id: String(raw?.id ?? ''), role, content: String(raw?.content ?? ''), createdAt: Number(raw?.createdAt) || 0 }
+  return {
+    id: String(raw?.id ?? ''),
+    role,
+    content: String(raw?.content ?? ''),
+    createdAt: Number(raw?.createdAt) || 0,
+    media: role === 'user' ? mapMedia(raw?.media) : undefined,
+  }
 }
 
 export async function getCatStatus(): Promise<CatStatus> {
@@ -216,6 +249,32 @@ export async function listCatConversations(): Promise<CatConversation[]> {
   if (!live()) return []
   const raw = await call(CatBinding.ListCatConversations())
   return Array.isArray(raw) ? raw.map(mapConv) : []
+}
+
+export interface LiveCatTurn {
+  convId: string
+  turnId: string
+}
+
+/**
+ * 刷新后仍在回复的对话。
+ * 绑定还没装上、或这一次没问到，返回 null：调用方保持现状，不要当成「都已经结束」。
+ * 问到了但没有，返回空数组。
+ */
+export async function listLiveCatTurns(): Promise<LiveCatTurn[] | null> {
+  if (!live()) return []
+  try {
+    const raw = await callService<unknown>('CatService', 'ListLiveCatTurns')
+    if (!Array.isArray(raw)) return []
+    return raw.flatMap((item) => {
+      const r = item && typeof item === 'object' ? (item as Record<string, unknown>) : {}
+      const convId = typeof r.convId === 'string' ? r.convId : ''
+      if (!convId) return []
+      return [{ convId, turnId: typeof r.turnId === 'string' ? r.turnId : '' }]
+    })
+  } catch {
+    return null
+  }
 }
 
 export async function getCatConversation(id: string): Promise<CatConversationDetail | null> {
@@ -281,18 +340,19 @@ export async function sendCatMessage(req: SendCatMessageRequest): Promise<SendCa
   if (!live()) {
     throw new AppError('CAT_NOT_READY', CAT_COPY.notReady)
   }
-  const raw = await call(
-    CatBinding.SendCatMessage(
-      cat.SendMessageRequest.createFrom({
-        conversationId: req.conversationId,
-        content: req.content,
-        modelId: req.modelId ?? '',
-        thinkLevelId: req.thinkLevelId ?? '',
-        permissionMode: req.permissionMode ?? '',
-        projectPath: '',
-      }),
-    ),
-  )
+  const body = cat.SendMessageRequest.createFrom({
+    conversationId: req.conversationId,
+    content: req.content,
+    modelId: req.modelId ?? '',
+    thinkLevelId: req.thinkLevelId ?? '',
+    permissionMode: req.permissionMode ?? '',
+    projectPath: '',
+  })
+  // 生成的构造器只拷它认识的字段。附件在构造之后挂上，绑定按整个对象送过去。
+  if (req.attachments?.length) {
+    ;(body as unknown as { attachments: { name: string; path: string }[] }).attachments = req.attachments
+  }
+  const raw = await call(CatBinding.SendCatMessage(body))
   return {
     turnId: String(raw?.turnId ?? ''),
     userMessage: mapMsg(raw?.userMessage),

@@ -15,6 +15,7 @@ import (
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/catagent"
 	"FFmpegFree/internal/id"
+	"FFmpegFree/internal/localassets"
 	"FFmpegFree/internal/paths"
 	"FFmpegFree/internal/store"
 )
@@ -37,6 +38,8 @@ type Config struct {
 	PathKey func(p string) string
 	// DataRoot 是应用数据目录。普通对话的文件夹（paths.CatConvDir / 旧 cwd）从这里算。空则不建、不删对话文件夹。
 	DataRoot string
+	// Preview 把本机图片、视频和文档登记成页面能加载的地址。空则不能预览。
+	Preview *localassets.Registry
 }
 
 // Service 是 CatService。
@@ -78,6 +81,9 @@ type turnState struct {
 	finished      bool
 	failMsg       string
 	errSeen       map[string]struct{}
+	retryID       string
+	retrySeq      int
+	retryText     string
 	usageCwd      string // 这一轮的工作目录，用来读上下文占用
 	contextUsed   int64
 	contextWindow int64
@@ -258,13 +264,25 @@ func wiresToMessages(convID string, wires []catagent.WireMessage) []store.CatMes
 	for i, w := range wires {
 		role := w.Role
 		switch role {
-		case "user", "assistant", "system", "thought", "tool":
+		case "user", "assistant", "system", "thought", "tool", "status":
 		default:
 			role = "assistant"
 		}
 		out = append(out, store.CatMessage{
 			ID: convID + ":" + strconv.Itoa(i), Role: role, Content: w.Content, CreatedAt: int64(i + 1),
+			Media: mediaOf(w.Media),
 		})
+	}
+	return out
+}
+
+func mediaOf(list []catagent.WireMedia) []store.CatMedia {
+	if len(list) == 0 {
+		return nil
+	}
+	out := make([]store.CatMedia, 0, len(list))
+	for _, m := range list {
+		out = append(out, store.CatMedia{Kind: m.Kind, Name: m.Name, Path: m.Path, Mime: m.Mime, Data: m.Data})
 	}
 	return out
 }
@@ -383,7 +401,15 @@ func (s *Service) SendCatMessage(ctx context.Context, req SendMessageRequest) (S
 		return SendMessageResult{}, apperr.New(apperr.Internal, "本地存储尚未初始化")
 	}
 	content := strings.TrimSpace(req.Content)
-	if req.ConversationID == "" || content == "" {
+	files := make([]catagent.PromptFile, 0, len(req.Attachments))
+	for _, a := range req.Attachments {
+		files = append(files, catagent.PromptFile{Name: a.Name, Path: a.Path})
+	}
+	files, ferr := catagent.NormalizePromptFiles(files)
+	if ferr != nil {
+		return SendMessageResult{}, ferr
+	}
+	if req.ConversationID == "" || (content == "" && len(files) == 0) {
 		return SendMessageResult{}, apperr.New(apperr.InvalidArgument, "会话或内容不能为空")
 	}
 	if utf8.RuneCountInString(content) > 100_000 {
@@ -415,6 +441,15 @@ func (s *Service) SendCatMessage(ctx context.Context, req SendMessageRequest) (S
 		projectRoot = p.Path
 	}
 
+	// 刷新后旧进程可能还占着这场会话。再开一个会抢同一份记录。
+	// 本进程自己记着的回合仍由 setTurn 换掉，不在这里拒绝。
+	s.mu.Lock()
+	_, busy := s.turns[c.ID]
+	s.mu.Unlock()
+	if !busy && len(catagent.LiveConvIDs([]string{c.ID})) > 0 {
+		return SendMessageResult{}, apperr.New(apperr.TaskConflict, catagent.MsgTurnStillRunning).WithDetail("reason=turn_running")
+	}
+
 	// 只刷新这条标签的排序时间。句子本身不写入数据库，历史在 CLI。
 	if err := s.cfg.Store.TouchCatConversation(ctx, c.ID, ""); err != nil {
 		s.cfg.Logf("cat touch conversation: %v", err)
@@ -438,6 +473,7 @@ func (s *Service) SendCatMessage(ctx context.Context, req SendMessageRequest) (S
 		ProjectPath:    projectRoot,
 		Resume:         catagent.SessionStarted(cwd, c.ID),
 		Messages:       []catagent.WireMessage{{Role: "user", Content: content}},
+		Files:          files,
 	}
 	s.wg.Add(1)
 	go func() {
@@ -460,6 +496,10 @@ func (s *Service) runTurn(ctx context.Context, t *turnState, a catagent.Adapter,
 		s.appendText(ctx, t, delta)
 	}
 	opts.OnActivity = func(kind, id, text string, replace bool) {
+		if kind == "retry" {
+			s.showRetry(ctx, t, text)
+			return
+		}
 		s.appendActivity(ctx, t, kind, id, text, replace)
 	}
 	opts.OnError = func(msg string) {
@@ -571,11 +611,52 @@ func (s *Service) noteTurnError(ctx context.Context, t *turnState, msg string) {
 	}
 	t.errSeen[msg] = struct{}{}
 	n := len(t.errSeen)
+	s.clearRetryLocked(t)
 	t.mu.Unlock()
 	s.emit(catagent.EventMessage, catagent.MessageEvent{
 		ConvID: t.convID, TurnID: t.turnID, MessageID: t.turnID + ":err:" + strconv.Itoa(n),
 		Seq: 1, Op: catagent.OpReplace, TextDelta: msg,
 		Block: &catagent.MessageBlock{Type: "error", Text: msg},
+	})
+}
+
+// showRetry 把超时重试状态推到界面。同一句不重复发；空文字表示这一轮重试已经过去。
+func (s *Service) showRetry(ctx context.Context, t *turnState, text string) {
+	text = strings.TrimSpace(text)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.finished || ctx.Err() != nil {
+		return
+	}
+	if text == t.retryText {
+		return
+	}
+	t.retryText = text
+	if t.retryID == "" {
+		t.retryID = t.turnID + ":retry"
+	}
+	t.retrySeq++
+	s.emit(catagent.EventMessage, catagent.MessageEvent{
+		ConvID: t.convID, TurnID: t.turnID, MessageID: t.retryID,
+		Seq: t.retrySeq, Op: catagent.OpReplace, TextDelta: text,
+		Block: &catagent.MessageBlock{Type: "retry", Text: text},
+	})
+}
+
+// clearRetryLocked 收起重试行。调用时已持有 t.mu。
+func (s *Service) clearRetryLocked(t *turnState) {
+	if t.retryText == "" {
+		return
+	}
+	t.retryText = ""
+	if t.retryID == "" {
+		return
+	}
+	t.retrySeq++
+	s.emit(catagent.EventMessage, catagent.MessageEvent{
+		ConvID: t.convID, TurnID: t.turnID, MessageID: t.retryID,
+		Seq: t.retrySeq, Op: catagent.OpReplace,
+		Block: &catagent.MessageBlock{Type: "retry"},
 	})
 }
 
@@ -589,6 +670,7 @@ func (s *Service) appendActivity(ctx context.Context, t *turnState, kind, key, t
 	if t.finished || ctx.Err() != nil {
 		return
 	}
+	s.clearRetryLocked(t)
 	if key == "" {
 		key = kind
 	}
@@ -668,6 +750,7 @@ func (s *Service) appendText(ctx context.Context, t *turnState, delta string) bo
 	if t.finished || ctx.Err() != nil {
 		return false
 	}
+	s.clearRetryLocked(t)
 	t.seq++
 	t.text.WriteString(delta)
 	s.emit(catagent.EventMessage, catagent.MessageEvent{
@@ -753,11 +836,56 @@ func (s *Service) finishCancelled(t *turnState) {
 // turnId 为空时停止该会话当前这一轮（兼容）。
 func (s *Service) CancelCatTurn(ctx context.Context, req CancelTurnRequest) error {
 	_ = ctx
-	if strings.TrimSpace(req.ConvID) == "" {
+	convID := strings.TrimSpace(req.ConvID)
+	if convID == "" {
 		return apperr.New(apperr.InvalidArgument, "会话编号不能为空")
 	}
-	s.cancelTurn(req.ConvID, strings.TrimSpace(req.TurnID))
+	s.mu.Lock()
+	_, busy := s.turns[convID]
+	s.mu.Unlock()
+	if s.cancelTurn(convID, strings.TrimSpace(req.TurnID)) {
+		return nil
+	}
+	// 刷新之后界面已经不记这一轮，进程可能还在。没有本进程的回合时才去结束它。
+	if !busy {
+		catagent.StopLiveConv(convID)
+	}
 	return nil
+}
+
+// LiveTurn 是刷新后仍在回复的一场。TurnID 为空表示进程还在，但已经不是这次打开的应用拉起来的。
+type LiveTurn struct {
+	ConvID string `json:"convId"`
+	TurnID string `json:"turnId"`
+}
+
+// ListLiveCatTurns 告诉界面哪些对话还在回复。本进程记着的回合优先；其余看命令行里是否还挂着这场会话。
+func (s *Service) ListLiveCatTurns(ctx context.Context) ([]LiveTurn, error) {
+	s.mu.Lock()
+	out := make([]LiveTurn, 0, len(s.turns))
+	have := make(map[string]bool, len(s.turns))
+	for id, t := range s.turns {
+		have[id] = true
+		out = append(out, LiveTurn{ConvID: id, TurnID: t.turnID})
+	}
+	s.mu.Unlock()
+	if s.cfg.Store == nil || ctx == nil {
+		return out, nil
+	}
+	list, err := s.cfg.Store.ListCatConversations(ctx)
+	if err != nil {
+		return out, nil
+	}
+	ids := make([]string, 0, len(list))
+	for _, c := range list {
+		if !have[c.ID] {
+			ids = append(ids, c.ID)
+		}
+	}
+	for _, id := range catagent.LiveConvIDs(ids) {
+		out = append(out, LiveTurn{ConvID: id})
+	}
+	return out, nil
 }
 
 // Wait 等待所有后台回合结束（测试 / 关闭用）。

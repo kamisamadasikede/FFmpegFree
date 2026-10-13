@@ -46,6 +46,14 @@ type SendMessageRequest struct {
 	PermissionMode string `json:"permissionMode"`
 	// ProjectPath 自 v0.31 作废：后端忽略，只读工具的根只来自对话所属项目（6.19.10.5）。
 	ProjectPath string `json:"projectPath"`
+	// Attachments 是这一轮附上的本机文件（绝对路径）。图片按内容块发送，其它文件带路径。
+	Attachments []SendAttachment `json:"attachments,omitempty"`
+}
+
+// SendAttachment 是输入框里选中的一个文件。
+type SendAttachment struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
 }
 
 // SendMessageResult 是 SendCatMessage 返回值。

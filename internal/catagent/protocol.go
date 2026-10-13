@@ -11,7 +11,9 @@ const ProtocolVersion = 2
 XAI_API_KEY 或 ~/.grok/auth.json（grok login），无 URL/Key UI。
 
 调用（一期）：
-  grok -p "<最新一条用户消息>" --output-format streaming-json \
+  用户消息写入临时文件，用 --prompt-file 传入（不以 -p 放进参数，避免以 - 开头的消息被当成开关）。
+  带图片时改为 --prompt-json 内容块：图片是 data + mimeType，其它文件把绝对路径写进文字。
+  grok --prompt-file <消息文件> --output-format streaming-json \
        --cwd <projectAbsPath|应用临时目录> -s <conversationId> \
        --no-auto-update --no-alt-screen
   可选：-m <modelId>（非 default 时）
@@ -26,6 +28,7 @@ streaming-json（NDJSON，ACP session/update，或旧的 type/data）：
   正文增量                         → OnTextDelta / cat:message append（助手正文）
   agent_thought_chunk / thought    → OnActivity thought（界面单独一行，不写入助手正文）
   tool_call / tool_call_update     → OnActivity tool（界面单独一行）
+  retry_state（_x.ai/session/update）→ OnActivity retry（正在重试，下一句正文或思考出现后收起）
   end                              → 回合结束
   error / result.is_error / 超时类标准错误 → CAT_REPLY_FAILED（message 用原文）
 
@@ -40,6 +43,17 @@ streaming-json（NDJSON，ACP session/update，或旧的 type/data）：
 type WireMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
+	// Media 只用于把图片和可预览文件画回对话，不另存一份记录。
+	Media []WireMedia `json:"media,omitempty"`
+}
+
+// WireMedia 是一条用户消息里可预览的文件。图片带已经缩小的数据，其它文件只带路径。
+type WireMedia struct {
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+	Path string `json:"path,omitempty"`
+	Mime string `json:"mime,omitempty"`
+	Data string `json:"data,omitempty"`
 }
 
 // ToolRequest 是入口二进制请求的工具调用。

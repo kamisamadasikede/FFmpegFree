@@ -47,6 +47,7 @@ import {
   getCatStatus,
   isCatLive,
   listCatConversations,
+  listLiveCatTurns,
   listCatModels,
   listCatThinkLevels,
   onCatMessage,
@@ -71,7 +72,10 @@ import {
   type CatConv,
   type CatProject,
 } from '@/api/catMock'
+import type { CatOutgoingFile } from '@/components/cat/catAttach'
+import { previewKind, type CatShownFile } from '@/components/cat/catMedia'
 import { applyStreamEvent, newStreamMsg, type CatStreamEvent, type CatStreamMsg, type CatTurnEvent } from '@/api/catStream'
+import { liveTurnPlan, transcriptChanged } from './catLive'
 import { AppError, toAppError } from '@/api/call'
 import { catSim, catSimOs, catSimPicks, simModels, simStream, simThinks } from './catDevSim'
 import {
@@ -123,6 +127,8 @@ export interface CatTurnState {
   assistantId: string
   /** 这一轮已经看到的失败原文 */
   failMsg?: string
+  /** 刷新之后接回来的：记录以会话文件为准，不跟当场的增量抢 */
+  adopted?: boolean
 }
 
 const live = isCatLive()
@@ -203,6 +209,8 @@ export const catState = reactive({
   turns: {} as Record<string, CatTurnState>,
   /** 回复结束时用户不在该对话上：侧栏蓝点。点进该对话后清掉 */
   unseen: {} as Record<string, boolean>,
+  /** 这次打开应用期间，每条对话上次回复的结果。不写入数据库。进行中看 turns，不看这里。 */
+  outcome: {} as Record<string, 'ok' | 'bad'>,
   /** 各会话最近一次上下文占用（已用 / 容量）。没有真实数字就不放，圆环不画 0%。 */
   context: (live ? {} : {
     c11: { used: 48200, window: 256000 },
@@ -292,7 +300,8 @@ export function messagesOf(id: string): CatBlock[] {
 
 function blocksFrom(list: CatMessage[]): CatBlock[] {
   return list.map((m): CatBlock => {
-    if (m.role === 'user') return { kind: 'user', text: m.content }
+    if (m.role === 'user') return { kind: 'user', text: m.content, files: m.media }
+    if (m.role === 'status') return { kind: 'status', text: m.content, streaming: false }
     if (m.role === 'system') return { kind: 'sys', text: m.content, tone: 'err' }
     if (m.role === 'thought') return { kind: 'think', id: m.id, text: m.content }
     if (m.role === 'tool') return { kind: 'run', id: m.id, text: m.content }
@@ -300,23 +309,111 @@ function blocksFrom(list: CatMessage[]): CatBlock[] {
   })
 }
 
-async function loadMessages(id: string) {
+function blockSnap(list: CatBlock[]): { kind: string; text: string }[] {
+  return list.map((b) => ({ kind: b.kind, text: 'text' in b && typeof b.text === 'string' ? b.text : '' }))
+}
+
+async function loadMessages(id: string, quiet = false) {
   if (loading.has(id) || id.startsWith('local-')) return
-  // 这一轮还在往外流：屏幕上就是最新的，不去用 CLI 里还没写完的记录覆盖
-  if (catState.turns[id]) return
+  const turn = catState.turns[id]
+  // 本页发出的这一轮还在往外流：屏幕上就是最新的，不去用还没写完的记录覆盖。
+  // 刷新接回来的那一轮相反，记录在文件里继续长，要反复读。
+  if (turn && !turn.adopted) return
   loading.add(id)
   try {
     const d = await getCatConversation(id)
-    if (!d || !findConv(id) || catState.turns[id]) return
+    if (!d || !findConv(id)) return
+    // 等待期间本页又自己发出了一轮：不要用文件里的旧记录盖住正在流的内容。
+    const now = catState.turns[id]
+    if (now && !now.adopted) return
     if (d.contextUsed > 0 && d.contextWindow > 0) catState.context[id] = { used: d.contextUsed, window: d.contextWindow }
     const found = findConv(id)
     if (found && d.title) found.conv.title = d.title
-    catState.messages[id] = blocksFrom(d.messages)
+    const next = blocksFrom(d.messages)
+    if (catState.turns[id]?.status === 'running') {
+      for (let i = next.length - 1; i >= 0; i--) {
+        const row = next[i]
+        if (row.kind === 'status') {
+          row.streaming = true
+          break
+        }
+      }
+    }
+    const cur = catState.messages[id]
+    if (!cur || transcriptChanged(blockSnap(cur), blockSnap(next))) catState.messages[id] = next
   } catch {
-    if (catState.sel === id) notify('没能从助手里读出这段对话。', 'warn')
+    if (!quiet && catState.sel === id) notify('没能从助手里读出这段对话。', 'warn')
   } finally {
     loading.delete(id)
   }
+}
+
+let livePoll: ReturnType<typeof setInterval> | undefined
+let seq = 0
+
+function ensureLivePoll() {
+  if (livePoll) return
+  livePoll = setInterval(() => { void pollLiveTurns() }, 1000)
+}
+
+function stopLivePoll() {
+  if (!livePoll) return
+  clearInterval(livePoll)
+  livePoll = undefined
+}
+
+function heldTurns() {
+  return Object.entries(catState.turns).map(([convId, t]) => ({ convId, adopted: !!t.adopted }))
+}
+
+/** 打开页面或发送被拒绝时：把还在跑的对话接回来，侧栏继续转，记录接着长。 */
+async function adoptLiveTurns() {
+  const liveTurns = await listLiveCatTurns()
+  if (!liveTurns) return
+  const plan = liveTurnPlan(heldTurns(), liveTurns)
+  for (const t of plan.adopt) {
+    if (!findConv(t.convId)) continue
+    catState.turns[t.convId] = { token: ++seq, turnId: t.turnId, status: 'running', assistantId: '', adopted: true }
+    void loadMessages(t.convId, true)
+  }
+  if (Object.values(catState.turns).some((t) => t.adopted)) ensureLivePoll()
+}
+
+async function pollLiveTurns() {
+  const held = heldTurns()
+  if (!held.some((h) => h.adopted)) {
+    stopLivePoll()
+    return
+  }
+  const liveTurns = await listLiveCatTurns()
+  // 这一次没问到：保持转圈，不要当成进程已经结束。
+  if (!liveTurns) return
+  const plan = liveTurnPlan(held, liveTurns)
+  for (const id of plan.refresh) void loadMessages(id, true)
+  for (const id of plan.release) {
+    const token = catState.turns[id]?.token
+    void finishAdopted(id, token)
+  }
+}
+
+async function finishAdopted(id: string, token?: number) {
+  if (loading.has(id)) await new Promise((r) => setTimeout(r, 40))
+  await loadMessages(id, true)
+  const turn = catState.turns[id]
+  // 本进程拉起的这一轮还会发结束事件，成功或失败写在那条事件里。先让它落地。
+  if (turn?.adopted && turn.turnId && turn.token === token && turn.status !== 'stopping') {
+    await new Promise((r) => setTimeout(r, 400))
+  }
+  releaseAdopted(id, token)
+}
+
+function releaseAdopted(id: string, token?: number) {
+  const turn = catState.turns[id]
+  if (!turn || !turn.adopted || (token !== undefined && turn.token !== token)) return
+  // 人已经点了停止：等原来的停止收尾，这里不另报成功或失败。
+  if (turn.status === 'stopping') return
+  delete catState.turns[id]
+  quietStreaming(id)
 }
 
 function toConv(c: CatConversation): CatConv {
@@ -430,7 +527,7 @@ export function initCat(): () => void {
       .then((s) => (catState.status = s))
       .catch(() => (catState.status = { state: 'missing', version: '', canDownload: false, error: { code: 'CAT_NOT_READY', message: CAT_COPY.notReady } }))
   }
-  if (live) void reloadConversations()
+  if (live) void reloadConversations().finally(() => { void adoptLiveTurns() })
   else void refreshProjects()
   return disposeCat
 }
@@ -444,6 +541,7 @@ watch(() => catState.sel, (id) => {
 export function disposeCat() {
   offs.forEach((f) => f())
   offs = []
+  stopLivePoll()
 }
 
 export async function reloadConversations() {
@@ -524,6 +622,15 @@ function sealTurn(turnId: string) {
   }
 }
 
+/** 重试状态只在还没继续回复时留着。 */
+function dropStatus(convId: string) {
+  const list = catState.messages[convId]
+  if (!list) return
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i].kind === 'status') list.splice(i, 1)
+  }
+}
+
 /** 思考、工具和正文停掉转圈。点停止和回合结束都走这里。 */
 function quietStreaming(convId: string) {
   const list = catState.messages[convId]
@@ -538,6 +645,8 @@ export function handleMessageEvent(e: CatStreamEvent) {
   if (e.role === 'user') return // 用户消息本地已先放
   // 已不在列表里的对话（刚删掉的）：直接忽略，不报错也不重建状态
   if (!findConv(e.convId)) return
+  // 刷新接回来的回合以文件为准，当场增量会和整段重读叠成两份。
+  if (catState.turns[e.convId]?.adopted) return
   const turn = catState.turns[e.convId]
   // 这一轮已经停止或收尾：不再追加，也不要把思考重新转起来。
   // 下一轮已经开始时，只丢掉旧编号，不能把新一轮的转圈清掉。
@@ -562,7 +671,23 @@ export function handleMessageEvent(e: CatStreamEvent) {
   }
   const changed = applyStreamEvent(m, e)
   if (!changed) return
+  if (e.blockType === 'retry') {
+    const text = m.text.trim()
+    const idx = list.findIndex((b) => b.kind === 'status')
+    if (!text) {
+      if (idx >= 0) list.splice(idx, 1)
+      return
+    }
+    if (idx >= 0 && list[idx].kind === 'status') {
+      list[idx].text = text
+      list[idx].streaming = true
+    } else {
+      list.push({ kind: 'status', id: e.messageId, text, streaming: true })
+    }
+    return
+  }
   if (e.blockType === 'error') {
+    dropStatus(e.convId)
     const text = m.text.trim()
     if (text) {
       const dup = list.some((b) => b.kind === 'sys' && b.tone === 'err' && b.text === text)
@@ -573,6 +698,7 @@ export function handleMessageEvent(e: CatStreamEvent) {
     return
   }
   if (e.blockType === 'thought' || e.blockType === 'tool') {
+    dropStatus(e.convId)
     const kind = e.blockType === 'thought' ? 'think' : 'run'
     let row = activityBlock(e.convId, e.messageId)
     if (!row) {
@@ -585,14 +711,16 @@ export function handleMessageEvent(e: CatStreamEvent) {
     if (m.done) streams.delete(e.messageId)
     return
   }
+  dropStatus(e.convId)
   let b = assistantBlock(e.convId, e.messageId)
   if (!b) {
     if (!m.text && m.done) return
-    list.push({ kind: 'a', id: e.messageId, text: m.text, streaming: !m.done })
+    list.push({ kind: 'a', id: e.messageId, text: m.text, streaming: !m.done, reveal: true })
     b = list[list.length - 1] as Extract<CatBlock, { kind: 'a' }>
   } else {
     b.text = m.text
     b.streaming = !m.done
+    if (!m.done) b.reveal = true
   }
   if (turn && !turn.assistantId) turn.assistantId = e.messageId
   if (m.done) streams.delete(e.messageId)
@@ -613,6 +741,27 @@ export function handleTurnEvent(e: CatTurnEvent) {
       if (e.turnId) sealTurn(e.turnId)
       quietStreaming(e.convId)
     }
+    return
+  }
+  // 接回来的回合先把文件里的记录读完，再收尾。先收尾的话，后到的整段记录会把「已停止生成。」盖掉。
+  if (turn.adopted && e.status !== 'running') {
+    const token = turn.token
+    const convId = e.convId
+    const status = e.status
+    const errorCode = e.errorCode
+    const errorMessage = e.errorMessage
+    const turnId = e.turnId
+    void loadMessages(convId, true).finally(() => {
+      const cur = catState.turns[convId]
+      if (!cur || cur.token !== token) return
+      if (turnId && cur.turnId && turnId !== cur.turnId) return
+      const incoming = (errorMessage || '').trim()
+      if (incoming && incoming !== CAT_COPY.replyFailed) cur.failMsg = incoming
+      else if (!cur.failMsg && incoming) cur.failMsg = incoming
+      if (cur.status === 'stopping' || status === 'cancelled') endTurn(convId, 'cancelled', token)
+      else if (status === 'completed') endTurn(convId, 'completed', token)
+      else endTurn(convId, errorCode === 'CAT_NOT_READY' ? 'not_ready' : 'failed', token)
+    })
     return
   }
   if (e.turnId && turn.turnId && e.turnId !== turn.turnId) return
@@ -641,9 +790,13 @@ function endTurn(convId: string, how: TurnEnd, token?: number) {
   clearTimeout(stopTimers.get(convId))
   stopTimers.delete(convId)
   delete catState.turns[convId]
+  if (how === 'completed') catState.outcome[convId] = 'ok'
+  else if (how === 'failed' || how === 'not_ready') catState.outcome[convId] = 'bad'
+  else delete catState.outcome[convId]
   const list = catState.messages[convId] ?? (catState.messages[convId] = [])
   // 收起流式光标，已流出来的文字原样保留（不加后缀）
   quietStreaming(convId)
+  dropStatus(convId)
   // 人已经离开这个对话：结束后在侧栏打蓝点。人还在看就不打
   if (how === 'completed' && catState.sel !== convId) catState.unseen[convId] = true
   else delete catState.unseen[convId]
@@ -659,16 +812,21 @@ function endTurn(convId: string, how: TurnEnd, token?: number) {
   else if (how === 'not_ready') list.push({ kind: 'sys', text: catState.status.error?.message || CAT_COPY.notReady })
 }
 
-let seq = 0
+function fileChips(files: CatOutgoingFile[]): CatShownFile[] | undefined {
+  if (!files.length) return undefined
+  return files.map((f) => ({ name: f.name || f.path, path: f.path, kind: previewKind(f.name || f.path) }))
+}
 
 /**
  * 发送：新对话创建时写入 agentKind（不可再改）；已有对话只带会话 id。
- * 返回值：后端没收下这条消息（CAT_PROJECT_MISSING：没建对话 / 没存用户消息）且用户还停在原处时返回原文，
- * 调用方放回输入框（CatComposer.restoreDraft）；其它情况返回 undefined。
+ * 返回值：后端没收下这条消息（CAT_PROJECT_MISSING：没建对话 / 没存用户消息）且用户还停在原处时返回原文和附件，
+ * 调用方放回输入框；其它情况返回 undefined。
  */
-export async function sendMessage(text: string): Promise<string | undefined> {
+export async function sendMessage(text: string, files: CatOutgoingFile[] = []): Promise<{ text: string; files: CatOutgoingFile[] } | undefined> {
   const t = text.trim()
-  if (!t || catState.creating) return
+  const picked = files.filter((f) => f.path)
+  if ((!t && !picked.length) || catState.creating) return
+  const titleSeed = t || picked[0]?.name || ''
   let id = catState.sel
   if (id !== NEW_CONV && catState.turns[id]) return
   // 检查中：按钮已置灰；回车等其它入口也直接忽略
@@ -700,7 +858,7 @@ export async function sendMessage(text: string): Promise<string | undefined> {
       const created = await createCatConversation({ agentKind, projectId: project?.id })
       id = created.id
       const conv = toConv(created)
-      if (!conv.title) conv.title = titleFrom(t)
+      if (!conv.title) conv.title = titleFrom(titleSeed)
       if (project) {
         conv.projectId = project.id
         project.convs.unshift(conv)
@@ -711,15 +869,16 @@ export async function sendMessage(text: string): Promise<string | undefined> {
       if (project && toAppError(e).code === 'CAT_PROJECT_MISSING') {
         // 不创建对话；欢迎页随之显示「项目文件夹不见了。」，文字放回输入框
         project.missing = true
-        return catState.sel === NEW_CONV && catState.newProjectId === project.id ? text : undefined
+        return catState.sel === NEW_CONV && catState.newProjectId === project.id ? { text, files: picked } : undefined
       }
       id = `local-${Date.now().toString(36)}-${++seq}`
       if (project) {
-        project.convs.unshift({ id, title: titleFrom(t), agentKind, projectId: project.id })
+        project.convs.unshift({ id, title: titleFrom(titleSeed), agentKind, projectId: project.id })
         catState.newProjectId = ''
-      } else catState.plain.unshift({ id, title: titleFrom(t), agentKind })
+      } else catState.plain.unshift({ id, title: titleFrom(titleSeed), agentKind })
       carryDraftPref(id)
-      catState.messages[id] = [{ kind: 'user', text: t }, { kind: 'sys', text: CAT_COPY.replyFailed, tone: 'err' }]
+      catState.messages[id] = [{ kind: 'user', text: t, files: fileChips(picked) }, { kind: 'sys', text: CAT_COPY.replyFailed, tone: 'err' }]
+      catState.outcome[id] = 'bad'
       catState.sel = id
       return
     } finally {
@@ -732,7 +891,7 @@ export async function sendMessage(text: string): Promise<string | undefined> {
 
   const list = messagesOf(id)
   for (let i = list.length - 1; i >= 0; i--) if (list[i].kind === 'run') list.splice(i, 1)
-  list.push({ kind: 'user', text: t })
+  list.push({ kind: 'user', text: t, files: fileChips(picked) })
   const token = ++seq
   catState.turns[id] = { token, turnId: '', status: 'running', assistantId: '' }
 
@@ -749,6 +908,7 @@ export async function sendMessage(text: string): Promise<string | undefined> {
       // 没选强度就不带（接口层转成空串，后端不传 --reasoning-effort）
       thinkLevelId: catState.think || undefined,
       permissionMode: catState.access,
+      attachments: picked.length ? picked.map((f) => ({ name: f.name, path: f.path })) : undefined,
     })
     const turn = catState.turns[id]
     if (turn?.token === token && res.turnId && !turn.turnId) turn.turnId = res.turnId
@@ -766,7 +926,7 @@ export async function sendMessage(text: string): Promise<string | undefined> {
       if (turn.status !== 'stopping') {
         const a = res.assistantMessage
         const b = assistantBlock(id, a.id)
-        if (!b) messagesOf(id).push({ kind: 'a', id: a.id, text: a.content, streaming: false })
+        if (!b) messagesOf(id).push({ kind: 'a', id: a.id, text: a.content, streaming: false, reveal: true })
         else if (!b.text) b.text = a.content
       }
       endTurn(id, 'completed', token)
@@ -783,7 +943,17 @@ export async function sendMessage(text: string): Promise<string | undefined> {
       for (let i = l.length - 1; i >= 0; i--) if (l[i].kind === 'user' && (l[i] as { text: string }).text === t) { l.splice(i, 1); break }
       const p = findConv(id)?.project
       if (p) p.missing = true
-      return catState.sel === id ? text : undefined
+      return catState.sel === id ? { text, files: picked } : undefined
+    }
+    if (err.code === 'TASK_CONFLICT' && err.reason === 'turn_running') {
+      // 刷新后旧的回复还在。这条没发出去，文字放回输入框，界面改接正在跑的那一轮。
+      const turn = catState.turns[id]
+      if (turn?.token === token) delete catState.turns[id]
+      const l = messagesOf(id)
+      for (let i = l.length - 1; i >= 0; i--) if (l[i].kind === 'user' && (l[i] as { text: string }).text === t) { l.splice(i, 1); break }
+      notify((err.message || '').trim() || '这条对话还在回复，请先停止再发。', 'warn')
+      void adoptLiveTurns()
+      return catState.sel === id ? { text, files: picked } : undefined
     }
     if (err.code === 'CAT_NOT_READY') {
       const auth = (err.detail || '').includes('reason=auth') || err.message === CAT_COPY.authInvalid
@@ -818,6 +988,7 @@ function dropConvState(id: string) {
   delete catState.turns[id]
   delete catState.messages[id]
   delete catState.unseen[id]
+  delete catState.outcome[id]
   loading.delete(id)
   savePrefMap(dropPref(loadPrefMap(), id))
 }

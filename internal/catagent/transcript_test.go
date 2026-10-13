@@ -28,7 +28,7 @@ func TestParseExportMarkdown_KeepsAssistantHeadings(t *testing.T) {
 		{Role: "assistant", Content: "第二段"},
 	}
 	for i := range want {
-		if got[i] != want[i] {
+		if !wireEqual(got[i], want[i]) {
 			t.Fatalf("[%d] got %+v want %+v", i, got[i], want[i])
 		}
 	}

@@ -191,6 +191,174 @@ export namespace cat {
 	        this.modTime = source["modTime"];
 	    }
 	}
+	export class GitBranchRequest {
+	    convId: string;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitBranchRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.name = source["name"];
+	    }
+	}
+	export class GitChange {
+	    path: string;
+	    name: string;
+	    dir: string;
+	    letter: string;
+	    added: number;
+	    deleted: number;
+	    staged: boolean;
+	    unstaged: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitChange(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.name = source["name"];
+	        this.dir = source["dir"];
+	        this.letter = source["letter"];
+	        this.added = source["added"];
+	        this.deleted = source["deleted"];
+	        this.staged = source["staged"];
+	        this.unstaged = source["unstaged"];
+	    }
+	}
+	export class GitDiffRequest {
+	    convId: string;
+	    relPath: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitDiffRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.relPath = source["relPath"];
+	    }
+	}
+	export class GitDiffResult {
+	    path: string;
+	    text: string;
+	    binary: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitDiffResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.text = source["text"];
+	        this.binary = source["binary"];
+	    }
+	}
+	export class GitPRResult {
+	    url: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitPRResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.url = source["url"];
+	    }
+	}
+	export class GitPathsRequest {
+	    convId: string;
+	    paths: string[];
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitPathsRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.paths = source["paths"];
+	        this.message = source["message"];
+	    }
+	}
+	export class GitRemoteRequest {
+	    convId: string;
+	    op: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitRemoteRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.op = source["op"];
+	    }
+	}
+	export class GitStatusRequest {
+	    convId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitStatusRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	    }
+	}
+	export class GitStatusResult {
+	    repo: boolean;
+	    branch: string;
+	    upstream: string;
+	    ahead: number;
+	    behind: number;
+	    remote: string;
+	    web: string;
+	    changes: GitChange[];
+	
+	    static createFrom(source: any = {}) {
+	        return new GitStatusResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.repo = source["repo"];
+	        this.branch = source["branch"];
+	        this.upstream = source["upstream"];
+	        this.ahead = source["ahead"];
+	        this.behind = source["behind"];
+	        this.remote = source["remote"];
+	        this.web = source["web"];
+	        this.changes = this.convertValues(source["changes"], GitChange);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ListFilesRequest {
 	    convId: string;
 	    relPath: string;
@@ -238,6 +406,38 @@ export namespace cat {
 		    }
 		    return a;
 		}
+	}
+	export class LiveTurn {
+	    convId: string;
+	    turnId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LiveTurn(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.turnId = source["turnId"];
+	    }
+	}
+	export class MediaPreview {
+	    url: string;
+	    mime: string;
+	    kind: string;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MediaPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.url = source["url"];
+	        this.mime = source["mime"];
+	        this.kind = source["kind"];
+	        this.name = source["name"];
+	    }
 	}
 	
 	export class ReadFileRequest {
@@ -336,6 +536,89 @@ export namespace cat {
 	        this.id = source["id"];
 	    }
 	}
+	export class SearchFilesRequest {
+	    convId: string;
+	    query: string;
+	    kind: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SearchFilesRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.query = source["query"];
+	        this.kind = source["kind"];
+	    }
+	}
+	export class SearchHit {
+	    name: string;
+	    relPath: string;
+	    isDir: boolean;
+	    line?: number;
+	    text?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SearchHit(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.relPath = source["relPath"];
+	        this.isDir = source["isDir"];
+	        this.line = source["line"];
+	        this.text = source["text"];
+	    }
+	}
+	export class SearchFilesResult {
+	    hits: SearchHit[];
+	    truncated: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SearchFilesResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.hits = this.convertValues(source["hits"], SearchHit);
+	        this.truncated = source["truncated"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class SendAttachment {
+	    name: string;
+	    path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SendAttachment(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.path = source["path"];
+	    }
+	}
 	export class SendMessageRequest {
 	    conversationId: string;
 	    content: string;
@@ -343,6 +626,7 @@ export namespace cat {
 	    thinkLevelId: string;
 	    permissionMode: string;
 	    projectPath: string;
+	    attachments?: SendAttachment[];
 	
 	    static createFrom(source: any = {}) {
 	        return new SendMessageRequest(source);
@@ -356,7 +640,26 @@ export namespace cat {
 	        this.thinkLevelId = source["thinkLevelId"];
 	        this.permissionMode = source["permissionMode"];
 	        this.projectPath = source["projectPath"];
+	        this.attachments = this.convertValues(source["attachments"], SendAttachment);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class SendMessageResult {
 	    userMessage: store.CatMessage;
@@ -2366,11 +2669,32 @@ export namespace store {
 	        this.updatedAt = source["updatedAt"];
 	    }
 	}
+	export class CatMedia {
+	    kind: string;
+	    name: string;
+	    path?: string;
+	    mime?: string;
+	    data?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatMedia(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.name = source["name"];
+	        this.path = source["path"];
+	        this.mime = source["mime"];
+	        this.data = source["data"];
+	    }
+	}
 	export class CatMessage {
 	    id: string;
 	    role: string;
 	    content: string;
 	    createdAt: number;
+	    media?: CatMedia[];
 	
 	    static createFrom(source: any = {}) {
 	        return new CatMessage(source);
@@ -2382,7 +2706,26 @@ export namespace store {
 	        this.role = source["role"];
 	        this.content = source["content"];
 	        this.createdAt = source["createdAt"];
+	        this.media = this.convertValues(source["media"], CatMedia);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class StreamInfo {
 	    index: number;

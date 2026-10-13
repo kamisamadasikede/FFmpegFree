@@ -18,6 +18,22 @@ export function GetCatConversation(arg1:string):Promise<cat.ConversationDetail>;
 
 export function GetCatStatus():Promise<catagent.Status>;
 
+export function GitCatBranch(arg1:cat.GitBranchRequest):Promise<void>;
+
+export function GitCatCommit(arg1:cat.GitPathsRequest):Promise<void>;
+
+export function GitCatDiff(arg1:cat.GitDiffRequest):Promise<cat.GitDiffResult>;
+
+export function GitCatPullRequest(arg1:cat.GitStatusRequest):Promise<cat.GitPRResult>;
+
+export function GitCatRemote(arg1:cat.GitRemoteRequest):Promise<void>;
+
+export function GitCatStage(arg1:cat.GitPathsRequest):Promise<void>;
+
+export function GitCatStatus(arg1:cat.GitStatusRequest):Promise<cat.GitStatusResult>;
+
+export function GitCatUnstage(arg1:cat.GitPathsRequest):Promise<void>;
+
 export function ListCatConversations():Promise<Array<store.CatConversation>>;
 
 export function ListCatFiles(arg1:cat.ListFilesRequest):Promise<cat.ListFilesResult>;
@@ -27,6 +43,10 @@ export function ListCatModels(arg1:string):Promise<Array<catagent.Model>>;
 export function ListCatProjects():Promise<Array<cat.Project>>;
 
 export function ListCatThinkLevels(arg1:string):Promise<Array<catagent.ThinkLevel>>;
+
+export function ListLiveCatTurns():Promise<Array<cat.LiveTurn>>;
+
+export function PreviewCatMedia(arg1:string):Promise<cat.MediaPreview>;
 
 export function ReadCatFile(arg1:cat.ReadFileRequest):Promise<cat.ReadFileResult>;
 
@@ -39,6 +59,8 @@ export function RenameCatProject(arg1:cat.RenameProjectRequest):Promise<cat.Proj
 export function RevealCatConversationFolder(arg1:cat.RevealConversationFolderRequest):Promise<void>;
 
 export function RevealCatProject(arg1:cat.RevealProjectRequest):Promise<void>;
+
+export function SearchCatFiles(arg1:cat.SearchFilesRequest):Promise<cat.SearchFilesResult>;
 
 export function SendCatMessage(arg1:cat.SendMessageRequest):Promise<cat.SendMessageResult>;
 

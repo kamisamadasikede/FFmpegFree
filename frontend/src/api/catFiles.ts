@@ -4,7 +4,7 @@
  */
 import * as CatBinding from '../../wailsjs/go/app/CatService'
 import { cat } from '../../wailsjs/go/models'
-import { call, toAppError } from '@/api/call'
+import { call, callService, toAppError } from '@/api/call'
 
 export const CAT_FILES_COPY = {
   empty: '这里还没有文件。',
@@ -12,10 +12,16 @@ export const CAT_FILES_COPY = {
   failed: '文件列表加载失败，请重试。',
   loading: '正在加载…',
   search: '按文件名搜索',
+  find: '查找文件',
+  findName: '名称',
+  findContent: '内容',
+  searching: '正在查找…',
+  searchCut: '结果太多，只显示一部分。',
   open: '打开文件夹',
   refresh: '刷新',
   noMatch: '没有匹配的文件。',
   retry: '重试',
+  contentPreview: '预览里不能查找文件内容。',
 } as const
 
 export interface CatFileEntry {
@@ -123,10 +129,52 @@ export async function listCatFiles(convId: string, relPath = ''): Promise<CatFil
   return mapFileList(raw)
 }
 
+export interface CatSearchHit {
+  name: string
+  relPath: string
+  isDir: boolean
+  line: number
+  text: string
+}
+
+export interface CatSearchResult {
+  hits: CatSearchHit[]
+  truncated: boolean
+}
+
+export function mapSearchResult(raw: unknown): CatSearchResult {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as { hits?: unknown; truncated?: unknown }
+  const hits = Array.isArray(r.hits) ? r.hits.map(mapSearchHit).filter((h) => h.relPath || h.name) : []
+  return { hits, truncated: r.truncated === true }
+}
+
+function mapSearchHit(raw: unknown): CatSearchHit {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as { name?: unknown; relPath?: unknown; isDir?: unknown; line?: unknown; text?: unknown }
+  return {
+    name: typeof r.name === 'string' ? r.name : '',
+    relPath: typeof r.relPath === 'string' ? r.relPath : '',
+    isDir: r.isDir === true,
+    line: typeof r.line === 'number' ? r.line : 0,
+    text: typeof r.text === 'string' ? r.text : '',
+  }
+}
+
+export async function searchCatFiles(convId: string, query: string, kind: 'name' | 'content'): Promise<CatSearchResult> {
+  const raw = await callService<unknown>('CatService', 'SearchCatFiles', { convId, query, kind })
+  return mapSearchResult(raw)
+}
+
 export async function revealCatConversationFolder(convId: string): Promise<void> {
   await call(CatBinding.RevealCatConversationFolder(cat.RevealConversationFolderRequest.createFrom({ convId })))
 }
 
 export function catFilesErrorText(e: unknown): string {
-  return toAppError(e).code === 'CAT_PROJECT_MISSING' ? '项目文件夹不见了。' : CAT_FILES_COPY.failed
+  return catCallError(e, CAT_FILES_COPY.failed)
+}
+
+export function catCallError(e: unknown, fallback: string): string {
+  const err = toAppError(e)
+  if (err.code === 'CAT_PROJECT_MISSING') return '项目文件夹不见了。'
+  if (err.code === 'UNSUPPORTED') return '请重新打开应用后再试。'
+  return err.message || fallback
 }

@@ -7,18 +7,20 @@
 import type { CatAgentKind } from '@/api/cat'
 import { CAT_AGENT_BUILD } from '@/api/cat'
 
-export type CatConvState = 'ok' | 'idle' | 'run'
+export type CatConvState = 'ok' | 'idle' | 'run' | 'bad'
 
 /** 一段消息内容。p / li 里的 `反引号` 渲染成行内代码；code 的 parts 第二项为 true 时按关键字上色 */
 export type CatBlock =
-  | { kind: 'user'; text: string }
+  | { kind: 'user'; text: string; failed?: boolean; files?: import('@/components/cat/catMedia').CatShownFile[] }
+  /** 超时重试。streaming 时转圈，回复继续后收起 */
+  | { kind: 'status'; text: string; id?: string; streaming?: boolean }
   | { kind: 'think'; text: string; id?: string; streaming?: boolean }
   | { kind: 'p'; text: string }
   | { kind: 'ul'; items: string[] }
   | { kind: 'code'; lang: string; parts: Array<[string, boolean?]>; more?: string }
   | { kind: 'run'; text: string; id?: string; streaming?: boolean }
-  /** 助手回复（真实会话）：streaming=true 时文字仍在增长 */
-  | { kind: 'a'; id: string; text: string; streaming: boolean }
+  /** 助手回复（真实会话）：streaming=true 时文字仍在增长。reveal：这一轮新出现的，要逐字打出来 */
+  | { kind: 'a'; id: string; text: string; streaming: boolean; reveal?: boolean }
   /** 浅灰系统行：已停止生成 / 未就绪 / 回复失败 */
   | { kind: 'sys'; text: string; tone?: 'err' }
 

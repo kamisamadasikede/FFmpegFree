@@ -30,6 +30,17 @@ type CatMessage struct {
 	Role      string `json:"role"` // user | assistant | system
 	Content   string `json:"content"`
 	CreatedAt int64  `json:"createdAt"`
+	// Media 是刷新时从会话记录里读出的可预览文件，不写入数据库。
+	Media []CatMedia `json:"media,omitempty"`
+}
+
+// CatMedia 是一条消息上可预览的图片、视频或文档。
+type CatMedia struct {
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+	Path string `json:"path,omitempty"`
+	Mime string `json:"mime,omitempty"`
+	Data string `json:"data,omitempty"`
 }
 
 // InsertCatConversation 写入新会话；agentKind 之后不可变。
