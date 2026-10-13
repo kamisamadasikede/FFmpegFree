@@ -346,11 +346,25 @@ func (a *App) startCat() {
 		Logf:         log.Printf,
 	})
 	reg.Register(build)
-	reg.Register(catagent.NewStubAdapter(catagent.KindClaudeCLI))
-	reg.Register(catagent.NewStubAdapter(catagent.KindCodexCLI))
+	claude := catagent.NewClaudeAdapter(catagent.CLIAgentConfig{
+		DataRoot: root,
+		DataTemp: temp,
+		Emit:     emit,
+		Logf:     log.Printf,
+	})
+	codex := catagent.NewCodexAdapter(catagent.CLIAgentConfig{
+		DataRoot: root,
+		DataTemp: temp,
+		Emit:     emit,
+		Logf:     log.Printf,
+	})
+	reg.Register(claude)
+	reg.Register(codex)
 	reg.SetDefaultKind(a.sys.CatDefaultAgentKind(a.rootCtx))
 	a.catReg.Store(reg)
 	build.Start()
+	claude.Start()
+	codex.Start()
 
 	cfg := cat.Config{
 		Registry:               reg,

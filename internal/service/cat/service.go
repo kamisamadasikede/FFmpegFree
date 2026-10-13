@@ -106,6 +106,12 @@ type turnState struct {
 	emittedUsed   int64
 	emittedWindow int64
 	hook          *turnHook // 定时任务的收尾回调；终态时调一次
+	// v0.37.1 消息尾
+	startedAt    int64 // 发 running / 启 turn 的墙钟（Unix 毫秒）
+	tokenTotal   int64 // CLI 上报合计；0 = 无 usage
+	durationMs   int64 // CLI 上报生成耗时；0 = 用墙钟
+	finishedAt   int64
+	tokensPerSec *float64
 }
 
 // New 创建服务。
@@ -319,7 +325,7 @@ func (s *Service) loadTranscript(ctx context.Context, c store.CatConversation) (
 	if err != nil {
 		return nil, err
 	}
-	return wiresToMessages(c.ID, wires), nil
+	return applyFooters(s.cfg.DataRoot, c.ID, wiresToMessages(c.ID, wires)), nil
 }
 
 func wiresToMessages(convID string, wires []catagent.WireMessage) []store.CatMessage {
@@ -532,10 +538,12 @@ func (s *Service) sendMessage(ctx context.Context, req SendMessageRequest, hook 
 
 	// 回合生命周期与调用方 ctx 解耦（绑定层传入的是应用根 ctx，取消只走 CancelCatTurn）。
 	turnCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	nowMs := time.Now().UnixMilli()
 	t := &turnState{
 		convID: c.ID, turnID: id.New(), cancel: cancel, msgID: id.New(), done: make(chan struct{}),
-		usageCwd: catagent.TurnCwd(s.cfg.DataRoot, projectRoot, c.ID),
-		hook:     hook,
+		usageCwd:  catagent.TurnCwd(s.cfg.DataRoot, projectRoot, c.ID),
+		hook:      hook,
+		startedAt: nowMs,
 	}
 	s.setTurn(t)
 	s.emit(catagent.EventTurn, catagent.TurnEvent{ConvID: t.convID, TurnID: t.turnID, Status: catagent.TurnRunning})
@@ -585,6 +593,7 @@ func (s *Service) runTurn(ctx context.Context, t *turnState, a catagent.Adapter,
 	}
 
 	resp, runErr := a.RunTurn(opts)
+	s.noteTurnUsage(t, resp)
 	if runErr != nil {
 		if ctx.Err() != nil || apperr.Is(runErr, apperr.Canceled) {
 			s.finishCancelled(t)
@@ -872,10 +881,9 @@ func (s *Service) emitContextUpdateLocked(t *turnState, status string) {
 		return
 	}
 	t.emittedUsed, t.emittedWindow = t.contextUsed, t.contextWindow
-	s.emit(catagent.EventTurn, catagent.TurnEvent{
-		ConvID: t.convID, TurnID: t.turnID, Status: status,
-		ContextUsed: t.contextUsed, ContextWindow: t.contextWindow,
-	})
+	ev := s.turnEventLocked(t, status)
+	ev.ContextUsed, ev.ContextWindow = t.contextUsed, t.contextWindow
+	s.emit(catagent.EventTurn, ev)
 }
 
 func (s *Service) finishLocked(t *turnState, status string) bool {
@@ -889,6 +897,40 @@ func (s *Service) finishLocked(t *turnState, status string) bool {
 			ConvID: t.convID, TurnID: t.turnID, MessageID: t.msgID, Seq: t.seq, Op: catagent.OpDone,
 		})
 	}
+	s.fillFooterLocked(t)
+	ev := s.turnEventLocked(t, status)
+	s.emit(catagent.EventTurn, ev)
+	s.persistFooterLocked(t)
+	if h := t.hook; h != nil && h.onFinish != nil {
+		go h.onFinish(status, ev.Error) // 持有 t.mu，回调另起 goroutine
+	}
+	return true
+}
+
+// noteTurnUsage 记下适配器上报的合计 token / 生成耗时（契约 v0.37.1）。
+func (s *Service) noteTurnUsage(t *turnState, resp catagent.TurnResponse) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if resp.TokenTotal > 0 {
+		t.tokenTotal = resp.TokenTotal
+	}
+	if resp.DurationMs > 0 {
+		t.durationMs = resp.DurationMs
+	}
+}
+
+func (s *Service) fillFooterLocked(t *turnState) {
+	if t.finishedAt <= 0 {
+		t.finishedAt = time.Now().UnixMilli()
+	}
+	dur := t.durationMs
+	if dur <= 0 && t.startedAt > 0 && t.finishedAt > t.startedAt {
+		dur = t.finishedAt - t.startedAt
+	}
+	t.tokensPerSec = computeTokensPerSec(t.tokenTotal, dur)
+}
+
+func (s *Service) turnEventLocked(t *turnState, status string) catagent.TurnEvent {
 	ev := catagent.TurnEvent{ConvID: t.convID, TurnID: t.turnID, Status: status}
 	if status == catagent.TurnFailed {
 		msg := strings.TrimSpace(t.failMsg)
@@ -901,11 +943,32 @@ func (s *Service) finishLocked(t *turnState, status string) bool {
 		ev.ContextUsed, ev.ContextWindow = t.contextUsed, t.contextWindow
 		t.emittedUsed, t.emittedWindow = t.contextUsed, t.contextWindow
 	}
-	s.emit(catagent.EventTurn, ev)
-	if h := t.hook; h != nil && h.onFinish != nil {
-		go h.onFinish(status, ev.Error) // 持有 t.mu，回调另起 goroutine
+	// v0.37.1：终态才带消息尾；running 不会走到这里。
+	if status == catagent.TurnRunning {
+		return ev
 	}
-	return true
+	ev.MessageID = t.msgID
+	if t.finishedAt > 0 {
+		ev.FinishedAt = t.finishedAt
+	}
+	ev.TokenTotal = int64Ptr(t.tokenTotal)
+	ev.TokensPerSec = t.tokensPerSec
+	return ev
+}
+
+func (s *Service) persistFooterLocked(t *turnState) {
+	if t.finishedAt <= 0 {
+		return
+	}
+	// 只在本轮出过助手正文时落盘，避免空失败回合打乱「assistant 顺序 ↔ footer」对齐。
+	// 终态 cat:turn 仍始终带 finishedAt，供进行中气泡挂尾。
+	if t.text.Len() == 0 && t.seq == 0 {
+		return
+	}
+	appendFooter(s.cfg.DataRoot, t.convID, messageFooter{
+		TurnID: t.turnID, MessageID: t.msgID, FinishedAt: t.finishedAt,
+		TokenTotal: int64Ptr(t.tokenTotal), TokensPerSec: t.tokensPerSec,
+	})
 }
 
 // finishCancelled 收尾被取消的一轮。已流出的文字只留在当前界面和 CLI 会话里，不写入 SQLite。

@@ -2,7 +2,7 @@ package catagent
 
 import "FFmpegFree/internal/apperr"
 
-// StubAdapter 是未就绪桩（v0.36：claude_cli / codex_cli 在真实适配器落地前注册）。
+// StubAdapter 是未就绪桩，仅测试用（v0.37 起生产注册真适配器 NewClaudeAdapter / NewCodexAdapter）。
 // 状态恒为 missing；模型 / 强度空列表；RunTurn → CAT_NOT_READY。
 type StubAdapter struct {
 	kind string

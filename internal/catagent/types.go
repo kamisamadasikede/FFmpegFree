@@ -139,6 +139,11 @@ type TurnEvent struct {
 	ContextUsed   int64            `json:"contextUsed,omitempty"`
 	ContextWindow int64            `json:"contextWindow,omitempty"`
 	Error         *apperr.AppError `json:"error,omitempty"`
+	// v0.37.1 消息尾：仅终态可带；running 禁止。
+	MessageID    string   `json:"messageId,omitempty"`
+	FinishedAt   int64    `json:"finishedAt,omitempty"`
+	TokenTotal   *int64   `json:"tokenTotal,omitempty"`
+	TokensPerSec *float64 `json:"tokensPerSec,omitempty"`
 }
 
 // CancelCatTurnRequest 是 CancelCatTurn 入参（契约 6.19.9）。
