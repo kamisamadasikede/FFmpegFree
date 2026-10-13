@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.37）
+# FFmpegFree v2 接口契约（v0.37.1）
+
+v0.37.1 变更（**消息尾：完成时间 / token / token/s**，拆期设计草稿 v0.2 §7 + 产品 §8 拍板，架构师 10-13；完整规则见 **6.19.9「消息尾」**；**无新错误码 / 迁移 / 事件名 / 开关，2.1 仍是 39 个**）：① 助手 turn **终态**（`completed` / `cancelled` / `failed`）后，气泡下方可显示 `完成于 HH:mm` · `共 N token` · `约 M token/s`（N/M 千分位；**只显示合计**，不拆 in/out）。② **`CatMessage`（assistant）与终态 `cat:turn`** 增加可选字段 `finishedAt`（Unix 毫秒）、`tokenTotal`、`tokensPerSec`（均可 `omitempty`）。③ **字段何时写入**：仅在 turn 进入终态时写入；`running` / 进行中**不得**带消息尾字段、界面**不出现**尾巴。④ **无 usage**：省略 `tokenTotal` / `tokensPerSec`，有 `finishedAt` 则只留完成时间；停止 / 失败 / 超时同口径（有部分用量就带，没有就只时间）。⑤ **旧消息缺字段**：**不补假数据、不显示尾巴**。⑥ **`tokensPerSec` 计算（产品锁定）**：`tokenTotal ÷ (durationMs/1000)`；`durationMs` **优先用 CLI 上报的生成耗时**；CLI 未给时用本轮 **turn 墙钟**（`finishedAt − turnStartedAt`，`turnStartedAt` = 发 `cat:turn` `running` / 启 turn 时刻）；**禁止**用首字时间（TTFB）。`durationMs ≤ 0` 或算不出 → **省略** `tokensPerSec`。⑦ `GetCatConversation.messages`（及任何返回 `CatMessage` 的列表）须带回已持久化的消息尾字段，供重开对话渲染；持久化在应用侧（按 turn / message），**不得**为旧导出伪造。⑧ 本版**不做** URL/Key（v0.38）、技能/MCP 可管理（v0.39）、改名 `cat_build`。
 
 v0.37 变更（**Claude / Codex 真适配**，拆期设计草稿 v0.2 第一期，架构师 10-13；完整规则见 **6.19.2 / 6.19.3a / 6.19.3b / 6.19.14**；**无新错误码 / 迁移 / 事件 / 开关，2.1 仍是 39 个；无 `cat.settings` 新字段**）：① **`claude_cli` / `codex_cli` 从「未就绪桩」升级为与 `cat_build` 同级的真适配器**：PATH 检测、状态 / 重检、真实模型与思考强度列表、`RunTurn` 流式进既有 `cat:message` / `cat:turn`、`CancelCatTurn` 杀进程树、有项目时 cwd = 项目路径。② **CLI 已安装且鉴权 OK 时，Send 不再因「桩」返回 `CAT_NOT_READY`**；未安装 → `missing` + 未检测到文案；登录失效 → `reason=auth`（与 Build 同口径）。③ **全局批准方式与自定义指令**须注入各家每一轮请求（产品行为规范）；具体 CLI flag **标 GUESS**，真机确认前不得当交付（附录 6.19.14）。④ **定时任务仍锁 `cat_build`**（本版不变；选服务商仍下一小版）。⑤ **明确不做（本版）**：自定义 API Key / Base URL（→ v0.38）；技能 / MCP 可管理与项目内技能根（→ v0.39）；消息尾完成时间 / token / token/s（→ v0.37.1）；改名 `cat_build`。⑥ LookPath 入口名暂定 `claude` / `codex`（Windows 可带 `.exe`），**真机确认前标 GUESS**。
 
@@ -3925,9 +3927,10 @@ type ExportSubtitleRequest struct {
 6. `LANG_ASR_FAILED` 最终文案产品确认。
 
 
-## 6.19 Cat 助手（v0.30；v0.36 起欢迎页三家可点；v0.37 Claude / Codex 真适配；产品 / 老板 10-09 定，v0.36 老板确认设计 v0.4，v0.37 对齐拆期草稿 v0.2 第一期）
+## 6.19 Cat 助手（v0.30；v0.36 起欢迎页三家可点；v0.37 Claude / Codex 真适配；v0.37.1 消息尾；产品 / 老板 10-09 定，v0.36 老板确认设计 v0.4，v0.37/v0.37.1 对齐拆期草稿 v0.2）
 
-> **v0.37**：`claude_cli` / `codex_cli` **真适配**，产品能力对齐 `cat_build`（检测、列表、流式、停止、项目 cwd、全局批准 / 自定义指令注入）。PATH 未装或鉴权失败仍 `CAT_NOT_READY`；**已装且鉴权 OK 时不得再因「桩」挡 Send**。`cat_build` **仍不改名**。定时任务仍锁 `cat_build`。本版**不做** URL/Key、技能可管理、消息尾用量。  
+> **v0.37.1**：助手回复**终态**后气泡下方消息尾：`完成于 HH:mm` · `共 N token` · `约 M token/s`（规则见 6.19.9「消息尾」）；进行中不出现；无字段不伪造。  
+> **v0.37**：`claude_cli` / `codex_cli` **真适配**，产品能力对齐 `cat_build`（检测、列表、流式、停止、项目 cwd、全局批准 / 自定义指令注入）。PATH 未装或鉴权失败仍 `CAT_NOT_READY`；**已装且鉴权 OK 时不得再因「桩」挡 Send**。`cat_build` **仍不改名**。定时任务仍锁 `cat_build`。v0.37 本身**不做** URL/Key、技能可管理（消息尾改由 **v0.37.1** 交付）。  
 > **v0.36**：欢迎页模式胶囊解禁 **「Grok Build」/「Claude」/「Codex」** 三家（值 `cat_build` / `claude_cli` / `codex_cli`）；「Cat CLI」「Cat Code」「更多」等**仍置灰**，悬停 / 旁注 **`下一期开放`**。`cat_build` **不**改名为 `grok_build`（已有会话与库值不变）。  
 > **服务商选择处**写三家本名（老板在选择 UI 放开厂商名禁令）；**气泡 / 其它界面与 `message` 仍只出现「Cat 助手」**；**永不**在气泡里出现可执行文件名、`CLI`、`命令行`（同 1.1；选择 UI 例外见上）。  
 > 本仓实现 **适配器注册表 + 各家适配器**（Build / Claude / Codex **均须真实现**，见 6.19.3 / 6.19.3a / 6.19.3b）；工具由各家 CLI 自己执行。  
@@ -3939,7 +3942,7 @@ type ExportSubtitleRequest struct {
 | 做 | 不做（一期） |
 |---|---|
 | 侧栏进入 Cat 全屏聊天（收起主侧栏，返回原页） | `cat_cli` / `cat_code` **创建与运行**（胶囊可见但禁用「下一期开放」） |
-| 欢迎页 + 会话列表 + 发送 / 回复（事件推进） | URL / API Key 设置页或设置项（**v0.38**）；技能 / MCP App 内启停与项目内技能根（**v0.39**）；消息尾完成时间 / token / token/s（**v0.37.1**） |
+| 欢迎页 + 会话列表 + 发送 / 回复（事件推进）；**v0.37.1 消息尾**（完成时间 / token / token/s，见 6.19.9） | URL / API Key 设置页或设置项（**v0.38**）；技能 / MCP App 内启停与项目内技能根（**v0.39**） |
 | **`cat_build` / `claude_cli` / `codex_cli` 可创建 / 可发送**（欢迎胶囊「Grok Build」/「Claude」/「Codex」；v0.37 三家均为真适配器；未安装 / 鉴权失败时 Send 返回未就绪） | 「助手」入口与功能（「定时任务」v0.35 起一期做，见 6.19.13；定时任务选服务商仍下一小版；**本版仍锁 `cat_build`**） |
 | 模型名 / 思考强度**只从该会话 `agentKind` 对应 CLI 的真实能力列表读取**（禁止原型假数据） | 前端写死第三方模型名或擅自改已有参数逻辑 |
 | 工具调用：本机 grok 的完整工具集（v0.33 不传白名单 / 黑名单；v0.34 批准方式可选，没选过是全部批准）；其它家按各自适配器 | 应用内再做一套批准框 |
@@ -4048,6 +4051,10 @@ type CatMessage struct {
     Role      string `json:"role"` // user | assistant | system | thought | tool。来自 CLI 导出，不是 cat_messages 表
     Content   string `json:"content"`
     CreatedAt int64  `json:"createdAt"`
+    // v0.37.1 消息尾（仅 assistant；缺省 omitempty；旧消息无字段 → 不显示尾巴）
+    FinishedAt   int64    `json:"finishedAt,omitempty"`   // Unix 毫秒；该 turn 终态时刻
+    TokenTotal   *int64   `json:"tokenTotal,omitempty"`   // 本 turn 合计 token；无 usage 则省略（指针：0 与缺省可区分）
+    TokensPerSec *float64 `json:"tokensPerSec,omitempty"` // 约 token/s；无 usage 或 durationMs≤0 则省略
 }
 ```
 
@@ -4080,7 +4087,7 @@ CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，
 |---|---|
 | `cat:status` | `CatStatus` 变化 |
 | `cat:message` | **仅助手流式增量**（用户消息不发）；形态见 6.19.9 |
-| `cat:turn` | 一轮状态 `{ convId, turnId, status }`（`running|completed|cancelled|failed`），见 6.19.9 |
+| `cat:turn` | 一轮状态 `{ convId, turnId, status }`（`running|completed|cancelled|failed`）；**v0.37.1** 终态可带 `finishedAt` / `tokenTotal` / `tokensPerSec` / `messageId`，见 6.19.9 |
 | `cat:project` | v0.31：项目 `missing` 变化 `{ id, missing }`，见 6.19.10.3 |
 
 设置：`CatSettings.defaultAgentKind` 默认 `cat_build`，**仅新建会话预填**（见 6.19.12）；旧键 `catDefaultAgentKind` 读时等同。
@@ -4102,10 +4109,10 @@ CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，
 
 ### 6.19.8 延后
 
-`cat_cli` / `cat_code` 的创建与运行（胶囊继续置灰）；完全访问；助手；定时任务的 cron / 续接已有对话 / 开机自启 / **任务编辑选服务商**（**v0.37 定时运行仍锁 `cat_build`**，见 6.19.13；插在真适配稳定后的小版）；**URL/Key（v0.38）**；**技能 / MCP App 内启停与项目内技能根（v0.39）**；**消息尾完成时间 / token / token/s（v0.37.1）**；组件下载专节。（流式事件已提前到 6.19.9。）`claude_cli` / `codex_cli` **v0.36 已可创建，v0.37 起须真适配**（禁止再交未就绪桩）。扩展时**只加注册表项与胶囊启用**，会话锁定规则不变。
+`cat_cli` / `cat_code` 的创建与运行（胶囊继续置灰）；完全访问；助手；定时任务的 cron / 续接已有对话 / 开机自启 / **任务编辑选服务商**（**v0.37 定时运行仍锁 `cat_build`**，见 6.19.13；插在真适配稳定后的小版）；**URL/Key（v0.38）**；**技能 / MCP App 内启停与项目内技能根（v0.39）**；组件下载专节。（流式事件已提前到 6.19.9；**消息尾已由 v0.37.1 交付**。）`claude_cli` / `codex_cli` **v0.36 已可创建，v0.37 起须真适配**（禁止再交未就绪桩）。扩展时**只加注册表项与胶囊启用**，会话锁定规则不变。
 
 
-### 6.19.9 流式事件与取消（v0.30.1；v0.30.2 对齐 #174）
+### 6.19.9 流式事件与取消（v0.30.1；v0.30.2 对齐 #174；v0.37.1 消息尾）
 
 > 本节定**应用内事件与绑定形态**；Build CLI 侧流式输出协议（stdout 分帧、如何映射到下面的 op）**待老板发布 CLI 后补**，后端适配器负责把 CLI 输出翻译成本节事件。**不是二期**，排在下一个包。
 
@@ -4155,11 +4162,62 @@ type CatTurnEvent = {
   convId: string
   turnId: string
   status: 'running' | 'completed' | 'cancelled' | 'failed'  // 无 succeeded / canceled
+  // v0.37.1 — 仅终态（completed|cancelled|failed）可带；running 禁止带下列字段
+  messageId?: string       // 本轮主助手气泡 id，供前端挂消息尾；可省略则前端按 turnId 关联已收到的助手 messageId
+  finishedAt?: number      // Unix 毫秒；该 turn 终态时刻（有则显示「完成于 HH:mm」）
+  tokenTotal?: number      // 合计 token；无 usage 则省略（含 JSON 缺省）
+  tokensPerSec?: number    // 约 token/s；无 usage 或 durationMs≤0 则省略
 }
 ```
 
 - 一轮开始发 `running`；终态只发一次 `completed` | `cancelled` | `failed`。
 - `failed` 时用户可见文案仍是 **`CAT_REPLY_FAILED`** → `回复没生成出来，请重试。`（错误详情可走同步返回或附加字段，界面不显示 code）。
+- **v0.37.1**：终态事件须尽量带上消息尾字段（见下「消息尾」）；`running` **不得**带 `finishedAt` / `tokenTotal` / `tokensPerSec`。
+
+**消息尾（v0.37.1）**
+
+产品文案（前端格式化，后端只给数）：
+
+```text
+完成于 HH:mm · 共 N token · 约 M token/s
+```
+
+- `N` / `M` 用千分位（如 `1,234`）；**只显示合计**，契约与 UI **都不拆** input / output。  
+- 位置：助手气泡（或该 turn 块）**下方**次要色一行；**仅 turn 终态之后**出现。
+
+| 字段 | JSON | 规则 |
+|---|---|---|
+| 完成时间 | `finishedAt`（Unix 毫秒） | 有则显示 `完成于 HH:mm`（本地时区）；终态写入 |
+| 花费 token | `tokenTotal` | **有 usage 才出现**；显示 `共 N token`；CLI 若给 in/out，后端**相加归一**为合计后再下发 |
+| token/s | `tokensPerSec` | 有 usage **且** `durationMs > 0` 时出现；显示 `约 M token/s` |
+
+**`tokensPerSec` 与 `durationMs`（产品锁定）**
+
+1. 公式：`tokensPerSec = tokenTotal / (durationMs / 1000)`（浮点；前端展示可四舍五入到整数或一位小数，实现自定但须稳定）。  
+2. **`durationMs` 优先级**：① **优先**采用 CLI / 适配器上报的本轮生成耗时 `durationMs`；② CLI **未给**时，用本轮 **turn 墙钟**：`finishedAt − turnStartedAt`（`turnStartedAt` = 发出 `cat:turn` `running` 或等价「启 turn」的时刻，与 `SendCatMessage` 返回后后台开跑对齐）。  
+3. **禁止**用「首字时间 / TTFB」（第一个 `cat:message` append 时刻）作分母。  
+4. `durationMs ≤ 0`、算不出、或无 usage → **省略** `tokensPerSec`（不要发 `0` 冒充）。  
+5. 速率由**后端统一计算**后写入 `tokensPerSec`，避免三家前端各算各的；CLI 若直接给 rate，仍须按上式用同一 `durationMs` 口径校验或改写。
+
+**缺省与边界**
+
+| 情形 | 行为 |
+|---|---|
+| 进行中（`running` / 未终态） | **不出现**消息尾；事件与 `CatMessage` **不带**尾字段 |
+| 无 usage | 隐藏 token / token/s 两段；**只留**完成时间（有 `finishedAt`） |
+| 停止 / 失败 / 超时（`cancelled` / `failed`） | 有部分 usage → 带 `tokenTotal`（及可算时的 `tokensPerSec`）；没有 → 只留 `finishedAt` |
+| 旧消息 / 重开对话缺字段 | **不补假数据**；缺什么藏什么；三字段皆无 → **整段尾巴不显示** |
+| `GetCatConversation.messages` | 返回的 assistant `CatMessage` 须带回应用侧已持久化的 `finishedAt` / `tokenTotal` / `tokensPerSec`；正文仍可来自 CLI export，**用量与完成时间以应用侧 turn 元数据为准**（CLI export 无则不得伪造） |
+
+持久化：应用侧按 `turnId`（及 `messageId`）保存消息尾元数据即可；**无新迁移强制**（可用现有键值 / 旁路 JSON；若加列须在实现 PR 注明迁移号）。不写进用户项目目录。
+
+**验收**
+
+1. 完成态（有 `finishedAt`）必出完成时间。  
+2. 有 usage 才出 `共 N token` 与（可算时）`约 M token/s`。  
+3. 进行中无尾巴；旧消息无字段无尾巴。  
+4. 停止 / 失败 / 超时：部分用量可见，否则仅时间。  
+5. `tokensPerSec` 分母遵守「CLI `durationMs` → 否则 turn 墙钟」，不用 TTFB。
 
 **`CancelCatTurn`**
 
@@ -4688,7 +4746,7 @@ ClearAllCatConversations() error                          // 见 6.19.13.7
 5. 停止可打断进行中回复；历史停止态与现网一致。  
 6. A5 / A6 及上表 GUESS 项：仅「已确认」可算交付。
 
-**本版明确不做**（防止范围漂移）：自定义 API Key / Base URL；技能 / MCP 统一管理与 `<project>/.ffmpegfree/cat/skills`；消息尾 `完成于 HH:mm · 共 N token · 约 M token/s`；定时任务改选服务商；改名 `cat_build`。
+**v0.37 明确不做**（防止范围漂移；消息尾已改由 **v0.37.1** 交付）：自定义 API Key / Base URL；技能 / MCP 统一管理与 `<project>/.ffmpegfree/cat/skills`；定时任务改选服务商；改名 `cat_build`。
 
 ## 7. 本地流服务（已取消）
 
