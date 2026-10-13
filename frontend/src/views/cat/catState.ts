@@ -236,7 +236,8 @@ export const catState = reactive({
 
 export const modelName = computed(() => {
   const m = catState.models.find((x) => x.id === catState.model)
-  return m?.displayName ?? ''
+  // 契约 6.19.3：显示后端给的模型名原样；列表里没有时退回 id；都没有时胶囊显示「Cat 助手」
+  return m?.displayName || catState.model || ''
 })
 
 /** 没选强度时胶囊 / 菜单显示的中性词（不显示任何一档的名字） */
