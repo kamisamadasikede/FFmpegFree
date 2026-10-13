@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.35.4）
+# FFmpegFree v2 接口契约（v0.35.5）
+
+v0.35.5 变更（**对齐后端 #214**，架构师 10-13；**无新错误码 / 迁移 / 开关**；`cat:schedule` 增加一个可选字段）：① **生成的 TS 类型名**：Go 端在 `internal/service/cat` 包里叫 `Schedule` / `ScheduleRun` / `Settings`，Wails 生成到 `models.ts` 为 **`cat.Schedule` / `cat.ScheduleRun` / `cat.Settings`**；契约里的 `CatSchedule` / `CatScheduleRun` / `CatSettings` 分别对应它们，字段形状不变（前端按生成名引用）。② **`cat:schedule` 可带可选 `openConvId`**：用户点系统通知时发出；后端先把窗口拉到前台（含从托盘恢复、取消最小化），前端收到后打开这条对话（只带 `openConvId` 时不改列表行）。③ **应用退出时仍在运行的定时运行**：下次启动时标为 `failed`，说明 `应用关闭，这次运行中断了。`（**待产品确认**），**不发通知**；排队中的仍按 v0.35.3 记 `missed`（`closed`）。④ **一期只有定时运行发通知**：普通对话回复完成**不发**系统通知或浮提示；`notifyOnFinish` 只控制定时任务通知（替代 6.19.12.7-2 里「普通对话也通知」）。⑤ **「窗口在前台」** = 窗口可见且未最小化（不要求获得焦点）；隐藏到托盘、最小化都算**不在前台**（→ 发系统通知），在前台时改用应用内浮提示。
 
 v0.35.4 变更（**排队位置**，架构师 10-13；**无新接口 / 错误码 / 迁移 / 事件 / 开关**）：`CatScheduleRun` 增加可选 `queuePosition`（int，**只在 `status=queued` 时出现**，= 排在它前面的运行数，从 0 起）；不落库，由调度器内存队列计算，随 `cat:schedule` 推送和 `ListCatScheduleRuns` / `ListCatSchedules.lastRun` 返回；队列变化时对每个仍在排队的运行重新推送。界面：`0` → `下一个就轮到它`；`>0` → `前面还有 N 个任务`；字段不存在 → 不显示。
 
@@ -4471,7 +4473,7 @@ InspectCatConfig(req struct{ ProjectID string `json:"projectId"` }) (CatInspectR
 #### 6.19.12.7 v0.35.1 补充
 
 1. **保存方式**：改动即时调 `SaveCatSettings`（整体提交）；成功后行尾显示 `已保存` 1.5 秒；**失败：该项回滚到保存前的值**，浮提示 `保存失败，请重试。`。自定义指令按「保存」按钮提交，失败时保留输入框内容、提示同上（设计：底部「已保存 · N / 4000 字」，超限「最多 4000 字。」并禁止保存，「恢复上次保存」）。
-2. **`notifyOnFinish`**（「完成时发系统通知」，默认开）：关掉后普通对话回复完成和定时任务完成都不发系统通知。
+2. **`notifyOnFinish`**（「完成时发系统通知」，默认开）：关掉后定时任务完成 / 失败都不发通知（v0.35.5：一期普通对话回复完成本来就不通知）。
 3. 设计稿里「新对话放在」「回复逐字显示」「快捷键」是**前端本机偏好**（localStorage），不进 `CatSettings`；「外观」只读跟随应用；「历史保留」置灰 `下一期开放。`。
 4. 「技能与扩展」页设计只有三张卡（技能 / 扩展 / 钩子）：前端把 `plugins` 与 `mcpServers` 合并显示在「扩展」卡，`agents` 一期不显示；空 `还没有安装。`，失败（`reason` 非空）`列表加载失败，请重试。` + 重试。
 5. 模型下拉显示名仍以 6.19.3 为准（CLI 给的模型 ID 原样）；设计稿里「展示名 Cat 助手 …」是旧口径，**以契约为准**。
@@ -4558,7 +4560,7 @@ ClearAllCatConversations() error                          // 见 6.19.13.7
 
 #### 6.19.13.5 事件 `cat:schedule`
 
-`{ scheduleId, schedule?: CatSchedule, run?: CatScheduleRun, deleted?: bool }`：任务增删改、暂停 / 恢复、运行开始 / 结束、missed / skipped 时发。前端据此刷新列表行，无需轮询。
+`{ scheduleId, schedule?: CatSchedule, run?: CatScheduleRun, deleted?: bool, openConvId?: string }`（v0.35.5：`openConvId` 只在点系统通知时出现，见 v0.35.5 ②）：任务增删改、暂停 / 恢复、运行开始 / 结束、missed / skipped 时发。前端据此刷新列表行，无需轮询。
 
 #### 6.19.13.6 迁移 `0012_cat_schedules.sql`
 

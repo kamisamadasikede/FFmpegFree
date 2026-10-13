@@ -314,6 +314,8 @@ func (s *Service) DeleteCatProject(ctx context.Context, req DeleteProjectRequest
 		s.cancelTurn(cid, "")
 	}
 	s.forgetMissing(pid)
+	// 定时任务不删，暂停并标「项目已删除」（6.19.13.7-1）。正在跑的一次随对话删除被取消，记 stopped。
+	s.pauseSchedulesForProject(ctx, pid)
 	return nil
 }
 

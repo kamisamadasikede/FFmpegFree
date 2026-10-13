@@ -26,8 +26,8 @@ import type { CatModel, CatThinkLevel } from '@/api/cat'
 /** 走查：?cat_sim=caps 时的模型列表（第一项 = 默认模型） */
 export function simModels(): CatModel[] {
   return [
-    { id: 'sim-model-a', displayName: 'Cat 助手 1.0' },
-    { id: 'sim-model-b', displayName: 'Cat 助手 1.0 快速' },
+    { id: 'model-4.7', displayName: 'model-4.7' },
+    { id: 'model-4.7-fast', displayName: 'model-4.7-fast' },
   ]
 }
 

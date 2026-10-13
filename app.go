@@ -60,6 +60,7 @@ type App struct {
 	lang         atomic.Pointer[lang.Service]
 	catReg       atomic.Pointer[catagent.Registry]
 	cat          atomic.Pointer[cat.Service]
+	catNotifyOK  atomic.Bool // 系统通知已初始化（定时任务结束时用）
 }
 
 // docAssets 返回文档的 /local/<token> 登记表（NewApp 时创建，永不为 nil）。小写，不会被 Wails 暴露。
@@ -356,12 +357,21 @@ func (a *App) startCat() {
 		OpenFolder: a.sys.OpenFolder, // v0.31.1 RevealCatProject：同 OpenStorageFolder 的打开目录分支
 		DataRoot:   root,
 		Preview:    a.catLocal,
+		Notify:     a.sendCatNotification,
+		Foreground: a.catWindowForeground,
 	}
 	if a.store != nil {
 		cfg.Store = a.store
 	}
 	svc := cat.New(cfg)
 	a.cat.Store(svc)
+	if cfg.Store != nil {
+		// 定时任务调度器（契约 6.19.13.3）：后台跑，不阻塞窗口显示；通知初始化也放后台。
+		go func() {
+			a.initCatNotifications()
+			svc.StartScheduler(a.rootCtx)
+		}()
+	}
 }
 
 // startLive 创建直播服务：需要任务管理器和媒体服务，缺一个就不启动（此时 LiveService 返回 INTERNAL）。
@@ -474,6 +484,9 @@ func (a *App) initStore(ctx context.Context) error {
 func (a *App) shutdown(ctx context.Context) {
 	if a.rootCancel != nil {
 		a.rootCancel() // 先取消根 ctx：进行中的探测 / 缩略图立即结束 ffprobe / ffmpeg
+	}
+	if c := a.catService(); c != nil {
+		c.CloseScheduler() // 停定时任务调度器：排队中的记已错过；运行中的下次启动收尾
 	}
 	if l := a.liveService(); l != nil {
 		l.Close() // 停止拉流预览会话（推流任务由下面的任务管理器停止）
