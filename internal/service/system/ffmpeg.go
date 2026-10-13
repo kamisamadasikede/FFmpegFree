@@ -112,6 +112,8 @@ type Manager struct {
 	DocComponentDir func() string
 	// LangAsrDir 返回语音识别组件目录（kind=lang_asr）；空 = 未就绪。
 	LangAsrDir func() (string, error)
+	// OfficeCanvasDir 返回办公画布组件目录（kind=office_canvas）；空 = 未就绪。
+	OfficeCanvasDir func() (string, error)
 }
 
 // NewManager 创建 Manager，初始状态 checking。真正的检测由 Start 触发。
