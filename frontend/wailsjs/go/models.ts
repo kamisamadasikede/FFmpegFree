@@ -419,6 +419,20 @@ export namespace cat {
 		    return a;
 		}
 	}
+	export class ListScheduleRunsRequest {
+	    scheduleId: string;
+	    limit: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ListScheduleRunsRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.scheduleId = source["scheduleId"];
+	        this.limit = source["limit"];
+	    }
+	}
 	export class LiveTurn {
 	    convId: string;
 	    turnId: string;
@@ -548,6 +562,161 @@ export namespace cat {
 	        this.id = source["id"];
 	    }
 	}
+	export class ScheduleRun {
+	    id: string;
+	    scheduleId: string;
+	    conversationId?: string;
+	    status: string;
+	    error?: apperr.AppError;
+	    scheduledFor: number;
+	    startedAt?: number;
+	    finishedAt?: number;
+	    manual: boolean;
+	    missedReason?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ScheduleRun(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.scheduleId = source["scheduleId"];
+	        this.conversationId = source["conversationId"];
+	        this.status = source["status"];
+	        this.error = this.convertValues(source["error"], apperr.AppError);
+	        this.scheduledFor = source["scheduledFor"];
+	        this.startedAt = source["startedAt"];
+	        this.finishedAt = source["finishedAt"];
+	        this.manual = source["manual"];
+	        this.missedReason = source["missedReason"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Schedule {
+	    id: string;
+	    name: string;
+	    prompt: string;
+	    projectId: string;
+	    frequency: string;
+	    time: string;
+	    weekdays: number[];
+	    runAt: number;
+	    timezone: string;
+	    model: string;
+	    effort: string;
+	    approvalMode: string;
+	    enabled: boolean;
+	    projectDeleted: boolean;
+	    nextRunAt?: number;
+	    lastRun?: ScheduleRun;
+	    createdAt: number;
+	    updatedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new Schedule(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.prompt = source["prompt"];
+	        this.projectId = source["projectId"];
+	        this.frequency = source["frequency"];
+	        this.time = source["time"];
+	        this.weekdays = source["weekdays"];
+	        this.runAt = source["runAt"];
+	        this.timezone = source["timezone"];
+	        this.model = source["model"];
+	        this.effort = source["effort"];
+	        this.approvalMode = source["approvalMode"];
+	        this.enabled = source["enabled"];
+	        this.projectDeleted = source["projectDeleted"];
+	        this.nextRunAt = source["nextRunAt"];
+	        this.lastRun = this.convertValues(source["lastRun"], ScheduleRun);
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ScheduleIDRequest {
+	    id: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ScheduleIDRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	    }
+	}
+	export class ScheduleInput {
+	    name: string;
+	    prompt: string;
+	    projectId: string;
+	    frequency: string;
+	    time: string;
+	    weekdays: number[];
+	    runAt: number;
+	    model: string;
+	    effort: string;
+	    approvalMode: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ScheduleInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.prompt = source["prompt"];
+	        this.projectId = source["projectId"];
+	        this.frequency = source["frequency"];
+	        this.time = source["time"];
+	        this.weekdays = source["weekdays"];
+	        this.runAt = source["runAt"];
+	        this.model = source["model"];
+	        this.effort = source["effort"];
+	        this.approvalMode = source["approvalMode"];
+	    }
+	}
+	
 	export class SearchFilesRequest {
 	    convId: string;
 	    query: string;
@@ -727,6 +896,38 @@ export namespace cat {
 	        this.defaultApprovalMode = source["defaultApprovalMode"];
 	        this.customInstruction = source["customInstruction"];
 	        this.notifyOnFinish = source["notifyOnFinish"];
+	    }
+	}
+	export class UpdateScheduleRequest {
+	    id: string;
+	    name: string;
+	    prompt: string;
+	    projectId: string;
+	    frequency: string;
+	    time: string;
+	    weekdays: number[];
+	    runAt: number;
+	    model: string;
+	    effort: string;
+	    approvalMode: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateScheduleRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.prompt = source["prompt"];
+	        this.projectId = source["projectId"];
+	        this.frequency = source["frequency"];
+	        this.time = source["time"];
+	        this.weekdays = source["weekdays"];
+	        this.runAt = source["runAt"];
+	        this.model = source["model"];
+	        this.effort = source["effort"];
+	        this.approvalMode = source["approvalMode"];
 	    }
 	}
 	export class WriteFileRequest {

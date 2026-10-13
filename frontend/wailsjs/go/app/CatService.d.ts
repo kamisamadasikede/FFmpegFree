@@ -12,9 +12,13 @@ export function CreateCatConversation(arg1:cat.CreateConversationRequest):Promis
 
 export function CreateCatProject(arg1:cat.CreateProjectRequest):Promise<cat.CreateProjectResult>;
 
+export function CreateCatSchedule(arg1:cat.ScheduleInput):Promise<cat.Schedule>;
+
 export function DeleteCatConversation(arg1:string):Promise<void>;
 
 export function DeleteCatProject(arg1:cat.DeleteProjectRequest):Promise<void>;
+
+export function DeleteCatSchedule(arg1:cat.ScheduleIDRequest):Promise<void>;
 
 export function GetCatConversation(arg1:string):Promise<cat.ConversationDetail>;
 
@@ -48,9 +52,15 @@ export function ListCatModels(arg1:string):Promise<Array<catagent.Model>>;
 
 export function ListCatProjects():Promise<Array<cat.Project>>;
 
+export function ListCatScheduleRuns(arg1:cat.ListScheduleRunsRequest):Promise<Array<cat.ScheduleRun>>;
+
+export function ListCatSchedules():Promise<Array<cat.Schedule>>;
+
 export function ListCatThinkLevels(arg1:string):Promise<Array<catagent.ThinkLevel>>;
 
 export function ListLiveCatTurns():Promise<Array<cat.LiveTurn>>;
+
+export function PauseCatSchedule(arg1:cat.ScheduleIDRequest):Promise<cat.Schedule>;
 
 export function PreviewCatMedia(arg1:string):Promise<cat.MediaPreview>;
 
@@ -62,14 +72,20 @@ export function RelocateCatProject(arg1:cat.RelocateProjectRequest):Promise<cat.
 
 export function RenameCatProject(arg1:cat.RenameProjectRequest):Promise<cat.Project>;
 
+export function ResumeCatSchedule(arg1:cat.ScheduleIDRequest):Promise<cat.Schedule>;
+
 export function RevealCatConversationFolder(arg1:cat.RevealConversationFolderRequest):Promise<void>;
 
 export function RevealCatProject(arg1:cat.RevealProjectRequest):Promise<void>;
+
+export function RunNowCatSchedule(arg1:cat.ScheduleIDRequest):Promise<cat.ScheduleRun>;
 
 export function SaveCatSettings(arg1:cat.Settings):Promise<cat.Settings>;
 
 export function SearchCatFiles(arg1:cat.SearchFilesRequest):Promise<cat.SearchFilesResult>;
 
 export function SendCatMessage(arg1:cat.SendMessageRequest):Promise<cat.SendMessageResult>;
+
+export function UpdateCatSchedule(arg1:cat.UpdateScheduleRequest):Promise<cat.Schedule>;
 
 export function WriteCatFile(arg1:cat.WriteFileRequest):Promise<cat.WriteFileResult>;
