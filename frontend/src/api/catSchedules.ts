@@ -94,7 +94,7 @@ export const CAT_SCHED_COPY = {
   menuCopy: '复制',
   menuDelete: '删除',
   more: '任务操作',
-  stop: '停止',
+  stop: '停止这次运行',
   copySuffix: ' 副本',
   // 状态
   st: {
@@ -569,7 +569,8 @@ export function fmtFreq(s: Pick<CatSchedule, 'frequency' | 'time' | 'weekdays' |
 export type RunTone = 'ok' | 'bad' | 'warn' | 'grey' | 'skip' | 'queue' | 'live'
 
 /** 状态 → 显示名、色调、副行 */
-export function runView(run: CatScheduleRun | null | undefined, now = Date.now()): { label: string; tone: RunTone; sub: string } {
+/** where='runs'：运行记录抽屉里「已停止」直接写「已手动停止」，不再重复副行（设计走查 10-13） */
+export function runView(run: CatScheduleRun | null | undefined, now = Date.now(), where: 'list' | 'runs' = 'list'): { label: string; tone: RunTone; sub: string } {
   const S = CAT_SCHED_COPY.st
   if (!run) return { label: S.never, tone: 'grey', sub: '' }
   switch (run.status) {
@@ -580,7 +581,7 @@ export function runView(run: CatScheduleRun | null | undefined, now = Date.now()
     case 'missed':
       return { label: S.missed, tone: 'warn', sub: run.missedReason === 'asleep' ? CAT_SCHED_COPY.missedAsleep : CAT_SCHED_COPY.missedClosed }
     case 'stopped':
-      return { label: S.stopped, tone: 'grey', sub: CAT_SCHED_COPY.stoppedSub }
+      return where === 'runs' ? { label: CAT_SCHED_COPY.stoppedSub, tone: 'grey', sub: '' } : { label: S.stopped, tone: 'grey', sub: CAT_SCHED_COPY.stoppedSub }
     case 'skipped':
       return { label: S.skipped, tone: 'skip', sub: CAT_SCHED_COPY.skippedSub }
     case 'queued':

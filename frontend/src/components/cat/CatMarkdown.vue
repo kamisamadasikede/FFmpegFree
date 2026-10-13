@@ -15,6 +15,7 @@ import { openExternalLink } from '@/utils/openExternal'
 import { prefersReducedMotion } from '@/api/catStream'
 import { hasWailsBackend } from '@/services/wails'
 import { ClipboardSetText } from '../../../wailsjs/runtime/runtime'
+import { catLocalPrefs } from '@/views/cat/catLocalPrefs'
 import { advanceText, paintedIndex, rememberPainted, typewriterTake } from './catTypewriter'
 
 const props = defineProps<{ text: string; streaming?: boolean; reveal?: boolean; id?: string }>()
@@ -75,7 +76,8 @@ function step() {
 }
 function kick() {
   const full = props.text ?? ''
-  if (reduced) {
+  // 减少动态效果，或设置里关了「回复逐字显示」：收到多少就直接显示多少（一段一段出现）
+  if (reduced || !catLocalPrefs.typewriter) {
     stopRaf()
     live = false
     shown = full

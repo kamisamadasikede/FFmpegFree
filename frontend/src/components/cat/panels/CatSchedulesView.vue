@@ -80,6 +80,7 @@
                 class="ib"
                 :title="C.stop"
                 :aria-label="C.stop"
+                data-testid="cat-sched-stop"
                 @click="stopRun(s)"
               ><FIcon name="stop" :size="14" /></button>
               <button type="button" class="ib" :aria-label="C.more" aria-haspopup="menu" :data-testid="'cat-sched-more-' + s.id" @click="openMenu(s, $event)"><FIcon name="more" :size="14" /></button>
@@ -121,9 +122,9 @@
             <div v-else-if="!runs.length" class="empty">{{ C.runsEmpty }}</div>
             <TransitionGroup v-else name="tr">
               <div v-for="r in runs" :key="r.id" class="run" :data-testid="'cat-run-' + r.status">
-                <span class="rs" :class="runView(r, now).tone"><i />{{ runView(r, now).label }}</span>
+                <span class="rs" :class="runView(r, now, 'runs').tone"><i />{{ runView(r, now, 'runs').label }}</span>
                 <span class="rt">{{ fmtWhen(r.scheduledFor, now) }}<template v-if="r.manual"> · {{ C.manualRun }}</template><template v-if="r.finishedAt && r.startedAt"> · 用时 {{ formatDuration(r.finishedAt - r.startedAt) }}</template></span>
-                <span v-if="runView(r, now).sub" class="rsub" :class="{ bad: r.status === 'failed' }">{{ runView(r, now).sub }}</span>
+                <span v-if="runView(r, now, 'runs').sub" class="rsub" :class="{ bad: r.status === 'failed' }">{{ runView(r, now, 'runs').sub }}</span>
                 <button v-if="r.conversationId" type="button" class="lnk" @click="openConv(r.conversationId)">{{ C.openConv }}</button>
               </div>
             </TransitionGroup>
