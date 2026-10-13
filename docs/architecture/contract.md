@@ -1,4 +1,7 @@
-# FFmpegFree v2 接口契约（v0.40）
+# FFmpegFree v2 接口契约（v0.41）
+
+v0.41 变更（**Git 冲突简易解决 + 切已有分支**，缺口对照 v0.1 P0-4/N3 + 产品口径锁 v0.41，架构师 10-14；完整规则见 **6.19.15**；**无新错误码，2.1 仍是 39 个**；无迁移；无新开关；**不回退**现网已有 stage/commit/push/pull/rebase/新建分支等写操作）：① **`GitCatStatus`** 增加 `mergeState`（`none`/`merging`/`rebasing`/`cherry`）+ `conflicts[]`（path / ours / theirs 可读标记）。② **pull / rebase 遇冲突** → 结构化错误（`INVALID_ARGUMENT` `reason=git_conflict`）+ 前端自动切到 Git 页签「冲突」分组。③ **简易解决（一期非真三栏）**：单文件「采用当前 / 采用传入 / 保留双方」或 Monaco 手改冲突块 → 写回并 `git add`；全部解决后「完成合并 / 完成变基」；「中止合并 / 中止变基」二次确认。接口：`GitCatConflictResolve` / `GitCatConflictComplete` / `GitCatConflictAbort`。④ **`GitCatCheckout`**：切已有本地 / 远端跟踪分支；脏工作区须确认「工作区有未提交更改。仍要切换到 `{branch}`？」。⑤ **明确不做（本版）**：真三栏 Merge Editor（二期）；AI 一键解决（三期）；stash；克隆 / 通知（已由 v0.40）；办公画布（→ v0.42）。
+
 
 v0.40 变更（**Git 地址克隆成项目 + 普通对话完成通知 + 定时选服务商**，缺口对照 v0.1 P0-1/P0-2/N1 + 产品口径锁 v0.40–0.42，架构师 10-14；完整规则见 **6.19.10.11** / **6.19.12.10** / **6.19.13**；**无新错误码，2.1 仍是 39 个**；新事件 `cat:clone` / `cat:notify`；新迁移 `0013_cat_schedule_agent_kind.sql`；无新开关）：① **添加项目双入口**：「本机文件夹」｜「从 Git 克隆」。新增 `CloneCatProject({url, parentDir?, name?})` → 成功路径调现有 `CreateCatProject`；进度 / 取消经 `cat:clone`；缺 git / 鉴权 / 不可写文案见 6.19.10.11（与产品口径逐字一致）。**私有仓**一期只靠本机 SSH / credential helper，**不做** App 内登录。② **`notifyOnFinish` 语义扩展**（设置名「完成后通知」不变）：控制**普通 turn** 终态 `completed`/`failed` **与**定时完成/失败；**`cancelled` / 用户停答不发**。后台（窗口不在前台）→ 系统通知；前台 → 仅应用内 toast。点系统通知 → 拉前台 + `openConvId`（事件 `cat:notify`，与定时同打开逻辑）。**显式改写** v0.35.5 ④「一期只有定时」口径（见 6.19.12.10）。③ **定时任务选服务商**：`CatSchedule.agentKind`（`cat_build`/`claude_cli`/`codex_cli`）；新建默认 = `CatSettings.defaultAgentKind`（空则 `cat_build`）；运行按任务上的 kind，不再锁死 Build。④ **不做（本版）**：冲突解决 / 切已有分支（→ v0.41）；办公画布组件（→ v0.42）；App 内 Git 登录；子模块深选项；真 WebView；stash。
 
@@ -329,7 +332,7 @@ export type AppErrorCode =
 | 语音工具转字幕（v0.29，6.18） | `reason=<值>` | `INVALID_ARGUMENT`：`cue_invalid`（导出硬校验）；`NOT_FOUND`：`component`（`OpenStorageFolder("lang_asr")`）（只追加） | 界面不显示 |
 | PDF 输入（v0.28，6.12.60 / 6.12.63：添加 PDF 的 `AddDocSourceResult.error`、`DOC_PDF_NO_TEXT`） | `reason=<值>` | `INVALID_ARGUMENT`：`too_large`（沿用：PDF 超过 200 MiB）、`too_many_pages`（超过 500 页）；`DOC_PDF_NO_TEXT`：`no_text`（第二行 `quality=empty\|garbled` 只给开发者看）（只追加） | 只有第一行；界面不显示 |
 | 文档组件未就绪（v0.27.2，6.12.55：`DOC_COMPONENT_NOT_READY` 的同步错误和任务错误，以及 `DocComponentStatus.error`） | `reason=<值>` | `checking`、`missing`、`outdated`（含 Windows / macOS 应用下载的组件低于 26.2.6）、`downloading`、`preparing`、`failed`，即 `componentState`（只追加） | 只有这一行；`OpenStorageFolder("doc_component")` 的 `NOT_FOUND` 沿用 v0.25.1 的 `reason=component` |
-| `INVALID_ARGUMENT` / `NOT_FOUND` / `TASK_CONFLICT`（v0.31 Cat 项目，6.19.10：`CreateCatProject`、`RenameCatProject`；v0.31.1 加 `RelocateCatProject`） | `reason=<值>` | `INVALID_ARGUMENT`：`project_path`（不是绝对路径 / 不存在 / 不是文件夹）、`project_root`（盘符或文件系统根）、`project_name`（名字为空（改名时）、超过 60 个字符或含控制字符）、`project_duplicate`（v0.31.1：`RelocateCatProject` 的新路径已属于另一个项目）；`TASK_CONFLICT`：`turn_running`（v0.31.1：`RelocateCatProject` 时该项目下有进行中的一轮）；`path`（v0.32：`ListCatFiles` 的 `relPath` 不是根内相对路径、含 `..`、绝对 / 盘符 / UNC、解析后出了根，或要穿过符号链接 / junction，6.19.11.3）（只追加）；`project`（v0.39：`SetCatInspectItemEnabled` / `RevealCatSkillsDir` / `EnsureCreateCatSkillsDir` 的 `projectId` 空，6.19.12.9）；`git_url` / `clone_exists`（v0.40：`CloneCatProject`，6.19.10.11）；`TASK_CONFLICT` 另增 `clone_busy`（同节） | 只有 `project_duplicate` 有第二行 `projectId=<已有项目 id>`，前端按 `^projectId=(\S+)$` 取（取不到就重新 `ListCatProjects`、只提示不切换）；其余只有一行。界面按 6.19.10.8 映射；`NOT_FOUND` 项目不存在无固定 detail。`turn_running` 也是“直播会话冲突以外的 `TASK_CONFLICT` 没有 `reason=` 行”的例外 |
+| `INVALID_ARGUMENT` / `NOT_FOUND` / `TASK_CONFLICT`（v0.31 Cat 项目，6.19.10：`CreateCatProject`、`RenameCatProject`；v0.31.1 加 `RelocateCatProject`） | `reason=<值>` | `INVALID_ARGUMENT`：`project_path`（不是绝对路径 / 不存在 / 不是文件夹）、`project_root`（盘符或文件系统根）、`project_name`（名字为空（改名时）、超过 60 个字符或含控制字符）、`project_duplicate`（v0.31.1：`RelocateCatProject` 的新路径已属于另一个项目）；`TASK_CONFLICT`：`turn_running`（v0.31.1：`RelocateCatProject` 时该项目下有进行中的一轮）；`path`（v0.32：`ListCatFiles` 的 `relPath` 不是根内相对路径、含 `..`、绝对 / 盘符 / UNC、解析后出了根，或要穿过符号链接 / junction，6.19.11.3）（只追加）；`project`（v0.39：`SetCatInspectItemEnabled` / `RevealCatSkillsDir` / `EnsureCreateCatSkillsDir` 的 `projectId` 空，6.19.12.9）；`git_url` / `clone_exists`（v0.40）；`git_conflict`（v0.41：冲突态误用 Complete 等，6.19.15）；`TASK_CONFLICT` 另增 `clone_busy`（v0.40）、`git_dirty`（v0.41 脏切分支） | 只有 `project_duplicate` 有第二行 `projectId=<已有项目 id>`，前端按 `^projectId=(\S+)$` 取（取不到就重新 `ListCatProjects`、只提示不切换）；其余只有一行。界面按 6.19.10.8 映射；`NOT_FOUND` 项目不存在无固定 detail。`turn_running` 也是“直播会话冲突以外的 `TASK_CONFLICT` 没有 `reason=` 行”的例外 |
 | 其余所有码（含 `LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`INTERNAL`） | 无固定格式 | — | 前端**不得**解析（上面几行列出的码 / 场景除外） |
 
 统一规则：第一行只有一个 `key=value`，值只含小写字母、数字、下划线（`scheme` 例外；`kind` 的取值是 `window` / `screen`，取值就是上面三个小写单词）；前端用 `^(reason|scheme|kind)=([a-z0-9_]+)$` 匹配 `detail` 的第一行；**没有第一行、格式不对、或值不认识，一律走该错误码的通用文案**，不得猜测含义、不得报错崩溃。测试必须逐码断言第一行精确等于期望值（不是包含）。
@@ -480,6 +483,11 @@ RelocateCatProject(req RelocateCatProjectRequest) (CatProject, error)        // 
 RevealCatProject(req RevealCatProjectRequest) error                          // v0.31.1：{id} 在文件管理器里打开项目文件夹，不写任何东西（第 9 条）
 CloneCatProject(req CloneCatProjectRequest) (CloneCatProjectResult, error)   // v0.40：{url, parentDir?, name?} git clone 后 CreateCatProject（6.19.10.11）
 CancelCloneCatProject(req CancelCloneCatProjectRequest) error               // v0.40：{cloneId} 取消进行中的克隆（幂等）
+// v0.41 Git 冲突 / 切分支（既有 GitCatStatus/Stage/…/Remote/Branch 仍有效，见 6.19.15）
+GitCatCheckout(req GitCatCheckoutRequest) error                              // v0.41：切已有本地/远端跟踪分支
+GitCatConflictResolve(req GitCatConflictResolveRequest) error                // v0.41：单文件采用当前/传入/双方或手改后暂存
+GitCatConflictComplete(req GitCatConflictCompleteRequest) error              // v0.41：完成合并/变基
+GitCatConflictAbort(req GitCatConflictAbortRequest) error                    // v0.41：中止合并/变基
 ListCatFiles(req ListCatFilesRequest) (ListCatFilesResult, error)            // v0.32：{convId, relPath} 列对话根下一层，不读文件内容（6.19.11）
 RevealCatConversationFolder(req RevealCatConversationFolderRequest) error    // v0.32：{convId} 在文件管理器里打开对话根（项目文件夹 / 对话文件夹）（6.19.11.5）
 ListEncoderDevices() (EncoderDeviceList, error)      // 硬件编码设备（9.6）：第一项永远是 cpu；ffmpeg 未就绪时只有 cpu 且 ffmpegReady=false，不报错
@@ -3936,8 +3944,9 @@ type ExportSubtitleRequest struct {
 6. `LANG_ASR_FAILED` 最终文案产品确认。
 
 
-## 6.19 Cat 助手（v0.30；v0.36 起欢迎页三家可点；v0.37 Claude / Codex 真适配；v0.37.1 消息尾；v0.38 自定义服务商；v0.39 技能/MCP 项目目录；v0.40 Git 克隆 + 完成通知 + 定时选服务商；产品 / 老板 10-09 定，v0.36 老板确认设计 v0.4，v0.37–v0.39 对齐拆期草稿 v0.2，v0.40 对齐缺口对照 v0.1 / 产品口径锁）
+## 6.19 Cat 助手（v0.30；v0.36 起欢迎页三家可点；v0.37 Claude / Codex 真适配；v0.37.1 消息尾；v0.38 自定义服务商；v0.39 技能/MCP；v0.40 克隆+通知+定时选服务商；v0.41 冲突解决+切分支；产品口径锁 v0.40–0.42）
 
+> **v0.41**：Git **冲突简易解决**（采用当前/传入/双方 + Monaco 手改；完成/中止合并与变基对称文案）+ **切已有分支**（脏确认）；规则见 **6.19.15**。**不回退**现网写操作。  
 > **v0.40**：添加项目支持 **从 Git 地址克隆**（`CloneCatProject`，见 **6.19.10.11**）；`notifyOnFinish` 覆盖**普通 turn** `completed`/`failed` 与定时（**cancelled 不发**，见 **6.19.12.10**）；定时任务可选服务商（`CatSchedule.agentKind`）。  
 > **v0.39**：设置「技能与扩展」从只读升级为可管理——项目内技能根 + 同级 `mcp.json`；列表启停 +「打开目录」/「创建并打开」；三家共用、不回落全局；规则见 **6.19.12.9**。  
 > **v0.38**：设置「通用」各服务商块可折叠「自定义服务商」——三家均可配 API URL / API Key（OpenAI / Anthropic 协议）；启用自定义只用设置、不写系统 env；Key 只回显「已保存」（`apiKeySet`）；规则见 **6.19.12.8**。  
@@ -3954,7 +3963,7 @@ type ExportSubtitleRequest struct {
 | 做 | 不做（一期） |
 |---|---|
 | 侧栏进入 Cat 全屏聊天（收起主侧栏，返回原页） | `cat_cli` / `cat_code` **创建与运行**（胶囊可见但禁用「下一期开放」） |
-| 欢迎页 + 会话列表 + 发送 / 回复（事件推进）；**v0.37.1 消息尾**；**v0.38 自定义服务商**；**v0.39 技能/MCP 可管理**；**v0.40 从 Git 克隆项目**（6.19.10.11）+ **完成后通知含普通 turn**（6.19.12.10）+ **定时选服务商** | App 内技能 / MCP **安装 / 卸载**；自动改用户 `.gitignore`；App 内 Git 登录；冲突解决 / 三栏合并（→ v0.41）；办公画布（→ v0.42） |
+| 欢迎页 + 会话列表 + 发送 / 回复（事件推进）；**v0.37.1 消息尾**；**v0.38 自定义服务商**；**v0.39 技能/MCP 可管理**；**v0.40 从 Git 克隆项目**（6.19.10.11）+ **完成后通知含普通 turn**（6.19.12.10）+ **定时选服务商** | App 内技能 / MCP **安装 / 卸载**；自动改用户 `.gitignore`；App 内 Git 登录；真三栏 Merge Editor（二期）；办公画布（→ v0.42） |
 | **`cat_build` / `claude_cli` / `codex_cli` 可创建 / 可发送**（欢迎胶囊「Grok Build」/「Claude」/「Codex」；v0.37 三家均为真适配器；未安装 / 鉴权失败时 Send 返回未就绪） | 「助手」入口与功能（「定时任务」v0.35 起一期做，见 6.19.13；**v0.40 起任务可选服务商**） |
 | 模型名 / 思考强度**只从该会话 `agentKind` 对应 CLI 的真实能力列表读取**（禁止原型假数据） | 前端写死第三方模型名或擅自改已有参数逻辑 |
 | 工具调用：本机 grok 的完整工具集（v0.33 不传白名单 / 黑名单；v0.34 批准方式可选，没选过是全部批准）；其它家按各自适配器 | 应用内再做一套批准框 |
@@ -4124,7 +4133,7 @@ CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，
 
 ### 6.19.8 延后
 
-`cat_cli` / `cat_code` 的创建与运行（胶囊继续置灰）；完全访问；助手；定时任务的 cron / 续接已有对话 / 开机自启；**技能 / MCP App 内安装与卸载**（启停 + 打开目录已由 **v0.39** 交付）；自定义服务商「测试连接」；**自动改用户项目 `.gitignore`**；App 内 GitHub/GitLab 登录；Git 冲突解决 / 切已有分支（→ **v0.41**）；办公画布组件（→ **v0.42**）；真 WebView；stash。（**从 Git 克隆 / 普通 turn 完成通知 / 定时选服务商已由 v0.40 交付**，见 6.19.10.11 / 6.19.12.10 / 6.19.13；消息尾 v0.37.1；URL/Key v0.38；项目技能根 v0.39。）`claude_cli` / `codex_cli` **v0.36 已可创建，v0.37 起须真适配**。扩展时**只加注册表项与胶囊启用**，会话锁定规则不变。
+`cat_cli` / `cat_code` 的创建与运行（胶囊继续置灰）；完全访问；助手；定时任务的 cron / 续接已有对话 / 开机自启；**技能 / MCP App 内安装与卸载**（启停 + 打开目录已由 **v0.39** 交付）；自定义服务商「测试连接」；**自动改用户项目 `.gitignore`**；App 内 GitHub/GitLab 登录；真三栏 Merge Editor / AI 一键解决冲突（二期/三期）；办公画布组件（→ **v0.42**）；真 WebView；stash。（**冲突简易解决 / 切已有分支已由 v0.41 交付**，见 6.19.15。）（**从 Git 克隆 / 普通 turn 完成通知 / 定时选服务商已由 v0.40 交付**，见 6.19.10.11 / 6.19.12.10 / 6.19.13；消息尾 v0.37.1；URL/Key v0.38；项目技能根 v0.39。）`claude_cli` / `codex_cli` **v0.36 已可创建，v0.37 起须真适配**。扩展时**只加注册表项与胶囊启用**，会话锁定规则不变。
 
 
 ### 6.19.9 流式事件与取消（v0.30.1；v0.30.2 对齐 #174；v0.37.1 消息尾）
@@ -4998,6 +5007,122 @@ ClearAllCatConversations() error                          // 见 6.19.13.7
 7. **状态显示名**（替代 6.19.13.8 第三条）：`成功`（绿）/ `失败`（红）/ `已错过`（黄）/ `已停止`（灰，记录里副行 `已手动停止`）/ `已跳过`（副行 `上一次还没结束`）/ `排队中` / `运行中 · 已 X 分 X 秒`；无记录 `还没运行过`；暂停 `已暂停`。已错过副行：`closed` → `当时 FFmpegFree 没有打开`；`asleep` → `当时电脑在睡眠`（v0.35.2 已确认）。
 8. **其他设计文案**：频率分段 `一次 / 每天 / 工作日 / 每周 / 自定义`（自定义置灰 `下一期开放。`）；一次的时间早于现在 `这个时间已经过了。`；`请填写名称。` `最多 40 个字。` `请填写指令。` `请至少选一天。`；删除确认 `删除这个定时任务？` / `已经产生的对话会保留。`；未就绪横幅 `未检测到 Cat 助手，到点的任务会运行失败。` + `重新检测`。
 
+
+### 6.19.15 Cat Git：冲突解决 + 切已有分支（v0.41）
+
+对齐缺口对照 v0.1 P0-4 / N3、产品口径锁「v0.41」。**前提**：现网已有 `GitCatStatus` / `GitCatStage` / `GitCatUnstage` / `GitCatCommit` / `GitCatDiff` / `GitCatRemote` / `GitCatBranch` / `GitCatPullRequest`（实现已合；本节**扩展**它们，**不回退**写操作能力）。设计线框曾写「不做冲突」——以本契约与产品口径为准。
+
+#### 6.19.15.1 `GitCatStatus` 扩展
+
+```go
+type GitConflictEntry struct {
+    Path   string `json:"path"`             // 相对对话根
+    Ours   bool   `json:"ours"`             // 当前（ours）侧有内容可读
+    Theirs bool   `json:"theirs"`           // 传入（theirs）侧有内容可读
+    Letter string `json:"letter,omitempty"` // 如 UU / AA / DU …（可选，给调试）
+}
+// 在既有 GitStatusResult 上增加（字段名锁定）：
+//   MergeState string             `json:"mergeState"` // none | merging | rebasing | cherry
+//   Conflicts  []GitConflictEntry `json:"conflicts"`  // mergeState=none 时为空数组
+```
+
+- `mergeState`：检测 `.git/MERGE_HEAD` → `merging`；`.git/rebase-merge` 或 `rebase-apply` → `rebasing`；`.git/CHERRY_PICK_HEAD` → `cherry`；否则 `none`。  
+- `conflicts`：未合并路径（`git diff --name-only --diff-filter=U` 或等价）；按 path 排序。  
+- **不**因此改 `Changes[]` 既有语义；冲突文件可同时出现在 `conflicts` 与 `changes`（Letter=`U` 等）。
+
+#### 6.19.15.2 pull / rebase 遇冲突
+
+`GitCatRemote` 的 `pull` / `pull --rebase` / `rebase` / `sync`（凡可能产生冲突的 op）失败且仓库进入冲突态时：
+
+1. 同步返回 `INVALID_ARGUMENT`，`detail` 第一行 **`reason=git_conflict`**；`message` 建议 `有冲突需要解决。`（短；前端靠 status 拉详情）。  
+2. 随后 `GitCatStatus` 的 `mergeState` ≠ `none` 且 `conflicts` 非空。  
+3. **前端**：结构化提示并**自动切到** Git 页签；右栏置顶「冲突」分组。
+
+其它 git 失败仍走现网通用 git 错误串（`没有找到 git。` / 远程失败等），**不**误标 `git_conflict`。
+
+#### 6.19.15.3 冲突 UI 与解决（一期 = 简易，非真三栏）
+
+**入口**：Git 右栏「冲突」分组（仅 `mergeState≠none` 时显示，置顶）。
+
+**列表**：冲突文件路径 + 状态。
+
+**单文件操作**（写回工作区后对该 path `git add`）：
+
+| 按钮 | 行为 |
+|---|---|
+| **采用当前** | ours（`git checkout --ours` 或等价写回后 add） |
+| **采用传入** | theirs |
+| **保留双方** | both（拼接两侧内容，去掉冲突标记；实现可用 `git checkout --merge` 策略或自拼，须可测） |
+| 行点击 | 打开 Monaco；高亮 `<<<<<<<` / `=======` / `>>>>>>>`；用户手改保存 → add |
+
+```go
+type GitCatConflictResolveRequest struct {
+    ConvID string `json:"convId"`
+    Path   string `json:"path"`   // 相对对话根；须在 conflicts 内
+    Mode   string `json:"mode"`   // ours | theirs | both | content
+    Content string `json:"content,omitempty"` // mode=content 时必填：整文件 UTF-8 正文
+}
+GitCatConflictResolve(req GitCatConflictResolveRequest) error
+```
+
+- path 不在冲突列表 → `INVALID_ARGUMENT` `reason=path`。  
+- `mergeState=none` → `INVALID_ARGUMENT` `reason=git_conflict`（message `当前没有进行中的合并。`）。  
+- 二进制冲突：`mode=content` 拒绝；ours/theirs 仍可用；message `这个文件是二进制，请选用当前或传入。`
+
+#### 6.19.15.4 完成 / 中止
+
+```go
+type GitCatConflictCompleteRequest struct {
+    ConvID  string `json:"convId"`
+    Message string `json:"message,omitempty"` // 合并提交说明；空 = 默认
+}
+type GitCatConflictAbortRequest struct {
+    ConvID string `json:"convId"`
+}
+GitCatConflictComplete(req GitCatConflictCompleteRequest) error
+GitCatConflictAbort(req GitCatConflictAbortRequest) error
+```
+
+| `mergeState` | 完成按钮 | 中止按钮 | 完成动作 | 中止动作 |
+|---|---|---|---|---|
+| `merging` | **完成合并** | **中止合并** | 无未解决冲突时 `git commit`（说明默认 `Merge branch '…'`，可改） | 确认后 `git merge --abort` |
+| `rebasing` | **完成变基** | **中止变基** | `git rebase --continue`（若还需多次，前端再次 status；一期若仍有冲突则回到冲突列表） | 确认后 `git rebase --abort` |
+| `cherry` | 同合并文案或「完成拣选」（产品可跟合并） | 「中止拣选」 | `git cherry-pick --continue` | `git cherry-pick --abort` |
+
+**完成**：仍有未解决 → 按钮**禁用**，旁注 `还有 N 个文件未解决`（N=`len(conflicts)`）。
+
+**中止确认框（产品锁定）**
+
+- 合并：标题 `中止合并？`；正文 `未解决的冲突将丢弃，仓库回到合并前。`；按钮 `取消` / `中止`（danger）  
+- 变基：标题 `中止变基？`；正文 `未解决的冲突将丢弃，仓库回到变基前。`；按钮同上  
+
+**不做（本版）**：真三栏 Incoming \| Current \| Result；AI「让 Cat 解决此文件」。
+
+#### 6.19.15.5 `GitCatCheckout`（切已有分支）
+
+```go
+type GitCatCheckoutRequest struct {
+    ConvID string `json:"convId"`
+    Name   string `json:"name"`            // 本地分支名，或远端示意如 origin/foo（实现解析为跟踪分支）
+    Force  bool   `json:"force,omitempty"` // true = 用户已在脏确认里选「仍要切换」
+}
+GitCatCheckout(req GitCatCheckoutRequest) error
+```
+
+- 与既有 **`GitCatBranch`（仅新建 `-b`）** 分工：Checkout **不**建新分支；名字不存在 → `NOT_FOUND`，message `找不到这个分支。`  
+- **顶栏胶囊 + 右栏分支钮同一菜单**（搜索、本地 ✓、远端只读示意）；非 Git → 胶囊「非 Git」灰显（线框已有）。  
+- **脏工作区**：未带 `force` 时若有未提交更改 → `TASK_CONFLICT` `reason=git_dirty`，message 可空（前端用确认框）；确认框文案（产品锁定）：`工作区有未提交更改。仍要切换到 {branch}？` → `取消` / `仍要切换`（后者再调一次 `Force=true`）。  
+- `Force=true`：执行 `git checkout`（可丢弃未提交——**一期用 checkout 默认行为**；若 git 拒绝则返回其短因）。不在 App 内做 stash。
+
+**2.2 追加**（本节）：`INVALID_ARGUMENT` `git_conflict`；`TASK_CONFLICT` `git_dirty`（无新错误码）。
+
+#### 6.19.15.6 真机待验
+
+1. 制造 merge 冲突 → 面板列出 → 采用一侧或手改 → 完成合并；可中止并回到合并前。  
+2. rebase 冲突 → 「完成变基」/「中止变基」文案对称。  
+3. 脏工作区切分支 → 出确认；干净时直接切。  
+4. 现网 push/pull/commit 回归不回退。
+
 ### 6.19.14 实现附录：Claude / Codex 真机核对表（v0.37；v0.38 增补自定义服务商 C*；v0.39 增补技能/MCP 根 D*）
 
 > **规则**：下表凡状态为 **GUESS / 未确认** 的项，**不得**在预览包说明或验收里当作已交付；后端在真机核对后把「已确认」写回本表（及 6.19.3a / 6.19.3b 对应句），再合实现 PR。产品行为（能聊 / 能停 / 列表真实 / cwd / 未装文案）不因 flag 未确认而取消，但**不得捏造 flag 名写进用户可见文案**。
@@ -5048,6 +5173,8 @@ ClearAllCatConversations() error                          // 见 6.19.13.7
 **v0.39 补充验收（相对拆期草稿 §6.4；D1–D5 / D7 未确认前不得声称某注入 flag 已交付）**：见 6.19.12.9 验收 1–5。
 
 **v0.40 补充验收**（产品口径）：① HTTPS/SSH 克隆 → 项目可聊；无 git / 鉴权失败文案对。② 切走窗口等回复完 → 系统通知 → 点击回对话；设置关则无；停答不通知。③ 定时任务可选三家服务商并按该家运行。
+
+**v0.41 补充验收**：① 冲突列出 → 采用当前/传入/双方或手改 → 完成合并；可中止。② 脏切分支出确认。③ 不回退现网 Git 写操作。
 
 
 ## 7. 本地流服务（已取消）
