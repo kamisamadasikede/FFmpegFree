@@ -356,6 +356,8 @@ type TurnOptions struct {
 	Rules string
 	// Provider 是 v0.38 自定义服务商；Enabled 时只注入子进程 env，不写父进程（6.19.12.8）。
 	Provider ProviderOverlay
+	// Skills 是 v0.39 项目技能根 / MCP 路径；有项目时注入子进程 env（附录 D1–D4 GUESS）。
+	Skills SkillsOverlay
 	// OnError 在失败原文出现时立刻回调（进程还没退出也会调）。同一句可能来自标准输出和标准错误，调用方自己去重。
 	OnError func(msg string)
 }
@@ -433,7 +435,7 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 
 	cmd := a.runCmd(runCtx, exe, args...)
 	cmd.Dir = cwd
-	cmd.Env = MergeProviderEnv(grokTurnEnv(os.Environ()), opts.Provider)
+	cmd.Env = MergeSkillsEnv(MergeProviderEnv(grokTurnEnv(os.Environ()), opts.Provider), opts.Skills)
 
 	// 管道上的 stdout 经常要攒满一块才吐出来。会话文件是逐条追加的，有它就跟着文件走。
 	var followMode int32

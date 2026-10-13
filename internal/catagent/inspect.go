@@ -29,6 +29,7 @@ const (
 	InspectTimedOut    = "timeout"
 	InspectParse       = "parse"
 	InspectUnsupported = "unsupported" // v0.36：该家暂无 inspect 适配器
+	InspectNoProject   = "no_project"   // v0.39：未选项目
 )
 
 // InspectItem 是技能 / 插件 / 钩子 / MCP / 子代理里的一项。只有名字、说明、来源和是否启用，不带路径、命令或密钥。
@@ -39,15 +40,18 @@ type InspectItem struct {
 	Enabled     bool   `json:"enabled"`
 }
 
-// InspectResult 是 InspectCatConfig 的返回（契约 6.19.12.1）。列表永远非 nil。
+// InspectResult 是 InspectCatConfig 的返回（契约 6.19.12.1 / v0.39）。列表永远非 nil。
 type InspectResult struct {
-	Skills     []InspectItem `json:"skills"`
-	Plugins    []InspectItem `json:"plugins"`
-	Hooks      []InspectItem `json:"hooks"`
-	MCPServers []InspectItem `json:"mcpServers"`
-	Agents     []InspectItem `json:"agents"`
-	Version    string        `json:"version,omitempty"`
-	Reason     string        `json:"reason,omitempty"`
+	Skills           []InspectItem `json:"skills"`
+	Plugins          []InspectItem `json:"plugins"`
+	Hooks            []InspectItem `json:"hooks"`
+	MCPServers       []InspectItem `json:"mcpServers"`
+	Agents           []InspectItem `json:"agents"`
+	Version          string        `json:"version,omitempty"`
+	Reason           string        `json:"reason,omitempty"` // 空 = 成功；not_ready|timeout|parse|unsupported|no_project
+	SkillsRoot       string        `json:"skillsRoot,omitempty"`    // v0.39：绝对路径；无项目时省略
+	McpConfigPath    string        `json:"mcpConfigPath,omitempty"` // v0.39
+	SkillsRootExists bool          `json:"skillsRootExists"`        // v0.39
 }
 
 // EmptyInspect 是失败时的返回：五个空列表 + 原因。
@@ -81,7 +85,15 @@ func (a *BuildAdapter) Inspect(ctx context.Context, cwd string) InspectResult {
 			cmd.Dir = cwd
 		}
 	}
-	cmd.Env = grokTurnEnv(os.Environ())
+	// v0.39：有项目 cwd 时把技能根 / MCP 路径注入子进程（附录 D1/D4 GUESS）；无项目不注入（D6）。
+	env := grokTurnEnv(os.Environ())
+	if proj := strings.TrimSpace(cwd); proj != "" {
+		skillsRoot, mcpPath := ProjectCatPaths(proj)
+		env = MergeSkillsEnv(env, SkillsOverlay{
+			AgentKind: KindCatBuild, SkillsRoot: skillsRoot, McpConfigPath: mcpPath,
+		})
+	}
+	cmd.Env = env
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	runErr := cmd.Run()

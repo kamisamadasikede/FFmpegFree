@@ -68,3 +68,32 @@ func (s *CatService) ClearCatProviderKey(req cat.ClearProviderKeyRequest) (cat.P
 	}
 	return c.ClearCatProviderKey(s.rootCtx(), req)
 }
+
+// ---------- Cat 技能 / MCP 管理（契约 v0.39，6.19.12.9） ----------
+
+// SetCatInspectItemEnabled 启停项目内技能 / MCP / 插件 / 钩子；不做安装卸载。
+func (s *CatService) SetCatInspectItemEnabled(req cat.SetInspectItemEnabledRequest) (cat.InspectItem, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.InspectItem{}, err
+	}
+	return c.SetCatInspectItemEnabled(s.rootCtx(), req)
+}
+
+// RevealCatSkillsDir 打开项目技能目录；目录不存在时 Exists=false、Opened=false、error=nil。
+func (s *CatService) RevealCatSkillsDir(req cat.SkillsDirRequest) (cat.SkillsDirResult, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.SkillsDirResult{}, err
+	}
+	return c.RevealCatSkillsDir(s.rootCtx(), req)
+}
+
+// EnsureCreateCatSkillsDir 创建项目技能目录并打开；不写 mcp.json、不改 gitignore。
+func (s *CatService) EnsureCreateCatSkillsDir(req cat.SkillsDirRequest) (cat.SkillsDirResult, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.SkillsDirResult{}, err
+	}
+	return c.EnsureCreateCatSkillsDir(s.rootCtx(), req)
+}

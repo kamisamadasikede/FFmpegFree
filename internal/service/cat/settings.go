@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"path/filepath"
 	"strings"
 	"unicode/utf8"
 
@@ -268,46 +267,32 @@ type InspectRequest struct {
 type InspectResult = catagent.InspectResult
 type InspectItem = catagent.InspectItem
 
-// InspectCatConfig 只读列出技能、插件、钩子、MCP、子代理（契约 6.19.12.5）。失败返回空列表 + reason，error 为 nil。
-// v0.36：可选 agentKind（空 = cat_build）；其它家暂无 inspect → reason=unsupported。
+// InspectCatConfig 列出技能、插件、钩子、MCP、子代理（契约 6.19.12.5 / v0.39 可管理）。
+// 无 projectId → reason=no_project（省略路径字段）；项目 missing → CAT_PROJECT_MISSING；
+// 有项目时始终填 skillsRoot / mcpConfigPath / skillsRootExists（即便 reason=unsupported/not_ready）。
 func (s *Service) InspectCatConfig(ctx context.Context, req InspectRequest) (InspectResult, error) {
 	kind := strings.TrimSpace(req.AgentKind)
 	if kind == "" {
 		kind = catagent.KindCatBuild
 	}
-	a, err := s.adapter(kind)
+	pid := strings.TrimSpace(req.ProjectID)
+	if pid == "" {
+		return catagent.EmptyInspect(catagent.InspectNoProject), nil
+	}
+	if s.cfg.Store == nil {
+		return InspectResult{}, apperr.New(apperr.Internal, "本地存储尚未初始化")
+	}
+	row, err := s.cfg.Store.GetCatProject(ctx, pid)
+	if errors.Is(err, sql.ErrNoRows) {
+		return InspectResult{}, errProjectNotFound()
+	}
 	if err != nil {
-		if kind == catagent.KindCatBuild {
-			return catagent.EmptyInspect(catagent.InspectNotReady), nil
-		}
-		return catagent.EmptyInspect(catagent.InspectUnsupported), nil
+		return InspectResult{}, apperr.Wrap(apperr.IOError, "读取项目失败", err)
 	}
-	insp, ok := a.(interface {
-		Inspect(context.Context, string) catagent.InspectResult
-	})
-	if !ok {
-		// cat_build 应有 inspect；未实现且未就绪时沿用 not_ready。其它家暂无适配器 → unsupported。
-		if kind == catagent.KindCatBuild {
-			return catagent.EmptyInspect(catagent.InspectNotReady), nil
-		}
-		return catagent.EmptyInspect(catagent.InspectUnsupported), nil
+	if s.checkProject(row).Missing {
+		return InspectResult{}, errProjectMissing()
 	}
-	if a.Status().State != catagent.StateReady {
-		return catagent.EmptyInspect(catagent.InspectNotReady), nil
-	}
-	cwd := ""
-	if pid := strings.TrimSpace(req.ProjectID); pid != "" && s.cfg.Store != nil {
-		row, err := s.cfg.Store.GetCatProject(ctx, pid)
-		if err == nil && !s.checkProject(row).Missing {
-			cwd = row.Path
-		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			s.cfg.Logf("cat inspect project: %v", err)
-		}
-	}
-	if cwd == "" && s.cfg.DataRoot != "" {
-		cwd = filepath.Join(s.cfg.DataRoot, "cat")
-	}
-	return insp.Inspect(ctx, cwd), nil
+	return s.inspectForProject(ctx, row, kind)
 }
 
 // ClearAllCatConversations 删掉所有对话（含定时任务产生的），先取消进行中的回复；
