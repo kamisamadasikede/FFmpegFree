@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.36）
+# FFmpegFree v2 接口契约（v0.37）
+
+v0.37 变更（**Claude / Codex 真适配**，拆期设计草稿 v0.2 第一期，架构师 10-13；完整规则见 **6.19.2 / 6.19.3a / 6.19.3b / 6.19.14**；**无新错误码 / 迁移 / 事件 / 开关，2.1 仍是 39 个；无 `cat.settings` 新字段**）：① **`claude_cli` / `codex_cli` 从「未就绪桩」升级为与 `cat_build` 同级的真适配器**：PATH 检测、状态 / 重检、真实模型与思考强度列表、`RunTurn` 流式进既有 `cat:message` / `cat:turn`、`CancelCatTurn` 杀进程树、有项目时 cwd = 项目路径。② **CLI 已安装且鉴权 OK 时，Send 不再因「桩」返回 `CAT_NOT_READY`**；未安装 → `missing` + 未检测到文案；登录失效 → `reason=auth`（与 Build 同口径）。③ **全局批准方式与自定义指令**须注入各家每一轮请求（产品行为规范）；具体 CLI flag **标 GUESS**，真机确认前不得当交付（附录 6.19.14）。④ **定时任务仍锁 `cat_build`**（本版不变；选服务商仍下一小版）。⑤ **明确不做（本版）**：自定义 API Key / Base URL（→ v0.38）；技能 / MCP 可管理与项目内技能根（→ v0.39）；消息尾完成时间 / token / token/s（→ v0.37.1）；改名 `cat_build`。⑥ LookPath 入口名暂定 `claude` / `codex`（Windows 可带 `.exe`），**真机确认前标 GUESS**。
 
 v0.36 变更（**Cat 多服务商设置**，老板确认按设计 v0.4，架构师 10-13；完整规则见 **6.19.2 / 6.19.4 / 6.19.12**；**无新错误码 / 迁移 / 事件 / 开关，2.1 仍是 39 个；`cat.settings` JSON 就地演进**）：① **`agentKind`**：欢迎页解禁三家胶囊「Grok Build」/「Claude」/「Codex」，值分别为 `cat_build`（**不**改成 `grok_build`，已有会话不变）/ `claude_cli`（**新增**）/ `codex_cli`；`CreateCatConversation` 接受这三者，其它 → `INVALID_ARGUMENT`；`cat_cli` / `cat_code` 仍延后、胶囊继续置灰「下一期开放」。② **`CatSettings`**：顶层 `defaultModel` / `defaultEffort` 改为 `defaultAgentKind` + `defaultsByAgent[kind].{model,effort}`；批准方式 / 自定义指令 / `notifyOnFinish` 仍全局；读旧 JSON 时把旧默认迁进 `defaultsByAgent["cat_build"]`（下次成功 Save 回写）。③ **`GetCatStatus` / `RecheckCat`**：`CatStatus` 保留原字段，另加 `agents[]`（固定顺序 `cat_build` → `claude_cli` → `codex_cli`）；关于页按三家分行；`RecheckCat` 重检三家。④ **`ListCatModels` / `ListCatThinkLevels`** 接受三家；未知 / 未注册 → 空切片、不报错；强度列表空 → 界面整行隐藏（不要写死「某家永远没有强度」）。⑤ **`InspectCatConfig`** 请求可选 `agentKind`（空 = `cat_build`）；其它家暂无适配器时可空列表 + `reason=unsupported`。⑥ **定时任务**本版仍一律 `agentKind=cat_build`；任务编辑选服务商下一小版补。⑦ 服务商选择处写三家本名；气泡等其它处仍「Cat 助手」。
 
@@ -3923,11 +3925,12 @@ type ExportSubtitleRequest struct {
 6. `LANG_ASR_FAILED` 最终文案产品确认。
 
 
-## 6.19 Cat 助手（v0.30；v0.36 起欢迎页三家可点；产品 / 老板 10-09 定，v0.36 老板确认设计 v0.4）
+## 6.19 Cat 助手（v0.30；v0.36 起欢迎页三家可点；v0.37 Claude / Codex 真适配；产品 / 老板 10-09 定，v0.36 老板确认设计 v0.4，v0.37 对齐拆期草稿 v0.2 第一期）
 
-> **v0.36**：欢迎页模式胶囊解禁 **「Grok Build」/「Claude」/「Codex」** 三家（值 `cat_build` / `claude_cli` / `codex_cli`）；「Cat CLI」「Cat Code」「更多」等**仍置灰**，悬停 / 旁注 **`下一期开放`**。`cat_build` **不**改名为 `grok_build`（已有会话与库值不变）。Claude / Codex 适配器未就绪时可注册为未就绪桩，创建会话仍允许（Send 时按未就绪返回）。  
+> **v0.37**：`claude_cli` / `codex_cli` **真适配**，产品能力对齐 `cat_build`（检测、列表、流式、停止、项目 cwd、全局批准 / 自定义指令注入）。PATH 未装或鉴权失败仍 `CAT_NOT_READY`；**已装且鉴权 OK 时不得再因「桩」挡 Send**。`cat_build` **仍不改名**。定时任务仍锁 `cat_build`。本版**不做** URL/Key、技能可管理、消息尾用量。  
+> **v0.36**：欢迎页模式胶囊解禁 **「Grok Build」/「Claude」/「Codex」** 三家（值 `cat_build` / `claude_cli` / `codex_cli`）；「Cat CLI」「Cat Code」「更多」等**仍置灰**，悬停 / 旁注 **`下一期开放`**。`cat_build` **不**改名为 `grok_build`（已有会话与库值不变）。  
 > **服务商选择处**写三家本名（老板在选择 UI 放开厂商名禁令）；**气泡 / 其它界面与 `message` 仍只出现「Cat 助手」**；**永不**在气泡里出现可执行文件名、`CLI`、`命令行`（同 1.1；选择 UI 例外见上）。  
-> 本仓实现 **适配器注册表 + 各家适配器**（Build 已实现；Claude / Codex 可先桩）；工具由各家 CLI 自己执行。  
+> 本仓实现 **适配器注册表 + 各家适配器**（Build / Claude / Codex **均须真实现**，见 6.19.3 / 6.19.3a / 6.19.3b）；工具由各家 CLI 自己执行。  
 > **会话创建时锁定 `agentKind`**：之后改应用默认 **不得**影响已有会话；Send / 流式始终走该会话自己的适配器（6.19.2）。  
 > 开关：前端 `CAT_UI_ENABLED` **默认 `false`**（侧栏「Cat」入口隐藏；为 true 时出现在「语音工具」后，可带「新」角标）；`CAT_BACKEND_READY` 为 false 时走本地假数据 / 不调真绑定（与前端 flags 对齐）。
 
@@ -3936,8 +3939,8 @@ type ExportSubtitleRequest struct {
 | 做 | 不做（一期） |
 |---|---|
 | 侧栏进入 Cat 全屏聊天（收起主侧栏，返回原页） | `cat_cli` / `cat_code` **创建与运行**（胶囊可见但禁用「下一期开放」） |
-| 欢迎页 + 会话列表 + 发送 / 回复（事件推进） | URL / API Key 设置页或设置项 |
-| **`cat_build` / `claude_cli` / `codex_cli` 可创建**（欢迎胶囊「Grok Build」/「Claude」/「Codex」；适配器未就绪时 Send 返回未就绪） | 「助手」入口与功能（「定时任务」v0.35 起一期做，见 6.19.13；定时任务选服务商下一小版） |
+| 欢迎页 + 会话列表 + 发送 / 回复（事件推进） | URL / API Key 设置页或设置项（**v0.38**）；技能 / MCP App 内启停与项目内技能根（**v0.39**）；消息尾完成时间 / token / token/s（**v0.37.1**） |
+| **`cat_build` / `claude_cli` / `codex_cli` 可创建 / 可发送**（欢迎胶囊「Grok Build」/「Claude」/「Codex」；v0.37 三家均为真适配器；未安装 / 鉴权失败时 Send 返回未就绪） | 「助手」入口与功能（「定时任务」v0.35 起一期做，见 6.19.13；定时任务选服务商仍下一小版；**本版仍锁 `cat_build`**） |
 | 模型名 / 思考强度**只从该会话 `agentKind` 对应 CLI 的真实能力列表读取**（禁止原型假数据） | 前端写死第三方模型名或擅自改已有参数逻辑 |
 | 工具调用：本机 grok 的完整工具集（v0.33 不传白名单 / 黑名单；v0.34 批准方式可选，没选过是全部批准）；其它家按各自适配器 | 应用内再做一套批准框 |
 | 组件未就绪文案见下 | 在命令行上禁止写文件、跑命令、联网、MCP、子代理 |
@@ -3948,21 +3951,21 @@ type ExportSubtitleRequest struct {
 
 ### 6.19.2 `agentKind` 锁定与适配器注册表（多 CLI 扩展预备）
 
-| `agentKind` | 欢迎胶囊（展示名） | v0.36 |
+| `agentKind` | 欢迎胶囊（展示名） | v0.37 |
 |---|---|---|
 | `cat_build` | Grok Build | **可创建 / 可发送**（库值保持 `cat_build`，**不**改名 `grok_build`） |
-| `claude_cli` | Claude | **可创建 / 可发送**（**新增**枚举；适配器可先为未就绪桩） |
-| `codex_cli` | Codex | **可创建 / 可发送**（适配器可先为未就绪桩） |
+| `claude_cli` | Claude | **可创建 / 可发送**（**真适配器**，见 6.19.3a；未装 / 未登录仍 `CAT_NOT_READY`） |
+| `codex_cli` | Codex | **可创建 / 可发送**（**真适配器**，见 6.19.3b；未装 / 未登录仍 `CAT_NOT_READY`） |
 | `cat_cli` | Cat CLI | 禁用「下一期开放」；注册表可不注册；**不可创建** |
 | `cat_code` | Cat Code | 同上 |
 
 **规则（架构硬性）**：
 
 1. **`CatConversation.agentKind` 在创建时写入，之后不可变**（无 Update 接口改 kind；库内也不允许改）。  
-2. **`CreateCatConversation`（或首条 `SendCatMessage` 隐式建会话）**必须带上用户在欢迎页选中的模式对应的 `agentKind`；允许 `cat_build` / `claude_cli` / `codex_cli`（适配器已注册且 CLI 检测到时可发送；适配器为桩时仍可创建，Send 走未就绪）；其它值（含 `cat_cli` / `cat_code`）→ `INVALID_ARGUMENT`。  
+2. **`CreateCatConversation`（或首条 `SendCatMessage` 隐式建会话）**必须带上用户在欢迎页选中的模式对应的 `agentKind`；允许 `cat_build` / `claude_cli` / `codex_cli`（适配器已注册；CLI 检测到且鉴权 OK 时可发送；未装 / 鉴权失败仍可**创建**会话，Send 同步 `CAT_NOT_READY`）；其它值（含 `cat_cli` / `cat_code`）→ `INVALID_ARGUMENT`。  
 3. **`SendCatMessage` / 流式 / 取消**一律按**该会话已存的 `agentKind`** 查注册表路由，**绝不**使用「当前应用默认」。  
 4. **应用级默认** `CatSettings.defaultAgentKind`（默认 `cat_build`，见 6.19.12）**只作用于新建会话**的欢迎页预选与偏好预填；改设置不影响旧会话。旧键 `Settings.catDefaultAgentKind` 若仍存在，读时等同 `defaultAgentKind`。  
-5. **适配器注册表**（后端进程内）：`agentKind` → `{ executablePath, protocolVersion, … }`。v0.36 **可注册** `cat_build` / `claude_cli` / `codex_cli`（后两家可为未就绪桩）；未注册 kind 的会话若因脏数据出现 → `CAT_NOT_READY` 或 `UNSUPPORTED`（实现选一，message 仍用未就绪 / 通用失败口径，不暴露可执行名）。  
+5. **适配器注册表**（后端进程内）：`agentKind` → `{ executablePath, protocolVersion, … }`。v0.37 **必须注册真适配器** `cat_build` / `claude_cli` / `codex_cli`（**禁止**再用未就绪桩冒充后两家；进程内未装 CLI 时适配器仍存在，Status/`Send` 按 missing / auth 返回）；未注册 kind 的会话若因脏数据出现 → `CAT_NOT_READY` 或 `UNSUPPORTED`（实现选一，message 仍用未就绪 / 通用失败口径，不暴露可执行名）。  
 6. **`ListCatConversations` / `GetCatConversation` 返回 `agentKind`**，供 UI 徽章或内部逻辑；**气泡展示仍是「Cat 助手」**；服务商选择 / 设置「新对话默认」处分块写「Grok Build」/「Claude」/「Codex」，不把 `cat_build` 等技术名直接打给用户。
 
 ### 6.19.3 Build 适配器（`cat_build`）
@@ -3974,6 +3977,35 @@ type ExportSubtitleRequest struct {
 - **工具**（v0.33）：不传 `--tools`、`--disallowed-tools`、`--deny`、`--no-subagents`、`--disable-web-search`，环境不设 `GROK_SANDBOX` / `GROK_WRITE_FILE`。写文件、改文件、跑命令、联网、MCP、子代理都按本机 grok 的默认工具集。全部批准时带 `--always-approve`，这些动作不会弹出批准框；其它模式不带这个开关（v0.34）。普通模式在这个窗口里点不到确认，可能停住，需要按停止。仍设 `GROK_DISABLE_AUTOUPDATER=1`。  
 - **能力列表**（v0.31.4）：`models` 来自 `grok models`，`displayName` = CLI 给的模型 ID 原样（不映射成「Cat 助手 …」）；**探测超时 / 报错 / 解析不出 → 空列表，不传 `-m`（用 CLI 默认模型），没有写死的回退模型**（v0.31.5）。`thinkLevels` = `low` / `medium` / `high` / `xhigh`，显示 `低` / `中` / `高` / `极高`（「极高」待产品确认）；只有用户选了才传 `--reasoning-effort`，没选时界面显示 `默认`（v0.31.5）。  
 - **取消**：`CancelCatTurn` → 取消 context → `proc.Kill` 进程树。超时默认 10 分钟。
+
+### 6.19.3a Claude Code 适配器（`claude_cli`）（v0.37）
+
+> **产品行为（规范）**：与 `cat_build` 对齐到「能日常用」——检测、关于行、模型 / 强度列表、流式回复、停止、项目沙箱 cwd、全局批准与自定义指令注入。**具体子命令 / flag 名见 6.19.14，标 GUESS 的项真机确认前不得当交付。**
+
+- **入口（GUESS）**：系统 PATH 上的 `claude` / `claude.exe`（`exec.LookPath`）。路径只进注册表，**不**回前端。二进制名以真机 / 官方文档确认为准；确认前实现按此 LookPath，若实机不同名须改实现并回写本节与附录表。  
+- **就绪**：LookPath 命中 → 再做鉴权探测（该 CLI 若有 login / 本地凭据）；未命中 `state` 对应 `agents[]` 项 `ready=false`（整体顶层 `state` 仍以 `cat_build` 为主口径，同 v0.36）；Send → `CAT_NOT_READY`「未检测到 Cat 助手，请先安装并确保可在终端直接运行。」；鉴权失败 → 同文案口径 `登录失效，请重新登录后再试。` + `detail` 含 `reason=auth`。**无** URL/Key UI（→ v0.38）。  
+- **Headless / 流式（产品）**：每一轮把最新用户句交给 Claude CLI；stdout（或官方流式通道）译成既有 `cat:message`（`append`/`replace`/`done`）与 `cat:turn`（`running|completed|cancelled|failed`）。思考 / 工具调用**不写入助手正文**（与 Build 一致：可单独展示）。失败 → `CAT_REPLY_FAILED`（有原文则进 `cat:turn.error.message`，同 v0.34）。  
+- **cwd**：对话有 `projectId` 且项目未 missing → 工作目录 = 项目绝对路径；无项目 → `paths.CatConvDir(convId)`（同 Build / v0.32）。  
+- **会话续聊**：须能在同一 `conversationId` 上多轮续聊（CLI 会话 id / resume 机制 **GUESS**，附录确认）；点开对话的历史导出若该 CLI 无对等 `export`，实现可选：仅流式落库旁路 / 或空历史 + 说明——**不得**伪造假消息；选定方案写进实现 PR，回写本节一句。  
+- **模型 / 强度**：`ListCatModels("claude_cli")` / `ListCatThinkLevels("claude_cli")` **只来自该 CLI 真实能力列表**（禁止原型假名）。探测失败 → **空切片**、nil error；发消息不传模型 / 强度参数（用 CLI 默认）。强度列表空 → 设置与输入区**整行隐藏**（沿用 v0.36）。显示名 = CLI 返回的 id 原样。  
+- **批准方式（产品）**：沿用全局 / 对话四档（普通 / Plan / 自动审查 / 全部批准）。映射到 Claude CLI 的 flag **GUESS**（附录 A5）；未确认前不得声称某档已等价落地。  
+- **自定义指令（产品）**：`CatSettings.customInstruction` 非空时每一轮注入；注入点（系统提示 / 首条 / CLI flag）**GUESS**（附录 A6）。Build 的 `--rules` **不**假定 Claude 同名。  
+- **取消**：`CancelCatTurn` → 取消 context → 杀该轮进程树；保留已出文字；先 `done`（若有字）再 `cancelled`（同 6.19.9）。  
+- **InspectCatConfig**：若该 CLI 尚无稳定只读检查命令 → 空列表 + `reason=unsupported`（允许）；有则只读映射到现有五类字段，**不**回传路径 / 密钥。技能启停 / 项目内技能根 → **v0.39**，本版不做。  
+- **工具**：由 Claude Code CLI 自己的默认工具集执行；应用内不做第二套批准框。
+
+### 6.19.3b Codex 适配器（`codex_cli`）（v0.37）
+
+> **产品行为（规范）**：与 6.19.3a 同级对齐 `cat_build`。**flag / 子命令见 6.19.14，GUESS 项真机确认前不得当交付。**
+
+- **入口（GUESS）**：系统 PATH 上的 `codex` / `codex.exe`（`exec.LookPath`）。路径不回前端。名称以真机确认为准。  
+- **就绪 / 鉴权 / 文案**：同 6.19.3a（未装 / `reason=auth` / 无 URL/Key UI）。  
+- **Headless / 流式 / cwd / 取消**：同 6.19.3a 产品规则；输出译成同一套 `cat:message` / `cat:turn`。  
+- **会话续聊 / 历史**：同 6.19.3a（resume / export **GUESS**）。  
+- **模型 / 强度**：`ListCatModels("codex_cli")` / `ListCatThinkLevels("codex_cli")` 只来自 Codex CLI；失败空列表；空强度 → 整行隐藏。  
+- **批准 / 自定义指令**：产品四档 + 全局指令须注入；具体 flag **GUESS**（附录 A5 / A6）。  
+- **InspectCatConfig**：无稳定检查命令 → `reason=unsupported`；有则只读。技能可管理 → v0.39。  
+- **工具**：由 Codex CLI 默认工具集执行。
 
 ### 6.19.4 数据结构
 
@@ -4070,7 +4102,7 @@ CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，
 
 ### 6.19.8 延后
 
-`cat_cli` / `cat_code` 的创建与运行（胶囊继续置灰）；完全访问；助手；定时任务的 cron / 续接已有对话 / 开机自启 / **任务编辑选服务商**（本版定时运行仍锁 `cat_build`，见 6.19.13）；URL/Key；组件下载专节。（流式事件已提前到 6.19.9。）`claude_cli` / `codex_cli` **已可创建**（v0.36），适配器实现可先为未就绪桩。扩展时**只加注册表项与胶囊启用**，会话锁定规则不变。
+`cat_cli` / `cat_code` 的创建与运行（胶囊继续置灰）；完全访问；助手；定时任务的 cron / 续接已有对话 / 开机自启 / **任务编辑选服务商**（**v0.37 定时运行仍锁 `cat_build`**，见 6.19.13；插在真适配稳定后的小版）；**URL/Key（v0.38）**；**技能 / MCP App 内启停与项目内技能根（v0.39）**；**消息尾完成时间 / token / token/s（v0.37.1）**；组件下载专节。（流式事件已提前到 6.19.9。）`claude_cli` / `codex_cli` **v0.36 已可创建，v0.37 起须真适配**（禁止再交未就绪桩）。扩展时**只加注册表项与胶囊启用**，会话锁定规则不变。
 
 
 ### 6.19.9 流式事件与取消（v0.30.1；v0.30.2 对齐 #174）
@@ -4481,7 +4513,7 @@ type CatInspectResult struct {
     Version    string           `json:"version,omitempty"`
     Reason     string           `json:"reason,omitempty"` // 空 = 成功；not_ready | timeout | parse | unsupported（v0.36）
 }
-// v0.36：AgentKind 可选；空 = cat_build；其它家暂无适配器 → 空列表 + reason=unsupported
+// v0.36/v0.37：AgentKind 可选；空 = cat_build；该家无稳定 inspect → 空列表 + reason=unsupported（允许）
 InspectCatConfig(req struct {
     ProjectID string `json:"projectId"`
     AgentKind string `json:"agentKind,omitempty"`
@@ -4493,8 +4525,8 @@ InspectCatConfig(req struct {
 3. **校验（Save）**：`defaultAgentKind` 不在 `cat_build|claude_cli|codex_cli`（空视为 `cat_build` 可写回默认）、任一 `defaultsByAgent` 的 `effort` 不在 `low|medium|high|xhigh|""`、`defaultApprovalMode` 不在 `normal|plan|auto|approve|""`、`customInstruction` 超 4000 字、`defaultsByAgent` 含未知 key → `INVALID_ARGUMENT`。各家 `model` **不**校验是否在当前模型列表里（列表可能暂时为空）；发送时若该模型已不在列表里，前端按「默认」显示。
 4. **默认值只作用于新对话**：新建对话时带用户选的 `agentKind`（或欢迎页预选 = `defaultAgentKind`）；偏好 = `defaultsByAgent[kind]` 的 model/effort + 全局 `defaultApprovalMode`（写入 `catConvPrefs`）。**已有对话已记住的模型 / 强度 / 批准方式一律不改**；没记过偏好的老对话仍按 v0.34（全部批准、默认模型 / 强度），不回填。`agentKind` 创建后仍不可变。
 5. **「新对话默认」UI（设计 v0.4）**：按服务商分块（Grok Build / Claude / Codex，带各自图标）；每家各自默认模型 + 思考强度（该家 `ListCatThinkLevels` 为空则整行隐藏）。批准方式、「新对话放在」仍全局共用（后者为本机偏好，见 6.19.12.7）。图标正式资源产品定；原型几何标可先用。
-6. **全局自定义指令**：非空时，后端在**每一轮**（首轮和续聊，含定时任务产生的对话）调用里带 `--rules <指令>`（各家适配器按自己的等价参数落地；Build 仍是 `--rules`）；空则不带。保存后下一轮生效，不影响正在进行的一轮。界面称「自定义指令」，说明文案 `每次对话都会自动带上这段指令。`（设计稿可改）。
-7. **InspectCatConfig**：在 `projectId` 对应项目文件夹（空 / 项目不在 → 普通对话目录的父目录 `<数据目录>/cat`）下，按 `agentKind`（空 = `cat_build`）走对应适配器的只读检查（Build：`grok inspect --json`），超时 15 秒，走 `runCmd`（隐藏窗口，同 #200）。只取上面五类的名字 / 描述 / 来源 / 启用状态，**不回传文件路径、命令行、环境变量、密钥**。未就绪 → `reason=not_ready`；超时 → `timeout`；JSON 认不出 → `parse`；该家暂无适配器 → `unsupported`；这些情况都返回空列表、`error` 为 nil，**无新错误码**。一期只读，不提供增删 / 启停。
+6. **全局自定义指令**：非空时，后端在**每一轮**（首轮和续聊，含定时任务产生的对话）注入该指令（Build 带 `--rules <指令>`；Claude / Codex 的等价注入点见 6.19.14 **A6**，未确认前不得写死同名 flag）；空则不带。保存后下一轮生效，不影响正在进行的一轮。界面称「自定义指令」，说明文案 `每次对话都会自动带上这段指令。`（设计稿可改）。
+7. **InspectCatConfig**：在 `projectId` 对应项目文件夹（空 / 项目不在 → 普通对话目录的父目录 `<数据目录>/cat`）下，按 `agentKind`（空 = `cat_build`）走对应适配器的只读检查（Build：`grok inspect --json`；Claude / Codex 若无对等命令 → `unsupported`），超时 15 秒，走 `runCmd`（隐藏窗口，同 #200）。只取上面五类的名字 / 描述 / 来源 / 启用状态，**不回传文件路径、命令行、环境变量、密钥**。未就绪 → `reason=not_ready`；超时 → `timeout`；JSON 认不出 → `parse`；该家无稳定 inspect → `unsupported`；这些情况都返回空列表、`error` 为 nil，**无新错误码**。**仍只读**，不提供增删 / 启停（可管理 → v0.39）。
 8. **关于**：按 `GetCatStatus.agents[]` 三家分行显示就绪 / 版本 / 登录态；「重新检测」调 `RecheckCat`（重检三家）。整体顶层 `state` / `version` 仍返回，兼容旧 UI。
 
 #### 6.19.12.7 v0.35.1 补充
@@ -4507,7 +4539,7 @@ InspectCatConfig(req struct {
 
 ### 6.19.13 定时任务（v0.35，老板 10-13 提出，架构师定）
 
-入口：Cat 侧栏「定时任务」（去掉禁用和「下一期开放」）→ 列表页；新建 / 编辑用弹窗。界面不出现 `grok` / `xAI` / `CLI` / `命令行`。**v0.36：任务编辑暂不选服务商，运行路径仍锁 `cat_build`（见 6.19.13.4）；下一小版补。**
+入口：Cat 侧栏「定时任务」（去掉禁用和「下一期开放」）→ 列表页；新建 / 编辑用弹窗。界面不出现 `grok` / `xAI` / `CLI` / `命令行`。**v0.36 / v0.37：任务编辑暂不选服务商，运行路径仍锁 `cat_build`（见 6.19.13.4）；选服务商插在真适配稳定后的小版。**
 
 #### 6.19.13.1 数据结构
 
@@ -4625,6 +4657,38 @@ ClearAllCatConversations() error                          // 见 6.19.13.7
 6. **系统通知**（替代 6.19.13.4-4）：仅当窗口不在前台且 `notifyOnFinish` 为开；标题 `定时任务<结果>：<名称>`，结果 = `已完成` / `运行失败`（如 `定时任务已完成：每日检查`；v0.35.3），正文 `<项目> · 用时 X 分 X 秒。点这里打开对话。`；点通知打开该对话。窗口在前台时改为应用内浮提示。`stopped` / `missed` / `skipped` / `queued` **不发任何通知**（系统通知和浮提示都不发；v0.35.3）；`已手动停止` 只显示在运行记录里。
 7. **状态显示名**（替代 6.19.13.8 第三条）：`成功`（绿）/ `失败`（红）/ `已错过`（黄）/ `已停止`（灰，记录里副行 `已手动停止`）/ `已跳过`（副行 `上一次还没结束`）/ `排队中` / `运行中 · 已 X 分 X 秒`；无记录 `还没运行过`；暂停 `已暂停`。已错过副行：`closed` → `当时 FFmpegFree 没有打开`；`asleep` → `当时电脑在睡眠`（v0.35.2 已确认）。
 8. **其他设计文案**：频率分段 `一次 / 每天 / 工作日 / 每周 / 自定义`（自定义置灰 `下一期开放。`）；一次的时间早于现在 `这个时间已经过了。`；`请填写名称。` `最多 40 个字。` `请填写指令。` `请至少选一天。`；删除确认 `删除这个定时任务？` / `已经产生的对话会保留。`；未就绪横幅 `未检测到 Cat 助手，到点的任务会运行失败。` + `重新检测`。
+
+### 6.19.14 实现附录：Claude / Codex 真机核对表（v0.37）
+
+> **规则**：下表凡状态为 **GUESS / 未确认** 的项，**不得**在预览包说明或验收里当作已交付；后端在真机核对后把「已确认」写回本表（及 6.19.3a / 6.19.3b 对应句），再合实现 PR。产品行为（能聊 / 能停 / 列表真实 / cwd / 未装文案）不因 flag 未确认而取消，但**不得捏造 flag 名写进用户可见文案**。
+
+| ID | 主题 | 暂定（GUESS） | 状态 |
+|---|---|---|---|
+| B1 | Claude LookPath 二进制名 | `claude` / `claude.exe` | GUESS / 未确认 |
+| B2 | Codex LookPath 二进制名 | `codex` / `codex.exe` | GUESS / 未确认 |
+| B3 | Claude 鉴权探测命令 / 凭据位置 | 随官方 CLI（login / 环境变量 / 本地文件） | GUESS / 未确认 |
+| B4 | Codex 鉴权探测命令 / 凭据位置 | 随官方 CLI | GUESS / 未确认 |
+| B5 | Claude 列模型 / 列思考强度子命令 | 官方 list / 配置查询类命令 | GUESS / 未确认 |
+| B6 | Codex 列模型 / 列思考强度子命令 | 同上 | GUESS / 未确认 |
+| B7 | Claude headless 流式协议 | stdout JSON/NDJSON 或官方 stream；须译成 `cat:message` / `cat:turn` | GUESS / 未确认 |
+| B8 | Codex headless 流式协议 | 同上 | GUESS / 未确认 |
+| B9 | Claude 会话 resume / 历史导出 | resume flag；export 对等物（可无则空历史，不造假） | GUESS / 未确认 |
+| B10 | Codex 会话 resume / 历史导出 | 同上 | GUESS / 未确认 |
+| **A5** | **批准方式 → CLI flag**（普通 / Plan / 自动审查 / 全部批准） | 按家映射；**不得**假定与 grok 的 `--permission-mode` / `--always-approve` 同名 | **GUESS / 未确认** |
+| **A6** | **自定义指令注入点** | 系统提示 / 首条用户消息前缀 / CLI flag（Build 为 `--rules`，它家不假定同名） | **GUESS / 未确认** |
+| B11 | Claude `InspectCatConfig` 对等命令 | 无则 `reason=unsupported` | GUESS / 未确认 |
+| B12 | Codex `InspectCatConfig` 对等命令 | 无则 `reason=unsupported` | GUESS / 未确认 |
+
+**验收（真机，相对拆期草稿 §4.4）**
+
+1. 本机分别装好 Claude Code / Codex CLI 后，三胶囊均可新建对话并完成至少一轮问答。  
+2. 未安装时：关于页该行未检测到；尝试对话有明确 `CAT_NOT_READY` 文案（非白屏、非卡死）。  
+3. 设置中该家默认模型下拉来自真实 CLI，无原型假模型名。  
+4. 强度：有列表则可选；无列表则整行隐藏。  
+5. 停止可打断进行中回复；历史停止态与现网一致。  
+6. A5 / A6 及上表 GUESS 项：仅「已确认」可算交付。
+
+**本版明确不做**（防止范围漂移）：自定义 API Key / Base URL；技能 / MCP 统一管理与 `<project>/.ffmpegfree/cat/skills`；消息尾 `完成于 HH:mm · 共 N token · 约 M token/s`；定时任务改选服务商；改名 `cat_build`。
 
 ## 7. 本地流服务（已取消）
 
