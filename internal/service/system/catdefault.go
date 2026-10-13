@@ -16,8 +16,9 @@ func normalizeCatDefaultAgentKind(v string) string {
 	switch v {
 	case "", catagent.KindCatBuild:
 		return catagent.KindCatBuild
+	case catagent.KindClaudeCLI, catagent.KindCodexCLI:
+		return v // v0.36
 	default:
-		// 一期只允许 cat_build；其它值视为非法（二期再放开）。
 		return ""
 	}
 }

@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -323,7 +324,7 @@ func (a *App) startLang() {
 	a.lang.Store(svc)
 }
 
-// startCat 创建 Cat 助手服务（契约 6.19）：一期仅注册 cat_build 适配器。
+// startCat 创建 Cat 助手服务（契约 6.19）：v0.36 注册 cat_build + claude_cli/codex_cli 桩。
 func (a *App) startCat() {
 	root := a.dirs.Root
 	if root == "" {
@@ -345,15 +346,26 @@ func (a *App) startCat() {
 		Logf:         log.Printf,
 	})
 	reg.Register(build)
+	reg.Register(catagent.NewStubAdapter(catagent.KindClaudeCLI))
+	reg.Register(catagent.NewStubAdapter(catagent.KindCodexCLI))
 	reg.SetDefaultKind(a.sys.CatDefaultAgentKind(a.rootCtx))
 	a.catReg.Store(reg)
 	build.Start()
 
 	cfg := cat.Config{
-		Registry: reg,
-		Emit:     emit,
-		Logf:     log.Printf,
+		Registry:               reg,
+		Emit:                   emit,
+		Logf:                   log.Printf,
+		SystemDefaultAgentKind: a.sys.CatDefaultAgentKind,
 		DefaultAgentKind: func(ctx context.Context) string {
+			// 优先 CatSettings.defaultAgentKind（已含系统旧键回落），再系统键，最后 cat_build。
+			if svc := a.cat.Load(); svc != nil {
+				if st, err := svc.GetCatSettings(ctx); err == nil {
+					if k := strings.TrimSpace(st.DefaultAgentKind); k != "" {
+						return k
+					}
+				}
+			}
 			return a.sys.CatDefaultAgentKind(ctx)
 		},
 		OpenFolder: a.sys.OpenFolder, // v0.31.1 RevealCatProject：同 OpenStorageFolder 的打开目录分支

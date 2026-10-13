@@ -18,7 +18,7 @@ type Adapter interface {
 	RunTurn(opts TurnOptions) (TurnResponse, error)
 }
 
-// Registry 按 agentKind 查找适配器。一期只注册 cat_build。
+// Registry 按 agentKind 查找适配器。v0.36 注册 cat_build / claude_cli / codex_cli。
 type Registry struct {
 	mu  sync.RWMutex
 	by  map[string]Adapter
@@ -68,7 +68,16 @@ func (r *Registry) SetDefaultKind(kind string) {
 	r.mu.Unlock()
 }
 
-// Phase1Creatable 一期是否允许用该 kind 创建会话。
+// CreatableKinds 是 v0.36 可创建的 agentKind，固定顺序（GetCatStatus.agents[] / 欢迎页）。
+func CreatableKinds() []string {
+	return []string{KindCatBuild, KindClaudeCLI, KindCodexCLI}
+}
+
+// Phase1Creatable 报告该 kind 是否允许创建会话（v0.36：三家）。
 func Phase1Creatable(kind string) bool {
-	return kind == KindCatBuild
+	switch kind {
+	case KindCatBuild, KindClaudeCLI, KindCodexCLI:
+		return true
+	}
+	return false
 }
