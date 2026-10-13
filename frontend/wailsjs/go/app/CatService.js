@@ -18,12 +18,20 @@ export function CreateCatProject(arg1) {
   return window['go']['app']['CatService']['CreateCatProject'](arg1);
 }
 
+export function CreateCatSchedule(arg1) {
+  return window['go']['app']['CatService']['CreateCatSchedule'](arg1);
+}
+
 export function DeleteCatConversation(arg1) {
   return window['go']['app']['CatService']['DeleteCatConversation'](arg1);
 }
 
 export function DeleteCatProject(arg1) {
   return window['go']['app']['CatService']['DeleteCatProject'](arg1);
+}
+
+export function DeleteCatSchedule(arg1) {
+  return window['go']['app']['CatService']['DeleteCatSchedule'](arg1);
 }
 
 export function GetCatConversation(arg1) {
@@ -90,12 +98,24 @@ export function ListCatProjects() {
   return window['go']['app']['CatService']['ListCatProjects']();
 }
 
+export function ListCatScheduleRuns(arg1) {
+  return window['go']['app']['CatService']['ListCatScheduleRuns'](arg1);
+}
+
+export function ListCatSchedules() {
+  return window['go']['app']['CatService']['ListCatSchedules']();
+}
+
 export function ListCatThinkLevels(arg1) {
   return window['go']['app']['CatService']['ListCatThinkLevels'](arg1);
 }
 
 export function ListLiveCatTurns() {
   return window['go']['app']['CatService']['ListLiveCatTurns']();
+}
+
+export function PauseCatSchedule(arg1) {
+  return window['go']['app']['CatService']['PauseCatSchedule'](arg1);
 }
 
 export function PreviewCatMedia(arg1) {
@@ -118,12 +138,20 @@ export function RenameCatProject(arg1) {
   return window['go']['app']['CatService']['RenameCatProject'](arg1);
 }
 
+export function ResumeCatSchedule(arg1) {
+  return window['go']['app']['CatService']['ResumeCatSchedule'](arg1);
+}
+
 export function RevealCatConversationFolder(arg1) {
   return window['go']['app']['CatService']['RevealCatConversationFolder'](arg1);
 }
 
 export function RevealCatProject(arg1) {
   return window['go']['app']['CatService']['RevealCatProject'](arg1);
+}
+
+export function RunNowCatSchedule(arg1) {
+  return window['go']['app']['CatService']['RunNowCatSchedule'](arg1);
 }
 
 export function SaveCatSettings(arg1) {
@@ -136,6 +164,10 @@ export function SearchCatFiles(arg1) {
 
 export function SendCatMessage(arg1) {
   return window['go']['app']['CatService']['SendCatMessage'](arg1);
+}
+
+export function UpdateCatSchedule(arg1) {
+  return window['go']['app']['CatService']['UpdateCatSchedule'](arg1);
 }
 
 export function WriteCatFile(arg1) {

@@ -40,6 +40,18 @@ type Config struct {
 	DataRoot string
 	// Preview 把本机图片、视频和文档登记成页面能加载的地址。空则不能预览。
 	Preview *localassets.Registry
+	// Now 是可注入的时钟（定时任务测试用）；nil = time.Now。
+	Now func() time.Time
+	// Location 是计算定时任务的时区；nil = time.Local。
+	Location *time.Location
+	// Notify 发系统通知（定时任务结束）；nil 不发。
+	Notify func(n Notification)
+	// Foreground 报告窗口是否在前台；在前台时不发系统通知（界面按 cat:schedule 浮提示）。nil = 不在前台。
+	Foreground func() bool
+	// ScheduleTick 是调度器检查间隔；0 = 30 秒。
+	ScheduleTick time.Duration
+	// ScheduleRunTimeout 是一次定时运行的上限；0 = 30 分钟（v0.35.3）。
+	ScheduleRunTimeout time.Duration
 }
 
 // Service 是 CatService。
@@ -55,6 +67,8 @@ type Service struct {
 	projMissing map[string]bool // 项目 id → 上一次计算的 missing（6.19.10.3）
 	rekeyMu     sync.Mutex
 	rekeyed     bool // ensureProjectKeys 已成功跑过
+
+	sched scheduler
 }
 
 // actRec 是一条思考或一次工具调用。界面单独画，不写进助手正文。
@@ -89,6 +103,7 @@ type turnState struct {
 	contextWindow int64
 	emittedUsed   int64
 	emittedWindow int64
+	hook          *turnHook // 定时任务的收尾回调；终态时调一次
 }
 
 // New 创建服务。
@@ -397,6 +412,16 @@ func (s *Service) DeleteCatConversation(ctx context.Context, convID string) erro
 // SendCatMessage 同步校验并落库用户消息，返回 { userMessage, turnId }；
 // 助手回复在后台跑，经 cat:message（append/replace/done）与 cat:turn 推送（契约 6.19.9）。
 func (s *Service) SendCatMessage(ctx context.Context, req SendMessageRequest) (SendMessageResult, error) {
+	return s.sendMessage(ctx, req, nil)
+}
+
+// turnHook 是定时任务挂在一轮上的收尾回调和超时（手动对话为 nil）。
+type turnHook struct {
+	timeout  time.Duration
+	onFinish func(status string, err *apperr.AppError)
+}
+
+func (s *Service) sendMessage(ctx context.Context, req SendMessageRequest, hook *turnHook) (SendMessageResult, error) {
 	if s.cfg.Store == nil {
 		return SendMessageResult{}, apperr.New(apperr.Internal, "本地存储尚未初始化")
 	}
@@ -462,6 +487,7 @@ func (s *Service) SendCatMessage(ctx context.Context, req SendMessageRequest) (S
 	t := &turnState{
 		convID: c.ID, turnID: id.New(), cancel: cancel, msgID: id.New(), done: make(chan struct{}),
 		usageCwd: catagent.TurnCwd(s.cfg.DataRoot, projectRoot, c.ID),
+		hook:     hook,
 	}
 	s.setTurn(t)
 	s.emit(catagent.EventTurn, catagent.TurnEvent{ConvID: t.convID, TurnID: t.turnID, Status: catagent.TurnRunning})
@@ -475,6 +501,9 @@ func (s *Service) SendCatMessage(ctx context.Context, req SendMessageRequest) (S
 		Messages:       []catagent.WireMessage{{Role: "user", Content: content}},
 		Files:          files,
 		Rules:          s.rulesForTurn(ctx),
+	}
+	if hook != nil && hook.timeout > 0 {
+		opts.Timeout = hook.timeout
 	}
 	s.wg.Add(1)
 	go func() {
@@ -825,6 +854,9 @@ func (s *Service) finishLocked(t *turnState, status string) bool {
 		t.emittedUsed, t.emittedWindow = t.contextUsed, t.contextWindow
 	}
 	s.emit(catagent.EventTurn, ev)
+	if h := t.hook; h != nil && h.onFinish != nil {
+		go h.onFinish(status, ev.Error) // 持有 t.mu，回调另起 goroutine
+	}
 	return true
 }
 
