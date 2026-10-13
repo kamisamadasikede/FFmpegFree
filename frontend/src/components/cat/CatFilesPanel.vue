@@ -124,9 +124,11 @@
           <button type="button" class="retry" @click="refresh">{{ COPY.retry }}</button>
         </div>
         <div v-else-if="!rows.length" class="ct-empty" data-testid="cat-files-empty">
-          <FIcon name="file" :size="28" /><span>{{ query.trim() ? COPY.noMatch : COPY.empty }}</span>
+          <FIcon name="folder-open" :size="28" /><span>{{ query.trim() ? COPY.noMatch : COPY.empty }}</span>
+          <!-- I2：空状态给一个主操作 -->
+          <button v-if="!query.trim() && canOpen" type="button" class="retry primary" data-testid="cat-files-empty-open" @click="openFolder">{{ COPY.open }}</button>
         </div>
-        <div v-else class="ct-tree" data-testid="cat-files-tree">
+        <div v-else :key="treeKey" class="ct-tree swap-in" data-testid="cat-files-tree">
           <div
             v-for="row in rows"
             :key="row.key"
@@ -323,6 +325,10 @@ const rows = computed(() => {
 const canOpen = computed(() => live && !props.missing && error.value !== PC.missing)
 const canRefresh = computed(() => live && !props.missing && !loading.value)
 
+/** 换对话后旧树还留着，新的根目录还没回来 */
+let swapping = false
+const treeKey = ref(0)
+
 watch(
   () => props.convId,
   () => {
@@ -335,9 +341,9 @@ watch(
     openName.value = ''
     openDiff.value = false
     pending.value = null
-    nodes.value = null
-    rootPath.value = ''
-    rootTruncated.value = false
+    // B1：换对话时先留着旧的树，新数据到了再整体淡入
+    swapping = nodes.value != null
+    if (!swapping) nodes.value = null
     error.value = ''
     gitStatus.value = null
     gitError.value = ''
@@ -476,8 +482,10 @@ async function loadRoot(keep: string[] = []) {
   if (!live || props.missing || !props.convId) return
   const id = props.convId
   const my = ++token
-  const had = nodes.value != null
-  if (!had) loading.value = true
+  const fresh = swapping
+  swapping = false
+  const had = nodes.value != null && !fresh
+  if (!had && !fresh) loading.value = true
   if (!had) error.value = ''
   try {
     const res = await listCatFiles(id, '')
@@ -486,6 +494,7 @@ async function loadRoot(keep: string[] = []) {
     rootTruncated.value = res.truncated
     error.value = ''
     nodes.value = entriesToNodes(res.entries, 0)
+    if (fresh) treeKey.value++
     for (const rel of keep) {
       if (my !== token) return
       await expandTo(rel, my)
@@ -920,5 +929,16 @@ async function onHit(hit: CatSearchHit) {
 }
 .retry:hover {
   background: var(--cat-hover);
+}
+.retry.primary {
+  background: var(--cat-accent);
+  border-color: var(--cat-accent);
+  color: var(--cat-on-accent);
+}
+.retry.primary:hover {
+  background: var(--cat-accent-hover);
+}
+.swap-in {
+  animation: cat-fade-in var(--ff-dur-base) var(--ff-ease-out) both;
 }
 </style>

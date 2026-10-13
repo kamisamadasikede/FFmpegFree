@@ -232,6 +232,8 @@ export const catState = reactive({
   /** 当前会话 agentKind 对应的能力列表（不造假） */
   models: [] as CatModel[],
   thinks: [] as CatThinkLevel[],
+  /** B1：正在读这条对话的记录（第一次打开、本地还没有内容时） */
+  histLoading: {} as Record<string, boolean>,
 })
 
 export const modelName = computed(() => {
@@ -294,7 +296,15 @@ export function messagesOf(id: string): CatBlock[] {
       void loadMessages(id)
     } else {
       const f = findConv(id)
-      catState.messages[id] = f ? mockMessages(id, f.conv.title) : []
+      if (f && import.meta.env.DEV && catSim.has('slowconv')) {
+        // 走查：模拟读记录要 900ms，看切换对话的消息骨架
+        catState.messages[id] = []
+        catState.histLoading[id] = true
+        setTimeout(() => {
+          catState.messages[id] = mockMessages(id, f.conv.title)
+          catState.histLoading[id] = false
+        }, 900)
+      } else catState.messages[id] = f ? mockMessages(id, f.conv.title) : []
     }
   }
   return catState.messages[id]
@@ -322,6 +332,7 @@ async function loadMessages(id: string, quiet = false) {
   // 刷新接回来的那一轮相反，记录在文件里继续长，要反复读。
   if (turn && !turn.adopted) return
   loading.add(id)
+  if (!quiet && !catState.messages[id]?.length) catState.histLoading[id] = true
   try {
     const d = await getCatConversation(id)
     if (!d || !findConv(id)) return
@@ -347,6 +358,7 @@ async function loadMessages(id: string, quiet = false) {
     if (!quiet && catState.sel === id) notify('没能从助手里读出这段对话。', 'warn')
   } finally {
     loading.delete(id)
+    catState.histLoading[id] = false
   }
 }
 
@@ -458,8 +470,8 @@ export function chooseModel(id: string) {
   rememberSelection()
 }
 
+/** id 为空 = 回到「默认」（不传强度） */
 export function chooseThink(id: string) {
-  if (!id) return
   catState.think = id
   rememberSelection()
 }

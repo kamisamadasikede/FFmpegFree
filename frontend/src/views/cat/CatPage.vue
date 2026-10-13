@@ -1,8 +1,17 @@
 <template>
   <div class="cat-page cat-root" data-testid="cat-page">
     <!-- 进入时：侧栏 250ms 收起（AppSidebar 的 cat-away），中间先显示约 1.2 秒 loading，再出三栏聊天页 -->
+    <!-- A1 进入：先画三栏骨架，超过 300ms 才出现闪光 -->
     <div v-if="phase === 'loading'" class="ct-load" role="status" aria-live="polite">
-      <div class="in"><i class="ct-spin" aria-hidden="true" /><span>正在进入 Cat…</span></div>
+      <span class="sr-only">正在进入 Cat…</span>
+      <div class="sk-rail" aria-hidden="true">
+        <i class="sk w60" /><i class="sk w90 tall" /><i class="sk w40 gap" /><i v-for="n in 6" :key="n" class="sk" :class="n % 2 ? 'w80' : 'w60'" />
+      </div>
+      <div class="sk-main" aria-hidden="true">
+        <i class="sk w30 hd" />
+        <div class="sk-msgs"><i class="sk w50 r" /><i class="sk w90" /><i class="sk w80" /><i class="sk w60" /></div>
+        <i class="sk comp" />
+      </div>
     </div>
     <div v-else class="ct cat-in" :class="{ 'no-right': isNew }">
       <CatSidePanel @back="goBack" />
@@ -100,6 +109,7 @@
             <h2 :title="current.conv.title">{{ current.conv.title }}</h2>
             <span v-if="current.conv.main" class="main-tag">主要</span>
             <span class="sp" />
+            <button type="button" class="hd-ib" :class="{ on: !rightCollapsed }" :title="rightCollapsed ? '展开右栏 (Ctrl J)' : '收起右栏 (Ctrl J)'" :aria-label="rightCollapsed ? '展开右栏' : '收起右栏'" :aria-pressed="!rightCollapsed" data-testid="cat-right-toggle" @click="rightCollapsed = !rightCollapsed"><FIcon name="split" :size="16" /></button>
             <FIcon name="refresh" :size="16" /><FIcon name="more" :size="16" />
           </div>
           <div v-if="projectMissing" class="ct-missing" role="status" data-testid="cat-project-missing-bar">
@@ -115,6 +125,10 @@
           <div class="ct-stream">
             <div ref="msgsEl" :key="catState.sel" class="ct-msgs swap" @scroll.passive="onMsgsScroll">
               <div ref="msgsBody">
+                <!-- B1：读记录超过 150ms 才显示消息骨架 -->
+                <div v-if="histLoading && !messages.length" class="sk-msgs conv" role="status" aria-label="正在读取对话" data-testid="cat-msg-skeleton">
+                  <i class="sk w50 r" /><i class="sk w90" /><i class="sk w80" /><i class="sk w60" /><i class="sk w40 r" /><i class="sk w90" /><i class="sk w70" />
+                </div>
                 <CatMessages :blocks="messages" :pending="thinking" />
               </div>
             </div>
@@ -166,7 +180,10 @@
         </template>
       </section>
 
-      <CatFilesPanel v-if="!isNew" :conv-id="catState.sel" :missing="projectMissing" />
+      <!-- E3 右栏收起：列宽 320ms；内容保留，不重新加载 -->
+      <div v-if="!isNew" class="ct-r-wrap" :class="{ shut: rightCollapsed }" :aria-hidden="rightCollapsed || undefined">
+        <CatFilesPanel :conv-id="catState.sel" :missing="projectMissing" />
+      </div>
     </div>
     <CatProjectDeleteDialog />
   </div>
@@ -189,6 +206,7 @@ import { catReturnPath } from './catReturn'
 import { nearBottom, keepFollowing } from './catFollow'
 import { railThumb, railTickTops, scrollTopForThumb } from './catRail'
 import { awaitingTurnOutput } from './catPending'
+import { onLayoutKey, rightCollapsed } from './catLayout'
 import { catChecking, catNotReady, catState, currentProject, findConv, projectMissing, relocateProject, initCat, messagesOf, NEW_CONV, refreshCapabilities, recheckCatStatus, sendMessage, stopTurn, tipLater } from './catState'
 import { hasWailsBackend } from '@/services/wails'
 import { ClipboardSetText } from '../../../wailsjs/runtime/runtime'
@@ -208,6 +226,7 @@ if (preview && q.get('cat_conv')) catState.sel = q.get('cat_conv') as string
 
 const notReadyText = computed(() => catState.status.error?.message || CAT_COPY.notReady)
 const isNew = computed(() => catState.sel === NEW_CONV)
+const histLoading = computed(() => !!catState.histLoading[catState.sel])
 const current = computed(() => (isNew.value ? null : findConv(catState.sel)))
 const messages = computed(() => (isNew.value ? [] : messagesOf(catState.sel)))
 const composer = ref<InstanceType<typeof CatComposer>>()
@@ -375,6 +394,7 @@ if (typeof ResizeObserver !== 'undefined') {
 }
 /** 对话里划中的文字用 Ctrl/Cmd+C 写入剪贴板。输入框不在这块里，不拦它们自己的复制。 */
 function onCopyKey(e: KeyboardEvent) {
+  if (onLayoutKey(e)) return
   if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || (e.key !== 'c' && e.key !== 'C')) return
   const sel = window.getSelection()
   const text = sel?.toString() ?? ''
@@ -630,24 +650,91 @@ function onModeClick(m: CatMode) {
 }
 .ct-load {
   flex: 1;
-  display: grid;
-  place-items: center;
+  display: flex;
+  min-width: 0;
 }
-.ct-load .in {
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.sk-rail {
+  width: 248px;
+  flex: none;
+  box-sizing: border-box;
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--cat-rail);
+  border-right: 1px solid var(--cat-border);
+}
+.sk-main {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
-  color: var(--cat-text-2);
-  font-size: 13px;
+  padding: 14px 24px 16px;
+  gap: 18px;
 }
-.ct-spin {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  border: 3px solid var(--cat-border);
-  border-top-color: var(--cat-accent);
-  animation: ct-spin 0.9s linear infinite; /* 循环动画，不属于过渡时长档 */
+.sk-main .hd {
+  align-self: flex-start;
+}
+.sk-msgs {
+  flex: 1;
+  width: min(560px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 24px;
+}
+.sk-msgs.conv {
+  flex: none;
+  margin: 0 auto;
+  padding: 8px 0;
+  animation: sk-late var(--ff-dur-base) var(--ff-ease-out) 150ms both;
+}
+@keyframes sk-late {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.sk {
+  display: block;
+  height: 12px;
+  border-radius: var(--cat-radius-sm);
+  background: var(--cat-sunken) linear-gradient(90deg, transparent 0%, var(--cat-hover) 50%, transparent 100%) no-repeat;
+  background-size: 200% 100%;
+  background-position: 150% 0;
+  /* 骨架闪光 1.4s 循环，>300ms 才开始 */
+  animation: sk-shine 1.4s linear 300ms infinite;
+}
+html.dark .sk {
+  background-color: var(--cat-elevated);
+}
+.sk.tall { height: 30px; }
+.sk.gap { margin-top: 12px; }
+.sk.r { align-self: flex-end; height: 32px; }
+.sk.comp { width: min(560px, 100%); height: 96px; border-radius: 22px; }
+.w30 { width: 30%; }
+.w40 { width: 40%; }
+.w50 { width: 50%; }
+.w60 { width: 60%; }
+.w70 { width: 70%; }
+.w80 { width: 80%; }
+.w90 { width: 90%; }
+@keyframes sk-shine {
+  from { background-position: 150% 0; }
+  to { background-position: -50% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sk,
+  .sk-msgs.conv {
+    animation: none;
+  }
 }
 @keyframes ct-spin {
   to { transform: rotate(360deg); }
@@ -964,5 +1051,41 @@ function onModeClick(m: CatMode) {
   .swap {
     animation: none !important;
   }
+}
+.ct-r-wrap {
+  flex: none;
+  display: flex;
+  min-width: 0;
+  max-width: 1600px;
+  overflow: hidden;
+  transition: max-width var(--ff-dur-slow) var(--ff-ease-out), opacity var(--ff-dur-base) var(--ff-ease-out);
+}
+.ct-r-wrap.shut {
+  max-width: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.hd-ib {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: var(--cat-radius-sm);
+  background: transparent;
+  color: var(--cat-text-2);
+  cursor: pointer;
+  --wails-draggable: no-drag;
+  transition: background var(--ff-dur-quick), transform var(--ff-dur-quick);
+}
+.hd-ib:hover {
+  background: var(--cat-hover);
+}
+.hd-ib:active {
+  transform: scale(0.94);
+}
+.hd-ib:focus-visible {
+  outline: none;
+  box-shadow: var(--cat-focus);
 }
 </style>

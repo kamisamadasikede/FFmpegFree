@@ -137,41 +137,43 @@
           </div>
           </template>
         </div>
-        <!-- 模型 / 思考强度：一级菜单 + 左侧子菜单 -->
-        <div v-else class="mn-casc">
-          <div class="mn-main" role="menu" aria-label="模型设置">
-            <div
-              v-for="r in rows"
-              :key="r.key"
-              :ref="(el) => setRowRef(r.key, el)"
-              class="mn-row"
-              :class="{ on: sub === r.key }"
-              role="menuitem"
-              tabindex="0"
-              aria-haspopup="menu"
-              :aria-expanded="sub === r.key"
-              @mouseenter="showSub(r.key)"
-              @click.stop="showSub(r.key)"
-              @keydown.enter.prevent="showSub(r.key)"
-            >
-              <span class="lb">{{ r.label }}</span><span class="v">{{ r.value }}</span><FIcon name="right" :size="14" />
+        <!-- D3 模型 + 思考强度合成一个浮层：上半模型列表，下半强度分段 -->
+        <div v-else class="mn-pop" data-testid="cat-model-pop">
+          <template v-if="catState.models.length">
+            <div class="mn-hd">模型</div>
+            <div role="menu" aria-label="模型">
+              <div
+                v-for="m in catState.models"
+                :key="m.id"
+                class="mn-op"
+                :class="{ on: catState.model === m.id }"
+                role="menuitemradio"
+                tabindex="0"
+                :aria-checked="catState.model === m.id"
+                @click="pickModel(m.id)"
+                @keydown.enter.prevent="pickModel(m.id)"
+              >
+                <span class="nm">{{ m.displayName }}</span>
+                <FIcon v-if="catState.model === m.id" name="check" :size="15" :stroke="2.2" class="ck" />
+              </div>
             </div>
-          </div>
-          <div v-if="sub" :key="sub" ref="subEl" class="mn-sub" role="menu" :aria-label="sub === 'model' ? '模型' : '思考强度'" :style="{ top: subTop + 'px' }">
-            <div
-              v-for="o in subItems"
-              :key="o.id"
-              class="mn-op"
-              :class="{ on: o.on }"
-              role="menuitemradio"
-              tabindex="0"
-              :aria-checked="o.on"
-              @click="pickSub(o.id)"
-              @keydown.enter.prevent="pickSub(o.id)"
-            >
-              <span class="ck"><FIcon v-if="o.on" name="check" :size="15" :stroke="2.2" /></span><span class="nm">{{ o.name }}</span>
+          </template>
+          <div v-else class="mn-hd">模型 · Cat 助手</div>
+          <template v-if="catState.thinks.length">
+            <div class="mn-sep" role="separator" />
+            <div class="mn-hd">思考强度</div>
+            <div class="mn-seg" role="radiogroup" aria-label="思考强度">
+              <button
+                v-for="t in thinkSegs"
+                :key="t.id || 'default'"
+                type="button"
+                role="radio"
+                :class="{ on: t.on }"
+                :aria-checked="t.on"
+                @click="pickThink(t.id)"
+              >{{ t.name }}</button>
             </div>
-          </div>
+          </template>
         </div>
       </div>
     </div>
@@ -194,7 +196,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, type ComponentPublicInstance } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import CatContextRing from '@/components/cat/CatContextRing.vue'
 import { ElMessage } from 'element-plus'
@@ -207,7 +209,7 @@ import { CAT_ATTACH_MAX, fileBaseName, splitAttach, type CatOutgoingFile } from 
 import { canPreview, previewKind, showsThumb, type CatPreviewKind, type CatShownFile } from '@/components/cat/catMedia'
 import CatThumb from '@/components/cat/CatThumb.vue'
 import CatPreviewDialog from '@/components/cat/CatPreviewDialog.vue'
-import { accessMeta, capsuleLabel, catState, chooseAccess, chooseModel, chooseThink, modelName, thinkName } from '@/views/cat/catState'
+import { accessMeta, capsuleLabel, catState, chooseAccess, chooseModel, chooseThink, THINK_DEFAULT_LABEL } from '@/views/cat/catState'
 
 /**
  * Cat 输入框：批准方式可选普通模式 / Plan / 自动审查 / 全部批准，没选过是全部批准。
@@ -263,36 +265,24 @@ const inEl = ref<HTMLElement>()
 const ta = ref<HTMLTextAreaElement>()
 const chipAccess = ref<HTMLElement>()
 const chipModel = ref<HTMLElement>()
-const subEl = ref<HTMLElement>()
 
 type MenuKind = 'access' | 'casc' | null
-type SubKind = 'model' | 'think'
 const menu = ref<MenuKind>(null)
-const sub = ref<SubKind | null>(null)
-const subTop = ref(0)
 const menuStyle = ref<Record<string, string>>({})
-const rowEls: Partial<Record<SubKind, HTMLElement>> = {}
-function setRowRef(k: SubKind, el: Element | ComponentPublicInstance | null) {
-  if (el instanceof HTMLElement) rowEls[k] = el
-}
 
 const laterTip = CAT_COPY.later
 
-const rows = computed(() => {
-  const list: Array<{ key: 'model' | 'think'; label: string; value: string }> = [
-    { key: 'model', label: '模型', value: modelName.value || 'Cat 助手' },
-  ]
-  // 无强度列表时不展示「思考强度」行（设计 v0.4 §5.2）
-  if (catState.thinks.length) {
-    list.push({ key: 'think', label: '思考强度', value: thinkName.value })
-  }
-  return list
-})
-const subItems = computed(() =>
-  sub.value === 'model'
-    ? catState.models.map((m) => ({ id: m.id, name: m.displayName, on: catState.model === m.id }))
-    : catState.thinks.map((t) => ({ id: t.id, name: t.displayName, on: catState.think === t.id })),
-)
+/** 强度分段：「默认」= 不传强度，其余按后端列表原样 */
+const thinkSegs = computed(() => [
+  { id: '', name: THINK_DEFAULT_LABEL, on: !catState.think },
+  ...catState.thinks.map((t) => ({ id: t.id, name: t.displayName, on: catState.think === t.id })),
+])
+function pickModel(id: string) {
+  chooseModel(id)
+}
+function pickThink(id: string) {
+  chooseThink(id)
+}
 
 function open(kind: Exclude<MenuKind, null>) {
   const ci = inEl.value?.getBoundingClientRect()
@@ -303,34 +293,14 @@ function open(kind: Exclude<MenuKind, null>) {
     const a = chipModel.value?.getBoundingClientRect()
     menuStyle.value = { right: Math.max(0, (ci?.right ?? 0) - (a?.right ?? 0)) + 'px', left: 'auto' }
   }
-  sub.value = null
   menu.value = kind
 }
 function close() {
   menu.value = null
-  sub.value = null
 }
 function toggle(kind: Exclude<MenuKind, null>) {
   if (menu.value === kind) close()
   else open(kind)
-}
-/** 子菜单顶部与触发行顶部对齐（减去自身 4px 内边距 + 1px 边框），向下展开；靠近窗口边缘时挪回窗口内 */
-async function showSub(k: SubKind) {
-  if (sub.value === k) return
-  sub.value = k
-  const row = rowEls[k]
-  const top = (row?.offsetTop ?? 0) - 5
-  subTop.value = top
-  await nextTick()
-  const r = subEl.value?.getBoundingClientRect()
-  if (!r) return
-  if (r.bottom > innerHeight - 8) subTop.value = top - (r.bottom - innerHeight + 8)
-  else if (r.top < 8) subTop.value = top + 8 - r.top
-}
-function pickSub(id: string) {
-  if (sub.value === 'model') chooseModel(id)
-  else chooseThink(id)
-  close()
 }
 function pickAccess(id: 'normal' | 'plan' | 'auto' | 'approve') {
   const a = CAT_ACCESS.find((x) => x.id === id)
@@ -1045,68 +1015,85 @@ button {
   color: var(--cat-muted);
 }
 
-.mn-casc {
-  position: relative;
-}
-.mn-main,
-.mn-sub {
+.mn-pop {
+  width: 236px;
+  box-sizing: border-box;
+  padding: 6px;
   background: var(--cat-elevated);
   border: 1px solid var(--cat-border);
-  border-radius: var(--cat-radius-md);
+  border-radius: var(--cat-radius-lg);
   box-shadow: var(--cat-shadow-lg);
-  padding: 4px;
 }
-.mn-main {
-  width: 182px;
+.mn-hd {
+  padding: 6px 8px 4px;
+  font-size: 11.5px;
+  color: var(--cat-muted);
 }
-.mn-row {
-  height: 38px;
+.mn-op {
+  height: 34px;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 0 8px 0 10px;
-  border-radius: 4px;
-  font-size: 14px;
+  border-radius: var(--cat-radius-sm);
+  font-size: 13.5px;
   color: var(--cat-text);
   cursor: pointer;
   white-space: nowrap;
+  transition: background var(--ff-dur-quick);
 }
-.mn-row .v {
-  margin-left: auto;
-  font-size: 13.5px;
-  color: var(--cat-muted);
+.mn-op .nm {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.mn-row:hover,
-.mn-row.on,
-.mn-op:hover,
-.mn-op.on {
+.mn-op:hover {
   background: var(--cat-hover);
 }
-.mn-sub {
-  position: absolute;
-  right: calc(100% + 3px);
-  width: 180px;
-  animation: subIn var(--ff-dur-quick) var(--ff-ease-out) both;
-}
-.mn-op {
-  height: 36px;
-  display: flex;
-  align-items: center;
-  padding: 0 10px 0 8px;
-  border-radius: 4px;
-  font-size: 14px;
-  color: var(--cat-text);
-  cursor: pointer;
-  white-space: nowrap;
+.mn-op.on {
+  background: var(--cat-active);
+  color: var(--cat-active-text);
+  font-weight: 600;
 }
 .mn-op .ck {
-  width: 28px;
   flex: none;
-  display: flex;
-  align-items: center;
   color: var(--cat-active-text);
 }
-
+.mn-seg {
+  display: flex;
+  gap: 2px;
+  margin: 2px 4px 4px;
+  padding: 3px;
+  border-radius: var(--cat-radius-md);
+  background: var(--cat-sunken);
+}
+.mn-seg button {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  border: none;
+  border-radius: var(--cat-radius-sm);
+  background: transparent;
+  color: var(--cat-text-2);
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--ff-dur-quick), color var(--ff-dur-quick);
+}
+.mn-seg button:hover {
+  color: var(--cat-text);
+}
+.mn-seg button.on {
+  background: var(--cat-elevated);
+  color: var(--cat-text);
+  font-weight: 600;
+  box-shadow: var(--cat-shadow-sm);
+}
+.mn-seg button:focus-visible {
+  outline: none;
+  box-shadow: var(--cat-focus);
+}
 /* 欢迎页：输入框下方的灰色底条，顶边被输入框压住 */
 .wl-tray {
   position: relative;
