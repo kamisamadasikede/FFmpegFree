@@ -295,7 +295,67 @@ export namespace cat {
 	        this.name = source["name"];
 	    }
 	}
-	export class GitChange {
+		export class GitCatCheckoutRequest {
+	    convId: string;
+	    name: string;
+	    force: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitCatCheckoutRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.name = source["name"];
+	        this.force = source["force"];
+	    }
+	}
+	export class GitCatConflictResolveRequest {
+	    convId: string;
+	    path: string;
+	    mode: string;
+	    content: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitCatConflictResolveRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.path = source["path"];
+	        this.mode = source["mode"];
+	        this.content = source["content"];
+	    }
+	}
+	export class GitCatConflictCompleteRequest {
+	    convId: string;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitCatConflictCompleteRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.message = source["message"];
+	    }
+	}
+	export class GitCatConflictAbortRequest {
+	    convId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitCatConflictAbortRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	    }
+	}
+export class GitChange {
 	    path: string;
 	    name: string;
 	    dir: string;
@@ -405,6 +465,24 @@ export namespace cat {
 	        this.convId = source["convId"];
 	    }
 	}
+	export class GitConflictEntry {
+	    path: string;
+	    ours: boolean;
+	    theirs: boolean;
+	    letter: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitConflictEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.ours = source["ours"];
+	        this.theirs = source["theirs"];
+	        this.letter = source["letter"];
+	    }
+	}
 	export class GitStatusResult {
 	    repo: boolean;
 	    branch: string;
@@ -414,6 +492,8 @@ export namespace cat {
 	    remote: string;
 	    web: string;
 	    changes: GitChange[];
+	    mergeState: string;
+	    conflicts: GitConflictEntry[];
 	
 	    static createFrom(source: any = {}) {
 	        return new GitStatusResult(source);
@@ -429,6 +509,8 @@ export namespace cat {
 	        this.remote = source["remote"];
 	        this.web = source["web"];
 	        this.changes = this.convertValues(source["changes"], GitChange);
+	        this.mergeState = source["mergeState"];
+	        this.conflicts = this.convertValues(source["conflicts"], GitConflictEntry);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

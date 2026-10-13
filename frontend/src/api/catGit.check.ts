@@ -1,4 +1,4 @@
-import { gitChangeGroups, gitLetterFor, gitMenuEntries, gitRootLabel, mapGitDiff, mapGitStatus, type GitChange } from './catGit'
+import { conflictLabels, filterBranchItems, gitBranchMenuItems, gitChangeGroups, gitLetterFor, gitMenuEntries, gitRootLabel, mapGitDiff, mapGitStatus, normalizeMergeState, type GitChange } from './catGit'
 
 type Eq = (name: string, got: unknown, want: unknown) => void
 
@@ -16,11 +16,11 @@ export function catGitChecks(eq: Eq): void {
   eq('兄弟目录不算', gitLetterFor('other', true, changes), '')
   eq('反斜杠路径也能对上', gitLetterFor('docs\\a.md', false, changes), 'U')
   eq('根标签取最后一段', [gitRootLabel('D:\\GoProject\\FFmpegFree'), gitRootLabel('/tmp/proj/'), gitRootLabel('')], ['FFmpegFree', 'proj', ''])
-  eq('状态映射：缺字段当空仓库', mapGitStatus(null), { repo: false, branch: '', upstream: '', ahead: 0, behind: 0, remote: '', web: '', changes: [] })
+  eq('状态映射：缺字段当空仓库', mapGitStatus(null), { repo: false, branch: '', upstream: '', ahead: 0, behind: 0, remote: '', web: '', changes: [], mergeState: 'none', conflicts: [] })
   eq(
     '状态映射：留下有路径的改动',
     mapGitStatus({ repo: true, branch: 'v2', upstream: 'v2', ahead: 7, behind: 1, remote: 'git@github.com:a/b.git', web: 'https://github.com/a/b', changes: [{ path: 'wails.json', name: 'wails.json', letter: 'M', added: 1, deleted: 1, staged: true }, { letter: 'U' }] }),
-    { repo: true, branch: 'v2', upstream: 'v2', ahead: 7, behind: 1, remote: 'git@github.com:a/b.git', web: 'https://github.com/a/b', changes: [{ path: 'wails.json', name: 'wails.json', dir: '', letter: 'M', added: 1, deleted: 1, staged: true, unstaged: false }] },
+    { repo: true, branch: 'v2', upstream: 'v2', ahead: 7, behind: 1, remote: 'git@github.com:a/b.git', web: 'https://github.com/a/b', changes: [{ path: 'wails.json', name: 'wails.json', dir: '', letter: 'M', added: 1, deleted: 1, staged: true, unstaged: false }], mergeState: 'none', conflicts: [] },
   )
   const rows: GitChange[] = [
     { path: 'a.txt', name: 'a.txt', dir: '', letter: 'M', added: 1, deleted: 0, staged: false, unstaged: true },
@@ -42,4 +42,17 @@ export function catGitChecks(eq: Eq): void {
   eq('菜单：没写说明不能提交，没上游不能推送，可以发布', [flag(bare, 'commit').disabled, flag(bare, 'push').disabled, flag(bare, 'publish').disabled, flag(bare, 'rebase').label], [true, true, false, '变基到上游'])
   eq('对比映射：二进制没有正文', mapGitDiff({ path: 'a.bin', binary: true }), { path: 'a.bin', text: '', binary: true })
   eq('对比映射：缺字段当空', mapGitDiff(null), { path: '', text: '', binary: false })
+  eq('mergeState 归一', [normalizeMergeState('merging'), normalizeMergeState('x'), normalizeMergeState(null)], ['merging', 'none', 'none'])
+  const conflicted = mapGitStatus({
+    repo: true, branch: 'main', mergeState: 'merging',
+    conflicts: [{ path: 'a.txt', ours: true, theirs: true, letter: 'UU' }, { letter: 'UU' }],
+  })
+  eq('冲突映射：留下有 path 的项', [conflicted.mergeState, conflicted.conflicts], ['merging', [{ path: 'a.txt', ours: true, theirs: true, letter: 'UU' }]])
+  eq('冲突文案：变基对称', conflictLabels('rebasing').abortTitle, '中止变基？')
+  eq('冲突文案：合并全角问号', conflictLabels('merging').abortTitle, '中止合并？')
+  const branches = gitBranchMenuItems({ branch: 'main', upstream: 'main', locals: ['main', 'feat/x'], remotes: ['origin/main'] })
+  eq('分支菜单：本地当前打钩', branches.filter((b) => b.kind === 'local' && b.current).map((b) => b.name), ['main'])
+  eq('分支菜单：远端只读', branches.filter((b) => b.kind === 'remote').map((b) => b.name), ['origin/main'])
+  eq('分支筛选', filterBranchItems(branches, 'feat').map((b) => b.name), ['feat/x'])
 }
+

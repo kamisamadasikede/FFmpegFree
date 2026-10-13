@@ -62,6 +62,22 @@ export function GitCatBranch(arg1) {
   return window['go']['app']['CatService']['GitCatBranch'](arg1);
 }
 
+export function GitCatCheckout(arg1) {
+  return window['go']['app']['CatService']['GitCatCheckout'](arg1);
+}
+
+export function GitCatConflictResolve(arg1) {
+  return window['go']['app']['CatService']['GitCatConflictResolve'](arg1);
+}
+
+export function GitCatConflictComplete(arg1) {
+  return window['go']['app']['CatService']['GitCatConflictComplete'](arg1);
+}
+
+export function GitCatConflictAbort(arg1) {
+  return window['go']['app']['CatService']['GitCatConflictAbort'](arg1);
+}
+
 export function GitCatCommit(arg1) {
   return window['go']['app']['CatService']['GitCatCommit'](arg1);
 }
