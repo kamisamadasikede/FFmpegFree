@@ -1015,7 +1015,7 @@ export async function runApiChecks(): Promise<string[]> {
         catRailChecks(eq) // Cat 右侧消息轨道：用户消息记号排紧、长滑块位置
         catAttachChecks(eq) // Cat 输入框附件：最多露出四个，剩下的收进角标
         await catPickChecks(eq) // Cat 网页预览点选：说明放进输入框，不写回文件
-        catBrowserChecks(eq) // Cat 侧栏浏览器：网址打开，纯文字去谷歌
+        catBrowserChecks(eq) // Cat 侧栏浏览器：网址打开，纯文字去必应
         catTermInputChecks(eq) // 终端按键画在画面上
         catPendingChecks(eq) // Cat 发送后立刻显示正在思考，不看上一轮
         catStopChecks(eq) // Cat 停止后思考不再转，迟到的思考和工具不再追加

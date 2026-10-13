@@ -63,7 +63,19 @@
       </div>
     </div>
     <div v-if="active.loading" class="empty" role="status">正在打开…</div>
-    <div v-else-if="active.error" class="empty" role="alert">{{ active.error }}</div>
+    <div v-else-if="active.error" class="empty fail" role="alert" data-testid="cat-browser-fail">
+      <b>{{ active.error }}</b>
+      <span class="hint">部分网站可能打不开。</span>
+      <button
+        type="button"
+        class="ext"
+        data-testid="cat-browser-open-system"
+        :disabled="!systemURL"
+        @click="openInSystem"
+      >
+        在系统浏览器中打开
+      </button>
+    </div>
     <iframe
       v-else-if="active.doc"
       ref="frameEl"
@@ -76,11 +88,22 @@
       title="浏览器"
       @load="onFrameLoad"
     />
-    <button v-else type="button" class="empty start" data-testid="cat-browser-start" @click="focusAddr">
-      <FIcon name="globe" :size="36" />
-      <b>开始浏览</b>
-      <span>输入 URL 以打开页面</span>
-    </button>
+    <div v-else class="empty start" data-testid="cat-browser-start">
+      <button type="button" class="start-main" @click="focusAddr">
+        <FIcon name="globe" :size="36" />
+        <b>开始浏览</b>
+        <span>搜索或输入网址</span>
+      </button>
+      <button
+        type="button"
+        class="ext"
+        data-testid="cat-browser-open-system"
+        :disabled="!systemURL"
+        @click="openInSystem"
+      >
+        在系统浏览器中打开
+      </button>
+    </div>
     <p v-if="pickOn" class="pick-bar">{{ COPY.pickHint }}</p>
     <CatPickPop
       v-if="pop"
@@ -100,6 +123,7 @@ import FIcon from '@/components/icon/FIcon.vue'
 import { toAppError } from '@/api/call'
 import { openCatBrowser } from '@/api/catBrowser'
 import { CAT_PREVIEW_COPY as COPY } from '@/api/catFilePreview'
+import { openExternal } from '@/utils/openExternal'
 import CatPickPop from './CatPickPop.vue'
 import { browserDocument, browserOpen, readBrowserNav } from './catBrowser'
 import { newPickToken, pickLabel, PICK_SOURCE, readPickEvent, type PickBox, type PickNote, type PickSelect } from './catPick'
@@ -146,6 +170,19 @@ const relBox = ref<PickBox | null>(null)
 
 function focusAddr() {
   addrEl.value?.focus()
+}
+
+/** 当前页或地址栏解析出的 http(s)，供「在系统浏览器中打开」 */
+const systemURL = computed(() => {
+  const tab = active.value
+  const cur = tab.index >= 0 ? tab.urls[tab.index] : ''
+  if (cur) return cur
+  return browserOpen(tab.draft)
+})
+
+function openInSystem() {
+  const url = systemURL.value
+  if (url) openExternal(url)
 }
 
 function addTab() {
@@ -510,15 +547,57 @@ onBeforeUnmount(() => {
 }
 .empty.start {
   border: none;
+  font: inherit;
+}
+.start-main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: transparent;
+  color: inherit;
   cursor: text;
   font: inherit;
+  padding: 0;
 }
 .empty b {
   font-size: 16px;
   font-weight: 650;
   color: var(--ff-text-1);
+  text-align: center;
+  max-width: 28em;
 }
-.empty span { font-size: 12px; }
+.empty span,
+.empty .hint {
+  font-size: 12px;
+  color: var(--ff-text-3);
+  text-align: center;
+  max-width: 28em;
+}
+.empty.fail {
+  gap: 10px;
+  padding: 24px;
+}
+.ext {
+  margin-top: 4px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid var(--ff-border);
+  background: var(--ff-bg-surface);
+  color: var(--ff-text-1);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.ext:hover:not(:disabled) {
+  background: var(--ff-bg-hover);
+}
+.ext:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
 .view {
   flex: 1;
   min-height: 0;
