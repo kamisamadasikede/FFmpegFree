@@ -18,11 +18,11 @@ export function browserURL(raw: string): string {
   return u.toString()
 }
 
-/** 地址栏：像网址就打开，纯文字去谷歌。脚本、文件这些协议丢掉。 */
+/** 地址栏：像网址就打开，纯文字去必应。脚本、文件这些协议丢掉。 */
 export function browserOpen(raw: string): string {
   const t = raw.trim()
   if (!t) return ''
-  const search = 'https://www.google.com/search?q=' + encodeURIComponent(t)
+  const search = 'https://www.bing.com/search?q=' + encodeURIComponent(t)
   if (/\s/.test(t)) return search
   if (/^(javascript|data|file|vbscript|mailto):/i.test(t)) return ''
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(t)) return browserURL(t)
