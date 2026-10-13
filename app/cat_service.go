@@ -353,3 +353,21 @@ func (s *CatService) OpenCatBrowser(req cat.BrowserOpenRequest) (cat.BrowserPage
 	}
 	return c.OpenCatBrowser(s.rootCtx(), req)
 }
+
+// CloneCatProject 从 Git 地址克隆并建项目（契约 6.19.10.11 / v0.40）。
+func (s *CatService) CloneCatProject(req cat.CloneCatProjectRequest) (cat.CloneCatProjectResult, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.CloneCatProjectResult{}, err
+	}
+	return c.CloneCatProject(s.rootCtx(), req)
+}
+
+// CancelCloneCatProject 取消进行中的克隆；未知 / 已结束幂等返回 nil。
+func (s *CatService) CancelCloneCatProject(req cat.CancelCloneCatProjectRequest) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.CancelCloneCatProject(s.rootCtx(), req)
+}

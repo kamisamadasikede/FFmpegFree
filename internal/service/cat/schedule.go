@@ -14,12 +14,16 @@ import (
 	"unicode/utf8"
 
 	"FFmpegFree/internal/apperr"
+	"FFmpegFree/internal/catagent"
 	"FFmpegFree/internal/id"
 	"FFmpegFree/internal/store"
 )
 
 // EventSchedule 是定时任务事件名（契约 6.19.13.5）。
 const EventSchedule = "cat:schedule"
+
+// EventNotify 是点普通 turn 系统通知后打开对话（契约 6.19.12.10）。
+const EventNotify = "cat:notify"
 
 // 定时任务频率。
 const (
@@ -82,6 +86,7 @@ type ScheduleInput struct {
 	Model        string `json:"model"`
 	Effort       string `json:"effort"`
 	ApprovalMode string `json:"approvalMode"`
+	AgentKind    string `json:"agentKind"` // v0.40：cat_build|claude_cli|codex_cli；空=默认
 }
 
 // Schedule 是 CatSchedule。
@@ -98,6 +103,7 @@ type Schedule struct {
 	Model          string       `json:"model"`
 	Effort         string       `json:"effort"`
 	ApprovalMode   string       `json:"approvalMode"`
+	AgentKind      string       `json:"agentKind"` // v0.40
 	Enabled        bool         `json:"enabled"`
 	ProjectDeleted bool         `json:"projectDeleted"`
 	NextRunAt      int64        `json:"nextRunAt,omitempty"`
@@ -130,6 +136,11 @@ type ScheduleEvent struct {
 	Run        *ScheduleRun `json:"run,omitempty"`
 	Deleted    bool         `json:"deleted,omitempty"`
 	OpenConvID string       `json:"openConvId,omitempty"`
+}
+
+// NotifyEvent 是 cat:notify 的载荷（点普通 turn 系统通知）。
+type NotifyEvent struct {
+	OpenConvID string `json:"openConvId"`
 }
 
 func (s *Service) now() time.Time {
@@ -176,6 +187,10 @@ func (s *Service) normalizeInput(in ScheduleInput) (ScheduleInput, error) {
 	in.Model = strings.TrimSpace(in.Model)
 	in.Effort = strings.TrimSpace(in.Effort)
 	in.ApprovalMode = strings.TrimSpace(in.ApprovalMode)
+	in.AgentKind = strings.TrimSpace(in.AgentKind)
+	if in.AgentKind != "" && !catagent.Phase1Creatable(in.AgentKind) {
+		return in, invalid("请选择服务商。", "agent_kind")
+	}
 	switch n := utf8.RuneCountInString(in.Name); {
 	case n == 0:
 		return in, invalid("请填写名称。", "name")
@@ -338,9 +353,13 @@ func runToRow(r ScheduleRun) store.CatScheduleRunRow {
 }
 
 func (s *Service) scheduleFromRow(ctx context.Context, x store.CatScheduleRow) Schedule {
+	kind := x.AgentKind
+	if kind == "" {
+		kind = catagent.KindCatBuild
+	}
 	out := Schedule{ID: x.ID, Name: x.Name, Prompt: x.Prompt, ProjectID: x.ProjectID, Frequency: x.Frequency, Time: x.Time,
 		Weekdays: x.Weekdays, RunAt: x.RunAt, Timezone: LocalTimezoneName(s.cfg.Location), Model: x.Model, Effort: x.Effort,
-		ApprovalMode: x.ApprovalMode, Enabled: x.Enabled, ProjectDeleted: x.ProjectDeleted, NextRunAt: x.NextRunAt,
+		ApprovalMode: x.ApprovalMode, AgentKind: kind, Enabled: x.Enabled, ProjectDeleted: x.ProjectDeleted, NextRunAt: x.NextRunAt,
 		CreatedAt: x.CreatedAt, UpdatedAt: x.UpdatedAt}
 	if out.Weekdays == nil {
 		out.Weekdays = []int{}
@@ -422,6 +441,7 @@ func (s *Service) CreateCatSchedule(ctx context.Context, req ScheduleInput) (Sch
 	if err != nil {
 		return Schedule{}, err
 	}
+	in.AgentKind = s.resolveScheduleAgentKind(ctx, in.AgentKind)
 	if err := s.requireProject(ctx, in.ProjectID); err != nil {
 		return Schedule{}, err
 	}
@@ -435,6 +455,21 @@ func (s *Service) CreateCatSchedule(ctx context.Context, req ScheduleInput) (Sch
 func applyInput(x *store.CatScheduleRow, in ScheduleInput) {
 	x.Name, x.Prompt, x.ProjectID, x.Frequency, x.Time = in.Name, in.Prompt, in.ProjectID, in.Frequency, in.Time
 	x.Weekdays, x.RunAt, x.Model, x.Effort, x.ApprovalMode = in.Weekdays, in.RunAt, in.Model, in.Effort, in.ApprovalMode
+	x.AgentKind = in.AgentKind
+	if x.AgentKind == "" {
+		x.AgentKind = catagent.KindCatBuild
+	}
+}
+
+// resolveScheduleAgentKind：空 → CatSettings.defaultAgentKind 或 cat_build（契约 v0.40）。
+func (s *Service) resolveScheduleAgentKind(ctx context.Context, raw string) string {
+	if catagent.Phase1Creatable(raw) {
+		return raw
+	}
+	if st, err := s.GetCatSettings(ctx); err == nil && catagent.Phase1Creatable(st.DefaultAgentKind) {
+		return st.DefaultAgentKind
+	}
+	return catagent.KindCatBuild
 }
 
 // UpdateCatSchedule 整体改。换成有效项目会清掉 projectDeleted（但不自动恢复，需 Resume）；
@@ -448,6 +483,7 @@ func (s *Service) UpdateCatSchedule(ctx context.Context, req UpdateScheduleReque
 	if err != nil {
 		return Schedule{}, err
 	}
+	in.AgentKind = s.resolveScheduleAgentKind(ctx, in.AgentKind)
 	if err := s.requireProject(ctx, in.ProjectID); err != nil {
 		return Schedule{}, err
 	}

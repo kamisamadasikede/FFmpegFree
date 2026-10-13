@@ -71,6 +71,12 @@ type Service struct {
 	rekeyed     bool // ensureProjectKeys 已成功跑过
 	sched       scheduler
 	terms       *termHub
+
+	// v0.40 克隆：全局同时最多 1 个
+	cloneMu     sync.Mutex
+	clone       *cloneJob
+	cloneEmitMu sync.Mutex
+	cloneEmitAt time.Time
 }
 
 // actRec 是一条思考或一次工具调用。界面单独画，不写进助手正文。
@@ -906,8 +912,14 @@ func (s *Service) finishLocked(t *turnState, status string) bool {
 	ev := s.turnEventLocked(t, status)
 	s.emit(catagent.EventTurn, ev)
 	s.persistFooterLocked(t)
-	if h := t.hook; h != nil && h.onFinish != nil {
+	schedHook := t.hook
+	if h := schedHook; h != nil && h.onFinish != nil {
 		go h.onFinish(status, ev.Error) // 持有 t.mu，回调另起 goroutine
+	}
+	// v0.40：普通 turn 完成/失败通知（定时回合走 hook，不在此发）
+	if schedHook == nil {
+		convID, turnErr := t.convID, ev.Error
+		go s.notifyOrdinaryTurn(context.Background(), convID, status, turnErr)
 	}
 	return true
 }
