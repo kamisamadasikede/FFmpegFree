@@ -41,12 +41,18 @@
           <pre><template v-for="(seg, j) in row.block.parts" :key="j"><span v-if="seg[1]" class="kw">{{ seg[0] }}</span><template v-else>{{ seg[0] }}</template></template></pre>
           <div v-if="row.block.more" class="more">{{ row.block.more }}</div>
         </div>
-        <div
-          v-else-if="row.block.kind === 'a'"
-          class="ct-a"
-          :class="{ streaming: row.block.streaming, calm: reduced }"
-          :aria-busy="row.block.streaming"
-        ><CatMarkdown :id="row.block.id" :text="row.block.text" :streaming="row.block.streaming" :reveal="row.block.reveal" @settled="row.block.reveal = false" /></div>
+        <template v-else-if="row.block.kind === 'a'">
+          <div
+            class="ct-a"
+            :class="{ streaming: row.block.streaming, calm: reduced }"
+            :aria-busy="row.block.streaming"
+          ><CatMarkdown :id="row.block.id" :text="row.block.text" :streaming="row.block.streaming" :reveal="row.block.reveal" @settled="row.block.reveal = false" /></div>
+          <div
+            v-if="footerText(row.block)"
+            class="ct-meta"
+            data-testid="cat-msg-footer"
+          >{{ footerText(row.block) }}</div>
+        </template>
         <div v-else-if="row.block.kind === 'sys'" class="ct-sys" :class="{ err: row.block.tone === 'err' }" role="status">{{ row.block.text }}</div>
       </template>
       <div v-else class="ct-act" :class="row.fold.tone" :aria-busy="row.fold.streaming || undefined">
@@ -96,6 +102,7 @@ import CatPreviewDialog from './CatPreviewDialog.vue'
 import type { CatBlock } from '@/api/catMock'
 import { prefersReducedMotion } from '@/api/catStream'
 import { diffLineKind, foldBodyMono, foldIcon, presentCatBlocks, type CatFold } from './catActivity'
+import { formatCatMessageFooter } from './catMessageFooter'
 import { canPreview, showsThumb, userDisplayText, type CatShownFile } from './catMedia'
 
 const props = defineProps<{ blocks: CatBlock[]; pending?: boolean }>()
@@ -105,6 +112,16 @@ const previewFile = ref<CatShownFile | null>(null)
 
 function shownText(block: Extract<CatBlock, { kind: 'user' }>): string {
   return userDisplayText(block.text, block.files)
+}
+
+/** v0.37.1：仅完成态且有 finishedAt；进行中（streaming）不出尾巴 */
+function footerText(block: Extract<CatBlock, { kind: 'a' }>): string {
+  if (block.streaming) return ''
+  return formatCatMessageFooter({
+    finishedAt: block.finishedAt,
+    tokenTotal: block.tokenTotal,
+    tokensPerSec: block.tokensPerSec,
+  })
 }
 
 function openFile(file: CatShownFile) {
@@ -146,6 +163,24 @@ const InlineText = defineComponent({
 /* 助手回复按 Markdown 显示（CatMarkdown）；用户消息仍是纯文字 pre-wrap */
 .ct-a {
   min-width: 0;
+}
+/* 消息尾：气泡下 12px 灰字；200ms 淡入（减少动效则直接显示） */
+.ct-meta {
+  margin: 2px 0 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--cat-muted);
+  font-variant-numeric: tabular-nums;
+  animation: cat-meta-in var(--ff-dur-base) var(--ff-ease-out);
+}
+@keyframes cat-meta-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ct-meta {
+    animation: none;
+  }
 }
 .ct-sys {
   font-size: 12px;

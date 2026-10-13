@@ -38,6 +38,12 @@ export interface CatTurnEvent {
   /** 这一轮结束后的上下文占用；两个都大于 0 才带上 */
   contextUsed?: number
   contextWindow?: number
+  /** v0.37.1：本轮主助手气泡 id，供挂消息尾 */
+  messageId?: string
+  /** v0.37.1 消息尾（仅终态；running 不得带） */
+  finishedAt?: number
+  tokenTotal?: number
+  tokensPerSec?: number
 }
 
 type Raw = Record<string, unknown>
@@ -91,12 +97,42 @@ export function normalizeTurnEvent(raw: unknown): CatTurnEvent | null {
     ev.contextUsed = used
     ev.contextWindow = size
   }
+  // v0.37.1 消息尾：只在终态挂上；running 即使误带也丢掉
+  if (status !== 'running') {
+    const mid = str(r.messageId)
+    if (mid) ev.messageId = mid
+    const finishedAt = posMs(r.finishedAt)
+    if (finishedAt) ev.finishedAt = finishedAt
+    if ('tokenTotal' in r) {
+      const tot = numFinite(r.tokenTotal)
+      if (tot !== undefined) ev.tokenTotal = tot
+    }
+    if ('tokensPerSec' in r) {
+      const rate = numFinite(r.tokensPerSec)
+      if (rate !== undefined && rate > 0) ev.tokensPerSec = rate
+    }
+  }
   return ev
 }
 
 function pos(v: unknown): number {
   const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() ? Number(v) : NaN
   return Number.isFinite(n) && n > 0 ? n : 0
+}
+
+function numFinite(v: unknown): number | undefined {
+  if (typeof v === 'number' && Number.isFinite(v)) return v
+  if (typeof v === 'string' && v.trim()) {
+    const n = Number(v)
+    if (Number.isFinite(n)) return n
+  }
+  return undefined
+}
+
+/** finishedAt：Unix 毫秒，须 > 0 */
+function posMs(v: unknown): number {
+  const n = numFinite(v)
+  return n !== undefined && n > 0 ? n : 0
 }
 
 /** 一条助手消息的流式拼装状态 */

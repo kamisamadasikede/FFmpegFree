@@ -22,6 +22,7 @@
  *   schedempty —— 定时任务为空（空状态 + 模板卡）
  *   schedfail —— 定时任务的保存 / 启停 / 立即运行 / 删除都失败
  *   mdhold   —— 配合 stream,md：推到代码块中间就停住（围栏未闭合、仍在生成），走查流式中的代码块
+ *   footertime —— 配合 stream：完成态消息尾只留「完成于 HH:mm」（默认带 token 两段）
  *
  * 另：?cat_os=windows|darwin|linux —— 走查时「在…中显示」按指定平台取文案（默认按浏览器 userAgent 猜）。
  * 另：?cat_pick=<路径>[|<路径>…] —— 走查时「选择项目文件夹」依次返回这些路径（空 = 取消）；用完后返回递增的示例路径。
@@ -47,8 +48,8 @@ export function simThinks(): CatThinkLevel[] {
   ]
 }
 
-export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'md' | 'mdhold' | 'savefail' | 'inspectslow' | 'inspectfail' | 'inspectempty' | 'clearfail' | 'schedempty' | 'schedfail' | 'slowconv' | 'browsertimeout'
-const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'md', 'mdhold', 'savefail', 'inspectslow', 'inspectfail', 'inspectempty', 'clearfail', 'schedempty', 'schedfail', 'slowconv', 'browsertimeout']
+export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'md' | 'mdhold' | 'savefail' | 'inspectslow' | 'inspectfail' | 'inspectempty' | 'clearfail' | 'schedempty' | 'schedfail' | 'slowconv' | 'browsertimeout' | 'footertime'
+const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'md', 'mdhold', 'savefail', 'inspectslow', 'inspectfail', 'inspectempty', 'clearfail', 'schedempty', 'schedfail', 'slowconv', 'browsertimeout', 'footertime']
 
 export const catSim: ReadonlySet<CatSimFlag> = (() => {
   if (!import.meta.env.DEV || typeof window === 'undefined') return new Set<CatSimFlag>()
@@ -113,7 +114,18 @@ export function simStream(
     if (holdAt >= 0 && i >= holdAt) return // 停在未闭合代码块中间，保持「生成中」
     if (i >= text.length) {
       onMessage({ convId, turnId, messageId, seq: ++seq, op: 'done', role: 'assistant', text: '' })
-      onTurn({ convId, turnId, status: 'completed', contextUsed: 180432, contextWindow: 256000 })
+      onTurn({
+        convId,
+        turnId,
+        status: 'completed',
+        messageId,
+        contextUsed: 180432,
+        contextWindow: 256000,
+        finishedAt: Date.now(),
+        ...(catSim.has('footertime')
+          ? {}
+          : { tokenTotal: 12480, tokensPerSec: 186 }),
+      })
       return
     }
     const part = text.slice(i, holdAt >= 0 ? Math.min(i + step, holdAt) : i + step)

@@ -320,7 +320,12 @@ function blocksFrom(list: CatMessage[]): CatBlock[] {
     if (m.role === 'system') return { kind: 'sys', text: m.content, tone: 'err' }
     if (m.role === 'thought') return { kind: 'think', id: m.id, text: m.content }
     if (m.role === 'tool') return { kind: 'run', id: m.id, text: m.content }
-    return { kind: 'a', id: m.id, text: m.content, streaming: false }
+    const a: Extract<CatBlock, { kind: 'a' }> = { kind: 'a', id: m.id, text: m.content, streaming: false }
+    // v0.37.1：重开对话带回已持久化的消息尾；缺字段不补
+    if (m.finishedAt && m.finishedAt > 0) a.finishedAt = m.finishedAt
+    if (typeof m.tokenTotal === 'number' && Number.isFinite(m.tokenTotal)) a.tokenTotal = m.tokenTotal
+    if (typeof m.tokensPerSec === 'number' && Number.isFinite(m.tokensPerSec) && m.tokensPerSec > 0) a.tokensPerSec = m.tokensPerSec
+    return a
   })
 }
 
@@ -803,9 +808,9 @@ export function handleTurnEvent(e: CatTurnEvent) {
       const incoming = (errorMessage || '').trim()
       if (incoming && incoming !== CAT_COPY.replyFailed) cur.failMsg = incoming
       else if (!cur.failMsg && incoming) cur.failMsg = incoming
-      if (cur.status === 'stopping' || status === 'cancelled') endTurn(convId, 'cancelled', token)
-      else if (status === 'completed') endTurn(convId, 'completed', token)
-      else endTurn(convId, errorCode === 'CAT_NOT_READY' ? 'not_ready' : 'failed', token)
+      if (cur.status === 'stopping' || status === 'cancelled') endTurn(convId, 'cancelled', token, e)
+      else if (status === 'completed') endTurn(convId, 'completed', token, e)
+      else endTurn(convId, errorCode === 'CAT_NOT_READY' ? 'not_ready' : 'failed', token, e)
     })
     return
   }
@@ -817,17 +822,43 @@ export function handleTurnEvent(e: CatTurnEvent) {
   const incoming = (e.errorMessage || '').trim()
   if (incoming && incoming !== CAT_COPY.replyFailed) turn.failMsg = incoming
   else if (!turn.failMsg && incoming) turn.failMsg = incoming
-  if (e.status === 'completed') endTurn(e.convId, 'completed')
-  else if (e.status === 'cancelled') endTurn(e.convId, 'cancelled')
-  else endTurn(e.convId, e.errorCode === 'CAT_NOT_READY' ? 'not_ready' : 'failed')
+  if (e.status === 'completed') endTurn(e.convId, 'completed', undefined, e)
+  else if (e.status === 'cancelled') endTurn(e.convId, 'cancelled', undefined, e)
+  else endTurn(e.convId, e.errorCode === 'CAT_NOT_READY' ? 'not_ready' : 'failed', undefined, e)
 }
 
 type TurnEnd = 'completed' | 'cancelled' | 'failed' | 'not_ready'
 
 const stopTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
+/** 把终态 cat:turn 上的消息尾挂到助手气泡（无 finishedAt 不挂；不造假） */
+function applyTurnFooter(convId: string, turn: CatTurnState, ev?: CatTurnEvent) {
+  if (!ev) return
+  const finishedAt = typeof ev.finishedAt === 'number' && ev.finishedAt > 0 ? ev.finishedAt : 0
+  if (!finishedAt) return
+  const list = catState.messages[convId]
+  if (!list) return
+  const mid = (ev.messageId || turn.assistantId || '').trim()
+  let b = mid ? assistantBlock(convId, mid) : undefined
+  if (!b) {
+    for (let i = list.length - 1; i >= 0; i--) {
+      const row = list[i]
+      if (row.kind === 'a') {
+        b = row
+        break
+      }
+    }
+  }
+  if (!b) return
+  b.finishedAt = finishedAt
+  if (typeof ev.tokenTotal === 'number' && Number.isFinite(ev.tokenTotal)) b.tokenTotal = ev.tokenTotal
+  else delete b.tokenTotal
+  if (typeof ev.tokensPerSec === 'number' && Number.isFinite(ev.tokensPerSec) && ev.tokensPerSec > 0) b.tokensPerSec = ev.tokensPerSec
+  else delete b.tokensPerSec
+}
+
 /** 结束一轮（事件和 SendCatMessage 的返回谁先到谁算，只处理一次） */
-function endTurn(convId: string, how: TurnEnd, token?: number) {
+function endTurn(convId: string, how: TurnEnd, token?: number, ev?: CatTurnEvent) {
   const turn = catState.turns[convId]
   if (!turn || (token !== undefined && turn.token !== token)) return
   if (turn.status === 'stopping') how = 'cancelled'
@@ -842,6 +873,8 @@ function endTurn(convId: string, how: TurnEnd, token?: number) {
   // 收起流式光标，已流出来的文字原样保留（不加后缀）
   quietStreaming(convId)
   dropStatus(convId)
+  // v0.37.1：终态后挂消息尾（进行中不会走到这里）
+  applyTurnFooter(convId, turn, ev)
   // 人已经离开这个对话：结束后在侧栏打蓝点。人还在看就不打
   if (how === 'completed' && catState.sel !== convId) catState.unseen[convId] = true
   else delete catState.unseen[convId]
