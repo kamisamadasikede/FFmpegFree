@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.38）
+# FFmpegFree v2 接口契约（v0.39）
+
+v0.39 变更（**技能 + MCP 统一管理；项目内技能根**，拆期设计草稿 v0.2 §6 Phase 3 + 产品 §8 拍板 + 设计说明 v0.1.1 场景 26，架构师 10-13；完整规则见 **6.19.12.9**；**无新错误码 / 迁移 / 事件名 / 开关，2.1 仍是 39 个**）：① **技能目录**锁定 `<project>/.ffmpegfree/cat/skills`；**MCP** 同级 `<project>/.ffmpegfree/cat/mcp.json`；**项目一份、三家共用**（`cat_build` / `claude_cli` / `codex_cli`）。② **默认只读项目内技能，不回落全局**用户目录。③ **App 内只做**：列表 + **启用/停用** +「打开目录」；**不做**安装 / 卸载。④ **`InspectCatConfig`** 升级为可管理入口（仍列五类；返回 `skillsRoot` / `mcpConfigPath` / `skillsRootExists`）；新增 `SetCatInspectItemEnabled`、`RevealCatSkillsDir`、`EnsureCreateCatSkillsDir`。⑤ **目录不存在**：Reveal 回 `skillsRootExists=false`（不报错）→ 前端提示「项目里还没有技能目录。」+ 主按钮「创建并打开」→ `EnsureCreateCatSkillsDir` 建空目录并打开；**绝不**自动改用户项目 `.gitignore`（文档给示例即可）。⑥ **适配器** `RunTurn` / Inspect 须把技能根与 MCP 路径指到上述项目路径（注入机制见 6.19.14 **D***，未确认标 GUESS）。⑦ 前端相关调用**应传 `agentKind`**（空 = `cat_build`），但**目录与启用态按项目共享**，不按家分三套。⑧ **不做**：改 URL/Key（v0.38 已交付）、消息尾字段变更（v0.37.1）、App 内安装卸载、改名 `cat_build`、自动改 gitignore。
 
 v0.38 变更（**自定义服务商：API Key + API URL；OpenAI + Anthropic 协议**，拆期设计草稿 v0.2 §5 + 产品 §8 拍板 + 设计说明 v0.1.1，架构师 10-13；完整规则见 **6.19.12.8**；**无新错误码 / 迁移 / 事件名 / 开关，2.1 仍是 39 个；`cat.settings` JSON 就地演进**）：① **三家**（`cat_build` / `claude_cli` / `codex_cli`，含 Grok Build）均可配置自定义服务商：`providersByAgent[kind].{enabledCustom,protocol,apiUrl,apiKeySet}`。② **「启用自定义」开** → 该家 `RunTurn` / `ListCatModels` / `ListCatThinkLevels` **只用**设置里的 URL/Key（子进程 env 或 CLI flag 注入，flag 名见 6.19.14 **C***，未确认前标 GUESS）；**关** → 回落 CLI 登录 / 继承环境变量。③ **永不写回**系统 / 用户全局环境变量（禁止 `os.Setenv` 持久化、禁止改 shell profile）。④ **密钥**：`GetCatSettings` / `SaveCatSettings` / `InspectCatConfig` / 日志 / 事件 **永不**返回明文 Key；只回 `apiKeySet`（bool）。写入走 `SaveCatProviderKey`；清除走 `ClearCatProviderKey`（前端须二次确认，文案见 6.19.12.8）。⑤ **协议**：`openai` | `anthropic`；默认按该 CLI 锁定；`ListCatProviderCapabilities` 声明 `allowProtocolPick`——**仅**支持兼容网关的家才为 true 并允许改选。⑥ **未检测到 CLI** 时仍可预填并保存自定义（装好后再实际使用）；Send 仍需该家二进制就绪。⑦ **解除** v0.36/v0.37「一期不做 URL/Key」；本版**不做**技能/MCP 可管理（→ v0.39）、消息尾字段变更（已由 v0.37.1 交付）、改名 `cat_build`、测连按钮（可选后加）。
 
@@ -324,7 +326,7 @@ export type AppErrorCode =
 | 语音工具转字幕（v0.29，6.18） | `reason=<值>` | `INVALID_ARGUMENT`：`cue_invalid`（导出硬校验）；`NOT_FOUND`：`component`（`OpenStorageFolder("lang_asr")`）（只追加） | 界面不显示 |
 | PDF 输入（v0.28，6.12.60 / 6.12.63：添加 PDF 的 `AddDocSourceResult.error`、`DOC_PDF_NO_TEXT`） | `reason=<值>` | `INVALID_ARGUMENT`：`too_large`（沿用：PDF 超过 200 MiB）、`too_many_pages`（超过 500 页）；`DOC_PDF_NO_TEXT`：`no_text`（第二行 `quality=empty\|garbled` 只给开发者看）（只追加） | 只有第一行；界面不显示 |
 | 文档组件未就绪（v0.27.2，6.12.55：`DOC_COMPONENT_NOT_READY` 的同步错误和任务错误，以及 `DocComponentStatus.error`） | `reason=<值>` | `checking`、`missing`、`outdated`（含 Windows / macOS 应用下载的组件低于 26.2.6）、`downloading`、`preparing`、`failed`，即 `componentState`（只追加） | 只有这一行；`OpenStorageFolder("doc_component")` 的 `NOT_FOUND` 沿用 v0.25.1 的 `reason=component` |
-| `INVALID_ARGUMENT` / `NOT_FOUND` / `TASK_CONFLICT`（v0.31 Cat 项目，6.19.10：`CreateCatProject`、`RenameCatProject`；v0.31.1 加 `RelocateCatProject`） | `reason=<值>` | `INVALID_ARGUMENT`：`project_path`（不是绝对路径 / 不存在 / 不是文件夹）、`project_root`（盘符或文件系统根）、`project_name`（名字为空（改名时）、超过 60 个字符或含控制字符）、`project_duplicate`（v0.31.1：`RelocateCatProject` 的新路径已属于另一个项目）；`TASK_CONFLICT`：`turn_running`（v0.31.1：`RelocateCatProject` 时该项目下有进行中的一轮）；`path`（v0.32：`ListCatFiles` 的 `relPath` 不是根内相对路径、含 `..`、绝对 / 盘符 / UNC、解析后出了根，或要穿过符号链接 / junction，6.19.11.3）（只追加） | 只有 `project_duplicate` 有第二行 `projectId=<已有项目 id>`，前端按 `^projectId=(\S+)$` 取（取不到就重新 `ListCatProjects`、只提示不切换）；其余只有一行。界面按 6.19.10.8 映射；`NOT_FOUND` 项目不存在无固定 detail。`turn_running` 也是“直播会话冲突以外的 `TASK_CONFLICT` 没有 `reason=` 行”的例外 |
+| `INVALID_ARGUMENT` / `NOT_FOUND` / `TASK_CONFLICT`（v0.31 Cat 项目，6.19.10：`CreateCatProject`、`RenameCatProject`；v0.31.1 加 `RelocateCatProject`） | `reason=<值>` | `INVALID_ARGUMENT`：`project_path`（不是绝对路径 / 不存在 / 不是文件夹）、`project_root`（盘符或文件系统根）、`project_name`（名字为空（改名时）、超过 60 个字符或含控制字符）、`project_duplicate`（v0.31.1：`RelocateCatProject` 的新路径已属于另一个项目）；`TASK_CONFLICT`：`turn_running`（v0.31.1：`RelocateCatProject` 时该项目下有进行中的一轮）；`path`（v0.32：`ListCatFiles` 的 `relPath` 不是根内相对路径、含 `..`、绝对 / 盘符 / UNC、解析后出了根，或要穿过符号链接 / junction，6.19.11.3）（只追加）；`project`（v0.39：`SetCatInspectItemEnabled` / `RevealCatSkillsDir` / `EnsureCreateCatSkillsDir` 的 `projectId` 空，6.19.12.9） | 只有 `project_duplicate` 有第二行 `projectId=<已有项目 id>`，前端按 `^projectId=(\S+)$` 取（取不到就重新 `ListCatProjects`、只提示不切换）；其余只有一行。界面按 6.19.10.8 映射；`NOT_FOUND` 项目不存在无固定 detail。`turn_running` 也是“直播会话冲突以外的 `TASK_CONFLICT` 没有 `reason=` 行”的例外 |
 | 其余所有码（含 `LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`INTERNAL`） | 无固定格式 | — | 前端**不得**解析（上面几行列出的码 / 场景除外） |
 
 统一规则：第一行只有一个 `key=value`，值只含小写字母、数字、下划线（`scheme` 例外；`kind` 的取值是 `window` / `screen`，取值就是上面三个小写单词）；前端用 `^(reason|scheme|kind)=([a-z0-9_]+)$` 匹配 `detail` 的第一行；**没有第一行、格式不对、或值不认识，一律走该错误码的通用文案**，不得猜测含义、不得报错崩溃。测试必须逐码断言第一行精确等于期望值（不是包含）。
@@ -3929,8 +3931,9 @@ type ExportSubtitleRequest struct {
 6. `LANG_ASR_FAILED` 最终文案产品确认。
 
 
-## 6.19 Cat 助手（v0.30；v0.36 起欢迎页三家可点；v0.37 Claude / Codex 真适配；v0.37.1 消息尾；v0.38 自定义服务商；产品 / 老板 10-09 定，v0.36 老板确认设计 v0.4，v0.37–v0.38 对齐拆期草稿 v0.2）
+## 6.19 Cat 助手（v0.30；v0.36 起欢迎页三家可点；v0.37 Claude / Codex 真适配；v0.37.1 消息尾；v0.38 自定义服务商；v0.39 技能/MCP 项目目录；产品 / 老板 10-09 定，v0.36 老板确认设计 v0.4，v0.37–v0.39 对齐拆期草稿 v0.2）
 
+> **v0.39**：设置「技能与扩展」从只读升级为可管理——项目内技能根 + 同级 `mcp.json`；列表启停 +「打开目录」/「创建并打开」；三家共用、不回落全局；规则见 **6.19.12.9**。  
 > **v0.38**：设置「通用」各服务商块可折叠「自定义服务商」——三家均可配 API URL / API Key（OpenAI / Anthropic 协议）；启用自定义只用设置、不写系统 env；Key 只回显「已保存」（`apiKeySet`）；规则见 **6.19.12.8**。  
 > **v0.37.1**：助手回复**终态**后气泡下方消息尾：`完成于 HH:mm` · `共 N token` · `约 M token/s`（规则见 6.19.9「消息尾」）；进行中不出现；无字段不伪造。  
 > **v0.37**：`claude_cli` / `codex_cli` **真适配**，产品能力对齐 `cat_build`（检测、列表、流式、停止、项目 cwd、全局批准 / 自定义指令注入）。PATH 未装或鉴权失败仍 `CAT_NOT_READY`；**已装且鉴权 OK 时不得再因「桩」挡 Send**。`cat_build` **仍不改名**。定时任务仍锁 `cat_build`。v0.37 本身**不做** URL/Key、技能可管理（消息尾改由 **v0.37.1** 交付；URL/Key 改由 **v0.38** 交付）。  
@@ -3945,7 +3948,7 @@ type ExportSubtitleRequest struct {
 | 做 | 不做（一期） |
 |---|---|
 | 侧栏进入 Cat 全屏聊天（收起主侧栏，返回原页） | `cat_cli` / `cat_code` **创建与运行**（胶囊可见但禁用「下一期开放」） |
-| 欢迎页 + 会话列表 + 发送 / 回复（事件推进）；**v0.37.1 消息尾**（完成时间 / token / token/s，见 6.19.9）；**v0.38 自定义服务商**（API URL / Key，OpenAI / Anthropic，见 6.19.12.8） | 技能 / MCP App 内启停与项目内技能根（**v0.39**） |
+| 欢迎页 + 会话列表 + 发送 / 回复（事件推进）；**v0.37.1 消息尾**（完成时间 / token / token/s，见 6.19.9）；**v0.38 自定义服务商**（API URL / Key，OpenAI / Anthropic，见 6.19.12.8）；**v0.39 技能/MCP 可管理 + 项目内技能根**（见 6.19.12.9） | App 内技能 / MCP **安装 / 卸载**（仍在各 CLI / 终端）；自动改用户 `.gitignore` |
 | **`cat_build` / `claude_cli` / `codex_cli` 可创建 / 可发送**（欢迎胶囊「Grok Build」/「Claude」/「Codex」；v0.37 三家均为真适配器；未安装 / 鉴权失败时 Send 返回未就绪） | 「助手」入口与功能（「定时任务」v0.35 起一期做，见 6.19.13；定时任务选服务商仍下一小版；**本版仍锁 `cat_build`**） |
 | 模型名 / 思考强度**只从该会话 `agentKind` 对应 CLI 的真实能力列表读取**（禁止原型假数据） | 前端写死第三方模型名或擅自改已有参数逻辑 |
 | 工具调用：本机 grok 的完整工具集（v0.33 不传白名单 / 黑名单；v0.34 批准方式可选，没选过是全部批准）；其它家按各自适配器 | 应用内再做一套批准框 |
@@ -3981,6 +3984,7 @@ type ExportSubtitleRequest struct {
 - **streaming-json**（NDJSON；官方 schema 未正式发布，按 CLI 0.2.x 捕获）：`{"type":"text","data"}` 正文增量；`thought` 与工具调用单独显示、不写入助手正文；`end` 结束；`error` 失败。  
 - **认证**：默认继承用户环境 `XAI_API_KEY` 或 `~/.grok/auth.json`（`grok login`）。**v0.38**：若该家 `providersByAgent["cat_build"].enabledCustom=true`，则该家 `RunTurn` / 列表探测**只用**设置中的 URL/Key（见 6.19.12.8），**不**写回系统 env。  
 - **工具**（v0.33）：不传 `--tools`、`--disallowed-tools`、`--deny`、`--no-subagents`、`--disable-web-search`，环境不设 `GROK_SANDBOX` / `GROK_WRITE_FILE`。写文件、改文件、跑命令、联网、MCP、子代理都按本机 grok 的默认工具集。全部批准时带 `--always-approve`，这些动作不会弹出批准框；其它模式不带这个开关（v0.34）。普通模式在这个窗口里点不到确认，可能停住，需要按停止。仍设 `GROK_DISABLE_AUTOUPDATER=1`。  
+- **技能 / MCP 根（v0.39）**：有项目时 `RunTurn` / Inspect **只用** `<project>/.ffmpegfree/cat/skills` 与同级 `mcp.json`（见 6.19.12.9）；**不**回落用户全局技能目录。注入方式附录 **D***（GUESS）。无项目对话：设置页技能管理空态，不写全局路径。  
 - **能力列表**（v0.31.4）：`models` 来自 `grok models`，`displayName` = CLI 给的模型 ID 原样（不映射成「Cat 助手 …」）；**探测超时 / 报错 / 解析不出 → 空列表，不传 `-m`（用 CLI 默认模型），没有写死的回退模型**（v0.31.5）。`thinkLevels` = `low` / `medium` / `high` / `xhigh`，显示 `低` / `中` / `高` / `极高`（「极高」待产品确认）；只有用户选了才传 `--reasoning-effort`，没选时界面显示 `默认`（v0.31.5）。  
 - **取消**：`CancelCatTurn` → 取消 context → `proc.Kill` 进程树。超时默认 10 分钟。
 
@@ -3997,7 +4001,7 @@ type ExportSubtitleRequest struct {
 - **批准方式（产品）**：沿用全局 / 对话四档（普通 / Plan / 自动审查 / 全部批准）。映射到 Claude CLI 的 flag **GUESS**（附录 A5）；未确认前不得声称某档已等价落地。  
 - **自定义指令（产品）**：`CatSettings.customInstruction` 非空时每一轮注入；注入点（系统提示 / 首条 / CLI flag）**GUESS**（附录 A6）。Build 的 `--rules` **不**假定 Claude 同名。  
 - **取消**：`CancelCatTurn` → 取消 context → 杀该轮进程树；保留已出文字；先 `done`（若有字）再 `cancelled`（同 6.19.9）。  
-- **InspectCatConfig**：若该 CLI 尚无稳定只读检查命令 → 空列表 + `reason=unsupported`（允许）；有则只读映射到现有五类字段，**不**回传路径 / 密钥。技能启停 / 项目内技能根 → **v0.39**，本版不做。  
+- **InspectCatConfig / 技能根（v0.39）**：列表仍按该家适配器能力拉取（无稳定命令 → `reason=unsupported` 允许）；**技能目录与启用态按项目共享**（见 6.19.12.9）。回传 `skillsRoot` / `mcpConfigPath` / `skillsRootExists`；**不**回传密钥 / 命令行。启停走 `SetCatInspectItemEnabled`。  
 - **工具**：由 Claude Code CLI 自己的默认工具集执行；应用内不做第二套批准框。
 
 ### 6.19.3b Codex 适配器（`codex_cli`）（v0.37）
@@ -4010,7 +4014,7 @@ type ExportSubtitleRequest struct {
 - **会话续聊 / 历史**：同 6.19.3a（resume / export **GUESS**）。  
 - **模型 / 强度**：`ListCatModels("codex_cli")` / `ListCatThinkLevels("codex_cli")` 只来自 Codex CLI；失败空列表；空强度 → 整行隐藏。  
 - **批准 / 自定义指令**：产品四档 + 全局指令须注入；具体 flag **GUESS**（附录 A5 / A6）。  
-- **InspectCatConfig**：无稳定检查命令 → `reason=unsupported`；有则只读。技能可管理 → v0.39。  
+- **InspectCatConfig / 技能根（v0.39）**：同 6.19.3a（共享项目技能库；无稳定命令 → `unsupported`）。  
 - **工具**：由 Codex CLI 默认工具集执行。
 
 ### 6.19.4 数据结构
@@ -4099,7 +4103,7 @@ CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，
 
 - 欢迎页（v0.36）：**「Grok Build」/「Claude」/「Codex」三家可点**；「Cat CLI」「Cat Code」「更多」禁用 + 「下一期开放」。选中后 `Create`/`Send` 带对应 `agentKind`（`cat_build` / `claude_cli` / `codex_cli`）。预选 = `CatSettings.defaultAgentKind`。  
 - 合一胶囊：「{模型展示名} · {思考强度展示名}」，选项来自**该会话 agentKind** 的 List API；该家 `ListCatThinkLevels` 为空则**整行隐藏强度**（不要写死某家永远没有）。  
-- 批准方式按对话记住：普通模式、Plan、自动审查、全部批准（v0.34）。没选过是全部批准（v0.35 起新对话按 Cat 设置里的默认批准方式，见 6.19.12）。无「助手」。「设置」「定时任务」见 6.19.12 / 6.19.13。**v0.38**：设置「通用」各服务商块内可折叠「自定义服务商」（URL / Key / 协议），见 6.19.12.8。
+- 批准方式按对话记住：普通模式、Plan、自动审查、全部批准（v0.34）。没选过是全部批准（v0.35 起新对话按 Cat 设置里的默认批准方式，见 6.19.12）。无「助手」。「设置」「定时任务」见 6.19.12 / 6.19.13。**v0.38**：设置「通用」各服务商块内可折叠「自定义服务商」（URL / Key / 协议），见 6.19.12.8。**v0.39**：设置「技能与扩展」可启停 + 打开/创建项目技能目录，见 6.19.12.9。
 
 ### 6.19.7 错误码（v0.30 新增 2 个；2.1 由 36 变为 38）
 
@@ -4112,7 +4116,7 @@ CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，
 
 ### 6.19.8 延后
 
-`cat_cli` / `cat_code` 的创建与运行（胶囊继续置灰）；完全访问；助手；定时任务的 cron / 续接已有对话 / 开机自启 / **任务编辑选服务商**（**定时运行仍锁 `cat_build`**，见 6.19.13；插在真适配稳定后的小版）；**技能 / MCP App 内启停与项目内技能根（v0.39）**；组件下载专节；自定义服务商「测试连接」按钮（可选后加）。（流式事件已提前到 6.19.9；**消息尾已由 v0.37.1 交付**；**URL/Key 已由 v0.38 交付**，见 6.19.12.8。）`claude_cli` / `codex_cli` **v0.36 已可创建，v0.37 起须真适配**（禁止再交未就绪桩）。扩展时**只加注册表项与胶囊启用**，会话锁定规则不变。
+`cat_cli` / `cat_code` 的创建与运行（胶囊继续置灰）；完全访问；助手；定时任务的 cron / 续接已有对话 / 开机自启 / **任务编辑选服务商**（**定时运行仍锁 `cat_build`**，见 6.19.13；插在真适配稳定后的小版）；**技能 / MCP App 内安装与卸载**（启停 + 打开目录已由 **v0.39** 交付，见 6.19.12.9）；组件下载专节；自定义服务商「测试连接」按钮（可选后加）；**自动改用户项目 `.gitignore`**。（流式事件已提前到 6.19.9；**消息尾已由 v0.37.1 交付**；**URL/Key 已由 v0.38 交付**，见 6.19.12.8；**项目技能根已由 v0.39 交付**。）`claude_cli` / `codex_cli` **v0.36 已可创建，v0.37 起须真适配**（禁止再交未就绪桩）。扩展时**只加注册表项与胶囊启用**，会话锁定规则不变。
 
 
 ### 6.19.9 流式事件与取消（v0.30.1；v0.30.2 对齐 #174；v0.37.1 消息尾）
@@ -4537,9 +4541,9 @@ type RevealCatConversationFolderRequest struct {
 5. **旧对话**（已有 `tmp/cat/cwd-<convId>`）升级后仍能续聊（同一 CLI 会话），文件面板显示旧文件夹内容。
 6. 新建普通对话后立即「打开文件夹」→ 资源管理器打开 `<数据目录>\cat\conversations\<convId>`；删除该对话后文件夹被删，项目文件夹不受影响。
 
-### 6.19.12 Cat 设置（v0.35；v0.36 多服务商默认；v0.38 自定义服务商，老板确认设计 v0.4 + 拆期草稿 v0.2 §5 + 设计说明 v0.1.1，架构师定）
+### 6.19.12 Cat 设置（v0.35；v0.36 多服务商默认；v0.38 自定义服务商；v0.39 技能/MCP 项目目录，老板确认设计 v0.4 + 拆期草稿 v0.2 §5–§6 + 设计说明 v0.1.1，架构师定）
 
-入口：Cat 侧栏底部「设置」（之前是静态行，改为可点），在 Cat 全屏内打开设置页，左侧分区、右侧表单。界面不出现 `grok` / `xAI` / `CLI` / `命令行`（服务商选择 / 自定义服务商块写三家本名除外）。分区：**通用**、**自定义指令**、**扩展（只读）**、**关于**。文案以设计《Cat-设置与定时任务-设计说明-v0.4》《Cat-消息尾与设置扩展-设计说明-v0.1.1》为准（冲突时以设计稿文案为准、以本节行为为准）；v0.36 对齐场景 22；**v0.38** 对齐场景 25「设置·自定义服务商」。
+入口：Cat 侧栏底部「设置」（之前是静态行，改为可点），在 Cat 全屏内打开设置页，左侧分区、右侧表单。界面不出现 `grok` / `xAI` / `CLI` / `命令行`（服务商选择 / 自定义服务商块写三家本名除外）。分区：**通用**、**自定义指令**、**技能与扩展**（v0.39 可管理）、**关于**。文案以设计《Cat-设置与定时任务-设计说明-v0.4》《Cat-消息尾与设置扩展-设计说明-v0.1.1》为准（冲突时以设计稿文案为准、以本节行为为准）；v0.36 对齐场景 22；**v0.38** 对齐场景 25「设置·自定义服务商」；**v0.39** 对齐场景 26「设置·技能与扩展·可管理」。
 
 #### 6.19.12.1 数据与接口
 
@@ -4590,19 +4594,46 @@ type CatInspectItem struct {
     Enabled     bool   `json:"enabled"`
 }
 type CatInspectResult struct {
-    Skills     []CatInspectItem `json:"skills"`
-    Plugins    []CatInspectItem `json:"plugins"`
-    Hooks      []CatInspectItem `json:"hooks"`
-    MCPServers []CatInspectItem `json:"mcpServers"`
-    Agents     []CatInspectItem `json:"agents"`
-    Version    string           `json:"version,omitempty"`
-    Reason     string           `json:"reason,omitempty"` // 空 = 成功；not_ready | timeout | parse | unsupported（v0.36）
+    Skills           []CatInspectItem `json:"skills"`
+    Plugins          []CatInspectItem `json:"plugins"`
+    Hooks            []CatInspectItem `json:"hooks"`
+    MCPServers       []CatInspectItem `json:"mcpServers"`
+    Agents           []CatInspectItem `json:"agents"`
+    Version          string           `json:"version,omitempty"`
+    Reason           string           `json:"reason,omitempty"` // 空 = 成功；not_ready | timeout | parse | unsupported | no_project（v0.39）
+    SkillsRoot       string           `json:"skillsRoot,omitempty"`       // v0.39：绝对路径 `<project>/.ffmpegfree/cat/skills`；无项目时省略
+    McpConfigPath    string           `json:"mcpConfigPath,omitempty"`    // v0.39：绝对路径 `<project>/.ffmpegfree/cat/mcp.json`
+    SkillsRootExists bool             `json:"skillsRootExists"`           // v0.39：技能目录是否已存在
 }
-// v0.36/v0.37：AgentKind 可选；空 = cat_build；该家无稳定 inspect → 空列表 + reason=unsupported（允许）
+// v0.36+：AgentKind 可选；空 = cat_build。v0.39：前端**应传**当前会话 / 设置上下文的 agentKind；**目录与启用态仍按项目一份、三家共用**（不按家分库）。该家无稳定 inspect → 空列表 + reason=unsupported（允许），但路径字段仍按项目填（有 projectId 时）。
 InspectCatConfig(req struct {
     ProjectID string `json:"projectId"`
     AgentKind string `json:"agentKind,omitempty"`
 }) (CatInspectResult, error)
+
+// v0.39：启停技能 / MCP（及扩展卡里的 plugin）；不做安装 / 卸载
+SetCatInspectItemEnabled(req struct {
+    ProjectID string `json:"projectId"`           // 必填；空 → INVALID_ARGUMENT reason=project
+    AgentKind string `json:"agentKind,omitempty"` // 前端应传；空 = cat_build；不影响共享目录
+    Category  string `json:"category"`            // skill | mcp | plugin | hook
+    Name      string `json:"name"`                // 与 Inspect 列表 Name 对齐
+    Enabled   bool   `json:"enabled"`
+}) (CatInspectItem, error)
+
+type CatSkillsDirResult struct { // v0.39
+    SkillsRoot       string `json:"skillsRoot"`       // 绝对路径
+    McpConfigPath    string `json:"mcpConfigPath"`    // 同级 mcp.json 绝对路径（文件可不存在）
+    SkillsRootExists bool   `json:"skillsRootExists"`
+    Opened           bool   `json:"opened"`           // 是否已在系统文件管理器打开
+}
+// 打开技能目录；目录不存在 → error=nil 且 Exists=false、Opened=false（前端弹「项目里还没有技能目录。」）
+RevealCatSkillsDir(req struct {
+    ProjectID string `json:"projectId"`
+}) (CatSkillsDirResult, error)
+// 「创建并打开」：mkdir 技能目录（含 `.ffmpegfree/cat` 父级）；**不**自动创建/改写 mcp.json、**不**改 `.gitignore`；成功后打开并 Opened=true
+EnsureCreateCatSkillsDir(req struct {
+    ProjectID string `json:"projectId"`
+}) (CatSkillsDirResult, error)
 ```
 
 1. **存储**：`settings` 表键 `cat.settings`（JSON），没有记录 = 全部空值（`defaultAgentKind` 视为 `cat_build`，`defaultsByAgent` 空 map）。**不新建表、无迁移**；JSON 就地演进。
@@ -4611,14 +4642,14 @@ InspectCatConfig(req struct {
 4. **默认值只作用于新对话**：新建对话时带用户选的 `agentKind`（或欢迎页预选 = `defaultAgentKind`）；偏好 = `defaultsByAgent[kind]` 的 model/effort + 全局 `defaultApprovalMode`（写入 `catConvPrefs`）。**已有对话已记住的模型 / 强度 / 批准方式一律不改**；没记过偏好的老对话仍按 v0.34（全部批准、默认模型 / 强度），不回填。`agentKind` 创建后仍不可变。**自定义服务商按会话 `agentKind` 取 `providersByAgent[kind]`**（与应用默认服务商无关）：改设置后**下一轮** `Send` / 列表探测生效，不影响进行中的一轮。
 5. **「新对话默认」UI（设计 v0.4 / v0.1.1）**：按服务商分块（Grok Build / Claude / Codex，带各自图标）；每家各自默认模型 + 思考强度（该家 `ListCatThinkLevels` 为空则整行隐藏）。**v0.38**：每家块底部可折叠「自定义服务商」（默认收起）——启用开关 / 协议 / API URL / API Key（保存后只显示「已保存」）/ 「清除」。批准方式、「新对话放在」仍全局共用（后者为本机偏好，见 6.19.12.7）。图标正式资源产品定；原型几何标可先用。
 6. **全局自定义指令**：非空时，后端在**每一轮**（首轮和续聊，含定时任务产生的对话）注入该指令（Build 带 `--rules <指令>`；Claude / Codex 的等价注入点见 6.19.14 **A6**，未确认前不得写死同名 flag）；空则不带。保存后下一轮生效，不影响正在进行的一轮。界面称「自定义指令」，说明文案 `每次对话都会自动带上这段指令。`（设计稿可改）。
-7. **InspectCatConfig**：在 `projectId` 对应项目文件夹（空 / 项目不在 → 普通对话目录的父目录 `<数据目录>/cat`）下，按 `agentKind`（空 = `cat_build`）走对应适配器的只读检查（Build：`grok inspect --json`；Claude / Codex 若无对等命令 → `unsupported`），超时 15 秒，走 `runCmd`（隐藏窗口，同 #200）。只取上面五类的名字 / 描述 / 来源 / 启用状态，**不回传文件路径、命令行、环境变量、密钥**。未就绪 → `reason=not_ready`；超时 → `timeout`；JSON 认不出 → `parse`；该家无稳定 inspect → `unsupported`；这些情况都返回空列表、`error` 为 nil，**无新错误码**。**仍只读**，不提供增删 / 启停（可管理 → v0.39）。
+7. **InspectCatConfig（v0.39 可管理）**：有有效 `projectId` 时，路径锚定该项目的 `<project>/.ffmpegfree/cat/`（见 6.19.12.9）；**无 projectId / 未选项目** → 空列表 + `reason=no_project`，不填 `skillsRoot`（前端空态「先打开或选择一个项目，再管理技能与扩展。」）。项目 `missing` → `CAT_PROJECT_MISSING`。按 `agentKind`（空 = `cat_build`）走对应适配器列表检查（Build：`grok inspect --json` 或读项目目录；Claude / Codex 无对等命令 → `unsupported` 仍允许，**但路径字段仍返回**），超时 15 秒，走 `runCmd`。返回五类名字 / 描述 / 来源 / 启用状态，以及 `skillsRoot` / `mcpConfigPath` / `skillsRootExists`；**不回传**命令行、环境变量、密钥、技能文件正文。未就绪 → `not_ready`；超时 → `timeout`；JSON 认不出 → `parse`；无稳定 inspect → `unsupported`；这些情况列表可空、`error` 为 nil，**无新错误码**。启停走 `SetCatInspectItemEnabled`；打开 / 创建目录走 Reveal / EnsureCreate。**不做**安装 / 卸载。
 8. **关于**：按 `GetCatStatus.agents[]` 三家分行显示就绪 / 版本 / 登录态；「重新检测」调 `RecheckCat`（重检三家）。整体顶层 `state` / `version` 仍返回，兼容旧 UI。
 
 #### 6.19.12.8 自定义服务商（v0.38）
 
 对齐拆期草稿 v0.2 §5、产品 §8、设计说明 v0.1.1 场景 25。
 
-**范围**：`cat_build` / `claude_cli` / `codex_cli` **三家一致开放**（含 Grok Build）。技能 / MCP 可管理与项目内技能根 → **v0.39**（本版不改 Inspect 只读）。消息尾字段不改（v0.37.1）。
+**范围**：`cat_build` / `claude_cli` / `codex_cli` **三家一致开放**（含 Grok Build）。技能 / MCP 可管理与项目内技能根见 **v0.39 / 6.19.12.9**（本小节不改）。消息尾字段不改（v0.37.1）。
 
 **字段与存储**
 
@@ -4668,12 +4699,69 @@ InspectCatConfig(req struct {
 5. 三家（含 `cat_build`）均可配置 URL/Key。  
 6. 未检测到 CLI 时仍可保存自定义；装好后启用即可用。
 
+#### 6.19.12.9 技能与 MCP 统一管理 · 项目内目录（v0.39）
+
+对齐拆期草稿 v0.2 §6 Phase 3、产品 §8、设计说明 v0.1.1 场景 26。
+
+**路径（产品锁定）**
+
+| 项 | 定稿 |
+|---|---|
+| 技能目录 | `<project>/.ffmpegfree/cat/skills`（`skillsRoot` 为其绝对路径） |
+| MCP 配置 | 同级 `<project>/.ffmpegfree/cat/mcp.json`（`mcpConfigPath`） |
+| 技能库范围 | **每个项目一份，三家共用**；不按 `agentKind` 分三套目录 |
+| 全局回落 | **默认只读项目内，不回落**用户全局技能 / 全局 MCP |
+| `.gitignore` | 文档给出示例（如忽略 `.ffmpegfree/cat/` 或按需提交 skills）；**App 永不自动改**用户项目的 gitignore |
+| 密钥 | **禁止**把 API Key 放进该目录（自定义服务商仍走 v0.38 安全存储） |
+
+**App 能力（只这些）**
+
+1. **列表**：`InspectCatConfig`（须带 `projectId`；前端**应传 `agentKind`**，目录仍共享）。  
+2. **启用 / 停用**：`SetCatInspectItemEnabled`（`category=skill|mcp|plugin|hook`）；开关变更即时生效；失败回滚 + 浮提示 `保存失败，请重试。`。持久化位置 / 是否写 CLI 侧配置 → 附录 **D7**（GUESS）；**对三家一致生效**。  
+3. **打开目录**：`RevealCatSkillsDir` → 系统文件管理器打开 `skillsRoot`（复用 `system.Manager.OpenFolder`）。  
+4. **创建并打开**：目录不存在时前端提示后调 `EnsureCreateCatSkillsDir`（只建目录树，不写 mcp.json、不改 gitignore）并打开。
+
+**明确不做（本版）**：App 内安装 / 卸载技能或 MCP 服务器；「添加 MCP 服务器」表单（若需要另开小版）；自动改 `.gitignore`；回落全局技能；改 URL/Key（v0.38）；改消息尾（v0.37.1）。
+
+**未选项目 / 目录缺失（产品 + 设计拍板）**
+
+| 情况 | 行为 |
+|---|---|
+| 未选项目（`projectId` 空） | 整页空态：`先打开或选择一个项目，再管理技能与扩展。`；`Inspect` → `reason=no_project`；Reveal / EnsureCreate / SetEnabled → `INVALID_ARGUMENT` `reason=project` |
+| 项目 `missing` | `CAT_PROJECT_MISSING`（同 RevealCatProject） |
+| 技能目录不存在 | Reveal：`skillsRootExists=false`、`opened=false`、`error=nil`；前端对话框：标题/正文 **`项目里还没有技能目录。`**，主按钮 **`创建并打开`**，次要「取消」；确认后 `EnsureCreateCatSkillsDir` |
+| 目录存在但为空 | 列表空文案 `还没有安装。` + 「打开目录」；**不**显示全局技能作回落 |
+
+**页顶说明（设计稿可微调措辞，行为以本表为准）**
+
+> 技能与 MCP 按**当前项目**存放，三家共用。路径：`<项目>/.ffmpegfree/cat/skills`（MCP：同级 `mcp.json`）。在此只能启用或停用；安装与卸载请在对应 CLI 或系统终端完成。
+
+**适配器接线（RunTurn / Inspect）**
+
+- 有项目时，三家适配器必须把技能根 / MCP 配置指到上述路径（flag、配置文件、工作副本等机制见 6.19.14 **D1–D6**，未确认标 GUESS）。  
+- 无项目的普通对话：不注入项目技能根；设置页不管理全局路径。  
+- 启用态变更后：**下一轮** `Send` 生效；不影响进行中的一轮。
+
+**校验**
+
+- `SetCatInspectItemEnabled`：`category` 不在枚举、`name` 空、未知 name → `INVALID_ARGUMENT`；项目缺失同上。  
+- `EnsureCreateCatSkillsDir`：只允许在该项目路径下创建 `.ffmpegfree/cat/skills`（拒绝 `..` / 逃逸）；权限失败 → `IO_ERROR` `reason=permission`。  
+- **无新错误码**（2.1 仍 39）；`reason=project` / `no_project` / `skills_dir` 走既有 `INVALID_ARGUMENT` / 结果字段。
+
+**验收（相对拆期草稿 §6.4）**
+
+1. 项目 A 启用的技能，打开项目 B **不可见**（仅项目内，无全局回落）。  
+2. 设置中可见列表与启用态，可「打开目录」，**无** App 内安装/卸载入口；启停对三家一致。  
+3. 未选项目：明确空态，不写到错误全局路径。  
+4. 「创建并打开」后目录出现且可打开；用户 `.gitignore` **未被**应用改写。  
+5. `Inspect` / Reveal 回传的路径等于 `<project>/.ffmpegfree/cat/skills`（及同级 `mcp.json`）。
+
 #### 6.19.12.7 v0.35.1 补充
 
 1. **保存方式**：改动即时调 `SaveCatSettings`（整体提交）；成功后行尾显示 `已保存` 1.5 秒；**失败：该项回滚到保存前的值**，浮提示 `保存失败，请重试。`。自定义指令按「保存」按钮提交，失败时保留输入框内容、提示同上（设计：底部「已保存 · N / 4000 字」，超限「最多 4000 字。」并禁止保存，「恢复上次保存」）。
 2. **`notifyOnFinish`**（「完成时发系统通知」，默认开）：关掉后定时任务完成 / 失败都不发通知（v0.35.5：一期普通对话回复完成本来就不通知）。
 3. 设计稿里「新对话放在」「回复逐字显示」「快捷键」是**前端本机偏好**（localStorage），不进 `CatSettings`；「外观」只读跟随应用；「历史保留」置灰 `下一期开放。`。
-4. 「技能与扩展」页设计只有三张卡（技能 / 扩展 / 钩子）：前端把 `plugins` 与 `mcpServers` 合并显示在「扩展」卡，`agents` 一期不显示；空 `还没有安装。`，失败（`reason` 非空）`列表加载失败，请重试。` + 重试。
+4. 「技能与扩展」页设计只有三张卡（技能 / 扩展 / 钩子）：前端把 `plugins` 与 `mcpServers` 合并显示在「扩展」卡，`agents` 一期不显示；空 `还没有安装。`，失败（`reason` 非空且不是 `no_project`）`列表加载失败，请重试。` + 重试。**v0.39**：行尾为**开关**（启停），卡头 / 页顶有「打开目录」；未选项目走 6.19.12.9 空态；目录缺失走「创建并打开」。不再显示「只读…下一期开放」。
 5. 模型下拉显示名仍以 6.19.3 为准（CLI 给的模型 ID 原样）；设计稿里「展示名 Cat 助手 …」是旧口径，**以契约为准**。
 
 ### 6.19.13 定时任务（v0.35，老板 10-13 提出，架构师定）
@@ -4797,7 +4885,7 @@ ClearAllCatConversations() error                          // 见 6.19.13.7
 7. **状态显示名**（替代 6.19.13.8 第三条）：`成功`（绿）/ `失败`（红）/ `已错过`（黄）/ `已停止`（灰，记录里副行 `已手动停止`）/ `已跳过`（副行 `上一次还没结束`）/ `排队中` / `运行中 · 已 X 分 X 秒`；无记录 `还没运行过`；暂停 `已暂停`。已错过副行：`closed` → `当时 FFmpegFree 没有打开`；`asleep` → `当时电脑在睡眠`（v0.35.2 已确认）。
 8. **其他设计文案**：频率分段 `一次 / 每天 / 工作日 / 每周 / 自定义`（自定义置灰 `下一期开放。`）；一次的时间早于现在 `这个时间已经过了。`；`请填写名称。` `最多 40 个字。` `请填写指令。` `请至少选一天。`；删除确认 `删除这个定时任务？` / `已经产生的对话会保留。`；未就绪横幅 `未检测到 Cat 助手，到点的任务会运行失败。` + `重新检测`。
 
-### 6.19.14 实现附录：Claude / Codex 真机核对表（v0.37；v0.38 增补自定义服务商 C*）
+### 6.19.14 实现附录：Claude / Codex 真机核对表（v0.37；v0.38 增补自定义服务商 C*；v0.39 增补技能/MCP 根 D*）
 
 > **规则**：下表凡状态为 **GUESS / 未确认** 的项，**不得**在预览包说明或验收里当作已交付；后端在真机核对后把「已确认」写回本表（及 6.19.3a / 6.19.3b 对应句），再合实现 PR。产品行为（能聊 / 能停 / 列表真实 / cwd / 未装文案）不因 flag 未确认而取消，但**不得捏造 flag 名写进用户可见文案**。
 
@@ -4823,6 +4911,13 @@ ClearAllCatConversations() error                          // 见 6.19.13.7
 | **C4** | **各家 `allowProtocolPick`** | 默认 false（锁 DefaultProtocol）；确认支持兼容网关后再改为 true | **GUESS / 未确认** |
 | **C5** | **OpenAI vs Anthropic 请求头 / 路径差异** | 按协议组装；不得把 Key 打进日志 | **GUESS / 未确认** |
 | **C6** | **列表探测（ListModels/ThinkLevels）是否同样注入** | 产品要求：启用自定义时列表探测与 RunTurn **同一套** URL/Key | **规范已定；具体 flag 仍 GUESS** |
+| **D1** | **Build：技能根 → 项目路径** | 子进程 flag / 配置 / 环境指到 `<project>/.ffmpegfree/cat/skills`；**不**回落全局 | **GUESS / 未确认** |
+| **D2** | **Claude：技能根 → 项目路径** | 同上（Claude Code skills 根机制） | **GUESS / 未确认** |
+| **D3** | **Codex：技能根 → 项目路径** | 同上 | **GUESS / 未确认** |
+| **D4** | **三家：MCP 配置路径** | 指到 `<project>/.ffmpegfree/cat/mcp.json`（或官方等价）；无文件 = 无 MCP | **GUESS / 未确认** |
+| **D5** | **Inspect 列表数据源** | 优先读项目目录 + 可选 CLI inspect；无 CLI 命令时仍须能列项目内技能文件名 | **GUESS / 未确认** |
+| **D6** | **无项目对话** | 不注入项目技能根；设置管理入口空态 | **规范已定** |
+| **D7** | **启用态持久化** | 项目内旁路文件（如 `.ffmpegfree/cat/enabled.json`）或写 CLI 可识别元数据；**三家共用同一份**；不得写用户全局 | **GUESS / 未确认** |
 
 **验收（真机，相对拆期草稿 §4.4）**
 
@@ -4833,9 +4928,11 @@ ClearAllCatConversations() error                          // 见 6.19.13.7
 5. 停止可打断进行中回复；历史停止态与现网一致。  
 6. A5 / A6 及上表 GUESS 项：仅「已确认」可算交付。
 
-**v0.37 明确不做**（防止范围漂移；消息尾已改由 **v0.37.1** 交付；**自定义 URL/Key 已改由 v0.38 交付**，见 6.19.12.8）：技能 / MCP 统一管理与 `<project>/.ffmpegfree/cat/skills`（→ v0.39）；定时任务改选服务商；改名 `cat_build`。
+**v0.37 明确不做**（防止范围漂移；消息尾已改由 **v0.37.1** 交付；**自定义 URL/Key 已改由 v0.38 交付**，见 6.19.12.8；**技能/MCP 项目根已改由 v0.39 交付**，见 6.19.12.9）：定时任务改选服务商；改名 `cat_build`；App 内技能安装卸载。
 
 **v0.38 补充验收（相对拆期草稿 §5.4；C1–C5 未确认前不得声称某 flag 已交付）**：见 6.19.12.8 验收 1–6。
+
+**v0.39 补充验收（相对拆期草稿 §6.4；D1–D5 / D7 未确认前不得声称某注入 flag 已交付）**：见 6.19.12.9 验收 1–5。
 
 ## 7. 本地流服务（已取消）
 
