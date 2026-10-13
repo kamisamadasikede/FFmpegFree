@@ -6,6 +6,8 @@ import {store} from '../models';
 
 export function CancelCatTurn(arg1:catagent.CancelCatTurnRequest):Promise<void>;
 
+export function ClearAllCatConversations():Promise<void>;
+
 export function CreateCatConversation(arg1:cat.CreateConversationRequest):Promise<store.CatConversation>;
 
 export function CreateCatProject(arg1:cat.CreateProjectRequest):Promise<cat.CreateProjectResult>;
@@ -15,6 +17,8 @@ export function DeleteCatConversation(arg1:string):Promise<void>;
 export function DeleteCatProject(arg1:cat.DeleteProjectRequest):Promise<void>;
 
 export function GetCatConversation(arg1:string):Promise<cat.ConversationDetail>;
+
+export function GetCatSettings():Promise<cat.Settings>;
 
 export function GetCatStatus():Promise<catagent.Status>;
 
@@ -33,6 +37,8 @@ export function GitCatStage(arg1:cat.GitPathsRequest):Promise<void>;
 export function GitCatStatus(arg1:cat.GitStatusRequest):Promise<cat.GitStatusResult>;
 
 export function GitCatUnstage(arg1:cat.GitPathsRequest):Promise<void>;
+
+export function InspectCatConfig(arg1:cat.InspectRequest):Promise<catagent.InspectResult>;
 
 export function ListCatConversations():Promise<Array<store.CatConversation>>;
 
@@ -59,6 +65,8 @@ export function RenameCatProject(arg1:cat.RenameProjectRequest):Promise<cat.Proj
 export function RevealCatConversationFolder(arg1:cat.RevealConversationFolderRequest):Promise<void>;
 
 export function RevealCatProject(arg1:cat.RevealProjectRequest):Promise<void>;
+
+export function SaveCatSettings(arg1:cat.Settings):Promise<cat.Settings>;
 
 export function SearchCatFiles(arg1:cat.SearchFilesRequest):Promise<cat.SearchFilesResult>;
 
