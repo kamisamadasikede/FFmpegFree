@@ -1,4 +1,7 @@
-# FFmpegFree v2 接口契约（v0.41）
+# FFmpegFree v2 接口契约（v0.42）
+
+v0.42 变更（**办公画布组件：PPT 实时预览 + 导出**，缺口对照 v0.1 P0-3 路线 A + 产品口径锁 v0.42，架构师 10-14；完整规则见 **6.19.16**；**无新错误码，2.1 仍是 39 个**——复用既有 `LANG_DOWNLOAD_FAILED` / `LANG_CHECKSUM_FAILED` 或文档组件同类码的模式时，若实现选择新码须另开契约修订；**本期契约约定复用下载失败/校验失败的既有码族或 `INTERNAL`+中文 message，不扩 2.1**；新事件 `office:canvas` / `office:canvas-progress`；无迁移；无新开关）：① **可下载「办公画布组件」**（对齐文档组件 / 语音识别组件状态机：checking/ready/missing/downloading/preparing/failed）。主安装包**只含**薄 UI + 下载态机 + 编排，**不**捆绑 OnlyOffice / LibreOffice 作为实时画布。② **Cat 对话**出现演示文稿工具卡 → 无组件时出下载卡（文案产品锁定）→ 有组件后右侧/弹层**逐页实时预览**（≥1 页即刷；验收 ≥3 页）→ **导出 PPTX**。③ **路线 A**：声明式 IR（JSON 幻灯片树）+ Web 预览壳 + 组件内 PptxGenJS/等价导出；适配器协议草图见 6.19.16.4。④ **降级**：无组件**不**静默失败、**不**用 LibreOffice PDF 冒充实时画布。⑤ **另立**：OnlyOffice 重型组件；通用 HTML artifact（可后续同专节扩）。⑥ **不做**：把办公画布打进主包；改 v0.40/v0.41 已交付项。
+
 
 v0.41 变更（**Git 冲突简易解决 + 切已有分支**，缺口对照 v0.1 P0-4/N3 + 产品口径锁 v0.41，架构师 10-14；完整规则见 **6.19.15**；**无新错误码，2.1 仍是 39 个**；无迁移；无新开关；**不回退**现网已有 stage/commit/push/pull/rebase/新建分支等写操作）：① **`GitCatStatus`** 增加 `mergeState`（`none`/`merging`/`rebasing`/`cherry`）+ `conflicts[]`（path / ours / theirs 可读标记）。② **pull / rebase 遇冲突** → 结构化错误（`INVALID_ARGUMENT` `reason=git_conflict`）+ 前端自动切到 Git 页签「冲突」分组。③ **简易解决（一期非真三栏）**：单文件「采用当前 / 采用传入 / 保留双方」或 Monaco 手改冲突块 → 写回并 `git add`；全部解决后「完成合并 / 完成变基」；「中止合并 / 中止变基」二次确认。接口：`GitCatConflictResolve` / `GitCatConflictComplete` / `GitCatConflictAbort`。④ **`GitCatCheckout`**：切已有本地 / 远端跟踪分支；脏工作区须确认「工作区有未提交更改。仍要切换到 `{branch}`？」。⑤ **明确不做（本版）**：真三栏 Merge Editor（二期）；AI 一键解决（三期）；stash；克隆 / 通知（已由 v0.40）；办公画布（→ v0.42）。
 
@@ -209,6 +212,7 @@ v0.2 变更：新增 ffmpeg 环境检测与自动安装（第 9 节）；合入�
 
 - **面向用户的文字里不出现 “ffmpeg”（不分大小写，含 `FFmpeg`、`ffprobe`）**，统一叫“**转换组件**”，按中文习惯组织句子，例如：`当前转换组件不支持输出这个格式`、`转换组件已就绪`、`未找到可用的转换组件，请先安装或手动指定转换组件所在位置`、`安装转换组件`（安装任务的标题）。
 - **v0.29**：同样不出现 Whisper、模型文件名、Python；语音相关只叫「**语音识别组件**」（延后能力的「语音音色」「音色克隆组件」同理），见 6.18.1。
+- **v0.42**：办公相关实时画布只叫「**办公画布组件**」；界面与 message **不**出现 OnlyOffice / PptxGenJS / Node 等实现名（日志 / detail 不受限）。
 - **v0.30**：Cat 相关界面与 message 只出现「**Cat 助手**」，不出现 grok / CLI / 命令行 / 可执行文件名，见 6.19。
 - **范围**（后端产生、会被前端原样显示的）：`AppError.message`；`detail` 里约定给用户看的行（目前没有：`reason=` / `scheme=` / `kind=` 是机器读的枚举，本身不含 ffmpeg）；`DeleteFailure.message`；`ConvertSource.copyError.message`；`FormatEntry.reason`；`EncoderDevice.reason` / `EncoderPreferenceInfo.reason`；任务 `title`；`FFmpegStatus.error.message`；预设名等后端生成、前端直接显示的名字。
 - **不受限**：代码标识符、包名、接口名和方法名（`FFmpegStatus`、`InstallFFmpeg`、`ffmpeg:status`、`FFMPEG_NOT_FOUND`、`ffmpegPath` 等**全部不改**）、日志（任务日志、应用日志，含 `[FFmpegFree] ffmpeg 退出码 N`）、只给开发者看的 `detail`（如 `PROCESS_FAILED` 的 `ffmpeg 退出码 N` 和 stderr 尾部；`FFMPEG_NOT_FOUND` 的组件状态 detail 自 v0.25.4 起只有 `[来源] 原因`，不含路径）、ffmpeg 自己输出的原文（如 `试跑失败：<ffmpeg 输出最后一行>` 里引用的那一行）、文件路径。
@@ -455,7 +459,7 @@ GetSettings() (Settings, error)
 UpdateSettings(s Settings) error      // defaultOutputDir（v0.24：空 = 默认输出目录 <base>/output，不再是“与源文件同目录”）、uploadsDir（v0.24，空 = <base>/uploads）、maxConcurrent（0=自动，1~8）、主题、语言、ffmpegPromptDismissed、ffmpegPath、docEngine（v0.27：auto | office | wps | component，默认 auto，6.12.29）
 GetStorageDirs() (StorageDirs, error)                // v0.24（6.15.2）：实际输出 / 上传目录 + 是否回退到用户数据目录
 SetStorageDirs(req StorageDirsUpdate) (StorageDirs, error) // v0.24：同时设两个目录，"" = 默认；校验失败 INVALID_ARGUMENT、整体不生效
-OpenStorageFolder(kind string) error                 // v0.24：kind = "output" | "uploads"，在文件管理器里打开实际目录；v0.25.1 加 "component"（转换组件所在文件夹，6.15.2 第 6 条）；v0.27.2 加 "doc_component"（应用下载的文档组件目录，6.12.54）；v0.29 加 "lang_asr"（语音识别组件目录，6.18.3）
+OpenStorageFolder(kind string) error                 // v0.24：kind = "output" | "uploads"，在文件管理器里打开实际目录；v0.25.1 加 "component"（转换组件所在文件夹，6.15.2 第 6 条）；v0.27.2 加 "doc_component"（应用下载的文档组件目录，6.12.54）；v0.29 加 "lang_asr"（语音识别组件目录，6.18.3）；v0.42 加 "office_canvas"（办公画布组件目录，6.19.16.3）
 // LangService（v0.29，6.18；一期仅转字幕）
 GetLangAsrStatus() (LangAsrStatus, error)
 InstallLangAsr(tier string) (LangAsrStatus, error)
@@ -488,6 +492,12 @@ GitCatCheckout(req GitCatCheckoutRequest) error                              // 
 GitCatConflictResolve(req GitCatConflictResolveRequest) error                // v0.41：单文件采用当前/传入/双方或手改后暂存
 GitCatConflictComplete(req GitCatConflictCompleteRequest) error              // v0.41：完成合并/变基
 GitCatConflictAbort(req GitCatConflictAbortRequest) error                    // v0.41：中止合并/变基
+// v0.42 办公画布组件（6.19.16）
+GetOfficeCanvasStatus() (OfficeCanvasStatus, error)
+InstallOfficeCanvas() error
+CancelOfficeCanvasInstall() error
+RecheckOfficeCanvas() (OfficeCanvasStatus, error)
+ExportOfficeCanvasPptx(req ExportOfficeCanvasPptxRequest) (ExportOfficeCanvasPptxResult, error)
 ListCatFiles(req ListCatFilesRequest) (ListCatFilesResult, error)            // v0.32：{convId, relPath} 列对话根下一层，不读文件内容（6.19.11）
 RevealCatConversationFolder(req RevealCatConversationFolderRequest) error    // v0.32：{convId} 在文件管理器里打开对话根（项目文件夹 / 对话文件夹）（6.19.11.5）
 ListEncoderDevices() (EncoderDeviceList, error)      // 硬件编码设备（9.6）：第一项永远是 cpu；ffmpeg 未就绪时只有 cpu 且 ffmpegReady=false，不报错
@@ -3944,8 +3954,9 @@ type ExportSubtitleRequest struct {
 6. `LANG_ASR_FAILED` 最终文案产品确认。
 
 
-## 6.19 Cat 助手（v0.30；v0.36 起欢迎页三家可点；v0.37 Claude / Codex 真适配；v0.37.1 消息尾；v0.38 自定义服务商；v0.39 技能/MCP；v0.40 克隆+通知+定时选服务商；v0.41 冲突解决+切分支；产品口径锁 v0.40–0.42）
+## 6.19 Cat 助手（v0.30–v0.42；含克隆/通知/定时选服务商、Git 冲突解决、**办公画布组件**；产品口径锁 v0.40–0.42）
 
+> **v0.42**：**办公画布组件**（可下载；Cat 工具卡 → 逐页实时预览 → 导出 PPTX；路线 A；**不**打 OnlyOffice 进主包）；规则见 **6.19.16**。  
 > **v0.41**：Git **冲突简易解决**（采用当前/传入/双方 + Monaco 手改；完成/中止合并与变基对称文案）+ **切已有分支**（脏确认）；规则见 **6.19.15**。**不回退**现网写操作。  
 > **v0.40**：添加项目支持 **从 Git 地址克隆**（`CloneCatProject`，见 **6.19.10.11**）；`notifyOnFinish` 覆盖**普通 turn** `completed`/`failed` 与定时（**cancelled 不发**，见 **6.19.12.10**）；定时任务可选服务商（`CatSchedule.agentKind`）。  
 > **v0.39**：设置「技能与扩展」从只读升级为可管理——项目内技能根 + 同级 `mcp.json`；列表启停 +「打开目录」/「创建并打开」；三家共用、不回落全局；规则见 **6.19.12.9**。  
@@ -3963,7 +3974,7 @@ type ExportSubtitleRequest struct {
 | 做 | 不做（一期） |
 |---|---|
 | 侧栏进入 Cat 全屏聊天（收起主侧栏，返回原页） | `cat_cli` / `cat_code` **创建与运行**（胶囊可见但禁用「下一期开放」） |
-| 欢迎页 + 会话列表 + 发送 / 回复（事件推进）；**v0.37.1 消息尾**；**v0.38 自定义服务商**；**v0.39 技能/MCP 可管理**；**v0.40 从 Git 克隆项目**（6.19.10.11）+ **完成后通知含普通 turn**（6.19.12.10）+ **定时选服务商** | App 内技能 / MCP **安装 / 卸载**；自动改用户 `.gitignore`；App 内 Git 登录；真三栏 Merge Editor（二期）；办公画布（→ v0.42） |
+| 欢迎页 + 会话列表 + 发送 / 回复（事件推进）；**v0.37.1 消息尾**；**v0.38 自定义服务商**；**v0.39 技能/MCP 可管理**；**v0.40 从 Git 克隆项目**（6.19.10.11）+ **完成后通知含普通 turn**（6.19.12.10）+ **定时选服务商** | App 内技能 / MCP **安装 / 卸载**；自动改用户 `.gitignore`；App 内 Git 登录；真三栏 Merge Editor（二期）；OnlyOffice 重型组件（另立） |
 | **`cat_build` / `claude_cli` / `codex_cli` 可创建 / 可发送**（欢迎胶囊「Grok Build」/「Claude」/「Codex」；v0.37 三家均为真适配器；未安装 / 鉴权失败时 Send 返回未就绪） | 「助手」入口与功能（「定时任务」v0.35 起一期做，见 6.19.13；**v0.40 起任务可选服务商**） |
 | 模型名 / 思考强度**只从该会话 `agentKind` 对应 CLI 的真实能力列表读取**（禁止原型假数据） | 前端写死第三方模型名或擅自改已有参数逻辑 |
 | 工具调用：本机 grok 的完整工具集（v0.33 不传白名单 / 黑名单；v0.34 批准方式可选，没选过是全部批准）；其它家按各自适配器 | 应用内再做一套批准框 |
@@ -4113,6 +4124,9 @@ CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，
 | `cat:project` | v0.31：项目 `missing` 变化 `{ id, missing }`，见 6.19.10.3 |
 | `cat:clone` | `{ cloneId, status, url?, parentDir?, name?, progress?, project?, error?, canceled? }`（v0.40，6.19.10.11） | Git 克隆进度 / 终态 |
 | `cat:notify` | `{ openConvId }`（v0.40，6.19.12.10；点普通 turn 系统通知时） | 拉前台后打开对话；与 `cat:schedule.openConvId` 同打开逻辑 |
+| `office:canvas` | `OfficeCanvasStatus`（v0.42，6.19.16） | 办公画布组件状态变化 |
+| `office:canvas-progress` | `{ phase, receivedBytes, totalBytes, progress? }`（v0.42） | 下载进度 |
+| `cat:artifact` | `{ convId, turnId, artifactId, kind, deck?, previewHtmlPath?, exportPath?, status }`（v0.42；kind=slides） | 演示文稿 IR / 预览 / 导出进度 |
 
 设置：`CatSettings.defaultAgentKind` 默认 `cat_build`，**仅新建会话预填**（见 6.19.12）；旧键 `catDefaultAgentKind` 读时等同。
 
@@ -4133,7 +4147,7 @@ CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，
 
 ### 6.19.8 延后
 
-`cat_cli` / `cat_code` 的创建与运行（胶囊继续置灰）；完全访问；助手；定时任务的 cron / 续接已有对话 / 开机自启；**技能 / MCP App 内安装与卸载**（启停 + 打开目录已由 **v0.39** 交付）；自定义服务商「测试连接」；**自动改用户项目 `.gitignore`**；App 内 GitHub/GitLab 登录；真三栏 Merge Editor / AI 一键解决冲突（二期/三期）；办公画布组件（→ **v0.42**）；真 WebView；stash。（**冲突简易解决 / 切已有分支已由 v0.41 交付**，见 6.19.15。）（**从 Git 克隆 / 普通 turn 完成通知 / 定时选服务商已由 v0.40 交付**，见 6.19.10.11 / 6.19.12.10 / 6.19.13；消息尾 v0.37.1；URL/Key v0.38；项目技能根 v0.39。）`claude_cli` / `codex_cli` **v0.36 已可创建，v0.37 起须真适配**。扩展时**只加注册表项与胶囊启用**，会话锁定规则不变。
+`cat_cli` / `cat_code` 的创建与运行（胶囊继续置灰）；完全访问；助手；定时任务的 cron / 续接已有对话 / 开机自启；**技能 / MCP App 内安装与卸载**（启停 + 打开目录已由 **v0.39** 交付）；自定义服务商「测试连接」；**自动改用户项目 `.gitignore`**；App 内 GitHub/GitLab 登录；真三栏 Merge Editor / AI 一键解决冲突（二期/三期）；真 WebView；stash；OnlyOffice 重型办公组件（另立）。（**办公画布组件协议与最小闭环已由 v0.42 交付**，见 6.19.16。）（**冲突简易解决 / 切已有分支已由 v0.41 交付**，见 6.19.15。）（**从 Git 克隆 / 普通 turn 完成通知 / 定时选服务商已由 v0.40 交付**，见 6.19.10.11 / 6.19.12.10 / 6.19.13；消息尾 v0.37.1；URL/Key v0.38；项目技能根 v0.39。）`claude_cli` / `codex_cli` **v0.36 已可创建，v0.37 起须真适配**。扩展时**只加注册表项与胶囊启用**，会话锁定规则不变。
 
 
 ### 6.19.9 流式事件与取消（v0.30.1；v0.30.2 对齐 #174；v0.37.1 消息尾）
@@ -5123,6 +5137,139 @@ GitCatCheckout(req GitCatCheckoutRequest) error
 3. 脏工作区切分支 → 出确认；干净时直接切。  
 4. 现网 push/pull/commit 回归不回退。
 
+
+### 6.19.16 办公画布组件（v0.42；路线 A）
+
+对齐缺口对照 v0.1 P0-3、产品口径锁「v0.42」。目标：Cat **边生成边预览**幻灯片并导出可编辑 PPTX；**主安装包保持小巧**。
+
+#### 6.19.16.1 产品形态（锁定）
+
+| 项 | 定稿 |
+|---|---|
+| 主包 | 仅入口 + 下载态机 + 薄预览壳编排；**不**捆绑 OnlyOffice / 完整编辑器 |
+| 首次 | 对话出现演示文稿能力且组件未就绪 → **下载卡**（不得静默失败） |
+| 下载卡标题 | `需要办公画布组件` |
+| 下载卡正文 | `用于幻灯片实时预览与导出。下载后即可使用。` |
+| 按钮 | `下载` / `稍后` |
+| 生成中 | 右侧或弹层 **逐页预览**；IR ≥1 页即刷新；真机验收 **≥3 页** |
+| 导出 | 按钮「导出 PPTX」；失败 `导出失败：` + 短因 |
+| 降级 | **禁止**用现有文档组件 LibreOffice→PDF 冒充「实时画布」 |
+| 另立 | OnlyOffice 重型组件；通用非 Office HTML artifact 可后续扩本专节 |
+
+#### 6.19.16.2 路线 A（推荐一期，契约锁定）
+
+1. Cat / 适配器产出 **声明式 IR**（JSON 幻灯片树：页、标题、要点、可选配图 URL/路径）。  
+2. App 内 **Web 预览壳**（Vue）按 IR 实时渲染。  
+3. 导出：调用组件内 **PptxGenJS 或等价** 写出 `.pptx`。  
+4. 组件二进制（含 Node/运行时若需要）**可选下载**；体积量级「数 MB～十几 MB」（精确字节 / URL / SHA **TBD** 至老板发布包，与 ASR 同口径）。
+
+路线 B（LibreOffice PDF）/ 路线 C（OnlyOffice）**不**作为本版默认。
+
+#### 6.19.16.3 组件状态与下载
+
+形态对齐语音识别组件 / 文档组件：`checking` / `ready` / `missing` / `outdated` / `downloading` / `preparing` / `failed`；可断点续传、SHA-256、下前磁盘检查（空间不足沿用 `CONVERT_DISK_FULL` `reason=no_space`）。
+
+```go
+type OfficeCanvasStatus struct {
+    State         string    `json:"state"`
+    Version       string    `json:"version"`
+    Source        string    `json:"source"` // ready 时 downloaded；一期无系统安装
+    CanDownload   bool      `json:"canDownload"`
+    DownloadBytes int64     `json:"downloadBytes"`
+    InstallBytes  int64     `json:"installBytes,omitempty"`
+    Phase         string    `json:"phase,omitempty"`
+    ReceivedBytes int64     `json:"receivedBytes,omitempty"`
+    Error         *AppError `json:"error,omitempty"`
+    Path          string    `json:"-"`
+}
+GetOfficeCanvasStatus() (OfficeCanvasStatus, error)
+InstallOfficeCanvas() error
+CancelOfficeCanvasInstall() error
+RecheckOfficeCanvas() (OfficeCanvasStatus, error)
+```
+
+- 目录：Windows `%LocalAppData%\FFmpegFree\components\office\canvas\<version>\`；macOS `~/Library/Application Support/FFmpegFree/components/office/canvas/<version>/`。  
+- URL / SHA-256 / 精确大小：**TBD（老板发布后写入清单）**；未配置时 Install → 失败 message `暂时无法下载办公画布组件，请稍后重试。`（码：优先复用既有下载失败码族；若实现暂用 `INTERNAL`，message 必须是上一句中文，**不得**因此把 2.1 扩到 40 除非另开契约）。  
+- `OpenStorageFolder("office_canvas")`：仅 `state=ready` 时前端显示；不可用 → `NOT_FOUND` `reason=component`。  
+- 事件：`office:canvas`（状态）、`office:canvas-progress`（下载进度，≤4 次/秒）。
+
+#### 6.19.16.4 适配器协议（本仓只实现调用方；对齐 ASR `--request/--response`）
+
+> **不**在本仓实现组件内部的 Node/PptxGenJS；老板发布的包解压后须满足：
+
+**布局**
+
+| 路径 | 含义 |
+|---|---|
+| `<组件根>/office-canvas.exe`（Windows）或 `office-canvas` | 入口二进制（名字固定） |
+| 其余 | 由发布方自定；适配器不解释 |
+
+**调用**（cwd = 任务临时目录；组件根只读传入）：
+
+```text
+office-canvas --component-root <组件根> --request <request.json> --response <response.json>
+```
+
+**`request.json`（UTF-8）**
+
+```json
+{
+  "version": 1,
+  "op": "preview" | "export",
+  "deck": { "title": "…", "slides": [ { "id": "s1", "title": "…", "bullets": ["…"] } ] },
+  "outDir": "<绝对路径临时目录>"
+}
+```
+
+| `op` | 成功时 `response.json` 要点 |
+|---|---|
+| `preview` | `{ "version":1, "previewHtmlPath":"<可 file/或由 App 读入的 HTML 片段路径>", "slideCount":N }`；App 也可**直接吃 IR** 自绘（组件 preview 可选）。一期允许 App 纯前端按 `deck` 渲染，组件只做 export。 |
+| `export` | `{ "version":1, "pptxPath":"<绝对路径>", "bytes":N }` |
+
+- 退出码非 0 → 导出/预览失败；用户文案 `导出失败：` + 短因，或预览失败浮提示。  
+- **密钥 / Token 禁止**进 request；图床若需本地文件只传绝对路径。
+
+#### 6.19.16.5 Cat 工具卡与事件
+
+当助手 turn 产生演示文稿 IR（工具名实现自定，界面称「演示文稿」）：
+
+1. 组件未 `ready` → 展示下载卡（6.19.16.1）；用户「稍后」则卡保留可再点。  
+2. 组件 `ready` → 发 / 更新 **`cat:artifact`**：
+
+```go
+// kind 一期固定 "slides"
+// status: streaming | ready | exporting | exported | failed
+// deck: 声明式 IR（可随流式增量 replace）
+// previewHtmlPath / exportPath: 可选
+```
+
+3. 前端预览壳订阅 `deck` 变化刷新页；「导出 PPTX」→ `ExportOfficeCanvasPptx({ convId, artifactId, destPath? })`：
+
+```go
+type ExportOfficeCanvasPptxRequest struct {
+    ConvID     string `json:"convId"`
+    ArtifactID string `json:"artifactId"`
+    DestPath   string `json:"destPath,omitempty"` // 空 = 系统另存为或默认输出目录
+}
+type ExportOfficeCanvasPptxResult struct {
+    Path  string `json:"path"`
+    Bytes int64  `json:"bytes"`
+}
+```
+
+另存为复用既有保存对话框能力（若无则 `PickDirectory` + 默认文件名）。成功后可用系统默认程序打开；**可选**再走文档组件打开，但不得替代实时预览。
+
+#### 6.19.16.6 与文档页关系
+
+文档页既有 pptx→PDF 预览（转换）**保留**；与办公画布**分立**：一个是「打开已有 Office 文件」，一个是「AI 生成画布」。界面不混称「文档组件」与「办公画布组件」。
+
+#### 6.19.16.7 真机待验
+
+1. 未下载：对话出下载卡，文案与按钮对；「稍后」可再下。  
+2. 下载就绪后生成 ≥3 页 → 逐页预览刷新。  
+3. 导出 pptx 可被 PowerPoint / WPS / 文档组件打开。  
+4. 主安装包体积不因本功能显著增大（组件外置）。
+
 ### 6.19.14 实现附录：Claude / Codex 真机核对表（v0.37；v0.38 增补自定义服务商 C*；v0.39 增补技能/MCP 根 D*）
 
 > **规则**：下表凡状态为 **GUESS / 未确认** 的项，**不得**在预览包说明或验收里当作已交付；后端在真机核对后把「已确认」写回本表（及 6.19.3a / 6.19.3b 对应句），再合实现 PR。产品行为（能聊 / 能停 / 列表真实 / cwd / 未装文案）不因 flag 未确认而取消，但**不得捏造 flag 名写进用户可见文案**。
@@ -5175,6 +5322,8 @@ GitCatCheckout(req GitCatCheckoutRequest) error
 **v0.40 补充验收**（产品口径）：① HTTPS/SSH 克隆 → 项目可聊；无 git / 鉴权失败文案对。② 切走窗口等回复完 → 系统通知 → 点击回对话；设置关则无；停答不通知。③ 定时任务可选三家服务商并按该家运行。
 
 **v0.41 补充验收**：① 冲突列出 → 采用当前/传入/双方或手改 → 完成合并；可中止。② 脏切分支出确认。③ 不回退现网 Git 写操作。
+
+**v0.42 补充验收**：下载办公画布组件后，对话生成 ≥3 页可逐页预览并导出 pptx；无组件时必出下载卡。
 
 
 ## 7. 本地流服务（已取消）
