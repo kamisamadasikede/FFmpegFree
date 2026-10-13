@@ -351,8 +351,8 @@ function unstagePaths(items: GitChange[]) {
   padding: 0 10px;
   border: none;
   border-radius: 999px;
-  background: var(--ff-text-1);
-  color: var(--ff-bg-surface);
+  background: var(--cat-text);
+  color: var(--cat-surface);
   font: inherit;
   font-size: 12px;
   font-weight: 600;
@@ -371,13 +371,13 @@ function unstagePaths(items: GitChange[]) {
   border-radius: 6px;
   padding: 0;
   background: transparent;
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
   cursor: pointer;
 }
 .ib:hover:not(:disabled),
 .ib.on {
-  background: var(--ff-bg-hover);
-  color: var(--ff-text-1);
+  background: var(--cat-hover);
+  color: var(--cat-text);
 }
 .ib:disabled {
   opacity: 0.4;
@@ -391,8 +391,8 @@ function unstagePaths(items: GitChange[]) {
   gap: 6px;
   padding: 0 10px;
   border-radius: 8px;
-  background: var(--ff-bg-hover);
-  color: var(--ff-text-3);
+  background: var(--cat-hover);
+  color: var(--cat-muted);
 }
 .git-filter input {
   flex: 1;
@@ -402,7 +402,7 @@ function unstagePaths(items: GitChange[]) {
   background: transparent;
   font: inherit;
   font-size: 12px;
-  color: var(--ff-text-1);
+  color: var(--cat-text);
 }
 .git-branch {
   display: flex;
@@ -414,7 +414,7 @@ function unstagePaths(items: GitChange[]) {
 .bn .name {
   font-size: 13px;
   font-weight: 650;
-  color: var(--ff-text-1);
+  color: var(--cat-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -422,7 +422,7 @@ function unstagePaths(items: GitChange[]) {
 .bn .up {
   margin-top: 2px;
   font-size: 12px;
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -435,27 +435,27 @@ function unstagePaths(items: GitChange[]) {
   font-size: 12px;
   font-weight: 650;
 }
-.add { color: var(--ff-success-text); }
-.del { color: var(--ff-danger-text); }
+.add { color: var(--cat-success-text); }
+.del { color: var(--cat-danger-text); }
 .git-msg {
   margin: 0 10px;
   min-height: 64px;
   resize: none;
-  border: 1px solid var(--ff-border);
+  border: 1px solid var(--cat-border);
   border-radius: 8px;
-  background: var(--ff-bg-surface);
-  color: var(--ff-text-1);
+  background: var(--cat-surface);
+  color: var(--cat-text);
   font: inherit;
   font-size: 13px;
   line-height: 1.4;
   padding: 8px;
 }
-.git-msg::placeholder { color: var(--ff-text-3); }
+.git-msg::placeholder { color: var(--cat-muted); }
 .git-err {
   margin: 6px 12px 0;
   font-size: 12px;
   line-height: 1.4;
-  color: var(--ff-danger-text);
+  color: var(--cat-danger-text);
 }
 .commit-bar {
   position: relative;
@@ -464,10 +464,10 @@ function unstagePaths(items: GitChange[]) {
 }
 .stage {
   height: 30px;
-  border: 1px solid var(--ff-border);
+  border: 1px solid var(--cat-border);
   border-radius: 8px;
-  background: var(--ff-bg-surface);
-  color: var(--ff-text-1);
+  background: var(--cat-surface);
+  color: var(--cat-text);
   font: inherit;
   font-size: 13px;
   cursor: pointer;
@@ -483,7 +483,7 @@ function unstagePaths(items: GitChange[]) {
   border-radius: 0 8px 8px 0;
   display: grid;
   place-items: center;
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
 }
 .git-menu {
   position: absolute;
@@ -494,10 +494,12 @@ function unstagePaths(items: GitChange[]) {
   max-height: min(420px, 70vh);
   overflow-y: auto;
   padding: 4px;
-  border: 1px solid var(--ff-border);
+  border: 1px solid var(--cat-border);
   border-radius: 8px;
-  background: var(--ff-bg-elevated, var(--ff-bg-surface));
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  background: var(--cat-elevated);
+  box-shadow: var(--cat-shadow-lg);
+  animation: cat-pop-in var(--ff-dur-base) var(--ff-ease-out) both;
+  transform-origin: top center;
 }
 .git-menu button {
   display: block;
@@ -509,21 +511,21 @@ function unstagePaths(items: GitChange[]) {
   border-radius: 6px;
   font: inherit;
   font-size: 12.5px;
-  color: var(--ff-text-1);
+  color: var(--cat-text);
   cursor: pointer;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.git-menu button:hover:not(:disabled) { background: var(--ff-bg-hover); }
+.git-menu button:hover:not(:disabled) { background: var(--cat-hover); }
 .git-menu button:disabled { opacity: 0.4; cursor: default; }
-.git-menu button.danger:not(:disabled) { color: var(--ff-danger-text); }
+.git-menu button.danger:not(:disabled) { color: var(--cat-danger-text); }
 .git-menu hr {
   border: none;
-  border-top: 1px solid var(--ff-border);
+  border-top: 1px solid var(--cat-border);
   margin: 4px 2px;
 }
-.stage:hover:not(:disabled) { background: var(--ff-bg-hover); }
+.stage:hover:not(:disabled) { background: var(--cat-hover); }
 .stage:disabled { opacity: 0.45; cursor: default; }
 .groups {
   flex: 1;
@@ -546,7 +548,7 @@ function unstagePaths(items: GitChange[]) {
   gap: 4px;
   border: none;
   background: transparent;
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
@@ -565,14 +567,14 @@ function unstagePaths(items: GitChange[]) {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: var(--ff-text-1);
+  color: var(--cat-text);
   font: inherit;
   font-size: 13px;
   text-align: left;
   cursor: pointer;
 }
-.row:hover { background: var(--ff-bg-hover); }
-.row :deep(svg.fi) { color: #d9622b; flex: none; }
+.row:hover { background: var(--cat-hover); }
+.row :deep(svg.fi) { color: var(--cat-file-icon); flex: none; }
 .nm {
   min-width: 0;
   overflow: hidden;
@@ -585,7 +587,7 @@ function unstagePaths(items: GitChange[]) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
   font-size: 12px;
 }
 .stat {
@@ -603,15 +605,13 @@ function unstagePaths(items: GitChange[]) {
   height: 16px;
   display: none;
   place-items: center;
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
   flex: none;
 }
 .row:hover .act { display: grid; }
-.st-M, .st-R { color: #b45309; }
-.st-A, .st-U { color: var(--ff-success-text); }
-.st-D { color: var(--ff-danger-text); }
-html.dark .st-M,
-html.dark .st-R { color: #f0a05a; }
+.st-M, .st-R { color: var(--cat-git-mod); }
+.st-A, .st-U { color: var(--cat-success-text); }
+.st-D { color: var(--cat-danger-text); }
 .git-empty {
   flex: 1;
   display: flex;
@@ -620,7 +620,7 @@ html.dark .st-R { color: #f0a05a; }
   justify-content: center;
   gap: 8px;
   padding: 24px 16px;
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
   font-size: 13px;
   text-align: center;
 }
@@ -630,9 +630,9 @@ html.dark .st-R { color: #f0a05a; }
   align-items: flex-start;
 }
 .retry {
-  border: 1px solid var(--ff-border);
+  border: 1px solid var(--cat-border);
   background: transparent;
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
   border-radius: 6px;
   padding: 4px 10px;
   font: inherit;

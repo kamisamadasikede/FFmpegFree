@@ -140,17 +140,17 @@ onBeforeUnmount(() => {
 
 <style>
 .cat-line-add {
-  background: color-mix(in srgb, var(--ff-success) 18%, transparent);
+  background: color-mix(in srgb, var(--cat-success) 18%, transparent);
 }
 .cat-line-del {
-  background: color-mix(in srgb, var(--ff-danger) 16%, transparent);
+  background: color-mix(in srgb, var(--cat-danger) 16%, transparent);
 }
 .cat-deleted-line {
   box-sizing: border-box;
   overflow: hidden;
   white-space: pre;
-  color: var(--ff-danger-text);
-  background: color-mix(in srgb, var(--ff-danger) 16%, transparent);
+  color: var(--cat-danger-text);
+  background: color-mix(in srgb, var(--cat-danger) 16%, transparent);
   font-family: var(--ff-font-mono);
   font-size: 13px;
 }

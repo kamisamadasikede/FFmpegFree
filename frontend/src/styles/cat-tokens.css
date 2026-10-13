@@ -1,0 +1,105 @@
+/* Cat 助手专用主题变量（设计说明 v0.1 §3）。组件只用 --cat-*，不写颜色值。
+   浅色在 :root，暗色在 html.dark，与 tokens.css 同机制，跟随应用「外观」。 */
+:root {
+  --cat-bg: var(--ff-bg-surface);
+  --cat-rail: var(--ff-bg-sidebar);
+  --cat-panel: color-mix(in srgb, var(--ff-bg-sidebar) 45%, var(--ff-bg-surface));
+  --cat-surface: #ffffff;
+  --cat-elevated: #ffffff;
+  --cat-sunken: #f3f4f7;
+  --cat-border: var(--ff-border);
+  --cat-border-strong: #d3d7de;
+  --cat-divider: color-mix(in srgb, var(--cat-border) 70%, transparent);
+  --cat-text: var(--ff-text-1);
+  --cat-text-2: var(--ff-text-2);
+  --cat-muted: var(--ff-text-3);
+  --cat-hover: rgba(31, 35, 41, 0.05);
+  --cat-pressed: rgba(31, 35, 41, 0.09);
+  --cat-active: color-mix(in srgb, var(--ff-primary) 10%, transparent);
+  --cat-active-text: var(--ff-primary-text);
+  --cat-accent: var(--ff-primary);
+  --cat-accent-hover: var(--ff-primary-hover);
+  --cat-accent-soft: var(--ff-primary-soft);
+  --cat-on-accent: var(--ff-on-primary);
+  --cat-danger: var(--ff-danger);
+  --cat-danger-text: var(--ff-danger-text);
+  --cat-danger-soft: #fdecec;
+  --cat-on-danger: var(--ff-on-danger);
+  --cat-orange: #c2570c;
+  --cat-orange-soft: #fff2e6;
+  --cat-orange-line: #f5c79c;
+  --cat-warn: var(--ff-warning);
+  --cat-warn-text: var(--ff-warning-text);
+  --cat-warn-soft: #fff7e6;
+  --cat-success: var(--ff-success);
+  --cat-success-text: var(--ff-success-text);
+  --cat-user-bubble: #f1f3f6;
+  --cat-code-bg: #f7f8fa;
+  --cat-send: #1f2329;
+  --cat-on-send: #ffffff;
+  --cat-file-icon: #d9622b;
+  --cat-git-mod: #b45309;
+  --cat-code-kw: #2f5bd3;
+  /* 媒体预览底（图片 / 视频）和其上的播放标记，两种主题相同 */
+  --cat-media-bg: #111111;
+  --cat-on-media: #ffffff;
+  --cat-media-shadow: rgba(0, 0, 0, 0.65);
+  /* 内嵌文档（HTML / PDF）页面本身是白纸，两种主题相同 */
+  --cat-paper: #ffffff;
+  --cat-shadow-sm: 0 1px 2px rgba(15, 18, 24, 0.05);
+  --cat-shadow-md: 0 4px 14px rgba(15, 18, 24, 0.08);
+  --cat-shadow-lg: 0 16px 40px rgba(15, 18, 24, 0.16);
+  --cat-scrim: rgba(15, 18, 24, 0.32);
+  --cat-focus: 0 0 0 2px var(--cat-bg), 0 0 0 4px color-mix(in srgb, var(--ff-primary) 55%, transparent);
+  --cat-radius-sm: 6px;
+  --cat-radius-md: 8px;
+  --cat-radius-lg: 12px;
+  --cat-radius-xl: 16px;
+}
+
+html.dark,
+.ff-dark {
+  --cat-bg: #1b1c20;
+  --cat-rail: #1a1b1f;
+  --cat-panel: #1d1e23;
+  --cat-surface: #1f2025;
+  --cat-elevated: #26282e;
+  --cat-sunken: #16171a;
+  --cat-border: #2e3037;
+  --cat-border-strong: #3a3d45;
+  --cat-hover: rgba(255, 255, 255, 0.05);
+  --cat-pressed: rgba(255, 255, 255, 0.09);
+  --cat-active: color-mix(in srgb, var(--ff-primary) 16%, transparent);
+  --cat-danger-soft: color-mix(in srgb, var(--ff-danger) 14%, transparent);
+  --cat-orange: #fb923c;
+  --cat-orange-soft: color-mix(in srgb, #fb923c 12%, transparent);
+  --cat-orange-line: color-mix(in srgb, #fb923c 40%, transparent);
+  --cat-warn-soft: color-mix(in srgb, var(--ff-warning) 12%, transparent);
+  --cat-user-bubble: #2a2c33;
+  --cat-code-bg: #16171a;
+  --cat-file-icon: #f08a5d;
+  --cat-git-mod: #f0a05a;
+  --cat-code-kw: #93b4ff;
+  --cat-send: #e8eaed;
+  --cat-on-send: #16171a;
+  --cat-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --cat-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --cat-shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --cat-scrim: rgba(0, 0, 0, 0.5);
+}
+
+/* 动效：只用 120 / 200 / 320ms 三档（--ff-dur-quick/base/slow） */
+@keyframes cat-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes cat-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cat-pop-in { from { opacity: 0; transform: translateY(4px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes cat-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@keyframes cat-shake { 0%, 100% { transform: none; } 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .cat-root *, .cat-root *::before, .cat-root *::after, .cat-root {
+    animation-duration: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}

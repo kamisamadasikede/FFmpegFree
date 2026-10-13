@@ -440,8 +440,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown, true)
   flex: none;
   display: flex;
   flex-direction: column;
-  background: var(--ff-bg-sidebar);
-  border-right: 1px solid var(--ff-border);
+  background: var(--cat-rail);
+  border-right: 1px solid var(--cat-border);
   padding: 10px 8px 12px;
   min-height: 0;
 }
@@ -456,8 +456,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown, true)
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  background: var(--ff-text-1);
-  color: var(--ff-bg-surface);
+  background: var(--cat-text);
+  color: var(--cat-surface);
   display: grid;
   place-items: center;
   flex: none;
@@ -476,15 +476,19 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown, true)
   border-radius: 6px;
   font: inherit;
   font-size: 12px;
-  color: var(--ff-text-2);
-  border: 1px solid var(--ff-border);
-  background: var(--ff-bg-surface);
+  color: var(--cat-text-2);
+  border: 1px solid var(--cat-border);
+  background: var(--cat-surface);
   cursor: pointer;
   --wails-draggable: no-drag;
+  transition: background var(--ff-dur-quick), color var(--ff-dur-quick), transform var(--ff-dur-quick);
+}
+.ct-back:active {
+  transform: scale(0.94);
 }
 .ct-back:hover {
-  color: var(--ff-text-1);
-  background: var(--ff-bg-hover);
+  color: var(--cat-text);
+  background: var(--cat-hover);
 }
 .ct-it {
   width: 100%;
@@ -498,16 +502,18 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown, true)
   background: transparent;
   font: inherit;
   font-size: 13px;
-  color: var(--ff-text-1);
+  color: var(--cat-text);
   text-align: left;
   flex: none;
+  position: relative;
+  transition: background var(--ff-dur-quick), color var(--ff-dur-quick);
 }
 .ct-it > :deep(svg) {
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
 }
 .ct-it .r {
   margin-left: auto;
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
   display: flex;
 }
 button.ct-it,
@@ -520,11 +526,28 @@ button.ct-it:hover,
 .pc.menu,
 .pj-row:hover,
 .pc:hover {
-  background: var(--ff-bg-hover);
+  background: var(--cat-hover);
 }
-.ct-it.on {
-  background: var(--ff-bg-hover);
+/* B2 选中 = 主色 10% 底 + 主色文字 + 左侧 3px 指示条；hover = 中性 5% 底 */
+.ct-it.on,
+.ct-it.on:hover {
+  background: var(--cat-active);
+  color: var(--cat-active-text);
   font-weight: 500;
+}
+.ct-it.on > :deep(svg) {
+  color: var(--cat-active-text);
+}
+.ct-it.on:not(.new)::before,
+.pc.on::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--cat-accent);
 }
 .ct-it .t {
   overflow: hidden;
@@ -533,21 +556,22 @@ button.ct-it:hover,
   min-width: 0;
 }
 .ct-it.new {
-  border: 1px solid var(--ff-border);
-  background: var(--ff-bg-surface);
+  border: 1px solid var(--cat-border);
+  background: var(--cat-surface);
   margin-bottom: 4px;
   font-weight: 500;
 }
 .ct-it.new.on {
-  border-color: var(--ff-primary);
-  color: var(--ff-primary-text);
+  background: var(--cat-surface);
+  border-color: var(--cat-accent);
+  color: var(--cat-active-text);
 }
 .ct-sec {
   display: flex;
   align-items: center;
   justify-content: space-between;
   font-size: 12px;
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
   padding: 14px 8px 4px;
 }
 .ct-sec .acts {
@@ -569,19 +593,23 @@ button.ct-it:hover,
   display: grid;
   place-items: center;
   border-radius: 5px;
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
   cursor: pointer;
+  transition: background var(--ff-dur-quick), color var(--ff-dur-quick), transform var(--ff-dur-quick);
+}
+.ib:active {
+  transform: scale(0.94);
 }
 .ib:hover {
-  background: var(--ff-bg-hover);
-  color: var(--ff-text-1);
+  background: var(--cat-hover);
+  color: var(--cat-text);
 }
 .pj-empty {
   height: 24px;
   line-height: 24px;
   padding: 0 8px;
   font-size: 12px;
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -595,15 +623,16 @@ button.ct-it:hover,
   border-radius: 6px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--ff-text-1);
+  color: var(--cat-text);
   cursor: pointer;
+  transition: background var(--ff-dur-quick);
 }
 .pj-row > :deep(svg) {
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
 }
 .pj-row > :deep(svg.car) {
-  color: var(--ff-text-3);
-  transition: transform 180ms ease;
+  color: var(--cat-muted);
+  transition: transform var(--ff-dur-base) var(--ff-ease-out);
 }
 .pj.open .pj-row > :deep(svg.car) {
   transform: rotate(90deg);
@@ -634,10 +663,17 @@ button.ct-it:hover,
 .pj-kids {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 200ms ease;
+  transition: grid-template-rows var(--ff-dur-base) var(--ff-ease-out);
 }
 .pj.open .pj-kids {
   grid-template-rows: 1fr;
+}
+.pj-in {
+  opacity: 0;
+  transition: opacity var(--ff-dur-base) var(--ff-ease-out);
+}
+.pj.open .pj-in {
+  opacity: 1;
 }
 .pj-in {
   overflow: hidden;
@@ -650,21 +686,21 @@ button.ct-it:hover,
   margin: 2px 0;
   border: 1px solid transparent;
   cursor: pointer;
+  transition: background var(--ff-dur-quick);
 }
-.pc.on {
-  background: var(--ff-bg-surface);
-  border-color: var(--ff-border);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+.pc.on,
+.pc.on:hover {
+  background: var(--cat-active);
 }
-html.dark .pc.on {
-  background: var(--ff-bg-elevated);
+.pc.on .l1 {
+  color: var(--cat-active-text);
 }
 .pc .l1 {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: var(--ff-text-1);
+  color: var(--cat-text);
   font-weight: 500;
   height: 20px;
 }
@@ -673,7 +709,7 @@ html.dark .pc.on {
   align-items: center;
   gap: 6px;
   font-size: 11.5px;
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
   padding-left: 14px;
   height: 18px;
 }
@@ -696,15 +732,15 @@ html.dark .pc.on {
   height: 8px;
   border-radius: 50%;
   flex: none;
-  background: var(--ff-text-3);
+  background: var(--cat-muted);
   box-sizing: border-box;
 }
 .st.ok {
-  background: var(--ff-success);
+  background: var(--cat-success);
 }
 .st.idle {
   background: transparent;
-  border: 1.5px solid var(--ff-text-3);
+  border: 1.5px solid var(--cat-muted);
   width: 7px;
   height: 7px;
 }
@@ -712,13 +748,11 @@ html.dark .pc.on {
   width: 10px;
   height: 10px;
   background: transparent;
-  border: 2px solid #eab308;
-  border-right-color: transparent;
-  animation: ct-spin 0.75s linear infinite;
-}
-html.dark .st.run {
-  border-color: #facc15;
-  border-right-color: transparent;
+  /* C5 回复中 = 主色呼吸点 */
+  width: 8px;
+  height: 8px;
+  background: var(--cat-accent);
+  animation: cat-breathe 1.4s ease-in-out infinite;
 }
 .st.bad {
   width: auto;
@@ -726,7 +760,7 @@ html.dark .st.run {
   border: none;
   border-radius: 0;
   background: none;
-  color: #ea580c;
+  color: var(--cat-danger-text);
   font-style: normal;
   font-weight: 800;
   font-size: 15px;
@@ -736,16 +770,9 @@ html.dark .st.run {
 .st.bad::before {
   content: '!';
 }
-html.dark .st.bad {
-  color: #fb923c;
-}
 @media (prefers-reduced-motion: reduce) {
   .st.run {
     animation: none;
-    border-color: #eab308;
-  }
-  html.dark .st.run {
-    border-color: #facc15;
   }
 }
 .note {
@@ -753,7 +780,7 @@ html.dark .st.bad {
   height: 8px;
   border-radius: 50%;
   flex: none;
-  background: var(--ff-primary);
+  background: var(--cat-success); /* C5 绿点 = 有新回复未读 */
 }
 @keyframes ct-spin {
   to { transform: rotate(360deg); }
@@ -764,9 +791,9 @@ html.dark .st.bad {
   line-height: 16px;
   padding: 0 5px;
   border-radius: 4px;
-  border: 1px solid var(--ff-border);
-  color: var(--ff-text-2);
-  background: var(--ff-bg-hover);
+  border: 1px solid var(--cat-border);
+  color: var(--cat-text-2);
+  background: var(--cat-hover);
   font-weight: 500;
 }
 button.ct-it:focus-visible,
@@ -774,18 +801,18 @@ button.ct-it:focus-visible,
 .pj-row:focus-visible,
 .pc:focus-visible,
 .ct-back:focus-visible {
-  outline: 2px solid var(--ff-primary);
-  outline-offset: -2px;
+  outline: none;
+  box-shadow: var(--cat-focus);
 }
 .ct-it.disabled,
 .ct-it.disabled:hover {
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
   background: transparent;
   cursor: not-allowed;
   opacity: 0.55;
 }
 .ct-it.disabled > :deep(svg) {
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
 }
 button.ib {
   border: none;
@@ -794,26 +821,26 @@ button.ib {
   font: inherit;
 }
 .ib:focus-visible {
-  outline: 2px solid var(--ff-primary);
-  outline-offset: -1px;
+  outline: none;
+  box-shadow: var(--cat-focus);
 }
 .ib.off,
 .ib.off:hover {
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
   background: transparent;
   opacity: 0.45;
   cursor: not-allowed;
 }
 /* 菜单打开时：该行保持 hover 底色，按钮可见、「···」加深 */
 .pj.menu .pj-row {
-  background: var(--ff-bg-hover);
+  background: var(--cat-hover);
 }
 .pj.menu .pj-act {
   opacity: 1;
 }
 .pj.menu .pj-act .ib[aria-expanded='true'] {
-  background: var(--ff-border);
-  color: var(--ff-text-1);
+  background: var(--cat-border);
+  color: var(--cat-text);
 }
 /* 新建 / 重复定位高亮：主色淡底 + 1px 主色描边，1.6s 淡出 */
 .pj-row {
@@ -824,8 +851,8 @@ button.ib {
 }
 @keyframes pj-hl {
   0%, 33% {
-    background: color-mix(in srgb, var(--ff-primary) 10%, transparent);
-    border-color: var(--ff-primary);
+    background: color-mix(in srgb, var(--cat-accent) 10%, transparent);
+    border-color: var(--cat-accent);
   }
   100% {
     background: transparent;
@@ -833,7 +860,7 @@ button.ib {
   }
 }
 .pj.hl {
-  animation: pj-in 220ms ease both;
+  animation: pj-in var(--ff-dur-base) var(--ff-ease-out) both;
 }
 @keyframes pj-in {
   from { opacity: 0; transform: translateY(-4px); }
@@ -845,13 +872,13 @@ button.ib {
   min-height: 32px;
   padding-top: 4px;
   padding-bottom: 4px;
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
 }
 .pj.missing .pj-row > :deep(svg) {
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
 }
 .pj.missing .pc .l1 {
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
 }
 .miss {
   display: inline-flex;
@@ -859,12 +886,12 @@ button.ib {
   gap: 3px;
   font-size: 11.5px;
   font-weight: 400;
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
   line-height: 16px;
   white-space: nowrap;
 }
 .miss :deep(svg) {
-  color: var(--ff-warning);
+  color: var(--cat-warn);
   flex: none;
 }
 .pj-none {
@@ -872,7 +899,7 @@ button.ib {
   line-height: 24px;
   padding: 0 8px;
   font-size: 12px;
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
 }
 /* 改名：行内输入框 + 淡灰提示 */
 .pj-row.editing {
@@ -887,24 +914,24 @@ button.ib {
   font: inherit;
   font-size: 13px;
   font-weight: 600;
-  color: var(--ff-text-1);
-  background: var(--ff-bg-surface);
-  border: 1px solid var(--ff-primary);
+  color: var(--cat-text);
+  background: var(--cat-surface);
+  border: 1px solid var(--cat-accent);
   border-radius: 5px;
   outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ff-primary) 20%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cat-accent) 20%, transparent);
 }
 .ren-hint {
   padding: 2px 0 4px 26px;
   font-size: 11.5px;
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
 }
 .ren-in.bad {
-  border-color: var(--ff-danger);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ff-danger) 20%, transparent);
+  border-color: var(--cat-danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cat-danger) 20%, transparent);
 }
 .ren-hint.bad {
-  color: var(--ff-danger);
+  color: var(--cat-danger);
 }
 /* 对话行「···」（设计 v0.3 §11/12）：项目下对话在卡片右上角，普通对话在行右侧垂直居中；hover / 键盘聚焦淡入 120ms */
 .pc {
@@ -912,7 +939,7 @@ button.ib {
 }
 .c-more {
   opacity: 0;
-  transition: opacity 120ms ease;
+  transition: opacity var(--ff-dur-quick);
   flex: none;
 }
 .pc .c-more {
@@ -920,13 +947,10 @@ button.ib {
   top: 4px;
   right: 6px;
   z-index: 1;
-  background: var(--ff-bg-hover);
+  background: var(--cat-hover);
 }
 .pc.on .c-more {
-  background: var(--ff-bg-surface);
-}
-html.dark .pc.on .c-more {
-  background: var(--ff-bg-elevated);
+  background: var(--cat-elevated);
 }
 .ct-it.dc .c-more {
   margin-left: auto;
@@ -941,8 +965,8 @@ html.dark .pc.on .c-more {
 }
 .pc.menu .c-more,
 .ct-it.dc.menu .c-more {
-  background: var(--ff-border);
-  color: var(--ff-text-1);
+  background: var(--cat-border);
+  color: var(--cat-text);
 }
 .c-menu {
   width: 140px;
@@ -954,17 +978,14 @@ html.dark .pc.on .c-more {
   width: 200px;
   padding: 4px;
   border-radius: 10px;
-  background: var(--ff-bg-surface);
-  border: 1px solid var(--ff-border);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  animation: pj-menu 120ms ease both;
+  background: var(--cat-elevated);
+  border: 1px solid var(--cat-border);
+  box-shadow: var(--cat-shadow-lg);
+  animation: pj-menu var(--ff-dur-base) var(--ff-ease-out) both;
   transform-origin: top left;
 }
-html.dark .pj-menu {
-  background: var(--ff-bg-elevated);
-}
 @keyframes pj-menu {
-  from { opacity: 0; transform: scale(0.97); }
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
   to { opacity: 1; transform: none; }
 }
 .pj-menu .mi {
@@ -975,20 +996,20 @@ html.dark .pj-menu {
   padding: 0 10px;
   border-radius: 6px;
   font-size: 13px;
-  color: var(--ff-text-1);
+  color: var(--cat-text);
   cursor: pointer;
   outline: none;
 }
 .pj-menu .mi :deep(svg) {
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
 }
 .pj-menu .mi:hover,
 .pj-menu .mi:focus-visible,
 .pj-menu .mi:focus {
-  background: var(--ff-bg-hover);
+  background: var(--cat-hover);
 }
 .pj-menu .mi.dis {
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
   cursor: not-allowed;
   opacity: 0.55;
 }
@@ -997,16 +1018,16 @@ html.dark .pj-menu {
 }
 .pj-menu .mi.danger,
 .pj-menu .mi.danger :deep(svg) {
-  color: var(--ff-danger);
+  color: var(--cat-danger);
 }
 .pj-menu .mi.danger:hover,
 .pj-menu .mi.danger:focus {
-  background: color-mix(in srgb, var(--ff-danger) 10%, transparent);
+  background: color-mix(in srgb, var(--cat-danger) 10%, transparent);
 }
 .pj-menu .sep {
   height: 1px;
   margin: 4px 6px;
-  background: var(--ff-border);
+  background: var(--cat-divider);
 }
 .sr-only {
   position: absolute;
@@ -1021,7 +1042,10 @@ html.dark .pj-menu {
   .pj-menu {
     animation: none;
   }
-  .c-more {
+  .c-more,
+  .pj-kids,
+  .pj-in,
+  .pj-row > :deep(svg.car) {
     transition: none;
   }
   .pj.hl .pj-row {
