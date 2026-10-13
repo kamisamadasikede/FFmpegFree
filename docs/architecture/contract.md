@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.34）
+# FFmpegFree v2 接口契约（v0.35）
+
+v0.35 变更（**Cat 设置 + 定时任务 + 「极高」**，老板 10-13 提出，架构师定；完整规则见新增 **6.19.12**（设置）、**6.19.13**（定时任务），本条只是索引，冲突时以该节为准；**无新错误码，2.1 仍是 39 个；新迁移 `0012_cat_schedules.sql`；新事件 `cat:schedule`；无新开关**）：① 6.19.1「一期不做」去掉「定时任务」（「助手」仍不做）。② CatService 新增 `GetCatSettings` / `SaveCatSettings`：默认模型、默认思考强度、默认批准方式**只作用于新建对话**，已有对话按对话记住的偏好不变；全局自定义指令每一轮用 `--rules` 追加。③ 新增 `InspectCatConfig({projectId})`：只读包装 `grok inspect --json`，列技能、插件、钩子、MCP、子代理；失败返回空列表 + `reason`，不报错。④ 思考强度 `xhigh` 的显示名「超高」改为 **「极高」**（值不变），全文统一。⑤ 定时任务：频率 一次 / 每天 / 工作日 / 每周，**一期不做 cron**；每次运行 = 在目标项目里新建一条普通对话；只在应用进程活着时运行（含最小化到托盘），错过不补跑（`missed`「已错过」），上一次还在跑则跳过（`skipped`「已跳过」）；运行结束发系统通知；不做开机自启。⑥ 新增 `ClearAllCatConversations()`（「清空全部对话」）：删掉所有对话，包括定时任务产生的，定时任务本身不删。⑦ 删除项目：其定时任务自动暂停并标记 `projectDeleted`。
 
 v0.34 变更（**思考占位、失败原文、批准方式**，老板 10-10；**无新错误码 / 迁移 / 事件名 / 开关，2.1 仍是 39 个**）：① 发送后，这一轮还没有思考、工具或正文时立刻显示「正在思考…」。② `type=error`、`type=result` 且 `is_error` 或 `subtype` 以 `error_` 开头、以及标准错误里的超时 / 断网原文，显示在对话里；进程非零退出即失败，即使已经流出部分正文。失败的 `cat:turn` 带 `error.message`（码仍是 `CAT_REPLY_FAILED`）。没有原文时仍用「回复没生成出来，请重试。」。③ 输入框菜单是普通模式 / Plan / 自动审查 / 全部批准，按对话记在本机。分别传 `--permission-mode default`、`--permission-mode plan`、`--permission-mode auto`、`--always-approve`，不同时传两个。没选过的对话仍是全部批准。创建会话的 `accessMode` 仍只接受 `ask`。普通模式点不到确认框，卡住时按停止。
 
@@ -6,7 +8,7 @@ v0.33 变更（**Cat 保留 grok CLI 的完整工具**，老板 10-10；**无新
 
 v0.32 变更（**Cat 右侧文件面板**，架构师 10-09 定；完整规则见新增 **6.19.11**，本条只是索引，冲突时以该节为准；**无新错误码，2.1 仍是 39 个；无迁移、无新事件、无新开关**）：**修复：文件面板之前在真后端下也显示的是模拟数据。** ① CatService 新增 **`ListCatFiles({convId, relPath}) → {root, entries[], truncated}`**：只列**一层**（展开时再懒加载），条目 `{name, relPath, isDir, size, modTime}`；根 = 项目对话用项目文件夹，普通对话用对话自己的文件夹；`relPath` 必须是根内相对路径（不许 `..` / 绝对 / 盘符 / UNC），符号链接 / junction 列成不可展开的条目、不跟随；**绝不读文件内容**。② 固定隐藏 `.git`、`node_modules`、`target`、`.DS_Store`、`Thumbs.db`，其他点文件照常显示，一期不读 `.gitignore`；每层最多 500 项，超出 `truncated=true`；文件夹在前，再按名字不区分大小写排序。③ **普通对话的文件夹**：新增 `paths.CatConvDir(convId)`，新位置 `<数据目录>/cat/conversations/<convId>`，**创建对话时就建**；旧对话已有 `<数据目录>/tmp/cat/cwd-<convId>` 的**继续用旧路径**（CLI 续聊按 cwd 找会话，不搬）；删除普通对话时尽力删它自己的文件夹（只删应用自己的目录，失败不影响删除）；**项目文件夹永远不动**。④ CatService 新增 **`RevealCatConversationFolder({convId})`**：在系统文件管理器里打开对话的根（项目对话同 `RevealCatProject`，含 `CAT_PROJECT_MISSING`；普通对话没有就建），复用 `system.Manager.OpenFolder`。⑤ 「变更」页签一期没有后端数据，前端**隐藏**（二期）；只保留「文件」。⑥ 2.2 `INVALID_ARGUMENT` 追加 `reason=path`。⑦ 真机待验见 6.19.11.8。文案（空 / 截断 / 加载失败）待产品确认。
 
-v0.31.5 变更（**Cat Build 模型 / 强度 / 黑名单口径修正**，架构师 10-09；实现 #196、#197；**无新错误码 / 迁移 / 事件 / 开关，2.1 仍是 39 个**；**取代 v0.31.4 中「探测失败回退 CLI 默认列表」及强度相关说法**）：① **模型探测失败**：`grok models` 超时 / 报错 / 解析不出模型 → 模型列表**为空**，发消息**不传 `-m`**（用 CLI 自己的默认模型）；**不再有任何写死的回退模型名**。② **思考强度**：档位 `low` / `medium` / `high` / `xhigh`，显示名 `低` / `中` / `高` / `超高`（**「超高」待产品确认**）；**只有用户选了才传** `--reasoning-effort <level>`，没选不传；没选时界面显示 `默认`。③ **已知风险**：`grok-4.5` 可能不支持 `xhigh`（CLI 本地缓存显示最高 `high`），**未在真机验证**，预期 CLI 忽略不支持的档位，已加入真机待验（6.19.10.10 第 9 条）。④ **黑名单补齐**：`--disallowed-tools` 现为 `run_terminal_cmd,search_replace,write_file,apply_patch,task,Agent,web_search,web_fetch,search_tool,use_tool,image_gen,image_edit,video_gen,bash,edit,write,hashline_edit,run_terminal_command`（新增 `bash`、`edit`、`write`、`hashline_edit`、`run_terminal_command`，覆盖其他工具配置里的同类工具）；白名单不变 `--tools read_file,list_dir,grep`。
+v0.31.5 变更（**Cat Build 模型 / 强度 / 黑名单口径修正**，架构师 10-09；实现 #196、#197；**无新错误码 / 迁移 / 事件 / 开关，2.1 仍是 39 个**；**取代 v0.31.4 中「探测失败回退 CLI 默认列表」及强度相关说法**）：① **模型探测失败**：`grok models` 超时 / 报错 / 解析不出模型 → 模型列表**为空**，发消息**不传 `-m`**（用 CLI 自己的默认模型）；**不再有任何写死的回退模型名**。② **思考强度**：档位 `low` / `medium` / `high` / `xhigh`，显示名 `低` / `中` / `高` / `极高`（**「极高」待产品确认**）；**只有用户选了才传** `--reasoning-effort <level>`，没选不传；没选时界面显示 `默认`。③ **已知风险**：`grok-4.5` 可能不支持 `xhigh`（CLI 本地缓存显示最高 `high`），**未在真机验证**，预期 CLI 忽略不支持的档位，已加入真机待验（6.19.10.10 第 9 条）。④ **黑名单补齐**：`--disallowed-tools` 现为 `run_terminal_cmd,search_replace,write_file,apply_patch,task,Agent,web_search,web_fetch,search_tool,use_tool,image_gen,image_edit,video_gen,bash,edit,write,hashline_edit,run_terminal_command`（新增 `bash`、`edit`、`write`、`hashline_edit`、`run_terminal_command`，覆盖其他工具配置里的同类工具）；白名单不变 `--tools read_file,list_dir,grep`。
 
 v0.31.4 变更（**Cat Build 一期权限口径 + 模型 / 强度**，产品 / 老板 / 架构师 10-09；实现 #190、#192 及后续后端 PR；**无新错误码 / 迁移 / 事件 / 开关，2.1 仍是 39 个**；**作废 v0.31.3 第 ⑤ 条「不传 `--always-approve`」**）：① **一期 headless 自动批准，但工具集限定为只读白名单**：每一轮都传 `--always-approve`（headless 无法弹批准，避免挂死），同时**必须**带：`--tools read_file,list_dir,grep`（只读：读文件 / 列目录 / 搜索）、`--disallowed-tools run_terminal_cmd,search_replace,write_file,apply_patch,task,Agent,web_search,web_fetch,search_tool,use_tool,image_gen,image_edit,video_gen`、`--no-subagents`、`--disable-web-search`、`--deny Bash` `--deny Edit` `--deny Write` `--deny WebFetch` `--deny WebSearch` `--deny MCPTool(*)`（deny 在自动批准下仍生效）；环境仍设 `GROK_SANDBOX=read-only`、`GROK_WRITE_FILE=0`。常量在 `internal/catagent/cli_readonly.go`，测试锁死白名单。**白名单里只能放核实过的工具 ID**：CLI 遇到不认识的白名单名字会整体放弃白名单、恢复完整工具集。② **真·请求批准是二期**：二期可改用 `--permission-mode dontAsk`（未明确允许的工具调用直接拒绝；**不能与 `--always-approve` 同时用**），再加批准流。③ **界面不变**：访问模式仍选中「请求批准」，「完全访问」置灰；界面仍只称「Cat 助手」，横幅文案不变。④ **模型 / 思考强度**（老板 22:13 / 22:16 定）：模型列表来自 CLI `grok models`，**模型名按 CLI 给的原样显示**（如 `grok-4.6`），**不再映射成「Cat 助手 …」**（这是界面里唯一允许出现 CLI 原始名字的地方）；思考强度用 CLI 的档位（`low` / `medium` / `high` / `xhigh`，模型不支持时 CLI 忽略）。用户选的模型和强度**每一轮（首轮和后续轮）都传**：`-m <modelId>`、`--reasoning-effort <level>`。**默认强度 = 不传**：用户没选强度时不带 `--reasoning-effort`（用 CLI 自己的默认）；**`grok models` 解析失败 → 模型列表为空、不传 `-m`**（用 CLI 默认模型），不再回退写死的模型名（这两条由后端后续 PR 实现，#194 尚未包含）。⑤ **已知风险 / 待验**：(a) 最终工具集**还没在已登录的真机上验证**，老板需实测：让它写文件、改文件、运行命令，都应被拒绝、项目里不出现改动；(b) **Windows 上沙箱环境变量不生效**（CLI 沙箱只在 Linux / macOS 上有），Windows 的只读**完全靠工具限制**；(c) CLI 版本太旧、不认识这些参数时，每一轮都会失败，界面显示「回复没生成出来，请重试。」（`CAT_REPLY_FAILED`），**绝不会悄悄变成可写**；(d) 用户自己的 CLI 配置（`~/.grok/config.toml` 的 allow 规则、MCP 服务器）由上面的 deny 和黑名单压住（deny 优先于 allow）。
 
@@ -807,6 +809,9 @@ cat_conversations(id PK, title, agent_kind, access_mode, project_path, created_a
       project_id)                                                             -- 迁移 0011（v0.31），见 6.19.10.7；NULL = 不属于项目
 cat_messages(id PK, conversation_id, role, content, created_at)            -- 迁移 0010（v0.30）。表还在，对话正文不再写入；点开对话用 CLI 的 `grok export`（6.19.9）
 cat_projects(id PK, name, path, path_key UNIQUE, created_at, updated_at)   -- 迁移 0011（v0.31），见 6.19.10.7
+cat_schedules(id PK, name, prompt, project_id, frequency, time, weekdays JSON, run_at, model, effort, approval_mode,
+      enabled, project_deleted, next_run_at, created_at, updated_at)        -- 迁移 0012（v0.35），见 6.19.13.6
+cat_schedule_runs(id PK, schedule_id, conversation_id, status, error JSON, scheduled_for, started_at, finished_at)  -- 迁移 0012（v0.35）
 settings(key PK, value JSON)
 schema_migrations(version PK, applied_at)
 ```
@@ -3916,7 +3921,7 @@ type ExportSubtitleRequest struct {
 |---|---|
 | 侧栏进入 Cat 全屏聊天（收起主侧栏，返回原页） | Cat CLI / Cat Code / Codex CLI **运行时**（胶囊可见但禁用） |
 | 欢迎页 + 会话列表 + 发送 / 回复（事件推进） | URL / API Key 设置页或设置项 |
-| **仅 `cat_build`（Cat Build）** 可创建并运行 | 「助手」「定时任务」入口与功能 |
+| **仅 `cat_build`（Cat Build）** 可创建并运行 | 「助手」入口与功能（「定时任务」v0.35 起一期做，见 6.19.13） |
 | 模型名 / 思考强度**只从该会话 `agentKind` 对应 CLI 的能力列表读取** | 前端写死第三方模型名 |
 | 工具调用：本机 grok 的完整工具集（v0.33 不传白名单 / 黑名单；v0.34 批准方式可选，没选过是全部批准） | 应用内再做一套批准框 |
 | 组件未就绪文案见下 | 在命令行上禁止写文件、跑命令、联网、MCP、子代理 |
@@ -3950,7 +3955,7 @@ type ExportSubtitleRequest struct {
 - **streaming-json**（NDJSON；官方 schema 未正式发布，按 CLI 0.2.x 捕获）：`{"type":"text","data"}` 正文增量；`thought` 与工具调用单独显示、不写入助手正文；`end` 结束；`error` 失败。  
 - **认证**：继承用户环境 `XAI_API_KEY` 或 `~/.grok/auth.json`（`grok login`）。**无** Base URL / API Key 设置。  
 - **工具**（v0.33）：不传 `--tools`、`--disallowed-tools`、`--deny`、`--no-subagents`、`--disable-web-search`，环境不设 `GROK_SANDBOX` / `GROK_WRITE_FILE`。写文件、改文件、跑命令、联网、MCP、子代理都按本机 grok 的默认工具集。全部批准时带 `--always-approve`，这些动作不会弹出批准框；其它模式不带这个开关（v0.34）。普通模式在这个窗口里点不到确认，可能停住，需要按停止。仍设 `GROK_DISABLE_AUTOUPDATER=1`。  
-- **能力列表**（v0.31.4）：`models` 来自 `grok models`，`displayName` = CLI 给的模型 ID 原样（不映射成「Cat 助手 …」）；**探测超时 / 报错 / 解析不出 → 空列表，不传 `-m`（用 CLI 默认模型），没有写死的回退模型**（v0.31.5）。`thinkLevels` = `low` / `medium` / `high` / `xhigh`，显示 `低` / `中` / `高` / `超高`（「超高」待产品确认）；只有用户选了才传 `--reasoning-effort`，没选时界面显示 `默认`（v0.31.5）。  
+- **能力列表**（v0.31.4）：`models` 来自 `grok models`，`displayName` = CLI 给的模型 ID 原样（不映射成「Cat 助手 …」）；**探测超时 / 报错 / 解析不出 → 空列表，不传 `-m`（用 CLI 默认模型），没有写死的回退模型**（v0.31.5）。`thinkLevels` = `low` / `medium` / `high` / `xhigh`，显示 `低` / `中` / `高` / `极高`（「极高」待产品确认）；只有用户选了才传 `--reasoning-effort`，没选时界面显示 `默认`（v0.31.5）。  
 - **取消**：`CancelCatTurn` → 取消 context → `proc.Kill` 进程树。超时默认 10 分钟。
 
 ### 6.19.4 数据结构
@@ -4026,7 +4031,7 @@ CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，
 
 - 欢迎页：**仅「Cat Build」可选**；其余禁用 + 「下一期开放」。选中 Build 后 `Create`/`Send` 带 `agentKind=cat_build`。  
 - 合一胶囊：「{模型展示名} · {思考强度展示名}」，选项来自**该会话 agentKind** 的 List API。  
-- 批准方式按对话记住：普通模式、Plan、自动审查、全部批准（v0.34）。没选过是全部批准。无「助手」「定时任务」。无 URL/Key 设置。
+- 批准方式按对话记住：普通模式、Plan、自动审查、全部批准（v0.34）。没选过是全部批准（v0.35 起新对话按 Cat 设置里的默认批准方式，见 6.19.12）。无「助手」。「设置」「定时任务」见 6.19.12 / 6.19.13。无 URL/Key 设置。
 
 ### 6.19.7 错误码（v0.30 新增 2 个；2.1 由 36 变为 38）
 
@@ -4039,7 +4044,7 @@ CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，
 
 ### 6.19.8 延后
 
-`cat_cli` / `cat_code` / `codex_cli` 注册与运行；完全访问；助手；定时任务；URL/Key；组件下载专节。（流式事件已提前到 6.19.9，下一个包做。）扩展时**只加注册表项与胶囊启用**，会话锁定规则不变。
+`cat_cli` / `cat_code` / `codex_cli` 注册与运行；完全访问；助手；定时任务的 cron / 续接已有对话 / 开机自启；URL/Key；组件下载专节。（流式事件已提前到 6.19.9，下一个包做。）扩展时**只加注册表项与胶囊启用**，会话锁定规则不变。
 
 
 ### 6.19.9 流式事件与取消（v0.30.1；v0.30.2 对齐 #174）
@@ -4325,7 +4330,7 @@ CREATE INDEX idx_cat_conversations_project ON cat_conversations (project_id, upd
 6. 删除项目后文件夹里文件一个不少（对比删除前后的文件清单）。
 7. **重新选择文件夹**（v0.31.1）：把项目文件夹剪切到新位置后重新选择 → 对话、消息都在，可继续发消息，`cat:project` 恢复；新位置分别试 **OneDrive 文件夹**（含仅联机占位）、**网络盘**（映射盘符和 UNC 子目录）；选到别的项目的文件夹（含大小写不同）→ 重复提示且本项目不变；选同一文件夹 → 无变化；新旧文件夹里的文件一个不少。
 8. **在文件管理器中显示**（v0.31.1）：Windows 资源管理器、macOS 访达各开一次（中文 / 空格路径、网络盘路径）；文件夹不在时返回 `项目文件夹不见了。` 且不会新建文件夹。
-9. **思考强度 `xhigh`**（v0.31.5）：分别用 `grok-4.6`、`grok-4.5` 选「超高」发消息 → 回复正常、不报错（`grok-4.5` 可能只支持到 `high`，预期 CLI 忽略）；不选强度时命令行里没有 `--reasoning-effort`；模型列表拿不到时不带 `-m` 也能正常回复。
+9. **思考强度 `xhigh`**（v0.31.5）：分别用 `grok-4.6`、`grok-4.5` 选「极高」发消息 → 回复正常、不报错（`grok-4.5` 可能只支持到 `high`，预期 CLI 忽略）；不选强度时命令行里没有 `--reasoning-effort`；模型列表拿不到时不带 `-m` 也能正常回复。
 10. **完整工具**（v0.33）：让它新建 / 修改项目里的文件、运行命令 → 应能做到，且没有批准框卡住；命令行里没有 `--tools` / `--disallowed-tools` / `--deny`。
 
 ### 6.19.11 文件面板（v0.32，架构师 10-09 定）
@@ -4412,6 +4417,156 @@ type RevealCatConversationFolderRequest struct {
 4. 一个文件夹 **超过 500 项** → 只显示前 500 项并提示截断，排序文件夹在前。
 5. **旧对话**（已有 `tmp/cat/cwd-<convId>`）升级后仍能续聊（同一 CLI 会话），文件面板显示旧文件夹内容。
 6. 新建普通对话后立即「打开文件夹」→ 资源管理器打开 `<数据目录>\cat\conversations\<convId>`；删除该对话后文件夹被删，项目文件夹不受影响。
+
+### 6.19.12 Cat 设置（v0.35，老板 10-13 提出，架构师定）
+
+入口：Cat 侧栏底部「设置」（之前是静态行，改为可点），在 Cat 全屏内打开设置页，左侧分区、右侧表单。界面不出现 `grok` / `xAI` / `CLI` / `命令行`。分区：**通用**、**自定义指令**、**扩展（只读）**、**关于**。文案以设计《Cat-设置与定时任务-设计说明》为准（仓库里还没有这份文档，到了再对齐；冲突时以设计稿文案为准、以本节行为为准）。
+
+#### 6.19.12.1 数据与接口
+
+```go
+type CatSettings struct {
+    DefaultModel        string `json:"defaultModel"`        // 空 = 不传 -m（用默认模型）
+    DefaultEffort       string `json:"defaultEffort"`       // 空 = 不传 --reasoning-effort；否则 low|medium|high|xhigh
+    DefaultApprovalMode string `json:"defaultApprovalMode"` // 空 = 全部批准；normal|plan|auto|approve（同 v0.34 / catConvPrefs）
+    CustomInstruction   string `json:"customInstruction"`   // 全局自定义指令，最多 4000 字；空 = 不传
+}
+GetCatSettings() (CatSettings, error)
+SaveCatSettings(req CatSettings) (CatSettings, error) // 返回保存后的值
+
+type CatInspectItem struct {
+    Name        string `json:"name"`
+    Description string `json:"description,omitempty"`
+    Source      string `json:"source,omitempty"` // bundled | user | project | plugin 等，按 CLI 原样
+    Enabled     bool   `json:"enabled"`
+}
+type CatInspectResult struct {
+    Skills     []CatInspectItem `json:"skills"`
+    Plugins    []CatInspectItem `json:"plugins"`
+    Hooks      []CatInspectItem `json:"hooks"`
+    MCPServers []CatInspectItem `json:"mcpServers"`
+    Agents     []CatInspectItem `json:"agents"`
+    Version    string           `json:"version,omitempty"`
+    Reason     string           `json:"reason,omitempty"` // 空 = 成功；not_ready | timeout | parse
+}
+InspectCatConfig(req struct{ ProjectID string `json:"projectId"` }) (CatInspectResult, error)
+```
+
+1. **存储**：`settings` 表键 `cat.settings`（JSON），没有记录 = 全部空值。不新建表。
+2. **校验**：`defaultEffort` 不在 `low|medium|high|xhigh|""`、`defaultApprovalMode` 不在 `normal|plan|auto|approve|""`、`customInstruction` 超 4000 字 → `INVALID_ARGUMENT`。`defaultModel` 不校验是否在当前模型列表里（列表可能暂时为空）；发送时若该模型已不在列表里，前端按「默认」显示。
+3. **默认值只作用于新对话**：新建对话时前端用 `CatSettings` 的三个默认值初始化这条对话的偏好（`catConvPrefs`）；**已有对话已记住的模型 / 强度 / 批准方式一律不改**；没记过偏好的老对话仍按 v0.34（全部批准、默认模型 / 强度），不回填。`agentKind` 锁定规则不变。
+4. **全局自定义指令**：非空时，后端在**每一轮**（首轮和续聊，含定时任务产生的对话）调用里带 `--rules <指令>`；空则不带。保存后下一轮生效，不影响正在进行的一轮。界面称「自定义指令」，说明文案 `每次对话都会自动带上这段指令。`（设计稿可改）。
+5. **InspectCatConfig**：在 `projectId` 对应项目文件夹（空 / 项目不在 → 普通对话目录的父目录 `<数据目录>/cat`）下执行 `grok inspect --json`，超时 15 秒，走 `runCmd`（隐藏窗口，同 #200）。只取上面五类的名字 / 描述 / 来源 / 启用状态，**不回传文件路径、命令行、环境变量、密钥**。未就绪 → `reason=not_ready`；超时 → `timeout`；JSON 认不出 → `parse`；这些情况都返回空列表、`error` 为 nil，**无新错误码**。一期只读，不提供增删 / 启停。
+6. **关于**：版本（`InspectCatConfig.version` 或 `GetCatStatus`）、就绪状态、「重新检测」（`RecheckCat`）。
+
+### 6.19.13 定时任务（v0.35，老板 10-13 提出，架构师定）
+
+入口：Cat 侧栏「定时任务」（去掉禁用和「下一期开放」）→ 列表页；新建 / 编辑用弹窗。界面不出现 `grok` / `xAI` / `CLI` / `命令行`。
+
+#### 6.19.13.1 数据结构
+
+```go
+type CatScheduleRunStatus string // running | succeeded | failed | missed | skipped | stopped
+
+type CatScheduleRun struct {
+    ID             string               `json:"id"`
+    ScheduleID     string               `json:"scheduleId"`
+    ConversationID string               `json:"conversationId,omitempty"` // missed / skipped / 未建对话就失败的没有
+    Status         CatScheduleRunStatus `json:"status"`
+    Error          *AppError            `json:"error,omitempty"`
+    ScheduledFor   int64                `json:"scheduledFor"` // 计划时间（毫秒）；立即运行 = 点击时间
+    StartedAt      int64                `json:"startedAt,omitempty"`
+    FinishedAt     int64                `json:"finishedAt,omitempty"`
+    Manual         bool                 `json:"manual"` // 立即运行
+}
+
+type CatSchedule struct {
+    ID             string          `json:"id"`
+    Name           string          `json:"name"`      // 1~60 字
+    Prompt         string          `json:"prompt"`    // 界面称「指令」，1~4000 字
+    ProjectID      string          `json:"projectId"` // 必填，必须是已有项目
+    Frequency      string          `json:"frequency"` // once | daily | weekdays | weekly
+    Time           string          `json:"time"`      // "HH:MM"，daily / weekdays / weekly 必填
+    Weekdays       []int           `json:"weekdays"`  // weekly 必填，1~7（周一=1），去重排序
+    RunAt          int64           `json:"runAt"`     // once 必填，毫秒，必须晚于现在
+    Timezone       string          `json:"timezone"`  // 只读，固定为本机时区名（如 Asia/Shanghai），仅用于显示
+    Model          string          `json:"model"`     // 空 = 默认
+    Effort         string          `json:"effort"`    // 空 = 默认；low|medium|high|xhigh
+    ApprovalMode   string          `json:"approvalMode"` // normal|plan|auto|approve，新建默认 plan
+    Enabled        bool            `json:"enabled"`
+    ProjectDeleted bool            `json:"projectDeleted"`
+    NextRunAt      int64           `json:"nextRunAt,omitempty"` // 暂停 / once 已跑过 / 项目已删 → 0
+    LastRun        *CatScheduleRun `json:"lastRun,omitempty"`
+    CreatedAt      int64           `json:"createdAt"`
+    UpdatedAt      int64           `json:"updatedAt"`
+}
+```
+
+**没有**单个任务的附加指令字段：全局自定义指令（6.19.12）自动带上。
+
+#### 6.19.13.2 接口
+
+```go
+ListCatSchedules() ([]CatSchedule, error)                 // 按 createdAt 倒序，再按 id 倒序
+CreateCatSchedule(req CatScheduleInput) (CatSchedule, error)
+UpdateCatSchedule(req struct{ ID string; CatScheduleInput }) (CatSchedule, error)
+DeleteCatSchedule(req struct{ ID string }) error          // 运行记录一起删；已产生的对话不删
+PauseCatSchedule(req struct{ ID string }) (CatSchedule, error)
+ResumeCatSchedule(req struct{ ID string }) (CatSchedule, error)
+RunNowCatSchedule(req struct{ ID string }) (CatScheduleRun, error)
+ListCatScheduleRuns(req struct{ ScheduleID string; Limit int }) ([]CatScheduleRun, error) // 倒序，默认 50，最多 200
+ClearAllCatConversations() error                          // 见 6.19.13.7
+```
+
+`CatScheduleInput` = `CatSchedule` 里的 `name, prompt, projectId, frequency, time, weekdays, runAt, model, effort, approvalMode`（`enabled` 新建默认 true）。
+
+校验：字段缺失 / 越界 / `once` 的 `runAt` 不晚于现在 / 强度或批准方式非法 → `INVALID_ARGUMENT`；`id` 或 `projectId` 不存在 → `NOT_FOUND`；`Resume` 一个 `projectDeleted` 的任务 → `INVALID_ARGUMENT`（先编辑换项目）；编辑时换成有效项目 → 清掉 `projectDeleted`。`RunNow` 对暂停的任务也可以；上一次还在跑 → 不报错，返回一条 `skipped`。
+
+#### 6.19.13.3 调度
+
+1. 后端在应用进程内跑调度器（启动后开始，每 30 秒对一次时钟，并在系统时间 / 时区变化后重新计算），**只在应用进程活着时运行，最小化到托盘也算**；退出应用即停。**一期不做开机自启、不做 cron**。
+2. 时间按本机时区计算；`weekdays` = 周一到周五。夏令时跳过的时刻顺延到下一个有效时刻。
+3. **错过**：启动时或时钟跳变后发现计划时间已过（超过 2 分钟宽限）→ 每个任务只记**一条** `missed`（「已错过」），**不补跑**，`nextRunAt` 前移到下一个未来时刻。`once` 错过后不再运行。
+4. **跳过**：到点时该任务上一次运行还在进行 → 记 `skipped`（「已跳过」），不排队。
+5. `once` 运行（含错过）后自动 `enabled=false`、`nextRunAt=0`。
+
+#### 6.19.13.4 一次运行
+
+1. 校验项目：项目不在（`missing`）→ 运行 `failed`，`error.code=CAT_PROJECT_MISSING`（`项目文件夹不见了。`），不建对话；Cat 未就绪 → `failed` + `CAT_NOT_READY`。
+2. 在该项目里新建一条**普通对话**（`agentKind=cat_build`，标题 = 任务名 + 计划时间，如 `每日检查 · 10-14 09:00`），对话偏好 = 任务的模型 / 强度 / 批准方式；然后按 `SendCatMessage` 发 `prompt`。全局自定义指令按 6.19.12.4 带 `--rules`。这条对话和手动建的对话完全一样（列表里可见，可继续聊），只是 `cat_schedule_runs.conversation_id` 指向它。
+3. 一轮的结果映射：`cat:turn` `completed` → `succeeded`；`failed` → `failed`（带原 error）；`cancelled` → `stopped`（「已手动停止」，用户在对话里按停止）。
+4. 结束时发**系统通知**：标题 = 任务名，正文 `已完成` / `运行失败` / `已手动停止`（设计稿可改），点击打开该对话。`missed` / `skipped` 不发通知。
+5. 批准方式选「全部批准」时，弹窗里该选项下显示**橙色提示**（文案见设计稿；建议 `会自动执行改文件、运行命令等操作，无人确认。`）。「普通模式」在无人值守下可能卡住，提示 `需要确认时会停住，直到超时。`；超时沿用一轮 10 分钟。
+
+#### 6.19.13.5 事件 `cat:schedule`
+
+`{ scheduleId, schedule?: CatSchedule, run?: CatScheduleRun, deleted?: bool }`：任务增删改、暂停 / 恢复、运行开始 / 结束、missed / skipped 时发。前端据此刷新列表行，无需轮询。
+
+#### 6.19.13.6 迁移 `0012_cat_schedules.sql`
+
+建 `cat_schedules`、`cat_schedule_runs`（见第 6 节表清单），索引 `cat_schedule_runs(schedule_id, scheduled_for DESC)`。`project_id` 不加外键级联（删除项目由代码处理，见下）。
+
+#### 6.19.13.7 与项目 / 对话的关系
+
+1. **删除项目**（`DeleteCatProject`）：该项目的定时任务**不删**，自动 `enabled=false`、`projectDeleted=true`、`nextRunAt=0`，列表行标灰并显示 `项目已删除，请编辑后换一个项目。`；正在运行的一轮按 6.19.10 的规则先取消（记 `stopped`）。
+2. 项目 `missing`（文件夹不见了）：任务不暂停，到点运行按 6.19.13.4-1 记 `failed`。
+3. 删除单条对话：不影响任务；对应运行记录的 `conversationId` 保留，点开时提示 `这条对话已删除。`。
+4. **清空全部对话**（`ClearAllCatConversations`，入口在 Cat 设置 → 通用底部，二次确认）：删除所有对话（含定时任务产生的）及普通对话自己的文件夹（同 `DeleteCatConversation`），先取消进行中的轮次；**不删定时任务和运行记录、不动项目及项目文件夹**。确认文案：`所有对话记录会被删除，包括定时任务产生的对话，无法恢复。定时任务、项目文件夹和里面的文件不受影响。`
+
+#### 6.19.13.8 界面文案（其余以设计说明为准）
+
+- 列表常驻提示：`只在 FFmpegFree 打开时运行（最小化到托盘也会运行）。错过的时间点不补跑，列表里会标「已错过」。`
+- 「指令」输入框下方：`全局自定义指令会自动带上。`
+- 运行状态显示名：`运行中` / `成功` / `失败` / `已错过` / `已跳过` / `已手动停止`。
+- 频率显示名：`仅一次` / `每天` / `工作日` / `每周`；时区只显示、不可改。
+
+#### 6.19.13.9 真机待验证（Windows）
+
+1. 设一个 2 分钟后的「仅一次」任务 → 到点在项目下出现新对话并回复，系统通知可点开。
+2. 最小化到托盘时到点仍运行；退出应用跨过计划时间再打开 → 一条「已错过」，不补跑。
+3. 运行中再「立即运行」→ 「已跳过」；在产生的对话里按停止 → 「已手动停止」。
+4. 项目文件夹改名 → 运行「失败」显示 `项目文件夹不见了。`；删除项目 → 任务暂停并标「项目已删除」。
+5. 全局自定义指令改动后，下一次运行生效。
 
 ## 7. 本地流服务（已取消）
 
