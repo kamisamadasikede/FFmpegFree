@@ -74,15 +74,17 @@
               ><i /></button>
             </div>
             <div class="c5" role="cell" @click.stop>
-              <button
-                v-if="s.lastRun?.status === 'running' && s.lastRun.conversationId"
-                type="button"
-                class="ib"
-                :title="C.stop"
-                :aria-label="C.stop"
-                data-testid="cat-sched-stop"
-                @click="stopRun(s)"
-              ><FIcon name="stop" :size="14" /></button>
+              <!-- 自绘提示（不用原生 title）：悬停 300ms 后 / 键盘聚焦立即出现，离开立即消失 -->
+              <span v-if="s.lastRun?.status === 'running' && s.lastRun.conversationId" class="tipw">
+                <button
+                  type="button"
+                  class="ib"
+                  :aria-label="C.stop"
+                  data-testid="cat-sched-stop"
+                  @click="stopRun(s)"
+                ><FIcon name="stop" :size="14" /></button>
+                <span class="tp" role="tooltip" aria-hidden="true">{{ C.stop }}</span>
+              </span>
               <button type="button" class="ib" :aria-label="C.more" aria-haspopup="menu" :data-testid="'cat-sched-more-' + s.id" @click="openMenu(s, $event)"><FIcon name="more" :size="14" /></button>
             </div>
           </div>
@@ -122,9 +124,9 @@
             <div v-else-if="!runs.length" class="empty">{{ C.runsEmpty }}</div>
             <TransitionGroup v-else name="tr">
               <div v-for="r in runs" :key="r.id" class="run" :data-testid="'cat-run-' + r.status">
-                <span class="rs" :class="runView(r, now, 'runs').tone"><i />{{ runView(r, now, 'runs').label }}</span>
+                <span class="rs" :class="runView(r, now).tone"><i />{{ runView(r, now).label }}</span>
                 <span class="rt">{{ fmtWhen(r.scheduledFor, now) }}<template v-if="r.manual"> · {{ C.manualRun }}</template><template v-if="r.finishedAt && r.startedAt"> · 用时 {{ formatDuration(r.finishedAt - r.startedAt) }}</template></span>
-                <span v-if="runView(r, now, 'runs').sub" class="rsub" :class="{ bad: r.status === 'failed' }">{{ runView(r, now, 'runs').sub }}</span>
+                <span v-if="runView(r, now).sub" class="rsub" :class="{ bad: r.status === 'failed' }">{{ runView(r, now).sub }}</span>
                 <button v-if="r.conversationId" type="button" class="lnk" @click="openConv(r.conversationId)">{{ C.openConv }}</button>
               </div>
             </TransitionGroup>
@@ -525,6 +527,40 @@ small {
   outline: none;
   box-shadow: var(--cat-focus);
 }
+/* 停止键提示 */
+.tipw {
+  position: relative;
+  display: inline-flex;
+}
+.tp {
+  position: absolute;
+  right: calc(100% + 6px);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 5;
+  padding: 4px 8px;
+  border-radius: var(--cat-radius-sm);
+  background: var(--cat-text);
+  color: var(--cat-bg);
+  box-shadow: var(--cat-shadow-md);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: none;
+}
+.tipw:hover .tp {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 120ms var(--ff-ease) 300ms, visibility 0ms linear 300ms;
+}
+.tipw:has(:focus-visible) .tp {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 120ms var(--ff-ease);
+}
 /* 运行状态 */
 .rs {
   display: inline-flex;
@@ -826,6 +862,12 @@ small {
   .mn-enter-active,
   .mn-leave-active,
   .tpl {
+    transition: none !important;
+  }
+  .tipw:hover .tp {
+    transition: visibility 0ms linear 300ms, opacity 0ms linear 300ms !important;
+  }
+  .tipw:has(:focus-visible) .tp {
     transition: none !important;
   }
 }
