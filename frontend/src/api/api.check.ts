@@ -42,6 +42,7 @@ import { catProjectsChecks } from './catProjects.check'
 import { catDeleteChecks } from '@/views/cat/catDelete.check'
 import { catConvPrefsChecks } from '@/views/cat/catConvPrefs.check'
 import { catThinkChecks } from '@/views/cat/catThink.check'
+import { catPanelsChecks } from '@/views/cat/catPanels.check'
 import { catLastConvChecks } from '@/views/cat/catLastConv.check'
 import { catMarkdownChecks } from '@/utils/catMarkdown.check'
 import { catFilesChecks } from './catFiles.check'
@@ -991,6 +992,7 @@ export async function runApiChecks(): Promise<string[]> {
         await catProjectsChecks(eq) // Cat 项目（v0.31 / v0.31.1）：模拟层规则 + 文案映射
         await catDeleteChecks(eq) // Cat 删除对话（v0.31.2）：mock 删除、欢迎态、迟到事件忽略
         catConvPrefsChecks(eq) // Cat 每条对话自己的模型和思考强度
+        catPanelsChecks(eq) // Cat 设置 / 定时任务纯函数（v0.35.x）
         await catThinkChecks(eq) // Cat 模型和思考强度按对话记住：刷新还在，换对话互不影响
         await catLastConvChecks(eq) // Cat 重新进入：回到上次对话；新对话不记；删了的回到欢迎页
         await catMarkdownChecks(eq) // Cat 助手回复 Markdown：元素、原始 HTML、链接协议、图片不加载、流式未闭合围栏

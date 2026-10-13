@@ -12,8 +12,13 @@
  *   missing  —— 「字幕项目」的文件夹不见了（项目标灰、输入框禁用）
  *   slowdel  —— 删除对话要 1.5 秒（走查「删除中」小转圈）
  *   delfail  —— 删除对话失败（走查「删除失败，请重试。」浮提示）
- *   caps     —— 模型 / 思考强度给一份走查用列表（含「超高」等任意档位），走查胶囊「默认」和选档
+ *   caps     —— 模型 / 思考强度给一份走查用列表（含「极高」等任意档位；模型名是走查用的真实风格 ID，不叫「Cat 助手 …」），走查胶囊「默认」和选档
  *   md       —— 配合 stream：推一段 Markdown 回复（标题、列表、表格、代码块、引用、链接、外链图片、原始 HTML）
+ *   savefail —— Cat 设置保存失败（该项回滚 +「保存失败，请重试。」）
+ *   inspectslow / inspectfail / inspectempty —— 技能与扩展：加载 4 秒 / 失败 / 为空
+ *   clearfail —— 清空全部对话失败
+ *   schedempty —— 定时任务为空（空状态 + 模板卡）
+ *   schedfail —— 定时任务的保存 / 启停 / 立即运行 / 删除都失败
  *   mdhold   —— 配合 stream,md：推到代码块中间就停住（围栏未闭合、仍在生成），走查流式中的代码块
  *
  * 另：?cat_os=windows|darwin|linux —— 走查时「在…中显示」按指定平台取文案（默认按浏览器 userAgent 猜）。
@@ -25,8 +30,8 @@ import type { CatModel, CatThinkLevel } from '@/api/cat'
 /** 走查：?cat_sim=caps 时的模型列表（第一项 = 默认模型） */
 export function simModels(): CatModel[] {
   return [
-    { id: 'sim-model-a', displayName: 'Cat 助手 1.0' },
-    { id: 'sim-model-b', displayName: 'Cat 助手 1.0 快速' },
+    { id: 'sim-model-a', displayName: 'model-1.0' },
+    { id: 'sim-model-b', displayName: 'model-1.0-fast' },
   ]
 }
 
@@ -36,12 +41,12 @@ export function simThinks(): CatThinkLevel[] {
     { id: 'low', displayName: '低' },
     { id: 'medium', displayName: '中' },
     { id: 'high', displayName: '高' },
-    { id: 'xhigh', displayName: '超高' },
+    { id: 'xhigh', displayName: '极高' },
   ]
 }
 
-export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'md' | 'mdhold'
-const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'md', 'mdhold']
+export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'md' | 'mdhold' | 'savefail' | 'inspectslow' | 'inspectfail' | 'inspectempty' | 'clearfail' | 'schedempty' | 'schedfail'
+const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'md', 'mdhold', 'savefail', 'inspectslow', 'inspectfail', 'inspectempty', 'clearfail', 'schedempty', 'schedfail']
 
 export const catSim: ReadonlySet<CatSimFlag> = (() => {
   if (!import.meta.env.DEV || typeof window === 'undefined') return new Set<CatSimFlag>()

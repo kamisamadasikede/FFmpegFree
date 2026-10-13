@@ -4,10 +4,12 @@
     <div v-if="phase === 'loading'" class="ct-load" role="status" aria-live="polite">
       <div class="in"><i class="ct-spin" aria-hidden="true" /><span>正在进入 Cat…</span></div>
     </div>
-    <div v-else class="ct cat-in" :class="{ 'no-right': isNew }">
+    <div v-else class="ct cat-in" :class="{ 'no-right': isNew || catPanels.view !== 'chat' }">
       <CatSidePanel @back="goBack" />
 
-      <section class="ct-c" aria-label="对话">
+      <CatSettingsView v-if="catPanels.view === 'settings'" />
+      <CatSchedulesView v-else-if="catPanels.view === 'schedules'" />
+      <section v-else class="ct-c" aria-label="对话">
         <!-- 中间顶部浮提示（设计 §07：重复文件夹等），2.4s 自动消失 -->
         <div
           v-if="catState.notice"
@@ -166,9 +168,10 @@
         </template>
       </section>
 
-      <CatFilesPanel v-if="!isNew" :conv-id="catState.sel" :missing="projectMissing" />
+      <CatFilesPanel v-if="!isNew && catPanels.view === 'chat'" :conv-id="catState.sel" :missing="projectMissing" />
     </div>
     <CatProjectDeleteDialog />
+    <CatScheduleToast />
   </div>
 </template>
 
@@ -181,6 +184,11 @@ import CatFilesPanel from '@/components/cat/CatFilesPanel.vue'
 import CatComposer from '@/components/cat/CatComposer.vue'
 import CatMessages from '@/components/cat/CatMessages.vue'
 import CatProjectDeleteDialog from '@/components/cat/CatProjectDeleteDialog.vue'
+import CatSettingsView from '@/components/cat/panels/CatSettingsView.vue'
+import CatSchedulesView from '@/components/cat/panels/CatSchedulesView.vue'
+import CatScheduleToast from '@/components/cat/panels/CatScheduleToast.vue'
+import { catPanels, initCatPanels } from './catPanels'
+import { reapplyNewConvDefaults, selectConv } from './catState'
 import { CAT_PROJECT_COPY as PC } from '@/api/catProjects'
 import { ElMessage } from 'element-plus'
 import { CAT_COPY } from '@/api/cat'
@@ -386,10 +394,17 @@ function onCopyKey(e: KeyboardEvent) {
   const write = hasWailsBackend() ? ClipboardSetText(text) : navigator.clipboard.writeText(text)
   void write.catch(() => undefined)
 }
+let disposePanels: (() => void) | undefined
+// 设置里的新对话默认值读到 / 改了：欢迎页没选过时跟着换
+watch(
+  () => [catPanels.settings.defaultModel, catPanels.settings.defaultEffort, catPanels.settings.defaultApprovalMode],
+  () => reapplyNewConvDefaults(),
+)
 onMounted(() => {
   window.addEventListener('keydown', onCopyKey)
   observeFollow()
   disposeCat = initCat()
+  disposePanels = initCatPanels((id) => catState.projects.find((p) => p.id === id)?.name ?? '', (id) => selectConv(id))
   void refreshCapabilities()
   if (phase.value !== 'loading') return
   // 至少停 1.2 秒；会话列表没回来之前继续停，避免先闪出「新对话」再跳到上次的对话
@@ -412,6 +427,7 @@ onBeforeUnmount(() => {
   clearTimeout(timer)
   stopReady?.()
   disposeCat?.()
+  disposePanels?.()
   followObserver?.disconnect()
 })
 

@@ -5,14 +5,23 @@
       <b>Cat</b>
       <button type="button" class="ct-back" title="返回原页面并展开侧栏" @click="emit('back')"><FIcon name="left" :size="14" />返回</button>
     </div>
-    <button type="button" class="ct-it new" :class="{ on: catState.sel === NEW_CONV && !catState.newProjectId }" @click="selectConv(NEW_CONV)">
+    <button type="button" class="ct-it new" :class="{ on: catPanels.view === 'chat' && catState.sel === NEW_CONV && !catState.newProjectId }" @click="selectConv(NEW_CONV)">
       <FIcon name="plus" :size="16" /><span class="t">新对话</span><span class="r"><FIcon name="list" :size="16" /></span>
     </button>
     <button type="button" class="ct-it disabled" aria-disabled="true" :title="laterTip" @click="onLater">
       <FIcon name="bot" :size="16" /><span class="t">助手</span>
     </button>
-    <button type="button" class="ct-it disabled" aria-disabled="true" :title="laterTip" @click="onLater">
-      <FIcon name="clock" :size="16" /><span class="t">定时任务</span>
+    <!-- v0.35：定时任务正式入口（带启用数）。CAT_SCHEDULE_BACKEND_READY=false 时打包后的应用里不出现 -->
+    <button
+      v-if="schedulesOn"
+      type="button"
+      class="ct-it"
+      :class="{ on: catPanels.view === 'schedules' }"
+      :aria-current="catPanels.view === 'schedules' ? 'page' : undefined"
+      data-testid="cat-nav-schedules"
+      @click="openView('schedules')"
+    >
+      <FIcon name="clock" :size="16" /><span class="t">定时任务</span><span v-if="enabledScheduleCount()" class="r cnt">{{ enabledScheduleCount() }}</span>
     </button>
 
     <div ref="scrollEl" class="ct-scroll">
@@ -115,7 +124,7 @@
                 v-for="c in p.convs"
                 :key="c.id"
                 class="pc"
-                :class="{ on: c.id === catState.sel, menu: cmenuFor === c.id }"
+                :class="{ on: catPanels.view === 'chat' && c.id === catState.sel, menu: cmenuFor === c.id }"
                 role="button"
                 tabindex="0"
                 :data-cid="c.id"
@@ -157,7 +166,7 @@
         v-for="c in catState.plain"
         :key="c.id"
         class="ct-it dc"
-        :class="{ on: c.id === catState.sel, menu: cmenuFor === c.id }"
+        :class="{ on: catPanels.view === 'chat' && c.id === catState.sel, menu: cmenuFor === c.id }"
         role="button"
         tabindex="0"
         :data-cid="c.id"
@@ -178,7 +187,14 @@
         ><FIcon name="more" :size="14" /></button>
       </div>
     </div>
-    <div class="ct-it"><FIcon name="set" :size="16" /><span class="t">设置</span></div>
+    <button
+      type="button"
+      class="ct-it"
+      :class="{ on: catPanels.view === 'settings' }"
+      :aria-current="catPanels.view === 'settings' ? 'page' : undefined"
+      data-testid="cat-nav-settings"
+      @click="openView('settings')"
+    ><FIcon name="set" :size="16" /><span class="t">设置</span></button>
 
     <!-- 项目菜单（设计 §02）：fixed 定位，可越过侧栏右边界 -->
     <div
@@ -244,6 +260,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
+import { catPanels, catSchedulesVisible, enabledScheduleCount, openView } from '@/views/cat/catPanels'
 import { CAT_CONV_COPY as CC, CAT_COPY } from '@/api/cat'
 import { CAT_PROJECT_COPY as PC, CAT_PROJECT_NAME_MAX } from '@/api/catProjects'
 import type { CatProject } from '@/api/catMock'
@@ -271,6 +288,7 @@ function rowDotLabel(id: string, stored?: string) {
 
 const emit = defineEmits<{ back: [] }>()
 const laterTip = CAT_COPY.later
+const schedulesOn = catSchedulesVisible()
 
 const scrollEl = ref<HTMLElement>()
 const menuEl = ref<HTMLElement>()

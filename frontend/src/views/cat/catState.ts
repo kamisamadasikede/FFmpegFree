@@ -79,6 +79,7 @@ import { previewKind, type CatShownFile } from '@/components/cat/catMedia'
 import { applyStreamEvent, newStreamMsg, type CatStreamEvent, type CatStreamMsg, type CatTurnEvent } from '@/api/catStream'
 import { liveTurnPlan, transcriptChanged } from './catLive'
 import { AppError, toAppError } from '@/api/call'
+import { catPanels, defaultConvPref } from './catPanels'
 import { catSim, catSimOs, catSimPicks, simModels, simStream, simThinks } from './catDevSim'
 import {
   CAT_CONV_PREFS_KEY,
@@ -433,7 +434,8 @@ export function currentAgentKind(): CatAgentKind {
 
 /** 把当前对话记下的模型和强度摆到界面上。列表还没到时先用记下的 id。 */
 function showConvPref(convId: string) {
-  const pref = prefOf(loadPrefMap(), convId)
+  // v0.35：欢迎页没选过时用 Cat 设置里的新对话默认值；已有对话不回填
+  const pref = prefOf(loadPrefMap(), convId) ?? (convId === NEW_CONV ? defaultConvPref() : null)
   catState.access = resolveAccess(pref?.access)
   if (!capsLoaded) {
     catState.model = pref?.model ?? ''
@@ -471,7 +473,14 @@ export function chooseAccess(id: string) {
 
 /** 欢迎页上选的模型和强度跟着新对话走，不写到别的对话上。 */
 function carryDraftPref(toId: string) {
-  savePrefMap(carryPref(loadPrefMap(), NEW_CONV, toId))
+  const map = loadPrefMap()
+  // 欢迎页没点过：把设置里的默认值写给新对话（契约 6.19.12.1-3）
+  if (!prefOf(map, NEW_CONV)) {
+    const d = defaultConvPref()
+    if (d.model || d.think || d.access) savePrefMap(putPref(map, toId, d))
+    return
+  }
+  savePrefMap(carryPref(map, NEW_CONV, toId))
 }
 
 /**
@@ -1199,12 +1208,14 @@ export async function createProject() {
 export function newConvInProject(id: string) {
   const p = catState.projects.find((x) => x.id === id)
   if (!p || p.missing) return
+  catPanels.view = 'chat'
   catState.sel = NEW_CONV
   catState.newProjectId = id
 }
 
 /** 选中某条对话 / 「新对话」。不停止其它对话里还在跑的回复 */
 export function selectConv(id: string) {
+  catPanels.view = 'chat'
   catState.sel = id
   if (id === NEW_CONV) catState.newProjectId = ''
   delete catState.unseen[id]
@@ -1304,4 +1315,25 @@ export async function relocateProject(id: string) {
     }
     notify(projectErrorText(err), 'warn')
   }
+}
+
+/** 「清空全部对话」成功后：真后端重新读列表；模拟里直接清空内存里的对话（项目保留） */
+export async function afterClearAll() {
+  catState.turns = {}
+  catState.messages = {}
+  catState.unseen = {}
+  catState.outcome = {}
+  catState.sel = NEW_CONV
+  catState.newProjectId = ''
+  if (live) {
+    await reloadConversations()
+    return
+  }
+  catState.plain = []
+  for (const p of catState.projects) p.convs = []
+}
+
+/** 设置里的新对话默认值变了：欢迎页没选过时跟着换 */
+export function reapplyNewConvDefaults() {
+  if (catState.sel === NEW_CONV && !prefOf(loadPrefMap(), NEW_CONV)) showConvPref(NEW_CONV)
 }
