@@ -88,6 +88,9 @@ export const iconPaths = {
   'alert': "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 8v5M12 16.5h.01\"/>",
   'gauge': "<path d=\"M4.5 16a8 8 0 1 1 15 0\"/><path d=\"m12 15 3.5-4.5\"/><circle cx=\"12\" cy=\"15.5\" r=\"1.2\"/>",
   'up': "<path d=\"M12 19V5M5 12l7-7 7 7\"/>",
+  // 办公画布 / 演示文稿（契约 6.19.16）
+  'slide': "<rect x=\"3\" y=\"5\" width=\"18\" height=\"14\" rx=\"2\"/><path d=\"M3 9h18\"/><path d=\"M8 14h5\"/>",
+  'export': "<path d=\"M12 3v12M7 10l5 5 5-5\"/><path d=\"M5 19h14\"/>",
 } as const
 
 export type IconName = keyof typeof iconPaths

@@ -156,6 +156,7 @@
                   <i class="sk w50 r" /><i class="sk w90" /><i class="sk w80" /><i class="sk w60" /><i class="sk w40 r" /><i class="sk w90" /><i class="sk w70" />
                 </div>
                 <CatMessages :blocks="messages" :pending="thinking" />
+                <CatOfficeDownloadCard v-if="officeCanvas.slidesNeeded && !isNew" />
               </div>
             </div>
             <div
@@ -223,8 +224,9 @@
       </section>
 
       <!-- 右栏收起时内容保留，不重新加载 -->
-      <div v-if="!isNew && catPanels.view === 'chat'" class="ct-r-wrap" :class="{ shut: rightCollapsed }" :aria-hidden="rightCollapsed || undefined">
-        <CatFilesPanel :conv-id="catState.sel" :missing="projectMissing" @pick="onFilePick" />
+      <div v-if="!isNew && catPanels.view === 'chat'" class="ct-r-wrap" :class="{ shut: rightCollapsed, canvas: showOfficeCanvas }" :aria-hidden="rightCollapsed || undefined">
+        <CatOfficeCanvasPanel v-if="showOfficeCanvas" @close="officeCanvasClosed = true" />
+        <CatFilesPanel v-else :conv-id="catState.sel" :missing="projectMissing" @pick="onFilePick" />
       </div>
     </div>
     <CatProjectDeleteDialog />
@@ -249,6 +251,9 @@ import CatSettingsView from '@/components/cat/panels/CatSettingsView.vue'
 import CatAgentMark from '@/components/cat/CatAgentMark.vue'
 import CatSchedulesView from '@/components/cat/panels/CatSchedulesView.vue'
 import CatScheduleToast from '@/components/cat/panels/CatScheduleToast.vue'
+import CatOfficeDownloadCard from '@/components/cat/CatOfficeDownloadCard.vue'
+import CatOfficeCanvasPanel from '@/components/cat/CatOfficeCanvasPanel.vue'
+import { useOfficeCanvasStore } from '@/stores/officeCanvas'
 import type { PickNote } from '@/components/cat/catPick'
 import { catPanels, initCatPanels } from './catPanels'
 import { CAT_PROJECT_COPY as PC } from '@/api/catProjects'
@@ -270,6 +275,10 @@ import { ClipboardSetText } from '../../../wailsjs/runtime/runtime'
  * 浏览器走查可加 ?cat=chat 跳过 1.2 秒 loading、?cat_conv=new|c21|d1… 直接打开某条对话（仅纯浏览器，Wails 里无效）。
  */
 defineOptions({ name: 'CatPage' })
+
+const officeCanvas = useOfficeCanvasStore()
+const officeCanvasClosed = ref(false)
+const showOfficeCanvas = computed(() => officeCanvas.showPreviewShell && !officeCanvasClosed.value)
 
 const router = useRouter()
 const preview = typeof window !== 'undefined' && !(window as unknown as { go?: unknown }).go
@@ -614,11 +623,19 @@ watch(
     if (CAT_MODES.some((m) => m.id === want && m.enabled)) catState.mode = want
   },
 )
+
+watch(
+  () => officeCanvas.artifact?.id,
+  () => {
+    officeCanvasClosed.value = false
+  },
+)
 onMounted(() => {
   window.addEventListener('keydown', onCopyKey)
   observeFollow()
   disposeCat = initCat()
   disposePanels = initCatPanels((id) => catState.projects.find((p) => p.id === id)?.name ?? '', (id) => selectConv(id))
+  void officeCanvas.init()
   void refreshCapabilities()
   if (phase.value !== 'loading') return
   // 至少停 1.2 秒；会话列表没回来之前继续停，避免先闪出「新对话」再跳到上次的对话
@@ -1318,6 +1335,10 @@ html.dark .sk {
   .swap {
     animation: none !important;
   }
+}
+.ct-r-wrap.canvas {
+  width: 400px;
+  max-width: 42vw;
 }
 .ct-r-wrap {
   flex: none;

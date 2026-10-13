@@ -58,6 +58,7 @@ import { catSyntaxChecks } from '@/components/cat/catSyntax.check'
 import { catPreviewWidthChecks } from '@/components/cat/catPreviewWidth.check'
 import { catFollowChecks } from '@/views/cat/catFollow.check'
 import { catRailChecks } from '@/views/cat/catRail.check'
+import { officeCanvasChecks } from './officeCanvas.check'
 import { catAttachChecks } from '@/components/cat/catAttach.check'
 import { catPickChecks } from '@/components/cat/catPick.check'
 import { catBrowserChecks } from '@/components/cat/catBrowser.check'
@@ -1015,6 +1016,7 @@ export async function runApiChecks(): Promise<string[]> {
         catPreviewWidthChecks(eq) // Cat 左右栏和文件预览宽度：可拖，并给中间对话留空
         catFollowChecks(eq) // Cat 回复变高时中间跟着往下滚；人往上翻则停住
         catRailChecks(eq) // Cat 右侧消息轨道：用户消息记号排紧、长滑块位置
+        await officeCanvasChecks() // Cat 办公画布 v0.42：文案锁 + 未配置失败 + mock deck
         catAttachChecks(eq) // Cat 输入框附件：最多露出四个，剩下的收进角标
         await catPickChecks(eq) // Cat 网页预览点选：说明放进输入框，不写回文件
         catBrowserChecks(eq) // Cat 侧栏浏览器：网址打开，纯文字去必应
