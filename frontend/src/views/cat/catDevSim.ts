@@ -12,7 +12,8 @@
  *   missing  —— 「字幕项目」的文件夹不见了（项目标灰、输入框禁用）
  *   slowdel  —— 删除对话要 1.5 秒（走查「删除中」小转圈）
  *   delfail  —— 删除对话失败（走查「删除失败，请重试。」浮提示）
- *   caps     —— 模型 / 思考强度给一份走查用列表（含「超高」等任意档位），走查胶囊「默认」和选档
+ *   slowconv —— 打开对话时模拟读记录 900ms（看消息骨架）
+ *   caps     —— 模型 / 思考强度给一份走查用列表（含「极高」等任意档位），走查胶囊「默认」和选档
  *   md       —— 配合 stream：推一段 Markdown 回复（标题、列表、表格、代码块、引用、链接、外链图片、原始 HTML）
  *   mdhold   —— 配合 stream,md：推到代码块中间就停住（围栏未闭合、仍在生成），走查流式中的代码块
  *
@@ -36,12 +37,12 @@ export function simThinks(): CatThinkLevel[] {
     { id: 'low', displayName: '低' },
     { id: 'medium', displayName: '中' },
     { id: 'high', displayName: '高' },
-    { id: 'xhigh', displayName: '超高' },
+    { id: 'xhigh', displayName: '极高' },
   ]
 }
 
-export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'md' | 'mdhold'
-const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'md', 'mdhold']
+export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'md' | 'mdhold' | 'slowconv'
+const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'md', 'mdhold', 'slowconv']
 
 export const catSim: ReadonlySet<CatSimFlag> = (() => {
   if (!import.meta.env.DEV || typeof window === 'undefined') return new Set<CatSimFlag>()
