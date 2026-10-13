@@ -8,10 +8,8 @@
     <button type="button" class="ct-it new" :class="{ on: catState.sel === NEW_CONV && !catState.newProjectId }" @click="selectConv(NEW_CONV)">
       <FIcon name="plus" :size="16" /><span class="t">新对话</span><span class="r"><FIcon name="list" :size="16" /></span>
     </button>
-    <button type="button" class="ct-it disabled" aria-disabled="true" :title="laterTip" @click="onLater">
-      <FIcon name="bot" :size="16" /><span class="t">助手</span>
-    </button>
-    <button type="button" class="ct-it disabled" aria-disabled="true" :title="laterTip" @click="onLater">
+    <!-- C1：「助手」一期不做，已去掉；「定时任务」等真入口（设置 / 定时任务 PR）接上前先隐藏，改 SHOW_SCHEDULE_ENTRY 即可恢复 -->
+    <button v-if="SHOW_SCHEDULE_ENTRY" type="button" class="ct-it disabled" aria-disabled="true" :title="laterTip" @click="onLater">
       <FIcon name="clock" :size="16" /><span class="t">定时任务</span>
     </button>
 
@@ -241,6 +239,8 @@
 </template>
 
 <script setup lang="ts">
+/** 定时任务入口开关：真入口落地前隐藏 */
+const SHOW_SCHEDULE_ENTRY = false
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
