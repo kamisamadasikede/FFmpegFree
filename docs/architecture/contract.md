@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.35.7）
+# FFmpegFree v2 接口契约（v0.36）
+
+v0.36 变更（**Cat 多服务商设置**，老板确认按设计 v0.4，架构师 10-13；完整规则见 **6.19.2 / 6.19.4 / 6.19.12**；**无新错误码 / 迁移 / 事件 / 开关，2.1 仍是 39 个；`cat.settings` JSON 就地演进**）：① **`agentKind`**：欢迎页解禁三家胶囊「Grok Build」/「Claude」/「Codex」，值分别为 `cat_build`（**不**改成 `grok_build`，已有会话不变）/ `claude_cli`（**新增**）/ `codex_cli`；`CreateCatConversation` 接受这三者，其它 → `INVALID_ARGUMENT`；`cat_cli` / `cat_code` 仍延后、胶囊继续置灰「下一期开放」。② **`CatSettings`**：顶层 `defaultModel` / `defaultEffort` 改为 `defaultAgentKind` + `defaultsByAgent[kind].{model,effort}`；批准方式 / 自定义指令 / `notifyOnFinish` 仍全局；读旧 JSON 时把旧默认迁进 `defaultsByAgent["cat_build"]`（下次成功 Save 回写）。③ **`GetCatStatus` / `RecheckCat`**：`CatStatus` 保留原字段，另加 `agents[]`（固定顺序 `cat_build` → `claude_cli` → `codex_cli`）；关于页按三家分行；`RecheckCat` 重检三家。④ **`ListCatModels` / `ListCatThinkLevels`** 接受三家；未知 / 未注册 → 空切片、不报错；强度列表空 → 界面整行隐藏（不要写死「某家永远没有强度」）。⑤ **`InspectCatConfig`** 请求可选 `agentKind`（空 = `cat_build`）；其它家暂无适配器时可空列表 + `reason=unsupported`。⑥ **定时任务**本版仍一律 `agentKind=cat_build`；任务编辑选服务商下一小版补。⑦ 服务商选择处写三家本名；气泡等其它处仍「Cat 助手」。
 
 v0.35.7 变更（**只改文案**，产品 10-13；**无新接口 / 错误码 / 迁移 / 事件 / 开关**）：定时任务列表常驻提示改为 `只在 FFmpegFree 打开时运行，最小化也会运行，关掉就不会。错过的时间点不补跑，列表里会标「已错过」。`（替代 6.19.13.8 原句；v2 暂无托盘，加托盘时再改托盘相关措辞）。
 
@@ -447,7 +449,7 @@ CancelLangAsrInstall() error
 RecheckLangAsr() (LangAsrStatus, error)
 SubmitSpeechToSubtitle(req SpeechToSubtitleRequest) (Task, error) // 批量形态见 6.18.5
 ExportSubtitleCues(req ExportSubtitleRequest) (ExportSubtitleResult, error)
-// CatService（v0.30，6.19；一期仅 cat_build，会话锁定 agentKind）
+// CatService（v0.30，6.19；v0.36 可创建 cat_build|claude_cli|codex_cli，会话锁定 agentKind）
 GetCatStatus() (CatStatus, error)
 RecheckCat() (CatStatus, error)
 ListCatModels(agentKind string) ([]CatModel, error)
@@ -3921,23 +3923,23 @@ type ExportSubtitleRequest struct {
 6. `LANG_ASR_FAILED` 最终文案产品确认。
 
 
-## 6.19 Cat 助手（v0.30，一期仅 Cat Build；产品 / 老板 10-09 定）
+## 6.19 Cat 助手（v0.30；v0.36 起欢迎页三家可点；产品 / 老板 10-09 定，v0.36 老板确认设计 v0.4）
 
-> **一期只适配 Grok Build / Cat Build 路径。** 欢迎页模式胶囊里**只有「Cat Build」可点**；「Cat CLI」「Cat Code」「Codex CLI」「更多」等**一律置灰**，悬停 / 旁注文案 **`下一期开放`**（产品可再改字，本期先用这句）。**不**适配 Cat CLI / Cat Code / Codex CLI 的运行时。  
-> 界面与 `message` **只出现「Cat 助手」**；**永不**出现：`grok`、`Grok`、`CLI`、`命令行`、可执行文件名、模型厂商名（同 1.1）。  
-> 本仓实现 **适配器注册表 + Build 适配器**（下载 / 检测组件、按约定调用入口二进制、转发消息；工具由 CLI 自己执行）；**入口二进制名与发布包 URL/SHA-256 TBD**（老板后续提供 grok-build 相关 CLI）。  
-> **会话创建时锁定 `agentKind`**：之后改应用默认 CLI **不得**影响已有会话；Send / 流式始终走该会话自己的适配器（6.19.2）。  
+> **v0.36**：欢迎页模式胶囊解禁 **「Grok Build」/「Claude」/「Codex」** 三家（值 `cat_build` / `claude_cli` / `codex_cli`）；「Cat CLI」「Cat Code」「更多」等**仍置灰**，悬停 / 旁注 **`下一期开放`**。`cat_build` **不**改名为 `grok_build`（已有会话与库值不变）。Claude / Codex 适配器未就绪时可注册为未就绪桩，创建会话仍允许（Send 时按未就绪返回）。  
+> **服务商选择处**写三家本名（老板在选择 UI 放开厂商名禁令）；**气泡 / 其它界面与 `message` 仍只出现「Cat 助手」**；**永不**在气泡里出现可执行文件名、`CLI`、`命令行`（同 1.1；选择 UI 例外见上）。  
+> 本仓实现 **适配器注册表 + 各家适配器**（Build 已实现；Claude / Codex 可先桩）；工具由各家 CLI 自己执行。  
+> **会话创建时锁定 `agentKind`**：之后改应用默认 **不得**影响已有会话；Send / 流式始终走该会话自己的适配器（6.19.2）。  
 > 开关：前端 `CAT_UI_ENABLED` **默认 `false`**（侧栏「Cat」入口隐藏；为 true 时出现在「语音工具」后，可带「新」角标）；`CAT_BACKEND_READY` 为 false 时走本地假数据 / 不调真绑定（与前端 flags 对齐）。
 
 ### 6.19.1 一期范围与明确不做
 
 | 做 | 不做（一期） |
 |---|---|
-| 侧栏进入 Cat 全屏聊天（收起主侧栏，返回原页） | Cat CLI / Cat Code / Codex CLI **运行时**（胶囊可见但禁用） |
+| 侧栏进入 Cat 全屏聊天（收起主侧栏，返回原页） | `cat_cli` / `cat_code` **创建与运行**（胶囊可见但禁用「下一期开放」） |
 | 欢迎页 + 会话列表 + 发送 / 回复（事件推进） | URL / API Key 设置页或设置项 |
-| **仅 `cat_build`（Cat Build）** 可创建并运行 | 「助手」入口与功能（「定时任务」v0.35 起一期做，见 6.19.13） |
-| 模型名 / 思考强度**只从该会话 `agentKind` 对应 CLI 的能力列表读取** | 前端写死第三方模型名 |
-| 工具调用：本机 grok 的完整工具集（v0.33 不传白名单 / 黑名单；v0.34 批准方式可选，没选过是全部批准） | 应用内再做一套批准框 |
+| **`cat_build` / `claude_cli` / `codex_cli` 可创建**（欢迎胶囊「Grok Build」/「Claude」/「Codex」；适配器未就绪时 Send 返回未就绪） | 「助手」入口与功能（「定时任务」v0.35 起一期做，见 6.19.13；定时任务选服务商下一小版） |
+| 模型名 / 思考强度**只从该会话 `agentKind` 对应 CLI 的真实能力列表读取**（禁止原型假数据） | 前端写死第三方模型名或擅自改已有参数逻辑 |
+| 工具调用：本机 grok 的完整工具集（v0.33 不传白名单 / 黑名单；v0.34 批准方式可选，没选过是全部批准）；其它家按各自适配器 | 应用内再做一套批准框 |
 | 组件未就绪文案见下 | 在命令行上禁止写文件、跑命令、联网、MCP、子代理 |
 
 **未就绪**（PATH 未检测到入口）：`未检测到 Cat 助手，请先安装并确保可在终端直接运行。`（一期通常无下载按钮，直至 `canDownload=true`）。
@@ -3946,21 +3948,22 @@ type ExportSubtitleRequest struct {
 
 ### 6.19.2 `agentKind` 锁定与适配器注册表（多 CLI 扩展预备）
 
-| `agentKind` | 欢迎胶囊（展示名） | 一期 |
+| `agentKind` | 欢迎胶囊（展示名） | v0.36 |
 |---|---|---|
-| `cat_build` | Cat Build | **唯一可创建 / 可发送** |
-| `cat_cli` | Cat CLI | 禁用「下一期开放」；注册表可不注册 |
+| `cat_build` | Grok Build | **可创建 / 可发送**（库值保持 `cat_build`，**不**改名 `grok_build`） |
+| `claude_cli` | Claude | **可创建 / 可发送**（**新增**枚举；适配器可先为未就绪桩） |
+| `codex_cli` | Codex | **可创建 / 可发送**（适配器可先为未就绪桩） |
+| `cat_cli` | Cat CLI | 禁用「下一期开放」；注册表可不注册；**不可创建** |
 | `cat_code` | Cat Code | 同上 |
-| `codex_cli` | Codex CLI | 同上 |
 
 **规则（架构硬性）**：
 
 1. **`CatConversation.agentKind` 在创建时写入，之后不可变**（无 Update 接口改 kind；库内也不允许改）。  
-2. **`CreateCatConversation`（或首条 `SendCatMessage` 隐式建会话）**必须带上用户在欢迎页选中的模式对应的 `agentKind`；一期前端只能传 `cat_build`，其它值 → `INVALID_ARGUMENT`。  
-3. **`SendCatMessage` / 流式 / 取消**一律按**该会话已存的 `agentKind`** 查注册表路由，**绝不**使用「当前应用默认 CLI」。  
-4. **应用级默认** `Settings.catDefaultAgentKind`（默认 `cat_build`）**只作用于新建会话**的预填；改设置不影响旧会话。  
-5. **适配器注册表**（后端进程内）：`agentKind` → `{ executablePath, protocolVersion, … }`。一期**只注册 `cat_build`**；未注册 kind 的会话若因脏数据出现 → `CAT_NOT_READY` 或 `UNSUPPORTED`（实现选一，message 仍用未就绪 / 通用失败口径，不暴露可执行名）。  
-6. **`ListCatConversations` / `GetCatConversation` 返回 `agentKind`**，供 UI 徽章或内部逻辑；**展示给用户仍是「Cat 助手」**，不把 `cat_build` / grok / cli 字样直接打在气泡上（可用中性「Build」等产品另定的短标，**TBD**；禁止技术名）。
+2. **`CreateCatConversation`（或首条 `SendCatMessage` 隐式建会话）**必须带上用户在欢迎页选中的模式对应的 `agentKind`；允许 `cat_build` / `claude_cli` / `codex_cli`（适配器已注册且 CLI 检测到时可发送；适配器为桩时仍可创建，Send 走未就绪）；其它值（含 `cat_cli` / `cat_code`）→ `INVALID_ARGUMENT`。  
+3. **`SendCatMessage` / 流式 / 取消**一律按**该会话已存的 `agentKind`** 查注册表路由，**绝不**使用「当前应用默认」。  
+4. **应用级默认** `CatSettings.defaultAgentKind`（默认 `cat_build`，见 6.19.12）**只作用于新建会话**的欢迎页预选与偏好预填；改设置不影响旧会话。旧键 `Settings.catDefaultAgentKind` 若仍存在，读时等同 `defaultAgentKind`。  
+5. **适配器注册表**（后端进程内）：`agentKind` → `{ executablePath, protocolVersion, … }`。v0.36 **可注册** `cat_build` / `claude_cli` / `codex_cli`（后两家可为未就绪桩）；未注册 kind 的会话若因脏数据出现 → `CAT_NOT_READY` 或 `UNSUPPORTED`（实现选一，message 仍用未就绪 / 通用失败口径，不暴露可执行名）。  
+6. **`ListCatConversations` / `GetCatConversation` 返回 `agentKind`**，供 UI 徽章或内部逻辑；**气泡展示仍是「Cat 助手」**；服务商选择 / 设置「新对话默认」处分块写「Grok Build」/「Claude」/「Codex」，不把 `cat_build` 等技术名直接打给用户。
 
 ### 6.19.3 Build 适配器（`cat_build`）
 
@@ -3975,16 +3978,25 @@ type ExportSubtitleRequest struct {
 ### 6.19.4 数据结构
 
 ```go
+type CatAgentStatus struct { // v0.36
+    AgentKind string `json:"agentKind"` // cat_build | claude_cli | codex_cli
+    Ready     bool   `json:"ready"`
+    Version   string `json:"version,omitempty"`
+    LoggedIn  *bool  `json:"loggedIn,omitempty"` // 该家不需要登录时可省略
+    Detail    string `json:"detail,omitempty"`
+}
+
 type CatStatus struct {
-    State       string    `json:"state"` // checking | ready | missing | failed
-    Version     string    `json:"version"`
-    CanDownload bool      `json:"canDownload"`
-    Error       *AppError `json:"error,omitempty"`
+    State       string           `json:"state"` // checking | ready | missing | failed；兼容：整体态，仍以 cat_build 为主口径
+    Version     string           `json:"version"`
+    CanDownload bool             `json:"canDownload"`
+    Error       *AppError        `json:"error,omitempty"`
+    Agents      []CatAgentStatus `json:"agents"` // v0.36：固定顺序 cat_build, claude_cli, codex_cli
 }
 
 type CatModel struct {
     ID          string `json:"id"`
-    DisplayName string `json:"displayName"` // 如「Cat 助手 1.0」
+    DisplayName string `json:"displayName"` // CLI 返回的模型 ID 原样（如 grok-4.6）
 }
 type CatThinkLevel struct {
     ID          string `json:"id"`
@@ -3994,7 +4006,7 @@ type CatThinkLevel struct {
 type CatConversation struct {
     ID        string `json:"id"`
     Title     string `json:"title"`
-    AgentKind string `json:"agentKind"` // 创建后不可变；一期仅 cat_build
+    AgentKind string `json:"agentKind"` // 创建后不可变；v0.36：cat_build|claude_cli|codex_cli
     CreatedAt int64  `json:"createdAt"`
     UpdatedAt int64  `json:"updatedAt"`
 }
@@ -4012,15 +4024,15 @@ type CatMessage struct {
 ### 6.19.5 接口与事件
 
 ```go
-GetCatStatus() (CatStatus, error)
-RecheckCat() (CatStatus, error)
-ListCatModels(agentKind string) ([]CatModel, error)           // 一期只接受 cat_build
-ListCatThinkLevels(agentKind string) ([]CatThinkLevel, error)
+GetCatStatus() (CatStatus, error)   // v0.36：含 agents[]；顶层字段兼容旧前端
+RecheckCat() (CatStatus, error)     // v0.36：重检三家，返回同上
+ListCatModels(agentKind string) ([]CatModel, error)           // v0.36：接受 cat_build|claude_cli|codex_cli；未知/未注册 → 空切片、nil error
+ListCatThinkLevels(agentKind string) ([]CatThinkLevel, error) // 同上；空列表 → UI 隐藏强度行
 
 ListCatConversations() ([]CatConversation, error) // 每项含 agentKind
 GetCatConversation(id string) (CatConversationDetail, error)
 CreateCatConversation(req CreateCatConversationRequest) (CatConversation, error)
-// req 必填 agentKind（一期 = cat_build）；可选 title
+// req 必填 agentKind（v0.36 = cat_build|claude_cli|codex_cli）；可选 title
 DeleteCatConversation(id string) error
 
 SendCatMessage(req SendCatMessageRequest) (SendCatMessageResult, error)
@@ -4039,12 +4051,12 @@ CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，
 | `cat:turn` | 一轮状态 `{ convId, turnId, status }`（`running|completed|cancelled|failed`），见 6.19.9 |
 | `cat:project` | v0.31：项目 `missing` 变化 `{ id, missing }`，见 6.19.10.3 |
 
-设置：`catDefaultAgentKind` 默认 `cat_build`，**仅新建会话预填**。
+设置：`CatSettings.defaultAgentKind` 默认 `cat_build`，**仅新建会话预填**（见 6.19.12）；旧键 `catDefaultAgentKind` 读时等同。
 
 ### 6.19.6 UI 冻结项
 
-- 欢迎页：**仅「Cat Build」可选**；其余禁用 + 「下一期开放」。选中 Build 后 `Create`/`Send` 带 `agentKind=cat_build`。  
-- 合一胶囊：「{模型展示名} · {思考强度展示名}」，选项来自**该会话 agentKind** 的 List API。  
+- 欢迎页（v0.36）：**「Grok Build」/「Claude」/「Codex」三家可点**；「Cat CLI」「Cat Code」「更多」禁用 + 「下一期开放」。选中后 `Create`/`Send` 带对应 `agentKind`（`cat_build` / `claude_cli` / `codex_cli`）。预选 = `CatSettings.defaultAgentKind`。  
+- 合一胶囊：「{模型展示名} · {思考强度展示名}」，选项来自**该会话 agentKind** 的 List API；该家 `ListCatThinkLevels` 为空则**整行隐藏强度**（不要写死某家永远没有）。  
 - 批准方式按对话记住：普通模式、Plan、自动审查、全部批准（v0.34）。没选过是全部批准（v0.35 起新对话按 Cat 设置里的默认批准方式，见 6.19.12）。无「助手」。「设置」「定时任务」见 6.19.12 / 6.19.13。无 URL/Key 设置。
 
 ### 6.19.7 错误码（v0.30 新增 2 个；2.1 由 36 变为 38）
@@ -4058,7 +4070,7 @@ CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，
 
 ### 6.19.8 延后
 
-`cat_cli` / `cat_code` / `codex_cli` 注册与运行；完全访问；助手；定时任务的 cron / 续接已有对话 / 开机自启；URL/Key；组件下载专节。（流式事件已提前到 6.19.9，下一个包做。）扩展时**只加注册表项与胶囊启用**，会话锁定规则不变。
+`cat_cli` / `cat_code` 的创建与运行（胶囊继续置灰）；完全访问；助手；定时任务的 cron / 续接已有对话 / 开机自启 / **任务编辑选服务商**（本版定时运行仍锁 `cat_build`，见 6.19.13）；URL/Key；组件下载专节。（流式事件已提前到 6.19.9。）`claude_cli` / `codex_cli` **已可创建**（v0.36），适配器实现可先为未就绪桩。扩展时**只加注册表项与胶囊启用**，会话锁定规则不变。
 
 
 ### 6.19.9 流式事件与取消（v0.30.1；v0.30.2 对齐 #174）
@@ -4432,22 +4444,27 @@ type RevealCatConversationFolderRequest struct {
 5. **旧对话**（已有 `tmp/cat/cwd-<convId>`）升级后仍能续聊（同一 CLI 会话），文件面板显示旧文件夹内容。
 6. 新建普通对话后立即「打开文件夹」→ 资源管理器打开 `<数据目录>\cat\conversations\<convId>`；删除该对话后文件夹被删，项目文件夹不受影响。
 
-### 6.19.12 Cat 设置（v0.35，老板 10-13 提出，架构师定）
+### 6.19.12 Cat 设置（v0.35；v0.36 多服务商默认，老板确认设计 v0.4，架构师定）
 
-入口：Cat 侧栏底部「设置」（之前是静态行，改为可点），在 Cat 全屏内打开设置页，左侧分区、右侧表单。界面不出现 `grok` / `xAI` / `CLI` / `命令行`。分区：**通用**、**自定义指令**、**扩展（只读）**、**关于**。文案以设计《Cat-设置与定时任务-设计说明》为准（仓库里还没有这份文档，到了再对齐；冲突时以设计稿文案为准、以本节行为为准）。
+入口：Cat 侧栏底部「设置」（之前是静态行，改为可点），在 Cat 全屏内打开设置页，左侧分区、右侧表单。界面不出现 `grok` / `xAI` / `CLI` / `命令行`。分区：**通用**、**自定义指令**、**扩展（只读）**、**关于**。文案以设计《Cat-设置与定时任务-设计说明-v0.4》为准（冲突时以设计稿文案为准、以本节行为为准）；v0.36 对齐场景 22「设置·通用·按服务商」。
 
 #### 6.19.12.1 数据与接口
 
 ```go
+type CatAgentDefaults struct { // v0.36
+    Model  string `json:"model"`  // 空 = 不传 -m（用该家默认模型）
+    Effort string `json:"effort"` // 空 = 不传思考强度；否则 low|medium|high|xhigh（该家无强度时前端整行隐藏，仍可存空）
+}
+
 type CatSettings struct {
-    DefaultModel        string `json:"defaultModel"`        // 空 = 不传 -m（用默认模型）
-    DefaultEffort       string `json:"defaultEffort"`       // 空 = 不传 --reasoning-effort；否则 low|medium|high|xhigh
-    DefaultApprovalMode string `json:"defaultApprovalMode"` // 空 = 全部批准；normal|plan|auto|approve（同 v0.34 / catConvPrefs）
-    CustomInstruction   string `json:"customInstruction"`   // 全局自定义指令，最多 4000 字；空 = 不传
-    NotifyOnFinish      *bool  `json:"notifyOnFinish"`      // v0.35.1：完成时发系统通知，nil 视为 true
+    DefaultAgentKind    string                      `json:"defaultAgentKind"`    // v0.36：cat_build|claude_cli|codex_cli；默认 cat_build；欢迎页预选
+    DefaultsByAgent     map[string]CatAgentDefaults `json:"defaultsByAgent"`     // v0.36：key = agentKind；缺 key = 空默认
+    DefaultApprovalMode string                      `json:"defaultApprovalMode"` // 空 = 全部批准；normal|plan|auto|approve（全局共用，同 v0.34 / catConvPrefs）
+    CustomInstruction   string                      `json:"customInstruction"`   // 全局自定义指令，最多 4000 字；空 = 不传
+    NotifyOnFinish      *bool                       `json:"notifyOnFinish"`      // v0.35.1：完成时发系统通知，nil 视为 true
 }
 GetCatSettings() (CatSettings, error)
-SaveCatSettings(req CatSettings) (CatSettings, error) // 返回保存后的值
+SaveCatSettings(req CatSettings) (CatSettings, error) // 返回保存后的值（不含旧字段）
 
 type CatInspectItem struct {
     Name        string `json:"name"`
@@ -4462,17 +4479,23 @@ type CatInspectResult struct {
     MCPServers []CatInspectItem `json:"mcpServers"`
     Agents     []CatInspectItem `json:"agents"`
     Version    string           `json:"version,omitempty"`
-    Reason     string           `json:"reason,omitempty"` // 空 = 成功；not_ready | timeout | parse
+    Reason     string           `json:"reason,omitempty"` // 空 = 成功；not_ready | timeout | parse | unsupported（v0.36）
 }
-InspectCatConfig(req struct{ ProjectID string `json:"projectId"` }) (CatInspectResult, error)
+// v0.36：AgentKind 可选；空 = cat_build；其它家暂无适配器 → 空列表 + reason=unsupported
+InspectCatConfig(req struct {
+    ProjectID string `json:"projectId"`
+    AgentKind string `json:"agentKind,omitempty"`
+}) (CatInspectResult, error)
 ```
 
-1. **存储**：`settings` 表键 `cat.settings`（JSON），没有记录 = 全部空值。不新建表。
-2. **校验**：`defaultEffort` 不在 `low|medium|high|xhigh|""`、`defaultApprovalMode` 不在 `normal|plan|auto|approve|""`、`customInstruction` 超 4000 字 → `INVALID_ARGUMENT`。`defaultModel` 不校验是否在当前模型列表里（列表可能暂时为空）；发送时若该模型已不在列表里，前端按「默认」显示。
-3. **默认值只作用于新对话**：新建对话时前端用 `CatSettings` 的三个默认值初始化这条对话的偏好（`catConvPrefs`）；**已有对话已记住的模型 / 强度 / 批准方式一律不改**；没记过偏好的老对话仍按 v0.34（全部批准、默认模型 / 强度），不回填。`agentKind` 锁定规则不变。
-4. **全局自定义指令**：非空时，后端在**每一轮**（首轮和续聊，含定时任务产生的对话）调用里带 `--rules <指令>`；空则不带。保存后下一轮生效，不影响正在进行的一轮。界面称「自定义指令」，说明文案 `每次对话都会自动带上这段指令。`（设计稿可改）。
-5. **InspectCatConfig**：在 `projectId` 对应项目文件夹（空 / 项目不在 → 普通对话目录的父目录 `<数据目录>/cat`）下执行 `grok inspect --json`，超时 15 秒，走 `runCmd`（隐藏窗口，同 #200）。只取上面五类的名字 / 描述 / 来源 / 启用状态，**不回传文件路径、命令行、环境变量、密钥**。未就绪 → `reason=not_ready`；超时 → `timeout`；JSON 认不出 → `parse`；这些情况都返回空列表、`error` 为 nil，**无新错误码**。一期只读，不提供增删 / 启停。
-6. **关于**：版本（`InspectCatConfig.version` 或 `GetCatStatus`）、就绪状态、「重新检测」（`RecheckCat`）。
+1. **存储**：`settings` 表键 `cat.settings`（JSON），没有记录 = 全部空值（`defaultAgentKind` 视为 `cat_build`，`defaultsByAgent` 空 map）。**不新建表、无迁移**；JSON 就地演进。
+2. **旧字段兼容（读路径）**：若库里仍有顶层 `defaultModel` / `defaultEffort`（v0.35），`GetCatSettings` **在返回值里**迁进 `defaultsByAgent["cat_build"]`（该 key 已有非空 model/effort 则不覆盖），并填 `defaultAgentKind`（缺省 `cat_build`）；**不在 Get 时回写**，等下次成功 `SaveCatSettings` 再写成新形状（Save 响应与落库都不再带旧字段）。
+3. **校验（Save）**：`defaultAgentKind` 不在 `cat_build|claude_cli|codex_cli`（空视为 `cat_build` 可写回默认）、任一 `defaultsByAgent` 的 `effort` 不在 `low|medium|high|xhigh|""`、`defaultApprovalMode` 不在 `normal|plan|auto|approve|""`、`customInstruction` 超 4000 字、`defaultsByAgent` 含未知 key → `INVALID_ARGUMENT`。各家 `model` **不**校验是否在当前模型列表里（列表可能暂时为空）；发送时若该模型已不在列表里，前端按「默认」显示。
+4. **默认值只作用于新对话**：新建对话时带用户选的 `agentKind`（或欢迎页预选 = `defaultAgentKind`）；偏好 = `defaultsByAgent[kind]` 的 model/effort + 全局 `defaultApprovalMode`（写入 `catConvPrefs`）。**已有对话已记住的模型 / 强度 / 批准方式一律不改**；没记过偏好的老对话仍按 v0.34（全部批准、默认模型 / 强度），不回填。`agentKind` 创建后仍不可变。
+5. **「新对话默认」UI（设计 v0.4）**：按服务商分块（Grok Build / Claude / Codex，带各自图标）；每家各自默认模型 + 思考强度（该家 `ListCatThinkLevels` 为空则整行隐藏）。批准方式、「新对话放在」仍全局共用（后者为本机偏好，见 6.19.12.7）。图标正式资源产品定；原型几何标可先用。
+6. **全局自定义指令**：非空时，后端在**每一轮**（首轮和续聊，含定时任务产生的对话）调用里带 `--rules <指令>`（各家适配器按自己的等价参数落地；Build 仍是 `--rules`）；空则不带。保存后下一轮生效，不影响正在进行的一轮。界面称「自定义指令」，说明文案 `每次对话都会自动带上这段指令。`（设计稿可改）。
+7. **InspectCatConfig**：在 `projectId` 对应项目文件夹（空 / 项目不在 → 普通对话目录的父目录 `<数据目录>/cat`）下，按 `agentKind`（空 = `cat_build`）走对应适配器的只读检查（Build：`grok inspect --json`），超时 15 秒，走 `runCmd`（隐藏窗口，同 #200）。只取上面五类的名字 / 描述 / 来源 / 启用状态，**不回传文件路径、命令行、环境变量、密钥**。未就绪 → `reason=not_ready`；超时 → `timeout`；JSON 认不出 → `parse`；该家暂无适配器 → `unsupported`；这些情况都返回空列表、`error` 为 nil，**无新错误码**。一期只读，不提供增删 / 启停。
+8. **关于**：按 `GetCatStatus.agents[]` 三家分行显示就绪 / 版本 / 登录态；「重新检测」调 `RecheckCat`（重检三家）。整体顶层 `state` / `version` 仍返回，兼容旧 UI。
 
 #### 6.19.12.7 v0.35.1 补充
 
@@ -4484,7 +4507,7 @@ InspectCatConfig(req struct{ ProjectID string `json:"projectId"` }) (CatInspectR
 
 ### 6.19.13 定时任务（v0.35，老板 10-13 提出，架构师定）
 
-入口：Cat 侧栏「定时任务」（去掉禁用和「下一期开放」）→ 列表页；新建 / 编辑用弹窗。界面不出现 `grok` / `xAI` / `CLI` / `命令行`。
+入口：Cat 侧栏「定时任务」（去掉禁用和「下一期开放」）→ 列表页；新建 / 编辑用弹窗。界面不出现 `grok` / `xAI` / `CLI` / `命令行`。**v0.36：任务编辑暂不选服务商，运行路径仍锁 `cat_build`（见 6.19.13.4）；下一小版补。**
 
 #### 6.19.13.1 数据结构
 
@@ -4557,7 +4580,7 @@ ClearAllCatConversations() error                          // 见 6.19.13.7
 #### 6.19.13.4 一次运行
 
 1. 校验项目：项目不在（`missing`）→ 运行 `failed`，`error.code=CAT_PROJECT_MISSING`（`项目文件夹不见了。`），不建对话；Cat 未就绪 → `failed` + `CAT_NOT_READY`。
-2. 在该项目里新建一条**普通对话**（`agentKind=cat_build`，标题 = 任务名 + 计划时间，如 `每日检查 · 10-14 09:00`），对话偏好 = 任务的模型 / 强度 / 批准方式；然后按 `SendCatMessage` 发 `prompt`。全局自定义指令按 6.19.12.4 带 `--rules`。这条对话和手动建的对话完全一样（列表里可见，可继续聊），只是 `cat_schedule_runs.conversation_id` 指向它。
+2. 在该项目里新建一条**普通对话**（**本版仍固定 `agentKind=cat_build`**；任务编辑选服务商下一小版补字段后才跟设置里的默认家走；标题 = 任务名 + 计划时间，如 `每日检查 · 10-14 09:00`），对话偏好 = 任务的模型 / 强度 / 批准方式；然后按 `SendCatMessage` 发 `prompt`。全局自定义指令按 6.19.12 带 `--rules`。这条对话和手动建的对话完全一样（列表里可见，可继续聊），只是 `cat_schedule_runs.conversation_id` 指向它。
 3. 一轮的结果映射：`cat:turn` `completed` → `succeeded`；`failed` → `failed`（带原 error）；`cancelled` → `stopped`（「已手动停止」，用户在对话里按停止）。
 4. 结束时发**系统通知**：标题 = 任务名，正文 `已完成` / `运行失败` / `已手动停止`（设计稿可改），点击打开该对话。`missed` / `skipped` 不发通知。
 5. 批准方式选「全部批准」时，弹窗里该选项下显示**橙色提示**（文案见设计稿；建议 `会自动执行改文件、运行命令等操作，无人确认。`）。「普通模式」在无人值守下可能卡住（提示文案见 6.19.13.10）。每次定时运行最长 **30 分钟**（v0.35.3），超时杀进程树、记 `failed`，说明 `超过 30 分钟没跑完。`，发「运行失败」通知。
