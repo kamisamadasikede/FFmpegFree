@@ -18,6 +18,23 @@ func TestMediaKind(t *testing.T) {
 	if _, _, ok := MediaKind("note.docx"); !ok {
 		t.Fatal("docx")
 	}
+	for _, name := range []string{"a.md", "a.markdown", "a.mdown", "a.mkd"} {
+		if k, _, ok := MediaKind(name); !ok || k != "markdown" {
+			t.Fatalf("%s %s", name, k)
+		}
+	}
+	if k, _, ok := MediaKind("a.txt"); !ok || k != "text" {
+		t.Fatal(k)
+	}
+	if k, _, ok := MediaKind("a.csv"); !ok || k != "csv" {
+		t.Fatal(k)
+	}
+	if _, _, ok := MediaKind("a.doc"); ok {
+		t.Fatal("doc")
+	}
+	if _, _, ok := MediaKind("a.rtf"); ok {
+		t.Fatal("rtf")
+	}
 }
 
 func TestClassifyPreviewPath_Device(t *testing.T) {

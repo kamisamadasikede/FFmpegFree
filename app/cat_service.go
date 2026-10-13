@@ -308,3 +308,48 @@ func (s *CatService) SearchCatFiles(req cat.SearchFilesRequest) (cat.SearchFiles
 	}
 	return c.SearchCatFiles(s.rootCtx(), req)
 }
+
+// StartCatTerm 在这个对话的文件夹里打开本机命令行。
+func (s *CatService) StartCatTerm(req cat.TermStartRequest) (cat.TermStartResult, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.TermStartResult{}, err
+	}
+	return c.StartCatTerm(s.rootCtx(), req)
+}
+
+// WriteCatTerm 把输入写进命令行。
+func (s *CatService) WriteCatTerm(req cat.TermWriteRequest) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.WriteCatTerm(s.rootCtx(), req)
+}
+
+// StopCatTerm 结束命令行。
+func (s *CatService) StopCatTerm(req cat.TermStopRequest) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.StopCatTerm(s.rootCtx(), req)
+}
+
+// ResizeCatTerm 按字符数调整命令行宽高。
+func (s *CatService) ResizeCatTerm(req cat.TermResizeRequest) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.ResizeCatTerm(s.rootCtx(), req)
+}
+
+// OpenCatBrowser 取回侧栏浏览器要嵌的网页。
+func (s *CatService) OpenCatBrowser(req cat.BrowserOpenRequest) (cat.BrowserPage, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.BrowserPage{}, err
+	}
+	return c.OpenCatBrowser(s.rootCtx(), req)
+}

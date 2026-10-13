@@ -13,9 +13,9 @@ function foldAt(blocks: CatBlock[], index = 0) {
 export function catActivityChecks(eq: Eq): void {
   const listed = presentCatBlocks([{ kind: 'run', id: 't', text: '- ListDir: .\n- Search: .\n- Read: D:\\proj\\README.md' }])
   eq(
-    '查找各自一行，读取把文件放进下拉',
+    '连续的查找和读取收成一组',
     listed.map((r) => (r.kind === 'fold' ? `${r.fold.title}|${r.fold.body}|${r.fold.defaultOpen}|${r.fold.streaming}` : '')),
-    ['ListDir: .||false|false', 'Search: .||false|false', 'Read|D:\\proj\\README.md|false|false'],
+    ['工具调用 · 3|ListDir: .\n\nSearch: .\n\nRead\nD:\\proj\\README.md|false|false'],
   )
 
   const one = foldAt([{ kind: 'run', text: 'Read: a.go' }])
@@ -84,12 +84,22 @@ export function catActivityChecks(eq: Eq): void {
     { kind: 'run', id: 'c', text: 'Edited runtime.go', streaming: true },
   ])
   eq(
-    '搜索和编辑各自直接显示，都不转圈',
+    '连续的搜索收成一组，编辑另起一组，都不转圈',
     grouped.map((r) => (r.kind === 'fold' ? `${r.fold.tone}:${r.fold.title}:${r.fold.streaming}` : '')),
-    ['tool:Read:false', 'tool:Search: q:false', 'change:Edited runtime.go:false'],
+    ['tool:工具调用 · 2:false', 'change:Edited runtime.go:false'],
   )
 
-  eq('查找用搜索图标，改动用编辑图标', [foldIcon({ tone: 'tool', title: '文件查找 · 2' }), foldIcon({ tone: 'change', title: 'Edit: a.go' }), foldIcon({ tone: 'think', title: '思考' })], ['search', 'edit', 'spark'])
+  const edits = presentCatBlocks([
+    { kind: 'run', text: 'Write `a.go`\n+package main' },
+    { kind: 'run', text: 'Edited b.go\n- old line\n+ new line' },
+  ])
+  eq(
+    '新增和编辑收成一组并展开',
+    edits.map((r) => (r.kind === 'fold' ? `${r.fold.tone}:${r.fold.title}:${r.fold.body}:${r.fold.defaultOpen}` : '')),
+    ['change:文件改动 · 2:Write `a.go`\n+package main\n\nEdited b.go\n- old line\n+ new line:true'],
+  )
+
+  eq('查找用搜索图标，改动用编辑图标', [foldIcon({ tone: 'tool', title: '文件查找 · 2' }), foldIcon({ tone: 'change', title: 'Edit: a.go' }), foldIcon({ tone: 'think', title: '思考' })], ['search', 'edit', 'think'])
 
   const wrote = foldAt([{ kind: 'run', text: 'Write `a.yml`\na.yml\n\n+name: nginx\n+ports:' }])
   eq('写入展开后留着新增的全文', wrote && { tone: wrote.tone, open: wrote.defaultOpen, body: wrote.body }, {

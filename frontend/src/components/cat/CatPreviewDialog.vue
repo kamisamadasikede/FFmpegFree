@@ -1,43 +1,49 @@
 <template>
-  <el-dialog
-    :model-value="open"
-    :title="title"
-    width="min(880px, 94vw)"
-    align-center
-    append-to-body
-    destroy-on-close
-    @update:model-value="emit('update:open', $event)"
-  >
-    <div class="stage" :class="view || 'wait'" data-testid="cat-attach-preview">
-      <p v-if="note" class="note">{{ note }}</p>
-      <img v-else-if="view === 'image' || view === 'svg'" :src="src" alt="" />
-      <video v-else-if="view === 'video'" :src="src" controls autoplay playsinline />
-      <audio v-else-if="view === 'audio'" :src="src" controls />
-      <iframe v-else-if="view === 'pdf'" class="frame" :src="src" :title="file?.name || '预览'" />
-      <iframe v-else-if="view === 'html'" class="frame" sandbox="allow-scripts" referrerpolicy="no-referrer" :title="file?.name || '预览'" :srcdoc="text" />
-      <iframe v-else-if="view === 'markdown'" class="frame" sandbox="" :title="file?.name || '预览'" :srcdoc="text" />
-      <CatFileRich v-else-if="rich" :kind="rich" :mime="mime" :b64="b64" :name="file?.name || ''" />
+  <teleport to="body">
+    <div v-if="open" class="mask" role="dialog" aria-modal="true" :aria-label="file?.name || '预览'" @click.self="close">
+      <div class="frame" :class="{ hug }" @click.stop>
+        <button ref="xBtn" type="button" class="x" aria-label="关闭" title="关闭" @click="close"><FIcon name="x" :size="16" /></button>
+        <div class="sheet" :class="view || 'wait'" data-testid="cat-attach-preview">
+          <p v-if="note" class="note">{{ note }}</p>
+          <img v-else-if="view === 'image' || view === 'svg'" :src="src" alt="" />
+          <video v-else-if="view === 'video'" :src="src" controls autoplay playsinline />
+          <audio v-else-if="view === 'audio'" :src="src" controls />
+          <iframe v-else-if="view === 'pdf'" class="doc" :src="src" :title="file?.name || '预览'" />
+          <iframe v-else-if="view === 'html'" class="doc" sandbox="allow-scripts" referrerpolicy="no-referrer" :title="file?.name || '预览'" :srcdoc="text" />
+          <iframe v-else-if="view === 'markdown' || view === 'text' || view === 'csv'" class="doc" sandbox="" :title="file?.name || '预览'" :srcdoc="text" />
+          <CatFileRich v-else-if="rich" :kind="rich" :mime="mime" :b64="b64" :name="file?.name || ''" />
+        </div>
+      </div>
     </div>
-  </el-dialog>
+  </teleport>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import FIcon from '@/components/icon/FIcon.vue'
 import CatFileRich from './CatFileRich.vue'
 import { buildSrcdoc, renderMarkdown } from '@/utils/docSafeHtml'
-import { canPreview, catMediaBase64, catMediaText, catMediaURL, imageDataUrl, showsThumb, type CatPreviewKind, type CatShownFile } from './catMedia'
+import { canPreview, catMediaBase64, catMediaText, catMediaURL, imageDataUrl, plainDocumentHtml, tableDocumentHtml, type CatPreviewKind, type CatShownFile } from './catMedia'
 
 const props = defineProps<{ open: boolean; file: CatShownFile | null }>()
 const emit = defineEmits<{ 'update:open': [boolean] }>()
 
-const title = computed(() => {
-  const file = props.file
-  if (!file || showsThumb(file.kind)) return ''
-  return file.name || '预览'
-})
+const xBtn = ref<HTMLButtonElement>()
+
+function close() {
+  emit('update:open', false)
+}
+
+function onKey(e: KeyboardEvent) {
+  if (e.key !== 'Escape') return
+  e.preventDefault()
+  e.stopPropagation()
+  close()
+}
 
 const note = ref('')
 const view = ref<CatPreviewKind | ''>('')
+const hug = computed(() => view.value === 'image' || view.value === 'video' || view.value === 'svg')
 const src = ref('')
 const text = ref('')
 const b64 = ref('')
@@ -64,6 +70,20 @@ watch(
     void load()
   },
 )
+
+watch(
+  () => props.open,
+  (on) => {
+    if (on) {
+      window.addEventListener('keydown', onKey)
+      void nextTick(() => xBtn.value?.focus())
+    } else {
+      window.removeEventListener('keydown', onKey)
+    }
+  },
+)
+
+onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 
 async function load() {
   const my = ++token
@@ -95,29 +115,46 @@ async function load() {
     src.value = hit.url
     return
   }
-  if (file.kind === 'markdown' || file.kind === 'html') {
+  if (file.kind === 'markdown' || file.kind === 'html' || file.kind === 'text' || file.kind === 'csv') {
     const body = await catMediaText(file.path)
     if (my !== token) return
     if (body === 'large') {
       note.value = LARGE
       return
     }
-    if (!body) {
+    if (body == null) {
       note.value = FAIL
       return
     }
-    if (file.kind === 'html') {
+    try {
+      if (file.kind === 'html') {
+        note.value = ''
+        view.value = 'html'
+        text.value = body
+        return
+      }
+      const dark = document.documentElement.classList.contains('dark')
+      if (file.kind === 'text') {
+        note.value = ''
+        view.value = 'text'
+        text.value = plainDocumentHtml(file.name, body, dark)
+        return
+      }
+      if (file.kind === 'csv') {
+        const sep = file.name.toLowerCase().endsWith('.tsv') ? '\t' : ','
+        note.value = ''
+        view.value = 'csv'
+        text.value = tableDocumentHtml(file.name, body, sep, dark)
+        return
+      }
+      const html = await renderMarkdown(body)
+      if (my !== token) return
       note.value = ''
-      view.value = 'html'
-      text.value = body
-      return
+      view.value = 'markdown'
+      text.value = buildSrcdoc(html, { dark, title: file.name })
+    } catch {
+      if (my === token) note.value = FAIL
     }
-    const html = await renderMarkdown(body)
-    if (my !== token) return
-    const dark = document.documentElement.classList.contains('dark')
-    note.value = ''
-    view.value = 'markdown'
-    text.value = buildSrcdoc(html, { dark, title: file.name })
     return
   }
   const packed = await catMediaBase64(file.path)
@@ -139,44 +176,92 @@ async function load() {
 </script>
 
 <style scoped>
-.stage {
-  min-height: 180px;
-  max-height: min(72vh, 720px);
+.mask {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: auto;
-  border-radius: 12px;
-  background: var(--cat-bg);
-}
-.stage.image,
-.stage.video,
-.stage.svg {
-  background: var(--cat-media-bg);
-}
-.stage img,
-.stage video {
-  max-width: 100%;
-  max-height: min(72vh, 720px);
-  object-fit: contain;
-}
-.stage audio {
-  width: min(440px, 100%);
+  box-sizing: border-box;
+  padding: 24px 72px 24px 24px;
+  background: var(--cat-scrim);
 }
 .frame {
+  position: relative;
+  max-width: 100%;
+  max-height: 100%;
+}
+.frame:not(.hug) {
+  width: min(880px, 100%);
+  height: min(72vh, 680px);
+}
+.x {
+  position: absolute;
+  top: 0;
+  right: -44px;
+  z-index: 1;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  color: #1f2328;
+  cursor: pointer;
+}
+.x:hover {
+  background: #f3f4f6;
+}
+.x:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+.sheet {
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--ff-bg-surface, #fff);
+}
+.frame:not(.hug) .sheet {
+  display: flex;
   width: 100%;
-  height: min(72vh, 720px);
+  height: 100%;
+}
+.sheet.image,
+.sheet.video,
+.sheet.svg {
+  background: var(--cat-media-bg);
+  line-height: 0;
+}
+.sheet img,
+.sheet video {
+  display: block;
+  max-width: min(960px, calc(100vw - 96px));
+  max-height: calc(100vh - 48px);
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.sheet audio {
+  width: min(440px, 100%);
+  margin: 36px auto;
+}
+.doc {
+  flex: 1;
+  width: 100%;
+  height: 100%;
   border: 0;
   background: var(--cat-paper);
 }
-.stage.docx,
-.stage.xlsx,
-.stage.pptx {
-  display: block;
-  height: min(72vh, 720px);
-}
-.stage :deep(.rich) {
-  min-height: 240px;
+.sheet :deep(.rich) {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
 }
 .note {
   margin: 0;

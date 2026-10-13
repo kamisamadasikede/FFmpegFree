@@ -39,7 +39,7 @@
               </span><span class="slash">/</span>
             </template>
             <FIcon v-else name="chat" :size="16" />
-            <h2>新对话</h2><span class="sp" /><FIcon name="more" :size="16" />
+            <h2>新对话</h2><span class="sp" />
           </div>
           <div v-if="projectMissing" class="ct-missing" role="status" data-testid="cat-project-missing-bar">
             <FIcon name="warn" :size="14" /><span class="tx">{{ PC.missing }}</span>
@@ -111,9 +111,30 @@
             <h2 :title="current.conv.title">{{ current.conv.title }}</h2>
             <span v-if="current.conv.main" class="main-tag">主要</span>
             <span class="sp" />
+            <button
+              type="button"
+              class="hd-ic"
+              title="搜索"
+              aria-label="搜索"
+              data-testid="cat-conv-search"
+              :aria-expanded="searchOn"
+              @click="searchOn = !searchOn"
+            >
+              <FIcon name="search" :size="16" />
+            </button>
+            <button
+              type="button"
+              class="hd-ic"
+              title="重新加载"
+              aria-label="重新加载"
+              data-testid="cat-conv-refresh"
+              @click="onRefreshConv"
+            >
+              <FIcon name="refresh" :size="16" />
+            </button>
             <button type="button" class="hd-ib" :class="{ on: !rightCollapsed }" :title="rightCollapsed ? '展开右栏 (Ctrl J)' : '收起右栏 (Ctrl J)'" :aria-label="rightCollapsed ? '展开右栏' : '收起右栏'" :aria-pressed="!rightCollapsed" data-testid="cat-right-toggle" @click="rightCollapsed = !rightCollapsed"><FIcon name="split" :size="16" /></button>
-            <FIcon name="refresh" :size="16" /><FIcon name="more" :size="16" />
           </div>
+          <CatConvSearch v-if="searchOn" :blocks="messages" @close="searchOn = false" @pick="jumpSearch" />
           <div v-if="projectMissing" class="ct-missing" role="status" data-testid="cat-project-missing-bar">
             <FIcon name="warn" :size="14" /><span class="tx">{{ PC.missing }}</span>
             <button
@@ -134,18 +155,34 @@
                 <CatMessages :blocks="messages" :pending="thinking" />
               </div>
             </div>
-            <div v-show="overflowing" ref="railEl" class="ct-rail" data-testid="cat-msg-rail" aria-label="消息位置" @pointerdown="onTrackDown">
-              <button
-                v-for="t in ticks"
-                :key="t.key"
-                type="button"
-                class="ct-tick"
-                :style="{ top: t.top + 'px' }"
-                :title="t.label || '用户消息'"
-                :aria-label="t.label || '用户消息'"
-                data-testid="cat-msg-tick"
-                @click.stop="jumpUser(t.offset)"
-              />
+            <div
+              v-show="overflowing && jumpH > 0"
+              ref="jumpsEl"
+              class="ct-jumps"
+              :style="{ height: jumpH + 'px' }"
+              data-testid="cat-msg-jumps"
+              aria-label="消息位置"
+              @wheel.stop="onJumpsWheel"
+              @scroll.passive="onJumpsScroll"
+              @mousemove="onJumpsMove"
+              @mouseleave="onJumpsLeave"
+            >
+              <div class="ct-jump-in" :style="{ height: jumpContent + 'px' }">
+                <button
+                  v-for="t in ticks"
+                  :key="t.key"
+                  type="button"
+                  class="ct-tick"
+                  :class="{ on: t.tone === 0, near: t.tone === 1 }"
+                  :style="{ top: t.top + 'px', '--tick-w': t.w + 'px' }"
+                  :title="t.label || '用户消息'"
+                  :aria-label="t.label || '用户消息'"
+                  data-testid="cat-msg-tick"
+                  @click.stop="jumpUser(t.offset)"
+                />
+              </div>
+            </div>
+            <div v-show="overflowing" ref="railEl" class="ct-rail" data-testid="cat-msg-rail" aria-label="滚动位置" @pointerdown="onTrackDown">
               <div
                 v-if="thumb"
                 class="ct-thumb"
@@ -182,9 +219,9 @@
         </template>
       </section>
 
-      <!-- E3 右栏收起：列宽 320ms；内容保留，不重新加载 -->
+      <!-- 右栏收起时内容保留，不重新加载 -->
       <div v-if="!isNew && catPanels.view === 'chat'" class="ct-r-wrap" :class="{ shut: rightCollapsed }" :aria-hidden="rightCollapsed || undefined">
-        <CatFilesPanel :conv-id="catState.sel" :missing="projectMissing" />
+        <CatFilesPanel :conv-id="catState.sel" :missing="projectMissing" @pick="onFilePick" />
       </div>
     </div>
     <CatProjectDeleteDialog />
@@ -200,22 +237,23 @@ import CatSidePanel from '@/components/cat/CatSidePanel.vue'
 import CatFilesPanel from '@/components/cat/CatFilesPanel.vue'
 import CatComposer from '@/components/cat/CatComposer.vue'
 import CatMessages from '@/components/cat/CatMessages.vue'
+import CatConvSearch from '@/components/cat/CatConvSearch.vue'
 import CatProjectDeleteDialog from '@/components/cat/CatProjectDeleteDialog.vue'
 import CatSettingsView from '@/components/cat/panels/CatSettingsView.vue'
 import CatSchedulesView from '@/components/cat/panels/CatSchedulesView.vue'
 import CatScheduleToast from '@/components/cat/panels/CatScheduleToast.vue'
+import type { PickNote } from '@/components/cat/catPick'
 import { catPanels, initCatPanels } from './catPanels'
-import { reapplyNewConvDefaults, selectConv } from './catState'
 import { CAT_PROJECT_COPY as PC } from '@/api/catProjects'
 import { ElMessage } from 'element-plus'
 import { CAT_COPY } from '@/api/cat'
 import { CAT_MODES, CAT_TRY, type CatMode } from '@/api/catMock'
 import { catReturnPath } from './catReturn'
 import { nearBottom, keepFollowing } from './catFollow'
-import { railThumb, railTickTops, scrollTopForThumb } from './catRail'
+import { RAIL_TICK_PITCH, railThumb, railTickWindow, scrollTopForThumb, tickEdgeScales, tickStairWidths } from './catRail'
 import { awaitingTurnOutput } from './catPending'
 import { onLayoutKey, rightCollapsed } from './catLayout'
-import { catChecking, catNotReady, catState, currentProject, findConv, projectMissing, relocateProject, initCat, messagesOf, NEW_CONV, refreshCapabilities, recheckCatStatus, sendMessage, stopTurn, tipLater } from './catState'
+import { catChecking, catNotReady, catState, currentProject, findConv, projectMissing, relocateProject, initCat, messagesOf, NEW_CONV, reapplyNewConvDefaults, refreshCapabilities, recheckCatStatus, reloadConversation, selectConv, sendMessage, stopTurn, tipLater } from './catState'
 import { hasWailsBackend } from '@/services/wails'
 import { ClipboardSetText } from '../../../wailsjs/runtime/runtime'
 
@@ -245,12 +283,16 @@ function kickBanner() {
   bannerKick.value++
 }
 /** 发送；后端没收下（项目文件夹不见了）时把文字和文件放回输入框 */
-async function onSend(payload: { text: string; files: { name: string; path: string }[] }, c: InstanceType<typeof CatComposer> | undefined) {
+function onFilePick(note: PickNote) {
+  convComposer.value?.addPick(note)
+}
+async function onSend(payload: { text: string; files: { name: string; path: string }[]; own: string; notes: PickNote[] }, c: InstanceType<typeof CatComposer> | undefined) {
   stick.value = true
   const back = await sendMessage(payload.text, payload.files)
   if (back) {
-    c?.restoreDraft(back.text)
+    c?.restoreDraft(payload.own)
     c?.restoreFiles(back.files)
+    if (payload.notes.length) c?.restorePicks(payload.notes)
   }
   nextTick(pinBottom)
 }
@@ -261,15 +303,57 @@ const thinking = computed(() => {
   if (!turn.value || turn.value.status !== 'running') return false
   return awaitingTurnOutput(messages.value)
 })
+/** 点刷新后整页加载至少停这么久，转圈才看得到。 */
+const RELOAD_HOLD_MS = 500
+let reloadTimer: ReturnType<typeof setTimeout> | undefined
+let pageAlive = true
+function holdReload(ms: number) {
+  return new Promise<void>((resolve) => {
+    reloadTimer = setTimeout(() => {
+      reloadTimer = undefined
+      resolve()
+    }, ms)
+  })
+}
+async function onRefreshConv() {
+  const id = catState.sel
+  if (!id || id === NEW_CONV || phase.value === 'loading') return
+  searchOn.value = false
+  const started = Date.now()
+  phase.value = 'loading'
+  try {
+    await reloadConversation(id)
+  } finally {
+    const left = RELOAD_HOLD_MS - (Date.now() - started)
+    if (left > 0) await holdReload(left)
+    if (pageAlive) phase.value = 'chat'
+  }
+}
 const msgsEl = ref<HTMLElement>()
 const msgsBody = ref<HTMLElement>()
 const railEl = ref<HTMLElement>()
 /** 人在看最新一条时，回复变高就跟着往下；往上翻过之后停住 */
 const stick = ref(true)
+const searchOn = ref(false)
+function jumpSearch(index: number) {
+  searchOn.value = false
+  nextTick(() => {
+    const el = msgsEl.value?.querySelector(`[data-cat-user="user:${index}"]`)
+    if (!(el instanceof HTMLElement)) return
+    stick.value = false
+    el.scrollIntoView({ block: 'center' })
+  })
+}
 /** 人把消息往上翻开之后才出现「回到底部」 */
 const away = ref(false)
 const overflowing = ref(false)
-const ticks = ref<{ key: string; top: number; offset: number; label: string }[]>([])
+const ticks = ref<{ key: string; top: number; offset: number; label: string; w: number; tone: number }[]>([])
+const jumpH = ref(0)
+const jumpContent = ref(0)
+const jumpsEl = ref<HTMLElement>()
+/** 鼠标正停在哪一条上。-1 时全部一样长，不在中间鼓起。 */
+const hoverTick = ref(-1)
+let railAnim = 0
 const thumb = ref<{ top: number; height: number } | null>(null)
 /** 和 .ct-rail 的 top/bottom 留白一致 */
 const RAIL_INSET = 8
@@ -286,6 +370,8 @@ function measureRail() {
   if (!el) {
     overflowing.value = false
     ticks.value = []
+    jumpH.value = 0
+    jumpContent.value = 0
     thumb.value = null
     away.value = false
     return
@@ -296,19 +382,102 @@ function measureRail() {
   overflowing.value = sh > ch + 1
   away.value = pinnedOnce && !nearBottom(el.scrollTop, sh, ch)
   const nodes = Array.from(el.querySelectorAll<HTMLElement>('[data-cat-user]'))
-  const tops = railTickTops(nodes.length, track)
+  const win = railTickWindow(nodes.length, track)
   const next = nodes.map((n, i) => {
     const offset = n.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop
     const label = (n.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80)
     return {
       key: n.dataset.catUser || String(i),
-      top: tops[i] ?? 0,
+      top: win.tops[i] ?? 0,
       offset,
       label,
+      w: 8,
+      tone: 2,
     }
   })
   ticks.value = next
+  jumpH.value = win.box
+  jumpContent.value = win.content
   thumb.value = railThumb(el.scrollTop, sh, ch, track)
+  nextTick(paintTickStairs)
+}
+
+function paintTickStairs() {
+  const el = jumpsEl.value
+  const list = ticks.value
+  if (!list.length) return
+  if (hoverTick.value < 0) {
+    const scales = tickEdgeScales(list.length, el?.scrollTop ?? 0, el?.clientHeight || jumpH.value, RAIL_TICK_PITCH)
+    list.forEach((t, i) => {
+      const w = Math.round(8 * (scales[i] ?? 1))
+      if (t.w !== w) t.w = w
+      if (t.tone !== 2) t.tone = 2
+    })
+    return
+  }
+  const focus = Math.min(hoverTick.value, list.length - 1)
+  const widths = tickStairWidths(list.length, focus)
+  list.forEach((t, i) => {
+    const w = widths[i] ?? 8
+    const tone = i === focus ? 0 : Math.abs(i - focus) === 1 ? 1 : 2
+    if (t.w !== w) t.w = w
+    if (t.tone !== tone) t.tone = tone
+  })
+}
+
+function onJumpsMove(e: MouseEvent) {
+  const el = jumpsEl.value
+  if (!el || !ticks.value.length) return
+  const y = e.clientY - el.getBoundingClientRect().top + el.scrollTop
+  const i = Math.min(ticks.value.length - 1, Math.max(0, Math.floor(y / RAIL_TICK_PITCH)))
+  if (hoverTick.value === i) return
+  hoverTick.value = i
+  paintTickStairs()
+}
+
+function onJumpsLeave() {
+  if (hoverTick.value < 0) return
+  hoverTick.value = -1
+  paintTickStairs()
+}
+
+function onJumpsWheel() {
+  cancelAnimationFrame(railAnim)
+}
+
+function onJumpsScroll() {
+  paintTickStairs()
+}
+
+/** 对话往上或往下滚时，左侧整列跟着滑，能看出方向。 */
+function animateRailTo(next: number) {
+  const rail = jumpsEl.value
+  if (!rail) return
+  cancelAnimationFrame(railAnim)
+  const from = rail.scrollTop
+  const dist = next - from
+  if (Math.abs(dist) < 0.5) return
+  const t0 = performance.now()
+  const step = (now: number) => {
+    const el = jumpsEl.value
+    if (!el) return
+    const p = Math.min(1, (now - t0) / 220)
+    const eased = 1 - (1 - p) ** 3
+    el.scrollTop = from + dist * eased
+    if (p < 1) railAnim = requestAnimationFrame(step)
+  }
+  railAnim = requestAnimationFrame(step)
+}
+
+function syncJumpsToChat() {
+  const rail = jumpsEl.value
+  const msgs = msgsEl.value
+  if (!rail || !msgs || hoverTick.value >= 0) return
+  const span = msgs.scrollHeight - msgs.clientHeight
+  const railSpan = rail.scrollHeight - rail.clientHeight
+  if (railSpan <= 0) return
+  const progress = span <= 0 ? 1 : msgs.scrollTop / span
+  animateRailTo(Math.max(0, Math.min(railSpan, progress * railSpan)))
 }
 
 // 选中的对话不存在（例如被删掉）时回到欢迎页。列表还在加载时先不判断，避免把记下的对话清掉
@@ -340,6 +509,7 @@ function onMsgsScroll() {
   if (!el) return
   stick.value = keepFollowing(true, nearBottom(el.scrollTop, el.scrollHeight, el.clientHeight), stick.value)
   measureRail()
+  syncJumpsToChat()
 }
 function jumpUser(offset: number) {
   const el = msgsEl.value
@@ -443,8 +613,11 @@ onMounted(() => {
   }
 })
 onBeforeUnmount(() => {
+  pageAlive = false
   window.removeEventListener('keydown', onCopyKey)
   clearTimeout(timer)
+  clearTimeout(reloadTimer)
+  cancelAnimationFrame(railAnim)
   stopReady?.()
   disposeCat?.()
   disposePanels?.()
@@ -454,8 +627,12 @@ onBeforeUnmount(() => {
 watch(() => catState.sel, () => {
   stick.value = true
   away.value = false
+  searchOn.value = false
   pinnedOnce = false
   ticks.value = []
+  jumpH.value = 0
+  jumpContent.value = 0
+  hoverTick.value = -1
   thumb.value = null
   void refreshCapabilities()
 })
@@ -592,8 +769,8 @@ function onModeClick(m: CatMode) {
   display: flex;
   align-items: center;
   gap: 6px;
-  width: 560px;
-  max-width: calc(100% - 32px);
+  width: calc(100% - 96px);
+  max-width: calc(100% - 96px);
   margin: 0 auto 10px;
   padding: 8px 12px;
   border-radius: 10px;
@@ -655,6 +832,9 @@ function onModeClick(m: CatMode) {
   .swap,
   .ct-spin {
     animation: none;
+  }
+  .ct-tick::before {
+    transition: none;
   }
 }
 .cat-page {
@@ -803,6 +983,26 @@ html.dark .sk {
 .ct-hd > :deep(svg) {
   color: var(--cat-text-2);
 }
+.hd-ic {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ff-text-2);
+  cursor: pointer;
+  --wails-draggable: no-drag;
+}
+.hd-ic:hover:not(:disabled) {
+  background: var(--ff-bg-hover);
+  color: var(--ff-text-1);
+}
+
 .ct-hd .sp {
   flex: 1;
 }
@@ -839,7 +1039,7 @@ html.dark .sk {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px 22px 16px 0;
+  padding: 16px 0;
   overflow-anchor: none;
   user-select: text;
   -webkit-user-select: text;
@@ -848,6 +1048,27 @@ html.dark .sk {
 .ct-msgs::-webkit-scrollbar {
   width: 0;
   height: 0;
+}
+.ct-jumps {
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  width: 44px;
+  transform: translateY(-50%);
+  z-index: 3;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%);
+}
+.ct-jumps::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+.ct-jump-in {
+  position: relative;
+  width: 100%;
 }
 .ct-rail {
   position: absolute;
@@ -860,8 +1081,8 @@ html.dark .sk {
 .ct-tick {
   position: absolute;
   left: 0;
-  width: 12px;
-  height: 8px;
+  width: 44px;
+  height: 12px;
   margin: 0;
   padding: 0;
   border: none;
@@ -872,13 +1093,18 @@ html.dark .sk {
   content: '';
   position: absolute;
   left: 0;
-  top: 3px;
-  width: 8px;
+  top: 5px;
+  width: var(--tick-w, 8px);
   height: 2px;
-  border-radius: 1px;
+  border-radius: 999px;
   background: var(--cat-muted);
+  transform-origin: left center;
+  transition: width 180ms ease, background-color 180ms ease;
 }
-.ct-tick:hover::before,
+.ct-tick.near::before {
+  background: var(--cat-text-2);
+}
+.ct-tick.on::before,
 .ct-tick:focus-visible::before {
   background: var(--cat-text);
 }
@@ -997,12 +1223,12 @@ html.dark .sk {
 .ct-welcome :deep(.ct-comp) {
   margin: 0;
   text-align: left;
-  width: min(640px, 100%);
+  width: 100%;
   max-width: 100%;
 }
 .wl-try {
   margin-top: 18px;
-  width: min(640px, 100%);
+  width: 100%;
   text-align: left;
 }
 .wl-try-hd {

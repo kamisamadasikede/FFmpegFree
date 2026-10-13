@@ -1,6 +1,7 @@
 /**
  * 中间消息里，思考 / 工具调用 / 文件查找怎么收起。
- * 助手正文原样留下；文件改动默认展开；其余默认收起。
+ * 挨在一起的工具调用和搜索收成一组；挨在一起的新增和编辑收成一组。
+ * 助手正文原样留下。文件改动默认展开，工具调用默认收起。
  * 转圈只留给思考。搜索、读取、编辑直接显示，不转圈。
  */
 import type { IconName } from '@/components/icon/icons'
@@ -121,58 +122,93 @@ function thinkFold(b: Extract<CatBlock, { kind: 'think' }>, i: number): CatRow {
   return { kind: 'fold', key: fold.key, fold }
 }
 
-function pushToolFold(rows: CatRow[], key: string, item: ToolItem) {
+interface HeldTool {
+  key: string
+  item: ToolItem
+}
+
+function toolTitle(item: ToolItem): string {
   const lines = item.detail.split('\n').map((s) => s.trim()).filter(Boolean)
   const countFiles = lines.length > 1 && /^(?:read(?:_file)?|读取)\b/i.test(item.summary)
+  return countFiles ? `${item.summary} · ${lines.length}` : item.summary || '工具'
+}
+
+function itemText(item: ToolItem): string {
+  const summary = item.summary.trim()
+  const detail = item.detail.trim()
+  if (summary && detail) return `${summary}\n${detail}`
+  return summary || detail
+}
+
+function pushToolGroup(rows: CatRow[], held: HeldTool[]) {
+  if (!held.length) return
+  const key = held.length === 1 ? held[0].key : `tools:${held[0].key}`
   const fold: CatFold = {
     key,
     tone: 'tool',
-    title: countFiles ? `${item.summary} · ${lines.length}` : item.summary || '工具',
-    body: item.detail,
+    title: held.length === 1 ? toolTitle(held[0].item) : `工具调用 · ${held.length}`,
+    body: held.length === 1 ? held[0].item.detail : held.map((h) => itemText(h.item)).join('\n\n'),
     streaming: false,
     defaultOpen: false,
   }
   rows.push({ kind: 'fold', key, fold })
+  held.length = 0
 }
 
-function pushChange(rows: CatRow[], key: string, item: ToolItem) {
+function pushChangeGroup(rows: CatRow[], held: HeldTool[]) {
+  if (!held.length) return
+  const key = held.length === 1 ? held[0].key : `changes:${held[0].key}`
   const fold: CatFold = {
     key,
     tone: 'change',
-    title: item.summary || '文件改动',
-    body: item.detail,
+    title: held.length === 1 ? held[0].item.summary || '文件改动' : `文件改动 · ${held.length}`,
+    body: held.length === 1 ? held[0].item.detail : held.map((h) => itemText(h.item)).join('\n\n'),
     streaming: false,
     defaultOpen: true,
   }
   rows.push({ kind: 'fold', key, fold })
+  held.length = 0
 }
 
 /**
- * 每次工具调用单独一行。查找和读取默认收起，点开才是文件；文件改动默认展开。
- * 搜索、读取、编辑都不转圈。
+ * 连续的工具调用和搜索合成一组，连续的新增和编辑合成一组。
+ * 中间插了正文或另一种操作，就另起一组。查找默认收起，文件改动默认展开。
  */
 export function presentCatBlocks(blocks: CatBlock[]): CatRow[] {
   const rows: CatRow[] = []
+  const tools: HeldTool[] = []
+  const changes: HeldTool[] = []
+  const flush = () => {
+    pushToolGroup(rows, tools)
+    pushChangeGroup(rows, changes)
+  }
   blocks.forEach((b, i) => {
     if (b.kind === 'run') {
       splitToolItems(b.text).forEach((item, j) => {
         const key = `${b.id ?? `i${i}`}:${j}`
-        if (item.fileChange) pushChange(rows, key, item)
-        else pushToolFold(rows, key, item)
+        if (item.fileChange) {
+          pushToolGroup(rows, tools)
+          changes.push({ key, item })
+        } else {
+          pushChangeGroup(rows, changes)
+          tools.push({ key, item })
+        }
       })
       return
     }
+    flush()
     if (b.kind === 'think') rows.push(thinkFold(b, i))
     else if (b.kind === 'user') {
       const block = userSendFailed(blocks, i) ? { ...b, failed: true } : b
       rows.push({ kind: 'block', key: blockKey(b, i), block })
     } else rows.push({ kind: 'block', key: blockKey(b, i), block: b })
   })
+  flush()
   return rows
 }
 
 export function foldIcon(fold: Pick<CatFold, 'tone' | 'title'>): IconName {
-  if (fold.tone === 'think') return 'spark'
+  if (fold.tone === 'think') return 'think'
   if (fold.tone === 'change') return 'edit'
   if (/^(?:read(?:_file)?|读取)\b/i.test(fold.title)) return 'file'
   if (/^(?:list(?:_dir|dir)?|列出)\b/i.test(fold.title)) return 'folder'

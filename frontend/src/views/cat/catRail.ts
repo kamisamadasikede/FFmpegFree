@@ -2,7 +2,13 @@
 export const RAIL_THUMB_MIN = 28
 
 /** 用户消息记号之间的间距。装得下就按这个排紧，不按正文位置拉开。 */
-export const RAIL_TICK_PITCH = 8
+export const RAIL_TICK_PITCH = 12
+
+/** 左侧记号条最多这么高。再多就在这条里面滚动，不拉满整列对话。 */
+export const RAIL_TICK_MAX = 360
+
+/** 可视窗口最上和最下那一截，比中间的短。 */
+export const RAIL_TICK_EDGE = 0.45
 
 /**
  * 用户消息记号按发言顺序排。条数少时挨在一起；装不下轨道时再均匀压进可视高度。
@@ -16,6 +22,71 @@ export function railTickTops(count: number, track: number, pitch = RAIL_TICK_PIT
   if (need <= usable) return Array.from({ length: count }, (_, i) => i * pitch)
   const step = usable / (count - 1)
   return Array.from({ length: count }, (_, i) => i * step)
+}
+
+/** 记号组的高度。装得下就按间距叠紧，装不下就用整段高度。页面再把这组放到左侧中间。 */
+export function railTickBox(count: number, track: number, pitch = RAIL_TICK_PITCH): number {
+  if (count <= 0 || !(track > 0)) return 0
+  return Math.min(track, count * pitch)
+}
+
+/**
+ * 左侧记号窗口。内容按间距排开，不压扁。
+ * 窗口高度不超过对话，也不超过固定上限；多出来的留给里面滚动。
+ */
+export function railTickWindow(
+  count: number,
+  track: number,
+  pitch = RAIL_TICK_PITCH,
+  max = RAIL_TICK_MAX,
+): { box: number; content: number; tops: number[] } {
+  if (count <= 0 || !(track > 0)) return { box: 0, content: 0, tops: [] }
+  const content = count * pitch
+  const cap = max > 0 ? max : content
+  return {
+    box: Math.min(content, track, cap),
+    content,
+    tops: Array.from({ length: count }, (_, i) => i * pitch),
+  }
+}
+
+/** 离焦点越远越短，焦点最长。下标 0 是焦点自己。 */
+export const RAIL_TICK_STAIR = [36, 24, 16, 11, 8]
+
+/** 每条记号的宽度。焦点处最长，两边逐级变短。 */
+export function tickStairWidths(count: number, focus: number, steps = RAIL_TICK_STAIR): number[] {
+  const last = steps.length - 1
+  const at = Math.min(Math.max(0, focus), Math.max(0, count - 1))
+  return Array.from({ length: count }, (_, i) => steps[Math.min(Math.abs(i - at), last)] ?? steps[last])
+}
+
+/** 可视窗口中线对着的那一条。 */
+export function tickFocusIndex(count: number, scrollTop: number, view: number, pitch = RAIL_TICK_PITCH): number {
+  if (count <= 0) return 0
+  const mid = Math.max(0, scrollTop) + Math.max(0, view) / 2
+  const i = Math.round((mid - pitch / 2) / pitch)
+  return Math.min(count - 1, Math.max(0, i))
+}
+
+/** 当前能看见的最上、最下两条缩短，中间保持原长。只有一条时不缩。 */
+export function tickEdgeScales(count: number, scrollTop: number, view: number, pitch = RAIL_TICK_PITCH, edge = RAIL_TICK_EDGE): number[] {
+  const scales = Array.from({ length: count }, () => 1)
+  if (count <= 1 || !(view > 0) || !(pitch > 0)) return scales
+  const start = Math.max(0, scrollTop)
+  const end = start + view
+  let lo = -1
+  let hi = -1
+  for (let i = 0; i < count; i++) {
+    const top = i * pitch
+    if (top + pitch <= start || top >= end) continue
+    if (lo < 0) lo = i
+    hi = i
+  }
+  if (lo >= 0 && hi > lo) {
+    scales[lo] = edge
+    scales[hi] = edge
+  }
+  return scales
 }
 
 /**

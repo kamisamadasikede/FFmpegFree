@@ -25,6 +25,14 @@
           </div>
         </div>
       </div>
+      <div v-if="picks.length" class="pick-notes" data-testid="cat-pick-notes">
+        <div v-for="p in picks" :key="p.nid" class="pick-bubble" data-testid="cat-pick-bubble">
+          <button type="button" class="rm" :aria-label="'移除 ' + p.label" @click="removePick(p.nid)"><FIcon name="x" :size="11" /></button>
+          <div class="hd"><FIcon :name="p.intent === 'ask' ? 'ask' : 'edit'" :size="13" /><b :title="p.label">{{ p.label }}</b><span>{{ p.intent === 'ask' ? '疑问' : '改变' }}</span></div>
+          <p v-if="p.note" class="note" :title="p.note">{{ p.note }}</p>
+          <p v-else-if="p.selector" class="note path" :title="p.selector">{{ p.selector }}</p>
+        </div>
+      </div>
       <div v-if="missing" :id="missId" class="miss-ph" data-testid="cat-composer-missing"><FIcon name="warn" :size="14" />{{ PC.missing }}</div>
       <textarea
         ref="ta"
@@ -201,6 +209,7 @@ import FIcon from '@/components/icon/FIcon.vue'
 import CatContextRing from '@/components/cat/CatContextRing.vue'
 import { ElMessage } from 'element-plus'
 import { CAT_COPY } from '@/api/cat'
+import { composePickSend, pickLabel, type PickNote } from '@/components/cat/catPick'
 import { CAT_PROJECT_COPY as PC } from '@/api/catProjects'
 import { CAT_ACCESS } from '@/api/catMock'
 import { pickFiles } from '@/api/system'
@@ -236,7 +245,7 @@ const props = withDefaults(
 )
 let missSeq = 0
 const missId = `ct-miss-${++missSeq}-${Math.random().toString(36).slice(2, 7)}`
-const emit = defineEmits<{ send: [payload: { text: string; files: CatOutgoingFile[] }]; stop: []; blocked: [] }>()
+const emit = defineEmits<{ send: [payload: { text: string; files: CatOutgoingFile[]; own: string; notes: PickNote[] }]; stop: []; blocked: [] }>()
 
 /** 停止：父组件把 stopping 置真后按钮立即置灰，重复点击无效 */
 function onStop() {
@@ -254,7 +263,13 @@ const atts = ref<DraftFile[]>([])
 const extraOpen = ref(false)
 const shownFiles = computed(() => splitAttach(atts.value).shown)
 const extraFiles = computed(() => splitAttach(atts.value).extra)
-const canSend = computed(() => (!!draft.value.trim() || atts.value.length > 0) && !props.busy && !props.running && !props.notReady && !props.checking && !props.missing)
+interface ShownPick extends PickNote {
+  nid: number
+  label: string
+}
+let pickSeq = 0
+const picks = ref<ShownPick[]>([])
+const canSend = computed(() => (!!draft.value.trim() || atts.value.length > 0 || picks.value.length > 0) && !props.busy && !props.running && !props.notReady && !props.checking && !props.missing)
 const contextUsage = computed(() => {
   const u = catState.context[catState.sel]
   if (!u || u.used <= 0 || u.window <= 0) return null
@@ -360,15 +375,21 @@ function removeFile(id: number) {
   atts.value = atts.value.filter((f) => f.id !== id)
   if (!extraFiles.value.length) extraOpen.value = false
 }
+function removePick(id: number) {
+  picks.value = picks.value.filter((p) => p.nid !== id)
+}
 function send() {
   if (!canSend.value) {
-    // G2：未就绪 / 检查中按 Enter，让父组件把横幅抖一下，文字照旧留在框里
-    if ((props.notReady || props.checking) && (draft.value.trim() || atts.value.length)) emit('blocked')
+    // 未就绪或正在检查时按 Enter，让父组件把横幅抖一下，文字照旧留在框里
+    if ((props.notReady || props.checking) && (draft.value.trim() || atts.value.length || picks.value.length)) emit('blocked')
     return
   }
+  const own = draft.value
+  const notes = picks.value.map((p) => ({ ...p }))
   const files = atts.value.map((f) => ({ name: f.name, path: f.path }))
-  emit('send', { text: draft.value, files })
+  emit('send', { text: composePickSend(own, notes), files, own, notes })
   draft.value = ''
+  picks.value = []
   atts.value = []
   extraOpen.value = false
   nextTick(autosize)
@@ -417,11 +438,22 @@ onBeforeUnmount(() => {
 defineExpose({
   focus: () => ta.value?.focus(),
   setDraft: (t: string) => { draft.value = t; nextTick(autosize); ta.value?.focus() },
+  /** 网页里点选的元素，以气泡放进输入框。正文要等发送时才带上。 */
+  addPick: (note: PickNote) => {
+    const label = pickLabel(note)
+    picks.value = [...picks.value, { ...note, nid: ++pickSeq, label }].slice(-8)
+    nextTick(() => ta.value?.focus())
+  },
   /** 发送没成功、后端也没存这条（如 CAT_PROJECT_MISSING）：把文字放回输入框；用户已经又输入了就不覆盖，不抢焦点 */
   restoreDraft: (t: string) => { if (draft.value.trim()) return; draft.value = t; nextTick(autosize) },
   restoreFiles: (files: CatOutgoingFile[]) => {
     if (atts.value.length || !files?.length) return
     atts.value = files.filter((f) => f.path).map(toDraft)
+  },
+  /** 发送没被收下时，把气泡放回来。输入框里已经有新气泡就不覆盖。 */
+  restorePicks: (notes: PickNote[]) => {
+    if (picks.value.length || !notes?.length) return
+    picks.value = notes.slice(-8).map((n) => ({ ...n, nid: ++pickSeq, label: pickLabel(n) }))
   },
 })
 </script>
@@ -468,7 +500,7 @@ defineExpose({
   position: relative;
   flex: none;
   margin: 0 auto 16px;
-  width: min(560px, calc(100% - 32px));
+  width: calc(100% - 96px);
   min-width: 0;
   box-sizing: border-box;
 }
@@ -555,6 +587,68 @@ defineExpose({
 .bare .ta {
   padding: 1px 2px 0;
   min-height: 0;
+}
+.pick-notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+.pick-bubble {
+  position: relative;
+  max-width: min(100%, 260px);
+  padding: 8px 22px 8px 10px;
+  border-radius: 14px 14px 14px 4px;
+  background: var(--ff-bg-hover);
+  color: var(--ff-text-1);
+}
+.pick-bubble .hd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+}
+.pick-bubble .hd b {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 650;
+}
+.pick-bubble .hd span {
+  flex: none;
+  color: var(--ff-text-3);
+}
+.pick-bubble .note {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ff-text-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pick-bubble .rm {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ff-text-3);
+  cursor: pointer;
+  padding: 0;
+}
+.pick-bubble .rm:hover {
+  background: var(--ff-bg-surface);
+  color: var(--ff-text-1);
 }
 .ct-files {
   display: flex;

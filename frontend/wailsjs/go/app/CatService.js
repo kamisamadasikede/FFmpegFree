@@ -114,6 +114,10 @@ export function ListLiveCatTurns() {
   return window['go']['app']['CatService']['ListLiveCatTurns']();
 }
 
+export function OpenCatBrowser(arg1) {
+  return window['go']['app']['CatService']['OpenCatBrowser'](arg1);
+}
+
 export function PauseCatSchedule(arg1) {
   return window['go']['app']['CatService']['PauseCatSchedule'](arg1);
 }
@@ -136,6 +140,10 @@ export function RelocateCatProject(arg1) {
 
 export function RenameCatProject(arg1) {
   return window['go']['app']['CatService']['RenameCatProject'](arg1);
+}
+
+export function ResizeCatTerm(arg1) {
+  return window['go']['app']['CatService']['ResizeCatTerm'](arg1);
 }
 
 export function ResumeCatSchedule(arg1) {
@@ -166,10 +174,22 @@ export function SendCatMessage(arg1) {
   return window['go']['app']['CatService']['SendCatMessage'](arg1);
 }
 
+export function StartCatTerm(arg1) {
+  return window['go']['app']['CatService']['StartCatTerm'](arg1);
+}
+
+export function StopCatTerm(arg1) {
+  return window['go']['app']['CatService']['StopCatTerm'](arg1);
+}
+
 export function UpdateCatSchedule(arg1) {
   return window['go']['app']['CatService']['UpdateCatSchedule'](arg1);
 }
 
 export function WriteCatFile(arg1) {
   return window['go']['app']['CatService']['WriteCatFile'](arg1);
+}
+
+export function WriteCatTerm(arg1) {
+  return window['go']['app']['CatService']['WriteCatTerm'](arg1);
 }

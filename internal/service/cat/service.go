@@ -67,8 +67,8 @@ type Service struct {
 	projMissing map[string]bool // 项目 id → 上一次计算的 missing（6.19.10.3）
 	rekeyMu     sync.Mutex
 	rekeyed     bool // ensureProjectKeys 已成功跑过
-
-	sched scheduler
+	sched       scheduler
+	terms       *termHub
 }
 
 // actRec 是一条思考或一次工具调用。界面单独画，不写进助手正文。

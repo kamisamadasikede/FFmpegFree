@@ -2,6 +2,7 @@
  * 对话附件的预览种类。图片和视频由页面直接加载缩略图，文档点开后再读。
  */
 import { callService } from '@/api/call'
+import { buildSrcdoc } from '@/utils/docSafeHtml'
 
 export type CatPreviewKind =
   | 'image'
@@ -14,6 +15,8 @@ export type CatPreviewKind =
   | 'markdown'
   | 'html'
   | 'svg'
+  | 'text'
+  | 'csv'
   | 'file'
 
 export interface CatShownFile {
@@ -25,7 +28,7 @@ export interface CatShownFile {
   data?: string
 }
 
-const KINDS = new Set<CatPreviewKind>(['image', 'video', 'audio', 'pdf', 'docx', 'xlsx', 'pptx', 'markdown', 'html', 'svg', 'file'])
+const KINDS = new Set<CatPreviewKind>(['image', 'video', 'audio', 'pdf', 'docx', 'xlsx', 'pptx', 'markdown', 'html', 'svg', 'text', 'csv', 'file'])
 
 const EXT: Record<string, CatPreviewKind> = {
   png: 'image',
@@ -57,6 +60,14 @@ const EXT: Record<string, CatPreviewKind> = {
   pptx: 'pptx',
   md: 'markdown',
   markdown: 'markdown',
+  mdown: 'markdown',
+  mkd: 'markdown',
+  mdx: 'markdown',
+  txt: 'text',
+  text: 'text',
+  log: 'text',
+  csv: 'csv',
+  tsv: 'csv',
   html: 'html',
   htm: 'html',
   svg: 'svg',
@@ -99,6 +110,58 @@ export function userDisplayText(text: string, files: readonly Pick<CatShownFile,
     return !hide.has(t) && !hide.has(normPath(t))
   })
   return lines.join('\n').trim()
+}
+
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+/** 纯文本预览。内容放进沙箱页面，不执行。 */
+export function plainDocumentHtml(name: string, body: string, dark: boolean): string {
+  return buildSrcdoc(`<pre>${esc(body)}</pre>`, { dark, title: name })
+}
+
+function splitRow(line: string, sep: string): string[] {
+  const out: string[] = []
+  let cur = ''
+  let quoted = false
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]
+    if (quoted) {
+      if (c === '"') {
+        if (line[i + 1] === '"') {
+          cur += '"'
+          i++
+        } else quoted = false
+      } else cur += c
+      continue
+    }
+    if (c === '"') {
+      quoted = true
+      continue
+    }
+    if (c === sep) {
+      out.push(cur)
+      cur = ''
+      continue
+    }
+    cur += c
+  }
+  out.push(cur)
+  return out
+}
+
+/** 逗号或制表符表格。最多 200 行、30 列。 */
+export function tableDocumentHtml(name: string, body: string, sep: string, dark: boolean): string {
+  const lines = body.replace(/^\uFEFF/, '').split(/\r?\n/)
+  while (lines.length && lines[lines.length - 1] === '') lines.pop()
+  const cut = lines.length > 200 || lines.some((line) => splitRow(line, sep).length > 30)
+  const rows = lines.slice(0, 200).map((line) => splitRow(line, sep).slice(0, 30))
+  const html = rows
+    .map((row) => `<tr>${row.map((cell) => `<td>${esc(cell)}</td>`).join('')}</tr>`)
+    .join('')
+  const note = cut ? '<p>只显示前 200 行、30 列。</p>' : ''
+  return buildSrcdoc(`<table>${html}</table>${note}`, { dark, title: name })
 }
 
 export function imageDataUrl(file: Pick<CatShownFile, 'mime' | 'data'>): string {

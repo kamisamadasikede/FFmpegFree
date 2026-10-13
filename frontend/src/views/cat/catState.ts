@@ -328,12 +328,13 @@ function blockSnap(list: CatBlock[]): { kind: string; text: string }[] {
   return list.map((b) => ({ kind: b.kind, text: 'text' in b && typeof b.text === 'string' ? b.text : '' }))
 }
 
-async function loadMessages(id: string, quiet = false) {
-  if (loading.has(id) || id.startsWith('local-')) return
+async function loadMessages(id: string, quiet = false, force = false) {
+  if (id.startsWith('local-') || loading.has(id)) return
   const turn = catState.turns[id]
   // 本页发出的这一轮还在往外流：屏幕上就是最新的，不去用还没写完的记录覆盖。
+  // 人点标题栏刷新时 force 为真，按文件重读这一段，也不停掉正在进行的回复。
   // 刷新接回来的那一轮相反，记录在文件里继续长，要反复读。
-  if (turn && !turn.adopted) return
+  if (!force && turn && !turn.adopted) return
   loading.add(id)
   if (!quiet && !catState.messages[id]?.length) catState.histLoading[id] = true
   try {
@@ -341,7 +342,7 @@ async function loadMessages(id: string, quiet = false) {
     if (!d || !findConv(id)) return
     // 等待期间本页又自己发出了一轮：不要用文件里的旧记录盖住正在流的内容。
     const now = catState.turns[id]
-    if (now && !now.adopted) return
+    if (!force && now && !now.adopted) return
     if (d.contextUsed > 0 && d.contextWindow > 0) catState.context[id] = { used: d.contextUsed, window: d.contextWindow }
     const found = findConv(id)
     if (found && d.title) found.conv.title = d.title
@@ -363,6 +364,12 @@ async function loadMessages(id: string, quiet = false) {
     loading.delete(id)
     catState.histLoading[id] = false
   }
+}
+
+/** 标题栏刷新：重读当前对话的记录。不取消正在进行的回复。 */
+export async function reloadConversation(id: string): Promise<void> {
+  if (!id || id === NEW_CONV) return
+  await loadMessages(id, false, true)
 }
 
 let livePoll: ReturnType<typeof setInterval> | undefined

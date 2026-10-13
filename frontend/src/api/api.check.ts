@@ -51,12 +51,16 @@ import { catGitChecks } from './catGit.check'
 import { catFilePreviewChecks } from './catFilePreview.check'
 import { catContextUsageChecks } from '@/components/cat/catContextUsage.check'
 import { catActivityChecks } from '@/components/cat/catActivity.check'
+import { catConvSearchChecks } from '@/components/cat/catConvSearch.check'
 import { catInlineDiffChecks } from '@/components/cat/catInlineDiff.check'
 import { catSyntaxChecks } from '@/components/cat/catSyntax.check'
 import { catPreviewWidthChecks } from '@/components/cat/catPreviewWidth.check'
 import { catFollowChecks } from '@/views/cat/catFollow.check'
 import { catRailChecks } from '@/views/cat/catRail.check'
 import { catAttachChecks } from '@/components/cat/catAttach.check'
+import { catPickChecks } from '@/components/cat/catPick.check'
+import { catBrowserChecks } from '@/components/cat/catBrowser.check'
+import { catTermInputChecks } from '@/components/cat/catTermInput.check'
 import { catPendingChecks } from '@/views/cat/catPending.check'
 import { catStopChecks } from '@/views/cat/catStop.check'
 import { catConvDotChecks } from '@/views/cat/catConvDot.check'
@@ -1003,12 +1007,16 @@ export async function runApiChecks(): Promise<string[]> {
         catFilePreviewChecks(eq) // Cat 侧边预览：种类映射、二进制不带文本、markdown / svg 切换
         catContextUsageChecks(eq) // Cat 上下文圆环：百分比、弧长、悬停摘要
         catActivityChecks(eq) // Cat 消息：工具调用和文件查找默认收起，文件改动和正文展开，结束后不转圈
+        catConvSearchChecks(eq) // Cat 对话搜索：最新在前，输入框筛选，一次只取一页
         catInlineDiffChecks(eq) // Cat 从 git 打开文件：红绿嵌在正文里
         catSyntaxChecks(eq) // Cat 代码着色：十种语言的关键字、函数、类型、字符串、数字、注释
-        catPreviewWidthChecks(eq) // Cat 文件预览宽度：可拖，并给中间对话留空
+        catPreviewWidthChecks(eq) // Cat 左右栏和文件预览宽度：可拖，并给中间对话留空
         catFollowChecks(eq) // Cat 回复变高时中间跟着往下滚；人往上翻则停住
         catRailChecks(eq) // Cat 右侧消息轨道：用户消息记号排紧、长滑块位置
         catAttachChecks(eq) // Cat 输入框附件：最多露出四个，剩下的收进角标
+        await catPickChecks(eq) // Cat 网页预览点选：说明放进输入框，不写回文件
+        catBrowserChecks(eq) // Cat 侧栏浏览器：网址打开，纯文字去谷歌
+        catTermInputChecks(eq) // 终端按键画在画面上
         catPendingChecks(eq) // Cat 发送后立刻显示正在思考，不看上一轮
         catStopChecks(eq) // Cat 停止后思考不再转，迟到的思考和工具不再追加
         catConvDotChecks(eq) // Cat 侧栏状态点：进行中黄圈，成功绿点，失败感叹号

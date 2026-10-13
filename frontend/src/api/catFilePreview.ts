@@ -22,6 +22,17 @@ export const CAT_PREVIEW_COPY = {
   unsaved: '还有未保存的修改。',
   discard: '放弃',
   htmlPreview: '预览',
+  pick: '点选',
+  pickTitle: '点选元素，在旁边写下说明',
+  pickHint: '点一个元素，在它旁边写下说明。按 Esc 退出。',
+  pickBlocked: '这个页面不允许点选。',
+  pickPhEdit: '描述这里应该改成什么样……',
+  pickPhAsk: '想问这里什么……',
+  pickIntent: '意图',
+  pickEdit: '改变',
+  pickAsk: '疑问',
+  pickCancel: '取消',
+  pickAdd: '添加',
 } as const
 
 /** 停下输入这么久就写入，不再放保存按钮 */
@@ -67,7 +78,7 @@ export function mapFileBody(raw: unknown): CatFileBody {
 /** markdown 和 svg 先给预览。html 页默认看源码，点预览图标再在里面渲染。其余文本直接进编辑器。 */
 export function previewModeFor(name: string): 'markdown' | 'svg' | 'html' | 'code' {
   const n = name.toLowerCase()
-  if (n.endsWith('.md') || n.endsWith('.markdown')) return 'markdown'
+  if (n.endsWith('.md') || n.endsWith('.markdown') || n.endsWith('.mdown') || n.endsWith('.mkd') || n.endsWith('.mdx')) return 'markdown'
   if (n.endsWith('.svg')) return 'svg'
   if (n.endsWith('.html') || n.endsWith('.htm')) return 'html'
   return 'code'

@@ -161,7 +161,9 @@ const InlineText = defineComponent({
   }
 }
 .ct-col {
-  max-width: 560px;
+  width: calc(100% - 96px);
+  max-width: none;
+  box-sizing: border-box;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -213,7 +215,7 @@ ul {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
-  max-width: 440px;
+  max-width: 100%;
 }
 .ct-user-card {
   display: inline-flex;
@@ -263,7 +265,7 @@ ul {
   font-weight: 500;
 }
 .ct-user {
-  max-width: 440px;
+  max-width: 100%;
   background: var(--cat-user-bubble);
   border-radius: 10px;
   padding: 8px 12px;

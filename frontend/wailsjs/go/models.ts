@@ -21,6 +21,34 @@ export namespace apperr {
 
 export namespace cat {
 	
+	export class BrowserOpenRequest {
+	    url: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new BrowserOpenRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.url = source["url"];
+	    }
+	}
+	export class BrowserPage {
+	    url: string;
+	    title: string;
+	    html: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new BrowserPage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.url = source["url"];
+	        this.title = source["title"];
+	        this.html = source["html"];
+	    }
+	}
 	export class ConversationDetail {
 	    id: string;
 	    title: string;
@@ -898,6 +926,74 @@ export namespace cat {
 	        this.defaultApprovalMode = source["defaultApprovalMode"];
 	        this.customInstruction = source["customInstruction"];
 	        this.notifyOnFinish = source["notifyOnFinish"];
+	    }
+	}
+	export class TermResizeRequest {
+	    id: string;
+	    cols: number;
+	    rows: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TermResizeRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.cols = source["cols"];
+	        this.rows = source["rows"];
+	    }
+	}
+	export class TermStartRequest {
+	    convId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TermStartRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	    }
+	}
+	export class TermStartResult {
+	    id: string;
+	    console: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new TermStartResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.console = source["console"];
+	    }
+	}
+	export class TermStopRequest {
+	    id: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TermStopRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	    }
+	}
+	export class TermWriteRequest {
+	    id: string;
+	    data: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TermWriteRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.data = source["data"];
 	    }
 	}
 	export class UpdateScheduleRequest {

@@ -60,6 +60,8 @@ export function ListCatThinkLevels(arg1:string):Promise<Array<catagent.ThinkLeve
 
 export function ListLiveCatTurns():Promise<Array<cat.LiveTurn>>;
 
+export function OpenCatBrowser(arg1:cat.BrowserOpenRequest):Promise<cat.BrowserPage>;
+
 export function PauseCatSchedule(arg1:cat.ScheduleIDRequest):Promise<cat.Schedule>;
 
 export function PreviewCatMedia(arg1:string):Promise<cat.MediaPreview>;
@@ -71,6 +73,8 @@ export function RecheckCat():Promise<catagent.Status>;
 export function RelocateCatProject(arg1:cat.RelocateProjectRequest):Promise<cat.Project>;
 
 export function RenameCatProject(arg1:cat.RenameProjectRequest):Promise<cat.Project>;
+
+export function ResizeCatTerm(arg1:cat.TermResizeRequest):Promise<void>;
 
 export function ResumeCatSchedule(arg1:cat.ScheduleIDRequest):Promise<cat.Schedule>;
 
@@ -86,6 +90,12 @@ export function SearchCatFiles(arg1:cat.SearchFilesRequest):Promise<cat.SearchFi
 
 export function SendCatMessage(arg1:cat.SendMessageRequest):Promise<cat.SendMessageResult>;
 
+export function StartCatTerm(arg1:cat.TermStartRequest):Promise<cat.TermStartResult>;
+
+export function StopCatTerm(arg1:cat.TermStopRequest):Promise<void>;
+
 export function UpdateCatSchedule(arg1:cat.UpdateScheduleRequest):Promise<cat.Schedule>;
 
 export function WriteCatFile(arg1:cat.WriteFileRequest):Promise<cat.WriteFileResult>;
+
+export function WriteCatTerm(arg1:cat.TermWriteRequest):Promise<void>;

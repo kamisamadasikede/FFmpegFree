@@ -3,12 +3,11 @@
     ref="rootEl"
     class="ct-r"
     :class="{ wide: !!openRel }"
-    :style="openRel ? { width: panelWidth + 'px' } : undefined"
     :aria-label="pane === 'git' ? GIT.git : GIT.files"
     data-testid="cat-files"
   >
     <div
-      v-if="openRel"
+      v-if="openRel && showFile"
       class="ct-resize"
       role="separator"
       tabindex="0"
@@ -22,6 +21,7 @@
     />
     <CatFilePreview
       v-if="openRel"
+      v-show="showFile"
       ref="previewEl"
       :conv-id="convId"
       :rel-path="openRel"
@@ -29,8 +29,21 @@
       :live="live"
       :compare="openDiff"
       @close="onPreviewClose"
+      @pick="onPick"
     />
     <div class="ct-col">
+      <div
+        class="ct-resize"
+        role="separator"
+        tabindex="0"
+        aria-orientation="vertical"
+        aria-label="拖动调整文件栏宽度"
+        :aria-valuenow="catPane.tree"
+        :aria-valuemin="160"
+        data-testid="cat-tree-resize"
+        @pointerdown="onTreeResizeDown"
+        @keydown="onTreeResizeKey"
+      />
       <div class="ct-modes" role="tablist" :style="{ '--tab-i': pane === 'git' ? 1 : 0 }">
         <button type="button" role="tab" :class="{ on: pane === 'files' }" :aria-selected="pane === 'files'" :title="GIT.files" data-testid="cat-files-tab" @click="pane = 'files'">
           <FIcon name="file" :size="15" /><span>{{ GIT.files }}</span>
@@ -38,8 +51,30 @@
         <button type="button" role="tab" :class="{ on: pane === 'git' }" :aria-selected="pane === 'git'" :title="GIT.git" data-testid="cat-git-tab" @click="pane = 'git'">
           <FIcon name="branch" :size="15" /><span>Git</span>
         </button>
-        <i class="ink" aria-hidden="true" />
+        <i v-show="pane === 'files' || pane === 'git'" class="ink" aria-hidden="true" />
+        <button v-if="showBrowser" type="button" role="tab" class="icon" :class="{ on: pane === 'browser' }" :aria-selected="pane === 'browser'" title="浏览器" data-testid="cat-browser-tab" @click="pane = 'browser'">
+          <FIcon name="window" :size="16" />
+        </button>
+        <button v-if="showTerm" type="button" role="tab" class="icon" :class="{ on: pane === 'term' }" :aria-selected="pane === 'term'" title="终端" data-testid="cat-term-tab" @click="pane = 'term'">
+          <FIcon name="term" :size="16" />
+        </button>
+        <div class="add-wrap" data-cat-pane-add>
+          <button type="button" class="add" title="添加" aria-label="添加" :aria-expanded="addOpen" data-testid="cat-pane-add" @click="addOpen = !addOpen">
+            <FIcon name="plus" :size="16" />
+          </button>
+          <div v-if="addOpen" class="add-menu" role="menu" aria-label="添加" data-testid="cat-pane-add-menu">
+            <button type="button" role="menuitem" data-testid="cat-pane-add-browser" @click="openExtra('browser')">
+              <FIcon name="window" :size="14" /><span>浏览器</span>
+            </button>
+            <button type="button" role="menuitem" data-testid="cat-pane-add-term" @click="openExtra('term')">
+              <FIcon name="term" :size="14" /><span>终端</span>
+            </button>
+          </div>
+        </div>
       </div>
+      <CatBrowserPane v-if="showBrowser" v-show="pane === 'browser'" @close="closeExtra('browser')" @pick="onPick" />
+      <CatTermPane v-if="showTerm" v-show="pane === 'term'" :conv-id="convId" :live="live" @close="closeExtra('term')" />
+      <template v-if="pane === 'files' || pane === 'git'">
       <div v-if="missing || error === PC.missing" class="ct-empty" data-testid="cat-files-missing">
         <FIcon name="warn" :size="24" /><span>{{ PC.missing }}</span>
       </div>
@@ -150,6 +185,7 @@
           </div>
         </div>
       </template>
+      </template>
     </div>
   </section>
 </template>
@@ -183,18 +219,43 @@ import {
 } from '@/api/catGit'
 import { catState, notify } from '@/views/cat/catState'
 import {
+  CAT_CHAT_MIN,
+  CAT_EXTRA_DEFAULT,
+  CAT_EXTRA_MIN,
+  CAT_EXTRA_WIDTH_KEY,
+  CAT_PREVIEW_MIN,
   CAT_PREVIEW_WIDTH_KEY,
+  CAT_SIDE_DEFAULT,
+  CAT_TREE_MIN,
   CAT_TREE_WIDTH,
+  CAT_TREE_WIDTH_KEY,
+  catPane,
+  clampPaneWidth,
   clampPreviewWidth,
+  clampToLimits,
+  dragPaneWidth,
+  paneLimits,
+  readPaneWidth,
   readPreviewWidth,
+  rememberPaneWidth,
+  settleWidths,
 } from './catPreviewWidth'
 import CatGitPanel from './CatGitPanel.vue'
+import CatBrowserPane from './CatBrowserPane.vue'
+import CatTermPane from './CatTermPane.vue'
+import type { PickNote } from './catPick'
 
 const CatFilePreview = defineAsyncComponent(() => import('./CatFilePreview.vue'))
 
 const props = defineProps<{ convId: string; missing?: boolean }>()
+const emit = defineEmits<{ pick: [note: PickNote] }>()
 const live = isCatLive()
-const pane = ref<'files' | 'git'>('files')
+const pane = ref<'files' | 'git' | 'browser' | 'term'>('files')
+const showFile = computed(() => pane.value === 'files' || pane.value === 'git')
+const extraW = ref(readPaneWidth(typeof localStorage !== 'undefined' ? localStorage.getItem(CAT_EXTRA_WIDTH_KEY) : null, CAT_EXTRA_DEFAULT))
+const showBrowser = ref(false)
+const showTerm = ref(false)
+const addOpen = ref(false)
 const query = ref('')
 const findKind = ref<'name' | 'content'>('name')
 const hits = ref<CatSearchHit[] | null>(null)
@@ -216,7 +277,19 @@ const pending = ref<{ rel: string; name: string; picked: number | string; diff: 
 const previewEl = ref<{ requestClose: () => boolean } | null>(null)
 const rootEl = ref<HTMLElement>()
 const previewW = ref(readPreviewWidth(typeof localStorage !== 'undefined' ? localStorage.getItem(CAT_PREVIEW_WIDTH_KEY) : null))
-const panelWidth = computed(() => CAT_TREE_WIDTH + previewW.value)
+
+function paintFiles() {
+  const panel = rootEl.value
+  if (!panel) return
+  const wide = pane.value === 'browser' || pane.value === 'term'
+  const tree = wide ? extraW.value : catPane.tree
+  const preview = !wide && openRel.value ? previewW.value : 0
+  panel.style.width = tree + preview + 'px'
+  const col = panel.querySelector('.ct-col') as HTMLElement | null
+  if (col) col.style.width = tree + 'px'
+}
+
+watch([() => catPane.tree, previewW, openRel, pane, extraW], paintFiles)
 let token = 0
 let gitToken = 0
 let searchToken = 0
@@ -224,47 +297,65 @@ let searchTimer = 0
 
 function pageBox(): { total: number; side: number } {
   const page = rootEl.value?.closest('.ct') as HTMLElement | null
-  const side = (page?.querySelector('.ct-l') as HTMLElement | null)?.offsetWidth ?? 248
+  const side = (page?.querySelector('.ct-l') as HTMLElement | null)?.offsetWidth ?? CAT_SIDE_DEFAULT
   return { total: page?.clientWidth ?? window.innerWidth, side }
 }
 
 function fit(want: number): number {
   const { total, side } = pageBox()
-  return clampPreviewWidth(want, total, side)
+  return clampPreviewWidth(want, total, side, catPane.tree)
+}
+
+function fitTree(want: number): number {
+  const { total, side } = pageBox()
+  const preview = openRel.value ? previewW.value : 0
+  return clampPaneWidth(want, total, side + preview + CAT_CHAT_MIN, CAT_TREE_MIN, CAT_TREE_WIDTH)
 }
 
 function rememberWidth() {
-  try {
-    localStorage.setItem(CAT_PREVIEW_WIDTH_KEY, String(previewW.value))
-  } catch {
-    /* 隐私模式写不进就只在这次运行里生效 */
-  }
+  rememberPaneWidth(CAT_PREVIEW_WIDTH_KEY, previewW.value)
 }
 
 function onResizeDown(e: PointerEvent) {
-  if (e.button !== 0) return
-  e.preventDefault()
-  const handle = e.currentTarget as HTMLElement
-  handle.setPointerCapture(e.pointerId)
-  const startX = e.clientX
+  const panel = rootEl.value
+  if (!panel) return
   const startW = previewW.value
-  const prevCursor = document.body.style.cursor
-  const prevSelect = document.body.style.userSelect
-  document.body.style.cursor = 'col-resize'
-  document.body.style.userSelect = 'none'
-  const move = (ev: PointerEvent) => {
-    previewW.value = fit(startW + (startX - ev.clientX))
-  }
-  const up = (ev: PointerEvent) => {
-    if (handle.hasPointerCapture(ev.pointerId)) handle.releasePointerCapture(ev.pointerId)
-    handle.removeEventListener('pointermove', move)
-    handle.removeEventListener('pointerup', up)
-    document.body.style.cursor = prevCursor
-    document.body.style.userSelect = prevSelect
+  const { total, side } = pageBox()
+  const tree = catPane.tree
+  const limits = paneLimits(total, side + tree + CAT_CHAT_MIN, CAT_PREVIEW_MIN)
+  let next = startW
+  dragPaneWidth(e.currentTarget as HTMLElement, e, -1, (dx) => {
+    next = clampToLimits(startW + dx, limits, startW)
+    panel.style.width = next + tree + 'px'
+  }, () => {
+    previewW.value = next
     rememberWidth()
-  }
-  handle.addEventListener('pointermove', move)
-  handle.addEventListener('pointerup', up)
+  })
+}
+
+function onTreeResizeDown(e: PointerEvent) {
+  const panel = rootEl.value
+  const col = panel?.querySelector('.ct-col') as HTMLElement | null
+  if (!panel || !col) return
+  const wide = pane.value === 'browser' || pane.value === 'term'
+  const startW = col.offsetWidth || (wide ? extraW.value : catPane.tree)
+  const { total, side } = pageBox()
+  const preview = wide || !openRel.value ? 0 : previewW.value
+  const limits = paneLimits(total, side + preview + CAT_CHAT_MIN, wide ? CAT_EXTRA_MIN : CAT_TREE_MIN)
+  let next = startW
+  dragPaneWidth(e.currentTarget as HTMLElement, e, -1, (dx) => {
+    next = clampToLimits(startW + dx, limits, startW)
+    col.style.width = next + 'px'
+    panel.style.width = next + preview + 'px'
+  }, () => {
+    if (wide) {
+      extraW.value = next
+      rememberPaneWidth(CAT_EXTRA_WIDTH_KEY, next)
+      return
+    }
+    catPane.tree = next
+    rememberPaneWidth(CAT_TREE_WIDTH_KEY, next)
+  })
 }
 
 function onResizeKey(e: KeyboardEvent) {
@@ -275,8 +366,34 @@ function onResizeKey(e: KeyboardEvent) {
   rememberWidth()
 }
 
+function onTreeResizeKey(e: KeyboardEvent) {
+  const step = e.shiftKey ? 80 : 24
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+  e.preventDefault()
+  const delta = e.key === 'ArrowLeft' ? step : -step
+  if (pane.value === 'browser' || pane.value === 'term') {
+    const { total, side } = pageBox()
+    extraW.value = clampPaneWidth(extraW.value + delta, total, side + CAT_CHAT_MIN, CAT_EXTRA_MIN, CAT_EXTRA_DEFAULT)
+    rememberPaneWidth(CAT_EXTRA_WIDTH_KEY, extraW.value)
+    return
+  }
+  catPane.tree = fitTree(catPane.tree + delta)
+  rememberPaneWidth(CAT_TREE_WIDTH_KEY, catPane.tree)
+}
+
 function onWindowResize() {
-  if (openRel.value) previewW.value = fit(previewW.value)
+  const { total, side } = pageBox()
+  if (pane.value === 'browser' || pane.value === 'term') {
+    extraW.value = clampPaneWidth(extraW.value, total, side + CAT_CHAT_MIN, CAT_EXTRA_MIN, CAT_EXTRA_DEFAULT)
+    const next = settleWidths(total, side, catPane.tree, 0, false)
+    catPane.side = next.side
+    return
+  }
+  const fitted = openRel.value ? fit(previewW.value) : 0
+  const next = settleWidths(total, side, catPane.tree, fitted, !!openRel.value)
+  catPane.side = next.side
+  catPane.tree = next.tree
+  if (openRel.value) previewW.value = next.preview
 }
 
 function mockGit(id: string): GitStatus {
@@ -563,6 +680,10 @@ function onGitOpen(rel: string, name: string) {
   wantFile(rel, name, rel, true)
 }
 
+function onPick(note: PickNote) {
+  emit('pick', note)
+}
+
 function onPreviewClose() {
   const next = pending.value
   pending.value = null
@@ -578,12 +699,38 @@ function onPreviewClose() {
   openDiff.value = false
 }
 
-watch(openRel, (rel) => {
-  if (rel) void nextTick(() => { previewW.value = fit(previewW.value) })
+watch([openRel, pane], () => {
+  void nextTick(onWindowResize)
 })
-onMounted(() => window.addEventListener('resize', onWindowResize))
+function openExtra(kind: 'browser' | 'term') {
+  addOpen.value = false
+  if (kind === 'browser') showBrowser.value = true
+  else showTerm.value = true
+  pane.value = kind
+}
+
+function closeExtra(kind: 'browser' | 'term') {
+  if (kind === 'browser') showBrowser.value = false
+  else showTerm.value = false
+  if (pane.value === kind) pane.value = 'files'
+}
+
+function onAddDoc(e: PointerEvent) {
+  if (!addOpen.value) return
+  const t = e.target
+  if (t instanceof Element && t.closest('[data-cat-pane-add]')) return
+  addOpen.value = false
+}
+
+onMounted(() => {
+  paintFiles()
+  window.addEventListener('resize', onWindowResize)
+  window.addEventListener('pointerdown', onAddDoc)
+  onWindowResize()
+})
 onBeforeUnmount(() => {
   window.removeEventListener('resize', onWindowResize)
+  window.removeEventListener('pointerdown', onAddDoc)
   window.clearTimeout(searchTimer)
 })
 
@@ -622,7 +769,6 @@ async function onHit(hit: CatSearchHit) {
 
 <style scoped>
 .ct-r {
-  width: 236px;
   flex: none;
   display: flex;
   flex-direction: row;
@@ -630,6 +776,7 @@ async function onHit(hit: CatSearchHit) {
   background: var(--cat-surface);
   min-width: 0;
   min-height: 0;
+  position: relative;
 }
 .ct-r.wide {
   position: relative;
@@ -647,6 +794,7 @@ async function onHit(hit: CatSearchHit) {
   cursor: col-resize;
   z-index: 5;
   touch-action: none;
+  --wails-draggable: no-drag;
 }
 .ct-resize::after {
   content: '';
@@ -665,11 +813,13 @@ async function onHit(hit: CatSearchHit) {
   outline: none;
 }
 .ct-col {
-  width: 236px;
+  position: relative;
   flex: none;
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .ct-r.wide .ct-col {
   border-left: 1px solid var(--cat-border);
@@ -723,6 +873,50 @@ async function onHit(hit: CatSearchHit) {
   background: var(--cat-accent);
   transform: translateX(calc(var(--tab-i, 0) * 66px));
   transition: transform var(--ff-dur-base) var(--ff-ease-out);
+}
+.ct-modes button.icon,
+.ct-modes .add {
+  width: 32px;
+  box-shadow: none;
+}
+.ct-modes .add {
+  height: 28px;
+  margin: auto 0;
+  border-radius: var(--cat-radius-sm);
+}
+.add-wrap {
+  position: relative;
+  margin-left: auto;
+  display: flex;
+}
+.add-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 8;
+  min-width: 132px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--ff-bg-surface);
+  border: 1px solid var(--ff-border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+.add-menu button {
+  width: 100%;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 0 8px;
+  border-radius: 6px;
+  box-shadow: none;
+  color: var(--ff-text-1);
+  font: inherit;
+  font-size: 13px;
+}
+.add-menu button:hover {
+  background: var(--ff-bg-hover);
 }
 .ct-head {
   height: 32px;

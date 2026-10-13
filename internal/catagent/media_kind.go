@@ -55,8 +55,14 @@ func MediaKind(name string) (kind, mime string, ok bool) {
 		return "xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", true
 	case ".pptx":
 		return "pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", true
-	case ".md", ".markdown":
+	case ".md", ".markdown", ".mdown", ".mkd", ".mdx":
 		return "markdown", "text/markdown", true
+	case ".txt", ".text", ".log":
+		return "text", "text/plain", true
+	case ".csv":
+		return "csv", "text/csv", true
+	case ".tsv":
+		return "csv", "text/tab-separated-values", true
 	case ".html", ".htm":
 		return "html", "text/html", true
 	case ".svg":

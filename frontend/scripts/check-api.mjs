@@ -15,8 +15,8 @@ globalThis.window = { location: { search: '' } }
 globalThis.location = globalThis.window.location
 globalThis.btoa = (s) => Buffer.from(s, 'binary').toString('base64')
 globalThis.atob = (s) => Buffer.from(s, 'base64').toString('binary')
-// Cat Markdown 自检要真 DOM 跑 DOMPurify：jsdom 是 devDependency，在这里（frontend/ 下能解析到）建窗口交给检查代码
-globalThis.__makeDomWindow = async () => new (await import('jsdom')).JSDOM('<!doctype html><html><body></body></html>').window
+// Cat Markdown 自检要真 DOM 跑 DOMPurify；点选自检还要在这个窗口里执行页面脚本。jsdom 是 devDependency。
+globalThis.__makeDomWindow = async () => new (await import('jsdom')).JSDOM('<!doctype html><html><body></body></html>', { runScripts: 'dangerously' }).window
 try {
   await build({ entryPoints: [entry], bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error', alias: { '@': join(root, 'src') }, loader: { '.vue': 'empty' }, define: { 'import.meta.env.DEV': 'false' } })
   const { runApiChecks } = await import(pathToFileURL(out).href)

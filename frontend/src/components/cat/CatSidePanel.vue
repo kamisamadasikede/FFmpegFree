@@ -1,11 +1,11 @@
 <template>
-  <section class="ct-l" :class="{ mini: railCollapsed }" aria-label="会话">
-    <!-- C3 收起后只留图标列：展开、新对话、设置 -->
+  <section ref="rootEl" class="ct-l" :class="{ mini: railCollapsed, dragging: sideDragging }" aria-label="会话">
+    <!-- 收起后只留图标列：展开、新对话、设置 -->
     <div v-if="railCollapsed" class="ct-mini">
       <button type="button" class="ib big" title="展开侧栏 (Ctrl B)" aria-label="展开侧栏" data-testid="cat-rail-expand" @click="railCollapsed = false"><FIcon name="cat" :size="16" /></button>
       <button type="button" class="ib big" :class="{ on: catState.sel === NEW_CONV }" title="新对话" aria-label="新对话" @click="startNewConv()"><FIcon name="edit" :size="16" /></button>
       <span class="sp" />
-      <span class="ib big" title="设置" aria-label="设置"><FIcon name="set" :size="16" /></span>
+      <button type="button" class="ib big" :class="{ on: catPanels.view === 'settings' }" title="设置" aria-label="设置" data-testid="cat-rail-settings" @click="openView('settings')"><FIcon name="set" :size="16" /></button>
     </div>
     <div v-show="!railCollapsed" class="ct-full">
     <div class="ct-brand">
@@ -263,6 +263,19 @@
       </div>
     </div>
     <div class="sr-only" role="status" aria-live="polite">{{ catState.announce }}</div>
+    <div
+      v-show="!railCollapsed"
+      class="ct-side-resize"
+      role="separator"
+      tabindex="0"
+      aria-orientation="vertical"
+      aria-label="拖动调整会话栏宽度"
+      :aria-valuenow="catPane.side"
+      :aria-valuemin="160"
+      data-testid="cat-side-resize"
+      @pointerdown="onSideResizeDown"
+      @keydown="onSideResizeKey"
+    />
   </section>
 </template>
 
@@ -277,6 +290,7 @@ import { CAT_CONV_COPY as CC, CAT_COPY } from '@/api/cat'
 import { CAT_PROJECT_COPY as PC, CAT_PROJECT_NAME_MAX } from '@/api/catProjects'
 import type { CatProject } from '@/api/catMock'
 import { convDot, convDotLabel } from '@/views/cat/catConvDot'
+import { CAT_CHAT_MIN, CAT_SIDE_DEFAULT, CAT_SIDE_MIN, CAT_SIDE_WIDTH_KEY, catPane, clampToLimits, dragPaneWidth, paneLimits, rememberPaneWidth } from '@/components/cat/catPreviewWidth'
 import {
   catState,
   createProject,
@@ -303,6 +317,7 @@ const emit = defineEmits<{ back: [] }>()
 const laterTip = CAT_COPY.later
 const schedulesOn = catSchedulesVisible()
 
+const rootEl = ref<HTMLElement>()
 const scrollEl = ref<HTMLElement>()
 const menuEl = ref<HTMLElement>()
 const cmenuEl = ref<HTMLElement>()
@@ -461,13 +476,74 @@ watch(
   },
 )
 
-onMounted(() => document.addEventListener('mousedown', onDocDown, true))
-onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown, true))
+const sideDragging = ref(false)
+
+function paintSide() {
+  const el = rootEl.value
+  if (!el) return
+  el.style.width = (railCollapsed.value ? 56 : catPane.side) + 'px'
+}
+
+watch(() => catPane.side, paintSide)
+watch(railCollapsed, paintSide)
+
+function sideLimits(): { lo: number; hi: number } {
+  const page = rootEl.value?.closest('.ct') as HTMLElement | null
+  const total = page?.clientWidth ?? window.innerWidth
+  const right = (page?.querySelector('.ct-r') as HTMLElement | null)?.offsetWidth ?? 0
+  return paneLimits(total, right + CAT_CHAT_MIN, CAT_SIDE_MIN)
+}
+
+function fitSide(want: number): number {
+  return clampToLimits(want, sideLimits(), CAT_SIDE_DEFAULT)
+}
+
+function onSideResizeDown(e: PointerEvent) {
+  const el = rootEl.value
+  if (!el || railCollapsed.value) return
+  const startW = el.offsetWidth || catPane.side
+  const limits = sideLimits()
+  let next = startW
+  sideDragging.value = true
+  dragPaneWidth(e.currentTarget as HTMLElement, e, 1, (dx) => {
+    next = clampToLimits(startW + dx, limits, startW)
+    el.style.width = next + 'px'
+  }, () => {
+    sideDragging.value = false
+    catPane.side = next
+    rememberPaneWidth(CAT_SIDE_WIDTH_KEY, next)
+  })
+}
+
+function onSideResizeKey(e: KeyboardEvent) {
+  const step = e.shiftKey ? 80 : 24
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+  e.preventDefault()
+  catPane.side = fitSide(catPane.side + (e.key === 'ArrowRight' ? step : -step))
+  rememberPaneWidth(CAT_SIDE_WIDTH_KEY, catPane.side)
+}
+
+function onSideWindow() {
+  const page = rootEl.value?.closest('.ct')
+  if (page?.querySelector('.ct-r')) return
+  catPane.side = fitSide(catPane.side)
+}
+
+onMounted(() => {
+  paintSide()
+  document.addEventListener('mousedown', onDocDown, true)
+  window.addEventListener('resize', onSideWindow)
+  nextTick(onSideWindow)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', onDocDown, true)
+  window.removeEventListener('resize', onSideWindow)
+})
 </script>
 
 <style scoped>
 .ct-l {
-  width: 248px;
+  position: relative;
   flex: none;
   box-sizing: border-box;
   overflow: hidden;
@@ -478,10 +554,13 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown, true)
   padding-left: 0;
   padding-right: 0;
 }
+.ct-l.dragging {
+  transition: none;
+}
 .ct-full {
   flex: 1;
   min-height: 0;
-  min-width: 232px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }
@@ -512,7 +591,39 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown, true)
   background: var(--cat-rail);
   border-right: 1px solid var(--cat-border);
   padding: 10px 8px 12px;
+  min-width: 0;
   min-height: 0;
+  overflow: hidden;
+}
+.ct-side-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  z-index: 6;
+  touch-action: none;
+  --wails-draggable: no-drag;
+}
+.ct-side-resize::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+}
+.ct-side-resize:hover::after,
+.ct-side-resize:focus-visible::after {
+  background: var(--ff-primary);
+}
+.ct-side-resize:focus-visible {
+  outline: none;
 }
 .ct-brand {
   display: flex;
