@@ -126,7 +126,7 @@
             <div ref="msgsEl" :key="catState.sel" class="ct-msgs swap" @scroll.passive="onMsgsScroll">
               <div ref="msgsBody">
                 <!-- B1：读记录超过 150ms 才显示消息骨架 -->
-                <div v-if="histLoading && !messages.length" class="sk-msgs conv" role="status" aria-label="正在读取对话" data-testid="cat-msg-skeleton">
+                <div v-if="histLoading && !messages.length" class="sk-msgs conv" role="status" aria-label="正在加载对话" data-testid="cat-msg-skeleton">
                   <i class="sk w50 r" /><i class="sk w90" /><i class="sk w80" /><i class="sk w60" /><i class="sk w40 r" /><i class="sk w90" /><i class="sk w70" />
                 </div>
                 <CatMessages :blocks="messages" :pending="thinking" />
