@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.37.1）
+# FFmpegFree v2 接口契约（v0.38）
+
+v0.38 变更（**自定义服务商：API Key + API URL；OpenAI + Anthropic 协议**，拆期设计草稿 v0.2 §5 + 产品 §8 拍板 + 设计说明 v0.1.1，架构师 10-13；完整规则见 **6.19.12.8**；**无新错误码 / 迁移 / 事件名 / 开关，2.1 仍是 39 个；`cat.settings` JSON 就地演进**）：① **三家**（`cat_build` / `claude_cli` / `codex_cli`，含 Grok Build）均可配置自定义服务商：`providersByAgent[kind].{enabledCustom,protocol,apiUrl,apiKeySet}`。② **「启用自定义」开** → 该家 `RunTurn` / `ListCatModels` / `ListCatThinkLevels` **只用**设置里的 URL/Key（子进程 env 或 CLI flag 注入，flag 名见 6.19.14 **C***，未确认前标 GUESS）；**关** → 回落 CLI 登录 / 继承环境变量。③ **永不写回**系统 / 用户全局环境变量（禁止 `os.Setenv` 持久化、禁止改 shell profile）。④ **密钥**：`GetCatSettings` / `SaveCatSettings` / `InspectCatConfig` / 日志 / 事件 **永不**返回明文 Key；只回 `apiKeySet`（bool）。写入走 `SaveCatProviderKey`；清除走 `ClearCatProviderKey`（前端须二次确认，文案见 6.19.12.8）。⑤ **协议**：`openai` | `anthropic`；默认按该 CLI 锁定；`ListCatProviderCapabilities` 声明 `allowProtocolPick`——**仅**支持兼容网关的家才为 true 并允许改选。⑥ **未检测到 CLI** 时仍可预填并保存自定义（装好后再实际使用）；Send 仍需该家二进制就绪。⑦ **解除** v0.36/v0.37「一期不做 URL/Key」；本版**不做**技能/MCP 可管理（→ v0.39）、消息尾字段变更（已由 v0.37.1 交付）、改名 `cat_build`、测连按钮（可选后加）。
 
 v0.37.1 变更（**消息尾：完成时间 / token / token/s**，拆期设计草稿 v0.2 §7 + 产品 §8 拍板，架构师 10-13；完整规则见 **6.19.9「消息尾」**；**无新错误码 / 迁移 / 事件名 / 开关，2.1 仍是 39 个**）：① 助手 turn **终态**（`completed` / `cancelled` / `failed`）后，气泡下方可显示 `完成于 HH:mm` · `共 N token` · `约 M token/s`（N/M 千分位；**只显示合计**，不拆 in/out）。② **`CatMessage`（assistant）与终态 `cat:turn`** 增加可选字段 `finishedAt`（Unix 毫秒）、`tokenTotal`、`tokensPerSec`（均可 `omitempty`）。③ **字段何时写入**：仅在 turn 进入终态时写入；`running` / 进行中**不得**带消息尾字段、界面**不出现**尾巴。④ **无 usage**：省略 `tokenTotal` / `tokensPerSec`，有 `finishedAt` 则只留完成时间；停止 / 失败 / 超时同口径（有部分用量就带，没有就只时间）。⑤ **旧消息缺字段**：**不补假数据、不显示尾巴**。⑥ **`tokensPerSec` 计算（产品锁定）**：`tokenTotal ÷ (durationMs/1000)`；`durationMs` **优先用 CLI 上报的生成耗时**；CLI 未给时用本轮 **turn 墙钟**（`finishedAt − turnStartedAt`，`turnStartedAt` = 发 `cat:turn` `running` / 启 turn 时刻）；**禁止**用首字时间（TTFB）。`durationMs ≤ 0` 或算不出 → **省略** `tokensPerSec`。⑦ `GetCatConversation.messages`（及任何返回 `CatMessage` 的列表）须带回已持久化的消息尾字段，供重开对话渲染；持久化在应用侧（按 turn / message），**不得**为旧导出伪造。⑧ 本版**不做** URL/Key（v0.38）、技能/MCP 可管理（v0.39）、改名 `cat_build`。
 
@@ -3927,10 +3929,11 @@ type ExportSubtitleRequest struct {
 6. `LANG_ASR_FAILED` 最终文案产品确认。
 
 
-## 6.19 Cat 助手（v0.30；v0.36 起欢迎页三家可点；v0.37 Claude / Codex 真适配；v0.37.1 消息尾；产品 / 老板 10-09 定，v0.36 老板确认设计 v0.4，v0.37/v0.37.1 对齐拆期草稿 v0.2）
+## 6.19 Cat 助手（v0.30；v0.36 起欢迎页三家可点；v0.37 Claude / Codex 真适配；v0.37.1 消息尾；v0.38 自定义服务商；产品 / 老板 10-09 定，v0.36 老板确认设计 v0.4，v0.37–v0.38 对齐拆期草稿 v0.2）
 
+> **v0.38**：设置「通用」各服务商块可折叠「自定义服务商」——三家均可配 API URL / API Key（OpenAI / Anthropic 协议）；启用自定义只用设置、不写系统 env；Key 只回显「已保存」（`apiKeySet`）；规则见 **6.19.12.8**。  
 > **v0.37.1**：助手回复**终态**后气泡下方消息尾：`完成于 HH:mm` · `共 N token` · `约 M token/s`（规则见 6.19.9「消息尾」）；进行中不出现；无字段不伪造。  
-> **v0.37**：`claude_cli` / `codex_cli` **真适配**，产品能力对齐 `cat_build`（检测、列表、流式、停止、项目 cwd、全局批准 / 自定义指令注入）。PATH 未装或鉴权失败仍 `CAT_NOT_READY`；**已装且鉴权 OK 时不得再因「桩」挡 Send**。`cat_build` **仍不改名**。定时任务仍锁 `cat_build`。v0.37 本身**不做** URL/Key、技能可管理（消息尾改由 **v0.37.1** 交付）。  
+> **v0.37**：`claude_cli` / `codex_cli` **真适配**，产品能力对齐 `cat_build`（检测、列表、流式、停止、项目 cwd、全局批准 / 自定义指令注入）。PATH 未装或鉴权失败仍 `CAT_NOT_READY`；**已装且鉴权 OK 时不得再因「桩」挡 Send**。`cat_build` **仍不改名**。定时任务仍锁 `cat_build`。v0.37 本身**不做** URL/Key、技能可管理（消息尾改由 **v0.37.1** 交付；URL/Key 改由 **v0.38** 交付）。  
 > **v0.36**：欢迎页模式胶囊解禁 **「Grok Build」/「Claude」/「Codex」** 三家（值 `cat_build` / `claude_cli` / `codex_cli`）；「Cat CLI」「Cat Code」「更多」等**仍置灰**，悬停 / 旁注 **`下一期开放`**。`cat_build` **不**改名为 `grok_build`（已有会话与库值不变）。  
 > **服务商选择处**写三家本名（老板在选择 UI 放开厂商名禁令）；**气泡 / 其它界面与 `message` 仍只出现「Cat 助手」**；**永不**在气泡里出现可执行文件名、`CLI`、`命令行`（同 1.1；选择 UI 例外见上）。  
 > 本仓实现 **适配器注册表 + 各家适配器**（Build / Claude / Codex **均须真实现**，见 6.19.3 / 6.19.3a / 6.19.3b）；工具由各家 CLI 自己执行。  
@@ -3942,7 +3945,7 @@ type ExportSubtitleRequest struct {
 | 做 | 不做（一期） |
 |---|---|
 | 侧栏进入 Cat 全屏聊天（收起主侧栏，返回原页） | `cat_cli` / `cat_code` **创建与运行**（胶囊可见但禁用「下一期开放」） |
-| 欢迎页 + 会话列表 + 发送 / 回复（事件推进）；**v0.37.1 消息尾**（完成时间 / token / token/s，见 6.19.9） | URL / API Key 设置页或设置项（**v0.38**）；技能 / MCP App 内启停与项目内技能根（**v0.39**） |
+| 欢迎页 + 会话列表 + 发送 / 回复（事件推进）；**v0.37.1 消息尾**（完成时间 / token / token/s，见 6.19.9）；**v0.38 自定义服务商**（API URL / Key，OpenAI / Anthropic，见 6.19.12.8） | 技能 / MCP App 内启停与项目内技能根（**v0.39**） |
 | **`cat_build` / `claude_cli` / `codex_cli` 可创建 / 可发送**（欢迎胶囊「Grok Build」/「Claude」/「Codex」；v0.37 三家均为真适配器；未安装 / 鉴权失败时 Send 返回未就绪） | 「助手」入口与功能（「定时任务」v0.35 起一期做，见 6.19.13；定时任务选服务商仍下一小版；**本版仍锁 `cat_build`**） |
 | 模型名 / 思考强度**只从该会话 `agentKind` 对应 CLI 的真实能力列表读取**（禁止原型假数据） | 前端写死第三方模型名或擅自改已有参数逻辑 |
 | 工具调用：本机 grok 的完整工具集（v0.33 不传白名单 / 黑名单；v0.34 批准方式可选，没选过是全部批准）；其它家按各自适配器 | 应用内再做一套批准框 |
@@ -3976,7 +3979,7 @@ type ExportSubtitleRequest struct {
 - **入口（v0.31.3）**：系统 PATH 上的 `grok` / `grok.exe`（`exec.LookPath`）。路径只进注册表，**不**回前端。组件目录 `%LocalAppData%\FFmpegFree\components\cat\build\<version>\` 仍保留作日后捆绑回退，一期不靠它就绪。  
 - **Headless 调用**（v0.33）：`grok -p "<最新一条用户消息>" --output-format streaming-json --cwd <项目绝对路径，无项目则用对话文件夹 `paths.CatConvDir`（v0.32，6.19.11.4）> -s <会话 UUID>（后续轮 `--resume <会话 UUID>`） --no-auto-update --no-alt-screen`，再按这一轮的批准方式带一个开关（v0.34：全部批准 / 未选只带 `--always-approve`；普通模式 `--permission-mode default`；Plan `--permission-mode plan`；自动审查 `--permission-mode auto`；不同时带两个）。用户选了模型 / 强度时每一轮都带 `-m <modelId>`、`--reasoning-effort <level>`。不附加工具白名单或黑名单。  
 - **streaming-json**（NDJSON；官方 schema 未正式发布，按 CLI 0.2.x 捕获）：`{"type":"text","data"}` 正文增量；`thought` 与工具调用单独显示、不写入助手正文；`end` 结束；`error` 失败。  
-- **认证**：继承用户环境 `XAI_API_KEY` 或 `~/.grok/auth.json`（`grok login`）。**无** Base URL / API Key 设置。  
+- **认证**：默认继承用户环境 `XAI_API_KEY` 或 `~/.grok/auth.json`（`grok login`）。**v0.38**：若该家 `providersByAgent["cat_build"].enabledCustom=true`，则该家 `RunTurn` / 列表探测**只用**设置中的 URL/Key（见 6.19.12.8），**不**写回系统 env。  
 - **工具**（v0.33）：不传 `--tools`、`--disallowed-tools`、`--deny`、`--no-subagents`、`--disable-web-search`，环境不设 `GROK_SANDBOX` / `GROK_WRITE_FILE`。写文件、改文件、跑命令、联网、MCP、子代理都按本机 grok 的默认工具集。全部批准时带 `--always-approve`，这些动作不会弹出批准框；其它模式不带这个开关（v0.34）。普通模式在这个窗口里点不到确认，可能停住，需要按停止。仍设 `GROK_DISABLE_AUTOUPDATER=1`。  
 - **能力列表**（v0.31.4）：`models` 来自 `grok models`，`displayName` = CLI 给的模型 ID 原样（不映射成「Cat 助手 …」）；**探测超时 / 报错 / 解析不出 → 空列表，不传 `-m`（用 CLI 默认模型），没有写死的回退模型**（v0.31.5）。`thinkLevels` = `low` / `medium` / `high` / `xhigh`，显示 `低` / `中` / `高` / `极高`（「极高」待产品确认）；只有用户选了才传 `--reasoning-effort`，没选时界面显示 `默认`（v0.31.5）。  
 - **取消**：`CancelCatTurn` → 取消 context → `proc.Kill` 进程树。超时默认 10 分钟。
@@ -3986,7 +3989,7 @@ type ExportSubtitleRequest struct {
 > **产品行为（规范）**：与 `cat_build` 对齐到「能日常用」——检测、关于行、模型 / 强度列表、流式回复、停止、项目沙箱 cwd、全局批准与自定义指令注入。**具体子命令 / flag 名见 6.19.14，标 GUESS 的项真机确认前不得当交付。**
 
 - **入口（GUESS）**：系统 PATH 上的 `claude` / `claude.exe`（`exec.LookPath`）。路径只进注册表，**不**回前端。二进制名以真机 / 官方文档确认为准；确认前实现按此 LookPath，若实机不同名须改实现并回写本节与附录表。  
-- **就绪**：LookPath 命中 → 再做鉴权探测（该 CLI 若有 login / 本地凭据）；未命中 `state` 对应 `agents[]` 项 `ready=false`（整体顶层 `state` 仍以 `cat_build` 为主口径，同 v0.36）；Send → `CAT_NOT_READY`「未检测到 Cat 助手，请先安装并确保可在终端直接运行。」；鉴权失败 → 同文案口径 `登录失效，请重新登录后再试。` + `detail` 含 `reason=auth`。**无** URL/Key UI（→ v0.38）。  
+- **就绪**：LookPath 命中 → 再做鉴权探测（该 CLI 若有 login / 本地凭据）；未命中 `state` 对应 `agents[]` 项 `ready=false`（整体顶层 `state` 仍以 `cat_build` 为主口径，同 v0.36）；Send → `CAT_NOT_READY`「未检测到 Cat 助手，请先安装并确保可在终端直接运行。」；鉴权失败 → 同文案口径 `登录失效，请重新登录后再试。` + `detail` 含 `reason=auth`。**v0.38**：自定义服务商见 6.19.12.8（`enabledCustom` 时用设置 URL/Key，注入方式附录 **C***）。  
 - **Headless / 流式（产品）**：每一轮把最新用户句交给 Claude CLI；stdout（或官方流式通道）译成既有 `cat:message`（`append`/`replace`/`done`）与 `cat:turn`（`running|completed|cancelled|failed`）。思考 / 工具调用**不写入助手正文**（与 Build 一致：可单独展示）。失败 → `CAT_REPLY_FAILED`（有原文则进 `cat:turn.error.message`，同 v0.34）。  
 - **cwd**：对话有 `projectId` 且项目未 missing → 工作目录 = 项目绝对路径；无项目 → `paths.CatConvDir(convId)`（同 Build / v0.32）。  
 - **会话续聊**：须能在同一 `conversationId` 上多轮续聊（CLI 会话 id / resume 机制 **GUESS**，附录确认）；点开对话的历史导出若该 CLI 无对等 `export`，实现可选：仅流式落库旁路 / 或空历史 + 说明——**不得**伪造假消息；选定方案写进实现 PR，回写本节一句。  
@@ -4002,7 +4005,7 @@ type ExportSubtitleRequest struct {
 > **产品行为（规范）**：与 6.19.3a 同级对齐 `cat_build`。**flag / 子命令见 6.19.14，GUESS 项真机确认前不得当交付。**
 
 - **入口（GUESS）**：系统 PATH 上的 `codex` / `codex.exe`（`exec.LookPath`）。路径不回前端。名称以真机确认为准。  
-- **就绪 / 鉴权 / 文案**：同 6.19.3a（未装 / `reason=auth` / 无 URL/Key UI）。  
+- **就绪 / 鉴权 / 文案**：同 6.19.3a（未装 / `reason=auth`；**v0.38** 自定义服务商同 6.19.12.8）。  
 - **Headless / 流式 / cwd / 取消**：同 6.19.3a 产品规则；输出译成同一套 `cat:message` / `cat:turn`。  
 - **会话续聊 / 历史**：同 6.19.3a（resume / export **GUESS**）。  
 - **模型 / 强度**：`ListCatModels("codex_cli")` / `ListCatThinkLevels("codex_cli")` 只来自 Codex CLI；失败空列表；空强度 → 整行隐藏。  
@@ -4096,7 +4099,7 @@ CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，
 
 - 欢迎页（v0.36）：**「Grok Build」/「Claude」/「Codex」三家可点**；「Cat CLI」「Cat Code」「更多」禁用 + 「下一期开放」。选中后 `Create`/`Send` 带对应 `agentKind`（`cat_build` / `claude_cli` / `codex_cli`）。预选 = `CatSettings.defaultAgentKind`。  
 - 合一胶囊：「{模型展示名} · {思考强度展示名}」，选项来自**该会话 agentKind** 的 List API；该家 `ListCatThinkLevels` 为空则**整行隐藏强度**（不要写死某家永远没有）。  
-- 批准方式按对话记住：普通模式、Plan、自动审查、全部批准（v0.34）。没选过是全部批准（v0.35 起新对话按 Cat 设置里的默认批准方式，见 6.19.12）。无「助手」。「设置」「定时任务」见 6.19.12 / 6.19.13。无 URL/Key 设置。
+- 批准方式按对话记住：普通模式、Plan、自动审查、全部批准（v0.34）。没选过是全部批准（v0.35 起新对话按 Cat 设置里的默认批准方式，见 6.19.12）。无「助手」。「设置」「定时任务」见 6.19.12 / 6.19.13。**v0.38**：设置「通用」各服务商块内可折叠「自定义服务商」（URL / Key / 协议），见 6.19.12.8。
 
 ### 6.19.7 错误码（v0.30 新增 2 个；2.1 由 36 变为 38）
 
@@ -4109,7 +4112,7 @@ CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，
 
 ### 6.19.8 延后
 
-`cat_cli` / `cat_code` 的创建与运行（胶囊继续置灰）；完全访问；助手；定时任务的 cron / 续接已有对话 / 开机自启 / **任务编辑选服务商**（**v0.37 定时运行仍锁 `cat_build`**，见 6.19.13；插在真适配稳定后的小版）；**URL/Key（v0.38）**；**技能 / MCP App 内启停与项目内技能根（v0.39）**；组件下载专节。（流式事件已提前到 6.19.9；**消息尾已由 v0.37.1 交付**。）`claude_cli` / `codex_cli` **v0.36 已可创建，v0.37 起须真适配**（禁止再交未就绪桩）。扩展时**只加注册表项与胶囊启用**，会话锁定规则不变。
+`cat_cli` / `cat_code` 的创建与运行（胶囊继续置灰）；完全访问；助手；定时任务的 cron / 续接已有对话 / 开机自启 / **任务编辑选服务商**（**定时运行仍锁 `cat_build`**，见 6.19.13；插在真适配稳定后的小版）；**技能 / MCP App 内启停与项目内技能根（v0.39）**；组件下载专节；自定义服务商「测试连接」按钮（可选后加）。（流式事件已提前到 6.19.9；**消息尾已由 v0.37.1 交付**；**URL/Key 已由 v0.38 交付**，见 6.19.12.8。）`claude_cli` / `codex_cli` **v0.36 已可创建，v0.37 起须真适配**（禁止再交未就绪桩）。扩展时**只加注册表项与胶囊启用**，会话锁定规则不变。
 
 
 ### 6.19.9 流式事件与取消（v0.30.1；v0.30.2 对齐 #174；v0.37.1 消息尾）
@@ -4534,9 +4537,9 @@ type RevealCatConversationFolderRequest struct {
 5. **旧对话**（已有 `tmp/cat/cwd-<convId>`）升级后仍能续聊（同一 CLI 会话），文件面板显示旧文件夹内容。
 6. 新建普通对话后立即「打开文件夹」→ 资源管理器打开 `<数据目录>\cat\conversations\<convId>`；删除该对话后文件夹被删，项目文件夹不受影响。
 
-### 6.19.12 Cat 设置（v0.35；v0.36 多服务商默认，老板确认设计 v0.4，架构师定）
+### 6.19.12 Cat 设置（v0.35；v0.36 多服务商默认；v0.38 自定义服务商，老板确认设计 v0.4 + 拆期草稿 v0.2 §5 + 设计说明 v0.1.1，架构师定）
 
-入口：Cat 侧栏底部「设置」（之前是静态行，改为可点），在 Cat 全屏内打开设置页，左侧分区、右侧表单。界面不出现 `grok` / `xAI` / `CLI` / `命令行`。分区：**通用**、**自定义指令**、**扩展（只读）**、**关于**。文案以设计《Cat-设置与定时任务-设计说明-v0.4》为准（冲突时以设计稿文案为准、以本节行为为准）；v0.36 对齐场景 22「设置·通用·按服务商」。
+入口：Cat 侧栏底部「设置」（之前是静态行，改为可点），在 Cat 全屏内打开设置页，左侧分区、右侧表单。界面不出现 `grok` / `xAI` / `CLI` / `命令行`（服务商选择 / 自定义服务商块写三家本名除外）。分区：**通用**、**自定义指令**、**扩展（只读）**、**关于**。文案以设计《Cat-设置与定时任务-设计说明-v0.4》《Cat-消息尾与设置扩展-设计说明-v0.1.1》为准（冲突时以设计稿文案为准、以本节行为为准）；v0.36 对齐场景 22；**v0.38** 对齐场景 25「设置·自定义服务商」。
 
 #### 6.19.12.1 数据与接口
 
@@ -4546,15 +4549,39 @@ type CatAgentDefaults struct { // v0.36
     Effort string `json:"effort"` // 空 = 不传思考强度；否则 low|medium|high|xhigh（该家无强度时前端整行隐藏，仍可存空）
 }
 
+// v0.38：每家自定义服务商（存 cat.settings.providersByAgent；密钥另存，见 6.19.12.8）
+type CatProviderSettings struct {
+    EnabledCustom bool   `json:"enabledCustom"` // 开 = 该家只用设置 URL/Key；关 = 回落 CLI 登录 / 环境变量
+    Protocol      string `json:"protocol"`      // openai | anthropic；空 = 用该家 DefaultProtocol（见 ListCatProviderCapabilities）
+    ApiUrl        string `json:"apiUrl"`        // Base URL；空 = 未设；占位示例按协议区分，勿写死第三方域名
+    ApiKeySet     bool   `json:"apiKeySet"`     // 是否已保存 Key；**只读回显**；Get/Save **永不**带明文 Key
+}
+
+type CatProviderCapability struct { // v0.38：适配器声明，不落库；固定顺序随 List 返回
+    AgentKind         string   `json:"agentKind"`         // cat_build | claude_cli | codex_cli
+    DefaultProtocol   string   `json:"defaultProtocol"`   // openai | anthropic
+    AllowProtocolPick bool     `json:"allowProtocolPick"` // false = UI 锁定默认协议；true = 可选 OpenAI / Anthropic（兼容网关）
+    AllowedProtocols  []string `json:"allowedProtocols"`  // 至少含 DefaultProtocol；AllowProtocolPick 时通常 ["openai","anthropic"]
+}
+
 type CatSettings struct {
-    DefaultAgentKind    string                      `json:"defaultAgentKind"`    // v0.36：cat_build|claude_cli|codex_cli；默认 cat_build；欢迎页预选
-    DefaultsByAgent     map[string]CatAgentDefaults `json:"defaultsByAgent"`     // v0.36：key = agentKind；缺 key = 空默认
-    DefaultApprovalMode string                      `json:"defaultApprovalMode"` // 空 = 全部批准；normal|plan|auto|approve（全局共用，同 v0.34 / catConvPrefs）
-    CustomInstruction   string                      `json:"customInstruction"`   // 全局自定义指令，最多 4000 字；空 = 不传
-    NotifyOnFinish      *bool                       `json:"notifyOnFinish"`      // v0.35.1：完成时发系统通知，nil 视为 true
+    DefaultAgentKind    string                        `json:"defaultAgentKind"`    // v0.36：cat_build|claude_cli|codex_cli；默认 cat_build；欢迎页预选
+    DefaultsByAgent     map[string]CatAgentDefaults   `json:"defaultsByAgent"`     // v0.36：key = agentKind；缺 key = 空默认
+    ProvidersByAgent    map[string]CatProviderSettings `json:"providersByAgent"`   // v0.38：key = agentKind；缺 key = 全关 / 空 URL / apiKeySet=false
+    DefaultApprovalMode string                        `json:"defaultApprovalMode"` // 空 = 全部批准；normal|plan|auto|approve（全局共用，同 v0.34 / catConvPrefs）
+    CustomInstruction   string                        `json:"customInstruction"`   // 全局自定义指令，最多 4000 字；空 = 不传
+    NotifyOnFinish      *bool                         `json:"notifyOnFinish"`      // v0.35.1：完成时发系统通知，nil 视为 true
 }
 GetCatSettings() (CatSettings, error)
-SaveCatSettings(req CatSettings) (CatSettings, error) // 返回保存后的值（不含旧字段）
+SaveCatSettings(req CatSettings) (CatSettings, error) // 返回保存后的值（不含旧字段）；可写 providersByAgent 的 enabledCustom/protocol/apiUrl；**忽略**任何明文 Key 字段；**不**因 Save 清除已存 Key
+ListCatProviderCapabilities() ([]CatProviderCapability, error) // v0.38：固定顺序 cat_build → claude_cli → codex_cli
+SaveCatProviderKey(req struct {
+    AgentKind string `json:"agentKind"` // 必填 cat_build|claude_cli|codex_cli
+    ApiKey    string `json:"apiKey"`    // 明文，仅此请求体；空 → INVALID_ARGUMENT
+}) (CatProviderSettings, error) // 返回该家合并后的 provider 视图（含 apiKeySet=true）；响应**无**明文 Key
+ClearCatProviderKey(req struct {
+    AgentKind string `json:"agentKind"`
+}) (CatProviderSettings, error) // 清除该家已存 Key → apiKeySet=false；不自动改 enabledCustom / apiUrl
 
 type CatInspectItem struct {
     Name        string `json:"name"`
@@ -4580,12 +4607,66 @@ InspectCatConfig(req struct {
 
 1. **存储**：`settings` 表键 `cat.settings`（JSON），没有记录 = 全部空值（`defaultAgentKind` 视为 `cat_build`，`defaultsByAgent` 空 map）。**不新建表、无迁移**；JSON 就地演进。
 2. **旧字段兼容（读路径）**：若库里仍有顶层 `defaultModel` / `defaultEffort`（v0.35），`GetCatSettings` **在返回值里**迁进 `defaultsByAgent["cat_build"]`（该 key 已有非空 model/effort 则不覆盖），并填 `defaultAgentKind`（缺省 `cat_build`）；**不在 Get 时回写**，等下次成功 `SaveCatSettings` 再写成新形状（Save 响应与落库都不再带旧字段）。
-3. **校验（Save）**：`defaultAgentKind` 不在 `cat_build|claude_cli|codex_cli`（空视为 `cat_build` 可写回默认）、任一 `defaultsByAgent` 的 `effort` 不在 `low|medium|high|xhigh|""`、`defaultApprovalMode` 不在 `normal|plan|auto|approve|""`、`customInstruction` 超 4000 字、`defaultsByAgent` 含未知 key → `INVALID_ARGUMENT`。各家 `model` **不**校验是否在当前模型列表里（列表可能暂时为空）；发送时若该模型已不在列表里，前端按「默认」显示。
-4. **默认值只作用于新对话**：新建对话时带用户选的 `agentKind`（或欢迎页预选 = `defaultAgentKind`）；偏好 = `defaultsByAgent[kind]` 的 model/effort + 全局 `defaultApprovalMode`（写入 `catConvPrefs`）。**已有对话已记住的模型 / 强度 / 批准方式一律不改**；没记过偏好的老对话仍按 v0.34（全部批准、默认模型 / 强度），不回填。`agentKind` 创建后仍不可变。
-5. **「新对话默认」UI（设计 v0.4）**：按服务商分块（Grok Build / Claude / Codex，带各自图标）；每家各自默认模型 + 思考强度（该家 `ListCatThinkLevels` 为空则整行隐藏）。批准方式、「新对话放在」仍全局共用（后者为本机偏好，见 6.19.12.7）。图标正式资源产品定；原型几何标可先用。
+3. **校验（Save）**：`defaultAgentKind` 不在 `cat_build|claude_cli|codex_cli`（空视为 `cat_build` 可写回默认）、任一 `defaultsByAgent` 的 `effort` 不在 `low|medium|high|xhigh|""`、`defaultApprovalMode` 不在 `normal|plan|auto|approve|""`、`customInstruction` 超 4000 字、`defaultsByAgent` / `providersByAgent` 含未知 key → `INVALID_ARGUMENT`。各家 `model` **不**校验是否在当前模型列表里（列表可能暂时为空）；发送时若该模型已不在列表里，前端按「默认」显示。**v0.38**：`providersByAgent[kind].protocol` 不在 `openai|anthropic|""` → `INVALID_ARGUMENT`；若 `ListCatProviderCapabilities` 对该家 `allowProtocolPick=false` 且请求的 `protocol` 非空且 ≠ `defaultProtocol` → `INVALID_ARGUMENT`；`apiUrl` 长度上限 2048（超限 → `INVALID_ARGUMENT`）；`apiKeySet` 若出现在请求体中**忽略**（以服务端密钥存储为准，客户端不得伪造「已保存」）。
+4. **默认值只作用于新对话**：新建对话时带用户选的 `agentKind`（或欢迎页预选 = `defaultAgentKind`）；偏好 = `defaultsByAgent[kind]` 的 model/effort + 全局 `defaultApprovalMode`（写入 `catConvPrefs`）。**已有对话已记住的模型 / 强度 / 批准方式一律不改**；没记过偏好的老对话仍按 v0.34（全部批准、默认模型 / 强度），不回填。`agentKind` 创建后仍不可变。**自定义服务商按会话 `agentKind` 取 `providersByAgent[kind]`**（与应用默认服务商无关）：改设置后**下一轮** `Send` / 列表探测生效，不影响进行中的一轮。
+5. **「新对话默认」UI（设计 v0.4 / v0.1.1）**：按服务商分块（Grok Build / Claude / Codex，带各自图标）；每家各自默认模型 + 思考强度（该家 `ListCatThinkLevels` 为空则整行隐藏）。**v0.38**：每家块底部可折叠「自定义服务商」（默认收起）——启用开关 / 协议 / API URL / API Key（保存后只显示「已保存」）/ 「清除」。批准方式、「新对话放在」仍全局共用（后者为本机偏好，见 6.19.12.7）。图标正式资源产品定；原型几何标可先用。
 6. **全局自定义指令**：非空时，后端在**每一轮**（首轮和续聊，含定时任务产生的对话）注入该指令（Build 带 `--rules <指令>`；Claude / Codex 的等价注入点见 6.19.14 **A6**，未确认前不得写死同名 flag）；空则不带。保存后下一轮生效，不影响正在进行的一轮。界面称「自定义指令」，说明文案 `每次对话都会自动带上这段指令。`（设计稿可改）。
 7. **InspectCatConfig**：在 `projectId` 对应项目文件夹（空 / 项目不在 → 普通对话目录的父目录 `<数据目录>/cat`）下，按 `agentKind`（空 = `cat_build`）走对应适配器的只读检查（Build：`grok inspect --json`；Claude / Codex 若无对等命令 → `unsupported`），超时 15 秒，走 `runCmd`（隐藏窗口，同 #200）。只取上面五类的名字 / 描述 / 来源 / 启用状态，**不回传文件路径、命令行、环境变量、密钥**。未就绪 → `reason=not_ready`；超时 → `timeout`；JSON 认不出 → `parse`；该家无稳定 inspect → `unsupported`；这些情况都返回空列表、`error` 为 nil，**无新错误码**。**仍只读**，不提供增删 / 启停（可管理 → v0.39）。
 8. **关于**：按 `GetCatStatus.agents[]` 三家分行显示就绪 / 版本 / 登录态；「重新检测」调 `RecheckCat`（重检三家）。整体顶层 `state` / `version` 仍返回，兼容旧 UI。
+
+#### 6.19.12.8 自定义服务商（v0.38）
+
+对齐拆期草稿 v0.2 §5、产品 §8、设计说明 v0.1.1 场景 25。
+
+**范围**：`cat_build` / `claude_cli` / `codex_cli` **三家一致开放**（含 Grok Build）。技能 / MCP 可管理与项目内技能根 → **v0.39**（本版不改 Inspect 只读）。消息尾字段不改（v0.37.1）。
+
+**字段与存储**
+
+| 项 | 规则 |
+|---|---|
+| `providersByAgent` | 落在 `cat.settings` JSON；与 `defaultsByAgent` 并列；缺 key = `{enabledCustom:false, protocol:"", apiUrl:"", apiKeySet:false}` |
+| 明文 Key | **禁止**写入 `cat.settings` 明文；存应用侧安全存储或独立加密键（实现自定，如 `cat.providerSecrets` / OS 凭据库）；**GetCatSettings / SaveCatSettings 响应、Inspect、日志、事件、预览包说明一律不得出现 Key 原文或末四位** |
+| `apiKeySet` | 服务端根据密钥是否存在计算；前端只据此显示「已保存」或空占位「粘贴 API Key」 |
+| `SaveCatProviderKey` | 唯一写入 Key 的绑定；成功后该家 `apiKeySet=true`；空串 → `INVALID_ARGUMENT` |
+| `ClearCatProviderKey` | 删除该家密钥 → `apiKeySet=false`；**不**自动关 `enabledCustom`、**不**清空 `apiUrl` |
+
+**优先级与注入（产品锁定）**
+
+1. 该会话 `agentKind` 对应 `enabledCustom=true` → 该家 **`SendCatMessage` / `RunTurn` 与 `ListCatModels` / `ListCatThinkLevels`** 使用设置中的 `apiUrl` + 已存 Key（及选定 `protocol`）；**不得**再回落 CLI 登录文件 / 用户 shell 里的同名变量来「补洞」（缺 Key / 坏 URL 则对话失败，文案可读：超时 / 401 / 连接失败可归并或区分，产品定调）。  
+2. `enabledCustom=false`（或缺 key）→ **与 v0.37 相同**：继承进程环境与 CLI 登录态；应用**不**改写它们。  
+3. 注入方式：仅给**子进程**追加 env 或 CLI flag（名称见 6.19.14 **C1–C6**，未确认标 GUESS）；**禁止** `os.Setenv` 写进父进程后不清理、禁止改系统 / 用户环境变量、禁止把 Key 写进项目目录或技能目录。  
+4. 定时任务本版仍锁 `cat_build`：若 `providersByAgent["cat_build"].enabledCustom=true`，定时运行同样走自定义（与手动对话同口径）。
+
+**协议**
+
+- 枚举：`openai` | `anthropic`。  
+- `ListCatProviderCapabilities` 返回每家 `defaultProtocol` / `allowProtocolPick` / `allowedProtocols`。  
+- **产品默认（UI 可先按此做；`allowProtocolPick` 真机确认前可为 false）**：`cat_build` → `openai`；`claude_cli` → `anthropic`；`codex_cli` → `openai`。仅当该家适配器确认支持兼容网关时把 `allowProtocolPick` 置 true，并允许在 OpenAI / Anthropic 间改选；否则 UI 显示锁定徽章，协议只读。  
+- `protocol` 空：按 `defaultProtocol` 解释。
+
+**未检测到 CLI**
+
+- 关于页 / 模型行仍可按 v0.36 置灰；**自定义服务商折叠仍可展开、预填并保存**（产品拍板）。  
+- 保存成功不要求 `agents[].ready`；实际 `Send` 仍依赖该家二进制 LookPath 成功（未装 → 既有 `CAT_NOT_READY`）。
+
+**清除 Key 确认（前端，调 `ClearCatProviderKey` 前必做）**
+
+| 元素 | 文案 |
+|---|---|
+| 标题 | `清除 API Key？` |
+| 正文 | `清除后这台电脑上不再保存该 Key，对话将改用 CLI 默认登录。` |
+| 按钮 | 「取消」（默认焦点）/ 红色「清除」 |
+
+取消不调用清除接口。无「末四位」掩码、无明文回显。
+
+**验收（相对拆期草稿 §5.4）**
+
+1. 仅为一家打开自定义，另外两家不受影响。  
+2. Key 保存后再打开设置：只见「已保存」，无完整明文、无末四位。  
+3. 错误 Key / 错误 URL：对话失败文案可读。  
+4. 关闭自定义后回到 CLI 默认路径，且系统 env **未被**改写。  
+5. 三家（含 `cat_build`）均可配置 URL/Key。  
+6. 未检测到 CLI 时仍可保存自定义；装好后启用即可用。
 
 #### 6.19.12.7 v0.35.1 补充
 
@@ -4716,7 +4797,7 @@ ClearAllCatConversations() error                          // 见 6.19.13.7
 7. **状态显示名**（替代 6.19.13.8 第三条）：`成功`（绿）/ `失败`（红）/ `已错过`（黄）/ `已停止`（灰，记录里副行 `已手动停止`）/ `已跳过`（副行 `上一次还没结束`）/ `排队中` / `运行中 · 已 X 分 X 秒`；无记录 `还没运行过`；暂停 `已暂停`。已错过副行：`closed` → `当时 FFmpegFree 没有打开`；`asleep` → `当时电脑在睡眠`（v0.35.2 已确认）。
 8. **其他设计文案**：频率分段 `一次 / 每天 / 工作日 / 每周 / 自定义`（自定义置灰 `下一期开放。`）；一次的时间早于现在 `这个时间已经过了。`；`请填写名称。` `最多 40 个字。` `请填写指令。` `请至少选一天。`；删除确认 `删除这个定时任务？` / `已经产生的对话会保留。`；未就绪横幅 `未检测到 Cat 助手，到点的任务会运行失败。` + `重新检测`。
 
-### 6.19.14 实现附录：Claude / Codex 真机核对表（v0.37）
+### 6.19.14 实现附录：Claude / Codex 真机核对表（v0.37；v0.38 增补自定义服务商 C*）
 
 > **规则**：下表凡状态为 **GUESS / 未确认** 的项，**不得**在预览包说明或验收里当作已交付；后端在真机核对后把「已确认」写回本表（及 6.19.3a / 6.19.3b 对应句），再合实现 PR。产品行为（能聊 / 能停 / 列表真实 / cwd / 未装文案）不因 flag 未确认而取消，但**不得捏造 flag 名写进用户可见文案**。
 
@@ -4736,6 +4817,12 @@ ClearAllCatConversations() error                          // 见 6.19.13.7
 | **A6** | **自定义指令注入点** | 系统提示 / 首条用户消息前缀 / CLI flag（Build 为 `--rules`，它家不假定同名） | **GUESS / 未确认** |
 | B11 | Claude `InspectCatConfig` 对等命令 | 无则 `reason=unsupported` | GUESS / 未确认 |
 | B12 | Codex `InspectCatConfig` 对等命令 | 无则 `reason=unsupported` | GUESS / 未确认 |
+| **C1** | **Build 自定义 URL/Key → 子进程注入** | env（如 `XAI_API_KEY` / Base URL 类）或 CLI flag；**仅子进程**，不写系统 env | **GUESS / 未确认** |
+| **C2** | **Claude 自定义 URL/Key → 子进程注入** | Anthropic 官方 / 兼容网关的 env 或 flag | **GUESS / 未确认** |
+| **C3** | **Codex 自定义 URL/Key → 子进程注入** | OpenAI 官方 / 兼容网关的 env 或 flag | **GUESS / 未确认** |
+| **C4** | **各家 `allowProtocolPick`** | 默认 false（锁 DefaultProtocol）；确认支持兼容网关后再改为 true | **GUESS / 未确认** |
+| **C5** | **OpenAI vs Anthropic 请求头 / 路径差异** | 按协议组装；不得把 Key 打进日志 | **GUESS / 未确认** |
+| **C6** | **列表探测（ListModels/ThinkLevels）是否同样注入** | 产品要求：启用自定义时列表探测与 RunTurn **同一套** URL/Key | **规范已定；具体 flag 仍 GUESS** |
 
 **验收（真机，相对拆期草稿 §4.4）**
 
@@ -4746,7 +4833,9 @@ ClearAllCatConversations() error                          // 见 6.19.13.7
 5. 停止可打断进行中回复；历史停止态与现网一致。  
 6. A5 / A6 及上表 GUESS 项：仅「已确认」可算交付。
 
-**v0.37 明确不做**（防止范围漂移；消息尾已改由 **v0.37.1** 交付）：自定义 API Key / Base URL；技能 / MCP 统一管理与 `<project>/.ffmpegfree/cat/skills`；定时任务改选服务商；改名 `cat_build`。
+**v0.37 明确不做**（防止范围漂移；消息尾已改由 **v0.37.1** 交付；**自定义 URL/Key 已改由 v0.38 交付**，见 6.19.12.8）：技能 / MCP 统一管理与 `<project>/.ffmpegfree/cat/skills`（→ v0.39）；定时任务改选服务商；改名 `cat_build`。
+
+**v0.38 补充验收（相对拆期草稿 §5.4；C1–C5 未确认前不得声称某 flag 已交付）**：见 6.19.12.8 验收 1–6。
 
 ## 7. 本地流服务（已取消）
 
