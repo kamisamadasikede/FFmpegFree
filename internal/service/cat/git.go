@@ -47,16 +47,52 @@ type GitChange struct {
 	Unstaged bool   `json:"unstaged"`
 }
 
+// GitConflictEntry 是未合并路径（契约 6.19.15）。
+type GitConflictEntry struct {
+	Path   string `json:"path"`
+	Ours   bool   `json:"ours"`
+	Theirs bool   `json:"theirs"`
+	Letter string `json:"letter,omitempty"`
+}
+
 // GitStatusResult 是当前对话文件夹的 git 状态。不是仓库时 Repo 为 false，不算错误。
 type GitStatusResult struct {
-	Repo     bool        `json:"repo"`
-	Branch   string      `json:"branch"`
-	Upstream string      `json:"upstream"`
-	Ahead    int         `json:"ahead"`
-	Behind   int         `json:"behind"`
-	Remote   string      `json:"remote"`
-	Web      string      `json:"web"`
-	Changes  []GitChange `json:"changes"`
+	Repo       bool               `json:"repo"`
+	Branch     string             `json:"branch"`
+	Upstream   string             `json:"upstream"`
+	Ahead      int                `json:"ahead"`
+	Behind     int                `json:"behind"`
+	Remote     string             `json:"remote"`
+	Web        string             `json:"web"`
+	Changes    []GitChange        `json:"changes"`
+	MergeState string             `json:"mergeState"` // none | merging | rebasing | cherry
+	Conflicts  []GitConflictEntry `json:"conflicts"`
+}
+
+// GitCatConflictResolveRequest 是单文件冲突解决。
+type GitCatConflictResolveRequest struct {
+	ConvID  string `json:"convId"`
+	Path    string `json:"path"`
+	Mode    string `json:"mode"` // ours | theirs | both | content
+	Content string `json:"content,omitempty"`
+}
+
+// GitCatConflictCompleteRequest 是完成合并 / 变基 / 拣选。
+type GitCatConflictCompleteRequest struct {
+	ConvID  string `json:"convId"`
+	Message string `json:"message,omitempty"`
+}
+
+// GitCatConflictAbortRequest 是中止合并 / 变基 / 拣选。
+type GitCatConflictAbortRequest struct {
+	ConvID string `json:"convId"`
+}
+
+// GitCatCheckoutRequest 是切已有分支（不新建）。
+type GitCatCheckoutRequest struct {
+	ConvID string `json:"convId"`
+	Name   string `json:"name"`
+	Force  bool   `json:"force,omitempty"`
 }
 
 // GitPathsRequest 是暂存、取消暂存和提交的入参。Paths 空表示暂存对话根下的全部改动。
@@ -369,13 +405,13 @@ func (s *Service) GitCatRemote(ctx context.Context, req GitRemoteRequest) error 
 	case "force":
 		return s.runGitOp(ctx, lay, "push", "--force-with-lease")
 	case "pull":
-		return s.runGitOp(ctx, lay, "pull")
+		return s.runGitOpConflict(ctx, lay, "pull")
 	case "ff":
 		return s.runGitOp(ctx, lay, "pull", "--ff-only")
 	case "rebase":
-		return s.runGitOp(ctx, lay, "pull", "--rebase")
+		return s.runGitOpConflict(ctx, lay, "pull", "--rebase")
 	case "sync":
-		if err := s.runGitOp(ctx, lay, "pull"); err != nil {
+		if err := s.runGitOpConflict(ctx, lay, "pull"); err != nil {
 			return err
 		}
 		return s.runGitOp(ctx, lay, "push")
@@ -397,11 +433,231 @@ func (s *Service) GitCatBranch(ctx context.Context, req GitBranchRequest) error 
 	return s.runGitOp(ctx, lay, "checkout", "-b", name)
 }
 
+func errGitConflict(msg string) error {
+	return apperr.New(apperr.InvalidArgument, msg).WithDetail("reason=git_conflict")
+}
+
+func errGitDirty() error {
+	return apperr.New(apperr.TaskConflict, "").WithDetail("reason=git_dirty")
+}
+
+// GitCatConflictResolve 对单个冲突文件采用当前 / 传入 / 双方或手改后暂存。
+func (s *Service) GitCatConflictResolve(ctx context.Context, req GitCatConflictResolveRequest) error {
+	lay, err := s.gitLayout(ctx, req.ConvID)
+	if err != nil {
+		return err
+	}
+	if detectMergeState(ctx, lay.top) == "none" {
+		return errGitConflict("当前没有进行中的合并。")
+	}
+	rel, err := cleanRel(lay.conv, req.Path)
+	if err != nil {
+		return err
+	}
+	conflicts, err := listConflicts(ctx, lay)
+	if err != nil {
+		return err
+	}
+	var hit *GitConflictEntry
+	for i := range conflicts {
+		if conflicts[i].Path == rel {
+			hit = &conflicts[i]
+			break
+		}
+	}
+	if hit == nil {
+		return apperr.New(apperr.InvalidArgument, "这个文件不在冲突列表里。").WithDetail("reason=path")
+	}
+	gitPath := toGitPath(lay.prefix, rel)
+	mode := strings.TrimSpace(req.Mode)
+	switch mode {
+	case "ours", "theirs":
+		flag := "--ours"
+		if mode == "theirs" {
+			flag = "--theirs"
+		}
+		if _, stderr, err := runGit(ctx, gitAddTimeout, lay.top, "checkout", flag, "--", gitPath); err != nil {
+			if gitNotRepo(stderr, err) {
+				return errNotRepo()
+			}
+			return asGitErr(err, stderr, "")
+		}
+	case "both":
+		body, err := combineBothSides(ctx, lay.top, gitPath)
+		if err != nil {
+			return err
+		}
+		if err := writeConvFile(lay.conv, rel, body); err != nil {
+			return err
+		}
+	case "content":
+		if conflictLooksBinary(ctx, lay, gitPath, rel) {
+			return apperr.New(apperr.InvalidArgument, "这个文件是二进制，请选用当前或传入。")
+		}
+		if strings.Contains(req.Content, "\x00") {
+			return apperr.New(apperr.InvalidArgument, "这个文件是二进制，请选用当前或传入。")
+		}
+		if err := writeConvFile(lay.conv, rel, []byte(req.Content)); err != nil {
+			return err
+		}
+	default:
+		return apperr.New(apperr.InvalidArgument, "不认识这个解决方式。")
+	}
+	if _, stderr, err := runGit(ctx, gitAddTimeout, lay.top, "add", "--", gitPath); err != nil {
+		if gitNotRepo(stderr, err) {
+			return errNotRepo()
+		}
+		return asGitErr(err, stderr, "")
+	}
+	return nil
+}
+
+// GitCatConflictComplete 在无未解决冲突时完成合并 / 变基 / 拣选。
+func (s *Service) GitCatConflictComplete(ctx context.Context, req GitCatConflictCompleteRequest) error {
+	lay, err := s.gitLayout(ctx, req.ConvID)
+	if err != nil {
+		return err
+	}
+	state := detectMergeState(ctx, lay.top)
+	if state == "none" {
+		return errGitConflict("当前没有进行中的合并。")
+	}
+	conflicts, err := listConflicts(ctx, lay)
+	if err != nil {
+		return err
+	}
+	if len(conflicts) > 0 {
+		return errGitConflict("还有未解决的冲突。")
+	}
+	switch state {
+	case "merging":
+		msg := strings.TrimSpace(req.Message)
+		var args []string
+		if msg == "" {
+			args = []string{"commit", "--no-edit"}
+		} else {
+			if strings.Contains(msg, "\x00") || utf8.RuneCountInString(msg) > maxCommitRunes {
+				return apperr.New(apperr.InvalidArgument, "提交说明太长。")
+			}
+			args = []string{"commit", "-m", msg}
+		}
+		_, stderr, err := runGit(ctx, gitCommitTimeout, lay.top, args...)
+		if err != nil {
+			if gitNotRepo(stderr, err) {
+				return errNotRepo()
+			}
+			return asGitErr(err, stderr, "")
+		}
+		return nil
+	case "rebasing":
+		_, stderr, err := runGit(ctx, gitCommitTimeout, lay.top, "rebase", "--continue")
+		if err != nil {
+			if gitNotRepo(stderr, err) {
+				return errNotRepo()
+			}
+			if detectMergeState(ctx, lay.top) != "none" {
+				return errGitConflict("有冲突需要解决。")
+			}
+			return asGitErr(err, stderr, "")
+		}
+		return nil
+	case "cherry":
+		_, stderr, err := runGit(ctx, gitCommitTimeout, lay.top, "cherry-pick", "--continue")
+		if err != nil {
+			if gitNotRepo(stderr, err) {
+				return errNotRepo()
+			}
+			if detectMergeState(ctx, lay.top) != "none" {
+				return errGitConflict("有冲突需要解决。")
+			}
+			return asGitErr(err, stderr, "")
+		}
+		return nil
+	default:
+		return errGitConflict("当前没有进行中的合并。")
+	}
+}
+
+// GitCatConflictAbort 中止进行中的合并 / 变基 / 拣选。
+func (s *Service) GitCatConflictAbort(ctx context.Context, req GitCatConflictAbortRequest) error {
+	lay, err := s.gitLayout(ctx, req.ConvID)
+	if err != nil {
+		return err
+	}
+	state := detectMergeState(ctx, lay.top)
+	var args []string
+	switch state {
+	case "merging":
+		args = []string{"merge", "--abort"}
+	case "rebasing":
+		args = []string{"rebase", "--abort"}
+	case "cherry":
+		args = []string{"cherry-pick", "--abort"}
+	default:
+		return errGitConflict("当前没有进行中的合并。")
+	}
+	_, stderr, err := runGit(ctx, gitCommitTimeout, lay.top, args...)
+	if err != nil {
+		if gitNotRepo(stderr, err) {
+			return errNotRepo()
+		}
+		return asGitErr(err, stderr, "")
+	}
+	return nil
+}
+
+// GitCatCheckout 切到已有本地分支。脏工作区须 Force 确认；不新建分支。
+func (s *Service) GitCatCheckout(ctx context.Context, req GitCatCheckoutRequest) error {
+	name := strings.TrimSpace(req.Name)
+	if name == "" || strings.Contains(name, "\x00") {
+		return apperr.New(apperr.NotFound, "找不到这个分支。")
+	}
+	lay, err := s.gitLayout(ctx, req.ConvID)
+	if err != nil {
+		return err
+	}
+	if !localBranchExists(ctx, lay.top, name) {
+		return apperr.New(apperr.NotFound, "找不到这个分支。")
+	}
+	if !req.Force {
+		dirty, err := worktreeDirty(ctx, lay)
+		if err != nil {
+			return err
+		}
+		if dirty {
+			return errGitDirty()
+		}
+	}
+	_, stderr, err := runGit(ctx, gitAddTimeout, lay.top, "checkout", name)
+	if err != nil {
+		if gitNotRepo(stderr, err) {
+			return errNotRepo()
+		}
+		return asGitErr(err, stderr, "")
+	}
+	return nil
+}
+
 func (s *Service) runGitOp(ctx context.Context, lay gitLayout, args ...string) error {
 	_, stderr, err := runGit(ctx, gitRemoteTimeout, lay.top, args...)
 	if err != nil {
 		if gitNotRepo(stderr, err) {
 			return errNotRepo()
+		}
+		return asGitErr(err, stderr, "")
+	}
+	return nil
+}
+
+// runGitOpConflict 用于可能产生冲突的远程操作；失败且仓库进入冲突态时标 git_conflict。
+func (s *Service) runGitOpConflict(ctx context.Context, lay gitLayout, args ...string) error {
+	_, stderr, err := runGit(ctx, gitRemoteTimeout, lay.top, args...)
+	if err != nil {
+		if gitNotRepo(stderr, err) {
+			return errNotRepo()
+		}
+		if detectMergeState(ctx, lay.top) != "none" {
+			return errGitConflict("有冲突需要解决。")
 		}
 		return asGitErr(err, stderr, "")
 	}
@@ -497,7 +753,7 @@ func (s *Service) statusAt(ctx context.Context, convRoot string) (GitStatusResul
 		return GitStatusResult{}, err
 	}
 	if !ok {
-		return GitStatusResult{Changes: []GitChange{}}, nil
+		return GitStatusResult{Changes: []GitChange{}, MergeState: "none", Conflicts: []GitConflictEntry{}}, nil
 	}
 	return s.statusIn(ctx, lay)
 }
@@ -506,7 +762,7 @@ func (s *Service) statusIn(ctx context.Context, lay gitLayout) (GitStatusResult,
 	out, stderr, err := runGit(ctx, gitStatusTimeout, lay.top, "status", "--porcelain=v1", "-b", "-z", "-uall", "--ahead-behind")
 	if err != nil {
 		if gitNotRepo(stderr, err) {
-			return GitStatusResult{Changes: []GitChange{}}, nil
+			return GitStatusResult{Changes: []GitChange{}, MergeState: "none", Conflicts: []GitConflictEntry{}}, nil
 		}
 		return GitStatusResult{}, asGitErr(err, stderr, string(out))
 	}
@@ -549,9 +805,22 @@ func (s *Service) statusIn(ctx context.Context, lay gitLayout) (GitStatusResult,
 	sort.SliceStable(changes, func(i, j int) bool {
 		return strings.ToLower(changes[i].Path) < strings.ToLower(changes[j].Path)
 	})
+	mergeState := detectMergeState(ctx, lay.top)
+	conflicts := []GitConflictEntry{}
+	if mergeState != "none" {
+		var cerr error
+		conflicts, cerr = listConflicts(ctx, lay)
+		if cerr != nil {
+			return GitStatusResult{}, cerr
+		}
+	}
+	if conflicts == nil {
+		conflicts = []GitConflictEntry{}
+	}
 	return GitStatusResult{
 		Repo: true, Branch: branch, Upstream: upstream, Ahead: ahead, Behind: behind,
 		Remote: remote, Web: web, Changes: changes,
+		MergeState: mergeState, Conflicts: conflicts,
 	}, nil
 }
 
@@ -580,7 +849,13 @@ func runGit(ctx context.Context, timeout time.Duration, dir string, args ...stri
 	defer cancel()
 	cmd := exec.CommandContext(cctx, exe, args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=never", "GIT_MERGE_AUTOEDIT=no")
+	cmd.Env = append(os.Environ(),
+		"GIT_TERMINAL_PROMPT=0",
+		"GCM_INTERACTIVE=never",
+		"GIT_MERGE_AUTOEDIT=no",
+		"GIT_EDITOR=true",
+		"EDITOR=true",
+	)
 	proc.Configure(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -1135,4 +1410,227 @@ func binaryDiff(raw string) bool {
 		}
 	}
 	return false
+}
+
+func detectMergeState(ctx context.Context, top string) string {
+	if gitPathExists(ctx, top, "MERGE_HEAD") {
+		return "merging"
+	}
+	if gitPathExists(ctx, top, "rebase-merge") || gitPathExists(ctx, top, "rebase-apply") {
+		return "rebasing"
+	}
+	if gitPathExists(ctx, top, "CHERRY_PICK_HEAD") {
+		return "cherry"
+	}
+	return "none"
+}
+
+func gitPathExists(ctx context.Context, top, name string) bool {
+	out, _, err := runGit(ctx, gitStatusTimeout, top, "rev-parse", "--git-path", name)
+	if err != nil {
+		return false
+	}
+	p := strings.TrimSpace(string(out))
+	if p == "" {
+		return false
+	}
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(top, p)
+	}
+	_, err = os.Stat(p)
+	return err == nil
+}
+
+func listConflicts(ctx context.Context, lay gitLayout) ([]GitConflictEntry, error) {
+	out, stderr, err := runGit(ctx, gitStatusTimeout, lay.top, "diff", "--name-only", "--diff-filter=U", "-z")
+	if err != nil {
+		if gitNotRepo(stderr, err) {
+			return nil, errNotRepo()
+		}
+		return nil, asGitErr(err, stderr, string(out))
+	}
+	stages, letters := unmergedMeta(ctx, lay.top)
+	seen := map[string]bool{}
+	var list []GitConflictEntry
+	for _, raw := range bytes.Split(out, []byte{0}) {
+		gp := filepath.ToSlash(strings.TrimSpace(string(raw)))
+		if gp == "" || seen[gp] {
+			continue
+		}
+		seen[gp] = true
+		rel, ok := fromGitPath(lay.prefix, gp)
+		if !ok || rel == "" {
+			continue
+		}
+		meta := stages[gp]
+		entry := GitConflictEntry{
+			Path:   rel,
+			Ours:   meta[0],
+			Theirs: meta[1],
+			Letter: letters[gp],
+		}
+		list = append(list, entry)
+	}
+	sort.SliceStable(list, func(i, j int) bool {
+		return strings.ToLower(list[i].Path) < strings.ToLower(list[j].Path)
+	})
+	if list == nil {
+		list = []GitConflictEntry{}
+	}
+	return list, nil
+}
+
+// unmergedMeta 读 ls-files -u 与 porcelain，得到 path→(ours,theirs) 与 XY 字母。
+func unmergedMeta(ctx context.Context, top string) (stages map[string][2]bool, letters map[string]string) {
+	stages = map[string][2]bool{}
+	letters = map[string]string{}
+	out, _, err := runGit(ctx, gitStatusTimeout, top, "ls-files", "-u", "-z")
+	if err == nil {
+		for _, rec := range bytes.Split(out, []byte{0}) {
+			line := string(rec)
+			if line == "" {
+				continue
+			}
+			tab := strings.IndexByte(line, '\t')
+			if tab < 0 {
+				continue
+			}
+			meta, path := line[:tab], filepath.ToSlash(line[tab+1:])
+			fields := strings.Fields(meta)
+			if len(fields) < 3 || path == "" {
+				continue
+			}
+			cur := stages[path]
+			switch fields[2] {
+			case "2":
+				cur[0] = true
+			case "3":
+				cur[1] = true
+			}
+			stages[path] = cur
+		}
+	}
+	pout, _, perr := runGit(ctx, gitStatusTimeout, top, "status", "--porcelain=v1", "-z", "--untracked-files=no")
+	if perr == nil {
+		parts := bytes.Split(pout, []byte{0})
+		i := 0
+		for i < len(parts) {
+			line := parts[i]
+			i++
+			if len(line) < 4 {
+				continue
+			}
+			x, y := line[0], line[1]
+			path := filepath.ToSlash(string(line[3:]))
+			if path == "" {
+				continue
+			}
+			if x == 'R' || y == 'R' || x == 'C' || y == 'C' {
+				if i < len(parts) {
+					i++
+				}
+			}
+			if isUnmergedXY(x, y) {
+				letters[path] = string([]byte{x, y})
+			}
+		}
+	}
+	return stages, letters
+}
+
+func isUnmergedXY(x, y byte) bool {
+	pair := string([]byte{x, y})
+	switch pair {
+	case "DD", "AU", "UD", "UA", "DU", "AA", "UU":
+		return true
+	}
+	return x == 'U' || y == 'U'
+}
+
+func combineBothSides(ctx context.Context, top, gitPath string) ([]byte, error) {
+	ours, oerr := showStage(ctx, top, "2", gitPath)
+	theirs, terr := showStage(ctx, top, "3", gitPath)
+	if oerr != nil && terr != nil {
+		return nil, apperr.New(apperr.InvalidArgument, "读不到冲突双方的内容。")
+	}
+	var b []byte
+	if oerr == nil {
+		b = append(b, ours...)
+	}
+	if terr == nil {
+		if len(b) > 0 && b[len(b)-1] != '\n' {
+			b = append(b, '\n')
+		}
+		b = append(b, theirs...)
+	}
+	return b, nil
+}
+
+func showStage(ctx context.Context, top, stage, gitPath string) ([]byte, error) {
+	out, stderr, err := runGit(ctx, gitDiffTimeout, top, "show", ":"+stage+":"+gitPath)
+	if err != nil {
+		if gitNotRepo(stderr, err) {
+			return nil, errNotRepo()
+		}
+		return nil, err
+	}
+	return out, nil
+}
+
+func writeConvFile(convRoot, rel string, body []byte) error {
+	abs := filepath.Join(convRoot, filepath.FromSlash(rel))
+	if !lexicalInside(convRoot, abs) {
+		return errFilePath()
+	}
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		return apperr.Wrap(apperr.ProcessFailed, "写不了这个文件。", err)
+	}
+	if err := os.WriteFile(abs, body, 0o644); err != nil {
+		return apperr.Wrap(apperr.ProcessFailed, "写不了这个文件。", err)
+	}
+	return nil
+}
+
+func conflictLooksBinary(ctx context.Context, lay gitLayout, gitPath, rel string) bool {
+	for _, stage := range []string{"2", "3"} {
+		b, err := showStage(ctx, lay.top, stage, gitPath)
+		if err == nil && bytesLookBinary(b) {
+			return true
+		}
+	}
+	abs := filepath.Join(lay.conv, filepath.FromSlash(rel))
+	if lexicalInside(lay.conv, abs) {
+		if b, err := os.ReadFile(abs); err == nil && bytesLookBinary(b) {
+			return true
+		}
+	}
+	return false
+}
+
+func bytesLookBinary(b []byte) bool {
+	if len(b) == 0 {
+		return false
+	}
+	return bytes.IndexByte(b, 0) >= 0 || !utf8.Valid(b)
+}
+
+func localBranchExists(ctx context.Context, top, name string) bool {
+	_, _, err := runGit(ctx, gitStatusTimeout, top, "show-ref", "--verify", "--quiet", "refs/heads/"+name)
+	return err == nil
+}
+
+func worktreeDirty(ctx context.Context, lay gitLayout) (bool, error) {
+	out, stderr, err := runGit(ctx, gitStatusTimeout, lay.top, "status", "--porcelain=v1", "-z", "-uall")
+	if err != nil {
+		if gitNotRepo(stderr, err) {
+			return false, errNotRepo()
+		}
+		return false, asGitErr(err, stderr, string(out))
+	}
+	for _, part := range bytes.Split(out, []byte{0}) {
+		if len(bytes.TrimSpace(part)) > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
 }

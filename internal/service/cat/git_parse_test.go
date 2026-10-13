@@ -1,6 +1,10 @@
 package cat
 
 import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -179,5 +183,56 @@ func TestFormatUnifiedDiff(t *testing.T) {
 	lines := strings.Split(text, "\n")
 	if len(lines) != 401 || lines[0] != "@@ -0,0 +1,401 @@" || lines[399] != "+x" || lines[400] != "…其余已省略" {
 		t.Fatalf("cap %d last %q", len(lines), lines[len(lines)-1])
+	}
+}
+
+func TestDetectMergeStateFixtures(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("没有 git")
+	}
+	ctx := context.Background()
+	root := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-b", "main")
+	run("config", "user.email", "t@example.com")
+	run("config", "user.name", "t")
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "a.txt")
+	run("commit", "-m", "base")
+	if got := detectMergeState(ctx, root); got != "none" {
+		t.Fatalf("none: %s", got)
+	}
+
+	run("checkout", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("feature\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "a.txt")
+	run("commit", "-m", "feature")
+	run("checkout", "main")
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "a.txt")
+	run("commit", "-m", "main")
+
+	cmd := exec.Command("git", "merge", "--no-edit", "feature")
+	cmd.Dir = root
+	_ = cmd.Run()
+	if got := detectMergeState(ctx, root); got != "merging" {
+		t.Fatalf("merging: %s", got)
+	}
+	run("merge", "--abort")
+	if got := detectMergeState(ctx, root); got != "none" {
+		t.Fatalf("after abort: %s", got)
 	}
 }

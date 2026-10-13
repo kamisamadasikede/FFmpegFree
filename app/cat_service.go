@@ -300,6 +300,42 @@ func (s *CatService) GitCatBranch(req cat.GitBranchRequest) error {
 	return c.GitCatBranch(s.rootCtx(), req)
 }
 
+// GitCatConflictResolve 单文件采用当前/传入/双方或手改后暂存（契约 6.19.15）。
+func (s *CatService) GitCatConflictResolve(req cat.GitCatConflictResolveRequest) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.GitCatConflictResolve(s.rootCtx(), req)
+}
+
+// GitCatConflictComplete 完成合并/变基/拣选。
+func (s *CatService) GitCatConflictComplete(req cat.GitCatConflictCompleteRequest) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.GitCatConflictComplete(s.rootCtx(), req)
+}
+
+// GitCatConflictAbort 中止合并/变基/拣选。
+func (s *CatService) GitCatConflictAbort(req cat.GitCatConflictAbortRequest) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.GitCatConflictAbort(s.rootCtx(), req)
+}
+
+// GitCatCheckout 切已有本地分支；脏工作区须 Force。
+func (s *CatService) GitCatCheckout(req cat.GitCatCheckoutRequest) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.GitCatCheckout(s.rootCtx(), req)
+}
+
 // SearchCatFiles 在对话根下按名称或内容查找。
 func (s *CatService) SearchCatFiles(req cat.SearchFilesRequest) (cat.SearchFilesResult, error) {
 	c, err := s.svc()
