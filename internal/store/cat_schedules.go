@@ -8,7 +8,7 @@ import (
 	"fmt"
 )
 
-// CatScheduleRow 是 cat_schedules 的一行（契约 6.19.13.6）。
+// CatScheduleRow 是 cat_schedules 的一行（契约 6.19.13.6；v0.40 含 agent_kind）。
 type CatScheduleRow struct {
 	ID             string
 	Name           string
@@ -21,6 +21,7 @@ type CatScheduleRow struct {
 	Model          string
 	Effort         string
 	ApprovalMode   string
+	AgentKind      string // v0.40：cat_build | claude_cli | codex_cli
 	Enabled        bool
 	ProjectDeleted bool
 	NextRunAt      int64
@@ -42,7 +43,7 @@ type CatScheduleRunRow struct {
 	MissedReason   string
 }
 
-const catScheduleColumns = `id, name, prompt, project_id, frequency, time, weekdays, run_at, model, effort, approval_mode,
+const catScheduleColumns = `id, name, prompt, project_id, frequency, time, weekdays, run_at, model, effort, approval_mode, agent_kind,
 	enabled, project_deleted, next_run_at, created_at, updated_at`
 
 func scanCatSchedule(r interface{ Scan(...any) error }) (CatScheduleRow, error) {
@@ -50,7 +51,7 @@ func scanCatSchedule(r interface{ Scan(...any) error }) (CatScheduleRow, error) 
 	var wd string
 	var en, pd int
 	err := r.Scan(&x.ID, &x.Name, &x.Prompt, &x.ProjectID, &x.Frequency, &x.Time, &wd, &x.RunAt, &x.Model, &x.Effort,
-		&x.ApprovalMode, &en, &pd, &x.NextRunAt, &x.CreatedAt, &x.UpdatedAt)
+		&x.ApprovalMode, &x.AgentKind, &en, &pd, &x.NextRunAt, &x.CreatedAt, &x.UpdatedAt)
 	if err != nil {
 		return x, err
 	}
@@ -59,6 +60,9 @@ func scanCatSchedule(r interface{ Scan(...any) error }) (CatScheduleRow, error) 
 	_ = json.Unmarshal([]byte(wd), &x.Weekdays)
 	if x.Weekdays == nil {
 		x.Weekdays = []int{}
+	}
+	if x.AgentKind == "" {
+		x.AgentKind = "cat_build"
 	}
 	return x, nil
 }
@@ -76,14 +80,17 @@ func (s *Store) UpsertCatSchedule(ctx context.Context, x CatScheduleRow) error {
 	if x.Weekdays == nil {
 		wd = []byte("[]")
 	}
+	if x.AgentKind == "" {
+		x.AgentKind = "cat_build"
+	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO cat_schedules (`+catScheduleColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET name=excluded.name, prompt=excluded.prompt, project_id=excluded.project_id,
 			frequency=excluded.frequency, time=excluded.time, weekdays=excluded.weekdays, run_at=excluded.run_at,
-			model=excluded.model, effort=excluded.effort, approval_mode=excluded.approval_mode, enabled=excluded.enabled,
-			project_deleted=excluded.project_deleted, next_run_at=excluded.next_run_at, updated_at=excluded.updated_at`,
-		x.ID, x.Name, x.Prompt, x.ProjectID, x.Frequency, x.Time, string(wd), x.RunAt, x.Model, x.Effort, x.ApprovalMode,
+			model=excluded.model, effort=excluded.effort, approval_mode=excluded.approval_mode, agent_kind=excluded.agent_kind,
+			enabled=excluded.enabled, project_deleted=excluded.project_deleted, next_run_at=excluded.next_run_at, updated_at=excluded.updated_at`,
+		x.ID, x.Name, x.Prompt, x.ProjectID, x.Frequency, x.Time, string(wd), x.RunAt, x.Model, x.Effort, x.ApprovalMode, x.AgentKind,
 		b2i(x.Enabled), b2i(x.ProjectDeleted), x.NextRunAt, x.CreatedAt, x.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("写入定时任务失败: %w", err)
@@ -201,7 +208,7 @@ func (s *Store) ListCatScheduleRuns(ctx context.Context, scheduleID string, limi
 	return out, rows.Err()
 }
 
-// LatestCatScheduleRun 取一个任务最近一条运行记录；没有返回 sql.ErrNoRows。
+// LatestCatScheduleRun 取该任务最近一条运行记录；没有返回 sql.ErrNoRows。
 func (s *Store) LatestCatScheduleRun(ctx context.Context, scheduleID string) (CatScheduleRunRow, error) {
 	list, err := s.ListCatScheduleRuns(ctx, scheduleID, 1)
 	if err != nil {

@@ -385,12 +385,16 @@ func (s *Service) execute(r ScheduleRun) {
 		fail(apperr.From(errProjectMissing()))
 		return
 	}
-	if a, aerr := s.adapter(catagent.KindCatBuild); aerr != nil || a.Status().State != catagent.StateReady {
+	kind := strings.TrimSpace(x.AgentKind)
+	if !catagent.Phase1Creatable(kind) {
+		kind = catagent.KindCatBuild
+	}
+	if a, aerr := s.adapter(kind); aerr != nil || a.Status().State != catagent.StateReady {
 		fail(apperr.New(apperr.CatNotReady, catagent.MsgNotReady))
 		return
 	}
 	title := x.Name + " · " + time.UnixMilli(r.ScheduledFor).In(s.loc()).Format("01-02 15:04")
-	conv, err := s.CreateCatConversation(ctx, CreateConversationRequest{AgentKind: catagent.KindCatBuild, Title: title, ProjectID: x.ProjectID})
+	conv, err := s.CreateCatConversation(ctx, CreateConversationRequest{AgentKind: kind, Title: title, ProjectID: x.ProjectID})
 	if err != nil {
 		fail(apperr.From(err))
 		return
@@ -502,10 +506,14 @@ func BuildNotification(name, project string, r ScheduleRun, start, end time.Time
 	return Notification{ID: r.ID, ScheduleID: r.ScheduleID, Title: "定时任务" + word + "：" + name, Body: body, ConvID: r.ConversationID}
 }
 
-// OpenFromNotification 用户点了通知：推一条 cat:schedule 让界面打开这条对话。
+// OpenFromNotification 用户点了通知：定时仍走 cat:schedule；普通 turn 走 cat:notify（契约 6.19.12.10）。
 func (s *Service) OpenFromNotification(scheduleID, convID string) {
 	if strings.TrimSpace(convID) == "" {
 		return
 	}
-	s.emit(EventSchedule, ScheduleEvent{ScheduleID: scheduleID, OpenConvID: convID})
+	if strings.TrimSpace(scheduleID) != "" {
+		s.emit(EventSchedule, ScheduleEvent{ScheduleID: scheduleID, OpenConvID: convID})
+		return
+	}
+	s.emit(EventNotify, NotifyEvent{OpenConvID: convID})
 }
