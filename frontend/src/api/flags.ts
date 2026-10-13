@@ -111,3 +111,17 @@ export const CAT_BACKEND_READY: boolean = true
  * 页面入口仍由 CAT_UI_ENABLED 控制（正式包默认关）。
  */
 export const CAT_PROJECTS_BACKEND_READY: boolean = true
+
+/**
+ * Cat 设置（契约 v0.35.1 §6.19.12：GetCatSettings / SaveCatSettings / InspectCatConfig / ClearAllCatConversations）。
+ * 后端 #210 / #213 已合入 v2（399512c），绑定已生成，联调打开（true）：Wails 里调生成的 CatService 绑定。
+ * 纯浏览器（没有 window.go）仍走 api/catSettings.ts 的内存模拟。改回 false：Wails 里也走模拟（保存只在本次运行有效）。
+ */
+export const CAT_SETTINGS_BACKEND_READY: boolean = true
+
+/**
+ * Cat 定时任务（契约 v0.35.1~v0.35.5 §6.19.13：List/Create/Update/Delete/Pause/Resume/RunNow CatSchedule、ListCatScheduleRuns、事件 cat:schedule）。
+ * 后端 #214 已合入 v2（bc6529b），绑定已生成，联调打开（true）：侧栏出现「定时任务」，调生成的 CatService 绑定。
+ * 改回 false：打包后的应用里侧栏不出现「定时任务」、不订阅事件；只有 vite dev + 纯浏览器能看到内存模拟（走查用）。
+ */
+export const CAT_SCHEDULE_BACKEND_READY: boolean = true

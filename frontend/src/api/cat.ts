@@ -235,11 +235,18 @@ export async function listCatModels(agentKind: CatAgentKind): Promise<CatModel[]
   }
 }
 
+/** 契约 v0.35：xhigh 显示「极高」（值不变）；后端老版本还给「超高」时也在这里改掉 */
+export const CAT_THINK_XHIGH_LABEL = '极高'
+export function fixThinkName(t: CatThinkLevel): CatThinkLevel {
+  if (t.id === 'xhigh' || t.displayName === '超高') return { ...t, displayName: CAT_THINK_XHIGH_LABEL }
+  return t
+}
+
 /** 思考强度：没有就不显示强度半截（契约 / 产品） */
 export async function listCatThinkLevels(agentKind: CatAgentKind): Promise<CatThinkLevel[]> {
   if (agentKind !== CAT_AGENT_BUILD || !live()) return []
   try {
-    return mapList<CatThinkLevel>(await call(CatBinding.ListCatThinkLevels(agentKind)))
+    return mapList<CatThinkLevel>(await call(CatBinding.ListCatThinkLevels(agentKind))).map(fixThinkName)
   } catch {
     return []
   }
