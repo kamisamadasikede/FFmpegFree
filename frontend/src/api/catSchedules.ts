@@ -73,7 +73,8 @@ export const CAT_SCHEDULE_PROMPT_MAX = 4000
 export const CAT_SCHED_COPY = {
   title: '定时任务',
   subtitle: '到点后在所属项目里开一个新对话，按设定的指令自动运行',
-  hint: '只在 FFmpegFree 打开时运行（最小化到托盘也会运行）。错过的时间点不补跑，列表里会标「已错过」。',
+  /** 列表常驻提示（产品 10-13 定稿；只改这一处） */
+  hint: '只在 FFmpegFree 打开时运行，最小化也会运行，关掉就不会。错过的时间点不补跑，列表里会标「已错过」。',
   notReady: '未检测到 Cat 助手，到点的任务会运行失败。',
   recheck: '重新检测',
   create: '新建任务',

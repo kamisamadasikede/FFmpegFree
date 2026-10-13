@@ -1,17 +1,23 @@
 <template>
-  <section class="ct-l" aria-label="会话">
+  <section class="ct-l" :class="{ mini: railCollapsed }" aria-label="会话">
+    <!-- C3 收起后只留图标列：展开、新对话、设置 -->
+    <div v-if="railCollapsed" class="ct-mini">
+      <button type="button" class="ib big" title="展开侧栏 (Ctrl B)" aria-label="展开侧栏" data-testid="cat-rail-expand" @click="railCollapsed = false"><FIcon name="cat" :size="16" /></button>
+      <button type="button" class="ib big" :class="{ on: catState.sel === NEW_CONV }" title="新对话" aria-label="新对话" @click="selectConv(NEW_CONV)"><FIcon name="edit" :size="16" /></button>
+      <span class="sp" />
+      <span class="ib big" title="设置" aria-label="设置"><FIcon name="set" :size="16" /></span>
+    </div>
+    <div v-show="!railCollapsed" class="ct-full">
     <div class="ct-brand">
       <div class="lg"><FIcon name="cat" :size="16" /></div>
       <b>Cat</b>
+      <button type="button" class="ib" title="收起侧栏 (Ctrl B)" aria-label="收起侧栏" data-testid="cat-rail-collapse" @click="railCollapsed = true"><FIcon name="split" :size="15" /></button>
       <button type="button" class="ct-back" title="返回原页面并展开侧栏" @click="emit('back')"><FIcon name="left" :size="14" />返回</button>
     </div>
     <button type="button" class="ct-it new" :class="{ on: catPanels.view === 'chat' && catState.sel === NEW_CONV && !catState.newProjectId }" @click="selectConv(NEW_CONV)">
       <FIcon name="plus" :size="16" /><span class="t">新对话</span><span class="r"><FIcon name="list" :size="16" /></span>
     </button>
-    <button type="button" class="ct-it disabled" aria-disabled="true" :title="laterTip" @click="onLater">
-      <FIcon name="bot" :size="16" /><span class="t">助手</span>
-    </button>
-    <!-- v0.35：定时任务正式入口（带启用数）。CAT_SCHEDULE_BACKEND_READY=false 时打包后的应用里不出现 -->
+    <!-- C1：「助手」一期不做。v0.35：定时任务正式入口（带启用数），替代 SHOW_SCHEDULE_ENTRY；CAT_SCHEDULE_BACKEND_READY=false 时打包后的应用里不出现 -->
     <button
       v-if="schedulesOn"
       type="button"
@@ -41,7 +47,10 @@
         </span>
       </div>
       <!-- 没有项目：标题行保留，下面一行淡灰小字（不画插画，一行高） -->
-      <div v-if="!catState.projects.length" class="pj-empty" data-testid="cat-no-projects">{{ PC.empty }}</div>
+      <div v-if="!catState.projects.length" class="pj-empty-box" data-testid="cat-no-projects">
+        <FIcon name="folder-plus" :size="22" /><span>{{ PC.empty }}</span>
+        <button type="button" class="pj-empty-act" data-testid="cat-no-projects-new" @click="createProject()">{{ PC.newProject }}</button>
+      </div>
       <div v-else class="pjs">
         <div
           v-for="p in catState.projects"
@@ -195,6 +204,7 @@
       data-testid="cat-nav-settings"
       @click="openView('settings')"
     ><FIcon name="set" :size="16" /><span class="t">设置</span></button>
+    </div>
 
     <!-- 项目菜单（设计 §02）：fixed 定位，可越过侧栏右边界 -->
     <div
@@ -257,6 +267,8 @@
 </template>
 
 <script setup lang="ts">
+import { railCollapsed } from '@/views/cat/catLayout'
+/** 定时任务入口开关：真入口落地前隐藏 */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
@@ -456,6 +468,44 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown, true)
 .ct-l {
   width: 248px;
   flex: none;
+  box-sizing: border-box;
+  overflow: hidden;
+  transition: width var(--ff-dur-slow) var(--ff-ease-out), padding var(--ff-dur-slow) var(--ff-ease-out);
+}
+.ct-l.mini {
+  width: 56px;
+  padding-left: 0;
+  padding-right: 0;
+}
+.ct-full {
+  flex: 1;
+  min-height: 0;
+  min-width: 232px;
+  display: flex;
+  flex-direction: column;
+}
+.ct-mini {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  animation: cat-fade-in var(--ff-dur-base) var(--ff-ease-out) both;
+}
+.ct-mini .sp {
+  flex: 1;
+}
+.ib.big {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--cat-radius-md);
+}
+.ib.big.on {
+  background: var(--cat-surface);
+  box-shadow: var(--cat-shadow-sm);
+  color: var(--cat-text);
+}
+.ct-l {
   display: flex;
   flex-direction: column;
   background: var(--cat-rail);
@@ -1069,5 +1119,41 @@ button.ib {
   .pj.hl .pj-row {
     animation: pj-hl 2.4s steps(1, end) forwards;
   }
+}
+.pj-empty-box {
+  margin: 4px 0 8px;
+  padding: 14px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  border: 1px dashed var(--cat-border-strong);
+  border-radius: var(--cat-radius-md);
+  color: var(--cat-muted);
+  font-size: 12px;
+  text-align: center;
+  animation: cat-fade-in var(--ff-dur-base) var(--ff-ease-out) both;
+}
+.pj-empty-act {
+  height: 26px;
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--cat-radius-sm);
+  background: var(--cat-accent);
+  color: var(--cat-on-accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--ff-dur-quick), transform var(--ff-dur-quick);
+}
+.pj-empty-act:hover {
+  background: var(--cat-accent-hover);
+}
+.pj-empty-act:active {
+  transform: scale(0.94);
+}
+.pj-empty-act:focus-visible {
+  outline: none;
+  box-shadow: var(--cat-focus);
 }
 </style>

@@ -34,12 +34,16 @@ func (a *App) initCatNotifications() {
 		info := res.Response.UserInfo
 		convID, _ := info["convId"].(string)
 		schedID, _ := info["scheduleId"].(string)
-		wruntime.WindowUnminimise(a.ctx)
-		wruntime.WindowShow(a.ctx)
-		if svc := a.catService(); svc != nil {
-			svc.OpenFromNotification(schedID, convID)
-		}
+		a.onCatNotificationClick(schedID, convID)
 	})
+}
+
+// onCatNotificationClick 点了系统通知：最小化或隐藏都先恢复并置前、清掉隐藏状态，再推 openConvId（v0.35.5 ②）。
+func (a *App) onCatNotificationClick(schedID, convID string) {
+	a.showWindow()
+	if svc := a.catService(); svc != nil {
+		svc.OpenFromNotification(schedID, convID)
+	}
 }
 
 // sendCatNotification 发一条系统通知；通知不可用时什么也不做。
@@ -54,12 +58,4 @@ func (a *App) sendCatNotification(n cat.Notification) {
 	if err != nil {
 		log.Printf("cat notification: %v", err)
 	}
-}
-
-// catWindowForeground 近似「窗口在前台」：没有最小化、也没有藏起来。Wails v2 没有焦点查询接口。
-func (a *App) catWindowForeground() bool {
-	if a.ctx == nil {
-		return false
-	}
-	return !wruntime.WindowIsMinimised(a.ctx)
 }

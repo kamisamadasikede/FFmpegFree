@@ -27,7 +27,7 @@ const (
 // 运行失败的说明。
 const (
 	MsgScheduleTimeout     = "超过 30 分钟没跑完。"
-	MsgScheduleInterrupted = "应用关闭，这次运行中断了。"
+	MsgScheduleInterrupted = "FFmpegFree 关了，这次运行没跑完。"
 )
 
 // Notification 是一条系统通知。ConvID 用于点通知后打开对话。
@@ -57,6 +57,7 @@ type scheduler struct {
 	running  int
 	lastTick time.Time
 	tickMu   sync.Mutex // 一次只跑一个 tick
+	emitMu   sync.Mutex // 运行记录的 cat:schedule 按顺序推，排队位置不会被旧快照盖掉
 }
 
 // StartScheduler 启动调度器（应用启动后调一次）：先收尾上次进程留下的记录，立刻检查一次，然后每 30 秒一次。
@@ -217,11 +218,12 @@ func (s *Service) trigger(ctx context.Context, x store.CatScheduleRow, scheduled
 	s.sched.mu.Unlock()
 	s.recordRun(ctx, run)
 	s.pump()
+	s.emitQueued(run.ID)
 	// 返回当前状态（可能已开始）。
 	if cur, err := s.cfg.Store.ListCatScheduleRuns(ctx, x.ID, 1); err == nil && len(cur) == 1 && cur[0].ID == run.ID {
-		return runFromRow(cur[0])
+		return s.withQueuePosition(runFromRow(cur[0]))
 	}
-	return run
+	return s.withQueuePosition(run)
 }
 
 // dropQueued 把这个任务排队中的一次拿出队列（删任务 / 删项目时）。记 stopped。
@@ -245,6 +247,7 @@ func (s *Service) dropQueued(scheduleID string) {
 		r := dropped.run
 		r.Status, r.FinishedAt = RunStopped, s.now().UnixMilli()
 		s.recordRun(context.Background(), r)
+		s.emitQueued("")
 	}
 }
 
@@ -277,6 +280,57 @@ func (s *Service) release(r ScheduleRun) {
 	}
 	s.sched.mu.Unlock()
 	s.pump()
+	s.emitQueued("")
+}
+
+// withQueuePosition 给排队中的运行填上当前排队位置（v0.35.4）；不是排队中的清掉。
+func (s *Service) withQueuePosition(r ScheduleRun) ScheduleRun {
+	r.QueuePosition = nil
+	if r.Status != RunQueued {
+		return r
+	}
+	s.sched.mu.Lock()
+	defer s.sched.mu.Unlock()
+	for i, it := range s.sched.queue {
+		if it.run.ID == r.ID {
+			n := i
+			r.QueuePosition = &n
+			break
+		}
+	}
+	return r
+}
+
+// emitQueued 队列变化后，把所有仍在排队的运行按新位置重新推一次 cat:schedule（v0.35.4）。skipID 是刚推过的那条。
+func (s *Service) emitQueued(skipID string) {
+	s.sched.emitMu.Lock()
+	defer s.sched.emitMu.Unlock()
+	s.sched.mu.Lock()
+	if s.sched.closing {
+		s.sched.mu.Unlock()
+		return
+	}
+	snap := make([]ScheduleRun, 0, len(s.sched.queue))
+	for i, it := range s.sched.queue {
+		r := it.run
+		n := i
+		r.QueuePosition = &n
+		snap = append(snap, r)
+	}
+	s.sched.mu.Unlock()
+	ctx := context.Background()
+	for i := range snap {
+		r := snap[i]
+		if r.ID == skipID && r.QueuePosition != nil && *r.QueuePosition == len(snap)-1 {
+			continue // 刚入队、排在最后：recordRun 已推过同样的位置
+		}
+		ev := ScheduleEvent{ScheduleID: r.ScheduleID, Run: &r}
+		if x, err := s.cfg.Store.GetCatSchedule(ctx, r.ScheduleID); err == nil {
+			sc := s.scheduleFromRow(ctx, x)
+			ev.Schedule = &sc
+		}
+		s.emit(EventSchedule, ev)
+	}
 }
 
 // recordRun 落库、剪到 100 条、推 cat:schedule。
@@ -290,6 +344,9 @@ func (s *Service) recordRun(ctx context.Context, r ScheduleRun) {
 	if err := s.cfg.Store.PruneCatScheduleRuns(ctx, r.ScheduleID, MaxRunsPerSchedule); err != nil {
 		s.cfg.Logf("cat schedule prune: %v", err)
 	}
+	s.sched.emitMu.Lock()
+	defer s.sched.emitMu.Unlock()
+	r = s.withQueuePosition(r)
 	ev := ScheduleEvent{ScheduleID: r.ScheduleID, Run: &r}
 	if x, err := s.cfg.Store.GetCatSchedule(ctx, r.ScheduleID); err == nil {
 		sc := s.scheduleFromRow(ctx, x)

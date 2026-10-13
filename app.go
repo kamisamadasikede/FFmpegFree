@@ -60,6 +60,8 @@ type App struct {
 	lang         atomic.Pointer[lang.Service]
 	catReg       atomic.Pointer[catagent.Registry]
 	cat          atomic.Pointer[cat.Service]
+	win          windowState
+	windowOps    *windowOps  // 测试替换窗口调用；nil = Wails runtime
 	catNotifyOK  atomic.Bool // 系统通知已初始化（定时任务结束时用）
 }
 

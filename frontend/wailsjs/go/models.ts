@@ -573,6 +573,7 @@ export namespace cat {
 	    finishedAt?: number;
 	    manual: boolean;
 	    missedReason?: string;
+	    queuePosition?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ScheduleRun(source);
@@ -590,6 +591,7 @@ export namespace cat {
 	        this.finishedAt = source["finishedAt"];
 	        this.manual = source["manual"];
 	        this.missedReason = source["missedReason"];
+	        this.queuePosition = source["queuePosition"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
