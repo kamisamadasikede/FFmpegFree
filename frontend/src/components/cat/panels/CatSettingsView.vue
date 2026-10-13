@@ -58,7 +58,7 @@
                   </select>
                 </div>
               </div>
-              <div v-if="block.thinks.length" class="row">
+              <div v-if="block.ready && block.thinks.length" class="row">
                 <div class="lab"><b>{{ C.effort }}</b><span>{{ C.effortDesc }}</span></div>
                 <div class="ctl">
                   <SavedMark :on="!!savedAgent[block.kind + ':effort']" />
@@ -365,7 +365,7 @@ async function loadCaps() {
   await Promise.all(
     CAT_PROVIDER_ORDER.map(async (kind) => {
       if (useSim) {
-        // 走查：三家都给列表；Codex 故意空强度 → 测「整行隐藏」
+        // 走查：三家都给模型列表；Codex 故意空强度。未检测到时模板还会因 !ready 整行隐藏强度。
         caps.models[kind] = simModels().map((m) => ({ ...m, id: `${kind}:${m.id}`, displayName: m.displayName }))
         caps.thinks[kind] = kind === 'codex_cli' ? [] : simThinks()
       } else {
