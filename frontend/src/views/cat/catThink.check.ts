@@ -66,7 +66,7 @@ export async function catThinkChecks(eq: Eq): Promise<void> {
     eq('强度：没记过的对话用第一个模型，强度不预选', [catState.model, catState.think], ['m-default', ''])
     eq('强度：没选时显示「默认」', [thinkName.value, capsuleLabel.value], [THINK_DEFAULT_LABEL, 'Cat 助手 1.0 · 默认'])
 
-    catState.status = { state: 'ready', version: '', canDownload: false, error: null }
+    catState.status = { state: 'ready', version: '', canDownload: false, error: null, agents: [] }
     catState.turns = {}
     await sendMessage('看一下')
     eq('强度：没选时发送不带强度', [sent[0]?.thinkLevelId, sent[0]?.modelId], ['', 'm-default'])

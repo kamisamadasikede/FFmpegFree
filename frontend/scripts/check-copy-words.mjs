@@ -220,13 +220,15 @@ export function runCopyWordCheck() {
   expectHit('soffice 进程名在文案里', 'a.vue', '<template><i title="soffice 已退出"></i></template>', 1)
   expectHit('文档错误码不能当文案', 'a.vue', '<template><p>DOC_TIMEOUT</p></template>', 1)
   fails.push(...selfFails)
-  // Cat 页（原型 cat-v3 §9）：页面和模拟数据里整文件都不能出现 ffmpeg / AionUi / Grok / Codex / Claude / ChatGPT / DeepSeek / OpenAI / Anthropic / Gemini（不分大小写，连注释也不行）
-  // 契约 6.19：Cat 相关界面不出现 grok / CLI（产品模式名「Cat CLI」除外）/ 命令行 / 厂商名；api/cat.ts 可有内部标识
+  // Cat 页（原型 cat-v3 §9）：不能出现 ffmpeg / AionUi / ChatGPT / DeepSeek / OpenAI / Anthropic / Gemini / 命令行 / 裸 CLI
+  // v0.36：允许界面名「Grok Build」「Claude」「Codex」与库值 claude_cli / codex_cli；其它 grok/codex/claude 写法仍禁
+  // api/cat.ts、api/catAgents.ts 不在 CAT_FILES 里，可写内部标识
   const CAT_BANNED = /ffmpeg|aionui|grok|codex|claude|chatgpt|deepseek|openai|anthropic|gemini|命令行|(?<![Cc]at )\bCLI\b/i
+  const CAT_ALLOWED = /Grok Build|CAT_AGENT_CLAUDE|CAT_AGENT_CODEX|claude_cli|codex_cli|\bClaude\b|\bCodex\b/gi
   const CAT_FILES = /[\\/](views[\\/]cat|components[\\/]cat)[\\/]|[\\/]api[\\/]catMock\.ts$/
   for (const p of walk(join(root, 'src'))) {
     if (CAT_FILES.test(p)) readFileSync(p, 'utf8').split('\n').forEach((l, i) => {
-      const line = l.replace(/FFmpegFree/g, '')
+      const line = l.replace(/FFmpegFree/gi, '').replace(CAT_ALLOWED, '')
       if (CAT_BANNED.test(line)) fails.push(`${relative(root, p)}:${i + 1}  Cat 页不能出现第三方名或技术词（ffmpeg / AionUi / Grok / Codex / Claude / 命令行 / CLI…）：${l.trim()}`)
     })
     for (const h of scanFile(p, readFileSync(p, 'utf8'))) fails.push(`${relative(root, p)}:${h.line}  界面文字含禁用词（ffmpeg / 剪辑 / LibreOffice / 错误码 / reason=）：${h.text}`)

@@ -2,7 +2,7 @@
  * Cat 页本地状态（单例）。契约 v0.30 / 设计 v0.4：
  * - CAT_BACKEND_READY=true 且在 Wails 里：会话列表 / 消息 / 发送 / 停止走真实 CatService；cat:message 流式拼进助手气泡
  * - 纯浏览器（走查）：会话列表用 catMock，发送返回未就绪
- * - 新建对话创建时写入 agentKind=cat_build；已有对话永不改 agentKind（发送只带会话 id）
+ * - 新建对话创建时写入所选 agentKind（v0.36：cat_build|claude_cli|codex_cli）；已有对话永不改（发送只带会话 id）
  * - 批准方式按对话记住：普通模式 / Plan / 自动审查 / 全部批准。没选过是全部批准
  * - 项目（契约 v0.31 §6.19.10）：对话归属在创建时决定（项目行「+」带 projectId），之后不可改，没有「移到项目」；
  *   文件夹不见了 → 项目标灰、对话可看不可发；窗口获得焦点时重新 ListCatProjects；cat:project 更新 missing。
@@ -182,7 +182,7 @@ export const catState = reactive({
   think: boot.think,
   /** 当前对话的批准方式。没记过是全部批准。 */
   access: boot.access as CatAccessId,
-  /** 欢迎页模式；一期只能选 build，只影响新对话 */
+  /** 欢迎页模式；v0.36 三家可选，只影响新对话 */
   mode: 'cat_build',
   workInProject: true,
   sel: live ? readLastConv() || NEW_CONV : 'c31',
@@ -227,10 +227,10 @@ export const catState = reactive({
   filesRev: 0,
   /** 组件状态；非 ready 时显示未就绪横条（无下载按钮）；浏览器走查直接按 missing，避免短暂可点发送 */
   status: (live || (import.meta.env.DEV && catSim.has('checking'))
-    ? { state: 'checking', version: '', canDownload: false, error: null }
+    ? { state: 'checking', version: '', canDownload: false, error: null, agents: [] }
     : (import.meta.env.DEV && catSim.has('stream'))
-      ? { state: 'ready', version: '', canDownload: false, error: null }
-    : { state: 'missing', version: '', canDownload: false, error: { code: 'CAT_NOT_READY', message: CAT_COPY.notReady } }) as CatStatus,
+      ? { state: 'ready', version: '', canDownload: false, error: null, agents: [] }
+    : { state: 'missing', version: '', canDownload: false, error: { code: 'CAT_NOT_READY', message: CAT_COPY.notReady }, agents: [] }) as CatStatus,
   /** 当前会话 agentKind 对应的能力列表（不造假） */
   models: [] as CatModel[],
   thinks: [] as CatThinkLevel[],
@@ -444,7 +444,7 @@ function toConv(c: CatConversation): CatConv {
   return { id: c.id, title: c.title, agentKind: c.agentKind, projectId: c.projectId }
 }
 
-/** 当前选中对话的 agentKind；新对话用欢迎页选中模式（一期强制 cat_build） */
+/** 当前选中对话的 agentKind；新对话用欢迎页选中模式（v0.36 三家可点） */
 export function currentAgentKind(): CatAgentKind {
   if (catState.sel === NEW_CONV) {
     const m = CAT_MODES.find((x) => x.id === catState.mode)
@@ -456,7 +456,7 @@ export function currentAgentKind(): CatAgentKind {
 /** 把当前对话记下的模型和强度摆到界面上。列表还没到时先用记下的 id。 */
 function showConvPref(convId: string) {
   // v0.35：欢迎页没选过时用 Cat 设置里的新对话默认值；已有对话不回填
-  const pref = prefOf(loadPrefMap(), convId) ?? (convId === NEW_CONV ? defaultConvPref() : null)
+  const pref = prefOf(loadPrefMap(), convId) ?? (convId === NEW_CONV ? defaultConvPref(currentAgentKind()) : null)
   catState.access = resolveAccess(pref?.access)
   if (!capsLoaded) {
     catState.model = pref?.model ?? ''
@@ -497,7 +497,7 @@ function carryDraftPref(toId: string) {
   const map = loadPrefMap()
   // 欢迎页没点过：把设置里的默认值写给新对话（契约 6.19.12.1-3）
   if (!prefOf(map, NEW_CONV)) {
-    const d = defaultConvPref()
+    const d = defaultConvPref(currentAgentKind())
     if (d.model || d.think || d.access) savePrefMap(putPref(map, toId, d))
     return
   }
@@ -535,7 +535,7 @@ export async function recheckCatStatus(): Promise<void> {
   try {
     catState.status = await recheckCat()
   } catch {
-    catState.status = { state: 'missing', version: '', canDownload: false, error: { code: 'CAT_NOT_READY', message: CAT_COPY.notReady } }
+    catState.status = { state: 'missing', version: '', canDownload: false, error: { code: 'CAT_NOT_READY', message: CAT_COPY.notReady }, agents: [] }
   }
   if (catState.status.state === 'ready' && was !== 'ready') void refreshCapabilities()
 }
@@ -570,7 +570,7 @@ export function initCat(): () => void {
   if (!simStatus) {
     void getCatStatus()
       .then((s) => (catState.status = s))
-      .catch(() => (catState.status = { state: 'missing', version: '', canDownload: false, error: { code: 'CAT_NOT_READY', message: CAT_COPY.notReady } }))
+      .catch(() => (catState.status = { state: 'missing', version: '', canDownload: false, error: { code: 'CAT_NOT_READY', message: CAT_COPY.notReady }, agents: [] }))
   }
   if (live) void reloadConversations().finally(() => { void adoptLiveTurns() })
   else void refreshProjects()
@@ -895,8 +895,8 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
   if (id === NEW_CONV) {
     const mode = CAT_MODES.find((m) => m.id === catState.mode)
     if (!mode?.enabled) catState.mode = 'cat_build'
-    // 一期前端只能传 cat_build
-    const agentKind: CatAgentKind = CAT_AGENT_BUILD
+    // v0.36：按欢迎页选中的胶囊锁定 agentKind
+    const agentKind: CatAgentKind = (CAT_MODES.find((m) => m.id === catState.mode)?.agentKind ?? CAT_AGENT_BUILD) as CatAgentKind
     const project = catState.projects.find((p) => p.id === catState.newProjectId)
     catState.creating = true
     try {
@@ -1008,6 +1008,7 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
         version: catState.status.version,
         canDownload: false,
         error: { code: 'CAT_NOT_READY', message: auth ? CAT_COPY.authInvalid : err.message || CAT_COPY.notReady },
+        agents: catState.status.agents ?? [],
       }
       endTurn(id, 'not_ready', token)
       return
@@ -1359,6 +1360,17 @@ export async function afterClearAll() {
   }
   catState.plain = []
   for (const p of catState.projects) p.convs = []
+}
+
+
+/** 欢迎页换服务商：清草稿偏好，按该家 defaultsByAgent 预填并拉能力列表 */
+export function changeWelcomeMode(modeId: string) {
+  const m = CAT_MODES.find((x) => x.id === modeId)
+  if (!m?.enabled) return
+  catState.mode = m.id
+  savePrefMap(dropPref(loadPrefMap(), NEW_CONV))
+  void refreshCapabilities(m.agentKind)
+  showConvPref(NEW_CONV)
 }
 
 /** 设置里的新对话默认值变了：欢迎页没选过时跟着换 */

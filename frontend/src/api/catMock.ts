@@ -5,7 +5,7 @@
  */
 
 import type { CatAgentKind } from '@/api/cat'
-import { CAT_AGENT_BUILD } from '@/api/cat'
+import { CAT_AGENT_BUILD, CAT_AGENT_CLAUDE, CAT_AGENT_CODEX } from '@/api/cat'
 
 export type CatConvState = 'ok' | 'idle' | 'run' | 'bad'
 
@@ -62,10 +62,13 @@ export interface CatAccess { id: 'normal' | 'plan' | 'auto' | 'approve'; name: s
 export interface CatMode {
   id: string
   name: string
-  icon: 'tool' | 'spark' | 'clock' | 'refresh'
-  /** 创建会话时写入的 agentKind；一期只有 build 可点 */
+  /** 通用 FIcon；三家主推用 CatAgentMark，此时 icon 可忽略 */
+  icon: 'tool' | 'spark' | 'clock' | 'refresh' | 'bot' | 'term'
+  /** 创建会话时写入的 agentKind；v0.36 三家可点 */
   agentKind: CatAgentKind
   enabled: boolean
+  /** 有值时欢迎页画几何标，不画 FIcon */
+  mark?: 'cat_build' | 'claude_cli' | 'codex_cli'
 }
 
 export const CAT_ACCESS: CatAccess[] = [
@@ -75,12 +78,13 @@ export const CAT_ACCESS: CatAccess[] = [
   { id: 'approve', name: '全部批准', short: '全部批准', desc: '写文件、跑命令都直接执行，不再询问。', icon: 'alert', enabled: true },
 ]
 
-/** 欢迎页模式：仅 Cat Build 可选；其余灰掉「下一期开放。」（产品 / 契约 6.19.6） */
+/** 欢迎页：v0.36 解禁 Grok Build / Claude / Codex；Cat CLI / Cat Code 仍灰（契约 6.19.6） */
 export const CAT_MODES: CatMode[] = [
+  { id: 'cat_build', name: 'Grok Build', icon: 'spark', agentKind: CAT_AGENT_BUILD, enabled: true, mark: 'cat_build' },
+  { id: 'claude_cli', name: 'Claude', icon: 'bot', agentKind: CAT_AGENT_CLAUDE, enabled: true, mark: 'claude_cli' },
+  { id: 'codex_cli', name: 'Codex', icon: 'term', agentKind: CAT_AGENT_CODEX, enabled: true, mark: 'codex_cli' },
   { id: 'cat_cli', name: 'Cat CLI', icon: 'tool', agentKind: 'cat_cli', enabled: false },
   { id: 'cat_code', name: 'Cat Code', icon: 'spark', agentKind: 'cat_code', enabled: false },
-  { id: 'cat_agent', name: 'Cat Agent', icon: 'clock', agentKind: 'cat_agent', enabled: false },
-  { id: 'cat_build', name: 'Cat Build', icon: 'refresh', agentKind: CAT_AGENT_BUILD, enabled: true },
 ]
 
 export const CAT_TRY = [

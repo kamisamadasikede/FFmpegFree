@@ -8,7 +8,12 @@ type Eq = (name: string, got: unknown, want: unknown) => void
 export function catPanelsChecks(eq: Eq) {
   eq('设置：notifyOnFinish 没给视为开', normalizeSettings({}).notifyOnFinish, true)
   eq('设置：notifyOnFinish=false 保留', normalizeSettings({ notifyOnFinish: false }).notifyOnFinish, false)
-  eq('设置：非法强度 / 批准方式清空', [normalizeSettings({ defaultEffort: 'max', defaultApprovalMode: 'x' }).defaultEffort, normalizeSettings({ defaultApprovalMode: 'x' }).defaultApprovalMode], ['', ''])
+  eq('设置：非法批准方式清空', normalizeSettings({ defaultApprovalMode: 'x' }).defaultApprovalMode, '')
+  eq('设置：旧 defaultModel/Effort 迁进 cat_build', normalizeSettings({ defaultModel: 'm1', defaultEffort: 'high' }).defaultsByAgent.cat_build, { model: 'm1', effort: 'high' })
+  eq('设置：已有 cat_build 不覆盖', normalizeSettings({ defaultModel: 'old', defaultsByAgent: { cat_build: { model: 'new', effort: 'low' } } }).defaultsByAgent.cat_build, { model: 'new', effort: 'low' })
+  eq('设置：非法 effort 清空', normalizeSettings({ defaultsByAgent: { cat_build: { model: 'm', effort: 'max' } } }).defaultsByAgent.cat_build.effort, '')
+  eq('设置：defaultAgentKind 缺省 cat_build', normalizeSettings({}).defaultAgentKind, 'cat_build')
+  eq('设置：非法 defaultAgentKind 回退', normalizeSettings({ defaultAgentKind: 'grok_build' }).defaultAgentKind, 'cat_build')
   eq('强度：xhigh 显示「极高」值不变', fixThinkName({ id: 'xhigh', displayName: '超高' }), { id: 'xhigh', displayName: '极高' })
   eq('强度：其它档位不动', fixThinkName({ id: 'low', displayName: '低' }).displayName, '低')
 

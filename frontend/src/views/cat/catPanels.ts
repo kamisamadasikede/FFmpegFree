@@ -1,9 +1,10 @@
 /**
- * Cat 设置页 / 定时任务页的状态（契约 v0.35.1~v0.35.4，设计 v0.3.1）。
+ * Cat 设置页 / 定时任务页的状态（契约 v0.35.1~v0.36，设计 v0.4.1）。
  * 与 catState 分开放，避免和美化 PR 冲突；catState 只在新建对话时读这里的默认值。
  */
 import { reactive } from 'vue'
-import { type CatSettings, CAT_SETTINGS_COPY, getCatSettings, normalizeSettings, saveCatSettings } from '@/api/catSettings'
+import { CAT_AGENT_BUILD, normalizeProviderKind, type CatProviderKind } from '@/api/catAgents'
+import { type CatSettings, CAT_SETTINGS_COPY, emptyDefaults, getCatSettings, normalizeSettings, saveCatSettings } from '@/api/catSettings'
 import {
   type CatSchedule,
   type CatScheduleEvent,
@@ -68,13 +69,22 @@ export async function saveSetting<K extends keyof CatSettings>(key: K, value: Ca
   }
 }
 
-/** 新对话用的默认偏好（契约 6.19.12.1-3）；批准方式空 = 全部批准 */
-export function defaultConvPref(): CatConvPref {
+/** 新对话用的默认偏好（契约 6.19.12.1-4）；按所选/预选 agentKind 取 defaultsByAgent；批准方式空 = 全部批准 */
+export function defaultConvPref(agentKind?: string): CatConvPref {
   const s = catPanels.settings
-  const pref: CatConvPref = { model: s.defaultModel, think: s.defaultEffort }
+  const kind = normalizeProviderKind(agentKind ?? s.defaultAgentKind)
+  const d = s.defaultsByAgent[kind] ?? emptyDefaults()
+  const pref: CatConvPref = { model: d.model, think: d.effort }
   if (s.defaultApprovalMode) pref.access = s.defaultApprovalMode
   return pref
 }
+
+/** 定时任务本版仍锁 cat_build（契约 v0.36） */
+export function scheduleDefaultPref(): { model: string; effort: string } {
+  const d = catPanels.settings.defaultsByAgent[CAT_AGENT_BUILD] ?? emptyDefaults()
+  return { model: d.model, effort: d.effort }
+}
+
 
 export async function refreshSchedules() {
   if (!catSchedulesVisible()) return

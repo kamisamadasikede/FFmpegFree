@@ -25,39 +25,58 @@
         <div v-if="catPanels.tab === 'general'" key="g" class="cs-body">
           <div class="card">
             <div class="card-h">{{ C.newConvCard }}</div>
-            <div class="row">
-              <div class="lab"><b>{{ C.model }}</b><span>{{ C.modelDesc }}</span></div>
-              <div class="ctl">
-                <SavedMark :on="saved.defaultModel" />
-                <select
-                  class="sel"
-                  :value="modelValue"
-                  :disabled="!catState.models.length"
-                  :aria-label="C.model"
-                  data-testid="cat-set-model"
-                  @change="set('defaultModel', ($event.target as HTMLSelectElement).value)"
-                >
-                  <option value="">{{ C.defaultOpt }}</option>
-                  <option v-for="m in catState.models" :key="m.id" :value="m.id">{{ m.displayName }}</option>
-                </select>
+            <p class="card-tip">{{ C.newConvHint }}</p>
+
+            <div
+              v-for="(block, bi) in providerBlocks"
+              :key="block.kind"
+              class="agent"
+              :class="{ dim: !block.ready, sep: bi > 0 }"
+              :data-testid="'cat-set-agent-' + block.kind"
+            >
+              <div class="agent-hd">
+                <CatAgentMark :kind="block.kind" :size="18" />
+                <div class="lab">
+                  <b>{{ block.label }}</b>
+                  <span :class="block.ready ? 'okt' : 'badt'">{{ block.ready ? C.installed : C.notDetected }}</span>
+                </div>
+              </div>
+              <div class="row">
+                <div class="lab"><b>{{ C.model }}</b><span>{{ C.modelDesc }}</span></div>
+                <div class="ctl">
+                  <SavedMark :on="!!savedAgent[block.kind + ':model']" />
+                  <select
+                    class="sel"
+                    :value="modelValue(block.kind)"
+                    :disabled="!block.ready || !block.models.length"
+                    :aria-label="block.label + ' ' + C.model"
+                    :data-testid="'cat-set-model-' + block.kind"
+                    @change="setAgent(block.kind, 'model', ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option value="">{{ C.defaultOpt }}</option>
+                    <option v-for="m in block.models" :key="m.id" :value="m.id">{{ m.displayName }}</option>
+                  </select>
+                </div>
+              </div>
+              <div v-if="block.thinks.length" class="row">
+                <div class="lab"><b>{{ C.effort }}</b><span>{{ C.effortDesc }}</span></div>
+                <div class="ctl">
+                  <SavedMark :on="!!savedAgent[block.kind + ':effort']" />
+                  <select
+                    class="sel"
+                    :value="effortValue(block.kind)"
+                    :disabled="!block.ready"
+                    :aria-label="block.label + ' ' + C.effort"
+                    :data-testid="'cat-set-effort-' + block.kind"
+                    @change="setAgent(block.kind, 'effort', ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option value="">{{ C.defaultOpt }}</option>
+                    <option v-for="t in block.thinks" :key="t.id" :value="t.id">{{ t.displayName }}</option>
+                  </select>
+                </div>
               </div>
             </div>
-            <div class="row">
-              <div class="lab"><b>{{ C.effort }}</b><span>{{ C.effortDesc }}</span></div>
-              <div class="ctl">
-                <SavedMark :on="saved.defaultEffort" />
-                <select
-                  class="sel"
-                  :value="catPanels.settings.defaultEffort"
-                  :aria-label="C.effort"
-                  data-testid="cat-set-effort"
-                  @change="set('defaultEffort', ($event.target as HTMLSelectElement).value)"
-                >
-                  <option value="">{{ C.defaultOpt }}</option>
-                  <option v-for="t in effortOptions" :key="t.id" :value="t.id">{{ t.displayName }}</option>
-                </select>
-              </div>
-            </div>
+
             <div class="row">
               <div class="lab"><b>{{ C.approval }}</b><span>{{ C.approvalDesc }}</span></div>
               <div class="ctl">
@@ -203,23 +222,35 @@
           </template>
         </div>
 
-        <!-- 关于与状态 -->
+        <!-- 关于与状态（按 agents[] 拆行） -->
         <div v-else key="a" class="cs-body">
           <div class="card">
             <div class="card-h">{{ C.statusCard }}</div>
-            <div class="row"><div class="lab"><b>{{ C.detect }}</b></div><div class="ctl st" :class="statusTone"><i />{{ statusText }}</div></div>
-            <div class="row"><div class="lab"><b>{{ C.version }}</b></div><div class="ctl ro">{{ version || C.dash }}</div></div>
-            <div v-if="catState.status.state === 'ready' || authBad" class="row">
-              <div class="lab"><b>{{ C.login }}</b></div>
-              <div class="ctl st" :class="authBad ? 'bad' : 'ok'"><i />{{ authBad ? C.loginBad : C.loggedIn }}</div>
+            <div
+              v-for="row in agentRows"
+              :key="row.kind"
+              class="agent-row"
+              :class="{ dim: !row.ready && catState.status.state !== 'checking' }"
+              :data-testid="'cat-status-' + row.kind"
+            >
+              <div class="row">
+                <CatAgentMark :kind="row.kind" :size="16" />
+                <div class="lab"><b>{{ row.label }}</b></div>
+                <div class="ctl st" :class="row.tone"><i />{{ row.statusText }}</div>
+              </div>
+              <div v-if="row.version" class="row sub"><div class="lab"><b>{{ C.version }}</b></div><div class="ctl ro">{{ row.version }}</div></div>
+              <div v-if="row.loginText" class="row sub">
+                <div class="lab"><b>{{ C.login }}</b></div>
+                <div class="ctl st" :class="row.loginTone"><i />{{ row.loginText }}</div>
+              </div>
+              <div v-if="row.loginBad" class="bar" role="status">{{ C.loginBanner(row.label) }}</div>
             </div>
-            <div class="row"><div class="lab"><b>{{ C.lastCheck }}</b></div><div class="ctl ro">{{ lastCheckText }}</div></div>
             <div class="row end">
               <button type="button" class="btn" :disabled="rechecking" data-testid="cat-set-recheck" @click="recheck">
                 <i v-if="rechecking" class="spin" aria-hidden="true" />{{ rechecking ? C.rechecking : C.recheck }}
               </button>
             </div>
-            <div v-if="catNotReady" class="bar" role="status">{{ authBad ? CAT_COPY.authInvalid : CAT_COPY.notReady }}</div>
+            <div v-if="noneReady" class="bar" role="status">{{ C.noneReady }}</div>
           </div>
           <div class="card">
             <div class="card-h">{{ C.aboutCard }}</div>
@@ -246,9 +277,23 @@
 <script setup lang="ts">
 import { computed, defineComponent, h, onMounted, reactive, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
+import CatAgentMark from '@/components/cat/CatAgentMark.vue'
 import CatPanelNotice from './CatPanelNotice.vue'
 import CatConfirmDialog from './CatConfirmDialog.vue'
-import { CAT_COPY, CAT_THINK_XHIGH_LABEL, getCatStatus, recheckCat } from '@/api/cat'
+import {
+  CAT_COPY,
+  getCatStatus,
+  listCatModels,
+  listCatThinkLevels,
+  recheckCat,
+  type CatModel,
+  type CatThinkLevel,
+} from '@/api/cat'
+import {
+  CAT_PROVIDER_LABEL,
+  CAT_PROVIDER_ORDER,
+  type CatProviderKind,
+} from '@/api/catAgents'
 import { CAT_ACCESS } from '@/api/catMock'
 import {
   type CatInspectResult,
@@ -256,68 +301,122 @@ import {
   CAT_INSTRUCTION_MAX as MAX,
   CAT_SETTINGS_COPY,
   clearAllCatConversations,
+  emptyDefaults,
   inspectCatConfig,
+  loginBanner,
 } from '@/api/catSettings'
 import { getAppVersion } from '@/api/about'
 import { catPanels, saveSetting, type CatSettingsTab } from '@/views/cat/catPanels'
 import { catLocalPrefs, setNewConvPlace, setTypewriter } from '@/views/cat/catLocalPrefs'
-import { catNotReady, catState, afterClearAll, notify } from '@/views/cat/catState'
+import { catState, afterClearAll, notify } from '@/views/cat/catState'
+import { catSim, simModels, simThinks } from '@/views/cat/catDevSim'
 
 defineOptions({ name: 'CatSettingsView' })
-const C = { ...CAT_SETTINGS_COPY, dash: '—' }
+const C = { ...CAT_SETTINGS_COPY, dash: '—', loginBanner }
 const TABS: CatSettingsTab[] = ['general', 'instruction', 'ext', 'about']
 
-/** 行尾 1.5 秒「已保存」 */
 const SavedMark = defineComponent({
   props: { on: Boolean },
   setup: (p) => () => h('span', { class: ['saved', { on: p.on }], 'aria-live': 'polite' }, p.on ? C.saved : ''),
 })
 
-const saved = reactive<Record<keyof CatSettings, boolean>>({
-  defaultModel: false, defaultEffort: false, defaultApprovalMode: false, customInstruction: false, notifyOnFinish: false,
+type TopKey = 'defaultApprovalMode' | 'customInstruction' | 'notifyOnFinish' | 'defaultAgentKind' | 'defaultsByAgent'
+const saved = reactive<Record<TopKey, boolean>>({
+  defaultApprovalMode: false, customInstruction: false, notifyOnFinish: false, defaultAgentKind: false, defaultsByAgent: false,
 })
-const savedTimers: Partial<Record<keyof CatSettings, ReturnType<typeof setTimeout>>> = {}
-function flash(k: keyof CatSettings) {
+const savedTimers: Partial<Record<TopKey, ReturnType<typeof setTimeout>>> = {}
+function flash(k: TopKey) {
   saved[k] = true
   clearTimeout(savedTimers[k])
   savedTimers[k] = setTimeout(() => (saved[k] = false), 1500)
 }
 
-async function set<K extends keyof CatSettings>(key: K, value: CatSettings[K]) {
+const savedAgent = reactive<Record<string, boolean>>({})
+const savedAgentTimers: Record<string, ReturnType<typeof setTimeout>> = {}
+function flashAgent(key: string) {
+  savedAgent[key] = true
+  clearTimeout(savedAgentTimers[key])
+  savedAgentTimers[key] = setTimeout(() => (savedAgent[key] = false), 1500)
+}
+
+async function set<K extends TopKey>(key: K, value: CatSettings[K]) {
   const ok = await saveSetting(key, value)
   if (ok) flash(key)
   else notify(C.saveFailed, 'warn')
 }
 
-/** 默认模型已不在列表里时按「默认」显示（契约 6.19.12.1-2） */
-const modelValue = computed(() => {
-  const id = catPanels.settings.defaultModel
-  return catState.models.some((m) => m.id === id) ? id : ''
+async function setAgent(kind: CatProviderKind, field: 'model' | 'effort', value: string) {
+  const prev = { ...catPanels.settings.defaultsByAgent }
+  const cur = { ...(prev[kind] ?? emptyDefaults()), [field]: value }
+  const next = { ...prev, [kind]: cur }
+  const ok = await saveSetting('defaultsByAgent', next)
+  if (ok) flashAgent(`${kind}:${field}`)
+  else notify(C.saveFailed, 'warn')
+}
+
+const caps = reactive({
+  models: {} as Record<CatProviderKind, CatModel[]>,
+  thinks: {} as Record<CatProviderKind, CatThinkLevel[]>,
+  loaded: false,
 })
-const approvalValue = computed(() => catPanels.settings.defaultApprovalMode || 'approve')
-/** 后端还没给强度列表时按契约四档显示 */
-const effortOptions = computed(() =>
-  catState.thinks.length
-    ? catState.thinks
-    : [
-        { id: 'low', displayName: '低' },
-        { id: 'medium', displayName: '中' },
-        { id: 'high', displayName: '高' },
-        { id: 'xhigh', displayName: CAT_THINK_XHIGH_LABEL },
-      ],
+
+async function loadCaps() {
+  const useSim = import.meta.env.DEV && catSim.has('caps')
+  await Promise.all(
+    CAT_PROVIDER_ORDER.map(async (kind) => {
+      if (useSim) {
+        // 走查：三家都给列表；Codex 故意空强度 → 测「整行隐藏」
+        caps.models[kind] = simModels().map((m) => ({ ...m, id: `${kind}:${m.id}`, displayName: m.displayName }))
+        caps.thinks[kind] = kind === 'codex_cli' ? [] : simThinks()
+      } else {
+        const [models, thinks] = await Promise.all([listCatModels(kind), listCatThinkLevels(kind)])
+        caps.models[kind] = models
+        caps.thinks[kind] = thinks
+      }
+    }),
+  )
+  caps.loaded = true
+}
+
+function agentReady(kind: CatProviderKind): boolean {
+  const a = catState.status.agents?.find((x) => x.agentKind === kind)
+  if (a) return a.ready
+  // 旧后端没 agents[]：顶层 ready 只算 cat_build
+  return kind === 'cat_build' && catState.status.state === 'ready'
+}
+
+const providerBlocks = computed(() =>
+  CAT_PROVIDER_ORDER.map((kind) => ({
+    kind,
+    label: CAT_PROVIDER_LABEL[kind],
+    ready: agentReady(kind),
+    models: caps.models[kind] ?? [],
+    thinks: caps.thinks[kind] ?? [],
+  })),
 )
+
+function modelValue(kind: CatProviderKind) {
+  const id = catPanels.settings.defaultsByAgent[kind]?.model ?? ''
+  const list = caps.models[kind] ?? []
+  return list.some((m) => m.id === id) ? id : ''
+}
+function effortValue(kind: CatProviderKind) {
+  const id = catPanels.settings.defaultsByAgent[kind]?.effort ?? ''
+  const list = caps.thinks[kind] ?? []
+  return list.some((t) => t.id === id) ? id : ''
+}
+
+const approvalValue = computed(() => catPanels.settings.defaultApprovalMode || 'approve')
 
 const isDark = ref(typeof document !== 'undefined' && document.documentElement.classList.contains('dark'))
 let mo: MutationObserver | undefined
 const mod = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform) ? '⌘' : 'Ctrl'
 
-// ---- 本机偏好（localStorage，不走 SaveCatSettings） ----
 const localSaved = reactive({ place: false, typewriter: false })
 function flashLocal(k: 'place' | 'typewriter') {
   localSaved[k] = true
   setTimeout(() => (localSaved[k] = false), 1500)
 }
-/** 选中的项目被删了就按「上次用的项目」显示 */
 const placeValue = computed(() => {
   const v = catLocalPrefs.newConvPlace
   return v === 'last' || v === 'none' || catState.projects.some((p) => p.id === v) ? v : 'last'
@@ -331,7 +430,6 @@ function onTypewriter() {
   flashLocal('typewriter')
 }
 
-// ---- 自定义指令 ----
 const draft = ref(catPanels.settings.customInstruction)
 watch(
   () => catPanels.settings.customInstruction,
@@ -349,12 +447,11 @@ async function saveInstr() {
   savingInstr.value = false
   if (ok) flash('customInstruction')
   else {
-    draft.value = keep // 失败保留输入框内容
+    draft.value = keep
     notify(C.saveFailed, 'warn')
   }
 }
 
-// ---- 技能与扩展 ----
 const inspect = reactive({ loading: false, result: null as CatInspectResult | null })
 async function loadInspect() {
   inspect.loading = true
@@ -379,24 +476,55 @@ watch(
   () => catPanels.tab,
   (t) => {
     if (t === 'ext' && !inspect.result && !inspect.loading) void loadInspect()
+    if (t === 'general' && !caps.loaded) void loadCaps()
   },
   { immediate: true },
 )
 
-// ---- 关于与状态 ----
 const rechecking = ref(false)
-const lastCheck = ref(Date.now())
 const appVersion = ref('')
-const authBad = computed(() => catState.status.error?.code === 'CAT_NOT_READY' && /reason=auth/.test(catState.status.error?.detail ?? ''))
-const version = computed(() => catState.status.version || inspect.result?.version || '')
-const statusText = computed(() =>
-  catState.status.state === 'ready' ? C.ready : catState.status.state === 'checking' ? C.checking : C.missing,
-)
-const statusTone = computed(() => (catState.status.state === 'ready' ? 'ok' : catState.status.state === 'checking' ? 'wait' : 'bad'))
-const lastCheckText = computed(() => {
-  const d = new Date(lastCheck.value)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+
+const agentRows = computed(() => {
+  const checking = catState.status.state === 'checking' || rechecking.value
+  return CAT_PROVIDER_ORDER.map((kind) => {
+    const a = catState.status.agents?.find((x) => x.agentKind === kind)
+    const ready = a?.ready ?? (kind === 'cat_build' && catState.status.state === 'ready')
+    const version = a?.version || (kind === 'cat_build' ? catState.status.version : '') || ''
+    const loginBad = a?.loggedIn === false
+    let loginText = ''
+    let loginTone: 'ok' | 'bad' | 'wait' = 'ok'
+    if (a && a.loggedIn === true) {
+      loginText = C.loggedIn
+      loginTone = 'ok'
+    } else if (loginBad) {
+      loginText = C.loginBad
+      loginTone = 'bad'
+    } else if (a && a.loggedIn == null && ready) {
+      loginText = C.loginNa
+      loginTone = 'wait'
+    }
+    const statusText = checking ? C.checking : ready ? C.ready : C.missing
+    const tone: 'ok' | 'bad' | 'wait' = checking ? 'wait' : ready ? 'ok' : 'bad'
+    return {
+      kind,
+      label: CAT_PROVIDER_LABEL[kind],
+      ready,
+      version,
+      statusText,
+      tone,
+      loginText,
+      loginTone,
+      loginBad,
+    }
+  })
 })
+const noneReady = computed(
+  () =>
+    !rechecking.value &&
+    catState.status.state !== 'checking' &&
+    agentRows.value.every((r) => !r.ready),
+)
+
 async function recheck() {
   rechecking.value = true
   try {
@@ -404,11 +532,9 @@ async function recheck() {
   } catch {
     /* 保持原状态 */
   }
-  lastCheck.value = Date.now()
   rechecking.value = false
 }
 
-// ---- 清空 ----
 const clearOpen = ref(false)
 const clearing = ref(false)
 async function doClear() {
@@ -441,6 +567,7 @@ onMounted(async () => {
       /* 保持 */
     }
   }
+  void loadCaps()
 })
 </script>
 
@@ -494,6 +621,53 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+.card-tip {
+  margin: 0;
+  padding: 4px 14px 10px;
+  font-size: 12px;
+  color: var(--cat-muted);
+  line-height: 1.5;
+}
+.agent {
+  padding-bottom: 4px;
+}
+.agent.sep {
+  border-top: 1px solid var(--cat-divider);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+.agent.dim {
+  opacity: 0.55;
+}
+.agent-hd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px 2px;
+}
+.agent-hd .lab {
+  flex: 1;
+}
+.okt {
+  color: var(--cat-success-text, #1a7f4b);
+}
+.badt {
+  color: var(--cat-muted);
+}
+.agent-row + .agent-row {
+  border-top: 1px solid var(--cat-divider);
+}
+.agent-row.dim {
+  opacity: 0.65;
+}
+.agent-row .row {
+  gap: 10px;
+}
+.agent-row .row.sub {
+  min-height: 36px;
+  padding-top: 0;
+  padding-bottom: 4px;
 }
 .keys {
   display: grid;
@@ -606,5 +780,17 @@ kbd {
 }
 .row.end {
   justify-content: flex-end;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cs-tab,
+  .cs-tab::after,
+  .ta {
+    transition: none;
+  }
+  .sk i,
+  .sk b,
+  .sk span {
+    animation: none;
+  }
 }
 </style>

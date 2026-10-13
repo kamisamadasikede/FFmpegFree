@@ -148,7 +148,7 @@ import {
   validateSchedule,
 } from '@/api/catSchedules'
 import { catState, notify } from '@/views/cat/catState'
-import { catPanels } from '@/views/cat/catPanels'
+import { catPanels, scheduleDefaultPref } from '@/views/cat/catPanels'
 
 const props = defineProps<{ open: boolean; schedule: CatSchedule | null; preset?: Partial<CatScheduleInput> | null }>()
 const emit = defineEmits<{ close: []; saved: [CatSchedule] }>()
@@ -169,10 +169,11 @@ const efforts = computed(() =>
 )
 
 function blank(): CatScheduleInput & { enabled: boolean } {
-  const s = catPanels.settings
+  // v0.36：定时任务仍锁 cat_build，模型/强度读 defaultsByAgent.cat_build
+  const d = scheduleDefaultPref()
   return {
     name: '', prompt: '', projectId: catState.projects.find((p) => !p.missing)?.id ?? '', frequency: 'daily', time: '09:00', weekdays: [],
-    runAt: 0, model: s.defaultModel, effort: s.defaultEffort, approvalMode: 'plan', enabled: true,
+    runAt: 0, model: d.model, effort: d.effort, approvalMode: 'plan', enabled: true,
   }
 }
 const form = reactive(blank())
