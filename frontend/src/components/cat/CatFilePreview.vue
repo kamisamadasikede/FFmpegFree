@@ -80,7 +80,7 @@ import FIcon from '@/components/icon/FIcon.vue'
 import CatFileEditor from './CatFileEditor.vue'
 import CatFileRich from './CatFileRich.vue'
 import CatPickPop from './CatPickPop.vue'
-import { CAT_GIT_COPY as GIT, catGitError, gitCatDiff } from '@/api/catGit'
+import { CAT_GIT_COPY as GIT, catGitError, gitCatConflictResolve, gitCatDiff } from '@/api/catGit'
 import { diffSides, editorDiffMarks, removedFileMarks, type EditorDiffMarks } from './catInlineDiff'
 import { buildSrcdoc, renderMarkdown } from '@/utils/docSafeHtml'
 import { notify } from '@/views/cat/catState'
@@ -96,8 +96,8 @@ import {
 } from '@/api/catFilePreview'
 import { newPickToken, pickLabel, PICK_SOURCE, readPickEvent, withPickScript, type PickBox, type PickNote, type PickSelect } from './catPick'
 
-const props = defineProps<{ convId: string; relPath: string; name: string; live: boolean; compare?: boolean }>()
-const emit = defineEmits<{ close: []; pick: [note: PickNote] }>()
+const props = defineProps<{ convId: string; relPath: string; name: string; live: boolean; compare?: boolean; conflict?: boolean }>()
+const emit = defineEmits<{ close: []; pick: [note: PickNote]; 'conflict-saved': [] }>()
 
 const doc = ref<CatFileBody | null>(null)
 const draft = ref('')
@@ -309,10 +309,16 @@ async function writeDraft() {
   let failed = false
   try {
     if (props.live) {
-      const wrote = await writeCatFile(props.convId, body.relPath, text)
-      if (doc.value !== body) return
-      body.size = wrote.size
-      body.modTime = wrote.modTime
+      if (props.conflict) {
+        await gitCatConflictResolve(props.convId, body.relPath, 'content', text)
+        if (doc.value !== body) return
+        emit('conflict-saved')
+      } else {
+        const wrote = await writeCatFile(props.convId, body.relPath, text)
+        if (doc.value !== body) return
+        body.size = wrote.size
+        body.modTime = wrote.modTime
+      }
     }
     if (doc.value !== body) return
     if (draft.value === text) body.content = text

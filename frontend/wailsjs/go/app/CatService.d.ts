@@ -31,6 +31,10 @@ export function GetCatSettings():Promise<cat.Settings>;
 export function GetCatStatus():Promise<catagent.Status>;
 
 export function GitCatBranch(arg1:cat.GitBranchRequest):Promise<void>;
+export function GitCatCheckout(arg1:cat.GitCatCheckoutRequest):Promise<void>;
+export function GitCatConflictResolve(arg1:cat.GitCatConflictResolveRequest):Promise<void>;
+export function GitCatConflictComplete(arg1:cat.GitCatConflictCompleteRequest):Promise<void>;
+export function GitCatConflictAbort(arg1:cat.GitCatConflictAbortRequest):Promise<void>;
 
 export function GitCatCommit(arg1:cat.GitPathsRequest):Promise<void>;
 

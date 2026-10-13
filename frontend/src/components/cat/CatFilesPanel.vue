@@ -28,8 +28,10 @@
       :name="openName"
       :live="live"
       :compare="openDiff"
+      :conflict="!!openConflictPath && openConflictPath === openRel"
       @close="onPreviewClose"
       @pick="onPick"
+      @conflict-saved="onConflictSaved"
     />
     <div class="ct-col">
       <div
@@ -80,13 +82,17 @@
       </div>
       <CatGitPanel
         v-else-if="pane === 'git'"
+        ref="gitPanel"
         :conv-id="convId"
         :live="live"
         :status="shownGit"
         :loading="gitLoading"
         :load-error="gitError"
+        :sim-branches="simGitBranches"
         @refresh="loadGit"
         @open="onGitOpen"
+        @open-conflict="onGitConflictOpen"
+        @git-conflict="onGitConflictNav"
       />
       <template v-else>
         <div class="ct-head">
@@ -217,7 +223,9 @@ import {
   gitRootLabel,
   type GitStatus,
 } from '@/api/catGit'
+import { catSim } from '@/views/cat/catDevSim'
 import { catState, notify } from '@/views/cat/catState'
+import { setCatGitUi } from './catGitUi'
 import {
   CAT_CHAT_MIN,
   CAT_EXTRA_DEFAULT,
@@ -250,7 +258,10 @@ const CatFilePreview = defineAsyncComponent(() => import('./CatFilePreview.vue')
 const props = defineProps<{ convId: string; missing?: boolean }>()
 const emit = defineEmits<{ pick: [note: PickNote] }>()
 const live = isCatLive()
-const pane = ref<'files' | 'git' | 'browser' | 'term'>('files')
+const simGitBranches = !live && (catSim.has('gitconflict') || catSim.has('gitbranch') || catSim.has('gitrebase') || catSim.has('gitdone'))
+const gitPanel = ref<{ openBranchMenu?: () => void } | null>(null)
+const openConflictPath = ref('')
+const pane = ref<'files' | 'git' | 'browser' | 'term'>(simGitBranches ? 'git' : 'files')
 const showFile = computed(() => pane.value === 'files' || pane.value === 'git')
 const extraW = ref(readPaneWidth(typeof localStorage !== 'undefined' ? localStorage.getItem(CAT_EXTRA_WIDTH_KEY) : null, CAT_EXTRA_DEFAULT))
 const showBrowser = ref(false)
@@ -411,10 +422,46 @@ function mockGit(id: string): GitStatus {
       unstaged: true,
     }
   })
-  return { repo: true, branch: 'main', upstream: 'main', ahead: changes.length ? 1 : 0, behind: 0, remote: '', web: '', changes }
+  const base: GitStatus = {
+    repo: true,
+    branch: 'main',
+    upstream: 'main',
+    ahead: changes.length ? 1 : 0,
+    behind: 0,
+    remote: '',
+    web: '',
+    changes,
+    mergeState: 'none',
+    conflicts: [],
+  }
+  if (!catSim.has('gitconflict') && !catSim.has('gitrebase') && !catSim.has('gitdone')) return base
+  const conflicts = [
+    { path: 'src/timeline.ts', ours: true, theirs: true, letter: 'UU' },
+    { path: '第3集/第3集.srt', ours: true, theirs: true, letter: 'UU' },
+  ]
+  if (catSim.has('gitdone')) {
+    return { ...base, mergeState: 'merging', conflicts: [], upstream: 'origin/main' }
+  }
+  if (catSim.has('gitrebase')) {
+    return { ...base, mergeState: 'rebasing', conflicts, upstream: 'origin/main' }
+  }
+  return { ...base, mergeState: 'merging', conflicts, upstream: 'origin/main' }
 }
 
+
 const shownGit = computed(() => (live ? gitStatus.value : mockGit(props.convId)))
+watch(
+  shownGit,
+  (st) => {
+    setCatGitUi({
+      convId: props.convId,
+      live,
+      status: st,
+      simBranches: simGitBranches,
+    })
+  },
+  { immediate: true },
+)
 const gitChanges = computed(() => shownGit.value?.changes ?? [])
 const rootLabel = computed(() => {
   if (!live) {
@@ -677,7 +724,23 @@ function wantFile(rel: string, name: string, pick: number | string = rel, diff =
 }
 
 function onGitOpen(rel: string, name: string) {
+  openConflictPath.value = ''
   wantFile(rel, name, rel, true)
+}
+
+function onGitConflictOpen(rel: string, name: string) {
+  openConflictPath.value = rel
+  wantFile(rel, name, rel, false)
+}
+
+function onGitConflictNav() {
+  pane.value = 'git'
+  notify('有冲突需要解决。', 'warn')
+}
+
+function onConflictSaved() {
+  openConflictPath.value = ''
+  void loadGit()
 }
 
 function onPick(note: PickNote) {
@@ -765,6 +828,17 @@ async function onHit(hit: CatSearchHit) {
   }
   wantFile(hit.relPath, hit.name, hit.relPath)
 }
+
+defineExpose({
+  showGit() {
+    pane.value = 'git'
+  },
+  openBranchMenu() {
+    pane.value = 'git'
+    void Promise.resolve().then(() => gitPanel.value?.openBranchMenu?.())
+  },
+  getStatus: () => shownGit.value,
+})
 </script>
 
 <style scoped>

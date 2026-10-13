@@ -134,6 +134,7 @@
             >
               <FIcon name="refresh" :size="16" />
             </button>
+            <CatBranchCapsule />
             <button type="button" class="hd-ib" :class="{ on: !rightCollapsed }" :title="rightCollapsed ? '展开右栏 (Ctrl J)' : '收起右栏 (Ctrl J)'" :aria-label="rightCollapsed ? '展开右栏' : '收起右栏'" :aria-pressed="!rightCollapsed" data-testid="cat-right-toggle" @click="rightCollapsed = !rightCollapsed"><FIcon name="split" :size="16" /></button>
           </div>
           <CatConvSearch v-if="searchOn" :blocks="messages" @close="searchOn = false" @pick="jumpSearch" />
@@ -238,6 +239,7 @@ import { useRouter } from 'vue-router'
 import FIcon from '@/components/icon/FIcon.vue'
 import CatSidePanel from '@/components/cat/CatSidePanel.vue'
 import CatFilesPanel from '@/components/cat/CatFilesPanel.vue'
+import CatBranchCapsule from '@/components/cat/CatBranchCapsule.vue'
 import CatComposer from '@/components/cat/CatComposer.vue'
 import CatMessages from '@/components/cat/CatMessages.vue'
 import CatConvSearch from '@/components/cat/CatConvSearch.vue'
