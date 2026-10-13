@@ -74,6 +74,17 @@
                 </select>
               </div>
             </div>
+            <div class="row">
+              <div class="lab"><b>{{ C.place }}</b><span>{{ C.placeDesc }}</span></div>
+              <div class="ctl">
+                <SavedMark :on="localSaved.place" />
+                <select class="sel" :value="placeValue" :aria-label="C.place" data-testid="cat-set-place" @change="onPlace(($event.target as HTMLSelectElement).value)">
+                  <option value="last">{{ C.placeLast }}</option>
+                  <option value="none">{{ C.placeNone }}</option>
+                  <option v-for="p in catState.projects" :key="p.id" :value="p.id" :disabled="p.missing">{{ p.name }}</option>
+                </select>
+              </div>
+            </div>
           </div>
 
           <div class="card">
@@ -81,6 +92,22 @@
             <div class="row">
               <div class="lab"><b>{{ C.theme }}</b><span>{{ C.themeDesc }}</span></div>
               <div class="ctl ro">{{ isDark ? C.themeDark : C.themeLight }}</div>
+            </div>
+            <div class="row">
+              <div class="lab"><b>{{ C.typewriter }}</b><span>{{ C.typewriterDesc }}</span></div>
+              <div class="ctl">
+                <SavedMark :on="localSaved.typewriter" />
+                <button
+                  type="button"
+                  role="switch"
+                  class="sw"
+                  :class="{ on: catLocalPrefs.typewriter }"
+                  :aria-checked="catLocalPrefs.typewriter"
+                  :aria-label="C.typewriter"
+                  data-testid="cat-set-typewriter"
+                  @click="onTypewriter"
+                ><i /></button>
+              </div>
             </div>
           </div>
 
@@ -233,6 +260,7 @@ import {
 } from '@/api/catSettings'
 import { getAppVersion } from '@/api/about'
 import { catPanels, saveSetting, type CatSettingsTab } from '@/views/cat/catPanels'
+import { catLocalPrefs, setNewConvPlace, setTypewriter } from '@/views/cat/catLocalPrefs'
 import { catNotReady, catState, afterClearAll, notify } from '@/views/cat/catState'
 
 defineOptions({ name: 'CatSettingsView' })
@@ -282,6 +310,26 @@ const effortOptions = computed(() =>
 const isDark = ref(typeof document !== 'undefined' && document.documentElement.classList.contains('dark'))
 let mo: MutationObserver | undefined
 const mod = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform) ? '⌘' : 'Ctrl'
+
+// ---- 本机偏好（localStorage，不走 SaveCatSettings） ----
+const localSaved = reactive({ place: false, typewriter: false })
+function flashLocal(k: 'place' | 'typewriter') {
+  localSaved[k] = true
+  setTimeout(() => (localSaved[k] = false), 1500)
+}
+/** 选中的项目被删了就按「上次用的项目」显示 */
+const placeValue = computed(() => {
+  const v = catLocalPrefs.newConvPlace
+  return v === 'last' || v === 'none' || catState.projects.some((p) => p.id === v) ? v : 'last'
+})
+function onPlace(v: string) {
+  setNewConvPlace(v)
+  flashLocal('place')
+}
+function onTypewriter() {
+  setTypewriter(!catLocalPrefs.typewriter)
+  flashLocal('typewriter')
+}
 
 // ---- 自定义指令 ----
 const draft = ref(catPanels.settings.customInstruction)

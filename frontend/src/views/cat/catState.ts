@@ -80,6 +80,7 @@ import { applyStreamEvent, newStreamMsg, type CatStreamEvent, type CatStreamMsg,
 import { liveTurnPlan, transcriptChanged } from './catLive'
 import { AppError, toAppError } from '@/api/call'
 import { catPanels, defaultConvPref } from './catPanels'
+import { rememberNewConvProject, resolveNewConvProject } from './catLocalPrefs'
 import { catSim, catSimOs, catSimPicks, simModels, simStream, simThinks } from './catDevSim'
 import {
   CAT_CONV_PREFS_KEY,
@@ -900,6 +901,7 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
         conv.projectId = project.id
         project.convs.unshift(conv)
         project.open = true
+        rememberNewConvProject(project.id)
       } else catState.plain.unshift(conv)
       catState.newProjectId = ''
     } catch (e) {
@@ -1218,6 +1220,12 @@ export async function createProject() {
 }
 
 /** 项目行「+」：在这个项目里新建对话（文件夹不见了时不可用） */
+/** 侧栏「新对话」：按设置「新对话放在」预选项目（本机偏好） */
+export function startNewConv() {
+  selectConv(NEW_CONV)
+  catState.newProjectId = resolveNewConvProject(catState.projects)
+}
+
 export function newConvInProject(id: string) {
   const p = catState.projects.find((x) => x.id === id)
   if (!p || p.missing) return

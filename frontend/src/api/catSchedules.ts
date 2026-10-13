@@ -94,21 +94,20 @@ export const CAT_SCHED_COPY = {
   menuCopy: '复制',
   menuDelete: '删除',
   more: '任务操作',
-  stop: '停止',
+  stop: '停止这次运行',
   copySuffix: ' 副本',
   // 状态
   st: {
     succeeded: '成功',
     failed: '失败',
     missed: '已错过',
-    stopped: '已停止',
+    stopped: '已手动停止',
     skipped: '已跳过',
     queued: '排队中',
     running: '运行中',
     never: '还没运行过',
     paused: '已暂停',
   },
-  stoppedSub: '已手动停止',
   skippedSub: '上一次还没结束',
   missedClosed: '当时 FFmpegFree 没有打开',
   missedAsleep: '当时电脑在睡眠',
@@ -569,6 +568,7 @@ export function fmtFreq(s: Pick<CatSchedule, 'frequency' | 'time' | 'weekdays' |
 export type RunTone = 'ok' | 'bad' | 'warn' | 'grey' | 'skip' | 'queue' | 'live'
 
 /** 状态 → 显示名、色调、副行 */
+/** 手动停止：列表和运行记录都只写「已手动停止」，没有副行（设计走查 10-13） */
 export function runView(run: CatScheduleRun | null | undefined, now = Date.now()): { label: string; tone: RunTone; sub: string } {
   const S = CAT_SCHED_COPY.st
   if (!run) return { label: S.never, tone: 'grey', sub: '' }
@@ -580,7 +580,7 @@ export function runView(run: CatScheduleRun | null | undefined, now = Date.now()
     case 'missed':
       return { label: S.missed, tone: 'warn', sub: run.missedReason === 'asleep' ? CAT_SCHED_COPY.missedAsleep : CAT_SCHED_COPY.missedClosed }
     case 'stopped':
-      return { label: S.stopped, tone: 'grey', sub: CAT_SCHED_COPY.stoppedSub }
+      return { label: S.stopped, tone: 'grey', sub: '' }
     case 'skipped':
       return { label: S.skipped, tone: 'skip', sub: CAT_SCHED_COPY.skippedSub }
     case 'queued':

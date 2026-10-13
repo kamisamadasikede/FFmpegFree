@@ -3,7 +3,7 @@
     <!-- C3 收起后只留图标列：展开、新对话、设置 -->
     <div v-if="railCollapsed" class="ct-mini">
       <button type="button" class="ib big" title="展开侧栏 (Ctrl B)" aria-label="展开侧栏" data-testid="cat-rail-expand" @click="railCollapsed = false"><FIcon name="cat" :size="16" /></button>
-      <button type="button" class="ib big" :class="{ on: catState.sel === NEW_CONV }" title="新对话" aria-label="新对话" @click="selectConv(NEW_CONV)"><FIcon name="edit" :size="16" /></button>
+      <button type="button" class="ib big" :class="{ on: catState.sel === NEW_CONV }" title="新对话" aria-label="新对话" @click="startNewConv()"><FIcon name="edit" :size="16" /></button>
       <span class="sp" />
       <span class="ib big" title="设置" aria-label="设置"><FIcon name="set" :size="16" /></span>
     </div>
@@ -14,7 +14,7 @@
       <button type="button" class="ib" title="收起侧栏 (Ctrl B)" aria-label="收起侧栏" data-testid="cat-rail-collapse" @click="railCollapsed = true"><FIcon name="split" :size="15" /></button>
       <button type="button" class="ct-back" title="返回原页面并展开侧栏" @click="emit('back')"><FIcon name="left" :size="14" />返回</button>
     </div>
-    <button type="button" class="ct-it new" :class="{ on: catPanels.view === 'chat' && catState.sel === NEW_CONV && !catState.newProjectId }" @click="selectConv(NEW_CONV)">
+    <button type="button" class="ct-it new" :class="{ on: catPanels.view === 'chat' && catState.sel === NEW_CONV && !catState.newProjectId }" @click="startNewConv()">
       <FIcon name="plus" :size="16" /><span class="t">新对话</span><span class="r"><FIcon name="list" :size="16" /></span>
     </button>
     <!-- C1：「助手」一期不做。v0.35：定时任务正式入口（带启用数），替代 SHOW_SCHEDULE_ENTRY；CAT_SCHEDULE_BACKEND_READY=false 时打包后的应用里不出现 -->
@@ -288,6 +288,7 @@ import {
   revealProject,
   revealText,
   selectConv,
+  startNewConv,
 } from '@/views/cat/catState'
 
 /** 标题左边的点：进行中读 turns，上次结果读 outcome，走查数据才用 c.st */
