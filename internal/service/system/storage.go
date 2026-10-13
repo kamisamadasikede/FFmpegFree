@@ -48,6 +48,8 @@ const (
 	StorageDocComponent = "doc_component"
 	// StorageLangAsr（v0.29，6.18.3）：打开语音识别组件目录。
 	StorageLangAsr = "lang_asr"
+	// StorageOfficeCanvas（v0.42，6.19.16.3）：打开办公画布组件目录。
+	StorageOfficeCanvas = "office_canvas"
 )
 
 // componentNotReadyMessage 是 kind=component 时转换组件没就绪或文件不在的提示（契约 1.1：不出现 ffmpeg）。
@@ -210,8 +212,10 @@ func (m *Manager) OpenStorageFolder(ctx context.Context, kind string) error {
 		return m.revealDocComponent()
 	case StorageLangAsr:
 		return m.revealLangAsr()
+	case StorageOfficeCanvas:
+		return m.revealOfficeCanvas()
 	default:
-		return apperr.New(apperr.InvalidArgument, "不支持打开这个文件夹").WithDetail("kind 只能是 output、uploads、component、doc_component 或 lang_asr：" + kind)
+		return apperr.New(apperr.InvalidArgument, "不支持打开这个文件夹").WithDetail("kind 只能是 output、uploads、component、doc_component、lang_asr 或 office_canvas：" + kind)
 	}
 	if dir == "" {
 		return apperr.New(apperr.Internal, "存储位置尚未初始化")
@@ -311,6 +315,41 @@ func (m *Manager) revealLangAsr() error {
 	notReady := apperr.New(apperr.NotFound, langAsrNotReadyMessage).WithDetail("reason=component")
 	m.mu.Lock()
 	fn := m.LangAsrDir
+	m.mu.Unlock()
+	if fn == nil {
+		return notReady
+	}
+	dir, err := fn()
+	if err != nil {
+		if ae := apperr.From(err); ae != nil && ae.Code == apperr.NotFound {
+			return notReady
+		}
+		return err
+	}
+	if dir == "" || !isDir(dir) {
+		return notReady
+	}
+	start := m.launch
+	if start == nil {
+		start = startDetached
+	}
+	if err := revealIn(runtime.GOOS, start, dir, nil); err != nil {
+		ae := apperr.From(err)
+		if ae.Code == apperr.NotFound {
+			return notReady
+		}
+		return apperr.New(ae.Code, ae.Message).WithDetail("reason=component")
+	}
+	return nil
+}
+
+const officeCanvasNotReadyMessage = "办公画布组件还没有就绪。"
+
+// revealOfficeCanvas 打开已安装的办公画布组件目录（6.19.16.3）。
+func (m *Manager) revealOfficeCanvas() error {
+	notReady := apperr.New(apperr.NotFound, officeCanvasNotReadyMessage).WithDetail("reason=component")
+	m.mu.Lock()
+	fn := m.OfficeCanvasDir
 	m.mu.Unlock()
 	if fn == nil {
 		return notReady

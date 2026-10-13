@@ -9,6 +9,7 @@ import (
 	"FFmpegFree/internal/ffmpeg"
 	"FFmpegFree/internal/langasr"
 	"FFmpegFree/internal/localassets"
+	"FFmpegFree/internal/officecanvas"
 	"FFmpegFree/internal/paths"
 	"FFmpegFree/internal/service/cat"
 	"FFmpegFree/internal/service/convert"
@@ -16,6 +17,7 @@ import (
 	"FFmpegFree/internal/service/lang"
 	"FFmpegFree/internal/service/live"
 	"FFmpegFree/internal/service/media"
+	"FFmpegFree/internal/service/office"
 	"FFmpegFree/internal/service/system"
 	"FFmpegFree/internal/store"
 	"FFmpegFree/internal/task"
@@ -59,6 +61,8 @@ type App struct {
 	live         atomic.Pointer[live.Service]
 	langAsr      atomic.Pointer[langasr.Manager]
 	lang         atomic.Pointer[lang.Service]
+	officeCanvas atomic.Pointer[officecanvas.Manager]
+	officeSvc    atomic.Pointer[office.Service]
 	catReg       atomic.Pointer[catagent.Registry]
 	cat          atomic.Pointer[cat.Service]
 	win          windowState
@@ -98,6 +102,10 @@ func (a *App) langService() *lang.Service { return a.lang.Load() }
 
 func (a *App) langAsrManager() *langasr.Manager { return a.langAsr.Load() }
 
+func (a *App) officeService() *office.Service { return a.officeSvc.Load() }
+
+func (a *App) officeCanvasManager() *officecanvas.Manager { return a.officeCanvas.Load() }
+
 func (a *App) catService() *cat.Service { return a.cat.Load() }
 
 func (a *App) catRegistry() *catagent.Registry { return a.catReg.Load() }
@@ -131,6 +139,7 @@ func (a *App) startup(ctx context.Context) {
 	a.startConvert(ctx)
 	a.startDoc()
 	a.startLang()
+	a.startOfficeCanvas()
 	a.startCat()
 	a.startLive()
 	a.startFFmpegDetect(ctx)
@@ -322,6 +331,42 @@ func (a *App) startLang() {
 	}
 	svc := lang.New(cfg)
 	a.lang.Store(svc)
+}
+
+// startOfficeCanvas 创建办公画布组件服务（契约 6.19.16）：状态机 + 导出适配器调用方骨架。
+func (a *App) startOfficeCanvas() {
+	root := a.dirs.Root
+	if root == "" {
+		if d, err := paths.Resolve(""); err == nil {
+			root = d.Root
+		}
+	}
+	emit := app.NewWailsEmitter(a.ctx).Emit
+	comp := officecanvas.New(officecanvas.Config{
+		Dir:  officecanvas.DefaultDir(root),
+		Emit: emit,
+		Logf: log.Printf,
+	})
+	a.officeCanvas.Store(comp)
+	comp.Start()
+	a.sys.OfficeCanvasDir = func() (string, error) {
+		if s := a.officeService(); s != nil {
+			return s.ComponentDir()
+		}
+		return "", nil
+	}
+	temp := ""
+	if a.dirs.Temp != "" {
+		temp = filepath.Join(a.dirs.Temp, "office")
+	}
+	svc := office.New(office.Config{
+		Canvas:          comp,
+		Emit:            emit,
+		Logf:            log.Printf,
+		ActualOutputDir: a.sys.ActualOutputDir,
+		TempRoot:        temp,
+	})
+	a.officeSvc.Store(svc)
 }
 
 // startCat 创建 Cat 助手服务（契约 6.19）：v0.36 注册 cat_build + claude_cli/codex_cli 桩。
