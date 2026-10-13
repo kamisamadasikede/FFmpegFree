@@ -290,7 +290,7 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	args := a.buildTurnArgs(opts, prompt, cwd, sessionID, resume)
 	cmd := a.runCmd(runCtx, exe, args...)
 	cmd.Dir = cwd
-	cmd.Env = MergeProviderEnv(os.Environ(), opts.Provider)
+	cmd.Env = MergeSkillsEnv(MergeProviderEnv(os.Environ(), opts.Provider), opts.Skills)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

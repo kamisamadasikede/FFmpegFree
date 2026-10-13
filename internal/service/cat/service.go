@@ -561,6 +561,7 @@ func (s *Service) sendMessage(ctx context.Context, req SendMessageRequest, hook 
 		Files:          files,
 		Rules:          s.rulesForTurn(ctx),
 		Provider:       provider,
+		Skills:         skillsOverlayForProject(c.AgentKind, projectRoot),
 	}
 	if hook != nil && hook.timeout > 0 {
 		opts.Timeout = hook.timeout

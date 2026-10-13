@@ -161,21 +161,41 @@ func TestSendCarriesRulesEveryTurn(t *testing.T) {
 }
 
 func TestInspectNotReadyReturnsEmpty(t *testing.T) {
+	ctx := context.Background()
+	proj := filepath.Join(t.TempDir(), "proj")
+	_ = os.MkdirAll(proj, 0o755)
 	svc, _ := newProjSvc(t, openStore(t), &notReadyAdapter{}, cat.Config{})
-	res, err := svc.InspectCatConfig(context.Background(), cat.InspectRequest{})
+	pr, err := svc.CreateCatProject(ctx, cat.CreateProjectRequest{Path: proj})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := svc.InspectCatConfig(ctx, cat.InspectRequest{ProjectID: pr.Project.ID})
 	if err != nil || res.Reason != "not_ready" || res.Skills == nil || res.MCPServers == nil {
 		t.Fatalf("%+v %v", res, err)
+	}
+	if res.SkillsRoot == "" || res.McpConfigPath == "" {
+		t.Fatalf("v0.39 path fields required: %+v", res)
 	}
 }
 
 func TestInspectUnsupportedForStubKind(t *testing.T) {
+	ctx := context.Background()
+	proj := filepath.Join(t.TempDir(), "proj")
+	_ = os.MkdirAll(proj, 0o755)
 	reg := catagent.NewRegistry()
 	reg.Register(&fakeAdapter{})
 	reg.Register(catagent.NewStubAdapter(catagent.KindClaudeCLI))
 	svc := cat.New(cat.Config{Store: openStore(t), Registry: reg})
-	res, err := svc.InspectCatConfig(context.Background(), cat.InspectRequest{AgentKind: catagent.KindClaudeCLI})
+	pr, err := svc.CreateCatProject(ctx, cat.CreateProjectRequest{Path: proj})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := svc.InspectCatConfig(ctx, cat.InspectRequest{ProjectID: pr.Project.ID, AgentKind: catagent.KindClaudeCLI})
 	if err != nil || res.Reason != catagent.InspectUnsupported {
 		t.Fatalf("%+v %v", res, err)
+	}
+	if res.SkillsRoot == "" {
+		t.Fatalf("paths still required: %+v", res)
 	}
 }
 
