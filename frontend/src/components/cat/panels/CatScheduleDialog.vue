@@ -28,6 +28,12 @@
               <span v-if="projMissing" class="fe">{{ C.missingProject(projMissing) }}</span>
               <span v-else-if="err.projectId" class="fe">{{ err.projectId }}</span>
             </label>
+            <label class="f">
+              <span class="fl">{{ C.agentKind }}</span>
+              <select v-model="form.agentKind" class="in" data-testid="sd-agent-kind">
+                <option v-for="k in PROVIDERS" :key="k" :value="k">{{ providerLabel(k) }}</option>
+              </select>
+            </label>
             <div class="f">
               <span class="fl">{{ C.approval }}</span>
               <div class="seg" role="radiogroup" :aria-label="C.approval">
@@ -135,6 +141,7 @@ import FIcon from '@/components/icon/FIcon.vue'
 import CatConfirmDialog from './CatConfirmDialog.vue'
 import { CAT_ACCESS } from '@/api/catMock'
 import { CAT_THINK_XHIGH_LABEL } from '@/api/cat'
+import { CAT_PROVIDER_ORDER, normalizeProviderKind, providerLabel } from '@/api/catAgents'
 import {
   type CatSchedule,
   type CatScheduleFrequency,
@@ -148,12 +155,13 @@ import {
   validateSchedule,
 } from '@/api/catSchedules'
 import { catState, notify } from '@/views/cat/catState'
-import { catPanels, scheduleDefaultPref } from '@/views/cat/catPanels'
+import { catPanels, scheduleDefaultAgentKind, scheduleDefaultPref } from '@/views/cat/catPanels'
 
 const props = defineProps<{ open: boolean; schedule: CatSchedule | null; preset?: Partial<CatScheduleInput> | null }>()
 const emit = defineEmits<{ close: []; saved: [CatSchedule] }>()
 
 const FREQS: CatScheduleFrequency[] = ['once', 'daily', 'weekdays', 'weekly']
+const PROVIDERS = CAT_PROVIDER_ORDER
 const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''
 const editing = computed(() => !!props.schedule)
 const projects = computed(() => catState.projects)
@@ -169,11 +177,12 @@ const efforts = computed(() =>
 )
 
 function blank(): CatScheduleInput & { enabled: boolean } {
-  // v0.36：定时任务仍锁 cat_build，模型/强度读 defaultsByAgent.cat_build
-  const d = scheduleDefaultPref()
+  // v0.40：默认服务商 = CatSettings.defaultAgentKind；模型/强度跟该家
+  const agentKind = scheduleDefaultAgentKind()
+  const d = scheduleDefaultPref(agentKind)
   return {
     name: '', prompt: '', projectId: catState.projects.find((p) => !p.missing)?.id ?? '', frequency: 'daily', time: '09:00', weekdays: [],
-    runAt: 0, model: d.model, effort: d.effort, approvalMode: 'plan', enabled: true,
+    runAt: 0, model: d.model, effort: d.effort, approvalMode: 'plan', agentKind, enabled: true,
   }
 }
 const form = reactive(blank())
@@ -198,7 +207,8 @@ watch(
     const s = props.schedule
     Object.assign(form, blank(), props.preset ?? {}, s ? {
       name: s.name, prompt: s.prompt, projectId: s.projectDeleted ? '' : s.projectId, frequency: s.frequency, time: s.time || '09:00',
-      weekdays: [...s.weekdays], runAt: s.runAt, model: s.model, effort: s.effort, approvalMode: s.approvalMode, enabled: s.enabled,
+      weekdays: [...s.weekdays], runAt: s.runAt, model: s.model, effort: s.effort, approvalMode: s.approvalMode,
+      agentKind: normalizeProviderKind(s.agentKind), enabled: s.enabled,
     } : {})
     const ref0 = form.runAt || Date.now() + 86_400_000
     onceDate.value = dateStr(ref0)
@@ -218,7 +228,7 @@ const input = computed<CatScheduleInput>(() => {
   return {
     name: form.name.trim(), prompt: form.prompt.trim(), projectId: form.projectId, frequency: form.frequency, time: form.time,
     weekdays: form.frequency === 'weekly' ? [...form.weekdays].sort() : [], runAt, model: form.model, effort: form.effort,
-    approvalMode: form.approvalMode, enabled: form.enabled,
+    approvalMode: form.approvalMode, agentKind: normalizeProviderKind(form.agentKind), enabled: form.enabled,
   }
 })
 const allErr = computed(() => validateSchedule(input.value))

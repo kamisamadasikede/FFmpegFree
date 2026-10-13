@@ -187,6 +187,68 @@ export namespace cat {
 		    return a;
 		}
 	}
+	export class CloneCatProjectRequest {
+	    url: string;
+	    parentDir?: string;
+	    name?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CloneCatProjectRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.url = source["url"];
+	        this.parentDir = source["parentDir"];
+	        this.name = source["name"];
+	    }
+	}
+	export class CloneCatProjectResult {
+	    cloneId: string;
+	    status: string;
+	    project?: Project;
+	
+	    static createFrom(source: any = {}) {
+	        return new CloneCatProjectResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.cloneId = source["cloneId"];
+	        this.status = source["status"];
+	        this.project = this.convertValues(source["project"], Project);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CancelCloneCatProjectRequest {
+	    cloneId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CancelCloneCatProjectRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.cloneId = source["cloneId"];
+	    }
+	}
 	export class DeleteProjectRequest {
 	    id: string;
 	
@@ -655,6 +717,7 @@ export namespace cat {
 	    model: string;
 	    effort: string;
 	    approvalMode: string;
+	    agentKind: string;
 	    enabled: boolean;
 	    projectDeleted: boolean;
 	    nextRunAt?: number;
@@ -680,6 +743,7 @@ export namespace cat {
 	        this.model = source["model"];
 	        this.effort = source["effort"];
 	        this.approvalMode = source["approvalMode"];
+	        this.agentKind = source["agentKind"];
 	        this.enabled = source["enabled"];
 	        this.projectDeleted = source["projectDeleted"];
 	        this.nextRunAt = source["nextRunAt"];
@@ -729,6 +793,7 @@ export namespace cat {
 	    model: string;
 	    effort: string;
 	    approvalMode: string;
+	    agentKind: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ScheduleInput(source);
@@ -746,6 +811,7 @@ export namespace cat {
 	        this.model = source["model"];
 	        this.effort = source["effort"];
 	        this.approvalMode = source["approvalMode"];
+	        this.agentKind = source["agentKind"];
 	    }
 	}
 	
@@ -1166,6 +1232,7 @@ export namespace cat {
 	    model: string;
 	    effort: string;
 	    approvalMode: string;
+	    agentKind: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new UpdateScheduleRequest(source);
@@ -1184,6 +1251,7 @@ export namespace cat {
 	        this.model = source["model"];
 	        this.effort = source["effort"];
 	        this.approvalMode = source["approvalMode"];
+	        this.agentKind = source["agentKind"];
 	    }
 	}
 	export class WriteFileRequest {

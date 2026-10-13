@@ -11,7 +11,7 @@ import * as CatBinding from '../../wailsjs/go/app/CatService'
 import { cat } from '../../wailsjs/go/models'
 import { AppError, call, toAppError } from '@/api/call'
 import { CAT_PROJECTS_BACKEND_READY } from '@/api/flags'
-import { hasWailsBackend, onEvent } from '@/services/wails'
+import { emitSimEvent, hasWailsBackend, onEvent } from '@/services/wails'
 import { pickDirectory } from '@/api/system'
 
 export { CAT_PROJECTS_BACKEND_READY }
@@ -52,6 +52,34 @@ export const CAT_PROJECT_COPY = {
   workIn: (name: string) => `在项目中工作 · ${name}`,
   added: (name: string) => `已添加项目「${name}」。`,
   deleted: (name: string) => `已删除项目「${name}」。`,
+  // v0.40 添加项目 · 从 Git 克隆（产品口径 / 设计 v0.1.1）
+  addTitle: '添加项目',
+  addLead: '选择一种方式添加项目。',
+  entryLocal: '本机文件夹',
+  entryLocalHint: '选择已有目录，立刻打开为项目。',
+  entryGit: '从 Git 克隆',
+  entryGitHint: '粘贴 HTTPS 或 SSH 地址，克隆后打开。',
+  continue: '继续',
+  cloneTitle: '从 Git 克隆',
+  cloneUrl: '地址',
+  cloneUrlPh: 'HTTPS 或 SSH 地址，例如 https://github.com/org/repo.git',
+  cloneParent: '保存到',
+  cloneParentOpt: '可选',
+  clonePickParent: '选择文件夹',
+  clonePickParentTitle: '选择保存位置',
+  cloneName: '项目名',
+  cloneNameHint: '可选，默认取仓库名',
+  cloneSubmit: '克隆并打开',
+  cloningTitle: '正在克隆…',
+  cloneBusy: '已有克隆在进行。',
+  cloneExists: '克隆失败：目标文件夹已存在。',
+  badGitUrl: '请输入有效的 Git 地址。',
+  noGit: '没有找到 git。',
+  cloneAuth: '克隆失败：仓库需要登录。请先在本机配置 SSH 或凭据后再试。',
+  cloneUnwritable: '克隆失败：无法写入目标文件夹。',
+  cloneFailPrefix: '克隆失败：',
+  cloneCanceled: '已取消克隆。',
+  noGitHint: '查看安装说明',
 } as const
 
 /** 名字最长字符数（按 Unicode 字符，契约 6.19.10.2） */
@@ -78,10 +106,33 @@ export interface RevealCatProjectRequest { id: string }
  * 有进行中的一轮 → TASK_CONFLICT reason=turn_running。返回更新后的 CatProject。
  */
 export interface RelocateCatProjectRequest { id: string; path: string }
+
+/** v0.40 6.19.10.11 */
+export type CatCloneStatus = 'starting' | 'cloning' | 'creating' | 'succeeded' | 'failed' | 'canceled'
+export interface CloneCatProjectRequest { url: string; parentDir?: string; name?: string }
+export interface CloneCatProjectResult {
+  cloneId: string
+  status: CatCloneStatus
+  project?: CatProject
+}
+export interface CancelCloneCatProjectRequest { cloneId: string }
+export interface CatCloneEvent {
+  cloneId: string
+  status: CatCloneStatus
+  url?: string
+  parentDir?: string
+  name?: string
+  progress?: number
+  project?: CatProject
+  error?: { code?: string; message?: string; detail?: string } | null
+  canceled?: boolean
+}
+
 /** 事件 cat:project（6.19.10.3） */
 export interface CatProjectEvent { id: string; missing: boolean }
 
 export const CAT_PROJECT_EVENT = 'cat:project'
+export const CAT_CLONE_EVENT = 'cat:clone'
 
 /** 项目接口走真后端：开关打开 + 在 Wails 里 */
 export const catProjectsLive = (): boolean => CAT_PROJECTS_BACKEND_READY && hasWailsBackend()
@@ -160,11 +211,78 @@ export function projectErrorText(e: unknown): string {
     if (err.reason === 'project_name') return CAT_PROJECT_COPY.badName
     if (err.reason === 'project_path') return CAT_PROJECT_COPY.badPath
     if (err.reason === 'project_duplicate') return CAT_PROJECT_COPY.existed
+    if (err.reason === 'git_url') return CAT_PROJECT_COPY.badGitUrl
+    if (err.reason === 'clone_exists') return CAT_PROJECT_COPY.cloneExists
   }
-  if (err.code === 'TASK_CONFLICT' && err.reason === 'turn_running') return CAT_PROJECT_COPY.turnRunning
-  if (err.code === 'NOT_FOUND') return CAT_PROJECT_COPY.notFound
+  if (err.code === 'TASK_CONFLICT') {
+    if (err.reason === 'turn_running') return CAT_PROJECT_COPY.turnRunning
+    if (err.reason === 'clone_busy') return CAT_PROJECT_COPY.cloneBusy
+  }
+  if (err.code === 'NOT_FOUND') {
+    // 无 git 与「找不到项目」共用 NOT_FOUND；优先看 message
+    const m = (err.message || '').trim()
+    if (m === CAT_PROJECT_COPY.noGit || m.includes('没有找到 git')) return CAT_PROJECT_COPY.noGit
+    return CAT_PROJECT_COPY.notFound
+  }
   if (err.code === 'UNSUPPORTED') return CAT_PROJECT_COPY.later
   return CAT_PROJECT_COPY.failed
+}
+
+/** 克隆失败 → 行内字段 / 块级文案（设计 v0.1.1：无效地址与不可写走行内） */
+export type CloneErrorPlace = 'url' | 'parent' | 'banner'
+export function cloneErrorPlacement(e: unknown): { place: CloneErrorPlace; text: string } {
+  const err = toAppError(e)
+  const msg = (err.message || '').trim()
+  if (err.reason === 'git_url' || msg === CAT_PROJECT_COPY.badGitUrl) {
+    return { place: 'url', text: CAT_PROJECT_COPY.badGitUrl }
+  }
+  if (msg === CAT_PROJECT_COPY.cloneUnwritable || /无法写入目标文件夹/.test(msg)) {
+    return { place: 'parent', text: CAT_PROJECT_COPY.cloneUnwritable }
+  }
+  if (err.reason === 'clone_exists' || msg === CAT_PROJECT_COPY.cloneExists) {
+    return { place: 'parent', text: CAT_PROJECT_COPY.cloneExists }
+  }
+  if (msg === CAT_PROJECT_COPY.noGit || (err.code === 'NOT_FOUND' && /没有找到 git/.test(msg))) {
+    return { place: 'banner', text: CAT_PROJECT_COPY.noGit }
+  }
+  if (msg === CAT_PROJECT_COPY.cloneAuth || /仓库需要登录/.test(msg)) {
+    return { place: 'banner', text: CAT_PROJECT_COPY.cloneAuth }
+  }
+  if (err.reason === 'clone_busy' || msg === CAT_PROJECT_COPY.cloneBusy) {
+    return { place: 'banner', text: CAT_PROJECT_COPY.cloneBusy }
+  }
+  if (msg.startsWith(CAT_PROJECT_COPY.cloneFailPrefix)) {
+    return { place: 'banner', text: msg.slice(0, 120 + CAT_PROJECT_COPY.cloneFailPrefix.length) }
+  }
+  if (msg) return { place: 'banner', text: msg.startsWith('克隆失败') ? msg : CAT_PROJECT_COPY.cloneFailPrefix + msg.slice(0, 120) }
+  return { place: 'banner', text: projectErrorText(e) }
+}
+
+/** 从 URL 取默认仓库名（去 .git） */
+export function repoNameFromUrl(url: string): string {
+  let u = url.trim().replace(/[\\/]+$/, '')
+  // git@host:org/repo.git
+  const ssh = u.match(/^[^@]+@[^:]+:(.+)$/)
+  if (ssh) u = ssh[1]
+  else {
+    try {
+      const path = u.includes('://') ? new URL(u).pathname : u
+      u = path
+    } catch { /* keep */ }
+  }
+  const base = u.split('/').filter(Boolean).pop() || ''
+  return base.replace(/\.git$/i, '') || 'repo'
+}
+
+/** 粗校验：空 / 明显非 git URL（与契约 6.19.10.11 对齐的前端预检） */
+export function looksLikeGitUrl(url: string): boolean {
+  const u = url.trim()
+  if (!u) return false
+  if (/^https?:\/\//i.test(u)) return true
+  if (/^git@/i.test(u)) return true
+  if (/^ssh:\/\//i.test(u)) return true
+  if (/\.git$/i.test(u)) return true
+  return false
 }
 
 // ---------- 内存模拟（纯浏览器） ----------
@@ -301,6 +419,136 @@ export function onCatProject(cb: (e: CatProjectEvent) => void): () => void {
     const r = raw as { id?: unknown; missing?: unknown } | null
     if (r && typeof r.id === 'string' && r.id) cb({ id: r.id, missing: r.missing === true })
   })
+}
+
+// ---------- v0.40 克隆 ----------
+
+const cloneSim = {
+  active: '' as string,
+  timers: [] as ReturnType<typeof setTimeout>[],
+}
+
+function clearCloneTimers() {
+  for (const t of cloneSim.timers) clearTimeout(t)
+  cloneSim.timers = []
+}
+
+function emitClone(e: CatCloneEvent) {
+  emitSimEvent(CAT_CLONE_EVENT, e)
+}
+
+function mapCloneResult(raw: unknown): CloneCatProjectResult {
+  const r = (raw ?? {}) as { cloneId?: unknown; status?: unknown; project?: unknown }
+  const status = (['starting', 'cloning', 'creating', 'succeeded', 'failed', 'canceled'] as const).find((s) => s === r.status) ?? 'starting'
+  return {
+    cloneId: String(r.cloneId ?? ''),
+    status,
+    project: r.project ? mapProject(r.project) : undefined,
+  }
+}
+
+function mapCloneEvent(raw: unknown): CatCloneEvent | null {
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as Record<string, unknown>
+  const status = (['starting', 'cloning', 'creating', 'succeeded', 'failed', 'canceled'] as const).find((s) => s === r.status)
+  if (!status || typeof r.cloneId !== 'string' || !r.cloneId) return null
+  const err = r.error as { code?: unknown; message?: unknown; detail?: unknown } | null | undefined
+  return {
+    cloneId: r.cloneId,
+    status,
+    url: typeof r.url === 'string' ? r.url : undefined,
+    parentDir: typeof r.parentDir === 'string' ? r.parentDir : undefined,
+    name: typeof r.name === 'string' ? r.name : undefined,
+    progress: typeof r.progress === 'number' && Number.isFinite(r.progress) ? r.progress : undefined,
+    project: r.project ? mapProject(r.project) : undefined,
+    error: err && typeof err === 'object'
+      ? { code: typeof err.code === 'string' ? err.code : undefined, message: typeof err.message === 'string' ? err.message : undefined, detail: typeof err.detail === 'string' ? err.detail : undefined }
+      : null,
+    canceled: r.canceled === true || status === 'canceled',
+  }
+}
+
+/** 选克隆保存位置；取消返回 "" */
+export async function pickCloneParentDir(): Promise<string> {
+  if (catProjectsSim()) return sim.picks.length ? (sim.picks.shift() as string) : `D:\\Projects`
+  if (!catProjectsLive()) off()
+  return await pickDirectory(CAT_PROJECT_COPY.clonePickParentTitle)
+}
+
+export async function cloneCatProject(req: CloneCatProjectRequest): Promise<CloneCatProjectResult> {
+  if (catProjectsLive()) {
+    const body = cat.CloneCatProjectRequest.createFrom({ url: req.url })
+    if (req.parentDir?.trim()) body.parentDir = req.parentDir.trim()
+    if (req.name?.trim()) body.name = req.name.trim()
+    return mapCloneResult(await call(CatBinding.CloneCatProject(body)))
+  }
+  if (!catProjectsSim()) off()
+  const url = req.url.trim()
+  if (!looksLikeGitUrl(url)) throw new AppError('INVALID_ARGUMENT', CAT_PROJECT_COPY.badGitUrl, 'reason=git_url')
+  if (cloneSim.active) throw new AppError('TASK_CONFLICT', CAT_PROJECT_COPY.cloneBusy, 'reason=clone_busy')
+  const cloneId = `sim-clone-${Date.now().toString(36)}`
+  cloneSim.active = cloneId
+  clearCloneTimers()
+  const name = (req.name?.trim() || repoNameFromUrl(url))
+  const parent = (req.parentDir?.trim() || 'D:\\Projects')
+  const path = `${parent.replace(/[\\/]+$/, '')}\\${name}`
+  emitClone({ cloneId, status: 'starting', url, parentDir: parent, name })
+  cloneSim.timers.push(setTimeout(() => {
+    if (cloneSim.active !== cloneId) return
+    emitClone({ cloneId, status: 'cloning', url, parentDir: parent, name, progress: 0.2 })
+  }, 200))
+  cloneSim.timers.push(setTimeout(() => {
+    if (cloneSim.active !== cloneId) return
+    emitClone({ cloneId, status: 'cloning', url, parentDir: parent, name, progress: 0.6 })
+  }, 700))
+  cloneSim.timers.push(setTimeout(() => {
+    if (cloneSim.active !== cloneId) return
+    emitClone({ cloneId, status: 'creating', url, parentDir: parent, name, progress: 0.95 })
+  }, 1100))
+  cloneSim.timers.push(setTimeout(() => {
+    if (cloneSim.active !== cloneId) return
+    void (async () => {
+      try {
+        const r = await createCatProject({ path, name })
+        cloneSim.active = ''
+        emitClone({ cloneId, status: 'succeeded', url, parentDir: parent, name, progress: 1, project: r.project })
+      } catch (e) {
+        cloneSim.active = ''
+        const err = toAppError(e)
+        emitClone({ cloneId, status: 'failed', url, parentDir: parent, name, error: { code: err.code, message: projectErrorText(e), detail: err.detail } })
+      }
+    })()
+  }, 1400))
+  return { cloneId, status: 'starting' }
+}
+
+export async function cancelCloneCatProject(req: CancelCloneCatProjectRequest): Promise<void> {
+  if (catProjectsLive()) {
+    await call(CatBinding.CancelCloneCatProject(cat.CancelCloneCatProjectRequest.createFrom({ cloneId: req.cloneId })))
+    return
+  }
+  if (!catProjectsSim()) off()
+  if (cloneSim.active && cloneSim.active === req.cloneId) {
+    clearCloneTimers()
+    cloneSim.active = ''
+    emitClone({ cloneId: req.cloneId, status: 'canceled', canceled: true })
+  }
+}
+
+export function onCatClone(cb: (e: CatCloneEvent) => void): () => void {
+  if (catProjectsLive()) {
+    return onEvent<unknown>(CAT_CLONE_EVENT, (raw) => {
+      const e = mapCloneEvent(raw)
+      if (e) cb(e)
+    })
+  }
+  if (catProjectsSim()) {
+    return onEvent<unknown>(CAT_CLONE_EVENT, (raw) => {
+      const e = mapCloneEvent(raw)
+      if (e) cb(e)
+    })
+  }
+  return () => {}
 }
 
 // ---------- 平台文案 ----------

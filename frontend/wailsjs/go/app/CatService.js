@@ -22,6 +22,14 @@ export function CreateCatProject(arg1) {
   return window['go']['app']['CatService']['CreateCatProject'](arg1);
 }
 
+export function CloneCatProject(arg1) {
+  return window['go']['app']['CatService']['CloneCatProject'](arg1);
+}
+
+export function CancelCloneCatProject(arg1) {
+  return window['go']['app']['CatService']['CancelCloneCatProject'](arg1);
+}
+
 export function CreateCatSchedule(arg1) {
   return window['go']['app']['CatService']['CreateCatSchedule'](arg1);
 }

@@ -1,9 +1,9 @@
 /**
- * Cat 设置页 / 定时任务页的状态（契约 v0.35.1~v0.36，设计 v0.4.1）。
+ * Cat 设置页 / 定时任务页的状态（契约 v0.35.1~v0.40，设计 v0.4.1 + 克隆/通知 v0.1.1）。
  * 与 catState 分开放，避免和美化 PR 冲突；catState 只在新建对话时读这里的默认值。
  */
 import { reactive } from 'vue'
-import { CAT_AGENT_BUILD, normalizeProviderKind, type CatProviderKind } from '@/api/catAgents'
+import { normalizeProviderKind, type CatProviderKind } from '@/api/catAgents'
 import { type CatSettings, CAT_SETTINGS_COPY, emptyDefaults, getCatSettings, normalizeSettings, saveCatSettings } from '@/api/catSettings'
 import {
   type CatSchedule,
@@ -15,6 +15,7 @@ import {
   onCatSchedule,
   catSchedulesVisible,
 } from '@/api/catSchedules'
+import { onEvent } from '@/services/wails'
 import type { CatConvPref } from './catConvPrefs'
 
 export type CatView = 'chat' | 'settings' | 'schedules'
@@ -79,10 +80,16 @@ export function defaultConvPref(agentKind?: string): CatConvPref {
   return pref
 }
 
-/** 定时任务本版仍锁 cat_build（契约 v0.36） */
-export function scheduleDefaultPref(): { model: string; effort: string } {
-  const d = catPanels.settings.defaultsByAgent[CAT_AGENT_BUILD] ?? emptyDefaults()
+/** 定时任务模型/强度默认：按所选 agentKind 取 defaultsByAgent（v0.40；缺省 cat_build） */
+export function scheduleDefaultPref(agentKind?: string): { model: string; effort: string } {
+  const kind = normalizeProviderKind(agentKind ?? catPanels.settings.defaultAgentKind)
+  const d = catPanels.settings.defaultsByAgent[kind] ?? emptyDefaults()
   return { model: d.model, effort: d.effort }
+}
+
+/** 新建定时任务默认服务商 = CatSettings.defaultAgentKind */
+export function scheduleDefaultAgentKind(): CatProviderKind {
+  return normalizeProviderKind(catPanels.settings.defaultAgentKind)
 }
 
 
@@ -155,14 +162,52 @@ export function dismissToast() {
   catPanels.toast = null
 }
 
-/** CatPage 挂载时调用：读设置、订阅 cat:schedule；返回卸载函数 */
+const CAT_NOTIFY_EVENT = 'cat:notify'
+const TURN_NOTIFY = {
+  done: 'Cat 已回复',
+  fail: 'Cat 回复失败',
+  newConv: '新对话',
+} as const
+
+/**
+ * v0.40：普通 turn 终态前台 toast（后台系统通知由后端发）。
+ * notifyOnFinish 关 → 不发；cancelled 不调用本函数。
+ */
+export function showTurnFinishToast(convId: string, how: 'completed' | 'failed', title: string, errText = '') {
+  if (!catPanels.settings.notifyOnFinish) return
+  if (!windowInFront()) return // 后台：后端发系统通知，前端不叠 toast
+  const body = how === 'completed'
+    ? (title.trim() || TURN_NOTIFY.newConv)
+    : (errText.trim() || title.trim() || TURN_NOTIFY.newConv)
+  clearTimeout(toastTimer)
+  catPanels.toast = {
+    key: ++toastSeq,
+    title: how === 'completed' ? TURN_NOTIFY.done : TURN_NOTIFY.fail,
+    body: body.length > 80 ? body.slice(0, 80) + '…' : body,
+    tone: how === 'completed' ? 'ok' : 'bad',
+    convId,
+  }
+  toastTimer = setTimeout(() => (catPanels.toast = null), 6000)
+}
+
+function handleNotifyEvent(raw: unknown) {
+  const r = raw as { openConvId?: unknown } | null
+  const id = r && typeof r.openConvId === 'string' ? r.openConvId : ''
+  if (id) openConv?.(id)
+}
+
+/** CatPage 挂载时调用：读设置、订阅 cat:schedule / cat:notify；返回卸载函数 */
 let openConv: ((id: string) => void) | undefined
 export function initCatPanels(projectName: (id: string) => string, open?: (id: string) => void): () => void {
   openConv = open
   void loadSettings()
-  if (!catSchedulesVisible()) return () => {}
-  void refreshSchedules()
-  return onCatSchedule((e) => handleScheduleEvent(e, projectName))
+  const offs: Array<() => void> = []
+  offs.push(onEvent(CAT_NOTIFY_EVENT, handleNotifyEvent))
+  if (catSchedulesVisible()) {
+    void refreshSchedules()
+    offs.push(onCatSchedule((e) => handleScheduleEvent(e, projectName)))
+  }
+  return () => { for (const off of offs) off() }
 }
 
 export { CAT_SETTINGS_COPY }
