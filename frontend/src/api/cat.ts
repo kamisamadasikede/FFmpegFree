@@ -114,6 +114,10 @@ export interface CatMessage {
   createdAt: number
   /** 刷新后从会话记录里读出的图片、视频和可预览文档 */
   media?: CatShownFile[]
+  /** v0.37.1 消息尾（仅 assistant；缺省不显示） */
+  finishedAt?: number
+  tokenTotal?: number
+  tokensPerSec?: number
 }
 
 export interface CatConversationDetail extends CatConversation {
@@ -262,16 +266,30 @@ function mapMedia(raw: unknown): CatShownFile[] | undefined {
   return out.length ? out : undefined
 }
 
-function mapMsg(raw: { id?: string; role?: string; content?: string; createdAt?: number; media?: unknown } | null | undefined): CatMessage {
+function mapMsg(raw: { id?: string; role?: string; content?: string; createdAt?: number; media?: unknown; finishedAt?: unknown; tokenTotal?: unknown; tokensPerSec?: unknown } | null | undefined): CatMessage {
   const r = raw?.role
   const role = r === 'user' || r === 'system' || r === 'thought' || r === 'tool' ? r : 'assistant'
-  return {
+  const msg: CatMessage = {
     id: String(raw?.id ?? ''),
     role,
     content: String(raw?.content ?? ''),
     createdAt: Number(raw?.createdAt) || 0,
     media: role === 'user' ? mapMedia(raw?.media) : undefined,
   }
+  // v0.37.1：仅助手带回消息尾；旧消息缺字段不补假数据
+  if (role === 'assistant' && raw) {
+    const finishedAt = Number(raw.finishedAt)
+    if (Number.isFinite(finishedAt) && finishedAt > 0) msg.finishedAt = finishedAt
+    if (raw.tokenTotal !== undefined && raw.tokenTotal !== null && raw.tokenTotal !== '') {
+      const tot = Number(raw.tokenTotal)
+      if (Number.isFinite(tot)) msg.tokenTotal = tot
+    }
+    if (raw.tokensPerSec !== undefined && raw.tokensPerSec !== null && raw.tokensPerSec !== '') {
+      const rate = Number(raw.tokensPerSec)
+      if (Number.isFinite(rate) && rate > 0) msg.tokensPerSec = rate
+    }
+  }
+  return msg
 }
 
 export async function getCatStatus(): Promise<CatStatus> {

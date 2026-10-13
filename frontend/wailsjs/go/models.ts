@@ -3146,6 +3146,10 @@ export namespace store {
 	    content: string;
 	    createdAt: number;
 	    media?: CatMedia[];
+	    // v0.37.1 消息尾（仅 assistant；omitempty）
+	    finishedAt?: number;
+	    tokenTotal?: number;
+	    tokensPerSec?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new CatMessage(source);
@@ -3158,6 +3162,9 @@ export namespace store {
 	        this.content = source["content"];
 	        this.createdAt = source["createdAt"];
 	        this.media = this.convertValues(source["media"], CatMedia);
+	        this.finishedAt = source["finishedAt"];
+	        this.tokenTotal = source["tokenTotal"];
+	        this.tokensPerSec = source["tokensPerSec"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

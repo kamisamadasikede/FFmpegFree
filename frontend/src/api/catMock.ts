@@ -20,7 +20,17 @@ export type CatBlock =
   | { kind: 'code'; lang: string; parts: Array<[string, boolean?]>; more?: string }
   | { kind: 'run'; text: string; id?: string; streaming?: boolean }
   /** 助手回复（真实会话）：streaming=true 时文字仍在增长。reveal：这一轮新出现的，要逐字打出来 */
-  | { kind: 'a'; id: string; text: string; streaming: boolean; reveal?: boolean }
+  | {
+      kind: 'a'
+      id: string
+      text: string
+      streaming: boolean
+      reveal?: boolean
+      /** v0.37.1 消息尾：有 finishedAt 才显示；进行中勿带 */
+      finishedAt?: number
+      tokenTotal?: number
+      tokensPerSec?: number
+    }
   /** 浅灰系统行：已停止生成 / 未就绪 / 回复失败 */
   | { kind: 'sys'; text: string; tone?: 'err' }
 
@@ -124,6 +134,9 @@ export function mockPlainConvs(): CatConv[] {
   ]
 }
 
+/** 走查消息尾用的完成时刻（本地 22:15） */
+const FOOTER_AT = new Date(2026, 9, 13, 22, 15, 0).getTime()
+
 const SUB3: CatBlock[] = [
   { kind: 'user', text: '你先帮我把时间轴整体后移 0.4 秒，再检查一下有没有字幕重叠。' },
   { kind: 'think', text: '思考完成 · 6 秒' },
@@ -135,13 +148,16 @@ const SUB3: CatBlock[] = [
   { kind: 'p', text: '处理建议：' },
   { kind: 'ul', items: ['第 118 条结束时间改成 `00:04:14,850`，留 50 毫秒间隔。', '第 205、366 条同样处理。', '改完我会再整体检查一遍，确认没有新的重叠。'] },
   { kind: 'run', text: '正在修改 3 处时间轴…' },
+  // v0.37.1 消息尾走查：有 usage（设计场景 23）
+  { kind: 'a', id: 'a-c31', text: '三处重叠已改完，没有发现新的重叠。', streaming: false, finishedAt: FOOTER_AT, tokenTotal: 12480, tokensPerSec: 186 },
 ]
 const LIVE: CatBlock[] = [
   { kind: 'user', text: '我想让三路推流轮流切换地址，每路 30 分钟换一次，怎么安排比较稳？' },
   { kind: 'think', text: '思考完成 · 12 秒' },
   { kind: 'p', text: '可以按“错开切换”的思路来，避免三路同时断开：' },
   { kind: 'ul', items: ['第 1 路在整点切换，第 2 路在 10 分，第 3 路在 20 分。', '切换前先连上新地址，连上后再断开旧地址。', '任意一路连续失败 2 次，就停止轮换并提醒你。'] },
-  { kind: 'p', text: '要我把这个方案写成一份可以直接导入的配置吗？' },
+  // v0.37.1 消息尾走查：仅时间（设计场景 24）
+  { kind: 'a', id: 'a-c21', text: '要我把这个方案写成一份可以直接导入的配置吗？', streaming: false, finishedAt: FOOTER_AT },
 ]
 const RUST: CatBlock[] = [
   { kind: 'p', text: '把服务放进 handler 结构体是同一件事：' },

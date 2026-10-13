@@ -51,6 +51,7 @@ import { catGitChecks } from './catGit.check'
 import { catFilePreviewChecks } from './catFilePreview.check'
 import { catContextUsageChecks } from '@/components/cat/catContextUsage.check'
 import { catActivityChecks } from '@/components/cat/catActivity.check'
+import { catMessageFooterChecks } from '@/components/cat/catMessageFooter.check'
 import { catConvSearchChecks } from '@/components/cat/catConvSearch.check'
 import { catInlineDiffChecks } from '@/components/cat/catInlineDiff.check'
 import { catSyntaxChecks } from '@/components/cat/catSyntax.check'
@@ -1007,6 +1008,7 @@ export async function runApiChecks(): Promise<string[]> {
         catFilePreviewChecks(eq) // Cat 侧边预览：种类映射、二进制不带文本、markdown / svg 切换
         catContextUsageChecks(eq) // Cat 上下文圆环：百分比、弧长、悬停摘要
         catActivityChecks(eq) // Cat 消息：工具调用和文件查找默认收起，文件改动和正文展开，结束后不转圈
+        catMessageFooterChecks(eq) // Cat 消息尾：完成时间 / token / token/s 文案
         catConvSearchChecks(eq) // Cat 对话搜索：最新在前，输入框筛选，一次只取一页
         catInlineDiffChecks(eq) // Cat 从 git 打开文件：红绿嵌在正文里
         catSyntaxChecks(eq) // Cat 代码着色：十种语言的关键字、函数、类型、字符串、数字、注释

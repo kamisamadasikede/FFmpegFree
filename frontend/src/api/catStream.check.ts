@@ -30,6 +30,13 @@ export function catStreamChecks(eq: Eq): void {
   eq('turn 带上下文占用', [normalizeTurnEvent({ convId: 'c', status: 'completed', contextUsed: 1200, contextWindow: 256000 })?.contextUsed, normalizeTurnEvent({ convId: 'c', status: 'completed', contextUsed: 1200, contextWindow: 256000 })?.contextWindow], [1200, 256000])
   eq('turn 占用为 0 不带', normalizeTurnEvent({ convId: 'c', status: 'completed', contextUsed: 0, contextWindow: 256000 })?.contextUsed, undefined)
 
+  // v0.37.1 消息尾
+  const foot = normalizeTurnEvent({ convId: 'c', turnId: 't', status: 'completed', messageId: 'm1', finishedAt: 1790000090000, tokenTotal: 12480, tokensPerSec: 186 })
+  eq('turn 终态带消息尾', [foot?.messageId, foot?.finishedAt, foot?.tokenTotal, foot?.tokensPerSec], ['m1', 1790000090000, 12480, 186])
+  eq('turn running 丢弃消息尾', normalizeTurnEvent({ convId: 'c', status: 'running', finishedAt: 1, tokenTotal: 9, tokensPerSec: 1 })?.finishedAt, undefined)
+  eq('turn 无 usage 只时间', normalizeTurnEvent({ convId: 'c', status: 'cancelled', finishedAt: 100 })?.tokenTotal, undefined)
+  eq('turn 速率 ≤0 省略', normalizeTurnEvent({ convId: 'c', status: 'failed', finishedAt: 100, tokenTotal: 5, tokensPerSec: 0 })?.tokensPerSec, undefined)
+
   // 顺序追加
   let m = newStreamMsg('m1')
   applyStreamEvent(m, ev(0, 'append', 'A'))
