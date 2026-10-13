@@ -297,29 +297,60 @@
           </div>
         </div>
 
-        <!-- 技能与扩展（只读） -->
-        <div v-else-if="catPanels.tab === 'ext'" key="e" class="cs-body">
-          <p class="note"><FIcon name="info" :size="14" />{{ C.extTip }}</p>
-          <div v-if="inspect.loading" class="card" aria-busy="true">
-            <div v-for="i in 3" :key="i" class="sk"><i /><b /><span /></div>
-          </div>
-          <div v-else-if="inspect.result?.reason" class="card pad fail" data-testid="cat-ext-failed">
-            <span>{{ C.extFailed }}</span>
-            <button type="button" class="btn" @click="loadInspect">{{ C.retry }}</button>
-          </div>
-          <template v-else-if="inspect.result">
-            <div v-for="g in groups" :key="g.key" class="card">
-              <div class="card-h">{{ g.title }} · {{ g.items.length }}</div>
-              <div v-if="!g.items.length" class="empty">{{ C.extEmpty }}</div>
-              <div v-for="it in g.items" :key="g.key + it.name" class="row it">
-                <FIcon :name="(g.icon as any)" :size="15" class="it-ic" />
-                <div class="lab">
-                  <b>{{ it.name }}<em v-if="it.tag" class="tag">{{ it.tag }}</em></b>
-                  <span v-if="it.description">{{ it.description }}</span>
-                </div>
-                <div class="ctl st" :class="{ off: !it.enabled }"><i />{{ it.enabled ? C.on : C.off }}</div>
-              </div>
+        <!-- 技能与扩展（v0.39 可管理） -->
+        <div v-else-if="catPanels.tab === 'ext'" key="e" class="cs-body" data-testid="cat-ext">
+          <template v-if="!extProject">
+            <div class="card pad ext-empty" data-testid="cat-ext-no-project">
+              <p>{{ C.noProjectExt }}</p>
+              <button type="button" class="btn pri" data-testid="cat-ext-pick-project" @click="pickExtProject">{{ C.pickProject }}</button>
             </div>
+          </template>
+          <template v-else>
+            <div class="note tip-row" data-testid="cat-ext-tip">
+              <FIcon name="info" :size="14" />
+              <p>
+                {{ C.extTipBefore }}<strong>{{ C.extTipProject }}</strong>{{ C.extTipMid }}<code>{{ extPathLabel }}</code>{{ C.extTipAfter }}
+              </p>
+              <button type="button" class="btn" data-testid="cat-ext-open-dir" :disabled="openingDir" @click="openSkillsDir">
+                <FIcon name="folder" :size="14" /><i v-if="openingDir" class="spin" aria-hidden="true" />{{ C.openDir }}
+              </button>
+            </div>
+            <div v-if="inspect.loading" class="card" aria-busy="true" data-testid="cat-ext-loading">
+              <div v-for="i in 3" :key="i" class="sk"><i /><b /><span /></div>
+            </div>
+            <div v-else-if="inspectFail" class="card pad fail" data-testid="cat-ext-failed">
+              <span>{{ C.extFailed }}</span>
+              <button type="button" class="btn" @click="loadInspect">{{ C.retry }}</button>
+            </div>
+            <template v-else-if="inspect.result">
+              <div v-for="g in groups" :key="g.key" class="card" :data-testid="'cat-ext-card-' + g.key">
+                <div class="card-h">{{ g.title }} · {{ g.items.length }}</div>
+                <div v-if="!g.items.length" class="empty">
+                  {{ C.extEmpty }}
+                  <button type="button" class="btn" data-testid="cat-ext-empty-open" @click="openSkillsDir">{{ C.openDir }}</button>
+                </div>
+                <div v-for="it in g.items" :key="g.key + it.name" class="row it" :data-testid="'cat-ext-item-' + g.key + '-' + it.name">
+                  <FIcon :name="(g.icon as any)" :size="15" class="it-ic" />
+                  <div class="lab">
+                    <b>{{ it.name }}<em v-if="it.tag" class="tag">{{ it.tag }}</em></b>
+                    <span v-if="it.description">{{ it.description }}</span>
+                  </div>
+                  <div class="ctl">
+                    <button
+                      type="button"
+                      role="switch"
+                      class="sw"
+                      :class="{ on: it.enabled }"
+                      :aria-checked="it.enabled"
+                      :aria-label="it.enabled ? C.on : C.off"
+                      :disabled="!!toggling[g.key + ':' + it.name]"
+                      :data-testid="'cat-ext-sw-' + g.key + '-' + it.name"
+                      @click="toggleItem(g, it)"
+                    ><i /></button>
+                  </div>
+                </div>
+              </div>
+            </template>
           </template>
         </div>
 
@@ -383,6 +414,17 @@
       @cancel="clearKeyKind = null"
       @ok="doClearKey"
     />
+    <CatConfirmDialog
+      :open="skillsDirOpen"
+      :title="C.noSkillsDir"
+      :body="C.noSkillsDir"
+      :ok-text="C.createAndOpen"
+      :cancel-text="C.cancel"
+      tone="warn"
+      :busy="creatingDir"
+      @cancel="skillsDirOpen = false"
+      @ok="doCreateSkillsDir"
+    />
   </section>
 </template>
 
@@ -408,6 +450,8 @@ import {
 } from '@/api/catAgents'
 import { CAT_ACCESS } from '@/api/catMock'
 import {
+  type CatInspectCategory,
+  type CatInspectItem,
   type CatInspectResult,
   type CatProviderCapability,
   type CatProviderProtocol,
@@ -419,17 +463,21 @@ import {
   clearCatProviderKey,
   emptyDefaults,
   emptyProvider,
+  ensureCreateCatSkillsDir,
   inspectCatConfig,
   listCatProviderCapabilities,
   loginBanner,
   protocolLabel,
   protocolUrlPlaceholder,
+  revealCatSkillsDir,
   saveCatProviderKey,
+  setCatInspectItemEnabled,
+  skillsPathLabel,
 } from '@/api/catSettings'
 import { getAppVersion } from '@/api/about'
 import { catPanels, saveSetting, type CatSettingsTab } from '@/views/cat/catPanels'
 import { catLocalPrefs, setNewConvPlace, setTypewriter } from '@/views/cat/catLocalPrefs'
-import { catState, afterClearAll, notify } from '@/views/cat/catState'
+import { catState, afterClearAll, currentProject, notify, createProject } from '@/views/cat/catState'
 import { catSim, simModels, simThinks } from '@/views/cat/catDevSim'
 
 defineOptions({ name: 'CatSettingsView' })
@@ -670,32 +718,186 @@ async function saveInstr() {
 }
 
 const inspect = reactive({ loading: false, result: null as CatInspectResult | null })
+const toggling = reactive<Record<string, boolean>>({})
+const openingDir = ref(false)
+const skillsDirOpen = ref(false)
+const creatingDir = ref(false)
+
+const extProject = computed(() => currentProject.value)
+const inspectFail = computed(() => {
+  const r = inspect.result?.reason
+  return !!r && r !== 'no_project'
+})
+const extPathLabel = computed(() =>
+  skillsPathLabel(inspect.result?.skillsRoot, extProject.value?.name || ''),
+)
+
 async function loadInspect() {
+  const proj = currentProject.value
+  if (!proj) {
+    inspect.loading = false
+    inspect.result = {
+      skills: [],
+      plugins: [],
+      hooks: [],
+      mcpServers: [],
+      agents: [],
+      reason: 'no_project',
+      skillsRoot: '',
+      mcpConfigPath: '',
+      skillsRootExists: false,
+    }
+    return
+  }
   inspect.loading = true
-  inspect.result = await inspectCatConfig('')
+  const agentKind = findAgentKind()
+  inspect.result = await inspectCatConfig(proj.id, agentKind)
   inspect.loading = false
 }
-const groups = computed(() => {
+
+function findAgentKind(): string {
+  const sel = catState.sel
+  for (const p of catState.projects) {
+    const c = p.convs.find((x) => x.id === sel)
+    if (c?.agentKind) return c.agentKind
+  }
+  const plain = catState.plain.find((x) => x.id === sel)
+  if (plain?.agentKind) return plain.agentKind
+  return catPanels.settings.defaultAgentKind || 'cat_build'
+}
+
+type ExtGroup = {
+  key: string
+  title: string
+  icon: string
+  category: CatInspectCategory
+  items: Array<CatInspectItem & { tag: string; category: CatInspectCategory }>
+}
+
+const groups = computed((): ExtGroup[] => {
   const r = inspect.result
   if (!r) return []
   return [
-    { key: 's', title: C.skills, icon: 'spark', items: r.skills.map((x) => ({ ...x, tag: '' })) },
+    {
+      key: 's',
+      title: C.skills,
+      icon: 'spark',
+      category: 'skill',
+      items: r.skills.map((x) => ({ ...x, tag: '', category: 'skill' as const })),
+    },
     {
       key: 'x',
-      title: C.exts,
+      title: C.extsFull,
       icon: 'magic',
-      items: [...r.plugins.map((x) => ({ ...x, tag: '插件' })), ...r.mcpServers.map((x) => ({ ...x, tag: 'MCP' }))],
+      category: 'mcp',
+      items: [
+        ...r.mcpServers.map((x) => ({ ...x, tag: 'MCP', category: 'mcp' as const })),
+        ...r.plugins.map((x) => ({ ...x, tag: '插件', category: 'plugin' as const })),
+      ],
     },
-    { key: 'h', title: C.hooks, icon: 'link', items: r.hooks.map((x) => ({ ...x, tag: '' })) },
+    {
+      key: 'h',
+      title: C.hooks,
+      icon: 'link',
+      category: 'hook',
+      items: r.hooks.map((x) => ({ ...x, tag: '', category: 'hook' as const })),
+    },
   ]
 })
+
+async function toggleItem(g: ExtGroup, it: ExtGroup['items'][number]) {
+  const proj = currentProject.value
+  if (!proj) return
+  const key = g.key + ':' + it.name
+  const prev = it.enabled
+  const next = !prev
+  it.enabled = next
+  // 同步到底层 result，便于失败回滚
+  const list =
+    it.category === 'skill'
+      ? inspect.result?.skills
+      : it.category === 'hook'
+        ? inspect.result?.hooks
+        : it.category === 'plugin'
+          ? inspect.result?.plugins
+          : inspect.result?.mcpServers
+  const raw = list?.find((x) => x.name === it.name)
+  if (raw) raw.enabled = next
+  toggling[key] = true
+  try {
+    await setCatInspectItemEnabled({
+      projectId: proj.id,
+      agentKind: findAgentKind(),
+      category: it.category,
+      name: it.name,
+      enabled: next,
+    })
+  } catch {
+    it.enabled = prev
+    if (raw) raw.enabled = prev
+    notify(C.saveFailed, 'warn')
+  } finally {
+    toggling[key] = false
+  }
+}
+
+async function openSkillsDir() {
+  const proj = currentProject.value
+  if (!proj || openingDir.value) return
+  openingDir.value = true
+  try {
+    const r = await revealCatSkillsDir(proj.id)
+    if (inspect.result) {
+      inspect.result.skillsRoot = r.skillsRoot || inspect.result.skillsRoot
+      inspect.result.mcpConfigPath = r.mcpConfigPath || inspect.result.mcpConfigPath
+      inspect.result.skillsRootExists = r.skillsRootExists
+    }
+    if (!r.skillsRootExists) skillsDirOpen.value = true
+  } catch {
+    notify(C.saveFailed, 'warn')
+  } finally {
+    openingDir.value = false
+  }
+}
+
+async function doCreateSkillsDir() {
+  const proj = currentProject.value
+  if (!proj) return
+  creatingDir.value = true
+  try {
+    const r = await ensureCreateCatSkillsDir(proj.id)
+    if (inspect.result) {
+      inspect.result.skillsRoot = r.skillsRoot || inspect.result.skillsRoot
+      inspect.result.mcpConfigPath = r.mcpConfigPath || inspect.result.mcpConfigPath
+      inspect.result.skillsRootExists = true
+    }
+    skillsDirOpen.value = false
+  } catch {
+    skillsDirOpen.value = false
+    notify(C.saveFailed, 'warn')
+  } finally {
+    creatingDir.value = false
+  }
+}
+
+function pickExtProject() {
+  catPanels.view = 'chat'
+  void createProject()
+}
+
 watch(
   () => catPanels.tab,
   (t) => {
-    if (t === 'ext' && !inspect.result && !inspect.loading) void loadInspect()
+    if (t === 'ext') void loadInspect()
     if (t === 'general' && !caps.loaded) void loadCaps()
   },
   { immediate: true },
+)
+watch(
+  () => currentProject.value?.id,
+  () => {
+    if (catPanels.tab === 'ext') void loadInspect()
+  },
 )
 
 const rechecking = ref(false)
@@ -1112,6 +1314,51 @@ kbd {
 }
 .row.end {
   justify-content: flex-end;
+}
+.tip-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.tip-row > :deep(svg) {
+  flex: none;
+  margin-top: 2px;
+  color: var(--cat-muted);
+}
+.tip-row p {
+  flex: 1;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--cat-text-2);
+}
+.tip-row code {
+  font-family: var(--ff-font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--cat-text);
+}
+.tip-row .btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ext-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--cat-text-2);
+}
+.ext-empty p {
+  margin: 0;
+}
+.empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 @media (prefers-reduced-motion: reduce) {
   .cs-tab,

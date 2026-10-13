@@ -1,6 +1,6 @@
 // Cat 设置 / 定时任务（契约 v0.35.1~v0.35.4）：纯函数自检
 import { fixThinkName } from '@/api/cat'
-import { normalizeSettings, settingsPayload, normalizeCapabilities, DEFAULT_PROVIDER_CAPABILITIES } from '@/api/catSettings'
+import { normalizeSettings, settingsPayload, normalizeCapabilities, normalizeInspect, skillsPathLabel, DEFAULT_PROVIDER_CAPABILITIES } from '@/api/catSettings'
 import { needsApproveConfirm, normalizeRun, notifyTitle, queueLine, runView, validateSchedule } from '@/api/catSchedules'
 
 type Eq = (name: string, got: unknown, want: unknown) => void
@@ -22,6 +22,10 @@ export function catPanelsChecks(eq: Eq) {
   eq('Save：payload 不含 apiKey', (payload.providersByAgent as Record<string, Record<string, unknown>>).claude_cli.apiKey, undefined)
   eq('能力：空列表回落默认', normalizeCapabilities([]).map((c) => c.agentKind), DEFAULT_PROVIDER_CAPABILITIES.map((c) => c.agentKind))
   eq('能力：顺序 cat_build→claude→codex', normalizeCapabilities([{ agentKind: 'codex_cli', defaultProtocol: 'openai', allowProtocolPick: false, allowedProtocols: ['openai'] }, { agentKind: 'claude_cli', defaultProtocol: 'anthropic', allowProtocolPick: false, allowedProtocols: ['anthropic'] }, { agentKind: 'cat_build', defaultProtocol: 'openai', allowProtocolPick: false, allowedProtocols: ['openai'] }]).map((c) => c.agentKind), ['cat_build', 'claude_cli', 'codex_cli'])
+  eq('Inspect：读 skillsRoot / reason', normalizeInspect({ skills: [], plugins: [], hooks: [], mcpServers: [], agents: [], reason: 'no_project', skillsRoot: '/p/.ffmpegfree/cat/skills', skillsRootExists: true }).skillsRootExists, true)
+  eq('Inspect：无项目 reason', normalizeInspect({ reason: 'no_project' }).reason, 'no_project')
+  eq('路径标签：有项目名', skillsPathLabel('/abs/字幕项目/.ffmpegfree/cat/skills', '字幕项目'), '字幕项目/.ffmpegfree/cat/skills')
+  eq('路径标签：无项目名回落模板', skillsPathLabel('', ''), '<项目>/.ffmpegfree/cat/skills')
   eq('强度：xhigh 显示「极高」值不变', fixThinkName({ id: 'xhigh', displayName: '超高' }), { id: 'xhigh', displayName: '极高' })
   eq('强度：其它档位不动', fixThinkName({ id: 'low', displayName: '低' }).displayName, '低')
 

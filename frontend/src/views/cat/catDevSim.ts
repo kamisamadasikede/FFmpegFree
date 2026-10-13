@@ -20,6 +20,8 @@
  *   inspectslow / inspectfail / inspectempty —— 技能与扩展：加载 4 秒 / 失败 / 为空
  *   clearfail —— 清空全部对话失败
  *   keyfail —— Save/ClearCatProviderKey 失败
+ *   skillsmissing —— RevealCatSkillsDir 回 skillsRootExists=false（走查「创建并打开」）
+ *   setenablefail —— SetCatInspectItemEnabled 失败（开关回滚 +「保存失败，请重试。」）
  *   allagents —— 三家 agents[] 均 ready（走查自定义服务商「已安装」态）
  *   schedempty —— 定时任务为空（空状态 + 模板卡）
  *   schedfail —— 定时任务的保存 / 启停 / 立即运行 / 删除都失败
@@ -50,8 +52,8 @@ export function simThinks(): CatThinkLevel[] {
   ]
 }
 
-export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'md' | 'mdhold' | 'savefail' | 'inspectslow' | 'inspectfail' | 'inspectempty' | 'clearfail' | 'keyfail' | 'schedempty' | 'schedfail' | 'slowconv' | 'browsertimeout' | 'footertime' | 'allagents'
-const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'md', 'mdhold', 'savefail', 'inspectslow', 'inspectfail', 'inspectempty', 'clearfail', 'keyfail', 'schedempty', 'schedfail', 'slowconv', 'browsertimeout', 'footertime', 'allagents']
+export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'md' | 'mdhold' | 'savefail' | 'inspectslow' | 'inspectfail' | 'inspectempty' | 'clearfail' | 'keyfail' | 'skillsmissing' | 'setenablefail' | 'schedempty' | 'schedfail' | 'slowconv' | 'browsertimeout' | 'footertime' | 'allagents'
+const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'md', 'mdhold', 'savefail', 'inspectslow', 'inspectfail', 'inspectempty', 'clearfail', 'keyfail', 'skillsmissing', 'setenablefail', 'schedempty', 'schedfail', 'slowconv', 'browsertimeout', 'footertime', 'allagents']
 
 export const catSim: ReadonlySet<CatSimFlag> = (() => {
   if (!import.meta.env.DEV || typeof window === 'undefined') return new Set<CatSimFlag>()
