@@ -1,5 +1,5 @@
 <template>
-  <div class="cat-page" data-testid="cat-page">
+  <div class="cat-page cat-root" data-testid="cat-page">
     <!-- 进入时：侧栏 250ms 收起（AppSidebar 的 cat-away），中间先显示约 1.2 秒 loading，再出三栏聊天页 -->
     <div v-if="phase === 'loading'" class="ct-load" role="status" aria-live="polite">
       <div class="in"><i class="ct-spin" aria-hidden="true" /><span>正在进入 Cat…</span></div>
@@ -66,8 +66,9 @@
                 @click="onLater()"
               >更多<FIcon name="down" :size="12" /></button>
             </div>
-            <div v-if="catNotReady" class="ct-banner" role="status" data-testid="cat-not-ready">
-              <FIcon name="info" :size="14" />{{ notReadyText }}
+            <div v-if="catNotReady" :key="bannerKick" class="ct-banner" :class="{ kick: bannerKick > 0 }" role="status" data-testid="cat-not-ready">
+              <FIcon name="info" :size="14" /><span class="tx">{{ notReadyText }}</span>
+              <button type="button" class="recheck" :disabled="catChecking" data-testid="cat-recheck" @click="recheckCatStatus()">重新检测</button>
             </div>
             <CatComposer
               ref="composer"
@@ -79,6 +80,7 @@
               :missing="projectMissing"
               :project-name="currentProject?.name ?? ''"
               @send="onSend($event, composer)"
+              @blocked="kickBanner"
             />
             <div class="wl-try">
               <div class="wl-try-hd">试试这些指令</div>
@@ -144,8 +146,9 @@
               <FIcon name="down" :size="16" />
             </button>
           </div>
-          <div v-if="catNotReady" class="ct-banner in-conv" role="status" data-testid="cat-not-ready">
-            <FIcon name="info" :size="14" />{{ notReadyText }}
+          <div v-if="catNotReady" :key="bannerKick" class="ct-banner in-conv" :class="{ kick: bannerKick > 0 }" role="status" data-testid="cat-not-ready">
+            <FIcon name="info" :size="14" /><span class="tx">{{ notReadyText }}</span>
+              <button type="button" class="recheck" :disabled="catChecking" data-testid="cat-recheck" @click="recheckCatStatus()">重新检测</button>
           </div>
           <CatComposer
             ref="convComposer"
@@ -157,6 +160,7 @@
             :checking="catChecking"
             :missing="projectMissing"
             @send="onSend($event, convComposer)"
+            @blocked="kickBanner"
             @stop="stopTurn()"
           />
         </template>
@@ -185,7 +189,7 @@ import { catReturnPath } from './catReturn'
 import { nearBottom, keepFollowing } from './catFollow'
 import { railThumb, railTickTops, scrollTopForThumb } from './catRail'
 import { awaitingTurnOutput } from './catPending'
-import { catChecking, catNotReady, catState, currentProject, findConv, projectMissing, relocateProject, initCat, messagesOf, NEW_CONV, refreshCapabilities, sendMessage, stopTurn, tipLater } from './catState'
+import { catChecking, catNotReady, catState, currentProject, findConv, projectMissing, relocateProject, initCat, messagesOf, NEW_CONV, refreshCapabilities, recheckCatStatus, sendMessage, stopTurn, tipLater } from './catState'
 import { hasWailsBackend } from '@/services/wails'
 import { ClipboardSetText } from '../../../wailsjs/runtime/runtime'
 
@@ -208,6 +212,11 @@ const current = computed(() => (isNew.value ? null : findConv(catState.sel)))
 const messages = computed(() => (isNew.value ? [] : messagesOf(catState.sel)))
 const composer = ref<InstanceType<typeof CatComposer>>()
 const convComposer = ref<InstanceType<typeof CatComposer>>()
+/** G2：未就绪时按 Enter 让横幅抖一次（改 key 重放动画） */
+const bannerKick = ref(0)
+function kickBanner() {
+  bannerKick.value++
+}
 /** 发送；后端没收下（项目文件夹不见了）时把文字和文件放回输入框 */
 async function onSend(payload: { text: string; files: { name: string; path: string }[] }, c: InstanceType<typeof CatComposer> | undefined) {
   stick.value = true
@@ -460,36 +469,33 @@ function onModeClick(m: CatMode) {
   max-width: calc(100% - 48px);
   padding: 8px 14px;
   border-radius: 10px;
-  background: var(--ff-bg-surface);
-  border: 1px solid var(--ff-border);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+  background: var(--cat-elevated);
+  border: 1px solid var(--cat-border);
+  box-shadow: var(--cat-shadow-md);
   font-size: 13px;
-  color: var(--ff-text-1);
+  color: var(--cat-text);
   white-space: nowrap;
-  animation: ct-notice 180ms ease both;
-}
-html.dark .ct-notice {
-  background: var(--ff-bg-elevated);
+  animation: ct-notice var(--ff-dur-base) var(--ff-ease-out) both;
 }
 .ct-notice :deep(svg) {
   flex: none;
-  color: var(--ff-primary);
+  color: var(--cat-accent);
 }
 .ct-notice.ok :deep(svg) {
-  color: var(--ff-success);
+  color: var(--cat-success);
 }
 .ct-notice.warn {
-  border-color: color-mix(in srgb, var(--ff-warning) 55%, var(--ff-border));
+  border-color: color-mix(in srgb, var(--cat-warn) 55%, var(--cat-border));
 }
 .ct-notice.warn :deep(svg) {
-  color: var(--ff-warning);
+  color: var(--cat-warn);
 }
 /* 提示条存在时浮提示下移到提示条下方，不遮挡「重新选择文件夹」（设计 v0.2 §09d） */
 .ct-notice.low {
   top: 90px;
 }
 @keyframes ct-notice {
-  from { opacity: 0; transform: translate(-50%, -6px); }
+  from { opacity: 0; transform: translate(-50%, -4px); }
   to { opacity: 1; transform: translate(-50%, 0); }
 }
 .ct-missing {
@@ -500,12 +506,12 @@ html.dark .ct-notice {
   gap: 6px;
   padding: 0 16px;
   font-size: 12.5px;
-  color: var(--ff-text-2);
-  background: color-mix(in srgb, var(--ff-warning) 7%, transparent);
-  border-bottom: 1px solid var(--ff-border);
+  color: var(--cat-text-2);
+  background: color-mix(in srgb, var(--cat-warn) 7%, transparent);
+  border-bottom: 1px solid var(--cat-border);
 }
 .ct-missing :deep(svg) {
-  color: var(--ff-warning);
+  color: var(--cat-warn);
   flex: none;
 }
 .ct-missing .tx {
@@ -518,24 +524,28 @@ html.dark .ct-notice {
   padding: 0 10px;
   border: none;
   border-radius: 6px;
-  background: var(--ff-primary);
-  color: #fff;
+  background: var(--cat-accent);
+  color: var(--cat-on-accent);
   font: inherit;
   font-size: 12px;
+  transition: background var(--ff-dur-quick), transform var(--ff-dur-quick);
   cursor: pointer;
 }
 .ct-missing .relink:hover {
-  filter: brightness(1.06);
+  background: var(--cat-accent-hover);
+}
+.ct-missing .relink:active {
+  transform: scale(0.94);
 }
 .ct-missing .relink:focus-visible {
-  outline: 2px solid var(--ff-primary);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: var(--cat-focus);
 }
 .crumb-p.miss {
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
 }
 .crumb-p.miss :deep(svg) {
-  color: var(--ff-warning);
+  color: var(--cat-warn);
 }
 @media (prefers-reduced-motion: reduce) {
   .ct-notice {
@@ -551,13 +561,58 @@ html.dark .ct-notice {
   margin: 0 auto 10px;
   padding: 8px 12px;
   border-radius: 10px;
-  background: var(--ff-bg-hover);
-  color: var(--ff-text-2);
+  border: 1px solid color-mix(in srgb, var(--cat-warn) 30%, transparent);
+  background: var(--cat-warn-soft);
+  color: var(--cat-warn-text);
   font-size: 12.5px;
+  box-sizing: border-box;
+  animation: cat-fade-in var(--ff-dur-base) var(--ff-ease-out) both;
 }
 .ct-banner :deep(svg) {
   flex: none;
-  color: var(--ff-text-3);
+  color: var(--cat-warn-text);
+}
+.ct-banner .tx {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+.ct-banner .recheck {
+  flex: none;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--cat-warn) 40%, transparent);
+  border-radius: var(--cat-radius-sm);
+  background: var(--cat-surface);
+  color: var(--cat-warn-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--ff-dur-quick), transform var(--ff-dur-quick);
+}
+.ct-banner .recheck:hover {
+  background: var(--cat-hover);
+}
+.ct-banner .recheck:active {
+  transform: scale(0.94);
+}
+.ct-banner .recheck:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ct-banner .recheck:focus-visible {
+  outline: none;
+  box-shadow: var(--cat-focus);
+}
+/* G2：未就绪时按 Enter 抖一次；减少动效下改成闪一下边框 */
+.ct-banner.kick {
+  animation: cat-shake var(--ff-dur-slow) var(--ff-ease-out) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ct-banner.kick {
+    animation: none;
+    border-color: var(--cat-warn);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .cat-in,
@@ -571,7 +626,7 @@ html.dark .ct-notice {
   min-width: 0;
   display: flex;
   height: 100%;
-  background: var(--ff-bg-app);
+  background: var(--cat-bg);
 }
 .ct-load {
   flex: 1;
@@ -583,28 +638,29 @@ html.dark .ct-notice {
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
   font-size: 13px;
 }
 .ct-spin {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  border: 3px solid var(--ff-border);
-  border-top-color: var(--ff-primary);
-  animation: ct-spin 0.9s linear infinite;
+  border: 3px solid var(--cat-border);
+  border-top-color: var(--cat-accent);
+  animation: ct-spin 0.9s linear infinite; /* 循环动画，不属于过渡时长档 */
 }
 @keyframes ct-spin {
   to { transform: rotate(360deg); }
 }
+/* A2 进入 Cat 页 / B1 切换对话：200ms ease-out */
 .cat-in {
-  animation: catIn 250ms ease both;
+  animation: catIn var(--ff-dur-base) var(--ff-ease-out) both;
 }
 .swap {
-  animation: catIn 200ms ease both;
+  animation: catIn var(--ff-dur-base) var(--ff-ease-out) both;
 }
 @keyframes catIn {
-  from { opacity: 0; transform: translateY(6px); }
+  from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: none; }
 }
 .ct {
@@ -612,7 +668,7 @@ html.dark .ct-notice {
   min-width: 0;
   min-height: 0;
   display: flex;
-  background: var(--ff-bg-app);
+  background: var(--cat-bg);
 }
 .ct-c {
   flex: 1;
@@ -621,7 +677,7 @@ html.dark .ct-notice {
   display: flex;
   flex-direction: column;
   overflow-x: clip;
-  background: var(--ff-bg-surface);
+  background: var(--cat-bg);
 }
 .ct-hd {
   height: 44px;
@@ -630,7 +686,7 @@ html.dark .ct-notice {
   align-items: center;
   gap: 8px;
   padding: 0 16px;
-  border-bottom: 1px solid var(--ff-border);
+  border-bottom: 1px solid var(--cat-border);
   --wails-draggable: drag;
 }
 .ct-hd h2 {
@@ -642,7 +698,7 @@ html.dark .ct-notice {
   text-overflow: ellipsis;
 }
 .ct-hd > :deep(svg) {
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
 }
 .ct-hd .sp {
   flex: 1;
@@ -652,11 +708,11 @@ html.dark .ct-notice {
   align-items: center;
   gap: 5px;
   font-size: 13px;
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
   white-space: nowrap;
 }
 .slash {
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
 }
 .main-tag {
   flex: none;
@@ -664,9 +720,9 @@ html.dark .ct-notice {
   line-height: 16px;
   padding: 0 5px;
   border-radius: 4px;
-  border: 1px solid var(--ff-border);
-  color: var(--ff-text-2);
-  background: var(--ff-bg-hover);
+  border: 1px solid var(--cat-border);
+  color: var(--cat-text-2);
+  background: var(--cat-hover);
   font-weight: 500;
 }
 .ct-stream {
@@ -717,11 +773,11 @@ html.dark .ct-notice {
   width: 8px;
   height: 2px;
   border-radius: 1px;
-  background: var(--ff-text-3);
+  background: var(--cat-muted);
 }
 .ct-tick:hover::before,
 .ct-tick:focus-visible::before {
-  background: var(--ff-text-1);
+  background: var(--cat-text);
 }
 .ct-tick:focus-visible {
   outline: none;
@@ -731,7 +787,7 @@ html.dark .ct-notice {
   right: 0;
   width: 5px;
   border-radius: 999px;
-  background: var(--ff-text-3);
+  background: var(--cat-muted);
   opacity: 0.7;
   cursor: grab;
   touch-action: none;
@@ -753,16 +809,22 @@ html.dark .ct-notice {
   display: grid;
   place-items: center;
   transform: translateX(-50%);
-  border: 1px solid var(--ff-border);
+  border: 1px solid var(--cat-border);
   border-radius: 50%;
-  background: var(--ff-bg-surface);
-  color: var(--ff-text-2);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+  background: var(--cat-surface);
+  color: var(--cat-text-2);
+  box-shadow: var(--cat-shadow-md);
   cursor: pointer;
+  animation: cat-fade-in var(--ff-dur-base) var(--ff-ease-out) both;
+  transition: background var(--ff-dur-quick), color var(--ff-dur-quick);
+}
+.ct-jump:focus-visible {
+  outline: none;
+  box-shadow: var(--cat-focus);
 }
 .ct-jump:hover {
-  color: var(--ff-text-1);
-  background: var(--ff-bg-hover);
+  color: var(--cat-text);
+  background: var(--cat-hover);
 }
 
 /* 新对话欢迎页 */
@@ -780,7 +842,7 @@ html.dark .ct-notice {
 .wl-hi {
   font-size: 28px;
   font-weight: 700;
-  color: var(--ff-text-1);
+  color: var(--cat-text);
   margin: 0 0 18px;
   letter-spacing: -0.02em;
   line-height: 1.3;
@@ -804,29 +866,30 @@ html.dark .ct-notice {
   background: transparent;
   font: inherit;
   font-size: 13px;
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
   cursor: pointer;
   white-space: nowrap;
+  transition: background var(--ff-dur-quick), color var(--ff-dur-quick);
 }
 .wl-mode > :deep(svg) {
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
 }
 .wl-mode:hover {
-  background: var(--ff-bg-hover);
-  color: var(--ff-text-1);
+  background: var(--cat-hover);
+  color: var(--cat-text);
 }
 .wl-mode.on {
-  background: var(--ff-bg-surface);
-  border-color: var(--ff-border);
-  color: var(--ff-text-1);
+  background: var(--cat-surface);
+  border-color: var(--cat-border);
+  color: var(--cat-text);
   font-weight: 500;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--cat-shadow-sm);
 }
 .wl-mode.on > :deep(svg) {
-  color: var(--ff-text-1);
+  color: var(--cat-text);
 }
 .wl-mode.more {
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
 }
 .ct-welcome :deep(.ct-comp) {
   margin: 0;
@@ -841,36 +904,50 @@ html.dark .ct-notice {
 }
 .wl-try-hd {
   font-size: 12.5px;
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
   margin-bottom: 8px;
   padding: 0 2px;
+  grid-column: 1 / -1;
+}
+/* I1 建议指令：3 张卡片，hover 上浮 2px */
+.wl-try {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
 }
 .wl-cmd {
   display: block;
   width: 100%;
   text-align: left;
-  padding: 10px 12px;
-  margin: 0 0 4px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
+  padding: 12px;
+  margin: 0;
+  border: 1px solid var(--cat-border);
+  border-radius: var(--cat-radius-lg);
+  background: var(--cat-surface);
+  box-shadow: var(--cat-shadow-sm);
   font: inherit;
-  font-size: 13.5px;
+  font-size: 13px;
   line-height: 1.5;
-  color: var(--ff-text-1);
+  color: var(--cat-text);
   cursor: pointer;
+  transition: transform var(--ff-dur-quick), border-color var(--ff-dur-quick), box-shadow var(--ff-dur-quick);
 }
 .wl-cmd:hover {
-  background: var(--ff-bg-hover);
+  transform: translateY(-2px);
+  border-color: var(--cat-border-strong);
+  box-shadow: var(--cat-shadow-md);
+}
+.wl-cmd:active {
+  transform: scale(0.98);
 }
 .wl-mode:focus-visible,
 .wl-cmd:focus-visible {
-  outline: 2px solid var(--ff-primary);
-  outline-offset: -2px;
+  outline: none;
+  box-shadow: var(--cat-focus);
 }
 .wl-mode.disabled,
 .wl-mode.disabled:hover {
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
   background: transparent;
   border-color: transparent;
   box-shadow: none;
@@ -879,7 +956,7 @@ html.dark .ct-notice {
   font-weight: 400;
 }
 .wl-mode.disabled > :deep(svg) {
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
 }
 @media (prefers-reduced-motion: reduce) {
   .ct-spin,

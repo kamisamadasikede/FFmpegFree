@@ -67,7 +67,7 @@ watch(() => [props.file.path, props.file.data, props.file.kind] as const, () => 
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
 }
 .pic img,
 .pic video {
@@ -75,7 +75,7 @@ watch(() => [props.file.path, props.file.data, props.file.kind] as const, () => 
   height: 100%;
   object-fit: cover;
   pointer-events: none;
-  background: #111;
+  background: var(--cat-media-bg);
 }
 .pic.mini {
   width: 22px;
@@ -98,8 +98,8 @@ watch(() => [props.file.path, props.file.data, props.file.kind] as const, () => 
   height: 0;
   border-style: solid;
   border-width: 5px 0 5px 8px;
-  border-color: transparent transparent transparent #fff;
-  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.65));
+  border-color: transparent transparent transparent var(--cat-on-media);
+  filter: drop-shadow(0 0 1px var(--cat-media-shadow));
   pointer-events: none;
 }
 </style>

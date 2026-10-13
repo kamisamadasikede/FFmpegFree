@@ -8,6 +8,7 @@
  *   文件夹不见了 → 项目标灰、对话可看不可发；窗口获得焦点时重新 ListCatProjects；cat:project 更新 missing。
  *   接口见 api/catProjects.ts（CAT_PROJECTS_BACKEND_READY=true 走真绑定；浏览器走内存模拟）
  */
+import { CAT_LAST_CONV_KEY } from '@/api/catStorageKeys'
 import { computed, reactive, watch } from 'vue'
 import { Environment } from '../../../wailsjs/runtime/runtime'
 import { hasWailsBackend } from '@/services/wails'
@@ -45,6 +46,7 @@ import {
   deleteCatConversation,
   getCatConversation,
   getCatStatus,
+  recheckCat,
   isCatLive,
   listCatConversations,
   listLiveCatTurns,
@@ -95,7 +97,7 @@ import {
 export const NEW_CONV = 'new'
 
 /** 上次看的对话。重新进入 Cat、下次启动都回到这一条；「新对话」不记 */
-const LAST_CONV_KEY = 'ffmpegfree.cat.lastConv'
+const LAST_CONV_KEY = CAT_LAST_CONV_KEY
 
 function readLastConv(): string {
   try {
@@ -494,6 +496,19 @@ export async function refreshCapabilities(agentKind: CatAgentKind = currentAgent
 // ---------- 进入页面：状态、会话列表、事件 ----------
 
 let offs: Array<() => void> = []
+
+/** 未就绪横幅里的「重新检测」：先显示检查中，再用结果覆盖 */
+export async function recheckCatStatus(): Promise<void> {
+  if (catState.status.state === 'checking') return
+  const was = catState.status.state
+  catState.status = { ...catState.status, state: 'checking' }
+  try {
+    catState.status = await recheckCat()
+  } catch {
+    catState.status = { state: 'missing', version: '', canDownload: false, error: { code: 'CAT_NOT_READY', message: CAT_COPY.notReady } }
+  }
+  if (catState.status.state === 'ready' && was !== 'ready') void refreshCapabilities()
+}
 
 /** CatPage 挂载时调用；返回卸载函数 */
 export function initCat(): () => void {
@@ -1193,7 +1208,7 @@ export function selectConv(id: string) {
   catState.sel = id
   if (id === NEW_CONV) catState.newProjectId = ''
   delete catState.unseen[id]
-  // 点开对话就向 CLI 要这段记录。服务商和对话 id 在侧栏，正文不在本地库。
+  // 点开对话就向后端要这段记录。服务商和对话 id 在侧栏，正文不在本地库。
   if (id !== NEW_CONV && live) void loadMessages(id)
 }
 

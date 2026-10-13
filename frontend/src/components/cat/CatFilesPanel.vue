@@ -31,13 +31,14 @@
       @close="onPreviewClose"
     />
     <div class="ct-col">
-      <div class="ct-modes" role="tablist">
+      <div class="ct-modes" role="tablist" :style="{ '--tab-i': pane === 'git' ? 1 : 0 }">
         <button type="button" role="tab" :class="{ on: pane === 'files' }" :aria-selected="pane === 'files'" :title="GIT.files" data-testid="cat-files-tab" @click="pane = 'files'">
-          <FIcon name="file" :size="16" />
+          <FIcon name="file" :size="15" /><span>{{ GIT.files }}</span>
         </button>
         <button type="button" role="tab" :class="{ on: pane === 'git' }" :aria-selected="pane === 'git'" :title="GIT.git" data-testid="cat-git-tab" @click="pane = 'git'">
-          <FIcon name="branch" :size="16" />
+          <FIcon name="branch" :size="15" /><span>Git</span>
         </button>
+        <i class="ink" aria-hidden="true" />
       </div>
       <div v-if="missing || error === PC.missing" class="ct-empty" data-testid="cat-files-missing">
         <FIcon name="warn" :size="24" /><span>{{ PC.missing }}</span>
@@ -616,8 +617,8 @@ async function onHit(hit: CatSearchHit) {
   flex: none;
   display: flex;
   flex-direction: row;
-  border-left: 1px solid var(--ff-border);
-  background: var(--ff-bg-surface);
+  border-left: 1px solid var(--cat-border);
+  background: var(--cat-surface);
   min-width: 0;
   min-height: 0;
 }
@@ -649,7 +650,7 @@ async function onHit(hit: CatSearchHit) {
 }
 .ct-resize:hover::after,
 .ct-resize:focus-visible::after {
-  background: var(--ff-primary);
+  background: var(--cat-accent);
 }
 .ct-resize:focus-visible {
   outline: none;
@@ -662,34 +663,57 @@ async function onHit(hit: CatSearchHit) {
   flex-direction: column;
 }
 .ct-r.wide .ct-col {
-  border-left: 1px solid var(--ff-border);
+  border-left: 1px solid var(--cat-border);
 }
 .ct-modes {
+  position: relative;
   height: 36px;
   flex: none;
   display: flex;
   align-items: stretch;
   gap: 2px;
   padding: 0 6px;
-  border-bottom: 1px solid var(--ff-border);
+  border-bottom: 1px solid var(--cat-border);
 }
+/* E1 图标 + 文字页签；底部主色指示条在页签间滑动 200ms */
 .ct-modes button {
-  width: 32px;
+  width: 64px;
   border: none;
   background: transparent;
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
   cursor: pointer;
-  display: grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
   padding: 0;
-  box-shadow: inset 0 -2px 0 transparent;
+  font: inherit;
+  font-size: 12.5px;
+  border-radius: var(--cat-radius-sm) var(--cat-radius-sm) 0 0;
+  transition: color var(--ff-dur-quick), background var(--ff-dur-quick);
 }
 .ct-modes button.on {
-  color: var(--ff-text-1);
-  box-shadow: inset 0 -2px 0 var(--ff-text-1);
+  color: var(--cat-text);
+  font-weight: 500;
 }
 .ct-modes button:hover {
-  color: var(--ff-text-1);
+  color: var(--cat-text);
+  background: var(--cat-hover);
+}
+.ct-modes button:focus-visible {
+  outline: none;
+  box-shadow: var(--cat-focus);
+}
+.ct-modes .ink {
+  position: absolute;
+  left: 6px;
+  bottom: -1px;
+  width: 64px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--cat-accent);
+  transform: translateX(calc(var(--tab-i, 0) * 66px));
+  transition: transform var(--ff-dur-base) var(--ff-ease-out);
 }
 .ct-head {
   height: 32px;
@@ -707,7 +731,7 @@ async function onHit(hit: CatSearchHit) {
   white-space: nowrap;
   font-size: 13px;
   font-weight: 650;
-  color: var(--ff-text-1);
+  color: var(--cat-text);
 }
 .ib {
   width: 24px;
@@ -718,11 +742,11 @@ async function onHit(hit: CatSearchHit) {
   border: none;
   padding: 0;
   background: transparent;
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
   cursor: pointer;
 }
 .ib:hover:not(:disabled) {
-  background: var(--ff-bg-hover);
+  background: var(--cat-hover);
 }
 .ib:disabled {
   opacity: 0.4;
@@ -737,13 +761,13 @@ async function onHit(hit: CatSearchHit) {
   padding: 0 10px;
   border: 1px solid transparent;
   border-radius: 8px;
-  background: var(--ff-bg-hover);
+  background: var(--cat-hover);
   font-size: 12px;
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
 }
 .ct-search:focus-within {
-  border-color: var(--ff-border);
-  background: var(--ff-bg-surface);
+  border-color: var(--cat-border);
+  background: var(--cat-surface);
 }
 .ct-search input {
   flex: 1;
@@ -753,10 +777,10 @@ async function onHit(hit: CatSearchHit) {
   background: transparent;
   font: inherit;
   font-size: 12px;
-  color: var(--ff-text-1);
+  color: var(--cat-text);
 }
 .ct-search input::placeholder {
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
 }
 .ct-seg {
   margin: 0 10px 8px;
@@ -765,7 +789,7 @@ async function onHit(hit: CatSearchHit) {
   display: flex;
   padding: 2px;
   border-radius: 8px;
-  background: var(--ff-bg-hover);
+  background: var(--cat-hover);
 }
 .ct-seg button {
   flex: 1;
@@ -774,14 +798,14 @@ async function onHit(hit: CatSearchHit) {
   border-radius: 6px;
   font: inherit;
   font-size: 12px;
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
   cursor: pointer;
 }
 .ct-seg button.on {
-  background: var(--ff-bg-surface);
-  color: var(--ff-text-1);
+  background: var(--cat-surface);
+  color: var(--cat-text);
   font-weight: 650;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--cat-shadow-sm);
 }
 .ct-tree {
   flex: 1;
@@ -797,31 +821,31 @@ async function onHit(hit: CatSearchHit) {
   align-items: center;
   gap: 4px;
   font-size: 13px;
-  color: var(--ff-text-1);
+  color: var(--cat-text);
   border-radius: 6px;
   white-space: nowrap;
   flex: none;
   cursor: pointer;
 }
 .ct-node > :deep(svg) {
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
   flex: none;
 }
 .ct-node > :deep(svg.car) {
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
 }
 .ct-node > :deep(svg.fi) {
-  color: #d9622b;
+  color: var(--cat-file-icon);
 }
 .car-slot {
   width: 12px;
   flex: none;
 }
 .ct-node.on {
-  background: var(--ff-bg-hover);
+  background: var(--cat-hover);
 }
 .ct-node.note {
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
   font-size: 12px;
   padding-left: 8px;
   cursor: default;
@@ -847,7 +871,7 @@ async function onHit(hit: CatSearchHit) {
   gap: 4px;
 }
 .dir, .snip {
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
   font-size: 12px;
 }
 .dir {
@@ -868,11 +892,9 @@ async function onHit(hit: CatSearchHit) {
   font-weight: 700;
   padding-right: 4px;
 }
-.st-M, .st-R { color: #b45309; }
-.st-A, .st-U { color: var(--ff-success-text); }
-.st-D { color: var(--ff-danger-text); }
-html.dark .st-M,
-html.dark .st-R { color: #f0a05a; }
+.st-M, .st-R { color: var(--cat-git-mod); }
+.st-A, .st-U { color: var(--cat-success-text); }
+.st-D { color: var(--cat-danger-text); }
 .ct-empty {
   flex: 1;
   display: flex;
@@ -880,16 +902,16 @@ html.dark .st-R { color: #f0a05a; }
   align-items: center;
   justify-content: center;
   gap: 6px;
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
   font-size: 13px;
   padding: 0 16px 80px;
   text-align: center;
 }
 .retry {
   margin-top: 4px;
-  border: 1px solid var(--ff-border);
+  border: 1px solid var(--cat-border);
   background: transparent;
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
   border-radius: 6px;
   padding: 4px 10px;
   font: inherit;
@@ -897,6 +919,6 @@ html.dark .st-R { color: #f0a05a; }
   cursor: pointer;
 }
 .retry:hover {
-  background: var(--ff-bg-hover);
+  background: var(--cat-hover);
 }
 </style>

@@ -59,20 +59,16 @@ const bar = computed(() => {
   border: none;
   border-radius: 15px;
   background: transparent;
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
   cursor: default;
 }
 .ct-ctx-btn:hover,
 .ct-ctx:focus-within .ct-ctx-btn {
-  background: #f2f3f5;
-}
-html.dark .ct-ctx-btn:hover,
-html.dark .ct-ctx:focus-within .ct-ctx-btn {
-  background: var(--ff-bg-hover);
+  background: var(--cat-hover);
 }
 .ct-ctx-btn:focus-visible {
-  outline: 2px solid var(--ff-primary);
-  outline-offset: 1px;
+  outline: none;
+  box-shadow: var(--cat-focus);
 }
 .ct-ctx-ring {
   width: 14px;
@@ -93,9 +89,9 @@ html.dark .ct-ctx:focus-within .ct-ctx-btn {
   box-sizing: border-box;
   padding: 12px;
   border-radius: 12px;
-  background: var(--ff-bg-elevated);
-  border: 1px solid var(--ff-border);
-  box-shadow: var(--ff-shadow-dialog);
+  background: var(--cat-elevated);
+  border: 1px solid var(--cat-border);
+  box-shadow: var(--cat-shadow-lg);
 }
 .ct-ctx:hover .ct-ctx-pop,
 .ct-ctx:focus-within .ct-ctx-pop {
@@ -112,7 +108,7 @@ html.dark .ct-ctx:focus-within .ct-ctx-btn {
   flex: none;
   font-size: 14px;
   font-weight: 500;
-  color: var(--ff-text-1);
+  color: var(--cat-text);
 }
 .num {
   margin-left: auto;
@@ -120,21 +116,21 @@ html.dark .ct-ctx:focus-within .ct-ctx-btn {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  color: var(--ff-text-2);
+  color: var(--cat-text-2);
   text-align: right;
 }
 .bar {
   display: block;
   height: 8px;
   border-radius: 999px;
-  background: var(--ff-bg-sunken, var(--ff-border));
+  background: var(--cat-sunken, var(--cat-border));
   overflow: hidden;
 }
 .bar i {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: var(--ff-text-2);
+  background: var(--cat-text-2);
   min-width: 8px;
 }
 </style>

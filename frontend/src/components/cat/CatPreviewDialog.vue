@@ -147,12 +147,12 @@ async function load() {
   justify-content: center;
   overflow: auto;
   border-radius: 12px;
-  background: var(--ff-bg);
+  background: var(--cat-bg);
 }
 .stage.image,
 .stage.video,
 .stage.svg {
-  background: #111;
+  background: var(--cat-media-bg);
 }
 .stage img,
 .stage video {
@@ -167,7 +167,7 @@ async function load() {
   width: 100%;
   height: min(72vh, 720px);
   border: 0;
-  background: #fff;
+  background: var(--cat-paper);
 }
 .stage.docx,
 .stage.xlsx,
@@ -181,7 +181,7 @@ async function load() {
 .note {
   margin: 0;
   padding: 28px 16px;
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
   font-size: 13px;
 }
 </style>
