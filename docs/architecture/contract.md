@@ -5114,9 +5114,7 @@ GitCatCheckout(req GitCatCheckoutRequest) error
 - **脏工作区**：未带 `force` 时若有未提交更改 → `TASK_CONFLICT` `reason=git_dirty`，message 可空（前端用确认框）；确认框文案（产品锁定）：`工作区有未提交更改。仍要切换到 {branch}？` → `取消` / `仍要切换`（后者再调一次 `Force=true`）。  
 - `Force=true`：执行 `git checkout`（可丢弃未提交——**一期用 checkout 默认行为**；若 git 拒绝则返回其短因）。不在 App 内做 stash。
 
-#### 6.19.15.2.2 / 2.2 追加
-
-`INVALID_ARGUMENT`：`git_conflict`；`TASK_CONFLICT`：`git_dirty`（只追加；无新错误码）。
+**2.2 追加**（本节）：`INVALID_ARGUMENT` `git_conflict`；`TASK_CONFLICT` `git_dirty`（无新错误码）。
 
 #### 6.19.15.6 真机待验
 
