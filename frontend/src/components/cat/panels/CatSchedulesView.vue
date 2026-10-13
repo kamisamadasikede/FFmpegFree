@@ -534,9 +534,11 @@ small {
 }
 .tp {
   position: absolute;
-  right: calc(100% + 6px);
-  top: 50%;
-  transform: translateY(-50%);
+  left: 50%;
+  bottom: calc(100% + 6px);
+  right: auto;
+  top: auto;
+  transform: translateX(-50%);
   z-index: 5;
   padding: 4px 8px;
   border-radius: var(--cat-radius-sm);

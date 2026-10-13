@@ -1,23 +1,40 @@
 /**
- * Cat 设置接口层（契约 v0.35.1 §6.19.12）。
- * CAT_SETTINGS_BACKEND_READY=true 且在 Wails 里：调生成的 CatService 绑定（后端 #210）。
+ * Cat 设置接口层（契约 v0.35.1 §6.19.12；v0.36 defaultsByAgent）。
+ * CAT_SETTINGS_BACKEND_READY=true 且在 Wails 里：调生成的 CatService 绑定。
  * 否则走内存模拟；走查开关见 views/cat/catDevSim.ts（savefail / inspectfail / inspectslow / inspectempty / clearfail）。
+ *
+ * Save 走生成的 cat.Settings（v0.36：defaultAgentKind + defaultsByAgent）。
  */
 import * as CatBinding from '../../wailsjs/go/app/CatService'
 import { cat } from '../../wailsjs/go/models'
 import { AppError, call } from '@/api/call'
+import { CAT_AGENT_BUILD, CAT_PROVIDER_ORDER, isProviderKind, type CatProviderKind } from '@/api/catAgents'
 import { CAT_SETTINGS_BACKEND_READY } from '@/api/flags'
 import { hasWailsBackend } from '@/services/wails'
 import { catSim } from '@/views/cat/catDevSim'
 
 export { CAT_SETTINGS_BACKEND_READY }
 
+export interface CatAgentDefaults {
+  model: string
+  effort: string
+}
+
 export interface CatSettings {
-  defaultModel: string
-  defaultEffort: string
+  /** 欢迎页预选；默认 cat_build */
+  defaultAgentKind: CatProviderKind
+  defaultsByAgent: Record<CatProviderKind, CatAgentDefaults>
   defaultApprovalMode: string
   customInstruction: string
   notifyOnFinish: boolean
+}
+
+export function emptyDefaults(): CatAgentDefaults {
+  return { model: '', effort: '' }
+}
+
+export function emptyDefaultsByAgent(): Record<CatProviderKind, CatAgentDefaults> {
+  return { cat_build: emptyDefaults(), claude_cli: emptyDefaults(), codex_cli: emptyDefaults() }
 }
 
 export interface CatInspectItem {
@@ -46,7 +63,10 @@ export const CAT_SETTINGS_COPY = {
   subtitle: '只影响 Cat；FFmpegFree 其它设置在应用的「设置」里',
   tabs: { general: '通用', instruction: '自定义指令', ext: '技能与扩展', about: '关于与状态' },
   newConvCard: '新对话默认',
-  model: '模型',
+  newConvHint: '新建对话时按所选服务商带上这里的默认值；每个对话创建后锁定该服务商，之后只显示该服务商返回的模型和强度。',
+  installed: '已安装',
+  notDetected: '未检测到',
+  model: '默认模型',
   modelDesc: '新建对话时预选；每个对话之后各自记住',
   effort: '思考强度',
   effortDesc: '选「默认」时由 Cat 助手自己决定',
@@ -102,15 +122,17 @@ export const CAT_SETTINGS_COPY = {
   retry: '重试',
   on: '已启用',
   off: '未启用',
-  statusCard: 'Cat 助手状态',
+  statusCard: '状态',
   detect: '检测',
-  ready: '已就绪',
+  ready: '已安装 · 已就绪',
   missing: '未检测到',
   checking: '检查中…',
   version: '版本',
   login: '登录',
   loggedIn: '已登录',
   loginBad: '登录失效',
+  loginNa: '不适用',
+  noneReady: '未检测到可用的助手，请先安装并确保可在终端直接运行。',
   lastCheck: '上次检测',
   recheck: '重新检测',
   rechecking: '检测中…',
@@ -119,19 +141,67 @@ export const CAT_SETTINGS_COPY = {
   openData: '打开数据文件夹',
 } as const
 
+export function loginBanner(name: string) {
+  return `${name}登录失效，请重新登录后再试。`
+}
+
 const live = () => CAT_SETTINGS_BACKEND_READY && hasWailsBackend()
 const sim = (f: Parameters<typeof catSim.has>[0]) => import.meta.env.DEV && catSim.has(f)
 
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', '']
+
+function oneDefaults(raw: unknown): CatAgentDefaults {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const model = typeof r.model === 'string' ? r.model : ''
+  const effort = typeof r.effort === 'string' && EFFORTS.includes(r.effort) ? r.effort : ''
+  return { model, effort }
+}
+
+/**
+ * 读路径：v0.36 defaultsByAgent + defaultAgentKind。
+ * 旧顶层 defaultModel/defaultEffort 迁进 cat_build（该 key 已有非空值则不覆盖）。
+ */
 export function normalizeSettings(raw: unknown): CatSettings {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
   const s = (k: string) => (typeof r[k] === 'string' ? (r[k] as string) : '')
+  const by = emptyDefaultsByAgent()
+  const src = r.defaultsByAgent
+  if (src && typeof src === 'object') {
+    for (const kind of CAT_PROVIDER_ORDER) {
+      const cell = (src as Record<string, unknown>)[kind]
+      if (cell && typeof cell === 'object') by[kind] = oneDefaults(cell)
+    }
+  }
+  const oldModel = s('defaultModel')
+  const oldEffortRaw = s('defaultEffort')
+  const oldEffort = EFFORTS.includes(oldEffortRaw) ? oldEffortRaw : ''
+  if ((oldModel || oldEffort) && !by.cat_build.model && !by.cat_build.effort) {
+    by.cat_build = { model: oldModel, effort: oldEffort }
+  }
+  const kindRaw = s('defaultAgentKind')
   return {
-    defaultModel: s('defaultModel'),
-    defaultEffort: ['low', 'medium', 'high', 'xhigh'].includes(s('defaultEffort')) ? s('defaultEffort') : '',
+    defaultAgentKind: isProviderKind(kindRaw) ? kindRaw : CAT_AGENT_BUILD,
+    defaultsByAgent: by,
     defaultApprovalMode: ['normal', 'plan', 'auto', 'approve'].includes(s('defaultApprovalMode')) ? s('defaultApprovalMode') : '',
     customInstruction: s('customInstruction'),
     // 契约：nil 视为 true
     notifyOnFinish: r.notifyOnFinish !== false,
+  }
+}
+
+/** 只提交 v0.36 形状（不含旧 defaultModel/defaultEffort） */
+export function settingsPayload(req: CatSettings): Record<string, unknown> {
+  const defaultsByAgent: Record<string, CatAgentDefaults> = {}
+  for (const kind of CAT_PROVIDER_ORDER) {
+    const d = req.defaultsByAgent[kind] ?? emptyDefaults()
+    defaultsByAgent[kind] = { model: d.model || '', effort: d.effort || '' }
+  }
+  return {
+    defaultAgentKind: isProviderKind(req.defaultAgentKind) ? req.defaultAgentKind : CAT_AGENT_BUILD,
+    defaultsByAgent,
+    defaultApprovalMode: req.defaultApprovalMode,
+    customInstruction: req.customInstruction,
+    notifyOnFinish: req.notifyOnFinish,
   }
 }
 
@@ -140,16 +210,19 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 export async function getCatSettings(): Promise<CatSettings> {
   if (live()) return normalizeSettings(await call(CatBinding.GetCatSettings()))
-  return { ...mockSettings }
+  return normalizeSettings(mockSettings)
 }
 
 export async function saveCatSettings(req: CatSettings): Promise<CatSettings> {
   if (req.customInstruction.length > CAT_INSTRUCTION_MAX) throw new AppError('INVALID_ARGUMENT', CAT_SETTINGS_COPY.instrOver)
-  if (live()) return normalizeSettings(await call(CatBinding.SaveCatSettings(cat.Settings.createFrom({ ...req }))))
+  const payload = settingsPayload(req)
+  if (live()) {
+    return normalizeSettings(await call(CatBinding.SaveCatSettings(cat.Settings.createFrom(payload))))
+  }
   await wait(250)
   if (sim('savefail')) throw new AppError('IO_ERROR', 'sim')
-  mockSettings = normalizeSettings(req)
-  return { ...mockSettings }
+  mockSettings = normalizeSettings(payload)
+  return normalizeSettings(mockSettings)
 }
 
 const emptyInspect = (reason: string): CatInspectResult => ({ skills: [], plugins: [], hooks: [], mcpServers: [], agents: [], reason })

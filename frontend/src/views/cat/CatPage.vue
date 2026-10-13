@@ -64,9 +64,11 @@
                 :aria-selected="m.enabled && catState.mode === m.id"
                 :aria-disabled="!m.enabled"
                 :title="m.enabled ? undefined : tipLater()"
+                :data-testid="'cat-mode-' + m.id"
                 @click="onModeClick(m)"
               >
-                <FIcon :name="m.icon" :size="15" /><span>{{ m.name }}</span>
+                <CatAgentMark v-if="m.mark" :kind="m.mark" :size="15" />
+                <FIcon v-else :name="m.icon" :size="15" /><span>{{ m.name }}</span>
               </button>
               <button
                 type="button"
@@ -240,6 +242,7 @@ import CatMessages from '@/components/cat/CatMessages.vue'
 import CatConvSearch from '@/components/cat/CatConvSearch.vue'
 import CatProjectDeleteDialog from '@/components/cat/CatProjectDeleteDialog.vue'
 import CatSettingsView from '@/components/cat/panels/CatSettingsView.vue'
+import CatAgentMark from '@/components/cat/CatAgentMark.vue'
 import CatSchedulesView from '@/components/cat/panels/CatSchedulesView.vue'
 import CatScheduleToast from '@/components/cat/panels/CatScheduleToast.vue'
 import type { PickNote } from '@/components/cat/catPick'
@@ -253,7 +256,7 @@ import { nearBottom, keepFollowing } from './catFollow'
 import { RAIL_TICK_PITCH, railThumb, railTickWindow, scrollTopForThumb, tickEdgeScales, tickStairWidths } from './catRail'
 import { awaitingTurnOutput } from './catPending'
 import { onLayoutKey, rightCollapsed } from './catLayout'
-import { catChecking, catNotReady, catState, currentProject, findConv, projectMissing, relocateProject, initCat, messagesOf, NEW_CONV, reapplyNewConvDefaults, refreshCapabilities, recheckCatStatus, reloadConversation, selectConv, sendMessage, stopTurn, tipLater } from './catState'
+import { catChecking, catNotReady, catState, changeWelcomeMode, currentProject, findConv, projectMissing, relocateProject, initCat, messagesOf, NEW_CONV, reapplyNewConvDefaults, refreshCapabilities, recheckCatStatus, reloadConversation, selectConv, sendMessage, stopTurn, tipLater } from './catState'
 import { hasWailsBackend } from '@/services/wails'
 import { ClipboardSetText } from '../../../wailsjs/runtime/runtime'
 
@@ -587,8 +590,25 @@ function onCopyKey(e: KeyboardEvent) {
 let disposePanels: (() => void) | undefined
 // 设置里的新对话默认值读到 / 改了：欢迎页没选过时跟着换
 watch(
-  () => [catPanels.settings.defaultModel, catPanels.settings.defaultEffort, catPanels.settings.defaultApprovalMode],
+  () => [
+    catPanels.settings.defaultAgentKind,
+    catPanels.settings.defaultApprovalMode,
+    catPanels.settings.defaultsByAgent.cat_build?.model,
+    catPanels.settings.defaultsByAgent.cat_build?.effort,
+    catPanels.settings.defaultsByAgent.claude_cli?.model,
+    catPanels.settings.defaultsByAgent.claude_cli?.effort,
+    catPanels.settings.defaultsByAgent.codex_cli?.model,
+    catPanels.settings.defaultsByAgent.codex_cli?.effort,
+  ],
   () => reapplyNewConvDefaults(),
+)
+watch(
+  () => catPanels.settingsLoaded,
+  (ok) => {
+    if (!ok || catState.sel !== NEW_CONV) return
+    const want = catPanels.settings.defaultAgentKind
+    if (CAT_MODES.some((m) => m.id === want && m.enabled)) catState.mode = want
+  },
 )
 onMounted(() => {
   window.addEventListener('keydown', onCopyKey)
@@ -662,7 +682,8 @@ function onModeClick(m: CatMode) {
     onLater()
     return
   }
-  catState.mode = m.id
+  if (catState.mode === m.id) return
+  changeWelcomeMode(m.id)
 }
 </script>
 

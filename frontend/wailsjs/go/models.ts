@@ -908,12 +908,30 @@ export namespace cat {
 		    return a;
 		}
 	}
+	export class AgentDefaults {
+	    model: string;
+	    effort: string;
+
+	    static createFrom(source: any = {}) {
+	        return new AgentDefaults(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.model = source["model"];
+	        this.effort = source["effort"];
+	    }
+	}
 	export class Settings {
-	    defaultModel: string;
-	    defaultEffort: string;
+	    // v0.36
+	    defaultAgentKind: string;
+	    defaultsByAgent: {[key: string]: AgentDefaults};
 	    defaultApprovalMode: string;
 	    customInstruction: string;
 	    notifyOnFinish?: boolean;
+	    // v0.35 读兼容（Get 迁进 defaultsByAgent.cat_build 后 Save 不再带）
+	    defaultModel?: string;
+	    defaultEffort?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -921,12 +939,32 @@ export namespace cat {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.defaultModel = source["defaultModel"];
-	        this.defaultEffort = source["defaultEffort"];
+	        this.defaultAgentKind = source["defaultAgentKind"];
+	        this.defaultsByAgent = this.convertValues(source["defaultsByAgent"], AgentDefaults, true);
 	        this.defaultApprovalMode = source["defaultApprovalMode"];
 	        this.customInstruction = source["customInstruction"];
 	        this.notifyOnFinish = source["notifyOnFinish"];
+	        this.defaultModel = source["defaultModel"];
+	        this.defaultEffort = source["defaultEffort"];
 	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class TermResizeRequest {
 	    id: string;
@@ -1153,11 +1191,32 @@ export namespace catagent {
 	        this.displayName = source["displayName"];
 	    }
 	}
+	export class AgentStatus {
+	    agentKind: string;
+	    ready: boolean;
+	    version: string;
+	    loggedIn?: boolean;
+	    detail: string;
+
+	    static createFrom(source: any = {}) {
+	        return new AgentStatus(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.agentKind = source["agentKind"];
+	        this.ready = source["ready"];
+	        this.version = source["version"];
+	        this.loggedIn = source["loggedIn"];
+	        this.detail = source["detail"];
+	    }
+	}
 	export class Status {
 	    state: string;
 	    version: string;
 	    canDownload: boolean;
 	    error?: apperr.AppError;
+	    agents: AgentStatus[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Status(source);
@@ -1169,6 +1228,7 @@ export namespace catagent {
 	        this.version = source["version"];
 	        this.canDownload = source["canDownload"];
 	        this.error = this.convertValues(source["error"], apperr.AppError);
+	        this.agents = this.convertValues(source["agents"], AgentStatus);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

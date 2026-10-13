@@ -1,11 +1,11 @@
 /**
- * Cat 助手接口层（契约 v0.30 §6.19，一期仅 cat_build）。
+ * Cat 助手接口层（契约 v0.30 §6.19；v0.36 多服务商 cat_build|claude_cli|codex_cli）。
  *
- * CAT_BACKEND_READY=true 且在 Wails 里：调真实 CatService 绑定（wailsjs/go/app/CatService，后端 #172）。
+ * CAT_BACKEND_READY=true 且在 Wails 里：调真实 CatService 绑定（wailsjs/go/app/CatService）。
  * 纯浏览器（没有 window.go，走查 / 截图）：仍走 typed mock（模型 / 思考强度为空，发送返回未就绪）。
- * 事件：cat:status / cat:message / cat:turn，归一化见 api/catStream.ts（兼容定稿流式形状和骨架整段形状）。
+ * 事件：cat:status / cat:message / cat:turn，归一化见 api/catStream.ts。
  *
- * 用户可见文案只出现「Cat 助手」；未就绪 / 回复失败 / 已停止文案见 CAT_COPY。
+ * 气泡 / 侧栏总称「Cat 助手」；服务商选择处写「Grok Build」「Claude」「Codex」。
  */
 import * as CatBinding from '../../wailsjs/go/app/CatService'
 import { cat, catagent } from '../../wailsjs/go/models'
@@ -45,17 +45,45 @@ export const CAT_CONV_COPY = {
 /** 事件名（契约 6.19.5） */
 export const CAT_EVENTS = { status: 'cat:status', message: 'cat:message', turn: 'cat:turn' } as const
 
-/** 一期唯一可创建 / 可发送的 agentKind（契约 6.19.2） */
-export const CAT_AGENT_BUILD = 'cat_build' as const
-export type CatAgentKind = typeof CAT_AGENT_BUILD | 'cat_cli' | 'cat_code' | 'cat_agent'
+export {
+  CAT_AGENT_BUILD,
+  CAT_AGENT_CLAUDE,
+  CAT_AGENT_CODEX,
+  CAT_PROVIDER_ORDER,
+  CAT_PROVIDER_LABEL,
+  isProviderKind,
+  normalizeProviderKind,
+  providerLabel,
+  type CatProviderKind,
+  type CatAgentKind,
+} from '@/api/catAgents'
+import {
+  CAT_AGENT_BUILD,
+  CAT_PROVIDER_ORDER,
+  isProviderKind,
+  type CatAgentKind,
+  type CatProviderKind,
+} from '@/api/catAgents'
 
 export type CatComponentState = 'checking' | 'ready' | 'missing' | 'failed'
+
+/** 单家状态（契约 v0.36 CatAgentStatus） */
+export interface CatAgentStatus {
+  agentKind: CatProviderKind
+  ready: boolean
+  version: string
+  /** 该家不需要登录时可省略（undefined） */
+  loggedIn?: boolean | null
+  detail?: string
+}
 
 export interface CatStatus {
   state: CatComponentState
   version: string
   canDownload: boolean
   error?: { code: string; message: string; detail?: string } | null
+  /** v0.36：固定顺序 cat_build → claude_cli → codex_cli；缺省时由 mapCatStatus 补空行 */
+  agents: CatAgentStatus[]
 }
 
 export interface CatModel {
@@ -71,7 +99,7 @@ export interface CatThinkLevel {
 export interface CatConversation {
   id: string
   title: string
-  /** 创建后不可变；一期仅 cat_build */
+  /** 创建后不可变；v0.36：cat_build|claude_cli|codex_cli */
   agentKind: CatAgentKind
   /** v0.31：所属项目，创建时写入、之后不可变；空 = 不属于任何项目（显示在「对话」下） */
   projectId?: string
@@ -139,26 +167,67 @@ function missingStatus(): CatStatus {
     version: '',
     canDownload: false,
     error: { code: 'CAT_NOT_READY', message: CAT_COPY.notReady },
+    agents: emptyAgents(),
   }
 }
 
 const STATES: CatComponentState[] = ['checking', 'ready', 'missing', 'failed']
 
+function emptyAgents(): CatAgentStatus[] {
+  return CAT_PROVIDER_ORDER.map((agentKind) => ({ agentKind, ready: false, version: '', loggedIn: null }))
+}
+
+function mapAgents(raw: unknown, fallbackReady: boolean, fallbackVersion: string): CatAgentStatus[] {
+  const by = new Map<string, CatAgentStatus>()
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (!item || typeof item !== 'object') continue
+      const r = item as Record<string, unknown>
+      if (!isProviderKind(String(r.agentKind ?? ''))) continue
+      const kind = r.agentKind as CatProviderKind
+      const loggedIn = typeof r.loggedIn === 'boolean' ? r.loggedIn : null
+      by.set(kind, {
+        agentKind: kind,
+        ready: r.ready === true,
+        version: typeof r.version === 'string' ? r.version : '',
+        loggedIn,
+        detail: typeof r.detail === 'string' ? r.detail : '',
+      })
+    }
+  }
+  return CAT_PROVIDER_ORDER.map((agentKind) => {
+    const hit = by.get(agentKind)
+    if (hit) return hit
+    // 旧后端没有 agents[]：用顶层 state/version 填 cat_build，其余未检测到
+    if (agentKind === CAT_AGENT_BUILD) {
+      return { agentKind, ready: fallbackReady, version: fallbackVersion, loggedIn: null }
+    }
+    return { agentKind, ready: false, version: '', loggedIn: null }
+  })
+}
+
 export function mapCatStatus(raw: unknown): CatStatus {
   if (!raw || typeof raw !== 'object') return missingStatus()
-  const r = raw as { state?: string; version?: string; error?: { code?: string; message?: string; detail?: string } | null }
+  const r = raw as {
+    state?: string
+    version?: string
+    agents?: unknown
+    error?: { code?: string; message?: string; detail?: string } | null
+  }
   const state = STATES.includes(r.state as CatComponentState) ? (r.state as CatComponentState) : 'missing'
   const e = r.error
+  const version = r.version ?? ''
   return {
     state,
-    version: r.version ?? '',
+    version,
     // 一期组件未发布：无论后端返回什么都不出现下载入口
     canDownload: false,
     error: e && typeof e.code === 'string' ? { code: e.code, message: e.message ?? '', detail: e.detail } : null,
+    agents: mapAgents(r.agents, state === 'ready', version),
   }
 }
 
-const KINDS: CatAgentKind[] = [CAT_AGENT_BUILD, 'cat_cli', 'cat_code', 'cat_agent']
+const KINDS: CatAgentKind[] = [CAT_AGENT_BUILD, 'claude_cli', 'codex_cli', 'cat_cli', 'cat_code', 'cat_agent']
 function mapConv(raw: { id?: string; title?: string; agentKind?: string; projectId?: string; createdAt?: number; updatedAt?: number }): CatConversation {
   return {
     id: String(raw.id ?? ''),
@@ -224,10 +293,10 @@ function mapList<T extends { id: string; displayName: string }>(raw: unknown): T
 }
 
 /**
- * 模型列表：一期只接受 cat_build。未就绪 / 浏览器 / 出错都返回空数组（不造展示名）。
+ * 模型列表：v0.36 接受三家。未知 / 未注册 / 浏览器 / 出错 → 空数组（不造展示名）。
  */
 export async function listCatModels(agentKind: CatAgentKind): Promise<CatModel[]> {
-  if (agentKind !== CAT_AGENT_BUILD || !live()) return []
+  if (!isProviderKind(agentKind) || !live()) return []
   try {
     return mapList<CatModel>(await call(CatBinding.ListCatModels(agentKind)))
   } catch {
@@ -242,9 +311,9 @@ export function fixThinkName(t: CatThinkLevel): CatThinkLevel {
   return t
 }
 
-/** 思考强度：没有就不显示强度半截（契约 / 产品） */
+/** 思考强度：列表空 → 界面整行隐藏（契约 v0.36）；不写死某家永远没有 */
 export async function listCatThinkLevels(agentKind: CatAgentKind): Promise<CatThinkLevel[]> {
-  if (agentKind !== CAT_AGENT_BUILD || !live()) return []
+  if (!isProviderKind(agentKind) || !live()) return []
   try {
     return mapList<CatThinkLevel>(await call(CatBinding.ListCatThinkLevels(agentKind))).map(fixThinkName)
   } catch {
@@ -301,9 +370,9 @@ function positiveNum(v: unknown): number {
   return Number.isFinite(n) && n > 0 ? n : 0
 }
 
-/** 创建会话：agentKind 在这里写入，之后任何接口都不再改它（契约 6.19.2） */
+/** 创建会话：agentKind 在这里写入，之后任何接口都不再改它（契约 6.19.2 / v0.36） */
 export async function createCatConversation(req: CreateCatConversationRequest): Promise<CatConversation> {
-  if (req.agentKind !== CAT_AGENT_BUILD) {
+  if (!isProviderKind(req.agentKind)) {
     throw new AppError('INVALID_ARGUMENT', '不支持的模式')
   }
   if (!live()) {
@@ -311,7 +380,7 @@ export async function createCatConversation(req: CreateCatConversationRequest): 
     return {
       id: `local-${now.toString(36)}`,
       title: req.title?.trim() || '新对话',
-      agentKind: CAT_AGENT_BUILD,
+      agentKind: req.agentKind,
       projectId: req.projectId || undefined,
       createdAt: now,
       updatedAt: now,
