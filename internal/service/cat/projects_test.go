@@ -378,8 +378,9 @@ func TestSendCheckOrderAndSandboxRoot(t *testing.T) {
 	if _, err := nr.SendCatMessage(ctx, cat.SendMessageRequest{ConversationID: conv.ID, Content: "hi"}); !apperr.Is(err, apperr.CatNotReady) {
 		t.Fatalf("CAT_NOT_READY 优先: %v", err)
 	}
-	before, _ := svc.GetCatConversation(ctx, conv.ID)
+	// 打开对话（读记录）时也会实时查项目，可能先发出 cat:project 变缺；快照取在它之前（915328a 起）。
 	evBefore, _ := rec.snapshot()
+	before, _ := svc.GetCatConversation(ctx, conv.ID)
 	_, err := svc.SendCatMessage(ctx, cat.SendMessageRequest{ConversationID: conv.ID, Content: "hi"})
 	if !apperr.Is(err, apperr.CatProjectMissing) {
 		t.Fatal(err)
