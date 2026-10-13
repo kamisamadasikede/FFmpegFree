@@ -150,12 +150,11 @@
                   <div class="row">
                     <div class="lab"><b>{{ C.apiKey }}</b><span>{{ C.apiKeyDesc }}</span></div>
                     <div class="ctl key-ctl">
-                      <SavedMark :on="!!savedAgent[block.kind + ':apiKey']" />
                       <template v-if="providerOf(block.kind).apiKeySet">
                         <span class="key-saved" :data-testid="'cat-set-custom-key-saved-' + block.kind">{{ C.apiKeySaved }}</span>
                         <button
                           type="button"
-                          class="btn ghost"
+                          class="btn text key-clear"
                           :data-testid="'cat-set-custom-key-clear-' + block.kind"
                           @click="askClearKey(block.kind)"
                         >{{ C.apiKeyClear }}</button>
@@ -532,7 +531,6 @@ async function saveKey(kind: CatProviderKind) {
     keyDraft[kind] = ''
     const prev = { ...catPanels.settings.providersByAgent }
     catPanels.settings.providersByAgent = { ...prev, [kind]: { ...(prev[kind] ?? emptyProvider()), ...view, apiKeySet: true } }
-    flashAgent(`${kind}:apiKey`)
   } catch {
     notify(C.saveFailed, 'warn')
   }
@@ -960,23 +958,23 @@ onMounted(async () => {
 }
 .key-saved {
   font-size: 12.5px;
-  font-weight: 550;
   color: var(--cat-text-2);
-  background: var(--cat-sunken);
-  border: 1px solid var(--cat-divider);
-  border-radius: var(--cat-radius-sm);
-  padding: 4px 10px;
 }
 .key-ctl {
   flex-wrap: wrap;
   justify-content: flex-end;
+  gap: 8px;
 }
-.cust-body .btn.ghost {
-  border-style: dashed;
-  border-color: var(--cat-border);
+.cust-body .btn.key-clear {
+  border: none;
+  background: none;
   color: var(--cat-text-2);
   height: 28px;
-  padding: 0 10px;
+  padding: 0 4px;
+  font-size: 12.5px;
+}
+.cust-body .btn.key-clear:hover:not(:disabled) {
+  color: var(--cat-text);
 }
 @media (prefers-reduced-motion: reduce) {
   .cust-tog .chev {
