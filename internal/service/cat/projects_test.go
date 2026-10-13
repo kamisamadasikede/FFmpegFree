@@ -48,7 +48,14 @@ func newProjSvc(t *testing.T, st *store.Store, a catagent.Adapter, cfg cat.Confi
 		reg.Register(a)
 	}
 	rec := &evRec{}
-	cfg.Store, cfg.Registry, cfg.Emit = st, reg, rec.emit
+	prev := cfg.Emit // 调用方自己的 Emit 也照样收到
+	cfg.Store, cfg.Registry = st, reg
+	cfg.Emit = func(event string, payload any) {
+		rec.emit(event, payload)
+		if prev != nil {
+			prev(event, payload)
+		}
+	}
 	return cat.New(cfg), rec
 }
 

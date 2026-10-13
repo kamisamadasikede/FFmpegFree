@@ -66,6 +66,8 @@ type ScheduleRun struct {
 	FinishedAt     int64            `json:"finishedAt,omitempty"`
 	Manual         bool             `json:"manual"`
 	MissedReason   string           `json:"missedReason,omitempty"`
+	// QueuePosition 仅 status=queued 时有值：排在它前面的运行数，0 = 下一个就轮到它；不落库（v0.35.4）。
+	QueuePosition *int `json:"queuePosition,omitempty"`
 }
 
 // ScheduleInput 是 CatScheduleInput（新建 / 编辑共用）。
@@ -344,7 +346,7 @@ func (s *Service) scheduleFromRow(ctx context.Context, x store.CatScheduleRow) S
 		out.Weekdays = []int{}
 	}
 	if r, err := s.cfg.Store.LatestCatScheduleRun(ctx, x.ID); err == nil {
-		lr := runFromRow(r)
+		lr := s.withQueuePosition(runFromRow(r))
 		out.LastRun = &lr
 	}
 	return out
@@ -536,7 +538,7 @@ func (s *Service) ListCatScheduleRuns(ctx context.Context, req ListScheduleRunsR
 	}
 	out := make([]ScheduleRun, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, runFromRow(r))
+		out = append(out, s.withQueuePosition(runFromRow(r)))
 	}
 	return out, nil
 }
