@@ -614,6 +614,8 @@ async function abortConflict() {
       confirmButtonText: CF.abortOk,
       cancelButtonText: CF.abortCancel,
       type: 'warning',
+      // EP 默认 confirmButtonType=primary（蓝）；危险确认须显式 danger（同删除项目实心红）
+      confirmButtonType: 'danger',
       confirmButtonClass: 'el-button--danger',
       distinguishCancelAndClose: true,
     })
