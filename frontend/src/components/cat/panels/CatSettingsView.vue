@@ -417,7 +417,7 @@
     <CatConfirmDialog
       :open="skillsDirOpen"
       :title="C.noSkillsDir"
-      :body="C.noSkillsDir"
+      :body="C.noSkillsDirBody"
       :ok-text="C.createAndOpen"
       :cancel-text="C.cancel"
       tone="warn"

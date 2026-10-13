@@ -179,6 +179,7 @@ export const CAT_SETTINGS_COPY = {
   openDir: '打开目录',
   createAndOpen: '创建并打开',
   noSkillsDir: '项目里还没有技能目录。',
+  noSkillsDirBody: '将在当前项目下创建 `.ffmpegfree/cat/skills`，并打开该文件夹。',
   noProjectExt: '先打开或选择一个项目，再管理技能与扩展。',
   pickProject: '选择项目…',
   skills: '技能',
