@@ -32,6 +32,11 @@ type CatMessage struct {
 	CreatedAt int64  `json:"createdAt"`
 	// Media 是刷新时从会话记录里读出的可预览文件，不写入数据库。
 	Media []CatMedia `json:"media,omitempty"`
+	// v0.37.1 消息尾（仅 assistant；缺省 omitempty；旧消息无字段 → 不显示尾巴）。
+	// 应用侧按 turn 持久化后，在 GetCatConversation 合并进导出正文；不写进 CLI export。
+	FinishedAt   int64    `json:"finishedAt,omitempty"`
+	TokenTotal   *int64   `json:"tokenTotal,omitempty"`
+	TokensPerSec *float64 `json:"tokensPerSec,omitempty"`
 }
 
 // CatMedia 是一条消息上可预览的图片、视频或文档。

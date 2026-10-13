@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -304,6 +305,7 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	var acc strings.Builder
 	var gotSession string
 	var resultFallback string
+	var usageTokens, usageDur int64
 	scanErr := a.scanCLIStream(stdout, func(p streamPiece) {
 		switch p.Kind {
 		case "thought", "tool", "retry":
@@ -313,6 +315,14 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		case "result_text":
 			// Claude 最终 result 全文：仅作无增量时的兜底，不与 partial 叠加。
 			resultFallback = p.Text
+		case "usage":
+			// ID 复用为 tokenTotal；Replace 无关。Text 未用。
+			if n, err := parseInt64(p.ID); err == nil && n > 0 {
+				usageTokens = n
+			}
+			if n, err := parseInt64(p.Text); err == nil && n > 0 {
+				usageDur = n
+			}
 		default:
 			if p.Text == "" {
 				return
@@ -352,19 +362,20 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	if waitErr != nil {
 		authText += "\n" + waitErr.Error()
 	}
+	usageResp := TurnResponse{TokenTotal: usageTokens, DurationMs: usageDur}
 	if isAuthFailure(authText) {
 		a.markAuthInvalid()
-		return TurnResponse{}, authNotReadyErr()
+		return usageResp, authNotReadyErr()
 	}
 	if runCtx.Err() != nil {
 		if ctx.Err() != nil {
-			return TurnResponse{}, apperr.New(apperr.Canceled, "已取消")
+			return usageResp, apperr.New(apperr.Canceled, "已取消")
 		}
 		msg := cliMsg
 		if msg == "" {
 			msg = "回复超时"
 		}
-		return TurnResponse{}, apperr.New(apperr.CatReplyFailed, msg).WithDetail("reason=timeout")
+		return usageResp, apperr.New(apperr.CatReplyFailed, msg).WithDetail("reason=timeout")
 	}
 	if cliMsg != "" || waitErr != nil {
 		msg := cliMsg
@@ -378,7 +389,7 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		if waitErr != nil && cliMsg == "" {
 			detail = "reason=exit"
 		}
-		return TurnResponse{}, apperr.New(apperr.CatReplyFailed, truncate(msg, 500)).WithDetail(detail)
+		return usageResp, apperr.New(apperr.CatReplyFailed, truncate(msg, 500)).WithDetail(detail)
 	}
 	body := acc.String()
 	if strings.TrimSpace(body) == "" && strings.TrimSpace(resultFallback) != "" {
@@ -390,10 +401,9 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	if strings.TrimSpace(body) == "" {
 		return TurnResponse{}, apperr.New(apperr.CatReplyFailed, MsgReplyFailed).WithDetail("reason=empty_reply")
 	}
-	return TurnResponse{
-		Version: ProtocolVersion,
-		Message: WireMessage{Role: "assistant", Content: body},
-	}, nil
+	usageResp.Version = ProtocolVersion
+	usageResp.Message = WireMessage{Role: "assistant", Content: body}
+	return usageResp, nil
 }
 
 func (a *CLIAgentAdapter) plainCwd(convID string) (string, error) {
@@ -679,6 +689,11 @@ func (a *CLIAgentAdapter) scanCLIStream(r io.Reader, onPiece func(streamPiece), 
 		if len(line) == 0 {
 			continue
 		}
+		if a.kind == cliKindClaude {
+			if handled := emitClaudeResultLine(line, onPiece, onErr, onSession); handled {
+				continue
+			}
+		}
 		piece, sid, errMsg, isErr := a.parseCLIStreamLine(line)
 		if sid != "" && onSession != nil {
 			onSession(sid)
@@ -689,11 +704,39 @@ func (a *CLIAgentAdapter) scanCLIStream(r io.Reader, onPiece func(streamPiece), 
 			}
 			continue
 		}
-		if onPiece != nil && (piece.Kind == "retry" || piece.Text != "") {
+		if onPiece != nil && (piece.Kind == "retry" || piece.Kind == "usage" || piece.Kind == "result_text" || piece.Text != "") {
 			onPiece(piece)
 		}
 	}
 	return sc.Err()
+}
+
+// emitClaudeResultLine 处理 type=result：可同时产出 usage 与 result_text。
+func emitClaudeResultLine(line []byte, onPiece func(streamPiece), onErr func(string), onSession func(string)) bool {
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(line, &raw) != nil {
+		return false
+	}
+	typ, _ := rawStr(raw, "type")
+	if !strings.EqualFold(typ, "result") {
+		return false
+	}
+	if s, ok := rawStr(raw, "session_id"); ok && s != "" && onSession != nil {
+		onSession(s)
+	}
+	if resultIsError(raw) {
+		if onErr != nil {
+			onErr(resultErrorText(raw))
+		}
+		return true
+	}
+	if u := claudeUsageTotal(raw); u > 0 && onPiece != nil {
+		onPiece(streamPiece{Kind: "usage", ID: fmtInt64(u), Text: fmtInt64(claudeDurationMs(raw))})
+	}
+	if t, ok := rawStr(raw, "result"); ok && strings.TrimSpace(t) != "" && onPiece != nil {
+		onPiece(streamPiece{Kind: "result_text", Text: t})
+	}
+	return true
 }
 
 func (a *CLIAgentAdapter) parseCLIStreamLine(line []byte) (piece streamPiece, sessionID, errMsg string, isErr bool) {
@@ -728,9 +771,10 @@ func parseClaudeStreamLine(raw map[string]json.RawMessage, typ string) (streamPi
 		if resultIsError(raw) {
 			return streamPiece{}, sid, resultErrorText(raw), true
 		}
-		// 最终全文仅作无 partial 时的兜底（Kind=result_text）。
-		if t, ok := rawStr(raw, "result"); ok && strings.TrimSpace(t) != "" {
-			return streamPiece{Kind: "result_text", Text: t}, sid, "", false
+		// usage 与全文拆成两次由上层处理：先 usage 再 result_text（同线只能回一条）。
+		// 这里优先回 usage；全文在无 partial 时由上层用 result_text 兜底——见 parseClaudeResult。
+		if piece, ok := parseClaudeResult(raw, sid); ok {
+			return piece, sid, "", false
 		}
 		return streamPiece{}, sid, "", false
 	case "stream_event":
@@ -849,6 +893,11 @@ func parseCodexStreamLine(raw map[string]json.RawMessage, typ string) (streamPie
 		return streamPiece{}, sid, msg, true
 	case "thread.started":
 		return streamPiece{}, sid, "", false
+	case "turn.completed":
+		if piece, ok := parseCodexUsage(raw); ok {
+			return piece, sid, "", false
+		}
+		return streamPiece{}, sid, "", false
 	case "item.completed", "item.started", "item.updated":
 		itemRaw, ok := raw["item"]
 		if !ok {
@@ -896,4 +945,102 @@ func firstNonEmpty(ss ...string) string {
 		}
 	}
 	return ""
+}
+
+func parseInt64(s string) (int64, error) {
+	return strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+}
+
+// parseClaudeResult 从 result 事件抽出 usage（优先）或全文兜底。
+func parseClaudeResult(raw map[string]json.RawMessage, sid string) (streamPiece, bool) {
+	if u := claudeUsageTotal(raw); u > 0 {
+		dur := claudeDurationMs(raw)
+		return streamPiece{Kind: "usage", ID: fmtInt64(u), Text: fmtInt64(dur)}, true
+	}
+	if t, ok := rawStr(raw, "result"); ok && strings.TrimSpace(t) != "" {
+		return streamPiece{Kind: "result_text", Text: t}, true
+	}
+	_ = sid
+	return streamPiece{}, false
+}
+
+func claudeUsageTotal(raw map[string]json.RawMessage) int64 {
+	usageRaw, ok := raw["usage"]
+	if !ok {
+		return 0
+	}
+	var u map[string]json.RawMessage
+	if json.Unmarshal(usageRaw, &u) != nil {
+		return 0
+	}
+	var total int64
+	for _, k := range []string{"input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"} {
+		if n := jsonInt64(u, k); n > 0 {
+			total += n
+		}
+	}
+	if total > 0 {
+		return total
+	}
+	return jsonInt64(u, "total_tokens")
+}
+
+func claudeDurationMs(raw map[string]json.RawMessage) int64 {
+	for _, k := range []string{"duration_ms", "durationMs", "elapsed_ms"} {
+		if n := jsonInt64(raw, k); n > 0 {
+			return n
+		}
+	}
+	return 0
+}
+
+func parseCodexUsage(raw map[string]json.RawMessage) (streamPiece, bool) {
+	usageRaw, ok := raw["usage"]
+	if !ok {
+		return streamPiece{}, false
+	}
+	var u map[string]json.RawMessage
+	if json.Unmarshal(usageRaw, &u) != nil {
+		return streamPiece{}, false
+	}
+	var total int64
+	for _, k := range []string{"input_tokens", "output_tokens", "cached_input_tokens", "reasoning_output_tokens"} {
+		if n := jsonInt64(u, k); n > 0 {
+			total += n
+		}
+	}
+	if total <= 0 {
+		total = jsonInt64(u, "total_tokens")
+	}
+	if total <= 0 {
+		return streamPiece{}, false
+	}
+	dur := jsonInt64(raw, "duration_ms")
+	if dur <= 0 {
+		dur = jsonInt64(u, "duration_ms")
+	}
+	return streamPiece{Kind: "usage", ID: fmtInt64(total), Text: fmtInt64(dur)}, true
+}
+
+func jsonInt64(m map[string]json.RawMessage, key string) int64 {
+	v, ok := m[key]
+	if !ok {
+		return 0
+	}
+	var n int64
+	if json.Unmarshal(v, &n) == nil {
+		return n
+	}
+	var f float64
+	if json.Unmarshal(v, &f) == nil {
+		return int64(f)
+	}
+	return 0
+}
+
+func fmtInt64(n int64) string {
+	if n <= 0 {
+		return ""
+	}
+	return strconv.FormatInt(n, 10)
 }

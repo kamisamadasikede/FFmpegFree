@@ -89,6 +89,9 @@ type TurnResponse struct {
 	Version      int           `json:"version"`
 	Message      WireMessage   `json:"message"`
 	ToolRequests []ToolRequest `json:"toolRequests,omitempty"`
+	// v0.37.1：本轮合计 token / CLI 上报生成耗时（毫秒）。0 = 无 / 未知。
+	TokenTotal int64 `json:"tokenTotal,omitempty"`
+	DurationMs int64 `json:"durationMs,omitempty"`
 }
 
 // Capabilities 是能力探测结果。

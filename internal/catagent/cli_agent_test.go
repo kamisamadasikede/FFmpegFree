@@ -267,3 +267,69 @@ func TestClaudeArgs_CapturedByFakeExec(t *testing.T) {
 		}
 	}
 }
+
+func TestClaudeParseResultUsageAndText(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix script fake")
+	}
+	fake := filepath.Join(t.TempDir(), "claude-usage")
+	script := `#!/bin/sh
+printf '%s\n' '{"type":"stream_event","event":{"delta":{"type":"text_delta","text":"Hi"}}}'
+printf '%s\n' '{"type":"result","session_id":"s1","result":"Hi","duration_ms":500,"usage":{"input_tokens":10,"output_tokens":5}}'
+exit 0
+`
+	_ = os.WriteFile(fake, []byte(script), 0o755)
+	a := NewClaudeAdapter(CLIAgentConfig{
+		DataRoot: t.TempDir(),
+		LookPath: func(string) (string, error) { return fake, nil },
+		Exec: func(ctx context.Context, name string, args ...string) *exec.Cmd {
+			return exec.CommandContext(ctx, fake)
+		},
+	})
+	a.detect()
+	resp, err := a.RunTurn(TurnOptions{
+		Ctx: context.Background(), ConversationID: "u1",
+		Messages: []WireMessage{{Role: "user", Content: "x"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Message.Content != "Hi" {
+		t.Fatalf("content %q", resp.Message.Content)
+	}
+	if resp.TokenTotal != 15 || resp.DurationMs != 500 {
+		t.Fatalf("usage %+v", resp)
+	}
+}
+
+func TestCodexParseTurnCompletedUsage(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix script fake")
+	}
+	fake := filepath.Join(t.TempDir(), "codex-usage")
+	script := `#!/bin/sh
+printf '%s\n' '{"type":"thread.started","thread_id":"t1"}'
+printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"Done"}}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":20,"output_tokens":10}}'
+exit 0
+`
+	_ = os.WriteFile(fake, []byte(script), 0o755)
+	a := NewCodexAdapter(CLIAgentConfig{
+		DataRoot: t.TempDir(),
+		LookPath: func(string) (string, error) { return fake, nil },
+		Exec: func(ctx context.Context, name string, args ...string) *exec.Cmd {
+			return exec.CommandContext(ctx, fake)
+		},
+	})
+	a.detect()
+	resp, err := a.RunTurn(TurnOptions{
+		Ctx: context.Background(), ConversationID: "u2",
+		Messages: []WireMessage{{Role: "user", Content: "x"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.TokenTotal != 30 {
+		t.Fatalf("tokens %d", resp.TokenTotal)
+	}
+}
