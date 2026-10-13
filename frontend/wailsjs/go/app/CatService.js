@@ -10,6 +10,10 @@ export function ClearAllCatConversations() {
   return window['go']['app']['CatService']['ClearAllCatConversations']();
 }
 
+export function ClearCatProviderKey(arg1) {
+  return window['go']['app']['CatService']['ClearCatProviderKey'](arg1);
+}
+
 export function CreateCatConversation(arg1) {
   return window['go']['app']['CatService']['CreateCatConversation'](arg1);
 }
@@ -94,6 +98,10 @@ export function ListCatModels(arg1) {
   return window['go']['app']['CatService']['ListCatModels'](arg1);
 }
 
+export function ListCatProviderCapabilities() {
+  return window['go']['app']['CatService']['ListCatProviderCapabilities']();
+}
+
 export function ListCatProjects() {
   return window['go']['app']['CatService']['ListCatProjects']();
 }
@@ -164,6 +172,10 @@ export function RunNowCatSchedule(arg1) {
 
 export function SaveCatSettings(arg1) {
   return window['go']['app']['CatService']['SaveCatSettings'](arg1);
+}
+
+export function SaveCatProviderKey(arg1) {
+  return window['go']['app']['CatService']['SaveCatProviderKey'](arg1);
 }
 
 export function SearchCatFiles(arg1) {

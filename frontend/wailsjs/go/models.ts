@@ -922,10 +922,77 @@ export namespace cat {
 	        this.effort = source["effort"];
 	    }
 	}
+	export class ProviderSettings {
+	    enabledCustom: boolean;
+	    protocol: string;
+	    apiUrl: string;
+	    apiKeySet: boolean;
+	    // apiKey 若客户端误传则忽略；Get/Save 永不回显明文
+	    apiKey?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ProviderSettings(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabledCustom = source["enabledCustom"];
+	        this.protocol = source["protocol"];
+	        this.apiUrl = source["apiUrl"];
+	        this.apiKeySet = source["apiKeySet"];
+	        this.apiKey = source["apiKey"];
+	    }
+	}
+	export class ProviderCapability {
+	    agentKind: string;
+	    defaultProtocol: string;
+	    allowProtocolPick: boolean;
+	    allowedProtocols: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new ProviderCapability(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.agentKind = source["agentKind"];
+	        this.defaultProtocol = source["defaultProtocol"];
+	        this.allowProtocolPick = source["allowProtocolPick"];
+	        this.allowedProtocols = source["allowedProtocols"];
+	    }
+	}
+	export class SaveProviderKeyRequest {
+	    agentKind: string;
+	    apiKey: string;
+
+	    static createFrom(source: any = {}) {
+	        return new SaveProviderKeyRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.agentKind = source["agentKind"];
+	        this.apiKey = source["apiKey"];
+	    }
+	}
+	export class ClearProviderKeyRequest {
+	    agentKind: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ClearProviderKeyRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.agentKind = source["agentKind"];
+	    }
+	}
 	export class Settings {
 	    // v0.36
 	    defaultAgentKind: string;
 	    defaultsByAgent: {[key: string]: AgentDefaults};
+	    // v0.38
+	    providersByAgent: {[key: string]: ProviderSettings};
 	    defaultApprovalMode: string;
 	    customInstruction: string;
 	    notifyOnFinish?: boolean;
@@ -941,6 +1008,7 @@ export namespace cat {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.defaultAgentKind = source["defaultAgentKind"];
 	        this.defaultsByAgent = this.convertValues(source["defaultsByAgent"], AgentDefaults, true);
+	        this.providersByAgent = this.convertValues(source["providersByAgent"], ProviderSettings, true);
 	        this.defaultApprovalMode = source["defaultApprovalMode"];
 	        this.customInstruction = source["customInstruction"];
 	        this.notifyOnFinish = source["notifyOnFinish"];

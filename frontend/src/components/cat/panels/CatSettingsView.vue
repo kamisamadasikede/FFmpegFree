@@ -31,17 +31,17 @@
               v-for="(block, bi) in providerBlocks"
               :key="block.kind"
               class="agent"
-              :class="{ dim: !block.ready, sep: bi > 0 }"
+              :class="{ sep: bi > 0 }"
               :data-testid="'cat-set-agent-' + block.kind"
             >
-              <div class="agent-hd">
+              <div class="agent-hd" :class="{ dim: !block.ready }">
                 <CatAgentMark :kind="block.kind" :size="18" />
                 <div class="lab">
                   <b>{{ block.label }}</b>
                   <span :class="block.ready ? 'okt' : 'badt'">{{ block.ready ? C.installed : C.notDetected }}</span>
                 </div>
               </div>
-              <div class="row">
+              <div class="row" :class="{ dim: !block.ready }">
                 <div class="lab"><b>{{ C.model }}</b><span>{{ C.modelDesc }}</span></div>
                 <div class="ctl">
                   <SavedMark :on="!!savedAgent[block.kind + ':model']" />
@@ -73,6 +73,107 @@
                     <option value="">{{ C.defaultOpt }}</option>
                     <option v-for="t in block.thinks" :key="t.id" :value="t.id">{{ t.displayName }}</option>
                   </select>
+                </div>
+              </div>
+
+              <!-- v0.38 自定义服务商：未检测到 CLI 时仍可展开预填 -->
+              <div
+                class="cust-fold"
+                :class="{ open: !!customOpen[block.kind] }"
+                :data-testid="'cat-set-custom-' + block.kind"
+              >
+                <button
+                  type="button"
+                  class="cust-tog"
+                  :aria-expanded="!!customOpen[block.kind]"
+                  :data-testid="'cat-set-custom-tog-' + block.kind"
+                  @click="toggleCustom(block.kind)"
+                >
+                  <FIcon name="right" :size="14" class="chev" />
+                  <span class="cust-lab">
+                    <b>{{ C.customFold }}</b>
+                    <small>{{ providerOf(block.kind).enabledCustom ? C.customFoldHintOn : C.customFoldHintOff }}</small>
+                  </span>
+                </button>
+                <div v-if="customOpen[block.kind]" class="cust-body">
+                  <div class="row">
+                    <div class="lab"><b>{{ C.enableCustom }}</b><span>{{ C.enableCustomDesc }}</span></div>
+                    <div class="ctl">
+                      <SavedMark :on="!!savedAgent[block.kind + ':custom']" />
+                      <button
+                        type="button"
+                        role="switch"
+                        class="sw"
+                        :class="{ on: providerOf(block.kind).enabledCustom }"
+                        :aria-checked="providerOf(block.kind).enabledCustom"
+                        :aria-label="C.enableCustom"
+                        :data-testid="'cat-set-custom-enable-' + block.kind"
+                        @click="setProviderField(block.kind, 'enabledCustom', !providerOf(block.kind).enabledCustom)"
+                      ><i /></button>
+                    </div>
+                  </div>
+                  <div class="row">
+                    <div class="lab">
+                      <b>{{ C.protocol }}</b>
+                      <span>{{ capOf(block.kind).allowProtocolPick ? '' : C.protocolLocked }}</span>
+                    </div>
+                    <div class="ctl">
+                      <SavedMark :on="!!savedAgent[block.kind + ':protocol']" />
+                      <select
+                        v-if="capOf(block.kind).allowProtocolPick"
+                        class="sel"
+                        :value="effectiveProtocol(block.kind)"
+                        :aria-label="C.protocol"
+                        :data-testid="'cat-set-custom-protocol-' + block.kind"
+                        @change="setProviderField(block.kind, 'protocol', ($event.target as HTMLSelectElement).value)"
+                      >
+                        <option v-for="pr in capOf(block.kind).allowedProtocols" :key="pr" :value="pr">{{ protocolLabel(pr) }}</option>
+                      </select>
+                      <span v-else class="ro locked" :data-testid="'cat-set-custom-protocol-' + block.kind">{{ protocolLabel(effectiveProtocol(block.kind)) }}</span>
+                    </div>
+                  </div>
+                  <div class="row">
+                    <div class="lab"><b>{{ C.apiUrl }}</b><span>{{ C.apiUrlDesc }}</span></div>
+                    <div class="ctl">
+                      <SavedMark :on="!!savedAgent[block.kind + ':apiUrl']" />
+                      <input
+                        class="inp url"
+                        type="url"
+                        :value="providerOf(block.kind).apiUrl"
+                        :placeholder="protocolUrlPlaceholder(effectiveProtocol(block.kind))"
+                        :aria-label="C.apiUrl"
+                        :data-testid="'cat-set-custom-url-' + block.kind"
+                        @change="setProviderField(block.kind, 'apiUrl', ($event.target as HTMLInputElement).value.trim())"
+                      />
+                    </div>
+                  </div>
+                  <div class="row">
+                    <div class="lab"><b>{{ C.apiKey }}</b><span>{{ C.apiKeyDesc }}</span></div>
+                    <div class="ctl key-ctl">
+                      <template v-if="providerOf(block.kind).apiKeySet">
+                        <span class="key-saved" :data-testid="'cat-set-custom-key-saved-' + block.kind">{{ C.apiKeySaved }}</span>
+                        <button
+                          type="button"
+                          class="btn text key-clear"
+                          :data-testid="'cat-set-custom-key-clear-' + block.kind"
+                          @click="askClearKey(block.kind)"
+                        >{{ C.apiKeyClear }}</button>
+                      </template>
+                      <input
+                        v-else
+                        class="inp key"
+                        type="password"
+                        autocomplete="off"
+                        :value="keyDraft[block.kind] || ''"
+                        :placeholder="C.apiKeyPlaceholder"
+                        :aria-label="C.apiKey"
+                        :data-testid="'cat-set-custom-key-' + block.kind"
+                        @input="keyDraft[block.kind] = ($event.target as HTMLInputElement).value"
+                        @keydown.enter.prevent="saveKey(block.kind)"
+                        @blur="saveKey(block.kind)"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -271,6 +372,17 @@
       @cancel="clearOpen = false"
       @ok="doClear"
     />
+    <CatConfirmDialog
+      :open="!!clearKeyKind"
+      :title="C.clearKeyTitle"
+      :body="C.clearKeyBody"
+      :ok-text="C.clearKeyOk"
+      :cancel-text="C.cancel"
+      tone="danger"
+      :busy="clearingKey"
+      @cancel="clearKeyKind = null"
+      @ok="doClearKey"
+    />
   </section>
 </template>
 
@@ -297,13 +409,22 @@ import {
 import { CAT_ACCESS } from '@/api/catMock'
 import {
   type CatInspectResult,
+  type CatProviderCapability,
+  type CatProviderProtocol,
+  type CatProviderSettings,
   type CatSettings,
   CAT_INSTRUCTION_MAX as MAX,
   CAT_SETTINGS_COPY,
   clearAllCatConversations,
+  clearCatProviderKey,
   emptyDefaults,
+  emptyProvider,
   inspectCatConfig,
+  listCatProviderCapabilities,
   loginBanner,
+  protocolLabel,
+  protocolUrlPlaceholder,
+  saveCatProviderKey,
 } from '@/api/catSettings'
 import { getAppVersion } from '@/api/about'
 import { catPanels, saveSetting, type CatSettingsTab } from '@/views/cat/catPanels'
@@ -354,6 +475,98 @@ async function setAgent(kind: CatProviderKind, field: 'model' | 'effort', value:
   else notify(C.saveFailed, 'warn')
 }
 
+const customOpen = reactive<Record<string, boolean>>({})
+const keyDraft = reactive<Record<string, string>>({})
+const providerCaps = ref<CatProviderCapability[]>([])
+const clearKeyKind = ref<CatProviderKind | null>(null)
+const clearingKey = ref(false)
+
+function toggleCustom(kind: CatProviderKind) {
+  customOpen[kind] = !customOpen[kind]
+}
+
+function providerOf(kind: CatProviderKind): CatProviderSettings {
+  return catPanels.settings.providersByAgent[kind] ?? emptyProvider()
+}
+
+function capOf(kind: CatProviderKind): CatProviderCapability {
+  return (
+    providerCaps.value.find((c) => c.agentKind === kind) ?? {
+      agentKind: kind,
+      defaultProtocol: kind === 'claude_cli' ? 'anthropic' : 'openai',
+      allowProtocolPick: false,
+      allowedProtocols: [kind === 'claude_cli' ? 'anthropic' : 'openai'],
+    }
+  )
+}
+
+function effectiveProtocol(kind: CatProviderKind): CatProviderProtocol {
+  const p = providerOf(kind).protocol
+  if (p === 'openai' || p === 'anthropic') return p
+  return capOf(kind).defaultProtocol
+}
+
+async function setProviderField(
+  kind: CatProviderKind,
+  field: 'enabledCustom' | 'protocol' | 'apiUrl',
+  value: boolean | string,
+) {
+  const prev = { ...catPanels.settings.providersByAgent }
+  const cur = { ...(prev[kind] ?? emptyProvider()) }
+  if (field === 'enabledCustom') cur.enabledCustom = !!value
+  else if (field === 'protocol') cur.protocol = (value === 'openai' || value === 'anthropic' ? value : '') as CatProviderProtocol | ''
+  else cur.apiUrl = String(value || '')
+  // 保留已有 apiKeySet；Save 不会清 Key
+  const next = { ...prev, [kind]: cur }
+  const ok = await saveSetting('providersByAgent', next)
+  if (ok) flashAgent(`${kind}:${field === 'enabledCustom' ? 'custom' : field}`)
+  else notify(C.saveFailed, 'warn')
+}
+
+async function saveKey(kind: CatProviderKind) {
+  const draft = (keyDraft[kind] || '').trim()
+  if (!draft) return
+  try {
+    const view = await saveCatProviderKey(kind, draft)
+    keyDraft[kind] = ''
+    const prev = { ...catPanels.settings.providersByAgent }
+    catPanels.settings.providersByAgent = { ...prev, [kind]: { ...(prev[kind] ?? emptyProvider()), ...view, apiKeySet: true } }
+  } catch {
+    notify(C.saveFailed, 'warn')
+  }
+}
+
+function askClearKey(kind: CatProviderKind) {
+  clearKeyKind.value = kind
+}
+
+async function doClearKey() {
+  const kind = clearKeyKind.value
+  if (!kind) return
+  clearingKey.value = true
+  try {
+    const view = await clearCatProviderKey(kind)
+    const prev = { ...catPanels.settings.providersByAgent }
+    // Clear 不关 enabledCustom、不清 apiUrl
+    catPanels.settings.providersByAgent = {
+      ...prev,
+      [kind]: {
+        ...(prev[kind] ?? emptyProvider()),
+        ...view,
+        enabledCustom: (prev[kind] ?? emptyProvider()).enabledCustom,
+        apiUrl: (prev[kind] ?? emptyProvider()).apiUrl,
+        apiKeySet: false,
+      },
+    }
+    clearKeyKind.value = null
+  } catch {
+    clearKeyKind.value = null
+    notify(C.saveFailed, 'warn')
+  } finally {
+    clearingKey.value = false
+  }
+}
+
 const caps = reactive({
   models: {} as Record<CatProviderKind, CatModel[]>,
   thinks: {} as Record<CatProviderKind, CatThinkLevel[]>,
@@ -362,19 +575,23 @@ const caps = reactive({
 
 async function loadCaps() {
   const useSim = import.meta.env.DEV && catSim.has('caps')
-  await Promise.all(
-    CAT_PROVIDER_ORDER.map(async (kind) => {
-      if (useSim) {
-        // 走查：三家都给模型列表；Codex 故意空强度。未检测到时模板还会因 !ready 整行隐藏强度。
-        caps.models[kind] = simModels().map((m) => ({ ...m, id: `${kind}:${m.id}`, displayName: m.displayName }))
-        caps.thinks[kind] = kind === 'codex_cli' ? [] : simThinks()
-      } else {
-        const [models, thinks] = await Promise.all([listCatModels(kind), listCatThinkLevels(kind)])
-        caps.models[kind] = models
-        caps.thinks[kind] = thinks
-      }
-    }),
-  )
+  const [capList] = await Promise.all([
+    listCatProviderCapabilities().catch(() => []),
+    Promise.all(
+      CAT_PROVIDER_ORDER.map(async (kind) => {
+        if (useSim) {
+          // 走查：三家都给模型列表；Codex 故意空强度。未检测到时模板还会因 !ready 整行隐藏强度。
+          caps.models[kind] = simModels().map((m) => ({ ...m, id: `${kind}:${m.id}`, displayName: m.displayName }))
+          caps.thinks[kind] = kind === 'codex_cli' ? [] : simThinks()
+        } else {
+          const [models, thinks] = await Promise.all([listCatModels(kind), listCatThinkLevels(kind)])
+          caps.models[kind] = models
+          caps.thinks[kind] = thinks
+        }
+      }),
+    ),
+  ])
+  if (capList.length) providerCaps.value = capList
   caps.loaded = true
 }
 
@@ -637,17 +854,132 @@ onMounted(async () => {
   margin-top: 4px;
   padding-top: 4px;
 }
-.agent.dim {
-  opacity: 0.55;
-}
 .agent-hd {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 10px 14px 2px;
 }
+.agent-hd.dim,
+.row.dim {
+  opacity: 0.55;
+}
 .agent-hd .lab {
   flex: 1;
+}
+.cust-fold {
+  margin: 4px 14px 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--cat-divider);
+}
+.cust-tog {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  color: var(--cat-text-2);
+  cursor: pointer;
+  border-radius: var(--cat-radius-sm);
+}
+.cust-tog:hover {
+  color: var(--cat-text);
+}
+.cust-tog:focus-visible {
+  outline: none;
+  box-shadow: var(--cat-focus);
+}
+.cust-tog .chev {
+  margin-top: 3px;
+  color: var(--cat-muted);
+  transition: transform 200ms var(--ff-ease);
+  flex: none;
+}
+.cust-fold.open .cust-tog .chev {
+  transform: rotate(90deg);
+}
+.cust-lab {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.cust-lab b {
+  font-weight: 600;
+  color: var(--cat-text);
+  font-size: 13px;
+}
+.cust-lab small {
+  font-size: 12px;
+  color: var(--cat-muted);
+  line-height: 1.4;
+}
+.cust-body {
+  padding: 4px 0 2px 22px;
+}
+.cust-body .row {
+  padding-left: 0;
+  padding-right: 0;
+}
+.inp {
+  height: 32px;
+  min-width: 180px;
+  max-width: 280px;
+  padding: 0 10px;
+  border-radius: var(--cat-radius-md);
+  border: 1px solid var(--cat-border);
+  background: var(--cat-bg);
+  color: var(--cat-text);
+  font-size: 12.5px;
+  font-family: var(--ff-font-mono, ui-monospace, monospace);
+  transition: border-color 120ms var(--ff-ease), box-shadow 120ms var(--ff-ease);
+}
+.inp:focus {
+  outline: none;
+  border-color: var(--cat-accent);
+  box-shadow: var(--cat-focus);
+}
+.inp.url {
+  width: min(280px, 100%);
+}
+.inp.key {
+  width: min(220px, 100%);
+}
+.ro.locked {
+  font-size: 12.5px;
+  color: var(--cat-text-2);
+  background: var(--cat-sunken);
+  border: 1px solid var(--cat-divider);
+  border-radius: var(--cat-radius-sm);
+  padding: 4px 10px;
+}
+.key-saved {
+  font-size: 12.5px;
+  color: var(--cat-text-2);
+}
+.key-ctl {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.cust-body .btn.key-clear {
+  border: none;
+  background: none;
+  color: var(--cat-text-2);
+  height: 28px;
+  padding: 0 4px;
+  font-size: 12.5px;
+}
+.cust-body .btn.key-clear:hover:not(:disabled) {
+  color: var(--cat-text);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cust-tog .chev {
+    transition: none;
+  }
 }
 .okt {
   color: var(--cat-success-text, #1a7f4b);
