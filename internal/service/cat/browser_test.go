@@ -6,6 +6,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"FFmpegFree/internal/apperr"
 )
 
 func TestBrowserFetchURL(t *testing.T) {
@@ -32,7 +35,9 @@ func TestBrowserTitle(t *testing.T) {
 }
 
 func TestOpenCatBrowser(t *testing.T) {
+	var gotUA string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUA = r.Header.Get("User-Agent")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write([]byte("<html><head><title>示例页</title></head><body><a href=\"/next\">下</a></body></html>"))
 	}))
@@ -47,5 +52,33 @@ func TestOpenCatBrowser(t *testing.T) {
 	}
 	if page.Title != "示例页" || !strings.Contains(page.HTML, "下") || !strings.HasPrefix(page.URL, srv.URL) {
 		t.Fatalf("页面 %+v", page)
+	}
+	if gotUA != browserDesktopUA {
+		t.Fatalf("User-Agent %q", gotUA)
+	}
+}
+
+func TestFetchBrowserPageTimeout(t *testing.T) {
+	prev := browserHTTPTimeout
+	browserHTTPTimeout = 80 * time.Millisecond
+	defer func() { browserHTTPTimeout = prev }()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(400 * time.Millisecond)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte("<html><body>晚了</body></html>"))
+	}))
+	defer srv.Close()
+
+	u, err := browserFetchURL(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = fetchBrowserPage(context.Background(), u)
+	if !apperr.Is(err, apperr.IOError) {
+		t.Fatalf("期望 IO_ERROR，得到 %v", err)
+	}
+	if apperr.From(err).Message != "打开超时，请检查网络或换网址。" {
+		t.Fatalf("超时文案 %q", apperr.From(err).Message)
 	}
 }
