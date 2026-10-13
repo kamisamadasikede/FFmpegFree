@@ -7,11 +7,12 @@ import "FFmpegFree/internal/apperr"
 
 // AgentKind 是会话锁定的适配器种类。
 const (
-	KindCatBuild = "cat_build"
-	// 二期预留（一期不注册）：
-	KindCatCLI   = "cat_cli"
-	KindCatCode  = "cat_code"
-	KindCodexCLI = "codex_cli"
+	KindCatBuild  = "cat_build"
+	KindClaudeCLI = "claude_cli" // v0.36
+	KindCodexCLI  = "codex_cli"
+	// 仍延后（胶囊置灰「下一期开放」）：
+	KindCatCLI  = "cat_cli"
+	KindCatCode = "cat_code"
 )
 
 // 访问模式（一期只允许 ask）。
@@ -62,12 +63,22 @@ const (
 	MsgToolNoProject = "这个对话没有项目文件夹，不能查看文件。"
 )
 
+// AgentStatus 是某一家的就绪概况（契约 v0.36 CatAgentStatus）。
+type AgentStatus struct {
+	AgentKind string `json:"agentKind"` // cat_build | claude_cli | codex_cli
+	Ready     bool   `json:"ready"`
+	Version   string `json:"version,omitempty"`
+	LoggedIn  *bool  `json:"loggedIn,omitempty"` // 该家不需要登录时可省略
+	Detail    string `json:"detail,omitempty"`
+}
+
 // Status 是 CatStatus。
 type Status struct {
-	State       string           `json:"state"` // checking | ready | missing | failed
+	State       string           `json:"state"` // checking | ready | missing | failed；兼容：整体态仍以 cat_build 为主
 	Version     string           `json:"version"`
 	CanDownload bool             `json:"canDownload"`
 	Error       *apperr.AppError `json:"error,omitempty"`
+	Agents      []AgentStatus    `json:"agents"` // v0.36：固定顺序 cat_build, claude_cli, codex_cli
 }
 
 // Model 是 CatModel。

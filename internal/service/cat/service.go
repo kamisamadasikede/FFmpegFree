@@ -1,4 +1,4 @@
-// Package cat 实现 Cat 助手一期（契约 6.19）：仅 cat_build，会话锁定 agentKind。
+// Package cat 实现 Cat 助手（契约 6.19）：v0.36 可创建 cat_build|claude_cli|codex_cli，会话锁定 agentKind。
 package cat
 
 import (
@@ -26,8 +26,10 @@ type Config struct {
 	Registry *catagent.Registry
 	Emit     func(event string, payload any)
 	Logf     func(format string, args ...any)
-	// DefaultAgentKind 读取设置里的新建会话预填（默认 cat_build）。
+	// DefaultAgentKind 读取新建会话预填（优先 CatSettings.defaultAgentKind，再系统旧键，默认 cat_build）。
 	DefaultAgentKind func(ctx context.Context) string
+	// SystemDefaultAgentKind 读系统旧键 catDefaultAgentKind；GetCatSettings 在 cat.settings 缺 defaultAgentKind 时回落。
+	SystemDefaultAgentKind func(ctx context.Context) string
 	// Stat 判断项目文件夹是否还在（6.19.10.4）；nil = os.Stat。测试可注入慢 / 失败的 stat。
 	Stat func(path string) (os.FileInfo, error)
 	// StatTimeout 是每个项目路径 stat 的最长等待；0 = DefaultProjectStatTimeout（2 秒）。
@@ -140,48 +142,94 @@ func (s *Service) adapter(kind string) (catagent.Adapter, error) {
 
 // ---------- 状态 ----------
 
+// agentStatusOf 把适配器 Status 收成 AgentStatus。
+func agentStatusOf(kind string, st Status) catagent.AgentStatus {
+	as := catagent.AgentStatus{
+		AgentKind: kind,
+		Ready:     st.State == catagent.StateReady,
+		Version:   st.Version,
+	}
+	if st.Error != nil {
+		as.Detail = st.Error.Message
+	}
+	return as
+}
+
+// composeStatus 组装顶层 Status（以 cat_build 为主）+ agents[] 固定三家。
+// recheck=true 时对已注册适配器调用 Recheck。
+func (s *Service) composeStatus(recheck bool) Status {
+	kinds := catagent.CreatableKinds()
+	agents := make([]catagent.AgentStatus, 0, len(kinds))
+	var top Status
+	topSet := false
+	for _, kind := range kinds {
+		var st Status
+		if a, ok := s.cfg.Registry.Get(kind); ok && a != nil {
+			if recheck {
+				st = a.Recheck()
+			} else {
+				st = a.Status()
+			}
+		} else {
+			st = Status{State: catagent.StateMissing, CanDownload: false, Error: apperr.New(apperr.CatNotReady, catagent.MsgNotReady)}
+		}
+		if kind == catagent.KindCatBuild {
+			top = st
+			top.Agents = nil
+			topSet = true
+		}
+		agents = append(agents, agentStatusOf(kind, st))
+	}
+	if !topSet {
+		top = Status{State: catagent.StateMissing, CanDownload: false, Error: apperr.New(apperr.CatNotReady, catagent.MsgNotReady)}
+	}
+	top.Agents = agents
+	return top
+}
+
 func (s *Service) GetCatStatus(ctx context.Context) (Status, error) {
 	_ = ctx
-	a, err := s.adapter(catagent.KindCatBuild)
-	if err != nil {
-		return Status{State: catagent.StateMissing, CanDownload: false, Error: apperr.From(err)}, nil
-	}
-	return a.Status(), nil
+	return s.composeStatus(false), nil
 }
 
 func (s *Service) RecheckCat(ctx context.Context) (Status, error) {
 	_ = ctx
-	a, err := s.adapter(catagent.KindCatBuild)
-	if err != nil {
-		st := Status{State: catagent.StateMissing, CanDownload: false, Error: apperr.From(err)}
-		s.emit(catagent.EventStatus, st)
-		return st, nil
-	}
-	return a.Recheck(), nil
+	st := s.composeStatus(true)
+	s.emit(catagent.EventStatus, st)
+	return st, nil
 }
 
 func (s *Service) ListCatModels(ctx context.Context, agentKind string) ([]Model, error) {
 	_ = ctx
-	if !catagent.Phase1Creatable(agentKind) {
-		return nil, apperr.New(apperr.InvalidArgument, "不支持这种助手模式")
+	// v0.36：未知 / 未注册 → 空切片、nil error（不报 InvalidArgument）。
+	a, ok := s.cfg.Registry.Get(agentKind)
+	if !ok || a == nil {
+		return []Model{}, nil
 	}
-	a, err := s.adapter(agentKind)
+	list, err := a.ListModels()
 	if err != nil {
 		return nil, err
 	}
-	return a.ListModels()
+	if list == nil {
+		return []Model{}, nil
+	}
+	return list, nil
 }
 
 func (s *Service) ListCatThinkLevels(ctx context.Context, agentKind string) ([]ThinkLevel, error) {
 	_ = ctx
-	if !catagent.Phase1Creatable(agentKind) {
-		return nil, apperr.New(apperr.InvalidArgument, "不支持这种助手模式")
+	a, ok := s.cfg.Registry.Get(agentKind)
+	if !ok || a == nil {
+		return []ThinkLevel{}, nil
 	}
-	a, err := s.adapter(agentKind)
+	list, err := a.ListThinkLevels()
 	if err != nil {
 		return nil, err
 	}
-	return a.ListThinkLevels()
+	if list == nil {
+		return []ThinkLevel{}, nil
+	}
+	return list, nil
 }
 
 // ---------- 会话 ----------
@@ -335,8 +383,8 @@ func (s *Service) CreateCatConversation(ctx context.Context, req CreateConversat
 		return Conversation{}, apperr.New(apperr.InvalidArgument, "不支持这种助手模式")
 	}
 	if _, err := s.adapter(kind); err != nil {
-		// 允许未就绪时仍创建空会话？契约：可创建；发送时再报未就绪。
-		// 注册表一期必有 cat_build；这里主要挡脏 kind。
+		// 允许未就绪 / 未注册桩时仍创建空会话；发送时再报未就绪（v0.36）。
+		_ = err
 	}
 	access := strings.TrimSpace(req.AccessMode)
 	if access == "" {

@@ -25,9 +25,10 @@ var InspectTimeout = 15 * time.Second
 
 // Inspect 失败原因（契约 6.19.12.1 CatInspectResult.reason）。
 const (
-	InspectNotReady = "not_ready"
-	InspectTimedOut = "timeout"
-	InspectParse    = "parse"
+	InspectNotReady    = "not_ready"
+	InspectTimedOut    = "timeout"
+	InspectParse       = "parse"
+	InspectUnsupported = "unsupported" // v0.36：该家暂无 inspect 适配器
 )
 
 // InspectItem 是技能 / 插件 / 钩子 / MCP / 子代理里的一项。只有名字、说明、来源和是否启用，不带路径、命令或密钥。
