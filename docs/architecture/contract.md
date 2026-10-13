@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.35.3）
+# FFmpegFree v2 接口契约（v0.35.4）
+
+v0.35.4 变更（**排队位置**，架构师 10-13；**无新接口 / 错误码 / 迁移 / 事件 / 开关**）：`CatScheduleRun` 增加可选 `queuePosition`（int，**只在 `status=queued` 时出现**，= 排在它前面的运行数，从 0 起）；不落库，由调度器内存队列计算，随 `cat:schedule` 推送和 `ListCatScheduleRuns` / `ListCatSchedules.lastRun` 返回；队列变化时对每个仍在排队的运行重新推送。界面：`0` → `下一个就轮到它`；`>0` → `前面还有 N 个任务`；字段不存在 → 不显示。
 
 v0.35.3 变更（**撤回 v0.35.2 第 ③ 条中「已手动停止也发通知」**，产品 10-13；**无新接口 / 错误码 / 迁移 / 事件 / 开关**）：手动停止**不发任何通知**（系统通知和应用内浮提示都不发）；只有 `已完成`、`运行失败` 发通知，标题 `定时任务<已完成|运行失败>：<名称>`。`已手动停止` 只出现在运行记录里。另：① 排队中的运行在应用打开期间**永远不会变成已错过**，一直等到有空位再开始（排队时应用退出 → 仍记 `missed`、`missedReason=closed`）。② 每次定时运行**最长 30 分钟**（替代沿用一轮 10 分钟的说法）：超时杀掉进程树，运行记 `failed`，说明 `超过 30 分钟没跑完。`，并发「运行失败」通知。③ 普通模式提示改为 `无人看着时没人能确认，任务会停住，30 分钟后算失败。`。
 
@@ -4493,6 +4495,7 @@ type CatScheduleRun struct {
     StartedAt      int64                `json:"startedAt,omitempty"`
     FinishedAt     int64                `json:"finishedAt,omitempty"`
     Manual         bool                 `json:"manual"` // 立即运行
+    QueuePosition  *int                 `json:"queuePosition,omitempty"` // v0.35.4：仅 status=queued；前面还有几个运行，0 = 下一个
 }
 
 type CatSchedule struct {
