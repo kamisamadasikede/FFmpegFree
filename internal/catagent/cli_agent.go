@@ -52,6 +52,7 @@ type CLIAgentAdapter struct {
 	models  []Model
 	thinks  []ThinkLevel
 	checked bool
+	provider ProviderOverlay // v0.38；仅子进程
 }
 
 // NewClaudeAdapter 创建 Claude Code 真适配器（不立即检测）。
@@ -86,6 +87,19 @@ func (a *CLIAgentAdapter) ExecutablePath() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.exe
+}
+
+// SetProviderOverlay 供服务层在 List/Recheck 前写入自定义服务商。
+func (a *CLIAgentAdapter) SetProviderOverlay(o ProviderOverlay) {
+	a.mu.Lock()
+	a.provider = o
+	a.mu.Unlock()
+}
+
+func (a *CLIAgentAdapter) providerOverlay() ProviderOverlay {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.provider
 }
 
 // Start 后台检测一次。
@@ -191,6 +205,20 @@ func (a *CLIAgentAdapter) ListModels() ([]Model, error) {
 		// 与桩一致：未就绪时给空列表，便于设置页隐藏 / 不报错。
 		return []Model{}, nil
 	}
+	if o := a.providerOverlay(); o.Enabled {
+		a.mu.Lock()
+		exe := a.exe
+		a.mu.Unlock()
+		models := a.probeModels(exe)
+		a.mu.Lock()
+		a.models = models
+		out := append([]Model(nil), models...)
+		a.mu.Unlock()
+		if out == nil {
+			out = []Model{}
+		}
+		return out, nil
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	out := append([]Model(nil), a.models...)
@@ -262,7 +290,7 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	args := a.buildTurnArgs(opts, prompt, cwd, sessionID, resume)
 	cmd := a.runCmd(runCtx, exe, args...)
 	cmd.Dir = cwd
-	cmd.Env = os.Environ()
+	cmd.Env = MergeProviderEnv(os.Environ(), opts.Provider)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -525,11 +553,14 @@ func (a *CLIAgentAdapter) probeCodexModels(exe string) []Model {
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 	// GUESS B6：codex debug models [--bundled] 输出 JSON 目录。
+	env := MergeProviderEnv(os.Environ(), a.providerOverlay())
 	cmd := a.runCmd(ctx, exe, "debug", "models", "--bundled")
+	cmd.Env = env
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	if err := cmd.Run(); err != nil || out.Len() == 0 {
 		cmd2 := a.runCmd(ctx, exe, "debug", "models")
+		cmd2.Env = env
 		out.Reset()
 		cmd2.Stdout, cmd2.Stderr = &out, &out
 		if err2 := cmd2.Run(); err2 != nil || out.Len() == 0 {

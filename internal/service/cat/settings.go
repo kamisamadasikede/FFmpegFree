@@ -24,23 +24,60 @@ type AgentDefaults struct {
 	Effort string `json:"effort"` // 空 = 不传思考强度；否则 low|medium|high|xhigh
 }
 
-// Settings 是 Cat 设置（契约 6.19.12.1 CatSettings，v0.36 多服务商默认）。
+// Settings 是 Cat 设置（契约 6.19.12.1 CatSettings，v0.36 多服务商默认；v0.38 providersByAgent）。
 type Settings struct {
-	DefaultAgentKind    string                   `json:"defaultAgentKind"` // cat_build|claude_cli|codex_cli；默认 cat_build
-	DefaultsByAgent     map[string]AgentDefaults `json:"defaultsByAgent"`  // key = agentKind
-	DefaultApprovalMode string                   `json:"defaultApprovalMode"`
-	CustomInstruction   string                   `json:"customInstruction"`
+	DefaultAgentKind    string                     `json:"defaultAgentKind"` // cat_build|claude_cli|codex_cli；默认 cat_build
+	DefaultsByAgent     map[string]AgentDefaults   `json:"defaultsByAgent"`  // key = agentKind
+	ProvidersByAgent    map[string]ProviderSettings `json:"providersByAgent"` // v0.38：key = agentKind
+	DefaultApprovalMode string                     `json:"defaultApprovalMode"`
+	CustomInstruction   string                     `json:"customInstruction"`
 	// NotifyOnFinish 为 nil 视为 true；Get / Save 的返回值总是填好。
 	NotifyOnFinish *bool `json:"notifyOnFinish"`
 }
 
+// ProviderSettings 是一家的自定义服务商视图（契约 CatProviderSettings）。
+// ApiKeySet 只读回显；Get/Save 永不带明文 Key。Save 忽略请求里的 ApiKeySet / ApiKey。
+type ProviderSettings struct {
+	EnabledCustom bool   `json:"enabledCustom"`
+	Protocol      string `json:"protocol"` // openai | anthropic；空 = defaultProtocol
+	ApiUrl        string `json:"apiUrl"`
+	ApiKeySet     bool   `json:"apiKeySet"`
+	// ApiKey 若客户端误传则忽略，永不落库（契约 6.19.12.8）。
+	ApiKey string `json:"apiKey,omitempty"`
+}
+
+// ProviderCapability 是适配器声明，不落库（契约 CatProviderCapability）。
+type ProviderCapability struct {
+	AgentKind         string   `json:"agentKind"`
+	DefaultProtocol   string   `json:"defaultProtocol"`
+	AllowProtocolPick bool     `json:"allowProtocolPick"`
+	AllowedProtocols  []string `json:"allowedProtocols"`
+}
+
+// ProviderSecretsKey 是 settings 表里各家 API Key 的键（明文 map，不进 cat.settings）。
+const ProviderSecretsKey = "cat.providerSecrets"
+
+// MaxApiUrlRunes 是 apiUrl 长度上限（契约 6.19.12.3）。
+const MaxApiUrlRunes = 2048
+
+// SaveProviderKeyRequest / ClearProviderKeyRequest 是 v0.38 密钥绑定入参。
+type SaveProviderKeyRequest struct {
+	AgentKind string `json:"agentKind"`
+	ApiKey    string `json:"apiKey"`
+}
+
+type ClearProviderKeyRequest struct {
+	AgentKind string `json:"agentKind"`
+}
+
 // settingsWire 用于读库：同时接受 v0.35 顶层 defaultModel/defaultEffort 与 v0.36 新形状。
 type settingsWire struct {
-	DefaultAgentKind    string                   `json:"defaultAgentKind"`
-	DefaultsByAgent     map[string]AgentDefaults `json:"defaultsByAgent"`
-	DefaultApprovalMode string                   `json:"defaultApprovalMode"`
-	CustomInstruction   string                   `json:"customInstruction"`
-	NotifyOnFinish      *bool                    `json:"notifyOnFinish"`
+	DefaultAgentKind    string                      `json:"defaultAgentKind"`
+	DefaultsByAgent     map[string]AgentDefaults    `json:"defaultsByAgent"`
+	ProvidersByAgent    map[string]ProviderSettings `json:"providersByAgent"`
+	DefaultApprovalMode string                      `json:"defaultApprovalMode"`
+	CustomInstruction   string                      `json:"customInstruction"`
+	NotifyOnFinish      *bool                       `json:"notifyOnFinish"`
 	// Legacy v0.35：
 	DefaultModel  string `json:"defaultModel"`
 	DefaultEffort string `json:"defaultEffort"`
@@ -65,6 +102,18 @@ func (s Settings) normalized() Settings {
 		}
 		s.DefaultsByAgent = out
 	}
+	if s.ProvidersByAgent == nil {
+		s.ProvidersByAgent = map[string]ProviderSettings{}
+	} else {
+		out := make(map[string]ProviderSettings, len(s.ProvidersByAgent))
+		for k, p := range s.ProvidersByAgent {
+			p.Protocol = strings.TrimSpace(p.Protocol)
+			p.ApiUrl = strings.TrimSpace(p.ApiUrl)
+			p.ApiKey = "" // 永不回显 / 落库明文
+			out[k] = p
+		}
+		s.ProvidersByAgent = out
+	}
 	s.DefaultApprovalMode = strings.TrimSpace(s.DefaultApprovalMode)
 	if s.NotifyOnFinish == nil {
 		t := true
@@ -78,6 +127,7 @@ func migrateFromWire(w settingsWire) Settings {
 	s := Settings{
 		DefaultAgentKind:    w.DefaultAgentKind,
 		DefaultsByAgent:     w.DefaultsByAgent,
+		ProvidersByAgent:    w.ProvidersByAgent,
 		DefaultApprovalMode: w.DefaultApprovalMode,
 		CustomInstruction:   w.CustomInstruction,
 		NotifyOnFinish:      w.NotifyOnFinish,
@@ -129,6 +179,7 @@ func ValidDefaultAgentKind(v string) bool {
 
 // GetCatSettings 读 Cat 设置；没有记录 = 全部空值（通知默认开，defaultAgentKind=cat_build）。
 // 读路径迁旧字段；不回写。cat.settings 缺 defaultAgentKind 时回落系统键 catDefaultAgentKind。
+// v0.38：providersByAgent[].apiKeySet 由密钥存储计算；永不回明文 Key。
 func (s *Service) GetCatSettings(ctx context.Context) (Settings, error) {
 	if s.cfg.Store == nil {
 		return Settings{}, apperr.New(apperr.Internal, "本地存储尚未初始化")
@@ -148,11 +199,14 @@ func (s *Service) GetCatSettings(ctx context.Context) (Settings, error) {
 		}
 	}
 	_ = found
-	return v.normalized(), nil
+	v = v.normalized()
+	s.fillProviderKeyFlags(ctx, &v)
+	return v, nil
 }
 
 // SaveCatSettings 整体保存并返回保存后的值（新形状，不含旧 defaultModel/defaultEffort）。
 // 校验失败 INVALID_ARGUMENT；写入失败 IO_ERROR，库里仍是旧值（前端回滚，6.19.12.7）。
+// v0.38：可写 providersByAgent 的 enabledCustom/protocol/apiUrl；忽略 apiKeySet 与明文 Key；不因 Save 清除已存 Key。
 func (s *Service) SaveCatSettings(ctx context.Context, req Settings) (Settings, error) {
 	if s.cfg.Store == nil {
 		return Settings{}, apperr.New(apperr.Internal, "本地存储尚未初始化")
@@ -168,7 +222,16 @@ func (s *Service) SaveCatSettings(ctx context.Context, req Settings) (Settings, 
 			return Settings{}, apperr.New(apperr.InvalidArgument, "思考强度不对").WithDetail("reason=effort")
 		}
 	}
+	if err := validateProvidersByAgent(req.ProvidersByAgent); err != nil {
+		return Settings{}, err
+	}
 	v := req.normalized()
+	// 落库前清掉只读 / 误传字段；apiKeySet 以密钥存储为准，不写入 cat.settings。
+	for k, p := range v.ProvidersByAgent {
+		p.ApiKeySet = false
+		p.ApiKey = ""
+		v.ProvidersByAgent[k] = p
+	}
 	if !ValidApprovalMode(v.DefaultApprovalMode) {
 		return Settings{}, apperr.New(apperr.InvalidArgument, "批准方式不对").WithDetail("reason=approval_mode")
 	}
@@ -178,6 +241,7 @@ func (s *Service) SaveCatSettings(ctx context.Context, req Settings) (Settings, 
 	if err := s.cfg.Store.SetSetting(ctx, SettingsKey, v); err != nil {
 		return Settings{}, apperr.Wrap(apperr.IOError, "保存失败，请重试。", err)
 	}
+	s.fillProviderKeyFlags(ctx, &v)
 	return v, nil
 }
 

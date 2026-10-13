@@ -39,3 +39,32 @@ func (s *CatService) ClearAllCatConversations() error {
 	}
 	return c.ClearAllCatConversations(s.rootCtx())
 }
+
+// ---------- Cat 自定义服务商（契约 v0.38，6.19.12.8） ----------
+
+// ListCatProviderCapabilities 返回三家协议能力（固定顺序，不落库）。
+func (s *CatService) ListCatProviderCapabilities() ([]cat.ProviderCapability, error) {
+	c, err := s.svc()
+	if err != nil {
+		return nil, err
+	}
+	return c.ListCatProviderCapabilities(s.rootCtx())
+}
+
+// SaveCatProviderKey 保存一家的 API Key；响应无明文，仅 apiKeySet。
+func (s *CatService) SaveCatProviderKey(req cat.SaveProviderKeyRequest) (cat.ProviderSettings, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.ProviderSettings{}, err
+	}
+	return c.SaveCatProviderKey(s.rootCtx(), req)
+}
+
+// ClearCatProviderKey 清除一家已存 Key；不改 enabledCustom / apiUrl。
+func (s *CatService) ClearCatProviderKey(req cat.ClearProviderKeyRequest) (cat.ProviderSettings, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.ProviderSettings{}, err
+	}
+	return c.ClearCatProviderKey(s.rootCtx(), req)
+}

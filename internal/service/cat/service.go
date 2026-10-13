@@ -194,24 +194,25 @@ func (s *Service) composeStatus(recheck bool) Status {
 }
 
 func (s *Service) GetCatStatus(ctx context.Context) (Status, error) {
-	_ = ctx
+	s.applyAllProviderOverlays(ctx)
 	return s.composeStatus(false), nil
 }
 
 func (s *Service) RecheckCat(ctx context.Context) (Status, error) {
-	_ = ctx
+	s.applyAllProviderOverlays(ctx)
 	st := s.composeStatus(true)
 	s.emit(catagent.EventStatus, st)
 	return st, nil
 }
 
 func (s *Service) ListCatModels(ctx context.Context, agentKind string) ([]Model, error) {
-	_ = ctx
 	// v0.36：未知 / 未注册 → 空切片、nil error（不报 InvalidArgument）。
+	// v0.38：启用自定义时列表探测注入同一套 URL/Key（C6）。
 	a, ok := s.cfg.Registry.Get(agentKind)
 	if !ok || a == nil {
 		return []Model{}, nil
 	}
+	s.applyProviderOverlay(ctx, a, agentKind)
 	list, err := a.ListModels()
 	if err != nil {
 		return nil, err
@@ -223,11 +224,11 @@ func (s *Service) ListCatModels(ctx context.Context, agentKind string) ([]Model,
 }
 
 func (s *Service) ListCatThinkLevels(ctx context.Context, agentKind string) ([]ThinkLevel, error) {
-	_ = ctx
 	a, ok := s.cfg.Registry.Get(agentKind)
 	if !ok || a == nil {
 		return []ThinkLevel{}, nil
 	}
+	s.applyProviderOverlay(ctx, a, agentKind)
 	list, err := a.ListThinkLevels()
 	if err != nil {
 		return nil, err
@@ -548,6 +549,8 @@ func (s *Service) sendMessage(ctx context.Context, req SendMessageRequest, hook 
 	s.setTurn(t)
 	s.emit(catagent.EventTurn, catagent.TurnEvent{ConvID: t.convID, TurnID: t.turnID, Status: catagent.TurnRunning})
 
+	provider := s.providerOverlayFor(ctx, c.AgentKind)
+	s.applyProviderOverlay(ctx, a, c.AgentKind)
 	opts := catagent.TurnOptions{
 		Ctx: turnCtx, ConversationID: c.ID, TurnID: t.turnID,
 		ModelID: req.ModelID, ThinkLevelID: req.ThinkLevelID,
@@ -557,6 +560,7 @@ func (s *Service) sendMessage(ctx context.Context, req SendMessageRequest, hook 
 		Messages:       []catagent.WireMessage{{Role: "user", Content: content}},
 		Files:          files,
 		Rules:          s.rulesForTurn(ctx),
+		Provider:       provider,
 	}
 	if hook != nil && hook.timeout > 0 {
 		opts.Timeout = hook.timeout
