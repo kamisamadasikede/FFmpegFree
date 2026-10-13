@@ -21,6 +21,26 @@ export namespace apperr {
 
 export namespace cat {
 	
+	export class CatSettings {
+	    defaultModel: string;
+	    defaultEffort: string;
+	    defaultApprovalMode: string;
+	    customInstruction: string;
+	    notifyOnFinish?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatSettings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.defaultModel = source["defaultModel"];
+	        this.defaultEffort = source["defaultEffort"];
+	        this.defaultApprovalMode = source["defaultApprovalMode"];
+	        this.customInstruction = source["customInstruction"];
+	        this.notifyOnFinish = source["notifyOnFinish"];
+	    }
+	}
 	export class ConversationDetail {
 	    id: string;
 	    title: string;
@@ -358,6 +378,18 @@ export namespace cat {
 		    }
 		    return a;
 		}
+	}
+	export class InspectRequest {
+	    projectId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new InspectRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.projectId = source["projectId"];
+	    }
 	}
 	export class ListFilesRequest {
 	    convId: string;
@@ -747,6 +779,66 @@ export namespace catagent {
 	        this.convId = source["convId"];
 	        this.turnId = source["turnId"];
 	    }
+	}
+	export class InspectItem {
+	    name: string;
+	    description?: string;
+	    source?: string;
+	    enabled: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new InspectItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.source = source["source"];
+	        this.enabled = source["enabled"];
+	    }
+	}
+	export class InspectResult {
+	    skills: InspectItem[];
+	    plugins: InspectItem[];
+	    hooks: InspectItem[];
+	    mcpServers: InspectItem[];
+	    agents: InspectItem[];
+	    version?: string;
+	    reason?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new InspectResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.skills = this.convertValues(source["skills"], InspectItem);
+	        this.plugins = this.convertValues(source["plugins"], InspectItem);
+	        this.hooks = this.convertValues(source["hooks"], InspectItem);
+	        this.mcpServers = this.convertValues(source["mcpServers"], InspectItem);
+	        this.agents = this.convertValues(source["agents"], InspectItem);
+	        this.version = source["version"];
+	        this.reason = source["reason"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class Model {
 	    id: string;

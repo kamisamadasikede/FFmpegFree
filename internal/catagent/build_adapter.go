@@ -42,8 +42,8 @@ var (
 		{ID: "medium", DisplayName: "中"},
 		{ID: "high", DisplayName: "高"},
 		// xhigh：CLI --reasoning-effort 文档列出的档位；模型不支持时 CLI 忽略（契约 v0.31.4 ④）。
-		// 显示名「超高」契约 / 文案未指定，待产品确认。
-		{ID: "xhigh", DisplayName: "超高"},
+		// 显示名「极高」（契约 v0.35 ④）；值仍是 xhigh。
+		{ID: "xhigh", DisplayName: "极高"},
 	}
 )
 
@@ -323,6 +323,9 @@ type TurnOptions struct {
 	Files []PromptFile
 	// OnError 在失败原文出现时立刻回调（进程还没退出也会调）。同一句可能来自标准输出和标准错误，调用方自己去重。
 	OnError func(msg string)
+	// Rules 是全局自定义指令（契约 6.19.12.4）。非空时每一轮都带 --rules=<指令>；
+	// 用等号写法，以 - 开头的指令不会被当成开关。
+	Rules string
 }
 
 // RunTurn 调 PATH 上的 grok headless：streaming-json → OnTextDelta；取消杀进程树。
@@ -394,6 +397,8 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	if tl := strings.TrimSpace(opts.ThinkLevelID); tl != "" {
 		args = append(args, "--reasoning-effort", tl)
 	}
+
+	args = append(args, rulesCLIArgs(opts.Rules)...)
 
 	cmd := a.runCmd(runCtx, exe, args...)
 	cmd.Dir = cwd
@@ -635,6 +640,14 @@ func grokTurnEnv(base []string) []string {
 }
 
 // permissionCLIArgs 把这一轮的批准方式变成一个开关。空和全部批准用 --always-approve；其余用 --permission-mode。两者不一起传。
+// rulesCLIArgs 把自定义指令转成 CLI 参数；空白指令不带。
+func rulesCLIArgs(rules string) []string {
+	if strings.TrimSpace(rules) == "" {
+		return nil
+	}
+	return []string{"--rules=" + rules}
+}
+
 func permissionCLIArgs(mode string) []string {
 	switch canonicalPermissionMode(mode) {
 	case "plan":

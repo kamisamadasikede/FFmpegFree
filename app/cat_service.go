@@ -308,3 +308,30 @@ func (s *CatService) SearchCatFiles(req cat.SearchFilesRequest) (cat.SearchFiles
 	}
 	return c.SearchCatFiles(s.rootCtx(), req)
 }
+
+// GetCatSettings 读取 Cat 设置（v0.35）。
+func (s *CatService) GetCatSettings() (cat.CatSettings, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.CatSettings{}, err
+	}
+	return c.GetCatSettings(s.rootCtx())
+}
+
+// SaveCatSettings 整体保存 Cat 设置，返回保存后的值（v0.35）。
+func (s *CatService) SaveCatSettings(req cat.CatSettings) (cat.CatSettings, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.CatSettings{}, err
+	}
+	return c.SaveCatSettings(s.rootCtx(), req)
+}
+
+// InspectCatConfig 只读列出技能、扩展、钩子（v0.35）。失败返回空列表 + reason。
+func (s *CatService) InspectCatConfig(req cat.InspectRequest) (cat.CatInspectResult, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.CatInspectResult{}, err
+	}
+	return c.InspectCatConfig(s.rootCtx(), req)
+}

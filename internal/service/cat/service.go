@@ -474,6 +474,7 @@ func (s *Service) SendCatMessage(ctx context.Context, req SendMessageRequest) (S
 		Resume:         catagent.SessionStarted(cwd, c.ID),
 		Messages:       []catagent.WireMessage{{Role: "user", Content: content}},
 		Files:          files,
+		Rules:          s.turnRules(ctx),
 	}
 	s.wg.Add(1)
 	go func() {
