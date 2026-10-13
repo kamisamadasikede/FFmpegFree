@@ -240,7 +240,7 @@ const baseOptions = (): monaco.editor.IStandaloneEditorConstructionOptions => ({
   language: 'json',
   automaticLayout: true,
   fontSize: 13,
-  lineHeight: 24,
+  lineHeight: 24, // 输入侧；结果区 create 时覆盖为 28
   fontFamily: monoFontFamily(),
   minimap: { enabled: false },
   scrollBeyondLastLine: false,
@@ -532,7 +532,7 @@ async function onDrop(e: DragEvent) {
 onMounted(() => {
   applyMonacoTheme()
   inputEditor = monaco.editor.create(inputEl.value!, { ...baseOptions(), value: '', glyphMargin: true, wordWrap: 'on' })
-  resultEditor = monaco.editor.create(resultEl.value!, { ...baseOptions(), value: '', readOnly: true, domReadOnly: true, glyphMargin: false })
+  resultEditor = monaco.editor.create(resultEl.value!, { ...baseOptions(), value: '', readOnly: true, domReadOnly: true, glyphMargin: false, lineHeight: 28 })
   errDecos = inputEditor.createDecorationsCollection()
   inputEditor.onDidChangeModelContent(() => scheduleCheck())
   // 主题跟随 html.dark 实时切换
