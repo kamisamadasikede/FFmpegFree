@@ -125,3 +125,10 @@ export const CAT_SETTINGS_BACKEND_READY: boolean = true
  * 改回 false：打包后的应用里侧栏不出现「定时任务」、不订阅事件；只有 vite dev + 纯浏览器能看到内存模拟（走查用）。
  */
 export const CAT_SCHEDULE_BACKEND_READY: boolean = true
+
+/**
+ * 办公画布组件（契约 v0.42 §6.19.16：GetOfficeCanvasStatus / Install / Cancel / Recheck / ExportOfficeCanvasPptx）。
+ * 后端 #245 已合入 v2；绑定若未重新生成则走 callService 按名调用并手写 wailsjs stub。
+ * true 且在 Wails 里：调真实 OfficeCanvasService。纯浏览器仍走模拟（?cat_sim=office* 走查）。
+ */
+export const OFFICE_CANVAS_BACKEND_READY: boolean = true
