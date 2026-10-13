@@ -46,6 +46,12 @@ export function GitCatUnstage(arg1:cat.GitPathsRequest):Promise<void>;
 
 export function InspectCatConfig(arg1:cat.InspectRequest):Promise<catagent.InspectResult>;
 
+export function SetCatInspectItemEnabled(arg1:cat.SetInspectItemEnabledRequest):Promise<catagent.InspectItem>;
+
+export function RevealCatSkillsDir(arg1:cat.SkillsDirRequest):Promise<cat.SkillsDirResult>;
+
+export function EnsureCreateCatSkillsDir(arg1:cat.SkillsDirRequest):Promise<cat.SkillsDirResult>;
+
 export function ListCatConversations():Promise<Array<store.CatConversation>>;
 
 export function ListCatFiles(arg1:cat.ListFilesRequest):Promise<cat.ListFilesResult>;

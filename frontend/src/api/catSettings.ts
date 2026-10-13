@@ -1,6 +1,6 @@
 /**
  * Cat 设置接口层（契约 v0.35.1–v0.39 §6.19.12；v0.36 defaultsByAgent；v0.38 providersByAgent；v0.39 技能/MCP 可管理）。
- * CAT_SETTINGS_BACKEND_READY=true 且在 Wails 里：调生成的 CatService 绑定（v0.39 新绑定未生成时回落模拟）。
+ * CAT_SETTINGS_BACKEND_READY=true 且在 Wails 里：调生成的 CatService 绑定（含 v0.39 技能管理）。
  * 否则走内存模拟；走查开关见 views/cat/catDevSim.ts（savefail / inspect* / clearfail / keyfail / skillsmissing / setenablefail）。
  *
  * Save 走生成的 cat.Settings（v0.36 defaultsByAgent + v0.38 providersByAgent；Key 走 Save/ClearCatProviderKey）。
@@ -511,12 +511,6 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: () => T): Promise<T
   })
 }
 
-/** v0.39 绑定未进生成代码前：有函数才走 live */
-function bindingFn(name: string): ((...args: unknown[]) => Promise<unknown>) | undefined {
-  const fn = (CatBinding as Record<string, unknown>)[name]
-  return typeof fn === 'function' ? (fn as (...args: unknown[]) => Promise<unknown>) : undefined
-}
-
 const MOCK_SKILLS_ROOT = '/mock/字幕项目/.ffmpegfree/cat/skills'
 const MOCK_MCP_PATH = '/mock/字幕项目/.ffmpegfree/cat/mcp.json'
 
@@ -574,10 +568,12 @@ function snapshotMockInspect(projectId: string, reason = ''): CatInspectResult {
 export async function inspectCatConfig(projectId = '', agentKind = ''): Promise<CatInspectResult> {
   if (!projectId) return emptyInspect('no_project')
   if (live()) {
-    const req = cat.InspectRequest.createFrom({ projectId })
-    if (agentKind) (req as { agentKind?: string }).agentKind = agentKind
     return withTimeout(
-      call(CatBinding.InspectCatConfig(req)).then(normalizeInspect),
+      call(
+        CatBinding.InspectCatConfig(
+          cat.InspectRequest.createFrom({ projectId, agentKind: agentKind || '' }),
+        ),
+      ).then(normalizeInspect),
       CAT_INSPECT_TIMEOUT_MS + 1000,
       () => emptyInspect('timeout'),
     )
@@ -606,17 +602,18 @@ export async function setCatInspectItemEnabled(req: {
 }): Promise<CatInspectItem> {
   if (!req.projectId) throw new AppError('INVALID_ARGUMENT', 'project')
   if (!req.name) throw new AppError('INVALID_ARGUMENT', 'name')
-  const fn = bindingFn('SetCatInspectItemEnabled')
-  if (live() && fn) {
+  if (live()) {
     return oneItem(
       await call(
-        fn({
-          projectId: req.projectId,
-          agentKind: req.agentKind || '',
-          category: req.category,
-          name: req.name,
-          enabled: req.enabled,
-        }),
+        CatBinding.SetCatInspectItemEnabled(
+          cat.SetInspectItemEnabledRequest.createFrom({
+            projectId: req.projectId,
+            agentKind: req.agentKind || '',
+            category: req.category,
+            name: req.name,
+            enabled: req.enabled,
+          }),
+        ),
       ),
     )
   }
@@ -634,9 +631,10 @@ export async function setCatInspectItemEnabled(req: {
 /** v0.39：打开技能目录；不存在 → exists=false、opened=false、不抛错 */
 export async function revealCatSkillsDir(projectId: string): Promise<CatSkillsDirResult> {
   if (!projectId) throw new AppError('INVALID_ARGUMENT', 'project')
-  const fn = bindingFn('RevealCatSkillsDir')
-  if (live() && fn) {
-    return normalizeSkillsDir(await call(fn({ projectId })))
+  if (live()) {
+    return normalizeSkillsDir(
+      await call(CatBinding.RevealCatSkillsDir(cat.SkillsDirRequest.createFrom({ projectId }))),
+    )
   }
   await wait(200)
   const paths = mockPaths(projectId)
@@ -649,9 +647,10 @@ export async function revealCatSkillsDir(projectId: string): Promise<CatSkillsDi
 /** v0.39：创建空技能目录并打开；不写 mcp.json / gitignore */
 export async function ensureCreateCatSkillsDir(projectId: string): Promise<CatSkillsDirResult> {
   if (!projectId) throw new AppError('INVALID_ARGUMENT', 'project')
-  const fn = bindingFn('EnsureCreateCatSkillsDir')
-  if (live() && fn) {
-    return normalizeSkillsDir(await call(fn({ projectId })))
+  if (live()) {
+    return normalizeSkillsDir(
+      await call(CatBinding.EnsureCreateCatSkillsDir(cat.SkillsDirRequest.createFrom({ projectId }))),
+    )
   }
   await wait(300)
   mockInspect.skillsRootExists = true
