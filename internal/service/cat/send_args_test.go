@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,7 @@ func TestSendPassesModelAndEffortEveryTurn(t *testing.T) {
 		t.Skip("unix script fake")
 	}
 	dir := t.TempDir()
+	t.Setenv("HOME", filepath.Join(dir, "home"))
 	argvLog := filepath.Join(dir, "argv.log")
 	fake := filepath.Join(dir, "grok")
 	script := `#!/bin/sh
@@ -29,6 +31,13 @@ case "$1" in
   -v) echo "grok 1.0.40"; exit 0 ;;
   models) printf 'Default model: grok-4.6\n\nAvailable models:\n  * grok-4.6 (default)\n  - grok-4.5\n'; exit 0 ;;
 esac
+# 像真 CLI 一样建会话目录（SessionStarted 按它判断续聊）。
+cwd=""; sid=""; prev=""
+for a in "$@"; do
+  case "$prev" in --cwd) cwd="$a" ;; --session-id) sid="$a" ;; esac
+  prev="$a"
+done
+if [ -n "$sid" ] && [ -n "$cwd" ]; then mkdir -p "$HOME/.grok/sessions/$(printf %s "$cwd" | sed 's|/|%2F|g')/$sid"; fi
 for a in "$@"; do printf '%s\n' "$a" >> '` + argvLog + `'; done
 printf '%s\n' '----' >> '` + argvLog + `'
 printf '%s\n' '{"type":"text","data":"ok"}'
@@ -60,7 +69,7 @@ printf '%s\n' '{"type":"end","stopReason":"end_turn"}'
 	})
 	reg.Register(build)
 	build.Start()
-	svc := cat.New(cat.Config{Store: st, Registry: reg})
+	svc := cat.New(cat.Config{Store: st, Registry: reg, DataRoot: dir}) // 和适配器同一个对话目录（续聊按它判断）
 	ctx := context.Background()
 
 	deadline := time.Now().Add(3 * time.Second)
@@ -106,7 +115,10 @@ printf '%s\n' '{"type":"end","stopReason":"end_turn"}'
 	send("grok-4.5", "high") // 首轮
 	send("grok-4.5", "low")  // 续聊
 	send("", "")             // 没选：不传
-	// 新会话：xhigh 首轮（--session-id）+ 续聊（--resume）
+	// 新会话：xhigh 首轮（--session-id）+ 续聊（--resume）；设了全局自定义指令，两轮都带 --rules（v0.35）。
+	if _, err := svc.SaveCatSettings(ctx, cat.Settings{CustomInstruction: "-先列计划"}); err != nil {
+		t.Fatal(err)
+	}
 	c2, err := svc.CreateCatConversation(ctx, cat.CreateConversationRequest{AgentKind: catagent.KindCatBuild})
 	if err != nil {
 		t.Fatal(err)
@@ -166,6 +178,16 @@ printf '%s\n' '{"type":"end","stopReason":"end_turn"}'
 		if _, ok := val(a, flag); !ok {
 			t.Fatalf("turn%d missing %s: %v", i+1, flag, a)
 		}
+		if !slices.Contains(a, "--rules=-先列计划") {
+			t.Fatalf("turn%d missing --rules: %v", i+1, a)
+		}
+	}
+	for i := 0; i < 3; i++ {
+		for _, x := range argv(i) {
+			if strings.HasPrefix(x, "--rules") {
+				t.Fatalf("turn%d must not pass --rules before it is set: %v", i+1, argv(i))
+			}
+		}
 	}
 
 	third := argv(2)
@@ -183,6 +205,7 @@ func TestSendNoEffortNoModelWhenUnselectedOrProbeFails(t *testing.T) {
 		t.Skip("unix script fake")
 	}
 	dir := t.TempDir()
+	t.Setenv("HOME", filepath.Join(dir, "home"))
 	argvLog := filepath.Join(dir, "argv.log")
 	fake := filepath.Join(dir, "grok")
 	script := `#!/bin/sh
@@ -190,6 +213,13 @@ case "$1" in
   -v) echo "grok 1.0.40"; exit 0 ;;
   models) echo "Error: Not signed in." >&2; exit 1 ;;
 esac
+# 像真 CLI 一样建会话目录（SessionStarted 按它判断续聊）。
+cwd=""; sid=""; prev=""
+for a in "$@"; do
+  case "$prev" in --cwd) cwd="$a" ;; --session-id) sid="$a" ;; esac
+  prev="$a"
+done
+if [ -n "$sid" ] && [ -n "$cwd" ]; then mkdir -p "$HOME/.grok/sessions/$(printf %s "$cwd" | sed 's|/|%2F|g')/$sid"; fi
 for a in "$@"; do printf '%s\n' "$a" >> '` + argvLog + `'; done
 printf '%s\n' '----' >> '` + argvLog + `'
 printf '%s\n' '{"type":"text","data":"ok"}'
@@ -221,7 +251,7 @@ printf '%s\n' '{"type":"end","stopReason":"end_turn"}'
 	})
 	reg.Register(build)
 	build.Start()
-	svc := cat.New(cat.Config{Store: st, Registry: reg})
+	svc := cat.New(cat.Config{Store: st, Registry: reg, DataRoot: dir}) // 和适配器同一个对话目录（续聊按它判断）
 	ctx := context.Background()
 	deadline := time.Now().Add(3 * time.Second)
 	for {

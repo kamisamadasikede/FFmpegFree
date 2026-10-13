@@ -6,6 +6,10 @@ export function CancelCatTurn(arg1) {
   return window['go']['app']['CatService']['CancelCatTurn'](arg1);
 }
 
+export function ClearAllCatConversations() {
+  return window['go']['app']['CatService']['ClearAllCatConversations']();
+}
+
 export function CreateCatConversation(arg1) {
   return window['go']['app']['CatService']['CreateCatConversation'](arg1);
 }
@@ -24,6 +28,10 @@ export function DeleteCatProject(arg1) {
 
 export function GetCatConversation(arg1) {
   return window['go']['app']['CatService']['GetCatConversation'](arg1);
+}
+
+export function GetCatSettings() {
+  return window['go']['app']['CatService']['GetCatSettings']();
 }
 
 export function GetCatStatus() {
@@ -60,6 +68,10 @@ export function GitCatStatus(arg1) {
 
 export function GitCatUnstage(arg1) {
   return window['go']['app']['CatService']['GitCatUnstage'](arg1);
+}
+
+export function InspectCatConfig(arg1) {
+  return window['go']['app']['CatService']['InspectCatConfig'](arg1);
 }
 
 export function ListCatConversations() {
@@ -112,6 +124,10 @@ export function RevealCatConversationFolder(arg1) {
 
 export function RevealCatProject(arg1) {
   return window['go']['app']['CatService']['RevealCatProject'](arg1);
+}
+
+export function SaveCatSettings(arg1) {
+  return window['go']['app']['CatService']['SaveCatSettings'](arg1);
 }
 
 export function SearchCatFiles(arg1) {

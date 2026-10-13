@@ -3,14 +3,12 @@
 package catagent
 
 import (
+	"context"
 	"encoding/binary"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"unsafe"
-
-	"FFmpegFree/internal/proc"
 
 	"golang.org/x/sys/windows"
 )
@@ -136,7 +134,7 @@ func killOSProcessTree(pid uint32) error {
 	if pid == 0 || pid == uint32(os.Getpid()) {
 		return nil
 	}
-	cmd := exec.Command("taskkill", "/T", "/F", "/PID", strconv.FormatUint(uint64(pid), 10))
-	proc.Configure(cmd)
+	// 走 runCmd（源码检查测试锁定）：隐藏窗口。
+	cmd := (&BuildAdapter{}).runCmd(context.Background(), "taskkill", "/T", "/F", "/PID", strconv.FormatUint(uint64(pid), 10))
 	return cmd.Run()
 }

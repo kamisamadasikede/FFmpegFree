@@ -42,8 +42,8 @@ var (
 		{ID: "medium", DisplayName: "中"},
 		{ID: "high", DisplayName: "高"},
 		// xhigh：CLI --reasoning-effort 文档列出的档位；模型不支持时 CLI 忽略（契约 v0.31.4 ④）。
-		// 显示名「超高」契约 / 文案未指定，待产品确认。
-		{ID: "xhigh", DisplayName: "超高"},
+		// 显示名「极高」（契约 v0.35 ④，产品 10-13 定）；值仍是 xhigh。
+		{ID: "xhigh", DisplayName: "极高"},
 	}
 )
 
@@ -321,6 +321,8 @@ type TurnOptions struct {
 	PermissionMode string
 	// Files 是这一轮附上的本机文件。图片收成内容块，其它文件把路径写进文字。
 	Files []PromptFile
+	// Rules 是全局自定义指令（契约 v0.35 6.19.12.4）。非空时每一轮都带 --rules=<指令>，空则不带。
+	Rules string
 	// OnError 在失败原文出现时立刻回调（进程还没退出也会调）。同一句可能来自标准输出和标准错误，调用方自己去重。
 	OnError func(msg string)
 }
@@ -394,6 +396,7 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	if tl := strings.TrimSpace(opts.ThinkLevelID); tl != "" {
 		args = append(args, "--reasoning-effort", tl)
 	}
+	args = append(args, rulesCLIArgs(opts.Rules)...)
 
 	cmd := a.runCmd(runCtx, exe, args...)
 	cmd.Dir = cwd
