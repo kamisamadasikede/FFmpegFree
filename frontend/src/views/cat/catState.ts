@@ -229,7 +229,19 @@ export const catState = reactive({
   status: (live || (import.meta.env.DEV && catSim.has('checking'))
     ? { state: 'checking', version: '', canDownload: false, error: null, agents: [] }
     : (import.meta.env.DEV && catSim.has('stream'))
-      ? { state: 'ready', version: '', canDownload: false, error: null, agents: [] }
+      ? {
+          state: 'ready',
+          version: '',
+          canDownload: false,
+          error: null,
+          agents: catSim.has('allagents')
+            ? ([
+                { agentKind: 'cat_build', ready: true, version: '1.0', loggedIn: true },
+                { agentKind: 'claude_cli', ready: true, version: '1.0', loggedIn: true },
+                { agentKind: 'codex_cli', ready: true, version: '1.0', loggedIn: true },
+              ] as CatStatus['agents'])
+            : [],
+        }
     : { state: 'missing', version: '', canDownload: false, error: { code: 'CAT_NOT_READY', message: CAT_COPY.notReady }, agents: [] }) as CatStatus,
   /** 当前会话 agentKind 对应的能力列表（不造假） */
   models: [] as CatModel[],

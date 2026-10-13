@@ -8,6 +8,8 @@ export function CancelCatTurn(arg1:catagent.CancelCatTurnRequest):Promise<void>;
 
 export function ClearAllCatConversations():Promise<void>;
 
+export function ClearCatProviderKey(arg1:cat.ClearProviderKeyRequest):Promise<cat.ProviderSettings>;
+
 export function CreateCatConversation(arg1:cat.CreateConversationRequest):Promise<store.CatConversation>;
 
 export function CreateCatProject(arg1:cat.CreateProjectRequest):Promise<cat.CreateProjectResult>;
@@ -50,6 +52,8 @@ export function ListCatFiles(arg1:cat.ListFilesRequest):Promise<cat.ListFilesRes
 
 export function ListCatModels(arg1:string):Promise<Array<catagent.Model>>;
 
+export function ListCatProviderCapabilities():Promise<Array<cat.ProviderCapability>>;
+
 export function ListCatProjects():Promise<Array<cat.Project>>;
 
 export function ListCatScheduleRuns(arg1:cat.ListScheduleRunsRequest):Promise<Array<cat.ScheduleRun>>;
@@ -85,6 +89,8 @@ export function RevealCatProject(arg1:cat.RevealProjectRequest):Promise<void>;
 export function RunNowCatSchedule(arg1:cat.ScheduleIDRequest):Promise<cat.ScheduleRun>;
 
 export function SaveCatSettings(arg1:cat.Settings):Promise<cat.Settings>;
+
+export function SaveCatProviderKey(arg1:cat.SaveProviderKeyRequest):Promise<cat.ProviderSettings>;
 
 export function SearchCatFiles(arg1:cat.SearchFilesRequest):Promise<cat.SearchFilesResult>;
 

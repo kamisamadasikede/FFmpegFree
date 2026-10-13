@@ -1,9 +1,9 @@
 /**
- * Cat 设置接口层（契约 v0.35.1 §6.19.12；v0.36 defaultsByAgent）。
+ * Cat 设置接口层（契约 v0.35.1 §6.19.12；v0.36 defaultsByAgent；v0.38 providersByAgent）。
  * CAT_SETTINGS_BACKEND_READY=true 且在 Wails 里：调生成的 CatService 绑定。
- * 否则走内存模拟；走查开关见 views/cat/catDevSim.ts（savefail / inspectfail / inspectslow / inspectempty / clearfail）。
+ * 否则走内存模拟；走查开关见 views/cat/catDevSim.ts（savefail / inspectfail / inspectslow / inspectempty / clearfail / keyfail）。
  *
- * Save 走生成的 cat.Settings（v0.36：defaultAgentKind + defaultsByAgent）。
+ * Save 走生成的 cat.Settings（v0.36 defaultsByAgent + v0.38 providersByAgent；Key 走 Save/ClearCatProviderKey）。
  */
 import * as CatBinding from '../../wailsjs/go/app/CatService'
 import { cat } from '../../wailsjs/go/models'
@@ -20,10 +20,29 @@ export interface CatAgentDefaults {
   effort: string
 }
 
+export type CatProviderProtocol = 'openai' | 'anthropic'
+
+/** 一家自定义服务商视图（契约 CatProviderSettings；永不含明文 Key） */
+export interface CatProviderSettings {
+  enabledCustom: boolean
+  protocol: CatProviderProtocol | ''
+  apiUrl: string
+  apiKeySet: boolean
+}
+
+export interface CatProviderCapability {
+  agentKind: CatProviderKind
+  defaultProtocol: CatProviderProtocol
+  allowProtocolPick: boolean
+  allowedProtocols: CatProviderProtocol[]
+}
+
 export interface CatSettings {
   /** 欢迎页预选；默认 cat_build */
   defaultAgentKind: CatProviderKind
   defaultsByAgent: Record<CatProviderKind, CatAgentDefaults>
+  /** v0.38：每家自定义服务商；缺 key 视为全关 */
+  providersByAgent: Record<CatProviderKind, CatProviderSettings>
   defaultApprovalMode: string
   customInstruction: string
   notifyOnFinish: boolean
@@ -35,6 +54,29 @@ export function emptyDefaults(): CatAgentDefaults {
 
 export function emptyDefaultsByAgent(): Record<CatProviderKind, CatAgentDefaults> {
   return { cat_build: emptyDefaults(), claude_cli: emptyDefaults(), codex_cli: emptyDefaults() }
+}
+
+export function emptyProvider(): CatProviderSettings {
+  return { enabledCustom: false, protocol: '', apiUrl: '', apiKeySet: false }
+}
+
+export function emptyProvidersByAgent(): Record<CatProviderKind, CatProviderSettings> {
+  return { cat_build: emptyProvider(), claude_cli: emptyProvider(), codex_cli: emptyProvider() }
+}
+
+/** 产品默认协议能力（与后端 defaultProviderCapabilities 对齐；allowProtocolPick 仍 GUESS=false） */
+export const DEFAULT_PROVIDER_CAPABILITIES: readonly CatProviderCapability[] = [
+  { agentKind: 'cat_build', defaultProtocol: 'openai', allowProtocolPick: false, allowedProtocols: ['openai'] },
+  { agentKind: 'claude_cli', defaultProtocol: 'anthropic', allowProtocolPick: false, allowedProtocols: ['anthropic'] },
+  { agentKind: 'codex_cli', defaultProtocol: 'openai', allowProtocolPick: false, allowedProtocols: ['openai'] },
+]
+
+export function protocolLabel(p: CatProviderProtocol | ''): string {
+  return p === 'anthropic' ? 'Anthropic' : 'OpenAI 兼容'
+}
+
+export function protocolUrlPlaceholder(p: CatProviderProtocol | ''): string {
+  return p === 'anthropic' ? 'https://api.example.com' : 'https://api.example.com/v1'
 }
 
 export interface CatInspectItem {
@@ -139,6 +181,24 @@ export const CAT_SETTINGS_COPY = {
   aboutCard: '关于',
   aboutLine: 'Cat · FFmpegFree 内置的项目助手',
   openData: '打开数据文件夹',
+  // v0.38 自定义服务商（设计 v0.1.1 §3 / 契约 6.19.12.8）
+  customFold: '自定义服务商',
+  customFoldHintOff: '默认用本机登录；需要时可填 URL / Key',
+  customFoldHintOn: '启用后只用下面的 URL / Key，不写回系统环境变量',
+  enableCustom: '启用自定义',
+  enableCustomDesc: '关闭后回落本机登录 / 环境变量',
+  protocol: '协议',
+  protocolLocked: '已锁定，按该助手默认',
+  apiUrl: 'API URL',
+  apiUrlDesc: 'Base URL',
+  apiKey: 'API Key',
+  apiKeyDesc: '保存后不明文回显',
+  apiKeyPlaceholder: '粘贴 API Key',
+  apiKeySaved: '已保存',
+  apiKeyClear: '清除',
+  clearKeyTitle: '清除 API Key？',
+  clearKeyBody: '清除后这台电脑上不再保存该 Key，对话将改用 CLI 默认登录。',
+  clearKeyOk: '清除',
 } as const
 
 export function loginBanner(name: string) {
@@ -157,9 +217,26 @@ function oneDefaults(raw: unknown): CatAgentDefaults {
   return { model, effort }
 }
 
+const PROTOCOLS: CatProviderProtocol[] = ['openai', 'anthropic']
+
+function oneProvider(raw: unknown): CatProviderSettings {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const protocolRaw = typeof r.protocol === 'string' ? r.protocol : ''
+  const protocol = PROTOCOLS.includes(protocolRaw as CatProviderProtocol) ? (protocolRaw as CatProviderProtocol) : ''
+  const apiUrl = typeof r.apiUrl === 'string' ? r.apiUrl : ''
+  return {
+    enabledCustom: r.enabledCustom === true,
+    protocol,
+    apiUrl,
+    // 只信服务端/模拟的 apiKeySet；忽略请求伪造
+    apiKeySet: r.apiKeySet === true,
+  }
+}
+
 /**
- * 读路径：v0.36 defaultsByAgent + defaultAgentKind。
+ * 读路径：v0.36 defaultsByAgent + defaultAgentKind；v0.38 providersByAgent。
  * 旧顶层 defaultModel/defaultEffort 迁进 cat_build（该 key 已有非空值则不覆盖）。
+ * 永不接受明文 Key。
  */
 export function normalizeSettings(raw: unknown): CatSettings {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
@@ -172,6 +249,14 @@ export function normalizeSettings(raw: unknown): CatSettings {
       if (cell && typeof cell === 'object') by[kind] = oneDefaults(cell)
     }
   }
+  const providers = emptyProvidersByAgent()
+  const psrc = r.providersByAgent
+  if (psrc && typeof psrc === 'object') {
+    for (const kind of CAT_PROVIDER_ORDER) {
+      const cell = (psrc as Record<string, unknown>)[kind]
+      if (cell && typeof cell === 'object') providers[kind] = oneProvider(cell)
+    }
+  }
   const oldModel = s('defaultModel')
   const oldEffortRaw = s('defaultEffort')
   const oldEffort = EFFORTS.includes(oldEffortRaw) ? oldEffortRaw : ''
@@ -182,6 +267,7 @@ export function normalizeSettings(raw: unknown): CatSettings {
   return {
     defaultAgentKind: isProviderKind(kindRaw) ? kindRaw : CAT_AGENT_BUILD,
     defaultsByAgent: by,
+    providersByAgent: providers,
     defaultApprovalMode: ['normal', 'plan', 'auto', 'approve'].includes(s('defaultApprovalMode')) ? s('defaultApprovalMode') : '',
     customInstruction: s('customInstruction'),
     // 契约：nil 视为 true
@@ -189,16 +275,26 @@ export function normalizeSettings(raw: unknown): CatSettings {
   }
 }
 
-/** 只提交 v0.36 形状（不含旧 defaultModel/defaultEffort） */
+/** 只提交 v0.36+v0.38 形状（不含旧 defaultModel/defaultEffort / 明文 Key / 伪造 apiKeySet） */
 export function settingsPayload(req: CatSettings): Record<string, unknown> {
   const defaultsByAgent: Record<string, CatAgentDefaults> = {}
+  const providersByAgent: Record<string, Omit<CatProviderSettings, 'apiKeySet'> & { apiKeySet?: never }> = {}
   for (const kind of CAT_PROVIDER_ORDER) {
     const d = req.defaultsByAgent[kind] ?? emptyDefaults()
     defaultsByAgent[kind] = { model: d.model || '', effort: d.effort || '' }
+    const p = req.providersByAgent[kind] ?? emptyProvider()
+    const protocol = PROTOCOLS.includes(p.protocol as CatProviderProtocol) ? p.protocol : ''
+    providersByAgent[kind] = {
+      enabledCustom: !!p.enabledCustom,
+      protocol,
+      apiUrl: (p.apiUrl || '').slice(0, 2048),
+      // 不提交 apiKeySet；服务端以密钥存储为准
+    }
   }
   return {
     defaultAgentKind: isProviderKind(req.defaultAgentKind) ? req.defaultAgentKind : CAT_AGENT_BUILD,
     defaultsByAgent,
+    providersByAgent,
     defaultApprovalMode: req.defaultApprovalMode,
     customInstruction: req.customInstruction,
     notifyOnFinish: req.notifyOnFinish,
@@ -206,11 +302,22 @@ export function settingsPayload(req: CatSettings): Record<string, unknown> {
 }
 
 let mockSettings: CatSettings = normalizeSettings({})
+/** 模拟密钥：只记是否已设，永不回显明文 */
+const mockSecrets = new Set<CatProviderKind>()
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+function withMockKeyFlags(s: CatSettings): CatSettings {
+  const providersByAgent = emptyProvidersByAgent()
+  for (const kind of CAT_PROVIDER_ORDER) {
+    const p = s.providersByAgent[kind] ?? emptyProvider()
+    providersByAgent[kind] = { ...p, apiKeySet: mockSecrets.has(kind) }
+  }
+  return { ...s, providersByAgent }
+}
 
 export async function getCatSettings(): Promise<CatSettings> {
   if (live()) return normalizeSettings(await call(CatBinding.GetCatSettings()))
-  return normalizeSettings(mockSettings)
+  return withMockKeyFlags(normalizeSettings(mockSettings))
 }
 
 export async function saveCatSettings(req: CatSettings): Promise<CatSettings> {
@@ -221,8 +328,81 @@ export async function saveCatSettings(req: CatSettings): Promise<CatSettings> {
   }
   await wait(250)
   if (sim('savefail')) throw new AppError('IO_ERROR', 'sim')
-  mockSettings = normalizeSettings(payload)
-  return normalizeSettings(mockSettings)
+  // Save 不因提交而清除已存 Key；apiKeySet 仍由 mockSecrets 决定
+  mockSettings = withMockKeyFlags(normalizeSettings(payload))
+  return withMockKeyFlags(mockSettings)
+}
+
+export function normalizeProvider(raw: unknown): CatProviderSettings {
+  return oneProvider(raw)
+}
+
+export function normalizeCapabilities(raw: unknown): CatProviderCapability[] {
+  if (!Array.isArray(raw) || !raw.length) return [...DEFAULT_PROVIDER_CAPABILITIES]
+  const by = new Map<string, CatProviderCapability>()
+  for (const x of raw) {
+    if (!x || typeof x !== 'object') continue
+    const r = x as Record<string, unknown>
+    const kind = typeof r.agentKind === 'string' ? r.agentKind : ''
+    if (!isProviderKind(kind)) continue
+    const dp = typeof r.defaultProtocol === 'string' && PROTOCOLS.includes(r.defaultProtocol as CatProviderProtocol)
+      ? (r.defaultProtocol as CatProviderProtocol)
+      : 'openai'
+    const allowed = Array.isArray(r.allowedProtocols)
+      ? (r.allowedProtocols.filter((p): p is CatProviderProtocol => typeof p === 'string' && PROTOCOLS.includes(p as CatProviderProtocol)) as CatProviderProtocol[])
+      : [dp]
+    by.set(kind, {
+      agentKind: kind,
+      defaultProtocol: dp,
+      allowProtocolPick: r.allowProtocolPick === true,
+      allowedProtocols: allowed.length ? allowed : [dp],
+    })
+  }
+  return CAT_PROVIDER_ORDER.map((k) => by.get(k) ?? DEFAULT_PROVIDER_CAPABILITIES.find((c) => c.agentKind === k)!)
+}
+
+export async function listCatProviderCapabilities(): Promise<CatProviderCapability[]> {
+  if (live()) return normalizeCapabilities(await call(CatBinding.ListCatProviderCapabilities()))
+  return [...DEFAULT_PROVIDER_CAPABILITIES]
+}
+
+export async function saveCatProviderKey(agentKind: CatProviderKind, apiKey: string): Promise<CatProviderSettings> {
+  const key = apiKey.trim()
+  if (!key) throw new AppError('INVALID_ARGUMENT', '请填写 API Key。')
+  if (live()) {
+    return normalizeProvider(
+      await call(CatBinding.SaveCatProviderKey(cat.SaveProviderKeyRequest.createFrom({ agentKind, apiKey: key }))),
+    )
+  }
+  await wait(200)
+  if (sim('keyfail')) throw new AppError('IO_ERROR', 'sim')
+  mockSecrets.add(agentKind)
+  const cur = mockSettings.providersByAgent[agentKind] ?? emptyProvider()
+  const next = { ...cur, apiKeySet: true }
+  mockSettings = {
+    ...mockSettings,
+    providersByAgent: { ...mockSettings.providersByAgent, [agentKind]: next },
+  }
+  return { ...next }
+}
+
+export async function clearCatProviderKey(agentKind: CatProviderKind): Promise<CatProviderSettings> {
+  if (live()) {
+    return normalizeProvider(
+      await call(CatBinding.ClearCatProviderKey(cat.ClearProviderKeyRequest.createFrom({ agentKind }))),
+    )
+  }
+  await wait(200)
+  if (sim('keyfail')) throw new AppError('IO_ERROR', 'sim')
+  mockSecrets.delete(agentKind)
+  const cur = mockSettings.providersByAgent[agentKind] ?? emptyProvider()
+  // 不改 enabledCustom / apiUrl
+  const next = { ...cur, apiKeySet: false }
+  mockSettings = {
+    ...mockSettings,
+    providersByAgent: { ...mockSettings.providersByAgent, [agentKind]: next },
+  }
+  return { ...next }
 }
 
 const emptyInspect = (reason: string): CatInspectResult => ({ skills: [], plugins: [], hooks: [], mcpServers: [], agents: [], reason })
