@@ -31,11 +31,14 @@ export function catStreamChecks(eq: Eq): void {
   eq('turn 占用为 0 不带', normalizeTurnEvent({ convId: 'c', status: 'completed', contextUsed: 0, contextWindow: 256000 })?.contextUsed, undefined)
 
   // v0.37.1 消息尾
-  const foot = normalizeTurnEvent({ convId: 'c', turnId: 't', status: 'completed', messageId: 'm1', finishedAt: 1790000090000, tokenTotal: 12480, tokensPerSec: 186 })
-  eq('turn 终态带消息尾', [foot?.messageId, foot?.finishedAt, foot?.tokenTotal, foot?.tokensPerSec], ['m1', 1790000090000, 12480, 186])
+  const foot = normalizeTurnEvent({ convId: 'c', turnId: 't', status: 'completed', messageId: 'm1', finishedAt: 1790000090000, tokenTotal: 12480, outputTokens: 2100, tokensPerSec: 186 })
+  eq('turn 终态带消息尾', [foot?.messageId, foot?.finishedAt, foot?.tokenTotal, foot?.outputTokens, foot?.tokensPerSec], ['m1', 1790000090000, 12480, 2100, 186])
+  const noOut = normalizeTurnEvent({ convId: 'c', status: 'completed', finishedAt: 100, tokenTotal: 12480, tokensPerSec: 186 })
+  eq('v0.47 turn 无 outputTokens 丢 tokensPerSec', [noOut?.tokenTotal, noOut?.outputTokens, noOut?.tokensPerSec], [12480, undefined, undefined])
+  eq('v0.47 turn running 丢 outputTokens', normalizeTurnEvent({ convId: 'c', status: 'running', outputTokens: 5, tokensPerSec: 1 })?.outputTokens, undefined)
   eq('turn running 丢弃消息尾', normalizeTurnEvent({ convId: 'c', status: 'running', finishedAt: 1, tokenTotal: 9, tokensPerSec: 1 })?.finishedAt, undefined)
   eq('turn 无 usage 只时间', normalizeTurnEvent({ convId: 'c', status: 'cancelled', finishedAt: 100 })?.tokenTotal, undefined)
-  eq('turn 速率 ≤0 省略', normalizeTurnEvent({ convId: 'c', status: 'failed', finishedAt: 100, tokenTotal: 5, tokensPerSec: 0 })?.tokensPerSec, undefined)
+  eq('turn 速率 ≤0 省略', normalizeTurnEvent({ convId: 'c', status: 'failed', finishedAt: 100, tokenTotal: 5, outputTokens: 3, tokensPerSec: 0 })?.tokensPerSec, undefined)
 
   // 顺序追加
   let m = newStreamMsg('m1')
