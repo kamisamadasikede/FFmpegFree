@@ -53,6 +53,27 @@
             data-testid="cat-msg-footer"
           >{{ footerText(row.block) }}</div>
         </template>
+        <div v-else-if="row.block.kind === 'sys' && row.block.outdated" class="ct-sys err ct-outdated" role="status" data-testid="cat-cli-outdated">
+          <div class="ct-od-line">
+            <span>{{ row.block.text }}</span>
+            <span v-if="row.block.outdated.version" class="ct-od-ver" data-testid="cat-cli-outdated-version">{{ CAT_CLI_OUTDATED_COPY.version(row.block.outdated.version) }}</span>
+          </div>
+          <div class="ct-od-acts">
+            <button type="button" class="ct-od-btn" :disabled="pending" data-testid="cat-cli-outdated-retry" @click="emit('retry')">{{ CAT_CLI_OUTDATED_COPY.retry }}</button>
+            <button
+              v-if="row.block.outdated.raw"
+              type="button"
+              class="ct-od-more"
+              :aria-expanded="!!rawOpen[row.key]"
+              data-testid="cat-cli-outdated-toggle"
+              @click="rawOpen[row.key] = !rawOpen[row.key]"
+            ><span class="car" aria-hidden="true"><FIcon :name="rawOpen[row.key] ? 'down' : 'right'" :size="12" /></span>{{ CAT_CLI_OUTDATED_COPY.detail }}</button>
+          </div>
+          <div v-if="row.block.outdated.raw && rawOpen[row.key]" class="ct-od-box">
+            <button type="button" class="ct-od-copy" data-testid="cat-cli-outdated-copy" @click="copyRaw(row.key, row.block.outdated.raw)">{{ copied[row.key] ? CAT_CLI_OUTDATED_COPY.copied : CAT_CLI_OUTDATED_COPY.copy }}</button>
+            <pre class="ct-od-raw" data-testid="cat-cli-outdated-raw">{{ row.block.outdated.raw }}</pre>
+          </div>
+        </div>
         <div v-else-if="row.block.kind === 'sys'" class="ct-sys" :class="{ err: row.block.tone === 'err' }" role="status">{{ row.block.text }}</div>
       </template>
       <div v-else class="ct-act" :class="row.fold.tone" :aria-busy="row.fold.streaming || undefined">
@@ -104,8 +125,23 @@ import { prefersReducedMotion } from '@/api/catStream'
 import { diffLineKind, foldBodyMono, foldIcon, presentCatBlocks, type CatFold } from './catActivity'
 import { formatCatMessageFooter } from './catMessageFooter'
 import { canPreview, showsThumb, userDisplayText, type CatShownFile } from './catMedia'
+import { CAT_CLI_OUTDATED_COPY } from './catCliOutdated'
+import { hasWailsBackend } from '@/services/wails'
+import { ClipboardSetText } from '../../../wailsjs/runtime/runtime'
 
 const props = defineProps<{ blocks: CatBlock[]; pending?: boolean }>()
+const emit = defineEmits<{ retry: [] }>()
+/** 「查看详情」默认收起 */
+const rawOpen = ref<Record<string, boolean>>({})
+const copied = ref<Record<string, boolean>>({})
+async function copyRaw(key: string, text: string) {
+  try {
+    if (hasWailsBackend()) { if (!(await ClipboardSetText(text))) return }
+    else await navigator.clipboard.writeText(text)
+  } catch { return }
+  copied.value[key] = true
+  setTimeout(() => { copied.value[key] = false }, 1500)
+}
 
 const previewOn = ref(false)
 const previewFile = ref<CatShownFile | null>(null)
@@ -189,6 +225,66 @@ const InlineText = defineComponent({
 }
 .ct-sys.err {
   color: var(--cat-text-2);
+}
+/* v0.43 CLI 版本过旧：同行内错误样式，下挂次按钮 + 折叠原始报错 */
+.ct-od-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; }
+.ct-od-ver { font-size: 11px; color: var(--cat-muted); font-variant-numeric: tabular-nums; }
+.ct-od-acts { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+.ct-od-btn {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--cat-radius-md);
+  border: 1px solid var(--cat-border);
+  background: var(--cat-elevated);
+  color: var(--cat-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.ct-od-btn:hover:not(:disabled) { background: var(--cat-hover); }
+.ct-od-btn:disabled { opacity: 0.5; cursor: default; }
+.ct-od-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--cat-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.ct-od-more:hover { color: var(--cat-text-2); }
+.ct-od-more .car { width: 12px; display: grid; place-items: center; }
+.ct-od-box { position: relative; margin-top: 6px; }
+.ct-od-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--cat-radius-md);
+  border: 1px solid var(--cat-border);
+  background: var(--cat-elevated);
+  color: var(--cat-text-2);
+  font-size: 11px;
+  cursor: pointer;
+}
+.ct-od-copy:hover { background: var(--cat-hover); }
+.ct-od-raw {
+  margin: 0;
+  max-height: 160px;
+  overflow: auto;
+  padding: 8px 64px 8px 10px;
+  border-radius: var(--cat-radius-md);
+  border: 1px solid var(--cat-border);
+  background: var(--cat-elevated);
+  color: var(--cat-text-2);
+  font: 12px/1.6 var(--ff-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  cursor: text;
 }
 @media (prefers-reduced-motion: reduce) {
   .ct-spin {

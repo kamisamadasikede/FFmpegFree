@@ -68,6 +68,7 @@ import {
   CAT_MODES,
   mockMessages,
   mockPlainConvs,
+  mockCliOutdatedConvs,
   mockProjects,
   titleFrom,
   type CatBlock,
@@ -79,6 +80,7 @@ import { previewKind, type CatShownFile } from '@/components/cat/catMedia'
 import { applyStreamEvent, newStreamMsg, type CatStreamEvent, type CatStreamMsg, type CatTurnEvent } from '@/api/catStream'
 import { liveTurnPlan, transcriptChanged } from './catLive'
 import { AppError, toAppError } from '@/api/call'
+import { CAT_CLI_OUTDATED_COPY, parseCliOutdated } from '@/components/cat/catCliOutdated'
 import { catPanels, showTurnFinishToast, defaultConvPref } from './catPanels'
 import { rememberNewConvProject, resolveNewConvProject } from './catLocalPrefs'
 import { catSim, catSimOs, catSimPicks, simModels, simStream, simThinks } from './catDevSim'
@@ -131,6 +133,8 @@ export interface CatTurnState {
   assistantId: string
   /** 这一轮已经看到的失败原文 */
   failMsg?: string
+  /** 失败 detail（v0.43 cli_outdated） */
+  failDetail?: unknown
   /** 刷新之后接回来的：记录以会话文件为准，不跟当场的增量抢 */
   adopted?: boolean
 }
@@ -207,7 +211,7 @@ export const catState = reactive({
   deleting: '' as string,
   /** 删除确认框对应的对话 id（设计 v0.3 §13；与 deleting 同一个确认框组件） */
   deletingConv: '' as string,
-  plain: (live ? [] : mockPlainConvs()) as CatConv[],
+  plain: (live ? [] : [...(catSim.has('clioutdated') ? mockCliOutdatedConvs() : []), ...mockPlainConvs()]) as CatConv[],
   messages: {} as Record<string, CatBlock[]>,
   /** 新对话正在创建（欢迎页输入框忙） */
   creating: false,
@@ -814,6 +818,7 @@ export function handleTurnEvent(e: CatTurnEvent) {
     const status = e.status
     const errorCode = e.errorCode
     const errorMessage = e.errorMessage
+    const errorDetail = e.errorDetail
     const turnId = e.turnId
     void loadMessages(convId, true).finally(() => {
       const cur = catState.turns[convId]
@@ -822,6 +827,7 @@ export function handleTurnEvent(e: CatTurnEvent) {
       const incoming = (errorMessage || '').trim()
       if (incoming && incoming !== CAT_COPY.replyFailed) cur.failMsg = incoming
       else if (!cur.failMsg && incoming) cur.failMsg = incoming
+      if (errorDetail != null) cur.failDetail = errorDetail
       if (cur.status === 'stopping' || status === 'cancelled') endTurn(convId, 'cancelled', token, e)
       else if (status === 'completed') endTurn(convId, 'completed', token, e)
       else endTurn(convId, errorCode === 'CAT_NOT_READY' ? 'not_ready' : 'failed', token, e)
@@ -836,6 +842,7 @@ export function handleTurnEvent(e: CatTurnEvent) {
   const incoming = (e.errorMessage || '').trim()
   if (incoming && incoming !== CAT_COPY.replyFailed) turn.failMsg = incoming
   else if (!turn.failMsg && incoming) turn.failMsg = incoming
+  if (e.errorDetail != null) turn.failDetail = e.errorDetail
   if (e.status === 'completed') endTurn(e.convId, 'completed', undefined, e)
   else if (e.status === 'cancelled') endTurn(e.convId, 'cancelled', undefined, e)
   else endTurn(e.convId, e.errorCode === 'CAT_NOT_READY' ? 'not_ready' : 'failed', undefined, e)
@@ -896,9 +903,15 @@ function endTurn(convId: string, how: TurnEnd, token?: number, ev?: CatTurnEvent
   catState.filesRev++
   if (how === 'cancelled') list.push({ kind: 'sys', text: CAT_COPY.stopped })
   else if (how === 'failed') {
+    const outdated = parseCliOutdated(turn.failDetail, findConv(convId)?.conv.agentKind ?? currentAgentKind())
+    if (outdated) {
+      // v0.43：CLI 版本过旧单独一行；原始报错收进「查看详情」（raw 为空则不出，v0.43.1）
+      list.push({ kind: 'sys', text: CAT_CLI_OUTDATED_COPY.body(outdated.cli), tone: 'err', outdated })
+    } else {
     const text = (turn.failMsg || '').trim() || CAT_COPY.replyFailed
     if (!list.some((b) => b.kind === 'sys' && b.tone === 'err' && b.text === text)) {
       list.push({ kind: 'sys', text, tone: 'err' })
+    }
     }
   }
   else if (how === 'not_ready') list.push({ kind: 'sys', text: catState.status.error?.message || CAT_COPY.notReady })
@@ -1069,7 +1082,22 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
     const failed = catState.turns[id]
     const msg = (err.message || '').trim()
     if (failed?.token === token && msg && msg !== CAT_COPY.replyFailed) failed.failMsg = msg
+    if (failed?.token === token && err.detail) failed.failDetail = err.detail
     endTurn(id, err.code === 'CANCELED' ? 'cancelled' : 'failed', token)
+  }
+}
+
+/** 失败消息的「重试」：把这条对话最后一句用户消息（含附件）重新发一次 */
+export async function retryLastMessage(): Promise<void> {
+  const id = catState.sel
+  if (id === NEW_CONV || catState.turns[id]) return
+  const list = catState.messages[id] ?? []
+  for (let i = list.length - 1; i >= 0; i--) {
+    const b = list[i]
+    if (b.kind !== 'user') continue
+    const files = (b.files ?? []).map((f) => ({ name: f.name, path: f.path }))
+    await sendMessage(b.text, files as CatOutgoingFile[])
+    return
   }
 }
 

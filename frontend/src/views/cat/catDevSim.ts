@@ -33,6 +33,7 @@
  *   gitbranch —— 分支菜单走查（补全本地/远端列表）
  *   office / officeneed —— 办公画布下载卡（需下载）
  *   officedl —— 办公画布下载中
+ *   clioutdated —— 对话栏顶部多三条 Claude / Codex / Grok Build / 无原始报错「CLI 版本过旧」对话（o1–o4）
  *   officefail —— 办公画布未配置失败文案
  *   officepreview / officeready —— 办公画布 ready + ≥3 页预览壳
  *
@@ -60,8 +61,8 @@ export function simThinks(): CatThinkLevel[] {
   ]
 }
 
-export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'md' | 'mdhold' | 'savefail' | 'inspectslow' | 'inspectfail' | 'inspectempty' | 'clearfail' | 'keyfail' | 'skillsmissing' | 'setenablefail' | 'schedempty' | 'schedfail' | 'slowconv' | 'browsertimeout' | 'footertime' | 'allagents' | 'gitconflict' | 'gitrebase' | 'gitdone' | 'gitbranch' | 'office' | 'officeneed' | 'officedl' | 'officefail' | 'officepreview' | 'officeready'
-const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'md', 'mdhold', 'savefail', 'inspectslow', 'inspectfail', 'inspectempty', 'clearfail', 'keyfail', 'skillsmissing', 'setenablefail', 'schedempty', 'schedfail', 'slowconv', 'browsertimeout', 'footertime', 'allagents', 'gitconflict', 'gitrebase', 'gitdone', 'gitbranch', 'office', 'officeneed', 'officedl', 'officefail', 'officepreview', 'officeready']
+export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'md' | 'mdhold' | 'savefail' | 'inspectslow' | 'inspectfail' | 'inspectempty' | 'clearfail' | 'keyfail' | 'skillsmissing' | 'setenablefail' | 'schedempty' | 'schedfail' | 'slowconv' | 'browsertimeout' | 'footertime' | 'allagents' | 'gitconflict' | 'gitrebase' | 'gitdone' | 'gitbranch' | 'office' | 'officeneed' | 'officedl' | 'officefail' | 'officepreview' | 'officeready' | 'clioutdated'
+const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'md', 'mdhold', 'savefail', 'inspectslow', 'inspectfail', 'inspectempty', 'clearfail', 'keyfail', 'skillsmissing', 'setenablefail', 'schedempty', 'schedfail', 'slowconv', 'browsertimeout', 'footertime', 'allagents', 'gitconflict', 'gitrebase', 'gitdone', 'gitbranch', 'office', 'officeneed', 'officedl', 'officefail', 'officepreview', 'officeready', 'clioutdated']
 
 export const catSim: ReadonlySet<CatSimFlag> = (() => {
   if (!import.meta.env.DEV || typeof window === 'undefined') return new Set<CatSimFlag>()
