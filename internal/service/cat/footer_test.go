@@ -20,6 +20,8 @@ type transcriptFake struct {
 func (f *transcriptFake) LoadTranscript(context.Context, string, string) ([]catagent.WireMessage, error) {
 	return f.wires, nil
 }
+func (f *transcriptFake) SessionLabel(string, string) string   { return "" }
+func (f *transcriptFake) SessionResumable(string, string) bool { return len(f.wires) > 0 }
 
 func setupFooter(t *testing.T, run func(catagent.TurnOptions) (catagent.TurnResponse, error), wires []catagent.WireMessage) (*cat.Service, *recorder, string, string) {
 	t.Helper()

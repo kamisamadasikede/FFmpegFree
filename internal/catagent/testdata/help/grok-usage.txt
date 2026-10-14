@@ -1,0 +1,14 @@
+# grok 1.0.40 (eb1a2256660d) [stable] — grok usage --help — captured 2026-10-14
+Print persisted token and cost usage for a session
+
+Usage: grok usage [OPTIONS] <SESSION_ID> [TURN]
+
+Arguments:
+  <SESSION_ID>  Session ID
+  [TURN]        Turn number. Omit for session totals and every recorded turn
+
+Options:
+      --debug                 Enable debug logging
+      --debug-file <FILE>     Write debug logs to FILE
+  -h, --help                  Print help
+      --leader-socket <PATH>  Use a custom leader socket path instead of the default `~/.grok/leader.sock`. A local/branch build can thus run an isolated leader without colliding with the default one already running on the machine Name it `~/.grok/leader-*.sock` to keep `grok leader list/kill` able to find it; any other location works but won't be auto-discovered

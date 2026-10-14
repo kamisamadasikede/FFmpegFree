@@ -2,6 +2,7 @@ package catagent
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -73,7 +74,7 @@ func TestCodexHistoryPersistsAfterReload(t *testing.T) {
 	if got != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 	}
-	if !a2.SessionResumable("conv-1") {
+	if !a2.SessionResumable("conv-1", "/tmp/cxw") {
 		t.Fatal("存了 thread_id 后下一句应走 exec resume")
 	}
 }
@@ -103,7 +104,7 @@ func TestCodexTranscriptMissingIsEmptyNotError(t *testing.T) {
 	// 有 thread_id 但 rollout 已被删。
 	a.saveSessionID("conv-x", "deadbeef-0000")
 	msgs, err = a.LoadTranscript(context.Background(), "conv-x", "")
-	if err != nil || msgs == nil || len(msgs) != 0 {
+	if !errors.Is(err, ErrHistoryMissing) || msgs == nil || len(msgs) != 0 {
 		t.Fatalf("msgs=%v err=%v", msgs, err)
 	}
 }

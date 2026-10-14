@@ -417,8 +417,10 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		// 工具集用本机 grok 自己的完整集合。批准方式只带一个开关。
 	}
 	args = append(args, permissionCLIArgs(opts.PermissionMode)...)
+	usageSID := ""
 	if sid := strings.TrimSpace(opts.ConversationID); sid != "" {
 		uuid := sessionIDFromConv(sid)
+		usageSID = uuid
 		if opts.Resume || hasPriorAssistant(opts.Messages) {
 			args = append(args, "--resume", uuid)
 		} else {
@@ -481,6 +483,7 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	}}
 	cmd.Stderr = stderrTap
 
+	turnStart := a.cfg.Now()
 	if err := cmd.Start(); err != nil {
 		// exec.CommandContext 在 ctx 已取消时 Start 直接返回 ctx 错误：
 		// 取消发生在启动前（高负载下常见）时应报“已取消”，而不是 start_failed。
@@ -529,6 +532,8 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	close(stopFollow)
 	<-followDone
 	stderrText := stderrTap.String()
+	// v0.45：终态后取本轮 token（成功 / 失败 / 取消都试；取不到就不带）。
+	usage := TurnResponse{TokenTotal: a.grokTurnTokens(exe, cmd.Env, cwd, usageSID, turnStart)}
 	errMu.Lock()
 	cliMsg := cliErr
 	errMu.Unlock()
@@ -549,23 +554,23 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	}
 	if isAuthFailure(authText) {
 		a.markAuthInvalid()
-		return TurnResponse{}, authNotReadyErr()
+		return usage, authNotReadyErr()
 	}
 	if runCtx.Err() != nil {
 		if ctx.Err() != nil {
-			return TurnResponse{}, apperr.New(apperr.Canceled, "已取消")
+			return usage, apperr.New(apperr.Canceled, "已取消")
 		}
 		msg := cliMsg
 		if msg == "" {
 			msg = "回复超时"
 		}
-		return TurnResponse{}, apperr.New(apperr.CatReplyFailed, msg).WithDetail("reason=timeout")
+		return usage, apperr.New(apperr.CatReplyFailed, msg).WithDetail("reason=timeout")
 	}
 	if waitErr != nil && cliArgRejected(stderrText+"\n"+cliMsg) {
 		a.mu.Lock()
 		ver := a.version
 		a.mu.Unlock()
-		return TurnResponse{}, outdatedCLIErr(KindCatBuild, ver, stderrText)
+		return usage, outdatedCLIErr(KindCatBuild, ver, stderrText)
 	}
 	// 非零退出、流里的失败、或标准错误里的超时 / 断网，都按失败结束。已经流出的正文留在界面上。
 	if cliMsg != "" || waitErr != nil {
@@ -580,17 +585,16 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		if waitErr != nil && cliMsg == "" {
 			detail = "reason=exit"
 		}
-		return TurnResponse{}, apperr.New(apperr.CatReplyFailed, truncate(msg, 500)).WithDetail(detail)
+		return usage, apperr.New(apperr.CatReplyFailed, truncate(msg, 500)).WithDetail(detail)
 	}
 
 	body := acc.String()
 	if strings.TrimSpace(body) == "" {
-		return TurnResponse{}, apperr.New(apperr.CatReplyFailed, MsgReplyFailed).WithDetail("reason=empty_reply")
+		return usage, apperr.New(apperr.CatReplyFailed, MsgReplyFailed).WithDetail("reason=empty_reply")
 	}
-	return TurnResponse{
-		Version: ProtocolVersion,
-		Message: WireMessage{Role: "assistant", Content: body},
-	}, nil
+	usage.Version = ProtocolVersion
+	usage.Message = WireMessage{Role: "assistant", Content: body}
+	return usage, nil
 }
 
 // plainCwd 是没有项目的对话的 --cwd。有 DataRoot 时与文件面板共用 paths.ResolveCatConvDir；

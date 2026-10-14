@@ -90,6 +90,8 @@ type lastTurn struct {
 	userMsg store.CatMessage
 	hook    *turnHook
 	status  string
+	// noRetry（v0.45）：续聊会话已不存在等失败，原样重发也不会好 → 不可重试。
+	noRetry bool
 }
 
 // actRec 是一条思考或一次工具调用。界面单独画，不写进助手正文。
@@ -131,6 +133,7 @@ type turnState struct {
 	durationMs   int64 // CLI 上报生成耗时；0 = 用墙钟
 	finishedAt   int64
 	tokensPerSec *float64
+	firstTokenAt int64 // v0.45：第一个正文 / 思考增量的墙钟；0 = 还没有
 }
 
 // New 创建服务。
@@ -320,20 +323,41 @@ func (s *Service) GetCatConversation(ctx context.Context, convID string) (Conver
 	if err != nil {
 		return ConversationDetail{}, apperr.Wrap(apperr.IOError, "读取会话失败", err)
 	}
-	msgs, err := s.loadTranscript(ctx, c)
+	msgs, hist, err := s.loadTranscript(ctx, c)
 	if err != nil {
 		return ConversationDetail{}, err
 	}
 	s.applyCLITitle(ctx, &c)
 	used, window := s.lookupContext(ctx, c)
-	return ConversationDetail{CatConversation: c, Messages: msgs, LastTurn: s.lastTurnInfo(convID), ContextUsed: used, ContextWindow: window}, nil
+	return ConversationDetail{CatConversation: c, Messages: msgs, HistoryStatus: hist, LastTurn: s.lastTurnInfo(convID), ContextUsed: used, ContextWindow: window}, nil
 }
 
 // applyCLITitle 用 CLI 会话里的第一句当展示名。库里的 title 不更新。
+// 统一走 SessionHistory（Grok / Claude / Codex 同一接口），不按家特判。
 func (s *Service) applyCLITitle(ctx context.Context, c *store.CatConversation) {
-	if label := catagent.SessionLabel(s.cwdFor(ctx, *c), c.ID); label != "" {
-		c.Title = label
+	if h := s.sessionHistory(c.AgentKind); h != nil {
+		if label := h.SessionLabel(c.ID, s.cwdFor(ctx, *c)); label != "" {
+			c.Title = label
+		}
 	}
+}
+
+// sessionHistory 按 agentKind 取 SessionHistory；假适配器没有就返回 nil。
+func (s *Service) sessionHistory(agentKind string) catagent.SessionHistory {
+	a, err := s.adapter(agentKind)
+	if err != nil {
+		return nil
+	}
+	h, _ := a.(catagent.SessionHistory)
+	return h
+}
+
+func (s *Service) sessionResumable(agentKind, convID, cwd string) bool {
+	// 只听适配器（架构笔记阶段 A）：服务层不再用 Grok 包级 SessionStarted 兜底。
+	if h := s.sessionHistory(agentKind); h != nil {
+		return h.SessionResumable(convID, cwd)
+	}
+	return false
 }
 
 // cwdFor 是这条对话在 CLI 里的工作目录：项目用项目文件夹，否则用会话目录。
@@ -348,36 +372,43 @@ func (s *Service) cwdFor(ctx context.Context, c store.CatConversation) string {
 	return catagent.TurnCwd(s.cfg.DataRoot, "", c.ID)
 }
 
-// loadTranscript 从 CLI 导出会话记录。侧栏只留服务商（agentKind）和对话 id，正文不进 SQLite。
-// 测试用的假适配器没有这条能力时返回空列表。
-func (s *Service) loadTranscript(ctx context.Context, c store.CatConversation) ([]store.CatMessage, error) {
-	a, err := s.adapter(c.AgentKind)
-	if err != nil {
-		return []store.CatMessage{}, nil
-	}
-	loader, ok := a.(interface {
-		LoadTranscript(context.Context, string, string) ([]catagent.WireMessage, error)
-	})
-	if !ok {
-		return []store.CatMessage{}, nil
-	}
-	cwd := ""
-	if c.ProjectID != "" {
-		p, perr := s.projectForConversation(ctx, c.ProjectID)
-		if p.Path != "" {
-			cwd = p.Path
-		} else if perr != nil {
-			return nil, perr
+// loadTranscript 打开会话时从 CLI 自己的会话文件读正文（SessionHistory，照 Grok 路径）：
+// 按 agentKind 取适配器 → LoadTranscript(convID, cwd)；Claude / Codex / Grok 同一接口。
+// 读不到就空列表，从不拼接本地消息缓存、不捏造历史。库只留元数据。
+func (s *Service) loadTranscript(ctx context.Context, c store.CatConversation) ([]store.CatMessage, string, error) {
+	cwd := s.cwdFor(ctx, c)
+	h := s.sessionHistory(c.AgentKind)
+	var (
+		wires []catagent.WireMessage
+		err   error
+	)
+	if h != nil {
+		wires, err = h.LoadTranscript(ctx, c.ID, cwd)
+	} else {
+		// 测试假适配器可能只挂了 LoadTranscript；生产三家都实现完整 SessionHistory。
+		a, aerr := s.adapter(c.AgentKind)
+		if aerr != nil {
+			return []store.CatMessage{}, "", nil
 		}
+		loader, ok := a.(interface {
+			LoadTranscript(context.Context, string, string) ([]catagent.WireMessage, error)
+		})
+		if !ok {
+			return []store.CatMessage{}, "", nil
+		}
+		wires, err = loader.LoadTranscript(ctx, c.ID, cwd)
 	}
-	if cwd == "" {
-		cwd = catagent.TurnCwd(s.cfg.DataRoot, "", c.ID)
+	// 读不到正文：空列表 + historyStatus，不报错、不捏造（6.19.19.0 第 5 条）。
+	switch {
+	case errors.Is(err, catagent.ErrHistoryMissing):
+		return []store.CatMessage{}, HistoryMissing, nil
+	case errors.Is(err, catagent.ErrHistoryReadFailed):
+		s.cfg.Logf("cat history read failed: conv=%s kind=%s", c.ID, c.AgentKind)
+		return []store.CatMessage{}, HistoryReadFailed, nil
+	case err != nil:
+		return nil, "", err
 	}
-	wires, err := loader.LoadTranscript(ctx, c.ID, cwd)
-	if err != nil {
-		return nil, err
-	}
-	return applyFooters(s.cfg.DataRoot, c.ID, wiresToMessages(c.ID, wires)), nil
+	return applyFooters(s.cfg.DataRoot, c.ID, wiresToMessages(c.ID, wires)), "", nil
 }
 
 func wiresToMessages(convID string, wires []catagent.WireMessage) []store.CatMessage {
@@ -619,7 +650,7 @@ func (s *Service) startTurn(ctx context.Context, req SendMessageRequest, hook *t
 		// v0.44：旧值读时映射；空 / 不认识 → 该家默认（最保守）模式（6.19.18.3）。
 		PermissionMode: catagent.NormalizeMode(c.AgentKind, req.PermissionMode),
 		ProjectPath:    projectRoot,
-		Resume:         catagent.SessionStarted(cwd, c.ID),
+		Resume:         s.sessionResumable(c.AgentKind, c.ID, cwd),
 		Messages:       []catagent.WireMessage{{Role: "user", Content: content}},
 		Files:          files,
 		Rules:          s.rulesForTurn(ctx),
@@ -669,6 +700,9 @@ func (s *Service) runTurn(ctx context.Context, t *turnState, a catagent.Adapter,
 		}
 		s.cfg.Logf("cat turn failed: %v", runErr)
 		if ae := apperr.From(runErr); ae != nil {
+			if strings.Contains(ae.Detail, catagent.ReasonSessionNotFound) {
+				s.markNoRetry(t.convID, t.turnID)
+			}
 			s.noteTurnError(ctx, t, ae.Message)
 		}
 		s.finish(t, catagent.TurnFailed)
@@ -844,6 +878,9 @@ func (s *Service) appendActivity(ctx context.Context, t *turnState, kind, key, t
 	} else if replace && rec.text == text {
 		return
 	}
+	if kind == "thought" {
+		t.markFirstTokenLocked()
+	}
 	if replace {
 		rec.text = text
 	} else {
@@ -906,6 +943,7 @@ func (s *Service) appendText(ctx context.Context, t *turnState, delta string) bo
 		return false
 	}
 	s.clearRetryLocked(t)
+	t.markFirstTokenLocked()
 	t.seq++
 	t.text.WriteString(delta)
 	s.emit(catagent.EventMessage, catagent.MessageEvent{
@@ -1027,6 +1065,8 @@ func (s *Service) turnEventLocked(t *turnState, status string) catagent.TurnEven
 	if t.finishedAt > 0 {
 		ev.FinishedAt = t.finishedAt
 	}
+	ev.FirstTokenMs = msPtr(t.startedAt, t.firstTokenAt)
+	ev.TotalMs = msPtr(t.startedAt, t.finishedAt)
 	ev.TokenTotal = int64Ptr(t.tokenTotal)
 	ev.TokensPerSec = t.tokensPerSec
 	return ev
@@ -1044,6 +1084,7 @@ func (s *Service) persistFooterLocked(t *turnState) {
 	appendFooter(s.cfg.DataRoot, t.convID, messageFooter{
 		TurnID: t.turnID, MessageID: t.msgID, FinishedAt: t.finishedAt,
 		TokenTotal: int64Ptr(t.tokenTotal), TokensPerSec: t.tokensPerSec,
+		FirstTokenMs: msPtr(t.startedAt, t.firstTokenAt), TotalMs: msPtr(t.startedAt, t.finishedAt),
 	})
 }
 
@@ -1190,7 +1231,7 @@ func splitRunes(s string, n int) []string {
 	return out
 }
 
-// lastTurnInfo 是 GetCatConversation 的 lastTurn（v0.44.6）：内存里没有 → nil；进行中时不可重试。
+// lastTurnInfo 是 GetCatConversation 的 lastTurn（v0.44.6）：内存里没有 → nil；进行中 / noRetry 时不可重试。
 func (s *Service) lastTurnInfo(convID string) *CatTurnState {
 	s.mu.Lock()
 	_, busy := s.turns[convID]
@@ -1201,7 +1242,7 @@ func (s *Service) lastTurnInfo(convID string) *CatTurnState {
 	if lt == nil {
 		return nil
 	}
-	return &CatTurnState{TurnID: lt.turnID, Status: lt.status, Retryable: !busy && lt.status == catagent.TurnFailed}
+	return &CatTurnState{TurnID: lt.turnID, Status: lt.status, Retryable: !busy && !lt.noRetry && lt.status == catagent.TurnFailed}
 }
 
 // retryableNow 报告 turnID 是否是该会话内存里记下的最后一轮且失败（失败事件用）。
@@ -1209,7 +1250,22 @@ func (s *Service) retryableNow(convID, turnID string) bool {
 	s.lastMu.Lock()
 	defer s.lastMu.Unlock()
 	lt := s.lastTurns[convID]
-	return lt != nil && lt.turnID == turnID && lt.status == catagent.TurnFailed
+	return lt != nil && lt.turnID == turnID && lt.status == catagent.TurnFailed && !lt.noRetry
+}
+
+func (s *Service) markNoRetry(convID, turnID string) {
+	s.lastMu.Lock()
+	if lt := s.lastTurns[convID]; lt != nil && lt.turnID == turnID {
+		lt.noRetry = true
+	}
+	s.lastMu.Unlock()
+}
+
+// markFirstTokenLocked 记下第一个正文 / 思考增量的时刻（§6.19.19.3 第 2 条）。调用时已持有 t.mu。
+func (t *turnState) markFirstTokenLocked() {
+	if t.firstTokenAt == 0 {
+		t.firstTokenAt = time.Now().UnixMilli()
+	}
 }
 
 func (s *Service) noteLastTurnStatus(convID, turnID, status string) {
@@ -1247,7 +1303,7 @@ func (s *Service) RetryCatTurn(ctx context.Context, req RetryCatTurnRequest) (Se
 		orig = *lt
 	}
 	s.lastMu.Unlock()
-	if busy || lt == nil || orig.turnID != turnID || orig.status != catagent.TurnFailed {
+	if busy || lt == nil || orig.turnID != turnID || orig.status != catagent.TurnFailed || orig.noRetry {
 		return SendMessageResult{}, notAllowed
 	}
 	um := orig.userMsg

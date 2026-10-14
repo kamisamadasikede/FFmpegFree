@@ -25,6 +25,9 @@ func fakeGrokProcess() int {
 	if out == "" {
 		return 2
 	}
+	if len(os.Args) > 1 && os.Args[1] == "usage" {
+		return 1 // v0.45 终态后的用量查询：不记参数
+	}
 	var b strings.Builder
 	for _, a := range os.Args[1:] {
 		b.WriteString(a)
