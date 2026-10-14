@@ -134,6 +134,7 @@ type turnState struct {
 	retrySeq      int
 	retryText     string
 	usageCwd      string // 这一轮的工作目录，用来读上下文占用
+	agentKind     string // 这一轮的助手，按它取 SessionHistory.ReadContextUsage
 	contextUsed   int64
 	contextWindow int64
 	emittedUsed   int64
@@ -477,11 +478,11 @@ func (s *Service) lookupContext(ctx context.Context, c store.CatConversation) (i
 	if cwd == "" {
 		cwd = paths.ResolveCatConvDir(s.cfg.DataRoot, c.ID)
 	}
-	used, window, ok := catagent.ReadContextUsage(cwd, c.ID)
-	if !ok {
-		// v0.48.1：Codex / Claude 没有 Grok 的 signals.json，读上一轮落下的记录。
-		used, window, ok = loadContextUsage(s.cfg.DataRoot, c.ID)
+	h := s.sessionHistory(c.AgentKind)
+	if h == nil {
+		return 0, 0
 	}
+	used, window, ok := h.ReadContextUsage(c.ID, cwd)
 	if !ok {
 		return 0, 0
 	}
@@ -665,6 +666,7 @@ func (s *Service) startTurn(ctx context.Context, req SendMessageRequest, hook *t
 	t := &turnState{
 		convID: c.ID, turnID: id.New(), cancel: cancel, msgID: id.New(), done: make(chan struct{}),
 		usageCwd:  catagent.TurnCwd(s.cfg.DataRoot, projectRoot, c.ID),
+		agentKind: c.AgentKind,
 		hook:      hook,
 		startedAt: nowMs,
 	}
@@ -1002,7 +1004,11 @@ func (s *Service) stampContext(t *turnState) {
 	if t.usageCwd == "" || t.convID == "" {
 		return
 	}
-	used, window, ok := catagent.ReadContextUsage(t.usageCwd, t.convID)
+	h := s.sessionHistory(t.agentKind)
+	if h == nil {
+		return
+	}
+	used, window, ok := h.ReadContextUsage(t.convID, t.usageCwd)
 	if !ok {
 		return
 	}
@@ -1063,9 +1069,8 @@ func (s *Service) noteTurnUsage(t *turnState, resp catagent.TurnResponse) {
 		t.outputTokens = resp.OutputTokens
 	}
 	if resp.ContextUsed > 0 && resp.ContextWindow > 0 {
-		// v0.48.1：Codex / Claude 由适配器在本轮结束时给出；落到对话目录，重开对话时还能画圆环。
+		// v0.48.3：Codex / Claude 由适配器在本轮结束时从 CLI 会话文件读出；不落盘，重开对话时再读一次。
 		t.contextUsed, t.contextWindow = resp.ContextUsed, resp.ContextWindow
-		saveContextUsage(s.cfg.DataRoot, t.convID, resp.ContextUsed, resp.ContextWindow)
 	}
 }
 

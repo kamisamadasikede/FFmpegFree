@@ -2,6 +2,8 @@
 
 v0.49 变更（**输入框底栏：文件夹路径可点开 + 远程分支 + 本地分支切换**，老板 t86u 2026-10-14；规则见 **6.19.24**；无迁移 / 事件名 / settings 键；新绑定 `ListCatBranches` / `SwitchCatBranch`；新 reason `branch_not_found`，复用 `git_dirty` / `turn_running`）：① 普通对话底栏左侧显示对话文件夹路径（中间省略，tooltip 全路径），项目对话仍显示项目名；两者点击都用 `RevealCatConversationFolder` 在系统文件管理器打开。② 原「本地」改为当前分支的上游（如 `origin/main`），没有上游显示灰字「无远程分支」。③ 旁边显示本地当前分支，点开下拉（复用 #294 的 `CatModeSelect`，挂 body、下方放不下往上翻）列本地分支 + 「远程分支」小节（只在远程的），选中即 `git switch`；远程分支本地没有同名时建跟踪分支。④ 工作区有改动 → 拦下不切；正在回复 → 不能切；不是仓库 / 没装 git → 不显示分支部分。
 
+v0.48.3 变更（**上下文圆环不再落盘**，老板 t87u 2026-10-14；见 **6.19.22.4**；无新错误码 / 迁移 / 事件名 / 绑定 / settings 键）：删除 `.cat-context.json` 读写；三家统一走 `SessionHistory.ReadContextUsage` 直接读 CLI 自己的会话文件。Claude 本地文件不带窗口大小，只在本次运行 stream 报过后显示，重启后下一轮前不画。
+
 v0.48.2 变更（**Codex / Claude 回复中实时显示工具调用**，老板 t85u 2026-10-14；对照表见 **6.19.23**；无新错误码 / 迁移 / 事件名 / 绑定 / settings 键）：工具行与 Grok 一样走 `cat:message` 的 tool / thought 块（OpReplace，同 id 原地更新），与正文按到达顺序穿插；标签文字与重新加载会话记录一致，刷新后不重复。
 
 v0.48.1 变更（**Codex / Claude 也显示上下文圆环**，老板 t83u 2026-10-14；规则与取数对照表见 **6.19.22**；无新错误码 / 迁移 / 事件名 / 绑定 / settings 键）：① 终态 `cat:turn` 与会话详情的 `contextUsed` / `contextWindow` 改为三家都填（Codex 读 rollout 最后一条 `token_count`；Claude 读 transcript 最后一条 assistant usage + stream `result.modelUsage[].contextWindow`）。② 前端不分助手：两数都 > 0 就画圆环，否则隐藏。③ 拿不到不估算。
@@ -6058,11 +6060,17 @@ TS 对应：`checking: boolean; checkedAt?: number; stale?: boolean; exePath?: s
 
 **6.19.22.2 规则**
 1. 适配器把两数放进 `TurnResponse.contextUsed/contextWindow`；任一拿不到 → 都为 0，前端隐藏圆环。**不估算、不用内置模型表猜容量**（Claude 拿不到 `contextWindow` 就不画）。
-2. 服务层把非零结果写到应用自己的对话目录 `.cat-context.json`（`{"contextUsed","contextWindow"}`，不写进用户项目文件夹）；打开对话时 Grok 先读 signals.json，读不到再读该文件。
+2. ~~服务层把非零结果写到 `.cat-context.json`~~（v0.48.3 作废，见 6.19.22.4）。
 3. 会话已失效（`reason=session_not_found`）的轮不取数。
 4. 无新错误码 / 迁移 / 事件名 / 绑定 / settings 键。
 
 **6.19.22.3 样本**：`codex/rollout-token-count-doc-derived.jsonl`、`claude/context-usage-doc-derived.jsonl`、`claude/result-modelusage-doc-derived.json` 为**文档派生**（box 上两家未登录，拿不到成功回复）；真机负样本（未登录，`modelUsage:{}`、只有 `task_started`）验证“拿不到就不画”。登录后应补真机正样本。
+
+**6.19.22.4 v0.48.3 补丁：不落盘，直接读 CLI 文件**（老板 t87u：库 / 应用只存元数据，状态以 CLI 自己的文件为准）
+1. 删除 `.cat-context.json` 的写和读（`internal/service/cat/context_store.go` 已删）。旧版本留下的该文件**不删、不读**，忽略即可。
+2. 统一入口 `SessionHistory.ReadContextUsage(convID, cwd) (used, window, ok)`（v0.48.3），与 `LoadTranscript` 同一接口、三家都实现，服务层按 `agentKind` 取适配器调用，不按家特判：Grok 读 signals.json；Codex 用存下的 thread_id 读 rollout 最后一条 `token_count`；Claude 用存下的 session_id 读 transcript 最后一条主线 assistant `usage`。打开对话（`CatConversationDetail`）和每轮终态都走这里。
+3. Claude 容量：核对 transcript（`~/.claude/projects/<cwd>/<sid>.jsonl` 的 assistant 行只有 `message.model` / `usage`，无窗口）和 `~/.claude.json`（box 上无 `contextWindow` 字段），**本地文件都不带窗口大小**。因此只用 stream `result.modelUsage[<model>].contextWindow`；适配器在进程内存里按 model 记住本次运行报过的值（不落盘）。效果：同一次运行里重开 Claude 对话会显示圆环；应用重启后在该模型跑下一轮之前不显示（不内置模型表、不猜）。Codex 窗口在 rollout 里，重开/重启都能显示。
+4. 无新错误码 / 迁移 / 事件名 / 绑定 / settings 键；前端不变。
 
 
 ### 9.1 检测顺序（启动时后台执行，不阻塞界面）

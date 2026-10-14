@@ -62,8 +62,11 @@ type CLIAgentAdapter struct {
 	detecting bool
 	checkedAt int64
 	detGen    uint64
-	timedOut  bool            // 本轮检测超过 DetectTimeout 仍未返回
-	provider  ProviderOverlay // v0.38；仅子进程
+	// v0.48.3：Claude 本进程里 stream result.modelUsage 报过的窗口（model→contextWindow），只在内存，不落盘。
+	ctxWinMu sync.Mutex
+	ctxWin   map[string]int64
+	timedOut bool            // 本轮检测超过 DetectTimeout 仍未返回
+	provider ProviderOverlay // v0.38；仅子进程
 }
 
 // NewClaudeAdapter 创建 Claude Code 真适配器（不立即检测）。

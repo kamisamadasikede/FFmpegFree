@@ -15,6 +15,9 @@ type SessionHistory interface {
 	SessionLabel(convID, cwd string) string
 	// SessionResumable：是否已有可续会话（下一句带 --resume）。cwd 给 Grok 定位会话目录；Claude / Codex 看存下的 id，可忽略 cwd。
 	SessionResumable(convID, cwd string) bool
+	// ReadContextUsage 直接读 CLI 自己的会话文件取上下文占用（v0.48.3）：Grok signals.json、Codex rollout token_count、
+	// Claude transcript usage。拿不到 ok=false，前端不画圆环；应用不落盘任何上下文文件。
+	ReadContextUsage(convID, cwd string) (used, window int64, ok bool)
 }
 
 var (

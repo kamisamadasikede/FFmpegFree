@@ -122,8 +122,35 @@ func claudeResultContextWindow(raw map[string]json.RawMessage, model string) int
 	return best
 }
 
-// turnContextUsage 在一轮结束后取该会话当前上下文占用；拿不到返回 0, 0（前端不画圆环）。
-// claudeWindow 为本轮 stream result.modelUsage 里读到的容量。
+// ReadContextUsage 实现 SessionHistory（v0.48.3）：打开对话 / 每轮结束都直接读 CLI 自己的会话文件，不经应用落盘。
+// Codex 用存下的 thread_id 找 rollout；Claude 用 session_id 找 transcript，容量见 claudeWindowFor。
+func (a *CLIAgentAdapter) ReadContextUsage(convID, cwd string) (int64, int64, bool) {
+	u, w := a.turnContextUsage(a.loadSessionID(convID), cwd, 0)
+	return u, w, u > 0 && w > 0
+}
+
+// rememberClaudeWindow / claudeWindowFor：Claude transcript 与本地文件都不带窗口大小（v0.48.3 核对），
+// 只能用 CLI 本进程里 stream result.modelUsage 报过的值；应用重启后在下一轮之前不知道就不画。
+func (a *CLIAgentAdapter) rememberClaudeWindow(model string, w int64) {
+	if model == "" || w <= 0 {
+		return
+	}
+	a.ctxWinMu.Lock()
+	if a.ctxWin == nil {
+		a.ctxWin = map[string]int64{}
+	}
+	a.ctxWin[model] = w
+	a.ctxWinMu.Unlock()
+}
+
+func (a *CLIAgentAdapter) claudeWindowFor(model string) int64 {
+	a.ctxWinMu.Lock()
+	defer a.ctxWinMu.Unlock()
+	return a.ctxWin[model]
+}
+
+// turnContextUsage 取该会话当前上下文占用；拿不到返回 0, 0（前端不画圆环）。
+// claudeWindow 为本轮 stream result.modelUsage 里读到的容量（重开对话时为 0）。
 func (a *CLIAgentAdapter) turnContextUsage(sessionID, cwd string, claudeWindow int64) (int64, int64) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
@@ -150,7 +177,12 @@ func (a *CLIAgentAdapter) turnContextUsage(sessionID, cwd string, claudeWindow i
 		}
 		return used, window
 	}
-	used, _ := parseClaudeTranscriptContext(f)
+	used, model := parseClaudeTranscriptContext(f)
+	if claudeWindow > 0 {
+		a.rememberClaudeWindow(model, claudeWindow)
+	} else {
+		claudeWindow = a.claudeWindowFor(model)
+	}
 	if used <= 0 || claudeWindow <= 0 {
 		return 0, 0
 	}
