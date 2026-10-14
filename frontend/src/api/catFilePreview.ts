@@ -5,35 +5,36 @@
 import * as CatBinding from '../../wailsjs/go/app/CatService'
 import { cat } from '../../wailsjs/go/models'
 import { call, toAppError } from '@/api/call'
+import { t } from '@/i18n'
 
 export const CAT_PREVIEW_COPY = {
-  loading: '正在读取…',
-  failed: '文件读取失败，请重试。',
-  saveFailed: '文件保存失败，请重试。',
-  saved: '已保存。',
-  save: '保存',
-  saving: '正在保存…',
-  close: '关闭',
-  binary: '这个文件不能在这里查看。',
-  tooLarge: '这个文件太大，这里放不下。',
-  doc: '这个旧版文档不能在这里打开。',
-  preview: '预览',
-  source: '源码',
-  unsaved: '还有未保存的修改。',
-  discard: '放弃',
-  htmlPreview: '预览',
-  pick: '点选',
-  pickTitle: '点选元素，在旁边写下说明',
-  pickHint: '点一个元素，在它旁边写下说明。按 Esc 退出。',
-  pickBlocked: '这个页面不允许点选。',
-  pickPhEdit: '描述这里应该改成什么样……',
-  pickPhAsk: '想问这里什么……',
-  pickIntent: '意图',
-  pickEdit: '改变',
-  pickAsk: '疑问',
-  pickCancel: '取消',
-  pickAdd: '添加',
-} as const
+  get loading() { return t('cat.preview.loading') },
+  get failed() { return t('cat.preview.failed') },
+  get saveFailed() { return t('cat.preview.saveFailed') },
+  get saved() { return t('cat.preview.saved') },
+  get save() { return t('cat.preview.save') },
+  get saving() { return t('cat.preview.saving') },
+  get close() { return t('cat.preview.close') },
+  get binary() { return t('cat.preview.binary') },
+  get tooLarge() { return t('cat.preview.tooLarge') },
+  get doc() { return t('cat.preview.doc') },
+  get preview() { return t('cat.preview.preview') },
+  get source() { return t('cat.preview.source') },
+  get unsaved() { return t('cat.preview.unsaved') },
+  get discard() { return t('cat.preview.discard') },
+  get htmlPreview() { return t('cat.preview.htmlPreview') },
+  get pick() { return t('cat.preview.pick') },
+  get pickTitle() { return t('cat.preview.pickTitle') },
+  get pickHint() { return t('cat.preview.pickHint') },
+  get pickBlocked() { return t('cat.preview.pickBlocked') },
+  get pickPhEdit() { return t('cat.preview.pickPhEdit') },
+  get pickPhAsk() { return t('cat.preview.pickPhAsk') },
+  get pickIntent() { return t('cat.preview.pickIntent') },
+  get pickEdit() { return t('cat.preview.pickEdit') },
+  get pickAsk() { return t('cat.preview.pickAsk') },
+  get pickCancel() { return t('cat.preview.pickCancel') },
+  get pickAdd() { return t('cat.preview.pickAdd') },
+}
 
 /** 停下输入这么久就写入，不再放保存按钮 */
 export const CAT_AUTOSAVE_MS = 600
@@ -86,7 +87,7 @@ export function previewModeFor(name: string): 'markdown' | 'svg' | 'html' | 'cod
 
 export function mockCatFileBody(name: string): CatFileBody {
   const mode = previewModeFor(name)
-  const content = mode === 'markdown' ? `# ${name}\n\n这是预览。\n` : mode === 'html' ? `<!doctype html><title>${name}</title>\n` : `${name}\n`
+  const content = mode === 'markdown' ? t('cat.misc.s_acfd18f338', { name: name }) : mode === 'html' ? `<!doctype html><title>${name}</title>\n` : `${name}\n`
   return {
     relPath: name,
     name,
@@ -117,17 +118,17 @@ export async function writeCatFile(convId: string, relPath: string, content: str
 }
 
 const KNOWN_TEXT = new Set([
-  '这个文件太大，不能在这里修改。',
-  '这个文件不能在这里修改。',
-  '只能保存文本。',
-  '找不到这个文件。',
-  '这是一个文件夹。',
-  '这个路径不能查看。',
+  t('cat.misc.s_3f94464bd7'),
+  t('cat.misc.s_4b43160326'),
+  t('cat.misc.s_b9cd0adb03'),
+  t('cat.misc.s_872b1d2875'),
+  t('cat.misc.s_d0a9f9d5cb'),
+  t('cat.misc.s_06472dfd62'),
 ])
 
 export function catPreviewErrorText(e: unknown, fallback: string): string {
   const err = toAppError(e)
-  if (err.code === 'CAT_PROJECT_MISSING') return '项目文件夹不见了。'
+  if (err.code === 'CAT_PROJECT_MISSING') return t('cat.misc.s_ed72c09744')
   if (KNOWN_TEXT.has(err.message)) return err.message
   return fallback
 }

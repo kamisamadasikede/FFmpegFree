@@ -7,6 +7,7 @@
  */
 import type { CatAgentKind } from '@/api/cat'
 import { providerLabel } from '@/api/catAgents'
+import { t } from '@/i18n'
 
 export const CLI_OUTDATED_FIELDS = { reason: 'reason', agent: 'agentKind', version: 'cliVersion', raw: 'raw' } as const
 export const CLI_OUTDATED_REASON = 'cli_outdated'
@@ -19,12 +20,12 @@ export interface CatCliOutdated {
 }
 
 export const CAT_CLI_OUTDATED_COPY = {
-  body: (cli: string) => `${cli} CLI 版本过旧，请升级后重试。`,
-  version: (v: string) => `当前版本 ${v}`,
-  retry: '重试',
-  detail: '查看详情',
-  copy: '复制',
-  copied: '已复制',
+  body: (cli: string) => t('cat.misc.s_51f4453a30', { v0: cli }),
+  version: (v: string) => t('cat.misc.s_5d627b503d', { v0: v }),
+  retry: t('cat.misc.s_132c5cdcce'),
+  detail: t('cat.misc.s_5b48dbb8dc'),
+  copy: t('cat.misc.s_79d3abe929'),
+  copied: t('cat.misc.s_52e6abbe5c'),
 }
 
 /** 库值 → 设置页同款显示名（cat_build = Grok Build） */

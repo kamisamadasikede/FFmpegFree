@@ -1,4 +1,5 @@
-/** 刷新后接回还在回复的对话：新出现的接上，还在的继续读记录，已经结束的放开。 */
+
+import { t } from '@/i18n'/** 刷新后接回还在回复的对话：新出现的接上，还在的继续读记录，已经结束的放开。 */
 export interface LiveRef {
   convId: string
   turnId: string

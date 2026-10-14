@@ -10,6 +10,7 @@
 import { computed, reactive, toValue, type MaybeRefOrGetter } from 'vue'
 import { CAT_ACCESS, type CatAccess } from '@/api/catMock'
 import type { CatThinkLevel } from '@/api/cat'
+import { t } from '@/i18n'
 
 export interface CatOption {
   id: string
@@ -27,7 +28,7 @@ export interface CatOption {
 }
 
 /** 模式菜单标题（前端文案，设计草稿，待产品定稿；只在这里改） */
-export const CAT_MODE_MENU_TITLE = 'Cat 助手可以做什么'
+export const CAT_MODE_MENU_TITLE = t('cat.misc.s_720051f5b3')
 
 /** 模式菜单最多收几项（设计 v0.1：显示 6 项，超出在菜单内滚动）。Codex 是合并好的组合模式，不另拆沙箱 / 批准两个下拉 */
 export const MODE_MENU_MAX = 12
@@ -78,7 +79,7 @@ export const V044_FIELDS = {
 } as const
 
 /** 档位显示名（产品 10-14 定稿，三家通用）；不认识的 id 原样显示 */
-export const EFFORT_LABELS: Record<string, string> = { low: '低', medium: '中', high: '高', xhigh: '很高', max: '最高', ultra: '极限' }
+export const EFFORT_LABELS: Record<string, string> = { low: t('cat.misc.s_19ac677ac0'), medium: t('cat.misc.s_aed1dfbc31'), high: t('cat.misc.s_4296d7d293'), xhigh: t('cat.misc.s_cfebcb06bc'), max: t('cat.misc.s_9b53e2a02d'), ultra: t('cat.misc.s_00f39398f1') }
 export const effortLabel = (id: string) => EFFORT_LABELS[id] ?? id
 
 type Raw = Record<string, unknown>
@@ -208,6 +209,6 @@ export function resolveModeId(agentKind: string, id: string | undefined | null):
  * 契约里「不预选」的字段还没定：模型为空 / 没有默认模型都按跟随 CLI 处理。
  */
 export const FOLLOW_CLI_MODEL_KINDS: readonly string[] = ['claude_cli']
-export const DEFAULT_MODEL_LABEL = '默认模型'
-export const followCliModelDesc = (cli: string) => `跟随 ${cli} CLI 设置`
+export const DEFAULT_MODEL_LABEL = t('cat.misc.s_b11de23261')
+export const followCliModelDesc = (cli: string) => t('cat.misc.s_28b069cf39', { v0: cli })
 export const followsCliModel = (agentKind: string) => FOLLOW_CLI_MODEL_KINDS.includes(agentKind)

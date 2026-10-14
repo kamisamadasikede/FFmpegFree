@@ -1,4 +1,5 @@
 import { withPickScript } from './catPick'
+import { t } from '@/i18n'
 
 export const BROWSER_NAV = 'ffmpegfree-cat-nav'
 

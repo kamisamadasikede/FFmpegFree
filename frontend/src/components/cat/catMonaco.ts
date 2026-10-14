@@ -2,6 +2,7 @@
 import { applyMonacoTheme, monaco, monoFontFamily } from '@/utils/monacoJson'
 import 'monaco-editor/esm/vs/basic-languages/monaco.contribution'
 import { SYNTAX_KINDS, SYNTAX_LANGUAGES, encodeSyntaxSpans, syntaxSpans } from './catSyntax'
+import { t } from '@/i18n'
 
 export { applyMonacoTheme, monaco, monoFontFamily }
 

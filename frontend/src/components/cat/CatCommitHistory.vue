@@ -10,7 +10,7 @@
           <option value="">{{ C.allBranches }}</option>
           <option value="HEAD">{{ C.currentBranch }}</option>
         </select>
-        <button type="button" class="ib" :title="'刷新'" data-testid="cat-commit-refresh" @click="reload"><FIcon name="refresh" :size="14" /></button>
+        <button type="button" class="ib" :title="C.refresh" data-testid="cat-commit-refresh" @click="reload"><FIcon name="refresh" :size="14" /></button>
       </template>
     </div>
     <template v-if="open">
@@ -52,7 +52,7 @@
             <span class="tm" :title="absTime(c.authorTime)">{{ relTime(c.authorTime) }}</span>
           </div>
           <div v-if="selected === c.sha" class="ch-detail" :style="{ marginLeft: Math.min(graphW, 46) + 'px' }" data-testid="cat-commit-detail">
-            <div v-if="detailLoading" class="d-muted">正在读取…</div>
+            <div v-if="detailLoading" class="d-muted">{{ C.reading }}</div>
             <p v-else-if="detailError" class="d-err" role="alert">{{ detailError }}</p>
             <template v-else-if="detail">
               <div class="d-sha"><FIcon name="commit" :size="13" /><code>{{ detail.sha }}</code><span class="sp" /><button type="button" class="lnk" @click.stop="copySha(detail.sha)"><FIcon name="copy" :size="12" />{{ C.copy }}</button></div>
@@ -60,7 +60,7 @@
               <pre class="d-msg">{{ detail.message }}</pre>
               <button v-for="f in detail.files" :key="f.path" type="button" class="d-file" :title="f.oldPath ? f.oldPath + ' → ' + f.path : f.path" @click.stop="openFile(detail.sha, f.path)">
                 <b :class="'s-' + f.status">{{ f.status }}</b><code>{{ f.path }}</code>
-                <span class="d-num"><template v-if="f.binary">二进制</template><template v-else><span v-if="f.additions">+{{ f.additions }}</span> <span v-if="f.deletions">−{{ f.deletions }}</span></template></span>
+                <span class="d-num"><template v-if="f.binary">{{ C.binary }}</template><template v-else><span v-if="f.additions">+{{ f.additions }}</span> <span v-if="f.deletions">−{{ f.deletions }}</span></template></span>
               </button>
               <div v-if="detail.filesTruncated" class="d-muted">{{ C.truncated }}</div>
             </template>
@@ -93,34 +93,34 @@
             </div>
           </template>
           <template v-else-if="dialog.kind === 'branch'">
-            <h3>新建分支</h3>
-            <p class="gray">从 {{ dialog.c.shortSha }} 新建</p>
-            <input v-model="dialog.name" class="inp" placeholder="分支名" @keydown.enter="doBranch" />
-            <label class="ck"><input v-model="dialog.checkout" type="checkbox" />创建后签出</label>
+            <h3>{{ C.newTitle }}</h3>
+            <p class="gray">{{ C.newFromLine(dialog.c.shortSha) }}</p>
+            <input v-model="dialog.name" class="inp" :placeholder="C.namePh" @keydown.enter="doBranch" />
+            <label class="ck"><input v-model="dialog.checkout" type="checkbox" /> {{ C.checkoutAfter }}</label>
             <p v-if="dialog.err" class="d-err">{{ dialog.err }}</p>
             <div class="btns">
               <button type="button" class="btn" @click="dialog = null">{{ C.cancel }}</button>
-              <button type="button" class="btn primary" :disabled="dialog.busy || !dialog.name.trim()" @click="doBranch">创建</button>
+              <button type="button" class="btn primary" :disabled="dialog.busy || !dialog.name.trim()" @click="doBranch">{{ C.create }}</button>
             </div>
           </template>
           <template v-else-if="dialog.kind === 'diff'">
             <h3><code>{{ dialog.c.shortSha }}</code> · {{ dialog.path }}</h3>
-            <div v-if="dialog.busy" class="d-muted">正在读取…</div>
+            <div v-if="dialog.busy" class="d-muted">{{ C.reading }}</div>
             <p v-else-if="dialog.err" class="d-err">{{ dialog.err }}</p>
-            <div v-else-if="dialog.binary" class="d-muted">二进制文件，不显示内容。</div>
+            <div v-else-if="dialog.binary" class="d-muted">{{ C.binaryFile }}</div>
             <pre v-else class="diff"><span v-for="(l, k) in dialog.lines" :key="k" :class="diffCls(l)">{{ l }}
 </span></pre>
-            <div class="btns"><button type="button" class="btn" @click="dialog = null">关闭</button></div>
+            <div class="btns"><button type="button" class="btn" @click="dialog = null">{{ C.close }}</button></div>
           </template>
           <template v-else-if="dialog.kind === 'compare'">
-            <h3>和当前比较 · <code>{{ dialog.c.shortSha }}</code></h3>
-            <div v-if="dialog.busy" class="d-muted">正在读取…</div>
+            <h3>{{ C.compareHead(dialog.c.shortSha) }}</h3>
+            <div v-if="dialog.busy" class="d-muted">{{ C.reading }}</div>
             <p v-else-if="dialog.err" class="d-err">{{ dialog.err }}</p>
             <template v-else>
-              <p class="gray">只在 {{ dialog.c.shortSha }} 里：{{ dialog.onlyTarget }} 个提交 · 只在当前：{{ dialog.onlyCurrent }} 个提交</p>
+              <p class="gray">{{ C.onlyIn(dialog.c.shortSha, dialog.onlyTarget, dialog.onlyCurrent) }}</p>
               <div v-for="f in dialog.files" :key="f.path" class="d-file static"><b :class="'s-' + f.status">{{ f.status }}</b><code>{{ f.path }}</code></div>
             </template>
-            <div class="btns"><button type="button" class="btn" @click="dialog = null">关闭</button></div>
+            <div class="btns"><button type="button" class="btn" @click="dialog = null">{{ C.close }}</button></div>
           </template>
         </div>
       </div>
@@ -131,6 +131,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
+import { t } from '@/i18n'
 import {
   CAT_COMMIT_COPY as C, absTime, catCommitErrorText, getCatCommitDetail, getCatCommitFileDiff, gitCatCheckoutCommit,
   gitCatCompareCommit, gitCatCreateBranchFrom, isHistoryChanged, layoutLanes, listCatCommits, newLaneState, relTime, searchRows,
@@ -276,7 +277,7 @@ async function copySha(sha: string) {
     await navigator.clipboard.writeText(sha)
     notify(C.copied)
   } catch {
-    notify('没能复制。', 'warn')
+    notify(C.copyFail, 'warn')
   }
 }
 
@@ -321,19 +322,19 @@ async function doBranch() {
   const d = dialog.value
   if (d?.kind !== 'branch' || !d.name.trim() || d.busy) return
   const name = d.name.trim()
-  if (BAD_NAME.test(name)) { d.err = '分支名不能包含空格或 ~ ^ : ? * [ \\ 这些字符。'; return }
+  if (BAD_NAME.test(name)) { d.err = t('cat.btree.invalidName'); return }
   d.busy = true
   d.err = ''
   try {
     await gitCatCreateBranchFrom(props.convId, name, d.c.sha, d.checkout)
     dialog.value = null
-    notify(d.checkout ? `已新建并切换到 ${name}` : `已新建分支 ${name}`)
+    notify(d.checkout ? t('cat.btree.createdSwitched', { branch: name }) : t('cat.btree.created', { branch: name }))
     emit('changed')
     reload()
   } catch (e) {
     d.busy = false
     const reason = (e as { reason?: string })?.reason
-    d.err = reason === 'branch_exists' ? '已经有同名分支了。' : reason === 'invalid_branch_name' ? '分支名不能包含空格或 ~ ^ : ? * [ \\ 这些字符。' : catCommitErrorText(e)
+    d.err = reason === 'branch_exists' ? t('cat.btree.exists') : reason === 'invalid_branch_name' ? t('cat.btree.invalidName') : catCommitErrorText(e)
   }
 }
 

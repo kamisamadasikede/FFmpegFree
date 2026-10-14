@@ -1,4 +1,5 @@
-/** 输入框一次最多带这么多个文件。前四个直接摆在输入框上，剩下的收进加号旁边。 */
+
+import { t } from '@/i18n'/** 输入框一次最多带这么多个文件。前四个直接摆在输入框上，剩下的收进加号旁边。 */
 export const CAT_ATTACH_SHOW = 4
 export const CAT_ATTACH_MAX = 20
 

@@ -2,23 +2,23 @@
   <div class="about spanels">
     <!-- 关于 -->
     <section class="panel group" aria-labelledby="h-about">
-      <div class="phead"><h2 id="h-about">关于</h2></div>
+      <div class="phead"><h2 id="h-about">{{ t('about.title') }}</h2></div>
       <div class="idrow">
         <div class="logo" aria-hidden="true"><FIcon name="play" :size="20" :stroke="2.2" /></div>
         <b>FFmpegFree</b>
       </div>
       <div class="srow">
-        <div class="l"><b>版本</b></div>
+        <div class="l"><b>{{ t('about.version') }}</b></div>
         <div class="val">{{ version }}</div>
       </div>
       <div class="srow">
         <div class="l">
-          <b>项目与许可证</b>
-          <small>{{ LICENSE_SUMMARY }}</small>
+          <b>{{ t('about.projectLicense') }}</b>
+          <small>{{ t('about.licenseSummary') }}</small>
         </div>
         <div class="links">
-          <a class="lnk" :href="PROJECT_URL" @click.prevent="openExternal(PROJECT_URL)"><FIcon name="link" :size="14" />项目地址</a>
-          <a class="lnk" :href="LICENSE_URL" @click.prevent="openExternal(LICENSE_URL)"><FIcon name="link" :size="14" />许可证</a>
+          <a class="lnk" :href="PROJECT_URL" @click.prevent="openExternal(PROJECT_URL)"><FIcon name="link" :size="14" />{{ t('about.projectUrl') }}</a>
+          <a class="lnk" :href="LICENSE_URL" @click.prevent="openExternal(LICENSE_URL)"><FIcon name="link" :size="14" />{{ t('about.license') }}</a>
         </div>
       </div>
     </section>
@@ -28,12 +28,12 @@
 
     <!-- 第三方许可 -->
     <section class="panel group" aria-labelledby="h-third">
-      <div class="phead"><h2 id="h-third">第三方许可</h2></div>
+      <div class="phead"><h2 id="h-third">{{ t('about.thirdParty') }}</h2></div>
       <div class="srow lic">
         <div class="l">
-          <b>字体来源和许可</b>
+          <b>{{ t('about.fontSource') }}</b>
           <!-- 每条一个 <p>，链接跟在末尾；允许在窄窗口下折成两行，不截断、不 nowrap -->
-          <p v-for="lic in FONT_LICENSES" :key="lic.name">{{ lic.before }}<b class="fn">{{ lic.font }}</b>{{ lic.after }}<a class="lnk sm" role="button" tabindex="0" @click.prevent="openLicense(lic)" @keydown.enter.prevent="openLicense(lic)" @keydown.space.prevent="openLicense(lic)">查看许可文本</a></p>
+          <p v-for="lic in fontLicenses" :key="lic.name">{{ lic.before }}<b class="fn">{{ lic.font }}</b>{{ lic.after }}<a class="lnk sm" role="button" tabindex="0" @click.prevent="openLicense(lic)" @keydown.enter.prevent="openLicense(lic)" @keydown.space.prevent="openLicense(lic)">{{ t('about.viewLicenseText') }}</a></p>
         </div>
       </div>
     </section>
@@ -44,20 +44,29 @@
 
 <script setup lang="ts">
 // 「关于」页（设计说明 v0.1）：三个面板，复用设置页的 .group / .srow 样式（styles/settings-panels.css，根节点 .spanels）。
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import FIcon from '@/components/icon/FIcon.vue'
 import FFmpegPanel from '@/components/settings/FFmpegPanel.vue'
 import LicenseDialog from '@/components/settings/LicenseDialog.vue'
 import { getAppVersion, DEV_VERSION } from '@/api/about'
-import { FONT_LICENSES, LICENSE_SUMMARY, LICENSE_URL, PROJECT_URL, type FontLicense } from '@/config/about'
+import { FONT_LICENSES, LICENSE_URL, PROJECT_URL, type FontLicense } from '@/config/about'
 import { openExternal } from '@/utils/openExternal'
 
+const { t } = useI18n()
 const version = ref(DEV_VERSION)
+const fontLicenses = computed(() => FONT_LICENSES.map((lic) => ({
+  ...lic,
+  before: t('about.fontNotoBefore'),
+  after: t('about.fontNotoAfter'),
+  dialogTitle: t('about.fontNotoDialog'),
+})))
+
 onMounted(async () => {
   try {
     version.value = (await getAppVersion()).trim() || DEV_VERSION
   } catch (e) {
-    console.error('读取版本号失败', e)
+    console.error(t('cat.misc.s_df60b080be'), e)
     version.value = DEV_VERSION
   }
 })

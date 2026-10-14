@@ -27,6 +27,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 import { nextTick, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 

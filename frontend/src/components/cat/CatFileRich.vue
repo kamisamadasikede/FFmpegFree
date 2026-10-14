@@ -36,6 +36,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { WorkBook } from 'xlsx'
 
@@ -218,7 +222,7 @@ async function renderSlides(bytes: Uint8Array, my: number) {
         const text = xmlPlain(m[1]).replace(/\s+/g, ' ').trim()
         if (text) lines.push(text)
       }
-      out.push({ title: `第 ${out.length + 1} 页`, lines })
+      out.push({ title: t('cat.misc.s_ff655a5c10', { n: out.length + 1 }), lines })
     }
     slides.value = out
   } catch {

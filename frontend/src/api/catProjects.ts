@@ -13,74 +13,72 @@ import { AppError, call, toAppError } from '@/api/call'
 import { CAT_PROJECTS_BACKEND_READY } from '@/api/flags'
 import { emitSimEvent, hasWailsBackend, onEvent } from '@/services/wails'
 import { pickDirectory } from '@/api/system'
+import { t } from '@/i18n'
 
 export { CAT_PROJECTS_BACKEND_READY }
 
 /** 项目相关文案（契约 6.19.10.8 + 设计「Cat 项目状态 v0.1」§1 + PM 10-09；产品已定） */
 export const CAT_PROJECT_COPY = {
-  empty: '还没有项目。',
-  emptyConvs: '还没有对话。',
-  pickTitle: '选择项目文件夹',
-  /** 设计 v0.2 §09b：重新选择时系统对话框标题 */
-  relocateTitle: '重新选择项目文件夹',
-  relocated: '已重新选择文件夹。',
-  /** 契约 v0.31.1 6.19.10.8（架构师建议，产品可改） */
-  turnRunning: '有对话正在回复，请先停止再换文件夹。',
-  newProject: '新建项目文件夹',
-  newConvInProject: '在这个项目里新建对话',
-  menu: '项目操作',
-  rename: '重命名',
-  renameHint: '回车保存，Esc 取消',
-  renameLabel: '项目名称',
-  revealWindows: '在资源管理器中显示',
-  revealMac: '在访达中显示',
-  revealLinux: '在文件管理器中显示',
-  relocate: '重新选择文件夹',
-  del: '删除项目',
-  delTitle: (name: string) => `删除项目「${name}」？`,
-  delBody: '删除项目会同时删除它下面的对话，文件夹里的文件不受影响。',
-  cancel: '取消',
-  existed: '这个文件夹已经建过项目了。',
-  missing: '项目文件夹不见了。',
-  badPath: '请选择一个文件夹。',
-  badRoot: '不能把整个磁盘作为项目，请选择里面的文件夹。',
-  badName: '名字需要 1~60 个字。',
-  notFound: '找不到这个项目。',
-  deleteFailed: '删除项目失败，请重试。',
-  failed: '操作没有完成，请重试。',
-  later: '下一期开放。',
-  workIn: (name: string) => `在项目中工作 · ${name}`,
-  added: (name: string) => `已添加项目「${name}」。`,
-  deleted: (name: string) => `已删除项目「${name}」。`,
-  // v0.40 添加项目 · 从 Git 克隆（产品口径 / 设计 v0.1.1）
-  addTitle: '添加项目',
-  addLead: '选择一种方式添加项目。',
-  entryLocal: '本机文件夹',
-  entryLocalHint: '选择已有目录，立刻打开为项目。',
-  entryGit: '从 Git 克隆',
-  entryGitHint: '粘贴 HTTPS 或 SSH 地址，克隆后打开。',
-  continue: '继续',
-  cloneTitle: '从 Git 克隆',
-  cloneUrl: '地址',
-  cloneUrlPh: 'HTTPS 或 SSH 地址，例如 https://github.com/org/repo.git',
-  cloneParent: '保存到',
-  cloneParentOpt: '可选',
-  clonePickParent: '选择文件夹',
-  clonePickParentTitle: '选择保存位置',
-  cloneName: '项目名',
-  cloneNameHint: '可选，默认取仓库名',
-  cloneSubmit: '克隆并打开',
-  cloningTitle: '正在克隆…',
-  cloneBusy: '已有克隆在进行。',
-  cloneExists: '克隆失败：目标文件夹已存在。',
-  badGitUrl: '请输入有效的 Git 地址。',
-  noGit: '没有找到 git。',
-  cloneAuth: '克隆失败：仓库需要登录。请先在本机配置 SSH 或凭据后再试。',
-  cloneUnwritable: '克隆失败：无法写入目标文件夹。',
-  cloneFailPrefix: '克隆失败：',
-  cloneCanceled: '已取消克隆。',
-  noGitHint: '查看安装说明',
-} as const
+  get empty() { return t('cat.project.empty') },
+  get emptyConvs() { return t('cat.project.emptyConvs') },
+  get pickTitle() { return t('cat.project.pickTitle') },
+  get relocateTitle() { return t('cat.project.relocateTitle') },
+  get relocated() { return t('cat.project.relocated') },
+  get turnRunning() { return t('cat.project.turnRunning') },
+  get newProject() { return t('cat.project.newProject') },
+  get newConvInProject() { return t('cat.project.newConvInProject') },
+  get menu() { return t('cat.project.menu') },
+  get rename() { return t('cat.project.rename') },
+  get renameHint() { return t('cat.project.renameHint') },
+  get renameLabel() { return t('cat.project.renameLabel') },
+  get revealWindows() { return t('cat.project.revealWindows') },
+  get revealMac() { return t('cat.project.revealMac') },
+  get revealLinux() { return t('cat.project.revealLinux') },
+  get relocate() { return t('cat.project.relocate') },
+  get del() { return t('cat.project.del') },
+  delTitle: (name: string) => t('cat.project.delTitle', { name: name }),
+  get delBody() { return t('cat.project.delBody') },
+  get cancel() { return t('cat.project.cancel') },
+  get existed() { return t('cat.project.existed') },
+  get missing() { return t('cat.project.missing') },
+  get badPath() { return t('cat.project.badPath') },
+  get badRoot() { return t('cat.project.badRoot') },
+  get badName() { return t('cat.project.badName') },
+  get notFound() { return t('cat.project.notFound') },
+  get deleteFailed() { return t('cat.project.deleteFailed') },
+  get failed() { return t('cat.project.failed') },
+  get later() { return t('cat.project.later') },
+  workIn: (name: string) => t('cat.project.workIn', { name: name }),
+  added: (name: string) => t('cat.project.added', { name: name }),
+  deleted: (name: string) => t('cat.project.deleted', { name: name }),
+  get addTitle() { return t('cat.project.addTitle') },
+  get addLead() { return t('cat.project.addLead') },
+  get entryLocal() { return t('cat.project.entryLocal') },
+  get entryLocalHint() { return t('cat.project.entryLocalHint') },
+  get entryGit() { return t('cat.project.entryGit') },
+  get entryGitHint() { return t('cat.project.entryGitHint') },
+  get continue() { return t('cat.project.continue') },
+  get cloneTitle() { return t('cat.project.cloneTitle') },
+  get cloneUrl() { return t('cat.project.cloneUrl') },
+  get cloneUrlPh() { return t('cat.project.cloneUrlPh') },
+  get cloneParent() { return t('cat.project.cloneParent') },
+  get cloneParentOpt() { return t('cat.project.cloneParentOpt') },
+  get clonePickParent() { return t('cat.project.clonePickParent') },
+  get clonePickParentTitle() { return t('cat.project.clonePickParentTitle') },
+  get cloneName() { return t('cat.project.cloneName') },
+  get cloneNameHint() { return t('cat.project.cloneNameHint') },
+  get cloneSubmit() { return t('cat.project.cloneSubmit') },
+  get cloningTitle() { return t('cat.project.cloningTitle') },
+  get cloneBusy() { return t('cat.project.cloneBusy') },
+  get cloneExists() { return t('cat.project.cloneExists') },
+  get badGitUrl() { return t('cat.project.badGitUrl') },
+  get noGit() { return t('cat.project.noGit') },
+  get cloneAuth() { return t('cat.project.cloneAuth') },
+  get cloneUnwritable() { return t('cat.project.cloneUnwritable') },
+  get cloneFailPrefix() { return t('cat.project.cloneFailPrefix') },
+  get cloneCanceled() { return t('cat.project.cloneCanceled') },
+  get noGitHint() { return t('cat.project.noGitHint') },
+}
 
 /** 名字最长字符数（按 Unicode 字符，契约 6.19.10.2） */
 export const CAT_PROJECT_NAME_MAX = 60
@@ -221,7 +219,7 @@ export function projectErrorText(e: unknown): string {
   if (err.code === 'NOT_FOUND') {
     // 无 git 与「找不到项目」共用 NOT_FOUND；优先看 message
     const m = (err.message || '').trim()
-    if (m === CAT_PROJECT_COPY.noGit || m.includes('没有找到 git')) return CAT_PROJECT_COPY.noGit
+    if (m === CAT_PROJECT_COPY.noGit || m.includes(t('cat.misc.s_ca17691921'))) return CAT_PROJECT_COPY.noGit
     return CAT_PROJECT_COPY.notFound
   }
   if (err.code === 'UNSUPPORTED') return CAT_PROJECT_COPY.later
@@ -254,7 +252,7 @@ export function cloneErrorPlacement(e: unknown): { place: CloneErrorPlace; text:
   if (msg.startsWith(CAT_PROJECT_COPY.cloneFailPrefix)) {
     return { place: 'banner', text: msg.slice(0, 120 + CAT_PROJECT_COPY.cloneFailPrefix.length) }
   }
-  if (msg) return { place: 'banner', text: msg.startsWith('克隆失败') ? msg : CAT_PROJECT_COPY.cloneFailPrefix + msg.slice(0, 120) }
+  if (msg) return { place: 'banner', text: msg.startsWith(t('cat.misc.s_6dc5b37546')) ? msg : CAT_PROJECT_COPY.cloneFailPrefix + msg.slice(0, 120) }
   return { place: 'banner', text: projectErrorText(e) }
 }
 
@@ -327,7 +325,7 @@ function simValidatePath(path: string) {
 
 /** 选项目文件夹；用户取消返回 ""（调用方什么都不做）。relocate=true 用「重新选择项目文件夹」标题（设计 v0.2 §09b） */
 export async function pickProjectFolder(relocate = false): Promise<string> {
-  if (catProjectsSim()) return sim.picks.length ? (sim.picks.shift() as string) : `D:\\工作\\新项目 ${++sim.pickN}`
+  if (catProjectsSim()) return sim.picks.length ? (sim.picks.shift() as string) : t('cat.misc.s_8ada02e15b', { v0: ++sim.pickN })
   if (!catProjectsLive()) off()
   return await pickDirectory(relocate ? CAT_PROJECT_COPY.relocateTitle : CAT_PROJECT_COPY.pickTitle)
 }
@@ -393,7 +391,7 @@ export async function revealCatProject(req: RevealCatProjectRequest): Promise<vo
   const p = sim.list.find((x) => x.id === req.id)
   if (!p) throw new AppError('NOT_FOUND', CAT_PROJECT_COPY.notFound)
   if (simMissing(p)) throw new AppError('CAT_PROJECT_MISSING', CAT_PROJECT_COPY.missing)
-  console.info('[模拟] 显示项目文件夹', p.path)
+  console.info(t('cat.misc.s_6f884def1c'), p.path)
 }
 
 /** 重新选择文件夹（6.19.10.2 第 8 条）：对话保留、名字不变；重复 → INVALID_ARGUMENT reason=project_duplicate（第二行 projectId=） */

@@ -5,23 +5,24 @@
 import { AppError, callService, toAppError } from '@/api/call'
 import { catSim } from '@/views/cat/catDevSim'
 import type { CatSelectOption } from '@/components/cat/panels/CatModeSelect.vue'
+import { t } from '@/i18n'
 
 export const CAT_BRANCH_COPY = {
-  noUpstream: '没有远程分支',
-  upstreamTitle: '远程分支（上游）',
-  localTitle: '本地分支，点击切换',
-  detached: '未在分支上',
-  detachedTip: '当前签出的是一个提交，不在任何分支上',
-  remoteSection: '远程分支',
-  openFolder: '在文件管理器中打开',
-  dirty: '有未提交的改动，请先提交或暂存，再切换分支。',
-  running: '正在回复，等这一轮结束再切换分支。',
-  notFound: '找不到这个分支，可能已被删除。',
-  switched: (b: string) => `已切换到 ${b}`,
-  switchFailed: '切换分支失败，请重试。',
-  detail: '查看详情',
-  openFailed: '打不开这个文件夹，可能已被移动或删除。',
-} as const
+  get noUpstream() { return t('cat.branch.noUpstream') },
+  get upstreamTitle() { return t('cat.branch.upstreamTitle') },
+  get localTitle() { return t('cat.branch.localTitle') },
+  get detached() { return t('cat.branch.detached') },
+  get detachedTip() { return t('cat.branch.detachedTip') },
+  get remoteSection() { return t('cat.branch.remoteSection') },
+  get openFolder() { return t('cat.branch.openFolder') },
+  get dirty() { return t('cat.branch.dirty') },
+  get running() { return t('cat.branch.running') },
+  get notFound() { return t('cat.branch.notFound') },
+  switched: (b: string) => t('cat.branch.switched', { branch: b }),
+  get switchFailed() { return t('cat.branch.switchFailed') },
+  get detail() { return t('cat.branch.detail') },
+  get openFailed() { return t('cat.branch.openFailed') },
+}
 
 export interface CatBranches {
   root: string
@@ -79,7 +80,7 @@ export async function listCatBranches(convId: string): Promise<CatBranches> {
 export async function switchCatBranch(convId: string, branch: string, remote: boolean): Promise<void> {
   if (devSim()) {
     await new Promise((r) => setTimeout(r, 300))
-    if (catSim.has('branchfail')) throw new AppError('PROCESS_FAILED', 'git checkout 失败', "fatal: unable to write new index file\nerror: unable to create file src/main.ts: Permission denied")
+    if (catSim.has('branchfail')) throw new AppError('PROCESS_FAILED', t('cat.misc.s_312627354a'), "fatal: unable to write new index file\nerror: unable to create file src/main.ts: Permission denied")
     simBranch = remote ? branch.replace(/^[^/]+\//, '') : branch
     return
   }
@@ -133,7 +134,7 @@ export function catBranchError(e: unknown): { text: string; raw: string } {
   if (err.code === 'TASK_CONFLICT' && err.reason === 'git_dirty') return { text: CAT_BRANCH_COPY.dirty, raw: '' }
   if (err.code === 'TASK_CONFLICT' && err.reason === 'turn_running') return { text: CAT_BRANCH_COPY.running, raw: '' }
   if (err.code === 'NOT_FOUND' && err.reason === 'branch_not_found') return { text: CAT_BRANCH_COPY.notFound, raw: '' }
-  if (err.code === 'CAT_PROJECT_MISSING') return { text: '项目文件夹不见了。', raw: '' }
+  if (err.code === 'CAT_PROJECT_MISSING') return { text: t('cat.misc.s_ed72c09744'), raw: '' }
   // 兜底：git 报 would be overwritten 也算未提交改动（后端也在归类）
   if (/would be overwritten/i.test(`${err.message ?? ''}\n${err.detail ?? ''}`)) return { text: CAT_BRANCH_COPY.dirty, raw: '' }
   const raw = [err.message, err.detail].filter((x) => !!x && x.trim()).join('\n')
@@ -154,24 +155,24 @@ export function catBranchErrorText(e: unknown): string {
 // ---------------------------------------------------------------------------
 
 export const CAT_MERGE_COPY = {
-  entry: '合并到当前分支…',
-  title: (cur: string) => `把哪个分支合并到 ${cur}？`,
-  localGroup: '本地分支',
-  remoteGroup: '远程分支',
-  ok: '合并',
-  cancel: '取消',
-  merged: (b: string, cur: string) => `已把 ${b} 合并到 ${cur}`,
-  upToDate: '已经是最新，没有需要合并的内容。',
-  conflict: (n: number) => `有 ${n} 个文件冲突，请逐个处理。`,
-  dirty: '有未提交的改动，请先提交或暂存，再合并。',
-  running: '正在回复，等这一轮结束再合并。',
-  merging: '上一次合并还没完成，请先处理完冲突，或放弃这次合并。',
-  notRepo: '这个文件夹不是 Git 仓库。',
-  notFound: '找不到这个分支，可能已被删除。',
-  sameBranch: '不能把分支合并到它自己。',
-  failed: '合并失败，请重试。',
-  detail: '查看详情',
-} as const
+  get entry() { return t('cat.merge.entry') },
+  title: (cur: string) => t('cat.merge.title', { branch: cur }),
+  get localGroup() { return t('cat.merge.localGroup') },
+  get remoteGroup() { return t('cat.merge.remoteGroup') },
+  get ok() { return t('cat.merge.ok') },
+  get cancel() { return t('cat.merge.cancel') },
+  merged: (b: string, cur: string) => t('cat.merge.merged', { branch: b, current: cur }),
+  get upToDate() { return t('cat.merge.upToDate') },
+  conflict: (n: number) => t('cat.merge.conflict', { n }),
+  get dirty() { return t('cat.merge.dirty') },
+  get running() { return t('cat.merge.running') },
+  get merging() { return t('cat.merge.merging') },
+  get notRepo() { return t('cat.merge.notRepo') },
+  get notFound() { return t('cat.merge.notFound') },
+  get sameBranch() { return t('cat.merge.sameBranch') },
+  get failed() { return t('cat.merge.failed') },
+  get detail() { return t('cat.merge.detail') },
+}
 
 /** 走查 mergeconflict / 侧栏冲突共用同一份路径，toast「有 n 个」与侧栏计数同源 */
 export const CAT_MERGE_CONFLICT_SIM_FILES = ['src/timeline.ts', '第3集/第3集.srt'] as const

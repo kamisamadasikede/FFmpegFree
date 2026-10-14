@@ -1,4 +1,5 @@
-// 代码编辑器的第二层着色：在语言自带的词法之上，把函数名和类型名分开。
+
+import { t } from '@/i18n'// 代码编辑器的第二层着色：在语言自带的词法之上，把函数名和类型名分开。
 // 覆盖 Python、C、C++、Java、C#、JavaScript、TypeScript、Go、PHP、Rust。
 // C 和 C++ 在编辑器里都是 cpp。不跑语言服务器。
 

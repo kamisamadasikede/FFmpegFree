@@ -61,6 +61,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
@@ -124,7 +128,7 @@ function onEnter() {
 async function pick(name: string) {
   closeCatBranchMenu()
   if (!catGitUi.live || !catGitUi.convId) {
-    notify('预览里不能改仓库。', 'warn')
+    notify(t('cat.misc.s_7fcded772f'), 'warn')
     return
   }
   if (busy.value) return

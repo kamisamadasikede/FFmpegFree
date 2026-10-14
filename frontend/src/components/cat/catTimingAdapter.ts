@@ -3,6 +3,7 @@
  * 字段名 / 类型取自生成的 store.CatMessage；cat:turn 事件载荷无生成类型，同名字段在这里一并读。
  */
 import type { store } from '../../../wailsjs/go/models'
+import { t } from '@/i18n'
 
 export type CatTimingFields = Partial<Pick<store.CatMessage, 'firstTokenMs' | 'totalMs'>>
 

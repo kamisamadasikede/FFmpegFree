@@ -18,6 +18,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 // 契约 v0.45 §6.19.19：消息尾；窄宽度按 CAT_FOOTER_HIDE_ORDER 从尾部隐藏，悬停一个提示（隐藏项 + 两行说明）
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { CAT_FOOTER_COPY as C } from './catMessageFooterCopy'

@@ -18,6 +18,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 import FIcon from '@/components/icon/FIcon.vue'
 import { CAT_SCHED_COPY } from '@/api/catSchedules'
 import { catPanels, dismissToast } from '@/views/cat/catPanels'

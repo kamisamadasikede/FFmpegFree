@@ -1,6 +1,7 @@
 /** 三栏宽度。左右两栏和文件预览都可以拖，并给中间对话留出位置。 */
 import { reactive } from 'vue'
 import { CAT_PREVIEW_WIDTH_KEY } from '@/api/catStorageKeys'
+import { t } from '@/i18n'
 
 export { CAT_PREVIEW_WIDTH_KEY }
 export const CAT_SIDE_WIDTH_KEY = 'ffmpegfree.cat.sideWidth'

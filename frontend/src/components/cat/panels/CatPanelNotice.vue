@@ -5,6 +5,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 import FIcon from '@/components/icon/FIcon.vue'
 import { catState } from '@/views/cat/catState'
 /** 设置 / 定时任务页里的顶部浮提示（与对话页 .ct-notice 同样式；对话页的那个只在聊天区里渲染） */

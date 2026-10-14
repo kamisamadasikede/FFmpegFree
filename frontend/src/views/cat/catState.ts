@@ -4,6 +4,7 @@ import { listCatFiles } from '@/api/catFiles'
 import { catBackendLive, catTimeoutText } from '@/api/cat'
 import { mergeCatStatus, markRowChecking } from '@/api/catDetect'
 import { applyCatOutput, applyCatTiming } from '@/components/cat/catTimingAdapter'
+import { t } from '@/i18n'
 /**
  * Cat 页本地状态（单例）。契约 v0.30 / 设计 v0.4：
  * - CAT_BACKEND_READY=true 且在 Wails 里：会话列表 / 消息 / 发送 / 停止走真实 CatService；cat:message 流式拼进助手气泡
@@ -224,7 +225,7 @@ export const catState = reactive({
   deleting: '' as string,
   /** 删除确认框对应的对话 id（设计 v0.3 §13；与 deleting 同一个确认框组件） */
   deletingConv: '' as string,
-  plain: (live ? [] : [...(catSim.has('codexconv') ? [{ id: 'x1', title: 'Codex 自定义服务商', agentKind: CAT_AGENT_CODEX }] : []), ...(catSim.has('clioutdated') ? mockCliOutdatedConvs() : []), ...mockPlainConvs()]) as CatConv[],
+  plain: (live ? [] : [...(catSim.has('codexconv') ? [{ id: 'x1', title: t('cat.misc.s_30eea5f1eb'), agentKind: CAT_AGENT_CODEX }] : []), ...(catSim.has('clioutdated') ? mockCliOutdatedConvs() : []), ...mockPlainConvs()]) as CatConv[],
   messages: {} as Record<string, CatBlock[]>,
   /** 新对话正在创建（欢迎页输入框忙） */
   creating: false,
@@ -287,7 +288,7 @@ export const modelName = computed(() => {
 })
 
 /** 没选强度时胶囊 / 菜单显示的中性词（不显示任何一档的名字） */
-export const THINK_DEFAULT_LABEL = '默认'
+export const THINK_DEFAULT_LABEL = t('cat.misc.s_18c63459a2')
 
 /** 强度显示名：无列表 → 空（不显示强度半截）；有列表没选 → 「默认」；选了 → 该档 displayName（任意 id 都按 displayName 显示） */
 export const thinkName = computed(() => {
@@ -299,10 +300,10 @@ export const thinkName = computed(() => {
 /** 合一胶囊文案：有强度才拼「·」；都没有时显示「Cat 助手」 */
 export const capsuleLabel = computed(() => {
   const m = modelName.value
-  const t = thinkName.value
-  if (m && t) return `${m} · ${t}`
+  const th = thinkName.value
+  if (m && th) return `${m} · ${th}`
   if (m) return m
-  return 'Cat 助手'
+  return t('cat.misc.s_f48a203f94')
 })
 
 /** 当前会话 agentKind 的模式 / 强度列表（统一走 useCatAgentCapabilities；契约 v0.44 前模式用写死兜底） */
@@ -433,7 +434,7 @@ async function loadMessages(id: string, quiet = false, force = false) {
     if (!cur || transcriptChanged(blockSnap(cur), blockSnap(next))) catState.messages[id] = next
     if (!catState.turns[id]) applyRetryable(id, d.retryTurnId)
   } catch {
-    if (!quiet && catState.sel === id) notify('没能从助手里读出这段对话。', 'warn')
+    if (!quiet && catState.sel === id) notify(t('cat.misc.s_5b2e9a8a13'), 'warn')
   } finally {
     loading.delete(id)
     catState.histLoading[id] = false
@@ -1093,10 +1094,10 @@ function fileChips(files: CatOutgoingFile[]): CatShownFile[] | undefined {
  * 调用方放回输入框；其它情况返回 undefined。
  */
 export async function sendMessage(text: string, files: CatOutgoingFile[] = []): Promise<{ text: string; files: CatOutgoingFile[] } | undefined> {
-  const t = text.trim()
+  const msgTxt = text.trim()
   const picked = files.filter((f) => f.path)
-  if ((!t && !picked.length) || catState.creating) return
-  const titleSeed = t || picked[0]?.name || ''
+  if ((!msgTxt && !picked.length) || catState.creating) return
+  const titleSeed = msgTxt || picked[0]?.name || ''
   let id = catState.sel
   if (id !== NEW_CONV && catState.turns[id]) return
   // 检查中：按钮已置灰；回车等其它入口也直接忽略
@@ -1148,7 +1149,7 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
         catState.newProjectId = ''
       } else catState.plain.unshift({ id, title: titleFrom(titleSeed), agentKind })
       carryDraftPref(id)
-      catState.messages[id] = [{ kind: 'user', text: t, files: fileChips(picked) }, { kind: 'sys', text: CAT_COPY.replyFailed, tone: 'err' }]
+      catState.messages[id] = [{ kind: 'user', text: msgTxt, files: fileChips(picked) }, { kind: 'sys', text: CAT_COPY.replyFailed, tone: 'err' }]
       catState.outcome[id] = 'bad'
       catState.sel = id
       return
@@ -1162,7 +1163,7 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
 
   const list = messagesOf(id)
   for (let i = list.length - 1; i >= 0; i--) if (list[i].kind === 'run') list.splice(i, 1)
-  list.push({ kind: 'user', text: t, files: fileChips(picked) })
+  list.push({ kind: 'user', text: msgTxt, files: fileChips(picked) })
   const token = ++seq
   catState.turns[id] = { token, turnId: '', status: 'running', assistantId: '' }
   // 新一轮开始：前一失败轮不再可重试（6.19.18.7 第 7 条）
@@ -1193,7 +1194,7 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
   try {
     const res = await sendCatMessage({
       conversationId: id,
-      content: t,
+      content: msgTxt,
       modelId: catState.model || undefined,
       // 没选强度就不带（接口层转成空串，后端不传 --reasoning-effort）
       thinkLevelId: catState.think || undefined,
@@ -1230,7 +1231,7 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
       const turn = catState.turns[id]
       if (turn?.token === token) delete catState.turns[id]
       const l = messagesOf(id)
-      for (let i = l.length - 1; i >= 0; i--) if (l[i].kind === 'user' && (l[i] as { text: string }).text === t) { l.splice(i, 1); break }
+      for (let i = l.length - 1; i >= 0; i--) if (l[i].kind === 'user' && (l[i] as { text: string }).text === msgTxt) { l.splice(i, 1); break }
       const p = findConv(id)?.project
       if (p) p.missing = true
       return catState.sel === id ? { text, files: picked } : undefined
@@ -1240,8 +1241,8 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
       const turn = catState.turns[id]
       if (turn?.token === token) delete catState.turns[id]
       const l = messagesOf(id)
-      for (let i = l.length - 1; i >= 0; i--) if (l[i].kind === 'user' && (l[i] as { text: string }).text === t) { l.splice(i, 1); break }
-      notify((err.message || '').trim() || '这条对话还在回复，请先停止再发。', 'warn')
+      for (let i = l.length - 1; i >= 0; i--) if (l[i].kind === 'user' && (l[i] as { text: string }).text === msgTxt) { l.splice(i, 1); break }
+      notify((err.message || '').trim() || t('cat.misc.s_f9b2a2f998'), 'warn')
       void adoptLiveTurns()
       return catState.sel === id ? { text, files: picked } : undefined
     }

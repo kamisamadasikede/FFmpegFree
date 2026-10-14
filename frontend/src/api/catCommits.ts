@@ -7,39 +7,54 @@
 import { AppError, callService, toAppError } from '@/api/call'
 import { catSim, type CatSimFlag } from '@/views/cat/catDevSim'
 import { mapGitDiff, type GitDiff } from '@/api/catGit'
+import { t } from '@/i18n'
 
 export const CAT_COMMIT_COPY = {
-  title: '提交历史',
-  search: '搜索提交',
-  noMatch: '没有匹配的提交',
-  empty: '还没有任何提交。',
-  loading: '正在读取提交历史…',
-  loadFail: '加载失败',
-  retry: '重试',
-  loadMore: '加载更多（每次 200 条）',
-  changed: '提交历史已更新',
-  allBranches: '全部分支',
-  currentBranch: '当前分支',
-  copyHash: '复制提交号',
-  copy: '复制',
-  copied: '已复制提交号',
-  newBranch: '从这里新建分支…',
-  checkout: '签出这个提交',
-  compare: '和当前比较',
-  notFound: '找不到这个提交，可能已被删除。',
-  checkoutTitle: (s: string) => `签出提交 ${s}？`,
-  checkoutBody: '签出后不在任何分支上，新的提交可能找不回来。要继续改，建议先从这里新建分支。',
-  checkoutOk: '签出',
-  cancel: '取消',
-  checkedOut: (s: string) => `已签出 ${s}`,
-  dirty: '有未提交的改动，请先提交或暂存，再切换分支。',
-  running: '正在回复，等这一轮结束再切换分支。',
-  merging: '正在合并，先完成或放弃这次合并。',
-  failed: 'git 没有完成。',
-  detached: '未在分支上',
-  detachedTip: '当前签出的是一个提交，不在任何分支上',
-  truncated: '文件太多，只显示前 1000 个。',
-} as const
+  get title() { return t('cat.commit.title') },
+  get search() { return t('cat.commit.search') },
+  get noMatch() { return t('cat.commit.noMatch') },
+  get empty() { return t('cat.commit.empty') },
+  get loading() { return t('cat.commit.loading') },
+  get loadFail() { return t('cat.commit.loadFail') },
+  get retry() { return t('cat.commit.retry') },
+  get loadMore() { return t('cat.commit.loadMore') },
+  get changed() { return t('cat.commit.changed') },
+  get allBranches() { return t('cat.commit.allBranches') },
+  get currentBranch() { return t('cat.commit.currentBranch') },
+  get copyHash() { return t('cat.commit.copyHash') },
+  get copy() { return t('cat.commit.copy') },
+  get copied() { return t('cat.commit.copied') },
+  get newBranch() { return t('cat.commit.newBranch') },
+  get checkout() { return t('cat.commit.checkout') },
+  get compare() { return t('cat.commit.compare') },
+  get notFound() { return t('cat.commit.notFound') },
+  checkoutTitle: (s: string) => t('cat.commit.checkoutTitle', { sha: s }),
+  get checkoutBody() { return t('cat.commit.checkoutBody') },
+  get checkoutOk() { return t('cat.commit.checkoutOk') },
+  get cancel() { return t('cat.commit.cancel') },
+  checkedOut: (s: string) => t('cat.commit.checkedOut', { sha: s }),
+  get dirty() { return t('cat.commit.dirty') },
+  get running() { return t('cat.commit.running') },
+  get merging() { return t('cat.commit.merging') },
+  get failed() { return t('cat.commit.failed') },
+  get detached() { return t('cat.commit.detached') },
+  get detachedTip() { return t('cat.commit.detachedTip') },
+  get truncated() { return t('cat.commit.truncated') },
+  get notGit() { return t('cat.commit.notGit') },
+  get refresh() { return t('cat.commit.refresh') },
+  get copyFail() { return t('cat.commit.copyFail') },
+  get reading() { return t('cat.commit.reading') },
+  get binary() { return t('cat.commit.binary') },
+  get binaryFile() { return t('cat.commit.binaryFile') },
+  get newTitle() { return t('cat.commit.newTitle') },
+  newFromLine: (sha: string) => t('cat.commit.newFromLine', { sha }),
+  get namePh() { return t('cat.commit.namePh') },
+  get checkoutAfter() { return t('cat.commit.checkoutAfter') },
+  get create() { return t('cat.commit.create') },
+  compareHead: (sha: string) => t('cat.commit.compareHead', { sha }),
+  onlyIn: (sha: string, target: number, current: number) => t('cat.commit.onlyIn', { sha, target, current }),
+  get close() { return t('cat.commit.close') },
+}
 
 export const COMMIT_PAGE = 200
 
@@ -135,7 +150,7 @@ export function catCommitErrorText(e: unknown): string {
   if (x.reason === 'git_dirty' || /would be overwritten/i.test(`${x.message}\n${x.detail ?? ''}`)) return CAT_COMMIT_COPY.dirty
   if (x.reason === 'turn_running') return CAT_COMMIT_COPY.running
   if (x.reason === 'merge_in_progress') return CAT_COMMIT_COPY.merging
-  if (x.reason === 'not_git_repo') return '这个文件夹不是 Git 仓库。'
+  if (x.reason === 'not_git_repo') return CAT_COMMIT_COPY.notGit
   return CAT_COMMIT_COPY.failed
 }
 
@@ -228,14 +243,14 @@ export function searchRows(commits: CatCommit[], known: Map<string, { col: numbe
 
 export function relTime(unix: number, now = Date.now()): string {
   const s = Math.max(0, Math.floor(now / 1000 - unix))
-  if (s < 60) return '刚刚'
-  if (s < 3600) return `${Math.floor(s / 60)} 分钟前`
-  if (s < 86400) return `${Math.floor(s / 3600)} 小时前`
+  if (s < 60) return t('cat.commit.agoJustNow')
+  if (s < 3600) return t('cat.commit.agoMinutes', { n: Math.floor(s / 60) })
+  if (s < 86400) return t('cat.commit.agoHours', { n: Math.floor(s / 3600) })
   const d = Math.floor(s / 86400)
-  if (d === 1) return '昨天'
-  if (d < 30) return `${d} 天前`
-  const t = new Date(unix * 1000)
-  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`
+  if (d === 1) return t('cat.commit.agoYesterday')
+  if (d < 30) return t('cat.commit.agoDays', { n: d })
+  const dt = new Date(unix * 1000)
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
 }
 export function absTime(unix: number): string {
   const t = new Date(unix * 1000)

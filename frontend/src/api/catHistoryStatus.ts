@@ -3,6 +3,7 @@
  */
 import { CAT_HISTORY_EMPTY, CAT_HISTORY_MISSING } from '@/views/cat/catCopy'
 import type { cat } from '../../wailsjs/go/models'
+import { t } from '@/i18n'
 
 export type CatHistoryStatus = 'missing' | 'read_failed'
 

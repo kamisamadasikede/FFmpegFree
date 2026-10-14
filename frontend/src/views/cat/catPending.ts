@@ -1,4 +1,5 @@
-/** 这一轮发出去之后，正文、思考、工具都还没出现。系统行不算已经开始回复。 */
+
+import { t } from '@/i18n'/** 这一轮发出去之后，正文、思考、工具都还没出现。系统行不算已经开始回复。 */
 
 export function awaitingTurnOutput(blocks: readonly { kind: string; text?: string }[]): boolean {
   let start = -1

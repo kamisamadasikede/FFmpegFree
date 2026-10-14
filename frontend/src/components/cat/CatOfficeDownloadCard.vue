@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 /**
  * Cat 对话内办公画布下载卡（契约 6.19.16.1 / 细视觉 v0.1.1）。
  * 出现演示文稿能力且组件未 ready 时展示；「稍后」可再开。
@@ -25,7 +29,7 @@ const failMsg = computed(() => {
 
 const sizeHint = computed(() => {
   const n = store.status.downloadBytes
-  return n > 0 ? `约 ${formatBytes(n)}` : ''
+  return n > 0 ? t('cat.misc.s_abb5f217a2', { n: formatBytes(n) }) : ''
 })
 </script>
 
@@ -43,22 +47,22 @@ const sizeHint = computed(() => {
       class="dl-card"
       :class="{ fail: view === 'failed' }"
       role="region"
-      aria-label="办公画布组件"
+      :aria-label="t('cat.misc.s_0b4b4787ac')"
       data-testid="cat-office-download-card"
     >
       <div class="dh">
         <span class="ico"><FIcon name="slide" :size="19" /></span>
         <div>
-          <b>{{ view === 'downloading' ? C.downloading : view === 'failed' ? '办公画布组件未就绪' : C.needTitle }}</b>
+          <b>{{ view === 'downloading' ? C.downloading : view === 'failed' ? t('cat.misc.s_8d3456e0be') : C.needTitle }}</b>
           <small v-if="view === 'need'">{{ C.needBody }}</small>
-          <small v-else-if="view === 'downloading'">{{ C.needBody.replace('下载后即可使用。', '') }}</small>
+          <small v-else-if="view === 'downloading'">{{ C.needBody.replace(t('cat.misc.s_56908ac0ab'), '') }}</small>
           <div v-else class="err" role="alert" data-testid="cat-office-fail-msg">{{ failMsg }}</div>
         </div>
       </div>
 
       <div v-if="view === 'downloading'" class="prog-mini" data-testid="cat-office-progress">
         <div class="ph">
-          <span>{{ sizeHint || '下载中' }}</span>
+          <span>{{ sizeHint || t('cat.misc.s_2d455ce5cd') }}</span>
           <span>{{ store.pct }}%</span>
         </div>
         <div class="bar-track" role="progressbar" :aria-valuenow="store.pct" aria-valuemin="0" aria-valuemax="100">

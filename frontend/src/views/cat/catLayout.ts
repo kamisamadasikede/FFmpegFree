@@ -1,5 +1,6 @@
 import { ref, watch } from 'vue'
 import { CAT_RAIL_COLLAPSED_KEY, CAT_RIGHT_COLLAPSED_KEY } from '@/api/catStorageKeys'
+import { t } from '@/i18n'
 
 function load(key: string): boolean {
   try {

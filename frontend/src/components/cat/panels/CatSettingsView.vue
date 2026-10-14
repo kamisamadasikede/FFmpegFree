@@ -235,7 +235,7 @@
                     :model-value="modeValue(block.kind)"
                     :options="block.modes.options"
                     :default-id="block.modes.defaultId"
-                    :aria-label="block.label + ' 默认模式'"
+                    :aria-label="t('cat.misc.s_840622f67a')"
                     :testid="'cat-set-mode-' + block.kind"
                     @update:model-value="setDefaultMode(block.kind, $event)"
                   />
@@ -497,6 +497,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 import { computed, defineComponent, h, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import CatAgentMark from '@/components/cat/CatAgentMark.vue'
@@ -1051,7 +1055,7 @@ const groups = computed((): ExtGroup[] => {
       category: 'mcp',
       items: [
         ...r.mcpServers.map((x) => ({ ...x, tag: 'MCP', category: 'mcp' as const })),
-        ...r.plugins.map((x) => ({ ...x, tag: '插件', category: 'plugin' as const })),
+        ...r.plugins.map((x) => ({ ...x, tag: t('cat.misc.s_236b0cdd2e'), category: 'plugin' as const })),
       ],
     },
     {

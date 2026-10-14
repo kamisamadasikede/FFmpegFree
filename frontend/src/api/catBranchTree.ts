@@ -8,66 +8,64 @@
  */
 import { AppError, callService, hasServiceBinding, toAppError } from '@/api/call'
 import { switchCatBranch, CAT_BRANCH_COPY } from '@/api/catBranches'
+import { t } from '@/i18n'
 import { catSim } from '@/views/cat/catDevSim'
 
 // ---------------------------------------------------------------- 文案（产品 v0.51.1 定稿，照抄）
 export const CAT_BTREE_COPY = {
-  search: '搜索分支',
-  groupRecent: '最近',
-  groupFav: '收藏',
-  groupLocal: '本地分支',
-  groupRemote: '远程分支',
-  refreshTip: '从远程获取最新分支',
-  lastFetch: (t: string) => `上次获取 ${t}`,
-  fetching: '正在获取…',
-  fetchFailed: '获取远程失败，数量可能不是最新',
-  detail: '查看详情',
-  noMatch: '没有匹配的分支',
-  notGit: '这个文件夹不是 Git 仓库。',
-  noCommits: '还没有任何提交，提交一次后才会有分支。',
-  mergeFooter: '合并到当前分支…',
-  lastCommitTip: (b: string, ago: string) => `${b} · 最后提交 ${ago}`,
-  // 右键菜单
-  checkout: '签出',
-  newFrom: '从这里新建分支…',
-  merge: '合并到当前分支',
-  compare: '和当前分支比较',
-  rename: '重命名…',
-  del: '删除',
-  cantDeleteCurrent: '不能删除当前分支',
-  // 新建
-  newTitle: '新建分支',
-  newFromLine: (from: string) => `从 ${from} 新建`,
-  namePh: '分支名',
-  checkoutAfter: '创建后签出',
-  create: '创建',
-  cancel: '取消',
-  exists: '已经有同名分支了。',
-  invalidName: '分支名不能包含空格或 ~ ^ : ? * [ \\ 这些字符。',
-  created: (b: string) => `已新建分支 ${b}`,
-  createdSwitched: (b: string) => `已新建并切换到 ${b}`,
-  // 重命名
-  renameTitle: '重命名分支',
-  renameOk: '重命名',
-  renamed: (b: string) => `已重命名为 ${b}`,
-  // 删除
-  delTitle: (b: string) => `删除分支 ${b}？`,
-  delOk: '删除',
-  unmerged: '这个分支有还没合并的提交，删除后可能找不回来。',
-  delForce: '仍然删除',
-  deleted: (b: string) => `已删除分支 ${b}`,
-  // 比较
-  compareTitle: (b: string, cur: string) => `${b} 和 ${cur} 的差异`,
-  compareSame: '两个分支内容相同。',
-  compareFiles: (n: number) => `${n} 个文件`,
-  // 沿用 6.19.24
-  dirty: CAT_BRANCH_COPY.dirty,
-  running: CAT_BRANCH_COPY.running,
-  notFound: CAT_BRANCH_COPY.notFound,
+  get search() { return t('cat.btree.search') },
+  get groupRecent() { return t('cat.btree.groupRecent') },
+  get groupFav() { return t('cat.btree.groupFav') },
+  get groupLocal() { return t('cat.btree.groupLocal') },
+  get groupRemote() { return t('cat.btree.groupRemote') },
+  get refreshTip() { return t('cat.btree.refreshTip') },
+  lastFetch: (time: string) => t('cat.btree.lastFetch', { t: time }),
+  get fetching() { return t('cat.btree.fetching') },
+  get fetchFailed() { return t('cat.btree.fetchFailed') },
+  get detail() { return t('cat.btree.detail') },
+  get noMatch() { return t('cat.btree.noMatch') },
+  get notGit() { return t('cat.btree.notGit') },
+  get noCommits() { return t('cat.btree.noCommits') },
+  get mergeFooter() { return t('cat.btree.mergeFooter') },
+  lastCommitTip: (b: string, ago: string) => t('cat.btree.lastCommitTip', { branch: b, ago }),
+  get checkout() { return t('cat.btree.checkout') },
+  get newFrom() { return t('cat.btree.newFrom') },
+  get merge() { return t('cat.btree.merge') },
+  get compare() { return t('cat.btree.compare') },
+  get rename() { return t('cat.btree.rename') },
+  get del() { return t('cat.btree.del') },
+  get cantDeleteCurrent() { return t('cat.btree.cantDeleteCurrent') },
+  get newTitle() { return t('cat.btree.newTitle') },
+  newFromLine: (from: string) => t('cat.btree.newFromLine', { from }),
+  get namePh() { return t('cat.btree.namePh') },
+  get checkoutAfter() { return t('cat.btree.checkoutAfter') },
+  get create() { return t('cat.btree.create') },
+  get cancel() { return t('cat.btree.cancel') },
+  get exists() { return t('cat.btree.exists') },
+  get invalidName() { return t('cat.btree.invalidName') },
+  created: (b: string) => t('cat.btree.created', { branch: b }),
+  createdSwitched: (b: string) => t('cat.btree.createdSwitched', { branch: b }),
+  get renameTitle() { return t('cat.btree.renameTitle') },
+  get renameOk() { return t('cat.btree.renameOk') },
+  renamed: (b: string) => t('cat.btree.renamed', { branch: b }),
+  delTitle: (b: string) => t('cat.btree.delTitle', { branch: b }),
+  get delOk() { return t('cat.btree.delOk') },
+  get unmerged() { return t('cat.btree.unmerged') },
+  get delForce() { return t('cat.btree.delForce') },
+  deleted: (b: string) => t('cat.btree.deleted', { branch: b }),
+  compareTitle: (b: string, cur: string) => t('cat.btree.compareTitle', { branch: b, current: cur }),
+  get compareSame() { return t('cat.btree.compareSame') },
+  compareFiles: (n: number) => t('cat.btree.compareFiles', { n }),
+  get dirty() { return CAT_BRANCH_COPY.dirty },
+  get running() { return CAT_BRANCH_COPY.running },
+  get notFound() { return CAT_BRANCH_COPY.notFound },
   switched: CAT_BRANCH_COPY.switched,
-  /** 【前端暂定，产品未出】git_failed / 未知 reason 的通用失败句，后跟「查看详情」 */
-  failed: '操作失败，请重试。',
-} as const
+  get failed() { return t('cat.btree.failed') },
+  get unfavorite() { return t('cat.btree.unfavorite') },
+  get favorite() { return t('cat.btree.favorite') },
+  get close() { return t('cat.btree.close') },
+  get ariaBranch() { return t('cat.btree.ariaBranch') },
+}
 
 // ---------------------------------------------------------------- 绑定形状（§6.19.26.3）
 export interface CatBranchCommit { sha: string; subject: string; time: number }
@@ -192,17 +190,17 @@ export function fetchedAtText(sec: number, now = Date.now()): string {
   const md = `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
   return d.getFullYear() === n.getFullYear() ? `${md} ${hm}` : `${d.getFullYear()}-${md} ${hm}`
 }
-export function refreshTip(t: Pick<CatBranchTree, 'fetchedAt'>, now = Date.now()): string {
-  return t.fetchedAt > 0 ? CAT_BTREE_COPY.lastFetch(fetchedAtText(t.fetchedAt, now)) : CAT_BTREE_COPY.refreshTip
+export function refreshTip(tree: Pick<CatBranchTree, 'fetchedAt'>, now = Date.now()): string {
+  return tree.fetchedAt > 0 ? CAT_BTREE_COPY.lastFetch(fetchedAtText(tree.fetchedAt, now)) : CAT_BTREE_COPY.refreshTip
 }
 /** 最后提交「2 小时前」（只进悬停提示） */
 export function agoText(sec: number, now = Date.now()): string {
   if (!sec) return ''
   const s = Math.max(0, Math.floor(now / 1000 - sec))
-  if (s < 60) return '刚刚'
-  if (s < 3600) return `${Math.floor(s / 60)} 分钟前`
-  if (s < 86400) return `${Math.floor(s / 3600)} 小时前`
-  if (s < 86400 * 30) return `${Math.floor(s / 86400)} 天前`
+  if (s < 60) return t('cat.btree.agoJustNow')
+  if (s < 3600) return t('cat.btree.agoMinutes', { n: Math.floor(s / 60) })
+  if (s < 86400) return t('cat.btree.agoHours', { n: Math.floor(s / 3600) })
+  if (s < 86400 * 30) return t('cat.btree.agoDays', { n: Math.floor(s / 86400) })
   const d = new Date(sec * 1000)
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }

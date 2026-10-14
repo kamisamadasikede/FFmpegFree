@@ -12,7 +12,7 @@
       role="separator"
       tabindex="0"
       aria-orientation="vertical"
-      aria-label="拖动调整文件预览宽度"
+      :aria-label="t('cat.misc.s_fe98efeb19')"
       :aria-valuenow="previewW"
       :aria-valuemin="160"
       data-testid="cat-file-resize"
@@ -39,7 +39,7 @@
         role="separator"
         tabindex="0"
         aria-orientation="vertical"
-        aria-label="拖动调整文件栏宽度"
+        :aria-label="t('cat.misc.s_8eec0b3522')"
         :aria-valuenow="catPane.tree"
         :aria-valuemin="160"
         data-testid="cat-tree-resize"
@@ -54,17 +54,17 @@
           <FIcon name="branch" :size="15" /><span>Git</span>
         </button>
         <i v-show="pane === 'files' || pane === 'git'" class="ink" aria-hidden="true" />
-        <button v-if="showBrowser" type="button" role="tab" class="icon" :class="{ on: pane === 'browser' }" :aria-selected="pane === 'browser'" title="浏览器" data-testid="cat-browser-tab" @click="pane = 'browser'">
+        <button v-if="showBrowser" type="button" role="tab" class="icon" :class="{ on: pane === 'browser' }" :aria-selected="pane === 'browser'" :title="t('cat.misc.s_912302cb02')" data-testid="cat-browser-tab" @click="pane = 'browser'">
           <FIcon name="window" :size="16" />
         </button>
-        <button v-if="showTerm" type="button" role="tab" class="icon" :class="{ on: pane === 'term' }" :aria-selected="pane === 'term'" title="终端" data-testid="cat-term-tab" @click="pane = 'term'">
+        <button v-if="showTerm" type="button" role="tab" class="icon" :class="{ on: pane === 'term' }" :aria-selected="pane === 'term'" :title="t('cat.misc.s_4722bc0c56')" data-testid="cat-term-tab" @click="pane = 'term'">
           <FIcon name="term" :size="16" />
         </button>
         <div class="add-wrap" data-cat-pane-add>
-          <button type="button" class="add" title="添加" aria-label="添加" :aria-expanded="addOpen" data-testid="cat-pane-add" @click="addOpen = !addOpen">
+          <button type="button" class="add" :title="t('cat.misc.s_b58c7549c0')" :aria-label="t('cat.misc.s_b58c7549c0')" :aria-expanded="addOpen" data-testid="cat-pane-add" @click="addOpen = !addOpen">
             <FIcon name="plus" :size="16" />
           </button>
-          <div v-if="addOpen" class="add-menu" role="menu" aria-label="添加" data-testid="cat-pane-add-menu">
+          <div v-if="addOpen" class="add-menu" role="menu" :aria-label="t('cat.misc.s_b58c7549c0')" data-testid="cat-pane-add-menu">
             <button type="button" role="menuitem" data-testid="cat-pane-add-browser" @click="openExtra('browser')">
               <FIcon name="window" :size="14" /><span>浏览器</span>
             </button>
@@ -197,6 +197,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import { mockChanges, mockFiles, type CatTreeNode } from '@/api/catMock'
@@ -692,7 +696,7 @@ async function loadGit() {
     gitError.value = ''
   } catch (e) {
     if (my !== gitToken || props.convId !== id) return
-    gitError.value = catCallError(e, 'git 没有完成。')
+    gitError.value = catCallError(e, t('cat.misc.s_97847f0dd5'))
   } finally {
     if (my === gitToken) gitLoading.value = false
   }
@@ -743,7 +747,7 @@ function onGitConflictOpen(rel: string, name: string) {
 
 function onGitConflictNav() {
   pane.value = 'git'
-  notify('有冲突需要解决。', 'warn')
+  notify(t('cat.misc.s_e51abec0c8'), 'warn')
 }
 
 function onConflictSaved() {

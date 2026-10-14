@@ -7,6 +7,7 @@
 import type { CatAgentKind } from '@/api/cat'
 import { CAT_AGENT_BUILD, CAT_AGENT_CLAUDE, CAT_AGENT_CODEX } from '@/api/cat'
 import { CAT_CLI_OUTDATED_COPY, parseCliOutdated } from '@/components/cat/catCliOutdated'
+import { t } from '@/i18n'
 
 export type CatConvState = 'ok' | 'idle' | 'run' | 'bad'
 
@@ -88,10 +89,10 @@ export interface CatMode {
 }
 
 export const CAT_ACCESS: CatAccess[] = [
-  { id: 'normal', name: '普通模式', short: '普通', desc: '按平时的规则询问。这个窗口点不到确认，卡住时请按停止。', icon: 'hand', enabled: true },
-  { id: 'plan', name: 'Plan', short: 'Plan', desc: '先整理计划再动手，这一阶段只看不改。', icon: 'list', enabled: true },
-  { id: 'auto', name: '自动审查', short: '自动审查', desc: '自己判断能不能做。被拦住的步骤会失败并写在对话里，不会一直等确认。', icon: 'shield', enabled: true },
-  { id: 'approve', name: '全部放开', short: '全部放开', desc: '写文件、跑命令都直接执行，不再询问。', icon: 'alert', enabled: true },
+  { id: 'normal', name: t('cat.misc.s_7173ff3411'), short: t('cat.misc.s_35242cff12'), desc: t('cat.misc.s_a65ff5be32'), icon: 'hand', enabled: true },
+  { id: 'plan', name: 'Plan', short: 'Plan', desc: t('cat.misc.s_09b7fcb097'), icon: 'list', enabled: true },
+  { id: 'auto', name: t('cat.misc.s_321aca51be'), short: t('cat.misc.s_321aca51be'), desc: t('cat.misc.s_3871da4cc0'), icon: 'shield', enabled: true },
+  { id: 'approve', name: t('cat.misc.s_35a0b2e6c7'), short: t('cat.misc.s_35a0b2e6c7'), desc: t('cat.misc.s_ecefab6e97'), icon: 'alert', enabled: true },
 ]
 
 /** 欢迎页：v0.36 解禁 Grok Build / Claude / Codex；Cat CLI / Cat Code 仍灰（契约 6.19.6） */
@@ -104,39 +105,39 @@ export const CAT_MODES: CatMode[] = [
 ]
 
 export const CAT_TRY = [
-  '了解一下这个项目，用大白话告诉我它是做什么的，从哪里入手',
-  '帮我找出这个文件夹里重复和没用的文件，列出来让我确认',
-  '帮我做一个精美的个人主页网页，做好后直接打开给我看',
+  t('cat.misc.s_a83ff639cb'),
+  t('cat.misc.s_c4e57b98e5'),
+  t('cat.misc.s_50b4bcf29e'),
 ]
 
 export function mockProjects(): CatProject[] {
   return [
     {
-      id: 'p1', name: '视频素材整理', path: 'D:\\素材\\视频素材整理', missing: false, createdAt: 3, open: false, branch: 'main',
+      id: 'p1', name: t('cat.misc.s_6f82dc15ba'), path: 'D:\\素材\\视频素材整理', missing: false, createdAt: 3, open: false, branch: 'main',
       convs: [
-        { id: 'c11', title: '按拍摄日期归档素材', agentKind: CAT_AGENT_BUILD, main: true, sub: '素材 / 2026-10', time: '2d', st: 'idle' },
-        { id: 'c12', title: '找出重复的片段', agentKind: CAT_AGENT_BUILD, sub: '去重清单', time: '3d', st: 'idle' },
+        { id: 'c11', title: t('cat.misc.s_172202c7b2'), agentKind: CAT_AGENT_BUILD, main: true, sub: t('cat.misc.s_124c9e0ef8'), time: '2d', st: 'idle' },
+        { id: 'c12', title: t('cat.misc.s_bc07b2ace2'), agentKind: CAT_AGENT_BUILD, sub: t('cat.misc.s_04d7ae12b2'), time: '3d', st: 'idle' },
       ],
     },
     {
-      id: 'p2', name: '直播推流测试', path: 'D:\\工作\\直播推流测试', missing: false, createdAt: 2, open: true, branch: 'live',
+      id: 'p2', name: t('cat.misc.s_b055793df4'), path: 'D:\\工作\\直播推流测试', missing: false, createdAt: 2, open: true, branch: 'live',
       convs: [
-        { id: 'c21', title: '推流地址轮换方案', agentKind: CAT_AGENT_BUILD, main: true, sub: '我想让三路推流轮流切换地址…', time: '58m', st: 'ok' },
-        { id: 'c22', title: '断线重连日志分析', agentKind: CAT_AGENT_BUILD, sub: '重连 4 次，平均 6 秒', time: '3h', st: 'idle' },
+        { id: 'c21', title: t('cat.misc.s_fc141724b1'), agentKind: CAT_AGENT_BUILD, main: true, sub: t('cat.misc.s_4a5f88a092'), time: '58m', st: 'ok' },
+        { id: 'c22', title: t('cat.misc.s_c946a66672'), agentKind: CAT_AGENT_BUILD, sub: t('cat.misc.s_ce6ffe19c6'), time: '3h', st: 'idle' },
       ],
     },
     {
       id: 'p3', name: '字幕项目', path: 'D:\\工作\\字幕项目', missing: false, createdAt: 1, open: true, branch: 'test',
-      convs: [{ id: 'c31', title: '校对第 3 集时间轴', agentKind: CAT_AGENT_BUILD, main: true, sub: '你先帮我把时间轴整体后移 0.4 秒…', time: '12m', st: 'run' }],
+      convs: [{ id: 'c31', title: t('cat.misc.s_b972e5622a'), agentKind: CAT_AGENT_BUILD, main: true, sub: t('cat.misc.s_0babf8b30f'), time: '12m', st: 'run' }],
     },
   ]
 }
 
 export function mockPlainConvs(): CatConv[] {
   return [
-    { id: 'd1', title: '用 Go 背景逐步教 Rust 语法', agentKind: CAT_AGENT_BUILD },
-    { id: 'd2', title: 'Docker 命令大全', agentKind: CAT_AGENT_BUILD },
-    { id: 'd3', title: '整理本周会议纪要要点和待办事项', agentKind: CAT_AGENT_BUILD },
+    { id: 'd1', title: t('cat.misc.s_11def59d87'), agentKind: CAT_AGENT_BUILD },
+    { id: 'd2', title: t('cat.misc.s_6c1bf7b7ad'), agentKind: CAT_AGENT_BUILD },
+    { id: 'd3', title: t('cat.misc.s_62602a1d9e'), agentKind: CAT_AGENT_BUILD },
   ]
 }
 
@@ -144,49 +145,49 @@ export function mockPlainConvs(): CatConv[] {
 const FOOTER_AT = new Date(2026, 9, 13, 22, 15, 0).getTime()
 
 const SUB3: CatBlock[] = [
-  { kind: 'user', text: '你先帮我把时间轴整体后移 0.4 秒，再检查一下有没有字幕重叠。' },
-  { kind: 'think', text: '思考完成 · 6 秒' },
-  { kind: 'p', text: '好的。第 3 集一共 412 条字幕，已经整体后移 0.4 秒。检查下来有 3 处重叠：' },
+  { kind: 'user', text: t('cat.misc.s_0ced2a2855') },
+  { kind: 'think', text: t('cat.misc.s_6fd714d6b7') },
+  { kind: 'p', text: t('cat.misc.s_17f2d14490') },
   {
-    kind: 'code', lang: 'srt', more: '查看更多（2 处）',
-    parts: [['118', true], ['\n00:04:12,300 --> 00:04:15,100\n你先别急，听我说完。\n'], ['119', true], ['\n00:04:14,900 --> 00:04:16,200\n好，你说。']],
+    kind: 'code', lang: 'srt', more: t('cat.misc.s_086b81a565'),
+    parts: [['118', true], [t('cat.misc.s_d8e85e6c39')], ['119', true], [t('cat.misc.s_4fe6122367')]],
   },
-  { kind: 'p', text: '处理建议：' },
-  { kind: 'ul', items: ['第 118 条结束时间改成 `00:04:14,850`，留 50 毫秒间隔。', '第 205、366 条同样处理。', '改完我会再整体检查一遍，确认没有新的重叠。'] },
-  { kind: 'run', text: '正在修改 3 处时间轴…' },
+  { kind: 'p', text: t('cat.misc.s_39e3eb799e') },
+  { kind: 'ul', items: [t('cat.misc.s_eb202f8e59'), t('cat.misc.s_3b349d0d41'), t('cat.misc.s_14bc57581b')] },
+  { kind: 'run', text: t('cat.misc.s_3fda6effa8') },
   // v0.37.1 消息尾走查：有 usage（设计场景 23）
-  { kind: 'a', id: 'a-c31', text: '三处重叠已改完，没有发现新的重叠。', streaming: false, finishedAt: FOOTER_AT, firstTokenMs: 1200, totalMs: 8400, tokenTotal: 12345, outputTokens: 2100, tokensPerSec: 280 },
+  { kind: 'a', id: 'a-c31', text: t('cat.misc.s_99c153e62e'), streaming: false, finishedAt: FOOTER_AT, firstTokenMs: 1200, totalMs: 8400, tokenTotal: 12345, outputTokens: 2100, tokensPerSec: 280 },
   // v0.47：无 outputTokens（只有合计）→ 不显示「输出」与 token/s
-  { kind: 'a', id: 'a-c32', text: '这一轮后端没拿到输出 token，只显示合计。', streaming: false, finishedAt: FOOTER_AT, firstTokenMs: 1200, totalMs: 8400, tokenTotal: 12345 },
+  { kind: 'a', id: 'a-c32', text: t('cat.misc.s_c38625d1fb'), streaming: false, finishedAt: FOOTER_AT, firstTokenMs: 1200, totalMs: 8400, tokenTotal: 12345 },
 ]
 const LIVE: CatBlock[] = [
-  { kind: 'user', text: '我想让三路推流轮流切换地址，每路 30 分钟换一次，怎么安排比较稳？' },
-  { kind: 'think', text: '思考完成 · 12 秒' },
-  { kind: 'p', text: '可以按“错开切换”的思路来，避免三路同时断开：' },
-  { kind: 'ul', items: ['第 1 路在整点切换，第 2 路在 10 分，第 3 路在 20 分。', '切换前先连上新地址，连上后再断开旧地址。', '任意一路连续失败 2 次，就停止轮换并提醒你。'] },
+  { kind: 'user', text: t('cat.misc.s_a3105db781') },
+  { kind: 'think', text: t('cat.misc.s_d149f9fde4') },
+  { kind: 'p', text: t('cat.misc.s_7958198a49') },
+  { kind: 'ul', items: [t('cat.misc.s_b54a2e1ae5'), t('cat.misc.s_28d3b53928'), t('cat.misc.s_69aca32d6d')] },
   // v0.37.1 消息尾走查：仅时间（设计场景 24）
-  { kind: 'a', id: 'a-c21', text: '要我把这个方案写成一份可以直接导入的配置吗？', streaming: false, finishedAt: FOOTER_AT },
+  { kind: 'a', id: 'a-c21', text: t('cat.misc.s_986b0e147f'), streaming: false, finishedAt: FOOTER_AT },
 ]
 const RUST: CatBlock[] = [
-  { kind: 'p', text: '把服务放进 handler 结构体是同一件事：' },
-  { kind: 'code', lang: 'go', more: '查看更多（4 行）', parts: [['type', true], [' SystemHandler '], ['struct', true], [' {\n    Provider *ProviderService\n}']] },
-  { kind: 'p', text: 'Rust 这里没有写成方法接收者，而是写成了参数 `State(state)`。`state.provider` 就相当于 Go 里的 `h.Provider`。' },
-  { kind: 'user', text: '我大致了解了，本质上和其他语言没什么区别，只是在控制方面需要自己更严格。' },
-  { kind: 'think', text: '思考完成 · 9 秒' },
-  { kind: 'p', text: '对。多出来的是编译器要你把几件事写明：' },
-  { kind: 'ul', items: ['一个值归谁，借出去用还是直接交出去。', '这个变量能不能改。', '这一步可能失败，所以用 `Result`，失败就用 `?` 返回。'] },
+  { kind: 'p', text: t('cat.misc.s_90b4f2355d') },
+  { kind: 'code', lang: 'go', more: t('cat.misc.s_417b6c1be9'), parts: [['type', true], [' SystemHandler '], ['struct', true], [' {\n    Provider *ProviderService\n}']] },
+  { kind: 'p', text: t('cat.misc.s_f9e282c16e') },
+  { kind: 'user', text: t('cat.misc.s_2856a33998') },
+  { kind: 'think', text: t('cat.misc.s_2917d29fdf') },
+  { kind: 'p', text: t('cat.misc.s_68d720907e') },
+  { kind: 'ul', items: [t('cat.misc.s_8198b6339a'), t('cat.misc.s_919b8a6592'), t('cat.misc.s_5c2ebeefff')] },
 ]
 
 /** 走查 ?cat_sim=clioutdated：三家各一条 CLI 版本过旧（o2 原始报错超长；o3 不带版本号；o4 不带原始报错） */
 export function mockCliOutdatedConvs(): CatConv[] {
   return [
-    { id: 'o1', title: 'Claude 版本过旧', agentKind: CAT_AGENT_CLAUDE },
-    { id: 'o2', title: 'Codex 版本过旧', agentKind: CAT_AGENT_CODEX },
-    { id: 'o3', title: 'Grok Build 版本过旧', agentKind: CAT_AGENT_BUILD },
-    { id: 'o4', title: 'Claude 版本过旧（无原始报错）', agentKind: CAT_AGENT_CLAUDE },
+    { id: 'o1', title: t('cat.misc.s_2e0a6afa0e'), agentKind: CAT_AGENT_CLAUDE },
+    { id: 'o2', title: t('cat.misc.s_ce7a1ff932'), agentKind: CAT_AGENT_CODEX },
+    { id: 'o3', title: t('cat.misc.s_dff0b862fb'), agentKind: CAT_AGENT_BUILD },
+    { id: 'o4', title: t('cat.misc.s_f862f7fcab'), agentKind: CAT_AGENT_CLAUDE },
   ]
 }
-const OUTDATED_ASK: CatBlock = { kind: 'user', text: '帮我把这个目录下的字幕文件统一转成 UTF-8。' }
+const OUTDATED_ASK: CatBlock = { kind: 'user', text: t('cat.misc.s_504f668012') }
 /** 契约 6.19.17 的 detail 原样（四行 key=value，raw 里换行是字面 \n） */
 const OUTDATED_DETAIL: Record<string, string> = {
   o1: "reason=cli_outdated\nagentKind=claude_cli\ncliVersion=2.0.1\nraw=error: option '--permission-mode <mode>' argument 'manual' is invalid.\\nAllowed choices are acceptEdits, bypassPermissions, default, plan.",
@@ -207,25 +208,25 @@ export function mockMessages(id: string, title: string): CatBlock[] {
   if (base) return base.map((b) => ({ ...b }))
   return [
     { kind: 'user', text: title },
-    { kind: 'think', text: '思考完成 · 5 秒' },
-    { kind: 'p', text: '这里是示意内容。正式版会显示这条对话的完整记录。' },
+    { kind: 'think', text: t('cat.misc.s_d3296a1236') },
+    { kind: 'p', text: t('cat.misc.s_7dfc661aa1') },
   ]
 }
 
 export function mockFiles(id: string): CatTreeNode[] {
-  if (id === 'c31') return [[0, 'd', '字幕项目'], [1, 'd', '第3集'], [2, 'f', '第3集.srt', true], [2, 'f', '第3集-校对前.srt'], [1, 'c', '第2集'], [1, 'c', '第1集'], [0, 'f', '术语表.txt']]
-  if (id === 'c21') return [[0, 'd', '直播推流测试'], [1, 'f', '推流地址.txt', true], [1, 'f', '重连日志.log']]
+  if (id === 'c31') return [[0, 'd', '字幕项目'], [1, 'd', t('cat.misc.s_43760bbbb2')], [2, 'f', t('cat.misc.s_74ee209834'), true], [2, 'f', t('cat.misc.s_e49ae8652c')], [1, 'c', t('cat.misc.s_66b6a04613')], [1, 'c', t('cat.misc.s_4e6e24d35b')], [0, 'f', t('cat.misc.s_ec635b7430')]]
+  if (id === 'c21') return [[0, 'd', t('cat.misc.s_b055793df4')], [1, 'f', t('cat.misc.s_259ff4d60a'), true], [1, 'f', t('cat.misc.s_b66f3d798a')]]
   return [[0, 'c', 'cat-temp-a1b2'], [0, 'd', 'hello-world'], [1, 'd', 'src'], [2, 'f', 'main.rs', true], [1, 'c', 'target'], [1, 'f', 'Cargo.toml']]
 }
 
 export function mockChanges(id: string): CatChange[] {
-  if (id === 'c31') return [{ path: '第3集/第3集.srt', add: 3, del: 3 }]
-  if (id === 'c21') return [{ path: '推流地址.txt', add: 6, del: 1 }]
+  if (id === 'c31') return [{ path: t('cat.misc.s_b8a44ede86'), add: 3, del: 3 }]
+  if (id === 'c21') return [{ path: t('cat.misc.s_259ff4d60a'), add: 6, del: 1 }]
   return []
 }
 
 /** 首条消息生成对话标题 */
 export function titleFrom(text: string): string {
-  const t = text.trim().replace(/\s+/g, ' ')
-  return t.length > 18 ? t.slice(0, 18) + '…' : t || '新对话'
+  const s = text.trim().replace(/\s+/g, ' ')
+  return s.length > 18 ? s.slice(0, 18) + '…' : s || t('cat.misc.s_1ac07a4bb2')
 }

@@ -1,0 +1,22 @@
+{
+  "note": "A-phase (v0.54): only these paths are checked for remaining CJK literals. B-phase expands to all of src/.",
+  "include": [
+    "src/i18n/**",
+    "src/stores/language.ts",
+    "src/errors/**",
+    "src/api/cat*.ts",
+    "src/components/cat/**",
+    "src/views/cat/**",
+    "src/views/About.vue",
+    "src/views/Settings.vue",
+    "src/config/about.ts",
+    "src/utils/catMarkdown.ts"
+  ],
+  "excludeGlobs": [
+    "**/*.check.ts",
+    "**/*Mock*",
+    "**/sim.ts",
+    "**/catDevSim.ts",
+    "**/views/dev/**"
+  ]
+}

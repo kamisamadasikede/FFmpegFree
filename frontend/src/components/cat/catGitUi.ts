@@ -1,5 +1,6 @@
 import { reactive } from 'vue'
 import type { GitStatus } from '@/api/catGit'
+import { t } from '@/i18n'
 
 /** 右栏 Git 状态摘要，供顶栏胶囊与右栏共用 */
 export const catGitUi = reactive({

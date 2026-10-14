@@ -6,6 +6,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 /** 「查看详情」展开后的原始报错框（右上角「复制」，最大高 160px 超出滚动）。cli_outdated 与底栏切换分支失败共用。 */
 import { ref } from 'vue'
 import { hasWailsBackend } from '@/services/wails'

@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 /**
  * 办公画布薄预览壳（路线 A）：按 IR deck.slides[] 逐页渲染 + 导出 PPTX。
  * 不嵌入 OnlyOffice；不用 LibreOffice PDF 冒充实时画布。
@@ -17,7 +21,7 @@ const title = computed(() => store.deck?.title || C.toolLabel)
 </script>
 
 <template>
-  <aside class="canvas-panel" data-testid="cat-office-canvas-panel" aria-label="演示文稿预览">
+  <aside class="canvas-panel" data-testid="cat-office-canvas-panel" :aria-label="t('cat.misc.s_311632453c')">
     <div class="canvas-hd">
       <FIcon name="slide" :size="16" />
       <b>{{ title }}</b>
@@ -42,7 +46,7 @@ const title = computed(() => store.deck?.title || C.toolLabel)
       >
         <FIcon name="folder" :size="14" />
       </button>
-      <button type="button" class="ibtn" aria-label="关闭" data-testid="cat-office-canvas-close" @click="emit('close')">
+      <button type="button" class="ibtn" :aria-label="t('cat.misc.s_b15d91274e')" data-testid="cat-office-canvas-close" @click="emit('close')">
         <FIcon name="x" :size="14" />
       </button>
     </div>
@@ -57,7 +61,7 @@ const title = computed(() => store.deck?.title || C.toolLabel)
       >
         <div class="sh">第 {{ i + 1 }} 页</div>
         <div class="sb">
-          <h4>{{ s.title || '（无标题）' }}</h4>
+          <h4>{{ s.title || t('cat.misc.s_5ec4e11eca') }}</h4>
           <ul v-if="s.bullets?.length">
             <li v-for="(b, j) in s.bullets" :key="j">{{ b }}</li>
           </ul>

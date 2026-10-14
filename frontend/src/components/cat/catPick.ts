@@ -1,12 +1,13 @@
-/**
+
+import { t } from '@/i18n'/**
  * 网页预览里点选元素，把说明放进输入框。
  * 预览框不能读页面内部，所以把一段脚本放进页面，由它把元素说明传出来。
  * 这段脚本不改磁盘上的文件。
  */
 
 export const PICK_SOURCE = 'ffmpegfree-cat-pick'
-export const PICK_START = '--- 选中 ---'
-export const PICK_END = '--- 选中结束 ---'
+export const PICK_START = t('cat.misc.s_d2d0e41a2c')
+export const PICK_END = t('cat.misc.s_82fd7a76a9')
 
 export interface PickBox {
   left: number
@@ -96,7 +97,7 @@ export function pickLabel(p: { tag: string; id: string; classes: string; text: s
   if (text) return text.length > 28 ? text.slice(0, 28) + '…' : text
   const classes = p.classes.split(/\s+/).filter(Boolean).slice(0, 2)
   const name = p.tag + (p.id ? '#' + p.id : '') + (classes.length ? '.' + classes.join('.') : '')
-  return name || '元素'
+  return name || t('cat.misc.s_eeb2c63ecd')
 }
 
 /** 弹窗放在元素右边；右边不够就放到左边，底下不够就上移。 */
@@ -113,24 +114,24 @@ export function placePickPop(anchor: PickBox, pop: { width: number; height: numb
 }
 
 function oneLine(s: string): string {
-  return s.replace(/\s+/g, ' ').trim().split(PICK_END).join('— 选中结束 —').split(PICK_START).join('— 选中 —')
+  return s.replace(/\s+/g, ' ').trim().split(PICK_END).join(t('cat.misc.s_e039e24138')).split(PICK_START).join(t('cat.misc.s_130f3b6c71'))
 }
 
 function safeBlock(s: string): string {
-  return s.split(PICK_END).join('— 选中结束 —').split(PICK_START).join('— 选中 —')
+  return s.split(PICK_END).join(t('cat.misc.s_e039e24138')).split(PICK_START).join(t('cat.misc.s_130f3b6c71'))
 }
 
 /** 发送时写进正文的一段说明。输入框里不直接显示这段文字。 */
 export function formatPick(p: PickNote): string {
   const classes = p.classes.split(/\s+/).filter(Boolean).slice(0, 3)
   const name = p.tag + (p.id ? '#' + p.id : '') + (classes.length ? '.' + classes.join('.') : '')
-  const lines = [PICK_START, `文件：${oneLine(p.file || '未命名')}`, `元素：${oneLine(name)}`, `意图：${p.intent === 'ask' ? '疑问' : '改变'}`]
-  if (p.note.trim()) lines.push(`说明：${oneLine(p.note)}`)
-  if (p.selector) lines.push(`路径：${oneLine(p.selector)}`)
-  if (p.text) lines.push(`文字：${oneLine(p.text)}`)
-  if (p.styles) lines.push(`样式：${oneLine(p.styles)}`)
+  const lines = [PICK_START, t('cat.misc.s_29ba21b97d', { n: oneLine(p.file || t('cat.misc.unnamed')) }), t('cat.misc.s_bbc823ebf1', { name: oneLine(name) }), t('cat.misc.s_b7b6ee6cae', { n: p.intent === 'ask' ? t('cat.misc.question') : t('cat.misc.change') })]
+  if (p.note.trim()) lines.push(t('cat.misc.s_c0e5dd524e', { n: oneLine(p.note) }))
+  if (p.selector) lines.push(t('cat.misc.s_bffc0e4b1b', { n: oneLine(p.selector) }))
+  if (p.text) lines.push(t('cat.misc.s_f71c314747', { n: oneLine(p.text) }))
+  if (p.styles) lines.push(t('cat.misc.s_64842ab296', { n: oneLine(p.styles) }))
   if (p.snippet) {
-    lines.push('片段：')
+    lines.push(t('cat.misc.s_96b4131ea5'))
     lines.push(safeBlock(p.snippet))
   }
   lines.push(PICK_END)

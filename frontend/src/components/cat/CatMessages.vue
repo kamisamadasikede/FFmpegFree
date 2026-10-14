@@ -3,7 +3,7 @@
     <template v-for="row in rows" :key="row.key">
       <template v-if="row.kind === 'block'">
         <div v-if="row.block.kind === 'user'" class="ct-user-row">
-          <span v-if="row.block.failed" class="ct-fail" title="这句没有得到回复" aria-label="这句没有得到回复" data-testid="cat-user-fail">!</span>
+          <span v-if="row.block.failed" class="ct-fail" :title="t('cat.misc.s_f218738f66')" :aria-label="t('cat.misc.s_f218738f66')" data-testid="cat-user-fail">!</span>
           <div class="ct-user-stack" :data-cat-user="shownText(row.block) ? undefined : row.key">
             <div v-if="row.block.files?.length" class="ct-user-files">
               <button
@@ -116,6 +116,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 import { computed, defineComponent, h, ref } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import CatMarkdown from './CatMarkdown.vue'

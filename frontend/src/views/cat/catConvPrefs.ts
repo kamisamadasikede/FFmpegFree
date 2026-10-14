@@ -2,6 +2,7 @@
 
 export { CAT_CONV_PREFS_KEY } from '@/api/catStorageKeys'
 import { CAT_CONV_PREFS_KEY } from '@/api/catStorageKeys'
+import { t } from '@/i18n'
 
 /** 批准方式。没记过按全部批准。 */
 export type CatAccessId = 'normal' | 'plan' | 'auto' | 'approve'

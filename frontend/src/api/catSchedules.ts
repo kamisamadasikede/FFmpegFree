@@ -10,6 +10,7 @@ import { CAT_SCHEDULE_BACKEND_READY } from '@/api/flags'
 import { emitSimEvent, hasWailsBackend, onTaskEvent } from '@/services/wails'
 import { CAT_AGENT_BUILD, normalizeProviderKind, type CatProviderKind } from '@/api/catAgents'
 import { catSim } from '@/views/cat/catDevSim'
+import { t } from '@/i18n'
 
 export { CAT_SCHEDULE_BACKEND_READY }
 
@@ -75,111 +76,123 @@ export const CAT_SCHEDULE_PROMPT_MAX = 4000
 
 /** 文案：设计 v0.3.1 §4 + 契约 v0.35.2 / 6.19.13.8 / 6.19.13.10 */
 export const CAT_SCHED_COPY = {
-  title: '定时任务',
-  subtitle: '到点后在所属项目里开一个新对话，按设定的指令自动运行',
-  /** 列表常驻提示（产品 10-13 定稿；只改这一处） */
-  hint: '只在 FFmpegFree 打开时运行，最小化也会运行，关掉就不会。错过的时间点不补跑，列表里会标「已错过」。',
-  notReady: '未检测到 Cat 助手，到点的任务会运行失败。',
-  recheck: '重新检测',
-  create: '新建任务',
-  colTask: '任务',
-  colFreq: '频率 · 下次',
-  colLast: '上次运行',
-  colOn: '启用',
-  emptyTitle: '还没有定时任务',
-  emptyBody: '让 Cat 助手每天、每周或在某个时间点自动做一件事。',
-  templates: [
-    { name: '每天早上巡检', prompt: '检查项目里昨天新增和改动的文件，列出可能有问题的地方。', frequency: 'daily', time: '09:00', weekdays: [] },
-    { name: '每周周报', prompt: '整理这一周项目里的改动，写成一份简短的周报。', frequency: 'weekly', time: '18:00', weekdays: [5] },
-    { name: '工作日整理', prompt: '把项目里散落的临时文件列出来，给出整理建议。', frequency: 'weekdays', time: '12:30', weekdays: [] },
-  ] as { name: string; prompt: string; frequency: CatScheduleFrequency; time: string; weekdays: number[] }[],
-  menuEdit: '编辑',
-  menuRun: '立即运行',
-  menuCopy: '复制',
-  menuDelete: '删除',
-  more: '任务操作',
-  stop: '停止这次运行',
-  copySuffix: ' 副本',
-  // 状态
-  st: {
-    succeeded: '成功',
-    failed: '失败',
-    missed: '已错过',
-    stopped: '已手动停止',
-    skipped: '已跳过',
-    queued: '排队中',
-    running: '运行中',
-    never: '还没运行过',
-    paused: '已暂停',
+  get title() { return t('cat.sched.title') },
+  get subtitle() { return t('cat.sched.subtitle') },
+  get hint() { return t('cat.sched.hint') },
+  get notReady() { return t('cat.sched.notReady') },
+  get recheck() { return t('cat.sched.recheck') },
+  get create() { return t('cat.sched.create') },
+  get colTask() { return t('cat.sched.colTask') },
+  get colFreq() { return t('cat.sched.colFreq') },
+  get colLast() { return t('cat.sched.colLast') },
+  get colOn() { return t('cat.sched.colOn') },
+  get emptyTitle() { return t('cat.sched.emptyTitle') },
+  get emptyBody() { return t('cat.sched.emptyBody') },
+  get templates(): { name: string; prompt: string; frequency: CatScheduleFrequency; time: string; weekdays: number[] }[] { return [
+    { name: t('cat.misc.s_8964cc07a2'), prompt: t('cat.misc.s_422c1d386e'), frequency: 'daily', time: '09:00', weekdays: [] },
+    { name: t('cat.misc.s_f5df9ce40e'), prompt: t('cat.misc.s_dd4d27d96e'), frequency: 'weekly', time: '18:00', weekdays: [5] },
+    { name: t('cat.misc.s_7c3ef6c51b'), prompt: t('cat.misc.s_4ae5de1366'), frequency: 'weekdays', time: '12:30', weekdays: [] },
+  ] },
+  get menuEdit() { return t('cat.sched.menuEdit') },
+  get menuRun() { return t('cat.sched.menuRun') },
+  get menuCopy() { return t('cat.sched.menuCopy') },
+  get menuDelete() { return t('cat.sched.menuDelete') },
+  get more() { return t('cat.sched.more') },
+  get stop() { return t('cat.sched.stop') },
+  get copySuffix() { return t('cat.sched.copySuffix') },
+  get st() {
+    return {
+      get succeeded() { return t('cat.sched.st.succeeded') },
+      get failed() { return t('cat.sched.st.failed') },
+      get missed() { return t('cat.sched.st.missed') },
+      get stopped() { return t('cat.sched.st.stopped') },
+      get skipped() { return t('cat.sched.st.skipped') },
+      get queued() { return t('cat.sched.st.queued') },
+      get running() { return t('cat.sched.st.running') },
+      get never() { return t('cat.sched.st.never') },
+      get paused() { return t('cat.sched.st.paused') },
+    }
   },
-  skippedSub: '上一次还没结束',
-  missedClosed: '当时 FFmpegFree 没有打开',
-  missedAsleep: '当时电脑在睡眠',
-  queueAhead: (n: number) => `前面还有 ${n} 个任务`,
-  queueNext: '下一个就轮到它',
-  timeout: '超过 30 分钟没跑完。',
-  replyFailed: '回复没生成出来，请重试。',
-  projectDeleted: '项目已删除，请编辑后换一个项目。',
-  manualRun: '手动运行',
-  ended: '已结束',
-  dash: '—',
-  freq: { once: '一次', daily: '每天', weekdays: '工作日', weekly: '每周', custom: '自定义' },
-  freqList: { once: '仅一次', daily: '每天', weekdays: '工作日', weekly: '每周' },
-  // 弹窗
-  newTitle: '新建定时任务',
-  editTitle: '编辑定时任务',
-  name: '名称',
-  namePh: '比如：每天早上巡检',
-  prompt: '指令',
-  promptTip: '每次运行都会作为新对话的第一条消息',
-  promptHelp: '全局自定义指令会自动带上。',
-  project: '所属项目',
-  projectPh: '选择项目',
-  approval: '批准方式',
-  agentKind: '服务商',
-  approveWarn: '无人看着时，Cat 助手会直接改文件、运行命令，不再询问。建议用 Plan。',
-  normalHint: '无人看着时没人能确认，任务会停住，30 分钟后算失败。',
-  more2: '更多选项',
-  model: '模型',
-  effort: '思考强度',
-  defaultOpt: '默认',
-  frequency: '频率',
-  date: '日期',
-  time: '时间',
-  weekdays: ['一', '二', '三', '四', '五', '六', '日'],
-  timezone: '时区',
-  enabled: '启用',
-  cancel: '取消',
-  createBtn: '创建',
-  saveBtn: '保存',
-  later: '下一期开放。',
-  errName: '请填写名称。',
-  errNameLen: '最多 40 个字。',
-  errPrompt: '请填写指令。',
-  errPromptLen: '最多 4000 字。',
-  errProject: '请选择项目。',
-  errDays: '请至少选一天。',
-  errPast: '这个时间已经过了。',
-  missingProject: (n: string) => `「${n}」的文件夹不见了`,
-  saveFailed: '保存失败，请重试。',
-  confirmTitle: '确认用「全部放开」？',
-  confirmOk: '确认保存',
-  delTitle: '删除这个定时任务？',
-  delBody: '运行记录会一起删除，已经产生的对话会保留。',
-  delOk: '删除',
-  delFailed: '删除失败，请重试。',
-  opFailed: '操作失败，请重试。',
-  // 抽屉
-  runs: '运行记录',
-  runsEmpty: '还没有运行记录。',
-  openConv: '打开对话',
-  convGone: '这条对话已删除。',
-  close: '关闭',
-  // 通知（v0.35.2 + 产品：手动停止不通知）
-  notifyDone: (n: string) => `定时任务已完成：${n}`,
-  notifyFail: (n: string) => `定时任务运行失败：${n}`,
-  notifyBody: (p: string, dur: string) => `${p} · 用时 ${dur}。点这里打开对话。`,
-} as const
+  get skippedSub() { return t('cat.sched.skippedSub') },
+  get missedClosed() { return t('cat.sched.missedClosed') },
+  get missedAsleep() { return t('cat.sched.missedAsleep') },
+  queueAhead: (n: number) => t('cat.sched.queueAhead', { n: n }),
+  get queueNext() { return t('cat.sched.queueNext') },
+  get timeout() { return t('cat.sched.timeout') },
+  get replyFailed() { return t('cat.sched.replyFailed') },
+  get projectDeleted() { return t('cat.sched.projectDeleted') },
+  get manualRun() { return t('cat.sched.manualRun') },
+  get ended() { return t('cat.sched.ended') },
+  get dash() { return t('cat.sched.dash') },
+  get freq() {
+    return {
+      get once() { return t('cat.sched.freq.once') },
+      get daily() { return t('cat.sched.freq.daily') },
+      get weekdays() { return t('cat.sched.freq.weekdays') },
+      get weekly() { return t('cat.sched.freq.weekly') },
+      get custom() { return t('cat.sched.freq.custom') },
+    }
+  },
+  get freqList() {
+    return {
+      get once() { return t('cat.sched.freqList.once') },
+      get daily() { return t('cat.sched.freqList.daily') },
+      get weekdays() { return t('cat.sched.freqList.weekdays') },
+      get weekly() { return t('cat.sched.freqList.weekly') },
+    }
+  },
+  get newTitle() { return t('cat.sched.newTitle') },
+  get editTitle() { return t('cat.sched.editTitle') },
+  get name() { return t('cat.sched.name') },
+  get namePh() { return t('cat.sched.namePh') },
+  get prompt() { return t('cat.sched.prompt') },
+  get promptTip() { return t('cat.sched.promptTip') },
+  get promptHelp() { return t('cat.sched.promptHelp') },
+  get project() { return t('cat.sched.project') },
+  get projectPh() { return t('cat.sched.projectPh') },
+  get approval() { return t('cat.sched.approval') },
+  get agentKind() { return t('cat.sched.agentKind') },
+  get approveWarn() { return t('cat.sched.approveWarn') },
+  get normalHint() { return t('cat.sched.normalHint') },
+  get more2() { return t('cat.sched.more2') },
+  get model() { return t('cat.sched.model') },
+  get effort() { return t('cat.sched.effort') },
+  get defaultOpt() { return t('cat.sched.defaultOpt') },
+  get frequency() { return t('cat.sched.frequency') },
+  get date() { return t('cat.sched.date') },
+  get time() { return t('cat.sched.time') },
+  get weekdays() { return [t('cat.misc.s_7941da94db'), t('cat.misc.s_2d8be272c9'), t('cat.misc.s_e662ff59a0'), t('cat.misc.s_21716cf311'), t('cat.misc.s_1fcc29d077'), t('cat.misc.s_61b453523d'), t('cat.misc.s_3edddd85ac')] },
+  get timezone() { return t('cat.sched.timezone') },
+  get enabled() { return t('cat.sched.enabled') },
+  get cancel() { return t('cat.sched.cancel') },
+  get createBtn() { return t('cat.sched.createBtn') },
+  get saveBtn() { return t('cat.sched.saveBtn') },
+  get later() { return t('cat.sched.later') },
+  get errName() { return t('cat.sched.errName') },
+  get errNameLen() { return t('cat.sched.errNameLen') },
+  get errPrompt() { return t('cat.sched.errPrompt') },
+  get errPromptLen() { return t('cat.sched.errPromptLen') },
+  get errProject() { return t('cat.sched.errProject') },
+  get errDays() { return t('cat.sched.errDays') },
+  get errPast() { return t('cat.sched.errPast') },
+  missingProject: (n: string) => t('cat.sched.missingProject', { n: n }),
+  get saveFailed() { return t('cat.sched.saveFailed') },
+  get confirmTitle() { return t('cat.sched.confirmTitle') },
+  get confirmOk() { return t('cat.sched.confirmOk') },
+  get delTitle() { return t('cat.sched.delTitle') },
+  get delBody() { return t('cat.sched.delBody') },
+  get delOk() { return t('cat.sched.delOk') },
+  get delFailed() { return t('cat.sched.delFailed') },
+  get opFailed() { return t('cat.sched.opFailed') },
+  get runs() { return t('cat.sched.runs') },
+  get runsEmpty() { return t('cat.sched.runsEmpty') },
+  get openConv() { return t('cat.sched.openConv') },
+  get convGone() { return t('cat.sched.convGone') },
+  get close() { return t('cat.sched.close') },
+  notifyDone: (n: string) => t('cat.sched.notifyDone', { n: n }),
+  notifyFail: (n: string) => t('cat.sched.notifyFail', { n: n }),
+  notifyBody: (p: string, dur: string) => t('cat.sched.notifyBody', { p: p, dur: dur }),
+}
 
 const live = () => CAT_SCHEDULE_BACKEND_READY && hasWailsBackend()
 
@@ -297,7 +310,7 @@ export function formatDuration(ms: number): string {
   const sec = Math.max(0, Math.round(ms / 1000))
   const m = Math.floor(sec / 60)
   const s = sec % 60
-  return m ? `${m} 分 ${s} 秒` : `${s} 秒`
+  return m ? t('cat.misc.s_a3d2a631a8', { v0: m, v1: s }) : t('cat.misc.s_323b152fad', { v0: s })
 }
 
 // ---------- 模拟 ----------
@@ -326,7 +339,7 @@ function mkRun(scheduleId: string, status: CatScheduleRunStatus, ago: number, ex
 
 function mkSched(id: string, p: Partial<CatSchedule>, runs: CatScheduleRun[]): CatSchedule {
   const base: CatSchedule = {
-    id, name: '', prompt: '检查项目里的改动并给出建议。', projectId: 'p2', frequency: 'daily', time: '09:00', weekdays: [], runAt: 0,
+    id, name: '', prompt: t('cat.misc.s_fcb60e584f'), projectId: 'p2', frequency: 'daily', time: '09:00', weekdays: [], runAt: 0,
     timezone: 'Asia/Shanghai', model: '', effort: '', approvalMode: 'plan', agentKind: CAT_AGENT_BUILD, enabled: true, projectDeleted: false, nextRunAt: 0,
     createdAt: Date.now() - Number(id.slice(1)) * HOUR, updatedAt: Date.now(), ...p,
   }
@@ -339,7 +352,7 @@ function mkSched(id: string, p: Partial<CatSchedule>, runs: CatScheduleRun[]): C
 function seed(): CatSchedule[] {
   if (sim('schedempty')) return []
   return [
-    mkSched('s1', { name: '每日直播日志巡检', frequency: 'daily', time: '09:00' }, [
+    mkSched('s1', { name: t('cat.misc.s_9a45953cb8'), frequency: 'daily', time: '09:00' }, [
       mkRun('s1', 'running', 72_000, { manual: true }),
       mkRun('s1', 'succeeded', 10 * HOUR),
       mkRun('s1', 'failed', 34 * HOUR, { error: { code: 'CAT_REPLY_FAILED', message: CAT_SCHED_COPY.timeout } }),
@@ -348,19 +361,19 @@ function seed(): CatSchedule[] {
       mkRun('s1', 'missed', 106 * HOUR, { missedReason: 'closed' }),
       mkRun('s1', 'skipped', 130 * HOUR),
     ]),
-    mkSched('s2', { name: '周报：字幕进度', projectId: 'p3', frequency: 'weekly', time: '18:00', weekdays: [1, 5] }, [
+    mkSched('s2', { name: t('cat.misc.s_69bd4b5362'), projectId: 'p3', frequency: 'weekly', time: '18:00', weekdays: [1, 5] }, [
       mkRun('s2', 'failed', 26 * HOUR, { error: null }),
     ]),
-    mkSched('s3', { name: '素材文件夹整理', projectId: 'p1', frequency: 'weekdays', time: '12:30', enabled: false, nextRunAt: 0 }, [
+    mkSched('s3', { name: t('cat.misc.s_9403c550cf'), projectId: 'p1', frequency: 'weekdays', time: '12:30', enabled: false, nextRunAt: 0 }, [
       mkRun('s3', 'succeeded', 50 * HOUR),
     ]),
-    mkSched('s4', { name: '直播日志汇总', frequency: 'daily', time: '14:00' }, [mkRun('s4', 'skipped', 5 * HOUR)]),
-    mkSched('s5', { name: '发布前检查', projectId: 'p1', frequency: 'once', runAt: Date.now() + 7 * 24 * HOUR, approvalMode: 'approve' }, []),
-    mkSched('s6', { name: '素材格式抽检', projectId: 'p1', frequency: 'daily', time: '19:00' }, [mkRun('s6', 'queued', 20_000, { queuePosition: 2 })]),
-    mkSched('s9', { name: '字幕错别字检查', projectId: 'p3', frequency: 'daily', time: '19:00' }, [mkRun('s9', 'queued', 15_000, { queuePosition: 0 })]),
-    mkSched('s10', { name: '推流地址可用性检查', frequency: 'daily', time: '19:00' }, [mkRun('s10', 'queued', 10_000)]),
-    mkSched('s7', { name: '睡眠期间的晨检', projectId: 'p3', frequency: 'daily', time: '07:30' }, [mkRun('s7', 'missed', 3 * HOUR, { missedReason: 'asleep' })]),
-    mkSched('s8', { name: '旧项目周检', projectId: 'p9', frequency: 'weekly', time: '10:00', weekdays: [3], enabled: false, projectDeleted: true, nextRunAt: 0 }, []),
+    mkSched('s4', { name: t('cat.misc.s_686a31226f'), frequency: 'daily', time: '14:00' }, [mkRun('s4', 'skipped', 5 * HOUR)]),
+    mkSched('s5', { name: t('cat.misc.s_ebd3709151'), projectId: 'p1', frequency: 'once', runAt: Date.now() + 7 * 24 * HOUR, approvalMode: 'approve' }, []),
+    mkSched('s6', { name: t('cat.misc.s_7d11fd24e9'), projectId: 'p1', frequency: 'daily', time: '19:00' }, [mkRun('s6', 'queued', 20_000, { queuePosition: 2 })]),
+    mkSched('s9', { name: t('cat.misc.s_c6d12765c7'), projectId: 'p3', frequency: 'daily', time: '19:00' }, [mkRun('s9', 'queued', 15_000, { queuePosition: 0 })]),
+    mkSched('s10', { name: t('cat.misc.s_6ca91549f5'), frequency: 'daily', time: '19:00' }, [mkRun('s10', 'queued', 10_000)]),
+    mkSched('s7', { name: t('cat.misc.s_fe77b641be'), projectId: 'p3', frequency: 'daily', time: '07:30' }, [mkRun('s7', 'missed', 3 * HOUR, { missedReason: 'asleep' })]),
+    mkSched('s8', { name: t('cat.misc.s_cfa08fe3b1'), projectId: 'p9', frequency: 'weekly', time: '10:00', weekdays: [3], enabled: false, projectDeleted: true, nextRunAt: 0 }, []),
   ]
 }
 
@@ -543,7 +556,7 @@ export function onCatSchedule(cb: (e: CatScheduleEvent) => void): () => void {
 
 // ---------- 显示 ----------
 
-const WD = ['日', '一', '二', '三', '四', '五', '六']
+const WD = [t('cat.misc.s_3edddd85ac'), t('cat.misc.s_7941da94db'), t('cat.misc.s_2d8be272c9'), t('cat.misc.s_e662ff59a0'), t('cat.misc.s_21716cf311'), t('cat.misc.s_1fcc29d077'), t('cat.misc.s_61b453523d')]
 const pad = (n: number) => String(n).padStart(2, '0')
 
 /** 今天 / 明天 / 昨天 / 周X（7 天内）/ 10月20日 + HH:mm */
@@ -553,11 +566,11 @@ export function fmtWhen(ts: number, now = Date.now()): string {
   const day0 = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
   const diff = Math.round((day0(d) - day0(new Date(now))) / 86_400_000)
   const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`
-  if (diff === 0) return `今天 ${hm}`
-  if (diff === 1) return `明天 ${hm}`
-  if (diff === -1) return `昨天 ${hm}`
-  if (Math.abs(diff) < 7) return `周${WD[d.getDay()]} ${hm}`
-  return `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`
+  if (diff === 0) return t('cat.misc.s_b4283aa71e', { hm: hm })
+  if (diff === 1) return t('cat.misc.s_38ac6afbab', { hm: hm })
+  if (diff === -1) return t('cat.misc.s_ffb5d6872d', { hm: hm })
+  if (Math.abs(diff) < 7) return t('cat.misc.s_4ae1bf3b61', { n: WD[d.getDay()], hm: hm })
+  return t('cat.misc.s_cef3802f0e', { month: d.getMonth() + 1, day: d.getDate(), hm: hm })
 }
 
 /** 频率列：每天 09:00 / 工作日 12:30 / 每周一、周五 18:00 / 一次 · 10月20日 20:00 */
@@ -565,9 +578,9 @@ export function fmtFreq(s: Pick<CatSchedule, 'frequency' | 'time' | 'weekdays' |
   const F = CAT_SCHED_COPY.freq
   if (s.frequency === 'once') {
     const d = new Date(s.runAt)
-    return `${F.once} · ${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`
+    return t('cat.misc.s_f5091a8643', { v0: F.once, month: d.getMonth() + 1, day: d.getDate(), hour: pad(d.getHours()), minute: pad(d.getMinutes()) })
   }
-  if (s.frequency === 'weekly') return `每周${s.weekdays.map((w) => CAT_SCHED_COPY.weekdays[w - 1]).join('、周')} ${s.time}`
+  if (s.frequency === 'weekly') return t('cat.misc.s_d1cf74041d', { v0: s.weekdays.map((w) => CAT_SCHED_COPY.weekdays[w - 1]).join(t('cat.sched.listSep')), v1: s.time })
   return `${F[s.frequency]} ${s.time}`
 }
 
@@ -592,6 +605,6 @@ export function runView(run: CatScheduleRun | null | undefined, now = Date.now()
     case 'queued':
       return { label: S.queued, tone: 'queue', sub: queueLine(run) }
     case 'running':
-      return { label: `${S.running} · 已 ${formatDuration(now - (run.startedAt || run.scheduledFor))}`, tone: 'live', sub: '' }
+      return { label: t('cat.misc.s_64ae088334', { v0: S.running, dur: formatDuration(now - (run.startedAt || run.scheduledFor)) }), tone: 'live', sub: '' }
   }
 }

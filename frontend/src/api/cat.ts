@@ -1,5 +1,6 @@
 import { readCatHistoryStatus, type CatHistoryStatus } from './catHistoryStatus'
 import { pickCatOutput, pickCatTiming } from '@/components/cat/catTimingAdapter'
+import { t } from '@/i18n'
 /**
  * Cat 助手接口层（契约 v0.30 §6.19；v0.36 多服务商 cat_build|claude_cli|codex_cli）。
  *
@@ -22,31 +23,31 @@ export { CAT_BACKEND_READY }
 
 /** 契约 6.19.7 冻结文案（stopped：产品定，停止生成后单独一行浅灰系统提示） */
 export const CAT_COPY = {
-  notReady: '未检测到 Cat 助手，请先安装并确保可在终端直接运行。',
-  replyFailed: '回复没生成出来，请重试。',
+  get notReady() { return t('cat.copy.notReady') },
+  get replyFailed() { return t('cat.copy.replyFailed') },
   /** v0.53.1：CAT_REPLY_FAILED reason=idle_timeout（CLI 连续 10 分钟没有任何输出） */
-  idleTimeout: 'CLI 已经 10 分钟没有响应，已停止这一轮。',
+  get idleTimeout() { return t('cat.copy.idleTimeout') },
   /** v0.53.1：CAT_REPLY_FAILED reason=timeout（总时长上限，仅定时任务） */
-  totalTimeout: '回复超时，已停止这一轮。',
-  writeRefused: '当前只能查看项目文件，改文件和运行命令下一期开放。',
-  later: '下一期开放。',
-  stopped: '已停止生成。',
-} as const
+  get totalTimeout() { return t('cat.copy.totalTimeout') },
+  get writeRefused() { return t('cat.copy.writeRefused') },
+  get later() { return t('cat.copy.later') },
+  get stopped() { return t('cat.copy.stopped') },
+}
 
 /**
  * 删除对话（设计「Cat 项目状态 v0.3」§11–15）。
  * deleteFailed：产品 10-09 已定（浮提示；失败时对话行保持不动）。
  */
 export const CAT_CONV_COPY = {
-  menu: '对话操作',
-  del: '删除',
-  delTitle: '删除这个对话？',
-  delBody: '删除后无法恢复。',
-  cancel: '取消',
-  deleting: '正在删除…',
-  deleted: '已删除对话。',
-  deleteFailed: '删除失败，请重试。',
-} as const
+  get menu() { return t('cat.conv.menu') },
+  get del() { return t('cat.conv.del') },
+  get delTitle() { return t('cat.conv.delTitle') },
+  get delBody() { return t('cat.conv.delBody') },
+  get cancel() { return t('cat.conv.cancel') },
+  get deleting() { return t('cat.conv.deleting') },
+  get deleted() { return t('cat.conv.deleted') },
+  get deleteFailed() { return t('cat.conv.deleteFailed') },
+}
 
 /** 事件名（契约 6.19.5） */
 export const CAT_EVENTS = { status: 'cat:status', message: 'cat:message', turn: 'cat:turn' } as const
@@ -255,7 +256,7 @@ const KINDS: CatAgentKind[] = [CAT_AGENT_BUILD, 'claude_cli', 'codex_cli', 'cat_
 function mapConv(raw: { id?: string; title?: string; agentKind?: string; projectId?: string; createdAt?: number; updatedAt?: number }): CatConversation {
   return {
     id: String(raw.id ?? ''),
-    title: raw.title?.trim() || '新对话',
+    title: raw.title?.trim() || t('cat.misc.s_1ac07a4bb2'),
     // 原样保留后端存的 agentKind（不改写）；未知值只用于展示，发送仍走会话自己的 id
     agentKind: (KINDS.includes(raw.agentKind as CatAgentKind) ? raw.agentKind : CAT_AGENT_BUILD) as CatAgentKind,
     projectId: raw.projectId || undefined,
@@ -276,7 +277,7 @@ function mapMedia(raw: unknown): CatShownFile[] | undefined {
     const kind = asPreviewKind(typeof r.kind === 'string' ? r.kind : '')
     if (!name && !path && !data) continue
     out.push({
-      name: name || '文件',
+      name: name || t('cat.misc.s_2a0c4740f1'),
       path: path || undefined,
       kind,
       mime: typeof r.mime === 'string' ? r.mime : undefined,
@@ -343,9 +344,9 @@ export function catNotifyHint(on: boolean, st: CatNotifyStatus | null, isMac: bo
 }
 
 export const CAT_NOTIFY_HINT = {
-  macDenied: '系统没有允许 FFmpegFree 发通知，请到「系统设置 → 通知」里打开。',
-  unavailable: '这台电脑现在发不了系统通知。',
-} as const
+  get macDenied() { return t('cat.notify.macDenied') },
+  get unavailable() { return t('cat.notify.unavailable') },
+}
 
 /** v0.47.1：RecheckCat(agentKind)。空 = 全部；传了只检该家（返回仍是全量 agents[]）。 */
 export async function recheckCat(agentKind: CatProviderKind | '' = ''): Promise<CatStatus> {
@@ -382,10 +383,10 @@ export async function listCatModels(agentKind: CatAgentKind): Promise<CatModel[]
 }
 
 /** 契约 v0.35：xhigh 显示「极高」（值不变）；后端老版本还给「超高」时也在这里改掉 */
-export const CAT_THINK_XHIGH_LABEL = '很高'
-export function fixThinkName(t: CatThinkLevel): CatThinkLevel {
-  if (t.id === 'xhigh' || t.displayName === '超高') return { ...t, displayName: CAT_THINK_XHIGH_LABEL }
-  return t
+export const CAT_THINK_XHIGH_LABEL = t('cat.misc.s_cfebcb06bc')
+export function fixThinkName(level: CatThinkLevel): CatThinkLevel {
+  if (level.id === 'xhigh' || level.displayName === t('cat.misc.s_1a42e25f14')) return { ...level, displayName: CAT_THINK_XHIGH_LABEL }
+  return level
 }
 
 /** 思考强度：列表空 → 界面整行隐藏（契约 v0.36）；不写死某家永远没有 */
@@ -452,13 +453,13 @@ function positiveNum(v: unknown): number {
 /** 创建会话：agentKind 在这里写入，之后任何接口都不再改它（契约 6.19.2 / v0.36） */
 export async function createCatConversation(req: CreateCatConversationRequest): Promise<CatConversation> {
   if (!isProviderKind(req.agentKind)) {
-    throw new AppError('INVALID_ARGUMENT', '不支持的模式')
+    throw new AppError('INVALID_ARGUMENT', t('cat.misc.s_501dc143fb'))
   }
   if (!live()) {
     const now = Date.now()
     return {
       id: `local-${now.toString(36)}`,
-      title: req.title?.trim() || '新对话',
+      title: req.title?.trim() || t('cat.misc.s_1ac07a4bb2'),
       agentKind: req.agentKind,
       projectId: req.projectId || undefined,
       createdAt: now,
@@ -482,7 +483,7 @@ export async function createCatConversation(req: CreateCatConversationRequest): 
  * 浏览器 mock：会话列表就在页面内存里（catState），这里直接成功，由调用方移除。
  */
 export async function deleteCatConversation(id: string): Promise<void> {
-  if (!id) throw new AppError('INVALID_ARGUMENT', '缺少对话')
+  if (!id) throw new AppError('INVALID_ARGUMENT', t('cat.misc.s_fcadf0ee8c'))
   if (!live()) return
   await call(CatBinding.DeleteCatConversation(id))
 }

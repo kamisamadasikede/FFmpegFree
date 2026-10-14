@@ -3,13 +3,14 @@
  * 字段名以 wails 生成的 models.ts 为准（Settings.defaultModeByAgent、ConversationDetail.lastTurn、CatTurnState.retryable）。
  */
 import { CAT_PROVIDER_ORDER, type CatProviderKind } from '@/api/catAgents'
+import { t } from '@/i18n'
 
 /** 6.19.18.7 第 6 条定稿文案 */
-export const CAT_RETRY_GONE_TEXT = '这条回复已无法重试，请重新发送。'
+export const CAT_RETRY_GONE_TEXT = t('cat.misc.s_ff42af5176')
 /** 不能重试时的失败行；可重试时仍用 CAT_COPY.replyFailed「回复没生成出来，请重试。」 */
-export const CAT_REPLY_FAILED_FINAL = '回复没生成出来。'
+export const CAT_REPLY_FAILED_FINAL = t('cat.misc.s_c2591741d3')
 /** 设置页选 danger 时常驻的橙色小字（产品定稿） */
-export const CAT_DEFAULT_DANGER_NOTE = '新对话默认全部放开，Cat 助手将不经检查执行命令和修改文件。'
+export const CAT_DEFAULT_DANGER_NOTE = t('cat.misc.s_52ed3d97e5')
 
 export type CatModeByAgent = Record<CatProviderKind, string>
 export const emptyModeByAgent = (): CatModeByAgent => ({ cat_build: '', claude_cli: '', codex_cli: '' })
