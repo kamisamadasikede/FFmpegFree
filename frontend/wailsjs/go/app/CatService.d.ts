@@ -28,6 +28,8 @@ export function DeleteCatSchedule(arg1:cat.ScheduleIDRequest):Promise<void>;
 
 export function EnsureCreateCatSkillsDir(arg1:cat.SkillsDirRequest):Promise<cat.SkillsDirResult>;
 
+export function FetchCatRemotes(arg1:cat.FetchCatRemotesRequest):Promise<cat.CatBranchTree>;
+
 export function GetCatConversation(arg1:string):Promise<cat.ConversationDetail>;
 
 export function GetCatNotifyStatus():Promise<cat.NotifyStatus>;
@@ -42,17 +44,27 @@ export function GitCatCheckout(arg1:cat.GitCatCheckoutRequest):Promise<void>;
 
 export function GitCatCommit(arg1:cat.GitPathsRequest):Promise<void>;
 
+export function GitCatCompareBranch(arg1:cat.GitCatCompareBranchRequest):Promise<cat.CatBranchCompare>;
+
 export function GitCatConflictAbort(arg1:cat.GitCatConflictAbortRequest):Promise<void>;
 
 export function GitCatConflictComplete(arg1:cat.GitCatConflictCompleteRequest):Promise<void>;
 
 export function GitCatConflictResolve(arg1:cat.GitCatConflictResolveRequest):Promise<void>;
 
+export function GitCatCreateBranch(arg1:cat.GitCatCreateBranchRequest):Promise<cat.CatBranchTree>;
+
+export function GitCatDeleteBranch(arg1:cat.GitCatDeleteBranchRequest):Promise<cat.CatBranchTree>;
+
 export function GitCatDiff(arg1:cat.GitDiffRequest):Promise<cat.GitDiffResult>;
+
+export function GitCatMerge(arg1:cat.GitCatMergeRequest):Promise<cat.GitCatMergeResult>;
 
 export function GitCatPullRequest(arg1:cat.GitStatusRequest):Promise<cat.GitPRResult>;
 
 export function GitCatRemote(arg1:cat.GitRemoteRequest):Promise<void>;
+
+export function GitCatRenameBranch(arg1:cat.GitCatRenameBranchRequest):Promise<cat.CatBranchTree>;
 
 export function GitCatStage(arg1:cat.GitPathsRequest):Promise<void>;
 
@@ -61,6 +73,8 @@ export function GitCatStatus(arg1:cat.GitStatusRequest):Promise<cat.GitStatusRes
 export function GitCatUnstage(arg1:cat.GitPathsRequest):Promise<void>;
 
 export function InspectCatConfig(arg1:cat.InspectRequest):Promise<catagent.InspectResult>;
+
+export function ListCatBranchTree(arg1:cat.CatBranchTreeRequest):Promise<cat.CatBranchTree>;
 
 export function ListCatBranches(arg1:cat.CatBranchesRequest):Promise<cat.CatBranchesResult>;
 
@@ -119,6 +133,8 @@ export function SaveCatSettings(arg1:cat.Settings):Promise<cat.Settings>;
 export function SearchCatFiles(arg1:cat.SearchFilesRequest):Promise<cat.SearchFilesResult>;
 
 export function SendCatMessage(arg1:cat.SendMessageRequest):Promise<cat.SendMessageResult>;
+
+export function SetCatBranchFavorite(arg1:cat.SetCatBranchFavoriteRequest):Promise<void>;
 
 export function SetCatInspectItemEnabled(arg1:cat.SetInspectItemEnabledRequest):Promise<catagent.InspectItem>;
 
