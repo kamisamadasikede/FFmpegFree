@@ -101,4 +101,12 @@ export function catProviderModelsChecks(eq: Eq): void {
   eq('pm grok 关', customKnownIssue('cat_build', false), '')
   eq('pm claude 开无', customKnownIssue('claude_cli', true), '')
   eq('pm codex 开无', customKnownIssue('codex_cli', true), '')
+  // 与后端 ValidCustomModelID 对齐：按码点计数、C1 控制符
+  eq('pm 手填 200 个表情（码点）可', normalizeManualModelId('😀'.repeat(200)), '😀'.repeat(200))
+  eq('pm 手填 201 码点不可', normalizeManualModelId('😀'.repeat(201)), null)
+  eq('pm 手填 U+0085 不可', normalizeManualModelId('a\u0085b'), null)
+  eq('pm 手填 NBSP 不可', normalizeManualModelId('a\u00a0b'), null)
+  // 后端 detail 原样（ReasonProviderNoResponses + agentKind）
+  eq('pm noresp 后端原样 detail', providerFailureText('reason=provider_responses_unsupported\nagentKind=codex_cli') !== null, true)
+  eq('pm 状态名与后端一致', ['ok', 'not_configured', 'unauthorized', 'unreachable', 'not_supported', 'bad_response'].map((x) => normalizeProviderModelList({ state: x }).state), ['ok', 'not_configured', 'unauthorized', 'unreachable', 'not_supported', 'bad_response'])
 }

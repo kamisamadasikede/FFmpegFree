@@ -1,11 +1,11 @@
 /**
  * v0.46 §6.19.20：拉自定义服务商自己的模型列表（ListCatProviderModels）。
  *
- * 【临时】后端 PR 还没合，绑定未重新生成：这里先用和契约一致的本地类型，
- * 运行时从 window.go.app.CatService 上按名字取方法；没有该方法（旧后端）当 not_configured 处理。
- * 后端合入、重新生成绑定后改为 import CatBinding.ListCatProviderModels + cat.CatProviderModelList，删掉 TmpBinding。
+ * 走生成的绑定 CatBinding.ListCatProviderModels（后端 #277，契约 6.19.20.2 / 6.19.20.7）。
  * 纯浏览器 / 走查：走模拟，开关见 catDevSim（pm_*）。
  */
+import * as CatBinding from '../../wailsjs/go/app/CatService'
+import { cat } from '../../wailsjs/go/models'
 import { call } from '@/api/call'
 import { CAT_SETTINGS_BACKEND_READY } from '@/api/flags'
 import { hasWailsBackend } from '@/services/wails'
@@ -17,12 +17,7 @@ import type { CatProviderKind } from '@/api/catAgents'
 export type CatProviderModelState = 'ok' | 'not_configured' | 'unauthorized' | 'unreachable' | 'not_supported' | 'bad_response'
 export const CAT_PROVIDER_MODEL_STATES: readonly CatProviderModelState[] = ['ok', 'not_configured', 'unauthorized', 'unreachable', 'not_supported', 'bad_response']
 
-/** 【临时类型】= 契约 ListCatProviderModelsRequest */
-export interface ListCatProviderModelsRequest {
-  agentKind: CatProviderKind
-  refresh: boolean
-}
-/** 【临时类型】= 契约 CatProviderModelList */
+/** 前端视图：生成的 cat.CatProviderModelList 归一化后（state 收窄、models 去重） */
 export interface CatProviderModelList {
   state: CatProviderModelState
   models: CatModel[]
@@ -76,10 +71,12 @@ export function providerModelNeedsManual(r: Pick<CatProviderModelList, 'state' |
 
 /** 契约 6.19.20.2 ⑧：去首尾空格后 1–200 字符、不含空白和控制字符、不以 - 开头。不合法返回 null */
 export function normalizeManualModelId(raw: string): string | null {
+  // 与后端 ValidCustomModelID 一致：按码点计 1–200、不以 - 开头、不含 unicode.IsSpace / IsControl（含 C1 控制符）
   const id = raw.trim()
-  if (!id || id.length > 200 || id.startsWith('-')) return null
+  const n = Array.from(id).length
+  if (n < 1 || n > 200 || id.startsWith('-')) return null
   // eslint-disable-next-line no-control-regex
-  if (/[\s\u0000-\u001f\u007f]/.test(id)) return null
+  if (/[\s\u0000-\u001f\u007f-\u009f]/.test(id)) return null
   return id
 }
 
@@ -117,12 +114,6 @@ export function normalizeProviderModelList(raw: unknown): CatProviderModelList {
   }
 }
 
-type TmpBinding = (req: ListCatProviderModelsRequest) => Promise<unknown>
-function tmpBinding(): TmpBinding | null {
-  const w = globalThis as unknown as { window?: { go?: { app?: { CatService?: Record<string, unknown> } } } }
-  const fn = w.window?.go?.app?.CatService?.ListCatProviderModels
-  return typeof fn === 'function' ? (fn as TmpBinding) : null
-}
 
 const live = () => CAT_SETTINGS_BACKEND_READY && hasWailsBackend()
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -144,10 +135,8 @@ export function simProviderModelList(kind: CatProviderKind, flags: ReadonlySet<s
 /** 只有参数错误后端才返回 error；这里出错一律当 unreachable（不回传原文） */
 export async function listCatProviderModels(agentKind: CatProviderKind, refresh: boolean): Promise<CatProviderModelList> {
   if (live()) {
-    const fn = tmpBinding()
-    if (!fn) return { state: 'not_configured', models: [], fetchedAt: '' }
     try {
-      return normalizeProviderModelList(await call(fn({ agentKind, refresh })))
+      return normalizeProviderModelList(await call(CatBinding.ListCatProviderModels(cat.ListCatProviderModelsRequest.createFrom({ agentKind, refresh }))))
     } catch {
       return { state: 'unreachable', models: [], fetchedAt: '' }
     }
