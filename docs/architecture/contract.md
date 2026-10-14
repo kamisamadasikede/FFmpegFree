@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.44）
+# FFmpegFree v2 接口契约（v0.44.1）
+
+v0.44.1 变更（**只改文案**，产品 / 设计 10-14，架构师 10-14；无接口 / 错误码 / 迁移变更）：① 6.19.18.3 Codex `read-only` 与 Grok Build `default` / `acceptEdits` / `auto` 的 `description` 换成产品定稿（Grok 附官方英文原文出处）。② 6.19.18.3a 第 6 条：菜单标题「Cat 助手可以做什么」为纯前端文案；菜单宽 220px，说明最多两行、不用省略号。
 
 v0.44 变更（**按 CLI 下发模式 / 思考强度 + 原地重试**，后端核对表 10-14 + 产品原则，架构师 10-14；完整规则见 **6.19.18**；**无新错误码，2.1 仍是 39 个**；无迁移 / 开关）：① `agents[].modes[]`（`id/label/description/writesFiles/isDefault`，保守→放开），三家各自列表，不再前端写死。② `CatModel.efforts[]` + `defaultEffort`；空 → 隐藏强度行；切模型档位不支持 → 回落该模型默认。③ 每家模式 / 强度参数映射带出处，GUESS 不得发版。④ 保存设置强度校验改为「该模型列出的档位」（放行 max / ultra）。⑤ Codex 无计划模式，旧 plan / 普通都 → `read-only`；续聊时自动审查退回 workspace-write。⑥ 新绑定 `RetryCatTurn(conversationId, turnId)` 原地重试，替代 `retryLastMessage()` 新气泡。⑦ 模式名产品定稿、danger 确认纯前端（6.19.18.3a）；不下发 dontAsk / Codex danger-full-access / Grok plan。
 
@@ -5429,7 +5431,7 @@ type CatModel struct { // ListCatModels 返回项，原字段不变
 
 | 顺序 | id | label | shortLabel | description | writesFiles | risk | isDefault | 旧值 |
 |---|---|---|---|---|---|---|---|---|
-| 1 | `read-only` | 只读 | 只读 | 只看文件，不改动 | false | safe | **true** | plan, normal |
+| 1 | `read-only` | 只读 | 只读 | 只读取文件，不修改，命令在只读沙箱中运行 | false | safe | **true** | plan, normal |
 | 2 | `workspace-write` | 改项目文件 | 改文件 | 可修改项目内文件，命令在沙箱中运行 | true | edits | false | — |
 | 3 | `approve-for-me` | 自动审查 | 自动审查 | 可修改项目文件，需要批准的操作交给自动审查 | true | edits | false | auto |
 | 4 | `bypass` | 全部放开 | 全部放开 | 不做任何检查，仅建议在隔离环境使用 | true | danger | false | approve |
@@ -5441,13 +5443,14 @@ type CatModel struct { // ListCatModels 返回项，原字段不变
 
 | 顺序 | id | label | shortLabel | description | writesFiles | risk | isDefault | 旧值 |
 |---|---|---|---|---|---|---|---|---|
-| 1 | `default` | 只读 | 只读 | 只看文件，不改动 | false | safe | **true** | normal, plan |
-| 2 | `acceptEdits` | 自动改文件 | 改文件 | 直接修改文件，其他命令不执行 | true | edits | false | — |
-| 3 | `auto` | 自动 | 自动 | 自动执行，经过安全检查 | true | edits | false | auto |
+| 1 | `default` | 只读 | 只读 | 只用只读工具和只读命令，不修改文件 | false | safe | **true** | normal, plan |
+| 2 | `acceptEdits` | 自动改文件 | 改文件 | 直接修改文件，不再询问 | true | edits | false | — |
+| 3 | `auto` | 自动 | 自动 | 安全检查放行的操作直接执行，其他的会被拦下 | true | edits | false | auto |
 | 4 | `always-approve` | 全部放开 | 全部放开 | 不做任何检查，仅建议在隔离环境使用 | true | danger | false | approve |
 
 - risk 依据官方原文（D）：default = "Read-only tools and built-in read-only shell commands"；acceptEdits = "File edits without a prompt"；auto = "Work the safety check allows; other calls are blocked or escalated"；always-approve（= `bypassPermissions`）= "Tool calls in general"。默认（D）：headless 无 `--permission-mode` 时为 `default`。
 - 旧 `plan` 映射为 `default`（Grok plan 本轮不下发）。
+- v0.44.1 description 出处（产品 10-14 按官方原文改写；原文出自 grok 1.0.40 内置文档模式表“不经询问就能执行的内容”列）：`default`「只用只读工具和只读命令，不修改文件」← "Read-only tools and built-in read-only shell commands"；`acceptEdits`「直接修改文件，不再询问」← "File edits without a prompt"；`auto`「安全检查放行的操作直接执行，其他的会被拦下」← "Work the safety check allows; other calls are blocked or escalated"。
 
 #### 6.19.18.3a danger 交互（纯前端，设计 / 产品 10-14）
 
@@ -5456,6 +5459,7 @@ type CatModel struct { // ListCatModels 返回项，原字段不变
 3. **每个项目首次**切到 danger：菜单旁弹小确认框——标题「全部放开？」，正文「Cat 助手将不经检查执行命令和修改文件，仅建议在隔离环境使用。」，按钮「取消」与红色「全部放开」。取消 → 保持原模式。
 4. 确认记录存**前端本机偏好**（#221 机制），按**项目路径**为键；**后端不加字段**（无 `dangerAcknowledged`），不跨设备同步，换机器再弹一次。确认后该项目再切 danger 不再弹。
 5. 从 danger 切回其他模式不需确认。
+6. （v0.44.1）菜单顶部标题「Cat 助手可以做什么」为**纯前端文案**，不进 `modes[]`、后端不下发。菜单宽度固定 **220px**；`description` 自动换行，**最多两行**，**不用省略号截断**（产品定稿文案均须在两行内完整显示）。
 
 #### 6.19.18.4 参数映射（每行有出处；GUESS 不得发版）
 
