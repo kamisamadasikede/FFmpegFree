@@ -45,13 +45,13 @@ type CLIAgentAdapter struct {
 	kind cliKind
 	name string // KindClaudeCLI / KindCodexCLI
 
-	mu      sync.Mutex
-	st      Status
-	version string
-	exe     string
-	models  []Model
-	thinks  []ThinkLevel
-	checked bool
+	mu       sync.Mutex
+	st       Status
+	version  string
+	exe      string
+	models   []Model
+	thinks   []ThinkLevel
+	checked  bool
 	provider ProviderOverlay // v0.38；仅子进程
 }
 
@@ -669,7 +669,7 @@ func claudePermissionArgs(mode string) []string {
 	case "auto":
 		return []string{"--permission-mode", "auto"}
 	case "default":
-		return []string{"--permission-mode", "default"}
+		return []string{"--permission-mode", "manual"} // claude 2.1.296 --help：choices 无 default
 	default:
 		// 全部批准 → bypassPermissions（等同 --dangerously-skip-permissions）
 		return []string{"--permission-mode", "bypassPermissions"}
@@ -682,33 +682,46 @@ func (a *CLIAgentAdapter) buildCodexArgs(opts TurnOptions, prompt, cwd, sessionI
 	if rules := strings.TrimSpace(opts.Rules); rules != "" {
 		prompt = rules + "\n\n" + prompt
 	}
+	// 真机 help 核对（codex-cli 0.162.1）：exec / exec resume 都不认 --ask-for-approval / -a；
+	// exec resume 也不认 --sandbox / -C（cwd 靠子进程工作目录）。
+	if resume && sessionID != "" {
+		// codex exec resume [OPTIONS] <SESSION_ID> [PROMPT]
+		args := []string{"exec", "resume", "--json", "--skip-git-repo-check"}
+		args = append(args, codexPermissionArgs(opts.PermissionMode, true)...)
+		if mid := strings.TrimSpace(opts.ModelID); mid != "" && mid != "default" {
+			args = append(args, "-m", mid)
+		}
+		return append(args, sessionID, prompt)
+	}
 	args := []string{"exec", "--json", "--skip-git-repo-check"}
 	if cwd != "" {
 		args = append(args, "-C", cwd)
 	}
-	args = append(args, codexPermissionArgs(opts.PermissionMode)...)
+	args = append(args, codexPermissionArgs(opts.PermissionMode, false)...)
 	if mid := strings.TrimSpace(opts.ModelID); mid != "" && mid != "default" {
 		args = append(args, "-m", mid)
 	}
-	if resume && sessionID != "" {
-		// GUESS B10：codex exec resume <SESSION_ID>
-		args = append(args, "resume", sessionID)
-	}
-	args = append(args, prompt)
-	return args
+	return append(args, prompt)
 }
 
-func codexPermissionArgs(mode string) []string {
-	// GUESS A5：Codex 用 --sandbox + --ask-for-approval（无 plan 同名模式）
-	// headless 不能弹批准 → 一律 never，靠 sandbox 收紧/放开。
+// codexPermissionArgs：批准方式 → codex exec 参数（来源：codex exec --help / exec resume --help，0.162.1）。
+// headless 不能弹批准 → 非全部批准一律 approval_policy=never，靠沙箱收紧；
+// 全部批准 → --dangerously-bypass-approvals-and-sandbox（exec 与 resume 都支持）。
+// resume 不支持 --sandbox，改用 -c sandbox_mode=…。
+func codexPermissionArgs(mode string, resume bool) []string {
+	var sandbox string
 	switch canonicalPermissionMode(mode) {
 	case "plan", "default":
-		return []string{"--sandbox", "read-only", "--ask-for-approval", "never"}
+		sandbox = "read-only"
 	case "auto":
-		return []string{"--sandbox", "workspace-write", "--ask-for-approval", "never"}
+		sandbox = "workspace-write"
 	default:
-		return []string{"--sandbox", "danger-full-access", "--ask-for-approval", "never"}
+		return []string{"--dangerously-bypass-approvals-and-sandbox"}
 	}
+	if resume {
+		return []string{"-c", `sandbox_mode="` + sandbox + `"`, "-c", `approval_policy="never"`}
+	}
+	return []string{"--sandbox", sandbox, "-c", `approval_policy="never"`}
 }
 
 func (a *CLIAgentAdapter) scanCLIStream(r io.Reader, onPiece func(streamPiece), onErr func(string), onSession func(string)) error {
