@@ -317,6 +317,208 @@ export namespace cat {
 	        this.remotes = source["remotes"];
 	    }
 	}
+	export class CatCommitRef {
+	    name: string;
+	    kind: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatCommitRef(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.kind = source["kind"];
+	    }
+	}
+	export class CatCommit {
+	    sha: string;
+	    shortSha: string;
+	    parents: string[];
+	    subject: string;
+	    authorName: string;
+	    authorEmail: string;
+	    authorTime: number;
+	    refs: CatCommitRef[];
+	    isHead: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatCommit(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sha = source["sha"];
+	        this.shortSha = source["shortSha"];
+	        this.parents = source["parents"];
+	        this.subject = source["subject"];
+	        this.authorName = source["authorName"];
+	        this.authorEmail = source["authorEmail"];
+	        this.authorTime = source["authorTime"];
+	        this.refs = this.convertValues(source["refs"], CatCommitRef);
+	        this.isHead = source["isHead"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CatCommitFile {
+	    path: string;
+	    oldPath?: string;
+	    status: string;
+	    additions: number;
+	    deletions: number;
+	    binary: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatCommitFile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.oldPath = source["oldPath"];
+	        this.status = source["status"];
+	        this.additions = source["additions"];
+	        this.deletions = source["deletions"];
+	        this.binary = source["binary"];
+	    }
+	}
+	export class CatCommitDetail {
+	    sha: string;
+	    parents: string[];
+	    authorName: string;
+	    authorEmail: string;
+	    authorTime: number;
+	    committerName: string;
+	    committerEmail: string;
+	    commitTime: number;
+	    message: string;
+	    files: CatCommitFile[];
+	    filesTruncated: boolean;
+	    diffBase: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatCommitDetail(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sha = source["sha"];
+	        this.parents = source["parents"];
+	        this.authorName = source["authorName"];
+	        this.authorEmail = source["authorEmail"];
+	        this.authorTime = source["authorTime"];
+	        this.committerName = source["committerName"];
+	        this.committerEmail = source["committerEmail"];
+	        this.commitTime = source["commitTime"];
+	        this.message = source["message"];
+	        this.files = this.convertValues(source["files"], CatCommitFile);
+	        this.filesTruncated = source["filesTruncated"];
+	        this.diffBase = source["diffBase"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class CatCommitFileDiffRequest {
+	    convId: string;
+	    sha: string;
+	    path: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatCommitFileDiffRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.sha = source["sha"];
+	        this.path = source["path"];
+	    }
+	}
+	export class CatCommitPage {
+	    commits: CatCommit[];
+	    nextCursor?: string;
+	    total?: number;
+	    noCommits: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatCommitPage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.commits = this.convertValues(source["commits"], CatCommit);
+	        this.nextCursor = source["nextCursor"];
+	        this.total = source["total"];
+	        this.noCommits = source["noCommits"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class CatCommitRequest {
+	    convId: string;
+	    sha: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatCommitRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.sha = source["sha"];
+	    }
+	}
 	
 	export class CatProviderModelList {
 	    state: string;
@@ -930,6 +1132,9 @@ export namespace cat {
 	    changes: GitChange[];
 	    mergeState: string;
 	    conflicts: GitConflictEntry[];
+	    detached: boolean;
+	    headSha: string;
+	    headShortSha: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new GitStatusResult(source);
@@ -947,6 +1152,9 @@ export namespace cat {
 	        this.changes = this.convertValues(source["changes"], GitChange);
 	        this.mergeState = source["mergeState"];
 	        this.conflicts = this.convertValues(source["conflicts"], GitConflictEntry);
+	        this.detached = source["detached"];
+	        this.headSha = source["headSha"];
+	        this.headShortSha = source["headShortSha"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -979,6 +1187,26 @@ export namespace cat {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.projectId = source["projectId"];
 	        this.agentKind = source["agentKind"];
+	    }
+	}
+	export class ListCatCommitsRequest {
+	    convId: string;
+	    cursor?: string;
+	    limit?: number;
+	    query?: string;
+	    branch?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ListCatCommitsRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.cursor = source["cursor"];
+	        this.limit = source["limit"];
+	        this.query = source["query"];
+	        this.branch = source["branch"];
 	    }
 	}
 	export class ListCatProviderModelsRequest {
