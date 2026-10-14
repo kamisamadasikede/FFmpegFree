@@ -1,7 +1,7 @@
 // Cat 设置 / 定时任务（契约 v0.35.1~v0.35.4）：纯函数自检
 import { fixThinkName } from '@/api/cat'
 import { readRetryable, readRetryableTurn } from '@/api/catV0445'
-import { normalizeSettings, settingsPayload, normalizeCapabilities, normalizeInspect, skillsPathLabel, DEFAULT_PROVIDER_CAPABILITIES } from '@/api/catSettings'
+import { normalizeSettings, settingsPayload, normalizeCapabilities, normalizeInspect, skillsPathLabel, saveErrorMessage, DEFAULT_PROVIDER_CAPABILITIES } from '@/api/catSettings'
 import { needsApproveConfirm, normalizeRun, notifyTitle, queueLine, runView, validateSchedule } from '@/api/catSchedules'
 
 type Eq = (name: string, got: unknown, want: unknown) => void
@@ -19,6 +19,10 @@ export function catPanelsChecks(eq: Eq) {
   eq('设置：旧 defaultModel/Effort 迁进 cat_build', normalizeSettings({ defaultModel: 'm1', defaultEffort: 'high' }).defaultsByAgent.cat_build, { model: 'm1', effort: 'high' })
   eq('设置：已有 cat_build 不覆盖', normalizeSettings({ defaultModel: 'old', defaultsByAgent: { cat_build: { model: 'new', effort: 'low' } } }).defaultsByAgent.cat_build, { model: 'new', effort: 'low' })
   eq('设置：非法 effort 清空', normalizeSettings({ defaultsByAgent: { cat_build: { model: 'm', effort: 'max' } } }).defaultsByAgent.cat_build.effort, '')
+  eq('保存失败：中文原样', saveErrorMessage('请先填写 API 地址，再打开自定义。'), '请先填写 API 地址，再打开自定义。')
+  eq('保存失败：中文带码也原样', saveErrorMessage('思考强度无效 reason=effort'), '思考强度无效 reason=effort')
+  eq('保存失败：非中文加前缀', saveErrorMessage('disk full'), '保存失败：disk full')
+  eq('保存失败：空 → 通用', [saveErrorMessage(''), saveErrorMessage('  ')], ['保存失败，请重试。', '保存失败，请重试。'])
   eq('设置：defaultAgentKind 缺省 cat_build', normalizeSettings({}).defaultAgentKind, 'cat_build')
   eq('设置：非法 defaultAgentKind 回退', normalizeSettings({ defaultAgentKind: 'grok_build' }).defaultAgentKind, 'cat_build')
   eq('设置：providersByAgent 缺省全关', normalizeSettings({}).providersByAgent.claude_cli, { enabledCustom: false, protocol: '', apiUrl: '', apiKeySet: false })

@@ -349,6 +349,13 @@ export async function getCatSettings(): Promise<CatSettings> {
   return withMockKeyFlags(normalizeSettings(mockSettings))
 }
 
+/** 保存失败显示文案（产品口径）：中文原样；非中文 →「保存失败：」+ 原文；空 →「保存失败，请重试。」 */
+export function saveErrorMessage(msg: string): string {
+  const m = (msg || '').trim()
+  if (!m) return CAT_SETTINGS_COPY.saveFailed
+  return /[\u4e00-\u9fff]/.test(m) ? m : '保存失败：' + m
+}
+
 export async function saveCatSettings(req: CatSettings): Promise<CatSettings> {
   if (req.customInstruction.length > CAT_INSTRUCTION_MAX) throw new AppError('INVALID_ARGUMENT', CAT_SETTINGS_COPY.instrOver)
   const payload = settingsPayload(req)
@@ -358,7 +365,13 @@ export async function saveCatSettings(req: CatSettings): Promise<CatSettings> {
   await wait(250)
   if (sim('savefail')) throw new AppError('IO_ERROR', 'sim')
   // Save 不因提交而清除已存 Key；apiKeySet 仍由 mockSecrets 决定
-  mockSettings = withMockKeyFlags(normalizeSettings(payload))
+  const next = normalizeSettings(payload)
+  // 同真机（#292）：Codex 由关到开自定义服务商时，后端清掉它旧的思考强度并在返回值里带回
+  const ck: CatProviderKind = 'codex_cli'
+  if (next.providersByAgent[ck]?.enabledCustom && !mockSettings.providersByAgent[ck]?.enabledCustom && next.defaultsByAgent[ck]) {
+    next.defaultsByAgent = { ...next.defaultsByAgent, [ck]: { ...next.defaultsByAgent[ck], effort: '' } }
+  }
+  mockSettings = withMockKeyFlags(next)
   return withMockKeyFlags(mockSettings)
 }
 
