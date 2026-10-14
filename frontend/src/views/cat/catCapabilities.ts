@@ -176,6 +176,24 @@ export function modeMeta(opt: CatOption): Pick<CatAccess, 'icon' | 'short' | 'na
     risky: opt.risky === true,
     desc: opt.desc ?? '',
     writesFiles: opt.writesFiles ?? true,
-    icon: known?.icon ?? 'hand',
+    // 图标按 risk 取（不按 id 猜）；没有 risk 的旧数据才沿用 CAT_ACCESS 同 id 的图标
+    icon: opt.risk === 'danger' ? 'alert' : opt.risk === 'edits' ? 'list' : opt.risk === 'safe' ? 'shield' : known?.icon ?? 'hand',
   }
+}
+
+/** 6.19.18.3 各表「旧值」列：v0.43 及以前的四档 id → 该家 mode id（读时映射，下次保存回写） */
+export const LEGACY_MODE_MAP: Record<string, Record<string, string>> = {
+  claude_cli: { normal: 'manual', plan: 'plan', auto: 'auto', approve: 'bypassPermissions' },
+  codex_cli: { normal: 'read-only', plan: 'read-only', auto: 'approve-for-me', approve: 'bypass' },
+  cat_build: { normal: 'default', plan: 'default', auto: 'auto', approve: 'always-approve' },
+}
+
+/** 某家的 mode id：列表里有就原样；旧四档按表映射；都不认识 → 该家默认 */
+export function resolveModeId(agentKind: string, id: string | undefined | null): string {
+  const caps = getCatAgentCapabilities(agentKind)
+  const v = (id || '').trim()
+  if (v && caps.modes.options.some((o) => o.id === v)) return v
+  const mapped = LEGACY_MODE_MAP[agentKind]?.[v]
+  if (mapped && caps.modes.options.some((o) => o.id === mapped)) return mapped
+  return caps.modes === FALLBACK_MODES ? v || caps.modes.defaultId : caps.modes.defaultId
 }

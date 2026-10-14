@@ -56,6 +56,7 @@ import {
   onCatStatus,
   onCatTurn,
   sendCatMessage,
+  retryCatTurn,
   type CatAgentKind,
   type CatConversation,
   type CatMessage,
@@ -83,8 +84,8 @@ import { AppError, toAppError } from '@/api/call'
 import { CAT_CLI_OUTDATED_COPY, parseCliOutdated } from '@/components/cat/catCliOutdated'
 import { catPanels, showTurnFinishToast, defaultConvPref } from './catPanels'
 import { rememberNewConvProject, resolveNewConvProject } from './catLocalPrefs'
-import { catSim, catSimOs, catSimPicks, simCodexRaw, simCodexThinks, simModels, simStream, simThinks } from './catDevSim'
-import { mapAgentModes, mapBackendCaps, mapModelEfforts, getCatAgentCapabilities, modeMeta, pickSupported, setBackendCaps, useCatAgentCapabilities } from './catCapabilities'
+import { catSim, catSimOs, catSimPicks, simAgentRaw, simStream } from './catDevSim'
+import { FALLBACK_MODES, resolveModeId, mapAgentModes, mapBackendCaps, mapModelEfforts, getCatAgentCapabilities, modeMeta, pickSupported, setBackendCaps, useCatAgentCapabilities } from './catCapabilities'
 import {
   CAT_CONV_PREFS_KEY,
   carryPref,
@@ -268,8 +269,9 @@ export const THINK_DEFAULT_LABEL = '默认'
 
 /** 强度显示名：无列表 → 空（不显示强度半截）；有列表没选 → 「默认」；选了 → 该档 displayName（任意 id 都按 displayName 显示） */
 export const thinkName = computed(() => {
-  if (!catState.thinks.length) return ''
-  return catState.thinks.find((t) => t.id === catState.think)?.displayName ?? THINK_DEFAULT_LABEL
+  const eff = currentCaps.value.efforts
+  if (!eff.options.length) return ''
+  return eff.options.find((t) => t.id === (catState.think || eff.defaultId))?.label ?? THINK_DEFAULT_LABEL
 })
 
 /** 合一胶囊文案：有强度才拼「·」；都没有时显示「Cat 助手」 */
@@ -524,11 +526,11 @@ export function chooseThink(id: string) {
   rememberSelection()
 }
 
-/** 当前这家列表里有的 id 原样用（v0.44 mode id）；否则按旧四档规则认 */
+/** 当前这家的 mode id（v0.44）；后端还没下发列表时沿用旧四档规则 */
 function accessFor(id: string | undefined | null): string {
-  const v = (id || '').trim()
-  if (v && getCatAgentCapabilities(currentAgentKind()).modes.options.some((o) => o.id === v)) return v
-  return resolveAccess(v)
+  const kind = currentAgentKind()
+  const caps = getCatAgentCapabilities(kind)
+  return caps.modes === FALLBACK_MODES ? resolveAccess(id) : resolveModeId(kind, id)
 }
 
 export function chooseAccess(id: string) {
@@ -555,18 +557,16 @@ function carryDraftPref(toId: string) {
  */
 export async function refreshCapabilities(agentKind: CatAgentKind = currentAgentKind()) {
   const ticket = ++capsTicket
-  const codexSim = import.meta.env.DEV && catSim.has('codexcaps') && agentKind === 'codex_cli'
+  const sim = import.meta.env.DEV && (catSim.has('caps') || catSim.has('codexcaps'))
   const [models, thinks] = await Promise.all(
-    codexSim
-      ? [Promise.resolve(simModels()), Promise.resolve(simCodexThinks())]
-      : import.meta.env.DEV && catSim.has('caps')
-      ? [Promise.resolve(simModels()), Promise.resolve(simThinks())]
+    sim
+      ? [Promise.resolve(simAgentRaw(agentKind).models as CatModel[]), Promise.resolve([] as CatThinkLevel[])]
       : [listCatModels(agentKind), listCatThinkLevels(agentKind)],
   )
   if (ticket !== capsTicket) return
   catState.models = models
   catState.thinks = thinks
-  if (codexSim) setBackendCaps(agentKind, { thinks, ...mapBackendCaps(simCodexRaw()) })
+  if (sim) setBackendCaps(agentKind, { thinks, ...mapBackendCaps(simAgentRaw(agentKind)) })
   else {
     const st = catState.status.agents?.find((a) => a.agentKind === agentKind)
     setBackendCaps(agentKind, { thinks, modes: mapAgentModes({ modes: st?.rawModes }), effortsByModel: mapModelEfforts(models) })
@@ -908,6 +908,10 @@ function applyTurnFooter(convId: string, turn: CatTurnState, ev?: CatTurnEvent) 
 }
 
 /** 结束一轮（事件和 SendCatMessage 的返回谁先到谁算，只处理一次） */
+const simFailed = new Set<string>()
+/** 每条对话最后一轮失败的 turnId（RetryCatTurn 用） */
+const lastFailedTurn = new Map<string, string>()
+
 function endTurn(convId: string, how: TurnEnd, token?: number, ev?: CatTurnEvent) {
   const turn = catState.turns[convId]
   if (!turn || (token !== undefined && turn.token !== token)) return
@@ -919,6 +923,8 @@ function endTurn(convId: string, how: TurnEnd, token?: number, ev?: CatTurnEvent
   if (how === 'completed') catState.outcome[convId] = 'ok'
   else if (how === 'failed' || how === 'not_ready') catState.outcome[convId] = 'bad'
   else delete catState.outcome[convId]
+  if (how === 'failed' && turn.turnId) lastFailedTurn.set(convId, turn.turnId)
+  else lastFailedTurn.delete(convId)
   const list = catState.messages[convId] ?? (catState.messages[convId] = [])
   // 收起流式光标，已流出来的文字原样保留（不加后缀）
   quietStreaming(convId)
@@ -1038,6 +1044,15 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
 
   if (import.meta.env.DEV && catSim.has('stream')) {
     // 仅 vite dev + 纯浏览器 + ?cat_sim=stream（见 catDevSim.ts）；正式包里 catSim 恒为空
+    if (catSim.has('failonce') && !simFailed.has(id)) {
+      // 走查 6.19.18.7：第一轮直接失败，再点「重试」原地重发
+      simFailed.add(id)
+      const ft = catState.turns[id]
+      ft.turnId = `sim-fail-${token}`
+      ft.failMsg = '回复失败，请重试。'
+      setTimeout(() => endTurn(id, 'failed', token), 300)
+      return
+    }
     simStream(id, handleMessageEvent, handleTurnEvent, () => catState.turns[id]?.token !== token || catState.turns[id]?.status === 'stopping')
     return
   }
@@ -1116,17 +1131,49 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
   }
 }
 
-/** 失败消息的「重试」：把这条对话最后一句用户消息（含附件）重新发一次 */
+/**
+ * 失败消息的「重试」（契约 v0.44 6.19.18.7）：调 RetryCatTurn 原地重试最后一轮失败的 turn，
+ * 不新增用户气泡；失败的助手消息 / 行内错误由新一轮的流式输出替换。
+ * 没有失败 turnId（比如同步就报错、后端没登记这一轮）时才退回旧做法：把最后一句用户消息再发一次。
+ */
 export async function retryLastMessage(): Promise<void> {
   const id = catState.sel
   if (id === NEW_CONV || catState.turns[id]) return
-  const list = catState.messages[id] ?? []
-  for (let i = list.length - 1; i >= 0; i--) {
-    const b = list[i]
-    if (b.kind !== 'user') continue
-    const files = (b.files ?? []).map((f) => ({ name: f.name, path: f.path }))
-    await sendMessage(b.text, files as CatOutgoingFile[])
+  const list = messagesOf(id)
+  let lastUser = -1
+  for (let i = list.length - 1; i >= 0; i--) if (list[i].kind === 'user') { lastUser = i; break }
+  if (lastUser < 0) return
+  const failedTurnId = lastFailedTurn.get(id)
+  if (!failedTurnId) {
+    const b = list[lastUser] as { text: string; files?: { name: string; path: string }[] }
+    await sendMessage(b.text, (b.files ?? []).map((f) => ({ name: f.name, path: f.path })) as CatOutgoingFile[])
     return
+  }
+  // 原地：去掉用户气泡之后的失败输出，用同一个气泡接新一轮
+  list.splice(lastUser + 1)
+  lastFailedTurn.delete(id)
+  delete catState.outcome[id]
+  const token = ++seq
+  catState.turns[id] = { token, turnId: '', status: 'running', assistantId: '' }
+  if (import.meta.env.DEV && catSim.has('stream')) {
+    simStream(id, handleMessageEvent, handleTurnEvent, () => catState.turns[id]?.token !== token || catState.turns[id]?.status === 'stopping')
+    return
+  }
+  try {
+    const res = await retryCatTurn({ conversationId: id, turnId: failedTurnId })
+    const turn = catState.turns[id]
+    if (turn?.token === token && res.turnId && !turn.turnId) turn.turnId = res.turnId
+    else if (res.turnId) sealTurn(res.turnId)
+  } catch (e) {
+    const err = toAppError(e)
+    const t = catState.turns[id]
+    if (t?.token === token) {
+      t.failMsg = (err.message || '').trim() || CAT_COPY.replyFailed
+      if (err.detail) t.failDetail = err.detail
+    }
+    endTurn(id, 'failed', token)
+    // 同步失败没有新 turnId：保留原失败 turn，便于再点一次重试
+    lastFailedTurn.set(id, failedTurnId)
   }
 }
 

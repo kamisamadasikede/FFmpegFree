@@ -117,3 +117,6 @@ export function UpdateCatSchedule(arg1:cat.UpdateScheduleRequest):Promise<cat.Sc
 export function WriteCatFile(arg1:cat.WriteFileRequest):Promise<cat.WriteFileResult>;
 
 export function WriteCatTerm(arg1:cat.TermWriteRequest):Promise<void>;
+
+// STUB（手写，等后端 v0.44 PR 生成后覆盖）：契约 6.19.18.7 RetryCatTurn
+export function RetryCatTurn(arg1:{conversationId:string;turnId:string}):Promise<cat.SendMessageResult>;

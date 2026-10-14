@@ -496,7 +496,7 @@ export function onCatTurn(cb: (e: CatTurnEvent) => void): () => void {
 
 /**
  * 契约 v0.44 6.19.18.7：原地重试最后一轮失败的 turn（不新增用户气泡）。
- * 生成的绑定还没有这个方法 → 走 callService 动态查；后端没提供时抛 UNSUPPORTED（调用方可回退旧重试）。
+ * wailsjs 里 RetryCatTurn 目前是手写 STUB，等后端 v0.44 PR 重新生成。
  */
 export interface RetryCatTurnRequest {
   conversationId: string
@@ -504,6 +504,6 @@ export interface RetryCatTurnRequest {
 }
 export async function retryCatTurn(req: RetryCatTurnRequest): Promise<{ turnId: string }> {
   if (!live()) throw new AppError('CAT_NOT_READY', CAT_COPY.notReady)
-  const raw = await callService<{ turnId?: unknown } | null>('CatService', 'RetryCatTurn', { conversationId: req.conversationId, turnId: req.turnId })
+  const raw = (await call(CatBinding.RetryCatTurn({ conversationId: req.conversationId, turnId: req.turnId }))) as { turnId?: unknown } | null
   return { turnId: String(raw?.turnId ?? '') }
 }

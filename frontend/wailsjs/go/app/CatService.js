@@ -241,3 +241,8 @@ export function WriteCatFile(arg1) {
 export function WriteCatTerm(arg1) {
   return window['go']['app']['CatService']['WriteCatTerm'](arg1);
 }
+
+// STUB（手写，等后端 v0.44 PR 生成后覆盖）：契约 6.19.18.7 RetryCatTurn
+export function RetryCatTurn(arg1) {
+  return window['go']['app']['CatService']['RetryCatTurn'](arg1);
+}

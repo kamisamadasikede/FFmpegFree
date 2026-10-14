@@ -79,6 +79,7 @@
           type="button"
           class="chip-access"
           :class="{ on: accessMeta.risky }"
+          data-testid="cat-mode-chip"
           :disabled="missing"
           aria-haspopup="menu"
           :aria-expanded="menu === 'access'"
@@ -125,7 +126,7 @@
 
       <div v-if="menu" class="mn" :style="menuStyle" @click.stop>
         <!-- 访问模式 -->
-        <div v-if="menu === 'access'" class="mn-access" role="menu" aria-label="访问模式">
+        <div v-if="menu === 'access'" class="mn-access" role="menu" aria-label="访问模式" data-testid="cat-mode-menu">
           <div class="mn-ahd"><span>应如何批准 Cat 操作？</span><a class="more" href="#" @click.prevent>了解更多</a></div>
           <template v-for="(a, i) in modeOpts" :key="a.id">
           <div v-if="a.risky && i > 0 && !modeOpts[i - 1].risky" class="mn-sep" role="separator" />
@@ -139,10 +140,21 @@
             @keydown.enter.prevent="pickAccess(a.id)"
           >
             <span class="ic"><FIcon :name="a.icon" :size="18" /></span>
-            <div><b>{{ a.name }}</b><small v-if="a.desc">{{ a.desc }}</small></div>
+            <div>
+              <b><svg v-if="a.risky" class="tri" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.2 11.2 10.5H.8Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" /><path d="M6 4.6v2.6M6 8.7v.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>{{ a.name }}</b>
+              <small v-if="a.desc">{{ a.desc }}</small>
+            </div>
             <FIcon v-if="accessMeta.id === a.id" name="check" :size="16" class="ok" />
           </div>
           </template>
+          <div v-if="confirmId" class="mn-confirm" role="alertdialog" aria-labelledby="cat-danger-t" data-testid="cat-danger-confirm" @click.stop>
+            <b id="cat-danger-t">全部放开？</b>
+            <p>Cat 助手将不经检查执行命令和修改文件，仅建议在隔离环境使用。</p>
+            <div class="bt">
+              <button type="button" class="cf-cancel" data-testid="cat-danger-cancel" @click="confirmId = ''">取消</button>
+              <button type="button" class="cf-danger" data-testid="cat-danger-ok" @click="confirmDanger">全部放开</button>
+            </div>
+          </div>
         </div>
         <!-- D3 模型 + 思考强度合成一个浮层：上半模型列表，下半强度分段 -->
         <div v-else class="mn-pop" data-testid="cat-model-pop">
@@ -178,7 +190,7 @@
                 :class="{ on: t.on }"
                 :aria-checked="t.on"
                 @click="pickThink(t.id)"
-              >{{ t.name }}<small v-if="'def' in t && t.def" class="def">默认</small></button>
+              >{{ t.name }}<small v-if="t.def" class="def">默认</small></button>
             </div>
           </template>
         </div>
@@ -211,13 +223,14 @@ import { CAT_COPY } from '@/api/cat'
 import { composePickSend, pickLabel, type PickNote } from '@/components/cat/catPick'
 import { CAT_PROJECT_COPY as PC } from '@/api/catProjects'
 import { modeMeta } from '@/views/cat/catCapabilities'
+import { ackDanger, dangerAcked } from '@/views/cat/catDangerAck'
 import { pickFiles } from '@/api/system'
 import { toAppError } from '@/api/call'
 import { CAT_ATTACH_MAX, fileBaseName, splitAttach, type CatOutgoingFile } from '@/components/cat/catAttach'
 import { canPreview, previewKind, showsThumb, type CatPreviewKind, type CatShownFile } from '@/components/cat/catMedia'
 import CatThumb from '@/components/cat/CatThumb.vue'
 import CatPreviewDialog from '@/components/cat/CatPreviewDialog.vue'
-import { accessMeta, capsuleLabel, catState, chooseAccess, currentCaps, chooseModel, chooseThink, THINK_DEFAULT_LABEL } from '@/views/cat/catState'
+import { accessMeta, capsuleLabel, catState, chooseAccess, currentCaps, currentProject, chooseModel, chooseThink, THINK_DEFAULT_LABEL } from '@/views/cat/catState'
 
 /**
  * Cat 输入框：批准方式可选普通模式 / Plan / 自动审查 / 全部批准，没选过是全部批准。
@@ -286,10 +299,17 @@ const menuStyle = ref<Record<string, string>>({})
 
 
 /** 强度分段：「默认」= 不传强度，其余按后端列表原样 */
-const thinkSegs = computed(() => [
-  { id: '', name: THINK_DEFAULT_LABEL, on: !catState.think },
-  ...currentCaps.value.efforts.options.map((t) => ({ id: t.id, name: t.label, on: catState.think === t.id, def: t.id === currentCaps.value.efforts.defaultId })),
-])
+const thinkSegs = computed(() => {
+  const eff = currentCaps.value.efforts
+  const segs = eff.options.map((t) => ({
+    id: t.id,
+    name: t.label,
+    on: catState.think === t.id || (!catState.think && t.id === eff.defaultId),
+    def: t.id === eff.defaultId,
+  }))
+  // 模型有默认档：默认档后面灰字「默认」，不再单独放「默认」段；没有默认档时保留「默认」= 不传强度
+  return eff.defaultId ? segs : [{ id: '', name: THINK_DEFAULT_LABEL, on: !catState.think, def: false }, ...segs]
+})
 /** 模式菜单：按当前 agentKind 的列表渲染（列表空 → 胶囊隐藏） */
 const modeOpts = computed(() => currentCaps.value.modes.options.map(modeMeta))
 function pickModel(id: string) {
@@ -310,18 +330,34 @@ function open(kind: Exclude<MenuKind, null>) {
   }
   menu.value = kind
 }
+function confirmDanger() {
+  ackDanger(currentProject.value?.path)
+  const id = confirmId.value
+  confirmId.value = ''
+  chooseAccess(id)
+  close()
+}
 function close() {
+  confirmId.value = ''
   menu.value = null
 }
 function toggle(kind: Exclude<MenuKind, null>) {
   if (menu.value === kind) close()
   else open(kind)
 }
+const confirmId = ref('')
+/** 切到 danger：这个项目第一次要确认；切走不用确认。取消 = 保持原模式 */
 function pickAccess(id: string) {
-  if (!modeOpts.value.some((x) => x.id === id)) {
+  const opt = modeOpts.value.find((x) => x.id === id)
+  if (!opt) {
     ElMessage.info(CAT_COPY.later)
     return
   }
+  if (opt.risky && accessMeta.value.id !== id && !dangerAcked(currentProject.value?.path)) {
+    confirmId.value = id
+    return
+  }
+  confirmId.value = ''
   chooseAccess(id)
   close()
 }
@@ -1109,7 +1145,7 @@ button {
 }
 
 .mn-pop {
-  width: 236px;
+  width: 260px;
   box-sizing: border-box;
   padding: 6px;
   background: var(--cat-elevated);
@@ -1155,6 +1191,7 @@ button {
 }
 .mn-seg {
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
   margin: 2px 4px 4px;
   padding: 3px;
@@ -1162,8 +1199,9 @@ button {
   background: var(--cat-sunken);
 }
 .mn-seg button {
-  flex: 1;
+  flex: 1 0 auto;
   min-width: 0;
+  padding: 0 6px;
   height: 26px;
   border: none;
   border-radius: var(--cat-radius-sm);
@@ -1223,5 +1261,60 @@ button {
   margin-left: 3px;
   font-size: 10px;
   color: var(--cat-text-3, #999);
+}
+/* v0.44 danger：名字前几何三角警示；说明保持灰 */
+.mn-acc .tri {
+  width: 12px;
+  height: 12px;
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+.mn-acc.danger small {
+  color: var(--cat-muted);
+}
+.mn-access {
+  position: relative;
+}
+.mn-confirm {
+  position: absolute;
+  left: calc(100% + 8px);
+  bottom: 0;
+  width: 260px;
+  box-sizing: border-box;
+  padding: 14px;
+  background: var(--cat-elevated);
+  border: 1px solid var(--cat-border);
+  border-radius: 12px;
+  box-shadow: var(--cat-shadow-lg);
+  color: var(--cat-text);
+}
+.mn-confirm b {
+  font-size: 14px;
+}
+.mn-confirm p {
+  margin: 6px 0 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--cat-muted);
+}
+.mn-confirm .bt {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.mn-confirm button {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  cursor: pointer;
+  border: 1px solid var(--cat-border);
+  background: transparent;
+  color: var(--cat-text);
+}
+.mn-confirm .cf-danger {
+  border-color: transparent;
+  background: var(--cat-danger, #d93025);
+  color: #fff;
 }
 </style>
