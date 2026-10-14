@@ -384,6 +384,21 @@ function clipRect(from: HTMLElement): { top: number; bottom: number } {
   }
   return { top: 0, bottom: window.innerHeight }
 }
+/** 菜单打开时停在顶部；只有选中项没完整露出时，才最小幅度滚动把它露出来 */
+function revealSelected() {
+  const el = root.value?.querySelector('.mn') as HTMLElement | null
+  if (!el) return
+  const boxes = [el, ...Array.from(el.querySelectorAll<HTMLElement>('*'))].filter((n) => n.scrollHeight > n.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(n).overflowY))
+  for (const box of boxes) {
+    box.scrollTop = 0
+    const b = box.getBoundingClientRect()
+    for (const on of Array.from(box.querySelectorAll<HTMLElement>('.on'))) {
+      const r = on.getBoundingClientRect()
+      if (r.bottom > b.bottom) box.scrollTop += r.bottom - b.bottom
+      else if (r.top < b.top) box.scrollTop -= b.top - r.top
+    }
+  }
+}
 function fitMenu() {
   const el = root.value?.querySelector('.mn') as HTMLElement | null
   const anchor = el?.offsetParent as HTMLElement | null
@@ -399,6 +414,7 @@ function fitMenu() {
   const room = { up, down }
   const side = room[prefer] >= need ? prefer : room[other] >= need ? other : room.up >= room.down ? 'up' : 'down'
   const max = Math.max(120, Math.floor(room[side])) + 'px'
+  void nextTick(revealSelected)
   menuStyle.value =
     side === 'down'
       ? { ...menuStyle.value, top: `calc(100% + ${GAP}px)`, bottom: 'auto', transformOrigin: 'left top', '--mn-max': max }
@@ -1454,6 +1470,8 @@ button {
   width: 280px;
 }
 .mn-confirm b {
+  /* Chrome 默认 text-spacing-trim 会把行尾全角「？」压成半宽，这里保持全宽 */
+  text-spacing-trim: space-all;
   display: flex;
   align-items: center;
   gap: 6px;

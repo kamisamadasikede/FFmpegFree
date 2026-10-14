@@ -149,13 +149,13 @@
             >{{ PC.relocate }}</button>
           </div>
           <div class="ct-stream">
+            <div v-if="historyEmpty" class="ct-hist-empty" data-testid="cat-history-empty">{{ CAT_HISTORY_EMPTY }}</div>
             <div ref="msgsEl" :key="catState.sel" class="ct-msgs swap" @scroll.passive="onMsgsScroll">
               <div ref="msgsBody">
                 <!-- B1：读记录超过 150ms 才显示消息骨架 -->
                 <div v-if="histLoading && !messages.length" class="sk-msgs conv" role="status" aria-label="正在加载对话" data-testid="cat-msg-skeleton">
                   <i class="sk w50 r" /><i class="sk w90" /><i class="sk w80" /><i class="sk w60" /><i class="sk w40 r" /><i class="sk w90" /><i class="sk w70" />
                 </div>
- <div v-if="historyEmpty" class="ct-hist-empty" data-testid="cat-history-empty">{{ CAT_HISTORY_EMPTY }}</div>
                 <CatMessages :blocks="messages" :pending="thinking" @retry="retryLastMessage" />
                 <CatOfficeDownloadCard v-if="officeCanvas.slidesNeeded && !isNew" />
               </div>
@@ -1382,13 +1382,19 @@ html.dark .sk {
   outline: none;
   box-shadow: var(--cat-focus);
 }
+.ct-stream:has(> .ct-hist-empty) {
+  position: relative;
+}
+/* 对话区正中（上下左右），不挡输入框 */
 .ct-hist-empty {
-  flex: 1;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 240px;
-  padding: 0 16px 80px;
+  padding: 0 16px;
+  pointer-events: none;
   color: var(--cat-muted);
   font-size: 13px;
   text-align: center;
