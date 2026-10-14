@@ -24,22 +24,25 @@ func TestCatSettingsRoundTripAndValidation(t *testing.T) {
 	}
 	off := false
 	saved, err := svc.SaveCatSettings(ctx, cat.Settings{
-		DefaultAgentKind:    catagent.KindClaudeCLI,
-		DefaultsByAgent:     map[string]cat.AgentDefaults{catagent.KindCatBuild: {Model: " grok-4.6 ", Effort: "xhigh"}},
-		DefaultApprovalMode: "plan",
-		CustomInstruction:   "用中文",
-		NotifyOnFinish:      &off,
+		DefaultAgentKind:   catagent.KindClaudeCLI,
+		DefaultsByAgent:    map[string]cat.AgentDefaults{catagent.KindCatBuild: {Model: " grok-4.6 ", Effort: "xhigh"}},
+		DefaultModeByAgent: map[string]string{catagent.KindClaudeCLI: catagent.ModeClaudePlan, catagent.KindCodexCLI: catagent.ModeCodexBypass},
+		CustomInstruction:  "用中文",
+		NotifyOnFinish:     &off,
 	})
 	if err != nil || saved.DefaultAgentKind != catagent.KindClaudeCLI || saved.DefaultsByAgent[catagent.KindCatBuild].Model != "grok-4.6" || saved.NotifyEnabled() {
 		t.Fatalf("%+v %v", saved, err)
 	}
 	got, _ = svc.GetCatSettings(ctx)
-	if got.DefaultsByAgent[catagent.KindCatBuild].Effort != "xhigh" || got.DefaultApprovalMode != "plan" || got.CustomInstruction != "用中文" || got.NotifyEnabled() {
+	if got.DefaultsByAgent[catagent.KindCatBuild].Effort != "xhigh" || got.DefaultModeByAgent[catagent.KindClaudeCLI] != catagent.ModeClaudePlan || got.DefaultModeByAgent[catagent.KindCodexCLI] != catagent.ModeCodexBypass || got.CustomInstruction != "用中文" || got.NotifyEnabled() {
 		t.Fatalf("%+v", got)
 	}
 	for _, bad := range []cat.Settings{
 		{DefaultsByAgent: map[string]cat.AgentDefaults{catagent.KindCatBuild: {Effort: "MAX!"}}}, // v0.44：模型为空只校验格式
-		{DefaultApprovalMode: "yolo"},
+		{DefaultModeByAgent: map[string]string{catagent.KindClaudeCLI: "yolo"}},
+		{DefaultModeByAgent: map[string]string{catagent.KindClaudeCLI: "plan-legacy-not-id", catagent.KindCodexCLI: ""}},
+		{DefaultModeByAgent: map[string]string{"cat_cli": ""}},
+		{DefaultModeByAgent: map[string]string{catagent.KindCodexCLI: catagent.ModeClaudePlan}}, // 别家的 id
 		{CustomInstruction: strings.Repeat("字", 4001)},
 		{DefaultAgentKind: "cat_cli"},
 		{DefaultsByAgent: map[string]cat.AgentDefaults{"cat_cli": {Model: "x"}}},
