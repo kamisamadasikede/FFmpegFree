@@ -31,6 +31,16 @@
         </span>
       </template>
     </div>
+    <CatMergeDialog
+      v-if="!welcome && br.repo"
+      :open="mergeOpen"
+      :conv-id="convId"
+      :branches="br"
+      :running="running"
+      :merge-state="catGitUi.status?.mergeState"
+      @close="mergeOpen = false"
+      @done="onMerged"
+    />
     <div v-if="!welcome && brErr" class="ctx-err" role="alert" data-testid="cat-ctx-branch-err">
       <div class="ctx-err-line">
         <FIcon name="warn" :size="13" /><span>{{ brErr.text }}</span>
@@ -307,7 +317,10 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import CatModeSelect from '@/components/cat/panels/CatModeSelect.vue'
 import CatRawDetail from './CatRawDetail.vue'
-import { branchOptions, CAT_BRANCH_COPY as BC, catBranchError, listCatBranches, mapCatBranches, pathEllipsis, parseBranchOption, switchCatBranch, type CatBranches } from '@/api/catBranches'
+import CatMergeDialog from './CatMergeDialog.vue'
+import { catGitUi } from './catGitUi'
+import { rightCollapsed } from '@/views/cat/catLayout'
+import { branchOptions, CAT_BRANCH_COPY as BC, catBranchError, listCatBranches, mapCatBranches, CAT_MERGE_COPY as MC, MERGE_ENTRY_ID, mergeEntryOption, type CatMergeResult, pathEllipsis, parseBranchOption, switchCatBranch, type CatBranches } from '@/api/catBranches'
 import { revealCatConversationFolder } from '@/api/catFiles'
 import FIcon from '@/components/icon/FIcon.vue'
 import CatContextRing from '@/components/cat/CatContextRing.vue'
@@ -361,7 +374,9 @@ const emit = defineEmits<{ send: [payload: { text: string; files: CatOutgoingFil
 const br = ref<CatBranches>(mapCatBranches(null))
 const switching = ref(false)
 let brSeq = 0
-const brOpts = computed(() => branchOptions(br.value))
+const brOpts = computed(() => [...branchOptions(br.value), mergeEntryOption(br.value)])
+/** v0.50 合并到当前分支 */
+const mergeOpen = ref(false)
 const folderFull = computed(() => br.value.root)
 const folderLabel = computed(() => (props.isProject || !br.value.root ? props.ctxName : pathEllipsis(br.value.root)))
 const tipId = `ctx-tip-${Math.random().toString(36).slice(2, 8)}`
@@ -393,7 +408,27 @@ async function openFolder() {
     ElMessage.warning(BC.openFailed)
   }
 }
+async function onMerged(r: CatMergeResult, branch: string) {
+  mergeOpen.value = false
+  const cur = br.value.branch || (br.value.detached ? BC.detached : 'HEAD')
+  if (r.status === 'conflict') {
+    ElMessage.warning(MC.conflict(r.conflicts))
+    rightCollapsed.value = false
+    catGitUi.conflictNav++
+  } else if (r.status === 'up_to_date') {
+    ElMessage.info(MC.upToDate)
+    catGitUi.gitRefresh++
+  } else {
+    ElMessage.success(MC.merged(branch, cur))
+    catGitUi.gitRefresh++
+  }
+  void loadBranches()
+}
 async function onPickBranch(id: string) {
+  if (id === MERGE_ENTRY_ID) {
+    if (props.convId && !props.missing) mergeOpen.value = true
+    return
+  }
   const p = parseBranchOption(id)
   if (!p || !props.convId || props.running || switching.value) return
   if (!p.remote && p.branch === br.value.branch) return

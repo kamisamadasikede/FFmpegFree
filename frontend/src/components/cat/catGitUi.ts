@@ -7,6 +7,10 @@ export const catGitUi = reactive({
   live: false,
   status: null as GitStatus | null,
   simBranches: false,
+  /** 合并出冲突后 +1：文件栏切到 Git 页并刷新状态（v0.50） */
+  conflictNav: 0,
+  /** 合并成功后 +1：只刷新 Git 状态 */
+  gitRefresh: 0,
 })
 
 export function setCatGitUi( partial: Partial<typeof catGitUi>) {
