@@ -242,7 +242,7 @@ function simTiming(): { firstTokenMs?: number; totalMs?: number } {
 
 /**
  * v0.47.1 走查：CLI 检测状态（?cat_sim=detect_…）。返回依次「到达」的 cat:status 原始载荷（ms 为相对延迟）。
- * detect_checking：只有初始检测中（从未检测过）；detect_rechecking：有上次结果后全量重检中（保留已安装/版本/登录）；
+ * detect_checking：只有初始检测中（从未检测过）；detect_rechecking：有上次结果后全量重检中（保留已安装/版本）；
  * detect_partial：只到 Claude 一家，其它保持检测中；
  * detect_legacy：先全量，再来一条没有 agents[] 的旧载荷（不得冲掉其它家）；
  * detect_fail：三家检测完都没找到；detect_ok：三家正常；detect_stale：落库的上次结果（stale）。
@@ -253,7 +253,7 @@ export function simDetectPayloads(): { ms: number; raw: unknown }[] {
   const at = Math.min(today.getTime(), now)
   const yest = at - 86400000
   const row = (agentKind: string, o: Record<string, unknown>) => ({ agentKind, ready: false, version: '', checking: false, ...o })
-  const ok = (k: string, v: string, p: string) => row(k, { ready: true, version: v, loggedIn: true, checkedAt: at, exePath: p })
+  const ok = (k: string, v: string, p: string) => row(k, { ready: true, version: v, checkedAt: at, exePath: p })
   const P = {
     b: 'C:\\Users\\张三 Lee\\AppData\\Local\\Programs\\grok\\grok.exe',
     c: 'C:\\Users\\张三 Lee\\AppData\\Roaming\\npm\\claude.cmd',

@@ -114,25 +114,3 @@ export function detectRowView(row: CatAgentStatus | undefined, opts: { forceChec
     failed: hasResult && !checking && !ready,
   }
 }
-
-export type CatLoginTone = 'ok' | 'bad' | 'wait' | 'checking'
-/**
- * 登录子行（产品 + 设计 10-14）：登录态不进 cat.detect。
- * - 检测中 / 结果未到 / 来自存档（stale）且 loggedIn 还没被实时检测确认 → 「正在检测…」灰字、无状态点
- * - 实时 true/false → 已登录 / 未登录（带点）
- * - 检测已完成（checking=false、stale=false）且 loggedIn 仍为 null/undefined → 隐藏整行（不显示「不适用」）
- */
-export function detectLoginView(
-  row: CatAgentStatus | undefined,
-  v: Pick<CatDetectRowView, 'checking' | 'pending' | 'ready'>,
-  copy: { loggedIn: string; loginBad: string; loginNa: string },
-): { text: string; tone: CatLoginTone; bad: boolean } {
-  const li = row?.loggedIn
-  if (!row || v.pending || v.checking || (li == null && row.stale === true)) {
-    return { text: CAT_DETECT_COPY.checking, tone: 'checking', bad: false }
-  }
-  if (li === true) return { text: copy.loggedIn, tone: 'ok', bad: false }
-  if (li === false) return { text: copy.loginBad, tone: 'bad', bad: true }
-  // 实时检测已结束且后端未给出 loggedIn：隐藏登录子行（架构师 #285 口径）
-  return { text: '', tone: 'ok', bad: false }
-}
