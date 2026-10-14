@@ -418,27 +418,47 @@
         <div v-else key="a" class="cs-body">
           <div class="card">
             <div class="card-h">{{ C.statusCard }}</div>
-            <div
+            <el-tooltip
               v-for="row in agentRows"
               :key="row.kind"
-              class="agent-row"
-              :class="{ dim: !row.ready && catState.status.state !== 'checking' }"
-              :data-testid="'cat-status-' + row.kind"
+              :disabled="!row.pathTip"
+              effect="light"
+              placement="top-start"
+              :show-after="400"
+              :hide-after="0"
+              popper-class="cat-path-tip"
             >
-              <div class="row">
-                <CatAgentMark :kind="row.kind" :size="16" />
-                <div class="lab"><b>{{ row.label }}</b></div>
-                <div class="ctl st" :class="row.tone"><i />{{ row.statusText }}</div>
+              <template #content><span class="cat-path-tip-text">{{ row.pathTip }}</span></template>
+              <div
+                class="agent-row"
+                :class="{ dim: !row.ready && !row.checking && !row.pending }"
+                :data-testid="'cat-status-' + row.kind"
+              >
+                <div class="row">
+                  <CatAgentMark :kind="row.kind" :size="16" />
+                  <div class="lab"><b>{{ row.label }}</b></div>
+                  <div class="ctl detect-meta" :data-testid="'cat-detect-meta-' + row.kind">
+                    <span>{{ row.meta }}</span>
+                    <button
+                      v-if="row.showRecheck"
+                      type="button"
+                      class="btn text detect-recheck"
+                      :data-testid="'cat-detect-recheck-' + row.kind"
+                      @click="recheckRow(row.kind)"
+                    >{{ D.recheck }}</button>
+                  </div>
+                </div>
+                <div v-if="row.version && !row.pending" class="row sub"><div class="lab"><b>{{ C.version }}</b></div><div class="ctl ro">{{ row.version }}</div></div>
+                <div v-if="row.loginText" class="row sub">
+                  <div class="lab"><b>{{ C.login }}</b></div>
+                  <div v-if="row.loginTone === 'checking'" class="ctl detect-meta" :data-testid="'cat-detect-login-' + row.kind"><span>{{ row.loginText }}</span></div>
+                  <div v-else class="ctl st" :class="row.loginTone"><i />{{ row.loginText }}</div>
+                </div>
+                <div v-if="row.loginBad" class="bar" role="status">{{ C.loginBanner(row.label) }}</div>
               </div>
-              <div v-if="row.version" class="row sub"><div class="lab"><b>{{ C.version }}</b></div><div class="ctl ro">{{ row.version }}</div></div>
-              <div v-if="row.loginText" class="row sub">
-                <div class="lab"><b>{{ C.login }}</b></div>
-                <div class="ctl st" :class="row.loginTone"><i />{{ row.loginText }}</div>
-              </div>
-              <div v-if="row.loginBad" class="bar" role="status">{{ C.loginBanner(row.label) }}</div>
-            </div>
+            </el-tooltip>
             <div class="row end">
-              <button type="button" class="btn" :disabled="rechecking" data-testid="cat-set-recheck" @click="recheck">
+              <button type="button" class="btn" :disabled="recheckDisabled" data-testid="cat-set-recheck" @click="recheck">
                 <i v-if="rechecking" class="spin" aria-hidden="true" />{{ rechecking ? C.rechecking : C.recheck }}
               </button>
             </div>
@@ -539,7 +559,8 @@ import {
 import { getAppVersion } from '@/api/about'
 import { catPanels, saveSetting, type CatSettingsTab } from '@/views/cat/catPanels'
 import { catLocalPrefs, setNewConvPlace, setTypewriter } from '@/views/cat/catLocalPrefs'
-import { catState, afterClearAll, currentProject, notify, createProject } from '@/views/cat/catState'
+import { catState, afterClearAll, currentProject, notify, createProject, applyCatStatus, recheckCatAgents } from '@/views/cat/catState'
+import { CAT_DETECT_COPY, allDetectRowsChecking, detectLoginView, detectRowView } from '@/api/catDetect'
 import { catSim, simAgentRaw, simModels, simThinks } from '@/views/cat/catDevSim'
 import {
   CAT_PROVIDER_MODELS_COPY as PM,
@@ -1112,55 +1133,34 @@ watch(
 const rechecking = ref(false)
 const appVersion = ref('')
 
+const D = CAT_DETECT_COPY
 const agentRows = computed(() => {
-  const checking = catState.status.state === 'checking' || rechecking.value
   return CAT_PROVIDER_ORDER.map((kind) => {
     const a = catState.status.agents?.find((x) => x.agentKind === kind)
-    const ready = a?.ready ?? (kind === 'cat_build' && catState.status.state === 'ready')
-    const version = a?.version || (kind === 'cat_build' ? catState.status.version : '') || ''
-    const loginBad = a?.loggedIn === false
-    let loginText = ''
-    let loginTone: 'ok' | 'bad' | 'wait' = 'ok'
-    if (a && a.loggedIn === true) {
-      loginText = C.loggedIn
-      loginTone = 'ok'
-    } else if (loginBad) {
-      loginText = C.loginBad
-      loginTone = 'bad'
-    } else if (a && a.loggedIn == null && ready) {
-      loginText = C.loginNa
-      loginTone = 'wait'
-    }
-    const statusText = checking ? C.checking : ready ? C.ready : C.missing
-    const tone: 'ok' | 'bad' | 'wait' = checking ? 'wait' : ready ? 'ok' : 'bad'
-    return {
-      kind,
-      label: CAT_PROVIDER_LABEL[kind],
-      ready,
-      version,
-      statusText,
-      tone,
-      loginText,
-      loginTone,
-      loginBad,
-    }
+    const v = detectRowView(a, { forceChecking: rechecking.value })
+    const ready = v.ready
+    const version = a?.version || ''
+    const lv = detectLoginView(a, v, C)
+    const loginText = lv.text
+    const loginTone = lv.tone
+    const loginBad = lv.bad
+    return { kind, label: CAT_PROVIDER_LABEL[kind], ...v, version, loginText, loginTone, loginBad }
   })
 })
-const noneReady = computed(
-  () =>
-    !rechecking.value &&
-    catState.status.state !== 'checking' &&
-    agentRows.value.every((r) => !r.ready),
+/** 全部行都在检测中（含首次未到 / 全量重检）时底部「重新检测」置灰 */
+const recheckDisabled = computed(
+  () => rechecking.value || allDetectRowsChecking(CAT_PROVIDER_ORDER, catState.status.agents, { forceChecking: rechecking.value }),
 )
+/** 黄条只在三家都检测完且确实都没找到时出现（检测中 / 结果未到不出） */
+const noneReady = computed(() => !rechecking.value && agentRows.value.every((r) => r.failed))
 
 async function recheck() {
   rechecking.value = true
-  try {
-    catState.status = await recheckCat()
-  } catch {
-    /* 保持原状态 */
-  }
+  await recheckCatAgents()
   rechecking.value = false
+}
+function recheckRow(kind: CatProviderKind) {
+  void recheckCatAgents(kind)
 }
 
 const clearOpen = ref(false)
@@ -1190,7 +1190,7 @@ onMounted(async () => {
   }
   if (catState.status.state === 'checking') {
     try {
-      catState.status = await getCatStatus()
+      applyCatStatus(await getCatStatus())
     } catch {
       /* 保持 */
     }
@@ -1466,6 +1466,25 @@ onMounted(async () => {
 .badt {
   color: var(--cat-muted);
 }
+.detect-meta {
+  color: var(--cat-muted);
+  font-size: 12.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.btn.detect-recheck {
+  border: none;
+  background: none;
+  height: auto;
+  padding: 0 2px;
+  font-size: 12px;
+  color: var(--ff-primary-text);
+}
+.btn.detect-recheck:hover {
+  text-decoration: underline;
+}
 .agent-row + .agent-row {
   border-top: 1px solid var(--cat-divider);
 }
@@ -1648,5 +1667,18 @@ kbd {
   .sk span {
     animation: none;
   }
+}
+</style>
+
+<style>
+/* v0.47.1 路径 tooltip：elevated 气泡，等宽、可换行、不截断 */
+.el-popper.cat-path-tip {
+  max-width: 420px;
+}
+.cat-path-tip-text {
+  font-family: var(--ff-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 </style>
