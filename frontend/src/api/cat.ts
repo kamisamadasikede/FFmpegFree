@@ -173,6 +173,8 @@ export interface CancelCatTurnRequest {
 }
 
 const live = () => CAT_BACKEND_READY && hasWailsBackend()
+/** 是否走真后端（供其它 Cat 模块判断） */
+export const catBackendLive = (): boolean => live()
 
 /** 是否走真绑定（CAT_BACKEND_READY=true 且在 Wails 里） */
 export const isCatLive = (): boolean => live()

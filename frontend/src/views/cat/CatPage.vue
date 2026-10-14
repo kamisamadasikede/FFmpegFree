@@ -238,6 +238,7 @@
 
 <script setup lang="ts">
 import { catHistoryEmptyText } from '@/api/catHistoryStatus'
+import { catScratch, shouldShowFilePanel } from './catScratchFiles'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import FIcon from '@/components/icon/FIcon.vue'
@@ -267,7 +268,7 @@ import { nearBottom, keepFollowing } from './catFollow'
 import { RAIL_TICK_PITCH, railThumb, railTickWindow, scrollTopForThumb, tickEdgeScales, tickStairWidths } from './catRail'
 import { awaitingTurnOutput } from './catPending'
 import { onLayoutKey, rightCollapsed } from './catLayout'
-import { catChecking, catNotReady, catState, changeWelcomeMode, currentProject, findConv, projectMissing, relocateProject, initCat, messagesOf, NEW_CONV, reapplyNewConvDefaults, refreshCapabilities, recheckCatStatus, reloadConversation, selectConv, retryLastMessage, sendMessage, stopTurn, tipLater } from './catState'
+import { catChecking, catNotReady, catState, changeWelcomeMode, currentProject, findConv, projectMissing, relocateProject, initCat, messagesOf, NEW_CONV, reapplyNewConvDefaults, refreshConvScratch, refreshCapabilities, recheckCatStatus, reloadConversation, selectConv, retryLastMessage, sendMessage, stopTurn, tipLater } from './catState'
 import { hasWailsBackend } from '@/services/wails'
 import { ClipboardSetText } from '../../../wailsjs/runtime/runtime'
 
@@ -300,7 +301,14 @@ const historyEmpty = computed(() => loadedEmpty.value && !!catState.histStatus[c
 /** v0.45.2：没有 historyStatus 且没有消息 → 按新对话显示欢迎页（发送仍进这条对话） */
 const showWelcome = computed(() => isNew.value || (loadedEmpty.value && !catState.histStatus[catState.sel]))
 /** 右侧文件面板只看是否绑定项目（新对话也一样），不看有没有消息 */
-const showRight = computed(() => !!currentProject.value && catPanels.view === 'chat')
+const showRight = computed(
+  () => catPanels.view === 'chat' && shouldShowFilePanel(!!currentProject.value, isNew.value ? false : catScratch.has[catState.sel]),
+)
+watch(
+  () => catState.sel,
+  (id) => refreshConvScratch(id),
+  { immediate: true },
+)
 const current = computed(() => (isNew.value ? null : findConv(catState.sel)))
 const messages = computed(() => (isNew.value ? [] : messagesOf(catState.sel)))
 const composer = ref<InstanceType<typeof CatComposer>>()

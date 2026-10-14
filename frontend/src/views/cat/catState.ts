@@ -1,3 +1,6 @@
+import { refreshScratch } from './catScratchFiles'
+import { listCatFiles } from '@/api/catFiles'
+import { catBackendLive } from '@/api/cat'
 import { applyCatTiming } from '@/components/cat/catTimingAdapter'
 /**
  * Cat 页本地状态（单例）。契约 v0.30 / 设计 v0.4：
@@ -936,9 +939,20 @@ const simFailed = new Set<string>()
 /** 每条对话最后一轮失败的 turnId（RetryCatTurn 用） */
 const lastFailedTurn = new Map<string, string>()
 
+/** 未绑定项目的对话：查一次对话文件夹是否有文件（面板显示规则，#271） */
+export function refreshConvScratch(convId: string): void {
+  if (!convId || convId === NEW_CONV) return
+  const bound = !!findConv(convId)?.project
+  void refreshScratch(convId, bound, async (id) => {
+    if (catBackendLive()) return (await listCatFiles(id)).entries.length > 0
+    return import.meta.env.DEV && catSim.has('scratchfiles')
+  })
+}
+
 function endTurn(convId: string, how: TurnEnd, token?: number, ev?: CatTurnEvent) {
   const turn = catState.turns[convId]
   if (!turn || (token !== undefined && turn.token !== token)) return
+  refreshConvScratch(convId)
   if (turn.status === 'stopping') how = 'cancelled'
   if (turn.turnId) sealTurn(turn.turnId)
   clearTimeout(stopTimers.get(convId))
