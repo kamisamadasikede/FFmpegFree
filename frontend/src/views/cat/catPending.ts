@@ -26,3 +26,21 @@ export function userSendFailed(blocks: readonly { kind: string; tone?: string }[
   }
   return false
 }
+
+/**
+ * v0.48.1：这一轮最后成功了（有最终回复）。回复过程中先冒出来的错误行（中转重连、标准错误告警）
+ * 不算失败：从最后一句用户消息之后删掉，用户消息不会再标红。原文仍在日志里。
+ */
+export function dropTurnErrors<T extends { kind: string; tone?: string }>(blocks: T[]): void {
+  let start = -1
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    if (blocks[i].kind === 'user') {
+      start = i
+      break
+    }
+  }
+  for (let i = blocks.length - 1; i > start; i--) {
+    const b = blocks[i]
+    if (b.kind === 'sys' && b.tone === 'err') blocks.splice(i, 1)
+  }
+}
