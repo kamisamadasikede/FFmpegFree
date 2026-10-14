@@ -1,9 +1,9 @@
 /**
  * Cat v0.51 分支树（契约 §6.19.26 / §6.19.26.5，对标 IDEA Git Branches）。
  *
- * 适配层：界面只用这里导出的类型和函数。后端 7 个绑定（ListCatBranchTree / FetchCatRemotes / SetCatBranchFavorite /
- * GitCatCreateBranch / GitCatCompareBranch / GitCatRenameBranch / GitCatDeleteBranch）合进来之前，
- * 底栏仍走 v0.49 的旧分支下拉（branchTreeAvailable() 为 false）；绑定一出现就自动切到分支树，调用方不用动。
+ * 适配层：界面只用这里导出的类型和函数。7 个绑定（ListCatBranchTree / FetchCatRemotes / SetCatBranchFavorite /
+ * GitCatCreateBranch / GitCatCompareBranch / GitCatRenameBranch / GitCatDeleteBranch）经 callService 调；
+ * branchTreeAvailable() 看 ListCatBranchTree 是否已生成（#314 合进 v2 后为 true），否则底栏仍走 v0.49 下拉。
  * 纯浏览器走查：?cat_sim=btree|btreeempty|btreefetchfail|btreenocommits|btreenogit（仅 vite dev）。
  */
 import { AppError, callService, hasServiceBinding, toAppError } from '@/api/call'
