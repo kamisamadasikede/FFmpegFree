@@ -11,6 +11,10 @@ export function catConvDotChecks(eq: Eq): void {
   eq('状态点：失败是感叹号', convDot(false, 'bad', 'ok'), 'bad')
   eq('状态点：停下后没有结果就回到走查数据', convDot(false, '', 'idle'), 'idle')
   eq('状态点：没记过就是灰点', convDot(false, '', 'nope'), '')
+  eq('状态点：后台完成未读只出一个点', convDot(false, 'ok', '', true), 'new')
+  eq('状态点：进行中盖过未读', convDot(true, 'ok', '', true), 'run')
+  eq('状态点：失败盖过未读', convDot(false, 'bad', '', true), 'bad')
+  eq('状态点：未读读屏', convDotLabel('new'), '有新回复')
   eq('状态点：读屏', [convDotLabel('run'), convDotLabel('ok'), convDotLabel('bad'), convDotLabel('')], ['正在回复', '已完成', '回复失败', ''])
 
   const id = 'dot-check'
