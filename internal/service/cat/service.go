@@ -77,6 +77,19 @@ type Service struct {
 	clone       *cloneJob
 	cloneEmitMu sync.Mutex
 	cloneEmitAt time.Time
+
+	// v0.44 RetryCatTurn：每个会话最后一轮的原请求与终态（只在内存；重启后不能重试）。
+	lastMu    sync.Mutex
+	lastTurns map[string]*lastTurn
+}
+
+// lastTurn 是某会话最后一轮（6.19.18.7）。
+type lastTurn struct {
+	turnID  string
+	req     SendMessageRequest
+	userMsg store.CatMessage
+	hook    *turnHook
+	status  string
 }
 
 // actRec 是一条思考或一次工具调用。界面单独画，不写进助手正文。
@@ -135,7 +148,7 @@ func New(cfg Config) *Service {
 	if st <= 0 {
 		st = DefaultProjectStatTimeout
 	}
-	return &Service{cfg: cfg, turns: map[string]*turnState{}, statTimeout: st, projMissing: map[string]bool{}}
+	return &Service{cfg: cfg, turns: map[string]*turnState{}, statTimeout: st, projMissing: map[string]bool{}, lastTurns: map[string]*lastTurn{}}
 }
 
 func (s *Service) emit(event string, payload any) {
@@ -164,6 +177,7 @@ func agentStatusOf(kind string, st Status) catagent.AgentStatus {
 	if st.Error != nil {
 		as.Detail = st.Error.Message
 	}
+	as.Modes = catagent.ModesFor(kind) // v0.44 6.19.18.3
 	return as
 }
 
@@ -229,20 +243,51 @@ func (s *Service) ListCatModels(ctx context.Context, agentKind string) ([]Model,
 	return list, nil
 }
 
+// ListCatThinkLevels 保留兼容（6.19.18.2）：返回该家「当前所选模型」（设置里 defaultsByAgent[kind].model）的档位；
+// 模型为空 / 不在列表 → 空（前端隐藏强度行）。新前端以 CatModel.efforts 为准。
 func (s *Service) ListCatThinkLevels(ctx context.Context, agentKind string) ([]ThinkLevel, error) {
+	out := []ThinkLevel{}
 	a, ok := s.cfg.Registry.Get(agentKind)
 	if !ok || a == nil {
-		return []ThinkLevel{}, nil
+		return out, nil
 	}
-	s.applyProviderOverlay(ctx, a, agentKind)
-	list, err := a.ListThinkLevels()
+	model := ""
+	if s.cfg.Store != nil {
+		if v, err := s.GetCatSettings(ctx); err == nil {
+			model = v.DefaultsByAgent[agentKind].Model
+		}
+	}
+	if model == "" {
+		return out, nil
+	}
+	list, err := s.ListCatModels(ctx, agentKind)
 	if err != nil {
-		return nil, err
+		return out, nil
 	}
-	if list == nil {
-		return []ThinkLevel{}, nil
+	if m, ok := catagent.FindModel(list, model); ok {
+		for _, e := range m.Efforts {
+			out = append(out, ThinkLevel{ID: e, DisplayName: catagent.EffortDisplayName(e)})
+		}
 	}
-	return list, nil
+	return out, nil
+}
+
+// effortForTurn 按当前模型的 efforts 过滤这一轮的档位（6.19.18.6 末句）：不在列表 → 不传（不报错）。
+func (s *Service) effortForTurn(ctx context.Context, kind, model, effort string) string {
+	effort = strings.TrimSpace(effort)
+	model = strings.TrimSpace(model)
+	if effort == "" || model == "" || model == "default" {
+		return ""
+	}
+	list, err := s.ListCatModels(ctx, kind)
+	if err != nil {
+		return ""
+	}
+	m, ok := catagent.FindModel(list, model)
+	if !ok || !catagent.ModelSupportsEffort(m, effort) {
+		return ""
+	}
+	return effort
 }
 
 // ---------- 会话 ----------
@@ -483,6 +528,11 @@ type turnHook struct {
 }
 
 func (s *Service) sendMessage(ctx context.Context, req SendMessageRequest, hook *turnHook) (SendMessageResult, error) {
+	return s.startTurn(ctx, req, hook, nil)
+}
+
+// startTurn 开一轮。retryOf 非空时是原地重试（6.19.18.7）：沿用原用户消息，不新建。
+func (s *Service) startTurn(ctx context.Context, req SendMessageRequest, hook *turnHook, retryOf *store.CatMessage) (SendMessageResult, error) {
 	if s.cfg.Store == nil {
 		return SendMessageResult{}, apperr.New(apperr.Internal, "本地存储尚未初始化")
 	}
@@ -541,6 +591,9 @@ func (s *Service) sendMessage(ctx context.Context, req SendMessageRequest, hook 
 		s.cfg.Logf("cat touch conversation: %v", err)
 	}
 	userMsg := store.CatMessage{ID: id.New(), Role: "user", Content: content, CreatedAt: time.Now().UnixMilli()}
+	if retryOf != nil {
+		userMsg = *retryOf
+	}
 	cwd := catagent.TurnCwd(s.cfg.DataRoot, projectRoot, c.ID)
 
 	// 回合生命周期与调用方 ctx 解耦（绑定层传入的是应用根 ctx，取消只走 CancelCatTurn）。
@@ -553,14 +606,18 @@ func (s *Service) sendMessage(ctx context.Context, req SendMessageRequest, hook 
 		startedAt: nowMs,
 	}
 	s.setTurn(t)
+	s.lastMu.Lock()
+	s.lastTurns[c.ID] = &lastTurn{turnID: t.turnID, req: req, userMsg: userMsg, hook: hook, status: catagent.TurnRunning}
+	s.lastMu.Unlock()
 	s.emit(catagent.EventTurn, catagent.TurnEvent{ConvID: t.convID, TurnID: t.turnID, Status: catagent.TurnRunning})
 
 	provider := s.providerOverlayFor(ctx, c.AgentKind)
 	s.applyProviderOverlay(ctx, a, c.AgentKind)
 	opts := catagent.TurnOptions{
 		Ctx: turnCtx, ConversationID: c.ID, TurnID: t.turnID,
-		ModelID: req.ModelID, ThinkLevelID: req.ThinkLevelID,
-		PermissionMode: req.PermissionMode,
+		ModelID: req.ModelID, ThinkLevelID: s.effortForTurn(ctx, c.AgentKind, req.ModelID, req.ThinkLevelID),
+		// v0.44：旧值读时映射；空 / 不认识 → 该家默认（最保守）模式（6.19.18.3）。
+		PermissionMode: catagent.NormalizeMode(c.AgentKind, req.PermissionMode),
 		ProjectPath:    projectRoot,
 		Resume:         catagent.SessionStarted(cwd, c.ID),
 		Messages:       []catagent.WireMessage{{Role: "user", Content: content}},
@@ -902,6 +959,7 @@ func (s *Service) finishLocked(t *turnState, status string) bool {
 		return false
 	}
 	t.finished = true
+	s.noteLastTurnStatus(t.convID, t.turnID, status)
 	if t.seq > 0 {
 		t.seq++
 		s.emit(catagent.EventMessage, catagent.MessageEvent{
@@ -1129,4 +1187,47 @@ func splitRunes(s string, n int) []string {
 		out = append(out, string(r[i:j]))
 	}
 	return out
+}
+
+func (s *Service) noteLastTurnStatus(convID, turnID, status string) {
+	s.lastMu.Lock()
+	if lt := s.lastTurns[convID]; lt != nil && lt.turnID == turnID {
+		lt.status = status
+	}
+	s.lastMu.Unlock()
+}
+
+// RetryCatTurnRequest 是 RetryCatTurn 入参（契约 6.19.18.7）。
+type RetryCatTurnRequest struct {
+	ConversationID string `json:"conversationId"`
+	TurnID         string `json:"turnId"`
+}
+
+// RetryCatTurn 原地重试会话最后一轮失败的 turn（6.19.18.7）：重发原用户消息（附件、model / effort / mode 不变），
+// 不新增用户消息；返回新 turnId，事件沿用 cat:message / cat:turn。参数按当前 CLI 版本 / 模型重新生成，
+// 不再支持的档位按 effortForTurn 回落为不传。
+// 只认本进程记下的最后一轮（应用重启后没有记录 → retry_not_allowed）。
+func (s *Service) RetryCatTurn(ctx context.Context, req RetryCatTurnRequest) (SendMessageResult, error) {
+	convID := strings.TrimSpace(req.ConversationID)
+	turnID := strings.TrimSpace(req.TurnID)
+	notAllowed := apperr.New(apperr.InvalidArgument, "这条回复已无法重试，请重新发送。").WithDetail("reason=retry_not_allowed")
+	if convID == "" || turnID == "" {
+		return SendMessageResult{}, notAllowed
+	}
+	s.mu.Lock()
+	_, busy := s.turns[convID]
+	s.mu.Unlock()
+	s.lastMu.Lock()
+	lt := s.lastTurns[convID]
+	var orig lastTurn
+	if lt != nil {
+		orig = *lt
+	}
+	s.lastMu.Unlock()
+	if busy || lt == nil || orig.turnID != turnID || orig.status != catagent.TurnFailed {
+		return SendMessageResult{}, notAllowed
+	}
+	um := orig.userMsg
+	// 定时任务的收尾回调已在失败时调过一次，重试按手动对话处理（hook=nil）。
+	return s.startTurn(ctx, orig.req, nil, &um)
 }

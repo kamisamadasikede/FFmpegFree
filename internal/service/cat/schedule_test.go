@@ -182,7 +182,8 @@ func TestScheduleValidation(t *testing.T) {
 		func(i *cat.ScheduleInput) { i.Frequency = "weekly"; i.Weekdays = nil },
 		func(i *cat.ScheduleInput) { i.Frequency = "weekly"; i.Weekdays = []int{8} },
 		func(i *cat.ScheduleInput) { i.Frequency = "once"; i.RunAt = e.clock.Now().UnixMilli() },
-		func(i *cat.ScheduleInput) { i.Effort = "max" },
+		func(i *cat.ScheduleInput) { i.Effort = "MAX!" },                        // 格式不对
+		func(i *cat.ScheduleInput) { i.Model = "grok-4.5"; i.Effort = "xhigh" }, // v0.44：该模型没有 xhigh
 		func(i *cat.ScheduleInput) { i.ApprovalMode = "yolo" },
 	}
 	for i, f := range bad {
@@ -201,7 +202,7 @@ func TestScheduleValidation(t *testing.T) {
 	in.Name = strings.Repeat("名", 40)
 	in.Frequency, in.Weekdays = "weekly", []int{5, 1, 5}
 	sc, err := e.svc.CreateCatSchedule(ctx, in)
-	if err != nil || sc.ApprovalMode != "plan" || !sc.Enabled || len(sc.Weekdays) != 2 || sc.Weekdays[0] != 1 || sc.Timezone == "" || sc.NextRunAt == 0 {
+	if err != nil || sc.ApprovalMode != "default" || !sc.Enabled || len(sc.Weekdays) != 2 || sc.Weekdays[0] != 1 || sc.Timezone == "" || sc.NextRunAt == 0 {
 		t.Fatalf("%+v %v", sc, err)
 	}
 	if _, err := e.svc.PauseCatSchedule(ctx, cat.ScheduleIDRequest{ID: "nope"}); !apperr.Is(err, apperr.NotFound) {
@@ -234,7 +235,7 @@ func TestScheduleRunsAtTimeWithRulesAndNotifies(t *testing.T) {
 	e.gate.mu.Lock()
 	o := e.gate.opts[0]
 	e.gate.mu.Unlock()
-	if o.Rules != "用中文" || o.PermissionMode != "plan" || o.ModelID != "grok-4.6" || o.ThinkLevelID != "high" || o.ProjectPath != e.dir {
+	if o.Rules != "用中文" || o.PermissionMode != "default" || o.ModelID != "grok-4.6" || o.ThinkLevelID != "high" || o.ProjectPath != e.dir {
 		t.Fatalf("%+v", o)
 	}
 	list, _ := e.svc.ListCatSchedules(ctx)

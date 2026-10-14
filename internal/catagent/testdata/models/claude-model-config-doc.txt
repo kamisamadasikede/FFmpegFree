@@ -1,0 +1,11 @@
+# Source: https://code.claude.com/docs/en/model-config (fetched 2026-10-14 10:31 UTC+8) — verbatim excerpts for Claude Code 2.1.296
+| `fable` | Uses the Fable model for your provider for your hardest and longest-running tasks |
+| `sonnet` | Uses the latest Sonnet model for daily coding tasks |
+| `opus` | Uses the latest Opus model for complex reasoning tasks |
+| `haiku` | Uses the fast and efficient Haiku model for simple tasks |
+| Anthropic API | Opus 5.5 | Sonnet 5.5 | Haiku 5.5 |
+Unless you set `ANTHROPIC_DEFAULT_FABLE_MODEL`, the `fable` alias resolves to Fable 5.1, except in Claude apps gateway sessions, where `fable` and `best` resolve to Fable 5.
+| Fable 5.1 and Fable 5 | `low`, `medium`, `high`, `xhigh`, `max` |
+| Opus 5.5, Sonnet 5.5, Haiku 5.5, Opus 5, Sonnet 5, Opus 4.8, and Opus 4.7 | `low`, `medium`, `high`, `xhigh`, `max` |
+| Opus 4.6 and Sonnet 4.6 | `low`, `medium`, `high`, `max` |
+3. The model's default effort: `high` on every model that supports effort, except that Opus 5.5, Sonnet 5.5, and Haiku 5.5 default to `medium`, Opus 4.7 defaults to `xhigh`

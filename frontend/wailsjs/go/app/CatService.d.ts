@@ -106,6 +106,8 @@ export function SaveCatProviderKey(arg1:cat.SaveProviderKeyRequest):Promise<cat.
 
 export function SearchCatFiles(arg1:cat.SearchFilesRequest):Promise<cat.SearchFilesResult>;
 
+export function RetryCatTurn(arg1:cat.RetryCatTurnRequest):Promise<cat.SendMessageResult>;
+
 export function SendCatMessage(arg1:cat.SendMessageRequest):Promise<cat.SendMessageResult>;
 
 export function StartCatTerm(arg1:cat.TermStartRequest):Promise<cat.TermStartResult>;

@@ -1,4 +1,10 @@
-# FFmpegFree v2 接口契约（v0.44.2）
+# FFmpegFree v2 接口契约（v0.44.5）
+
+v0.44.5 变更（**turn 级 `retryable`**，后端 / 前端提议，架构师 10-14；无新错误码 / 迁移）：6.19.18.7 新增第 7 条：turn 新增 `retryable bool`，`GetCatConversation` 返回的 turn 和失败事件（`cat:turn` `status=failed`）都带；仅当该轮是会话最后一轮、`status=failed`、且失败状态仍在后端内存中时为 `true`（应用重启后为 `false`）。前端「重试」只在最后一轮失败且 `retryable=true` 时显示；点后仍返回 `retry_not_allowed` → 原地灰字。
+
+v0.44.4 变更（**重试文案定稿 + 默认模式按 CLI**，产品 / 架构师 10-14；无新错误码 / 迁移，`cat.settings` JSON 就地演进）：① 6.19.18.7 第 6 条定稿：「重试」只在失败轮是最后一轮且仍可重试时显示；点了但已不可重试 → 按钮原地换成灰字「这条回复已无法重试，请重新发送。」，不弹 toast、不用红色。② 新增 6.19.18.9：`CatSettings.defaultApprovalMode`（全局单值）改为 `defaultModeByAgent{cat_build,claude_cli,codex_cli}` → 该家 `modes[].id`；设置页每家一个下拉；旧值按各家「旧值」列迁移，未知回落该家最保守默认。
+
+v0.44.3 变更（**口径收敛**，后端 #258 提问，架构师 10-14；无接口 / 错误码 / 迁移变更）：① 6.19.18.5b 第 3 条：Claude 模型**不预选**，`CatModel` 无 `isDefault` 字段，删去「对应别名 `isDefault=true`」要求。② 6.19.18.5b 新增第 7 条已知限制：Bedrock / 自定义服务商下别名可能对应其他版本，显示名与强度按 Anthropic API 那一行。③ 6.19.18.7 新增第 6 条重试限制：只能重试最后一轮；失败轮状态只存内存，应用重启后不能重试；不可重试提示文案待产品定稿。
 
 v0.44.2 变更（**Claude 模型列表口径**，产品 / 设计 / 后端 10-14，架构师 10-14；无新错误码 / 迁移）：新增 6.19.18.5b：`ListCatModels("claude_cli")` 只下发 `opus/sonnet/haiku/fable` 四个别名（显示名用官方文档版本，`--model` 发别名）；默认跟随 CLI，不确定不预选、未选不传 `--model`；强度按别名所属家族；前端「默认模型」项（灰字「跟随 Claude CLI 设置」）不由后端下发；各别名须经真实 help / 官方文档 + 快照单测核实，未确认不下发。
 
@@ -5502,18 +5508,19 @@ type CatModel struct { // ListCatModels 返回项，原字段不变
 | Claude | Opus 4.7 | low, medium, high, xhigh, max | xhigh | D |
 | Claude | Opus 4.6, Sonnet 4.6 | low, medium, high, max | high | D |
 | Claude | 未列出 / 未选模型 | [] | "" | D："Models not listed here do not support effort" |
-| Codex | 全部 | 来自 `codex debug models` catalog 中该模型声明的档位；catalog 不含 → [] | 同左；不含 → "" | **UNVERIFIED**（只有 help 快照，无 JSON 样本）|
+| Codex | 全部 | 来自 `codex debug models` catalog 中该模型的 `supported_reasoning_levels`；`visibility=hide` 的模型不下发；catalog 不含 → [] | `default_reasoning_level`；不含 → "" | G 0.162.1 实跑（v0.44 后端 PR 核实，快照 `internal/catagent/testdata/models/codex-debug-models-0.162.1.json` + 测试）：gpt-6-astra / gpt-6.1-sol / gpt-6-sol / gpt-5.6-sol / gpt-5.6-terra = low…ultra；gpt-6-luna / gpt-5.6-luna = low…max；gpt-5.5 = low…xhigh；默认 low（astra、6.1-sol、5.6-sol）或 medium（其余）|
 | Grok Build | grok-4.6 | xhigh, high, medium, low | high | D 二进制内嵌模型目录 |
 | Grok Build | grok-4.5 | high, medium, low（**无 xhigh**，不显示） | high | D 同上 |
 
 - Claude 模型 id ↔ 上表家族名的匹配：v0.44.2 起改为**按别名**下发，见 6.19.18.5b；未选模型（跟随 CLI 默认）时强度行隐藏。
+  - 后端核实（v0.44 后端 PR）：CLI 2.1.296 无列模型命令（`claude -p "/model"` 只打印别名清单，快照 `testdata/models/claude-2.1.296-slash-model.txt`）。`ListCatModels("claude_cli")` 只下发 4 个别名：`opus`「Opus 5.5」、`sonnet`「Sonnet 5.5」、`haiku`「Haiku 5.5」、`fable`「Fable 5.1」（D https://code.claude.com/docs/en/model-config「Model aliases」Anthropic API 行；fable 原文 "the `fable` alias resolves to Fable 5.1"），档位 / 默认档按上表对应版本（opus/sonnet/haiku 默认 medium，fable 默认 high）。不预选，模型为空 = 跟随 CLI、不传 `--model`，强度行隐藏。已存的完整 id 只认文档原文出现的 id（及 `-YYYYMMDD` 日期后缀），不按前缀猜（如 `claude-sonnet-5-5` → `[]`）。别名在其他服务商下解析到的版本不同，显示名 / 档位按 Anthropic API 给。
 - Claude 选了不支持的档位，CLI 会降到不高于所选的最高档（D）；我们前端仍按 6.19.18.1-3 回落默认，不依赖该行为。
 
 #### 6.19.18.5b Claude 模型列表（v0.44.2，产品 / 设计 / 后端 10-14）
 
 1. `ListCatModels("claude_cli")` 只返回四个**别名** id：`opus`、`sonnet`、`haiku`、`fable`（按此顺序），**不铺完整模型 id**。
 2. `displayName` 用 Claude 官方文档中该别名当前对应的版本，如「Opus 5.5」；发给 CLI 的是别名：`--model <alias>`。
-3. 默认：若能确知 CLI 自己的默认模型，对应别名 `isDefault=true`；**不确定就全部 `isDefault=false`，不预选**。对话未选模型时后端**不传 `--model`**，跟随 CLI 设置。
+3. 默认：**不预选**（v0.44.3）。`CatModel` **没有 `isDefault` 字段**，后端不标默认模型；对话未选模型时后端**不传 `--model`**，跟随 CLI 设置。
 4. 每个别名的 `efforts[]` / `defaultEffort` 按其对应模型家族取 6.19.18.5 强度表；对应不上 → `[]` / `""`。
 5. 界面（纯前端，后端不下发「默认模型」这一项）：
    - 未选模型：胶囊显示「默认模型」，**不跟强度**。
@@ -5522,6 +5529,7 @@ type CatModel struct { // ListCatModels 返回项，原字段不变
 6. **UNVERIFIED（核实前不得发版）**：
    - 每个别名（**尤其 `fable`**）须在真实 `claude --help` / 官方文档中确认可用于 `--model`，记录 CLI 版本，并有 help 快照单测；**未确认的别名不下发**。
    - 显示名中的版本号、别名 → 强度家族的对应关系，须在 `/workspace/notes/cli-modes-effort.md` 写明出处（文档链接 / CLI 版本）。
+7. **已知限制**（v0.44.3）：显示名和强度按 Anthropic 官方文档中 **Anthropic API** 那一行取；使用 Bedrock / Vertex / 自定义服务商时，同一别名可能对应其他版本，界面显示名可能与实际模型不一致。本期不处理。
 
 #### 6.19.18.5a 强度显示名（前端映射，三家共用）
 
@@ -5554,6 +5562,29 @@ RetryCatTurn(req RetryCatTurnRequest) (SendCatMessageResult, error)
 3. 返回新 `turnId`；事件沿用 `cat:message` / `cat:turn`（6.19.9），`seq` 从 1 起。
 4. 参数按**当前检测到的 CLI 版本**重新生成（6.19.17.1-5，缓存键 路径 + mtime + 大小）；mode / effort 若当前版本或模型已不支持，按本节回落规则处理。
 5. 前端：v0.43 的 `retryLastMessage()`（再发一条、多一个气泡）**作废**，「重试」改调 `RetryCatTurn`。同步错误（`CAT_NOT_READY` / `CAT_PROJECT_MISSING` 等）照原样行内显示。
+6. **限制与界面**（v0.44.3 / v0.44.4 定稿）：只能重试**最后一轮**；失败轮状态**只存在内存**，应用重启后该轮不能重试（`retry_not_allowed`）。
+   - 「重试」按钮**只在**该失败轮是会话最后一轮**且仍可重试**时显示；应用重启后、或已不是最后一轮 → **不显示**。
+   - 点了「重试」但后端返回 `retry_not_allowed` → 按钮消失，**原地**换成灰字「这条回复已无法重试，请重新发送。」，字号同「当前版本 X」那行；**不弹 toast、不用红色**。
+7. **`retryable`（v0.44.5）**：turn 新增 `retryable bool`（`json:"retryable"`，始终输出），出现在 `GetCatConversation` 返回的每个 turn 上，以及失败事件（`cat:turn` `status=failed`）的载荷里。**仅当**该轮是会话最后一轮、`status=failed`、且其失败状态仍存在于后端内存中时为 `true`；其余（非最后一轮、非失败、应用重启后内存已无）一律 `false`。新一轮开始后，前一失败轮变为 `false`。
+   - 前端：「重试」**只在**最后一轮 `status=failed` 且 `retryable=true` 时显示，不再自行推断。
+   - `retryable=true` 但调用时后端返回 `retry_not_allowed`（竞态）→ 仍按第 6 条原地换成灰字。
+
+#### 6.19.18.9 默认模式按 CLI（v0.44.4）
+
+```go
+type CatSettings struct {
+    // ...其余字段不变
+    DefaultModeByAgent map[string]string `json:"defaultModeByAgent"` // key: cat_build|claude_cli|codex_cli；value: 该家 agents[].modes[].id
+    // DefaultApprovalMode string `json:"defaultApprovalMode"` // v0.44.4 起废弃：只读兼容，Save 不再写
+}
+```
+
+1. **接口**：`GetCatSettings` / `SaveCatSettings` 签名不变，`CatSettings` 新增 `defaultModeByAgent`，去掉 `defaultApprovalMode`（wails 绑定随之重生成）。
+2. **校验（Save）**：key 只能是三家之一，否则 `INVALID_ARGUMENT`；value 必须是该家当前 `modes[]` 里的 id 或 `""`（空 = 该家默认），否则 `INVALID_ARGUMENT`。取代 6.19.12 第 3 条对 `defaultApprovalMode` 的校验。
+3. **旧值迁移（读路径，同 6.19.12 第 2 条做法）**：库里只有旧 `defaultApprovalMode` 时，`GetCatSettings` 在返回值里按 **6.19.18.3 各家「旧值」列**映射给三家各填一项；映射不到 / 未知 → 该家最保守默认（`isDefault=true` 那项，没有则 `modes[0]`）。不在 Get 时回写，下次成功 Save 写新形状并删旧字段。
+4. **新对话**：`catConvPrefs.approvalMode` = `defaultModeByAgent[agentKind]`；空或已不在该家 `modes[]` → 该家最保守默认。已有对话不变（同 6.19.12 第 4 条）。
+5. **设置页**：「新对话默认」里每家块各一个「模式」下拉，选项用该家后端 `modes[]`（label + 灰色 description，danger 项按 6.19.18.3a 橙色样式）；取代原全局「批准方式」下拉。设置页选 danger **不弹**首次确认框（确认只在对话内切换时按项目弹）。
+6. 定时任务的 `approvalMode` 不在本版调整。
 
 #### 6.19.18.8 不做 / 待核
 

@@ -218,6 +218,10 @@ export function SearchCatFiles(arg1) {
   return window['go']['app']['CatService']['SearchCatFiles'](arg1);
 }
 
+export function RetryCatTurn(arg1) {
+  return window['go']['app']['CatService']['RetryCatTurn'](arg1);
+}
+
 export function SendCatMessage(arg1) {
   return window['go']['app']['CatService']['SendCatMessage'](arg1);
 }

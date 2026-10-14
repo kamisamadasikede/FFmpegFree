@@ -25,8 +25,15 @@ func (f *fakeAdapter) ProtocolVersion() int   { return 1 }
 func (f *fakeAdapter) Status() catagent.Status {
 	return catagent.Status{State: catagent.StateReady}
 }
-func (f *fakeAdapter) Recheck() catagent.Status                        { return f.Status() }
-func (f *fakeAdapter) ListModels() ([]catagent.Model, error)           { return nil, nil }
+func (f *fakeAdapter) Recheck() catagent.Status { return f.Status() }
+
+// ListModels 给 Grok 1.0.40 的两个模型和档位（契约 6.19.18.5），供 effort 过滤 / 校验。
+func (f *fakeAdapter) ListModels() ([]catagent.Model, error) {
+	return []catagent.Model{
+		{ID: "grok-4.6", DisplayName: "grok-4.6", Efforts: []string{"low", "medium", "high", "xhigh"}, DefaultEffort: "high"},
+		{ID: "grok-4.5", DisplayName: "grok-4.5", Efforts: []string{"low", "medium", "high"}, DefaultEffort: "high"},
+	}, nil
+}
 func (f *fakeAdapter) ListThinkLevels() ([]catagent.ThinkLevel, error) { return nil, nil }
 func (f *fakeAdapter) RunTurn(o catagent.TurnOptions) (catagent.TurnResponse, error) {
 	return f.run(o)
@@ -307,7 +314,7 @@ func TestStreamFailedShowsCLITextAndMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc.Wait()
-	if mode != "plan" {
+	if mode != "default" { // v0.44：Grok 旧 plan → default
 		t.Fatalf("mode %q", mode)
 	}
 	rec.mu.Lock()
