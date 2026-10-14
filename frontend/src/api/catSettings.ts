@@ -123,11 +123,11 @@ export const CAT_SETTINGS_COPY = {
   get subtitle() { return t('cat.settings.subtitle') },
   get tabs() {
     return {
-  get general() { return t('cat.settings.tabs.general') },
-  get instruction() { return t('cat.settings.tabs.instruction') },
-  get ext() { return t('cat.settings.tabs.ext') },
-  get about() { return t('cat.settings.tabs.about') },
-}
+      get general() { return t('cat.settings.tabs.general') },
+      get instruction() { return t('cat.settings.tabs.instruction') },
+      get ext() { return t('cat.settings.tabs.ext') },
+      get about() { return t('cat.settings.tabs.about') },
+    }
   },
   get newConvCard() { return t('cat.settings.newConvCard') },
   get newConvHint() { return t('cat.settings.newConvHint') },

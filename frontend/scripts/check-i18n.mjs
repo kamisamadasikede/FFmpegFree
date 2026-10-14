@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 /**
  * check-i18n（契约 §6.20.2）
- * 1) A 期范围内的 .vue/.ts 不得残留 CJK 字面量（注释除外；白名单见 i18n-allow.json）
- * 2) zh-CN / en / ja key 集合与插值参数名一致
- * 3) 代码里 t('literal') 的 key 必须存在于 zh-CN（errors. 前缀动态 key 放行）
+ * A 期：仅 scripts/i18n-scope.json 列出的路径查 CJK 字面量；三语 key/参数一致；t('…') 字面量 key 必须在 zh-CN。
  */
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
 import { join, relative } from 'node:path'
@@ -14,7 +12,7 @@ const scope = JSON.parse(readFileSync(join(root, 'scripts/i18n-scope.json'), 'ut
 const allow = JSON.parse(readFileSync(join(root, 'scripts/i18n-allow.json'), 'utf8'))
 const allowExact = new Set(allow.exactStrings || [])
 const nativeNames = new Set(allow.nativeNames || ['简体中文', '日本語'])
-
+const substrAllow = allow.substringAllow || []
 const HAN = /[\u3400-\u9fff]/
 const fails = []
 
@@ -30,75 +28,124 @@ function walk(dir, out = []) {
 }
 
 function matchGlob(rel, pattern) {
-  // very small glob: ** and *
   const esc = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*\*/g, '::DS::').replace(/\*/g, '[^/]*').replace(/::DS::/g, '.*')
   return new RegExp('^' + esc + '$').test(rel.replace(/\\/g, '/'))
 }
 
 function inScope(rel) {
   const r = rel.replace(/\\/g, '/')
-  for (const g of scope.excludeGlobs || []) {
-    if (matchGlob(r, g) || matchGlob(r, g.replace(/^\*\*\//, ''))) return false
-    // also match basename patterns
-    if (g.includes('**/') && matchGlob(r, g)) return false
-  }
   if (r.endsWith('.check.ts') || /Mock/.test(r) || /catDevSim\.ts$/.test(r) || /\/sim\.ts$/.test(r) || /\/views\/dev\//.test(r)) return false
+  for (const g of scope.excludeGlobs || []) {
+    if (matchGlob(r, g)) return false
+  }
   for (const g of scope.include || []) {
-    const pat = g.endsWith('/**') ? g.slice(0, -3) : g
     if (g.endsWith('/**')) {
+      const pat = g.slice(0, -3)
       if (r === pat || r.startsWith(pat + '/')) return true
     } else if (g.includes('*')) {
-      if (matchGlob(r, g) || matchGlob(r.split('/').pop(), g.split('/').pop())) return true
-      // src/api/cat*.ts
-      const base = g.split('/').pop()
-      if (base.includes('*') && r.startsWith(g.slice(0, g.length - base.length)) && matchGlob(r.split('/').pop(), base)) return true
+      if (matchGlob(r, g)) return true
     } else if (r === g) return true
   }
   return false
 }
 
-function stripComments(src, isVue) {
-  // For vue: split template/script; strip HTML comments and JS comments
-  if (!isVue) {
-    return src
-      .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(HAN, ' '))
-      .replace(/(^|[^:])\/\/.*$/gm, (m) => m.replace(HAN, ' '))
+/** Collect string/template literals, skipping comments and regex literals. */
+function literals(src) {
+  const out = []
+  let i = 0
+  const n = src.length
+  let prev = ''
+  const isRegexContext = () => /[=(:,!&|?{};/\n]$/.test(prev) || prev === ''
+  while (i < n) {
+    if (src.startsWith('<!--', i)) {
+      const j = src.indexOf('-->', i + 4)
+      i = j < 0 ? n : j + 3
+      continue
+    }
+    if (src[i] === '/' && src[i + 1] === '/') {
+      while (i < n && src[i] !== '\n') i++
+      continue
+    }
+    if (src[i] === '/' && src[i + 1] === '*') {
+      const j = src.indexOf('*/', i + 2)
+      i = j < 0 ? n : j + 2
+      continue
+    }
+    // regex literal
+    if (src[i] === '/' && isRegexContext()) {
+      let j = i + 1, esc = false, cls = false
+      while (j < n) {
+        const c = src[j]
+        if (esc) { esc = false; j++; continue }
+        if (c === '\\') { esc = true; j++; continue }
+        if (c === '[') { cls = true; j++; continue }
+        if (c === ']' && cls) { cls = false; j++; continue }
+        if (c === '/' && !cls) { j++; break }
+        if (c === '\n') break
+        j++
+      }
+      while (j < n && /[a-z]/i.test(src[j])) j++ // flags
+      prev = '/'
+      i = j
+      continue
+    }
+    const c = src[i]
+    if (c === '"' || c === "'") {
+      let j = i + 1, v = ''
+      while (j < n && src[j] !== c && src[j] !== '\n') {
+        if (src[j] === '\\') { v += src[j + 1] ?? ''; j += 2 } else v += src[j++]
+      }
+      out.push({ value: v, index: i })
+      prev = c
+      i = j + 1
+      continue
+    }
+    if (c === '`') {
+      let j = i + 1, v = '', esc = false
+      while (j < n) {
+        if (esc) { esc = false; j++; continue }
+        if (src[j] === '\\') { esc = true; j++; continue }
+        if (src[j] === '`') break
+        if (src[j] === '$' && src[j + 1] === '{') {
+          let d = 0, q = j + 1
+          while (q < n) {
+            if (src[q] === '{') d++
+            else if (src[q] === '}') { d--; if (d === 0) break }
+            q++
+          }
+          v += '{…}'
+          j = q + 1
+          continue
+        }
+        v += src[j++]
+      }
+      out.push({ value: v, index: i })
+      prev = '`'
+      i = j + 1
+      continue
+    }
+    if (!/\s/.test(c)) prev = c
+    i++
   }
-  return src
-    .replace(/<!--([\s\S]*?)-->/g, (m) => m.replace(HAN, ' '))
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(HAN, ' '))
-    .replace(/(^|[^:])\/\/.*$/gm, (m) => m.replace(HAN, ' '))
+  return out
 }
 
 function collectFiles() {
-  const all = walk(join(root, 'src'))
-  return all.filter((p) => inScope(relative(root, p).replace(/\\/g, '/')))
+  return walk(join(root, 'src')).filter((p) => inScope(relative(root, p).replace(/\\/g, '/')))
 }
 
-// ---- rule 1: CJK literals ----
-const strRe = /(['"`])((?:\\.|(?!\1)[^\\])*?)\1/g
 for (const file of collectFiles()) {
   const rel = relative(root, file).replace(/\\/g, '/')
-  let src = readFileSync(file, 'utf8')
-  src = stripComments(src, file.endsWith('.vue'))
-  // skip locales import paths etc.
-  let m
-  const re = /(['"])((?:\\.|(?!\1)[^\\])*?)\1|`((?:\\.|[^`\\$]|\$(?!\{)|\$\{[^}]*\})*)`/gs
-  while ((m = re.exec(src))) {
-    const raw = m[2] != null ? m[2] : m[3]
-    if (raw == null) continue
-    const s = raw.replace(/\\n/g, '\n').replace(/\\'/g, "'").replace(/\\"/g, '"')
+  const src = readFileSync(file, 'utf8')
+  for (const { value: s, index } of literals(src)) {
     if (!HAN.test(s)) continue
     if (allowExact.has(s) || nativeNames.has(s)) continue
-    // template with only allowlisted? still fail
-    // skip empty
-    if (!s.trim()) continue
-    const line = src.slice(0, m.index).split('\n').length
-    fails.push(`${rel}:${line}: CJK literal ${JSON.stringify(s.slice(0, 60))}`)
+    if (substrAllow.some((x) => s.includes(x))) continue
+    const line = src.slice(0, index).split('\n').length
+    fails.push(`${rel}:${line}: CJK literal ${JSON.stringify(s.slice(0, 80))}`)
   }
 }
 
-// ---- rule 2: key parity + interpolation params ----
 function flatKeys(obj, prefix = '', out = {}) {
   if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
     for (const [k, v] of Object.entries(obj)) flatKeys(v, prefix ? prefix + '.' + k : k, out)
@@ -107,9 +154,7 @@ function flatKeys(obj, prefix = '', out = {}) {
 }
 function paramsOf(s) {
   if (typeof s !== 'string') return []
-  const set = new Set()
-  for (const m of s.matchAll(/\{(\w+)\}/g)) set.add(m[1])
-  return [...set].sort()
+  return [...new Set([...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]))].sort()
 }
 const zh = flatKeys(JSON.parse(readFileSync(join(root, 'src/locales/zh-CN.json'), 'utf8')))
 const en = flatKeys(JSON.parse(readFileSync(join(root, 'src/locales/en.json'), 'utf8')))
@@ -127,7 +172,6 @@ for (const k of zk) {
 for (const k of ek) if (!zk.has(k)) fails.push(`zh-CN missing key present in en: ${k}`)
 for (const k of jk) if (!zk.has(k)) fails.push(`zh-CN missing key present in ja: ${k}`)
 
-// ---- rule 3: t('literal') exists ----
 const tRe = /\bt\(\s*['"]([^'"]+)['"]/g
 for (const file of collectFiles()) {
   const rel = relative(root, file).replace(/\\/g, '/')
@@ -135,15 +179,13 @@ for (const file of collectFiles()) {
   let m
   while ((m = tRe.exec(src))) {
     const key = m[1]
-    if (key.startsWith('errors.') && key.includes('${')) continue
-    // dynamic errors.CODE allowed only as prefix with no further restriction if contains + 
     if (!(key in zh)) fails.push(`${rel}: t('${key}') not in zh-CN`)
   }
 }
 
 if (fails.length) {
-  console.error(fails.slice(0, 80).join('\n'))
-  if (fails.length > 80) console.error(`… and ${fails.length - 80} more`)
+  console.error(fails.slice(0, 100).join('\n'))
+  if (fails.length > 100) console.error(`… and ${fails.length - 100} more`)
   process.exitCode = 1
 } else {
   console.log(`i18n check passed (${zk.size} keys, A-scope)`)

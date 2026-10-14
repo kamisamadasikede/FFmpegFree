@@ -1,7 +1,7 @@
 <template>
   <!-- v0.51 分支树弹窗（契约 §6.19.26.5，线框 proto/cat-branch-tree）：从底栏分支胶囊向上弹 -->
   <Teleport to="body">
-    <div v-if="open" ref="pop" class="bt-pop" :style="popStyle" role="dialog" aria-label="分支" data-testid="cat-btree" @keydown.esc.stop="close()">
+    <div v-if="open" ref="pop" class="bt-pop" :style="popStyle" role="dialog" :aria-label="C.ariaBranch" data-testid="cat-btree" @keydown.esc.stop="close()">
       <div class="bt-srch">
         <label class="bt-in">
           <FIcon name="search" :size="14" />
@@ -63,7 +63,7 @@
               type="button"
               class="st"
               :class="{ f: r.branch.favorite }"
-              :aria-label="r.branch.favorite ? '取消收藏' : '收藏'"
+              :aria-label="r.branch.favorite ? C.unfavorite : C.favorite"
               :aria-pressed="r.branch.favorite"
               @click.stop="toggleFav(r.branch)"
             ><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="m12 3 2.8 5.8 6.2.9-4.5 4.4 1 6.3L12 17.5 6.5 20.4l1-6.3L3 9.7l6.2-.9z" /></svg></button>
@@ -148,7 +148,7 @@
         <FIcon name="branch" :size="14" />
         <span class="tt">{{ C.compareTitle(branchRef(cmp.branch), cmp.data?.base || curName) }}</span>
         <span v-if="cmp.data && cmp.data.files.length" class="cnt">{{ C.compareFiles(cmp.data.files.length) }}</span>
-        <button ref="cmpClose" type="button" class="bt-ib x" aria-label="关闭" data-testid="cat-btree-compare-close" @click="cmp = null"><FIcon name="x" :size="14" /></button>
+        <button ref="cmpClose" type="button" class="bt-ib x" :aria-label="C.close" data-testid="cat-btree-compare-close" @click="cmp = null"><FIcon name="x" :size="14" /></button>
       </div>
       <div v-if="cmp.data && !cmp.data.files.length" class="bt-same" data-testid="cat-btree-compare-same">{{ C.compareSame }}</div>
       <div v-else-if="cmp.data" class="bd">
@@ -336,7 +336,7 @@ async function checkout(b: CatTreeBranch) {
 
 function doMerge(b: CatTreeBranch | null) {
   const ok = requestCatBranchMerge(props.convId, b ? { name: b.name, remote: b.remote } : null)
-  if (!ok && import.meta.env.DEV) console.info('[cat-btree] 合并入口：v0.50 合并弹窗还没注册 setCatBranchMergeHandler', b)
+  if (!ok && import.meta.env.DEV) console.info('[cat-btree] merge entry: setCatBranchMergeHandler not registered', b)
   close()
 }
 

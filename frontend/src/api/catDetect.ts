@@ -11,7 +11,7 @@ export const CAT_DETECT_COPY = {
   get installed() { return t('cat.detect.installed') },
   get notDetected() { return t('cat.detect.notDetected') },
   get checking() { return t('cat.detect.checking') },
-  lastCheck: (t: string) => t('cat.detect.lastCheck', { v0: t }),
+  lastCheck: (when: string) => t('cat.detect.lastCheck', { v0: when }),
   get stale() { return t('cat.detect.stale') },
   get recheck() { return t('cat.detect.recheck') },
   pathTip: (p: string) => t('cat.detect.pathTip', { p: p }),
@@ -50,7 +50,7 @@ export function formatCheckedAt(ms: number, now: number = Date.now()): string {
   const n = new Date(now)
   const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`
   const today = d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate()
-  return today ? hm : t('cat.misc.s_cef3802f0e', { n: d.getMonth() + 1, n: d.getDate(), hm: hm })
+  return today ? hm : t('cat.misc.s_cef3802f0e', { month: d.getMonth() + 1, day: d.getDate(), hm: hm })
 }
 
 export interface CatDetectRowView {

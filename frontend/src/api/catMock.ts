@@ -227,6 +227,6 @@ export function mockChanges(id: string): CatChange[] {
 
 /** 首条消息生成对话标题 */
 export function titleFrom(text: string): string {
-  const t = text.trim().replace(/\s+/g, ' ')
-  return t.length > 18 ? t.slice(0, 18) + '…' : t || t('cat.misc.s_1ac07a4bb2')
+  const s = text.trim().replace(/\s+/g, ' ')
+  return s.length > 18 ? s.slice(0, 18) + '…' : s || t('cat.misc.s_1ac07a4bb2')
 }

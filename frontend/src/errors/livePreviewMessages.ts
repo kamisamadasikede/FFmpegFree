@@ -1,3 +1,4 @@
+
 import { t } from '@/i18n'
 // 直播预览（设计稿 直播页-来源选择与预览-设计说明 v0.1 + 父代理 2026-09-30 01:26 调整）文案。
 // 文案（设计稿自拟；契约只给了“开启预览会多占用少量 CPU”和“会话已结束”的意思）。除注明“已定”的以外，均待产品经理确认。改字只改这里。
@@ -39,7 +40,7 @@ export const PREVIEW_LIVE_FAILED_PULL = t('errors.extra.s_6d39fbc2')
 export const PREVIEW_LIVE_OFF = t('errors.extra.s_81140f36')
 export const PREVIEW_LIVE_ENDED = t('errors.extra.s_f6c6c3fe')
 /** 预览图 alt：随会话变化，不随帧变化；address 用脱敏形式 */
-export const previewAlt = (kind: 'push' | 'pull', address: string): string => (kind === 'pull' ? t('errors.extra.s_a2c0341d', { v0: address }) : t('errors.extra.s_3e4ccc1a', { v0: address }))
+export const previewAlt = (kind: 'push' | 'pull', address: string): string => t(kind === 'pull' ? 'errors.livePreview.pullAlt' : 'errors.livePreview.pushAlt', { address })
 /** 地址协议后端不出预览（ws / wss）时拉流舞台的说明；设计稿没有，自拟 */
 export const PREVIEW_UNSUPPORTED_TITLE = t('errors.extra.s_2eb87402')
 export const PREVIEW_UNSUPPORTED_HINT = t('errors.extra.s_5d986092')
@@ -112,6 +113,6 @@ export const LP_EMPTY_SESS_HINT = t('errors.extra.s_9c10fcfa')
 export const LP_EMPTY_PULL = t('errors.extra.s_981fc7de')
 export const LP_KEY_HINT = t('errors.extra.s_5c6cc6d7')
 export const LP_LIMIT = t('errors.extra.s_7af78b33')
-export const LP_LAG = (n: number) => t('errors.extra.s_bea6e5bb', { n: n })
+export const LP_LAG = (n: number) => t('errors.livePreview.lag', { n })
 export const LP_CATCHUP = t('errors.extra.s_5c3decbe')
 export const LP_ESC = t('errors.extra.s_ccd558d9')

@@ -1,6 +1,6 @@
 <template>
   <span class="ct-ctx" @pointerdown.stop>
-    <button type="button" class="ct-ctx-btn" aria-label=t('cat.misc.s_94af503a38')>
+    <button type="button" class="ct-ctx-btn" :aria-label="t('cat.misc.s_94af503a38')">
       <svg class="ct-ctx-ring" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
         <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="4" opacity="0.25" />
         <circle

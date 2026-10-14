@@ -1,5 +1,5 @@
-import { t } from '@/i18n'
-/**
+
+import { t } from '@/i18n'/**
  * 编码设备（GPU 加速）相关文案，集中放在这里。
  * 状态：设计说明《编码设备-设计说明-v0.1》§2.3 的设计师自拟文案，**全部待产品经理确认**。
  * 产品经理在群里 00:23 定的回退提示几句没能在这里读到，先用设计稿文案；定稿后只改这个文件（api.check.ts 里有一条自检锁着这些字，改文案时同步改）。
@@ -23,9 +23,9 @@ export const ENCODER_FAILED_NOTE = t('errors.extra.s_32ad6042')
 export const ENCODER_NO_FFMPEG_NOTE = t('errors.extra.s_915db52c')
 /** 设计稿没有这一条：选了 CPU 时状态行的说明（新增，待确认） */
 export const ENCODER_CPU_NOTE = t('errors.extra.s_93118152')
-export const encoderAutoNote = (n: number, firstName: string) => t('errors.extra.s_753c4923', { n: n, v1: firstName })
-export const encoderGpuNote = (name: string) => t('errors.extra.s_8aeeb97f', { n: name })
-export const encoderComboLabel = (current: string) => t('errors.extra.s_737a33d4', { n: current })
+export const encoderAutoNote = (n: number, firstName: string) => t('errors.encoder.autoNote', { n, firstName })
+export const encoderGpuNote = (name: string) => t('errors.encoder.gpuNote', { name })
+export const encoderComboLabel = (current: string) => t('errors.encoder.comboLabel', { current })
 
 // ---- 显卡编码失败、已自动回退 CPU 的提示（契约 v0.18 §9.7；按功能区分文案，转换 / 直播 / 任务行沿用设计稿；全部待产品经理确认）----
 export const ENCODER_FALLBACK_CONVERT = t('errors.extra.s_a4d1bd58')
@@ -49,7 +49,7 @@ export const ENCODER_DEVICE_CPU_FALLBACK_NAME = t('errors.extra.s_fc987a3f')
 export const ENCODER_DEVICE_CPU_FALLBACK_TITLE = t('errors.extra.s_0eb5c1a2')
 /** 设备已不存在 / 名字读不到时的退化文字 */
 export const ENCODER_DEVICE_GPU_FALLBACK_NAME = t('errors.extra.s_d405d97b')
-export const encoderUsedDevice = (name: string) => t('errors.extra.s_8a095061', { n: name })
+export const encoderUsedDevice = (name: string) => t('errors.encoder.usedDevice', { name })
 
 /**
  * hwFallbackReason（契约 §9.7 固定枚举）→ 一句用户文案（产品经理定稿），**只放在任务详情的“查看日志”面板里**，任务行 / 任务中心行不显示；不出现编码器名。

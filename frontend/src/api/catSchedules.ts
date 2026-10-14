@@ -88,12 +88,11 @@ export const CAT_SCHED_COPY = {
   get colOn() { return t('cat.sched.colOn') },
   get emptyTitle() { return t('cat.sched.emptyTitle') },
   get emptyBody() { return t('cat.sched.emptyBody') },
-  get templates() { return [
+  get templates(): { name: string; prompt: string; frequency: CatScheduleFrequency; time: string; weekdays: number[] }[] { return [
     { name: t('cat.misc.s_8964cc07a2'), prompt: t('cat.misc.s_422c1d386e'), frequency: 'daily', time: '09:00', weekdays: [] },
     { name: t('cat.misc.s_f5df9ce40e'), prompt: t('cat.misc.s_dd4d27d96e'), frequency: 'weekly', time: '18:00', weekdays: [5] },
     { name: t('cat.misc.s_7c3ef6c51b'), prompt: t('cat.misc.s_4ae5de1366'), frequency: 'weekdays', time: '12:30', weekdays: [] },
   ] },
-  name: string; prompt: string; frequency: CatScheduleFrequency; time: string; weekdays: number[] }[],
   get menuEdit() { return t('cat.sched.menuEdit') },
   get menuRun() { return t('cat.sched.menuRun') },
   get menuCopy() { return t('cat.sched.menuCopy') },
@@ -103,16 +102,16 @@ export const CAT_SCHED_COPY = {
   get copySuffix() { return t('cat.sched.copySuffix') },
   get st() {
     return {
-  get succeeded() { return t('cat.sched.st.succeeded') },
-  get failed() { return t('cat.sched.st.failed') },
-  get missed() { return t('cat.sched.st.missed') },
-  get stopped() { return t('cat.sched.st.stopped') },
-  get skipped() { return t('cat.sched.st.skipped') },
-  get queued() { return t('cat.sched.st.queued') },
-  get running() { return t('cat.sched.st.running') },
-  get never() { return t('cat.sched.st.never') },
-  get paused() { return t('cat.sched.st.paused') },
-}
+      get succeeded() { return t('cat.sched.st.succeeded') },
+      get failed() { return t('cat.sched.st.failed') },
+      get missed() { return t('cat.sched.st.missed') },
+      get stopped() { return t('cat.sched.st.stopped') },
+      get skipped() { return t('cat.sched.st.skipped') },
+      get queued() { return t('cat.sched.st.queued') },
+      get running() { return t('cat.sched.st.running') },
+      get never() { return t('cat.sched.st.never') },
+      get paused() { return t('cat.sched.st.paused') },
+    }
   },
   get skippedSub() { return t('cat.sched.skippedSub') },
   get missedClosed() { return t('cat.sched.missedClosed') },
@@ -127,20 +126,20 @@ export const CAT_SCHED_COPY = {
   get dash() { return t('cat.sched.dash') },
   get freq() {
     return {
-  get once() { return t('cat.sched.freq.once') },
-  get daily() { return t('cat.sched.freq.daily') },
-  get weekdays() { return t('cat.sched.freq.weekdays') },
-  get weekly() { return t('cat.sched.freq.weekly') },
-  get custom() { return t('cat.sched.freq.custom') },
-}
+      get once() { return t('cat.sched.freq.once') },
+      get daily() { return t('cat.sched.freq.daily') },
+      get weekdays() { return t('cat.sched.freq.weekdays') },
+      get weekly() { return t('cat.sched.freq.weekly') },
+      get custom() { return t('cat.sched.freq.custom') },
+    }
   },
   get freqList() {
     return {
-  get once() { return t('cat.sched.freqList.once') },
-  get daily() { return t('cat.sched.freqList.daily') },
-  get weekdays() { return t('cat.sched.freqList.weekdays') },
-  get weekly() { return t('cat.sched.freqList.weekly') },
-}
+      get once() { return t('cat.sched.freqList.once') },
+      get daily() { return t('cat.sched.freqList.daily') },
+      get weekdays() { return t('cat.sched.freqList.weekdays') },
+      get weekly() { return t('cat.sched.freqList.weekly') },
+    }
   },
   get newTitle() { return t('cat.sched.newTitle') },
   get editTitle() { return t('cat.sched.editTitle') },
@@ -571,7 +570,7 @@ export function fmtWhen(ts: number, now = Date.now()): string {
   if (diff === 1) return t('cat.misc.s_38ac6afbab', { hm: hm })
   if (diff === -1) return t('cat.misc.s_ffb5d6872d', { hm: hm })
   if (Math.abs(diff) < 7) return t('cat.misc.s_4ae1bf3b61', { n: WD[d.getDay()], hm: hm })
-  return t('cat.misc.s_cef3802f0e', { n: d.getMonth() + 1, n: d.getDate(), hm: hm })
+  return t('cat.misc.s_cef3802f0e', { month: d.getMonth() + 1, day: d.getDate(), hm: hm })
 }
 
 /** 频率列：每天 09:00 / 工作日 12:30 / 每周一、周五 18:00 / 一次 · 10月20日 20:00 */
@@ -579,9 +578,9 @@ export function fmtFreq(s: Pick<CatSchedule, 'frequency' | 'time' | 'weekdays' |
   const F = CAT_SCHED_COPY.freq
   if (s.frequency === 'once') {
     const d = new Date(s.runAt)
-    return t('cat.misc.s_f5091a8643', { v0: F.once, n: d.getMonth() + 1, n: d.getDate(), v3: pad(d.getHours()), n: pad(d.getMinutes()) })
+    return t('cat.misc.s_f5091a8643', { v0: F.once, month: d.getMonth() + 1, day: d.getDate(), hour: pad(d.getHours()), minute: pad(d.getMinutes()) })
   }
-  if (s.frequency === 'weekly') return t('cat.misc.s_d1cf74041d', { v0: s.weekdays.map((w) => CAT_SCHED_COPY.weekdays[w - 1]).join('、周'), v1: s.time })
+  if (s.frequency === 'weekly') return t('cat.misc.s_d1cf74041d', { v0: s.weekdays.map((w) => CAT_SCHED_COPY.weekdays[w - 1]).join(t('cat.sched.listSep')), v1: s.time })
   return `${F[s.frequency]} ${s.time}`
 }
 

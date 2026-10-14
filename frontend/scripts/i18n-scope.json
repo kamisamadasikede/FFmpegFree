@@ -9,7 +9,8 @@
     "src/views/cat/**",
     "src/views/About.vue",
     "src/views/Settings.vue",
-    "src/config/about.ts"
+    "src/config/about.ts",
+    "src/utils/catMarkdown.ts"
   ],
   "excludeGlobs": [
     "**/*.check.ts",

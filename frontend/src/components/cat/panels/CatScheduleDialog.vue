@@ -251,7 +251,7 @@ const projMissing = computed(() => {
 const preview = computed(() => {
   const next = computeNextRun(input.value)
   if (!next) return ''
-  const after = form.frequency === 'once' ? '' : t('cat.misc.s_1d14c4d10e', { n: form.frequency === 'weekly' ? '每周' + form.weekdays.slice().sort().map((w) => C.weekdays[w - 1]).join('、') : C.freq[form.frequency], v1: form.time })
+  const after = form.frequency === 'once' ? '' : t('cat.misc.s_1d14c4d10e', { n: form.frequency === 'weekly' ? t('cat.sched.everyWeek') + form.weekdays.slice().sort().map((w) => C.weekdays[w - 1]).join('、') : C.freq[form.frequency], v1: form.time })
   return t('cat.misc.s_7828179f5c', { n: fmtWhen(next), v1: after })
 })
 

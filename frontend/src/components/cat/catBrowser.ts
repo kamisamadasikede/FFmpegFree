@@ -37,7 +37,13 @@ export function browserOpen(raw: string): string {
 }
 
 function escapeAttr(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/t('cat.misc.s_ad0bef117e')' + escapeAttr(pageURL) + '">'
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
+}
+
+/** 让页面里的相对地址回到原来的网站。已经有基准地址就不动。 */
+export function withBase(html: string, pageURL: string): string {
+  if (/<base\b/i.test(html)) return html
+  const tag = '<base href="' + escapeAttr(pageURL) + '">'
   const m = /<head\b[^>]*>/i.exec(html)
   if (!m) return tag + html
   const at = m.index + m[0].length
@@ -45,7 +51,18 @@ function escapeAttr(s: string): string {
 }
 
 export function stripCSP(html: string): string {
-  return html.replace(/<meta\b[^>]*http-equiv\s*=\s*["']?\s*content-security-policy\b[^>]*>/gi, 't('cat.misc.s_6d87474047')' }
+  return html.replace(/<meta\b[^>]*http-equiv\s*=\s*["']?\s*content-security-policy\b[^>]*>/gi, '')
+}
+
+/** 点链接和提交表单时告诉外面换页，这样点选脚本还在。 */
+export function navRuntime(token: string): string {
+  const tok = JSON.stringify(token)
+  const src = JSON.stringify(BROWSER_NAV)
+  return `(() => {
+  var TOKEN = ${tok};
+  var SRC = ${src};
+  function abs(h) {
+    try { return new URL(h, document.baseURI).href } catch (e) { return '' }
   }
   function send(href) {
     if (!href || !/^https?:/i.test(href)) return;
@@ -92,7 +109,18 @@ export function stripCSP(html: string): string {
 export function withNavScript(html: string, token: string): string {
   if (!/^[a-z0-9]+$/i.test(token)) return html
   const tag = '<script data-cat-nav="1">' + navRuntime(token) + '</scr' + 'ipt>'
-  const i = html.toLowerCase().lastIndexOf('</body>t('cat.misc.s_6e53930501')object' || !token) return ''
+  const i = html.toLowerCase().lastIndexOf('</body>')
+  if (i >= 0) return html.slice(0, i) + tag + html.slice(i)
+  return html + tag
+}
+
+/** 嵌进浏览器的页面：基准地址、点选、链接改由外面打开。 */
+export function browserDocument(html: string, pageURL: string, token: string): string {
+  return withNavScript(withPickScript(stripCSP(withBase(html, pageURL)), token), token)
+}
+
+export function readBrowserNav(data: unknown, token: string): string {
+  if (!data || typeof data !== 'object' || !token) return ''
   const d = data as Record<string, unknown>
   if (d.source !== BROWSER_NAV || d.token !== token || d.kind !== 'open') return ''
   return typeof d.href === 'string' ? browserURL(d.href) : ''

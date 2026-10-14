@@ -6,7 +6,7 @@
       data-cat-pick-pop
       data-testid="cat-pick-pop"
       role="dialog"
-      aria-label=t('cat.misc.s_9f4e192388')
+      :aria-label="t('cat.misc.s_9f4e192388')"
       :style="{ left: pos.left + 'px', top: pos.top + 'px' }"
       @keydown="onKey"
       @pointerdown.stop

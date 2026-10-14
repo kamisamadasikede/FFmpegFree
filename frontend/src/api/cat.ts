@@ -384,9 +384,9 @@ export async function listCatModels(agentKind: CatAgentKind): Promise<CatModel[]
 
 /** 契约 v0.35：xhigh 显示「极高」（值不变）；后端老版本还给「超高」时也在这里改掉 */
 export const CAT_THINK_XHIGH_LABEL = t('cat.misc.s_cfebcb06bc')
-export function fixThinkName(t: CatThinkLevel): CatThinkLevel {
-  if (t.id === 'xhigh' || t.displayName === t('cat.misc.s_1a42e25f14')) return { ...t, displayName: CAT_THINK_XHIGH_LABEL }
-  return t
+export function fixThinkName(level: CatThinkLevel): CatThinkLevel {
+  if (level.id === 'xhigh' || level.displayName === t('cat.misc.s_1a42e25f14')) return { ...level, displayName: CAT_THINK_XHIGH_LABEL }
+  return level
 }
 
 /** 思考强度：列表空 → 界面整行隐藏（契约 v0.36）；不写死某家永远没有 */

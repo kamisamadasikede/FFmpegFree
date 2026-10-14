@@ -103,7 +103,7 @@
           :disabled="busy"
           :aria-expanded="menuOpen"
           aria-haspopup="menu"
-          title=t('cat.misc.s_0ec9eaf9c3')
+          :title="t('cat.misc.s_0ec9eaf9c3')"
           data-testid="cat-git-more"
           @click.stop="menuOpen = !menuOpen"
         >

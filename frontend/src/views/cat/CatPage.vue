@@ -3,7 +3,7 @@
     <!-- 进入时：侧栏 250ms 收起（AppSidebar 的 cat-away），中间先显示约 1.2 秒 loading，再出三栏聊天页 -->
     <!-- A1 进入：先画三栏骨架，超过 300ms 才出现闪光 -->
     <div v-if="phase === 'loading'" class="ct-load" role="status" aria-live="polite">
-      <span class="sr-only">正在进入 Cat…</span>
+      <span class="sr-only">{{ t('cat.page.s_c75a592de4') }}</span>
       <div class="sk-rail" aria-hidden="true">
         <i class="sk w60" /><i class="sk w90 tall" /><i class="sk w40 gap" /><i v-for="n in 6" :key="n" class="sk" :class="n % 2 ? 'w80' : 'w60'" />
       </div>
@@ -18,7 +18,7 @@
 
       <CatSettingsView v-if="catPanels.view === 'settings'" />
       <CatSchedulesView v-else-if="catPanels.view === 'schedules'" />
-      <section v-else class="ct-c" aria-label=t('cat.misc.s_85936242fc')>
+      <section v-else class="ct-c" :aria-label="t('cat.page.s_85936242fc')">
         <!-- 中间顶部浮提示（设计 §07：重复文件夹等），2.4s 自动消失 -->
         <div
           v-if="catState.notice"
@@ -39,7 +39,7 @@
               </span><span class="slash">/</span>
             </template>
             <FIcon v-else name="chat" :size="16" />
-            <h2>{{ isNew ? t('cat.misc.s_1ac07a4bb2') : current?.conv.title || t('cat.misc.s_1ac07a4bb2') }}</h2><span class="sp" />
+            <h2>{{ isNew ? t('cat.page.s_1ac07a4bb2') : current?.conv.title || t('cat.page.s_1ac07a4bb2') }}</h2><span class="sp" />
           </div>
           <div v-if="projectMissing" class="ct-missing" role="status" data-testid="cat-project-missing-bar">
             <FIcon name="warn" :size="14" /><span class="tx">{{ PC.missing }}</span>
@@ -52,8 +52,8 @@
             >{{ PC.relocate }}</button>
           </div>
           <div :key="'new'" class="ct-welcome swap">
-            <h3 class="wl-hi">Hi，今天有什么安排?</h3>
-            <div class="wl-modes" role="tablist" aria-label=t('cat.misc.s_f0789e79d4')>
+            <h3 class="wl-hi">{{ t('cat.page.s_71044456b0') }}</h3>
+            <div class="wl-modes" role="tablist" :aria-label="t('cat.page.s_f0789e79d4')">
               <button
                 v-for="m in CAT_MODES"
                 :key="m.id"
@@ -77,16 +77,16 @@
                 aria-disabled="true"
                 :title="tipLater()"
                 @click="onLater()"
-              >更多<FIcon name="down" :size="12" /></button>
+              >{{ t('cat.page.s_0ec9eaf9c3') }}<FIcon name="down" :size="12" /></button>
             </div>
             <div v-if="catNotReady" :key="bannerKick" class="ct-banner" :class="{ kick: bannerKick > 0 }" role="status" data-testid="cat-not-ready">
               <FIcon name="info" :size="14" /><span class="tx">{{ notReadyText }}</span>
-              <button type="button" class="recheck" :disabled="catChecking" data-testid="cat-recheck" @click="recheckCatStatus()">重新检测</button>
+              <button type="button" class="recheck" :disabled="catChecking" data-testid="cat-recheck" @click="recheckCatStatus()">{{ t('cat.page.s_f515f8fba3') }}</button>
             </div>
             <CatComposer
               ref="composer"
               welcome
-              placeholder=t('cat.misc.s_9c4f9d191e')
+              :placeholder="t('cat.page.s_9c4f9d191e')"
               :busy="catState.creating"
               :not-ready="catNotReady"
               :checking="catChecking"
@@ -96,7 +96,7 @@
               @blocked="kickBanner"
             />
             <div class="wl-try">
-              <div class="wl-try-hd">试试这些指令</div>
+              <div class="wl-try-hd">{{ t('cat.page.s_f58295bc77') }}</div>
               <button v-for="t in CAT_TRY" :key="t" type="button" class="wl-cmd" @click="composer?.setDraft(t)">{{ t }}</button>
             </div>
           </div>
@@ -111,13 +111,13 @@
             </template>
             <FIcon v-else name="chat" :size="16" />
             <h2 :title="current.conv.title">{{ current.conv.title }}</h2>
-            <span v-if="current.conv.main" class="main-tag">主要</span>
+            <span v-if="current.conv.main" class="main-tag">{{ t('cat.page.s_00dc03d70d') }}</span>
             <span class="sp" />
             <button
               type="button"
               class="hd-ic"
-              title=t('cat.misc.s_e5f71fc31e')
-              aria-label=t('cat.misc.s_e5f71fc31e')
+              :title="t('cat.page.s_e5f71fc31e')"
+              :aria-label="t('cat.page.s_e5f71fc31e')"
               data-testid="cat-conv-search"
               :aria-expanded="searchOn"
               @click="searchOn = !searchOn"
@@ -127,15 +127,15 @@
             <button
               type="button"
               class="hd-ic"
-              title=t('cat.misc.s_64ca9bab92')
-              aria-label=t('cat.misc.s_64ca9bab92')
+              :title="t('cat.page.s_64ca9bab92')"
+              :aria-label="t('cat.page.s_64ca9bab92')"
               data-testid="cat-conv-refresh"
               @click="onRefreshConv"
             >
               <FIcon name="refresh" :size="16" />
             </button>
             <CatBranchCapsule />
-            <button type="button" class="hd-ib" :class="{ on: !rightCollapsed }" :title=t('cat.misc.s_0210a6574e') :aria-label=t('cat.misc.s_f1f93b7efd') :aria-pressed="!rightCollapsed" data-testid="cat-right-toggle" @click="rightCollapsed = !rightCollapsed"><FIcon name="split" :size="16" /></button>
+            <button type="button" class="hd-ib" :class="{ on: !rightCollapsed }" :title="rightCollapsed ? t('cat.page.s_f1f1ec2556') : t('cat.page.s_4ed8aa623c')" :aria-label="rightCollapsed ? t('cat.page.s_8fa248207b') : t('cat.page.s_74609dd7e9')" :aria-pressed="!rightCollapsed" data-testid="cat-right-toggle" @click="rightCollapsed = !rightCollapsed"><FIcon name="split" :size="16" /></button>
           </div>
           <CatConvSearch v-if="searchOn" :blocks="messages" @close="searchOn = false" @pick="jumpSearch" />
           <div v-if="projectMissing" class="ct-missing" role="status" data-testid="cat-project-missing-bar">
@@ -153,7 +153,7 @@
             <div ref="msgsEl" :key="catState.sel" class="ct-msgs swap" @scroll.passive="onMsgsScroll">
               <div ref="msgsBody">
                 <!-- B1：读记录超过 150ms 才显示消息骨架 -->
-                <div v-if="histLoading && !messages.length" class="sk-msgs conv" role="status" aria-label=t('cat.misc.s_741420e8a7') data-testid="cat-msg-skeleton">
+                <div v-if="histLoading && !messages.length" class="sk-msgs conv" role="status" :aria-label="t('cat.page.s_741420e8a7')" data-testid="cat-msg-skeleton">
                   <i class="sk w50 r" /><i class="sk w90" /><i class="sk w80" /><i class="sk w60" /><i class="sk w40 r" /><i class="sk w90" /><i class="sk w70" />
                 </div>
                 <CatMessages :blocks="messages" :pending="thinking" :retry="catState.retry[catState.sel]" @retry="retryLastMessage" />
@@ -166,7 +166,7 @@
               class="ct-jumps"
               :style="{ height: jumpH + 'px' }"
               data-testid="cat-msg-jumps"
-              aria-label=t('cat.misc.s_b04b68d00e')
+              :aria-label="t('cat.page.s_b04b68d00e')"
               @wheel.stop="onJumpsWheel"
               @scroll.passive="onJumpsScroll"
               @mousemove="onJumpsMove"
@@ -174,39 +174,39 @@
             >
               <div class="ct-jump-in" :style="{ height: jumpContent + 'px' }">
                 <button
-                  v-for="t in ticks"
-                  :key="t.key"
+                  v-for="tick in ticks"
+                  :key="tick.key"
                   type="button"
                   class="ct-tick"
-                  :class="{ on: t.tone === 0, near: t.tone === 1 }"
-                  :style="{ top: t.top + 'px', '--tick-w': t.w + 'px' }"
-                  :title=t('cat.misc.s_04b9a2c30f')
-                  :aria-label=t('cat.misc.s_04b9a2c30f')
+                  :class="{ on: tick.tone === 0, near: tick.tone === 1 }"
+                  :style="{ top: tick.top + 'px', '--tick-w': tick.w + 'px' }"
+                  :title="tick.label || t('cat.page.s_b492d06f48')"
+                  :aria-label="tick.label || t('cat.page.s_b492d06f48')"
                   data-testid="cat-msg-tick"
-                  @click.stop="jumpUser(t.offset)"
+                  @click.stop="jumpUser(tick.offset)"
                 />
               </div>
             </div>
-            <div v-show="overflowing" ref="railEl" class="ct-rail" data-testid="cat-msg-rail" aria-label=t('cat.misc.s_838210c769') @pointerdown="onTrackDown">
+            <div v-show="overflowing" ref="railEl" class="ct-rail" data-testid="cat-msg-rail" :aria-label="t('cat.page.s_838210c769')" @pointerdown="onTrackDown">
               <div
                 v-if="thumb"
                 class="ct-thumb"
                 :style="{ top: thumb.top + 'px', height: thumb.height + 'px' }"
-                title=t('cat.misc.s_871a47946a')
+                :title="t('cat.page.s_871a47946a')"
                 role="scrollbar"
                 aria-orientation="vertical"
-                aria-label=t('cat.misc.s_871a47946a')
+                :aria-label="t('cat.page.s_871a47946a')"
                 data-testid="cat-msg-thumb"
                 @pointerdown.stop="onThumbDown"
               />
             </div>
-            <button v-if="away" type="button" class="ct-jump" title=t('cat.misc.s_5d94f1fbd8') aria-label=t('cat.misc.s_5d94f1fbd8') data-testid="cat-jump-bottom" @click="jumpBottom">
+            <button v-if="away" type="button" class="ct-jump" :title="t('cat.page.s_5d94f1fbd8')" :aria-label="t('cat.page.s_5d94f1fbd8')" data-testid="cat-jump-bottom" @click="jumpBottom">
               <FIcon name="down" :size="16" />
             </button>
           </div>
           <div v-if="catNotReady" :key="bannerKick" class="ct-banner in-conv" :class="{ kick: bannerKick > 0 }" role="status" data-testid="cat-not-ready">
             <FIcon name="info" :size="14" /><span class="tx">{{ notReadyText }}</span>
-              <button type="button" class="recheck" :disabled="catChecking" data-testid="cat-recheck" @click="recheckCatStatus()">重新检测</button>
+              <button type="button" class="recheck" :disabled="catChecking" data-testid="cat-recheck" @click="recheckCatStatus()">{{ t('cat.page.s_f515f8fba3') }}</button>
           </div>
           <CatComposer
             ref="convComposer"
@@ -240,7 +240,6 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { t as tGlobal } from '@/i18n'
 const { t } = useI18n()
 
 import { catHistoryEmptyText } from '@/api/catHistoryStatus'

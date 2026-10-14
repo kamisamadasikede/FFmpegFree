@@ -47,7 +47,7 @@ const sizeHint = computed(() => {
       class="dl-card"
       :class="{ fail: view === 'failed' }"
       role="region"
-      aria-label=t('cat.misc.s_0b4b4787ac')
+      :aria-label="t('cat.misc.s_0b4b4787ac')"
       data-testid="cat-office-download-card"
     >
       <div class="dh">

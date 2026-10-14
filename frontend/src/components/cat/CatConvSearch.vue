@@ -1,6 +1,6 @@
 <template>
   <div class="mask" @mousedown.self="emit('close')">
-    <div class="panel" role="dialog" aria-label=t('cat.misc.s_92a62b4740') data-testid="cat-conv-search-panel" @keydown.esc="emit('close')">
+    <div class="panel" role="dialog" :aria-label="t('cat.misc.s_92a62b4740')" data-testid="cat-conv-search-panel" @keydown.esc="emit('close')">
       <div class="bar">
         <label class="field">
           <FIcon name="search" :size="16" />
@@ -8,8 +8,8 @@
             ref="inputEl"
             v-model="query"
             type="search"
-            placeholder=t('cat.misc.s_960ee596d9')
-            aria-label=t('cat.misc.s_960ee596d9')
+            :placeholder="t('cat.misc.s_960ee596d9')"
+            :aria-label="t('cat.misc.s_960ee596d9')"
             data-testid="cat-conv-search-input"
           />
         </label>

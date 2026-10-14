@@ -89,7 +89,7 @@
     <!-- 编码设备：后端绑定接通（ENCODER_BACKEND_READY）才显示；纯浏览器只有 ?enc= 才显示模拟层 -->
     <EncoderDevicePanel v-if="encoderVisible" id="sec-encoder" heading-id="h-encoder" />
     <!-- 回退提示的展示预览（仅浏览器 ?enc=…&fb=1；真实运行不出现，也没有接线） -->
-    <section v-if="encoderVisible && fbPreview" class="panel group" aria-label=t('cat.misc.s_4eed551037')>
+    <section v-if="encoderVisible && fbPreview" class="panel group" :aria-label="t('cat.misc.s_4eed551037')">
       <div class="phead"><h2>回退提示（展示预览，未接线）</h2></div>
       <div class="fbp">
         <EncoderFallbackNotice variant="convert" />
@@ -123,9 +123,9 @@
           @keydown.home.prevent="setTo(MAX_CONCURRENT_AUTO)"
           @keydown.end.prevent="setTo(MAX_CONCURRENT_MAX)"
         >
-          <button type="button" class="sb" tabindex="-1" aria-label=t('cat.misc.s_cdf1249b48') :disabled="!loaded || concurrent <= MAX_CONCURRENT_AUTO" @click="step(-1)">−</button>
+          <button type="button" class="sb" tabindex="-1" :aria-label="t('cat.misc.s_cdf1249b48')" :disabled="!loaded || concurrent <= MAX_CONCURRENT_AUTO" @click="step(-1)">−</button>
           <b class="val" aria-hidden="true">{{ concurrentText }}</b>
-          <button type="button" class="sb" tabindex="-1" aria-label=t('cat.misc.s_491411e0ae') :disabled="!loaded || concurrent >= MAX_CONCURRENT_MAX" @click="step(1)">+</button>
+          <button type="button" class="sb" tabindex="-1" :aria-label="t('cat.misc.s_491411e0ae')" :disabled="!loaded || concurrent >= MAX_CONCURRENT_MAX" @click="step(1)">+</button>
         </div>
       </div>
       <!-- v0.24：默认输出位置移到“存储”（转换结果），这一行不再显示 -->

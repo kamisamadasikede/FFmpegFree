@@ -21,7 +21,7 @@ const title = computed(() => store.deck?.title || C.toolLabel)
 </script>
 
 <template>
-  <aside class="canvas-panel" data-testid="cat-office-canvas-panel" aria-label=t('cat.misc.s_311632453c')>
+  <aside class="canvas-panel" data-testid="cat-office-canvas-panel" :aria-label="t('cat.misc.s_311632453c')">
     <div class="canvas-hd">
       <FIcon name="slide" :size="16" />
       <b>{{ title }}</b>
@@ -46,7 +46,7 @@ const title = computed(() => store.deck?.title || C.toolLabel)
       >
         <FIcon name="folder" :size="14" />
       </button>
-      <button type="button" class="ibtn" aria-label=t('cat.misc.s_b15d91274e') data-testid="cat-office-canvas-close" @click="emit('close')">
+      <button type="button" class="ibtn" :aria-label="t('cat.misc.s_b15d91274e')" data-testid="cat-office-canvas-close" @click="emit('close')">
         <FIcon name="x" :size="14" />
       </button>
     </div>

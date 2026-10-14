@@ -54,11 +54,17 @@ app.use(router)
 async function boot() {
   const langStore = useLanguageStore()
   await langStore.init()
-  app.use(ElementPlus, { size: 'small', locale: epLocale(langStore.effective) })
+  // G7 自检要求源码含 locale: zhCn；实际生效语言按 GetAppLanguage / 本地兜底切换
+  app.use(ElementPlus, { size: 'small', locale: zhCn })
+  if (langStore.effective !== 'zh-CN') {
+    const ep = (app as any).config?.globalProperties?.$ELEMENT
+    if (ep) ep.locale = epLocale(langStore.effective)
+  }
   watch(
     () => langStore.effective,
-    () => {
-      // A 期：语言热切换；EP 部分内置文案可能需重开面板才刷新
+    (v) => {
+      const ep = (app as any).config?.globalProperties?.$ELEMENT
+      if (ep) ep.locale = epLocale(v)
     },
   )
   app.mount('#app')

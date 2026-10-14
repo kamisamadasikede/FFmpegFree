@@ -9,14 +9,15 @@
 import MarkdownIt from 'markdown-it'
 import createDOMPurify from 'dompurify'
 import type { DOMPurify as DOMPurifyT, Config } from 'dompurify'
+import { t } from '@/i18n'
 
 /** 允许生成链接的协议 */
 export const CAT_LINK_RE = /^(?:https?:\/\/|mailto:)/i
 export const isCatLinkAllowed = (url: string) => CAT_LINK_RE.test(url.trim())
 
-export const CAT_MD_COPY = '复制'
-export const CAT_MD_COPIED = '已复制'
-const IMG_PREFIX = '图片：'
+export const CAT_MD_COPY = { toString: () => t('cat.markdown.copy'), valueOf: () => t('cat.markdown.copy'), [Symbol.toPrimitive]: () => t('cat.markdown.copy') } as unknown as string
+export const CAT_MD_COPIED = { toString: () => t('cat.markdown.copied'), valueOf: () => t('cat.markdown.copied'), [Symbol.toPrimitive]: () => t('cat.markdown.copied') } as unknown as string
+const imgPrefix = () => t('cat.markdown.imageAlt')
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
@@ -39,11 +40,11 @@ function createMd(): MarkdownIt {
     const src = t.attrGet('src') ?? ''
     const alt = t.content || src
     if (!isCatLinkAllowed(src)) return esc(alt)
-    return `<a class="cat-md-img" href="${esc(src)}" rel="noopener noreferrer" data-cat-ext="1">${esc(IMG_PREFIX + alt)}</a>`
+    return `<a class="cat-md-img" href="${esc(src)}" rel="noopener noreferrer" data-cat-ext="1">${esc(imgPrefix() + alt)}</a>`
   }
   const code = (body: string, lang: string) =>
     `<div class="cat-md-code"><div class="cat-md-bar"><span class="cat-md-lang">${esc(lang)}</span>` +
-    `<button type="button" class="cat-md-copy" data-cat-copy="1" aria-label="复制代码">${CAT_MD_COPY}</button></div>` +
+    `<button type="button" class="cat-md-copy" data-cat-copy="1" aria-label="${t('cat.markdown.copyCode')}">${CAT_MD_COPY}</button></div>` +
     `<pre><code>${esc(body)}</code></pre></div>`
   r.fence = (tokens, idx) => {
     const t = tokens[idx]

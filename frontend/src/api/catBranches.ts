@@ -155,24 +155,24 @@ export function catBranchErrorText(e: unknown): string {
 // ---------------------------------------------------------------------------
 
 export const CAT_MERGE_COPY = {
-  entry: '合并到当前分支…',
-  title: (cur: string) => `把哪个分支合并到 ${cur}？`,
-  localGroup: '本地分支',
-  remoteGroup: '远程分支',
-  ok: '合并',
-  cancel: '取消',
-  merged: (b: string, cur: string) => `已把 ${b} 合并到 ${cur}`,
-  upToDate: '已经是最新，没有需要合并的内容。',
-  conflict: (n: number) => `有 ${n} 个文件冲突，请逐个处理。`,
-  dirty: '有未提交的改动，请先提交或暂存，再合并。',
-  running: '正在回复，等这一轮结束再合并。',
-  merging: '上一次合并还没完成，请先处理完冲突，或放弃这次合并。',
-  notRepo: '这个文件夹不是 Git 仓库。',
-  notFound: '找不到这个分支，可能已被删除。',
-  sameBranch: '不能把分支合并到它自己。',
-  failed: '合并失败，请重试。',
-  detail: '查看详情',
-} as const
+  get entry() { return t('cat.merge.entry') },
+  title: (cur: string) => t('cat.merge.title', { branch: cur }),
+  get localGroup() { return t('cat.merge.localGroup') },
+  get remoteGroup() { return t('cat.merge.remoteGroup') },
+  get ok() { return t('cat.merge.ok') },
+  get cancel() { return t('cat.merge.cancel') },
+  merged: (b: string, cur: string) => t('cat.merge.merged', { branch: b, current: cur }),
+  get upToDate() { return t('cat.merge.upToDate') },
+  conflict: (n: number) => t('cat.merge.conflict', { n }),
+  get dirty() { return t('cat.merge.dirty') },
+  get running() { return t('cat.merge.running') },
+  get merging() { return t('cat.merge.merging') },
+  get notRepo() { return t('cat.merge.notRepo') },
+  get notFound() { return t('cat.merge.notFound') },
+  get sameBranch() { return t('cat.merge.sameBranch') },
+  get failed() { return t('cat.merge.failed') },
+  get detail() { return t('cat.merge.detail') },
+}
 
 /** 走查 mergeconflict / 侧栏冲突共用同一份路径，toast「有 n 个」与侧栏计数同源 */
 export const CAT_MERGE_CONFLICT_SIM_FILES = ['src/timeline.ts', '第3集/第3集.srt'] as const

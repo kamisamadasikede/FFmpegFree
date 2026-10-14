@@ -1,5 +1,5 @@
 <template>
-  <section class="browser" data-testid="cat-browser" aria-label=t('cat.misc.s_912302cb02')>
+  <section class="browser" data-testid="cat-browser" :aria-label="t('cat.misc.s_912302cb02')">
     <div class="tabs">
       <div
         v-for="(tab, i) in tabs"
@@ -12,22 +12,22 @@
       >
         <FIcon name="globe" :size="14" />
         <span class="ttl">{{ tab.title || t('cat.misc.s_978eeadf50') }}</span>
-        <button type="button" class="x" title=t('cat.misc.s_b15d91274e') aria-label=t('cat.misc.s_57603fcb82') data-testid="cat-browser-tab-close" @click.stop="closeTab(i)">
+        <button type="button" class="x" :title="t('cat.misc.s_b15d91274e')" :aria-label="t('cat.misc.s_57603fcb82')" data-testid="cat-browser-tab-close" @click.stop="closeTab(i)">
           <FIcon name="x" :size="12" />
         </button>
       </div>
-      <button type="button" class="add" title=t('cat.misc.s_978eeadf50') aria-label=t('cat.misc.s_978eeadf50') data-testid="cat-browser-new" @click="addTab">
+      <button type="button" class="add" :title="t('cat.misc.s_978eeadf50')" :aria-label="t('cat.misc.s_978eeadf50')" data-testid="cat-browser-new" @click="addTab">
         <FIcon name="plus" :size="14" />
       </button>
     </div>
     <div class="nav">
-      <button type="button" title=t('cat.misc.s_5094c1a328') aria-label=t('cat.misc.s_5094c1a328') :disabled="!canBack" @click="back">
+      <button type="button" :title="t('cat.misc.s_5094c1a328')" :aria-label="t('cat.misc.s_5094c1a328')" :disabled="!canBack" @click="back">
         <FIcon name="left" :size="16" />
       </button>
-      <button type="button" title=t('cat.misc.s_5811e2837b') aria-label=t('cat.misc.s_5811e2837b') :disabled="!canForward" @click="forward">
+      <button type="button" :title="t('cat.misc.s_5811e2837b')" :aria-label="t('cat.misc.s_5811e2837b')" :disabled="!canForward" @click="forward">
         <FIcon name="right" :size="16" />
       </button>
-      <button type="button" title=t('cat.misc.s_64ca9bab92') aria-label=t('cat.misc.s_64ca9bab92') :disabled="!canReload" data-testid="cat-browser-reload" @click="reload">
+      <button type="button" :title="t('cat.misc.s_64ca9bab92')" :aria-label="t('cat.misc.s_64ca9bab92')" :disabled="!canReload" data-testid="cat-browser-reload" @click="reload">
         <FIcon name="refresh" :size="15" />
       </button>
       <form class="addr" @submit.prevent="go">
@@ -35,8 +35,8 @@
           ref="addrEl"
           v-model="active.draft"
           type="text"
-          placeholder=t('cat.misc.s_113a7f95fd')
-          aria-label=t('cat.misc.s_113a7f95fd')
+          :placeholder="t('cat.misc.s_113a7f95fd')"
+          :aria-label="t('cat.misc.s_113a7f95fd')"
           data-testid="cat-browser-url"
         />
       </form>
@@ -44,8 +44,8 @@
         type="button"
         class="tool"
         :class="{ on: pickOn }"
-        title=t('cat.misc.s_9f31c72ef0')
-        aria-label=t('cat.misc.s_9f31c72ef0')
+        :title="t('cat.misc.s_9f31c72ef0')"
+        :aria-label="t('cat.misc.s_9f31c72ef0')"
         :aria-pressed="pickOn"
         :disabled="!active.doc"
         data-testid="cat-browser-pick"
@@ -54,7 +54,7 @@
         <FIcon name="chat" :size="16" />
       </button>
       <div class="more" data-cat-browser-more>
-        <button type="button" title=t('cat.misc.s_0ec9eaf9c3') aria-label=t('cat.misc.s_0ec9eaf9c3') :aria-expanded="moreOpen" @click="moreOpen = !moreOpen">
+        <button type="button" :title="t('cat.misc.s_0ec9eaf9c3')" :aria-label="t('cat.misc.s_0ec9eaf9c3')" :aria-expanded="moreOpen" @click="moreOpen = !moreOpen">
           <FIcon name="more" :size="16" />
         </button>
         <div v-if="moreOpen" class="menu" role="menu">
@@ -85,7 +85,7 @@
       :srcdoc="active.doc"
       sandbox="allow-scripts allow-forms"
       referrerpolicy="no-referrer"
-      title=t('cat.misc.s_912302cb02')
+      :title="t('cat.misc.s_912302cb02')"
       @load="onFrameLoad"
     />
     <div v-else class="empty start" data-testid="cat-browser-start">

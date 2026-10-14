@@ -3,6 +3,7 @@
  */
 import { callService } from '@/api/call'
 import { buildSrcdoc } from '@/utils/docSafeHtml'
+import { t } from '@/i18n'
 
 export type CatPreviewKind =
   | 'image'
@@ -101,7 +102,7 @@ export function userDisplayText(text: string, files: readonly Pick<CatShownFile,
   const hide = new Set<string>()
   for (const f of files ?? []) {
     if (f.path) hide.add(normPath(f.path))
-    if (f.kind === 'image' && (f.data || f.path)) hide.add('图片')
+    if (f.kind === 'image' && (f.data || f.path)) hide.add(t('cat.media.image'))
   }
   if (!hide.size) return text
   const lines = text.split('\n').filter((line) => {
@@ -160,7 +161,7 @@ export function tableDocumentHtml(name: string, body: string, sep: string, dark:
   const html = rows
     .map((row) => `<tr>${row.map((cell) => `<td>${esc(cell)}</td>`).join('')}</tr>`)
     .join('')
-  const note = cut ? '<p>只显示前 200 行、30 列。</p>' : ''
+  const note = cut ? `<p>${t('cat.media.textPreviewNote')}</p>` : ''
   return buildSrcdoc(`<table>${html}</table>${note}`, { dark, title: name })
 }
 

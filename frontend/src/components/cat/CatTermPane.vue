@@ -1,9 +1,9 @@
 <template>
-  <section class="extra" data-testid="cat-term" aria-label=t('cat.misc.s_4722bc0c56') @pointerdown="focusTerm">
+  <section class="extra" data-testid="cat-term" :aria-label="t('cat.misc.s_4722bc0c56')" @pointerdown="focusTerm">
     <div class="hd">
       <b>终端</b>
       <span class="sp" />
-      <button type="button" class="x" title=t('cat.misc.s_b15d91274e') aria-label=t('cat.misc.s_40dba7a311') data-testid="cat-term-close" @click="emit('close')">
+      <button type="button" class="x" :title="t('cat.misc.s_b15d91274e')" :aria-label="t('cat.misc.s_40dba7a311')" data-testid="cat-term-close" @click="emit('close')">
         <FIcon name="x" :size="14" />
       </button>
     </div>

@@ -235,7 +235,7 @@
                     :model-value="modeValue(block.kind)"
                     :options="block.modes.options"
                     :default-id="block.modes.defaultId"
-                    :aria-label=t('cat.misc.s_840622f67a')
+                    :aria-label="t('cat.misc.s_840622f67a')"
                     :testid="'cat-set-mode-' + block.kind"
                     @update:model-value="setDefaultMode(block.kind, $event)"
                   />

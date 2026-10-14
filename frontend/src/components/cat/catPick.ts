@@ -125,7 +125,7 @@ function safeBlock(s: string): string {
 export function formatPick(p: PickNote): string {
   const classes = p.classes.split(/\s+/).filter(Boolean).slice(0, 3)
   const name = p.tag + (p.id ? '#' + p.id : '') + (classes.length ? '.' + classes.join('.') : '')
-  const lines = [PICK_START, t('cat.misc.s_29ba21b97d', { n: oneLine(p.file || '未命名') }), t('cat.misc.s_bbc823ebf1', { name: oneLine(name) }), t('cat.misc.s_b7b6ee6cae', { n: p.intent === 'ask' ? '疑问' : '改变' })]
+  const lines = [PICK_START, t('cat.misc.s_29ba21b97d', { n: oneLine(p.file || t('cat.misc.unnamed')) }), t('cat.misc.s_bbc823ebf1', { name: oneLine(name) }), t('cat.misc.s_b7b6ee6cae', { n: p.intent === 'ask' ? t('cat.misc.question') : t('cat.misc.change') })]
   if (p.note.trim()) lines.push(t('cat.misc.s_c0e5dd524e', { n: oneLine(p.note) }))
   if (p.selector) lines.push(t('cat.misc.s_bffc0e4b1b', { n: oneLine(p.selector) }))
   if (p.text) lines.push(t('cat.misc.s_f71c314747', { n: oneLine(p.text) }))

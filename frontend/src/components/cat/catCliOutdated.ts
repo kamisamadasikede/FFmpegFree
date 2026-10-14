@@ -20,12 +20,12 @@ export interface CatCliOutdated {
 }
 
 export const CAT_CLI_OUTDATED_COPY = {
-  body: (cli: string) => t('cat.cliOutdated.body', { cli: cli }),
-  version: (v: string) => t('cat.cliOutdated.version', { v0: v }),
-  get retry() { return t('cat.cliOutdated.retry') },
-  get detail() { return t('cat.cliOutdated.detail') },
-  get copy() { return t('cat.cliOutdated.copy') },
-  get copied() { return t('cat.cliOutdated.copied') },
+  body: (cli: string) => t('cat.misc.s_51f4453a30', { v0: cli }),
+  version: (v: string) => t('cat.misc.s_5d627b503d', { v0: v }),
+  retry: t('cat.misc.s_132c5cdcce'),
+  detail: t('cat.misc.s_5b48dbb8dc'),
+  copy: t('cat.misc.s_79d3abe929'),
+  copied: t('cat.misc.s_52e6abbe5c'),
 }
 
 /** 库值 → 设置页同款显示名（cat_build = Grok Build） */
@@ -49,4 +49,38 @@ function fromString(s: string): Record<string, string> {
     const line = lines[i]
     const rawAt = line.search(new RegExp(`(^|[\\s;,&])${CLI_OUTDATED_FIELDS.raw}=`))
     const head = rawAt >= 0 ? line.slice(0, rawAt) : line
-    for (const m of head.matchAll(/([A-Za-z_][\w]*)=("([^"]*)t('cat.misc.s_6a61639612')
+    for (const m of head.matchAll(/([A-Za-z_][\w]*)=("([^"]*)"|[^\s;,&]*)/g)) out[m[1]] = m[3] ?? m[2]
+    if (rawAt >= 0) {
+      const start = line.indexOf(`${CLI_OUTDATED_FIELDS.raw}=`, rawAt) + CLI_OUTDATED_FIELDS.raw.length + 1
+      out[CLI_OUTDATED_FIELDS.raw] = [line.slice(start), ...lines.slice(i + 1)].join('\n').trim()
+      break
+    }
+  }
+  return out
+}
+
+function fromObject(o: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(o)) if (v != null) out[k] = typeof v === 'string' ? v : String(v)
+  return out
+}
+
+/** detail（对象 / JSON / key=value）→ 平铺字段；v0.46 provider_responses_unsupported 也用这个解析 */
+export function parseFailDetailFields(detail: unknown): Record<string, string> {
+  if (detail == null || detail === '') return {}
+  return typeof detail === 'string' ? fromString(detail) : typeof detail === 'object' ? fromObject(detail as Record<string, unknown>) : {}
+}
+
+/** 不是 cli_outdated 就返回 null，界面照旧 */
+export function parseCliOutdated(detail: unknown, kind?: CatAgentKind | string): CatCliOutdated | null {
+  if (detail == null || detail === '') return null
+  const f = typeof detail === 'string' ? fromString(detail) : typeof detail === 'object' ? fromObject(detail as Record<string, unknown>) : {}
+  if ((f[CLI_OUTDATED_FIELDS.reason] || '').trim() !== CLI_OUTDATED_REASON) return null
+  const version = (f[CLI_OUTDATED_FIELDS.version] || '').trim()
+  // raw 里的字面 \n（及 \r\n、\t）还原成真换行；\\ 还原成反斜杠
+  const raw = (f[CLI_OUTDATED_FIELDS.raw] || '')
+    .replace(/\\(\\|r\\n|n|t)/g, (_, c: string) => (c === '\\' ? '\\' : c === 't' ? '\t' : '\n'))
+    .trim()
+  const agent = (f[CLI_OUTDATED_FIELDS.agent] || '').trim()
+  return { cli: cliLabel(agent || kind), ...(version ? { version } : {}), ...(raw ? { raw } : {}) }
+}

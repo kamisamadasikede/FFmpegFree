@@ -1,12 +1,14 @@
 /**
  * 应用语言（契约 §6.20.2 / §6.20.3）。
- * BE GetAppLanguage / SetAppLanguage 未合入前：localStorage 兜底，标记 I18N_BE_PENDING，合入后只改本文件。
+ * 走 GetAppLanguage / SetAppLanguage（settings key app.language，默认 system）。
+ * 浏览器预览（无 Wails）仍用 localStorage 兜底。
  * 繁体中文 OS → zh-CN（产品 §6.20.8，无 zh-TW 包）。
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { hasWailsBackend, onEvent } from '@/services/wails'
 import { FALLBACK_LOCALE, LOCALES, setI18nLocale, type AppLocale, t } from '@/i18n'
+import { GetAppLanguage, SetAppLanguage } from '../../wailsjs/go/main/App'
 
 export type LanguageSetting = 'system' | AppLocale
 
@@ -17,8 +19,6 @@ export interface AppLanguage {
 }
 
 const LS_KEY = 'app.language'
-/** 后端绑定尚未合入时为 true；合入后改为 false 并走 wailsjs */
-export const I18N_BE_PENDING = true
 
 function isLocale(v: unknown): v is AppLocale {
   return typeof v === 'string' && (LOCALES as string[]).includes(v)
@@ -28,7 +28,7 @@ function isSetting(v: unknown): v is LanguageSetting {
   return v === 'system' || isLocale(v)
 }
 
-/** 浏览器 / 预览：用 navigator.language；zh* → zh-CN（含 zh-TW），ja* → ja，其余 → en */
+/** 浏览器 / 预览：navigator.language；zh* → zh-CN（含 zh-TW），ja* → ja，其余 → en */
 export function mapOsLocale(raw?: string | null): AppLocale {
   const s = (raw ?? (typeof navigator !== 'undefined' ? navigator.language : '') ?? '').toLowerCase()
   if (s.startsWith('zh')) return 'zh-CN'
@@ -48,30 +48,9 @@ function writeLocal(lang: LanguageSetting) {
   try { localStorage.setItem(LS_KEY, lang) } catch { /* ignore */ }
 }
 
-async function beGet(): Promise<AppLanguage | null> {
-  if (I18N_BE_PENDING || !hasWailsBackend()) return null
-  try {
-    const go = (window as any).go?.main?.App ?? (window as any).go?.app?.App
-    if (!go?.GetAppLanguage) return null
-    const r = await go.GetAppLanguage()
-    if (!r || !isSetting(r.lang) || !isLocale(r.system) || !isLocale(r.effective)) return null
-    return { lang: r.lang, system: r.system, effective: r.effective }
-  } catch {
-    return null
-  }
-}
-
-async function beSet(lang: LanguageSetting): Promise<AppLanguage | null> {
-  if (I18N_BE_PENDING || !hasWailsBackend()) return null
-  try {
-    const go = (window as any).go?.main?.App ?? (window as any).go?.app?.App
-    if (!go?.SetAppLanguage) return null
-    const r = await go.SetAppLanguage({ lang })
-    if (!r || !isSetting(r.lang) || !isLocale(r.system) || !isLocale(r.effective)) return null
-    return { lang: r.lang, system: r.system, effective: r.effective }
-  } catch (e) {
-    throw e
-  }
+function normalize(raw: { lang?: string; system?: string; effective?: string } | null | undefined): AppLanguage | null {
+  if (!raw || !isSetting(raw.lang) || !isLocale(raw.system) || !isLocale(raw.effective)) return null
+  return { lang: raw.lang, system: raw.system, effective: raw.effective }
 }
 
 export const useLanguageStore = defineStore('language', () => {
@@ -99,23 +78,29 @@ export const useLanguageStore = defineStore('language', () => {
   }
 
   async function init() {
-    const fromBe = await beGet()
-    if (fromBe) {
-      apply(fromBe)
+    if (hasWailsBackend()) {
+      try {
+        const fromBe = normalize(await GetAppLanguage())
+        if (fromBe) apply(fromBe)
+        else {
+          const lang = readLocal()
+          const sys = mapOsLocale()
+          apply({ lang, system: sys, effective: lang === 'system' ? sys : lang })
+        }
+      } catch {
+        const lang = readLocal()
+        const sys = mapOsLocale()
+        apply({ lang, system: sys, effective: lang === 'system' ? sys : lang })
+      }
     } else {
       const lang = readLocal()
       const sys = mapOsLocale()
-      const eff = lang === 'system' ? sys : lang
-      apply({ lang, system: sys, effective: eff })
+      apply({ lang, system: sys, effective: lang === 'system' ? sys : lang })
     }
     ready.value = true
     onEvent<AppLanguage>('app:language', (payload) => {
-      if (!payload || !isSetting(payload.lang) || !isLocale(payload.effective)) return
-      apply({
-        lang: payload.lang,
-        system: isLocale(payload.system) ? payload.system : mapOsLocale(),
-        effective: payload.effective,
-      })
+      const next = normalize(payload)
+      if (next) apply(next)
     })
   }
 
@@ -123,14 +108,10 @@ export const useLanguageStore = defineStore('language', () => {
     error.value = ''
     const prev = { lang: setting.value, system: system.value, effective: effective.value }
     const sys = system.value || mapOsLocale()
-    const optimistic: AppLanguage = {
-      lang,
-      system: sys,
-      effective: lang === 'system' ? sys : lang,
-    }
-    apply(optimistic)
+    apply({ lang, system: sys, effective: lang === 'system' ? sys : lang })
+    if (!hasWailsBackend()) return
     try {
-      const fromBe = await beSet(lang)
+      const fromBe = normalize(await SetAppLanguage({ lang }))
       if (fromBe) apply(fromBe)
     } catch (e: any) {
       apply(prev)
