@@ -1,6 +1,8 @@
-# FFmpegFree v2 接口契约（v0.44.5）
+# FFmpegFree v2 接口契约（v0.44.6）
 
-v0.44.5 变更（**turn 级 `retryable`**，后端 / 前端提议，架构师 10-14；无新错误码 / 迁移）：6.19.18.7 新增第 7 条：turn 新增 `retryable bool`，`GetCatConversation` 返回的 turn 和失败事件（`cat:turn` `status=failed`）都带；仅当该轮是会话最后一轮、`status=failed`、且失败状态仍在后端内存中时为 `true`（应用重启后为 `false`）。前端「重试」只在最后一轮失败且 `retryable=true` 时显示；点后仍返回 `retry_not_allowed` → 原地灰字。
+v0.44.6 变更（**`retryable` 落点定为 `lastTurn`**，前端 / 后端对齐，架构师 10-14；无新错误码 / 迁移）：`CatConversationDetail` 新增可选 `lastTurn` 对象 `{ turnId string, status string, retryable bool }`（Go：`LastTurn *CatTurnState json:"lastTurn,omitempty"`）；后端内存中没有该会话的 turn（如应用重启后）时省略，前端把缺省视为不可重试。不提供 `turns[]` 列表。失败事件 `cat:turn` `status=failed` 仍带 `retryable`。见 6.19.18.7 第 7 条。
+
+v0.44.5 变更（**turn 级 `retryable`**，后端 / 前端提议，架构师 10-14；无新错误码 / 迁移）：6.19.18.7 新增第 7 条：turn 新增 `retryable bool`，`GetCatConversation` 返回的 `CatConversationDetail.lastTurn`（v0.44.6 定稿：可选对象 `{ turnId string, status string, retryable bool }`，Go `LastTurn *CatTurnState json:"lastTurn,omitempty"`；后端内存无该会话 turn 时省略，前端视为不可重试；不提供 `turns[]`） 和失败事件（`cat:turn` `status=failed`）都带；仅当该轮是会话最后一轮、`status=failed`、且失败状态仍在后端内存中时为 `true`（应用重启后为 `false`）。前端「重试」只在最后一轮失败且 `retryable=true` 时显示；点后仍返回 `retry_not_allowed` → 原地灰字。
 
 v0.44.4 变更（**重试文案定稿 + 默认模式按 CLI**，产品 / 架构师 10-14；无新错误码 / 迁移，`cat.settings` JSON 就地演进）：① 6.19.18.7 第 6 条定稿：「重试」只在失败轮是最后一轮且仍可重试时显示；点了但已不可重试 → 按钮原地换成灰字「这条回复已无法重试，请重新发送。」，不弹 toast、不用红色。② 新增 6.19.18.9：`CatSettings.defaultApprovalMode`（全局单值）改为 `defaultModeByAgent{cat_build,claude_cli,codex_cli}` → 该家 `modes[].id`；设置页每家一个下拉；旧值按各家「旧值」列迁移，未知回落该家最保守默认。
 
@@ -5565,7 +5567,7 @@ RetryCatTurn(req RetryCatTurnRequest) (SendCatMessageResult, error)
 6. **限制与界面**（v0.44.3 / v0.44.4 定稿）：只能重试**最后一轮**；失败轮状态**只存在内存**，应用重启后该轮不能重试（`retry_not_allowed`）。
    - 「重试」按钮**只在**该失败轮是会话最后一轮**且仍可重试**时显示；应用重启后、或已不是最后一轮 → **不显示**。
    - 点了「重试」但后端返回 `retry_not_allowed` → 按钮消失，**原地**换成灰字「这条回复已无法重试，请重新发送。」，字号同「当前版本 X」那行；**不弹 toast、不用红色**。
-7. **`retryable`（v0.44.5）**：turn 新增 `retryable bool`（`json:"retryable"`，始终输出），出现在 `GetCatConversation` 返回的每个 turn 上，以及失败事件（`cat:turn` `status=failed`）的载荷里。**仅当**该轮是会话最后一轮、`status=failed`、且其失败状态仍存在于后端内存中时为 `true`；其余（非最后一轮、非失败、应用重启后内存已无）一律 `false`。新一轮开始后，前一失败轮变为 `false`。
+7. **`retryable`（v0.44.5）**：turn 新增 `retryable bool`（`json:"retryable"`，始终输出），出现在 `GetCatConversation` 返回的 `CatConversationDetail.lastTurn`（v0.44.6 定稿：可选对象 `{ turnId string, status string, retryable bool }`，Go `LastTurn *CatTurnState json:"lastTurn,omitempty"`；后端内存无该会话 turn 时省略，前端视为不可重试；不提供 `turns[]`） 上，以及失败事件（`cat:turn` `status=failed`）的载荷里。**仅当**该轮是会话最后一轮、`status=failed`、且其失败状态仍存在于后端内存中时为 `true`；其余（非最后一轮、非失败、应用重启后内存已无）一律 `false`。新一轮开始后，前一失败轮变为 `false`。
    - 前端：「重试」**只在**最后一轮 `status=failed` 且 `retryable=true` 时显示，不再自行推断。
    - `retryable=true` 但调用时后端返回 `retry_not_allowed`（竞态）→ 仍按第 6 条原地换成灰字。
 
