@@ -446,6 +446,10 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	if waitErr != nil && cliArgRejected(stderrText+"\n"+cliMsg) {
 		return usageResp, outdatedCLIErr(a.name, curVer, stderrText)
 	}
+	if a.kind == cliKindCodex && opts.Provider.Enabled && codexResponsesMissing(cliMsg+"\n"+stderrText) {
+		// 契约 6.19.20.5：服务商没有 /responses → 固定文案，不回传 CLI 原文（里面有地址）。
+		return usageResp, providerResponsesUnsupportedErr(KindCodexCLI)
+	}
 	if cliMsg != "" || waitErr != nil {
 		msg := cliMsg
 		if msg == "" {
@@ -758,6 +762,7 @@ func (a *CLIAgentAdapter) buildCodexArgs(opts TurnOptions, prompt, cwd, sessionI
 	if resume && sessionID != "" {
 		// codex exec resume [OPTIONS] <SESSION_ID> [PROMPT]
 		args := []string{"exec", "resume", "--json", "--skip-git-repo-check"}
+		args = append(args, opts.Provider.ExtraArgs()...)
 		args = append(args, codexPermissionArgs(opts.PermissionMode, true)...)
 		args = append(args, codexEffortArgs(opts.ThinkLevelID)...)
 		if mid := strings.TrimSpace(opts.ModelID); mid != "" && mid != "default" {
@@ -766,6 +771,7 @@ func (a *CLIAgentAdapter) buildCodexArgs(opts TurnOptions, prompt, cwd, sessionI
 		return append(args, sessionID, prompt)
 	}
 	args := []string{"exec", "--json", "--skip-git-repo-check"}
+	args = append(args, opts.Provider.ExtraArgs()...)
 	if cwd != "" {
 		args = append(args, "-C", cwd)
 	}

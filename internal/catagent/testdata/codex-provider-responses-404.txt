@@ -1,0 +1,14 @@
+# codex-cli 0.162.1 — codex exec --json -c model_providers.ffcat.*（假服务 POST /v1/responses → 404）— captured 2026-10-14 — exit=1
+# --- stdout ---
+{"type":"thread.started","thread_id":"01a1389d-daea-7f23-a922-4ca00435c97b"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Model metadata for `my-gw-model` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."}}
+{"type":"turn.started"}
+{"type":"error","message":"Reconnecting... 1/5 (unexpected status 404 Not Found: Unknown error, url: http://127.0.0.1:18800/v1/responses)"}
+{"type":"error","message":"Reconnecting... 2/5 (unexpected status 404 Not Found: Unknown error, url: http://127.0.0.1:18800/v1/responses)"}
+{"type":"error","message":"Reconnecting... 3/5 (unexpected status 404 Not Found: Unknown error, url: http://127.0.0.1:18800/v1/responses)"}
+{"type":"error","message":"Reconnecting... 4/5 (unexpected status 404 Not Found: Unknown error, url: http://127.0.0.1:18800/v1/responses)"}
+{"type":"error","message":"Reconnecting... 5/5 (unexpected status 404 Not Found: Unknown error, url: http://127.0.0.1:18800/v1/responses)"}
+{"type":"error","message":"unexpected status 404 Not Found: Unknown error, url: http://127.0.0.1:18800/v1/responses"}
+{"type":"turn.failed","error":{"message":"unexpected status 404 Not Found: Unknown error, url: http://127.0.0.1:18800/v1/responses"}}
+# --- stderr ---
+Reading additional input from stdin...

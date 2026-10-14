@@ -97,3 +97,12 @@ func (s *CatService) EnsureCreateCatSkillsDir(req cat.SkillsDirRequest) (cat.Ski
 	}
 	return c.EnsureCreateCatSkillsDir(s.rootCtx(), req)
 }
+
+// ListCatProviderModels 拉一家自定义服务商的模型列表（契约 6.19.20.2）；网络 / 鉴权问题放 state，不报错。
+func (s *CatService) ListCatProviderModels(req cat.ListCatProviderModelsRequest) (cat.CatProviderModelList, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.CatProviderModelList{}, err
+	}
+	return c.ListCatProviderModels(s.rootCtx(), req)
+}

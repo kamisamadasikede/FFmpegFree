@@ -72,7 +72,16 @@ var allEfforts = []string{"", "low", "xhigh", "max", "ultra"}
 
 // codexConfigKeys 是我们允许用 `-c key=value` 传的配置键（help 只列 -c 本身，键名出处是
 // D https://developers.openai.com/codex/config-reference ：sandbox_mode / approval_policy / model_reasoning_effort）。
-var codexConfigKeys = map[string]bool{"sandbox_mode": true, "approval_policy": true, "model_reasoning_effort": true}
+// v0.46：model_provider / model_providers.<id>.name / base_url / env_key / wire_api 同出处（「wire_api … responses is the only supported value」）；
+// 真机 codex 0.162.1 exec 与 exec resume 均接受这组 -c，并向假网关发 POST /v1/responses（PR 描述有复现）。
+var codexConfigKeys = map[string]bool{
+	"sandbox_mode": true, "approval_policy": true, "model_reasoning_effort": true,
+	"model_provider":                 true,
+	"model_providers.ffcat.name":     true,
+	"model_providers.ffcat.base_url": true,
+	"model_providers.ffcat.env_key":  true,
+	"model_providers.ffcat.wire_api": true,
+}
 
 func assertCodexConfigKeys(t *testing.T, args []string) {
 	t.Helper()
