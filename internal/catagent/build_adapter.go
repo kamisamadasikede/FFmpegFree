@@ -54,7 +54,8 @@ type BuildConfig struct {
 	// DataRoot 是应用数据目录。无项目时 --cwd 用 paths.ResolveCatConvDir（与文件面板同一处）。
 	DataRoot string
 	DataTemp string // <数据目录>/tmp；DataRoot 为空时的旧回退
-	Emit     func(event string, payload any)
+	// OnChange（v0.47.1 6.19.21.1）：检测状态变化时调用；适配器不再自己发 cat:status，由服务层发全量。
+	OnChange func(agentKind string)
 	Logf     func(format string, args ...any)
 	// Exec 可覆盖（测试注入假二进制）。
 	Exec func(ctx context.Context, name string, args ...string) *exec.Cmd
@@ -79,6 +80,10 @@ type BuildAdapter struct {
 	models  []Model
 	thinks  []ThinkLevel
 	checked bool
+	// v0.47.1：detecting = detect() 进行中；checkedAt = 最近一次检测完成（Unix 毫秒）
+	detecting bool
+	checkedAt int64
+	detGen    uint64
 	// provider 是 v0.38 自定义服务商叠加；仅影响子进程 env（List/Recheck 探测与 RunTurn 旁路字段配合）。
 	provider ProviderOverlay
 }
@@ -170,10 +175,21 @@ func (a *BuildAdapter) Recheck() Status {
 func (a *BuildAdapter) setStatus(st Status) {
 	a.mu.Lock()
 	a.st = st
-	a.mu.Unlock()
-	if a.cfg.Emit != nil {
-		a.cfg.Emit(EventStatus, st)
+	if st.State != StateChecking && st.State != "" && a.detecting {
+		a.checkedAt = a.cfg.Now().UnixMilli()
+		a.detecting = false
 	}
+	a.mu.Unlock()
+	if a.cfg.OnChange != nil {
+		a.cfg.OnChange(KindCatBuild)
+	}
+}
+
+// CheckedAt 是最近一次实时检测完成的时间（Unix 毫秒）；本进程还没检测完过 = 0（v0.47.1）。
+func (a *BuildAdapter) CheckedAt() int64 {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.checkedAt
 }
 
 func (a *BuildAdapter) markAuthInvalid() {
@@ -213,11 +229,59 @@ func (a *BuildAdapter) resolveGrokExe() string {
 			}
 		}
 	}
+	if winFallbackEnabled() {
+		return winFallback(KindCatBuild, "grok")
+	}
 	return ""
 }
 
+// detect 检测一次；整体超过 DetectTimeout（v0.47.1，15 秒）记为检测失败（reason=detect_timeout），
+// 超时后迟到的结果丢弃。
 func (a *BuildAdapter) detect() {
+	a.mu.Lock()
+	a.detecting = true
+	a.detGen++
+	gen := a.detGen
+	a.mu.Unlock()
 	a.setStatus(Status{State: StateChecking, CanDownload: false})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		a.detectBody(gen)
+	}()
+	t := time.NewTimer(DetectTimeout)
+	defer t.Stop()
+	select {
+	case <-done:
+	case <-t.C:
+		a.mu.Lock()
+		stale := a.detGen != gen
+		if !stale {
+			a.detGen++ // 作废这一轮，迟到结果不再生效
+			a.exe, a.version, a.models, a.thinks, a.checked = "", "", nil, nil, true
+		}
+		a.mu.Unlock()
+		if !stale {
+			a.setStatus(Status{
+				State:       StateFailed,
+				CanDownload: false,
+				Error:       apperr.New(apperr.CatNotReady, MsgNotReady).WithDetail("reason=detect_timeout"),
+			})
+		}
+	}
+}
+
+// setStatusGen 只在这一轮检测仍有效时生效。
+func (a *BuildAdapter) setStatusGen(gen uint64, st Status) {
+	a.mu.Lock()
+	ok := a.detGen == gen
+	a.mu.Unlock()
+	if ok {
+		a.setStatus(st)
+	}
+}
+
+func (a *BuildAdapter) detectBody(gen uint64) {
 
 	if exe := a.resolveGrokExe(); exe != "" {
 		ver := cachedCLIVersion(exe, a.probeGrokVersion)
@@ -232,7 +296,7 @@ func (a *BuildAdapter) detect() {
 		a.thinks = append([]ThinkLevel(nil), defaultThinks...)
 		a.checked = true
 		a.mu.Unlock()
-		a.setStatus(Status{State: StateReady, Version: ver, CanDownload: false})
+		a.setStatusGen(gen, Status{State: StateReady, Version: ver, CanDownload: false})
 		return
 	}
 
@@ -244,7 +308,7 @@ func (a *BuildAdapter) detect() {
 		a.mu.Lock()
 		a.exe, a.root, a.version, a.models, a.thinks, a.viaPATH, a.checked = "", "", "", nil, nil, false, true
 		a.mu.Unlock()
-		a.setStatus(Status{
+		a.setStatusGen(gen, Status{
 			State:       StateMissing,
 			CanDownload: false,
 			Error:       apperr.New(apperr.CatNotReady, MsgNotReady),
@@ -256,7 +320,7 @@ func (a *BuildAdapter) detect() {
 	a.exe, a.root, a.version, a.viaPATH, a.checked = exe, root, ver, false, true
 	a.models, a.thinks = nil, nil
 	a.mu.Unlock()
-	a.setStatus(Status{
+	a.setStatusGen(gen, Status{
 		State:       StateMissing,
 		Version:     ver,
 		CanDownload: false,
@@ -1508,6 +1572,7 @@ func (a *BuildAdapter) runCmd(ctx context.Context, name string, args ...string) 
 		cmd = exec.CommandContext(ctx, name, args...)
 	}
 	proc.Configure(cmd)
+	wrapShim(cmd, name, args) // v0.47.1：Windows .cmd / .ps1 经 cmd.exe / powershell 启动
 	cmd.Cancel = func() error { return proc.Kill(cmd) }
 	return cmd
 }

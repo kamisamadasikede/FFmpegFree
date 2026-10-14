@@ -24,7 +24,8 @@ import (
 type CLIAgentConfig struct {
 	DataRoot string
 	DataTemp string
-	Emit     func(event string, payload any)
+	// OnChange（v0.47.1 6.19.21.1）：检测状态变化时调用；适配器不再自己发 cat:status，由服务层发全量。
+	OnChange func(agentKind string)
 	Logf     func(format string, args ...any)
 	Exec     func(ctx context.Context, name string, args ...string) *exec.Cmd
 	LookPath func(file string) (string, error)
@@ -49,14 +50,18 @@ type CLIAgentAdapter struct {
 	kind cliKind
 	name string // KindClaudeCLI / KindCodexCLI
 
-	mu       sync.Mutex
-	st       Status
-	version  string
-	exe      string
-	models   []Model
-	thinks   []ThinkLevel
-	checked  bool
-	provider ProviderOverlay // v0.38；仅子进程
+	mu      sync.Mutex
+	st      Status
+	version string
+	exe     string
+	models  []Model
+	thinks  []ThinkLevel
+	checked bool
+	// v0.47.1：detecting = detect() 进行中；checkedAt = 最近一次检测完成（Unix 毫秒）
+	detecting bool
+	checkedAt int64
+	detGen    uint64
+	provider  ProviderOverlay // v0.38；仅子进程
 }
 
 // NewClaudeAdapter 创建 Claude Code 真适配器（不立即检测）。
@@ -123,10 +128,21 @@ func (a *CLIAgentAdapter) Recheck() Status {
 func (a *CLIAgentAdapter) setStatus(st Status) {
 	a.mu.Lock()
 	a.st = st
-	a.mu.Unlock()
-	if a.cfg.Emit != nil {
-		a.cfg.Emit(EventStatus, st)
+	if st.State != StateChecking && st.State != "" && a.detecting {
+		a.checkedAt = a.cfg.Now().UnixMilli()
+		a.detecting = false
 	}
+	a.mu.Unlock()
+	if a.cfg.OnChange != nil {
+		a.cfg.OnChange(a.name)
+	}
+}
+
+// CheckedAt 是最近一次实时检测完成的时间（Unix 毫秒）；本进程还没检测完过 = 0（v0.47.1）。
+func (a *CLIAgentAdapter) CheckedAt() int64 {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.checkedAt
 }
 
 func (a *CLIAgentAdapter) markAuthInvalid() {
@@ -172,17 +188,69 @@ func (a *CLIAgentAdapter) resolveExe() string {
 			}
 		}
 	}
+	if winFallbackEnabled() {
+		base := "claude"
+		if a.kind == cliKindCodex {
+			base = "codex"
+		}
+		return winFallback(a.name, base)
+	}
 	return ""
 }
 
+// detect 检测一次；整体超过 DetectTimeout（v0.47.1，15 秒）记为检测失败（reason=detect_timeout），
+// 超时后迟到的结果丢弃。
 func (a *CLIAgentAdapter) detect() {
+	a.mu.Lock()
+	a.detecting = true
+	a.detGen++
+	gen := a.detGen
+	a.mu.Unlock()
 	a.setStatus(Status{State: StateChecking, CanDownload: false})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		a.detectBody(gen)
+	}()
+	t := time.NewTimer(DetectTimeout)
+	defer t.Stop()
+	select {
+	case <-done:
+	case <-t.C:
+		a.mu.Lock()
+		stale := a.detGen != gen
+		if !stale {
+			a.detGen++ // 作废这一轮，迟到结果不再生效
+			a.exe, a.version, a.models, a.thinks, a.checked = "", "", nil, nil, true
+		}
+		a.mu.Unlock()
+		if !stale {
+			a.setStatus(Status{
+				State:       StateFailed,
+				CanDownload: false,
+				Error:       apperr.New(apperr.CatNotReady, MsgNotReady).WithDetail("reason=detect_timeout"),
+			})
+		}
+	}
+}
+
+// setStatusGen 只在这一轮检测仍有效时生效。
+func (a *CLIAgentAdapter) setStatusGen(gen uint64, st Status) {
+	a.mu.Lock()
+	ok := a.detGen == gen
+	a.mu.Unlock()
+	if ok {
+		a.setStatus(st)
+	}
+}
+
+func (a *CLIAgentAdapter) detectBody(gen uint64) {
 	exe := a.resolveExe()
 	if exe == "" {
 		a.mu.Lock()
 		a.exe, a.version, a.models, a.thinks, a.checked = "", "", nil, nil, true
 		a.mu.Unlock()
-		a.setStatus(Status{
+		a.setStatusGen(gen, Status{
 			State:       StateMissing,
 			CanDownload: false,
 			Error:       apperr.New(apperr.CatNotReady, MsgNotReady),
@@ -200,7 +268,7 @@ func (a *CLIAgentAdapter) detect() {
 	a.models, a.thinks = models, thinks
 	a.checked = true
 	a.mu.Unlock()
-	a.setStatus(Status{State: StateReady, Version: ver, CanDownload: false})
+	a.setStatusGen(gen, Status{State: StateReady, Version: ver, CanDownload: false})
 }
 
 func (a *CLIAgentAdapter) ListModels() ([]Model, error) {
@@ -299,8 +367,25 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	resume := sessionID != ""
 
 	args := a.buildTurnArgs(opts, prompt, cwd, sessionID, resume)
+	var stdinText string
+	viaStdin := isShimExt(exe)
+	if viaStdin {
+		// v0.47.1 6.19.21.4：.cmd / .ps1 包装不经命令行传提示词 / 规则。
+		var clean func()
+		var serr error
+		args, stdinText, clean, serr = shimStdinArgs(a.kind, args, a.cfg.DataTemp)
+		if serr != nil {
+			return TurnResponse{}, apperr.Wrap(apperr.CatReplyFailed, MsgReplyFailed, serr).WithDetail("reason=prompt_file")
+		}
+		if clean != nil {
+			defer clean()
+		}
+	}
 	cmd := a.runCmd(runCtx, exe, args...)
 	cmd.Dir = cwd
+	if viaStdin {
+		cmd.Stdin = strings.NewReader(stdinText)
+	}
 	cmd.Env = MergeSkillsEnv(MergeProviderEnv(os.Environ(), opts.Provider), opts.Skills)
 
 	stdout, err := cmd.StdoutPipe()
@@ -554,6 +639,7 @@ func (a *CLIAgentAdapter) runCmd(ctx context.Context, name string, args ...strin
 		cmd = exec.CommandContext(ctx, name, args...)
 	}
 	proc.Configure(cmd)
+	wrapShim(cmd, name, args) // v0.47.1：Windows .cmd / .ps1 经 cmd.exe / powershell 启动
 	cmd.Cancel = func() error { return proc.Kill(cmd) }
 	return cmd
 }

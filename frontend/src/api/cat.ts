@@ -316,9 +316,9 @@ export async function getCatStatus(): Promise<CatStatus> {
   return mapCatStatus(await call(CatBinding.GetCatStatus()))
 }
 
-export async function recheckCat(): Promise<CatStatus> {
+export async function recheckCat(agentKind = ''): Promise<CatStatus> {
   if (!live()) return missingStatus()
-  return mapCatStatus(await call(CatBinding.RecheckCat()))
+  return mapCatStatus(await call(CatBinding.RecheckCat(agentKind)))
 }
 
 function mapList<T extends { id: string; displayName: string }>(raw: unknown): T[] {

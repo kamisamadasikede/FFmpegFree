@@ -88,7 +88,7 @@ export function PreviewCatMedia(arg1:string):Promise<cat.MediaPreview>;
 
 export function ReadCatFile(arg1:cat.ReadFileRequest):Promise<cat.ReadFileResult>;
 
-export function RecheckCat():Promise<catagent.Status>;
+export function RecheckCat(arg1:string):Promise<catagent.Status>;
 
 export function RelocateCatProject(arg1:cat.RelocateProjectRequest):Promise<cat.Project>;
 

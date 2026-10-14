@@ -1478,6 +1478,10 @@ export namespace catagent {
 	    loggedIn?: boolean;
 	    detail?: string;
 	    modes: AgentMode[];
+	    checking: boolean;
+	    checkedAt?: number;
+	    stale?: boolean;
+	    exePath?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AgentStatus(source);
@@ -1491,6 +1495,10 @@ export namespace catagent {
 	        this.loggedIn = source["loggedIn"];
 	        this.detail = source["detail"];
 	        this.modes = this.convertValues(source["modes"], AgentMode);
+	        this.checking = source["checking"];
+	        this.checkedAt = source["checkedAt"];
+	        this.stale = source["stale"];
+	        this.exePath = source["exePath"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

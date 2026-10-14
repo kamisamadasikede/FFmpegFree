@@ -383,33 +383,36 @@ func (a *App) startCat() {
 		temp = a.dirs.Temp
 	}
 	reg := catagent.NewRegistry()
+	// v0.47.1：适配器只回调 OnChange，由服务层发全量 cat:status（服务建好前的变化由 StartDetection 首条补上）。
+	onChange := func(kind string) {
+		if svc := a.cat.Load(); svc != nil {
+			svc.AgentChanged(kind)
+		}
+	}
 	build := catagent.NewBuildAdapter(catagent.BuildConfig{
 		ComponentDir: catagent.DefaultComponentDir(root),
 		DataRoot:     root,
 		DataTemp:     temp,
-		Emit:         emit,
+		OnChange:     onChange,
 		Logf:         log.Printf,
 	})
 	reg.Register(build)
 	claude := catagent.NewClaudeAdapter(catagent.CLIAgentConfig{
 		DataRoot: root,
 		DataTemp: temp,
-		Emit:     emit,
+		OnChange: onChange,
 		Logf:     log.Printf,
 	})
 	codex := catagent.NewCodexAdapter(catagent.CLIAgentConfig{
 		DataRoot: root,
 		DataTemp: temp,
-		Emit:     emit,
+		OnChange: onChange,
 		Logf:     log.Printf,
 	})
 	reg.Register(claude)
 	reg.Register(codex)
 	reg.SetDefaultKind(a.sys.CatDefaultAgentKind(a.rootCtx))
 	a.catReg.Store(reg)
-	build.Start()
-	claude.Start()
-	codex.Start()
 
 	cfg := cat.Config{
 		Registry:               reg,
@@ -438,6 +441,8 @@ func (a *App) startCat() {
 	}
 	svc := cat.New(cfg)
 	a.cat.Store(svc)
+	// v0.47.1：先发 cat.detect 的上次结果（stale），再后台实时检测所有已注册适配器。
+	svc.StartDetection()
 	if cfg.Store != nil {
 		// 定时任务调度器（契约 6.19.13.3）：后台跑，不阻塞窗口显示；通知初始化也放后台。
 		go func() {
