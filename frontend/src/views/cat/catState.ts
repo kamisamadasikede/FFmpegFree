@@ -1,6 +1,7 @@
 import { refreshScratch } from './catScratchFiles'
 import { listCatFiles } from '@/api/catFiles'
 import { catBackendLive } from '@/api/cat'
+import { mergeCatStatus, markRowChecking } from '@/api/catDetect'
 import { applyCatOutput, applyCatTiming } from '@/components/cat/catTimingAdapter'
 /**
  * Cat 页本地状态（单例）。契约 v0.30 / 设计 v0.4：
@@ -52,6 +53,7 @@ import {
   getCatConversation,
   getCatStatus,
   recheckCat,
+  mapCatStatus,
   isCatLive,
   listCatConversations,
   listLiveCatTurns,
@@ -92,7 +94,7 @@ import { isModelListStale, listCatProviderModels, providerFailureText, type CatP
 import { isProviderKind, type CatProviderKind } from '@/api/catAgents'
 import { catPanels, showTurnFinishToast, defaultConvPref, dismissFailToast } from './catPanels'
 import { rememberNewConvProject, resolveNewConvProject } from './catLocalPrefs'
-import { catSim, catSimOs, catSimPicks, simAgentRaw, simStream } from './catDevSim'
+import { catSim, catSimOs, catSimPicks, simAgentRaw, simStream, simDetectPayloads } from './catDevSim'
 import { DEFAULT_MODEL_LABEL, followsCliModel, FALLBACK_MODES, resolveModeId, mapAgentModes, mapBackendCaps, mapModelEfforts, getCatAgentCapabilities, modeMeta, pickSupported, setBackendCaps, useCatAgentCapabilities } from './catCapabilities'
 import {
   CAT_CONV_PREFS_KEY,
@@ -660,25 +662,44 @@ let offs: Array<() => void> = []
 /** 未就绪横幅里的「重新检测」：先显示检查中，再用结果覆盖 */
 export async function recheckCatStatus(): Promise<void> {
   if (catState.status.state === 'checking') return
+  await recheckCatAgents()
+}
+
+/** v0.47.1：cat:status / Get / Recheck 的结果一律按 agents[] 合并进 store，不整份替换 */
+export function applyCatStatus(s: CatStatus): void {
   const was = catState.status.state
-  catState.status = { ...catState.status, state: 'checking' }
-  try {
-    catState.status = await recheckCat()
-  } catch {
-    catState.status = { state: 'missing', version: '', canDownload: false, error: { code: 'CAT_NOT_READY', message: CAT_COPY.notReady }, agents: [] }
-  }
+  catState.status = mergeCatStatus(catState.status, s, s.hasAgents === true)
   if (catState.status.state === 'ready' && was !== 'ready') void refreshCapabilities()
+}
+
+/**
+ * 重新检测的唯一入口。agentKind 空 = 全部（全部行进检测中）；传了只把该行置检测中，其它行不动。
+ * 旧绑定不支持参数时 recheckCat 自动退化为全量，但界面上仍只动该行。
+ */
+export async function recheckCatAgents(agentKind?: CatProviderKind): Promise<void> {
+  const prev = catState.status
+  catState.status = agentKind
+    ? markRowChecking(prev, agentKind)
+    : { ...prev, state: 'checking', agents: (prev.agents ?? []).map((a) => ({ ...a, checking: true })) }
+  try {
+    if (import.meta.env.DEV && catSim.size && !live) {
+      await new Promise((r) => setTimeout(r, 900))
+      const done = { ...catState.status, state: prev.state, agents: (catState.status.agents ?? []).map((a) => (!agentKind || a.agentKind === agentKind ? { ...a, checking: false, stale: false, checkedAt: Date.now() } : a)) }
+      applyCatStatus({ ...done, hasAgents: true })
+      return
+    }
+    applyCatStatus(await recheckCat(agentKind))
+  } catch {
+    // 失败：撤回检测中，保留上次结果
+    catState.status = { ...catState.status, state: prev.state === 'checking' ? 'missing' : prev.state, agents: (catState.status.agents ?? []).map((a) => ({ ...a, checking: prev.agents?.find((p) => p.agentKind === a.agentKind)?.checking ?? false })) }
+  }
 }
 
 /** CatPage 挂载时调用；返回卸载函数 */
 export function initCat(): () => void {
   disposeCat()
   offs = [
-    onCatStatus((s) => {
-      const was = catState.status.state
-      catState.status = s
-      if (s.state === 'ready' && was !== 'ready') void refreshCapabilities()
-    }),
+    onCatStatus(applyCatStatus),
     onCatMessage(handleMessageEvent),
     onCatTurn(handleTurnEvent),
     onCatProject(handleProjectEvent),
@@ -696,10 +717,15 @@ export function initCat(): () => void {
   }
   if (catProjectsSim()) seedProjectSim()
   // 开发走查（?cat_sim=checking|stream）：保持模拟的组件状态，不被浏览器 mock 的 missing 覆盖
-  const simStatus = import.meta.env.DEV && (catSim.has('checking') || catSim.has('stream'))
+  const detectSim = import.meta.env.DEV ? simDetectPayloads() : []
+  for (const p of detectSim) {
+    const t = setTimeout(() => applyCatStatus(mapCatStatus(p.raw)), p.ms)
+    offs.push(() => clearTimeout(t))
+  }
+  const simStatus = import.meta.env.DEV && (catSim.has('checking') || catSim.has('stream') || detectSim.length > 0)
   if (!simStatus) {
     void getCatStatus()
-      .then((s) => (catState.status = s))
+      .then(applyCatStatus)
       .catch(() => (catState.status = { state: 'missing', version: '', canDownload: false, error: { code: 'CAT_NOT_READY', message: CAT_COPY.notReady }, agents: [] }))
   }
   if (live) void reloadConversations().finally(() => { void adoptLiveTurns() })
