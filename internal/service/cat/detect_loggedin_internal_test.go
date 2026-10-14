@@ -32,7 +32,7 @@ func TestLoggedInOnlyFromLiveDetection(t *testing.T) {
 	svc := New(Config{Registry: reg, Store: st, Emit: rec.emit, StatusDebounce: -1})
 	claude := &loginFake{fakeDetAdapter: newFake(catagent.KindClaudeCLI, true), logged: bptr(true)}
 	codex := &loginFake{fakeDetAdapter: newFake(catagent.KindCodexCLI, true)} // 判断不了 = nil
-	build := newFake(catagent.KindCatBuild, true)                               // 不实现 LiveLoggedIn
+	build := newFake(catagent.KindCatBuild, true)                             // 不实现 LiveLoggedIn
 	for _, f := range []catagent.Adapter{build, claude, codex} {
 		reg.Register(f)
 	}
