@@ -57,6 +57,7 @@ func (s *Service) SaveCatProviderKey(ctx context.Context, req SaveProviderKeyReq
 	if err := s.cfg.Store.SetSetting(ctx, ProviderSecretsKey, secrets); err != nil {
 		return ProviderSettings{}, apperr.Wrap(apperr.IOError, "保存失败，请重试。", err)
 	}
+	s.invalidateProviderModels(kind)
 	return s.providerView(ctx, kind)
 }
 
@@ -77,6 +78,7 @@ func (s *Service) ClearCatProviderKey(ctx context.Context, req ClearProviderKeyR
 	if err := s.cfg.Store.SetSetting(ctx, ProviderSecretsKey, secrets); err != nil {
 		return ProviderSettings{}, apperr.Wrap(apperr.IOError, "保存失败，请重试。", err)
 	}
+	s.invalidateProviderModels(kind)
 	return s.providerView(ctx, kind)
 }
 

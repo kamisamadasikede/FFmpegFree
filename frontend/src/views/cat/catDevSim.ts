@@ -17,6 +17,8 @@
  *   caps     —— 模型 / 思考强度给一份走查用列表（含「极高」等任意档位；模型名是真实风格 ID，不叫「Cat 助手 …」），走查胶囊「默认」和选档
  *   codexcaps —— 【走查假数据，不是 Codex CLI 真实列表】Codex 会话给一份不同于 Grok 的模式 / 强度列表，走查「按 agentKind 渲染」；契约 v0.44 落地后以后端为准
  *   failonce —— 配合 stream：每条对话第一轮直接失败，走查「重试」原地重发（v0.44 RetryCatTurn）
+ *   scratchfiles —— 未绑定项目的对话，对话文件夹当作有文件（右侧文件面板显示）
+ *   histmissing / histreadfail —— 同 histempty，historyStatus=missing / read_failed（v0.45.2 两句空状态；histempty 无字段 → 欢迎页）
  *   retrygone —— 配合 stream,failonce：点「重试」时后端报 retry_not_allowed，按钮原地换成灰字（v0.44.5）
  *   histempty —— 打开任意对话都当作记录没找到（零轮），走查空状态
  *   md       —— 配合 stream：推一段 Markdown 回复（标题、列表、表格、代码块、引用、链接、外链图片、原始 HTML）
@@ -30,6 +32,10 @@
  *   schedempty —— 定时任务为空（空状态 + 模板卡）
  *   schedfail —— 定时任务的保存 / 启停 / 立即运行 / 删除都失败
  *   mdhold   —— 配合 stream,md：推到代码块中间就停住（围栏未闭合、仍在生成），走查流式中的代码块
+ *   timingpartial —— 配合 stream：v0.45 消息尾不带首字（只有总耗时），走查「缺哪项不显示哪项」
+ *   timinglong —— 配合 stream：首字 12.3s、总耗时 65s（「1分05秒」）
+ *   timingstop —— 配合 stream：推到一半自动按「已停止」结束（cancelled，总耗时算到停止那刻）
+ *   footertip —— 消息尾悬停提示常显（截图用）
  *   footertime —— 配合 stream：完成态消息尾只留「完成于 HH:mm」（默认带 token 两段）
  *   gitconflict —— 右栏 Git 模拟合并冲突列表（v0.41 走查）
  *   gitrebase —— 同上，变基中文案
@@ -70,8 +76,8 @@ export function simThinks(): CatThinkLevel[] {
   ]
 }
 
-export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'codexcaps' | 'failonce' | 'histempty' | 'md' | 'mdhold' | 'savefail' | 'inspectslow' | 'inspectfail' | 'inspectempty' | 'clearfail' | 'keyfail' | 'skillsmissing' | 'setenablefail' | 'schedempty' | 'schedfail' | 'slowconv' | 'browsertimeout' | 'footertime' | 'allagents' | 'gitconflict' | 'gitrebase' | 'gitdone' | 'gitbranch' | 'office' | 'officeneed' | 'officedl' | 'officefail' | 'officepreview' | 'officeready' | 'clioutdated' | 'retrygone' | 'pmcustom' | 'pm_slow' | 'pm_empty' | 'pm_unauth' | 'pm_unreach' | 'pm_unsupported' | 'pm_bad' | 'pm_notcfg' | 'codexnoresponses' | 'codexconv'
-const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'codexcaps', 'failonce', 'histempty', 'md', 'mdhold', 'savefail', 'inspectslow', 'inspectfail', 'inspectempty', 'clearfail', 'keyfail', 'skillsmissing', 'setenablefail', 'schedempty', 'schedfail', 'slowconv', 'browsertimeout', 'footertime', 'allagents', 'gitconflict', 'gitrebase', 'gitdone', 'gitbranch', 'office', 'officeneed', 'officedl', 'officefail', 'officepreview', 'officeready', 'clioutdated', 'retrygone', 'pmcustom', 'pm_slow', 'pm_empty', 'pm_unauth', 'pm_unreach', 'pm_unsupported', 'pm_bad', 'pm_notcfg', 'codexnoresponses', 'codexconv']
+export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'codexcaps' | 'failonce' | 'histempty' | 'md' | 'mdhold' | 'savefail' | 'inspectslow' | 'inspectfail' | 'inspectempty' | 'clearfail' | 'keyfail' | 'skillsmissing' | 'setenablefail' | 'schedempty' | 'schedfail' | 'slowconv' | 'browsertimeout' | 'footertime' | 'allagents' | 'gitconflict' | 'gitrebase' | 'gitdone' | 'gitbranch' | 'office' | 'officeneed' | 'officedl' | 'officefail' | 'officepreview' | 'officeready' | 'clioutdated' | 'retrygone' | 'footertip' | 'timingpartial' | 'timinglong' | 'timingstop' | 'histmissing' | 'histreadfail' | 'scratchfiles' | 'pmcustom' | 'pm_slow' | 'pm_empty' | 'pm_unauth' | 'pm_unreach' | 'pm_unsupported' | 'pm_bad' | 'pm_notcfg' | 'codexnoresponses' | 'codexconv'
+const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'codexcaps', 'failonce', 'histempty', 'md', 'mdhold', 'savefail', 'inspectslow', 'inspectfail', 'inspectempty', 'clearfail', 'keyfail', 'skillsmissing', 'setenablefail', 'schedempty', 'schedfail', 'slowconv', 'browsertimeout', 'footertime', 'allagents', 'gitconflict', 'gitrebase', 'gitdone', 'gitbranch', 'office', 'officeneed', 'officedl', 'officefail', 'officepreview', 'officeready', 'clioutdated', 'retrygone', 'footertip', 'timingpartial', 'timinglong', 'timingstop', 'histmissing', 'histreadfail', 'scratchfiles', 'pmcustom', 'pm_slow', 'pm_empty', 'pm_unauth', 'pm_unreach', 'pm_unsupported', 'pm_bad', 'pm_notcfg', 'codexnoresponses', 'codexconv']
 
 export const catSim: ReadonlySet<CatSimFlag> = (() => {
   if (!import.meta.env.DEV || typeof window === 'undefined') return new Set<CatSimFlag>()
@@ -144,10 +150,16 @@ export function simStream(
         contextUsed: 180432,
         contextWindow: 256000,
         finishedAt: Date.now(),
+        ...simTiming(),
         ...(catSim.has('footertime')
           ? {}
           : { tokenTotal: 12480, tokensPerSec: 186 }),
       })
+      return
+    }
+    if (catSim.has('timingstop') && i >= 60) {
+      onMessage({ convId, turnId, messageId, seq: ++seq, op: 'done', role: 'assistant', text: '' })
+      onTurn({ convId, turnId, status: 'cancelled', messageId, finishedAt: Date.now(), firstTokenMs: 900, totalMs: 3600, tokenTotal: 420, tokensPerSec: 117 })
       return
     }
     const part = text.slice(i, holdAt >= 0 ? Math.min(i + step, holdAt) : i + step)
@@ -217,3 +229,10 @@ export function simAgentRaw(kind: string): { modes: SimMode[]; models: { id: str
   }
 }
 
+
+/** 走查：v0.45 首字 / 总耗时（毫秒） */
+function simTiming(): { firstTokenMs?: number; totalMs?: number } {
+  if (catSim.has('timinglong')) return { firstTokenMs: 12300, totalMs: 65000 }
+  if (catSim.has('timingpartial')) return { totalMs: 8400 }
+  return { firstTokenMs: 1200, totalMs: 8400 }
+}

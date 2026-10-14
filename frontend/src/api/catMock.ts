@@ -31,6 +31,9 @@ export type CatBlock =
       finishedAt?: number
       tokenTotal?: number
       tokensPerSec?: number
+      /** v0.45 首字 / 总耗时（毫秒） */
+      firstTokenMs?: number
+      totalMs?: number
     }
   /** 浅灰系统行：已停止生成 / 未就绪 / 回复失败 */
   | { kind: 'sys'; text: string; tone?: 'err'; outdated?: import('@/components/cat/catCliOutdated').CatCliOutdated; /** v0.46 服务商类失败（如 provider_responses_unsupported）：同 cli_outdated 的错误行样式 */ providerErr?: true }

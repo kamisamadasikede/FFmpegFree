@@ -81,6 +81,10 @@ type Service struct {
 	// v0.44 RetryCatTurn：每个会话最后一轮的原请求与终态（只在内存；重启后不能重试）。
 	lastMu    sync.Mutex
 	lastTurns map[string]*lastTurn
+
+	// v0.46 服务商模型列表缓存（6.19.20.2 ⑤）
+	pmOnce sync.Once
+	pm     *providerModelsCache
 }
 
 // lastTurn 是某会话最后一轮（6.19.18.7）。
@@ -231,6 +235,14 @@ func (s *Service) RecheckCat(ctx context.Context) (Status, error) {
 func (s *Service) ListCatModels(ctx context.Context, agentKind string) ([]Model, error) {
 	// v0.36：未知 / 未注册 → 空切片、nil error（不报 InvalidArgument）。
 	// v0.38：启用自定义时列表探测注入同一套 URL/Key（C6）。
+	// v0.46（6.19.20.2 ⑦）：自定义开 → 服务商列表；失败 = 空切片、nil error。
+	if catagent.Phase1Creatable(strings.TrimSpace(agentKind)) && s.customEnabled(ctx, agentKind) {
+		r, err := s.ListCatProviderModels(ctx, ListCatProviderModelsRequest{AgentKind: agentKind})
+		if err != nil || r.Models == nil {
+			return []Model{}, nil
+		}
+		return r.Models, nil
+	}
 	a, ok := s.cfg.Registry.Get(agentKind)
 	if !ok || a == nil {
 		return []Model{}, nil
@@ -599,6 +611,10 @@ func (s *Service) startTurn(ctx context.Context, req SendMessageRequest, hook *t
 	}
 	// v0.31（6.19.10.2 第 6 条）：会话属于项目时实时检查文件夹；missing 同步返回，不启 turn、不存用户消息、不发事件。
 	// 只读工具的根只来自所属项目（6.19.10.5）；不属于项目 → 根为空，项目工具一律拒绝。req.ProjectPath 作废、忽略。
+	// v0.46（6.19.20.2 ⑧）：自定义开时模型 id 可手填，按格式校验（防止被当成参数）。
+	if m := strings.TrimSpace(req.ModelID); m != "" && m != "default" && s.customEnabled(ctx, c.AgentKind) && !ValidCustomModelID(m) {
+		return SendMessageResult{}, apperr.New(apperr.InvalidArgument, "模型 ID 不正确").WithDetail("reason=model")
+	}
 	projectRoot := ""
 	if c.ProjectID != "" {
 		p, err := s.projectForConversation(ctx, c.ProjectID)
@@ -700,7 +716,7 @@ func (s *Service) runTurn(ctx context.Context, t *turnState, a catagent.Adapter,
 		}
 		s.cfg.Logf("cat turn failed: %v", runErr)
 		if ae := apperr.From(runErr); ae != nil {
-			if strings.Contains(ae.Detail, catagent.ReasonSessionNotFound) {
+			if strings.Contains(ae.Detail, catagent.ReasonSessionNotFound) || strings.Contains(ae.Detail, catagent.ReasonProviderNoResponses) {
 				s.markNoRetry(t.convID, t.turnID)
 			}
 			s.noteTurnError(ctx, t, ae.Message)

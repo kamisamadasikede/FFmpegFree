@@ -1,3 +1,5 @@
+import { readCatHistoryStatus, type CatHistoryStatus } from './catHistoryStatus'
+import { pickCatTiming } from '@/components/cat/catTimingAdapter'
 /**
  * Cat 助手接口层（契约 v0.30 §6.19；v0.36 多服务商 cat_build|claude_cli|codex_cli）。
  *
@@ -124,10 +126,15 @@ export interface CatMessage {
   finishedAt?: number
   tokenTotal?: number
   tokensPerSec?: number
+  /** v0.45 首字 / 总耗时（毫秒；缺省不显示） */
+  firstTokenMs?: number
+  totalMs?: number
 }
 
 export interface CatConversationDetail extends CatConversation {
   messages: CatMessage[]
+  /** v0.45.1：没有正文的原因（有消息时不带） */
+  historyStatus?: CatHistoryStatus
   /** 打开会话时带上的上下文占用；没有真实数字则为 0 */
   contextUsed: number
   contextWindow: number
@@ -169,6 +176,8 @@ export interface CancelCatTurnRequest {
 }
 
 const live = () => CAT_BACKEND_READY && hasWailsBackend()
+/** 是否走真后端（供其它 Cat 模块判断） */
+export const catBackendLive = (): boolean => live()
 
 /** 是否走真绑定（CAT_BACKEND_READY=true 且在 Wails 里） */
 export const isCatLive = (): boolean => live()
@@ -297,6 +306,7 @@ function mapMsg(raw: { id?: string; role?: string; content?: string; createdAt?:
       const rate = Number(raw.tokensPerSec)
       if (Number.isFinite(rate) && rate > 0) msg.tokensPerSec = rate
     }
+    Object.assign(msg, pickCatTiming(raw))
   }
   return msg
 }
@@ -397,6 +407,7 @@ export async function getCatConversation(id: string): Promise<CatConversationDet
     messages: Array.isArray(raw.messages) ? raw.messages.map(mapMsg) : [],
     contextUsed: positiveNum(raw.contextUsed),
     contextWindow: positiveNum(raw.contextWindow),
+    historyStatus: readCatHistoryStatus(raw),
     retryTurnId: readRetryableTurn(raw),
   }
 }

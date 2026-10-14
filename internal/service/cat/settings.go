@@ -273,6 +273,19 @@ func (s *Service) SaveCatSettings(ctx context.Context, req Settings) (Settings, 
 		if !catagent.Phase1Creatable(strings.TrimSpace(k)) {
 			return Settings{}, apperr.New(apperr.InvalidArgument, "助手模式设置不正确").WithDetail("reason=defaults_by_agent_key")
 		}
+		// v0.46（6.19.20.2 ⑧）：该家自定义开时允许手填模型 id，按格式校验；effort 只接受 ""（服务商列表不带档位）。
+		if req.ProvidersByAgent[strings.TrimSpace(k)].EnabledCustom {
+			m := strings.TrimSpace(d.Model)
+			if m != "" && m != "default" {
+				if !ValidCustomModelID(m) {
+					return Settings{}, apperr.New(apperr.InvalidArgument, "模型 ID 不正确").WithDetail("reason=model")
+				}
+				if strings.TrimSpace(d.Effort) != "" {
+					return Settings{}, apperr.New(apperr.InvalidArgument, "思考强度不对").WithDetail("reason=effort")
+				}
+			}
+			continue
+		}
 		if !s.validEffortFor(ctx, strings.TrimSpace(k), d.Model, d.Effort) {
 			return Settings{}, apperr.New(apperr.InvalidArgument, "思考强度不对").WithDetail("reason=effort")
 		}
@@ -293,8 +306,16 @@ func (s *Service) SaveCatSettings(ctx context.Context, req Settings) (Settings, 
 	if utf8.RuneCountInString(v.CustomInstruction) > MaxCustomInstructionRunes {
 		return Settings{}, apperr.New(apperr.InvalidArgument, "最多 4000 字。").WithDetail("reason=too_long")
 	}
+	prev, _ := s.GetCatSettings(ctx)
 	if err := s.cfg.Store.SetSetting(ctx, SettingsKey, v); err != nil {
 		return Settings{}, apperr.Wrap(apperr.IOError, "保存失败，请重试。", err)
+	}
+	// v0.46：改了 enabledCustom / protocol / apiUrl 的家清模型列表缓存（6.19.20.2 ⑤）。
+	for _, kind := range catagent.CreatableKinds() {
+		a, b := prev.ProvidersByAgent[kind], v.ProvidersByAgent[kind]
+		if a.EnabledCustom != b.EnabledCustom || a.Protocol != b.Protocol || a.ApiUrl != b.ApiUrl {
+			s.invalidateProviderModels(kind)
+		}
 	}
 	s.fillProviderKeyFlags(ctx, &v)
 	return v, nil

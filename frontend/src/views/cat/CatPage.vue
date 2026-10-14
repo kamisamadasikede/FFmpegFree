@@ -13,7 +13,7 @@
         <i class="sk comp" />
       </div>
     </div>
-    <div v-else class="ct cat-in" :class="{ 'no-right': isNew || catPanels.view !== 'chat' }">
+    <div v-else class="ct cat-in" :class="{ 'no-right': !showRight }">
       <CatSidePanel @back="goBack" />
 
       <CatSettingsView v-if="catPanels.view === 'settings'" />
@@ -30,8 +30,8 @@
         >
           <FIcon :name="catState.notice.tone === 'ok' ? 'check' : catState.notice.tone === 'warn' ? 'warn' : 'info'" :size="14" />{{ catState.notice.text }}
         </div>
-        <!-- 新对话欢迎页 -->
-        <template v-if="isNew">
+        <!-- 新对话欢迎页（v0.45.2：无 historyStatus 的空对话同样显示） -->
+        <template v-if="showWelcome">
           <div class="ct-hd">
             <template v-if="currentProject">
               <span class="crumb-p" :class="{ miss: currentProject.missing }">
@@ -39,7 +39,7 @@
               </span><span class="slash">/</span>
             </template>
             <FIcon v-else name="chat" :size="16" />
-            <h2>新对话</h2><span class="sp" />
+            <h2>{{ isNew ? '新对话' : current?.conv.title || '新对话' }}</h2><span class="sp" />
           </div>
           <div v-if="projectMissing" class="ct-missing" role="status" data-testid="cat-project-missing-bar">
             <FIcon name="warn" :size="14" /><span class="tx">{{ PC.missing }}</span>
@@ -149,7 +149,7 @@
             >{{ PC.relocate }}</button>
           </div>
           <div class="ct-stream">
-            <div v-if="historyEmpty" class="ct-hist-empty" data-testid="cat-history-empty">{{ CAT_HISTORY_EMPTY }}</div>
+            <div v-if="historyEmpty" class="ct-hist-empty" data-testid="cat-history-empty">{{ catHistoryEmptyText(catState.histStatus[catState.sel]) }}</div>
             <div ref="msgsEl" :key="catState.sel" class="ct-msgs swap" @scroll.passive="onMsgsScroll">
               <div ref="msgsBody">
                 <!-- B1：读记录超过 150ms 才显示消息骨架 -->
@@ -225,7 +225,7 @@
       </section>
 
       <!-- 右栏收起时内容保留，不重新加载 -->
-      <div v-if="!isNew && catPanels.view === 'chat'" class="ct-r-wrap" :class="{ shut: rightCollapsed, canvas: showOfficeCanvas }" :aria-hidden="rightCollapsed || undefined">
+      <div v-if="showRight" class="ct-r-wrap" :class="{ shut: rightCollapsed, canvas: showOfficeCanvas }" :aria-hidden="rightCollapsed || undefined">
         <CatOfficeCanvasPanel v-if="showOfficeCanvas" @close="officeCanvasClosed = true" />
         <CatFilesPanel v-else :conv-id="catState.sel" :missing="projectMissing" @pick="onFilePick" />
       </div>
@@ -237,7 +237,8 @@
 </template>
 
 <script setup lang="ts">
-import { CAT_HISTORY_EMPTY } from '@/views/cat/catCopy'
+import { catHistoryEmptyText } from '@/api/catHistoryStatus'
+import { catScratch, shouldShowFilePanel } from './catScratchFiles'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import FIcon from '@/components/icon/FIcon.vue'
@@ -267,7 +268,7 @@ import { nearBottom, keepFollowing } from './catFollow'
 import { RAIL_TICK_PITCH, railThumb, railTickWindow, scrollTopForThumb, tickEdgeScales, tickStairWidths } from './catRail'
 import { awaitingTurnOutput } from './catPending'
 import { onLayoutKey, rightCollapsed } from './catLayout'
-import { catChecking, catNotReady, catState, changeWelcomeMode, currentProject, findConv, projectMissing, relocateProject, initCat, messagesOf, NEW_CONV, reapplyNewConvDefaults, refreshCapabilities, recheckCatStatus, reloadConversation, selectConv, retryLastMessage, sendMessage, stopTurn, tipLater } from './catState'
+import { catChecking, catNotReady, catState, changeWelcomeMode, currentProject, findConv, projectMissing, relocateProject, initCat, messagesOf, NEW_CONV, reapplyNewConvDefaults, refreshConvScratch, refreshCapabilities, recheckCatStatus, reloadConversation, selectConv, retryLastMessage, sendMessage, stopTurn, tipLater } from './catState'
 import { hasWailsBackend } from '@/services/wails'
 import { ClipboardSetText } from '../../../wailsjs/runtime/runtime'
 
@@ -292,8 +293,21 @@ const notReadyText = computed(() => catState.status.error?.message || CAT_COPY.n
 const isNew = computed(() => catState.sel === NEW_CONV)
 const histLoading = computed(() => !!catState.histLoading[catState.sel])
 /** 打开的对话一轮都没有（记录没找到）：居中灰字，输入框照常可用 */
-const historyEmpty = computed(
+const loadedEmpty = computed(
   () => !isNew.value && !!catState.histLoaded[catState.sel] && !histLoading.value && !messagesOf(catState.sel).length && !catState.turns[catState.sel],
+)
+/** v0.45.2：只有后端给了 historyStatus 才出一行灰字（missing / read_failed） */
+const historyEmpty = computed(() => loadedEmpty.value && !!catState.histStatus[catState.sel])
+/** v0.45.2：没有 historyStatus 且没有消息 → 按新对话显示欢迎页（发送仍进这条对话） */
+const showWelcome = computed(() => isNew.value || (loadedEmpty.value && !catState.histStatus[catState.sel]))
+/** 右侧文件面板只看是否绑定项目（新对话也一样），不看有没有消息 */
+const showRight = computed(
+  () => catPanels.view === 'chat' && shouldShowFilePanel(!!currentProject.value, isNew.value ? false : catScratch.has[catState.sel]),
+)
+watch(
+  () => catState.sel,
+  (id) => refreshConvScratch(id),
+  { immediate: true },
 )
 const current = computed(() => (isNew.value ? null : findConv(catState.sel)))
 const messages = computed(() => (isNew.value ? [] : messagesOf(catState.sel)))

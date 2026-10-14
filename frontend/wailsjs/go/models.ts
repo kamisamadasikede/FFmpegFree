@@ -75,6 +75,40 @@ export namespace cat {
 	        this.cloneId = source["cloneId"];
 	    }
 	}
+	export class CatProviderModelList {
+	    state: string;
+	    models: catagent.Model[];
+	    fetchedAt: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatProviderModelList(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.state = source["state"];
+	        this.models = this.convertValues(source["models"], catagent.Model);
+	        this.fetchedAt = source["fetchedAt"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class CatTurnState {
 	    turnId: string;
 	    status: string;
@@ -589,6 +623,20 @@ export namespace cat {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.projectId = source["projectId"];
 	        this.agentKind = source["agentKind"];
+	    }
+	}
+	export class ListCatProviderModelsRequest {
+	    agentKind: string;
+	    refresh: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ListCatProviderModelsRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.agentKind = source["agentKind"];
+	        this.refresh = source["refresh"];
 	    }
 	}
 	export class ListFilesRequest {

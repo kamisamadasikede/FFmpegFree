@@ -1,3 +1,7 @@
+import { refreshScratch } from './catScratchFiles'
+import { listCatFiles } from '@/api/catFiles'
+import { catBackendLive } from '@/api/cat'
+import { applyCatTiming } from '@/components/cat/catTimingAdapter'
 /**
  * Cat 页本地状态（单例）。契约 v0.30 / 设计 v0.4：
  * - CAT_BACKEND_READY=true 且在 Wails 里：会话列表 / 消息 / 发送 / 停止走真实 CatService；cat:message 流式拼进助手气泡
@@ -266,6 +270,8 @@ export const catState = reactive({
   histLoading: {} as Record<string, boolean>,
   /** 记录读过了（读到空 / 没找到也算），用来区分「还在读」和「真的没有记录」 */
   histLoaded: {} as Record<string, boolean>,
+  /** v0.45.1 historyStatus（空状态文案用） */
+  histStatus: {} as Record<string, import('@/api/catHistoryStatus').CatHistoryStatus | undefined>,
   /** v0.44.5「重试」：can = 最后一轮失败且 retryable=true；gone = 点了但后端报 retry_not_allowed（原地灰字）。不写入数据库 */
   retry: {} as Record<string, 'can' | 'gone'>,
 })
@@ -370,6 +376,7 @@ function blocksFrom(list: CatMessage[]): CatBlock[] {
     if (m.finishedAt && m.finishedAt > 0) a.finishedAt = m.finishedAt
     if (typeof m.tokenTotal === 'number' && Number.isFinite(m.tokenTotal)) a.tokenTotal = m.tokenTotal
     if (typeof m.tokensPerSec === 'number' && Number.isFinite(m.tokensPerSec) && m.tokensPerSec > 0) a.tokensPerSec = m.tokensPerSec
+    applyCatTiming(a, m)
     return a
   })
 }
@@ -388,9 +395,10 @@ async function loadMessages(id: string, quiet = false, force = false) {
   loading.add(id)
   if (!quiet && !catState.messages[id]?.length) catState.histLoading[id] = true
   try {
-    if (import.meta.env.DEV && catSim.has('histempty')) {
+    if (import.meta.env.DEV && (catSim.has('histempty') || catSim.has('histmissing') || catSim.has('histreadfail'))) {
       // 走查：记录没找到（零轮）
       catState.messages[id] = []
+      catState.histStatus[id] = catSim.has('histmissing') ? 'missing' : catSim.has('histreadfail') ? 'read_failed' : undefined
       catState.histLoaded[id] = true
       return
     }
@@ -401,6 +409,7 @@ async function loadMessages(id: string, quiet = false, force = false) {
     }
     if (!findConv(id)) return
     catState.histLoaded[id] = true
+    catState.histStatus[id] = d.historyStatus
     // 等待期间本页又自己发出了一轮：不要用文件里的旧记录盖住正在流的内容。
     const now = catState.turns[id]
     if (!force && now && !now.adopted) return
@@ -974,6 +983,8 @@ function applyTurnFooter(convId: string, turn: CatTurnState, ev?: CatTurnEvent) 
   else delete b.tokenTotal
   if (typeof ev.tokensPerSec === 'number' && Number.isFinite(ev.tokensPerSec) && ev.tokensPerSec > 0) b.tokensPerSec = ev.tokensPerSec
   else delete b.tokensPerSec
+  // v0.45：每轮按事件重写；缺的删掉（重试不残留旧值）
+  applyCatTiming(b, ev)
 }
 
 /** 结束一轮（事件和 SendCatMessage 的返回谁先到谁算，只处理一次） */
@@ -981,9 +992,20 @@ const simFailed = new Set<string>()
 /** 每条对话最后一轮失败的 turnId（RetryCatTurn 用） */
 const lastFailedTurn = new Map<string, string>()
 
+/** 未绑定项目的对话：查一次对话文件夹是否有文件（面板显示规则，#271） */
+export function refreshConvScratch(convId: string): void {
+  if (!convId || convId === NEW_CONV) return
+  const bound = !!findConv(convId)?.project
+  void refreshScratch(convId, bound, async (id) => {
+    if (catBackendLive()) return (await listCatFiles(id)).entries.length > 0
+    return import.meta.env.DEV && catSim.has('scratchfiles')
+  })
+}
+
 function endTurn(convId: string, how: TurnEnd, token?: number, ev?: CatTurnEvent) {
   const turn = catState.turns[convId]
   if (!turn || (token !== undefined && turn.token !== token)) return
+  refreshConvScratch(convId)
   if (turn.status === 'stopping') how = 'cancelled'
   if (turn.turnId) sealTurn(turn.turnId)
   clearTimeout(stopTimers.get(convId))
@@ -1538,7 +1560,7 @@ export function selectConv(id: string) {
   if (id === NEW_CONV) catState.newProjectId = ''
   delete catState.unseen[id]
   // 点开对话就向后端要这段记录。服务商和对话 id 在侧栏，正文不在本地库。
-  if (id !== NEW_CONV && (live || (import.meta.env.DEV && catSim.has('histempty')))) void loadMessages(id)
+  if (id !== NEW_CONV && (live || (import.meta.env.DEV && (catSim.has('histempty') || catSim.has('histmissing') || catSim.has('histreadfail'))))) void loadMessages(id)
 }
 
 /**
