@@ -261,7 +261,7 @@ func TestClaudeArgs_CapturedByFakeExec(t *testing.T) {
 	}
 	raw, _ := os.ReadFile(out)
 	s := string(raw)
-	for _, want := range []string{"-p", "ping", "stream-json", "--permission-mode", "default", "--append-system-prompt", "rule-one"} {
+	for _, want := range []string{"-p", "ping", "stream-json", "--permission-mode", "manual", "--append-system-prompt", "rule-one"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("missing %q in:\n%s", want, s)
 		}

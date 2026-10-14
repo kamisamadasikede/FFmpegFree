@@ -669,7 +669,7 @@ func claudePermissionArgs(mode string) []string {
 	case "auto":
 		return []string{"--permission-mode", "auto"}
 	case "default":
-		return []string{"--permission-mode", "default"}
+		return []string{"--permission-mode", "manual"} // claude 2.1.296 --help：choices 无 default
 	default:
 		// 全部批准 → bypassPermissions（等同 --dangerously-skip-permissions）
 		return []string{"--permission-mode", "bypassPermissions"}
