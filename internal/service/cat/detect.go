@@ -208,6 +208,7 @@ func (s *Service) agentRow(kind string, a catagent.Adapter, st Status) catagent.
 			ts := rec.CheckedAt
 			row.CheckedAt = &ts
 		}
+		row.LoggedIn = liveLoggedIn(a)
 		return row
 	}
 	if cr, ok := a.(checkedAtReporter); ok {
@@ -226,6 +227,8 @@ func (s *Service) agentRow(kind string, a catagent.Adapter, st Status) catagent.
 			return row
 		}
 		row.CheckedAt = &at
+		// loggedIn 只来自本进程实时检测（检测中 / 超时保留上次实时值）；落库行不带。
+		row.LoggedIn = liveLoggedIn(a)
 		if row.Checking {
 			// 检测中保留上一次结果（设计 10-14）：只有从未检测过的才是空字段。
 			if rec, ok := s.savedDetect(kind); ok {
@@ -240,4 +243,16 @@ func (s *Service) agentRow(kind string, a catagent.Adapter, st Status) catagent.
 		row.ExePath = a.ExecutablePath()
 	}
 	return row
+}
+
+// liveLoggedIn 取适配器本进程实时检测的登录状态；本进程没检测完过（只有落库结果）= nil。
+func liveLoggedIn(a catagent.Adapter) *bool {
+	cr, ok := a.(checkedAtReporter)
+	if !ok || cr.CheckedAt() <= 0 {
+		return nil
+	}
+	if lr, ok := a.(interface{ LiveLoggedIn() *bool }); ok {
+		return lr.LiveLoggedIn()
+	}
+	return nil
 }
