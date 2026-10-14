@@ -1,4 +1,8 @@
-# FFmpegFree v2 接口契约（v0.49）
+# FFmpegFree v2 接口契约（v0.51）
+
+v0.51 变更（**预留占位：IDEA 式 Merge Revisions + Git 分支树**，见 **6.19.26**；范围待产品、线框待 UI；绑定名均为 DRAFT，**本版不实现、无迁移 / 事件 / settings 键 / 错误码**）。
+
+v0.50 变更（**主动合并分支 `GitCatMerge`**，老板私聊「合并」，10-14；规则见 **6.19.25**；无迁移 / 事件名 / settings 键；新 reason `merge_in_progress` / `git_failed`，复用 `turn_running` / `git_dirty` / `branch_not_found`）：`git merge --no-edit <branch>`（允许快进）；结果 `merged` / `up_to_date` / `conflict`，冲突进入既有 merging 态与冲突页；入口底栏分支下拉「合并到当前分支…」，文案产品已定稿。
 
 v0.49 变更（**输入框底栏：文件夹路径可点开 + 远程分支 + 本地分支切换**，老板 t86u 2026-10-14；规则见 **6.19.24**；无迁移 / 事件名 / settings 键；新绑定 `ListCatBranches` / `SwitchCatBranch`；新 reason `branch_not_found`，复用 `git_dirty` / `turn_running`）：① 普通对话底栏左侧显示对话文件夹路径（中间省略，tooltip 全路径），项目对话仍显示项目名；两者点击都用 `RevealCatConversationFolder` 在系统文件管理器打开。② 原「本地」改为当前分支的上游（如 `origin/main`），没有上游显示灰字「无远程分支」。③ 旁边显示本地当前分支，点开下拉（复用 #294 的 `CatModeSelect`，挂 body、下方放不下往上翻）列本地分支 + 「远程分支」小节（只在远程的），选中即 `git switch`；远程分支本地没有同名时建跟踪分支。④ 工作区有改动 → 拦下不切；正在回复 → 不能切；不是仓库 / 没装 git → 不显示分支部分。
 
@@ -535,6 +539,7 @@ GitCatCheckout(req GitCatCheckoutRequest) error                              // 
 GitCatConflictResolve(req GitCatConflictResolveRequest) error                // v0.41：单文件采用当前/传入/双方或手改后暂存
 GitCatConflictComplete(req GitCatConflictCompleteRequest) error              // v0.41：完成合并/变基
 GitCatConflictAbort(req GitCatConflictAbortRequest) error                    // v0.41：中止合并/变基
+GitCatMerge(req GitCatMergeRequest) (GitCatMergeResult, error)             // v0.50：合并分支到当前分支（6.19.25）
 // v0.42 办公画布组件（6.19.16）
 GetOfficeCanvasStatus() (OfficeCanvasStatus, error)
 InstallOfficeCanvas() error
@@ -6282,3 +6287,64 @@ Codex 任一工具 `status` 为 failed / declined 时标签后加 ` · 失败`�
 3. 分支图标 + 本地分支下拉（`CatModeSelect compact`）：选项 = 本地分支；有 `remotes` 时加不可选小标题「远程分支」再列远程分支。分离 HEAD 时触发器显示「分离 HEAD」。正在回复 / 切换中 / 项目文件夹不见了 → 禁用。成功 toast「已切换到 {分支}」并刷新；失败 toast：`git_dirty` / `turn_running` / `branch_not_found` 用上面文案，其他用后端 message，没有则「切换分支失败，请重试。」。
 4. 刷新时机：切换对话、每轮结束（`running` 变 false）、切换后。
 5. `git=false` 或 `repo=false`：只显示左侧文件夹，不显示远程 / 本地分支。
+
+### 6.19.25 主动合并分支 `GitCatMerge`（v0.50，老板私聊「合并」，架构师 10-14；文案 / 视觉产品、UI 已定）
+
+**git 语义（已核对 git 2.47 `git merge -h` 与 git-scm.com/docs/git-merge，并在临时仓库实跑）**：`--no-edit` 接受自动生成的提交说明、不开编辑器；默认 `--ff`（能快进就快进，否则生成合并提交）。实测退出码：成功 / `Already up to date.` → 0；内容冲突 → 1（输出 `CONFLICT (...)`，`MERGE_HEAD` 存在，`git ls-files -u` 有 stage 1/2/3）；本地改动会被覆盖 → 2（`would be overwritten by merge` + `Aborting`，仓库不变）；未合并文件残留 → 128（`Merging is not possible because you have unmerged files`）；分支不存在 → 1（`not something we can merge`）。**不能只看退出码**，按下面顺序先预检。
+
+```go
+type GitCatMergeRequest struct {
+    ConvID string `json:"convId"`
+    Branch string `json:"branch"`           // 本地分支名；remote=true 时为 <remote>/<name>
+    Remote bool   `json:"remote,omitempty"` // true = 合并远程跟踪分支（不 fetch，用本地已有的 refs/remotes）
+}
+type GitCatMergeResult struct {
+    Status string   `json:"status"`          // merged | up_to_date | conflict
+    Head   string   `json:"head,omitempty"`  // merged / up_to_date：合并后 HEAD 完整 sha
+    Files  []string `json:"files,omitempty"` // conflict：未合并路径（相对对话根，排序）
+}
+GitCatMerge(req GitCatMergeRequest) (GitCatMergeResult, error)
+```
+
+**校验顺序**（同 `SwitchCatBranch`，复用 reason，无新错误码）：
+1. 会话不存在 → `NOT_FOUND`。
+2. 该对话（项目对话：同项目任一对话）有进行中的一轮 → `TASK_CONFLICT` `reason=turn_running`。
+3. 不是仓库 → `INVALID_ARGUMENT`「这里还不是 git 仓库。」。
+4. `MERGE_HEAD` / `rebase-merge` / `rebase-apply` / `CHERRY_PICK_HEAD` 存在 → `TASK_CONFLICT` `reason=merge_in_progress`（**新 reason 值**，2.2 追加）。
+5. 分支名不合法（`git check-ref-format --branch`）或 `git rev-parse --verify -q refs/heads/<b>`（remote：`refs/remotes/<b>`）失败 → `NOT_FOUND` `reason=branch_not_found`。
+6. 目标就是当前分支（或其 sha 已是 HEAD 祖先）→ 直接返回 `{status:'up_to_date', head}`，不看工作区、不跑 merge。
+7. 工作区有任何改动（`git status --porcelain` 非空，含未跟踪文件）→ `TASK_CONFLICT` `reason=git_dirty`。兜底：merge 输出含 `would be overwritten` / `untracked working tree files would be` 时也归 `git_dirty`。
+8. 执行 `git merge --no-edit <ref>`（不加 `--no-ff` / `--ff-only` / `--autostash`）。退出 0：输出含 `Already up to date` → `up_to_date`，否则 `merged`；`head`=`git rev-parse HEAD`。非 0 且 `MERGE_HEAD` 存在、`ls-files -u` 非空 → `{status:'conflict', files}`（**不是错误**），仓库保持 merging，交给 6.19.15 的 `GitCatConflictResolve/Complete/Abort` 与冲突页。其他失败 → `INVALID_ARGUMENT` `reason=git_failed`，`detail` 第二行起放 git 原始 stderr（截 4 KiB）。
+- 分离 HEAD：允许（合到当前提交），前端「当前分支」显示「分离 HEAD」。
+
+**git 调用**：走 `runGit`（`proc.Configure`：Windows 隐藏控制台窗口；`GIT_TERMINAL_PROMPT=0`；另设 `GIT_MERGE_AUTOEDIT=no`、`GIT_EDITOR=true` 双保险，绝不弹编辑器）。超时 120 s → `git_failed`。
+
+**前端（文案产品定稿，照抄）**：
+1. 入口：底栏本地分支下拉最底部，分隔线后一项「合并到当前分支…」；除当前分支外没有任何本地 / 远程分支时禁用；正在回复 / 切换中同样禁用。
+2. 弹窗：宽 400px，`--ff-bg-elevated` 背景，`--ff-shadow-dialog`，圆角 12px，标题 14px 粗体。标题「把哪个分支合并到 {当前分支}？」；正文一个分支下拉（本地 + 「远程分支」两组，排除当前分支，默认第一条本地分支，没有本地时第一条远程）；按钮「合并」（主）/「取消」。合并中「合并」按钮 loading，弹窗不可关闭（Esc / 遮罩 / 取消都无效）。
+3. 结果：`merged` → 关窗，toast「已把 {分支} 合并到 {当前分支}」；`up_to_date` → 关窗，toast「已经是最新，没有需要合并的内容。」；`conflict` → toast「有 {n} 个文件冲突，请逐个处理。」（n=`files.length`），关窗并跳到 Git 页签冲突分组（6.19.15.3）。三种都刷新 `ListCatBranches` / `GitCatStatus`。
+4. 错误（弹窗内红字，`--ff-danger`，弹窗不关）：`git_dirty`「有未提交的改动，请先提交或暂存，再合并。」；`turn_running`「正在回复，等这一轮结束再合并。」；`merge_in_progress`「上一次合并还没完成，请先处理完冲突，或放弃这次合并。」；其余（含 `branch_not_found`、`git_failed`）「合并失败，请重试。」+ 公共「查看详情」组件（#304，带复制、最大高 160px）放 `detail`。前三种不带详情。
+
+**测试（后端，真 git 临时仓库）**：快进合并 → merged + head=目标 sha；分叉无冲突 → merged 且生成两父提交；同分支 / 已包含 → up_to_date 且不执行 merge；内容冲突 → conflict + files 排序、`mergeState=merging`，随后 Abort 回到合并前；二进制冲突也列入 files；脏工作区（已跟踪改动 / 未跟踪文件）→ git_dirty 且仓库未变；预检漏掉时 `would be overwritten` 输出也映射 git_dirty；MERGE_HEAD / rebase 进行中 → merge_in_progress；分支不存在 / 非法名 → branch_not_found；remote=true 合并 `origin/x`；turn 进行中 → turn_running；断言 runGit 带隐藏窗口与 `GIT_MERGE_AUTOEDIT=no`。**前端**：入口禁用条件；默认选项与排除当前分支；loading 时不可关；三种结果的 toast 与跳转；四种错误文案及「查看详情」仅出现在通用失败。
+
+**2.2 追加**：`TASK_CONFLICT` `reason=merge_in_progress`；`INVALID_ARGUMENT` `reason=git_failed`（无新错误码）。
+
+### 6.19.26 IDEA-style Merge Revisions + Git branch tree (pending product scope & UI wireframes)（v0.51 预留，架构师 10-14）
+
+**状态：仅占位，不实现。** 范围待产品定、线框待 UI 交付（`proto/cat-merge-3way`）。以下绑定名均为 **DRAFT**，可改名、可删；定稿前前后端不得依赖。6.19.15.3 的简易冲突解决与 6.19.25 的 `GitCatMerge` 照旧有效。
+
+**A. Merge Revisions（对标 IntelliJ IDEA「Merge Revisions」）**
+- 三栏：左 = 当前（ours，`git show :2:<path>`）｜中 = 结果（可编辑）｜右 = 传入（theirs，`:3:`）；base 取 `:1:`。
+- 非冲突改动用 base 自动合入结果；只有真冲突留给用户。
+- 每处冲突：接受箭头（»/«，采用该侧）、忽略 ×（丢弃该侧改动）；两侧都接受时按点击顺序拼接。
+- 顶栏：全部采用左侧 / 全部采用右侧；上一处 / 下一处冲突；「还剩 n 处冲突」；完成后标记已解决（`git add`）。
+- 二进制 / 删除冲突：退化为整文件选一侧。
+- DRAFT 绑定：`GitCatConflictSides({convId, path})` → `{binary, base, ours, theirs, working, eol}`；`GitCatConflictSave({convId, path, content})`（只写不暂存）；标记已解决复用 `GitCatConflictResolve mode=content`。
+
+**B. Git 分支树（对标 IDEA Git Branches 弹窗）**
+- 分组：本地 / 远程（按 remote）；名字按 `/` 前缀折叠成文件夹（如 `feature/a`）。
+- 收藏（星标，置顶）、最近使用的分支、搜索、当前分支标记、相对上游的 ahead / behind 计数（↑n ↓m）。
+- 右键菜单：签出、从这里新建分支、合并到当前分支（= `GitCatMerge`）、变基到当前分支、与当前分支比较、重命名、删除。
+- DRAFT 绑定：`ListCatBranchTree({convId})`（含 ahead/behind、recent、favorites）、`SetCatBranchFavorite({convId, branch, on})`、`GitCatRebase({convId, onto})`、`GitCatCompareBranch({convId, branch})`、`GitCatRenameBranch({convId, from, to})`、`GitCatDeleteBranch({convId, branch, force?})`。
+
+**待定（产品 / UI）**：两块是否同一版交付及先后；收藏 / 最近存在哪（settings 还是按仓库）；删除未合并分支、变基、重命名远程跟踪分支的确认与文案；ahead/behind 是否需要先 fetch；窄窗口三栏怎么退化；全部按钮、空态、错误文案；明暗主题配色。
