@@ -91,7 +91,7 @@ export const CAT_ACCESS: CatAccess[] = [
   { id: 'normal', name: '普通模式', short: '普通', desc: '按平时的规则询问。这个窗口点不到确认，卡住时请按停止。', icon: 'hand', enabled: true },
   { id: 'plan', name: 'Plan', short: 'Plan', desc: '先整理计划再动手，这一阶段只看不改。', icon: 'list', enabled: true },
   { id: 'auto', name: '自动审查', short: '自动审查', desc: '自己判断能不能做。被拦住的步骤会失败并写在对话里，不会一直等确认。', icon: 'shield', enabled: true },
-  { id: 'approve', name: '全部批准', short: '全部批准', desc: '写文件、跑命令都直接执行，不再询问。', icon: 'alert', enabled: true },
+  { id: 'approve', name: '全部放开', short: '全部放开', desc: '写文件、跑命令都直接执行，不再询问。', icon: 'alert', enabled: true },
 ]
 
 /** 欢迎页：v0.36 解禁 Grok Build / Claude / Codex；Cat CLI / Cat Code 仍灰（契约 6.19.6） */

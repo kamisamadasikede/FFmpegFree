@@ -2,11 +2,18 @@
 import { fixThinkName, catNotifyHint, CAT_NOTIFY_HINT } from '@/api/cat'
 import { readRetryable, readRetryableTurn } from '@/api/catV0445'
 import { normalizeSettings, settingsPayload, normalizeCapabilities, normalizeInspect, skillsPathLabel, saveErrorMessage, DEFAULT_PROVIDER_CAPABILITIES } from '@/api/catSettings'
+import { CAT_ACCESS } from '@/api/catMock'
+import { getCatAgentCapabilities, modeMeta } from '@/views/cat/catCapabilities'
 import { needsApproveConfirm, normalizeRun, notifyTitle, queueLine, runView, validateSchedule } from '@/api/catSchedules'
 
 type Eq = (name: string, got: unknown, want: unknown) => void
 
 export function catPanelsChecks(eq: Eq) {
+  // 包 58：输入框胶囊 / 设置 / 模式菜单统一叫「全部放开」（兜底表不再出现「全部批准」）
+  const ap = CAT_ACCESS.find((a) => a.id === 'approve')
+  eq('模式名：兜底表 approve = 全部放开', [ap?.name, ap?.short], ['全部放开', '全部放开'])
+  const dz = getCatAgentCapabilities('claude_cli').modes.options.find((o) => o.risk === 'danger')
+  eq('模式名：胶囊短名 = 全部放开', dz ? [modeMeta(dz).name, modeMeta(dz).short] : null, ['全部放开', '全部放开'])
   // v0.48 6.19.12.11-5：系统通知灰字
   eq('通知提示：开关关不显示', catNotifyHint(false, { available: false, authorized: false }, false), '')
   eq('通知提示：状态未知不显示', catNotifyHint(true, null, true), '')
