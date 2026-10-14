@@ -5830,6 +5830,12 @@ ListCatProviderModels(req ListCatProviderModelsRequest) (CatProviderModelList, e
 
 ## 9. ffmpeg 环境检测与自动安装
 
+#### 6.19.20.7 v0.46 合入时补定（架构师 10-14，PR #277）
+
+1. **Codex 不支持 Responses**：服务商没有 `/responses`（真机 codex 0.162.1 对假服务商返回 404 / 405，样本见 `internal/catagent/testdata/codex-provider-responses-{404,405}.txt`）时，这一轮报 `CAT_REPLY_FAILED`，`detail.reason=provider_responses_unsupported`，`retryable=false`；不新增错误码。匹配不上样本的照常报普通失败。前端在失败消息里显示 6.19.20.5 的 Codex 文案，样式同 `cli_outdated`，不显示重试。
+2. **重定向**：`ListCatProviderModels` 遇到重定向仍映射为 `unreachable`（不是 `bad_response`）。重定向多半是地址填错（少 `/v1`、https 写成 http），「请检查 API 地址」更对症；且不跟随重定向，防止 Key 被带到别处。
+3. **已知问题：Grok 自定义服务商对话报「Not signed in」**：grok 1.0.40 只在列模型时读环境变量里的 Key（`XAI_API_KEY`），发对话不读。本版**不**另设独立 `GROK_HOME`（会话和登录在用户自己的 Grok 目录，换目录会加载不到原会话），也**不**改写用户的 `config.toml`（如 `[model.<id>] env_key=...`）。C1 对话一轮仍为未确认；方案待核完 grok 1.0.40 的 help 和文档后在后续契约中单独规定。
+
 ### 9.1 检测顺序（启动时后台执行，不阻塞界面）
 
 1. 设置里用户手动指定的路径
