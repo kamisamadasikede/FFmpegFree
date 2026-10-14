@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.47）
+# FFmpegFree v2 接口契约（v0.47.1）
+
+v0.47.1 变更（**CLI 检测修复**，老板 t73u，架构师 10-14；完整规则见 **6.19.21**；无新错误码 / 迁移 / 事件名；新 settings 键 `cat.detect`）：① 适配器不再自己发 `cat:status`，改调 `OnChange`，由服务层发 `composeStatus`；**每条 `cat:status` 都含全部已注册适配器的 `agents[]`**。② `CatAgentStatus` 加 `checking` / `checkedAt` / `stale` / `exePath`。③ 检测结果落 `cat.detect`，启动先显示上次结果再后台重检；发对话只认实时结果。④ Windows：LookPath 失败后重读注册表 PATH，再查官方安装目录（部分 GUESS）。⑤ 前端按 `agents[]` 合并，缺 `agents[]` 不重置其它家；显示「上次检测 HH:mm」（待产品定）。
 
 v0.47 变更（**消息尾加「输出 token」，token/s 改按输出 token 算**，老板 t72u，产品定稿，架构师 10-14；无新错误码 / 迁移 / 事件名）：① `CatMessage`（assistant）与终态 `cat:turn` 新增可选 `outputTokens`；`tokenTotal` 保留不变。② `tokensPerSec` **只由后端算** = `outputTokens / ((totalMs − firstTokenMs)/1000)`；无 `firstTokenMs` 时用 `totalMs/1000`；**废止** v0.37.1 的「CLI `durationMs` → turn 墙钟、合计 token 作分子」口径。③ 无 `outputTokens` → `outputTokens` 与 `tokensPerSec` 都省略，**不得**用合计顶替。④ 前端不再自己算 token/s。⑤ 文案、窄窗顺序、tooltip 定稿。三家取数对照表与单测要求见 **6.19.19.5**。
 
@@ -4146,7 +4148,7 @@ CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，
 
 | 事件 | 含义 |
 |---|---|
-| `cat:status` | `CatStatus` 变化 |
+| `cat:status` | `CatStatus` 变化；**v0.47.1** 只由服务层发，每条都含全部已注册适配器的 `agents[]`（6.19.21） |
 | `cat:message` | **仅助手流式增量**（用户消息不发）；形态见 6.19.9 |
 | `cat:turn` | 一轮状态 `{ convId, turnId, status }`（`running|completed|cancelled|failed`）；**v0.37.1** 终态可带 `finishedAt` / `tokenTotal` / `tokensPerSec` / `messageId`，见 6.19.9 |
 | `cat:project` | v0.31：项目 `missing` 变化 `{ id, missing }`，见 6.19.10.3 |
@@ -5886,6 +5888,90 @@ ListCatProviderModels(req ListCatProviderModelsRequest) (CatProviderModelList, e
 1. **Codex 不支持 Responses**：服务商没有 `/responses`（真机 codex 0.162.1 对假服务商返回 404 / 405，样本见 `internal/catagent/testdata/codex-provider-responses-{404,405}.txt`）时，这一轮报 `CAT_REPLY_FAILED`，`detail.reason=provider_responses_unsupported`，`retryable=false`；不新增错误码。匹配不上样本的照常报普通失败。前端在失败消息里显示 6.19.20.5 的 Codex 文案，样式同 `cli_outdated`，不显示重试。
 2. **重定向**：`ListCatProviderModels` 遇到重定向仍映射为 `unreachable`（不是 `bad_response`）。重定向多半是地址填错（少 `/v1`、https 写成 http），「请检查 API 地址」更对症；且不跟随重定向，防止 Key 被带到别处。
 3. **已知问题：Grok 自定义服务商对话报「Not signed in」**：grok 1.0.40 只在列模型时读环境变量里的 Key（`XAI_API_KEY`），发对话不读。本版**不**另设独立 `GROK_HOME`（会话和登录在用户自己的 Grok 目录，换目录会加载不到原会话），也**不**改写用户的 `config.toml`（如 `[model.<id>] env_key=...`）。C1 对话一轮仍为未确认；方案待核完 grok 1.0.40 的 help 和文档后在后续契约中单独规定。
+
+### 6.19.21 CLI 检测：每次 `cat:status` 带全量 agents[]、检测结果落库、Windows 兜底查找（v0.47.1，老板 t73u，架构师 10-14）
+
+**现象（老板 t73u）**：重开应用后只有 Grok 显示已检测到，Claude / Codex 显示未检测到；点「重新检测」后三家正确，下次重开又错；检测结果不保存。
+
+**根因（读码，v2 `307e763`）**：
+- 三家适配器各自直接 emit `cat:status`，载荷只有**自己**的顶层状态、**没有** `agents[]`（`internal/catagent/cli_agent.go:123-130`、`build_adapter.go:170-177`；`app.go:390/397/403` 把原始 `emit` 直接传给三个适配器）。
+- 前端 `catState.ts:677` 收到 `cat:status` 后整份替换 status；`mapAgents`（`api/cat.ts:220-228`）在缺 `agents[]` 时把顶层映射成 Grok，Claude / Codex 置 `ready:false`。于是谁最后发事件，其它两家就被冲成「未检测到」。
+- 只有 `RecheckCat` 走 `composeStatus(true)` 发全量，所以点完就对。
+- 检测结果不落库，每次启动从零开始。
+
+#### 6.19.21.1 后端：事件只由服务层发（硬规则）
+
+1. 适配器**不再**持有 / 调用 `emit` 发 `cat:status`。`CLIAgentConfig` / `BuildConfig` 去掉用于状态的 `Emit`（流式 `cat:message` / `cat:turn` 如仍经适配器，保留单独字段，名字区分），改为 `OnChange func(agentKind string)`。适配器检测状态变化（开始检测、结束、版本 / 就绪 / 登录变化）时调用 `OnChange`。
+2. `Service` 在 `OnChange` 里调 `composeStatus(false)` 并 emit `cat:status`。`RecheckCat` 同样只经这条路径发。并发多次变化可合并（≤100ms 去抖），但**最终一条**必须反映最新状态。
+3. **不变式**：每一条 `cat:status` 载荷都含 `agents[]`，且包含**注册表里所有已注册适配器**各一行（顺序同 v0.36：按注册顺序 `cat_build` → `claude_cli` → `codex_cli`）。由注册表遍历生成，**不得**按 CLI 写特例；以后新增适配器自动带上。顶层 `state/version` 兼容字段照旧（以 `cat_build` 为主口径）。
+
+#### 6.19.21.2 `CatAgentStatus` 新增字段
+
+```go
+type CatAgentStatus struct {
+    // ... v0.36 / v0.44 原字段不变
+    Checking  bool   `json:"checking"`            // v0.47.1：该家正在检测
+    CheckedAt *int64 `json:"checkedAt,omitempty"` // v0.47.1：最近一次检测完成时间（Unix 毫秒）；从未检测过则省略
+    Stale     bool   `json:"stale,omitempty"`     // v0.47.1：当前行来自落库的上次结果，本次启动尚未实时检测完
+    ExePath   string `json:"exePath,omitempty"`   // v0.47.1：命中的可执行文件绝对路径（调试 / 关于页可不显示）
+}
+```
+TS 对应：`checking: boolean; checkedAt?: number; stale?: boolean; exePath?: string`。绑定用 wails 2.16 重新生成。
+
+#### 6.19.21.3 检测结果落库（新 settings 键 `cat.detect`）
+
+- 键：`cat.detect`（settings 表，JSON，不进 `cat.settings`），形如 `{ "<agentKind>": { "ready": bool, "version": string, "exePath": string, "checkedAt": int64ms } }`。每家实时检测完成后覆盖写该家一项；写失败只记日志。
+- 启动：先读 `cat.detect`，以「上次已知」填 `agents[]`（`stale=true`、`checking=true`、带 `checkedAt`），立即发一条 `cat:status`；随后后台对**所有已注册适配器**重新检测，每家完成即替换该行（`stale=false`、`checking=false`、新 `checkedAt`）并发 `cat:status`。
+- 落库**只用于显示**。`SendCatMessage` / `RetryCatTurn` / 定时任务等真正发起对话前，必须以**实时**检测结果为准（`stale` 行视为未就绪，必要时同步检测一次），**不得**用落库的 `ready` / `exePath` 直接启动进程。
+- 读到损坏 / 未知 agentKind 的项忽略，不报错。
+
+#### 6.19.21.4 Windows 兜底查找（`exec.LookPath` 失败时）
+
+顺序：
+1. **重读 PATH**：从注册表读用户 `HKCU\Environment\Path` 与机器 `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment\Path`，展开 `REG_EXPAND_SZ` 里的 `%VAR%`，合并（机器在前、用户在后，去重）后在其中查找。用途：应用先于 CLI 安装启动时，进程自身的 PATH 是旧的。**不**修改进程或系统 PATH。
+2. **探测已知目录**（下表），每个目录按 `<name>.exe` → `<name>.cmd` → `<name>.ps1` 顺序，取第一个存在的（优先 `.exe`）。
+3. 都没有 → `ready=false`（同现有未安装口径）。
+
+启动方式：
+- `.exe` 直接起。
+- `.cmd` 经 `cmd.exe /d /s /c "<"完整路径"> <参数…>"` 起；参数逐个按 cmd 规则加引号并转义 `"`、`%`、`^`、`&`、`|`、`<`、`>`；用 `SysProcAttr.CmdLine` 自己拼整行，避免 Go 默认转义再包一层。用户输入（提示词）**不得**经命令行参数传给 `.cmd`，一律走 stdin / 临时文件（与现有约定一致）。
+- `.ps1` 经 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <路径> <参数…>` 起。
+- 隐藏控制台窗口（同 9.1）。命中的路径写入 `exePath` 与 `cat.detect`。
+
+**查找目录表**（标 GUESS 的需真机 Windows 核过才能算定稿；GUESS 不影响发版，因为只是兜底，但验收清单必须逐项打勾）：
+
+| CLI | 目录 | 文件 | 依据 | 状态 |
+|---|---|---|---|---|
+| Claude | `%USERPROFILE%\.local\bin` | `claude.exe` | 官方安装文档（code.claude.com/docs Advanced setup）原生安装卸载步骤 `Remove-Item "$env:USERPROFILE\.local\bin\claude.exe"` | 文档有据；真机待核 |
+| Claude | `%APPDATA%\npm` | `claude.cmd` / `claude.ps1` | 官方文档 `npm install -g @anthropic-ai/claude-code`；npm 在 Windows 的默认全局 prefix 为 `%APPDATA%\npm` 是 npm 惯例，非 Claude 文档 | **GUESS** |
+| Claude | `%LOCALAPPDATA%\Microsoft\WinGet\Links` | `claude.exe` | 官方文档有 `winget install Anthropic.ClaudeCode`，但未写安装目录；Links 目录是 WinGet 惯例 | **GUESS** |
+| Codex | `%LOCALAPPDATA%\Programs\OpenAI\Codex\bin`（`CODEX_INSTALL_DIR` 可覆盖，设了就查它） | `codex.exe` | 官方 README 的 Windows 安装脚本 `https://chatgpt.com/codex/install.ps1`：`$defaultVisibleBinDir = Join-Path $env:LOCALAPPDATA "Programs\OpenAI\Codex\bin"`（10-14 读取） | 脚本有据；真机待核 |
+| Codex | `%APPDATA%\npm` | `codex.cmd` / `codex.ps1` | 官方 README `npm install -g @openai/codex`；目录同上为 npm 惯例 | **GUESS** |
+| Grok | `%USERPROFILE%\.local\bin`、`%LOCALAPPDATA%\Programs\grok`、`%APPDATA%\npm` | `grok.exe` / `.cmd` / `.ps1` | 未找到官方 Windows 安装位置文档 | **GUESS** |
+
+注：任务单原写的 `%LOCALAPPDATA%\Programs\<cli>` 对 Codex 不对，按安装脚本改为 `Programs\OpenAI\Codex\bin`。npm 用户若改过 prefix（`npm config get prefix`），本版不调用 npm 去查，只靠第 1 步重读 PATH 覆盖。
+
+#### 6.19.21.5 前端
+
+- `cat:status` 以 `agents[]` 为唯一真源：按 `agentKind` **合并**到现有各行；载荷**没有** `agents[]`（旧后端 / 异常）时只更新顶层兼容字段，**不得**重置其它家。`mapAgents` 删除「缺 agents 时顶层映射为 Grok、其余 ready:false」的逻辑。
+- 每行显示 `checking`（检测中…）与 「上次检测 HH:mm」（`checkedAt` 本地时间；跨天显示 `M月D日 HH:mm`）；`stale=true` 时就绪状态用 `--cat-muted` 显示为上次结果。**文案待产品确认**。
+- 「重新检测」保持重检全部。后端可选提供 `RecheckCat(agentKind?: string)`：空 = 全部；传了只检该家，但返回 / 事件仍是全量 `agents[]`。
+
+#### 6.19.21.6 测试与验收
+
+- **Go**：用假适配器（含三个注册 + 一个额外注册）跑：启动、单家变化、并发变化、`RecheckCat`、单家重检；断言**每一条** `cat:status` 都含全部已注册 agent 各一行。`cat.detect` 读写 / 损坏 JSON 忽略 / `stale` → 实时替换；`stale` 状态下 Send 不用落库路径。Windows 兜底的查找顺序与 `.exe` 优先做表驱动单测（假目录）；`.cmd` 命令行拼接（含空格、`&`、`%`、`"` 的路径和参数）单测。
+- **前端**：载荷含全量 → 三行正确；载荷只有一家 / 无 `agents[]` → 其它家不变；`checkedAt` 显示格式。
+- **真机 Windows 清单**（每项记录 Windows 版本、CLI 版本、命中路径）：
+  1. npm 全局安装的 `claude` / `codex`（`.cmd`），重开应用后三家都正确，发一轮对话成功。
+  2. Claude 官方原生安装（`irm https://claude.ai/install.ps1 | iex`）、Codex 官方脚本安装，同上。
+  3. Claude WinGet 安装。
+  4. **先开应用、再安装 CLI**：不重启应用点「重新检测」能检测到（验证重读注册表 PATH）。
+  5. 重开应用：先显示「上次检测 HH:mm」，后台检测完更新；断网 / 卸载后再开，上次结果被实时结果替换。
+  6. 路径含空格 / 中文用户名。
+
+#### 6.19.21.7 不做（本版）
+
+不调用 `npm config get prefix` / `where` 去探测；不改系统或用户 PATH；不缓存登录态到 `cat.detect`；不新增错误码、迁移或事件名。
 
 ### 9.1 检测顺序（启动时后台执行，不阻塞界面）
 
