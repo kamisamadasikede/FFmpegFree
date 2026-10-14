@@ -129,7 +129,7 @@ func TestRunTurn_KeepsFullCLITools(t *testing.T) {
 			}
 			return false
 		}
-		if !has("--always-approve") || !has("--output-format") || !has("--no-auto-update") {
+		if !has("--always-approve") || !has("--output-format") || has("--no-auto-update") {
 			t.Fatalf("turn %d: missing launch flags:\n%s", i, raw)
 		}
 		if has("--permission-mode") {

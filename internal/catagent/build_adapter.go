@@ -411,7 +411,7 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		spec.flag, spec.value,
 		"--output-format", "streaming-json",
 		"--cwd", cwd,
-		"--no-auto-update",
+		// --no-auto-update 不在 grok 1.0.40 真机 --help 里（隐藏开关），按「以真机 help 为准」不再传。
 		"--no-alt-screen",
 		// 不传 --tools / --disallowed-tools / --deny / --no-subagents / --disable-web-search，
 		// 工具集用本机 grok 自己的完整集合。批准方式只带一个开关。
