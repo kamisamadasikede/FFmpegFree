@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.44.2）
+# FFmpegFree v2 接口契约（v0.44.3）
+
+v0.44.3 变更（**口径收敛**，后端 #258 提问，架构师 10-14；无接口 / 错误码 / 迁移变更）：① 6.19.18.5b 第 3 条：Claude 模型**不预选**，`CatModel` 无 `isDefault` 字段，删去「对应别名 `isDefault=true`」要求。② 6.19.18.5b 新增第 7 条已知限制：Bedrock / 自定义服务商下别名可能对应其他版本，显示名与强度按 Anthropic API 那一行。③ 6.19.18.7 新增第 6 条重试限制：只能重试最后一轮；失败轮状态只存内存，应用重启后不能重试；不可重试提示文案待产品定稿。
 
 v0.44.2 变更（**Claude 模型列表口径**，产品 / 设计 / 后端 10-14，架构师 10-14；无新错误码 / 迁移）：新增 6.19.18.5b：`ListCatModels("claude_cli")` 只下发 `opus/sonnet/haiku/fable` 四个别名（显示名用官方文档版本，`--model` 发别名）；默认跟随 CLI，不确定不预选、未选不传 `--model`；强度按别名所属家族；前端「默认模型」项（灰字「跟随 Claude CLI 设置」）不由后端下发；各别名须经真实 help / 官方文档 + 快照单测核实，未确认不下发。
 
@@ -5513,7 +5515,7 @@ type CatModel struct { // ListCatModels 返回项，原字段不变
 
 1. `ListCatModels("claude_cli")` 只返回四个**别名** id：`opus`、`sonnet`、`haiku`、`fable`（按此顺序），**不铺完整模型 id**。
 2. `displayName` 用 Claude 官方文档中该别名当前对应的版本，如「Opus 5.5」；发给 CLI 的是别名：`--model <alias>`。
-3. 默认：若能确知 CLI 自己的默认模型，对应别名 `isDefault=true`；**不确定就全部 `isDefault=false`，不预选**。对话未选模型时后端**不传 `--model`**，跟随 CLI 设置。
+3. 默认：**不预选**（v0.44.3）。`CatModel` **没有 `isDefault` 字段**，后端不标默认模型；对话未选模型时后端**不传 `--model`**，跟随 CLI 设置。
 4. 每个别名的 `efforts[]` / `defaultEffort` 按其对应模型家族取 6.19.18.5 强度表；对应不上 → `[]` / `""`。
 5. 界面（纯前端，后端不下发「默认模型」这一项）：
    - 未选模型：胶囊显示「默认模型」，**不跟强度**。
@@ -5522,6 +5524,7 @@ type CatModel struct { // ListCatModels 返回项，原字段不变
 6. **UNVERIFIED（核实前不得发版）**：
    - 每个别名（**尤其 `fable`**）须在真实 `claude --help` / 官方文档中确认可用于 `--model`，记录 CLI 版本，并有 help 快照单测；**未确认的别名不下发**。
    - 显示名中的版本号、别名 → 强度家族的对应关系，须在 `/workspace/notes/cli-modes-effort.md` 写明出处（文档链接 / CLI 版本）。
+7. **已知限制**（v0.44.3）：显示名和强度按 Anthropic 官方文档中 **Anthropic API** 那一行取；使用 Bedrock / Vertex / 自定义服务商时，同一别名可能对应其他版本，界面显示名可能与实际模型不一致。本期不处理。
 
 #### 6.19.18.5a 强度显示名（前端映射，三家共用）
 
@@ -5554,6 +5557,7 @@ RetryCatTurn(req RetryCatTurnRequest) (SendCatMessageResult, error)
 3. 返回新 `turnId`；事件沿用 `cat:message` / `cat:turn`（6.19.9），`seq` 从 1 起。
 4. 参数按**当前检测到的 CLI 版本**重新生成（6.19.17.1-5，缓存键 路径 + mtime + 大小）；mode / effort 若当前版本或模型已不支持，按本节回落规则处理。
 5. 前端：v0.43 的 `retryLastMessage()`（再发一条、多一个气泡）**作废**，「重试」改调 `RetryCatTurn`。同步错误（`CAT_NOT_READY` / `CAT_PROJECT_MISSING` 等）照原样行内显示。
+6. **限制**（v0.44.3）：只能重试**最后一轮**；失败轮状态**只存在内存**，应用重启后该轮**不能重试**（返回 `retry_not_allowed`，前端隐藏或置灰「重试」）。不可重试时的提示文案（草稿「这条回复不能重试。」）**待产品定稿**。
 
 #### 6.19.18.8 不做 / 待核
 
