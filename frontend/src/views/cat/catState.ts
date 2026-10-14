@@ -1,3 +1,4 @@
+import { dropTurnErrors } from './catPending'
 import { refreshScratch } from './catScratchFiles'
 import { listCatFiles } from '@/api/catFiles'
 import { catBackendLive } from '@/api/cat'
@@ -1058,6 +1059,7 @@ function endTurn(convId: string, how: TurnEnd, token?: number, ev?: CatTurnEvent
   else delete catState.unseen[convId]
   if (turn.assistantId) streams.delete(turn.assistantId)
   catState.filesRev++
+  if (how === 'completed') dropTurnErrors(list)
   if (how === 'cancelled') list.push({ kind: 'sys', text: CAT_COPY.stopped })
   else if (how === 'failed') {
     const outdated = parseCliOutdated(turn.failDetail, findConv(convId)?.conv.agentKind ?? currentAgentKind())

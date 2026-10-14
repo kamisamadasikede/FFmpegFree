@@ -944,6 +944,8 @@ type streamPiece struct {
 	ID      string
 	Text    string
 	Replace bool
+	// Done：本轮已正常结束（Codex turn.completed / Claude 非错误 result）。v0.48.1
+	Done bool
 }
 
 func scanStreamingJSON(r io.Reader, onPiece func(streamPiece), onErr func(string)) error {

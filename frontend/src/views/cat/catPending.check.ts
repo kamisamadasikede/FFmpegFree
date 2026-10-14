@@ -1,4 +1,4 @@
-import { awaitingTurnOutput, userSendFailed } from './catPending'
+import { awaitingTurnOutput, dropTurnErrors, userSendFailed } from './catPending'
 
 type Eq = (name: string, got: unknown, want: unknown) => void
 
@@ -22,4 +22,14 @@ export function catPendingChecks(eq: Eq): void {
     { kind: 'user', text: '第三句' },
   ]
   eq('失败记号：只标失败那一句', [userSendFailed(failed, 0), userSendFailed(failed, 2), userSendFailed(failed, 4)], [false, true, false])
+  const okAfterReconnect = [
+    { kind: 'user', text: '上一句' },
+    { kind: 'sys', text: '上一轮真失败', tone: 'err' },
+    { kind: 'user', text: '你好' },
+    { kind: 'sys', text: 'Reconnecting... 1/5', tone: 'err' },
+    { kind: 'a', text: '你好！有什么我可以帮你的吗？' },
+  ]
+  dropTurnErrors(okAfterReconnect)
+  eq('成功回合：中途的错误行删掉，这句不标红', userSendFailed(okAfterReconnect, 2), false)
+  eq('成功回合：上一轮的失败行和失败记号保留', [okAfterReconnect.length, userSendFailed(okAfterReconnect, 0)], [4, true])
 }
