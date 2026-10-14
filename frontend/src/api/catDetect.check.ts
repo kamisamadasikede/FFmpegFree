@@ -63,6 +63,6 @@ export function catDetectChecks(eq: Eq): void {
   eq('登录：结果未到 → 正在检测…', detectLoginView(undefined, detectRowView(undefined), LC).text, '正在检测…')
   eq('登录：实时 true', lg({ loggedIn: true }).tone, 'ok')
   eq('登录：实时 false', [lg({ loggedIn: false }).text, lg({ loggedIn: false }).bad], ['未登录', true])
-  eq('登录：实时完成 ready + null → 不适用', lg({ loggedIn: undefined }).text, '不适用')
+  eq('登录：实时完成 + null → 隐藏', [lg({ loggedIn: undefined }).text, lg({ ready: false, loggedIn: undefined }).text], ['', ''])
   eq('登录：检测中不出未登录', lg({ checking: true, loggedIn: false }).bad, false)
 }
