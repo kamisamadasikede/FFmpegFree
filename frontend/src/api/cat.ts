@@ -23,7 +23,6 @@ export { CAT_BACKEND_READY }
 /** 契约 6.19.7 冻结文案（stopped：产品定，停止生成后单独一行浅灰系统提示） */
 export const CAT_COPY = {
   notReady: '未检测到 Cat 助手，请先安装并确保可在终端直接运行。',
-  authInvalid: '登录失效，请重新登录后再试。',
   replyFailed: '回复没生成出来，请重试。',
   writeRefused: '当前只能查看项目文件，改文件和运行命令下一期开放。',
   later: '下一期开放。',
@@ -76,8 +75,6 @@ export interface CatAgentStatus extends Partial<Pick<catagent.AgentStatus, 'chec
   agentKind: CatProviderKind
   ready: boolean
   version: string
-  /** 该家不需要登录时可省略（undefined） */
-  loggedIn?: boolean | null
   detail?: string
   /** v0.44 agents[].modes 原样（由 views/cat/catCapabilities 的 mapAgentModes 解析） */
   rawModes?: unknown
@@ -200,7 +197,7 @@ function missingStatus(): CatStatus {
 const STATES: CatComponentState[] = ['checking', 'ready', 'missing', 'failed']
 
 function emptyAgents(): CatAgentStatus[] {
-  return CAT_PROVIDER_ORDER.map((agentKind) => ({ agentKind, ready: false, version: '', loggedIn: null }))
+  return CAT_PROVIDER_ORDER.map((agentKind) => ({ agentKind, ready: false, version: '' }))
 }
 
 /** v0.47.1：只返回载荷里真有的行（按注册顺序），不再补「顶层映射为 Grok、其余 ready:false」的假行 */
@@ -212,12 +209,10 @@ function mapAgents(raw: unknown): CatAgentStatus[] {
       const r = item as Record<string, unknown>
       if (!isProviderKind(String(r.agentKind ?? ''))) continue
       const kind = r.agentKind as CatProviderKind
-      const loggedIn = typeof r.loggedIn === 'boolean' ? r.loggedIn : null
       by.set(kind, {
         agentKind: kind,
         ready: r.ready === true,
         version: typeof r.version === 'string' ? r.version : '',
-        loggedIn,
         detail: typeof r.detail === 'string' ? r.detail : '',
         rawModes: r.modes,
         checking: r.checking === true,

@@ -347,7 +347,6 @@ function seed(): CatSchedule[] {
       mkRun('s1', 'missed', 82 * HOUR, { missedReason: 'asleep' }),
       mkRun('s1', 'missed', 106 * HOUR, { missedReason: 'closed' }),
       mkRun('s1', 'skipped', 130 * HOUR),
-      mkRun('s1', 'failed', 154 * HOUR, { error: { code: 'CAT_NOT_READY', message: '登录失效，请重新登录后再试。', detail: 'reason=auth' } }),
     ]),
     mkSched('s2', { name: '周报：字幕进度', projectId: 'p3', frequency: 'weekly', time: '18:00', weekdays: [1, 5] }, [
       mkRun('s2', 'failed', 26 * HOUR, { error: null }),
