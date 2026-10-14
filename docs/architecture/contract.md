@@ -1,6 +1,10 @@
-# FFmpegFree v2 接口契约（v0.44.5）
+# FFmpegFree v2 接口契约（v0.45）
 
-v0.44.5 变更（**turn 级 `retryable`**，后端 / 前端提议，架构师 10-14；无新错误码 / 迁移）：6.19.18.7 新增第 7 条：turn 新增 `retryable bool`，`GetCatConversation` 返回的 turn 和失败事件（`cat:turn` `status=failed`）都带；仅当该轮是会话最后一轮、`status=failed`、且失败状态仍在后端内存中时为 `true`（应用重启后为 `false`）。前端「重试」只在最后一轮失败且 `retryable=true` 时显示；点后仍返回 `retry_not_allowed` → 原地灰字。
+v0.45 变更（**Claude 记录读回与续聊、Grok token 用量、消息尾首字 / 总耗时**，老板 t67u，架构师 10-14；无新错误码 / 迁移 / 事件名）：① Claude 照 Codex #262：按存下的 session_id 从 `~/.claude/projects/*/<id>.jsonl` 读回记录，续聊一律 `--resume <id>`；② Grok 流里无 token，终态后跑 `grok usage <sessionId>` 取本轮 `totalTokens`，取不到就省略、不估算；③ `CatMessage` / 终态 `cat:turn` 新增可选 `firstTokenMs`、`totalMs`（后端应用侧计时，三家通用）；显示文案待产品拍板。见 6.19.19。
+
+v0.44.6 变更（**`retryable` 落点定为 `lastTurn`**，前端 / 后端对齐，架构师 10-14；无新错误码 / 迁移）：`CatConversationDetail` 新增可选 `lastTurn` 对象 `{ turnId string, status string, retryable bool }`（Go：`LastTurn *CatTurnState json:"lastTurn,omitempty"`）；后端内存中没有该会话的 turn（如应用重启后）时省略，前端把缺省视为不可重试。不提供 `turns[]` 列表。失败事件 `cat:turn` `status=failed` 仍带 `retryable`。见 6.19.18.7 第 7 条。
+
+v0.44.5 变更（**turn 级 `retryable`**，后端 / 前端提议，架构师 10-14；无新错误码 / 迁移）：6.19.18.7 新增第 7 条：turn 新增 `retryable bool`，`GetCatConversation` 返回的 `CatConversationDetail.lastTurn`（v0.44.6 定稿：可选对象 `{ turnId string, status string, retryable bool }`，Go `LastTurn *CatTurnState json:"lastTurn,omitempty"`；后端内存无该会话 turn 时省略，前端视为不可重试；不提供 `turns[]`） 和失败事件（`cat:turn` `status=failed`）都带；仅当该轮是会话最后一轮、`status=failed`、且失败状态仍在后端内存中时为 `true`（应用重启后为 `false`）。前端「重试」只在最后一轮失败且 `retryable=true` 时显示；点后仍返回 `retry_not_allowed` → 原地灰字。
 
 v0.44.4 变更（**重试文案定稿 + 默认模式按 CLI**，产品 / 架构师 10-14；无新错误码 / 迁移，`cat.settings` JSON 就地演进）：① 6.19.18.7 第 6 条定稿：「重试」只在失败轮是最后一轮且仍可重试时显示；点了但已不可重试 → 按钮原地换成灰字「这条回复已无法重试，请重新发送。」，不弹 toast、不用红色。② 新增 6.19.18.9：`CatSettings.defaultApprovalMode`（全局单值）改为 `defaultModeByAgent{cat_build,claude_cli,codex_cli}` → 该家 `modes[].id`；设置页每家一个下拉；旧值按各家「旧值」列迁移，未知回落该家最保守默认。
 
@@ -5565,7 +5569,7 @@ RetryCatTurn(req RetryCatTurnRequest) (SendCatMessageResult, error)
 6. **限制与界面**（v0.44.3 / v0.44.4 定稿）：只能重试**最后一轮**；失败轮状态**只存在内存**，应用重启后该轮不能重试（`retry_not_allowed`）。
    - 「重试」按钮**只在**该失败轮是会话最后一轮**且仍可重试**时显示；应用重启后、或已不是最后一轮 → **不显示**。
    - 点了「重试」但后端返回 `retry_not_allowed` → 按钮消失，**原地**换成灰字「这条回复已无法重试，请重新发送。」，字号同「当前版本 X」那行；**不弹 toast、不用红色**。
-7. **`retryable`（v0.44.5）**：turn 新增 `retryable bool`（`json:"retryable"`，始终输出），出现在 `GetCatConversation` 返回的每个 turn 上，以及失败事件（`cat:turn` `status=failed`）的载荷里。**仅当**该轮是会话最后一轮、`status=failed`、且其失败状态仍存在于后端内存中时为 `true`；其余（非最后一轮、非失败、应用重启后内存已无）一律 `false`。新一轮开始后，前一失败轮变为 `false`。
+7. **`retryable`（v0.44.5）**：turn 新增 `retryable bool`（`json:"retryable"`，始终输出），出现在 `GetCatConversation` 返回的 `CatConversationDetail.lastTurn`（v0.44.6 定稿：可选对象 `{ turnId string, status string, retryable bool }`，Go `LastTurn *CatTurnState json:"lastTurn,omitempty"`；后端内存无该会话 turn 时省略，前端视为不可重试；不提供 `turns[]`） 上，以及失败事件（`cat:turn` `status=failed`）的载荷里。**仅当**该轮是会话最后一轮、`status=failed`、且其失败状态仍存在于后端内存中时为 `true`；其余（非最后一轮、非失败、应用重启后内存已无）一律 `false`。新一轮开始后，前一失败轮变为 `false`。
    - 前端：「重试」**只在**最后一轮 `status=failed` 且 `retryable=true` 时显示，不再自行推断。
    - `retryable=true` 但调用时后端返回 `retry_not_allowed`（竞态）→ 仍按第 6 条原地换成灰字。
 
@@ -5592,6 +5596,73 @@ type CatSettings struct {
 - UNVERIFIED 补齐后只改本节表格（小版本 v0.44.x），不改结构。
 
 **v0.44 验收**：三家模式下拉各自显示本表列表与顺序、默认选中正确；Codex 无计划项、续聊自动审查发 workspace-write；grok-4.5 无「很高」；每项目首次切 danger 弹确认、再切不弹；Claude 切到 Opus 4.6 时选中的 xhigh 回落 high；保存 `max` 成功；失败后点「重试」不新增气泡并成功。
+
+
+### 6.19.19 Claude 记录读回 / 续聊、Grok token、首字与总耗时（v0.45，架构师 10-14）
+
+#### 6.19.19.1 Claude 记录读回与续聊（照 Codex #262）
+
+现状根因（v2 `08a0573`）：`CLIAgentAdapter.LoadTranscript` 对 `claude_cli` 直接返回空列表，刷新后记录页为空；续聊判定 `resume = opts.Resume || hasPriorAssistant(opts.Messages)`，`opts.Resume` 来自 Grok 会话目录（对 Claude 恒 false），刷新后 `Messages` 为空 → 不带 `--resume`，每句开新会话、上文丢失。
+
+1. **续聊**：与 Codex 同口径，以我们存下的 `session_id`（stream-json `system/init` / `result` 行里的 `session_id`，已由 `saveSessionID` 存）为准：有就续，`resume = sessionID != ""`。参数 `--resume <sessionId>`（H `testdata/help/claude.txt` 2.1.296：`-r, --resume [value]  Resume a conversation by session ID`；D https://code.claude.com/docs/en/sessions）。删去 `buildClaudeArgs` 里的 `GUESS B9` 注释，改为出处注释。子进程 `cmd.Dir` 必须是该会话原工作目录（Claude 按工作目录找会话）。
+2. **会话文件位置**（D https://code.claude.com/docs/en/sessions「Where transcripts are stored」）：`$CLAUDE_CONFIG_DIR`（未设则 `~/.claude`）`/projects/<目录名>/<sessionId>.jsonl`；目录名 = 工作目录路径里非字母数字字符换成 `-`，超过 200 字符时截断加 hash，且可被 `CLAUDE_CODE_PROJECT_DIR_NAME` 改名。**因此不自己拼目录名**：在 `projects/*/` 下按文件名 `<sessionId>.jsonl` 查找（sessionId 是 UUID，校验不含 `/` `\` `..`）；优先尝试按规则拼出的目录，找不到再扫一层。`ProviderEnv` 里若设了 `CLAUDE_CONFIG_DIR` 以它为准（同 Codex 的 `CODEX_HOME`）。
+3. **解析**（`ParseClaudeTranscript`，宽松）：官方说明行格式是内部格式、随版本变化 → 每行独立 JSON，坏行 / 未知 `type` 跳过，不报错。只认 `type=user` 和 `type=assistant`，取 `message.content`（字符串或 block 数组）：`text` → 正文；`thinking` → 思考块；`tool_use` / `tool_result` → 工具卡（与现有 Codex 工具卡同形）。跳过：`isSidechain=true`（子代理）、`isMeta=true`、`summary` / `system` / `file-history-snapshot` 等元数据行、我们注入的规则块（`--append-system-prompt` 不落用户消息，无需特判）、仅含 `tool_result` 的 user 行不作为用户气泡。同一 `message.id` 的多行 assistant（流式分片）按出现顺序合并成一条。
+4. **缺失**：无 session_id、文件已被 `cleanupPeriodDays`（默认 30 天）清掉或读失败 → 返回空列表、记日志，不报错，记录页能打开（同 #262）。续聊时文件不在 → 仍按存下的 id 发 `--resume`；CLI 报找不到会话时走现有失败路径，`retryable=false`，并清掉该 session_id 让下一句开新会话。
+5. **侧栏标题**：`SessionLabel` 对 Claude 取文件里第一条非 meta 的 user 文本（`shortLabel` 18 字），只当次展示、不回写库。Codex 侧栏标题同理（取 rollout 第一条 user message），一并做。
+6. **测试**：`testdata/claude/<uuid>.jsonl` 真机样本（2.1.296 采集，脱敏）+ 坏行 / sidechain / 分片合并用例；`buildClaudeArgs` 续聊参数过 `cli_help_whitelist_test`；刷新后 `GetCatConversation.messages` 非空的 service 测试。
+
+#### 6.19.19.2 Grok Build（`cat_build`）token 用量
+
+真机核对（grok 1.0.40，box 未登录只能核本地子命令）：`--output-format streaming-json` 的 ACP 更新行里**没有** token 字段（现有适配器也未解析到）；但有子命令 `grok usage <SESSION_ID> [TURN]`「Print persisted token and cost usage for a session」，离线读本地记录、不需要网络，输出 JSON：
+
+```json
+{ "sessionId": "...", "updatedAt": "...",
+  "session": { "inputTokens": 0, "outputTokens": 0, "cachedReadTokens": 0, "cacheCreationTokens": 0,
+               "reasoningTokens": 0, "totalTokens": 0, "modelCalls": 0, "turnCount": 0, "primaryModelId": "...", "modelUsage": {} },
+  "turns": [ { "turnNumber": 1, "endedAt": "...", "totalTokens": 0, "...": "同上" } ] }
+```
+
+（无记录时 stderr `No usage recorded for session '<id>'`、退出码非 0。）
+
+1. **取数**：turn 进入终态后，适配器在同一 `$GROK_HOME`/环境下跑 `grok usage <sessionId>`（**不传 TURN**，避免我们与 CLI 的轮次号对不齐），超时 5s；取 `turns[]` 里 `turnNumber` 最大、且 `endedAt` 晚于本轮 `startedAt` 的那项；`tokenTotal = totalTokens`（与 Claude / Codex 一样是合计，不拆）。拿不到（超时、非 0、无匹配 turn、旧版本无此子命令）→ 省略 `tokenTotal` / `tokensPerSec`，**不估算**（v0.37.1 第⑤条：不补假数据）。
+2. `durationMs`（tok/s 分母）：Grok 不报生成耗时 → 按 6.19.9 用 turn 墙钟。
+3. 参数出处：新增 `testdata/help/grok-usage.txt`（`grok usage --help`，1.0.40，首行注明版本），白名单测试覆盖 `usage` 子命令；`testdata/grok/usage-*.json` 真机样本做解析测试。
+4. 失败 / 取消的轮也尝试取（有部分用量就带，同 6.19.9）。
+
+#### 6.19.19.3 首字时间 / 总耗时（三家通用）
+
+新增可选字段，挂在 assistant `CatMessage` 与终态 `cat:turn` 上（与 `finishedAt` / `tokenTotal` 同规则：仅终态写入、持久化在应用侧消息尾、`omitempty`、旧消息不补）：
+
+```go
+FirstTokenMs *int64 `json:"firstTokenMs,omitempty"` // 发送 → 第一个流式正文/思考增量，毫秒
+TotalMs      *int64 `json:"totalMs,omitempty"`      // 发送 → 本轮终态，毫秒（墙钟）
+```
+
+```ts
+firstTokenMs?: number
+totalMs?: number
+```
+
+1. **起点**统一为本轮 `turnStartedAt`（后端启 turn / 发 `running` 的时刻，6.19.9 已定义）；全部由**后端在应用侧计时**，三家一致，不读 CLI 自报（Claude `result.duration_ms`、Grok `events.jsonl first_token` 只作排查参考）。
+2. `firstTokenMs`：适配器第一次回调**正文或思考增量**（`Text != ""` 的 delta / thinking；不算 init、usage、工具开始、重试提示）的时刻 − 起点。整轮无增量（如直接失败）→ 省略。
+3. `totalMs` = `finishedAt − turnStartedAt`；有 `finishedAt` 就带。与 tok/s 分母 `durationMs` 是两回事：`durationMs` 仍按 6.19.9 优先 CLI 生成耗时，不改。
+4. 原地重试（6.19.18.7）以重试发起时刻为新起点，覆盖旧值。
+5. 字段名用 `totalMs` 而非 `durationMs`，避免与 6.19.9 内部分母混淆。
+
+**前端显示（提议，待产品拍板）**：消息尾在现有一行后追加，次要色、`·` 分隔：
+
+```text
+完成于 14:32 · 首字 1.2s · 总耗时 8.4s · 共 12,345 token · 约 85 token/s
+```
+
+- 秒：< 10s 一位小数（`1.2s`），≥ 10s 取整（`23s`），≥ 60s 写 `1分05秒`；< 0.1s 显示 `0.1s`。
+- 缺哪项就不显示哪项（Grok 取不到用量时只到「总耗时」）；字段都缺 → 按 6.19.9 不显示尾巴。
+- 悬停提示（可选）：首字 =「从发送到看到第一个字」，总耗时 =「从发送到回复结束」。
+
+#### 6.19.19.4 不做 / 验收
+
+- 不做：Grok token 估算；拆 in/out；Claude 会话文件写回；无新错误码（仍 39 个）、无迁移、无新事件名。
+- **验收**：Claude 对话刷新 / 重启后记录完整、下一句接得上上文；Codex / Claude 侧栏显示首句标题；Grok 回复后尾巴有 token 与 token/s；三家尾巴都有「首字 / 总耗时」，失败无增量的轮只有总耗时。
 
 
 ## 7. 本地流服务（已取消）

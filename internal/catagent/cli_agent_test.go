@@ -144,28 +144,71 @@ exit 0
 	}
 }
 
-func TestClaudeRunTurn_Cancel(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("unix script fake")
-	}
+func newSlowClaude(t *testing.T, started string) *CLIAgentAdapter {
+	t.Helper()
 	fake := filepath.Join(t.TempDir(), "claude-slow")
-	script := "#!/bin/sh\nsleep 30\n"
-	_ = os.WriteFile(fake, []byte(script), 0o755)
+	// 先写标记文件表示“进程已启动”，再长睡；测试据此同步，不靠固定 sleep。
+	script := "#!/bin/sh\n: > '" + started + "'\nexec sleep 30\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	a := NewClaudeAdapter(CLIAgentConfig{
 		DataTemp: t.TempDir(),
 		LookPath: func(string) (string, error) { return fake, nil },
 		Exec: func(ctx context.Context, name string, args ...string) *exec.Cmd {
-			return exec.CommandContext(ctx, fake)
+			// 只有对话轮（-p）才跑慢脚本；detect 的 --version 等探测立即返回，
+			// 否则每次 detect 都要白等探测超时。
+			for _, arg := range args {
+				if arg == "-p" {
+					return exec.CommandContext(ctx, fake)
+				}
+			}
+			return exec.CommandContext(ctx, "true")
 		},
 	})
 	a.detect()
+	return a
+}
+
+// 进程已启动后取消 → Canceled。
+func TestClaudeRunTurn_Cancel(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix script fake")
+	}
+	started := filepath.Join(t.TempDir(), "started")
+	a := newSlowClaude(t, started)
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	go func() {
-		time.Sleep(50 * time.Millisecond)
+		deadline := time.Now().Add(20 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(started); err == nil {
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
 		cancel()
 	}()
 	_, err := a.RunTurn(TurnOptions{
 		Ctx: ctx, ConversationID: "c-cancel",
+		Messages: []WireMessage{{Role: "user", Content: "x"}},
+		Timeout:  60 * time.Second,
+	})
+	if !apperr.Is(err, apperr.Canceled) {
+		t.Fatalf("want canceled, got %v", err)
+	}
+}
+
+// 启动前就已取消（高负载下原测试的 50ms 取消早于 Start 的情形）→ 也必须是 Canceled，不能是 start_failed。
+func TestClaudeRunTurn_CancelBeforeStart(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix script fake")
+	}
+	a := newSlowClaude(t, filepath.Join(t.TempDir(), "started"))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := a.RunTurn(TurnOptions{
+		Ctx: ctx, ConversationID: "c-cancel-early",
 		Messages: []WireMessage{{Role: "user", Content: "x"}},
 		Timeout:  5 * time.Second,
 	})

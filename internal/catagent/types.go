@@ -139,9 +139,11 @@ type MessageEvent struct {
 // ContextUsed / ContextWindow 是这一轮结束后的上下文占用；没有真实数字时省略，界面不画 0%。
 // Error 只在失败时带上，message 是这一轮看到的原文。
 type TurnEvent struct {
-	ConvID        string           `json:"convId"`
-	TurnID        string           `json:"turnId"`
-	Status        string           `json:"status"` // running | cancelled | failed | completed
+	ConvID string `json:"convId"`
+	TurnID string `json:"turnId"`
+	Status string `json:"status"` // running | cancelled | failed | completed
+	// Retryable（v0.44.5，6.19.18.7 第 7 条）：始终输出；仅最后一轮失败且后端内存里仍有失败记录时为 true。
+	Retryable     bool             `json:"retryable"`
 	ContextUsed   int64            `json:"contextUsed,omitempty"`
 	ContextWindow int64            `json:"contextWindow,omitempty"`
 	Error         *apperr.AppError `json:"error,omitempty"`
