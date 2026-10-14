@@ -83,6 +83,8 @@ import { applyStreamEvent, newStreamMsg, type CatStreamEvent, type CatStreamMsg,
 import { liveTurnPlan, transcriptChanged } from './catLive'
 import { AppError, toAppError } from '@/api/call'
 import { CAT_CLI_OUTDATED_COPY, parseCliOutdated } from '@/components/cat/catCliOutdated'
+import { isModelListStale, listCatProviderModels, type CatProviderModelList } from '@/api/catProviderModels'
+import { isProviderKind, type CatProviderKind } from '@/api/catAgents'
 import { catPanels, showTurnFinishToast, defaultConvPref, dismissFailToast } from './catPanels'
 import { rememberNewConvProject, resolveNewConvProject } from './catLocalPrefs'
 import { catSim, catSimOs, catSimPicks, simAgentRaw, simStream } from './catDevSim'
@@ -255,6 +257,10 @@ export const catState = reactive({
   /** 当前会话 agentKind 对应的能力列表（不造假） */
   models: [] as CatModel[],
   thinks: [] as CatThinkLevel[],
+  /** v0.46：模型列表拉取时间（ms，输入区打开下拉时超过 10 分钟重拉）和拉不到时的状态（自定义开时才有） */
+  modelsAt: 0,
+  modelsFor: '' as string,
+  providerModels: null as Pick<CatProviderModelList, 'state' | 'models'> | null,
   /** B1：正在读这条对话的记录（第一次打开、本地还没有内容时） */
   histLoading: {} as Record<string, boolean>,
   /** 记录读过了（读到空 / 没找到也算），用来区分「还在读」和「真的没有记录」 */
@@ -532,11 +538,28 @@ function showConvPref(convId: string) {
     catState.think = pref?.think ?? ''
     return
   }
+  // v0.46：自定义开时手填的 / 不在当前列表的模型照常保留（显示 id + 「不在当前列表」），不自动改
+  if (customProviderOn(currentAgentKind()) && pref?.model && !catState.models.some((m) => m.id === pref.model)) {
+    catState.model = pref.model
+    catState.think = ''
+    return
+  }
   const resolved = resolveConvPref(pref, catState.models, catState.thinks)
   // Claude：没选过 / 选的不在列表里 → 「默认模型」（空，跟随 CLI），不自动选第一个
   if (followsCliModel(currentAgentKind()) && !(pref?.model && catState.models.some((m) => m.id === pref.model))) resolved.model = ''
   catState.model = resolved.model
   catState.think = resolved.think
+}
+
+/** v0.46：这家开了自定义服务商（输入区模型下拉加「手动填写…」） */
+export function customProviderOn(kind: CatAgentKind = currentAgentKind()): boolean {
+  return isProviderKind(kind) && !!catPanels.settings.providersByAgent?.[kind]?.enabledCustom
+}
+
+/** 输入区打开模型下拉时调用：距上次拉取超过 10 分钟（或换了家）就重拉 */
+export function refreshModelsIfStale(now = Date.now()): void {
+  const kind = currentAgentKind()
+  if (catState.modelsFor !== kind || isModelListStale(catState.modelsAt, now)) void refreshCapabilities(kind)
 }
 
 /** 用户点了模型、强度或批准方式：只写当前这条对话。 */
@@ -592,12 +615,23 @@ function carryDraftPref(toId: string) {
 export async function refreshCapabilities(agentKind: CatAgentKind = currentAgentKind()) {
   const ticket = ++capsTicket
   const sim = import.meta.env.DEV && (catSim.has('caps') || catSim.has('codexcaps'))
-  const [models, thinks] = await Promise.all(
+  // eslint-disable-next-line prefer-const
+  let [models, thinks] = await Promise.all(
     sim
       ? [Promise.resolve(simAgentRaw(agentKind).models as CatModel[]), Promise.resolve([] as CatThinkLevel[])]
       : [listCatModels(agentKind), listCatThinkLevels(agentKind)],
   )
   if (ticket !== capsTicket) return
+  // v0.46：自定义开时 ListCatModels 已经是服务商列表；拉不到（空）时再问一次状态，给一行提示（后端有 10 分钟缓存，不重拉）
+  let pm: Pick<CatProviderModelList, 'state' | 'models'> | null = null
+  if (!sim && customProviderOn(agentKind)) {
+    pm = models.length ? { state: 'ok', models } : await listCatProviderModels(agentKind as CatProviderKind, false)
+    if (ticket !== capsTicket) return
+    if (!models.length && pm.state === 'ok' && pm.models.length) models = pm.models // 纯浏览器走查：ListCatModels 不模拟服务商
+  }
+  catState.providerModels = pm
+  catState.modelsAt = Date.now()
+  catState.modelsFor = agentKind
   catState.models = models
   catState.thinks = thinks
   if (sim) setBackendCaps(agentKind, { thinks, ...mapBackendCaps(simAgentRaw(agentKind)) })

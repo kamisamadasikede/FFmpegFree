@@ -334,6 +334,13 @@ let mockSettings: CatSettings = normalizeSettings({})
 /** 模拟密钥：只记是否已设，永不回显明文 */
 const mockSecrets = new Set<CatProviderKind>()
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+// 走查 ?cat_sim=pmcustom：三家自定义都开、地址和 Key 已填（v0.46 模型下拉）
+if (sim('pmcustom')) {
+  for (const kind of CAT_PROVIDER_ORDER) {
+    mockSettings.providersByAgent[kind] = { enabledCustom: true, protocol: '', apiUrl: kind === 'claude_cli' ? 'https://gw.example.com' : 'https://gw.example.com/v1', apiKeySet: true }
+    mockSecrets.add(kind)
+  }
+}
 
 function withMockKeyFlags(s: CatSettings): CatSettings {
   const providersByAgent = emptyProvidersByAgent()

@@ -42,6 +42,7 @@ import { catProjectsChecks } from './catProjects.check'
 import { catDeleteChecks } from '@/views/cat/catDelete.check'
 import { catConvPrefsChecks } from '@/views/cat/catConvPrefs.check'
 import { catThinkChecks } from '@/views/cat/catThink.check'
+import { catProviderModelsChecks } from './catProviderModels.check'
 import { catPanelsChecks } from '@/views/cat/catPanels.check'
 import { catLocalPrefsChecks } from '@/views/cat/catLocalPrefs.check'
 import { catLastConvChecks } from '@/views/cat/catLastConv.check'
@@ -1002,6 +1003,7 @@ export async function runApiChecks(): Promise<string[]> {
         catConvPrefsChecks(eq) // Cat 每条对话自己的模型和思考强度
         catLocalPrefsChecks(eq) // Cat 本机偏好：新对话放在 / 回复逐字显示
         catPanelsChecks(eq) // Cat 设置 / 定时任务纯函数（v0.35.x）
+        catProviderModelsChecks(eq) // v0.46 服务商模型列表：文案 / 颜色 / 聚焦 / 手填校验 / 10 分钟过期
         await catThinkChecks(eq) // Cat 模型和思考强度按对话记住：刷新还在，换对话互不影响
         await catLastConvChecks(eq) // Cat 重新进入：回到上次对话；新对话不记；删了的回到欢迎页
         await catMarkdownChecks(eq) // Cat 助手回复 Markdown：元素、原始 HTML、链接协议、图片不加载、流式未闭合围栏
