@@ -80,6 +80,14 @@ export interface CatAgentStatus {
   detail?: string
   /** v0.44 agents[].modes 原样（由 views/cat/catCapabilities 的 mapAgentModes 解析） */
   rawModes?: unknown
+  /** v0.47.1：该家正在检测（旧绑定缺省 → false） */
+  checking?: boolean
+  /** v0.47.1：最近一次检测完成时间（Unix 毫秒） */
+  checkedAt?: number
+  /** v0.47.1：来自落库的上次结果 */
+  stale?: boolean
+  /** v0.47.1：命中的可执行文件路径（只在 tooltip 显示） */
+  exePath?: string
 }
 
 export interface CatStatus {
@@ -89,6 +97,8 @@ export interface CatStatus {
   error?: { code: string; message: string; detail?: string } | null
   /** v0.36：固定顺序 cat_build → claude_cli → codex_cli；缺省时由 mapCatStatus 补空行 */
   agents: CatAgentStatus[]
+  /** v0.47.1：原始载荷是否带 agents[]；false 时合并只动顶层字段 */
+  hasAgents?: boolean
 }
 
 export interface CatModel {
@@ -198,7 +208,8 @@ function emptyAgents(): CatAgentStatus[] {
   return CAT_PROVIDER_ORDER.map((agentKind) => ({ agentKind, ready: false, version: '', loggedIn: null }))
 }
 
-function mapAgents(raw: unknown, fallbackReady: boolean, fallbackVersion: string): CatAgentStatus[] {
+/** v0.47.1：只返回载荷里真有的行（按注册顺序），不再补「顶层映射为 Grok、其余 ready:false」的假行 */
+function mapAgents(raw: unknown): CatAgentStatus[] {
   const by = new Map<string, CatAgentStatus>()
   if (Array.isArray(raw)) {
     for (const item of raw) {
@@ -214,18 +225,14 @@ function mapAgents(raw: unknown, fallbackReady: boolean, fallbackVersion: string
         loggedIn,
         detail: typeof r.detail === 'string' ? r.detail : '',
         rawModes: r.modes,
+        checking: r.checking === true,
+        checkedAt: typeof r.checkedAt === 'number' && r.checkedAt > 0 ? r.checkedAt : undefined,
+        stale: r.stale === true,
+        exePath: typeof r.exePath === 'string' && r.exePath ? r.exePath : undefined,
       })
     }
   }
-  return CAT_PROVIDER_ORDER.map((agentKind) => {
-    const hit = by.get(agentKind)
-    if (hit) return hit
-    // 旧后端没有 agents[]：用顶层 state/version 填 cat_build，其余未检测到
-    if (agentKind === CAT_AGENT_BUILD) {
-      return { agentKind, ready: fallbackReady, version: fallbackVersion, loggedIn: null }
-    }
-    return { agentKind, ready: false, version: '', loggedIn: null }
-  })
+  return CAT_PROVIDER_ORDER.filter((k) => by.has(k)).map((k) => by.get(k)!)
 }
 
 export function mapCatStatus(raw: unknown): CatStatus {
@@ -245,7 +252,8 @@ export function mapCatStatus(raw: unknown): CatStatus {
     // 一期组件未发布：无论后端返回什么都不出现下载入口
     canDownload: false,
     error: e && typeof e.code === 'string' ? { code: e.code, message: e.message ?? '', detail: e.detail } : null,
-    agents: mapAgents(r.agents, state === 'ready', version),
+    agents: mapAgents(r.agents),
+    hasAgents: Array.isArray(r.agents),
   }
 }
 
@@ -316,9 +324,15 @@ export async function getCatStatus(): Promise<CatStatus> {
   return mapCatStatus(await call(CatBinding.GetCatStatus()))
 }
 
-export async function recheckCat(): Promise<CatStatus> {
+/**
+ * v0.47.1：RecheckCat(agentKind?)。空 = 全部；传了只检该家（返回仍是全量 agents[]）。
+ * 旧绑定是 RecheckCat()（length 0）时不传参，退化为全量重检。
+ */
+export async function recheckCat(agentKind?: CatProviderKind): Promise<CatStatus> {
   if (!live()) return missingStatus()
-  return mapCatStatus(await call(CatBinding.RecheckCat()))
+  const fn = CatBinding.RecheckCat as unknown as (...a: unknown[]) => Promise<unknown>
+  const raw = agentKind && fn.length >= 1 ? await call(fn(agentKind)) : await call(fn())
+  return mapCatStatus(raw)
 }
 
 function mapList<T extends { id: string; displayName: string }>(raw: unknown): T[] {

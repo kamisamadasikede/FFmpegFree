@@ -250,7 +250,7 @@
   border-radius: 50%;
   background: var(--cat-muted);
 }
-.st.ok,
+.st.ok i,
 .st:not(.off):not(.bad):not(.wait) i {
   background: var(--cat-success);
 }

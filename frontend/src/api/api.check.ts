@@ -54,6 +54,7 @@ import { catContextUsageChecks } from '@/components/cat/catContextUsage.check'
 import { catActivityChecks } from '@/components/cat/catActivity.check'
 import { catMessageFooterChecks } from '@/components/cat/catMessageFooter.check'
 import { catHistoryStatusChecks } from './catHistoryStatus.check'
+import { catDetectChecks } from './catDetect.check'
 import { catScratchFilesChecks } from '@/views/cat/catScratchFiles.check'
 import { catCliOutdatedChecks } from '@/components/cat/catCliOutdated.check'
 import { catConvSearchChecks } from '@/components/cat/catConvSearch.check'
@@ -1024,6 +1025,7 @@ export async function runApiChecks(): Promise<string[]> {
         catMessageFooterChecks(eq) // Cat 消息尾：完成时间 / token / token/s 文案
         await catScratchFilesChecks(eq) // Cat 文件面板：绑定项目或对话文件夹非空才显示；旧响应丢弃
         catHistoryStatusChecks(eq) // Cat v0.45.1 historyStatus → 空状态一行
+        catDetectChecks(eq) // Cat v0.47.1 CLI 检测按 agents[] 合并 + 每行文案
         catConvSearchChecks(eq) // Cat 对话搜索：最新在前，输入框筛选，一次只取一页
         catInlineDiffChecks(eq) // Cat 从 git 打开文件：红绿嵌在正文里
         catSyntaxChecks(eq) // Cat 代码着色：十种语言的关键字、函数、类型、字符串、数字、注释
