@@ -45,12 +45,13 @@ func (s *CatService) GetCatStatus() (catagent.Status, error) {
 	return c.GetCatStatus(s.rootCtx())
 }
 
-func (s *CatService) RecheckCat() (catagent.Status, error) {
+// RecheckCat 重新检测；agentKind 为空 = 全部（v0.47.1）。
+func (s *CatService) RecheckCat(agentKind string) (catagent.Status, error) {
 	c, err := s.svc()
 	if err != nil {
 		return catagent.Status{}, err
 	}
-	return c.RecheckCat(s.rootCtx())
+	return c.RecheckCat(s.rootCtx(), agentKind)
 }
 
 func (s *CatService) ListCatModels(agentKind string) ([]catagent.Model, error) {

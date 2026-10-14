@@ -77,6 +77,11 @@ type AgentStatus struct {
 	Detail    string `json:"detail,omitempty"`
 	// v0.44（6.19.18.2）：该家模式列表，保守→放开，前端不得重排。
 	Modes []AgentMode `json:"modes"`
+	// v0.47.1（6.19.21.2）
+	Checking  bool   `json:"checking"`            // 该家正在检测
+	CheckedAt *int64 `json:"checkedAt,omitempty"` // 最近一次检测完成时间（Unix 毫秒）；从未检测过则省略
+	Stale     bool   `json:"stale,omitempty"`     // 当前行来自落库的上次结果，本次启动尚未实时检测完
+	ExePath   string `json:"exePath,omitempty"`   // 命中的可执行文件绝对路径
 }
 
 // Status 是 CatStatus。

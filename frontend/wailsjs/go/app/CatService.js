@@ -170,8 +170,8 @@ export function ReadCatFile(arg1) {
   return window['go']['app']['CatService']['ReadCatFile'](arg1);
 }
 
-export function RecheckCat() {
-  return window['go']['app']['CatService']['RecheckCat']();
+export function RecheckCat(arg1) {
+  return window['go']['app']['CatService']['RecheckCat'](arg1);
 }
 
 export function RelocateCatProject(arg1) {

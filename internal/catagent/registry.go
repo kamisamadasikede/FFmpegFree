@@ -22,7 +22,8 @@ type Adapter interface {
 type Registry struct {
 	mu  sync.RWMutex
 	by  map[string]Adapter
-	def string // 新建会话默认 kind
+	ord []string // 注册顺序（v0.47.1：cat:status agents[] 按此顺序）
+	def string   // 新建会话默认 kind
 }
 
 // NewRegistry 创建空注册表，默认 kind=cat_build。
@@ -36,8 +37,18 @@ func (r *Registry) Register(a Adapter) {
 		return
 	}
 	r.mu.Lock()
+	if _, ok := r.by[a.Kind()]; !ok {
+		r.ord = append(r.ord, a.Kind())
+	}
 	r.by[a.Kind()] = a
 	r.mu.Unlock()
+}
+
+// Kinds 返回已注册的 agentKind，按注册顺序（v0.47.1 6.19.21.1）。
+func (r *Registry) Kinds() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return append([]string(nil), r.ord...)
 }
 
 // Get 按 kind 取适配器。

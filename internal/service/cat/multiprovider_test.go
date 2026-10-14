@@ -80,7 +80,7 @@ func TestGetCatStatusAgentsOrder(t *testing.T) {
 			}
 		},
 	})
-	out, err := svc2.RecheckCat(ctx)
+	out, err := svc2.RecheckCat(ctx, "")
 	if err != nil || len(out.Agents) != 3 {
 		t.Fatalf("%+v %v", out, err)
 	}
