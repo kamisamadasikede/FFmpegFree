@@ -233,6 +233,34 @@ const emptyText = computed(() =>
 let inputEditor: monaco.editor.IStandaloneCodeEditor | null = null
 let resultEditor: monaco.editor.IStandaloneCodeEditor | null = null
 let zoomEditor: monaco.editor.IStandaloneCodeEditor | null = null
+
+// 结果区仅「显示」加宽缩进：把行首每 INDENT 个空格换成制表符，按实测空格宽折算 tabSize，使每级 ≈ 22px，
+// 缩进竖线按 tab 停靠点走。数据不变：复制按钮用 result.text；编辑器内 Ctrl+C 经 toCopyText 还原成 INDENT 空格。
+const RESULT_TAB = 3
+const RESULT_INDENT_PX = 22
+const RESULT_LINE_H = 30
+const LEAD_RE = new RegExp('^((?: {' + INDENT + '})+)', 'gm')
+function toDisplayText(text: string, kind: string) {
+  if (kind !== 'json' || text.includes('\t')) return text
+  return text.replace(LEAD_RE, (m) => '\t'.repeat(m.length / INDENT))
+}
+function toCopyText(text: string) {
+  return text.replace(/^\t+/gm, (m) => ' '.repeat(m.length * INDENT))
+}
+function bindPlainCopy(ed: monaco.editor.IStandaloneCodeEditor, el: HTMLElement) {
+  // 等宽字体回退时空格宽度不定：按实测 spaceWidth 折算 tab 列数，使每级 ≈ RESULT_INDENT_PX
+  const sw = ed.getOption(monaco.editor.EditorOption.fontInfo).spaceWidth || 7.8
+  const tab = Math.max(RESULT_TAB, Math.round(RESULT_INDENT_PX / sw))
+  ed.getModel()?.updateOptions({ tabSize: tab, indentSize: tab, insertSpaces: false })
+  el.addEventListener('copy', (e) => {
+    const model = ed.getModel(); const sel = ed.getSelection()
+    if (!model || !sel || sel.isEmpty() || !e.clipboardData) return
+    if (model.getValue() === result.value.text) return
+    e.clipboardData.setData('text/plain', toCopyText(model.getValueInRange(sel)))
+    e.preventDefault()
+    e.stopPropagation()
+  }, true)
+}
 let errDecos: monaco.editor.IEditorDecorationsCollection | null = null
 let themeObserver: MutationObserver | null = null
 
@@ -240,7 +268,7 @@ const baseOptions = (): monaco.editor.IStandaloneEditorConstructionOptions => ({
   language: 'json',
   automaticLayout: true,
   fontSize: 13,
-  lineHeight: 24, // 输入侧；结果区 create 时覆盖为 28
+  lineHeight: 24, // 输入侧；结果区 create 时覆盖为 30
   fontFamily: monoFontFamily(),
   minimap: { enabled: false },
   scrollBeyondLastLine: false,
@@ -388,7 +416,8 @@ watch(
     const model = resultEditor?.getModel()
     if (!resultEditor || !model) return
     monaco.editor.setModelLanguage(model, kind === 'json' ? 'json' : 'plaintext')
-    if (resultEditor.getValue() !== text) resultEditor.setValue(text)
+    const shown = toDisplayText(text, kind)
+    if (resultEditor.getValue() !== shown) resultEditor.setValue(shown)
   },
 )
 watch(showCode, (v) => {
@@ -414,7 +443,8 @@ function syncZoomEditor() {
   const model = zoomEditor.getModel()
   if (!model) return
   monaco.editor.setModelLanguage(model, result.value.kind === 'json' ? 'json' : 'plaintext')
-  if (zoomEditor.getValue() !== result.value.text) zoomEditor.setValue(result.value.text)
+  const shown = toDisplayText(result.value.text, result.value.kind)
+  if (zoomEditor.getValue() !== shown) zoomEditor.setValue(shown)
 }
 async function mountZoomEditor() {
   await nextTick()
@@ -426,13 +456,16 @@ async function mountZoomEditor() {
   if (!zoomEditor) {
     zoomEditor = monaco.editor.create(zoomEl.value, {
       ...baseOptions(),
-      value: result.value.text,
+      value: toDisplayText(result.value.text, result.value.kind),
+      tabSize: RESULT_TAB,
+      lineHeight: RESULT_LINE_H,
       readOnly: true,
       domReadOnly: true,
       glyphMargin: false,
       wordWrap: 'on',
       fontSize: 14,
     })
+    bindPlainCopy(zoomEditor, zoomEl.value)
     const model = zoomEditor.getModel()
     if (model) monaco.editor.setModelLanguage(model, result.value.kind === 'json' ? 'json' : 'plaintext')
   } else {
@@ -532,7 +565,8 @@ async function onDrop(e: DragEvent) {
 onMounted(() => {
   applyMonacoTheme()
   inputEditor = monaco.editor.create(inputEl.value!, { ...baseOptions(), value: '', glyphMargin: true, wordWrap: 'on' })
-  resultEditor = monaco.editor.create(resultEl.value!, { ...baseOptions(), value: '', readOnly: true, domReadOnly: true, glyphMargin: false, lineHeight: 28 })
+  resultEditor = monaco.editor.create(resultEl.value!, { ...baseOptions(), value: '', readOnly: true, domReadOnly: true, glyphMargin: false, lineHeight: RESULT_LINE_H, tabSize: RESULT_TAB })
+  bindPlainCopy(resultEditor, resultEl.value!)
   errDecos = inputEditor.createDecorationsCollection()
   inputEditor.onDidChangeModelContent(() => scheduleCheck())
   // 主题跟随 html.dark 实时切换

@@ -41,13 +41,13 @@
 </template>
 
 <script setup lang="ts">
-// JSON 树形视图：行高 28px、缩进 16px（与结果代码区 lineHeight 对齐）。可见行由展开集合展开后按滚动位置切片渲染（虚拟滚动），
+// JSON 树形视图：行高 30px、缩进 22px（与结果代码区 lineHeight 对齐）。可见行由展开集合展开后按滚动位置切片渲染（虚拟滚动），
 // 所以几十万节点的大 JSON 也只有屏幕内的一屏 DOM。
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { defaultExpanded, flatten, parseTree, type JNode, type JKind } from '@/utils/jsonTree'
 
-const ROW_H = 28
-const INDENT = 16
+const ROW_H = 30
+const INDENT = 22
 const PAD = 8
 const OVERSCAN = 8
 const MAX_VALUE_CHARS = 2000
@@ -150,7 +150,7 @@ onBeforeUnmount(() => ro?.disconnect())
   overflow: auto;
   font-family: var(--ff-font-mono);
   font-size: var(--ff-fs-sm);
-  line-height: 28px;
+  line-height: 30px;
   background: var(--ff-bg-surface);
   color: var(--ff-text-1);
   outline: none;
@@ -163,7 +163,7 @@ onBeforeUnmount(() => ro?.disconnect())
   position: absolute;
   left: 0;
   right: 0;
-  height: 28px;
+  height: 30px;
   display: flex;
   align-items: center;
   white-space: pre;
@@ -178,7 +178,7 @@ onBeforeUnmount(() => ro?.disconnect())
 }
 .tw {
   width: 16px;
-  height: 28px;
+  height: 30px;
   flex: none;
   display: grid;
   place-items: center;
