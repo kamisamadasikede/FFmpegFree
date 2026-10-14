@@ -10,6 +10,8 @@ import {
   providerModelNeedsManual,
   shouldFocusManual,
   simProviderModelList,
+  providerFailureText,
+  providerModelOptions,
   type CatProviderModelState,
 } from './catProviderModels'
 
@@ -27,7 +29,7 @@ export function catProviderModelsChecks(eq: Eq): void {
   eq('pm unreachable', providerModelHint(r('unreachable')), '连不上这个服务商，请检查 API 地址和网络，或稍后再试。')
   eq('pm not_supported', providerModelHint(r('not_supported')), '这个服务商不提供模型列表，请在下方手动填写模型 ID。')
   eq('pm bad_response', providerModelHint(r('bad_response')), '服务商返回的模型列表无法识别，请在下方手动填写模型 ID。')
-  eq('pm not_configured', providerModelHint(r('not_configured')), '先填写 API 地址和 Key，再获取模型列表。')
+  eq('pm not_configured', providerModelHint(r('not_configured')), '填好 API 地址和 Key 后，就能获取模型列表。')
   eq('pm 占位无示例', PM.manualPlaceholder, '输入模型 ID')
   eq('pm 首项', [PM.followDefault, PM.followDefaultDesc], ['默认模型', '由 CLI 和服务商决定'])
   eq('pm codex responses', PM.codexNoResponses, '这个服务商不支持 Codex 需要的 Responses 接口，请换一个服务商，或关闭自定义服务商。')
@@ -40,11 +42,14 @@ export function catProviderModelsChecks(eq: Eq): void {
   eq('pm tone bad_response 红', providerModelHintTone(r('bad_response')), 'danger')
   eq('pm tone ok 非空无', providerModelHintTone(r('ok', 1)), '')
   // 手动输入框：哪些状态展开
-  eq('pm needsManual', (['ok', 'not_configured', 'unauthorized', 'unreachable', 'not_supported', 'bad_response'] as const).map((s) => providerModelNeedsManual(r(s))), [true, false, true, true, true, true])
+  eq('pm needsManual', (['ok', 'not_configured', 'unauthorized', 'unreachable', 'not_supported', 'bad_response'] as const).map((s) => providerModelNeedsManual(r(s))), [true, false, false, false, true, true])
   eq('pm ok 非空不展开', providerModelNeedsManual(r('ok', 3)), false)
   // 聚焦：进设置页的自动拉取不抢焦点；用户触发的才抢
   eq('pm 进入不聚焦', shouldFocusManual('enter', r('unreachable')), false)
-  eq('pm 刷新聚焦', shouldFocusManual('refresh', r('unreachable')), true)
+  eq('pm 刷新聚焦（空列表）', shouldFocusManual('refresh', r('ok')), true)
+  eq('pm unauthorized 刷新也不聚焦', shouldFocusManual('refresh', r('unauthorized')), false)
+  eq('pm unreachable 刷新也不聚焦', shouldFocusManual('refresh', r('unreachable')), false)
+  eq('pm bad_response 聚焦', shouldFocusManual('toggle', r('bad_response')), true)
   eq('pm 开关聚焦', shouldFocusManual('toggle', r('ok')), true)
   eq('pm 改地址聚焦', shouldFocusManual('edit', r('not_supported')), true)
   eq('pm 有列表不聚焦', shouldFocusManual('refresh', r('ok', 2)), false)
@@ -75,4 +80,18 @@ export function catProviderModelsChecks(eq: Eq): void {
   eq('pm sim unauth', simProviderModelList('codex_cli', new Set(['pm_unauth'])).state, 'unauthorized')
   const e = simProviderModelList('codex_cli', new Set(['pm_empty']))
   eq('pm sim empty', [e.state, e.models], ['ok', []])
+  // Codex 服务商不支持 Responses（v0.46，形状同 cli_outdated）
+  const NR = '这个服务商不支持 Codex 需要的 Responses 接口，请换一个服务商，或关闭自定义服务商。'
+  eq('pm noresp key=value', providerFailureText('reason=provider_responses_unsupported\nagentKind=codex_cli'), NR)
+  eq('pm noresp 对象', providerFailureText({ reason: 'provider_responses_unsupported' }), NR)
+  eq('pm noresp JSON', providerFailureText('{"reason":"provider_responses_unsupported"}'), NR)
+  eq('pm noresp 其它原因', providerFailureText('reason=cli_outdated'), null)
+  eq('pm noresp 空', providerFailureText(undefined), null)
+  // unauthorized / unreachable：下拉仍有「默认模型」和「手动填写…」
+  for (const st of ['unauthorized', 'unreachable'] as const) {
+    const o = providerModelOptions(r(st), '')
+    eq(`pm ${st} 下拉选项`, o.map((x) => x.value), ['', '__sep', '__manual'])
+    eq(`pm ${st} 下拉文字`, [o[0].label, o[2].label], ['默认模型', '手动填写…'])
+  }
+  eq('pm 下拉含不在列表', providerModelOptions(r('ok', 1), 'mine').map((x) => x.label), ['默认模型', 'mine （不在当前列表）', 'm0', '──────────', '手动填写…'])
 }

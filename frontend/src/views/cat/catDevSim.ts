@@ -41,6 +41,7 @@
  *   officefail —— 办公画布未配置失败文案
  *   officepreview / officeready —— 办公画布 ready + ≥3 页预览壳
  *   pmcustom —— v0.46：三家自定义服务商都开着、地址和 Key 已填（模型下拉走 ListCatProviderModels 模拟）
+ *   codexnoresponses —— 配合 stream：发送后按 CAT_REPLY_FAILED + reason=provider_responses_unsupported（retryable=false）失败
  *   pm_slow / pm_empty / pm_unauth / pm_unreach / pm_unsupported / pm_bad / pm_notcfg —— 配合 pmcustom：
  *            拉列表一直加载中 / ok 但空 / unauthorized / unreachable / not_supported / bad_response / not_configured（默认 = ok 有列表）
  *
@@ -68,8 +69,8 @@ export function simThinks(): CatThinkLevel[] {
   ]
 }
 
-export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'codexcaps' | 'failonce' | 'histempty' | 'md' | 'mdhold' | 'savefail' | 'inspectslow' | 'inspectfail' | 'inspectempty' | 'clearfail' | 'keyfail' | 'skillsmissing' | 'setenablefail' | 'schedempty' | 'schedfail' | 'slowconv' | 'browsertimeout' | 'footertime' | 'allagents' | 'gitconflict' | 'gitrebase' | 'gitdone' | 'gitbranch' | 'office' | 'officeneed' | 'officedl' | 'officefail' | 'officepreview' | 'officeready' | 'clioutdated' | 'retrygone' | 'pmcustom' | 'pm_slow' | 'pm_empty' | 'pm_unauth' | 'pm_unreach' | 'pm_unsupported' | 'pm_bad' | 'pm_notcfg'
-const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'codexcaps', 'failonce', 'histempty', 'md', 'mdhold', 'savefail', 'inspectslow', 'inspectfail', 'inspectempty', 'clearfail', 'keyfail', 'skillsmissing', 'setenablefail', 'schedempty', 'schedfail', 'slowconv', 'browsertimeout', 'footertime', 'allagents', 'gitconflict', 'gitrebase', 'gitdone', 'gitbranch', 'office', 'officeneed', 'officedl', 'officefail', 'officepreview', 'officeready', 'clioutdated', 'retrygone', 'pmcustom', 'pm_slow', 'pm_empty', 'pm_unauth', 'pm_unreach', 'pm_unsupported', 'pm_bad', 'pm_notcfg']
+export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'codexcaps' | 'failonce' | 'histempty' | 'md' | 'mdhold' | 'savefail' | 'inspectslow' | 'inspectfail' | 'inspectempty' | 'clearfail' | 'keyfail' | 'skillsmissing' | 'setenablefail' | 'schedempty' | 'schedfail' | 'slowconv' | 'browsertimeout' | 'footertime' | 'allagents' | 'gitconflict' | 'gitrebase' | 'gitdone' | 'gitbranch' | 'office' | 'officeneed' | 'officedl' | 'officefail' | 'officepreview' | 'officeready' | 'clioutdated' | 'retrygone' | 'pmcustom' | 'pm_slow' | 'pm_empty' | 'pm_unauth' | 'pm_unreach' | 'pm_unsupported' | 'pm_bad' | 'pm_notcfg' | 'codexnoresponses'
+const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'codexcaps', 'failonce', 'histempty', 'md', 'mdhold', 'savefail', 'inspectslow', 'inspectfail', 'inspectempty', 'clearfail', 'keyfail', 'skillsmissing', 'setenablefail', 'schedempty', 'schedfail', 'slowconv', 'browsertimeout', 'footertime', 'allagents', 'gitconflict', 'gitrebase', 'gitdone', 'gitbranch', 'office', 'officeneed', 'officedl', 'officefail', 'officepreview', 'officeready', 'clioutdated', 'retrygone', 'pmcustom', 'pm_slow', 'pm_empty', 'pm_unauth', 'pm_unreach', 'pm_unsupported', 'pm_bad', 'pm_notcfg', 'codexnoresponses']
 
 export const catSim: ReadonlySet<CatSimFlag> = (() => {
   if (!import.meta.env.DEV || typeof window === 'undefined') return new Set<CatSimFlag>()

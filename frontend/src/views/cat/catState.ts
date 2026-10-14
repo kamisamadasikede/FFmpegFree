@@ -83,7 +83,7 @@ import { applyStreamEvent, newStreamMsg, type CatStreamEvent, type CatStreamMsg,
 import { liveTurnPlan, transcriptChanged } from './catLive'
 import { AppError, toAppError } from '@/api/call'
 import { CAT_CLI_OUTDATED_COPY, parseCliOutdated } from '@/components/cat/catCliOutdated'
-import { isModelListStale, listCatProviderModels, type CatProviderModelList } from '@/api/catProviderModels'
+import { isModelListStale, listCatProviderModels, providerFailureText, type CatProviderModelList } from '@/api/catProviderModels'
 import { isProviderKind, type CatProviderKind } from '@/api/catAgents'
 import { catPanels, showTurnFinishToast, defaultConvPref, dismissFailToast } from './catPanels'
 import { rememberNewConvProject, resolveNewConvProject } from './catLocalPrefs'
@@ -1017,7 +1017,8 @@ function endTurn(convId: string, how: TurnEnd, token?: number, ev?: CatTurnEvent
       // v0.43：CLI 版本过旧单独一行；原始报错收进「查看详情」（raw 为空则不出，v0.43.1）
       list.push({ kind: 'sys', text: CAT_CLI_OUTDATED_COPY.body(outdated.cli), tone: 'err', outdated })
     } else {
-    const text = (turn.failMsg || '').trim() || CAT_COPY.replyFailed
+    // v0.46：Codex 服务商没有 Responses 接口（retryable=false → 不出重试，沿用不可重试的失败行）
+    const text = providerFailureText(turn.failDetail) || (turn.failMsg || '').trim() || CAT_COPY.replyFailed
     if (!list.some((b) => b.kind === 'sys' && b.tone === 'err' && b.text === text)) {
       list.push({ kind: 'sys', text, tone: 'err' })
     }
@@ -1027,7 +1028,7 @@ function endTurn(convId: string, how: TurnEnd, token?: number, ev?: CatTurnEvent
   // v0.40：完成后通知 — 前台 toast；cancelled 不发；开关关则不发（系统通知由后端在后台发）
   if (how === 'completed' || how === 'failed' || how === 'not_ready') {
     const title = findConv(convId)?.conv.title || ''
-    const errText = how === 'completed' ? '' : ((turn.failMsg || '').trim() || (how === 'not_ready' ? (catState.status.error?.message || CAT_COPY.notReady) : CAT_COPY.replyFailed))
+    const errText = how === 'completed' ? '' : ((how === 'failed' && providerFailureText(turn.failDetail)) || (turn.failMsg || '').trim() || (how === 'not_ready' ? (catState.status.error?.message || CAT_COPY.notReady) : CAT_COPY.replyFailed))
     showTurnFinishToast(convId, how === 'completed' ? 'completed' : 'failed', title, errText)
   }
 }
@@ -1121,6 +1122,13 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
 
   if (import.meta.env.DEV && catSim.has('stream')) {
     // 仅 vite dev + 纯浏览器 + ?cat_sim=stream（见 catDevSim.ts）；正式包里 catSim 恒为空
+    if (catSim.has('codexnoresponses')) {
+      // 走查 v0.46：Codex 自定义服务商没有 /responses → CAT_REPLY_FAILED + reason，retryable=false
+      const ft = catState.turns[id]
+      ft.turnId = `sim-noresp-${token}`
+      setTimeout(() => handleTurnEvent({ convId: id, turnId: ft.turnId, status: 'failed', retryable: false, errorCode: 'CAT_REPLY_FAILED', errorMessage: CAT_COPY.replyFailed, errorDetail: 'reason=provider_responses_unsupported\nagentKind=codex_cli' }), 300)
+      return
+    }
     if (catSim.has('failonce') && !simFailed.has(id)) {
       // 走查 6.19.18.7：第一轮直接失败，再点「重试」原地重发
       simFailed.add(id)

@@ -98,7 +98,7 @@
                     </div>
                   </div>
                   <div class="row">
-                    <div class="lab"><b>{{ C.apiUrl }}</b><span>{{ C.apiUrlDesc }}</span></div>
+                    <div class="lab"><b>{{ C.apiUrl }}</b></div>
                     <div class="ctl">
                       <SavedMark :on="!!savedAgent[block.kind + ':apiUrl']" />
                       <input
@@ -184,11 +184,7 @@
                     >
                       <option v-if="pmOf(block.kind).loading" value="__loading">{{ PM.loading }}</option>
                       <template v-else>
-                        <option value="">{{ PM.followDefault }}　{{ PM.followDefaultDesc }}</option>
-                        <option v-if="customNotInList(block.kind)" :value="curModel(block.kind)">{{ curModel(block.kind) }} {{ PM.notInList }}</option>
-                        <option v-for="m in pmOf(block.kind).list?.models ?? []" :key="m.id" :value="m.id">{{ m.displayName }}</option>
-                        <option disabled value="__sep">──────────</option>
-                        <option value="__manual">{{ PM.manualEntry }}</option>
+                        <option v-for="o in providerModelOptions(pmOf(block.kind).list, curModel(block.kind))" :key="o.value" :value="o.value" :disabled="o.disabled">{{ o.label }}</option>
                       </template>
                     </select>
                     <button
@@ -216,7 +212,7 @@
                   </select>
                 </div>
               </div>
-              <div v-if="customOn(block.kind) && pmHint(block.kind)" :class="['pm-err', pmTone(block.kind)]" role="status" :data-testid="'cat-set-model-hint-' + block.kind">{{ pmHint(block.kind) }}</div>
+              <div v-if="customOn(block.kind) && pmLine(block.kind)" :class="['pm-err', pmTone(block.kind)]" role="status" :data-testid="'cat-set-model-hint-' + block.kind">{{ pmLine(block.kind) }}</div>
               <div v-if="block.ready && block.thinks.length" class="row">
                 <div class="lab"><b>{{ C.effort }}</b><span>{{ C.effortDesc }}</span></div>
                 <div class="ctl">
@@ -548,6 +544,7 @@ import {
   providerModelHint,
   providerModelHintTone,
   providerModelNeedsManual,
+  providerModelOptions,
   shouldFocusManual,
   type CatProviderModelList,
   type ProviderModelFetchCause,
@@ -634,7 +631,15 @@ function pmHint(kind: CatProviderKind): string {
 }
 function pmTone(kind: CatProviderKind): string {
   const p = pmOf(kind)
-  return p.loading || !p.list ? '' : providerModelHintTone(p.list)
+  if (p.loading) return ''
+  const t = p.list ? providerModelHintTone(p.list) : ''
+  return t || 'muted'
+}
+/** 下拉下面一行：有状态提示就显示提示；否则选的是「默认模型」时灰字说明 */
+function pmLine(kind: CatProviderKind): string {
+  const p = pmOf(kind)
+  if (p.loading) return ''
+  return pmHint(kind) || (!p.manual && !curModel(kind) ? PM.followDefaultDesc : '')
 }
 function curModel(kind: CatProviderKind): string {
   return catPanels.settings.defaultsByAgent[kind]?.model ?? ''
@@ -659,7 +664,7 @@ async function loadPm(kind: CatProviderKind, refresh: boolean, cause: ProviderMo
     p.manual = true
     p.draft = curModel(kind)
     if (shouldFocusManual(cause, r)) await nextTick().then(() => pmInputs[kind]?.focus())
-  } else if (r.state === 'not_configured') p.manual = false
+  } else p.manual = false // unauthorized / unreachable / not_configured / 有列表：保留下拉，靠刷新恢复
 }
 async function onPmSelect(kind: CatProviderKind, el: HTMLSelectElement) {
   const v = el.value

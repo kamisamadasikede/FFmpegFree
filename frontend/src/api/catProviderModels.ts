@@ -11,6 +11,7 @@ import { CAT_SETTINGS_BACKEND_READY } from '@/api/flags'
 import { hasWailsBackend } from '@/services/wails'
 import { catSim } from '@/views/cat/catDevSim'
 import type { CatModel } from '@/api/cat'
+import { parseFailDetailFields } from '@/components/cat/catCliOutdated'
 import type { CatProviderKind } from '@/api/catAgents'
 
 export type CatProviderModelState = 'ok' | 'not_configured' | 'unauthorized' | 'unreachable' | 'not_supported' | 'bad_response'
@@ -38,7 +39,7 @@ export const CAT_PROVIDER_MODELS_COPY = {
   unreachable: '连不上这个服务商，请检查 API 地址和网络，或稍后再试。',
   not_supported: '这个服务商不提供模型列表，请在下方手动填写模型 ID。',
   bad_response: '服务商返回的模型列表无法识别，请在下方手动填写模型 ID。',
-  not_configured: '先填写 API 地址和 Key，再获取模型列表。',
+  not_configured: '填好 API 地址和 Key 后，就能获取模型列表。',
   manualEntry: '手动填写…',
   manualPlaceholder: '输入模型 ID',
   notInList: '（不在当前列表）',
@@ -67,9 +68,10 @@ export function shouldFocusManual(cause: ProviderModelFetchCause, r: Pick<CatPro
   return cause !== 'enter' && providerModelNeedsManual(r)
 }
 
-/** 有提示时同时显示手动输入框（not_configured 除外：先去填地址和 Key） */
+/** 只有「服务商给不出可用列表」才自动展开手动输入框：ok 但空 / not_supported / bad_response。
+ *  unauthorized / unreachable / not_configured 不展开、不抢焦点：保留下拉，修好后点刷新恢复 */
 export function providerModelNeedsManual(r: Pick<CatProviderModelList, 'state' | 'models'>): boolean {
-  return r.state !== 'not_configured' && !(r.state === 'ok' && r.models.length)
+  return (r.state === 'ok' && !r.models.length) || r.state === 'not_supported' || r.state === 'bad_response'
 }
 
 /** 契约 6.19.20.2 ⑧：去首尾空格后 1–200 字符、不含空白和控制字符、不以 - 开头。不合法返回 null */
@@ -153,4 +155,25 @@ export async function listCatProviderModels(agentKind: CatProviderKind, refresh:
   const flags = import.meta.env.DEV ? (catSim as ReadonlySet<string>) : new Set<string>()
   await wait(flags.has('pm_slow') ? 60_000 : 350)
   return simProviderModelList(agentKind, flags)
+}
+
+/** v0.46：Codex 走自定义服务商但对方没有 /responses（CAT_REPLY_FAILED，detail.reason，retryable=false；形状同 v0.43 cli_outdated） */
+export const PROVIDER_RESPONSES_UNSUPPORTED_REASON = 'provider_responses_unsupported'
+/** 是这个原因 → 返回失败行文案；否则 null（界面照旧） */
+export function providerFailureText(detail: unknown): string | null {
+  return (parseFailDetailFields(detail).reason || '').trim() === PROVIDER_RESPONSES_UNSUPPORTED_REASON ? CAT_PROVIDER_MODELS_COPY.codexNoResponses : null
+}
+
+/** 设置页下拉选项（任何状态都有「默认模型」和「手动填写…」，unauthorized / unreachable 时也不会卡住） */
+export type ProviderModelOption = { value: string; label: string; disabled?: boolean }
+export const PM_SEP = '__sep'
+export const PM_MANUAL = '__manual'
+export function providerModelOptions(r: Pick<CatProviderModelList, 'state' | 'models'> | null, current: string): ProviderModelOption[] {
+  const models = r?.models ?? []
+  const out: ProviderModelOption[] = [{ value: '', label: CAT_PROVIDER_MODELS_COPY.followDefault }]
+  if (current && !models.some((m) => m.id === current)) out.push({ value: current, label: `${current} ${CAT_PROVIDER_MODELS_COPY.notInList}` })
+  for (const m of models) out.push({ value: m.id, label: m.displayName })
+  out.push({ value: PM_SEP, label: '──────────', disabled: true })
+  out.push({ value: PM_MANUAL, label: CAT_PROVIDER_MODELS_COPY.manualEntry })
+  return out
 }
