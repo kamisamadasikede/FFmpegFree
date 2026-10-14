@@ -1,6 +1,6 @@
 # FFmpegFree v2 接口契约（v0.51）
 
-v0.51 变更（**三栏合并编辑器**，老板关心、架构师 10-14 从二期前移；规则见 **6.19.26**；无迁移 / 事件名 / settings 键；新绑定 `GitCatConflictSides` / `GitCatConflictSave`；新 reason `markers_left`；复用 `GitCatConflictResolve mode=content` 作标记已解决；布局与文案待产品 / UI，线框 `proto/cat-merge-3way`）。
+v0.51 变更（**预留占位：IDEA 式 Merge Revisions + Git 分支树**，见 **6.19.26**；范围待产品、线框待 UI；绑定名均为 DRAFT，**本版不实现、无迁移 / 事件 / settings 键 / 错误码**）。
 
 v0.50 变更（**主动合并分支 `GitCatMerge`**，老板私聊「合并」，10-14；规则见 **6.19.25**；无迁移 / 事件名 / settings 键；新 reason `merge_in_progress` / `git_failed`，复用 `turn_running` / `git_dirty` / `branch_not_found`）：`git merge --no-edit <branch>`（允许快进）；结果 `merged` / `up_to_date` / `conflict`，冲突进入既有 merging 态与冲突页；入口底栏分支下拉「合并到当前分支…」，文案产品已定稿。
 
@@ -540,8 +540,6 @@ GitCatConflictResolve(req GitCatConflictResolveRequest) error                // 
 GitCatConflictComplete(req GitCatConflictCompleteRequest) error              // v0.41：完成合并/变基
 GitCatConflictAbort(req GitCatConflictAbortRequest) error                    // v0.41：中止合并/变基
 GitCatMerge(req GitCatMergeRequest) (GitCatMergeResult, error)             // v0.50：合并分支到当前分支（6.19.25）
-GitCatConflictSides(req GitCatConflictSidesRequest) (GitCatConflictSides, error) // v0.51：读 base/ours/theirs（6.19.26）
-GitCatConflictSave(req GitCatConflictSaveRequest) error                    // v0.51：只写结果不暂存
 // v0.42 办公画布组件（6.19.16）
 GetOfficeCanvasStatus() (OfficeCanvasStatus, error)
 InstallOfficeCanvas() error
@@ -6331,53 +6329,22 @@ GitCatMerge(req GitCatMergeRequest) (GitCatMergeResult, error)
 
 **2.2 追加**：`TASK_CONFLICT` `reason=merge_in_progress`；`INVALID_ARGUMENT` `reason=git_failed`（无新错误码）。
 
-### 6.19.26 三栏合并编辑器（v0.51，取代 6.19.15.3「一期非真三栏」，架构师 10-14；线框由 UI 交付到 `proto/cat-merge-3way`）
+### 6.19.26 IDEA-style Merge Revisions + Git branch tree (pending product scope & UI wireframes)（v0.51 预留，架构师 10-14）
 
-**布局**：当前（ours，左）｜结果（result，中，可编辑）｜传入（theirs，右）。入口：冲突分组里点文本冲突文件。原 6.19.15.3 的整文件「采用当前 / 传入 / 保留双方」按钮保留在编辑器顶栏。
+**状态：仅占位，不实现。** 范围待产品定、线框待 UI 交付（`proto/cat-merge-3way`）。以下绑定名均为 **DRAFT**，可改名、可删；定稿前前后端不得依赖。6.19.15.3 的简易冲突解决与 6.19.25 的 `GitCatMerge` 照旧有效。
 
-```go
-type GitCatConflictSidesRequest struct {
-    ConvID string `json:"convId"`
-    Path   string `json:"path"` // 须在 GitCatStatus.conflicts 内，否则 INVALID_ARGUMENT reason=path
-}
-type GitCatConflictSide struct {
-    Exists  bool   `json:"exists"`            // 该 stage 不存在（如 DU/AU 删除冲突）为 false
-    Content string `json:"content,omitempty"` // UTF-8 正文（非二进制时）
-}
-type GitCatConflictSides struct {
-    Path    string             `json:"path"`
-    Binary  bool               `json:"binary"`  // 任一侧含 NUL 或 > 2 MiB 或非 UTF-8 → true，三侧均不给 content
-    Base    GitCatConflictSide `json:"base"`    // git show :1:<path>
-    Ours    GitCatConflictSide `json:"ours"`    // git show :2:<path>
-    Theirs  GitCatConflictSide `json:"theirs"`  // git show :3:<path>
-    Working string             `json:"working,omitempty"` // 当前工作区文件（含冲突标记），给结果栏初值
-    EOL     string             `json:"eol"`     // lf | crlf，按 ours 判定；保存时保持
-}
-GitCatConflictSides(req GitCatConflictSidesRequest) (GitCatConflictSides, error)
-```
+**A. Merge Revisions（对标 IntelliJ IDEA「Merge Revisions」）**
+- 三栏：左 = 当前（ours，`git show :2:<path>`）｜中 = 结果（可编辑）｜右 = 传入（theirs，`:3:`）；base 取 `:1:`。
+- 非冲突改动用 base 自动合入结果；只有真冲突留给用户。
+- 每处冲突：接受箭头（»/«，采用该侧）、忽略 ×（丢弃该侧改动）；两侧都接受时按点击顺序拼接。
+- 顶栏：全部采用左侧 / 全部采用右侧；上一处 / 下一处冲突；「还剩 n 处冲突」；完成后标记已解决（`git add`）。
+- 二进制 / 删除冲突：退化为整文件选一侧。
+- DRAFT 绑定：`GitCatConflictSides({convId, path})` → `{binary, base, ours, theirs, working, eol}`；`GitCatConflictSave({convId, path, content})`（只写不暂存）；标记已解决复用 `GitCatConflictResolve mode=content`。
 
-- 读取一律 `git show :N:<path>`（路径用 `--` 前的 `:N:./<path>` 形式防止被当选项），走 `runGit` 隐藏窗口。rebase 中 ours / theirs 含义与 git 一致（ours=上游），前端标签按 `mergeState` 切换（见待定 Q3）。
-- **保存结果**：复用 `GitCatConflictResolve` `mode=content`（写回 + `git add`，即「标记已解决」）。另加只写不暂存：
+**B. Git 分支树（对标 IDEA Git Branches 弹窗）**
+- 分组：本地 / 远程（按 remote）；名字按 `/` 前缀折叠成文件夹（如 `feature/a`）。
+- 收藏（星标，置顶）、最近使用的分支、搜索、当前分支标记、相对上游的 ahead / behind 计数（↑n ↓m）。
+- 右键菜单：签出、从这里新建分支、合并到当前分支（= `GitCatMerge`）、变基到当前分支、与当前分支比较、重命名、删除。
+- DRAFT 绑定：`ListCatBranchTree({convId})`（含 ahead/behind、recent、favorites）、`SetCatBranchFavorite({convId, branch, on})`、`GitCatRebase({convId, onto})`、`GitCatCompareBranch({convId, branch})`、`GitCatRenameBranch({convId, from, to})`、`GitCatDeleteBranch({convId, branch, force?})`。
 
-```go
-type GitCatConflictSaveRequest struct {
-    ConvID  string `json:"convId"`
-    Path    string `json:"path"`
-    Content string `json:"content"`
-}
-GitCatConflictSave(req GitCatConflictSaveRequest) error // 只写工作区，不 git add（草稿保存）
-```
-- 结果仍含 `<<<<<<<` / `=======` / `>>>>>>>` 行时，`mode=content` 返回 `INVALID_ARGUMENT` `reason=markers_left`「还有冲突没处理完。」（新 reason 值）；`GitCatConflictSave` 不检查。
-- **二进制 / 删除冲突**：`binary=true` 或某侧 `exists=false` 时不进三栏，显示「这个文件没法逐段合并，请选用一侧。」+「采用当前」/「采用传入」（删除侧选中 = `git rm`）。
-
-**逐块操作（纯前端）**：前端用 base/ours/theirs 做 diff3 切出冲突块（推荐 `node-diff3`，MIT），每块在结果栏上方给「采用当前」「采用传入」「两者都要（当前在前）」「两者都要（传入在前）」及撤销；非冲突的单侧改动自动合入。顶栏：上一处 / 下一处冲突、剩余 N 处；N=0 时「标记为已解决」可点（调 `mode=content`）。全部文件解决后沿用 6.19.15.4「完成合并」。
-
-**测试**：后端：三 stage 读取（含 CRLF、中文路径、带空格路径、`-` 开头文件名）；DU/UD/AA 的 exists 组合；NUL / 超 2 MiB → binary；markers_left；Save 不暂存、Resolve 暂存后从 conflicts 消失。前端：diff3 切块单测（相邻块、文件尾无换行、全删）；每种逐块操作结果；N 计数与按钮禁用；二进制降级视图。
-
-**待产品 / UI 定（线框 `proto/cat-merge-3way` 交付后回填）**：
-- Q1 三栏在窄窗口（< 1000px）怎么退化：两栏 + 结果下置，还是标签页切换？
-- Q2 所有按钮、空态、「还有冲突没处理完。」「这个文件没法逐段合并，请选用一侧。」等文案。
-- Q3 rebase 时左右栏标签（「当前 / 传入」还是「上游 / 你的提交」）。
-- Q4 未保存离开 / 切文件是否确认弹窗；是否自动草稿保存（`GitCatConflictSave`）。
-- Q5 是否显示 base 栏（默认隐藏，可切换）；块高亮配色（明 / 暗主题 token）。
-- Q6 逐块按钮放块头浮条还是行号槽。
+**待定（产品 / UI）**：两块是否同一版交付及先后；收藏 / 最近存在哪（settings 还是按仓库）；删除未合并分支、变基、重命名远程跟踪分支的确认与文案；ahead/behind 是否需要先 fetch；窄窗口三栏怎么退化；全部按钮、空态、错误文案；明暗主题配色。
