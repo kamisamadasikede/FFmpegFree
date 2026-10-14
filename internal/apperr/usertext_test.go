@@ -117,6 +117,7 @@ func TestUserFacingMessageIsChinese(t *testing.T) {
 		"Word": true, "ODT": true, "TXT": true, "CSV": true, "Markdown": true, "MD": true, "HTML": true, "DOC": true, "DOCX": true,
 		"XLS": true, "XLSX": true, "PPT": true, "PPTX": true, "ODS": true, "ODP": true, "RTF": true, "GB": true, "MiB": true, "UTF": true,
 		"Cat": true, "Git": true, "git": true, "GitHub": true, // Git 面板（老板 915328a）：界面上就叫这些名字
+		"CLI": true, // 契约 v0.43：「Claude/Codex/Grok CLI 版本过旧，请升级后重试。」产品锁定原句
 	}
 	linuxLOHints := map[string]bool{ // 契约 6.12.24（v0.27）：只有 Linux 的这两句可以出现 LibreOffice
 		"请先在系统里安装 LibreOffice，然后重启应用。":                 true,

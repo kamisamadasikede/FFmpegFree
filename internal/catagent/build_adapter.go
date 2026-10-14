@@ -220,7 +220,7 @@ func (a *BuildAdapter) detect() {
 	a.setStatus(Status{State: StateChecking, CanDownload: false})
 
 	if exe := a.resolveGrokExe(); exe != "" {
-		ver := a.probeGrokVersion(exe)
+		ver := cachedCLIVersion(exe, a.probeGrokVersion)
 		if ver == "" {
 			ver = "path"
 		}
@@ -555,6 +555,12 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 			msg = "回复超时"
 		}
 		return TurnResponse{}, apperr.New(apperr.CatReplyFailed, msg).WithDetail("reason=timeout")
+	}
+	if waitErr != nil && cliArgRejected(stderrText+"\n"+cliMsg) {
+		a.mu.Lock()
+		ver := a.version
+		a.mu.Unlock()
+		return TurnResponse{}, outdatedCLIErr(KindCatBuild, ver, stderrText)
 	}
 	// 非零退出、流里的失败、或标准错误里的超时 / 断网，都按失败结束。已经流出的正文留在界面上。
 	if cliMsg != "" || waitErr != nil {
