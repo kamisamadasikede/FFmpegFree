@@ -77,6 +77,10 @@ export interface GitStatus {
   mergeState: GitMergeState
   /** v0.41：未合并路径；mergeState=none 时为空 */
   conflicts: GitConflictEntry[]
+  /** v0.53：签出提交后 HEAD 游离；headSha / headShortSha 为当前提交（后端 PR 字段名） */
+  detached: boolean
+  headSha: string
+  headShortSha: string
 }
 
 const RANK: Record<string, number> = { D: 5, M: 4, R: 3, A: 2, U: 1 }
@@ -163,6 +167,9 @@ export function mapGitStatus(raw: unknown): GitStatus {
     changes,
     mergeState: normalizeMergeState(r.mergeState),
     conflicts,
+    detached: r.detached === true,
+    headSha: str(r.headSha),
+    headShortSha: str(r.headShortSha) || str(r.headSha).slice(0, 7),
   }
 }
 

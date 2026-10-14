@@ -10,7 +10,8 @@ export const CAT_BRANCH_COPY = {
   noUpstream: '没有远程分支',
   upstreamTitle: '远程分支（上游）',
   localTitle: '本地分支，点击切换',
-  detached: '分离 HEAD',
+  detached: '未在分支上',
+  detachedTip: '当前签出的是一个提交，不在任何分支上',
   remoteSection: '远程分支',
   openFolder: '在文件管理器中打开',
   dirty: '有未提交的改动，请先提交或暂存，再切换分支。',
@@ -53,14 +54,15 @@ export function mapCatBranches(raw: unknown): CatBranches {
 }
 
 /** 仅 vite dev + ?cat_sim=branchbar|branchlong|branchfail 的纯浏览器走查；正式包 DEV=false 整段不走 */
-const devSim = () => import.meta.env.DEV && typeof window !== 'undefined' && !(window as unknown as { go?: unknown }).go && (catSim.has('branchbar') || catSim.has('branchlong') || catSim.has('branchfail'))
+const devSim = () => import.meta.env.DEV && typeof window !== 'undefined' && !(window as unknown as { go?: unknown }).go && (catSim.has('branchbar') || catSim.has('branchlong') || catSim.has('branchfail') || catSim.has('detached'))
 let simBranch = 'feat/cat-footer-branch-v049-with-a-really-long-name'
 function simList(): CatBranches {
   return mapCatBranches({
     root: catSim.has('branchlong') ? 'D:\\Work\\2026\\客户交付\\婚礼剪辑\\第二季\\字幕项目' : 'D:\\Work\\字幕项目',
     git: true,
     repo: true,
-    branch: simBranch,
+    branch: catSim.has('detached') ? '' : simBranch,
+    detached: catSim.has('detached'),
     upstream: 'origin/feat/cat-footer-branch-v049-with-a-really-long-name',
     locals: ['main', 'v2', 'dev', 'feat/cat-footer-branch-v049-with-a-really-long-name', 'fix/reply-marked-failed', 'fe/settings-dropdown'],
     remotes: ['origin/feat/system-notify', 'origin/feat/context-left', 'origin/old/archive'],

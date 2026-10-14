@@ -15,13 +15,14 @@
       </span>
       <template v-if="br.repo">
         <span class="cx cx-up" :class="{ dim: !br.upstream }" :title="br.upstream ? BC.upstreamTitle + '：' + br.upstream : BC.upstreamTitle" data-testid="cat-ctx-upstream"><FIcon name="globe" :size="13" /><i>{{ br.upstream || BC.noUpstream }}</i></span>
-        <span class="cx cx-branch" :title="BC.localTitle">
+        <span class="cx cx-branch" :class="{ detached: detachedSha }" :title="detachedSha ? BC.detachedTip : BC.localTitle" data-testid="cat-ctx-branch-wrap">
           <FIcon name="branch" :size="13" />
+          <span v-if="detachedSha" class="cx-detached" data-testid="cat-ctx-detached">{{ BC.detached }} · <code>{{ detachedSha }}</code></span>
           <CatModeSelect
             compact
             :model-value="br.branch ? 'L:' + br.branch : ''"
             :options="brOpts"
-            :placeholder="br.detached ? BC.detached : '—'"
+            :placeholder="detachedSha ? ' ' : br.detached ? BC.detached : '—'"
             :disabled="running || switching || missing"
             :busy="switching"
             :aria-label="BC.localTitle"
@@ -307,6 +308,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import CatModeSelect from '@/components/cat/panels/CatModeSelect.vue'
 import CatRawDetail from './CatRawDetail.vue'
+import { catGitUi } from './catGitUi'
 import { branchOptions, CAT_BRANCH_COPY as BC, catBranchError, listCatBranches, mapCatBranches, pathEllipsis, parseBranchOption, switchCatBranch, type CatBranches } from '@/api/catBranches'
 import { revealCatConversationFolder } from '@/api/catFiles'
 import FIcon from '@/components/icon/FIcon.vue'
@@ -362,6 +364,12 @@ const br = ref<CatBranches>(mapCatBranches(null))
 const switching = ref(false)
 let brSeq = 0
 const brOpts = computed(() => branchOptions(br.value))
+/** v0.53：游离 HEAD 时底栏显示「未在分支上 · 短号」；短号来自 GitCatStatus.headShortSha */
+const detachedSha = computed(() => {
+  const st = catGitUi.status
+  if (!(br.value.detached || st?.detached)) return ''
+  return st?.headShortSha || (br.value.detached ? '' : '')
+})
 const folderFull = computed(() => br.value.root)
 const folderLabel = computed(() => (props.isProject || !br.value.root ? props.ctxName : pathEllipsis(br.value.root)))
 const tipId = `ctx-tip-${Math.random().toString(36).slice(2, 8)}`
@@ -1840,4 +1848,7 @@ button {
   font-size: 11.5px;
   color: var(--cat-muted);
 }
+.cx-branch.detached { position: relative; }
+.cx-detached { position: absolute; left: 22px; right: 18px; top: 50%; transform: translateY(-50%); pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--cat-text-2); z-index: 1; }
+.cx-detached code { font-family: var(--ff-font-mono); font-size: 11.5px; }
 </style>

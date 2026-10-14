@@ -55,10 +55,20 @@
   --cat-radius-md: 8px;
   --cat-radius-lg: 12px;
   --cat-radius-xl: 16px;
+  /* v0.53 提交图车道色（v0.53.2：primary / success / orange / 紫 / 青 / danger；第 7 条起循环） */
+  --cat-lane-1: var(--ff-primary);
+  --cat-lane-2: var(--ff-success);
+  --cat-lane-3: var(--cat-orange);
+  --cat-lane-4: #8b5cf6;
+  --cat-lane-5: #14b8a6;
+  --cat-lane-6: var(--ff-danger);
 }
 
 html.dark,
 .ff-dark {
+  /* v0.53.2：暗色仅 lane-4/5（紫、青）提亮约 8%；其余跟随已有暗色 token */
+  --cat-lane-4: color-mix(in oklab, #8b5cf6 90%, #fff);
+  --cat-lane-5: color-mix(in oklab, #14b8a6 90%, #fff);
   --cat-bg: #1b1c20;
   --cat-rail: #1a1b1f;
   --cat-panel: #1d1e23;

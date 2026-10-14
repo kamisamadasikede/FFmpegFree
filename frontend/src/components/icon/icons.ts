@@ -36,6 +36,8 @@ export const iconPaths = {
   'refresh': "<path d=\"M21 12a9 9 0 1 1-3-6.7L21 8\"/><path d=\"M21 3v5h-5\"/>",
   'mute': "<path d=\"M11 5 6 9H2v6h4l5 4z\"/><path d=\"m22 9-6 6M16 9l6 6\"/>",
   // 以下来自原型 pages.html 的直播页
+  'tag': "<path d=\"M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z\"/><circle cx=\"7.5\" cy=\"7.5\" r=\"1.5\"/>",
+  'commit': "<circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M2 12h6M16 12h6\"/>",
   'copy': "<rect x=\"9\" y=\"9\" width=\"12\" height=\"12\" rx=\"2\"/><path d=\"M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1\"/>",
   'eye': "<path d=\"M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>",
   'pick': "<path d=\"M12 3v4M12 17v4M3 12h4M17 12h4\"/><circle cx=\"12\" cy=\"12\" r=\"3.2\"/>",

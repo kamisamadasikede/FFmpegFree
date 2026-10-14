@@ -227,6 +227,7 @@
             </button>
           </div>
         </div>
+        <CatCommitHistory ref="historyEl" :conv-id="convId" :default-open="simHistoryOpen" @changed="emit('refresh')" />
       </div>
     </template>
   </div>
@@ -236,6 +237,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
+import CatCommitHistory from './CatCommitHistory.vue'
+import { catSim, type CatSimFlag } from '@/views/cat/catDevSim'
 import {
   CAT_GIT_CONFLICT_COPY as CF,
   CAT_GIT_COPY as COPY,
@@ -286,6 +289,9 @@ const emit = defineEmits<{
 }>()
 
 const message = ref('')
+const historyEl = ref<{ reload: () => void } | null>(null)
+/** 走查：?cat_sim=gitgraph… 时「提交历史」默认展开（正式默认折叠） */
+const simHistoryOpen = import.meta.env.DEV && ['gitgraph', 'gitgraphempty', 'gitgraphchanged', 'gitgraphloadfail', 'gitgraphopen'].some((k) => catSim.has(k as CatSimFlag))
 const mergeMessage = ref('')
 const filter = ref('')
 const filtering = ref(false)

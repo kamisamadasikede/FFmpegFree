@@ -16,11 +16,11 @@ export function catGitChecks(eq: Eq): void {
   eq('兄弟目录不算', gitLetterFor('other', true, changes), '')
   eq('反斜杠路径也能对上', gitLetterFor('docs\\a.md', false, changes), 'U')
   eq('根标签取最后一段', [gitRootLabel('D:\\GoProject\\FFmpegFree'), gitRootLabel('/tmp/proj/'), gitRootLabel('')], ['FFmpegFree', 'proj', ''])
-  eq('状态映射：缺字段当空仓库', mapGitStatus(null), { repo: false, branch: '', upstream: '', ahead: 0, behind: 0, remote: '', web: '', changes: [], mergeState: 'none', conflicts: [] })
+  eq('状态映射：缺字段当空仓库', mapGitStatus(null), { repo: false, branch: '', upstream: '', ahead: 0, behind: 0, remote: '', web: '', changes: [], mergeState: 'none', conflicts: [], detached: false, headSha: '', headShortSha: '' })
   eq(
     '状态映射：留下有路径的改动',
     mapGitStatus({ repo: true, branch: 'v2', upstream: 'v2', ahead: 7, behind: 1, remote: 'git@github.com:a/b.git', web: 'https://github.com/a/b', changes: [{ path: 'wails.json', name: 'wails.json', letter: 'M', added: 1, deleted: 1, staged: true }, { letter: 'U' }] }),
-    { repo: true, branch: 'v2', upstream: 'v2', ahead: 7, behind: 1, remote: 'git@github.com:a/b.git', web: 'https://github.com/a/b', changes: [{ path: 'wails.json', name: 'wails.json', dir: '', letter: 'M', added: 1, deleted: 1, staged: true, unstaged: false }], mergeState: 'none', conflicts: [] },
+    { repo: true, branch: 'v2', upstream: 'v2', ahead: 7, behind: 1, remote: 'git@github.com:a/b.git', web: 'https://github.com/a/b', changes: [{ path: 'wails.json', name: 'wails.json', dir: '', letter: 'M', added: 1, deleted: 1, staged: true, unstaged: false }], mergeState: 'none', conflicts: [], detached: false, headSha: '', headShortSha: '' },
   )
   const rows: GitChange[] = [
     { path: 'a.txt', name: 'a.txt', dir: '', letter: 'M', added: 1, deleted: 0, staged: false, unstaged: true },
