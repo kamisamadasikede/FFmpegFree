@@ -5340,8 +5340,8 @@ type ExportOfficeCanvasPptxResult struct {
    - `agentKind=<claude_cli|codex_cli|cat_build>`（沿用既有 agentKind 取值：Claude / Codex / Grok(cat_build)，前端据此取 CLI 名）
    - `cliVersion=<x.y.z>`：检测到的版本（检测不到为空）
    - `raw=<CLI 原始 stderr>`：最长 2000 字符；**其中换行转成字面 `\n`，前端展开「查看详情」时须还原为真实换行**；低于最低版本、未起进程时为空
-3. 文案：主文「`<CLI名>` CLI 版本过旧，请升级后重试。」（CLI名 = `Grok` / `Claude` / `Codex`）。
-4. 渲染：与现有行内错误同样式，出现在该条消息下方；主文下一行灰色小号「当前版本 `<cliVersion>`」，**`cliVersion` 为空时隐藏这一行**（主文照常显示）；次按钮「重试」；`raw` 收进「查看详情」折叠，默认不展开。**不提供升级按钮。**
+3. 文案：主文「`<显示名>` CLI 版本过旧，请升级后重试。」。显示名按设置页三家本名由 `agentKind` 映射：`claude_cli` → `Claude`，`codex_cli` → `Codex`，`cat_build` → `Grok Build`（库值仍是 `cat_build`，**不**改名 `grok_build`，见 v0.36）。即 Grok 文案为「Grok Build CLI 版本过旧，请升级后重试。」。
+4. 渲染：与现有行内错误同样式，出现在该条消息下方；主文下一行灰色小号「当前版本 `<cliVersion>`」，**`cliVersion` 为空时隐藏这一行**（主文照常显示）；次按钮「重试」；`raw` 收进「查看详情」折叠，默认不展开。**不提供升级按钮。**展开后：等宽字体，最大高度 160px、超出在框内滚动，右上角「复制」按钮（复制还原换行后的原文）；`raw` 为空时不显示「查看详情」。
 5. 重试：可重试。重发同一条消息，但参数**按当前检测到的版本重新生成**。版本缓存键 = 可执行文件路径 + mtime，用户升级 CLI 后点重试即重新检测，**无需重启应用**。
 
 #### 6.19.17.2 参数核对规则（硬规则）
