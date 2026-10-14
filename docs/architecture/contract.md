@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.51）
+# FFmpegFree v2 接口契约（v0.51.1）
+
+v0.51.1 变更（**分支树文案定稿 + 三栏降级阈值**，产品 / UI 群里 10-14）：6.19.26.5 的 TBD 全部替换为产品定稿文案；`CatBranchTree` 加 `noCommits`；当前分支右键「合并到当前分支」「和当前分支比较」置灰；最后提交时间只放悬停提示；参照 `proto/Cat-v0.51-分支树与三栏合并-设计说明-v0.1.md`。6.19.27 定降级阈值（binary / too_large / not_text，按文件 `mergeable:false` + `reason`）。2.2 追加 Cat Git reason 行。无迁移 / 事件 / settings 键。
 
 v0.51 变更（**预留占位：IDEA 式 Merge Revisions + Git 分支树**，见 **6.19.26**；范围待产品、线框待 UI；绑定名均为 DRAFT，**本版不实现、无迁移 / 事件 / settings 键 / 错误码**）。
 
@@ -383,6 +385,7 @@ export type AppErrorCode =
 | PDF 输入（v0.28，6.12.60 / 6.12.63：添加 PDF 的 `AddDocSourceResult.error`、`DOC_PDF_NO_TEXT`） | `reason=<值>` | `INVALID_ARGUMENT`：`too_large`（沿用：PDF 超过 200 MiB）、`too_many_pages`（超过 500 页）；`DOC_PDF_NO_TEXT`：`no_text`（第二行 `quality=empty\|garbled` 只给开发者看）（只追加） | 只有第一行；界面不显示 |
 | 文档组件未就绪（v0.27.2，6.12.55：`DOC_COMPONENT_NOT_READY` 的同步错误和任务错误，以及 `DocComponentStatus.error`） | `reason=<值>` | `checking`、`missing`、`outdated`（含 Windows / macOS 应用下载的组件低于 26.2.6）、`downloading`、`preparing`、`failed`，即 `componentState`（只追加） | 只有这一行；`OpenStorageFolder("doc_component")` 的 `NOT_FOUND` 沿用 v0.25.1 的 `reason=component` |
 | `INVALID_ARGUMENT` / `NOT_FOUND` / `TASK_CONFLICT`（v0.31 Cat 项目，6.19.10：`CreateCatProject`、`RenameCatProject`；v0.31.1 加 `RelocateCatProject`） | `reason=<值>` | `INVALID_ARGUMENT`：`project_path`（不是绝对路径 / 不存在 / 不是文件夹）、`project_root`（盘符或文件系统根）、`project_name`（名字为空（改名时）、超过 60 个字符或含控制字符）、`project_duplicate`（v0.31.1：`RelocateCatProject` 的新路径已属于另一个项目）；`TASK_CONFLICT`：`turn_running`（v0.31.1：`RelocateCatProject` 时该项目下有进行中的一轮）；`path`（v0.32：`ListCatFiles` 的 `relPath` 不是根内相对路径、含 `..`、绝对 / 盘符 / UNC、解析后出了根，或要穿过符号链接 / junction，6.19.11.3）（只追加）；`project`（v0.39：`SetCatInspectItemEnabled` / `RevealCatSkillsDir` / `EnsureCreateCatSkillsDir` 的 `projectId` 空，6.19.12.9）；`git_url` / `clone_exists`（v0.40）；`git_conflict`（v0.41：冲突态误用 Complete 等，6.19.15）；`TASK_CONFLICT` 另增 `clone_busy`（v0.40）、`git_dirty`（v0.41 脏切分支） | 只有 `project_duplicate` 有第二行 `projectId=<已有项目 id>`，前端按 `^projectId=(\S+)$` 取（取不到就重新 `ListCatProjects`、只提示不切换）；其余只有一行。界面按 6.19.10.8 映射；`NOT_FOUND` 项目不存在无固定 detail。`turn_running` 也是“直播会话冲突以外的 `TASK_CONFLICT` 没有 `reason=` 行”的例外 |
+| Cat Git 分支 / 合并（v0.50 / v0.50.1 / v0.51 / v0.51.1，6.19.25 / 6.19.26：`GitCatMerge`、分支树各接口） | `reason=<值>` | `INVALID_ARGUMENT`：`not_git_repo`（不是 Git 仓库）、`same_branch`（合并到它自己）、`invalid_branch_name`（`check-ref-format` 不过）、`is_current`（删除当前分支）、`git_failed`（其他 git 失败，第二行起 stderr）；`TASK_CONFLICT`：`branch_exists`（目标名已存在）、`branch_not_merged`（`-d` 报未合并）、`merge_in_progress`（已在合并中）；沿用 `turn_running` / `git_dirty` / `branch_not_found`（只追加） | 除 `git_failed` 外只有这一行；界面文案见 6.19.25 / 6.19.26.5，界面不显示错误码和 reason |
 | 其余所有码（含 `LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`INTERNAL`） | 无固定格式 | — | 前端**不得**解析（上面几行列出的码 / 场景除外） |
 
 统一规则：第一行只有一个 `key=value`，值只含小写字母、数字、下划线（`scheme` 例外；`kind` 的取值是 `window` / `screen`，取值就是上面三个小写单词）；前端用 `^(reason|scheme|kind)=([a-z0-9_]+)$` 匹配 `detail` 的第一行；**没有第一行、格式不对、或值不认识，一律走该错误码的通用文案**，不得猜测含义、不得报错崩溃。测试必须逐码断言第一行精确等于期望值（不是包含）。
@@ -6381,6 +6384,7 @@ type CatBranchTree struct {
     FetchedAt int64            `json:"fetchedAt"`         // 该仓库上次 fetch 成功时间，0=从未
     Fetching  bool             `json:"fetching"`
     FetchError string          `json:"fetchError,omitempty"` // 上次 fetch 失败的原始 stderr（截 4 KiB）
+    NoCommits  bool            `json:"noCommits"`            // v0.51.1：仓库还没有任何提交（HEAD 无法解析），此时 groups 为空
 }
 ListCatBranchTree(req struct{ConvID string `json:"convId"`}) (CatBranchTree, error) // 只读本地 refs，不触发 fetch
 FetchCatRemotes(req struct{ConvID string `json:"convId"`; Force bool `json:"force"`}) (CatBranchTree, error)
@@ -6421,9 +6425,17 @@ type CatCompareFile struct { Path, OldPath, Status string } // status: A|M|D|R|C
 - 所有 git 调用走 `runGit`（`proc.Configure`：Windows 隐藏控制台窗口；`GIT_TERMINAL_PROMPT=0`；`GIT_EDITOR=true`）。
 
 #### 6.19.26.5 前端
-- 弹窗 / 面板结构、图标、配色等以 UI 线框 `proto/cat-branch-tree` 为准（待交付）。
+- 弹窗 / 面板结构、图标、配色等以 UI 线框 `proto/cat-branch-tree` 与设计说明 `proto/Cat-v0.51-分支树与三栏合并-设计说明-v0.1.md` 为准（v0.51.1 已交付）。
 - 删除未合并分支：先调 `force=false`，收到 `branch_not_merged` 后弹强删确认，用户确认后 `force=true`。
-- **文案：产品所有（来自群里）**。已定：沿用 6.19.24 / 6.19.25 已有文案（`git_dirty` 签出用「有未提交的改动，请先提交或暂存，再切换分支。」，`turn_running`「正在回复，等这一轮结束再切换分支。」，`branch_not_found`「找不到这个分支，可能已被删除。」）。**TBD（待产品）**：删除确认 / 未合并强删确认、`branch_exists`、`invalid_branch_name`、`is_current`、fetch 失败过期提示、空态、搜索无结果、比较视图标题、新建 / 重命名弹窗。产品群里给出后照抄，未给前前端用占位并标 TODO。
+- **文案：产品所有（来自群里）**。已定：沿用 6.19.24 / 6.19.25 已有文案（`git_dirty` 签出用「有未提交的改动，请先提交或暂存，再切换分支。」，`turn_running`「正在回复，等这一轮结束再切换分支。」，`branch_not_found`「找不到这个分支，可能已被删除。」）。**v0.51.1 产品定稿（照抄，群里 10-14）**：
+  - **删除**：标题「删除分支 {分支}？」，按钮「删除」（危险样式）/「取消」。收到 `branch_not_merged`：同一弹窗多一行红字「这个分支有还没合并的提交，删除后可能找不回来。」，按钮换成「仍然删除」（危险样式，点了以 `force=true` 重调）/「取消」。成功 toast「已删除分支 {分支}」。
+  - **新建分支**：标题「新建分支」，下一行灰字「从 {起点分支} 新建」；输入框占位「分支名」；勾选项「创建后签出」默认勾上；按钮「创建」/「取消」。`branch_exists`「已经有同名分支了。」；`invalid_branch_name`「分支名不能包含空格或 ~ ^ : ? * [ \ 这些字符。」。成功 toast「已新建分支 {分支}」，勾了签出为「已新建并切换到 {分支}」。
+  - **重命名**：标题「重命名分支」，输入框预填旧名，按钮「重命名」/「取消」；重名 / 名字不合法同新建分支。成功 toast「已重命名为 {新名}」。
+  - **fetch 过期提示**：获取中标题旁灰字「正在获取…」；失败（`fetchError` 非空）灰字「获取远程失败，数量可能不是最新」，后跟公共「查看详情」（#304 组件，内容为 `fetchError`）；成功后去掉灰字，刷新按钮悬停提示「上次获取 HH:mm」（`fetchedAt` 不是今天时带日期）。
+  - **空态**：`not_git_repo`「这个文件夹不是 Git 仓库。」；仓库还没有提交（`CatBranchTree.noCommits=true`）「还没有任何提交，提交一次后才会有分支。」；没有远程：「远程分支」组整组不显示；搜索无结果「没有匹配的分支」。
+  - **右键菜单**：在当前分支上，「合并到当前分支」「和当前分支比较」置灰（删除当前分支同样不可点，`is_current` 只作后端兜底，走通用失败 +「查看详情」）。
+  - 最后提交时间只放在悬停提示里，不在行内显示。
+  - 尺寸、token、窄窗与降级态以设计说明 `proto/Cat-v0.51-分支树与三栏合并-设计说明-v0.1.md` 及 `proto/cat-branch-tree/` 为准。
 
 #### 6.19.26.6 测试
 **后端（真 git 临时仓库 + 本地 bare 远程）**：树分组 / 排序 / 跳过 `origin/HEAD`；`/` 名字原样返回；ahead/behind 与 `rev-list --left-right --count` 一致、无上游为 0 且 `upstream` 空；current / detached；收藏读写按仓库根隔离、不改 `.git/config`；recent 签出后更新、最多 5、去重；fetch 5 min 节流、force 绕过、并发只跑一次、失败不报错且保留旧 fetchedAt 并填 fetchError；新建（本地 from / 远程 from 带跟踪 / checkout）；比较双向提交列表 + 文件 status（含重命名）+ 截断；重命名（含当前分支、同步收藏 / recent）；删除已合并 / 未合并→branch_not_merged / force 成功 / 当前→is_current；每个 reason 至少一个用例；断言 runGit 隐藏窗口与 `GIT_TERMINAL_PROMPT=0`。
@@ -6436,6 +6448,11 @@ type CatCompareFile struct { Path, OldPath, Status string } // status: A|M|D|R|C
 - 三栏：左 = 当前（ours，`git show :2:<path>`）｜中 = 结果（可编辑）｜右 = 传入（theirs，`:3:`）；base 取 `:1:`。
 - 非冲突改动用 base 自动合入结果；只有真冲突留给用户。每处冲突：接受箭头（采用该侧）、忽略 ×；两侧都接受时按点击顺序拼接。上一处 / 下一处冲突；「还剩 n 个冲突」；完成后标记已解决（`git add`）。
 - **不能逐行合并的文件**（二进制 / 删除-修改冲突等）：退回整文件「采用当前 / 采用传入」。
+- **降级阈值（v0.51.1 定）**：base / ours / theirs 任一侧满足以下任一条件，该文件整文件降级为「采用当前 / 采用传入」：
+  - 二进制：前 8000 字节内含 NUL 字节（与 git 的判定一致）→ `reason=binary`；
+  - 过大：> 1 MiB（1 048 576 字节）或 > 20 000 行 → `reason=too_large`；
+  - 非文本：去掉 UTF-8 BOM 后不是合法 UTF-8 → `reason=not_text`。
+  - 判定顺序 binary → too_large → not_text，只报首个命中。后端按文件返回 `mergeable:false` + `reason`（可合并时 `mergeable:true`、无 reason）；前端按 reason 显示设计说明里的降级态。
 - **窗口宽度（UI 群里定稿）**：
   - ≥1100px：三栏全显示；顶部「接受左边全部 / 接受右边全部」。
   - 760–1099px：「结果」栏常驻，左右两栏收成一个侧栏，用「当前 | 传入」切换。
