@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.48.3）
+# FFmpegFree v2 接口契约（v0.49）
+
+v0.49 变更（**输入框底栏：文件夹路径可点开 + 远程分支 + 本地分支切换**，老板 t86u 2026-10-14；规则见 **6.19.24**；无迁移 / 事件名 / settings 键；新绑定 `ListCatBranches` / `SwitchCatBranch`；新 reason `branch_not_found`，复用 `git_dirty` / `turn_running`）：① 普通对话底栏左侧显示对话文件夹路径（中间省略，tooltip 全路径），项目对话仍显示项目名；两者点击都用 `RevealCatConversationFolder` 在系统文件管理器打开。② 原「本地」改为当前分支的上游（如 `origin/main`），没有上游显示灰字「无远程分支」。③ 旁边显示本地当前分支，点开下拉（复用 #294 的 `CatModeSelect`，挂 body、下方放不下往上翻）列本地分支 + 「远程分支」小节（只在远程的），选中即 `git switch`；远程分支本地没有同名时建跟踪分支。④ 工作区有改动 → 拦下不切；正在回复 → 不能切；不是仓库 / 没装 git → 不显示分支部分。
 
 v0.48.3 变更（**上下文圆环不再落盘**，老板 t87u 2026-10-14；见 **6.19.22.4**；无新错误码 / 迁移 / 事件名 / 绑定 / settings 键）：删除 `.cat-context.json` 读写；三家统一走 `SessionHistory.ReadContextUsage` 直接读 CLI 自己的会话文件。Claude 本地文件不带窗口大小，只在本次运行 stream 报过后显示，重启后下一轮前不画。
 
@@ -6258,3 +6260,25 @@ H.265 在 mp4 / mov 里照旧加 `-tag:v hvc1`。**直播**（H.264，码率控�
 
 Codex 任一工具 `status` 为 failed / declined 时标签后加 ` · 失败`。Codex 实时标签与 rollout 里的 `function_call` 文字不完全相同（来源不同）；刷新后以会话记录为准，实时行被整份历史替换，不叠加。
 
+### 6.19.24 输入框底栏：文件夹 / 远程分支 / 本地分支（v0.49，老板 t86u，架构师 10-14）
+
+**绑定**（`CatService`，都只收对话 id，路径一律后端从表里取）：
+
+| 绑定 | 入参 | 返回 | 说明 |
+|---|---|---|---|
+| `RevealCatConversationFolder`（已有，6.19.11.5） | `{convId}` | — | 即本节的「OpenCatFolder」。项目对话打开项目文件夹；普通对话打开 `ResolveCatConvDir`（`<DataRoot>/cat/conversations/<id>` 或旧 cwd），不存在先建。Explorer / Finder / xdg-open。 |
+| `ListCatBranches` | `{convId}` | `CatBranchesResult` | 见下。不是仓库、没装 git 都**不算错误**。 |
+| `SwitchCatBranch` | `{convId, branch, remote?}` | — | `remote=false`：`git switch <branch>`（必须是已有本地分支）。`remote=true`：`branch` 为 `<remote>/<name>`；本地已有 `<name>` → 切本地那条；否则 `git switch --track <remote>/<name>`。 |
+
+`CatBranchesResult`：`root`（对话根绝对路径，总是给）、`git`（PATH 上找得到 git）、`repo`（对话根在 git 工作树内）、`branch`（当前本地分支，`git symbolic-ref --short -q HEAD`；分离 HEAD 为空）、`detached`、`upstream`（`git rev-parse --abbrev-ref --symbolic-full-name @{u}`，没有为空）、`locals[]`（`refs/heads/*`，按名排序）、`remotes[]`（`refs/remotes/*` 去掉 `*/HEAD`，且本地没有同名分支的，按名排序）。`git=false` 或 `repo=false` 时分支字段为空、数组为 `[]`。
+
+**SwitchCatBranch 校验顺序**：会话存在 → 该对话（项目对话：同项目任一对话）有进行中的一轮 → `TASK_CONFLICT` `reason=turn_running`「正在回复，等这一轮结束再切换分支。」→ 不是仓库 `INVALID_ARGUMENT`「这里还不是 git 仓库。」→ 分支名不合法 / 不存在 → `NOT_FOUND` `reason=branch_not_found`「找不到这个分支。」→ 目标就是当前分支 → 直接成功（不看工作区）→ 工作区有任何改动（含未跟踪）→ `TASK_CONFLICT` `reason=git_dirty`「有未提交的改动，先提交或暂存再切换分支。」（不自动 stash、不强切）→ git 失败 `PROCESS_FAILED`（stderr 截断）；没装 git `NOT_FOUND`「没有找到 git。」。
+
+**git 调用**：全部走 `runGit`（`proc.Configure`：Windows 隐藏控制台窗口、不弹黑框；`GIT_TERMINAL_PROMPT=0`）。
+
+**前端**（`CatComposer` 底栏，欢迎页不显示）：
+1. 左：项目对话显示项目名；普通对话显示 `root` 中间省略（36 字符，`…`），读不到 `root` 时退回原名字。tooltip = 全路径 + 换行 +「在文件管理器中打开」。点击 → `RevealCatConversationFolder`，失败 toast 后端 message，没有则「打不开文件夹，请重试。」。
+2. `repo=true` 时：地球图标 + `upstream`；空 → 灰字「无远程分支」。tooltip「远程分支（上游）」。
+3. 分支图标 + 本地分支下拉（`CatModeSelect compact`）：选项 = 本地分支；有 `remotes` 时加不可选小标题「远程分支」再列远程分支。分离 HEAD 时触发器显示「分离 HEAD」。正在回复 / 切换中 / 项目文件夹不见了 → 禁用。成功 toast「已切换到 {分支}」并刷新；失败 toast：`git_dirty` / `turn_running` / `branch_not_found` 用上面文案，其他用后端 message，没有则「切换分支失败，请重试。」。
+4. 刷新时机：切换对话、每轮结束（`running` 变 false）、切换后。
+5. `git=false` 或 `repo=false`：只显示左侧文件夹，不显示远程 / 本地分支。

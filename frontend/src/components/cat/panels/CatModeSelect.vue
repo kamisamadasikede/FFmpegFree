@@ -1,5 +1,5 @@
 <template>
-  <div ref="root" class="cms" :class="{ open }">
+  <div ref="root" class="cms" :class="{ open, compact }">
     <button
       ref="btn"
       type="button"
@@ -87,6 +87,8 @@ const props = defineProps<{
   placeholder?: string
   ariaLabel?: string
   testid: string
+  /** 输入框底栏用：无边框、小字号的文字触发器（v0.49） */
+  compact?: boolean
 }>()
 const emit = defineEmits<{ 'update:modelValue': [id: string] }>()
 const open = ref(false)
@@ -200,6 +202,10 @@ onBeforeUnmount(close)
 
 <style scoped>
 .cms { position: relative; display: inline-flex; }
+.cms.compact { min-width: 0; }
+.cms.compact .cms-btn { height: auto; min-height: 0; padding: 0 2px; gap: 3px; border: 0; background: none; box-shadow: none; font-size: 12px; color: inherit; border-radius: 4px; max-width: 220px; }
+.cms.compact .cms-btn:hover:not(:disabled) { color: var(--cat-text); background: var(--cat-hover); }
+.cms.compact.open .cms-btn, .cms.compact .cms-btn:focus-visible { box-shadow: var(--cat-focus); }
 .cms-btn {
   display: inline-flex; align-items: center; gap: 6px; height: 32px; min-width: 140px; max-width: 260px; padding: 0 10px;
   border: 1px solid var(--ff-border); border-radius: 6px; background: var(--cat-bg); color: var(--cat-text);

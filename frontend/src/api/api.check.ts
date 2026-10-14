@@ -49,6 +49,7 @@ import { catLastConvChecks } from '@/views/cat/catLastConv.check'
 import { catMarkdownChecks } from '@/utils/catMarkdown.check'
 import { catFilesChecks } from './catFiles.check'
 import { catGitChecks } from './catGit.check'
+import { catBranchesChecks } from './catBranches.check'
 import { catFilePreviewChecks } from './catFilePreview.check'
 import { catContextUsageChecks } from '@/components/cat/catContextUsage.check'
 import { catActivityChecks } from '@/components/cat/catActivity.check'
@@ -1017,6 +1018,7 @@ export async function runApiChecks(): Promise<string[]> {
         await catLastConvChecks(eq) // Cat 重新进入：回到上次对话；新对话不记；删了的回到欢迎页
         await catMarkdownChecks(eq) // Cat 助手回复 Markdown：元素、原始 HTML、链接协议、图片不加载、流式未闭合围栏
         catFilesChecks(eq) // Cat 文件面板：已加载树的过滤、截断行、列表映射
+        catBranchesChecks(eq) // Cat 底栏：文件夹路径省略、分支选项、切分支错误文案（v0.49）
         catGitChecks(eq) // Cat 源代码管理：文件夹标记、状态映射、更改 / 已暂存 / 未跟踪分组
         catFilePreviewChecks(eq) // Cat 侧边预览：种类映射、二进制不带文本、markdown / svg 切换
         catContextUsageChecks(eq) // Cat 上下文圆环：百分比、弧长、悬停摘要
