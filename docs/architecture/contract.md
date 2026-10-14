@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.48）
+# FFmpegFree v2 接口契约（v0.48.1）
+
+v0.48.1 变更（**Codex / Claude 也显示上下文圆环**，老板 t83u 2026-10-14；规则与取数对照表见 **6.19.22**；无新错误码 / 迁移 / 事件名 / 绑定 / settings 键）：① 终态 `cat:turn` 与会话详情的 `contextUsed` / `contextWindow` 改为三家都填（Codex 读 rollout 最后一条 `token_count`；Claude 读 transcript 最后一条 assistant usage + stream `result.modelUsage[].contextWindow`）。② 前端不分助手：两数都 > 0 就画圆环，否则隐藏。③ 拿不到不估算。
 
 v0.48 变更（**普通 turn 完成通知一律走系统通知**，老板 t81u 2026-10-14：「对话结束通知不是在软件上的，是 Win 或 Mac 上的系统通知」；完整规则见 **6.19.12.11**；无新错误码 / 迁移 / settings 键；新绑定 `SetCatWindowFocused(focused)` / `GetCatNotifyStatus()`）：① 普通 turn `completed` / `failed` **只发 OS 系统通知**（Windows toast / 操作中心；macOS 通知中心），**废止**普通 turn 的应用内 toast（`showTurnFinishToast`）。② 「该发」判定改为 **窗口没有键盘焦点**（失焦 / 最小化 / 隐藏到托盘都算）；窗口有焦点时不发（用户正看着）。改写 v0.35.5 ⑤ / v0.40 ② 对**普通 turn** 的「可见即前台」口径；定时任务的前台 toast 口径本版不动。③ 文案：完成 `Cat · 对话已完成`，失败 `Cat · 回复失败`；正文规则不变。④ 开关仍是 `notifyOnFinish`（「完成后通知」）。⑤ 系统通知不可用 / macOS 被拒：静默不发、不回退应用内 toast，设置里「完成后通知」下方显示灰字提示（6.19.12.11-5）。⑥ 实现基于 Wails v2.16.0 runtime 通知 API（已在用），**不引第三方库**。
 
@@ -6035,6 +6037,29 @@ TS 对应：`checking: boolean; checkedAt?: number; stale?: boolean; exePath?: s
 #### 6.19.21.7 不做（本版）
 
 不调用 `npm config get prefix` / `where` 去探测；不改系统或用户 PATH；不缓存登录态到 `cat.detect`；不新增错误码、迁移或事件名。
+
+### 6.19.22 Codex / Claude 也显示上下文圆环（v0.48.1，老板 t83u，架构师 10-14）
+
+目标：输入区上下文圆环（`上下文 15.8万/26万 (61.8%)`）对所有助手生效。字段与事件**不变**：仍是终态 `cat:turn` 的 `contextUsed` / `contextWindow` 和 `CatConversationDetail.contextUsed` / `contextWindow`。前端**不按助手分支**：两数都 > 0 就画，否则不画。
+
+**6.19.22.1 取数对照表**（真机二进制 + 官方源码核对；样本在 `internal/catagent/testdata/`）
+
+| 助手 | 已用 contextUsed | 容量 contextWindow | 来源 / 时机 |
+|---|---|---|---|
+| Grok | `signals.json.contextTokensUsed` | `signals.json.contextWindowTokens` | `~/.grok/sessions/<cwd>/<sid>/signals.json`，终态读（v0.45 原样） |
+| Codex 0.162.1 | 最后一条 rollout `event_msg` `token_count` 的 `info.last_token_usage.total_tokens`（缺省时 `input_tokens+output_tokens`） | 同条 `info.model_context_window`；没有则 `task_started.model_context_window` | `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl`，进程退出后读。依据：openai/codex `codex-rs/protocol/src/protocol.rs` 的 `TokenUsageInfo{total_token_usage,last_token_usage,model_context_window}`、`TokenUsage::tokens_in_context_window()=total_tokens`；真机 rollout 有 `task_started.model_context_window=258400` |
+| Claude 2.1.296 | transcript 最后一条主线 assistant（`isSidechain!=true`、model≠`<synthetic>`）的 `message.usage`：`input_tokens + cache_creation_input_tokens + cache_read_input_tokens + output_tokens` | 本轮 `-p --output-format stream-json` 的 `result.modelUsage[<model>].contextWindow`（多项取最大） | `~/.claude/projects/<cwd>/<session_id>.jsonl` + stream result；二进制里 `modelUsage` 每项带 `contextWindow:dm(model)`（CLI 按模型算，含 1M 变体） |
+
+不用的字段：Codex `exec --json` 的 `turn.completed.usage`、Claude `result.usage` 都是**整轮多次请求的合计**，不是当前上下文，只用于 v0.47 token 尾（6.19.19.5）。`codex exec --json` stdout 不带窗口大小。
+
+**6.19.22.2 规则**
+1. 适配器把两数放进 `TurnResponse.contextUsed/contextWindow`；任一拿不到 → 都为 0，前端隐藏圆环。**不估算、不用内置模型表猜容量**（Claude 拿不到 `contextWindow` 就不画）。
+2. 服务层把非零结果写到应用自己的对话目录 `.cat-context.json`（`{"contextUsed","contextWindow"}`，不写进用户项目文件夹）；打开对话时 Grok 先读 signals.json，读不到再读该文件。
+3. 会话已失效（`reason=session_not_found`）的轮不取数。
+4. 无新错误码 / 迁移 / 事件名 / 绑定 / settings 键。
+
+**6.19.22.3 样本**：`codex/rollout-token-count-doc-derived.jsonl`、`claude/context-usage-doc-derived.jsonl`、`claude/result-modelusage-doc-derived.json` 为**文档派生**（box 上两家未登录，拿不到成功回复）；真机负样本（未登录，`modelUsage:{}`、只有 `task_started`）验证“拿不到就不画”。登录后应补真机正样本。
+
 
 ### 9.1 检测顺序（启动时后台执行，不阻塞界面）
 

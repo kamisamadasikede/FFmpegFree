@@ -437,7 +437,7 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	var acc strings.Builder
 	var gotSession string
 	var resultFallback string
-	var usageTokens, usageOut int64
+	var usageTokens, usageOut, claudeWindow int64
 	scanErr := a.scanCLIStream(stdout, func(p streamPiece) {
 		if p.Done {
 			completed = true
@@ -448,6 +448,11 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		case "thought", "tool", "retry":
 			if opts.OnActivity != nil && (p.Kind == "retry" || p.Text != "") {
 				opts.OnActivity(p.Kind, p.ID, p.Text, p.Replace)
+			}
+		case "ctxwin":
+			// v0.48.1：Claude result.modelUsage 的 contextWindow（ID 复用为数字）。
+			if n, err := parseInt64(p.ID); err == nil && n > 0 {
+				claudeWindow = n
 			}
 		case "result_text":
 			// Claude 最终 result 全文：仅作无增量时的兜底，不与 partial 叠加。
@@ -507,6 +512,13 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		cliMsg = strong
 	}
 	usageResp := TurnResponse{TokenTotal: usageTokens, OutputTokens: usageOut}
+	sidForCtx := gotSession
+	if sidForCtx == "" {
+		sidForCtx = sessionID
+	}
+	if !gone {
+		usageResp.ContextUsed, usageResp.ContextWindow = a.turnContextUsage(sidForCtx, cwd, claudeWindow)
+	}
 	// v0.48.1：本轮已正常结束且有最终回复 → 就是成功。之后的退出码、标准错误告警、
 	// 重连提示都只写日志（详情），不再把整轮判成失败。
 	if completed && !gone && runCtx.Err() == nil {
@@ -945,7 +957,7 @@ func (a *CLIAgentAdapter) scanCLIStream(r io.Reader, onPiece func(streamPiece), 
 		if onPiece != nil && piece.Done && piece.Kind != "usage" {
 			onPiece(streamPiece{Kind: "done", Done: true})
 		}
-		if onPiece != nil && (piece.Kind == "retry" || piece.Kind == "usage" || piece.Kind == "result_text" || piece.Text != "") {
+		if onPiece != nil && (piece.Kind == "retry" || piece.Kind == "usage" || piece.Kind == "ctxwin" || piece.Kind == "result_text" || piece.Text != "") {
 			onPiece(piece)
 		}
 	}
@@ -976,6 +988,9 @@ func emitClaudeResultLine(line []byte, onPiece func(streamPiece), onErr func(str
 	}
 	if u := claudeUsageTotal(raw); u > 0 && onPiece != nil {
 		onPiece(claudeUsagePiece(raw, u))
+	}
+	if w := claudeResultContextWindow(raw, ""); w > 0 && onPiece != nil {
+		onPiece(streamPiece{Kind: "ctxwin", ID: fmtInt64(w)})
 	}
 	if t, ok := rawStr(raw, "result"); ok && strings.TrimSpace(t) != "" && onPiece != nil {
 		onPiece(streamPiece{Kind: "result_text", Text: t})
