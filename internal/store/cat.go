@@ -37,6 +37,9 @@ type CatMessage struct {
 	FinishedAt   int64    `json:"finishedAt,omitempty"`
 	TokenTotal   *int64   `json:"tokenTotal,omitempty"`
 	TokensPerSec *float64 `json:"tokensPerSec,omitempty"`
+	// v0.45 §6.19.19.3：发送 → 第一个正文 / 思考增量、发送 → 终态（毫秒）。旧消息不补。
+	FirstTokenMs *int64 `json:"firstTokenMs,omitempty"`
+	TotalMs      *int64 `json:"totalMs,omitempty"`
 }
 
 // CatMedia 是一条消息上可预览的图片、视频或文档。

@@ -6,6 +6,9 @@ package catagent
 import "FFmpegFree/internal/apperr"
 
 // AgentKind 是会话锁定的适配器种类。
+// ReasonSessionNotFound 是续聊会话不存在的失败 detail（v0.45）；服务层据此置 retryable=false。
+const ReasonSessionNotFound = "reason=session_not_found"
+
 const (
 	KindCatBuild  = "cat_build"
 	KindClaudeCLI = "claude_cli" // v0.36
@@ -42,8 +45,10 @@ const (
 	// MsgNotReady：PATH 上找不到入口（v0.31.3）。
 	MsgNotReady = "未检测到 Cat 助手，请先安装并确保可在终端直接运行。"
 	// MsgAuthInvalid：入口在但登录 / API Key 失效（仍用 CAT_NOT_READY，detail reason=auth）。
-	MsgAuthInvalid  = "登录失效，请重新登录后再试。"
-	MsgReplyFailed  = "回复没生成出来，请重试。"
+	MsgAuthInvalid = "登录失效，请重新登录后再试。"
+	MsgReplyFailed = "回复没生成出来，请重试。"
+	// MsgSessionGone（v0.45）：续聊时之前的会话已找不到；本轮不可重试，下一句开新对话。
+	MsgSessionGone  = "之前的对话记录已找不到，请重新发送，将开始新的对话。"
 	MsgToolWriteRef = "当前只能查看项目文件，改文件和运行命令下一期开放。"
 
 	// v0.31 项目（6.19.10.8 / 6.19.10.9）。后三句是架构师建议文案，产品改了只改这里。
@@ -152,6 +157,10 @@ type TurnEvent struct {
 	FinishedAt   int64    `json:"finishedAt,omitempty"`
 	TokenTotal   *int64   `json:"tokenTotal,omitempty"`
 	TokensPerSec *float64 `json:"tokensPerSec,omitempty"`
+	// v0.45 §6.19.19.3：应用侧计时（毫秒，起点 = 本轮 running）。无正文 / 思考增量 → 省略 firstTokenMs；
+	// totalMs 有 finishedAt 就带（完成、失败、取消都带）。
+	FirstTokenMs *int64 `json:"firstTokenMs,omitempty"`
+	TotalMs      *int64 `json:"totalMs,omitempty"`
 }
 
 // CancelCatTurnRequest 是 CancelCatTurn 入参（契约 6.19.9）。

@@ -111,7 +111,7 @@ func TestRunTurn_CLIErrorEvent(t *testing.T) {
 		t.Skip("unix script fake")
 	}
 	fake := filepath.Join(t.TempDir(), "grok-err")
-	script := "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"error\",\"message\":\"boom\"}'\nexit 0\n"
+	script := "#!/bin/sh\n[ \"$1\" = usage ] && exit 1\nprintf '%s\\n' '{\"type\":\"error\",\"message\":\"boom\"}'\nexit 0\n"
 	_ = os.WriteFile(fake, []byte(script), 0o755)
 	a := NewBuildAdapter(BuildConfig{
 		DataTemp: t.TempDir(),
@@ -141,7 +141,7 @@ func TestRunTurn_PassesArgsWithoutToolLock(t *testing.T) {
 	dir := t.TempDir()
 	fake := filepath.Join(dir, "grok-args")
 	out := filepath.Join(dir, "args.txt")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$0\" \"$@\" > '" + out + "'\nprev=\nfor a in \"$@\"; do\n  if [ \"$prev\" = \"--prompt-file\" ]; then body=$(cat \"$a\"); printf 'PROMPT:%s' \"$body\" >> '" + out + "'; fi\n  prev=$a\ndone\necho \"ENV_SANDBOX=$GROK_SANDBOX\" >> '" + out + "'\necho \"ENV_WRITE=$GROK_WRITE_FILE\" >> '" + out + "'\nprintf '%s\\n' '{\"type\":\"text\",\"data\":\"ok\"}'\nprintf '%s\\n' '{\"type\":\"end\",\"stopReason\":\"end_turn\"}'\n"
+	script := "#!/bin/sh\n[ \"$1\" = usage ] && exit 1\nprintf '%s\\n' \"$0\" \"$@\" > '" + out + "'\nprev=\nfor a in \"$@\"; do\n  if [ \"$prev\" = \"--prompt-file\" ]; then body=$(cat \"$a\"); printf 'PROMPT:%s' \"$body\" >> '" + out + "'; fi\n  prev=$a\ndone\necho \"ENV_SANDBOX=$GROK_SANDBOX\" >> '" + out + "'\necho \"ENV_WRITE=$GROK_WRITE_FILE\" >> '" + out + "'\nprintf '%s\\n' '{\"type\":\"text\",\"data\":\"ok\"}'\nprintf '%s\\n' '{\"type\":\"end\",\"stopReason\":\"end_turn\"}'\n"
 	_ = os.WriteFile(fake, []byte(script), 0o755)
 	proj := filepath.Join(dir, "proj")
 	_ = os.MkdirAll(proj, 0o755)

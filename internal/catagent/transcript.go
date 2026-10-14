@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"FFmpegFree/internal/apperr"
 )
 
 // SessionStarted 表示这个对话在 CLI 自己的会话目录里已经有记录。
@@ -65,6 +63,15 @@ func sessionLabelIn(root, cwd, convID string) string {
 	return ""
 }
 
+// SessionLabel / SessionResumable：Grok 实现 SessionHistory（与 Claude / Codex 同一接口）。
+func (a *BuildAdapter) SessionLabel(convID, cwd string) string {
+	return sessionLabelIn(a.sessionRoot(), cwd, strings.TrimSpace(convID))
+}
+
+func (a *BuildAdapter) SessionResumable(convID, cwd string) bool {
+	return sessionStartedIn(a.sessionRoot(), cwd, strings.TrimSpace(convID))
+}
+
 func shortLabel(s string) string {
 	s = strings.Join(strings.Fields(s), " ")
 	r := []rune(s)
@@ -86,6 +93,7 @@ func (a *BuildAdapter) sessionRoot() string {
 func (a *BuildAdapter) LoadTranscript(ctx context.Context, convID, cwd string) ([]WireMessage, error) {
 	convID = strings.TrimSpace(convID)
 	if convID == "" || !sessionStartedIn(a.sessionRoot(), cwd, convID) {
+		// Grok 的 sessionId 由对话 id 派生；会话目录从没建过 = 没发过消息的新对话（v0.45.2：省略状态）。
 		return []WireMessage{}, nil
 	}
 	if p := sessionUpdatesPath(a.sessionRoot(), cwd, convID); p != "" {
@@ -94,13 +102,13 @@ func (a *BuildAdapter) LoadTranscript(ctx context.Context, convID, cwd string) (
 		}
 	}
 	if a.Status().State != StateReady {
-		return nil, apperr.New(apperr.CatNotReady, MsgNotReady)
+		return []WireMessage{}, ErrHistoryReadFailed
 	}
 	a.mu.Lock()
 	exe := a.exe
 	a.mu.Unlock()
 	if exe == "" {
-		return nil, apperr.New(apperr.CatNotReady, MsgNotReady)
+		return []WireMessage{}, ErrHistoryReadFailed
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -112,10 +120,12 @@ func (a *BuildAdapter) LoadTranscript(ctx context.Context, convID, cwd string) (
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
+		// 真机 grok 1.0.40：`grok export <不存在>` → stderr「Error: Session '<id>' not found.」、退出码 1。
 		if strings.Contains(strings.ToLower(stderr.String()), "not found") {
-			return []WireMessage{}, nil
+			return []WireMessage{}, ErrHistoryMissing
 		}
-		return nil, apperr.Wrap(apperr.IOError, "读取对话记录失败", err)
+		a.cfg.Logf("cat build export: %v %s", err, truncate(stderr.String(), 300))
+		return []WireMessage{}, ErrHistoryReadFailed
 	}
 	return ParseExportMarkdown(stdout.String()), nil
 }

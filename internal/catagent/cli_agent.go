@@ -31,6 +31,8 @@ type CLIAgentConfig struct {
 	Now      func() time.Time
 	// CodexHome 覆盖 Codex 的会话根（默认 $CODEX_HOME，再退回 ~/.codex）。测试用。
 	CodexHome string
+	// ClaudeConfigDir 覆盖 Claude 的配置根（默认 $CLAUDE_CONFIG_DIR，再退回 ~/.claude）。测试用。
+	ClaudeConfigDir string
 }
 
 // cliKind 区分两家 CLI 的 argv / 流式协议（具体 flag 见附录 6.19.14，多为 GUESS）。
@@ -290,16 +292,11 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	resume := opts.Resume || hasPriorAssistant(opts.Messages)
-	sessionID := ""
-	if a.kind == cliKindCodex {
-		// service 传的 Resume 来自 Grok 的会话目录，对 Codex 恒为 false。
-		// Codex 以我们存下的 thread_id 为准：有就 exec resume，否则每句都开新 thread、上文丢失。
-		sessionID = a.loadSessionID(opts.ConversationID)
-		resume = sessionID != ""
-	} else if resume {
-		sessionID = a.loadSessionID(opts.ConversationID)
-	}
+	// service 传的 Resume 来自 Grok 的会话目录，对 Codex / Claude 恒为 false。
+	// 两家都以我们存下的会话 id 为准（Codex thread_id；Claude stream-json 的 session_id，v0.45 §6.19.19.1）：
+	// 有就续，否则开新会话。
+	sessionID := a.loadSessionID(opts.ConversationID)
+	resume := sessionID != ""
 
 	args := a.buildTurnArgs(opts, prompt, cwd, sessionID, resume)
 	cmd := a.runCmd(runCtx, exe, args...)
@@ -313,10 +310,18 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	var errMu sync.Mutex
 	var cliErr string
 	seenErr := map[string]struct{}{}
+	var sessionGone bool
 	noteErr := func(msg string) {
 		msg = truncate(strings.TrimSpace(msg), 500)
 		if msg == "" {
 			return
+		}
+		if a.kind == cliKindClaude && resume && claudeSessionMissing(msg) {
+			// 原文带 CLI 的会话编号，不上屏；换成应用自己的话。
+			msg = MsgSessionGone
+			errMu.Lock()
+			sessionGone = true
+			errMu.Unlock()
 		}
 		errMu.Lock()
 		if cliErr == "" {
@@ -397,7 +402,18 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	if scanErr != nil && a.cfg.Logf != nil {
 		a.cfg.Logf("cat %s stream scan: %v", a.name, scanErr)
 	}
-	if gotSession != "" {
+	if a.kind == cliKindClaude && resume && claudeSessionMissing(stderrText) {
+		errMu.Lock()
+		sessionGone = true
+		errMu.Unlock()
+	}
+	errMu.Lock()
+	gone := sessionGone
+	errMu.Unlock()
+	if gone {
+		// v0.45：会话已被 CLI 清掉 → 清掉存下的 id，下一句开新会话；本轮不可重试。
+		a.clearSessionID(opts.ConversationID)
+	} else if gotSession != "" {
 		a.saveSessionID(opts.ConversationID, gotSession)
 	}
 
@@ -423,6 +439,9 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 			msg = "回复超时"
 		}
 		return usageResp, apperr.New(apperr.CatReplyFailed, msg).WithDetail("reason=timeout")
+	}
+	if gone {
+		return usageResp, apperr.New(apperr.CatReplyFailed, MsgSessionGone).WithDetail(ReasonSessionNotFound)
 	}
 	if waitErr != nil && cliArgRejected(stderrText+"\n"+cliMsg) {
 		return usageResp, outdatedCLIErr(a.name, curVer, stderrText)
@@ -496,6 +515,20 @@ func (a *CLIAgentAdapter) loadSessionID(convID string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(b))
+}
+
+func (a *CLIAgentAdapter) clearSessionID(convID string) {
+	if strings.TrimSpace(convID) == "" {
+		return
+	}
+	_ = os.Remove(a.sessionPath(convID))
+}
+
+// claudeSessionMissing：续聊时 CLI 报会话不存在。真机 claude 2.1.296：
+// `claude -p x --resume <不存在的 id>` → stderr「No conversation found with session ID: <id>」、
+// result.errors 同句、退出码 1（2026-10-14 box 采集）。
+func claudeSessionMissing(text string) bool {
+	return strings.Contains(text, "No conversation found with session ID")
 }
 
 func (a *CLIAgentAdapter) saveSessionID(convID, sid string) {
@@ -697,7 +730,8 @@ func (a *CLIAgentAdapter) buildClaudeArgs(opts TurnOptions, prompt, sessionID st
 		args = append(args, "--model", mid)
 	}
 	if resume && sessionID != "" {
-		// GUESS B9：--resume <session_id>
+		// H testdata/help/claude.txt 2.1.296「-r, --resume [value]  Resume a conversation by session ID」；
+		// D https://code.claude.com/docs/en/sessions。真机：不存在的 id → 见 claudeSessionMissing。
 		args = append(args, "--resume", sessionID)
 	}
 	return args

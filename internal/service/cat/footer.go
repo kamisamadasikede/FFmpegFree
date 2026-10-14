@@ -18,6 +18,8 @@ type messageFooter struct {
 	FinishedAt   int64    `json:"finishedAt"`
 	TokenTotal   *int64   `json:"tokenTotal,omitempty"`
 	TokensPerSec *float64 `json:"tokensPerSec,omitempty"`
+	FirstTokenMs *int64   `json:"firstTokenMs,omitempty"` // v0.45
+	TotalMs      *int64   `json:"totalMs,omitempty"`      // v0.45
 }
 
 var footerMu sync.Mutex
@@ -95,6 +97,8 @@ func applyFooters(dataRoot, convID string, msgs []store.CatMessage) []store.CatM
 		msgs[i].FinishedAt = f.FinishedAt
 		msgs[i].TokenTotal = f.TokenTotal
 		msgs[i].TokensPerSec = f.TokensPerSec
+		msgs[i].FirstTokenMs = f.FirstTokenMs
+		msgs[i].TotalMs = f.TotalMs
 	}
 	return msgs
 }
@@ -106,6 +110,15 @@ func computeTokensPerSec(tokenTotal, durationMs int64) *float64 {
 	}
 	v := float64(tokenTotal) / (float64(durationMs) / 1000.0)
 	return &v
+}
+
+// msPtr 是计时字段：0 毫秒也是有效值（同一毫秒内出字），负数 / 未知 → nil。
+func msPtr(from, to int64) *int64 {
+	if from <= 0 || to <= 0 || to < from {
+		return nil
+	}
+	d := to - from
+	return &d
 }
 
 func int64Ptr(v int64) *int64 {

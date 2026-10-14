@@ -29,6 +29,7 @@ func TestSendPassesModelAndEffortEveryTurn(t *testing.T) {
 	script := `#!/bin/sh
 case "$1" in
   -v) echo "grok 1.0.40"; exit 0 ;;
+  usage) echo "Error: Session not found." >&2; exit 1 ;;
   models) printf 'Default model: grok-4.6\n\nAvailable models:\n  * grok-4.6 (default)\n  - grok-4.5\n'; exit 0 ;;
 esac
 # 像真 CLI 一样建会话目录（SessionStarted 按它判断续聊）。
@@ -221,6 +222,7 @@ func TestSendNoEffortNoModelWhenUnselectedOrProbeFails(t *testing.T) {
 	script := `#!/bin/sh
 case "$1" in
   -v) echo "grok 1.0.40"; exit 0 ;;
+  usage) echo "Error: Session not found." >&2; exit 1 ;;
   models) echo "Error: Not signed in." >&2; exit 1 ;;
 esac
 # 像真 CLI 一样建会话目录（SessionStarted 按它判断续聊）。

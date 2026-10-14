@@ -11,7 +11,7 @@ import (
 )
 
 // SessionResumable：这条对话是否已有可续的 CLI 会话（Codex 看存下的 thread_id）。
-func (a *CLIAgentAdapter) SessionResumable(convID string) bool {
+func (a *CLIAgentAdapter) SessionResumable(convID, _ string) bool {
 	return a.loadSessionID(convID) != ""
 }
 
@@ -57,22 +57,33 @@ func findCodexRollout(home, threadID string) string {
 	return ""
 }
 
-// LoadTranscript 读取 Codex 自己的 rollout 会话文件（codex_cli）。正文不进 SQLite，刷新后从这里读回。
-// 没有 thread_id 或文件已不在时返回空列表，不报错，保证记录页能打开。Claude 暂不支持（返回空列表）。
-func (a *CLIAgentAdapter) LoadTranscript(_ context.Context, convID, _ string) ([]WireMessage, error) {
-	out := []WireMessage{}
-	if a.kind != cliKindCodex {
-		return out, nil
+// LoadTranscript 读取 CLI 自己的会话文件（codex_cli：rollout；claude_cli：projects/*/<sid>.jsonl，v0.45）。
+// 正文不进 SQLite，刷新后从这里读回。没有 session id 或文件已不在时返回空列表，不报错，保证记录页能打开。
+func (a *CLIAgentAdapter) LoadTranscript(_ context.Context, convID, cwd string) ([]WireMessage, error) {
+	convID = strings.TrimSpace(convID)
+	if a.kind == cliKindClaude {
+		return a.loadClaudeTranscript(convID, cwd)
 	}
-	sid := a.loadSessionID(strings.TrimSpace(convID))
+	return a.loadCodexTranscript(convID)
+}
+
+func (a *CLIAgentAdapter) loadCodexTranscript(convID string) ([]WireMessage, error) {
+	out := []WireMessage{}
+	sid := a.loadSessionID(convID)
+	if sid == "" {
+		return out, nil // 从没存过 thread_id：新对话（v0.45.2）
+	}
 	p := findCodexRollout(a.codexHome(), sid)
 	if p == "" {
-		return out, nil
+		return out, ErrHistoryMissing
 	}
 	f, err := os.Open(p)
 	if err != nil {
 		a.cfg.Logf("cat codex transcript open: %v", err)
-		return out, nil
+		if os.IsNotExist(err) {
+			return out, ErrHistoryMissing
+		}
+		return out, ErrHistoryReadFailed
 	}
 	defer f.Close()
 	return ParseCodexRollout(f), nil

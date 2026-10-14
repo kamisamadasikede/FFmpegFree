@@ -186,6 +186,7 @@ export namespace cat {
 	    updatedAt: number;
 	    messages: store.CatMessage[];
 	    lastTurn?: CatTurnState;
+	    historyStatus?: string;
 	    contextUsed?: number;
 	    contextWindow?: number;
 	
@@ -205,6 +206,7 @@ export namespace cat {
 	        this.updatedAt = source["updatedAt"];
 	        this.messages = this.convertValues(source["messages"], store.CatMessage);
 	        this.lastTurn = this.convertValues(source["lastTurn"], CatTurnState);
+	        this.historyStatus = source["historyStatus"];
 	        this.contextUsed = source["contextUsed"];
 	        this.contextWindow = source["contextWindow"];
 	    }
@@ -3583,6 +3585,8 @@ export namespace store {
 	    finishedAt?: number;
 	    tokenTotal?: number;
 	    tokensPerSec?: number;
+	    firstTokenMs?: number;
+	    totalMs?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new CatMessage(source);
@@ -3598,6 +3602,8 @@ export namespace store {
 	        this.finishedAt = source["finishedAt"];
 	        this.tokenTotal = source["tokenTotal"];
 	        this.tokensPerSec = source["tokensPerSec"];
+	        this.firstTokenMs = source["firstTokenMs"];
+	        this.totalMs = source["totalMs"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
