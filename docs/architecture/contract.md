@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.45.2）
+# FFmpegFree v2 接口契约（v0.46）
+
+v0.46 变更（**自定义服务商排在默认模型上面 + 拉服务商自己的模型列表**，老板 t71u，架构师 10-14；无迁移 / 事件名）：① 新增 `ListCatProviderModels(req{agentKind, refresh}) (CatProviderModelList, error)`，按协议调服务商 `/models`，结果状态放 `state`（ok / not_configured / unauthorized / unreachable / not_supported / bad_response），不新增错误码；② 自定义开时 `ListCatModels` 改用服务商列表，设置页和输入区同一来源；③ 自定义开时允许手填模型 id；④ 6.19.14 C1–C3 改为核过的注入方式（Grok `GROK_MODELS_BASE_URL`+`XAI_API_KEY`，删 `XAI_BASE_URL`/`OPENAI_BASE_URL`；Claude 网关用 `ANTHROPIC_AUTH_TOKEN`；Codex 用 `-c model_providers.ffcat.*`）；⑤ 设置页每家顺序改为 自定义服务商 → 默认模型。详见 **6.19.20**。
 
 v0.45.2 变更（**`historyStatus` 区分空历史原因**，产品 / 后端 / 前端群聊 10-14，架构师 10-14；无新错误码 / 迁移 / 事件名）：`CatConversationDetail` 新增可选 `historyStatus?: "missing" | "read_failed"`（Go：`HistoryStatus string json:"historyStatus,omitempty"`）。① **有消息时省略**。② **从未存过 CLI `sessionId`**（新建空对话；Claude / Codex 映射文件空或不存在；Grok 虽可派生 id 但本对话尚未发过消息 / 会话目录未建）→ **省略**，前端显示欢迎页，**不得**显示找不到 / 无法显示。③ **`missing`**：曾存过 `sessionId`（或 Grok 已建过会话），但 CLI 会话文件已不在。④ **`read_failed`**：文件在，但打开 / 解析失败。⑤ 产品文案（替换 v0.45.1「这条对话…」）：`missing` →「这段对话的会话记录在本地找不到了。」；`read_failed` →「这段对话的历史记录暂时无法显示。」；样式同 #260 空历史（居中灰字、一句、无按钮）。见 6.19.19.0。
 
@@ -5315,11 +5317,11 @@ type ExportOfficeCanvasPptxResult struct {
 | **A6** | **自定义指令注入点** | 系统提示 / 首条用户消息前缀 / CLI flag（Build 为 `--rules`，它家不假定同名） | **GUESS / 未确认** |
 | B11 | Claude `InspectCatConfig` 对等命令 | 无则 `reason=unsupported` | GUESS / 未确认 |
 | B12 | Codex `InspectCatConfig` 对等命令 | 无则 `reason=unsupported` | GUESS / 未确认 |
-| **C1** | **Build 自定义 URL/Key → 子进程注入** | env（如 `XAI_API_KEY` / Base URL 类）或 CLI flag；**仅子进程**，不写系统 env | **GUESS / 未确认** |
-| **C2** | **Claude 自定义 URL/Key → 子进程注入** | Anthropic 官方 / 兼容网关的 env 或 flag | **GUESS / 未确认** |
-| **C3** | **Codex 自定义 URL/Key → 子进程注入** | OpenAI 官方 / 兼容网关的 env 或 flag | **GUESS / 未确认** |
-| **C4** | **各家 `allowProtocolPick`** | 默认 false（锁 DefaultProtocol）；确认支持兼容网关后再改为 true | **GUESS / 未确认** |
-| **C5** | **OpenAI vs Anthropic 请求头 / 路径差异** | 按协议组装；不得把 Key 打进日志 | **GUESS / 未确认** |
+| **C1** | **Build 自定义 URL/Key → 子进程注入** | v0.46：`GROK_MODELS_BASE_URL` + `XAI_API_KEY`（见 6.19.20.1） | `grok models` 已确认；对话一轮未确认 |
+| **C2** | **Claude 自定义 URL/Key → 子进程注入** | v0.46：`ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN`（官方域名用 `ANTHROPIC_API_KEY`）（见 6.19.20.1） | 文档已确认；真机待核 |
+| **C3** | **Codex 自定义 URL/Key → 子进程注入** | v0.46：`-c model_provider="ffcat"` + `-c model_providers.ffcat.*` + `FFCAT_CODEX_API_KEY`（见 6.19.20.1） | 文档已确认；真机待核 |
+| **C4** | **各家 `allowProtocolPick`** | v0.46：三家都保持 false | 已定 |
+| **C5** | **OpenAI vs Anthropic 请求头 / 路径差异** | v0.46：见 6.19.20.2 | 已定 |
 | **C6** | **列表探测（ListModels/ThinkLevels）是否同样注入** | 产品要求：启用自定义时列表探测与 RunTurn **同一套** URL/Key | **规范已定；具体 flag 仍 GUESS** |
 | **D1** | **Build：技能根 → 项目路径** | 子进程 flag / 配置 / 环境指到 `<project>/.ffmpegfree/cat/skills`；**不**回落全局 | **GUESS / 未确认** |
 | **D2** | **Claude：技能根 → 项目路径** | 同上（Claude Code skills 根机制） | **GUESS / 未确认** |
@@ -5718,6 +5720,98 @@ totalMs?: number
 
 - 不做：Grok token 估算；拆 in/out；Claude 会话文件写回；把正文改回写进 SQLite；无新错误码（仍 39 个）、无迁移、无新事件名。
 - **验收**：① 点开侧栏任一对话（三家），正文来自该家 CLI 会话存储（有 `sessionId` 且文件在 → 非空；曾存过 id 但文件不在 → `messages=[]` + `historyStatus="missing"` + 灰字「这段对话的会话记录在本地找不到了。」；文件在但读失败 → `historyStatus="read_failed"` +「这段对话的历史记录暂时无法显示。」；新建未发消息 → 无 `historyStatus`、欢迎页；不编造）。② Claude 刷新 / 重启后记录完整、下一句 `--resume` 接得上上文；Codex / Claude 侧栏显示首句标题。③ Grok 回复后尾巴有 token 与 token/s（`grok usage` 取得到时）。④ 三家尾巴文案按产品定稿；窄窗按从末尾往前藏；取消 / 失败必有总耗时、无首字则不显示首字。
+
+
+### 6.19.20 自定义服务商排在默认模型上面 + 拉服务商自己的模型列表（v0.46，老板 t71u，架构师 10-14）
+
+老板反馈：① 每家设置里「自定义服务商」要放在「默认模型」**上面**；② 打开自定义后，模型下拉要去**查这个服务商自己的模型列表**，不是 CLI 自带列表。
+
+#### 6.19.20.1 真机 / 官方文档核对（规则：每个 CLI 参数 / 环境变量必须核过；本表取代 6.19.14 C1–C5 的 GUESS）
+
+| ID | 家 | 注入方式（仅子进程 env / argv，永不 `os.Setenv`） | 依据 | 状态 |
+|---|---|---|---|---|
+| C1 | Grok Build（1.0.40） | `GROK_MODELS_BASE_URL=<apiUrl>` + `XAI_API_KEY=<key>`。**删掉** v0.38 的 `XAI_BASE_URL`（二进制里不存在这个名字）和 `OPENAI_BASE_URL`（Grok 不读） | 本地文档 `~/.grok/docs/user-guide/26-config-reference.md`「endpoints.models_base_url … Also GROK_MODELS_BASE_URL」；架构师真机 10-14：`GROK_MODELS_BASE_URL=http://127.0.0.1:18787/v1 XAI_API_KEY=… grok models` 向假服务发 `GET /v1/models`、头 `Authorization: Bearer <key>`，列出假服务返回的 `my-gw-model` | `grok models` **已确认**；**对话一轮未确认**：同样的 env 跑 `grok -p hi -m my-gw-model --output-format json` 在没 `grok login` 的机器上报 `Not signed in`，请求没发到假服务。后端须在已登录 / 未登录两种机器上复测；没跑通前 Grok 自定义只算「能列模型」，不算「能对话」 |
+| C2 | Claude Code（2.1.296） | `ANTHROPIC_BASE_URL=<apiUrl>`；Key：`apiUrl` 的 host 是 `api.anthropic.com` → `ANTHROPIC_API_KEY`（`x-api-key` 头）；其他网关 → `ANTHROPIC_AUTH_TOKEN`（`Authorization: Bearer`）。同时剥掉父进程里另一个同类变量 | 官方 code.claude.com/docs/en/llm-gateway-connect：「`ANTHROPIC_AUTH_TOKEN` in `Authorization: Bearer`, `ANTHROPIC_API_KEY` in `x-api-key`」；「If you weren't told which kind, use `ANTHROPIC_AUTH_TOKEN`」；`ANTHROPIC_API_KEY` 在交互模式需一次批准（我们是 `-p`，不受影响，仍需真机核） | 文档已确认；真机未跑（本机未装 claude） |
+| C3 | Codex（0.162.1） | 不用 `OPENAI_BASE_URL`（官方 config 参考里没有这个环境变量）。改为 `-c model_provider="ffcat"` `-c model_providers.ffcat.name="FFmpegFree"` `-c model_providers.ffcat.base_url="<apiUrl>"` `-c model_providers.ffcat.env_key="FFCAT_CODEX_API_KEY"` `-c model_providers.ffcat.wire_api="responses"`，子进程 env 加 `FFCAT_CODEX_API_KEY=<key>`。`exec` 与 `exec resume` 都带 | developers.openai.com/codex/config-reference：`model_provider`、`model_providers.<id>.base_url / env_key / name / wire_api`（「`responses` is the only supported value」）；`-c key=value` 在 `testdata/help/codex.txt` / `codex-exec.txt` 已在白名单 | 文档已确认；`-c` 点路径写法后端须真机核 `exec` 和 `exec resume` 都接受。**限制**：Codex 只说 Responses 协议，网关必须有 `/responses`，否则对话失败（文案见 6.19.20.5） |
+| C4 | 三家 `allowProtocolPick` | 本版**都保持 false**：Grok=openai，Claude=anthropic，Codex=openai | 同上 | 已定 |
+| C5 | 拉模型列表的请求 | 见 6.19.20.2 | Claude 文档 llm-gateway-protocol「Model discovery」：`GET /v1/models?limit=1000`、超时 3s、跟随重定向算失败、两个凭据头都发 | 已定 |
+| C7 | `--model` / `-m` 传任意 id | Grok `-m, --model <MODEL> Model ID to use`；Claude `--model <model> … or a model's full name`；Codex `-m, --model <MODEL>`（help 快照） | help 快照 | flag 已确认；Grok 用自定义网关的任意 id 跑一轮**未确认**（同 C1） |
+
+#### 6.19.20.2 后端：`ListCatProviderModels`
+
+```go
+type ListCatProviderModelsRequest struct {
+    AgentKind string `json:"agentKind"` // cat_build|claude_cli|codex_cli；其他 → INVALID_ARGUMENT
+    Refresh   bool   `json:"refresh"`   // true = 跳过缓存重拉
+}
+type CatProviderModelList struct {
+    State     string     `json:"state"`     // ok | not_configured | unauthorized | unreachable | not_supported | bad_response
+    Models    []CatModel `json:"models"`    // state=ok 时可能为空数组；其他状态一律 []
+    FetchedAt string     `json:"fetchedAt"` // RFC3339；state=ok 时给，其余空
+}
+ListCatProviderModels(req ListCatProviderModelsRequest) (CatProviderModelList, error) // 只有参数错误才返回 error；网络 / 鉴权问题都放 state
+```
+
+1. **前置**：该家 `enabledCustom=false` → `not_configured`（前端不该调，调了也不报错）；`apiUrl` 空或不是 `http(s)://` 绝对地址、或 `apiKeySet=false` → `not_configured`。
+2. **请求**（按该家实际协议 = `protocol` 空则 `defaultProtocol`）：
+   - `openai`：`GET {apiUrl 去掉末尾 /}/models`，头 `Authorization: Bearer <key>`。`apiUrl` 约定含 `/v1`（占位示例 `https://api.example.com/v1`），与三家 CLI 拼推理地址的方式一致。
+   - `anthropic`：`GET {apiUrl 去掉末尾 /}/v1/models?limit=1000`，头 `x-api-key: <key>`、`Authorization: Bearer <key>`、`anthropic-version: 2023-06-01`。`apiUrl` 约定**不含** `/v1`（与 `ANTHROPIC_BASE_URL` 一致）。
+   - 不跟随重定向（重定向算 `unreachable`，防止 Key 被带到别处）；整体超时 **8s**；响应体最多读 2 MB。
+3. **解析**：两种协议都读 `{"data":[{"id":...,"display_name"?:...}]}`；`id` 去重、保持服务端顺序；`displayName` = `display_name` 有就用，否则 = `id`。`efforts` / `defaultEffort` 一律空（服务商列表不带档位；强度行按现有规则在空时隐藏）。分页（anthropic `has_more`）本版只取第一页 1000 条。
+4. **状态映射**：200 且能解析 → `ok`；401 / 403 → `unauthorized`；404 / 405 / 501 → `not_supported`；连接失败 / DNS / TLS / 超时 / 重定向 / 5xx → `unreachable`；200 但 JSON 不对 → `bad_response`。
+5. **缓存**：进程内，按 `agentKind` 存，键带 `apiUrl + protocol + Key 的 sha256`；`ok` 缓存 10 分钟，失败不缓存。`SaveCatSettings` 改了该家 `enabledCustom / protocol / apiUrl`、`SaveCatProviderKey`、`ClearCatProviderKey` → 清该家缓存。
+6. **安全**：Key 只在请求头里出现；日志只记 `agentKind / host / 状态码 / state / 耗时`，**不记** URL 的 query、请求头、响应体；错误里不回传服务端原文。
+7. **`ListCatModels(agentKind)` 跟着变**：该家 `enabledCustom=true` 时**不再**跑 `grok models` / Claude 别名 / `codex debug models`，改为返回 `ListCatProviderModels({agentKind, refresh:false}).Models`（失败 = 空切片、nil error，沿用 v0.31.4 口径）。这样设置页和输入区的模型下拉**同一个来源**，前端不用分支。`enabledCustom=false` 时与现在完全一样。
+8. **任意模型 id**：`SaveCatSettings` 的 `defaultsByAgent[k].model` 和对话的 `model`，在该家 `enabledCustom=true` 时**允许不在列表里**的 id（手填）：去掉首尾空格后 1–200 字符、不含空白和控制字符、不以 `-` 开头（防止被当成 flag），否则 `INVALID_ARGUMENT`。`effort` 对不在列表里的模型只接受 `""`。发送时原样传 `-m` / `--model`。
+9. **切换开关不清模型**：开 / 关自定义时**不自动清** `defaultsByAgent[k].model`；前端在下拉里按 6.19.20.3 ⑤ 标「不在当前列表」。
+
+#### 6.19.20.3 前端
+
+① **顺序**（每家块内，从上到下）：服务商标题行 → **自定义服务商**（开关 + 协议 + API 地址 + API Key；开关打开时自动展开，关着时折叠成一行）→ **默认模型** → 思考强度 → 默认模式。
+② 自定义**关**：默认模型下拉照旧用 `ListCatModels`。
+③ 自定义**开**：默认模型下拉用 `ListCatProviderModels`：
+   - 进入设置页 / 打开开关 / 改完地址或 Key 后自动拉一次（`refresh:true`）；
+   - 下拉右侧放「刷新」图标按钮（`refresh:true`）；
+   - 拉取中：下拉禁用，显示「正在获取模型列表…」；
+   - `ok` 且非空：列出模型，第一项仍是「跟随服务商默认」（值 `""`）；
+   - `ok` 但空、`not_supported`、`unauthorized`、`unreachable`、`bad_response`：下拉下方一行提示（文案见 6.19.20.5），并显示「手动填写模型 ID」输入框；
+   - 有列表时下拉最后一项「手动填写…」，选中后变成输入框，回车 / 失焦保存。
+④ **输入区模型下拉**：仍调 `ListCatModels(agentKind)`（后端已按开关切来源，6.19.20.2 ⑦）；自定义开时在下拉底部加「手动填写…」，以及拉不到时同样的一行提示。打开下拉时若距上次拉取超过 10 分钟就再拉一次。
+⑤ 已选模型不在当前列表里（手填的、或从 CLI 列表切到自定义）：照常显示这个 id，后面加灰字「（不在当前列表）」，不自动改。
+⑥ 未检测到 CLI 时：自定义区仍可编辑（v0.38 不变）；默认模型行仍按 v0.36 置灰，但自定义开且配好时**允许**拉列表、选模型（只是存设置，不发消息）。
+
+#### 6.19.20.4 不做（本版）
+
+改协议选择（`allowProtocolPick` 仍全 false）；按模型拉思考强度；anthropic 分页超过 1000 条；Grok 通过 `GROK_CONFIG` 注入 `[model.<id>]`（官方文档说 overlay 只收白名单键，`model.*` 不在白名单）。
+
+#### 6.19.20.5 文案（待产品定稿）
+
+| 场景 | 文案 |
+|---|---|
+| 自定义区标题 | 自定义服务商 |
+| 开关说明 | 打开后，这家只用下面的地址和 Key，模型列表也从这个服务商获取 |
+| 拉取中 | 正在获取模型列表… |
+| 刷新按钮提示 | 重新获取模型列表 |
+| 列表为空 | 这个服务商没有返回可用模型，可以手动填写模型 ID |
+| `unauthorized` | API Key 无效或没有权限，请检查后重试 |
+| `unreachable` | 连不上这个地址，请检查 API 地址和网络 |
+| `not_supported` | 这个服务商不提供模型列表，请手动填写模型 ID |
+| `bad_response` | 服务商返回的模型列表无法识别，请手动填写模型 ID |
+| `not_configured` | 先填写 API 地址和 Key，再获取模型列表 |
+| 手动入口 | 手动填写… |
+| 手动输入框占位 | 输入模型 ID，例如 gpt-5.1 |
+| 不在列表 | （不在当前列表） |
+| 下拉首项 | 跟随服务商默认 |
+| Codex 对话失败附加说明（后端判到 404 `/responses`） | 这个服务商不支持 Codex 需要的接口，请换一个服务商或关闭自定义 |
+
+#### 6.19.20.6 验收
+
+1. 三家设置块里「自定义服务商」在「默认模型」上面。
+2. 打开自定义、填好地址和 Key：默认模型下拉列出服务商 `/models` 返回的模型；输入区模型下拉一致。
+3. Key 错 / 地址错 / 服务商没有 `/models`：分别显示对应一句提示，可手动填写模型 ID 并成功保存。
+4. 关掉自定义：两个下拉回到 CLI 列表。
+5. 日志、事件、预览包说明里搜不到 Key 原文。
+6. 真机：Claude、Codex 用自定义网关各完成一轮对话；Grok 先验「能列模型」，对话一轮按 C1 结论再定。
 
 
 ## 7. 本地流服务（已取消）
