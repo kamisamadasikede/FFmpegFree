@@ -71,7 +71,7 @@
                     @change="setAgent(block.kind, 'effort', ($event.target as HTMLSelectElement).value)"
                   >
                     <option value="">{{ C.defaultOpt }}</option>
-                    <option v-for="t in block.thinks" :key="t.id" :value="t.id">{{ t.displayName }}</option>
+                    <option v-for="t in block.thinks" :key="t.id" :value="t.id">{{ t.label }}</option>
                   </select>
                 </div>
               </div>
@@ -190,7 +190,7 @@
                   data-testid="cat-set-approval"
                   @change="set('defaultApprovalMode', ($event.target as HTMLSelectElement).value)"
                 >
-                  <option v-for="a in CAT_ACCESS" :key="a.id" :value="a.id">{{ a.name }}</option>
+                  <option v-for="a in FALLBACK_MODES.options" :key="a.id" :value="a.id">{{ a.label }}</option>
                 </select>
               </div>
             </div>
@@ -448,7 +448,7 @@ import {
   CAT_PROVIDER_ORDER,
   type CatProviderKind,
 } from '@/api/catAgents'
-import { CAT_ACCESS } from '@/api/catMock'
+import { FALLBACK_MODES, resolveCapabilities, setBackendCaps } from '@/views/cat/catCapabilities'
 import {
   type CatInspectCategory,
   type CatInspectItem,
@@ -631,10 +631,12 @@ async function loadCaps() {
           // 走查：三家都给模型列表；Codex 故意空强度。未检测到时模板还会因 !ready 整行隐藏强度。
           caps.models[kind] = simModels().map((m) => ({ ...m, id: `${kind}:${m.id}`, displayName: m.displayName }))
           caps.thinks[kind] = kind === 'codex_cli' ? [] : simThinks()
+          setBackendCaps(kind, { thinks: caps.thinks[kind] })
         } else {
           const [models, thinks] = await Promise.all([listCatModels(kind), listCatThinkLevels(kind)])
           caps.models[kind] = models
           caps.thinks[kind] = thinks
+          setBackendCaps(kind, { thinks })
         }
       }),
     ),
@@ -656,7 +658,7 @@ const providerBlocks = computed(() =>
     label: CAT_PROVIDER_LABEL[kind],
     ready: agentReady(kind),
     models: caps.models[kind] ?? [],
-    thinks: caps.thinks[kind] ?? [],
+    thinks: resolveCapabilities({ thinks: caps.thinks[kind] }).efforts.options,
   })),
 )
 

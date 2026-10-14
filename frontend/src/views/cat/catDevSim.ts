@@ -15,6 +15,7 @@
  *   slowconv —— 打开对话时模拟读记录 900ms（看消息骨架）
  *   browsertimeout —— 侧栏浏览器打开任意网址时按超时失败（文案同后端）
  *   caps     —— 模型 / 思考强度给一份走查用列表（含「极高」等任意档位；模型名是真实风格 ID，不叫「Cat 助手 …」），走查胶囊「默认」和选档
+ *   codexcaps —— 【走查假数据，不是 Codex CLI 真实列表】Codex 会话给一份不同于 Grok 的模式 / 强度列表，走查「按 agentKind 渲染」；契约 v0.44 落地后以后端为准
  *   md       —— 配合 stream：推一段 Markdown 回复（标题、列表、表格、代码块、引用、链接、外链图片、原始 HTML）
  *   savefail —— Cat 设置保存失败（该项回滚 +「保存失败，请重试。」）
  *   inspectslow / inspectfail / inspectempty —— 技能与扩展：加载 4 秒 / 失败 / 为空
@@ -42,6 +43,7 @@
  */
 import type { CatStreamEvent, CatTurnEvent } from '@/api/catStream'
 import type { CatModel, CatThinkLevel } from '@/api/cat'
+import type { CatOptionList } from './catCapabilities'
 
 /** 走查：?cat_sim=caps 时的模型列表（第一项 = 默认模型） */
 export function simModels(): CatModel[] {
@@ -61,8 +63,8 @@ export function simThinks(): CatThinkLevel[] {
   ]
 }
 
-export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'md' | 'mdhold' | 'savefail' | 'inspectslow' | 'inspectfail' | 'inspectempty' | 'clearfail' | 'keyfail' | 'skillsmissing' | 'setenablefail' | 'schedempty' | 'schedfail' | 'slowconv' | 'browsertimeout' | 'footertime' | 'allagents' | 'gitconflict' | 'gitrebase' | 'gitdone' | 'gitbranch' | 'office' | 'officeneed' | 'officedl' | 'officefail' | 'officepreview' | 'officeready' | 'clioutdated'
-const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'md', 'mdhold', 'savefail', 'inspectslow', 'inspectfail', 'inspectempty', 'clearfail', 'keyfail', 'skillsmissing', 'setenablefail', 'schedempty', 'schedfail', 'slowconv', 'browsertimeout', 'footertime', 'allagents', 'gitconflict', 'gitrebase', 'gitdone', 'gitbranch', 'office', 'officeneed', 'officedl', 'officefail', 'officepreview', 'officeready', 'clioutdated']
+export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'codexcaps' | 'md' | 'mdhold' | 'savefail' | 'inspectslow' | 'inspectfail' | 'inspectempty' | 'clearfail' | 'keyfail' | 'skillsmissing' | 'setenablefail' | 'schedempty' | 'schedfail' | 'slowconv' | 'browsertimeout' | 'footertime' | 'allagents' | 'gitconflict' | 'gitrebase' | 'gitdone' | 'gitbranch' | 'office' | 'officeneed' | 'officedl' | 'officefail' | 'officepreview' | 'officeready' | 'clioutdated'
+const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'codexcaps', 'md', 'mdhold', 'savefail', 'inspectslow', 'inspectfail', 'inspectempty', 'clearfail', 'keyfail', 'skillsmissing', 'setenablefail', 'schedempty', 'schedfail', 'slowconv', 'browsertimeout', 'footertime', 'allagents', 'gitconflict', 'gitrebase', 'gitdone', 'gitbranch', 'office', 'officeneed', 'officedl', 'officefail', 'officepreview', 'officeready', 'clioutdated']
 
 export const catSim: ReadonlySet<CatSimFlag> = (() => {
   if (!import.meta.env.DEV || typeof window === 'undefined') return new Set<CatSimFlag>()
@@ -147,4 +149,29 @@ export function simStream(
     setTimeout(tick, 120)
   }
   setTimeout(tick, 400)
+}
+
+/**
+ * 【MOCK · 走查假数据】?cat_sim=codexcaps 时 Codex 的对话模式列表。
+ * 不是 codex-cli 真实输出，只用来看「每家列表不同」时下拉怎么渲染；id 暂用现有批准方式 id，发消息链路不变。
+ */
+export function simCodexModes(): CatOptionList {
+  return {
+    options: [
+      { id: 'normal', label: '只读（MOCK）', desc: '走查假数据：只看不改。' },
+      { id: 'auto', label: '工作区可写（MOCK）', desc: '走查假数据：可改工作区文件，不再询问。' },
+      { id: 'approve', label: '完全访问（MOCK）', desc: '走查假数据：跳过批准和沙箱。' },
+    ],
+    defaultId: 'auto',
+  }
+}
+
+/** 【MOCK · 走查假数据】?cat_sim=codexcaps 时 Codex 的思考强度列表（不是 CLI 真实档位） */
+export function simCodexThinks(): CatThinkLevel[] {
+  return [
+    { id: 'minimal', displayName: '最低（MOCK）' },
+    { id: 'low', displayName: '低（MOCK）' },
+    { id: 'medium', displayName: '中（MOCK）' },
+    { id: 'high', displayName: '高（MOCK）' },
+  ]
 }

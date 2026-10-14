@@ -74,10 +74,11 @@
         </div>
         <CatPreviewDialog v-model:open="previewOn" :file="previewFile" />
         <button
+          v-if="modeOpts.length"
           ref="chipAccess"
           type="button"
           class="chip-access"
-          :class="{ on: catState.access === 'approve' }"
+          :class="{ on: accessMeta.id === 'approve' }"
           :disabled="missing"
           aria-haspopup="menu"
           :aria-expanded="menu === 'access'"
@@ -126,22 +127,20 @@
         <!-- 访问模式 -->
         <div v-if="menu === 'access'" class="mn-access" role="menu" aria-label="访问模式">
           <div class="mn-ahd"><span>应如何批准 Cat 操作？</span><a class="more" href="#" @click.prevent>了解更多</a></div>
-          <template v-for="a in CAT_ACCESS" :key="a.id">
+          <template v-for="a in modeOpts" :key="a.id">
           <div v-if="a.id === 'approve'" class="mn-sep" role="separator" />
           <div
             class="mn-acc"
-            :class="{ on: catState.access === a.id, disabled: !a.enabled, danger: a.id === 'approve' }"
+            :class="{ on: accessMeta.id === a.id, danger: a.id === 'approve' }"
             role="menuitemradio"
             tabindex="0"
-            :aria-checked="catState.access === a.id"
-            :aria-disabled="!a.enabled"
-            :title="a.enabled ? undefined : laterTip"
+            :aria-checked="accessMeta.id === a.id"
             @click="pickAccess(a.id)"
             @keydown.enter.prevent="pickAccess(a.id)"
           >
             <span class="ic"><FIcon :name="a.icon" :size="18" /></span>
             <div><b>{{ a.name }}</b><small>{{ a.desc }}</small></div>
-            <FIcon v-if="catState.access === a.id" name="check" :size="16" class="ok" />
+            <FIcon v-if="accessMeta.id === a.id" name="check" :size="16" class="ok" />
           </div>
           </template>
         </div>
@@ -167,7 +166,7 @@
             </div>
           </template>
           <div v-else class="mn-hd">模型 · Cat 助手</div>
-          <template v-if="catState.thinks.length">
+          <template v-if="currentCaps.efforts.options.length">
             <div class="mn-sep" role="separator" />
             <div class="mn-hd">思考强度</div>
             <div class="mn-seg" role="radiogroup" aria-label="思考强度">
@@ -211,14 +210,14 @@ import { ElMessage } from 'element-plus'
 import { CAT_COPY } from '@/api/cat'
 import { composePickSend, pickLabel, type PickNote } from '@/components/cat/catPick'
 import { CAT_PROJECT_COPY as PC } from '@/api/catProjects'
-import { CAT_ACCESS } from '@/api/catMock'
+import { modeMeta } from '@/views/cat/catCapabilities'
 import { pickFiles } from '@/api/system'
 import { toAppError } from '@/api/call'
 import { CAT_ATTACH_MAX, fileBaseName, splitAttach, type CatOutgoingFile } from '@/components/cat/catAttach'
 import { canPreview, previewKind, showsThumb, type CatPreviewKind, type CatShownFile } from '@/components/cat/catMedia'
 import CatThumb from '@/components/cat/CatThumb.vue'
 import CatPreviewDialog from '@/components/cat/CatPreviewDialog.vue'
-import { accessMeta, capsuleLabel, catState, chooseAccess, chooseModel, chooseThink, THINK_DEFAULT_LABEL } from '@/views/cat/catState'
+import { accessMeta, capsuleLabel, catState, chooseAccess, currentCaps, chooseModel, chooseThink, THINK_DEFAULT_LABEL } from '@/views/cat/catState'
 
 /**
  * Cat 输入框：批准方式可选普通模式 / Plan / 自动审查 / 全部批准，没选过是全部批准。
@@ -285,13 +284,14 @@ type MenuKind = 'access' | 'casc' | null
 const menu = ref<MenuKind>(null)
 const menuStyle = ref<Record<string, string>>({})
 
-const laterTip = CAT_COPY.later
 
 /** 强度分段：「默认」= 不传强度，其余按后端列表原样 */
 const thinkSegs = computed(() => [
   { id: '', name: THINK_DEFAULT_LABEL, on: !catState.think },
-  ...catState.thinks.map((t) => ({ id: t.id, name: t.displayName, on: catState.think === t.id })),
+  ...currentCaps.value.efforts.options.map((t) => ({ id: t.id, name: t.label, on: catState.think === t.id })),
 ])
+/** 模式菜单：按当前 agentKind 的列表渲染（列表空 → 胶囊隐藏） */
+const modeOpts = computed(() => currentCaps.value.modes.options.map(modeMeta))
 function pickModel(id: string) {
   chooseModel(id)
 }
@@ -317,9 +317,8 @@ function toggle(kind: Exclude<MenuKind, null>) {
   if (menu.value === kind) close()
   else open(kind)
 }
-function pickAccess(id: 'normal' | 'plan' | 'auto' | 'approve') {
-  const a = CAT_ACCESS.find((x) => x.id === id)
-  if (!a?.enabled) {
+function pickAccess(id: string) {
+  if (!modeOpts.value.some((x) => x.id === id)) {
     ElMessage.info(CAT_COPY.later)
     return
   }

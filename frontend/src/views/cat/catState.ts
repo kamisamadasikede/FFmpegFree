@@ -83,7 +83,8 @@ import { AppError, toAppError } from '@/api/call'
 import { CAT_CLI_OUTDATED_COPY, parseCliOutdated } from '@/components/cat/catCliOutdated'
 import { catPanels, showTurnFinishToast, defaultConvPref } from './catPanels'
 import { rememberNewConvProject, resolveNewConvProject } from './catLocalPrefs'
-import { catSim, catSimOs, catSimPicks, simModels, simStream, simThinks } from './catDevSim'
+import { catSim, catSimOs, catSimPicks, simCodexModes, simCodexThinks, simModels, simStream, simThinks } from './catDevSim'
+import { modeMeta, setBackendCaps, useCatAgentCapabilities } from './catCapabilities'
 import {
   CAT_CONV_PREFS_KEY,
   carryPref,
@@ -280,7 +281,18 @@ export const capsuleLabel = computed(() => {
   return 'Cat 助手'
 })
 
-export const accessMeta = computed(() => CAT_ACCESS.find((a) => a.id === catState.access) ?? CAT_ACCESS[CAT_ACCESS.length - 1])
+/** 当前会话 agentKind 的模式 / 强度列表（统一走 useCatAgentCapabilities；契约 v0.44 前模式用写死兜底） */
+export const currentCaps = useCatAgentCapabilities(() => currentAgentKind())
+
+/** 胶囊上显示的模式：当前选的不在这家列表里时显示该家默认 */
+export const accessMeta = computed(() => {
+  const list = currentCaps.value.modes
+  const opt =
+    list.options.find((o) => o.id === catState.access) ??
+    list.options.find((o) => o.id === list.defaultId) ??
+    list.options[0]
+  return opt ? modeMeta(opt) : modeMeta({ id: CAT_ACCESS[CAT_ACCESS.length - 1].id, label: CAT_ACCESS[CAT_ACCESS.length - 1].name })
+})
 
 /** 组件没准备好（检测中不算）：显示未就绪横条 */
 export const catNotReady = computed(() => catState.status.state === 'missing' || catState.status.state === 'failed')
@@ -534,14 +546,18 @@ function carryDraftPref(toId: string) {
  */
 export async function refreshCapabilities(agentKind: CatAgentKind = currentAgentKind()) {
   const ticket = ++capsTicket
+  const codexSim = import.meta.env.DEV && catSim.has('codexcaps') && agentKind === 'codex_cli'
   const [models, thinks] = await Promise.all(
-    import.meta.env.DEV && catSim.has('caps')
+    codexSim
+      ? [Promise.resolve(simModels()), Promise.resolve(simCodexThinks())]
+      : import.meta.env.DEV && catSim.has('caps')
       ? [Promise.resolve(simModels()), Promise.resolve(simThinks())]
       : [listCatModels(agentKind), listCatThinkLevels(agentKind)],
   )
   if (ticket !== capsTicket) return
   catState.models = models
   catState.thinks = thinks
+  setBackendCaps(agentKind, codexSim ? { thinks, modes: simCodexModes() } : { thinks })
   capsLoaded = true
   showConvPref(catState.sel)
 }
