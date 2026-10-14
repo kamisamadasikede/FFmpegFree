@@ -346,15 +346,11 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		}
 	}
 
-	timeout := opts.Timeout
-	if timeout <= 0 {
-		timeout = DefaultBuildTimeout
-	}
 	ctx := opts.Ctx
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	runCtx, idle, cancel := newTurnContext(ctx, opts.Timeout, nil)
 	defer cancel()
 
 	// service 传的 Resume 来自 Grok 的会话目录，对 Codex / Claude 恒为 false。
@@ -426,7 +422,11 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		}
 		noteErr(line)
 	}}
-	cmd.Stderr = stderrTap
+	if idle != nil {
+		cmd.Stderr = activityWriter{inner: stderrTap, w: idle}
+	} else {
+		cmd.Stderr = stderrTap
+	}
 
 	if err := cmd.Start(); err != nil {
 		// exec.CommandContext 在 ctx 已取消时 Start 直接返回 ctx 错误：
@@ -441,7 +441,7 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	var gotSession string
 	var resultFallback string
 	var usageTokens, usageOut, claudeWindow int64
-	scanErr := a.scanCLIStream(stdout, func(p streamPiece) {
+	scanErr := a.scanCLIStream(activityReader{r: stdout, w: idle}, func(p streamPiece) {
 		if p.Done {
 			completed = true
 		}
@@ -544,6 +544,9 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	if runCtx.Err() != nil {
 		if ctx.Err() != nil {
 			return usageResp, apperr.New(apperr.Canceled, "已取消")
+		}
+		if idleTimedOut(runCtx) {
+			return usageResp, apperr.New(apperr.CatReplyFailed, MsgIdleTimeout).WithDetail(ReasonIdleTimeout)
 		}
 		msg := cliMsg
 		if msg == "" {

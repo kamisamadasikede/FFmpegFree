@@ -1,7 +1,7 @@
 import { dropTurnErrors } from './catPending'
 import { refreshScratch } from './catScratchFiles'
 import { listCatFiles } from '@/api/catFiles'
-import { catBackendLive } from '@/api/cat'
+import { catBackendLive, catTimeoutText } from '@/api/cat'
 import { mergeCatStatus, markRowChecking } from '@/api/catDetect'
 import { applyCatOutput, applyCatTiming } from '@/components/cat/catTimingAdapter'
 /**
@@ -1071,7 +1071,7 @@ function endTurn(convId: string, how: TurnEnd, token?: number, ev?: CatTurnEvent
     const provText = providerFailureText(turn.failDetail)
     if (provText) list.push({ kind: 'sys', text: provText, tone: 'err', providerErr: true })
     else {
-    const text = (turn.failMsg || '').trim() || CAT_COPY.replyFailed
+    const text = catTimeoutText(turn.failDetail) || (turn.failMsg || '').trim() || CAT_COPY.replyFailed
     if (!list.some((b) => b.kind === 'sys' && b.tone === 'err' && b.text === text)) {
       list.push({ kind: 'sys', text, tone: 'err' })
     }

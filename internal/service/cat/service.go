@@ -132,6 +132,7 @@ type turnState struct {
 	actBy         map[string]*actRec
 	finished      bool
 	failMsg       string
+	failReason    string // v0.53.1：超时类失败的 reason 行（reason=idle_timeout / reason=timeout），随失败事件带给前端
 	errSeen       map[string]struct{}
 	retryID       string
 	retrySeq      int
@@ -741,6 +742,13 @@ func (s *Service) runTurn(ctx context.Context, t *turnState, a catagent.Adapter,
 				s.markNoRetry(t.convID, t.turnID)
 			}
 			s.noteTurnError(ctx, t, ae.Message)
+			// v0.53.1：超时类失败以适配器文案为准，不被之前 CLI 吐过的报错（重连提示等）盖住，
+			// 否则界面只剩通用的「回复没生成出来，请重试。」。
+			if r := strings.SplitN(ae.Detail, "\n", 2)[0]; r == catagent.ReasonIdleTimeout || r == "reason=timeout" {
+				t.mu.Lock()
+				t.failMsg, t.failReason = ae.Message, r
+				t.mu.Unlock()
+			}
 		}
 		s.finish(t, catagent.TurnFailed)
 		return
@@ -1092,6 +1100,9 @@ func (s *Service) turnEventLocked(t *turnState, status string) catagent.TurnEven
 			msg = catagent.MsgReplyFailed
 		}
 		ev.Error = apperr.New(apperr.CatReplyFailed, msg)
+		if t.failReason != "" {
+			ev.Error = ev.Error.WithDetail(t.failReason)
+		}
 		ev.Retryable = s.retryableNow(t.convID, t.turnID)
 	}
 	if t.contextUsed > 0 && t.contextWindow > 0 {

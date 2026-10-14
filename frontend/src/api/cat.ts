@@ -24,6 +24,10 @@ export { CAT_BACKEND_READY }
 export const CAT_COPY = {
   notReady: '未检测到 Cat 助手，请先安装并确保可在终端直接运行。',
   replyFailed: '回复没生成出来，请重试。',
+  /** v0.53.1：CAT_REPLY_FAILED reason=idle_timeout（CLI 连续 10 分钟没有任何输出） */
+  idleTimeout: 'CLI 已经 10 分钟没有响应，已停止这一轮。',
+  /** v0.53.1：CAT_REPLY_FAILED reason=timeout（总时长上限，仅定时任务） */
+  totalTimeout: '回复超时，已停止这一轮。',
   writeRefused: '当前只能查看项目文件，改文件和运行命令下一期开放。',
   later: '下一期开放。',
   stopped: '已停止生成。',
@@ -549,4 +553,13 @@ export async function retryCatTurn(req: RetryCatTurnRequest): Promise<{ turnId: 
   if (!live()) throw new AppError('CAT_NOT_READY', CAT_COPY.notReady)
   const raw = (await call(CatBinding.RetryCatTurn({ conversationId: req.conversationId, turnId: req.turnId }))) as { turnId?: unknown } | null
   return { turnId: String(raw?.turnId ?? '') }
+}
+
+/** v0.53.1：失败 detail 第一行的超时 reason → 专用文案；不是超时返回 '' */
+export function catTimeoutText(detail: unknown): string {
+  if (typeof detail !== 'string') return ''
+  const first = detail.split('\n', 1)[0].trim()
+  if (first === 'reason=idle_timeout') return CAT_COPY.idleTimeout
+  if (first === 'reason=timeout') return CAT_COPY.totalTimeout
+  return ''
 }

@@ -31,7 +31,7 @@ const (
 	grokEntryWindows = "grok.exe"
 )
 
-// DefaultBuildTimeout 是一轮对话超时。
+// DefaultBuildTimeout 是旧的一轮总时长上限；v0.53.1 起普通对话改用 DefaultIdleTimeout（无响应超时），此常量仅保留兼容。
 const DefaultBuildTimeout = 10 * time.Minute
 
 // 默认思考强度档位（CLI 不报告每档/默认档，只能写死；不预选、不标默认，未选时不传 --reasoning-effort）。
@@ -443,15 +443,11 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		}
 	}
 
-	timeout := opts.Timeout
-	if timeout <= 0 {
-		timeout = DefaultBuildTimeout
-	}
 	ctx := opts.Ctx
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	runCtx, idle, cancel := newTurnContext(ctx, opts.Timeout, nil)
 	defer cancel()
 
 	// 纯文字写进临时文件再传 --prompt-file，避免以 - 开头的句子被当成开关。
@@ -538,7 +534,11 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		}
 		noteErr(line)
 	}}
-	cmd.Stderr = stderrTap
+	if idle != nil {
+		cmd.Stderr = activityWriter{inner: stderrTap, w: idle}
+	} else {
+		cmd.Stderr = stderrTap
+	}
 
 	turnStart := a.cfg.Now()
 	if err := cmd.Start(); err != nil {
@@ -552,6 +552,7 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 
 	var acc strings.Builder
 	emitPiece := func(p streamPiece) {
+		idle.touch() // 跟会话文件走时 stdout 可能长时间不吐，这里同样算有响应
 		switch p.Kind {
 		case "thought", "tool":
 			if opts.OnActivity != nil && p.Text != "" {
@@ -577,7 +578,7 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		defer close(followDone)
 		followSessionUpdates(updatesPath, updatesOff, &followMode, stopFollow, emitPiece, noteErr)
 	}()
-	scanErr := scanStreamingJSON(stdout, func(p streamPiece) {
+	scanErr := scanStreamingJSON(activityReader{r: stdout, w: idle}, func(p streamPiece) {
 		if !claimFollow(&followMode, followStdout) {
 			return
 		}
@@ -609,6 +610,9 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	if runCtx.Err() != nil {
 		if ctx.Err() != nil {
 			return usage, apperr.New(apperr.Canceled, "已取消")
+		}
+		if idleTimedOut(runCtx) {
+			return usage, apperr.New(apperr.CatReplyFailed, MsgIdleTimeout).WithDetail(ReasonIdleTimeout)
 		}
 		msg := cliMsg
 		if msg == "" {
