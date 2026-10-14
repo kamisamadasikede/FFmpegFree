@@ -1,4 +1,8 @@
-# FFmpegFree v2 接口契约（v0.51）
+# FFmpegFree v2 接口契约（v0.53）
+
+v0.53 变更（**Git 面板「提交历史」提交图**，老板认可线框，10-14；规则见 **6.19.28**；无迁移 / 事件名 / settings 键）：新绑定 `ListCatCommits` / `GetCatCommitDetail` / `GetCatCommitFileDiff` / `GitCatCheckoutCommit`；`GitCatCreateBranch.from`、`GitCatCompareBranch.branch` 允许 sha；车道布局前端算；新 reason `commit_not_found`（NOT_FOUND）/ `history_changed`（INVALID_ARGUMENT）。待定：游离 HEAD 确认文案、搜索范围、车道色 5/6 token（产品 / UI）。
+
+v0.51.1 变更（**分支树文案定稿 + 三栏降级阈值**，产品 / UI 群里 10-14）：6.19.26.5 的 TBD 全部替换为产品定稿文案；`CatBranchTree` 加 `noCommits`；当前分支右键「合并到当前分支」「和当前分支比较」置灰；最后提交时间只放悬停提示；参照 `proto/Cat-v0.51-分支树与三栏合并-设计说明-v0.1.md`。6.19.27 定降级阈值（binary / too_large / not_text，按文件 `mergeable:false` + `reason`）。2.2 追加 Cat Git reason 行。无迁移 / 事件 / settings 键。
 
 v0.51 变更（**预留占位：IDEA 式 Merge Revisions + Git 分支树**，见 **6.19.26**；范围待产品、线框待 UI；绑定名均为 DRAFT，**本版不实现、无迁移 / 事件 / settings 键 / 错误码**）。
 
@@ -383,6 +387,7 @@ export type AppErrorCode =
 | PDF 输入（v0.28，6.12.60 / 6.12.63：添加 PDF 的 `AddDocSourceResult.error`、`DOC_PDF_NO_TEXT`） | `reason=<值>` | `INVALID_ARGUMENT`：`too_large`（沿用：PDF 超过 200 MiB）、`too_many_pages`（超过 500 页）；`DOC_PDF_NO_TEXT`：`no_text`（第二行 `quality=empty\|garbled` 只给开发者看）（只追加） | 只有第一行；界面不显示 |
 | 文档组件未就绪（v0.27.2，6.12.55：`DOC_COMPONENT_NOT_READY` 的同步错误和任务错误，以及 `DocComponentStatus.error`） | `reason=<值>` | `checking`、`missing`、`outdated`（含 Windows / macOS 应用下载的组件低于 26.2.6）、`downloading`、`preparing`、`failed`，即 `componentState`（只追加） | 只有这一行；`OpenStorageFolder("doc_component")` 的 `NOT_FOUND` 沿用 v0.25.1 的 `reason=component` |
 | `INVALID_ARGUMENT` / `NOT_FOUND` / `TASK_CONFLICT`（v0.31 Cat 项目，6.19.10：`CreateCatProject`、`RenameCatProject`；v0.31.1 加 `RelocateCatProject`） | `reason=<值>` | `INVALID_ARGUMENT`：`project_path`（不是绝对路径 / 不存在 / 不是文件夹）、`project_root`（盘符或文件系统根）、`project_name`（名字为空（改名时）、超过 60 个字符或含控制字符）、`project_duplicate`（v0.31.1：`RelocateCatProject` 的新路径已属于另一个项目）；`TASK_CONFLICT`：`turn_running`（v0.31.1：`RelocateCatProject` 时该项目下有进行中的一轮）；`path`（v0.32：`ListCatFiles` 的 `relPath` 不是根内相对路径、含 `..`、绝对 / 盘符 / UNC、解析后出了根，或要穿过符号链接 / junction，6.19.11.3）（只追加）；`project`（v0.39：`SetCatInspectItemEnabled` / `RevealCatSkillsDir` / `EnsureCreateCatSkillsDir` 的 `projectId` 空，6.19.12.9）；`git_url` / `clone_exists`（v0.40）；`git_conflict`（v0.41：冲突态误用 Complete 等，6.19.15）；`TASK_CONFLICT` 另增 `clone_busy`（v0.40）、`git_dirty`（v0.41 脏切分支） | 只有 `project_duplicate` 有第二行 `projectId=<已有项目 id>`，前端按 `^projectId=(\S+)$` 取（取不到就重新 `ListCatProjects`、只提示不切换）；其余只有一行。界面按 6.19.10.8 映射；`NOT_FOUND` 项目不存在无固定 detail。`turn_running` 也是“直播会话冲突以外的 `TASK_CONFLICT` 没有 `reason=` 行”的例外 |
+| Cat Git 分支 / 合并（v0.50 / v0.50.1 / v0.51 / v0.51.1，6.19.25 / 6.19.26：`GitCatMerge`、分支树各接口） | `reason=<值>` | `INVALID_ARGUMENT`：`not_git_repo`（不是 Git 仓库）、`same_branch`（合并到它自己）、`invalid_branch_name`（`check-ref-format` 不过）、`is_current`（删除当前分支）、`git_failed`（其他 git 失败，第二行起 stderr）；`TASK_CONFLICT`：`branch_exists`（目标名已存在）、`branch_not_merged`（`-d` 报未合并）、`merge_in_progress`（已在合并中）；沿用 `turn_running` / `git_dirty` / `branch_not_found`（只追加）；v0.53（6.19.28 提交历史）：`NOT_FOUND` `commit_not_found`、`INVALID_ARGUMENT` `history_changed` | 除 `git_failed` 外只有这一行；界面文案见 6.19.25 / 6.19.26.5，界面不显示错误码和 reason |
 | 其余所有码（含 `LIVE_PUSH_REJECTED`、`LIVE_PUSH_INTERRUPTED`、`INTERNAL`） | 无固定格式 | — | 前端**不得**解析（上面几行列出的码 / 场景除外） |
 
 统一规则：第一行只有一个 `key=value`，值只含小写字母、数字、下划线（`scheme` 例外；`kind` 的取值是 `window` / `screen`，取值就是上面三个小写单词）；前端用 `^(reason|scheme|kind)=([a-z0-9_]+)$` 匹配 `detail` 的第一行；**没有第一行、格式不对、或值不认识，一律走该错误码的通用文案**，不得猜测含义、不得报错崩溃。测试必须逐码断言第一行精确等于期望值（不是包含）。
@@ -6277,12 +6282,12 @@ Codex 任一工具 `status` 为 failed / declined 时标签后加 ` · 失败`�
 
 `CatBranchesResult`：`root`（对话根绝对路径，总是给）、`git`（PATH 上找得到 git）、`repo`（对话根在 git 工作树内）、`branch`（当前本地分支，`git symbolic-ref --short -q HEAD`；分离 HEAD 为空）、`detached`、`upstream`（`git rev-parse --abbrev-ref --symbolic-full-name @{u}`，没有为空）、`locals[]`（`refs/heads/*`，按名排序）、`remotes[]`（`refs/remotes/*` 去掉 `*/HEAD`，且本地没有同名分支的，按名排序）。`git=false` 或 `repo=false` 时分支字段为空、数组为 `[]`。
 
-**SwitchCatBranch 校验顺序**：会话存在 → 该对话（项目对话：同项目任一对话）有进行中的一轮 → `TASK_CONFLICT` `reason=turn_running`「正在回复，等这一轮结束再切换分支。」→ 不是仓库 `INVALID_ARGUMENT`「这里还不是 git 仓库。」→ 分支名不合法 / 不存在 → `NOT_FOUND` `reason=branch_not_found`「找不到这个分支。」→ 目标就是当前分支 → 直接成功（不看工作区）→ 工作区有任何改动（含未跟踪）→ `TASK_CONFLICT` `reason=git_dirty`「有未提交的改动，先提交或暂存再切换分支。」（不自动 stash、不强切）→ git 失败 `PROCESS_FAILED`（stderr 截断）；没装 git `NOT_FOUND`「没有找到 git。」。
+**SwitchCatBranch 校验顺序**：会话存在 → 该对话（项目对话：同项目任一对话）有进行中的一轮 → `TASK_CONFLICT` `reason=turn_running`「正在回复，等这一轮结束再切换分支。」→ 不是仓库 `INVALID_ARGUMENT`「这里还不是 git 仓库。」→ 分支名不合法 / 不存在 → `NOT_FOUND` `reason=branch_not_found`「找不到这个分支，可能已被删除。」→ 目标就是当前分支 → 直接成功（不看工作区）→ 工作区有任何改动（含未跟踪）→ `TASK_CONFLICT` `reason=git_dirty`「有未提交的改动，请先提交或暂存，再切换分支。」（不自动 stash、不强切）→ git 失败 `PROCESS_FAILED`（stderr 截断；git 以 `LC_ALL=C` 运行，stderr 含 `would be overwritten`（本地改动 / 未跟踪或被忽略的文件会被覆盖，预检之后才出现的也算）时改归 `TASK_CONFLICT` `reason=git_dirty`，文案同上）；没装 git `NOT_FOUND`「没有找到 git。」。
 
 **git 调用**：全部走 `runGit`（`proc.Configure`：Windows 隐藏控制台窗口、不弹黑框；`GIT_TERMINAL_PROMPT=0`）。
 
 **前端**（`CatComposer` 底栏，欢迎页不显示）：
-1. 左：项目对话显示项目名；普通对话显示 `root` 中间省略（36 字符，`…`），读不到 `root` 时退回原名字。tooltip = 全路径 + 换行 +「在文件管理器中打开」。点击 → `RevealCatConversationFolder`，失败 toast 后端 message，没有则「打不开文件夹，请重试。」。
+1. 左：项目对话显示项目名；普通对话显示 `root` 中间省略（36 字符，`…`），读不到 `root` 时退回原名字。tooltip = 全路径 + 换行 +「在文件管理器中打开」。点击 → `RevealCatConversationFolder`，失败 toast 后端 message，没有则「打不开这个文件夹，可能已被移动或删除。」。
 2. `repo=true` 时：地球图标 + `upstream`；空 → 灰字「无远程分支」。tooltip「远程分支（上游）」。
 3. 分支图标 + 本地分支下拉（`CatModeSelect compact`）：选项 = 本地分支；有 `remotes` 时加不可选小标题「远程分支」再列远程分支。分离 HEAD 时触发器显示「分离 HEAD」。正在回复 / 切换中 / 项目文件夹不见了 → 禁用。成功 toast「已切换到 {分支}」并刷新；失败 toast：`git_dirty` / `turn_running` / `branch_not_found` 用上面文案，其他用后端 message，没有则「切换分支失败，请重试。」。
 4. 刷新时机：切换对话、每轮结束（`running` 变 false）、切换后。
@@ -6381,6 +6386,7 @@ type CatBranchTree struct {
     FetchedAt int64            `json:"fetchedAt"`         // 该仓库上次 fetch 成功时间，0=从未
     Fetching  bool             `json:"fetching"`
     FetchError string          `json:"fetchError,omitempty"` // 上次 fetch 失败的原始 stderr（截 4 KiB）
+    NoCommits  bool            `json:"noCommits"`            // v0.51.1：仓库还没有任何提交（HEAD 无法解析），此时 groups 为空
 }
 ListCatBranchTree(req struct{ConvID string `json:"convId"`}) (CatBranchTree, error) // 只读本地 refs，不触发 fetch
 FetchCatRemotes(req struct{ConvID string `json:"convId"`; Force bool `json:"force"`}) (CatBranchTree, error)
@@ -6421,9 +6427,17 @@ type CatCompareFile struct { Path, OldPath, Status string } // status: A|M|D|R|C
 - 所有 git 调用走 `runGit`（`proc.Configure`：Windows 隐藏控制台窗口；`GIT_TERMINAL_PROMPT=0`；`GIT_EDITOR=true`）。
 
 #### 6.19.26.5 前端
-- 弹窗 / 面板结构、图标、配色等以 UI 线框 `proto/cat-branch-tree` 为准（待交付）。
+- 弹窗 / 面板结构、图标、配色等以 UI 线框 `proto/cat-branch-tree` 与设计说明 `proto/Cat-v0.51-分支树与三栏合并-设计说明-v0.1.md` 为准（v0.51.1 已交付）。
 - 删除未合并分支：先调 `force=false`，收到 `branch_not_merged` 后弹强删确认，用户确认后 `force=true`。
-- **文案：产品所有（来自群里）**。已定：沿用 6.19.24 / 6.19.25 已有文案（`git_dirty` 签出用「有未提交的改动，请先提交或暂存，再切换分支。」，`turn_running`「正在回复，等这一轮结束再切换分支。」，`branch_not_found`「找不到这个分支，可能已被删除。」）。**TBD（待产品）**：删除确认 / 未合并强删确认、`branch_exists`、`invalid_branch_name`、`is_current`、fetch 失败过期提示、空态、搜索无结果、比较视图标题、新建 / 重命名弹窗。产品群里给出后照抄，未给前前端用占位并标 TODO。
+- **文案：产品所有（来自群里）**。已定：沿用 6.19.24 / 6.19.25 已有文案（`git_dirty` 签出用「有未提交的改动，请先提交或暂存，再切换分支。」，`turn_running`「正在回复，等这一轮结束再切换分支。」，`branch_not_found`「找不到这个分支，可能已被删除。」）。**v0.51.1 产品定稿（照抄，群里 10-14）**：
+  - **删除**：标题「删除分支 {分支}？」，按钮「删除」（危险样式）/「取消」。收到 `branch_not_merged`：同一弹窗多一行红字「这个分支有还没合并的提交，删除后可能找不回来。」，按钮换成「仍然删除」（危险样式，点了以 `force=true` 重调）/「取消」。成功 toast「已删除分支 {分支}」。
+  - **新建分支**：标题「新建分支」，下一行灰字「从 {起点分支} 新建」；输入框占位「分支名」；勾选项「创建后签出」默认勾上；按钮「创建」/「取消」。`branch_exists`「已经有同名分支了。」；`invalid_branch_name`「分支名不能包含空格或 ~ ^ : ? * [ \ 这些字符。」。成功 toast「已新建分支 {分支}」，勾了签出为「已新建并切换到 {分支}」。
+  - **重命名**：标题「重命名分支」，输入框预填旧名，按钮「重命名」/「取消」；重名 / 名字不合法同新建分支。成功 toast「已重命名为 {新名}」。
+  - **fetch 过期提示**：获取中标题旁灰字「正在获取…」；失败（`fetchError` 非空）灰字「获取远程失败，数量可能不是最新」，后跟公共「查看详情」（#304 组件，内容为 `fetchError`）；成功后去掉灰字，刷新按钮悬停提示「上次获取 HH:mm」（`fetchedAt` 不是今天时带日期）。
+  - **空态**：`not_git_repo`「这个文件夹不是 Git 仓库。」；仓库还没有提交（`CatBranchTree.noCommits=true`）「还没有任何提交，提交一次后才会有分支。」；没有远程：「远程分支」组整组不显示；搜索无结果「没有匹配的分支」。
+  - **右键菜单**：在当前分支上，「合并到当前分支」「和当前分支比较」置灰（删除当前分支同样不可点，`is_current` 只作后端兜底，走通用失败 +「查看详情」）。
+  - 最后提交时间只放在悬停提示里，不在行内显示。
+  - 尺寸、token、窄窗与降级态以设计说明 `proto/Cat-v0.51-分支树与三栏合并-设计说明-v0.1.md` 及 `proto/cat-branch-tree/` 为准。
 
 #### 6.19.26.6 测试
 **后端（真 git 临时仓库 + 本地 bare 远程）**：树分组 / 排序 / 跳过 `origin/HEAD`；`/` 名字原样返回；ahead/behind 与 `rev-list --left-right --count` 一致、无上游为 0 且 `upstream` 空；current / detached；收藏读写按仓库根隔离、不改 `.git/config`；recent 签出后更新、最多 5、去重；fetch 5 min 节流、force 绕过、并发只跑一次、失败不报错且保留旧 fetchedAt 并填 fetchError；新建（本地 from / 远程 from 带跟踪 / checkout）；比较双向提交列表 + 文件 status（含重命名）+ 截断；重命名（含当前分支、同步收藏 / recent）；删除已合并 / 未合并→branch_not_merged / force 成功 / 当前→is_current；每个 reason 至少一个用例；断言 runGit 隐藏窗口与 `GIT_TERMINAL_PROMPT=0`。
@@ -6436,9 +6450,126 @@ type CatCompareFile struct { Path, OldPath, Status string } // status: A|M|D|R|C
 - 三栏：左 = 当前（ours，`git show :2:<path>`）｜中 = 结果（可编辑）｜右 = 传入（theirs，`:3:`）；base 取 `:1:`。
 - 非冲突改动用 base 自动合入结果；只有真冲突留给用户。每处冲突：接受箭头（采用该侧）、忽略 ×；两侧都接受时按点击顺序拼接。上一处 / 下一处冲突；「还剩 n 个冲突」；完成后标记已解决（`git add`）。
 - **不能逐行合并的文件**（二进制 / 删除-修改冲突等）：退回整文件「采用当前 / 采用传入」。
+- **降级阈值（v0.51.1 定）**：base / ours / theirs 任一侧满足以下任一条件，该文件整文件降级为「采用当前 / 采用传入」：
+  - 二进制：前 8000 字节内含 NUL 字节（与 git 的判定一致）→ `reason=binary`；
+  - 过大：> 1 MiB（1 048 576 字节）或 > 20 000 行 → `reason=too_large`；
+  - 非文本：去掉 UTF-8 BOM 后不是合法 UTF-8 → `reason=not_text`。
+  - 判定顺序 binary → too_large → not_text，只报首个命中。后端按文件返回 `mergeable:false` + `reason`（可合并时 `mergeable:true`、无 reason）；前端按 reason 显示设计说明里的降级态。
 - **窗口宽度（UI 群里定稿）**：
   - ≥1100px：三栏全显示；顶部「接受左边全部 / 接受右边全部」。
   - 760–1099px：「结果」栏常驻，左右两栏收成一个侧栏，用「当前 | 传入」切换。
   - <760px：单栏，顶部「当前 | 结果 | 传入」切换，默认「结果」；冲突块上换成「接受当前」「接受传入」「忽略」；顶部批量按钮收进「…」菜单，叫「全部接受当前」「全部接受传入」（产品定）。
 - DRAFT 绑定：`GitCatConflictSides({convId, path})` → `{binary, base, ours, theirs, working, eol}`；`GitCatConflictSave({convId, path, content})`（只写不暂存）；标记已解决复用 `GitCatConflictResolve mode=content`。
 - 待定：空态 / 错误文案（产品）、明暗配色（UI 线框）。
+
+### 6.19.28 Git 面板「提交历史」提交图（v0.53，老板已认可线框；设计 `proto/cat-git-graph/` + `proto/Cat-Git提交图-设计说明-v0.1.md`，架构师 10-14）
+
+**范围**：Git 面板「更改」「未跟踪文件」下新增「提交历史」区块（默认折叠），分页列出提交 + 车道图；点行展开详情（完整提交号 / 作者 / 时间 / 完整信息 / 文件列表，点文件开 diff）；右键：复制提交号、从这里新建分支…、签出这个提交、和当前比较。视觉（行高 28、车道间距 12、点 8、引用胶囊、<420px 隐藏作者列、可拖分隔条）以设计说明为准，本节只定行为与接口。
+
+**git 语义已核对 git 2.47.3 `git log -h` / `git-log(1)` 并在临时仓库实跑**：`--topo-order --date-order` 可同时给，后者生效（拓扑序内按提交时间）；`-z` 以 NUL 分隔记录；`--grep` 与 `--author` 同时给时是 **AND**（不是 OR），所以搜索不交给 git 组合（见下）；`git cat-file -e <sha>^{commit}` 不存在 → rc=128。
+
+#### 6.19.28.1 绑定
+```go
+type CatCommitRef struct {
+    Name string `json:"name"` // 本地 main；远程 origin/main；标签 v1.0；分离 HEAD 时 kind=head、name="HEAD"
+    Kind string `json:"kind"` // head | local | remote | tag
+}
+type CatCommit struct {
+    Sha        string         `json:"sha"`
+    ShortSha   string         `json:"shortSha"`   // %h
+    Parents    []string       `json:"parents"`    // 完整 sha，顺序同 git（[0] 为第一父）；根提交为 []
+    Subject    string         `json:"subject"`
+    AuthorName  string        `json:"authorName"`
+    AuthorEmail string        `json:"authorEmail"`
+    AuthorTime  int64         `json:"authorTime"` // unix 秒
+    Refs       []CatCommitRef `json:"refs"`       // 来自 %D；当前分支 kind=head 且 name=分支名（前端用实底胶囊）；跳过 <remote>/HEAD
+    IsHead     bool           `json:"isHead"`     // == HEAD 的提交（14px 环）
+}
+type CatCommitPage struct {
+    Commits    []CatCommit `json:"commits"`
+    NextCursor string      `json:"nextCursor,omitempty"` // 空 = 没有更多
+    Total      int         `json:"total,omitempty"`      // 仅无 query 的首页给（git rev-list --count <同一组 refs>）；有 query 时省略
+    NoCommits  bool        `json:"noCommits"`            // 仓库还没有提交 → 空态「还没有任何提交」
+}
+ListCatCommits(req struct {
+    ConvID string `json:"convId"`
+    Cursor string `json:"cursor,omitempty"` // 不透明，原样回传
+    Limit  int    `json:"limit,omitempty"`  // 默认 200，上限 500；<=0 当 200，>500 截到 500
+    Query  string `json:"query,omitempty"`
+    Branch string `json:"branch,omitempty"` // 空 = 全部分支；"HEAD" = 当前分支；其他 = 本地 / 远程分支名（对应筛选下拉）
+}) (CatCommitPage, error)
+
+type CatCommitFile struct {
+    Path      string `json:"path"`              // 相对仓库根，正斜杠
+    OldPath   string `json:"oldPath,omitempty"` // R / C 时
+    Status    string `json:"status"`            // A | M | D | R | C | T
+    Additions int    `json:"additions"`
+    Deletions int    `json:"deletions"`
+    Binary    bool   `json:"binary"`            // numstat 为 "-\t-" → true，加减为 0
+}
+type CatCommitDetail struct {
+    Sha            string          `json:"sha"`
+    Parents        []string        `json:"parents"`
+    AuthorName     string          `json:"authorName"`
+    AuthorEmail    string          `json:"authorEmail"`
+    AuthorTime     int64           `json:"authorTime"`
+    CommitterName  string          `json:"committerName"`
+    CommitterEmail string          `json:"committerEmail"`
+    CommitTime     int64           `json:"commitTime"`
+    Message        string          `json:"message"` // %B 完整信息，去尾部换行
+    Files          []CatCommitFile `json:"files"`   // 按 path 排序；最多 1000 个
+    FilesTruncated bool            `json:"filesTruncated"`
+    DiffBase       string          `json:"diffBase"` // 对比基准：第一父 sha；根提交为空（对空树）
+}
+GetCatCommitDetail(req struct{ ConvID, Sha string }) (CatCommitDetail, error)                 // json: convId, sha
+GetCatCommitFileDiff(req struct{ ConvID, Sha, Path string }) (cat.GitDiffResult, error)      // json: convId, sha, path；复用现有 GitDiffResult{path,text,binary}，前端复用现有 diff 视图
+GitCatCheckoutCommit(req struct{ ConvID, Sha string }) (CatBranchTree, error)                // json: convId, sha；成功后 detached=true
+```
+- 从这里新建分支：复用 `GitCatCreateBranch`，`from` 允许完整 / 短 sha（`rev-parse --verify -q <from>^{commit}` 预检；不存在 → `commit_not_found`）。
+- 和当前比较：复用 `GitCatCompareBranch` 语义，`branch` 允许传 sha（`remote=false`）；`Target` 回显短 sha。
+- 分支 / HEAD 变化后（签出、新建、提交、fetch 完成）前端重拉首页；后端不新增事件，沿用 `cat:branchtree` 与现有 git 状态刷新时机。
+
+#### 6.19.28.2 `ListCatCommits` 规则
+- 命令：`git log <refs> --topo-order --date-order -z --format=%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%D%x1f%s`（字段用 US `0x1f`、记录用 NUL，subject 不含换行；作者名 / 邮箱里出现 0x1f 视为 git 输出异常 → `git_failed`）。
+- `<refs>`：`branch` 空 → `HEAD --branches --remotes --tags`（**不用 `--all`**：`--all` 会带进 `refs/stash`、notes 等，图里出现 stash 提交；HEAD 必须显式给，分离 HEAD 时才能看到）；`branch=HEAD` → `HEAD`；其他 → `rev-parse --verify -q refs/heads/<b>` 或 `refs/remotes/<b>`，都不存在 → `branch_not_found`。
+- 无 query：`--skip=<n> -n <limit+1>`，多出 1 条说明有下一页（不返回那 1 条）。
+- 有 query（**搜索范围待产品定**，默认三项都搜，OR）：命中任一即可——提交信息（%B，忽略大小写子串）、作者（名或邮箱，忽略大小写子串）、提交号前缀（query 为 4–40 位十六进制时）。因 git 的 `--grep` + `--author` 是 AND，后端用同一条 `git log`（格式末尾加 `%x1f%B`）**流式读取、在 Go 里过滤**，跳过前 skip 个**命中**、取 limit+1 个后立即结束进程；最多扫描 50 000 条提交，扫满仍不够一页时照常返回已得结果，`nextCursor` 指向扫描位置。产品若只搜信息，可改为 `-i -F --grep=<q>` 直接交给 git（接口不变）。
+- **cursor**：不透明字符串 = base64url(JSON `{v:1, skip, scanned, fp}`)。`fp` = 本次 refs 集合（`for-each-ref` 的 refname+objectname 加 HEAD sha）的 sha256 前 16 位。下一页时重算 fp，不一致（期间有提交 / 签出 / fetch）→ `INVALID_ARGUMENT reason=history_changed`，前端静默从首页重拉（不弹错）。同一 refs 下 git 的输出顺序确定，所以 skip 分页稳定、页间不重不漏。cursor 解析失败 → `INVALID_ARGUMENT reason=git_failed`。
+- `noCommits`：`rev-parse --verify -q HEAD` 失败且没有任何 refs → `commits=[]`、`noCommits=true`，不报错。
+- 超时：单次 `git log` 20 s（搜索 30 s），超时杀进程 → `git_failed`（detail「timeout」）。
+
+#### 6.19.28.3 车道布局：**前端计算**（不由后端返回）
+理由：(1) 布局只依赖已加载提交的 `sha/parents` 和顺序，纯函数、可单测；(2) 分页时前端保留上一页末尾的车道状态继续算，后端若算就得在 cursor 里携带车道状态，cursor 变大且难以稳定；(3) 面板宽度、合并时的视觉取舍（窄面板截断车道）属于展示层；(4) 搜索结果不画图（提交不连续，只显示点）。
+算法（与 VS Code Git Graph / IDEA 同类的贪心）：维护 `lanes: (sha|null)[]`，每格是「下一行期待出现的提交」。
+1. 对每个提交 c：若 c.sha 在 lanes 中，取**最左**那格为 c 的车道 col，其余等于 c.sha 的格是汇入线（画向 col 后置 null）；否则占第一个 null 格（没有就追加）。
+2. c 有父：lanes[col] = parents[0]；对 parents[1..]：若已在 lanes 中则画连线到那格，否则放进第一个 null 格（不在 col 左侧抢位置时优先紧挨 col 右侧）并画分叉线。无父：lanes[col] = null。
+3. 去掉 lanes 末尾的 null。颜色按车道「分配序号」取 `lane % 6`（序号在该车道新占用时分配，同一条线颜色不变），6 色见下。
+4. 分页：把 `lanes` 与颜色分配状态留在内存，新页从该状态继续；`history_changed` 或筛选 / 搜索变化时清空重算。
+5. 有 query 时不画连线，只画点（col=0）。
+
+#### 6.19.28.4 `GetCatCommitDetail` / `GetCatCommitFileDiff`
+- 预检 `git cat-file -e <sha>^{commit}`，失败 → `NOT_FOUND reason=commit_not_found`（sha 可短；歧义短 sha 也按这个）。
+- 详情：`git show -s -z --format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%cn%x1f%ce%x1f%ct%x1f%B <sha>`。
+- 文件：`git diff-tree -r -z -M -C --no-commit-id --name-status <base> <sha>` + 同参数 `--numstat` 合并；`<base>` = **第一父**（合并提交也只对第一父，和 GitHub / IDEA 默认一致，即「这次合并给第一父带来了什么」；不做组合 diff）；根提交用 `--root <sha>`（对空树）。
+- 文件 diff：`git diff <base> <sha> -M -- <path>`（R/C 时加 oldPath），输出走现有 `GitCatDiff` 的同一套组装 / 二进制判定，返回 `GitDiffResult`。path 不在该提交改动里 → `INVALID_ARGUMENT reason=git_failed`（属前端 bug，不单设 reason）。
+- 超时 15 s。
+
+#### 6.19.28.5 `GitCatCheckoutCommit`
+- 校验顺序（与 6.19.25 一致）：`not_git_repo` → `turn_running` → `merge_in_progress`（MERGE_HEAD / rebase-* / CHERRY_PICK_HEAD）→ `commit_not_found` → `git_dirty`（`status --porcelain` 非空，含未跟踪）。
+- 执行 `git switch --detach <sha>`（`LC_ALL=C`）；stderr 含 `would be overwritten`（大小写不敏感）→ `git_dirty`；其他失败 → `git_failed`。
+- 成功返回最新 `CatBranchTree`（`detached=true`），底栏本地分支处显示短 sha；不更新 recent。
+- **游离 HEAD 确认弹窗及文案：待产品定**（接口不变，前端在调用前弹）。
+
+#### 6.19.28.6 错误（2.2 追加）
+沿用 `not_git_repo` / `turn_running` / `git_dirty` / `merge_in_progress` / `branch_not_found` / `git_failed`；**新增** `NOT_FOUND reason=commit_not_found`（提交不存在 / 短 sha 歧义）、`INVALID_ARGUMENT reason=history_changed`（分页期间 refs 变了，前端重拉首页，不显示）。文案：`commit_not_found`「找不到这个提交，可能已被删除。」（**待产品确认**）；其余沿用 6.19.24 / 6.19.25（签出提交的 `git_dirty` 用「有未提交的改动，请先提交或暂存，再切换分支。」）。
+- 所有 git 调用走 `runGit`（`proc.Configure`：Windows 隐藏控制台窗口；`GIT_TERMINAL_PROMPT=0`；`GIT_EDITOR=true`；`LC_ALL=C` 仅用于需匹配 stderr 的调用）；读路径加 `-c core.quotePath=false`；超时用 `context.WithTimeout` 并杀进程树。
+
+#### 6.19.28.7 待定（不阻塞开工，接口不变）
+1. **产品**：签出提交（游离 HEAD）是否弹确认及文案。
+2. **产品**：搜索范围（默认：信息 + 提交号前缀 + 作者，OR）。
+3. **产品 / UI**：第 5、6 车道色补 token `--cat-lane-5`（紫 #8b5cf6）/ `--cat-lane-6`（青 #14b8a6）；定前前端先用这两个字面量。车道 6 色顺序：`--ff-primary` `--ff-success` `--cat-orange` lane-5 lane-6 `--ff-danger`。
+4. **产品**：`commit_not_found` 文案；「全部分支 / 当前分支」筛选是否还要列具体分支（接口已支持 `branch=<名>`）。
+
+#### 6.19.28.8 测试
+**后端（真 git 临时仓库 + 本地 bare 远程）**：线性 / 分叉 / 合并 / 多根历史顺序与 `git log --topo-order --date-order` 一致；parents 顺序；refs 解析（head / local / remote / tag、跳过 origin/HEAD、分离 HEAD）；默认 refs 不含 stash 提交；`branch=HEAD` / 指定分支 / 不存在 → branch_not_found；分页 limit 默认 200、上限 500、页间不重不漏、最后一页无 nextCursor；中途新提交 → history_changed；坏 cursor → git_failed；total 与 rev-list --count 一致；空仓库 noCommits；搜索 信息 / 作者 / sha 前缀 各命中、大小写不敏感、OR 语义、搜索分页；subject 含 0x1f 以外特殊字符（中文、`|`、制表）；详情 普通 / 合并（只对第一父）/ 根提交；文件 A/M/D/R/C 与 numstat、二进制；文件 >1000 截断；文件 diff 复用 GitDiffResult、二进制；commit_not_found（不存在 / 歧义短 sha）；签出提交 成功 detached / turn_running / merge_in_progress / git_dirty（已跟踪 + 未跟踪）/ `would be overwritten` 兜底 / 拦截时仓库未变；GitCatCreateBranch from=sha；GitCatCompareBranch branch=sha；超时杀进程；断言 runGit 隐藏窗口与 `GIT_TERMINAL_PROMPT=0`。
+**前端**：车道算法纯函数单测（线性、分叉、合并、章鱼合并、多根、跨页续算与一次性算结果一致）；颜色同一线不变；折叠默认、展开加载首页、滚到底自动加载、「加载更多」；history_changed 静默重拉；搜索时不画线；详情展开 / 复制 / 点文件开 diff；右键四项与禁用态；窄于 420 隐藏作者列；读取中 / 空态。

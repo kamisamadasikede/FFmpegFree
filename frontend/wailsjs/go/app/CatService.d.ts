@@ -50,6 +50,8 @@ export function GitCatConflictResolve(arg1:cat.GitCatConflictResolveRequest):Pro
 
 export function GitCatDiff(arg1:cat.GitDiffRequest):Promise<cat.GitDiffResult>;
 
+export function GitCatMerge(arg1:cat.GitCatMergeRequest):Promise<cat.GitCatMergeResult>;
+
 export function GitCatPullRequest(arg1:cat.GitStatusRequest):Promise<cat.GitPRResult>;
 
 export function GitCatRemote(arg1:cat.GitRemoteRequest):Promise<void>;
