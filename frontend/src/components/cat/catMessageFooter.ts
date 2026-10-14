@@ -82,9 +82,10 @@ export function catFooterSplit(parts: CatFooterPart[], hideCount: number): [CatF
   return [parts.filter((p) => !hide.has(p.key)), parts.filter((p) => hide.has(p.key))]
 }
 
-/** 悬停提示：被隐藏的项 + 说明（首字 / 总耗时 / v0.47 token/s）（有对应项才带），一行一项 */
+/** 悬停提示：被隐藏的项 + 说明（首字 / 总耗时 / v0.47 token/s）（有对应项才带），一行一项。
+ * 速率被窄窗隐藏时不重复列「约 N token/s」，只留说明行「约 N token/s：按输出 token 计算」（产品 10-14）。 */
 export function catFooterTooltip(parts: CatFooterPart[], hidden: CatFooterPart[]): string {
-  const lines = hidden.map((p) => p.text)
+  const lines = hidden.filter((p) => p.key !== 'rate').map((p) => p.text)
   if (parts.some((p) => p.key === 'firstToken')) lines.push(C.hintFirstToken)
   if (parts.some((p) => p.key === 'total')) lines.push(C.hintTotal)
   const rate = parts.find((p) => p.key === 'rate')
