@@ -451,3 +451,12 @@ func (s *CatService) SwitchCatBranch(req cat.SwitchCatBranchRequest) error {
 	}
 	return c.SwitchCatBranch(s.rootCtx(), req)
 }
+
+// GitCatMerge 把分支合并到当前分支（契约 v0.50，6.19.25）。
+func (s *CatService) GitCatMerge(req cat.GitCatMergeRequest) (cat.GitCatMergeResult, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.GitCatMergeResult{}, err
+	}
+	return c.GitCatMerge(s.rootCtx(), req)
+}
