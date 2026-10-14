@@ -1,6 +1,6 @@
 # FFmpegFree v2 接口契约（v0.53.2）
 
-v0.53.2 变更（**产品确认补丁**，10-14；无迁移 / 事件名 / settings 键 / 错误码）：① **6.19.28.9 ②** 签出提交确认文案定稿（标题「签出提交 {短号}？」、灰字说明、按钮「签出」「取消」、成功 toast「已签出 {短号}」；无「不再提示」）。② **6.20.8** 产品五点全部定稿（繁体系统→简体、旧任务标题保留中文、英日 A 期可带草稿、日文配信/受信与すべて許可、关于页三语但许可证正文不译）；见 **6.20.8**。
+v0.53.2 变更（**产品 / 设计确认补丁**，10-14；无迁移 / 事件名 / settings 键 / 错误码）：① **6.19.28.9 ②** 签出提交确认文案定稿（标题「签出提交 {短号}？」、灰字说明、按钮「签出」「取消」、成功 toast「已签出 {短号}」；无「不再提示」）。② **6.20.8** 产品五点全部定稿（繁体系统→简体、旧任务标题保留中文、英日 A 期可带草稿、日文配信/受信与すべて許可、关于页三语但许可证正文不译）；见 **6.20.8**。③ **6.19.28.9 ④** 车道色由设计确认（`--cat-lane-1`…`--cat-lane-6` 取值见该条；暗色下 lane-4/5 提亮约 8%；第 7 道起循环）；原先「以设计说明为准」的待定关闭。
 
 v0.53.1 变更（**提交历史 产品 / 设计定稿**，10-14；见 **6.19.28.9**；无迁移 / 事件名 / settings 键）：`history_changed` 前端不自动重拉，顶部灰字「提交历史已更新」点了才从首页刷新；签出提交前必须弹确认（文案见 v0.53.2 / 6.19.28.9 ②）；搜索范围不变；车道色 token `--cat-lane-1`…`--cat-lane-6`；`commit_not_found` 文案定稿并在详情展开区 12px `--ff-danger` 显示（不用 toast）；搜索结果只画点不画线；`GitCatStatus` 增加 `detached` / `headSha` / `headShortSha`，底栏「未在分支上 · abc1234」。
 
@@ -6682,7 +6682,7 @@ GitCatCheckoutCommit(req struct{ ConvID, Sha string }) (CatBranchTree, error)   
 #### 6.19.28.7 待定（v0.53.1 已全部定稿，见 6.19.28.9；以下仅存档）
 1. **产品**：签出提交（游离 HEAD）是否弹确认及文案。
 2. **产品**：搜索范围（默认：信息 + 提交号前缀 + 作者，OR）。
-3. **产品 / UI**：第 5、6 车道色补 token `--cat-lane-5`（紫 #8b5cf6）/ `--cat-lane-6`（青 #14b8a6）；定前前端先用这两个字面量。车道 6 色顺序：`--ff-primary` `--ff-success` `--cat-orange` lane-5 lane-6 `--ff-danger`。
+3. **产品 / UI**：第 5、6 车道色补 token（**存档，已被 v0.53.2 / 6.19.28.9 ④ 取代**；确认值为 lane-4=`#8b5cf6`、lane-5=`#14b8a6`、lane-6=`--ff-danger`，见该条）。
 4. **产品**：`commit_not_found` 文案；「全部分支 / 当前分支」筛选是否还要列具体分支（接口已支持 `branch=<名>`）。
 
 #### 6.19.28.8 测试
@@ -6697,7 +6697,15 @@ GitCatCheckoutCommit(req struct{ ConvID, Sha string }) (CatBranchTree, error)   
    - 按钮：「签出」「取消」（**不加**「不再提示」）
    - 成功 toast：「已签出 {短号}」
 3. **搜索范围**：维持原定三项（提交信息 + 提交号前缀 + 作者，大小写不敏感，OR），不变。
-4. **车道色 token**：新增 `--cat-lane-1` … `--cat-lane-6`，按设计规格（`proto/cat-git-graph/` 设计说明）：顺序沿用 6.19.28.7 ③：lane-1=`--ff-primary`、lane-2=`--ff-success`、lane-3=`--cat-orange`、lane-4 紫 #8b5cf6、lane-5 青 #14b8a6、lane-6=`--ff-danger`；具体色值以设计说明为准，前端不再用字面量。
+4. **车道色 token**（v0.53.2 **设计确认**，关闭原先「以设计说明为准」的待定）：新增 `--cat-lane-1` … `--cat-lane-6`，前端只用这些 token，不再写字面量。取值：
+   - `--cat-lane-1` → `var(--ff-primary)`
+   - `--cat-lane-2` → `var(--ff-success)`
+   - `--cat-lane-3` → `var(--cat-orange)`
+   - `--cat-lane-4` → `#8b5cf6`（紫）
+   - `--cat-lane-5` → `#14b8a6`（青）
+   - `--cat-lane-6` → `var(--ff-danger)`
+   - **暗色模式**：lane-4 / lane-5（紫、青）亮度提高约 8%；其余跟随已有暗色 token。
+   - **第 7 道起**：按 `lane % 6` 循环（与 6.19.28.3 一致）。
 5. **`commit_not_found`**：文案「找不到这个提交，可能已被删除。」，显示在该提交的**详情展开区**内，12px、`--ff-danger` 色，**不用 toast**。
 6. **搜索结果**：只画提交点，不画连线；车道位置不变（与未搜索时一致），只隐藏线。
 7. **`GitCatStatus` 扩展**：增加 `detached: boolean`、`headSha: string`（完整 sha）、`headShortSha: string`（短 sha）；非游离时 `detached=false`，sha 字段仍返回当前 HEAD（空仓库为空串）。底栏在 `detached=true` 时本地分支处显示「未在分支上 · {headShortSha}」（例：「未在分支上 · abc1234」）。
