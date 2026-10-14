@@ -1003,6 +1003,12 @@ export async function runApiChecks(): Promise<string[]> {
         catConvPrefsChecks(eq) // Cat 每条对话自己的模型和思考强度
         catLocalPrefsChecks(eq) // Cat 本机偏好：新对话放在 / 回复逐字显示
         catPanelsChecks(eq) // Cat 设置 / 定时任务纯函数（v0.35.x）
+        {
+          // v0.46：设置页 / 输入区的灰字提示（空列表 / not_supported / not_configured / 由 CLI 和服务商决定 / Grok 已知问题）用 --cat-muted
+          const st = readSrc('src/components/cat/panels/CatSettingsView.vue')
+          const cp = readSrc('src/components/cat/CatComposer.vue')
+          eq('v0.46 灰字用 --cat-muted', [/\.pm-known \{[^}]*color: var\(--cat-muted\)/.test(st), /\.pm-err\.muted \{[^}]*color: var\(--cat-muted\)/.test(st), /\.mn-hint\.muted \{[^}]*color: var\(--cat-muted\)/.test(cp)], [true, true, true])
+        }
         catProviderModelsChecks(eq) // v0.46 服务商模型列表：文案 / 颜色 / 聚焦 / 手填校验 / 10 分钟过期
         await catThinkChecks(eq) // Cat 模型和思考强度按对话记住：刷新还在，换对话互不影响
         await catLastConvChecks(eq) // Cat 重新进入：回到上次对话；新对话不记；删了的回到欢迎页

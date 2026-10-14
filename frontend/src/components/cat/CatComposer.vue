@@ -1352,7 +1352,7 @@ button {
   color: var(--ff-danger);
 }
 .mn-hint.muted {
-  color: var(--ff-text-2);
+  color: var(--cat-muted);
 }
 .mn-op .nil {
   margin-left: 4px;

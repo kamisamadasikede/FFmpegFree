@@ -56,7 +56,7 @@ export function providerModelHint(r: Pick<CatProviderModelList, 'state' | 'model
   return CAT_PROVIDER_MODELS_COPY[r.state] ?? CAT_PROVIDER_MODELS_COPY.bad_response
 }
 
-/** 提示颜色：只有 unauthorized / unreachable / bad_response 是错误（--ff-danger）；空列表、not_supported、not_configured 灰字（--ff-text-2） */
+/** 提示颜色：只有 unauthorized / unreachable / bad_response 是错误（--ff-danger）；空列表、not_supported、not_configured 灰字（--cat-muted） */
 export function providerModelHintTone(r: Pick<CatProviderModelList, 'state' | 'models'>): '' | 'muted' | 'danger' {
   if (!providerModelHint(r)) return ''
   return r.state === 'unauthorized' || r.state === 'unreachable' || r.state === 'bad_response' ? 'danger' : 'muted'

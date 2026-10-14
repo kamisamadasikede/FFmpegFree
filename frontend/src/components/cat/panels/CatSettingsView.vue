@@ -1254,13 +1254,13 @@ onMounted(async () => {
   margin: -4px 0 6px;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--ff-text-2);
+  color: var(--cat-muted);
 }
 .pm-err.danger {
   color: var(--ff-danger);
 }
 .pm-err.muted {
-  color: var(--ff-text-2);
+  color: var(--cat-muted);
 }
 .cs-tabs {
   display: flex;
