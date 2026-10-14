@@ -73,7 +73,7 @@ export async function catThinkChecks(eq: Eq): Promise<void> {
 
     chooseModel('m-2')
     chooseThink('xhigh')
-    eq('强度：后端给「超高」也显示「极高」，值还是 xhigh', [capsuleLabel.value, catState.think], ['Cat 助手 1.0 快速 · 极高', 'xhigh'])
+    eq('强度：xhigh 按 v0.44 显示「很高」，值还是 xhigh', [capsuleLabel.value, catState.think], ['Cat 助手 1.0 快速 · 很高', 'xhigh'])
     catState.turns = {}
     await sendMessage('再看一下')
     eq('强度：选了就带上', [sent[1]?.thinkLevelId, sent[1]?.modelId], ['xhigh', 'm-2'])

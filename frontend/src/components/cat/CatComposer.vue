@@ -160,7 +160,21 @@
         <div v-else class="mn-pop" data-testid="cat-model-pop">
           <template v-if="catState.models.length">
             <div class="mn-hd">模型</div>
-            <div role="menu" aria-label="模型">
+            <div role="menu" aria-label="模型" data-testid="cat-model-list">
+              <div
+                v-if="followCli"
+                class="mn-op two"
+                :class="{ on: !catState.model }"
+                role="menuitemradio"
+                tabindex="0"
+                :aria-checked="!catState.model"
+                data-testid="cat-model-default"
+                @click="pickModel('')"
+                @keydown.enter.prevent="pickModel('')"
+              >
+                <span class="nm">{{ DEFAULT_MODEL_LABEL }}<small>{{ followCliModelDesc(cliName) }}</small></span>
+                <FIcon v-if="!catState.model" name="check" :size="15" :stroke="2.2" class="ck" />
+              </div>
               <div
                 v-for="m in catState.models"
                 :key="m.id"
@@ -227,7 +241,8 @@ import { ElMessage } from 'element-plus'
 import { CAT_COPY } from '@/api/cat'
 import { composePickSend, pickLabel, type PickNote } from '@/components/cat/catPick'
 import { CAT_PROJECT_COPY as PC } from '@/api/catProjects'
-import { CAT_MODE_MENU_TITLE, modeMeta } from '@/views/cat/catCapabilities'
+import { CAT_MODE_MENU_TITLE, DEFAULT_MODEL_LABEL, followCliModelDesc, followsCliModel, modeMeta } from '@/views/cat/catCapabilities'
+import { CAT_PROVIDER_LABEL } from '@/api/catAgents'
 import { ackDanger, dangerAcked } from '@/views/cat/catDangerAck'
 import { pickFiles } from '@/api/system'
 import { toAppError } from '@/api/call'
@@ -235,7 +250,7 @@ import { CAT_ATTACH_MAX, fileBaseName, splitAttach, type CatOutgoingFile } from 
 import { canPreview, previewKind, showsThumb, type CatPreviewKind, type CatShownFile } from '@/components/cat/catMedia'
 import CatThumb from '@/components/cat/CatThumb.vue'
 import CatPreviewDialog from '@/components/cat/CatPreviewDialog.vue'
-import { accessMeta, capsuleLabel, catState, chooseAccess, currentCaps, currentProject, chooseModel, chooseThink, THINK_DEFAULT_LABEL } from '@/views/cat/catState'
+import { accessMeta, capsuleLabel, catState, chooseAccess, currentAgentKind, currentCaps, currentProject, chooseModel, chooseThink, THINK_DEFAULT_LABEL } from '@/views/cat/catState'
 
 /**
  * Cat 输入框：批准方式可选普通模式 / Plan / 自动审查 / 全部批准，没选过是全部批准。
@@ -317,6 +332,8 @@ const thinkSegs = computed(() => {
 })
 /** 模式菜单：按当前 agentKind 的列表渲染（列表空 → 胶囊隐藏） */
 const modeOpts = computed(() => currentCaps.value.modes.options.map(modeMeta))
+const followCli = computed(() => followsCliModel(currentAgentKind()))
+const cliName = computed(() => (CAT_PROVIDER_LABEL as Record<string, string>)[currentAgentKind()] ?? '')
 /** 切模型后档位被回落到默认：档位文字主色浅底高亮约 0.9 秒（设计 §4），不弹提示 */
 const effortFlash = ref(false)
 let flashTimer: ReturnType<typeof setTimeout> | undefined
@@ -1428,5 +1445,15 @@ button {
   color: var(--cat-accent);
   border-radius: 4px;
   transition: background 0.3s;
+}
+.mn-op.two {
+  height: auto;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.mn-op.two .nm small {
+  display: block;
+  font-size: 11.5px;
+  color: var(--cat-muted);
 }
 </style>

@@ -85,7 +85,7 @@ import { CAT_CLI_OUTDATED_COPY, parseCliOutdated } from '@/components/cat/catCli
 import { catPanels, showTurnFinishToast, defaultConvPref } from './catPanels'
 import { rememberNewConvProject, resolveNewConvProject } from './catLocalPrefs'
 import { catSim, catSimOs, catSimPicks, simAgentRaw, simStream } from './catDevSim'
-import { FALLBACK_MODES, resolveModeId, mapAgentModes, mapBackendCaps, mapModelEfforts, getCatAgentCapabilities, modeMeta, pickSupported, setBackendCaps, useCatAgentCapabilities } from './catCapabilities'
+import { DEFAULT_MODEL_LABEL, followsCliModel, FALLBACK_MODES, resolveModeId, mapAgentModes, mapBackendCaps, mapModelEfforts, getCatAgentCapabilities, modeMeta, pickSupported, setBackendCaps, useCatAgentCapabilities } from './catCapabilities'
 import {
   CAT_CONV_PREFS_KEY,
   carryPref,
@@ -261,6 +261,7 @@ export const catState = reactive({
 export const modelName = computed(() => {
   const m = catState.models.find((x) => x.id === catState.model)
   // 契约 6.19.3：显示后端给的模型名原样；列表里没有时退回 id；都没有时胶囊显示「Cat 助手」
+  if (!catState.model && followsCliModel(currentAgentKind())) return DEFAULT_MODEL_LABEL
   return m?.displayName || catState.model || ''
 })
 
@@ -501,6 +502,8 @@ function showConvPref(convId: string) {
     return
   }
   const resolved = resolveConvPref(pref, catState.models, catState.thinks)
+  // Claude：没选过 / 选的不在列表里 → 「默认模型」（空，跟随 CLI），不自动选第一个
+  if (followsCliModel(currentAgentKind()) && !(pref?.model && catState.models.some((m) => m.id === pref.model))) resolved.model = ''
   catState.model = resolved.model
   catState.think = resolved.think
 }
@@ -513,7 +516,7 @@ function rememberSelection() {
 }
 
 export function chooseModel(id: string) {
-  if (!id) return
+  if (!id && !followsCliModel(currentAgentKind())) return
   catState.model = id
   // 强度按模型：新模型不支持当前强度 → 退回该模型默认
   catState.think = pickSupported(getCatAgentCapabilities(currentAgentKind(), id).efforts, catState.think)

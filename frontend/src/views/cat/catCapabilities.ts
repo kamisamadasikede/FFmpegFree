@@ -147,6 +147,8 @@ export function setBackendCaps(agentKind: string, caps: CatBackendCaps) {
 /** 纯函数：模式按 agentKind，强度按所选模型（没有按模型的数据时退回 agent 级 thinks） */
 export function resolveCapabilities(caps: CatBackendCaps | undefined, modelId = ''): CatAgentCapabilities {
   const modes = caps?.modes && caps.modes.options.length ? { ...caps.modes, options: caps.modes.options.slice(0, MODE_MENU_MAX) } : FALLBACK_MODES
+  // 有按模型的强度表但没选模型（跟随 CLI）：不知道 CLI 用哪个模型 → 强度隐藏
+  if (caps?.effortsByModel && !modelId) return { modes, efforts: { options: [], defaultId: '' } }
   const perModel = caps?.effortsByModel?.[modelId]
   const efforts: CatOptionList = perModel ?? {
     options: (caps?.thinks ?? []).map((t) => ({ id: t.id, label: EFFORT_LABELS[t.id] ?? t.displayName ?? t.id })),
@@ -200,3 +202,12 @@ export function resolveModeId(agentKind: string, id: string | undefined | null):
   if (mapped && caps.modes.options.some((o) => o.id === mapped)) return mapped
   return caps.modes === FALLBACK_MODES ? v || caps.modes.defaultId : caps.modes.defaultId
 }
+
+/**
+ * 「默认模型」= 不传模型，跟随 CLI 自己的设置。目前只有 Claude（产品 10-14）；
+ * 契约里「不预选」的字段还没定：模型为空 / 没有默认模型都按跟随 CLI 处理。
+ */
+export const FOLLOW_CLI_MODEL_KINDS: readonly string[] = ['claude_cli']
+export const DEFAULT_MODEL_LABEL = '默认模型'
+export const followCliModelDesc = (cli: string) => `跟随 ${cli} CLI 设置`
+export const followsCliModel = (agentKind: string) => FOLLOW_CLI_MODEL_KINDS.includes(agentKind)

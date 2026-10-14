@@ -171,12 +171,12 @@ export function simAgentRaw(kind: string): { modes: SimMode[]; models: { id: str
         md('auto', '自动', '自动', 'edits', '自动执行，经过安全检查'),
         md('bypassPermissions', '全部放开', '全部放开', 'danger', BYPASS_DESC),
       ],
-      // 走查（按设计说明 §5 示例）：sonnet 没有很高；haiku efforts=[] → 强度行隐藏
+      // 【MOCK】Claude 四个别名，显示名为示意（后端将经 ListCatModels 下发）；按设计说明 §5 示例：sonnet 没有很高；haiku efforts=[] → 强度行隐藏
       models: [
-        { id: 'opus', displayName: 'opus', defaultEffort: 'high', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
-        { id: 'sonnet', displayName: 'sonnet', defaultEffort: 'high', efforts: ['low', 'medium', 'high', 'max'] },
-        { id: 'haiku', displayName: 'haiku', defaultEffort: '', efforts: [] },
-        { id: 'fable', displayName: 'fable', defaultEffort: 'high', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+        { id: 'opus', displayName: 'Opus 5.5', defaultEffort: 'high', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+        { id: 'sonnet', displayName: 'Sonnet 5.5', defaultEffort: 'high', efforts: ['low', 'medium', 'high', 'max'] },
+        { id: 'haiku', displayName: 'Haiku 5.5', defaultEffort: '', efforts: [] },
+        { id: 'fable', displayName: 'Fable 5.1', defaultEffort: 'high', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
       ],
     }
   }
