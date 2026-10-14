@@ -135,7 +135,8 @@ func errBranchNotFound() error {
 
 // SwitchCatBranch 切到本地分支，或从远程分支建跟踪分支并切过去。
 // 顺序：对话 → 有进行中的一轮 turn_running → 仓库 → 分支存在 → 工作区不干净 git_dirty → git switch。不自动暂存、不强切。
-func (s *Service) SwitchCatBranch(ctx context.Context, req SwitchCatBranchRequest) error {
+func (s *Service) SwitchCatBranch(ctx context.Context, req SwitchCatBranchRequest) (err error) {
+	defer s.recordCheckoutOnSuccess(ctx, req.ConvID, &err) // v0.51：签出成功记进「最近」
 	c, err := s.requireConv(ctx, req.ConvID)
 	if err != nil {
 		return err
