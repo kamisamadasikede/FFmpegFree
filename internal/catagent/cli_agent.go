@@ -29,6 +29,8 @@ type CLIAgentConfig struct {
 	Exec     func(ctx context.Context, name string, args ...string) *exec.Cmd
 	LookPath func(file string) (string, error)
 	Now      func() time.Time
+	// CodexHome 覆盖 Codex 的会话根（默认 $CODEX_HOME，再退回 ~/.codex）。测试用。
+	CodexHome string
 }
 
 // cliKind 区分两家 CLI 的 argv / 流式协议（具体 flag 见附录 6.19.14，多为 GUESS）。
@@ -290,7 +292,12 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 
 	resume := opts.Resume || hasPriorAssistant(opts.Messages)
 	sessionID := ""
-	if resume {
+	if a.kind == cliKindCodex {
+		// service 传的 Resume 来自 Grok 的会话目录，对 Codex 恒为 false。
+		// Codex 以我们存下的 thread_id 为准：有就 exec resume，否则每句都开新 thread、上文丢失。
+		sessionID = a.loadSessionID(opts.ConversationID)
+		resume = sessionID != ""
+	} else if resume {
 		sessionID = a.loadSessionID(opts.ConversationID)
 	}
 
