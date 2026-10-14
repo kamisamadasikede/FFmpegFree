@@ -3641,6 +3641,7 @@ export namespace store {
 	    finishedAt?: number;
 	    tokenTotal?: number;
 	    tokensPerSec?: number;
+	    outputTokens?: number;
 	    firstTokenMs?: number;
 	    totalMs?: number;
 	
@@ -3658,6 +3659,7 @@ export namespace store {
 	        this.finishedAt = source["finishedAt"];
 	        this.tokenTotal = source["tokenTotal"];
 	        this.tokensPerSec = source["tokensPerSec"];
+	        this.outputTokens = source["outputTokens"];
 	        this.firstTokenMs = source["firstTokenMs"];
 	        this.totalMs = source["totalMs"];
 	    }

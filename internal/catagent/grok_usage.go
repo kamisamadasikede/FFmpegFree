@@ -19,41 +19,53 @@ type grokUsageOut struct {
 		TurnNumber  int64  `json:"turnNumber"`
 		EndedAt     string `json:"endedAt"`
 		TotalTokens int64  `json:"totalTokens"`
+		// v0.47：grok 1.0.40 每个 turn 有独立 outputTokens（样本 reasoningTokens < outputTokens，按子项处理，不另加）。
+		OutputTokens int64 `json:"outputTokens"`
 	} `json:"turns"`
 }
 
-// parseGrokUsage 取 endedAt 晚于本轮开始、turnNumber 最大的一项的 totalTokens；拿不到返回 0。
-func parseGrokUsage(raw []byte, startedAt time.Time) int64 {
+// grokTurnUsage 是选中那项 turn 的用量；0 = 没有。
+type grokTurnUsage struct {
+	Total  int64
+	Output int64
+}
+
+// parseGrokUsage 取 endedAt 晚于本轮开始、turnNumber 最大的一项的 totalTokens / outputTokens；拿不到返回零值。
+func parseGrokUsage(raw []byte, startedAt time.Time) grokTurnUsage {
 	var u grokUsageOut
 	if json.Unmarshal(bytes.TrimSpace(raw), &u) != nil {
-		return 0
+		return grokTurnUsage{}
 	}
 	var bestN int64 = -1
-	var tokens int64
+	var got grokTurnUsage
 	for _, t := range u.Turns {
 		end, err := time.Parse(time.RFC3339Nano, t.EndedAt)
 		if err != nil || !end.After(startedAt) {
 			continue
 		}
 		if t.TurnNumber > bestN {
-			bestN, tokens = t.TurnNumber, t.TotalTokens
+			bestN = t.TurnNumber
+			got = grokTurnUsage{Total: t.TotalTokens, Output: t.OutputTokens}
 		}
 	}
-	if tokens < 0 {
-		return 0
+	if got.Total < 0 {
+		got.Total = 0
 	}
-	return tokens
+	if got.Output < 0 {
+		got.Output = 0
+	}
+	return got
 }
 
 func grokUsageArgs(sessionID string) []string {
 	return []string{"usage", sessionID}
 }
 
-// grokTurnTokens 在与本轮同样的环境下跑 grok usage；超时、非 0 退出、无匹配 turn 都返回 0（不估算）。
+// grokTurnTokens 在与本轮同样的环境下跑 grok usage；超时、非 0 退出、无匹配 turn 都返回零值（不估算）。
 // 用独立 ctx：取消 / 失败的轮也尝试取（§6.19.19.2 第 4 条）。
-func (a *BuildAdapter) grokTurnTokens(exe string, env []string, dir, sessionID string, startedAt time.Time) int64 {
+func (a *BuildAdapter) grokTurnTokens(exe string, env []string, dir, sessionID string, startedAt time.Time) grokTurnUsage {
 	if exe == "" || sessionID == "" {
-		return 0
+		return grokTurnUsage{}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), grokUsageTimeout)
 	defer cancel()
@@ -66,7 +78,7 @@ func (a *BuildAdapter) grokTurnTokens(exe string, env []string, dir, sessionID s
 		if a.cfg.Logf != nil {
 			a.cfg.Logf("cat build usage: %v %s", err, truncate(errb.String(), 300))
 		}
-		return 0
+		return grokTurnUsage{}
 	}
 	return parseGrokUsage(out.Bytes(), startedAt)
 }

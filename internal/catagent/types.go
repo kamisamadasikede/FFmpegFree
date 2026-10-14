@@ -161,7 +161,8 @@ type TurnEvent struct {
 	MessageID    string   `json:"messageId,omitempty"`
 	FinishedAt   int64    `json:"finishedAt,omitempty"`
 	TokenTotal   *int64   `json:"tokenTotal,omitempty"`
-	TokensPerSec *float64 `json:"tokensPerSec,omitempty"`
+	TokensPerSec *float64 `json:"tokensPerSec,omitempty"` // v0.47：outputTokens / 生成秒数
+	OutputTokens *int64   `json:"outputTokens,omitempty"` // v0.47 §6.19.19.5：无则省略
 	// v0.45 §6.19.19.3：应用侧计时（毫秒，起点 = 本轮 running）。无正文 / 思考增量 → 省略 firstTokenMs；
 	// totalMs 有 finishedAt 就带（完成、失败、取消都带）。
 	FirstTokenMs *int64 `json:"firstTokenMs,omitempty"`

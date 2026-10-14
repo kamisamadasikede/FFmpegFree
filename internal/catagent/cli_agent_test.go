@@ -340,7 +340,7 @@ exit 0
 	if resp.Message.Content != "Hi" {
 		t.Fatalf("content %q", resp.Message.Content)
 	}
-	if resp.TokenTotal != 15 || resp.DurationMs != 500 {
+	if resp.TokenTotal != 15 || resp.OutputTokens != 5 {
 		t.Fatalf("usage %+v", resp)
 	}
 }
@@ -372,8 +372,8 @@ exit 0
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.TokenTotal != 30 {
-		t.Fatalf("tokens %d", resp.TokenTotal)
+	if resp.TokenTotal != 30 || resp.OutputTokens != 10 {
+		t.Fatalf("tokens %d out %d", resp.TokenTotal, resp.OutputTokens)
 	}
 }
 

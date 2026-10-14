@@ -602,7 +602,8 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	<-followDone
 	stderrText := stderrTap.String()
 	// v0.45：终态后取本轮 token（成功 / 失败 / 取消都试；取不到就不带）。
-	usage := TurnResponse{TokenTotal: a.grokTurnTokens(exe, cmd.Env, cwd, usageSID, turnStart)}
+	gu := a.grokTurnTokens(exe, cmd.Env, cwd, usageSID, turnStart)
+	usage := TurnResponse{TokenTotal: gu.Total, OutputTokens: gu.Output}
 	errMu.Lock()
 	cliMsg := cliErr
 	errMu.Unlock()

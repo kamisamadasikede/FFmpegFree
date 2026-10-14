@@ -1,6 +1,6 @@
 # FFmpegFree v2 接口契约（v0.47.1）
 
-v0.47.1 变更（**CLI 检测修复**，老板 t73u，架构师 10-14；完整规则见 **6.19.21**；无新错误码 / 迁移 / 事件名；新 settings 键 `cat.detect`）：① 适配器不再自己发 `cat:status`，改调 `OnChange`，由服务层发 `composeStatus`；**每条 `cat:status` 都含全部已注册适配器的 `agents[]`**。② `CatAgentStatus` 加 `checking` / `checkedAt` / `stale` / `exePath`。③ 检测结果落 `cat.detect`，启动先显示上次结果再后台重检；发对话只认实时结果。④ Windows：LookPath 失败后重读注册表 PATH，再查官方安装目录（部分 GUESS）。⑤ 前端按 `agents[]` 合并，缺 `agents[]` 不重置其它家；显示「上次检测 HH:mm」（待产品定）。
+v0.47.1 变更（**CLI 检测修复**，老板 t73u，架构师 10-14；完整规则见 **6.19.21**；无新错误码 / 迁移 / 事件名；新 settings 键 `cat.detect`）：① 适配器不再自己发 `cat:status`，改调 `OnChange`，由服务层发 `composeStatus`；**每条 `cat:status` 都含全部已注册适配器的 `agents[]`**。② `CatAgentStatus` 加 `checking` / `checkedAt` / `stale` / `exePath`。③ 检测结果落 `cat.detect`，启动先显示上次结果再后台重检；发对话只认实时结果。④ Windows：LookPath 失败后重读注册表 PATH，再查官方安装目录（部分 GUESS）。⑤ 前端按 `agents[]` 合并，缺 `agents[]` 不重置其它家；检测行文案产品已定稿（6.19.21.5）。⑥ `RecheckCat(agentKind?)` 只重检单家；单家检测超时 15s → checking=false、保留 stale。
 
 v0.47 变更（**消息尾加「输出 token」，token/s 改按输出 token 算**，老板 t72u，产品定稿，架构师 10-14；无新错误码 / 迁移 / 事件名）：① `CatMessage`（assistant）与终态 `cat:turn` 新增可选 `outputTokens`；`tokenTotal` 保留不变。② `tokensPerSec` **只由后端算** = `outputTokens / ((totalMs − firstTokenMs)/1000)`；无 `firstTokenMs` 时用 `totalMs/1000`；**废止** v0.37.1 的「CLI `durationMs` → turn 墙钟、合计 token 作分子」口径。③ 无 `outputTokens` → `outputTokens` 与 `tokensPerSec` 都省略，**不得**用合计顶替。④ 前端不再自己算 token/s。⑤ 文案、窄窗顺序、tooltip 定稿。三家取数对照表与单测要求见 **6.19.19.5**。
 
@@ -5770,8 +5770,8 @@ tokensPerSec?: number  // 改口径
 
 - `输出 N token` 千分位；缺 `outputTokens` 则「输出」与「token/s」两段都不显示。
 - 前端只显示后端给的 `tokensPerSec`，**不自己算**。
-- 窄窗隐藏顺序（从末尾往前）：先藏 `约 M token/s`，再藏 `输出 N token`，再藏 `共 N token`；「完成于」「总耗时」最后藏。
-- tooltip 新增一行：`约 x token/s：按输出 token 计算`（与首字 / 总耗时说明、被藏项同一 tooltip，一项一行）。
+- 窄窗隐藏顺序（从末尾往前，v0.47.1 产品定稿）：token/s → 输出 → 共 → 首字 → 完成于 → 总耗时。
+- tooltip 关于 token/s **只留一行** `约 x token/s：按输出 token 计算`；token/s 被藏进 tooltip 时也不再另加「约 x token/s」重复行（与首字 / 总耗时说明、其它被藏项同一 tooltip，一项一行）。
 
 **不做**：拆 input 显示；估算任何 token；改 `firstTokenMs` / `totalMs` 计时口径。
 
@@ -5954,8 +5954,9 @@ TS 对应：`checking: boolean; checkedAt?: number; stale?: boolean; exePath?: s
 #### 6.19.21.5 前端
 
 - `cat:status` 以 `agents[]` 为唯一真源：按 `agentKind` **合并**到现有各行；载荷**没有** `agents[]`（旧后端 / 异常）时只更新顶层兼容字段，**不得**重置其它家。`mapAgents` 删除「缺 agents 时顶层映射为 Grok、其余 ready:false」的逻辑。
-- 每行显示 `checking`（检测中…）与 「上次检测 HH:mm」（`checkedAt` 本地时间；跨天显示 `M月D日 HH:mm`）；`stale=true` 时就绪状态用 `--cat-muted` 显示为上次结果。**文案待产品确认**。
-- 「重新检测」保持重检全部。后端可选提供 `RecheckCat(agentKind?: string)`：空 = 全部；传了只检该家，但返回 / 事件仍是全量 `agents[]`。
+- 检测行文案（**产品定稿 10-14**，均为灰字）：正常 「已安装 · 上次检测 14:32」；`checkedAt` 不是今天 → 「上次检测 10月13日 14:32」；`checking=true` 时把「上次检测…」这段换成「正在检测…」，其余不变；`stale=true` 且非 checking → 末尾追加「· 结果可能已过期」+「重新检测」文字按钮（12px，`--ff-primary-text`，同「清除」样式；点击后该行进 checking、按钮隐藏）；不用黄色。`exePath` 不直接显示，仅悬停该行时 tooltip「路径：…」（elevated 样式、等宽、折行不截断）。`stale=true` 时就绪状态用 `--cat-muted`。
+- **`RecheckCat(agentKind?: string)`（v0.47.1 定稿）**：传了 → 只重检该适配器，**只有该行**进 `checking`，其它行不变；省略 / 空 → 重检全部。返回 / 事件仍是全量 `agents[]`。每行「重新检测」按钮传本行 `agentKind`。
+- **单家检测超时 15s**：某适配器检测 15s 未返回 → 该行 `checking=false`，`stale=true` 保留，`ready` 等保持上次已知结果；界面因此显示「结果可能已过期 · 重新检测」，用户可手动重查。迟到的检测结果若随后返回，正常替换并清除 `stale`。Go 单测须覆盖超时路径与单家重检只动一行。
 
 #### 6.19.21.6 测试与验收
 

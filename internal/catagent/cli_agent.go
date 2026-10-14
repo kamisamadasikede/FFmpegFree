@@ -447,7 +447,7 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	var acc strings.Builder
 	var gotSession string
 	var resultFallback string
-	var usageTokens, usageDur int64
+	var usageTokens, usageOut int64
 	scanErr := a.scanCLIStream(stdout, func(p streamPiece) {
 		switch p.Kind {
 		case "thought", "tool", "retry":
@@ -458,12 +458,12 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 			// Claude 最终 result 全文：仅作无增量时的兜底，不与 partial 叠加。
 			resultFallback = p.Text
 		case "usage":
-			// ID 复用为 tokenTotal；Replace 无关。Text 未用。
+			// ID 复用为 tokenTotal，Text 复用为 outputTokens（v0.47）；Replace 无关。
 			if n, err := parseInt64(p.ID); err == nil && n > 0 {
 				usageTokens = n
 			}
 			if n, err := parseInt64(p.Text); err == nil && n > 0 {
-				usageDur = n
+				usageOut = n
 			}
 		default:
 			if p.Text == "" {
@@ -515,7 +515,7 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	if waitErr != nil {
 		authText += "\n" + waitErr.Error()
 	}
-	usageResp := TurnResponse{TokenTotal: usageTokens, DurationMs: usageDur}
+	usageResp := TurnResponse{TokenTotal: usageTokens, OutputTokens: usageOut}
 	if isAuthFailure(authText) {
 		a.markAuthInvalid()
 		return usageResp, authNotReadyErr()
@@ -960,7 +960,7 @@ func emitClaudeResultLine(line []byte, onPiece func(streamPiece), onErr func(str
 		return true
 	}
 	if u := claudeUsageTotal(raw); u > 0 && onPiece != nil {
-		onPiece(streamPiece{Kind: "usage", ID: fmtInt64(u), Text: fmtInt64(claudeDurationMs(raw))})
+		onPiece(claudeUsagePiece(raw, u))
 	}
 	if t, ok := rawStr(raw, "result"); ok && strings.TrimSpace(t) != "" && onPiece != nil {
 		onPiece(streamPiece{Kind: "result_text", Text: t})
@@ -1183,8 +1183,7 @@ func parseInt64(s string) (int64, error) {
 // parseClaudeResult 从 result 事件抽出 usage（优先）或全文兜底。
 func parseClaudeResult(raw map[string]json.RawMessage, sid string) (streamPiece, bool) {
 	if u := claudeUsageTotal(raw); u > 0 {
-		dur := claudeDurationMs(raw)
-		return streamPiece{Kind: "usage", ID: fmtInt64(u), Text: fmtInt64(dur)}, true
+		return claudeUsagePiece(raw, u), true
 	}
 	if t, ok := rawStr(raw, "result"); ok && strings.TrimSpace(t) != "" {
 		return streamPiece{Kind: "result_text", Text: t}, true
@@ -1214,15 +1213,34 @@ func claudeUsageTotal(raw map[string]json.RawMessage) int64 {
 	return jsonInt64(u, "total_tokens")
 }
 
-func claudeDurationMs(raw map[string]json.RawMessage) int64 {
-	for _, k := range []string{"duration_ms", "durationMs", "elapsed_ms"} {
-		if n := jsonInt64(raw, k); n > 0 {
-			return n
-		}
-	}
-	return 0
+// claudeUsagePiece：ID = 合计，Text = result.usage.output_tokens（v0.47；≤0 → 空串，即省略）。
+func claudeUsagePiece(raw map[string]json.RawMessage, total int64) streamPiece {
+	return streamPiece{Kind: "usage", ID: fmtInt64(total), Text: positiveStr(usageField(raw, "output_tokens"))}
 }
 
+// usageField 读 raw["usage"][key]；缺省 / 解析失败 → 0。
+func usageField(raw map[string]json.RawMessage, key string) int64 {
+	usageRaw, ok := raw["usage"]
+	if !ok {
+		return 0
+	}
+	var u map[string]json.RawMessage
+	if json.Unmarshal(usageRaw, &u) != nil {
+		return 0
+	}
+	return jsonInt64(u, key)
+}
+
+func positiveStr(n int64) string {
+	if n <= 0 {
+		return ""
+	}
+	return fmtInt64(n)
+}
+
+// parseCodexUsage 读 turn.completed.usage（v0.47 §6.19.19.5）：
+// 合计 = input_tokens + output_tokens（cached_input_tokens 是 input 的子项、reasoning_output_tokens 是 output 的子项，
+// 不再重复相加）；两者都没有时退回 total_tokens。输出 = output_tokens（已含 reasoning）。
 func parseCodexUsage(raw map[string]json.RawMessage) (streamPiece, bool) {
 	usageRaw, ok := raw["usage"]
 	if !ok {
@@ -1233,7 +1251,7 @@ func parseCodexUsage(raw map[string]json.RawMessage) (streamPiece, bool) {
 		return streamPiece{}, false
 	}
 	var total int64
-	for _, k := range []string{"input_tokens", "output_tokens", "cached_input_tokens", "reasoning_output_tokens"} {
+	for _, k := range []string{"input_tokens", "output_tokens"} {
 		if n := jsonInt64(u, k); n > 0 {
 			total += n
 		}
@@ -1244,11 +1262,7 @@ func parseCodexUsage(raw map[string]json.RawMessage) (streamPiece, bool) {
 	if total <= 0 {
 		return streamPiece{}, false
 	}
-	dur := jsonInt64(raw, "duration_ms")
-	if dur <= 0 {
-		dur = jsonInt64(u, "duration_ms")
-	}
-	return streamPiece{Kind: "usage", ID: fmtInt64(total), Text: fmtInt64(dur)}, true
+	return streamPiece{Kind: "usage", ID: fmtInt64(total), Text: positiveStr(jsonInt64(u, "output_tokens"))}, true
 }
 
 func jsonInt64(m map[string]json.RawMessage, key string) int64 {
