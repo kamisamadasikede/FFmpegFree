@@ -20,7 +20,8 @@
         @click.stop="toggle"
       >
         <FIcon name="branch" :size="13" />
-        <span class="nm">{{ branch }}</span>
+        <span v-if="detachedSha" class="nm" :title="BCD.detachedTip" data-testid="cat-branch-detached">{{ BCD.detached }} · <code class="mono">{{ detachedSha }}</code></span>
+        <span v-else class="nm">{{ branch }}</span>
         <span v-if="dirty" class="dot" /><span v-if="dirty" class="dn">{{ dirty }}</span>
         <span v-if="ahead" class="ahead">↑{{ ahead }}</span>
         <span v-if="behind" class="behind">↓{{ behind }}</span>
@@ -63,6 +64,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
+import { CAT_BRANCH_COPY as BCD } from '@/api/catBranches'
 import {
   CAT_GIT_CONFLICT_COPY as CF,
   catGitError,
@@ -87,6 +89,7 @@ const show = computed(() => props.visible !== false)
 const st = computed(() => catGitUi.status)
 const repo = computed(() => !!st.value?.repo)
 const branch = computed(() => st.value?.branch || 'HEAD')
+const detachedSha = computed(() => (st.value?.detached ? st.value.headShortSha || st.value.headSha.slice(0, 7) : ''))
 const ahead = computed(() => st.value?.ahead ?? 0)
 const behind = computed(() => st.value?.behind ?? 0)
 const dirty = computed(() => (st.value?.changes ?? []).length)
@@ -234,4 +237,5 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onPointer))
 .bm-item .ck { color: var(--cat-success-text); }
 .bm-item .meta { color: var(--cat-muted); font-size: 11px; }
 .menu hr { border: none; border-top: 1px solid var(--cat-border); margin: 4px 2px; }
+.mono { font-family: var(--ff-font-mono); }
 </style>

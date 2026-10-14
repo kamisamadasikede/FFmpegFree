@@ -15,10 +15,11 @@
       </span>
       <template v-if="br.repo">
         <span class="cx cx-up" :class="{ dim: !br.upstream }" :title="br.upstream ? BC.upstreamTitle + '：' + br.upstream : BC.upstreamTitle" data-testid="cat-ctx-upstream"><FIcon name="globe" :size="13" /><i>{{ br.upstream || BC.noUpstream }}</i></span>
-        <span class="cx cx-branch" :title="BC.localTitle">
+        <span class="cx cx-branch" :class="{ detached: detachedSha }" :title="detachedSha ? BC.detachedTip : BC.localTitle" data-testid="cat-ctx-branch-wrap">
           <FIcon name="branch" :size="13" />
+          <span v-if="detachedSha" class="cx-detached" data-testid="cat-ctx-detached">{{ BC.detached }} · <code>{{ detachedSha }}</code></span>
           <button
-            v-if="btreeOn"
+            v-else-if="btreeOn"
             ref="btreeAnchor"
             type="button"
             class="cx-btree"
@@ -35,7 +36,7 @@
             compact
             :model-value="br.branch ? 'L:' + br.branch : ''"
             :options="brOpts"
-            :placeholder="br.detached ? BC.detached : '—'"
+            :placeholder="detachedSha ? ' ' : br.detached ? BC.detached : '—'"
             :disabled="running || switching || missing"
             :busy="switching"
             :aria-label="BC.localTitle"
@@ -399,6 +400,12 @@ const btreeAnchor = ref<HTMLButtonElement>()
 watch(() => props.convId, () => { btreeOpen.value = false })
 let brSeq = 0
 const brOpts = computed(() => [...branchOptions(br.value), mergeEntryOption(br.value)])
+/** v0.53：游离 HEAD 时底栏显示「未在分支上 · 短号」；短号来自 GitCatStatus.headShortSha */
+const detachedSha = computed(() => {
+  const st = catGitUi.status
+  if (!(br.value.detached || st?.detached)) return ''
+  return st?.headShortSha || (br.value.detached ? '' : '')
+})
 /** v0.50 合并到当前分支 */
 const mergeOpen = ref(false)
 /** 分支树右键「合并到当前分支」预先选好的分支；底栏入口为 null */
@@ -1922,4 +1929,7 @@ button {
   font-size: 11.5px;
   color: var(--cat-muted);
 }
+.cx-branch.detached { position: relative; }
+.cx-detached { position: absolute; left: 22px; right: 18px; top: 50%; transform: translateY(-50%); pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--cat-text-2); z-index: 1; }
+.cx-detached code { font-family: var(--ff-font-mono); font-size: 11.5px; }
 </style>

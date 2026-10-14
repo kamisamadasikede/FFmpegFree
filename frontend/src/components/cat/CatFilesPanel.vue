@@ -223,7 +223,7 @@ import {
   gitRootLabel,
   type GitStatus,
 } from '@/api/catGit'
-import { catSim } from '@/views/cat/catDevSim'
+import { catSim, type CatSimFlag } from '@/views/cat/catDevSim'
 import { CAT_MERGE_CONFLICT_SIM_FILES } from '@/api/catBranches'
 import { catState, notify } from '@/views/cat/catState'
 import { catGitUi, setCatGitUi } from './catGitUi'
@@ -259,11 +259,12 @@ const CatFilePreview = defineAsyncComponent(() => import('./CatFilePreview.vue')
 const props = defineProps<{ convId: string; missing?: boolean }>()
 const emit = defineEmits<{ pick: [note: PickNote] }>()
 const live = isCatLive()
+const simGitGraph = !live && ['gitgraph', 'gitgraphempty', 'gitgraphchanged', 'gitgraphloadfail', 'detached'].some((k) => catSim.has(k as CatSimFlag))
 const mergeSimConflict = ref(false)
 const simGitBranches = !live && (catSim.has('gitconflict') || catSim.has('gitbranch') || catSim.has('gitrebase') || catSim.has('gitdone'))
 const gitPanel = ref<{ openBranchMenu?: () => void } | null>(null)
 const openConflictPath = ref('')
-const pane = ref<'files' | 'git' | 'browser' | 'term'>(simGitBranches ? 'git' : 'files')
+const pane = ref<'files' | 'git' | 'browser' | 'term'>(simGitBranches || simGitGraph ? 'git' : 'files')
 const showFile = computed(() => pane.value === 'files' || pane.value === 'git')
 const extraW = ref(readPaneWidth(typeof localStorage !== 'undefined' ? localStorage.getItem(CAT_EXTRA_WIDTH_KEY) : null, CAT_EXTRA_DEFAULT))
 const showBrowser = ref(false)
@@ -435,7 +436,11 @@ function mockGit(id: string): GitStatus {
     changes,
     mergeState: 'none',
     conflicts: [],
+    detached: catSim.has('detached'),
+    headSha: catSim.has('detached') ? 'abc1234f00dbabe5' : '',
+    headShortSha: catSim.has('detached') ? 'abc1234' : '',
   }
+  if (catSim.has('detached')) base.branch = ''
   if (!catSim.has('gitconflict') && !catSim.has('gitrebase') && !catSim.has('gitdone') && !mergeSimConflict.value) return base
   const conflicts = CAT_MERGE_CONFLICT_SIM_FILES.map((path) => ({ path, ours: true, theirs: true, letter: 'UU' }))
   if (catSim.has('gitdone')) {
