@@ -212,14 +212,14 @@ export const CAT_SETTINGS_COPY = {
   openData: '打开数据文件夹',
   // v0.38 自定义服务商（设计 v0.1.1 §3 / 契约 6.19.12.8）
   customFold: '自定义服务商',
-  customFoldHintOff: '默认用本机登录；需要时可填 URL / Key',
-  customFoldHintOn: '启用后只用下面的 URL / Key，不写回系统环境变量',
+  customFoldHintOff: 'Key 只保存在本机，不写回系统环境变量。',
+  customFoldHintOn: 'Key 只保存在本机，不写回系统环境变量。',
   enableCustom: '启用自定义',
   enableCustomDesc: '关闭后回落本机登录 / 环境变量',
   protocol: '协议',
   protocolLocked: '已锁定，按该助手默认',
-  apiUrl: 'API URL',
-  apiUrlDesc: 'Base URL',
+  apiUrl: 'API 地址',
+  apiUrlDesc: '',
   apiKey: 'API Key',
   apiKeyDesc: '保存后不明文回显',
   apiKeyPlaceholder: '粘贴 API Key',
@@ -334,6 +334,13 @@ let mockSettings: CatSettings = normalizeSettings({})
 /** 模拟密钥：只记是否已设，永不回显明文 */
 const mockSecrets = new Set<CatProviderKind>()
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+// 走查 ?cat_sim=pmcustom：三家自定义都开、地址和 Key 已填（v0.46 模型下拉）
+if (sim('pmcustom')) {
+  for (const kind of CAT_PROVIDER_ORDER) {
+    mockSettings.providersByAgent[kind] = { enabledCustom: true, protocol: '', apiUrl: kind === 'claude_cli' ? 'https://gw.example.com' : 'https://gw.example.com/v1', apiKeySet: true }
+    mockSecrets.add(kind)
+  }
+}
 
 function withMockKeyFlags(s: CatSettings): CatSettings {
   const providersByAgent = emptyProvidersByAgent()

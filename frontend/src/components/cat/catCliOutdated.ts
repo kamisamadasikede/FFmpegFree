@@ -64,6 +64,12 @@ function fromObject(o: Record<string, unknown>): Record<string, string> {
   return out
 }
 
+/** detail（对象 / JSON / key=value）→ 平铺字段；v0.46 provider_responses_unsupported 也用这个解析 */
+export function parseFailDetailFields(detail: unknown): Record<string, string> {
+  if (detail == null || detail === '') return {}
+  return typeof detail === 'string' ? fromString(detail) : typeof detail === 'object' ? fromObject(detail as Record<string, unknown>) : {}
+}
+
 /** 不是 cli_outdated 就返回 null，界面照旧 */
 export function parseCliOutdated(detail: unknown, kind?: CatAgentKind | string): CatCliOutdated | null {
   if (detail == null || detail === '') return null

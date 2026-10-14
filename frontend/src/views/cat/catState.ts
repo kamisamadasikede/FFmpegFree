@@ -43,6 +43,7 @@ import {
 } from '@/api/catProjects'
 import {
   CAT_AGENT_BUILD,
+  CAT_AGENT_CODEX,
   CAT_CONV_COPY,
   CAT_COPY,
   cancelCatTurn,
@@ -87,6 +88,8 @@ import { applyStreamEvent, newStreamMsg, type CatStreamEvent, type CatStreamMsg,
 import { liveTurnPlan, transcriptChanged } from './catLive'
 import { AppError, toAppError } from '@/api/call'
 import { CAT_CLI_OUTDATED_COPY, parseCliOutdated } from '@/components/cat/catCliOutdated'
+import { isModelListStale, listCatProviderModels, providerFailureText, type CatProviderModelList } from '@/api/catProviderModels'
+import { isProviderKind, type CatProviderKind } from '@/api/catAgents'
 import { catPanels, showTurnFinishToast, defaultConvPref, dismissFailToast } from './catPanels'
 import { rememberNewConvProject, resolveNewConvProject } from './catLocalPrefs'
 import { catSim, catSimOs, catSimPicks, simAgentRaw, simStream } from './catDevSim'
@@ -218,7 +221,7 @@ export const catState = reactive({
   deleting: '' as string,
   /** 删除确认框对应的对话 id（设计 v0.3 §13；与 deleting 同一个确认框组件） */
   deletingConv: '' as string,
-  plain: (live ? [] : [...(catSim.has('clioutdated') ? mockCliOutdatedConvs() : []), ...mockPlainConvs()]) as CatConv[],
+  plain: (live ? [] : [...(catSim.has('codexconv') ? [{ id: 'x1', title: 'Codex 自定义服务商', agentKind: CAT_AGENT_CODEX }] : []), ...(catSim.has('clioutdated') ? mockCliOutdatedConvs() : []), ...mockPlainConvs()]) as CatConv[],
   messages: {} as Record<string, CatBlock[]>,
   /** 新对话正在创建（欢迎页输入框忙） */
   creating: false,
@@ -259,6 +262,10 @@ export const catState = reactive({
   /** 当前会话 agentKind 对应的能力列表（不造假） */
   models: [] as CatModel[],
   thinks: [] as CatThinkLevel[],
+  /** v0.46：模型列表拉取时间（ms，输入区打开下拉时超过 10 分钟重拉）和拉不到时的状态（自定义开时才有） */
+  modelsAt: 0,
+  modelsFor: '' as string,
+  providerModels: null as Pick<CatProviderModelList, 'state' | 'models'> | null,
   /** B1：正在读这条对话的记录（第一次打开、本地还没有内容时） */
   histLoading: {} as Record<string, boolean>,
   /** 记录读过了（读到空 / 没找到也算），用来区分「还在读」和「真的没有记录」 */
@@ -541,11 +548,28 @@ function showConvPref(convId: string) {
     catState.think = pref?.think ?? ''
     return
   }
+  // v0.46：自定义开时手填的 / 不在当前列表的模型照常保留（显示 id + 「不在当前列表」），不自动改
+  if (customProviderOn(currentAgentKind()) && pref?.model && !catState.models.some((m) => m.id === pref.model)) {
+    catState.model = pref.model
+    catState.think = ''
+    return
+  }
   const resolved = resolveConvPref(pref, catState.models, catState.thinks)
   // Claude：没选过 / 选的不在列表里 → 「默认模型」（空，跟随 CLI），不自动选第一个
   if (followsCliModel(currentAgentKind()) && !(pref?.model && catState.models.some((m) => m.id === pref.model))) resolved.model = ''
   catState.model = resolved.model
   catState.think = resolved.think
+}
+
+/** v0.46：这家开了自定义服务商（输入区模型下拉加「手动填写…」） */
+export function customProviderOn(kind: CatAgentKind = currentAgentKind()): boolean {
+  return isProviderKind(kind) && !!catPanels.settings.providersByAgent?.[kind]?.enabledCustom
+}
+
+/** 输入区打开模型下拉时调用：距上次拉取超过 10 分钟（或换了家）就重拉 */
+export function refreshModelsIfStale(now = Date.now()): void {
+  const kind = currentAgentKind()
+  if (catState.modelsFor !== kind || isModelListStale(catState.modelsAt, now)) void refreshCapabilities(kind)
 }
 
 /** 用户点了模型、强度或批准方式：只写当前这条对话。 */
@@ -601,12 +625,23 @@ function carryDraftPref(toId: string) {
 export async function refreshCapabilities(agentKind: CatAgentKind = currentAgentKind()) {
   const ticket = ++capsTicket
   const sim = import.meta.env.DEV && (catSim.has('caps') || catSim.has('codexcaps'))
-  const [models, thinks] = await Promise.all(
+  // eslint-disable-next-line prefer-const
+  let [models, thinks] = await Promise.all(
     sim
       ? [Promise.resolve(simAgentRaw(agentKind).models as CatModel[]), Promise.resolve([] as CatThinkLevel[])]
       : [listCatModels(agentKind), listCatThinkLevels(agentKind)],
   )
   if (ticket !== capsTicket) return
+  // v0.46：自定义开时 ListCatModels 已经是服务商列表；拉不到（空）时再问一次状态，给一行提示（后端有 10 分钟缓存，不重拉）
+  let pm: Pick<CatProviderModelList, 'state' | 'models'> | null = null
+  if (!sim && customProviderOn(agentKind)) {
+    pm = models.length ? { state: 'ok', models } : await listCatProviderModels(agentKind as CatProviderKind, false)
+    if (ticket !== capsTicket) return
+    if (!models.length && pm.state === 'ok' && pm.models.length) models = pm.models // 纯浏览器走查：ListCatModels 不模拟服务商
+  }
+  catState.providerModels = pm
+  catState.modelsAt = Date.now()
+  catState.modelsFor = agentKind
   catState.models = models
   catState.thinks = thinks
   if (sim) setBackendCaps(agentKind, { thinks, ...mapBackendCaps(simAgentRaw(agentKind)) })
@@ -1005,9 +1040,14 @@ function endTurn(convId: string, how: TurnEnd, token?: number, ev?: CatTurnEvent
       // v0.43：CLI 版本过旧单独一行；原始报错收进「查看详情」（raw 为空则不出，v0.43.1）
       list.push({ kind: 'sys', text: CAT_CLI_OUTDATED_COPY.body(outdated.cli), tone: 'err', outdated })
     } else {
+    // v0.46：Codex 服务商没有 Responses 接口（retryable=false → 不出重试）；错误行样式同 cli_outdated
+    const provText = providerFailureText(turn.failDetail)
+    if (provText) list.push({ kind: 'sys', text: provText, tone: 'err', providerErr: true })
+    else {
     const text = (turn.failMsg || '').trim() || CAT_COPY.replyFailed
     if (!list.some((b) => b.kind === 'sys' && b.tone === 'err' && b.text === text)) {
       list.push({ kind: 'sys', text, tone: 'err' })
+    }
     }
     }
   }
@@ -1015,7 +1055,7 @@ function endTurn(convId: string, how: TurnEnd, token?: number, ev?: CatTurnEvent
   // v0.40：完成后通知 — 前台 toast；cancelled 不发；开关关则不发（系统通知由后端在后台发）
   if (how === 'completed' || how === 'failed' || how === 'not_ready') {
     const title = findConv(convId)?.conv.title || ''
-    const errText = how === 'completed' ? '' : ((turn.failMsg || '').trim() || (how === 'not_ready' ? (catState.status.error?.message || CAT_COPY.notReady) : CAT_COPY.replyFailed))
+    const errText = how === 'completed' ? '' : ((how === 'failed' && providerFailureText(turn.failDetail)) || (turn.failMsg || '').trim() || (how === 'not_ready' ? (catState.status.error?.message || CAT_COPY.notReady) : CAT_COPY.replyFailed))
     showTurnFinishToast(convId, how === 'completed' ? 'completed' : 'failed', title, errText)
   }
 }
@@ -1109,6 +1149,13 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
 
   if (import.meta.env.DEV && catSim.has('stream')) {
     // 仅 vite dev + 纯浏览器 + ?cat_sim=stream（见 catDevSim.ts）；正式包里 catSim 恒为空
+    if (catSim.has('codexnoresponses')) {
+      // 走查 v0.46：Codex 自定义服务商没有 /responses → CAT_REPLY_FAILED + reason，retryable=false
+      const ft = catState.turns[id]
+      ft.turnId = `sim-noresp-${token}`
+      setTimeout(() => handleTurnEvent({ convId: id, turnId: ft.turnId, status: 'failed', retryable: false, errorCode: 'CAT_REPLY_FAILED', errorMessage: CAT_COPY.replyFailed, errorDetail: 'reason=provider_responses_unsupported\nagentKind=codex_cli' }), 300)
+      return
+    }
     if (catSim.has('failonce') && !simFailed.has(id)) {
       // 走查 6.19.18.7：第一轮直接失败，再点「重试」原地重发
       simFailed.add(id)

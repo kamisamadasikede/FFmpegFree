@@ -158,9 +158,28 @@
         </div>
         <!-- D3 模型 + 思考强度合成一个浮层：上半模型列表，下半强度分段 -->
         <div v-else class="mn-pop" data-testid="cat-model-pop">
-          <template v-if="catState.models.length">
+          <template v-if="catState.models.length || customOn">
             <div class="mn-hd">模型</div>
-            <div role="menu" aria-label="模型" data-testid="cat-model-list">
+            <!-- v0.46 手动填写：原地变输入框 + 「取消」 -->
+            <div v-if="manualOn" class="mn-manual" data-testid="cat-model-manual">
+              <input
+                ref="manualInp"
+                v-model="manualDraft"
+                class="mn-minp"
+                type="text"
+                spellcheck="false"
+                autocomplete="off"
+                :placeholder="PM.manualPlaceholder"
+                aria-label="模型 ID"
+                data-testid="cat-model-manual-input"
+                @keydown.enter.prevent="commitManual"
+                @keydown.esc.prevent.stop="cancelManual"
+                @blur="commitManual"
+              />
+              <button v-if="catState.models.length" type="button" class="mn-mcancel" data-testid="cat-model-manual-cancel" @mousedown.prevent @click="cancelManual">{{ PM.cancel }}</button>
+            </div>
+            <div v-if="modelHint" class="mn-hint" :class="modelHintTone" role="status" data-testid="cat-model-hint">{{ modelHint }}</div>
+            <div v-if="!manualOn" role="menu" aria-label="模型" data-testid="cat-model-list">
               <div
                 v-if="followCli"
                 class="mn-op two"
@@ -189,6 +208,16 @@
                 <span class="nm">{{ m.displayName }}</span>
                 <FIcon v-if="catState.model === m.id" name="check" :size="15" :stroke="2.2" class="ck" />
               </div>
+              <div v-if="customOn && notInList" class="mn-op on" role="menuitemradio" aria-checked="true" data-testid="cat-model-notinlist">
+                <span class="nm">{{ catState.model }}<small class="nil">{{ PM.notInList }}</small></span>
+                <FIcon name="check" :size="15" :stroke="2.2" class="ck" />
+              </div>
+              <template v-if="customOn">
+                <div v-if="catState.models.length || notInList" class="mn-sep" role="separator" />
+                <div class="mn-op" role="menuitem" tabindex="0" data-testid="cat-model-manual-entry" @click="startManual(true)" @keydown.enter.prevent="startManual(true)">
+                  <span class="nm">{{ PM.manualEntry }}</span>
+                </div>
+              </template>
             </div>
           </template>
           <div v-else class="mn-hd">模型 · Cat 助手</div>
@@ -250,7 +279,8 @@ import { CAT_ATTACH_MAX, fileBaseName, splitAttach, type CatOutgoingFile } from 
 import { canPreview, previewKind, showsThumb, type CatPreviewKind, type CatShownFile } from '@/components/cat/catMedia'
 import CatThumb from '@/components/cat/CatThumb.vue'
 import CatPreviewDialog from '@/components/cat/CatPreviewDialog.vue'
-import { accessMeta, capsuleLabel, catState, chooseAccess, currentAgentKind, currentCaps, currentProject, chooseModel, chooseThink, THINK_DEFAULT_LABEL } from '@/views/cat/catState'
+import { accessMeta, capsuleLabel, catState, chooseAccess, currentAgentKind, currentCaps, currentProject, chooseModel, chooseThink, customProviderOn, refreshModelsIfStale, THINK_DEFAULT_LABEL } from '@/views/cat/catState'
+import { CAT_PROVIDER_MODELS_COPY as PM, normalizeManualModelId, providerModelHint, providerModelHintTone, providerModelNeedsManual } from '@/api/catProviderModels'
 
 /**
  * Cat 输入框：批准方式可选普通模式 / Plan / 自动审查 / 全部批准，没选过是全部批准。
@@ -426,7 +456,45 @@ function close() {
 }
 function toggle(kind: Exclude<MenuKind, null>) {
   if (menu.value === kind) close()
-  else open(kind)
+  else {
+    if (kind === 'casc') {
+      refreshModelsIfStale()
+      manualOn.value = false
+      // 拉不到列表：输入框直接展开（打开下拉是用户操作，可以聚焦）
+      const pm = catState.providerModels
+      if (customOn.value && pm && providerModelNeedsManual(pm)) startManual(true)
+    }
+    open(kind)
+  }
+}
+
+// ---------- v0.46 自定义服务商：手动填写模型 ID ----------
+const customOn = computed(() => customProviderOn(currentAgentKind()))
+const notInList = computed(() => !!catState.model && !catState.models.some((m) => m.id === catState.model))
+const modelHint = computed(() => (customOn.value && catState.providerModels ? providerModelHint(catState.providerModels) : ''))
+const modelHintTone = computed(() => (customOn.value && catState.providerModels ? providerModelHintTone(catState.providerModels) : ''))
+const manualOn = ref(false)
+const manualDraft = ref('')
+const manualInp = ref<HTMLInputElement | null>(null)
+function startManual(focus: boolean) {
+  manualOn.value = true
+  manualDraft.value = notInList.value ? catState.model : ''
+  if (focus) void nextTick(() => manualInp.value?.focus())
+}
+function cancelManual() {
+  if (!catState.models.length) return
+  manualOn.value = false
+}
+function commitManual() {
+  if (!manualOn.value || !manualDraft.value.trim()) return
+  const id = normalizeManualModelId(manualDraft.value)
+  if (!id) {
+    ElMessage.warning(PM.manualInvalid)
+    return
+  }
+  chooseModel(id)
+  manualOn.value = false
+  close()
 }
 const confirmId = ref('')
 /** 切到 danger：这个项目第一次要确认；切走不用确认。取消 = 保持原模式 */
@@ -1235,6 +1303,62 @@ button {
   border: 1px solid var(--cat-border);
   border-radius: var(--cat-radius-lg);
   box-shadow: var(--cat-shadow-lg);
+}
+/* v0.46 手动填写模型 ID：沿用菜单项高度，宽度不变 */
+.mn-manual {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 4px;
+}
+.mn-minp {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--cat-border);
+  border-radius: var(--cat-radius-sm);
+  background: var(--cat-bg);
+  color: var(--cat-text);
+  font-size: 13px;
+  font-family: var(--ff-font-mono, ui-monospace, monospace);
+}
+.mn-minp:focus {
+  outline: none;
+  border-color: var(--cat-accent);
+  box-shadow: var(--cat-focus);
+}
+.mn-mcancel {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--cat-text-2);
+  font-size: 12.5px;
+  padding: 4px 6px;
+  border-radius: var(--cat-radius-sm);
+  cursor: pointer;
+}
+.mn-mcancel:hover {
+  background: var(--cat-hover);
+  color: var(--cat-text);
+}
+.mn-hint {
+  padding: 2px 8px 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: normal;
+}
+.mn-hint.danger {
+  color: var(--ff-danger);
+}
+.mn-hint.muted {
+  color: var(--cat-muted);
+}
+.mn-op .nil {
+  margin-left: 4px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--cat-muted);
 }
 .mn-hd {
   padding: 6px 8px 4px;

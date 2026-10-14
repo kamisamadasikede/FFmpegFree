@@ -41,67 +41,16 @@
                   <span :class="block.ready ? 'okt' : 'badt'">{{ block.ready ? C.installed : C.notDetected }}</span>
                 </div>
               </div>
-              <div class="row" :class="{ dim: !block.ready }">
-                <div class="lab"><b>{{ C.model }}</b><span>{{ C.modelDesc }}</span></div>
-                <div class="ctl">
-                  <SavedMark :on="!!savedAgent[block.kind + ':model']" />
-                  <select
-                    class="sel"
-                    :value="modelValue(block.kind)"
-                    :disabled="!block.ready || !block.models.length"
-                    :aria-label="block.label + ' ' + C.model"
-                    :data-testid="'cat-set-model-' + block.kind"
-                    @change="setAgent(block.kind, 'model', ($event.target as HTMLSelectElement).value)"
-                  >
-                    <option value="">{{ C.defaultOpt }}</option>
-                    <option v-for="m in block.models" :key="m.id" :value="m.id">{{ m.displayName }}</option>
-                  </select>
-                </div>
-              </div>
-              <div v-if="block.ready && block.thinks.length" class="row">
-                <div class="lab"><b>{{ C.effort }}</b><span>{{ C.effortDesc }}</span></div>
-                <div class="ctl">
-                  <SavedMark :on="!!savedAgent[block.kind + ':effort']" />
-                  <select
-                    class="sel"
-                    :value="effortValue(block.kind)"
-                    :disabled="!block.ready"
-                    :aria-label="block.label + ' ' + C.effort"
-                    :data-testid="'cat-set-effort-' + block.kind"
-                    @change="setAgent(block.kind, 'effort', ($event.target as HTMLSelectElement).value)"
-                  >
-                    <option value="">{{ C.defaultOpt }}</option>
-                    <option v-for="t in block.thinks" :key="t.id" :value="t.id">{{ t.label }}</option>
-                  </select>
-                </div>
-              </div>
-
-              <div v-if="block.modes.options.length" class="row mode-row" :class="{ dim: !block.ready }">
-                <div class="lab"><b>默认模式</b><span>新对话默认使用的模式</span></div>
-                <div class="ctl">
-                  <SavedMark :on="!!savedAgent[block.kind + ':mode']" />
-                  <CatModeSelect
-                    :model-value="modeValue(block.kind)"
-                    :options="block.modes.options"
-                    :default-id="block.modes.defaultId"
-                    :aria-label="block.label + ' 默认模式'"
-                    :testid="'cat-set-mode-' + block.kind"
-                    @update:model-value="setDefaultMode(block.kind, $event)"
-                  />
-                </div>
-              </div>
-              <div v-if="modeIsDanger(block.kind)" class="mode-danger-note" :data-testid="'cat-set-mode-danger-' + block.kind">{{ DANGER_NOTE }}</div>
-
-              <!-- v0.38 自定义服务商：未检测到 CLI 时仍可展开预填 -->
+              <!-- v0.46 自定义服务商排在默认模型上面；开着时自动展开（v0.38：未检测到 CLI 时仍可展开预填） -->
               <div
                 class="cust-fold"
-                :class="{ open: !!customOpen[block.kind] }"
+                :class="{ open: isCustomOpen(block.kind) }"
                 :data-testid="'cat-set-custom-' + block.kind"
               >
                 <button
                   type="button"
                   class="cust-tog"
-                  :aria-expanded="!!customOpen[block.kind]"
+                  :aria-expanded="isCustomOpen(block.kind)"
                   :data-testid="'cat-set-custom-tog-' + block.kind"
                   @click="toggleCustom(block.kind)"
                 >
@@ -111,9 +60,9 @@
                     <small>{{ providerOf(block.kind).enabledCustom ? C.customFoldHintOn : C.customFoldHintOff }}</small>
                   </span>
                 </button>
-                <div v-if="customOpen[block.kind]" class="cust-body">
+                <div v-if="isCustomOpen(block.kind)" class="cust-body">
                   <div class="row">
-                    <div class="lab"><b>{{ C.enableCustom }}</b><span>{{ C.enableCustomDesc }}</span></div>
+                    <div class="lab"><b>{{ C.enableCustom }}</b><span>{{ customToggleHint(block.kind) }}</span></div>
                     <div class="ctl">
                       <SavedMark :on="!!savedAgent[block.kind + ':custom']" />
                       <button
@@ -128,6 +77,11 @@
                       ><i /></button>
                     </div>
                   </div>
+                  <div
+                    v-if="customKnownIssue(block.kind, providerOf(block.kind).enabledCustom)"
+                    class="pm-known"
+                    :data-testid="'cat-set-custom-known-' + block.kind"
+                  >{{ customKnownIssue(block.kind, providerOf(block.kind).enabledCustom) }}</div>
                   <div class="row">
                     <div class="lab">
                       <b>{{ C.protocol }}</b>
@@ -149,7 +103,7 @@
                     </div>
                   </div>
                   <div class="row">
-                    <div class="lab"><b>{{ C.apiUrl }}</b><span>{{ C.apiUrlDesc }}</span></div>
+                    <div class="lab"><b>{{ C.apiUrl }}</b></div>
                     <div class="ctl">
                       <SavedMark :on="!!savedAgent[block.kind + ':apiUrl']" />
                       <input
@@ -192,6 +146,112 @@
                   </div>
                 </div>
               </div>
+              <div class="row" :class="{ dim: !block.ready && !customOn(block.kind) }">
+                <div class="lab"><b>{{ C.model }}</b><span>{{ C.modelDesc }}</span></div>
+                <div class="ctl">
+                  <SavedMark :on="!!savedAgent[block.kind + ':model']" />
+                  <!-- v0.46：自定义开 → 服务商列表（ListCatProviderModels）+ 刷新 + 手动填写 -->
+                  <template v-if="customOn(block.kind)">
+                    <template v-if="pmOf(block.kind).manual">
+                      <input
+                        :ref="(el) => setPmInput(block.kind, el)"
+                        class="inp pm-inp"
+                        type="text"
+                        spellcheck="false"
+                        autocomplete="off"
+                        :value="pmOf(block.kind).draft"
+                        :placeholder="PM.manualPlaceholder"
+                        :aria-label="block.label + ' ' + C.model"
+                        :data-testid="'cat-set-model-manual-' + block.kind"
+                        @input="pmOf(block.kind).draft = ($event.target as HTMLInputElement).value"
+                        @keydown.enter.prevent="commitManual(block.kind)"
+                        @keydown.esc.prevent="cancelManual(block.kind)"
+                        @blur="commitManual(block.kind)"
+                      />
+                      <button
+                        v-if="pmHasList(block.kind)"
+                        type="button"
+                        class="btn text pm-cancel"
+                        :data-testid="'cat-set-model-manual-cancel-' + block.kind"
+                        @mousedown.prevent
+                        @click="cancelManual(block.kind)"
+                      >{{ PM.cancel }}</button>
+                    </template>
+                    <select
+                      v-else
+                      class="sel"
+                      :value="pmOf(block.kind).loading ? '__loading' : modelValueCustom(block.kind)"
+                      :disabled="pmOf(block.kind).loading"
+                      :aria-label="block.label + ' ' + C.model"
+                      :aria-busy="pmOf(block.kind).loading"
+                      :data-testid="'cat-set-model-' + block.kind"
+                      @change="onPmSelect(block.kind, $event.target as HTMLSelectElement)"
+                    >
+                      <option v-if="pmOf(block.kind).loading" value="__loading">{{ PM.loading }}</option>
+                      <template v-else>
+                        <option v-for="o in providerModelOptions(pmOf(block.kind).list, curModel(block.kind))" :key="o.value" :value="o.value" :disabled="o.disabled">{{ o.label }}</option>
+                      </template>
+                    </select>
+                    <button
+                      type="button"
+                      class="pm-refresh"
+                      :class="{ spin: pmOf(block.kind).loading }"
+                      :disabled="pmOf(block.kind).loading"
+                      :title="PM.refreshTip"
+                      :aria-label="PM.refreshTip"
+                      :data-testid="'cat-set-model-refresh-' + block.kind"
+                      @click="loadPm(block.kind, true)"
+                    ><FIcon name="refresh" :size="15" /></button>
+                  </template>
+                  <select
+                    v-else
+                    class="sel"
+                    :value="modelValue(block.kind)"
+                    :disabled="!block.ready || !block.models.length"
+                    :aria-label="block.label + ' ' + C.model"
+                    :data-testid="'cat-set-model-' + block.kind"
+                    @change="setAgent(block.kind, 'model', ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option value="">{{ C.defaultOpt }}</option>
+                    <option v-for="m in block.models" :key="m.id" :value="m.id">{{ m.displayName }}</option>
+                  </select>
+                </div>
+              </div>
+              <div v-if="customOn(block.kind) && pmLine(block.kind)" :class="['pm-err', pmTone(block.kind)]" role="status" :data-testid="'cat-set-model-hint-' + block.kind">{{ pmLine(block.kind) }}</div>
+              <div v-if="block.ready && block.thinks.length" class="row">
+                <div class="lab"><b>{{ C.effort }}</b><span>{{ C.effortDesc }}</span></div>
+                <div class="ctl">
+                  <SavedMark :on="!!savedAgent[block.kind + ':effort']" />
+                  <select
+                    class="sel"
+                    :value="effortValue(block.kind)"
+                    :disabled="!block.ready"
+                    :aria-label="block.label + ' ' + C.effort"
+                    :data-testid="'cat-set-effort-' + block.kind"
+                    @change="setAgent(block.kind, 'effort', ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option value="">{{ C.defaultOpt }}</option>
+                    <option v-for="t in block.thinks" :key="t.id" :value="t.id">{{ t.label }}</option>
+                  </select>
+                </div>
+              </div>
+
+              <div v-if="block.modes.options.length" class="row mode-row" :class="{ dim: !block.ready }">
+                <div class="lab"><b>默认模式</b><span>新对话默认使用的模式</span></div>
+                <div class="ctl">
+                  <SavedMark :on="!!savedAgent[block.kind + ':mode']" />
+                  <CatModeSelect
+                    :model-value="modeValue(block.kind)"
+                    :options="block.modes.options"
+                    :default-id="block.modes.defaultId"
+                    :aria-label="block.label + ' 默认模式'"
+                    :testid="'cat-set-mode-' + block.kind"
+                    @update:model-value="setDefaultMode(block.kind, $event)"
+                  />
+                </div>
+              </div>
+              <div v-if="modeIsDanger(block.kind)" class="mode-danger-note" :data-testid="'cat-set-mode-danger-' + block.kind">{{ DANGER_NOTE }}</div>
+
             </div>
 
             <div class="row">
@@ -429,7 +489,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, onMounted, reactive, ref, watch } from 'vue'
+import { computed, defineComponent, h, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import CatAgentMark from '@/components/cat/CatAgentMark.vue'
 import CatPanelNotice from './CatPanelNotice.vue'
@@ -481,6 +541,20 @@ import { catPanels, saveSetting, type CatSettingsTab } from '@/views/cat/catPane
 import { catLocalPrefs, setNewConvPlace, setTypewriter } from '@/views/cat/catLocalPrefs'
 import { catState, afterClearAll, currentProject, notify, createProject } from '@/views/cat/catState'
 import { catSim, simAgentRaw, simModels, simThinks } from '@/views/cat/catDevSim'
+import {
+  CAT_PROVIDER_MODELS_COPY as PM,
+  customToggleHint,
+  customKnownIssue,
+  listCatProviderModels,
+  normalizeManualModelId,
+  providerModelHint,
+  providerModelHintTone,
+  providerModelNeedsManual,
+  providerModelOptions,
+  shouldFocusManual,
+  type CatProviderModelList,
+  type ProviderModelFetchCause,
+} from '@/api/catProviderModels'
 
 defineOptions({ name: 'CatSettingsView' })
 const C = { ...CAT_SETTINGS_COPY, dash: '—', loginBanner }
@@ -532,7 +606,109 @@ const clearKeyKind = ref<CatProviderKind | null>(null)
 const clearingKey = ref(false)
 
 function toggleCustom(kind: CatProviderKind) {
-  customOpen[kind] = !customOpen[kind]
+  customOpen[kind] = !isCustomOpen(kind)
+}
+/** v0.46：开着时默认展开，关着时默认折叠；手动点过就按手动的 */
+function isCustomOpen(kind: CatProviderKind): boolean {
+  return customOpen[kind] ?? providerOf(kind).enabledCustom
+}
+function customOn(kind: CatProviderKind): boolean {
+  return providerOf(kind).enabledCustom
+}
+
+// ---------- v0.46 服务商模型列表 ----------
+type PmState = { loading: boolean; list: CatProviderModelList | null; manual: boolean; draft: string; ticket: number }
+const pm = reactive<Record<string, PmState>>({})
+const pmInputs: Record<string, HTMLInputElement | null> = {}
+function pmOf(kind: CatProviderKind): PmState {
+  if (!pm[kind]) pm[kind] = { loading: false, list: null, manual: false, draft: '', ticket: 0 }
+  return pm[kind]
+}
+function setPmInput(kind: CatProviderKind, el: unknown) {
+  pmInputs[kind] = el instanceof HTMLInputElement ? el : null
+}
+function pmHasList(kind: CatProviderKind): boolean {
+  const l = pmOf(kind).list
+  return !!l && l.state === 'ok' && l.models.length > 0
+}
+function pmHint(kind: CatProviderKind): string {
+  const p = pmOf(kind)
+  return p.loading || !p.list ? '' : providerModelHint(p.list)
+}
+function pmTone(kind: CatProviderKind): string {
+  const p = pmOf(kind)
+  if (p.loading) return ''
+  const t = p.list ? providerModelHintTone(p.list) : ''
+  return t || 'muted'
+}
+/** 下拉下面一行：有状态提示就显示提示；否则选的是「默认模型」时灰字说明 */
+function pmLine(kind: CatProviderKind): string {
+  const p = pmOf(kind)
+  if (p.loading) return ''
+  return pmHint(kind) || (!p.manual && !curModel(kind) ? PM.followDefaultDesc : '')
+}
+function curModel(kind: CatProviderKind): string {
+  return catPanels.settings.defaultsByAgent[kind]?.model ?? ''
+}
+function customNotInList(kind: CatProviderKind): boolean {
+  const id = curModel(kind)
+  return !!id && !(pmOf(kind).list?.models ?? []).some((m) => m.id === id)
+}
+function modelValueCustom(kind: CatProviderKind): string {
+  return curModel(kind)
+}
+async function loadPm(kind: CatProviderKind, refresh: boolean, cause: ProviderModelFetchCause = 'refresh') {
+  const p = pmOf(kind)
+  const t = ++p.ticket
+  p.loading = true
+  const r = await listCatProviderModels(kind, refresh)
+  if (t !== p.ticket) return
+  p.loading = false
+  p.list = r
+  if (providerModelNeedsManual(r)) {
+    // 拉不到 → 输入框自动展开；只有用户触发的拉取才抢焦点
+    p.manual = true
+    p.draft = curModel(kind)
+    if (shouldFocusManual(cause, r)) await nextTick().then(() => pmInputs[kind]?.focus())
+  } else p.manual = false // unauthorized / unreachable / not_configured / 有列表：保留下拉，靠刷新恢复
+}
+async function onPmSelect(kind: CatProviderKind, el: HTMLSelectElement) {
+  const v = el.value
+  if (v === '__manual') {
+    el.value = curModel(kind)
+    const p = pmOf(kind)
+    p.manual = true
+    p.draft = customNotInList(kind) ? curModel(kind) : ''
+    await nextTick()
+    pmInputs[kind]?.focus()
+    return
+  }
+  if (v === '__sep' || v === '__loading') return
+  await setAgent(kind, 'model', v)
+}
+async function commitManual(kind: CatProviderKind) {
+  const p = pmOf(kind)
+  if (!p.manual) return
+  const raw = p.draft
+  if (!raw.trim()) return // 空：不保存，保持输入框（失焦也不动）
+  const id = normalizeManualModelId(raw)
+  if (!id) {
+    notify(PM.manualInvalid, 'warn')
+    return
+  }
+  if (pmHasList(kind)) p.manual = false
+  if (id !== curModel(kind)) {
+    // 不在列表里的模型只接受空强度（6.19.20.2 ⑧）
+    const inList = (p.list?.models ?? []).some((m) => m.id === id)
+    if (!inList && catPanels.settings.defaultsByAgent[kind]?.effort) await setAgent(kind, 'effort', '')
+    await setAgent(kind, 'model', id)
+  }
+}
+function cancelManual(kind: CatProviderKind) {
+  const p = pmOf(kind)
+  if (!pmHasList(kind)) return
+  p.manual = false
+  p.draft = ''
 }
 
 function providerOf(kind: CatProviderKind): CatProviderSettings {
@@ -571,6 +747,8 @@ async function setProviderField(
   const ok = await saveSetting('providersByAgent', next)
   if (ok) flashAgent(`${kind}:${field === 'enabledCustom' ? 'custom' : field}`)
   else notify(C.saveFailed, 'warn')
+  // v0.46：打开开关 / 改地址或协议后自动重拉（用户触发，可抢焦点）
+  if (ok && cur.enabledCustom) void loadPm(kind, true, field === 'enabledCustom' ? 'toggle' : 'edit')
 }
 
 async function saveKey(kind: CatProviderKind) {
@@ -581,6 +759,7 @@ async function saveKey(kind: CatProviderKind) {
     keyDraft[kind] = ''
     const prev = { ...catPanels.settings.providersByAgent }
     catPanels.settings.providersByAgent = { ...prev, [kind]: { ...(prev[kind] ?? emptyProvider()), ...view, apiKeySet: true } }
+    if (customOn(kind)) void loadPm(kind, true, 'edit')
   } catch {
     notify(C.saveFailed, 'warn')
   }
@@ -609,6 +788,7 @@ async function doClearKey() {
       },
     }
     clearKeyKind.value = null
+    if (customOn(kind)) void loadPm(kind, true, 'edit')
   } catch {
     clearKeyKind.value = null
     notify(C.saveFailed, 'warn')
@@ -646,6 +826,8 @@ async function loadCaps() {
   ])
   if (capList.length) providerCaps.value = capList
   caps.loaded = true
+  // v0.46：进入设置页，自定义开着的家自动拉一次（不抢焦点）
+  for (const kind of CAT_PROVIDER_ORDER) if (customOn(kind)) void loadPm(kind, true, 'enter')
 }
 
 function agentReady(kind: CatProviderKind): boolean {
@@ -1019,6 +1201,67 @@ onMounted(async () => {
 
 <style scoped src="./catPanel.css"></style>
 <style scoped>
+/* v0.46 服务商模型列表 */
+.pm-refresh {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--cat-border);
+  border-radius: var(--cat-radius-md);
+  background: var(--cat-bg);
+  color: var(--cat-text-2);
+  cursor: pointer;
+  transition: border-color 120ms var(--ff-ease), background 120ms var(--ff-ease);
+}
+.pm-refresh:hover:not(:disabled) {
+  border-color: var(--cat-border-strong);
+  background: var(--cat-hover);
+}
+.pm-refresh:focus-visible {
+  outline: none;
+  box-shadow: var(--cat-focus);
+}
+.pm-refresh:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+.pm-refresh.spin :deep(svg) {
+  animation: pm-spin 0.9s linear infinite;
+}
+@keyframes pm-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pm-refresh.spin :deep(svg) {
+    animation-duration: 2.4s;
+  }
+}
+.pm-inp {
+  width: 180px;
+}
+.pm-err {
+  margin: -4px 0 6px;
+  text-align: right;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.pm-known {
+  margin: -4px 0 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--cat-muted);
+}
+.pm-err.danger {
+  color: var(--ff-danger);
+}
+.pm-err.muted {
+  color: var(--cat-muted);
+}
 .cs-tabs {
   display: flex;
   gap: 4px;

@@ -36,7 +36,7 @@ export type CatBlock =
       totalMs?: number
     }
   /** 浅灰系统行：已停止生成 / 未就绪 / 回复失败 */
-  | { kind: 'sys'; text: string; tone?: 'err'; outdated?: import('@/components/cat/catCliOutdated').CatCliOutdated }
+  | { kind: 'sys'; text: string; tone?: 'err'; outdated?: import('@/components/cat/catCliOutdated').CatCliOutdated; /** v0.46 服务商类失败（如 provider_responses_unsupported）：同 cli_outdated 的错误行样式 */ providerErr?: true }
 
 export interface CatConv {
   id: string
