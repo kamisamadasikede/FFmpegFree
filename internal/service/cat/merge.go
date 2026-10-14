@@ -3,16 +3,12 @@ package cat
 import (
 	"bytes"
 	"context"
-	"errors"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	"FFmpegFree/internal/apperr"
-	"FFmpegFree/internal/proc"
 )
 
 // 契约 v0.50（6.19.25）：主动合并分支 GitCatMerge。文案为产品定稿。
@@ -45,40 +41,9 @@ type GitCatMergeResult struct {
 	Files  []string `json:"files,omitempty"`
 }
 
-// gitMergeEnv：输出固定英文，便于识别；其余非交互变量 runGit 同款。
-var gitMergeEnv = []string{"LC_ALL=C", "LANG=C", "LANGUAGE="}
-
-// gitMergeRun 同 runGit（隐藏窗口、GIT_TERMINAL_PROMPT=0、GIT_MERGE_AUTOEDIT=no、GIT_EDITOR=true），另加 C 语言环境。
+// gitMergeRun 走 runGitEnv（隐藏窗口、GIT_TERMINAL_PROMPT=0、GIT_MERGE_AUTOEDIT=no、GIT_EDITOR=true）+ C 语言环境。
 func gitMergeRun(ctx context.Context, timeout time.Duration, dir string, args ...string) ([]byte, string, error) {
-	exe, err := exec.LookPath("git")
-	if err != nil {
-		return nil, "", errGitMissing()
-	}
-	cctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	cmd := exec.CommandContext(cctx, exe, args...)
-	cmd.Dir = dir
-	cmd.Env = append(gitMergeCmdEnv(), gitMergeEnv...)
-	proc.Configure(cmd)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err = cmd.Run()
-	errText := stderr.String()
-	if err != nil && errors.Is(cctx.Err(), context.DeadlineExceeded) && strings.TrimSpace(errText) == "" {
-		errText = "git timed out"
-	}
-	return stdout.Bytes(), errText, err
-}
-
-func gitMergeCmdEnv() []string {
-	return append(os.Environ(),
-		"GIT_TERMINAL_PROMPT=0",
-		"GCM_INTERACTIVE=never",
-		"GIT_MERGE_AUTOEDIT=no",
-		"GIT_EDITOR=true",
-		"EDITOR=true",
-	)
+	return runGitEnv(ctx, timeout, dir, gitCLocale, args...)
 }
 
 func errMergeFailed(raw string) error {

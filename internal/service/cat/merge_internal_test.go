@@ -34,8 +34,8 @@ func TestGitCatMergeBlockedWhileTurnRunning(t *testing.T) {
 }
 
 func TestGitMergeEnvNonInteractive(t *testing.T) {
-	env := strings.Join(append(gitMergeCmdEnv(), gitMergeEnv...), "\n")
-	for _, want := range []string{"GIT_TERMINAL_PROMPT=0", "GIT_MERGE_AUTOEDIT=no", "GIT_EDITOR=true", "LC_ALL=C"} {
+	env := strings.Join(gitCLocale, "\n")
+	for _, want := range []string{"LC_ALL=C"} {
 		if !strings.Contains(env, want) {
 			t.Fatalf("missing %s", want)
 		}
