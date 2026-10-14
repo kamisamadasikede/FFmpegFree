@@ -311,6 +311,38 @@ export async function getCatStatus(): Promise<CatStatus> {
   return mapCatStatus(await call(CatBinding.GetCatStatus()))
 }
 
+/** v0.48 6.19.12.11-1：上报主窗口键盘焦点（后端据此决定普通 turn 是否发系统通知）。失败静默。 */
+export async function setCatWindowFocused(focused: boolean): Promise<void> {
+  if (!live()) return
+  try { await CatBinding.SetCatWindowFocused(focused) } catch { /* 服务未就绪：忽略 */ }
+}
+
+export interface CatNotifyStatus { available: boolean; authorized: boolean }
+
+/** v0.48 6.19.12.11-5：系统通知是否可用 / 已授权；浏览器 / 出错 → null（不显示提示）。 */
+export async function getCatNotifyStatus(): Promise<CatNotifyStatus | null> {
+  if (!live()) return null
+  try {
+    const r = await CatBinding.GetCatNotifyStatus()
+    return { available: r?.available === true, authorized: r?.authorized === true }
+  } catch {
+    return null
+  }
+}
+
+/** 6.19.12.11-5 灰字：开关开且不可用 / 未授权时显示；其余返回空串。 */
+export function catNotifyHint(on: boolean, st: CatNotifyStatus | null, isMac: boolean): string {
+  if (!on || !st) return ''
+  if (st.available && st.authorized) return ''
+  if (isMac && st.available && !st.authorized) return CAT_NOTIFY_HINT.macDenied
+  return CAT_NOTIFY_HINT.unavailable
+}
+
+export const CAT_NOTIFY_HINT = {
+  macDenied: '系统没有允许 FFmpegFree 发通知，请到「系统设置 → 通知」里打开。',
+  unavailable: '这台电脑现在发不了系统通知。',
+} as const
+
 /** v0.47.1：RecheckCat(agentKind)。空 = 全部；传了只检该家（返回仍是全量 agents[]）。 */
 export async function recheckCat(agentKind: CatProviderKind | '' = ''): Promise<CatStatus> {
   if (!live()) return missingStatus()

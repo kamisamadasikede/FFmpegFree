@@ -45,6 +45,22 @@ func (s *CatService) GetCatStatus() (catagent.Status, error) {
 	return c.GetCatStatus(s.rootCtx())
 }
 
+// SetCatWindowFocused 前端上报主窗口键盘焦点（v0.48 6.19.12.11-1）；服务未就绪时忽略。
+func (s *CatService) SetCatWindowFocused(focused bool) {
+	if c, err := s.svc(); err == nil {
+		c.SetWindowFocused(focused)
+	}
+}
+
+// GetCatNotifyStatus 系统通知是否可用 / 已授权（v0.48 6.19.12.11-5）。
+func (s *CatService) GetCatNotifyStatus() (cat.NotifyStatus, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.NotifyStatus{}, err
+	}
+	return c.GetCatNotifyStatus(), nil
+}
+
 // RecheckCat 重新检测；agentKind 为空 = 全部（v0.47.1）。
 func (s *CatService) RecheckCat(agentKind string) (catagent.Status, error) {
 	c, err := s.svc()

@@ -145,7 +145,7 @@ export const CAT_SETTINGS_COPY = {
   typewriterDesc: '关闭后一段一段出现',
   convCard: '对话',
   notify: '完成后通知',
-  notifyDesc: '窗口不在前台时发系统通知，在前台时显示应用内提示',
+  notifyDesc: '窗口不在前台时发系统通知',
   history: '历史保留',
   later: '下一期开放。',
   clear: '清空全部对话',

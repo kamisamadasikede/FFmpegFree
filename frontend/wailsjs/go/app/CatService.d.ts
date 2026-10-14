@@ -90,6 +90,10 @@ export function ReadCatFile(arg1:cat.ReadFileRequest):Promise<cat.ReadFileResult
 
 export function RecheckCat(arg1:string):Promise<catagent.Status>;
 
+export function SetCatWindowFocused(arg1:boolean):Promise<void>;
+
+export function GetCatNotifyStatus():Promise<cat.NotifyStatus>;
+
 export function RelocateCatProject(arg1:cat.RelocateProjectRequest):Promise<cat.Project>;
 
 export function RenameCatProject(arg1:cat.RenameProjectRequest):Promise<cat.Project>;

@@ -93,7 +93,7 @@ import { AppError, toAppError } from '@/api/call'
 import { CAT_CLI_OUTDATED_COPY, parseCliOutdated } from '@/components/cat/catCliOutdated'
 import { isModelListStale, listCatProviderModels, providerFailureText, type CatProviderModelList } from '@/api/catProviderModels'
 import { isProviderKind, type CatProviderKind } from '@/api/catAgents'
-import { catPanels, showTurnFinishToast, defaultConvPref, dismissFailToast } from './catPanels'
+import { catPanels, defaultConvPref } from './catPanels'
 import { rememberNewConvProject, resolveNewConvProject } from './catLocalPrefs'
 import { catSim, catSimOs, catSimPicks, simAgentRaw, simStream, simDetectPayloads } from './catDevSim'
 import { DEFAULT_MODEL_LABEL, followsCliModel, FALLBACK_MODES, resolveModeId, mapAgentModes, mapBackendCaps, mapModelEfforts, getCatAgentCapabilities, modeMeta, pickSupported, setBackendCaps, useCatAgentCapabilities } from './catCapabilities'
@@ -1079,12 +1079,7 @@ function endTurn(convId: string, how: TurnEnd, token?: number, ev?: CatTurnEvent
     }
   }
   else if (how === 'not_ready') list.push({ kind: 'sys', text: catState.status.error?.message || CAT_COPY.notReady })
-  // v0.40：完成后通知 — 前台 toast；cancelled 不发；开关关则不发（系统通知由后端在后台发）
-  if (how === 'completed' || how === 'failed' || how === 'not_ready') {
-    const title = findConv(convId)?.conv.title || ''
-    const errText = how === 'completed' ? '' : ((how === 'failed' && providerFailureText(turn.failDetail)) || (turn.failMsg || '').trim() || (how === 'not_ready' ? (catState.status.error?.message || CAT_COPY.notReady) : CAT_COPY.replyFailed))
-    showTurnFinishToast(convId, how === 'completed' ? 'completed' : 'failed', title, errText)
-  }
+  // v0.48：完成 / 失败通知只走后端 OS 系统通知（6.19.12.11），这里不再弹应用内 toast
 }
 
 function fileChips(files: CatOutgoingFile[]): CatShownFile[] | undefined {
@@ -1285,7 +1280,6 @@ export async function retryLastMessage(): Promise<void> {
   // 6.19.18.7 第 6-7 条：没有 retryable 的失败轮就不该有按钮；不再退回「再发一条」
   if (!failedTurnId || catState.retry[id] !== 'can') return
   // 原地：去掉用户气泡之后的失败输出，用同一个气泡接新一轮；失败提示一并收起
-  dismissFailToast(id)
   const removed = list.splice(lastUser + 1)
   lastFailedTurn.delete(id)
   delete catState.retry[id]
