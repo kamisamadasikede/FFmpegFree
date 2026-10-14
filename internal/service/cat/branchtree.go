@@ -660,13 +660,21 @@ func (s *Service) GitCatCreateBranch(ctx context.Context, req GitCatCreateBranch
 	top := tc.lay.top
 	from, name := strings.TrimSpace(req.From), strings.TrimSpace(req.Name)
 	remote := false
+	fromCommit := false
 	switch {
 	case from != "" && treeRefExists(ctx, top, "refs/heads/"+from):
 	case from != "" && treeRefExists(ctx, top, "refs/remotes/"+from):
 		remote = true
+	case from != "" && treeRefExists(ctx, top, from):
+		// 完整 / 短 sha（6.19.28：从这里新建分支）
+		fromCommit = true
 	default:
+		if from != "" && hexQuery.MatchString(from) {
+			return CatBranchTree{}, errCommitNotFound()
+		}
 		return CatBranchTree{}, errTreeNotFound()
 	}
+	_ = fromCommit
 	if !treeValidName(ctx, top, name) {
 		return CatBranchTree{}, treeErr(apperr.InvalidArgument, MsgTreeInvalidName, "invalid_branch_name")
 	}
@@ -728,13 +736,22 @@ func (s *Service) GitCatCompareBranch(ctx context.Context, req GitCatCompareBran
 	top := tc.lay.top
 	b := strings.TrimSpace(req.Branch)
 	ref := "refs/heads/" + b
+	target := b
 	if req.Remote {
 		ref = "refs/remotes/" + b
+	} else if b != "" && !treeRefExists(ctx, top, ref) && treeRefExists(ctx, top, b) {
+		// 允许传 sha（6.19.28）；Target 回显短 sha
+		ref = b
+		if out, _, err := treeGit(ctx, gitStatusTimeout, top, "rev-parse", "--short", b); err == nil {
+			target = strings.TrimSpace(string(out))
+		}
+	} else if b != "" && !treeRefExists(ctx, top, ref) && hexQuery.MatchString(b) {
+		return CatBranchCompare{}, errCommitNotFound()
 	}
 	if b == "" || !treeRefExists(ctx, top, ref) {
 		return CatBranchCompare{}, errTreeNotFound()
 	}
-	res := CatBranchCompare{Target: b, OnlyInTarget: []CatBranchCommit{}, OnlyInCurrent: []CatBranchCommit{}, Files: []CatCompareFile{}}
+	res := CatBranchCompare{Target: target, OnlyInTarget: []CatBranchCommit{}, OnlyInCurrent: []CatBranchCommit{}, Files: []CatCompareFile{}}
 	res.Base = treeCurrent(ctx, top)
 	if res.Base == "" {
 		out, stderr, err := treeGit(ctx, gitStatusTimeout, top, "rev-parse", "--short", "HEAD")

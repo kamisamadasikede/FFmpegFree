@@ -1,6 +1,6 @@
 // Cat 流式拼装自检（api.check.ts 调用）：去重、乱序缓冲、缺口、replace、done、旧整段形状、cat:turn 归一。
 import { applyStreamEvent, newStreamMsg, normalizeMessageEvent, normalizeTurnEvent, type CatStreamEvent } from './catStream'
-import { CAT_COPY, mapCatStatus } from './cat'
+import { CAT_COPY, catTimeoutText, mapCatStatus } from './cat'
 
 type Eq = (name: string, got: unknown, want: unknown) => void
 
@@ -109,5 +109,10 @@ export function catStreamChecks(eq: Eq): void {
   eq('未知状态按 missing', mapCatStatus({ state: 'downloading' }).state, 'missing')
   eq('停止文案', CAT_COPY.stopped, '已停止生成。')
   eq('失败文案', CAT_COPY.replyFailed, '回复没生成出来，请重试。')
+  // v0.53.1：超时 reason → 专用文案
+  eq('idle_timeout 文案', catTimeoutText('reason=idle_timeout'), 'CLI 已经 10 分钟没有响应，已停止这一轮。')
+  eq('timeout 文案', catTimeoutText('reason=timeout\nagentKind=claude_cli'), '回复超时，已停止这一轮。')
+  eq('其他 reason 不换', catTimeoutText('reason=parse'), '')
+  eq('无 detail 不换', catTimeoutText(undefined), '')
   eq('未就绪文案', CAT_COPY.notReady, '未检测到 Cat 助手，请先安装并确保可在终端直接运行。')
 }

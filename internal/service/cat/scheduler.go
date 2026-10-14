@@ -12,6 +12,7 @@ import (
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/catagent"
+	"FFmpegFree/internal/i18n"
 	"FFmpegFree/internal/id"
 	"FFmpegFree/internal/store"
 )
@@ -485,25 +486,32 @@ func (s *Service) projectName(ctx context.Context, pid string) string {
 }
 
 // BuildNotification 拼通知文案：标题「定时任务已完成：<名称>」/「定时任务运行失败：<名称>」，
-// 正文「<项目> · 用时 X 分 X 秒。点这里打开对话。」（v0.35.1 / v0.35.3）。
+// 正文「<项目> · 用时 X 分 X 秒。点这里打开对话。」（v0.35.1 / v0.35.3；v0.54 走 i18n）。
 func BuildNotification(name, project string, r ScheduleRun, start, end time.Time) Notification {
-	word := "已完成"
-	if r.Status == RunFailed {
-		word = "运行失败"
-	}
 	d := end.Sub(start)
 	if d < 0 {
 		d = 0
 	}
 	sec := int(d.Round(time.Second) / time.Second)
-	body := fmt.Sprintf("用时 %d 分 %d 秒。", sec/60, sec%60)
+	minS := fmt.Sprintf("%d", sec/60)
+	secS := fmt.Sprintf("%d", sec%60)
+	params := map[string]string{"min": minS, "sec": secS}
+	var body string
 	if strings.TrimSpace(project) != "" {
-		body = project + " · " + body
+		params["project"] = project
+		body = i18n.T(i18n.KeyNotifyScheduleBodyProject, params)
+	} else {
+		body = i18n.T(i18n.KeyNotifyScheduleBody, params)
 	}
 	if r.ConversationID != "" {
-		body += "点这里打开对话。"
+		body += i18n.T(i18n.KeyNotifyScheduleOpenConv, nil)
 	}
-	return Notification{ID: r.ID, ScheduleID: r.ScheduleID, Title: "定时任务" + word + "：" + name, Body: body, ConvID: r.ConversationID}
+	titleKey := i18n.KeyNotifyScheduleDoneTitle
+	if r.Status == RunFailed {
+		titleKey = i18n.KeyNotifyScheduleFailedTitle
+	}
+	title := i18n.T(titleKey, map[string]string{"name": name})
+	return Notification{ID: r.ID, ScheduleID: r.ScheduleID, Title: title, Body: body, ConvID: r.ConversationID}
 }
 
 // OpenFromNotification 用户点了通知：定时仍走 cat:schedule；普通 turn 走 cat:notify（契约 6.19.12.10）。

@@ -360,3 +360,36 @@ func TestCancelValidation(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+// v0.53.1：无响应超时以适配器文案 + reason 为准，不被之前的 CLI 报错盖住；已流出的文字保留。
+func TestStreamIdleTimeoutReasonAndCopy(t *testing.T) {
+	svc, rec, conv := setupFake(t, func(o catagent.TurnOptions) (catagent.TurnResponse, error) {
+		if o.OnTextDelta != nil {
+			o.OnTextDelta("部分回复")
+		}
+		if o.OnError != nil {
+			o.OnError("stream disconnected, retrying")
+		}
+		return catagent.TurnResponse{}, apperr.New(apperr.CatReplyFailed, catagent.MsgIdleTimeout).WithDetail(catagent.ReasonIdleTimeout)
+	})
+	if _, err := svc.SendCatMessage(context.Background(), cat.SendMessageRequest{ConversationID: conv, Content: "hi"}); err != nil {
+		t.Fatal(err)
+	}
+	svc.Wait()
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	last := rec.turns[len(rec.turns)-1]
+	if last.Status != catagent.TurnFailed || last.Error == nil || last.Error.Message != catagent.MsgIdleTimeout || last.Error.Detail != catagent.ReasonIdleTimeout {
+		t.Fatalf("%+v", last.Error)
+	}
+	got := ""
+	for _, m := range rec.msgs {
+		got += m.TextDelta
+		if m.Block != nil {
+			got += m.Block.Text
+		}
+	}
+	if !strings.Contains(got, "部分回复") {
+		t.Fatalf("partial text lost: %q", got)
+	}
+}

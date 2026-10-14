@@ -10,7 +10,7 @@ export const CAT_BRANCH_COPY = {
   noUpstream: '没有远程分支',
   upstreamTitle: '远程分支（上游）',
   localTitle: '本地分支，点击切换',
-  detached: '分离 HEAD',
+  detached: '未在分支上',
   remoteSection: '远程分支',
   openFolder: '在文件管理器中打开',
   dirty: '有未提交的改动，请先提交或暂存，再切换分支。',
@@ -53,8 +53,10 @@ export function mapCatBranches(raw: unknown): CatBranches {
 }
 
 /** 仅 vite dev + ?cat_sim=branchbar|branchlong|branchfail 的纯浏览器走查；正式包 DEV=false 整段不走 */
-const devSim = () => import.meta.env.DEV && typeof window !== 'undefined' && !(window as unknown as { go?: unknown }).go && (catSim.has('branchbar') || catSim.has('branchlong') || catSim.has('branchfail') || [...catSim].some((f) => f.startsWith('btree')))
-let simBranch = [...catSim].some((f) => f.startsWith('btree')) ? 'feat/cat-footer-branch' : 'feat/cat-footer-branch-v049-with-a-really-long-name'
+const mergeSim = () => catSim.has('mergeok') || catSim.has('mergeuptodate') || catSim.has('mergeconflict') || catSim.has('mergedirty') || catSim.has('mergefail')
+const btreeSim = () => [...catSim].some((f) => f.startsWith('btree'))
+const devSim = () => import.meta.env.DEV && typeof window !== 'undefined' && !(window as unknown as { go?: unknown }).go && (catSim.has('branchbar') || catSim.has('branchlong') || catSim.has('branchfail') || mergeSim() || btreeSim())
+let simBranch = btreeSim() ? 'feat/cat-footer-branch' : 'feat/cat-footer-branch-v049-with-a-really-long-name' 
 function simList(): CatBranches {
   return mapCatBranches({
     root: catSim.has('branchlong') ? 'D:\\Work\\2026\\客户交付\\婚礼剪辑\\第二季\\字幕项目' : 'D:\\Work\\字幕项目',
@@ -142,4 +144,130 @@ export function catBranchErrorText(e: unknown): string {
   if (err.code === 'TASK_CONFLICT' && err.reason === 'turn_running') return CAT_BRANCH_COPY.running
   if (err.code === 'NOT_FOUND' && err.reason === 'branch_not_found') return CAT_BRANCH_COPY.notFound
   return catBranchError(e).text
+}
+
+// ---------------------------------------------------------------------------
+// v0.50 合并到当前分支（GitCatMerge(convId, branch)）。
+// 契约 6.19.25；后端绑定未合入前 callService 按名字找不到会抛 UNSUPPORTED（走「合并失败」）。
+// ---------------------------------------------------------------------------
+
+export const CAT_MERGE_COPY = {
+  entry: '合并到当前分支…',
+  title: (cur: string) => `把哪个分支合并到 ${cur}？`,
+  localGroup: '本地分支',
+  remoteGroup: '远程分支',
+  ok: '合并',
+  cancel: '取消',
+  merged: (b: string, cur: string) => `已把 ${b} 合并到 ${cur}`,
+  upToDate: '已经是最新，没有需要合并的内容。',
+  conflict: (n: number) => `有 ${n} 个文件冲突，请逐个处理。`,
+  dirty: '有未提交的改动，请先提交或暂存，再合并。',
+  running: '正在回复，等这一轮结束再合并。',
+  merging: '上一次合并还没完成，请先处理完冲突，或放弃这次合并。',
+  notRepo: '这个文件夹不是 Git 仓库。',
+  notFound: '找不到这个分支，可能已被删除。',
+  sameBranch: '不能把分支合并到它自己。',
+  failed: '合并失败，请重试。',
+  detail: '查看详情',
+} as const
+
+/** 走查 mergeconflict / 侧栏冲突共用同一份路径，toast「有 n 个」与侧栏计数同源 */
+export const CAT_MERGE_CONFLICT_SIM_FILES = ['src/timeline.ts', '第3集/第3集.srt'] as const
+
+export type CatMergeStatus = 'merged' | 'up_to_date' | 'conflict'
+export interface CatMergeResult {
+  status: CatMergeStatus
+  /** 冲突文件数 = files.length（status=conflict） */
+  conflicts: number
+  /** conflict：未合并路径（相对对话根，排序） */
+  files: string[]
+  /** merged / up_to_date：合并后 HEAD sha */
+  head: string
+}
+
+/** 契约 6.19.25 GitCatMergeResult：{ status: 'merged'|'up_to_date'|'conflict', head?, files?: string[] }；n = files.length */
+export function mapCatMergeResult(raw: unknown): CatMergeResult {
+  const r = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
+  const files = strs(r.files)
+  const s = str(r.status)
+  if (s === 'conflict') return { status: 'conflict', conflicts: files.length, files, head: '' }
+  if (s === 'up_to_date') return { status: 'up_to_date', conflicts: 0, files: [], head: str(r.head) }
+  return { status: 'merged', conflicts: 0, files: [], head: str(r.head) }
+}
+
+export type CatMergeBlock = 'dirty' | 'running' | 'merging' | 'notRepo' | 'notFound' | 'sameBranch'
+export interface CatMergeError {
+  kind: CatMergeBlock | 'failed'
+  text: string
+  /** 只有 failed 带原始报错，进「查看详情」 */
+  raw: string
+}
+
+const MERGE_BLOCK_TEXT: Record<CatMergeBlock, string> = { dirty: CAT_MERGE_COPY.dirty, running: CAT_MERGE_COPY.running, merging: CAT_MERGE_COPY.merging, notRepo: CAT_MERGE_COPY.notRepo, notFound: CAT_MERGE_COPY.notFound, sameBranch: CAT_MERGE_COPY.sameBranch }
+export function catMergeBlock(kind: CatMergeBlock): CatMergeError {
+  return { kind, text: MERGE_BLOCK_TEXT[kind], raw: '' }
+}
+
+/**
+ * 契约 6.19.25 + 6.19.25.1 错误（2.2）：TASK_CONFLICT reason=git_dirty / turn_running / merge_in_progress 给对应文案、不带详情；
+ * NOT_FOUND branch_not_found / 非仓库 / 同一分支给产品文案（不带详情）；其余（INVALID_ARGUMENT git_failed 等）「合并失败，请重试。」+ 详情。
+ * 前端兜底：原文含 would be overwritten 也归 git_dirty（后端同样归类）。
+ */
+export function catMergeError(e: unknown): CatMergeError {
+  const err = toAppError(e)
+  if (err.code === 'TASK_CONFLICT' && err.reason === 'git_dirty') return catMergeBlock('dirty')
+  if (err.code === 'TASK_CONFLICT' && err.reason === 'turn_running') return catMergeBlock('running')
+  if (err.code === 'TASK_CONFLICT' && err.reason === 'merge_in_progress') return catMergeBlock('merging')
+  if (err.code === 'NOT_FOUND' && err.reason === 'branch_not_found') return catMergeBlock('notFound')
+  // 6.19.25.1：not_git_repo / same_branch（INVALID_ARGUMENT），不带详情；前端下拉也已排除当前分支
+  if (err.code === 'INVALID_ARGUMENT' && err.reason === 'not_git_repo') return catMergeBlock('notRepo')
+  if (err.code === 'INVALID_ARGUMENT' && err.reason === 'same_branch') return catMergeBlock('sameBranch')
+  if (/would be overwritten/i.test(`${err.message ?? ''}\n${err.detail ?? ''}`)) return catMergeBlock('dirty')
+  // detail 首行是 reason=…，第二行起是 git 原始 stderr
+  const detail = (err.detail ?? '').replace(/^reason=[A-Za-z0-9_-]+[^\n]*\n?/, '')
+  const raw = [err.message, detail].filter((x) => !!x && x.trim()).join('\n')
+  return { kind: 'failed', text: CAT_MERGE_COPY.failed, raw }
+}
+
+/** 弹窗里可选的分支：本地 / 远程两组，当前分支不出现。id 用 L:/R: 前缀 */
+export function mergeOptions(b: CatBranches): CatSelectOption[] {
+  const locals = b.locals.filter((n) => n !== b.branch)
+  const remotes = b.remotes
+  const out: CatSelectOption[] = []
+  if (locals.length) {
+    out.push({ id: 'H:local', label: CAT_MERGE_COPY.localGroup, disabled: true, header: true })
+    for (const n of locals) out.push({ id: 'L:' + n, label: n })
+  }
+  if (remotes.length) {
+    out.push({ id: 'H:remote', label: CAT_MERGE_COPY.remoteGroup, disabled: true, header: true, divided: out.length > 0 })
+    for (const n of remotes) out.push({ id: 'R:' + n, label: n })
+  }
+  return out
+}
+
+/** 默认选中第一个本地分支；没有本地就第一个远程 */
+export function defaultMergeOption(opts: CatSelectOption[]): string {
+  return (opts.find((o) => o.id.startsWith('L:')) ?? opts.find((o) => o.id.startsWith('R:')))?.id ?? ''
+}
+
+/** 底栏下拉最底下的入口项 id */
+export const MERGE_ENTRY_ID = 'M:merge'
+export function mergeEntryOption(b: CatBranches): CatSelectOption {
+  return { id: MERGE_ENTRY_ID, label: CAT_MERGE_COPY.entry, icon: 'merge', divided: true, disabled: mergeOptions(b).length === 0 }
+}
+
+/** 走查：?cat_sim=mergeok/... 同时给底栏一份分支（等同 branchbar） */
+export const catMergeSimOn = (): boolean =>
+  import.meta.env.DEV && typeof window !== 'undefined' && !(window as unknown as { go?: unknown }).go && mergeSim()
+
+export async function mergeCatBranch(convId: string, branch: string, remote = false): Promise<CatMergeResult> {
+  if (catMergeSimOn()) {
+    await new Promise((r) => setTimeout(r, catSim.has('mergeok') ? 1200 : 600))
+    if (catSim.has('mergedirty')) throw new AppError('TASK_CONFLICT', 'git merge 被拦下', 'reason=git_dirty')
+    if (catSim.has('mergefail')) throw new AppError('INVALID_ARGUMENT', 'git merge 失败', `reason=git_failed\nfatal: refusing to merge unrelated histories\nerror: could not merge ${branch}`)
+    if (catSim.has('mergeconflict')) return mapCatMergeResult({ status: 'conflict', files: [...CAT_MERGE_CONFLICT_SIM_FILES] })
+    if (catSim.has('mergeuptodate')) return mapCatMergeResult({ status: 'up_to_date' })
+    return mapCatMergeResult({ status: 'merged' })
+  }
+  return mapCatMergeResult(await callService<unknown>('CatService', 'GitCatMerge', { convId, branch, remote }))
 }

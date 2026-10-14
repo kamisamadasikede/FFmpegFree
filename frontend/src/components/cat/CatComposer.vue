@@ -46,6 +46,17 @@
       </template>
     </div>
     <CatBranchTree v-if="btreeOn && convId" :open="btreeOpen" :conv-id="convId" :anchor="btreeAnchor ?? null" @close="btreeOpen = false" @changed="loadBranches" />
+    <CatMergeDialog
+      v-if="!welcome && br.repo"
+      :open="mergeOpen"
+      :conv-id="convId"
+      :branches="br"
+      :running="running"
+      :merge-state="catGitUi.status?.mergeState"
+      :preset="mergePreset"
+      @close="onMergeClose"
+      @done="onMerged"
+    />
     <div v-if="!welcome && brErr" class="ctx-err" role="alert" data-testid="cat-ctx-branch-err">
       <div class="ctx-err-line">
         <FIcon name="warn" :size="13" /><span>{{ brErr.text }}</span>
@@ -323,8 +334,12 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import CatModeSelect from '@/components/cat/panels/CatModeSelect.vue'
 import CatRawDetail from './CatRawDetail.vue'
 import CatBranchTree from './CatBranchTree.vue'
-import { branchTreeAvailable } from '@/api/catBranchTree'
-import { branchOptions, CAT_BRANCH_COPY as BC, catBranchError, listCatBranches, mapCatBranches, pathEllipsis, parseBranchOption, switchCatBranch, type CatBranches } from '@/api/catBranches'
+import CatMergeDialog from './CatMergeDialog.vue'
+import { branchRef, branchTreeAvailable, setCatBranchMergeHandler } from '@/api/catBranchTree'
+import { catGitUi } from './catGitUi'
+import { rightCollapsed } from '@/views/cat/catLayout'
+import { branchOptions, CAT_BRANCH_COPY as BC, catBranchError, listCatBranches, mapCatBranches, CAT_MERGE_COPY as MC, MERGE_ENTRY_ID, mergeEntryOption, type CatMergeResult, pathEllipsis, parseBranchOption, switchCatBranch, type CatBranches } from '@/api/catBranches'
+
 import { revealCatConversationFolder } from '@/api/catFiles'
 import FIcon from '@/components/icon/FIcon.vue'
 import CatContextRing from '@/components/cat/CatContextRing.vue'
@@ -383,7 +398,23 @@ const btreeOpen = ref(false)
 const btreeAnchor = ref<HTMLButtonElement>()
 watch(() => props.convId, () => { btreeOpen.value = false })
 let brSeq = 0
-const brOpts = computed(() => branchOptions(br.value))
+const brOpts = computed(() => [...branchOptions(br.value), mergeEntryOption(br.value)])
+/** v0.50 合并到当前分支 */
+const mergeOpen = ref(false)
+/** 分支树右键「合并到当前分支」预先选好的分支；底栏入口为 null */
+const mergePreset = ref<{ branch: string; remote: boolean } | null>(null)
+function onMergeClose() {
+  mergeOpen.value = false
+  mergePreset.value = null
+}
+onMounted(() => {
+  setCatBranchMergeHandler((_convId, branch) => {
+    // 远程：mergeOptions 的 id 是 R:<remote>/<name>，与 ListCatBranches.remotes 一致
+    mergePreset.value = branch ? { branch: branchRef(branch), remote: !!branch.remote } : null
+    mergeOpen.value = true
+  })
+})
+onBeforeUnmount(() => setCatBranchMergeHandler(null))
 const folderFull = computed(() => br.value.root)
 const folderLabel = computed(() => (props.isProject || !br.value.root ? props.ctxName : pathEllipsis(br.value.root)))
 const tipId = `ctx-tip-${Math.random().toString(36).slice(2, 8)}`
@@ -415,7 +446,28 @@ async function openFolder() {
     ElMessage.warning(BC.openFailed)
   }
 }
+async function onMerged(r: CatMergeResult, branch: string) {
+  mergeOpen.value = false
+  mergePreset.value = null
+  const cur = br.value.branch || (br.value.detached ? BC.detached : 'HEAD')
+  if (r.status === 'conflict') {
+    ElMessage.warning(MC.conflict(r.conflicts))
+    rightCollapsed.value = false
+    catGitUi.conflictNav++
+  } else if (r.status === 'up_to_date') {
+    ElMessage.info(MC.upToDate)
+    catGitUi.gitRefresh++
+  } else {
+    ElMessage.success(MC.merged(branch, cur))
+    catGitUi.gitRefresh++
+  }
+  void loadBranches()
+}
 async function onPickBranch(id: string) {
+  if (id === MERGE_ENTRY_ID) {
+    if (props.convId && !props.missing) { mergePreset.value = null; mergeOpen.value = true }
+    return
+  }
   const p = parseBranchOption(id)
   if (!p || !props.convId || props.running || switching.value) return
   if (!p.remote && p.branch === br.value.branch) return
