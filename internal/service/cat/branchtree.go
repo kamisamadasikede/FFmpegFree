@@ -33,17 +33,17 @@ const (
 	branchCompareMax    = 200
 )
 
-// 文案：6.19.24 / 6.19.25 已定的照抄；其余为契约 6.19.26.5 的 TBD（待产品），先用占位（前端按 reason 出最终文案）。
+// 文案：契约 v0.51.1 6.19.26.5 / 6.19.25 定稿照抄。is_current / git_failed 契约只走前端通用失败 +「查看详情」，message 仅兜底。
 const (
 	MsgTreeTurnRunning    = "正在回复，等这一轮结束再切换分支。"
 	MsgTreeDirty          = "有未提交的改动，请先提交或暂存，再切换分支。"
 	MsgTreeNotRepo        = "这个文件夹不是 Git 仓库。"
 	MsgTreeBranchNotFound = "找不到这个分支，可能已被删除。"
-	MsgTreeBranchExists   = "已经有同名分支了。"                    // TBD（待产品）：取自产品群里新建弹窗的重名提示
-	MsgTreeInvalidName    = "分支名不能用。"                       // TBD（待产品）：占位
-	MsgTreeNotMerged      = "这个分支有还没合并的提交，删除后可能找不回来。" // TBD（待产品）：取自产品群里的删除确认红字
-	MsgTreeIsCurrent      = "不能删除当前分支"                      // TBD（待产品）：取自产品群里的置灰悬停提示
-	MsgTreeGitFailed      = "操作失败，请重试。"                     // TBD（待产品）：占位
+	MsgTreeBranchExists   = "已经有同名分支了。"
+	MsgTreeInvalidName    = "分支名不能包含空格或 ~ ^ : ? * [ \\ 这些字符。"
+	MsgTreeNotMerged      = "这个分支有还没合并的提交，删除后可能找不回来。"
+	MsgTreeIsCurrent      = "不能删除当前分支"
+	MsgTreeGitFailed      = "操作失败，请重试。"
 )
 
 // CatBranchCommit 是一个提交的摘要。
@@ -80,6 +80,7 @@ type CatBranchTree struct {
 	FetchedAt  int64            `json:"fetchedAt"` // 该仓库上次 fetch 成功时间（unix 秒），0=从未
 	Fetching   bool             `json:"fetching"`
 	FetchError string           `json:"fetchError,omitempty"` // 上次 fetch 失败的原始 stderr（截 4 KiB）
+	NoCommits  bool             `json:"noCommits"`            // v0.51.1：仓库还没有任何提交，此时 groups 为空
 }
 
 // CatBranchCompare 是当前分支与目标分支的比较。
@@ -433,6 +434,10 @@ func (s *Service) buildTree(ctx context.Context, tc treeCtx) (CatBranchTree, err
 	tree.Fetching, tree.FetchError = st.running, st.errText
 	s.btree.mu.Unlock()
 
+	if !treeRefExists(ctx, top, "HEAD") {
+		tree.NoCommits = true
+		return tree, nil
+	}
 	cur := treeCurrent(ctx, top)
 	tree.Detached = cur == ""
 	remotes, err := treeRemotes(ctx, top)
@@ -883,8 +888,6 @@ func (s *Service) GitCatDeleteBranch(ctx context.Context, req GitCatDeleteBranch
 	})
 	return s.buildTree(ctx, tc)
 }
-
-
 
 func (s *Service) recordCheckoutOnSuccess(ctx context.Context, convID string, err *error) {
 	if *err == nil {
