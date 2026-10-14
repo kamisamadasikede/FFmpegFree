@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.42）
+# FFmpegFree v2 接口契约（v0.43）
+
+v0.43 变更（**CLI 版本过旧 + 参数核对规则**，架构师 10-14；完整规则见 **6.19.17**；**无新错误码，2.1 仍是 39 个**；无迁移 / 事件 / 开关）：① 旧版 CLI 不认参数 → `CAT_REPLY_FAILED`，`detail` 带 `reason="cli_outdated"`、`cliVersion`、`raw`；行内文案「<CLI名> CLI 版本过旧，请升级后重试。」+ 灰字「当前版本 <cliVersion>」（空则隐藏）+「重试」+「查看详情」；无升级按钮；重试按当前版本重生成参数，版本缓存键 = 路径 + mtime。② 所有 CLI 参数须对照真实 `--help`（含子命令）或官方文档核对；每家维护「版本 → 参数」兼容表并注明来源。
 
 v0.42 变更（**办公画布组件：PPT 实时预览 + 导出**，缺口对照 v0.1 P0-3 路线 A + 产品口径锁 v0.42，架构师 10-14；完整规则见 **6.19.16**；**无新错误码，2.1 仍是 39 个**——复用既有 `LANG_DOWNLOAD_FAILED` / `LANG_CHECKSUM_FAILED` 或文档组件同类码的模式时，若实现选择新码须另开契约修订；**本期契约约定复用下载失败/校验失败的既有码族或 `INTERNAL`+中文 message，不扩 2.1**；新事件 `office:canvas` / `office:canvas-progress`；无迁移；无新开关）：① **可下载「办公画布组件」**（对齐文档组件 / 语音识别组件状态机：checking/ready/missing/downloading/preparing/failed）。主安装包**只含**薄 UI + 下载态机 + 编排，**不**捆绑 OnlyOffice / LibreOffice 作为实时画布。② **Cat 对话**出现演示文稿工具卡 → 无组件时出下载卡（文案产品锁定）→ 有组件后右侧/弹层**逐页实时预览**（≥1 页即刷；验收 ≥3 页）→ **导出 PPTX**。③ **路线 A**：声明式 IR（JSON 幻灯片树）+ Web 预览壳 + 组件内 PptxGenJS/等价导出；适配器协议草图见 6.19.16.4。④ **降级**：无组件**不**静默失败、**不**用 LibreOffice PDF 冒充实时画布。⑤ **另立**：OnlyOffice 重型组件；通用 HTML artifact（可后续同专节扩）。⑥ **不做**：把办公画布打进主包；改 v0.40/v0.41 已交付项。
 
@@ -5326,6 +5328,37 @@ type ExportOfficeCanvasPptxResult struct {
 **v0.41 补充验收**：① 冲突列出 → 采用当前/传入/双方或手改 → 完成合并；可中止。② 脏切分支出确认。③ 不回退现网 Git 写操作。
 
 **v0.42 补充验收**：下载办公画布组件后，对话生成 ≥3 页可逐页预览并导出 pptx；无组件时必出下载卡。
+
+
+### 6.19.17 CLI 版本过旧 + 参数核对规则（v0.43）
+
+#### 6.19.17.1 版本过旧失败（grok / claude / codex 通用）
+
+1. CLI 因版本过旧不认我们传的参数（如 unexpected argument / invalid choice）时，该轮 `cat:turn` → `failed`，**复用既有错误码 `CAT_REPLY_FAILED`，不加新码（2.1 仍是 39 个）**。
+2. `detail` 字段（字段名锁定）：
+   - `reason="cli_outdated"`
+   - `cliVersion`：检测到的版本字符串（检测不到为空串 `""`）
+   - `raw`：CLI 原始 stderr
+3. 文案：主文「`<CLI名>` CLI 版本过旧，请升级后重试。」（CLI名 = `Grok` / `Claude` / `Codex`）。
+4. 渲染：与现有行内错误同样式，出现在该条消息下方；主文下一行灰色小号「当前版本 `<cliVersion>`」，**`cliVersion` 为空时隐藏这一行**（主文照常显示）；次按钮「重试」；`raw` 收进「查看详情」折叠，默认不展开。**不提供升级按钮。**
+5. 重试：可重试。重发同一条消息，但参数**按当前检测到的版本重新生成**。版本缓存键 = 可执行文件路径 + mtime，用户升级 CLI 后点重试即重新检测，**无需重启应用**。
+
+#### 6.19.17.2 参数核对规则（硬规则）
+
+1. 每个传给 CLI 的参数，必须对照**该 CLI 真实 `--help`**（含 `exec` / `resume` / `exec resume` 等子命令各自的 help）或官方文档核对；未核对的标 GUESS，不得合入当作交付。
+2. 实现 PR 须附参数对照表，单测用 help 快照做白名单断言。
+3. 每家维护「版本 → 参数」兼容表，每行必须写来源（help 快照 / changelog 链接）。
+
+#### 6.19.17.3 版本 → 参数兼容表（骨架）
+
+| CLI | 版本 | 参数 | 取值 / 映射 | 来源 | 状态 |
+|---|---|---|---|---|---|
+| claude | 2.1.296 | `--permission-mode` | acceptEdits / auto / bypassPermissions / manual / dontAsk / plan；普通 → `manual` | 真机 `claude --help`（10-14） | 已确认（help） |
+| claude | 更旧版本（分界版本待定） | `--permission-mode` | 普通 → `default` | 待后端引 changelog | GUESS |
+| codex | codex-cli 0.162.1 | `exec` / `exec resume` | **不认** `--ask-for-approval` / `-a`；映射同 PR #249 / A5-codex：全部批准 → `--dangerously-bypass-approvals-and-sandbox`；自动审查 → exec `--sandbox workspace-write -c approval_policy="never"`，resume `-c sandbox_mode="workspace-write" -c approval_policy="never"`；普通 / Plan → 同上 `read-only`；resume 不认 `--sandbox` / `-C` | 真机 `codex exec --help` / `codex exec resume --help`（10-14） | 已确认（help） |
+| grok | 待填 | 待填 | 待填 | 待后端对 `grok --help` | GUESS |
+
+**v0.43 补充验收**：旧版 CLI 出「版本过旧」行内错误 + 灰字版本号（无版本时隐藏）+ 重试；升级后点重试不重启即成功。
 
 
 ## 7. 本地流服务（已取消）
