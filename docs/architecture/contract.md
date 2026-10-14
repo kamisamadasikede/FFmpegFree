@@ -5946,6 +5946,117 @@ ListCatProviderModels(req ListCatProviderModelsRequest) (CatProviderModelList, e
 6. 真机：Claude、Codex 用自定义网关各完成一轮对话；Grok 先验「能列模型」，对话一轮按 C1 结论再定。
 
 
+## 6.20 多语言切换（v0.54，全应用；老板 10-14 提出，架构师 10-14）
+
+范围：全应用（不只是 Cat）所有前端写死的文案、后端返回给用户看的提示都支持 **简体中文 `zh-CN`（默认）/ English `en` / 日本語 `ja`**；设置页加「语言」。原始 CLI / git / ffmpeg 输出**不翻译**，照原样放在「查看详情」里。
+
+### 6.20.1 现状盘点（v2 `1c89fa6`，排除注释行；`rg '[\p{Han}]'`）
+- **前端**：`vue-i18n` **未引入**（`package.json` 只有 `vue ^3.5.13`），没有任何 locale / `Intl` 封装。`frontend/src` 含中文的 .vue/.ts 共 304 个文件、8656 行；去掉测试（`*.check.ts`，约 2024 行）、mock / 模拟数据（`*Mock*`、`sim.ts`、`catDevSim.ts`）和注释后，**生产代码 171 个文件、约 2807 行**：
+
+| 区域 | 行数 | 文件数 | 主要文件 |
+|---|---|---|---|
+| Cat（`*cat*`/`*Cat*`） | 781 | 46 | `views/cat/catState.ts`、`api/cat.ts`（`CAT_COPY`）、`api/catSettings.ts`、`api/catSchedules.ts`、`api/catProjects.ts`、`api/catGit.ts`、`components/cat/CatComposer.vue`、`views/cat/CatPage.vue` |
+| 文档 / 办公（doc/Office/PDF） | 590 | 27 | `api/doc.ts`、`api/docV26.ts`、`api/docV27.ts`、`utils/docV26Text.ts`、`utils/docV27Text.ts`、`stores/docConvert.ts`、`views/OfficeConvert.vue`、`api/officeCanvas.ts` |
+| 转换（convert/Kid） | 485 | 18 | `stores/convertRecords.ts`、`utils/convertV24Text.ts`、`utils/convertText.ts`、`views/ConvertPage.vue`、`components/convert/ConvertKid.vue` |
+| 直播 / 推拉流（live） | 251 | 22 | `api/live.ts`、`errors/livePreviewMessages.ts`、`components/live/LivePlayer.vue` |
+| 错误文案（`errors/`） | 238 | 3 | `errors/errorMessages.ts`（code/reason → 文案的总表） |
+| 任务中心（task） | 158 | 4 | `views/TaskCenter.vue`、`stores/tasks.ts` |
+| JSON 工具 | 66 | 5 | `views/JsonTools.vue`、`utils/monacoJson.ts` |
+| 语音 | 54 | 3 | `views/voice/VoicePage.vue`、`components/voice/*` |
+| 其他公共（设置、关于、登录、ffmpeg 横幅/安装、格式化） | 约 184 | 约 43 | `views/Settings.vue`(38)、`views/LoginView.vue`、`components/ffmpeg/FFmpegBanner.vue`、`FFmpegInstallDialog.vue`、`components/settings/*Panel.vue`、`views/About.vue`、`utils/langText.ts`、`utils/format.ts`、`config/about.ts` |
+
+已有的文案集中点：`errors/errorMessages.ts`、`api/cat.ts` 的 `CAT_COPY`、各 `utils/*Text.ts`。迁移时**先迁这些表**，再迁散落在模板里的字符串。已有检查脚本：`scripts/check-api.mjs`、`check-copy-words.mjs`、`check-json-text.mjs`、`check-ffmpeg.mjs`。
+- **后端 Go**：255 个非测试文件含中文（共 6550 行，大部分是注释），**中文字符串字面量约 1572 行**。字面量最多的：`internal/service/convert/records.go`、`internal/service/cat/service.go`、`internal/task/manager.go`、`internal/service/system/ffmpeg.go`、`internal/catagent/build_adapter.go`、`internal/service/live/service.go`、`internal/service/doc/docconvert.go`、`app.go`。`internal/apperr` 已有稳定 `Code` + `reason`（第 2 节），另有 `usertext_test.go`，说明后端目前也会返回中文 `message`。
+- **只能后端产生的文案**：
+  - 系统通知：`internal/service/cat/scheduler.go:506` 拼 `"定时任务" + word + "：" + name`，`app_cat_schedule.go` 调 `wruntime.SendNotification`。
+  - 原生对话框：`app/system_service.go` 里 `OpenFileDialog` 标题「选择文件」、`MessageDialog` 标题「确认替换」及按钮、`OpenDirectoryDialog` 的 `title` 参数。
+  - 窗口标题：`main.go` `Title: "FFmpegFree"`（产品名，不翻译）。
+  - 托盘 / 应用菜单：当前代码**没有**托盘或 `menu.NewMenu`；以后加时必须走 6.20.3 的目录。
+  - **后端写库的任务标题**：`internal/service/system/install.go`「安装转换组件」、`live/service.go`「文件推流：…」、`live/screen.go`「屏幕推流：…」、`cat/browser.go` 页面标题「图片」等。这些是**持久化**的展示文本，见 6.20.3 规则 4。
+
+### 6.20.2 前端
+- **库**：`vue-i18n@^10`，`createI18n({ legacy: false, globalInjection: true, locale, fallbackLocale: 'zh-CN', missingWarn: dev, fallbackWarn: false })`，组件里只用 `useI18n()` / `t()`；非组件代码（store、api、utils）用 `src/i18n/index.ts` 导出的 `i18n.global.t`。
+- **文件**：`frontend/src/locales/{zh-CN,en,ja}.json`，顶层按模块命名空间：`common`、`settings`、`errors`、`cat`、`convert`、`live`、`edit`、`task`、`doc`、`json`、`voice`、`ffmpeg`、`about`、`login`。单个文件超过 3000 行时可拆成 `locales/<lang>/<ns>.json`，由 `src/i18n/index.ts` 合并，key 不变。
+- **key 规范**：`<ns>.<区域>.<含义>`，全小写 camelCase，按用途而不是按中文命名（✓ `cat.branch.switchFailed`，✗ `cat.qieHuanShiBai`）。插值用具名参数 `{branch}`、`{n}`；复数用 vue-i18n 的 `|` 语法（英文需要，中日只写一种）。错误文案 key 固定为 `errors.<CODE>` 和 `errors.<CODE>.<reason>`（如 `errors.TASK_CONFLICT.git_dirty`），与第 2 节一一对应。
+- **源语言**：`zh-CN.json` 是唯一事实来源；新加文案先写 zh-CN，en / ja 同 PR 补齐（可先放草稿，待审 key 列在 `locales/review.todo.json`）。缺 key 时回退 zh-CN，开发模式控制台警告。
+- **检查脚本** `scripts/check-i18n.mjs`，挂进 `check:api`（任一失败即退出非 0）：
+  1. `src/**/*.{vue,ts}` 中出现 CJK 字面量（含模板文本、属性、TS 字符串、模板字符串）即失败；忽略注释。白名单：`src/locales/**`、`*.check.ts`、`*Mock*`/`sim.ts`/`catDevSim.ts`、`views/dev/**`、以及 `scripts/i18n-allow.json` 里逐行列出的例外（如语言选项的原生名「简体中文」「日本語」、用户内容样例、正则里的 CJK 字符类）。
+  2. 三个 locale 的 key 集合必须完全相同；插值参数名集合必须相同。
+  3. 代码里 `t('…')` 用到的字面量 key 必须在 zh-CN 中存在（动态 key 只允许 `errors.` 前缀）。
+  4. `check-copy-words.mjs` 的禁用词检查改为对 `zh-CN.json` 跑。
+  阶段 B 完成前，规则 1 只对已迁移目录（`scripts/i18n-scope.json`）生效，B 结束后改成全量。
+- **日期 / 数字 / 大小 / 时长**：统一走 `src/i18n/format.ts`（`Intl.DateTimeFormat` / `Intl.NumberFormat` / `Intl.RelativeTimeFormat`，locale 取当前语言），替换 `utils/format.ts` 里写死的「刚刚」「分钟前」「yyyy年」等。文件大小单位 KB/MB 不翻译。
+- **当前语言**：`stores/language.ts` 保存 `{ setting, effective }`；启动时 `GetAppLanguage()` 后再 `app.mount`（避免先闪中文）；监听 `app:language` 事件后设 `i18n.global.locale.value` 和 `<html lang>`，**不刷新页面**。
+- **后端提示的显示规则**：前端优先按 `code`/`reason` 查 `errors.*`，用 `params` 插值；查不到才显示后端 `message`（兜底）。原始输出放「查看详情」不翻译。
+
+### 6.20.3 后端
+1. **错误**：沿用 `apperr` 的 `code` + `reason`，新增可选 `params map[string]string`（如 `{branch, n, path}`），JSON 里字段 `params`，旧前端忽略即可。**后端不为前端翻译**：凡是前端能按 code/reason 映射的，`message` 保持现有中文作兜底，不改语言。新增错误必须给 reason 和 params，前端加 key。
+2. **只能后端产生的文案**走 `internal/i18n`：
+   - `internal/i18n/catalog_{zh_CN,en,ja}.go`（或 `locales/*.json` 用 `embed`），`i18n.T(key string, params map[string]string) string`、`i18n.Current() string`、`i18n.Set(lang)`，线程安全；缺 key 回退 zh-CN。
+   - 覆盖：系统通知标题和正文前缀（定时任务完成/失败等）、原生文件 / 目录 / 消息对话框的标题与按钮、以后的托盘与应用菜单。窗口标题「FFmpegFree」不翻译。
+   - Go 测试检查三套目录 key 集合一致。
+3. **绑定**（`App`）：
+```go
+type AppLanguage struct {
+    Lang   string `json:"lang"`   // 设置值：'system' | 'zh-CN' | 'en' | 'ja'
+    System string `json:"system"` // 当前 OS 映射结果：'zh-CN' | 'en' | 'ja'
+    Effective string `json:"effective"` // 实际生效的语言
+}
+func (a *App) GetAppLanguage() (AppLanguage, error)
+func (a *App) SetAppLanguage(req struct{ Lang string `json:"lang"` }) (AppLanguage, error)
+```
+   - 持久化在应用设置 key `app.language`，默认 `system`；非法值返回 `INVALID_ARGUMENT reason=bad_language`。
+   - `system` 映射：OS locale（Windows `GetUserDefaultLocaleName`，macOS `AppleLanguages`，Linux `LC_ALL`/`LC_MESSAGES`/`LANG`）`zh*`→`zh-CN`（含 zh-TW/zh-HK，二期再考虑繁体），`ja*`→`ja`，其余→`en`。
+   - 设置成功后 `i18n.Set(effective)`，发事件 `app:language`（payload 同 `AppLanguage`）给所有窗口；有托盘 / 菜单时重建（`menu.Update`）。无需重启。
+4. **持久化的展示文本**（任务标题等）：新任务改存 `titleKey` + `titleParams`（保留旧 `title` 作兜底），前端按当前语言渲染；历史任务仍显示旧中文标题，不迁移。
+5. Cat 发给 CLI 的系统提示 / 工具说明**不随界面语言变**（避免影响模型行为），本期不动。
+
+### 6.20.4 设置页
+「通用」分组第一项「语言」，用设置页现有的自定义下拉，选项固定为原生名、**不翻译**：`跟随系统` 这一项按当前语言翻译（`settings.language.system`，en「Follow system」，ja「システムに合わせる」），其余为「简体中文」「English」「日本語」。选「跟随系统」时选项下方灰字显示当前系统映射结果。选中即调用 `SetAppLanguage` 立即生效，无确认、无重启；失败时行内红字 `errors.*` + 回退到原选项。
+
+### 6.20.5 分期
+- **阶段 A（v0.54）**：基础设施（vue-i18n、`src/i18n`、`format.ts`、`check-i18n.mjs`、`internal/i18n`、两个绑定、事件）+ 设置页 + `errors/` 总表 + 公共组件（`components/common`、布局 / 侧栏 / 顶栏、ffmpeg 横幅与安装、「查看详情」、确认弹窗、toast）+ **Cat 全部**（约 781 行）+ 系统通知 / 原生对话框。约 1300 行。
+- **阶段 B（v0.55）**：转换（485）、直播（251）、文档 / 办公（590）、任务中心（158）、JSON（66）、语音（54）、关于 / 登录等剩余页面，以及后端任务标题 `titleKey`。B 结束时 `check-i18n` 改成全量。
+- 正在开发的分支树 / 提交图 / 空闲超时：已开工的 PR 照常用中文合入，**阶段 A 合并后**新增文案必须走 `t()`，迁移由 i18n PR 统一完成。
+
+### 6.20.6 翻译来源与术语表
+en / ja 由开发起草，产品审语气；术语以本表为准，写进 `locales/GLOSSARY.md`：
+
+| 中文 | English | 日本語 |
+|---|---|---|
+| 对话 | Conversation | 会話 |
+| 服务商 | Provider | プロバイダー |
+| 模型 | Model | モデル |
+| 分支 | Branch | ブランチ |
+| 提交 | Commit | コミット |
+| 合并 | Merge | マージ |
+| 冲突 | Conflict | コンフリクト |
+| 签出 | Check out | チェックアウト |
+| 暂存 | Stage | ステージ |
+| 推流 | Push stream | 配信 |
+| 拉流 | Pull stream | 受信 |
+| 转换 | Convert | 変換 |
+| 任务中心 | Task Center | タスクセンター |
+| 定时任务 | Scheduled task | スケジュールタスク |
+| 项目 | Project | プロジェクト |
+| 全部放开 | Allow all | すべて許可 |
+| 查看详情 | View details | 詳細を表示 |
+| 复制 | Copy | コピー |
+| 重试 | Retry | 再試行 |
+| 跟随系统 | Follow system | システムに合わせる |
+
+### 6.20.7 测试
+- **前端**：`check-i18n` 自测（构造 CJK 字面量、缺 key、参数不一致三种失败样例）；三语 key / 参数一致；`errors.*` 覆盖第 2.1 节全部 code 与已登记 reason；切换语言不刷新、所有已打开页面即时更新、`<html lang>` 改变；`format.ts` 三语日期 / 相对时间 / 数字快照；英文长文案下按钮、下拉、底栏不溢出（截图三语 × 浅暗各一套，覆盖设置、Cat 主页、查看详情、确认弹窗）。
+- **后端**：`internal/i18n` 三套目录 key 一致、缺 key 回退；OS locale 映射表单测（`zh_CN.UTF-8`、`zh-TW`、`ja_JP`、`en_US`、`fr_FR`、空值）；`SetAppLanguage` 持久化 / 非法值 / 事件发出；通知标题与原生对话框标题随语言变化；`apperr` 新 `params` 字段 JSON 往返且旧格式兼容。
+- **真机**：Windows 中文 / 日文 / 英文系统各一次「跟随系统」；系统通知与文件对话框标题。
+
+### 6.20.8 待产品定
+1. 「跟随系统」碰到繁体中文系统，先映射到简体中文还是英文？（契约暂定简体中文）
+2. 历史任务的中文标题是否接受不翻译？
+3. 英文 / 日文审校由谁、在哪个包前完成；阶段 A 能否先带机翻草稿出包？
+4. 术语表里「推流 / 拉流」日文用「配信 / 受信」是否合适；「全部放开」英日译法确认。
+5. 关于页、许可证、更新说明等长文本是否也要三语。
+
 ## 7. 本地流服务（已取消）
 
 > **v0.25 补充**：直播预览新增只监听 `127.0.0.1` 随机端口的本机 HTTP 服务（只提供 `/live/<token>.flv`，见 6.10.3.5）；下面“后端不监听任何端口”的规定只对它放开，其他仍然有效。
