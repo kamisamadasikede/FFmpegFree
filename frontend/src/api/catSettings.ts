@@ -9,6 +9,7 @@
 import * as CatBinding from '../../wailsjs/go/app/CatService'
 import { cat } from '../../wailsjs/go/models'
 import { AppError, call } from '@/api/call'
+import { readModeByAgent, type CatModeByAgent } from '@/api/catV0445'
 import { CAT_AGENT_BUILD, CAT_PROVIDER_ORDER, isProviderKind, type CatProviderKind } from '@/api/catAgents'
 import { CAT_SETTINGS_BACKEND_READY } from '@/api/flags'
 import { hasWailsBackend } from '@/services/wails'
@@ -44,7 +45,10 @@ export interface CatSettings {
   defaultsByAgent: Record<CatProviderKind, CatAgentDefaults>
   /** v0.38：每家自定义服务商；缺 key 视为全关 */
   providersByAgent: Record<CatProviderKind, CatProviderSettings>
-  defaultApprovalMode: string
+  /** v0.44.4 §6.19.18.9：每家新对话默认模式（该家 modes[].id；"" = 该家默认） */
+  defaultModeByAgent: CatModeByAgent
+  /** v0.44.4 起废弃：只读保留（读到的旧值），Save 不再写 */
+  readonly defaultApprovalMode?: string
   customInstruction: string
   notifyOnFinish: boolean
 }
@@ -291,11 +295,13 @@ export function normalizeSettings(raw: unknown): CatSettings {
     by.cat_build = { model: oldModel, effort: oldEffort }
   }
   const kindRaw = s('defaultAgentKind')
+  const modeRead = readModeByAgent(r)
   return {
     defaultAgentKind: isProviderKind(kindRaw) ? kindRaw : CAT_AGENT_BUILD,
     defaultsByAgent: by,
     providersByAgent: providers,
-    defaultApprovalMode: ['normal', 'plan', 'auto', 'approve'].includes(s('defaultApprovalMode')) ? s('defaultApprovalMode') : '',
+    defaultModeByAgent: modeRead.byAgent,
+    defaultApprovalMode: modeRead.legacy,
     customInstruction: s('customInstruction'),
     // 契约：nil 视为 true
     notifyOnFinish: r.notifyOnFinish !== false,
@@ -322,7 +328,7 @@ export function settingsPayload(req: CatSettings): Record<string, unknown> {
     defaultAgentKind: isProviderKind(req.defaultAgentKind) ? req.defaultAgentKind : CAT_AGENT_BUILD,
     defaultsByAgent,
     providersByAgent,
-    defaultApprovalMode: req.defaultApprovalMode,
+    defaultModeByAgent: Object.fromEntries(CAT_PROVIDER_ORDER.map((k) => [k, (req.defaultModeByAgent?.[k] || '').trim()])),
     customInstruction: req.customInstruction,
     notifyOnFinish: req.notifyOnFinish,
   }
@@ -351,7 +357,8 @@ export async function saveCatSettings(req: CatSettings): Promise<CatSettings> {
   if (req.customInstruction.length > CAT_INSTRUCTION_MAX) throw new AppError('INVALID_ARGUMENT', CAT_SETTINGS_COPY.instrOver)
   const payload = settingsPayload(req)
   if (live()) {
-    return normalizeSettings(await call(CatBinding.SaveCatSettings(cat.Settings.createFrom(payload))))
+    // v0.44.4：绑定重生成前 createFrom 不认 defaultModeByAgent，手动带上（见 catV0445.ts）
+    return normalizeSettings(await call(CatBinding.SaveCatSettings(Object.assign(cat.Settings.createFrom(payload), { defaultModeByAgent: payload.defaultModeByAgent }) as cat.Settings)))
   }
   await wait(250)
   if (sim('savefail')) throw new AppError('IO_ERROR', 'sim')

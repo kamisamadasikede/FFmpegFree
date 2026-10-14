@@ -8,7 +8,9 @@ type Eq = (name: string, got: unknown, want: unknown) => void
 export function catPanelsChecks(eq: Eq) {
   eq('设置：notifyOnFinish 没给视为开', normalizeSettings({}).notifyOnFinish, true)
   eq('设置：notifyOnFinish=false 保留', normalizeSettings({ notifyOnFinish: false }).notifyOnFinish, false)
-  eq('设置：非法批准方式清空', normalizeSettings({ defaultApprovalMode: 'x' }).defaultApprovalMode, '')
+  eq('设置：旧单值填给三家（用时按旧值列映射）', normalizeSettings({ defaultApprovalMode: 'approve' }).defaultModeByAgent.codex_cli, 'approve')
+  eq('设置：新字段优先', normalizeSettings({ defaultApprovalMode: 'approve', defaultModeByAgent: { claude_cli: 'plan' } }).defaultModeByAgent.claude_cli, 'plan')
+  eq('设置：Save 不写旧字段', 'defaultApprovalMode' in settingsPayload(normalizeSettings({ defaultApprovalMode: 'auto' })), false)
   eq('设置：旧 defaultModel/Effort 迁进 cat_build', normalizeSettings({ defaultModel: 'm1', defaultEffort: 'high' }).defaultsByAgent.cat_build, { model: 'm1', effort: 'high' })
   eq('设置：已有 cat_build 不覆盖', normalizeSettings({ defaultModel: 'old', defaultsByAgent: { cat_build: { model: 'new', effort: 'low' } } }).defaultsByAgent.cat_build, { model: 'new', effort: 'low' })
   eq('设置：非法 effort 清空', normalizeSettings({ defaultsByAgent: { cat_build: { model: 'm', effort: 'max' } } }).defaultsByAgent.cat_build.effort, '')

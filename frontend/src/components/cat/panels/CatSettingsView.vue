@@ -76,6 +76,22 @@
                 </div>
               </div>
 
+              <div v-if="block.modes.options.length" class="row mode-row" :class="{ dim: !block.ready }">
+                <div class="lab"><b>默认模式</b><span>新对话默认使用的模式</span></div>
+                <div class="ctl">
+                  <SavedMark :on="!!savedAgent[block.kind + ':mode']" />
+                  <CatModeSelect
+                    :model-value="modeValue(block.kind)"
+                    :options="block.modes.options"
+                    :default-id="block.modes.defaultId"
+                    :aria-label="block.label + ' 默认模式'"
+                    :testid="'cat-set-mode-' + block.kind"
+                    @update:model-value="setDefaultMode(block.kind, $event)"
+                  />
+                </div>
+              </div>
+              <div v-if="modeIsDanger(block.kind)" class="mode-danger-note" :data-testid="'cat-set-mode-danger-' + block.kind">{{ DANGER_NOTE }}</div>
+
               <!-- v0.38 自定义服务商：未检测到 CLI 时仍可展开预填 -->
               <div
                 class="cust-fold"
@@ -178,22 +194,6 @@
               </div>
             </div>
 
-            <div class="row">
-              <div class="lab"><b>{{ C.approval }}</b><span>{{ C.approvalDesc }}</span></div>
-              <div class="ctl">
-                <SavedMark :on="saved.defaultApprovalMode" />
-                <select
-                  class="sel"
-                  :class="{ warn: !!FALLBACK_MODES.options.find((o) => o.id === approvalValue)?.risky }"
-                  :value="approvalValue"
-                  :aria-label="C.approval"
-                  data-testid="cat-set-approval"
-                  @change="set('defaultApprovalMode', ($event.target as HTMLSelectElement).value)"
-                >
-                  <option v-for="a in FALLBACK_MODES.options" :key="a.id" :value="a.id">{{ a.label }}</option>
-                </select>
-              </div>
-            </div>
             <div class="row">
               <div class="lab"><b>{{ C.place }}</b><span>{{ C.placeDesc }}</span></div>
               <div class="ctl">
@@ -448,7 +448,9 @@ import {
   CAT_PROVIDER_ORDER,
   type CatProviderKind,
 } from '@/api/catAgents'
-import { FALLBACK_MODES, resolveCapabilities, setBackendCaps } from '@/views/cat/catCapabilities'
+import { FALLBACK_MODES, getCatAgentCapabilities, mapAgentModes, mapBackendCaps, resolveCapabilities, resolveModeId, setBackendCaps } from '@/views/cat/catCapabilities'
+import CatModeSelect from './CatModeSelect.vue'
+import { CAT_DEFAULT_DANGER_NOTE as DANGER_NOTE, emptyModeByAgent } from '@/api/catV0445'
 import {
   type CatInspectCategory,
   type CatInspectItem,
@@ -478,7 +480,7 @@ import { getAppVersion } from '@/api/about'
 import { catPanels, saveSetting, type CatSettingsTab } from '@/views/cat/catPanels'
 import { catLocalPrefs, setNewConvPlace, setTypewriter } from '@/views/cat/catLocalPrefs'
 import { catState, afterClearAll, currentProject, notify, createProject } from '@/views/cat/catState'
-import { catSim, simModels, simThinks } from '@/views/cat/catDevSim'
+import { catSim, simAgentRaw, simModels, simThinks } from '@/views/cat/catDevSim'
 
 defineOptions({ name: 'CatSettingsView' })
 const C = { ...CAT_SETTINGS_COPY, dash: '—', loginBanner }
@@ -489,9 +491,9 @@ const SavedMark = defineComponent({
   setup: (p) => () => h('span', { class: ['saved', { on: p.on }], 'aria-live': 'polite' }, p.on ? C.saved : ''),
 })
 
-type TopKey = 'defaultApprovalMode' | 'customInstruction' | 'notifyOnFinish' | 'defaultAgentKind' | 'defaultsByAgent'
+type TopKey = 'defaultModeByAgent' | 'customInstruction' | 'notifyOnFinish' | 'defaultAgentKind' | 'defaultsByAgent'
 const saved = reactive<Record<TopKey, boolean>>({
-  defaultApprovalMode: false, customInstruction: false, notifyOnFinish: false, defaultAgentKind: false, defaultsByAgent: false,
+  defaultModeByAgent: false, customInstruction: false, notifyOnFinish: false, defaultAgentKind: false, defaultsByAgent: false,
 })
 const savedTimers: Partial<Record<TopKey, ReturnType<typeof setTimeout>>> = {}
 function flash(k: TopKey) {
@@ -631,12 +633,13 @@ async function loadCaps() {
           // 走查：三家都给模型列表；Codex 故意空强度。未检测到时模板还会因 !ready 整行隐藏强度。
           caps.models[kind] = simModels().map((m) => ({ ...m, id: `${kind}:${m.id}`, displayName: m.displayName }))
           caps.thinks[kind] = kind === 'codex_cli' ? [] : simThinks()
-          setBackendCaps(kind, { thinks: caps.thinks[kind] })
+          setBackendCaps(kind, { thinks: caps.thinks[kind], modes: mapBackendCaps(simAgentRaw(kind)).modes })
         } else {
           const [models, thinks] = await Promise.all([listCatModels(kind), listCatThinkLevels(kind)])
           caps.models[kind] = models
           caps.thinks[kind] = thinks
-          setBackendCaps(kind, { thinks })
+          const st = catState.status.agents?.find((a) => a.agentKind === kind)
+          setBackendCaps(kind, { thinks, modes: mapAgentModes({ modes: st?.rawModes }) })
         }
       }),
     ),
@@ -659,6 +662,7 @@ const providerBlocks = computed(() =>
     ready: agentReady(kind),
     models: caps.models[kind] ?? [],
     thinks: resolveCapabilities({ thinks: caps.thinks[kind] }).efforts.options,
+    modes: useModes(kind),
   })),
 )
 
@@ -673,7 +677,28 @@ function effortValue(kind: CatProviderKind) {
   return list.some((t) => t.id === id) ? id : ''
 }
 
-const approvalValue = computed(() => catPanels.settings.defaultApprovalMode || 'approve')
+/** 设置页显示值：按该家 modes[] 解析（旧单值按「旧值」列映射；认不出 → 该家最保守默认） */
+const useModes = (kind: CatProviderKind) => getCatAgentCapabilities(kind).modes
+
+function modeValue(kind: CatProviderKind): string {
+  const caps = getCatAgentCapabilities(kind)
+  const want = catPanels.settings.defaultModeByAgent?.[kind] ?? ''
+  if (caps.modes === FALLBACK_MODES) return caps.modes.options.some((o) => o.id === want) ? want : caps.modes.defaultId
+  return resolveModeId(kind, want)
+}
+function modeIsDanger(kind: CatProviderKind): boolean {
+  const id = modeValue(kind)
+  return !!getCatAgentCapabilities(kind).modes.options.find((o) => o.id === id)?.risky
+}
+/** 设置页选 danger 不弹确认（6.19.18.9 第 5 条） */
+async function setDefaultMode(kind: CatProviderKind, id: string) {
+  const next = { ...emptyModeByAgent(), ...catPanels.settings.defaultModeByAgent }
+  // 把另两家「旧值」一起落成解析后的 id，Save 写新形状
+  for (const k of CAT_PROVIDER_ORDER) next[k] = k === kind ? id : (next[k] ? modeValue(k) : '')
+  const ok = await saveSetting('defaultModeByAgent', next)
+  if (ok) flashAgent(kind + ':mode')
+  else notify(C.saveFailed, 'warn')
+}
 
 const isDark = ref(typeof document !== 'undefined' && document.documentElement.classList.contains('dark'))
 let mo: MutationObserver | undefined
@@ -1067,6 +1092,13 @@ onMounted(async () => {
 .agent-hd.dim,
 .row.dim {
   opacity: 0.55;
+}
+/* v0.44.4：默认模式选「全部放开」时常驻的橙色小字 */
+.mode-danger-note {
+  margin: -4px 14px 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--cat-orange);
 }
 .agent-hd .lab {
   flex: 1;

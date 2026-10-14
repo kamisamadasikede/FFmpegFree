@@ -17,6 +17,7 @@ import {
 } from '@/api/catSchedules'
 import { onEvent } from '@/services/wails'
 import type { CatConvPref } from './catConvPrefs'
+import { FALLBACK_MODES, getCatAgentCapabilities, resolveModeId } from './catCapabilities'
 
 export type CatView = 'chat' | 'settings' | 'schedules'
 export type CatSettingsTab = 'general' | 'instruction' | 'ext' | 'about'
@@ -76,7 +77,11 @@ export function defaultConvPref(agentKind?: string): CatConvPref {
   const kind = normalizeProviderKind(agentKind ?? s.defaultAgentKind)
   const d = s.defaultsByAgent[kind] ?? emptyDefaults()
   const pref: CatConvPref = { model: d.model, think: d.effort }
-  if (s.defaultApprovalMode) pref.access = s.defaultApprovalMode
+  // v0.44.4 §6.19.18.9 第 4 条：defaultModeByAgent[kind]；空 / 已不在该家 modes[] → 该家最保守默认（旧值按「旧值」列映射）
+  const want = s.defaultModeByAgent?.[kind] ?? ''
+  const caps = getCatAgentCapabilities(kind)
+  if (caps.modes !== FALLBACK_MODES) pref.access = resolveModeId(kind, want)
+  else if (want) pref.access = want
   return pref
 }
 
