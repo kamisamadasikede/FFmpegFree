@@ -146,7 +146,7 @@ func MergeProviderEnv(base []string, o ProviderOverlay) []string {
 }
 
 // MsgCodexNoResponses 是 Codex 自定义服务商缺 /responses 时的提示（契约 6.19.20.5）。
-const MsgCodexNoResponses = "这个服务商不支持 Codex 需要的接口，请换一个服务商或关闭自定义"
+const MsgCodexNoResponses = "这个服务商不支持 Codex 需要的 Responses 接口，请换一个服务商，或关闭自定义服务商。"
 
 // ReasonProviderNoResponses 是对应的 error.detail。
 const ReasonProviderNoResponses = "reason=provider_responses_unsupported"
