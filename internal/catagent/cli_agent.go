@@ -63,7 +63,6 @@ type CLIAgentAdapter struct {
 	detGen    uint64
 	timedOut  bool            // 本轮检测超过 DetectTimeout 仍未返回
 	provider  ProviderOverlay // v0.38；仅子进程
-	loggedIn  *bool           // v0.47.1：最近一次实时检测的登录状态；nil = 判断不了
 }
 
 // NewClaudeAdapter 创建 Claude Code 真适配器（不立即检测）。
@@ -155,18 +154,6 @@ func (a *CLIAgentAdapter) CheckedAt() int64 {
 	return a.checkedAt
 }
 
-func (a *CLIAgentAdapter) markAuthInvalid() {
-	a.mu.Lock()
-	ver := a.version
-	a.mu.Unlock()
-	a.setStatus(Status{
-		State:       StateFailed,
-		Version:     ver,
-		CanDownload: false,
-		Error:       apperr.New(apperr.CatNotReady, MsgAuthInvalid).WithDetail("reason=auth"),
-	})
-}
-
 func (a *CLIAgentAdapter) lookPath(file string) (string, error) {
 	if a.cfg.LookPath != nil {
 		return a.cfg.LookPath(file)
@@ -255,7 +242,6 @@ func (a *CLIAgentAdapter) detectBody(gen uint64) {
 	if exe == "" {
 		a.mu.Lock()
 		a.exe, a.version, a.models, a.thinks, a.checked = "", "", nil, nil, true
-		a.loggedIn = nil
 		a.mu.Unlock()
 		a.setStatusGen(gen, Status{
 			State:       StateMissing,
@@ -270,10 +256,8 @@ func (a *CLIAgentAdapter) detectBody(gen uint64) {
 	}
 	models := a.probeModels(exe)
 	thinks := a.probeThinks(exe)
-	logged := a.probeLogin(exe)
 	a.mu.Lock()
 	a.exe, a.version = exe, ver
-	a.loggedIn = logged
 	a.models, a.thinks = models, thinks
 	a.checked = true
 	a.mu.Unlock()
@@ -515,15 +499,7 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	if cliMsg == "" {
 		cliMsg = strong
 	}
-	authText := cliMsg + "\n" + stderrText
-	if waitErr != nil {
-		authText += "\n" + waitErr.Error()
-	}
 	usageResp := TurnResponse{TokenTotal: usageTokens, OutputTokens: usageOut}
-	if isAuthFailure(authText) {
-		a.markAuthInvalid()
-		return usageResp, authNotReadyErr()
-	}
 	if runCtx.Err() != nil {
 		if ctx.Err() != nil {
 			return usageResp, apperr.New(apperr.Canceled, "已取消")

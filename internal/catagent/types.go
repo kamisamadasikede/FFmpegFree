@@ -43,9 +43,7 @@ const (
 // 用户可见文案（契约 6.19.7）。
 const (
 	// MsgNotReady：PATH 上找不到入口（v0.31.3）。
-	MsgNotReady = "未检测到 Cat 助手，请先安装并确保可在终端直接运行。"
-	// MsgAuthInvalid：入口在但登录 / API Key 失效（仍用 CAT_NOT_READY，detail reason=auth）。
-	MsgAuthInvalid = "登录失效，请重新登录后再试。"
+	MsgNotReady    = "未检测到 Cat 助手，请先安装并确保可在终端直接运行。"
 	MsgReplyFailed = "回复没生成出来，请重试。"
 	// MsgSessionGone（v0.45）：续聊时之前的会话已找不到；本轮不可重试，下一句开新对话。
 	MsgSessionGone  = "之前的对话记录已找不到，请重新发送，将开始新的对话。"
@@ -73,7 +71,6 @@ type AgentStatus struct {
 	AgentKind string `json:"agentKind"` // cat_build | claude_cli | codex_cli
 	Ready     bool   `json:"ready"`
 	Version   string `json:"version,omitempty"`
-	LoggedIn  *bool  `json:"loggedIn,omitempty"` // 该家不需要登录时可省略
 	Detail    string `json:"detail,omitempty"`
 	// v0.44（6.19.18.2）：该家模式列表，保守→放开，前端不得重排。
 	Modes []AgentMode `json:"modes"`

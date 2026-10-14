@@ -201,18 +201,6 @@ func (a *BuildAdapter) CheckedAt() int64 {
 	return a.checkedAt
 }
 
-func (a *BuildAdapter) markAuthInvalid() {
-	a.mu.Lock()
-	ver := a.version
-	a.mu.Unlock()
-	a.setStatus(Status{
-		State:       StateFailed,
-		Version:     ver,
-		CanDownload: false,
-		Error:       apperr.New(apperr.CatNotReady, MsgAuthInvalid).WithDetail("reason=auth"),
-	})
-}
-
 func (a *BuildAdapter) lookPath(file string) (string, error) {
 	if a.cfg.LookPath != nil {
 		return a.cfg.LookPath(file)
@@ -618,14 +606,6 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	if cliMsg == "" {
 		cliMsg = strong
 	}
-	authText := cliMsg + "\n" + stderrText
-	if waitErr != nil {
-		authText += "\n" + waitErr.Error()
-	}
-	if isAuthFailure(authText) {
-		a.markAuthInvalid()
-		return usage, authNotReadyErr()
-	}
 	if runCtx.Err() != nil {
 		if ctx.Err() != nil {
 			return usage, apperr.New(apperr.Canceled, "已取消")
@@ -939,27 +919,6 @@ func nonempty(in []string) []string {
 		}
 	}
 	return out
-}
-
-// isAuthFailure 判断 CLI 报错是否像登录 / API Key 失效（不把厂商名写进用户文案）。
-func isAuthFailure(msg string) bool {
-	s := strings.ToLower(msg)
-	keys := []string{
-		"unauthorized", "unauthenticated", "authentication", "not logged", "please log in", "please login",
-		"api key", "api_key", "xai_api_key", "invalid key", "invalid token", "expired token",
-		"auth failed", "auth error", "login required", "not authenticated", "not signed in", "401",
-		"登录", "未登录", "鉴权", "认证失败",
-	}
-	for _, k := range keys {
-		if strings.Contains(s, k) {
-			return true
-		}
-	}
-	return false
-}
-
-func authNotReadyErr() error {
-	return apperr.New(apperr.CatNotReady, MsgAuthInvalid).WithDetail("reason=auth")
 }
 
 func truncate(s string, n int) string {

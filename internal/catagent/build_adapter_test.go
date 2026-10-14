@@ -398,13 +398,19 @@ func TestScanStreamingJSON_RoundTrip(t *testing.T) {
 	}
 }
 
-func TestRunTurn_AuthFailure(t *testing.T) {
+func TestRunTurn_AuthFailureIsOrdinaryReplyFailure(t *testing.T) {
+	// v0.47.3：鉴权类报错只按普通回复失败处理，不产生 reason=auth、不把适配器标成 failed、不拦下一句。
 	if runtime.GOOS == "windows" {
 		t.Skip("unix script fake")
 	}
-	fake := filepath.Join(t.TempDir(), "grok-auth")
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "grok-auth")
+	count := filepath.Join(dir, "count")
 	script := `#!/bin/sh
-printf '%s\n' '{"type":"error","message":"unauthorized: invalid api key"}'
+[ "$1" = "--version" ] && { echo 1.0.40; exit 0; }
+echo x >> ` + count + `
+printf '%s
+' '{"type":"error","message":"unauthorized: invalid api key"}'
 exit 1
 `
 	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
@@ -414,23 +420,31 @@ exit 1
 		DataTemp: t.TempDir(),
 		LookPath: func(string) (string, error) { return fake, nil },
 		Exec: func(ctx context.Context, name string, args ...string) *exec.Cmd {
-			return exec.CommandContext(ctx, fake)
+			return exec.CommandContext(ctx, fake, args...)
 		},
 	})
 	a.detect()
-	_, err := a.RunTurn(TurnOptions{
-		Ctx: context.Background(), ConversationID: "c1",
-		Messages: []WireMessage{{Role: "user", Content: "x"}},
-		Timeout:  3 * time.Second,
-	})
-	if !apperr.Is(err, apperr.CatNotReady) || apperr.From(err).Message != MsgAuthInvalid {
-		t.Fatalf("%v", err)
-	}
-	if d := apperr.From(err).Detail; d == "" || !strings.Contains(d, "reason=auth") {
-		t.Fatalf("detail %q", d)
-	}
-	st := a.Status()
-	if st.State != StateFailed || st.Error == nil || st.Error.Message != MsgAuthInvalid {
-		t.Fatalf("status %+v", st)
+	runs := func() int { b, _ := os.ReadFile(count); return strings.Count(string(b), "x") }
+	prev := 0
+	for i := 0; i < 2; i++ {
+		_, err := a.RunTurn(TurnOptions{
+			Ctx: context.Background(), ConversationID: "c1",
+			Messages: []WireMessage{{Role: "user", Content: "x"}},
+			Timeout:  3 * time.Second,
+		})
+		if !apperr.Is(err, apperr.CatReplyFailed) {
+			t.Fatalf("turn %d: want CAT_REPLY_FAILED, got %v", i, err)
+		}
+		if d := apperr.From(err).Detail; strings.Contains(d, "reason=auth") {
+			t.Fatalf("turn %d: detail %q", i, d)
+		}
+		if st := a.Status(); st.State != StateReady {
+			t.Fatalf("turn %d: status %+v", i, st)
+		}
+		if n := runs(); n <= prev {
+			t.Fatalf("turn %d: CLI not invoked (send blocked)", i)
+		} else {
+			prev = n
+		}
 	}
 }
