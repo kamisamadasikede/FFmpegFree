@@ -53,15 +53,15 @@ export function mapCatBranches(raw: unknown): CatBranches {
 }
 
 /** 仅 vite dev + ?cat_sim=branchbar|branchlong|branchfail 的纯浏览器走查；正式包 DEV=false 整段不走 */
-const devSim = () => import.meta.env.DEV && typeof window !== 'undefined' && !(window as unknown as { go?: unknown }).go && (catSim.has('branchbar') || catSim.has('branchlong') || catSim.has('branchfail'))
-let simBranch = 'feat/cat-footer-branch-v049-with-a-really-long-name'
+const devSim = () => import.meta.env.DEV && typeof window !== 'undefined' && !(window as unknown as { go?: unknown }).go && (catSim.has('branchbar') || catSim.has('branchlong') || catSim.has('branchfail') || [...catSim].some((f) => f.startsWith('btree')))
+let simBranch = [...catSim].some((f) => f.startsWith('btree')) ? 'feat/cat-footer-branch' : 'feat/cat-footer-branch-v049-with-a-really-long-name'
 function simList(): CatBranches {
   return mapCatBranches({
     root: catSim.has('branchlong') ? 'D:\\Work\\2026\\客户交付\\婚礼剪辑\\第二季\\字幕项目' : 'D:\\Work\\字幕项目',
     git: true,
     repo: true,
     branch: simBranch,
-    upstream: 'origin/feat/cat-footer-branch-v049-with-a-really-long-name',
+    upstream: 'origin/' + simBranch,
     locals: ['main', 'v2', 'dev', 'feat/cat-footer-branch-v049-with-a-really-long-name', 'fix/reply-marked-failed', 'fe/settings-dropdown'],
     remotes: ['origin/feat/system-notify', 'origin/feat/context-left', 'origin/old/archive'],
   })
