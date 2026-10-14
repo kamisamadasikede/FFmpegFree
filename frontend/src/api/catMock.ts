@@ -30,6 +30,8 @@ export type CatBlock =
       /** v0.37.1 消息尾：有 finishedAt 才显示；进行中勿带 */
       finishedAt?: number
       tokenTotal?: number
+      /** v0.47 */
+      outputTokens?: number
       tokensPerSec?: number
       /** v0.45 首字 / 总耗时（毫秒） */
       firstTokenMs?: number
@@ -153,7 +155,9 @@ const SUB3: CatBlock[] = [
   { kind: 'ul', items: ['第 118 条结束时间改成 `00:04:14,850`，留 50 毫秒间隔。', '第 205、366 条同样处理。', '改完我会再整体检查一遍，确认没有新的重叠。'] },
   { kind: 'run', text: '正在修改 3 处时间轴…' },
   // v0.37.1 消息尾走查：有 usage（设计场景 23）
-  { kind: 'a', id: 'a-c31', text: '三处重叠已改完，没有发现新的重叠。', streaming: false, finishedAt: FOOTER_AT, tokenTotal: 12480, tokensPerSec: 186 },
+  { kind: 'a', id: 'a-c31', text: '三处重叠已改完，没有发现新的重叠。', streaming: false, finishedAt: FOOTER_AT, firstTokenMs: 1200, totalMs: 8400, tokenTotal: 12345, outputTokens: 2100, tokensPerSec: 280 },
+  // v0.47：无 outputTokens（只有合计）→ 不显示「输出」与 token/s
+  { kind: 'a', id: 'a-c32', text: '这一轮后端没拿到输出 token，只显示合计。', streaming: false, finishedAt: FOOTER_AT, firstTokenMs: 1200, totalMs: 8400, tokenTotal: 12345 },
 ]
 const LIVE: CatBlock[] = [
   { kind: 'user', text: '我想让三路推流轮流切换地址，每路 30 分钟换一次，怎么安排比较稳？' },

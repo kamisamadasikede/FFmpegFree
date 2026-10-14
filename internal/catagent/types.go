@@ -77,6 +77,11 @@ type AgentStatus struct {
 	Detail    string `json:"detail,omitempty"`
 	// v0.44（6.19.18.2）：该家模式列表，保守→放开，前端不得重排。
 	Modes []AgentMode `json:"modes"`
+	// v0.47.1（6.19.21.2）
+	Checking  bool   `json:"checking"`            // 该家正在检测
+	CheckedAt *int64 `json:"checkedAt,omitempty"` // 最近一次检测完成时间（Unix 毫秒）；从未检测过则省略
+	Stale     bool   `json:"stale,omitempty"`     // 当前行来自落库的上次结果，本次启动尚未实时检测完
+	ExePath   string `json:"exePath,omitempty"`   // 命中的可执行文件绝对路径
 }
 
 // Status 是 CatStatus。
@@ -156,7 +161,8 @@ type TurnEvent struct {
 	MessageID    string   `json:"messageId,omitempty"`
 	FinishedAt   int64    `json:"finishedAt,omitempty"`
 	TokenTotal   *int64   `json:"tokenTotal,omitempty"`
-	TokensPerSec *float64 `json:"tokensPerSec,omitempty"`
+	TokensPerSec *float64 `json:"tokensPerSec,omitempty"` // v0.47：outputTokens / 生成秒数
+	OutputTokens *int64   `json:"outputTokens,omitempty"` // v0.47 §6.19.19.5：无则省略
 	// v0.45 §6.19.19.3：应用侧计时（毫秒，起点 = 本轮 running）。无正文 / 思考增量 → 省略 firstTokenMs；
 	// totalMs 有 finishedAt 就带（完成、失败、取消都带）。
 	FirstTokenMs *int64 `json:"firstTokenMs,omitempty"`

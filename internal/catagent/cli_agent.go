@@ -24,7 +24,8 @@ import (
 type CLIAgentConfig struct {
 	DataRoot string
 	DataTemp string
-	Emit     func(event string, payload any)
+	// OnChange（v0.47.1 6.19.21.1）：检测状态变化时调用；适配器不再自己发 cat:status，由服务层发全量。
+	OnChange func(agentKind string)
 	Logf     func(format string, args ...any)
 	Exec     func(ctx context.Context, name string, args ...string) *exec.Cmd
 	LookPath func(file string) (string, error)
@@ -49,14 +50,19 @@ type CLIAgentAdapter struct {
 	kind cliKind
 	name string // KindClaudeCLI / KindCodexCLI
 
-	mu       sync.Mutex
-	st       Status
-	version  string
-	exe      string
-	models   []Model
-	thinks   []ThinkLevel
-	checked  bool
-	provider ProviderOverlay // v0.38；仅子进程
+	mu      sync.Mutex
+	st      Status
+	version string
+	exe     string
+	models  []Model
+	thinks  []ThinkLevel
+	checked bool
+	// v0.47.1：detecting = detect() 进行中；checkedAt = 最近一次检测完成（Unix 毫秒）
+	detecting bool
+	checkedAt int64
+	detGen    uint64
+	timedOut  bool            // 本轮检测超过 DetectTimeout 仍未返回
+	provider  ProviderOverlay // v0.38；仅子进程
 }
 
 // NewClaudeAdapter 创建 Claude Code 真适配器（不立即检测）。
@@ -123,10 +129,29 @@ func (a *CLIAgentAdapter) Recheck() Status {
 func (a *CLIAgentAdapter) setStatus(st Status) {
 	a.mu.Lock()
 	a.st = st
-	a.mu.Unlock()
-	if a.cfg.Emit != nil {
-		a.cfg.Emit(EventStatus, st)
+	if st.State != StateChecking && st.State != "" && a.detecting {
+		a.checkedAt = a.cfg.Now().UnixMilli()
+		a.detecting = false
+		a.timedOut = false
 	}
+	a.mu.Unlock()
+	if a.cfg.OnChange != nil {
+		a.cfg.OnChange(a.name)
+	}
+}
+
+// DetectTimedOut 报告当前这轮检测是否已超时仍未返回（v0.47.1）。
+func (a *CLIAgentAdapter) DetectTimedOut() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.timedOut
+}
+
+// CheckedAt 是最近一次实时检测完成的时间（Unix 毫秒）；本进程还没检测完过 = 0（v0.47.1）。
+func (a *CLIAgentAdapter) CheckedAt() int64 {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.checkedAt
 }
 
 func (a *CLIAgentAdapter) markAuthInvalid() {
@@ -172,17 +197,65 @@ func (a *CLIAgentAdapter) resolveExe() string {
 			}
 		}
 	}
+	if winFallbackEnabled() {
+		base := "claude"
+		if a.kind == cliKindCodex {
+			base = "codex"
+		}
+		return winFallback(a.name, base)
+	}
 	return ""
 }
 
+// detect 检测一次；超过 DetectTimeout（15 秒）未返回 → 标 timedOut 并通知（服务层显示 checking=false、stale=true），
+// 不阻塞调用方；迟到结果照常生效。
 func (a *CLIAgentAdapter) detect() {
+	a.mu.Lock()
+	a.detecting = true
+	a.detGen++
+	gen := a.detGen
+	a.mu.Unlock()
 	a.setStatus(Status{State: StateChecking, CanDownload: false})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		a.detectBody(gen)
+	}()
+	t := time.NewTimer(DetectTimeout)
+	defer t.Stop()
+	select {
+	case <-done:
+	case <-t.C:
+		// 契约 6.19.21.5：超时 → checking=false、stale=true、保留上次已知结果；迟到结果照常替换并清除 stale。
+		a.mu.Lock()
+		hit := a.detecting && a.detGen == gen
+		if hit {
+			a.timedOut = true
+		}
+		a.mu.Unlock()
+		if hit && a.cfg.OnChange != nil {
+			a.cfg.OnChange(a.name)
+		}
+	}
+}
+
+// setStatusGen 只在这一轮检测仍有效时生效。
+func (a *CLIAgentAdapter) setStatusGen(gen uint64, st Status) {
+	a.mu.Lock()
+	ok := a.detGen == gen
+	a.mu.Unlock()
+	if ok { // 只有更新的一轮 detect 开始后，旧一轮的结果才作废
+		a.setStatus(st)
+	}
+}
+
+func (a *CLIAgentAdapter) detectBody(gen uint64) {
 	exe := a.resolveExe()
 	if exe == "" {
 		a.mu.Lock()
 		a.exe, a.version, a.models, a.thinks, a.checked = "", "", nil, nil, true
 		a.mu.Unlock()
-		a.setStatus(Status{
+		a.setStatusGen(gen, Status{
 			State:       StateMissing,
 			CanDownload: false,
 			Error:       apperr.New(apperr.CatNotReady, MsgNotReady),
@@ -200,7 +273,7 @@ func (a *CLIAgentAdapter) detect() {
 	a.models, a.thinks = models, thinks
 	a.checked = true
 	a.mu.Unlock()
-	a.setStatus(Status{State: StateReady, Version: ver, CanDownload: false})
+	a.setStatusGen(gen, Status{State: StateReady, Version: ver, CanDownload: false})
 }
 
 func (a *CLIAgentAdapter) ListModels() ([]Model, error) {
@@ -299,8 +372,25 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	resume := sessionID != ""
 
 	args := a.buildTurnArgs(opts, prompt, cwd, sessionID, resume)
+	var stdinText string
+	viaStdin := isShimExt(exe)
+	if viaStdin {
+		// v0.47.1 6.19.21.4：.cmd / .ps1 包装不经命令行传提示词 / 规则。
+		var clean func()
+		var serr error
+		args, stdinText, clean, serr = shimStdinArgs(a.kind, args, a.cfg.DataTemp)
+		if serr != nil {
+			return TurnResponse{}, apperr.Wrap(apperr.CatReplyFailed, MsgReplyFailed, serr).WithDetail("reason=prompt_file")
+		}
+		if clean != nil {
+			defer clean()
+		}
+	}
 	cmd := a.runCmd(runCtx, exe, args...)
 	cmd.Dir = cwd
+	if viaStdin {
+		cmd.Stdin = strings.NewReader(stdinText)
+	}
 	cmd.Env = MergeSkillsEnv(MergeProviderEnv(os.Environ(), opts.Provider), opts.Skills)
 
 	stdout, err := cmd.StdoutPipe()
@@ -357,7 +447,7 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	var acc strings.Builder
 	var gotSession string
 	var resultFallback string
-	var usageTokens, usageDur int64
+	var usageTokens, usageOut int64
 	scanErr := a.scanCLIStream(stdout, func(p streamPiece) {
 		switch p.Kind {
 		case "thought", "tool", "retry":
@@ -368,12 +458,12 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 			// Claude 最终 result 全文：仅作无增量时的兜底，不与 partial 叠加。
 			resultFallback = p.Text
 		case "usage":
-			// ID 复用为 tokenTotal；Replace 无关。Text 未用。
+			// ID 复用为 tokenTotal，Text 复用为 outputTokens（v0.47）；Replace 无关。
 			if n, err := parseInt64(p.ID); err == nil && n > 0 {
 				usageTokens = n
 			}
 			if n, err := parseInt64(p.Text); err == nil && n > 0 {
-				usageDur = n
+				usageOut = n
 			}
 		default:
 			if p.Text == "" {
@@ -425,7 +515,7 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	if waitErr != nil {
 		authText += "\n" + waitErr.Error()
 	}
-	usageResp := TurnResponse{TokenTotal: usageTokens, DurationMs: usageDur}
+	usageResp := TurnResponse{TokenTotal: usageTokens, OutputTokens: usageOut}
 	if isAuthFailure(authText) {
 		a.markAuthInvalid()
 		return usageResp, authNotReadyErr()
@@ -554,6 +644,7 @@ func (a *CLIAgentAdapter) runCmd(ctx context.Context, name string, args ...strin
 		cmd = exec.CommandContext(ctx, name, args...)
 	}
 	proc.Configure(cmd)
+	wrapShim(cmd, name, args) // v0.47.1：Windows .cmd / .ps1 经 cmd.exe / powershell 启动
 	cmd.Cancel = func() error { return proc.Kill(cmd) }
 	return cmd
 }
@@ -869,7 +960,7 @@ func emitClaudeResultLine(line []byte, onPiece func(streamPiece), onErr func(str
 		return true
 	}
 	if u := claudeUsageTotal(raw); u > 0 && onPiece != nil {
-		onPiece(streamPiece{Kind: "usage", ID: fmtInt64(u), Text: fmtInt64(claudeDurationMs(raw))})
+		onPiece(claudeUsagePiece(raw, u))
 	}
 	if t, ok := rawStr(raw, "result"); ok && strings.TrimSpace(t) != "" && onPiece != nil {
 		onPiece(streamPiece{Kind: "result_text", Text: t})
@@ -1092,8 +1183,7 @@ func parseInt64(s string) (int64, error) {
 // parseClaudeResult 从 result 事件抽出 usage（优先）或全文兜底。
 func parseClaudeResult(raw map[string]json.RawMessage, sid string) (streamPiece, bool) {
 	if u := claudeUsageTotal(raw); u > 0 {
-		dur := claudeDurationMs(raw)
-		return streamPiece{Kind: "usage", ID: fmtInt64(u), Text: fmtInt64(dur)}, true
+		return claudeUsagePiece(raw, u), true
 	}
 	if t, ok := rawStr(raw, "result"); ok && strings.TrimSpace(t) != "" {
 		return streamPiece{Kind: "result_text", Text: t}, true
@@ -1123,15 +1213,34 @@ func claudeUsageTotal(raw map[string]json.RawMessage) int64 {
 	return jsonInt64(u, "total_tokens")
 }
 
-func claudeDurationMs(raw map[string]json.RawMessage) int64 {
-	for _, k := range []string{"duration_ms", "durationMs", "elapsed_ms"} {
-		if n := jsonInt64(raw, k); n > 0 {
-			return n
-		}
-	}
-	return 0
+// claudeUsagePiece：ID = 合计，Text = result.usage.output_tokens（v0.47；≤0 → 空串，即省略）。
+func claudeUsagePiece(raw map[string]json.RawMessage, total int64) streamPiece {
+	return streamPiece{Kind: "usage", ID: fmtInt64(total), Text: positiveStr(usageField(raw, "output_tokens"))}
 }
 
+// usageField 读 raw["usage"][key]；缺省 / 解析失败 → 0。
+func usageField(raw map[string]json.RawMessage, key string) int64 {
+	usageRaw, ok := raw["usage"]
+	if !ok {
+		return 0
+	}
+	var u map[string]json.RawMessage
+	if json.Unmarshal(usageRaw, &u) != nil {
+		return 0
+	}
+	return jsonInt64(u, key)
+}
+
+func positiveStr(n int64) string {
+	if n <= 0 {
+		return ""
+	}
+	return fmtInt64(n)
+}
+
+// parseCodexUsage 读 turn.completed.usage（v0.47 §6.19.19.5）：
+// 合计 = input_tokens + output_tokens（cached_input_tokens 是 input 的子项、reasoning_output_tokens 是 output 的子项，
+// 不再重复相加）；两者都没有时退回 total_tokens。输出 = output_tokens（已含 reasoning）。
 func parseCodexUsage(raw map[string]json.RawMessage) (streamPiece, bool) {
 	usageRaw, ok := raw["usage"]
 	if !ok {
@@ -1142,7 +1251,7 @@ func parseCodexUsage(raw map[string]json.RawMessage) (streamPiece, bool) {
 		return streamPiece{}, false
 	}
 	var total int64
-	for _, k := range []string{"input_tokens", "output_tokens", "cached_input_tokens", "reasoning_output_tokens"} {
+	for _, k := range []string{"input_tokens", "output_tokens"} {
 		if n := jsonInt64(u, k); n > 0 {
 			total += n
 		}
@@ -1153,11 +1262,7 @@ func parseCodexUsage(raw map[string]json.RawMessage) (streamPiece, bool) {
 	if total <= 0 {
 		return streamPiece{}, false
 	}
-	dur := jsonInt64(raw, "duration_ms")
-	if dur <= 0 {
-		dur = jsonInt64(u, "duration_ms")
-	}
-	return streamPiece{Kind: "usage", ID: fmtInt64(total), Text: fmtInt64(dur)}, true
+	return streamPiece{Kind: "usage", ID: fmtInt64(total), Text: positiveStr(jsonInt64(u, "output_tokens"))}, true
 }
 
 func jsonInt64(m map[string]json.RawMessage, key string) int64 {

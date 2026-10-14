@@ -1,11 +1,12 @@
 /**
  * Cat 消息尾（契约 v0.37.1 / 设计说明 v0.1.1）：
- * `完成于 HH:mm · 共 N token · 约 M token/s`
+ * `完成于 HH:mm · 首字 · 总耗时 · 共 N token · 输出 N token · 约 M token/s`（v0.47）
+ * token/s 只显示后端给的值，前端不算；无 outputTokens 则「输出」「token/s」都不显示。
  * 仅格式化；有无字段由调用方决定（无 finishedAt 整段不显示）。
  */
 
 import { CAT_FOOTER_COPY as C } from './catMessageFooterCopy'
-import { pickCatTiming } from './catTimingAdapter'
+import { pickCatOutput, pickCatTiming } from './catTimingAdapter'
 
 export type CatMessageFooterFields = {
   finishedAt?: number
@@ -13,6 +14,9 @@ export type CatMessageFooterFields = {
   firstTokenMs?: number
   totalMs?: number
   tokenTotal?: number
+  /** v0.47：本轮输出 token；缺省则不显示「输出」与 token/s */
+  outputTokens?: number
+  /** 后端算好的（v0.47 按输出 token）；前端只格式化 */
   tokensPerSec?: number
 }
 
@@ -42,10 +46,10 @@ export function formatCatDuration(msIn: number): string {
 }
 
 /** 消息尾一段；key 也是窄宽度隐藏顺序的依据 */
-export type CatFooterPart = { key: 'finishedAt' | 'firstToken' | 'total' | 'tokens' | 'rate'; text: string }
+export type CatFooterPart = { key: 'finishedAt' | 'firstToken' | 'total' | 'tokens' | 'output' | 'rate'; text: string }
 
-/** 窄宽度时依次隐藏：速率 → token → 首字 → 完成于 → 总耗时（最后） */
-export const CAT_FOOTER_HIDE_ORDER: readonly CatFooterPart['key'][] = ['rate', 'tokens', 'firstToken', 'finishedAt', 'total']
+/** 窄宽度时依次隐藏（v0.47）：速率 → 输出 → 共 → 首字 → 完成于 → 总耗时（最后） */
+export const CAT_FOOTER_HIDE_ORDER: readonly CatFooterPart['key'][] = ['rate', 'output', 'tokens', 'firstToken', 'finishedAt', 'total']
 
 export function catMessageFooterParts(f: CatMessageFooterFields): CatFooterPart[] {
   const finishedAt = typeof f.finishedAt === 'number' && Number.isFinite(f.finishedAt) && f.finishedAt > 0 ? f.finishedAt : 0
@@ -57,6 +61,11 @@ export function catMessageFooterParts(f: CatMessageFooterFields): CatFooterPart[
   if (tt) parts.push({ key: 'total', text: C.total(tt) })
   if (typeof f.tokenTotal === 'number' && Number.isFinite(f.tokenTotal)) {
     parts.push({ key: 'tokens', text: C.tokens(formatCatFooterCount(f.tokenTotal)) })
+  }
+  // v0.47：「输出」与 token/s 只看 outputTokens；绝不拿 tokenTotal 顶替
+  const out = typeof f.outputTokens === 'number' && Number.isFinite(f.outputTokens) && f.outputTokens > 0 ? f.outputTokens : 0
+  if (out) {
+    parts.push({ key: 'output', text: C.output(formatCatFooterCount(out)) })
     const rate = typeof f.tokensPerSec === 'number' && Number.isFinite(f.tokensPerSec) && f.tokensPerSec > 0 ? f.tokensPerSec : 0
     if (rate) parts.push({ key: 'rate', text: C.rate(formatCatFooterCount(rate)) })
   }
@@ -73,17 +82,20 @@ export function catFooterSplit(parts: CatFooterPart[], hideCount: number): [CatF
   return [parts.filter((p) => !hide.has(p.key)), parts.filter((p) => hide.has(p.key))]
 }
 
-/** 悬停提示：被隐藏的项 + 两行说明（有对应项才带），一行一项 */
+/** 悬停提示：被隐藏的项 + 说明（首字 / 总耗时 / v0.47 token/s）（有对应项才带），一行一项。
+ * 速率被窄窗隐藏时不重复列「约 N token/s」，只留说明行「约 N token/s：按输出 token 计算」（产品 10-14）。 */
 export function catFooterTooltip(parts: CatFooterPart[], hidden: CatFooterPart[]): string {
-  const lines = hidden.map((p) => p.text)
+  const lines = hidden.filter((p) => p.key !== 'rate').map((p) => p.text)
   if (parts.some((p) => p.key === 'firstToken')) lines.push(C.hintFirstToken)
   if (parts.some((p) => p.key === 'total')) lines.push(C.hintTotal)
+  const rate = parts.find((p) => p.key === 'rate')
+  if (rate) lines.push(C.hintRate(rate.text.replace(/^约 (.+) token\/s$/, '$1')))
   return lines.join('\n')
 }
 
 /**
  * 由字段拼一行文案。无 `finishedAt` → 空串（不显示尾巴）。
- * 有 usage（有限 `tokenTotal`）才拼 token 段；有限且 >0 的 `tokensPerSec` 才拼速率段。
+ * 有 `tokenTotal` 才拼「共」；有 `outputTokens`(>0) 才拼「输出」，再有后端 `tokensPerSec`(>0) 才拼速率。
  */
 export function formatCatMessageFooter(f: CatMessageFooterFields): string {
   return catMessageFooterParts(f).map((p) => p.text).join(C.sep)
@@ -99,11 +111,7 @@ export function pickCatMessageFooter(raw: Record<string, unknown> | null | undef
     const t = numOrUndef(raw.tokenTotal)
     if (t !== undefined) out.tokenTotal = t
   }
-  if ('tokensPerSec' in raw) {
-    const r = numOrUndef(raw.tokensPerSec)
-    if (r !== undefined && r > 0) out.tokensPerSec = r
-  }
-  Object.assign(out, pickCatTiming(raw))
+  Object.assign(out, pickCatOutput(raw), pickCatTiming(raw))
   return out
 }
 

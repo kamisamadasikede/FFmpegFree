@@ -1,5 +1,5 @@
 import { mapCatStatus } from './cat'
-import { allDetectRowsChecking, detectRowView, formatCheckedAt, markRowChecking, mergeCatStatus } from './catDetect'
+import { allDetectRowsChecking, detectLoginView, detectRowView, formatCheckedAt, markRowChecking, mergeCatStatus } from './catDetect'
 
 type Eq = (name: string, got: unknown, want: unknown) => void
 
@@ -55,4 +55,14 @@ export function catDetectChecks(eq: Eq): void {
 
   const mk = markRowChecking(full, 'claude_cli')
   eq('单家重检只动该行', mk.agents.map((a) => a.checking), [false, true, false])
+
+  const LC = { loggedIn: '已登录', loginBad: '未登录', loginNa: '不适用' }
+  const lg = (o: Record<string, unknown>) => { const a = mapCatStatus({ agents: [row('claude_cli', o)] }).agents[0]; return detectLoginView(a, detectRowView(a, { now }), LC) }
+  eq('登录：检测中 → 正在检测…无点', [lg({ checking: true, loggedIn: true }).text, lg({ checking: true, loggedIn: true }).tone], ['正在检测…', 'checking'])
+  eq('登录：存档无 loggedIn → 正在检测…', [lg({ stale: true, loggedIn: undefined }).text, lg({ stale: true, loggedIn: undefined }).tone], ['正在检测…', 'checking'])
+  eq('登录：结果未到 → 正在检测…', detectLoginView(undefined, detectRowView(undefined), LC).text, '正在检测…')
+  eq('登录：实时 true', lg({ loggedIn: true }).tone, 'ok')
+  eq('登录：实时 false', [lg({ loggedIn: false }).text, lg({ loggedIn: false }).bad], ['未登录', true])
+  eq('登录：实时完成 ready + null → 不适用', lg({ loggedIn: undefined }).text, '不适用')
+  eq('登录：检测中不出未登录', lg({ checking: true, loggedIn: false }).bad, false)
 }

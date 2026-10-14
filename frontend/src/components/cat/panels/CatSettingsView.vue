@@ -451,7 +451,8 @@
                 <div v-if="row.version && !row.pending" class="row sub"><div class="lab"><b>{{ C.version }}</b></div><div class="ctl ro">{{ row.version }}</div></div>
                 <div v-if="row.loginText" class="row sub">
                   <div class="lab"><b>{{ C.login }}</b></div>
-                  <div class="ctl st" :class="row.loginTone"><i />{{ row.loginText }}</div>
+                  <div v-if="row.loginTone === 'checking'" class="ctl detect-meta" :data-testid="'cat-detect-login-' + row.kind"><span>{{ row.loginText }}</span></div>
+                  <div v-else class="ctl st" :class="row.loginTone"><i />{{ row.loginText }}</div>
                 </div>
                 <div v-if="row.loginBad" class="bar" role="status">{{ C.loginBanner(row.label) }}</div>
               </div>
@@ -559,7 +560,7 @@ import { getAppVersion } from '@/api/about'
 import { catPanels, saveSetting, type CatSettingsTab } from '@/views/cat/catPanels'
 import { catLocalPrefs, setNewConvPlace, setTypewriter } from '@/views/cat/catLocalPrefs'
 import { catState, afterClearAll, currentProject, notify, createProject, applyCatStatus, recheckCatAgents } from '@/views/cat/catState'
-import { CAT_DETECT_COPY, allDetectRowsChecking, detectRowView } from '@/api/catDetect'
+import { CAT_DETECT_COPY, allDetectRowsChecking, detectLoginView, detectRowView } from '@/api/catDetect'
 import { catSim, simAgentRaw, simModels, simThinks } from '@/views/cat/catDevSim'
 import {
   CAT_PROVIDER_MODELS_COPY as PM,
@@ -1139,18 +1140,10 @@ const agentRows = computed(() => {
     const v = detectRowView(a, { forceChecking: rechecking.value })
     const ready = v.ready
     const version = a?.version || ''
-    const loginBad = !v.checking && a?.loggedIn === false
-    let loginText = ''
-    let loginTone: 'ok' | 'bad' | 'wait' = 'ok'
-    if (!v.pending && a && a.loggedIn === true) {
-      loginText = C.loggedIn
-    } else if (loginBad) {
-      loginText = C.loginBad
-      loginTone = 'bad'
-    } else if (!v.pending && a && a.loggedIn == null && ready) {
-      loginText = C.loginNa
-      loginTone = 'wait'
-    }
+    const lv = detectLoginView(a, v, C)
+    const loginText = lv.text
+    const loginTone = lv.tone
+    const loginBad = lv.bad
     return { kind, label: CAT_PROVIDER_LABEL[kind], ...v, version, loginText, loginTone, loginBad }
   })
 })

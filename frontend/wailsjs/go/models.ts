@@ -1478,6 +1478,10 @@ export namespace catagent {
 	    loggedIn?: boolean;
 	    detail?: string;
 	    modes: AgentMode[];
+	    checking: boolean;
+	    checkedAt?: number;
+	    stale?: boolean;
+	    exePath?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AgentStatus(source);
@@ -1491,6 +1495,10 @@ export namespace catagent {
 	        this.loggedIn = source["loggedIn"];
 	        this.detail = source["detail"];
 	        this.modes = this.convertValues(source["modes"], AgentMode);
+	        this.checking = source["checking"];
+	        this.checkedAt = source["checkedAt"];
+	        this.stale = source["stale"];
+	        this.exePath = source["exePath"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -3633,6 +3641,7 @@ export namespace store {
 	    finishedAt?: number;
 	    tokenTotal?: number;
 	    tokensPerSec?: number;
+	    outputTokens?: number;
 	    firstTokenMs?: number;
 	    totalMs?: number;
 	
@@ -3650,6 +3659,7 @@ export namespace store {
 	        this.finishedAt = source["finishedAt"];
 	        this.tokenTotal = source["tokenTotal"];
 	        this.tokensPerSec = source["tokensPerSec"];
+	        this.outputTokens = source["outputTokens"];
 	        this.firstTokenMs = source["firstTokenMs"];
 	        this.totalMs = source["totalMs"];
 	    }

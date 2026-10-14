@@ -36,6 +36,7 @@
  *   timinglong —— 配合 stream：首字 12.3s、总耗时 65s（「1分05秒」）
  *   timingstop —— 配合 stream：推到一半自动按「已停止」结束（cancelled，总耗时算到停止那刻）
  *   footertip —— 消息尾悬停提示常显（截图用）
+ *   nooutput —— 配合 stream：终态只有 tokenTotal，没有 outputTokens / tokensPerSec（v0.47）
  *   footertime —— 配合 stream：完成态消息尾只留「完成于 HH:mm」（默认带 token 两段）
  *   gitconflict —— 右栏 Git 模拟合并冲突列表（v0.41 走查）
  *   gitrebase —— 同上，变基中文案
@@ -76,8 +77,8 @@ export function simThinks(): CatThinkLevel[] {
   ]
 }
 
-export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'codexcaps' | 'failonce' | 'histempty' | 'md' | 'mdhold' | 'savefail' | 'inspectslow' | 'inspectfail' | 'inspectempty' | 'clearfail' | 'keyfail' | 'skillsmissing' | 'setenablefail' | 'schedempty' | 'schedfail' | 'slowconv' | 'browsertimeout' | 'footertime' | 'allagents' | 'gitconflict' | 'gitrebase' | 'gitdone' | 'gitbranch' | 'office' | 'officeneed' | 'officedl' | 'officefail' | 'officepreview' | 'officeready' | 'clioutdated' | 'retrygone' | 'footertip' | 'timingpartial' | 'timinglong' | 'timingstop' | 'histmissing' | 'histreadfail' | 'scratchfiles' | 'pmcustom' | 'pm_slow' | 'pm_empty' | 'pm_unauth' | 'pm_unreach' | 'pm_unsupported' | 'pm_bad' | 'pm_notcfg' | 'codexnoresponses' | 'codexconv' | 'detect_checking' | 'detect_rechecking' | 'detect_partial' | 'detect_legacy' | 'detect_fail' | 'detect_ok' | 'detect_stale'
-const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'codexcaps', 'failonce', 'histempty', 'md', 'mdhold', 'savefail', 'inspectslow', 'inspectfail', 'inspectempty', 'clearfail', 'keyfail', 'skillsmissing', 'setenablefail', 'schedempty', 'schedfail', 'slowconv', 'browsertimeout', 'footertime', 'allagents', 'gitconflict', 'gitrebase', 'gitdone', 'gitbranch', 'office', 'officeneed', 'officedl', 'officefail', 'officepreview', 'officeready', 'clioutdated', 'retrygone', 'footertip', 'timingpartial', 'timinglong', 'timingstop', 'histmissing', 'histreadfail', 'scratchfiles', 'pmcustom', 'pm_slow', 'pm_empty', 'pm_unauth', 'pm_unreach', 'pm_unsupported', 'pm_bad', 'pm_notcfg', 'codexnoresponses', 'codexconv', 'detect_checking', 'detect_rechecking', 'detect_partial', 'detect_legacy', 'detect_fail', 'detect_ok', 'detect_stale']
+export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'codexcaps' | 'failonce' | 'histempty' | 'md' | 'mdhold' | 'savefail' | 'inspectslow' | 'inspectfail' | 'inspectempty' | 'clearfail' | 'keyfail' | 'skillsmissing' | 'setenablefail' | 'schedempty' | 'schedfail' | 'slowconv' | 'browsertimeout' | 'footertime' | 'allagents' | 'gitconflict' | 'gitrebase' | 'gitdone' | 'gitbranch' | 'office' | 'officeneed' | 'officedl' | 'officefail' | 'officepreview' | 'officeready' | 'clioutdated' | 'retrygone' | 'footertip' | 'timingpartial' | 'timinglong' | 'timingstop' | 'histmissing' | 'histreadfail' | 'scratchfiles' | 'pmcustom' | 'pm_slow' | 'pm_empty' | 'pm_unauth' | 'pm_unreach' | 'pm_unsupported' | 'pm_bad' | 'pm_notcfg' | 'codexnoresponses' | 'codexconv' | 'detect_checking' | 'detect_rechecking' | 'detect_partial' | 'detect_legacy' | 'detect_fail' | 'detect_ok' | 'detect_stale' | 'nooutput'
+const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'codexcaps', 'failonce', 'histempty', 'md', 'mdhold', 'savefail', 'inspectslow', 'inspectfail', 'inspectempty', 'clearfail', 'keyfail', 'skillsmissing', 'setenablefail', 'schedempty', 'schedfail', 'slowconv', 'browsertimeout', 'footertime', 'allagents', 'gitconflict', 'gitrebase', 'gitdone', 'gitbranch', 'office', 'officeneed', 'officedl', 'officefail', 'officepreview', 'officeready', 'clioutdated', 'retrygone', 'footertip', 'timingpartial', 'timinglong', 'timingstop', 'histmissing', 'histreadfail', 'scratchfiles', 'pmcustom', 'pm_slow', 'pm_empty', 'pm_unauth', 'pm_unreach', 'pm_unsupported', 'pm_bad', 'pm_notcfg', 'codexnoresponses', 'codexconv', 'detect_checking', 'detect_rechecking', 'detect_partial', 'detect_legacy', 'detect_fail', 'detect_ok', 'detect_stale', 'nooutput']
 
 export const catSim: ReadonlySet<CatSimFlag> = (() => {
   if (!import.meta.env.DEV || typeof window === 'undefined') return new Set<CatSimFlag>()
@@ -153,13 +154,15 @@ export function simStream(
         ...simTiming(),
         ...(catSim.has('footertime')
           ? {}
-          : { tokenTotal: 12480, tokensPerSec: 186 }),
+          : catSim.has('nooutput')
+            ? { tokenTotal: 12345 } // v0.47：后端拿不到输出 token → 输出与 token/s 都不给
+            : { tokenTotal: 12345, outputTokens: 2100, tokensPerSec: 280 }),
       })
       return
     }
     if (catSim.has('timingstop') && i >= 60) {
       onMessage({ convId, turnId, messageId, seq: ++seq, op: 'done', role: 'assistant', text: '' })
-      onTurn({ convId, turnId, status: 'cancelled', messageId, finishedAt: Date.now(), firstTokenMs: 900, totalMs: 3600, tokenTotal: 420, tokensPerSec: 117 })
+      onTurn({ convId, turnId, status: 'cancelled', messageId, finishedAt: Date.now(), firstTokenMs: 900, totalMs: 3600, tokenTotal: 420, outputTokens: 310, tokensPerSec: 115 })
       return
     }
     const part = text.slice(i, holdAt >= 0 ? Math.min(i + step, holdAt) : i + step)

@@ -2,7 +2,7 @@ import { refreshScratch } from './catScratchFiles'
 import { listCatFiles } from '@/api/catFiles'
 import { catBackendLive } from '@/api/cat'
 import { mergeCatStatus, markRowChecking } from '@/api/catDetect'
-import { applyCatTiming } from '@/components/cat/catTimingAdapter'
+import { applyCatOutput, applyCatTiming } from '@/components/cat/catTimingAdapter'
 /**
  * Cat 页本地状态（单例）。契约 v0.30 / 设计 v0.4：
  * - CAT_BACKEND_READY=true 且在 Wails 里：会话列表 / 消息 / 发送 / 停止走真实 CatService；cat:message 流式拼进助手气泡
@@ -377,7 +377,7 @@ function blocksFrom(list: CatMessage[]): CatBlock[] {
     // v0.37.1：重开对话带回已持久化的消息尾；缺字段不补
     if (m.finishedAt && m.finishedAt > 0) a.finishedAt = m.finishedAt
     if (typeof m.tokenTotal === 'number' && Number.isFinite(m.tokenTotal)) a.tokenTotal = m.tokenTotal
-    if (typeof m.tokensPerSec === 'number' && Number.isFinite(m.tokensPerSec) && m.tokensPerSec > 0) a.tokensPerSec = m.tokensPerSec
+    applyCatOutput(a, m)
     applyCatTiming(a, m)
     return a
   })
@@ -1007,8 +1007,7 @@ function applyTurnFooter(convId: string, turn: CatTurnState, ev?: CatTurnEvent) 
   b.finishedAt = finishedAt
   if (typeof ev.tokenTotal === 'number' && Number.isFinite(ev.tokenTotal)) b.tokenTotal = ev.tokenTotal
   else delete b.tokenTotal
-  if (typeof ev.tokensPerSec === 'number' && Number.isFinite(ev.tokensPerSec) && ev.tokensPerSec > 0) b.tokensPerSec = ev.tokensPerSec
-  else delete b.tokensPerSec
+  applyCatOutput(b, ev) // v0.47：输出 token + 后端 token/s
   // v0.45：每轮按事件重写；缺的删掉（重试不残留旧值）
   applyCatTiming(b, ev)
 }

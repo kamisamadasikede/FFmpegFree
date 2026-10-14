@@ -1,5 +1,5 @@
 import { readCatHistoryStatus, type CatHistoryStatus } from './catHistoryStatus'
-import { pickCatTiming } from '@/components/cat/catTimingAdapter'
+import { pickCatOutput, pickCatTiming } from '@/components/cat/catTimingAdapter'
 /**
  * Cat 助手接口层（契约 v0.30 §6.19；v0.36 多服务商 cat_build|claude_cli|codex_cli）。
  *
@@ -71,7 +71,8 @@ import {
 export type CatComponentState = 'checking' | 'ready' | 'missing' | 'failed'
 
 /** 单家状态（契约 v0.36 CatAgentStatus） */
-export interface CatAgentStatus {
+/** v0.47.1 检测字段直接用生成的 catagent.AgentStatus（checking/checkedAt/stale/exePath） */
+export interface CatAgentStatus extends Partial<Pick<catagent.AgentStatus, 'checking' | 'checkedAt' | 'stale' | 'exePath'>> {
   agentKind: CatProviderKind
   ready: boolean
   version: string
@@ -80,14 +81,6 @@ export interface CatAgentStatus {
   detail?: string
   /** v0.44 agents[].modes 原样（由 views/cat/catCapabilities 的 mapAgentModes 解析） */
   rawModes?: unknown
-  /** v0.47.1：该家正在检测（旧绑定缺省 → false） */
-  checking?: boolean
-  /** v0.47.1：最近一次检测完成时间（Unix 毫秒） */
-  checkedAt?: number
-  /** v0.47.1：来自落库的上次结果 */
-  stale?: boolean
-  /** v0.47.1：命中的可执行文件路径（只在 tooltip 显示） */
-  exePath?: string
 }
 
 export interface CatStatus {
@@ -135,6 +128,8 @@ export interface CatMessage {
   /** v0.37.1 消息尾（仅 assistant；缺省不显示） */
   finishedAt?: number
   tokenTotal?: number
+  /** v0.47 §6.19.19.5 输出 token；缺省则不带 tokensPerSec */
+  outputTokens?: number
   tokensPerSec?: number
   /** v0.45 首字 / 总耗时（毫秒；缺省不显示） */
   firstTokenMs?: number
@@ -292,7 +287,7 @@ function mapMedia(raw: unknown): CatShownFile[] | undefined {
   return out.length ? out : undefined
 }
 
-function mapMsg(raw: { id?: string; role?: string; content?: string; createdAt?: number; media?: unknown; finishedAt?: unknown; tokenTotal?: unknown; tokensPerSec?: unknown } | null | undefined): CatMessage {
+function mapMsg(raw: { id?: string; role?: string; content?: string; createdAt?: number; media?: unknown; finishedAt?: unknown; tokenTotal?: unknown; outputTokens?: unknown; tokensPerSec?: unknown } | null | undefined): CatMessage {
   const r = raw?.role
   const role = r === 'user' || r === 'system' || r === 'thought' || r === 'tool' ? r : 'assistant'
   const msg: CatMessage = {
@@ -310,11 +305,8 @@ function mapMsg(raw: { id?: string; role?: string; content?: string; createdAt?:
       const tot = Number(raw.tokenTotal)
       if (Number.isFinite(tot)) msg.tokenTotal = tot
     }
-    if (raw.tokensPerSec !== undefined && raw.tokensPerSec !== null && raw.tokensPerSec !== '') {
-      const rate = Number(raw.tokensPerSec)
-      if (Number.isFinite(rate) && rate > 0) msg.tokensPerSec = rate
-    }
-    Object.assign(msg, pickCatTiming(raw))
+    // v0.47：outputTokens + 后端 tokensPerSec 同进退
+    Object.assign(msg, pickCatOutput(raw), pickCatTiming(raw))
   }
   return msg
 }
@@ -324,15 +316,10 @@ export async function getCatStatus(): Promise<CatStatus> {
   return mapCatStatus(await call(CatBinding.GetCatStatus()))
 }
 
-/**
- * v0.47.1：RecheckCat(agentKind?)。空 = 全部；传了只检该家（返回仍是全量 agents[]）。
- * 旧绑定是 RecheckCat()（length 0）时不传参，退化为全量重检。
- */
-export async function recheckCat(agentKind?: CatProviderKind): Promise<CatStatus> {
+/** v0.47.1：RecheckCat(agentKind)。空 = 全部；传了只检该家（返回仍是全量 agents[]）。 */
+export async function recheckCat(agentKind: CatProviderKind | '' = ''): Promise<CatStatus> {
   if (!live()) return missingStatus()
-  const fn = CatBinding.RecheckCat as unknown as (...a: unknown[]) => Promise<unknown>
-  const raw = agentKind && fn.length >= 1 ? await call(fn(agentKind)) : await call(fn())
-  return mapCatStatus(raw)
+  return mapCatStatus(await call(CatBinding.RecheckCat(agentKind)))
 }
 
 function mapList<T extends { id: string; displayName: string }>(raw: unknown): T[] {

@@ -54,6 +54,8 @@ type Config struct {
 	ScheduleTick time.Duration
 	// ScheduleRunTimeout 是一次定时运行的上限；0 = 30 分钟（v0.35.3）。
 	ScheduleRunTimeout time.Duration
+	// StatusDebounce 合并状态变化后发 cat:status 的等待（v0.47.1）；0 = 50ms，<0 = 同步发（测试）。
+	StatusDebounce time.Duration
 }
 
 // Service 是 CatService。
@@ -85,6 +87,9 @@ type Service struct {
 	// v0.46 服务商模型列表缓存（6.19.20.2 ⑤）
 	pmOnce sync.Once
 	pm     *providerModelsCache
+
+	// v0.47.1 检测状态 / cat.detect
+	det detectState
 }
 
 // lastTurn 是某会话最后一轮（6.19.18.7）。
@@ -134,7 +139,7 @@ type turnState struct {
 	// v0.37.1 消息尾
 	startedAt    int64 // 发 running / 启 turn 的墙钟（Unix 毫秒）
 	tokenTotal   int64 // CLI 上报合计；0 = 无 usage
-	durationMs   int64 // CLI 上报生成耗时；0 = 用墙钟
+	outputTokens int64 // v0.47：CLI 上报输出 token；0 = 无
 	finishedAt   int64
 	tokensPerSec *float64
 	firstTokenAt int64 // v0.45：第一个正文 / 思考增量的墙钟；0 = 还没有
@@ -188,22 +193,33 @@ func agentStatusOf(kind string, st Status) catagent.AgentStatus {
 	return as
 }
 
-// composeStatus 组装顶层 Status（以 cat_build 为主）+ agents[] 固定三家。
-// recheck=true 时对已注册适配器调用 Recheck。
+// composeStatus 组装顶层 Status（以 cat_build 为主）+ agents[]：注册表里所有已注册适配器各一行，按注册顺序
+// （v0.47.1 6.19.21.1）；v0.36 三家里未注册的补在后面（missing）。recheck=true 时对已注册适配器调用 Recheck。
 func (s *Service) composeStatus(recheck bool) Status {
-	kinds := catagent.CreatableKinds()
+	kinds := s.cfg.Registry.Kinds()
+	seen := map[string]bool{}
+	for _, k := range kinds {
+		seen[k] = true
+	}
+	for _, k := range catagent.CreatableKinds() {
+		if !seen[k] {
+			kinds = append(kinds, k)
+		}
+	}
 	agents := make([]catagent.AgentStatus, 0, len(kinds))
 	var top Status
 	topSet := false
 	for _, kind := range kinds {
 		var st Status
-		if a, ok := s.cfg.Registry.Get(kind); ok && a != nil {
+		a, ok := s.cfg.Registry.Get(kind)
+		if ok && a != nil {
 			if recheck {
 				st = a.Recheck()
 			} else {
 				st = a.Status()
 			}
 		} else {
+			a = nil
 			st = Status{State: catagent.StateMissing, CanDownload: false, Error: apperr.New(apperr.CatNotReady, catagent.MsgNotReady)}
 		}
 		if kind == catagent.KindCatBuild {
@@ -211,7 +227,7 @@ func (s *Service) composeStatus(recheck bool) Status {
 			top.Agents = nil
 			topSet = true
 		}
-		agents = append(agents, agentStatusOf(kind, st))
+		agents = append(agents, s.agentRow(kind, a, st))
 	}
 	if !topSet {
 		top = Status{State: catagent.StateMissing, CanDownload: false, Error: apperr.New(apperr.CatNotReady, catagent.MsgNotReady)}
@@ -223,13 +239,6 @@ func (s *Service) composeStatus(recheck bool) Status {
 func (s *Service) GetCatStatus(ctx context.Context) (Status, error) {
 	s.applyAllProviderOverlays(ctx)
 	return s.composeStatus(false), nil
-}
-
-func (s *Service) RecheckCat(ctx context.Context) (Status, error) {
-	s.applyAllProviderOverlays(ctx)
-	st := s.composeStatus(true)
-	s.emit(catagent.EventStatus, st)
-	return st, nil
 }
 
 func (s *Service) ListCatModels(ctx context.Context, agentKind string) ([]Model, error) {
@@ -1036,15 +1045,15 @@ func (s *Service) finishLocked(t *turnState, status string) bool {
 	return true
 }
 
-// noteTurnUsage 记下适配器上报的合计 token / 生成耗时（契约 v0.37.1）。
+// noteTurnUsage 记下适配器上报的合计 / 输出 token（契约 v0.37.1、v0.47）。
 func (s *Service) noteTurnUsage(t *turnState, resp catagent.TurnResponse) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if resp.TokenTotal > 0 {
 		t.tokenTotal = resp.TokenTotal
 	}
-	if resp.DurationMs > 0 {
-		t.durationMs = resp.DurationMs
+	if resp.OutputTokens > 0 {
+		t.outputTokens = resp.OutputTokens
 	}
 }
 
@@ -1052,11 +1061,7 @@ func (s *Service) fillFooterLocked(t *turnState) {
 	if t.finishedAt <= 0 {
 		t.finishedAt = time.Now().UnixMilli()
 	}
-	dur := t.durationMs
-	if dur <= 0 && t.startedAt > 0 && t.finishedAt > t.startedAt {
-		dur = t.finishedAt - t.startedAt
-	}
-	t.tokensPerSec = computeTokensPerSec(t.tokenTotal, dur)
+	t.tokensPerSec = computeTokensPerSec(t.outputTokens, msPtr(t.startedAt, t.finishedAt), msPtr(t.startedAt, t.firstTokenAt))
 }
 
 func (s *Service) turnEventLocked(t *turnState, status string) catagent.TurnEvent {
@@ -1085,6 +1090,7 @@ func (s *Service) turnEventLocked(t *turnState, status string) catagent.TurnEven
 	ev.TotalMs = msPtr(t.startedAt, t.finishedAt)
 	ev.TokenTotal = int64Ptr(t.tokenTotal)
 	ev.TokensPerSec = t.tokensPerSec
+	ev.OutputTokens = int64Ptr(t.outputTokens)
 	return ev
 }
 
@@ -1100,6 +1106,7 @@ func (s *Service) persistFooterLocked(t *turnState) {
 	appendFooter(s.cfg.DataRoot, t.convID, messageFooter{
 		TurnID: t.turnID, MessageID: t.msgID, FinishedAt: t.finishedAt,
 		TokenTotal: int64Ptr(t.tokenTotal), TokensPerSec: t.tokensPerSec,
+		OutputTokens: int64Ptr(t.outputTokens),
 		FirstTokenMs: msPtr(t.startedAt, t.firstTokenAt), TotalMs: msPtr(t.startedAt, t.finishedAt),
 	})
 }

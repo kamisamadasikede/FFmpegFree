@@ -36,7 +36,8 @@ type CatMessage struct {
 	// 应用侧按 turn 持久化后，在 GetCatConversation 合并进导出正文；不写进 CLI export。
 	FinishedAt   int64    `json:"finishedAt,omitempty"`
 	TokenTotal   *int64   `json:"tokenTotal,omitempty"`
-	TokensPerSec *float64 `json:"tokensPerSec,omitempty"`
+	TokensPerSec *float64 `json:"tokensPerSec,omitempty"` // v0.47：outputTokens / 生成秒数
+	OutputTokens *int64   `json:"outputTokens,omitempty"` // v0.47 §6.19.19.5：CLI 没给则省略
 	// v0.45 §6.19.19.3：发送 → 第一个正文 / 思考增量、发送 → 终态（毫秒）。旧消息不补。
 	FirstTokenMs *int64 `json:"firstTokenMs,omitempty"`
 	TotalMs      *int64 `json:"totalMs,omitempty"`
