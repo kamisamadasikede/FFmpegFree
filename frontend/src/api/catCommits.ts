@@ -290,10 +290,11 @@ let simPages = 0
 async function simList(cursor: string, query: string): Promise<CatCommitPage> {
   await delay(cursor ? 500 : 250)
   if (catSim.has('gitgraphempty')) return { commits: [], nextCursor: '', total: 0, noCommits: true }
+  // 首屏失败：走查「加载失败」+「重试」（首屏 firstError，不是翻页 moreError）
+  if (catSim.has('gitgraphloadfail') && !cursor) throw new AppError('PROCESS_FAILED', 'git log 失败', 'reason=git_failed')
   const skip = cursor ? Number(atob(cursor)) : 0
   if (cursor) {
     simPages++
-    if (catSim.has('gitgraphloadfail') && simPages === 1) throw new AppError('PROCESS_FAILED', 'git log 失败', 'reason=git_failed')
     if (catSim.has('gitgraphchanged') && simPages === 1) throw new AppError('INVALID_ARGUMENT', '', 'reason=history_changed')
   }
   const all = simCommits().filter((c) => commitMatches(c, query))

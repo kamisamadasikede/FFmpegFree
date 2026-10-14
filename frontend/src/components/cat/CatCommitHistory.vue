@@ -21,7 +21,7 @@
       <button v-if="changed" type="button" class="ch-changed" data-testid="cat-commit-changed" @click="reload">{{ C.changed }}</button>
       <div v-if="loading && !commits.length" class="ch-state" role="status">{{ C.loading }}</div>
       <div v-else-if="firstError && !commits.length" class="ch-state" role="alert">
-        <span>{{ C.loadFail }}</span><button type="button" class="lnk" @click="reload">{{ C.retry }}</button>
+        <span>{{ C.loadFail }}</span><button type="button" class="lnk" data-testid="cat-commit-retry" @click="reload">{{ C.retry }}</button>
       </div>
       <div v-else-if="noCommits" class="ch-state" data-testid="cat-commit-empty">{{ C.empty }}</div>
       <div v-else-if="!commits.length && query.trim()" class="ch-state" data-testid="cat-commit-nomatch">{{ C.noMatch }}</div>

@@ -6,7 +6,7 @@
  * - 默认（不带参数）：无效
  *
  * 取值（逗号分隔，可组合）：
- *   gitgraph / gitgraphempty / gitgraphchanged / gitgraphloadfail —— v0.53 Git 面板「提交历史」：450 条走查历史（展开）/ 空仓库 / 翻第 2 页时 history_changed / 翻第 2 页失败
+ *   gitgraph / gitgraphempty / gitgraphchanged / gitgraphloadfail —— v0.53 Git 面板「提交历史」：450 条走查历史（展开）/ 空仓库 / 翻第 2 页时 history_changed / 首屏加载失败
  *   detached —— GitCatStatus 游离 HEAD（底栏「未在分支上 · abc1234」）
  *   checking —— 组件状态停在「检查中」（发送置灰）
  *   stream   —— 组件状态 ready；发送后按定稿事件形状（cat:message append/done + cat:turn）推一段走查用文字，可点「停止」
