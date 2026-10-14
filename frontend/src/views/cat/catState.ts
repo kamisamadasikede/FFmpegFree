@@ -259,6 +259,8 @@ export const catState = reactive({
   histLoading: {} as Record<string, boolean>,
   /** 记录读过了（读到空 / 没找到也算），用来区分「还在读」和「真的没有记录」 */
   histLoaded: {} as Record<string, boolean>,
+  /** v0.45.1 historyStatus（空状态文案用） */
+  histStatus: {} as Record<string, import('@/api/catHistoryStatus').CatHistoryStatus | undefined>,
 })
 
 export const modelName = computed(() => {
@@ -380,9 +382,10 @@ async function loadMessages(id: string, quiet = false, force = false) {
   loading.add(id)
   if (!quiet && !catState.messages[id]?.length) catState.histLoading[id] = true
   try {
-    if (import.meta.env.DEV && catSim.has('histempty')) {
+    if (import.meta.env.DEV && (catSim.has('histempty') || catSim.has('histmissing') || catSim.has('histreadfail'))) {
       // 走查：记录没找到（零轮）
       catState.messages[id] = []
+      catState.histStatus[id] = catSim.has('histmissing') ? 'missing' : catSim.has('histreadfail') ? 'read_failed' : undefined
       catState.histLoaded[id] = true
       return
     }
@@ -393,6 +396,7 @@ async function loadMessages(id: string, quiet = false, force = false) {
     }
     if (!findConv(id)) return
     catState.histLoaded[id] = true
+    catState.histStatus[id] = d.historyStatus
     // 等待期间本页又自己发出了一轮：不要用文件里的旧记录盖住正在流的内容。
     const now = catState.turns[id]
     if (!force && now && !now.adopted) return
@@ -1454,7 +1458,7 @@ export function selectConv(id: string) {
   if (id === NEW_CONV) catState.newProjectId = ''
   delete catState.unseen[id]
   // 点开对话就向后端要这段记录。服务商和对话 id 在侧栏，正文不在本地库。
-  if (id !== NEW_CONV && (live || (import.meta.env.DEV && catSim.has('histempty')))) void loadMessages(id)
+  if (id !== NEW_CONV && (live || (import.meta.env.DEV && (catSim.has('histempty') || catSim.has('histmissing') || catSim.has('histreadfail'))))) void loadMessages(id)
 }
 
 /**

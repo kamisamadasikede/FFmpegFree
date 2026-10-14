@@ -1,3 +1,4 @@
+import { readCatHistoryStatus, type CatHistoryStatus } from './catHistoryStatus'
 import { pickCatTiming } from '@/components/cat/catTimingAdapter'
 /**
  * Cat 助手接口层（契约 v0.30 §6.19；v0.36 多服务商 cat_build|claude_cli|codex_cli）。
@@ -131,6 +132,8 @@ export interface CatMessage {
 
 export interface CatConversationDetail extends CatConversation {
   messages: CatMessage[]
+  /** v0.45.1：没有正文的原因（有消息时不带） */
+  historyStatus?: CatHistoryStatus
   /** 打开会话时带上的上下文占用；没有真实数字则为 0 */
   contextUsed: number
   contextWindow: number
@@ -399,6 +402,7 @@ export async function getCatConversation(id: string): Promise<CatConversationDet
     messages: Array.isArray(raw.messages) ? raw.messages.map(mapMsg) : [],
     contextUsed: positiveNum(raw.contextUsed),
     contextWindow: positiveNum(raw.contextWindow),
+    historyStatus: readCatHistoryStatus(raw),
   }
 }
 

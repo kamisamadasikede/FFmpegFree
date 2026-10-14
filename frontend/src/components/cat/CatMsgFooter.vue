@@ -89,11 +89,12 @@ onBeforeUnmount(() => ro?.disconnect())
   z-index: 20;
   padding: 6px 10px;
   border-radius: 6px;
-  background: var(--ff-tooltip-bg, rgba(32, 33, 36, 0.92));
-  color: var(--ff-tooltip-fg, #fff);
+  background: var(--ff-bg-elevated);
+  border: 1px solid var(--ff-border);
+  color: var(--ff-text-1);
   font-size: 12px;
   line-height: 1.6;
   white-space: pre;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--ff-shadow-dialog);
 }
 </style>
