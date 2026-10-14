@@ -225,7 +225,7 @@ import {
 } from '@/api/catGit'
 import { catSim } from '@/views/cat/catDevSim'
 import { catState, notify } from '@/views/cat/catState'
-import { setCatGitUi } from './catGitUi'
+import { catGitUi, setCatGitUi } from './catGitUi'
 import {
   CAT_CHAT_MIN,
   CAT_EXTRA_DEFAULT,
@@ -258,6 +258,7 @@ const CatFilePreview = defineAsyncComponent(() => import('./CatFilePreview.vue')
 const props = defineProps<{ convId: string; missing?: boolean }>()
 const emit = defineEmits<{ pick: [note: PickNote] }>()
 const live = isCatLive()
+const mergeSimConflict = ref(false)
 const simGitBranches = !live && (catSim.has('gitconflict') || catSim.has('gitbranch') || catSim.has('gitrebase') || catSim.has('gitdone'))
 const gitPanel = ref<{ openBranchMenu?: () => void } | null>(null)
 const openConflictPath = ref('')
@@ -434,7 +435,7 @@ function mockGit(id: string): GitStatus {
     mergeState: 'none',
     conflicts: [],
   }
-  if (!catSim.has('gitconflict') && !catSim.has('gitrebase') && !catSim.has('gitdone')) return base
+  if (!catSim.has('gitconflict') && !catSim.has('gitrebase') && !catSim.has('gitdone') && !mergeSimConflict.value) return base
   const conflicts = [
     { path: 'src/timeline.ts', ours: true, theirs: true, letter: 'UU' },
     { path: '第3集/第3集.srt', ours: true, theirs: true, letter: 'UU' },
@@ -693,6 +694,10 @@ async function loadGit() {
     if (my === gitToken) gitLoading.value = false
   }
 }
+
+// v0.50 合并：出冲突 → 切到 Git 页（现有冲突解决 UI）并刷新；成功 → 只刷新
+watch(() => catGitUi.conflictNav, () => { pane.value = 'git'; mergeSimConflict.value = !live && catSim.has('mergeconflict'); refresh() })
+watch(() => catGitUi.gitRefresh, () => refresh())
 
 function refresh() {
   void loadRoot(collectExpanded(nodes.value))
