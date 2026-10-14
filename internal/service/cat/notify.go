@@ -7,12 +7,13 @@ import (
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/catagent"
+	"FFmpegFree/internal/i18n"
 	"FFmpegFree/internal/id"
 )
 
 const maxNotifyBodyRunes = 80
 
-// 普通 turn 系统通知文案（契约 v0.48 6.19.12.11-2；中点 U+00B7 前后各一个半角空格）。
+// 普通 turn 系统通知文案的 zh-CN 常量（契约 v0.48 6.19.12.11-2；v0.54 实际发送走 i18n）。
 const (
 	NotifyTitleTurnDone   = "Cat \u00b7 对话已完成"
 	NotifyTitleTurnFailed = "Cat \u00b7 回复失败"
@@ -71,10 +72,10 @@ func (s *Service) notifyOrdinaryTurn(ctx context.Context, convID, status string,
 	if s.WindowFocused() {
 		return
 	}
-	title := NotifyTitleTurnDone
+	title := i18n.T(i18n.KeyNotifyTurnDoneTitle, nil)
 	body := s.convNotifyBody(ctx, convID)
 	if status == catagent.TurnFailed {
-		title = NotifyTitleTurnFailed
+		title = i18n.T(i18n.KeyNotifyTurnFailedTitle, nil)
 		if turnErr != nil {
 			if msg := strings.TrimSpace(turnErr.Message); msg != "" {
 				body = clipRunes(msg, maxNotifyBodyRunes)
@@ -91,16 +92,16 @@ func (s *Service) notifyOrdinaryTurn(ctx context.Context, convID, status string,
 
 func (s *Service) convNotifyBody(ctx context.Context, convID string) string {
 	if s.cfg.Store == nil || strings.TrimSpace(convID) == "" {
-		return "新对话"
+		return i18n.T(i18n.KeyNotifyTurnNewConv, nil)
 	}
 	c, err := s.cfg.Store.GetCatConversation(ctx, convID)
 	if err != nil {
-		return "新对话"
+		return i18n.T(i18n.KeyNotifyTurnNewConv, nil)
 	}
 	s.applyCLITitle(ctx, &c)
 	title := strings.TrimSpace(c.Title)
 	if title == "" {
-		return "新对话"
+		return i18n.T(i18n.KeyNotifyTurnNewConv, nil)
 	}
 	return clipRunes(title, maxNotifyBodyRunes)
 }

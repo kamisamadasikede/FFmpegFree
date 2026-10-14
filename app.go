@@ -68,6 +68,7 @@ type App struct {
 	win          windowState
 	windowOps    *windowOps  // 测试替换窗口调用；nil = Wails runtime
 	catNotifyOK  atomic.Bool // 系统通知已初始化（定时任务结束时用）
+	memLang      string      // store 不可用时的语言设置（测试 / 降级）
 }
 
 // docAssets 返回文档的 /local/<token> 登记表（NewApp 时创建，永不为 nil）。小写，不会被 Wails 暴露。
@@ -134,6 +135,7 @@ func (a *App) startup(ctx context.Context) {
 		// 存储层初始化失败先记录日志，不阻止应用启动（依赖存储的服务会返回 INTERNAL）。
 		log.Printf("初始化本地存储失败: %v", err)
 	}
+	a.loadAppLanguage(ctx) // v0.54：语言设置（契约 6.20.3）
 	a.startTasks(ctx)
 	a.startMedia()
 	a.startConvert(ctx)

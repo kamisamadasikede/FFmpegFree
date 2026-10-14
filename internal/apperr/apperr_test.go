@@ -53,3 +53,37 @@ func TestLiveCodesMatchContract(t *testing.T) {
 		}
 	}
 }
+
+func TestParamsJSONRoundTrip(t *testing.T) {
+	err := New(InvalidArgument, "语言设置不正确").
+		WithDetail("reason=bad_language").
+		WithParams(map[string]string{"lang": "fr"})
+	raw := err.Error()
+	var got AppError
+	if e := json.Unmarshal([]byte(raw), &got); e != nil {
+		t.Fatalf("unmarshal: %v", e)
+	}
+	if got.Code != InvalidArgument || got.Message != "语言设置不正确" || got.Detail != "reason=bad_language" {
+		t.Fatalf("fields: %+v", got)
+	}
+	if got.Params["lang"] != "fr" {
+		t.Fatalf("params: %v", got.Params)
+	}
+
+	// 旧格式（无 params）兼容
+	old := `{"code":"NOT_FOUND","message":"找不到","detail":"x"}`
+	var legacy AppError
+	if e := json.Unmarshal([]byte(old), &legacy); e != nil {
+		t.Fatalf("legacy: %v", e)
+	}
+	if legacy.Params != nil {
+		t.Fatalf("legacy params should be nil: %v", legacy.Params)
+	}
+	// 再序列化不应带出 params
+	b, _ := json.Marshal(&legacy)
+	var m map[string]any
+	_ = json.Unmarshal(b, &m)
+	if _, ok := m["params"]; ok {
+		t.Fatalf("omit empty params failed: %s", b)
+	}
+}
