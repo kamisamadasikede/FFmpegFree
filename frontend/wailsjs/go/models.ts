@@ -21,20 +21,6 @@ export namespace apperr {
 
 export namespace cat {
 	
-	export class NotifyStatus {
-	    available: boolean;
-	    authorized: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new NotifyStatus(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.available = source["available"];
-	        this.authorized = source["authorized"];
-	    }
-	}
 	export class AgentDefaults {
 	    model: string;
 	    effort: string;
@@ -87,6 +73,44 @@ export namespace cat {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.cloneId = source["cloneId"];
+	    }
+	}
+	export class CatBranchesRequest {
+	    convId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatBranchesRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	    }
+	}
+	export class CatBranchesResult {
+	    root: string;
+	    git: boolean;
+	    repo: boolean;
+	    branch: string;
+	    detached: boolean;
+	    upstream: string;
+	    locals: string[];
+	    remotes: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CatBranchesResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.root = source["root"];
+	        this.git = source["git"];
+	        this.repo = source["repo"];
+	        this.branch = source["branch"];
+	        this.detached = source["detached"];
+	        this.upstream = source["upstream"];
+	        this.locals = source["locals"];
+	        this.remotes = source["remotes"];
 	    }
 	}
 	export class CatProviderModelList {
@@ -747,6 +771,20 @@ export namespace cat {
 	        this.name = source["name"];
 	    }
 	}
+	export class NotifyStatus {
+	    available: boolean;
+	    authorized: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new NotifyStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.available = source["available"];
+	        this.authorized = source["authorized"];
+	    }
+	}
 	
 	export class ProviderCapability {
 	    agentKind: string;
@@ -1320,6 +1358,22 @@ export namespace cat {
 	        this.mcpConfigPath = source["mcpConfigPath"];
 	        this.skillsRootExists = source["skillsRootExists"];
 	        this.opened = source["opened"];
+	    }
+	}
+	export class SwitchCatBranchRequest {
+	    convId: string;
+	    branch: string;
+	    remote?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SwitchCatBranchRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.branch = source["branch"];
+	        this.remote = source["remote"];
 	    }
 	}
 	export class TermResizeRequest {

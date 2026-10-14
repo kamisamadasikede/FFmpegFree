@@ -433,3 +433,21 @@ func (s *CatService) CancelCloneCatProject(req cat.CancelCloneCatProjectRequest)
 	}
 	return c.CancelCloneCatProject(s.rootCtx(), req)
 }
+
+// ListCatBranches 返回对话文件夹路径和所在仓库的分支（契约 v0.49，6.19.24）。
+func (s *CatService) ListCatBranches(req cat.CatBranchesRequest) (cat.CatBranchesResult, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.CatBranchesResult{}, err
+	}
+	return c.ListCatBranches(s.rootCtx(), req)
+}
+
+// SwitchCatBranch 切本地分支，或从远程分支建跟踪分支（契约 v0.49，6.19.24）。
+func (s *CatService) SwitchCatBranch(req cat.SwitchCatBranchRequest) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.SwitchCatBranch(s.rootCtx(), req)
+}

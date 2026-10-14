@@ -212,6 +212,8 @@
             ref="convComposer"
             :ctx-name="current.project?.name ?? 'Cat'"
             :ctx-branch="current.project?.branch ?? 'main'"
+            :conv-id="catState.sel"
+            :is-project="!!current.project"
             :running="!!turn"
             :stopping="turn?.status === 'stopping'"
             :not-ready="catNotReady"
