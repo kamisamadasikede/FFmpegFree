@@ -10,6 +10,7 @@ import { pickCatTiming } from '@/components/cat/catTimingAdapter'
  *   cat:turn    { conversationId, status: 'succeeded' | 'failed' | 'canceled', error? }
  * 两种都归一成 CatStreamEvent / CatTurnEvent，页面只认归一后的形状。
  */
+import { readRetryable } from './catV0445'
 
 export type CatStreamOp = 'append' | 'replace' | 'done'
 
@@ -38,6 +39,8 @@ export interface CatTurnEvent {
   errorMessage?: string
   /** 失败 detail 原样（字符串或对象）；v0.43 cli_outdated 用 */
   errorDetail?: unknown
+  /** v0.44.5（6.19.18.7 第 7 条）：失败事件上的 retryable；缺字段 = false */
+  retryable?: boolean
   /** 这一轮结束后的上下文占用；两个都大于 0 才带上 */
   contextUsed?: number
   contextWindow?: number
@@ -100,6 +103,7 @@ export function normalizeTurnEvent(raw: unknown): CatTurnEvent | null {
     errorMessage: errorMessage || undefined,
   }
   if (err && err.detail != null && err.detail !== '') ev.errorDetail = err.detail
+  if (status === 'failed') ev.retryable = readRetryable(r)
   if (used && size) {
     ev.contextUsed = used
     ev.contextWindow = size

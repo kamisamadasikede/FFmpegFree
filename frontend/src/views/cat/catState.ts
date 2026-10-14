@@ -82,6 +82,7 @@ import {
 } from '@/api/catMock'
 import type { CatOutgoingFile } from '@/components/cat/catAttach'
 import { previewKind, type CatShownFile } from '@/components/cat/catMedia'
+import { isRetryNotAllowed } from '@/api/catV0445'
 import { applyStreamEvent, newStreamMsg, type CatStreamEvent, type CatStreamMsg, type CatTurnEvent } from '@/api/catStream'
 import { liveTurnPlan, transcriptChanged } from './catLive'
 import { AppError, toAppError } from '@/api/call'
@@ -264,6 +265,8 @@ export const catState = reactive({
   histLoaded: {} as Record<string, boolean>,
   /** v0.45.1 historyStatus（空状态文案用） */
   histStatus: {} as Record<string, import('@/api/catHistoryStatus').CatHistoryStatus | undefined>,
+  /** v0.44.5「重试」：can = 最后一轮失败且 retryable=true；gone = 点了但后端报 retry_not_allowed（原地灰字）。不写入数据库 */
+  retry: {} as Record<string, 'can' | 'gone'>,
 })
 
 export const modelName = computed(() => {
@@ -418,12 +421,27 @@ async function loadMessages(id: string, quiet = false, force = false) {
     }
     const cur = catState.messages[id]
     if (!cur || transcriptChanged(blockSnap(cur), blockSnap(next))) catState.messages[id] = next
+    if (!catState.turns[id]) applyRetryable(id, d.retryTurnId)
   } catch {
     if (!quiet && catState.sel === id) notify('没能从助手里读出这段对话。', 'warn')
   } finally {
     loading.delete(id)
     catState.histLoading[id] = false
   }
+}
+
+/** GetCatConversation 的 retryable（v0.44.5）：最后一轮失败且可重试 → 显示「重试」；否则不显示（已显示的灰字保留） */
+function applyRetryable(id: string, turnId: string) {
+  if (!turnId) {
+    lastFailedTurn.delete(id)
+    if (catState.retry[id] === 'can') delete catState.retry[id]
+    return
+  }
+  lastFailedTurn.set(id, turnId)
+  catState.retry[id] = 'can'
+  const list = catState.messages[id] ?? (catState.messages[id] = [])
+  const tail = list[list.length - 1]
+  if (!(tail?.kind === 'sys' && tail.tone === 'err')) list.push({ kind: 'sys', text: CAT_COPY.replyFailed, tone: 'err' })
 }
 
 /** 标题栏刷新：重读当前对话的记录。不取消正在进行的回复。 */
@@ -961,8 +979,14 @@ function endTurn(convId: string, how: TurnEnd, token?: number, ev?: CatTurnEvent
   if (how === 'completed') catState.outcome[convId] = 'ok'
   else if (how === 'failed' || how === 'not_ready') catState.outcome[convId] = 'bad'
   else delete catState.outcome[convId]
-  if (how === 'failed' && turn.turnId) lastFailedTurn.set(convId, turn.turnId)
-  else lastFailedTurn.delete(convId)
+  // v0.44.5：只信后端的 retryable（失败事件），前端不再自行推断
+  if (how === 'failed' && turn.turnId && ev?.retryable === true) {
+    lastFailedTurn.set(convId, turn.turnId)
+    catState.retry[convId] = 'can'
+  } else {
+    lastFailedTurn.delete(convId)
+    delete catState.retry[convId]
+  }
   const list = catState.messages[convId] ?? (catState.messages[convId] = [])
   // 收起流式光标，已流出来的文字原样保留（不加后缀）
   quietStreaming(convId)
@@ -1079,6 +1103,9 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
   list.push({ kind: 'user', text: t, files: fileChips(picked) })
   const token = ++seq
   catState.turns[id] = { token, turnId: '', status: 'running', assistantId: '' }
+  // 新一轮开始：前一失败轮不再可重试（6.19.18.7 第 7 条）
+  lastFailedTurn.delete(id)
+  delete catState.retry[id]
 
   if (import.meta.env.DEV && catSim.has('stream')) {
     // 仅 vite dev + 纯浏览器 + ?cat_sim=stream（见 catDevSim.ts）；正式包里 catSim 恒为空
@@ -1087,10 +1114,8 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
       simFailed.add(id)
       const ft = catState.turns[id]
       ft.turnId = `sim-fail-${token}`
-      ft.failMsg = '回复失败，请重试。'
-      // 用 v0.43 的「CLI 版本过旧」行内错误（自带「重试」按钮）来走查原地重试
-      ft.failDetail = `reason=cli_outdated\nagentKind=${currentAgentKind()}\ncliVersion=0.100.0\nraw=error: unexpected argument`
-      setTimeout(() => endTurn(id, 'failed', token), 300)
+      // 失败事件带 retryable=true（v0.44.5）
+      setTimeout(() => endTurn(id, 'failed', token, { convId: id, turnId: ft.turnId, status: 'failed', retryable: true }), 300)
       return
     }
     simStream(id, handleMessageEvent, handleTurnEvent, () => catState.turns[id]?.token !== token || catState.turns[id]?.status === 'stopping')
@@ -1184,19 +1209,22 @@ export async function retryLastMessage(): Promise<void> {
   for (let i = list.length - 1; i >= 0; i--) if (list[i].kind === 'user') { lastUser = i; break }
   if (lastUser < 0) return
   const failedTurnId = lastFailedTurn.get(id)
-  if (!failedTurnId) {
-    const b = list[lastUser] as { text: string; files?: { name: string; path: string }[] }
-    await sendMessage(b.text, (b.files ?? []).map((f) => ({ name: f.name, path: f.path })) as CatOutgoingFile[])
-    return
-  }
+  // 6.19.18.7 第 6-7 条：没有 retryable 的失败轮就不该有按钮；不再退回「再发一条」
+  if (!failedTurnId || catState.retry[id] !== 'can') return
   // 原地：去掉用户气泡之后的失败输出，用同一个气泡接新一轮；失败提示一并收起
   dismissFailToast(id)
-  list.splice(lastUser + 1)
+  const removed = list.splice(lastUser + 1)
   lastFailedTurn.delete(id)
+  delete catState.retry[id]
   delete catState.outcome[id]
   const token = ++seq
   catState.turns[id] = { token, turnId: '', status: 'running', assistantId: '' }
   if (import.meta.env.DEV && catSim.has('stream')) {
+    if (catSim.has('retrygone')) {
+      // 走查：retryable=true 但后端已不让重试（竞态）→ 原地灰字
+      setTimeout(() => retryGone(id, token, removed), 300)
+      return
+    }
     simStream(id, handleMessageEvent, handleTurnEvent, () => catState.turns[id]?.token !== token || catState.turns[id]?.status === 'stopping')
     return
   }
@@ -1207,6 +1235,7 @@ export async function retryLastMessage(): Promise<void> {
     else if (res.turnId) sealTurn(res.turnId)
   } catch (e) {
     const err = toAppError(e)
+    if (isRetryNotAllowed(err)) return retryGone(id, token, removed)
     const t = catState.turns[id]
     if (t?.token === token) {
       t.failMsg = (err.message || '').trim() || CAT_COPY.replyFailed
@@ -1215,7 +1244,18 @@ export async function retryLastMessage(): Promise<void> {
     endTurn(id, 'failed', token)
     // 同步失败没有新 turnId：保留原失败 turn，便于再点一次重试
     lastFailedTurn.set(id, failedTurnId)
+    catState.retry[id] = 'can'
   }
+}
+
+/** retry_not_allowed：放回原来的失败输出，按钮原地换成灰字（不弹 toast、不用红色） */
+function retryGone(id: string, token: number, removed: CatBlock[]) {
+  if (catState.turns[id]?.token === token) delete catState.turns[id]
+  const list = catState.messages[id] ?? (catState.messages[id] = [])
+  list.push(...removed)
+  catState.outcome[id] = 'bad'
+  lastFailedTurn.delete(id)
+  catState.retry[id] = 'gone'
 }
 
 /** 停止生成：按钮立即置灰；已流出的文字保留，结束后单独一行「已停止生成。」 */
@@ -1234,6 +1274,7 @@ function dropConvState(id: string) {
   delete catState.messages[id]
   delete catState.unseen[id]
   delete catState.outcome[id]
+  delete catState.retry[id]
   loading.delete(id)
   savePrefMap(dropPref(loadPrefMap(), id))
 }

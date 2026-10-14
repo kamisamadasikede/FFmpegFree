@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -70,8 +69,7 @@ type cloneJob struct {
 	id     string
 	cancel context.CancelFunc
 	target string
-	cmd    *exec.Cmd
-	mu     sync.Mutex
+	cmd    *exec.Cmd // Start 成功后才在 cloneMu 下写入
 }
 
 // ValidGitURL 校验 HTTPS / SSH / git@ / *.git 形态（契约 6.19.10.11-1）。
@@ -326,17 +324,19 @@ func (s *Service) execGitClone(ctx context.Context, job *cloneJob, url, target s
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
 
-	job.mu.Lock()
-	job.cmd = cmd
-	job.mu.Unlock()
-
+	// 先 Start，再在 cloneMu 下把 cmd 交给 Cancel：exec.Cmd.Start 会写 cmd.Process，
+	// 若 Start 前就发布 cmd，Cancel 里的 proc.Kill 读 cmd.Process 会与之数据竞争。
+	// Start 之前被取消时 jobCtx 已 done，CommandContext 的 Start 会直接失败或随即被杀。
+	if err := proc.Start(cmd); err != nil { // Windows 进 Job
+		return errBuf.String(), err
+	}
 	s.cloneMu.Lock()
 	if s.clone == job {
 		job.cmd = cmd
 	}
 	s.cloneMu.Unlock()
 
-	runErr := proc.Run(cmd) // Start+Wait，Windows 进 Job
+	runErr := cmd.Wait()
 	stderr = errBuf.String()
 	if runErr != nil {
 		return stderr, runErr

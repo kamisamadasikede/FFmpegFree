@@ -22,9 +22,13 @@ type ConversationDetail struct {
 	store.CatConversation
 	Messages []store.CatMessage `json:"messages"`
 	// LastTurn（v0.44.6，6.19.18.7 第 7 条）：本进程内存里的最后一轮；没有（如重启后）则省略。
-	LastTurn      *CatTurnState `json:"lastTurn,omitempty"`
-	ContextUsed   int64     `json:"contextUsed,omitempty"`
-	ContextWindow int64     `json:"contextWindow,omitempty"`
+	LastTurn *CatTurnState `json:"lastTurn,omitempty"`
+	// HistoryStatus（v0.45.1，字段名待架构确认）：正文没读到时说明原因——
+	// HistoryMissing（存过 sessionId 但文件没了）/ HistoryReadFailed（文件在但读不了）；
+	// 读到了、或从没存过 sessionId（新对话），都省略（v0.45.2）。
+	HistoryStatus string `json:"historyStatus,omitempty"` // "missing" | "read_failed"；有消息 / 新对话省略
+	ContextUsed   int64   `json:"contextUsed,omitempty"`
+	ContextWindow int64   `json:"contextWindow,omitempty"`
 }
 
 // CreateConversationRequest 创建会话。
@@ -186,3 +190,9 @@ type CatTurnState struct {
 	Status    string `json:"status"` // running | cancelled | failed | completed
 	Retryable bool   `json:"retryable"`
 }
+
+// historyStatus 取值（改名只改这里）。
+const (
+	HistoryMissing    = "missing"
+	HistoryReadFailed = "read_failed"
+)

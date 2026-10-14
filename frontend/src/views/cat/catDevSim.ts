@@ -19,6 +19,7 @@
  *   failonce —— 配合 stream：每条对话第一轮直接失败，走查「重试」原地重发（v0.44 RetryCatTurn）
  *   scratchfiles —— 未绑定项目的对话，对话文件夹当作有文件（右侧文件面板显示）
  *   histmissing / histreadfail —— 同 histempty，historyStatus=missing / read_failed（v0.45.2 两句空状态；histempty 无字段 → 欢迎页）
+ *   retrygone —— 配合 stream,failonce：点「重试」时后端报 retry_not_allowed，按钮原地换成灰字（v0.44.5）
  *   histempty —— 打开任意对话都当作记录没找到（零轮），走查空状态
  *   md       —— 配合 stream：推一段 Markdown 回复（标题、列表、表格、代码块、引用、链接、外链图片、原始 HTML）
  *   savefail —— Cat 设置保存失败（该项回滚 +「保存失败，请重试。」）
@@ -70,8 +71,8 @@ export function simThinks(): CatThinkLevel[] {
   ]
 }
 
-export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'codexcaps' | 'failonce' | 'histempty' | 'md' | 'mdhold' | 'savefail' | 'inspectslow' | 'inspectfail' | 'inspectempty' | 'clearfail' | 'keyfail' | 'skillsmissing' | 'setenablefail' | 'schedempty' | 'schedfail' | 'slowconv' | 'browsertimeout' | 'footertime' | 'allagents' | 'gitconflict' | 'gitrebase' | 'gitdone' | 'gitbranch' | 'office' | 'officeneed' | 'officedl' | 'officefail' | 'officepreview' | 'officeready' | 'clioutdated' | 'footertip' | 'timingpartial' | 'timinglong' | 'timingstop' | 'histmissing' | 'histreadfail' | 'scratchfiles'
-const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'codexcaps', 'failonce', 'histempty', 'md', 'mdhold', 'savefail', 'inspectslow', 'inspectfail', 'inspectempty', 'clearfail', 'keyfail', 'skillsmissing', 'setenablefail', 'schedempty', 'schedfail', 'slowconv', 'browsertimeout', 'footertime', 'allagents', 'gitconflict', 'gitrebase', 'gitdone', 'gitbranch', 'office', 'officeneed', 'officedl', 'officefail', 'officepreview', 'officeready', 'clioutdated', 'footertip', 'timingpartial', 'timinglong', 'timingstop', 'histmissing', 'histreadfail', 'scratchfiles']
+export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'codexcaps' | 'failonce' | 'histempty' | 'md' | 'mdhold' | 'savefail' | 'inspectslow' | 'inspectfail' | 'inspectempty' | 'clearfail' | 'keyfail' | 'skillsmissing' | 'setenablefail' | 'schedempty' | 'schedfail' | 'slowconv' | 'browsertimeout' | 'footertime' | 'allagents' | 'gitconflict' | 'gitrebase' | 'gitdone' | 'gitbranch' | 'office' | 'officeneed' | 'officedl' | 'officefail' | 'officepreview' | 'officeready' | 'clioutdated' | 'retrygone' | 'footertip' | 'timingpartial' | 'timinglong' | 'timingstop' | 'histmissing' | 'histreadfail' | 'scratchfiles'
+const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'codexcaps', 'failonce', 'histempty', 'md', 'mdhold', 'savefail', 'inspectslow', 'inspectfail', 'inspectempty', 'clearfail', 'keyfail', 'skillsmissing', 'setenablefail', 'schedempty', 'schedfail', 'slowconv', 'browsertimeout', 'footertime', 'allagents', 'gitconflict', 'gitrebase', 'gitdone', 'gitbranch', 'office', 'officeneed', 'officedl', 'officefail', 'officepreview', 'officeready', 'clioutdated', 'retrygone', 'footertip', 'timingpartial', 'timinglong', 'timingstop', 'histmissing', 'histreadfail', 'scratchfiles']
 
 export const catSim: ReadonlySet<CatSimFlag> = (() => {
   if (!import.meta.env.DEV || typeof window === 'undefined') return new Set<CatSimFlag>()

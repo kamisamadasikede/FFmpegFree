@@ -1,14 +1,13 @@
 /**
- * 契约 v0.45.1：CatConversationDetail.historyStatus（可选，'missing' | 'read_failed'；有消息时不带）。
- * 生成的绑定暂无此字段：临时本地类型 + 读取器，重新生成绑定后仍从这里读。
+ * 契约 v0.45.2：cat.ConversationDetail.historyStatus（生成类型为 string；这里收窄成两种取值，其它 / 缺省 → undefined）。
  */
 import { CAT_HISTORY_EMPTY, CAT_HISTORY_MISSING } from '@/views/cat/catCopy'
+import type { cat } from '../../wailsjs/go/models'
 
 export type CatHistoryStatus = 'missing' | 'read_failed'
 
-export function readCatHistoryStatus(raw: unknown): CatHistoryStatus | undefined {
-  if (!raw || typeof raw !== 'object') return undefined
-  const v = (raw as { historyStatus?: unknown }).historyStatus
+export function readCatHistoryStatus(raw: Pick<cat.ConversationDetail, 'historyStatus'> | null | undefined): CatHistoryStatus | undefined {
+  const v: unknown = raw?.historyStatus
   return v === 'missing' || v === 'read_failed' ? v : undefined
 }
 

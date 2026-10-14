@@ -156,7 +156,7 @@
                 <div v-if="histLoading && !messages.length" class="sk-msgs conv" role="status" aria-label="正在加载对话" data-testid="cat-msg-skeleton">
                   <i class="sk w50 r" /><i class="sk w90" /><i class="sk w80" /><i class="sk w60" /><i class="sk w40 r" /><i class="sk w90" /><i class="sk w70" />
                 </div>
-                <CatMessages :blocks="messages" :pending="thinking" @retry="retryLastMessage" />
+                <CatMessages :blocks="messages" :pending="thinking" :retry="catState.retry[catState.sel]" @retry="retryLastMessage" />
                 <CatOfficeDownloadCard v-if="officeCanvas.slidesNeeded && !isNew" />
               </div>
             </div>
@@ -625,7 +625,9 @@ let disposePanels: (() => void) | undefined
 watch(
   () => [
     catPanels.settings.defaultAgentKind,
-    catPanels.settings.defaultApprovalMode,
+    catPanels.settings.defaultModeByAgent?.cat_build,
+    catPanels.settings.defaultModeByAgent?.claude_cli,
+    catPanels.settings.defaultModeByAgent?.codex_cli,
     catPanels.settings.defaultsByAgent.cat_build?.model,
     catPanels.settings.defaultsByAgent.cat_build?.effort,
     catPanels.settings.defaultsByAgent.claude_cli?.model,

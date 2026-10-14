@@ -35,7 +35,7 @@ func TestCustomInstructionReachesCLIArgv(t *testing.T) {
 	dir := t.TempDir()
 	argv := filepath.Join(dir, "argv.log")
 	fake := filepath.Join(dir, "grok")
-	script := "#!/bin/sh\ncase \"$1\" in\n  -v) echo 'grok 1.0.40'; exit 0 ;;\n  models) exit 0 ;;\nesac\n" +
+	script := "#!/bin/sh\ncase \"$1\" in\n  -v) echo 'grok 1.0.40'; exit 0 ;;\n  usage) exit 1 ;;\n  models) exit 0 ;;\nesac\n" +
 		`for a in "$@"; do printf '%s\n' "$a" >> '` + argv + `'; done
 printf '%s\n' '----' >> '` + argv + `'
 printf '%s\n' '{"type":"text","data":"ok"}'

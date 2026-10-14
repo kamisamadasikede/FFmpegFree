@@ -1,10 +1,12 @@
 /**
  * 契约 v0.45：assistant CatMessage / 终态 cat:turn 的 firstTokenMs、totalMs。
- * 生成的绑定暂无这两个字段：字段名只在这里出现，绑定重新生成后仍从原始 JSON 读。
+ * 字段名 / 类型取自生成的 store.CatMessage；cat:turn 事件载荷无生成类型，同名字段在这里一并读。
  */
-export const CAT_TIMING_FIELDS = { firstTokenMs: 'firstTokenMs', totalMs: 'totalMs' } as const
+import type { store } from '../../../wailsjs/go/models'
 
-export type CatTimingFields = { firstTokenMs?: number; totalMs?: number }
+export type CatTimingFields = Partial<Pick<store.CatMessage, 'firstTokenMs' | 'totalMs'>>
+
+export const CAT_TIMING_FIELDS = { firstTokenMs: 'firstTokenMs', totalMs: 'totalMs' } as const satisfies Record<keyof CatTimingFields, keyof store.CatMessage>
 
 function ms(v: unknown): number | undefined {
   const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() ? Number(v) : NaN
