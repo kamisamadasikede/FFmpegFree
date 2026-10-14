@@ -13,7 +13,7 @@
         <i class="sk comp" />
       </div>
     </div>
-    <div v-else class="ct cat-in" :class="{ 'no-right': isNew || catPanels.view !== 'chat' }">
+    <div v-else class="ct cat-in" :class="{ 'no-right': !showRight }">
       <CatSidePanel @back="goBack" />
 
       <CatSettingsView v-if="catPanels.view === 'settings'" />
@@ -39,7 +39,7 @@
               </span><span class="slash">/</span>
             </template>
             <FIcon v-else name="chat" :size="16" />
-            <h2>新对话</h2><span class="sp" />
+            <h2>{{ isNew ? '新对话' : current?.conv.title || '新对话' }}</h2><span class="sp" />
           </div>
           <div v-if="projectMissing" class="ct-missing" role="status" data-testid="cat-project-missing-bar">
             <FIcon name="warn" :size="14" /><span class="tx">{{ PC.missing }}</span>
@@ -225,7 +225,7 @@
       </section>
 
       <!-- 右栏收起时内容保留，不重新加载 -->
-      <div v-if="!isNew && catPanels.view === 'chat'" class="ct-r-wrap" :class="{ shut: rightCollapsed, canvas: showOfficeCanvas }" :aria-hidden="rightCollapsed || undefined">
+      <div v-if="showRight" class="ct-r-wrap" :class="{ shut: rightCollapsed, canvas: showOfficeCanvas }" :aria-hidden="rightCollapsed || undefined">
         <CatOfficeCanvasPanel v-if="showOfficeCanvas" @close="officeCanvasClosed = true" />
         <CatFilesPanel v-else :conv-id="catState.sel" :missing="projectMissing" @pick="onFilePick" />
       </div>
@@ -299,6 +299,8 @@ const loadedEmpty = computed(
 const historyEmpty = computed(() => loadedEmpty.value && !!catState.histStatus[catState.sel])
 /** v0.45.2：没有 historyStatus 且没有消息 → 按新对话显示欢迎页（发送仍进这条对话） */
 const showWelcome = computed(() => isNew.value || (loadedEmpty.value && !catState.histStatus[catState.sel]))
+/** 右侧文件面板只看是否绑定项目（新对话也一样），不看有没有消息 */
+const showRight = computed(() => !!currentProject.value && catPanels.view === 'chat')
 const current = computed(() => (isNew.value ? null : findConv(catState.sel)))
 const messages = computed(() => (isNew.value ? [] : messagesOf(catState.sel)))
 const composer = ref<InstanceType<typeof CatComposer>>()
