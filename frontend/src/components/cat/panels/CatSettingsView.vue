@@ -457,7 +457,7 @@
               </div>
             </el-tooltip>
             <div class="row end">
-              <button type="button" class="btn" :disabled="rechecking" data-testid="cat-set-recheck" @click="recheck">
+              <button type="button" class="btn" :disabled="recheckDisabled" data-testid="cat-set-recheck" @click="recheck">
                 <i v-if="rechecking" class="spin" aria-hidden="true" />{{ rechecking ? C.rechecking : C.recheck }}
               </button>
             </div>
@@ -559,7 +559,7 @@ import { getAppVersion } from '@/api/about'
 import { catPanels, saveSetting, type CatSettingsTab } from '@/views/cat/catPanels'
 import { catLocalPrefs, setNewConvPlace, setTypewriter } from '@/views/cat/catLocalPrefs'
 import { catState, afterClearAll, currentProject, notify, createProject, applyCatStatus, recheckCatAgents } from '@/views/cat/catState'
-import { CAT_DETECT_COPY, detectRowView } from '@/api/catDetect'
+import { CAT_DETECT_COPY, allDetectRowsChecking, detectRowView } from '@/api/catDetect'
 import { catSim, simAgentRaw, simModels, simThinks } from '@/views/cat/catDevSim'
 import {
   CAT_PROVIDER_MODELS_COPY as PM,
@@ -1154,6 +1154,10 @@ const agentRows = computed(() => {
     return { kind, label: CAT_PROVIDER_LABEL[kind], ...v, version, loginText, loginTone, loginBad }
   })
 })
+/** 全部行都在检测中（含首次未到 / 全量重检）时底部「重新检测」置灰 */
+const recheckDisabled = computed(
+  () => rechecking.value || allDetectRowsChecking(CAT_PROVIDER_ORDER, catState.status.agents, { forceChecking: rechecking.value }),
+)
 /** 黄条只在三家都检测完且确实都没找到时出现（检测中 / 结果未到不出） */
 const noneReady = computed(() => !rechecking.value && agentRows.value.every((r) => r.failed))
 

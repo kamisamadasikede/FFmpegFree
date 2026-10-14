@@ -76,8 +76,8 @@ export function simThinks(): CatThinkLevel[] {
   ]
 }
 
-export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'codexcaps' | 'failonce' | 'histempty' | 'md' | 'mdhold' | 'savefail' | 'inspectslow' | 'inspectfail' | 'inspectempty' | 'clearfail' | 'keyfail' | 'skillsmissing' | 'setenablefail' | 'schedempty' | 'schedfail' | 'slowconv' | 'browsertimeout' | 'footertime' | 'allagents' | 'gitconflict' | 'gitrebase' | 'gitdone' | 'gitbranch' | 'office' | 'officeneed' | 'officedl' | 'officefail' | 'officepreview' | 'officeready' | 'clioutdated' | 'retrygone' | 'footertip' | 'timingpartial' | 'timinglong' | 'timingstop' | 'histmissing' | 'histreadfail' | 'scratchfiles' | 'pmcustom' | 'pm_slow' | 'pm_empty' | 'pm_unauth' | 'pm_unreach' | 'pm_unsupported' | 'pm_bad' | 'pm_notcfg' | 'codexnoresponses' | 'codexconv' | 'detect_checking' | 'detect_partial' | 'detect_legacy' | 'detect_fail' | 'detect_ok' | 'detect_stale'
-const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'codexcaps', 'failonce', 'histempty', 'md', 'mdhold', 'savefail', 'inspectslow', 'inspectfail', 'inspectempty', 'clearfail', 'keyfail', 'skillsmissing', 'setenablefail', 'schedempty', 'schedfail', 'slowconv', 'browsertimeout', 'footertime', 'allagents', 'gitconflict', 'gitrebase', 'gitdone', 'gitbranch', 'office', 'officeneed', 'officedl', 'officefail', 'officepreview', 'officeready', 'clioutdated', 'retrygone', 'footertip', 'timingpartial', 'timinglong', 'timingstop', 'histmissing', 'histreadfail', 'scratchfiles', 'pmcustom', 'pm_slow', 'pm_empty', 'pm_unauth', 'pm_unreach', 'pm_unsupported', 'pm_bad', 'pm_notcfg', 'codexnoresponses', 'codexconv', 'detect_checking', 'detect_partial', 'detect_legacy', 'detect_fail', 'detect_ok', 'detect_stale']
+export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'codexcaps' | 'failonce' | 'histempty' | 'md' | 'mdhold' | 'savefail' | 'inspectslow' | 'inspectfail' | 'inspectempty' | 'clearfail' | 'keyfail' | 'skillsmissing' | 'setenablefail' | 'schedempty' | 'schedfail' | 'slowconv' | 'browsertimeout' | 'footertime' | 'allagents' | 'gitconflict' | 'gitrebase' | 'gitdone' | 'gitbranch' | 'office' | 'officeneed' | 'officedl' | 'officefail' | 'officepreview' | 'officeready' | 'clioutdated' | 'retrygone' | 'footertip' | 'timingpartial' | 'timinglong' | 'timingstop' | 'histmissing' | 'histreadfail' | 'scratchfiles' | 'pmcustom' | 'pm_slow' | 'pm_empty' | 'pm_unauth' | 'pm_unreach' | 'pm_unsupported' | 'pm_bad' | 'pm_notcfg' | 'codexnoresponses' | 'codexconv' | 'detect_checking' | 'detect_rechecking' | 'detect_partial' | 'detect_legacy' | 'detect_fail' | 'detect_ok' | 'detect_stale'
+const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'codexcaps', 'failonce', 'histempty', 'md', 'mdhold', 'savefail', 'inspectslow', 'inspectfail', 'inspectempty', 'clearfail', 'keyfail', 'skillsmissing', 'setenablefail', 'schedempty', 'schedfail', 'slowconv', 'browsertimeout', 'footertime', 'allagents', 'gitconflict', 'gitrebase', 'gitdone', 'gitbranch', 'office', 'officeneed', 'officedl', 'officefail', 'officepreview', 'officeready', 'clioutdated', 'retrygone', 'footertip', 'timingpartial', 'timinglong', 'timingstop', 'histmissing', 'histreadfail', 'scratchfiles', 'pmcustom', 'pm_slow', 'pm_empty', 'pm_unauth', 'pm_unreach', 'pm_unsupported', 'pm_bad', 'pm_notcfg', 'codexnoresponses', 'codexconv', 'detect_checking', 'detect_rechecking', 'detect_partial', 'detect_legacy', 'detect_fail', 'detect_ok', 'detect_stale']
 
 export const catSim: ReadonlySet<CatSimFlag> = (() => {
   if (!import.meta.env.DEV || typeof window === 'undefined') return new Set<CatSimFlag>()
@@ -239,7 +239,8 @@ function simTiming(): { firstTokenMs?: number; totalMs?: number } {
 
 /**
  * v0.47.1 走查：CLI 检测状态（?cat_sim=detect_…）。返回依次「到达」的 cat:status 原始载荷（ms 为相对延迟）。
- * detect_checking：只有初始检测中；detect_partial：只到 Claude 一家，其它保持检测中；
+ * detect_checking：只有初始检测中（从未检测过）；detect_rechecking：有上次结果后全量重检中（保留已安装/版本/登录）；
+ * detect_partial：只到 Claude 一家，其它保持检测中；
  * detect_legacy：先全量，再来一条没有 agents[] 的旧载荷（不得冲掉其它家）；
  * detect_fail：三家检测完都没找到；detect_ok：三家正常；detect_stale：落库的上次结果（stale）。
  */
@@ -258,6 +259,20 @@ export function simDetectPayloads(): { ms: number; raw: unknown }[] {
   const checkingAll = { state: 'checking', version: '', agents: ['cat_build', 'claude_cli', 'codex_cli'].map((k) => row(k, { checking: true })) }
   const full = { state: 'ready', version: '1.0', agents: [ok('cat_build', '1.0.3', P.b), ok('claude_cli', '2.1.0', P.c), ok('codex_cli', '0.46.0', P.x)] }
   if (catSim.has('detect_checking')) return [{ ms: 0, raw: checkingAll }]
+  if (catSim.has('detect_rechecking')) {
+    return [{
+      ms: 0,
+      raw: {
+        state: 'checking',
+        version: '1.0',
+        agents: [
+          { ...ok('cat_build', '1.0.3', P.b), checking: true },
+          { ...ok('claude_cli', '2.1.0', P.c), checking: true },
+          { ...ok('codex_cli', '0.46.0', P.x), checking: true },
+        ],
+      },
+    }]
+  }
   if (catSim.has('detect_partial')) return [{ ms: 0, raw: checkingAll }, { ms: 400, raw: { state: 'checking', version: '', agents: [ok('claude_cli', '2.1.0', P.c)] } }]
   if (catSim.has('detect_legacy')) return [{ ms: 0, raw: full }, { ms: 400, raw: { state: 'ready', version: '1.0.3' } }]
   if (catSim.has('detect_fail'))

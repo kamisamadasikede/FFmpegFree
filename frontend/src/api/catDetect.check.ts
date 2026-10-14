@@ -1,5 +1,5 @@
 import { mapCatStatus } from './cat'
-import { detectRowView, formatCheckedAt, markRowChecking, mergeCatStatus } from './catDetect'
+import { allDetectRowsChecking, detectRowView, formatCheckedAt, markRowChecking, mergeCatStatus } from './catDetect'
 
 type Eq = (name: string, got: unknown, want: unknown) => void
 
@@ -38,12 +38,20 @@ export function catDetectChecks(eq: Eq): void {
   const v = (o: Record<string, unknown>) => detectRowView(mapCatStatus({ agents: [row('cat_build', o)] }).agents[0], { now })
   eq('正常', v({}).meta, '已安装 · 上次检测 14:32')
   eq('检测中替换上次检测', v({ checking: true }).meta, '已安装 · 正在检测…')
-  eq('首次检测中只显示正在检测', v({ checking: true, checkedAt: undefined }).meta, '正在检测…')
+  eq('首次检测中只显示正在检测', v({ checking: true, checkedAt: undefined, ready: false, version: '' }).meta, '正在检测…')
+  eq('ready 已知无 checkedAt 也保留已安装', v({ checking: true, checkedAt: undefined, ready: true }).meta, '已安装 · 正在检测…')
+  eq('未检测到 + 重检保留未检测到', v({ ready: false, checking: true }).meta, '未检测到 · 正在检测…')
   eq('stale', [v({ stale: true }).meta, v({ stale: true }).showRecheck], ['已安装 · 上次检测 14:32 · 结果可能已过期', true])
-  eq('stale + checking 不出按钮', v({ stale: true, checking: true }).showRecheck, false)
+  eq('stale + checking 不出按钮和过期文案', [v({ stale: true, checking: true }).meta, v({ stale: true, checking: true }).showRecheck], ['已安装 · 正在检测…', false])
   eq('未检测到 + 失败', [v({ ready: false }).meta, v({ ready: false }).failed], ['未检测到 · 上次检测 14:32', true])
   eq('路径 tooltip', v({ exePath: 'D:\\a b\\grok.exe' }).pathTip, '路径：D:\\a b\\grok.exe')
   eq('全量重检 forceChecking', detectRowView(full.agents[0], { forceChecking: true, now }).meta, '已安装 · 正在检测…')
+
+  const order = ['cat_build', 'claude_cli', 'codex_cli'] as const
+  eq('全部检测中 → 底部置灰', allDetectRowsChecking(order, full.agents.map((a) => ({ ...a, checking: true }))), true)
+  eq('部分检测中 → 底部不置灰', allDetectRowsChecking(order, markRowChecking(full, 'claude_cli').agents), false)
+  eq('forceChecking → 底部置灰', allDetectRowsChecking(order, full.agents, { forceChecking: true }), true)
+  eq('结果未到 → 底部置灰', allDetectRowsChecking(order, []), true)
 
   const mk = markRowChecking(full, 'claude_cli')
   eq('单家重检只动该行', mk.agents.map((a) => a.checking), [false, true, false])

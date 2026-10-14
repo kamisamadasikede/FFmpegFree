@@ -67,15 +67,34 @@ export interface CatDetectRowView {
   failed: boolean
 }
 
+/** 有过上次结果：checkedAt / ready 已知（true）/ stale。没结果的首次检测才整行只显示「正在检测…」。 */
+export function hasDetectPreviousResult(row: CatAgentStatus | undefined): boolean {
+  if (!row) return false
+  if (typeof row.checkedAt === 'number') return true
+  if (row.stale === true) return true
+  if (row.ready === true) return true
+  return false
+}
+
+/** 展示用的几家是否都在检测中（含结果未到 / forceChecking）；底部「重新检测」据此置灰。 */
+export function allDetectRowsChecking(
+  kinds: readonly string[],
+  agents: CatAgentStatus[] | undefined,
+  opts: { forceChecking?: boolean } = {},
+): boolean {
+  return kinds.every((k) => detectRowView(agents?.find((a) => a.agentKind === k), opts).checking)
+}
+
 /**
  * row 缺失 = 该家结果还没到（等同检测中）。forceChecking：全量「重新检测」进行中。
  * 字段 checking / checkedAt / stale / exePath 在旧绑定里可能缺省，全部容错。
+ * 有上次结果时保留「已安装/未检测到」等，只把「上次检测…」换成「正在检测…」；stale 文案和按钮在检测中都不出。
  */
 export function detectRowView(row: CatAgentStatus | undefined, opts: { forceChecking?: boolean; now?: number } = {}): CatDetectRowView {
   const C = CAT_DETECT_COPY
   const checking = !row || row.checking === true || opts.forceChecking === true
   const hasResult = !!row && (typeof row.checkedAt === 'number' || row.checking !== true)
-  const pending = checking && !(row && (row.stale || typeof row.checkedAt === 'number'))
+  const pending = checking && !hasDetectPreviousResult(row)
   const ready = row?.ready === true
   const parts: string[] = []
   if (pending) parts.push(C.checking)
