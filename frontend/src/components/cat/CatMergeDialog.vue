@@ -58,7 +58,7 @@ import {
   type CatMergeResult,
 } from '@/api/catBranches'
 
-const props = defineProps<{ open: boolean; convId: string; branches: CatBranches; running?: boolean; mergeState?: string }>()
+const props = defineProps<{ open: boolean; convId: string; branches: CatBranches; running?: boolean; mergeState?: string; preset?: { branch: string; remote: boolean } | null }>()
 const emit = defineEmits<{ close: []; done: [r: CatMergeResult, branch: string] }>()
 
 const titleId = `mg-t-${Math.random().toString(36).slice(2, 8)}`
@@ -80,7 +80,13 @@ watch(
   () => props.open,
   (on) => {
     if (!on) return
-    picked.value = defaultMergeOption(opts.value)
+    // 分支树右键会带 preset：预先选好；否则走默认第一项
+    if (props.preset) {
+      picked.value = (props.preset.remote ? 'R:' : 'L:') + props.preset.branch
+      if (!opts.value.some((o) => o.id === picked.value)) picked.value = defaultMergeOption(opts.value)
+    } else {
+      picked.value = defaultMergeOption(opts.value)
+    }
     failed.value = null
     rawOpen.value = false
     busy.value = false

@@ -53,15 +53,17 @@ export function mapCatBranches(raw: unknown): CatBranches {
 }
 
 /** 仅 vite dev + ?cat_sim=branchbar|branchlong|branchfail 的纯浏览器走查；正式包 DEV=false 整段不走 */
-const devSim = () => import.meta.env.DEV && typeof window !== 'undefined' && !(window as unknown as { go?: unknown }).go && (catSim.has('branchbar') || catSim.has('branchlong') || catSim.has('branchfail') || catSim.has('mergeok') || catSim.has('mergeuptodate') || catSim.has('mergeconflict') || catSim.has('mergedirty') || catSim.has('mergefail'))
-let simBranch = 'feat/cat-footer-branch-v049-with-a-really-long-name'
+const mergeSim = () => catSim.has('mergeok') || catSim.has('mergeuptodate') || catSim.has('mergeconflict') || catSim.has('mergedirty') || catSim.has('mergefail')
+const btreeSim = () => [...catSim].some((f) => f.startsWith('btree'))
+const devSim = () => import.meta.env.DEV && typeof window !== 'undefined' && !(window as unknown as { go?: unknown }).go && (catSim.has('branchbar') || catSim.has('branchlong') || catSim.has('branchfail') || mergeSim() || btreeSim())
+let simBranch = btreeSim() ? 'feat/cat-footer-branch' : 'feat/cat-footer-branch-v049-with-a-really-long-name' 
 function simList(): CatBranches {
   return mapCatBranches({
     root: catSim.has('branchlong') ? 'D:\\Work\\2026\\客户交付\\婚礼剪辑\\第二季\\字幕项目' : 'D:\\Work\\字幕项目',
     git: true,
     repo: true,
     branch: simBranch,
-    upstream: 'origin/feat/cat-footer-branch-v049-with-a-really-long-name',
+    upstream: 'origin/' + simBranch,
     locals: ['main', 'v2', 'dev', 'feat/cat-footer-branch-v049-with-a-really-long-name', 'fix/reply-marked-failed', 'fe/settings-dropdown'],
     remotes: ['origin/feat/system-notify', 'origin/feat/context-left', 'origin/old/archive'],
   })
@@ -254,14 +256,12 @@ export function mergeEntryOption(b: CatBranches): CatSelectOption {
   return { id: MERGE_ENTRY_ID, label: CAT_MERGE_COPY.entry, icon: 'merge', divided: true, disabled: mergeOptions(b).length === 0 }
 }
 
-const mergeSim = () =>
-  import.meta.env.DEV && typeof window !== 'undefined' && !(window as unknown as { go?: unknown }).go &&
-  (catSim.has('mergeok') || catSim.has('mergeuptodate') || catSim.has('mergeconflict') || catSim.has('mergedirty') || catSim.has('mergefail'))
 /** 走查：?cat_sim=mergeok/... 同时给底栏一份分支（等同 branchbar） */
-export const catMergeSimOn = (): boolean => !!mergeSim()
+export const catMergeSimOn = (): boolean =>
+  import.meta.env.DEV && typeof window !== 'undefined' && !(window as unknown as { go?: unknown }).go && mergeSim()
 
 export async function mergeCatBranch(convId: string, branch: string, remote = false): Promise<CatMergeResult> {
-  if (mergeSim()) {
+  if (catMergeSimOn()) {
     await new Promise((r) => setTimeout(r, catSim.has('mergeok') ? 1200 : 600))
     if (catSim.has('mergedirty')) throw new AppError('TASK_CONFLICT', 'git merge 被拦下', 'reason=git_dirty')
     if (catSim.has('mergefail')) throw new AppError('INVALID_ARGUMENT', 'git merge 失败', `reason=git_failed\nfatal: refusing to merge unrelated histories\nerror: could not merge ${branch}`)
