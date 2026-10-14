@@ -1,18 +1,20 @@
 <template>
   <div ref="root" class="ct-comp" :class="{ bare: welcome, missing }">
     <div v-if="!welcome" class="ctx-bar" aria-label="项目上下文">
-      <button
-        type="button"
-        class="cx cx-folder"
-        :class="{ miss: missing }"
-        :title="folderTitle"
-        :aria-label="BC.openFolder + '：' + (folderFull || folderLabel)"
-        :disabled="!convId"
-        data-testid="cat-ctx-folder"
-        @click="openFolder"
-      ><FIcon :name="missing ? 'warn' : 'folder'" :size="13" /><b>{{ folderLabel }}</b></button>
+      <span class="cx cx-fwrap" :class="{ miss: missing }">
+        <button
+          type="button"
+          class="cx-folder"
+          :aria-label="BC.openFolder + '：' + (folderFull || folderLabel)"
+          :aria-describedby="folderFull ? tipId : undefined"
+          :disabled="!convId"
+          data-testid="cat-ctx-folder"
+          @click="openFolder"
+        ><FIcon :name="missing ? 'warn' : 'folder'" :size="13" /><b>{{ folderLabel }}</b></button>
+        <span v-if="folderFull" :id="tipId" class="cx-tip" role="tooltip" data-testid="cat-ctx-folder-tip">{{ folderFull }}</span>
+      </span>
       <template v-if="br.repo">
-        <span class="cx" :class="{ dim: !br.upstream }" :title="BC.upstreamTitle" data-testid="cat-ctx-upstream"><FIcon name="globe" :size="13" />{{ br.upstream || BC.noUpstream }}</span>
+        <span class="cx cx-up" :class="{ dim: !br.upstream }" :title="br.upstream ? BC.upstreamTitle + '：' + br.upstream : BC.upstreamTitle" data-testid="cat-ctx-upstream"><FIcon name="globe" :size="13" /><i>{{ br.upstream || BC.noUpstream }}</i></span>
         <span class="cx cx-branch" :title="BC.localTitle">
           <FIcon name="branch" :size="13" />
           <CatModeSelect
@@ -28,6 +30,21 @@
           />
         </span>
       </template>
+    </div>
+    <div v-if="!welcome && brErr" class="ctx-err" role="alert" data-testid="cat-ctx-branch-err">
+      <div class="ctx-err-line">
+        <FIcon name="warn" :size="13" /><span>{{ brErr.text }}</span>
+        <button
+          v-if="brErr.raw"
+          type="button"
+          class="ct-od-more"
+          :aria-expanded="brErrOpen"
+          data-testid="cat-ctx-branch-err-more"
+          @click="brErrOpen = !brErrOpen"
+        ><span class="car" aria-hidden="true"><FIcon :name="brErrOpen ? 'down' : 'right'" :size="12" /></span>{{ BC.detail }}</button>
+        <button type="button" class="ctx-err-x" aria-label="关闭" data-testid="cat-ctx-branch-err-close" @click="brErr = null"><FIcon name="x" :size="12" /></button>
+      </div>
+      <pre v-if="brErr.raw && brErrOpen" class="ct-od-raw" data-testid="cat-ctx-branch-err-raw">{{ brErr.raw }}</pre>
     </div>
     <div ref="inEl" class="ct-in" :aria-disabled="missing || undefined" :aria-describedby="missing ? missId : undefined">
       <div v-if="shownFiles.length" class="ct-files" data-testid="cat-attach-row">
@@ -289,7 +306,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import CatModeSelect from '@/components/cat/panels/CatModeSelect.vue'
-import { branchOptions, CAT_BRANCH_COPY as BC, catBranchErrorText, listCatBranches, mapCatBranches, middleEllipsis, parseBranchOption, switchCatBranch, type CatBranches } from '@/api/catBranches'
+import { branchOptions, CAT_BRANCH_COPY as BC, catBranchError, listCatBranches, mapCatBranches, pathEllipsis, parseBranchOption, switchCatBranch, type CatBranches } from '@/api/catBranches'
 import { revealCatConversationFolder } from '@/api/catFiles'
 import FIcon from '@/components/icon/FIcon.vue'
 import CatContextRing from '@/components/cat/CatContextRing.vue'
@@ -345,8 +362,11 @@ const switching = ref(false)
 let brSeq = 0
 const brOpts = computed(() => branchOptions(br.value))
 const folderFull = computed(() => br.value.root)
-const folderLabel = computed(() => (props.isProject || !br.value.root ? props.ctxName : middleEllipsis(br.value.root, 36)))
-const folderTitle = computed(() => (folderFull.value ? folderFull.value + '\n' + BC.openFolder : BC.openFolder))
+const folderLabel = computed(() => (props.isProject || !br.value.root ? props.ctxName : pathEllipsis(br.value.root)))
+const tipId = `ctx-tip-${Math.random().toString(36).slice(2, 8)}`
+/** 切换失败行：已知原因只给文案；其它失败带原始报错，收进「查看详情」（同 cli_outdated） */
+const brErr = ref<{ text: string; raw: string } | null>(null)
+const brErrOpen = ref(false)
 async function loadBranches() {
   const id = props.convId
   const seq = ++brSeq
@@ -361,14 +381,15 @@ async function loadBranches() {
     if (seq === brSeq) br.value = mapCatBranches(null)
   }
 }
-watch(() => props.convId, () => void loadBranches(), { immediate: true })
+watch(() => props.convId, () => { brErr.value = null; void loadBranches() }, { immediate: true })
 watch(() => props.running, (on) => { if (!on) void loadBranches() })
 async function openFolder() {
   if (!props.convId) return
   try {
     await revealCatConversationFolder(props.convId)
   } catch (e) {
-    ElMessage.warning(toAppError(e).message || BC.openFailed)
+    void e
+    ElMessage.warning(BC.openFailed)
   }
 }
 async function onPickBranch(id: string) {
@@ -376,12 +397,14 @@ async function onPickBranch(id: string) {
   if (!p || !props.convId || props.running || switching.value) return
   if (!p.remote && p.branch === br.value.branch) return
   switching.value = true
+  brErr.value = null
+  brErrOpen.value = false
   try {
     await switchCatBranch(props.convId, p.branch, p.remote)
     await loadBranches()
     ElMessage.success(BC.switched(br.value.branch || p.branch))
   } catch (e) {
-    ElMessage.warning(catBranchErrorText(e))
+    brErr.value = catBranchError(e)
     void loadBranches()
   } finally {
     switching.value = false
@@ -783,7 +806,8 @@ defineExpose({
   padding: 0 4px;
   font-size: 12px;
   color: var(--cat-text-2);
-  overflow: hidden;
+  /* 文件夹完整路径 tooltip 要伸出底栏上方 */
+  overflow: visible;
 }
 .ctx-bar .cx {
   display: inline-flex;
@@ -804,7 +828,16 @@ defineExpose({
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.ctx-bar .cx.cx-fwrap {
+  position: relative;
+  overflow: visible;
+}
 .ctx-bar .cx-folder {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 240px;
   border: 0;
   padding: 0;
   background: none;
@@ -819,6 +852,89 @@ defineExpose({
 }
 .ctx-bar .cx-folder:disabled {
   cursor: default;
+}
+.ctx-bar .cx-folder b {
+  min-width: 0;
+}
+.ctx-bar .cx-folder:disabled b {
+  text-decoration: none;
+}
+/* 完整路径 tooltip：elevated 样式 + 等宽字，换行不截断 */
+.cx-tip {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  z-index: 20;
+  width: max-content;
+  max-width: min(480px, 70vw);
+  padding: 6px 8px;
+  border: 1px solid var(--ff-border);
+  border-radius: 6px;
+  background: var(--ff-bg-elevated);
+  box-shadow: var(--ff-shadow-dialog);
+  color: var(--cat-text);
+  font: 12px/1.5 var(--ff-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  white-space: pre-wrap;
+  word-break: break-all;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 120ms var(--ff-ease) 300ms;
+}
+.cx-fwrap:hover .cx-tip,
+.cx-fwrap:focus-within .cx-tip {
+  opacity: 1;
+  visibility: visible;
+}
+.ctx-bar .cx-up i {
+  font-style: normal;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ctx-err {
+  margin: -2px 12px 6px;
+  font-size: 12px;
+  color: var(--cat-text-2);
+}
+.ctx-err-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ctx-err-line > :deep(svg) {
+  color: var(--ff-danger);
+  flex: none;
+}
+.ctx-err-x {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--cat-muted);
+  cursor: pointer;
+}
+.ctx-err-x:hover { background: var(--cat-hover); }
+.ctx-err .ct-od-more { display: inline-flex; align-items: center; gap: 4px; border: 0; padding: 0; background: none; color: var(--cat-muted); font-size: 12px; cursor: pointer; }
+.ctx-err .ct-od-more:hover { color: var(--cat-text-2); }
+.ctx-err .ct-od-more .car { width: 12px; display: grid; place-items: center; }
+.ctx-err .ct-od-raw {
+  margin: 6px 0 0;
+  max-height: 120px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: var(--cat-radius-md);
+  border: 1px solid var(--cat-border);
+  background: var(--cat-elevated);
+  color: var(--cat-text-2);
+  font: 12px/1.6 var(--ff-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
 }
 .ctx-bar .cx.dim {
   color: var(--cat-muted);
