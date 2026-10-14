@@ -93,6 +93,9 @@ type Service struct {
 
 	// v0.47.1 检测状态 / cat.detect
 	det detectState
+
+	// v0.51 分支树：fetch 节流状态与 cat.branchPrefs 读写锁
+	btree branchTreeState
 }
 
 // lastTurn 是某会话最后一轮（6.19.18.7）。

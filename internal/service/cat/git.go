@@ -607,7 +607,8 @@ func (s *Service) GitCatConflictAbort(ctx context.Context, req GitCatConflictAbo
 }
 
 // GitCatCheckout 切到已有本地分支。脏工作区须 Force 确认；不新建分支。
-func (s *Service) GitCatCheckout(ctx context.Context, req GitCatCheckoutRequest) error {
+func (s *Service) GitCatCheckout(ctx context.Context, req GitCatCheckoutRequest) (err error) {
+	defer s.recordCheckoutOnSuccess(ctx, req.ConvID, &err) // v0.51：签出成功记进「最近」
 	name := strings.TrimSpace(req.Name)
 	if name == "" || strings.Contains(name, "\x00") {
 		return apperr.New(apperr.NotFound, "找不到这个分支。")
