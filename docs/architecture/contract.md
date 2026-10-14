@@ -2,7 +2,9 @@
 
 v0.54.1 变更（**对话一轮改为无响应超时**，老板反馈长任务 10 分钟被掐断，10-14；见 **6.19.9.9**；无迁移 / 事件名 / settings 键 / 绑定变化）：普通对话不再有 10 分钟总时长上限，改为 CLI 连续 10 分钟无任何输出才停；新 reason `idle_timeout`（CAT_REPLY_FAILED，可重试）；失败事件 `error.detail` 带超时 reason；定时任务 30 分钟总时长不变。
 
-v0.53.1 变更（**提交历史 产品 / 设计定稿**，10-14；见 **6.19.28.9**；无迁移 / 事件名 / settings 键）：`history_changed` 前端不自动重拉，顶部灰字「提交历史已更新」点了才从首页刷新；签出提交前必须弹确认（文案按产品版本，TBD）；搜索范围不变；车道色 token `--cat-lane-1`…`--cat-lane-6`；`commit_not_found` 文案定稿并在详情展开区 12px `--ff-danger` 显示（不用 toast）；搜索结果只画点不画线；`GitCatStatus` 增加 `detached` / `headSha` / `headShortSha`，底栏「未在分支上 · abc1234」。
+v0.53.2 变更（**产品 / 设计确认补丁**，10-14；无迁移 / 事件名 / settings 键 / 错误码）：① **6.19.28.9 ②** 签出提交确认文案定稿（标题「签出提交 {短号}？」、灰字说明、按钮「签出」「取消」、成功 toast「已签出 {短号}」；无「不再提示」）。② **6.20.8** 产品五点全部定稿（繁体系统→简体、旧任务标题保留中文、英日 A 期可带草稿、日文配信/受信与すべて許可、关于页三语但许可证正文不译）；见 **6.20.8**。③ **6.19.28.9 ④** 车道色由设计确认（`--cat-lane-1`…`--cat-lane-6` 取值见该条；暗色下 lane-4/5 提亮约 8%；第 7 道起循环）；原先「以设计说明为准」的待定关闭。
+
+v0.53.1 变更（**提交历史 产品 / 设计定稿**，10-14；见 **6.19.28.9**；无迁移 / 事件名 / settings 键）：`history_changed` 前端不自动重拉，顶部灰字「提交历史已更新」点了才从首页刷新；签出提交前必须弹确认（文案见 v0.53.2 / 6.19.28.9 ②）；搜索范围不变；车道色 token `--cat-lane-1`…`--cat-lane-6`；`commit_not_found` 文案定稿并在详情展开区 12px `--ff-danger` 显示（不用 toast）；搜索结果只画点不画线；`GitCatStatus` 增加 `detached` / `headSha` / `headShortSha`，底栏「未在分支上 · abc1234」。
 
 v0.53 变更（**Git 面板「提交历史」提交图**，老板认可线框，10-14；规则见 **6.19.28**；无迁移 / 事件名 / settings 键）：新绑定 `ListCatCommits` / `GetCatCommitDetail` / `GetCatCommitFileDiff` / `GitCatCheckoutCommit`；`GitCatCreateBranch.from`、`GitCatCompareBranch.branch` 允许 sha；车道布局前端算；新 reason `commit_not_found`（NOT_FOUND）/ `history_changed`（INVALID_ARGUMENT）。待定：游离 HEAD 确认文案、搜索范围、车道色 5/6 token（产品 / UI）。
 
@@ -6019,7 +6021,7 @@ func (a *App) GetAppLanguage() (AppLanguage, error)
 func (a *App) SetAppLanguage(req struct{ Lang string `json:"lang"` }) (AppLanguage, error)
 ```
    - 持久化在应用设置 key `app.language`，默认 `system`；非法值返回 `INVALID_ARGUMENT reason=bad_language`。
-   - `system` 映射：OS locale（Windows `GetUserDefaultLocaleName`，macOS `AppleLanguages`，Linux `LC_ALL`/`LC_MESSAGES`/`LANG`）`zh*`→`zh-CN`（含 zh-TW/zh-HK，二期再考虑繁体），`ja*`→`ja`，其余→`en`。
+   - `system` 映射：OS locale（Windows `GetUserDefaultLocaleName`，macOS `AppleLanguages`，Linux `LC_ALL`/`LC_MESSAGES`/`LANG`）`zh*`→`zh-CN`（含 zh-TW/zh-HK；不做繁体包，见 6.20.8 ①），`ja*`→`ja`，其余→`en`。
    - 设置成功后 `i18n.Set(effective)`，发事件 `app:language`（payload 同 `AppLanguage`）给所有窗口；有托盘 / 菜单时重建（`menu.Update`）。无需重启。
 4. **持久化的展示文本**（任务标题等）：新任务改存 `titleKey` + `titleParams`（保留旧 `title` 作兜底），前端按当前语言渲染；历史任务仍显示旧中文标题，不迁移。
 5. Cat 发给 CLI 的系统提示 / 工具说明**不随界面语言变**（避免影响模型行为），本期不动。
@@ -6063,12 +6065,12 @@ en / ja 由开发起草，产品审语气；术语以本表为准，写进 `loca
 - **后端**：`internal/i18n` 三套目录 key 一致、缺 key 回退；OS locale 映射表单测（`zh_CN.UTF-8`、`zh-TW`、`ja_JP`、`en_US`、`fr_FR`、空值）；`SetAppLanguage` 持久化 / 非法值 / 事件发出；通知标题与原生对话框标题随语言变化；`apperr` 新 `params` 字段 JSON 往返且旧格式兼容。
 - **真机**：Windows 中文 / 日文 / 英文系统各一次「跟随系统」；系统通知与文件对话框标题。
 
-### 6.20.8 待产品定
-1. 「跟随系统」碰到繁体中文系统，先映射到简体中文还是英文？（契约暂定简体中文）
-2. 历史任务的中文标题是否接受不翻译？
-3. 英文 / 日文审校由谁、在哪个包前完成；阶段 A 能否先带机翻草稿出包？
-4. 术语表里「推流 / 拉流」日文用「配信 / 受信」是否合适；「全部放开」英日译法确认。
-5. 关于页、许可证、更新说明等长文本是否也要三语。
+### 6.20.8 产品定稿（v0.53.2，群里 10-14；本节关闭）
+1. **繁体中文系统**：映射到简体中文（`zh*` → `zh-CN`，含 zh-TW / zh-HK）。**不做繁体包**。与 6.20.3 第 3 条一致。
+2. **旧任务标题**：保留原中文可以接受，不迁移。从阶段 B 起新任务存 `titleKey` + `titleParams`（见 6.20.3 第 4 条）。
+3. **英 / 日文审校**：由产品审。阶段 A 可以先带草稿出包；正式审完再进下一版包。
+4. **术语**：日文「推流 / 拉流」用「配信 / 受信」；「全部放开」用「すべて許可」。英文 Allow all 可以。已写入 6.20.6 术语表。
+5. **关于页**：做三语；**许可证正文保持原文，不做翻译**。
 
 ## 7. 本地流服务（已取消）
 
@@ -6684,7 +6686,7 @@ GitCatCheckoutCommit(req struct{ ConvID, Sha string }) (CatBranchTree, error)   
 - 校验顺序（与 6.19.25 一致）：`not_git_repo` → `turn_running` → `merge_in_progress`（MERGE_HEAD / rebase-* / CHERRY_PICK_HEAD）→ `commit_not_found` → `git_dirty`（`status --porcelain` 非空，含未跟踪）。
 - 执行 `git switch --detach <sha>`（`LC_ALL=C`）；stderr 含 `would be overwritten`（大小写不敏感）→ `git_dirty`；其他失败 → `git_failed`。
 - 成功返回最新 `CatBranchTree`（`detached=true`），底栏本地分支处显示短 sha；不更新 recent。
-- **调用前必须弹确认**（v0.53.1，见 6.19.28.9 ②）；接口不变。
+- **调用前必须弹确认**（v0.53.1 / v0.53.2，见 6.19.28.9 ②；文案已定稿）；成功后 toast「已签出 {短号}」；接口不变。
 
 #### 6.19.28.6 错误（2.2 追加）
 沿用 `not_git_repo` / `turn_running` / `git_dirty` / `merge_in_progress` / `branch_not_found` / `git_failed`；**新增** `NOT_FOUND reason=commit_not_found`（提交不存在 / 短 sha 歧义）、`INVALID_ARGUMENT reason=history_changed`（分页期间 refs 变了；前端不自动重拉，见 6.19.28.9 ①）。文案：`commit_not_found`「找不到这个提交，可能已被删除。」（v0.53.1 已定，显示位置见 6.19.28.9 ⑤）；其余沿用 6.19.24 / 6.19.25（签出提交的 `git_dirty` 用「有未提交的改动，请先提交或暂存，再切换分支。」）。
@@ -6693,7 +6695,7 @@ GitCatCheckoutCommit(req struct{ ConvID, Sha string }) (CatBranchTree, error)   
 #### 6.19.28.7 待定（v0.53.1 已全部定稿，见 6.19.28.9；以下仅存档）
 1. **产品**：签出提交（游离 HEAD）是否弹确认及文案。
 2. **产品**：搜索范围（默认：信息 + 提交号前缀 + 作者，OR）。
-3. **产品 / UI**：第 5、6 车道色补 token `--cat-lane-5`（紫 #8b5cf6）/ `--cat-lane-6`（青 #14b8a6）；定前前端先用这两个字面量。车道 6 色顺序：`--ff-primary` `--ff-success` `--cat-orange` lane-5 lane-6 `--ff-danger`。
+3. **产品 / UI**：第 5、6 车道色补 token（**存档，已被 v0.53.2 / 6.19.28.9 ④ 取代**；确认值为 lane-4=`#8b5cf6`、lane-5=`#14b8a6`、lane-6=`--ff-danger`，见该条）。
 4. **产品**：`commit_not_found` 文案；「全部分支 / 当前分支」筛选是否还要列具体分支（接口已支持 `branch=<名>`）。
 
 #### 6.19.28.8 测试
@@ -6702,9 +6704,21 @@ GitCatCheckoutCommit(req struct{ ConvID, Sha string }) (CatBranchTree, error)   
 
 #### 6.19.28.9 v0.53.1 产品 / 设计定稿（10-14，覆盖本节上文冲突处）
 1. **`history_changed`**：后端照旧返回 `INVALID_ARGUMENT reason=history_changed`。前端**不自动重拉**，在列表顶部显示一行灰字「提交历史已更新」，用户点击后才清空车道状态并从首页（无 cursor）重新加载。
-2. **签出提交确认**：调用 `GitCatCheckoutCommit` 前必须弹确认框；文案：**按产品版本（TBD）**，取消不调用接口。
+2. **签出提交确认**（v0.53.2 产品定稿）：调用 `GitCatCheckoutCommit` 前必须弹确认框；取消不调用接口。文案：
+   - 标题：「签出提交 {短号}？」
+   - 灰字：「签出后不在任何分支上，新的提交可能找不回来。要继续改，建议先从这里新建分支。」
+   - 按钮：「签出」「取消」（**不加**「不再提示」）
+   - 成功 toast：「已签出 {短号}」
 3. **搜索范围**：维持原定三项（提交信息 + 提交号前缀 + 作者，大小写不敏感，OR），不变。
-4. **车道色 token**：新增 `--cat-lane-1` … `--cat-lane-6`，按设计规格（`proto/cat-git-graph/` 设计说明）：顺序沿用 6.19.28.7 ③：lane-1=`--ff-primary`、lane-2=`--ff-success`、lane-3=`--cat-orange`、lane-4 紫 #8b5cf6、lane-5 青 #14b8a6、lane-6=`--ff-danger`；具体色值以设计说明为准，前端不再用字面量。
+4. **车道色 token**（v0.53.2 **设计确认**，关闭原先「以设计说明为准」的待定）：新增 `--cat-lane-1` … `--cat-lane-6`，前端只用这些 token，不再写字面量。取值：
+   - `--cat-lane-1` → `var(--ff-primary)`
+   - `--cat-lane-2` → `var(--ff-success)`
+   - `--cat-lane-3` → `var(--cat-orange)`
+   - `--cat-lane-4` → `#8b5cf6`（紫）
+   - `--cat-lane-5` → `#14b8a6`（青）
+   - `--cat-lane-6` → `var(--ff-danger)`
+   - **暗色模式**：lane-4 / lane-5（紫、青）亮度提高约 8%；其余跟随已有暗色 token。
+   - **第 7 道起**：按 `lane % 6` 循环（与 6.19.28.3 一致）。
 5. **`commit_not_found`**：文案「找不到这个提交，可能已被删除。」，显示在该提交的**详情展开区**内，12px、`--ff-danger` 色，**不用 toast**。
 6. **搜索结果**：只画提交点，不画连线；车道位置不变（与未搜索时一致），只隐藏线。
 7. **`GitCatStatus` 扩展**：增加 `detached: boolean`、`headSha: string`（完整 sha）、`headShortSha: string`（短 sha）；非游离时 `detached=false`，sha 字段仍返回当前 HEAD（空仓库为空串）。底栏在 `detached=true` 时本地分支处显示「未在分支上 · {headShortSha}」（例：「未在分支上 · abc1234」）。
