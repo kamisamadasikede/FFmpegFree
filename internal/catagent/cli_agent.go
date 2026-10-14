@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -389,6 +390,7 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	var cliErr string
 	seenErr := map[string]struct{}{}
 	var sessionGone bool
+	completed := false
 	noteErr := func(msg string) {
 		msg = truncate(strings.TrimSpace(msg), 500)
 		if msg == "" {
@@ -416,7 +418,7 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		opts.OnError(msg)
 	}
 	stderrTap := &stderrTap{onLine: func(line string) {
-		if !strongCLIError(line) {
+		if cliRetryLine(line) || !strongCLIError(line) {
 			return
 		}
 		noteErr(line)
@@ -437,7 +439,12 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	var resultFallback string
 	var usageTokens, usageOut, claudeWindow int64
 	scanErr := a.scanCLIStream(stdout, func(p streamPiece) {
+		if p.Done {
+			completed = true
+		}
 		switch p.Kind {
+		case "done":
+			return
 		case "thought", "tool", "retry":
 			if opts.OnActivity != nil && (p.Kind == "retry" || p.Text != "") {
 				opts.OnActivity(p.Kind, p.ID, p.Text, p.Replace)
@@ -511,6 +518,25 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	}
 	if !gone {
 		usageResp.ContextUsed, usageResp.ContextWindow = a.turnContextUsage(sidForCtx, cwd, claudeWindow)
+	}
+	// v0.48.1：本轮已正常结束且有最终回复 → 就是成功。之后的退出码、标准错误告警、
+	// 重连提示都只写日志（详情），不再把整轮判成失败。
+	if completed && !gone && runCtx.Err() == nil {
+		body := acc.String()
+		if strings.TrimSpace(body) == "" && strings.TrimSpace(resultFallback) != "" {
+			body = resultFallback
+			if opts.OnTextDelta != nil {
+				opts.OnTextDelta(body)
+			}
+		}
+		if strings.TrimSpace(body) != "" {
+			if (cliMsg != "" || waitErr != nil) && a.cfg.Logf != nil {
+				a.cfg.Logf("cat %s turn completed with non-fatal noise: exit=%v msg=%s", a.name, waitErr, truncate(cliMsg, 500))
+			}
+			usageResp.Version = ProtocolVersion
+			usageResp.Message = WireMessage{Role: "assistant", Content: body}
+			return usageResp, nil
+		}
 	}
 	if runCtx.Err() != nil {
 		if ctx.Err() != nil {
@@ -928,6 +954,9 @@ func (a *CLIAgentAdapter) scanCLIStream(r io.Reader, onPiece func(streamPiece), 
 			}
 			continue
 		}
+		if onPiece != nil && piece.Done && piece.Kind != "usage" {
+			onPiece(streamPiece{Kind: "done", Done: true})
+		}
 		if onPiece != nil && (piece.Kind == "retry" || piece.Kind == "usage" || piece.Kind == "ctxwin" || piece.Kind == "result_text" || piece.Text != "") {
 			onPiece(piece)
 		}
@@ -953,6 +982,9 @@ func emitClaudeResultLine(line []byte, onPiece func(streamPiece), onErr func(str
 			onErr(resultErrorText(raw))
 		}
 		return true
+	}
+	if onPiece != nil {
+		onPiece(streamPiece{Kind: "done", Done: true})
 	}
 	if u := claudeUsageTotal(raw); u > 0 && onPiece != nil {
 		onPiece(claudeUsagePiece(raw, u))
@@ -1108,6 +1140,11 @@ func parseCodexStreamLine(raw map[string]json.RawMessage, typ string) (streamPie
 		if msg == "" {
 			msg, _ = rawStr(raw, "error")
 		}
+		if piece, ok := codexRetryPiece(msg); ok {
+			// v0.48.1：中转断流后 Codex 自己重连，发的是 type=error 的「Reconnecting... n/m」。
+			// 这不是失败，按重试状态显示，不记成本轮错误。
+			return piece, sid, "", false
+		}
 		return streamPiece{}, sid, msg, true
 	case "turn.failed":
 		msg, _ := rawStr(raw, "error")
@@ -1122,9 +1159,10 @@ func parseCodexStreamLine(raw map[string]json.RawMessage, typ string) (streamPie
 		return streamPiece{}, sid, "", false
 	case "turn.completed":
 		if piece, ok := parseCodexUsage(raw); ok {
+			piece.Done = true
 			return piece, sid, "", false
 		}
-		return streamPiece{}, sid, "", false
+		return streamPiece{Kind: "done", Done: true}, sid, "", false
 	case "item.completed", "item.started", "item.updated":
 		itemRaw, ok := raw["item"]
 		if !ok {
@@ -1285,3 +1323,25 @@ func fmtInt64(n int64) string {
 	}
 	return strconv.FormatInt(n, 10)
 }
+
+// codexRetryRe：Codex 断流自动重连的提示，如 "Reconnecting... 2/5 (stream disconnected ...)"、
+// "stream error: ...; retrying 1/5 in 200ms…"。
+var codexRetryRe = regexp.MustCompile(`(?i)(re-?connecting|retrying)\D{0,40}?(\d+)\s*/\s*(\d+)`)
+
+var cliRetryWordRe = regexp.MustCompile(`(?i)\b(re-?connecting|retrying)\b`)
+
+func codexRetryPiece(msg string) (streamPiece, bool) {
+	m := codexRetryRe.FindStringSubmatch(msg)
+	if m == nil {
+		if cliRetryWordRe.MatchString(msg) {
+			return streamPiece{Kind: "retry", ID: "retry", Text: retryStatusText(0, 0), Replace: true}, true
+		}
+		return streamPiece{}, false
+	}
+	a, _ := strconv.Atoi(m[2])
+	b, _ := strconv.Atoi(m[3])
+	return streamPiece{Kind: "retry", ID: "retry", Text: retryStatusText(a, b), Replace: true}, true
+}
+
+// cliRetryLine：标准错误里的自动重试提示，不算本轮失败（只进日志）。
+func cliRetryLine(line string) bool { return cliRetryWordRe.MatchString(line) }
