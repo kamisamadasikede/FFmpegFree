@@ -375,7 +375,7 @@ func (s *Service) cwdFor(ctx context.Context, c store.CatConversation) string {
 // loadTranscript 打开会话时从 CLI 自己的会话文件读正文（SessionHistory，照 Grok 路径）：
 // 按 agentKind 取适配器 → LoadTranscript(convID, cwd)；Claude / Codex / Grok 同一接口。
 // 读不到就空列表，从不拼接本地消息缓存、不捏造历史。库只留元数据。
-func (s *Service) loadTranscript(ctx context.Context, c store.CatConversation) ([]store.CatMessage, *string, error) {
+func (s *Service) loadTranscript(ctx context.Context, c store.CatConversation) ([]store.CatMessage, string, error) {
 	cwd := s.cwdFor(ctx, c)
 	h := s.sessionHistory(c.AgentKind)
 	var (
@@ -388,29 +388,27 @@ func (s *Service) loadTranscript(ctx context.Context, c store.CatConversation) (
 		// 测试假适配器可能只挂了 LoadTranscript；生产三家都实现完整 SessionHistory。
 		a, aerr := s.adapter(c.AgentKind)
 		if aerr != nil {
-			return []store.CatMessage{}, nil, nil
+			return []store.CatMessage{}, "", nil
 		}
 		loader, ok := a.(interface {
 			LoadTranscript(context.Context, string, string) ([]catagent.WireMessage, error)
 		})
 		if !ok {
-			return []store.CatMessage{}, nil, nil
+			return []store.CatMessage{}, "", nil
 		}
 		wires, err = loader.LoadTranscript(ctx, c.ID, cwd)
 	}
 	// 读不到正文：空列表 + historyStatus，不报错、不捏造（6.19.19.0 第 5 条）。
 	switch {
 	case errors.Is(err, catagent.ErrHistoryMissing):
-		st := HistoryMissing
-		return []store.CatMessage{}, &st, nil
+		return []store.CatMessage{}, HistoryMissing, nil
 	case errors.Is(err, catagent.ErrHistoryReadFailed):
 		s.cfg.Logf("cat history read failed: conv=%s kind=%s", c.ID, c.AgentKind)
-		st := HistoryReadFailed
-		return []store.CatMessage{}, &st, nil
+		return []store.CatMessage{}, HistoryReadFailed, nil
 	case err != nil:
-		return nil, nil, err
+		return nil, "", err
 	}
-	return applyFooters(s.cfg.DataRoot, c.ID, wiresToMessages(c.ID, wires)), nil, nil
+	return applyFooters(s.cfg.DataRoot, c.ID, wiresToMessages(c.ID, wires)), "", nil
 }
 
 func wiresToMessages(convID string, wires []catagent.WireMessage) []store.CatMessage {

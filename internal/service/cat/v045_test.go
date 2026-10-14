@@ -145,7 +145,7 @@ func TestGetCatConversation_HistoryStatus(t *testing.T) {
 	}
 	// 从没存过 sessionId（新对话）→ 省略
 	d, err := svc.GetCatConversation(ctx, c.ID)
-	if err != nil || d.HistoryStatus != nil || len(d.Messages) != 0 {
+	if err != nil || d.HistoryStatus != "" || len(d.Messages) != 0 {
 		t.Fatalf("no sid: err=%v st=%v msgs=%v", err, d.HistoryStatus, d.Messages)
 	}
 	// 存下 sessionId
@@ -155,7 +155,7 @@ func TestGetCatConversation_HistoryStatus(t *testing.T) {
 	_ = os.WriteFile(sp, []byte(sid), 0o600)
 	// 存了 sessionId 但文件不在 → missing
 	d, err = svc.GetCatConversation(ctx, c.ID)
-	if err != nil || d.HistoryStatus == nil || *d.HistoryStatus != HistoryMissing || len(d.Messages) != 0 {
+	if err != nil || d.HistoryStatus != HistoryMissing || len(d.Messages) != 0 {
 		t.Fatalf("sid but no file: err=%v st=%v", err, d.HistoryStatus)
 	}
 	proj := filepath.Join(claudeHome, "projects", "x")
@@ -163,7 +163,7 @@ func TestGetCatConversation_HistoryStatus(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(proj, sid+".jsonl"), []byte(`{"type":"queue-operation"}`+"\n"), 0o644)
 	// 文件可读、对话本来就空 → 省略
 	d, err = svc.GetCatConversation(ctx, c.ID)
-	if err != nil || d.HistoryStatus != nil {
+	if err != nil || d.HistoryStatus != "" {
 		t.Fatalf("readable empty: err=%v st=%v", err, d.HistoryStatus)
 	}
 	// 读失败 → read_failed（适配器报 ErrHistoryReadFailed）
@@ -171,7 +171,7 @@ func TestGetCatConversation_HistoryStatus(t *testing.T) {
 	reg2.Register(&histErrAdapter{CLIAgentAdapter: catagent.NewClaudeAdapter(catagent.CLIAgentConfig{DataRoot: dataRoot}), err: catagent.ErrHistoryReadFailed})
 	svc2 := New(Config{Store: st, Registry: reg2, DataRoot: dataRoot})
 	d, err = svc2.GetCatConversation(ctx, c.ID)
-	if err != nil || d.HistoryStatus == nil || *d.HistoryStatus != HistoryReadFailed || len(d.Messages) != 0 {
+	if err != nil || d.HistoryStatus != HistoryReadFailed || len(d.Messages) != 0 {
 		t.Fatalf("read_failed: err=%v st=%v msgs=%v", err, d.HistoryStatus, d.Messages)
 	}
 }
