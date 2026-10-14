@@ -6309,10 +6309,10 @@ GitCatMerge(req GitCatMergeRequest) (GitCatMergeResult, error)
 **校验顺序**（同 `SwitchCatBranch`，复用 reason，无新错误码）：
 1. 会话不存在 → `NOT_FOUND`。
 2. 该对话（项目对话：同项目任一对话）有进行中的一轮 → `TASK_CONFLICT` `reason=turn_running`。
-3. 不是仓库 → `INVALID_ARGUMENT`「这里还不是 git 仓库。」。
+3. 不是仓库 → `INVALID_ARGUMENT` `reason=not_git_repo`（v0.50.1 文案见 6.19.25.1）。
 4. `MERGE_HEAD` / `rebase-merge` / `rebase-apply` / `CHERRY_PICK_HEAD` 存在 → `TASK_CONFLICT` `reason=merge_in_progress`（**新 reason 值**，2.2 追加）。
 5. 分支名不合法（`git check-ref-format --branch`）或 `git rev-parse --verify -q refs/heads/<b>`（remote：`refs/remotes/<b>`）失败 → `NOT_FOUND` `reason=branch_not_found`。
-6. 目标就是当前分支（或其 sha 已是 HEAD 祖先）→ 直接返回 `{status:'up_to_date', head}`，不看工作区、不跑 merge。
+6. （v0.50.1 改）目标就是当前分支 → `INVALID_ARGUMENT` `reason=same_branch`；其 sha 已是 HEAD 祖先 → 直接返回 `{status:'up_to_date', head}`，不看工作区、不跑 merge。
 7. 工作区有任何改动（`git status --porcelain` 非空，含未跟踪文件）→ `TASK_CONFLICT` `reason=git_dirty`。兜底：merge 输出含 `would be overwritten` / `untracked working tree files would be` 时也归 `git_dirty`。
 8. 执行 `git merge --no-edit <ref>`（不加 `--no-ff` / `--ff-only` / `--autostash`）。退出 0：输出含 `Already up to date` → `up_to_date`，否则 `merged`；`head`=`git rev-parse HEAD`。非 0 且 `MERGE_HEAD` 存在、`ls-files -u` 非空 → `{status:'conflict', files}`（**不是错误**），仓库保持 merging，交给 6.19.15 的 `GitCatConflictResolve/Complete/Abort` 与冲突页。其他失败 → `INVALID_ARGUMENT` `reason=git_failed`，`detail` 第二行起放 git 原始 stderr（截 4 KiB）。
 - 分离 HEAD：允许（合到当前提交），前端「当前分支」显示「分离 HEAD」。
@@ -6325,26 +6325,120 @@ GitCatMerge(req GitCatMergeRequest) (GitCatMergeResult, error)
 3. 结果：`merged` → 关窗，toast「已把 {分支} 合并到 {当前分支}」；`up_to_date` → 关窗，toast「已经是最新，没有需要合并的内容。」；`conflict` → toast「有 {n} 个文件冲突，请逐个处理。」（n=`files.length`），关窗并跳到 Git 页签冲突分组（6.19.15.3）。三种都刷新 `ListCatBranches` / `GitCatStatus`。
 4. 错误（弹窗内红字，`--ff-danger`，弹窗不关）：`git_dirty`「有未提交的改动，请先提交或暂存，再合并。」；`turn_running`「正在回复，等这一轮结束再合并。」；`merge_in_progress`「上一次合并还没完成，请先处理完冲突，或放弃这次合并。」；其余（含 `branch_not_found`、`git_failed`）「合并失败，请重试。」+ 公共「查看详情」组件（#304，带复制、最大高 160px）放 `detail`。前三种不带详情。
 
-**测试（后端，真 git 临时仓库）**：快进合并 → merged + head=目标 sha；分叉无冲突 → merged 且生成两父提交；同分支 / 已包含 → up_to_date 且不执行 merge；内容冲突 → conflict + files 排序、`mergeState=merging`，随后 Abort 回到合并前；二进制冲突也列入 files；脏工作区（已跟踪改动 / 未跟踪文件）→ git_dirty 且仓库未变；预检漏掉时 `would be overwritten` 输出也映射 git_dirty；MERGE_HEAD / rebase 进行中 → merge_in_progress；分支不存在 / 非法名 → branch_not_found；remote=true 合并 `origin/x`；turn 进行中 → turn_running；断言 runGit 带隐藏窗口与 `GIT_MERGE_AUTOEDIT=no`。**前端**：入口禁用条件；默认选项与排除当前分支；loading 时不可关；三种结果的 toast 与跳转；四种错误文案及「查看详情」仅出现在通用失败。
+**测试（后端，真 git 临时仓库）**：快进合并 → merged + head=目标 sha；分叉无冲突 → merged 且生成两父提交；已包含 → up_to_date 且不执行 merge；同分支 → same_branch 且不执行 merge（v0.50.1）；内容冲突 → conflict + files 排序、`mergeState=merging`，随后 Abort 回到合并前；二进制冲突也列入 files；脏工作区（已跟踪改动 / 未跟踪文件）→ git_dirty 且仓库未变；预检漏掉时 `would be overwritten` 输出也映射 git_dirty；MERGE_HEAD / rebase 进行中 → merge_in_progress；分支不存在 / 非法名 → branch_not_found；remote=true 合并 `origin/x`；turn 进行中 → turn_running；断言 runGit 带隐藏窗口与 `GIT_MERGE_AUTOEDIT=no`。**前端**：入口禁用条件；默认选项与排除当前分支；loading 时不可关；三种结果的 toast 与跳转；四种错误文案及「查看详情」仅出现在通用失败。
 
 **2.2 追加**：`TASK_CONFLICT` `reason=merge_in_progress`；`INVALID_ARGUMENT` `reason=git_failed`（无新错误码）。
 
-### 6.19.26 IDEA-style Merge Revisions + Git branch tree (pending product scope & UI wireframes)（v0.51 预留，架构师 10-14）
+#### 6.19.25.1 v0.50.1 补丁（产品群里定稿，架构师 10-14）
+- 同一分支：由「返回 `up_to_date` 空操作」**改为拒绝**：`INVALID_ARGUMENT` `reason=same_branch`，在第 5 步之后、第 6 步祖先判断之前检查（remote=false 且 branch == 当前分支名）。UI 本来就排除当前分支，此为后端兜底。
+- 错误文案补齐（产品，照抄；均弹窗内红字、**不带**「查看详情」）：
+  - `not_git_repo`：「这个文件夹不是 Git 仓库。」
+  - `branch_not_found`：「找不到这个分支，可能已被删除。」（从通用失败中移出）
+  - `same_branch`：「不能把分支合并到它自己。」
+- 通用失败仅剩 `git_failed`（及未知 reason），继续带「查看详情」。
+- 测试增补：同分支 → same_branch 且不跑 merge；非仓库 → not_git_repo；前端三条新文案且无详情。
+- 2.2 追加：`INVALID_ARGUMENT` `reason=same_branch`、`reason=not_git_repo`（若已有同义 reason 则沿用已有值，不新增错误码）。
 
-**状态：仅占位，不实现。** 范围待产品定、线框待 UI 交付（`proto/cat-merge-3way`）。以下绑定名均为 **DRAFT**，可改名、可删；定稿前前后端不得依赖。6.19.15.3 的简易冲突解决与 6.19.25 的 `GitCatMerge` 照旧有效。
+### 6.19.26 Git 分支树（v0.51 定稿，对标 IDEA Git Branches；老板私聊，产品范围 / 文案群里定稿，架构师 10-14）
 
-**A. Merge Revisions（对标 IntelliJ IDEA「Merge Revisions」）**
+**交付顺序（产品定）**：v0.51 分支树 → v0.52 三栏合并（6.19.27），各出一个包。6.19.25 的「合并到当前分支…」入口并进分支树右键菜单（底栏入口保留）。线框：UI `proto/cat-branch-tree`（浅 / 暗，**待交付**；视觉以线框为准，本节只定行为与接口）。
+
+**git 语义已核对 git 2.47.3 `-h` 并在临时仓库实跑**：`git branch -d` 未合并 → rc=1 `is not fully merged`；`-D` 强删；删当前分支 → rc=1 `cannot delete branch ... used by worktree`；`git branch -m` 目标已存在 → rc=128 `already exists`（不用 `-M`）；`git check-ref-format --branch <n>` 非法 → rc=128；`git branch <new> <bad>` → rc=128 `not a valid object name`；`git switch -c <new> <from>`；`git fetch --prune <remote>`；`git for-each-ref --format=%(refname:short)|%(upstream:short)|%(objectname)|%(committerdate:unix)|%(subject) refs/heads refs/remotes`；ahead/behind 用 `git rev-list --left-right --count <b>...<upstream>`。
+
+#### 6.19.26.1 范围（第一步，v0.51）
+- 分组：本地 / 远程（每个 remote 一组）；名字按 `/` 前缀折叠成文件夹（前端折叠，后端给扁平列表）。
+- 收藏（星标，组内置顶）、最近使用（最多 5 个，**签出成功时**更新，最新在前，去重）、搜索（前端按名字子串、忽略大小写，命中时自动展开文件夹）。
+- 当前分支标记；有上游的本地分支显示 ↑ahead ↓behind（无上游不显示）。
+- fetch：打开分支树时后台自动 fetch，同一仓库 5 分钟内最多一次；另有手动刷新按钮（`force=true`，不受节流）。fetch 失败**不阻塞**：照常显示上次的数值，并显示「数据可能不是最新」类提示（文案待产品）。
+- 右键菜单（第一步）：签出（复用 `SwitchCatBranch`，远程分支签出时建同名跟踪分支，见下）、从这里新建分支、合并到当前分支（复用 `GitCatMerge`）、与当前分支比较、重命名**本地**分支、删除**本地**分支。
+- **第二步（不在 v0.51）**：变基到当前分支、远程分支重命名 / 删除。确认文案届时产品出。
+
+#### 6.19.26.2 存储
+收藏 / 最近存本机应用设置，settings 键 `cat.branchPrefs`，按仓库分：`{ "<repo root 绝对路径，git rev-parse --show-toplevel，Windows 统一小写盘符 + 反斜杠>": { "favorites": [{"branch","remote"}], "recent": ["<本地分支名>"] } }`。**不写进仓库，不写 git config**。分支被删 / 重命名时同步移除 / 改名。
+
+#### 6.19.26.3 绑定
+```go
+type CatBranchCommit struct { Sha, Subject string; Time int64 } // json: sha, subject, time(unix 秒)
+type CatTreeBranch struct {
+    Name       string          `json:"name"`               // 本地：feature/a；远程：不含 remote 前缀
+    Remote     string          `json:"remote,omitempty"`   // 远程分支所属 remote；本地为空
+    Upstream   string          `json:"upstream,omitempty"` // 本地分支的上游，如 origin/feature/a
+    Ahead      int             `json:"ahead"`
+    Behind     int             `json:"behind"`
+    Current    bool            `json:"current"`
+    Favorite   bool            `json:"favorite"`
+    LastCommit CatBranchCommit `json:"lastCommit"`
+}
+type CatBranchGroup struct {
+    Kind     string          `json:"kind"`             // local | remote
+    Remote   string          `json:"remote,omitempty"`
+    Branches []CatTreeBranch `json:"branches"`         // 按名字排序；远程跳过 <remote>/HEAD
+}
+type CatBranchTree struct {
+    Groups    []CatBranchGroup `json:"groups"`
+    Recent    []string         `json:"recent"`
+    Detached  bool             `json:"detached"`
+    FetchedAt int64            `json:"fetchedAt"`         // 该仓库上次 fetch 成功时间，0=从未
+    Fetching  bool             `json:"fetching"`
+    FetchError string          `json:"fetchError,omitempty"` // 上次 fetch 失败的原始 stderr（截 4 KiB）
+}
+ListCatBranchTree(req struct{ConvID string `json:"convId"`}) (CatBranchTree, error) // 只读本地 refs，不触发 fetch
+FetchCatRemotes(req struct{ConvID string `json:"convId"`; Force bool `json:"force"`}) (CatBranchTree, error)
+SetCatBranchFavorite(req struct{ConvID, Branch, Remote string; Favorite bool}) error // json: convId, branch, remote, favorite
+GitCatCreateBranch(req struct{ConvID, From, Name string; Checkout bool}) (CatBranchTree, error) // json: convId, from, name, checkout
+GitCatCompareBranch(req struct{ConvID, Branch string; Remote bool}) (CatBranchCompare, error)
+GitCatRenameBranch(req struct{ConvID, From, To string}) (CatBranchTree, error)
+GitCatDeleteBranch(req struct{ConvID, Branch string; Force bool}) (CatBranchTree, error)
+
+type CatBranchCompare struct {
+    Base     string            `json:"base"`     // 当前分支名（分离 HEAD 时为短 sha）
+    Target   string            `json:"target"`
+    OnlyInTarget  []CatBranchCommit `json:"onlyInTarget"`  // git log HEAD..<t>，最多 200 条
+    OnlyInCurrent []CatBranchCommit `json:"onlyInCurrent"` // git log <t>..HEAD，最多 200 条
+    Truncated bool              `json:"truncated"`
+    Files    []CatCompareFile  `json:"files"`    // git diff --name-status -M HEAD...<t>
+}
+type CatCompareFile struct { Path, OldPath, Status string } // status: A|M|D|R|C|T
+```
+- `FetchCatRemotes`：`force=false` 且距上次尝试 <5 min → 直接返回当前树（不跑 fetch）；同仓库同时只跑一个 fetch（进行中再调用直接返回 `fetching=true`）。逐个 remote `git fetch --prune <remote>`，`GIT_TERMINAL_PROMPT=0`，超时 60 s；失败**不返回错误**，写 `fetchError`、保留旧 `fetchedAt`。完成后发 `cat:branchtree` 事件（payload `{convId}`），前端重拉。
+- `GitCatCreateBranch`：`from` 可为本地分支或 `<remote>/<b>`（远程时 `--track`）。`checkout=true` → `git switch -c <name> <from>`（需过 turn_running / git_dirty 校验，并更新 recent）；否则 `git branch <name> <from>`。
+- 远程分支「签出」：前端调 `GitCatCreateBranch({from:'origin/x', name:'x', checkout:true})`；同名本地已存在则改为签出本地。
+- `GitCatRenameBranch`：`git branch -m <from> <to>`（可重命名当前分支）；只限本地。
+- `GitCatDeleteBranch`：`git branch -d`，`force=true` → `-D`；只限本地。
+
+#### 6.19.26.4 错误（复用现有错误码与 reason，2.2 追加新值）
+| reason | 码 | 触发 | 适用 |
+|---|---|---|---|
+| `turn_running` | TASK_CONFLICT | 有进行中的一轮 | 新建并签出 / 重命名当前 / 删除 |
+| `git_dirty` | TASK_CONFLICT | 签出时工作区有改动（含 `would be overwritten` 兜底） | 新建并签出 |
+| `not_git_repo` | INVALID_ARGUMENT | 非仓库 | 全部 |
+| `branch_not_found` | NOT_FOUND | `from`/`branch` 不存在（`rev-parse --verify -q` 预检） | 新建 / 比较 / 重命名 / 删除 / 收藏 |
+| `branch_exists` | TASK_CONFLICT | 目标名已存在（预检 + `already exists` 兜底） | 新建 / 重命名 |
+| `invalid_branch_name` | INVALID_ARGUMENT | `git check-ref-format --branch` 失败 | 新建 / 重命名 |
+| `branch_not_merged` | TASK_CONFLICT | `-d` 报 `not fully merged` | 删除（force=false） |
+| `is_current` | INVALID_ARGUMENT | 删除当前分支 | 删除 |
+| `git_failed` | INVALID_ARGUMENT | 其他，`detail` 带 stderr | 全部 |
+- 所有 git 调用走 `runGit`（`proc.Configure`：Windows 隐藏控制台窗口；`GIT_TERMINAL_PROMPT=0`；`GIT_EDITOR=true`）。
+
+#### 6.19.26.5 前端
+- 弹窗 / 面板结构、图标、配色等以 UI 线框 `proto/cat-branch-tree` 为准（待交付）。
+- 删除未合并分支：先调 `force=false`，收到 `branch_not_merged` 后弹强删确认，用户确认后 `force=true`。
+- **文案：产品所有（来自群里）**。已定：沿用 6.19.24 / 6.19.25 已有文案（`git_dirty` 签出用「有未提交的改动，请先提交或暂存，再切换分支。」，`turn_running`「正在回复，等这一轮结束再切换分支。」，`branch_not_found`「找不到这个分支，可能已被删除。」）。**TBD（待产品）**：删除确认 / 未合并强删确认、`branch_exists`、`invalid_branch_name`、`is_current`、fetch 失败过期提示、空态、搜索无结果、比较视图标题、新建 / 重命名弹窗。产品群里给出后照抄，未给前前端用占位并标 TODO。
+
+#### 6.19.26.6 测试
+**后端（真 git 临时仓库 + 本地 bare 远程）**：树分组 / 排序 / 跳过 `origin/HEAD`；`/` 名字原样返回；ahead/behind 与 `rev-list --left-right --count` 一致、无上游为 0 且 `upstream` 空；current / detached；收藏读写按仓库根隔离、不改 `.git/config`；recent 签出后更新、最多 5、去重；fetch 5 min 节流、force 绕过、并发只跑一次、失败不报错且保留旧 fetchedAt 并填 fetchError；新建（本地 from / 远程 from 带跟踪 / checkout）；比较双向提交列表 + 文件 status（含重命名）+ 截断；重命名（含当前分支、同步收藏 / recent）；删除已合并 / 未合并→branch_not_merged / force 成功 / 当前→is_current；每个 reason 至少一个用例；断言 runGit 隐藏窗口与 `GIT_TERMINAL_PROMPT=0`。
+**前端**：`/` 折叠与搜索展开；收藏置顶；当前标记与 ↑↓；打开自动 fetch、刷新按钮、过期提示；右键菜单第一步六项且远程分支无重命名 / 删除；强删二次确认流程；合并项复用 6.19.25 弹窗。
+
+### 6.19.27 IDEA-style Merge Revisions（v0.52，**DRAFT**，线框待 UI `proto/cat-merge-3way`，架构师 10-14）
+
+**状态：DRAFT，不实现。** 绑定名可改；定稿前前后端不得依赖。6.19.15.3 简易冲突解决与 6.19.25 `GitCatMerge` 照旧有效。
+
 - 三栏：左 = 当前（ours，`git show :2:<path>`）｜中 = 结果（可编辑）｜右 = 传入（theirs，`:3:`）；base 取 `:1:`。
-- 非冲突改动用 base 自动合入结果；只有真冲突留给用户。
-- 每处冲突：接受箭头（»/«，采用该侧）、忽略 ×（丢弃该侧改动）；两侧都接受时按点击顺序拼接。
-- 顶栏：全部采用左侧 / 全部采用右侧；上一处 / 下一处冲突；「还剩 n 处冲突」；完成后标记已解决（`git add`）。
-- 二进制 / 删除冲突：退化为整文件选一侧。
+- 非冲突改动用 base 自动合入结果；只有真冲突留给用户。每处冲突：接受箭头（采用该侧）、忽略 ×；两侧都接受时按点击顺序拼接。上一处 / 下一处冲突；「还剩 n 个冲突」；完成后标记已解决（`git add`）。
+- **不能逐行合并的文件**（二进制 / 删除-修改冲突等）：退回整文件「采用当前 / 采用传入」。
+- **窗口宽度（UI 群里定稿）**：
+  - ≥1100px：三栏全显示；顶部「接受左边全部 / 接受右边全部」。
+  - 760–1099px：「结果」栏常驻，左右两栏收成一个侧栏，用「当前 | 传入」切换。
+  - <760px：单栏，顶部「当前 | 结果 | 传入」切换，默认「结果」；冲突块上换成「接受当前」「接受传入」「忽略」；顶部批量按钮收进「…」菜单，叫「全部接受当前」「全部接受传入」（产品定）。
 - DRAFT 绑定：`GitCatConflictSides({convId, path})` → `{binary, base, ours, theirs, working, eol}`；`GitCatConflictSave({convId, path, content})`（只写不暂存）；标记已解决复用 `GitCatConflictResolve mode=content`。
-
-**B. Git 分支树（对标 IDEA Git Branches 弹窗）**
-- 分组：本地 / 远程（按 remote）；名字按 `/` 前缀折叠成文件夹（如 `feature/a`）。
-- 收藏（星标，置顶）、最近使用的分支、搜索、当前分支标记、相对上游的 ahead / behind 计数（↑n ↓m）。
-- 右键菜单：签出、从这里新建分支、合并到当前分支（= `GitCatMerge`）、变基到当前分支、与当前分支比较、重命名、删除。
-- DRAFT 绑定：`ListCatBranchTree({convId})`（含 ahead/behind、recent、favorites）、`SetCatBranchFavorite({convId, branch, on})`、`GitCatRebase({convId, onto})`、`GitCatCompareBranch({convId, branch})`、`GitCatRenameBranch({convId, from, to})`、`GitCatDeleteBranch({convId, branch, force?})`。
-
-**待定（产品 / UI）**：两块是否同一版交付及先后；收藏 / 最近存在哪（settings 还是按仓库）；删除未合并分支、变基、重命名远程跟踪分支的确认与文案；ahead/behind 是否需要先 fetch；窄窗口三栏怎么退化；全部按钮、空态、错误文案；明暗主题配色。
+- 待定：空态 / 错误文案（产品）、明暗配色（UI 线框）。
