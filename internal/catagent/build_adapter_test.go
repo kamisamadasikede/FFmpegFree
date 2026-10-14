@@ -166,7 +166,7 @@ func TestRunTurn_PassesArgsWithoutToolLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(raw)
-	for _, want := range []string{"--prompt-file", "--output-format", "streaming-json", "--cwd", proj, "--session-id", "-m", "grok-build", "--no-auto-update", "--always-approve"} {
+	for _, want := range []string{"--prompt-file", "--output-format", "streaming-json", "--cwd", proj, "--session-id", "-m", "grok-build", "--always-approve"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("missing %q in:\n%s", want, s)
 		}

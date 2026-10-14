@@ -220,7 +220,7 @@ func (a *BuildAdapter) detect() {
 	a.setStatus(Status{State: StateChecking, CanDownload: false})
 
 	if exe := a.resolveGrokExe(); exe != "" {
-		ver := a.probeGrokVersion(exe)
+		ver := cachedCLIVersion(exe, a.probeGrokVersion)
 		if ver == "" {
 			ver = "path"
 		}
@@ -411,7 +411,7 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		spec.flag, spec.value,
 		"--output-format", "streaming-json",
 		"--cwd", cwd,
-		"--no-auto-update",
+		// --no-auto-update 不在 grok 1.0.40 真机 --help 里（隐藏开关），按「以真机 help 为准」不再传。
 		"--no-alt-screen",
 		// 不传 --tools / --disallowed-tools / --deny / --no-subagents / --disable-web-search，
 		// 工具集用本机 grok 自己的完整集合。批准方式只带一个开关。
@@ -555,6 +555,12 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 			msg = "回复超时"
 		}
 		return TurnResponse{}, apperr.New(apperr.CatReplyFailed, msg).WithDetail("reason=timeout")
+	}
+	if waitErr != nil && cliArgRejected(stderrText+"\n"+cliMsg) {
+		a.mu.Lock()
+		ver := a.version
+		a.mu.Unlock()
+		return TurnResponse{}, outdatedCLIErr(KindCatBuild, ver, stderrText)
 	}
 	// 非零退出、流里的失败、或标准错误里的超时 / 断网，都按失败结束。已经流出的正文留在界面上。
 	if cliMsg != "" || waitErr != nil {

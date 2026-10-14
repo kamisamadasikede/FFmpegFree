@@ -185,7 +185,7 @@ func (a *CLIAgentAdapter) detect() {
 		})
 		return
 	}
-	ver := a.probeVersion(exe)
+	ver := cachedCLIVersion(exe, a.probeVersion)
 	if ver == "" {
 		ver = "path"
 	}
@@ -258,6 +258,13 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	a.mu.Unlock()
 	if exe == "" {
 		return TurnResponse{}, apperr.New(apperr.CatNotReady, MsgNotReady)
+	}
+
+	a.mu.Lock()
+	curVer := a.version
+	a.mu.Unlock()
+	if a.kind == cliKindClaude && cliVersionBelow(curVer, claudeMinVersion) {
+		return TurnResponse{}, outdatedCLIErr(a.name, curVer, "")
 	}
 
 	prompt := lastUserContent(opts.Messages)
@@ -404,6 +411,9 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 			msg = "回复超时"
 		}
 		return usageResp, apperr.New(apperr.CatReplyFailed, msg).WithDetail("reason=timeout")
+	}
+	if waitErr != nil && cliArgRejected(stderrText+"\n"+cliMsg) {
+		return usageResp, outdatedCLIErr(a.name, curVer, stderrText)
 	}
 	if cliMsg != "" || waitErr != nil {
 		msg := cliMsg
@@ -646,7 +656,10 @@ func (a *CLIAgentAdapter) buildClaudeArgs(opts TurnOptions, prompt, sessionID st
 		"--verbose",
 		"--include-partial-messages",
 	}
-	args = append(args, claudePermissionArgs(opts.PermissionMode)...)
+	a.mu.Lock()
+	ver := a.version
+	a.mu.Unlock()
+	args = append(args, claudePermissionArgs(opts.PermissionMode, ver)...)
 	if rules := strings.TrimSpace(opts.Rules); rules != "" {
 		// GUESS A6：--append-system-prompt（官方文档有；真机确认前仍标 GUESS）
 		args = append(args, "--append-system-prompt", rules)
@@ -661,7 +674,7 @@ func (a *CLIAgentAdapter) buildClaudeArgs(opts TurnOptions, prompt, sessionID st
 	return args
 }
 
-func claudePermissionArgs(mode string) []string {
+func claudePermissionArgs(mode, ver string) []string {
 	// GUESS A5：映射到 Claude --permission-mode（官方值；与 grok 同名属巧合，不假定语义完全等价）
 	switch canonicalPermissionMode(mode) {
 	case "plan":
@@ -669,7 +682,11 @@ func claudePermissionArgs(mode string) []string {
 	case "auto":
 		return []string{"--permission-mode", "auto"}
 	case "default":
-		return []string{"--permission-mode", "manual"} // claude 2.1.296 --help：choices 无 default
+		// 2.1.200 起 help 只列 manual（CHANGELOG 2.1.200）；更早只认 default。版本未知按新版。
+		if cliVersionBelow(ver, claudeManualSince) {
+			return []string{"--permission-mode", "default"}
+		}
+		return []string{"--permission-mode", "manual"}
 	default:
 		// 全部批准 → bypassPermissions（等同 --dangerously-skip-permissions）
 		return []string{"--permission-mode", "bypassPermissions"}
