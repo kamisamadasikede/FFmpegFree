@@ -29,6 +29,10 @@
  *   schedempty —— 定时任务为空（空状态 + 模板卡）
  *   schedfail —— 定时任务的保存 / 启停 / 立即运行 / 删除都失败
  *   mdhold   —— 配合 stream,md：推到代码块中间就停住（围栏未闭合、仍在生成），走查流式中的代码块
+ *   timingpartial —— 配合 stream：v0.45 消息尾不带首字（只有总耗时），走查「缺哪项不显示哪项」
+ *   timinglong —— 配合 stream：首字 12.3s、总耗时 65s（「1分05秒」）
+ *   timingstop —— 配合 stream：推到一半自动按「已停止」结束（cancelled，总耗时算到停止那刻）
+ *   footertip —— 消息尾悬停提示常显（截图用）
  *   footertime —— 配合 stream：完成态消息尾只留「完成于 HH:mm」（默认带 token 两段）
  *   gitconflict —— 右栏 Git 模拟合并冲突列表（v0.41 走查）
  *   gitrebase —— 同上，变基中文案
@@ -64,8 +68,8 @@ export function simThinks(): CatThinkLevel[] {
   ]
 }
 
-export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'codexcaps' | 'failonce' | 'histempty' | 'md' | 'mdhold' | 'savefail' | 'inspectslow' | 'inspectfail' | 'inspectempty' | 'clearfail' | 'keyfail' | 'skillsmissing' | 'setenablefail' | 'schedempty' | 'schedfail' | 'slowconv' | 'browsertimeout' | 'footertime' | 'allagents' | 'gitconflict' | 'gitrebase' | 'gitdone' | 'gitbranch' | 'office' | 'officeneed' | 'officedl' | 'officefail' | 'officepreview' | 'officeready' | 'clioutdated'
-const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'codexcaps', 'failonce', 'histempty', 'md', 'mdhold', 'savefail', 'inspectslow', 'inspectfail', 'inspectempty', 'clearfail', 'keyfail', 'skillsmissing', 'setenablefail', 'schedempty', 'schedfail', 'slowconv', 'browsertimeout', 'footertime', 'allagents', 'gitconflict', 'gitrebase', 'gitdone', 'gitbranch', 'office', 'officeneed', 'officedl', 'officefail', 'officepreview', 'officeready', 'clioutdated']
+export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'codexcaps' | 'failonce' | 'histempty' | 'md' | 'mdhold' | 'savefail' | 'inspectslow' | 'inspectfail' | 'inspectempty' | 'clearfail' | 'keyfail' | 'skillsmissing' | 'setenablefail' | 'schedempty' | 'schedfail' | 'slowconv' | 'browsertimeout' | 'footertime' | 'allagents' | 'gitconflict' | 'gitrebase' | 'gitdone' | 'gitbranch' | 'office' | 'officeneed' | 'officedl' | 'officefail' | 'officepreview' | 'officeready' | 'clioutdated' | 'footertip' | 'timingpartial' | 'timinglong' | 'timingstop'
+const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'codexcaps', 'failonce', 'histempty', 'md', 'mdhold', 'savefail', 'inspectslow', 'inspectfail', 'inspectempty', 'clearfail', 'keyfail', 'skillsmissing', 'setenablefail', 'schedempty', 'schedfail', 'slowconv', 'browsertimeout', 'footertime', 'allagents', 'gitconflict', 'gitrebase', 'gitdone', 'gitbranch', 'office', 'officeneed', 'officedl', 'officefail', 'officepreview', 'officeready', 'clioutdated', 'footertip', 'timingpartial', 'timinglong', 'timingstop']
 
 export const catSim: ReadonlySet<CatSimFlag> = (() => {
   if (!import.meta.env.DEV || typeof window === 'undefined') return new Set<CatSimFlag>()
@@ -138,10 +142,16 @@ export function simStream(
         contextUsed: 180432,
         contextWindow: 256000,
         finishedAt: Date.now(),
+        ...simTiming(),
         ...(catSim.has('footertime')
           ? {}
           : { tokenTotal: 12480, tokensPerSec: 186 }),
       })
+      return
+    }
+    if (catSim.has('timingstop') && i >= 60) {
+      onMessage({ convId, turnId, messageId, seq: ++seq, op: 'done', role: 'assistant', text: '' })
+      onTurn({ convId, turnId, status: 'cancelled', messageId, finishedAt: Date.now(), firstTokenMs: 900, totalMs: 3600, tokenTotal: 420, tokensPerSec: 117 })
       return
     }
     const part = text.slice(i, holdAt >= 0 ? Math.min(i + step, holdAt) : i + step)
@@ -211,3 +221,10 @@ export function simAgentRaw(kind: string): { modes: SimMode[]; models: { id: str
   }
 }
 
+
+/** 走查：v0.45 首字 / 总耗时（毫秒） */
+function simTiming(): { firstTokenMs?: number; totalMs?: number } {
+  if (catSim.has('timinglong')) return { firstTokenMs: 12300, totalMs: 65000 }
+  if (catSim.has('timingpartial')) return { totalMs: 8400 }
+  return { firstTokenMs: 1200, totalMs: 8400 }
+}

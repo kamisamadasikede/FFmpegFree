@@ -1,3 +1,4 @@
+import { applyCatTiming } from '@/components/cat/catTimingAdapter'
 /**
  * Cat 页本地状态（单例）。契约 v0.30 / 设计 v0.4：
  * - CAT_BACKEND_READY=true 且在 Wails 里：会话列表 / 消息 / 发送 / 停止走真实 CatService；cat:message 流式拼进助手气泡
@@ -360,6 +361,7 @@ function blocksFrom(list: CatMessage[]): CatBlock[] {
     if (m.finishedAt && m.finishedAt > 0) a.finishedAt = m.finishedAt
     if (typeof m.tokenTotal === 'number' && Number.isFinite(m.tokenTotal)) a.tokenTotal = m.tokenTotal
     if (typeof m.tokensPerSec === 'number' && Number.isFinite(m.tokensPerSec) && m.tokensPerSec > 0) a.tokensPerSec = m.tokensPerSec
+    applyCatTiming(a, m)
     return a
   })
 }
@@ -921,6 +923,8 @@ function applyTurnFooter(convId: string, turn: CatTurnState, ev?: CatTurnEvent) 
   else delete b.tokenTotal
   if (typeof ev.tokensPerSec === 'number' && Number.isFinite(ev.tokensPerSec) && ev.tokensPerSec > 0) b.tokensPerSec = ev.tokensPerSec
   else delete b.tokensPerSec
+  // v0.45：每轮按事件重写；缺的删掉（重试不残留旧值）
+  applyCatTiming(b, ev)
 }
 
 /** 结束一轮（事件和 SendCatMessage 的返回谁先到谁算，只处理一次） */

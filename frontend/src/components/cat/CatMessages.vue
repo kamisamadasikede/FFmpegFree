@@ -47,11 +47,7 @@
             :class="{ streaming: row.block.streaming, calm: reduced }"
             :aria-busy="row.block.streaming"
           ><CatMarkdown :id="row.block.id" :text="row.block.text" :streaming="row.block.streaming" :reveal="row.block.reveal" @settled="row.block.reveal = false" /></div>
-          <div
-            v-if="footerText(row.block)"
-            class="ct-meta"
-            data-testid="cat-msg-footer"
-          >{{ footerText(row.block) }}</div>
+          <CatMsgFooter v-if="footerFields(row.block)" :fields="footerFields(row.block)!" :force-tip="simTip" />
         </template>
         <div v-else-if="row.block.kind === 'sys' && row.block.outdated" class="ct-sys err ct-outdated" role="status" data-testid="cat-cli-outdated">
           <div class="ct-od-line">
@@ -123,7 +119,9 @@ import CatPreviewDialog from './CatPreviewDialog.vue'
 import type { CatBlock } from '@/api/catMock'
 import { prefersReducedMotion } from '@/api/catStream'
 import { diffLineKind, foldBodyMono, foldIcon, presentCatBlocks, type CatFold } from './catActivity'
-import { formatCatMessageFooter } from './catMessageFooter'
+import type { CatMessageFooterFields } from './catMessageFooter'
+import CatMsgFooter from './CatMsgFooter.vue'
+import { catSim } from '@/views/cat/catDevSim'
 import { canPreview, showsThumb, userDisplayText, type CatShownFile } from './catMedia'
 import { CAT_CLI_OUTDATED_COPY } from './catCliOutdated'
 import { hasWailsBackend } from '@/services/wails'
@@ -150,15 +148,19 @@ function shownText(block: Extract<CatBlock, { kind: 'user' }>): string {
   return userDisplayText(block.text, block.files)
 }
 
-/** v0.37.1：仅完成态且有 finishedAt；进行中（streaming）不出尾巴 */
-function footerText(block: Extract<CatBlock, { kind: 'a' }>): string {
-  if (block.streaming) return ''
-  return formatCatMessageFooter({
+/** v0.37.1 / v0.45：仅完成态且有 finishedAt；进行中（streaming）不出尾巴 */
+function footerFields(block: Extract<CatBlock, { kind: 'a' }>): CatMessageFooterFields | null {
+  if (block.streaming || !block.finishedAt) return null
+  return {
     finishedAt: block.finishedAt,
     tokenTotal: block.tokenTotal,
     tokensPerSec: block.tokensPerSec,
-  })
+    firstTokenMs: block.firstTokenMs,
+    totalMs: block.totalMs,
+  }
 }
+/** 走查截图：?cat_sim=footertip 常显悬停提示 */
+const simTip = import.meta.env.DEV && catSim.has('footertip')
 
 function openFile(file: CatShownFile) {
   if (!canPreview(file.kind)) return

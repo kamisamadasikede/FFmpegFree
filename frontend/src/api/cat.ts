@@ -1,3 +1,4 @@
+import { pickCatTiming } from '@/components/cat/catTimingAdapter'
 /**
  * Cat 助手接口层（契约 v0.30 §6.19；v0.36 多服务商 cat_build|claude_cli|codex_cli）。
  *
@@ -123,6 +124,9 @@ export interface CatMessage {
   finishedAt?: number
   tokenTotal?: number
   tokensPerSec?: number
+  /** v0.45 首字 / 总耗时（毫秒；缺省不显示） */
+  firstTokenMs?: number
+  totalMs?: number
 }
 
 export interface CatConversationDetail extends CatConversation {
@@ -294,6 +298,7 @@ function mapMsg(raw: { id?: string; role?: string; content?: string; createdAt?:
       const rate = Number(raw.tokensPerSec)
       if (Number.isFinite(rate) && rate > 0) msg.tokensPerSec = rate
     }
+    Object.assign(msg, pickCatTiming(raw))
   }
   return msg
 }
