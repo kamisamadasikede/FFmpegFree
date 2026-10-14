@@ -659,7 +659,7 @@ function pmTone(kind: CatProviderKind): string {
 function pmLine(kind: CatProviderKind): string {
   const p = pmOf(kind)
   if (p.loading) return ''
-  return pmHint(kind) || (!p.manual && !curModel(kind) ? PM.followDefaultDesc : '')
+  return pmHint(kind)
 }
 function curModel(kind: CatProviderKind): string {
   return catPanels.settings.defaultsByAgent[kind]?.model ?? ''
