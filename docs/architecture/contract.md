@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.44.1）
+# FFmpegFree v2 接口契约（v0.44.2）
+
+v0.44.2 变更（**Claude 模型列表口径**，产品 / 设计 / 后端 10-14，架构师 10-14；无新错误码 / 迁移）：新增 6.19.18.5b：`ListCatModels("claude_cli")` 只下发 `opus/sonnet/haiku/fable` 四个别名（显示名用官方文档版本，`--model` 发别名）；默认跟随 CLI，不确定不预选、未选不传 `--model`；强度按别名所属家族；前端「默认模型」项（灰字「跟随 Claude CLI 设置」）不由后端下发；各别名须经真实 help / 官方文档 + 快照单测核实，未确认不下发。
 
 v0.44.1 变更（**只改文案**，产品 / 设计 10-14，架构师 10-14；无接口 / 错误码 / 迁移变更）：① 6.19.18.3 Codex `read-only` 与 Grok Build `default` / `acceptEdits` / `auto` 的 `description` 换成产品定稿（Grok 附官方英文原文出处）。② 6.19.18.3a 第 6 条：菜单标题「Cat 助手可以做什么」为纯前端文案；菜单宽 220px，说明最多两行、不用省略号。
 
@@ -5504,8 +5506,23 @@ type CatModel struct { // ListCatModels 返回项，原字段不变
 | Grok Build | grok-4.6 | xhigh, high, medium, low | high | D 二进制内嵌模型目录 |
 | Grok Build | grok-4.5 | high, medium, low（**无 xhigh**，不显示） | high | D 同上 |
 
-- Claude 模型（v0.44 后端 PR 核实，产品 10-14 定）：CLI 2.1.296 无列模型命令（`claude -p "/model"` 只打印别名清单，快照 `testdata/models/claude-2.1.296-slash-model.txt`）。`ListCatModels("claude_cli")` 只下发 4 个别名：`opus`「Opus 5.5」、`sonnet`「Sonnet 5.5」、`haiku`「Haiku 5.5」、`fable`「Fable 5.1」（D https://code.claude.com/docs/en/model-config「Model aliases」Anthropic API 行；fable 原文 "the `fable` alias resolves to Fable 5.1"），档位 / 默认档按上表对应版本（opus/sonnet/haiku 默认 medium，fable 默认 high）。不预选，模型为空 = 跟随 CLI、不传 `--model`，强度行隐藏。已存的完整 id 只认文档原文出现的 id（及 `-YYYYMMDD` 日期后缀），不按前缀猜（如 `claude-sonnet-5-5` → `[]`）。别名在其他服务商下解析到的版本不同，显示名 / 档位按 Anthropic API 给。
+- Claude 模型 id ↔ 上表家族名的匹配：v0.44.2 起改为**按别名**下发，见 6.19.18.5b；未选模型（跟随 CLI 默认）时强度行隐藏。
+  - 后端核实（v0.44 后端 PR）：CLI 2.1.296 无列模型命令（`claude -p "/model"` 只打印别名清单，快照 `testdata/models/claude-2.1.296-slash-model.txt`）。`ListCatModels("claude_cli")` 只下发 4 个别名：`opus`「Opus 5.5」、`sonnet`「Sonnet 5.5」、`haiku`「Haiku 5.5」、`fable`「Fable 5.1」（D https://code.claude.com/docs/en/model-config「Model aliases」Anthropic API 行；fable 原文 "the `fable` alias resolves to Fable 5.1"），档位 / 默认档按上表对应版本（opus/sonnet/haiku 默认 medium，fable 默认 high）。不预选，模型为空 = 跟随 CLI、不传 `--model`，强度行隐藏。已存的完整 id 只认文档原文出现的 id（及 `-YYYYMMDD` 日期后缀），不按前缀猜（如 `claude-sonnet-5-5` → `[]`）。别名在其他服务商下解析到的版本不同，显示名 / 档位按 Anthropic API 给。
 - Claude 选了不支持的档位，CLI 会降到不高于所选的最高档（D）；我们前端仍按 6.19.18.1-3 回落默认，不依赖该行为。
+
+#### 6.19.18.5b Claude 模型列表（v0.44.2，产品 / 设计 / 后端 10-14）
+
+1. `ListCatModels("claude_cli")` 只返回四个**别名** id：`opus`、`sonnet`、`haiku`、`fable`（按此顺序），**不铺完整模型 id**。
+2. `displayName` 用 Claude 官方文档中该别名当前对应的版本，如「Opus 5.5」；发给 CLI 的是别名：`--model <alias>`。
+3. 默认：若能确知 CLI 自己的默认模型，对应别名 `isDefault=true`；**不确定就全部 `isDefault=false`，不预选**。对话未选模型时后端**不传 `--model`**，跟随 CLI 设置。
+4. 每个别名的 `efforts[]` / `defaultEffort` 按其对应模型家族取 6.19.18.5 强度表；对应不上 → `[]` / `""`。
+5. 界面（纯前端，后端不下发「默认模型」这一项）：
+   - 未选模型：胶囊显示「默认模型」，**不跟强度**。
+   - 下拉第一项「默认模型」，灰字说明「跟随 Claude CLI 设置」；下面再列四个别名。
+   - 选了具体模型后胶囊照常显示「显示名 · 强度」，如「Opus 5.5 · 高」。
+6. **UNVERIFIED（核实前不得发版）**：
+   - 每个别名（**尤其 `fable`**）须在真实 `claude --help` / 官方文档中确认可用于 `--model`，记录 CLI 版本，并有 help 快照单测；**未确认的别名不下发**。
+   - 显示名中的版本号、别名 → 强度家族的对应关系，须在 `/workspace/notes/cli-modes-effort.md` 写明出处（文档链接 / CLI 版本）。
 
 #### 6.19.18.5a 强度显示名（前端映射，三家共用）
 
