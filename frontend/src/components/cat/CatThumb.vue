@@ -8,6 +8,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 import { computed, onMounted, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import { catMediaURL, imageDataUrl, showsThumb, type CatShownFile } from './catMedia'

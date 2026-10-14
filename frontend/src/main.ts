@@ -1,6 +1,8 @@
-import {createApp} from 'vue'
+import {createApp, watch} from 'vue'
 import ElementPlus from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
+import enEp from 'element-plus/es/locale/lang/en'
+import jaEp from 'element-plus/es/locale/lang/ja'
 import 'element-plus/dist/index.css'
 import 'element-plus/theme-chalk/dark/css-vars.css'
 import App from './App.vue'
@@ -13,6 +15,9 @@ import './styles/settings-panels.css'
 import './styles/cat-tokens.css'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import { createPinia } from 'pinia'
+import { i18n, type AppLocale } from '@/i18n'
+import { useLanguageStore } from '@/stores/language'
+
 const app = createApp(App)
 const pinia = createPinia()
 
@@ -40,13 +45,26 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
     app.component(key, component)
 }
 
-// pinia 先于 router 安装：路由守卫里要读 ffmpeg store，首次导航在 app.use(router) 之后就会开始
+const epLocale = (lang: AppLocale) => (lang === 'en' ? enEp : lang === 'ja' ? jaEp : zhCn)
+
 app.use(pinia)
+app.use(i18n)
 app.use(router)
-// 桌面化：控件默认 small（设计规范第 0 节）
-app.use(ElementPlus, { size: 'small', locale: zhCn }) // 全站中文（分页“共 44 条”、组件自带提示等）
-app.mount('#app')
-app.config.errorHandler = (err, vm, info) => {
-    console.error("Vue error:", err, info);
-    // 可以弹窗提示用户或记录日志
-};
+
+async function boot() {
+  const langStore = useLanguageStore()
+  await langStore.init()
+  app.use(ElementPlus, { size: 'small', locale: epLocale(langStore.effective) })
+  watch(
+    () => langStore.effective,
+    () => {
+      // A 期：语言热切换；EP 部分内置文案可能需重开面板才刷新
+    },
+  )
+  app.mount('#app')
+  app.config.errorHandler = (err, _vm, info) => {
+    console.error('Vue error:', err, info)
+  }
+}
+
+void boot()

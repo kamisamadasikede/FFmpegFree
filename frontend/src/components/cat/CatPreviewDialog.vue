@@ -1,16 +1,16 @@
 <template>
   <teleport to="body">
-    <div v-if="open" class="mask" role="dialog" aria-modal="true" :aria-label="file?.name || '预览'" @click.self="close">
+    <div v-if="open" class="mask" role="dialog" aria-modal="true" :aria-label=t('cat.misc.s_199cf9f0e4') @click.self="close">
       <div class="frame" :class="{ hug }" @click.stop>
-        <button ref="xBtn" type="button" class="x" aria-label="关闭" title="关闭" @click="close"><FIcon name="x" :size="16" /></button>
+        <button ref="xBtn" type="button" class="x" aria-label=t('cat.misc.s_b15d91274e') title=t('cat.misc.s_b15d91274e') @click="close"><FIcon name="x" :size="16" /></button>
         <div class="sheet" :class="view || 'wait'" data-testid="cat-attach-preview">
           <p v-if="note" class="note">{{ note }}</p>
           <img v-else-if="view === 'image' || view === 'svg'" :src="src" alt="" />
           <video v-else-if="view === 'video'" :src="src" controls autoplay playsinline />
           <audio v-else-if="view === 'audio'" :src="src" controls />
-          <iframe v-else-if="view === 'pdf'" class="doc" :src="src" :title="file?.name || '预览'" />
-          <iframe v-else-if="view === 'html'" class="doc" sandbox="allow-scripts" referrerpolicy="no-referrer" :title="file?.name || '预览'" :srcdoc="text" />
-          <iframe v-else-if="view === 'markdown' || view === 'text' || view === 'csv'" class="doc" sandbox="" :title="file?.name || '预览'" :srcdoc="text" />
+          <iframe v-else-if="view === 'pdf'" class="doc" :src="src" :title=t('cat.misc.s_199cf9f0e4') />
+          <iframe v-else-if="view === 'html'" class="doc" sandbox="allow-scripts" referrerpolicy="no-referrer" :title=t('cat.misc.s_199cf9f0e4') :srcdoc="text" />
+          <iframe v-else-if="view === 'markdown' || view === 'text' || view === 'csv'" class="doc" sandbox="" :title=t('cat.misc.s_199cf9f0e4') :srcdoc="text" />
           <CatFileRich v-else-if="rich" :kind="rich" :mime="mime" :b64="b64" :name="file?.name || ''" />
         </div>
       </div>
@@ -19,6 +19,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import CatFileRich from './CatFileRich.vue'
@@ -51,8 +55,8 @@ const mime = ref('')
 const rich = ref('')
 let token = 0
 
-const FAIL = '这个文件没能显示出来。'
-const LARGE = '这个文件太大，这里放不下。'
+const FAIL = t('cat.misc.s_f8f6e371cb')
+const LARGE = t('cat.misc.s_bf2e7c2378')
 
 function reset() {
   note.value = ''
@@ -90,7 +94,7 @@ async function load() {
   reset()
   if (!props.open || !props.file || !canPreview(props.file.kind)) return
   const file = props.file
-  note.value = '正在读取…'
+  note.value = t('cat.misc.s_62a33abd9b')
   const inline = file.kind === 'image' ? imageDataUrl(file) : ''
   if (inline) {
     if (my !== token) return

@@ -18,7 +18,7 @@
 
       <CatSettingsView v-if="catPanels.view === 'settings'" />
       <CatSchedulesView v-else-if="catPanels.view === 'schedules'" />
-      <section v-else class="ct-c" aria-label="对话">
+      <section v-else class="ct-c" aria-label=t('cat.misc.s_85936242fc')>
         <!-- 中间顶部浮提示（设计 §07：重复文件夹等），2.4s 自动消失 -->
         <div
           v-if="catState.notice"
@@ -39,7 +39,7 @@
               </span><span class="slash">/</span>
             </template>
             <FIcon v-else name="chat" :size="16" />
-            <h2>{{ isNew ? '新对话' : current?.conv.title || '新对话' }}</h2><span class="sp" />
+            <h2>{{ isNew ? t('cat.misc.s_1ac07a4bb2') : current?.conv.title || t('cat.misc.s_1ac07a4bb2') }}</h2><span class="sp" />
           </div>
           <div v-if="projectMissing" class="ct-missing" role="status" data-testid="cat-project-missing-bar">
             <FIcon name="warn" :size="14" /><span class="tx">{{ PC.missing }}</span>
@@ -53,7 +53,7 @@
           </div>
           <div :key="'new'" class="ct-welcome swap">
             <h3 class="wl-hi">Hi，今天有什么安排?</h3>
-            <div class="wl-modes" role="tablist" aria-label="模式">
+            <div class="wl-modes" role="tablist" aria-label=t('cat.misc.s_f0789e79d4')>
               <button
                 v-for="m in CAT_MODES"
                 :key="m.id"
@@ -86,7 +86,7 @@
             <CatComposer
               ref="composer"
               welcome
-              placeholder="发消息、上传文件、打开文件夹、创建定时任务，或输入 / 唤起命令…"
+              placeholder=t('cat.misc.s_9c4f9d191e')
               :busy="catState.creating"
               :not-ready="catNotReady"
               :checking="catChecking"
@@ -116,8 +116,8 @@
             <button
               type="button"
               class="hd-ic"
-              title="搜索"
-              aria-label="搜索"
+              title=t('cat.misc.s_e5f71fc31e')
+              aria-label=t('cat.misc.s_e5f71fc31e')
               data-testid="cat-conv-search"
               :aria-expanded="searchOn"
               @click="searchOn = !searchOn"
@@ -127,15 +127,15 @@
             <button
               type="button"
               class="hd-ic"
-              title="重新加载"
-              aria-label="重新加载"
+              title=t('cat.misc.s_64ca9bab92')
+              aria-label=t('cat.misc.s_64ca9bab92')
               data-testid="cat-conv-refresh"
               @click="onRefreshConv"
             >
               <FIcon name="refresh" :size="16" />
             </button>
             <CatBranchCapsule />
-            <button type="button" class="hd-ib" :class="{ on: !rightCollapsed }" :title="rightCollapsed ? '展开右栏 (Ctrl J)' : '收起右栏 (Ctrl J)'" :aria-label="rightCollapsed ? '展开右栏' : '收起右栏'" :aria-pressed="!rightCollapsed" data-testid="cat-right-toggle" @click="rightCollapsed = !rightCollapsed"><FIcon name="split" :size="16" /></button>
+            <button type="button" class="hd-ib" :class="{ on: !rightCollapsed }" :title=t('cat.misc.s_0210a6574e') :aria-label=t('cat.misc.s_f1f93b7efd') :aria-pressed="!rightCollapsed" data-testid="cat-right-toggle" @click="rightCollapsed = !rightCollapsed"><FIcon name="split" :size="16" /></button>
           </div>
           <CatConvSearch v-if="searchOn" :blocks="messages" @close="searchOn = false" @pick="jumpSearch" />
           <div v-if="projectMissing" class="ct-missing" role="status" data-testid="cat-project-missing-bar">
@@ -153,7 +153,7 @@
             <div ref="msgsEl" :key="catState.sel" class="ct-msgs swap" @scroll.passive="onMsgsScroll">
               <div ref="msgsBody">
                 <!-- B1：读记录超过 150ms 才显示消息骨架 -->
-                <div v-if="histLoading && !messages.length" class="sk-msgs conv" role="status" aria-label="正在加载对话" data-testid="cat-msg-skeleton">
+                <div v-if="histLoading && !messages.length" class="sk-msgs conv" role="status" aria-label=t('cat.misc.s_741420e8a7') data-testid="cat-msg-skeleton">
                   <i class="sk w50 r" /><i class="sk w90" /><i class="sk w80" /><i class="sk w60" /><i class="sk w40 r" /><i class="sk w90" /><i class="sk w70" />
                 </div>
                 <CatMessages :blocks="messages" :pending="thinking" :retry="catState.retry[catState.sel]" @retry="retryLastMessage" />
@@ -166,7 +166,7 @@
               class="ct-jumps"
               :style="{ height: jumpH + 'px' }"
               data-testid="cat-msg-jumps"
-              aria-label="消息位置"
+              aria-label=t('cat.misc.s_b04b68d00e')
               @wheel.stop="onJumpsWheel"
               @scroll.passive="onJumpsScroll"
               @mousemove="onJumpsMove"
@@ -180,27 +180,27 @@
                   class="ct-tick"
                   :class="{ on: t.tone === 0, near: t.tone === 1 }"
                   :style="{ top: t.top + 'px', '--tick-w': t.w + 'px' }"
-                  :title="t.label || '用户消息'"
-                  :aria-label="t.label || '用户消息'"
+                  :title=t('cat.misc.s_04b9a2c30f')
+                  :aria-label=t('cat.misc.s_04b9a2c30f')
                   data-testid="cat-msg-tick"
                   @click.stop="jumpUser(t.offset)"
                 />
               </div>
             </div>
-            <div v-show="overflowing" ref="railEl" class="ct-rail" data-testid="cat-msg-rail" aria-label="滚动位置" @pointerdown="onTrackDown">
+            <div v-show="overflowing" ref="railEl" class="ct-rail" data-testid="cat-msg-rail" aria-label=t('cat.misc.s_838210c769') @pointerdown="onTrackDown">
               <div
                 v-if="thumb"
                 class="ct-thumb"
                 :style="{ top: thumb.top + 'px', height: thumb.height + 'px' }"
-                title="拖动滚动"
+                title=t('cat.misc.s_871a47946a')
                 role="scrollbar"
                 aria-orientation="vertical"
-                aria-label="拖动滚动"
+                aria-label=t('cat.misc.s_871a47946a')
                 data-testid="cat-msg-thumb"
                 @pointerdown.stop="onThumbDown"
               />
             </div>
-            <button v-if="away" type="button" class="ct-jump" title="回到底部" aria-label="回到底部" data-testid="cat-jump-bottom" @click="jumpBottom">
+            <button v-if="away" type="button" class="ct-jump" title=t('cat.misc.s_5d94f1fbd8') aria-label=t('cat.misc.s_5d94f1fbd8') data-testid="cat-jump-bottom" @click="jumpBottom">
               <FIcon name="down" :size="16" />
             </button>
           </div>
@@ -239,6 +239,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 import { catHistoryEmptyText } from '@/api/catHistoryStatus'
 import { catScratch, shouldShowFilePanel } from './catScratchFiles'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'

@@ -4,18 +4,19 @@
  */
 import type { CatAgentStatus, CatStatus } from '@/api/cat'
 import { CAT_PROVIDER_ORDER } from '@/api/catAgents'
+import { t } from '@/i18n'
 
 /** 定稿文案（产品 + 设计 10-14）；全部用 --cat-muted 灰字 */
 export const CAT_DETECT_COPY = {
-  installed: '已安装',
-  notDetected: '未检测到',
-  checking: '正在检测…',
-  lastCheck: (t: string) => `上次检测 ${t}`,
-  stale: '结果可能已过期',
-  recheck: '重新检测',
-  pathTip: (p: string) => `路径：${p}`,
-  sep: ' · ',
-} as const
+  get installed() { return t('cat.detect.installed') },
+  get notDetected() { return t('cat.detect.notDetected') },
+  get checking() { return t('cat.detect.checking') },
+  lastCheck: (t: string) => t('cat.detect.lastCheck', { v0: t }),
+  get stale() { return t('cat.detect.stale') },
+  get recheck() { return t('cat.detect.recheck') },
+  pathTip: (p: string) => t('cat.detect.pathTip', { p: p }),
+  get sep() { return t('cat.detect.sep') },
+}
 
 /** 载荷是否真带了 agents[]（mapCatStatus 在 raw 上做标记前先用这个判断） */
 export function payloadHasAgents(raw: unknown): boolean {
@@ -49,7 +50,7 @@ export function formatCheckedAt(ms: number, now: number = Date.now()): string {
   const n = new Date(now)
   const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`
   const today = d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate()
-  return today ? hm : `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`
+  return today ? hm : t('cat.misc.s_cef3802f0e', { n: d.getMonth() + 1, n: d.getDate(), hm: hm })
 }
 
 export interface CatDetectRowView {

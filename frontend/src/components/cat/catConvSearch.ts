@@ -3,6 +3,7 @@
  */
 import type { CatBlock } from '@/api/catMock'
 import { userDisplayText } from './catMedia'
+import { t } from '@/i18n'
 
 /** 弹窗里一次放进列表的条数。继续往下滚再取下一页。 */
 export const CAT_SEARCH_PAGE = 12

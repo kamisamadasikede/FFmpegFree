@@ -61,6 +61,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 // Cat 设置页统一下拉（默认模式 / 默认模型 / 思考强度 / 协议 / 默认位置）。
 // 菜单 Teleport 到 body + position:fixed（不被卡片 overflow 裁掉）；下方放不下就往上翻；滚动 / 缩放时重新定位；点外面或 Esc 关闭。
 // 键盘：↑↓ 移动，Enter / 空格 选中，Esc 关闭。

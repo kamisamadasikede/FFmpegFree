@@ -1,6 +1,6 @@
 <template>
   <div class="mask" @mousedown.self="emit('close')">
-    <div class="panel" role="dialog" aria-label="搜索对话" data-testid="cat-conv-search-panel" @keydown.esc="emit('close')">
+    <div class="panel" role="dialog" aria-label=t('cat.misc.s_92a62b4740') data-testid="cat-conv-search-panel" @keydown.esc="emit('close')">
       <div class="bar">
         <label class="field">
           <FIcon name="search" :size="16" />
@@ -8,15 +8,15 @@
             ref="inputEl"
             v-model="query"
             type="search"
-            placeholder="搜索这段对话"
-            aria-label="搜索这段对话"
+            placeholder=t('cat.misc.s_960ee596d9')
+            aria-label=t('cat.misc.s_960ee596d9')
             data-testid="cat-conv-search-input"
           />
         </label>
         <span class="count">{{ hits.length }}条</span>
       </div>
       <div ref="listEl" class="list" @scroll.passive="onScroll">
-        <p v-if="!hits.length" class="empty">{{ query.trim() ? '没有找到' : '这段对话里还没有内容' }}</p>
+        <p v-if="!hits.length" class="empty">{{ query.trim() ? t('cat.misc.s_d5fd2483cc') : t('cat.misc.s_ea62053dc3') }}</p>
         <button
           v-for="(hit, i) in rows"
           :key="hit.index"
@@ -35,6 +35,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import type { CatBlock } from '@/api/catMock'

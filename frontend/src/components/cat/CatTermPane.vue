@@ -1,9 +1,9 @@
 <template>
-  <section class="extra" data-testid="cat-term" aria-label="终端" @pointerdown="focusTerm">
+  <section class="extra" data-testid="cat-term" aria-label=t('cat.misc.s_4722bc0c56') @pointerdown="focusTerm">
     <div class="hd">
       <b>终端</b>
       <span class="sp" />
-      <button type="button" class="x" title="关闭" aria-label="关闭终端" data-testid="cat-term-close" @click="emit('close')">
+      <button type="button" class="x" title=t('cat.misc.s_b15d91274e') aria-label=t('cat.misc.s_40dba7a311') data-testid="cat-term-close" @click="emit('close')">
         <FIcon name="x" :size="14" />
       </button>
     </div>
@@ -13,6 +13,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -45,7 +49,7 @@ function apply(ev: CatTermEvent) {
   if (ev.data) term?.write(ev.data)
   if (ev.exit != null) {
     ready.value = false
-    hint.value = '终端已结束。'
+    hint.value = t('cat.misc.s_5e8c07cd68')
   }
 }
 
@@ -54,7 +58,7 @@ async function sendRaw(data: string) {
   try {
     await writeCatTerm(termId, data)
   } catch (e) {
-    hint.value = toAppError(e).message || '命令没有送出去。'
+    hint.value = toAppError(e).message || t('cat.misc.s_4d438ab71b')
   }
 }
 
@@ -116,7 +120,7 @@ async function boot() {
   if (previous) void stopCatTerm(previous).catch(() => {})
   off()
   if (!props.live) {
-    hint.value = '当前环境不能运行命令。'
+    hint.value = t('cat.misc.s_da12d3240f')
     off = () => {}
     return
   }
@@ -146,7 +150,7 @@ async function boot() {
       if (ev.exit != null) ended = true
     }
     if (!termId) {
-      hint.value = '终端没有启动。'
+      hint.value = t('cat.misc.s_a156b74cfc')
       return
     }
     fit?.fit()
@@ -162,7 +166,7 @@ async function boot() {
   } catch (e) {
     if (mine !== generation) return
     const err = toAppError(e)
-    hint.value = err.code === 'UNSUPPORTED' ? '请重新打开应用后再使用终端。' : (err.message || '终端没有启动。')
+    hint.value = err.code === 'UNSUPPORTED' ? t('cat.misc.s_c548e98a1a') : (err.message || t('cat.misc.s_a156b74cfc'))
   }
 }
 

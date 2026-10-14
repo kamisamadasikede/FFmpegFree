@@ -6,7 +6,7 @@
       data-cat-pick-pop
       data-testid="cat-pick-pop"
       role="dialog"
-      aria-label="元素说明"
+      aria-label=t('cat.misc.s_9f4e192388')
       :style="{ left: pos.left + 'px', top: pos.top + 'px' }"
       @keydown="onKey"
       @pointerdown.stop
@@ -41,6 +41,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import { CAT_PREVIEW_COPY as COPY } from '@/api/catFilePreview'

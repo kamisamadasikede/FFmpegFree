@@ -1,6 +1,7 @@
 // 把 mpegts.js 的 error 事件、或浏览器 <video> 的 error 映射成错误码。纯函数，无副作用。
 // 判断顺序：地址格式 → 连接超时 → 疑似跨域 → 其他网络/媒体错误。
 import type { ErrorCode } from './errorMessages'
+import { t } from '@/i18n'
 
 // mpegts.js 的 ErrorTypes / ErrorDetails 字符串值（src/player/player-errors.js、io/loader.js）
 const TYPE_NETWORK = 'NetworkError'

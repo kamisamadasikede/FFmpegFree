@@ -1,5 +1,32 @@
 <template>
   <div class="settings spanels">
+    <!-- 通用 / 语言（契约 §6.20.4；选项原生名不翻译） -->
+    <section id="sec-language" class="panel group" aria-labelledby="h-language">
+      <div class="phead"><h2 id="h-language">{{ t('settings.general') }}</h2></div>
+      <div class="srow">
+        <div class="l">
+          <b id="lang-label">{{ t('settings.language.label') }}</b>
+          <small>{{ t('settings.language.hint') }}</small>
+        </div>
+        <div class="lang">
+          <select
+            class="lang-sel"
+            aria-labelledby="lang-label"
+            :value="langStore.setting"
+            :disabled="langBusy"
+            @change="onLangChange(($event.target as HTMLSelectElement).value)"
+          >
+            <option value="system">{{ t('settings.language.system') }}</option>
+            <option value="zh-CN">简体中文</option>
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+          </select>
+          <small v-if="langStore.setting === 'system'" class="lang-map">{{ t('settings.language.systemMapped', { lang: systemLangLabel }) }}</small>
+          <small v-if="langStore.error" class="lang-err">{{ langStore.error }}</small>
+        </div>
+      </div>
+    </section>
+
     <!-- 外观 -->
     <section id="sec-appearance" class="panel group" aria-labelledby="h-appearance">
       <div class="phead"><h2 id="h-appearance">外观</h2></div>
@@ -62,7 +89,7 @@
     <!-- 编码设备：后端绑定接通（ENCODER_BACKEND_READY）才显示；纯浏览器只有 ?enc= 才显示模拟层 -->
     <EncoderDevicePanel v-if="encoderVisible" id="sec-encoder" heading-id="h-encoder" />
     <!-- 回退提示的展示预览（仅浏览器 ?enc=…&fb=1；真实运行不出现，也没有接线） -->
-    <section v-if="encoderVisible && fbPreview" class="panel group" aria-label="回退提示预览">
+    <section v-if="encoderVisible && fbPreview" class="panel group" aria-label=t('cat.misc.s_4eed551037')>
       <div class="phead"><h2>回退提示（展示预览，未接线）</h2></div>
       <div class="fbp">
         <EncoderFallbackNotice variant="convert" />
@@ -96,9 +123,9 @@
           @keydown.home.prevent="setTo(MAX_CONCURRENT_AUTO)"
           @keydown.end.prevent="setTo(MAX_CONCURRENT_MAX)"
         >
-          <button type="button" class="sb" tabindex="-1" aria-label="减少" :disabled="!loaded || concurrent <= MAX_CONCURRENT_AUTO" @click="step(-1)">−</button>
+          <button type="button" class="sb" tabindex="-1" aria-label=t('cat.misc.s_cdf1249b48') :disabled="!loaded || concurrent <= MAX_CONCURRENT_AUTO" @click="step(-1)">−</button>
           <b class="val" aria-hidden="true">{{ concurrentText }}</b>
-          <button type="button" class="sb" tabindex="-1" aria-label="增加" :disabled="!loaded || concurrent >= MAX_CONCURRENT_MAX" @click="step(1)">+</button>
+          <button type="button" class="sb" tabindex="-1" aria-label=t('cat.misc.s_491411e0ae') :disabled="!loaded || concurrent >= MAX_CONCURRENT_MAX" @click="step(1)">+</button>
         </div>
       </div>
       <!-- v0.24：默认输出位置移到“存储”（转换结果），这一行不再显示 -->
@@ -112,6 +139,8 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useLanguageStore, type LanguageSetting } from '@/stores/language'
 import { useRoute } from 'vue-router'
 import { ENCODER_SECTION_ID, ENCODER_SECTION_QUERY } from '@/api/encoderTask'
 import { scrollBehavior } from '@/utils/motion'
@@ -135,6 +164,25 @@ import { useFFmpegStore } from '@/stores/ffmpeg'
 import { publicErrorText } from '@/errors/errorMessages'
 
 const { mode } = useTheme()
+const { t } = useI18n()
+const langStore = useLanguageStore()
+const langBusy = ref(false)
+const systemLangLabel = computed(() => {
+  const m: Record<string, string> = { 'zh-CN': '简体中文', en: 'English', ja: '日本語' }
+  return m[langStore.system] || langStore.system
+})
+async function onLangChange(v: string) {
+  if (langBusy.value) return
+  langBusy.value = true
+  try {
+    await langStore.setLanguage(v as LanguageSetting)
+  } catch {
+    /* error 已写入 store */
+  } finally {
+    langBusy.value = false
+  }
+}
+
 const storageOn = convertV24On()
 const encoderVisible = encoderPanelVisible()
 void useDocComponentStore().init()
@@ -163,9 +211,9 @@ async function focusStorageSection() {
 watch(() => route.query.section, focusStorageSection)
 const fbPreview = encoderVisible && simParam('fb') === '1'
 const themeOptions: { value: ThemeMode; label: string }[] = [
-  { value: 'light', label: '浅色' },
-  { value: 'dark', label: '暗色' },
-  { value: 'system', label: '跟随系统' },
+  { value: 'light', label: t('cat.misc.s_48d0a09bdd') },
+  { value: 'dark', label: t('cat.misc.s_adb7e5312a') },
+  { value: 'system', label: t('cat.misc.s_71bbc726ac') },
 ]
 
 // ---- ffmpeg ----
@@ -174,7 +222,7 @@ const busy = ref(false)
 
 // 安装入口：缺失 / 过旧 / 失败时显示，打开与侧栏、提示条同一个安装对话框
 const canInstall = computed(() => ['missing', 'outdated', 'failed'].includes(ffmpeg.status.state))
-const installLabel = computed(() => (ffmpeg.status.state === 'failed' ? '重试安装' : '安装…'))
+const installLabel = computed(() => (ffmpeg.status.state === 'failed' ? t('cat.misc.s_c2b4c1af2a') : t('cat.misc.s_4b69748433')))
 
 /** X5：打开转换组件所在的文件夹（SystemService.OpenStorageFolder("component")）；NOT_FOUND →「转换组件还没有就绪。」 */
 async function openComponentDir() {
@@ -202,8 +250,8 @@ const concurrent = ref(MAX_CONCURRENT_AUTO)
 /** 后端确认过的值 */
 let saved = MAX_CONCURRENT_AUTO
 const loaded = ref(false)
-const concurrentText = computed(() => (concurrent.value === MAX_CONCURRENT_AUTO ? '自动' : String(concurrent.value)))
-const concurrentHint = computed(() => (concurrent.value === MAX_CONCURRENT_AUTO ? '自动：按 CPU 核数决定，最多同时转换 1 到 3 个。' : '同时进行的转换等任务数量，减小不会打断正在运行的任务。'))
+const concurrentText = computed(() => (concurrent.value === MAX_CONCURRENT_AUTO ? t('cat.misc.s_3aed2c11e9') : String(concurrent.value)))
+const concurrentHint = computed(() => (concurrent.value === MAX_CONCURRENT_AUTO ? t('cat.misc.s_b84611438b') : t('cat.misc.s_27f9b1bce4')))
 
 onMounted(async () => {
   void focusEncoderSection()
@@ -379,4 +427,13 @@ function step(d: number) {
     transition: none;
   }
 }
+
+.lang { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 200px; }
+.lang-sel {
+  height: 32px; min-width: 180px; border-radius: 8px;
+  border: 1px solid var(--ff-border); background: var(--ff-bg); color: var(--ff-text-1);
+  padding: 0 10px; font-size: 13px;
+}
+.lang-map { color: var(--ff-text-3); font-size: 12px; }
+.lang-err { color: var(--ff-danger); font-size: 12px; }
 </style>

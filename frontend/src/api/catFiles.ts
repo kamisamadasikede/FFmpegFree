@@ -5,24 +5,25 @@
 import * as CatBinding from '../../wailsjs/go/app/CatService'
 import { cat } from '../../wailsjs/go/models'
 import { call, callService, toAppError } from '@/api/call'
+import { t } from '@/i18n'
 
 export const CAT_FILES_COPY = {
-  empty: '这里还没有文件。',
-  truncated: '只显示前 500 项。',
-  failed: '文件列表加载失败，请重试。',
-  loading: '正在加载…',
-  search: '按文件名搜索',
-  find: '查找文件',
-  findName: '名称',
-  findContent: '内容',
-  searching: '正在查找…',
-  searchCut: '结果太多，只显示一部分。',
-  open: '打开文件夹',
-  refresh: '刷新',
-  noMatch: '没有匹配的文件。',
-  retry: '重试',
-  contentPreview: '预览里不能查找文件内容。',
-} as const
+  get empty() { return t('cat.files.empty') },
+  get truncated() { return t('cat.files.truncated') },
+  get failed() { return t('cat.files.failed') },
+  get loading() { return t('cat.files.loading') },
+  get search() { return t('cat.files.search') },
+  get find() { return t('cat.files.find') },
+  get findName() { return t('cat.files.findName') },
+  get findContent() { return t('cat.files.findContent') },
+  get searching() { return t('cat.files.searching') },
+  get searchCut() { return t('cat.files.searchCut') },
+  get open() { return t('cat.files.open') },
+  get refresh() { return t('cat.files.refresh') },
+  get noMatch() { return t('cat.files.noMatch') },
+  get retry() { return t('cat.files.retry') },
+  get contentPreview() { return t('cat.files.contentPreview') },
+}
 
 export interface CatFileEntry {
   name: string
@@ -174,7 +175,7 @@ export function catFilesErrorText(e: unknown): string {
 
 export function catCallError(e: unknown, fallback: string): string {
   const err = toAppError(e)
-  if (err.code === 'CAT_PROJECT_MISSING') return '项目文件夹不见了。'
-  if (err.code === 'UNSUPPORTED') return '请重新打开应用后再试。'
+  if (err.code === 'CAT_PROJECT_MISSING') return t('cat.misc.s_ed72c09744')
+  if (err.code === 'UNSUPPORTED') return t('cat.misc.s_9306dace23')
   return err.message || fallback
 }

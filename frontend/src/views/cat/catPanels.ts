@@ -20,6 +20,7 @@ import { setCatWindowFocused } from '@/api/cat'
 import { toAppError } from '@/api/call'
 import type { CatConvPref } from './catConvPrefs'
 import { FALLBACK_MODES, getCatAgentCapabilities, resolveModeId } from './catCapabilities'
+import { t } from '@/i18n'
 
 export type CatView = 'chat' | 'settings' | 'schedules'
 export type CatSettingsTab = 'general' | 'instruction' | 'ext' | 'about'

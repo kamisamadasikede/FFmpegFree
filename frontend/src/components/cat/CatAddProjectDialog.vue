@@ -130,6 +130,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 import { computed, nextTick, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import {
@@ -167,7 +171,7 @@ const defaultName = computed(() => (url.value.trim() ? repoNameFromUrl(url.value
 const progressPct = computed(() => (typeof progress.value === 'number' && Number.isFinite(progress.value) ? Math.round(Math.min(1, Math.max(0, progress.value)) * 100) : null))
 const progMeta = computed(() => {
   const n = name.value.trim() || defaultName.value || '…'
-  return `接收对象 · ${n}`
+  return t('cat.misc.s_a5c5a25f3f', { n: n })
 })
 
 watch(
@@ -259,7 +263,7 @@ function onCloneEvent(e: CatCloneEvent) {
   if (e.status === 'failed') {
     cloneId.value = ''
     progress.value = undefined
-    const msg = (e.error?.message || '').trim() || '克隆失败：未知错误'
+    const msg = (e.error?.message || '').trim() || t('cat.misc.s_e482af9575')
     applyFail(new AppError('PROCESS_FAILED', msg, e.error?.detail))
   }
 }
@@ -320,7 +324,7 @@ async function onCancel() {
 
 function openGitHint() {
   // 一期不做安装器；点链接仅作提示（产品允许附简短说明）
-  notify('请在本机安装 Git，并确保命令行能运行 git。')
+  notify(t('cat.misc.s_0abef96e4f'))
 }
 </script>
 

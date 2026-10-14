@@ -5,6 +5,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 // 助手回复的 Markdown 显示（安全规则见 utils/catMarkdown.ts）。
 // 这一轮新出现的文字一个字一个字打出来。积压多了加快，但一帧最多八个字，回复结束也不整段跳出。
 // 打开以前的对话（没有 reveal）直接显示全文。减少动效时也不打字。

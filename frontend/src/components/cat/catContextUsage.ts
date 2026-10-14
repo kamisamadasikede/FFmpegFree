@@ -1,4 +1,5 @@
-/** 上下文圆环的纯计算（无 Vue）。数字口径与输入框悬停摘要一致：已用 / 容量（百分比）。 */
+
+import { t } from '@/i18n'/** 上下文圆环的纯计算（无 Vue）。数字口径与输入框悬停摘要一致：已用 / 容量（百分比）。 */
 
 export function contextUsagePercent(used: number, size: number): number {
   if (!Number.isFinite(used) || !Number.isFinite(size) || size <= 0) return 0

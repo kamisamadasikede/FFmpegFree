@@ -4,6 +4,7 @@
  * 切换对话时旧请求的结果按序号丢弃；已知结果按对话缓存，不先清成 false（避免闪烁）。
  */
 import { reactive } from 'vue'
+import { t } from '@/i18n'
 
 export const catScratch = reactive({ has: {} as Record<string, boolean> })
 

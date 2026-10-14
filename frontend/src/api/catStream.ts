@@ -11,6 +11,7 @@ import { pickCatOutput, pickCatTiming } from '@/components/cat/catTimingAdapter'
  * 两种都归一成 CatStreamEvent / CatTurnEvent，页面只认归一后的形状。
  */
 import { readRetryable } from './catV0445'
+import { t } from '@/i18n'
 
 export type CatStreamOp = 'append' | 'replace' | 'done'
 

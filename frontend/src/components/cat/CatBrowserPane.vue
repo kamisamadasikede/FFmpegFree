@@ -1,5 +1,5 @@
 <template>
-  <section class="browser" data-testid="cat-browser" aria-label="浏览器">
+  <section class="browser" data-testid="cat-browser" aria-label=t('cat.misc.s_912302cb02')>
     <div class="tabs">
       <div
         v-for="(tab, i) in tabs"
@@ -11,23 +11,23 @@
         @click="current = i"
       >
         <FIcon name="globe" :size="14" />
-        <span class="ttl">{{ tab.title || '新标签页' }}</span>
-        <button type="button" class="x" title="关闭" aria-label="关闭标签" data-testid="cat-browser-tab-close" @click.stop="closeTab(i)">
+        <span class="ttl">{{ tab.title || t('cat.misc.s_978eeadf50') }}</span>
+        <button type="button" class="x" title=t('cat.misc.s_b15d91274e') aria-label=t('cat.misc.s_57603fcb82') data-testid="cat-browser-tab-close" @click.stop="closeTab(i)">
           <FIcon name="x" :size="12" />
         </button>
       </div>
-      <button type="button" class="add" title="新标签页" aria-label="新标签页" data-testid="cat-browser-new" @click="addTab">
+      <button type="button" class="add" title=t('cat.misc.s_978eeadf50') aria-label=t('cat.misc.s_978eeadf50') data-testid="cat-browser-new" @click="addTab">
         <FIcon name="plus" :size="14" />
       </button>
     </div>
     <div class="nav">
-      <button type="button" title="后退" aria-label="后退" :disabled="!canBack" @click="back">
+      <button type="button" title=t('cat.misc.s_5094c1a328') aria-label=t('cat.misc.s_5094c1a328') :disabled="!canBack" @click="back">
         <FIcon name="left" :size="16" />
       </button>
-      <button type="button" title="前进" aria-label="前进" :disabled="!canForward" @click="forward">
+      <button type="button" title=t('cat.misc.s_5811e2837b') aria-label=t('cat.misc.s_5811e2837b') :disabled="!canForward" @click="forward">
         <FIcon name="right" :size="16" />
       </button>
-      <button type="button" title="重新加载" aria-label="重新加载" :disabled="!canReload" data-testid="cat-browser-reload" @click="reload">
+      <button type="button" title=t('cat.misc.s_64ca9bab92') aria-label=t('cat.misc.s_64ca9bab92') :disabled="!canReload" data-testid="cat-browser-reload" @click="reload">
         <FIcon name="refresh" :size="15" />
       </button>
       <form class="addr" @submit.prevent="go">
@@ -35,8 +35,8 @@
           ref="addrEl"
           v-model="active.draft"
           type="text"
-          placeholder="搜索或输入网址"
-          aria-label="搜索或输入网址"
+          placeholder=t('cat.misc.s_113a7f95fd')
+          aria-label=t('cat.misc.s_113a7f95fd')
           data-testid="cat-browser-url"
         />
       </form>
@@ -44,8 +44,8 @@
         type="button"
         class="tool"
         :class="{ on: pickOn }"
-        title="点选元素，在旁边写下说明"
-        aria-label="点选元素，在旁边写下说明"
+        title=t('cat.misc.s_9f31c72ef0')
+        aria-label=t('cat.misc.s_9f31c72ef0')
         :aria-pressed="pickOn"
         :disabled="!active.doc"
         data-testid="cat-browser-pick"
@@ -54,7 +54,7 @@
         <FIcon name="chat" :size="16" />
       </button>
       <div class="more" data-cat-browser-more>
-        <button type="button" title="更多" aria-label="更多" :aria-expanded="moreOpen" @click="moreOpen = !moreOpen">
+        <button type="button" title=t('cat.misc.s_0ec9eaf9c3') aria-label=t('cat.misc.s_0ec9eaf9c3') :aria-expanded="moreOpen" @click="moreOpen = !moreOpen">
           <FIcon name="more" :size="16" />
         </button>
         <div v-if="moreOpen" class="menu" role="menu">
@@ -85,7 +85,7 @@
       :srcdoc="active.doc"
       sandbox="allow-scripts allow-forms"
       referrerpolicy="no-referrer"
-      title="浏览器"
+      title=t('cat.misc.s_912302cb02')
       @load="onFrameLoad"
     />
     <div v-else class="empty start" data-testid="cat-browser-start">
@@ -118,6 +118,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import { toAppError } from '@/api/call'
@@ -217,13 +221,13 @@ async function load(tab: Tab, url: string) {
     const final = page.url || url
     tab.token = newPickToken()
     tab.doc = page.html ? browserDocument(page.html, final, tab.token) : ''
-    tab.title = page.title || '新标签页'
+    tab.title = page.title || t('cat.misc.s_978eeadf50')
     tab.draft = final
     if (tab.index >= 0) tab.urls[tab.index] = final
-    if (!tab.doc) tab.error = '页面没有打开。'
+    if (!tab.doc) tab.error = t('cat.misc.s_7c41b9d405')
   } catch (e) {
     if (mine !== tab.gen) return
-    tab.error = toAppError(e).message || '页面没有打开。'
+    tab.error = toAppError(e).message || t('cat.misc.s_7c41b9d405')
   } finally {
     if (mine === tab.gen) tab.loading = false
   }
@@ -233,7 +237,7 @@ function go() {
   const tab = active.value
   const next = browserOpen(tab.draft)
   if (!next) {
-    tab.error = '网址不对。'
+    tab.error = t('cat.misc.s_77b9eaebcd')
     tab.doc = ''
     return
   }
@@ -309,7 +313,7 @@ function onPopAdd(note: string, intent: 'edit' | 'ask') {
   const el = cur.element
   const tab = active.value
   emit('pick', {
-    file: tab.urls[tab.index] || tab.title || '浏览器',
+    file: tab.urls[tab.index] || tab.title || t('cat.misc.s_912302cb02'),
     tag: el.tag,
     id: el.id,
     classes: el.classes,

@@ -1,4 +1,5 @@
-/**
+
+import { t } from '@/i18n'/**
  * 侧栏对话标题左边的状态点，一行最多一个。
  * 优先级：进行中 run > 失败 bad > 有新回复未读 new > 已完成 ok > 走查数据。
  * 以前「未读」是另一个独立绿点，后台完成时 ok 绿点和未读绿点会同时出现。
@@ -21,9 +22,9 @@ export function convDot(running: boolean, outcome: string, stored?: string, unse
 
 /** 读屏用。灰点不报。 */
 export function convDotLabel(dot: string): string {
-  if (dot === 'run') return '正在回复'
-  if (dot === 'ok') return '已完成'
-  if (dot === 'bad') return '回复失败'
-  if (dot === 'new') return '有新回复'
+  if (dot === 'run') return t('cat.misc.s_1b7f7edf64')
+  if (dot === 'ok') return t('cat.misc.s_fad5222ca0')
+  if (dot === 'bad') return t('cat.misc.s_d49180ecf8')
+  if (dot === 'new') return t('cat.misc.s_a9f18180b0')
   return ''
 }

@@ -3,6 +3,7 @@
  * 只通过这两个函数读写，以后要挪到后端只改这里。
  */
 import { CAT_DANGER_ACK_KEY } from '@/api/catStorageKeys'
+import { t } from '@/i18n'
 
 const NO_PROJECT = '__no_project__'
 const mem: Record<string, true> = {}

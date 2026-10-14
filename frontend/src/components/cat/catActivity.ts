@@ -7,6 +7,7 @@
 import type { IconName } from '@/components/icon/icons'
 import type { CatBlock } from '@/api/catMock'
 import { userSendFailed } from '@/views/cat/catPending'
+import { t } from '@/i18n'
 
 export interface CatFold {
   key: string
@@ -110,11 +111,11 @@ function blockKey(b: CatBlock, i: number): string {
 function thinkFold(b: Extract<CatBlock, { kind: 'think' }>, i: number): CatRow {
   const text = b.text.trim()
   const streaming = !!b.streaming
-  const status = !streaming && !!text && !text.includes('\n') && [...text].length <= 28 && text.startsWith('思考')
+  const status = !streaming && !!text && !text.includes('\n') && [...text].length <= 28 && text.startsWith(t('cat.misc.s_21d68b2de0'))
   const fold: CatFold = {
     key: `think:${b.id ?? i}`,
     tone: 'think',
-    title: status ? text : '思考',
+    title: status ? text : t('cat.misc.s_21d68b2de0'),
     body: status ? '' : text,
     streaming,
     defaultOpen: false,
@@ -130,7 +131,7 @@ interface HeldTool {
 function toolTitle(item: ToolItem): string {
   const lines = item.detail.split('\n').map((s) => s.trim()).filter(Boolean)
   const countFiles = lines.length > 1 && /^(?:read(?:_file)?|读取)\b/i.test(item.summary)
-  return countFiles ? `${item.summary} · ${lines.length}` : item.summary || '工具'
+  return countFiles ? `${item.summary} · ${lines.length}` : item.summary || t('cat.misc.s_20dce2c6fa')
 }
 
 function itemText(item: ToolItem): string {
@@ -146,7 +147,7 @@ function pushToolGroup(rows: CatRow[], held: HeldTool[]) {
   const fold: CatFold = {
     key,
     tone: 'tool',
-    title: held.length === 1 ? toolTitle(held[0].item) : `工具调用 · ${held.length}`,
+    title: held.length === 1 ? toolTitle(held[0].item) : t('cat.misc.s_944f6814a5', { n: held.length }),
     body: held.length === 1 ? held[0].item.detail : held.map((h) => itemText(h.item)).join('\n\n'),
     streaming: false,
     defaultOpen: false,
@@ -161,7 +162,7 @@ function pushChangeGroup(rows: CatRow[], held: HeldTool[]) {
   const fold: CatFold = {
     key,
     tone: 'change',
-    title: held.length === 1 ? held[0].item.summary || '文件改动' : `文件改动 · ${held.length}`,
+    title: held.length === 1 ? held[0].item.summary || t('cat.misc.s_5b8ad40944') : t('cat.misc.s_9cc7373d85', { n: held.length }),
     body: held.length === 1 ? held[0].item.detail : held.map((h) => itemText(h.item)).join('\n\n'),
     streaming: false,
     defaultOpen: true,
@@ -212,7 +213,7 @@ export function foldIcon(fold: Pick<CatFold, 'tone' | 'title'>): IconName {
   if (fold.tone === 'change') return 'edit'
   if (/^(?:read(?:_file)?|读取)\b/i.test(fold.title)) return 'file'
   if (/^(?:list(?:_dir|dir)?|列出)\b/i.test(fold.title)) return 'folder'
-  if (fold.title.startsWith('文件查找') || isLookupLabel(fold.title)) return 'search'
+  if (fold.title.startsWith(t('cat.misc.s_d59385523a')) || isLookupLabel(fold.title)) return 'search'
   return 'tool'
 }
 

@@ -1,0 +1,8 @@
+{
+  "note": "EN/JA drafts for A-phase; PM reviews before next formal pack",
+  "pending": [
+    "cat.*",
+    "errors.live.*",
+    "errors.action.*"
+  ]
+}

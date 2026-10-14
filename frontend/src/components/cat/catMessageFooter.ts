@@ -7,6 +7,7 @@
 
 import { CAT_FOOTER_COPY as C } from './catMessageFooterCopy'
 import { pickCatOutput, pickCatTiming } from './catTimingAdapter'
+import { t } from '@/i18n'
 
 export type CatMessageFooterFields = {
   finishedAt?: number

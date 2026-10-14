@@ -13,6 +13,7 @@ import { catSim } from '@/views/cat/catDevSim'
 import type { CatModel } from '@/api/cat'
 import { parseFailDetailFields } from '@/components/cat/catCliOutdated'
 import type { CatProviderKind } from '@/api/catAgents'
+import { t } from '@/i18n'
 
 export type CatProviderModelState = 'ok' | 'not_configured' | 'unauthorized' | 'unreachable' | 'not_supported' | 'bad_response'
 export const CAT_PROVIDER_MODEL_STATES: readonly CatProviderModelState[] = ['ok', 'not_configured', 'unauthorized', 'unreachable', 'not_supported', 'bad_response']
@@ -27,23 +28,23 @@ export interface CatProviderModelList {
 
 /** §6.19.20.5 文案（产品 10-14 定稿） */
 export const CAT_PROVIDER_MODELS_COPY = {
-  loading: '正在获取模型列表…',
-  refreshTip: '重新获取模型列表',
-  empty: '这个服务商没有返回可用模型，请在下方手动填写模型 ID。',
-  unauthorized: 'API Key 无效或没有权限，请检查后点刷新。',
-  unreachable: '连不上这个服务商，请检查 API 地址和网络，或稍后再试。',
-  not_supported: '这个服务商不提供模型列表，请在下方手动填写模型 ID。',
-  bad_response: '服务商返回的模型列表无法识别，请在下方手动填写模型 ID。',
-  not_configured: '填好 API 地址和 Key 后，就能获取模型列表。',
-  manualEntry: '手动填写…',
-  manualPlaceholder: '输入模型 ID',
-  notInList: '（不在当前列表）',
-  followDefault: '默认模型',
-  followDefaultDesc: '由 CLI 和服务商决定',
-  cancel: '取消',
-  codexNoResponses: '这个服务商不支持 Codex 需要的 Responses 接口，请换一个服务商，或关闭自定义服务商。',
-  manualInvalid: '模型 ID 不能含空格，不能以 - 开头，最长 200 个字符。',
-} as const
+  get loading() { return t('cat.providerModels.loading') },
+  get refreshTip() { return t('cat.providerModels.refreshTip') },
+  get empty() { return t('cat.providerModels.empty') },
+  get unauthorized() { return t('cat.providerModels.unauthorized') },
+  get unreachable() { return t('cat.providerModels.unreachable') },
+  get not_supported() { return t('cat.providerModels.not_supported') },
+  get bad_response() { return t('cat.providerModels.bad_response') },
+  get not_configured() { return t('cat.providerModels.not_configured') },
+  get manualEntry() { return t('cat.providerModels.manualEntry') },
+  get manualPlaceholder() { return t('cat.providerModels.manualPlaceholder') },
+  get notInList() { return t('cat.providerModels.notInList') },
+  get followDefault() { return t('cat.providerModels.followDefault') },
+  get followDefaultDesc() { return t('cat.providerModels.followDefaultDesc') },
+  get cancel() { return t('cat.providerModels.cancel') },
+  get codexNoResponses() { return t('cat.providerModels.codexNoResponses') },
+  get manualInvalid() { return t('cat.providerModels.manualInvalid') },
+}
 
 /** 一行提示：ok 且非空 → ''（不显示） */
 export function providerModelHint(r: Pick<CatProviderModelList, 'state' | 'models'>): string {
@@ -83,7 +84,7 @@ export function normalizeManualModelId(raw: string): string | null {
 const CLI_SHORT: Record<CatProviderKind, string> = { cat_build: 'Grok', claude_cli: 'Claude', codex_cli: 'Codex' }
 /** 开关说明（产品定稿：带实际 CLI 名） */
 export function customToggleHint(kind: CatProviderKind): string {
-  return `打开后，${CLI_SHORT[kind]} 只用下面的地址和 Key，模型列表也从这里获取。`
+  return t('cat.misc.s_d396b4f6c9', { cli: CLI_SHORT[kind] })
 }
 
 export const PROVIDER_MODELS_TTL_MS = 10 * 60 * 1000
@@ -168,7 +169,7 @@ export function providerModelOptions(r: Pick<CatProviderModelList, 'state' | 'mo
 }
 
 /** 已知问题（v0.46 第 5 条）：Grok 走自定义服务商能列模型，但发对话仍要登录 Grok。修好后把这个常量改成 '' 即可去掉提示（产品 10-14 定稿） */
-export const GROK_CUSTOM_CHAT_KNOWN_ISSUE = 'Grok Build 暂时只从自定义服务商获取模型列表；发对话需要先登录 Grok，也不保证会走自定义服务商。'
+export const GROK_CUSTOM_CHAT_KNOWN_ISSUE = t('cat.misc.s_09bc7fe65e')
 /** 开关下面的已知问题灰字：只有 Grok 且自定义开着时有 */
 export function customKnownIssue(kind: CatProviderKind, enabledCustom: boolean): string {
   return kind === 'cat_build' && enabledCustom ? GROK_CUSTOM_CHAT_KNOWN_ISSUE : ''

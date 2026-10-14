@@ -5,6 +5,7 @@
  */
 import { reactive } from 'vue'
 import { CAT_LAST_NEW_PROJECT_KEY, CAT_NEW_CONV_PLACE_KEY, CAT_TYPEWRITER_KEY } from '@/api/catStorageKeys'
+import { t } from '@/i18n'
 
 function read(key: string): string | null {
   try {

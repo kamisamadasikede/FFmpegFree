@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { t } from '@/i18n'
 
 /** 顶栏胶囊与右栏分支钮共用：同一时刻只开一处 */
 export type CatBranchMenuSource = 'top' | 'panel' | null

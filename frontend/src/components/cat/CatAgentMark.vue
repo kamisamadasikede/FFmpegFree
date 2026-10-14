@@ -34,6 +34,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 import type { CatProviderKind } from '@/api/catAgents'
 
 defineOptions({ name: 'CatAgentMark' })

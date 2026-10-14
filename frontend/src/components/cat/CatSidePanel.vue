@@ -1,18 +1,18 @@
 <template>
-  <section ref="rootEl" class="ct-l" :class="{ mini: railCollapsed, dragging: sideDragging }" aria-label="会话">
+  <section ref="rootEl" class="ct-l" :class="{ mini: railCollapsed, dragging: sideDragging }" aria-label=t('cat.misc.s_9a834e9a3e')>
     <!-- 收起后只留图标列：展开、新对话、设置 -->
     <div v-if="railCollapsed" class="ct-mini">
-      <button type="button" class="ib big" title="展开侧栏 (Ctrl B)" aria-label="展开侧栏" data-testid="cat-rail-expand" @click="railCollapsed = false"><FIcon name="cat" :size="16" /></button>
-      <button type="button" class="ib big" :class="{ on: catState.sel === NEW_CONV }" title="新对话" aria-label="新对话" @click="startNewConv()"><FIcon name="edit" :size="16" /></button>
+      <button type="button" class="ib big" title=t('cat.misc.s_c209364b39') aria-label=t('cat.misc.s_e4517cb153') data-testid="cat-rail-expand" @click="railCollapsed = false"><FIcon name="cat" :size="16" /></button>
+      <button type="button" class="ib big" :class="{ on: catState.sel === NEW_CONV }" title=t('cat.misc.s_1ac07a4bb2') aria-label=t('cat.misc.s_1ac07a4bb2') @click="startNewConv()"><FIcon name="edit" :size="16" /></button>
       <span class="sp" />
-      <button type="button" class="ib big" :class="{ on: catPanels.view === 'settings' }" title="设置" aria-label="设置" data-testid="cat-rail-settings" @click="openView('settings')"><FIcon name="set" :size="16" /></button>
+      <button type="button" class="ib big" :class="{ on: catPanels.view === 'settings' }" title=t('cat.misc.s_e366ccf155') aria-label=t('cat.misc.s_e366ccf155') data-testid="cat-rail-settings" @click="openView('settings')"><FIcon name="set" :size="16" /></button>
     </div>
     <div v-show="!railCollapsed" class="ct-full">
     <div class="ct-brand">
       <div class="lg"><FIcon name="cat" :size="16" /></div>
       <b>Cat</b>
-      <button type="button" class="ib" title="收起侧栏 (Ctrl B)" aria-label="收起侧栏" data-testid="cat-rail-collapse" @click="railCollapsed = true"><FIcon name="split" :size="15" /></button>
-      <button type="button" class="ct-back" title="返回原页面并展开侧栏" @click="emit('back')"><FIcon name="left" :size="14" />返回</button>
+      <button type="button" class="ib" title=t('cat.misc.s_9401deaaf6') aria-label=t('cat.misc.s_843e43c606') data-testid="cat-rail-collapse" @click="railCollapsed = true"><FIcon name="split" :size="15" /></button>
+      <button type="button" class="ct-back" title=t('cat.misc.s_11599d066f') @click="emit('back')"><FIcon name="left" :size="14" />返回</button>
     </div>
     <button type="button" class="ct-it new" :class="{ on: catPanels.view === 'chat' && catState.sel === NEW_CONV && !catState.newProjectId }" @click="startNewConv()">
       <FIcon name="plus" :size="16" /><span class="t">新对话</span><span class="r"><FIcon name="list" :size="16" /></span>
@@ -159,7 +159,7 @@
                     :aria-label="rowDotLabel(c.id, c.st) || undefined"
                     :aria-hidden="rowDotLabel(c.id, c.st) ? undefined : true"
                   />
-                  <span class="t" :title="c.title || '新对话'">{{ c.title || '新对话' }}</span>
+                  <span class="t" :title=t('cat.misc.s_7625cbf244')>{{ c.title || t('cat.misc.s_1ac07a4bb2') }}</span>
                   <span v-if="c.main" class="main-tag">主要</span>
                 </div>
                 <div v-if="c.sub || c.time" class="l2"><span class="t" :title="c.sub">{{ c.sub }}</span><span class="tm">{{ c.time }}</span></div>
@@ -182,7 +182,7 @@
         @click="onConvClick(c.id, $event)"
         @keydown.enter.self="selectConv(c.id)"
       >
-        <FIcon name="chat" :size="16" /><i v-if="rowDot(c.id, c.st)" class="st" :class="rowDot(c.id, c.st)" role="img" :aria-label="rowDotLabel(c.id, c.st)" /><span class="t" :title="c.title || '新对话'">{{ c.title || '新对话' }}</span>
+        <FIcon name="chat" :size="16" /><i v-if="rowDot(c.id, c.st)" class="st" :class="rowDot(c.id, c.st)" role="img" :aria-label="rowDotLabel(c.id, c.st)" /><span class="t" :title=t('cat.misc.s_7625cbf244')>{{ c.title || t('cat.misc.s_1ac07a4bb2') }}</span>
         <button
           type="button"
           class="ib c-more"
@@ -268,7 +268,7 @@
       role="separator"
       tabindex="0"
       aria-orientation="vertical"
-      aria-label="拖动调整会话栏宽度"
+      aria-label=t('cat.misc.s_e935cf1619')
       :aria-valuenow="catPane.side"
       :aria-valuemin="160"
       data-testid="cat-side-resize"
@@ -279,6 +279,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 import { railCollapsed } from '@/views/cat/catLayout'
 /** 定时任务入口开关：真入口落地前隐藏 */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'

@@ -1,4 +1,5 @@
-/**
+
+import { t } from '@/i18n'/**
  * Cat 多服务商（契约 v0.36 / 设计 v0.4.1）。
  * 库值 cat_build|claude_cli|codex_cli；界面「Grok Build」「Claude」「Codex」。
  * 图标这期只用几何标，不嵌官方 logo。

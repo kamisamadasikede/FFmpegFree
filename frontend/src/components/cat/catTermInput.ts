@@ -1,4 +1,5 @@
-/** 管道终端不会自己回显。按键画在画面上，敲回车才把整行送出去。 */
+
+import { t } from '@/i18n'/** 管道终端不会自己回显。按键画在画面上，敲回车才把整行送出去。 */
 export function pipeTermKeys(line: string, data: string): { line: string; screen: string; send: string } {
   if (!data || data.startsWith('\u001b')) return { line, screen: '', send: '' }
   let screen = ''

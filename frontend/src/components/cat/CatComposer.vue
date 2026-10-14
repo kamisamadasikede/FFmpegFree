@@ -1,6 +1,6 @@
 <template>
   <div ref="root" class="ct-comp" :class="{ bare: welcome, missing }">
-    <div v-if="!welcome" class="ctx-bar" aria-label="项目上下文">
+    <div v-if="!welcome" class="ctx-bar" aria-label=t('cat.misc.s_3a05ade805')>
       <span class="cx cx-fwrap" :class="{ miss: missing }">
         <button
           type="button"
@@ -69,19 +69,19 @@
           data-testid="cat-ctx-branch-err-more"
           @click="brErrOpen = !brErrOpen"
         ><span class="car" aria-hidden="true"><FIcon :name="brErrOpen ? 'down' : 'right'" :size="12" /></span>{{ BC.detail }}</button>
-        <button type="button" class="ctx-err-x" aria-label="关闭" data-testid="cat-ctx-branch-err-close" @click="brErr = null"><FIcon name="x" :size="12" /></button>
+        <button type="button" class="ctx-err-x" aria-label=t('cat.misc.s_b15d91274e') data-testid="cat-ctx-branch-err-close" @click="brErr = null"><FIcon name="x" :size="12" /></button>
       </div>
       <CatRawDetail v-if="brErr.raw && brErrOpen" :text="brErr.raw" testid="cat-ctx-branch-err" />
     </div>
     <div ref="inEl" class="ct-in" :aria-disabled="missing || undefined" :aria-describedby="missing ? missId : undefined">
       <div v-if="shownFiles.length" class="ct-files" data-testid="cat-attach-row">
         <div v-for="f in shownFiles" :key="f.id" class="ct-card" :class="{ open: canPreview(f.kind), media: showsThumb(f.kind) }" data-testid="cat-attach-card">
-          <button type="button" class="rm" :aria-label="'移除 ' + f.name" :title="'移除 ' + f.name" @click="removeFile(f.id)"><FIcon name="x" :size="11" /></button>
+          <button type="button" class="rm" :aria-label=t('cat.misc.s_d386271b3c') :title=t('cat.misc.s_d386271b3c') @click="removeFile(f.id)"><FIcon name="x" :size="11" /></button>
           <div
             class="face"
             :role="canPreview(f.kind) ? 'button' : undefined"
             :tabindex="canPreview(f.kind) ? 0 : undefined"
-            :aria-label="canPreview(f.kind) ? '预览 ' + f.name : undefined"
+            :aria-label=t('cat.misc.s_3d18ffc65d')
             @click="openPreview(shownOf(f))"
             @keydown.enter.prevent="openPreview(shownOf(f))"
           >
@@ -95,8 +95,8 @@
       </div>
       <div v-if="picks.length" class="pick-notes" data-testid="cat-pick-notes">
         <div v-for="p in picks" :key="p.nid" class="pick-bubble" data-testid="cat-pick-bubble">
-          <button type="button" class="rm" :aria-label="'移除 ' + p.label" @click="removePick(p.nid)"><FIcon name="x" :size="11" /></button>
-          <div class="hd"><FIcon :name="p.intent === 'ask' ? 'ask' : 'edit'" :size="13" /><b :title="p.label">{{ p.label }}</b><span>{{ p.intent === 'ask' ? '疑问' : '改变' }}</span></div>
+          <button type="button" class="rm" :aria-label=t('cat.misc.s_ac0dc74452') @click="removePick(p.nid)"><FIcon name="x" :size="11" /></button>
+          <div class="hd"><FIcon :name="p.intent === 'ask' ? 'ask' : 'edit'" :size="13" /><b :title="p.label">{{ p.label }}</b><span>{{ p.intent === 'ask' ? t('cat.misc.s_9822c60db4') : t('cat.misc.s_16a97d01b7') }}</span></div>
           <p v-if="p.note" class="note" :title="p.note">{{ p.note }}</p>
           <p v-else-if="p.selector" class="note path" :title="p.selector">{{ p.selector }}</p>
         </div>
@@ -109,19 +109,19 @@
         rows="1"
         :placeholder="missing ? '' : placeholder"
         :disabled="missing"
-        aria-label="输入消息"
+        aria-label=t('cat.misc.s_f363e2c02f')
         @input="autosize"
         @keydown.enter="onEnter"
       />
       <div class="row">
-        <button type="button" class="ct-plus" title="添加" aria-label="添加" :disabled="missing" data-testid="cat-attach-add" @click="addFiles"><FIcon name="plus" :size="15" :stroke="2" /></button>
+        <button type="button" class="ct-plus" title=t('cat.misc.s_b58c7549c0') aria-label=t('cat.misc.s_b58c7549c0') :disabled="missing" data-testid="cat-attach-add" @click="addFiles"><FIcon name="plus" :size="15" :stroke="2" /></button>
         <button
           v-if="extraFiles.length"
           type="button"
           class="ct-more"
           :aria-expanded="extraOpen"
-          :aria-label="'还有 ' + extraFiles.length + ' 个文件'"
-          title="其余文件"
+          :aria-label=t('cat.misc.s_728cb51e65')
+          title=t('cat.misc.s_c133ea1305')
           data-testid="cat-attach-more"
           @click.stop="extraOpen = !extraOpen"
         >
@@ -130,14 +130,14 @@
         </button>
         <div v-if="extraOpen" class="ct-extra" data-testid="cat-attach-extra" @click.stop>
           <div v-for="f in extraFiles" :key="f.id" class="ex">
-            <button type="button" class="ex-open" :class="{ on: canPreview(f.kind), media: showsThumb(f.kind) }" :aria-label="showsThumb(f.kind) ? '预览 ' + f.name : undefined" @click="openPreview(shownOf(f))">
+            <button type="button" class="ex-open" :class="{ on: canPreview(f.kind), media: showsThumb(f.kind) }" :aria-label=t('cat.misc.s_1c6d3da587') @click="openPreview(shownOf(f))">
               <CatThumb v-if="showsThumb(f.kind)" :file="shownOf(f)" tile />
               <template v-else>
                 <FIcon name="file" :size="14" />
                 <b :title="f.name">{{ f.name }}</b>
               </template>
             </button>
-            <button type="button" class="rx" :aria-label="'移除 ' + f.name" @click="removeFile(f.id)"><FIcon name="x" :size="12" /></button>
+            <button type="button" class="rx" :aria-label=t('cat.misc.s_d386271b3c') @click="removeFile(f.id)"><FIcon name="x" :size="12" /></button>
           </div>
         </div>
         <CatPreviewDialog v-model:open="previewOn" :file="previewFile" />
@@ -172,8 +172,8 @@
           v-if="running"
           type="button"
           class="ct-send ct-stop"
-          :aria-label="stopping ? '正在停止' : '停止生成'"
-          :title="stopping ? '正在停止' : '停止生成'"
+          :aria-label=t('cat.misc.s_3c9275edcb')
+          :title=t('cat.misc.s_3c9275edcb')
           :disabled="stopping"
           data-testid="cat-stop"
           @click="onStop"
@@ -183,7 +183,7 @@
           type="button"
           class="ct-send"
           :class="{ blocked: notReady || checking || missing }"
-          aria-label="发送"
+          aria-label=t('cat.misc.s_1535fcfa4c')
           :aria-disabled="!canSend"
           :disabled="notReady || checking || missing"
           :title="missing ? PC.missing : notReady ? CAT_COPY.notReady : undefined"
@@ -194,7 +194,7 @@
 
       <div v-if="menu" class="mn" :style="menuStyle" @click.stop>
         <!-- 访问模式 -->
-        <div v-if="menu === 'access'" class="mn-access" role="menu" aria-label="访问模式" data-testid="cat-mode-menu">
+        <div v-if="menu === 'access'" class="mn-access" role="menu" aria-label=t('cat.misc.s_ebc1322a13') data-testid="cat-mode-menu">
           <div class="mn-ahd"><span>{{ CAT_MODE_MENU_TITLE }}</span></div>
           <div class="mn-list">
           <template v-for="a in modeOpts" :key="a.id">
@@ -238,7 +238,7 @@
                 spellcheck="false"
                 autocomplete="off"
                 :placeholder="PM.manualPlaceholder"
-                aria-label="模型 ID"
+                aria-label=t('cat.misc.s_afec32b8fc')
                 data-testid="cat-model-manual-input"
                 @keydown.enter.prevent="commitManual"
                 @keydown.esc.prevent.stop="cancelManual"
@@ -247,7 +247,7 @@
               <button v-if="catState.models.length" type="button" class="mn-mcancel" data-testid="cat-model-manual-cancel" @mousedown.prevent @click="cancelManual">{{ PM.cancel }}</button>
             </div>
             <div v-if="modelHint" class="mn-hint" :class="modelHintTone" role="status" data-testid="cat-model-hint">{{ modelHint }}</div>
-            <div v-if="!manualOn" role="menu" aria-label="模型" data-testid="cat-model-list">
+            <div v-if="!manualOn" role="menu" aria-label=t('cat.misc.s_8000f187a5') data-testid="cat-model-list">
               <div
                 v-if="followCli"
                 class="mn-op two"
@@ -292,7 +292,7 @@
           <template v-if="currentCaps.efforts.options.length">
             <div class="mn-sep" role="separator" />
             <div class="mn-hd">思考强度</div>
-            <div role="menu" aria-label="思考强度" data-testid="cat-effort-list">
+            <div role="menu" aria-label=t('cat.misc.s_434edfc8b0') data-testid="cat-effort-list">
               <div
                 v-for="t in thinkSegs"
                 :key="t.id || 'default'"
@@ -331,6 +331,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import CatModeSelect from '@/components/cat/panels/CatModeSelect.vue'
 import CatRawDetail from './CatRawDetail.vue'
@@ -368,7 +372,7 @@ const props = withDefaults(
   defineProps<{ welcome?: boolean; placeholder?: string; ctxName?: string; ctxBranch?: string; busy?: boolean; running?: boolean; stopping?: boolean; notReady?: boolean; checking?: boolean; missing?: boolean; projectName?: string; convId?: string; isProject?: boolean }>(),
   {
     welcome: false,
-    placeholder: '随心输入',
+    placeholder: t('cat.misc.s_d52a943d7f'),
     ctxName: 'Cat',
     ctxBranch: 'main',
     busy: false,
@@ -722,9 +726,9 @@ async function addFiles() {
   if (props.missing || props.busy) return
   let paths: string[] = []
   try {
-    paths = await pickFiles({ name: '所有文件', patterns: ['*'] }, true)
+    paths = await pickFiles({ name: t('cat.misc.s_b4632e719d'), patterns: ['*'] }, true)
   } catch (e) {
-    ElMessage.warning(toAppError(e).message || '没能打开文件')
+    ElMessage.warning(toAppError(e).message || t('cat.misc.s_fcc21b6e5a'))
     return
   }
   if (!paths?.length) return
@@ -740,7 +744,7 @@ async function addFiles() {
     next.push(toDraft({ name: fileBaseName(p), path: p }))
   }
   atts.value = next
-  if (capped) ElMessage.warning('一次最多 20 个文件')
+  if (capped) ElMessage.warning(t('cat.misc.s_2345bc3f64'))
 }
 function removeFile(id: number) {
   atts.value = atts.value.filter((f) => f.id !== id)

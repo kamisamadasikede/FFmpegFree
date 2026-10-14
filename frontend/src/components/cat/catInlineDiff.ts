@@ -1,10 +1,11 @@
-/** 把上一版的区别嵌进当前文件：新增绿色，删掉的行留在原处。没有区别时返回空，继续用编辑器。 */
+
+import { t } from '@/i18n'/** 把上一版的区别嵌进当前文件：新增绿色，删掉的行留在原处。没有区别时返回空，继续用编辑器。 */
 export interface InlineDiffLine {
   kind: 'add' | 'del' | 'same'
   text: string
 }
 
-const omitted = '…其余已省略'
+const omitted = t('cat.misc.s_61324cd5f4')
 
 function splitLines(text: string): string[] {
   if (!text) return []

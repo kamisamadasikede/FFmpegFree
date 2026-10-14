@@ -136,6 +136,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import CatConfirmDialog from './CatConfirmDialog.vue'
@@ -176,9 +180,9 @@ const efforts = computed(() =>
     : catState.thinks.length
     ? catState.thinks
     : [
-        { id: 'low', displayName: '低' },
-        { id: 'medium', displayName: '中' },
-        { id: 'high', displayName: '高' },
+        { id: 'low', displayName: t('cat.misc.s_19ac677ac0') },
+        { id: 'medium', displayName: t('cat.misc.s_aed1dfbc31') },
+        { id: 'high', displayName: t('cat.misc.s_4296d7d293') },
         { id: 'xhigh', displayName: CAT_THINK_XHIGH_LABEL },
       ],
 )
@@ -247,8 +251,8 @@ const projMissing = computed(() => {
 const preview = computed(() => {
   const next = computeNextRun(input.value)
   if (!next) return ''
-  const after = form.frequency === 'once' ? '' : `，之后${form.frequency === 'weekly' ? '每周' + form.weekdays.slice().sort().map((w) => C.weekdays[w - 1]).join('、') : C.freq[form.frequency]} ${form.time}`
-  return `下次运行：${fmtWhen(next)}${after}`
+  const after = form.frequency === 'once' ? '' : t('cat.misc.s_1d14c4d10e', { n: form.frequency === 'weekly' ? '每周' + form.weekdays.slice().sort().map((w) => C.weekdays[w - 1]).join('、') : C.freq[form.frequency], v1: form.time })
+  return t('cat.misc.s_7828179f5c', { n: fmtWhen(next), v1: after })
 })
 
 function toggleDay(d: number) {

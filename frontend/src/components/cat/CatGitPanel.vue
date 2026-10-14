@@ -103,7 +103,7 @@
           :disabled="busy"
           :aria-expanded="menuOpen"
           aria-haspopup="menu"
-          title="更多"
+          title=t('cat.misc.s_0ec9eaf9c3')
           data-testid="cat-git-more"
           @click.stop="menuOpen = !menuOpen"
         >
@@ -234,6 +234,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { t as tGlobal } from '@/i18n'
+const { t } = useI18n()
+
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
@@ -542,7 +546,7 @@ async function onMenu(id: string) {
   }
   if (id === 'force') {
     try {
-      await ElMessageBox.confirm(COPY.forceAsk, COPY.force, { confirmButtonText: '继续', cancelButtonText: '取消', type: 'warning' })
+      await ElMessageBox.confirm(COPY.forceAsk, COPY.force, { confirmButtonText: t('cat.misc.s_27ca568be2'), cancelButtonText: t('cat.misc.s_625fb26b4b'), type: 'warning' })
     } catch {
       return
     }
@@ -556,7 +560,7 @@ async function onMenu(id: string) {
   if (id === 'branch') {
     let name = ''
     try {
-      const r = await ElMessageBox.prompt(COPY.branchAsk, COPY.newBranch, { confirmButtonText: '切换', cancelButtonText: '取消' })
+      const r = await ElMessageBox.prompt(COPY.branchAsk, COPY.newBranch, { confirmButtonText: t('cat.misc.s_bec7e4d621'), cancelButtonText: t('cat.misc.s_625fb26b4b') })
       name = r.value.trim()
     } catch {
       return

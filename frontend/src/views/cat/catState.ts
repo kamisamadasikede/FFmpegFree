@@ -98,6 +98,7 @@ import { rememberNewConvProject, resolveNewConvProject } from './catLocalPrefs'
 import { catSim, catSimOs, catSimPicks, simAgentRaw, simStream, simDetectPayloads } from './catDevSim'
 import { DEFAULT_MODEL_LABEL, followsCliModel, FALLBACK_MODES, resolveModeId, mapAgentModes, mapBackendCaps, mapModelEfforts, getCatAgentCapabilities, modeMeta, pickSupported, setBackendCaps, useCatAgentCapabilities } from './catCapabilities'
 import {
+import { t } from '@/i18n'
   CAT_CONV_PREFS_KEY,
   carryPref,
   dropPref,
@@ -224,7 +225,7 @@ export const catState = reactive({
   deleting: '' as string,
   /** 删除确认框对应的对话 id（设计 v0.3 §13；与 deleting 同一个确认框组件） */
   deletingConv: '' as string,
-  plain: (live ? [] : [...(catSim.has('codexconv') ? [{ id: 'x1', title: 'Codex 自定义服务商', agentKind: CAT_AGENT_CODEX }] : []), ...(catSim.has('clioutdated') ? mockCliOutdatedConvs() : []), ...mockPlainConvs()]) as CatConv[],
+  plain: (live ? [] : [...(catSim.has('codexconv') ? [{ id: 'x1', title: t('cat.misc.s_30eea5f1eb'), agentKind: CAT_AGENT_CODEX }] : []), ...(catSim.has('clioutdated') ? mockCliOutdatedConvs() : []), ...mockPlainConvs()]) as CatConv[],
   messages: {} as Record<string, CatBlock[]>,
   /** 新对话正在创建（欢迎页输入框忙） */
   creating: false,
@@ -287,7 +288,7 @@ export const modelName = computed(() => {
 })
 
 /** 没选强度时胶囊 / 菜单显示的中性词（不显示任何一档的名字） */
-export const THINK_DEFAULT_LABEL = '默认'
+export const THINK_DEFAULT_LABEL = t('cat.misc.s_18c63459a2')
 
 /** 强度显示名：无列表 → 空（不显示强度半截）；有列表没选 → 「默认」；选了 → 该档 displayName（任意 id 都按 displayName 显示） */
 export const thinkName = computed(() => {
@@ -302,7 +303,7 @@ export const capsuleLabel = computed(() => {
   const t = thinkName.value
   if (m && t) return `${m} · ${t}`
   if (m) return m
-  return 'Cat 助手'
+  return t('cat.misc.s_f48a203f94')
 })
 
 /** 当前会话 agentKind 的模式 / 强度列表（统一走 useCatAgentCapabilities；契约 v0.44 前模式用写死兜底） */
@@ -433,7 +434,7 @@ async function loadMessages(id: string, quiet = false, force = false) {
     if (!cur || transcriptChanged(blockSnap(cur), blockSnap(next))) catState.messages[id] = next
     if (!catState.turns[id]) applyRetryable(id, d.retryTurnId)
   } catch {
-    if (!quiet && catState.sel === id) notify('没能从助手里读出这段对话。', 'warn')
+    if (!quiet && catState.sel === id) notify(t('cat.misc.s_5b2e9a8a13'), 'warn')
   } finally {
     loading.delete(id)
     catState.histLoading[id] = false
@@ -1241,7 +1242,7 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
       if (turn?.token === token) delete catState.turns[id]
       const l = messagesOf(id)
       for (let i = l.length - 1; i >= 0; i--) if (l[i].kind === 'user' && (l[i] as { text: string }).text === t) { l.splice(i, 1); break }
-      notify((err.message || '').trim() || '这条对话还在回复，请先停止再发。', 'warn')
+      notify((err.message || '').trim() || t('cat.misc.s_f9b2a2f998'), 'warn')
       void adoptLiveTurns()
       return catState.sel === id ? { text, files: picked } : undefined
     }
