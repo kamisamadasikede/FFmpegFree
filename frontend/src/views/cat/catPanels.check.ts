@@ -1,5 +1,5 @@
 // Cat 设置 / 定时任务（契约 v0.35.1~v0.35.4）：纯函数自检
-import { fixThinkName } from '@/api/cat'
+import { fixThinkName, catNotifyHint, CAT_NOTIFY_HINT } from '@/api/cat'
 import { readRetryable, readRetryableTurn } from '@/api/catV0445'
 import { normalizeSettings, settingsPayload, normalizeCapabilities, normalizeInspect, skillsPathLabel, saveErrorMessage, DEFAULT_PROVIDER_CAPABILITIES } from '@/api/catSettings'
 import { needsApproveConfirm, normalizeRun, notifyTitle, queueLine, runView, validateSchedule } from '@/api/catSchedules'
@@ -7,6 +7,13 @@ import { needsApproveConfirm, normalizeRun, notifyTitle, queueLine, runView, val
 type Eq = (name: string, got: unknown, want: unknown) => void
 
 export function catPanelsChecks(eq: Eq) {
+  // v0.48 6.19.12.11-5：系统通知灰字
+  eq('通知提示：开关关不显示', catNotifyHint(false, { available: false, authorized: false }, false), '')
+  eq('通知提示：状态未知不显示', catNotifyHint(true, null, true), '')
+  eq('通知提示：可用且授权不显示', catNotifyHint(true, { available: true, authorized: true }, true), '')
+  eq('通知提示：mac 未授权', catNotifyHint(true, { available: true, authorized: false }, true), CAT_NOTIFY_HINT.macDenied)
+  eq('通知提示：不可用', catNotifyHint(true, { available: false, authorized: false }, true), CAT_NOTIFY_HINT.unavailable)
+  eq('通知提示：Win 不可用', catNotifyHint(true, { available: false, authorized: true }, false), CAT_NOTIFY_HINT.unavailable)
   eq('重试：缺 lastTurn 不可重试', readRetryableTurn({}), '')
   eq('重试：lastTurn failed+retryable', readRetryableTurn({ lastTurn: { turnId: 't9', status: 'failed', retryable: true } }), 't9')
   eq('重试：lastTurn retryable=false', readRetryableTurn({ lastTurn: { turnId: 't9', status: 'failed', retryable: false } }), '')

@@ -21,6 +21,20 @@ export namespace apperr {
 
 export namespace cat {
 	
+	export class NotifyStatus {
+	    available: boolean;
+	    authorized: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new NotifyStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.available = source["available"];
+	        this.authorized = source["authorized"];
+	    }
+	}
 	export class AgentDefaults {
 	    model: string;
 	    effort: string;

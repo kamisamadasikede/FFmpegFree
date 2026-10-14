@@ -48,8 +48,10 @@ type Config struct {
 	Location *time.Location
 	// Notify 发系统通知（定时任务结束）；nil 不发。
 	Notify func(n Notification)
-	// Foreground 报告窗口是否在前台；在前台时不发系统通知（界面按 cat:schedule 浮提示）。nil = 不在前台。
+	// Foreground 报告窗口是否可见且未最小化（定时任务用；普通 turn 另要求前端上报的键盘焦点，v0.48）。nil = 不在前台。
 	Foreground func() bool
+	// NotifyStatus 报告系统通知是否可用 / 已授权（GetCatNotifyStatus，v0.48）；nil = 不可用。
+	NotifyStatus func() NotifyStatus
 	// ScheduleTick 是调度器检查间隔；0 = 30 秒。
 	ScheduleTick time.Duration
 	// ScheduleRunTimeout 是一次定时运行的上限；0 = 30 分钟（v0.35.3）。
@@ -72,6 +74,7 @@ type Service struct {
 	rekeyMu     sync.Mutex
 	rekeyed     bool // ensureProjectKeys 已成功跑过
 	sched       scheduler
+	win         windowFocus // v0.48：前端上报的窗口焦点（SetCatWindowFocused）
 	terms       *termHub
 
 	// v0.40 克隆：全局同时最多 1 个

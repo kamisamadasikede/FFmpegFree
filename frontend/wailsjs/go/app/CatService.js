@@ -170,6 +170,14 @@ export function ReadCatFile(arg1) {
   return window['go']['app']['CatService']['ReadCatFile'](arg1);
 }
 
+export function SetCatWindowFocused(arg1) {
+  return window['go']['app']['CatService']['SetCatWindowFocused'](arg1);
+}
+
+export function GetCatNotifyStatus() {
+  return window['go']['app']['CatService']['GetCatNotifyStatus']();
+}
+
 export function RecheckCat(arg1) {
   return window['go']['app']['CatService']['RecheckCat'](arg1);
 }

@@ -430,11 +430,12 @@ func (a *App) startCat() {
 			}
 			return a.sys.CatDefaultAgentKind(ctx)
 		},
-		OpenFolder: a.sys.OpenFolder, // v0.31.1 RevealCatProject：同 OpenStorageFolder 的打开目录分支
-		DataRoot:   root,
-		Preview:    a.catLocal,
-		Notify:     a.sendCatNotification,
-		Foreground: a.catWindowForeground,
+		OpenFolder:   a.sys.OpenFolder, // v0.31.1 RevealCatProject：同 OpenStorageFolder 的打开目录分支
+		DataRoot:     root,
+		Preview:      a.catLocal,
+		Notify:       a.sendCatNotification,
+		Foreground:   a.catWindowForeground,
+		NotifyStatus: a.catNotifyStatus,
 	}
 	if a.store != nil {
 		cfg.Store = a.store

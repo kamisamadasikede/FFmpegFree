@@ -59,3 +59,23 @@ func (a *App) sendCatNotification(n cat.Notification) {
 		log.Printf("cat notification: %v", err)
 	}
 }
+
+// catNotifyStatus：初始化成功且平台可用才算 available；授权只在 macOS 有意义（Win/Linux 恒 true）。
+func (a *App) catNotifyStatus() (st cat.NotifyStatus) {
+	if a.ctx == nil || !a.catNotifyOK.Load() {
+		return st
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("cat notify status panic: %v", r)
+			st = cat.NotifyStatus{}
+		}
+	}()
+	st.Available = wruntime.IsNotificationAvailable(a.ctx)
+	if !st.Available {
+		return st
+	}
+	ok, err := wruntime.CheckNotificationAuthorization(a.ctx)
+	st.Authorized = err == nil && ok
+	return st
+}

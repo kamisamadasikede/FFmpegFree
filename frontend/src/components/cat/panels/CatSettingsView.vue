@@ -302,6 +302,7 @@
                 ><i /></button>
               </div>
             </div>
+            <div v-if="notifyHint" class="notify-hint" data-testid="cat-set-notify-hint">{{ notifyHint }}</div>
             <div class="row dim">
               <div class="lab"><b>{{ C.history }}</b><span>{{ C.later }}</span></div>
               <div class="ctl"><span class="chip">{{ C.later }}</span></div>
@@ -503,6 +504,9 @@ import CatPanelNotice from './CatPanelNotice.vue'
 import CatConfirmDialog from './CatConfirmDialog.vue'
 import {
   CAT_COPY,
+  catNotifyHint,
+  getCatNotifyStatus,
+  type CatNotifyStatus,
   getCatStatus,
   listCatModels,
   listCatThinkLevels,
@@ -567,6 +571,10 @@ import {
 
 defineOptions({ name: 'CatSettingsView' })
 const C = { ...CAT_SETTINGS_COPY, dash: '—' }
+// v0.48 6.19.12.11-5：系统通知不可用 / mac 未授权 → 开关下方灰字
+const notifyStatus = ref<CatNotifyStatus | null>(null)
+const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent || '')
+const notifyHint = computed(() => catNotifyHint(catPanels.settings.notifyOnFinish, notifyStatus.value, isMac))
 const TABS: CatSettingsTab[] = ['general', 'instruction', 'ext', 'about']
 
 const SavedMark = defineComponent({
@@ -1198,6 +1206,7 @@ async function doClear() {
 }
 
 onMounted(async () => {
+  void getCatNotifyStatus().then((st) => { notifyStatus.value = st })
   mo = new MutationObserver(() => (isDark.value = document.documentElement.classList.contains('dark')))
   mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
   try {
@@ -1706,5 +1715,11 @@ kbd {
   white-space: pre-wrap;
   word-break: break-all;
   overflow-wrap: anywhere;
+}
+.notify-hint {
+  margin: -4px 0 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--cat-muted);
 }
 </style>

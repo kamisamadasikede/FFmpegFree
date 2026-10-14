@@ -16,6 +16,7 @@ import {
   catSchedulesVisible,
 } from '@/api/catSchedules'
 import { onEvent } from '@/services/wails'
+import { setCatWindowFocused } from '@/api/cat'
 import { toAppError } from '@/api/call'
 import type { CatConvPref } from './catConvPrefs'
 import { FALLBACK_MODES, getCatAgentCapabilities, resolveModeId } from './catCapabilities'
@@ -186,39 +187,33 @@ export function dismissToast() {
 }
 
 const CAT_NOTIFY_EVENT = 'cat:notify'
-const TURN_NOTIFY = {
-  done: 'Cat 已回复',
-  fail: 'Cat 回复失败',
-  newConv: '新对话',
-} as const
-
 /**
- * v0.40：普通 turn 终态前台 toast（后台系统通知由后端发）。
- * notifyOnFinish 关 → 不发；cancelled 不调用本函数。
+ * v0.48 6.19.12.11：普通 turn 终态只由后端发 OS 系统通知（窗口无键盘焦点时），前端不再弹应用内 toast。
+ * 这里把 focus / blur / visibilitychange 上报给后端（防抖 200ms；启动时按 document.hasFocus() 报一次）。
  */
-export function showTurnFinishToast(convId: string, how: 'completed' | 'failed', title: string, errText = '') {
-  if (!catPanels.settings.notifyOnFinish) return
-  if (!windowInFront()) return // 后台：后端发系统通知，前端不叠 toast
-  const body = how === 'completed'
-    ? (title.trim() || TURN_NOTIFY.newConv)
-    : (errText.trim() || title.trim() || TURN_NOTIFY.newConv)
-  clearTimeout(toastTimer)
-  catPanels.toast = {
-    key: ++toastSeq,
-    title: how === 'completed' ? TURN_NOTIFY.done : TURN_NOTIFY.fail,
-    body: body.length > 80 ? body.slice(0, 80) + '…' : body,
-    tone: how === 'completed' ? 'ok' : 'bad',
-    convId,
+function startFocusReporter(): () => void {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return () => {}
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let last: boolean | undefined
+  const report = () => {
+    clearTimeout(timer)
+    timer = setTimeout(() => {
+      const f = document.visibilityState !== 'hidden' && document.hasFocus()
+      if (f === last) return
+      last = f
+      void setCatWindowFocused(f)
+    }, 200)
   }
-  toastTimer = setTimeout(() => (catPanels.toast = null), 6000)
-}
-
-/** 重试开始时收起这条对话的「Cat 回复失败」提示 */
-export function dismissFailToast(convId: string) {
-  const t = catPanels.toast
-  if (t && t.tone === 'bad' && t.convId === convId) {
-    clearTimeout(toastTimer)
-    catPanels.toast = null
+  window.addEventListener('focus', report)
+  window.addEventListener('blur', report)
+  document.addEventListener('visibilitychange', report)
+  last = document.visibilityState !== 'hidden' && document.hasFocus()
+  void setCatWindowFocused(last)
+  return () => {
+    clearTimeout(timer)
+    window.removeEventListener('focus', report)
+    window.removeEventListener('blur', report)
+    document.removeEventListener('visibilitychange', report)
   }
 }
 
@@ -235,6 +230,7 @@ export function initCatPanels(projectName: (id: string) => string, open?: (id: s
   void loadSettings()
   const offs: Array<() => void> = []
   offs.push(onEvent(CAT_NOTIFY_EVENT, handleNotifyEvent))
+  offs.push(startFocusReporter())
   if (catSchedulesVisible()) {
     void refreshSchedules()
     offs.push(onCatSchedule((e) => handleScheduleEvent(e, projectName)))

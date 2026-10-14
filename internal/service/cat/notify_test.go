@@ -29,7 +29,7 @@ func TestOrdinaryTurnNotifyCompletedFailedNotCancelled(t *testing.T) {
 	}
 	waitNotify(t, n, 1)
 	got := n.all()
-	if got[0].Title != "Cat 已回复" || got[0].ConvID != c.ID {
+	if got[0].Title != "Cat · 对话已完成" || got[0].ConvID != c.ID {
 		t.Fatalf("completed: %+v", got)
 	}
 
@@ -40,7 +40,7 @@ func TestOrdinaryTurnNotifyCompletedFailedNotCancelled(t *testing.T) {
 	c2, _ := svc2.CreateCatConversation(ctx, cat.CreateConversationRequest{AgentKind: catagent.KindCatBuild})
 	_, _ = svc2.SendCatMessage(ctx, cat.SendMessageRequest{ConversationID: c2.ID, Content: "x"})
 	waitNotify(t, n2, 1)
-	if n2.all()[0].Title != "Cat 回复失败" {
+	if n2.all()[0].Title != "Cat · 回复失败" || n2.all()[0].Body != "boom" {
 		t.Fatalf("failed: %+v", n2.all())
 	}
 
@@ -69,12 +69,13 @@ func TestOrdinaryTurnNotifyRespectsSettingAndForeground(t *testing.T) {
 	svc := newNotifySvc(t, n, fg.Load, &fakeAdapter{run: func(o catagent.TurnOptions) (catagent.TurnResponse, error) {
 		return catagent.TurnResponse{Message: catagent.WireMessage{Role: "assistant", Content: "ok"}}, nil
 	}})
+	svc.SetWindowFocused(true)
 	c, _ := svc.CreateCatConversation(ctx, cat.CreateConversationRequest{AgentKind: catagent.KindCatBuild})
 	_, _ = svc.SendCatMessage(ctx, cat.SendMessageRequest{ConversationID: c.ID, Content: "hi"})
 	svc.Wait()
 	time.Sleep(80 * time.Millisecond)
 	if len(n.all()) != 0 {
-		t.Fatalf("foreground: %+v", n.all())
+		t.Fatalf("focused: %+v", n.all())
 	}
 
 	n2 := &notes{}
@@ -148,4 +149,54 @@ func waitNotify(t *testing.T, n *notes, want int) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("want %d notifies, got %+v", want, n.all())
+}
+
+// v0.48 6.19.12.11-1：只有「上报聚焦 且 可见未最小化」才算有焦点；从未上报 = 未聚焦。
+func TestWindowFocusedRules(t *testing.T) {
+	var shown atomic.Bool
+	shown.Store(true)
+	svc := newNotifySvc(t, &notes{}, shown.Load, &fakeAdapter{})
+	if svc.WindowFocused() {
+		t.Fatal("never reported must be unfocused")
+	}
+	svc.SetWindowFocused(true)
+	if !svc.WindowFocused() {
+		t.Fatal("reported focused + visible")
+	}
+	shown.Store(false) // 最小化 / 隐藏到托盘
+	if svc.WindowFocused() {
+		t.Fatal("minimised/hidden must be unfocused even if last report was focus")
+	}
+	shown.Store(true)
+	svc.SetWindowFocused(false) // 切到别的应用
+	if svc.WindowFocused() {
+		t.Fatal("blurred")
+	}
+}
+
+// v0.48：可见但失焦（切到别的应用）也要发系统通知；旧口径「可见即前台」不再挡普通 turn。
+func TestOrdinaryTurnNotifyWhenVisibleButBlurred(t *testing.T) {
+	ctx := context.Background()
+	n := &notes{}
+	svc := newNotifySvc(t, n, func() bool { return true }, &fakeAdapter{run: func(o catagent.TurnOptions) (catagent.TurnResponse, error) {
+		return catagent.TurnResponse{Message: catagent.WireMessage{Role: "assistant", Content: "ok"}}, nil
+	}})
+	svc.SetWindowFocused(false)
+	c, _ := svc.CreateCatConversation(ctx, cat.CreateConversationRequest{AgentKind: catagent.KindCatBuild})
+	_, _ = svc.SendCatMessage(ctx, cat.SendMessageRequest{ConversationID: c.ID, Content: "hi"})
+	waitNotify(t, n, 1)
+	if got := n.all(); got[0].Title != "Cat · 对话已完成" || got[0].Body != "新对话" || got[0].ID == "" {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestGetCatNotifyStatus(t *testing.T) {
+	svc := newNotifySvc(t, &notes{}, nil, &fakeAdapter{})
+	if st := svc.GetCatNotifyStatus(); st.Available || st.Authorized {
+		t.Fatalf("nil hook: %+v", st)
+	}
+	svc2, _ := newProjSvc(t, openStore(t), &fakeAdapter{}, cat.Config{DataRoot: t.TempDir(), NotifyStatus: func() cat.NotifyStatus { return cat.NotifyStatus{Available: true} }})
+	if st := svc2.GetCatNotifyStatus(); !st.Available || st.Authorized {
+		t.Fatalf("%+v", st)
+	}
 }
