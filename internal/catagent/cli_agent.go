@@ -943,6 +943,17 @@ func (a *CLIAgentAdapter) scanCLIStream(r io.Reader, onPiece func(streamPiece), 
 			if handled := emitClaudeResultLine(line, onPiece, onErr, onSession); handled {
 				continue
 			}
+			if pieces, sid, ok := claudeActivityPieces(line); ok {
+				if sid != "" && onSession != nil {
+					onSession(sid)
+				}
+				if onPiece != nil {
+					for _, p := range pieces {
+						onPiece(p)
+					}
+				}
+				continue
+			}
 		}
 		piece, sid, errMsg, isErr := a.parseCLIStreamLine(line)
 		if sid != "" && onSession != nil {
@@ -1185,14 +1196,8 @@ func parseCodexStreamLine(raw map[string]json.RawMessage, typ string) (streamPie
 				return streamPiece{Kind: "thought", Text: t}, sid, "", false
 			}
 		case "command_execution", "file_change", "mcp_tool_call", "web_search":
-			title, _ := rawStr(item, "command")
-			if title == "" {
-				title, _ = rawStr(item, "text")
-			}
-			if title == "" {
-				title = itemType
-			}
-			return streamPiece{Kind: "tool", ID: firstNonEmpty(rawStrVal(item, "id"), itemType), Text: truncate(title, 200)}, sid, "", false
+			text := codexToolLabel(strings.ToLower(itemType), item)
+			return streamPiece{Kind: "tool", ID: firstNonEmpty(rawStrVal(item, "id"), itemType), Text: text, Replace: true}, sid, "", false
 		}
 	}
 	return streamPiece{}, sid, "", false
