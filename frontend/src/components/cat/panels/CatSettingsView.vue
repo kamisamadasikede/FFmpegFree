@@ -90,16 +90,14 @@
                     </div>
                     <div class="ctl">
                       <SavedMark :on="!!savedAgent[block.kind + ':protocol']" />
-                      <select
+                      <CatModeSelect
                         v-if="capOf(block.kind).allowProtocolPick"
-                        class="sel"
-                        :value="effectiveProtocol(block.kind)"
+                        :model-value="effectiveProtocol(block.kind)"
+                        :options="capOf(block.kind).allowedProtocols.map((pr) => ({ id: pr, label: protocolLabel(pr) }))"
                         :aria-label="C.protocol"
-                        :data-testid="'cat-set-custom-protocol-' + block.kind"
-                        @change="setProviderField(block.kind, 'protocol', ($event.target as HTMLSelectElement).value)"
-                      >
-                        <option v-for="pr in capOf(block.kind).allowedProtocols" :key="pr" :value="pr">{{ protocolLabel(pr) }}</option>
-                      </select>
+                        :testid="'cat-set-custom-protocol-' + block.kind"
+                        @update:model-value="setProviderField(block.kind, 'protocol', $event)"
+                      />
                       <span v-else class="ro locked" :data-testid="'cat-set-custom-protocol-' + block.kind">{{ protocolLabel(effectiveProtocol(block.kind)) }}</span>
                     </div>
                   </div>
@@ -182,21 +180,15 @@
                         @click="cancelManual(block.kind)"
                       >{{ PM.cancel }}</button>
                     </template>
-                    <select
+                    <CatModeSelect
                       v-else
-                      class="sel"
-                      :value="pmOf(block.kind).loading ? '__loading' : modelValueCustom(block.kind)"
-                      :disabled="pmOf(block.kind).loading"
+                      :model-value="pmOf(block.kind).loading ? '__loading' : modelValueCustom(block.kind)"
+                      :options="pmOf(block.kind).loading ? [{ id: '__loading', label: PM.loading, disabled: true }] : pmSelectOptions(block.kind)"
+                      :busy="pmOf(block.kind).loading"
                       :aria-label="block.label + ' ' + C.model"
-                      :aria-busy="pmOf(block.kind).loading"
-                      :data-testid="'cat-set-model-' + block.kind"
-                      @change="onPmSelect(block.kind, $event.target as HTMLSelectElement)"
-                    >
-                      <option v-if="pmOf(block.kind).loading" value="__loading">{{ PM.loading }}</option>
-                      <template v-else>
-                        <option v-for="o in providerModelOptions(pmOf(block.kind).list, curModel(block.kind))" :key="o.value" :value="o.value" :disabled="o.disabled">{{ o.label }}</option>
-                      </template>
-                    </select>
+                      :testid="'cat-set-model-' + block.kind"
+                      @update:model-value="onPmSelect(block.kind, $event)"
+                    />
                     <button
                       type="button"
                       class="pm-refresh"
@@ -208,18 +200,15 @@
                       @click="loadPm(block.kind, true)"
                     ><FIcon name="refresh" :size="15" /></button>
                   </template>
-                  <select
+                  <CatModeSelect
                     v-else
-                    class="sel"
-                    :value="modelValue(block.kind)"
+                    :model-value="modelValue(block.kind)"
+                    :options="[{ id: '', label: C.defaultOpt }, ...block.models.map((m) => ({ id: m.id, label: m.displayName }))]"
                     :disabled="!block.ready || !block.models.length"
                     :aria-label="block.label + ' ' + C.model"
-                    :data-testid="'cat-set-model-' + block.kind"
-                    @change="setAgent(block.kind, 'model', ($event.target as HTMLSelectElement).value)"
-                  >
-                    <option value="">{{ C.defaultOpt }}</option>
-                    <option v-for="m in block.models" :key="m.id" :value="m.id">{{ m.displayName }}</option>
-                  </select>
+                    :testid="'cat-set-model-' + block.kind"
+                    @update:model-value="setAgent(block.kind, 'model', $event)"
+                  />
                 </div>
               </div>
               <div v-if="customOn(block.kind) && pmLine(block.kind)" :class="['pm-err', pmTone(block.kind)]" role="status" :data-testid="'cat-set-model-hint-' + block.kind">{{ pmLine(block.kind) }}</div>
@@ -227,17 +216,14 @@
                 <div class="lab"><b>{{ C.effort }}</b><span>{{ C.effortDesc }}</span></div>
                 <div class="ctl">
                   <SavedMark :on="!!savedAgent[block.kind + ':effort']" />
-                  <select
-                    class="sel"
-                    :value="effortValue(block.kind)"
+                  <CatModeSelect
+                    :model-value="effortValue(block.kind)"
+                    :options="[{ id: '', label: C.defaultOpt }, ...block.thinks.map((t) => ({ id: t.id, label: t.label }))]"
                     :disabled="!block.ready"
                     :aria-label="block.label + ' ' + C.effort"
-                    :data-testid="'cat-set-effort-' + block.kind"
-                    @change="setAgent(block.kind, 'effort', ($event.target as HTMLSelectElement).value)"
-                  >
-                    <option value="">{{ C.defaultOpt }}</option>
-                    <option v-for="t in block.thinks" :key="t.id" :value="t.id">{{ t.label }}</option>
-                  </select>
+                    :testid="'cat-set-effort-' + block.kind"
+                    @update:model-value="setAgent(block.kind, 'effort', $event)"
+                  />
                 </div>
               </div>
 
@@ -263,11 +249,13 @@
               <div class="lab"><b>{{ C.place }}</b><span>{{ C.placeDesc }}</span></div>
               <div class="ctl">
                 <SavedMark :on="localSaved.place" />
-                <select class="sel" :value="placeValue" :aria-label="C.place" data-testid="cat-set-place" @change="onPlace(($event.target as HTMLSelectElement).value)">
-                  <option value="last">{{ C.placeLast }}</option>
-                  <option value="none">{{ C.placeNone }}</option>
-                  <option v-for="p in catState.projects" :key="p.id" :value="p.id" :disabled="p.missing">{{ p.name }}</option>
-                </select>
+                <CatModeSelect
+                  :model-value="placeValue"
+                  :options="[{ id: 'last', label: C.placeLast }, { id: 'none', label: C.placeNone }, ...catState.projects.map((p) => ({ id: p.id, label: p.name, disabled: p.missing }))]"
+                  :aria-label="C.place"
+                  testid="cat-set-place"
+                  @update:model-value="onPlace($event)"
+                />
               </div>
             </div>
           </div>
@@ -528,7 +516,9 @@ import {
   type CatProviderKind,
 } from '@/api/catAgents'
 import { FALLBACK_MODES, getCatAgentCapabilities, mapAgentModes, mapBackendCaps, resolveCapabilities, resolveModeId, setBackendCaps } from '@/views/cat/catCapabilities'
-import CatModeSelect from './CatModeSelect.vue'
+import CatModeSelect, { type CatSelectOption } from './CatModeSelect.vue'
+import { CAT_PROVIDER_MODELS_COPY as PM_COPY_ALL } from '@/api/catProviderModels'
+const PM_COPY_DESC = PM_COPY_ALL.followDefaultDesc
 import { CAT_DEFAULT_DANGER_NOTE as DANGER_NOTE, emptyModeByAgent } from '@/api/catV0445'
 import {
   type CatInspectCategory,
@@ -696,10 +686,24 @@ async function loadPm(kind: CatProviderKind, refresh: boolean, cause: ProviderMo
     if (shouldFocusManual(cause, r)) await nextTick().then(() => pmInputs[kind]?.focus())
   } else p.manual = false // unauthorized / unreachable / not_configured / 有列表：保留下拉，靠刷新恢复
 }
-async function onPmSelect(kind: CatProviderKind, el: HTMLSelectElement) {
-  const v = el.value
+function pmSelectOptions(kind: CatProviderKind): CatSelectOption[] {
+  const out: CatSelectOption[] = []
+  let divide = false
+  for (const o of providerModelOptions(pmOf(kind).list, curModel(kind))) {
+    if (o.value === '__sep') { divide = true; continue }
+    out.push({
+      id: o.value,
+      label: o.label,
+      disabled: o.disabled,
+      desc: o.value === '' ? PM_COPY_DESC : undefined,
+      divided: divide,
+    })
+    divide = false
+  }
+  return out
+}
+async function onPmSelect(kind: CatProviderKind, v: string) {
   if (v === '__manual') {
-    el.value = curModel(kind)
     const p = pmOf(kind)
     p.manual = true
     p.draft = customNotInList(kind) ? curModel(kind) : ''

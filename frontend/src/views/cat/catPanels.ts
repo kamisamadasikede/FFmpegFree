@@ -4,7 +4,7 @@
  */
 import { reactive } from 'vue'
 import { normalizeProviderKind, type CatProviderKind } from '@/api/catAgents'
-import { type CatSettings, CAT_SETTINGS_COPY, emptyDefaults, getCatSettings, normalizeSettings, saveCatSettings } from '@/api/catSettings'
+import { type CatSettings, CAT_SETTINGS_COPY, saveErrorMessage, emptyDefaults, getCatSettings, normalizeSettings, saveCatSettings } from '@/api/catSettings'
 import {
   type CatSchedule,
   type CatScheduleEvent,
@@ -65,6 +65,8 @@ export async function saveSetting<K extends keyof CatSettings>(key: K, value: Ca
     const saved = await saveCatSettings({ ...catPanels.settings })
     // 其它项保存期间可能又改了，只拿回这一项
     catPanels.settings[key] = saved[key]
+    // 打开自定义服务商时后端会清掉该家旧的思考强度：用返回值刷新 per-CLI 默认，界面显示「默认」
+    if (key === 'providersByAgent') catPanels.settings.defaultsByAgent = saved.defaultsByAgent
     return true
   } catch (e) {
     catPanels.settings[key] = prev
@@ -74,20 +76,17 @@ export async function saveSetting<K extends keyof CatSettings>(key: K, value: Ca
 }
 
 let lastSaveError = ''
-/** 上一次 saveSetting 失败的具体原因（后端 INVALID_ARGUMENT 的文案）；拿不到具体原因时为空串，调用方用通用文案。 */
+/** 上一次 saveSetting 失败的显示文案（见 saveErrorText）；没有失败时为空串。 */
 export function takeSaveError(): string {
   const t = lastSaveError
   lastSaveError = ''
   return t
 }
 
-/** 校验类错误直接显示后端文案；IO / 内部错误用调用方的通用文案。 */
+/** 保存失败文案：后端中文 message 原样显示；非中文加「保存失败：」；没有 message 用通用文案。 */
 export function saveErrorText(e: unknown): string {
-  const err = toAppError(e)
-  const msg = (err.message || '').trim()
-  // 只显示后端中文文案；不露错误码 / reason=
-  if (!msg || msg === 'sim' || /reason=|[A-Z]{2,}_[A-Z]/.test(msg)) return ''
-  return err.code === 'INVALID_ARGUMENT' ? msg : '保存失败：' + msg
+  const msg = (toAppError(e).message || '').trim()
+  return saveErrorMessage(msg === 'sim' ? '' : msg)
 }
 
 /** 新对话用的默认偏好（契约 6.19.12.1-4）；按所选/预选 agentKind 取 defaultsByAgent；批准方式空 = 全部批准 */
