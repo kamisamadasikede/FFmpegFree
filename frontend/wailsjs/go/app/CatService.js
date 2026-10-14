@@ -94,6 +94,10 @@ export function GitCatDiff(arg1) {
   return window['go']['app']['CatService']['GitCatDiff'](arg1);
 }
 
+export function GitCatMerge(arg1) {
+  return window['go']['app']['CatService']['GitCatMerge'](arg1);
+}
+
 export function GitCatPullRequest(arg1) {
   return window['go']['app']['CatService']['GitCatPullRequest'](arg1);
 }
