@@ -75,7 +75,7 @@ export async function listCatBranches(convId: string): Promise<CatBranches> {
 export async function switchCatBranch(convId: string, branch: string, remote: boolean): Promise<void> {
   if (devSim()) {
     await new Promise((r) => setTimeout(r, 300))
-    if (catSim.has('branchfail')) throw new AppError('PROCESS_FAILED', 'git checkout 失败', "error: Your local changes to the following files would be overwritten by checkout:\n\tsrc/main.ts\nAborting")
+    if (catSim.has('branchfail')) throw new AppError('PROCESS_FAILED', 'git checkout 失败', "fatal: unable to write new index file\nerror: unable to create file src/main.ts: Permission denied")
     simBranch = remote ? branch.replace(/^[^/]+\//, '') : branch
     return
   }
@@ -130,6 +130,8 @@ export function catBranchError(e: unknown): { text: string; raw: string } {
   if (err.code === 'TASK_CONFLICT' && err.reason === 'turn_running') return { text: CAT_BRANCH_COPY.running, raw: '' }
   if (err.code === 'NOT_FOUND' && err.reason === 'branch_not_found') return { text: CAT_BRANCH_COPY.notFound, raw: '' }
   if (err.code === 'CAT_PROJECT_MISSING') return { text: '项目文件夹不见了。', raw: '' }
+  // 兜底：git 报 would be overwritten 也算未提交改动（后端也在归类）
+  if (/would be overwritten/i.test(`${err.message ?? ''}\n${err.detail ?? ''}`)) return { text: CAT_BRANCH_COPY.dirty, raw: '' }
   const raw = [err.message, err.detail].filter((x) => !!x && x.trim()).join('\n')
   return { text: CAT_BRANCH_COPY.switchFailed, raw }
 }
@@ -139,6 +141,5 @@ export function catBranchErrorText(e: unknown): string {
   if (err.code === 'TASK_CONFLICT' && err.reason === 'git_dirty') return CAT_BRANCH_COPY.dirty
   if (err.code === 'TASK_CONFLICT' && err.reason === 'turn_running') return CAT_BRANCH_COPY.running
   if (err.code === 'NOT_FOUND' && err.reason === 'branch_not_found') return CAT_BRANCH_COPY.notFound
-  if (err.code === 'CAT_PROJECT_MISSING') return '项目文件夹不见了。'
-  return CAT_BRANCH_COPY.switchFailed
+  return catBranchError(e).text
 }

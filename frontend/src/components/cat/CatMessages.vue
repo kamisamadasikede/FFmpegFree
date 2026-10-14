@@ -66,10 +66,7 @@
               @click="rawOpen[row.key] = !rawOpen[row.key]"
             ><span class="car" aria-hidden="true"><FIcon :name="rawOpen[row.key] ? 'down' : 'right'" :size="12" /></span>{{ CAT_CLI_OUTDATED_COPY.detail }}</button>
           </div>
-          <div v-if="row.block.outdated?.raw && rawOpen[row.key]" class="ct-od-box">
-            <button type="button" class="ct-od-copy" data-testid="cat-cli-outdated-copy" @click="copyRaw(row.key, row.block.outdated?.raw ?? '')">{{ copied[row.key] ? CAT_CLI_OUTDATED_COPY.copied : CAT_CLI_OUTDATED_COPY.copy }}</button>
-            <pre class="ct-od-raw" data-testid="cat-cli-outdated-raw">{{ row.block.outdated?.raw }}</pre>
-          </div>
+          <CatRawDetail v-if="row.block.outdated?.raw && rawOpen[row.key]" :text="row.block.outdated?.raw ?? ''" testid="cat-cli-outdated" />
         </div>
         <div v-else-if="row.block.kind === 'sys' && row.block.tone === 'err' && retryAt(row.key)" class="ct-sys err" role="status">
           <div>{{ errText(row.key, row.block.text) }}</div>
@@ -134,23 +131,13 @@ import { canPreview, showsThumb, userDisplayText, type CatShownFile } from './ca
 import { CAT_CLI_OUTDATED_COPY } from './catCliOutdated'
 import { CAT_REPLY_FAILED_FINAL, CAT_RETRY_GONE_TEXT } from '@/api/catV0445'
 import { CAT_COPY } from '@/api/cat'
-import { hasWailsBackend } from '@/services/wails'
-import { ClipboardSetText } from '../../../wailsjs/runtime/runtime'
+import CatRawDetail from './CatRawDetail.vue'
 
 /** retry：v0.44.5 最后一轮失败的「重试」状态（can = 显示按钮；gone = 原地灰字；空 = 都不显示） */
 const props = defineProps<{ blocks: CatBlock[]; pending?: boolean; retry?: 'can' | 'gone' }>()
 const emit = defineEmits<{ retry: [] }>()
 /** 「查看详情」默认收起 */
 const rawOpen = ref<Record<string, boolean>>({})
-const copied = ref<Record<string, boolean>>({})
-async function copyRaw(key: string, text: string) {
-  try {
-    if (hasWailsBackend()) { if (!(await ClipboardSetText(text))) return }
-    else await navigator.clipboard.writeText(text)
-  } catch { return }
-  copied.value[key] = true
-  setTimeout(() => { copied.value[key] = false }, 1500)
-}
 
 const previewOn = ref(false)
 const previewFile = ref<CatShownFile | null>(null)
@@ -282,37 +269,6 @@ const InlineText = defineComponent({
 }
 .ct-od-more:hover { color: var(--cat-text-2); }
 .ct-od-more .car { width: 12px; display: grid; place-items: center; }
-.ct-od-box { position: relative; margin-top: 6px; }
-.ct-od-copy {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  z-index: 1;
-  height: 22px;
-  padding: 0 8px;
-  border-radius: var(--cat-radius-md);
-  border: 1px solid var(--cat-border);
-  background: var(--cat-elevated);
-  color: var(--cat-text-2);
-  font-size: 11px;
-  cursor: pointer;
-}
-.ct-od-copy:hover { background: var(--cat-hover); }
-.ct-od-raw {
-  margin: 0;
-  max-height: 160px;
-  overflow: auto;
-  padding: 8px 64px 8px 10px;
-  border-radius: var(--cat-radius-md);
-  border: 1px solid var(--cat-border);
-  background: var(--cat-elevated);
-  color: var(--cat-text-2);
-  font: 12px/1.6 var(--ff-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  white-space: pre-wrap;
-  word-break: break-word;
-  user-select: text;
-  cursor: text;
-}
 @media (prefers-reduced-motion: reduce) {
   .ct-spin {
     animation: none;
