@@ -70,6 +70,8 @@ export function ListCatProjects():Promise<Array<cat.Project>>;
 
 export function ListCatProviderCapabilities():Promise<Array<cat.ProviderCapability>>;
 
+export function ListCatProviderModels(arg1:cat.ListCatProviderModelsRequest):Promise<cat.CatProviderModelList>;
+
 export function ListCatScheduleRuns(arg1:cat.ListScheduleRunsRequest):Promise<Array<cat.ScheduleRun>>;
 
 export function ListCatSchedules():Promise<Array<cat.Schedule>>;

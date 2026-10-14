@@ -134,6 +134,10 @@ export function ListCatProviderCapabilities() {
   return window['go']['app']['CatService']['ListCatProviderCapabilities']();
 }
 
+export function ListCatProviderModels(arg1) {
+  return window['go']['app']['CatService']['ListCatProviderModels'](arg1);
+}
+
 export function ListCatScheduleRuns(arg1) {
   return window['go']['app']['CatService']['ListCatScheduleRuns'](arg1);
 }
