@@ -23,7 +23,7 @@ func TestRulesCLIArgs(t *testing.T) {
 
 func TestXHighDisplayName(t *testing.T) {
 	for _, l := range defaultThinks {
-		if l.ID == "xhigh" && l.DisplayName != "极高" {
+		if l.ID == "xhigh" && l.DisplayName != "很高" {
 			t.Fatalf("xhigh display = %q", l.DisplayName)
 		}
 	}

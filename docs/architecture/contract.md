@@ -5500,11 +5500,11 @@ type CatModel struct { // ListCatModels 返回项，原字段不变
 | Claude | Opus 4.7 | low, medium, high, xhigh, max | xhigh | D |
 | Claude | Opus 4.6, Sonnet 4.6 | low, medium, high, max | high | D |
 | Claude | 未列出 / 未选模型 | [] | "" | D："Models not listed here do not support effort" |
-| Codex | 全部 | 来自 `codex debug models` catalog 中该模型声明的档位；catalog 不含 → [] | 同左；不含 → "" | **UNVERIFIED**（只有 help 快照，无 JSON 样本）|
+| Codex | 全部 | 来自 `codex debug models` catalog 中该模型的 `supported_reasoning_levels`；`visibility=hide` 的模型不下发；catalog 不含 → [] | `default_reasoning_level`；不含 → "" | G 0.162.1 实跑（v0.44 后端 PR 核实，快照 `internal/catagent/testdata/models/codex-debug-models-0.162.1.json` + 测试）：gpt-6-astra / gpt-6.1-sol / gpt-6-sol / gpt-5.6-sol / gpt-5.6-terra = low…ultra；gpt-6-luna / gpt-5.6-luna = low…max；gpt-5.5 = low…xhigh；默认 low（astra、6.1-sol、5.6-sol）或 medium（其余）|
 | Grok Build | grok-4.6 | xhigh, high, medium, low | high | D 二进制内嵌模型目录 |
 | Grok Build | grok-4.5 | high, medium, low（**无 xhigh**，不显示） | high | D 同上 |
 
-- Claude 模型 id ↔ 上表家族名的匹配：CLI 无列模型命令，`ListCatModels("claude_cli")` 目前为空 → **UNVERIFIED**；按 id 前缀匹配家族，匹配不上 → `[]`。模型为空（用 CLI 默认）时强度行隐藏。
+- Claude 模型（v0.44 后端 PR 核实，产品 10-14 定）：CLI 2.1.296 无列模型命令（`claude -p "/model"` 只打印别名清单，快照 `testdata/models/claude-2.1.296-slash-model.txt`）。`ListCatModels("claude_cli")` 只下发 4 个别名：`opus`「Opus 5.5」、`sonnet`「Sonnet 5.5」、`haiku`「Haiku 5.5」、`fable`「Fable 5.1」（D https://code.claude.com/docs/en/model-config「Model aliases」Anthropic API 行；fable 原文 "the `fable` alias resolves to Fable 5.1"），档位 / 默认档按上表对应版本（opus/sonnet/haiku 默认 medium，fable 默认 high）。不预选，模型为空 = 跟随 CLI、不传 `--model`，强度行隐藏。已存的完整 id 只认文档原文出现的 id（及 `-YYYYMMDD` 日期后缀），不按前缀猜（如 `claude-sonnet-5-5` → `[]`）。别名在其他服务商下解析到的版本不同，显示名 / 档位按 Anthropic API 给。
 - Claude 选了不支持的档位，CLI 会降到不高于所选的最高档（D）；我们前端仍按 6.19.18.1-3 回落默认，不依赖该行为。
 
 #### 6.19.18.5a 强度显示名（前端映射，三家共用）

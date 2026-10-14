@@ -548,8 +548,8 @@ func (a *CLIAgentAdapter) probeModels(exe string) []Model {
 	case cliKindCodex:
 		return a.probeCodexModels(exe)
 	default:
-		// Claude Code：官方暂无稳定「列模型」子命令（附录 B5 GUESS）→ 空列表，发送不传 --model。
-		return []Model{}
+		// Claude Code 2.1.296 没有列模型的命令 → 官方文档静态表（claude_models.go）。
+		return claudeStaticModels()
 	}
 }
 
@@ -580,49 +580,62 @@ func (a *CLIAgentAdapter) probeCodexModels(exe string) []Model {
 	return parseCodexModelsJSON(out.Bytes())
 }
 
+// parseCodexModelsJSON 解析 `codex debug models` 目录（0.162.1：{"models":[{slug, visibility,
+// default_reasoning_level, supported_reasoning_levels:[{effort}]}]}，快照 testdata/models/）。
+// visibility=hide 的模型不下发（codex 自己的选择器也不列）；档位取 supported_reasoning_levels，
+// 默认取 default_reasoning_level（不在列表里则为空）。
 func parseCodexModelsJSON(raw []byte) []Model {
 	raw = bytes.TrimSpace(raw)
+	out := []Model{}
 	if len(raw) == 0 {
-		return []Model{}
+		return out
 	}
-	var ids []string
-	// 常见形态：[{id|slug|name:...}] / {"models":[...]} / {"data":[...]}
-	var arr []map[string]any
-	if json.Unmarshal(raw, &arr) == nil {
-		for _, m := range arr {
-			if id := modelIDFromMap(m); id != "" {
-				ids = append(ids, id)
-			}
-		}
-	} else {
+	var items []map[string]json.RawMessage
+	if json.Unmarshal(raw, &items) != nil {
 		var obj map[string]json.RawMessage
-		if json.Unmarshal(raw, &obj) == nil {
-			for _, key := range []string{"models", "data", "items"} {
-				if v, ok := obj[key]; ok {
-					var inner []map[string]any
-					if json.Unmarshal(v, &inner) == nil {
-						for _, m := range inner {
-							if id := modelIDFromMap(m); id != "" {
-								ids = append(ids, id)
-							}
-						}
-					}
-					break
-				}
+		if json.Unmarshal(raw, &obj) != nil {
+			return out
+		}
+		for _, key := range []string{"models", "data", "items"} {
+			if v, ok := obj[key]; ok {
+				_ = json.Unmarshal(v, &items)
+				break
 			}
 		}
 	}
-	out := make([]Model, 0, len(ids))
 	seen := map[string]struct{}{}
-	for _, id := range ids {
+	for _, it := range items {
+		var m map[string]any
+		b, _ := json.Marshal(it)
+		_ = json.Unmarshal(b, &m)
+		id := modelIDFromMap(m)
+		if id == "" {
+			continue
+		}
+		if v, _ := m["visibility"].(string); strings.EqualFold(v, "hide") {
+			continue
+		}
 		if _, ok := seen[id]; ok {
 			continue
 		}
 		seen[id] = struct{}{}
-		out = append(out, Model{ID: id, DisplayName: id})
-	}
-	if out == nil {
-		out = []Model{}
+		var lv struct {
+			Default string `json:"default_reasoning_level"`
+			Levels  []struct {
+				Effort string `json:"effort"`
+			} `json:"supported_reasoning_levels"`
+		}
+		_ = json.Unmarshal(b, &lv)
+		model := Model{ID: id, DisplayName: id, Efforts: []string{}}
+		for _, l := range lv.Levels {
+			if e := strings.TrimSpace(l.Effort); e != "" {
+				model.Efforts = append(model.Efforts, e)
+			}
+		}
+		if ModelSupportsEffort(model, lv.Default) {
+			model.DefaultEffort = lv.Default
+		}
+		out = append(out, model)
 	}
 	return out
 }
@@ -660,6 +673,10 @@ func (a *CLIAgentAdapter) buildClaudeArgs(opts TurnOptions, prompt, sessionID st
 	ver := a.version
 	a.mu.Unlock()
 	args = append(args, claudePermissionArgs(opts.PermissionMode, ver)...)
+	if e := strings.TrimSpace(opts.ThinkLevelID); e != "" {
+		// H claude.txt `--effort <level>`；D https://code.claude.com/docs/en/model-config（6.19.18.4）
+		args = append(args, "--effort", e)
+	}
 	if rules := strings.TrimSpace(opts.Rules); rules != "" {
 		// GUESS A6：--append-system-prompt（官方文档有；真机确认前仍标 GUESS）
 		args = append(args, "--append-system-prompt", rules)
@@ -674,23 +691,14 @@ func (a *CLIAgentAdapter) buildClaudeArgs(opts TurnOptions, prompt, sessionID st
 	return args
 }
 
+// claudePermissionArgs：模式 id → --permission-mode（H claude.txt choices；契约 6.19.18.4）。
+// manual 在 1.0.109–2.1.199 发 default（CHANGELOG 2.1.200）；版本未知按新版。
 func claudePermissionArgs(mode, ver string) []string {
-	// GUESS A5：映射到 Claude --permission-mode（官方值；与 grok 同名属巧合，不假定语义完全等价）
-	switch canonicalPermissionMode(mode) {
-	case "plan":
-		return []string{"--permission-mode", "plan"}
-	case "auto":
-		return []string{"--permission-mode", "auto"}
-	case "default":
-		// 2.1.200 起 help 只列 manual（CHANGELOG 2.1.200）；更早只认 default。版本未知按新版。
-		if cliVersionBelow(ver, claudeManualSince) {
-			return []string{"--permission-mode", "default"}
-		}
-		return []string{"--permission-mode", "manual"}
-	default:
-		// 全部批准 → bypassPermissions（等同 --dangerously-skip-permissions）
-		return []string{"--permission-mode", "bypassPermissions"}
+	id := NormalizeMode(KindClaudeCLI, mode)
+	if id == ModeClaudeManual && cliVersionBelow(ver, claudeManualSince) {
+		id = "default"
 	}
+	return []string{"--permission-mode", id}
 }
 
 func (a *CLIAgentAdapter) buildCodexArgs(opts TurnOptions, prompt, cwd, sessionID string, resume bool) []string {
@@ -705,6 +713,7 @@ func (a *CLIAgentAdapter) buildCodexArgs(opts TurnOptions, prompt, cwd, sessionI
 		// codex exec resume [OPTIONS] <SESSION_ID> [PROMPT]
 		args := []string{"exec", "resume", "--json", "--skip-git-repo-check"}
 		args = append(args, codexPermissionArgs(opts.PermissionMode, true)...)
+		args = append(args, codexEffortArgs(opts.ThinkLevelID)...)
 		if mid := strings.TrimSpace(opts.ModelID); mid != "" && mid != "default" {
 			args = append(args, "-m", mid)
 		}
@@ -715,30 +724,46 @@ func (a *CLIAgentAdapter) buildCodexArgs(opts TurnOptions, prompt, cwd, sessionI
 		args = append(args, "-C", cwd)
 	}
 	args = append(args, codexPermissionArgs(opts.PermissionMode, false)...)
+	args = append(args, codexEffortArgs(opts.ThinkLevelID)...)
 	if mid := strings.TrimSpace(opts.ModelID); mid != "" && mid != "default" {
 		args = append(args, "-m", mid)
 	}
 	return append(args, prompt)
 }
 
-// codexPermissionArgs：批准方式 → codex exec 参数（来源：codex exec --help / exec resume --help，0.162.1）。
-// headless 不能弹批准 → 非全部批准一律 approval_policy=never，靠沙箱收紧；
-// 全部批准 → --dangerously-bypass-approvals-and-sandbox（exec 与 resume 都支持）。
-// resume 不支持 --sandbox，改用 -c sandbox_mode=…。
+// codexPermissionArgs：模式 id → codex 参数（契约 6.19.18.4；H codex-exec.txt / codex-exec-resume.txt 0.162.1；
+// D https://developers.openai.com/codex/config-reference）。
+// headless 不能弹批准 → 沙箱模式一律 approval_policy=never。exec resume 不认 --sandbox / --approve-for-me，
+// 改用 -c sandbox_mode=…；approve-for-me 续聊时退回 workspace-write（界面不提示）。
 func codexPermissionArgs(mode string, resume bool) []string {
 	var sandbox string
-	switch canonicalPermissionMode(mode) {
-	case "plan", "default":
-		sandbox = "read-only"
-	case "auto":
+	switch NormalizeMode(KindCodexCLI, mode) {
+	case ModeCodexBypass:
+		return []string{"--dangerously-bypass-approvals-and-sandbox"}
+	case ModeCodexApproveForMe:
+		if !resume {
+			return []string{"--approve-for-me"}
+		}
+		sandbox = "workspace-write"
+	case ModeCodexWorkspace:
 		sandbox = "workspace-write"
 	default:
-		return []string{"--dangerously-bypass-approvals-and-sandbox"}
+		sandbox = "read-only"
 	}
 	if resume {
 		return []string{"-c", `sandbox_mode="` + sandbox + `"`, "-c", `approval_policy="never"`}
 	}
 	return []string{"--sandbox", sandbox, "-c", `approval_policy="never"`}
+}
+
+// codexEffortArgs：-c model_reasoning_effort="<id>"（仅选了才传；D config-reference）。
+// id 由服务层按模型 efforts 过滤过；这里再做格式校验，防止拼进 TOML 的值带引号。
+func codexEffortArgs(effort string) []string {
+	e := strings.TrimSpace(effort)
+	if e == "" || !EffortFormatOK(e) {
+		return nil
+	}
+	return []string{"-c", `model_reasoning_effort="` + e + `"`}
 }
 
 func (a *CLIAgentAdapter) scanCLIStream(r io.Reader, onPiece func(streamPiece), onErr func(string), onSession func(string)) error {

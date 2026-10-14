@@ -109,6 +109,15 @@ func (s *CatService) SendCatMessage(req cat.SendMessageRequest) (cat.SendMessage
 	return c.SendCatMessage(s.rootCtx(), req)
 }
 
+// RetryCatTurn 原地重试最后一轮失败的 turn（契约 v0.44 6.19.18.7）。
+func (s *CatService) RetryCatTurn(req cat.RetryCatTurnRequest) (cat.SendMessageResult, error) {
+	c, err := s.svc()
+	if err != nil {
+		return cat.SendMessageResult{}, err
+	}
+	return c.RetryCatTurn(s.rootCtx(), req)
+}
+
 // PreviewCatMedia 返回本机图片、视频或文档的预览地址。
 func (s *CatService) PreviewCatMedia(path string) (cat.MediaPreview, error) {
 	c, err := s.svc()

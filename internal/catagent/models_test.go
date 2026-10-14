@@ -51,7 +51,10 @@ func TestProbeGrokModels_RealNamesNoMapping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Model{{ID: "grok-4.6", DisplayName: "grok-4.6"}, {ID: "grok-4.5", DisplayName: "grok-4.5"}}
+	want := []Model{
+		{ID: "grok-4.6", DisplayName: "grok-4.6", Efforts: []string{"low", "medium", "high", "xhigh"}, DefaultEffort: "high"},
+		{ID: "grok-4.5", DisplayName: "grok-4.5", Efforts: []string{"low", "medium", "high"}, DefaultEffort: "high"},
+	}
 	if !reflect.DeepEqual(models, want) {
 		t.Fatalf("got %+v want %+v", models, want)
 	}

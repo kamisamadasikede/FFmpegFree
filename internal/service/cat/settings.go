@@ -25,11 +25,11 @@ type AgentDefaults struct {
 
 // Settings 是 Cat 设置（契约 6.19.12.1 CatSettings，v0.36 多服务商默认；v0.38 providersByAgent）。
 type Settings struct {
-	DefaultAgentKind    string                     `json:"defaultAgentKind"` // cat_build|claude_cli|codex_cli；默认 cat_build
-	DefaultsByAgent     map[string]AgentDefaults   `json:"defaultsByAgent"`  // key = agentKind
+	DefaultAgentKind    string                      `json:"defaultAgentKind"` // cat_build|claude_cli|codex_cli；默认 cat_build
+	DefaultsByAgent     map[string]AgentDefaults    `json:"defaultsByAgent"`  // key = agentKind
 	ProvidersByAgent    map[string]ProviderSettings `json:"providersByAgent"` // v0.38：key = agentKind
-	DefaultApprovalMode string                     `json:"defaultApprovalMode"`
-	CustomInstruction   string                     `json:"customInstruction"`
+	DefaultApprovalMode string                      `json:"defaultApprovalMode"`
+	CustomInstruction   string                      `json:"customInstruction"`
 	// NotifyOnFinish 为 nil 视为 true；Get / Save 的返回值总是填好。
 	NotifyOnFinish *bool `json:"notifyOnFinish"`
 }
@@ -149,22 +149,44 @@ func migrateFromWire(w settingsWire) Settings {
 	return s
 }
 
-// ValidEffort 报告思考强度是否合法（空 = 默认）。
-func ValidEffort(v string) bool {
-	switch v {
-	case "", "low", "medium", "high", "xhigh":
-		return true
-	}
-	return false
-}
+// ValidEffortFormat：v0.44 起写死集合作废（6.19.18.6），这里只校验格式；按模型的校验见 validEffortFor。
+func ValidEffortFormat(v string) bool { return v == "" || catagent.EffortFormatOK(v) }
 
-// ValidApprovalMode 报告批准方式是否合法（空 = 全部批准）。
+// ValidApprovalMode 报告全局默认批准方式是否合法：空、旧值（normal/plan/auto/approve），或任一家的模式 id。
 func ValidApprovalMode(v string) bool {
 	switch v {
 	case "", "normal", "plan", "auto", "approve":
 		return true
 	}
+	for _, k := range catagent.CreatableKinds() {
+		if catagent.IsModeID(k, v) {
+			return true
+		}
+	}
 	return false
+}
+
+// validEffortFor 是 6.19.18.6：空合法；模型为空或列表探测不到该模型 → 只校验格式；否则须在该模型 efforts 内。
+func (s *Service) validEffortFor(ctx context.Context, kind, model, effort string) bool {
+	effort, model = strings.TrimSpace(effort), strings.TrimSpace(model)
+	if effort == "" {
+		return true
+	}
+	if !catagent.EffortFormatOK(effort) {
+		return false
+	}
+	if model == "" || model == "default" {
+		return true
+	}
+	list, err := s.ListCatModels(ctx, kind)
+	if err != nil {
+		return true
+	}
+	m, ok := catagent.FindModel(list, model)
+	if !ok {
+		return true
+	}
+	return catagent.ModelSupportsEffort(m, effort)
 }
 
 // ValidDefaultAgentKind 报告 defaultAgentKind 是否合法（空视为 cat_build）。
@@ -217,7 +239,7 @@ func (s *Service) SaveCatSettings(ctx context.Context, req Settings) (Settings, 
 		if !catagent.Phase1Creatable(strings.TrimSpace(k)) {
 			return Settings{}, apperr.New(apperr.InvalidArgument, "助手模式设置不正确").WithDetail("reason=defaults_by_agent_key")
 		}
-		if !ValidEffort(strings.TrimSpace(d.Effort)) {
+		if !s.validEffortFor(ctx, strings.TrimSpace(k), d.Model, d.Effort) {
 			return Settings{}, apperr.New(apperr.InvalidArgument, "思考强度不对").WithDetail("reason=effort")
 		}
 	}

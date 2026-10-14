@@ -51,7 +51,7 @@ func TestClaudePermissionArgs_VersionBranch(t *testing.T) {
 		if p := claudePermissionArgs("plan", c.ver); p[1] != "plan" {
 			t.Errorf("plan changed: %q", p)
 		}
-		if p := claudePermissionArgs("", c.ver); p[1] != "bypassPermissions" {
+		if p := claudePermissionArgs("approve", c.ver); p[1] != "bypassPermissions" {
 			t.Errorf("approve-all changed: %q", p)
 		}
 	}

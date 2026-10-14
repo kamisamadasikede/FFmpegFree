@@ -64,21 +64,54 @@ func assertWhitelisted(t *testing.T, cli, snapshot string, args []string) {
 
 var reported = map[string]bool{}
 
-var allModes = []string{"", "approve", "always-approve", "full", "plan", "auto", "auto-review", "normal", "ask", "default"}
+var allModes = []string{"", "approve", "always-approve", "full", "plan", "auto", "auto-review", "normal", "ask", "default",
+	// v0.44 模式 id（6.19.18.3）
+	"manual", "acceptEdits", "bypassPermissions", "read-only", "workspace-write", "approve-for-me", "bypass"}
+
+var allEfforts = []string{"", "low", "xhigh", "max", "ultra"}
+
+// codexConfigKeys 是我们允许用 `-c key=value` 传的配置键（help 只列 -c 本身，键名出处是
+// D https://developers.openai.com/codex/config-reference ：sandbox_mode / approval_policy / model_reasoning_effort）。
+var codexConfigKeys = map[string]bool{"sandbox_mode": true, "approval_policy": true, "model_reasoning_effort": true}
+
+func assertCodexConfigKeys(t *testing.T, args []string) {
+	t.Helper()
+	for i := 0; i < len(args); i++ {
+		if args[i] != "-c" {
+			continue
+		}
+		if i+1 >= len(args) {
+			t.Fatalf("dangling -c: %q", args)
+		}
+		kv := args[i+1]
+		k := kv
+		if j := strings.IndexByte(kv, '='); j > 0 {
+			k = kv[:j]
+		}
+		if !codexConfigKeys[k] {
+			t.Errorf("codex -c 用了未核实的配置键 %q：%q", k, args)
+		}
+	}
+}
 
 func TestHelpWhitelist_Codex(t *testing.T) {
 	a := NewCodexAdapter(CLIAgentConfig{DataTemp: t.TempDir()})
 	for _, mode := range allModes {
 		for _, model := range []string{"", "default", "gpt-6-astra"} {
 			for _, rules := range []string{"", "be brief"} {
-				o := TurnOptions{PermissionMode: mode, ModelID: model, Rules: rules}
-				assertWhitelisted(t, "codex exec", "codex-exec.txt", a.buildCodexArgs(o, "你好", "/proj", "", false))
-				assertWhitelisted(t, "codex exec", "codex-exec.txt", a.buildCodexArgs(o, "你好", "", "sess", false))
-				r := a.buildCodexArgs(o, "你好", "/proj", "sess", true)
-				if len(r) < 2 || r[1] != "resume" {
-					t.Fatalf("resume args shape: %q", r)
+				for _, effort := range allEfforts {
+					o := TurnOptions{PermissionMode: mode, ModelID: model, Rules: rules, ThinkLevelID: effort}
+					e1 := a.buildCodexArgs(o, "你好", "/proj", "", false)
+					assertWhitelisted(t, "codex exec", "codex-exec.txt", e1)
+					assertCodexConfigKeys(t, e1)
+					assertWhitelisted(t, "codex exec", "codex-exec.txt", a.buildCodexArgs(o, "你好", "", "sess", false))
+					r := a.buildCodexArgs(o, "你好", "/proj", "sess", true)
+					if len(r) < 2 || r[1] != "resume" {
+						t.Fatalf("resume args shape: %q", r)
+					}
+					assertWhitelisted(t, "codex exec resume", "codex-exec-resume.txt", r)
+					assertCodexConfigKeys(t, r)
 				}
-				assertWhitelisted(t, "codex exec resume", "codex-exec-resume.txt", r)
 			}
 		}
 	}
@@ -93,8 +126,10 @@ func TestHelpWhitelist_Claude(t *testing.T) {
 		for _, model := range []string{"", "default", "sonnet"} {
 			for _, rules := range []string{"", "be brief"} {
 				for _, resume := range []bool{false, true} {
-					o := TurnOptions{PermissionMode: mode, ModelID: model, Rules: rules}
-					assertWhitelisted(t, "claude -p", "claude.txt", a.buildClaudeArgs(o, "你好", "sess", resume))
+					for _, effort := range allEfforts {
+						o := TurnOptions{PermissionMode: mode, ModelID: model, Rules: rules, ThinkLevelID: effort}
+						assertWhitelisted(t, "claude -p", "claude.txt", a.buildClaudeArgs(o, "你好", "sess", resume))
+					}
 				}
 			}
 		}
@@ -124,7 +159,7 @@ func TestHelpWhitelist_Grok(t *testing.T) {
 	a.detect()
 	for _, mode := range allModes {
 		for _, model := range []string{"", "grok-build"} {
-			for _, think := range []string{"", "high"} {
+			for _, think := range []string{"", "high", "xhigh"} {
 				for _, resume := range []bool{false, true} {
 					for _, files := range [][]PromptFile{nil, {{Name: "a.png", Path: img}}} {
 						_, _ = a.RunTurn(TurnOptions{
@@ -157,4 +192,49 @@ func TestHelpWhitelist_Grok(t *testing.T) {
 	}
 	assertWhitelisted(t, "grok", "grok.txt", []string{"-v"})
 	assertWhitelisted(t, "grok inspect", "grok-inspect.txt", []string{"--json"})
+}
+
+// v0.44：新参数必须真的出现在快照里（防止白名单因为没生成而「空过」）。
+func TestHelpWhitelist_V044FlagsPresent(t *testing.T) {
+	for _, c := range []struct{ snap, flag string }{
+		{"codex-exec.txt", "--approve-for-me"},
+		{"codex-exec.txt", "-c"},
+		{"codex-exec-resume.txt", "-c"},
+		{"claude.txt", "--effort"},
+		{"claude.txt", "--permission-mode"},
+		{"grok.txt", "--reasoning-effort"},
+		{"grok.txt", "--permission-mode"},
+		{"grok.txt", "--always-approve"},
+	} {
+		if !loadHelpFlags(t, c.snap)[c.flag] {
+			t.Errorf("%s 里没有 %s", c.snap, c.flag)
+		}
+	}
+	if loadHelpFlags(t, "codex-exec-resume.txt")["--approve-for-me"] {
+		t.Error("exec resume 现在认 --approve-for-me 了：6.19.18.4 的回退可以去掉，先改契约")
+	}
+	a := NewCodexAdapter(CLIAgentConfig{DataTemp: t.TempDir()})
+	r := a.buildCodexArgs(TurnOptions{PermissionMode: "approve-for-me", ThinkLevelID: "ultra"}, "x", "", "s", true)
+	for _, x := range r {
+		if x == "--approve-for-me" {
+			t.Fatalf("resume 不能传 --approve-for-me: %q", r)
+		}
+	}
+	e := a.buildCodexArgs(TurnOptions{PermissionMode: "approve-for-me", ThinkLevelID: "ultra"}, "x", "", "", false)
+	if strings.Join(e, " ") == "" || !containsArg(e, "--approve-for-me") || !containsArg(e, `model_reasoning_effort="ultra"`) {
+		t.Fatalf("exec args: %q", e)
+	}
+	c := NewClaudeAdapter(CLIAgentConfig{DataTemp: t.TempDir()}).buildClaudeArgs(TurnOptions{ThinkLevelID: "max"}, "x", "", false)
+	if !containsArg(c, "--effort") || !containsArg(c, "max") || !containsArg(c, "manual") {
+		t.Fatalf("claude args: %q", c)
+	}
+}
+
+func containsArg(args []string, v string) bool {
+	for _, a := range args {
+		if a == v {
+			return true
+		}
+	}
+	return false
 }

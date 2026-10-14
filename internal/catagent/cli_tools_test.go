@@ -129,11 +129,11 @@ func TestRunTurn_KeepsFullCLITools(t *testing.T) {
 			}
 			return false
 		}
-		if !has("--always-approve") || !has("--output-format") || has("--no-auto-update") {
+		if has("--always-approve") || !has("--output-format") || has("--no-auto-update") {
 			t.Fatalf("turn %d: missing launch flags:\n%s", i, raw)
 		}
-		if has("--permission-mode") {
-			t.Fatalf("turn %d: empty mode must not pass --permission-mode:\n%s", i, raw)
+		if !has("--permission-mode") || !has("default") {
+			t.Fatalf("turn %d: empty mode must fall back to --permission-mode default (v0.44):\n%s", i, raw)
 		}
 		for _, flag := range banned {
 			if has(flag) {
@@ -295,7 +295,8 @@ func TestRunTurn_PlanOmitsAlwaysApprove(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(raw)
-	if !strings.Contains(text, "--permission-mode\nplan\n") {
+	// v0.44：Grok plan 不下发，旧 plan 映射为 default（6.19.18.3）。
+	if !strings.Contains(text, "--permission-mode\ndefault\n") {
 		t.Fatalf("missing plan mode:\n%s", text)
 	}
 	if strings.Contains(text, "--always-approve") {

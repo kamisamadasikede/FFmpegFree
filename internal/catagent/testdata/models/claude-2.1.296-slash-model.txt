@@ -1,0 +1,2 @@
+Current model: `Opus 5.5 (default)`
+Usage: /model <name>. Available: sonnet, opus, haiku, fable, best, sonnet[1m], opus[1m], fable[1m], opusplan, default, or a full model ID.

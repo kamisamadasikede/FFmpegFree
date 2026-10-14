@@ -89,6 +89,16 @@ printf '%s\n' '{"type":"end","stopReason":"end_turn"}'
 	if err != nil || len(models) != 2 || models[0].ID != "grok-4.6" || models[0].DisplayName != "grok-4.6" || models[1].DisplayName != "grok-4.5" {
 		t.Fatalf("models %+v %v", models, err)
 	}
+	// v0.44：模型带档位；ListCatThinkLevels 返回设置里所选模型的档位（6.19.18.2）。
+	if len(models[0].Efforts) != 4 || models[0].DefaultEffort != "high" || len(models[1].Efforts) != 3 {
+		t.Fatalf("efforts %+v", models)
+	}
+	if _, err := svc.SaveCatSettings(ctx, cat.Settings{DefaultsByAgent: map[string]cat.AgentDefaults{catagent.KindCatBuild: {Model: "grok-4.6", Effort: "xhigh"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SaveCatSettings(ctx, cat.Settings{DefaultsByAgent: map[string]cat.AgentDefaults{catagent.KindCatBuild: {Model: "grok-4.5", Effort: "xhigh"}}}); err == nil {
+		t.Fatal("grok-4.5 xhigh must be rejected (reason=effort)")
+	}
 	thinks, err := svc.ListCatThinkLevels(ctx, catagent.KindCatBuild)
 	if err != nil || len(thinks) == 0 {
 		t.Fatalf("thinks %+v %v", thinks, err)
@@ -268,9 +278,10 @@ printf '%s\n' '{"type":"end","stopReason":"end_turn"}'
 	if err != nil || models == nil || len(models) != 0 {
 		t.Fatalf("models %+v %v, want empty", models, err)
 	}
+	// v0.44：没选模型 / 列表探测失败 → 档位为空（前端隐藏强度行）。
 	thinks, err := svc.ListCatThinkLevels(ctx, catagent.KindCatBuild)
-	if err != nil || len(thinks) == 0 {
-		t.Fatalf("thinks %+v %v (list must stay)", thinks, err)
+	if err != nil || thinks == nil || len(thinks) != 0 {
+		t.Fatalf("thinks %+v %v (want empty)", thinks, err)
 	}
 	c, err := svc.CreateCatConversation(ctx, cat.CreateConversationRequest{AgentKind: catagent.KindCatBuild})
 	if err != nil {
