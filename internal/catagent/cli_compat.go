@@ -96,7 +96,7 @@ func cliLabel(kind string) string {
 	case KindCodexCLI:
 		return "Codex"
 	default:
-		return "Grok"
+		return "Grok Build"
 	}
 }
 

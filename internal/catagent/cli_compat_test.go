@@ -155,5 +155,5 @@ func TestOutdatedMapping_ClaudeCodexGrok(t *testing.T) {
 	g := NewBuildAdapter(BuildConfig{DataTemp: t.TempDir(), LookPath: func(string) (string, error) { return fg, nil }, Exec: execFn(fg)})
 	g.detect()
 	_, err = g.RunTurn(TurnOptions{Ctx: context.Background(), ConversationID: "c4", ProjectPath: t.TempDir(), Messages: msgs})
-	assertOutdated(t, err, KindCatBuild, "Grok", "1.0.10", "--prompt-json")
+	assertOutdated(t, err, KindCatBuild, "Grok Build", "1.0.10", "--prompt-json")
 }
