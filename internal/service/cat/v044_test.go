@@ -115,7 +115,7 @@ func TestStatusCarriesModes(t *testing.T) {
 	if _, err := svc.SaveCatSettings(context.Background(), cat.Settings{DefaultsByAgent: map[string]cat.AgentDefaults{catagent.KindCatBuild: {Model: "grok-4.6", Effort: "max"}}}); !apperr.Is(err, apperr.InvalidArgument) {
 		t.Fatalf("grok-4.6 max must fail: %v", err)
 	}
-	if _, err := svc.SaveCatSettings(context.Background(), cat.Settings{DefaultApprovalMode: "approve-for-me"}); err != nil {
+	if _, err := svc.SaveCatSettings(context.Background(), cat.Settings{DefaultModeByAgent: map[string]string{catagent.KindCodexCLI: catagent.ModeCodexApproveForMe}}); err != nil {
 		t.Fatalf("mode id must be accepted: %v", err)
 	}
 }

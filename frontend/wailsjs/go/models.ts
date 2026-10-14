@@ -75,6 +75,22 @@ export namespace cat {
 	        this.cloneId = source["cloneId"];
 	    }
 	}
+	export class CatTurnState {
+	    turnId: string;
+	    status: string;
+	    retryable: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatTurnState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.turnId = source["turnId"];
+	        this.status = source["status"];
+	        this.retryable = source["retryable"];
+	    }
+	}
 	export class ClearProviderKeyRequest {
 	    agentKind: string;
 	
@@ -169,6 +185,7 @@ export namespace cat {
 	    createdAt: number;
 	    updatedAt: number;
 	    messages: store.CatMessage[];
+	    lastTurn?: CatTurnState;
 	    contextUsed?: number;
 	    contextWindow?: number;
 	
@@ -187,6 +204,7 @@ export namespace cat {
 	        this.createdAt = source["createdAt"];
 	        this.updatedAt = source["updatedAt"];
 	        this.messages = this.convertValues(source["messages"], store.CatMessage);
+	        this.lastTurn = this.convertValues(source["lastTurn"], CatTurnState);
 	        this.contextUsed = source["contextUsed"];
 	        this.contextWindow = source["contextWindow"];
 	    }
@@ -1174,7 +1192,7 @@ export namespace cat {
 	    defaultAgentKind: string;
 	    defaultsByAgent: Record<string, AgentDefaults>;
 	    providersByAgent: Record<string, ProviderSettings>;
-	    defaultApprovalMode: string;
+	    defaultModeByAgent: Record<string, string>;
 	    customInstruction: string;
 	    notifyOnFinish?: boolean;
 	
@@ -1187,7 +1205,7 @@ export namespace cat {
 	        this.defaultAgentKind = source["defaultAgentKind"];
 	        this.defaultsByAgent = this.convertValues(source["defaultsByAgent"], AgentDefaults, true);
 	        this.providersByAgent = this.convertValues(source["providersByAgent"], ProviderSettings, true);
-	        this.defaultApprovalMode = source["defaultApprovalMode"];
+	        this.defaultModeByAgent = source["defaultModeByAgent"];
 	        this.customInstruction = source["customInstruction"];
 	        this.notifyOnFinish = source["notifyOnFinish"];
 	    }

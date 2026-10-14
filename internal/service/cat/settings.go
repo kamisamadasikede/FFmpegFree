@@ -25,11 +25,13 @@ type AgentDefaults struct {
 
 // Settings 是 Cat 设置（契约 6.19.12.1 CatSettings，v0.36 多服务商默认；v0.38 providersByAgent）。
 type Settings struct {
-	DefaultAgentKind    string                      `json:"defaultAgentKind"` // cat_build|claude_cli|codex_cli；默认 cat_build
-	DefaultsByAgent     map[string]AgentDefaults    `json:"defaultsByAgent"`  // key = agentKind
-	ProvidersByAgent    map[string]ProviderSettings `json:"providersByAgent"` // v0.38：key = agentKind
-	DefaultApprovalMode string                      `json:"defaultApprovalMode"`
-	CustomInstruction   string                      `json:"customInstruction"`
+	DefaultAgentKind string                      `json:"defaultAgentKind"` // cat_build|claude_cli|codex_cli；默认 cat_build
+	DefaultsByAgent  map[string]AgentDefaults    `json:"defaultsByAgent"`  // key = agentKind
+	ProvidersByAgent map[string]ProviderSettings `json:"providersByAgent"` // v0.38：key = agentKind
+	// DefaultModeByAgent（v0.44.4，6.19.18.9）：key = agentKind；value = 该家 modes[].id 或 ""（= 该家默认）。
+	// 取代已废弃的 defaultApprovalMode（只在读库时兼容，Save 不再写）。
+	DefaultModeByAgent map[string]string `json:"defaultModeByAgent"`
+	CustomInstruction  string            `json:"customInstruction"`
 	// NotifyOnFinish 为 nil 视为 true；Get / Save 的返回值总是填好。
 	NotifyOnFinish *bool `json:"notifyOnFinish"`
 }
@@ -74,7 +76,8 @@ type settingsWire struct {
 	DefaultAgentKind    string                      `json:"defaultAgentKind"`
 	DefaultsByAgent     map[string]AgentDefaults    `json:"defaultsByAgent"`
 	ProvidersByAgent    map[string]ProviderSettings `json:"providersByAgent"`
-	DefaultApprovalMode string                      `json:"defaultApprovalMode"`
+	DefaultModeByAgent  map[string]string           `json:"defaultModeByAgent"`
+	DefaultApprovalMode string                      `json:"defaultApprovalMode"` // v0.44.4 起只读兼容
 	CustomInstruction   string                      `json:"customInstruction"`
 	NotifyOnFinish      *bool                       `json:"notifyOnFinish"`
 	// Legacy v0.35：
@@ -113,7 +116,15 @@ func (s Settings) normalized() Settings {
 		}
 		s.ProvidersByAgent = out
 	}
-	s.DefaultApprovalMode = strings.TrimSpace(s.DefaultApprovalMode)
+	if s.DefaultModeByAgent == nil {
+		s.DefaultModeByAgent = map[string]string{}
+	} else {
+		out := make(map[string]string, len(s.DefaultModeByAgent))
+		for k, m := range s.DefaultModeByAgent {
+			out[strings.TrimSpace(k)] = strings.TrimSpace(m)
+		}
+		s.DefaultModeByAgent = out
+	}
 	if s.NotifyOnFinish == nil {
 		t := true
 		s.NotifyOnFinish = &t
@@ -124,12 +135,17 @@ func (s Settings) normalized() Settings {
 // migrateFromWire 把旧顶层 defaultModel/defaultEffort 迁进 defaultsByAgent["cat_build"]（不覆盖已有非空）。
 func migrateFromWire(w settingsWire) Settings {
 	s := Settings{
-		DefaultAgentKind:    w.DefaultAgentKind,
-		DefaultsByAgent:     w.DefaultsByAgent,
-		ProvidersByAgent:    w.ProvidersByAgent,
-		DefaultApprovalMode: w.DefaultApprovalMode,
-		CustomInstruction:   w.CustomInstruction,
-		NotifyOnFinish:      w.NotifyOnFinish,
+		DefaultAgentKind:   w.DefaultAgentKind,
+		DefaultsByAgent:    w.DefaultsByAgent,
+		ProvidersByAgent:   w.ProvidersByAgent,
+		DefaultModeByAgent: w.DefaultModeByAgent,
+		CustomInstruction:  w.CustomInstruction,
+		NotifyOnFinish:     w.NotifyOnFinish,
+	}
+	// 6.19.18.9 第 3 条：库里只有旧 defaultApprovalMode 时，按各家「旧值」列映射给三家；
+	// 映射不到 / 未知 → 该家最保守默认。只改返回值，不回写。
+	if legacy := strings.TrimSpace(w.DefaultApprovalMode); legacy != "" && len(w.DefaultModeByAgent) == 0 {
+		s.DefaultModeByAgent = LegacyDefaultModeByAgent(legacy)
 	}
 	if s.DefaultsByAgent == nil {
 		s.DefaultsByAgent = map[string]AgentDefaults{}
@@ -152,18 +168,36 @@ func migrateFromWire(w settingsWire) Settings {
 // ValidEffortFormat：v0.44 起写死集合作废（6.19.18.6），这里只校验格式；按模型的校验见 validEffortFor。
 func ValidEffortFormat(v string) bool { return v == "" || catagent.EffortFormatOK(v) }
 
-// ValidApprovalMode 报告全局默认批准方式是否合法：空、旧值（normal/plan/auto/approve），或任一家的模式 id。
-func ValidApprovalMode(v string) bool {
-	switch v {
-	case "", "normal", "plan", "auto", "approve":
-		return true
-	}
+// LegacyDefaultModeByAgent 把旧全局 defaultApprovalMode 按每家旧值列转成 defaultModeByAgent（6.19.18.9 第 3 条）。
+func LegacyDefaultModeByAgent(legacy string) map[string]string {
+	out := map[string]string{}
 	for _, k := range catagent.CreatableKinds() {
-		if catagent.IsModeID(k, v) {
-			return true
+		out[k] = catagent.NormalizeMode(k, legacy)
+	}
+	return out
+}
+
+// DefaultModeFor 是新对话该家的模式（6.19.18.9 第 4 条）：空或已不在该家 modes[] → 该家最保守默认。
+func (s Settings) DefaultModeFor(kind string) string {
+	if v := s.DefaultModeByAgent[kind]; catagent.IsModeID(kind, v) {
+		return v
+	}
+	return catagent.DefaultModeID(kind)
+}
+
+// validateDefaultModeByAgent 是 6.19.18.9 第 2 条：key 只能是三家之一；value 为 "" 或该家 modes[].id。
+// danger 项（全部放开）后端不要求确认。
+func validateDefaultModeByAgent(m map[string]string) error {
+	for k, v := range m {
+		k, v = strings.TrimSpace(k), strings.TrimSpace(v)
+		if !catagent.Phase1Creatable(k) {
+			return apperr.New(apperr.InvalidArgument, "默认模式设置不正确").WithDetail("reason=default_mode_key")
+		}
+		if v != "" && !catagent.IsModeID(k, v) {
+			return apperr.New(apperr.InvalidArgument, "默认模式设置不正确").WithDetail("reason=default_mode")
 		}
 	}
-	return false
+	return nil
 }
 
 // validEffortFor 是 6.19.18.6：空合法；模型为空或列表探测不到该模型 → 只校验格式；否则须在该模型 efforts 内。
@@ -253,8 +287,8 @@ func (s *Service) SaveCatSettings(ctx context.Context, req Settings) (Settings, 
 		p.ApiKey = ""
 		v.ProvidersByAgent[k] = p
 	}
-	if !ValidApprovalMode(v.DefaultApprovalMode) {
-		return Settings{}, apperr.New(apperr.InvalidArgument, "批准方式不对").WithDetail("reason=approval_mode")
+	if err := validateDefaultModeByAgent(v.DefaultModeByAgent); err != nil {
+		return Settings{}, err
 	}
 	if utf8.RuneCountInString(v.CustomInstruction) > MaxCustomInstructionRunes {
 		return Settings{}, apperr.New(apperr.InvalidArgument, "最多 4000 字。").WithDetail("reason=too_long")
