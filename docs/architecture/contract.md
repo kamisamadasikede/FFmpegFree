@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.43）
+# FFmpegFree v2 接口契约（v0.44）
+
+v0.44 变更（**按 CLI 下发模式 / 思考强度 + 原地重试**，后端核对表 10-14 + 产品原则，架构师 10-14；完整规则见 **6.19.18**；**无新错误码，2.1 仍是 39 个**；无迁移 / 开关）：① `agents[].modes[]`（`id/label/description/writesFiles/isDefault`，保守→放开），三家各自列表，不再前端写死。② `CatModel.efforts[]` + `defaultEffort`；空 → 隐藏强度行；切模型档位不支持 → 回落该模型默认。③ 每家模式 / 强度参数映射带出处，GUESS 不得发版。④ 保存设置强度校验改为「该模型列出的档位」（放行 max / ultra）。⑤ Codex plan → `read-only`、普通 → `workspace-write`，不再相同。⑥ 新绑定 `RetryCatTurn(conversationId, turnId)` 原地重试，替代 `retryLastMessage()` 新气泡。⑦ UNVERIFIED 项见 6.19.18。
 
 v0.43 变更（**CLI 版本过旧 + 参数核对规则**，架构师 10-14；完整规则见 **6.19.17**；**无新错误码，2.1 仍是 39 个**；无迁移 / 事件 / 开关）：① 旧版 CLI 不认参数 → `CAT_REPLY_FAILED`，`detail` 4 行 `reason=cli_outdated` / `agentKind` / `cliVersion` / `raw`（raw 换行为字面 `\n`，展开时还原）；行内文案「<CLI名> CLI 版本过旧，请升级后重试。」+ 灰字「当前版本 <cliVersion>」（空则隐藏）+「重试」+「查看详情」；无升级按钮；重试按当前版本重生成参数，版本缓存键 = 路径 + mtime + 大小。② 所有 CLI 参数须对照真实 `--help`（含子命令）或官方文档核对；每家维护「版本 → 参数」兼容表并注明来源。
 
@@ -480,6 +482,7 @@ CreateCatConversation(req CreateCatConversationRequest) (CatConversation, error)
 DeleteCatConversation(id string) error
 SendCatMessage(req SendCatMessageRequest) (SendCatMessageResult, error)
 CancelCatTurn(req CancelCatTurnRequest) error // v0.30.2：{ convId, turnId }，见 6.19.9
+RetryCatTurn(req RetryCatTurnRequest) (SendCatMessageResult, error) // v0.44：{ conversationId, turnId } 原地重试失败轮，见 6.19.18.7
 // v0.31 项目（6.19.10）；CreateCatConversation 的 req 新增可选 projectId（创建后不可变）
 ListCatProjects() ([]CatProject, error)                                      // missing 实时计算
 CreateCatProject(req CreateCatProjectRequest) (CreateCatProjectResult, error) // {path, name?} → {project, existed}；同路径返回已有
@@ -5367,6 +5370,154 @@ type ExportOfficeCanvasPptxResult struct {
 版本探测：每个二进制按 路径 + mtime + 大小 缓存，只跑一次 `--version`（grok 用 `-v`）；换了二进制重新探测。
 
 **v0.43 补充验收**：旧版 CLI 出「版本过旧」行内错误 + 灰字版本号（无版本时隐藏）+ 重试；升级后点重试不重启即成功。
+
+### 6.19.18 按 CLI 下发模式 / 思考强度 + 原地重试（v0.44）
+
+来源：后端核对表 `/workspace/notes/cli-modes-effort.md`（10-14；H = `internal/catagent/testdata/help/*.txt` 真机 help 快照，G = 本机 grok 1.0.40 实跑，D = 官方文档）。**UNVERIFIED** = 没核实到，按本节规则降级；**GUESS** 行不得发版（沿用 6.19.17.2）。
+
+#### 6.19.18.1 产品原则（产品 10-14）
+
+1. 模式名用各家 CLI / 官方文档的叫法翻成中文；每个模式配一句说明，**必须写明会不会改文件**。下表 `label` 为草案，最终中文名和说明句以产品定稿为准（只改 `label`，不改 `id`）。
+2. 排序：从最保守到最放开。默认选中**该 CLI 自己的默认模式**（`isDefault=true`）；默认 UNVERIFIED 的家没有任何一项 `isDefault=true`，前端预选第一项（最保守）。
+3. 强度只显示当前模型支持的档位；拿不到 → 空列表 → 整行隐藏（不置灰）。切换模型时，原档位新模型不支持 → 回到新模型的 `defaultEffort`（为空则「默认」= 不传参数）。
+
+#### 6.19.18.2 数据结构
+
+```go
+type CatAgentStatus struct { // GetCatStatus / RecheckCat 的 agents[]，原字段不变
+    AgentKind string        `json:"agentKind"` // claude_cli | codex_cli | cat_build
+    // ... ready / version / detail 不变
+    Modes     []CatAgentMode `json:"modes"`    // v0.44 新增；按保守→放开排好，前端不得重排
+}
+type CatAgentMode struct {
+    ID          string `json:"id"`          // 下表 id，持久化在对话 / 设置
+    Label       string `json:"label"`       // 中文名（产品定稿）
+    Description string `json:"description"` // 官方原文；UNVERIFIED 时为 ""
+    WritesFiles bool   `json:"writesFiles"` // 无需批准即可改文件
+    IsDefault   bool   `json:"isDefault"`   // 该 CLI 自己的默认；每家至多一项
+}
+type CatModel struct { // ListCatModels 返回项，原字段不变
+    // ... id / displayName 不变
+    Efforts       []string `json:"efforts"`       // v0.44 新增：该模型支持的档位 id；未知 = []
+    DefaultEffort string   `json:"defaultEffort"` // v0.44 新增：该模型默认档；未知 = ""
+}
+```
+
+- `ListCatThinkLevels(agentKind)` 保留（兼容），返回**当前所选模型**的档位；新前端以 `CatModel.efforts` 为准。档位显示名：`low` 低 / `medium` 中 / `high` 高 / `xhigh` 极高 / `max` 最高 / `ultra` 超高（`max` / `ultra` 中文名待产品定）。
+- 对话 `approvalMode` 字段（6.19.13 / v0.34）改存**该会话 agentKind 的 mode id**。旧值迁移（读时映射，下次保存回写）：见 6.19.18.4 各表「旧值」列。
+
+#### 6.19.18.3 模式表
+
+**Claude Code 2.1.296**（H claude.txt:151 `--permission-mode` choices；说明原文 D https://code.claude.com/docs/en/permission-modes）
+
+| 顺序 | id | label（草案） | description（官方原文） | writesFiles | isDefault | 旧值 |
+|---|---|---|---|---|---|---|
+| 1 | `dontAsk` | 不询问 | "File reads inside your working directories and pre-approved tools; anything that would prompt is denied" | false | false | — |
+| 2 | `manual` | 手动批准 | "Reads only" — "Reviewing every action yourself, sensitive work" | false | **true** | normal |
+| 3 | `plan` | 计划 | "Reads, plus classifier-approved commands when auto mode is available" | false | false | plan |
+| 4 | `acceptEdits` | 自动接受编辑 | "Reads, file edits, and common filesystem commands (`mkdir`, `touch`, `mv`, `cp`, etc.)" | true | false | — |
+| 5 | `auto` | 自动 | "Everything, with background safety checks" | true | false | auto |
+| 6 | `bypassPermissions` | 跳过权限 | "Everything" — "Isolated containers and VMs only" | true | false | approve |
+
+- 默认依据（D）：`claude -p` 在拉取 feature flags 的会话中默认 `default`（= Manual）。我们走 headless，故 `manual` 为默认。注：关遥测 / 第三方服务商时 CLI 默认会变成 `auto`（≥2.1.285），本版仍以 `manual` 为默认，不随环境变。
+- **UNVERIFIED**：`dontAsk` 排在 `manual` 前是后端判断，文档未给顺序。
+
+**Codex 0.162.1**（H codex-exec.txt:54 `--sandbox`、`--approve-for-me`、`--dangerously-bypass-approvals-and-sandbox`；D https://developers.openai.com/codex/config-reference）
+
+| 顺序 | id | label（草案） | description | writesFiles | isDefault | 旧值 |
+|---|---|---|---|---|---|---|
+| 1 | `read-only` | 只读 | ""（UNVERIFIED） | false | false | plan |
+| 2 | `workspace-write` | 工作区可写 | ""（UNVERIFIED） | true（仅工作区） | false | normal |
+| 3 | `approve-for-me` | 自动审查 | "Route approval requests through automatic review using the workspace-write sandbox" | true（仅工作区） | false | auto |
+| 4 | `danger-full-access` | 完全访问 | ""（UNVERIFIED） | true | false | — |
+| 5 | `bypass` | 跳过批准和沙箱 | "Skip all confirmation prompts and execute commands without sandboxing. EXTREMELY DANGEROUS. Intended solely for running in environments that are externally sandboxed" | true | false | approve |
+
+- 三个 sandbox 值只有总说明 "Sandbox policy for filesystem and network access during command execution."，逐项原文 **UNVERIFIED**（"Sandbox and approvals" 文档页未抓）→ `description=""`。
+- `codex exec` 默认 sandbox **UNVERIFIED** → 无 `isDefault`，前端预选 `read-only`。
+
+**Grok Build 1.0.40**（H grok.txt:97 `--permission-mode` possible values；G）
+
+| 顺序 | id | label（草案） | description | writesFiles | isDefault | 旧值 |
+|---|---|---|---|---|---|---|
+| 1 | `dontAsk` | 不询问 | "" | false | false | — |
+| 2 | `default` | 默认 | "" | false | false | normal |
+| 3 | `plan` | 计划 | "" | false | false | plan |
+| 4 | `acceptEdits` | 自动接受编辑 | "" | true | false | — |
+| 5 | `auto` | 自动 | "" | true | false | auto |
+| 6 | `bypassPermissions` | 跳过权限 | "" | true | false | — |
+| 7 | `always-approve` | 全部批准 | "" | true | false | approve |
+
+- **UNVERIFIED（整表）**：help 只写 "Permission mode"，无逐项说明、无默认；与 Claude 同名项语义是否一致未核实（代码注释亦「不假定等价」）。顺序与 `writesFiles` 暂按 Claude 同名项类推，**仅作排序/提示**；产品定稿前说明句不得写「会/不会改文件」的断言，统一显示「说明待核实」。默认模式 UNVERIFIED → 无 `isDefault`。
+
+#### 6.19.18.4 参数映射（每行有出处；GUESS 不得发版）
+
+**Claude**（新开与 `--resume` 相同）
+
+| 选择 | 参数 | 出处 |
+|---|---|---|
+| mode | `--permission-mode <id>`；`manual` 按 6.19.17.3 版本表（1.0.109–2.1.199 发 `default`） | H claude.txt:151；CHANGELOG 2.1.200 |
+| effort | `--effort <id>`（仅选了才传；不传 = 模型默认） | H claude.txt:85；D model-config |
+
+**Codex**（`exec` 用 flag；`exec resume` 用 `-c` 键，沿用 #249 / #251）
+
+| mode | `exec` 参数 | `exec resume` 参数 | 出处 |
+|---|---|---|---|
+| `read-only` | `--sandbox read-only -c approval_policy="never"` | `-c sandbox_mode="read-only" -c approval_policy="never"` | H codex-exec.txt:54；D config-reference（`never` for non-interactive） |
+| `workspace-write` | `--sandbox workspace-write -c approval_policy="never"` | `-c sandbox_mode="workspace-write" -c approval_policy="never"` | 同上 |
+| `approve-for-me` | `--approve-for-me` | 须对照 `codex exec resume --help` 快照确认有此 flag；没有则 **GUESS，不得发版**，该模式在续聊时同步 `INVALID_ARGUMENT reason=mode_unsupported_on_resume` 之前先补核对 | H codex-exec.txt |
+| `danger-full-access` | `--sandbox danger-full-access -c approval_policy="never"` | `-c sandbox_mode="danger-full-access" -c approval_policy="never"` | H codex-exec.txt:54；D |
+| `bypass` | `--dangerously-bypass-approvals-and-sandbox` | 同左（#251 白名单已覆盖） | H codex-exec.txt |
+| effort | `-c model_reasoning_effort="<id>"`（仅选了才传） | 同左 | D config-reference `model_reasoning_effort` |
+
+**拆开 Codex plan / 普通**：v0.43 及以前 plan 与普通都发 `read-only + never`，无区别。v0.44 起：旧 `plan` → `read-only`，旧 `normal` → `workspace-write`，旧 `auto` → `approve-for-me`（原先也发 workspace-write + never，与普通无区别），旧 `approve` → `bypass`。`plan_mode_reasoning_effort` 本版不用。
+
+**Grok Build**
+
+| 选择 | 参数 | 出处 |
+|---|---|---|
+| mode ∈ {dontAsk, default, plan, acceptEdits, auto, bypassPermissions} | `--permission-mode <id>` | H grok.txt:97（值在 possible values 内） |
+| `always-approve` | `--always-approve` | H grok.txt（#251 白名单） |
+| effort | `--reasoning-effort <id>`（仅选了才传） | H grok.txt（help 不列取值） |
+
+#### 6.19.18.5 强度表
+
+| CLI | 模型 | efforts | defaultEffort | 出处 / 状态 |
+|---|---|---|---|---|
+| Claude | Fable 5.1, Fable 5 | low, medium, high, xhigh, max | high | D model-config |
+| Claude | Opus 5.5, Sonnet 5.5, Haiku 5.5 | low, medium, high, xhigh, max | medium | D |
+| Claude | Opus 5, Sonnet 5, Opus 4.8 | low, medium, high, xhigh, max | high | D |
+| Claude | Opus 4.7 | low, medium, high, xhigh, max | xhigh | D |
+| Claude | Opus 4.6, Sonnet 4.6 | low, medium, high, max | high | D |
+| Claude | 未列出 / 未选模型 | [] | "" | D："Models not listed here do not support effort" |
+| Codex | 全部 | 来自 `codex debug models` catalog 中该模型声明的档位；catalog 不含 → [] | 同左；不含 → "" | **UNVERIFIED**（只有 help 快照，无 JSON 样本）|
+| Grok Build | grok-4.6、grok-4.5 | 过渡：沿用 v0.31.4 的 low / medium / high / xhigh（两模型相同） | "" | **UNVERIFIED**（`grok models` 不报档位 / 默认档）|
+
+- Claude 模型 id ↔ 上表家族名的匹配：CLI 无列模型命令，`ListCatModels("claude_cli")` 目前为空 → **UNVERIFIED**；按 id 前缀匹配家族，匹配不上 → `[]`。模型为空（用 CLI 默认）时强度行隐藏。
+- Claude 选了不支持的档位，CLI 会降到不高于所选的最高档（D）；我们前端仍按 6.19.18.1-3 回落默认，不依赖该行为。
+
+#### 6.19.18.6 保存设置的强度校验
+
+`settings.ValidEffort` 写死集合（空 | low | medium | high | xhigh）作废。`SaveCatSettings` 校验 `defaultsByAgent[kind].effort`：空 = 合法；否则须在**该 kind 当前 `defaultsByAgent[kind].model` 的 `efforts`** 内（`max`、`ultra` 等由此放行）；模型为空或列表探测失败 → 只校验格式 `^[a-z][a-z0-9_-]{0,31}$`，不拒（避免 CLI 未装时存不了）。不合法 → `INVALID_ARGUMENT reason=effort`。发消息时 effort 不在当前模型列表 → 不传 effort 参数（不报错）。
+
+#### 6.19.18.7 原地重试 `RetryCatTurn`
+
+```go
+RetryCatTurn(req RetryCatTurnRequest) (SendCatMessageResult, error)
+// req: { conversationId, turnId }
+```
+
+1. 只允许重试该会话**最后一轮且 `status=failed`** 的 turn；否则 `INVALID_ARGUMENT reason=retry_not_allowed`。会话有进行中一轮 → 同上。
+2. 重发该 turn 的**原用户消息**（含附件、原 model / effort / mode），**不新增用户气泡、不新存用户消息**；失败的助手消息 / 行内错误被替换为新一轮的流式输出。
+3. 返回新 `turnId`；事件沿用 `cat:message` / `cat:turn`（6.19.9），`seq` 从 1 起。
+4. 参数按**当前检测到的 CLI 版本**重新生成（6.19.17.1-5，缓存键 路径 + mtime + 大小）；mode / effort 若当前版本或模型已不支持，按本节回落规则处理。
+5. 前端：v0.43 的 `retryLastMessage()`（再发一条、多一个气泡）**作废**，「重试」改调 `RetryCatTurn`。同步错误（`CAT_NOT_READY` / `CAT_PROJECT_MISSING` 等）照原样行内显示。
+
+#### 6.19.18.8 不做 / 待核
+
+- 不改 `agentKind` 取值（`cat_build` 不改名）；无新错误码（2.1 仍 39 个）；无迁移（`approvalMode` 旧值读时映射）。
+- UNVERIFIED 补齐后只改本节表格（小版本 v0.44.x），不改结构。
+
+**v0.44 验收**：三家模式下拉各自显示本表列表与顺序、默认选中正确；Codex plan(read-only) 与普通(workspace-write) 实际参数不同；Claude 切到 Opus 4.6 时选中的 xhigh 回落 high；保存 `max` 成功；失败后点「重试」不新增气泡并成功。
 
 
 ## 7. 本地流服务（已取消）
