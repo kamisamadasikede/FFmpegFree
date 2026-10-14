@@ -18,9 +18,9 @@ func TurnCwd(dataRoot, projectPath, convID string) string {
 	return paths.ResolveCatConvDir(dataRoot, convID)
 }
 
-// ReadContextUsage 读取该会话最近一次的上下文占用（已用 token、窗口容量）。
+// ReadContextUsage 实现 SessionHistory：Grok 读 signals.json（已用 token、窗口容量）。
 // 没有记录、已用为 0 或容量非法时 ok 为 false，避免把空会话画成 0%。
-func ReadContextUsage(cwd, convID string) (used, window int64, ok bool) {
+func (a *BuildAdapter) ReadContextUsage(convID, cwd string) (used, window int64, ok bool) {
 	return readContextUsageIn(defaultSessionsRoot(), cwd, convID)
 }
 

@@ -113,8 +113,42 @@ func TestTurnContextUsage_Claude(t *testing.T) {
 	if u, w := cl.turnContextUsage(sid, cwd, 200000); u != 21623 || w != 200000 {
 		t.Fatalf("claude %d/%d", u, w)
 	}
-	// 没拿到 result.modelUsage.contextWindow → 不画（不猜容量）。
-	if u, w := cl.turnContextUsage(sid, cwd, 0); u != 0 || w != 0 {
+	// v0.48.3：同一进程里重开对话 → 用本进程 result.modelUsage 报过的窗口。
+	if u, w := cl.turnContextUsage(sid, cwd, 0); u != 21623 || w != 200000 {
+		t.Fatalf("reload with known window %d/%d", u, w)
+	}
+	// 应用重启后（没拿到过 contextWindow）→ 不画（不猜容量）。
+	fresh := &CLIAgentAdapter{kind: cliKindClaude}
+	if u, w := fresh.turnContextUsage(sid, cwd, 0); u != 0 || w != 0 {
 		t.Fatalf("no window must be 0, got %d/%d", u, w)
+	}
+}
+
+func TestReadContextUsage_CLIUsesSavedSession(t *testing.T) {
+	home := t.TempDir()
+	tid := "01a13845-acb6-7382-a6de-f154547ff011"
+	dir := filepath.Join(home, "sessions", "2026", "10", "14")
+	_ = os.MkdirAll(dir, 0o755)
+	b, _ := os.ReadFile("testdata/codex/rollout-token-count-doc-derived.jsonl")
+	_ = os.WriteFile(filepath.Join(dir, "rollout-2026-10-14T10-37-32-"+tid+".jsonl"), b, 0o644)
+	t.Setenv("CODEX_HOME", home)
+	cx := &CLIAgentAdapter{kind: cliKindCodex, name: KindCodexCLI, cfg: CLIAgentConfig{DataTemp: t.TempDir()}}
+	if _, _, ok := cx.ReadContextUsage("conv-x", ""); ok {
+		t.Fatal("no saved session must hide ring")
+	}
+	cx.saveSessionID("conv-x", tid)
+	if u, w, ok := cx.ReadContextUsage("conv-x", ""); !ok || u != 28500 || w != 272000 {
+		t.Fatalf("codex reload %d/%d %v", u, w, ok)
+	}
+	// 不再写任何 .cat-context.json。
+	var stray []string
+	_ = filepath.Walk(home, func(p string, _ os.FileInfo, _ error) error {
+		if filepath.Base(p) == ".cat-context.json" {
+			stray = append(stray, p)
+		}
+		return nil
+	})
+	if len(stray) > 0 {
+		t.Fatalf("unexpected %v", stray)
 	}
 }
