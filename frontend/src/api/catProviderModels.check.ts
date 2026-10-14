@@ -12,6 +12,7 @@ import {
   simProviderModelList,
   providerFailureText,
   providerModelOptions,
+  customKnownIssue,
   type CatProviderModelState,
 } from './catProviderModels'
 
@@ -94,4 +95,10 @@ export function catProviderModelsChecks(eq: Eq): void {
     eq(`pm ${st} 下拉文字`, [o[0].label, o[2].label], ['默认模型', '手动填写…'])
   }
   eq('pm 下拉含不在列表', providerModelOptions(r('ok', 1), 'mine').map((x) => x.label), ['默认模型', 'mine （不在当前列表）', 'm0', '──────────', '手动填写…'])
+  // Grok 已知问题灰字：只 Grok、只在自定义开着时
+  const GI = 'Grok Build 暂时只从自定义服务商获取模型列表；发对话需要先登录 Grok，也不保证会走自定义服务商。'
+  eq('pm grok 开', customKnownIssue('cat_build', true), GI)
+  eq('pm grok 关', customKnownIssue('cat_build', false), '')
+  eq('pm claude 开无', customKnownIssue('claude_cli', true), '')
+  eq('pm codex 开无', customKnownIssue('codex_cli', true), '')
 }

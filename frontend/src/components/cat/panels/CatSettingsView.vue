@@ -77,6 +77,11 @@
                       ><i /></button>
                     </div>
                   </div>
+                  <div
+                    v-if="customKnownIssue(block.kind, providerOf(block.kind).enabledCustom)"
+                    class="pm-known"
+                    :data-testid="'cat-set-custom-known-' + block.kind"
+                  >{{ customKnownIssue(block.kind, providerOf(block.kind).enabledCustom) }}</div>
                   <div class="row">
                     <div class="lab">
                       <b>{{ C.protocol }}</b>
@@ -539,6 +544,7 @@ import { catSim, simAgentRaw, simModels, simThinks } from '@/views/cat/catDevSim
 import {
   CAT_PROVIDER_MODELS_COPY as PM,
   customToggleHint,
+  customKnownIssue,
   listCatProviderModels,
   normalizeManualModelId,
   providerModelHint,
@@ -1243,6 +1249,12 @@ onMounted(async () => {
   text-align: right;
   font-size: 12px;
   line-height: 1.5;
+}
+.pm-known {
+  margin: -4px 0 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ff-text-2);
 }
 .pm-err.danger {
   color: var(--ff-danger);

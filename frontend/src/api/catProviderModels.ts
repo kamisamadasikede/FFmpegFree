@@ -177,3 +177,10 @@ export function providerModelOptions(r: Pick<CatProviderModelList, 'state' | 'mo
   out.push({ value: PM_MANUAL, label: CAT_PROVIDER_MODELS_COPY.manualEntry })
   return out
 }
+
+/** 已知问题（v0.46 第 5 条）：Grok 走自定义服务商能列模型，但发对话仍要登录 Grok。修好后把这个常量改成 '' 即可去掉提示（产品 10-14 定稿） */
+export const GROK_CUSTOM_CHAT_KNOWN_ISSUE = 'Grok Build 暂时只从自定义服务商获取模型列表；发对话需要先登录 Grok，也不保证会走自定义服务商。'
+/** 开关下面的已知问题灰字：只有 Grok 且自定义开着时有 */
+export function customKnownIssue(kind: CatProviderKind, enabledCustom: boolean): string {
+  return kind === 'cat_build' && enabledCustom ? GROK_CUSTOM_CHAT_KNOWN_ISSUE : ''
+}
