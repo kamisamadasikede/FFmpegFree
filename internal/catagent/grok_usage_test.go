@@ -18,15 +18,16 @@ func TestParseGrokUsage_PicksLatestAfterStart(t *testing.T) {
 	}
 	start, _ := time.Parse(time.RFC3339, "2026-09-22T14:00:00Z")
 	n := parseGrokUsage(raw, start)
-	if n != 489424 {
-		t.Fatalf("tokens=%d", n)
+	// v0.47：样本 turns[0] inputTokens=471686 outputTokens=17738 reasoningTokens=13913 totalTokens=489424
+	if n.Total != 489424 || n.Output != 17738 {
+		t.Fatalf("usage=%+v", n)
 	}
 	// 起点晚于 endedAt → 无匹配
 	late, _ := time.Parse(time.RFC3339, "2026-09-22T15:00:00Z")
-	if parseGrokUsage(raw, late) != 0 {
+	if parseGrokUsage(raw, late) != (grokTurnUsage{}) {
 		t.Fatal("late start should omit")
 	}
-	if parseGrokUsage([]byte("not json"), start) != 0 {
+	if parseGrokUsage([]byte("not json"), start) != (grokTurnUsage{}) {
 		t.Fatal("bad json → 0")
 	}
 }
@@ -54,8 +55,8 @@ func TestGrokTurnTokens_TimeoutOrFailOmits(t *testing.T) {
 		Now: time.Now,
 	})
 	n := a.grokTurnTokens(fake, os.Environ(), dir, "sess", time.Now().Add(-time.Minute))
-	if n != 0 {
-		t.Fatalf("fail → 0, got %d", n)
+	if n != (grokTurnUsage{}) {
+		t.Fatalf("fail → 0, got %+v", n)
 	}
 }
 
@@ -78,8 +79,8 @@ func TestGrokTurnTokens_ParsesSample(t *testing.T) {
 	})
 	start, _ := time.Parse(time.RFC3339, "2026-09-22T14:00:00Z")
 	n := a.grokTurnTokens(fake, os.Environ(), dir, "01a0c98b-895d-7db1-8aa1-f66ea798989a", start)
-	if n != 489424 {
-		t.Fatalf("tokens=%d", n)
+	if n.Total != 489424 || n.Output != 17738 {
+		t.Fatalf("usage=%+v", n)
 	}
 }
 
@@ -102,4 +103,14 @@ func mustRead(t *testing.T, p string) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+// v0.47：turn 里没有 outputTokens（旧版 / 字段缺）→ Output=0（省略），不拿 total 顶替。
+func TestParseGrokUsage_NoOutputTokensOmits(t *testing.T) {
+	raw := []byte(`{"turns":[{"turnNumber":1,"endedAt":"2026-09-22T14:30:00Z","totalTokens":100}]}`)
+	start, _ := time.Parse(time.RFC3339, "2026-09-22T14:00:00Z")
+	n := parseGrokUsage(raw, start)
+	if n.Total != 100 || n.Output != 0 {
+		t.Fatalf("%+v", n)
+	}
 }

@@ -89,9 +89,11 @@ type TurnResponse struct {
 	Version      int           `json:"version"`
 	Message      WireMessage   `json:"message"`
 	ToolRequests []ToolRequest `json:"toolRequests,omitempty"`
-	// v0.37.1：本轮合计 token / CLI 上报生成耗时（毫秒）。0 = 无 / 未知。
+	// v0.37.1：本轮合计 token。0 = 无 / 未知。
 	TokenTotal int64 `json:"tokenTotal,omitempty"`
-	DurationMs int64 `json:"durationMs,omitempty"`
+	// v0.47 §6.19.19.5：本轮输出 token（含思考）。0 = CLI 没给。
+	// CLI 自报 duration_ms 不再参与 token/s 计算（v0.47 废止），故不再携带。
+	OutputTokens int64 `json:"outputTokens,omitempty"`
 }
 
 // Capabilities 是能力探测结果。

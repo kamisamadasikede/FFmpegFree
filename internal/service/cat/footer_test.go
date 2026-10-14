@@ -63,9 +63,9 @@ func TestFooterCompletedWithUsage(t *testing.T) {
 		time.Sleep(30 * time.Millisecond)
 		o.OnTextDelta("你好")
 		return catagent.TurnResponse{
-			Message:    catagent.WireMessage{Role: "assistant", Content: "你好"},
-			TokenTotal: 120,
-			DurationMs: 2000,
+			Message:      catagent.WireMessage{Role: "assistant", Content: "你好"},
+			TokenTotal:   120,
+			OutputTokens: 40,
 		}, nil
 	}, nil)
 	if _, err := svc.SendCatMessage(context.Background(), cat.SendMessageRequest{ConversationID: conv, Content: "hi"}); err != nil {
@@ -82,8 +82,19 @@ func TestFooterCompletedWithUsage(t *testing.T) {
 	if ev.TokenTotal == nil || *ev.TokenTotal != 120 {
 		t.Fatalf("tokenTotal %+v", ev.TokenTotal)
 	}
-	if ev.TokensPerSec == nil || *ev.TokensPerSec != 60 {
-		t.Fatalf("tokensPerSec %+v want 60", ev.TokensPerSec)
+	if ev.OutputTokens == nil || *ev.OutputTokens != 40 {
+		t.Fatalf("outputTokens %+v", ev.OutputTokens)
+	}
+	// v0.47：40 / ((totalMs − firstTokenMs)/1000)，按事件里的计时复算。
+	if ev.TotalMs == nil || ev.FirstTokenMs == nil || ev.TokensPerSec == nil {
+		t.Fatalf("timing/tps missing: %+v", ev)
+	}
+	gen := *ev.TotalMs - *ev.FirstTokenMs
+	if gen <= 0 {
+		gen = *ev.TotalMs
+	}
+	if want := 40 / (float64(gen) / 1000); *ev.TokensPerSec != want {
+		t.Fatalf("tokensPerSec %v want %v", *ev.TokensPerSec, want)
 	}
 	if ev.MessageID == "" {
 		t.Fatalf("messageId empty: %+v", ev)
@@ -95,7 +106,7 @@ func TestFooterCompletedWithUsage(t *testing.T) {
 		t.Fatalf("turns %+v", rec.turns)
 	}
 	run := rec.turns[0]
-	if run.FinishedAt != 0 || run.TokenTotal != nil || run.TokensPerSec != nil {
+	if run.FinishedAt != 0 || run.TokenTotal != nil || run.TokensPerSec != nil || run.OutputTokens != nil {
 		t.Fatalf("running must omit footer: %+v", run)
 	}
 }
@@ -110,12 +121,13 @@ func TestFooterNoUsageOnlyFinishedAt(t *testing.T) {
 	}
 	svc.Wait()
 	ev := waitTerminal(t, rec)
-	if ev.FinishedAt <= 0 || ev.TokenTotal != nil || ev.TokensPerSec != nil {
+	if ev.FinishedAt <= 0 || ev.TokenTotal != nil || ev.TokensPerSec != nil || ev.OutputTokens != nil {
 		t.Fatalf("want only finishedAt: %+v", ev)
 	}
 }
 
-func TestFooterWallClockWhenNoCLIDuration(t *testing.T) {
+// v0.47：只有合计、没有输出 token → outputTokens 与 tokensPerSec 都省略，不得用合计顶替。
+func TestFooterTotalOnlyOmitsSpeed(t *testing.T) {
 	svc, rec, conv, _ := setupFooter(t, func(o catagent.TurnOptions) (catagent.TurnResponse, error) {
 		time.Sleep(50 * time.Millisecond)
 		o.OnTextDelta("x")
@@ -129,15 +141,16 @@ func TestFooterWallClockWhenNoCLIDuration(t *testing.T) {
 	if ev.TokenTotal == nil || *ev.TokenTotal != 10 {
 		t.Fatalf("%+v", ev)
 	}
-	if ev.TokensPerSec == nil || *ev.TokensPerSec <= 0 {
-		t.Fatalf("wall-clock tokensPerSec missing: %+v", ev)
+	if ev.TokensPerSec != nil || ev.OutputTokens != nil {
+		t.Fatalf("total-only must omit outputTokens/tokensPerSec: %+v", ev)
 	}
 }
 
 func TestFooterFailedPartialUsage(t *testing.T) {
 	svc, rec, conv, _ := setupFooter(t, func(o catagent.TurnOptions) (catagent.TurnResponse, error) {
 		o.OnTextDelta("半句")
-		return catagent.TurnResponse{TokenTotal: 7, DurationMs: 1000}, apperr.New(apperr.CatReplyFailed, "boom")
+		time.Sleep(20 * time.Millisecond)
+		return catagent.TurnResponse{TokenTotal: 7, OutputTokens: 3}, apperr.New(apperr.CatReplyFailed, "boom")
 	}, nil)
 	if _, err := svc.SendCatMessage(context.Background(), cat.SendMessageRequest{ConversationID: conv, Content: "hi"}); err != nil {
 		t.Fatal(err)
@@ -150,8 +163,8 @@ func TestFooterFailedPartialUsage(t *testing.T) {
 	if ev.FinishedAt <= 0 || ev.TokenTotal == nil || *ev.TokenTotal != 7 {
 		t.Fatalf("%+v", ev)
 	}
-	if ev.TokensPerSec == nil || *ev.TokensPerSec != 7 {
-		t.Fatalf("tps %+v", ev.TokensPerSec)
+	if ev.OutputTokens == nil || *ev.OutputTokens != 3 || ev.TokensPerSec == nil || *ev.TokensPerSec <= 0 {
+		t.Fatalf("partial out/tps %+v %+v", ev.OutputTokens, ev.TokensPerSec)
 	}
 }
 
@@ -162,8 +175,9 @@ func TestFooterPersistedIntoGetConversation(t *testing.T) {
 	}
 	svc, _, conv, _ := setupFooter(t, func(o catagent.TurnOptions) (catagent.TurnResponse, error) {
 		o.OnTextDelta("你好")
+		time.Sleep(20 * time.Millisecond)
 		return catagent.TurnResponse{
-			Message: catagent.WireMessage{Content: "你好"}, TokenTotal: 50, DurationMs: 1000,
+			Message: catagent.WireMessage{Content: "你好"}, TokenTotal: 50, OutputTokens: 20,
 		}, nil
 	}, wires)
 	if _, err := svc.SendCatMessage(context.Background(), cat.SendMessageRequest{ConversationID: conv, Content: "hi"}); err != nil {
@@ -184,7 +198,10 @@ func TestFooterPersistedIntoGetConversation(t *testing.T) {
 	if asst.TokenTotal == nil || *asst.TokenTotal != 50 {
 		t.Fatalf("token %+v", asst.TokenTotal)
 	}
-	if asst.TokensPerSec == nil || *asst.TokensPerSec != 50 {
+	if asst.OutputTokens == nil || *asst.OutputTokens != 20 {
+		t.Fatalf("out %+v", asst.OutputTokens)
+	}
+	if asst.TokensPerSec == nil || *asst.TokensPerSec <= 0 {
 		t.Fatalf("tps %+v", asst.TokensPerSec)
 	}
 	// user 无尾字段

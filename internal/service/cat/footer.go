@@ -18,6 +18,7 @@ type messageFooter struct {
 	FinishedAt   int64    `json:"finishedAt"`
 	TokenTotal   *int64   `json:"tokenTotal,omitempty"`
 	TokensPerSec *float64 `json:"tokensPerSec,omitempty"`
+	OutputTokens *int64   `json:"outputTokens,omitempty"` // v0.47
 	FirstTokenMs *int64   `json:"firstTokenMs,omitempty"` // v0.45
 	TotalMs      *int64   `json:"totalMs,omitempty"`      // v0.45
 }
@@ -97,18 +98,28 @@ func applyFooters(dataRoot, convID string, msgs []store.CatMessage) []store.CatM
 		msgs[i].FinishedAt = f.FinishedAt
 		msgs[i].TokenTotal = f.TokenTotal
 		msgs[i].TokensPerSec = f.TokensPerSec
+		msgs[i].OutputTokens = f.OutputTokens
 		msgs[i].FirstTokenMs = f.FirstTokenMs
 		msgs[i].TotalMs = f.TotalMs
 	}
 	return msgs
 }
 
-// computeTokensPerSec 按契约：tokenTotal / (durationMs/1000)；durationMs≤0 → nil。
-func computeTokensPerSec(tokenTotal, durationMs int64) *float64 {
-	if tokenTotal <= 0 || durationMs <= 0 {
+// computeTokensPerSec 按契约 v0.47 §6.19.19.5：outputTokens / genSec。
+// genSec：有首字且 totalMs−firstTokenMs > 0 → 差值；否则 totalMs。outputTokens≤0 或 genSec≤0 → nil。
+// 不得用合计 token 顶替分子；CLI 自报 duration_ms 不参与。
+func computeTokensPerSec(outputTokens int64, totalMs, firstTokenMs *int64) *float64 {
+	if outputTokens <= 0 || totalMs == nil {
 		return nil
 	}
-	v := float64(tokenTotal) / (float64(durationMs) / 1000.0)
+	genMs := *totalMs
+	if firstTokenMs != nil && *totalMs-*firstTokenMs > 0 {
+		genMs = *totalMs - *firstTokenMs
+	}
+	if genMs <= 0 {
+		return nil
+	}
+	v := float64(outputTokens) / (float64(genMs) / 1000.0)
 	return &v
 }
 
