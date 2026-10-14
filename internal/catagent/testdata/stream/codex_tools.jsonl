@@ -1,0 +1,11 @@
+{"type":"thread.started","thread_id":"t1"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"看一下目录。"}}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"bash -lc ls","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"bash -lc ls","aggregated_output":"a.txt\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"file_change","changes":[{"path":"a.txt","kind":"update"}],"status":"completed"}}
+{"type":"item.started","item":{"id":"item_3","type":"mcp_tool_call","server":"fs","tool":"read","arguments":{"p":"x"},"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_4","type":"web_search","query":"wails notify"}}
+{"type":"item.completed","item":{"id":"item_5","type":"command_execution","command":"false","exit_code":1,"status":"failed"}}
+{"type":"item.completed","item":{"id":"item_6","type":"agent_message","text":"好了。"}}
+{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5}}

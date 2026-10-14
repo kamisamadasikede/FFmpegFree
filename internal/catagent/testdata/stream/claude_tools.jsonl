@@ -1,0 +1,9 @@
+{"type":"system","subtype":"init","session_id":"s1"}
+{"type":"stream_event","session_id":"s1","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"先写文件。"}}}
+{"type":"assistant","session_id":"s1","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"先写文件。"}]}}
+{"type":"assistant","session_id":"s1","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Write","input":{"file_path":"a.txt","content":"hi"}}]}}
+{"type":"user","session_id":"s1","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"File created"}]}}
+{"type":"assistant","session_id":"s1","message":{"id":"m2","role":"assistant","content":[{"type":"tool_use","id":"toolu_2","name":"Bash","input":{"command":"false"}}]}}
+{"type":"user","session_id":"s1","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_2","is_error":true,"content":[{"type":"text","text":"exit 1"}]}]}}
+{"type":"stream_event","session_id":"s1","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"完成。"}}}
+{"type":"result","subtype":"success","is_error":false,"session_id":"s1","result":"先写文件。完成。"}

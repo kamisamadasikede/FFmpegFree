@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.48.1）
+# FFmpegFree v2 接口契约（v0.48.2）
+
+v0.48.2 变更（**Codex / Claude 回复中实时显示工具调用**，老板 t85u 2026-10-14；对照表见 **6.19.23**；无新错误码 / 迁移 / 事件名 / 绑定 / settings 键）：工具行与 Grok 一样走 `cat:message` 的 tool / thought 块（OpReplace，同 id 原地更新），与正文按到达顺序穿插；标签文字与重新加载会话记录一致，刷新后不重复。
 
 v0.48.1 变更（**Codex / Claude 也显示上下文圆环**，老板 t83u 2026-10-14；规则与取数对照表见 **6.19.22**；无新错误码 / 迁移 / 事件名 / 绑定 / settings 键）：① 终态 `cat:turn` 与会话详情的 `contextUsed` / `contextWindow` 改为三家都填（Codex 读 rollout 最后一条 `token_count`；Claude 读 transcript 最后一条 assistant usage + stream `result.modelUsage[].contextWindow`）。② 前端不分助手：两数都 > 0 就画圆环，否则隐藏。③ 拿不到不估算。
 
@@ -6225,3 +6227,26 @@ H.265 在 mp4 / mov 里照旧加 `-tag:v hvc1`。**直播**（H.264，码率控�
 
 **已在沙箱验证**（ffmpeg 7.1.5，有 `h264_nvenc` 编码器但没有 GPU，libcuda 缺失）：转换 / 剪辑导出 / 文件推流到 MediaMTX 的 CPU 路径端到端；选 NVIDIA 时真实 NVENC 初始化失败（`Cannot load libcuda.so.1` / `Error while opening encoder`）→ 自动 CPU 重试成功，输出 h264，任务带 `hwFallback`；假 ffmpeg 夹具覆盖：初始化失败回退成功、重试也失败、与硬件无关的失败不回退、取消不回退、直播推流前失败回退、推流中途失败不回退。
 **未在真机验证**：真实 NVENC / QSV / AMF / VideoToolbox 的画质与码率（CRF → 质量映射是经验值）；各厂商 stderr 失败特征的覆盖度（尤其 QSV、AMF、VideoToolbox 的真实报错文案）；`-rc cqp` / `vbr_peak` / `-async_depth` / `-realtime` 等参数在各驱动版本上的可用性；4096 的尺寸上限只是保守取值（新显卡的 H.264 可能支持更大）；直播在硬件编码器上的延迟与 `-bf 0` 效果。
+
+### 6.19.23 Codex / Claude 实时工具调用（v0.48.2，老板 t85u，架构师 10-14）
+
+此前 Claude 的 stream-json `type=assistant` 整行被忽略，工具调用只在刷新后从 transcript 出现；Codex 的工具行只取 `command`，其余类型显示成类型名。现统一走 `OnActivity`（与 Grok 同路径），id 相同的块原地替换。
+
+参数：Claude `-p --output-format stream-json --verbose --include-partial-messages`（H testdata/help/claude.txt）；Codex `exec --json`（H testdata/help/codex-exec.txt）。
+
+| CLI | 流里的行 | 界面块 | id | 文字 |
+|---|---|---|---|---|
+| Claude | `stream_event` text_delta | 正文增量 | — | 增量 |
+| Claude | `assistant` 的 `tool_use` 块 | tool | `tool_use.id` | `名字 输入JSON`（≤200，与 transcript 同） |
+| Claude | `assistant` 的 `thinking` 块 | thought | `think:<msgid>:<idx>` | 思考全文 |
+| Claude | `assistant` 的 `text` 块 | 不出（已由 delta 送达，防重复） | — | — |
+| Claude | `user` 的 `tool_result` 且 `is_error` | tool | `<tool_use_id>:error` | `error: 结果`（与 transcript 同） |
+| Codex | `item.*` agent_message | 正文 | — | text |
+| Codex | `item.*` reasoning | thought | — | text |
+| Codex | `item.started/completed` command_execution | tool | item.id | `shell <command>` |
+| Codex | file_change | tool | item.id | `apply_patch` + 每行 `<kind> <path>` |
+| Codex | mcp_tool_call | tool | item.id | `<server>.<tool> <arguments>` |
+| Codex | web_search | tool | item.id | `web_search <query>` |
+
+Codex 任一工具 `status` 为 failed / declined 时标签后加 ` · 失败`。Codex 实时标签与 rollout 里的 `function_call` 文字不完全相同（来源不同）；刷新后以会话记录为准，实时行被整份历史替换，不叠加。
+
