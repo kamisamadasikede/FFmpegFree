@@ -67,6 +67,10 @@ type GitStatusResult struct {
 	Changes    []GitChange        `json:"changes"`
 	MergeState string             `json:"mergeState"` // none | merging | rebasing | cherry
 	Conflicts  []GitConflictEntry `json:"conflicts"`
+	// v0.53：分离 HEAD 时 Detached=true；HeadSha / HeadShortSha 是当前提交（还没有提交时为空）。
+	Detached     bool   `json:"detached"`
+	HeadSha      string `json:"headSha"`
+	HeadShortSha string `json:"headShortSha"`
 }
 
 // GitCatConflictResolveRequest 是单文件冲突解决。
@@ -817,11 +821,13 @@ func (s *Service) statusIn(ctx context.Context, lay gitLayout) (GitStatusResult,
 	if conflicts == nil {
 		conflicts = []GitConflictEntry{}
 	}
-	return GitStatusResult{
+	res := GitStatusResult{
 		Repo: true, Branch: branch, Upstream: upstream, Ahead: ahead, Behind: behind,
 		Remote: remote, Web: web, Changes: changes,
 		MergeState: mergeState, Conflicts: conflicts,
-	}, nil
+	}
+	fillHeadInfo(ctx, lay.top, &res)
+	return res, nil
 }
 
 func findGitLayout(ctx context.Context, convRoot string) (gitLayout, bool, error) {
