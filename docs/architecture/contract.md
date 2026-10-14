@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.46）
+# FFmpegFree v2 接口契约（v0.47）
+
+v0.47 变更（**消息尾加「输出 token」，token/s 改按输出 token 算**，老板 t72u，产品定稿，架构师 10-14；无新错误码 / 迁移 / 事件名）：① `CatMessage`（assistant）与终态 `cat:turn` 新增可选 `outputTokens`；`tokenTotal` 保留不变。② `tokensPerSec` **只由后端算** = `outputTokens / ((totalMs − firstTokenMs)/1000)`；无 `firstTokenMs` 时用 `totalMs/1000`；**废止** v0.37.1 的「CLI `durationMs` → turn 墙钟、合计 token 作分子」口径。③ 无 `outputTokens` → `outputTokens` 与 `tokensPerSec` 都省略，**不得**用合计顶替。④ 前端不再自己算 token/s。⑤ 文案、窄窗顺序、tooltip 定稿。三家取数对照表与单测要求见 **6.19.19.5**。
 
 v0.46 变更（**自定义服务商排在默认模型上面 + 拉服务商自己的模型列表**，老板 t71u，架构师 10-14；无迁移 / 事件名）：① 新增 `ListCatProviderModels(req{agentKind, refresh}) (CatProviderModelList, error)`，按协议调服务商 `/models`，结果状态放 `state`（ok / not_configured / unauthorized / unreachable / not_supported / bad_response），不新增错误码；② 自定义开时 `ListCatModels` 改用服务商列表，设置页和输入区同一来源；③ 自定义开时允许手填模型 id；④ 6.19.14 C1–C3 改为核过的注入方式（Grok `GROK_MODELS_BASE_URL`+`XAI_API_KEY`，删 `XAI_BASE_URL`/`OPENAI_BASE_URL`；Claude 网关用 `ANTHROPIC_AUTH_TOKEN`；Codex 用 `-c model_providers.ffcat.*`）；⑤ 设置页每家顺序改为 自定义服务商 → 默认模型。详见 **6.19.20**。
 
@@ -4112,7 +4114,8 @@ type CatMessage struct {
     // v0.37.1 消息尾（仅 assistant；缺省 omitempty；旧消息无字段 → 不显示尾巴）
     FinishedAt   int64    `json:"finishedAt,omitempty"`   // Unix 毫秒；该 turn 终态时刻
     TokenTotal   *int64   `json:"tokenTotal,omitempty"`   // 本 turn 合计 token；无 usage 则省略（指针：0 与缺省可区分）
-    TokensPerSec *float64 `json:"tokensPerSec,omitempty"` // 约 token/s；无 usage 或 durationMs≤0 则省略
+    TokensPerSec *float64 `json:"tokensPerSec,omitempty"` // 约 token/s；v0.47 起 = outputTokens / 生成秒数（见 6.19.19.5）；无 outputTokens 则省略
+    OutputTokens *int64   `json:"outputTokens,omitempty"` // v0.47：本轮输出 token；CLI 没给则省略
 }
 ```
 
@@ -4229,7 +4232,8 @@ type CatTurnEvent = {
   messageId?: string       // 本轮主助手气泡 id，供前端挂消息尾；可省略则前端按 turnId 关联已收到的助手 messageId
   finishedAt?: number      // Unix 毫秒；该 turn 终态时刻（有则显示「完成于 HH:mm」）
   tokenTotal?: number      // 合计 token；无 usage 则省略（含 JSON 缺省）
-  tokensPerSec?: number    // 约 token/s；无 usage 或 durationMs≤0 则省略
+  tokensPerSec?: number    // 约 token/s；v0.47 起按 outputTokens 算（6.19.19.5）；无 outputTokens 则省略
+  outputTokens?: number    // v0.47：本轮输出 token；CLI 没给则省略
 }
 ```
 
@@ -4254,7 +4258,9 @@ type CatTurnEvent = {
 | 花费 token | `tokenTotal` | **有 usage 才出现**；显示 `共 N token`；CLI 若给 in/out，后端**相加归一**为合计后再下发 |
 | token/s | `tokensPerSec` | 有 usage **且** `durationMs > 0` 时出现；显示 `约 M token/s` |
 
-**`tokensPerSec` 与 `durationMs`（产品锁定）**
+> **v0.47 已改**：本段公式与 `durationMs` 优先级作废，`tokensPerSec` 改按输出 token 与 `totalMs`/`firstTokenMs` 计算，见 **6.19.19.5**。下文保留作历史。
+
+**`tokensPerSec` 与 `durationMs`（v0.37.1，已被 v0.47 取代）**
 
 1. 公式：`tokensPerSec = tokenTotal / (durationMs / 1000)`（浮点；前端展示可四舍五入到整数或一位小数，实现自定但须稳定）。  
 2. **`durationMs` 优先级**：① **优先**采用 CLI / 适配器上报的本轮生成耗时 `durationMs`；② CLI **未给**时，用本轮 **turn 墙钟**：`finishedAt − turnStartedAt`（`turnStartedAt` = 发出 `cat:turn` `running` 或等价「启 turn」的时刻，与 `SendCatMessage` 返回后后台开跑对齐）。  
@@ -5716,11 +5722,56 @@ totalMs?: number
 - **窄窗隐藏顺序**（从末尾往前藏）：先藏 `约 M token/s`，再藏 `共 N token`；「完成于」与「总耗时」最后藏。被藏的项仍可在消息尾悬停看到全部。
 - **取消 / 失败**：没出过首字 → 不显示「首字」段；「总耗时」照常显示到停下那一刻（对应后端必带的 `totalMs`）。
 
+> **v0.47**：上面定稿行改为 `完成于 14:32 · 首字 1.2s · 总耗时 8.4s · 共 12,345 token · 输出 2,100 token · 约 280 token/s`，见 6.19.19.5。
+
 #### 6.19.19.4 不做 / 验收
 
 - 不做：Grok token 估算；拆 in/out；Claude 会话文件写回；把正文改回写进 SQLite；无新错误码（仍 39 个）、无迁移、无新事件名。
 - **验收**：① 点开侧栏任一对话（三家），正文来自该家 CLI 会话存储（有 `sessionId` 且文件在 → 非空；曾存过 id 但文件不在 → `messages=[]` + `historyStatus="missing"` + 灰字「这段对话的会话记录在本地找不到了。」；文件在但读失败 → `historyStatus="read_failed"` +「这段对话的历史记录暂时无法显示。」；新建未发消息 → 无 `historyStatus`、欢迎页；不编造）。② Claude 刷新 / 重启后记录完整、下一句 `--resume` 接得上上文；Codex / Claude 侧栏显示首句标题。③ Grok 回复后尾巴有 token 与 token/s（`grok usage` 取得到时）。④ 三家尾巴文案按产品定稿；窄窗按从末尾往前藏；取消 / 失败必有总耗时、无首字则不显示首字。
 
+
+#### 6.19.19.5 输出 token 与按输出算 token/s（v0.47，老板 t72u，产品定稿，架构师 10-14）
+
+**字段**（`CatMessage` assistant + 终态 `cat:turn`，`running` 不得带；持久化同 v0.37.1 消息尾元数据，无迁移）：
+
+```ts
+tokenTotal?: number    // 不变：本轮合计
+outputTokens?: number  // 新增：本轮输出 token（含思考 / reasoning，见下表）
+tokensPerSec?: number  // 改口径
+```
+
+**公式（只在后端算，前端不再算）**
+
+1. 生成秒数 `genSec`：有 `firstTokenMs` 且 `totalMs − firstTokenMs > 0` → `(totalMs − firstTokenMs)/1000`；否则（无首字，或差 ≤ 0）→ `totalMs/1000`。`totalMs`、`firstTokenMs` 即 6.19.19.3 的应用侧计时。
+2. `tokensPerSec = outputTokens / genSec`（浮点，前端四舍五入到整数显示）。
+3. `outputTokens` 缺省 / ≤0、或 `genSec ≤ 0` → 省略 `tokensPerSec`。**没有 `outputTokens` 时两者都省略，不得用 `tokenTotal` 顶替**。
+4. 废止 v0.37.1 的「CLI `durationMs` 优先 → turn 墙钟」分母与「`tokenTotal` 作分子」；CLI 自报 `duration_ms` 不再参与计算。
+5. 取消 / 失败：有部分输出用量 → 照上式；否则省略。
+
+**三家取数对照表**
+
+| CLI | `outputTokens` 来源 | 是否含思考 | 出处 / 核对状态 |
+|---|---|---|---|
+| Claude（`claude_cli`） | stream-json 最后一条 `type=result` 的 `usage.output_tokens` | 含（Anthropic API `output_tokens` 本身包含 extended thinking 输出） | 后端已在 `claudeUsageTotal` 读此字段；仓库 testdata `internal/catagent/testdata/claude/*.jsonl` 有 `usage.output_tokens`（该样本值为 0）；**本机未登录 Claude，未用真机一轮核对非 0 值** |
+| Codex（`codex_cli`） | `exec --json` 的 `type=turn.completed` 事件 `usage.output_tokens` | 含：`reasoning_output_tokens` 是 `output_tokens` 的**子项**（OpenAI Responses 口径 `output_tokens_details.reasoning_tokens` 包含在 output 里），**不得再相加** | openai/codex `codex-rs/exec/src/exec_events.rs` `struct Usage { input_tokens, cached_input_tokens, cache_write_input_tokens, output_tokens, reasoning_output_tokens }`；**「reasoning 为 output 子项」按 OpenAI API 口径推定，未用真机样本核对** |
+| Grok Build（`cat_build`） | `grok usage <sessionId>` JSON 中按 6.19.19.2 选中那项 `turns[].outputTokens` | 推定含：样本 `reasoningTokens`(13913) < `outputTokens`(17738)，且 `inputTokens + outputTokens = totalTokens`（471686+17738=489424），说明 reasoning 没另算进合计 | 真机样本 grok 1.0.40（`turns[]` 每项有独立 `outputTokens`）；**「reasoning 为子项」由样本数字推断，官方 help 未写字段含义** |
+
+**后端顺带须修（同一实现 PR）**：`parseCodexUsage` 现在把 `cached_input_tokens`、`reasoning_output_tokens` 也加进 `tokenTotal`，二者分别是 input / output 的子项，属重复计数；`tokenTotal` 改为 `input_tokens + output_tokens`（无则 `total_tokens`）。Claude 的 `cache_*_input_tokens` 在 Anthropic 口径下是独立于 `input_tokens` 的，现有相加保留。
+
+**单测（必做）**：三家各一条基于样本 / 快照的解析单测——Claude 用 `result` 事件样本、Codex 用 `turn.completed` 样本（含 `reasoning_output_tokens`，断言不重复相加）、Grok 用 `grok usage` JSON 样本（`outputTokens=17738`）；`tokensPerSec` 单测覆盖：有首字、无首字、`totalMs−firstTokenMs ≤ 0`、无 `outputTokens`（两字段都省略）。
+
+**前端（产品定稿）**
+
+```text
+完成于 14:32 · 首字 1.2s · 总耗时 8.4s · 共 12,345 token · 输出 2,100 token · 约 280 token/s
+```
+
+- `输出 N token` 千分位；缺 `outputTokens` 则「输出」与「token/s」两段都不显示。
+- 前端只显示后端给的 `tokensPerSec`，**不自己算**。
+- 窄窗隐藏顺序（从末尾往前）：先藏 `约 M token/s`，再藏 `输出 N token`，再藏 `共 N token`；「完成于」「总耗时」最后藏。
+- tooltip 新增一行：`约 x token/s：按输出 token 计算`（与首字 / 总耗时说明、被藏项同一 tooltip，一项一行）。
+
+**不做**：拆 input 显示；估算任何 token；改 `firstTokenMs` / `totalMs` 计时口径。
 
 ### 6.19.20 自定义服务商排在默认模型上面 + 拉服务商自己的模型列表（v0.46，老板 t71u，架构师 10-14）
 
