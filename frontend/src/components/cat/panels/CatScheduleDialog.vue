@@ -43,14 +43,14 @@
                   type="button"
                   role="radio"
                   class="seg-b"
-                  :class="{ on: form.approvalMode === a.id, warn: a.id === 'approve' && form.approvalMode === 'approve' }"
+                  :class="{ on: form.approvalMode === a.id, warn: !!a.risky && form.approvalMode === a.id }"
                   :aria-checked="form.approvalMode === a.id"
                   :data-testid="'sd-approval-' + a.id"
                   @click="form.approvalMode = a.id"
                 >{{ a.label }}</button>
               </div>
               <Transition name="sd-h">
-                <p v-if="form.approvalMode === 'approve'" key="w" class="warnbox" data-testid="sd-approve-warn"><FIcon name="alert" :size="14" />{{ C.approveWarn }}</p>
+                <p v-if="selRisky" key="w" class="warnbox" data-testid="sd-approve-warn"><FIcon name="alert" :size="14" />{{ C.approveWarn }}</p>
                 <span v-else-if="form.approvalMode === 'normal'" key="n" class="fh" data-testid="sd-normal-hint">{{ C.normalHint }}</span>
               </Transition>
             </div>
@@ -165,9 +165,10 @@ const PROVIDERS = CAT_PROVIDER_ORDER
 const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''
 const editing = computed(() => !!props.schedule)
 const projects = computed(() => catState.projects)
-const formCaps = useCatAgentCapabilities(() => form.agentKind ?? '')
+const formCaps = useCatAgentCapabilities(() => form.agentKind ?? '', () => form.model ?? '')
 /** 模式按所选服务商的列表渲染（契约 v0.44 前三家都是写死兜底） */
 const modeOpts = computed(() => formCaps.value.modes.options)
+const selRisky = computed(() => !!modeOpts.value.find((o) => o.id === form.approvalMode)?.risky)
 /** 强度：该家有列表用列表；没有时沿用旧的四档兜底（与改造前行为一致） */
 const efforts = computed(() =>
   formCaps.value.efforts.options.length

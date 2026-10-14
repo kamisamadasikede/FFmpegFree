@@ -75,6 +75,8 @@ export interface CatAgentStatus {
   /** 该家不需要登录时可省略（undefined） */
   loggedIn?: boolean | null
   detail?: string
+  /** v0.44 agents[].modes 原样（由 views/cat/catCapabilities 的 mapAgentModes 解析） */
+  rawModes?: unknown
 }
 
 export interface CatStatus {
@@ -89,6 +91,9 @@ export interface CatStatus {
 export interface CatModel {
   id: string
   displayName: string
+  /** v0.44：该模型支持的档位 id（未知 = []）；旧后端没有该字段 */
+  efforts?: string[]
+  defaultEffort?: string
 }
 
 export interface CatThinkLevel {
@@ -196,6 +201,7 @@ function mapAgents(raw: unknown, fallbackReady: boolean, fallbackVersion: string
         version: typeof r.version === 'string' ? r.version : '',
         loggedIn,
         detail: typeof r.detail === 'string' ? r.detail : '',
+        rawModes: r.modes,
       })
     }
   }
@@ -316,7 +322,15 @@ function mapList<T extends { id: string; displayName: string }>(raw: unknown): T
 export async function listCatModels(agentKind: CatAgentKind): Promise<CatModel[]> {
   if (!isProviderKind(agentKind) || !live()) return []
   try {
-    return mapList<CatModel>(await call(CatBinding.ListCatModels(agentKind)))
+    const raw: unknown = await call(CatBinding.ListCatModels(agentKind))
+    const byId = new Map<string, Record<string, unknown>>()
+    for (const m of Array.isArray(raw) ? raw : []) if (m && typeof m.id === 'string') byId.set(m.id, m)
+    return mapList<CatModel>(raw).map((m) => {
+      const r = byId.get(m.id) ?? {}
+      return Array.isArray(r.efforts)
+        ? { ...m, efforts: r.efforts.filter((e: unknown): e is string => typeof e === 'string'), defaultEffort: typeof r.defaultEffort === 'string' ? r.defaultEffort : '' }
+        : m
+    })
   } catch {
     return []
   }
@@ -478,4 +492,18 @@ export function onCatTurn(cb: (e: CatTurnEvent) => void): () => void {
     const e = normalizeTurnEvent(raw)
     if (e) cb(e)
   })
+}
+
+/**
+ * 契约 v0.44 6.19.18.7：原地重试最后一轮失败的 turn（不新增用户气泡）。
+ * 生成的绑定还没有这个方法 → 走 callService 动态查；后端没提供时抛 UNSUPPORTED（调用方可回退旧重试）。
+ */
+export interface RetryCatTurnRequest {
+  conversationId: string
+  turnId: string
+}
+export async function retryCatTurn(req: RetryCatTurnRequest): Promise<{ turnId: string }> {
+  if (!live()) throw new AppError('CAT_NOT_READY', CAT_COPY.notReady)
+  const raw = await callService<{ turnId?: unknown } | null>('CatService', 'RetryCatTurn', { conversationId: req.conversationId, turnId: req.turnId })
+  return { turnId: String(raw?.turnId ?? '') }
 }

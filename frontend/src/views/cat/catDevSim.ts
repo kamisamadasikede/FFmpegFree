@@ -43,7 +43,6 @@
  */
 import type { CatStreamEvent, CatTurnEvent } from '@/api/catStream'
 import type { CatModel, CatThinkLevel } from '@/api/cat'
-import type { CatOptionList } from './catCapabilities'
 
 /** 走查：?cat_sim=caps 时的模型列表（第一项 = 默认模型） */
 export function simModels(): CatModel[] {
@@ -152,17 +151,20 @@ export function simStream(
 }
 
 /**
- * 【MOCK · 走查假数据】?cat_sim=codexcaps 时 Codex 的对话模式列表。
- * 不是 codex-cli 真实输出，只用来看「每家列表不同」时下拉怎么渲染；id 暂用现有批准方式 id，发消息链路不变。
+ * 【MOCK · 走查假数据】?cat_sim=codexcaps 时 Codex 的能力，按 v0.44 草案原始形状给（经 mapBackendCaps 映射）。
+ * 不是 codex-cli 真实输出；模式 id 按 v0.44 表（无 isDefault → 预选第一项）。model-4.7-fast 故意少档，走查切模型时强度退回默认。
  */
-export function simCodexModes(): CatOptionList {
+export function simCodexRaw(): unknown {
   return {
-    options: [
-      { id: 'normal', label: '只读（MOCK）', desc: '走查假数据：只看不改。' },
-      { id: 'auto', label: '工作区可写（MOCK）', desc: '走查假数据：可改工作区文件，不再询问。' },
-      { id: 'approve', label: '完全访问（MOCK）', desc: '走查假数据：跳过批准和沙箱。' },
+    modes: [
+      { id: 'read-only', label: '只读（MOCK）', shortLabel: '只读', risk: 'safe', description: '走查假数据：只看不改。', writesFiles: false, isDefault: false },
+      { id: 'workspace-write', label: '工作区可写（MOCK）', shortLabel: '可写', risk: 'edits', description: '', writesFiles: true, isDefault: false },
+      { id: 'bypass', label: '完全访问（MOCK）', shortLabel: '完全', risk: 'danger', description: '走查假数据：跳过批准和沙箱。', writesFiles: true, isDefault: false },
     ],
-    defaultId: 'auto',
+    models: [
+      { id: 'model-4.7', defaultEffort: 'medium', efforts: ['minimal', 'low', 'medium', 'high'] },
+      { id: 'model-4.7-fast', defaultEffort: 'low', efforts: ['low', 'medium'] },
+    ],
   }
 }
 

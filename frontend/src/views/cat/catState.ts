@@ -83,8 +83,8 @@ import { AppError, toAppError } from '@/api/call'
 import { CAT_CLI_OUTDATED_COPY, parseCliOutdated } from '@/components/cat/catCliOutdated'
 import { catPanels, showTurnFinishToast, defaultConvPref } from './catPanels'
 import { rememberNewConvProject, resolveNewConvProject } from './catLocalPrefs'
-import { catSim, catSimOs, catSimPicks, simCodexModes, simCodexThinks, simModels, simStream, simThinks } from './catDevSim'
-import { modeMeta, setBackendCaps, useCatAgentCapabilities } from './catCapabilities'
+import { catSim, catSimOs, catSimPicks, simCodexRaw, simCodexThinks, simModels, simStream, simThinks } from './catDevSim'
+import { mapAgentModes, mapBackendCaps, mapModelEfforts, getCatAgentCapabilities, modeMeta, pickSupported, setBackendCaps, useCatAgentCapabilities } from './catCapabilities'
 import {
   CAT_CONV_PREFS_KEY,
   carryPref,
@@ -95,7 +95,6 @@ import {
   resolveAccess,
   resolveConvPref,
   writeConvPrefs,
-  type CatAccessId,
   type CatConvPrefMap,
 } from './catConvPrefs'
 
@@ -186,7 +185,8 @@ export const catState = reactive({
    */
   think: boot.think,
   /** 当前对话的批准方式。没记过是全部批准。 */
-  access: boot.access as CatAccessId,
+  /** 模式 id：v0.44 起存该 agentKind 的 mode id（旧四档 id 仍可读） */
+  access: boot.access as string,
   /** 欢迎页模式；v0.36 三家可选，只影响新对话 */
   mode: 'cat_build',
   workInProject: true,
@@ -282,7 +282,7 @@ export const capsuleLabel = computed(() => {
 })
 
 /** 当前会话 agentKind 的模式 / 强度列表（统一走 useCatAgentCapabilities；契约 v0.44 前模式用写死兜底） */
-export const currentCaps = useCatAgentCapabilities(() => currentAgentKind())
+export const currentCaps = useCatAgentCapabilities(() => currentAgentKind(), () => catState.model)
 
 /** 胶囊上显示的模式：当前选的不在这家列表里时显示该家默认 */
 export const accessMeta = computed(() => {
@@ -492,7 +492,7 @@ export function currentAgentKind(): CatAgentKind {
 function showConvPref(convId: string) {
   // v0.35：欢迎页没选过时用 Cat 设置里的新对话默认值；已有对话不回填
   const pref = prefOf(loadPrefMap(), convId) ?? (convId === NEW_CONV ? defaultConvPref(currentAgentKind()) : null)
-  catState.access = resolveAccess(pref?.access)
+  catState.access = accessFor(pref?.access)
   if (!capsLoaded) {
     catState.model = pref?.model ?? ''
     catState.think = pref?.think ?? ''
@@ -513,6 +513,8 @@ function rememberSelection() {
 export function chooseModel(id: string) {
   if (!id) return
   catState.model = id
+  // 强度按模型：新模型不支持当前强度 → 退回该模型默认
+  catState.think = pickSupported(getCatAgentCapabilities(currentAgentKind(), id).efforts, catState.think)
   rememberSelection()
 }
 
@@ -522,8 +524,15 @@ export function chooseThink(id: string) {
   rememberSelection()
 }
 
+/** 当前这家列表里有的 id 原样用（v0.44 mode id）；否则按旧四档规则认 */
+function accessFor(id: string | undefined | null): string {
+  const v = (id || '').trim()
+  if (v && getCatAgentCapabilities(currentAgentKind()).modes.options.some((o) => o.id === v)) return v
+  return resolveAccess(v)
+}
+
 export function chooseAccess(id: string) {
-  catState.access = resolveAccess(id)
+  catState.access = accessFor(id)
   rememberSelection()
 }
 
@@ -557,7 +566,11 @@ export async function refreshCapabilities(agentKind: CatAgentKind = currentAgent
   if (ticket !== capsTicket) return
   catState.models = models
   catState.thinks = thinks
-  setBackendCaps(agentKind, codexSim ? { thinks, modes: simCodexModes() } : { thinks })
+  if (codexSim) setBackendCaps(agentKind, { thinks, ...mapBackendCaps(simCodexRaw()) })
+  else {
+    const st = catState.status.agents?.find((a) => a.agentKind === agentKind)
+    setBackendCaps(agentKind, { thinks, modes: mapAgentModes({ modes: st?.rawModes }), effortsByModel: mapModelEfforts(models) })
+  }
   capsLoaded = true
   showConvPref(catState.sel)
 }

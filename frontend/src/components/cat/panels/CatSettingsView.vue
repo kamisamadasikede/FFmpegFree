@@ -184,7 +184,7 @@
                 <SavedMark :on="saved.defaultApprovalMode" />
                 <select
                   class="sel"
-                  :class="{ warn: approvalValue === 'approve' }"
+                  :class="{ warn: !!FALLBACK_MODES.options.find((o) => o.id === approvalValue)?.risky }"
                   :value="approvalValue"
                   :aria-label="C.approval"
                   data-testid="cat-set-approval"

@@ -78,7 +78,7 @@
           ref="chipAccess"
           type="button"
           class="chip-access"
-          :class="{ on: accessMeta.id === 'approve' }"
+          :class="{ on: accessMeta.risky }"
           :disabled="missing"
           aria-haspopup="menu"
           :aria-expanded="menu === 'access'"
@@ -127,11 +127,11 @@
         <!-- 访问模式 -->
         <div v-if="menu === 'access'" class="mn-access" role="menu" aria-label="访问模式">
           <div class="mn-ahd"><span>应如何批准 Cat 操作？</span><a class="more" href="#" @click.prevent>了解更多</a></div>
-          <template v-for="a in modeOpts" :key="a.id">
-          <div v-if="a.id === 'approve'" class="mn-sep" role="separator" />
+          <template v-for="(a, i) in modeOpts" :key="a.id">
+          <div v-if="a.risky && i > 0 && !modeOpts[i - 1].risky" class="mn-sep" role="separator" />
           <div
             class="mn-acc"
-            :class="{ on: accessMeta.id === a.id, danger: a.id === 'approve' }"
+            :class="{ on: accessMeta.id === a.id, danger: a.risky }"
             role="menuitemradio"
             tabindex="0"
             :aria-checked="accessMeta.id === a.id"
@@ -139,7 +139,7 @@
             @keydown.enter.prevent="pickAccess(a.id)"
           >
             <span class="ic"><FIcon :name="a.icon" :size="18" /></span>
-            <div><b>{{ a.name }}</b><small>{{ a.desc }}</small></div>
+            <div><b>{{ a.name }}</b><small v-if="a.desc">{{ a.desc }}</small></div>
             <FIcon v-if="accessMeta.id === a.id" name="check" :size="16" class="ok" />
           </div>
           </template>
@@ -178,7 +178,7 @@
                 :class="{ on: t.on }"
                 :aria-checked="t.on"
                 @click="pickThink(t.id)"
-              >{{ t.name }}</button>
+              >{{ t.name }}<small v-if="'def' in t && t.def" class="def">默认</small></button>
             </div>
           </template>
         </div>
@@ -288,7 +288,7 @@ const menuStyle = ref<Record<string, string>>({})
 /** 强度分段：「默认」= 不传强度，其余按后端列表原样 */
 const thinkSegs = computed(() => [
   { id: '', name: THINK_DEFAULT_LABEL, on: !catState.think },
-  ...currentCaps.value.efforts.options.map((t) => ({ id: t.id, name: t.label, on: catState.think === t.id })),
+  ...currentCaps.value.efforts.options.map((t) => ({ id: t.id, name: t.label, on: catState.think === t.id, def: t.id === currentCaps.value.efforts.defaultId })),
 ])
 /** 模式菜单：按当前 agentKind 的列表渲染（列表空 → 胶囊隐藏） */
 const modeOpts = computed(() => currentCaps.value.modes.options.map(modeMeta))
@@ -1218,5 +1218,10 @@ button {
 }
 .wl-proj :deep(svg) {
   color: var(--cat-muted);
+}
+.mn-seg .def {
+  margin-left: 3px;
+  font-size: 10px;
+  color: var(--cat-text-3, #999);
 }
 </style>
