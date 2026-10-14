@@ -1,3 +1,4 @@
+import { pickCatTiming } from '@/components/cat/catTimingAdapter'
 /**
  * Cat 助手流式回复的纯逻辑（无 Vue / 无 Wails，便于 api.check.ts 自检）。
  *
@@ -49,6 +50,9 @@ export interface CatTurnEvent {
   finishedAt?: number
   tokenTotal?: number
   tokensPerSec?: number
+  /** v0.45 首字 / 总耗时（仅终态） */
+  firstTokenMs?: number
+  totalMs?: number
 }
 
 type Raw = Record<string, unknown>
@@ -118,6 +122,7 @@ export function normalizeTurnEvent(raw: unknown): CatTurnEvent | null {
       const rate = numFinite(r.tokensPerSec)
       if (rate !== undefined && rate > 0) ev.tokensPerSec = rate
     }
+    Object.assign(ev, pickCatTiming(r))
   }
   return ev
 }
