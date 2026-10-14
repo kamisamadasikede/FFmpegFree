@@ -16,7 +16,7 @@
       @keydown="onBtnKey"
     >
       <svg v-if="cur?.risky" class="tri" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.2 11.2 10.5H.8Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" /><path d="M6 4.6v2.6M6 8.7v.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>
-      <span>{{ cur?.label || placeholder || '—' }}</span>
+      <span :title="compact ? cur?.label || undefined : undefined">{{ cur?.label || placeholder || '—' }}</span>
       <FIcon name="down" :size="12" class="caret" />
     </button>
     <Teleport to="body">
@@ -24,7 +24,7 @@
         v-if="open"
         ref="menu"
         class="cms-menu"
-        :class="{ up }"
+        :class="{ up, compact }"
         :style="menuStyle"
         role="listbox"
         :aria-label="ariaLabel"
@@ -34,6 +34,7 @@
       >
         <template v-for="(o, i) in options" :key="o.id">
           <div v-if="o.sep" class="cms-sep" role="separator" />
+          <div v-else-if="o.header" class="cms-hd" :class="{ divided: o.divided }" role="presentation" :data-testid="testid + '-hd-' + o.id">{{ o.label }}</div>
           <button
             v-else
             type="button"
@@ -46,7 +47,7 @@
             @mouseenter="active = i"
             @click="pick(o.id)"
           >
-            <span class="tx">
+            <span class="tx" :title="compact ? o.label : undefined">
               <b><svg v-if="o.risky" class="tri" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.2 11.2 10.5H.8Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" /><path d="M6 4.6v2.6M6 8.7v.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>{{ o.label }}<em v-if="defaultId !== undefined && o.id === defaultId" class="def">默认</em></b>
               <small v-if="o.desc">{{ o.desc }}</small>
             </span>
@@ -75,6 +76,8 @@ export interface CatSelectOption {
   sep?: boolean
   /** 上方画 1px 分隔线 */
   divided?: boolean
+  /** 分组小标题：不可点、不参与键盘移动（底栏「远程分支」） */
+  header?: boolean
 }
 
 const props = defineProps<{
@@ -102,6 +105,8 @@ const cur = computed(() => props.options.find((o) => o.id === props.modelValue &
 
 const GAP = 4
 const MENU_MAX = 360
+/** 紧凑（底栏）：选项 28px，超过 8 项滚动 → 8×28 + 上下 padding 8 + 分组标题余量 */
+const COMPACT_MAX = 8 * 28 + 8
 const menuStyle = computed(() => {
   const p = pos.value
   const s: Record<string, string> = { left: p.left + 'px', minWidth: p.minWidth + 'px', maxHeight: p.maxHeight + 'px' }
@@ -117,13 +122,15 @@ function place() {
   const vw = window.innerWidth
   const below = vh - r.bottom - GAP - 8
   const above = r.top - GAP - 8
-  const need = Math.min(MENU_MAX, menu.value?.scrollHeight ?? MENU_MAX)
-  up.value = below < need && above > below
-  const minWidth = Math.max(r.width, 160)
+  const cap = props.compact ? COMPACT_MAX + (props.options.some((o) => o.header) ? 26 : 0) : MENU_MAX
+  const need = Math.min(cap, menu.value?.scrollHeight ?? cap)
+  // 紧凑（底栏）默认往上弹，上面放不下才往下
+  up.value = props.compact ? !(above < need && below > above) : below < need && above > below
+  const minWidth = Math.max(r.width, props.compact ? 200 : 160)
   const w = Math.max(minWidth, menu.value?.offsetWidth ?? minWidth)
   // 左对齐触发器，右边不出屏
   const left = Math.max(8, Math.min(r.left, vw - w - 8))
-  pos.value = { left, top: r.bottom + GAP, bottom: vh - r.top + GAP, minWidth, maxHeight: Math.max(120, Math.min(MENU_MAX, up.value ? above : below)) }
+  pos.value = { left, top: r.bottom + GAP, bottom: vh - r.top + GAP, minWidth, maxHeight: Math.max(120, Math.min(cap, up.value ? above : below)) }
 }
 function onDoc(e: MouseEvent) {
   const t = e.target as Node
@@ -139,7 +146,7 @@ function onKey(e: KeyboardEvent) {
 }
 function selectable(i: number) {
   const o = props.options[i]
-  return !!o && !o.sep && !o.disabled
+  return !!o && !o.sep && !o.header && !o.disabled
 }
 function move(d: number) {
   const n = props.options.length
@@ -153,7 +160,7 @@ function move(d: number) {
   nextTick(() => menu.value?.querySelectorAll<HTMLElement>('[role=option]')[optIndex(i)]?.scrollIntoView({ block: 'nearest' }))
 }
 function optIndex(i: number) {
-  return props.options.slice(0, i).filter((o) => !o.sep).length
+  return props.options.slice(0, i).filter((o) => !o.sep && !o.header).length
 }
 function onBtnKey(e: KeyboardEvent) {
   if (props.disabled) return
@@ -203,7 +210,8 @@ onBeforeUnmount(close)
 <style scoped>
 .cms { position: relative; display: inline-flex; }
 .cms.compact { min-width: 0; }
-.cms.compact .cms-btn { height: auto; min-height: 0; padding: 0 2px; gap: 3px; border: 0; background: none; box-shadow: none; font-size: 12px; color: inherit; border-radius: 4px; max-width: 220px; }
+.cms.compact .cms-btn { height: auto; min-height: 0; padding: 0 2px; gap: 3px; border: 0; background: none; box-shadow: none; font-size: 12px; color: inherit; border-radius: 4px; max-width: none; }
+.cms.compact .cms-btn span { max-width: 160px; }
 .cms.compact .cms-btn:hover:not(:disabled) { color: var(--cat-text); background: var(--cat-hover); }
 .cms.compact.open .cms-btn, .cms.compact .cms-btn:focus-visible { box-shadow: var(--cat-focus); }
 .cms-btn {
@@ -241,6 +249,14 @@ onBeforeUnmount(close)
 .cms-it.on b { font-weight: 500; }
 .cms-it small { font-size: 12px; line-height: 1.4; color: var(--cat-muted); white-space: normal; }
 .cms-it .def { margin-left: 6px; font-style: normal; font-size: 11px; font-weight: 400; color: var(--cat-muted); }
+/* 紧凑（输入框底栏分支下拉，设计规格 v0.49）：选项 28px / 12px，最小宽 200 */
+.cms-menu.compact { max-width: 360px; }
+.cms-menu.compact .cms-it { min-height: 28px; height: 28px; }
+.cms-menu.compact .cms-it b { font-size: 12px; max-width: 300px; display: block; }
+.cms-menu.compact .cms-it .ok { width: 12px; height: 12px; }
+.cms-hd { margin: 6px 8px 2px; font-size: 11px; line-height: 16px; color: var(--cat-muted); cursor: default; user-select: none; }
+.cms-hd.divided { position: relative; margin-top: 11px; }
+.cms-hd.divided::before { content: ''; position: absolute; left: -6px; right: -6px; top: -6px; height: 1px; background: var(--ff-border); }
 .cms-it.danger b, .cms-it.danger .ok { color: var(--cat-orange); }
 .cms-it.danger:hover, .cms-it.danger.act { background: var(--cat-orange-soft); }
 .cms-it .ok { flex: none; margin-left: auto; color: var(--cat-accent, currentColor); }
