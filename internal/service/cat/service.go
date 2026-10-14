@@ -1210,7 +1210,7 @@ type RetryCatTurnRequest struct {
 func (s *Service) RetryCatTurn(ctx context.Context, req RetryCatTurnRequest) (SendMessageResult, error) {
 	convID := strings.TrimSpace(req.ConversationID)
 	turnID := strings.TrimSpace(req.TurnID)
-	notAllowed := apperr.New(apperr.InvalidArgument, "这条回复不能重试。").WithDetail("reason=retry_not_allowed")
+	notAllowed := apperr.New(apperr.InvalidArgument, "这条回复已无法重试，请重新发送。").WithDetail("reason=retry_not_allowed")
 	if convID == "" || turnID == "" {
 		return SendMessageResult{}, notAllowed
 	}
