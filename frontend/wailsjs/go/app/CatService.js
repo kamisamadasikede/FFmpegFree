@@ -50,6 +50,14 @@ export function EnsureCreateCatSkillsDir(arg1) {
   return window['go']['app']['CatService']['EnsureCreateCatSkillsDir'](arg1);
 }
 
+export function GetCatCommitDetail(arg1) {
+  return window['go']['app']['CatService']['GetCatCommitDetail'](arg1);
+}
+
+export function GetCatCommitFileDiff(arg1) {
+  return window['go']['app']['CatService']['GetCatCommitFileDiff'](arg1);
+}
+
 export function GetCatConversation(arg1) {
   return window['go']['app']['CatService']['GetCatConversation'](arg1);
 }
@@ -72,6 +80,10 @@ export function GitCatBranch(arg1) {
 
 export function GitCatCheckout(arg1) {
   return window['go']['app']['CatService']['GitCatCheckout'](arg1);
+}
+
+export function GitCatCheckoutCommit(arg1) {
+  return window['go']['app']['CatService']['GitCatCheckoutCommit'](arg1);
 }
 
 export function GitCatCommit(arg1) {
@@ -124,6 +136,10 @@ export function InspectCatConfig(arg1) {
 
 export function ListCatBranches(arg1) {
   return window['go']['app']['CatService']['ListCatBranches'](arg1);
+}
+
+export function ListCatCommits(arg1) {
+  return window['go']['app']['CatService']['ListCatCommits'](arg1);
 }
 
 export function ListCatConversations() {

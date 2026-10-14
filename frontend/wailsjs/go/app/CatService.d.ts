@@ -28,6 +28,10 @@ export function DeleteCatSchedule(arg1:cat.ScheduleIDRequest):Promise<void>;
 
 export function EnsureCreateCatSkillsDir(arg1:cat.SkillsDirRequest):Promise<cat.SkillsDirResult>;
 
+export function GetCatCommitDetail(arg1:cat.CatCommitRequest):Promise<cat.CatCommitDetail>;
+
+export function GetCatCommitFileDiff(arg1:cat.CatCommitFileDiffRequest):Promise<cat.GitDiffResult>;
+
 export function GetCatConversation(arg1:string):Promise<cat.ConversationDetail>;
 
 export function GetCatNotifyStatus():Promise<cat.NotifyStatus>;
@@ -39,6 +43,8 @@ export function GetCatStatus():Promise<catagent.Status>;
 export function GitCatBranch(arg1:cat.GitBranchRequest):Promise<void>;
 
 export function GitCatCheckout(arg1:cat.GitCatCheckoutRequest):Promise<void>;
+
+export function GitCatCheckoutCommit(arg1:cat.CatCommitRequest):Promise<cat.CatCheckoutCommitResult>;
 
 export function GitCatCommit(arg1:cat.GitPathsRequest):Promise<void>;
 
@@ -65,6 +71,8 @@ export function GitCatUnstage(arg1:cat.GitPathsRequest):Promise<void>;
 export function InspectCatConfig(arg1:cat.InspectRequest):Promise<catagent.InspectResult>;
 
 export function ListCatBranches(arg1:cat.CatBranchesRequest):Promise<cat.CatBranchesResult>;
+
+export function ListCatCommits(arg1:cat.ListCatCommitsRequest):Promise<cat.CatCommitPage>;
 
 export function ListCatConversations():Promise<Array<store.CatConversation>>;
 
