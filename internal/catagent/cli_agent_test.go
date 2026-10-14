@@ -202,9 +202,9 @@ func TestCodexArgs_PermissionAndRulesPrefix(t *testing.T) {
 		ModelID:        "gpt-test",
 	}, "fix it", "/proj", "thr-1", true)
 	joined := strings.Join(args, "\n")
-	for _, want := range []string{"exec", "--json", "--skip-git-repo-check", "-C", "/proj",
-		"--sandbox", "workspace-write", "--ask-for-approval", "never", "-m", "gpt-test",
-		"resume", "thr-1", "use tests\n\nfix it"} {
+	for _, want := range []string{"exec", "resume", "--json", "--skip-git-repo-check",
+		`sandbox_mode="workspace-write"`, `approval_policy="never"`, "-m", "gpt-test",
+		"thr-1", "use tests\n\nfix it"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("missing %q in:\n%s", want, joined)
 		}
@@ -331,5 +331,61 @@ exit 0
 	}
 	if resp.TokenTotal != 30 {
 		t.Fatalf("tokens %d", resp.TokenTotal)
+	}
+}
+
+func TestCodexArgs_NoAskForApproval_AllModes(t *testing.T) {
+	a := NewCodexAdapter(CLIAgentConfig{DataTemp: t.TempDir()})
+	cases := []struct {
+		mode      string
+		exec, res []string
+	}{
+		{"", []string{"--dangerously-bypass-approvals-and-sandbox"}, []string{"--dangerously-bypass-approvals-and-sandbox"}},
+		{"approve", []string{"--dangerously-bypass-approvals-and-sandbox"}, []string{"--dangerously-bypass-approvals-and-sandbox"}},
+		{"full", []string{"--dangerously-bypass-approvals-and-sandbox"}, []string{"--dangerously-bypass-approvals-and-sandbox"}},
+		{"plan", []string{"--sandbox", "read-only", "-c", `approval_policy="never"`}, []string{"-c", `sandbox_mode="read-only"`, "-c", `approval_policy="never"`}},
+		{"default", []string{"--sandbox", "read-only", "-c", `approval_policy="never"`}, []string{"-c", `sandbox_mode="read-only"`, "-c", `approval_policy="never"`}},
+		{"normal", []string{"--sandbox", "read-only", "-c", `approval_policy="never"`}, []string{"-c", `sandbox_mode="read-only"`, "-c", `approval_policy="never"`}},
+		{"auto", []string{"--sandbox", "workspace-write", "-c", `approval_policy="never"`}, []string{"-c", `sandbox_mode="workspace-write"`, "-c", `approval_policy="never"`}},
+	}
+	contains := func(args, sub []string) bool {
+		for i := 0; i+len(sub) <= len(args); i++ {
+			ok := true
+			for j := range sub {
+				if args[i+j] != sub[j] {
+					ok = false
+					break
+				}
+			}
+			if ok {
+				return true
+			}
+		}
+		return false
+	}
+	for _, c := range cases {
+		for _, resume := range []bool{false, true} {
+			args := a.buildCodexArgs(TurnOptions{PermissionMode: c.mode, ModelID: "gpt-6-astra"}, "你好", "/proj", "sess-1", resume)
+			for _, bad := range []string{"--ask-for-approval", "-a"} {
+				for _, x := range args {
+					if x == bad {
+						t.Fatalf("mode %q resume=%v has %s: %q", c.mode, resume, bad, args)
+					}
+				}
+			}
+			want := c.exec
+			if resume {
+				want = c.res
+				if args[1] != "resume" || contains(args, []string{"--sandbox"}) || contains(args, []string{"-C"}) {
+					t.Fatalf("resume args invalid for exec resume: %q", args)
+				}
+				if args[len(args)-2] != "sess-1" {
+					t.Fatalf("resume session id position: %q", args)
+				}
+			}
+			if !contains(args, want) {
+				t.Fatalf("mode %q resume=%v want %q in %q", c.mode, resume, want, args)
+			}
+		}
 	}
 }

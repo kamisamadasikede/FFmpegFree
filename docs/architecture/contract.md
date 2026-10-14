@@ -5287,6 +5287,7 @@ type ExportOfficeCanvasPptxResult struct {
 | B9 | Claude 会话 resume / 历史导出 | resume flag；export 对等物（可无则空历史，不造假） | GUESS / 未确认 |
 | B10 | Codex 会话 resume / 历史导出 | 同上 | GUESS / 未确认 |
 | **A5** | **批准方式 → CLI flag**（普通 / Plan / 自动审查 / 全部批准） | 按家映射；**不得**假定与 grok 的 `--permission-mode` / `--always-approve` 同名 | **GUESS / 未确认** |
+| A5-codex | Codex 批准方式（真机 help 核对：codex-cli 0.162.1 `codex exec --help` / `codex exec resume --help`，10-14） | exec / exec resume **均不认** `--ask-for-approval`/`-a`。全部批准 → `--dangerously-bypass-approvals-and-sandbox`；自动审查 → exec `--sandbox workspace-write -c approval_policy="never"`，resume `-c sandbox_mode="workspace-write" -c approval_policy="never"`；普通 / Plan → 同上 `read-only`。resume 不认 `--sandbox` / `-C` | 已确认（help） |
 | **A6** | **自定义指令注入点** | 系统提示 / 首条用户消息前缀 / CLI flag（Build 为 `--rules`，它家不假定同名） | **GUESS / 未确认** |
 | B11 | Claude `InspectCatConfig` 对等命令 | 无则 `reason=unsupported` | GUESS / 未确认 |
 | B12 | Codex `InspectCatConfig` 对等命令 | 无则 `reason=unsupported` | GUESS / 未确认 |
