@@ -9,6 +9,7 @@
 import * as CatBinding from '../../wailsjs/go/app/CatService'
 import { cat } from '../../wailsjs/go/models'
 import { AppError, call } from '@/api/call'
+import { readModeByAgent, type CatModeByAgent } from '@/api/catV0445'
 import { CAT_AGENT_BUILD, CAT_PROVIDER_ORDER, isProviderKind, type CatProviderKind } from '@/api/catAgents'
 import { CAT_SETTINGS_BACKEND_READY } from '@/api/flags'
 import { hasWailsBackend } from '@/services/wails'
@@ -44,7 +45,8 @@ export interface CatSettings {
   defaultsByAgent: Record<CatProviderKind, CatAgentDefaults>
   /** v0.38：每家自定义服务商；缺 key 视为全关 */
   providersByAgent: Record<CatProviderKind, CatProviderSettings>
-  defaultApprovalMode: string
+  /** v0.44.4 §6.19.18.9：每家新对话默认模式（该家 modes[].id；"" = 该家默认） */
+  defaultModeByAgent: CatModeByAgent
   customInstruction: string
   notifyOnFinish: boolean
 }
@@ -295,7 +297,7 @@ export function normalizeSettings(raw: unknown): CatSettings {
     defaultAgentKind: isProviderKind(kindRaw) ? kindRaw : CAT_AGENT_BUILD,
     defaultsByAgent: by,
     providersByAgent: providers,
-    defaultApprovalMode: ['normal', 'plan', 'auto', 'approve'].includes(s('defaultApprovalMode')) ? s('defaultApprovalMode') : '',
+    defaultModeByAgent: readModeByAgent(r),
     customInstruction: s('customInstruction'),
     // 契约：nil 视为 true
     notifyOnFinish: r.notifyOnFinish !== false,
@@ -322,7 +324,7 @@ export function settingsPayload(req: CatSettings): Record<string, unknown> {
     defaultAgentKind: isProviderKind(req.defaultAgentKind) ? req.defaultAgentKind : CAT_AGENT_BUILD,
     defaultsByAgent,
     providersByAgent,
-    defaultApprovalMode: req.defaultApprovalMode,
+    defaultModeByAgent: Object.fromEntries(CAT_PROVIDER_ORDER.map((k) => [k, (req.defaultModeByAgent?.[k] || '').trim()])),
     customInstruction: req.customInstruction,
     notifyOnFinish: req.notifyOnFinish,
   }

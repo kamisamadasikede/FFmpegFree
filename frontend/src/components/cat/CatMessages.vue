@@ -59,7 +59,8 @@
             <span v-if="row.block.outdated.version" class="ct-od-ver" data-testid="cat-cli-outdated-version">{{ CAT_CLI_OUTDATED_COPY.version(row.block.outdated.version) }}</span>
           </div>
           <div class="ct-od-acts">
-            <button type="button" class="ct-od-btn" :disabled="pending" data-testid="cat-cli-outdated-retry" @click="emit('retry')">{{ CAT_CLI_OUTDATED_COPY.retry }}</button>
+            <button v-if="retryAt(row.key) === 'can'" type="button" class="ct-od-btn" :disabled="pending" data-testid="cat-cli-outdated-retry" @click="emit('retry')">{{ CAT_CLI_OUTDATED_COPY.retry }}</button>
+            <span v-else-if="retryAt(row.key) === 'gone'" class="ct-retry-gone" data-testid="cat-retry-gone">{{ CAT_RETRY_GONE_TEXT }}</span>
             <button
               v-if="row.block.outdated.raw"
               type="button"
@@ -74,7 +75,14 @@
             <pre class="ct-od-raw" data-testid="cat-cli-outdated-raw">{{ row.block.outdated.raw }}</pre>
           </div>
         </div>
-        <div v-else-if="row.block.kind === 'sys'" class="ct-sys" :class="{ err: row.block.tone === 'err' }" role="status">{{ row.block.text }}</div>
+        <div v-else-if="row.block.kind === 'sys' && row.block.tone === 'err' && retryAt(row.key)" class="ct-sys err" role="status">
+          <div>{{ errText(row.key, row.block.text) }}</div>
+          <div class="ct-od-acts">
+            <button v-if="retryAt(row.key) === 'can'" type="button" class="ct-od-btn" :disabled="pending" data-testid="cat-retry" @click="emit('retry')">{{ CAT_CLI_OUTDATED_COPY.retry }}</button>
+            <span v-else class="ct-retry-gone" data-testid="cat-retry-gone">{{ CAT_RETRY_GONE_TEXT }}</span>
+          </div>
+        </div>
+        <div v-else-if="row.block.kind === 'sys'" class="ct-sys" :class="{ err: row.block.tone === 'err' }" role="status">{{ row.block.tone === 'err' ? errText(row.key, row.block.text) : row.block.text }}</div>
       </template>
       <div v-else class="ct-act" :class="row.fold.tone" :aria-busy="row.fold.streaming || undefined">
         <button
@@ -126,10 +134,13 @@ import { diffLineKind, foldBodyMono, foldIcon, presentCatBlocks, type CatFold } 
 import { formatCatMessageFooter } from './catMessageFooter'
 import { canPreview, showsThumb, userDisplayText, type CatShownFile } from './catMedia'
 import { CAT_CLI_OUTDATED_COPY } from './catCliOutdated'
+import { CAT_REPLY_FAILED_FINAL, CAT_RETRY_GONE_TEXT } from '@/api/catV0445'
+import { CAT_COPY } from '@/api/cat'
 import { hasWailsBackend } from '@/services/wails'
 import { ClipboardSetText } from '../../../wailsjs/runtime/runtime'
 
-const props = defineProps<{ blocks: CatBlock[]; pending?: boolean }>()
+/** retry：v0.44.5 最后一轮失败的「重试」状态（can = 显示按钮；gone = 原地灰字；空 = 都不显示） */
+const props = defineProps<{ blocks: CatBlock[]; pending?: boolean; retry?: 'can' | 'gone' }>()
 const emit = defineEmits<{ retry: [] }>()
 /** 「查看详情」默认收起 */
 const rawOpen = ref<Record<string, boolean>>({})
@@ -169,6 +180,18 @@ function openFile(file: CatShownFile) {
 /** 减少动效：流式文字直接追加，不显示闪烁光标（也不做打字机效果） */
 const reduced = prefersReducedMotion()
 const rows = computed(() => presentCatBlocks(props.blocks))
+/** 只挂在最后一行、且是失败行（6.19.18.7 第 6 条：只能重试最后一轮） */
+const lastErrKey = computed(() => {
+  const last = rows.value[rows.value.length - 1]
+  return last?.kind === 'block' && last.block.kind === 'sys' && last.block.tone === 'err' ? last.key : ''
+})
+/** 不能重试时去掉「请重试」：通用失败文案换成「回复没生成出来。」（可重试时保持原文） */
+function errText(key: string, text: string): string {
+  return text === CAT_COPY.replyFailed && retryAt(key) !== 'can' ? CAT_REPLY_FAILED_FINAL : text
+}
+function retryAt(key: string): 'can' | 'gone' | undefined {
+  return key && key === lastErrKey.value ? props.retry : undefined
+}
 /** 用户点过的折叠；没点过的用默认（查找收起，文件改动展开） */
 const opened = ref<Record<string, boolean>>({})
 
@@ -228,6 +251,7 @@ const InlineText = defineComponent({
 }
 /* v0.43 CLI 版本过旧：同行内错误样式，下挂次按钮 + 折叠原始报错 */
 .ct-od-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; }
+.ct-retry-gone { font-size: 11px; color: var(--cat-muted); }
 .ct-od-ver { font-size: 11px; color: var(--cat-muted); font-variant-numeric: tabular-nums; }
 .ct-od-acts { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
 .ct-od-btn {

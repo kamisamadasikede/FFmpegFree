@@ -11,6 +11,7 @@ import * as CatBinding from '../../wailsjs/go/app/CatService'
 import { cat, catagent } from '../../wailsjs/go/models'
 import { AppError, call, callService } from '@/api/call'
 import { CAT_BACKEND_READY } from '@/api/flags'
+import { readRetryableTurn } from '@/api/catV0445'
 import { hasWailsBackend, onTaskEvent } from '@/services/wails'
 import { normalizeMessageEvent, normalizeTurnEvent, type CatStreamEvent, type CatTurnEvent } from '@/api/catStream'
 import { asPreviewKind, type CatShownFile } from '@/components/cat/catMedia'
@@ -130,6 +131,8 @@ export interface CatConversationDetail extends CatConversation {
   /** 打开会话时带上的上下文占用；没有真实数字则为 0 */
   contextUsed: number
   contextWindow: number
+  /** v0.44.6：由 ConversationDetail.lastTurn 推导；failed && retryable → turnId，否则 '' */
+  retryTurnId: string
 }
 
 export interface CreateCatConversationRequest {
@@ -394,6 +397,7 @@ export async function getCatConversation(id: string): Promise<CatConversationDet
     messages: Array.isArray(raw.messages) ? raw.messages.map(mapMsg) : [],
     contextUsed: positiveNum(raw.contextUsed),
     contextWindow: positiveNum(raw.contextWindow),
+    retryTurnId: readRetryableTurn(raw),
   }
 }
 
