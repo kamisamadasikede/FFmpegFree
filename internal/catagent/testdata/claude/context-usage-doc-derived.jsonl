@@ -1,0 +1,5 @@
+{"type":"user","message":{"role":"user","content":"hi"},"sessionId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}
+{"type":"assistant","isSidechain":false,"message":{"model":"claude-sonnet-4-6","role":"assistant","content":[{"type":"text","text":"a"}],"usage":{"input_tokens":5,"cache_creation_input_tokens":1000,"cache_read_input_tokens":20000,"output_tokens":50}}}
+{"type":"assistant","isSidechain":true,"message":{"model":"claude-haiku-4-5","role":"assistant","content":[{"type":"text","text":"sub"}],"usage":{"input_tokens":99999,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":1}}}
+{"type":"assistant","isSidechain":false,"message":{"model":"claude-sonnet-4-6","role":"assistant","content":[{"type":"text","text":"b"}],"usage":{"input_tokens":3,"cache_creation_input_tokens":500,"cache_read_input_tokens":21000,"output_tokens":120}}}
+{"type":"assistant","message":{"model":"<synthetic>","role":"assistant","content":[{"type":"text","text":"err"}],"usage":{"input_tokens":0,"output_tokens":0}}}

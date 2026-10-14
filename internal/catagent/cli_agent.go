@@ -435,12 +435,17 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	var acc strings.Builder
 	var gotSession string
 	var resultFallback string
-	var usageTokens, usageOut int64
+	var usageTokens, usageOut, claudeWindow int64
 	scanErr := a.scanCLIStream(stdout, func(p streamPiece) {
 		switch p.Kind {
 		case "thought", "tool", "retry":
 			if opts.OnActivity != nil && (p.Kind == "retry" || p.Text != "") {
 				opts.OnActivity(p.Kind, p.ID, p.Text, p.Replace)
+			}
+		case "ctxwin":
+			// v0.48.1：Claude result.modelUsage 的 contextWindow（ID 复用为数字）。
+			if n, err := parseInt64(p.ID); err == nil && n > 0 {
+				claudeWindow = n
 			}
 		case "result_text":
 			// Claude 最终 result 全文：仅作无增量时的兜底，不与 partial 叠加。
@@ -500,6 +505,13 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		cliMsg = strong
 	}
 	usageResp := TurnResponse{TokenTotal: usageTokens, OutputTokens: usageOut}
+	sidForCtx := gotSession
+	if sidForCtx == "" {
+		sidForCtx = sessionID
+	}
+	if !gone {
+		usageResp.ContextUsed, usageResp.ContextWindow = a.turnContextUsage(sidForCtx, cwd, claudeWindow)
+	}
 	if runCtx.Err() != nil {
 		if ctx.Err() != nil {
 			return usageResp, apperr.New(apperr.Canceled, "已取消")
@@ -916,7 +928,7 @@ func (a *CLIAgentAdapter) scanCLIStream(r io.Reader, onPiece func(streamPiece), 
 			}
 			continue
 		}
-		if onPiece != nil && (piece.Kind == "retry" || piece.Kind == "usage" || piece.Kind == "result_text" || piece.Text != "") {
+		if onPiece != nil && (piece.Kind == "retry" || piece.Kind == "usage" || piece.Kind == "ctxwin" || piece.Kind == "result_text" || piece.Text != "") {
 			onPiece(piece)
 		}
 	}
@@ -944,6 +956,9 @@ func emitClaudeResultLine(line []byte, onPiece func(streamPiece), onErr func(str
 	}
 	if u := claudeUsageTotal(raw); u > 0 && onPiece != nil {
 		onPiece(claudeUsagePiece(raw, u))
+	}
+	if w := claudeResultContextWindow(raw, ""); w > 0 && onPiece != nil {
+		onPiece(streamPiece{Kind: "ctxwin", ID: fmtInt64(w)})
 	}
 	if t, ok := rawStr(raw, "result"); ok && strings.TrimSpace(t) != "" && onPiece != nil {
 		onPiece(streamPiece{Kind: "result_text", Text: t})

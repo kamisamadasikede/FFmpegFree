@@ -94,6 +94,9 @@ type TurnResponse struct {
 	// v0.47 §6.19.19.5：本轮输出 token（含思考）。0 = CLI 没给。
 	// CLI 自报 duration_ms 不再参与 token/s 计算（v0.47 废止），故不再携带。
 	OutputTokens int64 `json:"outputTokens,omitempty"`
+	// v0.48.1 §6.19.22：本轮结束时该会话的上下文占用与窗口容量（Codex / Claude）。0 = 未知。
+	ContextUsed   int64 `json:"contextUsed,omitempty"`
+	ContextWindow int64 `json:"contextWindow,omitempty"`
 }
 
 // Capabilities 是能力探测结果。

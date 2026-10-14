@@ -476,6 +476,10 @@ func (s *Service) lookupContext(ctx context.Context, c store.CatConversation) (i
 	}
 	used, window, ok := catagent.ReadContextUsage(cwd, c.ID)
 	if !ok {
+		// v0.48.1：Codex / Claude 没有 Grok 的 signals.json，读上一轮落下的记录。
+		used, window, ok = loadContextUsage(s.cfg.DataRoot, c.ID)
+	}
+	if !ok {
 		return 0, 0
 	}
 	return used, window
@@ -1054,6 +1058,11 @@ func (s *Service) noteTurnUsage(t *turnState, resp catagent.TurnResponse) {
 	}
 	if resp.OutputTokens > 0 {
 		t.outputTokens = resp.OutputTokens
+	}
+	if resp.ContextUsed > 0 && resp.ContextWindow > 0 {
+		// v0.48.1：Codex / Claude 由适配器在本轮结束时给出；落到对话目录，重开对话时还能画圆环。
+		t.contextUsed, t.contextWindow = resp.ContextUsed, resp.ContextWindow
+		saveContextUsage(s.cfg.DataRoot, t.convID, resp.ContextUsed, resp.ContextWindow)
 	}
 }
 
