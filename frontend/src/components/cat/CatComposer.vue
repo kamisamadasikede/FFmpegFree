@@ -44,7 +44,7 @@
         ><span class="car" aria-hidden="true"><FIcon :name="brErrOpen ? 'down' : 'right'" :size="12" /></span>{{ BC.detail }}</button>
         <button type="button" class="ctx-err-x" aria-label="关闭" data-testid="cat-ctx-branch-err-close" @click="brErr = null"><FIcon name="x" :size="12" /></button>
       </div>
-      <pre v-if="brErr.raw && brErrOpen" class="ct-od-raw" data-testid="cat-ctx-branch-err-raw">{{ brErr.raw }}</pre>
+      <CatRawDetail v-if="brErr.raw && brErrOpen" :text="brErr.raw" testid="cat-ctx-branch-err" />
     </div>
     <div ref="inEl" class="ct-in" :aria-disabled="missing || undefined" :aria-describedby="missing ? missId : undefined">
       <div v-if="shownFiles.length" class="ct-files" data-testid="cat-attach-row">
@@ -306,6 +306,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import CatModeSelect from '@/components/cat/panels/CatModeSelect.vue'
+import CatRawDetail from './CatRawDetail.vue'
 import { branchOptions, CAT_BRANCH_COPY as BC, catBranchError, listCatBranches, mapCatBranches, pathEllipsis, parseBranchOption, switchCatBranch, type CatBranches } from '@/api/catBranches'
 import { revealCatConversationFolder } from '@/api/catFiles'
 import FIcon from '@/components/icon/FIcon.vue'
@@ -922,20 +923,6 @@ defineExpose({
 .ctx-err .ct-od-more { display: inline-flex; align-items: center; gap: 4px; border: 0; padding: 0; background: none; color: var(--cat-muted); font-size: 12px; cursor: pointer; }
 .ctx-err .ct-od-more:hover { color: var(--cat-text-2); }
 .ctx-err .ct-od-more .car { width: 12px; display: grid; place-items: center; }
-.ctx-err .ct-od-raw {
-  margin: 6px 0 0;
-  max-height: 120px;
-  overflow: auto;
-  padding: 8px 10px;
-  border-radius: var(--cat-radius-md);
-  border: 1px solid var(--cat-border);
-  background: var(--cat-elevated);
-  color: var(--cat-text-2);
-  font: 12px/1.6 var(--ff-font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  white-space: pre-wrap;
-  word-break: break-word;
-  user-select: text;
-}
 .ctx-bar .cx.dim {
   color: var(--cat-muted);
   opacity: 0.7;

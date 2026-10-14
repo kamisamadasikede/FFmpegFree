@@ -24,6 +24,11 @@ export function catBranchesChecks(eq: Eq): void {
   ], [CAT_BRANCH_COPY.dirty, CAT_BRANCH_COPY.running, CAT_BRANCH_COPY.switchFailed])
   eq('文案（产品 #300 走查）', [CAT_BRANCH_COPY.noUpstream, CAT_BRANCH_COPY.dirty, CAT_BRANCH_COPY.notFound, CAT_BRANCH_COPY.openFailed], ['没有远程分支', '有未提交的改动，请先提交或暂存，再切换分支。', '找不到这个分支，可能已被删除。', '打不开这个文件夹，可能已被移动或删除。'])
   eq('切换失败：原始报错进查看详情', catBranchError(new AppError('PROCESS_FAILED', 'git checkout 失败', 'error: pathspec x')), { text: '切换分支失败，请重试。', raw: 'git checkout 失败\nerror: pathspec x' })
+  eq('切换失败：would be overwritten 兜底归未提交改动', [
+    catBranchError(new AppError('PROCESS_FAILED', 'git checkout 失败', 'error: Your local changes to the following files WOULD BE OVERWRITTEN by checkout:\n\ta.ts')),
+    catBranchError(new AppError('PROCESS_FAILED', 'error: untracked working tree files would be overwritten by checkout')),
+    catBranchErrorText(new AppError('PROCESS_FAILED', 'x', 'would be overwritten')),
+  ], [{ text: CAT_BRANCH_COPY.dirty, raw: '' }, { text: CAT_BRANCH_COPY.dirty, raw: '' }, CAT_BRANCH_COPY.dirty])
   eq('切换失败：已知原因不带详情', catBranchError(new AppError('NOT_FOUND', '', 'reason=branch_not_found')), { text: CAT_BRANCH_COPY.notFound, raw: '' })
   eq('分组标题不可点', branchOptions(mapCatBranches({ git: true, repo: true, locals: ['a'], remotes: ['origin/b'] }))[1].header, true)
   eq('路径省略', [

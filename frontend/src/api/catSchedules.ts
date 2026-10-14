@@ -162,7 +162,7 @@ export const CAT_SCHED_COPY = {
   errPast: '这个时间已经过了。',
   missingProject: (n: string) => `「${n}」的文件夹不见了`,
   saveFailed: '保存失败，请重试。',
-  confirmTitle: '确认用「全部批准」？',
+  confirmTitle: '确认用「全部放开」？',
   confirmOk: '确认保存',
   delTitle: '删除这个定时任务？',
   delBody: '运行记录会一起删除，已经产生的对话会保留。',
