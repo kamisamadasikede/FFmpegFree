@@ -137,7 +137,7 @@ func TestListCatProviderModelsNotConfiguredAndBadArg(t *testing.T) {
 		t.Fatalf("%+v %v", r, err)
 	}
 	// 开了但没 Key / 地址非法 → not_configured。
-	for _, u := range []string{"https://gw.example.com", "ftp://x", "not a url", ""} {
+	for _, u := range []string{"https://gw.example.com", "ftp://x", "not a url"} { // 空地址打开自定义现在直接被拒（reason=api_url）
 		if _, err := svc.SaveCatSettings(ctx, cat.Settings{ProvidersByAgent: map[string]cat.ProviderSettings{
 			catagent.KindClaudeCLI: {EnabledCustom: true, ApiUrl: u},
 		}}); err != nil {
