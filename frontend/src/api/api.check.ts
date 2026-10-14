@@ -51,6 +51,7 @@ import { catFilesChecks } from './catFiles.check'
 import { catGitChecks } from './catGit.check'
 import { catBranchesChecks } from './catBranches.check'
 import { catCommitsChecks } from './catCommits.check'
+import { catBranchTreeChecks } from './catBranchTree.check'
 import { catFilePreviewChecks } from './catFilePreview.check'
 import { catContextUsageChecks } from '@/components/cat/catContextUsage.check'
 import { catActivityChecks } from '@/components/cat/catActivity.check'
@@ -1021,6 +1022,7 @@ export async function runApiChecks(): Promise<string[]> {
         catFilesChecks(eq) // Cat 文件面板：已加载树的过滤、截断行、列表映射
         catBranchesChecks(eq) // Cat 底栏：文件夹路径省略、分支选项、切分支错误文案（v0.49）
         catCommitsChecks(eq) // v0.53 提交历史：车道（合并 / 跨页连续 / 颜色循环）、搜索、映射、错误文案
+        catBranchTreeChecks(eq) // Cat v0.51 分支树：适配层、分组 / `/` 文件夹 / 搜索、右键菜单、reason 映射、节流
         catGitChecks(eq) // Cat 源代码管理：文件夹标记、状态映射、更改 / 已暂存 / 未跟踪分组
         catFilePreviewChecks(eq) // Cat 侧边预览：种类映射、二进制不带文本、markdown / svg 切换
         catContextUsageChecks(eq) // Cat 上下文圆环：百分比、弧长、悬停摘要

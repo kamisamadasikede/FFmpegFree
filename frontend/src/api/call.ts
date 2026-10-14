@@ -175,6 +175,11 @@ export async function callService<T>(service: string, method: string, ...args: u
   return await call<T>(fn(...args) as Promise<T>)
 }
 
+/** 绑定是否已经生成（v0.51 分支树等「后端 PR 未合」的新接口用它决定走新界面还是旧界面） */
+export function hasServiceBinding(service: string, method: string): boolean {
+  return lookupBinding(service, method) !== null
+}
+
 /** window.go.app.<service>.<method>；任何一级不是期望的形状都返回 null */
 function lookupBinding(service: string, method: string): ((...args: unknown[]) => unknown) | null {
   const root: unknown = (globalThis as { window?: unknown }).window

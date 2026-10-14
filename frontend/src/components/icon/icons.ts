@@ -25,6 +25,7 @@ export const iconPaths = {
   'zip': "<path d=\"M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7\"/>",
   'music': "<path d=\"M9 18V5l12-2v13\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/><circle cx=\"18\" cy=\"16\" r=\"3\"/>",
   'gif': "<rect x=\"3\" y=\"5\" width=\"18\" height=\"14\" rx=\"2\"/><path d=\"m3 16 5-5 4 4 3-3 6 6\"/>",
+  'cloud': "<path d=\"M7 18a4 4 0 0 1 0-8 6 6 0 0 1 11.5 1.5A3.5 3.5 0 0 1 18 18z\"/>",
   'search': "<circle cx=\"11\" cy=\"11\" r=\"7\"/><path d=\"m20 20-3.5-3.5\"/>",
   'trash': "<path d=\"M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14\"/>",
   'check': "<path d=\"m5 12 5 5 9-10\"/>",
