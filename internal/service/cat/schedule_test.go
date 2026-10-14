@@ -32,11 +32,12 @@ type gate struct {
 	opts    []catagent.TurnOptions
 	running atomic.Int32
 	release chan struct{}
+	entered chan struct{} // 每进入一轮 run 发一个信号（running 已 +1 之后）
 	fail    bool
 }
 
 func newGate(block bool) *gate {
-	g := &gate{release: make(chan struct{})}
+	g := &gate{release: make(chan struct{}), entered: make(chan struct{}, 64)}
 	if !block {
 		close(g.release)
 	}
@@ -50,6 +51,10 @@ func (g *gate) adapter() *fakeAdapter {
 		g.mu.Unlock()
 		g.running.Add(1)
 		defer g.running.Add(-1)
+		select {
+		case g.entered <- struct{}{}:
+		default:
+		}
 		select {
 		case <-g.release:
 		case <-o.Ctx.Done():
@@ -311,6 +316,14 @@ func TestScheduleSkipConcurrencyAndQueue(t *testing.T) {
 	}
 	if r, _ := e.svc.RunNowCatSchedule(ctx, cat.ScheduleIDRequest{ID: c.ID}); r.Status != cat.RunSkipped {
 		t.Fatalf("%+v", r)
+	}
+	// 运行记录在调用助手之前就写成 running（中间还要建对话），所以要等两轮真正进到助手里再数。
+	for i := 0; i < 2; i++ {
+		select {
+		case <-e.gate.entered:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("only %d turns entered the adapter", i)
+		}
 	}
 	if n := e.gate.running.Load(); n != 2 {
 		t.Fatalf("running %d", n)
