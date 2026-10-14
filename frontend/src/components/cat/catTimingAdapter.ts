@@ -30,8 +30,8 @@ export function pickCatTiming(raw: unknown): CatTimingFields {
  * 后端 bindings 未生成前先按契约字段名手写；缺省 / 非法 / ≤0 → 不带。
  * 不带 outputTokens 时 tokensPerSec 也丢掉（契约：两者同进退，不得用 tokenTotal 顶替）。
  */
-export type CatOutputFields = { outputTokens?: number; tokensPerSec?: number }
-export const CAT_OUTPUT_FIELDS = { outputTokens: 'outputTokens', tokensPerSec: 'tokensPerSec' } as const
+export type CatOutputFields = Partial<Pick<store.CatMessage, 'outputTokens' | 'tokensPerSec'>>
+export const CAT_OUTPUT_FIELDS = { outputTokens: 'outputTokens', tokensPerSec: 'tokensPerSec' } as const satisfies Record<keyof CatOutputFields, keyof store.CatMessage>
 
 function pos(v: unknown): number | undefined {
   const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() ? Number(v) : NaN
