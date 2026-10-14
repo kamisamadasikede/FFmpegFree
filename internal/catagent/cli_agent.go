@@ -668,8 +668,9 @@ func (a *CLIAgentAdapter) probeModels(exe string) []Model {
 	case cliKindCodex:
 		return a.probeCodexModels(exe)
 	default:
-		// Claude Code 2.1.296 没有列模型的命令 → 官方文档静态表（claude_models.go）。
-		return claudeStaticModels()
+		// Claude Code 没有列模型的命令 → 别名表，但按本机 ANTHROPIC_DEFAULT_*_MODEL 等配置
+		// 解析成 /model 里实际显示的那一行（claude_models.go）。
+		return claudeModelsFor(a.claudeModelEnv())
 	}
 }
 
@@ -682,22 +683,24 @@ func (a *CLIAgentAdapter) probeThinks(exe string) []ThinkLevel {
 func (a *CLIAgentAdapter) probeCodexModels(exe string) []Model {
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
-	// GUESS B6：codex debug models [--bundled] 输出 JSON 目录。
+	// 0.162.1 `codex debug models --help`："Render the raw model catalog as JSON"；
+	// --bundled = "Skip refresh and dump only the bundled catalog shipped with this binary"。
+	// 先跑不带 --bundled（会刷新，和 TUI 里 /model 用的是同一份目录），拿不到再退回内置目录。
+	// 只解析 stdout：stderr 上的刷新警告不能混进 JSON（混进去会整份解析失败、列表变空）。
 	env := MergeProviderEnv(os.Environ(), a.providerOverlay())
-	cmd := a.runCmd(ctx, exe, "debug", "models", "--bundled")
-	cmd.Env = env
-	var out bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &out
-	if err := cmd.Run(); err != nil || out.Len() == 0 {
-		cmd2 := a.runCmd(ctx, exe, "debug", "models")
-		cmd2.Env = env
-		out.Reset()
-		cmd2.Stdout, cmd2.Stderr = &out, &out
-		if err2 := cmd2.Run(); err2 != nil || out.Len() == 0 {
-			return []Model{}
+	for _, args := range [][]string{{"debug", "models"}, {"debug", "models", "--bundled"}} {
+		cmd := a.runCmd(ctx, exe, args...)
+		cmd.Env = env
+		var out bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &out, io.Discard
+		if err := cmd.Run(); err != nil || out.Len() == 0 {
+			continue
+		}
+		if models := parseCodexModelsJSON(out.Bytes()); len(models) > 0 {
+			return models
 		}
 	}
-	return parseCodexModelsJSON(out.Bytes())
+	return []Model{}
 }
 
 // parseCodexModelsJSON 解析 `codex debug models` 目录（0.162.1：{"models":[{slug, visibility,

@@ -1,6 +1,11 @@
 package catagent
 
-import "strings"
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+)
 
 // Claude Code 2.1.296 模型列表（v0.44，6.19.18.5）。
 //
@@ -108,4 +113,79 @@ func isDateSuffix(id, base string) bool {
 		}
 	}
 	return true
+}
+
+// ---- 按本机配置解析别名（v0.47.4）----
+//
+// D https://code.claude.com/docs/en/model-config「Environment variables」：
+// ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU,FABLE}_MODEL 决定 opus / sonnet / haiku / fable 别名解析到哪个模型；
+// 设了以后 /model 选择器里这一家只显示一行（显示名 = 对应 _NAME，否则认得的模型名，否则原始 id）。
+// ANTHROPIC_CUSTOM_MODEL_OPTION（+ _NAME）在选择器末尾加一行自定义模型。
+// 这些变量可以来自进程环境，也可以来自 settings.json 的 "env"（Claude Code 启动时把它注入环境），
+// 所以两处都读，settings.json 优先。
+// 典型场景：中转把 haiku 别名指到 claude-sonnet-5 → 下拉显示「haiku → claude-sonnet-5」，不再误显示 Haiku 5.5。
+
+var claudeAliasEnv = []struct{ alias, env string }{
+	{"opus", "ANTHROPIC_DEFAULT_OPUS_MODEL"},
+	{"sonnet", "ANTHROPIC_DEFAULT_SONNET_MODEL"},
+	{"haiku", "ANTHROPIC_DEFAULT_HAIKU_MODEL"},
+	{"fable", "ANTHROPIC_DEFAULT_FABLE_MODEL"},
+}
+
+// claudeModelEnv 合并 Claude 会看到的模型相关变量：进程环境（含自定义服务商注入）+ settings.json env。
+func (a *CLIAgentAdapter) claudeModelEnv() map[string]string {
+	out := map[string]string{}
+	for _, kv := range MergeProviderEnv(os.Environ(), a.providerOverlay()) {
+		if i := strings.IndexByte(kv, '='); i > 0 && strings.HasPrefix(kv[:i], "ANTHROPIC_") {
+			out[kv[:i]] = kv[i+1:]
+		}
+	}
+	if dir := a.claudeConfigDir(); dir != "" {
+		if raw, err := os.ReadFile(filepath.Join(dir, "settings.json")); err == nil {
+			var st struct {
+				Env map[string]any `json:"env"`
+			}
+			if json.Unmarshal(raw, &st) == nil {
+				for k, v := range st.Env {
+					if s, ok := v.(string); ok && strings.HasPrefix(k, "ANTHROPIC_") {
+						out[k] = s
+					}
+				}
+			}
+		}
+	}
+	return out
+}
+
+// claudeModelsFor 按变量解析别名；没设任何变量时与 claudeStaticModels 相同。
+// id 仍是别名（发送时传 --model <别名>，由 CLI 自己解析，与 /model 行为一致）。
+func claudeModelsFor(env map[string]string) []Model {
+	names := map[string]string{}
+	for _, r := range claudeListed {
+		names[r.id] = r.name
+	}
+	out := make([]Model, 0, len(claudeAliasEnv)+1)
+	for _, r := range claudeAliasEnv {
+		pinned := strings.TrimSpace(env[r.env])
+		if pinned == "" {
+			e, d := claudeModelEfforts(r.alias)
+			out = append(out, Model{ID: r.alias, DisplayName: names[r.alias], Efforts: e, DefaultEffort: d})
+			continue
+		}
+		label := strings.TrimSpace(env[r.env+"_NAME"])
+		if label == "" {
+			label = pinned
+		}
+		e, d := claudeModelEfforts(pinned) // 认不出的 id → 无档位（与 CLI 按 id 识别能力一致）
+		out = append(out, Model{ID: r.alias, DisplayName: r.alias + " → " + label, Efforts: e, DefaultEffort: d})
+	}
+	if c := strings.TrimSpace(env["ANTHROPIC_CUSTOM_MODEL_OPTION"]); c != "" {
+		label := strings.TrimSpace(env["ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"])
+		if label == "" {
+			label = c
+		}
+		e, d := claudeModelEfforts(c)
+		out = append(out, Model{ID: c, DisplayName: label, Efforts: e, DefaultEffort: d})
+	}
+	return out
 }
