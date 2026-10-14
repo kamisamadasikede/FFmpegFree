@@ -324,8 +324,11 @@ func TestGitCatCheckoutCommitAndStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	r, err := svc.GitCatCheckoutCommit(ctx, cat.CatCommitRequest{ConvID: id, Sha: m["c1"][:7]})
-	if err != nil || !r.Detached || r.Sha != m["c1"] {
+	if err != nil || !r.Detached {
 		t.Fatalf("%+v %v", r, err)
+	}
+	if hgit(t, root, "rev-parse", "HEAD") != m["c1"] {
+		t.Fatal("head")
 	}
 	st, _ = svc.GitCatStatus(ctx, cat.GitStatusRequest{ConvID: id})
 	if !st.Detached || st.HeadSha != m["c1"] {
@@ -347,6 +350,24 @@ func TestGitCatCheckoutCommitOverwrittenMapsToDirty(t *testing.T) {
 	os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0o755)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	if _, err := svc.GitCatCheckoutCommit(context.Background(), cat.CatCommitRequest{ConvID: id, Sha: m["c1"]}); histReason(err) != "reason=git_dirty" {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestGitCatCreateBranchAndCompareFromSha(t *testing.T) {
+	root, m := histRepo(t)
+	svc, id := convAt(t, root)
+	ctx := context.Background()
+	tree, err := svc.GitCatCreateBranch(ctx, cat.GitCatCreateBranchRequest{ConvID: id, Name: "fromsha", From: m["c1"][:10], Checkout: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = tree
+	cmp, err := svc.GitCatCompareBranch(ctx, cat.GitCatCompareBranchRequest{ConvID: id, Branch: m["c1"]})
+	if err != nil || cmp.Target != hgit(t, root, "rev-parse", "--short", m["c1"]) {
+		t.Fatalf("%+v %v", cmp, err)
+	}
+	if _, err := svc.GitCatCreateBranch(ctx, cat.GitCatCreateBranchRequest{ConvID: id, Name: "x", From: "deadbeefdead", Checkout: false}); histReason(err) != "reason=commit_not_found" {
 		t.Fatalf("%v", err)
 	}
 }

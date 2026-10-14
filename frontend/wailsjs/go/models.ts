@@ -75,6 +75,210 @@ export namespace cat {
 	        this.cloneId = source["cloneId"];
 	    }
 	}
+	export class CatBranchCommit {
+	    sha: string;
+	    subject: string;
+	    time: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatBranchCommit(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sha = source["sha"];
+	        this.subject = source["subject"];
+	        this.time = source["time"];
+	    }
+	}
+	export class CatCompareFile {
+	    path: string;
+	    oldPath: string;
+	    status: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatCompareFile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.oldPath = source["oldPath"];
+	        this.status = source["status"];
+	    }
+	}
+	export class CatBranchCompare {
+	    base: string;
+	    target: string;
+	    onlyInTarget: CatBranchCommit[];
+	    onlyInCurrent: CatBranchCommit[];
+	    truncated: boolean;
+	    files: CatCompareFile[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CatBranchCompare(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.base = source["base"];
+	        this.target = source["target"];
+	        this.onlyInTarget = this.convertValues(source["onlyInTarget"], CatBranchCommit);
+	        this.onlyInCurrent = this.convertValues(source["onlyInCurrent"], CatBranchCommit);
+	        this.truncated = source["truncated"];
+	        this.files = this.convertValues(source["files"], CatCompareFile);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CatTreeBranch {
+	    name: string;
+	    remote?: string;
+	    upstream?: string;
+	    ahead: number;
+	    behind: number;
+	    current: boolean;
+	    favorite: boolean;
+	    lastCommit: CatBranchCommit;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatTreeBranch(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.remote = source["remote"];
+	        this.upstream = source["upstream"];
+	        this.ahead = source["ahead"];
+	        this.behind = source["behind"];
+	        this.current = source["current"];
+	        this.favorite = source["favorite"];
+	        this.lastCommit = this.convertValues(source["lastCommit"], CatBranchCommit);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CatBranchGroup {
+	    kind: string;
+	    remote?: string;
+	    branches: CatTreeBranch[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CatBranchGroup(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.remote = source["remote"];
+	        this.branches = this.convertValues(source["branches"], CatTreeBranch);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CatBranchTree {
+	    groups: CatBranchGroup[];
+	    recent: string[];
+	    detached: boolean;
+	    fetchedAt: number;
+	    fetching: boolean;
+	    fetchError?: string;
+	    noCommits: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatBranchTree(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.groups = this.convertValues(source["groups"], CatBranchGroup);
+	        this.recent = source["recent"];
+	        this.detached = source["detached"];
+	        this.fetchedAt = source["fetchedAt"];
+	        this.fetching = source["fetching"];
+	        this.fetchError = source["fetchError"];
+	        this.noCommits = source["noCommits"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CatBranchTreeRequest {
+	    convId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatBranchTreeRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	    }
+	}
 	export class CatBranchesRequest {
 	    convId: string;
 	
@@ -111,22 +315,6 @@ export namespace cat {
 	        this.upstream = source["upstream"];
 	        this.locals = source["locals"];
 	        this.remotes = source["remotes"];
-	    }
-	}
-	export class CatCheckoutCommitResult {
-	    sha: string;
-	    shortSha: string;
-	    detached: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new CatCheckoutCommitResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.sha = source["sha"];
-	        this.shortSha = source["shortSha"];
-	        this.detached = source["detached"];
 	    }
 	}
 	export class CatCommitRef {
@@ -331,6 +519,7 @@ export namespace cat {
 	        this.sha = source["sha"];
 	    }
 	}
+	
 	export class CatProviderModelList {
 	    state: string;
 	    models: catagent.Model[];
@@ -365,6 +554,7 @@ export namespace cat {
 		    return a;
 		}
 	}
+	
 	export class CatTurnState {
 	    turnId: string;
 	    status: string;
@@ -597,6 +787,20 @@ export namespace cat {
 	        this.id = source["id"];
 	    }
 	}
+	export class FetchCatRemotesRequest {
+	    convId: string;
+	    force: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new FetchCatRemotesRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.force = source["force"];
+	    }
+	}
 	export class FileEntry {
 	    name: string;
 	    relPath: string;
@@ -647,6 +851,22 @@ export namespace cat {
 	        this.force = source["force"];
 	    }
 	}
+	export class GitCatCompareBranchRequest {
+	    convId: string;
+	    branch: string;
+	    remote: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitCatCompareBranchRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.branch = source["branch"];
+	        this.remote = source["remote"];
+	    }
+	}
 	export class GitCatConflictAbortRequest {
 	    convId: string;
 	
@@ -691,6 +911,40 @@ export namespace cat {
 	        this.content = source["content"];
 	    }
 	}
+	export class GitCatCreateBranchRequest {
+	    convId: string;
+	    from: string;
+	    name: string;
+	    checkout: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitCatCreateBranchRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.from = source["from"];
+	        this.name = source["name"];
+	        this.checkout = source["checkout"];
+	    }
+	}
+	export class GitCatDeleteBranchRequest {
+	    convId: string;
+	    branch: string;
+	    force: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitCatDeleteBranchRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.branch = source["branch"];
+	        this.force = source["force"];
+	    }
+	}
 	export class GitCatMergeRequest {
 	    convId: string;
 	    branch: string;
@@ -721,6 +975,22 @@ export namespace cat {
 	        this.status = source["status"];
 	        this.head = source["head"];
 	        this.files = source["files"];
+	    }
+	}
+	export class GitCatRenameBranchRequest {
+	    convId: string;
+	    from: string;
+	    to: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitCatRenameBranchRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.from = source["from"];
+	        this.to = source["to"];
 	    }
 	}
 	export class GitChange {
@@ -1545,6 +1815,24 @@ export namespace cat {
 		    }
 		    return a;
 		}
+	}
+	export class SetCatBranchFavoriteRequest {
+	    convId: string;
+	    branch: string;
+	    remote: string;
+	    favorite: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SetCatBranchFavoriteRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.branch = source["branch"];
+	        this.remote = source["remote"];
+	        this.favorite = source["favorite"];
+	    }
 	}
 	export class SetInspectItemEnabledRequest {
 	    projectId: string;

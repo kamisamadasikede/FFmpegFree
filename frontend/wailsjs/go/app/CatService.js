@@ -50,6 +50,10 @@ export function EnsureCreateCatSkillsDir(arg1) {
   return window['go']['app']['CatService']['EnsureCreateCatSkillsDir'](arg1);
 }
 
+export function FetchCatRemotes(arg1) {
+  return window['go']['app']['CatService']['FetchCatRemotes'](arg1);
+}
+
 export function GetCatCommitDetail(arg1) {
   return window['go']['app']['CatService']['GetCatCommitDetail'](arg1);
 }
@@ -90,6 +94,10 @@ export function GitCatCommit(arg1) {
   return window['go']['app']['CatService']['GitCatCommit'](arg1);
 }
 
+export function GitCatCompareBranch(arg1) {
+  return window['go']['app']['CatService']['GitCatCompareBranch'](arg1);
+}
+
 export function GitCatConflictAbort(arg1) {
   return window['go']['app']['CatService']['GitCatConflictAbort'](arg1);
 }
@@ -100,6 +108,14 @@ export function GitCatConflictComplete(arg1) {
 
 export function GitCatConflictResolve(arg1) {
   return window['go']['app']['CatService']['GitCatConflictResolve'](arg1);
+}
+
+export function GitCatCreateBranch(arg1) {
+  return window['go']['app']['CatService']['GitCatCreateBranch'](arg1);
+}
+
+export function GitCatDeleteBranch(arg1) {
+  return window['go']['app']['CatService']['GitCatDeleteBranch'](arg1);
 }
 
 export function GitCatDiff(arg1) {
@@ -118,6 +134,10 @@ export function GitCatRemote(arg1) {
   return window['go']['app']['CatService']['GitCatRemote'](arg1);
 }
 
+export function GitCatRenameBranch(arg1) {
+  return window['go']['app']['CatService']['GitCatRenameBranch'](arg1);
+}
+
 export function GitCatStage(arg1) {
   return window['go']['app']['CatService']['GitCatStage'](arg1);
 }
@@ -132,6 +152,10 @@ export function GitCatUnstage(arg1) {
 
 export function InspectCatConfig(arg1) {
   return window['go']['app']['CatService']['InspectCatConfig'](arg1);
+}
+
+export function ListCatBranchTree(arg1) {
+  return window['go']['app']['CatService']['ListCatBranchTree'](arg1);
 }
 
 export function ListCatBranches(arg1) {
@@ -252,6 +276,10 @@ export function SearchCatFiles(arg1) {
 
 export function SendCatMessage(arg1) {
   return window['go']['app']['CatService']['SendCatMessage'](arg1);
+}
+
+export function SetCatBranchFavorite(arg1) {
+  return window['go']['app']['CatService']['SetCatBranchFavorite'](arg1);
 }
 
 export function SetCatInspectItemEnabled(arg1) {

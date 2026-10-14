@@ -32,10 +32,10 @@ func (s *CatService) GetCatCommitFileDiff(req cat.CatCommitFileDiffRequest) (cat
 }
 
 // GitCatCheckoutCommit 签出某个提交（HEAD 游离）。
-func (s *CatService) GitCatCheckoutCommit(req cat.CatCommitRequest) (cat.CatCheckoutCommitResult, error) {
+func (s *CatService) GitCatCheckoutCommit(req cat.CatCommitRequest) (cat.CatBranchTree, error) {
 	c, err := s.svc()
 	if err != nil {
-		return cat.CatCheckoutCommitResult{}, err
+		return cat.CatBranchTree{}, err
 	}
 	return c.GitCatCheckoutCommit(s.rootCtx(), req)
 }

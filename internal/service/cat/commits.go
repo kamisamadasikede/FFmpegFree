@@ -108,13 +108,6 @@ type CatCommitFileDiffRequest struct {
 	Path   string `json:"path"`
 }
 
-// CatCheckoutCommitResult：契约写的是返回 CatBranchTree（v0.51，尚未合入 v2），这里先返回最小结果。
-type CatCheckoutCommitResult struct {
-	Sha      string `json:"sha"`
-	ShortSha string `json:"shortSha"`
-	Detached bool   `json:"detached"`
-}
-
 func errCommitNotFound() error {
 	return apperr.New(apperr.NotFound, MsgCommitNotFound).WithDetail("reason=commit_not_found")
 }
@@ -594,7 +587,7 @@ func commitFiles(ctx context.Context, top, base, sha string) ([]CatCommitFile, e
 	if err != nil {
 		return nil, errHistoryGit(MsgHistoryFailed, stderr)
 	}
-	files := parseNameStatusZ(ns)
+	files := parseCommitNameStatusZ(ns)
 	stats := parseNumstatListZ(num)
 	for i := range files {
 		if i < len(stats) {
@@ -605,7 +598,7 @@ func commitFiles(ctx context.Context, top, base, sha string) ([]CatCommitFile, e
 	return files, nil
 }
 
-func parseNameStatusZ(b []byte) []CatCommitFile {
+func parseCommitNameStatusZ(b []byte) []CatCommitFile {
 	parts := strings.Split(string(b), "\x00")
 	files := []CatCommitFile{}
 	for i := 0; i < len(parts); i++ {
@@ -718,50 +711,37 @@ func (s *Service) GetCatCommitFileDiff(ctx context.Context, req CatCommitFileDif
 // ---- 签出提交 ----
 
 // GitCatCheckoutCommit：not_git_repo → turn_running → merge_in_progress → commit_not_found → git_dirty → git switch --detach。
-func (s *Service) GitCatCheckoutCommit(ctx context.Context, req CatCommitRequest) (CatCheckoutCommitResult, error) {
-	c, err := s.requireConv(ctx, req.ConvID)
+// 成功返回最新 CatBranchTree（detached=true），不更新 recent。
+func (s *Service) GitCatCheckoutCommit(ctx context.Context, req CatCommitRequest) (CatBranchTree, error) {
+	if err := s.treeRequireIdle(ctx, req.ConvID); err != nil {
+		return CatBranchTree{}, err
+	}
+	tc, err := s.treeOpen(ctx, req.ConvID)
 	if err != nil {
-		return CatCheckoutCommitResult{}, err
+		return CatBranchTree{}, err
 	}
-	lay, err := s.historyLayout(ctx, req.ConvID)
+	if detectMergeState(ctx, tc.lay.top) != "none" {
+		return CatBranchTree{}, apperr.New(apperr.TaskConflict, MsgHistoryMergeRunning).WithDetail("reason=merge_in_progress")
+	}
+	full, err := resolveCommit(ctx, tc.lay.top, req.Sha)
 	if err != nil {
-		return CatCheckoutCommitResult{}, err
+		return CatBranchTree{}, err
 	}
-	ids := []string{c.ID}
-	if c.ProjectID != "" && s.cfg.Store != nil {
-		if more, err := s.cfg.Store.CatConversationIDsByProject(ctx, c.ProjectID); err == nil {
-			ids = append(ids, more...)
-		}
-	}
-	if s.projectHasRunningTurn(ids) {
-		return CatCheckoutCommitResult{}, apperr.New(apperr.TaskConflict, MsgBranchTurnRunning).WithDetail("reason=turn_running")
-	}
-	if detectMergeState(ctx, lay.top) != "none" {
-		return CatCheckoutCommitResult{}, apperr.New(apperr.TaskConflict, MsgHistoryMergeRunning).WithDetail("reason=merge_in_progress")
-	}
-	full, err := resolveCommit(ctx, lay.top, req.Sha)
+	dirty, err := worktreeDirty(ctx, tc.lay)
 	if err != nil {
-		return CatCheckoutCommitResult{}, err
-	}
-	dirty, err := worktreeDirty(ctx, lay)
-	if err != nil {
-		return CatCheckoutCommitResult{}, err
+		return CatBranchTree{}, err
 	}
 	if dirty {
-		return CatCheckoutCommitResult{}, errBranchDirty()
+		return CatBranchTree{}, errBranchDirty()
 	}
-	_, stderr, err := runGitEnv(ctx, gitAddTimeout, lay.top, gitCLocale, "switch", "--detach", full)
+	_, stderr, err := runGitEnv(ctx, gitAddTimeout, tc.lay.top, gitCLocale, "switch", "--detach", full)
 	if err != nil {
 		if gitWouldOverwrite(stderr) {
-			return CatCheckoutCommitResult{}, errBranchDirty()
+			return CatBranchTree{}, errBranchDirty()
 		}
-		return CatCheckoutCommitResult{}, errHistoryGit(MsgCheckoutCommitFail, stderr)
+		return CatBranchTree{}, errHistoryGit(MsgCheckoutCommitFail, stderr)
 	}
-	short := full
-	if b, _, err := runGit(ctx, gitStatusTimeout, lay.top, "rev-parse", "--short", full); err == nil {
-		short = strings.TrimSpace(string(b))
-	}
-	return CatCheckoutCommitResult{Sha: full, ShortSha: short, Detached: true}, nil
+	return s.buildTree(ctx, tc)
 }
 
 // ---- GitCatStatus 补充：分离 HEAD 与当前提交（产品 10-14：底栏「未在分支上 · abc1234」） ----
