@@ -5395,6 +5395,8 @@ type CatAgentMode struct {
     Description string `json:"description"` // 官方原文；UNVERIFIED 时为 ""
     WritesFiles bool   `json:"writesFiles"` // 无需批准即可改文件
     IsDefault   bool   `json:"isDefault"`   // 该 CLI 自己的默认；每家至多一项
+    ShortLabel  string `json:"shortLabel"`  // v0.44：紧凑 UI（输入区胶囊等）用短名；产品定稿
+    Risk        string `json:"risk"`        // v0.44：safe（只读，不改文件）| edits（会改文件）| danger（绕过批准或沙箱）
 }
 type CatModel struct { // ListCatModels 返回项，原字段不变
     // ... id / displayName 不变
@@ -5403,7 +5405,8 @@ type CatModel struct { // ListCatModels 返回项，原字段不变
 }
 ```
 
-- `ListCatThinkLevels(agentKind)` 保留（兼容），返回**当前所选模型**的档位；新前端以 `CatModel.efforts` 为准。档位显示名：`low` 低 / `medium` 中 / `high` 高 / `xhigh` 极高 / `max` 最高 / `ultra` 超高（`max` / `ultra` 中文名待产品定）。
+- `risk` 三值固定，前端据此上色 / 加警示；`danger` 项选中时前端须有醒目提示（样式由设计定）。`risk` 与 `writesFiles` 须一致：`safe` ⇔ `writesFiles=false`。
+- `ListCatThinkLevels(agentKind)` 保留（兼容），返回**当前所选模型**的档位；新前端以 `CatModel.efforts` 为准。后端只下发档位 **id**；显示名放前端映射（按 id，三家共用，见 6.19.18.5a）。
 - 对话 `approvalMode` 字段（6.19.13 / v0.34）改存**该会话 agentKind 的 mode id**。旧值迁移（读时映射，下次保存回写）：见 6.19.18.4 各表「旧值」列。
 
 #### 6.19.18.3 模式表
@@ -5422,6 +5425,16 @@ type CatModel struct { // ListCatModels 返回项，原字段不变
 - 默认依据（D）：`claude -p` 在拉取 feature flags 的会话中默认 `default`（= Manual）。我们走 headless，故 `manual` 为默认。注：关遥测 / 第三方服务商时 CLI 默认会变成 `auto`（≥2.1.285），本版仍以 `manual` 为默认，不随环境变。
 - **UNVERIFIED**：`dontAsk` 排在 `manual` 前是后端判断，文档未给顺序。
 
+
+| id | shortLabel（草案） | risk |
+|---|---|---|
+| `dontAsk` | 不询问 | safe |
+| `manual` | 手动 | safe |
+| `plan` | 计划 | safe |
+| `acceptEdits` | 接受编辑 | edits |
+| `auto` | 自动 | edits |
+| `bypassPermissions` | 跳过权限 | danger |
+
 **Codex 0.162.1**（H codex-exec.txt:54 `--sandbox`、`--approve-for-me`、`--dangerously-bypass-approvals-and-sandbox`；D https://developers.openai.com/codex/config-reference）
 
 | 顺序 | id | label（草案） | description | writesFiles | isDefault | 旧值 |
@@ -5434,6 +5447,15 @@ type CatModel struct { // ListCatModels 返回项，原字段不变
 
 - 三个 sandbox 值只有总说明 "Sandbox policy for filesystem and network access during command execution."，逐项原文 **UNVERIFIED**（"Sandbox and approvals" 文档页未抓）→ `description=""`。
 - `codex exec` 默认 sandbox **UNVERIFIED** → 无 `isDefault`，前端预选 `read-only`。
+
+
+| id | shortLabel（草案） | risk |
+|---|---|---|
+| `read-only` | 只读 | safe |
+| `workspace-write` | 可写 | edits |
+| `approve-for-me` | 自动审查 | edits |
+| `danger-full-access` | 完全访问 | danger（无沙箱） |
+| `bypass` | 全跳过 | danger |
 
 **Grok Build 1.0.40**（H grok.txt:97 `--permission-mode` possible values；G）
 
@@ -5448,6 +5470,16 @@ type CatModel struct { // ListCatModels 返回项，原字段不变
 | 7 | `always-approve` | 全部批准 | "" | true | false | approve |
 
 - **UNVERIFIED（整表）**：help 只写 "Permission mode"，无逐项说明、无默认；与 Claude 同名项语义是否一致未核实（代码注释亦「不假定等价」）。顺序与 `writesFiles` 暂按 Claude 同名项类推，**仅作排序/提示**；产品定稿前说明句不得写「会/不会改文件」的断言，统一显示「说明待核实」。默认模式 UNVERIFIED → 无 `isDefault`。
+
+| id | shortLabel（草案） | risk |
+|---|---|---|
+| `dontAsk` | 不询问 | safe（UNVERIFIED，借 Claude） |
+| `default` | 默认 | safe（UNVERIFIED，借 Claude） |
+| `plan` | 计划 | safe（UNVERIFIED，借 Claude） |
+| `acceptEdits` | 接受编辑 | edits（UNVERIFIED，借 Claude） |
+| `auto` | 自动 | edits（UNVERIFIED，借 Claude） |
+| `bypassPermissions` | 跳过权限 | danger（UNVERIFIED，借 Claude） |
+| `always-approve` | 全部批准 | danger（UNVERIFIED，按 flag 名推断） |
 
 #### 6.19.18.4 参数映射（每行有出处；GUESS 不得发版）
 
@@ -5494,6 +5526,21 @@ type CatModel struct { // ListCatModels 返回项，原字段不变
 
 - Claude 模型 id ↔ 上表家族名的匹配：CLI 无列模型命令，`ListCatModels("claude_cli")` 目前为空 → **UNVERIFIED**；按 id 前缀匹配家族，匹配不上 → `[]`。模型为空（用 CLI 默认）时强度行隐藏。
 - Claude 选了不支持的档位，CLI 会降到不高于所选的最高档（D）；我们前端仍按 6.19.18.1-3 回落默认，不依赖该行为。
+
+#### 6.19.18.5a 强度显示名（前端映射，三家共用）
+
+| id | 显示名 |
+|---|---|
+| `low` | 低 |
+| `medium` | 中 |
+| `high` | 高 |
+| `xhigh` | 很高 |
+| `max` | 最高 |
+| `ultra` | 极限 |
+
+- 映射在前端按 id 维护；后端只发 id。未知 id → 原样显示 id。
+- 下拉中等于该模型 `defaultEffort` 的那项，名字后跟灰色「默认」（如「中 默认」）；`defaultEffort` 为空则不标。未选档位时胶囊显示「默认」（沿用 v0.31.5）。
+- `xhigh` 由 v0.35 的「极高」改为「很高」（「极限」留给 `ultra`）。
 
 #### 6.19.18.6 保存设置的强度校验
 
