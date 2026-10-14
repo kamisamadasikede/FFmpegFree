@@ -6,6 +6,7 @@
 
 import type { CatAgentKind } from '@/api/cat'
 import { CAT_AGENT_BUILD, CAT_AGENT_CLAUDE, CAT_AGENT_CODEX } from '@/api/cat'
+import { CAT_CLI_OUTDATED_COPY, parseCliOutdated } from '@/components/cat/catCliOutdated'
 
 export type CatConvState = 'ok' | 'idle' | 'run' | 'bad'
 
@@ -32,7 +33,7 @@ export type CatBlock =
       tokensPerSec?: number
     }
   /** 浅灰系统行：已停止生成 / 未就绪 / 回复失败 */
-  | { kind: 'sys'; text: string; tone?: 'err' }
+  | { kind: 'sys'; text: string; tone?: 'err'; outdated?: import('@/components/cat/catCliOutdated').CatCliOutdated }
 
 export interface CatConv {
   id: string
@@ -169,9 +170,33 @@ const RUST: CatBlock[] = [
   { kind: 'ul', items: ['一个值归谁，借出去用还是直接交出去。', '这个变量能不能改。', '这一步可能失败，所以用 `Result`，失败就用 `?` 返回。'] },
 ]
 
+/** 走查 ?cat_sim=clioutdated：三家各一条 CLI 版本过旧（o2 原始报错超长；o3 不带版本号；o4 不带原始报错） */
+export function mockCliOutdatedConvs(): CatConv[] {
+  return [
+    { id: 'o1', title: 'Claude 版本过旧', agentKind: CAT_AGENT_CLAUDE },
+    { id: 'o2', title: 'Codex 版本过旧', agentKind: CAT_AGENT_CODEX },
+    { id: 'o3', title: 'Grok Build 版本过旧', agentKind: CAT_AGENT_BUILD },
+    { id: 'o4', title: 'Claude 版本过旧（无原始报错）', agentKind: CAT_AGENT_CLAUDE },
+  ]
+}
+const OUTDATED_ASK: CatBlock = { kind: 'user', text: '帮我把这个目录下的字幕文件统一转成 UTF-8。' }
+/** 契约 6.19.17 的 detail 原样（四行 key=value，raw 里换行是字面 \n） */
+const OUTDATED_DETAIL: Record<string, string> = {
+  o1: "reason=cli_outdated\nagentKind=claude_cli\ncliVersion=2.0.1\nraw=error: option '--permission-mode <mode>' argument 'manual' is invalid.\\nAllowed choices are acceptEdits, bypassPermissions, default, plan.",
+  o2: "reason=cli_outdated\nagentKind=codex_cli\ncliVersion=0.98.0\nraw=error: unexpected argument '-c' found\\n\\nUsage: codex exec resume [OPTIONS] [SESSION_ID] [PROMPT]\\n  at runExec (node:internal/cli:100:0) frame 0\\n  at runExec (node:internal/cli:101:3) frame 1\\n  at runExec (node:internal/cli:102:6) frame 2\\n  at runExec (node:internal/cli:103:9) frame 3\\n  at runExec (node:internal/cli:104:12) frame 4\\n  at runExec (node:internal/cli:105:15) frame 5\\n  at runExec (node:internal/cli:106:18) frame 6\\n  at runExec (node:internal/cli:107:21) frame 7\\n  at runExec (node:internal/cli:108:24) frame 8\\n  at runExec (node:internal/cli:109:27) frame 9\\n  at runExec (node:internal/cli:110:30) frame 10\\n  at runExec (node:internal/cli:111:33) frame 11\\n  at runExec (node:internal/cli:112:36) frame 12\\n  at runExec (node:internal/cli:113:39) frame 13\\n  at runExec (node:internal/cli:114:42) frame 14\\n  at runExec (node:internal/cli:115:45) frame 15\\n  at runExec (node:internal/cli:116:48) frame 16\\n  at runExec (node:internal/cli:117:51) frame 17",
+  o3: "reason=cli_outdated\nagentKind=cat_build\ncliVersion=\nraw=error: unknown option '--output-format'",
+  o4: "reason=cli_outdated\nagentKind=claude_cli\ncliVersion=1.9.4\nraw=",
+}
+const OUTDATED: Record<string, CatBlock[]> = Object.fromEntries(
+  Object.entries(OUTDATED_DETAIL).map(([id, d]) => {
+    const od = parseCliOutdated(d)!
+    return [id, [OUTDATED_ASK, { kind: 'sys', tone: 'err', text: CAT_CLI_OUTDATED_COPY.body(od.cli), outdated: od } as CatBlock]]
+  }),
+)
+
 /** 某条对话的示意记录（每次调用返回新数组，页面可以往里追加本地消息） */
 export function mockMessages(id: string, title: string): CatBlock[] {
-  const base = ({ c31: SUB3, c21: LIVE, d1: RUST } as Record<string, CatBlock[]>)[id]
+  const base = ({ c31: SUB3, c21: LIVE, d1: RUST, ...OUTDATED } as Record<string, CatBlock[]>)[id]
   if (base) return base.map((b) => ({ ...b }))
   return [
     { kind: 'user', text: title },

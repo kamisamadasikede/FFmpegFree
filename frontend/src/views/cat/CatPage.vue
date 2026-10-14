@@ -155,7 +155,7 @@
                 <div v-if="histLoading && !messages.length" class="sk-msgs conv" role="status" aria-label="正在加载对话" data-testid="cat-msg-skeleton">
                   <i class="sk w50 r" /><i class="sk w90" /><i class="sk w80" /><i class="sk w60" /><i class="sk w40 r" /><i class="sk w90" /><i class="sk w70" />
                 </div>
-                <CatMessages :blocks="messages" :pending="thinking" />
+                <CatMessages :blocks="messages" :pending="thinking" @retry="retryLastMessage" />
                 <CatOfficeDownloadCard v-if="officeCanvas.slidesNeeded && !isNew" />
               </div>
             </div>
@@ -265,7 +265,7 @@ import { nearBottom, keepFollowing } from './catFollow'
 import { RAIL_TICK_PITCH, railThumb, railTickWindow, scrollTopForThumb, tickEdgeScales, tickStairWidths } from './catRail'
 import { awaitingTurnOutput } from './catPending'
 import { onLayoutKey, rightCollapsed } from './catLayout'
-import { catChecking, catNotReady, catState, changeWelcomeMode, currentProject, findConv, projectMissing, relocateProject, initCat, messagesOf, NEW_CONV, reapplyNewConvDefaults, refreshCapabilities, recheckCatStatus, reloadConversation, selectConv, sendMessage, stopTurn, tipLater } from './catState'
+import { catChecking, catNotReady, catState, changeWelcomeMode, currentProject, findConv, projectMissing, relocateProject, initCat, messagesOf, NEW_CONV, reapplyNewConvDefaults, refreshCapabilities, recheckCatStatus, reloadConversation, selectConv, retryLastMessage, sendMessage, stopTurn, tipLater } from './catState'
 import { hasWailsBackend } from '@/services/wails'
 import { ClipboardSetText } from '../../../wailsjs/runtime/runtime'
 

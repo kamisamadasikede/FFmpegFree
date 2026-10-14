@@ -35,6 +35,8 @@ export interface CatTurnEvent {
   errorCode?: string
   /** 失败时的原文。没有就不带，界面再用通用失败文案 */
   errorMessage?: string
+  /** 失败 detail 原样（字符串或对象）；v0.43 cli_outdated 用 */
+  errorDetail?: unknown
   /** 这一轮结束后的上下文占用；两个都大于 0 才带上 */
   contextUsed?: number
   contextWindow?: number
@@ -93,6 +95,7 @@ export function normalizeTurnEvent(raw: unknown): CatTurnEvent | null {
     errorCode: err ? str(err.code) || undefined : undefined,
     errorMessage: errorMessage || undefined,
   }
+  if (err && err.detail != null && err.detail !== '') ev.errorDetail = err.detail
   if (used && size) {
     ev.contextUsed = used
     ev.contextWindow = size
