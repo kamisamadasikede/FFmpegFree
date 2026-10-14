@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.47.3）
+# FFmpegFree v2 接口契约（v0.48）
+
+v0.48 变更（**普通 turn 完成通知一律走系统通知**，老板 t81u 2026-10-14：「对话结束通知不是在软件上的，是 Win 或 Mac 上的系统通知」；完整规则见 **6.19.12.11**；无新错误码 / 迁移 / settings 键；新绑定 `SetCatWindowFocused(focused)` / `GetCatNotifyStatus()`）：① 普通 turn `completed` / `failed` **只发 OS 系统通知**（Windows toast / 操作中心；macOS 通知中心），**废止**普通 turn 的应用内 toast（`showTurnFinishToast`）。② 「该发」判定改为 **窗口没有键盘焦点**（失焦 / 最小化 / 隐藏到托盘都算）；窗口有焦点时不发（用户正看着）。改写 v0.35.5 ⑤ / v0.40 ② 对**普通 turn** 的「可见即前台」口径；定时任务的前台 toast 口径本版不动。③ 文案：完成 `Cat · 对话已完成`，失败 `Cat · 回复失败`；正文规则不变。④ 开关仍是 `notifyOnFinish`（「完成后通知」）。⑤ 系统通知不可用 / macOS 被拒：静默不发、不回退应用内 toast，设置里「完成后通知」下方显示灰字提示（6.19.12.11-5）。⑥ 实现基于 Wails v2.16.0 runtime 通知 API（已在用），**不引第三方库**。
 
 v0.47.3 变更（**CLI 检测只看安装，不看登录**，老板 t74u 2026-10-14 拍板，为兼容中转 / 代理服务商；规则见 6.19.21；无新错误码 / 迁移 / 事件名 / settings 键）：① **删除** v0.47.2 的行字段 `loggedIn`（`CatAgentStatus.LoggedIn` 移除，绑定重生）。② 后端**不得**调用 `codex login status`、`claude auth status` 或任何登录 / 凭据探测；`ready` = 可执行文件已找到 + 版本可读，**仅此而已**。③ 发送 / 检测**不得**因登录状态拦截或报错（不再产生 `reason=auth`、不再出「登录失效，请重新登录后再试。」）；鉴权问题只在真实对话失败时按 CLI 实际错误走 `CAT_REPLY_FAILED`。④ 前端**不渲染**登录行、**不显示**「登录失效 / 请重新登录」横幅；每行只显示 已安装 / 版本 / 路径（tooltip）。⑤ v0.47.2 登录行显示规则作废（历史见下条）。早先各节中关于「鉴权探测 / reason=auth / 登录态」的描述一律以本条为准。
 
@@ -4931,6 +4933,59 @@ EnsureCreateCatSkillsDir(req struct {
 **点击系统通知**：后端先把窗口拉到前台（同 v0.35.5），再发 **`cat:notify` `{ openConvId }`**；前端打开该对话（与 `cat:schedule` 带 `openConvId` 同一套打开逻辑）。定时点击仍可走 `cat:schedule.openConvId`（不必改现网）；实现也可统一改发 `cat:notify`，但打开行为必须一致。
 
 **与消息尾**：消息尾（v0.37.1）照常写字段；通知是另一通道，互不替代。
+
+#### 6.19.12.11 普通 turn 完成通知 = 系统通知（v0.48；改写 6.19.12.10 中普通 turn 部分）
+
+老板 t81u：对话结束的通知必须是 Windows / macOS 的**系统通知**，不是软件里的浮提示。定时任务（6.19.13）的通知口径本版**不变**。
+
+**1. 何时发**
+
+| 条件 | 行为 |
+|---|---|
+| 普通 turn 终态 `completed` / `failed`，`notifyOnFinish` 开，主窗口**无键盘焦点**（失焦到别的应用、最小化、隐藏到托盘） | 发**一条** OS 系统通知 |
+| 主窗口**有焦点** | 不发任何通知（消息已在眼前；不再弹应用内 toast） |
+| `cancelled` / 用户停答 / 开关关 | 不发 |
+| 同一对话短时间连续多轮 | 每轮终态各一条，ID 用新 id；不做合并（GUESS：实测若刷屏再议） |
+
+- **焦点来源**：Wails v2.16 runtime **没有** `WindowIsFocused`。前端监听 `window` 的 `focus` / `blur` 与 `document.visibilitychange`，变化时调 **`SetCatWindowFocused(focused bool)`**（新绑定，无返回值，防抖 ≤ 200ms）；启动时按 `document.hasFocus()` 报一次。后端 `catWindowFocused()` = 最近一次上报值 **且** 未隐藏 **且** 未最小化；从未上报视为**未聚焦**（宁可多发一条）。
+- 后端 `Config.Foreground` 对普通 turn 改用 `catWindowFocused`；定时仍用 `catWindowForeground`（可见即前台）。
+
+**2. 文案**
+
+| 场景 | 标题 | 正文 |
+|---|---|---|
+| 完成 | `Cat · 对话已完成` | 对话标题；空则 `新对话`；> 80 字截断加 `…` |
+| 失败 | `Cat · 回复失败` | `error.message`（中文短句）优先，空则对话标题 / `新对话`；同样 80 字截断 |
+
+中点 `·`（U+00B7），前后各一个半角空格。不放错误码、`reason=`。
+
+**3. 点击通知**：沿用 6.19.12.10——后端 `showWindow()`（取消最小化、从托盘恢复、置前），再发 `cat:notify { openConvId }`，前端打开该对话。Windows 冷启动激活（应用已退出后点操作中心里的旧通知）**不保证**能打开对话，只保证拉起应用（GUESS，需真机）。
+
+**4. 平台实现（Wails v2.16.0 `pkg/runtime/notifications.go`，已在 `app_cat_schedule.go` 使用）**
+
+| API | 签名 |
+|---|---|
+| 初始化 | `InitializeNotifications(ctx) error` |
+| 可用性 | `IsNotificationAvailable(ctx) bool` |
+| 授权 | `CheckNotificationAuthorization(ctx) (bool, error)` / `RequestNotificationAuthorization(ctx) (bool, error)`（仅 macOS 有意义；Win/Linux 恒 true） |
+| 发送 | `SendNotification(ctx, NotificationOptions{ID, Title, Body, Data})`（Subtitle 仅 mac/Linux） |
+| 点击 | `OnNotificationResponse(ctx, func(NotificationResult))`，`Response.UserInfo` 即 `Data` |
+
+- **Windows**：Wails 内部用 `go-toast/v2`；AppID = 可执行文件名（`FFmpegFree.exe`），首次初始化写 `HKCU\Software\Classes\AppUserModelId\<exe名>`（DisplayName / IconUri）与 `HKCU\Software\Classes\CLSID\<GUID>\LocalServer32`（激活）。**不需要**开始菜单快捷方式 / 安装器注册。通知来源名显示为 `FFmpegFree.exe`（GUESS：如需显示「FFmpegFree」须改名或另设 AUMID，本版不做）。系统「通知」总开关 / 专注助手（勿扰）打开时不弹但进操作中心或被吞——属系统行为，不处理。
+- **macOS**：必须有 bundle identifier（`Info.plist` 的 `CFBundleIdentifier`），否则 `InitializeNotifications` 返回 `notifications require a valid bundle identifier`。`wails build` 打出的 `.app` 有；**`wails dev` / 裸二进制没有 → 通知不可用**（开发期无法验证，必须打包测）。首次初始化后若未授权，调 `RequestNotificationAuthorization` 弹系统授权框（最长等 3 分钟，须在后台 goroutine）。分发需签名 / 公证（Wails 文档要求）。
+- **Linux**：D-Bus，尽力而为，不在验收范围。
+
+**5. 不可用 / 被拒**
+
+- 初始化失败、`IsNotificationAvailable=false`、mac 授权为 false、`SendNotification` 报错：**静默**，只记日志；**不回退**应用内 toast，不打断对话。
+- 新绑定 **`GetCatNotifyStatus() → { available: bool, authorized: bool }`**（mac 每次实时 `CheckNotificationAuthorization`，Win 恒 authorized=true）。前端打开设置页时调用；`notifyOnFinish` 开且 `available=false` 或 `authorized=false` 时，在「完成后通知」开关下方显示 12px `--cat-muted` 灰字：
+  - mac 未授权：`系统没有允许 FFmpegFree 发通知，请到「系统设置 → 通知」里打开。`
+  - 其它不可用：`这台电脑现在发不了系统通知。`
+  - 不提供「去设置」按钮（GUESS：二期再加深链）。
+
+**6. 前端改动**：删除 `showTurnFinishToast` / `dismissFailToast` 对普通 turn 的调用（`catState.ts` 1080–1084、1286）；定时任务 toast 保留；新增焦点上报与设置页提示。
+
+**7. 待真机验证（GUESS 汇总）**：Win10/11 打包版 toast 出现在右下角与操作中心、来源名显示；点击 toast 拉前台并打开对话；冷启动点击行为；mac 打包版首次授权框、拒绝后设置页提示、通知中心点击打开对话；最小化 / 托盘 / 切到别的应用三种失焦都发，窗口聚焦时不发。
 
 ### 6.19.13 定时任务（v0.35，老板 10-13 提出，架构师定）
 
