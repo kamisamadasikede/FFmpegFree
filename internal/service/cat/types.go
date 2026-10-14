@@ -20,9 +20,11 @@ type Conversation = store.CatConversation
 // ContextUsed / ContextWindow 是打开会话时读到的上下文占用；没有则省略。
 type ConversationDetail struct {
 	store.CatConversation
-	Messages      []store.CatMessage `json:"messages"`
-	ContextUsed   int64              `json:"contextUsed,omitempty"`
-	ContextWindow int64              `json:"contextWindow,omitempty"`
+	Messages []store.CatMessage `json:"messages"`
+	// LastTurn（v0.44.6，6.19.18.7 第 7 条）：本进程内存里的最后一轮；没有（如重启后）则省略。
+	LastTurn      *CatTurnState `json:"lastTurn,omitempty"`
+	ContextUsed   int64     `json:"contextUsed,omitempty"`
+	ContextWindow int64     `json:"contextWindow,omitempty"`
 }
 
 // CreateConversationRequest 创建会话。
@@ -176,4 +178,11 @@ type WriteFileResult struct {
 	RelPath string `json:"relPath"`
 	Size    int64  `json:"size"`
 	ModTime int64  `json:"modTime"`
+}
+
+// CatTurnState 是 GetCatConversation 的 lastTurn（v0.44.6）。
+type CatTurnState struct {
+	TurnID    string `json:"turnId"`
+	Status    string `json:"status"` // running | cancelled | failed | completed
+	Retryable bool   `json:"retryable"`
 }

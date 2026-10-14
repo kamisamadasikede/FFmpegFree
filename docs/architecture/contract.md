@@ -1,4 +1,8 @@
-# FFmpegFree v2 接口契约（v0.45）
+# FFmpegFree v2 接口契约（v0.45.2）
+
+v0.45.2 变更（**`historyStatus` 区分空历史原因**，产品 / 后端 / 前端群聊 10-14，架构师 10-14；无新错误码 / 迁移 / 事件名）：`CatConversationDetail` 新增可选 `historyStatus?: "missing" | "read_failed"`（Go：`HistoryStatus string json:"historyStatus,omitempty"`）。① **有消息时省略**。② **从未存过 CLI `sessionId`**（新建空对话；Claude / Codex 映射文件空或不存在；Grok 虽可派生 id 但本对话尚未发过消息 / 会话目录未建）→ **省略**，前端显示欢迎页，**不得**显示找不到 / 无法显示。③ **`missing`**：曾存过 `sessionId`（或 Grok 已建过会话），但 CLI 会话文件已不在。④ **`read_failed`**：文件在，但打开 / 解析失败。⑤ 产品文案（替换 v0.45.1「这条对话…」）：`missing` →「这段对话的会话记录在本地找不到了。」；`read_failed` →「这段对话的历史记录暂时无法显示。」；样式同 #260 空历史（居中灰字、一句、无按钮）。见 6.19.19.0。
+
+v0.45.1 变更（**点开对话按存下的服务商 + 会话 id 从 CLI 加载** + 产品定稿消息尾，老板 t68u / 产品群聊 10-14，架构师 10-14；无新错误码 / 迁移 / 事件名）：① 侧栏每条对话已存 `agentKind` + 对话 id；`GetCatConversation`（点开 / 刷新）**主路径**是用该对话映射出的 CLI `sessionId` 调对应家的 `LoadTranscript`，从该 CLI 自己的会话文件读正文——**不以**应用库消息缓存当正文来源。库只留元数据（标题占位 / `projectId` / `lastTurn` / 消息尾）。会话文件缺失 → `messages=[]` + 灰字提示，不编造历史；续聊仍用同一 `sessionId`。② 取消 / 失败：终态**必带** `totalMs`（算到停下那一刻）；没出过首字 → **省略** `firstTokenMs`。③ 消息尾文案与窄窗隐藏顺序产品定稿（原 v0.45「待产品拍板」关闭）。见 6.19.19.0 / 6.19.19.3。
 
 v0.45 变更（**Claude 记录读回与续聊、Grok token 用量、消息尾首字 / 总耗时**，老板 t67u，架构师 10-14；无新错误码 / 迁移 / 事件名）：① Claude 照 Codex #262：按存下的 session_id 从 `~/.claude/projects/*/<id>.jsonl` 读回记录，续聊一律 `--resume <id>`；② Grok 流里无 token，终态后跑 `grok usage <sessionId>` 取本轮 `totalTokens`，取不到就省略、不估算；③ `CatMessage` / 终态 `cat:turn` 新增可选 `firstTokenMs`、`totalMs`（后端应用侧计时，三家通用）；显示文案待产品拍板。见 6.19.19。
 
@@ -4183,7 +4187,7 @@ type SendCatMessageResult struct {
 }
 ```
 
-- 同步路径：校验后返回 `{ userMessage, turnId }`。`userMessage` 只在这次返回值里，**不写入 `cat_messages`**。助手回复在后台跑，**全靠事件推送**。对话正文以 CLI 会话为准：侧栏一条对话只留服务商（`agentKind`）和对话 id；点开时后端执行 `grok export <由对话 id 派生的会话 UUID>`，把导出的 `## User` / `## Assistant` / `## Tools` / `## Thinking` 填进 `GetCatConversation.messages`。CLI 里还没有这个会话时消息为空。下一句是否 `--resume` 只看 CLI 会话目录在不在，不看 SQLite。侧栏名字也从 CLI 会话的第一句用户话现读，不写回 `cat_conversations.title`。进行中的回复、切走后的未读点只留在当前这次运行里，不进数据库。
+- 同步路径：校验后返回 `{ userMessage, turnId }`。`userMessage` 只在这次返回值里，**不写入 `cat_messages`**。助手回复在后台跑，**全靠事件推送**。对话正文以 CLI 会话为准（**v0.45.1 主路径见 6.19.19.0**）：侧栏一条对话只留服务商（`agentKind`）和对话 id；点开时后端按该家映射出的 CLI `sessionId` 做 `LoadTranscript`（Grok：优先 `updates.jsonl`，否则 `grok export <sessionId>`；Claude / Codex：读各自会话 jsonl），填进 `GetCatConversation.messages`。CLI 里还没有这个会话 / 文件已不在时消息为空（`historyStatus` 与文案见 6.19.19.0）。下一句是否 `--resume` / `exec resume` 只看该对话存下的 CLI `sessionId`（及对应会话文件），不看 SQLite 正文。侧栏名字也从 CLI 会话的第一句用户话现读，不写回 `cat_conversations.title`。进行中的回复、切走后的未读点只留在当前这次运行里，不进数据库。
 - **流式下 `assistantMessage` 为空或省略**；助手正文只经 `cat:message` / `cat:turn`。
 - **用户消息不发 `cat:message`**（只在同步 `userMessage` 里带）；`cat:message` **仅用于助手流式**。
 - **未就绪**（组件/CLI 未发布或 `state != ready`）：同步返回 `CAT_NOT_READY`，**不启 turn**、不发流式事件；界面只展示「未检测到 Cat 助手，请先安装并确保可在终端直接运行。」（鉴权失败时「登录失效，请重新登录后再试。」）。**官方包禁止**在未就绪时造助手气泡、禁止拆字/模拟回复。
@@ -4262,9 +4266,9 @@ type CatTurnEvent = {
 |---|---|
 | 进行中（`running` / 未终态） | **不出现**消息尾；事件与 `CatMessage` **不带**尾字段 |
 | 无 usage | 隐藏 token / token/s 两段；**只留**完成时间（有 `finishedAt`） |
-| 停止 / 失败 / 超时（`cancelled` / `failed`） | 有部分 usage → 带 `tokenTotal`（及可算时的 `tokensPerSec`）；没有 → 只留 `finishedAt` |
+| 停止 / 失败 / 超时（`cancelled` / `failed`） | 有部分 usage → 带 `tokenTotal`（及可算时的 `tokensPerSec`）；没有 → 只留 `finishedAt`；**v0.45.1**：终态必带 `totalMs`（到停下）；无首字则省略 `firstTokenMs` |
 | 旧消息 / 重开对话缺字段 | **不补假数据**；缺什么藏什么；三字段皆无 → **整段尾巴不显示** |
-| `GetCatConversation.messages` | 返回的 assistant `CatMessage` 须带回应用侧已持久化的 `finishedAt` / `tokenTotal` / `tokensPerSec`；正文仍可来自 CLI export，**用量与完成时间以应用侧 turn 元数据为准**（CLI export 无则不得伪造） |
+| `GetCatConversation.messages` | **正文主路径**见 6.19.19.0（按存下的 `agentKind` + CLI `sessionId` 从该家会话存储 `LoadTranscript`）；返回的 assistant `CatMessage` 须带回应用侧已持久化的 `finishedAt` / `tokenTotal` / `tokensPerSec` / `firstTokenMs` / `totalMs`；**用量与完成时间 / 首字 / 总耗时以应用侧为准**（CLI export 无则不得伪造） |
 
 持久化：应用侧按 `turnId`（及 `messageId`）保存消息尾元数据即可；**无新迁移强制**（可用现有键值 / 旁路 JSON；若加列须在实现 PR 注明迁移号）。不写进用户项目目录。
 
@@ -5598,7 +5602,56 @@ type CatSettings struct {
 **v0.44 验收**：三家模式下拉各自显示本表列表与顺序、默认选中正确；Codex 无计划项、续聊自动审查发 workspace-write；grok-4.5 无「很高」；每项目首次切 danger 弹确认、再切不弹；Claude 切到 Opus 4.6 时选中的 xhigh 回落 high；保存 `max` 成功；失败后点「重试」不新增气泡并成功。
 
 
-### 6.19.19 Claude 记录读回 / 续聊、Grok token、首字与总耗时（v0.45，架构师 10-14）
+### 6.19.19 Claude 记录读回 / 续聊、Grok token、首字与总耗时（v0.45；v0.45.1 点开主路径；v0.45.2 `historyStatus`，架构师 10-14）
+
+#### 6.19.19.0 点开对话：按存下的服务商 + 会话 id 从 CLI 加载（v0.45.1 / v0.45.2，老板 t68u）
+
+老板口径（t68u）：侧栏每条对话已经存了**服务商**（`agentKind`）和**对话 id**；用户点开时，应用必须用这对映射出的 CLI `sessionId`，**直接去对应 CLI 的会话存储加载正文**——不是只靠应用库里的消息缓存拼。
+
+**会话 id 存哪里（无新迁移）**
+
+| `agentKind` | CLI `sessionId` 来源 | 存法 |
+|---|---|---|
+| `cat_build` | 由我们对话 id **确定性派生**的 UUID（现有 `sessionIDFromConv`；新建时 `--session-id`，续聊 `--resume`） | 派生即可，不必另落库 |
+| `claude_cli` | Claude 流式 `session_id`（`system/init` / `result`） | `DataRoot/cat/cli-sessions/claude/<convId>`（现有 `saveSessionID`） |
+| `codex_cli` | Codex `thread_id` / session UUID | `DataRoot/cat/cli-sessions/codex/<convId>`（现有 `saveSessionID`） |
+
+SQLite `cat_conversations` 仍只存 `id` / `agentKind` / `projectId` / 标题占位等元数据；**不把正文写进 `cat_messages`**（6.19.9 既有口径不变）。
+
+**`GetCatConversation` 主路径（三家同一）**
+
+1. 读对话行 → `agentKind`、我们的 `convId`、`projectId`。
+2. 按上表解析出该家 CLI `sessionId`（Grok 派生；Claude / Codex 读 `cli-sessions` 映射文件）。
+3. 调该家适配器 `LoadTranscript`，**以 CLI 会话存储为正文来源**：
+   - `claude_cli`：读 `$CLAUDE_CONFIG_DIR`（默认 `~/.claude`）`/projects/*/<sessionId>.jsonl`（规则见 6.19.19.1；**不**另启 `claude` 子进程导出）。
+   - `codex_cli`：读 `$CODEX_HOME`（默认 `~/.codex`）`sessions|archived_sessions/**/rollout-*-<sessionId>.jsonl`（#262 / 现有实现）。
+   - `cat_build`：优先读该会话目录下的 `updates.jsonl`（与当场流式同规则）；没有再跑 `grok export <sessionId>`（H `grok export --help` 1.0.40：`Export a session transcript as Markdown`）。
+4. 应用侧再合并消息尾（`finishedAt` / `tokenTotal` / `tokensPerSec` / `firstTokenMs` / `totalMs`）和 `lastTurn`（v0.44.6）；这些**以应用侧为准**，CLI export 没有则不得伪造。
+5. **空历史与 `historyStatus`（v0.45.2）**：`LoadTranscript` 得到空列表时，`messages` 仍返回**空数组**，记日志，**不报错**、不编造历史；对话页能打开。`CatConversationDetail` 带可选字段：
+
+```go
+HistoryStatus string `json:"historyStatus,omitempty"` // "missing" | "read_failed"；有消息时省略
+```
+
+```ts
+historyStatus?: "missing" | "read_failed"
+```
+
+   | 条件 | `historyStatus` | 前端 |
+   |---|---|---|
+   | `messages` 非空 | **省略** | 正常渲染消息 |
+   | 从未存过 CLI `sessionId`（新建空对话：Claude / Codex 映射文件空或不存在；Grok 虽可派生 id 但本对话尚未发过消息 / 会话目录未建） | **省略** | **欢迎页**（不得显示找不到 / 无法显示） |
+   | 曾存过 `sessionId`（或 Grok 已建过会话），但 CLI 会话文件已不在 | `"missing"` | 居中灰字：「这段对话的会话记录在本地找不到了。」 |
+   | 会话文件在，但打开 / 解析失败 | `"read_failed"` | 居中灰字：「这段对话的历史记录暂时无法显示。」 |
+
+   样式同 #260 空历史：居中、灰字、**只显示一句**、无按钮。产品文案用「**这段**」（替换 v0.45.1 的「这条」）。**无 `historyStatus` 且 `messages=[]` → 欢迎页**（含新建空对话、旧后端未下发字段）；未知取值按 `read_failed` 文案回落。
+6. **续聊**（`SendCatMessage`）：仍用**同一** `sessionId`，参数出处（本机 10-14 核对）：
+   - Claude 2.1.296：`-r, --resume [value]`（H `testdata/help/claude.txt`；D https://code.claude.com/docs/en/sessions）。
+   - Codex 0.162.1：`codex exec resume [OPTIONS] [SESSION_ID] [PROMPT]`（H `testdata/help/codex-exec-resume.txt`）。
+   - Grok 1.0.40：`-r, --resume [<SESSION_ID_OR_TITLE>]`（H `testdata/help/grok.txt`）。
+   未核实的参数不得发版（6.19.17）。
+
+**与 v0.45 / v0.45.2 的关系**：6.19.19.1–3 的 Claude 读回 / Grok usage / 计时字段不变；本小节把「点开 = CLI LoadTranscript」升为**显式主路径**；v0.45.2 用 `historyStatus` 区分 `missing` / `read_failed`，并统一「这段…」文案与新建空对话欢迎页。
 
 #### 6.19.19.1 Claude 记录读回与续聊（照 Codex #262）
 
@@ -5607,7 +5660,7 @@ type CatSettings struct {
 1. **续聊**：与 Codex 同口径，以我们存下的 `session_id`（stream-json `system/init` / `result` 行里的 `session_id`，已由 `saveSessionID` 存）为准：有就续，`resume = sessionID != ""`。参数 `--resume <sessionId>`（H `testdata/help/claude.txt` 2.1.296：`-r, --resume [value]  Resume a conversation by session ID`；D https://code.claude.com/docs/en/sessions）。删去 `buildClaudeArgs` 里的 `GUESS B9` 注释，改为出处注释。子进程 `cmd.Dir` 必须是该会话原工作目录（Claude 按工作目录找会话）。
 2. **会话文件位置**（D https://code.claude.com/docs/en/sessions「Where transcripts are stored」）：`$CLAUDE_CONFIG_DIR`（未设则 `~/.claude`）`/projects/<目录名>/<sessionId>.jsonl`；目录名 = 工作目录路径里非字母数字字符换成 `-`，超过 200 字符时截断加 hash，且可被 `CLAUDE_CODE_PROJECT_DIR_NAME` 改名。**因此不自己拼目录名**：在 `projects/*/` 下按文件名 `<sessionId>.jsonl` 查找（sessionId 是 UUID，校验不含 `/` `\` `..`）；优先尝试按规则拼出的目录，找不到再扫一层。`ProviderEnv` 里若设了 `CLAUDE_CONFIG_DIR` 以它为准（同 Codex 的 `CODEX_HOME`）。
 3. **解析**（`ParseClaudeTranscript`，宽松）：官方说明行格式是内部格式、随版本变化 → 每行独立 JSON，坏行 / 未知 `type` 跳过，不报错。只认 `type=user` 和 `type=assistant`，取 `message.content`（字符串或 block 数组）：`text` → 正文；`thinking` → 思考块；`tool_use` / `tool_result` → 工具卡（与现有 Codex 工具卡同形）。跳过：`isSidechain=true`（子代理）、`isMeta=true`、`summary` / `system` / `file-history-snapshot` 等元数据行、我们注入的规则块（`--append-system-prompt` 不落用户消息，无需特判）、仅含 `tool_result` 的 user 行不作为用户气泡。同一 `message.id` 的多行 assistant（流式分片）按出现顺序合并成一条。
-4. **缺失**：无 session_id、文件已被 `cleanupPeriodDays`（默认 30 天）清掉或读失败 → 返回空列表、记日志，不报错，记录页能打开（同 #262）。续聊时文件不在 → 仍按存下的 id 发 `--resume`；CLI 报找不到会话时走现有失败路径，`retryable=false`，并清掉该 session_id 让下一句开新会话。
+4. **缺失**：无 session_id、文件已被 `cleanupPeriodDays`（默认 30 天）清掉或读失败 → 返回空列表、记日志，不报错，记录页能打开（同 #262）；`GetCatConversation` 的 `historyStatus` 见 6.19.19.0（无 id → 省略；文件不在 → `missing`；读失败 → `read_failed`）。续聊时文件不在 → 仍按存下的 id 发 `--resume`；CLI 报找不到会话时走现有失败路径，`retryable=false`，并清掉该 session_id 让下一句开新会话。
 5. **侧栏标题**：`SessionLabel` 对 Claude 取文件里第一条非 meta 的 user 文本（`shortLabel` 18 字），只当次展示、不回写库。Codex 侧栏标题同理（取 rollout 第一条 user message），一并做。
 6. **测试**：`testdata/claude/<uuid>.jsonl` 真机样本（2.1.296 采集，脱敏）+ 坏行 / sidechain / 分片合并用例；`buildClaudeArgs` 续聊参数过 `cli_help_whitelist_test`；刷新后 `GetCatConversation.messages` 非空的 service 测试。
 
@@ -5644,12 +5697,12 @@ totalMs?: number
 ```
 
 1. **起点**统一为本轮 `turnStartedAt`（后端启 turn / 发 `running` 的时刻，6.19.9 已定义）；全部由**后端在应用侧计时**，三家一致，不读 CLI 自报（Claude `result.duration_ms`、Grok `events.jsonl first_token` 只作排查参考）。
-2. `firstTokenMs`：适配器第一次回调**正文或思考增量**（`Text != ""` 的 delta / thinking；不算 init、usage、工具开始、重试提示）的时刻 − 起点。整轮无增量（如直接失败）→ 省略。
-3. `totalMs` = `finishedAt − turnStartedAt`；有 `finishedAt` 就带。与 tok/s 分母 `durationMs` 是两回事：`durationMs` 仍按 6.19.9 优先 CLI 生成耗时，不改。
+2. `firstTokenMs`：适配器第一次回调**正文或思考增量**（`Text != ""` 的 delta / thinking；不算 init、usage、工具开始、重试提示）的时刻 − 起点。整轮无增量（直接失败 / 取消时还没出过首字）→ **省略**（v0.45.1 产品确认）。
+3. `totalMs` = `finishedAt − turnStartedAt`。**凡进入终态**（`completed` / `cancelled` / `failed`）**必带** `totalMs`（取消 / 失败算到停下那一刻）；与 tok/s 分母 `durationMs` 是两回事：`durationMs` 仍按 6.19.9 优先 CLI 生成耗时，不改。（v0.45.1 收紧：不再写「有 finishedAt 就带」的可选口径，终态一律带。）
 4. 原地重试（6.19.18.7）以重试发起时刻为新起点，覆盖旧值。
 5. 字段名用 `totalMs` 而非 `durationMs`，避免与 6.19.9 内部分母混淆。
 
-**前端显示（提议，待产品拍板）**：消息尾在现有一行后追加，次要色、`·` 分隔：
+**前端显示（产品 10-14 定稿）**：消息尾在现有一行后追加，次要色、`·` 分隔；样式沿用 v0.37.1（同一灰色字号；数字 `font-variant-numeric: tabular-nums`）：
 
 ```text
 完成于 14:32 · 首字 1.2s · 总耗时 8.4s · 共 12,345 token · 约 85 token/s
@@ -5657,12 +5710,14 @@ totalMs?: number
 
 - 秒：< 10s 一位小数（`1.2s`），≥ 10s 取整（`23s`），≥ 60s 写 `1分05秒`；< 0.1s 显示 `0.1s`。
 - 缺哪项就不显示哪项（Grok 取不到用量时只到「总耗时」）；字段都缺 → 按 6.19.9 不显示尾巴。
-- 悬停提示（可选）：首字 =「从发送到看到第一个字」，总耗时 =「从发送到回复结束」。
+- 悬停提示：首字 =「从发送到看到第一个字」，总耗时 =「从发送到回复结束」；与被窄窗藏起的项放进**同一个** tooltip，一项一行。
+- **窄窗隐藏顺序**（从末尾往前藏）：先藏 `约 M token/s`，再藏 `共 N token`；「完成于」与「总耗时」最后藏。被藏的项仍可在消息尾悬停看到全部。
+- **取消 / 失败**：没出过首字 → 不显示「首字」段；「总耗时」照常显示到停下那一刻（对应后端必带的 `totalMs`）。
 
 #### 6.19.19.4 不做 / 验收
 
-- 不做：Grok token 估算；拆 in/out；Claude 会话文件写回；无新错误码（仍 39 个）、无迁移、无新事件名。
-- **验收**：Claude 对话刷新 / 重启后记录完整、下一句接得上上文；Codex / Claude 侧栏显示首句标题；Grok 回复后尾巴有 token 与 token/s；三家尾巴都有「首字 / 总耗时」，失败无增量的轮只有总耗时。
+- 不做：Grok token 估算；拆 in/out；Claude 会话文件写回；把正文改回写进 SQLite；无新错误码（仍 39 个）、无迁移、无新事件名。
+- **验收**：① 点开侧栏任一对话（三家），正文来自该家 CLI 会话存储（有 `sessionId` 且文件在 → 非空；曾存过 id 但文件不在 → `messages=[]` + `historyStatus="missing"` + 灰字「这段对话的会话记录在本地找不到了。」；文件在但读失败 → `historyStatus="read_failed"` +「这段对话的历史记录暂时无法显示。」；新建未发消息 → 无 `historyStatus`、欢迎页；不编造）。② Claude 刷新 / 重启后记录完整、下一句 `--resume` 接得上上文；Codex / Claude 侧栏显示首句标题。③ Grok 回复后尾巴有 token 与 token/s（`grok usage` 取得到时）。④ 三家尾巴文案按产品定稿；窄窗按从末尾往前藏；取消 / 失败必有总耗时、无首字则不显示首字。
 
 
 ## 7. 本地流服务（已取消）

@@ -482,6 +482,11 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	cmd.Stderr = stderrTap
 
 	if err := cmd.Start(); err != nil {
+		// exec.CommandContext 在 ctx 已取消时 Start 直接返回 ctx 错误：
+		// 取消发生在启动前（高负载下常见）时应报“已取消”，而不是 start_failed。
+		if ctx.Err() != nil {
+			return TurnResponse{}, apperr.New(apperr.Canceled, "已取消")
+		}
 		return TurnResponse{}, apperr.Wrap(apperr.CatReplyFailed, MsgReplyFailed, err).WithDetail("reason=start_failed")
 	}
 

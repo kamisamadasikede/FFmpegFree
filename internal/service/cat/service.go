@@ -326,7 +326,7 @@ func (s *Service) GetCatConversation(ctx context.Context, convID string) (Conver
 	}
 	s.applyCLITitle(ctx, &c)
 	used, window := s.lookupContext(ctx, c)
-	return ConversationDetail{CatConversation: c, Messages: msgs, ContextUsed: used, ContextWindow: window}, nil
+	return ConversationDetail{CatConversation: c, Messages: msgs, LastTurn: s.lastTurnInfo(convID), ContextUsed: used, ContextWindow: window}, nil
 }
 
 // applyCLITitle 用 CLI 会话里的第一句当展示名。库里的 title 不更新。
@@ -1013,6 +1013,7 @@ func (s *Service) turnEventLocked(t *turnState, status string) catagent.TurnEven
 			msg = catagent.MsgReplyFailed
 		}
 		ev.Error = apperr.New(apperr.CatReplyFailed, msg)
+		ev.Retryable = s.retryableNow(t.convID, t.turnID)
 	}
 	if t.contextUsed > 0 && t.contextWindow > 0 {
 		ev.ContextUsed, ev.ContextWindow = t.contextUsed, t.contextWindow
@@ -1187,6 +1188,28 @@ func splitRunes(s string, n int) []string {
 		out = append(out, string(r[i:j]))
 	}
 	return out
+}
+
+// lastTurnInfo 是 GetCatConversation 的 lastTurn（v0.44.6）：内存里没有 → nil；进行中时不可重试。
+func (s *Service) lastTurnInfo(convID string) *CatTurnState {
+	s.mu.Lock()
+	_, busy := s.turns[convID]
+	s.mu.Unlock()
+	s.lastMu.Lock()
+	defer s.lastMu.Unlock()
+	lt := s.lastTurns[convID]
+	if lt == nil {
+		return nil
+	}
+	return &CatTurnState{TurnID: lt.turnID, Status: lt.status, Retryable: !busy && lt.status == catagent.TurnFailed}
+}
+
+// retryableNow 报告 turnID 是否是该会话内存里记下的最后一轮且失败（失败事件用）。
+func (s *Service) retryableNow(convID, turnID string) bool {
+	s.lastMu.Lock()
+	defer s.lastMu.Unlock()
+	lt := s.lastTurns[convID]
+	return lt != nil && lt.turnID == turnID && lt.status == catagent.TurnFailed
 }
 
 func (s *Service) noteLastTurnStatus(convID, turnID, status string) {
