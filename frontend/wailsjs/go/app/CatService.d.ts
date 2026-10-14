@@ -30,6 +30,8 @@ export function EnsureCreateCatSkillsDir(arg1:cat.SkillsDirRequest):Promise<cat.
 
 export function GetCatConversation(arg1:string):Promise<cat.ConversationDetail>;
 
+export function GetCatNotifyStatus():Promise<cat.NotifyStatus>;
+
 export function GetCatSettings():Promise<cat.Settings>;
 
 export function GetCatStatus():Promise<catagent.Status>;
@@ -59,6 +61,8 @@ export function GitCatStatus(arg1:cat.GitStatusRequest):Promise<cat.GitStatusRes
 export function GitCatUnstage(arg1:cat.GitPathsRequest):Promise<void>;
 
 export function InspectCatConfig(arg1:cat.InspectRequest):Promise<catagent.InspectResult>;
+
+export function ListCatBranches(arg1:cat.CatBranchesRequest):Promise<cat.CatBranchesResult>;
 
 export function ListCatConversations():Promise<Array<store.CatConversation>>;
 
@@ -90,10 +94,6 @@ export function ReadCatFile(arg1:cat.ReadFileRequest):Promise<cat.ReadFileResult
 
 export function RecheckCat(arg1:string):Promise<catagent.Status>;
 
-export function SetCatWindowFocused(arg1:boolean):Promise<void>;
-
-export function GetCatNotifyStatus():Promise<cat.NotifyStatus>;
-
 export function RelocateCatProject(arg1:cat.RelocateProjectRequest):Promise<cat.Project>;
 
 export function RenameCatProject(arg1:cat.RenameProjectRequest):Promise<cat.Project>;
@@ -122,9 +122,13 @@ export function SendCatMessage(arg1:cat.SendMessageRequest):Promise<cat.SendMess
 
 export function SetCatInspectItemEnabled(arg1:cat.SetInspectItemEnabledRequest):Promise<catagent.InspectItem>;
 
+export function SetCatWindowFocused(arg1:boolean):Promise<void>;
+
 export function StartCatTerm(arg1:cat.TermStartRequest):Promise<cat.TermStartResult>;
 
 export function StopCatTerm(arg1:cat.TermStopRequest):Promise<void>;
+
+export function SwitchCatBranch(arg1:cat.SwitchCatBranchRequest):Promise<void>;
 
 export function UpdateCatSchedule(arg1:cat.UpdateScheduleRequest):Promise<cat.Schedule>;
 

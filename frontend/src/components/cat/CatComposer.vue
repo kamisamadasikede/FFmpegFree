@@ -1,9 +1,33 @@
 <template>
   <div ref="root" class="ct-comp" :class="{ bare: welcome, missing }">
     <div v-if="!welcome" class="ctx-bar" aria-label="项目上下文">
-      <span class="cx" :class="{ miss: missing }"><FIcon :name="missing ? 'warn' : 'folder'" :size="13" /><b :title="ctxName">{{ ctxName }}</b></span>
-      <span class="cx"><FIcon name="monitor" :size="13" />本地</span>
-      <span class="cx"><FIcon name="branch" :size="13" />{{ ctxBranch }}</span>
+      <button
+        type="button"
+        class="cx cx-folder"
+        :class="{ miss: missing }"
+        :title="folderTitle"
+        :aria-label="BC.openFolder + '：' + (folderFull || folderLabel)"
+        :disabled="!convId"
+        data-testid="cat-ctx-folder"
+        @click="openFolder"
+      ><FIcon :name="missing ? 'warn' : 'folder'" :size="13" /><b>{{ folderLabel }}</b></button>
+      <template v-if="br.repo">
+        <span class="cx" :class="{ dim: !br.upstream }" :title="BC.upstreamTitle" data-testid="cat-ctx-upstream"><FIcon name="globe" :size="13" />{{ br.upstream || BC.noUpstream }}</span>
+        <span class="cx cx-branch" :title="BC.localTitle">
+          <FIcon name="branch" :size="13" />
+          <CatModeSelect
+            compact
+            :model-value="br.branch ? 'L:' + br.branch : ''"
+            :options="brOpts"
+            :placeholder="br.detached ? BC.detached : '—'"
+            :disabled="running || switching || missing"
+            :busy="switching"
+            :aria-label="BC.localTitle"
+            testid="cat-ctx-branch"
+            @update:model-value="onPickBranch"
+          />
+        </span>
+      </template>
     </div>
     <div ref="inEl" class="ct-in" :aria-disabled="missing || undefined" :aria-describedby="missing ? missId : undefined">
       <div v-if="shownFiles.length" class="ct-files" data-testid="cat-attach-row">
@@ -263,7 +287,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import CatModeSelect from '@/components/cat/panels/CatModeSelect.vue'
+import { branchOptions, CAT_BRANCH_COPY as BC, catBranchErrorText, listCatBranches, mapCatBranches, middleEllipsis, parseBranchOption, switchCatBranch, type CatBranches } from '@/api/catBranches'
+import { revealCatConversationFolder } from '@/api/catFiles'
 import FIcon from '@/components/icon/FIcon.vue'
 import CatContextRing from '@/components/cat/CatContextRing.vue'
 import { ElMessage } from 'element-plus'
@@ -287,7 +314,7 @@ import { CAT_PROVIDER_MODELS_COPY as PM, normalizeManualModelId, providerModelHi
  * 合一胶囊只显示 List API 有的模型/强度（无强度不显示「·」半截）。
  */
 const props = withDefaults(
-  defineProps<{ welcome?: boolean; placeholder?: string; ctxName?: string; ctxBranch?: string; busy?: boolean; running?: boolean; stopping?: boolean; notReady?: boolean; checking?: boolean; missing?: boolean; projectName?: string }>(),
+  defineProps<{ welcome?: boolean; placeholder?: string; ctxName?: string; ctxBranch?: string; busy?: boolean; running?: boolean; stopping?: boolean; notReady?: boolean; checking?: boolean; missing?: boolean; projectName?: string; convId?: string; isProject?: boolean }>(),
   {
     welcome: false,
     placeholder: '随心输入',
@@ -303,11 +330,64 @@ const props = withDefaults(
     missing: false,
     /** 欢迎页属于某个项目（项目行「+」进来）：托盘显示「在项目中工作 · {项目}」 */
     projectName: '',
+    /** v0.49 底栏：当前对话 id；空 = 欢迎页，不读文件夹 / 分支 */
+    convId: '',
+    isProject: false,
   },
 )
 let missSeq = 0
 const missId = `ct-miss-${++missSeq}-${Math.random().toString(36).slice(2, 7)}`
 const emit = defineEmits<{ send: [payload: { text: string; files: CatOutgoingFile[]; own: string; notes: PickNote[] }]; stop: []; blocked: [] }>()
+
+// ---- v0.49 底栏：文件夹路径 / 远程分支 / 本地分支切换（契约 6.19.24） ----
+const br = ref<CatBranches>(mapCatBranches(null))
+const switching = ref(false)
+let brSeq = 0
+const brOpts = computed(() => branchOptions(br.value))
+const folderFull = computed(() => br.value.root)
+const folderLabel = computed(() => (props.isProject || !br.value.root ? props.ctxName : middleEllipsis(br.value.root, 36)))
+const folderTitle = computed(() => (folderFull.value ? folderFull.value + '\n' + BC.openFolder : BC.openFolder))
+async function loadBranches() {
+  const id = props.convId
+  const seq = ++brSeq
+  if (!id) {
+    br.value = mapCatBranches(null)
+    return
+  }
+  try {
+    const r = await listCatBranches(id)
+    if (seq === brSeq) br.value = r
+  } catch {
+    if (seq === brSeq) br.value = mapCatBranches(null)
+  }
+}
+watch(() => props.convId, () => void loadBranches(), { immediate: true })
+watch(() => props.running, (on) => { if (!on) void loadBranches() })
+async function openFolder() {
+  if (!props.convId) return
+  try {
+    await revealCatConversationFolder(props.convId)
+  } catch (e) {
+    ElMessage.warning(toAppError(e).message || BC.openFailed)
+  }
+}
+async function onPickBranch(id: string) {
+  const p = parseBranchOption(id)
+  if (!p || !props.convId || props.running || switching.value) return
+  if (!p.remote && p.branch === br.value.branch) return
+  switching.value = true
+  try {
+    await switchCatBranch(props.convId, p.branch, p.remote)
+    await loadBranches()
+    ElMessage.success(BC.switched(br.value.branch || p.branch))
+  } catch (e) {
+    ElMessage.warning(catBranchErrorText(e))
+    void loadBranches()
+  } finally {
+    switching.value = false
+  }
+}
+
 
 /** 停止：父组件把 stopping 置真后按钮立即置灰，重复点击无效 */
 function onStop() {
@@ -723,6 +803,26 @@ defineExpose({
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.ctx-bar .cx-folder {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.ctx-bar .cx-folder:hover:not(:disabled) b {
+  color: var(--cat-text);
+  text-decoration: underline;
+}
+.ctx-bar .cx-folder:disabled {
+  cursor: default;
+}
+.ctx-bar .cx.dim {
+  color: var(--cat-muted);
+  opacity: 0.7;
 }
 .ctx-bar .cx :deep(svg) {
   color: var(--cat-muted);
