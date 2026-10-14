@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.44.3）
+# FFmpegFree v2 接口契约（v0.44.4）
+
+v0.44.4 变更（**重试文案定稿 + 默认模式按 CLI**，产品 / 架构师 10-14；无新错误码 / 迁移，`cat.settings` JSON 就地演进）：① 6.19.18.7 第 6 条定稿：「重试」只在失败轮是最后一轮且仍可重试时显示；点了但已不可重试 → 按钮原地换成灰字「这条回复已无法重试，请重新发送。」，不弹 toast、不用红色。② 新增 6.19.18.9：`CatSettings.defaultApprovalMode`（全局单值）改为 `defaultModeByAgent{cat_build,claude_cli,codex_cli}` → 该家 `modes[].id`；设置页每家一个下拉；旧值按各家「旧值」列迁移，未知回落该家最保守默认。
 
 v0.44.3 变更（**口径收敛**，后端 #258 提问，架构师 10-14；无接口 / 错误码 / 迁移变更）：① 6.19.18.5b 第 3 条：Claude 模型**不预选**，`CatModel` 无 `isDefault` 字段，删去「对应别名 `isDefault=true`」要求。② 6.19.18.5b 新增第 7 条已知限制：Bedrock / 自定义服务商下别名可能对应其他版本，显示名与强度按 Anthropic API 那一行。③ 6.19.18.7 新增第 6 条重试限制：只能重试最后一轮；失败轮状态只存内存，应用重启后不能重试；不可重试提示文案待产品定稿。
 
@@ -5557,7 +5559,26 @@ RetryCatTurn(req RetryCatTurnRequest) (SendCatMessageResult, error)
 3. 返回新 `turnId`；事件沿用 `cat:message` / `cat:turn`（6.19.9），`seq` 从 1 起。
 4. 参数按**当前检测到的 CLI 版本**重新生成（6.19.17.1-5，缓存键 路径 + mtime + 大小）；mode / effort 若当前版本或模型已不支持，按本节回落规则处理。
 5. 前端：v0.43 的 `retryLastMessage()`（再发一条、多一个气泡）**作废**，「重试」改调 `RetryCatTurn`。同步错误（`CAT_NOT_READY` / `CAT_PROJECT_MISSING` 等）照原样行内显示。
-6. **限制**（v0.44.3）：只能重试**最后一轮**；失败轮状态**只存在内存**，应用重启后该轮**不能重试**（返回 `retry_not_allowed`，前端隐藏或置灰「重试」）。不可重试时的提示文案（草稿「这条回复不能重试。」）**待产品定稿**。
+6. **限制与界面**（v0.44.3 / v0.44.4 定稿）：只能重试**最后一轮**；失败轮状态**只存在内存**，应用重启后该轮不能重试（`retry_not_allowed`）。
+   - 「重试」按钮**只在**该失败轮是会话最后一轮**且仍可重试**时显示；应用重启后、或已不是最后一轮 → **不显示**。
+   - 点了「重试」但后端返回 `retry_not_allowed` → 按钮消失，**原地**换成灰字「这条回复已无法重试，请重新发送。」，字号同「当前版本 X」那行；**不弹 toast、不用红色**。
+
+#### 6.19.18.9 默认模式按 CLI（v0.44.4）
+
+```go
+type CatSettings struct {
+    // ...其余字段不变
+    DefaultModeByAgent map[string]string `json:"defaultModeByAgent"` // key: cat_build|claude_cli|codex_cli；value: 该家 agents[].modes[].id
+    // DefaultApprovalMode string `json:"defaultApprovalMode"` // v0.44.4 起废弃：只读兼容，Save 不再写
+}
+```
+
+1. **接口**：`GetCatSettings` / `SaveCatSettings` 签名不变，`CatSettings` 新增 `defaultModeByAgent`，去掉 `defaultApprovalMode`（wails 绑定随之重生成）。
+2. **校验（Save）**：key 只能是三家之一，否则 `INVALID_ARGUMENT`；value 必须是该家当前 `modes[]` 里的 id 或 `""`（空 = 该家默认），否则 `INVALID_ARGUMENT`。取代 6.19.12 第 3 条对 `defaultApprovalMode` 的校验。
+3. **旧值迁移（读路径，同 6.19.12 第 2 条做法）**：库里只有旧 `defaultApprovalMode` 时，`GetCatSettings` 在返回值里按 **6.19.18.3 各家「旧值」列**映射给三家各填一项；映射不到 / 未知 → 该家最保守默认（`isDefault=true` 那项，没有则 `modes[0]`）。不在 Get 时回写，下次成功 Save 写新形状并删旧字段。
+4. **新对话**：`catConvPrefs.approvalMode` = `defaultModeByAgent[agentKind]`；空或已不在该家 `modes[]` → 该家最保守默认。已有对话不变（同 6.19.12 第 4 条）。
+5. **设置页**：「新对话默认」里每家块各一个「模式」下拉，选项用该家后端 `modes[]`（label + 灰色 description，danger 项按 6.19.18.3a 橙色样式）；取代原全局「批准方式」下拉。设置页选 danger **不弹**首次确认框（确认只在对话内切换时按项目弹）。
+6. 定时任务的 `approvalMode` 不在本版调整。
 
 #### 6.19.18.8 不做 / 待核
 
