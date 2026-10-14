@@ -1,68 +1,57 @@
 /**
- * 契约 v0.44.4 §6.19.18.9 / v0.44.5 §6.19.18.7 第 7 条：新字段名唯一一处映射。
- * 后端 PR 合入、wails 绑定重生成后，若字段名有出入只改这里。
+ * 契约 v0.44.4 §6.19.18.9 / v0.44.5–v0.44.6 §6.19.18.7：文案与读路径辅助。
+ * 字段名以 wails 生成的 models.ts 为准（Settings.defaultModeByAgent、ConversationDetail.lastTurn、CatTurnState.retryable）。
  */
 import { CAT_PROVIDER_ORDER, type CatProviderKind } from '@/api/catAgents'
 
-export const V0445_FIELDS = {
-  /** CatSettings.defaultModeByAgent：key = agentKind，value = 该家 modes[].id（"" = 该家默认） */
-  defaultModeByAgent: 'defaultModeByAgent',
-  /** v0.44.4 起废弃，只读兼容（Save 不再写） */
-  legacyApprovalMode: 'defaultApprovalMode',
-  /** turn / 失败事件上的 retryable */
-  retryable: 'retryable',
-  /** GetCatConversation：CatConversationDetail.lastTurn?: { turnId, status, retryable }（架构师 10-14 定） */
-  lastTurn: 'lastTurn',
-  turnId: 'turnId',
-  turnStatus: 'status',
-} as const
-
 /** 6.19.18.7 第 6 条定稿文案 */
 export const CAT_RETRY_GONE_TEXT = '这条回复已无法重试，请重新发送。'
-/** 不能重试时的失败行（产品 10-14）；可重试时仍用 CAT_COPY.replyFailed「回复没生成出来，请重试。」 */
+/** 不能重试时的失败行；可重试时仍用 CAT_COPY.replyFailed「回复没生成出来，请重试。」 */
 export const CAT_REPLY_FAILED_FINAL = '回复没生成出来。'
-/** 设置页选 danger 时常驻的橙色小字（产品 10-14 定稿） */
+/** 设置页选 danger 时常驻的橙色小字（产品定稿） */
 export const CAT_DEFAULT_DANGER_NOTE = '新对话默认全部放开，Cat 助手将不经检查执行命令和修改文件。'
+
+export type CatModeByAgent = Record<CatProviderKind, string>
+export const emptyModeByAgent = (): CatModeByAgent => ({ cat_build: '', claude_cli: '', codex_cli: '' })
 
 type Raw = Record<string, unknown>
 const obj = (v: unknown): Raw => (v && typeof v === 'object' ? (v as Raw) : {})
 const str = (v: unknown) => (typeof v === 'string' ? v : '')
 
-export type CatModeByAgent = Record<CatProviderKind, string>
-export const emptyModeByAgent = (): CatModeByAgent => ({ cat_build: '', claude_cli: '', codex_cli: '' })
-
 /**
- * 读设置：有 defaultModeByAgent 用它；只有旧 defaultApprovalMode 时原样给三家各填一份旧值，
- * 由 resolveModeId（各家「旧值」列 LEGACY_MODE_MAP，认不出 → 该家最保守默认）在用时映射。
+ * 读 Settings.defaultModeByAgent（生成类型已有）。
+ * 本地 mock / 旧自检载荷若仍带 defaultApprovalMode，按契约第 3 条给三家各填一份旧值，用时再走 LEGACY_MODE_MAP。
+ * 真机 Get 已由后端迁移，不再返回 defaultApprovalMode。
  */
-export function readModeByAgent(raw: unknown): { byAgent: CatModeByAgent; legacy: string } {
+export function readModeByAgent(raw: unknown): CatModeByAgent {
   const r = obj(raw)
   const out = emptyModeByAgent()
-  const src = r[V0445_FIELDS.defaultModeByAgent]
-  const legacy = str(r[V0445_FIELDS.legacyApprovalMode]).trim()
-  let any = false
+  const src = r.defaultModeByAgent
   if (src && typeof src === 'object') {
     for (const k of CAT_PROVIDER_ORDER) {
       const v = str((src as Raw)[k]).trim()
-      if (v) { out[k] = v; any = true }
+      if (v) out[k] = v
     }
   }
-  if (!any && legacy) for (const k of CAT_PROVIDER_ORDER) out[k] = legacy
-  return { byAgent: out, legacy }
+  const any = CAT_PROVIDER_ORDER.some((k) => !!out[k])
+  if (!any) {
+    const legacy = str(r.defaultApprovalMode).trim()
+    if (legacy) for (const k of CAT_PROVIDER_ORDER) out[k] = legacy
+  }
+  return out
 }
 
-/** 一个 turn（或失败事件载荷）上的 retryable；缺字段 = false（应用重启后同样为 false） */
-export const readRetryable = (raw: unknown): boolean => obj(raw)[V0445_FIELDS.retryable] === true
+/** CatTurnState / 失败事件：retryable === true */
+export const readRetryable = (raw: unknown): boolean => obj(raw).retryable === true
 
-/** GetCatConversation：lastTurn.status=failed 且 retryable=true → 返回其 turnId；缺 lastTurn → ''（不可重试） */
+/** ConversationDetail.lastTurn：failed && retryable → turnId；缺 lastTurn → '' */
 export function readRetryableTurn(rawDetail: unknown): string {
-  const F = V0445_FIELDS
-  const last = obj(obj(rawDetail)[F.lastTurn])
-  if (str(last[F.turnStatus]) !== 'failed' || !readRetryable(last)) return ''
-  return str(last[F.turnId])
+  const last = obj(obj(rawDetail).lastTurn)
+  if (str(last.status) !== 'failed' || !readRetryable(last)) return ''
+  return str(last.turnId)
 }
 
-/** RetryCatTurn 报 INVALID_ARGUMENT reason=retry_not_allowed */
+/** RetryCatTurn → INVALID_ARGUMENT reason=retry_not_allowed */
 export function isRetryNotAllowed(err: { code?: string; detail?: unknown }): boolean {
   return err.code === 'INVALID_ARGUMENT' && /reason=retry_not_allowed/.test(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail ?? ''))
 }

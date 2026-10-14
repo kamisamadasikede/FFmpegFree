@@ -47,8 +47,6 @@ export interface CatSettings {
   providersByAgent: Record<CatProviderKind, CatProviderSettings>
   /** v0.44.4 §6.19.18.9：每家新对话默认模式（该家 modes[].id；"" = 该家默认） */
   defaultModeByAgent: CatModeByAgent
-  /** v0.44.4 起废弃：只读保留（读到的旧值），Save 不再写 */
-  readonly defaultApprovalMode?: string
   customInstruction: string
   notifyOnFinish: boolean
 }
@@ -295,13 +293,11 @@ export function normalizeSettings(raw: unknown): CatSettings {
     by.cat_build = { model: oldModel, effort: oldEffort }
   }
   const kindRaw = s('defaultAgentKind')
-  const modeRead = readModeByAgent(r)
   return {
     defaultAgentKind: isProviderKind(kindRaw) ? kindRaw : CAT_AGENT_BUILD,
     defaultsByAgent: by,
     providersByAgent: providers,
-    defaultModeByAgent: modeRead.byAgent,
-    defaultApprovalMode: modeRead.legacy,
+    defaultModeByAgent: readModeByAgent(r),
     customInstruction: s('customInstruction'),
     // 契约：nil 视为 true
     notifyOnFinish: r.notifyOnFinish !== false,
@@ -357,8 +353,7 @@ export async function saveCatSettings(req: CatSettings): Promise<CatSettings> {
   if (req.customInstruction.length > CAT_INSTRUCTION_MAX) throw new AppError('INVALID_ARGUMENT', CAT_SETTINGS_COPY.instrOver)
   const payload = settingsPayload(req)
   if (live()) {
-    // v0.44.4：绑定重生成前 createFrom 不认 defaultModeByAgent，手动带上（见 catV0445.ts）
-    return normalizeSettings(await call(CatBinding.SaveCatSettings(Object.assign(cat.Settings.createFrom(payload), { defaultModeByAgent: payload.defaultModeByAgent }) as cat.Settings)))
+    return normalizeSettings(await call(CatBinding.SaveCatSettings(cat.Settings.createFrom(payload))))
   }
   await wait(250)
   if (sim('savefail')) throw new AppError('IO_ERROR', 'sim')

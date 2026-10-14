@@ -131,7 +131,7 @@ export interface CatConversationDetail extends CatConversation {
   /** 打开会话时带上的上下文占用；没有真实数字则为 0 */
   contextUsed: number
   contextWindow: number
-  /** v0.44.5：最后一轮 failed 且 retryable=true 时为该 turnId，否则 ''（字段名见 catV0445.ts） */
+  /** v0.44.6：由 ConversationDetail.lastTurn 推导；failed && retryable → turnId，否则 '' */
   retryTurnId: string
 }
 
