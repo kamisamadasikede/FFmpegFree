@@ -169,6 +169,9 @@ export const CAT_MERGE_COPY = {
   detail: '查看详情',
 } as const
 
+/** 走查 mergeconflict / 侧栏冲突共用同一份路径，toast「有 n 个」与侧栏计数同源 */
+export const CAT_MERGE_CONFLICT_SIM_FILES = ['src/timeline.ts', '第3集/第3集.srt'] as const
+
 export type CatMergeStatus = 'merged' | 'up_to_date' | 'conflict'
 export interface CatMergeResult {
   status: CatMergeStatus
@@ -262,7 +265,7 @@ export async function mergeCatBranch(convId: string, branch: string, remote = fa
     await new Promise((r) => setTimeout(r, catSim.has('mergeok') ? 1200 : 600))
     if (catSim.has('mergedirty')) throw new AppError('TASK_CONFLICT', 'git merge 被拦下', 'reason=git_dirty')
     if (catSim.has('mergefail')) throw new AppError('INVALID_ARGUMENT', 'git merge 失败', `reason=git_failed\nfatal: refusing to merge unrelated histories\nerror: could not merge ${branch}`)
-    if (catSim.has('mergeconflict')) return mapCatMergeResult({ status: 'conflict', files: ['第1集/第1集.srt', '第2集/片头.ass', '第3集/第3集.srt'] })
+    if (catSim.has('mergeconflict')) return mapCatMergeResult({ status: 'conflict', files: [...CAT_MERGE_CONFLICT_SIM_FILES] })
     if (catSim.has('mergeuptodate')) return mapCatMergeResult({ status: 'up_to_date' })
     return mapCatMergeResult({ status: 'merged' })
   }

@@ -29,7 +29,7 @@
         </div>
         <footer class="mg-foot">
           <button type="button" class="mg-btn" :disabled="busy" data-testid="cat-merge-cancel" @click="tryClose">{{ MC.cancel }}</button>
-          <button type="button" class="mg-btn pri" :disabled="busy || !picked || !!block" data-testid="cat-merge-ok" @click="doMerge">
+          <button type="button" class="mg-btn pri" :disabled="busy || !picked || !!block || failed?.kind === 'dirty'" data-testid="cat-merge-ok" @click="doMerge">
             <span v-if="busy" class="spin" aria-hidden="true" />{{ MC.ok }}
           </button>
         </footer>
@@ -95,7 +95,7 @@ function tryClose() {
 
 async function doMerge() {
   const p = parseBranchOption(picked.value)
-  if (!p || busy.value || block.value || !props.convId) return
+  if (!p || busy.value || block.value || failed.value?.kind === 'dirty' || !props.convId) return
   busy.value = true
   failed.value = null
   rawOpen.value = false

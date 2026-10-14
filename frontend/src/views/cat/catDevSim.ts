@@ -53,7 +53,7 @@
  *   branchbar —— v0.49 输入框底栏：ListCatBranches 给一份走查用分支（本地 5 条 + 远程 3 条）
  *   branchlong —— 同上，对话文件夹是一条很长的路径
  *   branchfail —— 同上，切换分支一律按 PROCESS_FAILED 失败（走查「查看详情」）
- *   mergeok / mergeuptodate / mergeconflict / mergedirty / mergefail —— v0.50 合并到当前分支：底栏分支同 branchbar，GitCatMerge 分别返回成功 / 已是最新 / 3 个冲突 / 未提交改动拦截 / PROCESS_FAILED
+ *   mergeok / mergeuptodate / mergeconflict / mergedirty / mergefail —— v0.50 合并到当前分支：底栏分支同 branchbar，GitCatMerge 分别返回成功 / 已是最新 / 2 个冲突（与侧栏同源） / 未提交改动拦截 / PROCESS_FAILED
  *   pm_slow / pm_empty / pm_unauth / pm_unreach / pm_unsupported / pm_bad / pm_notcfg —— 配合 pmcustom：
  *            拉列表一直加载中 / ok 但空 / unauthorized / unreachable / not_supported / bad_response / not_configured（默认 = ok 有列表）
  *

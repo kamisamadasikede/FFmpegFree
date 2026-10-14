@@ -224,6 +224,7 @@ import {
   type GitStatus,
 } from '@/api/catGit'
 import { catSim } from '@/views/cat/catDevSim'
+import { CAT_MERGE_CONFLICT_SIM_FILES } from '@/api/catBranches'
 import { catState, notify } from '@/views/cat/catState'
 import { catGitUi, setCatGitUi } from './catGitUi'
 import {
@@ -436,10 +437,7 @@ function mockGit(id: string): GitStatus {
     conflicts: [],
   }
   if (!catSim.has('gitconflict') && !catSim.has('gitrebase') && !catSim.has('gitdone') && !mergeSimConflict.value) return base
-  const conflicts = [
-    { path: 'src/timeline.ts', ours: true, theirs: true, letter: 'UU' },
-    { path: '第3集/第3集.srt', ours: true, theirs: true, letter: 'UU' },
-  ]
+  const conflicts = CAT_MERGE_CONFLICT_SIM_FILES.map((path) => ({ path, ours: true, theirs: true, letter: 'UU' }))
   if (catSim.has('gitdone')) {
     return { ...base, mergeState: 'merging', conflicts: [], upstream: 'origin/main' }
   }
