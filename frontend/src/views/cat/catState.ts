@@ -39,6 +39,7 @@ import {
 } from '@/api/catProjects'
 import {
   CAT_AGENT_BUILD,
+  CAT_AGENT_CODEX,
   CAT_CONV_COPY,
   CAT_COPY,
   cancelCatTurn,
@@ -216,7 +217,7 @@ export const catState = reactive({
   deleting: '' as string,
   /** 删除确认框对应的对话 id（设计 v0.3 §13；与 deleting 同一个确认框组件） */
   deletingConv: '' as string,
-  plain: (live ? [] : [...(catSim.has('clioutdated') ? mockCliOutdatedConvs() : []), ...mockPlainConvs()]) as CatConv[],
+  plain: (live ? [] : [...(catSim.has('codexconv') ? [{ id: 'x1', title: 'Codex 自定义服务商', agentKind: CAT_AGENT_CODEX }] : []), ...(catSim.has('clioutdated') ? mockCliOutdatedConvs() : []), ...mockPlainConvs()]) as CatConv[],
   messages: {} as Record<string, CatBlock[]>,
   /** 新对话正在创建（欢迎页输入框忙） */
   creating: false,
@@ -1017,10 +1018,14 @@ function endTurn(convId: string, how: TurnEnd, token?: number, ev?: CatTurnEvent
       // v0.43：CLI 版本过旧单独一行；原始报错收进「查看详情」（raw 为空则不出，v0.43.1）
       list.push({ kind: 'sys', text: CAT_CLI_OUTDATED_COPY.body(outdated.cli), tone: 'err', outdated })
     } else {
-    // v0.46：Codex 服务商没有 Responses 接口（retryable=false → 不出重试，沿用不可重试的失败行）
-    const text = providerFailureText(turn.failDetail) || (turn.failMsg || '').trim() || CAT_COPY.replyFailed
+    // v0.46：Codex 服务商没有 Responses 接口（retryable=false → 不出重试）；错误行样式同 cli_outdated
+    const provText = providerFailureText(turn.failDetail)
+    if (provText) list.push({ kind: 'sys', text: provText, tone: 'err', providerErr: true })
+    else {
+    const text = (turn.failMsg || '').trim() || CAT_COPY.replyFailed
     if (!list.some((b) => b.kind === 'sys' && b.tone === 'err' && b.text === text)) {
       list.push({ kind: 'sys', text, tone: 'err' })
+    }
     }
     }
   }

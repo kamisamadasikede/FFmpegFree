@@ -53,16 +53,16 @@
             data-testid="cat-msg-footer"
           >{{ footerText(row.block) }}</div>
         </template>
-        <div v-else-if="row.block.kind === 'sys' && row.block.outdated" class="ct-sys err ct-outdated" role="status" data-testid="cat-cli-outdated">
+        <div v-else-if="row.block.kind === 'sys' && (row.block.outdated || row.block.providerErr)" class="ct-sys err ct-outdated" role="status" :data-testid="row.block.outdated ? 'cat-cli-outdated' : 'cat-provider-err'">
           <div class="ct-od-line">
             <span>{{ row.block.text }}</span>
-            <span v-if="row.block.outdated.version" class="ct-od-ver" data-testid="cat-cli-outdated-version">{{ CAT_CLI_OUTDATED_COPY.version(row.block.outdated.version) }}</span>
+            <span v-if="row.block.outdated?.version" class="ct-od-ver" data-testid="cat-cli-outdated-version">{{ CAT_CLI_OUTDATED_COPY.version(row.block.outdated?.version) }}</span>
           </div>
           <div class="ct-od-acts">
             <button v-if="retryAt(row.key) === 'can'" type="button" class="ct-od-btn" :disabled="pending" data-testid="cat-cli-outdated-retry" @click="emit('retry')">{{ CAT_CLI_OUTDATED_COPY.retry }}</button>
             <span v-else-if="retryAt(row.key) === 'gone'" class="ct-retry-gone" data-testid="cat-retry-gone">{{ CAT_RETRY_GONE_TEXT }}</span>
             <button
-              v-if="row.block.outdated.raw"
+              v-if="row.block.outdated?.raw"
               type="button"
               class="ct-od-more"
               :aria-expanded="!!rawOpen[row.key]"
@@ -70,9 +70,9 @@
               @click="rawOpen[row.key] = !rawOpen[row.key]"
             ><span class="car" aria-hidden="true"><FIcon :name="rawOpen[row.key] ? 'down' : 'right'" :size="12" /></span>{{ CAT_CLI_OUTDATED_COPY.detail }}</button>
           </div>
-          <div v-if="row.block.outdated.raw && rawOpen[row.key]" class="ct-od-box">
-            <button type="button" class="ct-od-copy" data-testid="cat-cli-outdated-copy" @click="copyRaw(row.key, row.block.outdated.raw)">{{ copied[row.key] ? CAT_CLI_OUTDATED_COPY.copied : CAT_CLI_OUTDATED_COPY.copy }}</button>
-            <pre class="ct-od-raw" data-testid="cat-cli-outdated-raw">{{ row.block.outdated.raw }}</pre>
+          <div v-if="row.block.outdated?.raw && rawOpen[row.key]" class="ct-od-box">
+            <button type="button" class="ct-od-copy" data-testid="cat-cli-outdated-copy" @click="copyRaw(row.key, row.block.outdated?.raw ?? '')">{{ copied[row.key] ? CAT_CLI_OUTDATED_COPY.copied : CAT_CLI_OUTDATED_COPY.copy }}</button>
+            <pre class="ct-od-raw" data-testid="cat-cli-outdated-raw">{{ row.block.outdated?.raw }}</pre>
           </div>
         </div>
         <div v-else-if="row.block.kind === 'sys' && row.block.tone === 'err' && retryAt(row.key)" class="ct-sys err" role="status">
