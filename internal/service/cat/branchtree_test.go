@@ -17,7 +17,7 @@ import (
 	"FFmpegFree/internal/store"
 )
 
-func gitOut(t *testing.T, dir string, args ...string) string {
+func btGitOut(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
@@ -28,7 +28,7 @@ func gitOut(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func commitFile(t *testing.T, dir, name, body, msg string) {
+func btCommitFile(t *testing.T, dir, name, body, msg string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
@@ -37,13 +37,13 @@ func commitFile(t *testing.T, dir, name, body, msg string) {
 	gitRun(t, dir, "commit", "-q", "-m", msg)
 }
 
-type clock struct {
+type btClock struct {
 	mu sync.Mutex
 	t  time.Time
 }
 
-func (c *clock) now() time.Time { c.mu.Lock(); defer c.mu.Unlock(); return c.t }
-func (c *clock) add(d time.Duration) {
+func (c *btClock) now() time.Time { c.mu.Lock(); defer c.mu.Unlock(); return c.t }
+func (c *btClock) add(d time.Duration) {
 	c.mu.Lock()
 	c.t = c.t.Add(d)
 	c.mu.Unlock()
@@ -55,7 +55,7 @@ type btEnv struct {
 	id   string
 	root string
 	bare string
-	clk  *clock
+	clk  *btClock
 	evMu sync.Mutex
 	evs  []string
 }
@@ -71,7 +71,7 @@ func newBT(t *testing.T) *btEnv {
 	gitRun(t, seed, "remote", "add", "origin", bare)
 	gitRun(t, seed, "push", "-q", "-u", "origin", "main")
 	gitRun(t, seed, "switch", "-q", "-c", "feat/remote-only")
-	commitFile(t, seed, "r.txt", "r\n", "remote work")
+	btCommitFile(t, seed, "r.txt", "r\n", "remote work")
 	gitRun(t, seed, "push", "-q", "-u", "origin", "feat/remote-only")
 
 	root := t.TempDir()
@@ -80,7 +80,7 @@ func newBT(t *testing.T) *btEnv {
 	gitRun(t, root, "config", "user.name", "t")
 	gitRun(t, root, "branch", "dev")
 	gitRun(t, root, "branch", "topic/x")
-	e := &btEnv{root: root, bare: bare, clk: &clock{t: time.Unix(1_800_000_000, 0)}}
+	e := &btEnv{root: root, bare: bare, clk: &btClock{t: time.Unix(1_800_000_000, 0)}}
 	e.st = openStore(t)
 	svc, _ := newProjSvc(t, e.st, nil, cat.Config{DataRoot: t.TempDir(), Now: e.clk.now, Emit: func(ev string, p any) {
 		e.evMu.Lock()
@@ -108,7 +108,7 @@ func (e *btEnv) tree(t *testing.T) cat.CatBranchTree {
 	return tr
 }
 
-func findB(tr cat.CatBranchTree, remote, name string) (cat.CatTreeBranch, bool) {
+func btFindB(tr cat.CatBranchTree, remote, name string) (cat.CatTreeBranch, bool) {
 	for _, g := range tr.Groups {
 		for _, b := range g.Branches {
 			if b.Remote == remote && b.Name == name {
@@ -119,7 +119,7 @@ func findB(tr cat.CatBranchTree, remote, name string) (cat.CatTreeBranch, bool) 
 	return cat.CatTreeBranch{}, false
 }
 
-func names(g cat.CatBranchGroup) string {
+func btNames(g cat.CatBranchGroup) string {
 	var n []string
 	for _, b := range g.Branches {
 		n = append(n, b.Name)
@@ -127,7 +127,7 @@ func names(g cat.CatBranchGroup) string {
 	return strings.Join(n, ",")
 }
 
-func wantReason(t *testing.T, err error, code apperr.Code, reason string) {
+func btWantReason(t *testing.T, err error, code apperr.Code, reason string) {
 	t.Helper()
 	if err == nil || !apperr.Is(err, code) {
 		t.Fatalf("want %s %s, got %v", code, reason, err)
@@ -146,30 +146,30 @@ func TestBranchTreeListGroupsAheadBehind(t *testing.T) {
 	gitRun(t, seed, "clone", "-q", e.bare, ".")
 	gitRun(t, seed, "config", "user.email", "t@example.com")
 	gitRun(t, seed, "config", "user.name", "t")
-	commitFile(t, seed, "up.txt", "u\n", "upstream")
+	btCommitFile(t, seed, "up.txt", "u\n", "upstream")
 	gitRun(t, seed, "push", "-q", "origin", "main")
 	gitRun(t, e.root, "fetch", "-q", "origin")
-	commitFile(t, e.root, "mine.txt", "m\n", "local")
+	btCommitFile(t, e.root, "mine.txt", "m\n", "local")
 
 	tr := e.tree(t)
 	if len(tr.Groups) != 2 || tr.Groups[0].Kind != "local" || tr.Groups[1].Kind != "remote" || tr.Groups[1].Remote != "origin" {
 		t.Fatalf("groups %+v", tr.Groups)
 	}
-	if names(tr.Groups[0]) != "dev,main,topic/x" {
-		t.Fatalf("locals %s", names(tr.Groups[0]))
+	if btNames(tr.Groups[0]) != "dev,main,topic/x" {
+		t.Fatalf("locals %s", btNames(tr.Groups[0]))
 	}
-	if names(tr.Groups[1]) != "feat/remote-only,main" { // 跳过 origin/HEAD
-		t.Fatalf("remotes %s", names(tr.Groups[1]))
+	if btNames(tr.Groups[1]) != "feat/remote-only,main" { // 跳过 origin/HEAD
+		t.Fatalf("remotes %s", btNames(tr.Groups[1]))
 	}
-	m, _ := findB(tr, "", "main")
-	want := gitOut(t, e.root, "rev-list", "--left-right", "--count", "main...origin/main")
+	m, _ := btFindB(tr, "", "main")
+	want := btGitOut(t, e.root, "rev-list", "--left-right", "--count", "main...origin/main")
 	if !m.Current || m.Upstream != "origin/main" || strconv.Itoa(m.Ahead)+"\t"+strconv.Itoa(m.Behind) != want || m.Ahead != 1 || m.Behind != 1 {
 		t.Fatalf("main %+v want %q", m, want)
 	}
-	if m.LastCommit.Sha != gitOut(t, e.root, "rev-parse", "main") || m.LastCommit.Subject != "local" || m.LastCommit.Time == 0 {
+	if m.LastCommit.Sha != btGitOut(t, e.root, "rev-parse", "main") || m.LastCommit.Subject != "local" || m.LastCommit.Time == 0 {
 		t.Fatalf("last commit %+v", m.LastCommit)
 	}
-	d, _ := findB(tr, "", "dev")
+	d, _ := btFindB(tr, "", "dev")
 	if d.Upstream != "" || d.Ahead != 0 || d.Behind != 0 || d.Current {
 		t.Fatalf("dev %+v", d)
 	}
@@ -189,7 +189,7 @@ func TestBranchTreeNotRepoAndNoCommits(t *testing.T) {
 	dir := t.TempDir()
 	svc, id := convAt(t, dir)
 	_, err := svc.ListCatBranchTree(ctx, cat.CatBranchTreeRequest{ConvID: id})
-	wantReason(t, err, apperr.InvalidArgument, "not_git_repo")
+	btWantReason(t, err, apperr.InvalidArgument, "not_git_repo")
 	if apperr.From(err).Message != cat.MsgTreeNotRepo {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestBranchTreeNotRepoAndNoCommits(t *testing.T) {
 			return err
 		},
 	} {
-		wantReason(t, f(), apperr.InvalidArgument, "not_git_repo")
+		btWantReason(t, f(), apperr.InvalidArgument, "not_git_repo")
 	}
 	gitRun(t, dir, "init", "-q", "-b", "main")
 	tr, err := svc.ListCatBranchTree(ctx, cat.CatBranchTreeRequest{ConvID: id})
@@ -235,15 +235,15 @@ func TestBranchTreeFavoritesPerRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := e.svc.SetCatBranchFavorite(ctx, cat.SetCatBranchFavoriteRequest{ConvID: e.id, Branch: "nope", Favorite: true})
-	wantReason(t, err, apperr.NotFound, "branch_not_found")
+	btWantReason(t, err, apperr.NotFound, "branch_not_found")
 	tr := e.tree(t)
-	if b, _ := findB(tr, "", "dev"); !b.Favorite {
+	if b, _ := btFindB(tr, "", "dev"); !b.Favorite {
 		t.Fatal("dev fav")
 	}
-	if b, _ := findB(tr, "origin", "feat/remote-only"); !b.Favorite {
+	if b, _ := btFindB(tr, "origin", "feat/remote-only"); !b.Favorite {
 		t.Fatal("remote fav")
 	}
-	if b, _ := findB(tr, "origin", "main"); b.Favorite {
+	if b, _ := btFindB(tr, "origin", "main"); b.Favorite {
 		t.Fatal("origin/main fav")
 	}
 	cfgAfter, _ := os.ReadFile(filepath.Join(e.root, ".git", "config"))
@@ -257,7 +257,7 @@ func TestBranchTreeFavoritesPerRepo(t *testing.T) {
 	if ok, err := e.st.GetSetting(ctx, cat.BranchPrefsKey, &raw); !ok || err != nil {
 		t.Fatal(ok, err)
 	}
-	top := gitOut(t, e.root, "rev-parse", "--show-toplevel")
+	top := btGitOut(t, e.root, "rev-parse", "--show-toplevel")
 	if len(raw) != 1 || len(raw[filepath.Clean(top)].Favorites) != 2 {
 		t.Fatalf("raw %+v", raw)
 	}
@@ -274,13 +274,13 @@ func TestBranchTreeFavoritesPerRepo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := findB(tr2, "", "dev"); b.Favorite {
+	if b, _ := btFindB(tr2, "", "dev"); b.Favorite {
 		t.Fatal("leaked across repos")
 	}
 	if err := e.svc.SetCatBranchFavorite(ctx, cat.SetCatBranchFavoriteRequest{ConvID: e.id, Branch: "dev", Favorite: false}); err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := findB(e.tree(t), "", "dev"); b.Favorite {
+	if b, _ := btFindB(e.tree(t), "", "dev"); b.Favorite {
 		t.Fatal("unfav")
 	}
 }
@@ -320,14 +320,14 @@ func TestBranchTreeFetchThrottleAndFailure(t *testing.T) {
 	gitRun(t, seed, "config", "user.email", "t@example.com")
 	gitRun(t, seed, "config", "user.name", "t")
 	gitRun(t, seed, "switch", "-q", "-c", "new/one")
-	commitFile(t, seed, "n.txt", "n\n", "n")
+	btCommitFile(t, seed, "n.txt", "n\n", "n")
 	gitRun(t, seed, "push", "-q", "origin", "new/one")
 
 	tr, err := e.svc.FetchCatRemotes(ctx, cat.FetchCatRemotesRequest{ConvID: e.id})
 	if err != nil || tr.FetchError != "" || tr.FetchedAt != e.clk.now().Unix() || tr.Fetching {
 		t.Fatalf("fetch1 %+v %v", tr, err)
 	}
-	if _, ok := findB(tr, "origin", "new/one"); !ok {
+	if _, ok := btFindB(tr, "origin", "new/one"); !ok {
 		t.Fatal("fetched branch missing")
 	}
 	first := tr.FetchedAt
@@ -335,17 +335,17 @@ func TestBranchTreeFetchThrottleAndFailure(t *testing.T) {
 	gitRun(t, seed, "push", "-q", "origin", "new/one:new/two")
 	e.clk.add(4 * time.Minute)
 	tr, _ = e.svc.FetchCatRemotes(ctx, cat.FetchCatRemotesRequest{ConvID: e.id})
-	if _, ok := findB(tr, "origin", "new/two"); ok || tr.FetchedAt != first {
+	if _, ok := btFindB(tr, "origin", "new/two"); ok || tr.FetchedAt != first {
 		t.Fatal("should be throttled")
 	}
 	// force 绕过
 	tr, _ = e.svc.FetchCatRemotes(ctx, cat.FetchCatRemotesRequest{ConvID: e.id, Force: true})
-	if _, ok := findB(tr, "origin", "new/two"); !ok || tr.FetchedAt != e.clk.now().Unix() {
+	if _, ok := btFindB(tr, "origin", "new/two"); !ok || tr.FetchedAt != e.clk.now().Unix() {
 		t.Fatal("force fetch")
 	}
 	okAt := tr.FetchedAt
 	// 超过 5 分钟再跑；远程坏了 → 不报错、保留 fetchedAt、填 fetchError、数量照本地 refs 算
-	commitFile(t, e.root, "l.txt", "l\n", "local ahead")
+	btCommitFile(t, e.root, "l.txt", "l\n", "local ahead")
 	if err := os.RemoveAll(e.bare); err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +354,7 @@ func TestBranchTreeFetchThrottleAndFailure(t *testing.T) {
 	if err != nil || tr.FetchError == "" || tr.FetchedAt != okAt || len(tr.FetchError) > 4096 {
 		t.Fatalf("fail %+v %v", tr, err)
 	}
-	if m, _ := findB(tr, "", "main"); m.Ahead != 1 || m.Behind != 0 {
+	if m, _ := btFindB(tr, "", "main"); m.Ahead != 1 || m.Behind != 0 {
 		t.Fatalf("fallback ahead/behind %+v", m)
 	}
 	if lt := e.tree(t); lt.FetchError == "" || lt.FetchedAt != okAt {
@@ -380,7 +380,7 @@ func TestBranchTreeCreate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b, ok := findB(tr, "", "made/here"); !ok || b.Current || b.Upstream != "" {
+	if b, ok := btFindB(tr, "", "made/here"); !ok || b.Current || b.Upstream != "" {
 		t.Fatalf("create %+v", b)
 	}
 	// 远程 from 带跟踪 + 签出
@@ -388,31 +388,31 @@ func TestBranchTreeCreate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _ := findB(tr, "", "feat/remote-only")
+	b, _ := btFindB(tr, "", "feat/remote-only")
 	if !b.Current || b.Upstream != "origin/feat/remote-only" || tr.Recent[0] != "feat/remote-only" {
 		t.Fatalf("remote checkout %+v %v", b, tr.Recent)
 	}
 	// 同名本地已存在 → 改为签出本地
 	gitRun(t, e.root, "switch", "-q", "main")
 	tr, err = e.svc.GitCatCreateBranch(ctx, cat.GitCatCreateBranchRequest{ConvID: e.id, From: "origin/feat/remote-only", Name: "feat/remote-only", Checkout: true})
-	if b, _ := findB(tr, "", "feat/remote-only"); err != nil || !b.Current {
+	if b, _ := btFindB(tr, "", "feat/remote-only"); err != nil || !b.Current {
 		t.Fatalf("existing local %v", err)
 	}
 	// 本地 from + 签出
 	tr, err = e.svc.GitCatCreateBranch(ctx, cat.GitCatCreateBranchRequest{ConvID: e.id, From: "main", Name: "fromMain", Checkout: true})
-	if b, _ := findB(tr, "", "fromMain"); err != nil || !b.Current || tr.Recent[0] != "fromMain" {
+	if b, _ := btFindB(tr, "", "fromMain"); err != nil || !b.Current || tr.Recent[0] != "fromMain" {
 		t.Fatalf("checkout %v", err)
 	}
 	// reasons
 	_, err = e.svc.GitCatCreateBranch(ctx, cat.GitCatCreateBranchRequest{ConvID: e.id, From: "nope", Name: "z"})
-	wantReason(t, err, apperr.NotFound, "branch_not_found")
+	btWantReason(t, err, apperr.NotFound, "branch_not_found")
 	_, err = e.svc.GitCatCreateBranch(ctx, cat.GitCatCreateBranchRequest{ConvID: e.id, From: "main", Name: "dev"})
-	wantReason(t, err, apperr.TaskConflict, "branch_exists")
+	btWantReason(t, err, apperr.TaskConflict, "branch_exists")
 	if apperr.From(err).Message != "已经有同名分支了。" {
 		t.Fatal(err)
 	}
 	_, err = e.svc.GitCatCreateBranch(ctx, cat.GitCatCreateBranchRequest{ConvID: e.id, From: "main", Name: "bad name"})
-	wantReason(t, err, apperr.InvalidArgument, "invalid_branch_name")
+	btWantReason(t, err, apperr.InvalidArgument, "invalid_branch_name")
 	if apperr.From(err).Message != `分支名不能包含空格或 ~ ^ : ? * [ \ 这些字符。` {
 		t.Fatal(err)
 	}
@@ -420,7 +420,7 @@ func TestBranchTreeCreate(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = e.svc.GitCatCreateBranch(ctx, cat.GitCatCreateBranchRequest{ConvID: e.id, From: "main", Name: "dirtyco", Checkout: true})
-	wantReason(t, err, apperr.TaskConflict, "git_dirty")
+	btWantReason(t, err, apperr.TaskConflict, "git_dirty")
 	if apperr.From(err).Message != "有未提交的改动，请先提交或暂存，再切换分支。" {
 		t.Fatal(err)
 	}
@@ -436,9 +436,9 @@ func TestBranchTreeCompare(t *testing.T) {
 	gitRun(t, e.root, "switch", "-q", "dev")
 	gitRun(t, e.root, "mv", "a.txt", "b.txt")
 	gitRun(t, e.root, "commit", "-q", "-m", "rename")
-	commitFile(t, e.root, "new.txt", "n\n", "add")
+	btCommitFile(t, e.root, "new.txt", "n\n", "add")
 	gitRun(t, e.root, "switch", "-q", "main")
-	commitFile(t, e.root, "m.txt", "m\n", "main only")
+	btCommitFile(t, e.root, "m.txt", "m\n", "main only")
 	res, err := e.svc.GitCatCompareBranch(ctx, cat.GitCatCompareBranchRequest{ConvID: e.id, Branch: "dev"})
 	if err != nil {
 		t.Fatal(err)
@@ -461,7 +461,7 @@ func TestBranchTreeCompare(t *testing.T) {
 		t.Fatalf("remote compare %+v %v", res, err)
 	}
 	_, err = e.svc.GitCatCompareBranch(ctx, cat.GitCatCompareBranchRequest{ConvID: e.id, Branch: "feat/remote-only"})
-	wantReason(t, err, apperr.NotFound, "branch_not_found")
+	btWantReason(t, err, apperr.NotFound, "branch_not_found")
 	// 截断（>200）
 	gitRun(t, e.root, "switch", "-q", "-c", "many")
 	for i := 0; i < 201; i++ {
@@ -474,7 +474,7 @@ func TestBranchTreeCompare(t *testing.T) {
 	}
 	gitRun(t, e.root, "switch", "-q", "--detach", "HEAD")
 	res, _ = e.svc.GitCatCompareBranch(ctx, cat.GitCatCompareBranchRequest{ConvID: e.id, Branch: "dev"})
-	if res.Base != gitOut(t, e.root, "rev-parse", "--short", "HEAD") {
+	if res.Base != btGitOut(t, e.root, "rev-parse", "--short", "HEAD") {
 		t.Fatalf("detached base %q", res.Base)
 	}
 }
@@ -488,19 +488,19 @@ func TestBranchTreeRename(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, ok := findB(tr, "", "dev2")
+	b, ok := btFindB(tr, "", "dev2")
 	if !ok || !b.Current || !b.Favorite || tr.Recent[0] != "dev2" {
 		t.Fatalf("rename current %+v %v", b, tr.Recent)
 	}
-	if _, ok := findB(tr, "", "dev"); ok {
+	if _, ok := btFindB(tr, "", "dev"); ok {
 		t.Fatal("old remains")
 	}
 	_, err = e.svc.GitCatRenameBranch(ctx, cat.GitCatRenameBranchRequest{ConvID: e.id, From: "dev2", To: "main"})
-	wantReason(t, err, apperr.TaskConflict, "branch_exists")
+	btWantReason(t, err, apperr.TaskConflict, "branch_exists")
 	_, err = e.svc.GitCatRenameBranch(ctx, cat.GitCatRenameBranchRequest{ConvID: e.id, From: "dev2", To: "a..b"})
-	wantReason(t, err, apperr.InvalidArgument, "invalid_branch_name")
+	btWantReason(t, err, apperr.InvalidArgument, "invalid_branch_name")
 	_, err = e.svc.GitCatRenameBranch(ctx, cat.GitCatRenameBranchRequest{ConvID: e.id, From: "origin/main", To: "x"})
-	wantReason(t, err, apperr.NotFound, "branch_not_found")
+	btWantReason(t, err, apperr.NotFound, "branch_not_found")
 }
 
 func TestBranchTreeDelete(t *testing.T) {
@@ -513,7 +513,7 @@ func TestBranchTreeDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := findB(tr, "", "dev"); ok || strings.Join(tr.Recent, ",") != "main" {
+	if _, ok := btFindB(tr, "", "dev"); ok || strings.Join(tr.Recent, ",") != "main" {
 		t.Fatalf("delete %+v", tr.Recent)
 	}
 	var raw map[string]map[string]any
@@ -524,10 +524,10 @@ func TestBranchTreeDelete(t *testing.T) {
 		}
 	}
 	gitRun(t, e.root, "switch", "-q", "topic/x")
-	commitFile(t, e.root, "u.txt", "u\n", "unmerged")
+	btCommitFile(t, e.root, "u.txt", "u\n", "unmerged")
 	gitRun(t, e.root, "switch", "-q", "main")
 	_, err = e.svc.GitCatDeleteBranch(ctx, cat.GitCatDeleteBranchRequest{ConvID: e.id, Branch: "topic/x"})
-	wantReason(t, err, apperr.TaskConflict, "branch_not_merged")
+	btWantReason(t, err, apperr.TaskConflict, "branch_not_merged")
 	if apperr.From(err).Message != "这个分支有还没合并的提交，删除后可能找不回来。" {
 		t.Fatal(err)
 	}
@@ -535,14 +535,14 @@ func TestBranchTreeDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = e.svc.GitCatDeleteBranch(ctx, cat.GitCatDeleteBranchRequest{ConvID: e.id, Branch: "main"})
-	wantReason(t, err, apperr.InvalidArgument, "is_current")
+	btWantReason(t, err, apperr.InvalidArgument, "is_current")
 	_, err = e.svc.GitCatDeleteBranch(ctx, cat.GitCatDeleteBranchRequest{ConvID: e.id, Branch: "origin/main"})
-	wantReason(t, err, apperr.NotFound, "branch_not_found")
+	btWantReason(t, err, apperr.NotFound, "branch_not_found")
 	// git_failed：被另一个 worktree 签出的分支
 	gitRun(t, e.root, "branch", "wt")
 	gitRun(t, e.root, "worktree", "add", "-q", filepath.Join(t.TempDir(), "w"), "wt")
 	_, err = e.svc.GitCatDeleteBranch(ctx, cat.GitCatDeleteBranchRequest{ConvID: e.id, Branch: "wt", Force: true})
-	wantReason(t, err, apperr.InvalidArgument, "git_failed")
+	btWantReason(t, err, apperr.InvalidArgument, "git_failed")
 	if !strings.Contains(apperr.From(err).Detail, "\n") {
 		t.Fatal("git_failed needs stderr line")
 	}
