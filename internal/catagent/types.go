@@ -70,6 +70,8 @@ type AgentStatus struct {
 	Version   string `json:"version,omitempty"`
 	LoggedIn  *bool  `json:"loggedIn,omitempty"` // 该家不需要登录时可省略
 	Detail    string `json:"detail,omitempty"`
+	// v0.44（6.19.18.2）：该家模式列表，保守→放开，前端不得重排。
+	Modes []AgentMode `json:"modes"`
 }
 
 // Status 是 CatStatus。
@@ -85,6 +87,10 @@ type Status struct {
 type Model struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"displayName"`
+	// v0.44（6.19.18.2）：该模型支持的档位 id；未知 = []（前端隐藏强度行）。
+	Efforts []string `json:"efforts"`
+	// v0.44：该模型默认档；未知 = ""。
+	DefaultEffort string `json:"defaultEffort"`
 }
 
 // ThinkLevel 是 CatThinkLevel。

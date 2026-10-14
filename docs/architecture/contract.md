@@ -1,4 +1,14 @@
-# FFmpegFree v2 接口契约（v0.44）
+# FFmpegFree v2 接口契约（v0.44.5）
+
+v0.44.5 变更（**turn 级 `retryable`**，后端 / 前端提议，架构师 10-14；无新错误码 / 迁移）：6.19.18.7 新增第 7 条：turn 新增 `retryable bool`，`GetCatConversation` 返回的 turn 和失败事件（`cat:turn` `status=failed`）都带；仅当该轮是会话最后一轮、`status=failed`、且失败状态仍在后端内存中时为 `true`（应用重启后为 `false`）。前端「重试」只在最后一轮失败且 `retryable=true` 时显示；点后仍返回 `retry_not_allowed` → 原地灰字。
+
+v0.44.4 变更（**重试文案定稿 + 默认模式按 CLI**，产品 / 架构师 10-14；无新错误码 / 迁移，`cat.settings` JSON 就地演进）：① 6.19.18.7 第 6 条定稿：「重试」只在失败轮是最后一轮且仍可重试时显示；点了但已不可重试 → 按钮原地换成灰字「这条回复已无法重试，请重新发送。」，不弹 toast、不用红色。② 新增 6.19.18.9：`CatSettings.defaultApprovalMode`（全局单值）改为 `defaultModeByAgent{cat_build,claude_cli,codex_cli}` → 该家 `modes[].id`；设置页每家一个下拉；旧值按各家「旧值」列迁移，未知回落该家最保守默认。
+
+v0.44.3 变更（**口径收敛**，后端 #258 提问，架构师 10-14；无接口 / 错误码 / 迁移变更）：① 6.19.18.5b 第 3 条：Claude 模型**不预选**，`CatModel` 无 `isDefault` 字段，删去「对应别名 `isDefault=true`」要求。② 6.19.18.5b 新增第 7 条已知限制：Bedrock / 自定义服务商下别名可能对应其他版本，显示名与强度按 Anthropic API 那一行。③ 6.19.18.7 新增第 6 条重试限制：只能重试最后一轮；失败轮状态只存内存，应用重启后不能重试；不可重试提示文案待产品定稿。
+
+v0.44.2 变更（**Claude 模型列表口径**，产品 / 设计 / 后端 10-14，架构师 10-14；无新错误码 / 迁移）：新增 6.19.18.5b：`ListCatModels("claude_cli")` 只下发 `opus/sonnet/haiku/fable` 四个别名（显示名用官方文档版本，`--model` 发别名）；默认跟随 CLI，不确定不预选、未选不传 `--model`；强度按别名所属家族；前端「默认模型」项（灰字「跟随 Claude CLI 设置」）不由后端下发；各别名须经真实 help / 官方文档 + 快照单测核实，未确认不下发。
+
+v0.44.1 变更（**只改文案**，产品 / 设计 10-14，架构师 10-14；无接口 / 错误码 / 迁移变更）：① 6.19.18.3 Codex `read-only` 与 Grok Build `default` / `acceptEdits` / `auto` 的 `description` 换成产品定稿（Grok 附官方英文原文出处）。② 6.19.18.3a 第 6 条：菜单标题「Cat 助手可以做什么」为纯前端文案；菜单宽 220px，说明最多两行、不用省略号。
 
 v0.44 变更（**按 CLI 下发模式 / 思考强度 + 原地重试**，后端核对表 10-14 + 产品原则，架构师 10-14；完整规则见 **6.19.18**；**无新错误码，2.1 仍是 39 个**；无迁移 / 开关）：① `agents[].modes[]`（`id/label/description/writesFiles/isDefault`，保守→放开），三家各自列表，不再前端写死。② `CatModel.efforts[]` + `defaultEffort`；空 → 隐藏强度行；切模型档位不支持 → 回落该模型默认。③ 每家模式 / 强度参数映射带出处，GUESS 不得发版。④ 保存设置强度校验改为「该模型列出的档位」（放行 max / ultra）。⑤ Codex 无计划模式，旧 plan / 普通都 → `read-only`；续聊时自动审查退回 workspace-write。⑥ 新绑定 `RetryCatTurn(conversationId, turnId)` 原地重试，替代 `retryLastMessage()` 新气泡。⑦ 模式名产品定稿、danger 确认纯前端（6.19.18.3a）；不下发 dontAsk / Codex danger-full-access / Grok plan。
 
@@ -5429,7 +5439,7 @@ type CatModel struct { // ListCatModels 返回项，原字段不变
 
 | 顺序 | id | label | shortLabel | description | writesFiles | risk | isDefault | 旧值 |
 |---|---|---|---|---|---|---|---|---|
-| 1 | `read-only` | 只读 | 只读 | 只看文件，不改动 | false | safe | **true** | plan, normal |
+| 1 | `read-only` | 只读 | 只读 | 只读取文件，不修改，命令在只读沙箱中运行 | false | safe | **true** | plan, normal |
 | 2 | `workspace-write` | 改项目文件 | 改文件 | 可修改项目内文件，命令在沙箱中运行 | true | edits | false | — |
 | 3 | `approve-for-me` | 自动审查 | 自动审查 | 可修改项目文件，需要批准的操作交给自动审查 | true | edits | false | auto |
 | 4 | `bypass` | 全部放开 | 全部放开 | 不做任何检查，仅建议在隔离环境使用 | true | danger | false | approve |
@@ -5441,13 +5451,14 @@ type CatModel struct { // ListCatModels 返回项，原字段不变
 
 | 顺序 | id | label | shortLabel | description | writesFiles | risk | isDefault | 旧值 |
 |---|---|---|---|---|---|---|---|---|
-| 1 | `default` | 只读 | 只读 | 只看文件，不改动 | false | safe | **true** | normal, plan |
-| 2 | `acceptEdits` | 自动改文件 | 改文件 | 直接修改文件，其他命令不执行 | true | edits | false | — |
-| 3 | `auto` | 自动 | 自动 | 自动执行，经过安全检查 | true | edits | false | auto |
+| 1 | `default` | 只读 | 只读 | 只用只读工具和只读命令，不修改文件 | false | safe | **true** | normal, plan |
+| 2 | `acceptEdits` | 自动改文件 | 改文件 | 直接修改文件，不再询问 | true | edits | false | — |
+| 3 | `auto` | 自动 | 自动 | 安全检查放行的操作直接执行，其他的会被拦下 | true | edits | false | auto |
 | 4 | `always-approve` | 全部放开 | 全部放开 | 不做任何检查，仅建议在隔离环境使用 | true | danger | false | approve |
 
 - risk 依据官方原文（D）：default = "Read-only tools and built-in read-only shell commands"；acceptEdits = "File edits without a prompt"；auto = "Work the safety check allows; other calls are blocked or escalated"；always-approve（= `bypassPermissions`）= "Tool calls in general"。默认（D）：headless 无 `--permission-mode` 时为 `default`。
 - 旧 `plan` 映射为 `default`（Grok plan 本轮不下发）。
+- v0.44.1 description 出处（产品 10-14 按官方原文改写；原文出自 grok 1.0.40 内置文档模式表“不经询问就能执行的内容”列）：`default`「只用只读工具和只读命令，不修改文件」← "Read-only tools and built-in read-only shell commands"；`acceptEdits`「直接修改文件，不再询问」← "File edits without a prompt"；`auto`「安全检查放行的操作直接执行，其他的会被拦下」← "Work the safety check allows; other calls are blocked or escalated"。
 
 #### 6.19.18.3a danger 交互（纯前端，设计 / 产品 10-14）
 
@@ -5456,6 +5467,7 @@ type CatModel struct { // ListCatModels 返回项，原字段不变
 3. **每个项目首次**切到 danger：菜单旁弹小确认框——标题「全部放开？」，正文「Cat 助手将不经检查执行命令和修改文件，仅建议在隔离环境使用。」，按钮「取消」与红色「全部放开」。取消 → 保持原模式。
 4. 确认记录存**前端本机偏好**（#221 机制），按**项目路径**为键；**后端不加字段**（无 `dangerAcknowledged`），不跨设备同步，换机器再弹一次。确认后该项目再切 danger 不再弹。
 5. 从 danger 切回其他模式不需确认。
+6. （v0.44.1）菜单顶部标题「Cat 助手可以做什么」为**纯前端文案**，不进 `modes[]`、后端不下发。菜单宽度固定 **220px**；`description` 自动换行，**最多两行**，**不用省略号截断**（产品定稿文案均须在两行内完整显示）。
 
 #### 6.19.18.4 参数映射（每行有出处；GUESS 不得发版）
 
@@ -5496,12 +5508,28 @@ type CatModel struct { // ListCatModels 返回项，原字段不变
 | Claude | Opus 4.7 | low, medium, high, xhigh, max | xhigh | D |
 | Claude | Opus 4.6, Sonnet 4.6 | low, medium, high, max | high | D |
 | Claude | 未列出 / 未选模型 | [] | "" | D："Models not listed here do not support effort" |
-| Codex | 全部 | 来自 `codex debug models` catalog 中该模型声明的档位；catalog 不含 → [] | 同左；不含 → "" | **UNVERIFIED**（只有 help 快照，无 JSON 样本）|
+| Codex | 全部 | 来自 `codex debug models` catalog 中该模型的 `supported_reasoning_levels`；`visibility=hide` 的模型不下发；catalog 不含 → [] | `default_reasoning_level`；不含 → "" | G 0.162.1 实跑（v0.44 后端 PR 核实，快照 `internal/catagent/testdata/models/codex-debug-models-0.162.1.json` + 测试）：gpt-6-astra / gpt-6.1-sol / gpt-6-sol / gpt-5.6-sol / gpt-5.6-terra = low…ultra；gpt-6-luna / gpt-5.6-luna = low…max；gpt-5.5 = low…xhigh；默认 low（astra、6.1-sol、5.6-sol）或 medium（其余）|
 | Grok Build | grok-4.6 | xhigh, high, medium, low | high | D 二进制内嵌模型目录 |
 | Grok Build | grok-4.5 | high, medium, low（**无 xhigh**，不显示） | high | D 同上 |
 
-- Claude 模型 id ↔ 上表家族名的匹配：CLI 无列模型命令，`ListCatModels("claude_cli")` 目前为空 → **UNVERIFIED**；按 id 前缀匹配家族，匹配不上 → `[]`。模型为空（用 CLI 默认）时强度行隐藏。
+- Claude 模型 id ↔ 上表家族名的匹配：v0.44.2 起改为**按别名**下发，见 6.19.18.5b；未选模型（跟随 CLI 默认）时强度行隐藏。
+  - 后端核实（v0.44 后端 PR）：CLI 2.1.296 无列模型命令（`claude -p "/model"` 只打印别名清单，快照 `testdata/models/claude-2.1.296-slash-model.txt`）。`ListCatModels("claude_cli")` 只下发 4 个别名：`opus`「Opus 5.5」、`sonnet`「Sonnet 5.5」、`haiku`「Haiku 5.5」、`fable`「Fable 5.1」（D https://code.claude.com/docs/en/model-config「Model aliases」Anthropic API 行；fable 原文 "the `fable` alias resolves to Fable 5.1"），档位 / 默认档按上表对应版本（opus/sonnet/haiku 默认 medium，fable 默认 high）。不预选，模型为空 = 跟随 CLI、不传 `--model`，强度行隐藏。已存的完整 id 只认文档原文出现的 id（及 `-YYYYMMDD` 日期后缀），不按前缀猜（如 `claude-sonnet-5-5` → `[]`）。别名在其他服务商下解析到的版本不同，显示名 / 档位按 Anthropic API 给。
 - Claude 选了不支持的档位，CLI 会降到不高于所选的最高档（D）；我们前端仍按 6.19.18.1-3 回落默认，不依赖该行为。
+
+#### 6.19.18.5b Claude 模型列表（v0.44.2，产品 / 设计 / 后端 10-14）
+
+1. `ListCatModels("claude_cli")` 只返回四个**别名** id：`opus`、`sonnet`、`haiku`、`fable`（按此顺序），**不铺完整模型 id**。
+2. `displayName` 用 Claude 官方文档中该别名当前对应的版本，如「Opus 5.5」；发给 CLI 的是别名：`--model <alias>`。
+3. 默认：**不预选**（v0.44.3）。`CatModel` **没有 `isDefault` 字段**，后端不标默认模型；对话未选模型时后端**不传 `--model`**，跟随 CLI 设置。
+4. 每个别名的 `efforts[]` / `defaultEffort` 按其对应模型家族取 6.19.18.5 强度表；对应不上 → `[]` / `""`。
+5. 界面（纯前端，后端不下发「默认模型」这一项）：
+   - 未选模型：胶囊显示「默认模型」，**不跟强度**。
+   - 下拉第一项「默认模型」，灰字说明「跟随 Claude CLI 设置」；下面再列四个别名。
+   - 选了具体模型后胶囊照常显示「显示名 · 强度」，如「Opus 5.5 · 高」。
+6. **UNVERIFIED（核实前不得发版）**：
+   - 每个别名（**尤其 `fable`**）须在真实 `claude --help` / 官方文档中确认可用于 `--model`，记录 CLI 版本，并有 help 快照单测；**未确认的别名不下发**。
+   - 显示名中的版本号、别名 → 强度家族的对应关系，须在 `/workspace/notes/cli-modes-effort.md` 写明出处（文档链接 / CLI 版本）。
+7. **已知限制**（v0.44.3）：显示名和强度按 Anthropic 官方文档中 **Anthropic API** 那一行取；使用 Bedrock / Vertex / 自定义服务商时，同一别名可能对应其他版本，界面显示名可能与实际模型不一致。本期不处理。
 
 #### 6.19.18.5a 强度显示名（前端映射，三家共用）
 
@@ -5534,6 +5562,29 @@ RetryCatTurn(req RetryCatTurnRequest) (SendCatMessageResult, error)
 3. 返回新 `turnId`；事件沿用 `cat:message` / `cat:turn`（6.19.9），`seq` 从 1 起。
 4. 参数按**当前检测到的 CLI 版本**重新生成（6.19.17.1-5，缓存键 路径 + mtime + 大小）；mode / effort 若当前版本或模型已不支持，按本节回落规则处理。
 5. 前端：v0.43 的 `retryLastMessage()`（再发一条、多一个气泡）**作废**，「重试」改调 `RetryCatTurn`。同步错误（`CAT_NOT_READY` / `CAT_PROJECT_MISSING` 等）照原样行内显示。
+6. **限制与界面**（v0.44.3 / v0.44.4 定稿）：只能重试**最后一轮**；失败轮状态**只存在内存**，应用重启后该轮不能重试（`retry_not_allowed`）。
+   - 「重试」按钮**只在**该失败轮是会话最后一轮**且仍可重试**时显示；应用重启后、或已不是最后一轮 → **不显示**。
+   - 点了「重试」但后端返回 `retry_not_allowed` → 按钮消失，**原地**换成灰字「这条回复已无法重试，请重新发送。」，字号同「当前版本 X」那行；**不弹 toast、不用红色**。
+7. **`retryable`（v0.44.5）**：turn 新增 `retryable bool`（`json:"retryable"`，始终输出），出现在 `GetCatConversation` 返回的每个 turn 上，以及失败事件（`cat:turn` `status=failed`）的载荷里。**仅当**该轮是会话最后一轮、`status=failed`、且其失败状态仍存在于后端内存中时为 `true`；其余（非最后一轮、非失败、应用重启后内存已无）一律 `false`。新一轮开始后，前一失败轮变为 `false`。
+   - 前端：「重试」**只在**最后一轮 `status=failed` 且 `retryable=true` 时显示，不再自行推断。
+   - `retryable=true` 但调用时后端返回 `retry_not_allowed`（竞态）→ 仍按第 6 条原地换成灰字。
+
+#### 6.19.18.9 默认模式按 CLI（v0.44.4）
+
+```go
+type CatSettings struct {
+    // ...其余字段不变
+    DefaultModeByAgent map[string]string `json:"defaultModeByAgent"` // key: cat_build|claude_cli|codex_cli；value: 该家 agents[].modes[].id
+    // DefaultApprovalMode string `json:"defaultApprovalMode"` // v0.44.4 起废弃：只读兼容，Save 不再写
+}
+```
+
+1. **接口**：`GetCatSettings` / `SaveCatSettings` 签名不变，`CatSettings` 新增 `defaultModeByAgent`，去掉 `defaultApprovalMode`（wails 绑定随之重生成）。
+2. **校验（Save）**：key 只能是三家之一，否则 `INVALID_ARGUMENT`；value 必须是该家当前 `modes[]` 里的 id 或 `""`（空 = 该家默认），否则 `INVALID_ARGUMENT`。取代 6.19.12 第 3 条对 `defaultApprovalMode` 的校验。
+3. **旧值迁移（读路径，同 6.19.12 第 2 条做法）**：库里只有旧 `defaultApprovalMode` 时，`GetCatSettings` 在返回值里按 **6.19.18.3 各家「旧值」列**映射给三家各填一项；映射不到 / 未知 → 该家最保守默认（`isDefault=true` 那项，没有则 `modes[0]`）。不在 Get 时回写，下次成功 Save 写新形状并删旧字段。
+4. **新对话**：`catConvPrefs.approvalMode` = `defaultModeByAgent[agentKind]`；空或已不在该家 `modes[]` → 该家最保守默认。已有对话不变（同 6.19.12 第 4 条）。
+5. **设置页**：「新对话默认」里每家块各一个「模式」下拉，选项用该家后端 `modes[]`（label + 灰色 description，danger 项按 6.19.18.3a 橙色样式）；取代原全局「批准方式」下拉。设置页选 danger **不弹**首次确认框（确认只在对话内切换时按项目弹）。
+6. 定时任务的 `approvalMode` 不在本版调整。
 
 #### 6.19.18.8 不做 / 待核
 

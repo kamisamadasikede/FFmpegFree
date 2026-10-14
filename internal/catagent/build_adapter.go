@@ -43,7 +43,7 @@ var (
 		{ID: "high", DisplayName: "高"},
 		// xhigh：CLI --reasoning-effort 文档列出的档位；模型不支持时 CLI 忽略（契约 v0.31.4 ④）。
 		// 显示名「极高」（契约 v0.35 ④，产品 10-13 定）；值仍是 xhigh。
-		{ID: "xhigh", DisplayName: "极高"},
+		{ID: "xhigh", DisplayName: "很高"}, // v0.44 6.19.18.5a
 	}
 )
 
@@ -678,33 +678,15 @@ func grokTurnEnv(base []string) []string {
 	return out
 }
 
-// permissionCLIArgs 把这一轮的批准方式变成一个开关。空和全部批准用 --always-approve；其余用 --permission-mode。两者不一起传。
+// permissionCLIArgs 把这一轮的模式变成一个开关（契约 6.19.18.4，H grok.txt）。
+// default / acceptEdits / auto → --permission-mode <id>；always-approve → --always-approve。两者不一起传。
+// 旧值读时映射（NormalizeMode）；空 / 不认识 → default（最保守）。
 func permissionCLIArgs(mode string) []string {
-	switch canonicalPermissionMode(mode) {
-	case "plan":
-		return []string{"--permission-mode", "plan"}
-	case "auto":
-		return []string{"--permission-mode", "auto"}
-	case "default":
-		return []string{"--permission-mode", "default"}
-	default:
+	switch id := NormalizeMode(KindCatBuild, mode); id {
+	case ModeGrokAlwaysApprove:
 		return []string{"--always-approve"}
-	}
-}
-
-func canonicalPermissionMode(mode string) string {
-	s := strings.ToLower(strings.TrimSpace(mode))
-	s = strings.ReplaceAll(s, "_", "-")
-	s = strings.ReplaceAll(s, " ", "")
-	switch s {
-	case "plan":
-		return "plan"
-	case "auto", "auto-review", "autoreview":
-		return "auto"
-	case "default", "ask", "normal":
-		return "default"
 	default:
-		return "approve"
+		return []string{"--permission-mode", id}
 	}
 }
 
@@ -1566,7 +1548,7 @@ func (a *BuildAdapter) probeGrokModels(exe string) []Model {
 	models := make([]Model, 0, len(ids))
 	for _, id := range ids {
 		// 老板 10-09 定：选择器直接显示 CLI 的真实模型名，id 与 label 相同，不再映射。
-		models = append(models, Model{ID: id, DisplayName: id})
+		models = append(models, grokModelWithEfforts(id))
 	}
 	return models
 }

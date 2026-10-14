@@ -980,6 +980,20 @@ export class GitChange {
 	        this.path = source["path"];
 	    }
 	}
+	export class RetryCatTurnRequest {
+	    conversationId: string;
+	    turnId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RetryCatTurnRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conversationId = source["conversationId"];
+	        this.turnId = source["turnId"];
+	    }
+	}
 	export class SendMessageRequest {
 	    conversationId: string;
 	    content: string;
@@ -1456,6 +1470,8 @@ export namespace catagent {
 	export class Model {
 	    id: string;
 	    displayName: string;
+	    efforts: string[];
+	    defaultEffort: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Model(source);
@@ -1465,6 +1481,32 @@ export namespace catagent {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.displayName = source["displayName"];
+	        this.efforts = source["efforts"];
+	        this.defaultEffort = source["defaultEffort"];
+	    }
+	}
+	export class AgentMode {
+	    id: string;
+	    label: string;
+	    description: string;
+	    writesFiles: boolean;
+	    isDefault: boolean;
+	    shortLabel: string;
+	    risk: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AgentMode(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	        this.description = source["description"];
+	        this.writesFiles = source["writesFiles"];
+	        this.isDefault = source["isDefault"];
+	        this.shortLabel = source["shortLabel"];
+	        this.risk = source["risk"];
 	    }
 	}
 	export class AgentStatus {
@@ -1473,6 +1515,7 @@ export namespace catagent {
 	    version: string;
 	    loggedIn?: boolean;
 	    detail: string;
+	    modes: AgentMode[];
 
 	    static createFrom(source: any = {}) {
 	        return new AgentStatus(source);
@@ -1485,6 +1528,7 @@ export namespace catagent {
 	        this.version = source["version"];
 	        this.loggedIn = source["loggedIn"];
 	        this.detail = source["detail"];
+	        this.modes = source["modes"];
 	    }
 	}
 	export class Status {

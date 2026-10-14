@@ -340,13 +340,18 @@ func TestCodexArgs_NoAskForApproval_AllModes(t *testing.T) {
 		mode      string
 		exec, res []string
 	}{
-		{"", []string{"--dangerously-bypass-approvals-and-sandbox"}, []string{"--dangerously-bypass-approvals-and-sandbox"}},
+		{"", []string{"--sandbox", "read-only", "-c", `approval_policy="never"`}, []string{"-c", `sandbox_mode="read-only"`, "-c", `approval_policy="never"`}},
+		{"bypass", []string{"--dangerously-bypass-approvals-and-sandbox"}, []string{"--dangerously-bypass-approvals-and-sandbox"}},
+		{"read-only", []string{"--sandbox", "read-only", "-c", `approval_policy="never"`}, []string{"-c", `sandbox_mode="read-only"`, "-c", `approval_policy="never"`}},
+		{"workspace-write", []string{"--sandbox", "workspace-write", "-c", `approval_policy="never"`}, []string{"-c", `sandbox_mode="workspace-write"`, "-c", `approval_policy="never"`}},
+		// 6.19.18.4：approve-for-me 新开发 --approve-for-me；续聊退回 workspace-write。
+		{"approve-for-me", []string{"--approve-for-me"}, []string{"-c", `sandbox_mode="workspace-write"`, "-c", `approval_policy="never"`}},
 		{"approve", []string{"--dangerously-bypass-approvals-and-sandbox"}, []string{"--dangerously-bypass-approvals-and-sandbox"}},
 		{"full", []string{"--dangerously-bypass-approvals-and-sandbox"}, []string{"--dangerously-bypass-approvals-and-sandbox"}},
 		{"plan", []string{"--sandbox", "read-only", "-c", `approval_policy="never"`}, []string{"-c", `sandbox_mode="read-only"`, "-c", `approval_policy="never"`}},
 		{"default", []string{"--sandbox", "read-only", "-c", `approval_policy="never"`}, []string{"-c", `sandbox_mode="read-only"`, "-c", `approval_policy="never"`}},
 		{"normal", []string{"--sandbox", "read-only", "-c", `approval_policy="never"`}, []string{"-c", `sandbox_mode="read-only"`, "-c", `approval_policy="never"`}},
-		{"auto", []string{"--sandbox", "workspace-write", "-c", `approval_policy="never"`}, []string{"-c", `sandbox_mode="workspace-write"`, "-c", `approval_policy="never"`}},
+		{"auto", []string{"--approve-for-me"}, []string{"-c", `sandbox_mode="workspace-write"`, "-c", `approval_policy="never"`}},
 	}
 	contains := func(args, sub []string) bool {
 		for i := 0; i+len(sub) <= len(args); i++ {

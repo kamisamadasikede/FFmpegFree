@@ -206,15 +206,18 @@ func (s *Service) normalizeInput(in ScheduleInput) (ScheduleInput, error) {
 	if in.ProjectID == "" {
 		return in, invalid("请选择项目。", "project")
 	}
-	if !ValidEffort(in.Effort) {
+	kind := in.AgentKind
+	if kind == "" {
+		kind = catagent.KindCatBuild
+	}
+	if !s.validEffortFor(context.Background(), kind, in.Model, in.Effort) {
 		return in, invalid("思考强度不对", "effort")
 	}
-	if in.ApprovalMode == "" {
-		in.ApprovalMode = "plan"
-	}
-	if !ValidApprovalMode(in.ApprovalMode) {
+	// v0.44：存该家的模式 id；旧值映射，空 → 该家默认（6.19.18.2 / 6.19.18.4）。
+	if !catagent.IsKnownModeInput(kind, in.ApprovalMode) {
 		return in, invalid("批准方式不对", "approval_mode")
 	}
+	in.ApprovalMode = catagent.NormalizeMode(kind, in.ApprovalMode)
 	switch in.Frequency {
 	case FreqOnce:
 		if in.RunAt <= s.now().UnixMilli() {
@@ -359,7 +362,8 @@ func (s *Service) scheduleFromRow(ctx context.Context, x store.CatScheduleRow) S
 	}
 	out := Schedule{ID: x.ID, Name: x.Name, Prompt: x.Prompt, ProjectID: x.ProjectID, Frequency: x.Frequency, Time: x.Time,
 		Weekdays: x.Weekdays, RunAt: x.RunAt, Timezone: LocalTimezoneName(s.cfg.Location), Model: x.Model, Effort: x.Effort,
-		ApprovalMode: x.ApprovalMode, AgentKind: kind, Enabled: x.Enabled, ProjectDeleted: x.ProjectDeleted, NextRunAt: x.NextRunAt,
+		ApprovalMode: catagent.NormalizeMode(kind, x.ApprovalMode), AgentKind: kind, // v0.44 读时映射
+		Enabled: x.Enabled, ProjectDeleted: x.ProjectDeleted, NextRunAt: x.NextRunAt,
 		CreatedAt: x.CreatedAt, UpdatedAt: x.UpdatedAt}
 	if out.Weekdays == nil {
 		out.Weekdays = []int{}
