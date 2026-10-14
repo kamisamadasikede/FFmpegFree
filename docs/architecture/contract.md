@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.53.1）
+# FFmpegFree v2 接口契约（v0.54.1）
+
+v0.54.1 变更（**对话一轮改为无响应超时**，老板反馈长任务 10 分钟被掐断，10-14；见 **6.19.9.9**；无迁移 / 事件名 / settings 键 / 绑定变化）：普通对话不再有 10 分钟总时长上限，改为 CLI 连续 10 分钟无任何输出才停；新 reason `idle_timeout`（CAT_REPLY_FAILED，可重试）；失败事件 `error.detail` 带超时 reason；定时任务 30 分钟总时长不变。
 
 v0.53.1 变更（**提交历史 产品 / 设计定稿**，10-14；见 **6.19.28.9**；无迁移 / 事件名 / settings 键）：`history_changed` 前端不自动重拉，顶部灰字「提交历史已更新」点了才从首页刷新；签出提交前必须弹确认（文案按产品版本，TBD）；搜索范围不变；车道色 token `--cat-lane-1`…`--cat-lane-6`；`commit_not_found` 文案定稿并在详情展开区 12px `--ff-danger` 显示（不用 toast）；搜索结果只画点不画线；`GitCatStatus` 增加 `detached` / `headSha` / `headShortSha`，底栏「未在分支上 · abc1234」。
 
@@ -4332,6 +4334,17 @@ type CancelCatTurnRequest struct {
 - 界面在对话里追加一条**淡色系统行**：`已停止生成。`；停止按钮在点击后**立即置灰**（不等后端确认）。
 
 **无障碍**：`prefers-reduced-motion: reduce` 时，前端**直接追加**收到的文本，不做逐字打字机闪烁动画。
+
+#### 6.19.9.9 一轮的超时：无响应超时（v0.54.1）
+- **普通对话**（`TurnOptions.Timeout == 0`，三家 CLI 共用 `catagent.newTurnContext`）：**没有总时长上限**。看门狗 `DefaultIdleTimeout = 10 分钟`：stdout、stderr、Grok 会话文件里**任何一行输出**（文字增量、思考、工具、重连 / 重试提示、用量）都重新计时；连续 10 分钟没有任何输出才停掉这一轮。停止走既有路径（`runCmd` 的 `cmd.Cancel` → `proc.Kill`，Windows 结束整个进程树）。
+- **定时任务**（`Timeout > 0`）：仍按总时长（`ScheduleRunTimeout` 30 分钟 + 适配器放宽 1 分钟），不变。
+- **错误**：无响应超时 → `CAT_REPLY_FAILED`，`detail` 第一行 `reason=idle_timeout`，message「CLI 已经 10 分钟没有响应，已停止这一轮。」，可重试。总时长超时仍为 `reason=timeout`。
+- **服务层**：超时类失败的 message 以适配器为准，不被本轮先前 CLI 报错（重连提示等）盖住；`cat:turn` failed 事件的 `error.detail` 带这一行 reason（以前不带，前端只能落到通用「回复没生成出来，请重试。」，即老板截图的情形）。
+- **前端文案**（失败行，带「重试」；已流出的正文、思考、工具行原样保留，不清空）：
+  - `reason=idle_timeout`：「CLI 已经 10 分钟没有响应，已停止这一轮。」
+  - `reason=timeout`：「回复超时，已停止这一轮。」
+  - 两条进 v0.54 i18n 的 Cat 文案表。
+- **测试**：假时钟下持续输出 30 分钟不超时、停止输出即超时；真进程持续输出超过阈值不被停、静默进程得 `idle_timeout`；服务层 reason / 文案不被盖住且部分正文保留；前端 reason → 文案映射。
 
 ### 6.19.10 项目（v0.31；v0.31.1 补重新选择文件夹 / 在文件管理器中显示；v0.31.2 口径澄清；产品规则 10-09 定，架构师定方案）
 
