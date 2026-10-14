@@ -1,5 +1,5 @@
 import { AppError } from './call'
-import { branchOptions, catBranchError, catBranchErrorText, pathEllipsis, mapCatBranches, middleEllipsis, parseBranchOption, CAT_BRANCH_COPY } from './catBranches'
+import { CAT_MERGE_COPY, catMergeError, defaultMergeOption, mapCatMergeResult, mergeEntryOption, mergeOptions, branchOptions, catBranchError, catBranchErrorText, pathEllipsis, mapCatBranches, middleEllipsis, parseBranchOption, CAT_BRANCH_COPY } from './catBranches'
 
 type Eq = (name: string, got: unknown, want: unknown) => void
 
@@ -37,4 +37,37 @@ export function catBranchesChecks(eq: Eq): void {
     pathEllipsis('/home/boss/work/projects/字幕项目/'),
     pathEllipsis('/home/字幕项目'),
   ], ['D:\\…\\字幕项目', 'D:\\a\\字幕项目', '/home/…/字幕项目', '/home/字幕项目'])
+
+  // ---- v0.50 合并到当前分支（预估形状，契约落地后对齐） ----
+  eq('合并结果映射（6.19.25）', [
+    mapCatMergeResult({ status: 'merged', head: 'abc' }),
+    mapCatMergeResult({ status: 'up_to_date', head: 'abc' }),
+    mapCatMergeResult({ status: 'conflict', files: ['a', 'b'] }),
+  ], [
+    { status: 'merged', conflicts: 0, files: [], head: 'abc' },
+    { status: 'up_to_date', conflicts: 0, files: [], head: 'abc' },
+    { status: 'conflict', conflicts: 2, files: ['a', 'b'], head: '' },
+  ])
+  eq('合并错误文案（6.19.25）', [
+    catMergeError(new AppError('TASK_CONFLICT', '', 'reason=git_dirty')),
+    catMergeError(new AppError('TASK_CONFLICT', '', 'reason=turn_running')),
+    catMergeError(new AppError('TASK_CONFLICT', '', 'reason=merge_in_progress')),
+    catMergeError(new AppError('INVALID_ARGUMENT', 'x', 'reason=git_failed\nerror: Your local changes would be overwritten by merge')),
+  ].map((x) => [x.text, x.raw]), [[CAT_MERGE_COPY.dirty, ''], [CAT_MERGE_COPY.running, ''], [CAT_MERGE_COPY.merging, ''], [CAT_MERGE_COPY.dirty, '']])
+  eq('合并通用失败带详情（git_failed / 未知 reason）', [
+    catMergeError(new AppError('INVALID_ARGUMENT', 'x', 'reason=weird\nboom')),
+    catMergeError(new AppError('INVALID_ARGUMENT', 'git merge 失败', 'reason=git_failed\nfatal: x')),
+    catMergeError(new AppError('UNSUPPORTED', '后端还没有提供 CatService.GitCatMerge')),
+  ].map((x) => [x.kind, x.text, x.raw]), [['failed', '合并失败，请重试。', 'x\nboom'], ['failed', '合并失败，请重试。', 'git merge 失败\nfatal: x'], ['failed', '合并失败，请重试。', '后端还没有提供 CatService.GitCatMerge']])
+  eq('合并拦截：非仓库 / 分支不存在 / 同一分支（产品文案，无详情）', [
+    catMergeError(new AppError('INVALID_ARGUMENT', '这里还不是 git 仓库。', 'reason=not_git_repo')),
+    catMergeError(new AppError('NOT_FOUND', '找不到这个分支。', 'reason=branch_not_found')),
+    catMergeError(new AppError('INVALID_ARGUMENT', 'x', 'reason=same_branch')),
+  ].map((x) => [x.text, x.raw]), [['这个文件夹不是 Git 仓库。', ''], ['找不到这个分支，可能已被删除。', ''], ['不能把分支合并到它自己。', '']])
+  eq('合并文案', [CAT_MERGE_COPY.entry, CAT_MERGE_COPY.title('main'), CAT_MERGE_COPY.merged('dev', 'main'), CAT_MERGE_COPY.upToDate, CAT_MERGE_COPY.conflict(3)], ['合并到当前分支…', '把哪个分支合并到 main？', '已把 dev 合并到 main', '已经是最新，没有需要合并的内容。', '有 3 个文件冲突，请逐个处理。'])
+  const mb = mapCatBranches({ git: true, repo: true, branch: 'main', locals: ['main', 'dev'], remotes: ['origin/feat'] })
+  const mo = mergeOptions(mb)
+  eq('合并选项：分组 + 排除当前', mo.map((o) => [o.id, !!o.header]), [['H:local', true], ['L:dev', false], ['H:remote', true], ['R:origin/feat', false]])
+  eq('合并默认选第一个本地', defaultMergeOption(mo), 'L:dev')
+  eq('合并入口：没有可合并分支置灰', [mergeEntryOption(mb).disabled, mergeEntryOption(mapCatBranches({ git: true, repo: true, branch: 'main', locals: ['main'] })).disabled, mergeEntryOption(mb).divided], [false, true, true])
 }

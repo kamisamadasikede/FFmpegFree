@@ -85,6 +85,7 @@ export const iconPaths = {
   'folder-plus': "<path d=\"M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\"/><path d=\"M12 10v6M9 13h6\"/>",
   'folder-open': "<path d=\"M3 18V6a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v2\"/><path d=\"M3 18l2.5-7h16L19 18z\"/>",
   'file': "<path d=\"M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z\"/><path d=\"M14 3v5h5\"/>",
+  'merge': "<circle cx=\"6\" cy=\"5\" r=\"2.5\"/><circle cx=\"6\" cy=\"19\" r=\"2.5\"/><circle cx=\"18\" cy=\"14\" r=\"2.5\"/><path d=\"M6 7.5v9M6 7.5c0 4 3.5 6.5 9.5 6.5\"/>",
   'branch': "<circle cx=\"6\" cy=\"6\" r=\"2.5\"/><circle cx=\"18\" cy=\"6\" r=\"2.5\"/><circle cx=\"6\" cy=\"18\" r=\"2.5\"/><path d=\"M6 8.5v7M8.5 6h5a4 4 0 0 1 4 4v0\"/>",
   'hand': "<path d=\"M8 13V6.5a1.5 1.5 0 0 1 3 0V12\"/><path d=\"M11 12V5.5a1.5 1.5 0 0 1 3 0V12\"/><path d=\"M14 12V6.5a1.5 1.5 0 0 1 3 0V14a5 5 0 0 1-5 5H9.5A4.5 4.5 0 0 1 5 14.5V11a1.5 1.5 0 0 1 3 0v2\"/>",
   'alert': "<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 8v5M12 16.5h.01\"/>",

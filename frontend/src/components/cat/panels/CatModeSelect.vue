@@ -47,6 +47,7 @@
             @mouseenter="active = i"
             @click="pick(o.id)"
           >
+            <FIcon v-if="o.icon" :name="o.icon" :size="14" class="lic" />
             <span class="tx" :title="compact ? o.label : undefined">
               <b><svg v-if="o.risky" class="tri" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.2 11.2 10.5H.8Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" /><path d="M6 4.6v2.6M6 8.7v.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>{{ o.label }}<em v-if="defaultId !== undefined && o.id === defaultId" class="def">默认</em></b>
               <small v-if="o.desc">{{ o.desc }}</small>
@@ -65,6 +66,7 @@
 // 键盘：↑↓ 移动，Enter / 空格 选中，Esc 关闭。
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
+import type { IconName } from '@/components/icon/icons'
 
 export interface CatSelectOption {
   id: string
@@ -78,6 +80,8 @@ export interface CatSelectOption {
   divided?: boolean
   /** 分组小标题：不可点、不参与键盘移动（底栏「远程分支」） */
   header?: boolean
+  /** 左侧 14px 图标（FIcon 名，底栏「合并到当前分支…」） */
+  icon?: IconName
 }
 
 const props = defineProps<{
@@ -257,6 +261,8 @@ onBeforeUnmount(close)
 .cms-hd { margin: 6px 8px 2px; font-size: 11px; line-height: 16px; color: var(--cat-muted); cursor: default; user-select: none; }
 .cms-hd.divided { position: relative; margin-top: 11px; }
 .cms-hd.divided::before { content: ''; position: absolute; left: -6px; right: -6px; top: -6px; height: 1px; background: var(--ff-border); }
+.cms-it .lic { flex: none; color: var(--ff-text-1, var(--cat-text)); }
+.cms-it:has(.lic) b { color: var(--ff-text-1, var(--cat-text)); }
 .cms-it.danger b, .cms-it.danger .ok { color: var(--cat-orange); }
 .cms-it.danger:hover, .cms-it.danger.act { background: var(--cat-orange-soft); }
 .cms-it .ok { flex: none; margin-left: auto; color: var(--cat-accent, currentColor); }
