@@ -159,7 +159,6 @@
                     :aria-label="rowDotLabel(c.id, c.st) || undefined"
                     :aria-hidden="rowDotLabel(c.id, c.st) ? undefined : true"
                   />
-                  <i v-if="catState.unseen[c.id]" class="note" aria-label="有新回复" />
                   <span class="t" :title="c.title || '新对话'">{{ c.title || '新对话' }}</span>
                   <span v-if="c.main" class="main-tag">主要</span>
                 </div>
@@ -183,7 +182,7 @@
         @click="onConvClick(c.id, $event)"
         @keydown.enter.self="selectConv(c.id)"
       >
-        <FIcon name="chat" :size="16" /><i v-if="rowDot(c.id, c.st)" class="st" :class="rowDot(c.id, c.st)" role="img" :aria-label="rowDotLabel(c.id, c.st)" /><i v-if="catState.unseen[c.id]" class="note" aria-label="有新回复" /><span class="t" :title="c.title || '新对话'">{{ c.title || '新对话' }}</span>
+        <FIcon name="chat" :size="16" /><i v-if="rowDot(c.id, c.st)" class="st" :class="rowDot(c.id, c.st)" role="img" :aria-label="rowDotLabel(c.id, c.st)" /><span class="t" :title="c.title || '新对话'">{{ c.title || '新对话' }}</span>
         <button
           type="button"
           class="ib c-more"
@@ -307,7 +306,7 @@ import {
 
 /** 标题左边的点：进行中读 turns，上次结果读 outcome，走查数据才用 c.st */
 function rowDot(id: string, stored?: string) {
-  return convDot(!!catState.turns[id], catState.outcome[id] ?? '', stored)
+  return convDot(!!catState.turns[id], catState.outcome[id] ?? '', stored, !!catState.unseen[id])
 }
 function rowDotLabel(id: string, stored?: string) {
   return convDotLabel(rowDot(id, stored))
@@ -915,8 +914,9 @@ button.ct-it:hover,
   background: var(--cat-muted);
   box-sizing: border-box;
 }
-.st.ok {
-  background: var(--cat-success);
+.st.ok,
+.st.new {
+  background: var(--cat-success); /* C5 绿点 = 已完成 / 有新回复，同一行只出一个 */
 }
 .st.idle {
   background: transparent;
@@ -954,13 +954,6 @@ button.ct-it:hover,
   .st.run {
     animation: none;
   }
-}
-.note {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex: none;
-  background: var(--cat-success); /* C5 绿点 = 有新回复未读 */
 }
 @keyframes ct-spin {
   to { transform: rotate(360deg); }
