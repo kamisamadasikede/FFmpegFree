@@ -1050,6 +1050,8 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
       const ft = catState.turns[id]
       ft.turnId = `sim-fail-${token}`
       ft.failMsg = '回复失败，请重试。'
+      // 用 v0.43 的「CLI 版本过旧」行内错误（自带「重试」按钮）来走查原地重试
+      ft.failDetail = `reason=cli_outdated\nagentKind=${currentAgentKind()}\ncliVersion=0.100.0\nraw=error: unexpected argument`
       setTimeout(() => endTurn(id, 'failed', token), 300)
       return
     }

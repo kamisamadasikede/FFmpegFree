@@ -171,34 +171,36 @@ export function simAgentRaw(kind: string): { modes: SimMode[]; models: { id: str
         md('auto', '自动', '自动', 'edits', '自动执行，经过安全检查'),
         md('bypassPermissions', '全部放开', '全部放开', 'danger', BYPASS_DESC),
       ],
-      // 走查：opus-4.7 有档位（默认 xhigh）；haiku 不在 6.19.18.5 表里 → efforts=[] → 强度行隐藏
+      // 走查（按设计说明 §5 示例）：sonnet 没有很高；haiku efforts=[] → 强度行隐藏
       models: [
-        { id: 'claude-opus-4-7', displayName: 'claude-opus-4-7', defaultEffort: 'xhigh', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
-        { id: 'claude-haiku-4', displayName: 'claude-haiku-4', defaultEffort: '', efforts: [] },
+        { id: 'opus', displayName: 'opus', defaultEffort: 'high', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+        { id: 'sonnet', displayName: 'sonnet', defaultEffort: 'high', efforts: ['low', 'medium', 'high', 'max'] },
+        { id: 'haiku', displayName: 'haiku', defaultEffort: '', efforts: [] },
+        { id: 'fable', displayName: 'fable', defaultEffort: 'high', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
       ],
     }
   }
   if (kind === 'codex_cli') {
     return {
       modes: [
-        md('read-only', '只读', '只读', 'safe', '只看文件，不改动', true),
+        md('read-only', '只读', '只读', 'safe', '只读取文件，不修改，命令在只读沙箱中运行', true),
         md('workspace-write', '改项目文件', '改文件', 'edits', '可修改项目内文件，命令在沙箱中运行'),
         md('approve-for-me', '自动审查', '自动审查', 'edits', '可修改项目文件，需要批准的操作交给自动审查'),
         md('bypass', '全部放开', '全部放开', 'danger', BYPASS_DESC),
       ],
       models: [
         { id: 'gpt-6.1-sol', displayName: 'gpt-6.1-sol', defaultEffort: 'low', efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] },
-        { id: 'gpt-6-sol', displayName: 'gpt-6-sol', defaultEffort: 'medium', efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] },
         { id: 'gpt-6-luna', displayName: 'gpt-6-luna', defaultEffort: 'medium', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
         { id: 'gpt-5.5', displayName: 'gpt-5.5', defaultEffort: 'medium', efforts: ['low', 'medium', 'high', 'xhigh'] },
+        { id: 'custom-model', displayName: 'custom-model', defaultEffort: '', efforts: [] },
       ],
     }
   }
   return {
     modes: [
-      md('default', '只读', '只读', 'safe', '只看文件，不改动', true),
-      md('acceptEdits', '自动改文件', '改文件', 'edits', '直接修改文件，其他命令不执行'),
-      md('auto', '自动', '自动', 'edits', '自动执行，经过安全检查'),
+      md('default', '只读', '只读', 'safe', '只用只读工具和只读命令，不修改文件', true),
+      md('acceptEdits', '自动改文件', '改文件', 'edits', '直接修改文件，不再询问'),
+      md('auto', '自动', '自动', 'edits', '安全检查放行的操作直接执行，其他的会被拦下'),
       md('always-approve', '全部放开', '全部放开', 'danger', BYPASS_DESC),
     ],
     models: [

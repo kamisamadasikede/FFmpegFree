@@ -26,8 +26,11 @@ export interface CatOption {
   risk?: CatModeRisk
 }
 
-/** 模式菜单最多几项（设计：不出滚动条）。Codex 是合并好的组合模式，不另拆沙箱 / 批准两个下拉 */
-export const MODE_MENU_MAX = 5
+/** 模式菜单标题（前端文案，设计草稿，待产品定稿；只在这里改） */
+export const CAT_MODE_MENU_TITLE = 'Cat 助手可以做什么'
+
+/** 模式菜单最多收几项（设计 v0.1：显示 6 项，超出在菜单内滚动）。Codex 是合并好的组合模式，不另拆沙箱 / 批准两个下拉 */
+export const MODE_MENU_MAX = 12
 
 export type CatModeRisk = 'safe' | 'edits' | 'danger'
 const asRisk = (v: unknown): CatModeRisk | undefined => (v === 'safe' || v === 'edits' || v === 'danger' ? v : undefined)

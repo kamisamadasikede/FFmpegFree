@@ -85,7 +85,7 @@
           :aria-expanded="menu === 'access'"
           @click.stop="toggle('access')"
         >
-          <FIcon :name="accessMeta.icon" :size="14" /><span>{{ accessMeta.short }}</span>
+          <template v-if="accessMeta.risky"><svg class="tri" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.2 11.2 10.5H.8Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" /><path d="M6 4.6v2.6M6 8.7v.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg></template><FIcon v-else name="shield" :size="14" /><span>{{ accessMeta.short }}</span><FIcon name="down" :size="11" class="caret up" />
         </button>
         <span class="sp" />
         <CatContextRing v-if="contextUsage" :used="contextUsage.used" :size="contextUsage.window" />
@@ -127,9 +127,9 @@
       <div v-if="menu" class="mn" :style="menuStyle" @click.stop>
         <!-- 访问模式 -->
         <div v-if="menu === 'access'" class="mn-access" role="menu" aria-label="访问模式" data-testid="cat-mode-menu">
-          <div class="mn-ahd"><span>应如何批准 Cat 操作？</span><a class="more" href="#" @click.prevent>了解更多</a></div>
-          <template v-for="(a, i) in modeOpts" :key="a.id">
-          <div v-if="a.risky && i > 0 && !modeOpts[i - 1].risky" class="mn-sep" role="separator" />
+          <div class="mn-ahd"><span>{{ CAT_MODE_MENU_TITLE }}</span></div>
+          <div class="mn-list">
+          <template v-for="a in modeOpts" :key="a.id">
           <div
             class="mn-acc"
             :class="{ on: accessMeta.id === a.id, danger: a.risky }"
@@ -139,16 +139,16 @@
             @click="pickAccess(a.id)"
             @keydown.enter.prevent="pickAccess(a.id)"
           >
-            <span class="ic"><FIcon :name="a.icon" :size="18" /></span>
             <div>
-              <b><svg v-if="a.risky" class="tri" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.2 11.2 10.5H.8Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" /><path d="M6 4.6v2.6M6 8.7v.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>{{ a.name }}</b>
+              <b><svg v-if="a.risky" class="tri" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.2 11.2 10.5H.8Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" /><path d="M6 4.6v2.6M6 8.7v.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>{{ a.name }}<em v-if="a.id === currentCaps.modes.defaultId" class="def">默认</em></b>
               <small v-if="a.desc">{{ a.desc }}</small>
             </div>
             <FIcon v-if="accessMeta.id === a.id" name="check" :size="16" class="ok" />
           </div>
           </template>
+          </div>
           <div v-if="confirmId" class="mn-confirm" role="alertdialog" aria-labelledby="cat-danger-t" data-testid="cat-danger-confirm" @click.stop>
-            <b id="cat-danger-t">全部放开？</b>
+            <b id="cat-danger-t"><svg class="tri" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.2 11.2 10.5H.8Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" /><path d="M6 4.6v2.6M6 8.7v.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>全部放开？</b>
             <p>Cat 助手将不经检查执行命令和修改文件，仅建议在隔离环境使用。</p>
             <div class="bt">
               <button type="button" class="cf-cancel" data-testid="cat-danger-cancel" @click="confirmId = ''">取消</button>
@@ -181,16 +181,21 @@
           <template v-if="currentCaps.efforts.options.length">
             <div class="mn-sep" role="separator" />
             <div class="mn-hd">思考强度</div>
-            <div class="mn-seg" role="radiogroup" aria-label="思考强度">
-              <button
+            <div role="menu" aria-label="思考强度" data-testid="cat-effort-list">
+              <div
                 v-for="t in thinkSegs"
                 :key="t.id || 'default'"
-                type="button"
-                role="radio"
-                :class="{ on: t.on }"
+                class="mn-op"
+                :class="{ on: t.on, flash: t.on && effortFlash }"
+                role="menuitemradio"
+                tabindex="0"
                 :aria-checked="t.on"
                 @click="pickThink(t.id)"
-              >{{ t.name }}<small v-if="t.def" class="def">默认</small></button>
+                @keydown.enter.prevent="pickThink(t.id)"
+              >
+                <span class="nm">{{ t.name }}<em v-if="t.def" class="def">默认</em></span>
+                <FIcon v-if="t.on" name="check" :size="15" :stroke="2.2" class="ck" />
+              </div>
             </div>
           </template>
         </div>
@@ -222,7 +227,7 @@ import { ElMessage } from 'element-plus'
 import { CAT_COPY } from '@/api/cat'
 import { composePickSend, pickLabel, type PickNote } from '@/components/cat/catPick'
 import { CAT_PROJECT_COPY as PC } from '@/api/catProjects'
-import { modeMeta } from '@/views/cat/catCapabilities'
+import { CAT_MODE_MENU_TITLE, modeMeta } from '@/views/cat/catCapabilities'
 import { ackDanger, dangerAcked } from '@/views/cat/catDangerAck'
 import { pickFiles } from '@/api/system'
 import { toAppError } from '@/api/call'
@@ -312,8 +317,17 @@ const thinkSegs = computed(() => {
 })
 /** 模式菜单：按当前 agentKind 的列表渲染（列表空 → 胶囊隐藏） */
 const modeOpts = computed(() => currentCaps.value.modes.options.map(modeMeta))
+/** 切模型后档位被回落到默认：档位文字主色浅底高亮约 0.9 秒（设计 §4），不弹提示 */
+const effortFlash = ref(false)
+let flashTimer: ReturnType<typeof setTimeout> | undefined
 function pickModel(id: string) {
+  const before = catState.think
   chooseModel(id)
+  if (before && catState.think !== before) {
+    effortFlash.value = true
+    clearTimeout(flashTimer)
+    flashTimer = setTimeout(() => (effortFlash.value = false), 900)
+  }
 }
 function pickThink(id: string) {
   chooseThink(id)
@@ -1316,5 +1330,103 @@ button {
   border-color: transparent;
   background: var(--cat-danger, #d93025);
   color: #fff;
+}
+/* v0.44 设计 v0.1 对齐 */
+.mn-access {
+  width: 220px;
+  padding: 6px;
+  border-radius: 12px;
+}
+.mn-access .mn-ahd {
+  padding: 6px 8px 4px;
+  font-size: 11.5px;
+  color: var(--cat-muted);
+}
+.mn-list {
+  max-height: calc(52px * 6);
+  overflow-y: auto;
+}
+.mn-access .mn-acc {
+  padding: 7px 8px;
+  border-radius: 8px;
+  gap: 8px;
+}
+.mn-access .mn-acc b {
+  font-size: 13px;
+  font-weight: 550;
+  display: flex;
+  align-items: center;
+}
+.mn-access .mn-acc small {
+  /* 说明最多两行自然换行，不截断（设计 v0.1.1） */
+  white-space: normal;
+  overflow: visible;
+  word-break: break-word;
+}
+.mn-access .mn-acc.on {
+  background: transparent;
+}
+.mn-access .mn-acc.on b {
+  color: var(--cat-text);
+}
+.mn-access .mn-acc:hover {
+  background: var(--cat-hover);
+}
+.mn-access .mn-acc .ok {
+  color: var(--cat-accent);
+}
+.mn-access .mn-acc.danger b {
+  color: var(--cat-orange);
+}
+.mn-access .mn-acc.danger.on {
+  background: var(--cat-hover);
+}
+.def {
+  margin-left: 6px;
+  font-style: normal;
+  font-weight: 400;
+  font-size: 11.5px;
+  color: var(--cat-muted);
+}
+.chip-access .tri {
+  width: 13px;
+  height: 13px;
+}
+.chip-access .caret.up {
+  transform: rotate(180deg);
+  opacity: 0.7;
+}
+.mn-confirm {
+  width: 280px;
+}
+.mn-confirm b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+.mn-confirm b .tri {
+  width: 14px;
+  height: 14px;
+  color: var(--cat-orange);
+}
+.mn-confirm p {
+  color: var(--cat-text-2);
+}
+.mn-confirm button {
+  height: 30px;
+}
+.mn-pop {
+  width: 240px;
+  border-radius: 12px;
+}
+.mn-op .ck {
+  color: var(--cat-accent);
+}
+.mn-op.flash .nm {
+  background: color-mix(in srgb, var(--cat-accent) 14%, transparent);
+  color: var(--cat-accent);
+  border-radius: 4px;
+  transition: background 0.3s;
 }
 </style>
