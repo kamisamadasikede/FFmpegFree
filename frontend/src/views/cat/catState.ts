@@ -82,7 +82,7 @@ import { applyStreamEvent, newStreamMsg, type CatStreamEvent, type CatStreamMsg,
 import { liveTurnPlan, transcriptChanged } from './catLive'
 import { AppError, toAppError } from '@/api/call'
 import { CAT_CLI_OUTDATED_COPY, parseCliOutdated } from '@/components/cat/catCliOutdated'
-import { catPanels, showTurnFinishToast, defaultConvPref } from './catPanels'
+import { catPanels, showTurnFinishToast, defaultConvPref, dismissFailToast } from './catPanels'
 import { rememberNewConvProject, resolveNewConvProject } from './catLocalPrefs'
 import { catSim, catSimOs, catSimPicks, simAgentRaw, simStream } from './catDevSim'
 import { DEFAULT_MODEL_LABEL, followsCliModel, FALLBACK_MODES, resolveModeId, mapAgentModes, mapBackendCaps, mapModelEfforts, getCatAgentCapabilities, modeMeta, pickSupported, setBackendCaps, useCatAgentCapabilities } from './catCapabilities'
@@ -256,6 +256,8 @@ export const catState = reactive({
   thinks: [] as CatThinkLevel[],
   /** B1：正在读这条对话的记录（第一次打开、本地还没有内容时） */
   histLoading: {} as Record<string, boolean>,
+  /** 记录读过了（读到空 / 没找到也算），用来区分「还在读」和「真的没有记录」 */
+  histLoaded: {} as Record<string, boolean>,
 })
 
 export const modelName = computed(() => {
@@ -376,8 +378,19 @@ async function loadMessages(id: string, quiet = false, force = false) {
   loading.add(id)
   if (!quiet && !catState.messages[id]?.length) catState.histLoading[id] = true
   try {
+    if (import.meta.env.DEV && catSim.has('histempty')) {
+      // 走查：记录没找到（零轮）
+      catState.messages[id] = []
+      catState.histLoaded[id] = true
+      return
+    }
     const d = await getCatConversation(id)
-    if (!d || !findConv(id)) return
+    if (!d) {
+      if (findConv(id) && !catState.messages[id]?.length) catState.histLoaded[id] = true
+      return
+    }
+    if (!findConv(id)) return
+    catState.histLoaded[id] = true
     // 等待期间本页又自己发出了一轮：不要用文件里的旧记录盖住正在流的内容。
     const now = catState.turns[id]
     if (!force && now && !now.adopted) return
@@ -1154,7 +1167,8 @@ export async function retryLastMessage(): Promise<void> {
     await sendMessage(b.text, (b.files ?? []).map((f) => ({ name: f.name, path: f.path })) as CatOutgoingFile[])
     return
   }
-  // 原地：去掉用户气泡之后的失败输出，用同一个气泡接新一轮
+  // 原地：去掉用户气泡之后的失败输出，用同一个气泡接新一轮；失败提示一并收起
+  dismissFailToast(id)
   list.splice(lastUser + 1)
   lastFailedTurn.delete(id)
   delete catState.outcome[id]
@@ -1436,7 +1450,7 @@ export function selectConv(id: string) {
   if (id === NEW_CONV) catState.newProjectId = ''
   delete catState.unseen[id]
   // 点开对话就向后端要这段记录。服务商和对话 id 在侧栏，正文不在本地库。
-  if (id !== NEW_CONV && live) void loadMessages(id)
+  if (id !== NEW_CONV && (live || (import.meta.env.DEV && catSim.has('histempty')))) void loadMessages(id)
 }
 
 /**

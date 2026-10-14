@@ -155,6 +155,7 @@
                 <div v-if="histLoading && !messages.length" class="sk-msgs conv" role="status" aria-label="正在加载对话" data-testid="cat-msg-skeleton">
                   <i class="sk w50 r" /><i class="sk w90" /><i class="sk w80" /><i class="sk w60" /><i class="sk w40 r" /><i class="sk w90" /><i class="sk w70" />
                 </div>
+ <div v-if="historyEmpty" class="ct-hist-empty" data-testid="cat-history-empty">{{ CAT_HISTORY_EMPTY }}</div>
                 <CatMessages :blocks="messages" :pending="thinking" @retry="retryLastMessage" />
                 <CatOfficeDownloadCard v-if="officeCanvas.slidesNeeded && !isNew" />
               </div>
@@ -236,6 +237,7 @@
 </template>
 
 <script setup lang="ts">
+import { CAT_HISTORY_EMPTY } from '@/views/cat/catCopy'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import FIcon from '@/components/icon/FIcon.vue'
@@ -289,6 +291,10 @@ if (preview && q.get('cat_conv')) catState.sel = q.get('cat_conv') as string
 const notReadyText = computed(() => catState.status.error?.message || CAT_COPY.notReady)
 const isNew = computed(() => catState.sel === NEW_CONV)
 const histLoading = computed(() => !!catState.histLoading[catState.sel])
+/** 打开的对话一轮都没有（记录没找到）：居中灰字，输入框照常可用 */
+const historyEmpty = computed(
+  () => !isNew.value && !!catState.histLoaded[catState.sel] && !histLoading.value && !messagesOf(catState.sel).length && !catState.turns[catState.sel],
+)
 const current = computed(() => (isNew.value ? null : findConv(catState.sel)))
 const messages = computed(() => (isNew.value ? [] : messagesOf(catState.sel)))
 const composer = ref<InstanceType<typeof CatComposer>>()
@@ -1375,5 +1381,16 @@ html.dark .sk {
 .hd-ib:focus-visible {
   outline: none;
   box-shadow: var(--cat-focus);
+}
+.ct-hist-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  padding: 0 16px 80px;
+  color: var(--cat-muted);
+  font-size: 13px;
+  text-align: center;
 }
 </style>

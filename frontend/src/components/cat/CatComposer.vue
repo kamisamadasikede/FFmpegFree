@@ -360,6 +360,7 @@ function open(kind: Exclude<MenuKind, null>) {
     menuStyle.value = { right: Math.max(0, (ci?.right ?? 0) - (a?.right ?? 0)) + 'px', left: 'auto' }
   }
   menu.value = kind
+  void nextTick(fitMenu)
 }
 function confirmDanger() {
   ackDanger(currentProject.value?.path)
@@ -367,6 +368,41 @@ function confirmDanger() {
   confirmId.value = ''
   chooseAccess(id)
   close()
+}
+/**
+ * 弹层朝哪边开（设计复核 #260）：欢迎页（输入框居中）默认向下，对话页默认向上；
+ * 默认方向放不下就换到放得下的一边；两边都放不下就选空间大的一边，菜单内滚动。
+ * 可用高度写进 --mn-max，各菜单 max-height 跟它走。
+ */
+function clipRect(from: HTMLElement): { top: number; bottom: number } {
+  for (let p = from.parentElement; p; p = p.parentElement) {
+    const o = getComputedStyle(p)
+    if (/(hidden|auto|scroll|clip)/.test(o.overflowY + o.overflow)) {
+      const r = p.getBoundingClientRect()
+      return { top: Math.max(0, r.top), bottom: Math.min(window.innerHeight, r.bottom) }
+    }
+  }
+  return { top: 0, bottom: window.innerHeight }
+}
+function fitMenu() {
+  const el = root.value?.querySelector('.mn') as HTMLElement | null
+  const anchor = el?.offsetParent as HTMLElement | null
+  if (!el || !anchor || !menu.value) return
+  const a = anchor.getBoundingClientRect()
+  const c = clipRect(anchor)
+  const GAP = 8
+  const up = a.top - c.top - GAP * 2
+  const down = c.bottom - a.bottom - GAP * 2
+  const need = (el.firstElementChild as HTMLElement | null)?.scrollHeight ?? el.offsetHeight
+  const prefer: 'up' | 'down' = props.welcome ? 'down' : 'up'
+  const other = prefer === 'up' ? 'down' : 'up'
+  const room = { up, down }
+  const side = room[prefer] >= need ? prefer : room[other] >= need ? other : room.up >= room.down ? 'up' : 'down'
+  const max = Math.max(120, Math.floor(room[side])) + 'px'
+  menuStyle.value =
+    side === 'down'
+      ? { ...menuStyle.value, top: `calc(100% + ${GAP}px)`, bottom: 'auto', transformOrigin: 'left top', '--mn-max': max }
+      : { ...menuStyle.value, top: 'auto', bottom: `calc(100% + ${GAP}px)`, transformOrigin: 'left bottom', '--mn-max': max }
 }
 function close() {
   confirmId.value = ''
@@ -1360,7 +1396,8 @@ button {
   color: var(--cat-muted);
 }
 .mn-list {
-  max-height: calc(52px * 6);
+  /* 可用高度减去标题行与内边距；放不下就在列表内滚动 */
+  max-height: calc(var(--mn-max, 100vh) - 40px);
   overflow-y: auto;
 }
 .mn-access .mn-acc {
@@ -1435,6 +1472,8 @@ button {
 }
 .mn-pop {
   width: 240px;
+  max-height: var(--mn-max, 100vh);
+  overflow-y: auto;
   border-radius: 12px;
 }
 .mn-op .ck {
