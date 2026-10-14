@@ -1,6 +1,6 @@
 # FFmpegFree v2 接口契约（v0.43）
 
-v0.43 变更（**CLI 版本过旧 + 参数核对规则**，架构师 10-14；完整规则见 **6.19.17**；**无新错误码，2.1 仍是 39 个**；无迁移 / 事件 / 开关）：① 旧版 CLI 不认参数 → `CAT_REPLY_FAILED`，`detail` 带 `reason="cli_outdated"`、`cliVersion`、`raw`；行内文案「<CLI名> CLI 版本过旧，请升级后重试。」+ 灰字「当前版本 <cliVersion>」（空则隐藏）+「重试」+「查看详情」；无升级按钮；重试按当前版本重生成参数，版本缓存键 = 路径 + mtime。② 所有 CLI 参数须对照真实 `--help`（含子命令）或官方文档核对；每家维护「版本 → 参数」兼容表并注明来源。
+v0.43 变更（**CLI 版本过旧 + 参数核对规则**，架构师 10-14；完整规则见 **6.19.17**；**无新错误码，2.1 仍是 39 个**；无迁移 / 事件 / 开关）：① 旧版 CLI 不认参数 → `CAT_REPLY_FAILED`，`detail` 4 行 `reason=cli_outdated` / `agentKind` / `cliVersion` / `raw`（raw 换行为字面 `\n`，展开时还原）；行内文案「<CLI名> CLI 版本过旧，请升级后重试。」+ 灰字「当前版本 <cliVersion>」（空则隐藏）+「重试」+「查看详情」；无升级按钮；重试按当前版本重生成参数，版本缓存键 = 路径 + mtime + 大小。② 所有 CLI 参数须对照真实 `--help`（含子命令）或官方文档核对；每家维护「版本 → 参数」兼容表并注明来源。
 
 v0.42 变更（**办公画布组件：PPT 实时预览 + 导出**，缺口对照 v0.1 P0-3 路线 A + 产品口径锁 v0.42，架构师 10-14；完整规则见 **6.19.16**；**无新错误码，2.1 仍是 39 个**——复用既有 `LANG_DOWNLOAD_FAILED` / `LANG_CHECKSUM_FAILED` 或文档组件同类码的模式时，若实现选择新码须另开契约修订；**本期契约约定复用下载失败/校验失败的既有码族或 `INTERNAL`+中文 message，不扩 2.1**；新事件 `office:canvas` / `office:canvas-progress`；无迁移；无新开关）：① **可下载「办公画布组件」**（对齐文档组件 / 语音识别组件状态机：checking/ready/missing/downloading/preparing/failed）。主安装包**只含**薄 UI + 下载态机 + 编排，**不**捆绑 OnlyOffice / LibreOffice 作为实时画布。② **Cat 对话**出现演示文稿工具卡 → 无组件时出下载卡（文案产品锁定）→ 有组件后右侧/弹层**逐页实时预览**（≥1 页即刷；验收 ≥3 页）→ **导出 PPTX**。③ **路线 A**：声明式 IR（JSON 幻灯片树）+ Web 预览壳 + 组件内 PptxGenJS/等价导出；适配器协议草图见 6.19.16.4。④ **降级**：无组件**不**静默失败、**不**用 LibreOffice PDF 冒充实时画布。⑤ **另立**：OnlyOffice 重型组件；通用 HTML artifact（可后续同专节扩）。⑥ **不做**：把办公画布打进主包；改 v0.40/v0.41 已交付项。
 
@@ -5335,10 +5335,11 @@ type ExportOfficeCanvasPptxResult struct {
 #### 6.19.17.1 版本过旧失败（grok / claude / codex 通用）
 
 1. CLI 因版本过旧不认我们传的参数（如 unexpected argument / invalid choice）时，该轮 `cat:turn` → `failed`，**复用既有错误码 `CAT_REPLY_FAILED`，不加新码（2.1 仍是 39 个）**。
-2. `detail` 字段（字段名锁定）：
-   - `reason="cli_outdated"`
-   - `cliVersion`：检测到的版本字符串（检测不到为空串 `""`）
-   - `raw`：CLI 原始 stderr
+2. `detail` 格式（字段名、顺序锁定，与 PR #251 实现一致）：用换行分隔的 4 行 `key=value`，顺序固定：
+   - `reason=cli_outdated`
+   - `agentKind=<claude_cli|codex_cli|cat_build>`（沿用既有 agentKind 取值：Claude / Codex / Grok(cat_build)，前端据此取 CLI 名）
+   - `cliVersion=<x.y.z>`：检测到的版本（检测不到为空）
+   - `raw=<CLI 原始 stderr>`：最长 2000 字符；**其中换行转成字面 `\n`，前端展开「查看详情」时须还原为真实换行**；低于最低版本、未起进程时为空
 3. 文案：主文「`<CLI名>` CLI 版本过旧，请升级后重试。」（CLI名 = `Grok` / `Claude` / `Codex`）。
 4. 渲染：与现有行内错误同样式，出现在该条消息下方；主文下一行灰色小号「当前版本 `<cliVersion>`」，**`cliVersion` 为空时隐藏这一行**（主文照常显示）；次按钮「重试」；`raw` 收进「查看详情」折叠，默认不展开。**不提供升级按钮。**
 5. 重试：可重试。重发同一条消息，但参数**按当前检测到的版本重新生成**。版本缓存键 = 可执行文件路径 + mtime，用户升级 CLI 后点重试即重新检测，**无需重启应用**。
@@ -5349,14 +5350,21 @@ type ExportOfficeCanvasPptxResult struct {
 2. 实现 PR 须附参数对照表，单测用 help 快照做白名单断言。
 3. 每家维护「版本 → 参数」兼容表，每行必须写来源（help 快照 / changelog 链接）。
 
-#### 6.19.17.3 版本 → 参数兼容表（骨架）
+#### 6.19.17.3 版本 → 参数兼容表（PR #251 落地，每行有依据）
 
-| CLI | 版本 | 参数 | 取值 / 映射 | 来源 | 状态 |
-|---|---|---|---|---|---|
-| claude | 2.1.296 | `--permission-mode` | acceptEdits / auto / bypassPermissions / manual / dontAsk / plan；普通 → `manual` | 真机 `claude --help`（10-14） | 已确认（help） |
-| claude | 更旧版本（分界版本待定） | `--permission-mode` | 普通 → `default` | 待后端引 changelog | GUESS |
-| codex | codex-cli 0.162.1 | `exec` / `exec resume` | **不认** `--ask-for-approval` / `-a`；映射同 PR #249 / A5-codex：全部批准 → `--dangerously-bypass-approvals-and-sandbox`；自动审查 → exec `--sandbox workspace-write -c approval_policy="never"`，resume `-c sandbox_mode="workspace-write" -c approval_policy="never"`；普通 / Plan → 同上 `read-only`；resume 不认 `--sandbox` / `-C` | 真机 `codex exec --help` / `codex exec resume --help`（10-14） | 已确认（help） |
-| grok | 待填 | 待填 | 待填 | 待后端对 `grok --help` | GUESS |
+真机 `--help` 确认版本：codex-cli 0.162.1、Claude Code 2.1.296、grok 1.0.40（help 快照入库，单测白名单断言）。
+
+| CLI | 版本 | 参数 / 行为 | 依据 |
+|---|---|---|---|
+| Claude | < 1.0.109 | 判定过旧，不起进程（每轮都传 `--include-partial-messages`） | [CHANGELOG 1.0.109](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md)：「Added partial message streaming support via `--include-partial-messages` CLI flag」 |
+| Claude | 1.0.109 – 2.1.199 | 普通模式 `--permission-mode default` | CHANGELOG 2.1.200（2.1.200 之前只有 default） |
+| Claude | ≥ 2.1.200 或版本未知 | 普通模式 `--permission-mode manual` | CHANGELOG 2.1.200：default 改名 Manual，`manual` 与 `default` 并存；2.1.296 真机 help 可选值只有 manual |
+| Claude | 全部 | plan / auto / bypassPermissions 不按版本分支 | 2.1.296 真机 help；changelog 无可引用边界 |
+| Codex | 全部 | 不分版本，按 0.162.1 真机 help：`exec` / `exec resume` 不传 `--ask-for-approval` / `-a`；映射见 PR #249 / A5-codex | 无可引用的 changelog 参数边界，不猜 |
+| Grok | 全部 | 不分版本，按 1.0.40 真机 help；**去掉 help 中不存在的 `--no-auto-update`**（自动更新仍由环境变量关闭，行为不变） | 无公开 changelog |
+| 三家 | 任何版本 | 非零退出且 stderr 匹配 `unexpected argument` / `unknown option` / `unrecognized option` / `unknown argument` / `invalid value` / `error: option '…' argument` → 按 CLI 过旧报错 | 兜底；包 45 Codex 真实报错即此类 |
+
+版本探测：每个二进制按 路径 + mtime + 大小 缓存，只跑一次 `--version`（grok 用 `-v`）；换了二进制重新探测。
 
 **v0.43 补充验收**：旧版 CLI 出「版本过旧」行内错误 + 灰字版本号（无版本时隐藏）+ 重试；升级后点重试不重启即成功。
 
