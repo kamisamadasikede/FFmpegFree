@@ -76,13 +76,13 @@
           </div>
         </div>
         <div v-else-if="row.block.kind === 'sys' && row.block.tone === 'err' && retryAt(row.key)" class="ct-sys err" role="status">
-          <div>{{ row.block.text }}</div>
+          <div>{{ errText(row.key, row.block.text) }}</div>
           <div class="ct-od-acts">
             <button v-if="retryAt(row.key) === 'can'" type="button" class="ct-od-btn" :disabled="pending" data-testid="cat-retry" @click="emit('retry')">{{ CAT_CLI_OUTDATED_COPY.retry }}</button>
             <span v-else class="ct-retry-gone" data-testid="cat-retry-gone">{{ CAT_RETRY_GONE_TEXT }}</span>
           </div>
         </div>
-        <div v-else-if="row.block.kind === 'sys'" class="ct-sys" :class="{ err: row.block.tone === 'err' }" role="status">{{ row.block.text }}</div>
+        <div v-else-if="row.block.kind === 'sys'" class="ct-sys" :class="{ err: row.block.tone === 'err' }" role="status">{{ row.block.tone === 'err' ? errText(row.key, row.block.text) : row.block.text }}</div>
       </template>
       <div v-else class="ct-act" :class="row.fold.tone" :aria-busy="row.fold.streaming || undefined">
         <button
@@ -134,7 +134,8 @@ import { diffLineKind, foldBodyMono, foldIcon, presentCatBlocks, type CatFold } 
 import { formatCatMessageFooter } from './catMessageFooter'
 import { canPreview, showsThumb, userDisplayText, type CatShownFile } from './catMedia'
 import { CAT_CLI_OUTDATED_COPY } from './catCliOutdated'
-import { CAT_RETRY_GONE_TEXT } from '@/api/catV0445'
+import { CAT_REPLY_FAILED_FINAL, CAT_RETRY_GONE_TEXT } from '@/api/catV0445'
+import { CAT_COPY } from '@/api/cat'
 import { hasWailsBackend } from '@/services/wails'
 import { ClipboardSetText } from '../../../wailsjs/runtime/runtime'
 
@@ -184,6 +185,10 @@ const lastErrKey = computed(() => {
   const last = rows.value[rows.value.length - 1]
   return last?.kind === 'block' && last.block.kind === 'sys' && last.block.tone === 'err' ? last.key : ''
 })
+/** 不能重试时去掉「请重试」：通用失败文案换成「回复没生成出来。」（可重试时保持原文） */
+function errText(key: string, text: string): string {
+  return text === CAT_COPY.replyFailed && retryAt(key) !== 'can' ? CAT_REPLY_FAILED_FINAL : text
+}
 function retryAt(key: string): 'can' | 'gone' | undefined {
   return key && key === lastErrKey.value ? props.retry : undefined
 }

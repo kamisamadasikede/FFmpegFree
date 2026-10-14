@@ -1,11 +1,17 @@
 // Cat 设置 / 定时任务（契约 v0.35.1~v0.35.4）：纯函数自检
 import { fixThinkName } from '@/api/cat'
+import { readRetryable, readRetryableTurn } from '@/api/catV0445'
 import { normalizeSettings, settingsPayload, normalizeCapabilities, normalizeInspect, skillsPathLabel, DEFAULT_PROVIDER_CAPABILITIES } from '@/api/catSettings'
 import { needsApproveConfirm, normalizeRun, notifyTitle, queueLine, runView, validateSchedule } from '@/api/catSchedules'
 
 type Eq = (name: string, got: unknown, want: unknown) => void
 
 export function catPanelsChecks(eq: Eq) {
+  eq('重试：缺 lastTurn 不可重试', readRetryableTurn({}), '')
+  eq('重试：lastTurn failed+retryable', readRetryableTurn({ lastTurn: { turnId: 't9', status: 'failed', retryable: true } }), 't9')
+  eq('重试：lastTurn retryable=false', readRetryableTurn({ lastTurn: { turnId: 't9', status: 'failed', retryable: false } }), '')
+  eq('重试：turns[] 不再支持', readRetryableTurn({ turns: [{ turnId: 't9', status: 'failed', retryable: true }] }), '')
+  eq('重试：失败事件 retryable', readRetryable({ status: 'failed', retryable: true }), true)
   eq('设置：notifyOnFinish 没给视为开', normalizeSettings({}).notifyOnFinish, true)
   eq('设置：notifyOnFinish=false 保留', normalizeSettings({ notifyOnFinish: false }).notifyOnFinish, false)
   eq('设置：旧单值填给三家（用时按旧值列映射）', normalizeSettings({ defaultApprovalMode: 'approve' }).defaultModeByAgent.codex_cli, 'approve')

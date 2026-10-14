@@ -11,8 +11,7 @@ export const V0445_FIELDS = {
   legacyApprovalMode: 'defaultApprovalMode',
   /** turn / 失败事件上的 retryable */
   retryable: 'retryable',
-  /** GetCatConversation 里的 turn 列表（后端实际形状待定：turns[] 或 lastTurn） */
-  turns: 'turns',
+  /** GetCatConversation：CatConversationDetail.lastTurn?: { turnId, status, retryable }（架构师 10-14 定） */
   lastTurn: 'lastTurn',
   turnId: 'turnId',
   turnStatus: 'status',
@@ -20,6 +19,8 @@ export const V0445_FIELDS = {
 
 /** 6.19.18.7 第 6 条定稿文案 */
 export const CAT_RETRY_GONE_TEXT = '这条回复已无法重试，请重新发送。'
+/** 不能重试时的失败行（产品 10-14）；可重试时仍用 CAT_COPY.replyFailed「回复没生成出来，请重试。」 */
+export const CAT_REPLY_FAILED_FINAL = '回复没生成出来。'
 /** 设置页选 danger 时常驻的橙色小字（产品 10-14 定稿） */
 export const CAT_DEFAULT_DANGER_NOTE = '新对话默认全部放开，Cat 助手将不经检查执行命令和修改文件。'
 
@@ -53,14 +54,12 @@ export function readModeByAgent(raw: unknown): { byAgent: CatModeByAgent; legacy
 /** 一个 turn（或失败事件载荷）上的 retryable；缺字段 = false（应用重启后同样为 false） */
 export const readRetryable = (raw: unknown): boolean => obj(raw)[V0445_FIELDS.retryable] === true
 
-/** GetCatConversation：最后一轮若 status=failed 且 retryable=true → 返回其 turnId，否则 '' */
+/** GetCatConversation：lastTurn.status=failed 且 retryable=true → 返回其 turnId；缺 lastTurn → ''（不可重试） */
 export function readRetryableTurn(rawDetail: unknown): string {
-  const r = obj(rawDetail)
   const F = V0445_FIELDS
-  const list = Array.isArray(r[F.turns]) ? (r[F.turns] as unknown[]) : []
-  const last = obj(list.length ? list[list.length - 1] : r[F.lastTurn])
+  const last = obj(obj(rawDetail)[F.lastTurn])
   if (str(last[F.turnStatus]) !== 'failed' || !readRetryable(last)) return ''
-  return str(last[F.turnId]) || str(last.id)
+  return str(last[F.turnId])
 }
 
 /** RetryCatTurn 报 INVALID_ARGUMENT reason=retry_not_allowed */
