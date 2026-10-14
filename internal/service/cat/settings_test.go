@@ -38,7 +38,7 @@ func TestCatSettingsRoundTripAndValidation(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 	for _, bad := range []cat.Settings{
-		{DefaultsByAgent: map[string]cat.AgentDefaults{catagent.KindCatBuild: {Effort: "max"}}},
+		{DefaultsByAgent: map[string]cat.AgentDefaults{catagent.KindCatBuild: {Effort: "MAX!"}}}, // v0.44：模型为空只校验格式
 		{DefaultApprovalMode: "yolo"},
 		{CustomInstruction: strings.Repeat("字", 4001)},
 		{DefaultAgentKind: "cat_cli"},

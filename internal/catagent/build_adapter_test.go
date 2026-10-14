@@ -166,7 +166,7 @@ func TestRunTurn_PassesArgsWithoutToolLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(raw)
-	for _, want := range []string{"--prompt-file", "--output-format", "streaming-json", "--cwd", proj, "--session-id", "-m", "grok-build", "--always-approve"} {
+	for _, want := range []string{"--prompt-file", "--output-format", "streaming-json", "--cwd", proj, "--session-id", "-m", "grok-build", "--permission-mode", "default"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("missing %q in:\n%s", want, s)
 		}
@@ -324,11 +324,15 @@ func TestPermissionCLIArgs(t *testing.T) {
 		want string
 		ban  string
 	}{
-		{"", "--always-approve", "--permission-mode"},
+		// v0.44：空 / 不认识 → 默认（最保守）模式；旧 plan → default（Grok plan 不下发）。
+		{"", "--permission-mode\x00default", "--always-approve"},
+		{"bogus", "--permission-mode\x00default", "--always-approve"},
+		{"acceptEdits", "--permission-mode\x00acceptEdits", "--always-approve"},
+		{"bypassPermissions", "--always-approve", "--permission-mode"},
 		{"approve", "--always-approve", "--permission-mode"},
 		{"always-approve", "--always-approve", "--permission-mode"},
 		{"full", "--always-approve", "--permission-mode"},
-		{"plan", "--permission-mode\x00plan", "--always-approve"},
+		{"plan", "--permission-mode\x00default", "--always-approve"},
 		{"auto", "--permission-mode\x00auto", "--always-approve"},
 		{"auto-review", "--permission-mode\x00auto", "--always-approve"},
 		{"normal", "--permission-mode\x00default", "--always-approve"},
