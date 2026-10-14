@@ -10,7 +10,7 @@ export const CAT_BRANCH_COPY = {
   noUpstream: '没有远程分支',
   upstreamTitle: '远程分支（上游）',
   localTitle: '本地分支，点击切换',
-  detached: '分离 HEAD',
+  detached: '未在分支上',
   remoteSection: '远程分支',
   openFolder: '在文件管理器中打开',
   dirty: '有未提交的改动，请先提交或暂存，再切换分支。',
