@@ -254,9 +254,9 @@ export const catState = reactive({
           error: null,
           agents: catSim.has('allagents')
             ? ([
-                { agentKind: 'cat_build', ready: true, version: '1.0', loggedIn: true },
-                { agentKind: 'claude_cli', ready: true, version: '1.0', loggedIn: true },
-                { agentKind: 'codex_cli', ready: true, version: '1.0', loggedIn: true },
+                { agentKind: 'cat_build', ready: true, version: '1.0' },
+                { agentKind: 'claude_cli', ready: true, version: '1.0' },
+                { agentKind: 'codex_cli', ready: true, version: '1.0' },
               ] as CatStatus['agents'])
             : [],
         }
@@ -1249,12 +1249,11 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
       return catState.sel === id ? { text, files: picked } : undefined
     }
     if (err.code === 'CAT_NOT_READY') {
-      const auth = (err.detail || '').includes('reason=auth') || err.message === CAT_COPY.authInvalid
       catState.status = {
         state: 'failed',
         version: catState.status.version,
         canDownload: false,
-        error: { code: 'CAT_NOT_READY', message: auth ? CAT_COPY.authInvalid : err.message || CAT_COPY.notReady },
+        error: { code: 'CAT_NOT_READY', message: err.message || CAT_COPY.notReady },
         agents: catState.status.agents ?? [],
       }
       endTurn(id, 'not_ready', token)

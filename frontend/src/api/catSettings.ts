@@ -199,10 +199,6 @@ export const CAT_SETTINGS_COPY = {
   missing: '未检测到',
   checking: '检查中…',
   version: '版本',
-  login: '登录',
-  loggedIn: '已登录',
-  loginBad: '登录失效',
-  loginNa: '不适用',
   noneReady: '未检测到可用的助手，请先安装并确保可在终端直接运行。',
   lastCheck: '上次检测',
   recheck: '重新检测',
@@ -229,10 +225,6 @@ export const CAT_SETTINGS_COPY = {
   clearKeyBody: '清除后这台电脑上不再保存该 Key，对话将改用 CLI 默认登录。',
   clearKeyOk: '清除',
 } as const
-
-export function loginBanner(name: string) {
-  return `${name}登录失效，请重新登录后再试。`
-}
 
 const live = () => CAT_SETTINGS_BACKEND_READY && hasWailsBackend()
 const sim = (f: Parameters<typeof catSim.has>[0]) => import.meta.env.DEV && catSim.has(f)
