@@ -134,7 +134,7 @@ type turnState struct {
 	// v0.37.1 消息尾
 	startedAt    int64 // 发 running / 启 turn 的墙钟（Unix 毫秒）
 	tokenTotal   int64 // CLI 上报合计；0 = 无 usage
-	durationMs   int64 // CLI 上报生成耗时；0 = 用墙钟
+	outputTokens int64 // v0.47：CLI 上报输出 token；0 = 无
 	finishedAt   int64
 	tokensPerSec *float64
 	firstTokenAt int64 // v0.45：第一个正文 / 思考增量的墙钟；0 = 还没有
@@ -1036,15 +1036,15 @@ func (s *Service) finishLocked(t *turnState, status string) bool {
 	return true
 }
 
-// noteTurnUsage 记下适配器上报的合计 token / 生成耗时（契约 v0.37.1）。
+// noteTurnUsage 记下适配器上报的合计 / 输出 token（契约 v0.37.1、v0.47）。
 func (s *Service) noteTurnUsage(t *turnState, resp catagent.TurnResponse) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if resp.TokenTotal > 0 {
 		t.tokenTotal = resp.TokenTotal
 	}
-	if resp.DurationMs > 0 {
-		t.durationMs = resp.DurationMs
+	if resp.OutputTokens > 0 {
+		t.outputTokens = resp.OutputTokens
 	}
 }
 
@@ -1052,11 +1052,7 @@ func (s *Service) fillFooterLocked(t *turnState) {
 	if t.finishedAt <= 0 {
 		t.finishedAt = time.Now().UnixMilli()
 	}
-	dur := t.durationMs
-	if dur <= 0 && t.startedAt > 0 && t.finishedAt > t.startedAt {
-		dur = t.finishedAt - t.startedAt
-	}
-	t.tokensPerSec = computeTokensPerSec(t.tokenTotal, dur)
+	t.tokensPerSec = computeTokensPerSec(t.outputTokens, msPtr(t.startedAt, t.finishedAt), msPtr(t.startedAt, t.firstTokenAt))
 }
 
 func (s *Service) turnEventLocked(t *turnState, status string) catagent.TurnEvent {
@@ -1085,6 +1081,7 @@ func (s *Service) turnEventLocked(t *turnState, status string) catagent.TurnEven
 	ev.TotalMs = msPtr(t.startedAt, t.finishedAt)
 	ev.TokenTotal = int64Ptr(t.tokenTotal)
 	ev.TokensPerSec = t.tokensPerSec
+	ev.OutputTokens = int64Ptr(t.outputTokens)
 	return ev
 }
 
@@ -1100,6 +1097,7 @@ func (s *Service) persistFooterLocked(t *turnState) {
 	appendFooter(s.cfg.DataRoot, t.convID, messageFooter{
 		TurnID: t.turnID, MessageID: t.msgID, FinishedAt: t.finishedAt,
 		TokenTotal: int64Ptr(t.tokenTotal), TokensPerSec: t.tokensPerSec,
+		OutputTokens: int64Ptr(t.outputTokens),
 		FirstTokenMs: msPtr(t.startedAt, t.firstTokenAt), TotalMs: msPtr(t.startedAt, t.finishedAt),
 	})
 }
