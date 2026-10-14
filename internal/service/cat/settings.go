@@ -269,29 +269,59 @@ func (s *Service) SaveCatSettings(ctx context.Context, req Settings) (Settings, 
 	if !ValidDefaultAgentKind(req.DefaultAgentKind) {
 		return Settings{}, apperr.New(apperr.InvalidArgument, "助手模式设置不正确").WithDetail("reason=default_agent_kind")
 	}
+	// 只校验这次改动的项：库里已有、这次没改的默认值不再拦整次保存（否则一项旧值失效，
+	// 连开自定义服务商、填地址这类无关改动都会「保存失败」）。
+	prev, _ := s.GetCatSettings(ctx)
+	if len(req.DefaultsByAgent) > 0 {
+		cp := make(map[string]AgentDefaults, len(req.DefaultsByAgent))
+		for k, d := range req.DefaultsByAgent {
+			cp[k] = d
+		}
+		req.DefaultsByAgent = cp
+	}
 	for k, d := range req.DefaultsByAgent {
-		if !catagent.Phase1Creatable(strings.TrimSpace(k)) {
+		kind := strings.TrimSpace(k)
+		if !catagent.Phase1Creatable(kind) {
 			return Settings{}, apperr.New(apperr.InvalidArgument, "助手模式设置不正确").WithDetail("reason=defaults_by_agent_key")
 		}
-		// v0.46（6.19.20.2 ⑧）：该家自定义开时允许手填模型 id，按格式校验；effort 只接受 ""（服务商列表不带档位）。
-		if req.ProvidersByAgent[strings.TrimSpace(k)].EnabledCustom {
+		old := prev.DefaultsByAgent[kind]
+		unchanged := strings.TrimSpace(old.Model) == strings.TrimSpace(d.Model) && strings.TrimSpace(old.Effort) == strings.TrimSpace(d.Effort)
+		// v0.46（6.19.20.2 ⑧）：该家自定义开时允许手填模型 id，按格式校验；服务商列表不带档位。
+		// 新提交的档位仍拒绝；库里原有的旧档位（CLI 模式下选的）在打开开关时清空，不拦保存。
+		if req.ProvidersByAgent[kind].EnabledCustom {
 			m := strings.TrimSpace(d.Model)
-			if m != "" && m != "default" {
-				if !ValidCustomModelID(m) {
-					return Settings{}, apperr.New(apperr.InvalidArgument, "模型 ID 不正确").WithDetail("reason=model")
-				}
-				if strings.TrimSpace(d.Effort) != "" {
+			if strings.TrimSpace(d.Effort) != "" {
+				if strings.TrimSpace(d.Effort) != strings.TrimSpace(old.Effort) {
 					return Settings{}, apperr.New(apperr.InvalidArgument, "思考强度不对").WithDetail("reason=effort")
 				}
+				d.Effort = ""
+				req.DefaultsByAgent[k] = d
+			}
+			if m != "" && m != "default" && !ValidCustomModelID(m) {
+				return Settings{}, apperr.New(apperr.InvalidArgument, "模型 ID 不正确").WithDetail("reason=model")
 			}
 			continue
 		}
-		if !s.validEffortFor(ctx, strings.TrimSpace(k), d.Model, d.Effort) {
+		if unchanged {
+			continue
+		}
+		if !s.validEffortFor(ctx, kind, d.Model, d.Effort) {
 			return Settings{}, apperr.New(apperr.InvalidArgument, "思考强度不对").WithDetail("reason=effort")
 		}
 	}
 	if err := validateProvidersByAgent(req.ProvidersByAgent); err != nil {
 		return Settings{}, err
+	}
+	// 打开自定义必须有地址；只拦这次改动的那家（库里原样未改的不拦整次保存）。
+	for k, p := range req.ProvidersByAgent {
+		if !p.EnabledCustom || strings.TrimSpace(p.ApiUrl) != "" {
+			continue
+		}
+		o := prev.ProvidersByAgent[strings.TrimSpace(k)]
+		if o.EnabledCustom && strings.TrimSpace(o.ApiUrl) == "" {
+			continue
+		}
+		return Settings{}, apperr.New(apperr.InvalidArgument, "请先填写 API 地址，再打开自定义。").WithDetail("reason=api_url")
 	}
 	v := req.normalized()
 	// 落库前清掉只读 / 误传字段；apiKeySet 以密钥存储为准，不写入 cat.settings。
@@ -300,13 +330,20 @@ func (s *Service) SaveCatSettings(ctx context.Context, req Settings) (Settings, 
 		p.ApiKey = ""
 		v.ProvidersByAgent[k] = p
 	}
-	if err := validateDefaultModeByAgent(v.DefaultModeByAgent); err != nil {
+	// 没改动的项（库里原值）不拦保存，只校验这次改的。
+	modes := map[string]string{}
+	for k, m := range v.DefaultModeByAgent {
+		if prev.DefaultModeByAgent[k] == m && catagent.Phase1Creatable(k) {
+			continue
+		}
+		modes[k] = m
+	}
+	if err := validateDefaultModeByAgent(modes); err != nil {
 		return Settings{}, err
 	}
 	if utf8.RuneCountInString(v.CustomInstruction) > MaxCustomInstructionRunes {
 		return Settings{}, apperr.New(apperr.InvalidArgument, "最多 4000 字。").WithDetail("reason=too_long")
 	}
-	prev, _ := s.GetCatSettings(ctx)
 	if err := s.cfg.Store.SetSetting(ctx, SettingsKey, v); err != nil {
 		return Settings{}, apperr.Wrap(apperr.IOError, "保存失败，请重试。", err)
 	}

@@ -3,6 +3,7 @@ package cat_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -242,5 +243,44 @@ func TestClearAllConversationsKeepsProjectFolders(t *testing.T) {
 	projs, _ := svc.ListCatProjects(ctx)
 	if len(projs) != 1 {
 		t.Fatalf("projects %d", len(projs))
+	}
+}
+
+// 包 54 实报：库里有 Codex 的旧档位（CLI 模式下选的），打开自定义服务商时整次保存被拒，
+// 前端只弹「保存失败，请重试。」，地址也跟着回滚。
+func TestEnableCustomWithStaleEffortSaves(t *testing.T) {
+	ctx := context.Background()
+	svc, _ := newProjSvc(t, openStore(t), nil, cat.Config{})
+	base := cat.Settings{
+		DefaultsByAgent:  map[string]cat.AgentDefaults{catagent.KindCodexCLI: {Model: "gpt-5.5", Effort: "high"}},
+		ProvidersByAgent: map[string]cat.ProviderSettings{catagent.KindCodexCLI: {ApiUrl: "https://relay.example.com/v1"}},
+	}
+	if _, err := svc.SaveCatSettings(ctx, base); err != nil {
+		t.Fatal(err)
+	}
+	base.ProvidersByAgent = map[string]cat.ProviderSettings{catagent.KindCodexCLI: {EnabledCustom: true, ApiUrl: "https://relay.example.com/v1"}}
+	got, err := svc.SaveCatSettings(ctx, base)
+	if err != nil {
+		t.Fatalf("enable custom rejected: %v", err)
+	}
+	p := got.ProvidersByAgent[catagent.KindCodexCLI]
+	if !p.EnabledCustom || p.ApiUrl != "https://relay.example.com/v1" || got.DefaultsByAgent[catagent.KindCodexCLI].Effort != "" {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestEnableCustomWithoutApiUrlRejected(t *testing.T) {
+	ctx := context.Background()
+	svc, _ := newProjSvc(t, openStore(t), nil, cat.Config{})
+	for _, u := range []string{"", "   "} {
+		_, err := svc.SaveCatSettings(ctx, cat.Settings{ProvidersByAgent: map[string]cat.ProviderSettings{catagent.KindCodexCLI: {EnabledCustom: true, ApiUrl: u}}})
+		var ae *apperr.AppError
+		if !errors.As(err, &ae) || ae.Code != apperr.InvalidArgument || ae.Message != "请先填写 API 地址，再打开自定义。" || !strings.Contains(ae.Detail, "reason=api_url") {
+			t.Fatalf("url %q: %v", u, err)
+		}
+	}
+	got, err := svc.GetCatSettings(ctx)
+	if err != nil || got.ProvidersByAgent[catagent.KindCodexCLI].EnabledCustom {
+		t.Fatalf("should not persist: %+v %v", got, err)
 	}
 }

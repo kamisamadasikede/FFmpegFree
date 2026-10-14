@@ -77,6 +77,7 @@
                       ><i /></button>
                     </div>
                   </div>
+                  <div v-if="provErr[block.kind]?.field === 'enabledCustom'" class="prov-err" role="alert" :data-testid="'cat-set-custom-err-' + block.kind">{{ provErr[block.kind]?.msg }}</div>
                   <div
                     v-if="customKnownIssue(block.kind, providerOf(block.kind).enabledCustom)"
                     class="pm-known"
@@ -102,21 +103,25 @@
                       <span v-else class="ro locked" :data-testid="'cat-set-custom-protocol-' + block.kind">{{ protocolLabel(effectiveProtocol(block.kind)) }}</span>
                     </div>
                   </div>
+                  <div v-if="provErr[block.kind]?.field === 'protocol'" class="prov-err" role="alert">{{ provErr[block.kind]?.msg }}</div>
                   <div class="row">
                     <div class="lab"><b>{{ C.apiUrl }}</b></div>
                     <div class="ctl">
                       <SavedMark :on="!!savedAgent[block.kind + ':apiUrl']" />
                       <input
                         class="inp url"
+                        :class="{ 'prov-bad': provErr[block.kind]?.field === 'apiUrl' }"
                         type="url"
                         :value="providerOf(block.kind).apiUrl"
                         :placeholder="protocolUrlPlaceholder(effectiveProtocol(block.kind))"
                         :aria-label="C.apiUrl"
                         :data-testid="'cat-set-custom-url-' + block.kind"
+                        @input="clearProvErr(block.kind, 'apiUrl')"
                         @change="setProviderField(block.kind, 'apiUrl', ($event.target as HTMLInputElement).value.trim())"
                       />
                     </div>
                   </div>
+                  <div v-if="provErr[block.kind]?.field === 'apiUrl'" class="prov-err" role="alert" :data-testid="'cat-set-custom-url-err-' + block.kind">{{ provErr[block.kind]?.msg }}</div>
                   <div class="row">
                     <div class="lab"><b>{{ C.apiKey }}</b><span>{{ C.apiKeyDesc }}</span></div>
                     <div class="ctl key-ctl">
@@ -550,7 +555,7 @@ import {
   skillsPathLabel,
 } from '@/api/catSettings'
 import { getAppVersion } from '@/api/about'
-import { catPanels, saveSetting, type CatSettingsTab } from '@/views/cat/catPanels'
+import { catPanels, saveSetting, takeSaveError, type CatSettingsTab } from '@/views/cat/catPanels'
 import { catLocalPrefs, setNewConvPlace, setTypewriter } from '@/views/cat/catLocalPrefs'
 import { catState, afterClearAll, currentProject, notify, createProject, applyCatStatus, recheckCatAgents } from '@/views/cat/catState'
 import { CAT_DETECT_COPY, allDetectRowsChecking, detectRowView } from '@/api/catDetect'
@@ -601,7 +606,7 @@ function flashAgent(key: string) {
 async function set<K extends TopKey>(key: K, value: CatSettings[K]) {
   const ok = await saveSetting(key, value)
   if (ok) flash(key)
-  else notify(C.saveFailed, 'warn')
+  else notify(takeSaveError() || C.saveFailed, 'warn')
 }
 
 async function setAgent(kind: CatProviderKind, field: 'model' | 'effort', value: string) {
@@ -610,10 +615,15 @@ async function setAgent(kind: CatProviderKind, field: 'model' | 'effort', value:
   const next = { ...prev, [kind]: cur }
   const ok = await saveSetting('defaultsByAgent', next)
   if (ok) flashAgent(`${kind}:${field}`)
-  else notify(C.saveFailed, 'warn')
+  else notify(takeSaveError() || C.saveFailed, 'warn')
 }
 
 const customOpen = reactive<Record<string, boolean>>({})
+// 服务商区行内错误（字段下方红字，不弹提示条）；用户一改该字段就清掉
+const provErr = reactive<Record<string, { field: 'enabledCustom' | 'protocol' | 'apiUrl'; msg: string }>>({})
+function clearProvErr(kind: string, field: 'enabledCustom' | 'protocol' | 'apiUrl') {
+  if (provErr[kind]?.field === field) delete provErr[kind]
+}
 const keyDraft = reactive<Record<string, string>>({})
 const providerCaps = ref<CatProviderCapability[]>([])
 const clearKeyKind = ref<CatProviderKind | null>(null)
@@ -753,6 +763,13 @@ async function setProviderField(
 ) {
   const prev = { ...catPanels.settings.providersByAgent }
   const cur = { ...(prev[kind] ?? emptyProvider()) }
+  const before = { ...cur }
+  delete provErr[kind]
+  // 打开自定义前必须有地址：地址框下红字、框变红，开关保持关
+  if (field === 'enabledCustom' && value && !(cur.apiUrl || '').trim()) {
+    provErr[kind] = { field: 'apiUrl', msg: C.apiUrlRequired }
+    return
+  }
   if (field === 'enabledCustom') cur.enabledCustom = !!value
   else if (field === 'protocol') cur.protocol = (value === 'openai' || value === 'anthropic' ? value : '') as CatProviderProtocol | ''
   else cur.apiUrl = String(value || '')
@@ -760,7 +777,14 @@ async function setProviderField(
   const next = { ...prev, [kind]: cur }
   const ok = await saveSetting('providersByAgent', next)
   if (ok) flashAgent(`${kind}:${field === 'enabledCustom' ? 'custom' : field}`)
-  else notify(C.saveFailed, 'warn')
+  else {
+    // 不清掉用户填的地址：只把失败的开关退回原值，其余输入保留在表单里
+    const keep = { ...cur, enabledCustom: field === 'enabledCustom' ? before.enabledCustom : cur.enabledCustom }
+    catPanels.settings.providersByAgent = { ...catPanels.settings.providersByAgent, [kind]: keep }
+    const m = takeSaveError() || C.saveFailed
+    const errField = m === C.apiUrlRequired ? 'apiUrl' : field
+    provErr[kind] = { field: errField, msg: m }
+  }
   // v0.46：打开开关 / 改地址或协议后自动重拉（用户触发，可抢焦点）
   if (ok && cur.enabledCustom) void loadPm(kind, true, field === 'enabledCustom' ? 'toggle' : 'edit')
 }
@@ -775,7 +799,7 @@ async function saveKey(kind: CatProviderKind) {
     catPanels.settings.providersByAgent = { ...prev, [kind]: { ...(prev[kind] ?? emptyProvider()), ...view, apiKeySet: true } }
     if (customOn(kind)) void loadPm(kind, true, 'edit')
   } catch {
-    notify(C.saveFailed, 'warn')
+    notify(takeSaveError() || C.saveFailed, 'warn')
   }
 }
 
@@ -805,7 +829,7 @@ async function doClearKey() {
     if (customOn(kind)) void loadPm(kind, true, 'edit')
   } catch {
     clearKeyKind.value = null
-    notify(C.saveFailed, 'warn')
+    notify(takeSaveError() || C.saveFailed, 'warn')
   } finally {
     clearingKey.value = false
   }
@@ -893,7 +917,7 @@ async function setDefaultMode(kind: CatProviderKind, id: string) {
   for (const k of CAT_PROVIDER_ORDER) next[k] = k === kind ? id : (next[k] ? modeValue(k) : '')
   const ok = await saveSetting('defaultModeByAgent', next)
   if (ok) flashAgent(kind + ':mode')
-  else notify(C.saveFailed, 'warn')
+  else notify(takeSaveError() || C.saveFailed, 'warn')
 }
 
 const isDark = ref(typeof document !== 'undefined' && document.documentElement.classList.contains('dark'))
@@ -936,7 +960,7 @@ async function saveInstr() {
   if (ok) flash('customInstruction')
   else {
     draft.value = keep
-    notify(C.saveFailed, 'warn')
+    notify(takeSaveError() || C.saveFailed, 'warn')
   }
 }
 
@@ -1058,7 +1082,7 @@ async function toggleItem(g: ExtGroup, it: ExtGroup['items'][number]) {
   } catch {
     it.enabled = prev
     if (raw) raw.enabled = prev
-    notify(C.saveFailed, 'warn')
+    notify(takeSaveError() || C.saveFailed, 'warn')
   } finally {
     toggling[key] = false
   }
@@ -1077,7 +1101,7 @@ async function openSkillsDir() {
     }
     if (!r.skillsRootExists) skillsDirOpen.value = true
   } catch {
-    notify(C.saveFailed, 'warn')
+    notify(takeSaveError() || C.saveFailed, 'warn')
   } finally {
     openingDir.value = false
   }
@@ -1097,7 +1121,7 @@ async function doCreateSkillsDir() {
     skillsDirOpen.value = false
   } catch {
     skillsDirOpen.value = false
-    notify(C.saveFailed, 'warn')
+    notify(takeSaveError() || C.saveFailed, 'warn')
   } finally {
     creatingDir.value = false
   }
@@ -1656,6 +1680,15 @@ kbd {
   .sk span {
     animation: none;
   }
+}
+.prov-err {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ff-danger);
+}
+.inp.prov-bad {
+  border-color: var(--ff-danger) !important;
 }
 </style>
 

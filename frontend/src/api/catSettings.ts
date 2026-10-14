@@ -211,6 +211,7 @@ export const CAT_SETTINGS_COPY = {
   customFoldHintOff: 'Key 只保存在本机，不写回系统环境变量。',
   customFoldHintOn: 'Key 只保存在本机，不写回系统环境变量。',
   enableCustom: '启用自定义',
+  apiUrlRequired: '请先填写 API 地址，再打开自定义。',
   enableCustomDesc: '关闭后回落本机登录 / 环境变量',
   protocol: '协议',
   protocolLocked: '已锁定，按该助手默认',
