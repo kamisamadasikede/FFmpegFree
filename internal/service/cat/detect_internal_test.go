@@ -25,6 +25,7 @@ type fakeDetAdapter struct {
 	exe      string
 	ready    bool
 	rechecks atomic.Int32
+	timedOut atomic.Bool
 	runs     atomic.Int32
 }
 
@@ -71,6 +72,7 @@ func (f *fakeDetAdapter) CheckedAt() int64 {
 	defer f.mu.Unlock()
 	return f.at
 }
+func (f *fakeDetAdapter) DetectTimedOut() bool { return f.timedOut.Load() }
 func (f *fakeDetAdapter) Start()          { go f.detect() }
 func (f *fakeDetAdapter) Recheck() Status { f.rechecks.Add(1); f.detect(); return f.Status() }
 func (f *fakeDetAdapter) ListModels() ([]Model, error) {
@@ -361,4 +363,28 @@ func TestCheckingRowKeepsPreviousResult(t *testing.T) {
 		t.Fatalf("从未检测过应为空: %+v", e)
 	}
 	_ = svc
+}
+
+func TestDetectTimeoutRowStaleNotChecking(t *testing.T) {
+	_, rec, fakes := detSetup(t, nil, -1)
+	fakes[1].detect()
+	fakes[1].set(Status{State: catagent.StateChecking}, false)
+	fakes[1].timedOut.Store(true)
+	fakes[1].set(Status{State: catagent.StateChecking}, false)
+	all := rec.snap()
+	assertFull(t, all)
+	r := row(all[len(all)-1], catagent.KindClaudeCLI)
+	if r.Checking || !r.Stale || !r.Ready || r.Version != "1.0" || r.CheckedAt == nil {
+		t.Fatalf("超时行: %+v", r)
+	}
+	if o := row(all[len(all)-1], catagent.KindCatBuild); o.Stale {
+		t.Fatalf("其它行不受影响: %+v", o)
+	}
+	// 迟到结果：替换并清除 stale
+	fakes[1].timedOut.Store(false)
+	fakes[1].set(Status{State: catagent.StateMissing}, true)
+	all = rec.snap()
+	if r := row(all[len(all)-1], catagent.KindClaudeCLI); r.Stale || r.Checking || r.Ready {
+		t.Fatalf("迟到结果应替换: %+v", r)
+	}
 }

@@ -199,6 +199,17 @@ func (s *Service) agentRow(kind string, a catagent.Adapter, st Status) catagent.
 	if a == nil {
 		return row
 	}
+	if tr, ok := a.(interface{ DetectTimedOut() bool }); ok && tr.DetectTimedOut() {
+		// 单家检测超时 15s（6.19.21.5）：checking=false、stale=true，保留上次已知结果。
+		row.Checking, row.Stale, row.Detail = false, true, ""
+		row.Ready, row.Version, row.ExePath, row.CheckedAt = false, "", "", nil
+		if rec, ok := s.savedDetect(kind); ok {
+			row.Ready, row.Version, row.ExePath = rec.Ready, rec.Version, rec.ExePath
+			ts := rec.CheckedAt
+			row.CheckedAt = &ts
+		}
+		return row
+	}
 	if cr, ok := a.(checkedAtReporter); ok {
 		at := cr.CheckedAt()
 		if at <= 0 {

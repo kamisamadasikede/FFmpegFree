@@ -181,31 +181,28 @@ func TestAdapterUsesWinFallbackAndOnChange(t *testing.T) {
 	}
 }
 
-func TestDetectTimeoutMarksFailedAndDropsLateResult(t *testing.T) {
+func TestDetectTimeoutFlagsThenLateResultApplies(t *testing.T) {
 	old := DetectTimeout
 	DetectTimeout = 50 * time.Millisecond
 	t.Cleanup(func() { DetectTimeout = old })
 	release := make(chan struct{})
-	dir := t.TempDir()
-	exe := filepath.Join(dir, "codex")
-	_ = os.WriteFile(exe, []byte("x"), 0o755)
 	var changes atomic.Int32
 	a := NewCodexAdapter(CLIAgentConfig{
-		LookPath: func(string) (string, error) { <-release; return exe, nil },
+		LookPath: func(string) (string, error) { <-release; return "", os.ErrNotExist },
 		OnChange: func(string) { changes.Add(1) },
 	})
+	start := time.Now()
 	st := a.Recheck()
-	if st.State != StateFailed || st.Error == nil || !strings.Contains(st.Error.Detail, "detect_timeout") || a.CheckedAt() == 0 {
-		t.Fatalf("超时应为失败: %+v at=%d", st, a.CheckedAt())
+	if time.Since(start) > 2*time.Second || st.State != StateChecking || !a.DetectTimedOut() || a.CheckedAt() != 0 {
+		t.Fatalf("超时：state=%s timedOut=%v", st.State, a.DetectTimedOut())
 	}
 	n := changes.Load()
 	close(release)
-	time.Sleep(100 * time.Millisecond)
-	if a.Status().State != StateFailed || changes.Load() != n {
-		t.Fatalf("迟到结果不应生效: %s", a.Status().State)
+	deadline := time.Now().Add(2 * time.Second)
+	for a.Status().State == StateChecking && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
 	}
-	b := NewBuildAdapter(BuildConfig{LookPath: func(string) (string, error) { time.Sleep(time.Second); return "", os.ErrNotExist }, ComponentDir: dir})
-	if st := b.Recheck(); st.State != StateFailed {
-		t.Fatalf("build 超时: %+v", st)
+	if a.Status().State != StateMissing || a.DetectTimedOut() || a.CheckedAt() == 0 || changes.Load() <= n {
+		t.Fatalf("迟到结果应生效: %s timedOut=%v", a.Status().State, a.DetectTimedOut())
 	}
 }
