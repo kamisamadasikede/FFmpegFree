@@ -6,6 +6,10 @@ export function CancelCatTurn(arg1) {
   return window['go']['app']['CatService']['CancelCatTurn'](arg1);
 }
 
+export function CancelCloneCatProject(arg1) {
+  return window['go']['app']['CatService']['CancelCloneCatProject'](arg1);
+}
+
 export function ClearAllCatConversations() {
   return window['go']['app']['CatService']['ClearAllCatConversations']();
 }
@@ -14,20 +18,16 @@ export function ClearCatProviderKey(arg1) {
   return window['go']['app']['CatService']['ClearCatProviderKey'](arg1);
 }
 
+export function CloneCatProject(arg1) {
+  return window['go']['app']['CatService']['CloneCatProject'](arg1);
+}
+
 export function CreateCatConversation(arg1) {
   return window['go']['app']['CatService']['CreateCatConversation'](arg1);
 }
 
 export function CreateCatProject(arg1) {
   return window['go']['app']['CatService']['CreateCatProject'](arg1);
-}
-
-export function CloneCatProject(arg1) {
-  return window['go']['app']['CatService']['CloneCatProject'](arg1);
-}
-
-export function CancelCloneCatProject(arg1) {
-  return window['go']['app']['CatService']['CancelCloneCatProject'](arg1);
 }
 
 export function CreateCatSchedule(arg1) {
@@ -44,6 +44,10 @@ export function DeleteCatProject(arg1) {
 
 export function DeleteCatSchedule(arg1) {
   return window['go']['app']['CatService']['DeleteCatSchedule'](arg1);
+}
+
+export function EnsureCreateCatSkillsDir(arg1) {
+  return window['go']['app']['CatService']['EnsureCreateCatSkillsDir'](arg1);
 }
 
 export function GetCatConversation(arg1) {
@@ -66,20 +70,20 @@ export function GitCatCheckout(arg1) {
   return window['go']['app']['CatService']['GitCatCheckout'](arg1);
 }
 
-export function GitCatConflictResolve(arg1) {
-  return window['go']['app']['CatService']['GitCatConflictResolve'](arg1);
-}
-
-export function GitCatConflictComplete(arg1) {
-  return window['go']['app']['CatService']['GitCatConflictComplete'](arg1);
+export function GitCatCommit(arg1) {
+  return window['go']['app']['CatService']['GitCatCommit'](arg1);
 }
 
 export function GitCatConflictAbort(arg1) {
   return window['go']['app']['CatService']['GitCatConflictAbort'](arg1);
 }
 
-export function GitCatCommit(arg1) {
-  return window['go']['app']['CatService']['GitCatCommit'](arg1);
+export function GitCatConflictComplete(arg1) {
+  return window['go']['app']['CatService']['GitCatConflictComplete'](arg1);
+}
+
+export function GitCatConflictResolve(arg1) {
+  return window['go']['app']['CatService']['GitCatConflictResolve'](arg1);
 }
 
 export function GitCatDiff(arg1) {
@@ -110,18 +114,6 @@ export function InspectCatConfig(arg1) {
   return window['go']['app']['CatService']['InspectCatConfig'](arg1);
 }
 
-export function SetCatInspectItemEnabled(arg1) {
-  return window['go']['app']['CatService']['SetCatInspectItemEnabled'](arg1);
-}
-
-export function RevealCatSkillsDir(arg1) {
-  return window['go']['app']['CatService']['RevealCatSkillsDir'](arg1);
-}
-
-export function EnsureCreateCatSkillsDir(arg1) {
-  return window['go']['app']['CatService']['EnsureCreateCatSkillsDir'](arg1);
-}
-
 export function ListCatConversations() {
   return window['go']['app']['CatService']['ListCatConversations']();
 }
@@ -134,12 +126,12 @@ export function ListCatModels(arg1) {
   return window['go']['app']['CatService']['ListCatModels'](arg1);
 }
 
-export function ListCatProviderCapabilities() {
-  return window['go']['app']['CatService']['ListCatProviderCapabilities']();
-}
-
 export function ListCatProjects() {
   return window['go']['app']['CatService']['ListCatProjects']();
+}
+
+export function ListCatProviderCapabilities() {
+  return window['go']['app']['CatService']['ListCatProviderCapabilities']();
 }
 
 export function ListCatScheduleRuns(arg1) {
@@ -194,6 +186,10 @@ export function ResumeCatSchedule(arg1) {
   return window['go']['app']['CatService']['ResumeCatSchedule'](arg1);
 }
 
+export function RetryCatTurn(arg1) {
+  return window['go']['app']['CatService']['RetryCatTurn'](arg1);
+}
+
 export function RevealCatConversationFolder(arg1) {
   return window['go']['app']['CatService']['RevealCatConversationFolder'](arg1);
 }
@@ -202,28 +198,32 @@ export function RevealCatProject(arg1) {
   return window['go']['app']['CatService']['RevealCatProject'](arg1);
 }
 
-export function RunNowCatSchedule(arg1) {
-  return window['go']['app']['CatService']['RunNowCatSchedule'](arg1);
+export function RevealCatSkillsDir(arg1) {
+  return window['go']['app']['CatService']['RevealCatSkillsDir'](arg1);
 }
 
-export function SaveCatSettings(arg1) {
-  return window['go']['app']['CatService']['SaveCatSettings'](arg1);
+export function RunNowCatSchedule(arg1) {
+  return window['go']['app']['CatService']['RunNowCatSchedule'](arg1);
 }
 
 export function SaveCatProviderKey(arg1) {
   return window['go']['app']['CatService']['SaveCatProviderKey'](arg1);
 }
 
+export function SaveCatSettings(arg1) {
+  return window['go']['app']['CatService']['SaveCatSettings'](arg1);
+}
+
 export function SearchCatFiles(arg1) {
   return window['go']['app']['CatService']['SearchCatFiles'](arg1);
 }
 
-export function RetryCatTurn(arg1) {
-  return window['go']['app']['CatService']['RetryCatTurn'](arg1);
-}
-
 export function SendCatMessage(arg1) {
   return window['go']['app']['CatService']['SendCatMessage'](arg1);
+}
+
+export function SetCatInspectItemEnabled(arg1) {
+  return window['go']['app']['CatService']['SetCatInspectItemEnabled'](arg1);
 }
 
 export function StartCatTerm(arg1) {
@@ -244,9 +244,4 @@ export function WriteCatFile(arg1) {
 
 export function WriteCatTerm(arg1) {
   return window['go']['app']['CatService']['WriteCatTerm'](arg1);
-}
-
-// STUB（手写，等后端 v0.44 PR 生成后覆盖）：契约 6.19.18.7 RetryCatTurn
-export function RetryCatTurn(arg1) {
-  return window['go']['app']['CatService']['RetryCatTurn'](arg1);
 }

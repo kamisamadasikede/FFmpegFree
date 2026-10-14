@@ -6,15 +6,17 @@ import {store} from '../models';
 
 export function CancelCatTurn(arg1:catagent.CancelCatTurnRequest):Promise<void>;
 
+export function CancelCloneCatProject(arg1:cat.CancelCloneCatProjectRequest):Promise<void>;
+
 export function ClearAllCatConversations():Promise<void>;
 
 export function ClearCatProviderKey(arg1:cat.ClearProviderKeyRequest):Promise<cat.ProviderSettings>;
 
+export function CloneCatProject(arg1:cat.CloneCatProjectRequest):Promise<cat.CloneCatProjectResult>;
+
 export function CreateCatConversation(arg1:cat.CreateConversationRequest):Promise<store.CatConversation>;
 
 export function CreateCatProject(arg1:cat.CreateProjectRequest):Promise<cat.CreateProjectResult>;
-export function CloneCatProject(arg1:cat.CloneCatProjectRequest):Promise<cat.CloneCatProjectResult>;
-export function CancelCloneCatProject(arg1:cat.CancelCloneCatProjectRequest):Promise<void>;
 
 export function CreateCatSchedule(arg1:cat.ScheduleInput):Promise<cat.Schedule>;
 
@@ -24,6 +26,8 @@ export function DeleteCatProject(arg1:cat.DeleteProjectRequest):Promise<void>;
 
 export function DeleteCatSchedule(arg1:cat.ScheduleIDRequest):Promise<void>;
 
+export function EnsureCreateCatSkillsDir(arg1:cat.SkillsDirRequest):Promise<cat.SkillsDirResult>;
+
 export function GetCatConversation(arg1:string):Promise<cat.ConversationDetail>;
 
 export function GetCatSettings():Promise<cat.Settings>;
@@ -31,12 +35,16 @@ export function GetCatSettings():Promise<cat.Settings>;
 export function GetCatStatus():Promise<catagent.Status>;
 
 export function GitCatBranch(arg1:cat.GitBranchRequest):Promise<void>;
+
 export function GitCatCheckout(arg1:cat.GitCatCheckoutRequest):Promise<void>;
-export function GitCatConflictResolve(arg1:cat.GitCatConflictResolveRequest):Promise<void>;
-export function GitCatConflictComplete(arg1:cat.GitCatConflictCompleteRequest):Promise<void>;
-export function GitCatConflictAbort(arg1:cat.GitCatConflictAbortRequest):Promise<void>;
 
 export function GitCatCommit(arg1:cat.GitPathsRequest):Promise<void>;
+
+export function GitCatConflictAbort(arg1:cat.GitCatConflictAbortRequest):Promise<void>;
+
+export function GitCatConflictComplete(arg1:cat.GitCatConflictCompleteRequest):Promise<void>;
+
+export function GitCatConflictResolve(arg1:cat.GitCatConflictResolveRequest):Promise<void>;
 
 export function GitCatDiff(arg1:cat.GitDiffRequest):Promise<cat.GitDiffResult>;
 
@@ -52,21 +60,15 @@ export function GitCatUnstage(arg1:cat.GitPathsRequest):Promise<void>;
 
 export function InspectCatConfig(arg1:cat.InspectRequest):Promise<catagent.InspectResult>;
 
-export function SetCatInspectItemEnabled(arg1:cat.SetInspectItemEnabledRequest):Promise<catagent.InspectItem>;
-
-export function RevealCatSkillsDir(arg1:cat.SkillsDirRequest):Promise<cat.SkillsDirResult>;
-
-export function EnsureCreateCatSkillsDir(arg1:cat.SkillsDirRequest):Promise<cat.SkillsDirResult>;
-
 export function ListCatConversations():Promise<Array<store.CatConversation>>;
 
 export function ListCatFiles(arg1:cat.ListFilesRequest):Promise<cat.ListFilesResult>;
 
 export function ListCatModels(arg1:string):Promise<Array<catagent.Model>>;
 
-export function ListCatProviderCapabilities():Promise<Array<cat.ProviderCapability>>;
-
 export function ListCatProjects():Promise<Array<cat.Project>>;
+
+export function ListCatProviderCapabilities():Promise<Array<cat.ProviderCapability>>;
 
 export function ListCatScheduleRuns(arg1:cat.ListScheduleRunsRequest):Promise<Array<cat.ScheduleRun>>;
 
@@ -94,21 +96,25 @@ export function ResizeCatTerm(arg1:cat.TermResizeRequest):Promise<void>;
 
 export function ResumeCatSchedule(arg1:cat.ScheduleIDRequest):Promise<cat.Schedule>;
 
+export function RetryCatTurn(arg1:cat.RetryCatTurnRequest):Promise<cat.SendMessageResult>;
+
 export function RevealCatConversationFolder(arg1:cat.RevealConversationFolderRequest):Promise<void>;
 
 export function RevealCatProject(arg1:cat.RevealProjectRequest):Promise<void>;
 
-export function RunNowCatSchedule(arg1:cat.ScheduleIDRequest):Promise<cat.ScheduleRun>;
+export function RevealCatSkillsDir(arg1:cat.SkillsDirRequest):Promise<cat.SkillsDirResult>;
 
-export function SaveCatSettings(arg1:cat.Settings):Promise<cat.Settings>;
+export function RunNowCatSchedule(arg1:cat.ScheduleIDRequest):Promise<cat.ScheduleRun>;
 
 export function SaveCatProviderKey(arg1:cat.SaveProviderKeyRequest):Promise<cat.ProviderSettings>;
 
+export function SaveCatSettings(arg1:cat.Settings):Promise<cat.Settings>;
+
 export function SearchCatFiles(arg1:cat.SearchFilesRequest):Promise<cat.SearchFilesResult>;
 
-export function RetryCatTurn(arg1:cat.RetryCatTurnRequest):Promise<cat.SendMessageResult>;
-
 export function SendCatMessage(arg1:cat.SendMessageRequest):Promise<cat.SendMessageResult>;
+
+export function SetCatInspectItemEnabled(arg1:cat.SetInspectItemEnabledRequest):Promise<catagent.InspectItem>;
 
 export function StartCatTerm(arg1:cat.TermStartRequest):Promise<cat.TermStartResult>;
 
@@ -119,6 +125,3 @@ export function UpdateCatSchedule(arg1:cat.UpdateScheduleRequest):Promise<cat.Sc
 export function WriteCatFile(arg1:cat.WriteFileRequest):Promise<cat.WriteFileResult>;
 
 export function WriteCatTerm(arg1:cat.TermWriteRequest):Promise<void>;
-
-// STUB（手写，等后端 v0.44 PR 生成后覆盖）：契约 6.19.18.7 RetryCatTurn
-export function RetryCatTurn(arg1:{conversationId:string;turnId:string}):Promise<cat.SendMessageResult>;

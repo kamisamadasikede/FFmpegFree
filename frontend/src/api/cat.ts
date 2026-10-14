@@ -496,7 +496,7 @@ export function onCatTurn(cb: (e: CatTurnEvent) => void): () => void {
 
 /**
  * 契约 v0.44 6.19.18.7：原地重试最后一轮失败的 turn（不新增用户气泡）。
- * wailsjs 里 RetryCatTurn 目前是手写 STUB，等后端 v0.44 PR 重新生成。
+ * 绑定由 wails generate module 生成（后端 #258）。
  */
 export interface RetryCatTurnRequest {
   conversationId: string
