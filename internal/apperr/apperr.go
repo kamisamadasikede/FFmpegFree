@@ -78,9 +78,10 @@ const (
 
 // AppError 同时用于 Bind 返回值和持久化到 tasks.error 列。
 type AppError struct {
-	Code    Code   `json:"code"`
-	Message string `json:"message"`
-	Detail  string `json:"detail,omitempty"`
+	Code    Code              `json:"code"`
+	Message string            `json:"message"`
+	Detail  string            `json:"detail,omitempty"`
+	Params  map[string]string `json:"params,omitempty"` // v0.54：前端按 code/reason 插值用（契约 6.20.3）
 
 	cause error
 }
@@ -113,6 +114,21 @@ func Wrap(code Code, message string, cause error) *AppError {
 func (e *AppError) WithDetail(detail string) *AppError {
 	c := *e
 	c.Detail = detail
+	return &c
+}
+
+// WithParams 返回带插值参数的副本（契约 6.20.3）；params 为 nil 时清除字段。
+func (e *AppError) WithParams(params map[string]string) *AppError {
+	c := *e
+	if params == nil {
+		c.Params = nil
+		return &c
+	}
+	cp := make(map[string]string, len(params))
+	for k, v := range params {
+		cp[k] = v
+	}
+	c.Params = cp
 	return &c
 }
 

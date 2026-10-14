@@ -7,6 +7,7 @@ import (
 	goruntime "runtime"
 
 	"FFmpegFree/internal/apperr"
+	"FFmpegFree/internal/i18n"
 	"FFmpegFree/internal/service/system"
 	"FFmpegFree/internal/store"
 
@@ -74,7 +75,7 @@ func (s *SystemService) PickDirectory(title string) (string, error) {
 		return "", apperr.New(apperr.Internal, "应用尚未初始化")
 	}
 	if title == "" {
-		title = "选择文件夹"
+		title = i18n.T(i18n.KeyDialogPickDirectory, nil)
 	}
 	dir, err := runtime.OpenDirectoryDialog(ctx, runtime.OpenDialogOptions{Title: title, CanCreateDirectories: true})
 	if err != nil {
@@ -92,7 +93,7 @@ func (s *SystemService) PickFiles(filter system.FileFilter, multiple bool) ([]st
 	if ctx == nil {
 		return nil, apperr.New(apperr.Internal, "应用尚未初始化")
 	}
-	opts := runtime.OpenDialogOptions{Title: "选择文件"}
+	opts := runtime.OpenDialogOptions{Title: i18n.T(i18n.KeyDialogPickFiles, nil)}
 	name, pattern, ok, err := filter.DialogPattern()
 	if err != nil {
 		return nil, err
@@ -221,15 +222,17 @@ func (s *SystemService) SaveFileDialog(defaultName string, filters []system.File
 	// Linux GTK 可能没有自带覆盖确认：补一次
 	if goruntime.GOOS == "linux" {
 		if fi, err := os.Stat(path); err == nil && !fi.IsDir() {
+			replace := i18n.T(i18n.KeyDialogReplace, nil)
+			dont := i18n.T(i18n.KeyDialogDontReplace, nil)
 			sel, err := runtime.MessageDialog(ctx, runtime.MessageDialogOptions{
 				Type:          runtime.QuestionDialog,
-				Title:         "确认替换",
-				Message:       "“" + filepath.Base(path) + "”已存在，要替换它吗？",
-				Buttons:       []string{"替换", "不替换"},
-				DefaultButton: "不替换",
-				CancelButton:  "不替换",
+				Title:         i18n.T(i18n.KeyDialogConfirmReplaceTitle, nil),
+				Message:       i18n.T(i18n.KeyDialogConfirmReplaceMessage, map[string]string{"name": filepath.Base(path)}),
+				Buttons:       []string{replace, dont},
+				DefaultButton: dont,
+				CancelButton:  dont,
 			})
-			if err != nil || sel != "替换" {
+			if err != nil || sel != replace {
 				return "", nil
 			}
 		}

@@ -4,6 +4,7 @@ export namespace apperr {
 	    code: string;
 	    message: string;
 	    detail?: string;
+	    params?: {[key: string]: string};
 	
 	    static createFrom(source: any = {}) {
 	        return new AppError(source);
@@ -14,6 +15,7 @@ export namespace apperr {
 	        this.code = source["code"];
 	        this.message = source["message"];
 	        this.detail = source["detail"];
+	        this.params = source["params"];
 	    }
 	}
 
@@ -5040,3 +5042,35 @@ export namespace task {
 
 }
 
+export namespace main {
+	
+	export class AppLanguage {
+	    lang: string;
+	    system: string;
+	    effective: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AppLanguage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.lang = source["lang"];
+	        this.system = source["system"];
+	        this.effective = source["effective"];
+	    }
+	}
+	export class SetAppLanguageRequest {
+	    lang: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SetAppLanguageRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.lang = source["lang"];
+	    }
+	}
+
+}
