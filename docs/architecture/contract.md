@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.47.1）
+# FFmpegFree v2 接口契约（v0.47.2）
+
+v0.47.2 变更（**检测行登录状态**，架构师 10-14；规则见 6.19.21.2 / 6.19.21.5；无新错误码 / 迁移 / 事件名 / settings 键）：① `CatAgentStatus` 加 `loggedIn?: boolean`，后端**只在实时检测**里填，判断不了就省略；**不写入** `cat.detect`，从落库恢复的行不带该字段。② 前端登录行：`checking=true` 或 `stale=true` → `--cat-muted` 灰字「正在检测…」、不带状态点；`checking=false` 且 `stale=false` 且 `loggedIn` 为空 → 隐藏登录行；实时 true / false → 显示实际状态（带点）。
 
 v0.47.1 变更（**CLI 检测修复**，老板 t73u，架构师 10-14；完整规则见 **6.19.21**；无新错误码 / 迁移 / 事件名；新 settings 键 `cat.detect`）：① 适配器不再自己发 `cat:status`，改调 `OnChange`，由服务层发 `composeStatus`；**每条 `cat:status` 都含全部已注册适配器的 `agents[]`**。② `CatAgentStatus` 加 `checking` / `checkedAt` / `stale` / `exePath`。③ 检测结果落 `cat.detect`，启动先显示上次结果再后台重检；发对话只认实时结果。④ Windows：LookPath 失败后重读注册表 PATH，再查官方安装目录（部分 GUESS）。⑤ 前端按 `agents[]` 合并，缺 `agents[]` 不重置其它家；检测行文案产品已定稿（6.19.21.5）。⑥ `RecheckCat(agentKind?)` 只重检单家；单家检测超时 15s → checking=false、保留 stale。
 
@@ -5914,9 +5916,12 @@ type CatAgentStatus struct {
     CheckedAt *int64 `json:"checkedAt,omitempty"` // v0.47.1：最近一次检测完成时间（Unix 毫秒）；从未检测过则省略
     Stale     bool   `json:"stale,omitempty"`     // v0.47.1：当前行来自落库的上次结果，本次启动尚未实时检测完
     ExePath   string `json:"exePath,omitempty"`   // v0.47.1：命中的可执行文件绝对路径（调试 / 关于页可不显示）
+    LoggedIn  *bool  `json:"loggedIn,omitempty"`  // v0.47.2：登录状态；只由实时检测填，判断不了省略；不写入 cat.detect
 }
 ```
-TS 对应：`checking: boolean; checkedAt?: number; stale?: boolean; exePath?: string`。绑定用 wails 2.16 重新生成。
+TS 对应：`checking: boolean; checkedAt?: number; stale?: boolean; exePath?: string; loggedIn?: boolean`（v0.47.2）。
+
+**`loggedIn`（v0.47.2）**：后端只在该家**实时检测**完成时填写；判断方式须以该 CLI 真实 `--help` / 官方文档为据，无可核实办法则不填（省略，不得写 false 冒充）。`cat.detect` **不存**该字段，启动时从落库恢复的行没有 `loggedIn`。绑定用 wails 2.16 重新生成。
 
 #### 6.19.21.3 检测结果落库（新 settings 键 `cat.detect`）
 
@@ -5955,6 +5960,7 @@ TS 对应：`checking: boolean; checkedAt?: number; stale?: boolean; exePath?: s
 
 - `cat:status` 以 `agents[]` 为唯一真源：按 `agentKind` **合并**到现有各行；载荷**没有** `agents[]`（旧后端 / 异常）时只更新顶层兼容字段，**不得**重置其它家。`mapAgents` 删除「缺 agents 时顶层映射为 Grok、其余 ready:false」的逻辑。
 - 检测行文案（**产品定稿 10-14**，均为灰字）：正常 「已安装 · 上次检测 14:32」；`checkedAt` 不是今天 → 「上次检测 10月13日 14:32」；`checking=true` 时把「上次检测…」这段换成「正在检测…」，其余不变；`stale=true` 且非 checking → 末尾追加「· 结果可能已过期」+「重新检测」文字按钮（12px，`--ff-primary-text`，同「清除」样式；点击后该行进 checking、按钮隐藏）；不用黄色。`exePath` 不直接显示，仅悬停该行时 tooltip「路径：…」（elevated 样式、等宽、折行不截断）。`stale=true` 时就绪状态用 `--cat-muted`。
+- **登录行（v0.47.2，产品 / 设计定稿 10-14）**：① `checking=true` 或 `stale=true` → 灰字「正在检测…」（`--cat-muted`，不带状态点，样式同标题行「正在检测…」），不得显示「未登录」或留空；② `checking=false` 且 `stale=false` 且 `loggedIn` 为空 → **隐藏**登录行（不显示「不适用」）；③ 实时 `loggedIn` 为 true / false → 显示实际状态（带状态点）。
 - **`RecheckCat(agentKind?: string)`（v0.47.1 定稿）**：传了 → 只重检该适配器，**只有该行**进 `checking`，其它行不变；省略 / 空 → 重检全部。返回 / 事件仍是全量 `agents[]`。每行「重新检测」按钮传本行 `agentKind`。
 - **单家检测超时 15s**：某适配器检测 15s 未返回 → 该行 `checking=false`，`stale=true` 保留，`ready` 等保持上次已知结果；界面因此显示「结果可能已过期 · 重新检测」，用户可手动重查。迟到的检测结果若随后返回，正常替换并清除 `stale`。Go 单测须覆盖超时路径与单家重检只动一行。
 
