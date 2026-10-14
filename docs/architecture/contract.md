@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.53）
+# FFmpegFree v2 接口契约（v0.53.1）
+
+v0.53.1 变更（**提交历史 产品 / 设计定稿**，10-14；见 **6.19.28.9**；无迁移 / 事件名 / settings 键）：`history_changed` 前端不自动重拉，顶部灰字「提交历史已更新」点了才从首页刷新；签出提交前必须弹确认（文案按产品版本，TBD）；搜索范围不变；车道色 token `--cat-lane-1`…`--cat-lane-6`；`commit_not_found` 文案定稿并在详情展开区 12px `--ff-danger` 显示（不用 toast）；搜索结果只画点不画线；`GitCatStatus` 增加 `detached` / `headSha` / `headShortSha`，底栏「未在分支上 · abc1234」。
 
 v0.53 变更（**Git 面板「提交历史」提交图**，老板认可线框，10-14；规则见 **6.19.28**；无迁移 / 事件名 / settings 键）：新绑定 `ListCatCommits` / `GetCatCommitDetail` / `GetCatCommitFileDiff` / `GitCatCheckoutCommit`；`GitCatCreateBranch.from`、`GitCatCompareBranch.branch` 允许 sha；车道布局前端算；新 reason `commit_not_found`（NOT_FOUND）/ `history_changed`（INVALID_ARGUMENT）。待定：游离 HEAD 确认文案、搜索范围、车道色 5/6 token（产品 / UI）。
 
@@ -6534,7 +6536,7 @@ GitCatCheckoutCommit(req struct{ ConvID, Sha string }) (CatBranchTree, error)   
 - `<refs>`：`branch` 空 → `HEAD --branches --remotes --tags`（**不用 `--all`**：`--all` 会带进 `refs/stash`、notes 等，图里出现 stash 提交；HEAD 必须显式给，分离 HEAD 时才能看到）；`branch=HEAD` → `HEAD`；其他 → `rev-parse --verify -q refs/heads/<b>` 或 `refs/remotes/<b>`，都不存在 → `branch_not_found`。
 - 无 query：`--skip=<n> -n <limit+1>`，多出 1 条说明有下一页（不返回那 1 条）。
 - 有 query（**搜索范围待产品定**，默认三项都搜，OR）：命中任一即可——提交信息（%B，忽略大小写子串）、作者（名或邮箱，忽略大小写子串）、提交号前缀（query 为 4–40 位十六进制时）。因 git 的 `--grep` + `--author` 是 AND，后端用同一条 `git log`（格式末尾加 `%x1f%B`）**流式读取、在 Go 里过滤**，跳过前 skip 个**命中**、取 limit+1 个后立即结束进程；最多扫描 50 000 条提交，扫满仍不够一页时照常返回已得结果，`nextCursor` 指向扫描位置。产品若只搜信息，可改为 `-i -F --grep=<q>` 直接交给 git（接口不变）。
-- **cursor**：不透明字符串 = base64url(JSON `{v:1, skip, scanned, fp}`)。`fp` = 本次 refs 集合（`for-each-ref` 的 refname+objectname 加 HEAD sha）的 sha256 前 16 位。下一页时重算 fp，不一致（期间有提交 / 签出 / fetch）→ `INVALID_ARGUMENT reason=history_changed`，前端静默从首页重拉（不弹错）。同一 refs 下 git 的输出顺序确定，所以 skip 分页稳定、页间不重不漏。cursor 解析失败 → `INVALID_ARGUMENT reason=git_failed`。
+- **cursor**：不透明字符串 = base64url(JSON `{v:1, skip, scanned, fp}`)。`fp` = 本次 refs 集合（`for-each-ref` 的 refname+objectname 加 HEAD sha）的 sha256 前 16 位。下一页时重算 fp，不一致（期间有提交 / 签出 / fetch）→ `INVALID_ARGUMENT reason=history_changed`，前端**不自动重拉**，见 6.19.28.9 ①（v0.53.1）。同一 refs 下 git 的输出顺序确定，所以 skip 分页稳定、页间不重不漏。cursor 解析失败 → `INVALID_ARGUMENT reason=git_failed`。
 - `noCommits`：`rev-parse --verify -q HEAD` 失败且没有任何 refs → `commits=[]`、`noCommits=true`，不报错。
 - 超时：单次 `git log` 20 s（搜索 30 s），超时杀进程 → `git_failed`（detail「timeout」）。
 
@@ -6558,13 +6560,13 @@ GitCatCheckoutCommit(req struct{ ConvID, Sha string }) (CatBranchTree, error)   
 - 校验顺序（与 6.19.25 一致）：`not_git_repo` → `turn_running` → `merge_in_progress`（MERGE_HEAD / rebase-* / CHERRY_PICK_HEAD）→ `commit_not_found` → `git_dirty`（`status --porcelain` 非空，含未跟踪）。
 - 执行 `git switch --detach <sha>`（`LC_ALL=C`）；stderr 含 `would be overwritten`（大小写不敏感）→ `git_dirty`；其他失败 → `git_failed`。
 - 成功返回最新 `CatBranchTree`（`detached=true`），底栏本地分支处显示短 sha；不更新 recent。
-- **游离 HEAD 确认弹窗及文案：待产品定**（接口不变，前端在调用前弹）。
+- **调用前必须弹确认**（v0.53.1，见 6.19.28.9 ②）；接口不变。
 
 #### 6.19.28.6 错误（2.2 追加）
-沿用 `not_git_repo` / `turn_running` / `git_dirty` / `merge_in_progress` / `branch_not_found` / `git_failed`；**新增** `NOT_FOUND reason=commit_not_found`（提交不存在 / 短 sha 歧义）、`INVALID_ARGUMENT reason=history_changed`（分页期间 refs 变了，前端重拉首页，不显示）。文案：`commit_not_found`「找不到这个提交，可能已被删除。」（**待产品确认**）；其余沿用 6.19.24 / 6.19.25（签出提交的 `git_dirty` 用「有未提交的改动，请先提交或暂存，再切换分支。」）。
+沿用 `not_git_repo` / `turn_running` / `git_dirty` / `merge_in_progress` / `branch_not_found` / `git_failed`；**新增** `NOT_FOUND reason=commit_not_found`（提交不存在 / 短 sha 歧义）、`INVALID_ARGUMENT reason=history_changed`（分页期间 refs 变了；前端不自动重拉，见 6.19.28.9 ①）。文案：`commit_not_found`「找不到这个提交，可能已被删除。」（v0.53.1 已定，显示位置见 6.19.28.9 ⑤）；其余沿用 6.19.24 / 6.19.25（签出提交的 `git_dirty` 用「有未提交的改动，请先提交或暂存，再切换分支。」）。
 - 所有 git 调用走 `runGit`（`proc.Configure`：Windows 隐藏控制台窗口；`GIT_TERMINAL_PROMPT=0`；`GIT_EDITOR=true`；`LC_ALL=C` 仅用于需匹配 stderr 的调用）；读路径加 `-c core.quotePath=false`；超时用 `context.WithTimeout` 并杀进程树。
 
-#### 6.19.28.7 待定（不阻塞开工，接口不变）
+#### 6.19.28.7 待定（v0.53.1 已全部定稿，见 6.19.28.9；以下仅存档）
 1. **产品**：签出提交（游离 HEAD）是否弹确认及文案。
 2. **产品**：搜索范围（默认：信息 + 提交号前缀 + 作者，OR）。
 3. **产品 / UI**：第 5、6 车道色补 token `--cat-lane-5`（紫 #8b5cf6）/ `--cat-lane-6`（青 #14b8a6）；定前前端先用这两个字面量。车道 6 色顺序：`--ff-primary` `--ff-success` `--cat-orange` lane-5 lane-6 `--ff-danger`。
@@ -6572,4 +6574,14 @@ GitCatCheckoutCommit(req struct{ ConvID, Sha string }) (CatBranchTree, error)   
 
 #### 6.19.28.8 测试
 **后端（真 git 临时仓库 + 本地 bare 远程）**：线性 / 分叉 / 合并 / 多根历史顺序与 `git log --topo-order --date-order` 一致；parents 顺序；refs 解析（head / local / remote / tag、跳过 origin/HEAD、分离 HEAD）；默认 refs 不含 stash 提交；`branch=HEAD` / 指定分支 / 不存在 → branch_not_found；分页 limit 默认 200、上限 500、页间不重不漏、最后一页无 nextCursor；中途新提交 → history_changed；坏 cursor → git_failed；total 与 rev-list --count 一致；空仓库 noCommits；搜索 信息 / 作者 / sha 前缀 各命中、大小写不敏感、OR 语义、搜索分页；subject 含 0x1f 以外特殊字符（中文、`|`、制表）；详情 普通 / 合并（只对第一父）/ 根提交；文件 A/M/D/R/C 与 numstat、二进制；文件 >1000 截断；文件 diff 复用 GitDiffResult、二进制；commit_not_found（不存在 / 歧义短 sha）；签出提交 成功 detached / turn_running / merge_in_progress / git_dirty（已跟踪 + 未跟踪）/ `would be overwritten` 兜底 / 拦截时仓库未变；GitCatCreateBranch from=sha；GitCatCompareBranch branch=sha；超时杀进程；断言 runGit 隐藏窗口与 `GIT_TERMINAL_PROMPT=0`。
-**前端**：车道算法纯函数单测（线性、分叉、合并、章鱼合并、多根、跨页续算与一次性算结果一致）；颜色同一线不变；折叠默认、展开加载首页、滚到底自动加载、「加载更多」；history_changed 静默重拉；搜索时不画线；详情展开 / 复制 / 点文件开 diff；右键四项与禁用态；窄于 420 隐藏作者列；读取中 / 空态。
+**前端**：车道算法纯函数单测（线性、分叉、合并、章鱼合并、多根、跨页续算与一次性算结果一致）；颜色同一线不变；折叠默认、展开加载首页、滚到底自动加载、「加载更多」；history_changed 不自动重拉、顶部灰字提示点击才从首页刷新；搜索时不画线；详情展开 / 复制 / 点文件开 diff；右键四项与禁用态；窄于 420 隐藏作者列；读取中 / 空态。
+
+#### 6.19.28.9 v0.53.1 产品 / 设计定稿（10-14，覆盖本节上文冲突处）
+1. **`history_changed`**：后端照旧返回 `INVALID_ARGUMENT reason=history_changed`。前端**不自动重拉**，在列表顶部显示一行灰字「提交历史已更新」，用户点击后才清空车道状态并从首页（无 cursor）重新加载。
+2. **签出提交确认**：调用 `GitCatCheckoutCommit` 前必须弹确认框；文案：**按产品版本（TBD）**，取消不调用接口。
+3. **搜索范围**：维持原定三项（提交信息 + 提交号前缀 + 作者，大小写不敏感，OR），不变。
+4. **车道色 token**：新增 `--cat-lane-1` … `--cat-lane-6`，按设计规格（`proto/cat-git-graph/` 设计说明）：顺序沿用 6.19.28.7 ③：lane-1=`--ff-primary`、lane-2=`--ff-success`、lane-3=`--cat-orange`、lane-4 紫 #8b5cf6、lane-5 青 #14b8a6、lane-6=`--ff-danger`；具体色值以设计说明为准，前端不再用字面量。
+5. **`commit_not_found`**：文案「找不到这个提交，可能已被删除。」，显示在该提交的**详情展开区**内，12px、`--ff-danger` 色，**不用 toast**。
+6. **搜索结果**：只画提交点，不画连线；车道位置不变（与未搜索时一致），只隐藏线。
+7. **`GitCatStatus` 扩展**：增加 `detached: boolean`、`headSha: string`（完整 sha）、`headShortSha: string`（短 sha）；非游离时 `detached=false`，sha 字段仍返回当前 HEAD（空仓库为空串）。底栏在 `detached=true` 时本地分支处显示「未在分支上 · {headShortSha}」（例：「未在分支上 · abc1234」）。
+   - 测试补充：后端 detached 前后 `GitCatStatus` 字段；前端底栏游离显示、history_changed 灰字点击刷新、搜索只画点、commit_not_found 显示位置。
