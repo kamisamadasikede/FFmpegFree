@@ -1,0 +1,12 @@
+{"timestamp":"2026-10-14T02:40:00.000Z","ordinal":0,"type":"session_meta","payload":{"session_id":"01a13845-acb6-7382-a6de-f154547ff011","id":"01a13845-acb6-7382-a6de-f154547ff011","timestamp":"2026-10-14T02:40:00.000Z","cwd":"/tmp/cxw","originator":"codex_exec","cli_version":"0.162.1","source":"exec"}}
+{"timestamp":"2026-10-14T02:40:00.100Z","ordinal":1,"type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"<permissions instructions>sandbox</permissions instructions>"}]}}
+{"timestamp":"2026-10-14T02:40:00.100Z","ordinal":2,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\n  <cwd>/tmp/cxw</cwd>\n</environment_context>"}]}}
+{"timestamp":"2026-10-14T02:40:00.200Z","ordinal":3,"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"列出当前目录"}]}}
+{"timestamp":"2026-10-14T02:40:01.000Z","ordinal":4,"type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"先用 ls 看看目录"}],"encrypted_content":"gAAA"}}
+{"timestamp":"2026-10-14T02:40:01.100Z","ordinal":5,"type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"ls\"}","call_id":"call_1"}}
+{"timestamp":"2026-10-14T02:40:01.200Z","ordinal":6,"type":"response_item","payload":{"type":"function_call_output","call_id":"call_1","output":"a.mp4\nb.mp4"}}
+{"timestamp":"2026-10-14T02:40:01.300Z","ordinal":7,"type":"event_msg","payload":{"type":"some_future_event","x":1}}
+{"timestamp":"2026-10-14T02:40:02.000Z","ordinal":8,"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"目录里有 a.mp4 和 b.mp4。"}]}}
+{"timestamp":"2026-10-14T02:40:02.100Z","ordinal":9,"type":"event_msg","payload":{"type":"agent_message","message":"目录里有 a.mp4 和 b.mp4。"}}
+not json at all
+{"timestamp":"2026-10-14T02:40:02.200Z","ordinal":10,"type":"event_msg","payload":{"type":"task_complete","last_agent_message":"目录里有 a.mp4 和 b.mp4。","error":null}}
