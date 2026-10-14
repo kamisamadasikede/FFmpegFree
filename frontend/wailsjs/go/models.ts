@@ -743,6 +743,38 @@ export namespace cat {
 	        this.force = source["force"];
 	    }
 	}
+	export class GitCatMergeRequest {
+	    convId: string;
+	    branch: string;
+	    remote?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitCatMergeRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.branch = source["branch"];
+	        this.remote = source["remote"];
+	    }
+	}
+	export class GitCatMergeResult {
+	    status: string;
+	    head?: string;
+	    files?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new GitCatMergeResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.status = source["status"];
+	        this.head = source["head"];
+	        this.files = source["files"];
+	    }
+	}
 	export class GitCatRenameBranchRequest {
 	    convId: string;
 	    from: string;

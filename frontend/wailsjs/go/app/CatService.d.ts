@@ -58,6 +58,8 @@ export function GitCatDeleteBranch(arg1:cat.GitCatDeleteBranchRequest):Promise<c
 
 export function GitCatDiff(arg1:cat.GitDiffRequest):Promise<cat.GitDiffResult>;
 
+export function GitCatMerge(arg1:cat.GitCatMergeRequest):Promise<cat.GitCatMergeResult>;
+
 export function GitCatPullRequest(arg1:cat.GitStatusRequest):Promise<cat.GitPRResult>;
 
 export function GitCatRemote(arg1:cat.GitRemoteRequest):Promise<void>;
