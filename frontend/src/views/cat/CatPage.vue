@@ -149,6 +149,7 @@
             >{{ PC.relocate }}</button>
           </div>
           <div class="ct-stream">
+            <div v-if="historyEmpty" class="ct-hist-empty" data-testid="cat-history-empty">{{ CAT_HISTORY_EMPTY }}</div>
             <div ref="msgsEl" :key="catState.sel" class="ct-msgs swap" @scroll.passive="onMsgsScroll">
               <div ref="msgsBody">
                 <!-- B1：读记录超过 150ms 才显示消息骨架 -->
@@ -236,6 +237,7 @@
 </template>
 
 <script setup lang="ts">
+import { CAT_HISTORY_EMPTY } from '@/views/cat/catCopy'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import FIcon from '@/components/icon/FIcon.vue'
@@ -289,6 +291,10 @@ if (preview && q.get('cat_conv')) catState.sel = q.get('cat_conv') as string
 const notReadyText = computed(() => catState.status.error?.message || CAT_COPY.notReady)
 const isNew = computed(() => catState.sel === NEW_CONV)
 const histLoading = computed(() => !!catState.histLoading[catState.sel])
+/** 打开的对话一轮都没有（记录没找到）：居中灰字，输入框照常可用 */
+const historyEmpty = computed(
+  () => !isNew.value && !!catState.histLoaded[catState.sel] && !histLoading.value && !messagesOf(catState.sel).length && !catState.turns[catState.sel],
+)
 const current = computed(() => (isNew.value ? null : findConv(catState.sel)))
 const messages = computed(() => (isNew.value ? [] : messagesOf(catState.sel)))
 const composer = ref<InstanceType<typeof CatComposer>>()
@@ -1375,5 +1381,22 @@ html.dark .sk {
 .hd-ib:focus-visible {
   outline: none;
   box-shadow: var(--cat-focus);
+}
+.ct-stream:has(> .ct-hist-empty) {
+  position: relative;
+}
+/* 对话区正中（上下左右），不挡输入框 */
+.ct-hist-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  pointer-events: none;
+  color: var(--cat-muted);
+  font-size: 13px;
+  text-align: center;
 }
 </style>

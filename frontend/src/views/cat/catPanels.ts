@@ -190,6 +190,15 @@ export function showTurnFinishToast(convId: string, how: 'completed' | 'failed',
   toastTimer = setTimeout(() => (catPanels.toast = null), 6000)
 }
 
+/** 重试开始时收起这条对话的「Cat 回复失败」提示 */
+export function dismissFailToast(convId: string) {
+  const t = catPanels.toast
+  if (t && t.tone === 'bad' && t.convId === convId) {
+    clearTimeout(toastTimer)
+    catPanels.toast = null
+  }
+}
+
 function handleNotifyEvent(raw: unknown) {
   const r = raw as { openConvId?: unknown } | null
   const id = r && typeof r.openConvId === 'string' ? r.openConvId : ''

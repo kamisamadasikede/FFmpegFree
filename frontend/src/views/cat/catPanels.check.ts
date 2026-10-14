@@ -26,7 +26,7 @@ export function catPanelsChecks(eq: Eq) {
   eq('Inspect：无项目 reason', normalizeInspect({ reason: 'no_project' }).reason, 'no_project')
   eq('路径标签：有项目名', skillsPathLabel('/abs/字幕项目/.ffmpegfree/cat/skills', '字幕项目'), '字幕项目/.ffmpegfree/cat/skills')
   eq('路径标签：无项目名回落模板', skillsPathLabel('', ''), '<项目>/.ffmpegfree/cat/skills')
-  eq('强度：xhigh 显示「极高」值不变', fixThinkName({ id: 'xhigh', displayName: '超高' }), { id: 'xhigh', displayName: '极高' })
+  eq('强度：xhigh 显示「很高」值不变（v0.44）', fixThinkName({ id: 'xhigh', displayName: '超高' }), { id: 'xhigh', displayName: '很高' })
   eq('强度：其它档位不动', fixThinkName({ id: 'low', displayName: '低' }).displayName, '低')
 
   const base = { name: 'a', prompt: 'b', projectId: 'p1', frequency: 'daily' as const, time: '09:00', weekdays: [], runAt: 0, model: '', effort: '', approvalMode: 'plan' }

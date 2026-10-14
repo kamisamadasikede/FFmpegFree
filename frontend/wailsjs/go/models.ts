@@ -21,6 +21,20 @@ export namespace apperr {
 
 export namespace cat {
 	
+	export class AgentDefaults {
+	    model: string;
+	    effort: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AgentDefaults(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.model = source["model"];
+	        this.effort = source["effort"];
+	    }
+	}
 	export class BrowserOpenRequest {
 	    url: string;
 	
@@ -48,6 +62,102 @@ export namespace cat {
 	        this.title = source["title"];
 	        this.html = source["html"];
 	    }
+	}
+	export class CancelCloneCatProjectRequest {
+	    cloneId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CancelCloneCatProjectRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.cloneId = source["cloneId"];
+	    }
+	}
+	export class ClearProviderKeyRequest {
+	    agentKind: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ClearProviderKeyRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.agentKind = source["agentKind"];
+	    }
+	}
+	export class CloneCatProjectRequest {
+	    url: string;
+	    parentDir?: string;
+	    name?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CloneCatProjectRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.url = source["url"];
+	        this.parentDir = source["parentDir"];
+	        this.name = source["name"];
+	    }
+	}
+	export class Project {
+	    id: string;
+	    name: string;
+	    path: string;
+	    createdAt: number;
+	    updatedAt: number;
+	    missing: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Project(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.path = source["path"];
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
+	        this.missing = source["missing"];
+	    }
+	}
+	export class CloneCatProjectResult {
+	    cloneId: string;
+	    status: string;
+	    project?: Project;
+	
+	    static createFrom(source: any = {}) {
+	        return new CloneCatProjectResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.cloneId = source["cloneId"];
+	        this.status = source["status"];
+	        this.project = this.convertValues(source["project"], Project);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ConversationDetail {
 	    id: string;
@@ -133,28 +243,6 @@ export namespace cat {
 	        this.name = source["name"];
 	    }
 	}
-	export class Project {
-	    id: string;
-	    name: string;
-	    path: string;
-	    createdAt: number;
-	    updatedAt: number;
-	    missing: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new Project(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.path = source["path"];
-	        this.createdAt = source["createdAt"];
-	        this.updatedAt = source["updatedAt"];
-	        this.missing = source["missing"];
-	    }
-	}
 	export class CreateProjectResult {
 	    project: Project;
 	    existed: boolean;
@@ -186,68 +274,6 @@ export namespace cat {
 		    }
 		    return a;
 		}
-	}
-	export class CloneCatProjectRequest {
-	    url: string;
-	    parentDir?: string;
-	    name?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new CloneCatProjectRequest(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.url = source["url"];
-	        this.parentDir = source["parentDir"];
-	        this.name = source["name"];
-	    }
-	}
-	export class CloneCatProjectResult {
-	    cloneId: string;
-	    status: string;
-	    project?: Project;
-	
-	    static createFrom(source: any = {}) {
-	        return new CloneCatProjectResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.cloneId = source["cloneId"];
-	        this.status = source["status"];
-	        this.project = this.convertValues(source["project"], Project);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class CancelCloneCatProjectRequest {
-	    cloneId: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new CancelCloneCatProjectRequest(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.cloneId = source["cloneId"];
-	    }
 	}
 	export class DeleteProjectRequest {
 	    id: string;
@@ -295,10 +321,10 @@ export namespace cat {
 	        this.name = source["name"];
 	    }
 	}
-		export class GitCatCheckoutRequest {
+	export class GitCatCheckoutRequest {
 	    convId: string;
 	    name: string;
-	    force: boolean;
+	    force?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new GitCatCheckoutRequest(source);
@@ -309,38 +335,6 @@ export namespace cat {
 	        this.convId = source["convId"];
 	        this.name = source["name"];
 	        this.force = source["force"];
-	    }
-	}
-	export class GitCatConflictResolveRequest {
-	    convId: string;
-	    path: string;
-	    mode: string;
-	    content: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new GitCatConflictResolveRequest(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.convId = source["convId"];
-	        this.path = source["path"];
-	        this.mode = source["mode"];
-	        this.content = source["content"];
-	    }
-	}
-	export class GitCatConflictCompleteRequest {
-	    convId: string;
-	    message: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new GitCatConflictCompleteRequest(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.convId = source["convId"];
-	        this.message = source["message"];
 	    }
 	}
 	export class GitCatConflictAbortRequest {
@@ -355,7 +349,39 @@ export namespace cat {
 	        this.convId = source["convId"];
 	    }
 	}
-export class GitChange {
+	export class GitCatConflictCompleteRequest {
+	    convId: string;
+	    message?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitCatConflictCompleteRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.message = source["message"];
+	    }
+	}
+	export class GitCatConflictResolveRequest {
+	    convId: string;
+	    path: string;
+	    mode: string;
+	    content?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitCatConflictResolveRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.path = source["path"];
+	        this.mode = source["mode"];
+	        this.content = source["content"];
+	    }
+	}
+	export class GitChange {
 	    path: string;
 	    name: string;
 	    dir: string;
@@ -379,6 +405,24 @@ export class GitChange {
 	        this.deleted = source["deleted"];
 	        this.staged = source["staged"];
 	        this.unstaged = source["unstaged"];
+	    }
+	}
+	export class GitConflictEntry {
+	    path: string;
+	    ours: boolean;
+	    theirs: boolean;
+	    letter?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GitConflictEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.ours = source["ours"];
+	        this.theirs = source["theirs"];
+	        this.letter = source["letter"];
 	    }
 	}
 	export class GitDiffRequest {
@@ -463,24 +507,6 @@ export class GitChange {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
-	    }
-	}
-	export class GitConflictEntry {
-	    path: string;
-	    ours: boolean;
-	    theirs: boolean;
-	    letter: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new GitConflictEntry(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.path = source["path"];
-	        this.ours = source["ours"];
-	        this.theirs = source["theirs"];
-	        this.letter = source["letter"];
 	    }
 	}
 	export class GitStatusResult {
@@ -640,6 +666,44 @@ export class GitChange {
 	    }
 	}
 	
+	export class ProviderCapability {
+	    agentKind: string;
+	    defaultProtocol: string;
+	    allowProtocolPick: boolean;
+	    allowedProtocols: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ProviderCapability(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.agentKind = source["agentKind"];
+	        this.defaultProtocol = source["defaultProtocol"];
+	        this.allowProtocolPick = source["allowProtocolPick"];
+	        this.allowedProtocols = source["allowedProtocols"];
+	    }
+	}
+	export class ProviderSettings {
+	    enabledCustom: boolean;
+	    protocol: string;
+	    apiUrl: string;
+	    apiKeySet: boolean;
+	    apiKey?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProviderSettings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabledCustom = source["enabledCustom"];
+	        this.protocol = source["protocol"];
+	        this.apiUrl = source["apiUrl"];
+	        this.apiKeySet = source["apiKeySet"];
+	        this.apiKey = source["apiKey"];
+	    }
+	}
 	export class ReadFileRequest {
 	    convId: string;
 	    relPath: string;
@@ -712,6 +776,20 @@ export class GitChange {
 	        this.name = source["name"];
 	    }
 	}
+	export class RetryCatTurnRequest {
+	    conversationId: string;
+	    turnId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RetryCatTurnRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conversationId = source["conversationId"];
+	        this.turnId = source["turnId"];
+	    }
+	}
 	export class RevealConversationFolderRequest {
 	    convId: string;
 	
@@ -734,6 +812,20 @@ export class GitChange {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
+	    }
+	}
+	export class SaveProviderKeyRequest {
+	    agentKind: string;
+	    apiKey: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SaveProviderKeyRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.agentKind = source["agentKind"];
+	        this.apiKey = source["apiKey"];
 	    }
 	}
 	export class ScheduleRun {
@@ -980,20 +1072,6 @@ export class GitChange {
 	        this.path = source["path"];
 	    }
 	}
-	export class RetryCatTurnRequest {
-	    conversationId: string;
-	    turnId: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new RetryCatTurnRequest(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.conversationId = source["conversationId"];
-	        this.turnId = source["turnId"];
-	    }
-	}
 	export class SendMessageRequest {
 	    conversationId: string;
 	    content: string;
@@ -1072,96 +1150,17 @@ export class GitChange {
 		    return a;
 		}
 	}
-	export class AgentDefaults {
-	    model: string;
-	    effort: string;
-
-	    static createFrom(source: any = {}) {
-	        return new AgentDefaults(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.model = source["model"];
-	        this.effort = source["effort"];
-	    }
-	}
-	export class ProviderSettings {
-	    enabledCustom: boolean;
-	    protocol: string;
-	    apiUrl: string;
-	    apiKeySet: boolean;
-	    // apiKey 若客户端误传则忽略；Get/Save 永不回显明文
-	    apiKey?: string;
-
-	    static createFrom(source: any = {}) {
-	        return new ProviderSettings(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.enabledCustom = source["enabledCustom"];
-	        this.protocol = source["protocol"];
-	        this.apiUrl = source["apiUrl"];
-	        this.apiKeySet = source["apiKeySet"];
-	        this.apiKey = source["apiKey"];
-	    }
-	}
-	export class ProviderCapability {
-	    agentKind: string;
-	    defaultProtocol: string;
-	    allowProtocolPick: boolean;
-	    allowedProtocols: string[];
-
-	    static createFrom(source: any = {}) {
-	        return new ProviderCapability(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.agentKind = source["agentKind"];
-	        this.defaultProtocol = source["defaultProtocol"];
-	        this.allowProtocolPick = source["allowProtocolPick"];
-	        this.allowedProtocols = source["allowedProtocols"];
-	    }
-	}
-	export class SaveProviderKeyRequest {
-	    agentKind: string;
-	    apiKey: string;
-
-	    static createFrom(source: any = {}) {
-	        return new SaveProviderKeyRequest(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.agentKind = source["agentKind"];
-	        this.apiKey = source["apiKey"];
-	    }
-	}
-	export class ClearProviderKeyRequest {
-	    agentKind: string;
-
-	    static createFrom(source: any = {}) {
-	        return new ClearProviderKeyRequest(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.agentKind = source["agentKind"];
-	    }
-	}
 	export class SetInspectItemEnabledRequest {
 	    projectId: string;
 	    agentKind?: string;
 	    category: string;
 	    name: string;
 	    enabled: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SetInspectItemEnabledRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.projectId = source["projectId"];
@@ -1171,48 +1170,13 @@ export class GitChange {
 	        this.enabled = source["enabled"];
 	    }
 	}
-	export class SkillsDirRequest {
-	    projectId: string;
-
-	    static createFrom(source: any = {}) {
-	        return new SkillsDirRequest(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.projectId = source["projectId"];
-	    }
-	}
-	export class SkillsDirResult {
-	    skillsRoot: string;
-	    mcpConfigPath: string;
-	    skillsRootExists: boolean;
-	    opened: boolean;
-
-	    static createFrom(source: any = {}) {
-	        return new SkillsDirResult(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.skillsRoot = source["skillsRoot"];
-	        this.mcpConfigPath = source["mcpConfigPath"];
-	        this.skillsRootExists = source["skillsRootExists"];
-	        this.opened = source["opened"];
-	    }
-	}
 	export class Settings {
-	    // v0.36
 	    defaultAgentKind: string;
-	    defaultsByAgent: {[key: string]: AgentDefaults};
-	    // v0.38
-	    providersByAgent: {[key: string]: ProviderSettings};
+	    defaultsByAgent: Record<string, AgentDefaults>;
+	    providersByAgent: Record<string, ProviderSettings>;
 	    defaultApprovalMode: string;
 	    customInstruction: string;
 	    notifyOnFinish?: boolean;
-	    // v0.35 读兼容（Get 迁进 defaultsByAgent.cat_build 后 Save 不再带）
-	    defaultModel?: string;
-	    defaultEffort?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -1226,10 +1190,8 @@ export class GitChange {
 	        this.defaultApprovalMode = source["defaultApprovalMode"];
 	        this.customInstruction = source["customInstruction"];
 	        this.notifyOnFinish = source["notifyOnFinish"];
-	        this.defaultModel = source["defaultModel"];
-	        this.defaultEffort = source["defaultEffort"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -1247,6 +1209,36 @@ export class GitChange {
 		    }
 		    return a;
 		}
+	}
+	export class SkillsDirRequest {
+	    projectId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SkillsDirRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.projectId = source["projectId"];
+	    }
+	}
+	export class SkillsDirResult {
+	    skillsRoot: string;
+	    mcpConfigPath: string;
+	    skillsRootExists: boolean;
+	    opened: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SkillsDirResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.skillsRoot = source["skillsRoot"];
+	        this.mcpConfigPath = source["mcpConfigPath"];
+	        this.skillsRootExists = source["skillsRootExists"];
+	        this.opened = source["opened"];
+	    }
 	}
 	export class TermResizeRequest {
 	    id: string;
@@ -1387,6 +1379,70 @@ export class GitChange {
 
 export namespace catagent {
 	
+	export class AgentMode {
+	    id: string;
+	    label: string;
+	    description: string;
+	    writesFiles: boolean;
+	    isDefault: boolean;
+	    shortLabel: string;
+	    risk: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AgentMode(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	        this.description = source["description"];
+	        this.writesFiles = source["writesFiles"];
+	        this.isDefault = source["isDefault"];
+	        this.shortLabel = source["shortLabel"];
+	        this.risk = source["risk"];
+	    }
+	}
+	export class AgentStatus {
+	    agentKind: string;
+	    ready: boolean;
+	    version?: string;
+	    loggedIn?: boolean;
+	    detail?: string;
+	    modes: AgentMode[];
+	
+	    static createFrom(source: any = {}) {
+	        return new AgentStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.agentKind = source["agentKind"];
+	        this.ready = source["ready"];
+	        this.version = source["version"];
+	        this.loggedIn = source["loggedIn"];
+	        this.detail = source["detail"];
+	        this.modes = this.convertValues(source["modes"], AgentMode);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class CancelCatTurnRequest {
 	    convId: string;
 	    turnId: string;
@@ -1429,7 +1485,7 @@ export namespace catagent {
 	    reason?: string;
 	    skillsRoot?: string;
 	    mcpConfigPath?: string;
-	    skillsRootExists?: boolean;
+	    skillsRootExists: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new InspectResult(source);
@@ -1483,52 +1539,6 @@ export namespace catagent {
 	        this.displayName = source["displayName"];
 	        this.efforts = source["efforts"];
 	        this.defaultEffort = source["defaultEffort"];
-	    }
-	}
-	export class AgentMode {
-	    id: string;
-	    label: string;
-	    description: string;
-	    writesFiles: boolean;
-	    isDefault: boolean;
-	    shortLabel: string;
-	    risk: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new AgentMode(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.label = source["label"];
-	        this.description = source["description"];
-	        this.writesFiles = source["writesFiles"];
-	        this.isDefault = source["isDefault"];
-	        this.shortLabel = source["shortLabel"];
-	        this.risk = source["risk"];
-	    }
-	}
-	export class AgentStatus {
-	    agentKind: string;
-	    ready: boolean;
-	    version: string;
-	    loggedIn?: boolean;
-	    detail: string;
-	    modes: AgentMode[];
-
-	    static createFrom(source: any = {}) {
-	        return new AgentStatus(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.agentKind = source["agentKind"];
-	        this.ready = source["ready"];
-	        this.version = source["version"];
-	        this.loggedIn = source["loggedIn"];
-	        this.detail = source["detail"];
-	        this.modes = source["modes"];
 	    }
 	}
 	export class Status {
@@ -3412,6 +3422,92 @@ export namespace media {
 
 }
 
+export namespace office {
+	
+	export class ExportOfficeCanvasPptxRequest {
+	    convId: string;
+	    artifactId: string;
+	    destPath?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExportOfficeCanvasPptxRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.convId = source["convId"];
+	        this.artifactId = source["artifactId"];
+	        this.destPath = source["destPath"];
+	    }
+	}
+	export class ExportOfficeCanvasPptxResult {
+	    path: string;
+	    bytes: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExportOfficeCanvasPptxResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.bytes = source["bytes"];
+	    }
+	}
+
+}
+
+export namespace officecanvas {
+	
+	export class Status {
+	    state: string;
+	    version: string;
+	    source: string;
+	    canDownload: boolean;
+	    downloadBytes: number;
+	    installBytes?: number;
+	    phase?: string;
+	    receivedBytes?: number;
+	    error?: apperr.AppError;
+	
+	    static createFrom(source: any = {}) {
+	        return new Status(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.state = source["state"];
+	        this.version = source["version"];
+	        this.source = source["source"];
+	        this.canDownload = source["canDownload"];
+	        this.downloadBytes = source["downloadBytes"];
+	        this.installBytes = source["installBytes"];
+	        this.phase = source["phase"];
+	        this.receivedBytes = source["receivedBytes"];
+	        this.error = this.convertValues(source["error"], apperr.AppError);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+}
+
 export namespace store {
 	
 	export class CatConversation {
@@ -3466,7 +3562,6 @@ export namespace store {
 	    content: string;
 	    createdAt: number;
 	    media?: CatMedia[];
-	    // v0.37.1 消息尾（仅 assistant；omitempty）
 	    finishedAt?: number;
 	    tokenTotal?: number;
 	    tokensPerSec?: number;

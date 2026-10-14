@@ -9,3 +9,5 @@ export const CAT_RIGHT_COLLAPSED_KEY = 'ffmpegfree.cat.rightCollapsed'
 export const CAT_NEW_CONV_PLACE_KEY = 'ffmpegfree.cat.newConvPlace'
 export const CAT_TYPEWRITER_KEY = 'ffmpegfree.cat.typewriter'
 export const CAT_LAST_NEW_PROJECT_KEY = 'ffmpegfree.cat.lastNewProject'
+/** 每个项目是否已确认过「全部放开」（v0.44，键 = 项目路径） */
+export const CAT_DANGER_ACK_KEY = 'ffmpegfree.cat.dangerAck'

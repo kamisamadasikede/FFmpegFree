@@ -74,16 +74,18 @@
         </div>
         <CatPreviewDialog v-model:open="previewOn" :file="previewFile" />
         <button
+          v-if="modeOpts.length"
           ref="chipAccess"
           type="button"
           class="chip-access"
-          :class="{ on: catState.access === 'approve' }"
+          :class="{ on: accessMeta.risky }"
+          data-testid="cat-mode-chip"
           :disabled="missing"
           aria-haspopup="menu"
           :aria-expanded="menu === 'access'"
           @click.stop="toggle('access')"
         >
-          <FIcon :name="accessMeta.icon" :size="14" /><span>{{ accessMeta.short }}</span>
+          <template v-if="accessMeta.risky"><svg class="tri" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.2 11.2 10.5H.8Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" /><path d="M6 4.6v2.6M6 8.7v.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg></template><FIcon v-else name="shield" :size="14" /><span>{{ accessMeta.short }}</span><FIcon name="down" :size="11" class="caret up" />
         </button>
         <span class="sp" />
         <CatContextRing v-if="contextUsage" :used="contextUsage.used" :size="contextUsage.window" />
@@ -124,32 +126,55 @@
 
       <div v-if="menu" class="mn" :style="menuStyle" @click.stop>
         <!-- 访问模式 -->
-        <div v-if="menu === 'access'" class="mn-access" role="menu" aria-label="访问模式">
-          <div class="mn-ahd"><span>应如何批准 Cat 操作？</span><a class="more" href="#" @click.prevent>了解更多</a></div>
-          <template v-for="a in CAT_ACCESS" :key="a.id">
-          <div v-if="a.id === 'approve'" class="mn-sep" role="separator" />
+        <div v-if="menu === 'access'" class="mn-access" role="menu" aria-label="访问模式" data-testid="cat-mode-menu">
+          <div class="mn-ahd"><span>{{ CAT_MODE_MENU_TITLE }}</span></div>
+          <div class="mn-list">
+          <template v-for="a in modeOpts" :key="a.id">
           <div
             class="mn-acc"
-            :class="{ on: catState.access === a.id, disabled: !a.enabled, danger: a.id === 'approve' }"
+            :class="{ on: accessMeta.id === a.id, danger: a.risky }"
             role="menuitemradio"
             tabindex="0"
-            :aria-checked="catState.access === a.id"
-            :aria-disabled="!a.enabled"
-            :title="a.enabled ? undefined : laterTip"
+            :aria-checked="accessMeta.id === a.id"
             @click="pickAccess(a.id)"
             @keydown.enter.prevent="pickAccess(a.id)"
           >
-            <span class="ic"><FIcon :name="a.icon" :size="18" /></span>
-            <div><b>{{ a.name }}</b><small>{{ a.desc }}</small></div>
-            <FIcon v-if="catState.access === a.id" name="check" :size="16" class="ok" />
+            <div>
+              <b><svg v-if="a.risky" class="tri" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.2 11.2 10.5H.8Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" /><path d="M6 4.6v2.6M6 8.7v.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>{{ a.name }}<em v-if="a.id === currentCaps.modes.defaultId" class="def">默认</em></b>
+              <small v-if="a.desc">{{ a.desc }}</small>
+            </div>
+            <FIcon v-if="accessMeta.id === a.id" name="check" :size="16" class="ok" />
           </div>
           </template>
+          </div>
+          <div v-if="confirmId" class="mn-confirm" role="alertdialog" aria-labelledby="cat-danger-t" data-testid="cat-danger-confirm" @click.stop>
+            <b id="cat-danger-t"><svg class="tri" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.2 11.2 10.5H.8Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" /><path d="M6 4.6v2.6M6 8.7v.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>全部放开？</b>
+            <p>Cat 助手将不经检查执行命令和修改文件，仅建议在隔离环境使用。</p>
+            <div class="bt">
+              <button type="button" class="cf-cancel" data-testid="cat-danger-cancel" @click="confirmId = ''">取消</button>
+              <button type="button" class="cf-danger" data-testid="cat-danger-ok" @click="confirmDanger">全部放开</button>
+            </div>
+          </div>
         </div>
         <!-- D3 模型 + 思考强度合成一个浮层：上半模型列表，下半强度分段 -->
         <div v-else class="mn-pop" data-testid="cat-model-pop">
           <template v-if="catState.models.length">
             <div class="mn-hd">模型</div>
-            <div role="menu" aria-label="模型">
+            <div role="menu" aria-label="模型" data-testid="cat-model-list">
+              <div
+                v-if="followCli"
+                class="mn-op two"
+                :class="{ on: !catState.model }"
+                role="menuitemradio"
+                tabindex="0"
+                :aria-checked="!catState.model"
+                data-testid="cat-model-default"
+                @click="pickModel('')"
+                @keydown.enter.prevent="pickModel('')"
+              >
+                <span class="nm">{{ DEFAULT_MODEL_LABEL }}<small>{{ followCliModelDesc(cliName) }}</small></span>
+                <FIcon v-if="!catState.model" name="check" :size="15" :stroke="2.2" class="ck" />
+              </div>
               <div
                 v-for="m in catState.models"
                 :key="m.id"
@@ -167,19 +192,24 @@
             </div>
           </template>
           <div v-else class="mn-hd">模型 · Cat 助手</div>
-          <template v-if="catState.thinks.length">
+          <template v-if="currentCaps.efforts.options.length">
             <div class="mn-sep" role="separator" />
             <div class="mn-hd">思考强度</div>
-            <div class="mn-seg" role="radiogroup" aria-label="思考强度">
-              <button
+            <div role="menu" aria-label="思考强度" data-testid="cat-effort-list">
+              <div
                 v-for="t in thinkSegs"
                 :key="t.id || 'default'"
-                type="button"
-                role="radio"
-                :class="{ on: t.on }"
+                class="mn-op"
+                :class="{ on: t.on, flash: t.on && effortFlash }"
+                role="menuitemradio"
+                tabindex="0"
                 :aria-checked="t.on"
                 @click="pickThink(t.id)"
-              >{{ t.name }}</button>
+                @keydown.enter.prevent="pickThink(t.id)"
+              >
+                <span class="nm">{{ t.name }}<em v-if="t.def" class="def">默认</em></span>
+                <FIcon v-if="t.on" name="check" :size="15" :stroke="2.2" class="ck" />
+              </div>
             </div>
           </template>
         </div>
@@ -211,14 +241,16 @@ import { ElMessage } from 'element-plus'
 import { CAT_COPY } from '@/api/cat'
 import { composePickSend, pickLabel, type PickNote } from '@/components/cat/catPick'
 import { CAT_PROJECT_COPY as PC } from '@/api/catProjects'
-import { CAT_ACCESS } from '@/api/catMock'
+import { CAT_MODE_MENU_TITLE, DEFAULT_MODEL_LABEL, followCliModelDesc, followsCliModel, modeMeta } from '@/views/cat/catCapabilities'
+import { CAT_PROVIDER_LABEL } from '@/api/catAgents'
+import { ackDanger, dangerAcked } from '@/views/cat/catDangerAck'
 import { pickFiles } from '@/api/system'
 import { toAppError } from '@/api/call'
 import { CAT_ATTACH_MAX, fileBaseName, splitAttach, type CatOutgoingFile } from '@/components/cat/catAttach'
 import { canPreview, previewKind, showsThumb, type CatPreviewKind, type CatShownFile } from '@/components/cat/catMedia'
 import CatThumb from '@/components/cat/CatThumb.vue'
 import CatPreviewDialog from '@/components/cat/CatPreviewDialog.vue'
-import { accessMeta, capsuleLabel, catState, chooseAccess, chooseModel, chooseThink, THINK_DEFAULT_LABEL } from '@/views/cat/catState'
+import { accessMeta, capsuleLabel, catState, chooseAccess, currentAgentKind, currentCaps, currentProject, chooseModel, chooseThink, THINK_DEFAULT_LABEL } from '@/views/cat/catState'
 
 /**
  * Cat 输入框：批准方式可选普通模式 / Plan / 自动审查 / 全部批准，没选过是全部批准。
@@ -285,15 +317,34 @@ type MenuKind = 'access' | 'casc' | null
 const menu = ref<MenuKind>(null)
 const menuStyle = ref<Record<string, string>>({})
 
-const laterTip = CAT_COPY.later
 
 /** 强度分段：「默认」= 不传强度，其余按后端列表原样 */
-const thinkSegs = computed(() => [
-  { id: '', name: THINK_DEFAULT_LABEL, on: !catState.think },
-  ...catState.thinks.map((t) => ({ id: t.id, name: t.displayName, on: catState.think === t.id })),
-])
+const thinkSegs = computed(() => {
+  const eff = currentCaps.value.efforts
+  const segs = eff.options.map((t) => ({
+    id: t.id,
+    name: t.label,
+    on: catState.think === t.id || (!catState.think && t.id === eff.defaultId),
+    def: t.id === eff.defaultId,
+  }))
+  // 模型有默认档：默认档后面灰字「默认」，不再单独放「默认」段；没有默认档时保留「默认」= 不传强度
+  return eff.defaultId ? segs : [{ id: '', name: THINK_DEFAULT_LABEL, on: !catState.think, def: false }, ...segs]
+})
+/** 模式菜单：按当前 agentKind 的列表渲染（列表空 → 胶囊隐藏） */
+const modeOpts = computed(() => currentCaps.value.modes.options.map(modeMeta))
+const followCli = computed(() => followsCliModel(currentAgentKind()))
+const cliName = computed(() => (CAT_PROVIDER_LABEL as Record<string, string>)[currentAgentKind()] ?? '')
+/** 切模型后档位被回落到默认：档位文字主色浅底高亮约 0.9 秒（设计 §4），不弹提示 */
+const effortFlash = ref(false)
+let flashTimer: ReturnType<typeof setTimeout> | undefined
 function pickModel(id: string) {
+  const before = catState.think
   chooseModel(id)
+  if (before && catState.think !== before) {
+    effortFlash.value = true
+    clearTimeout(flashTimer)
+    flashTimer = setTimeout(() => (effortFlash.value = false), 900)
+  }
 }
 function pickThink(id: string) {
   chooseThink(id)
@@ -309,20 +360,87 @@ function open(kind: Exclude<MenuKind, null>) {
     menuStyle.value = { right: Math.max(0, (ci?.right ?? 0) - (a?.right ?? 0)) + 'px', left: 'auto' }
   }
   menu.value = kind
+  void nextTick(fitMenu)
+}
+function confirmDanger() {
+  ackDanger(currentProject.value?.path)
+  const id = confirmId.value
+  confirmId.value = ''
+  chooseAccess(id)
+  close()
+}
+/**
+ * 弹层朝哪边开（设计复核 #260）：欢迎页（输入框居中）默认向下，对话页默认向上；
+ * 默认方向放不下就换到放得下的一边；两边都放不下就选空间大的一边，菜单内滚动。
+ * 可用高度写进 --mn-max，各菜单 max-height 跟它走。
+ */
+function clipRect(from: HTMLElement): { top: number; bottom: number } {
+  for (let p = from.parentElement; p; p = p.parentElement) {
+    const o = getComputedStyle(p)
+    if (/(hidden|auto|scroll|clip)/.test(o.overflowY + o.overflow)) {
+      const r = p.getBoundingClientRect()
+      return { top: Math.max(0, r.top), bottom: Math.min(window.innerHeight, r.bottom) }
+    }
+  }
+  return { top: 0, bottom: window.innerHeight }
+}
+/** 菜单打开时停在顶部；只有选中项没完整露出时，才最小幅度滚动把它露出来 */
+function revealSelected() {
+  const el = root.value?.querySelector('.mn') as HTMLElement | null
+  if (!el) return
+  const boxes = [el, ...Array.from(el.querySelectorAll<HTMLElement>('*'))].filter((n) => n.scrollHeight > n.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(n).overflowY))
+  for (const box of boxes) {
+    box.scrollTop = 0
+    const b = box.getBoundingClientRect()
+    for (const on of Array.from(box.querySelectorAll<HTMLElement>('.on'))) {
+      const r = on.getBoundingClientRect()
+      if (r.bottom > b.bottom) box.scrollTop += r.bottom - b.bottom
+      else if (r.top < b.top) box.scrollTop -= b.top - r.top
+    }
+  }
+}
+function fitMenu() {
+  const el = root.value?.querySelector('.mn') as HTMLElement | null
+  const anchor = el?.offsetParent as HTMLElement | null
+  if (!el || !anchor || !menu.value) return
+  const a = anchor.getBoundingClientRect()
+  const c = clipRect(anchor)
+  const GAP = 8
+  const up = a.top - c.top - GAP * 2
+  const down = c.bottom - a.bottom - GAP * 2
+  const need = (el.firstElementChild as HTMLElement | null)?.scrollHeight ?? el.offsetHeight
+  const prefer: 'up' | 'down' = props.welcome ? 'down' : 'up'
+  const other = prefer === 'up' ? 'down' : 'up'
+  const room = { up, down }
+  const side = room[prefer] >= need ? prefer : room[other] >= need ? other : room.up >= room.down ? 'up' : 'down'
+  const max = Math.max(120, Math.floor(room[side])) + 'px'
+  void nextTick(revealSelected)
+  menuStyle.value =
+    side === 'down'
+      ? { ...menuStyle.value, top: `calc(100% + ${GAP}px)`, bottom: 'auto', transformOrigin: 'left top', '--mn-max': max }
+      : { ...menuStyle.value, top: 'auto', bottom: `calc(100% + ${GAP}px)`, transformOrigin: 'left bottom', '--mn-max': max }
 }
 function close() {
+  confirmId.value = ''
   menu.value = null
 }
 function toggle(kind: Exclude<MenuKind, null>) {
   if (menu.value === kind) close()
   else open(kind)
 }
-function pickAccess(id: 'normal' | 'plan' | 'auto' | 'approve') {
-  const a = CAT_ACCESS.find((x) => x.id === id)
-  if (!a?.enabled) {
+const confirmId = ref('')
+/** 切到 danger：这个项目第一次要确认；切走不用确认。取消 = 保持原模式 */
+function pickAccess(id: string) {
+  const opt = modeOpts.value.find((x) => x.id === id)
+  if (!opt) {
     ElMessage.info(CAT_COPY.later)
     return
   }
+  if (opt.risky && accessMeta.value.id !== id && !dangerAcked(currentProject.value?.path)) {
+    confirmId.value = id
+    return
+  }
+  confirmId.value = ''
   chooseAccess(id)
   close()
 }
@@ -1110,7 +1228,7 @@ button {
 }
 
 .mn-pop {
-  width: 236px;
+  width: 260px;
   box-sizing: border-box;
   padding: 6px;
   background: var(--cat-elevated);
@@ -1156,6 +1274,7 @@ button {
 }
 .mn-seg {
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
   margin: 2px 4px 4px;
   padding: 3px;
@@ -1163,8 +1282,9 @@ button {
   background: var(--cat-sunken);
 }
 .mn-seg button {
-  flex: 1;
+  flex: 1 0 auto;
   min-width: 0;
+  padding: 0 6px;
   height: 26px;
   border: none;
   border-radius: var(--cat-radius-sm);
@@ -1218,6 +1338,179 @@ button {
   color: var(--cat-text);
 }
 .wl-proj :deep(svg) {
+  color: var(--cat-muted);
+}
+.mn-seg .def {
+  margin-left: 3px;
+  font-size: 10px;
+  color: var(--cat-text-3, #999);
+}
+/* v0.44 danger：名字前几何三角警示；说明保持灰 */
+.mn-acc .tri {
+  width: 12px;
+  height: 12px;
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+.mn-acc.danger small {
+  color: var(--cat-muted);
+}
+.mn-access {
+  position: relative;
+}
+.mn-confirm {
+  position: absolute;
+  left: calc(100% + 8px);
+  bottom: 0;
+  width: 260px;
+  box-sizing: border-box;
+  padding: 14px;
+  background: var(--cat-elevated);
+  border: 1px solid var(--cat-border);
+  border-radius: 12px;
+  box-shadow: var(--cat-shadow-lg);
+  color: var(--cat-text);
+}
+.mn-confirm b {
+  font-size: 14px;
+}
+.mn-confirm p {
+  margin: 6px 0 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--cat-muted);
+}
+.mn-confirm .bt {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.mn-confirm button {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  cursor: pointer;
+  border: 1px solid var(--cat-border);
+  background: transparent;
+  color: var(--cat-text);
+}
+.mn-confirm .cf-danger {
+  border-color: transparent;
+  background: var(--cat-danger, #d93025);
+  color: #fff;
+}
+/* v0.44 设计 v0.1 对齐 */
+.mn-access {
+  width: 220px;
+  padding: 6px;
+  border-radius: 12px;
+}
+.mn-access .mn-ahd {
+  padding: 6px 8px 4px;
+  font-size: 11.5px;
+  color: var(--cat-muted);
+}
+.mn-list {
+  /* 可用高度减去标题行与内边距；放不下就在列表内滚动 */
+  max-height: calc(var(--mn-max, 100vh) - 40px);
+  overflow-y: auto;
+}
+.mn-access .mn-acc {
+  padding: 7px 8px;
+  border-radius: 8px;
+  gap: 8px;
+}
+.mn-access .mn-acc b {
+  font-size: 13px;
+  font-weight: 550;
+  display: flex;
+  align-items: center;
+}
+.mn-access .mn-acc small {
+  /* 说明最多两行自然换行，不截断（设计 v0.1.1） */
+  white-space: normal;
+  overflow: visible;
+  word-break: break-word;
+}
+.mn-access .mn-acc.on {
+  background: transparent;
+}
+.mn-access .mn-acc.on b {
+  color: var(--cat-text);
+}
+.mn-access .mn-acc:hover {
+  background: var(--cat-hover);
+}
+.mn-access .mn-acc .ok {
+  color: var(--cat-accent);
+}
+.mn-access .mn-acc.danger b {
+  color: var(--cat-orange);
+}
+.mn-access .mn-acc.danger.on {
+  background: var(--cat-hover);
+}
+.def {
+  margin-left: 6px;
+  font-style: normal;
+  font-weight: 400;
+  font-size: 11.5px;
+  color: var(--cat-muted);
+}
+.chip-access .tri {
+  width: 13px;
+  height: 13px;
+}
+.chip-access .caret.up {
+  transform: rotate(180deg);
+  opacity: 0.7;
+}
+.mn-confirm {
+  width: 280px;
+}
+.mn-confirm b {
+  /* Chrome 默认 text-spacing-trim 会把行尾全角「？」压成半宽，这里保持全宽 */
+  text-spacing-trim: space-all;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+.mn-confirm b .tri {
+  width: 14px;
+  height: 14px;
+  color: var(--cat-orange);
+}
+.mn-confirm p {
+  color: var(--cat-text-2);
+}
+.mn-confirm button {
+  height: 30px;
+}
+.mn-pop {
+  width: 240px;
+  max-height: var(--mn-max, 100vh);
+  overflow-y: auto;
+  border-radius: 12px;
+}
+.mn-op .ck {
+  color: var(--cat-accent);
+}
+.mn-op.flash .nm {
+  background: color-mix(in srgb, var(--cat-accent) 14%, transparent);
+  color: var(--cat-accent);
+  border-radius: 4px;
+  transition: background 0.3s;
+}
+.mn-op.two {
+  height: auto;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.mn-op.two .nm small {
+  display: block;
+  font-size: 11.5px;
   color: var(--cat-muted);
 }
 </style>

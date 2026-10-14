@@ -15,6 +15,9 @@
  *   slowconv —— 打开对话时模拟读记录 900ms（看消息骨架）
  *   browsertimeout —— 侧栏浏览器打开任意网址时按超时失败（文案同后端）
  *   caps     —— 模型 / 思考强度给一份走查用列表（含「极高」等任意档位；模型名是真实风格 ID，不叫「Cat 助手 …」），走查胶囊「默认」和选档
+ *   codexcaps —— 【走查假数据，不是 Codex CLI 真实列表】Codex 会话给一份不同于 Grok 的模式 / 强度列表，走查「按 agentKind 渲染」；契约 v0.44 落地后以后端为准
+ *   failonce —— 配合 stream：每条对话第一轮直接失败，走查「重试」原地重发（v0.44 RetryCatTurn）
+ *   histempty —— 打开任意对话都当作记录没找到（零轮），走查空状态
  *   md       —— 配合 stream：推一段 Markdown 回复（标题、列表、表格、代码块、引用、链接、外链图片、原始 HTML）
  *   savefail —— Cat 设置保存失败（该项回滚 +「保存失败，请重试。」）
  *   inspectslow / inspectfail / inspectempty —— 技能与扩展：加载 4 秒 / 失败 / 为空
@@ -61,8 +64,8 @@ export function simThinks(): CatThinkLevel[] {
   ]
 }
 
-export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'md' | 'mdhold' | 'savefail' | 'inspectslow' | 'inspectfail' | 'inspectempty' | 'clearfail' | 'keyfail' | 'skillsmissing' | 'setenablefail' | 'schedempty' | 'schedfail' | 'slowconv' | 'browsertimeout' | 'footertime' | 'allagents' | 'gitconflict' | 'gitrebase' | 'gitdone' | 'gitbranch' | 'office' | 'officeneed' | 'officedl' | 'officefail' | 'officepreview' | 'officeready' | 'clioutdated'
-const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'md', 'mdhold', 'savefail', 'inspectslow', 'inspectfail', 'inspectempty', 'clearfail', 'keyfail', 'skillsmissing', 'setenablefail', 'schedempty', 'schedfail', 'slowconv', 'browsertimeout', 'footertime', 'allagents', 'gitconflict', 'gitrebase', 'gitdone', 'gitbranch', 'office', 'officeneed', 'officedl', 'officefail', 'officepreview', 'officeready', 'clioutdated']
+export type CatSimFlag = 'checking' | 'stream' | 'noproj' | 'missing' | 'slowdel' | 'delfail' | 'caps' | 'codexcaps' | 'failonce' | 'histempty' | 'md' | 'mdhold' | 'savefail' | 'inspectslow' | 'inspectfail' | 'inspectempty' | 'clearfail' | 'keyfail' | 'skillsmissing' | 'setenablefail' | 'schedempty' | 'schedfail' | 'slowconv' | 'browsertimeout' | 'footertime' | 'allagents' | 'gitconflict' | 'gitrebase' | 'gitdone' | 'gitbranch' | 'office' | 'officeneed' | 'officedl' | 'officefail' | 'officepreview' | 'officeready' | 'clioutdated'
+const FLAGS: readonly string[] = ['checking', 'stream', 'noproj', 'missing', 'slowdel', 'delfail', 'caps', 'codexcaps', 'failonce', 'histempty', 'md', 'mdhold', 'savefail', 'inspectslow', 'inspectfail', 'inspectempty', 'clearfail', 'keyfail', 'skillsmissing', 'setenablefail', 'schedempty', 'schedfail', 'slowconv', 'browsertimeout', 'footertime', 'allagents', 'gitconflict', 'gitrebase', 'gitdone', 'gitbranch', 'office', 'officeneed', 'officedl', 'officefail', 'officepreview', 'officeready', 'clioutdated']
 
 export const catSim: ReadonlySet<CatSimFlag> = (() => {
   if (!import.meta.env.DEV || typeof window === 'undefined') return new Set<CatSimFlag>()
@@ -148,3 +151,63 @@ export function simStream(
   }
   setTimeout(tick, 400)
 }
+
+/**
+ * 【MOCK · 走查假数据】?cat_sim=caps（或 codexcaps）：三家 v0.44 原始形状（agents[].modes + ListCatModels），
+ * 经 mapAgentModes / mapModelEfforts 映射；字段名按契约 #255。模式名 / 短名 / 说明按产品设计 10-14 定稿稿（短名仍是草案，数据驱动）。
+ * 模型档位抄自 /workspace/notes/cli-modes-effort.md（Codex：codex debug models --bundled；Grok：内嵌模型目录）。
+ * 走查用，不是运行时真实数据。
+ */
+type SimMode = { id: string; label: string; shortLabel: string; risk: 'safe' | 'edits' | 'danger'; description: string; writesFiles: boolean; isDefault: boolean }
+const md = (id: string, label: string, shortLabel: string, risk: SimMode['risk'], description = '', isDefault = false): SimMode => ({ id, label, shortLabel, risk, description, writesFiles: risk !== 'safe', isDefault })
+const BYPASS_DESC = '不做任何检查，仅建议在隔离环境使用'
+
+export function simAgentRaw(kind: string): { modes: SimMode[]; models: { id: string; displayName: string; defaultEffort: string; efforts: string[] }[] } {
+  if (kind === 'claude_cli') {
+    return {
+      modes: [
+        md('manual', '只读', '只读', 'safe', '只看文件，不改动', true),
+        md('plan', '计划', '计划', 'safe', '先分析并给出方案，不改文件'),
+        md('acceptEdits', '自动改文件', '改文件', 'edits', '直接修改文件，其他命令不执行'),
+        md('auto', '自动', '自动', 'edits', '自动执行，经过安全检查'),
+        md('bypassPermissions', '全部放开', '全部放开', 'danger', BYPASS_DESC),
+      ],
+      // 【MOCK】Claude 四个别名，显示名为示意（后端将经 ListCatModels 下发）；按设计说明 §5 示例：sonnet 没有很高；haiku efforts=[] → 强度行隐藏
+      models: [
+        { id: 'opus', displayName: 'Opus 5.5', defaultEffort: 'high', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+        { id: 'sonnet', displayName: 'Sonnet 5.5', defaultEffort: 'high', efforts: ['low', 'medium', 'high', 'max'] },
+        { id: 'haiku', displayName: 'Haiku 5.5', defaultEffort: '', efforts: [] },
+        { id: 'fable', displayName: 'Fable 5.1', defaultEffort: 'high', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+      ],
+    }
+  }
+  if (kind === 'codex_cli') {
+    return {
+      modes: [
+        md('read-only', '只读', '只读', 'safe', '只读取文件，不修改，命令在只读沙箱中运行', true),
+        md('workspace-write', '改项目文件', '改文件', 'edits', '可修改项目内文件，命令在沙箱中运行'),
+        md('approve-for-me', '自动审查', '自动审查', 'edits', '可修改项目文件，需要批准的操作交给自动审查'),
+        md('bypass', '全部放开', '全部放开', 'danger', BYPASS_DESC),
+      ],
+      models: [
+        { id: 'gpt-6.1-sol', displayName: 'gpt-6.1-sol', defaultEffort: 'low', efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] },
+        { id: 'gpt-6-luna', displayName: 'gpt-6-luna', defaultEffort: 'medium', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+        { id: 'gpt-5.5', displayName: 'gpt-5.5', defaultEffort: 'medium', efforts: ['low', 'medium', 'high', 'xhigh'] },
+        { id: 'custom-model', displayName: 'custom-model', defaultEffort: '', efforts: [] },
+      ],
+    }
+  }
+  return {
+    modes: [
+      md('default', '只读', '只读', 'safe', '只用只读工具和只读命令，不修改文件', true),
+      md('acceptEdits', '自动改文件', '改文件', 'edits', '直接修改文件，不再询问'),
+      md('auto', '自动', '自动', 'edits', '安全检查放行的操作直接执行，其他的会被拦下'),
+      md('always-approve', '全部放开', '全部放开', 'danger', BYPASS_DESC),
+    ],
+    models: [
+      { id: 'grok-4.6', displayName: 'grok-4.6', defaultEffort: 'high', efforts: ['low', 'medium', 'high', 'xhigh'] },
+      { id: 'grok-4.5', displayName: 'grok-4.5', defaultEffort: 'high', efforts: ['low', 'medium', 'high'] },
+    ],
+  }
+}
+
