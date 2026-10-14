@@ -165,6 +165,7 @@ function footerFields(block: Extract<CatBlock, { kind: 'a' }>): CatMessageFooter
   return {
     finishedAt: block.finishedAt,
     tokenTotal: block.tokenTotal,
+    outputTokens: block.outputTokens,
     tokensPerSec: block.tokensPerSec,
     firstTokenMs: block.firstTokenMs,
     totalMs: block.totalMs,

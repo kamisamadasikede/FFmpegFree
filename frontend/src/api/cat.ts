@@ -1,5 +1,5 @@
 import { readCatHistoryStatus, type CatHistoryStatus } from './catHistoryStatus'
-import { pickCatTiming } from '@/components/cat/catTimingAdapter'
+import { pickCatOutput, pickCatTiming } from '@/components/cat/catTimingAdapter'
 /**
  * Cat 助手接口层（契约 v0.30 §6.19；v0.36 多服务商 cat_build|claude_cli|codex_cli）。
  *
@@ -125,6 +125,8 @@ export interface CatMessage {
   /** v0.37.1 消息尾（仅 assistant；缺省不显示） */
   finishedAt?: number
   tokenTotal?: number
+  /** v0.47 §6.19.19.5 输出 token；缺省则不带 tokensPerSec */
+  outputTokens?: number
   tokensPerSec?: number
   /** v0.45 首字 / 总耗时（毫秒；缺省不显示） */
   firstTokenMs?: number
@@ -284,7 +286,7 @@ function mapMedia(raw: unknown): CatShownFile[] | undefined {
   return out.length ? out : undefined
 }
 
-function mapMsg(raw: { id?: string; role?: string; content?: string; createdAt?: number; media?: unknown; finishedAt?: unknown; tokenTotal?: unknown; tokensPerSec?: unknown } | null | undefined): CatMessage {
+function mapMsg(raw: { id?: string; role?: string; content?: string; createdAt?: number; media?: unknown; finishedAt?: unknown; tokenTotal?: unknown; outputTokens?: unknown; tokensPerSec?: unknown } | null | undefined): CatMessage {
   const r = raw?.role
   const role = r === 'user' || r === 'system' || r === 'thought' || r === 'tool' ? r : 'assistant'
   const msg: CatMessage = {
@@ -302,11 +304,8 @@ function mapMsg(raw: { id?: string; role?: string; content?: string; createdAt?:
       const tot = Number(raw.tokenTotal)
       if (Number.isFinite(tot)) msg.tokenTotal = tot
     }
-    if (raw.tokensPerSec !== undefined && raw.tokensPerSec !== null && raw.tokensPerSec !== '') {
-      const rate = Number(raw.tokensPerSec)
-      if (Number.isFinite(rate) && rate > 0) msg.tokensPerSec = rate
-    }
-    Object.assign(msg, pickCatTiming(raw))
+    // v0.47：outputTokens + 后端 tokensPerSec 同进退
+    Object.assign(msg, pickCatOutput(raw), pickCatTiming(raw))
   }
   return msg
 }
