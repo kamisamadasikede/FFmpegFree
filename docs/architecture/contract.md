@@ -6264,12 +6264,12 @@ Codex 任一工具 `status` 为 failed / declined 时标签后加 ` · 失败`�
 
 `CatBranchesResult`：`root`（对话根绝对路径，总是给）、`git`（PATH 上找得到 git）、`repo`（对话根在 git 工作树内）、`branch`（当前本地分支，`git symbolic-ref --short -q HEAD`；分离 HEAD 为空）、`detached`、`upstream`（`git rev-parse --abbrev-ref --symbolic-full-name @{u}`，没有为空）、`locals[]`（`refs/heads/*`，按名排序）、`remotes[]`（`refs/remotes/*` 去掉 `*/HEAD`，且本地没有同名分支的，按名排序）。`git=false` 或 `repo=false` 时分支字段为空、数组为 `[]`。
 
-**SwitchCatBranch 校验顺序**：会话存在 → 该对话（项目对话：同项目任一对话）有进行中的一轮 → `TASK_CONFLICT` `reason=turn_running`「正在回复，等这一轮结束再切换分支。」→ 不是仓库 `INVALID_ARGUMENT`「这里还不是 git 仓库。」→ 分支名不合法 / 不存在 → `NOT_FOUND` `reason=branch_not_found`「找不到这个分支。」→ 目标就是当前分支 → 直接成功（不看工作区）→ 工作区有任何改动（含未跟踪）→ `TASK_CONFLICT` `reason=git_dirty`「有未提交的改动，先提交或暂存再切换分支。」（不自动 stash、不强切）→ git 失败 `PROCESS_FAILED`（stderr 截断）；没装 git `NOT_FOUND`「没有找到 git。」。
+**SwitchCatBranch 校验顺序**：会话存在 → 该对话（项目对话：同项目任一对话）有进行中的一轮 → `TASK_CONFLICT` `reason=turn_running`「正在回复，等这一轮结束再切换分支。」→ 不是仓库 `INVALID_ARGUMENT`「这里还不是 git 仓库。」→ 分支名不合法 / 不存在 → `NOT_FOUND` `reason=branch_not_found`「找不到这个分支，可能已被删除。」→ 目标就是当前分支 → 直接成功（不看工作区）→ 工作区有任何改动（含未跟踪）→ `TASK_CONFLICT` `reason=git_dirty`「有未提交的改动，请先提交或暂存，再切换分支。」（不自动 stash、不强切）→ git 失败 `PROCESS_FAILED`（stderr 截断；git 以 `LC_ALL=C` 运行，stderr 含 `would be overwritten`（本地改动 / 未跟踪或被忽略的文件会被覆盖，预检之后才出现的也算）时改归 `TASK_CONFLICT` `reason=git_dirty`，文案同上）；没装 git `NOT_FOUND`「没有找到 git。」。
 
 **git 调用**：全部走 `runGit`（`proc.Configure`：Windows 隐藏控制台窗口、不弹黑框；`GIT_TERMINAL_PROMPT=0`）。
 
 **前端**（`CatComposer` 底栏，欢迎页不显示）：
-1. 左：项目对话显示项目名；普通对话显示 `root` 中间省略（36 字符，`…`），读不到 `root` 时退回原名字。tooltip = 全路径 + 换行 +「在文件管理器中打开」。点击 → `RevealCatConversationFolder`，失败 toast 后端 message，没有则「打不开文件夹，请重试。」。
+1. 左：项目对话显示项目名；普通对话显示 `root` 中间省略（36 字符，`…`），读不到 `root` 时退回原名字。tooltip = 全路径 + 换行 +「在文件管理器中打开」。点击 → `RevealCatConversationFolder`，失败 toast 后端 message，没有则「打不开这个文件夹，可能已被移动或删除。」。
 2. `repo=true` 时：地球图标 + `upstream`；空 → 灰字「无远程分支」。tooltip「远程分支（上游）」。
 3. 分支图标 + 本地分支下拉（`CatModeSelect compact`）：选项 = 本地分支；有 `remotes` 时加不可选小标题「远程分支」再列远程分支。分离 HEAD 时触发器显示「分离 HEAD」。正在回复 / 切换中 / 项目文件夹不见了 → 禁用。成功 toast「已切换到 {分支}」并刷新；失败 toast：`git_dirty` / `turn_running` / `branch_not_found` 用上面文案，其他用后端 message，没有则「切换分支失败，请重试。」。
 4. 刷新时机：切换对话、每轮结束（`running` 变 false）、切换后。

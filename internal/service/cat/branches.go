@@ -12,9 +12,9 @@ import (
 // 契约 v0.49（6.19.24）：输入框底栏的文件夹 / 远程分支 / 本地分支。
 
 const (
-	MsgBranchDirty       = "有未提交的改动，先提交或暂存再切换分支。"
+	MsgBranchDirty       = "有未提交的改动，请先提交或暂存，再切换分支。"
 	MsgBranchTurnRunning = "正在回复，等这一轮结束再切换分支。"
-	MsgBranchNotFound    = "找不到这个分支。"
+	MsgBranchNotFound    = "找不到这个分支，可能已被删除。"
 )
 
 // CatBranchesRequest 是 ListCatBranches / SwitchCatBranch 的对话定位。
@@ -177,18 +177,37 @@ func (s *Service) SwitchCatBranch(ctx context.Context, req SwitchCatBranchReques
 		return err
 	}
 	if dirty {
-		return apperr.New(apperr.TaskConflict, MsgBranchDirty).WithDetail("reason=git_dirty")
+		return errBranchDirty()
 	}
 	args := []string{"switch", local}
 	if req.Remote && !localBranchExists(ctx, lay.top, local) {
 		args = []string{"switch", "--track", name}
 	}
-	_, stderr, err := runGit(ctx, gitAddTimeout, lay.top, args...)
+	// LC_ALL=C：stderr 固定英文，才能可靠识别 would be overwritten（本地化的 git 会翻译这句）。
+	_, stderr, err := runGitEnv(ctx, gitAddTimeout, lay.top, gitCLocale, args...)
 	if err != nil {
 		if gitNotRepo(stderr, err) {
 			return errNotRepo()
 		}
+		if gitWouldOverwrite(stderr) {
+			// 预检之后才出现的改动，或被 .gitignore 忽略、却会被目标分支覆盖的文件：按未提交改动处理。
+			return errBranchDirty()
+		}
 		return asGitErr(err, stderr, "")
 	}
 	return nil
+}
+
+func errBranchDirty() error {
+	return apperr.New(apperr.TaskConflict, MsgBranchDirty).WithDetail("reason=git_dirty")
+}
+
+// gitCLocale 让 git 输出不被翻译。
+var gitCLocale = []string{"LC_ALL=C", "LANG=C", "LANGUAGE="}
+
+// gitWouldOverwrite 识别 checkout / switch 因本地改动或未跟踪文件会被覆盖而拒绝：
+// "Your local changes to the following files would be overwritten by checkout/merge"、
+// "The following untracked working tree files would be overwritten by checkout"。
+func gitWouldOverwrite(stderr string) bool {
+	return strings.Contains(strings.ToLower(stderr), "would be overwritten")
 }

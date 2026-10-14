@@ -841,6 +841,11 @@ func findGitLayout(ctx context.Context, convRoot string) (gitLayout, bool, error
 }
 
 func runGit(ctx context.Context, timeout time.Duration, dir string, args ...string) ([]byte, string, error) {
+	return runGitEnv(ctx, timeout, dir, nil, args...)
+}
+
+// runGitEnv 同 runGit，额外追加环境变量（后者覆盖前者）。
+func runGitEnv(ctx context.Context, timeout time.Duration, dir string, extraEnv []string, args ...string) ([]byte, string, error) {
 	exe, err := exec.LookPath("git")
 	if err != nil {
 		return nil, "", errGitMissing()
@@ -856,6 +861,7 @@ func runGit(ctx context.Context, timeout time.Duration, dir string, args ...stri
 		"GIT_EDITOR=true",
 		"EDITOR=true",
 	)
+	cmd.Env = append(cmd.Env, extraEnv...)
 	proc.Configure(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

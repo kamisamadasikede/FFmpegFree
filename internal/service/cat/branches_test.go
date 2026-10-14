@@ -104,7 +104,7 @@ func TestListAndSwitchCatBranches(t *testing.T) {
 	}
 	err = svc.SwitchCatBranch(ctx, cat.SwitchCatBranchRequest{ConvID: id, Branch: "main"})
 	e := apperr.From(err)
-	if !apperr.Is(err, apperr.TaskConflict) || e.Detail != "reason=git_dirty" || e.Message != "有未提交的改动，先提交或暂存再切换分支。" {
+	if !apperr.Is(err, apperr.TaskConflict) || e.Detail != "reason=git_dirty" || e.Message != cat.MsgBranchDirty {
 		t.Fatalf("dirty: %v", err)
 	}
 	res, _ = svc.ListCatBranches(ctx, cat.CatBranchesRequest{ConvID: id})
