@@ -1475,7 +1475,6 @@ export namespace catagent {
 	    agentKind: string;
 	    ready: boolean;
 	    version?: string;
-	    loggedIn?: boolean;
 	    detail?: string;
 	    modes: AgentMode[];
 	    checking: boolean;
@@ -1492,7 +1491,6 @@ export namespace catagent {
 	        this.agentKind = source["agentKind"];
 	        this.ready = source["ready"];
 	        this.version = source["version"];
-	        this.loggedIn = source["loggedIn"];
 	        this.detail = source["detail"];
 	        this.modes = this.convertValues(source["modes"], AgentMode);
 	        this.checking = source["checking"];
