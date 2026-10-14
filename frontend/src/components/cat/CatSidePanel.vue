@@ -159,7 +159,7 @@
                     :aria-label="rowDotLabel(c.id, c.st) || undefined"
                     :aria-hidden="rowDotLabel(c.id, c.st) ? undefined : true"
                   />
-                  <span class="t" :title="t('cat.misc.s_7625cbf244')">{{ c.title || t('cat.misc.s_1ac07a4bb2') }}</span>
+                  <span class="t" :title="c.title || t('cat.misc.s_1ac07a4bb2')">{{ c.title || t('cat.misc.s_1ac07a4bb2') }}</span>
                   <span v-if="c.main" class="main-tag">主要</span>
                 </div>
                 <div v-if="c.sub || c.time" class="l2"><span class="t" :title="c.sub">{{ c.sub }}</span><span class="tm">{{ c.time }}</span></div>
@@ -182,7 +182,7 @@
         @click="onConvClick(c.id, $event)"
         @keydown.enter.self="selectConv(c.id)"
       >
-        <FIcon name="chat" :size="16" /><i v-if="rowDot(c.id, c.st)" class="st" :class="rowDot(c.id, c.st)" role="img" :aria-label="rowDotLabel(c.id, c.st)" /><span class="t" :title="t('cat.misc.s_7625cbf244')">{{ c.title || t('cat.misc.s_1ac07a4bb2') }}</span>
+        <FIcon name="chat" :size="16" /><i v-if="rowDot(c.id, c.st)" class="st" :class="rowDot(c.id, c.st)" role="img" :aria-label="rowDotLabel(c.id, c.st)" /><span class="t" :title="c.title || t('cat.misc.s_1ac07a4bb2')">{{ c.title || t('cat.misc.s_1ac07a4bb2') }}</span>
         <button
           type="button"
           class="ib c-more"

@@ -107,7 +107,7 @@
         v-model="draft"
         class="ta"
         rows="1"
-        :placeholder="missing ? '' : placeholder"
+        :placeholder="missing ? '' : placeholderText"
         :disabled="missing"
         :aria-label="t('cat.misc.s_f363e2c02f')"
         @input="autosize"
@@ -372,7 +372,8 @@ const props = withDefaults(
   defineProps<{ welcome?: boolean; placeholder?: string; ctxName?: string; ctxBranch?: string; busy?: boolean; running?: boolean; stopping?: boolean; notReady?: boolean; checking?: boolean; missing?: boolean; projectName?: string; convId?: string; isProject?: boolean }>(),
   {
     welcome: false,
-    placeholder: t('cat.misc.s_d52a943d7f'),
+    /** 空 = 用 computed placeholderText 回落到 i18n（defineProps 默认值不能引用 t） */
+    placeholder: '',
     ctxName: 'Cat',
     ctxBranch: 'main',
     busy: false,
@@ -390,6 +391,8 @@ const props = withDefaults(
     isProject: false,
   },
 )
+/** props.placeholder 优先；未传时按当前语言回落（随 locale 响应） */
+const placeholderText = computed(() => props.placeholder || t('cat.misc.s_d52a943d7f'))
 let missSeq = 0
 const missId = `ct-miss-${++missSeq}-${Math.random().toString(36).slice(2, 7)}`
 const emit = defineEmits<{ send: [payload: { text: string; files: CatOutgoingFile[]; own: string; notes: PickNote[] }]; stop: []; blocked: [] }>()
