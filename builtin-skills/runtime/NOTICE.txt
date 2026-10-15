@@ -1,0 +1,17 @@
+ffc built-in skills
+
+The ten officecli-* and morph-ppt* skill directories are adapted from:
+  iOfficeAI/OfficeCLI, revision fb98e593612dee2cec36847666671dba502e60aa
+  https://github.com/iOfficeAI/OfficeCLI
+Copyright 2026 OfficeCLI contributors. Apache License 2.0.
+Changes: ffc-managed runtime setup, cross-platform launchers, and in-app live
+preview guidance. Original design references and examples are retained.
+
+The PDF, Mermaid and story-roleplay skills and their helpers are independent
+ffc implementations under the project's MulanPSL-2.0 license. Functional scope
+was informed by AionCore revision 503a87199eb978790ca77675b39c84b241535bf3.
+No AionCore proprietary PDF skill text or scripts are included.
+
+OfficeCLI is downloaded separately as a verified native executable (Apache-2.0).
+beautiful-mermaid, pypdf, ReportLab and pypdfium2 are separate runtime dependencies
+with their own licenses. Their source/packages are not embedded into this bundle.

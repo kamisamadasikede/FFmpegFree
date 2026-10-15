@@ -3,6 +3,7 @@
 import {catagent} from '../models';
 import {cat} from '../models';
 import {store} from '../models';
+import {genoffice} from '../models';
 import {doc} from '../models';
 
 export function CancelCatTurn(arg1:catagent.CancelCatTurnRequest):Promise<void>;
@@ -46,6 +47,8 @@ export function GetCatConversation(arg1:string):Promise<cat.ConversationDetail>;
 export function GetCatMessageQueue(arg1:string):Promise<cat.MessageQueue>;
 
 export function GetCatNotifyStatus():Promise<cat.NotifyStatus>;
+
+export function GetCatPptTool(arg1:boolean):Promise<genoffice.ToolState>;
 
 export function GetCatSettings():Promise<cat.Settings>;
 
@@ -157,11 +160,15 @@ export function QueueCatMessage(arg1:cat.SendMessageRequest):Promise<cat.Message
 
 export function ReadCatFile(arg1:cat.ReadFileRequest):Promise<cat.ReadFileResult>;
 
+export function ReadCatPptPreview(arg1:string,arg2:number):Promise<genoffice.Preview>;
+
 export function ReadCatSharedMCP(arg1:cat.SkillsDirRequest):Promise<string>;
 
 export function RecheckCat(arg1:string):Promise<catagent.Status>;
 
 export function ReleaseCatDocument(arg1:string):Promise<void>;
+
+export function ReleaseCatPptPreview(arg1:string):Promise<void>;
 
 export function RelocateCatProject(arg1:cat.RelocateProjectRequest):Promise<cat.Project>;
 
@@ -206,6 +213,8 @@ export function SetCatInspectItemEnabled(arg1:cat.SetInspectItemEnabledRequest):
 export function SetCatSharedItemEnabled(arg1:cat.SetInspectItemEnabledRequest):Promise<cat.SharedExtensions>;
 
 export function SetCatWindowFocused(arg1:boolean):Promise<void>;
+
+export function StartCatPptPreview(arg1:cat.ReadFileRequest):Promise<genoffice.Preview>;
 
 export function StartCatTerm(arg1:cat.TermStartRequest):Promise<cat.TermStartResult>;
 

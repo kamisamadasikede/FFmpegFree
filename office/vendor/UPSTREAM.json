@@ -1,0 +1,6 @@
+{
+  "repository": "https://github.com/genspark-ai/genoffice",
+  "commit": "2a607bd49bc341f74a60a8fa852183dfb6ce3c1f",
+  "license": "Apache-2.0",
+  "changes": "Unmodified engine and canvas sources; ffc host adapters are outside vendor."
+}

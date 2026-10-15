@@ -116,9 +116,9 @@
         <span class="sum">{{ t('cat.chatUX.thinking') }}</span>
       </div>
     </div>
+    <CatTurnSummary v-for="change in unattachedChanges" :key="change.turnId" :change="change" :timestamp="change.finished" />
     <CatPreviewDialog v-model:open="previewOn" :file="previewFile" />
   </div>
-    <template v-for="change in unattachedChanges" :key="change.turnId"><CatTurnSummary :change="change" timestamp /></template>
 </template>
 
 <script setup lang="ts">
@@ -187,12 +187,12 @@ async function openFile(file: CatShownFile) {
 
 /** 减少动效：流式文字直接追加，不显示闪烁光标（也不做打字机效果） */
 const reduced = prefersReducedMotion()
-const changes = computed(() => catWorkflow.changes[props.convId || ''] || [])
+const changes = computed(() => (catWorkflow.changes[props.convId || ''] || []).filter(c => c.fileCount > 0))
 function changeFor(block: CatBlock): TurnChanges | undefined {
   if (block.kind !== 'a') return
-  return changes.value.find(c => c.messageId === block.id || (!!c.finishedAt && c.finishedAt === block.finishedAt))
+  return changes.value.find(c => c.finished && (c.messageId === block.id || (!!c.finishedAt && c.finishedAt === block.finishedAt)))
 }
-const unattachedChanges = computed(() => changes.value.filter(c => c.fileCount > 0 && !props.blocks.some(b => changeFor(b)?.turnId === c.turnId)))
+const unattachedChanges = computed(() => changes.value.filter(c => !props.blocks.some(b => changeFor(b)?.turnId === c.turnId)))
 const rows = computed(() => presentCatBlocks(props.blocks))
 /** 只挂在最后一行、且是失败行（6.19.18.7 第 6 条：只能重试最后一轮） */
 const lastErrKey = computed(() => {

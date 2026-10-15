@@ -138,7 +138,7 @@ func TestShimStdinArgsNeverPutsPromptOnCommandLine(t *testing.T) {
 	for _, resume := range []bool{false, true} {
 		cargs := c.buildCodexArgs(TurnOptions{Rules: "R"}, prompt, "/w", "sid", resume)
 		out, stdin, _, _ := shimStdinArgs(cliKindCodex, cargs, "")
-		if out[len(out)-1] != "-" || stdin != "R\n\n"+prompt || strings.Contains(strings.Join(out, " "), "hi &") {
+		if out[len(out)-1] != "-" || stdin != "<ffc_internal_instructions>\nR\n</ffc_internal_instructions>\n\n"+prompt || strings.Contains(strings.Join(out, " "), "hi &") {
 			t.Fatalf("codex resume=%v: %v %q", resume, out, stdin)
 		}
 	}

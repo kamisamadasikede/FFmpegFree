@@ -573,6 +573,7 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 	if c := a.catService(); c != nil {
 		c.CloseScheduler() // 停定时任务调度器：排队中的记已错过；运行中的下次启动收尾
+		c.ClosePptPreviews()
 	}
 	if l := a.liveService(); l != nil {
 		l.Close() // 停止拉流预览会话（推流任务由下面的任务管理器停止）

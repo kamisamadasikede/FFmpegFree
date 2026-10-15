@@ -1,0 +1,96 @@
+{
+  "version": "2026.10.15.1",
+  "skills": [
+    {
+      "name": "morph-ppt",
+      "source": "https://github.com/iOfficeAI/OfficeCLI/tree/fb98e593612dee2cec36847666671dba502e60aa/skills/morph-ppt",
+      "revision": "fb98e593612dee2cec36847666671dba502e60aa",
+      "license": "Apache-2.0",
+      "adapted": true
+    },
+    {
+      "name": "morph-ppt-3d",
+      "source": "https://github.com/iOfficeAI/OfficeCLI/tree/fb98e593612dee2cec36847666671dba502e60aa/skills/morph-ppt-3d",
+      "revision": "fb98e593612dee2cec36847666671dba502e60aa",
+      "license": "Apache-2.0",
+      "adapted": true
+    },
+    {
+      "name": "officecli-academic-paper",
+      "source": "https://github.com/iOfficeAI/OfficeCLI/tree/fb98e593612dee2cec36847666671dba502e60aa/skills/officecli-academic-paper",
+      "revision": "fb98e593612dee2cec36847666671dba502e60aa",
+      "license": "Apache-2.0",
+      "adapted": true
+    },
+    {
+      "name": "officecli-data-dashboard",
+      "source": "https://github.com/iOfficeAI/OfficeCLI/tree/fb98e593612dee2cec36847666671dba502e60aa/skills/officecli-data-dashboard",
+      "revision": "fb98e593612dee2cec36847666671dba502e60aa",
+      "license": "Apache-2.0",
+      "adapted": true
+    },
+    {
+      "name": "officecli-docx",
+      "source": "https://github.com/iOfficeAI/OfficeCLI/tree/fb98e593612dee2cec36847666671dba502e60aa/skills/officecli-docx",
+      "revision": "fb98e593612dee2cec36847666671dba502e60aa",
+      "license": "Apache-2.0",
+      "adapted": true
+    },
+    {
+      "name": "officecli-financial-model",
+      "source": "https://github.com/iOfficeAI/OfficeCLI/tree/fb98e593612dee2cec36847666671dba502e60aa/skills/officecli-financial-model",
+      "revision": "fb98e593612dee2cec36847666671dba502e60aa",
+      "license": "Apache-2.0",
+      "adapted": true
+    },
+    {
+      "name": "officecli-pitch-deck",
+      "source": "https://github.com/iOfficeAI/OfficeCLI/tree/fb98e593612dee2cec36847666671dba502e60aa/skills/officecli-pitch-deck",
+      "revision": "fb98e593612dee2cec36847666671dba502e60aa",
+      "license": "Apache-2.0",
+      "adapted": true
+    },
+    {
+      "name": "officecli-pptx",
+      "source": "https://github.com/iOfficeAI/OfficeCLI/tree/fb98e593612dee2cec36847666671dba502e60aa/skills/officecli-pptx",
+      "revision": "fb98e593612dee2cec36847666671dba502e60aa",
+      "license": "Apache-2.0",
+      "adapted": true
+    },
+    {
+      "name": "officecli-word-form",
+      "source": "https://github.com/iOfficeAI/OfficeCLI/tree/fb98e593612dee2cec36847666671dba502e60aa/skills/officecli-word-form",
+      "revision": "fb98e593612dee2cec36847666671dba502e60aa",
+      "license": "Apache-2.0",
+      "adapted": true
+    },
+    {
+      "name": "officecli-xlsx",
+      "source": "https://github.com/iOfficeAI/OfficeCLI/tree/fb98e593612dee2cec36847666671dba502e60aa/skills/officecli-xlsx",
+      "revision": "fb98e593612dee2cec36847666671dba502e60aa",
+      "license": "Apache-2.0",
+      "adapted": true
+    },
+    {
+      "name": "pdf",
+      "source": "ffc equivalent implementation; AionCore functional reference",
+      "revision": "ffc-2026.10.15.1",
+      "license": "MulanPSL-2.0",
+      "adapted": false
+    },
+    {
+      "name": "mermaid",
+      "source": "ffc equivalent implementation; AionCore functional reference",
+      "revision": "ffc-2026.10.15.1",
+      "license": "MulanPSL-2.0",
+      "adapted": false
+    },
+    {
+      "name": "story-roleplay",
+      "source": "ffc equivalent implementation; AionCore functional reference",
+      "revision": "ffc-2026.10.15.1",
+      "license": "MulanPSL-2.0",
+      "adapted": false
+    }
+  ]
+}

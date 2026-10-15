@@ -38,7 +38,8 @@
       <button type="button" class="x" data-testid="cat-file-close" @click="onClose">{{ COPY.close }}</button>
     </header>
     <div v-if="externalChanged" class="external-change" role="status">{{ t('cat.preview.externalChanged') }}<button type="button" @click="discardAndReload">{{ t('cat.preview.discardReload') }}</button></div>
-    <CatDocumentPreview v-if="officeFile && live && !compare" :key="convId + ':' + relPath" :conv-id="convId" :rel-path="relPath" />
+    <CatPptxPreview v-if="officeFile && /\.pptx$/i.test(relPath) && live && !compare" :key="convId + ':' + relPath" :conv-id="convId" :rel-path="relPath" />
+    <CatDocumentPreview v-else-if="officeFile && live && !compare" :key="convId + ':' + relPath" :conv-id="convId" :rel-path="relPath" />
     <CatFileEditor
       v-else-if="deletedView && baseOriginal != null"
       :key="'gone:' + relPath"
@@ -87,6 +88,7 @@ import FIcon from '@/components/icon/FIcon.vue'
 import CatFileEditor from './CatFileEditor.vue'
 import CatFileRich from './CatFileRich.vue'
 import CatDocumentPreview from './CatDocumentPreview.vue'
+import CatPptxPreview from './CatPptxPreview.vue'
 import { statFile } from '@/api/catWorkflow'
 import { previewDrafts } from '@/views/cat/catWorkflow'
 import { toAppError } from '@/api/call'

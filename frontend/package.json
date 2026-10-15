@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node ../office/scripts/prepare.mjs",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "check:json": "node scripts/check-json-text.mjs",

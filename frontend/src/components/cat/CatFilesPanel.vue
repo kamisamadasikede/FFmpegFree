@@ -19,9 +19,21 @@
       @pointerdown="onResizeDown"
       @keydown="onResizeKey"
     />
+    <div v-if="openRel || pptTabs.length" v-show="showFile" class="ct-previews">
+    <div v-if="pptTabs.length" class="ct-ppt-tabs" role="tablist" aria-label="PowerPoint">
+      <div v-for="tab in pptTabs" :key="tab.rel" class="ct-ppt-tab" :class="{ active: openRel === tab.rel && !openDiff }">
+        <button type="button" role="tab" :aria-selected="openRel === tab.rel && !openDiff" :title="tab.rel" @click="wantFile(tab.rel, tab.name)">{{ tab.name }}</button><button type="button" :aria-label="t('cat.ppt.close')" @click="closePptTab(tab.rel)">×</button>
+      </div>
+    </div>
     <CatFilePreview
-      v-if="openRel"
-      v-show="showFile"
+      v-for="tab in pptTabs"
+      v-show="openRel === tab.rel && !openDiff"
+      :key="convId + ':' + tab.rel"
+      :conv-id="convId" :rel-path="tab.rel" :name="tab.name" :live="live"
+      @close="closePptTab(tab.rel)" @pick="onPick"
+    />
+    <CatFilePreview
+      v-if="openRel && (!/\.pptx$/i.test(openRel) || openDiff)"
       ref="previewEl"
       :conv-id="convId"
       :rel-path="openRel"
@@ -33,6 +45,7 @@
       @pick="onPick"
       @conflict-saved="onConflictSaved"
     />
+    </div>
     <div class="ct-col">
       <div
         class="ct-resize"
@@ -291,6 +304,7 @@ const gitLoading = ref(false)
 const gitError = ref('')
 const picked = ref<number | string>(-1)
 const openRel = ref('')
+const pptTabs = ref<{ rel: string; name: string }[]>([])
 const openName = ref('')
 const openDiff = ref(false)
 const pending = ref<{ rel: string; name: string; picked: number | string; diff: boolean } | null>(null)
@@ -517,6 +531,7 @@ watch(
     hitsCut.value = false
     picked.value = -1
     openRel.value = ''
+    pptTabs.value = []
     openName.value = ''
     openDiff.value = false
     pending.value = null
@@ -543,6 +558,7 @@ watch(
       gitStatus.value = null
       gitError.value = ''
       openRel.value = ''
+      pptTabs.value = []
       openName.value = ''
       openDiff.value = false
       pending.value = null
@@ -746,7 +762,7 @@ watch(() => catWorkflow.opens[props.convId]?.serial, () => {
   if (!request) return
   pane.value = 'files'
   wantFile(request.relPath, request.name)
-}, { immediate: true })
+}, { immediate: true, flush: 'sync' })
 
 function wantFile(rel: string, name: string, pick: number | string = rel, diff = false) {
   const gate = previewEl.value?.requestClose
@@ -755,6 +771,9 @@ function wantFile(rel: string, name: string, pick: number | string = rel, diff =
     return
   }
   pending.value = null
+  if (/\.pptx$/i.test(rel) && !diff && !pptTabs.value.some(tab => tab.rel === rel)) {
+    pptTabs.value.push({ rel, name })
+  }
   openRel.value = rel
   openName.value = name
   picked.value = pick
@@ -798,6 +817,15 @@ function onPreviewClose() {
   openRel.value = ''
   openName.value = ''
   openDiff.value = false
+}
+
+function closePptTab(rel: string) {
+  const index = pptTabs.value.findIndex(tab => tab.rel === rel)
+  pptTabs.value = pptTabs.value.filter(tab => tab.rel !== rel)
+  if (openRel.value !== rel) return
+  const next = pptTabs.value[Math.max(0, index - 1)]
+  if (next) wantFile(next.rel, next.name)
+  else onPreviewClose()
 }
 
 watch([openRel, pane], () => {
@@ -886,6 +914,7 @@ defineExpose({
 </script>
 
 <style scoped>
+.ct-previews{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;overflow:hidden}.ct-ppt-tabs{display:flex;flex:none;overflow:auto;border-bottom:1px solid var(--cat-border);background:var(--cat-bg)}.ct-ppt-tab{display:flex;align-items:center;max-width:220px;border-right:1px solid var(--cat-border)}.ct-ppt-tab.active{background:var(--cat-surface);box-shadow:inset 0 -2px var(--cat-accent)}.ct-ppt-tab button{border:0;background:transparent;color:var(--cat-muted);font:inherit;font-size:11px;cursor:pointer;padding:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.ct-ppt-tab.active button{color:var(--cat-text)}.ct-ppt-tab button:last-child{flex:none}.ct-previews :deep(.pv){width:100%}
 .ct-r {
   flex: none;
   display: flex;

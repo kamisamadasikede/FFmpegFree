@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "upstream": "2a607bd49bc341f74a60a8fa852183dfb6ce3c1f",
+  "files": [
+    "engine.mjs",
+    "editor.js",
+    "editor.css",
+    "editor.html",
+    "LICENSE-GENOFFICE.txt",
+    "NOTICE-GENOFFICE.txt",
+    "LICENSE-OFL.txt",
+    "THIRD-PARTY-NOTICES.txt"
+  ],
+  "integrity": {
+    "engine.mjs": "1bb2e6f8c7562a1b75263040766ee5a6c6ef5943e2aed106b8359561d57b7d23",
+    "editor.js": "720df3af93af3f238ab45b15cf1f113b98d36a9aac090b87c33e2ae531beb284",
+    "editor.css": "f9eb3b43127cbba004f440357cc7e5a44a5302ed057def19f59d805b38a82834",
+    "editor.html": "6aa5165e6561f08addd462dfee69617b50c6821e3ce98b49f02d964aab31f141",
+    "LICENSE-GENOFFICE.txt": "68e32334df324ef4fc79fad3a26487e5abac36055a484bb6c8d7ecf9d8350885",
+    "NOTICE-GENOFFICE.txt": "26fa7a458f2463af07f96af3d4b26b3cc3b4de688340838e3c9b3b958d390882",
+    "LICENSE-OFL.txt": "992656df2b40e317ea54b4d3b7ca47a48eec11c2eaaf46bd74effd600714841a",
+    "THIRD-PARTY-NOTICES.txt": "f0ef43c760718ca99516c4b0d13d2be23e52d15922feb86960a8d033ccea8e38"
+  }
+}

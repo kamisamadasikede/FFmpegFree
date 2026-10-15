@@ -5,8 +5,39 @@ import (
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/catagent"
+	"FFmpegFree/internal/genoffice"
 	"FFmpegFree/internal/service/cat"
 )
+
+func (s *CatService) GetCatPptTool(retry bool) (genoffice.ToolState, error) {
+	c, err := s.svc()
+	if err != nil {
+		return genoffice.ToolState{}, err
+	}
+	return c.GetCatPptTool(retry), nil
+}
+func (s *CatService) StartCatPptPreview(req cat.ReadFileRequest) (genoffice.Preview, error) {
+	c, err := s.svc()
+	if err != nil {
+		return genoffice.Preview{}, err
+	}
+	return c.StartCatPptPreview(s.rootCtx(), req)
+}
+func (s *CatService) ReadCatPptPreview(id string, version uint64) (genoffice.Preview, error) {
+	c, err := s.svc()
+	if err != nil {
+		return genoffice.Preview{}, err
+	}
+	return c.ReadCatPptPreview(id, version)
+}
+func (s *CatService) ReleaseCatPptPreview(id string) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	c.ReleaseCatPptPreview(id)
+	return nil
+}
 
 // CatService 是 Cat 助手的 Wails 绑定（契约 6.19）。
 type CatService struct {

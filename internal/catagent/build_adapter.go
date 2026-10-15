@@ -415,9 +415,17 @@ type TurnOptions struct {
 	Provider ProviderOverlay
 	// Skills retains shared-library paths for turn metadata; the service syncs native configs before launch.
 	Skills SkillsOverlay
+	// ToolEnv holds ephemeral capabilities of application-hosted tools.
+	ToolEnv map[string]string
 	// OnError 在失败原文出现时立刻回调（进程还没退出也会调）。同一句可能来自标准输出和标准错误，调用方自己去重。
 	OnError func(msg string)
+	// LiveSteer uses a bidirectional transport when the adapter supports it.
+	LiveSteer    bool
+	OnSteerReady func(SteerFunc)
 }
+
+// SteerFunc adds input to the active native turn. It must reject a stale turn.
+type SteerFunc func(context.Context, string, []PromptFile) error
 
 // RunTurn 调 PATH 上的 grok headless：streaming-json → OnTextDelta；取消杀进程树。
 func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
@@ -490,7 +498,7 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 
 	cmd := a.runCmd(runCtx, exe, args...)
 	cmd.Dir = cwd
-	cmd.Env = MergeSkillsEnv(MergeProviderEnv(grokTurnEnv(os.Environ()), opts.Provider), opts.Skills)
+	cmd.Env = MergeToolEnv(MergeSkillsEnv(MergeProviderEnv(grokTurnEnv(os.Environ()), opts.Provider), opts.Skills), opts.ToolEnv)
 
 	// 管道上的 stdout 经常要攒满一块才吐出来。会话文件是逐条追加的，有它就跟着文件走。
 	var followMode int32

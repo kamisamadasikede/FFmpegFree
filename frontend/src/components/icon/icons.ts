@@ -1,5 +1,9 @@
 // 线性图标，来源：设计原型 index.html / icons.svg.html（mute 为原型没有的静音态，按同一网格补画）。24×24 视图，描边 1.8
 export const iconPaths = {
+  'send': '<path d="M12 19V5M5 12l7-7 7 7"/>',
+  'grip': '<path d="M5 6h.01M5 12h.01M5 18h.01M10 6h.01M10 12h.01M10 18h.01M15 5h6M15 10h6M15 15h4"/>',
+  'queued': '<path d="M4 5v9a2 2 0 0 0 2 2h13M15 12l4 4-4 4M10 5h10M10 9h7"/>',
+  'steer': '<path d="M4 5v5a2 2 0 0 0 2 2h14M16 8l4 4-4 4"/>',
   'pin': '<path d="m8 3 8 2-2 5 3 3-1 2-6-2-3 2-2-1 3-5zM9 15l-4 6"/>',
   'convert': "<path d=\"M4 7h13l-3-3M20 17H7l3 3\"/>",
   'cut': "<circle cx=\"6\" cy=\"6\" r=\"3\"/><circle cx=\"6\" cy=\"18\" r=\"3\"/><path d=\"M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12\"/>",

@@ -940,7 +940,9 @@
       "discardReload": "Discard unsaved edits and reload",
       "engineSettings": "Office preview components",
       "basicTooLarge": "This file exceeds the basic preview limit. Enable a layout preview component.",
-      "invalidOffice": "The file is not yet a readable Office document. It may still be generating, damaged or encrypted. A complete saved version will retry automatically."
+      "invalidOffice": "The file is not yet a readable Office document. It may still be generating, damaged or encrypted. A complete saved version will retry automatically.",
+      "pptSlides": "Slide preview",
+      "pptVisual": "Slide preview; complex effects may differ from Office"
     },
     "providerModels": {
       "loading": "…获取Model列表…",
@@ -1561,6 +1563,21 @@
     },
     "workflow": {
       "queue": "Queued messages",
+      "steer": "Steer",
+      "steerHelp": "Send this input to the active task using its current model and permissions.",
+      "sendNext": "Send next",
+      "sendNow": "Send now",
+      "sendHelp": "Send this message first, after the current task finishes if it is still running.",
+      "more": "Queued message options",
+      "newChat": "Open in a new chat",
+      "reorder": "Reorder queued messages",
+      "reorderHelp": "Drag to reorder, or press Alt+↑ / Alt+↓",
+      "moveUp": "Move up",
+      "disableQueue": "Turn off queuing",
+      "enableQueue": "Turn on queuing",
+      "queueOff": "Queuing is off; existing messages are preserved",
+      "editingHeld": "Editing; waiting for save",
+      "editKeys": "Enter to save · Shift+Enter for a new line · Ctrl/⌘+Enter to submit",
       "waiting": "{n} queued messages",
       "paused": "Paused",
       "autoSend": "Send automatically after this task",
@@ -1571,7 +1588,7 @@
       "cancel": "Cancel",
       "attachments": "Attachments",
       "guide": "Guide next turn",
-      "guideHelp": "Move to the front for the next turn without interrupting this task. Live steering is not connected for this CLI.",
+      "guideHelp": "Move to the front for the next turn without interrupting this task.",
       "remove": "Delete queued message",
       "changed": "{n} files changed",
       "tracking": "Tracking changes",
@@ -1581,6 +1598,16 @@
       "diff": "Turn diff",
       "enqueue": "Queue message",
       "enqueueHelp": "Keep this task running and send in order after it finishes"
+    },
+    "ppt": {
+      "live": "Live preview · Saved",
+      "preparing": "Preparing preview (component installs on first use)",
+      "follow": "Follow edits",
+      "static": "Static preview",
+      "waiting": "Waiting for the first saved slide. Slides appear as the agent builds them.",
+      "openPanel": "Open this PPTX in the Agent file panel for native CLI live preview.",
+      "close": "Close preview",
+      "tabLimit": "Up to 8 PPT previews can be open. Close a tab first."
     }
   }
 }

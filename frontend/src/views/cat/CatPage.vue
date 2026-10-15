@@ -263,7 +263,7 @@ import CatBranchCapsule from '@/components/cat/CatBranchCapsule.vue'
 import CatComposer from '@/components/cat/CatComposer.vue'
 import CatMessageQueue from '@/components/cat/CatMessageQueue.vue'
 import { acceptQueue, catWorkflow, loadWorkflow } from './catWorkflow'
-import { queueMessage } from '@/api/catWorkflow'
+import { queueMessage, steerMessage } from '@/api/catWorkflow'
 import { notify } from './catState'
 import { toAppError } from '@/api/call'
 import CatMessages from '@/components/cat/CatMessages.vue'
@@ -349,9 +349,9 @@ function onFilePick(note: PickNote) {
 async function onSend(payload: { text: string; files: { name: string; path: string }[]; own: string; notes: PickNote[]; draftKey: string }) {
   stick.value = true
   const convId = catState.sel
-  if (catState.turns[convId] || catWorkflow.queues[convId]?.items.length) {
+  if (catState.turns[convId] || (catWorkflow.queues[convId]?.items.length && !catWorkflow.queues[convId]?.queueingDisabled)) {
     const request = { conversationId: convId, content: payload.text, attachments: payload.files, modelId: catState.model, thinkLevelId: catState.think, permissionMode: catState.access }
-    try { acceptQueue(await queueMessage(request)) }
+    try { acceptQueue(await (catState.turns[convId] && catWorkflow.queues[convId]?.queueingDisabled ? steerMessage(request) : queueMessage(request))) }
     catch (e) { restoreCatDraft(payload.draftKey, { text: payload.own, files: payload.files, notes: payload.notes }); notify(toAppError(e).message, 'warn') }
     return
   }

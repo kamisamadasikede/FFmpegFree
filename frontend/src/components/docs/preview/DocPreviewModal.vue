@@ -11,6 +11,7 @@ import PreviewConfirm, { type ConfirmButton } from '@/components/preview/Preview
 import PvPdf from './PvPdf.vue'
 import PvRawDocx from './PvRawDocx.vue'
 import PvRawXlsx from './PvRawXlsx.vue'
+import PvPptxHtml from './PvPptxHtml.vue'
 import PvCsv from './PvCsv.vue'
 import PvHtmlFrame from './PvHtmlFrame.vue'
 import PvSourceEdit from './PvSourceEdit.vue'
@@ -87,7 +88,7 @@ const title = computed(() => pv.value?.name || it.value?.name || '')
 
 // ── 状态 ──
 const localFailed = ref(false)
-const KNOWN_KINDS = ['pdf', 'raw', 'text', 'md', 'html', 'csv', 'unavailable']
+const KNOWN_KINDS = ['pptx-html', 'pdf', 'raw', 'text', 'md', 'html', 'csv', 'unavailable']
 const notice = computed<(PreviewNotice & { tone: string; icon: string }) | null>(() => {
   const p = pv.value
   if (st.callFailed || localFailed.value) return { text: PV_FAILED, tone: 'bad', icon: 'warn' }
@@ -124,7 +125,7 @@ onMounted(() => {
   if (bodyEl.value) ro.observe(bodyEl.value)
 })
 onBeforeUnmount(() => ro?.disconnect())
-const paged = computed(() => pv.value?.kind === 'pdf' || (pv.value?.kind === 'raw' && ext.value === 'docx'))
+const paged = computed(() => pv.value?.kind === 'pptx-html' || pv.value?.kind === 'pdf' || (pv.value?.kind === 'raw' && ['docx', 'pptx'].includes(ext.value)))
 const fitScale = computed(() => (paged.value ? Math.min(2, Math.max(0.5, (bodyW.value - 144) / 794)) : 1))
 const scale = computed(() => zoom.value ?? fitScale.value)
 const pct = computed(() => Math.round(scale.value * 100))
@@ -514,7 +515,7 @@ const onGone = () => st.open && st.onUrlGone()
       <!-- 查看：内容 -->
       <template v-else-if="showContent && pv">
         <PvPdf v-if="pv.kind === 'pdf' && pv.url" :key="pv.previewId" :url="pv.url" :scale="scale" @pages="pages = $event" @page="page = $event" @gone="onGone" @failed="localFailed = true" />
-        <template v-else-if="pv.kind === 'raw' && pv.url">
+        <PvPptxHtml v-else-if="pv.kind === 'pptx-html'" :html="pv.text || ''" :scale="scale" @scale="zoom = $event" @pages="pages = $event" @page="page = $event" /><template v-else-if="pv.kind === 'raw' && pv.url">
           <div class="pvx-rough" role="status"><FIcon name="info" />{{ PV_SIMPLE }}</div>
           <PvRawDocx v-if="ext === 'docx'" :key="pv.previewId" :url="pv.url" :size-bytes="pv.sizeBytes" :scale="scale" @pages="pages = $event" @page="page = $event" @gone="onGone" @failed="localFailed = true" />
           <PvRawXlsx v-else :key="pv.previewId" :url="pv.url" :size-bytes="pv.sizeBytes" :scale="scale" @gone="onGone" @failed="localFailed = true" />

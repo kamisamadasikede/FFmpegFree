@@ -1611,6 +1611,7 @@ export namespace cat {
 	    id: string;
 	    request: SendMessageRequest;
 	    createdAt: number;
+	    held: boolean;
 
 	    static createFrom(source: any = {}) {
 	        return new QueuedMessage(source);
@@ -1621,6 +1622,7 @@ export namespace cat {
 	        this.id = source["id"];
 	        this.request = this.convertValues(source["request"], SendMessageRequest);
 	        this.createdAt = source["createdAt"];
+	        this.held = source["held"];
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1647,6 +1649,8 @@ export namespace cat {
 	    items: QueuedMessage[];
 	    paused: boolean;
 	    error?: string;
+	    queueingDisabled: boolean;
+	    canSteer: boolean;
 
 	    static createFrom(source: any = {}) {
 	        return new MessageQueue(source);
@@ -1659,6 +1663,8 @@ export namespace cat {
 	        this.items = this.convertValues(source["items"], QueuedMessage);
 	        this.paused = source["paused"];
 	        this.error = source["error"];
+	        this.queueingDisabled = source["queueingDisabled"];
+	        this.canSteer = source["canSteer"];
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1751,6 +1757,8 @@ export namespace cat {
 	    id: string;
 	    action: string;
 	    content: string;
+	    beforeId: string;
+	    request?: SendMessageRequest;
 
 	    static createFrom(source: any = {}) {
 	        return new QueueAction(source);
@@ -1762,7 +1770,27 @@ export namespace cat {
 	        this.id = source["id"];
 	        this.action = source["action"];
 	        this.content = source["content"];
+	        this.beforeId = source["beforeId"];
+	        this.request = this.convertValues(source["request"], SendMessageRequest);
 	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 	export class ReadFileRequest {
@@ -4106,6 +4134,57 @@ export namespace ffmpeg {
 	        this.targetSizeMb = source["targetSizeMb"];
 	        this.trimStart = source["trimStart"];
 	        this.trimEnd = source["trimEnd"];
+	    }
+	}
+
+}
+
+export namespace genoffice {
+
+	export class Preview {
+	    id: string;
+	    documentId: string;
+	    version: number;
+	    state: string;
+	    mode: string;
+	    url?: string;
+	    token?: string;
+	    error?: string;
+	    slide: number;
+
+	    static createFrom(source: any = {}) {
+	        return new Preview(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.documentId = source["documentId"];
+	        this.version = source["version"];
+	        this.state = source["state"];
+	        this.mode = source["mode"];
+	        this.url = source["url"];
+	        this.token = source["token"];
+	        this.error = source["error"];
+	        this.slide = source["slide"];
+	    }
+	}
+	export class ToolState {
+	    state: string;
+	    path?: string;
+	    version: string;
+	    error?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ToolState(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.state = source["state"];
+	        this.path = source["path"];
+	        this.version = source["version"];
+	        this.error = source["error"];
 	    }
 	}
 

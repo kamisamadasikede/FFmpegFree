@@ -233,6 +233,27 @@ func (s *Service) sharedAt(base, project string, write bool) (SharedExtensions, 
 		}
 	}
 	sort.Slice(r.Skills, func(i, j int) bool { return r.Skills[i].Name < r.Skills[j].Name })
+	// Stable application-owned entries; runtime endpoint/token are inherited by
+	// CLI children, never persisted in a native MCP configuration.
+	if s.cfg.FileBridge && s.cfg.DataRoot != "" {
+		if builtin, err := s.ensurePptSkill(); err == nil {
+			userSkill := invalid["ffc-ppt-live"]
+			for _, item := range r.Skills {
+				userSkill = userSkill || item.Name == "ffc-ppt-live"
+			}
+			if !userSkill {
+				skills["ffc-ppt-live"] = filepath.Dir(builtin)
+			}
+			name := catagent.ShareNativeName("ffc-office")
+			if _, declared := all["ffc-office"]; !declared {
+				command := "node"
+				if tool := s.GetCatPptTool(false); tool.State == "ready" && tool.Path != "" {
+					command = tool.Path
+				}
+				servers[name] = catagent.SharedMCPServer{Command: command, Args: []string{filepath.Join(filepath.Dir(builtin), "scripts", "office.cjs"), "--mcp"}}
+			}
+		}
+	}
 	sort.Slice(r.MCPServers, func(i, j int) bool { return r.MCPServers[i].Name < r.MCPServers[j].Name })
 	manifest, e := catagent.LoadNativeShareManifest(base)
 	if e != nil {

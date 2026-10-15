@@ -113,6 +113,8 @@ import {
 } from './catConvPrefs'
 
 import { loadWorkflow, watchWorkflow } from './catWorkflow'
+import { catDraftFor, catDraftKey } from './catDrafts'
+import type { SendCatMessageRequest } from '@/api/cat'
 import { onTaskEvent } from '@/services/wails'
 export const NEW_CONV = 'new'
 let metadataGeneration = 0
@@ -720,6 +722,10 @@ export function initCat(): () => void {
     onCatMessage(handleMessageEvent),
     onCatTurn(handleTurnEvent),
     watchWorkflow(),
+    onTaskEvent<{convId: string; result: import('@/api/cat').SendCatMessageResult; attachments?: CatOutgoingFile[]}>('cat:steered', e => {
+      if (!findConv(e.convId)) return
+      messagesOf(e.convId).push({ kind: 'user', text: e.result.userMessage.content, files: fileChips(e.attachments || []) })
+    }),
     onTaskEvent<{convId: string; result: import('@/api/cat').SendCatMessageResult; attachments?: CatOutgoingFile[]}>('cat:queued-start', e => {
       if (!findConv(e.convId)) return
       const list = messagesOf(e.convId)
@@ -1610,6 +1616,23 @@ export function newConvInProject(id: string) {
   catPanels.view = 'chat'
   catState.sel = NEW_CONV
   catState.newProjectId = id
+}
+
+/** Opens a separate chat with the same workspace and queued model choices. */
+export async function openQueuedMessageInNewChat(request: SendCatMessageRequest): Promise<void> {
+  const origin = findConv(request.conversationId)
+  if (!origin) return
+  const created = await createCatConversation({ agentKind: origin.conv.agentKind, projectId: origin.project?.id })
+  const conv = toConv(created)
+  if (origin.project) { origin.project.convs.unshift(conv); origin.project.open = true }
+  else catState.plain.unshift(conv)
+  carryDraftPref(conv.id, { model: request.modelId || '', think: request.thinkLevelId || '', access: request.permissionMode || '' })
+  const draft = catDraftFor(catDraftKey(conv.id))
+  draft.text = request.content
+  draft.files = (request.attachments || []).map(f => ({ name: f.name, path: f.path }))
+  draft.notes = []
+  catState.messages[conv.id] = []
+  selectConv(conv.id)
 }
 
 /** 选中某条对话 / 「新对话」。不停止其它对话里还在跑的回复 */

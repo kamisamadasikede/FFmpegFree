@@ -940,7 +940,9 @@
       "discardReload": "放弃未保存编辑并重新加载",
       "engineSettings": "Office 预览组件",
       "basicTooLarge": "这份文件超出了基础预览上限，请启用排版预览组件。",
-      "invalidOffice": "文件尚未形成可读取的 Office 文档，可能仍在生成、已损坏或加密。保存完整文件后将自动重试。"
+      "invalidOffice": "文件尚未形成可读取的 Office 文档，可能仍在生成、已损坏或加密。保存完整文件后将自动重试。",
+      "pptSlides": "幻灯片预览",
+      "pptVisual": "幻灯片预览；复杂效果可能与 Office 略有差异"
     },
     "providerModels": {
       "loading": "正在获取模型列表…",
@@ -1561,6 +1563,21 @@
     },
     "workflow": {
       "queue": "待发消息",
+      "steer": "引导",
+      "steerHelp": "将这条消息立即交给当前任务；沿用当前任务的模型和权限。",
+      "sendNext": "下一轮发送",
+      "sendNow": "立即发送",
+      "sendHelp": "优先发送这条消息；当前任务仍在运行时，等它结束再发送。",
+      "more": "待发消息选项",
+      "newChat": "在新对话中打开",
+      "reorder": "调整待发顺序",
+      "reorderHelp": "拖动调整顺序，或按 Alt+↑ / Alt+↓",
+      "moveUp": "上移一条",
+      "disableQueue": "关闭排队",
+      "enableQueue": "开启排队",
+      "queueOff": "排队已关闭，现有消息已保留",
+      "editingHeld": "编辑中，等待保存",
+      "editKeys": "Enter 保存 · Shift+Enter 换行 · Ctrl/⌘+Enter 提交",
       "waiting": "{n} 条待发消息",
       "paused": "已暂停",
       "autoSend": "当前任务结束后自动发送",
@@ -1571,7 +1588,7 @@
       "cancel": "取消",
       "attachments": "附件消息",
       "guide": "下一轮引导",
-      "guideHelp": "优先作为下一轮消息发送，不中断当前任务；当前 CLI 尚未接入实时引导协议。",
+      "guideHelp": "优先作为下一轮消息发送，不中断当前任务。",
       "remove": "删除待发消息",
       "changed": "{n} 个文件已更改",
       "tracking": "持续检查中",
@@ -1581,6 +1598,16 @@
       "diff": "本轮差异",
       "enqueue": "加入待发队列",
       "enqueueHelp": "保留当前任务运行，结束后按顺序发送"
+    },
+    "ppt": {
+      "live": "实时预览 · 已保存",
+      "preparing": "准备实时预览（首次使用将安装组件）",
+      "follow": "跟随修改",
+      "static": "静态预览",
+      "waiting": "正在等待 Agent 保存第一张幻灯片，生成过程中会逐页显示。",
+      "openPanel": "请在 Agent 文件面板打开 PPTX，使用原生 CLI 实时预览。",
+      "close": "关闭预览",
+      "tabLimit": "最多打开 8 份 PPT，请先关闭一个预览标签。"
     }
   }
 }

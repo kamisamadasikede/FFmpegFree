@@ -1,0 +1,6 @@
+{
+  "name": "ffc-builtin-skill-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": { "beautiful-mermaid": "1.1.3" }
+}

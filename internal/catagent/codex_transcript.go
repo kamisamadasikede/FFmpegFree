@@ -123,6 +123,9 @@ func ParseCodexRollout(r interface{ Read([]byte) (int, error) }) []WireMessage {
 			continue
 		}
 		add := func(role, text string) {
+			if role == "user" {
+				text = StripInternalInstructions(text)
+			}
 			if text = strings.TrimSpace(text); text != "" {
 				out = append(out, WireMessage{Role: role, Content: text})
 			}

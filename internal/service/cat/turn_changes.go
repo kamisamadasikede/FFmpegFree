@@ -310,13 +310,13 @@ func (s *Service) saveTurnChanges(out TurnChanges) {
 func (s *Service) watchTurnWorkspace(ctx context.Context, t *turnState, root string, opts *catagent.TurnOptions) func() {
 	closeBridge := s.startOpenBridge(ctx, t, root, opts)
 	base := snapshotWorkspace(ctx, root)
-	autoOpened := false
+	autoOpened := map[string]bool{}
 	showArtifact := func(out TurnChanges) {
-		if autoOpened || !s.cfg.FileBridge {
+		if !s.cfg.FileBridge {
 			return
 		}
 		for _, file := range out.Files {
-			if file.Status != "added" {
+			if autoOpened[file.Path] || (file.Status != "added" && file.Status != "modified") {
 				continue
 			}
 			switch strings.ToLower(filepath.Ext(file.Path)) {
@@ -326,8 +326,7 @@ func (s *Service) watchTurnWorkspace(ctx context.Context, t *turnState, root str
 			}
 			r, e := s.StatCatFile(context.Background(), ReadFileRequest{ConvID: t.convID, RelPath: file.Path})
 			if e == nil && r.Stable && s.OpenCatWorkspaceFile(context.Background(), ReadFileRequest{ConvID: t.convID, RelPath: file.Path}) == nil {
-				autoOpened = true
-				break
+				autoOpened[file.Path] = true
 			}
 		}
 	}

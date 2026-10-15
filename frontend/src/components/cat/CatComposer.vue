@@ -195,13 +195,13 @@
           type="button"
           class="ct-send"
           :class="{ blocked: notReady || checking || missing }"
-          :aria-label="t(running ? 'cat.workflow.enqueue' : 'cat.misc.s_1535fcfa4c')"
+          :aria-label="t(running ? queueOff ? 'cat.workflow.steer' : 'cat.workflow.enqueue' : 'cat.misc.s_1535fcfa4c')"
           :aria-disabled="!canSend"
           :disabled="notReady || checking || missing"
-          :title="missing ? PC.missing : notReady ? CAT_COPY.notReady : running ? t('cat.workflow.enqueueHelp') : undefined"
+          :title="missing ? PC.missing : notReady ? CAT_COPY.notReady : running ? t(queueOff ? 'cat.workflow.steerHelp' : 'cat.workflow.enqueueHelp') : undefined"
           data-testid="cat-send"
           @click="send"
-        ><FIcon :name="running ? 'plus' : 'up'" :size="15" /></button>
+        ><FIcon :name="running ? queueOff ? 'steer' : 'plus' : 'up'" :size="15" /></button>
       </div>
 
       <div v-if="menu" class="mn" :style="menuStyle" @click.stop>
@@ -378,6 +378,7 @@ import { CAT_ATTACH_MAX, fileBaseName, splitAttach, type CatOutgoingFile } from 
 import { canPreview, previewKind, showsThumb, type CatPreviewKind, type CatShownFile } from '@/components/cat/catMedia'
 import CatThumb from '@/components/cat/CatThumb.vue'
 import { catDraftFor, catDraftKey } from '@/views/cat/catDrafts'
+import { catWorkflow } from '@/views/cat/catWorkflow'
 import CatPreviewDialog from '@/components/cat/CatPreviewDialog.vue'
 import { accessMeta, capsuleLabel, catState, chooseAccess, currentAgentKind, currentCaps, currentProject, chooseModel, chooseThink, customProviderOn, refreshModelsIfStale, THINK_DEFAULT_LABEL } from '@/views/cat/catState'
 import { CAT_PROVIDER_MODELS_COPY as PM, normalizeManualModelId, providerModelHint, providerModelHintTone, providerModelNeedsManual } from '@/api/catProviderModels'
@@ -412,6 +413,7 @@ const props = withDefaults(
 )
 /** props.placeholder 优先；未传时按当前语言回落（随 locale 响应） */
 const placeholderText = computed(() => props.placeholder || t('cat.misc.s_d52a943d7f'))
+const queueOff = computed(() => !!catWorkflow.queues[props.convId || catState.sel]?.queueingDisabled)
 let missSeq = 0
 const missId = `ct-miss-${++missSeq}-${Math.random().toString(36).slice(2, 7)}`
 const emit = defineEmits<{ send: [payload: { text: string; files: CatOutgoingFile[]; own: string; notes: PickNote[]; draftKey: string }]; stop: []; blocked: []; search: [] }>()

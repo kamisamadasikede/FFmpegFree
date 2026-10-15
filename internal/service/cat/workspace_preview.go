@@ -105,6 +105,56 @@ func (s *Service) startOpenBridge(ctx context.Context, t *turnState, root string
 	}
 	secret := hex.EncodeToString(b)
 	mux := http.NewServeMux()
+	mux.HandleFunc("/office", func(w http.ResponseWriter, r *http.Request) {
+		if ctx.Err() != nil || r.Method != "POST" || r.Header.Get("Origin") != "" || !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+secret)) != 1 {
+			http.Error(w, "Forbidden", 403)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 16<<20)
+		var args map[string]any
+		if json.NewDecoder(r.Body).Decode(&args) != nil {
+			http.Error(w, "Invalid request", 400)
+			return
+		}
+		result, err := s.officeRequest(r.Context(), t.convID, args)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		if err != nil {
+			w.WriteHeader(409)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"message": err.Error()}})
+			return
+		}
+		_, _ = w.Write(result)
+	})
+	// The same turn-scoped capability authorizes tool discovery and early preview.
+	mux.HandleFunc("/ppt", func(w http.ResponseWriter, r *http.Request) {
+		if ctx.Err() != nil || r.Method != "POST" || r.Header.Get("Origin") != "" || !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+secret)) != 1 {
+			http.Error(w, "Forbidden", 403)
+			return
+		}
+		var req struct {
+			Action string `json:"action"`
+			Path   string `json:"path"`
+			Retry  bool   `json:"retry"`
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, 8192)
+		if json.NewDecoder(r.Body).Decode(&req) != nil {
+			http.Error(w, "Invalid request", 400)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch req.Action {
+		case "tool":
+			_ = json.NewEncoder(w).Encode(s.GetCatPptTool(req.Retry))
+		case "prepare":
+			if err := s.prepareCatPpt(r.Context(), ReadFileRequest{ConvID: t.convID, RelPath: req.Path}); err != nil {
+				http.Error(w, "PPT path unavailable or outside workspace", 400)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]bool{"opened": true})
+		default:
+			http.Error(w, "Unknown action", 400)
+		}
+	})
 	mux.HandleFunc("/open-file", func(w http.ResponseWriter, r *http.Request) {
 		if ctx.Err() != nil {
 			http.Error(w, "Expired", http.StatusGone)
@@ -142,9 +192,17 @@ func (s *Service) startOpenBridge(ctx context.Context, t *turnState, root string
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"opened":true}`))
 	})
-	server := &http.Server{Handler: mux, ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 3 * time.Second, WriteTimeout: 3 * time.Second, IdleTimeout: 3 * time.Second}
+	server := &http.Server{Handler: mux, ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 60 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 3 * time.Second}
 	go func() { _ = server.Serve(l) }()
 	endpoint := "http://" + l.Addr().String() + "/open-file"
-	opts.Rules += fmt.Sprintf("\n\nffc app file preview: When the user asks to open/show a workspace file or you produce an Office artifact, use this app's preview instead of launching a system application. POST JSON {\"path\":\"relative/path.pptx\"} to %s with Authorization: Bearer %s and Content-Type: application/json. Only current workspace files are allowed. PowerShell example: Invoke-RestMethod -Method Post -Uri '%s' -Headers @{ Authorization = 'Bearer %s' } -ContentType 'application/json' -Body (@{ path = 'relative/path.pptx' } | ConvertTo-Json). The preview follows complete saved versions; an incomplete Office ZIP will wait. Do not include the capability token in your reply or save it in project files.\n", endpoint, secret, endpoint, secret)
+	if skill, err := s.ensurePptSkill(); err == nil {
+		if opts.ToolEnv == nil {
+			opts.ToolEnv = map[string]string{}
+		}
+		opts.ToolEnv["FFC_OFFICE_ENDPOINT"] = "http://" + l.Addr().String() + "/office"
+		opts.ToolEnv["FFC_OFFICE_TOKEN"] = secret
+		opts.Rules += fmt.Sprintf("\n<ffc_internal_file_preview>For PowerPoint generation/editing use ffc's GenOffice skill at %q. Read SKILL.md first. Wrapper: %q. Run node <wrapper> <action> --path <workspace-relative.pptx> [--input <JSON file>] [--revision N]. It reads the private FFC_OFFICE_ENDPOINT and FFC_OFFICE_TOKEN environment; do not print or persist them. Open with --create BEFORE generating, submit each native page/small edit immediately, and save after checking the result. Native shapes/text remain editable. Office tools operate inside ffc.</ffc_internal_file_preview>\n", skill, filepath.Join(filepath.Dir(skill), "scripts", "office.cjs"))
+	}
+	opts.Rules += fmt.Sprintf("\n\n<ffc_internal_file_preview>\nffc app file preview: When the user asks to open/show a workspace file or you produce an Office artifact, use this app's preview instead of launching a system application. POST JSON {\"path\":\"relative/path.pptx\"} to %s with Authorization: Bearer %s and Content-Type: application/json. Only current workspace files are allowed. PowerShell example: Invoke-RestMethod -Method Post -Uri '%s' -Headers @{ Authorization = 'Bearer %s' } -ContentType 'application/json' -Body (@{ path = 'relative/path.pptx' } | ConvertTo-Json). The preview follows complete saved versions; an incomplete Office ZIP will wait. Do not include the capability token in your reply or save it in project files.\n</ffc_internal_file_preview>\n", endpoint, secret, endpoint, secret)
 	return func() { _ = server.Close() }
 }

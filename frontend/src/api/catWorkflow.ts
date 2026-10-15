@@ -3,14 +3,16 @@ import { hasWailsBackend } from '@/services/wails'
 import type { SendCatMessageRequest } from './cat'
 export interface FileChange { path: string; status: string; added: number; deleted: number; binary: boolean; diff?: string; truncated?: boolean }
 export interface TurnChanges { convId: string; turnId: string; messageId?: string; finishedAt?: number; createdAt: number; fileCount: number; added: number; deleted: number; files: FileChange[]; finished: boolean; truncated: boolean }
-export interface QueuedMessage { id: string; request: SendCatMessageRequest; createdAt: number }
-export interface MessageQueue { revision?: number; convId: string; items: QueuedMessage[]; paused: boolean; error?: string }
+export interface QueuedMessage { id: string; request: SendCatMessageRequest; createdAt: number; held?: boolean }
+export interface MessageQueue { revision?: number; convId: string; items: QueuedMessage[]; paused: boolean; error?: string; queueingDisabled?: boolean; canSteer?: boolean }
 export interface FileRevision { revision: string; size: number; stable: boolean }
-export interface DocumentPreview { previewId: string; kind: string; state: string; name: string; ext: string; url?: string; rawUrl?: string; sizeBytes: number; reason?: string; error?: { message: string } }
+export interface DocumentPreview { previewId: string; kind: string; state: string; name: string; ext: string; url?: string; rawUrl?: string; text?: string; sizeBytes: number; reason?: string; error?: { message: string } }
 export const emptyQueue = (convId: string): MessageQueue => ({ convId, items: [], paused: false })
 export const getQueue = (convId: string): Promise<MessageQueue> => hasWailsBackend() ? callService('CatService', 'GetCatMessageQueue', convId) : Promise.resolve(emptyQueue(convId))
 export const queueMessage = (request: SendCatMessageRequest): Promise<MessageQueue> => callService('CatService', 'QueueCatMessage', request)
-export const updateQueue = (convId: string, action: 'pause' | 'resume' | 'edit' | 'delete' | 'guide', id = '', content = ''): Promise<MessageQueue> => callService('CatService', 'UpdateCatMessageQueue', { convId, action, id, content })
+export type QueueAction = 'pause' | 'resume' | 'edit' | 'edit-start' | 'edit-cancel' | 'edit-send' | 'edit-steer' | 'delete' | 'guide' | 'send' | 'move' | 'steer' | 'queue-off' | 'queue-on'
+export const updateQueue = (convId: string, action: QueueAction, id = '', content = '', beforeId = ''): Promise<MessageQueue> => callService('CatService', 'UpdateCatMessageQueue', { convId, action, id, content, beforeId })
+export const steerMessage = (request: SendCatMessageRequest): Promise<MessageQueue> => callService('CatService', 'UpdateCatMessageQueue', { convId: request.conversationId, action: 'steer-new', request })
 export const getChanges = (convId: string): Promise<TurnChanges[]> => hasWailsBackend() ? callService('CatService', 'GetCatTurnChanges', convId) : Promise.resolve([])
 export const statFile = (convId: string, relPath: string): Promise<FileRevision> => callService('CatService', 'StatCatFile', { convId, relPath })
 export const previewDocument = (convId: string, relPath: string): Promise<DocumentPreview> => callService('CatService', 'PreviewCatDocument', { convId, relPath })

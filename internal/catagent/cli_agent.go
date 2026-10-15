@@ -335,6 +335,9 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	if a.kind == cliKindClaude && cliVersionBelow(curVer, claudeMinVersion) {
 		return TurnResponse{}, outdatedCLIErr(a.name, curVer, "")
 	}
+	if a.kind == cliKindCodex && opts.LiveSteer {
+		return a.runCodexAppTurn(opts, exe)
+	}
 
 	prompt := lastUserContent(opts.Messages)
 	cwd := strings.TrimSpace(opts.ProjectPath)
@@ -379,7 +382,7 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	if viaStdin {
 		cmd.Stdin = strings.NewReader(stdinText)
 	}
-	cmd.Env = MergeSkillsEnv(MergeProviderEnv(os.Environ(), opts.Provider), opts.Skills)
+	cmd.Env = MergeToolEnv(MergeSkillsEnv(MergeProviderEnv(os.Environ(), opts.Provider), opts.Skills), opts.ToolEnv)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -873,7 +876,7 @@ func (a *CLIAgentAdapter) buildCodexArgs(opts TurnOptions, prompt, cwd, sessionI
 	// GUESS B8：codex exec --json …
 	// A6：无稳定「自定义指令」flag → 前缀拼进 prompt（契约允许；不捏造 flag 名）
 	if rules := strings.TrimSpace(opts.Rules); rules != "" {
-		prompt = rules + "\n\n" + prompt
+		prompt = "<ffc_internal_instructions>\n" + rules + "\n</ffc_internal_instructions>\n\n" + prompt
 	}
 	// 真机 help 核对（codex-cli 0.162.1）：exec / exec resume 都不认 --ask-for-approval / -a；
 	// exec resume 也不认 --sandbox / -C（cwd 靠子进程工作目录）。

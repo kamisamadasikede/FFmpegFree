@@ -98,6 +98,7 @@ function normPath(p: string): string {
 
 /** 缩略图已经画出的路径和「图片」占位，不再在气泡里重复一行。 */
 export function userDisplayText(text: string, files: readonly Pick<CatShownFile, 'path' | 'kind' | 'data'>[] | undefined): string {
+  text = stripInternalInstructions(text)
   if (!text) return ''
   const hide = new Set<string>()
   for (const f of files ?? []) {
@@ -111,6 +112,14 @@ export function userDisplayText(text: string, files: readonly Pick<CatShownFile,
     return !hide.has(t) && !hide.has(normPath(t))
   })
   return lines.join('\n').trim()
+}
+
+/** Compatibility for already loaded CLI history; copy/search use the same text. */
+export function stripInternalInstructions(text: string): string {
+  return text
+    .replace(/<ffc_internal_(instructions|file_preview)>[\s\S]*?<\/ffc_internal_\1>/g, '')
+    .replace(/ffc app file preview: When the user asks to open\/show a workspace file or you produce an Office artifact,[\s\S]*?Do not include the capability token in your reply or save it in project files\./g, '')
+    .trim()
 }
 
 function esc(s: string): string {

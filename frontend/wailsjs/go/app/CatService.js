@@ -86,6 +86,10 @@ export function GetCatNotifyStatus() {
   return window['go']['app']['CatService']['GetCatNotifyStatus']();
 }
 
+export function GetCatPptTool(arg1) {
+  return window['go']['app']['CatService']['GetCatPptTool'](arg1);
+}
+
 export function GetCatSettings() {
   return window['go']['app']['CatService']['GetCatSettings']();
 }
@@ -306,6 +310,10 @@ export function ReadCatFile(arg1) {
   return window['go']['app']['CatService']['ReadCatFile'](arg1);
 }
 
+export function ReadCatPptPreview(arg1, arg2) {
+  return window['go']['app']['CatService']['ReadCatPptPreview'](arg1, arg2);
+}
+
 export function ReadCatSharedMCP(arg1) {
   return window['go']['app']['CatService']['ReadCatSharedMCP'](arg1);
 }
@@ -316,6 +324,10 @@ export function RecheckCat(arg1) {
 
 export function ReleaseCatDocument(arg1) {
   return window['go']['app']['CatService']['ReleaseCatDocument'](arg1);
+}
+
+export function ReleaseCatPptPreview(arg1) {
+  return window['go']['app']['CatService']['ReleaseCatPptPreview'](arg1);
 }
 
 export function RelocateCatProject(arg1) {
@@ -404,6 +416,10 @@ export function SetCatSharedItemEnabled(arg1) {
 
 export function SetCatWindowFocused(arg1) {
   return window['go']['app']['CatService']['SetCatWindowFocused'](arg1);
+}
+
+export function StartCatPptPreview(arg1) {
+  return window['go']['app']['CatService']['StartCatPptPreview'](arg1);
 }
 
 export function StartCatTerm(arg1) {

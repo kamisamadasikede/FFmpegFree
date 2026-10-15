@@ -14,6 +14,7 @@ const empty = {
   language: '',
   editable: false,
   modTime: 0,
+  revision: '',
 }
 
 export function catFilePreviewChecks(eq: Eq): void {
@@ -21,12 +22,12 @@ export function catFilePreviewChecks(eq: Eq): void {
   eq(
     '预览映射：文本可编辑',
     mapFileBody({ relPath: 'a.go', name: 'a.go', kind: 'text', size: 2, content: 'hi', language: 'go', editable: true, modTime: 3 }),
-    { relPath: 'a.go', name: 'a.go', kind: 'text', size: 2, content: 'hi', dataBase64: '', mime: '', language: 'go', editable: true, modTime: 3 },
+    { relPath: 'a.go', name: 'a.go', kind: 'text', size: 2, content: 'hi', dataBase64: '', mime: '', language: 'go', editable: true, modTime: 3, revision: '' },
   )
   eq(
     '预览映射：图片只留字节',
     mapFileBody({ kind: 'image', name: 'a.png', relPath: 'a.png', dataBase64: 'aaa', content: 'nope', editable: true, mime: 'image/png', size: 4 }),
-    { relPath: 'a.png', name: 'a.png', kind: 'image', size: 4, content: '', dataBase64: 'aaa', mime: 'image/png', language: '', editable: false, modTime: 0 },
+    { relPath: 'a.png', name: 'a.png', kind: 'image', size: 4, content: '', dataBase64: 'aaa', mime: 'image/png', language: '', editable: false, modTime: 0, revision: '' },
   )
   eq(
     '预览映射：未知种类不当文本',

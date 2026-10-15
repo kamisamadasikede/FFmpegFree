@@ -14,6 +14,7 @@ import (
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/catagent"
+	"FFmpegFree/internal/genoffice"
 	"FFmpegFree/internal/id"
 	"FFmpegFree/internal/localassets"
 	"FFmpegFree/internal/paths"
@@ -109,6 +110,8 @@ type Service struct {
 	launchMu    sync.Mutex
 	queueArmed  map[string]bool
 	deleting    map[string]bool
+	pptMu       sync.Mutex
+	ppt         *genoffice.Manager
 
 	// v0.51 分支树：fetch 节流状态与 cat.branchPrefs 读写锁
 	btree branchTreeState
@@ -165,6 +168,7 @@ type turnState struct {
 	tokenTotal   int64 // CLI 上报合计；0 = 无 usage
 	outputTokens int64 // v0.47：CLI 上报输出 token；0 = 无
 	finishedAt   int64
+	steer        catagent.SteerFunc // protected by mu; cleared when the native turn closes
 	tokensPerSec *float64
 	firstTokenAt int64 // v0.45：第一个正文 / 思考增量的墙钟；0 = 还没有
 }
@@ -463,6 +467,12 @@ func (s *Service) loadTranscript(ctx context.Context, c store.CatConversation) (
 func wiresToMessages(convID string, wires []catagent.WireMessage) []store.CatMessage {
 	out := make([]store.CatMessage, 0, len(wires))
 	for i, w := range wires {
+		if w.Role == "user" {
+			w.Content = catagent.StripInternalInstructions(w.Content)
+			if w.Content == "" && len(w.Media) == 0 {
+				continue
+			}
+		}
 		role := w.Role
 		switch role {
 		case "user", "assistant", "system", "thought", "tool", "status":
@@ -727,6 +737,17 @@ func (s *Service) startTurn(ctx context.Context, req SendMessageRequest, hook *t
 		Rules:          s.workspaceRulesForTurn(ctx, c.ProjectID),
 		Provider:       provider,
 		Skills:         skillsOverlayForProject(c.AgentKind, projectRoot),
+		LiveSteer:      c.AgentKind == catagent.KindCodexCLI,
+	}
+	opts.OnSteerReady = func(steer catagent.SteerFunc) {
+		t.mu.Lock()
+		t.steer = steer
+		t.mu.Unlock()
+		s.emit("cat:steer-status", struct {
+			ConvID string `json:"convId"`
+			TurnID string `json:"turnId"`
+			Ready  bool   `json:"ready"`
+		}{t.convID, t.turnID, steer != nil})
 	}
 	if hook != nil && hook.timeout > 0 {
 		opts.Timeout = hook.timeout

@@ -1,7 +1,7 @@
 import { reactive } from 'vue'
 import { getQueue, getChanges, type MessageQueue, type TurnChanges } from '@/api/catWorkflow'
 import { onTaskEvent } from '@/services/wails'
-export const catWorkflow = reactive({ queues: {} as Record<string, MessageQueue>, changes: {} as Record<string, TurnChanges[]>, opens: {} as Record<string, { relPath: string; name: string; serial: number }> })
+export const catWorkflow = reactive({ queues: {} as Record<string, MessageQueue>, changes: {} as Record<string, TurnChanges[]>, opens: {} as Record<string, { relPath: string; name: string; serial: number }>, steering: {} as Record<string, { turnId: string; ready: boolean }> })
 export function acceptQueue(q: MessageQueue) {
   if ((q.revision || 0) < (catWorkflow.queues[q.convId]?.revision || 0)) return
   catWorkflow.queues[q.convId] = q
@@ -28,6 +28,11 @@ export function watchWorkflow(): () => void {
   if (workflowOff) return release
   const bump = (id: string) => revisions.set(id, (revisions.get(id) || 0) + 1)
   const offs = [
+    onTaskEvent<{ convId: string; turnId: string; ready: boolean }>('cat:steer-status', e => {
+      const current = catWorkflow.steering[e.convId]
+      if (!e.ready && current && current.turnId !== e.turnId) return
+      catWorkflow.steering[e.convId] = { turnId: e.turnId, ready: e.ready }
+    }),
     onTaskEvent<MessageQueue>('cat:queue', q => { bump(q.convId); acceptQueue(q) }),
     onTaskEvent<TurnChanges>('cat:turn-changes', change => {
       bump(change.convId)

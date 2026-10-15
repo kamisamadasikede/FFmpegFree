@@ -342,7 +342,7 @@ func (s *Service) fillPDFDirect(t *editTarget, out *DocPreview) {
 }
 
 func (s *Service) fillRawOrUnavailable(t *editTarget, out *DocPreview) {
-	// 无引擎：docx/xlsx → raw（≤50MiB）
+	// 无引擎：docx/xlsx/pptx → raw（≤50MiB）
 	if out.SizeBytes > maxRawPreviewBytes {
 		out.Kind = "unavailable"
 		out.Reason = "too_large_for_simple"

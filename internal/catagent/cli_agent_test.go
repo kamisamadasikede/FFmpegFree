@@ -247,7 +247,7 @@ func TestCodexArgs_PermissionAndRulesPrefix(t *testing.T) {
 	joined := strings.Join(args, "\n")
 	for _, want := range []string{"exec", "resume", "--json", "--skip-git-repo-check",
 		`sandbox_mode="workspace-write"`, `approval_policy="never"`, "-m", "gpt-test",
-		"thr-1", "use tests\n\nfix it"} {
+		"thr-1", "<ffc_internal_instructions>\nuse tests\n</ffc_internal_instructions>\n\nfix it"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("missing %q in:\n%s", want, joined)
 		}

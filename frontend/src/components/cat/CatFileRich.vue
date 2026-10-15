@@ -24,14 +24,7 @@
       </table>
       <p v-if="sheetCut" class="note">只显示前 200 行、30 列。</p>
     </div>
-    <div v-else-if="kind === 'pptx'" class="scroll">
-      <p v-if="!slides.length" class="note">这份演示文稿里没有可显示的文字。</p>
-      <article v-for="(s, i) in slides" :key="i" class="slide">
-        <h3>{{ s.title }}</h3>
-        <p v-if="!s.lines.length" class="muted">这一页没有可显示的文字。</p>
-        <p v-for="(line, j) in s.lines" :key="j">{{ line }}</p>
-      </article>
-    </div>
+    <p v-else-if="kind === 'pptx'" class="note">{{ t('cat.ppt.openPanel') }}</p>
   </div>
 </template>
 
@@ -52,7 +45,6 @@ const sheets = ref<string[]>([])
 const sheet = ref('')
 const rows = ref<string[][]>([])
 const sheetCut = ref(false)
-const slides = ref<{ title: string; lines: string[] }[]>([])
 const docxHost = ref<HTMLElement | null>(null)
 const docxStyle = ref<HTMLElement | null>(null)
 let objectUrl = ''
@@ -101,7 +93,6 @@ async function render() {
   empty.value = false
   sheets.value = []
   rows.value = []
-  slides.value = []
   sheetCut.value = false
   book = null
   revoke()
@@ -129,7 +120,6 @@ async function render() {
     await renderSheet(bytes, my)
     return
   }
-  if (props.kind === 'pptx') await renderSlides(bytes, my)
 }
 
 async function renderDocx(bytes: Uint8Array, my: number) {
@@ -186,49 +176,6 @@ function fillSheet() {
   rows.value = grid.slice(0, 200).map((row) => (Array.isArray(row) ? row : []).slice(0, 30).map((cell) => (cell == null ? '' : String(cell))))
 }
 
-function xmlPlain(s: string): string {
-  return s
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, h: string) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_, n: string) => String.fromCodePoint(Number(n)))
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&amp;/g, '&')
-}
-
-function slideNum(path: string): number {
-  const m = /slide(\d+)\.xml$/i.exec(path)
-  return m ? Number(m[1]) : 0
-}
-
-async function renderSlides(bytes: Uint8Array, my: number) {
-  try {
-    const JSZip = (await import('jszip')).default
-    const zip = await JSZip.loadAsync(bytes)
-    if (my !== token) return
-    const names = Object.keys(zip.files)
-      .filter((n) => /^ppt\/slides\/slide\d+\.xml$/i.test(n))
-      .sort((a, b) => slideNum(a) - slideNum(b))
-      .slice(0, 40)
-    const out: { title: string; lines: string[] }[] = []
-    for (const path of names) {
-      const xml = await zip.files[path].async('string')
-      if (my !== token) return
-      const lines: string[] = []
-      const re = /<a:t[^>]*>([\s\S]*?)<\/a:t>/g
-      let m: RegExpExecArray | null
-      while ((m = re.exec(xml))) {
-        const text = xmlPlain(m[1]).replace(/\s+/g, ' ').trim()
-        if (text) lines.push(text)
-      }
-      out.push({ title: t('cat.misc.s_ff655a5c10', { n: out.length + 1 }), lines })
-    }
-    slides.value = out
-  } catch {
-    if (my === token) failed.value = true
-  }
-}
 </script>
 
 <style scoped>

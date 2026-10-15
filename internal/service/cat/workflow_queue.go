@@ -9,25 +9,31 @@ import (
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/catagent"
 	"FFmpegFree/internal/id"
+	"FFmpegFree/internal/store"
 )
 
 type QueuedMessage struct {
 	ID        string             `json:"id"`
 	Request   SendMessageRequest `json:"request"`
 	CreatedAt int64              `json:"createdAt"`
+	Held      bool               `json:"held"`
 }
 type MessageQueue struct {
-	Revision int64           `json:"revision"`
-	ConvID   string          `json:"convId"`
-	Items    []QueuedMessage `json:"items"`
-	Paused   bool            `json:"paused"`
-	Error    string          `json:"error,omitempty"`
+	Revision         int64           `json:"revision"`
+	ConvID           string          `json:"convId"`
+	Items            []QueuedMessage `json:"items"`
+	Paused           bool            `json:"paused"`
+	Error            string          `json:"error,omitempty"`
+	QueueingDisabled bool            `json:"queueingDisabled"`
+	CanSteer         bool            `json:"canSteer"`
 }
 type QueueAction struct {
-	ConvID  string `json:"convId"`
-	ID      string `json:"id"`
-	Action  string `json:"action"`
-	Content string `json:"content"`
+	ConvID   string              `json:"convId"`
+	ID       string              `json:"id"`
+	Action   string              `json:"action"`
+	Content  string              `json:"content"`
+	BeforeID string              `json:"beforeId"`
+	Request  *SendMessageRequest `json:"request,omitempty"`
 }
 
 func (s *Service) readQueue(ctx context.Context, convID string) (MessageQueue, error) {
@@ -38,6 +44,15 @@ func (s *Service) readQueue(ctx context.Context, convID string) (MessageQueue, e
 	}
 	if !s.queueArmed[convID] && len(q.Items) > 0 {
 		q.Paused = true
+	}
+	s.mu.Lock()
+	t := s.turns[convID]
+	s.mu.Unlock()
+	q.CanSteer = false
+	if t != nil {
+		t.mu.Lock()
+		q.CanSteer = t.steer != nil && !t.finished
+		t.mu.Unlock()
 	}
 	return q, err
 }
@@ -89,7 +104,7 @@ func (s *Service) QueueCatMessage(ctx context.Context, req SendMessageRequest) (
 		s.queueArmed = map[string]bool{}
 	}
 	s.queueArmed[q.ConvID] = true
-	if len(q.Items) == 0 {
+	if len(q.Items) == 0 && !q.QueueingDisabled {
 		q.Paused = false
 		q.Error = ""
 	}
@@ -114,28 +129,77 @@ func (s *Service) UpdateCatMessageQueue(ctx context.Context, req QueueAction) (M
 	}
 	s.queueArmed[q.ConvID] = true
 	switch req.Action {
+	case "steer-new":
+		if req.Request == nil || req.Request.ConversationID != req.ConvID {
+			return q, apperr.New(apperr.InvalidArgument, "引导消息不正确。")
+		}
+		if err := s.steerWorkflowMessage(ctx, *req.Request); err != nil {
+			return q, err
+		}
+		return q, nil
 	case "pause":
 		q.Paused = true
 	case "resume":
+		q.QueueingDisabled = false
 		q.Paused = false
 		q.Error = ""
-	case "edit", "delete", "guide":
+	case "queue-off":
+		q.QueueingDisabled, q.Paused = true, true
+	case "queue-on":
+		q.QueueingDisabled, q.Paused, q.Error = false, false, ""
+	case "edit", "edit-start", "edit-cancel", "edit-send", "edit-steer", "delete", "guide", "send", "move", "steer":
 		found := false
 		for i, item := range q.Items {
 			if item.ID != req.ID {
 				continue
 			}
 			found = true
+			if req.Action == "edit" || req.Action == "edit-send" || req.Action == "edit-steer" {
+				if utf8.RuneCountInString(req.Content) > 100000 || (strings.TrimSpace(req.Content) == "" && len(item.Request.Attachments) == 0) {
+					return q, apperr.New(apperr.InvalidArgument, "消息为空或过长。")
+				}
+				item.Request.Content, item.Held = req.Content, false
+			}
 			switch req.Action {
 			case "delete":
 				q.Items = append(q.Items[:i], q.Items[i+1:]...)
 			case "edit":
-				if utf8.RuneCountInString(req.Content) > 100000 || (strings.TrimSpace(req.Content) == "" && len(item.Request.Attachments) == 0) {
-					return q, apperr.New(apperr.InvalidArgument, "消息为空或过长。")
-				}
-				q.Items[i].Request.Content = req.Content
+				q.Items[i] = item
+			case "edit-start":
+				q.Items[i].Held = true
+			case "edit-cancel":
+				q.Items[i].Held = false
 			case "guide":
 				q.Items = append([]QueuedMessage{item}, append(q.Items[:i], q.Items[i+1:]...)...)
+			case "send", "edit-send":
+				q.QueueingDisabled = false
+				item.Held = false
+				q.Items = append([]QueuedMessage{item}, append(q.Items[:i], q.Items[i+1:]...)...)
+				q.Paused, q.Error = false, ""
+			case "steer", "edit-steer":
+				if err := s.steerWorkflowMessage(ctx, item.Request); err != nil {
+					return q, err
+				}
+				q.Items = append(q.Items[:i], q.Items[i+1:]...)
+			case "move":
+				if req.BeforeID == item.ID {
+					break
+				}
+				remaining := append(append([]QueuedMessage{}, q.Items[:i]...), q.Items[i+1:]...)
+				at := len(remaining)
+				if req.BeforeID != "" {
+					at = -1
+					for j, other := range remaining {
+						if other.ID == req.BeforeID {
+							at = j
+							break
+						}
+					}
+					if at < 0 {
+						return q, apperr.New(apperr.NotFound, "待发顺序已经变化，请重试。")
+					}
+				}
+				q.Items = append(remaining[:at], append([]QueuedMessage{item}, remaining[at:]...)...)
 			}
 			break
 		}
@@ -151,6 +215,44 @@ func (s *Service) UpdateCatMessageQueue(ctx context.Context, req QueueAction) (M
 	return s.dispatchQueue(ctx, q)
 }
 
+// Queue removal follows native acceptance. A rejected/stale steer keeps its draft.
+// The current process, permission mode and model stay in effect during steering.
+func (s *Service) steerWorkflowMessage(ctx context.Context, req SendMessageRequest) error {
+	if (strings.TrimSpace(req.Content) == "" && len(req.Attachments) == 0) || utf8.RuneCountInString(req.Content) > 100000 {
+		return apperr.New(apperr.InvalidArgument, "消息为空或过长。")
+	}
+	files := make([]catagent.PromptFile, 0, len(req.Attachments))
+	for _, f := range req.Attachments {
+		files = append(files, catagent.PromptFile{Name: f.Name, Path: f.Path})
+	}
+	var err error
+	files, err = catagent.NormalizePromptFiles(files)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	t := s.turns[req.ConversationID]
+	s.mu.Unlock()
+	if t == nil {
+		return apperr.New(apperr.TaskConflict, "当前任务已经结束，请发送为下一轮。")
+	}
+	t.mu.Lock()
+	steer, finished := t.steer, t.finished
+	t.mu.Unlock()
+	if steer == nil || finished {
+		return apperr.New(apperr.TaskConflict, "当前任务尚不能接收实时引导，可以选择下一轮发送。")
+	}
+	if err = steer(ctx, req.Content, files); err != nil {
+		return err
+	}
+	s.emit("cat:steered", struct {
+		ConvID      string            `json:"convId"`
+		Result      SendMessageResult `json:"result"`
+		Attachments []SendAttachment  `json:"attachments"`
+	}{req.ConversationID, SendMessageResult{UserMessage: store.CatMessage{ID: id.New(), Role: "user", Content: req.Content, CreatedAt: time.Now().UnixMilli()}, TurnID: t.turnID}, req.Attachments})
+	return nil
+}
+
 // Called only while workflowMu is held. startTurn reserves the conversation
 // atomically; it never replaces an existing process.
 func (s *Service) dispatchQueue(ctx context.Context, q MessageQueue) (MessageQueue, error) {
@@ -158,6 +260,9 @@ func (s *Service) dispatchQueue(ctx context.Context, q MessageQueue) (MessageQue
 	busy := s.turns[q.ConvID] != nil || s.deleting[q.ConvID]
 	s.mu.Unlock()
 	if busy || q.Paused || len(q.Items) == 0 {
+		return q, nil
+	}
+	if q.Items[0].Held {
 		return q, nil
 	}
 	item := q.Items[0]

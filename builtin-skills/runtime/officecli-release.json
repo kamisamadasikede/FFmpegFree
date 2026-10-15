@@ -1,0 +1,29 @@
+{
+  "version": "1.0.157",
+  "assets": {
+    "linux-arm64": {
+      "name": "officecli-linux-arm64",
+      "sha256": "60db926c8a1371984b9e99622a834777befb02b6f73d0f3fff914ffcc2760d2f"
+    },
+    "linux-x64": {
+      "name": "officecli-linux-x64",
+      "sha256": "f8eefe88dbfa7464bee421e5421efe57fc26bc3180b30e56eef58594c8245c94"
+    },
+    "mac-arm64": {
+      "name": "officecli-mac-arm64",
+      "sha256": "0dae0990a9cc29688a5d54469f984c34e5b15ab6bbd194a0ffdc571bb9040124"
+    },
+    "mac-x64": {
+      "name": "officecli-mac-x64",
+      "sha256": "178c1e9ebaf44c24d2b4b359064a5dea6eb7b2f539809871a3de1c09599dff9f"
+    },
+    "win-arm64": {
+      "name": "officecli-win-arm64.exe",
+      "sha256": "786e08b1ccf09c3a2107912537fe25fa82970b30145e3c59e09d83bf4032b065"
+    },
+    "win-x64": {
+      "name": "officecli-win-x64.exe",
+      "sha256": "bd64eba587e56cc71709cdd1f38ae9ac77cd65a9c8ea744b0996897c0557e343"
+    }
+  }
+}
