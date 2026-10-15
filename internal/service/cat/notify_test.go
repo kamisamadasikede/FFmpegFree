@@ -29,7 +29,7 @@ func TestOrdinaryTurnNotifyCompletedFailedNotCancelled(t *testing.T) {
 	}
 	waitNotify(t, n, 1)
 	got := n.all()
-	if got[0].Title != "Cat · 对话已完成" || got[0].ConvID != c.ID {
+	if got[0].Title != "Agent · 对话已完成" || got[0].ConvID != c.ID {
 		t.Fatalf("completed: %+v", got)
 	}
 
@@ -40,7 +40,7 @@ func TestOrdinaryTurnNotifyCompletedFailedNotCancelled(t *testing.T) {
 	c2, _ := svc2.CreateCatConversation(ctx, cat.CreateConversationRequest{AgentKind: catagent.KindCatBuild})
 	_, _ = svc2.SendCatMessage(ctx, cat.SendMessageRequest{ConversationID: c2.ID, Content: "x"})
 	waitNotify(t, n2, 1)
-	if n2.all()[0].Title != "Cat · 回复失败" || n2.all()[0].Body != "boom" {
+	if n2.all()[0].Title != "Agent · 回复失败" || n2.all()[0].Body != "boom" {
 		t.Fatalf("failed: %+v", n2.all())
 	}
 
@@ -185,7 +185,7 @@ func TestOrdinaryTurnNotifyWhenVisibleButBlurred(t *testing.T) {
 	c, _ := svc.CreateCatConversation(ctx, cat.CreateConversationRequest{AgentKind: catagent.KindCatBuild})
 	_, _ = svc.SendCatMessage(ctx, cat.SendMessageRequest{ConversationID: c.ID, Content: "hi"})
 	waitNotify(t, n, 1)
-	if got := n.all(); got[0].Title != "Cat · 对话已完成" || got[0].Body != "新对话" || got[0].ID == "" {
+	if got := n.all(); got[0].Title != "Agent · 对话已完成" || got[0].Body != "新对话" || got[0].ID == "" {
 		t.Fatalf("%+v", got)
 	}
 }

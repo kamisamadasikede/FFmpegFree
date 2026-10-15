@@ -8,6 +8,7 @@ import { AppError, callService, toAppError } from '@/api/call'
 import { catSim, type CatSimFlag } from '@/views/cat/catDevSim'
 import { mapGitDiff, type GitDiff } from '@/api/catGit'
 import { t } from '@/i18n'
+import type { GitHistoryScope } from '@/api/catGitWorkflows'
 
 export const CAT_COMMIT_COPY = {
   get title() { return t('cat.commit.title') },
@@ -302,7 +303,7 @@ export function simCommits(): CatCommit[] {
 }
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
 let simPages = 0
-async function simList(cursor: string, query: string): Promise<CatCommitPage> {
+async function simList(cursor: string, query: string, scope?: GitHistoryScope): Promise<CatCommitPage> {
   await delay(cursor ? 500 : 250)
   if (catSim.has('gitgraphempty')) return { commits: [], nextCursor: '', total: 0, noCommits: true }
   // 首屏失败：走查「加载失败」+「重试」（首屏 firstError，不是翻页 moreError）
@@ -312,7 +313,8 @@ async function simList(cursor: string, query: string): Promise<CatCommitPage> {
     simPages++
     if (catSim.has('gitgraphchanged') && simPages === 1) throw new AppError('INVALID_ARGUMENT', '', 'reason=history_changed')
   }
-  const all = simCommits().filter((c) => commitMatches(c, query))
+  const source = scope === 'outgoing' ? simCommits().slice(0, 3) : scope === 'incoming' ? simCommits().slice(4, 6) : simCommits()
+  const all = source.filter((c) => commitMatches(c, query))
   const commits = all.slice(skip, skip + COMMIT_PAGE)
   const next = skip + COMMIT_PAGE < all.length ? btoa(String(skip + COMMIT_PAGE)) : ''
   return { commits: commits.map((c) => ({ ...c, isHead: c.sha === simHeadSha })), nextCursor: next, total: query ? 0 : all.length, noCommits: false }
@@ -320,12 +322,13 @@ async function simList(cursor: string, query: string): Promise<CatCommitPage> {
 
 /* ───────────── 绑定 ───────────── */
 
-export async function listCatCommits(convId: string, opts: { cursor?: string; query?: string; branch?: string } = {}): Promise<CatCommitPage> {
-  if (commitSimOn()) return simList(opts.cursor ?? '', opts.query ?? '')
+export async function listCatCommits(convId: string, opts: { cursor?: string; query?: string; branch?: string; scope?: GitHistoryScope } = {}): Promise<CatCommitPage> {
+  if (commitSimOn()) return simList(opts.cursor ?? '', opts.query ?? '', opts.scope)
   const req: R = { convId, limit: COMMIT_PAGE }
   if (opts.cursor) req.cursor = opts.cursor
   if (opts.query?.trim()) req.query = opts.query.trim()
   if (opts.branch) req.branch = opts.branch
+  if (opts.scope) req.scope = opts.scope
   return mapCommitPage(await callService<unknown>('CatService', 'ListCatCommits', req))
 }
 

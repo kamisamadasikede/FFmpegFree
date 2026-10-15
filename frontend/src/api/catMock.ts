@@ -42,6 +42,9 @@ export type CatBlock =
   | { kind: 'sys'; text: string; tone?: 'err'; outdated?: import('@/components/cat/catCliOutdated').CatCliOutdated; /** v0.46 服务商类失败（如 provider_responses_unsupported）：同 cli_outdated 的错误行样式 */ providerErr?: true }
 
 export interface CatConv {
+  customTitle?: string
+  pinned?: boolean
+  archived?: boolean
   id: string
   title: string
   /** 创建时锁定，之后不可改（契约 6.19.2） */
@@ -100,8 +103,8 @@ export const CAT_MODES: CatMode[] = [
   { id: 'cat_build', name: 'Grok Build', icon: 'spark', agentKind: CAT_AGENT_BUILD, enabled: true, mark: 'cat_build' },
   { id: 'claude_cli', name: 'Claude', icon: 'bot', agentKind: CAT_AGENT_CLAUDE, enabled: true, mark: 'claude_cli' },
   { id: 'codex_cli', name: 'Codex', icon: 'term', agentKind: CAT_AGENT_CODEX, enabled: true, mark: 'codex_cli' },
-  { id: 'cat_cli', name: 'Cat CLI', icon: 'tool', agentKind: 'cat_cli', enabled: false },
-  { id: 'cat_code', name: 'Cat Code', icon: 'spark', agentKind: 'cat_code', enabled: false },
+  { id: 'cat_cli', name: 'Agent CLI', icon: 'tool', agentKind: 'cat_cli', enabled: false },
+  { id: 'cat_code', name: 'Agent Code', icon: 'spark', agentKind: 'cat_code', enabled: false },
 ]
 
 export const CAT_TRY = [

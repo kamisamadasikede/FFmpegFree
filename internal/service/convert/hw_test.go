@@ -125,12 +125,12 @@ func TestRealHWFailureFallsBackToCPU(t *testing.T) {
 		t.Fatalf("Get: %+v %v", g, err)
 	}
 	log, _ := os.ReadFile(g.LogPath)
-	if !strings.Contains(string(log), "[FFmpegFree] 显卡编码启动失败，已自动改用 CPU 重试一次") {
+	if !strings.Contains(string(log), "[ffc] 显卡编码启动失败，已自动改用 CPU 重试一次") {
 		t.Fatalf("日志应记录回退: %s", log)
 	}
 	// FFmpegFree 自己写的行不带编码器名（ffmpeg 自己的 stderr 里当然有）。
 	for _, l := range strings.Split(string(log), "\n") {
-		if !strings.Contains(l, "[FFmpegFree]") {
+		if !strings.Contains(l, "[ffc]") {
 			continue
 		}
 		low := strings.ToLower(l)

@@ -44,7 +44,7 @@ const (
 type ReconvertSpec struct {
 	Params     string   // 新的 params JSON
 	InputPaths []string // 新的 inputPaths（这一行当前的读取路径）
-	Summary    string   // 日志里的 “[FFmpegFree] 重转：<summary>”
+	Summary    string   // 日志里的 “[ffc] 重转：<summary>”
 	Mode       string   // ReconvertReplace | ReconvertRegenerate（调用方用 ReconvertOutputMode 得出）
 }
 
@@ -253,7 +253,7 @@ func (m *Manager) Reconvert(taskID string, spec ReconvertSpec, r Runner) (Task, 
 		rollback()
 		return Task{}, apperr.Wrap(apperr.IOError, "保存任务失败", err)
 	}
-	fmt.Fprintf(e.log, "\n[FFmpegFree] 重转：%s\n", spec.Summary)
+	fmt.Fprintf(e.log, "\n[ffc] 重转：%s\n", spec.Summary)
 	snap := e.snapshot()
 	zero, notHidden := 0.0, false
 	m.emit(EventStatus, StatusEvent{
@@ -417,7 +417,7 @@ func (m *Manager) endReconvert(e *entry, outcome string, aerr *apperr.AppError) 
 	t.Version++
 	if outcome == OutcomeFailed && aerr != nil {
 		t.LastReconvertError = &store.ReconvertError{Code: string(aerr.Code), Message: aerr.Message, Detail: aerr.Detail, At: time.Now().UnixMilli()}
-		fmt.Fprintf(e.log, "[FFmpegFree] 重转失败，原来的文件没有变动：%s\n", aerr.Message)
+		fmt.Fprintf(e.log, "[ffc] 重转失败，原来的文件没有变动：%s\n", aerr.Message)
 	}
 	if outcome != OutcomeInterrupted {
 		e.persistLocked()

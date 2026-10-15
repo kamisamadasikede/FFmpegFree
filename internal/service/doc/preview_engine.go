@@ -2,6 +2,7 @@ package doc
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -147,7 +148,14 @@ func (s *Service) runPreviewJob(job previewJob) {
 
 	key := cacheKey(job.pathKey, job.size, job.mtime, job.engines[0])
 	part := s.prevCache.PartPath(key)
-	engineID, err := s.cfg.Engines.TryPreviewPDF(ctx, job.ext, job.path, part, work, job.hasMacro, nil, deadline)
+	// Convert an immutable saved version. A CLI may replace the original while
+	// Office is reading it; that must not corrupt a preview or its revision cache.
+	source := filepath.Join(work, "source."+job.ext)
+	if err := copyPreviewSource(job, source); err != nil {
+		s.finishPreviewFailed(job, err)
+		return
+	}
+	engineID, err := s.cfg.Engines.TryPreviewPDF(ctx, job.ext, source, part, work, job.hasMacro, nil, deadline)
 	if job.ctx.Err() != nil {
 		_ = os.Remove(part)
 		return
@@ -192,6 +200,41 @@ func (s *Service) runPreviewJob(job previewJob) {
 		return
 	}
 	s.emitPreview(DocPreviewEvent{PreviewID: job.id, State: "ready", Kind: "pdf", URL: url})
+}
+
+func copyPreviewSource(job previewJob, dest string) error {
+	fi, err := os.Lstat(job.path)
+	if err != nil || !fi.Mode().IsRegular() {
+		return apperr.New(apperr.NotFound, "找不到预览文件。")
+	}
+	if fi.Size() != job.size || fi.ModTime().UnixNano() != job.mtime {
+		return apperr.New(apperr.TaskConflict, "文件仍在写入，请稍后刷新预览。")
+	}
+	if fi.Size() > 200<<20 {
+		return apperr.New(apperr.InvalidArgument, "文件太大，暂时无法生成排版预览。")
+	}
+	in, err := os.Open(job.path)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+	n, err := io.Copy(out, io.LimitReader(in, job.size+1))
+	closeErr := out.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	fi, err = os.Lstat(job.path)
+	if err != nil || n != job.size || fi.Size() != job.size || fi.ModTime().UnixNano() != job.mtime {
+		return apperr.New(apperr.TaskConflict, "文件仍在写入，请稍后刷新预览。")
+	}
+	return nil
 }
 
 // finishPreviewFailed：docx/xlsx（≤50MiB）退到 raw；其余发 failed（6.12.32）。

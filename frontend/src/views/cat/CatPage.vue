@@ -1,5 +1,6 @@
 <template>
   <div class="cat-page cat-root" data-testid="cat-page">
+    <CatWorkspaceDialogs />
     <!-- 进入时：侧栏 250ms 收起（AppSidebar 的 cat-away），中间先显示约 1.2 秒 loading，再出三栏聊天页 -->
     <!-- A1 进入：先画三栏骨架，超过 300ms 才出现闪光 -->
     <div v-if="phase === 'loading'" class="ct-load" role="status" aria-live="polite">
@@ -19,6 +20,7 @@
       <CatSettingsView v-if="catPanels.view === 'settings'" />
       <CatSchedulesView v-else-if="catPanels.view === 'schedules'" />
       <section v-else class="ct-c" :aria-label="t('cat.page.s_85936242fc')">
+        <CatCLIUpdateNotice :show-banner="true" />
         <!-- 中间顶部浮提示（设计 §07：重复文件夹等），2.4s 自动消失 -->
         <div
           v-if="catState.notice"
@@ -86,13 +88,16 @@
             <CatComposer
               ref="composer"
               welcome
+              :conv-id="isNew ? '' : catState.sel"
               :placeholder="t('cat.page.s_9c4f9d191e')"
               :busy="catState.creating"
               :not-ready="catNotReady"
               :checking="catChecking"
               :missing="projectMissing"
               :project-name="currentProject?.name ?? ''"
-              @send="onSend($event, composer)"
+              :draft-key="composerDraftKey"
+              @send="onSend"
+              @search="searchOn = !isNew"
               @blocked="kickBanner"
             />
             <div class="wl-try">
@@ -156,7 +161,7 @@
                 <div v-if="histLoading && !messages.length" class="sk-msgs conv" role="status" :aria-label="t('cat.page.s_741420e8a7')" data-testid="cat-msg-skeleton">
                   <i class="sk w50 r" /><i class="sk w90" /><i class="sk w80" /><i class="sk w60" /><i class="sk w40 r" /><i class="sk w90" /><i class="sk w70" />
                 </div>
-                <CatMessages :blocks="messages" :pending="thinking" :retry="catState.retry[catState.sel]" @retry="retryLastMessage" />
+                <CatMessages :key="catState.sel" :blocks="messages" :conv-id="catState.sel" :pending="thinking" :retry="catState.retry[catState.sel]" @retry="retryLastMessage" />
                 <CatOfficeDownloadCard v-if="officeCanvas.slidesNeeded && !isNew" />
               </div>
             </div>
@@ -208,9 +213,10 @@
             <FIcon name="info" :size="14" /><span class="tx">{{ notReadyText }}</span>
               <button type="button" class="recheck" :disabled="catChecking" data-testid="cat-recheck" @click="recheckCatStatus()">{{ t('cat.page.s_f515f8fba3') }}</button>
           </div>
+          <CatMessageQueue :key="catState.sel" :conv-id="catState.sel" />
           <CatComposer
             ref="convComposer"
-            :ctx-name="current.project?.name ?? 'Cat'"
+            :ctx-name="current.project?.name ?? 'Agent'"
             :ctx-branch="current.project?.branch ?? 'main'"
             :conv-id="catState.sel"
             :is-project="!!current.project"
@@ -219,7 +225,8 @@
             :not-ready="catNotReady"
             :checking="catChecking"
             :missing="projectMissing"
-            @send="onSend($event, convComposer)"
+            :draft-key="composerDraftKey"
+            @send="onSend"
             @blocked="kickBanner"
             @stop="stopTurn()"
           />
@@ -235,6 +242,7 @@
     <CatProjectDeleteDialog />
     <CatAddProjectDialog />
     <CatScheduleToast />
+    <CatCLIUpdateNotice v-if="phase !== 'loading' && catPanels.view !== 'chat'" :show-banner="false" />
   </div>
 </template>
 
@@ -247,10 +255,17 @@ import { catScratch, shouldShowFilePanel } from './catScratchFiles'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import FIcon from '@/components/icon/FIcon.vue'
+import CatCLIUpdateNotice from '@/components/cat/CatCLIUpdateNotice.vue'
+import CatWorkspaceDialogs from '@/components/cat/CatWorkspaceDialogs.vue'
 import CatSidePanel from '@/components/cat/CatSidePanel.vue'
 import CatFilesPanel from '@/components/cat/CatFilesPanel.vue'
 import CatBranchCapsule from '@/components/cat/CatBranchCapsule.vue'
 import CatComposer from '@/components/cat/CatComposer.vue'
+import CatMessageQueue from '@/components/cat/CatMessageQueue.vue'
+import { acceptQueue, catWorkflow, loadWorkflow } from './catWorkflow'
+import { queueMessage } from '@/api/catWorkflow'
+import { notify } from './catState'
+import { toAppError } from '@/api/call'
 import CatMessages from '@/components/cat/CatMessages.vue'
 import CatConvSearch from '@/components/cat/CatConvSearch.vue'
 import CatProjectDeleteDialog from '@/components/cat/CatProjectDeleteDialog.vue'
@@ -270,6 +285,7 @@ import { CAT_COPY } from '@/api/cat'
 import { CAT_MODES, CAT_TRY, type CatMode } from '@/api/catMock'
 import { catReturnPath } from './catReturn'
 import { nearBottom, keepFollowing } from './catFollow'
+import { catDraftKey, restoreCatDraft } from './catDrafts'
 import { RAIL_TICK_PITCH, railThumb, railTickWindow, scrollTopForThumb, tickEdgeScales, tickStairWidths } from './catRail'
 import { awaitingTurnOutput } from './catPending'
 import { onLayoutKey, rightCollapsed } from './catLayout'
@@ -314,8 +330,11 @@ watch(
   (id) => refreshConvScratch(id),
   { immediate: true },
 )
+watch(() => catState.sel, id => { officeCanvas.selectConversation(id); void loadWorkflow(id) }, { immediate: true })
+watch(() => catWorkflow.opens[catState.sel]?.serial, n => { if (n) { rightCollapsed.value = false; officeCanvasClosed.value = true; void refreshConvScratch(catState.sel) } }, { immediate: true })
 const current = computed(() => (isNew.value ? null : findConv(catState.sel)))
 const messages = computed(() => (isNew.value ? [] : messagesOf(catState.sel)))
+const composerDraftKey = computed(() => catDraftKey(catState.sel, catState.newProjectId))
 const composer = ref<InstanceType<typeof CatComposer>>()
 const convComposer = ref<InstanceType<typeof CatComposer>>()
 /** G2：未就绪时按 Enter 让横幅抖一次（改 key 重放动画） */
@@ -327,15 +346,19 @@ function kickBanner() {
 function onFilePick(note: PickNote) {
   convComposer.value?.addPick(note)
 }
-async function onSend(payload: { text: string; files: { name: string; path: string }[]; own: string; notes: PickNote[] }, c: InstanceType<typeof CatComposer> | undefined) {
+async function onSend(payload: { text: string; files: { name: string; path: string }[]; own: string; notes: PickNote[]; draftKey: string }) {
   stick.value = true
-  const back = await sendMessage(payload.text, payload.files)
-  if (back) {
-    c?.restoreDraft(payload.own)
-    c?.restoreFiles(back.files)
-    if (payload.notes.length) c?.restorePicks(payload.notes)
+  const convId = catState.sel
+  if (catState.turns[convId] || catWorkflow.queues[convId]?.items.length) {
+    const request = { conversationId: convId, content: payload.text, attachments: payload.files, modelId: catState.model, thinkLevelId: catState.think, permissionMode: catState.access }
+    try { acceptQueue(await queueMessage(request)) }
+    catch (e) { restoreCatDraft(payload.draftKey, { text: payload.own, files: payload.files, notes: payload.notes }); notify(toAppError(e).message, 'warn') }
+    return
   }
-  nextTick(pinBottom)
+  const back = await sendMessage(payload.text, payload.files)
+  if (back) restoreCatDraft(back.conversationId ? catDraftKey(back.conversationId) : payload.draftKey, { text: payload.own, files: back.files, notes: payload.notes })
+  // Navigation while a send is pending must not scroll the newly selected chat.
+  if (composerDraftKey.value === payload.draftKey) nextTick(pinBottom)
 }
 /** 当前会话进行中的一轮 */
 const turn = computed(() => (isNew.value ? undefined : catState.turns[catState.sel]))

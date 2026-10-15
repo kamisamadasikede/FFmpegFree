@@ -1,8 +1,15 @@
 import { conflictLabels, filterBranchItems, gitBranchMenuItems, gitChangeGroups, gitLetterFor, gitMenuEntries, gitRootLabel, mapGitDiff, mapGitStatus, normalizeMergeState, type GitChange } from './catGit'
+import { gitSyncState, gitPrimaryRemote, mapGitStashes } from './catGitWorkflows'
 
 type Eq = (name: string, got: unknown, want: unknown) => void
 
 export function catGitChecks(eq: Eq): void {
+  const base = mapGitStatus({ repo: true, branch: 'main', upstream: 'cloud/main', remote: 'https://example.com/repo.git', headSha: 'a'.repeat(40) })
+  const states = [base, {...base,ahead:2}, {...base,behind:1}, {...base,ahead:2,behind:1}, {...base,upstream:''}, {...base,detached:true}]
+  eq('Git 同步状态与操作对应', states.map(s => [gitSyncState(s), gitPrimaryRemote(s).op]), [['synced','fetch'],['outgoing','push'],['incoming','ff'],['diverged','sync'],['unpublished','publish'],['detached','fetch']])
+  eq('Git 未配置远程、冲突、游离状态禁用远程写操作', [{...base,remote:''},{...base,conflicts:[{path:'a',ours:true,theirs:true,letter:'UU'}]},{...base,detached:true}].map(s=>gitPrimaryRemote(s).disabled), [true,true,true])
+  eq('Git 储藏按提交标识映射', mapGitStashes([null, {sha:'abc',ref:'stash@{1}',message:'first',time:12},{ref:'invalid'}]), [{sha:'abc',ref:'stash@{1}',message:'first',time:12}])
+  eq('Git 反向提交冲突状态', normalizeMergeState('reverting'), 'reverting')
   const changes = [
     { path: 'docs/a.md', letter: 'U' },
     { path: 'docs/b.md', letter: 'M' },

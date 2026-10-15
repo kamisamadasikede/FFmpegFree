@@ -114,5 +114,5 @@ export function catStreamChecks(eq: Eq): void {
   eq('timeout 文案', catTimeoutText('reason=timeout\nagentKind=claude_cli'), '回复超时，已停止这一轮。')
   eq('其他 reason 不换', catTimeoutText('reason=parse'), '')
   eq('无 detail 不换', catTimeoutText(undefined), '')
-  eq('未就绪文案', CAT_COPY.notReady, '未检测到 Cat 助手，请先安装并确保可在终端直接运行。')
+  eq('未就绪文案', CAT_COPY.notReady, '未检测到 Agent 助手，请先安装并确保可在终端直接运行。')
 }

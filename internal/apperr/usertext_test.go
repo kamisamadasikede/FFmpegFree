@@ -113,11 +113,11 @@ func TestUserFacingMessageIsChinese(t *testing.T) {
 		codes = append(codes, string(c))
 	}
 	allowed := map[string]bool{ // 产品名、格式名、平台名：界面上本来就这样写
-		"FFmpegFree": true, "PDF": true, "JSON": true, "Windows": true, "macOS": true, "X11": true, "Office": true, "ID": true,
+		"ffc": true, "PDF": true, "JSON": true, "Windows": true, "macOS": true, "X11": true, "Office": true, "ID": true,
 		"Word": true, "ODT": true, "TXT": true, "CSV": true, "Markdown": true, "MD": true, "HTML": true, "DOC": true, "DOCX": true,
 		"XLS": true, "XLSX": true, "PPT": true, "PPTX": true, "ODS": true, "ODP": true, "RTF": true, "GB": true, "MiB": true, "UTF": true,
-		"Cat": true, "Git": true, "git": true, "GitHub": true, // Git 面板（老板 915328a）：界面上就叫这些名字
-		"CLI": true, // 契约 v0.43：「Claude/Codex/Grok Build CLI 版本过旧，请升级后重试。」产品锁定原句
+		"Agent": true, "Git": true, "git": true, "GitHub": true, // 产品名与 Git 面板名称
+		"CLI": true,              // 契约 v0.43：「Claude/Codex/Grok Build CLI 版本过旧，请升级后重试。」产品锁定原句
 		"API": true, "Key": true, // 契约 v0.38：自定义服务商「请填写 API Key。」等产品锁定原句
 	}
 	linuxLOHints := map[string]bool{ // 契约 6.12.24（v0.27）：只有 Linux 的这两句可以出现 LibreOffice

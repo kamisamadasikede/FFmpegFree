@@ -120,7 +120,7 @@ func (d *downloader) fetchOnce(ctx context.Context, url, partPath string, wantSi
 	if err != nil {
 		return err
 	}
-	req.Header.Set("User-Agent", "FFmpegFree")
+	req.Header.Set("User-Agent", "ffc")
 	if have > 0 {
 		req.Header.Set("Range", "bytes="+strconv.FormatInt(have, 10)+"-")
 	}

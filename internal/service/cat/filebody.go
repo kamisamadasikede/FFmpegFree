@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,10 +58,11 @@ func (s *Service) ReadCatFile(ctx context.Context, req ReadFileRequest) (ReadFil
 	}
 	kind, mime := kindFromName(info.Name())
 	out := ReadFileResult{
-		RelPath: rel,
-		Name:    info.Name(),
-		Size:    info.Size(),
-		ModTime: modMilli(info),
+		Revision: fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano()),
+		RelPath:  rel,
+		Name:     info.Name(),
+		Size:     info.Size(),
+		ModTime:  modMilli(info),
 	}
 	if kind == kindDoc {
 		out.Kind = kindDoc
@@ -140,6 +142,15 @@ func (s *Service) WriteCatFile(ctx context.Context, req WriteFileRequest) (Write
 	if strings.Contains(req.Content, "\x00") || !utf8.ValidString(req.Content) {
 		return WriteFileResult{}, errFileTextOnly()
 	}
+	if req.ExpectedRevision != "" {
+		_, _, latest, e := s.resolveCatFile(ctx, req.ConvID, req.RelPath, msgFileWriteFailed)
+		if e != nil {
+			return WriteFileResult{}, e
+		}
+		if req.ExpectedRevision != fmt.Sprintf("%d:%d", latest.Size(), latest.ModTime().UnixNano()) {
+			return WriteFileResult{}, apperr.New(apperr.TaskConflict, "文件已被外部修改，未覆盖你的编辑。请重新加载后再修改。").WithDetail("reason=file_changed")
+		}
+	}
 	f, err := os.OpenFile(abs, os.O_WRONLY|os.O_TRUNC, 0)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -158,6 +169,7 @@ func (s *Service) WriteCatFile(ctx context.Context, req WriteFileRequest) (Write
 	if st, lerr := os.Lstat(abs); lerr == nil && st.Mode()&os.ModeSymlink == 0 {
 		out.Size = st.Size()
 		out.ModTime = modMilli(st)
+		out.Revision = fmt.Sprintf("%d:%d", st.Size(), st.ModTime().UnixNano())
 	}
 	return out, nil
 }

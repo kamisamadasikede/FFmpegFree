@@ -21,23 +21,13 @@ func TestProjectCatPaths(t *testing.T) {
 	}
 }
 
-func TestMergeSkillsEnvInjectsGuessKeys(t *testing.T) {
-	base := []string{"PATH=/bin", "GROK_SKILLS_DIR=/old"}
-	o := SkillsOverlay{AgentKind: KindCatBuild, SkillsRoot: "/p/.ffmpegfree/cat/skills", McpConfigPath: "/p/.ffmpegfree/cat/mcp.json"}
-	out := MergeSkillsEnv(base, o)
-	joined := strings.Join(out, "\n")
-	if strings.Contains(joined, "GROK_SKILLS_DIR=/old") {
-		t.Fatalf("old not stripped: %v", out)
-	}
-	if !strings.Contains(joined, "GROK_SKILLS_DIR=/p/.ffmpegfree/cat/skills") {
-		t.Fatalf("missing skills: %v", out)
-	}
-	if !strings.Contains(joined, "MCP_CONFIG_PATH=") {
-		t.Fatalf("missing mcp: %v", out)
-	}
-	empty := MergeSkillsEnv(base, SkillsOverlay{})
-	if len(empty) != len(base) {
-		t.Fatalf("empty overlay changed env")
+func TestMergeSkillsEnvUsesNativeDiscovery(t *testing.T) {
+	base := []string{"PATH=/bin", "GROK_SKILLS_DIR=/user-defined"}
+	for _, kind := range []string{KindCatBuild, KindClaudeCLI, KindCodexCLI} {
+		out := MergeSkillsEnv(base, SkillsOverlay{AgentKind: kind, SkillsRoot: "/shared", McpConfigPath: "/shared/mcp.json"})
+		if strings.Join(out, "\n") != strings.Join(base, "\n") {
+			t.Fatalf("changed user env: %v", out)
+		}
 	}
 }
 

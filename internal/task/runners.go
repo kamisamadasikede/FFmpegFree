@@ -159,7 +159,7 @@ func (r *FFmpegRunner) Run(ctx context.Context, report func(Progress)) (string, 
 		res, err := ffmpeg.Run(ctx, opts)
 		if err != nil && res.ExitCode != 0 && ctx.Err() == nil {
 			// 退出码不放在界面提示里，写进任务日志方便排查（-1 通常是进程被外部结束或启动后立即崩溃）。
-			io.WriteString(logw, fmt.Sprintf("[FFmpegFree] ffmpeg 退出码 %d\n", res.ExitCode))
+			io.WriteString(logw, fmt.Sprintf("[ffc] ffmpeg 退出码 %d\n", res.ExitCode))
 		}
 		return res.StderrTail, lastOut > 0, err
 	}
@@ -169,7 +169,7 @@ func (r *FFmpegRunner) Run(ctx context.Context, report func(Progress)) (string, 
 		// 没有产出就退回第一帧：ffmpeg 6 越过结尾时正常退出但不写文件，ffmpeg 7 会以 “Error while opening encoder”（退出码 234）失败，
 		// 两种都按“第 1 秒没有画面”处理；第一帧也失败时报第二次的错误。
 		if r.BuildFallbackArgs != nil && part != "" && !partProduced(part) && ctx.Err() == nil {
-			io.WriteString(logw, "[FFmpegFree] 第 1 秒没有画面，改取第一帧\n")
+			io.WriteString(logw, "[ffc] 第 1 秒没有画面，改取第一帧\n")
 			_, _, err = one(r.BuildFallbackArgs(part), r.ProgressBase, r.ProgressScale)
 			return err
 		}
@@ -189,7 +189,7 @@ func (r *FFmpegRunner) Run(ctx context.Context, report func(Progress)) (string, 
 		info := r.CPUEncoding
 		info.HWFallback, info.HWFallbackReason = true, reason
 		// 日志里 FFmpegFree 自己写的这一行不带编码器名（界面 / 日志统一叫“显卡编码”）；具体原因在上面 ffmpeg 自己的 stderr 里。
-		io.WriteString(logw, "[FFmpegFree] 显卡编码启动失败，已自动改用 CPU 重试一次\n")
+		io.WriteString(logw, "[ffc] 显卡编码启动失败，已自动改用 CPU 重试一次\n")
 		ReportEncoder(ctx, info)
 		_, _, err = one(r.BuildCPUArgs(part), r.ProgressBase, r.ProgressScale)
 		return err

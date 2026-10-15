@@ -58,6 +58,8 @@ import { catActivityChecks } from '@/components/cat/catActivity.check'
 import { catMessageFooterChecks } from '@/components/cat/catMessageFooter.check'
 import { catHistoryStatusChecks } from './catHistoryStatus.check'
 import { catDetectChecks } from './catDetect.check'
+import { catCLIUpdatesChecks } from '@/views/cat/catCLIUpdates.check'
+import { catDraftsChecks } from '@/views/cat/catDrafts.check'
 import { catScratchFilesChecks } from '@/views/cat/catScratchFiles.check'
 import { catCliOutdatedChecks } from '@/components/cat/catCliOutdated.check'
 import { catConvSearchChecks } from '@/components/cat/catConvSearch.check'
@@ -664,7 +666,7 @@ export async function runApiChecks(): Promise<string[]> {
   eq('scheme= 与 missing= 不混用：missing=srt 不影响连接失败文案，scheme=srt 不产生缺协议名', [liveFailureMessage({ code: 'LIVE_CONNECT_FAILED', detail: 'missing=srt' }), liveFfmpegProtocolMissingText('scheme=srt')], [LIVE_RTMP_CONNECT_FAILED_TEXT, PROTO_GENERIC])
   // 屏幕推流两个码、TASK_CONFLICT 四条文案都在映射里
   eq('TASK_CONFLICT 映射四条', [taskConflictText('max_sessions'), taskConflictText('duplicate_url'), taskConflictText('screen_busy'), taskConflictText('other')], ['最多同时推 4 路', '这个地址已经在推流', '屏幕推流同一时间只能有 1 路，请先停止当前的屏幕推流', '操作冲突，请稍后再试'])
-  eq('SCREEN_PERMISSION_DENIED 文案', errorMessages.SCREEN_PERMISSION_DENIED.description, '没有获得屏幕录制权限，请在系统设置中允许 FFmpegFree 录制屏幕后重试')
+  eq('SCREEN_PERMISSION_DENIED 文案', errorMessages.SCREEN_PERMISSION_DENIED.description, '没有获得屏幕录制权限，请在系统设置中允许 ffc 录制屏幕后重试')
   eq('UNSUPPORTED_PLATFORM 文案', errorMessages.UNSUPPORTED_PLATFORM.description, '当前系统暂不支持屏幕推流')
   eq('errorMessages 已知码不含 LIVE_PLAY 以外遗漏', Object.keys(errorMessages).length >= 8 && Object.keys(taskErrorMessages).length >= 3, true)
 
@@ -1032,6 +1034,8 @@ export async function runApiChecks(): Promise<string[]> {
         await catScratchFilesChecks(eq) // Cat 文件面板：绑定项目或对话文件夹非空才显示；旧响应丢弃
         catHistoryStatusChecks(eq) // Cat v0.45.1 historyStatus → 空状态一行
         catDetectChecks(eq) // Cat v0.47.1 CLI 检测按 agents[] 合并 + 每行文案
+        await catCLIUpdatesChecks(eq)
+        catDraftsChecks(eq)
         catConvSearchChecks(eq) // Cat 对话搜索：最新在前，输入框筛选，一次只取一页
         catInlineDiffChecks(eq) // Cat 从 git 打开文件：红绿嵌在正文里
         catSyntaxChecks(eq) // Cat 代码着色：十种语言的关键字、函数、类型、字符串、数字、注释

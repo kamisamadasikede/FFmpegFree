@@ -3,9 +3,9 @@
   <aside class="sidebar" :class="{ collapsed, 'cat-away': catAway, 'cat-leaving': catLeaving }" :inert="catAway || undefined" :aria-hidden="catAway || undefined">
     <div v-if="macFrameless" class="traffic-space" />
     <div class="brand">
-      <div class="logo"><FIcon name="play" :size="16" :stroke="2.2" /></div>
+      <AppLogo :size="32" :decorative="!collapsed" />
       <div v-show="!collapsed" class="brand-text">
-        <b>FFmpegFree</b>
+        <b>{{ APP_NAME }}</b>
         <small>{{ versionText }}</small>
       </div>
       <button v-show="!collapsed" class="collapse-btn" title="收起导航" @click="collapsed = true">
@@ -40,7 +40,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Expand, Fold } from '@element-plus/icons-vue'
-import FIcon from '@/components/icon/FIcon.vue'
+import AppLogo from '@/components/brand/AppLogo.vue'
+import { APP_NAME } from '@/config/brand'
 import FFmpegStatusCard from '@/components/ffmpeg/FFmpegStatusCard.vue'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { useTaskStore } from '@/stores/tasks'
@@ -123,16 +124,6 @@ watch(collapsed, (v) => localStorage.setItem(KEY, v ? '1' : '0'))
 }
 .collapsed .brand {
   padding: 16px 6px;
-}
-.logo {
-  width: 28px;
-  height: 28px;
-  flex: none;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #3b6ef5, #8b5cf6);
-  color: #fff;
-  display: grid;
-  place-items: center;
 }
 .brand-text {
   flex: 1;

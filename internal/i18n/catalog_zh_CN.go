@@ -14,7 +14,7 @@ var catalogZhCN = map[string]string{
 	KeyNotifyScheduleBodyProject: "{project} · 用时 {min} 分 {sec} 秒。",
 	KeyNotifyScheduleOpenConv:    "点这里打开对话。",
 
-	KeyNotifyTurnDoneTitle:   "Cat · 对话已完成",
-	KeyNotifyTurnFailedTitle: "Cat · 回复失败",
+	KeyNotifyTurnDoneTitle:   "Agent · 对话已完成",
+	KeyNotifyTurnFailedTitle: "Agent · 回复失败",
 	KeyNotifyTurnNewConv:     "新对话",
 }

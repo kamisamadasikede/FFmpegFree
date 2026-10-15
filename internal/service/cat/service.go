@@ -17,6 +17,7 @@ import (
 	"FFmpegFree/internal/id"
 	"FFmpegFree/internal/localassets"
 	"FFmpegFree/internal/paths"
+	"FFmpegFree/internal/service/doc"
 	"FFmpegFree/internal/store"
 )
 
@@ -40,8 +41,13 @@ type Config struct {
 	PathKey func(p string) string
 	// DataRoot 是应用数据目录。普通对话的文件夹（paths.CatConvDir / 旧 cwd）从这里算。空则不建、不删对话文件夹。
 	DataRoot string
+	// CLIHome isolates native sharing in tests; production uses the user's home.
+	CLIHome string
 	// Preview 把本机图片、视频和文档登记成页面能加载的地址。空则不能预览。
-	Preview *localassets.Registry
+	Preview                *localassets.Registry
+	DocumentPreview        func(context.Context, string) (doc.DocPreview, error)
+	ReleaseDocumentPreview func(string) error
+	FileBridge             bool
 	// Now 是可注入的时钟（定时任务测试用）；nil = time.Now。
 	Now func() time.Time
 	// Location 是计算定时任务的时区；nil = time.Local。
@@ -93,6 +99,16 @@ type Service struct {
 
 	// v0.47.1 检测状态 / cat.detect
 	det detectState
+
+	// Only duplicate installers for the same CLI are excluded.
+	cliUpdateMu sync.Mutex
+	cliUpdating map[string]bool
+	sharingMu   sync.Mutex
+	workspaceMu sync.Mutex
+	workflowMu  sync.Mutex
+	launchMu    sync.Mutex
+	queueArmed  map[string]bool
+	deleting    map[string]bool
 
 	// v0.51 分支树：fetch 节流状态与 cat.branchPrefs 读写锁
 	btree branchTreeState
@@ -364,6 +380,10 @@ func (s *Service) GetCatConversation(ctx context.Context, convID string) (Conver
 // applyCLITitle 用 CLI 会话里的第一句当展示名。库里的 title 不更新。
 // 统一走 SessionHistory（Grok / Claude / Codex 同一接口），不按家特判。
 func (s *Service) applyCLITitle(ctx context.Context, c *store.CatConversation) {
+	if c.CustomTitle != "" {
+		c.Title = c.CustomTitle
+		return
+	}
 	if h := s.sessionHistory(c.AgentKind); h != nil {
 		if label := h.SessionLabel(c.ID, s.cwdFor(ctx, *c)); label != "" {
 			c.Title = label
@@ -562,6 +582,8 @@ func (s *Service) DeleteCatConversation(ctx context.Context, convID string) erro
 	if getErr != nil {
 		return apperr.Wrap(apperr.IOError, "读取会话失败", getErr)
 	}
+	s.markWorkflowDeleting(convID)
+	defer s.unmarkWorkflowDeleting(convID)
 	s.cancelTurnAndWait(convID)
 	err := s.cfg.Store.DeleteCatConversation(ctx, convID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -570,6 +592,7 @@ func (s *Service) DeleteCatConversation(ctx context.Context, convID string) erro
 	if err != nil {
 		return apperr.Wrap(apperr.IOError, "删除会话失败", err)
 	}
+	s.clearWorkflowStorage(ctx, convID)
 	// 只删普通对话自己的文件夹。项目文件夹永远不动（6.19.11.4）。
 	if c.ProjectID == "" {
 		s.removeConvDir(convID)
@@ -597,6 +620,8 @@ func (s *Service) sendMessage(ctx context.Context, req SendMessageRequest, hook 
 
 // startTurn 开一轮。retryOf 非空时是原地重试（6.19.18.7）：沿用原用户消息，不新建。
 func (s *Service) startTurn(ctx context.Context, req SendMessageRequest, hook *turnHook, retryOf *store.CatMessage) (SendMessageResult, error) {
+	s.launchMu.Lock()
+	defer s.launchMu.Unlock()
 	if s.cfg.Store == nil {
 		return SendMessageResult{}, apperr.New(apperr.Internal, "本地存储尚未初始化")
 	}
@@ -646,11 +671,12 @@ func (s *Service) startTurn(ctx context.Context, req SendMessageRequest, hook *t
 	}
 
 	// 刷新后旧进程可能还占着这场会话。再开一个会抢同一份记录。
-	// 本进程自己记着的回合仍由 setTurn 换掉，不在这里拒绝。
+	// Existing turns are never replaced; additional messages use the queue.
 	s.mu.Lock()
 	_, busy := s.turns[c.ID]
+	busy = busy || s.deleting[c.ID]
 	s.mu.Unlock()
-	if !busy && len(catagent.LiveConvIDs([]string{c.ID})) > 0 {
+	if busy || len(catagent.LiveConvIDs([]string{c.ID})) > 0 {
 		return SendMessageResult{}, apperr.New(apperr.TaskConflict, catagent.MsgTurnStillRunning).WithDetail("reason=turn_running")
 	}
 
@@ -678,6 +704,13 @@ func (s *Service) startTurn(ctx context.Context, req SendMessageRequest, hook *t
 	s.lastMu.Lock()
 	s.lastTurns[c.ID] = &lastTurn{turnID: t.turnID, req: req, userMsg: userMsg, hook: hook, status: catagent.TurnRunning}
 	s.lastMu.Unlock()
+	if req.queueID != "" {
+		s.emit("cat:queued-start", struct {
+			ConvID      string            `json:"convId"`
+			Result      SendMessageResult `json:"result"`
+			Attachments []SendAttachment  `json:"attachments"`
+		}{c.ID, SendMessageResult{UserMessage: userMsg, TurnID: t.turnID}, req.Attachments})
+	}
 	s.emit(catagent.EventTurn, catagent.TurnEvent{ConvID: t.convID, TurnID: t.turnID, Status: catagent.TurnRunning})
 
 	provider := s.providerOverlayFor(ctx, c.AgentKind)
@@ -691,7 +724,7 @@ func (s *Service) startTurn(ctx context.Context, req SendMessageRequest, hook *t
 		Resume:         s.sessionResumable(c.AgentKind, c.ID, cwd),
 		Messages:       []catagent.WireMessage{{Role: "user", Content: content}},
 		Files:          files,
-		Rules:          s.rulesForTurn(ctx),
+		Rules:          s.workspaceRulesForTurn(ctx, c.ProjectID),
 		Provider:       provider,
 		Skills:         skillsOverlayForProject(c.AgentKind, projectRoot),
 	}
@@ -702,7 +735,11 @@ func (s *Service) startTurn(ctx context.Context, req SendMessageRequest, hook *t
 	go func() {
 		defer s.wg.Done()
 		defer close(t.done)
+		defer s.afterWorkflowTurn(t)
+		s.syncSharingBeforeTurn(turnCtx, projectRoot)
+		stopWorkspace := s.watchTurnWorkspace(turnCtx, t, cwd, &opts)
 		s.runTurn(turnCtx, t, a, opts)
+		stopWorkspace()
 	}()
 	return SendMessageResult{UserMessage: userMsg, TurnID: t.turnID}, nil
 }
@@ -1150,14 +1187,34 @@ func (s *Service) finishCancelled(t *turnState) {
 // CancelCatTurn 立即停止 { convId, turnId } 这一轮；不匹配或已结束则幂等返回 nil。
 // turnId 为空时停止该会话当前这一轮（兼容）。
 func (s *Service) CancelCatTurn(ctx context.Context, req CancelTurnRequest) error {
-	_ = ctx
+	s.workflowMu.Lock()
+	defer s.workflowMu.Unlock()
 	convID := strings.TrimSpace(req.ConvID)
 	if convID == "" {
 		return apperr.New(apperr.InvalidArgument, "会话编号不能为空")
 	}
 	s.mu.Lock()
-	_, busy := s.turns[convID]
+	current, busy := s.turns[convID]
 	s.mu.Unlock()
+	if busy && req.TurnID != "" && current.turnID != req.TurnID {
+		return nil
+	}
+	if !busy && req.TurnID != "" {
+		s.lastMu.Lock()
+		lt := s.lastTurns[convID]
+		stale := lt == nil || lt.turnID != req.TurnID
+		s.lastMu.Unlock()
+		if stale {
+			return nil
+		}
+	}
+	if s.cfg.Store != nil {
+		if q, e := s.readQueue(ctx, convID); e == nil && len(q.Items) > 0 {
+			q.Paused = true
+			q.Error = "任务已停止，待发消息已保留。"
+			_ = s.saveQueue(ctx, &q)
+		}
+	}
 	if s.cancelTurn(convID, strings.TrimSpace(req.TurnID)) {
 		return nil
 	}

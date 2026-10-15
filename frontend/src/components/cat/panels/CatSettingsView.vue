@@ -4,7 +4,7 @@
     <div class="cp-in">
       <header class="cp-head">
         <h2 id="cs-h">{{ C.title }}</h2>
-        <p>{{ C.subtitle }}</p>
+        <p>{{ C.subtitle }}</p><button type="button" class="workspace-entry" data-testid="cat-workspace-settings" @click="openWorkspace('prompts')">{{ t('cat.workspace.title') }}</button>
       </header>
       <div class="cs-tabs" role="tablist" :aria-label="C.title">
         <button
@@ -353,59 +353,8 @@
 
         <!-- 技能与扩展（v0.39 可管理） -->
         <div v-else-if="catPanels.tab === 'ext'" key="e" class="cs-body" data-testid="cat-ext">
-          <template v-if="!extProject">
-            <div class="card pad ext-empty" data-testid="cat-ext-no-project">
-              <p>{{ C.noProjectExt }}</p>
-              <button type="button" class="btn pri" data-testid="cat-ext-pick-project" @click="pickExtProject">{{ C.pickProject }}</button>
-            </div>
-          </template>
-          <template v-else>
-            <div class="note tip-row" data-testid="cat-ext-tip">
-              <FIcon name="info" :size="14" />
-              <p>
-                {{ C.extTipBefore }}<strong>{{ C.extTipProject }}</strong>{{ C.extTipMid }}<code>{{ extPathLabel }}</code>{{ C.extTipAfter }}
-              </p>
-              <button type="button" class="btn" data-testid="cat-ext-open-dir" :disabled="openingDir" @click="openSkillsDir">
-                <FIcon name="folder" :size="14" /><i v-if="openingDir" class="spin" aria-hidden="true" />{{ C.openDir }}
-              </button>
-            </div>
-            <div v-if="inspect.loading" class="card" aria-busy="true" data-testid="cat-ext-loading">
-              <div v-for="i in 3" :key="i" class="sk"><i /><b /><span /></div>
-            </div>
-            <div v-else-if="inspectFail" class="card pad fail" data-testid="cat-ext-failed">
-              <span>{{ C.extFailed }}</span>
-              <button type="button" class="btn" @click="loadInspect">{{ C.retry }}</button>
-            </div>
-            <template v-else-if="inspect.result">
-              <div v-for="g in groups" :key="g.key" class="card" :data-testid="'cat-ext-card-' + g.key">
-                <div class="card-h">{{ g.title }} · {{ g.items.length }}</div>
-                <div v-if="!g.items.length" class="empty">
-                  {{ C.extEmpty }}
-                  <button type="button" class="btn" data-testid="cat-ext-empty-open" @click="openSkillsDir">{{ C.openDir }}</button>
-                </div>
-                <div v-for="it in g.items" :key="g.key + it.name" class="row it" :data-testid="'cat-ext-item-' + g.key + '-' + it.name">
-                  <FIcon :name="(g.icon as any)" :size="15" class="it-ic" />
-                  <div class="lab">
-                    <b>{{ it.name }}<em v-if="it.tag" class="tag">{{ it.tag }}</em></b>
-                    <span v-if="it.description">{{ it.description }}</span>
-                  </div>
-                  <div class="ctl">
-                    <button
-                      type="button"
-                      role="switch"
-                      class="sw"
-                      :class="{ on: it.enabled }"
-                      :aria-checked="it.enabled"
-                      :aria-label="it.enabled ? C.on : C.off"
-                      :disabled="!!toggling[g.key + ':' + it.name]"
-                      :data-testid="'cat-ext-sw-' + g.key + '-' + it.name"
-                      @click="toggleItem(g, it)"
-                    ><i /></button>
-                  </div>
-                </div>
-              </div>
-            </template>
-          </template>
+          <CatSharedExtensions />
+
         </div>
 
         <!-- 关于与状态（按 agents[] 拆行） -->
@@ -482,21 +431,12 @@
       @cancel="clearKeyKind = null"
       @ok="doClearKey"
     />
-    <CatConfirmDialog
-      :open="skillsDirOpen"
-      :title="C.noSkillsDir"
-      :body="C.noSkillsDirBody"
-      :ok-text="C.createAndOpen"
-      :cancel-text="C.cancel"
-      tone="warn"
-      :busy="creatingDir"
-      @cancel="skillsDirOpen = false"
-      @ok="doCreateSkillsDir"
-    />
+
   </section>
 </template>
 
 <script setup lang="ts">
+import { openWorkspace } from '@/views/cat/catWorkspace'
 import { useI18n } from 'vue-i18n'
 import { t as tGlobal } from '@/i18n'
 const { t } = useI18n()
@@ -505,6 +445,7 @@ import { computed, defineComponent, h, nextTick, onMounted, reactive, ref, watch
 import FIcon from '@/components/icon/FIcon.vue'
 import CatAgentMark from '@/components/cat/CatAgentMark.vue'
 import CatPanelNotice from './CatPanelNotice.vue'
+import CatSharedExtensions from './CatSharedExtensions.vue'
 import CatConfirmDialog from './CatConfirmDialog.vue'
 import {
   CAT_COPY,
@@ -529,9 +470,6 @@ import { CAT_PROVIDER_MODELS_COPY as PM_COPY_ALL } from '@/api/catProviderModels
 const PM_COPY_DESC = PM_COPY_ALL.followDefaultDesc
 import { CAT_DEFAULT_DANGER_NOTE as DANGER_NOTE, emptyModeByAgent } from '@/api/catV0445'
 import {
-  type CatInspectCategory,
-  type CatInspectItem,
-  type CatInspectResult,
   type CatProviderCapability,
   type CatProviderProtocol,
   type CatProviderSettings,
@@ -542,20 +480,15 @@ import {
   clearCatProviderKey,
   emptyDefaults,
   emptyProvider,
-  ensureCreateCatSkillsDir,
-  inspectCatConfig,
   listCatProviderCapabilities,
   protocolLabel,
   protocolUrlPlaceholder,
-  revealCatSkillsDir,
   saveCatProviderKey,
-  setCatInspectItemEnabled,
-  skillsPathLabel,
 } from '@/api/catSettings'
 import { getAppVersion } from '@/api/about'
 import { catPanels, saveSetting, takeSaveError, type CatSettingsTab } from '@/views/cat/catPanels'
 import { catLocalPrefs, setNewConvPlace, setTypewriter } from '@/views/cat/catLocalPrefs'
-import { catState, afterClearAll, currentProject, notify, createProject, applyCatStatus, recheckCatAgents } from '@/views/cat/catState'
+import { catState, afterClearAll, notify, applyCatStatus, recheckCatAgents } from '@/views/cat/catState'
 import { CAT_DETECT_COPY, allDetectRowsChecking, detectRowView } from '@/api/catDetect'
 import { catSim, simAgentRaw, simModels, simThinks } from '@/views/cat/catDevSim'
 import {
@@ -980,188 +913,7 @@ async function saveInstr() {
   }
 }
 
-const inspect = reactive({ loading: false, result: null as CatInspectResult | null })
-const toggling = reactive<Record<string, boolean>>({})
-const openingDir = ref(false)
-const skillsDirOpen = ref(false)
-const creatingDir = ref(false)
-
-const extProject = computed(() => currentProject.value)
-const inspectFail = computed(() => {
-  const r = inspect.result?.reason
-  return !!r && r !== 'no_project'
-})
-const extPathLabel = computed(() =>
-  skillsPathLabel(inspect.result?.skillsRoot, extProject.value?.name || ''),
-)
-
-async function loadInspect() {
-  const proj = currentProject.value
-  if (!proj) {
-    inspect.loading = false
-    inspect.result = {
-      skills: [],
-      plugins: [],
-      hooks: [],
-      mcpServers: [],
-      agents: [],
-      reason: 'no_project',
-      skillsRoot: '',
-      mcpConfigPath: '',
-      skillsRootExists: false,
-    }
-    return
-  }
-  inspect.loading = true
-  const agentKind = findAgentKind()
-  inspect.result = await inspectCatConfig(proj.id, agentKind)
-  inspect.loading = false
-}
-
-function findAgentKind(): string {
-  const sel = catState.sel
-  for (const p of catState.projects) {
-    const c = p.convs.find((x) => x.id === sel)
-    if (c?.agentKind) return c.agentKind
-  }
-  const plain = catState.plain.find((x) => x.id === sel)
-  if (plain?.agentKind) return plain.agentKind
-  return catPanels.settings.defaultAgentKind || 'cat_build'
-}
-
-type ExtGroup = {
-  key: string
-  title: string
-  icon: string
-  category: CatInspectCategory
-  items: Array<CatInspectItem & { tag: string; category: CatInspectCategory }>
-}
-
-const groups = computed((): ExtGroup[] => {
-  const r = inspect.result
-  if (!r) return []
-  return [
-    {
-      key: 's',
-      title: C.skills,
-      icon: 'spark',
-      category: 'skill',
-      items: r.skills.map((x) => ({ ...x, tag: '', category: 'skill' as const })),
-    },
-    {
-      key: 'x',
-      title: C.extsFull,
-      icon: 'magic',
-      category: 'mcp',
-      items: [
-        ...r.mcpServers.map((x) => ({ ...x, tag: 'MCP', category: 'mcp' as const })),
-        ...r.plugins.map((x) => ({ ...x, tag: t('cat.misc.s_236b0cdd2e'), category: 'plugin' as const })),
-      ],
-    },
-    {
-      key: 'h',
-      title: C.hooks,
-      icon: 'link',
-      category: 'hook',
-      items: r.hooks.map((x) => ({ ...x, tag: '', category: 'hook' as const })),
-    },
-  ]
-})
-
-async function toggleItem(g: ExtGroup, it: ExtGroup['items'][number]) {
-  const proj = currentProject.value
-  if (!proj) return
-  const key = g.key + ':' + it.name
-  const prev = it.enabled
-  const next = !prev
-  it.enabled = next
-  // 同步到底层 result，便于失败回滚
-  const list =
-    it.category === 'skill'
-      ? inspect.result?.skills
-      : it.category === 'hook'
-        ? inspect.result?.hooks
-        : it.category === 'plugin'
-          ? inspect.result?.plugins
-          : inspect.result?.mcpServers
-  const raw = list?.find((x) => x.name === it.name)
-  if (raw) raw.enabled = next
-  toggling[key] = true
-  try {
-    await setCatInspectItemEnabled({
-      projectId: proj.id,
-      agentKind: findAgentKind(),
-      category: it.category,
-      name: it.name,
-      enabled: next,
-    })
-  } catch {
-    it.enabled = prev
-    if (raw) raw.enabled = prev
-    notify(takeSaveError() || C.saveFailed, 'warn')
-  } finally {
-    toggling[key] = false
-  }
-}
-
-async function openSkillsDir() {
-  const proj = currentProject.value
-  if (!proj || openingDir.value) return
-  openingDir.value = true
-  try {
-    const r = await revealCatSkillsDir(proj.id)
-    if (inspect.result) {
-      inspect.result.skillsRoot = r.skillsRoot || inspect.result.skillsRoot
-      inspect.result.mcpConfigPath = r.mcpConfigPath || inspect.result.mcpConfigPath
-      inspect.result.skillsRootExists = r.skillsRootExists
-    }
-    if (!r.skillsRootExists) skillsDirOpen.value = true
-  } catch {
-    notify(takeSaveError() || C.saveFailed, 'warn')
-  } finally {
-    openingDir.value = false
-  }
-}
-
-async function doCreateSkillsDir() {
-  const proj = currentProject.value
-  if (!proj) return
-  creatingDir.value = true
-  try {
-    const r = await ensureCreateCatSkillsDir(proj.id)
-    if (inspect.result) {
-      inspect.result.skillsRoot = r.skillsRoot || inspect.result.skillsRoot
-      inspect.result.mcpConfigPath = r.mcpConfigPath || inspect.result.mcpConfigPath
-      inspect.result.skillsRootExists = true
-    }
-    skillsDirOpen.value = false
-  } catch {
-    skillsDirOpen.value = false
-    notify(takeSaveError() || C.saveFailed, 'warn')
-  } finally {
-    creatingDir.value = false
-  }
-}
-
-function pickExtProject() {
-  catPanels.view = 'chat'
-  void createProject()
-}
-
-watch(
-  () => catPanels.tab,
-  (t) => {
-    if (t === 'ext') void loadInspect()
-    if (t === 'general' && !caps.loaded) void loadCaps()
-  },
-  { immediate: true },
-)
-watch(
-  () => currentProject.value?.id,
-  () => {
-    if (catPanels.tab === 'ext') void loadInspect()
-  },
-)
+watch(() => catPanels.tab, (tab) => { if (tab === 'general' && !caps.loaded) void loadCaps() }, { immediate: true })
 
 const rechecking = ref(false)
 const appVersion = ref('')
@@ -1231,6 +983,7 @@ onMounted(async () => {
 
 <style scoped src="./catPanel.css"></style>
 <style scoped>
+.workspace-entry { padding:7px 12px; border:1px solid var(--ff-border); border-radius:8px; color:var(--ff-text-1); background:var(--ff-bg-surface); cursor:pointer; margin-top:12px }
 /* v0.46 服务商模型列表 */
 .pm-refresh {
   width: 28px;

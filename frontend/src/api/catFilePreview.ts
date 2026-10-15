@@ -44,6 +44,7 @@ const KINDS = ['text', 'image', 'media', 'pdf', 'docx', 'xlsx', 'pptx', 'doc', '
 export type CatFileKind = (typeof KINDS)[number]
 
 export interface CatFileBody {
+  revision?: string
   relPath: string
   name: string
   kind: CatFileKind
@@ -63,6 +64,7 @@ export function mapFileBody(raw: unknown): CatFileBody {
   const kind: CatFileKind = typeof r.kind === 'string' && (KINDS as readonly string[]).includes(r.kind) ? (r.kind as CatFileKind) : 'binary'
   const text = kind === 'text'
   return {
+    revision: typeof (r as any).revision === 'string' ? (r as any).revision : '',
     relPath: typeof r.relPath === 'string' ? r.relPath : '',
     name: typeof r.name === 'string' ? r.name : '',
     kind,
@@ -107,10 +109,11 @@ export async function readCatFile(convId: string, relPath: string): Promise<CatF
   return mapFileBody(raw)
 }
 
-export async function writeCatFile(convId: string, relPath: string, content: string): Promise<{ relPath: string; size: number; modTime: number }> {
-  const raw = await call(CatBinding.WriteCatFile(cat.WriteFileRequest.createFrom({ convId, relPath, content })))
+export async function writeCatFile(convId: string, relPath: string, content: string, expectedRevision?: string): Promise<{ relPath: string; size: number; modTime: number; revision?: string }> {
+  const raw = await call(CatBinding.WriteCatFile(cat.WriteFileRequest.createFrom({ convId, relPath, content, expectedRevision })))
   const r = (raw && typeof raw === 'object' ? raw : {}) as { relPath?: unknown; size?: unknown; modTime?: unknown }
   return {
+    revision: typeof (r as any).revision === 'string' ? (r as any).revision : '',
     relPath: typeof r.relPath === 'string' ? r.relPath : relPath,
     size: typeof r.size === 'number' ? r.size : 0,
     modTime: typeof r.modTime === 'number' ? r.modTime : 0,

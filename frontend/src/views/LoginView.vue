@@ -5,8 +5,8 @@
       <i class="lg-orb a" /><i class="lg-orb b" /><i class="lg-orb c" />
       <div class="inner">
         <div class="mark">
-          <div class="logo"><FIcon name="play" :size="20" :stroke="2.2" /></div>
-          <span>FFmpegFree</span>
+          <AppLogo :size="48" decorative />
+          <span>{{ APP_NAME }}</span>
         </div>
         <h1 :class="staggerClass(0)">把格式转换<br />做成顺手的事</h1>
         <p class="lead" :class="staggerClass(1)" :aria-label="LEAD_FULL">
@@ -93,6 +93,8 @@
  */
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
+import AppLogo from '@/components/brand/AppLogo.vue'
+import { APP_NAME } from '@/config/brand'
 import { useTheme, type ThemeMode } from '@/composables/useTheme'
 import { prefersReducedMotion } from '@/utils/motion'
 
@@ -299,18 +301,6 @@ html.dark .lg-visual {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-.lg-visual .logo {
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  background: linear-gradient(145deg, #5b8cff, #7b6cff);
-  display: grid;
-  place-items: center;
-  color: #fff;
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.18) inset,
-    0 10px 28px rgba(79, 124, 255, 0.45);
 }
 .lg-visual .mark span {
   font-size: 14px;

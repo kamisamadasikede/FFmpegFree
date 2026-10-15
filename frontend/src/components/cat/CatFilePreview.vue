@@ -34,10 +34,13 @@
       >
         <FIcon name="pick" :size="15" />
       </button>
+      <button v-if="live && !officeFile" type="button" class="icon-btn" :title="t('cat.preview.refresh')" :aria-label="t('cat.preview.refresh')" @click="reloadFile"><FIcon name="retry" :size="14" /></button>
       <button type="button" class="x" data-testid="cat-file-close" @click="onClose">{{ COPY.close }}</button>
     </header>
+    <div v-if="externalChanged" class="external-change" role="status">{{ t('cat.preview.externalChanged') }}<button type="button" @click="discardAndReload">{{ t('cat.preview.discardReload') }}</button></div>
+    <CatDocumentPreview v-if="officeFile && live && !compare" :key="convId + ':' + relPath" :conv-id="convId" :rel-path="relPath" />
     <CatFileEditor
-      v-if="deletedView && baseOriginal != null"
+      v-else-if="deletedView && baseOriginal != null"
       :key="'gone:' + relPath"
       :text="baseOriginal"
       language=""
@@ -83,6 +86,10 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import CatFileEditor from './CatFileEditor.vue'
 import CatFileRich from './CatFileRich.vue'
+import CatDocumentPreview from './CatDocumentPreview.vue'
+import { statFile } from '@/api/catWorkflow'
+import { previewDrafts } from '@/views/cat/catWorkflow'
+import { toAppError } from '@/api/call'
 import CatPickPop from './CatPickPop.vue'
 import { CAT_GIT_COPY as GIT, catGitError, gitCatConflictResolve, gitCatDiff } from '@/api/catGit'
 import { diffSides, editorDiffMarks, removedFileMarks, type EditorDiffMarks } from './catInlineDiff'
@@ -103,6 +110,8 @@ import { newPickToken, pickLabel, PICK_SOURCE, readPickEvent, withPickScript, ty
 const props = defineProps<{ convId: string; relPath: string; name: string; live: boolean; compare?: boolean; conflict?: boolean }>()
 const emit = defineEmits<{ close: []; pick: [note: PickNote]; 'conflict-saved': [] }>()
 
+const officeFile = computed(() => /\.(pdf|docx?|xlsx?|pptx?|odt|ods|odp)$/i.test(props.relPath))
+const externalChanged = ref(false)
 const doc = ref<CatFileBody | null>(null)
 const draft = ref('')
 const mode = ref<'preview' | 'source'>('source')
@@ -165,7 +174,8 @@ const editorMarks = computed((): EditorDiffMarks | null => {
 
 watch(
   () => [props.convId, props.relPath] as const,
-  () => {
+  (_next, previous) => {
+    if (previous && doc.value?.editable && draft.value !== doc.value.content) previewDrafts.set(previous[0] + ':' + previous[1], {text: draft.value, revision: doc.value.revision || ''})
     void load(true)
   },
   { immediate: true },
@@ -234,6 +244,8 @@ async function loadDiff() {
 }
 
 async function load(resetMode: boolean) {
+  externalChanged.value = false
+  if (officeFile.value && props.live && !props.compare) { doc.value = null; ready.value = false; return }
   const my = ++token
   const id = props.convId
   const rel = props.relPath
@@ -253,7 +265,9 @@ async function load(resetMode: boolean) {
     const body = props.live ? await readCatFile(id, rel) : mockCatFileBody(props.name || rel)
     if (my !== token || props.convId !== id || props.relPath !== rel) return
     doc.value = body
-    draft.value = body.content
+    const saved = previewDrafts.get(id + ':' + rel)
+    draft.value = saved?.text ?? body.content
+    externalChanged.value = !!saved && saved.revision !== body.revision
     editorKey.value++
     ready.value = true
     if (resetMode) {
@@ -295,6 +309,7 @@ function flushSave() {
 async function writeDraft() {
   clearTimeout(saveTimer)
   const body = doc.value
+  if (externalChanged.value) { leaveAfterSave = false; return }
   if (!body?.editable) {
     if (leaveAfterSave) finishLeave()
     return
@@ -318,16 +333,18 @@ async function writeDraft() {
         if (doc.value !== body) return
         emit('conflict-saved')
       } else {
-        const wrote = await writeCatFile(props.convId, body.relPath, text)
+        const wrote = await writeCatFile(props.convId, body.relPath, text, body.revision)
         if (doc.value !== body) return
         body.size = wrote.size
         body.modTime = wrote.modTime
+        body.revision = wrote.revision
       }
     }
     if (doc.value !== body) return
-    if (draft.value === text) body.content = text
+    if (draft.value === text) { body.content = text; previewDrafts.delete(props.convId + ':' + body.relPath) }
   } catch (e) {
     failed = true
+    if (toAppError(e).reason === 'file_changed') externalChanged.value = true
     if (doc.value === body) notify(catPreviewErrorText(e, COPY.saveFailed), 'warn')
     leaveAfterSave = false
   } finally {
@@ -517,6 +534,7 @@ window.addEventListener('resize', onReflow)
 window.addEventListener('scroll', onReflow, true)
 
 function requestClose(): boolean {
+  if (externalChanged.value && doc.value) { previewDrafts.set(props.convId + ':' + props.relPath, { text: draft.value, revision: doc.value.revision || '' }); return true }
   if (!doc.value?.editable || (!dirty.value && !saving.value)) return true
   leaveAfterSave = true
   flushSave()
@@ -526,6 +544,8 @@ function requestClose(): boolean {
 onBeforeUnmount(() => {
   clearTimeout(saveTimer)
   clearTimeout(pickTimer)
+  clearInterval(refreshTimer)
+  token++
   window.removeEventListener('message', onPickMessage)
   window.removeEventListener('keydown', onPickKey)
   window.removeEventListener('pointerdown', onOutside)
@@ -533,9 +553,31 @@ onBeforeUnmount(() => {
   window.removeEventListener('scroll', onReflow, true)
   const body = doc.value
   if (!body?.editable || !props.live || draft.value === body.content) return
-  void writeCatFile(props.convId, body.relPath, draft.value)
+  if (externalChanged.value) { previewDrafts.set(props.convId + ':' + body.relPath, {text: draft.value, revision: body.revision || ''}); return }
+  void writeCatFile(props.convId, body.relPath, draft.value, body.revision).catch(() => { previewDrafts.set(props.convId + ':' + body.relPath, {text: draft.value, revision: body.revision || ''}) })
 })
 
+let pollBusy = false, candidateRevision = ''
+async function pollFile() {
+  if (!props.live || officeFile.value || pollBusy || loading.value || saving.value || document.hidden) return
+  pollBusy = true
+  const id = props.convId, path = props.relPath, my = token
+  try {
+    const rev = await statFile(id, path)
+    if (my !== token || id !== props.convId || path !== props.relPath || !rev.stable) return
+    if (rev.revision === doc.value?.revision) return
+    if (dirty.value || writing) { externalChanged.value = true; clearTimeout(saveTimer); return }
+    if (candidateRevision !== rev.revision) { candidateRevision = rev.revision; return }
+    const body = await readCatFile(id, path)
+    if (my !== token || dirty.value || writing || id !== props.convId || path !== props.relPath) return
+    doc.value = body; draft.value = body.content; ready.value = true; error.value = ''; editorKey.value++
+    if (props.compare) void loadDiff()
+  } catch { /* retain last complete preview while a file is atomically replaced */ }
+  finally { pollBusy = false }
+}
+const refreshTimer = setInterval(() => void pollFile(), 1200)
+function reloadFile() { if (dirty.value) { externalChanged.value = true; return }; void load(false) }
+function discardAndReload() { clearTimeout(saveTimer); previewDrafts.delete(props.convId + ':' + props.relPath); void load(false) }
 function onClose() {
   if (!requestClose()) return
   emit('close')
@@ -545,6 +587,7 @@ defineExpose({ requestClose })
 </script>
 
 <style scoped>
+.external-change{padding:8px 12px;background:var(--cat-hover);font-size:12px;color:var(--cat-text-2);display:flex;gap:10px;align-items:center}.external-change button{font:inherit;background:transparent;border:1px solid var(--cat-border);border-radius:5px;padding:4px 6px;color:inherit;cursor:pointer}
 .pv {
   flex: 1;
   min-width: 0;

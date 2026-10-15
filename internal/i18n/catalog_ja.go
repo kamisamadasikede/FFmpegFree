@@ -14,7 +14,7 @@ var catalogJa = map[string]string{
 	KeyNotifyScheduleBodyProject: "{project} · 所要時間 {min} 分 {sec} 秒。",
 	KeyNotifyScheduleOpenConv:    "ここをタップして会話を開く。",
 
-	KeyNotifyTurnDoneTitle:   "Cat · 会話が完了しました",
-	KeyNotifyTurnFailedTitle: "Cat · 返信に失敗しました",
+	KeyNotifyTurnDoneTitle:   "Agent · 会話が完了しました",
+	KeyNotifyTurnFailedTitle: "Agent · 返信に失敗しました",
 	KeyNotifyTurnNewConv:     "新しい会話",
 }

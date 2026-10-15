@@ -1,6 +1,10 @@
-# FFmpegFree
+# ffc
 
-FFmpegFree 是一个基于 ffmpeg 的桌面工具，技术栈为 **Wails v2 + Vue 3 + Go**。提供格式转换、任务中心、JSON 工具、直播推流与拉流、视频剪辑导出、Office 转 PDF 与 PDF 预览等功能；各功能的后端已合入，个别页面的前端接入和真机验证仍在进行（见下文“功能与当前状态”）。
+ffc（原 FFmpegFree）是一个基于 ffmpeg 的桌面工具，技术栈为 **Wails v2 + Vue 3 + Go**。提供格式转换、任务中心、JSON 工具、直播推流与拉流、视频剪辑导出、Office 转 PDF 与 PDF 预览等功能；各功能的后端已合入，个别页面的前端接入和真机验证仍在进行（见下文“功能与当前状态”）。
+
+应用名称、窗口标题和发行文件名统一为 `ffc`，品牌图形见 [Logo 与图标](docs/branding.md)。为兼容已有安装，数据目录与 Go 模块路径仍沿用 `FFmpegFree`。
+
+Agent 的会话管理、常用指令、项目规则、文件引用及竞品对比见 [Agent 功能补全](docs/agent-comparison.md)。
 
 > **分支说明**：`master` 是 v1，保持不动；v2 的开发集成在 `v2` 分支，本 README 描述 v2。v1 的原始说明归档在 [docs/v1.md](docs/v1.md)。
 

@@ -8,10 +8,14 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/linux"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+//go:embed appicon.png
+var appIcon []byte
 
 func main() {
 	// Create an instance of the app structure
@@ -33,13 +37,14 @@ func main() {
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:     "FFmpegFree",
+		Title:     "ffc",
 		Width:     1280,
 		Height:    800,
 		MinWidth:  1024, // ✅ 设置为 0 表示无最小宽度
 		MinHeight: 680,  // ✅ 设置为 0 表示无最小高度
 		MaxWidth:  0,    // ✅ 0 表示无最大宽度
 		MaxHeight: 0,    // ✅ 0 表示无最大高度
+		Linux:     &linux.Options{Icon: appIcon, ProgramName: "ffc"},
 		AssetServer: &assetserver.Options{
 			Assets:  assets,
 			Handler: mainApp.localHandler(),

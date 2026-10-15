@@ -50,7 +50,7 @@ func (r *docRunner) producePDF(ctx context.Context, dst string, logw io.Writer) 
 			return err
 		}
 		// 组件导出失败：退回纯 Go 简易网页（result 带 simple_fallback）。
-		fmt.Fprintf(logw, "[FFmpegFree] 文档组件导出网页失败，改用简易网页：%s\n", apperr.From(err).Code)
+		fmt.Fprintf(logw, "[ffc] 文档组件导出网页失败，改用简易网页：%s\n", apperr.From(err).Code)
 	}
 
 	pages, err := extractPDFText(ctx, j.in)
@@ -87,7 +87,7 @@ func (r *docRunner) producePDF(ctx context.Context, dst string, logw io.Writer) 
 		fmt.Fprintf(logw, "PDF 解析失败：%s\n", shortReason(parseWhy))
 	}
 	if r.s.pdfComponentAvailable(ctx) {
-		fmt.Fprintf(logw, "[FFmpegFree] PDF 文字提取失败（%s），改用文档组件\n", why)
+		fmt.Fprintf(logw, "[ffc] PDF 文字提取失败（%s），改用文档组件\n", why)
 		release, err := task.AcquireDocSlot(ctx) // 插到文档组件池最前面，不另起任务
 		if err != nil {
 			return err

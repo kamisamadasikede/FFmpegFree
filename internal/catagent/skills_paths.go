@@ -27,90 +27,17 @@ func EnabledStatePath(projectAbs string) string {
 	return filepath.Join(filepath.Clean(projectAbs), ProjectCatDirName, ProjectCatSubDir, EnabledFileName)
 }
 
-// SkillsOverlay 是 v0.39 技能根 / MCP 路径注入到子进程的参数（附录 D1–D4 GUESS）。
-// 仅用于 cmd.Env，禁止 os.Setenv 写进父进程；无项目时勿填。
+// SkillsOverlay retains the legacy turn metadata shape. Native links and MCP
+// configs are synchronized by the service; these paths are not env variables.
 type SkillsOverlay struct {
 	AgentKind     string
 	SkillsRoot    string
 	McpConfigPath string
 }
 
-// ExtraEnv 按家返回 KEY=VALUE（附录 D1–D4 GUESS；真机确认前不得写进用户可见文案）。
-func (o SkillsOverlay) ExtraEnv() []string {
-	root := strings.TrimSpace(o.SkillsRoot)
-	mcp := strings.TrimSpace(o.McpConfigPath)
-	if root == "" && mcp == "" {
-		return nil
-	}
-	var out []string
-	switch o.AgentKind {
-	case KindCatBuild:
-		// GUESS D1：Build 技能根环境变量名未确认；常见兼容名一并注入。
-		if root != "" {
-			out = append(out, "GROK_SKILLS_DIR="+root)
-			out = append(out, "XAI_SKILLS_DIR="+root)
-		}
-		// GUESS D4：MCP 配置路径。
-		if mcp != "" {
-			out = append(out, "GROK_MCP_CONFIG="+mcp)
-			out = append(out, "MCP_CONFIG_PATH="+mcp)
-		}
-	case KindClaudeCLI:
-		// GUESS D2：Claude Code 技能根机制未确认。
-		if root != "" {
-			out = append(out, "CLAUDE_CODE_SKILLS_DIR="+root)
-			out = append(out, "CLAUDE_SKILLS_DIR="+root)
-		}
-		// GUESS D4
-		if mcp != "" {
-			out = append(out, "CLAUDE_CODE_MCP_CONFIG="+mcp)
-			out = append(out, "MCP_CONFIG_PATH="+mcp)
-		}
-	case KindCodexCLI:
-		// GUESS D3
-		if root != "" {
-			out = append(out, "CODEX_SKILLS_DIR="+root)
-			out = append(out, "OPENAI_SKILLS_DIR="+root)
-		}
-		// GUESS D4
-		if mcp != "" {
-			out = append(out, "CODEX_MCP_CONFIG="+mcp)
-			out = append(out, "MCP_CONFIG_PATH="+mcp)
-		}
-	default:
-		if root != "" {
-			out = append(out, "MCP_SKILLS_DIR="+root)
-		}
-		if mcp != "" {
-			out = append(out, "MCP_CONFIG_PATH="+mcp)
-		}
-	}
-	return out
-}
-
-// MergeSkillsEnv 把项目技能根 / MCP 路径叠加进子进程环境。空路径：原样返回。
-func MergeSkillsEnv(base []string, o SkillsOverlay) []string {
-	extra := o.ExtraEnv()
-	if len(extra) == 0 {
-		return base
-	}
-	strip := map[string]struct{}{}
-	for _, kv := range extra {
-		if i := strings.IndexByte(kv, '='); i > 0 {
-			strip[kv[:i]] = struct{}{}
-		}
-	}
-	out := make([]string, 0, len(base)+len(extra))
-	for _, e := range base {
-		if i := strings.IndexByte(e, '='); i > 0 {
-			if _, ok := strip[e[:i]]; ok {
-				continue
-			}
-		}
-		out = append(out, e)
-	}
-	return append(out, extra...)
-}
+// Native sharing is synchronized before launch; no undocumented env keys.
+func (o SkillsOverlay) ExtraEnv() []string                   { return nil }
+func MergeSkillsEnv(base []string, o SkillsOverlay) []string { return base }
 
 // ListProjectSkillNames 列技能目录下的一级项名（附录 D5 GUESS：无 CLI inspect 时仍可列项目内技能）。
 // 只取子目录名，以及 *.md / *.skill 文件名（去扩展名）；忽略隐藏项与 enabled/mcp 旁路文件。

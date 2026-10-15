@@ -1,18 +1,27 @@
 <template>
   <section ref="rootEl" class="ct-l" :class="{ mini: railCollapsed, dragging: sideDragging }" :aria-label="t('cat.misc.s_9a834e9a3e')">
-    <!-- 收起后只留图标列：展开、新对话、设置 -->
+    <button
+      type="button"
+      class="ct-rail-toggle"
+      :title="t(railCollapsed ? 'cat.misc.s_c209364b39' : 'cat.misc.s_9401deaaf6')"
+      :aria-label="t(railCollapsed ? 'cat.misc.s_e4517cb153' : 'cat.misc.s_843e43c606')"
+      :aria-expanded="!railCollapsed"
+      :data-testid="railCollapsed ? 'cat-rail-expand' : 'cat-rail-collapse'"
+      @pointerdown.stop
+      @click="railCollapsed = !railCollapsed"
+    ><FIcon :name="railCollapsed ? 'right' : 'left'" :size="14" /></button>
+    <!-- 收起后保留品牌、新对话、工具箱和设置入口。 -->
     <div v-if="railCollapsed" class="ct-mini">
-      <button type="button" class="ib big" :title="t('cat.misc.s_c209364b39')" :aria-label="t('cat.misc.s_e4517cb153')" data-testid="cat-rail-expand" @click="railCollapsed = false"><FIcon name="cat" :size="16" /></button>
+      <div class="ct-mini-brand lg" :title="AGENT_NAME"><FIcon name="bot" :size="16" /></div>
       <button type="button" class="ib big" :class="{ on: catState.sel === NEW_CONV }" :title="t('cat.misc.s_1ac07a4bb2')" :aria-label="t('cat.misc.s_1ac07a4bb2')" @click="startNewConv()"><FIcon name="edit" :size="16" /></button>
       <span class="sp" />
+      <button type="button" class="ib big" :title="t('cat.misc.s_11599d066f')" :aria-label="t('cat.misc.s_11599d066f')" data-testid="cat-rail-toolbox" @click="emit('back')"><FIcon name="toolbox" :size="16" /></button>
       <button type="button" class="ib big" :class="{ on: catPanels.view === 'settings' }" :title="t('cat.misc.s_e366ccf155')" :aria-label="t('cat.misc.s_e366ccf155')" data-testid="cat-rail-settings" @click="openView('settings')"><FIcon name="set" :size="16" /></button>
     </div>
     <div v-show="!railCollapsed" class="ct-full">
     <div class="ct-brand">
-      <div class="lg"><FIcon name="cat" :size="16" /></div>
-      <b>Cat</b>
-      <button type="button" class="ib" :title="t('cat.misc.s_9401deaaf6')" :aria-label="t('cat.misc.s_843e43c606')" data-testid="cat-rail-collapse" @click="railCollapsed = true"><FIcon name="split" :size="15" /></button>
-      <button type="button" class="ct-back" :title="t('cat.misc.s_11599d066f')" @click="emit('back')"><FIcon name="left" :size="14" />返回</button>
+      <div class="lg"><FIcon name="bot" :size="16" /></div>
+      <b>{{ AGENT_NAME }}</b>
     </div>
     <button type="button" class="ct-it new" :class="{ on: catPanels.view === 'chat' && catState.sel === NEW_CONV && !catState.newProjectId }" @click="startNewConv()">
       <FIcon name="plus" :size="16" /><span class="t">新对话</span><span class="r"><FIcon name="list" :size="16" /></span>
@@ -30,7 +39,8 @@
       <FIcon name="clock" :size="16" /><span class="t">定时任务</span><span v-if="enabledScheduleCount()" class="r cnt">{{ enabledScheduleCount() }}</span>
     </button>
 
-    <div ref="scrollEl" class="ct-scroll">
+    <div class="conv-filter"><FIcon name="search" :size="13" /><input v-model="convQuery" :placeholder="t('cat.workspace.filter')" :aria-label="t('cat.workspace.filter')" data-testid="cat-sidebar-filter" /><button :class="{on: archivedView}" :title="t(archivedView ? 'cat.workspace.activeChats' : 'cat.workspace.archiveList', {n: archiveCount})" :aria-label="t(archivedView ? 'cat.workspace.activeChats' : 'cat.workspace.archiveList', {n: archiveCount})" :aria-pressed="archivedView" data-testid="cat-archive-toggle" @click="archivedView = !archivedView"><FIcon :name="archivedView ? 'chat' : 'folder'" :size="14" /><span v-if="archiveCount">{{ archiveCount }}</span></button></div>
+    <div ref="scrollEl" class="ct-scroll"><div v-if="archivedView" class="archive-caption">{{ t('cat.workspace.archiveList', {n: archiveCount}) }}</div>
       <div class="ct-sec">
         <span>项目</span>
         <span class="acts">
@@ -130,7 +140,7 @@
             <div class="pj-in">
               <div v-if="!p.convs.length" class="pj-none">{{ PC.emptyConvs }}</div>
               <div
-                v-for="c in p.convs"
+                v-for="c in visibleConversations(p.convs, archivedView, convQuery)"
                 :key="c.id"
                 class="pc"
                 :class="{ on: catPanels.view === 'chat' && c.id === catState.sel, menu: cmenuFor === c.id }"
@@ -159,7 +169,7 @@
                     :aria-label="rowDotLabel(c.id, c.st) || undefined"
                     :aria-hidden="rowDotLabel(c.id, c.st) ? undefined : true"
                   />
-                  <span class="t" :title="c.title || t('cat.misc.s_1ac07a4bb2')">{{ c.title || t('cat.misc.s_1ac07a4bb2') }}</span>
+                  <span class="t" :title="c.title || t('cat.misc.s_1ac07a4bb2')"><FIcon v-if="c.pinned" name="pin" :size="11" class="conv-pin" />{{ c.title || t('cat.misc.s_1ac07a4bb2') }}</span>
                   <span v-if="c.main" class="main-tag">主要</span>
                 </div>
                 <div v-if="c.sub || c.time" class="l2"><span class="t" :title="c.sub">{{ c.sub }}</span><span class="tm">{{ c.time }}</span></div>
@@ -171,7 +181,7 @@
       <div class="ct-sec"><span>对话</span></div>
       <!-- 普通对话行：里面要放「···」按钮，所以行本身不能是 <button> -->
       <div
-        v-for="c in catState.plain"
+        v-for="c in visibleConversations(catState.plain, archivedView, convQuery)"
         :key="c.id"
         class="ct-it dc"
         :class="{ on: catPanels.view === 'chat' && c.id === catState.sel, menu: cmenuFor === c.id }"
@@ -195,6 +205,10 @@
         ><FIcon name="more" :size="14" /></button>
       </div>
     </div>
+    <div class="ct-footer">
+    <button type="button" class="ct-it" :title="t('cat.misc.s_11599d066f')" data-testid="cat-nav-toolbox" @click="emit('back')">
+      <FIcon name="toolbox" :size="16" /><span class="t">{{ t('cat.misc.s_11599d066f') }}</span>
+    </button>
     <button
       type="button"
       class="ct-it"
@@ -203,6 +217,7 @@
       data-testid="cat-nav-settings"
       @click="openView('settings')"
     ><FIcon name="set" :size="16" /><span class="t">设置</span></button>
+    </div>
     </div>
 
     <!-- 项目菜单（设计 §02）：fixed 定位，可越过侧栏右边界 -->
@@ -257,6 +272,12 @@
       data-testid="cat-conv-menu"
       @keydown="onMenuKey"
     >
+      <div class="mi" role="menuitem" tabindex="-1" data-testid="cat-conv-menu-rename" @click="renameConv(cmenuFor)"><FIcon name="edit" :size="15" />{{ t('cat.workspace.rename') }}</div>
+      <div class="mi" role="menuitem" tabindex="-1" data-testid="cat-conv-menu-pin" @click="convAction('pin')"><FIcon name="pin" :size="15" />{{ t(menuConv?.pinned ? 'cat.workspace.unpin' : 'cat.workspace.pin') }}</div>
+      <div class="mi" role="menuitem" tabindex="-1" data-testid="cat-conv-menu-archive" @click="convAction('archive')"><FIcon name="folder" :size="15" />{{ t(menuConv?.archived ? 'cat.workspace.restore' : 'cat.workspace.archive') }}</div>
+      <div class="mi" role="menuitem" tabindex="-1" data-testid="cat-conv-menu-export-md" @click="exportConv('md')"><FIcon name="download" :size="15" />{{ t('cat.workspace.exportMarkdown') }}</div>
+      <div class="mi" role="menuitem" tabindex="-1" @click="exportConv('json')"><FIcon name="download" :size="15" />{{ t('cat.workspace.exportJson') }}</div>
+      <div class="sep" role="separator" />
       <div class="mi danger" role="menuitem" tabindex="-1" data-testid="cat-conv-menu-delete" @click="askDeleteConv(cmenuFor)">
         <FIcon name="trash" :size="15" />{{ CC.del }}
       </div>
@@ -279,6 +300,9 @@
 </template>
 
 <script setup lang="ts">
+import { visibleConversations } from '@/views/cat/catCommands'
+import { workspaceUI, changeConversation, exportChat } from '@/views/cat/catWorkspace'
+import { AGENT_NAME } from '@/config/brand'
 import { useI18n } from 'vue-i18n'
 import { t as tGlobal } from '@/i18n'
 const { t } = useI18n()
@@ -316,6 +340,12 @@ function rowDotLabel(id: string, stored?: string) {
   return convDotLabel(rowDot(id, stored))
 }
 
+const convQuery = ref(''), archivedView = ref(false)
+const archiveCount = computed(() => [...catState.plain, ...catState.projects.flatMap(p => p.convs)].filter(c => c.archived).length)
+const menuConv = computed(() => findConv(cmenuFor.value)?.conv)
+function renameConv(id: string) { closeMenu(); workspaceUI.renameId = id }
+function convAction(action: 'pin' | 'archive') { const id = cmenuFor.value; const conv = menuConv.value; closeMenu(); if (conv) void changeConversation(id, action, '', !(action === 'pin' ? conv.pinned : conv.archived)) }
+function exportConv(format: 'md' | 'json') { const id = cmenuFor.value; closeMenu(); void exportChat(id, format) }
 const emit = defineEmits<{ back: [] }>()
 const laterTip = CAT_COPY.later
 const schedulesOn = catSchedulesVisible()
@@ -352,6 +382,8 @@ async function openMenu(id: string, e: Event) {
   menuStyle.value = { left: `${r.left}px`, top: `${r.bottom + 4}px` }
   menuFor.value = id
   await nextTick()
+  const menu = (cmenuFor.value ? cmenuEl : menuEl).value
+  if (menu) { const rect = menu.getBoundingClientRect(); menuStyle.value = { left: `${Math.max(8, Math.min(rect.left, window.innerWidth - rect.width - 8))}px`, top: `${Math.max(8, Math.min(rect.top, window.innerHeight - rect.height - 8))}px` } }
   items()[0]?.focus()
 }
 function closeMenu(refocus = false) {
@@ -545,11 +577,12 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.conv-filter { display:flex; gap:6px; align-items:center; margin:8px 12px; padding:7px 8px; border:1px solid var(--ff-border); border-radius:8px; color:var(--ff-text-3) }.conv-filter input { flex:1; width:0; border:0; outline:0; background:transparent; color:var(--ff-text-1); font:inherit; font-size:12px }.conv-filter button { display:flex; align-items:center; gap:3px; background:transparent; border:0; color:var(--ff-text-3); cursor:pointer; font-size:10px }.conv-filter button.on { color:var(--ff-accent) }.archive-caption { padding:5px 16px; font-size:11px; color:var(--ff-text-3) }.conv-pin { margin-right:4px; vertical-align:middle }
 .ct-l {
   position: relative;
   flex: none;
   box-sizing: border-box;
-  overflow: hidden;
+  overflow: visible;
   transition: width var(--ff-dur-slow) var(--ff-ease-out), padding var(--ff-dur-slow) var(--ff-ease-out);
 }
 .ct-l.mini {
@@ -566,6 +599,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .ct-mini {
   flex: 1;
@@ -577,6 +611,15 @@ onBeforeUnmount(() => {
 }
 .ct-mini .sp {
   flex: 1;
+}
+.ct-mini-brand {
+  margin: 2px 0 8px;
+}
+.ct-footer {
+  flex: none;
+  border-top: 1px solid var(--cat-border);
+  margin-top: 8px;
+  padding-top: 6px;
 }
 .ib.big {
   width: 32px;
@@ -596,7 +639,44 @@ onBeforeUnmount(() => {
   padding: 10px 8px 12px;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
+}
+.ct-rail-toggle {
+  position: absolute;
+  top: 50%;
+  right: -9px;
+  z-index: 7;
+  width: 18px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--cat-border);
+  border-radius: 9px;
+  background: var(--cat-rail);
+  color: var(--cat-muted);
+  cursor: pointer;
+  transform: translateY(-50%);
+  --wails-draggable: no-drag;
+  transition: background var(--ff-dur-quick), border-color var(--ff-dur-quick), color var(--ff-dur-quick);
+}
+.ct-rail-toggle::before {
+  content: '';
+  position: absolute;
+  inset: -5px -6px;
+}
+.ct-rail-toggle:hover {
+  background: var(--cat-surface);
+  border-color: var(--cat-muted);
+  color: var(--cat-text);
+}
+.ct-rail-toggle:active {
+  background: var(--cat-active);
+  color: var(--cat-active-text);
+}
+.ct-rail-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--cat-focus);
 }
 .ct-side-resize {
   position: absolute;
@@ -635,7 +715,8 @@ onBeforeUnmount(() => {
   padding: 2px 4px 12px;
   --wails-draggable: drag;
 }
-.ct-brand .lg {
+.ct-brand .lg,
+.ct-mini-brand {
   width: 28px;
   height: 28px;
   border-radius: 8px;
@@ -649,29 +730,6 @@ onBeforeUnmount(() => {
   font-size: 14px;
   font-weight: 600;
   flex: 1;
-}
-.ct-back {
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 8px;
-  border-radius: 6px;
-  font: inherit;
-  font-size: 12px;
-  color: var(--cat-text-2);
-  border: 1px solid var(--cat-border);
-  background: var(--cat-surface);
-  cursor: pointer;
-  --wails-draggable: no-drag;
-  transition: background var(--ff-dur-quick), color var(--ff-dur-quick), transform var(--ff-dur-quick);
-}
-.ct-back:active {
-  transform: scale(0.94);
-}
-.ct-back:hover {
-  color: var(--cat-text);
-  background: var(--cat-hover);
 }
 .ct-it {
   width: 100%;
@@ -976,8 +1034,7 @@ button.ct-it:hover,
 button.ct-it:focus-visible,
 .ct-it.dc:focus-visible,
 .pj-row:focus-visible,
-.pc:focus-visible,
-.ct-back:focus-visible {
+.pc:focus-visible {
   outline: none;
   box-shadow: var(--cat-focus);
 }

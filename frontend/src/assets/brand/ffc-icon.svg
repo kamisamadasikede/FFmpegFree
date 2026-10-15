@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <title>ffc</title>
+  <rect x="16" y="16" width="480" height="480" rx="116" fill="#24252B"/>
+  <g stroke="#F8F2E9" stroke-width="32" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M181 161C173 153 164 149 153 149C134 149 122 163 122 184V349"/>
+    <path d="M276 161C268 153 259 149 248 149C229 149 217 163 217 184V349"/>
+    <path d="M92 226H247"/>
+  </g>
+  <path d="M405 247C394 236 381 231 366 231C335 231 314 254 314 289C314 324 335 347 366 347C382 347 395 341 406 330" stroke="#F3AE79" stroke-width="32" stroke-linecap="round"/>
+</svg>

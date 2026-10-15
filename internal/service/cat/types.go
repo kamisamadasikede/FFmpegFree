@@ -27,8 +27,8 @@ type ConversationDetail struct {
 	// HistoryMissing（存过 sessionId 但文件没了）/ HistoryReadFailed（文件在但读不了）；
 	// 读到了、或从没存过 sessionId（新对话），都省略（v0.45.2）。
 	HistoryStatus string `json:"historyStatus,omitempty"` // "missing" | "read_failed"；有消息 / 新对话省略
-	ContextUsed   int64   `json:"contextUsed,omitempty"`
-	ContextWindow int64   `json:"contextWindow,omitempty"`
+	ContextUsed   int64  `json:"contextUsed,omitempty"`
+	ContextWindow int64  `json:"contextWindow,omitempty"`
 }
 
 // CreateConversationRequest 创建会话。
@@ -44,6 +44,7 @@ type CreateConversationRequest struct {
 
 // SendMessageRequest 发送消息。
 type SendMessageRequest struct {
+	queueID        string
 	ConversationID string `json:"conversationId"`
 	Content        string `json:"content"`
 	ModelID        string `json:"modelId"`
@@ -158,6 +159,7 @@ type ReadFileRequest struct {
 // ReadFileResult 是侧边预览的文件内容。文本放 Content，有界的图片和文档放 DataBase64。
 // Kind：text、image、media、pdf、docx、xlsx、pptx、doc、binary、tooLarge。
 type ReadFileResult struct {
+	Revision   string `json:"revision"`
 	RelPath    string `json:"relPath"`
 	Name       string `json:"name"`
 	Kind       string `json:"kind"`
@@ -172,16 +174,18 @@ type ReadFileResult struct {
 
 // WriteFileRequest 是 WriteCatFile 入参。只覆盖已有文本，Content 为完整新内容。
 type WriteFileRequest struct {
-	ConvID  string `json:"convId"`
-	RelPath string `json:"relPath"`
-	Content string `json:"content"`
+	ExpectedRevision string `json:"expectedRevision,omitempty"`
+	ConvID           string `json:"convId"`
+	RelPath          string `json:"relPath"`
+	Content          string `json:"content"`
 }
 
 // WriteFileResult 是保存后的大小和修改时间。
 type WriteFileResult struct {
-	RelPath string `json:"relPath"`
-	Size    int64  `json:"size"`
-	ModTime int64  `json:"modTime"`
+	Revision string `json:"revision"`
+	RelPath  string `json:"relPath"`
+	Size     int64  `json:"size"`
+	ModTime  int64  `json:"modTime"`
 }
 
 // CatTurnState 是 GetCatConversation 的 lastTurn（v0.44.6）。

@@ -75,7 +75,7 @@ func ClassifyLiveError(in LiveClassifyInput) *apperr.AppError {
 				(strings.Contains(l, "not authorized") || strings.Contains(l, "permission") || strings.Contains(l, "denied") ||
 					strings.Contains(l, "failed to create av capture input device") || strings.Contains(l, "screen recording"))
 		}), contains("screen recording permission", "not authorized to capture"):
-			return apperr.New(apperr.ScreenPermissionDenied, "没有屏幕录制权限，请在系统设置的“隐私与安全性 → 屏幕录制”里允许 FFmpegFree").WithDetail(in.Tail)
+			return apperr.New(apperr.ScreenPermissionDenied, "没有屏幕录制权限，请在系统设置的“隐私与安全性 → 屏幕录制”里允许 ffc").WithDetail(in.Tail)
 		case anyLine(func(l string) bool {
 			return strings.Contains(l, "x11grab") && (strings.Contains(l, "cannot open display") || strings.Contains(l, "can't open display") || strings.Contains(l, "could not open display"))
 		}), contains("cannot open display", "unable to open display"):

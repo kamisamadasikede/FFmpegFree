@@ -137,11 +137,11 @@ func TestHWInitFailureFallsBackToCPU(t *testing.T) {
 	logText, _ := f.m.GetLog(tk.ID, 0)
 	var own []string
 	for _, l := range strings.Split(logText, "\n") {
-		if strings.Contains(l, "[FFmpegFree]") {
+		if strings.Contains(l, "[ffc]") {
 			own = append(own, l)
 		}
 	}
-	if len(own) == 0 || !strings.Contains(strings.Join(own, "\n"), "[FFmpegFree] 显卡编码启动失败，已自动改用 CPU 重试一次") {
+	if len(own) == 0 || !strings.Contains(strings.Join(own, "\n"), "[ffc] 显卡编码启动失败，已自动改用 CPU 重试一次") {
 		t.Fatalf("日志里应有回退提示: %q", logText)
 	}
 	for _, l := range own {

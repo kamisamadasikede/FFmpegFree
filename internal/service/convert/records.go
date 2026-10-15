@@ -1266,7 +1266,7 @@ func (r *resultRunner) Run(ctx context.Context, report func(task.Progress)) (str
 				r.res = &task.TaskResult{SizeBytes: r.res.SizeBytes, Width: r.res.Width, Height: r.res.Height}
 			} else if shortOutput(r.expected, r.res.DurationSec) {
 				r.res.Warnings = append(r.res.Warnings, WarningShortOutput)
-				fmt.Fprintf(task.LogWriter(ctx), "[FFmpegFree] short_output: expected=%s actual=%s\n", secs(r.expected), secs(r.res.DurationSec))
+				fmt.Fprintf(task.LogWriter(ctx), "[ffc] short_output: expected=%s actual=%s\n", secs(r.expected), secs(r.res.DurationSec))
 			}
 		}
 	}
@@ -1291,7 +1291,7 @@ func (r *resultRunner) Result() *task.TaskResult { return r.res }
 func (s *Service) probeResult(ctx context.Context, path string) *task.TaskResult {
 	fi, err := os.Stat(path)
 	if err != nil {
-		fmt.Fprintf(task.LogWriter(ctx), "[FFmpegFree] 读取输出文件信息失败：%v\n", err)
+		fmt.Fprintf(task.LogWriter(ctx), "[ffc] 读取输出文件信息失败：%v\n", err)
 		return nil
 	}
 	res := &task.TaskResult{SizeBytes: fi.Size()}
@@ -1300,7 +1300,7 @@ func (s *Service) probeResult(ctx context.Context, path string) *task.TaskResult
 	}
 	m, err := s.cfg.Media.Inspect(ctx, path)
 	if err != nil {
-		fmt.Fprintf(task.LogWriter(ctx), "[FFmpegFree] 探测输出文件失败：%v\n", err)
+		fmt.Fprintf(task.LogWriter(ctx), "[ffc] 探测输出文件失败：%v\n", err)
 		return res
 	}
 	return resultFromMedia(fi.Size(), m)

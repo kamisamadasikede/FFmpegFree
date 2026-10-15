@@ -15,8 +15,8 @@ const maxNotifyBodyRunes = 80
 
 // 普通 turn 系统通知文案的 zh-CN 常量（契约 v0.48 6.19.12.11-2；v0.54 实际发送走 i18n）。
 const (
-	NotifyTitleTurnDone   = "Cat \u00b7 对话已完成"
-	NotifyTitleTurnFailed = "Cat \u00b7 回复失败"
+	NotifyTitleTurnDone   = "Agent \u00b7 对话已完成"
+	NotifyTitleTurnFailed = "Agent \u00b7 回复失败"
 )
 
 // NotifyStatus 是 GetCatNotifyStatus 的返回（v0.48 6.19.12.11-5）。

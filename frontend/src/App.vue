@@ -32,7 +32,10 @@ import FFmpegInstallDialog from './components/ffmpeg/FFmpegInstallDialog.vue'
 import { useTheme } from './composables/useTheme'
 import { useFFmpegStore } from './stores/ffmpeg'
 import { useTaskStore } from './stores/tasks'
-import { onMounted } from 'vue'
+import { onMounted, onBeforeUnmount } from 'vue'
+import { watchWorkflow } from './views/cat/catWorkflow'
+const stopWorkflow = watchWorkflow()
+onBeforeUnmount(stopWorkflow)
 import { ElMessage } from 'element-plus'
 import { convertV24On, takeInterruptedReconverts } from './api/convertRecords'
 import { interruptedReconvertsText } from './utils/convertV24Text'

@@ -1,5 +1,7 @@
 import { reactive } from 'vue'
 import type { GitStatus } from '@/api/catGit'
+import type { GitHistoryScope } from '@/api/catGitWorkflows'
+import { rightCollapsed } from '@/views/cat/catLayout'
 import { t } from '@/i18n'
 
 /** 右栏 Git 状态摘要，供顶栏胶囊与右栏共用 */
@@ -12,8 +14,15 @@ export const catGitUi = reactive({
   conflictNav: 0,
   /** 合并成功后 +1：只刷新 Git 状态 */
   gitRefresh: 0,
+  historyNav: 0,
+  historyScope: 'current' as GitHistoryScope,
 })
 
 export function setCatGitUi( partial: Partial<typeof catGitUi>) {
   Object.assign(catGitUi, partial)
+}
+export function requestCatGitHistory(scope: GitHistoryScope) {
+  rightCollapsed.value = false
+  catGitUi.historyScope = scope
+  catGitUi.historyNav++
 }

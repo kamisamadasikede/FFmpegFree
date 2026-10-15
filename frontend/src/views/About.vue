@@ -4,8 +4,8 @@
     <section class="panel group" aria-labelledby="h-about">
       <div class="phead"><h2 id="h-about">{{ t('about.title') }}</h2></div>
       <div class="idrow">
-        <div class="logo" aria-hidden="true"><FIcon name="play" :size="20" :stroke="2.2" /></div>
-        <b>FFmpegFree</b>
+        <AppLogo :size="48" decorative />
+        <b>{{ APP_NAME }}</b>
       </div>
       <div class="srow">
         <div class="l"><b>{{ t('about.version') }}</b></div>
@@ -47,6 +47,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import FIcon from '@/components/icon/FIcon.vue'
+import AppLogo from '@/components/brand/AppLogo.vue'
+import { APP_NAME } from '@/config/brand'
 import FFmpegPanel from '@/components/settings/FFmpegPanel.vue'
 import LicenseDialog from '@/components/settings/LicenseDialog.vue'
 import { getAppVersion, DEV_VERSION } from '@/api/about'
@@ -92,16 +94,6 @@ function openLicense(lic: FontLicense) {
   gap: var(--ff-space-3);
   padding: var(--ff-space-4);
   border-bottom: 1px solid var(--ff-border);
-}
-.logo {
-  width: 40px;
-  height: 40px;
-  flex: none;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #3b6ef5, #8b5cf6); /* 与侧栏 logo 同渐变 */
-  color: #fff;
-  display: grid;
-  place-items: center;
 }
 .idrow b {
   font-size: var(--ff-fs-lg);

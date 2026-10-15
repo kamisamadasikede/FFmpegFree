@@ -71,6 +71,7 @@ type ListCatCommitsRequest struct {
 	Limit  int    `json:"limit,omitempty"`
 	Query  string `json:"query,omitempty"`
 	Branch string `json:"branch,omitempty"`
+	Scope  string `json:"scope,omitempty"` // all | current | outgoing | incoming
 }
 
 type CatCommitFile struct {
@@ -244,6 +245,13 @@ func (s *Service) ListCatCommits(ctx context.Context, req ListCatCommitsRequest)
 	if err != nil {
 		return CatCommitPage{}, err
 	}
+	refs, err := commitScopeArgs(ctx, lay.top, snap, req)
+	if err != nil {
+		return CatCommitPage{}, err
+	}
+	// 游标同时绑定筛选条件和上游，避免切换范围后混入另一份历史。
+	fingerprint := sha256.Sum256([]byte(snap.fp + "\x00" + req.Scope + "\x00" + req.Query + "\x00" + strings.Join(refs, "\x00")))
+	snap.fp = hex.EncodeToString(fingerprint[:])[:16]
 	cur := commitCursor{V: 1, FP: snap.fp}
 	first := strings.TrimSpace(req.Cursor) == ""
 	if !first {
@@ -258,10 +266,6 @@ func (s *Service) ListCatCommits(ctx context.Context, req ListCatCommitsRequest)
 	}
 	if snap.empty {
 		return CatCommitPage{Commits: []CatCommit{}, NoCommits: true}, nil
-	}
-	refs, err := commitRefArgs(ctx, lay.top, snap, strings.TrimSpace(req.Branch))
-	if err != nil {
-		return CatCommitPage{}, err
 	}
 	query := strings.TrimSpace(req.Query)
 	if query == "" {
@@ -296,6 +300,39 @@ func (s *Service) ListCatCommits(ctx context.Context, req ListCatCommitsRequest)
 		return page, nil
 	}
 	return s.searchCommits(ctx, lay, snap, refs, query, limit, cur)
+}
+
+func commitScopeArgs(ctx context.Context, top string, snap refSnapshot, req ListCatCommitsRequest) ([]string, error) {
+	if req.Scope != "" && req.Scope != "all" && req.Scope != "current" && req.Scope != "outgoing" && req.Scope != "incoming" {
+		return nil, apperr.New(apperr.InvalidArgument, "不认识这个提交范围。")
+	}
+	if snap.empty {
+		return nil, nil
+	}
+	switch req.Scope {
+	case "", "all":
+		return commitRefArgs(ctx, top, snap, strings.TrimSpace(req.Branch))
+	case "current":
+		return commitRefArgs(ctx, top, snap, "HEAD")
+	case "outgoing", "incoming":
+		if snap.head == "" || snap.headRef == "" {
+			return nil, errDetached()
+		}
+		out, _, err := runGit(ctx, commitLogTimeout, top, "rev-parse", "--verify", "-q", "@{upstream}^{commit}")
+		if err != nil {
+			if req.Scope == "outgoing" {
+				return []string{snap.head, "--not", "--remotes"}, nil
+			}
+			return nil, errNoUpstream()
+		}
+		upstream := strings.TrimSpace(string(out))
+		if req.Scope == "outgoing" {
+			return []string{upstream + ".." + snap.head}, nil
+		}
+		return []string{snap.head + ".." + upstream}, nil
+	default:
+		return nil, apperr.New(apperr.InvalidArgument, "不认识这个提交范围。")
+	}
 }
 
 func commitRefArgs(ctx context.Context, top string, snap refSnapshot, branch string) ([]string, error) {

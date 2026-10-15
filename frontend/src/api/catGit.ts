@@ -56,7 +56,7 @@ export interface GitChange {
   unstaged: boolean
 }
 
-export type GitMergeState = 'none' | 'merging' | 'rebasing' | 'cherry'
+export type GitMergeState = 'none' | 'merging' | 'rebasing' | 'cherry' | 'reverting'
 
 export interface GitConflictEntry {
   path: string
@@ -66,6 +66,9 @@ export interface GitConflictEntry {
 }
 
 export interface GitStatus {
+  root?: string
+  remoteName?: string
+  fetchedAt?: number
   repo: boolean
   branch: string
   upstream: string
@@ -140,7 +143,7 @@ function num(v: unknown): number {
 }
 
 export function normalizeMergeState(v: unknown): GitMergeState {
-  return v === 'merging' || v === 'rebasing' || v === 'cherry' ? v : 'none'
+  return v === 'merging' || v === 'rebasing' || v === 'cherry' || v === 'reverting' ? v : 'none'
 }
 
 function mapConflict(raw: unknown): GitConflictEntry {
@@ -158,6 +161,9 @@ export function mapGitStatus(raw: unknown): GitStatus {
   const changes = Array.isArray(r.changes) ? r.changes.map(mapChange).filter((c) => c.path) : []
   const conflicts = Array.isArray(r.conflicts) ? r.conflicts.map(mapConflict).filter((c) => c.path) : []
   return {
+    ...(str(r.root) ? { root: str(r.root) } : {}),
+    ...(str(r.remoteName) ? { remoteName: str(r.remoteName) } : {}),
+    ...(num(r.fetchedAt) > 0 ? { fetchedAt: num(r.fetchedAt) } : {}),
     repo: r.repo === true,
     branch: str(r.branch),
     upstream: str(r.upstream),
@@ -261,8 +267,8 @@ export function gitMenuEntries(input: { message: string; changeCount: number; up
   ]
 }
 
-export async function gitCatDiff(convId: string, relPath: string): Promise<GitDiff> {
-  return mapGitDiff(await callService<unknown>('CatService', 'GitCatDiff', { convId, relPath }))
+export async function gitCatDiff(convId: string, relPath: string, scope?: 'staged' | 'worktree'): Promise<GitDiff> {
+  return mapGitDiff(await callService<unknown>('CatService', 'GitCatDiff', { convId, relPath, ...(scope ? { scope } : {}) }))
 }
 
 export async function gitCatPullRequest(convId: string): Promise<string> {
@@ -325,11 +331,14 @@ export const CAT_GIT_CONFLICT_COPY = {
 }
 
 export function unresolvedConflicts(status: GitStatus | null | undefined): GitConflictEntry[] {
-  if (!status || status.mergeState === 'none') return []
+  if (!status) return []
   return status.conflicts ?? []
 }
 
 export function conflictLabels(state: GitMergeState) {
+  if (state === 'reverting') {
+    return { bar: t('cat.gitWorkbench.reverting'), meta: t('cat.gitWorkbench.revertMeta'), complete: t('cat.gitWorkbench.completeRevert'), abort: t('cat.gitWorkbench.abortRevert'), abortTitle: t('cat.gitWorkbench.abortRevert'), abortBody: t('cat.gitWorkbench.abortRevertAsk'), allClear: CAT_GIT_CONFLICT_COPY.allClear }
+  }
   if (state === 'rebasing') {
     return {
       bar: CAT_GIT_CONFLICT_COPY.rebasing,

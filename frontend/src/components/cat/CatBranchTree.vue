@@ -1,7 +1,7 @@
 <template>
   <!-- v0.51 分支树弹窗（契约 §6.19.26.5，线框 proto/cat-branch-tree）：从底栏分支胶囊向上弹 -->
-  <Teleport to="body">
-    <div v-if="open" ref="pop" class="bt-pop" :style="popStyle" role="dialog" :aria-label="C.ariaBranch" data-testid="cat-btree" @keydown.esc.stop="close()">
+  <Teleport to="body" :disabled="embedded">
+    <div v-if="open" ref="pop" class="bt-pop" :class="{ embedded }" :style="popStyle" :role="embedded ? 'region' : 'dialog'" :aria-label="C.ariaBranch" data-testid="cat-btree" @keydown.esc.stop="close()">
       <div class="bt-srch">
         <label class="bt-in">
           <FIcon name="search" :size="14" />
@@ -53,7 +53,8 @@
             @mouseleave="tip = null"
             @contextmenu.prevent="openMenu($event, r)"
             @click="openMenu($event, r)"
-            @keydown.enter.prevent="openMenu($event, r)"
+            @keydown.enter.self.prevent="openMenu($event, r)"
+            @keydown.space.self.prevent="openMenu($event, r)"
           >
             <span v-if="r.branch.current" class="ck"><FIcon name="check" :size="14" /></span>
             <span v-else class="bi"><FIcon :name="r.branch.remote ? 'cloud' : 'branch'" :size="14" /></span>
@@ -77,6 +78,8 @@
       </button>
     </div>
 
+  </Teleport>
+  <Teleport to="body">
     <!-- 右键菜单 -->
     <div v-if="open && menu" ref="menuEl" class="bt-pop bt-menu" :style="{ left: menu.x + 'px', top: menu.y + 'px' }" role="menu" data-testid="cat-btree-menu">
       <template v-for="it in menu.items" :key="it.id">
@@ -166,7 +169,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import CatRawDetail from './CatRawDetail.vue'
@@ -179,7 +182,7 @@ import {
   type BTreeAction, type BTreeErr, type BTreeMenuItem, type BTreeRow, type CatBranchCompare, type CatBranchTree, type CatTreeBranch, type DiffRow,
 } from '@/api/catBranchTree'
 
-const props = defineProps<{ open: boolean; convId: string; anchor: HTMLElement | null }>()
+const props = defineProps<{ open: boolean; convId: string; anchor: HTMLElement | null; embedded?: boolean }>()
 const emit = defineEmits<{ close: []; changed: [] }>()
 
 const tree = ref<CatBranchTree | null>(null)
@@ -200,6 +203,7 @@ const refreshTipText = computed(() => (tree.value ? refreshTip(tree.value) : C.r
 const curName = computed(() => (tree.value ? currentBranch(tree.value)?.name ?? '' : ''))
 
 function place() {
+  if (props.embedded) { popStyle.value = {}; return }
   const a = props.anchor?.getBoundingClientRect()
   if (!a) return
   const left = Math.max(8, Math.min(a.left, window.innerWidth - 328))
@@ -231,7 +235,7 @@ async function doFetch(force: boolean) {
   const s = seq
   try {
     const t = await fetchCatRemotes(props.convId, force)
-    if (s === seq && props.open) tree.value = t
+    if (s === seq && props.open) { tree.value = t; emit('changed') }
   } catch {
     // FetchCatRemotes 失败不返回错误（写 fetchError）；这里只兜底：重拉一次本地
     void load()
@@ -419,7 +423,7 @@ async function pickFile(path: string) {
 function close() {
   menu.value = null
   tip.value = null
-  emit('close')
+  if (!props.embedded) emit('close')
 }
 function onPointer(e: PointerEvent) {
   const t = e.target
@@ -429,17 +433,27 @@ function onPointer(e: PointerEvent) {
     menu.value = null
     if (pop.value?.contains(t)) return
   }
-  if (pop.value?.contains(t) || props.anchor?.contains(t)) return
+  if (pop.value?.contains(t) || props.anchor?.contains(t) || props.embedded) return
   if (dlg.value || cmp.value) return
   close()
 }
 document.addEventListener('pointerdown', onPointer, true)
 window.addEventListener('resize', place)
+onMounted(() => {
+  if (props.open) {
+    place()
+    offEv = onEvent<{ convId?: string }>('cat:branchtree', (p) => { if (!p?.convId || p.convId === props.convId) void load() })
+    void load().then(() => { if (tree.value && !tree.value.noCommits) void doFetch(false) })
+  }
+})
+watch(() => props.convId, () => { if (props.open) { seq++; void load() } })
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', onPointer, true)
   window.removeEventListener('resize', place)
   offEv?.()
+  seq++
 })
+defineExpose({ reload: load })
 </script>
 
 <style scoped>
@@ -457,6 +471,7 @@ onBeforeUnmount(() => {
   color: var(--cat-text);
 }
 .bt-srch { display: flex; align-items: center; gap: 6px; padding: 8px; border-bottom: 1px solid var(--cat-divider); }
+.bt-pop.embedded { position: relative; z-index: auto; width: auto; flex: 1; min-height: 0; border: 0; border-radius: 0; box-shadow: none; background: transparent; }
 .bt-in {
   flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px;
   border: 1px solid var(--cat-border); border-radius: 6px; background: var(--cat-surface); color: var(--cat-muted);

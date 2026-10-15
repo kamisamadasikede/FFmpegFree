@@ -135,6 +135,35 @@ export async function catThinkChecks(eq: Eq): Promise<void> {
     eq('强度：新建的对话自己留着欢迎页的选择', [catState.model, catState.think], ['m-default', 'high'])
     catState.sel = NEW_CONV
     eq('强度：欢迎页下次还是自己的选择', [catState.model, catState.think], ['m-default', 'high'])
+
+    // Hold creation while the user navigates and changes another chat's choices.
+    const backend = (win.go as { app: { CatService: {
+      CreateCatConversation: () => Promise<unknown>
+      SendCatMessage: (req: Record<string, unknown>) => Promise<unknown>
+    } } }).app.CatService
+    let finishCreate!: (value: unknown) => void
+    backend.CreateCatConversation = () => new Promise((resolve) => { finishCreate = resolve })
+    catState.turns = {}
+    const creating = sendMessage('后台创建的一条')
+    catState.sel = 'c21'
+    chooseModel('m-2')
+    chooseThink('low')
+    finishCreate({ id: 'conv-background', title: '', agentKind: 'cat_build', createdAt: 1, updatedAt: 1 })
+    await creating
+    eq('发送：创建期间切换页面，完成不抢回当前会话', catState.sel, 'c21')
+    eq('发送：请求仍使用点击发送时的模型和强度', [sent[5]?.conversationId, sent[5]?.modelId, sent[5]?.thinkLevelId], ['conv-background', 'm-default', 'high'])
+    eq('发送：后台创建的会话保存提交时的选择', prefs()['conv-background'], { model: 'm-default', think: 'high' })
+
+    let rejectSend!: (reason: unknown) => void
+    backend.SendCatMessage = () => new Promise((_resolve, reject) => { rejectSend = reject })
+    catState.sel = 'conv-background'
+    catState.turns = {}
+    const rejected = sendMessage('未被收下的草稿', [{ name: 'draft.ts', path: 'D:/draft.ts' }])
+    catState.sel = 'c21'
+    rejectSend(JSON.stringify({ code: 'CAT_PROJECT_MISSING', message: '项目文件夹不见了。' }))
+    eq('发送：离开后收到拒绝，仍返回正文和附件供原会话恢复', await rejected, { text: '未被收下的草稿', files: [{ name: 'draft.ts', path: 'D:/draft.ts' }], conversationId: 'conv-background' })
+    eq('发送：拒绝不修改当前选中的会话', catState.sel, 'c21')
+
   } finally {
     if (prevGo === undefined) delete win.go
     else win.go = prevGo

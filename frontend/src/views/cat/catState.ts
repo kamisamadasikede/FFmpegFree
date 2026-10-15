@@ -5,6 +5,7 @@ import { catBackendLive, catTimeoutText } from '@/api/cat'
 import { mergeCatStatus, markRowChecking } from '@/api/catDetect'
 import { applyCatOutput, applyCatTiming } from '@/components/cat/catTimingAdapter'
 import { t } from '@/i18n'
+import { checkCLIUpdates, enterCLIUpdateVisit, leaveCLIUpdateVisit } from './catCLIUpdates'
 /**
  * Cat 页本地状态（单例）。契约 v0.30 / 设计 v0.4：
  * - CAT_BACKEND_READY=true 且在 Wails 里：会话列表 / 消息 / 发送 / 停止走真实 CatService；cat:message 流式拼进助手气泡
@@ -100,7 +101,6 @@ import { catSim, catSimOs, catSimPicks, simAgentRaw, simStream, simDetectPayload
 import { DEFAULT_MODEL_LABEL, followsCliModel, FALLBACK_MODES, resolveModeId, mapAgentModes, mapBackendCaps, mapModelEfforts, getCatAgentCapabilities, modeMeta, pickSupported, setBackendCaps, useCatAgentCapabilities } from './catCapabilities'
 import {
   CAT_CONV_PREFS_KEY,
-  carryPref,
   dropPref,
   prefOf,
   putPref,
@@ -108,10 +108,15 @@ import {
   resolveAccess,
   resolveConvPref,
   writeConvPrefs,
+  type CatConvPref,
   type CatConvPrefMap,
 } from './catConvPrefs'
 
+import { loadWorkflow, watchWorkflow } from './catWorkflow'
+import { onTaskEvent } from '@/services/wails'
 export const NEW_CONV = 'new'
+let metadataGeneration = 0
+export function markConvMetadataChanged() { metadataGeneration++ }
 
 /** 上次看的对话。重新进入 Cat、下次启动都回到这一条；「新对话」不记 */
 const LAST_CONV_KEY = CAT_LAST_CONV_KEY
@@ -319,11 +324,20 @@ export const accessMeta = computed(() => {
   return opt ? modeMeta(opt) : modeMeta({ id: CAT_ACCESS[CAT_ACCESS.length - 1].id, label: CAT_ACCESS[CAT_ACCESS.length - 1].name })
 })
 
+/** 顶层状态只代表 Grok；聊天页按当前对话 / 欢迎页选中的 CLI 判断是否可用。 */
+const selectedAgentStatus = computed(() => catState.status.agents.find((a) => a.agentKind === currentAgentKind()))
+
 /** 组件没准备好（检测中不算）：显示未就绪横条 */
-export const catNotReady = computed(() => catState.status.state === 'missing' || catState.status.state === 'failed')
+export const catNotReady = computed(() => {
+  const agent = selectedAgentStatus.value
+  return agent ? !agent.ready && !agent.checking : catState.status.state === 'missing' || catState.status.state === 'failed'
+})
 
 /** 组件检查中：不显示横条，但发送置灰（产品：别让用户点了才被拒） */
-export const catChecking = computed(() => catState.status.state === 'checking')
+export const catChecking = computed(() => {
+  const agent = selectedAgentStatus.value
+  return agent ? agent.checking === true : catState.status.state === 'checking'
+})
 
 /** 当前视图所属项目：对话的项目，或从项目「+」进来的欢迎页的项目 */
 export const currentProject = computed<CatProject | undefined>(() => {
@@ -406,6 +420,7 @@ async function loadMessages(id: string, quiet = false, force = false) {
       catState.histLoaded[id] = true
       return
     }
+    void loadWorkflow(id)
     const d = await getCatConversation(id)
     if (!d) {
       if (findConv(id) && !catState.messages[id]?.length) catState.histLoaded[id] = true
@@ -419,7 +434,7 @@ async function loadMessages(id: string, quiet = false, force = false) {
     if (!force && now && !now.adopted) return
     if (d.contextUsed > 0 && d.contextWindow > 0) catState.context[id] = { used: d.contextUsed, window: d.contextWindow }
     const found = findConv(id)
-    if (found && d.title) found.conv.title = d.title
+    if (found && d.title && !found.conv.customTitle) found.conv.title = d.title
     const next = blocksFrom(d.messages)
     if (catState.turns[id]?.status === 'running') {
       for (let i = next.length - 1; i >= 0; i--) {
@@ -530,7 +545,7 @@ function releaseAdopted(id: string, token?: number) {
 }
 
 function toConv(c: CatConversation): CatConv {
-  return { id: c.id, title: c.title, agentKind: c.agentKind, projectId: c.projectId }
+  return { id: c.id, title: c.title, agentKind: c.agentKind, projectId: c.projectId, customTitle: c.customTitle, pinned: c.pinned, archived: c.archived }
 }
 
 /** 当前选中对话的 agentKind；新对话用欢迎页选中模式（v0.36 三家可点） */
@@ -610,15 +625,8 @@ export function chooseAccess(id: string) {
 }
 
 /** 欢迎页上选的模型和强度跟着新对话走，不写到别的对话上。 */
-function carryDraftPref(toId: string) {
-  const map = loadPrefMap()
-  // 欢迎页没点过：把设置里的默认值写给新对话（契约 6.19.12.1-3）
-  if (!prefOf(map, NEW_CONV)) {
-    const d = defaultConvPref(currentAgentKind())
-    if (d.model || d.think || d.access) savePrefMap(putPref(map, toId, d))
-    return
-  }
-  savePrefMap(carryPref(map, NEW_CONV, toId))
+function carryDraftPref(toId: string, pref: CatConvPref) {
+  savePrefMap(putPref(loadPrefMap(), toId, pref))
 }
 
 /**
@@ -660,18 +668,24 @@ export async function refreshCapabilities(agentKind: CatAgentKind = currentAgent
 // ---------- 进入页面：状态、会话列表、事件 ----------
 
 let offs: Array<() => void> = []
+let entryDetection: Promise<void> | null = null
 
 /** 未就绪横幅里的「重新检测」：先显示检查中，再用结果覆盖 */
 export async function recheckCatStatus(): Promise<void> {
-  if (catState.status.state === 'checking') return
+  if (catChecking.value) return
   await recheckCatAgents()
 }
 
 /** v0.47.1：cat:status / Get / Recheck 的结果一律按 agents[] 合并进 store，不整份替换 */
 export function applyCatStatus(s: CatStatus): void {
-  const was = catState.status.state
+  const prev = catState.status
+  const kind = currentAgentKind()
+  const before = prev.agents.find((a) => a.agentKind === kind)
   catState.status = mergeCatStatus(catState.status, s, s.hasAgents === true)
-  if (catState.status.state === 'ready' && was !== 'ready') void refreshCapabilities()
+  const after = catState.status.agents.find((a) => a.agentKind === kind)
+  // 顶层状态只代表 Grok；当前 CLI 检测完成后也要更新它的模型和强度。
+  if ((catState.status.state === 'ready' && prev.state !== 'ready')
+    || (after?.ready && !after.checking && (!before?.ready || before.checking))) void refreshCapabilities()
 }
 
 /**
@@ -700,10 +714,20 @@ export async function recheckCatAgents(agentKind?: CatProviderKind): Promise<voi
 /** CatPage 挂载时调用；返回卸载函数 */
 export function initCat(): () => void {
   disposeCat()
+  const updateVisit = enterCLIUpdateVisit()
   offs = [
     onCatStatus(applyCatStatus),
     onCatMessage(handleMessageEvent),
     onCatTurn(handleTurnEvent),
+    watchWorkflow(),
+    onTaskEvent<{convId: string; result: import('@/api/cat').SendCatMessageResult; attachments?: CatOutgoingFile[]}>('cat:queued-start', e => {
+      if (!findConv(e.convId)) return
+      const list = messagesOf(e.convId)
+      list.push({kind: 'user', text: e.result.userMessage.content, files: fileChips(e.attachments || [])})
+      catState.turns[e.convId] = { token: ++seq, turnId: e.result.turnId, status: 'running', assistantId: '' }
+      delete catState.retry[e.convId]
+      lastFailedTurn.delete(e.convId)
+    }),
     onCatProject(handleProjectEvent),
   ]
   if (typeof window !== 'undefined') {
@@ -725,7 +749,11 @@ export function initCat(): () => void {
     offs.push(() => clearTimeout(t))
   }
   const simStatus = import.meta.env.DEV && (catSim.has('checking') || catSim.has('stream') || detectSim.length > 0)
-  if (!simStatus) {
+  if (!simStatus && live) {
+    // 进入 loading 时静默实时检测，不等结果才展示页面；快速往返复用进行中的检测。
+    if (!entryDetection) entryDetection = recheckCatAgents().finally(() => { entryDetection = null })
+    void entryDetection.then(() => checkCLIUpdates(updateVisit))
+  } else if (!simStatus) {
     void getCatStatus()
       .then(applyCatStatus)
       .catch(() => (catState.status = { state: 'missing', version: '', canDownload: false, error: { code: 'CAT_NOT_READY', message: CAT_COPY.notReady }, agents: [] }))
@@ -742,6 +770,7 @@ watch(() => catState.sel, (id) => {
 }, { flush: 'sync' })
 
 export function disposeCat() {
+  leaveCLIUpdateVisit()
   offs.forEach((f) => f())
   offs = []
   stopLivePoll()
@@ -750,8 +779,11 @@ export function disposeCat() {
 export async function reloadConversations() {
   catState.convListReady = false
   try {
+    const generation = metadataGeneration
     const [list, projects] = await Promise.all([listCatConversations(), listCatProjects().catch(() => null)])
     if (projects) mergeProjects(projects, true)
+    const metadata = new Map([...catState.plain, ...catState.projects.flatMap(p => p.convs)].map(c => [c.id, c]))
+    if (generation !== metadataGeneration) for (const c of list) { const old = metadata.get(c.id); if (old) Object.assign(c, { title: old.title, customTitle: old.customTitle, pinned: old.pinned, archived: old.archived }) }
     const byId = new Map(catState.projects.map((p) => [p.id, p]))
     for (const p of catState.projects) p.convs = []
     const plain: CatConv[] = []
@@ -1093,7 +1125,7 @@ function fileChips(files: CatOutgoingFile[]): CatShownFile[] | undefined {
  * 返回值：后端没收下这条消息（CAT_PROJECT_MISSING：没建对话 / 没存用户消息）且用户还停在原处时返回原文和附件，
  * 调用方放回输入框；其它情况返回 undefined。
  */
-export async function sendMessage(text: string, files: CatOutgoingFile[] = []): Promise<{ text: string; files: CatOutgoingFile[] } | undefined> {
+export async function sendMessage(text: string, files: CatOutgoingFile[] = []): Promise<{ text: string; files: CatOutgoingFile[]; conversationId?: string } | undefined> {
   const msgTxt = text.trim()
   const picked = files.filter((f) => f.path)
   if ((!msgTxt && !picked.length) || catState.creating) return
@@ -1101,9 +1133,9 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
   let id = catState.sel
   if (id !== NEW_CONV && catState.turns[id]) return
   // 检查中：按钮已置灰；回车等其它入口也直接忽略
-  if (catState.status.state === 'checking') return
+  if (catChecking.value) return
   // 组件未就绪：只展示定稿文案，不启一轮、不造假流式回复（产品锁定）
-  if (catState.status.state === 'missing' || catState.status.state === 'failed') {
+  if (catNotReady.value) {
     if (id === NEW_CONV) {
       // 欢迎页：不建会话，只在当前页提示；已有会话则追加一条系统行
       return
@@ -1118,6 +1150,10 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
   // 项目文件夹不见了：输入框已禁用；回车等其它入口也直接忽略（对话可看不可发）
   if (projectMissing.value) return
 
+  // Capture the submitted choices before asynchronous creation/navigation.
+  const submittedPref = { model: catState.model, think: catState.think, access: catState.access }
+  const originProjectId = catState.newProjectId
+  let activateNew = false
   if (id === NEW_CONV) {
     const mode = CAT_MODES.find((m) => m.id === catState.mode)
     if (!mode?.enabled) catState.mode = 'cat_build'
@@ -1136,29 +1172,31 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
         project.open = true
         rememberNewConvProject(project.id)
       } else catState.plain.unshift(conv)
-      catState.newProjectId = ''
+      activateNew = catState.sel === NEW_CONV && catState.newProjectId === originProjectId
+      if (activateNew) catState.newProjectId = ''
     } catch (e) {
       if (project && toAppError(e).code === 'CAT_PROJECT_MISSING') {
         // 不创建对话；欢迎页随之显示「项目文件夹不见了。」，文字放回输入框
         project.missing = true
-        return catState.sel === NEW_CONV && catState.newProjectId === project.id ? { text, files: picked } : undefined
+        return { text, files: picked }
       }
       id = `local-${Date.now().toString(36)}-${++seq}`
       if (project) {
         project.convs.unshift({ id, title: titleFrom(titleSeed), agentKind, projectId: project.id })
-        catState.newProjectId = ''
       } else catState.plain.unshift({ id, title: titleFrom(titleSeed), agentKind })
-      carryDraftPref(id)
+      activateNew = catState.sel === NEW_CONV && catState.newProjectId === originProjectId
+      if (activateNew) catState.newProjectId = ''
+      carryDraftPref(id, submittedPref)
       catState.messages[id] = [{ kind: 'user', text: msgTxt, files: fileChips(picked) }, { kind: 'sys', text: CAT_COPY.replyFailed, tone: 'err' }]
       catState.outcome[id] = 'bad'
-      catState.sel = id
+      if (activateNew) catState.sel = id
       return
     } finally {
       catState.creating = false
     }
-    carryDraftPref(id)
+    carryDraftPref(id, submittedPref)
     catState.messages[id] = []
-    catState.sel = id
+    if (activateNew) catState.sel = id
   }
 
   const list = messagesOf(id)
@@ -1195,10 +1233,10 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
     const res = await sendCatMessage({
       conversationId: id,
       content: msgTxt,
-      modelId: catState.model || undefined,
+      modelId: submittedPref.model || undefined,
       // 没选强度就不带（接口层转成空串，后端不传 --reasoning-effort）
-      thinkLevelId: catState.think || undefined,
-      permissionMode: catState.access,
+      thinkLevelId: submittedPref.think || undefined,
+      permissionMode: submittedPref.access,
       attachments: picked.length ? picked.map((f) => ({ name: f.name, path: f.path })) : undefined,
     })
     const turn = catState.turns[id]
@@ -1234,7 +1272,7 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
       for (let i = l.length - 1; i >= 0; i--) if (l[i].kind === 'user' && (l[i] as { text: string }).text === msgTxt) { l.splice(i, 1); break }
       const p = findConv(id)?.project
       if (p) p.missing = true
-      return catState.sel === id ? { text, files: picked } : undefined
+      return { text, files: picked, conversationId: id }
     }
     if (err.code === 'TASK_CONFLICT' && err.reason === 'turn_running') {
       // 刷新后旧的回复还在。这条没发出去，文字放回输入框，界面改接正在跑的那一轮。
@@ -1244,7 +1282,7 @@ export async function sendMessage(text: string, files: CatOutgoingFile[] = []): 
       for (let i = l.length - 1; i >= 0; i--) if (l[i].kind === 'user' && (l[i] as { text: string }).text === msgTxt) { l.splice(i, 1); break }
       notify((err.message || '').trim() || t('cat.misc.s_f9b2a2f998'), 'warn')
       void adoptLiveTurns()
-      return catState.sel === id ? { text, files: picked } : undefined
+      return { text, files: picked, conversationId: id }
     }
     if (err.code === 'CAT_NOT_READY') {
       catState.status = {

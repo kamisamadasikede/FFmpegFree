@@ -304,6 +304,8 @@ func (s *Service) DeleteCatProject(ctx context.Context, req DeleteProjectRequest
 		return apperr.Wrap(apperr.IOError, catagent.MsgProjectDelete, err)
 	}
 	for _, cid := range convIDs {
+		s.markWorkflowDeleting(cid)
+		defer s.unmarkWorkflowDeleting(cid)
 		s.cancelTurnAndWait(cid)
 	}
 	if _, err := s.cfg.Store.DeleteCatProject(ctx, pid); err != nil {
@@ -312,6 +314,7 @@ func (s *Service) DeleteCatProject(ctx context.Context, req DeleteProjectRequest
 	// 取消与删除之间若有新一轮刚启动，删除后再停一次（其对话已不存在，落库会失败并被丢弃）。
 	for _, cid := range convIDs {
 		s.cancelTurn(cid, "")
+		s.clearWorkflowStorage(ctx, cid)
 	}
 	s.forgetMissing(pid)
 	// 定时任务不删，暂停并标「项目已删除」（6.19.13.7-1）。正在跑的一次随对话删除被取消，记 stopped。

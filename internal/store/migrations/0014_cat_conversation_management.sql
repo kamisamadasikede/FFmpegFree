@@ -1,0 +1,3 @@
+ALTER TABLE cat_conversations ADD COLUMN custom_title TEXT NOT NULL DEFAULT '';
+ALTER TABLE cat_conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE cat_conversations ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;

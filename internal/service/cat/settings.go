@@ -420,6 +420,8 @@ func (s *Service) ClearAllCatConversations(ctx context.Context) error {
 		return apperr.Wrap(apperr.IOError, "清空失败，请重试。", err)
 	}
 	for _, c := range list {
+		s.markWorkflowDeleting(c.ID)
+		defer s.unmarkWorkflowDeleting(c.ID)
 		s.cancelTurnAndWait(c.ID)
 	}
 	var firstErr error
@@ -432,6 +434,7 @@ func (s *Service) ClearAllCatConversations(ctx context.Context) error {
 		}
 		// 删除与取消之间若又起了一轮，再停一次。
 		s.cancelTurn(c.ID, "")
+		s.clearWorkflowStorage(ctx, c.ID)
 		if c.ProjectID == "" {
 			s.removeConvDir(c.ID)
 		}

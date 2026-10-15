@@ -135,7 +135,7 @@ func TestSchedulerInterruptedRunMessageNoNotify(t *testing.T) {
 	_ = e.st.UpsertCatScheduleRun(ctx, store.CatScheduleRunRow{ID: "r", ScheduleID: sc.ID, Status: "running", ScheduledFor: 2})
 	e.svc.StartScheduler(ctx)
 	runs, _ := e.svc.ListCatScheduleRuns(ctx, cat.ListScheduleRunsRequest{ScheduleID: sc.ID})
-	if len(runs) != 1 || runs[0].Status != cat.RunFailed || runs[0].Error == nil || runs[0].Error.Message != "FFmpegFree 关了，这次运行没跑完。" {
+	if len(runs) != 1 || runs[0].Status != cat.RunFailed || runs[0].Error == nil || runs[0].Error.Message != "ffc 关了，这次运行没跑完。" {
 		t.Fatalf("%+v", runs)
 	}
 	time.Sleep(30 * time.Millisecond)

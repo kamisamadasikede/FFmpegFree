@@ -19,9 +19,12 @@ type CatConversation struct {
 	// ProjectPath 自 v0.31 作废（6.19.10.1 第 3 条）：不再读写，恒为空，字段只为绑定兼容保留。
 	ProjectPath string `json:"projectPath"`
 	// ProjectID 是所属项目（v0.31）；空 = 不属于任何项目，库里 NULL。创建时写入，之后不可变。
-	ProjectID string `json:"projectId,omitempty"`
-	CreatedAt int64  `json:"createdAt"`
-	UpdatedAt int64  `json:"updatedAt"`
+	ProjectID   string `json:"projectId,omitempty"`
+	CreatedAt   int64  `json:"createdAt"`
+	UpdatedAt   int64  `json:"updatedAt"`
+	CustomTitle string `json:"customTitle,omitempty"`
+	Pinned      bool   `json:"pinned"`
+	Archived    bool   `json:"archived"`
 }
 
 // CatMessage 是契约 6.19.4 的消息行。
@@ -78,11 +81,11 @@ func (s *Store) InsertCatConversation(ctx context.Context, c CatConversation) (C
 	return c, nil
 }
 
-const catConvColumns = `id, title, agent_kind, access_mode, COALESCE(project_id, ''), created_at, updated_at`
+const catConvColumns = `id, title, agent_kind, access_mode, COALESCE(project_id, ''), created_at, updated_at, custom_title, pinned, archived`
 
 func scanCatConversation(r interface{ Scan(...any) error }) (CatConversation, error) {
 	var c CatConversation
-	err := r.Scan(&c.ID, &c.Title, &c.AgentKind, &c.AccessMode, &c.ProjectID, &c.CreatedAt, &c.UpdatedAt)
+	err := r.Scan(&c.ID, &c.Title, &c.AgentKind, &c.AccessMode, &c.ProjectID, &c.CreatedAt, &c.UpdatedAt, &c.CustomTitle, &c.Pinned, &c.Archived)
 	return c, err
 }
 
@@ -97,7 +100,7 @@ func nullIfEmpty(s string) any {
 func (s *Store) ListCatConversations(ctx context.Context) ([]CatConversation, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+catConvColumns+`
-		FROM cat_conversations ORDER BY updated_at DESC, created_at DESC, id DESC`)
+		FROM cat_conversations ORDER BY pinned DESC, updated_at DESC, created_at DESC, id DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("列出 Cat 会话失败: %w", err)
 	}
@@ -155,6 +158,22 @@ func (s *Store) TouchCatConversation(ctx context.Context, convID, title string) 
 		return fmt.Errorf("更新 Cat 会话失败: %w", err)
 	}
 	return nil
+}
+
+// SetCatConversationMetadata changes one field, so concurrent independent actions cannot overwrite each other.
+func (s *Store) SetCatConversationMetadata(ctx context.Context, convID, field string, value any) error {
+	if field != "custom_title" && field != "pinned" && field != "archived" {
+		return fmt.Errorf("invalid conversation metadata field")
+	}
+	r, err := s.db.ExecContext(ctx, `UPDATE cat_conversations SET `+field+` = ? WHERE id = ?`, value, convID)
+	if err != nil {
+		return err
+	}
+	n, err := r.RowsAffected()
+	if err == nil && n == 0 {
+		return sql.ErrNoRows
+	}
+	return err
 }
 
 // InsertCatMessage 追加一条消息，并刷新会话 updated_at。

@@ -203,6 +203,7 @@ const { t } = useI18n()
 
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
+import { catWorkflow } from '@/views/cat/catWorkflow'
 import { mockChanges, mockFiles, type CatTreeNode } from '@/api/catMock'
 import { CAT_PROJECT_COPY as PC } from '@/api/catProjects'
 import { isCatLive } from '@/api/cat'
@@ -230,6 +231,7 @@ import {
 import { catSim, type CatSimFlag } from '@/views/cat/catDevSim'
 import { CAT_MERGE_CONFLICT_SIM_FILES } from '@/api/catBranches'
 import { catState, notify } from '@/views/cat/catState'
+import { railCollapsed } from '@/views/cat/catLayout'
 import { catGitUi, setCatGitUi } from './catGitUi'
 import {
   CAT_CHAT_MIN,
@@ -266,7 +268,7 @@ const live = isCatLive()
 const simGitGraph = !live && ['gitgraph', 'gitgraphempty', 'gitgraphchanged', 'gitgraphloadfail', 'detached'].some((k) => catSim.has(k as CatSimFlag))
 const mergeSimConflict = ref(false)
 const simGitBranches = !live && (catSim.has('gitconflict') || catSim.has('gitbranch') || catSim.has('gitrebase') || catSim.has('gitdone'))
-const gitPanel = ref<{ openBranchMenu?: () => void } | null>(null)
+const gitPanel = ref<{ openBranchMenu?: () => void; showHistory?: (scope: typeof catGitUi.historyScope) => void } | null>(null)
 const openConflictPath = ref('')
 const pane = ref<'files' | 'git' | 'browser' | 'term'>(simGitBranches || simGitGraph ? 'git' : 'files')
 const showFile = computed(() => pane.value === 'files' || pane.value === 'git')
@@ -400,19 +402,23 @@ function onTreeResizeKey(e: KeyboardEvent) {
 }
 
 function onWindowResize() {
-  const { total, side } = pageBox()
+  const { total } = pageBox()
+  // 收起宽度和动画中的临时宽度不能覆盖用户的展开宽度。
+  const side = railCollapsed.value ? 56 : catPane.side
   if (pane.value === 'browser' || pane.value === 'term') {
     extraW.value = clampPaneWidth(extraW.value, total, side + CAT_CHAT_MIN, CAT_EXTRA_MIN, CAT_EXTRA_DEFAULT)
     const next = settleWidths(total, side, catPane.tree, 0, false)
-    catPane.side = next.side
+    if (!railCollapsed.value) catPane.side = next.side
     return
   }
-  const fitted = openRel.value ? fit(previewW.value) : 0
+  const fitted = openRel.value ? clampPreviewWidth(previewW.value, total, side, catPane.tree) : 0
   const next = settleWidths(total, side, catPane.tree, fitted, !!openRel.value)
-  catPane.side = next.side
+  if (!railCollapsed.value) catPane.side = next.side
   catPane.tree = next.tree
   if (openRel.value) previewW.value = next.preview
 }
+
+watch(railCollapsed, () => { void nextTick(onWindowResize) })
 
 function mockGit(id: string): GitStatus {
   const changes = mockChanges(id).map((c) => {
@@ -433,16 +439,17 @@ function mockGit(id: string): GitStatus {
     repo: true,
     branch: 'main',
     upstream: 'main',
-    ahead: changes.length ? 1 : 0,
-    behind: 0,
-    remote: '',
+    ahead: catSim.has('gitgraph') ? 3 : changes.length ? 1 : 0,
+    behind: catSim.has('gitgraph') ? 2 : 0,
+    root: 'D:/Projects/ffc',
+    remote: 'https://github.com/example/ffc.git',
     web: '',
     changes,
     mergeState: 'none',
     conflicts: [],
     detached: catSim.has('detached'),
-    headSha: catSim.has('detached') ? 'abc1234f00dbabe5' : '',
-    headShortSha: catSim.has('detached') ? 'abc1234' : '',
+    headSha: catSim.has('detached') ? 'abc1234f00dbabe5' : '59b2c16' + '0'.repeat(33),
+    headShortSha: catSim.has('detached') ? 'abc1234' : '59b2c16',
   }
   if (catSim.has('detached')) base.branch = ''
   if (!catSim.has('gitconflict') && !catSim.has('gitrebase') && !catSim.has('gitdone') && !mergeSimConflict.value) return base
@@ -702,6 +709,18 @@ async function loadGit() {
   }
 }
 
+function refreshGitOnFocus() {
+  if (document.visibilityState === 'visible' && live && !gitLoading.value) void loadGit()
+}
+let gitRefreshTimer: ReturnType<typeof setInterval> | undefined
+watch(() => catGitUi.historyNav, async () => {
+  const scope = catGitUi.historyScope
+  pane.value = 'git'
+  await nextTick()
+  gitPanel.value?.showHistory?.(scope)
+})
+watch(pane, (v) => { if (v === 'git') void loadGit() })
+
 // v0.50 合并：出冲突 → 切到 Git 页（现有冲突解决 UI）并刷新；成功 → 只刷新
 watch(() => catGitUi.conflictNav, () => { pane.value = 'git'; mergeSimConflict.value = !live && catSim.has('mergeconflict'); refresh() })
 watch(() => catGitUi.gitRefresh, () => refresh())
@@ -721,6 +740,13 @@ async function openFolder() {
     else notify(text, 'warn')
   }
 }
+
+watch(() => catWorkflow.opens[props.convId]?.serial, () => {
+  const request = catWorkflow.opens[props.convId]
+  if (!request) return
+  pane.value = 'files'
+  wantFile(request.relPath, request.name)
+}, { immediate: true })
 
 function wantFile(rel: string, name: string, pick: number | string = rel, diff = false) {
   const gate = previewEl.value?.requestClose
@@ -798,12 +824,18 @@ function onAddDoc(e: PointerEvent) {
 }
 
 onMounted(() => {
+  window.addEventListener('focus', refreshGitOnFocus)
+  document.addEventListener('visibilitychange', refreshGitOnFocus)
+  gitRefreshTimer = setInterval(refreshGitOnFocus, 20000)
   paintFiles()
   window.addEventListener('resize', onWindowResize)
   window.addEventListener('pointerdown', onAddDoc)
   onWindowResize()
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('focus', refreshGitOnFocus)
+  document.removeEventListener('visibilitychange', refreshGitOnFocus)
+  clearInterval(gitRefreshTimer)
   window.removeEventListener('resize', onWindowResize)
   window.removeEventListener('pointerdown', onAddDoc)
   window.clearTimeout(searchTimer)

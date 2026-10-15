@@ -61,6 +61,15 @@ export const useOfficeCanvasStore = defineStore('officeCanvas', () => {
   /** 当前对话是否出现演示文稿能力（有 artifact 或走查） */
   const slidesNeeded = ref(false)
   const artifact = ref<OfficeArtifact | null>(null)
+  const artifactsByConv = new Map<string, OfficeArtifact>()
+  const selectedConv = ref('')
+  function selectConversation(convId: string) {
+    if (artifact.value) artifactsByConv.set(artifact.value.convId, artifact.value)
+    selectedConv.value = convId
+    artifact.value = artifactsByConv.get(convId) || null
+    slidesNeeded.value = !!artifact.value
+    exportOk.value = ''
+  }
   const exportBusy = ref(false)
   const exportOk = ref('')
   let offStatus: (() => void) | undefined
@@ -174,6 +183,8 @@ export const useOfficeCanvasStore = defineStore('officeCanvas', () => {
     }
     if (!offArt) {
       offArt = watchOfficeArtifact((a) => {
+        artifactsByConv.set(a.convId, a)
+        if (selectedConv.value && selectedConv.value !== a.convId) return
         artifact.value = a
         slidesNeeded.value = true
         if (later.value && status.value.state !== 'ready') {
@@ -314,6 +325,7 @@ export const useOfficeCanvasStore = defineStore('officeCanvas', () => {
     exportPptx,
     openFolder,
     setMockDeck,
+    selectConversation,
     copy: C,
   }
 })

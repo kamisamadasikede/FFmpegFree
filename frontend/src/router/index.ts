@@ -3,6 +3,7 @@ import { routeNeedsFFmpeg } from '@/layout/navigation'
 import { useFFmpegStore } from '@/stores/ffmpeg'
 import { CAT_UI_ENABLED, LOGIN_UI_ENABLED } from '@/api/flags'
 import { rememberCatReturn } from '@/views/cat/catReturn'
+import { AGENT_NAME } from '@/config/brand'
 
 const SectionTabs = () => import('../views/sections/SectionTabs.vue')
 import LiveLayout from '../views/live/LiveLayout.vue'
@@ -21,7 +22,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/cat',
     name: 'Cat',
-    meta: { title: 'Cat', layout: 'cat' },
+    meta: { title: AGENT_NAME, layout: 'cat' },
     component: () => import('../views/cat/CatPage.vue'),
     beforeEnter: (_to, from) => {
       if (!CAT_UI_ENABLED) return { path: '/', replace: true }

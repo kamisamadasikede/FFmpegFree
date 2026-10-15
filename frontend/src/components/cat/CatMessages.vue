@@ -22,6 +22,7 @@
               </button>
             </div>
             <div v-if="shownText(row.block)" class="ct-user" :data-cat-user="row.key">{{ shownText(row.block) }}</div>
+            <CatMessageCopy v-if="shownText(row.block)" :text="shownText(row.block)" testid="cat-user-copy" />
           </div>
         </div>
         <div v-else-if="row.block.kind === 'status'" class="ct-act think" role="status" data-testid="cat-retry-status">
@@ -37,7 +38,7 @@
           <li v-for="(it, j) in row.block.items" :key="j"><InlineText :text="it" /></li>
         </ul>
         <div v-else-if="row.block.kind === 'code'" class="ct-code">
-          <div class="bar"><span>{{ row.block.lang }}</span><FIcon name="copy" :size="14" /></div>
+          <div class="bar"><span>{{ row.block.lang }}</span><CatMessageCopy :text="row.block.parts.map((part) => part[0]).join('')" testid="cat-code-copy" /></div>
           <pre><template v-for="(seg, j) in row.block.parts" :key="j"><span v-if="seg[1]" class="kw">{{ seg[0] }}</span><template v-else>{{ seg[0] }}</template></template></pre>
           <div v-if="row.block.more" class="more">{{ row.block.more }}</div>
         </div>
@@ -47,7 +48,11 @@
             :class="{ streaming: row.block.streaming, calm: reduced }"
             :aria-busy="row.block.streaming"
           ><CatMarkdown :id="row.block.id" :text="row.block.text" :streaming="row.block.streaming" :reveal="row.block.reveal" @settled="row.block.reveal = false" /></div>
-          <CatMsgFooter v-if="footerFields(row.block)" :fields="footerFields(row.block)!" :force-tip="simTip" />
+          <div v-if="!row.block.streaming && row.block.text.trim()" class="ct-response-actions">
+            <CatMsgFooter v-if="footerFields(row.block)" :fields="footerFields(row.block)!" :force-tip="simTip" />
+            <CatMessageCopy :text="row.block.text" testid="cat-assistant-copy" />
+          </div>
+          <CatTurnSummary v-if="changeFor(row.block)" :change="changeFor(row.block)!" />
         </template>
         <div v-else-if="row.block.kind === 'sys' && (row.block.outdated || row.block.providerErr)" class="ct-sys err ct-outdated" role="status" :data-testid="row.block.outdated ? 'cat-cli-outdated' : 'cat-provider-err'">
           <div class="ct-od-line">
@@ -108,11 +113,12 @@
       <div class="ct-fold static">
         <span class="car" aria-hidden="true" />
         <i class="ct-spin" aria-hidden="true" />
-        <span class="sum">正在思考…</span>
+        <span class="sum">{{ t('cat.chatUX.thinking') }}</span>
       </div>
     </div>
     <CatPreviewDialog v-model:open="previewOn" :file="previewFile" />
   </div>
+    <template v-for="change in unattachedChanges" :key="change.turnId"><CatTurnSummary :change="change" timestamp /></template>
 </template>
 
 <script setup lang="ts">
@@ -130,6 +136,7 @@ import { prefersReducedMotion } from '@/api/catStream'
 import { diffLineKind, foldBodyMono, foldIcon, presentCatBlocks, type CatFold } from './catActivity'
 import type { CatMessageFooterFields } from './catMessageFooter'
 import CatMsgFooter from './CatMsgFooter.vue'
+import CatMessageCopy from './CatMessageCopy.vue'
 import { catSim } from '@/views/cat/catDevSim'
 import { canPreview, showsThumb, userDisplayText, type CatShownFile } from './catMedia'
 import { CAT_CLI_OUTDATED_COPY } from './catCliOutdated'
@@ -138,7 +145,11 @@ import { CAT_COPY } from '@/api/cat'
 import CatRawDetail from './CatRawDetail.vue'
 
 /** retry：v0.44.5 最后一轮失败的「重试」状态（can = 显示按钮；gone = 原地灰字；空 = 都不显示） */
-const props = defineProps<{ blocks: CatBlock[]; pending?: boolean; retry?: 'can' | 'gone' }>()
+import CatTurnSummary from './CatTurnSummary.vue'
+import { catWorkflow } from '@/views/cat/catWorkflow'
+import { openWorkspaceFile, type TurnChanges } from '@/api/catWorkflow'
+import { hasWailsBackend } from '@/services/wails'
+const props = defineProps<{ convId?: string; blocks: CatBlock[]; pending?: boolean; retry?: 'can' | 'gone' }>()
 const emit = defineEmits<{ retry: [] }>()
 /** 「查看详情」默认收起 */
 const rawOpen = ref<Record<string, boolean>>({})
@@ -165,7 +176,10 @@ function footerFields(block: Extract<CatBlock, { kind: 'a' }>): CatMessageFooter
 /** 走查截图：?cat_sim=footertip 常显悬停提示 */
 const simTip = import.meta.env.DEV && catSim.has('footertip')
 
-function openFile(file: CatShownFile) {
+async function openFile(file: CatShownFile) {
+  if (props.convId && file.path && hasWailsBackend()) {
+    try { await openWorkspaceFile(props.convId, file.path); return } catch { /* external attachments use the attachment viewer */ }
+  }
   if (!canPreview(file.kind)) return
   previewFile.value = file
   previewOn.value = true
@@ -173,6 +187,12 @@ function openFile(file: CatShownFile) {
 
 /** 减少动效：流式文字直接追加，不显示闪烁光标（也不做打字机效果） */
 const reduced = prefersReducedMotion()
+const changes = computed(() => catWorkflow.changes[props.convId || ''] || [])
+function changeFor(block: CatBlock): TurnChanges | undefined {
+  if (block.kind !== 'a') return
+  return changes.value.find(c => c.messageId === block.id || (!!c.finishedAt && c.finishedAt === block.finishedAt))
+}
+const unattachedChanges = computed(() => changes.value.filter(c => c.fileCount > 0 && !props.blocks.some(b => changeFor(b)?.turnId === c.turnId)))
 const rows = computed(() => presentCatBlocks(props.blocks))
 /** 只挂在最后一行、且是失败行（6.19.18.7 第 6 条：只能重试最后一轮） */
 const lastErrKey = computed(() => {
@@ -217,6 +237,8 @@ const InlineText = defineComponent({
 .ct-a {
   min-width: 0;
 }
+.ct-response-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; }
+.ct-response-actions :deep(.cmf) { min-width: 0; flex: 0 1 auto; max-width: 100%; }
 /* 消息尾：气泡下 12px 灰字；200ms 淡入（减少动效则直接显示） */
 .ct-meta {
   margin: 2px 0 2px;

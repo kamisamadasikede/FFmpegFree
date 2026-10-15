@@ -110,6 +110,9 @@ export interface CatThinkLevel {
 }
 
 export interface CatConversation {
+  customTitle?: string
+  pinned?: boolean
+  archived?: boolean
   id: string
   title: string
   /** 创建后不可变；v0.36：cat_build|claude_cli|codex_cli */
@@ -253,7 +256,7 @@ export function mapCatStatus(raw: unknown): CatStatus {
 }
 
 const KINDS: CatAgentKind[] = [CAT_AGENT_BUILD, 'claude_cli', 'codex_cli', 'cat_cli', 'cat_code', 'cat_agent']
-function mapConv(raw: { id?: string; title?: string; agentKind?: string; projectId?: string; createdAt?: number; updatedAt?: number }): CatConversation {
+function mapConv(raw: { id?: string; title?: string; agentKind?: string; projectId?: string; createdAt?: number; updatedAt?: number; customTitle?: string; pinned?: boolean; archived?: boolean }): CatConversation {
   return {
     id: String(raw.id ?? ''),
     title: raw.title?.trim() || t('cat.misc.s_1ac07a4bb2'),
@@ -262,6 +265,7 @@ function mapConv(raw: { id?: string; title?: string; agentKind?: string; project
     projectId: raw.projectId || undefined,
     createdAt: Number(raw.createdAt) || 0,
     updatedAt: Number(raw.updatedAt) || 0,
+    customTitle: raw.customTitle, pinned: raw.pinned === true, archived: raw.archived === true,
   }
 }
 

@@ -322,7 +322,7 @@ func (r *Registry) TryConvert(ctx context.Context, src, target, in, out, work, o
 		if apperr.Is(cerr, apperr.DocTimeout) || isStartFail(cerr) {
 			r.skips.RecordFailure(c.ID, fam)
 			if logf != nil {
-				logf("[FFmpegFree] 文档引擎：%s 失败，改用下一个\n", c.Name)
+				logf("[ffc] 文档引擎：%s 失败，改用下一个\n", c.Name)
 			}
 			r.emitStatus()
 		}

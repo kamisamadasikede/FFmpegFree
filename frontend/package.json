@@ -11,7 +11,8 @@
     "check:api": "node scripts/check-api.mjs && node scripts/check-i18n.mjs",
     "check:ffmpeg": "node scripts/check-ffmpeg.mjs",
     "check:copy": "node scripts/check-copy-words.mjs",
-    "check:i18n": "node scripts/check-i18n.mjs"
+    "check:i18n": "node scripts/check-i18n.mjs",
+    "check:agent": "node scripts/check-agent.mjs"
   },
   "dependencies": {
     "@docx-editor.dev/core": "^2.27.0",

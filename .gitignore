@@ -1,7 +1,14 @@
 node_modules
 frontend/dist
-build
+build/*
+!build/appicon.png
+!build/windows/
+build/windows/*
+!build/windows/icon.ico
+!build/windows/info.json
+!build/windows/wails.exe.manifest
 app.exe
 FFmpegFree.zip
+ffc.zip
 FFmpegFree/
 .gocache/

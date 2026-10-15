@@ -57,6 +57,9 @@ type GitConflictEntry struct {
 
 // GitStatusResult 是当前对话文件夹的 git 状态。不是仓库时 Repo 为 false，不算错误。
 type GitStatusResult struct {
+	Root       string             `json:"root"`
+	RemoteName string             `json:"remoteName"`
+	FetchedAt  int64              `json:"fetchedAt,omitempty"`
 	Repo       bool               `json:"repo"`
 	Branch     string             `json:"branch"`
 	Upstream   string             `json:"upstream"`
@@ -127,6 +130,7 @@ type GitBranchRequest struct {
 type GitDiffRequest struct {
 	ConvID  string `json:"convId"`
 	RelPath string `json:"relPath"`
+	Scope   string `json:"scope,omitempty"` // staged | worktree; 空值保持 HEAD 对比
 }
 
 // GitDiffResult 是这个文件和上一版提交的行对比。Binary 为真时 Text 为空。
@@ -296,7 +300,10 @@ func (s *Service) GitCatUnstage(ctx context.Context, req GitPathsRequest) error 
 	if len(rels) == 0 {
 		return apperr.New(apperr.InvalidArgument, "请选择文件。")
 	}
-	args := []string{"restore", "--staged", "--"}
+	args := []string{"--literal-pathspecs", "restore", "--staged", "--"}
+	if _, _, err := runGit(ctx, gitStatusTimeout, lay.top, "rev-parse", "--verify", "-q", "HEAD"); err != nil {
+		args = []string{"--literal-pathspecs", "rm", "-f", "--cached", "--ignore-unmatch", "--"}
+	}
 	for _, rel := range rels {
 		args = append(args, toGitPath(lay.prefix, rel))
 	}
@@ -401,21 +408,24 @@ func (s *Service) GitCatRemote(ctx context.Context, req GitRemoteRequest) error 
 	}
 	switch op {
 	case "fetch":
-		return s.runGitOp(ctx, lay, "fetch")
+		return s.runGitOp(ctx, lay, "fetch", "--all", "--prune")
 	case "publish":
-		return s.runGitOp(ctx, lay, "push", "-u", "origin", "HEAD")
+		if st.RemoteName == "" {
+			return apperr.New(apperr.InvalidArgument, "请先添加远程仓库。")
+		}
+		return s.runGitOp(ctx, lay, "push", "-u", st.RemoteName, "HEAD")
 	case "push":
 		return s.runGitOp(ctx, lay, "push")
 	case "force":
 		return s.runGitOp(ctx, lay, "push", "--force-with-lease")
 	case "pull":
-		return s.runGitOpConflict(ctx, lay, "pull")
+		return s.runGitOpConflict(ctx, lay, "pull", "--no-rebase")
 	case "ff":
 		return s.runGitOp(ctx, lay, "pull", "--ff-only")
 	case "rebase":
 		return s.runGitOpConflict(ctx, lay, "pull", "--rebase")
 	case "sync":
-		if err := s.runGitOpConflict(ctx, lay, "pull"); err != nil {
+		if err := s.runGitOpConflict(ctx, lay, "pull", "--no-rebase"); err != nil {
 			return err
 		}
 		return s.runGitOp(ctx, lay, "push")
@@ -451,9 +461,6 @@ func (s *Service) GitCatConflictResolve(ctx context.Context, req GitCatConflictR
 	if err != nil {
 		return err
 	}
-	if detectMergeState(ctx, lay.top) == "none" {
-		return errGitConflict("当前没有进行中的合并。")
-	}
 	rel, err := cleanRel(lay.conv, req.Path)
 	if err != nil {
 		return err
@@ -461,6 +468,9 @@ func (s *Service) GitCatConflictResolve(ctx context.Context, req GitCatConflictR
 	conflicts, err := listConflicts(ctx, lay)
 	if err != nil {
 		return err
+	}
+	if len(conflicts) == 0 && detectMergeState(ctx, lay.top) == "none" {
+		return errGitConflict("当前没有进行中的合并。")
 	}
 	var hit *GitConflictEntry
 	for i := range conflicts {
@@ -565,8 +575,12 @@ func (s *Service) GitCatConflictComplete(ctx context.Context, req GitCatConflict
 			return asGitErr(err, stderr, "")
 		}
 		return nil
-	case "cherry":
-		_, stderr, err := runGit(ctx, gitCommitTimeout, lay.top, "cherry-pick", "--continue")
+	case "cherry", "reverting":
+		op := "cherry-pick"
+		if state == "reverting" {
+			op = "revert"
+		}
+		_, stderr, err := runGit(ctx, gitCommitTimeout, lay.top, op, "--continue")
 		if err != nil {
 			if gitNotRepo(stderr, err) {
 				return errNotRepo()
@@ -597,6 +611,8 @@ func (s *Service) GitCatConflictAbort(ctx context.Context, req GitCatConflictAbo
 		args = []string{"rebase", "--abort"}
 	case "cherry":
 		args = []string{"cherry-pick", "--abort"}
+	case "reverting":
+		args = []string{"revert", "--abort"}
 	default:
 		return errGitConflict("当前没有进行中的合并。")
 	}
@@ -664,6 +680,9 @@ func (s *Service) runGitOpConflict(ctx context.Context, lay gitLayout, args ...s
 		if detectMergeState(ctx, lay.top) != "none" {
 			return errGitConflict("有冲突需要解决。")
 		}
+		if conflicts, _ := listConflicts(ctx, lay); len(conflicts) > 0 {
+			return errGitConflict("有冲突需要解决，原储藏已保留。")
+		}
 		return asGitErr(err, stderr, "")
 	}
 	return nil
@@ -698,10 +717,18 @@ func (s *Service) GitCatDiff(ctx context.Context, req GitDiffRequest) (GitDiffRe
 		return GitDiffResult{}, err
 	}
 	gitPath := toGitPath(lay.prefix, rel)
-	out, stderr, err := runGit(ctx, gitDiffTimeout, lay.top,
-		"--literal-pathspecs", "--no-pager",
-		"diff", "--no-color", "--no-ext-diff", "--no-textconv", "--unified=3", "-M", "HEAD", "--", gitPath,
-	)
+	args := []string{"--literal-pathspecs", "--no-pager", "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--unified=3", "-M"}
+	switch req.Scope {
+	case "":
+		args = append(args, "HEAD")
+	case "staged":
+		args = append(args, "--cached")
+	case "worktree":
+	default:
+		return GitDiffResult{}, apperr.New(apperr.InvalidArgument, "不认识这个对比范围。")
+	}
+	args = append(args, "--", gitPath)
+	out, stderr, err := runGit(ctx, gitDiffTimeout, lay.top, args...)
 	if err != nil {
 		if gitNotRepo(stderr, err) {
 			return GitDiffResult{}, errNotRepo()
@@ -716,7 +743,14 @@ func (s *Service) GitCatDiff(ctx context.Context, req GitDiffRequest) (GitDiffRe
 	if binary {
 		return GitDiffResult{Path: rel, Binary: true}, nil
 	}
-	if strings.TrimSpace(text) == "" {
+	if strings.TrimSpace(text) == "" && req.Scope != "staged" {
+		if req.Scope == "worktree" {
+			tracked, _, trackErr := runGit(ctx, gitStatusTimeout, lay.top, "--literal-pathspecs", "ls-files", "--", gitPath)
+			if trackErr != nil || len(bytes.TrimSpace(tracked)) > 0 {
+				return GitDiffResult{Path: rel, Text: text}, trackErr
+			}
+			return readNewDiff(lay.conv, rel)
+		}
 		// git diff 不列出未跟踪文件。上一版里没有它时，按磁盘内容显示成新增。
 		has, herr := headHasBlob(ctx, lay.top, gitPath)
 		if herr != nil {
@@ -781,7 +815,27 @@ func (s *Service) statusIn(ctx context.Context, lay gitLayout) (GitStatusResult,
 		cur[1] += n[1]
 		counts[path] = cur
 	}
-	remoteOut, _, remoteErr := runGit(ctx, gitStatusTimeout, lay.top, "remote", "get-url", "origin")
+	remoteName := ""
+	if branch != "" && branch != "HEAD" {
+		if b, _, err := runGit(ctx, gitStatusTimeout, lay.top, "config", "--get", "branch."+branch+".remote"); err == nil {
+			remoteName = strings.TrimSpace(string(b))
+		}
+	}
+	if remoteName == "" || remoteName == "." {
+		remoteName = ""
+		if b, _, err := runGit(ctx, gitStatusTimeout, lay.top, "remote"); err == nil {
+			for _, name := range strings.Fields(string(b)) {
+				if remoteName == "" {
+					remoteName = name
+				}
+				if name == "origin" {
+					remoteName = name
+					break
+				}
+			}
+		}
+	}
+	remoteOut, _, remoteErr := runGit(ctx, gitStatusTimeout, lay.top, "remote", "get-url", remoteName)
 	remote := ""
 	if remoteErr == nil {
 		remote = strings.TrimSpace(string(remoteOut))
@@ -811,23 +865,35 @@ func (s *Service) statusIn(ctx context.Context, lay gitLayout) (GitStatusResult,
 		return strings.ToLower(changes[i].Path) < strings.ToLower(changes[j].Path)
 	})
 	mergeState := detectMergeState(ctx, lay.top)
-	conflicts := []GitConflictEntry{}
-	if mergeState != "none" {
-		var cerr error
-		conflicts, cerr = listConflicts(ctx, lay)
-		if cerr != nil {
-			return GitStatusResult{}, cerr
-		}
+	conflicts, cerr := listConflicts(ctx, lay)
+	if cerr != nil {
+		return GitStatusResult{}, cerr
 	}
 	if conflicts == nil {
 		conflicts = []GitConflictEntry{}
 	}
 	res := GitStatusResult{
+		Root: lay.top, RemoteName: remoteName,
 		Repo: true, Branch: branch, Upstream: upstream, Ahead: ahead, Behind: behind,
 		Remote: remote, Web: web, Changes: changes,
 		MergeState: mergeState, Conflicts: conflicts,
 	}
 	fillHeadInfo(ctx, lay.top, &res)
+	if b, _, err := runGit(ctx, gitStatusTimeout, lay.top, "rev-parse", "--git-path", "FETCH_HEAD"); err == nil {
+		p := strings.TrimSpace(string(b))
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(lay.top, p)
+		}
+		if fi, err := os.Stat(p); err == nil {
+			res.FetchedAt = fi.ModTime().Unix()
+		}
+	}
+	if res.Upstream == "" && !res.Detached && res.HeadSha != "" {
+		// 未发布分支：显示尚未出现在任一远程跟踪分支中的提交。
+		if b, _, err := runGit(ctx, gitStatusTimeout, lay.top, "rev-list", "--count", "HEAD", "--not", "--remotes"); err == nil {
+			res.Ahead, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+		}
+	}
 	return res, nil
 }
 
@@ -842,7 +908,13 @@ func findGitLayout(ctx context.Context, convRoot string) (gitLayout, bool, error
 	top := filepath.Clean(strings.TrimSpace(string(out)))
 	prefix, ok := relUnder(top, convRoot)
 	if !ok {
-		return gitLayout{}, false, nil
+		// Windows 的 8.3 父目录与 Git 返回的长路径可能无法直接 Rel。
+		// 用 Git 的真实工作目录前缀，并验证目录身份，保留子目录边界。
+		b, _, e := runGit(ctx, gitStatusTimeout, convRoot, "rev-parse", "--show-prefix")
+		prefix = strings.TrimSuffix(strings.TrimSpace(string(b)), "/")
+		if e != nil || prefix == "" || prefix == ".." || strings.HasPrefix(prefix, "../") || filepath.IsAbs(prefix) || !eqPath(filepath.Join(top, filepath.FromSlash(prefix)), convRoot) {
+			return gitLayout{}, false, nil
+		}
 	}
 	return gitLayout{conv: filepath.Clean(convRoot), top: top, prefix: prefix}, true, nil
 }
@@ -1434,6 +1506,9 @@ func detectMergeState(ctx context.Context, top string) string {
 	}
 	if gitPathExists(ctx, top, "CHERRY_PICK_HEAD") {
 		return "cherry"
+	}
+	if gitPathExists(ctx, top, "REVERT_HEAD") {
+		return "reverting"
 	}
 	return "none"
 }

@@ -93,7 +93,7 @@ func (o ProviderOverlay) ExtraArgs() []string {
 	p := "model_providers." + CodexProviderID + "."
 	return []string{
 		"-c", `model_provider="` + CodexProviderID + `"`,
-		"-c", p + `name="FFmpegFree"`,
+		"-c", p + `name="ffc"`,
 		"-c", p + "base_url=" + strconv.Quote(u),
 		"-c", p + `env_key="` + CodexProviderKeyEnv + `"`,
 		"-c", p + `wire_api="responses"`,

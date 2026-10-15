@@ -72,7 +72,7 @@ const title = computed(() => store.deck?.title || C.toolLabel)
     </div>
 
     <div class="canvas-ft">
-      <span class="meta">{{ slides.length }} 页 · 路线 A 声明式 IR</span>
+      <span class="meta">{{ t('cat.misc.s_ff655a5c10', { n: slides.length }) }}</span>
       <span class="sp" />
       <span v-if="store.exportOk" class="st ok" data-testid="cat-office-export-ok">
         <FIcon name="check" :size="14" />已导出 {{ store.exportOk }}

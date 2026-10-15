@@ -110,10 +110,23 @@
         :placeholder="missing ? '' : placeholderText"
         :disabled="missing"
         :aria-label="t('cat.misc.s_f363e2c02f')"
-        @input="autosize"
-        @keydown.enter="onEnter"
+        @input="onDraftInput"
+        @click="updateTrigger"
+        @keyup="updateTrigger"
+        @keydown="onDraftKey"
+        :aria-expanded="!!suggestion"
+        :aria-controls="suggestion ? suggestionId : undefined"
+        :aria-activedescendant="suggestion && suggestionRows.length ? suggestionId + '-' + suggestionIndex : undefined"
       />
+      <div v-if="suggestion" :id="suggestionId" class="draft-suggestions" role="listbox" :aria-label="t(suggestion.kind === 'file' ? 'cat.workspace.files' : 'cat.workspace.commands')" data-testid="cat-draft-suggestions">
+        <div class="suggest-hd"><span>{{ t(suggestion.kind === 'file' ? 'cat.workspace.files' : 'cat.workspace.commands') }}</span><span>{{ t('cat.workspace.keys') }}</span></div>
+        <div v-if="fileLoading" class="suggest-empty" role="status">{{ t('cat.workspace.loading') }}</div>
+        <button v-for="(item, i) in suggestionRows" :id="suggestionId + '-' + i" :key="item.id" type="button" role="option" :aria-selected="i === suggestionIndex" :class="{on: i === suggestionIndex}" data-testid="cat-draft-option" @mousedown.prevent @click="pickSuggestion(i)"><FIcon :name="suggestion.kind === 'file' ? 'file' : 'spark'" :size="14" /><b>{{ item.name }}</b><span>{{ item.description }}</span></button>
+        <div v-if="!fileLoading && !suggestionRows.length" class="suggest-empty">{{ fileError || t('cat.workspace.noMatches') }}</div>
+        <div v-if="filesTruncated" class="suggest-empty">{{ t('cat.workspace.refine') }}</div>
+      </div>
       <div class="row">
+        <button type="button" class="ct-plus" :title="t('cat.workspace.title')" :aria-label="t('cat.workspace.title')" data-testid="cat-composer-library" @click="openWorkspace('prompts', currentProject?.id ?? '')"><FIcon name="spark" :size="15" /></button>
         <button type="button" class="ct-plus" :title="t('cat.misc.s_b58c7549c0')" :aria-label="t('cat.misc.s_b58c7549c0')" :disabled="missing" data-testid="cat-attach-add" @click="addFiles"><FIcon name="plus" :size="15" :stroke="2" /></button>
         <button
           v-if="extraFiles.length"
@@ -179,17 +192,16 @@
           @click="onStop"
         ><i class="sq" aria-hidden="true" /></button>
         <button
-          v-else
           type="button"
           class="ct-send"
           :class="{ blocked: notReady || checking || missing }"
-          :aria-label="t('cat.misc.s_1535fcfa4c')"
+          :aria-label="t(running ? 'cat.workflow.enqueue' : 'cat.misc.s_1535fcfa4c')"
           :aria-disabled="!canSend"
           :disabled="notReady || checking || missing"
-          :title="missing ? PC.missing : notReady ? CAT_COPY.notReady : undefined"
+          :title="missing ? PC.missing : notReady ? CAT_COPY.notReady : running ? t('cat.workflow.enqueueHelp') : undefined"
           data-testid="cat-send"
           @click="send"
-        ><FIcon name="up" :size="15" /></button>
+        ><FIcon :name="running ? 'plus' : 'up'" :size="15" /></button>
       </div>
 
       <div v-if="menu" class="mn" :style="menuStyle" @click.stop>
@@ -217,7 +229,7 @@
           </div>
           <div v-if="confirmId" class="mn-confirm" role="alertdialog" aria-labelledby="cat-danger-t" data-testid="cat-danger-confirm" @click.stop>
             <b id="cat-danger-t"><svg class="tri" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1.2 11.2 10.5H.8Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" /><path d="M6 4.6v2.6M6 8.7v.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>全部放开？</b>
-            <p>Cat 助手将不经检查执行命令和修改文件，仅建议在隔离环境使用。</p>
+            <p>Agent 助手将不经检查执行命令和修改文件，仅建议在隔离环境使用。</p>
             <div class="bt">
               <button type="button" class="cf-cancel" data-testid="cat-danger-cancel" @click="confirmId = ''">取消</button>
               <button type="button" class="cf-danger" data-testid="cat-danger-ok" @click="confirmDanger">全部放开</button>
@@ -288,7 +300,7 @@
               </template>
             </div>
           </template>
-          <div v-else class="mn-hd">模型 · Cat 助手</div>
+          <div v-else class="mn-hd">模型 · Agent 助手</div>
           <template v-if="currentCaps.efforts.options.length">
             <div class="mn-sep" role="separator" />
             <div class="mn-hd">思考强度</div>
@@ -331,6 +343,11 @@
 </template>
 
 <script setup lang="ts">
+import { draftTrigger, draftCommands, filterCommands, type DraftCommand, type DraftTrigger } from '@/views/cat/catCommands'
+import { workspaceUI, openWorkspace, loadPromptLibrary, exportChat } from '@/views/cat/catWorkspace'
+import { searchContextFiles, type ContextFile } from '@/api/catWorkspace'
+import { catPanels } from '@/views/cat/catPanels'
+import { startNewConv, NEW_CONV } from '@/views/cat/catState'
 import { useI18n } from 'vue-i18n'
 import { t as tGlobal } from '@/i18n'
 const { t } = useI18n()
@@ -360,6 +377,7 @@ import { toAppError } from '@/api/call'
 import { CAT_ATTACH_MAX, fileBaseName, splitAttach, type CatOutgoingFile } from '@/components/cat/catAttach'
 import { canPreview, previewKind, showsThumb, type CatPreviewKind, type CatShownFile } from '@/components/cat/catMedia'
 import CatThumb from '@/components/cat/CatThumb.vue'
+import { catDraftFor, catDraftKey } from '@/views/cat/catDrafts'
 import CatPreviewDialog from '@/components/cat/CatPreviewDialog.vue'
 import { accessMeta, capsuleLabel, catState, chooseAccess, currentAgentKind, currentCaps, currentProject, chooseModel, chooseThink, customProviderOn, refreshModelsIfStale, THINK_DEFAULT_LABEL } from '@/views/cat/catState'
 import { CAT_PROVIDER_MODELS_COPY as PM, normalizeManualModelId, providerModelHint, providerModelHintTone, providerModelNeedsManual } from '@/api/catProviderModels'
@@ -369,12 +387,12 @@ import { CAT_PROVIDER_MODELS_COPY as PM, normalizeManualModelId, providerModelHi
  * 合一胶囊只显示 List API 有的模型/强度（无强度不显示「·」半截）。
  */
 const props = withDefaults(
-  defineProps<{ welcome?: boolean; placeholder?: string; ctxName?: string; ctxBranch?: string; busy?: boolean; running?: boolean; stopping?: boolean; notReady?: boolean; checking?: boolean; missing?: boolean; projectName?: string; convId?: string; isProject?: boolean }>(),
+  defineProps<{ welcome?: boolean; placeholder?: string; ctxName?: string; ctxBranch?: string; busy?: boolean; running?: boolean; stopping?: boolean; notReady?: boolean; checking?: boolean; missing?: boolean; projectName?: string; convId?: string; draftKey?: string; isProject?: boolean }>(),
   {
     welcome: false,
     /** 空 = 用 computed placeholderText 回落到 i18n（defineProps 默认值不能引用 t） */
     placeholder: '',
-    ctxName: 'Cat',
+    ctxName: 'Agent',
     ctxBranch: 'main',
     busy: false,
     running: false,
@@ -388,6 +406,7 @@ const props = withDefaults(
     projectName: '',
     /** v0.49 底栏：当前对话 id；空 = 欢迎页，不读文件夹 / 分支 */
     convId: '',
+    draftKey: '',
     isProject: false,
   },
 )
@@ -395,7 +414,7 @@ const props = withDefaults(
 const placeholderText = computed(() => props.placeholder || t('cat.misc.s_d52a943d7f'))
 let missSeq = 0
 const missId = `ct-miss-${++missSeq}-${Math.random().toString(36).slice(2, 7)}`
-const emit = defineEmits<{ send: [payload: { text: string; files: CatOutgoingFile[]; own: string; notes: PickNote[] }]; stop: []; blocked: [] }>()
+const emit = defineEmits<{ send: [payload: { text: string; files: CatOutgoingFile[]; own: string; notes: PickNote[]; draftKey: string }]; stop: []; blocked: []; search: [] }>()
 
 // ---- v0.49 底栏：文件夹路径 / 远程分支 / 本地分支切换（契约 6.19.24） ----
 const br = ref<CatBranches>(mapCatBranches(null))
@@ -507,13 +526,17 @@ function onStop() {
   emit('stop')
 }
 
-const draft = ref('')
+const draftSlot = computed(() => catDraftFor(props.draftKey || catDraftKey(props.convId)))
+const draft = computed({ get: () => draftSlot.value.text, set: (text: string) => { draftSlot.value.text = text } })
 interface DraftFile extends CatOutgoingFile {
   id: number
   kind: CatPreviewKind
 }
 let fileSeq = 0
-const atts = ref<DraftFile[]>([])
+const atts = computed<DraftFile[]>({
+  get: () => draftSlot.value.files.map((f, id) => ({ ...f, id, kind: previewKind(f.name || f.path) })),
+  set: (files) => { draftSlot.value.files = files.map(({ name, path }) => ({ name, path })) },
+})
 const extraOpen = ref(false)
 const shownFiles = computed(() => splitAttach(atts.value).shown)
 const extraFiles = computed(() => splitAttach(atts.value).extra)
@@ -522,8 +545,18 @@ interface ShownPick extends PickNote {
   label: string
 }
 let pickSeq = 0
-const picks = ref<ShownPick[]>([])
-const canSend = computed(() => (!!draft.value.trim() || atts.value.length > 0 || picks.value.length > 0) && !props.busy && !props.running && !props.notReady && !props.checking && !props.missing)
+const picks = computed<ShownPick[]>({
+  get: () => draftSlot.value.notes.map((n, nid) => ({ ...n, nid, label: pickLabel(n) })),
+  set: (notes) => { draftSlot.value.notes = notes.map(({ nid: _nid, label: _label, ...n }) => n) },
+})
+watch(draftSlot, () => {
+  extraOpen.value = false
+  previewOn.value = false
+  close()
+  nextTick(autosize)
+})
+watch(draft, () => nextTick(autosize))
+const canSend = computed(() => (!!draft.value.trim() || atts.value.length > 0 || picks.value.length > 0) && !props.busy && !props.notReady && !props.checking && !props.missing)
 const contextUsage = computed(() => {
   const u = catState.context[catState.sel]
   if (!u || u.used <= 0 || u.window <= 0) return null
@@ -727,6 +760,7 @@ function openPreview(f: CatShownFile) {
 }
 async function addFiles() {
   if (props.missing || props.busy) return
+  const slot = draftSlot.value
   let paths: string[] = []
   try {
     paths = await pickFiles({ name: t('cat.misc.s_b4632e719d'), patterns: ['*'] }, true)
@@ -735,7 +769,7 @@ async function addFiles() {
     return
   }
   if (!paths?.length) return
-  const next = atts.value.slice()
+  const next = slot.files.map(toDraft)
   const same = (a: string, b: string) => a.replace(/\//g, '\\').toLowerCase() === b.replace(/\//g, '\\').toLowerCase()
   let capped = false
   for (const p of paths) {
@@ -746,7 +780,7 @@ async function addFiles() {
     }
     next.push(toDraft({ name: fileBaseName(p), path: p }))
   }
-  atts.value = next
+  slot.files = next.map(({ name, path }) => ({ name, path }))
   if (capped) ElMessage.warning(t('cat.misc.s_2345bc3f64'))
 }
 function removeFile(id: number) {
@@ -763,24 +797,109 @@ function send() {
     return
   }
   const own = draft.value
-  const notes = picks.value.map((p) => ({ ...p }))
+  const notes = picks.value.map(({ nid: _nid, label: _label, ...n }) => ({ ...n }))
   const files = atts.value.map((f) => ({ name: f.name, path: f.path }))
-  emit('send', { text: composePickSend(own, notes), files, own, notes })
-  draft.value = ''
-  picks.value = []
-  atts.value = []
+  const key = props.draftKey || catDraftKey(props.convId)
+  const slot = draftSlot.value
+  slot.text = ''
+  slot.notes = []
+  slot.files = []
+  emit('send', { text: composePickSend(own, notes), files, own, notes, draftKey: key })
   extraOpen.value = false
   nextTick(autosize)
 }
 function onEnter(e: KeyboardEvent) {
-  if (e.shiftKey || e.isComposing) return
+  if (e.shiftKey || e.isComposing || e.keyCode === 229) return
   e.preventDefault()
+  if (e.repeat) return
   send()
 }
+
+const suggestionId = `cat-suggest-${Math.random().toString(36).slice(2)}`
+const suggestion = ref<DraftTrigger | null>(null), suggestionIndex = ref(0)
+const contextFiles = ref<ContextFile[]>([]), fileLoading = ref(false), filesTruncated = ref(false), fileError = ref('')
+let dismissedToken = '', fileTicket = 0, fileTimer: ReturnType<typeof setTimeout> | undefined
+const suggestionRows = computed(() => suggestion.value?.kind === 'file'
+  ? contextFiles.value.map(f => ({ id: f.path, name: f.name, description: f.relPath, file: f }))
+  : filterCommands(draftCommands(workspaceUI.prompts), suggestion.value?.query ?? '').map(c => ({ ...c, file: undefined })))
+function updateTrigger(e?: Event) {
+  if (e instanceof KeyboardEvent && e.isComposing) return
+  const token = draftTrigger(draft.value, ta.value?.selectionStart ?? draft.value.length)
+  const stamp = JSON.stringify(token)
+  suggestion.value = stamp === dismissedToken ? null : token
+}
+function onDraftInput(e: Event) {
+  autosize()
+  dismissedToken = ''
+  if ((e as InputEvent).isComposing) { suggestion.value = null; return }
+  updateTrigger()
+}
+watch(() => [suggestion.value?.kind, suggestion.value?.query, props.draftKey, props.convId, currentProject.value?.id] as const, ([kind, query]) => {
+  const ticket = ++fileTicket
+  clearTimeout(fileTimer); contextFiles.value = []; filesTruncated.value = false; fileError.value = ''; suggestionIndex.value = 0
+  if (kind !== 'file') { fileLoading.value = false; return }
+  fileLoading.value = true
+  const conv = props.convId, project = currentProject.value?.id ?? ''
+  fileTimer = setTimeout(async () => {
+    try {
+      const r = await searchContextFiles(conv, project, query ?? '')
+      if (ticket !== fileTicket) return
+      contextFiles.value = r.files ?? []; filesTruncated.value = r.truncated
+    } catch (e) { if (ticket === fileTicket) fileError.value = toAppError(e).message }
+    finally { if (ticket === fileTicket) fileLoading.value = false }
+  }, 180)
+})
+watch(() => props.draftKey, () => { suggestion.value = null; dismissedToken = '' })
+function commandAction(c: DraftCommand) {
+  switch (c.action) {
+    case 'new': startNewConv(); break
+    case 'search': if (catState.sel !== NEW_CONV) emit('search'); else ElMessage.info(t('cat.workspace.needConversation')); break
+    case 'export': if (catState.sel !== NEW_CONV) void exportChat(catState.sel, 'md'); else ElMessage.info(t('cat.workspace.needConversation')); break
+    case 'rules': openWorkspace('rules', currentProject.value?.id ?? ''); break
+    case 'prompts': openWorkspace('prompts', currentProject.value?.id ?? ''); break
+    case 'skills': catPanels.tab = 'ext'; catPanels.view = 'settings'; break
+  }
+}
+function pickSuggestion(index: number) {
+  const token = suggestion.value, row = suggestionRows.value[index]
+  if (!token || !row) return
+  const text = draft.value
+  if (row.file) {
+    const file = row.file
+    const same = (a: string, b: string) => a.replace(/\\/g, '/').toLocaleLowerCase() === b.replace(/\\/g, '/').toLocaleLowerCase()
+    if (!atts.value.some(f => same(f.path, file.path))) {
+      if (atts.value.length >= CAT_ATTACH_MAX) { ElMessage.warning(t('cat.misc.s_2345bc3f64')); return }
+      draftSlot.value.files.push({ name: file.name, path: file.path })
+    }
+    draft.value = text.slice(0, token.start) + text.slice(token.end)
+  } else {
+    const c = row as DraftCommand
+    draft.value = c.content ?? ''
+    if (c.action) commandAction(c)
+  }
+  suggestion.value = null
+  dismissedToken = JSON.stringify(draftTrigger(draft.value, draft.value.length))
+  nextTick(() => { autosize(); ta.value?.focus(); if (row.file) ta.value?.setSelectionRange(token.start, token.start) })
+}
+function onDraftKey(e: KeyboardEvent) {
+  if (e.isComposing || e.keyCode === 229) return
+  if (suggestion.value) {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); dismissedToken = JSON.stringify(suggestion.value); suggestion.value = null; return }
+    if (suggestionRows.value.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      e.preventDefault(); suggestionIndex.value = (suggestionIndex.value + (e.key === 'ArrowDown' ? 1 : -1) + suggestionRows.value.length) % suggestionRows.value.length
+      nextTick(() => document.getElementById(suggestionId + '-' + suggestionIndex.value)?.scrollIntoView({ block: 'nearest' })); return
+    }
+    if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') { e.preventDefault(); if (!e.repeat) pickSuggestion(suggestionIndex.value); return }
+  }
+  if (e.key === 'Enter') onEnter(e)
+}
+onMounted(() => { void loadPromptLibrary() })
+onBeforeUnmount(() => { ++fileTicket; clearTimeout(fileTimer) })
 
 function onDocClick(e: MouseEvent) {
   const t = e.target
   if (!(t instanceof Node) || !root.value) return
+  if (suggestion.value && !inEl.value?.contains(t)) { dismissedToken = JSON.stringify(suggestion.value); suggestion.value = null }
   if (menu.value && !root.value.querySelector('.mn')?.contains(t)) close()
   if (extraOpen.value && !root.value.querySelector('.ct-more')?.contains(t) && !root.value.querySelector('.ct-extra')?.contains(t)) extraOpen.value = false
 }
@@ -806,10 +925,12 @@ function onKey(e: KeyboardEvent) {
   }
 }
 onMounted(() => {
+  nextTick(autosize)
   document.addEventListener('click', onDocClick)
   document.addEventListener('keydown', onKey)
 })
 onBeforeUnmount(() => {
+  clearTimeout(flashTimer)
   document.removeEventListener('click', onDocClick)
   document.removeEventListener('keydown', onKey)
 })
@@ -837,6 +958,7 @@ defineExpose({
 </script>
 
 <style scoped>
+.draft-suggestions { position:absolute; z-index:35; bottom:calc(100% + 6px); left:0; right:0; max-height:300px; overflow:auto; border:1px solid var(--ff-border); border-radius:12px; background:var(--ff-bg-surface); box-shadow:0 8px 30px #0002; padding:5px }.suggest-hd { display:flex; justify-content:space-between; padding:7px 9px; font-size:11px; color:var(--ff-text-3) }.draft-suggestions button { display:flex; align-items:center; width:100%; gap:8px; border:0; border-radius:7px; background:transparent; color:var(--ff-text-1); cursor:pointer; padding:9px; text-align:left }.draft-suggestions button.on,.draft-suggestions button:hover { background:var(--ff-bg-hover) }.draft-suggestions button b { font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:45% }.draft-suggestions button span { flex:1; min-width:0; font-size:11px; color:var(--ff-text-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis }.suggest-empty { padding:10px; font-size:12px; color:var(--ff-text-3) }
 .ct-comp.missing .ct-in {
   background: var(--cat-hover);
   box-shadow: none;

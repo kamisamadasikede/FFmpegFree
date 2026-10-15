@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -81,6 +82,17 @@ func (s *Service) GetDocPreview(ctx context.Context, req DocPreviewRequest) (Doc
 	if err != nil {
 		return DocPreview{}, err
 	}
+	return s.previewTarget(ctx, t)
+}
+
+// PreviewLocalPath reuses the local document engines without importing a source
+// into the document library. Callers must authorize and constrain the path.
+func (s *Service) PreviewLocalPath(ctx context.Context, path string) (DocPreview, error) {
+	t := &editTarget{ReadPath: path, WritePath: path, Name: filepath.Base(path), Ext: normExt(filepath.Ext(path))}
+	return s.previewTarget(ctx, t)
+}
+
+func (s *Service) previewTarget(ctx context.Context, t *editTarget) (DocPreview, error) {
 	fi, err := os.Lstat(t.ReadPath)
 	if err != nil || !fi.Mode().IsRegular() {
 		return DocPreview{}, apperr.New(apperr.NotFound, "原文件已经不在了，改完只能另存为。").WithDetail("reason=file")

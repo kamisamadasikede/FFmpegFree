@@ -149,7 +149,7 @@ func validate(ctx context.Context, exe, tmp string) checkResult {
 		return checkResult{version: full, outdated: true, reason: "outdated"}
 	}
 	in := filepath.Join(dir, "check.txt")
-	if err := os.WriteFile(in, []byte("FFmpegFree 文档组件检测\n"), 0o644); err != nil {
+	if err := os.WriteFile(in, []byte("ffc 文档组件检测\n"), 0o644); err != nil {
 		return checkResult{version: full, reason: "tmp"}
 	}
 	if _, err := Convert(ctx, Job{Exe: exe, Input: in, ConvertTo: "pdf:writer_pdf_Export", InFilter: "Text (encoded):UTF8",

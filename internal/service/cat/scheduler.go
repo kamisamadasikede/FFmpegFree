@@ -28,7 +28,7 @@ const (
 // 运行失败的说明。
 const (
 	MsgScheduleTimeout     = "超过 30 分钟没跑完。"
-	MsgScheduleInterrupted = "FFmpegFree 关了，这次运行没跑完。"
+	MsgScheduleInterrupted = "ffc 关了，这次运行没跑完。"
 )
 
 // Notification 是一条系统通知。ConvID 用于点通知后打开对话。

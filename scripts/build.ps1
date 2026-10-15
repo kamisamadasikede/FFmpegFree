@@ -21,7 +21,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $rootDir = Resolve-Path (Join-Path $scriptDir "..")
 $frontendDir = Join-Path $rootDir "frontend"
 $resourceScript = Join-Path $rootDir "copy-resources.ps1"
-$outputExe = Join-Path $rootDir "build\bin\FFmpegFree.exe"
+$outputExe = Join-Path $rootDir "build\bin\ffc.exe"
 
 Set-Location $rootDir
 

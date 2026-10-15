@@ -1,5 +1,5 @@
-// Package catagent 实现 Cat 助手适配器注册表与 Build 适配器（契约 6.19）。
-// 界面文案与 message 只出现「Cat 助手」；永不出现 grok / CLI / 命令行 / 可执行文件名。
+// Package catagent 实现 Agent 助手适配器注册表与 Build 适配器（契约 6.19）。
+// 界面文案与 message 只出现「Agent 助手」；永不出现 grok / CLI / 命令行 / 可执行文件名。
 // 例外（老板 10-09 定）：模型选择器直接显示 CLI 返回的真实模型名（如 grok-4.6），不做映射。
 package catagent
 
@@ -43,7 +43,7 @@ const (
 // 用户可见文案（契约 6.19.7）。
 const (
 	// MsgNotReady：PATH 上找不到入口（v0.31.3）。
-	MsgNotReady    = "未检测到 Cat 助手，请先安装并确保可在终端直接运行。"
+	MsgNotReady    = "未检测到 Agent 助手，请先安装并确保可在终端直接运行。"
 	MsgReplyFailed = "回复没生成出来，请重试。"
 	// MsgSessionGone（v0.45）：续聊时之前的会话已找不到；本轮不可重试，下一句开新对话。
 	MsgSessionGone  = "之前的对话记录已找不到，请重新发送，将开始新的对话。"

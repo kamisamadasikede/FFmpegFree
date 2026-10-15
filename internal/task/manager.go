@@ -638,7 +638,7 @@ func usesRunWithPart(t Type) bool {
 }
 
 // retryLogLine 是原地重试时追加到任务日志末尾的一行（契约 6.6 第 ⑤ 步）。
-const retryLogLine = "[FFmpegFree] 重新开始（重试）"
+const retryLogLine = "[ffc] 重新开始（重试）"
 
 // Retry 原地重试（契约 v0.23，6.6）：复用原任务 id，把同一条记录重置回 queued 重新排队。
 //   - 允许 failed / interrupted / canceled；queued / running → TASK_CONFLICT（任务仍在进行，请先取消）；

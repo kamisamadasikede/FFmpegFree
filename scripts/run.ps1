@@ -19,7 +19,7 @@ function Assert-Command {
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $rootDir = Resolve-Path (Join-Path $scriptDir "..")
-$outputExe = Join-Path $rootDir "build\bin\FFmpegFree.exe"
+$outputExe = Join-Path $rootDir "build\bin\ffc.exe"
 $buildScript = Join-Path $scriptDir "build.ps1"
 
 Set-Location $rootDir

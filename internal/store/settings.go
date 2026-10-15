@@ -39,3 +39,8 @@ func (s *Store) SetSetting(ctx context.Context, key string, v any) error {
 	}
 	return nil
 }
+
+func (s *Store) DeleteSetting(ctx context.Context, key string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM settings WHERE key = ?`, key)
+	return err
+}
