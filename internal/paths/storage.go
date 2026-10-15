@@ -28,7 +28,7 @@ type Storage struct {
 	Output   string // <base>/output（默认输出目录）
 	Uploads  string // <base>/uploads（默认上传目录）
 	BaseKind string // BaseExeDir | BaseUserData
-	FellBack bool   // true = 程序所在文件夹不可写，回退到了用户数据目录（macOS .app 包不算回退）
+	FellBack bool   // true = 程序所在文件夹不可写，回退到了用户数据目录（开发工作区和 macOS .app 包不算回退）
 }
 
 // storageEnv 是 resolveStorage 的输入，测试里替换。
@@ -72,6 +72,11 @@ func resolveStorage(env storageEnv) Storage {
 	if env.exe == "" {
 		return mk(fallback, BaseUserData, true)
 	}
+	// Development binaries live inside the source workspace. Never probe or create
+	// output/uploads there; generated files belong in the existing user data root.
+	if inSourceWorkspace(env.exe) {
+		return mk(env.dataDir, BaseUserData, false)
+	}
 	if env.goos == "darwin" && inAppBundle(env.exe) {
 		return mk(env.dataDir, BaseUserData, false) // .app 包：直接用用户数据目录，不算回退
 	}
@@ -87,6 +92,22 @@ func resolveStorage(env storageEnv) Storage {
 		removeIfCreatedEmpty(filepath.Join(exeDir, n))
 	}
 	return mk(fallback, BaseUserData, true)
+}
+
+func inSourceWorkspace(exe string) bool {
+	if !filepath.IsAbs(exe) {
+		return false
+	}
+	for dir := filepath.Dir(exe); ; dir = filepath.Dir(dir) {
+		module, moduleErr := os.Stat(filepath.Join(dir, "go.mod"))
+		config, configErr := os.Stat(filepath.Join(dir, "wails.json"))
+		if moduleErr == nil && !module.IsDir() && configErr == nil && !config.IsDir() {
+			return true
+		}
+		if filepath.Dir(dir) == dir {
+			return false
+		}
+	}
 }
 
 // inAppBundle：路径里有一段以 .app 结尾，且可执行文件在它的 Contents/MacOS/ 下。

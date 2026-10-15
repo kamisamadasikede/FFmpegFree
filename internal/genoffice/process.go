@@ -18,8 +18,6 @@ import (
 )
 
 //go:embed runtime/*
-//go:embed runtime/pdfjs
-//go:embed runtime/fonts
 var runtimeFiles embed.FS
 
 type rpcResponse struct {
