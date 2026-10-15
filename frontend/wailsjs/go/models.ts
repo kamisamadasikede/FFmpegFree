@@ -1,15 +1,15 @@
 export namespace apperr {
-
+	
 	export class AppError {
 	    code: string;
 	    message: string;
 	    detail?: string;
 	    params?: Record<string, string>;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new AppError(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.code = source["code"];
@@ -22,15 +22,15 @@ export namespace apperr {
 }
 
 export namespace cat {
-
+	
 	export class AgentDefaults {
 	    model: string;
 	    effort: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new AgentDefaults(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.model = source["model"];
@@ -39,11 +39,11 @@ export namespace cat {
 	}
 	export class BrowserOpenRequest {
 	    url: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new BrowserOpenRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.url = source["url"];
@@ -53,11 +53,11 @@ export namespace cat {
 	    url: string;
 	    title: string;
 	    html: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new BrowserPage(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.url = source["url"];
@@ -67,11 +67,11 @@ export namespace cat {
 	}
 	export class CancelCloneCatProjectRequest {
 	    cloneId: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CancelCloneCatProjectRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.cloneId = source["cloneId"];
@@ -81,11 +81,11 @@ export namespace cat {
 	    sha: string;
 	    subject: string;
 	    time: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CatBranchCommit(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sha = source["sha"];
@@ -97,11 +97,11 @@ export namespace cat {
 	    path: string;
 	    oldPath: string;
 	    status: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CatCompareFile(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
@@ -116,11 +116,11 @@ export namespace cat {
 	    onlyInCurrent: CatBranchCommit[];
 	    truncated: boolean;
 	    files: CatCompareFile[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CatBranchCompare(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.base = source["base"];
@@ -130,7 +130,7 @@ export namespace cat {
 	        this.truncated = source["truncated"];
 	        this.files = this.convertValues(source["files"], CatCompareFile);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -158,11 +158,11 @@ export namespace cat {
 	    current: boolean;
 	    favorite: boolean;
 	    lastCommit: CatBranchCommit;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CatTreeBranch(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -174,7 +174,7 @@ export namespace cat {
 	        this.favorite = source["favorite"];
 	        this.lastCommit = this.convertValues(source["lastCommit"], CatBranchCommit);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -197,18 +197,18 @@ export namespace cat {
 	    kind: string;
 	    remote?: string;
 	    branches: CatTreeBranch[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CatBranchGroup(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.kind = source["kind"];
 	        this.remote = source["remote"];
 	        this.branches = this.convertValues(source["branches"], CatTreeBranch);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -235,11 +235,11 @@ export namespace cat {
 	    fetching: boolean;
 	    fetchError?: string;
 	    noCommits: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CatBranchTree(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.groups = this.convertValues(source["groups"], CatBranchGroup);
@@ -250,7 +250,7 @@ export namespace cat {
 	        this.fetchError = source["fetchError"];
 	        this.noCommits = source["noCommits"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -271,11 +271,11 @@ export namespace cat {
 	}
 	export class CatBranchTreeRequest {
 	    convId: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CatBranchTreeRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -283,11 +283,11 @@ export namespace cat {
 	}
 	export class CatBranchesRequest {
 	    convId: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CatBranchesRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -302,11 +302,11 @@ export namespace cat {
 	    upstream: string;
 	    locals: string[];
 	    remotes: string[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CatBranchesResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.root = source["root"];
@@ -322,11 +322,11 @@ export namespace cat {
 	export class CatCommitRef {
 	    name: string;
 	    kind: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CatCommitRef(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -343,11 +343,11 @@ export namespace cat {
 	    authorTime: number;
 	    refs: CatCommitRef[];
 	    isHead: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CatCommit(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sha = source["sha"];
@@ -360,7 +360,7 @@ export namespace cat {
 	        this.refs = this.convertValues(source["refs"], CatCommitRef);
 	        this.isHead = source["isHead"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -386,11 +386,11 @@ export namespace cat {
 	    additions: number;
 	    deletions: number;
 	    binary: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CatCommitFile(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
@@ -414,11 +414,11 @@ export namespace cat {
 	    files: CatCommitFile[];
 	    filesTruncated: boolean;
 	    diffBase: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CatCommitDetail(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sha = source["sha"];
@@ -434,7 +434,7 @@ export namespace cat {
 	        this.filesTruncated = source["filesTruncated"];
 	        this.diffBase = source["diffBase"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -453,16 +453,16 @@ export namespace cat {
 		    return a;
 		}
 	}
-
+	
 	export class CatCommitFileDiffRequest {
 	    convId: string;
 	    sha: string;
 	    path: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CatCommitFileDiffRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -475,11 +475,11 @@ export namespace cat {
 	    nextCursor?: string;
 	    total?: number;
 	    noCommits: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CatCommitPage(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.commits = this.convertValues(source["commits"], CatCommit);
@@ -487,7 +487,7 @@ export namespace cat {
 	        this.total = source["total"];
 	        this.noCommits = source["noCommits"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -506,31 +506,31 @@ export namespace cat {
 		    return a;
 		}
 	}
-
+	
 	export class CatCommitRequest {
 	    convId: string;
 	    sha: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CatCommitRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
 	        this.sha = source["sha"];
 	    }
 	}
-
+	
 	export class CatPrompt {
 	    id: string;
 	    name: string;
 	    content: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CatPrompt(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -542,18 +542,18 @@ export namespace cat {
 	    state: string;
 	    models: catagent.Model[];
 	    fetchedAt: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CatProviderModelList(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.state = source["state"];
 	        this.models = this.convertValues(source["models"], catagent.Model);
 	        this.fetchedAt = source["fetchedAt"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -572,16 +572,16 @@ export namespace cat {
 		    return a;
 		}
 	}
-
+	
 	export class CatTurnState {
 	    turnId: string;
 	    status: string;
 	    retryable: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CatTurnState(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.turnId = source["turnId"];
@@ -593,18 +593,18 @@ export namespace cat {
 	    projectId: string;
 	    rules: string;
 	    prompts: CatPrompt[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CatWorkspace(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.projectId = source["projectId"];
 	        this.rules = source["rules"];
 	        this.prompts = this.convertValues(source["prompts"], CatPrompt);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -625,11 +625,11 @@ export namespace cat {
 	}
 	export class ClearProviderKeyRequest {
 	    agentKind: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ClearProviderKeyRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.agentKind = source["agentKind"];
@@ -639,11 +639,11 @@ export namespace cat {
 	    url: string;
 	    parentDir?: string;
 	    name?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CloneCatProjectRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.url = source["url"];
@@ -658,11 +658,11 @@ export namespace cat {
 	    createdAt: number;
 	    updatedAt: number;
 	    missing: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Project(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -677,18 +677,18 @@ export namespace cat {
 	    cloneId: string;
 	    status: string;
 	    project?: Project;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CloneCatProjectResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.cloneId = source["cloneId"];
 	        this.status = source["status"];
 	        this.project = this.convertValues(source["project"], Project);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -711,11 +711,11 @@ export namespace cat {
 	    name: string;
 	    relPath: string;
 	    path: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ContextFile(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -726,17 +726,17 @@ export namespace cat {
 	export class ContextFiles {
 	    files: ContextFile[];
 	    truncated: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ContextFiles(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.files = this.convertValues(source["files"], ContextFile);
 	        this.truncated = source["truncated"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -772,11 +772,11 @@ export namespace cat {
 	    historyStatus?: string;
 	    contextUsed?: number;
 	    contextWindow?: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ConversationDetail(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -796,7 +796,7 @@ export namespace cat {
 	        this.contextUsed = source["contextUsed"];
 	        this.contextWindow = source["contextWindow"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -820,11 +820,11 @@ export namespace cat {
 	    action: string;
 	    title: string;
 	    enabled: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ConversationUpdate(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -839,11 +839,11 @@ export namespace cat {
 	    projectPath: string;
 	    accessMode: string;
 	    projectId?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CreateConversationRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.agentKind = source["agentKind"];
@@ -856,11 +856,11 @@ export namespace cat {
 	export class CreateProjectRequest {
 	    path: string;
 	    name?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CreateProjectRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
@@ -870,17 +870,17 @@ export namespace cat {
 	export class CreateProjectResult {
 	    project: Project;
 	    existed: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CreateProjectResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.project = this.convertValues(source["project"], Project);
 	        this.existed = source["existed"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -901,11 +901,11 @@ export namespace cat {
 	}
 	export class DeleteProjectRequest {
 	    id: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DeleteProjectRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -914,11 +914,11 @@ export namespace cat {
 	export class FetchCatRemotesRequest {
 	    convId: string;
 	    force: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new FetchCatRemotesRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -931,11 +931,11 @@ export namespace cat {
 	    isDir: boolean;
 	    size: number;
 	    modTime: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new FileEntry(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -949,11 +949,11 @@ export namespace cat {
 	    revision: string;
 	    size: number;
 	    stable: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new FileRevision(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.revision = source["revision"];
@@ -965,11 +965,11 @@ export namespace cat {
 	    convId: string;
 	    name: string;
 	    url: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitAddRemoteRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -980,11 +980,11 @@ export namespace cat {
 	export class GitBranchRequest {
 	    convId: string;
 	    name: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitBranchRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -995,11 +995,11 @@ export namespace cat {
 	    convId: string;
 	    name: string;
 	    force?: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitCatCheckoutRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -1011,11 +1011,11 @@ export namespace cat {
 	    convId: string;
 	    branch: string;
 	    remote: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitCatCompareBranchRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -1025,11 +1025,11 @@ export namespace cat {
 	}
 	export class GitCatConflictAbortRequest {
 	    convId: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitCatConflictAbortRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -1038,11 +1038,11 @@ export namespace cat {
 	export class GitCatConflictCompleteRequest {
 	    convId: string;
 	    message?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitCatConflictCompleteRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -1054,11 +1054,11 @@ export namespace cat {
 	    path: string;
 	    mode: string;
 	    content?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitCatConflictResolveRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -1072,11 +1072,11 @@ export namespace cat {
 	    from: string;
 	    name: string;
 	    checkout: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitCatCreateBranchRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -1089,11 +1089,11 @@ export namespace cat {
 	    convId: string;
 	    branch: string;
 	    force: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitCatDeleteBranchRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -1105,11 +1105,11 @@ export namespace cat {
 	    convId: string;
 	    branch: string;
 	    remote?: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitCatMergeRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -1121,11 +1121,11 @@ export namespace cat {
 	    status: string;
 	    head?: string;
 	    files?: string[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitCatMergeResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.status = source["status"];
@@ -1137,11 +1137,11 @@ export namespace cat {
 	    convId: string;
 	    from: string;
 	    to: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitCatRenameBranchRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -1158,11 +1158,11 @@ export namespace cat {
 	    deleted: number;
 	    staged: boolean;
 	    unstaged: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitChange(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
@@ -1180,11 +1180,11 @@ export namespace cat {
 	    sha: string;
 	    headSha: string;
 	    op: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitCommitActionRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -1198,11 +1198,11 @@ export namespace cat {
 	    ours: boolean;
 	    theirs: boolean;
 	    letter?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitConflictEntry(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
@@ -1215,11 +1215,11 @@ export namespace cat {
 	    convId: string;
 	    relPath: string;
 	    scope?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitDiffRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -1231,11 +1231,11 @@ export namespace cat {
 	    path: string;
 	    text: string;
 	    binary: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitDiffResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
@@ -1245,11 +1245,11 @@ export namespace cat {
 	}
 	export class GitPRResult {
 	    url: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitPRResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.url = source["url"];
@@ -1259,11 +1259,11 @@ export namespace cat {
 	    convId: string;
 	    paths: string[];
 	    message: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitPathsRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -1274,11 +1274,11 @@ export namespace cat {
 	export class GitRemoteRequest {
 	    convId: string;
 	    op: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitRemoteRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -1290,11 +1290,11 @@ export namespace cat {
 	    ref: string;
 	    message: string;
 	    time: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitStash(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sha = source["sha"];
@@ -1309,11 +1309,11 @@ export namespace cat {
 	    message?: string;
 	    includeUntracked: boolean;
 	    op?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitStashRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -1325,11 +1325,11 @@ export namespace cat {
 	}
 	export class GitStatusRequest {
 	    convId: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitStatusRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -1352,11 +1352,11 @@ export namespace cat {
 	    detached: boolean;
 	    headSha: string;
 	    headShortSha: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitStatusResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.root = source["root"];
@@ -1376,7 +1376,7 @@ export namespace cat {
 	        this.headSha = source["headSha"];
 	        this.headShortSha = source["headShortSha"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -1397,11 +1397,11 @@ export namespace cat {
 	}
 	export class GitUndoResult {
 	    message: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new GitUndoResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.message = source["message"];
@@ -1410,11 +1410,11 @@ export namespace cat {
 	export class InspectRequest {
 	    projectId: string;
 	    agentKind?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new InspectRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.projectId = source["projectId"];
@@ -1428,11 +1428,11 @@ export namespace cat {
 	    query?: string;
 	    branch?: string;
 	    scope?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ListCatCommitsRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -1446,11 +1446,11 @@ export namespace cat {
 	export class ListCatProviderModelsRequest {
 	    agentKind: string;
 	    refresh: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ListCatProviderModelsRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.agentKind = source["agentKind"];
@@ -1460,11 +1460,11 @@ export namespace cat {
 	export class ListFilesRequest {
 	    convId: string;
 	    relPath: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ListFilesRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -1475,18 +1475,18 @@ export namespace cat {
 	    root: string;
 	    entries: FileEntry[];
 	    truncated: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ListFilesResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.root = source["root"];
 	        this.entries = this.convertValues(source["entries"], FileEntry);
 	        this.truncated = source["truncated"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -1508,11 +1508,11 @@ export namespace cat {
 	export class ListScheduleRunsRequest {
 	    scheduleId: string;
 	    limit: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ListScheduleRunsRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.scheduleId = source["scheduleId"];
@@ -1522,11 +1522,11 @@ export namespace cat {
 	export class LiveTurn {
 	    convId: string;
 	    turnId: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new LiveTurn(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -1538,11 +1538,11 @@ export namespace cat {
 	    mime: string;
 	    kind: string;
 	    name: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new MediaPreview(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.url = source["url"];
@@ -1554,11 +1554,11 @@ export namespace cat {
 	export class SendAttachment {
 	    name: string;
 	    path: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SendAttachment(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -1573,11 +1573,11 @@ export namespace cat {
 	    permissionMode: string;
 	    projectPath: string;
 	    attachments?: SendAttachment[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SendMessageRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.conversationId = source["conversationId"];
@@ -1588,7 +1588,7 @@ export namespace cat {
 	        this.projectPath = source["projectPath"];
 	        this.attachments = this.convertValues(source["attachments"], SendAttachment);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -1612,11 +1612,11 @@ export namespace cat {
 	    request: SendMessageRequest;
 	    createdAt: number;
 	    held: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new QueuedMessage(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -1624,7 +1624,7 @@ export namespace cat {
 	        this.createdAt = source["createdAt"];
 	        this.held = source["held"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -1651,11 +1651,11 @@ export namespace cat {
 	    error?: string;
 	    queueingDisabled: boolean;
 	    canSteer: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new MessageQueue(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.revision = source["revision"];
@@ -1666,7 +1666,7 @@ export namespace cat {
 	        this.queueingDisabled = source["queueingDisabled"];
 	        this.canSteer = source["canSteer"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -1688,26 +1688,26 @@ export namespace cat {
 	export class NotifyStatus {
 	    available: boolean;
 	    authorized: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new NotifyStatus(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.available = source["available"];
 	        this.authorized = source["authorized"];
 	    }
 	}
-
+	
 	export class ProjectRulesRequest {
 	    projectId: string;
 	    rules: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ProjectRulesRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.projectId = source["projectId"];
@@ -1719,11 +1719,11 @@ export namespace cat {
 	    defaultProtocol: string;
 	    allowProtocolPick: boolean;
 	    allowedProtocols: string[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ProviderCapability(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.agentKind = source["agentKind"];
@@ -1738,11 +1738,11 @@ export namespace cat {
 	    apiUrl: string;
 	    apiKeySet: boolean;
 	    apiKey?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ProviderSettings(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.enabledCustom = source["enabledCustom"];
@@ -1759,11 +1759,11 @@ export namespace cat {
 	    content: string;
 	    beforeId: string;
 	    request?: SendMessageRequest;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new QueueAction(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -1773,7 +1773,7 @@ export namespace cat {
 	        this.beforeId = source["beforeId"];
 	        this.request = this.convertValues(source["request"], SendMessageRequest);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -1792,15 +1792,15 @@ export namespace cat {
 		    return a;
 		}
 	}
-
+	
 	export class ReadFileRequest {
 	    convId: string;
 	    relPath: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ReadFileRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -1819,11 +1819,11 @@ export namespace cat {
 	    language: string;
 	    editable: boolean;
 	    modTime: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ReadFileResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.revision = source["revision"];
@@ -1842,11 +1842,11 @@ export namespace cat {
 	export class RelocateProjectRequest {
 	    id: string;
 	    path: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new RelocateProjectRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -1856,11 +1856,11 @@ export namespace cat {
 	export class RenameProjectRequest {
 	    id: string;
 	    name: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new RenameProjectRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -1870,11 +1870,11 @@ export namespace cat {
 	export class RetryCatTurnRequest {
 	    conversationId: string;
 	    turnId: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new RetryCatTurnRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.conversationId = source["conversationId"];
@@ -1883,11 +1883,11 @@ export namespace cat {
 	}
 	export class RevealConversationFolderRequest {
 	    convId: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new RevealConversationFolderRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -1895,11 +1895,11 @@ export namespace cat {
 	}
 	export class RevealProjectRequest {
 	    id: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new RevealProjectRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -1908,11 +1908,11 @@ export namespace cat {
 	export class SaveProviderKeyRequest {
 	    agentKind: string;
 	    apiKey: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SaveProviderKeyRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.agentKind = source["agentKind"];
@@ -1931,11 +1931,11 @@ export namespace cat {
 	    manual: boolean;
 	    missedReason?: string;
 	    queuePosition?: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ScheduleRun(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -1950,7 +1950,7 @@ export namespace cat {
 	        this.missedReason = source["missedReason"];
 	        this.queuePosition = source["queuePosition"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -1989,11 +1989,11 @@ export namespace cat {
 	    lastRun?: ScheduleRun;
 	    createdAt: number;
 	    updatedAt: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Schedule(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -2016,7 +2016,7 @@ export namespace cat {
 	        this.createdAt = source["createdAt"];
 	        this.updatedAt = source["updatedAt"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -2037,11 +2037,11 @@ export namespace cat {
 	}
 	export class ScheduleIDRequest {
 	    id: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ScheduleIDRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -2059,11 +2059,11 @@ export namespace cat {
 	    effort: string;
 	    approvalMode: string;
 	    agentKind: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ScheduleInput(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -2079,16 +2079,16 @@ export namespace cat {
 	        this.agentKind = source["agentKind"];
 	    }
 	}
-
+	
 	export class SearchContextRequest {
 	    convId: string;
 	    projectId: string;
 	    query: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SearchContextRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -2100,11 +2100,11 @@ export namespace cat {
 	    convId: string;
 	    query: string;
 	    kind: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SearchFilesRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -2118,11 +2118,11 @@ export namespace cat {
 	    isDir: boolean;
 	    line?: number;
 	    text?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SearchHit(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -2135,17 +2135,17 @@ export namespace cat {
 	export class SearchFilesResult {
 	    hits: SearchHit[];
 	    truncated: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SearchFilesResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.hits = this.convertValues(source["hits"], SearchHit);
 	        this.truncated = source["truncated"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -2164,19 +2164,19 @@ export namespace cat {
 		    return a;
 		}
 	}
-
-
-
+	
+	
+	
 	export class SendMessageResult {
 	    userMessage: store.CatMessage;
 	    turnId: string;
 	    assistantMessage?: store.CatMessage;
 	    error?: apperr.AppError;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SendMessageResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.userMessage = this.convertValues(source["userMessage"], store.CatMessage);
@@ -2184,7 +2184,7 @@ export namespace cat {
 	        this.assistantMessage = this.convertValues(source["assistantMessage"], store.CatMessage);
 	        this.error = this.convertValues(source["error"], apperr.AppError);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -2208,11 +2208,11 @@ export namespace cat {
 	    branch: string;
 	    remote: string;
 	    favorite: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SetCatBranchFavoriteRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -2227,11 +2227,11 @@ export namespace cat {
 	    category: string;
 	    name: string;
 	    enabled: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SetInspectItemEnabledRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.projectId = source["projectId"];
@@ -2248,11 +2248,11 @@ export namespace cat {
 	    defaultModeByAgent: Record<string, string>;
 	    customInstruction: string;
 	    notifyOnFinish?: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.defaultAgentKind = source["defaultAgentKind"];
@@ -2262,7 +2262,7 @@ export namespace cat {
 	        this.customInstruction = source["customInstruction"];
 	        this.notifyOnFinish = source["notifyOnFinish"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -2284,11 +2284,11 @@ export namespace cat {
 	export class SharedDirectoryRequest {
 	    projectId: string;
 	    kind: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SharedDirectoryRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.projectId = source["projectId"];
@@ -2299,11 +2299,11 @@ export namespace cat {
 	    name: string;
 	    description: string;
 	    enabled: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SharedItem(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -2318,11 +2318,11 @@ export namespace cat {
 	    mcpServers: SharedItem[];
 	    targets: catagent.NativeShareResult[];
 	    warnings: string[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SharedExtensions(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.skillsRoot = source["skillsRoot"];
@@ -2332,7 +2332,7 @@ export namespace cat {
 	        this.targets = this.convertValues(source["targets"], catagent.NativeShareResult);
 	        this.warnings = source["warnings"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -2354,26 +2354,26 @@ export namespace cat {
 	export class SharedImportRequest {
 	    projectId: string;
 	    sourcePath: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SharedImportRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.projectId = source["projectId"];
 	        this.sourcePath = source["sourcePath"];
 	    }
 	}
-
+	
 	export class SharedMCPRequest {
 	    projectId: string;
 	    json: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SharedMCPRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.projectId = source["projectId"];
@@ -2382,11 +2382,11 @@ export namespace cat {
 	}
 	export class SkillsDirRequest {
 	    projectId: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SkillsDirRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.projectId = source["projectId"];
@@ -2397,11 +2397,11 @@ export namespace cat {
 	    mcpConfigPath: string;
 	    skillsRootExists: boolean;
 	    opened: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SkillsDirResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.skillsRoot = source["skillsRoot"];
@@ -2414,11 +2414,11 @@ export namespace cat {
 	    convId: string;
 	    branch: string;
 	    remote?: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SwitchCatBranchRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -2430,11 +2430,11 @@ export namespace cat {
 	    id: string;
 	    cols: number;
 	    rows: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new TermResizeRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -2444,11 +2444,11 @@ export namespace cat {
 	}
 	export class TermStartRequest {
 	    convId: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new TermStartRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -2457,11 +2457,11 @@ export namespace cat {
 	export class TermStartResult {
 	    id: string;
 	    console: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new TermStartResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -2470,11 +2470,11 @@ export namespace cat {
 	}
 	export class TermStopRequest {
 	    id: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new TermStopRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -2483,11 +2483,11 @@ export namespace cat {
 	export class TermWriteRequest {
 	    id: string;
 	    data: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new TermWriteRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -2502,11 +2502,11 @@ export namespace cat {
 	    binary: boolean;
 	    diff?: string;
 	    truncated?: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new TurnFileChange(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
@@ -2530,11 +2530,11 @@ export namespace cat {
 	    finished: boolean;
 	    truncated: boolean;
 	    createdAt: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new TurnChanges(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.messageId = source["messageId"];
@@ -2549,7 +2549,7 @@ export namespace cat {
 	        this.truncated = source["truncated"];
 	        this.createdAt = source["createdAt"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -2568,7 +2568,7 @@ export namespace cat {
 		    return a;
 		}
 	}
-
+	
 	export class UpdateScheduleRequest {
 	    id: string;
 	    name: string;
@@ -2582,11 +2582,11 @@ export namespace cat {
 	    effort: string;
 	    approvalMode: string;
 	    agentKind: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new UpdateScheduleRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -2608,11 +2608,11 @@ export namespace cat {
 	    convId: string;
 	    relPath: string;
 	    content: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new WriteFileRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.expectedRevision = source["expectedRevision"];
@@ -2626,11 +2626,11 @@ export namespace cat {
 	    relPath: string;
 	    size: number;
 	    modTime: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new WriteFileResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.revision = source["revision"];
@@ -2643,7 +2643,7 @@ export namespace cat {
 }
 
 export namespace catagent {
-
+	
 	export class AgentMode {
 	    id: string;
 	    label: string;
@@ -2652,11 +2652,11 @@ export namespace catagent {
 	    isDefault: boolean;
 	    shortLabel: string;
 	    risk: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new AgentMode(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -2678,11 +2678,11 @@ export namespace catagent {
 	    checkedAt?: number;
 	    stale?: boolean;
 	    exePath?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new AgentStatus(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.agentKind = source["agentKind"];
@@ -2695,7 +2695,7 @@ export namespace catagent {
 	        this.stale = source["stale"];
 	        this.exePath = source["exePath"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -2721,11 +2721,11 @@ export namespace catagent {
 	    available: boolean;
 	    canUpdate: boolean;
 	    updateUrl?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CLIUpdate(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.agentKind = source["agentKind"];
@@ -2739,11 +2739,11 @@ export namespace catagent {
 	export class CancelCatTurnRequest {
 	    convId: string;
 	    turnId: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CancelCatTurnRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -2755,11 +2755,11 @@ export namespace catagent {
 	    description?: string;
 	    source?: string;
 	    enabled: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new InspectItem(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -2779,11 +2779,11 @@ export namespace catagent {
 	    skillsRoot?: string;
 	    mcpConfigPath?: string;
 	    skillsRootExists: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new InspectResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.skills = this.convertValues(source["skills"], InspectItem);
@@ -2797,7 +2797,7 @@ export namespace catagent {
 	        this.mcpConfigPath = source["mcpConfigPath"];
 	        this.skillsRootExists = source["skillsRootExists"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -2821,11 +2821,11 @@ export namespace catagent {
 	    displayName: string;
 	    efforts: string[];
 	    defaultEffort: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Model(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -2842,11 +2842,11 @@ export namespace catagent {
 	    mcpCount: number;
 	    warnings: string[];
 	    state: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new NativeShareResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.agentKind = source["agentKind"];
@@ -2864,11 +2864,11 @@ export namespace catagent {
 	    canDownload: boolean;
 	    error?: apperr.AppError;
 	    agents: AgentStatus[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Status(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.state = source["state"];
@@ -2877,7 +2877,7 @@ export namespace catagent {
 	        this.error = this.convertValues(source["error"], apperr.AppError);
 	        this.agents = this.convertValues(source["agents"], AgentStatus);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -2899,11 +2899,11 @@ export namespace catagent {
 	export class ThinkLevel {
 	    id: string;
 	    displayName: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ThinkLevel(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -2914,17 +2914,17 @@ export namespace catagent {
 }
 
 export namespace convert {
-
+	
 	export class AddSourceResult {
 	    path: string;
 	    source?: store.ConvertSource;
 	    existed: boolean;
 	    error?: apperr.AppError;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new AddSourceResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
@@ -2932,7 +2932,7 @@ export namespace convert {
 	        this.existed = source["existed"];
 	        this.error = this.convertValues(source["error"], apperr.AppError);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -2957,11 +2957,11 @@ export namespace convert {
 	    offset: number;
 	    recordLimit: number;
 	    status?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ConvertSearchFilter(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.keyword = source["keyword"];
@@ -2977,11 +2977,11 @@ export namespace convert {
 	    recordCount: number;
 	    nameMatched?: boolean;
 	    matchedTaskIds?: string[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ConvertSourceEntry(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.source = this.convertValues(source["source"], store.ConvertSource);
@@ -2990,7 +2990,7 @@ export namespace convert {
 	        this.nameMatched = source["nameMatched"];
 	        this.matchedTaskIds = source["matchedTaskIds"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -3014,11 +3014,11 @@ export namespace convert {
 	    offset: number;
 	    recordLimit: number;
 	    status?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ConvertSourceFilter(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.limit = source["limit"];
@@ -3030,17 +3030,17 @@ export namespace convert {
 	export class ConvertSourcePage {
 	    items: ConvertSourceEntry[];
 	    total: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ConvertSourcePage(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.items = this.convertValues(source["items"], ConvertSourceEntry);
 	        this.total = source["total"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -3064,11 +3064,11 @@ export namespace convert {
 	    options: ffmpeg.ConvertOptions;
 	    outputDir: string;
 	    presetId: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ConvertSubmitRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sourceIds = source["sourceIds"];
@@ -3076,7 +3076,7 @@ export namespace convert {
 	        this.outputDir = source["outputDir"];
 	        this.presetId = source["presetId"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -3098,11 +3098,11 @@ export namespace convert {
 	export class SkippedSource {
 	    sourceId: string;
 	    reason: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SkippedSource(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sourceId = source["sourceId"];
@@ -3112,17 +3112,17 @@ export namespace convert {
 	export class ConvertSubmitResult {
 	    tasks: store.Task[];
 	    skipped: SkippedSource[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ConvertSubmitResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.tasks = this.convertValues(source["tasks"], store.Task);
 	        this.skipped = this.convertValues(source["skipped"], SkippedSource);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -3147,11 +3147,11 @@ export namespace convert {
 	    builtIn: boolean;
 	    paramsSummary: string;
 	    options: ffmpeg.ConvertOptions;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new FormatPreset(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -3160,7 +3160,7 @@ export namespace convert {
 	        this.paramsSummary = source["paramsSummary"];
 	        this.options = this.convertValues(source["options"], ffmpeg.ConvertOptions);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -3189,11 +3189,11 @@ export namespace convert {
 	    reasonCode?: string;
 	    defaultPresetId: string;
 	    presets: FormatPreset[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new FormatEntry(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.category = source["category"];
@@ -3206,7 +3206,7 @@ export namespace convert {
 	        this.defaultPresetId = source["defaultPresetId"];
 	        this.presets = this.convertValues(source["presets"], FormatPreset);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -3225,17 +3225,17 @@ export namespace convert {
 		    return a;
 		}
 	}
-
+	
 	export class Preset {
 	    id: string;
 	    name: string;
 	    builtIn: boolean;
 	    options: ffmpeg.ConvertOptions;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Preset(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -3243,7 +3243,7 @@ export namespace convert {
 	        this.builtIn = source["builtIn"];
 	        this.options = this.convertValues(source["options"], ffmpeg.ConvertOptions);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -3266,11 +3266,11 @@ export namespace convert {
 	    url: string;
 	    mime: string;
 	    size: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new PreviewURL(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.url = source["url"];
@@ -3282,18 +3282,18 @@ export namespace convert {
 	    taskId: string;
 	    presetId?: string;
 	    options?: ffmpeg.ConvertOptions;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ReconvertRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.taskId = source["taskId"];
 	        this.presetId = source["presetId"];
 	        this.options = this.convertValues(source["options"], ffmpeg.ConvertOptions);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -3312,18 +3312,18 @@ export namespace convert {
 		    return a;
 		}
 	}
-
+	
 	export class SourcePathCheck {
 	    sourceId: string;
 	    found: boolean;
 	    exists: boolean;
 	    originalExists: boolean;
 	    storedExists: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SourcePathCheck(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sourceId = source["sourceId"];
@@ -3337,7 +3337,7 @@ export namespace convert {
 }
 
 export namespace doc {
-
+	
 	export class DocSource {
 	    sourceId: string;
 	    path: string;
@@ -3354,11 +3354,11 @@ export namespace doc {
 	    ext: string;
 	    family: string;
 	    sheetCount: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocSource(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sourceId = source["sourceId"];
@@ -3377,7 +3377,7 @@ export namespace doc {
 	        this.family = source["family"];
 	        this.sheetCount = source["sheetCount"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -3400,18 +3400,18 @@ export namespace doc {
 	    path: string;
 	    source?: DocSource;
 	    error?: apperr.AppError;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new AddDocSourceResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
 	        this.source = this.convertValues(source["source"], DocSource);
 	        this.error = this.convertValues(source["error"], apperr.AppError);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -3434,11 +3434,11 @@ export namespace doc {
 	    saveId: string;
 	    seq: number;
 	    data: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocBinaryChunk(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.saveId = source["saveId"];
@@ -3448,11 +3448,11 @@ export namespace doc {
 	}
 	export class DocBinaryChunkResult {
 	    receivedBytes: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocBinaryChunkResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.receivedBytes = source["receivedBytes"];
@@ -3460,11 +3460,11 @@ export namespace doc {
 	}
 	export class DocBinarySaveAbort {
 	    saveId: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocBinarySaveAbort(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.saveId = source["saveId"];
@@ -3477,11 +3477,11 @@ export namespace doc {
 	    targetPath?: string;
 	    revision?: string;
 	    totalBytes: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocBinarySaveBegin(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sourceId = source["sourceId"];
@@ -3495,11 +3495,11 @@ export namespace doc {
 	export class DocBinarySaveCommit {
 	    saveId: string;
 	    sha256: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocBinarySaveCommit(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.saveId = source["saveId"];
@@ -3512,11 +3512,11 @@ export namespace doc {
 	    sizeBytes: number;
 	    savedAt: number;
 	    backupPath?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocBinarySaveResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
@@ -3530,11 +3530,11 @@ export namespace doc {
 	    saveId: string;
 	    maxChunkBytes: number;
 	    expiresAt: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocBinarySaveSession(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.saveId = source["saveId"];
@@ -3549,11 +3549,11 @@ export namespace doc {
 	    maxPdfBytes: number;
 	    chunkBytes: number;
 	    wholeLoadBytes: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocLimits(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.maxInputsPerSubmit = source["maxInputsPerSubmit"];
@@ -3568,11 +3568,11 @@ export namespace doc {
 	    available: boolean;
 	    name: string;
 	    cjk: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocFont(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.available = source["available"];
@@ -3585,11 +3585,11 @@ export namespace doc {
 	    supported: boolean;
 	    fidelity: string;
 	    reason: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocFormat(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ext = source["ext"];
@@ -3603,11 +3603,11 @@ export namespace doc {
 	    font: DocFont;
 	    limits: DocLimits;
 	    experimental: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocCapabilities(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.formats = this.convertValues(source["formats"], DocFormat);
@@ -3615,7 +3615,7 @@ export namespace doc {
 	        this.limits = this.convertValues(source["limits"], DocLimits);
 	        this.experimental = source["experimental"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -3642,11 +3642,11 @@ export namespace doc {
 	    installed: boolean;
 	    families: string[];
 	    available: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocEngineInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -3670,11 +3670,11 @@ export namespace doc {
 	    phase?: string;
 	    receivedBytes?: number;
 	    error?: apperr.AppError;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocComponentStatus(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.state = source["state"];
@@ -3689,7 +3689,7 @@ export namespace doc {
 	        this.receivedBytes = source["receivedBytes"];
 	        this.error = this.convertValues(source["error"], apperr.AppError);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -3708,9 +3708,9 @@ export namespace doc {
 		    return a;
 		}
 	}
-
-
-
+	
+	
+	
 	export class DocTarget {
 	    ext: string;
 	    displayName: string;
@@ -3721,11 +3721,11 @@ export namespace doc {
 	    hint?: string;
 	    disabledReason?: string;
 	    engines?: string[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocTarget(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ext = source["ext"];
@@ -3744,11 +3744,11 @@ export namespace doc {
 	    aliases?: string[];
 	    family: string;
 	    targets: DocTarget[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocSourceFormats(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ext = source["ext"];
@@ -3756,7 +3756,7 @@ export namespace doc {
 	        this.family = source["family"];
 	        this.targets = this.convertValues(source["targets"], DocTarget);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -3779,18 +3779,18 @@ export namespace doc {
 	    componentReady: boolean;
 	    inputs: string[];
 	    sources: DocSourceFormats[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocFormatMatrix(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.componentReady = source["componentReady"];
 	        this.inputs = source["inputs"];
 	        this.sources = this.convertValues(source["sources"], DocSourceFormats);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -3809,7 +3809,7 @@ export namespace doc {
 		    return a;
 		}
 	}
-
+	
 	export class DocPreview {
 	    previewId: string;
 	    kind: string;
@@ -3830,11 +3830,11 @@ export namespace doc {
 	    revision?: string;
 	    encoding?: string;
 	    lineEnding?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocPreview(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.previewId = source["previewId"];
@@ -3857,7 +3857,7 @@ export namespace doc {
 	        this.encoding = source["encoding"];
 	        this.lineEnding = source["lineEnding"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -3879,11 +3879,11 @@ export namespace doc {
 	export class DocPreviewRequest {
 	    sourceId?: string;
 	    taskId?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocPreviewRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sourceId = source["sourceId"];
@@ -3897,11 +3897,11 @@ export namespace doc {
 	    text?: string;
 	    rows?: string[][];
 	    encoding?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocSaveAsRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sourceId = source["sourceId"];
@@ -3918,11 +3918,11 @@ export namespace doc {
 	    revision: string;
 	    text?: string;
 	    rows?: string[][];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocSaveRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sourceId = source["sourceId"];
@@ -3937,11 +3937,11 @@ export namespace doc {
 	    revision: string;
 	    sizeBytes: number;
 	    savedAt: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocSaveResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
@@ -3950,23 +3950,23 @@ export namespace doc {
 	        this.savedAt = source["savedAt"];
 	    }
 	}
-
+	
 	export class DocSourceEntry {
 	    source: DocSource;
 	    records: store.Task[];
 	    recordCount: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocSourceEntry(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.source = this.convertValues(source["source"], DocSource);
 	        this.records = this.convertValues(source["records"], store.Task);
 	        this.recordCount = source["recordCount"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -3985,21 +3985,21 @@ export namespace doc {
 		    return a;
 		}
 	}
-
+	
 	export class DocSourcePage {
 	    items: DocSourceEntry[];
 	    total: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocSourcePage(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.items = this.convertValues(source["items"], DocSourceEntry);
 	        this.total = source["total"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -4022,11 +4022,11 @@ export namespace doc {
 	    sourceIds: string[];
 	    target: string;
 	    outputDir: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DocSubmitRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sourceIds = source["sourceIds"];
@@ -4034,18 +4034,18 @@ export namespace doc {
 	        this.outputDir = source["outputDir"];
 	    }
 	}
-
+	
 	export class PDFChunk {
 	    offset: number;
 	    length: number;
 	    eof: boolean;
 	    size: number;
 	    data: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new PDFChunk(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.offset = source["offset"];
@@ -4062,11 +4062,11 @@ export namespace doc {
 	    size: number;
 	    openedAt: number;
 	    exists: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new PDFFile(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -4083,11 +4083,11 @@ export namespace doc {
 	    name: string;
 	    size: number;
 	    url: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new PDFSource(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -4101,7 +4101,7 @@ export namespace doc {
 }
 
 export namespace ffmpeg {
-
+	
 	export class ConvertOptions {
 	    container: string;
 	    videoCodec: string;
@@ -4115,11 +4115,11 @@ export namespace ffmpeg {
 	    targetSizeMb: number;
 	    trimStart: number;
 	    trimEnd: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ConvertOptions(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.container = source["container"];
@@ -4140,7 +4140,7 @@ export namespace ffmpeg {
 }
 
 export namespace genoffice {
-
+	
 	export class Preview {
 	    id: string;
 	    documentId: string;
@@ -4151,11 +4151,11 @@ export namespace genoffice {
 	    token?: string;
 	    error?: string;
 	    slide: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Preview(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -4174,11 +4174,11 @@ export namespace genoffice {
 	    path?: string;
 	    version: string;
 	    error?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ToolState(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.state = source["state"];
@@ -4191,15 +4191,15 @@ export namespace genoffice {
 }
 
 export namespace jsontool {
-
+	
 	export class CompareRequest {
 	    json1: string;
 	    json2: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CompareRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.json1 = source["json1"];
@@ -4209,11 +4209,11 @@ export namespace jsontool {
 	export class ErrorPos {
 	    line: number;
 	    column: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ErrorPos(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.line = source["line"];
@@ -4225,11 +4225,11 @@ export namespace jsontool {
 	    path: string;
 	    oldValue: string;
 	    newValue: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Difference(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.type = source["type"];
@@ -4243,11 +4243,11 @@ export namespace jsontool {
 	    differences: Difference[];
 	    error: string;
 	    errorPos: ErrorPos;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CompareResponse(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.identical = source["identical"];
@@ -4255,7 +4255,7 @@ export namespace jsontool {
 	        this.error = source["error"];
 	        this.errorPos = this.convertValues(source["errorPos"], ErrorPos);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -4274,17 +4274,17 @@ export namespace jsontool {
 		    return a;
 		}
 	}
-
-
+	
+	
 	export class FormatRequest {
 	    json: string;
 	    indent: number;
 	    compact: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new FormatRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.json = source["json"];
@@ -4296,18 +4296,18 @@ export namespace jsontool {
 	    formatted: string;
 	    error: string;
 	    errorPos: ErrorPos;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new FormatResponse(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.formatted = source["formatted"];
 	        this.error = source["error"];
 	        this.errorPos = this.convertValues(source["errorPos"], ErrorPos);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -4328,11 +4328,11 @@ export namespace jsontool {
 	}
 	export class ValidateRequest {
 	    json: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ValidateRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.json = source["json"];
@@ -4342,18 +4342,18 @@ export namespace jsontool {
 	    valid: boolean;
 	    error: string;
 	    errorPos: ErrorPos;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ValidateResponse(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.valid = source["valid"];
 	        this.error = source["error"];
 	        this.errorPos = this.convertValues(source["errorPos"], ErrorPos);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -4376,17 +4376,17 @@ export namespace jsontool {
 }
 
 export namespace lang {
-
+	
 	export class ExportSubtitleRequest {
 	    taskId: string;
 	    cues: langasr.SubtitleCue[];
 	    format: string;
 	    targetPath?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ExportSubtitleRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.taskId = source["taskId"];
@@ -4394,7 +4394,7 @@ export namespace lang {
 	        this.format = source["format"];
 	        this.targetPath = source["targetPath"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -4415,11 +4415,11 @@ export namespace lang {
 	}
 	export class ExportSubtitleResult {
 	    path: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ExportSubtitleResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
@@ -4430,11 +4430,11 @@ export namespace lang {
 	    language?: string;
 	    format: string;
 	    outputDir?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SpeechToSubtitleRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.paths = source["paths"];
@@ -4447,7 +4447,7 @@ export namespace lang {
 }
 
 export namespace langasr {
-
+	
 	export class Status {
 	    state: string;
 	    version: string;
@@ -4459,11 +4459,11 @@ export namespace langasr {
 	    phase?: string;
 	    receivedBytes?: number;
 	    error?: apperr.AppError;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Status(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.state = source["state"];
@@ -4477,7 +4477,7 @@ export namespace langasr {
 	        this.receivedBytes = source["receivedBytes"];
 	        this.error = this.convertValues(source["error"], apperr.AppError);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -4501,11 +4501,11 @@ export namespace langasr {
 	    text: string;
 	    startMs: number;
 	    endMs: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SubtitleCue(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -4518,7 +4518,7 @@ export namespace langasr {
 }
 
 export namespace live {
-
+	
 	export class CaptureCapabilities {
 	    supported: boolean;
 	    platform: string;
@@ -4527,11 +4527,11 @@ export namespace live {
 	    permission: string;
 	    audioCapture: boolean;
 	    reason: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CaptureCapabilities(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.supported = source["supported"];
@@ -4549,11 +4549,11 @@ export namespace live {
 	    title: string;
 	    width: number;
 	    height: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CaptureSource(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -4569,11 +4569,11 @@ export namespace live {
 	    fps: number;
 	    videoBitrateKbps: number;
 	    audioBitrateKbps: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new PushOptions(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.width = source["width"];
@@ -4589,11 +4589,11 @@ export namespace live {
 	    loop: boolean;
 	    options: PushOptions;
 	    preview?: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new FilePushRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.inputPath = source["inputPath"];
@@ -4602,7 +4602,7 @@ export namespace live {
 	        this.options = this.convertValues(source["options"], PushOptions);
 	        this.preview = source["preview"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -4626,11 +4626,11 @@ export namespace live {
 	    mime: string;
 	    hasVideo: boolean;
 	    hasAudio: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new PreviewStream(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.url = source["url"];
@@ -4642,11 +4642,11 @@ export namespace live {
 	export class PullPreviewRequest {
 	    url: string;
 	    preview?: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new PullPreviewRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.url = source["url"];
@@ -4660,11 +4660,11 @@ export namespace live {
 	    previewUrl: string;
 	    hasVideo?: boolean;
 	    hasAudio?: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new PullSession(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -4675,17 +4675,17 @@ export namespace live {
 	        this.hasAudio = source["hasAudio"];
 	    }
 	}
-
+	
 	export class PushURLInfo {
 	    scheme: string;
 	    host: string;
 	    port: number;
 	    redacted: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new PushURLInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.scheme = source["scheme"];
@@ -4703,11 +4703,11 @@ export namespace live {
 	    width: number;
 	    height: number;
 	    scale: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ScreenInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -4729,11 +4729,11 @@ export namespace live {
 	    options: PushOptions;
 	    preview?: boolean;
 	    captureSourceId: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ScreenPushRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.url = source["url"];
@@ -4745,7 +4745,7 @@ export namespace live {
 	        this.preview = source["preview"];
 	        this.captureSourceId = source["captureSourceId"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -4768,16 +4768,16 @@ export namespace live {
 }
 
 export namespace main {
-
+	
 	export class AppLanguage {
 	    lang: string;
 	    system: string;
 	    effective: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new AppLanguage(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.lang = source["lang"];
@@ -4787,11 +4787,11 @@ export namespace main {
 	}
 	export class SetAppLanguageRequest {
 	    lang: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SetAppLanguageRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.lang = source["lang"];
@@ -4801,17 +4801,17 @@ export namespace main {
 }
 
 export namespace media {
-
+	
 	export class Thumb {
 	    path: string;
 	    dataUrl: string;
 	    atSec: number;
 	    width: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Thumb(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
@@ -4824,16 +4824,16 @@ export namespace media {
 }
 
 export namespace office {
-
+	
 	export class ExportOfficeCanvasPptxRequest {
 	    convId: string;
 	    artifactId: string;
 	    destPath?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ExportOfficeCanvasPptxRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.convId = source["convId"];
@@ -4844,11 +4844,11 @@ export namespace office {
 	export class ExportOfficeCanvasPptxResult {
 	    path: string;
 	    bytes: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ExportOfficeCanvasPptxResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.path = source["path"];
@@ -4859,7 +4859,7 @@ export namespace office {
 }
 
 export namespace officecanvas {
-
+	
 	export class Status {
 	    state: string;
 	    version: string;
@@ -4870,11 +4870,11 @@ export namespace officecanvas {
 	    phase?: string;
 	    receivedBytes?: number;
 	    error?: apperr.AppError;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Status(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.state = source["state"];
@@ -4887,7 +4887,7 @@ export namespace officecanvas {
 	        this.receivedBytes = source["receivedBytes"];
 	        this.error = this.convertValues(source["error"], apperr.AppError);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -4910,7 +4910,7 @@ export namespace officecanvas {
 }
 
 export namespace store {
-
+	
 	export class CatConversation {
 	    id: string;
 	    title: string;
@@ -4923,11 +4923,11 @@ export namespace store {
 	    customTitle?: string;
 	    pinned: boolean;
 	    archived: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CatConversation(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -4949,11 +4949,11 @@ export namespace store {
 	    path?: string;
 	    mime?: string;
 	    data?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CatMedia(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.kind = source["kind"];
@@ -4975,11 +4975,11 @@ export namespace store {
 	    outputTokens?: number;
 	    firstTokenMs?: number;
 	    totalMs?: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CatMessage(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -4994,7 +4994,7 @@ export namespace store {
 	        this.firstTokenMs = source["firstTokenMs"];
 	        this.totalMs = source["totalMs"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -5030,11 +5030,11 @@ export namespace store {
 	    channelLayout?: string;
 	    language?: string;
 	    attachedPic?: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new StreamInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.index = source["index"];
@@ -5079,11 +5079,11 @@ export namespace store {
 	    streams?: StreamInfo[];
 	    error?: apperr.AppError;
 	    probedAt: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new MediaInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -5110,7 +5110,7 @@ export namespace store {
 	        this.error = this.convertValues(source["error"], apperr.AppError);
 	        this.probedAt = source["probedAt"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -5142,11 +5142,11 @@ export namespace store {
 	    copiedBytes: number;
 	    totalBytes: number;
 	    copyError?: apperr.AppError;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ConvertSource(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sourceId = source["sourceId"];
@@ -5162,7 +5162,7 @@ export namespace store {
 	        this.totalBytes = source["totalBytes"];
 	        this.copyError = this.convertValues(source["copyError"], apperr.AppError);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -5181,17 +5181,17 @@ export namespace store {
 		    return a;
 		}
 	}
-
+	
 	export class ReconvertError {
 	    code: string;
 	    message: string;
 	    detail?: string;
 	    at: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ReconvertError(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.code = source["code"];
@@ -5200,17 +5200,17 @@ export namespace store {
 	        this.at = source["at"];
 	    }
 	}
-
+	
 	export class SubtitleCue {
 	    id: string;
 	    text: string;
 	    startMs: number;
 	    endMs: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SubtitleCue(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -5228,11 +5228,11 @@ export namespace store {
 	    warnings?: string[];
 	    engine?: string;
 	    cues?: SubtitleCue[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new TaskResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.sizeBytes = source["sizeBytes"];
@@ -5244,7 +5244,7 @@ export namespace store {
 	        this.engine = source["engine"];
 	        this.cues = this.convertValues(source["cues"], SubtitleCue);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -5292,11 +5292,11 @@ export namespace store {
 	    reconverting: boolean;
 	    lastReconvertError?: ReconvertError;
 	    queuePosition?: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Task(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -5328,7 +5328,7 @@ export namespace store {
 	        this.lastReconvertError = this.convertValues(source["lastReconvertError"], ReconvertError);
 	        this.queuePosition = source["queuePosition"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -5353,11 +5353,11 @@ export namespace store {
 	    limit: number;
 	    offset: number;
 	    includeHidden?: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new TaskFilter(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.types = source["types"];
@@ -5370,17 +5370,17 @@ export namespace store {
 	export class TaskPage {
 	    items: Task[];
 	    total: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new TaskPage(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.items = this.convertValues(source["items"], Task);
 	        this.total = source["total"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -5403,15 +5403,15 @@ export namespace store {
 }
 
 export namespace system {
-
+	
 	export class EncoderNames {
 	    h264: string;
 	    hevc: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new EncoderNames(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.h264 = source["h264"];
@@ -5427,11 +5427,11 @@ export namespace system {
 	    encoders: EncoderNames;
 	    available: boolean;
 	    reason?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new EncoderDevice(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -5443,7 +5443,7 @@ export namespace system {
 	        this.available = source["available"];
 	        this.reason = source["reason"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -5465,17 +5465,17 @@ export namespace system {
 	export class EncoderDeviceList {
 	    ffmpegReady: boolean;
 	    devices: EncoderDevice[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new EncoderDeviceList(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ffmpegReady = source["ffmpegReady"];
 	        this.devices = this.convertValues(source["devices"], EncoderDevice);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -5494,17 +5494,17 @@ export namespace system {
 		    return a;
 		}
 	}
-
+	
 	export class EncoderPreferenceInfo {
 	    id: string;
 	    name: string;
 	    available: boolean;
 	    reason?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new EncoderPreferenceInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -5521,11 +5521,11 @@ export namespace system {
 	    customPathInvalid: boolean;
 	    ffprobeMissing: boolean;
 	    error?: apperr.AppError;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new FFmpegStatus(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.state = source["state"];
@@ -5536,7 +5536,7 @@ export namespace system {
 	        this.ffprobeMissing = source["ffprobeMissing"];
 	        this.error = this.convertValues(source["error"], apperr.AppError);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -5558,11 +5558,11 @@ export namespace system {
 	export class FileFilter {
 	    name: string;
 	    patterns: string[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new FileFilter(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
@@ -5573,11 +5573,11 @@ export namespace system {
 	    platform: string;
 	    supported: boolean;
 	    mirrors: string[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new InstallOptions(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.platform = source["platform"];
@@ -5594,11 +5594,11 @@ export namespace system {
 	    docEngine: string;
 	    asrTier: string;
 	    catDefaultAgentKind: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ffmpegPath = source["ffmpegPath"];
@@ -5622,11 +5622,11 @@ export namespace system {
 	    fellBack: boolean;
 	    outputAvailable: boolean;
 	    uploadsAvailable: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new StorageDirs(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.outputDir = source["outputDir"];
@@ -5644,11 +5644,11 @@ export namespace system {
 	export class StorageDirsUpdate {
 	    outputDir: string;
 	    uploadsDir: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new StorageDirsUpdate(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.outputDir = source["outputDir"];
@@ -5659,18 +5659,18 @@ export namespace system {
 }
 
 export namespace task {
-
+	
 	export class DeleteFailure {
 	    taskId: string;
 	    sourceId?: string;
 	    path?: string;
 	    reason: string;
 	    message: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DeleteFailure(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.taskId = source["taskId"];
@@ -5685,11 +5685,11 @@ export namespace task {
 	    deletedSourceIds: string[];
 	    deletedFiles: number;
 	    failures: DeleteFailure[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new DeleteResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.deletedTaskIds = source["deletedTaskIds"];
@@ -5697,7 +5697,7 @@ export namespace task {
 	        this.deletedFiles = source["deletedFiles"];
 	        this.failures = this.convertValues(source["failures"], DeleteFailure);
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -5723,11 +5723,11 @@ export namespace task {
 	    outputExists: boolean;
 	    reconvertMode: string;
 	    reconvertBlock: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new TaskPathCheck(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.taskId = source["taskId"];
@@ -5740,3 +5740,4 @@ export namespace task {
 	}
 
 }
+

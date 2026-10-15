@@ -80,1185 +80,1185 @@ Tr\u1EA3 l\u1EDDi b\u1EB1ng ng\xF4n ng\u1EEF c\u1EE7a tin nh\u1EAFn ng\u01B0\u1E
 	constructor(\${params}) {
 		\${}
 	}
-}`,{label:"class",detail:"definition",type:"keyword"}),ei('import {${names}} from "${module}"\n${}',{label:"import",detail:"named",type:"keyword"}),ei('import ${name} from "${module}"\n${}',{label:"import",detail:"default",type:"keyword"})],bq=i6.concat([ei("interface ${name} {\n	${}\n}",{label:"interface",detail:"definition",type:"keyword"}),ei("type ${name} = ${type}",{label:"type",detail:"definition",type:"keyword"}),ei("enum ${name} {\n	${}\n}",{label:"enum",detail:"definition",type:"keyword"})]),e6=new nu,r6=new Set(["Script","Block","FunctionExpression","FunctionDeclaration","ArrowFunction","MethodDeclaration","ForStatement"]);Oq=["FunctionDeclaration"],yq={FunctionDeclaration:jh("function"),ClassDeclaration:jh("class"),ClassExpression:()=>!0,EnumDeclaration:jh("constant"),TypeAliasDeclaration:jh("type"),NamespaceDeclaration:jh("namespace"),VariableDefinition(t,e){t.matchContext(Oq)||e(t,"variable")},TypeDefinition(t,e){e(t,"type")},__proto__:null};t6=/^[\w$\xa1-\uffff][\w$\d\xa1-\uffff]*$/,o6=["TemplateString","String","RegExp","LineComment","BlockComment","VariableDefinition","TypeDefinition","Label","PropertyDefinition","PropertyName","PrivatePropertyDefinition","PrivatePropertyName","JSXText","JSXAttributeValue","JSXOpenTag","JSXCloseTag","JSXSelfClosingTag",".","?."];Br=Ko.define({name:"javascript",parser:KD.configure({props:[ul.add({IfStatement:cu({except:/^\s*({|else\b)/}),TryStatement:cu({except:/^\s*({|catch\b|finally\b)/}),LabeledStatement:BI,SwitchBody:t=>{let e=t.textAfter,n=/^\s*\}/.test(e),i=/^\s*(case|default)\b/.test(e);return t.baseIndent+(n?0:i?1:2)*t.unit},Block:LI({closing:"}"}),ArrowFunction:t=>t.baseIndent+t.unit,"TemplateString BlockComment":()=>null,"Statement Property":cu({except:/^\s*{/}),JSXElement(t){let e=/^\s*<\//.test(t.textAfter);return t.lineIndent(t.node.from)+(e?0:t.unit)},JSXEscape(t){let e=/\s*\}/.test(t.textAfter);return t.lineIndent(t.node.from)+(e?0:t.unit)},"JSXOpenTag JSXSelfClosingTag"(t){return t.column(t.node.from)+t.unit}}),dl.add({"Block ClassBody SwitchBody EnumBody ObjectExpression ArrayExpression ObjectType":Wg,BlockComment(t){return{from:t.from+2,to:t.to-2}},JSXElement(t){let e=t.firstChild;if(!e||e.name=="JSXSelfClosingTag")return null;let n=t.lastChild;return{from:e.to,to:n.type.isError?t.to:n.from}},"JSXSelfClosingTag JSXOpenTag"(t){var e;let n=(e=t.firstChild)===null||e===void 0?void 0:e.nextSibling,i=t.lastChild;return!n||n.type.isError?null:{from:n.to,to:i.type.isError?t.to:i.from}}})]}),languageData:{closeBrackets:{brackets:["(","[","{","'",'"',"`"]},commentTokens:{line:"//",block:{open:"/*",close:"*/"}},indentOnInput:/^\s*(?:case |default:|\{|\}|<\/)$/,wordChars:"$"}}),s6={test:t=>/^JSX/.test(t.name),facet:OS({commentTokens:{block:{open:"{/*",close:"*/}"}}})},hT=Br.configure({dialect:"ts"},"typescript"),fT=Br.configure({dialect:"jsx",props:[Xg.add(t=>t.isTop?[s6]:void 0)]}),pT=Br.configure({dialect:"jsx ts",props:[Xg.add(t=>t.isTop?[s6]:void 0)]},"typescript"),l6=t=>({label:t,type:"keyword"}),c6="break case const continue default delete export extends false finally in instanceof let new return static super switch this throw true typeof var yield".split(" ").map(l6),xq=c6.concat(["declare","implements","private","protected","public"].map(l6));Tq=typeof navigator=="object"&&/Android\b/.test(navigator.userAgent),kq=le.inputHandler.of((t,e,n,i,r)=>{if((Tq?t.composing:t.compositionStarted)||t.state.readOnly||e!=n||i!=">"&&i!="/"||!Br.isActiveAt(t.state,e,-1))return!1;let a=r(),{state:o}=a,s=o.changeByRange(l=>{var c;let{head:u}=l,d=xt(o).resolveInner(u-1,-1),h;if(d.name=="JSXStartTag"&&(d=d.parent),!(o.doc.sliceString(u-1,u)!=i||d.name=="JSXAttributeValue"&&d.to>u)){if(i==">"&&d.name=="JSXFragmentTag")return{range:l,changes:{from:u,insert:"</>"}};if(i=="/"&&d.name=="JSXStartCloseTag"){let p=d.parent,m=p.parent;if(m&&p.from==u-2&&((h=n6(o.doc,m.firstChild,u))||((c=m.firstChild)===null||c===void 0?void 0:c.name)=="JSXFragmentTag")){let b=`${h}>`;return{range:W.cursor(u+b.length,-1),changes:{from:u,insert:b}}}}else if(i==">"){let p=Sq(d);if(p&&p.name=="JSXOpenTag"&&!/^\/?>|^<\//.test(o.doc.sliceString(u,u+2))&&(h=n6(o.doc,p,u)))return{range:l,changes:{from:u,insert:`</${h}>`}}}}return{range:l}});return s.changes.empty?!1:(t.dispatch([a,o.update(s,{userEvent:"input.complete",scrollIntoView:!0})]),!0)})});function ml(t,e,n=t.length){if(!e)return"";let i=e.firstChild,r=i&&i.getChild("TagName");return r?t.sliceString(r.from,Math.min(r.to,n)):""}function bu(t,e=!1){for(;t;t=t.parent)if(t.name=="Element")if(e)e=!1;else return t;return null}function b6(t,e,n){let i=n.tags[ml(t,bu(e))];return i?.children||n.allTags}function OT(t,e){let n=[];for(let i=bu(e);i&&!i.type.isTop;i=bu(i.parent)){let r=ml(t,i);if(r&&i.lastChild.name=="CloseTag")break;r&&n.indexOf(r)<0&&(e.name=="EndTag"||e.from>=i.firstChild.to)&&n.push(r)}return n}function h6(t,e,n,i,r){let a=/\s*>/.test(t.sliceDoc(r,r+5))?"":">",o=bu(n,n.name=="StartTag"||n.name=="TagName");return{from:i,to:r,options:b6(t.doc,o,e).map(s=>({label:s,type:"type"})).concat(OT(t.doc,n).map((s,l)=>({label:"/"+s,apply:"/"+s+a,type:"type",boost:99-l}))),validFor:/^\/?[:\-\.\w\u00b7-\uffff]*$/}}function f6(t,e,n,i){let r=/\s*>/.test(t.sliceDoc(i,i+5))?"":">";return{from:n,to:i,options:OT(t.doc,e).map((a,o)=>({label:a,apply:a+r,type:"type",boost:99-o})),validFor:O6}}function Aq(t,e,n,i){let r=[],a=0;for(let o of b6(t.doc,n,e))r.push({label:"<"+o,type:"type"});for(let o of OT(t.doc,n))r.push({label:"</"+o+">",type:"type",boost:99-a++});return{from:i,to:i,options:r,validFor:/^<\/?[:\-\.\w\u00b7-\uffff]*$/}}function wq(t,e,n,i,r){let a=bu(n),o=a?e.tags[ml(t.doc,a)]:null,s=o&&o.attrs?Object.keys(o.attrs):[],l=o&&o.globalAttrs===!1?s:s.length?s.concat(e.globalAttrNames):e.globalAttrNames;return{from:i,to:r,options:l.map(c=>({label:c,type:"property"})),validFor:O6}}function Cq(t,e,n,i,r){var a;let o=(a=n.parent)===null||a===void 0?void 0:a.getChild("AttributeName"),s=[],l;if(o){let c=t.sliceDoc(o.from,o.to),u=e.globalAttrs[c];if(!u){let d=bu(n),h=d?e.tags[ml(t.doc,d)]:null;u=h?.attrs&&h.attrs[c]}if(u){let d=t.sliceDoc(i,r).toLowerCase(),h='"',p='"';/^['"]/.test(d)?(l=d[0]=='"'?/^[^"]*$/:/^[^']*$/,h="",p=t.sliceDoc(r,r+1)==d[0]?"":d[0],d=d.slice(1),i++):l=/^[^\s<>='"]*$/;for(let m of u)s.push({label:m,apply:h+m+p,type:"constant"})}}return{from:i,to:r,options:s,validFor:l}}function Pq(t,e){let{state:n,pos:i}=e,r=xt(n).resolveInner(i,-1),a=r.resolve(i);for(let o=i,s;a==r&&(s=r.childBefore(o));){let l=s.lastChild;if(!l||!l.type.isError||l.from<l.to)break;a=r=s,o=l.from}return r.name=="TagName"?r.parent&&/CloseTag$/.test(r.parent.name)?f6(n,r,r.from,i):h6(n,t,r,r.from,i):r.name=="StartTag"||r.name=="IncompleteTag"?h6(n,t,r,i,i):r.name=="StartCloseTag"||r.name=="IncompleteCloseTag"?f6(n,r,i,i):r.name=="OpenTag"||r.name=="SelfClosingTag"||r.name=="AttributeName"?wq(n,t,r,r.name=="AttributeName"?r.from:i,i):r.name=="Is"||r.name=="AttributeValue"||r.name=="UnquotedAttributeValue"?Cq(n,t,r,r.name=="Is"?i:r.from,i):e.explicit&&(a.name=="Element"||a.name=="Text"||a.name=="Document")?Aq(n,t,r,i):null}function Rq(t){let{extraTags:e,extraGlobalAttributes:n}=t,i=n||e?new gu(e,n):gu.default;return r=>Pq(i,r)}function S6(t={}){let e="",n;t.matchClosingTags===!1&&(e="noMatch"),t.selfClosingTags===!0&&(e=(e?e+" ":"")+"selfClosing"),(t.nestedLanguages&&t.nestedLanguages.length||t.nestedAttributes&&t.nestedAttributes.length)&&(n=aT((t.nestedLanguages||[]).concat(y6),(t.nestedAttributes||[]).concat(v6)));let i=n?x6.configure({wrap:n,dialect:e}):e?mb.configure({dialect:e}):mb;return new es(i,[mb.data.of({autocomplete:Rq(t)}),t.autoCloseTags!==!1?Iq:[],u6().support,qD().support])}function _q(t,e,n){for(var i;;){if(((i=e.lastChild)===null||i===void 0?void 0:i.name)!="CloseTag")return!1;let r=e.parent;if(!r||ml(t,r)!=n)return!0;e=r}}var Hh,mT,gT,bT,Bi,be,Eq,m6,g6,gu,O6,Mq,y6,v6,x6,mb,p6,Iq,T6=P(()=>{DD();YD();d6();ur();ir();hl();Hh=["_blank","_self","_top","_parent"],mT=["ascii","utf-8","utf-16","latin1","latin1"],gT=["get","post","put","delete"],bT=["application/x-www-form-urlencoded","multipart/form-data","text/plain"],Bi=["true","false"],be={},Eq={a:{attrs:{href:null,ping:null,type:null,media:null,target:Hh,hreflang:null}},abbr:be,address:be,area:{attrs:{alt:null,coords:null,href:null,target:null,ping:null,media:null,hreflang:null,type:null,shape:["default","rect","circle","poly"]}},article:be,aside:be,audio:{attrs:{src:null,mediagroup:null,crossorigin:["anonymous","use-credentials"],preload:["none","metadata","auto"],autoplay:["autoplay"],loop:["loop"],controls:["controls"]}},b:be,base:{attrs:{href:null,target:Hh}},bdi:be,bdo:be,blockquote:{attrs:{cite:null}},body:be,br:be,button:{attrs:{form:null,formaction:null,name:null,value:null,autofocus:["autofocus"],disabled:["autofocus"],formenctype:bT,formmethod:gT,formnovalidate:["novalidate"],formtarget:Hh,type:["submit","reset","button"]}},canvas:{attrs:{width:null,height:null}},caption:be,center:be,cite:be,code:be,col:{attrs:{span:null}},colgroup:{attrs:{span:null}},command:{attrs:{type:["command","checkbox","radio"],label:null,icon:null,radiogroup:null,command:null,title:null,disabled:["disabled"],checked:["checked"]}},data:{attrs:{value:null}},datagrid:{attrs:{disabled:["disabled"],multiple:["multiple"]}},datalist:{attrs:{data:null}},dd:be,del:{attrs:{cite:null,datetime:null}},details:{attrs:{open:["open"]}},dfn:be,div:be,dl:be,dt:be,em:be,embed:{attrs:{src:null,type:null,width:null,height:null}},eventsource:{attrs:{src:null}},fieldset:{attrs:{disabled:["disabled"],form:null,name:null}},figcaption:be,figure:be,footer:be,form:{attrs:{action:null,name:null,"accept-charset":mT,autocomplete:["on","off"],enctype:bT,method:gT,novalidate:["novalidate"],target:Hh}},h1:be,h2:be,h3:be,h4:be,h5:be,h6:be,head:{children:["title","base","link","style","meta","script","noscript","command"]},header:be,hgroup:be,hr:be,html:{attrs:{manifest:null}},i:be,iframe:{attrs:{src:null,srcdoc:null,name:null,width:null,height:null,sandbox:["allow-top-navigation","allow-same-origin","allow-forms","allow-scripts"],seamless:["seamless"]}},img:{attrs:{alt:null,src:null,ismap:null,usemap:null,width:null,height:null,crossorigin:["anonymous","use-credentials"]}},input:{attrs:{alt:null,dirname:null,form:null,formaction:null,height:null,list:null,max:null,maxlength:null,min:null,name:null,pattern:null,placeholder:null,size:null,src:null,step:null,value:null,width:null,accept:["audio/*","video/*","image/*"],autocomplete:["on","off"],autofocus:["autofocus"],checked:["checked"],disabled:["disabled"],formenctype:bT,formmethod:gT,formnovalidate:["novalidate"],formtarget:Hh,multiple:["multiple"],readonly:["readonly"],required:["required"],type:["hidden","text","search","tel","url","email","password","datetime","date","month","week","time","datetime-local","number","range","color","checkbox","radio","file","submit","image","reset","button"]}},ins:{attrs:{cite:null,datetime:null}},kbd:be,keygen:{attrs:{challenge:null,form:null,name:null,autofocus:["autofocus"],disabled:["disabled"],keytype:["RSA"]}},label:{attrs:{for:null,form:null}},legend:be,li:{attrs:{value:null}},link:{attrs:{href:null,type:null,hreflang:null,media:null,sizes:["all","16x16","16x16 32x32","16x16 32x32 64x64"]}},map:{attrs:{name:null}},mark:be,menu:{attrs:{label:null,type:["list","context","toolbar"]}},meta:{attrs:{content:null,charset:mT,name:["viewport","application-name","author","description","generator","keywords"],"http-equiv":["content-language","content-type","default-style","refresh"]}},meter:{attrs:{value:null,min:null,low:null,high:null,max:null,optimum:null}},nav:be,noscript:be,object:{attrs:{data:null,type:null,name:null,usemap:null,form:null,width:null,height:null,typemustmatch:["typemustmatch"]}},ol:{attrs:{reversed:["reversed"],start:null,type:["1","a","A","i","I"]},children:["li","script","template","ul","ol"]},optgroup:{attrs:{disabled:["disabled"],label:null}},option:{attrs:{disabled:["disabled"],label:null,selected:["selected"],value:null}},output:{attrs:{for:null,form:null,name:null}},p:be,param:{attrs:{name:null,value:null}},pre:be,progress:{attrs:{value:null,max:null}},q:{attrs:{cite:null}},rp:be,rt:be,ruby:be,samp:be,script:{attrs:{type:["text/javascript"],src:null,async:["async"],defer:["defer"],charset:mT}},section:be,select:{attrs:{form:null,name:null,size:null,autofocus:["autofocus"],disabled:["disabled"],multiple:["multiple"]}},slot:{attrs:{name:null}},small:be,source:{attrs:{src:null,type:null,media:null}},span:be,strong:be,style:{attrs:{type:["text/css"],media:null,scoped:null}},sub:be,summary:be,sup:be,table:be,tbody:be,td:{attrs:{colspan:null,rowspan:null,headers:null}},template:be,textarea:{attrs:{dirname:null,form:null,maxlength:null,name:null,placeholder:null,rows:null,cols:null,autofocus:["autofocus"],disabled:["disabled"],readonly:["readonly"],required:["required"],wrap:["soft","hard"]}},tfoot:be,th:{attrs:{colspan:null,rowspan:null,headers:null,scope:["row","col","rowgroup","colgroup"]}},thead:be,time:{attrs:{datetime:null}},title:be,tr:be,track:{attrs:{src:null,label:null,default:null,kind:["subtitles","captions","descriptions","chapters","metadata"],srclang:null}},ul:{children:["li","script","template","ul","ol"]},var:be,video:{attrs:{src:null,poster:null,width:null,height:null,crossorigin:["anonymous","use-credentials"],preload:["auto","metadata","none"],autoplay:["autoplay"],mediagroup:["movie"],muted:["muted"],controls:["controls"]}},wbr:be},m6={accesskey:null,class:null,contenteditable:Bi,contextmenu:null,dir:["ltr","rtl","auto"],draggable:["true","false","auto"],dropzone:["copy","move","link","string:","file:"],hidden:["hidden"],id:null,inert:["inert"],itemid:null,itemprop:null,itemref:null,itemscope:["itemscope"],itemtype:null,lang:["ar","bn","de","en-GB","en-US","es","fr","hi","id","ja","pa","pt","ru","tr","zh"],spellcheck:Bi,autocorrect:Bi,autocapitalize:Bi,style:null,tabindex:null,title:null,translate:["yes","no"],rel:["stylesheet","alternate","author","bookmark","help","license","next","nofollow","noreferrer","prefetch","prev","search","tag"],role:"alert application article banner button cell checkbox complementary contentinfo dialog document feed figure form grid gridcell heading img list listbox listitem main navigation region row rowgroup search switch tab table tabpanel textbox timer".split(" "),"aria-activedescendant":null,"aria-atomic":Bi,"aria-autocomplete":["inline","list","both","none"],"aria-busy":Bi,"aria-checked":["true","false","mixed","undefined"],"aria-controls":null,"aria-describedby":null,"aria-disabled":Bi,"aria-dropeffect":null,"aria-expanded":["true","false","undefined"],"aria-flowto":null,"aria-grabbed":["true","false","undefined"],"aria-haspopup":Bi,"aria-hidden":Bi,"aria-invalid":["true","false","grammar","spelling"],"aria-label":null,"aria-labelledby":null,"aria-level":null,"aria-live":["off","polite","assertive"],"aria-multiline":Bi,"aria-multiselectable":Bi,"aria-owns":null,"aria-posinset":null,"aria-pressed":["true","false","mixed","undefined"],"aria-readonly":Bi,"aria-relevant":null,"aria-required":Bi,"aria-selected":["true","false","undefined"],"aria-setsize":null,"aria-sort":["ascending","descending","none","other"],"aria-valuemax":null,"aria-valuemin":null,"aria-valuenow":null,"aria-valuetext":null},g6="beforeunload copy cut dragstart dragover dragleave dragenter dragend drag paste focus blur change click load mousedown mouseenter mouseleave mouseup keydown keyup resize scroll unload".split(" ").map(t=>"on"+t);for(let t of g6)m6[t]=null;gu=class{constructor(e,n){this.tags={...Eq,...e},this.globalAttrs={...m6,...n},this.allTags=Object.keys(this.tags),this.globalAttrNames=Object.keys(this.globalAttrs)}};gu.default=new gu;O6=/^[:\-\.\w\u00b7-\uffff]*$/;Mq=Br.parser.configure({top:"SingleExpression"}),y6=[{tag:"script",attrs:t=>t.type=="text/typescript"||t.lang=="ts",parser:hT.parser},{tag:"script",attrs:t=>t.type=="text/babel"||t.type=="text/jsx",parser:fT.parser},{tag:"script",attrs:t=>t.type=="text/typescript-jsx",parser:pT.parser},{tag:"script",attrs(t){return/^(importmap|speculationrules|application\/(.+\+)?json)$/i.test(t.type)},parser:Mq},{tag:"script",attrs(t){return!t.type||/^(?:text|application)\/(?:x-)?(?:java|ecma)script$|^module$|^$/i.test(t.type)},parser:Br.parser},{tag:"style",attrs(t){return(!t.lang||t.lang=="css")&&(!t.type||/^(text\/)?(x-)?(stylesheet|css)$/i.test(t.type))},parser:Uh.parser}],v6=[{name:"style",parser:Uh.parser.configure({top:"Styles"})}].concat(g6.map(t=>({name:t,parser:Br.parser}))),x6=Ko.define({name:"html",parser:_D.configure({props:[ul.add({Element(t){let e=/^(\s*)(<\/)?/.exec(t.textAfter);return t.node.to<=t.pos+e[0].length?t.continue():t.lineIndent(t.node.from)+(e[2]?0:t.unit)},"OpenTag CloseTag SelfClosingTag"(t){return t.column(t.node.from)+t.unit},Document(t){if(t.pos+/\s*/.exec(t.textAfter)[0].length<t.node.to)return t.continue();let e=null,n;for(let i=t.node;;){let r=i.lastChild;if(!r||r.name!="Element"||r.to!=i.to)break;e=i=r}return e&&!((n=e.lastChild)&&(n.name=="CloseTag"||n.name=="SelfClosingTag"))?t.lineIndent(e.from)+t.unit:null}}),dl.add({Element(t){let e=t.firstChild,n=t.lastChild;return!e||e.name!="OpenTag"?null:{from:e.to,to:n.name=="CloseTag"?n.from:t.to}}}),vS.add({"OpenTag CloseTag":t=>t.getChild("TagName")})]}),languageData:{commentTokens:{block:{open:"<!--",close:"-->"}},indentOnInput:/^\s*<\/\w+\W$/,wordChars:"-_"}}),mb=x6.configure({wrap:aT(y6,v6)});p6=new Set("area base br col command embed frame hr img input keygen link meta param source track wbr menuitem".split(" "));Iq=le.inputHandler.of((t,e,n,i,r)=>{if(t.composing||t.state.readOnly||e!=n||i!=">"&&i!="/"||!mb.isActiveAt(t.state,e,-1))return!1;let a=r(),{state:o}=a,s=o.changeByRange(l=>{var c;let u=o.doc.sliceString(l.from-1,l.to)==i,{head:d}=l,h=xt(o).resolveInner(d,-1),p;if(u&&i==">"&&h.name=="EndTag"){let m=h.parent;if((p=ml(o.doc,m.parent,d))&&!p6.has(p)&&!_q(o.doc,m.parent,p)){let b=d+(o.doc.sliceString(d,d+1)===">"?1:0),x=`</${p}>`;return{range:l,changes:{from:d,to:b,insert:x}}}}else if(u&&i=="/"&&h.name=="IncompleteCloseTag"){let m=h.parent;if(h.from==d-2&&((c=m.lastChild)===null||c===void 0?void 0:c.name)!="CloseTag"&&(p=ml(o.doc,m,d))&&!p6.has(p)){let b=d+(o.doc.sliceString(d,d+1)===">"?1:0),x=`${p}>`;return{range:W.cursor(d+x.length,-1),changes:{from:d,to:b,insert:x}}}}return{range:l}});return s.changes.empty?!1:(t.dispatch([a,o.update(s,{userEvent:"input.complete",scrollIntoView:!0})]),!0)})});function k6(){return[Nq]}var gb,Fh,Dq,Nq,yT=P(()=>{ir();ur();gb=De.define({map:(t,e)=>t.map(([n,i])=>[e.mapPos(n),e.mapPos(i,1)])}),Fh=De.define(),Dq=ge.mark({class:"cm-ai-changed"}),Nq=Yt.define({create:()=>ge.none,update(t,e){let n=t.map(e.changes);for(let i of e.effects)if(i.is(Fh))n=ge.none;else if(i.is(gb)){let r=i.value.filter(([a,o])=>o>a).sort((a,o)=>a[0]-o[0]).map(([a,o])=>Dq.range(a,o));r.length&&(n=n.update({add:r,sort:!0}))}return n},provide:t=>le.decorations.from(t)})});function A6(t,e,n){if(!e)return[];let i=new ob({search:e,caseSensitive:n.matchCase,wholeWord:n.wholeWord,literal:!0}),r=[],a=i.getCursor(t);for(let o=a.next();!o.done;o=a.next())r.push({from:o.value.from,to:o.value.to});return r}var bb,Lq,Qq,E6,vT=P(()=>{DS();ir();ur();bb=De.define(),Lq=ge.mark({class:"search-hit"}),Qq=ge.mark({class:"search-hit search-hit-active"}),E6=Yt.define({create:()=>ge.none,update(t,e){t=t.map(e.changes);for(let n of e.effects)n.is(bb)&&(t=ge.set(n.value.ranges.map((i,r)=>(r===n.value.active?Qq:Lq).range(i.from,i.to)),!0));return t},provide:t=>le.decorations.from(t)})});function w6(t){return[uI(),dI(),rI(),u4(),WI(),eI(),iI(),at.allowMultipleSelections.of(!0),zI(),YI(Bq),JI(),aD(),oI(),sI(),aI(),G4(),Th.of([...lD,...F4,...g4,...FI,X4]),S6(),k6(),E6,le.lineWrapping,zq,le.updateListener.of(e=>{e.transactions.some(n=>n.annotation(Va))||(e.docChanged||e.selectionSet)&&t(e.view)})]}var Va,Bq,zq,xT=P(()=>{ir();ur();PS();hl();DS();US();T6();ru();yT();vT();Va=In.define(),Bq=ou.define([{tag:I.tagName,color:"var(--cm-tag)"},{tag:I.angleBracket,color:"var(--cm-punct)"},{tag:I.attributeName,color:"var(--cm-attr)"},{tag:I.attributeValue,color:"var(--cm-string)"},{tag:I.string,color:"var(--cm-string)"},{tag:I.comment,color:"var(--cm-comment)",fontStyle:"italic"},{tag:I.keyword,color:"var(--cm-keyword)"},{tag:I.number,color:"var(--cm-number)"},{tag:I.propertyName,color:"var(--cm-attr)"},{tag:I.definitionKeyword,color:"var(--cm-keyword)"},{tag:I.processingInstruction,color:"var(--cm-comment)"},{tag:I.documentMeta,color:"var(--cm-comment)"}]),zq=le.theme({"&":{backgroundColor:"var(--surface)",color:"var(--text)",height:"100%"},".cm-scroller":{fontFamily:"'SF Mono', Menlo, Consolas, monospace",fontSize:"13px",lineHeight:"1.55"},".cm-content":{caretColor:"var(--text)"},".cm-cursor, .cm-dropCursor":{borderLeftColor:"var(--text)"},"&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground":{backgroundColor:"var(--accent-soft)"},".cm-activeLine":{backgroundColor:"var(--hover)"},".cm-gutters":{backgroundColor:"var(--surface)",color:"var(--text-muted)",borderRight:"1px solid var(--border)"},".cm-activeLineGutter":{backgroundColor:"var(--hover)"},".cm-foldPlaceholder":{backgroundColor:"var(--hover)",border:"1px solid var(--border)",color:"var(--text-muted)"},".cm-matchingBracket":{backgroundColor:"var(--accent-soft)",outline:"none"},".cm-selectionMatch":{backgroundColor:"var(--accent-soft)"},".cm-panels":{backgroundColor:"var(--surface)",color:"var(--text)"},".cm-panels.cm-panels-top":{borderBottom:"1px solid var(--border)"}})});function C6(t,e,n){let i=[],r="",a={matchCase:!1,wholeWord:!1},o=0,s=()=>t.dispatch({effects:bb.of({ranges:i,active:o})}),l=()=>(i=A6(t.state.doc,r,a),o=i.length===0?0:Math.min(o,i.length-1),s(),i.length);return{get editable(){return!t.state.readOnly},search(c,u,d){return r=c,a=u,o=d,l()},activate(c){let u=i[c];u&&(o=c,t.dispatch({selection:{anchor:u.from,head:u.to},effects:[bb.of({ranges:i,active:o}),le.scrollIntoView(u.from,{y:"center"})],annotations:[Va.of(!0)]}))},replaceOne(c,u){if(i.length===0)return;n?.(),l();let d=i[c];d&&t.dispatch({changes:{from:d.from,to:d.to,insert:u},userEvent:"input.replace"})},replaceAll(c){i.length!==0&&(n?.(),l()!==0&&t.dispatch({changes:i.map(u=>({from:u.from,to:u.to,insert:c})),userEvent:"input.replace.all"}))},clear(){i=[],o=0,s()},onDocChanged:e}}var P6=P(()=>{ur();vT();xT()});var Gt,as,R6,M6=P(()=>{Gt=Z(Ie(),1);ir();ur();PS();xT();yT();P6();Wt();as=Z(oe(),1),R6=(0,Gt.forwardRef)(function({initialText:e,onChange:n,onCursor:i,onBeforeReplace:r,className:a,onRedact:o},s){let{t:l}=We(),c=(0,Gt.useRef)(null),u=(0,Gt.useRef)(null),d=(0,Gt.useRef)(null),h=(0,Gt.useRef)(new Set),p=(0,Gt.useRef)(n),m=(0,Gt.useRef)(i);p.current=n,m.current=i;let[b,x]=(0,Gt.useState)(null),[g,O]=(0,Gt.useState)({left:0,top:0}),y=(0,Gt.useRef)(null),E=(0,Gt.useRef)(o);E.current=o,(0,Gt.useEffect)(()=>{let M=c.current;if(!M)return;let v=new le({parent:M,state:at.create({doc:e,extensions:w6(S=>{let C=S.state.selection.main.head,B=S.state.doc.lineAt(C);m.current({line:B.number,col:C-B.from+1,pos:C})})}),dispatchTransactions:(S,C)=>{if(C.update(S),S.some(B=>B.docChanged&&!B.annotation(Va))&&p.current(C.state.doc.toString()),S.some(B=>B.docChanged))for(let B of h.current)B()}});return u.current=v,d.current=C6(v,S=>(h.current.add(S),()=>h.current.delete(S)),r),()=>{v.destroy(),u.current=null,d.current=null}},[]);let w=M=>{let v=u.current;if(!v||!E.current)return;let S=v.state.selection.main;S.empty||(M.preventDefault(),x({x:M.clientX,y:M.clientY,from:S.from,to:S.to,text:v.state.sliceDoc(S.from,S.to)}))};return(0,Gt.useLayoutEffect)(()=>{if(!b)return;let M=y.current?.getBoundingClientRect();M&&O({left:Math.max(8,Math.min(b.x,window.innerWidth-M.width-8)),top:b.y+M.height>window.innerHeight-8?Math.max(8,b.y-M.height):b.y})},[b]),(0,Gt.useEffect)(()=>{if(!b)return;let M=S=>{y.current?.contains(S.target)||x(null)},v=S=>{S.key==="Escape"&&x(null)};return window.addEventListener("mousedown",M),window.addEventListener("keydown",v,!0),()=>{window.removeEventListener("mousedown",M),window.removeEventListener("keydown",v,!0)}},[b]),(0,Gt.useImperativeHandle)(s,()=>({setDoc(M){let v=u.current;!v||v.state.doc.toString()===M||v.dispatch({changes:{from:0,to:v.state.doc.length,insert:M},annotations:[Va.of(!0)]})},replaceDoc(M,v){let S=u.current;if(!S)return;let C=S.state.doc.length;S.dispatch({changes:{from:0,to:C,insert:M},annotations:[Va.of(!0)],effects:v?[Fh.of(null),gb.of([[0,M.length]])]:[Fh.of(null)]})},applyPatches(M,v){let S=u.current;if(!S)return[];let C=[...M].sort((N,_)=>N.from-_.from||N.to-_.to),B=[],z=0;for(let N of C)B.push([N.from+z,N.from+z+N.text.length]),z+=N.text.length-(N.to-N.from);return S.dispatch({changes:C.map(N=>({from:N.from,to:N.to,insert:N.text})),annotations:[Va.of(!0)],effects:v?[gb.of(B)]:[]}),B},clearHighlights(){u.current?.dispatch({effects:[Fh.of(null)]})},revealRange(M,v,S=!0){let C=u.current;if(!C)return;let B=C.state.doc.length,z=Math.max(0,Math.min(M,B)),N=Math.max(z,Math.min(v,B));C.dispatch({selection:{anchor:z,head:N},effects:le.scrollIntoView(z,{y:"center"}),annotations:[Va.of(!0)]}),S&&C.focus()},getSelection(){let M=u.current;if(!M)return null;let v=M.state.selection.main;return{from:v.from,to:v.to,empty:v.empty,text:M.state.sliceDoc(v.from,v.to)}},undo:()=>u.current?Kg(u.current):!1,redo:()=>u.current?Ih(u.current):!1,canUndo:()=>u.current?h4(u.current.state)>0:!1,canRedo:()=>u.current?f4(u.current.state)>0:!1,focus:()=>u.current?.focus(),findTarget:()=>d.current})),(0,as.jsxs)(as.Fragment,{children:[(0,as.jsx)("div",{ref:c,className:a,onContextMenu:w}),b&&(0,as.jsx)("div",{ref:y,className:"source-ctx",role:"menu",style:{left:g.left,top:g.top},onContextMenu:M=>M.preventDefault(),children:(0,as.jsx)("button",{className:"source-ctx-item",role:"menuitem",onClick:()=>{let M={from:b.from,to:b.to,text:b.text};x(null),E.current?.(M)},children:l("redactMenuLabel")})})]})})});function _6(t){if(typeof t!="object"||t===null)return!1;let{type:e,version:n}=t;return typeof e=="string"&&$q.has(e)&&typeof n=="number"&&Number.isFinite(n)}var $q,I6=P(()=>{$q=new Set(["gx:ready","gx:scroll","gx:hover","gx:rect","gx:select","gx:textSelect","gx:textEditCommit","gx:htmlEditCommit","gx:textEditCancel","gx:keyCommand","gx:zoom","gx:navigateBlocked","gx:markClick","gx:resize","gx:moveTo","gx:drag"])});function D6({html:t}){let{t:e}=We(),n=(0,Xh.useRef)(null),i=(0,Xh.useRef)("");return(0,Xh.useEffect)(()=>{let r=n.current?.contentDocument;if(!r)return;let a=i.current;a&&t.startsWith(a)?t.length>a.length&&r.write(t.slice(a.length)):(r.open(),r.write(t)),i.current=t},[t]),(0,ST.jsx)("div",{className:"draft-preview","aria-hidden":!0,children:(0,ST.jsx)("iframe",{ref:n,className:"draft-preview-frame",title:e("viewPreview"),sandbox:"allow-same-origin"})})}var Xh,ST,N6=P(()=>{Xh=Z(Ie(),1);Wt();ST=Z(oe(),1)});var zr,Zh,Ob,TT=P(()=>{zr=Z(Ie(),1);I6();N6();Wt();Zh=Z(oe(),1),Ob=(0,zr.forwardRef)(function({url:e,nonce:n,zoom:i,onMessage:r,onLoad:a,draft:o},s){let l=(0,zr.useRef)(null),{t:c}=We(),u=(0,zr.useRef)(r);u.current=r;let d=(0,zr.useMemo)(()=>e?`${e}?v=${n}`:"about:blank",[e,n]);return(0,zr.useEffect)(()=>{let h=p=>{p.source===l.current?.contentWindow&&_6(p.data)&&u.current(p.data)};return window.addEventListener("message",h),()=>window.removeEventListener("message",h)},[]),(0,zr.useImperativeHandle)(s,()=>({post(h){l.current?.contentWindow?.postMessage(h,"*")}})),(0,Zh.jsxs)("div",{className:"preview-host",style:{zoom:i/100},children:[(0,Zh.jsx)("iframe",{ref:l,className:"preview-frame",title:c("viewPreview"),src:d,onLoad:a,sandbox:"allow-scripts allow-forms allow-popups allow-modals",referrerPolicy:"no-referrer"}),o!=null&&(0,Zh.jsx)(D6,{html:o})]})})});function Uq(t){let e=/^<[A-Za-z][^\s/>]*/.exec(t),n=/\s*\/?>$/.exec(t),i=e?.[0].length??1,r=n?.index??t.length,a=[],o=i,s=l=>l<r&&/\s/.test(t[l]);for(;o<r;){for(;s(o);)o+=1;if(o>=r)break;let l=o;for(;o<r&&!s(o)&&t[o]!=="="&&t[o]!==">";)o+=1;if(o===l){o+=1;continue}let c=t.slice(l,o);for(;s(o);)o+=1;if(t[o]==="="){for(o+=1;s(o);)o+=1;let u=t[o]==='"'||t[o]==="'"?t[o]:"";if(u){let d=t.indexOf(u,o+1);o=d>=0&&d<r?d+1:r}else for(;o<r&&!s(o);)o+=1}a.push({name:c,start:l,end:o})}return{prefixEnd:i,closeStart:r,attributes:a}}function jq(t,e){let{prefixEnd:n,closeStart:i,attributes:r}=Uq(t),a=r.filter(c=>c.name.toLowerCase()===L6),o=t;if(a.length>0){let c=r.filter(u=>!a.includes(u)).map(u=>` ${t.slice(u.start,u.end)}`);o=t.slice(0,n)+c.join("")+t.slice(i)}let l=/\s*\/?>$/.exec(o)?.index??o.length;return`${o.slice(0,l)} ${L6}="${e}"${o.slice(l)}`}function kT(t,e,n){let i=e.elements.map(s=>({start:s.startTag[0],end:s.startTag[1],text:jq(t.slice(s.startTag[0],s.startTag[1]),s.sid)})).sort((s,l)=>l.start-s.start),r=t;for(let s of i)r=r.slice(0,s.start)+s.text+r.slice(s.end);let a=`<script data-gx-inspector>${n.replace("__GX_VERSION__",String(e.version))}<\/script>`,o=r.search(/<\/body\s*>/i);return o>=0?r.slice(0,o)+a+r.slice(o):r+a}var L6,Q6=P(()=>{L6="data-gx-sid"});var ET,B6=P(()=>{ET=`/* global window, document */
-/* Injected into the sandboxed preview frame. Plain ES2020, no imports: this
- * file is loaded as a raw string and appended as a <script>. It never mutates
- * the document except for its own overlay nodes (marked data-gx-inspector) and
- * a temporary contenteditable during text edits (a single click on rendered text
- * starts one with the caret at the click, like PowerPoint). */
-;(() => {
-  const SID = 'data-gx-sid'
-  const MARK = 'data-gx-inspector'
-  // replaced by instrumentForPreview with the parse-map version this copy was built from
-  const VERSION = Number('__GX_VERSION__')
-  const post = (msg) => window.parent.postMessage({ ...msg, version: VERSION }, '*')
-  const TEXT_TAGS = new Set([
-    'p',
-    'h1',
-    'h2',
-    'h3',
-    'h4',
-    'h5',
-    'h6',
-    'li',
-    'td',
-    'th',
-    'span',
-    'a',
-    'blockquote',
-    'figcaption',
-    'label',
-    'button',
-    'dt',
-    'dd',
-    'caption',
-    'summary',
-    'legend',
-    'em',
-    'strong',
-    'b',
-    'i',
-    'u',
-    's',
-    'small',
-    'code',
-    'cite',
-    'q',
-    'time',
-    'div',
-    'section',
-    'article',
-    'header',
-    'footer',
-    'nav',
-    'aside',
-    'main',
-    'pre',
-  ])
-  const ATOMIC = new Set(['svg', 'canvas', 'iframe', 'video', 'audio', 'object', 'embed', 'math'])
-  /** phrasing children a text element may carry and still edit inline as one run of rich text */
-  const INLINE_TAGS = new Set([
-    'a',
-    'abbr',
-    'b',
-    'bdi',
-    'bdo',
-    'br',
-    'cite',
-    'code',
-    'data',
-    'del',
-    'dfn',
-    'em',
-    'i',
-    'ins',
-    'kbd',
-    'mark',
-    'q',
-    's',
-    'samp',
-    'small',
-    'span',
-    'strong',
-    'sub',
-    'sup',
-    'time',
-    'u',
-    'var',
-    'wbr',
-  ])
-
-  let mode = 'inspect'
-  const selecting = () => mode === 'inspect'
-  let selected = null
-  let editing = null
-  let dark = false
-  let resizing = null
-  let drag = null
-  /** horizontal slide of a replaced element (image / video): live margin-left, committed as styles */
-  let slide = null
-  let pressed = null
-  let swallowClick = false
-
-  const style = document.createElement('style')
-  style.setAttribute(MARK, '')
-  style.textContent = \`
-    [\${MARK}-overlay] { position: fixed; pointer-events: none; z-index: 2147483646; box-sizing: border-box; border-radius: 2px; transition: none; }
-    [\${MARK}-overlay="hover"] { outline: 1.5px dashed var(--gx-hover, #0f7fff); outline-offset: -1px; }
-    [\${MARK}-overlay="select"] { outline: 2px solid var(--gx-select, #0f7fff); outline-offset: -1px; background: rgba(15,127,255,0.05); }
-    [\${MARK}-overlay="dynamic"] { outline: 2px solid #f59e0b; outline-offset: -1px; }
-    [\${MARK}-overlay="highlight"] { background: rgba(255,213,79,0.35); }
-    [\${MARK}-label] { position: fixed; z-index: 2147483647; pointer-events: none; font: 11px/1 -apple-system, system-ui, sans-serif; color: #fff; background: var(--gx-select, #0f7fff); padding: 2px 6px; border-radius: 3px; white-space: nowrap; }
-    [\${MARK}-editing] { outline: 2px solid #2563eb !important; outline-offset: -1px; }
-    [\${MARK}-pin] { position: fixed; z-index: 2147483647; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 9px; background: var(--gx-select, #0f7fff); color: #fff; font: 600 11px/18px -apple-system, system-ui, sans-serif; text-align: center; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
-    [\${MARK}-handle] { position: fixed; z-index: 2147483647; width: 9px; height: 9px; box-sizing: border-box; border: 1.5px solid var(--gx-select, #0f7fff); border-radius: 2px; background: #fff; pointer-events: auto; }
-    [\${MARK}-handle="n"], [\${MARK}-handle="s"] { cursor: ns-resize; }
-    [\${MARK}-handle="e"], [\${MARK}-handle="w"] { cursor: ew-resize; }
-    [\${MARK}-handle="ne"], [\${MARK}-handle="sw"] { cursor: nesw-resize; }
-    [\${MARK}-handle="nw"], [\${MARK}-handle="se"] { cursor: nwse-resize; }
-    [\${MARK}-grip] { position: fixed; z-index: 2147483647; width: 12px; height: 22px; box-sizing: border-box; border-radius: 4px; background: var(--gx-select, #0f7fff); color: #fff; font: 700 10px/22px -apple-system, system-ui, sans-serif; letter-spacing: -1px; text-align: center; cursor: grab; pointer-events: auto; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
-    [\${MARK}-drop] { position: fixed; z-index: 2147483647; pointer-events: none; background: var(--gx-select, #0f7fff); border-radius: 2px; box-shadow: 0 0 0 1px #fff; }
-    [\${MARK}-dragsrc] { opacity: 0.4 !important; }
-    html[\${MARK}-dragging], html[\${MARK}-dragging] * { cursor: grabbing !important; user-select: none !important; }
-    html[\${MARK}-cursor="text"] *:not([\${MARK}]) { cursor: text !important; }
-    html[\${MARK}-cursor="move"] *:not([\${MARK}]) { cursor: move !important; }
-    html[\${MARK}-resizing], html[\${MARK}-resizing] * { user-select: none !important; }
-    html[\${MARK}-sliding], html[\${MARK}-sliding] * { cursor: move !important; user-select: none !important; }
-  \`
-  document.documentElement.appendChild(style)
-
-  const overlay = (kind) => {
-    const el = document.createElement('div')
-    el.setAttribute(MARK, '')
-    el.setAttribute(\`\${MARK}-overlay\`, kind)
-    el.style.display = 'none'
-    document.documentElement.appendChild(el)
-    return el
-  }
-  const hoverBox = overlay('hover')
-  const selectBox = overlay('select')
-  const label = document.createElement('div')
-  label.setAttribute(MARK, '')
-  label.setAttribute(\`\${MARK}-label\`, '')
-  label.style.display = 'none'
-  document.documentElement.appendChild(label)
-  let highlightBoxes = []
-  let markPins = []
-  const HANDLE_DIRS = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
-  const handles = HANDLE_DIRS.map((dir) => {
-    const h = document.createElement('div')
-    h.setAttribute(MARK, '')
-    h.setAttribute(\`\${MARK}-handle\`, dir)
-    h.style.display = 'none'
-    document.documentElement.appendChild(h)
-    return { dir, el: h }
-  })
-  const grip = document.createElement('div')
-  grip.setAttribute(MARK, '')
-  grip.setAttribute(\`\${MARK}-grip\`, '')
-  grip.textContent = '\\u22ee\\u22ee'
-  grip.style.display = 'none'
-  document.documentElement.appendChild(grip)
-  const dropBar = document.createElement('div')
-  dropBar.setAttribute(MARK, '')
-  dropBar.setAttribute(\`\${MARK}-drop\`, '')
-  dropBar.style.display = 'none'
-  document.documentElement.appendChild(dropBar)
-
-  const place = (box, el) => {
-    if (!el || !el.isConnected) {
-      box.style.display = 'none'
-      return
-    }
-    const r = el.getBoundingClientRect()
-    box.style.display = 'block'
-    box.style.left = \`\${r.left}px\`
-    box.style.top = \`\${r.top}px\`
-    box.style.width = \`\${Math.max(r.width, 2)}px\`
-    box.style.height = \`\${Math.max(r.height, 2)}px\`
-  }
-  const describe = (el) => {
-    const cls = (el.getAttribute('class') || '').trim().split(/\\s+/).filter(Boolean).slice(0, 2)
-    return (
-      el.tagName.toLowerCase() +
-      (el.id ? \`#\${el.id}\` : '') +
-      (cls.length ? \`.\${cls.join('.')}\` : '')
-    )
-  }
-  const placeLabel = (el) => {
-    if (!el) {
-      label.style.display = 'none'
-      return
-    }
-    const r = el.getBoundingClientRect()
-    label.textContent = describe(el)
-    label.style.display = 'block'
-    label.style.left = \`\${Math.max(0, r.left)}px\`
-    label.style.top = \`\${r.top >= 18 ? r.top - 18 : r.bottom + 2}px\`
-  }
-  const isOwn = (el) => !!(el && el.closest && el.closest(\`[\${MARK}]\`))
-  const sidOf = (el) => {
-    const v = el && el.getAttribute && el.getAttribute(SID)
-    return v ? Number(v) : null
-  }
-  /** nearest selectable target: atomic subtrees select as a whole, own overlays never */
-  const targetOf = (node) => {
-    let el = node && node.nodeType === 3 ? node.parentElement : node
-    if (!el || isOwn(el)) return null
-    for (let cur = el; cur && cur !== document.documentElement; cur = cur.parentElement) {
-      if (ATOMIC.has(cur.tagName.toLowerCase())) el = cur
-    }
-    if (el === document.documentElement || el === document.body) return null
-    return el
-  }
-  const rectOf = (el) => {
-    const r = el.getBoundingClientRect()
-    return { x: r.left, y: r.top, width: r.width, height: r.height }
-  }
-  const px = (v) => (v && v.endsWith('px') ? String(Math.round(parseFloat(v) * 10) / 10) : v)
-  const toHex = (rgb) => {
-    const m = /^rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)(?:,\\s*([\\d.]+))?\\)$/.exec(rgb || '')
-    if (!m) return ''
-    if (m[4] !== undefined && Number(m[4]) === 0) return ''
-    const h = (n) => Number(n).toString(16).padStart(2, '0')
-    return \`#\${h(m[1])}\${h(m[2])}\${h(m[3])}\`
-  }
-  /** effective styles the floating toolbar / style panel start from */
-  const snapshot = (el) => {
-    const c = window.getComputedStyle(el)
-    return {
-      color: toHex(c.color),
-      fontSize: px(c.fontSize),
-      fontWeight: c.fontWeight,
-      fontStyle: c.fontStyle,
-      textAlign: c.textAlign,
-      background: toHex(c.backgroundColor),
-      backgroundImage: c.backgroundImage,
-      width: px(c.width),
-      height: px(c.height),
-      borderRadius: px(c.borderTopLeftRadius),
-      padding: px(c.paddingTop),
-      opacity: c.opacity,
-      transform: el.style.transform,
-      marginLeft: el.style.marginLeft,
-      marginRight: el.style.marginRight,
-      objectFit: c.objectFit,
-      ...(el.tagName === 'IMG'
-        ? {
-            image: {
-              src: el.getAttribute('src') || '',
-              alt: el.getAttribute('alt') || '',
-              naturalWidth: el.naturalWidth,
-              naturalHeight: el.naturalHeight,
-            },
-          }
-        : {}),
-    }
-  }
-  /** the single editable text run (and its index among the direct text nodes) for the style panel's
-   * text field, plus whether the element edits inline at all (same rules as beginEdit) */
-  const textRunOf = (el) => {
-    const inlineEditable = editMode(el) !== null
-    const runs = Array.from(el.childNodes).filter((n) => n.nodeType === 3 && n.textContent.trim())
-    if (runs.length !== 1) return { textRun: null, textRunIndex: -1, inlineEditable }
-    return {
-      textRun: runs[0].textContent,
-      textRunIndex: textNodeIndex(el, runs[0]),
-      inlineEditable,
-    }
-  }
-  const fingerprint = (el) => ({
-    sid: sidOf(el),
-    tag: el.tagName.toLowerCase(),
-    className: el.getAttribute('class') || '',
-    childElementCount: el.childElementCount,
-    text: (el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 400),
-    rect: rectOf(el),
-    computed: snapshot(el),
-    ...textRunOf(el),
-  })
-  let rectQueued = false
-  /** the host draws the floating toolbar from this; sent after every scroll / resize / live style poke */
-  const postRect = () => {
-    if (rectQueued) return
-    rectQueued = true
-    window.requestAnimationFrame(() => {
-      rectQueued = false
-      const sid = selected && selected.isConnected ? sidOf(selected) : null
-      if (sid === null) return
-      post({
-        type: 'gx:rect',
-        sid,
-        rect: rectOf(selected),
-        computed: snapshot(selected),
-        ...textRunOf(selected),
-      })
-    })
-  }
-  const placePin = (pin, el) => {
-    if (!el || !el.isConnected) {
-      pin.style.display = 'none'
-      return
-    }
-    const r = el.getBoundingClientRect()
-    pin.style.display = 'block'
-    pin.style.left = \`\${Math.max(0, r.right - 9)}px\`
-    pin.style.top = \`\${Math.max(0, r.top - 9)}px\`
-  }
-  // the hover box is fixed-position: without re-hit-testing under the pointer it stays put while the page scrolls under it
-  let pointer = null
-  /** pointer feedback like PowerPoint/WPS: an I-beam over editable text (a click there places the
-   * caret), the move cursor over the rest of the selected element (a press there drags it) */
-  const setCursor = (kind) => {
-    if (kind) document.documentElement.setAttribute(\`\${MARK}-cursor\`, kind)
-    else document.documentElement.removeAttribute(\`\${MARK}-cursor\`)
-  }
-  const cursorFor = (el, x, y) => {
-    if (!el) return null
-    if (editMode(el) && overText(el, x, y)) return 'text'
-    return el === selected && sidOf(el) !== null ? 'move' : null
-  }
-  let hovered = null
-  const hover = (el) => {
-    place(hoverBox, el)
-    if (el === hovered) return
-    hovered = el
-    post({ type: 'gx:hover', sid: el ? sidOf(el) : null })
-  }
-  const rehover = () => {
-    if (!pointer || !selecting() || editing || drag || resizing || slide) return hover(null)
-    hover(targetOf(document.elementFromPoint(pointer.x, pointer.y)))
-  }
-  const NO_RESIZE = new Set(['tr', 'tbody', 'thead', 'tfoot', 'colgroup', 'col', 'li', 'option'])
-  /** replaced elements take width / height (and slide sideways) whatever their display */
-  const REPLACED = new Set(['img', 'video', 'iframe', 'canvas', 'svg'])
-  /** sized boxes only: inline text and table rows ignore width / height */
-  const resizable = (el) => {
-    if (!el || !el.isConnected || sidOf(el) === null || el === document.body) return false
-    const tag = el.tagName.toLowerCase()
-    if (NO_RESIZE.has(tag)) return false
-    if (REPLACED.has(tag)) return true
-    const d = window.getComputedStyle(el).display
-    return d !== 'inline' && d !== 'contents' && d !== 'none'
-  }
-  const placeHandles = (el) => {
-    const show = selecting() && !editing && !drag && resizable(el)
-    if (!show) {
-      for (const { el: h } of handles) h.style.display = 'none'
-      return
-    }
-    const r = el.getBoundingClientRect()
-    const xs = { w: r.left, e: r.right, n: r.left + r.width / 2, s: r.left + r.width / 2 }
-    const ys = { n: r.top, s: r.bottom, e: r.top + r.height / 2, w: r.top + r.height / 2 }
-    for (const { dir, el: h } of handles) {
-      // a mid-edge handle on a tiny side would sit on top of the corner handles
-      const tinySide = dir === 'n' || dir === 's' ? r.width < 30 : r.height < 14
-      if (dir.length === 1 && tinySide) {
-        h.style.display = 'none'
-        continue
-      }
-      const x = dir.includes('w') ? xs.w : dir.includes('e') ? xs.e : xs.n
-      const y = dir.includes('n') ? ys.n : dir.includes('s') ? ys.s : ys.e
-      h.style.display = 'block'
-      h.style.left = \`\${x - 4.5}px\`
-      h.style.top = \`\${y - 4.5}px\`
-    }
-  }
-  /** drag grip beside the left edge; below the box when the element hugs the viewport edge, inside as a last resort.
-   * Replaced elements (images / video) have no text to protect: their whole body drags, so they carry no grip. */
-  const placeGrip = (el) => {
-    const show =
-      selecting() &&
-      !editing &&
-      !drag &&
-      !slide &&
-      el &&
-      el.isConnected &&
-      sidOf(el) !== null &&
-      el !== document.body &&
-      !REPLACED.has(el.tagName.toLowerCase())
-    if (!show) {
-      grip.style.display = 'none'
-      return
-    }
-    const r = el.getBoundingClientRect()
-    grip.style.display = 'block'
-    if (r.left >= 16) {
-      grip.style.left = \`\${r.left - 15}px\`
-      grip.style.top = \`\${Math.max(0, r.top + r.height / 2 - 11)}px\`
-    } else if (r.bottom + 26 <= window.innerHeight) {
-      grip.style.left = \`\${Math.max(0, r.left)}px\`
-      grip.style.top = \`\${r.bottom + 3}px\`
-    } else {
-      grip.style.left = \`\${r.left + 3}px\`
-      grip.style.top = \`\${Math.max(0, r.top + 3)}px\`
-    }
-  }
-  const refresh = () => {
-    rehover()
-    place(selectBox, selected)
-    placeLabel(selected)
-    placeHandles(selected)
-    placeGrip(selected)
-    for (const { box, el } of highlightBoxes) place(box, el)
-    for (const { pin, el } of markPins) placePin(pin, el)
-    if (selected) postRect()
-  }
-
-  const select = (el, notify) => {
-    if (editing && el !== editing.el) finishEdit(true)
-    selected = el
-    refresh()
-    if (notify) {
-      if (!el) post({ type: 'gx:select', element: null, dynamic: false })
-      else post({ type: 'gx:select', element: fingerprint(el), dynamic: sidOf(el) === null })
-    }
-  }
-  const bySid = (sid) => document.querySelector(\`[\${SID}="\${sid}"]\`)
-
-  // ---- inline text editing (one element at a time) ----
-  const textNodeIndex = (el, node) => {
-    let i = 0
-    for (const child of el.childNodes) {
-      if (child.nodeType === 3) {
-        if (child === node) return i
-        i++
-      }
-    }
-    return -1
-  }
-  const directTextNodes = (el) =>
-    Array.from(el.childNodes).filter((n) => n.nodeType === 3 && n.textContent.trim())
-  /** how the element's text edits inline: 'text' = one direct text node and no child elements
-   * (committed as set_text_node, the smallest source diff); 'html' = text mixed with phrasing
-   * children like <strong> / <a> / <br> (committed as the whole inner HTML); null = not inline
-   * editable (no text, or block children next to several runs: those edits go through AI or source) */
-  const editMode = (el) => {
-    if (!el || sidOf(el) === null || !TEXT_TAGS.has(el.tagName.toLowerCase())) return null
-    if (!(el.textContent || '').trim()) return null
-    const children = Array.from(el.children)
-    if (children.length && children.every((c) => INLINE_TAGS.has(c.tagName.toLowerCase())))
-      return 'html'
-    // no children, or block children (an <li> with a nested list): its single direct run still edits on its own
-    return directTextNodes(el).length === 1 ? 'text' : null
-  }
-  /** inner HTML as the source would carry it: the preview's own data-gx-sid markers stripped */
-  const innerSource = (el) => {
-    const clone = el.cloneNode(true)
-    for (const n of clone.querySelectorAll(\`[\${SID}]\`)) n.removeAttribute(SID)
-    return clone.innerHTML
-  }
-  /** the current native selection, when it lies entirely inside \`el\` */
-  const selectionIn = (el) => {
-    const sel = window.getSelection()
-    if (!sel || sel.rangeCount === 0) return null
-    const r = sel.getRangeAt(0)
-    return el.contains(r.startContainer) && el.contains(r.endContainer) ? r : null
-  }
-  /** \`at\` = the click that started the edit: the caret lands there, like PowerPoint (a drag-selected
-   * range made before the edit is kept). Without a point the whole run is selected (toolbar / host entry). */
-  const beginEdit = (el, at) => {
-    if (!el || editing) return
-    const mode = editMode(el)
-    if (!mode) return
-    // read the pre-edit selection before focus() can move it
-    const kept = at ? selectionIn(el) : null
-    const node = mode === 'text' ? directTextNodes(el)[0] : null
-    editing = {
-      el,
-      mode,
-      node,
-      index: node ? textNodeIndex(el, node) : -1,
-      before: node ? node.textContent : innerSource(el),
-      rawBefore: el.innerHTML,
-    }
-    el.setAttribute(\`\${MARK}-editing\`, '')
-    // not plaintext-only: Chromium forces white-space: pre-wrap on it (past any stylesheet),
-    // surfacing the source's newlines and indentation; plain text is enforced in beforeinput
-    el.setAttribute('contenteditable', 'true')
-    el.focus()
-    setCursor(null)
-    let range = null
-    if (kept && !kept.collapsed) range = kept
-    else if (at) {
-      const caret = document.caretRangeFromPoint && document.caretRangeFromPoint(at.x, at.y)
-      if (caret && el.contains(caret.startContainer)) range = caret
-    }
-    if (!range) {
-      range = document.createRange()
-      range.selectNodeContents(node || el)
-    }
-    const sel = window.getSelection()
-    sel.removeAllRanges()
-    sel.addRange(range)
-    // the host cleared its text selection on gx:select; re-adding an unchanged range fires no selectionchange
-    if (!range.collapsed) postTextSelection()
-  }
-  const finishEdit = (commit) => {
-    if (!editing) return
-    const { el, mode, node, index, before, rawBefore } = editing
-    editing = null
-    el.removeAttribute('contenteditable')
-    el.removeAttribute(\`\${MARK}-editing\`)
-    // contenteditable may have split/merged text nodes; read the element's direct text again
-    const after =
-      mode === 'text'
-        ? Array.from(el.childNodes)
-            .filter((n) => n.nodeType === 3)
-            .map((n) => n.textContent)
-            .join('')
-        : innerSource(el)
-    if (commit && after !== before) {
-      if (mode === 'text')
-        post({ type: 'gx:textEditCommit', sid: sidOf(el), textNodeIndex: index, newText: after })
-      else post({ type: 'gx:htmlEditCommit', sid: sidOf(el), html: after })
-      // the host drops its text selection when it re-selects after the commit: a range still
-      // selected in the run goes out again so bold / italic right after typing wrap it
-      postTextSelection()
-    } else {
-      // an unchanged run is left untouched (rewriting it would collapse the selection)
-      if (after !== before) {
-        if (mode === 'text' && node.isConnected) node.textContent = before
-        else if (mode === 'html') el.innerHTML = rawBefore
-      }
-      post({ type: 'gx:textEditCancel' })
-    }
-    refresh()
-  }
-
-  // ---- resize handles: live inline width / height, committed by the host as one set_style ----
-  const KEEP_RATIO = new Set(['IMG', 'VIDEO', 'IFRAME', 'CANVAS', 'SVG', 'PICTURE'])
-  for (const { dir, el: h } of handles) {
-    h.addEventListener('pointerdown', (e) => {
-      if (!selected || e.button !== 0) return
-      e.preventDefault()
-      e.stopPropagation()
-      const r = selected.getBoundingClientRect()
-      resizing = {
-        dir,
-        el: selected,
-        x: e.clientX,
-        y: e.clientY,
-        w: r.width,
-        h: r.height,
-        ratio: KEEP_RATIO.has(selected.tagName) && r.height > 0 ? r.width / r.height : null,
-        moved: false,
-        before: { width: selected.style.width, height: selected.style.height },
-      }
-      h.setPointerCapture(e.pointerId)
-      document.documentElement.setAttribute(\`\${MARK}-resizing\`, '')
-      post({ type: 'gx:drag', active: true })
-    })
-    h.addEventListener('pointermove', (e) => {
-      if (!resizing || resizing.dir !== dir) return
-      const { el, x, y, w, ratio } = resizing
-      const sx = dir.includes('e') ? 1 : dir.includes('w') ? -1 : 0
-      const sy = dir.includes('s') ? 1 : dir.includes('n') ? -1 : 0
-      let nw = Math.max(8, w + sx * (e.clientX - x))
-      let nh = Math.max(8, resizing.h + sy * (e.clientY - y))
-      if (ratio && sx && sy) nh = nw / ratio
-      resizing.moved = true
-      if (sx) el.style.width = \`\${Math.round(nw)}px\`
-      if (sy || (ratio && sx)) el.style.height = \`\${Math.round(nh)}px\`
-      refresh()
-    })
-    const finish = (e) => {
-      if (!resizing || resizing.dir !== dir) return
-      const { el, moved, before } = resizing
-      resizing = null
-      document.documentElement.removeAttribute(\`\${MARK}-resizing\`)
-      if (h.hasPointerCapture && h.hasPointerCapture(e.pointerId))
-        h.releasePointerCapture(e.pointerId)
-      const styles = {}
-      if (el.style.width !== before.width) styles.width = el.style.width
-      if (el.style.height !== before.height) styles.height = el.style.height
-      if (moved && Object.keys(styles).length) post({ type: 'gx:resize', sid: sidOf(el), styles })
-      post({ type: 'gx:drag', active: false })
-      refresh()
-    }
-    h.addEventListener('pointerup', finish)
-    h.addEventListener('pointercancel', finish)
-  }
-
-  // ---- drag the selected element to a new place in the flow (dropped before / after another element) ----
-  const DRAG_START_PX = 5
-  // a block between two <li>s or <td>s is parsed out of its list / table: such parts only pair with
-  // their own kind, anything else lands next to the whole list / table
-  const PARTS = new Set([
-    'li',
-    'dt',
-    'dd',
-    'tr',
-    'td',
-    'th',
-    'thead',
-    'tbody',
-    'tfoot',
-    'caption',
-    'colgroup',
-    'col',
-    'option',
-    'optgroup',
-  ])
-  const tagOf = (el) => el.tagName.toLowerCase()
-  const dropTargetAt = (x, y) => {
-    if (!drag) return null
-    const dragTag = tagOf(drag.el)
-    for (const cand of document.elementsFromPoint(x, y)) {
-      if (isOwn(cand) || cand === document.body || cand === document.documentElement) continue
-      if (drag.el === cand || drag.el.contains(cand)) continue
-      let el = targetOf(cand)
-      if (!el) continue
-      if (PARTS.has(dragTag)) {
-        if (tagOf(el) !== dragTag) continue
-      } else {
-        while (PARTS.has(tagOf(el)) && el.parentElement && el.parentElement !== document.body) {
-          el = el.parentElement
-        }
-        if (PARTS.has(tagOf(el))) continue
-      }
-      if (sidOf(el) === null || el.parentElement === document.documentElement) continue
-      if (drag.el === el || drag.el.contains(el)) continue
-      const r = el.getBoundingClientRect()
-      const ps = window.getComputedStyle(el.parentElement)
-      const d = window.getComputedStyle(el).display
-      // side-by-side children (flex rows, grids, inline boxes) split left / right instead of top / bottom
-      const horizontal =
-        (ps.display.includes('flex') && !ps.flexDirection.startsWith('column')) ||
-        ps.display.includes('grid') ||
-        d.startsWith('inline') ||
-        d === 'table-cell'
-      const position = horizontal
-        ? x < r.left + r.width / 2
-          ? 'before'
-          : 'after'
-        : y < r.top + r.height / 2
-          ? 'before'
-          : 'after'
-      return { el, position, horizontal, rect: r }
-    }
-    return null
-  }
-  const showDrop = (target) => {
-    if (!target) {
-      dropBar.style.display = 'none'
-      return
-    }
-    const { rect: r, position, horizontal } = target
-    dropBar.style.display = 'block'
-    if (horizontal) {
-      dropBar.style.left = \`\${(position === 'before' ? r.left : r.right) - 1.5}px\`
-      dropBar.style.top = \`\${r.top}px\`
-      dropBar.style.width = '3px'
-      dropBar.style.height = \`\${Math.max(r.height, 4)}px\`
-    } else {
-      dropBar.style.left = \`\${r.left}px\`
-      dropBar.style.top = \`\${(position === 'before' ? r.top : r.bottom) - 1.5}px\`
-      dropBar.style.width = \`\${Math.max(r.width, 4)}px\`
-      dropBar.style.height = '3px'
-    }
-  }
-  const endDrag = (commit) => {
-    if (!drag) return
-    const { el, target } = drag
-    drag = null
-    el.removeAttribute(\`\${MARK}-dragsrc\`)
-    document.documentElement.removeAttribute(\`\${MARK}-dragging\`)
-    showDrop(null)
-    if (commit && target) {
-      post({
-        type: 'gx:moveTo',
-        sid: sidOf(el),
-        position: target.position,
-        ref_sid: sidOf(target.el),
-      })
-    }
-    post({ type: 'gx:drag', active: false })
-    refresh()
-  }
-  /** the point sits on rendered text of the element: a drag there selects words, it does not move the box */
-  const overText = (el, x, y) => {
-    const caret = document.caretRangeFromPoint && document.caretRangeFromPoint(x, y)
-    const node = caret && caret.startContainer
-    if (!node || node.nodeType !== 3 || !el.contains(node) || !node.textContent.trim()) return false
-    const range = document.createRange()
-    range.selectNodeContents(node)
-    for (const r of range.getClientRects()) {
-      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return true
-    }
-    return false
-  }
-  document.addEventListener(
-    'mousedown',
-    (e) => {
-      pressed = null
-      if (!selecting() || editing || e.button !== 0 || !selected) return
-      if (e.target === grip) {
-        e.preventDefault()
-        pressed = { x: e.clientX, y: e.clientY, grip: true }
-        return
-      }
-      const el = targetOf(e.target)
-      if (el !== selected || el === document.body || sidOf(el) === null) return
-      if (overText(el, e.clientX, e.clientY)) return
-      // a replaced element's own drag would otherwise ghost the image under our gesture
-      if (REPLACED.has(el.tagName.toLowerCase())) e.preventDefault()
-      pressed = { x: e.clientX, y: e.clientY, grip: false }
-    },
-    true,
-  )
-  // ---- slide a replaced element sideways inside its container: live margin-left, snapping to
-  // left / center / right (written in the toolbar's own auto-margin form so its buttons light up) ----
-  const SNAP_PX = 8
-  const setInline = (el, styles) => {
-    for (const [prop, val] of Object.entries(styles)) {
-      if (val) el.style.setProperty(prop, val)
-      else el.style.removeProperty(prop)
-    }
-  }
-  const alignStyles = (align) => ({
-    display: 'block',
-    'margin-left': align === 'left' ? '0' : 'auto',
-    'margin-right': align === 'right' ? '0' : 'auto',
-  })
-  const beginSlide = (el, x) => {
-    const parent = el.parentElement
-    if (!parent) return false
-    const pc = window.getComputedStyle(parent)
-    const pr = parent.getBoundingClientRect()
-    const contentLeft = pr.left + parseFloat(pc.borderLeftWidth) + parseFloat(pc.paddingLeft)
-    const contentW = parent.clientWidth - parseFloat(pc.paddingLeft) - parseFloat(pc.paddingRight)
-    const avail = Math.max(0, contentW - el.offsetWidth)
-    if (avail <= 0) return false
-    // rotation / flip keep the center: the layout left is the visual center minus half the layout width
-    const r = el.getBoundingClientRect()
-    const start = Math.min(
-      avail,
-      Math.max(0, r.left + r.width / 2 - el.offsetWidth / 2 - contentLeft),
-    )
-    slide = {
-      el,
-      x,
-      start,
-      avail,
-      moved: false,
-      before: {
-        display: el.style.display,
-        'margin-left': el.style.marginLeft,
-        'margin-right': el.style.marginRight,
-      },
-    }
-    document.documentElement.setAttribute(\`\${MARK}-sliding\`, '')
-    hover(null)
-    post({ type: 'gx:drag', active: true })
-    return true
-  }
-  const applySlide = (styles) => setInline(slide.el, styles)
-  const moveSlide = (clientX) => {
-    const { start, avail, x } = slide
-    const ml = Math.min(avail, Math.max(0, start + clientX - x))
-    slide.moved = true
-    if (ml <= SNAP_PX) applySlide(alignStyles('left'))
-    else if (Math.abs(ml - avail / 2) <= SNAP_PX) applySlide(alignStyles('center'))
-    else if (avail - ml <= SNAP_PX) applySlide(alignStyles('right'))
-    else
-      applySlide({ display: 'block', 'margin-left': \`\${Math.round(ml)}px\`, 'margin-right': 'auto' })
-    refresh()
-  }
-  const endSlide = (commit) => {
-    if (!slide) return
-    const { el, moved, before } = slide
-    slide = null
-    document.documentElement.removeAttribute(\`\${MARK}-sliding\`)
-    if (!commit || !moved) setInline(el, before)
-    else {
-      const styles = {}
-      for (const prop of Object.keys(before)) {
-        const now = el.style.getPropertyValue(prop)
-        if (now !== before[prop]) styles[prop] = now
-      }
-      if (Object.keys(styles).length) post({ type: 'gx:resize', sid: sidOf(el), styles })
-    }
-    post({ type: 'gx:drag', active: false })
-    refresh()
-  }
-  document.addEventListener(
-    'mousemove',
-    (e) => {
-      if (slide) {
-        e.preventDefault()
-        if (!(e.buttons & 1)) return endSlide(false)
-        moveSlide(e.clientX)
-        return
-      }
-      if (drag) {
-        e.preventDefault()
-        // released outside the frame: the mouseup never reached us
-        if (!(e.buttons & 1)) return endDrag(false)
-        drag.target = dropTargetAt(e.clientX, e.clientY)
-        showDrop(drag.target)
-        // keep the page moving when the pointer rides an edge of the viewport
-        const edge = 32
-        if (e.clientY < edge) window.scrollBy(0, -12)
-        else if (e.clientY > window.innerHeight - edge) window.scrollBy(0, 12)
-        return
-      }
-      if (!pressed || !(e.buttons & 1)) return
-      if (Math.hypot(e.clientX - pressed.x, e.clientY - pressed.y) < DRAG_START_PX) return
-      const { x, y, grip: fromGrip } = pressed
-      pressed = null
-      if (!selected || !selected.isConnected) return
-      // a mostly horizontal pull on an image moves it sideways; the grip and vertical pulls reorder
-      if (
-        !fromGrip &&
-        REPLACED.has(selected.tagName.toLowerCase()) &&
-        Math.abs(e.clientX - x) > Math.abs(e.clientY - y) &&
-        beginSlide(selected, x)
-      )
-        return moveSlide(e.clientX)
-      drag = { el: selected, target: null }
-      selected.setAttribute(\`\${MARK}-dragsrc\`, '')
-      document.documentElement.setAttribute(\`\${MARK}-dragging\`, '')
-      hover(null)
-      for (const { el: h } of handles) h.style.display = 'none'
-      grip.style.display = 'none'
-      post({ type: 'gx:drag', active: true })
-    },
-    true,
-  )
-  document.addEventListener(
-    'mouseup',
-    () => {
-      pressed = null
-      if (slide) {
-        swallowClick = true
-        endSlide(true)
-        return
-      }
-      if (!drag) return
-      swallowClick = true
-      endDrag(true)
-    },
-    true,
-  )
-  // the page's own draggable images / links must not start a native drag under ours
-  document.addEventListener(
-    'dragstart',
-    (e) => {
-      if (selecting()) e.preventDefault()
-    },
-    true,
-  )
-
-  // ---- events (capture phase: we see them before the page's own handlers) ----
-  document.addEventListener(
-    'mousemove',
-    (e) => {
-      pointer = { x: e.clientX, y: e.clientY }
-      if (!selecting() || editing || drag || resizing || slide) return setCursor(null)
-      const el = targetOf(e.target)
-      hover(el)
-      setCursor(cursorFor(el, e.clientX, e.clientY))
-    },
-    true,
-  )
-  // on the root element only: a capture listener on document would fire for every descendant
-  document.documentElement.addEventListener('mouseleave', () => {
-    pointer = null
-    hover(null)
-    pressed = null
-    if (drag) {
-      drag.target = null
-      showDrop(null)
-    }
-  })
-  document.addEventListener(
-    'click',
-    (e) => {
-      if (!selecting()) return
-      if (swallowClick) {
-        swallowClick = false
-        e.preventDefault()
-        e.stopPropagation()
-        return
-      }
-      const a = e.target && e.target.closest && e.target.closest('a[href]')
-      if (a) {
-        e.preventDefault()
-        if (e.metaKey || e.ctrlKey) post({ type: 'gx:navigateBlocked', href: a.href })
-      }
-      if (editing) {
-        if (editing.el.contains(e.target)) return
-        finishEdit(true)
-      }
-      const el = targetOf(e.target)
-      if (!el) {
-        // a click on the bare page (body / html) clears the selection like a click on the canvas
-        if (e.target === document.body || e.target === document.documentElement) select(null, true)
-        return
-      }
-      e.preventDefault()
-      e.stopPropagation()
-      select(el, true)
-      // A single left click on the text itself starts editing with the caret at the click
-      // (PowerPoint/WPS); the box around the text only selects, so it stays the drag surface.
-      const plain = e.button === 0 && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey
-      if (plain && editMode(el) && overText(el, e.clientX, e.clientY))
-        beginEdit(el, { x: e.clientX, y: e.clientY })
-    },
-    true,
-  )
-  // Double-click on the padding / box of a text element (its text already edits on a single
-  // click, where the native double-click selects a word)
-  document.addEventListener(
-    'dblclick',
-    (e) => {
-      if (mode !== 'inspect' || editing) return
-      const el = targetOf(e.target)
-      if (!el || !TEXT_TAGS.has(el.tagName.toLowerCase())) return
-      e.preventDefault()
-      e.stopPropagation()
-      select(el, true)
-      beginEdit(el)
-    },
-    true,
-  )
-  document.addEventListener(
-    'submit',
-    (e) => {
-      if (selecting()) e.preventDefault()
-    },
-    true,
-  )
-  /** a non-collapsed native range inside one direct text run of a source element, as the
-   * gx:textSelect message (the host wraps it on bold / italic); null for anything else */
-  const textSelection = () => {
-    if (mode !== 'inspect') return null
-    const sel = window.getSelection()
-    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null
-    const r = sel.getRangeAt(0)
-    if (r.startContainer !== r.endContainer || r.startContainer.nodeType !== 3) return null
-    const node = r.startContainer
-    const el = node.parentElement
-    if (!el || isOwn(el) || sidOf(el) === null) return null
-    // while editing, only a range inside the edited run counts (bold / italic wrap it after the commit)
-    if (editing && el !== editing.el) return null
-    return {
-      type: 'gx:textSelect',
-      sid: sidOf(el),
-      textNodeIndex: textNodeIndex(el, node),
-      start: r.startOffset,
-      end: r.endOffset,
-      text: node.textContent.slice(r.startOffset, r.endOffset),
-    }
-  }
-  const postTextSelection = () => {
-    const msg = textSelection()
-    if (msg) post(msg)
-  }
-  document.addEventListener('selectionchange', postTextSelection, true)
-  // Chromium turns a typed '\\n' into <br>/<div> where white-space collapses: feed it (and pasted
-  // whitespace runs) as the single space it would collapse to anyway
-  const plainFor = (el, text) =>
-    /^(normal|nowrap)$/.test(window.getComputedStyle(el).whiteSpace)
-      ? text.replace(/\\s+/g, ' ')
-      : text
-  document.addEventListener(
-    'beforeinput',
-    (e) => {
-      if (!editing || e.target !== editing.el) return
-      const t = e.inputType
-      if (t.startsWith('format') || t === 'insertHorizontalRule' || t === 'insertLink') {
-        e.preventDefault()
-      } else if (t === 'insertParagraph' || t === 'insertLineBreak') {
-        e.preventDefault()
-        document.execCommand('insertText', false, plainFor(editing.el, '\\n'))
-      } else if (
-        e.dataTransfer &&
-        (t === 'insertFromPaste' || t === 'insertFromDrop' || t === 'insertReplacementText')
-      ) {
-        e.preventDefault()
-        const text = plainFor(editing.el, e.dataTransfer.getData('text/plain'))
-        if (text) document.execCommand('insertText', false, text)
-      }
-    },
-    true,
-  )
-  document.addEventListener(
-    'keydown',
-    (e) => {
-      if (editing) {
-        const mod = (e.metaKey || e.ctrlKey) && !e.altKey
-        if (e.key === 'Escape') {
-          // Esc = commit the text and return to the selected state (typed input is not lost, as in
-          // Slides); an unchanged run goes out as a cancel and produces no history step
-          e.preventDefault()
-          finishEdit(true)
-        } else if (e.key === 'Enter' && mod) {
-          e.preventDefault()
-          finishEdit(true)
-        } else if (mod && (e.key.toLowerCase() === 'b' || e.key.toLowerCase() === 'i')) {
-          // bold / italic on a range selected inside the edited run: commit the run first, then
-          // hand the host the range again (its re-select after the commit cleared it) and the command
-          const range = textSelection()
-          if (!range) return
-          e.preventDefault()
-          finishEdit(true)
-          post(range)
-          post({ type: 'gx:keyCommand', command: e.key.toLowerCase() === 'b' ? 'bold' : 'italic' })
-        }
-        return
-      }
-      if ((drag || slide) && e.key === 'Escape') {
-        e.preventDefault()
-        if (drag) endDrag(false)
-        else endSlide(false)
-        return
-      }
-      const inField =
-        e.target &&
-        (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable)
-      const mod = (e.metaKey || e.ctrlKey) && !e.altKey
-      // the host owns history and zoom; the frame has keyboard focus, so relay the shortcuts
-      if (mod && !inField) {
-        const lower = e.key.toLowerCase()
-        const hostCommand =
-          lower === 'z'
-            ? e.shiftKey
-              ? 'redo'
-              : 'undo'
-            : lower === 'y' && !e.shiftKey
-              ? 'redo'
-              : { '=': 'zoomIn', '+': 'zoomIn', '-': 'zoomOut', _: 'zoomOut', 0: 'zoomReset' }[
-                  e.key
-                ]
-        if (hostCommand) {
-          e.preventDefault()
-          post({ type: 'gx:keyCommand', command: hostCommand })
-          return
-        }
-      }
-      if (mode !== 'inspect') {
-        if (e.key === 'Escape') post({ type: 'gx:keyCommand', command: 'escape' })
-        return
-      }
-      const map = {
-        Delete: 'delete',
-        Backspace: 'delete',
-        ArrowUp: 'prev',
-        ArrowDown: 'next',
-        ArrowLeft: 'parent',
-        ArrowRight: 'child',
-        Escape: 'escape',
-      }
-      const modKey = mod ? { k: 'askAi', b: 'bold', i: 'italic' }[e.key.toLowerCase()] : undefined
-      const altKey =
-        e.altKey && !mod ? { ArrowUp: 'moveUp', ArrowDown: 'moveDown' }[e.key] : undefined
-      const command = modKey || altKey || map[e.key]
-      if (!command || !selected || inField) return
-      e.preventDefault()
-      post({ type: 'gx:keyCommand', command })
-    },
-    true,
-  )
-  // Chromium reports trackpad pinch as ctrl+wheel; the frame swallows wheel events, so relay it.
-  // Browse mode (present views) has no zoom control: leave the event alone there.
-  document.addEventListener(
-    'wheel',
-    (e) => {
-      if (mode !== 'inspect' || (!e.ctrlKey && !e.metaKey)) return
-      e.preventDefault()
-      post({ type: 'gx:zoom', delta: e.deltaY })
-    },
-    { passive: false, capture: true },
-  )
-  let scrollQueued = false
-  window.addEventListener(
-    'scroll',
-    (e) => {
-      refresh()
-      if (e.target !== document || scrollQueued) return
-      scrollQueued = true
-      window.requestAnimationFrame(() => {
-        scrollQueued = false
-        post({ type: 'gx:scroll', y: window.scrollY })
-      })
-    },
-    true,
-  )
-  window.addEventListener('resize', refresh)
-  document.addEventListener('focusout', (e) => {
-    if (editing && e.target === editing.el) finishEdit(true)
-  })
-
-  window.addEventListener('message', (e) => {
-    const msg = e.data
-    if (!msg || typeof msg.type !== 'string') return
-    switch (msg.type) {
-      case 'gx:select':
-        select(msg.sid === null ? null : bySid(msg.sid), false)
-        if (selected) {
-          selected.scrollIntoView({ block: 'nearest' })
-          postRect()
-        }
-        break
-      case 'gx:previewStyle': {
-        // live preview only: the host commits the same declarations to the source afterwards
-        const el = bySid(msg.sid)
-        if (!el) break
-        for (const [prop, val] of Object.entries(msg.styles)) {
-          if (val === null) el.style.removeProperty(prop)
-          else el.style.setProperty(prop, val)
-        }
-        refresh()
-        break
-      }
-      case 'gx:highlight':
-        for (const { box } of highlightBoxes) box.remove()
-        highlightBoxes = msg.sids
-          .map((sid) => bySid(sid))
-          .filter(Boolean)
-          .map((el) => ({ box: overlay('highlight'), el }))
-        refresh()
-        break
-      case 'gx:mark':
-        for (const { pin } of markPins) pin.remove()
-        markPins = msg.marks
-          .map(({ sid, label }) => ({ el: bySid(sid), sid, label }))
-          .filter(({ el }) => el)
-          .map(({ el, sid, label }) => {
-            const pin = document.createElement('div')
-            pin.setAttribute(MARK, '')
-            pin.setAttribute(\`\${MARK}-pin\`, '')
-            pin.textContent = label
-            pin.addEventListener('click', (e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              post({ type: 'gx:markClick', sid })
-            })
-            document.documentElement.appendChild(pin)
-            return { pin, el }
-          })
-        refresh()
-        break
-      case 'gx:clearHighlight':
-        for (const { box } of highlightBoxes) box.remove()
-        highlightBoxes = []
-        break
-      case 'gx:endDrag':
-        if (drag) endDrag(false)
-        if (slide) endSlide(false)
-        pressed = null
-        break
-      case 'gx:setMode':
-        if (editing) finishEdit(true)
-        if (drag) endDrag(false)
-        if (slide) endSlide(false)
-        mode = msg.mode
-        rehover()
-        if (mode === 'browse') select(null, false)
-        break
-      case 'gx:beginTextEdit':
-        select(bySid(msg.sid), false)
-        beginEdit(selected)
-        break
-      case 'gx:scrollTo':
-        window.scrollTo(0, msg.y)
-        break
-      case 'gx:theme':
-        dark = !!msg.dark
-        document.documentElement.style.setProperty('--gx-select', dark ? '#4a9eff' : '#0f7fff')
-        document.documentElement.style.setProperty('--gx-hover', dark ? '#4a9eff' : '#0f7fff')
-        break
-    }
-  })
-
-  post({
-    type: 'gx:ready',
-    title: document.title,
-    docHeight: document.documentElement.scrollHeight,
-  })
-})()
+}`,{label:"class",detail:"definition",type:"keyword"}),ei('import {${names}} from "${module}"\n${}',{label:"import",detail:"named",type:"keyword"}),ei('import ${name} from "${module}"\n${}',{label:"import",detail:"default",type:"keyword"})],bq=i6.concat([ei("interface ${name} {\n	${}\n}",{label:"interface",detail:"definition",type:"keyword"}),ei("type ${name} = ${type}",{label:"type",detail:"definition",type:"keyword"}),ei("enum ${name} {\n	${}\n}",{label:"enum",detail:"definition",type:"keyword"})]),e6=new nu,r6=new Set(["Script","Block","FunctionExpression","FunctionDeclaration","ArrowFunction","MethodDeclaration","ForStatement"]);Oq=["FunctionDeclaration"],yq={FunctionDeclaration:jh("function"),ClassDeclaration:jh("class"),ClassExpression:()=>!0,EnumDeclaration:jh("constant"),TypeAliasDeclaration:jh("type"),NamespaceDeclaration:jh("namespace"),VariableDefinition(t,e){t.matchContext(Oq)||e(t,"variable")},TypeDefinition(t,e){e(t,"type")},__proto__:null};t6=/^[\w$\xa1-\uffff][\w$\d\xa1-\uffff]*$/,o6=["TemplateString","String","RegExp","LineComment","BlockComment","VariableDefinition","TypeDefinition","Label","PropertyDefinition","PropertyName","PrivatePropertyDefinition","PrivatePropertyName","JSXText","JSXAttributeValue","JSXOpenTag","JSXCloseTag","JSXSelfClosingTag",".","?."];Br=Ko.define({name:"javascript",parser:KD.configure({props:[ul.add({IfStatement:cu({except:/^\s*({|else\b)/}),TryStatement:cu({except:/^\s*({|catch\b|finally\b)/}),LabeledStatement:BI,SwitchBody:t=>{let e=t.textAfter,n=/^\s*\}/.test(e),i=/^\s*(case|default)\b/.test(e);return t.baseIndent+(n?0:i?1:2)*t.unit},Block:LI({closing:"}"}),ArrowFunction:t=>t.baseIndent+t.unit,"TemplateString BlockComment":()=>null,"Statement Property":cu({except:/^\s*{/}),JSXElement(t){let e=/^\s*<\//.test(t.textAfter);return t.lineIndent(t.node.from)+(e?0:t.unit)},JSXEscape(t){let e=/\s*\}/.test(t.textAfter);return t.lineIndent(t.node.from)+(e?0:t.unit)},"JSXOpenTag JSXSelfClosingTag"(t){return t.column(t.node.from)+t.unit}}),dl.add({"Block ClassBody SwitchBody EnumBody ObjectExpression ArrayExpression ObjectType":Wg,BlockComment(t){return{from:t.from+2,to:t.to-2}},JSXElement(t){let e=t.firstChild;if(!e||e.name=="JSXSelfClosingTag")return null;let n=t.lastChild;return{from:e.to,to:n.type.isError?t.to:n.from}},"JSXSelfClosingTag JSXOpenTag"(t){var e;let n=(e=t.firstChild)===null||e===void 0?void 0:e.nextSibling,i=t.lastChild;return!n||n.type.isError?null:{from:n.to,to:i.type.isError?t.to:i.from}}})]}),languageData:{closeBrackets:{brackets:["(","[","{","'",'"',"`"]},commentTokens:{line:"//",block:{open:"/*",close:"*/"}},indentOnInput:/^\s*(?:case |default:|\{|\}|<\/)$/,wordChars:"$"}}),s6={test:t=>/^JSX/.test(t.name),facet:OS({commentTokens:{block:{open:"{/*",close:"*/}"}}})},hT=Br.configure({dialect:"ts"},"typescript"),fT=Br.configure({dialect:"jsx",props:[Xg.add(t=>t.isTop?[s6]:void 0)]}),pT=Br.configure({dialect:"jsx ts",props:[Xg.add(t=>t.isTop?[s6]:void 0)]},"typescript"),l6=t=>({label:t,type:"keyword"}),c6="break case const continue default delete export extends false finally in instanceof let new return static super switch this throw true typeof var yield".split(" ").map(l6),xq=c6.concat(["declare","implements","private","protected","public"].map(l6));Tq=typeof navigator=="object"&&/Android\b/.test(navigator.userAgent),kq=le.inputHandler.of((t,e,n,i,r)=>{if((Tq?t.composing:t.compositionStarted)||t.state.readOnly||e!=n||i!=">"&&i!="/"||!Br.isActiveAt(t.state,e,-1))return!1;let a=r(),{state:o}=a,s=o.changeByRange(l=>{var c;let{head:u}=l,d=xt(o).resolveInner(u-1,-1),h;if(d.name=="JSXStartTag"&&(d=d.parent),!(o.doc.sliceString(u-1,u)!=i||d.name=="JSXAttributeValue"&&d.to>u)){if(i==">"&&d.name=="JSXFragmentTag")return{range:l,changes:{from:u,insert:"</>"}};if(i=="/"&&d.name=="JSXStartCloseTag"){let p=d.parent,m=p.parent;if(m&&p.from==u-2&&((h=n6(o.doc,m.firstChild,u))||((c=m.firstChild)===null||c===void 0?void 0:c.name)=="JSXFragmentTag")){let b=`${h}>`;return{range:W.cursor(u+b.length,-1),changes:{from:u,insert:b}}}}else if(i==">"){let p=Sq(d);if(p&&p.name=="JSXOpenTag"&&!/^\/?>|^<\//.test(o.doc.sliceString(u,u+2))&&(h=n6(o.doc,p,u)))return{range:l,changes:{from:u,insert:`</${h}>`}}}}return{range:l}});return s.changes.empty?!1:(t.dispatch([a,o.update(s,{userEvent:"input.complete",scrollIntoView:!0})]),!0)})});function ml(t,e,n=t.length){if(!e)return"";let i=e.firstChild,r=i&&i.getChild("TagName");return r?t.sliceString(r.from,Math.min(r.to,n)):""}function bu(t,e=!1){for(;t;t=t.parent)if(t.name=="Element")if(e)e=!1;else return t;return null}function b6(t,e,n){let i=n.tags[ml(t,bu(e))];return i?.children||n.allTags}function OT(t,e){let n=[];for(let i=bu(e);i&&!i.type.isTop;i=bu(i.parent)){let r=ml(t,i);if(r&&i.lastChild.name=="CloseTag")break;r&&n.indexOf(r)<0&&(e.name=="EndTag"||e.from>=i.firstChild.to)&&n.push(r)}return n}function h6(t,e,n,i,r){let a=/\s*>/.test(t.sliceDoc(r,r+5))?"":">",o=bu(n,n.name=="StartTag"||n.name=="TagName");return{from:i,to:r,options:b6(t.doc,o,e).map(s=>({label:s,type:"type"})).concat(OT(t.doc,n).map((s,l)=>({label:"/"+s,apply:"/"+s+a,type:"type",boost:99-l}))),validFor:/^\/?[:\-\.\w\u00b7-\uffff]*$/}}function f6(t,e,n,i){let r=/\s*>/.test(t.sliceDoc(i,i+5))?"":">";return{from:n,to:i,options:OT(t.doc,e).map((a,o)=>({label:a,apply:a+r,type:"type",boost:99-o})),validFor:O6}}function Aq(t,e,n,i){let r=[],a=0;for(let o of b6(t.doc,n,e))r.push({label:"<"+o,type:"type"});for(let o of OT(t.doc,n))r.push({label:"</"+o+">",type:"type",boost:99-a++});return{from:i,to:i,options:r,validFor:/^<\/?[:\-\.\w\u00b7-\uffff]*$/}}function wq(t,e,n,i,r){let a=bu(n),o=a?e.tags[ml(t.doc,a)]:null,s=o&&o.attrs?Object.keys(o.attrs):[],l=o&&o.globalAttrs===!1?s:s.length?s.concat(e.globalAttrNames):e.globalAttrNames;return{from:i,to:r,options:l.map(c=>({label:c,type:"property"})),validFor:O6}}function Cq(t,e,n,i,r){var a;let o=(a=n.parent)===null||a===void 0?void 0:a.getChild("AttributeName"),s=[],l;if(o){let c=t.sliceDoc(o.from,o.to),u=e.globalAttrs[c];if(!u){let d=bu(n),h=d?e.tags[ml(t.doc,d)]:null;u=h?.attrs&&h.attrs[c]}if(u){let d=t.sliceDoc(i,r).toLowerCase(),h='"',p='"';/^['"]/.test(d)?(l=d[0]=='"'?/^[^"]*$/:/^[^']*$/,h="",p=t.sliceDoc(r,r+1)==d[0]?"":d[0],d=d.slice(1),i++):l=/^[^\s<>='"]*$/;for(let m of u)s.push({label:m,apply:h+m+p,type:"constant"})}}return{from:i,to:r,options:s,validFor:l}}function Pq(t,e){let{state:n,pos:i}=e,r=xt(n).resolveInner(i,-1),a=r.resolve(i);for(let o=i,s;a==r&&(s=r.childBefore(o));){let l=s.lastChild;if(!l||!l.type.isError||l.from<l.to)break;a=r=s,o=l.from}return r.name=="TagName"?r.parent&&/CloseTag$/.test(r.parent.name)?f6(n,r,r.from,i):h6(n,t,r,r.from,i):r.name=="StartTag"||r.name=="IncompleteTag"?h6(n,t,r,i,i):r.name=="StartCloseTag"||r.name=="IncompleteCloseTag"?f6(n,r,i,i):r.name=="OpenTag"||r.name=="SelfClosingTag"||r.name=="AttributeName"?wq(n,t,r,r.name=="AttributeName"?r.from:i,i):r.name=="Is"||r.name=="AttributeValue"||r.name=="UnquotedAttributeValue"?Cq(n,t,r,r.name=="Is"?i:r.from,i):e.explicit&&(a.name=="Element"||a.name=="Text"||a.name=="Document")?Aq(n,t,r,i):null}function Rq(t){let{extraTags:e,extraGlobalAttributes:n}=t,i=n||e?new gu(e,n):gu.default;return r=>Pq(i,r)}function S6(t={}){let e="",n;t.matchClosingTags===!1&&(e="noMatch"),t.selfClosingTags===!0&&(e=(e?e+" ":"")+"selfClosing"),(t.nestedLanguages&&t.nestedLanguages.length||t.nestedAttributes&&t.nestedAttributes.length)&&(n=aT((t.nestedLanguages||[]).concat(y6),(t.nestedAttributes||[]).concat(v6)));let i=n?x6.configure({wrap:n,dialect:e}):e?mb.configure({dialect:e}):mb;return new es(i,[mb.data.of({autocomplete:Rq(t)}),t.autoCloseTags!==!1?Iq:[],u6().support,qD().support])}function _q(t,e,n){for(var i;;){if(((i=e.lastChild)===null||i===void 0?void 0:i.name)!="CloseTag")return!1;let r=e.parent;if(!r||ml(t,r)!=n)return!0;e=r}}var Hh,mT,gT,bT,Bi,be,Eq,m6,g6,gu,O6,Mq,y6,v6,x6,mb,p6,Iq,T6=P(()=>{DD();YD();d6();ur();ir();hl();Hh=["_blank","_self","_top","_parent"],mT=["ascii","utf-8","utf-16","latin1","latin1"],gT=["get","post","put","delete"],bT=["application/x-www-form-urlencoded","multipart/form-data","text/plain"],Bi=["true","false"],be={},Eq={a:{attrs:{href:null,ping:null,type:null,media:null,target:Hh,hreflang:null}},abbr:be,address:be,area:{attrs:{alt:null,coords:null,href:null,target:null,ping:null,media:null,hreflang:null,type:null,shape:["default","rect","circle","poly"]}},article:be,aside:be,audio:{attrs:{src:null,mediagroup:null,crossorigin:["anonymous","use-credentials"],preload:["none","metadata","auto"],autoplay:["autoplay"],loop:["loop"],controls:["controls"]}},b:be,base:{attrs:{href:null,target:Hh}},bdi:be,bdo:be,blockquote:{attrs:{cite:null}},body:be,br:be,button:{attrs:{form:null,formaction:null,name:null,value:null,autofocus:["autofocus"],disabled:["autofocus"],formenctype:bT,formmethod:gT,formnovalidate:["novalidate"],formtarget:Hh,type:["submit","reset","button"]}},canvas:{attrs:{width:null,height:null}},caption:be,center:be,cite:be,code:be,col:{attrs:{span:null}},colgroup:{attrs:{span:null}},command:{attrs:{type:["command","checkbox","radio"],label:null,icon:null,radiogroup:null,command:null,title:null,disabled:["disabled"],checked:["checked"]}},data:{attrs:{value:null}},datagrid:{attrs:{disabled:["disabled"],multiple:["multiple"]}},datalist:{attrs:{data:null}},dd:be,del:{attrs:{cite:null,datetime:null}},details:{attrs:{open:["open"]}},dfn:be,div:be,dl:be,dt:be,em:be,embed:{attrs:{src:null,type:null,width:null,height:null}},eventsource:{attrs:{src:null}},fieldset:{attrs:{disabled:["disabled"],form:null,name:null}},figcaption:be,figure:be,footer:be,form:{attrs:{action:null,name:null,"accept-charset":mT,autocomplete:["on","off"],enctype:bT,method:gT,novalidate:["novalidate"],target:Hh}},h1:be,h2:be,h3:be,h4:be,h5:be,h6:be,head:{children:["title","base","link","style","meta","script","noscript","command"]},header:be,hgroup:be,hr:be,html:{attrs:{manifest:null}},i:be,iframe:{attrs:{src:null,srcdoc:null,name:null,width:null,height:null,sandbox:["allow-top-navigation","allow-same-origin","allow-forms","allow-scripts"],seamless:["seamless"]}},img:{attrs:{alt:null,src:null,ismap:null,usemap:null,width:null,height:null,crossorigin:["anonymous","use-credentials"]}},input:{attrs:{alt:null,dirname:null,form:null,formaction:null,height:null,list:null,max:null,maxlength:null,min:null,name:null,pattern:null,placeholder:null,size:null,src:null,step:null,value:null,width:null,accept:["audio/*","video/*","image/*"],autocomplete:["on","off"],autofocus:["autofocus"],checked:["checked"],disabled:["disabled"],formenctype:bT,formmethod:gT,formnovalidate:["novalidate"],formtarget:Hh,multiple:["multiple"],readonly:["readonly"],required:["required"],type:["hidden","text","search","tel","url","email","password","datetime","date","month","week","time","datetime-local","number","range","color","checkbox","radio","file","submit","image","reset","button"]}},ins:{attrs:{cite:null,datetime:null}},kbd:be,keygen:{attrs:{challenge:null,form:null,name:null,autofocus:["autofocus"],disabled:["disabled"],keytype:["RSA"]}},label:{attrs:{for:null,form:null}},legend:be,li:{attrs:{value:null}},link:{attrs:{href:null,type:null,hreflang:null,media:null,sizes:["all","16x16","16x16 32x32","16x16 32x32 64x64"]}},map:{attrs:{name:null}},mark:be,menu:{attrs:{label:null,type:["list","context","toolbar"]}},meta:{attrs:{content:null,charset:mT,name:["viewport","application-name","author","description","generator","keywords"],"http-equiv":["content-language","content-type","default-style","refresh"]}},meter:{attrs:{value:null,min:null,low:null,high:null,max:null,optimum:null}},nav:be,noscript:be,object:{attrs:{data:null,type:null,name:null,usemap:null,form:null,width:null,height:null,typemustmatch:["typemustmatch"]}},ol:{attrs:{reversed:["reversed"],start:null,type:["1","a","A","i","I"]},children:["li","script","template","ul","ol"]},optgroup:{attrs:{disabled:["disabled"],label:null}},option:{attrs:{disabled:["disabled"],label:null,selected:["selected"],value:null}},output:{attrs:{for:null,form:null,name:null}},p:be,param:{attrs:{name:null,value:null}},pre:be,progress:{attrs:{value:null,max:null}},q:{attrs:{cite:null}},rp:be,rt:be,ruby:be,samp:be,script:{attrs:{type:["text/javascript"],src:null,async:["async"],defer:["defer"],charset:mT}},section:be,select:{attrs:{form:null,name:null,size:null,autofocus:["autofocus"],disabled:["disabled"],multiple:["multiple"]}},slot:{attrs:{name:null}},small:be,source:{attrs:{src:null,type:null,media:null}},span:be,strong:be,style:{attrs:{type:["text/css"],media:null,scoped:null}},sub:be,summary:be,sup:be,table:be,tbody:be,td:{attrs:{colspan:null,rowspan:null,headers:null}},template:be,textarea:{attrs:{dirname:null,form:null,maxlength:null,name:null,placeholder:null,rows:null,cols:null,autofocus:["autofocus"],disabled:["disabled"],readonly:["readonly"],required:["required"],wrap:["soft","hard"]}},tfoot:be,th:{attrs:{colspan:null,rowspan:null,headers:null,scope:["row","col","rowgroup","colgroup"]}},thead:be,time:{attrs:{datetime:null}},title:be,tr:be,track:{attrs:{src:null,label:null,default:null,kind:["subtitles","captions","descriptions","chapters","metadata"],srclang:null}},ul:{children:["li","script","template","ul","ol"]},var:be,video:{attrs:{src:null,poster:null,width:null,height:null,crossorigin:["anonymous","use-credentials"],preload:["auto","metadata","none"],autoplay:["autoplay"],mediagroup:["movie"],muted:["muted"],controls:["controls"]}},wbr:be},m6={accesskey:null,class:null,contenteditable:Bi,contextmenu:null,dir:["ltr","rtl","auto"],draggable:["true","false","auto"],dropzone:["copy","move","link","string:","file:"],hidden:["hidden"],id:null,inert:["inert"],itemid:null,itemprop:null,itemref:null,itemscope:["itemscope"],itemtype:null,lang:["ar","bn","de","en-GB","en-US","es","fr","hi","id","ja","pa","pt","ru","tr","zh"],spellcheck:Bi,autocorrect:Bi,autocapitalize:Bi,style:null,tabindex:null,title:null,translate:["yes","no"],rel:["stylesheet","alternate","author","bookmark","help","license","next","nofollow","noreferrer","prefetch","prev","search","tag"],role:"alert application article banner button cell checkbox complementary contentinfo dialog document feed figure form grid gridcell heading img list listbox listitem main navigation region row rowgroup search switch tab table tabpanel textbox timer".split(" "),"aria-activedescendant":null,"aria-atomic":Bi,"aria-autocomplete":["inline","list","both","none"],"aria-busy":Bi,"aria-checked":["true","false","mixed","undefined"],"aria-controls":null,"aria-describedby":null,"aria-disabled":Bi,"aria-dropeffect":null,"aria-expanded":["true","false","undefined"],"aria-flowto":null,"aria-grabbed":["true","false","undefined"],"aria-haspopup":Bi,"aria-hidden":Bi,"aria-invalid":["true","false","grammar","spelling"],"aria-label":null,"aria-labelledby":null,"aria-level":null,"aria-live":["off","polite","assertive"],"aria-multiline":Bi,"aria-multiselectable":Bi,"aria-owns":null,"aria-posinset":null,"aria-pressed":["true","false","mixed","undefined"],"aria-readonly":Bi,"aria-relevant":null,"aria-required":Bi,"aria-selected":["true","false","undefined"],"aria-setsize":null,"aria-sort":["ascending","descending","none","other"],"aria-valuemax":null,"aria-valuemin":null,"aria-valuenow":null,"aria-valuetext":null},g6="beforeunload copy cut dragstart dragover dragleave dragenter dragend drag paste focus blur change click load mousedown mouseenter mouseleave mouseup keydown keyup resize scroll unload".split(" ").map(t=>"on"+t);for(let t of g6)m6[t]=null;gu=class{constructor(e,n){this.tags={...Eq,...e},this.globalAttrs={...m6,...n},this.allTags=Object.keys(this.tags),this.globalAttrNames=Object.keys(this.globalAttrs)}};gu.default=new gu;O6=/^[:\-\.\w\u00b7-\uffff]*$/;Mq=Br.parser.configure({top:"SingleExpression"}),y6=[{tag:"script",attrs:t=>t.type=="text/typescript"||t.lang=="ts",parser:hT.parser},{tag:"script",attrs:t=>t.type=="text/babel"||t.type=="text/jsx",parser:fT.parser},{tag:"script",attrs:t=>t.type=="text/typescript-jsx",parser:pT.parser},{tag:"script",attrs(t){return/^(importmap|speculationrules|application\/(.+\+)?json)$/i.test(t.type)},parser:Mq},{tag:"script",attrs(t){return!t.type||/^(?:text|application)\/(?:x-)?(?:java|ecma)script$|^module$|^$/i.test(t.type)},parser:Br.parser},{tag:"style",attrs(t){return(!t.lang||t.lang=="css")&&(!t.type||/^(text\/)?(x-)?(stylesheet|css)$/i.test(t.type))},parser:Uh.parser}],v6=[{name:"style",parser:Uh.parser.configure({top:"Styles"})}].concat(g6.map(t=>({name:t,parser:Br.parser}))),x6=Ko.define({name:"html",parser:_D.configure({props:[ul.add({Element(t){let e=/^(\s*)(<\/)?/.exec(t.textAfter);return t.node.to<=t.pos+e[0].length?t.continue():t.lineIndent(t.node.from)+(e[2]?0:t.unit)},"OpenTag CloseTag SelfClosingTag"(t){return t.column(t.node.from)+t.unit},Document(t){if(t.pos+/\s*/.exec(t.textAfter)[0].length<t.node.to)return t.continue();let e=null,n;for(let i=t.node;;){let r=i.lastChild;if(!r||r.name!="Element"||r.to!=i.to)break;e=i=r}return e&&!((n=e.lastChild)&&(n.name=="CloseTag"||n.name=="SelfClosingTag"))?t.lineIndent(e.from)+t.unit:null}}),dl.add({Element(t){let e=t.firstChild,n=t.lastChild;return!e||e.name!="OpenTag"?null:{from:e.to,to:n.name=="CloseTag"?n.from:t.to}}}),vS.add({"OpenTag CloseTag":t=>t.getChild("TagName")})]}),languageData:{commentTokens:{block:{open:"<!--",close:"-->"}},indentOnInput:/^\s*<\/\w+\W$/,wordChars:"-_"}}),mb=x6.configure({wrap:aT(y6,v6)});p6=new Set("area base br col command embed frame hr img input keygen link meta param source track wbr menuitem".split(" "));Iq=le.inputHandler.of((t,e,n,i,r)=>{if(t.composing||t.state.readOnly||e!=n||i!=">"&&i!="/"||!mb.isActiveAt(t.state,e,-1))return!1;let a=r(),{state:o}=a,s=o.changeByRange(l=>{var c;let u=o.doc.sliceString(l.from-1,l.to)==i,{head:d}=l,h=xt(o).resolveInner(d,-1),p;if(u&&i==">"&&h.name=="EndTag"){let m=h.parent;if((p=ml(o.doc,m.parent,d))&&!p6.has(p)&&!_q(o.doc,m.parent,p)){let b=d+(o.doc.sliceString(d,d+1)===">"?1:0),x=`</${p}>`;return{range:l,changes:{from:d,to:b,insert:x}}}}else if(u&&i=="/"&&h.name=="IncompleteCloseTag"){let m=h.parent;if(h.from==d-2&&((c=m.lastChild)===null||c===void 0?void 0:c.name)!="CloseTag"&&(p=ml(o.doc,m,d))&&!p6.has(p)){let b=d+(o.doc.sliceString(d,d+1)===">"?1:0),x=`${p}>`;return{range:W.cursor(d+x.length,-1),changes:{from:d,to:b,insert:x}}}}return{range:l}});return s.changes.empty?!1:(t.dispatch([a,o.update(s,{userEvent:"input.complete",scrollIntoView:!0})]),!0)})});function k6(){return[Nq]}var gb,Fh,Dq,Nq,yT=P(()=>{ir();ur();gb=De.define({map:(t,e)=>t.map(([n,i])=>[e.mapPos(n),e.mapPos(i,1)])}),Fh=De.define(),Dq=ge.mark({class:"cm-ai-changed"}),Nq=Yt.define({create:()=>ge.none,update(t,e){let n=t.map(e.changes);for(let i of e.effects)if(i.is(Fh))n=ge.none;else if(i.is(gb)){let r=i.value.filter(([a,o])=>o>a).sort((a,o)=>a[0]-o[0]).map(([a,o])=>Dq.range(a,o));r.length&&(n=n.update({add:r,sort:!0}))}return n},provide:t=>le.decorations.from(t)})});function A6(t,e,n){if(!e)return[];let i=new ob({search:e,caseSensitive:n.matchCase,wholeWord:n.wholeWord,literal:!0}),r=[],a=i.getCursor(t);for(let o=a.next();!o.done;o=a.next())r.push({from:o.value.from,to:o.value.to});return r}var bb,Lq,Qq,E6,vT=P(()=>{DS();ir();ur();bb=De.define(),Lq=ge.mark({class:"search-hit"}),Qq=ge.mark({class:"search-hit search-hit-active"}),E6=Yt.define({create:()=>ge.none,update(t,e){t=t.map(e.changes);for(let n of e.effects)n.is(bb)&&(t=ge.set(n.value.ranges.map((i,r)=>(r===n.value.active?Qq:Lq).range(i.from,i.to)),!0));return t},provide:t=>le.decorations.from(t)})});function w6(t){return[uI(),dI(),rI(),u4(),WI(),eI(),iI(),at.allowMultipleSelections.of(!0),zI(),YI(Bq),JI(),aD(),oI(),sI(),aI(),G4(),Th.of([...lD,...F4,...g4,...FI,X4]),S6(),k6(),E6,le.lineWrapping,zq,le.updateListener.of(e=>{e.transactions.some(n=>n.annotation(Va))||(e.docChanged||e.selectionSet)&&t(e.view)})]}var Va,Bq,zq,xT=P(()=>{ir();ur();PS();hl();DS();US();T6();ru();yT();vT();Va=In.define(),Bq=ou.define([{tag:I.tagName,color:"var(--cm-tag)"},{tag:I.angleBracket,color:"var(--cm-punct)"},{tag:I.attributeName,color:"var(--cm-attr)"},{tag:I.attributeValue,color:"var(--cm-string)"},{tag:I.string,color:"var(--cm-string)"},{tag:I.comment,color:"var(--cm-comment)",fontStyle:"italic"},{tag:I.keyword,color:"var(--cm-keyword)"},{tag:I.number,color:"var(--cm-number)"},{tag:I.propertyName,color:"var(--cm-attr)"},{tag:I.definitionKeyword,color:"var(--cm-keyword)"},{tag:I.processingInstruction,color:"var(--cm-comment)"},{tag:I.documentMeta,color:"var(--cm-comment)"}]),zq=le.theme({"&":{backgroundColor:"var(--surface)",color:"var(--text)",height:"100%"},".cm-scroller":{fontFamily:"'SF Mono', Menlo, Consolas, monospace",fontSize:"13px",lineHeight:"1.55"},".cm-content":{caretColor:"var(--text)"},".cm-cursor, .cm-dropCursor":{borderLeftColor:"var(--text)"},"&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground":{backgroundColor:"var(--accent-soft)"},".cm-activeLine":{backgroundColor:"var(--hover)"},".cm-gutters":{backgroundColor:"var(--surface)",color:"var(--text-muted)",borderRight:"1px solid var(--border)"},".cm-activeLineGutter":{backgroundColor:"var(--hover)"},".cm-foldPlaceholder":{backgroundColor:"var(--hover)",border:"1px solid var(--border)",color:"var(--text-muted)"},".cm-matchingBracket":{backgroundColor:"var(--accent-soft)",outline:"none"},".cm-selectionMatch":{backgroundColor:"var(--accent-soft)"},".cm-panels":{backgroundColor:"var(--surface)",color:"var(--text)"},".cm-panels.cm-panels-top":{borderBottom:"1px solid var(--border)"}})});function C6(t,e,n){let i=[],r="",a={matchCase:!1,wholeWord:!1},o=0,s=()=>t.dispatch({effects:bb.of({ranges:i,active:o})}),l=()=>(i=A6(t.state.doc,r,a),o=i.length===0?0:Math.min(o,i.length-1),s(),i.length);return{get editable(){return!t.state.readOnly},search(c,u,d){return r=c,a=u,o=d,l()},activate(c){let u=i[c];u&&(o=c,t.dispatch({selection:{anchor:u.from,head:u.to},effects:[bb.of({ranges:i,active:o}),le.scrollIntoView(u.from,{y:"center"})],annotations:[Va.of(!0)]}))},replaceOne(c,u){if(i.length===0)return;n?.(),l();let d=i[c];d&&t.dispatch({changes:{from:d.from,to:d.to,insert:u},userEvent:"input.replace"})},replaceAll(c){i.length!==0&&(n?.(),l()!==0&&t.dispatch({changes:i.map(u=>({from:u.from,to:u.to,insert:c})),userEvent:"input.replace.all"}))},clear(){i=[],o=0,s()},onDocChanged:e}}var P6=P(()=>{ur();vT();xT()});var Gt,as,R6,M6=P(()=>{Gt=Z(Ie(),1);ir();ur();PS();xT();yT();P6();Wt();as=Z(oe(),1),R6=(0,Gt.forwardRef)(function({initialText:e,onChange:n,onCursor:i,onBeforeReplace:r,className:a,onRedact:o},s){let{t:l}=We(),c=(0,Gt.useRef)(null),u=(0,Gt.useRef)(null),d=(0,Gt.useRef)(null),h=(0,Gt.useRef)(new Set),p=(0,Gt.useRef)(n),m=(0,Gt.useRef)(i);p.current=n,m.current=i;let[b,x]=(0,Gt.useState)(null),[g,O]=(0,Gt.useState)({left:0,top:0}),y=(0,Gt.useRef)(null),E=(0,Gt.useRef)(o);E.current=o,(0,Gt.useEffect)(()=>{let M=c.current;if(!M)return;let v=new le({parent:M,state:at.create({doc:e,extensions:w6(S=>{let C=S.state.selection.main.head,B=S.state.doc.lineAt(C);m.current({line:B.number,col:C-B.from+1,pos:C})})}),dispatchTransactions:(S,C)=>{if(C.update(S),S.some(B=>B.docChanged&&!B.annotation(Va))&&p.current(C.state.doc.toString()),S.some(B=>B.docChanged))for(let B of h.current)B()}});return u.current=v,d.current=C6(v,S=>(h.current.add(S),()=>h.current.delete(S)),r),()=>{v.destroy(),u.current=null,d.current=null}},[]);let w=M=>{let v=u.current;if(!v||!E.current)return;let S=v.state.selection.main;S.empty||(M.preventDefault(),x({x:M.clientX,y:M.clientY,from:S.from,to:S.to,text:v.state.sliceDoc(S.from,S.to)}))};return(0,Gt.useLayoutEffect)(()=>{if(!b)return;let M=y.current?.getBoundingClientRect();M&&O({left:Math.max(8,Math.min(b.x,window.innerWidth-M.width-8)),top:b.y+M.height>window.innerHeight-8?Math.max(8,b.y-M.height):b.y})},[b]),(0,Gt.useEffect)(()=>{if(!b)return;let M=S=>{y.current?.contains(S.target)||x(null)},v=S=>{S.key==="Escape"&&x(null)};return window.addEventListener("mousedown",M),window.addEventListener("keydown",v,!0),()=>{window.removeEventListener("mousedown",M),window.removeEventListener("keydown",v,!0)}},[b]),(0,Gt.useImperativeHandle)(s,()=>({setDoc(M){let v=u.current;!v||v.state.doc.toString()===M||v.dispatch({changes:{from:0,to:v.state.doc.length,insert:M},annotations:[Va.of(!0)]})},replaceDoc(M,v){let S=u.current;if(!S)return;let C=S.state.doc.length;S.dispatch({changes:{from:0,to:C,insert:M},annotations:[Va.of(!0)],effects:v?[Fh.of(null),gb.of([[0,M.length]])]:[Fh.of(null)]})},applyPatches(M,v){let S=u.current;if(!S)return[];let C=[...M].sort((N,_)=>N.from-_.from||N.to-_.to),B=[],z=0;for(let N of C)B.push([N.from+z,N.from+z+N.text.length]),z+=N.text.length-(N.to-N.from);return S.dispatch({changes:C.map(N=>({from:N.from,to:N.to,insert:N.text})),annotations:[Va.of(!0)],effects:v?[gb.of(B)]:[]}),B},clearHighlights(){u.current?.dispatch({effects:[Fh.of(null)]})},revealRange(M,v,S=!0){let C=u.current;if(!C)return;let B=C.state.doc.length,z=Math.max(0,Math.min(M,B)),N=Math.max(z,Math.min(v,B));C.dispatch({selection:{anchor:z,head:N},effects:le.scrollIntoView(z,{y:"center"}),annotations:[Va.of(!0)]}),S&&C.focus()},getSelection(){let M=u.current;if(!M)return null;let v=M.state.selection.main;return{from:v.from,to:v.to,empty:v.empty,text:M.state.sliceDoc(v.from,v.to)}},undo:()=>u.current?Kg(u.current):!1,redo:()=>u.current?Ih(u.current):!1,canUndo:()=>u.current?h4(u.current.state)>0:!1,canRedo:()=>u.current?f4(u.current.state)>0:!1,focus:()=>u.current?.focus(),findTarget:()=>d.current})),(0,as.jsxs)(as.Fragment,{children:[(0,as.jsx)("div",{ref:c,className:a,onContextMenu:w}),b&&(0,as.jsx)("div",{ref:y,className:"source-ctx",role:"menu",style:{left:g.left,top:g.top},onContextMenu:M=>M.preventDefault(),children:(0,as.jsx)("button",{className:"source-ctx-item",role:"menuitem",onClick:()=>{let M={from:b.from,to:b.to,text:b.text};x(null),E.current?.(M)},children:l("redactMenuLabel")})})]})})});function _6(t){if(typeof t!="object"||t===null)return!1;let{type:e,version:n}=t;return typeof e=="string"&&$q.has(e)&&typeof n=="number"&&Number.isFinite(n)}var $q,I6=P(()=>{$q=new Set(["gx:ready","gx:scroll","gx:hover","gx:rect","gx:select","gx:textSelect","gx:textEditCommit","gx:htmlEditCommit","gx:textEditCancel","gx:keyCommand","gx:zoom","gx:navigateBlocked","gx:markClick","gx:resize","gx:moveTo","gx:drag"])});function D6({html:t}){let{t:e}=We(),n=(0,Xh.useRef)(null),i=(0,Xh.useRef)("");return(0,Xh.useEffect)(()=>{let r=n.current?.contentDocument;if(!r)return;let a=i.current;a&&t.startsWith(a)?t.length>a.length&&r.write(t.slice(a.length)):(r.open(),r.write(t)),i.current=t},[t]),(0,ST.jsx)("div",{className:"draft-preview","aria-hidden":!0,children:(0,ST.jsx)("iframe",{ref:n,className:"draft-preview-frame",title:e("viewPreview"),sandbox:"allow-same-origin"})})}var Xh,ST,N6=P(()=>{Xh=Z(Ie(),1);Wt();ST=Z(oe(),1)});var zr,Zh,Ob,TT=P(()=>{zr=Z(Ie(),1);I6();N6();Wt();Zh=Z(oe(),1),Ob=(0,zr.forwardRef)(function({url:e,nonce:n,zoom:i,onMessage:r,onLoad:a,draft:o},s){let l=(0,zr.useRef)(null),{t:c}=We(),u=(0,zr.useRef)(r);u.current=r;let d=(0,zr.useMemo)(()=>e?`${e}?v=${n}`:"about:blank",[e,n]);return(0,zr.useEffect)(()=>{let h=p=>{p.source===l.current?.contentWindow&&_6(p.data)&&u.current(p.data)};return window.addEventListener("message",h),()=>window.removeEventListener("message",h)},[]),(0,zr.useImperativeHandle)(s,()=>({post(h){l.current?.contentWindow?.postMessage(h,"*")}})),(0,Zh.jsxs)("div",{className:"preview-host",style:{zoom:i/100},children:[(0,Zh.jsx)("iframe",{ref:l,className:"preview-frame",title:c("viewPreview"),src:d,onLoad:a,sandbox:"allow-scripts allow-forms allow-popups allow-modals",referrerPolicy:"no-referrer"}),o!=null&&(0,Zh.jsx)(D6,{html:o})]})})});function Uq(t){let e=/^<[A-Za-z][^\s/>]*/.exec(t),n=/\s*\/?>$/.exec(t),i=e?.[0].length??1,r=n?.index??t.length,a=[],o=i,s=l=>l<r&&/\s/.test(t[l]);for(;o<r;){for(;s(o);)o+=1;if(o>=r)break;let l=o;for(;o<r&&!s(o)&&t[o]!=="="&&t[o]!==">";)o+=1;if(o===l){o+=1;continue}let c=t.slice(l,o);for(;s(o);)o+=1;if(t[o]==="="){for(o+=1;s(o);)o+=1;let u=t[o]==='"'||t[o]==="'"?t[o]:"";if(u){let d=t.indexOf(u,o+1);o=d>=0&&d<r?d+1:r}else for(;o<r&&!s(o);)o+=1}a.push({name:c,start:l,end:o})}return{prefixEnd:i,closeStart:r,attributes:a}}function jq(t,e){let{prefixEnd:n,closeStart:i,attributes:r}=Uq(t),a=r.filter(c=>c.name.toLowerCase()===L6),o=t;if(a.length>0){let c=r.filter(u=>!a.includes(u)).map(u=>` ${t.slice(u.start,u.end)}`);o=t.slice(0,n)+c.join("")+t.slice(i)}let l=/\s*\/?>$/.exec(o)?.index??o.length;return`${o.slice(0,l)} ${L6}="${e}"${o.slice(l)}`}function kT(t,e,n){let i=e.elements.map(s=>({start:s.startTag[0],end:s.startTag[1],text:jq(t.slice(s.startTag[0],s.startTag[1]),s.sid)})).sort((s,l)=>l.start-s.start),r=t;for(let s of i)r=r.slice(0,s.start)+s.text+r.slice(s.end);let a=`<script data-gx-inspector>${n.replace("__GX_VERSION__",String(e.version))}<\/script>`,o=r.search(/<\/body\s*>/i);return o>=0?r.slice(0,o)+a+r.slice(o):r+a}var L6,Q6=P(()=>{L6="data-gx-sid"});var ET,B6=P(()=>{ET=`/* global window, document */\r
+/* Injected into the sandboxed preview frame. Plain ES2020, no imports: this\r
+ * file is loaded as a raw string and appended as a <script>. It never mutates\r
+ * the document except for its own overlay nodes (marked data-gx-inspector) and\r
+ * a temporary contenteditable during text edits (a single click on rendered text\r
+ * starts one with the caret at the click, like PowerPoint). */\r
+;(() => {\r
+  const SID = 'data-gx-sid'\r
+  const MARK = 'data-gx-inspector'\r
+  // replaced by instrumentForPreview with the parse-map version this copy was built from\r
+  const VERSION = Number('__GX_VERSION__')\r
+  const post = (msg) => window.parent.postMessage({ ...msg, version: VERSION }, '*')\r
+  const TEXT_TAGS = new Set([\r
+    'p',\r
+    'h1',\r
+    'h2',\r
+    'h3',\r
+    'h4',\r
+    'h5',\r
+    'h6',\r
+    'li',\r
+    'td',\r
+    'th',\r
+    'span',\r
+    'a',\r
+    'blockquote',\r
+    'figcaption',\r
+    'label',\r
+    'button',\r
+    'dt',\r
+    'dd',\r
+    'caption',\r
+    'summary',\r
+    'legend',\r
+    'em',\r
+    'strong',\r
+    'b',\r
+    'i',\r
+    'u',\r
+    's',\r
+    'small',\r
+    'code',\r
+    'cite',\r
+    'q',\r
+    'time',\r
+    'div',\r
+    'section',\r
+    'article',\r
+    'header',\r
+    'footer',\r
+    'nav',\r
+    'aside',\r
+    'main',\r
+    'pre',\r
+  ])\r
+  const ATOMIC = new Set(['svg', 'canvas', 'iframe', 'video', 'audio', 'object', 'embed', 'math'])\r
+  /** phrasing children a text element may carry and still edit inline as one run of rich text */\r
+  const INLINE_TAGS = new Set([\r
+    'a',\r
+    'abbr',\r
+    'b',\r
+    'bdi',\r
+    'bdo',\r
+    'br',\r
+    'cite',\r
+    'code',\r
+    'data',\r
+    'del',\r
+    'dfn',\r
+    'em',\r
+    'i',\r
+    'ins',\r
+    'kbd',\r
+    'mark',\r
+    'q',\r
+    's',\r
+    'samp',\r
+    'small',\r
+    'span',\r
+    'strong',\r
+    'sub',\r
+    'sup',\r
+    'time',\r
+    'u',\r
+    'var',\r
+    'wbr',\r
+  ])\r
+\r
+  let mode = 'inspect'\r
+  const selecting = () => mode === 'inspect'\r
+  let selected = null\r
+  let editing = null\r
+  let dark = false\r
+  let resizing = null\r
+  let drag = null\r
+  /** horizontal slide of a replaced element (image / video): live margin-left, committed as styles */\r
+  let slide = null\r
+  let pressed = null\r
+  let swallowClick = false\r
+\r
+  const style = document.createElement('style')\r
+  style.setAttribute(MARK, '')\r
+  style.textContent = \`\r
+    [\${MARK}-overlay] { position: fixed; pointer-events: none; z-index: 2147483646; box-sizing: border-box; border-radius: 2px; transition: none; }\r
+    [\${MARK}-overlay="hover"] { outline: 1.5px dashed var(--gx-hover, #0f7fff); outline-offset: -1px; }\r
+    [\${MARK}-overlay="select"] { outline: 2px solid var(--gx-select, #0f7fff); outline-offset: -1px; background: rgba(15,127,255,0.05); }\r
+    [\${MARK}-overlay="dynamic"] { outline: 2px solid #f59e0b; outline-offset: -1px; }\r
+    [\${MARK}-overlay="highlight"] { background: rgba(255,213,79,0.35); }\r
+    [\${MARK}-label] { position: fixed; z-index: 2147483647; pointer-events: none; font: 11px/1 -apple-system, system-ui, sans-serif; color: #fff; background: var(--gx-select, #0f7fff); padding: 2px 6px; border-radius: 3px; white-space: nowrap; }\r
+    [\${MARK}-editing] { outline: 2px solid #2563eb !important; outline-offset: -1px; }\r
+    [\${MARK}-pin] { position: fixed; z-index: 2147483647; min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 9px; background: var(--gx-select, #0f7fff); color: #fff; font: 600 11px/18px -apple-system, system-ui, sans-serif; text-align: center; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }\r
+    [\${MARK}-handle] { position: fixed; z-index: 2147483647; width: 9px; height: 9px; box-sizing: border-box; border: 1.5px solid var(--gx-select, #0f7fff); border-radius: 2px; background: #fff; pointer-events: auto; }\r
+    [\${MARK}-handle="n"], [\${MARK}-handle="s"] { cursor: ns-resize; }\r
+    [\${MARK}-handle="e"], [\${MARK}-handle="w"] { cursor: ew-resize; }\r
+    [\${MARK}-handle="ne"], [\${MARK}-handle="sw"] { cursor: nesw-resize; }\r
+    [\${MARK}-handle="nw"], [\${MARK}-handle="se"] { cursor: nwse-resize; }\r
+    [\${MARK}-grip] { position: fixed; z-index: 2147483647; width: 12px; height: 22px; box-sizing: border-box; border-radius: 4px; background: var(--gx-select, #0f7fff); color: #fff; font: 700 10px/22px -apple-system, system-ui, sans-serif; letter-spacing: -1px; text-align: center; cursor: grab; pointer-events: auto; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }\r
+    [\${MARK}-drop] { position: fixed; z-index: 2147483647; pointer-events: none; background: var(--gx-select, #0f7fff); border-radius: 2px; box-shadow: 0 0 0 1px #fff; }\r
+    [\${MARK}-dragsrc] { opacity: 0.4 !important; }\r
+    html[\${MARK}-dragging], html[\${MARK}-dragging] * { cursor: grabbing !important; user-select: none !important; }\r
+    html[\${MARK}-cursor="text"] *:not([\${MARK}]) { cursor: text !important; }\r
+    html[\${MARK}-cursor="move"] *:not([\${MARK}]) { cursor: move !important; }\r
+    html[\${MARK}-resizing], html[\${MARK}-resizing] * { user-select: none !important; }\r
+    html[\${MARK}-sliding], html[\${MARK}-sliding] * { cursor: move !important; user-select: none !important; }\r
+  \`\r
+  document.documentElement.appendChild(style)\r
+\r
+  const overlay = (kind) => {\r
+    const el = document.createElement('div')\r
+    el.setAttribute(MARK, '')\r
+    el.setAttribute(\`\${MARK}-overlay\`, kind)\r
+    el.style.display = 'none'\r
+    document.documentElement.appendChild(el)\r
+    return el\r
+  }\r
+  const hoverBox = overlay('hover')\r
+  const selectBox = overlay('select')\r
+  const label = document.createElement('div')\r
+  label.setAttribute(MARK, '')\r
+  label.setAttribute(\`\${MARK}-label\`, '')\r
+  label.style.display = 'none'\r
+  document.documentElement.appendChild(label)\r
+  let highlightBoxes = []\r
+  let markPins = []\r
+  const HANDLE_DIRS = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']\r
+  const handles = HANDLE_DIRS.map((dir) => {\r
+    const h = document.createElement('div')\r
+    h.setAttribute(MARK, '')\r
+    h.setAttribute(\`\${MARK}-handle\`, dir)\r
+    h.style.display = 'none'\r
+    document.documentElement.appendChild(h)\r
+    return { dir, el: h }\r
+  })\r
+  const grip = document.createElement('div')\r
+  grip.setAttribute(MARK, '')\r
+  grip.setAttribute(\`\${MARK}-grip\`, '')\r
+  grip.textContent = '\\u22ee\\u22ee'\r
+  grip.style.display = 'none'\r
+  document.documentElement.appendChild(grip)\r
+  const dropBar = document.createElement('div')\r
+  dropBar.setAttribute(MARK, '')\r
+  dropBar.setAttribute(\`\${MARK}-drop\`, '')\r
+  dropBar.style.display = 'none'\r
+  document.documentElement.appendChild(dropBar)\r
+\r
+  const place = (box, el) => {\r
+    if (!el || !el.isConnected) {\r
+      box.style.display = 'none'\r
+      return\r
+    }\r
+    const r = el.getBoundingClientRect()\r
+    box.style.display = 'block'\r
+    box.style.left = \`\${r.left}px\`\r
+    box.style.top = \`\${r.top}px\`\r
+    box.style.width = \`\${Math.max(r.width, 2)}px\`\r
+    box.style.height = \`\${Math.max(r.height, 2)}px\`\r
+  }\r
+  const describe = (el) => {\r
+    const cls = (el.getAttribute('class') || '').trim().split(/\\s+/).filter(Boolean).slice(0, 2)\r
+    return (\r
+      el.tagName.toLowerCase() +\r
+      (el.id ? \`#\${el.id}\` : '') +\r
+      (cls.length ? \`.\${cls.join('.')}\` : '')\r
+    )\r
+  }\r
+  const placeLabel = (el) => {\r
+    if (!el) {\r
+      label.style.display = 'none'\r
+      return\r
+    }\r
+    const r = el.getBoundingClientRect()\r
+    label.textContent = describe(el)\r
+    label.style.display = 'block'\r
+    label.style.left = \`\${Math.max(0, r.left)}px\`\r
+    label.style.top = \`\${r.top >= 18 ? r.top - 18 : r.bottom + 2}px\`\r
+  }\r
+  const isOwn = (el) => !!(el && el.closest && el.closest(\`[\${MARK}]\`))\r
+  const sidOf = (el) => {\r
+    const v = el && el.getAttribute && el.getAttribute(SID)\r
+    return v ? Number(v) : null\r
+  }\r
+  /** nearest selectable target: atomic subtrees select as a whole, own overlays never */\r
+  const targetOf = (node) => {\r
+    let el = node && node.nodeType === 3 ? node.parentElement : node\r
+    if (!el || isOwn(el)) return null\r
+    for (let cur = el; cur && cur !== document.documentElement; cur = cur.parentElement) {\r
+      if (ATOMIC.has(cur.tagName.toLowerCase())) el = cur\r
+    }\r
+    if (el === document.documentElement || el === document.body) return null\r
+    return el\r
+  }\r
+  const rectOf = (el) => {\r
+    const r = el.getBoundingClientRect()\r
+    return { x: r.left, y: r.top, width: r.width, height: r.height }\r
+  }\r
+  const px = (v) => (v && v.endsWith('px') ? String(Math.round(parseFloat(v) * 10) / 10) : v)\r
+  const toHex = (rgb) => {\r
+    const m = /^rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)(?:,\\s*([\\d.]+))?\\)$/.exec(rgb || '')\r
+    if (!m) return ''\r
+    if (m[4] !== undefined && Number(m[4]) === 0) return ''\r
+    const h = (n) => Number(n).toString(16).padStart(2, '0')\r
+    return \`#\${h(m[1])}\${h(m[2])}\${h(m[3])}\`\r
+  }\r
+  /** effective styles the floating toolbar / style panel start from */\r
+  const snapshot = (el) => {\r
+    const c = window.getComputedStyle(el)\r
+    return {\r
+      color: toHex(c.color),\r
+      fontSize: px(c.fontSize),\r
+      fontWeight: c.fontWeight,\r
+      fontStyle: c.fontStyle,\r
+      textAlign: c.textAlign,\r
+      background: toHex(c.backgroundColor),\r
+      backgroundImage: c.backgroundImage,\r
+      width: px(c.width),\r
+      height: px(c.height),\r
+      borderRadius: px(c.borderTopLeftRadius),\r
+      padding: px(c.paddingTop),\r
+      opacity: c.opacity,\r
+      transform: el.style.transform,\r
+      marginLeft: el.style.marginLeft,\r
+      marginRight: el.style.marginRight,\r
+      objectFit: c.objectFit,\r
+      ...(el.tagName === 'IMG'\r
+        ? {\r
+            image: {\r
+              src: el.getAttribute('src') || '',\r
+              alt: el.getAttribute('alt') || '',\r
+              naturalWidth: el.naturalWidth,\r
+              naturalHeight: el.naturalHeight,\r
+            },\r
+          }\r
+        : {}),\r
+    }\r
+  }\r
+  /** the single editable text run (and its index among the direct text nodes) for the style panel's\r
+   * text field, plus whether the element edits inline at all (same rules as beginEdit) */\r
+  const textRunOf = (el) => {\r
+    const inlineEditable = editMode(el) !== null\r
+    const runs = Array.from(el.childNodes).filter((n) => n.nodeType === 3 && n.textContent.trim())\r
+    if (runs.length !== 1) return { textRun: null, textRunIndex: -1, inlineEditable }\r
+    return {\r
+      textRun: runs[0].textContent,\r
+      textRunIndex: textNodeIndex(el, runs[0]),\r
+      inlineEditable,\r
+    }\r
+  }\r
+  const fingerprint = (el) => ({\r
+    sid: sidOf(el),\r
+    tag: el.tagName.toLowerCase(),\r
+    className: el.getAttribute('class') || '',\r
+    childElementCount: el.childElementCount,\r
+    text: (el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 400),\r
+    rect: rectOf(el),\r
+    computed: snapshot(el),\r
+    ...textRunOf(el),\r
+  })\r
+  let rectQueued = false\r
+  /** the host draws the floating toolbar from this; sent after every scroll / resize / live style poke */\r
+  const postRect = () => {\r
+    if (rectQueued) return\r
+    rectQueued = true\r
+    window.requestAnimationFrame(() => {\r
+      rectQueued = false\r
+      const sid = selected && selected.isConnected ? sidOf(selected) : null\r
+      if (sid === null) return\r
+      post({\r
+        type: 'gx:rect',\r
+        sid,\r
+        rect: rectOf(selected),\r
+        computed: snapshot(selected),\r
+        ...textRunOf(selected),\r
+      })\r
+    })\r
+  }\r
+  const placePin = (pin, el) => {\r
+    if (!el || !el.isConnected) {\r
+      pin.style.display = 'none'\r
+      return\r
+    }\r
+    const r = el.getBoundingClientRect()\r
+    pin.style.display = 'block'\r
+    pin.style.left = \`\${Math.max(0, r.right - 9)}px\`\r
+    pin.style.top = \`\${Math.max(0, r.top - 9)}px\`\r
+  }\r
+  // the hover box is fixed-position: without re-hit-testing under the pointer it stays put while the page scrolls under it\r
+  let pointer = null\r
+  /** pointer feedback like PowerPoint/WPS: an I-beam over editable text (a click there places the\r
+   * caret), the move cursor over the rest of the selected element (a press there drags it) */\r
+  const setCursor = (kind) => {\r
+    if (kind) document.documentElement.setAttribute(\`\${MARK}-cursor\`, kind)\r
+    else document.documentElement.removeAttribute(\`\${MARK}-cursor\`)\r
+  }\r
+  const cursorFor = (el, x, y) => {\r
+    if (!el) return null\r
+    if (editMode(el) && overText(el, x, y)) return 'text'\r
+    return el === selected && sidOf(el) !== null ? 'move' : null\r
+  }\r
+  let hovered = null\r
+  const hover = (el) => {\r
+    place(hoverBox, el)\r
+    if (el === hovered) return\r
+    hovered = el\r
+    post({ type: 'gx:hover', sid: el ? sidOf(el) : null })\r
+  }\r
+  const rehover = () => {\r
+    if (!pointer || !selecting() || editing || drag || resizing || slide) return hover(null)\r
+    hover(targetOf(document.elementFromPoint(pointer.x, pointer.y)))\r
+  }\r
+  const NO_RESIZE = new Set(['tr', 'tbody', 'thead', 'tfoot', 'colgroup', 'col', 'li', 'option'])\r
+  /** replaced elements take width / height (and slide sideways) whatever their display */\r
+  const REPLACED = new Set(['img', 'video', 'iframe', 'canvas', 'svg'])\r
+  /** sized boxes only: inline text and table rows ignore width / height */\r
+  const resizable = (el) => {\r
+    if (!el || !el.isConnected || sidOf(el) === null || el === document.body) return false\r
+    const tag = el.tagName.toLowerCase()\r
+    if (NO_RESIZE.has(tag)) return false\r
+    if (REPLACED.has(tag)) return true\r
+    const d = window.getComputedStyle(el).display\r
+    return d !== 'inline' && d !== 'contents' && d !== 'none'\r
+  }\r
+  const placeHandles = (el) => {\r
+    const show = selecting() && !editing && !drag && resizable(el)\r
+    if (!show) {\r
+      for (const { el: h } of handles) h.style.display = 'none'\r
+      return\r
+    }\r
+    const r = el.getBoundingClientRect()\r
+    const xs = { w: r.left, e: r.right, n: r.left + r.width / 2, s: r.left + r.width / 2 }\r
+    const ys = { n: r.top, s: r.bottom, e: r.top + r.height / 2, w: r.top + r.height / 2 }\r
+    for (const { dir, el: h } of handles) {\r
+      // a mid-edge handle on a tiny side would sit on top of the corner handles\r
+      const tinySide = dir === 'n' || dir === 's' ? r.width < 30 : r.height < 14\r
+      if (dir.length === 1 && tinySide) {\r
+        h.style.display = 'none'\r
+        continue\r
+      }\r
+      const x = dir.includes('w') ? xs.w : dir.includes('e') ? xs.e : xs.n\r
+      const y = dir.includes('n') ? ys.n : dir.includes('s') ? ys.s : ys.e\r
+      h.style.display = 'block'\r
+      h.style.left = \`\${x - 4.5}px\`\r
+      h.style.top = \`\${y - 4.5}px\`\r
+    }\r
+  }\r
+  /** drag grip beside the left edge; below the box when the element hugs the viewport edge, inside as a last resort.\r
+   * Replaced elements (images / video) have no text to protect: their whole body drags, so they carry no grip. */\r
+  const placeGrip = (el) => {\r
+    const show =\r
+      selecting() &&\r
+      !editing &&\r
+      !drag &&\r
+      !slide &&\r
+      el &&\r
+      el.isConnected &&\r
+      sidOf(el) !== null &&\r
+      el !== document.body &&\r
+      !REPLACED.has(el.tagName.toLowerCase())\r
+    if (!show) {\r
+      grip.style.display = 'none'\r
+      return\r
+    }\r
+    const r = el.getBoundingClientRect()\r
+    grip.style.display = 'block'\r
+    if (r.left >= 16) {\r
+      grip.style.left = \`\${r.left - 15}px\`\r
+      grip.style.top = \`\${Math.max(0, r.top + r.height / 2 - 11)}px\`\r
+    } else if (r.bottom + 26 <= window.innerHeight) {\r
+      grip.style.left = \`\${Math.max(0, r.left)}px\`\r
+      grip.style.top = \`\${r.bottom + 3}px\`\r
+    } else {\r
+      grip.style.left = \`\${r.left + 3}px\`\r
+      grip.style.top = \`\${Math.max(0, r.top + 3)}px\`\r
+    }\r
+  }\r
+  const refresh = () => {\r
+    rehover()\r
+    place(selectBox, selected)\r
+    placeLabel(selected)\r
+    placeHandles(selected)\r
+    placeGrip(selected)\r
+    for (const { box, el } of highlightBoxes) place(box, el)\r
+    for (const { pin, el } of markPins) placePin(pin, el)\r
+    if (selected) postRect()\r
+  }\r
+\r
+  const select = (el, notify) => {\r
+    if (editing && el !== editing.el) finishEdit(true)\r
+    selected = el\r
+    refresh()\r
+    if (notify) {\r
+      if (!el) post({ type: 'gx:select', element: null, dynamic: false })\r
+      else post({ type: 'gx:select', element: fingerprint(el), dynamic: sidOf(el) === null })\r
+    }\r
+  }\r
+  const bySid = (sid) => document.querySelector(\`[\${SID}="\${sid}"]\`)\r
+\r
+  // ---- inline text editing (one element at a time) ----\r
+  const textNodeIndex = (el, node) => {\r
+    let i = 0\r
+    for (const child of el.childNodes) {\r
+      if (child.nodeType === 3) {\r
+        if (child === node) return i\r
+        i++\r
+      }\r
+    }\r
+    return -1\r
+  }\r
+  const directTextNodes = (el) =>\r
+    Array.from(el.childNodes).filter((n) => n.nodeType === 3 && n.textContent.trim())\r
+  /** how the element's text edits inline: 'text' = one direct text node and no child elements\r
+   * (committed as set_text_node, the smallest source diff); 'html' = text mixed with phrasing\r
+   * children like <strong> / <a> / <br> (committed as the whole inner HTML); null = not inline\r
+   * editable (no text, or block children next to several runs: those edits go through AI or source) */\r
+  const editMode = (el) => {\r
+    if (!el || sidOf(el) === null || !TEXT_TAGS.has(el.tagName.toLowerCase())) return null\r
+    if (!(el.textContent || '').trim()) return null\r
+    const children = Array.from(el.children)\r
+    if (children.length && children.every((c) => INLINE_TAGS.has(c.tagName.toLowerCase())))\r
+      return 'html'\r
+    // no children, or block children (an <li> with a nested list): its single direct run still edits on its own\r
+    return directTextNodes(el).length === 1 ? 'text' : null\r
+  }\r
+  /** inner HTML as the source would carry it: the preview's own data-gx-sid markers stripped */\r
+  const innerSource = (el) => {\r
+    const clone = el.cloneNode(true)\r
+    for (const n of clone.querySelectorAll(\`[\${SID}]\`)) n.removeAttribute(SID)\r
+    return clone.innerHTML\r
+  }\r
+  /** the current native selection, when it lies entirely inside \`el\` */\r
+  const selectionIn = (el) => {\r
+    const sel = window.getSelection()\r
+    if (!sel || sel.rangeCount === 0) return null\r
+    const r = sel.getRangeAt(0)\r
+    return el.contains(r.startContainer) && el.contains(r.endContainer) ? r : null\r
+  }\r
+  /** \`at\` = the click that started the edit: the caret lands there, like PowerPoint (a drag-selected\r
+   * range made before the edit is kept). Without a point the whole run is selected (toolbar / host entry). */\r
+  const beginEdit = (el, at) => {\r
+    if (!el || editing) return\r
+    const mode = editMode(el)\r
+    if (!mode) return\r
+    // read the pre-edit selection before focus() can move it\r
+    const kept = at ? selectionIn(el) : null\r
+    const node = mode === 'text' ? directTextNodes(el)[0] : null\r
+    editing = {\r
+      el,\r
+      mode,\r
+      node,\r
+      index: node ? textNodeIndex(el, node) : -1,\r
+      before: node ? node.textContent : innerSource(el),\r
+      rawBefore: el.innerHTML,\r
+    }\r
+    el.setAttribute(\`\${MARK}-editing\`, '')\r
+    // not plaintext-only: Chromium forces white-space: pre-wrap on it (past any stylesheet),\r
+    // surfacing the source's newlines and indentation; plain text is enforced in beforeinput\r
+    el.setAttribute('contenteditable', 'true')\r
+    el.focus()\r
+    setCursor(null)\r
+    let range = null\r
+    if (kept && !kept.collapsed) range = kept\r
+    else if (at) {\r
+      const caret = document.caretRangeFromPoint && document.caretRangeFromPoint(at.x, at.y)\r
+      if (caret && el.contains(caret.startContainer)) range = caret\r
+    }\r
+    if (!range) {\r
+      range = document.createRange()\r
+      range.selectNodeContents(node || el)\r
+    }\r
+    const sel = window.getSelection()\r
+    sel.removeAllRanges()\r
+    sel.addRange(range)\r
+    // the host cleared its text selection on gx:select; re-adding an unchanged range fires no selectionchange\r
+    if (!range.collapsed) postTextSelection()\r
+  }\r
+  const finishEdit = (commit) => {\r
+    if (!editing) return\r
+    const { el, mode, node, index, before, rawBefore } = editing\r
+    editing = null\r
+    el.removeAttribute('contenteditable')\r
+    el.removeAttribute(\`\${MARK}-editing\`)\r
+    // contenteditable may have split/merged text nodes; read the element's direct text again\r
+    const after =\r
+      mode === 'text'\r
+        ? Array.from(el.childNodes)\r
+            .filter((n) => n.nodeType === 3)\r
+            .map((n) => n.textContent)\r
+            .join('')\r
+        : innerSource(el)\r
+    if (commit && after !== before) {\r
+      if (mode === 'text')\r
+        post({ type: 'gx:textEditCommit', sid: sidOf(el), textNodeIndex: index, newText: after })\r
+      else post({ type: 'gx:htmlEditCommit', sid: sidOf(el), html: after })\r
+      // the host drops its text selection when it re-selects after the commit: a range still\r
+      // selected in the run goes out again so bold / italic right after typing wrap it\r
+      postTextSelection()\r
+    } else {\r
+      // an unchanged run is left untouched (rewriting it would collapse the selection)\r
+      if (after !== before) {\r
+        if (mode === 'text' && node.isConnected) node.textContent = before\r
+        else if (mode === 'html') el.innerHTML = rawBefore\r
+      }\r
+      post({ type: 'gx:textEditCancel' })\r
+    }\r
+    refresh()\r
+  }\r
+\r
+  // ---- resize handles: live inline width / height, committed by the host as one set_style ----\r
+  const KEEP_RATIO = new Set(['IMG', 'VIDEO', 'IFRAME', 'CANVAS', 'SVG', 'PICTURE'])\r
+  for (const { dir, el: h } of handles) {\r
+    h.addEventListener('pointerdown', (e) => {\r
+      if (!selected || e.button !== 0) return\r
+      e.preventDefault()\r
+      e.stopPropagation()\r
+      const r = selected.getBoundingClientRect()\r
+      resizing = {\r
+        dir,\r
+        el: selected,\r
+        x: e.clientX,\r
+        y: e.clientY,\r
+        w: r.width,\r
+        h: r.height,\r
+        ratio: KEEP_RATIO.has(selected.tagName) && r.height > 0 ? r.width / r.height : null,\r
+        moved: false,\r
+        before: { width: selected.style.width, height: selected.style.height },\r
+      }\r
+      h.setPointerCapture(e.pointerId)\r
+      document.documentElement.setAttribute(\`\${MARK}-resizing\`, '')\r
+      post({ type: 'gx:drag', active: true })\r
+    })\r
+    h.addEventListener('pointermove', (e) => {\r
+      if (!resizing || resizing.dir !== dir) return\r
+      const { el, x, y, w, ratio } = resizing\r
+      const sx = dir.includes('e') ? 1 : dir.includes('w') ? -1 : 0\r
+      const sy = dir.includes('s') ? 1 : dir.includes('n') ? -1 : 0\r
+      let nw = Math.max(8, w + sx * (e.clientX - x))\r
+      let nh = Math.max(8, resizing.h + sy * (e.clientY - y))\r
+      if (ratio && sx && sy) nh = nw / ratio\r
+      resizing.moved = true\r
+      if (sx) el.style.width = \`\${Math.round(nw)}px\`\r
+      if (sy || (ratio && sx)) el.style.height = \`\${Math.round(nh)}px\`\r
+      refresh()\r
+    })\r
+    const finish = (e) => {\r
+      if (!resizing || resizing.dir !== dir) return\r
+      const { el, moved, before } = resizing\r
+      resizing = null\r
+      document.documentElement.removeAttribute(\`\${MARK}-resizing\`)\r
+      if (h.hasPointerCapture && h.hasPointerCapture(e.pointerId))\r
+        h.releasePointerCapture(e.pointerId)\r
+      const styles = {}\r
+      if (el.style.width !== before.width) styles.width = el.style.width\r
+      if (el.style.height !== before.height) styles.height = el.style.height\r
+      if (moved && Object.keys(styles).length) post({ type: 'gx:resize', sid: sidOf(el), styles })\r
+      post({ type: 'gx:drag', active: false })\r
+      refresh()\r
+    }\r
+    h.addEventListener('pointerup', finish)\r
+    h.addEventListener('pointercancel', finish)\r
+  }\r
+\r
+  // ---- drag the selected element to a new place in the flow (dropped before / after another element) ----\r
+  const DRAG_START_PX = 5\r
+  // a block between two <li>s or <td>s is parsed out of its list / table: such parts only pair with\r
+  // their own kind, anything else lands next to the whole list / table\r
+  const PARTS = new Set([\r
+    'li',\r
+    'dt',\r
+    'dd',\r
+    'tr',\r
+    'td',\r
+    'th',\r
+    'thead',\r
+    'tbody',\r
+    'tfoot',\r
+    'caption',\r
+    'colgroup',\r
+    'col',\r
+    'option',\r
+    'optgroup',\r
+  ])\r
+  const tagOf = (el) => el.tagName.toLowerCase()\r
+  const dropTargetAt = (x, y) => {\r
+    if (!drag) return null\r
+    const dragTag = tagOf(drag.el)\r
+    for (const cand of document.elementsFromPoint(x, y)) {\r
+      if (isOwn(cand) || cand === document.body || cand === document.documentElement) continue\r
+      if (drag.el === cand || drag.el.contains(cand)) continue\r
+      let el = targetOf(cand)\r
+      if (!el) continue\r
+      if (PARTS.has(dragTag)) {\r
+        if (tagOf(el) !== dragTag) continue\r
+      } else {\r
+        while (PARTS.has(tagOf(el)) && el.parentElement && el.parentElement !== document.body) {\r
+          el = el.parentElement\r
+        }\r
+        if (PARTS.has(tagOf(el))) continue\r
+      }\r
+      if (sidOf(el) === null || el.parentElement === document.documentElement) continue\r
+      if (drag.el === el || drag.el.contains(el)) continue\r
+      const r = el.getBoundingClientRect()\r
+      const ps = window.getComputedStyle(el.parentElement)\r
+      const d = window.getComputedStyle(el).display\r
+      // side-by-side children (flex rows, grids, inline boxes) split left / right instead of top / bottom\r
+      const horizontal =\r
+        (ps.display.includes('flex') && !ps.flexDirection.startsWith('column')) ||\r
+        ps.display.includes('grid') ||\r
+        d.startsWith('inline') ||\r
+        d === 'table-cell'\r
+      const position = horizontal\r
+        ? x < r.left + r.width / 2\r
+          ? 'before'\r
+          : 'after'\r
+        : y < r.top + r.height / 2\r
+          ? 'before'\r
+          : 'after'\r
+      return { el, position, horizontal, rect: r }\r
+    }\r
+    return null\r
+  }\r
+  const showDrop = (target) => {\r
+    if (!target) {\r
+      dropBar.style.display = 'none'\r
+      return\r
+    }\r
+    const { rect: r, position, horizontal } = target\r
+    dropBar.style.display = 'block'\r
+    if (horizontal) {\r
+      dropBar.style.left = \`\${(position === 'before' ? r.left : r.right) - 1.5}px\`\r
+      dropBar.style.top = \`\${r.top}px\`\r
+      dropBar.style.width = '3px'\r
+      dropBar.style.height = \`\${Math.max(r.height, 4)}px\`\r
+    } else {\r
+      dropBar.style.left = \`\${r.left}px\`\r
+      dropBar.style.top = \`\${(position === 'before' ? r.top : r.bottom) - 1.5}px\`\r
+      dropBar.style.width = \`\${Math.max(r.width, 4)}px\`\r
+      dropBar.style.height = '3px'\r
+    }\r
+  }\r
+  const endDrag = (commit) => {\r
+    if (!drag) return\r
+    const { el, target } = drag\r
+    drag = null\r
+    el.removeAttribute(\`\${MARK}-dragsrc\`)\r
+    document.documentElement.removeAttribute(\`\${MARK}-dragging\`)\r
+    showDrop(null)\r
+    if (commit && target) {\r
+      post({\r
+        type: 'gx:moveTo',\r
+        sid: sidOf(el),\r
+        position: target.position,\r
+        ref_sid: sidOf(target.el),\r
+      })\r
+    }\r
+    post({ type: 'gx:drag', active: false })\r
+    refresh()\r
+  }\r
+  /** the point sits on rendered text of the element: a drag there selects words, it does not move the box */\r
+  const overText = (el, x, y) => {\r
+    const caret = document.caretRangeFromPoint && document.caretRangeFromPoint(x, y)\r
+    const node = caret && caret.startContainer\r
+    if (!node || node.nodeType !== 3 || !el.contains(node) || !node.textContent.trim()) return false\r
+    const range = document.createRange()\r
+    range.selectNodeContents(node)\r
+    for (const r of range.getClientRects()) {\r
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return true\r
+    }\r
+    return false\r
+  }\r
+  document.addEventListener(\r
+    'mousedown',\r
+    (e) => {\r
+      pressed = null\r
+      if (!selecting() || editing || e.button !== 0 || !selected) return\r
+      if (e.target === grip) {\r
+        e.preventDefault()\r
+        pressed = { x: e.clientX, y: e.clientY, grip: true }\r
+        return\r
+      }\r
+      const el = targetOf(e.target)\r
+      if (el !== selected || el === document.body || sidOf(el) === null) return\r
+      if (overText(el, e.clientX, e.clientY)) return\r
+      // a replaced element's own drag would otherwise ghost the image under our gesture\r
+      if (REPLACED.has(el.tagName.toLowerCase())) e.preventDefault()\r
+      pressed = { x: e.clientX, y: e.clientY, grip: false }\r
+    },\r
+    true,\r
+  )\r
+  // ---- slide a replaced element sideways inside its container: live margin-left, snapping to\r
+  // left / center / right (written in the toolbar's own auto-margin form so its buttons light up) ----\r
+  const SNAP_PX = 8\r
+  const setInline = (el, styles) => {\r
+    for (const [prop, val] of Object.entries(styles)) {\r
+      if (val) el.style.setProperty(prop, val)\r
+      else el.style.removeProperty(prop)\r
+    }\r
+  }\r
+  const alignStyles = (align) => ({\r
+    display: 'block',\r
+    'margin-left': align === 'left' ? '0' : 'auto',\r
+    'margin-right': align === 'right' ? '0' : 'auto',\r
+  })\r
+  const beginSlide = (el, x) => {\r
+    const parent = el.parentElement\r
+    if (!parent) return false\r
+    const pc = window.getComputedStyle(parent)\r
+    const pr = parent.getBoundingClientRect()\r
+    const contentLeft = pr.left + parseFloat(pc.borderLeftWidth) + parseFloat(pc.paddingLeft)\r
+    const contentW = parent.clientWidth - parseFloat(pc.paddingLeft) - parseFloat(pc.paddingRight)\r
+    const avail = Math.max(0, contentW - el.offsetWidth)\r
+    if (avail <= 0) return false\r
+    // rotation / flip keep the center: the layout left is the visual center minus half the layout width\r
+    const r = el.getBoundingClientRect()\r
+    const start = Math.min(\r
+      avail,\r
+      Math.max(0, r.left + r.width / 2 - el.offsetWidth / 2 - contentLeft),\r
+    )\r
+    slide = {\r
+      el,\r
+      x,\r
+      start,\r
+      avail,\r
+      moved: false,\r
+      before: {\r
+        display: el.style.display,\r
+        'margin-left': el.style.marginLeft,\r
+        'margin-right': el.style.marginRight,\r
+      },\r
+    }\r
+    document.documentElement.setAttribute(\`\${MARK}-sliding\`, '')\r
+    hover(null)\r
+    post({ type: 'gx:drag', active: true })\r
+    return true\r
+  }\r
+  const applySlide = (styles) => setInline(slide.el, styles)\r
+  const moveSlide = (clientX) => {\r
+    const { start, avail, x } = slide\r
+    const ml = Math.min(avail, Math.max(0, start + clientX - x))\r
+    slide.moved = true\r
+    if (ml <= SNAP_PX) applySlide(alignStyles('left'))\r
+    else if (Math.abs(ml - avail / 2) <= SNAP_PX) applySlide(alignStyles('center'))\r
+    else if (avail - ml <= SNAP_PX) applySlide(alignStyles('right'))\r
+    else\r
+      applySlide({ display: 'block', 'margin-left': \`\${Math.round(ml)}px\`, 'margin-right': 'auto' })\r
+    refresh()\r
+  }\r
+  const endSlide = (commit) => {\r
+    if (!slide) return\r
+    const { el, moved, before } = slide\r
+    slide = null\r
+    document.documentElement.removeAttribute(\`\${MARK}-sliding\`)\r
+    if (!commit || !moved) setInline(el, before)\r
+    else {\r
+      const styles = {}\r
+      for (const prop of Object.keys(before)) {\r
+        const now = el.style.getPropertyValue(prop)\r
+        if (now !== before[prop]) styles[prop] = now\r
+      }\r
+      if (Object.keys(styles).length) post({ type: 'gx:resize', sid: sidOf(el), styles })\r
+    }\r
+    post({ type: 'gx:drag', active: false })\r
+    refresh()\r
+  }\r
+  document.addEventListener(\r
+    'mousemove',\r
+    (e) => {\r
+      if (slide) {\r
+        e.preventDefault()\r
+        if (!(e.buttons & 1)) return endSlide(false)\r
+        moveSlide(e.clientX)\r
+        return\r
+      }\r
+      if (drag) {\r
+        e.preventDefault()\r
+        // released outside the frame: the mouseup never reached us\r
+        if (!(e.buttons & 1)) return endDrag(false)\r
+        drag.target = dropTargetAt(e.clientX, e.clientY)\r
+        showDrop(drag.target)\r
+        // keep the page moving when the pointer rides an edge of the viewport\r
+        const edge = 32\r
+        if (e.clientY < edge) window.scrollBy(0, -12)\r
+        else if (e.clientY > window.innerHeight - edge) window.scrollBy(0, 12)\r
+        return\r
+      }\r
+      if (!pressed || !(e.buttons & 1)) return\r
+      if (Math.hypot(e.clientX - pressed.x, e.clientY - pressed.y) < DRAG_START_PX) return\r
+      const { x, y, grip: fromGrip } = pressed\r
+      pressed = null\r
+      if (!selected || !selected.isConnected) return\r
+      // a mostly horizontal pull on an image moves it sideways; the grip and vertical pulls reorder\r
+      if (\r
+        !fromGrip &&\r
+        REPLACED.has(selected.tagName.toLowerCase()) &&\r
+        Math.abs(e.clientX - x) > Math.abs(e.clientY - y) &&\r
+        beginSlide(selected, x)\r
+      )\r
+        return moveSlide(e.clientX)\r
+      drag = { el: selected, target: null }\r
+      selected.setAttribute(\`\${MARK}-dragsrc\`, '')\r
+      document.documentElement.setAttribute(\`\${MARK}-dragging\`, '')\r
+      hover(null)\r
+      for (const { el: h } of handles) h.style.display = 'none'\r
+      grip.style.display = 'none'\r
+      post({ type: 'gx:drag', active: true })\r
+    },\r
+    true,\r
+  )\r
+  document.addEventListener(\r
+    'mouseup',\r
+    () => {\r
+      pressed = null\r
+      if (slide) {\r
+        swallowClick = true\r
+        endSlide(true)\r
+        return\r
+      }\r
+      if (!drag) return\r
+      swallowClick = true\r
+      endDrag(true)\r
+    },\r
+    true,\r
+  )\r
+  // the page's own draggable images / links must not start a native drag under ours\r
+  document.addEventListener(\r
+    'dragstart',\r
+    (e) => {\r
+      if (selecting()) e.preventDefault()\r
+    },\r
+    true,\r
+  )\r
+\r
+  // ---- events (capture phase: we see them before the page's own handlers) ----\r
+  document.addEventListener(\r
+    'mousemove',\r
+    (e) => {\r
+      pointer = { x: e.clientX, y: e.clientY }\r
+      if (!selecting() || editing || drag || resizing || slide) return setCursor(null)\r
+      const el = targetOf(e.target)\r
+      hover(el)\r
+      setCursor(cursorFor(el, e.clientX, e.clientY))\r
+    },\r
+    true,\r
+  )\r
+  // on the root element only: a capture listener on document would fire for every descendant\r
+  document.documentElement.addEventListener('mouseleave', () => {\r
+    pointer = null\r
+    hover(null)\r
+    pressed = null\r
+    if (drag) {\r
+      drag.target = null\r
+      showDrop(null)\r
+    }\r
+  })\r
+  document.addEventListener(\r
+    'click',\r
+    (e) => {\r
+      if (!selecting()) return\r
+      if (swallowClick) {\r
+        swallowClick = false\r
+        e.preventDefault()\r
+        e.stopPropagation()\r
+        return\r
+      }\r
+      const a = e.target && e.target.closest && e.target.closest('a[href]')\r
+      if (a) {\r
+        e.preventDefault()\r
+        if (e.metaKey || e.ctrlKey) post({ type: 'gx:navigateBlocked', href: a.href })\r
+      }\r
+      if (editing) {\r
+        if (editing.el.contains(e.target)) return\r
+        finishEdit(true)\r
+      }\r
+      const el = targetOf(e.target)\r
+      if (!el) {\r
+        // a click on the bare page (body / html) clears the selection like a click on the canvas\r
+        if (e.target === document.body || e.target === document.documentElement) select(null, true)\r
+        return\r
+      }\r
+      e.preventDefault()\r
+      e.stopPropagation()\r
+      select(el, true)\r
+      // A single left click on the text itself starts editing with the caret at the click\r
+      // (PowerPoint/WPS); the box around the text only selects, so it stays the drag surface.\r
+      const plain = e.button === 0 && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey\r
+      if (plain && editMode(el) && overText(el, e.clientX, e.clientY))\r
+        beginEdit(el, { x: e.clientX, y: e.clientY })\r
+    },\r
+    true,\r
+  )\r
+  // Double-click on the padding / box of a text element (its text already edits on a single\r
+  // click, where the native double-click selects a word)\r
+  document.addEventListener(\r
+    'dblclick',\r
+    (e) => {\r
+      if (mode !== 'inspect' || editing) return\r
+      const el = targetOf(e.target)\r
+      if (!el || !TEXT_TAGS.has(el.tagName.toLowerCase())) return\r
+      e.preventDefault()\r
+      e.stopPropagation()\r
+      select(el, true)\r
+      beginEdit(el)\r
+    },\r
+    true,\r
+  )\r
+  document.addEventListener(\r
+    'submit',\r
+    (e) => {\r
+      if (selecting()) e.preventDefault()\r
+    },\r
+    true,\r
+  )\r
+  /** a non-collapsed native range inside one direct text run of a source element, as the\r
+   * gx:textSelect message (the host wraps it on bold / italic); null for anything else */\r
+  const textSelection = () => {\r
+    if (mode !== 'inspect') return null\r
+    const sel = window.getSelection()\r
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null\r
+    const r = sel.getRangeAt(0)\r
+    if (r.startContainer !== r.endContainer || r.startContainer.nodeType !== 3) return null\r
+    const node = r.startContainer\r
+    const el = node.parentElement\r
+    if (!el || isOwn(el) || sidOf(el) === null) return null\r
+    // while editing, only a range inside the edited run counts (bold / italic wrap it after the commit)\r
+    if (editing && el !== editing.el) return null\r
+    return {\r
+      type: 'gx:textSelect',\r
+      sid: sidOf(el),\r
+      textNodeIndex: textNodeIndex(el, node),\r
+      start: r.startOffset,\r
+      end: r.endOffset,\r
+      text: node.textContent.slice(r.startOffset, r.endOffset),\r
+    }\r
+  }\r
+  const postTextSelection = () => {\r
+    const msg = textSelection()\r
+    if (msg) post(msg)\r
+  }\r
+  document.addEventListener('selectionchange', postTextSelection, true)\r
+  // Chromium turns a typed '\\n' into <br>/<div> where white-space collapses: feed it (and pasted\r
+  // whitespace runs) as the single space it would collapse to anyway\r
+  const plainFor = (el, text) =>\r
+    /^(normal|nowrap)$/.test(window.getComputedStyle(el).whiteSpace)\r
+      ? text.replace(/\\s+/g, ' ')\r
+      : text\r
+  document.addEventListener(\r
+    'beforeinput',\r
+    (e) => {\r
+      if (!editing || e.target !== editing.el) return\r
+      const t = e.inputType\r
+      if (t.startsWith('format') || t === 'insertHorizontalRule' || t === 'insertLink') {\r
+        e.preventDefault()\r
+      } else if (t === 'insertParagraph' || t === 'insertLineBreak') {\r
+        e.preventDefault()\r
+        document.execCommand('insertText', false, plainFor(editing.el, '\\n'))\r
+      } else if (\r
+        e.dataTransfer &&\r
+        (t === 'insertFromPaste' || t === 'insertFromDrop' || t === 'insertReplacementText')\r
+      ) {\r
+        e.preventDefault()\r
+        const text = plainFor(editing.el, e.dataTransfer.getData('text/plain'))\r
+        if (text) document.execCommand('insertText', false, text)\r
+      }\r
+    },\r
+    true,\r
+  )\r
+  document.addEventListener(\r
+    'keydown',\r
+    (e) => {\r
+      if (editing) {\r
+        const mod = (e.metaKey || e.ctrlKey) && !e.altKey\r
+        if (e.key === 'Escape') {\r
+          // Esc = commit the text and return to the selected state (typed input is not lost, as in\r
+          // Slides); an unchanged run goes out as a cancel and produces no history step\r
+          e.preventDefault()\r
+          finishEdit(true)\r
+        } else if (e.key === 'Enter' && mod) {\r
+          e.preventDefault()\r
+          finishEdit(true)\r
+        } else if (mod && (e.key.toLowerCase() === 'b' || e.key.toLowerCase() === 'i')) {\r
+          // bold / italic on a range selected inside the edited run: commit the run first, then\r
+          // hand the host the range again (its re-select after the commit cleared it) and the command\r
+          const range = textSelection()\r
+          if (!range) return\r
+          e.preventDefault()\r
+          finishEdit(true)\r
+          post(range)\r
+          post({ type: 'gx:keyCommand', command: e.key.toLowerCase() === 'b' ? 'bold' : 'italic' })\r
+        }\r
+        return\r
+      }\r
+      if ((drag || slide) && e.key === 'Escape') {\r
+        e.preventDefault()\r
+        if (drag) endDrag(false)\r
+        else endSlide(false)\r
+        return\r
+      }\r
+      const inField =\r
+        e.target &&\r
+        (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable)\r
+      const mod = (e.metaKey || e.ctrlKey) && !e.altKey\r
+      // the host owns history and zoom; the frame has keyboard focus, so relay the shortcuts\r
+      if (mod && !inField) {\r
+        const lower = e.key.toLowerCase()\r
+        const hostCommand =\r
+          lower === 'z'\r
+            ? e.shiftKey\r
+              ? 'redo'\r
+              : 'undo'\r
+            : lower === 'y' && !e.shiftKey\r
+              ? 'redo'\r
+              : { '=': 'zoomIn', '+': 'zoomIn', '-': 'zoomOut', _: 'zoomOut', 0: 'zoomReset' }[\r
+                  e.key\r
+                ]\r
+        if (hostCommand) {\r
+          e.preventDefault()\r
+          post({ type: 'gx:keyCommand', command: hostCommand })\r
+          return\r
+        }\r
+      }\r
+      if (mode !== 'inspect') {\r
+        if (e.key === 'Escape') post({ type: 'gx:keyCommand', command: 'escape' })\r
+        return\r
+      }\r
+      const map = {\r
+        Delete: 'delete',\r
+        Backspace: 'delete',\r
+        ArrowUp: 'prev',\r
+        ArrowDown: 'next',\r
+        ArrowLeft: 'parent',\r
+        ArrowRight: 'child',\r
+        Escape: 'escape',\r
+      }\r
+      const modKey = mod ? { k: 'askAi', b: 'bold', i: 'italic' }[e.key.toLowerCase()] : undefined\r
+      const altKey =\r
+        e.altKey && !mod ? { ArrowUp: 'moveUp', ArrowDown: 'moveDown' }[e.key] : undefined\r
+      const command = modKey || altKey || map[e.key]\r
+      if (!command || !selected || inField) return\r
+      e.preventDefault()\r
+      post({ type: 'gx:keyCommand', command })\r
+    },\r
+    true,\r
+  )\r
+  // Chromium reports trackpad pinch as ctrl+wheel; the frame swallows wheel events, so relay it.\r
+  // Browse mode (present views) has no zoom control: leave the event alone there.\r
+  document.addEventListener(\r
+    'wheel',\r
+    (e) => {\r
+      if (mode !== 'inspect' || (!e.ctrlKey && !e.metaKey)) return\r
+      e.preventDefault()\r
+      post({ type: 'gx:zoom', delta: e.deltaY })\r
+    },\r
+    { passive: false, capture: true },\r
+  )\r
+  let scrollQueued = false\r
+  window.addEventListener(\r
+    'scroll',\r
+    (e) => {\r
+      refresh()\r
+      if (e.target !== document || scrollQueued) return\r
+      scrollQueued = true\r
+      window.requestAnimationFrame(() => {\r
+        scrollQueued = false\r
+        post({ type: 'gx:scroll', y: window.scrollY })\r
+      })\r
+    },\r
+    true,\r
+  )\r
+  window.addEventListener('resize', refresh)\r
+  document.addEventListener('focusout', (e) => {\r
+    if (editing && e.target === editing.el) finishEdit(true)\r
+  })\r
+\r
+  window.addEventListener('message', (e) => {\r
+    const msg = e.data\r
+    if (!msg || typeof msg.type !== 'string') return\r
+    switch (msg.type) {\r
+      case 'gx:select':\r
+        select(msg.sid === null ? null : bySid(msg.sid), false)\r
+        if (selected) {\r
+          selected.scrollIntoView({ block: 'nearest' })\r
+          postRect()\r
+        }\r
+        break\r
+      case 'gx:previewStyle': {\r
+        // live preview only: the host commits the same declarations to the source afterwards\r
+        const el = bySid(msg.sid)\r
+        if (!el) break\r
+        for (const [prop, val] of Object.entries(msg.styles)) {\r
+          if (val === null) el.style.removeProperty(prop)\r
+          else el.style.setProperty(prop, val)\r
+        }\r
+        refresh()\r
+        break\r
+      }\r
+      case 'gx:highlight':\r
+        for (const { box } of highlightBoxes) box.remove()\r
+        highlightBoxes = msg.sids\r
+          .map((sid) => bySid(sid))\r
+          .filter(Boolean)\r
+          .map((el) => ({ box: overlay('highlight'), el }))\r
+        refresh()\r
+        break\r
+      case 'gx:mark':\r
+        for (const { pin } of markPins) pin.remove()\r
+        markPins = msg.marks\r
+          .map(({ sid, label }) => ({ el: bySid(sid), sid, label }))\r
+          .filter(({ el }) => el)\r
+          .map(({ el, sid, label }) => {\r
+            const pin = document.createElement('div')\r
+            pin.setAttribute(MARK, '')\r
+            pin.setAttribute(\`\${MARK}-pin\`, '')\r
+            pin.textContent = label\r
+            pin.addEventListener('click', (e) => {\r
+              e.preventDefault()\r
+              e.stopPropagation()\r
+              post({ type: 'gx:markClick', sid })\r
+            })\r
+            document.documentElement.appendChild(pin)\r
+            return { pin, el }\r
+          })\r
+        refresh()\r
+        break\r
+      case 'gx:clearHighlight':\r
+        for (const { box } of highlightBoxes) box.remove()\r
+        highlightBoxes = []\r
+        break\r
+      case 'gx:endDrag':\r
+        if (drag) endDrag(false)\r
+        if (slide) endSlide(false)\r
+        pressed = null\r
+        break\r
+      case 'gx:setMode':\r
+        if (editing) finishEdit(true)\r
+        if (drag) endDrag(false)\r
+        if (slide) endSlide(false)\r
+        mode = msg.mode\r
+        rehover()\r
+        if (mode === 'browse') select(null, false)\r
+        break\r
+      case 'gx:beginTextEdit':\r
+        select(bySid(msg.sid), false)\r
+        beginEdit(selected)\r
+        break\r
+      case 'gx:scrollTo':\r
+        window.scrollTo(0, msg.y)\r
+        break\r
+      case 'gx:theme':\r
+        dark = !!msg.dark\r
+        document.documentElement.style.setProperty('--gx-select', dark ? '#4a9eff' : '#0f7fff')\r
+        document.documentElement.style.setProperty('--gx-hover', dark ? '#4a9eff' : '#0f7fff')\r
+        break\r
+    }\r
+  })\r
+\r
+  post({\r
+    type: 'gx:ready',\r
+    title: document.title,\r
+    docHeight: document.documentElement.scrollHeight,\r
+  })\r
+})()\r
 `});function AT(t,e,n){let i=r=>n.find(a=>a.tools.some(o=>o.name===r));return{id:t,get systemPrompt(){return[e,...n.map(r=>r.systemPrompt)].filter(Boolean).join(`
 
 `)},get tools(){let r=n.flatMap(o=>o.tools),a=new Set;for(let o of r){if(a.has(o.name))throw new Error(`duplicate tool name: ${o.name}`);a.add(o.name)}return r},buildContext:()=>n.map(r=>r.buildContext?.()??"").filter(Boolean).join(`
