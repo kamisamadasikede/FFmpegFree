@@ -34,11 +34,11 @@
       >
         <FIcon name="pick" :size="15" />
       </button>
-      <button v-if="live && !officeFile" type="button" class="icon-btn" :title="t('cat.preview.refresh')" :aria-label="t('cat.preview.refresh')" @click="reloadFile"><FIcon name="retry" :size="14" /></button>
+      <button v-if="live && !officeFile && !genOffice" type="button" class="icon-btn" :title="t('cat.preview.refresh')" :aria-label="t('cat.preview.refresh')" @click="reloadFile"><FIcon name="retry" :size="14" /></button>
       <button type="button" class="x" data-testid="cat-file-close" @click="onClose">{{ COPY.close }}</button>
     </header>
     <div v-if="externalChanged" class="external-change" role="status">{{ t('cat.preview.externalChanged') }}<button type="button" @click="discardAndReload">{{ t('cat.preview.discardReload') }}</button></div>
-    <CatPptxPreview v-if="officeFile && /\.pptx$/i.test(relPath) && live && !compare" :key="convId + ':' + relPath" :conv-id="convId" :rel-path="relPath" />
+    <CatPptxPreview v-if="genOffice && live && !compare" :key="convId + ':' + relPath" :conv-id="convId" :rel-path="relPath" />
     <CatDocumentPreview v-else-if="officeFile && live && !compare" :key="convId + ':' + relPath" :conv-id="convId" :rel-path="relPath" />
     <CatFileEditor
       v-else-if="deletedView && baseOriginal != null"
@@ -113,6 +113,7 @@ const props = defineProps<{ convId: string; relPath: string; name: string; live:
 const emit = defineEmits<{ close: []; pick: [note: PickNote]; 'conflict-saved': [] }>()
 
 const officeFile = computed(() => /\.(pdf|docx?|xlsx?|pptx?|odt|ods|odp)$/i.test(props.relPath))
+const genOffice = computed(() => /\.(pptx|docx|xlsx|pdf|html|htm|md|markdown)$/i.test(props.relPath))
 const externalChanged = ref(false)
 const doc = ref<CatFileBody | null>(null)
 const draft = ref('')
@@ -247,7 +248,7 @@ async function loadDiff() {
 
 async function load(resetMode: boolean) {
   externalChanged.value = false
-  if (officeFile.value && props.live && !props.compare) { doc.value = null; ready.value = false; return }
+  if ((officeFile.value || genOffice.value) && props.live && !props.compare) { doc.value = null; ready.value = false; return }
   const my = ++token
   const id = props.convId
   const rel = props.relPath
@@ -561,7 +562,7 @@ onBeforeUnmount(() => {
 
 let pollBusy = false, candidateRevision = ''
 async function pollFile() {
-  if (!props.live || officeFile.value || pollBusy || loading.value || saving.value || document.hidden) return
+  if (!props.live || officeFile.value || genOffice.value || pollBusy || loading.value || saving.value || document.hidden) return
   pollBusy = true
   const id = props.convId, path = props.relPath, my = token
   try {

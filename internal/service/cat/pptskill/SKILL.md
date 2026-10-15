@@ -8,8 +8,8 @@ Use the application's office MCP tools when available. The equivalent CLI is
 The application supplies the private endpoint and capability in the CLI environment.
 Never display or store FFC_OFFICE_TOKEN or FFC_OFFICE_ENDPOINT.
 
-1. Plan an outline and coherent visual style, then `open --create` before generation so the preview appears immediately.
-2. Generate each page with `page --input page.json --revision N --request-id UNIQUE_ID`. Each completed page is inserted immediately; do not wait to build the entire presentation. The first page replaces the initial empty page. Read the response's revision before the next operation.
+1. Plan an outline and coherent visual style. If the turn already created a deck and opened it at a path, generate only into that file. Otherwise `open --create` before the first page so the canvas is visible. Do not create a second file.
+2. Submit one page per `page --input page.json --revision N --request-id UNIQUE_ID` call. The open canvas draws each element of that page before the call returns. Wait for that response's revision before building the next page. Do not draft every page offline and write the PPTX once. The first page replaces the initial empty page.
 3. To modify a deck, `read` first. It returns 0-based slide indexes and durable element IDs. User page 3 means index 2. Read `guide --group text|element|slide|insert|table|deck` for exact operation schemas; send native ops with `apply --input ops.json --revision N --request-id UNIQUE_ID`.
 4. Run `audit`, resolve actionable layout findings, then finish with `save --revision N` and verify savedRevision equals revision. Return the real workspace path. The final PPTX must contain editable text/shapes; images can be placed as assets, but do not flatten complete pages into screenshots. If external edits prevent saving, use `save --copy output/recovered.pptx --revision N` to preserve a separate copy; never overwrite the newer external file.
 

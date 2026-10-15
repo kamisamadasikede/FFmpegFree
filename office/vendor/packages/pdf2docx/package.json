@@ -1,0 +1,8 @@
+{
+  "name": "@genoffice/pdf2docx",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "description": "Script classifier imported by the official PDF page. The rest of the conversion pipeline is not embedded."
+}

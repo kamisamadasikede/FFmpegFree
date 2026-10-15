@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GenOffice Sheets</title><link rel="stylesheet" href="/sheets.css">
+<style>
+  /* The official sheet keeps a 34px rail column for the assistant panel.
+     This host does not render that rail, so the sheet must take the whole row. */
+  .app-shell.copilot-collapsed .sheet-body,
+  html[data-ai-panel-side='right'] .app-shell.copilot-collapsed .sheet-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+</style></head><body><div id="root"></div><script src="/sheets.js"></script></body></html>

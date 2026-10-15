@@ -20,7 +20,7 @@
       @keydown="onResizeKey"
     />
     <div v-if="openRel || pptTabs.length" v-show="showFile" class="ct-previews">
-    <div v-if="pptTabs.length" class="ct-ppt-tabs" role="tablist" aria-label="PowerPoint">
+    <div v-if="pptTabs.length" class="ct-ppt-tabs" role="tablist" :aria-label="GIT.files">
       <div v-for="tab in pptTabs" :key="tab.rel" class="ct-ppt-tab" :class="{ active: openRel === tab.rel && !openDiff }">
         <button type="button" role="tab" :aria-selected="openRel === tab.rel && !openDiff" :title="tab.rel" @click="wantFile(tab.rel, tab.name)">{{ tab.name }}</button><button type="button" :aria-label="t('cat.ppt.close')" @click="closePptTab(tab.rel)">×</button>
       </div>
@@ -33,7 +33,7 @@
       @close="closePptTab(tab.rel)" @pick="onPick"
     />
     <CatFilePreview
-      v-if="openRel && (!/\.pptx$/i.test(openRel) || openDiff)"
+      v-if="openRel && (!officeCanvas(openRel) || openDiff)"
       ref="previewEl"
       :conv-id="convId"
       :rel-path="openRel"
@@ -305,6 +305,7 @@ const gitError = ref('')
 const picked = ref<number | string>(-1)
 const openRel = ref('')
 const pptTabs = ref<{ rel: string; name: string }[]>([])
+function officeCanvas(rel: string) { return /\.(pptx|docx|xlsx|pdf|html|htm|md|markdown)$/i.test(rel) }
 const openName = ref('')
 const openDiff = ref(false)
 const pending = ref<{ rel: string; name: string; picked: number | string; diff: boolean } | null>(null)
@@ -771,7 +772,7 @@ function wantFile(rel: string, name: string, pick: number | string = rel, diff =
     return
   }
   pending.value = null
-  if (/\.pptx$/i.test(rel) && !diff && !pptTabs.value.some(tab => tab.rel === rel)) {
+  if (officeCanvas(rel) && !diff && !pptTabs.value.some(tab => tab.rel === rel)) {
     pptTabs.value.push({ rel, name })
   }
   openRel.value = rel

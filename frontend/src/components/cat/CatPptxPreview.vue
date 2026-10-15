@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import CatDocumentPreview from './CatDocumentPreview.vue'
 import { startPptPreview, releasePptPreview, retryPptTool, type PptPreview } from '@/api/catPptx'
 import { toAppError } from '@/api/call'
 const props = defineProps<{ convId: string; relPath: string }>()
+const pptx = computed(() => /\.pptx$/i.test(props.relPath))
+const frameTitle = computed(() => pptx.value ? 'PowerPoint · GenOffice' : 'GenOffice')
 const { t, locale } = useI18n()
 const snapshot = ref<PptPreview>(), error = ref(''), fallback = ref(false), frame = ref<HTMLIFrameElement>()
 let alive = true, serial = 0, id = ''
@@ -36,9 +38,9 @@ onBeforeUnmount(() => { alive = false; ++serial; release(id); window.removeEvent
 <template>
   <section class="ppt-preview" data-testid="cat-ppt-preview">
     <div v-if="fallback" class="ppt-hostbar"><button @click="retry">{{ t('cat.preview.retry') }}</button></div>
-    <div v-if="error && !fallback" class="ppt-error" role="status">{{ error }}<button @click="retry">{{ t('cat.preview.retry') }}</button><button @click="staticPreview">{{ t('cat.ppt.static') }}</button></div>
+    <div v-if="error && !fallback" class="ppt-error" role="status">{{ error }}<button @click="retry">{{ t('cat.preview.retry') }}</button><button v-if="pptx" @click="staticPreview">{{ t('cat.ppt.static') }}</button></div>
     <CatDocumentPreview v-if="fallback" :conv-id="convId" :rel-path="relPath" />
-    <iframe v-else-if="snapshot?.url" ref="frame" class="ppt-frame" :src="snapshot.url" title="PowerPoint · GenOffice" sandbox="allow-scripts allow-same-origin" referrerpolicy="no-referrer" @load="connect" />
+    <iframe v-else-if="snapshot?.url" ref="frame" class="ppt-frame" :src="snapshot.url" :title="frameTitle" sandbox="allow-scripts allow-same-origin" referrerpolicy="no-referrer" @load="connect" />
     <div v-else class="ppt-wait">{{ t('cat.ppt.preparing') }}</div>
   </section>
 </template>

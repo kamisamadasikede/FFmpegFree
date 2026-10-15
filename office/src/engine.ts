@@ -40,6 +40,7 @@ type Session = {
   sequence: number; disk: string; state: string; error: string; warnings: string[]; renders: any[]
   undo: Uint8Array[]; redo: Uint8Array[]; requests: Map<string, { fingerprint: string; result: any }>
   changedSlides: number[]; chain: Promise<any>; saveTimer?: ReturnType<typeof setTimeout>; autoSave?: boolean
+  paint?: { slide: number; elements: number; preview: boolean; clipTail: boolean }; paintTimer?: ReturnType<typeof setTimeout>
 }
 class OfficeError extends Error {
   constructor(public code: string, message: string, public detail?: any) { super(message) }
@@ -83,12 +84,66 @@ function summary(s: Session) {
     state: s.state, error: s.error, warnings: s.warnings, slideCount: s.opened?.deck.slides.length ?? 0,
     changedSlides: s.changedSlides, canUndo: s.undo.length > 0, canRedo: s.redo.length > 0 }
 }
+// The canvas polls about every 200ms. Each painted step stays up longer than that,
+// so a shape is on screen before the next one is added. paintMs: 0 skips the wait.
+function paintDelay(req?: any): number {
+  const picked = req && typeof req.paintMs === 'number' ? req.paintMs : Number(process.env.FFC_OFFICE_PAINT_MS)
+  if (picked === 0) return 0
+  if (Number.isFinite(picked) && picked > 0) return Math.min(2000, picked)
+  return 450
+}
+function stopPaint(s: Session) {
+  if (s.paintTimer) clearTimeout(s.paintTimer)
+  s.paintTimer = undefined
+  s.paint = undefined
+}
+function stepPaint(s: Session): boolean {
+  if (!s.paint || !s.opened) return false
+  const slides = s.opened.deck.slides
+  const current = slides[s.paint.slide]
+  if (!current) { s.paint = undefined; s.revision++; return false }
+  if (s.paint.elements < current.elements.length) {
+    const left = current.elements.length - s.paint.elements
+    s.paint.elements += left > 30 ? Math.ceil(left / 30) : 1
+  }
+  const slideDone = s.paint.elements >= current.elements.length
+  const last = !s.paint.clipTail || s.paint.slide >= slides.length - 1
+  if (slideDone && last) { s.paint = undefined; s.revision++; return false }
+  if (slideDone) { s.paint.slide++; s.paint.elements = 1 }
+  s.revision++
+  return true
+}
+function kickPaint(s: Session, delay: number) {
+  if (s.paintTimer) clearTimeout(s.paintTimer)
+  const tick = () => {
+    s.paintTimer = undefined
+    void queue(s, async () => {
+      if (!s.paint || !s.opened) return
+      const preview = s.paint.preview
+      const more = stepPaint(s)
+      if (preview) s.savedRevision = s.revision
+      render(s); changed(s)
+      if (more) s.paintTimer = setTimeout(tick, delay)
+    })
+  }
+  s.paintTimer = setTimeout(tick, delay)
+}
 function render(s: Session) {
   missingFonts.clear()
   if (!s.opened) { s.renders = []; return }
   const opened = s.opened
   stableIds(opened)
-  s.renders = opened.deck.slides.map((slide, index) => buildRenderSlide(slide, opened.deck.size, {
+  const slides = opened.deck.slides
+  const backups = s.paint ? slides.map(slide => slide.elements) : undefined
+  if (s.paint && backups) {
+    for (let index = 0; index < slides.length; index++) {
+      if (index < s.paint.slide) continue
+      if (index === s.paint.slide) slides[index].elements = backups[index].slice(0, Math.max(1, s.paint.elements))
+      else if (s.paint.clipTail) slides[index].elements = []
+    }
+  }
+  try {
+    s.renders = slides.map((slide, index) => buildRenderSlide(slide, opened.deck.size, {
     fitWidthPx: 1280, metrics, slideNo: index + 1,
     media: (ref: string) => {
       const bytes = opened.archive.readBytes(ref)
@@ -103,6 +158,10 @@ function render(s: Session) {
       return `data:${mime[ext]};base64,${Buffer.from(bytes).toString('base64')}`
     },
   }))
+    if (s.paint?.clipTail) s.renders = s.renders.slice(0, s.paint.slide + 1)
+  } finally {
+    if (backups) slides.forEach((slide, index) => { slide.elements = backups[index] })
+  }
   if (missingFonts.size) s.warnings = [...s.warnings.filter(w => !w.startsWith('字体度量')), `字体度量使用替代：${[...missingFonts].slice(0, 8).join('、')}`]
 }
 // The official UI keeps sourceId in selection/edit overlays. Parsing mints new
@@ -121,6 +180,9 @@ function stableIds(opened: OpenedPptx, records?: any[]) {
     if (record.after?.elementId) record.after.elementId = aliases.get(record.after.elementId) || record.after.elementId
   }
 }
+function elementCount(opened?: OpenedPptx) {
+  return opened?.deck.slides.reduce((total, slide) => total + slide.elements.length, 0) ?? 0
+}
 async function refresh(s: Session) {
   const latest = await diskVersion(s)
   if (latest === s.disk) return
@@ -134,8 +196,18 @@ async function refresh(s: Session) {
   try {
     const opened = await openPptx(await fs.readFile(s.file))
     if (opened.deck.slides.length > 500) fail('TOO_LARGE', '暂不支持超过 500 页的演示文稿')
+    const had = s.opened
+    const before = elementCount(had)
     s.opened = opened; s.disk = latest; s.revision++; s.savedRevision = s.revision
     s.undo = []; s.redo = []; s.state = 'ready'; s.error = ''; s.warnings = []; render(s); changed(s)
+    const delay = paintDelay()
+    if (had && delay > 0 && elementCount(opened) > before + 1) {
+      stopPaint(s)
+      s.paint = { slide: 0, elements: 1, preview: true, clipTail: true }
+      s.revision++; s.savedRevision = s.revision
+      render(s); changed(s)
+      kickPaint(s, delay)
+    }
   } catch (e: any) {
     s.state = 'writing'; s.error = '文件尚未完整写入或无法解析：' + e.message; changed(s)
   }
@@ -239,6 +311,71 @@ function deckRead(s: Session) {
   return { ...summary(s), emuPerPx: 9525, slideSize: s.opened?.deck.size,
     slides: s.opened?.deck.slides.map((slide, index) => ({ index, id: slideDurableId(slide), elements: slide.elements.map(info) })) ?? [] }
 }
+async function streamPage(s: Session, req: any): Promise<any> {
+  const delay = paintDelay(req)
+  const built = await queue(s, async () => {
+    const hit = replay(s, req)
+    if (hit) return { hit }
+    await authorize(s.root, s.file)
+    await refresh(s)
+    ensureEdit(s, req)
+    stopPaint(s)
+    const parsed = parsePageSpec(JSON.stringify(req.page), undefined, undefined, { localImages: true })
+    if (!parsed.ok) fail('INVALID_SPEC', parsed.error)
+    const page = await buildPagePptx(parsed.spec, {
+      fontMetrics: metrics,
+      fetchImage: async (source: string) => {
+        if (/^data:image\/(png|jpeg|webp|gif|bmp);base64,/.test(source)) {
+          const [head, tail] = source.split(','); const bytes = Buffer.from(tail, 'base64')
+          if (bytes.length > 10 * 1024 * 1024) fail('TOO_LARGE', '图片超过 10 MB')
+          return { bytes, ext: head.includes('jpeg') ? 'jpg' : head.split('/')[1].split(';')[0] }
+        }
+        if (/^[a-z]+:\/\//i.test(source)) fail('PATH_DENIED', '请使用工作区内的图片，远端下载由 Agent 单独处理')
+        const file = path.resolve(s.root, source)
+        await authorize(s.root, file)
+        const st = await fs.stat(file)
+        if (st.size > 10 * 1024 * 1024) fail('TOO_LARGE', '图片超过 10 MB')
+        return { bytes: await fs.readFile(file), ext: path.extname(file).slice(1) }
+      },
+      imageDims: bytes => imageSizeFromBytes(bytes),
+    })
+    const source = await extractMergeSlideSource(page.bytes)
+    if (!source) fail('BUILD_FAILED', '单页生成失败')
+    let at = req.index
+    let replace = req.replace === true
+    if (s.revision === 0 && s.opened!.deck.slides.length === 1 && s.opened!.deck.slides[0].elements.length === 0 && at == null) { at = 0; replace = true }
+    const result = await apply(s, { ...req, requestId: randomUUID() }, [{ op: 'insertSlidePptx', source, ...(at != null ? { at } : {}), replace }])
+    s.warnings = [...new Set([...s.warnings, ...parsed.warnings, ...page.imageWarnings, ...page.imageFailures.map((item: string) => '图片未载入：' + item)])]
+    const slideIndex = at != null ? at : s.opened!.deck.slides.length - 1
+    const total = s.opened!.deck.slides[slideIndex]?.elements.length ?? 0
+    if (delay > 0 && total > 1) {
+      s.paint = { slide: slideIndex, elements: 1, preview: false, clipTail: false }
+      s.revision++
+      render(s)
+    }
+    changed(s)
+    return { result, total }
+  })
+  if (built.hit) return built.hit
+  if (delay > 0 && built.total > 1) {
+    kickPaint(s, delay)
+    const deadline = Date.now() + Math.min(52000, built.total * delay + 4000)
+    while (Date.now() < deadline) {
+      const pending = await queue(s, async () => !!s.paint)
+      if (!pending) break
+      await new Promise(resolve => setTimeout(resolve, 25))
+    }
+  }
+  return queue(s, async () => {
+    if (s.paintTimer) clearTimeout(s.paintTimer)
+    s.paintTimer = undefined
+    if (s.paint) { s.paint = undefined; s.revision++; render(s); changed(s) }
+    if (delay > 0 && built.total > 1) scheduleSave(s)
+    const response = { ...built.result, ...summary(s) }
+    remember(s, req, response)
+    return response
+  })
+}
 export async function dispatch(req: any): Promise<any> {
   if (req.action === 'hello') return { protocol: 1, upstream: '2a607bd49bc341f74a60a8fa852183dfb6ce3c1f', node: process.version }
   if (req.action === 'guide') {
@@ -269,6 +406,7 @@ export async function dispatch(req: any): Promise<any> {
   }
   const s = sessions.get(req.documentId)
   if (!s) fail('NOT_FOUND', '办公会话不存在，请重新打开文档')
+  if (req.action === 'page') return streamPage(s, req)
   return queue(s, async () => {
     await authorize(s.root, s.file)
     switch (req.action) {
@@ -289,7 +427,7 @@ export async function dispatch(req: any): Promise<any> {
             const opened = await openPptx(await savePptx(s.opened!))
             const outcome = runTxn(opened, { ops })
             if (!outcome.applied) fail('INVALID_OP', outcome.failures?.map(f => f.error).join('; ') || '无效的预览操作')
-            const scratch = { ...s, opened, renders: [] }
+            const scratch = { ...s, opened, renders: [], paint: undefined, paintTimer: undefined }
             render(scratch)
             return scratch.renders
           },
@@ -311,38 +449,6 @@ export async function dispatch(req: any): Promise<any> {
         await refresh(s)
         return { ...summary(s), ...(req.since !== s.sequence ? { slides: s.renders } : {}) }
       case 'apply': return apply(s, req, req.ops)
-      case 'page': {
-        const hit = replay(s, req); if (hit) return hit
-        await refresh(s); ensureEdit(s, req)
-        const parsed = parsePageSpec(JSON.stringify(req.page), undefined, undefined, { localImages: true })
-        if (!parsed.ok) fail('INVALID_SPEC', parsed.error)
-        const built = await buildPagePptx(parsed.spec, {
-          fontMetrics: metrics,
-          fetchImage: async (source: string) => {
-            if (/^data:image\/(png|jpeg|webp|gif|bmp);base64,/.test(source)) {
-              const [head, tail] = source.split(','); const bytes = Buffer.from(tail, 'base64')
-              if (bytes.length > 10 * 1024 * 1024) fail('TOO_LARGE', '图片超过 10 MB')
-              return { bytes, ext: head.includes('jpeg') ? 'jpg' : head.split('/')[1].split(';')[0] }
-            }
-            if (/^[a-z]+:\/\//i.test(source)) fail('PATH_DENIED', '请使用工作区内的图片，远端下载由 Agent 单独处理')
-            const file = path.resolve(s.root, source)
-            await authorize(s.root, file)
-            const st = await fs.stat(file)
-            if (st.size > 10 * 1024 * 1024) fail('TOO_LARGE', '图片超过 10 MB')
-            return { bytes: await fs.readFile(file), ext: path.extname(file).slice(1) }
-          },
-          imageDims: bytes => imageSizeFromBytes(bytes),
-        })
-        const source = await extractMergeSlideSource(built.bytes)
-        if (!source) fail('BUILD_FAILED', '单页生成失败')
-        let at = req.index
-        let replace = req.replace === true
-        if (s.revision === 0 && s.opened!.deck.slides.length === 1 && s.opened!.deck.slides[0].elements.length === 0 && at == null) { at = 0; replace = true }
-        const result = await apply(s, req, [{ op: 'insertSlidePptx', source, ...(at != null ? { at } : {}), replace }])
-        s.warnings = [...new Set([...s.warnings, ...parsed.warnings, ...built.imageWarnings, ...built.imageFailures.map(v => '图片未载入：' + v)])]
-        changed(s)
-        const response = { ...result, ...summary(s) }; remember(s, req, response); return response
-      }
       case 'save':
         if (req.expectedRevision !== undefined && req.expectedRevision !== s.revision) fail('REVISION_CONFLICT', '请重新读取版本后保存', summary(s))
         if (req.copyPath) {

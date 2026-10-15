@@ -28,9 +28,24 @@ func (s *Service) ClosePptPreviews() {
 }
 func (s *Service) GetCatPptTool(retry bool) genoffice.ToolState { return s.pptManager().Tool(retry) }
 
+func previewOfficeExt(ext string) bool {
+	switch ext {
+	case ".pptx", ".docx", ".xlsx", ".pdf", ".html", ".htm", ".md", ".markdown":
+		return true
+	default:
+		return false
+	}
+}
+
 // pptPath also authorizes a future file, so the preview can open before create.
 // Every existing component is checked again for each read/render.
 func (s *Service) pptPath(ctx context.Context, req ReadFileRequest) (string, string, error) {
+	return s.scopedOfficePath(ctx, req, func(ext string) bool { return ext == ".pptx" })
+}
+func (s *Service) previewPath(ctx context.Context, req ReadFileRequest) (string, string, error) {
+	return s.scopedOfficePath(ctx, req, previewOfficeExt)
+}
+func (s *Service) scopedOfficePath(ctx context.Context, req ReadFileRequest, allow func(string) bool) (string, string, error) {
 	c, err := s.requireConv(ctx, req.ConvID)
 	if err != nil {
 		return "", "", err
@@ -47,7 +62,7 @@ func (s *Service) pptPath(ctx context.Context, req ReadFileRequest) (string, str
 		}
 	}
 	rel = strings.ReplaceAll(rel, `\`, "/")
-	if strings.Contains(rel, ":") || strings.HasPrefix(rel, "/") || strings.ToLower(filepath.Ext(rel)) != ".pptx" {
+	if strings.Contains(rel, ":") || strings.HasPrefix(rel, "/") || !allow(strings.ToLower(filepath.Ext(rel))) {
 		return "", "", errFilePath()
 	}
 	cur := root
@@ -89,8 +104,14 @@ func (s *Service) pptRoot(ctx context.Context, req ReadFileRequest) (string, err
 	return s.conversationRoot(ctx, c)
 }
 func (s *Service) pptGuard(req ReadFileRequest, abs string) func() error {
+	return s.officeGuard(req, abs, s.pptPath)
+}
+func (s *Service) previewGuard(req ReadFileRequest, abs string) func() error {
+	return s.officeGuard(req, abs, s.previewPath)
+}
+func (s *Service) officeGuard(req ReadFileRequest, abs string, lookup func(context.Context, ReadFileRequest) (string, string, error)) func() error {
 	return func() error {
-		latest, _, e := s.pptPath(context.Background(), req)
+		latest, _, e := lookup(context.Background(), req)
 		if e != nil {
 			return e
 		}
@@ -101,7 +122,7 @@ func (s *Service) pptGuard(req ReadFileRequest, abs string) func() error {
 	}
 }
 func (s *Service) StartCatPptPreview(ctx context.Context, req ReadFileRequest) (genoffice.Preview, error) {
-	abs, _, err := s.pptPath(ctx, req)
+	abs, _, err := s.previewPath(ctx, req)
 	if err != nil {
 		return genoffice.Preview{}, err
 	}
@@ -109,7 +130,7 @@ func (s *Service) StartCatPptPreview(ctx context.Context, req ReadFileRequest) (
 	if err != nil {
 		return genoffice.Preview{}, err
 	}
-	return s.pptManager().Start(ctx, abs, root, s.pptGuard(req, abs))
+	return s.pptManager().Start(ctx, abs, root, s.previewGuard(req, abs))
 }
 func (s *Service) ReadCatPptPreview(id string, version uint64) (genoffice.Preview, error) {
 	return s.pptManager().Read(id, version)

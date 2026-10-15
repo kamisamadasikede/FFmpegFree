@@ -28,9 +28,9 @@ async function call(request) {
   return result
 }
 const tools = [
-  { name: 'office_open', description: 'Open/create a native PPTX in the ffc live canvas before generating. Return revision.', properties: { create: { type: 'boolean' } } },
+  { name: 'office_open', description: 'Open or create one native PPTX in the ffc live canvas. If the turn already names an open path, reuse it instead of creating a second file. Return revision.', properties: { create: { type: 'boolean' } } },
   { name: 'office_read', description: 'Read native slide/element IDs, text, geometry and current revision.' },
-  { name: 'office_page', description: 'Build and immediately show one native 1280x720 page spec (text/shapes/images). Use current revision and unique requestId.', mutate: true, properties: { page: { type: 'object' }, index: { type: 'integer', minimum: 0 }, replace: { type: 'boolean' } }, required: ['page'] },
+  { name: 'office_page', description: 'Draw exactly one 1280x720 page. Each element appears on the open canvas before this call returns; wait for it, then send the next page. Pass the revision from the previous call and a new requestId. Do not batch the deck or write the pptx with another tool.', mutate: true, properties: { page: { type: 'object' }, index: { type: 'integer', minimum: 0 }, replace: { type: 'boolean' } }, required: ['page'] },
   { name: 'office_apply', description: 'Apply an atomic batch of native GenOffice ops. Geometry is EMU. Read guide for schemas.', mutate: true, properties: { ops: { type: 'array', minItems: 1, maxItems: 50, items: { type: 'object' } }, dryRun: { type: 'boolean' } }, required: ['ops'] },
   { name: 'office_save', description: 'Save the live PPTX atomically. Verify savedRevision equals revision. copyPath saves a separate workspace copy on conflict.', properties: { expectedRevision: { type: 'integer' }, copyPath: { type: 'string' } } },
   { name: 'office_audit', description: 'Check rendered pages for text overflow and layout findings before final delivery.' },

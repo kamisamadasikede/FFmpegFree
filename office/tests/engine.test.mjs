@@ -7,6 +7,8 @@ import { randomUUID } from 'node:crypto'
 import { dispatch } from '../../internal/genoffice/runtime/engine.mjs'
 import JSZip from 'jszip'
 
+process.env.FFC_OFFICE_PAINT_MS = '0'
+
 const page = title => ({ background: '#EFF5FF', elements: [
   { type: 'shape', shape: 'rect', x: 0, y: 0, w: 1280, h: 18, fill: '#2874D0' },
   { type: 'text', x: 72, y: 100, w: 1120, h: 120, paragraphs: [{ runs: [{ text: title, sizePt: 36, bold: true, color: '#203B60', font: 'Microsoft YaHei' }] }] },
@@ -78,6 +80,35 @@ test('protects external modifications and supports independent document sessions
   const addedB = await dispatch({ action: 'page', documentId: b.documentId, expectedRevision: b.revision, requestId: randomUUID(), page: page('独立文档可继续') })
   await dispatch({ action: 'save', documentId: b.documentId })
   assert.equal(addedB.slideCount, 1)
+})
+test('one page draws element by element before the call returns', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ffc-draw-'))
+  t.after(async () => { await new Promise(r => setTimeout(r, 200)); await fs.rm(root, { recursive: true, force: true }) })
+  const file = path.join(root, 'draw.pptx')
+  const state = await dispatch({ action: 'open', root, path: file, create: true })
+  const spec = { elements: ['ONE', 'TWO', 'THREE'].map((text, index) => ({
+    type: 'text', x: 72, y: 80 + index * 140, w: 1000, h: 100,
+    paragraphs: [{ runs: [{ text, sizePt: 28, font: 'Microsoft YaHei' }] }],
+  })) }
+  const request = {
+    action: 'page', documentId: state.documentId, expectedRevision: state.revision,
+    requestId: randomUUID(), paintMs: 70, page: spec,
+  }
+  let partial = false
+  const pending = dispatch(request)
+  const deadline = Date.now() + 5000
+  while (Date.now() < deadline && !partial) {
+    const snap = await dispatch({ action: 'state', documentId: state.documentId, since: -1 })
+    const blob = JSON.stringify(snap.slides ?? [])
+    partial = blob.includes('ONE') && !blob.includes('THREE')
+    if (!partial) await new Promise(r => setTimeout(r, 15))
+  }
+  const done = await pending
+  assert.equal(partial, true)
+  assert.equal(done.slideCount, 1)
+  const final = JSON.stringify((await dispatch({ action: 'state', documentId: state.documentId, since: -1 })).slides ?? [])
+  assert.ok(final.includes('ONE') && final.includes('TWO') && final.includes('THREE'))
+  assert.equal((await dispatch(request)).revision, done.revision)
 })
 test('rejects workspace escapes and invalid operation batches without changing the deck', async t => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ffc-path-'))

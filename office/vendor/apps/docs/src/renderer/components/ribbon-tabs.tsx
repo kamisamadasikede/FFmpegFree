@@ -1,0 +1,1779 @@
+import { useRef, useState } from 'react'
+import type { Editor, JSONContent } from '@tiptap/core'
+import type { Node as PmNode } from '@tiptap/pm/model'
+import { TextSelection, type Transaction } from '@tiptap/pm/state'
+import {
+  SHAPE_GALLERY_GROUPS,
+  useDismissablePopover,
+  wordArtSolidColor,
+  type WordArtPreset,
+} from '@genoffice/ui'
+import {
+  buildLineParagraphXml,
+  buildShapeParagraphXml,
+  buildTextboxParagraphXml,
+  buildWordArtParagraphXml,
+  LINE_KINDS,
+  type HeaderFooter,
+  type StyleInfo,
+  type TextboxDisplay,
+} from '@genoffice/docx-engine'
+import type { DocsTabInfo } from '../../shared/ipc'
+import { runUiOps } from '../ai/ops'
+import { stepDocsZoom } from '../wheel-zoom'
+import { defaultParagraphStyleId, headingStyleId, type StyleMap } from '../style-gallery'
+import { tableModelToPmNode } from '../editor/convert'
+import { insertPageBreak } from '../editor/page-break'
+import { isStraightLineKind } from '../editor/shape-svg'
+import type { InkTool } from '../editor/ink'
+import { t, useI18n, type StringKey } from '../i18n/locale'
+import iconEditor from '../assets/icon-editor.png'
+import iconTranslate from '../assets/icon-translate.png'
+import type { RevisionDisplayMode } from '../editor/revision-view'
+import { TRANSLATE_LANGS, ribbonLangKey } from './translate-langs'
+import {
+  IconAccept,
+  IconCaret,
+  IconComment,
+  IconCommentNext,
+  IconCommentPrev,
+  IconComments,
+  IconCompare,
+  IconCursor,
+  IconEraser,
+  IconHighlighterPen,
+  IconPen,
+  IconLock,
+  IconMoon,
+  IconNavPane,
+  IconOutlineView,
+  IconPageWidth,
+  IconGridlines,
+  IconNewWindow,
+  IconPrintLayout,
+  IconReadMode,
+  IconRuler,
+  IconSpellcheck,
+  IconSplit,
+  IconSwitchWindows,
+  IconRedo,
+  IconReject,
+  IconTrackChanges,
+  IconTrash,
+  IconUndo,
+  IconWebLayout,
+  IconWholePage,
+  IconMultiPage,
+  IconZoom,
+  IconZoom100,
+  IconZoomIn,
+  IconZoomOut,
+} from './icons'
+
+export {
+  BookmarkModal,
+  ChartInsertModal,
+  CrossRefModal,
+  InsertTab,
+  LinkInsertModal,
+  TableInsertModal,
+} from './ribbon-insert-tab'
+export { DesignTab } from './ribbon-design-tab'
+export { LayoutTab } from './ribbon-layout-tab'
+export { ReferencesTab } from './ribbon-references-tab'
+
+/** icon size for the big icon-over-label ribbon buttons (slides ribbon parity) */
+export const BIG = 28
+
+/* ---------- shared helpers ---------- */
+
+export type SetDropdown = (updater: (prev: string | null) => string | null) => void
+
+export const toggleDropdown = (setDropdown: SetDropdown, key: string) =>
+  setDropdown((prev) => (prev === key ? null : key))
+
+/**
+ * Apply paragraph-level attrs to every paragraph in the selection (the
+ * setParagraphAttrs op: headings, list items and table-cell paragraphs alike;
+ * `align` also lands on selected images as their w:jc).
+ */
+/** Word's line-spacing menu: 12 pt before/after when the paragraph has none, none when it has some */
+export function toggleParaSpace(
+  editor: Editor,
+  side: 'spaceBefore' | 'spaceAfter',
+  currentTwips: number,
+): void {
+  setParaAttrs(editor, { [side]: currentTwips > 0 ? 0 : 240, [`${side}Auto`]: null })
+}
+
+export function setParaAttrs(
+  editor: Editor,
+  attrs: Record<string, unknown>,
+  /// Explicit target range: blur-committed inputs capture the selection at
+  /// focus time — by blur, a click may already have moved the live selection
+  /// to another paragraph.
+  range?: { from: number; to: number },
+): void {
+  const size = editor.state.doc.content.size
+  const target = range
+    ? { range: { from: Math.min(range.from, size), to: Math.min(range.to, size) } }
+    : { scope: 'selection' as const }
+  runUiOps(editor, [{ op: 'setParagraphAttrs', target, attrs }], { focus: !range })
+}
+
+/** direct paragraph formatting dropped by Word's Ctrl+Q (the style's own values then show through) */
+const DIRECT_PARA_ATTRS: Record<string, unknown> = {
+  align: null,
+  lineSpacing: null,
+  lineRule: null,
+  lineRawTwips: null,
+  indentLeft: null,
+  indentRight: null,
+  indentFirstLine: null,
+  indentFirstLineChars: null,
+  spaceBefore: null,
+  spaceAfter: null,
+  spaceBeforeAuto: null,
+  spaceAfterAuto: null,
+  contextualSpacing: null,
+  keepNext: null,
+  keepLines: null,
+  widowControl: null,
+  suppressLineNumbers: null,
+  shadingFill: null,
+  borders: null,
+  borderLines: null,
+  tabStops: null,
+  dropCap: null,
+  pageBreakBefore: false,
+}
+
+/** Word's Ctrl+Q: reset the paragraph to its style, keeping the text and its character formatting */
+export function clearParagraphFormatting(editor: Editor): void {
+  setParaAttrs(editor, { ...DIRECT_PARA_ATTRS })
+}
+
+/** Word's Quick Style gallery keys on the shortcuts (Opt+Cmd+0..3) */
+export function applyParagraphStyle(
+  editor: Editor,
+  key: 'p' | 'h1' | 'h2' | 'h3',
+  styles?: StyleMap,
+): void {
+  const level = key === 'p' ? null : Number(key.slice(1))
+  const styleId = level ? headingStyleId(styles, level) : defaultParagraphStyleId(styles)
+  applyParagraphStyleId(editor, styleId ?? null, level)
+}
+
+/** mark types Word counts as direct character formatting when a paragraph style is applied */
+const DIRECT_MARKS = ['bold', 'italic', 'underline', 'strike'] as const
+const DIRECT_TEXT_STYLE_ATTRS = ['color', 'sizeHalfPoints', 'font', 'fontAscii'] as const
+
+/**
+ * Word's rule for direct character formatting under a new paragraph style: a
+ * property covering more than half of the paragraph's text is dropped from the
+ * whole paragraph (it was standing in for the style), a smaller run keeps it.
+ */
+export function shedMajorityDirectFormatting(tr: Transaction, pos: number): void {
+  const node = tr.doc.nodeAt(pos)
+  if (!node?.isTextblock) return
+  const total = node.textContent.length
+  if (total === 0) return
+  const covered = new Map<string, number>()
+  node.forEach((child) => {
+    if (!child.isText) return
+    const len = child.text!.length
+    for (const m of child.marks) {
+      if ((DIRECT_MARKS as readonly string[]).includes(m.type.name)) {
+        covered.set(m.type.name, (covered.get(m.type.name) ?? 0) + len)
+      } else if (m.type.name === 'docTextStyle') {
+        for (const a of DIRECT_TEXT_STYLE_ATTRS) {
+          if (m.attrs[a] != null) covered.set(`ts:${a}`, (covered.get(`ts:${a}`) ?? 0) + len)
+        }
+      }
+    }
+  })
+  const shed = [...covered].filter(([, n]) => n * 2 > total).map(([k]) => k)
+  if (shed.length === 0) return
+  const start = pos + 1
+  const end = pos + node.nodeSize - 1
+  const schema = tr.doc.type.schema
+  for (const k of shed) if (!k.startsWith('ts:')) tr.removeMark(start, end, schema.marks[k])
+  const attrsToClear = shed.filter((k) => k.startsWith('ts:')).map((k) => k.slice(3))
+  if (attrsToClear.length === 0) return
+  const type = schema.marks.docTextStyle
+  const jobs: Array<{ from: number; to: number; attrs: Record<string, unknown> | null }> = []
+  node.forEach((child, offset) => {
+    const m = child.marks.find((mm) => mm.type === type)
+    if (!m || !attrsToClear.some((a) => m.attrs[a] != null)) return
+    const attrs = { ...m.attrs }
+    for (const a of attrsToClear) attrs[a] = null
+    const keep = Object.values(attrs).some((v) => v != null && v !== false)
+    jobs.push({
+      from: start + offset,
+      to: start + offset + child.nodeSize,
+      attrs: keep ? attrs : null,
+    })
+  })
+  for (const job of jobs) {
+    tr.removeMark(job.from, job.to, type)
+    if (job.attrs) tr.addMark(job.from, job.to, type.create(job.attrs))
+  }
+}
+
+/**
+ * Put a paragraph style on every paragraph the selection touches: a heading
+ * style makes docHeading nodes, another style turns headings back into
+ * paragraphs; list items keep their numbering unless they become headings.
+ * Not for textbox sub-editors (no docHeading in their schema).
+ */
+export function applyParagraphStyleId(
+  editor: Editor,
+  styleId: string | null,
+  headingLevel: number | null,
+): void {
+  editor
+    .chain()
+    .focus()
+    .command(({ tr, state }) => {
+      const { from, to } = tr.selection
+      const schema = state.schema
+      const targets: Array<{ pos: number; node: PmNode }> = []
+      tr.doc.nodesBetween(from, to, (node, pos) => {
+        if (!node.isTextblock) return true
+        if (
+          node.type.name === 'docParagraph' ||
+          node.type.name === 'docHeading' ||
+          node.type.name === 'docListItem'
+        )
+          targets.push({ pos, node })
+        return false
+      })
+      for (const { pos, node } of targets) {
+        let type = headingLevel
+          ? schema.nodes.docHeading
+          : node.type.name === 'docHeading'
+            ? schema.nodes.docParagraph
+            : node.type
+        const $p = tr.doc.resolve(pos)
+        if (type !== node.type && !$p.parent.canReplaceWith($p.index(), $p.index() + 1, type))
+          type = node.type
+        const attrs: Record<string, unknown> = { ...node.attrs, styleId }
+        if (type === schema.nodes.docHeading) {
+          attrs.level = headingLevel ?? node.attrs.level
+          attrs.outlineOnly = null
+        }
+        tr.setNodeMarkup(pos, type === node.type ? undefined : type, attrs)
+        shedMajorityDirectFormatting(tr, pos)
+      }
+      return targets.length > 0
+    })
+    .run()
+}
+
+/**
+ * Gallery / Styles pane click: a character style toggles on the selection (the
+ * textbox sub-editor when one is active), a paragraph style goes on the
+ * paragraphs. A fallback entry the document does not define sets the node type only.
+ */
+export function applyGalleryStyle(
+  editor: Editor,
+  sub: Editor | null,
+  info: StyleInfo,
+  styles: StyleMap | undefined,
+  activeCharStyleId: string | null,
+): void {
+  if (info.type === 'character') {
+    const ed = sub ?? editor
+    if (activeCharStyleId === info.styleId) ed.chain().focus().unsetMark('docTextStyle').run()
+    else ed.chain().focus().setMark('docTextStyle', { styleId: info.styleId }).run()
+    return
+  }
+  if (sub) return
+  const styleId = styles?.has(info.styleId) ? info.styleId : null
+  applyParagraphStyleId(editor, styleId, info.headingLevel ?? null)
+}
+
+/** attrs of the paragraph-like node at the cursor */
+export function activeParaAttrs(editor: Editor): Record<string, unknown> {
+  if (editor.isActive('docHeading')) return editor.getAttributes('docHeading')
+  if (editor.isActive('docListItem')) return editor.getAttributes('docListItem')
+  return editor.getAttributes('docParagraph')
+}
+
+export interface TabProps {
+  editor: Editor
+  hasDoc: boolean
+  dropdown: string | null
+  setDropdown: SetDropdown
+}
+
+/* ================= Insert ================= */
+
+const MAX_IMAGE_WIDTH_PX = 620 // ~content width of a US Letter page at 96dpi
+
+export async function imageSizeOf(dataUrl: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight })
+    img.onerror = () => reject(new Error('Failed to read image'))
+    img.src = dataUrl
+  })
+}
+
+/* insert commands shared by the ribbon and the native application menu */
+
+/** Word's Insert Table dialog column limit */
+export const MAX_TABLE_COLS = 63
+/** row cap keeps a single insert from freezing layout (Word allows 32767) */
+export const MAX_TABLE_ROWS = 200
+
+export function insertTableAt(editor: Editor, rows: number, cols: number): void {
+  rows = Math.min(MAX_TABLE_ROWS, Math.max(1, Math.round(rows)))
+  cols = Math.min(MAX_TABLE_COLS, Math.max(1, Math.round(cols)))
+  // Word default single 0.5pt borders: also what generateTableModelXml writes on
+  // save — without them the freshly inserted table renders invisible until reload
+  const line = { style: 'single', szEighths: 4, color: 'auto' }
+  const table = {
+    rows: Array.from({ length: rows }, () => Array.from({ length: cols }, () => ({ paras: [''] }))),
+    colWidthsPct: Array.from({ length: cols }, () => 100 / cols),
+    widthPct: 100,
+    autoFit: 'window' as const,
+    borders: { top: line, bottom: line, left: line, right: line, insideH: line, insideV: line },
+  }
+  // inside a cell a top-level docTable insert would split the outer table
+  // — Word semantics is a nested child table at the end of the cell
+  const { $from } = editor.state.selection
+  for (let depth = $from.depth; depth > 0; depth--) {
+    const name = $from.node(depth).type.name
+    if (name === 'docTableCell' || name === 'docTableHeader') {
+      editor
+        .chain()
+        .focus()
+        .insertContentAt($from.end(depth), [
+          { type: 'docNestedTable', attrs: { model: table } },
+          { type: 'docParagraph' },
+        ])
+        .run()
+      return
+    }
+  }
+  const node = tableModelToPmNode(table)
+  // Word: an empty paragraph stays below the new table (insertContent would
+  // swallow it); the caret lands in the first cell either way
+  const block = $from.depth > 0 ? $from.node(1) : null
+  const at = block?.isTextblock && block.content.size === 0 ? $from.before(1) : null
+  const chain = editor.chain().focus()
+  if (at == null) chain.insertContent(node).run()
+  else
+    chain
+      .insertContentAt(at, node)
+      .command(({ tr }) => {
+        tr.setSelection(TextSelection.near(tr.doc.resolve(at + 1)))
+        return true
+      })
+      .run()
+}
+
+/** Insert an inline image from a dataURL at the cursor (shared by paste/dialog; size scaled to content width) */
+export async function insertImageFromDataUrl(
+  editor: Editor,
+  dataUrl: string,
+  label = t('ribbonPicture'),
+): Promise<boolean> {
+  const m = /^data:([^;]+);base64,(.*)$/s.exec(dataUrl)
+  if (!m) return false
+  const mime = m[1]
+  if (!/^image\/(png|jpeg|gif)$/.test(mime)) return false
+  try {
+    const natural = await imageSizeOf(dataUrl)
+    const scale = Math.min(1, MAX_IMAGE_WIDTH_PX / natural.width)
+    editor
+      .chain()
+      .focus()
+      .insertContent({
+        type: 'docProtected',
+        attrs: {
+          docxIndex: null,
+          blockType: 'image',
+          label,
+          imageDataUrl: dataUrl,
+          imageWidthPx: Math.round(natural.width * scale),
+          imageHeightPx: Math.round(natural.height * scale),
+          genImage: {
+            base64: m[2],
+            mime,
+            widthPx: Math.round(natural.width * scale),
+            heightPx: Math.round(natural.height * scale),
+          },
+        },
+      })
+      .run()
+    // Pasting into an empty document leaves the image as the ONLY node with a
+    // node-selection on it: there is no text position to type at, and the
+    // next keystroke REPLACES the picture. Ensure a
+    // paragraph follows the image and put a text caret there — also what
+    // Word does after inserting a picture.
+    // A mid-paragraph insert already leaves the caret in the split-off rest
+    // of the paragraph; only a doc-level landing needs the paragraph check.
+    {
+      const { doc, selection, schema } = editor.state
+      const $after = doc.resolve(Math.min(selection.to, doc.content.size))
+      if (!$after.parent.isTextblock) {
+        const chain = editor.chain()
+        if ($after.nodeAfter?.isTextblock !== true && schema.nodes.docParagraph) {
+          chain.insertContentAt($after.pos, { type: 'docParagraph' })
+        }
+        chain.setTextSelection($after.pos + 1).run()
+      }
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function insertImageViaDialog(editor: Editor): Promise<void> {
+  const picked = await window.desktop.pickImage()
+  if (!picked) return
+  await insertImageFromDataUrl(
+    editor,
+    `data:${picked.mime};base64,${picked.base64}`,
+    t('ribbonPictureLabel', { name: picked.name }),
+  )
+}
+
+/** 5 cm × 3 cm default textbox size in EMU (1 cm = 360000 EMU) */
+export const TEXTBOX_WIDTH_EMU = 1800000
+export const TEXTBOX_HEIGHT_EMU = 1080000
+
+/** Default TextboxDisplay model for a freshly inserted empty textbox */
+function emptyTextboxDisplay(widthEmu: number, heightEmu: number): TextboxDisplay {
+  return {
+    fill: 'FFFFFF',
+    borderColor: '000000',
+    widthPx: Math.round(widthEmu / 9525),
+    heightPx: Math.round(heightEmu / 9525),
+    paras: [{ runs: [{ text: '' }] }],
+  }
+}
+
+/**
+ * Insert a floating text box (wp:anchor + wps:wsp) at the current cursor, or at
+ * an explicit top-level position with an explicit size (Draw Text Box).
+ * Returns the position the block was inserted at (null if the insert failed).
+ */
+export function insertTextboxAt(
+  editor: Editor,
+  opts?: { widthEmu?: number; heightEmu?: number; atPos?: number },
+): number | null {
+  const widthEmu = opts?.widthEmu ?? TEXTBOX_WIDTH_EMU
+  const heightEmu = opts?.heightEmu ?? TEXTBOX_HEIGHT_EMU
+  const xml = buildTextboxParagraphXml({
+    widthEmu,
+    heightEmu,
+    id: Math.floor(Math.random() * 900000) + 100000,
+  })
+  const content = {
+    type: 'docProtected',
+    attrs: {
+      docxIndex: null,
+      blockType: 'passthrough',
+      label: t('ribbonTextBox'),
+      genXml: xml,
+      textboxes: [emptyTextboxDisplay(widthEmu, heightEmu)],
+    },
+  }
+  // top-level insert: a plain insertContent would replace a selected floating
+  // node and fails silently from inside a table cell
+  const { $from } = editor.state.selection
+  const position = opts?.atPos ?? ($from.depth > 0 ? $from.after(1) : editor.state.selection.to)
+  return editor.chain().focus().insertContentAt(position, content).run() ? position : null
+}
+
+/** Put the caret into the (first) text box of the floating node at `pos`. */
+export function focusTextboxEditorAt(editor: Editor, pos: number): void {
+  const wrapper = editor.view.nodeDOM(pos) as HTMLElement | null
+  const box = wrapper?.querySelector('.doc-textbox') as HTMLElement | null
+  const sub = box?.querySelector('.doc-textbox-editor') as HTMLElement | null
+  if (!box || !sub) return
+  // a fresh box sits in object mode; the double-click path is what turns its editor on
+  box.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+  sub.focus()
+}
+
+/**
+ * Shape gallery for the picker dropdown: the full cross-app shared groups
+ * (slides parity). Line/connector kinds insert stroke-only wps shapes
+ * (buildLineParagraphXml); filled presets insert prstGeom shapes.
+ */
+export const DOC_SHAPE_GROUPS = SHAPE_GALLERY_GROUPS
+
+const DOC_SHAPES = DOC_SHAPE_GROUPS.flatMap((g) => g.shapes)
+
+/** Display label for a prst inserted from the gallery. */
+export function shapeLabel(prst: string): string {
+  const def = DOC_SHAPES.find((s) => s.prst === prst)
+  return def ? t(def.labelKey as StringKey) : prst
+}
+
+/**
+ * Insert a block beside the current top-level block. Ribbon actions can be
+ * invoked while the caret is nested in a table cell, where inserting a block
+ * directly at the selection is invalid and TipTap otherwise fails silently.
+ */
+export function insertTopLevelBlockAtSelection(editor: Editor, content: JSONContent): boolean {
+  const { $from } = editor.state.selection
+  const position = $from.depth > 0 ? $from.after(1) : editor.state.selection.to
+  return editor.chain().focus().insertContentAt(position, content).run()
+}
+
+/**
+ * Insert a floating preset shape (wps:wsp with prstGeom) at the cursor, or at
+ * an explicit top-level doc position with an explicit size (shape draw mode).
+ * Returns the position the block was inserted at (null if the insert failed).
+ */
+export function insertShapeAt(
+  editor: Editor,
+  prst: string,
+  opts?: { widthEmu?: number; heightEmu?: number; atPos?: number },
+): number | null {
+  if (prst in LINE_KINDS) return insertLineAt(editor, prst, opts)
+  const widthEmu = opts?.widthEmu ?? 1800000
+  const heightEmu = opts?.heightEmu ?? 1080000
+  const id = Math.floor(Math.random() * 900000) + 100000
+  const xml = buildShapeParagraphXml({
+    prst,
+    widthEmu,
+    heightEmu,
+    id,
+    // default Office blue fill + slightly darker border
+    fillHex: '4472C4',
+    borderHex: '2F5496',
+    withTextbox: true,
+  })
+  // mirrors what buildShapeParagraphXml just wrote: centered both ways, and the
+  // light text the shape style's a:fontRef resolves to. Without this the shape
+  // reads top-left and black until the file is saved and reopened.
+  const textbox: TextboxDisplay = {
+    fill: '4472C4',
+    borderColor: '2F5496',
+    widthPx: Math.round(widthEmu / 9525),
+    heightPx: Math.round(heightEmu / 9525),
+    prst,
+    shapeId: String(id),
+    vAlign: 'center',
+    textColor: 'FFFFFF',
+    paras: [{ runs: [{ text: '' }], align: 'center' }],
+  }
+  const content = {
+    type: 'docProtected',
+    attrs: {
+      docxIndex: null,
+      blockType: 'passthrough',
+      label: t('ribbonShapeLabel', { name: shapeLabel(prst) }),
+      genXml: xml,
+      textboxes: [textbox],
+    },
+  }
+  const { $from } = editor.state.selection
+  const position = opts?.atPos ?? ($from.depth > 0 ? $from.after(1) : editor.state.selection.to)
+  return editor.chain().focus().insertContentAt(position, content).run() ? position : null
+}
+
+/** Word's horizontal-line extent (12 px grab band); straight lines always save this cy. */
+const LINE_HEIGHT_EMU = 114300
+
+/**
+ * Insert a floating stroke-only line/connector (noFill wps:wsp) at the cursor
+ * or an explicit position. Straight kinds ignore the drawn height and land as
+ * a level line (the docx model stores Word's zero-ish-height extent); bent and
+ * curved connectors keep the drawn box.
+ */
+function insertLineAt(
+  editor: Editor,
+  kind: string,
+  opts?: { widthEmu?: number; heightEmu?: number; atPos?: number },
+): number | null {
+  const widthEmu = opts?.widthEmu ?? 1800000
+  const heightEmu = isStraightLineKind(kind) ? LINE_HEIGHT_EMU : (opts?.heightEmu ?? 1080000)
+  const xml = buildLineParagraphXml({
+    kind,
+    widthEmu,
+    heightEmu,
+    id: Math.floor(Math.random() * 900000) + 100000,
+    colorHex: '000000',
+  })
+  // Mirror what parse.ts' lineBoxOf yields on reopen: read-only display box,
+  // stroke color on borderColor, zero insets.
+  const textbox: TextboxDisplay = {
+    borderColor: '000000',
+    widthPx: Math.round(widthEmu / 9525),
+    heightPx: Math.round(heightEmu / 9525),
+    prst: kind,
+    paras: [],
+    readOnly: true,
+    insetTopPx: 0,
+    insetRightPx: 0,
+    insetBottomPx: 0,
+    insetLeftPx: 0,
+  }
+  const content = {
+    type: 'docProtected',
+    attrs: {
+      docxIndex: null,
+      blockType: 'passthrough',
+      label: t('ribbonShapeLabel', { name: shapeLabel(kind) }),
+      genXml: xml,
+      textboxes: [textbox],
+    },
+  }
+  const { $from } = editor.state.selection
+  const position = opts?.atPos ?? ($from.depth > 0 ? $from.after(1) : editor.state.selection.to)
+  return editor.chain().focus().insertContentAt(position, content).run() ? position : null
+}
+
+/** ~7.5 cm × 2 cm default size for WordArt in EMU */
+const WORDART_WIDTH_EMU = 2700000
+const WORDART_HEIGHT_EMU = 720000
+
+/** Insert a floating WordArt text box at the cursor. */
+export function insertWordArtAt(editor: Editor, preset: WordArtPreset): void {
+  // The saved run can only carry a solid color; light fills fall back to the
+  // outline color so the text stays readable when the file is reopened.
+  const solidHex = wordArtSolidColor(preset).replace('#', '')
+  const xml = buildWordArtParagraphXml({
+    colorHex: solidHex,
+    italic: preset.italic,
+    widthEmu: WORDART_WIDTH_EMU,
+    heightEmu: WORDART_HEIGHT_EMU,
+    id: Math.floor(Math.random() * 900000) + 100000,
+  })
+  const textbox: TextboxDisplay = {
+    // no background fill; shape border is also absent (noFill)
+    widthPx: Math.round(WORDART_WIDTH_EMU / 9525),
+    heightPx: Math.round(WORDART_HEIGHT_EMU / 9525),
+    wordArtId: preset.id,
+    paras: [
+      {
+        runs: [
+          {
+            text: t('ribbonWordArtDefaultText'),
+            color: solidHex,
+            bold: true,
+            italic: preset.italic,
+            sizeHalfPoints: 72,
+          },
+        ],
+        align: 'center',
+      },
+    ],
+  }
+  // top-level insert: a plain insertContent would replace a selected floating
+  // node and fails silently from inside a table cell
+  insertTopLevelBlockAtSelection(editor, {
+    type: 'docProtected',
+    attrs: {
+      docxIndex: null,
+      blockType: 'passthrough',
+      label: t('ribbonWordArtLabel', { name: t(preset.nameKey as StringKey) }),
+      genXml: xml,
+      textboxes: [textbox],
+    },
+  })
+}
+
+export function insertPageBreakAt(editor: Editor): void {
+  insertPageBreak(editor)
+}
+
+/**
+ * Word's "Blank Page": one empty paragraph that starts its own page, and —
+ * only when content follows it — a break pushed onto that following block so
+ * it starts the page after. Unconditionally inserting two break paragraphs
+ * turned a 1-page document into 3 pages.
+ */
+export function insertBlankPageAt(editor: Editor): void {
+  editor
+    .chain()
+    .focus()
+    .insertContent({ type: 'docParagraph', attrs: { pageBreakBefore: true } })
+    .run()
+  // locate the paragraph just inserted: the caret block, or the block before
+  // it when insertContent left the caret in the split-off remainder
+  const { doc, selection } = editor.state
+  const isBlankBreak = (index: number): boolean => {
+    if (index < 0 || index >= doc.childCount) return false
+    const n = doc.child(index)
+    return n.type.name === 'docParagraph' && n.childCount === 0 && n.attrs.pageBreakBefore === true
+  }
+  const caretIndex = selection.$to.index(0)
+  const blankIndex = isBlankBreak(caretIndex)
+    ? caretIndex
+    : isBlankBreak(caretIndex - 1)
+      ? caretIndex - 1
+      : -1
+  if (blankIndex < 0) return
+  let blankPos = 0
+  for (let i = 0; i < blankIndex; i++) blankPos += doc.child(i).nodeSize
+  // Word leaves the caret on the new blank page
+  editor.commands.setTextSelection(blankPos + 1)
+  const followIndex = blankIndex + 1
+  if (followIndex >= doc.childCount) return // blank page is the last page
+  const follow = doc.child(followIndex)
+  const followPos = blankPos + doc.child(blankIndex).nodeSize
+  if ('pageBreakBefore' in follow.attrs) {
+    if (!follow.attrs.pageBreakBefore) {
+      editor.view.dispatch(
+        editor.state.tr.setNodeMarkup(followPos, undefined, {
+          ...follow.attrs,
+          pageBreakBefore: true,
+        }),
+      )
+    }
+    return
+  }
+  // following block can't carry the property (e.g. a table): spacer fallback
+  const spacer = editor.state.schema.nodes.docParagraph!.createAndFill({ pageBreakBefore: true })
+  if (spacer) editor.view.dispatch(editor.state.tr.insert(followPos, spacer))
+}
+
+export interface InsertTabProps extends TabProps {
+  header: HeaderFooter | null
+  onHeader: (next: HeaderFooter) => void
+  footer: HeaderFooter | null
+  onFooter: (next: HeaderFooter) => void
+  /** Open the "Page Number Format" dialog (number format / start-at, writes sectPr w:pgNumType) */
+  onPageNumFormat: () => void
+  /** Insert an inline field (DATE/TIME/PAGE/NUMPAGES/FILENAME) */
+  onInsertField: (instr: string) => void
+  /** Header/Footer ▾ Edit: open the strip editor (the Different-page toggles live on the contextual tab) */
+  onHfEdit: (kind: 'header' | 'footer') => void
+  /** a selection (or a caret in a word) to anchor a new comment on, as in the Review tab */
+  canComment: boolean
+  onNewComment: () => void
+  /** the Review-tab gate pair: commenting survives the comments-only restriction */
+  isProtected: boolean
+  commentsAllowed: boolean
+  /** a new table activates Table Design (Word); an existing one only shows the tabs */
+  onTableInserted: () => void
+}
+
+/** One-time "AI rewrites the whole document" acknowledgement */
+export const AI_REWRITE_ACK_KEY = 'docs-ai-rewrite-ack'
+
+export type { RevisionDisplayMode }
+
+interface ReviewTabProps extends TabProps {
+  onAiPreset: (instruction: string) => void
+  commentCount: number
+  /** unresolved root comments; 0 disables the AI resolve-comments action */
+  openCommentCount: number
+  resolvedCommentCount: number
+  onShowComments: () => void
+  /** create a comment on the current selection (disabled when selection is empty) */
+  canComment: boolean
+  onNewComment: () => void
+  /** the caret sits in a comment anchor: Delete ▾ › Delete acts on that thread */
+  commentAtCaret: boolean
+  onDeleteComment: () => void
+  onDeleteAllComments: (resolvedOnly: boolean) => void
+  onGotoComment: (dir: 1 | -1) => void
+  trackChanges: boolean
+  onTrackChanges: (on: boolean) => void
+  /** native check-as-you-type spellcheck (red squiggle) */
+  spellcheck: boolean
+  onSpellcheck: (on: boolean) => void
+  revisionDisplay: RevisionDisplayMode
+  onRevisionDisplay: (mode: RevisionDisplayMode) => void
+  revisionCount: number
+  onAcceptRevision: (all: boolean) => void
+  onRejectRevision: (all: boolean) => void
+  onGotoRevision: (dir: 1 | -1) => void
+  /** an editing restriction or write lock makes the body read-only */
+  isProtected: boolean
+  /** comments restriction: adding comments stays allowed although the body is read-only */
+  commentsAllowed: boolean
+  /** trackedChanges restriction: the recorder is forced on (toggle and accept/reject disabled) */
+  trackChangesForced: boolean
+  /** any protection is configured (highlights the Protect Document button) */
+  protectActive: boolean
+  onProtectDoc: () => void
+  onCompare: () => void
+}
+
+export function ReviewTab({
+  editor,
+  hasDoc,
+  dropdown,
+  setDropdown,
+  onAiPreset,
+  commentCount,
+  openCommentCount,
+  resolvedCommentCount,
+  onShowComments,
+  canComment,
+  onNewComment,
+  commentAtCaret,
+  onDeleteComment,
+  onDeleteAllComments,
+  onGotoComment,
+  trackChanges,
+  onTrackChanges,
+  spellcheck,
+  onSpellcheck,
+  revisionDisplay,
+  onRevisionDisplay,
+  revisionCount,
+  onAcceptRevision,
+  onRejectRevision,
+  onGotoRevision,
+  isProtected,
+  commentsAllowed,
+  trackChangesForced,
+  protectActive,
+  onProtectDoc,
+  onCompare,
+}: ReviewTabProps) {
+  const { t } = useI18n()
+  // One-time acknowledgement before whole-document AI rewrites:
+  // Editor / Translate send the full document to the agent, consume credits and
+  // may rewrite everything — say so once before the first run.
+  const confirmAiRewrite = () => {
+    if (localStorage.getItem(AI_REWRITE_ACK_KEY) === '1') return true
+    if (!window.confirm(t('ribbonAiRewriteConfirm'))) return false
+    localStorage.setItem(AI_REWRITE_ACK_KEY, '1')
+    return true
+  }
+  // With a range selection the rewrite scopes to the selection (no whole-document ack needed)
+  const hasRangeSelection = () => !editor.state.selection.empty
+  return (
+    <>
+      {/* Word: Proofing (Editor) sits leftmost */}
+      <div className="ribbon-group">
+        <div className="ribbon-group-items">
+          <button
+            className="rb-big"
+            disabled={!hasDoc}
+            data-tip={`${t('ribbonEditorTip')} — ${t('ribbonAiCreditNote')}`}
+            onClick={() => {
+              if (hasRangeSelection()) onAiPreset(t('ribbonEditorSelectionPrompt'))
+              else if (confirmAiRewrite()) onAiPreset(t('ribbonEditorPrompt'))
+            }}
+          >
+            <span className="rb-big-icon">
+              <span className="ai-feature-icon" aria-hidden="true">
+                <img src={iconEditor} width={22} height={22} alt="" />
+              </span>
+            </span>
+            <span>{t('ribbonEditorBtn')}</span>
+          </button>
+          <button
+            className={`rb-big ${spellcheck ? 'active' : ''}`}
+            disabled={!hasDoc}
+            data-tip={t('ribbonSpellcheckTip')}
+            onClick={() => onSpellcheck(!spellcheck)}
+          >
+            <span className="rb-big-icon">
+              <IconSpellcheck size={BIG} />
+            </span>
+            <span>{t('ribbonSpellcheckBtn')}</span>
+          </button>
+        </div>
+        <div className="ribbon-group-label">{t('ribbonGroupProofing')}</div>
+      </div>
+
+      <div className="ribbon-sep" />
+
+      <div className="ribbon-group">
+        <div className="ribbon-group-items">
+          <div className="rb-split-wrap">
+            <button
+              className="rb-big"
+              disabled={!hasDoc}
+              data-tip={`${t('ribbonTranslateTip')} — ${t('ribbonAiCreditNote')}`}
+              onClick={() => toggleDropdown(setDropdown, 'translate')}
+            >
+              <span className="rb-big-icon">
+                <span className="ai-feature-icon" aria-hidden="true">
+                  <img src={iconTranslate} width={22} height={22} alt="" />
+                </span>
+                <IconCaret />
+              </span>
+              <span>{t('ribbonTranslate')}</span>
+            </button>
+            {dropdown === 'translate' && (
+              <div data-rb-panel="" className="layout-menu">
+                {TRANSLATE_LANGS.map(({ code }) => (
+                  <button
+                    key={code}
+                    onClick={() => {
+                      setDropdown(() => null)
+                      if (hasRangeSelection()) {
+                        onAiPreset(
+                          t('ribbonTranslateSelectionPrompt', { lang: t(ribbonLangKey(code)) }),
+                        )
+                      } else if (confirmAiRewrite()) {
+                        onAiPreset(t('ribbonTranslatePrompt', { lang: t(ribbonLangKey(code)) }))
+                      }
+                    }}
+                  >
+                    {t('ribbonTranslateTo', { lang: t(ribbonLangKey(code)) })}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="ribbon-group-label">{t('ribbonGroupLanguage')}</div>
+      </div>
+
+      <div className="ribbon-sep" />
+
+      <div className="ribbon-group">
+        <div className="ribbon-group-items">
+          <button
+            className="rb-big"
+            disabled={!hasDoc || !canComment || (isProtected && !commentsAllowed)}
+            data-tip={canComment ? t('ribbonNewCommentTip') : t('ribbonNewCommentSelectTip')}
+            onClick={onNewComment}
+          >
+            <span className="rb-big-icon">
+              <IconComment size={BIG} />
+            </span>
+            <span>{t('ribbonNewComment')}</span>
+          </button>
+          <div className="rb-split-wrap">
+            <button
+              className="rb-big"
+              disabled={!hasDoc || commentCount === 0 || (isProtected && !commentsAllowed)}
+              data-tip={t('ribbonDeleteCommentTip')}
+              onClick={() => toggleDropdown(setDropdown, 'deleteComment')}
+            >
+              <span className="rb-big-icon">
+                <IconTrash size={BIG} />
+                <IconCaret />
+              </span>
+              <span>{t('ribbonDeleteComment')}</span>
+            </button>
+            {dropdown === 'deleteComment' && (
+              <div data-rb-panel="" className="layout-menu">
+                <button
+                  disabled={!commentAtCaret}
+                  onClick={() => {
+                    onDeleteComment()
+                    setDropdown(() => null)
+                  }}
+                >
+                  {t('ribbonDeleteComment')}
+                </button>
+                <button
+                  disabled={resolvedCommentCount === 0}
+                  onClick={() => {
+                    onDeleteAllComments(true)
+                    setDropdown(() => null)
+                  }}
+                >
+                  {t('ribbonDeleteResolvedComments')}
+                </button>
+                <button
+                  onClick={() => {
+                    onDeleteAllComments(false)
+                    setDropdown(() => null)
+                  }}
+                >
+                  {t('ribbonDeleteAllComments')}
+                </button>
+              </div>
+            )}
+          </div>
+          <button
+            className="rb-big"
+            disabled={!hasDoc || openCommentCount === 0}
+            data-tip={t('ribbonPrevCommentTip')}
+            onClick={() => onGotoComment(-1)}
+          >
+            <span className="rb-big-icon">
+              <IconCommentPrev size={BIG} />
+            </span>
+            <span>{t('ribbonPrevComment')}</span>
+          </button>
+          <button
+            className="rb-big"
+            disabled={!hasDoc || openCommentCount === 0}
+            data-tip={t('ribbonNextCommentTip')}
+            onClick={() => onGotoComment(1)}
+          >
+            <span className="rb-big-icon">
+              <IconCommentNext size={BIG} />
+            </span>
+            <span>{t('ribbonNextComment')}</span>
+          </button>
+          <button
+            className="rb-big"
+            disabled={!hasDoc}
+            data-tip={t('ribbonShowCommentsTip', { count: commentCount })}
+            onClick={onShowComments}
+          >
+            <span className="rb-big-icon">
+              <IconComments size={BIG} />
+            </span>
+            <span>{t('ribbonShowComments')}</span>
+          </button>
+          <button
+            className="rb-big"
+            disabled={!hasDoc || openCommentCount === 0}
+            data-tip={`${t('ribbonAiCommentsTip', { count: openCommentCount })} — ${t('ribbonAiCreditNote')}`}
+            onClick={() => onAiPreset(t('ribbonAiCommentsPrompt'))}
+          >
+            <span className="rb-big-icon">
+              <span className="ai-feature-icon" aria-hidden="true">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H6l-3 3V11.5a7.5 7.5 0 0 1 7.5-7.5h2A7.5 7.5 0 0 1 20 11.5z" />
+                  <path
+                    d="M17 14l.26.7c.34.91.5 1.37.84 1.7.33.33.79.5 1.7.84l.7.26-.7.26c-.91.34-1.37.5-1.7.84-.34.33-.5.79-.84 1.7L17 21l-.26-.7c-.34-.91-.5-1.37-.84-1.7-.33-.34-.79-.5-1.7-.84l-.7-.26.7-.26c.91-.34 1.37-.5 1.7-.84.34-.33.5-.79.84-1.7L17 14z"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </span>
+            </span>
+            <span>{t('ribbonAiComments')}</span>
+          </button>
+        </div>
+        <div className="ribbon-group-label">{t('ribbonGroupComments')}</div>
+      </div>
+
+      <div className="ribbon-sep" />
+
+      <div className="ribbon-group">
+        <div className="ribbon-group-items">
+          <button
+            className={`rb-big ${trackChanges ? 'active' : ''}`}
+            disabled={!hasDoc || isProtected || trackChangesForced}
+            data-tip={t('ribbonTrackChangesTip')}
+            onClick={() => onTrackChanges(!trackChanges)}
+          >
+            <span className="rb-big-icon">
+              <IconTrackChanges size={BIG} />
+            </span>
+            <span>{t('ribbonTrackChanges')}</span>
+          </button>
+          <div className="rb-split-wrap">
+            <button
+              className={`rb-big ${revisionDisplay === 'none' || revisionDisplay === 'original' ? 'active' : ''}`}
+              disabled={!hasDoc}
+              data-tip={t('ribbonRevDisplayTip')}
+              onClick={() => toggleDropdown(setDropdown, 'revDisplay')}
+            >
+              <span className="rb-big-icon">
+                <IconReadMode size={BIG} />
+                <IconCaret />
+              </span>
+              <span>{t('ribbonRevDisplay')}</span>
+            </button>
+            {dropdown === 'revDisplay' && (
+              <div data-rb-panel="" className="layout-menu">
+                {(
+                  [
+                    ['simple', t('ribbonRevDisplaySimple')],
+                    ['all', t('ribbonRevDisplayAll')],
+                    ['none', t('ribbonRevDisplayNone')],
+                    ['original', t('ribbonRevDisplayOriginal')],
+                  ] as Array<[RevisionDisplayMode, string]>
+                ).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    onClick={() => {
+                      onRevisionDisplay(mode)
+                      setDropdown(() => null)
+                    }}
+                  >
+                    {label}
+                    {revisionDisplay === mode ? ' ✓' : ''}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="rb-split-wrap">
+            <button
+              className="rb-big"
+              disabled={!hasDoc || revisionCount === 0 || isProtected || trackChangesForced}
+              data-tip={t('ribbonAcceptTip', { count: revisionCount })}
+              onClick={() => toggleDropdown(setDropdown, 'acceptRev')}
+            >
+              <span className="rb-big-icon">
+                <IconAccept size={BIG} />
+                <IconCaret />
+              </span>
+              <span>{t('ribbonAccept')}</span>
+            </button>
+            {dropdown === 'acceptRev' && (
+              <div data-rb-panel="" className="layout-menu">
+                <button
+                  onClick={() => {
+                    onAcceptRevision(false)
+                    setDropdown(() => null)
+                  }}
+                >
+                  {t('ribbonAcceptOne')}
+                </button>
+                <button
+                  onClick={() => {
+                    onAcceptRevision(true)
+                    setDropdown(() => null)
+                  }}
+                >
+                  {t('ribbonAcceptAll')}
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="rb-split-wrap">
+            <button
+              className="rb-big"
+              disabled={!hasDoc || revisionCount === 0 || isProtected || trackChangesForced}
+              data-tip={t('ribbonRejectTip', { count: revisionCount })}
+              onClick={() => toggleDropdown(setDropdown, 'rejectRev')}
+            >
+              <span className="rb-big-icon">
+                <IconReject size={BIG} />
+                <IconCaret />
+              </span>
+              <span>{t('ribbonReject')}</span>
+            </button>
+            {dropdown === 'rejectRev' && (
+              <div data-rb-panel="" className="layout-menu">
+                <button
+                  onClick={() => {
+                    onRejectRevision(false)
+                    setDropdown(() => null)
+                  }}
+                >
+                  {t('ribbonRejectOne')}
+                </button>
+                <button
+                  onClick={() => {
+                    onRejectRevision(true)
+                    setDropdown(() => null)
+                  }}
+                >
+                  {t('ribbonRejectAll')}
+                </button>
+              </div>
+            )}
+          </div>
+          <button
+            className="rb-big"
+            disabled={!hasDoc || revisionCount === 0}
+            data-tip={t('ribbonPrevChangeTip')}
+            onClick={() => onGotoRevision(-1)}
+          >
+            <span className="rb-big-icon">
+              <IconUndo size={BIG} />
+            </span>
+            <span>{t('ribbonPrevChange')}</span>
+          </button>
+          <button
+            className="rb-big"
+            disabled={!hasDoc || revisionCount === 0}
+            data-tip={t('ribbonNextChangeTip')}
+            onClick={() => onGotoRevision(1)}
+          >
+            <span className="rb-big-icon">
+              <IconRedo size={BIG} />
+            </span>
+            <span>{t('ribbonNextChange')}</span>
+          </button>
+          <button
+            className="rb-big"
+            disabled={!hasDoc || revisionCount === 0}
+            data-tip={`${t('ribbonAiRevisionsTip', { count: revisionCount })} — ${t('ribbonAiCreditNote')}`}
+            onClick={() => onAiPreset(t('ribbonAiRevisionsPrompt'))}
+          >
+            <span className="rb-big-icon">
+              <span className="ai-feature-icon" aria-hidden="true">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M4 5h16M4 9h12M4 13h9M4 17h7" />
+                  <path
+                    d="M17 14l.26.7c.34.91.5 1.37.84 1.7.33.33.79.5 1.7.84l.7.26-.7.26c-.91.34-1.37.5-1.7.84-.34.33-.5.79-.84 1.7L17 21l-.26-.7c-.34-.91-.5-1.37-.84-1.7-.33-.34-.79-.5-1.7-.84l-.7-.26.7-.26c.91-.34 1.37-.5 1.7-.84.34-.33.5-.79.84-1.7L17 14z"
+                    strokeLinejoin="round"
+                  />
+                  <path d="M19.5 4.5l-7 7-2 .5.5-2 7-7z" />
+                </svg>
+              </span>
+            </span>
+            <span>{t('ribbonAiRevisions')}</span>
+          </button>
+        </div>
+        <div className="ribbon-group-label">{t('ribbonGroupTracking')}</div>
+      </div>
+
+      <div className="ribbon-sep" />
+
+      <div className="ribbon-group">
+        <div className="ribbon-group-items">
+          <button
+            className="rb-big"
+            disabled={!hasDoc}
+            data-tip={t('ribbonCompareTip')}
+            onClick={onCompare}
+          >
+            <span className="rb-big-icon">
+              <IconCompare size={BIG} />
+            </span>
+            <span>{t('ribbonCompare')}</span>
+          </button>
+        </div>
+        <div className="ribbon-group-label">{t('ribbonCompare')}</div>
+      </div>
+
+      <div className="ribbon-sep" />
+
+      <div className="ribbon-group">
+        <div className="ribbon-group-items">
+          <button
+            className={`rb-big ${protectActive ? 'active' : ''}`}
+            disabled={!hasDoc}
+            title={t('ribbonProtectDocTip')}
+            onClick={onProtectDoc}
+          >
+            <span className="rb-big-icon">
+              <IconLock size={BIG} />
+            </span>
+            <span>{t('ribbonProtectDoc')}</span>
+          </button>
+        </div>
+        <div className="ribbon-group-label">{t('ribbonGroupProtect')}</div>
+      </div>
+    </>
+  )
+}
+
+/* ================= View ================= */
+
+/** document rendering modes: Print Layout / Web Layout / Outline */
+export type ViewMode = 'print' | 'web' | 'outline'
+
+interface ViewTabProps {
+  hasDoc: boolean
+  /** current document path, so New Window can open the same file */
+  filePath: string | null
+  zoom: number
+  onZoom: (zoom: number) => void
+  onZoomFit: (mode: 'width' | 'page' | 'multi') => void
+  onZoomDialog: () => void
+  darkPage: boolean
+  onDarkPage: (v: boolean) => void
+  showRuler: boolean
+  onShowRuler: (v: boolean) => void
+  showNav: boolean
+  onShowNav: (v: boolean) => void
+  viewMode: ViewMode
+  onViewMode: (mode: ViewMode) => void
+  readMode: boolean
+  onReadMode: (v: boolean) => void
+  showGrid: boolean
+  onShowGrid: (v: boolean) => void
+  splitView: boolean
+  onSplitView: (v: boolean) => void
+  onPagePreview: () => void
+}
+
+export function ViewTab({
+  hasDoc,
+  filePath,
+  zoom,
+  onZoom,
+  onZoomFit,
+  onZoomDialog,
+  darkPage,
+  onDarkPage,
+  showRuler,
+  onShowRuler,
+  showNav,
+  onShowNav,
+  viewMode,
+  onViewMode,
+  readMode,
+  onReadMode,
+  showGrid,
+  onShowGrid,
+  splitView,
+  onSplitView,
+  onPagePreview,
+}: ViewTabProps) {
+  const { t } = useI18n()
+  const [winMenuOpen, setWinMenuOpen] = useState(false)
+  const [windows, setWindows] = useState<DocsTabInfo[]>([])
+  /** wrap holding both the switch-tabs trigger and its menu */
+  const winMenuRef = useRef<HTMLDivElement>(null)
+
+  const toggleWinMenu = async () => {
+    if (!winMenuOpen) setWindows(await window.desktop.listDocsTabs())
+    setWinMenuOpen((v) => !v)
+  }
+
+  // presses inside the wrap (trigger + menu) are handled by their own onClick;
+  // anything else — including window blur / shell chrome presses — closes it
+  useDismissablePopover(winMenuOpen, () => setWinMenuOpen(false), {
+    inside: () => [winMenuRef.current],
+  })
+
+  return (
+    <>
+      <div className="ribbon-group">
+        <div className="ribbon-group-items">
+          <button
+            className={`rb-big ${viewMode === 'print' && !readMode ? 'active' : ''}`}
+            disabled={!hasDoc}
+            data-tip={t('ribbonPrintLayoutTip')}
+            onClick={() => {
+              onViewMode('print')
+              onReadMode(false)
+            }}
+          >
+            <span className="rb-big-icon">
+              <IconPrintLayout size={BIG} />
+            </span>
+            <span>{t('ribbonPrintLayout')}</span>
+          </button>
+          <button
+            className={`rb-big ${viewMode === 'web' ? 'active' : ''}`}
+            disabled={!hasDoc}
+            data-tip={t('ribbonWebLayoutTip')}
+            onClick={() => onViewMode(viewMode === 'web' ? 'print' : 'web')}
+          >
+            <span className="rb-big-icon">
+              <IconWebLayout size={BIG} />
+            </span>
+            <span>{t('ribbonWebLayout')}</span>
+          </button>
+          <button
+            className={`rb-big ${viewMode === 'outline' ? 'active' : ''}`}
+            disabled={!hasDoc}
+            data-tip={t('ribbonOutlineViewTip')}
+            onClick={() => onViewMode(viewMode === 'outline' ? 'print' : 'outline')}
+          >
+            <span className="rb-big-icon">
+              <IconOutlineView size={BIG} />
+            </span>
+            <span>{t('ribbonOutlineView')}</span>
+          </button>
+          <button
+            className={`rb-big ${readMode ? 'active' : ''}`}
+            disabled={!hasDoc}
+            data-tip={t('ribbonReadModeTip')}
+            onClick={() => onReadMode(!readMode)}
+          >
+            <span className="rb-big-icon">
+              <IconReadMode size={BIG} />
+            </span>
+            <span>{t('ribbonReadMode')}</span>
+          </button>
+          <button
+            className="rb-big"
+            disabled={!hasDoc || viewMode !== 'print' || readMode}
+            data-tip={t('ribbonPagePreviewTip')}
+            onClick={onPagePreview}
+          >
+            <span className="rb-big-icon">
+              <IconWholePage size={BIG} />
+            </span>
+            <span>{t('ribbonPagePreview')}</span>
+          </button>
+        </div>
+        <div className="ribbon-group-label">{t('ribbonGroupViews')}</div>
+      </div>
+
+      <div className="ribbon-sep" />
+      <div className="ribbon-group">
+        <div className="ribbon-group-items">
+          <button
+            className="rb-big"
+            disabled={!hasDoc}
+            data-tip={t('ribbonZoomDialogTip')}
+            onClick={onZoomDialog}
+          >
+            <span className="rb-big-icon">
+              <IconZoom size={BIG} />
+            </span>
+            <span>{t('ribbonZoomDialog')}</span>
+          </button>
+          <button
+            className="rb-big"
+            disabled={!hasDoc}
+            data-tip={t('ribbonZoomOut')}
+            onClick={() => onZoom(stepDocsZoom(zoom, -1))}
+          >
+            <span className="rb-big-icon">
+              <IconZoomOut size={BIG} />
+            </span>
+            <span>{t('ribbonZoomOut')}</span>
+          </button>
+          <button
+            className="rb-big"
+            disabled={!hasDoc}
+            data-tip={t('ribbonZoomIn')}
+            onClick={() => onZoom(stepDocsZoom(zoom, 1))}
+          >
+            <span className="rb-big-icon">
+              <IconZoomIn size={BIG} />
+            </span>
+            <span>{t('ribbonZoomIn')}</span>
+          </button>
+          <button
+            className={`rb-big ${zoom === 100 ? 'active' : ''}`}
+            disabled={!hasDoc}
+            data-tip={t('ribbonZoom100Tip')}
+            aria-label={t('ribbonZoom100Tip')}
+            onClick={() => onZoom(100)}
+          >
+            <span className="rb-big-icon">
+              <IconZoom100 size={BIG} />
+            </span>
+            <span>100%</span>
+          </button>
+          <button
+            className="rb-big"
+            disabled={!hasDoc}
+            data-tip={t('ribbonPageWidthTip')}
+            onClick={() => onZoomFit('width')}
+          >
+            <span className="rb-big-icon">
+              <IconPageWidth size={BIG} />
+            </span>
+            <span>{t('ribbonPageWidth')}</span>
+          </button>
+          <button
+            className="rb-big"
+            disabled={!hasDoc}
+            data-tip={t('ribbonWholePageTip')}
+            onClick={() => onZoomFit('page')}
+          >
+            <span className="rb-big-icon">
+              <IconWholePage size={BIG} />
+            </span>
+            <span>{t('ribbonWholePage')}</span>
+          </button>
+          <button
+            className="rb-big"
+            disabled={!hasDoc}
+            data-tip={t('ribbonMultiPageTip')}
+            onClick={() => onZoomFit('multi')}
+          >
+            <span className="rb-big-icon">
+              <IconMultiPage size={BIG} />
+            </span>
+            <span>{t('ribbonMultiPage')}</span>
+          </button>
+        </div>
+        <div className="ribbon-group-label">{t('ribbonGroupZoom')}</div>
+      </div>
+
+      <div className="ribbon-sep" />
+
+      <div className="ribbon-group">
+        <div className="ribbon-group-items">
+          <button
+            className={`rb-big ${darkPage ? 'active' : ''}`}
+            data-tip={t('ribbonDarkModeTip')}
+            onClick={() => onDarkPage(!darkPage)}
+          >
+            <span className="rb-big-icon">
+              <IconMoon size={BIG} />
+            </span>
+            <span>{t('ribbonDarkMode')}</span>
+          </button>
+        </div>
+        <div className="ribbon-group-label">{t('ribbonGroupAppearance')}</div>
+      </div>
+
+      <div className="ribbon-sep" />
+
+      <div className="ribbon-group">
+        <div className="ribbon-group-items">
+          <button
+            className={`rb-big ${showRuler ? 'active' : ''}`}
+            disabled={!hasDoc}
+            data-tip={t('ribbonRulerTip')}
+            onClick={() => onShowRuler(!showRuler)}
+          >
+            <span className="rb-big-icon">
+              <IconRuler size={BIG} />
+            </span>
+            <span>{t('ribbonRuler')}</span>
+          </button>
+          <button
+            className={`rb-big ${showGrid ? 'active' : ''}`}
+            disabled={!hasDoc}
+            data-tip={t('ribbonGridlinesTip')}
+            onClick={() => onShowGrid(!showGrid)}
+          >
+            <span className="rb-big-icon">
+              <IconGridlines size={BIG} />
+            </span>
+            <span>{t('ribbonGridlines')}</span>
+          </button>
+          <button
+            className={`rb-big ${showNav ? 'active' : ''}`}
+            disabled={!hasDoc}
+            data-tip={t('ribbonNavPaneTip')}
+            onClick={() => onShowNav(!showNav)}
+          >
+            <span className="rb-big-icon">
+              <IconNavPane size={BIG} />
+            </span>
+            <span>{t('ribbonNavPane')}</span>
+          </button>
+        </div>
+        <div className="ribbon-group-label">{t('ribbonGroupShow')}</div>
+      </div>
+
+      <div className="ribbon-sep" />
+
+      <div className="ribbon-group">
+        <div className="ribbon-group-items">
+          <button
+            className="rb-big"
+            data-tip={t('ribbonNewTabTip')}
+            onClick={() => void window.desktop.openNewTab(filePath)}
+          >
+            <span className="rb-big-icon">
+              <IconNewWindow size={BIG} />
+            </span>
+            <span>{t('ribbonNewTab')}</span>
+          </button>
+          <button
+            className={`rb-big ${splitView ? 'active' : ''}`}
+            disabled={!hasDoc}
+            data-tip={t('ribbonSplitTip')}
+            onClick={() => onSplitView(!splitView)}
+          >
+            <span className="rb-big-icon">
+              <IconSplit size={BIG} />
+            </span>
+            <span>{t('ribbonSplit')}</span>
+          </button>
+          <div className="rb-split-wrap" ref={winMenuRef}>
+            <button
+              className="rb-big"
+              data-tip={t('ribbonSwitchTabsTip')}
+              onClick={() => void toggleWinMenu()}
+            >
+              <span className="rb-big-icon">
+                <IconSwitchWindows size={BIG} />
+                <IconCaret />
+              </span>
+              <span>{t('ribbonSwitchTabs')}</span>
+            </button>
+            {winMenuOpen && (
+              <div className="layout-menu align-right">
+                {windows.map((w) => (
+                  <button
+                    key={w.id}
+                    onClick={() => {
+                      void window.desktop.focusDocsTab(w.id)
+                      setWinMenuOpen(false)
+                    }}
+                  >
+                    {w.focused ? '✓ ' : ''}
+                    {w.title || 'GenOffice Docs'}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="ribbon-group-label">{t('ribbonGroupWindow')}</div>
+      </div>
+    </>
+  )
+}
+/* ================= Draw ================= */
+
+/** per-pen settings the Draw tab remembers (Word keeps pen/highlighter separate) */
+export interface InkPenSettings {
+  /** hex without '#' */
+  color: string
+  width: number
+}
+
+const INK_COLORS = [
+  '000000',
+  'C00000',
+  'FF0000',
+  'FFC000',
+  'FFFF00',
+  '92D050',
+  '00B050',
+  '00B0F0',
+  '0070C0',
+  '7030A0',
+]
+
+const PEN_WIDTHS = [1, 2, 3.5, 5]
+const HIGHLIGHTER_WIDTHS = [6, 10, 16]
+
+interface DrawTabProps {
+  hasDoc: boolean
+  tool: InkTool
+  onTool: (tool: InkTool) => void
+  pen: InkPenSettings
+  onPen: (settings: InkPenSettings) => void
+  highlighter: InkPenSettings
+  onHighlighter: (settings: InkPenSettings) => void
+  annotationCount: number
+  onClearAll: () => void
+}
+
+export function DrawTab({
+  hasDoc,
+  tool,
+  onTool,
+  pen,
+  onPen,
+  highlighter,
+  onHighlighter,
+  annotationCount,
+  onClearAll,
+}: DrawTabProps) {
+  const { t } = useI18n()
+  // color/thickness edit the active pen; with no pen active they configure the pen tool
+  const editingHighlighter = tool === 'highlighter'
+  const active = editingHighlighter ? highlighter : pen
+  const setActive = editingHighlighter ? onHighlighter : onPen
+  const widths = editingHighlighter ? HIGHLIGHTER_WIDTHS : PEN_WIDTHS
+
+  return (
+    <>
+      <div className="ribbon-group">
+        <div className="ribbon-group-items">
+          <button
+            className={`rb-big ${tool === 'select' ? 'active' : ''}`}
+            disabled={!hasDoc}
+            data-tip={t('ribbonSelectTip')}
+            onClick={() => onTool('select')}
+          >
+            <span className="rb-big-icon">
+              <IconCursor size={BIG} />
+            </span>
+            <span>{t('ribbonSelect')}</span>
+          </button>
+        </div>
+        <div className="ribbon-group-label">{t('ribbonSelect')}</div>
+      </div>
+      <div className="ribbon-sep" />
+      <div className="ribbon-group">
+        <div className="ribbon-group-items">
+          <button
+            className={`rb-big ${tool === 'pen' ? 'active' : ''}`}
+            disabled={!hasDoc}
+            data-tip={t('ribbonPenTip')}
+            onClick={() => onTool('pen')}
+          >
+            <span className="rb-big-icon" style={{ color: `#${pen.color}` }}>
+              <IconPen size={BIG} />
+            </span>
+            <span>{t('ribbonPen')}</span>
+          </button>
+          <button
+            className={`rb-big ${tool === 'highlighter' ? 'active' : ''}`}
+            disabled={!hasDoc}
+            data-tip={t('ribbonHighlighterTip')}
+            onClick={() => onTool('highlighter')}
+          >
+            <span className="rb-big-icon" style={{ color: `#${highlighter.color}` }}>
+              <IconHighlighterPen size={BIG} />
+            </span>
+            <span>{t('ribbonHighlighter')}</span>
+          </button>
+          <button
+            className={`rb-big ${tool === 'eraser' ? 'active' : ''}`}
+            disabled={!hasDoc}
+            data-tip={t('ribbonEraserTip')}
+            onClick={() => onTool('eraser')}
+          >
+            <span className="rb-big-icon">
+              <IconEraser size={BIG} />
+            </span>
+            <span>{t('ribbonEraser')}</span>
+          </button>
+        </div>
+        <div className="ribbon-group-label">{t('ribbonGroupDrawingTools')}</div>
+      </div>
+      <div className="ribbon-sep" />
+      <div className="ribbon-group">
+        <div className="ribbon-group-items ink-settings">
+          <div className="ink-swatches">
+            {INK_COLORS.map((hex) => (
+              <button
+                key={hex}
+                className={`ink-swatch ${active.color === hex ? 'active' : ''}`}
+                style={{ background: `#${hex}` }}
+                data-tip={`#${hex}`}
+                aria-label={`#${hex}`}
+                disabled={!hasDoc}
+                onClick={() => setActive({ ...active, color: hex })}
+              />
+            ))}
+          </div>
+          <div className="ink-widths">
+            {widths.map((w) => (
+              <button
+                key={w}
+                className={`ink-width ${active.width === w ? 'active' : ''}`}
+                data-tip={t('ribbonPixels', { w })}
+                aria-label={t('ribbonPixels', { w })}
+                disabled={!hasDoc}
+                onClick={() => setActive({ ...active, width: w })}
+              >
+                <span
+                  className="ink-width-dot"
+                  style={{
+                    width: Math.min(16, w * 2 + 2),
+                    height: Math.min(16, w * 2 + 2),
+                    background: `#${active.color}`,
+                  }}
+                />
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="ribbon-group-label">
+          {editingHighlighter ? t('ribbonHighlighterStyle') : t('ribbonPenStyle')}
+        </div>
+      </div>
+      <div className="ribbon-sep" />
+      <div className="ribbon-group">
+        <div className="ribbon-group-items">
+          <button
+            className="rb-big"
+            disabled={!hasDoc || annotationCount === 0}
+            data-tip={t('ribbonClearAllTip')}
+            onClick={onClearAll}
+          >
+            <span className="rb-big-icon">
+              <IconEraser size={BIG} />
+            </span>
+            <span>{t('ribbonClearAll')}</span>
+          </button>
+        </div>
+        <div className="ribbon-group-label">{t('ribbonGroupClear')}</div>
+      </div>
+    </>
+  )
+}

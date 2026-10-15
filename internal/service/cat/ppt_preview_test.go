@@ -111,11 +111,19 @@ func TestPptBridgePrepareFuturePathScopeAndSkill(t *testing.T) {
 	if post("output/future.pptx", auth, "null") != 403 {
 		t.Fatal("iframe origin accepted")
 	}
+	mu.Lock()
+	if len(opens) != 1 || opens[0].ConvID != c.ID || opens[0].RelPath != "output/slides.pptx" {
+		t.Fatalf("new deck should open before the model runs: %+v", opens)
+	}
+	mu.Unlock()
+	if !strings.Contains(o.Rules, "output/slides.pptx") || !strings.Contains(o.Rules, "exactly one page") {
+		t.Fatal("turn did not pin incremental canvas generation")
+	}
 	if post("output/future.pptx", auth, "") != 200 {
 		t.Fatal("future slide preview could not open")
 	}
 	mu.Lock()
-	if len(opens) != 1 || opens[0].ConvID != c.ID || opens[0].RelPath != "output/future.pptx" {
+	if len(opens) != 2 || opens[1].ConvID != c.ID || opens[1].RelPath != "output/future.pptx" {
 		t.Fatal(opens)
 	}
 	mu.Unlock()
