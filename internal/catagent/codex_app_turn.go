@@ -16,7 +16,12 @@ import (
 	"time"
 
 	"FFmpegFree/internal/apperr"
+	"FFmpegFree/internal/proc"
 )
+
+// Select the established transport before submitting any user input. Some
+// third-party Responses gateways stall with app-server while exec works.
+var errCodexExecTransport = errors.New("Codex provider uses exec transport")
 
 type codexRPCMessage struct {
 	ID     json.RawMessage `json:"id,omitempty"`
@@ -198,6 +203,9 @@ func codexAppThreadParams(opts TurnOptions, cwd string) map[string]any {
 	if opts.ModelID != "" && opts.ModelID != "default" {
 		params["model"] = opts.ModelID
 	}
+	if opts.Provider.Enabled && opts.Provider.AgentKind == KindCodexCLI && strings.TrimSpace(opts.Provider.ApiURL) != "" {
+		params["modelProvider"] = CodexProviderID
+	}
 	// Override the previous bridge on resume, including when the bridge is off.
 	params["developerInstructions"] = ""
 	if opts.Rules != "" {
@@ -225,8 +233,11 @@ func (a *CLIAgentAdapter) runCodexAppTurn(opts TurnOptions, exe string) (TurnRes
 	}
 	runCtx, idle, cancel := newTurnContext(ctx, opts.Timeout, nil)
 	defer cancel()
-	args := append([]string{"app-server", "--listen", "stdio://"}, opts.Provider.ExtraArgs()...)
+	// Headless turns must finish on exhausted retries, even when the user's TUI
+	// configuration enables indefinite reconnection.
+	args := append([]string{"app-server", "--listen", "stdio://", "-c", "features.unbounded_connection_retries=false"}, opts.Provider.ExtraArgs()...)
 	cmd := a.runCmd(runCtx, exe, args...)
+	cmd.WaitDelay = 2 * time.Second
 	cmd.Dir, cmd.Env = cwd, MergeToolEnv(MergeSkillsEnv(MergeProviderEnv(os.Environ(), opts.Provider), opts.Skills), opts.ToolEnv)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -239,7 +250,7 @@ func (a *CLIAgentAdapter) runCodexAppTurn(opts TurnOptions, exe string) (TurnRes
 	}
 	stderr := &stderrTap{}
 	cmd.Stderr = activityWriter{inner: stderr, w: idle}
-	if err = cmd.Start(); err != nil {
+	if err = proc.Start(cmd); err != nil {
 		_ = stdin.Close()
 		return TurnResponse{}, apperr.Wrap(apperr.CatReplyFailed, MsgReplyFailed, err)
 	}
@@ -251,7 +262,9 @@ func (a *CLIAgentAdapter) runCodexAppTurn(opts TurnOptions, exe string) (TurnRes
 		}
 		_ = stdin.Close()
 		cancel()
-		// Cancellation kills the process tree; drain queued events to unblock read.
+		// A persistent CLI host may retain an inherited pipe. Close our read end
+		// explicitly so transport selection/cancellation never waits on that host.
+		_ = stdout.Close()
 		for range rpc.events {
 		}
 		_ = cmd.Wait()
@@ -272,12 +285,17 @@ func (a *CLIAgentAdapter) runCodexAppTurn(opts TurnOptions, exe string) (TurnRes
 		threadParams["excludeTurns"] = true
 	}
 	var threadResp struct {
-		Thread struct {
+		ModelProvider string `json:"modelProvider"`
+		Thread        struct {
 			ID string `json:"id"`
 		} `json:"thread"`
 	}
 	if err = rpc.call(initCtx, method, threadParams, &threadResp); err != nil {
 		return TurnResponse{}, a.codexAppError(ctx, runCtx, err)
+	}
+	if provider := threadResp.ModelProvider; provider != "" && provider != "openai" {
+		a.cfg.Logf("cat Codex: using exec for configured provider %q", provider)
+		return TurnResponse{}, errCodexExecTransport
 	}
 	sid := threadResp.Thread.ID
 	if sid == "" {
@@ -329,12 +347,17 @@ func (a *CLIAgentAdapter) runCodexAppTurn(opts TurnOptions, exe string) (TurnRes
 				return resp, a.codexAppError(ctx, runCtx, errors.New("Codex 连接在任务完成前关闭"))
 			}
 			var p struct {
-				ThreadID string          `json:"threadId"`
-				TurnID   string          `json:"turnId"`
-				ItemID   string          `json:"itemId"`
-				Delta    string          `json:"delta"`
-				Item     json.RawMessage `json:"item"`
-				Turn     struct {
+				ThreadID  string `json:"threadId"`
+				TurnID    string `json:"turnId"`
+				ItemID    string `json:"itemId"`
+				Delta     string `json:"delta"`
+				WillRetry bool   `json:"willRetry"`
+				Error     *struct {
+					Message           string `json:"message"`
+					AdditionalDetails string `json:"additionalDetails"`
+				} `json:"error"`
+				Item json.RawMessage `json:"item"`
+				Turn struct {
 					ID     string `json:"id"`
 					Status string `json:"status"`
 					Error  *struct {
@@ -357,6 +380,33 @@ func (a *CLIAgentAdapter) runCodexAppTurn(opts TurnOptions, exe string) (TurnRes
 				continue
 			}
 			switch event.Method {
+			case "error":
+				if p.Error == nil {
+					continue
+				}
+				msg := strings.TrimSpace(p.Error.Message)
+				if p.Error.AdditionalDetails != "" {
+					msg += "\n" + p.Error.AdditionalDetails
+				}
+				for _, secret := range append([]string{opts.Provider.ApiKey}, toolSecrets(opts.ToolEnv)...) {
+					if secret != "" {
+						msg = strings.ReplaceAll(msg, secret, "[redacted]")
+					}
+				}
+				msg = truncate(msg, 500)
+				if p.WillRetry {
+					if opts.OnActivity != nil {
+						opts.OnActivity("retry", tid, msg, true)
+					}
+					continue
+				}
+				if opts.OnError != nil {
+					opts.OnError(msg)
+				}
+				if opts.Provider.Enabled && codexResponsesMissing(msg) {
+					return resp, providerResponsesUnsupportedErr(KindCodexCLI)
+				}
+				return resp, a.codexAppError(ctx, runCtx, errors.New(msg))
 			case "item/agentMessage/delta":
 				texts[p.ItemID] += p.Delta
 				acc.WriteString(p.Delta)
@@ -436,6 +486,16 @@ func (a *CLIAgentAdapter) runCodexAppTurn(opts TurnOptions, exe string) (TurnRes
 			}
 		}
 	}
+}
+
+func toolSecrets(env map[string]string) []string {
+	var secrets []string
+	for key, value := range env {
+		if strings.Contains(strings.ToUpper(key), "TOKEN") || strings.Contains(strings.ToUpper(key), "KEY") {
+			secrets = append(secrets, value)
+		}
+	}
+	return secrets
 }
 
 func (a *CLIAgentAdapter) codexAppError(ctx, runCtx context.Context, err error) error {

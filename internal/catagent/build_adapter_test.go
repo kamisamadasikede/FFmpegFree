@@ -45,6 +45,18 @@ func TestDetect_ReadyWhenGrokOnPATH(t *testing.T) {
 	}
 }
 
+func TestGrokCLIStartupErrorsExplainFailure(t *testing.T) {
+	if msg := grokCLIMessage("WARN model catalog: auth refresh timed out; fetching without a fresh session"); !strings.Contains(msg, "登录凭证刷新超时") {
+		t.Fatal(msg)
+	}
+	if msg := grokCLIMessage("Error: prompt_ack_timeout: the agent did not acknowledge the prompt within 120s"); !strings.Contains(msg, "未在 120 秒内确认任务") {
+		t.Fatal(msg)
+	}
+	if msg := grokCLIMessage("HTTP 502"); msg != "HTTP 502" {
+		t.Fatal("unrelated error changed", msg)
+	}
+}
+
 func TestDetect_MissingWithoutGrok(t *testing.T) {
 	a := NewBuildAdapter(BuildConfig{
 		ComponentDir: t.TempDir(),

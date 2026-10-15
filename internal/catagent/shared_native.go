@@ -417,6 +417,12 @@ func SyncNativeShare(t NativeShareTarget, skills map[string]string, servers map[
 }
 
 func LoadNativeShareManifest(base string) (NativeShareManifest, error) {
+	return LoadNativeShareManifestWithSkills(base, nil)
+}
+
+// Built-in skills live outside the user shared library. Only application-provided
+// exact name/path pairs may extend the normal ownership validation.
+func LoadNativeShareManifestWithSkills(base string, builtin map[string]string) (NativeShareManifest, error) {
 	out := NativeShareManifest{}
 	raw, err := os.ReadFile(filepath.Join(base, "native-sync.json"))
 	if os.IsNotExist(err) {
@@ -433,7 +439,7 @@ func LoadNativeShareManifest(base string) (NativeShareManifest, error) {
 			return nil, fmt.Errorf("同步记录包含未知 CLI")
 		}
 		for name, target := range owned.Links {
-			if !nativeShareName.MatchString(name) || !filepath.IsAbs(target) || !sameSharePath(target, filepath.Join(base, "skills", name)) {
+			if !nativeShareName.MatchString(name) || !filepath.IsAbs(target) || (!sameSharePath(target, filepath.Join(base, "skills", name)) && !sameSharePath(target, builtin[name])) {
 				return nil, fmt.Errorf("同步记录的技能路径无效，请修复 native-sync.json")
 			}
 		}

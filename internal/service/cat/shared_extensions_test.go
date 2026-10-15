@@ -275,3 +275,15 @@ func TestSharedExtensionsSaveFailureRestoresEnabledState(t *testing.T) {
 		t.Fatal("failed save changed enablement")
 	}
 }
+
+func TestSharedExtensionsRepeatedBuiltinSync(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	svc, _ := newProjSvc(t, openStore(t), nil, cat.Config{DataRoot: root, CLIHome: home, FileBridge: true})
+	for i := 0; i < 3; i++ {
+		r, err := svc.SyncCatSharedExtensions(context.Background(), cat.SkillsDirRequest{})
+		if err != nil {
+			t.Fatalf("sync %d rejected its own builtin manifest: %v", i, err)
+		}
+		checkSharedSynced(t, r, 1, 1)
+	}
+}

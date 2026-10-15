@@ -518,7 +518,7 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	var cliErr string
 	seenErr := map[string]struct{}{}
 	noteErr := func(msg string) {
-		msg = truncate(strings.TrimSpace(msg), 500)
+		msg = truncate(grokCLIMessage(strings.TrimSpace(msg)), 500)
 		if msg == "" {
 			return
 		}
@@ -549,7 +549,7 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	}
 
 	turnStart := a.cfg.Now()
-	if err := cmd.Start(); err != nil {
+	if err := proc.Start(cmd); err != nil {
 		// exec.CommandContext 在 ctx 已取消时 Start 直接返回 ctx 错误：
 		// 取消发生在启动前（高负载下常见）时应报“已取消”，而不是 start_failed。
 		if ctx.Err() != nil {
@@ -657,6 +657,16 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	usage.Version = ProtocolVersion
 	usage.Message = WireMessage{Role: "assistant", Content: body}
 	return usage, nil
+}
+
+func grokCLIMessage(msg string) string {
+	if strings.Contains(msg, "model catalog: auth refresh timed out") {
+		return "Grok 登录凭证刷新超时。若任务未开始，请重新登录 Grok，或检查自定义服务商配置。"
+	}
+	if strings.Contains(msg, "prompt_ack_timeout") {
+		return "Grok CLI 未在 120 秒内确认任务，已结束等待。请检查 CLI 登录状态；若登录正常，请新开会话后重试。"
+	}
+	return msg
 }
 
 // plainCwd 是没有项目的对话的 --cwd。有 DataRoot 时与文件面板共用 paths.ResolveCatConvDir；

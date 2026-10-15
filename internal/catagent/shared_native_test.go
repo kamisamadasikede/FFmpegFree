@@ -185,3 +185,25 @@ func TestNativeSharingTransportConversion(t *testing.T) {
 		t.Fatal("silently accepted SSE")
 	}
 }
+
+func TestNativeSharingBuiltinManifestValidation(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "cat", "shared")
+	builtin := filepath.Join(filepath.Dir(base), "builtin-skills", "ffc-ppt-live")
+	m := NativeShareManifest{KindCodexCLI: {Links: map[string]string{"ffc-ppt-live": builtin}}}
+	if err := SaveNativeShareManifest(base, m); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadNativeShareManifest(base); err == nil {
+		t.Fatal("untrusted external path accepted")
+	}
+	if _, err := LoadNativeShareManifestWithSkills(base, map[string]string{"ffc-ppt-live": builtin}); err != nil {
+		t.Fatal("application skill rejected", err)
+	}
+	m[KindCodexCLI].Links["ffc-ppt-live"] = filepath.Join(t.TempDir(), "foreign")
+	if err := SaveNativeShareManifest(base, m); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadNativeShareManifestWithSkills(base, map[string]string{"ffc-ppt-live": builtin}); err == nil {
+		t.Fatal("foreign builtin path accepted")
+	}
+}

@@ -255,7 +255,7 @@ func (s *Service) sharedAt(base, project string, write bool) (SharedExtensions, 
 		}
 	}
 	sort.Slice(r.MCPServers, func(i, j int) bool { return r.MCPServers[i].Name < r.MCPServers[j].Name })
-	manifest, e := catagent.LoadNativeShareManifest(base)
+	manifest, e := s.loadShareManifest(base)
 	if e != nil {
 		return r, e
 	}
@@ -412,7 +412,7 @@ func (s *Service) SaveCatSharedMCP(ctx context.Context, req SharedMCPRequest) (S
 	s.sharingMu.Lock()
 	defer s.sharingMu.Unlock()
 	// Confirm ownership/state are readable before replacing the canonical source.
-	if _, e = catagent.LoadNativeShareManifest(base); e != nil {
+	if _, e = s.loadShareManifest(base); e != nil {
 		return SharedExtensions{}, e
 	}
 	st, e := readShareEnabled(base)
@@ -576,7 +576,15 @@ func (s *Service) syncSharingBeforeTurn(ctx context.Context, project string) {
 			failures += len(t.Warnings)
 		}
 		if (e != nil || failures > 0) && s.cfg.Logf != nil {
-			s.cfg.Logf("agent shared extensions: sync incomplete (%d conflicts, error=%t)", failures, e != nil)
+			s.cfg.Logf("agent shared extensions: sync incomplete (%d conflicts, error=%v)", failures, e)
 		}
 	}
+}
+
+func (s *Service) loadShareManifest(base string) (catagent.NativeShareManifest, error) {
+	var builtin map[string]string
+	if s.cfg.DataRoot != "" {
+		builtin = map[string]string{"ffc-ppt-live": filepath.Join(s.cfg.DataRoot, "cat", "builtin-skills", "ffc-ppt-live")}
+	}
+	return catagent.LoadNativeShareManifestWithSkills(base, builtin)
 }

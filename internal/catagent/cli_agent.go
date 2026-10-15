@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -336,7 +337,16 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		return TurnResponse{}, outdatedCLIErr(a.name, curVer, "")
 	}
 	if a.kind == cliKindCodex && opts.LiveSteer {
-		return a.runCodexAppTurn(opts, exe)
+		// Explicit application gateways can select exec without starting a server.
+		if !opts.Provider.Enabled {
+			response, err := a.runCodexAppTurn(opts, exe)
+			if !errors.Is(err, errCodexExecTransport) {
+				return response, err
+			}
+		}
+		if opts.OnSteerReady != nil {
+			opts.OnSteerReady(nil)
+		}
 	}
 
 	prompt := lastUserContent(opts.Messages)
@@ -431,7 +441,7 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		cmd.Stderr = stderrTap
 	}
 
-	if err := cmd.Start(); err != nil {
+	if err := proc.Start(cmd); err != nil {
 		// exec.CommandContext 在 ctx 已取消时 Start 直接返回 ctx 错误：
 		// 取消发生在启动前（高负载下常见）时应报“已取消”，而不是 start_failed。
 		if ctx.Err() != nil {
