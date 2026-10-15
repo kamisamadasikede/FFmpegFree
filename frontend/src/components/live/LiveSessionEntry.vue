@@ -14,12 +14,15 @@
       <i v-if="badge" class="badge" aria-hidden="true">{{ badge }}</i>
     </button>
     <!-- X4：外层不能也叫 .pop——scoped 样式会同时落到面板根元素（也是 .pop）上，再往下错 8px，实际变成 16px -->
+    <MotionMenu>
     <div v-if="dock.open" class="drop"><LiveSessionPanel :pull="pull" :count="count" /></div>
+    </MotionMenu>
   </span>
 </template>
 
 <script setup lang="ts">
 // 会话入口：标签行最右边的纯图标按钮，面板向下盖住设置栏（设计说明 §2.5，老板 10-08 第二次定稿）。
+import MotionMenu from '@/components/motion/MotionMenu.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import FIcon from '@/components/icon/FIcon.vue'

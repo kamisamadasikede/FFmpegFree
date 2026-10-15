@@ -1,5 +1,6 @@
 <script setup lang="ts">
 // 转换页源文件父行 + 子记录（设计 §3.1 / §3.3）。行进入可视区域（虚拟列表渲染它）时才取缩略图、补读媒体信息。
+import MotionMenu from '@/components/motion/MotionMenu.vue'
 import MidEllipsis from '@/components/common/MidEllipsis.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
@@ -196,19 +197,23 @@ async function revealKid(id: string) {
       <div v-if="v24 && copying" class="cv-ops">
         <button type="button" class="cv-tbtn cv-tbtn-n" :aria-label="COPY_CANCEL_LABEL" :title="COPY_CANCEL_LABEL" @click="cv.cancelCopy(src.sourceId)"><FIcon name="x" :size="14" />取消</button>
         <button ref="moreBtn" type="button" class="cv-ib" :aria-label="`更多：${SOURCE_REMOVE_LABEL}`" title="更多" aria-haspopup="menu" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><FIcon name="more" /></button>
+        <MotionMenu>
         <div v-if="menuOpen" class="cv-more-menu" role="menu">
           <button type="button" role="menuitem" @click="menu(() => emit('remove', 'source', src.sourceId))"><FIcon name="trash" />{{ SOURCE_REMOVE_LABEL }}</button>
         </div>
+        </MotionMenu>
       </div>
       <div v-else-if="v24 && copyBad" class="cv-ops">
         <button type="button" class="cv-ib" aria-disabled="true" :aria-label="`预览源文件 ${src.name}：${pvTip}`" :data-tip="pvTip"><FIcon name="eye" /></button>
         <button type="button" class="cv-ib only1280" :aria-label="`${COPY_RETRY_LABEL} ${src.name}`" :title="COPY_RETRY_LABEL" @click="cv.retryCopy(src.sourceId)"><FIcon name="retry" /></button>
         <button type="button" class="cv-ib del only1280" :aria-label="`${SOURCE_REMOVE_LABEL} ${src.name}`" :title="SOURCE_REMOVE_LABEL" @click="emit('remove', 'source', src.sourceId)"><FIcon name="trash" /></button>
         <button ref="moreBtn" type="button" class="cv-ib only1024" :aria-label="`更多：${COPY_RETRY_LABEL}、${SOURCE_REMOVE_LABEL}`" title="更多" aria-haspopup="menu" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><FIcon name="more" /></button>
+        <MotionMenu>
         <div v-if="menuOpen" class="cv-more-menu" role="menu">
           <button type="button" role="menuitem" @click="menu(() => cv.retryCopy(src.sourceId))"><FIcon name="retry" />{{ COPY_RETRY_LABEL }}</button>
           <button type="button" role="menuitem" @click="menu(() => emit('remove', 'source', src.sourceId))"><FIcon name="trash" />{{ SOURCE_REMOVE_LABEL }}</button>
         </div>
+        </MotionMenu>
       </div>
       <div v-else class="cv-ops">
         <button v-if="gone" type="button" class="cv-ib" aria-disabled="true" :aria-label="`预览源文件 ${src.name}：源文件已不存在，无法预览`" data-tip="源文件已不存在，无法预览"><FIcon name="eye" /></button>
@@ -217,10 +222,12 @@ async function revealKid(id: string) {
         <button v-else type="button" class="cv-ib only1280" :aria-label="`打开所在文件夹 ${src.name}`" title="打开所在文件夹" @click="revealSrc"><FIcon name="folder" /></button>
         <button type="button" class="cv-ib del only1280" :aria-label="`${SOURCE_REMOVE_LABEL} ${src.name}`" :title="SOURCE_REMOVE_LABEL" @click="emit('remove', 'source', src.sourceId)"><FIcon name="trash" /></button>
         <button ref="moreBtn" type="button" class="cv-ib only1024" :aria-label="`更多：打开所在文件夹、${SOURCE_REMOVE_LABEL}`" title="更多" aria-haspopup="menu" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><FIcon name="more" /></button>
+        <MotionMenu>
         <div v-if="menuOpen" class="cv-more-menu" role="menu">
           <button type="button" role="menuitem" :aria-disabled="gone || undefined" :title="gone ? '源文件已不存在' : undefined" @click="!gone && menu(revealSrc)"><FIcon name="folder" />打开所在文件夹</button>
           <button type="button" role="menuitem" :aria-label="SOURCE_REMOVE_LABEL" @click="menu(() => emit('remove', 'source', src.sourceId))"><FIcon name="trash" />{{ SOURCE_REMOVE_LABEL }}</button>
         </div>
+        </MotionMenu>
       </div>
     </div>
     <div v-if="p.conflict" class="cv-err cv-conf" role="group" :aria-label="conflictTitle">

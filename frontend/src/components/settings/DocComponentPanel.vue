@@ -32,12 +32,14 @@
         <button type="button" class="fdd-btn" aria-haspopup="listbox" :aria-expanded="ddOpen" aria-label="转换引擎" @click="ddOpen = !ddOpen" @keydown.down.prevent="ddOpen = true">
           <span>{{ currentLabel }}</span><FIcon name="down" :size="14" />
         </button>
+        <MotionMenu>
         <ul v-if="ddOpen" class="fdd-list" role="listbox" aria-label="转换引擎" @keydown.esc.stop="ddOpen = false">
           <li v-for="o in options" :key="o.id" role="option" :aria-selected="o.id === pref" tabindex="0" :class="{ on: o.id === pref }" @click="choose(o.id)" @keydown.enter.prevent="choose(o.id)">
             <FIcon v-if="o.id === pref" name="check" :size="14" class="ck" /><i v-else class="ck" />
             <div><b>{{ o.label }}</b><small v-if="o.hint">{{ o.hint }}</small></div>
           </li>
         </ul>
+        </MotionMenu>
       </div>
     </div>
     <div v-if="folderErr" class="srow"><small class="ferr" role="alert">{{ folderErr }}</small></div>
@@ -60,6 +62,7 @@
 <script setup lang="ts">
 // 设置页「文档组件」块（契约 6.12.12 / v0.27 6.12.28：读 componentState，不读整体 state；设计 v0.2 §四）。和「转换组件」同一套行样式。
 // v0.27：「正在使用本机 WPS」行、引擎下拉（engines 多于一项）、下载确认；v0.27.2：OpenStorageFolder("doc_component")。
+import MotionMenu from '@/components/motion/MotionMenu.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import MotionDialog from '@/components/motion/MotionDialog.vue'
