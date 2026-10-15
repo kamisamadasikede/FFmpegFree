@@ -2,6 +2,8 @@
 // 文档页右栏：格式按 PDF / 文档 / 表格 / 演示分组，只显示选中文件都能转的（交集来自后端格式表 6.12.13）
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
+import MotionCollapse from '@/components/motion/MotionCollapse.vue'
+import { DUR, prefersReducedMotion } from '@/utils/motion'
 import { useDocConvertStore, DOC_TILE_SUB, type DocTile } from '@/stores/docConvert'
 import { useDocComponentStore } from '@/stores/docComponent'
 import { DOC_NEED_COMPONENT, DOC_SIMPLE_PDF_LABEL } from '@/utils/docV26Text'
@@ -40,8 +42,17 @@ onMounted(() => {
   syncMore()
 })
 // 格式表到了、搜索、说明行出现 / 消失都会改变格式区高度
-watch([shown, () => dc.note, () => dc.whyText, () => dc.matrixError], () => void nextTick(syncMore))
-onBeforeUnmount(() => ro?.disconnect())
+let moreTimer: ReturnType<typeof setTimeout> | undefined
+watch([shown, () => dc.note, () => dc.whyText, () => dc.matrixError], () => {
+  void nextTick(syncMore)
+  // 说明行是收放进来的（MotionCollapse 200ms）：收放完再量一次
+  clearTimeout(moreTimer)
+  if (!prefersReducedMotion()) moreTimer = setTimeout(syncMore, DUR.base + 20)
+})
+onBeforeUnmount(() => {
+  ro?.disconnect()
+  clearTimeout(moreTimer)
+})
 const saveName = computed(() => {
   if (nSel.value !== 1 || !dc.target) return ''
   return `${dc.selectedRows[0].src.name.replace(/\.[^.]+$/, '')}.${dc.target}`
@@ -63,7 +74,9 @@ const saveName = computed(() => {
         <FIcon name="search" :size="14" />
         <input v-model="q" type="text" placeholder="搜索格式，如 PDF、Word、表格" aria-label="搜索格式" autocomplete="off" spellcheck="false" />
       </label>
+      <MotionCollapse>
       <div v-if="dc.whyText" class="dc-why"><FIcon name="info" /><span>{{ dc.whyText }}</span></div>
+      </MotionCollapse>
       <div v-if="dc.matrixError" class="cv-fstate" role="alert">
         <p>格式没能加载出来。</p>
         <button type="button" class="btn" @click="dc.loadMatrix()">重试</button>
@@ -94,10 +107,12 @@ const saveName = computed(() => {
           </div>
         </template>
       </div>
+      <MotionCollapse>
       <div v-if="dc.note" class="cv-fnote" :class="{ warn: dc.note.tone === 'warn' }">
         <FIcon name="info" />
         <span>{{ dc.note.text }}<button v-if="dc.note.download" type="button" class="lk" @click="comp.install()">下载文档组件</button></span>
       </div>
+      </MotionCollapse>
     </div>
     <!-- 「保存到」和转换按钮固定在右栏底部：格式多、说明长时只滚上面的格式区 -->
     <div class="dc-dock" :class="{ more }">

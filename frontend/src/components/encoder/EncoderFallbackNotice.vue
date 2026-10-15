@@ -1,11 +1,14 @@
 <template>
-  <div v-if="!closed" class="efn" :class="variant" role="status">
+  <!-- 动画 P1：点关闭后收起（高度 + 透明度 150ms），下面的内容不跳 -->
+  <MotionCollapse>
+  <div v-if="!closed" class="efn" :class="variant" role="status" v-bind="$attrs">
     <FIcon name="warn" :size="variant === 'row' ? 14 : 16" />
     <span class="t">{{ text }}</span>
     <button v-if="variant !== 'row'" type="button" class="lk" @click="emit('settings')">{{ ENCODER_FALLBACK_SETTINGS_LINK }}</button>
     <button v-else type="button" class="lk" @click="emit('log')">{{ ENCODER_FALLBACK_LOG_LINK }}</button>
     <button v-if="variant !== 'row' && !noClose" type="button" class="x" :aria-label="closeLabel ?? ENCODER_FALLBACK_CLOSE" @click="close"><FIcon name="x" :size="14" /></button>
   </div>
+  </MotionCollapse>
 </template>
 
 <script setup lang="ts">
@@ -15,10 +18,13 @@
 // 文案默认取 errors/encoderMessages.ts（待产品经理确认），调用方也可以传 text 覆盖。关闭只影响本次会话（组件内状态）。
 import { computed, ref } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
+import MotionCollapse from '@/components/motion/MotionCollapse.vue'
 import {
   ENCODER_FALLBACK_CLOSE, ENCODER_FALLBACK_CONVERT, ENCODER_FALLBACK_LIVE, ENCODER_FALLBACK_LOG_LINK, ENCODER_FALLBACK_SETTINGS_LINK, ENCODER_FALLBACK_TASK_ROW,
 } from '@/errors/encoderMessages'
 
+// class 等透传属性放到提示条本身（根是 MotionCollapse）
+defineOptions({ inheritAttrs: false })
 const props = withDefaults(defineProps<{ variant?: 'convert' | 'live' | 'row'; text?: string; closeLabel?: string; noClose?: boolean }>(), { variant: 'convert' })
 const emit = defineEmits<{ settings: []; log: []; close: [] }>()
 const closed = ref(false)

@@ -3,6 +3,7 @@
 import { computed } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import ErrorLine from '@/components/common/ErrorLine.vue'
+import MotionCollapse from '@/components/motion/MotionCollapse.vue'
 import ConvertFormatPanel from './ConvertFormatPanel.vue'
 import { convertV2IsReal } from '@/api/convertRecords'
 import { simParam } from '@/api/sim'
@@ -102,9 +103,14 @@ const hint = computed<{ text: string; warn?: boolean }>(() => {
         </div>
         <div class="cv-hint">同名文件自动加序号，不会覆盖。<button v-if="cv.outputOverride" type="button" class="ff-link" @click="cv.outputOverride = ''">恢复默认</button></div>
       </div>
+      <MotionCollapse>
       <ErrorLine v-if="cv.submitError && !cv.v24" compact :code="cv.submitError.code" :message="cv.submitError.message" :detail="cv.submitError.detail" :show-log="false" fallback-title="无法开始转换" />
+      </MotionCollapse>
     </div>
+    <!-- 动画 P1：提交失败说明收放进来，转换按钮不跳 -->
+    <MotionCollapse>
     <div v-if="cv.v24 && cv.submitError" class="cv-rp-err"><ErrorLine compact :code="cv.submitError.code" :message="cv.submitError.message" :detail="cv.submitError.detail" :show-log="false" fallback-title="无法开始转换" /></div>
+    </MotionCollapse>
     <div class="cv-foot">
       <div v-if="goTip" class="cv-gowrap" :class="{ hv: forceGoTip }">
         <button type="button" class="btn pri lg" aria-disabled="true" aria-describedby="cv-foot-hint" :aria-label="`转换：${goTip}`"><FIcon name="convert" />{{ label }}</button>

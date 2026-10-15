@@ -26,8 +26,9 @@ const BOX = ['paddingTop', 'paddingBottom', 'marginTop', 'marginBottom', 'border
 
 function boxFrames(el: HTMLElement): [Keyframe, Keyframe] {
   const cs = getComputedStyle(el)
-  const open: Keyframe = { height: `${el.offsetHeight}px`, opacity: 1 }
-  const shut: Keyframe = { height: '0px', opacity: 0 }
+  // min-height 也压成 0：有 min-height 的提示条（如 36px 的回退提示）否则收不下去
+  const open: Keyframe = { height: `${el.offsetHeight}px`, minHeight: '0px', opacity: 1 }
+  const shut: Keyframe = { height: '0px', minHeight: '0px', opacity: 0 }
   for (const k of BOX) {
     open[k] = cs[k]
     shut[k] = '0px'
