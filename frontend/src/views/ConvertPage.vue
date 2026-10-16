@@ -339,7 +339,7 @@ onUnmounted(() => {
           <div class="acts"><button type="button" class="btn pri" @click="cv.chooseFiles()"><FIcon name="plus" />添加文件</button></div>
         </div>
         <div v-else class="cv-list">
-          <VirtualList ref="vl" :items="items" :item-key="itemKey" :estimate="estimate">
+          <VirtualList ref="vl" :items="items" :item-key="itemKey" :estimate="estimate" animate>
             <template #header>
               <button type="button" class="cv-drop" @click="cv.chooseFiles()">
                 <span class="ic"><FIcon name="upload" /></span><b>拖入更多文件，或点击选择</b><span class="cv-ds">{{ cv.v24 ? '支持常见视频、音频、图片格式' : '支持常见视频、音频格式' }}</span>
