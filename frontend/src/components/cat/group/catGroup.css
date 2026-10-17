@@ -342,3 +342,9 @@
 .cg-order .it { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--cat-border); border-radius: 8px; font-size: 13px; background: var(--cat-surface); }
 .cg-order .it .grip { color: var(--cat-muted); cursor: grab; display: inline-flex; }
 .cg-order .it .tt { color: var(--cat-muted); font-size: 12px; }
+.cgs-it .ic { display: inline-flex; color: var(--cat-orange); }
+.cgs-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cat-success); flex: none; }
+.av.xs { width: 16px; height: 16px; font-size: 9px; }
+.av.more { --c: var(--cat-muted); }
+.cg-stack.sm .av { margin-left: -4px; box-shadow: 0 0 0 1.5px var(--cat-panel, var(--cat-bg)); }
+.cg-stack.sm .av:first-child { margin-left: 0; }
