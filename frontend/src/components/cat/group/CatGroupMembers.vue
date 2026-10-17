@@ -31,8 +31,8 @@
               <span v-if="m.charter.status === 'generating'" class="cg-spin" style="width: 10px; height: 10px; border-width: 1.5px" :title="t('cat.groupChat.generating')" />
               <span v-else-if="m.charter.status === 'failed'" :title="t('cat.groupChat.charterFailed')" style="display: inline-flex; color: var(--cat-warn-text)"><FIcon name="warn" :size="11" /></span>
             </span>
-            <span v-if="store.queued[m.id]" class="q">{{ t('cat.groupChat.queued', { n: store.queued[m.id] }) }}</span>
             <span class="b">{{ m.title }} · <CatAgentMark :kind="normalizeProviderKind(m.agentKind)" :size="11" />{{ cliName(m.agentKind) }}</span>
+            <span v-for="q in store.queued[m.id] ?? []" :key="q.chainId + q.queuePosition" class="q">{{ queuedText(q.queuePosition) }}</span>
           </span>
           <span class="cg-st" :class="stateOf(m.id)">
             <template v-if="stateOf(m.id) === 'busy'">● {{ t('cat.groupChat.busy') }}<button type="button" class="cg-ib sm" :aria-label="t('cat.groupChat.stop')" @click.stop="store.stop(m.id)"><FIcon name="stop" :size="10" /></button></template>
@@ -97,6 +97,8 @@ const toggle = (id: string) => {
 const tab = ref<'m' | 'f'>('m')
 const CLI: Record<string, string> = { claude_cli: 'Claude', codex_cli: 'Codex', cat_build: 'Grok Build', gemini_cli: 'Gemini' }
 const cliName = (k: string) => CLI[k] ?? k
+/** 排队文案：n=0 与 n≥1 用两个 key，产品改口径时只换 key（6.21.17 ④-4） */
+const queuedText = (n: number) => (n === 0 ? t('cat.groupChat.queuedNext') : t('cat.groupChat.queued', { n }))
 function stateOf(id: string) {
   if (store.live[id]) return 'busy'
   const last = [...store.messages].reverse().find((x) => x.memberId === id)

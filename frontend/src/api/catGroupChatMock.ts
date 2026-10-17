@@ -97,7 +97,7 @@ function mainStream() {
 }
 
 /** 场景界面状态：正在干活的人 [id, elapsedMs, toolCount] 等 */
-export interface SceneUi { running: [string, number, number][]; queued?: Record<string, number>; scroll?: 'top' | 'bottom'; openRoute?: boolean; swapOpen?: boolean; revertDone?: boolean }
+export interface SceneUi { running: [string, number, number][]; /** 成员 id → 排队条数（真实状态：可以同时正在干活 + 排队） */ queued?: Record<string, number>; scroll?: 'top' | 'bottom'; openRoute?: boolean; swapOpen?: boolean; revertDone?: boolean }
 let ui: SceneUi = { running: [] }
 function sceneSeed(s: GroupScene): SceneUi {
   seedBase()
@@ -110,7 +110,7 @@ function sceneSeed(s: GroupScene): SceneUi {
       return { running: s === 'main' || s === 'create' ? [['q', 38_000, 3]] : [] }
     case 'members': case 'working': case 'session': case 'narrow-drawer': case 'narrow-single':
       mainStream()
-      return { running: W, queued: s === 'members' || s === 'working' ? { f: 1 } : undefined }
+      return { running: W, queued: s === 'members' || s === 'working' ? { f: 2 } : undefined }
     case 'report':
       rArch(); route('b', 'c1', 1, 'handoff'); route('f', 'c1', 1, 'handoff'); rBe(); route('q', 'c1', 2, 'handoff')
       rep('q', 2, '17:31', { parsed: false, footer: foot('17:31', 1900, 36),
@@ -131,7 +131,9 @@ function sceneSeed(s: GroupScene): SceneUi {
       user('再改一下，按钮文案用「重试」两个字就行', '17:15', 'c4'); route('a', 'c4', 0, 'followup')
       user('发版前把更新日志整理一下', '17:33', 'c5'); route('a', 'c5', 0, 'fallback')
       user('顺便看下 Windows 打包脚本', '17:36', 'c6'); route('a', 'c6', 0, 'off')
-      return { running: [['a', 65_000, 6]], scroll: 'top', openRoute: true }
+      user('@架构师 顺手把 6.21.17 的排队口径也过一遍', '17:37', 'c7', ['a'])
+      push({ kind: 'system', systemKind: 'route', chainId: 'c7', hop: 0, toMemberId: 'a', route: { mode: 'mention', memberId: 'a', queued: true } })
+      return { running: [['a', 65_000, 6]], openRoute: true }
     case 'swap':
       user('重试按钮点了以后，成员卡片要回到「正在干活」状态', '17:46', 'c8'); route('b', 'c8', 0, 'ai', '涉及成员状态推送')
       sys('reassign', { chainId: 'c8', fromMemberId: 'b', toMemberId: 'f' })
@@ -149,7 +151,7 @@ function sceneSeed(s: GroupScene): SceneUi {
 export const SESSION_DEMO = '先看一下现有的失败灰字组件和群消息流的事件订阅。\n\n[search] systemKind === \'failed\' in frontend/src\n[read] frontend/src/views/cat/GroupStream.vue\n[edit] frontend/src/views/cat/RetryButton.vue  +41\n+ const onRetry = () => RetryCatGroupMemberTurn({ groupId, memberId, chainId })\n[run] npm run typecheck\nvue-tsc --noEmit  ✓ 0 errors\n\n类型检查通过。接下来把中英日文案补上，然后写汇报'
 
 function sceneRunning(): CatGroupMemberEvent[] {
-  return ui.running.map(([id, ms, tools]) => ({ groupId: 'g1', member: members.find((m) => m.id === id)!, running: { turnId: `tr-${id}`, startedAt: T0, toolCount: tools, elapsedMs: ms }, queueLength: ui.queued?.[id] }))
+  return ui.running.map(([id, ms, tools]) => ({ groupId: 'g1', member: members.find((m) => m.id === id)!, running: { turnId: `tr-${id}`, startedAt: T0, toolCount: tools, elapsedMs: ms }, queue: Array.from({ length: ui.queued?.[id] ?? 0 }, (_, i) => ({ chainId: `cq${i}`, hop: 1, fromSeq: 0, queuePosition: i })) }))
 }
 
 const sc = groupScene()

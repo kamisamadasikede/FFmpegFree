@@ -1787,6 +1787,7 @@
       "deleteHint": "先に全員の作業を停止します。各メンバーのセッションは削除されません。",
       "createOrderHint": "ドラッグで並べ替え。先頭のメンバーが受け皿です",
       "queued": "順番待ち · 前に {n} 件",
+      "queuedNext": "順番待ち · 次の番",
       "routeQueued": "{name} へ：作業中のため順番待ち",
       "optional": "任意"
     }

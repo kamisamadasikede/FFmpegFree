@@ -362,3 +362,5 @@
 .cg-files.rows .p { flex: 1; min-width: 0; }
 .cg-files.rows .nums { margin-left: auto; display: inline-flex; gap: 6px; flex: none; }
 .cg-mc-row .nm .q { display: block; font-size: 11px; color: var(--cat-accent); }
+.cg-mc-row .nm .q { white-space: normal; overflow: visible; }
+.cg-st.busy { max-width: none; }

@@ -38,6 +38,9 @@ export interface CatGroupMember {
   thinkLevelId?: string
   order: number
   charter: CatCharter
+  /** v0.55.6：运行时只读，不落库 */
+  status?: string
+  queue?: CatGroupQueuedTask[]
 }
 export interface CatGroupFileTag {
   path: string
@@ -65,6 +68,8 @@ export interface CatRouteInfo {
   memberId?: string
   reason?: string
   routeSeq?: number
+  /** v0.55.6 6.21.17 ④-5：成员正在干活，这条进了他的队列 */
+  queued?: boolean
 }
 export interface CatGroupMessage {
   seq: number
@@ -90,13 +95,22 @@ export interface CatGroupRunning {
   toolCount: number
   elapsedMs: number
 }
+/** v0.55.6 6.21.17 ④-3：成员内存 FIFO 里的一条排队任务 */
+export interface CatGroupQueuedTask {
+  chainId: string
+  hop: number
+  fromSeq: number
+  /** 排在它前面的排队任务数，从 0 起（不含正在跑的那一轮） */
+  queuePosition: number
+}
 export interface CatGroupMemberEvent {
   groupId: string
   member: CatGroupMember
   running?: CatGroupRunning
-  /** v0.55.6 6.21.17：status=queued 时带排队长度（前面还有几个） */
+  /** v0.55.6 6.21.17 ④：idle | running | queued */
   status?: string
-  queueLength?: number
+  /** 排队中的任务（按队列顺序，空队列为空数组） */
+  queue?: CatGroupQueuedTask[]
   removed?: boolean
 }
 export interface CatGroupRouteEvent {
@@ -180,6 +194,7 @@ export function systemLineText(m: CatGroupMessage, nameOf: (id?: string) => stri
   const to = nameOf(m.toMemberId || m.route?.memberId || m.memberId)
   switch (m.systemKind) {
     case 'route': {
+      if (m.route?.queued) return k('routeQueued', { name: to })
       const r = m.route
       if (r && m.hop > 0 && (r.mode === 'handoff' || r.mode === 'mention') && !r.reason) return k('handedOff', { name: to, n: m.hop })
       if (r?.mode === 'named' || r?.mode === 'reassign') return k('routeTo', { name: to, reason: k('routeNamed') })

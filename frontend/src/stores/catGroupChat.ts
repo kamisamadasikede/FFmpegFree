@@ -4,7 +4,7 @@
  */
 import { defineStore } from 'pinia'
 import { computed, reactive, ref } from 'vue'
-import { groupApi, groupRealApi, normalizeMember, normalizeMessage, type CatGroup, type CatGroupMember, type CatGroupMessage, type CatGroupRunning, type CatRouteDetail, type RevertResult } from '@/api/catGroupChat'
+import { groupApi, groupRealApi, normalizeMember, normalizeMessage, type CatGroup, type CatGroupMember, type CatGroupMessage, type CatGroupQueuedTask, type CatGroupRunning, type CatRouteDetail, type RevertResult } from '@/api/catGroupChat'
 import { groupMock, groupScene } from '@/api/catGroupChatMock'
 import { onEvent } from '@/services/wails'
 
@@ -24,8 +24,8 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
   const processText = reactive<Record<string, string>>({})
   /** 本次会话里已撤销越界改动的汇报 seq（成员栏「越界待处理」用） */
   const revertedSeqs = reactive<number[]>([])
-  /** 成员排队长度（契约 v0.55.6：cat:group-member.queueLength） */
-  const queued = reactive<Record<string, number>>({})
+  /** 成员排队任务（契约 v0.55.6 6.21.17 ④：cat:group-member.queue[]） */
+  const queued = reactive<Record<string, CatGroupQueuedTask[]>>({})
   const settingsOpen = ref(false)
   const membersOpen = ref(false)
   const scene = groupScene()
@@ -79,7 +79,8 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
       else upsertMember(normalizeMember(e.member))
       if (e.running) live[e.member.id] = { ...e.running, receivedAt: Date.now() }
       else delete live[e.member.id]
-      if (e.queueLength && e.queueLength > 0) queued[e.member.id] = e.queueLength
+      const q = e.queue ?? e.member.queue ?? []
+      if (q.length) queued[e.member.id] = q
       else delete queued[e.member.id]
     })
     // 「查看过程」：成员自己的会话流（convId=group:<g>:<m>），抽屉里只做文字预览
@@ -116,7 +117,7 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
       hasMore.value = page.hasMore
       if (!groupRealApi()) for (const e of groupMock.sceneRunning()) {
         if (e.running) live[e.member.id] = { ...e.running, receivedAt: Date.now() }
-        if (e.queueLength) queued[e.member.id] = e.queueLength
+        if (e.queue?.length) queued[e.member.id] = e.queue
       }
     } finally {
       loading.value = false

@@ -1787,6 +1787,7 @@
       "deleteHint": "Stops everyone's work first. Members' own sessions are kept.",
       "createOrderHint": "Drag to reorder. The first member is the fallback",
       "queued": "Queued · {n} ahead",
+      "queuedNext": "Queued · up next",
       "routeQueued": "To {name}: busy, queued behind current work",
       "optional": "optional"
     }

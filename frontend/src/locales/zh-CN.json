@@ -1787,6 +1787,7 @@
       "deleteHint": "先停下群里所有人的活；成员自己的会话不会删除。",
       "createOrderHint": "拖动排序，排第一的成员负责兜底",
       "queued": "排队中 · 前面还有 {n} 个",
+      "queuedNext": "排队中 · 下一个就轮到",
       "routeQueued": "交给 {name}：正在干活，排在后面",
       "optional": "选填"
     }
