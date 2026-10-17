@@ -31,11 +31,13 @@ esac
 F='@@F@@'
 cwd=""; sid=""; prev=""
 for a in "$@"; do
-  case "$prev" in --cwd) cwd="$a" ;; --session-id) sid="$a" ;; esac
+  case "$prev" in --cwd) cwd="$a" ;; --session-id) sid="$a" ;; --prompt-file) pf="$a" ;; esac
   prev="$a"
 done
 if [ -n "$sid" ] && [ -n "$cwd" ]; then mkdir -p "$HOME/.grok/sessions/$(printf %s "$cwd" | sed 's|/|%2F|g')/$sid"; fi
 ALL="$*"
+if [ -n "$pf" ] && [ -f "$pf" ]; then ALL="$ALL
+$(cat "$pf")"; fi
 case "$ALL" in
   *为项目群聊成员生成职责规范*)
     printf '%s\n' '{"type":"text","data":"{\"owns\":\"自己的活\",\"notTouch\":\"别人的活\",\"handoff\":\"\",\"dirs\":[]}"}'
@@ -320,5 +322,311 @@ func TestGroupE2E_MentionOne(t *testing.T) {
 	}
 	if len(find(ms, sys("no_handoff"))) != 1 {
 		t.Fatalf("no_handoff:\n%s", e.dump())
+	}
+}
+
+func cardsOf(ms []cat.GroupMessage, memberID string) []cat.GroupMessage {
+	return find(ms, func(m cat.GroupMessage) bool { return m.Kind == "member" && m.MemberID == memberID })
+}
+
+// 2. @ 两人并行；一条回复 @ 两人 hop 只 +1。
+func TestGroupE2E_MentionTwoParallelAndHop(t *testing.T) {
+	e := newGroupEnv(t, "甲", "乙", "丙")
+	e.reply("乙", report("乙做完", "", ""))
+	e.reply("丙", report("丙做完", "", ""))
+	e.file("乙", "sleep", "10")
+	e.file("丙", "sleep", "10")
+	start := time.Now()
+	e.send("一起做", "乙", "丙")
+	e.waitIdle()
+	if el := time.Since(start); el > 1800*time.Millisecond {
+		t.Fatalf("not parallel: %v", el)
+	}
+	ms := e.msgs()
+	for _, n := range []string{"乙", "丙"} {
+		c := cardsOf(ms, e.mem[n].ID)
+		if len(c) != 1 || c[0].Hop != 1 {
+			t.Fatalf("%s cards:\n%s", n, e.dump())
+		}
+	}
+	if len(cardsOf(ms, e.mem["甲"].ID)) != 0 {
+		t.Fatal("甲 must not run")
+	}
+
+	// 甲 一条回复 @ 乙 和 丙：两句转交灰字都是「第 1/6 次」，乙丙的卡 hop=2。
+	_ = os.Remove(filepath.Join(e.fake, "calls.log"))
+	e.reply("甲", report("甲做完", "", "@乙 做接口，@丙 做页面"))
+	chain := e.send("开工", "甲")
+	e.waitIdle()
+	ms = find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
+	routes := find(ms, sys("route"))
+	if len(routes) != 2 {
+		t.Fatalf("routes:\n%s", e.dump())
+	}
+	for _, r := range routes {
+		if !strings.Contains(r.Text, "（第 1/6 次）") || !strings.HasPrefix(r.Text, "已转交给 ") {
+			t.Fatalf("route copy %q", r.Text)
+		}
+	}
+	for _, n := range []string{"乙", "丙"} {
+		c := cardsOf(ms, e.mem[n].ID)
+		if len(c) != 1 || c[0].Hop != 2 {
+			t.Fatalf("%s hop:\n%s", n, e.dump())
+		}
+	}
+}
+
+// 3. 不 @：派活判断（一次性、不留会话）；超时 / 无效 → 第一位 + 兜底文案；自动派活关 → 第一位 + 对应文案。
+func TestGroupE2E_DispatchAI(t *testing.T) {
+	e := newGroupEnv(t, "前端", "后端")
+	e.reply("前端", report("前端做完", "", ""))
+	e.reply("后端", report("后端做完", "", ""))
+	ans, _ := json.Marshal(map[string]string{"memberId": e.mem["后端"].ID, "reason": "接口归后端"})
+	e.reply("route", string(ans))
+	chain := e.send("加个接口")
+	e.waitIdle()
+	ms := find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
+	if len(find(ms, func(m cat.GroupMessage) bool { return m.Kind == "system" && m.Text == "交给 后端：接口归后端" })) != 1 {
+		argv, _ := os.ReadFile(filepath.Join(e.fake, "route.argv")); out, _ := os.ReadFile(filepath.Join(e.fake, "route.out")); t.Logf("calls=%v argv=%s out=%s", e.calls(), argv, out)
+		t.Fatalf("ai route copy:\n%s", e.dump())
+	}
+	if c := e.calls(); strings.Join(c, ",") != "route,后端" {
+		t.Fatalf("calls %v", c)
+	}
+	argv, _ := os.ReadFile(filepath.Join(e.fake, "route.argv"))
+	if strings.Contains(string(argv), "--session-id") || strings.Contains(string(argv), "--resume") {
+		t.Fatalf("route turn must not keep a session: %s", argv)
+	}
+
+	fallback := "交给 前端：没判断出该谁接，先交给排第一的成员"
+	// 无效输出（不存在的成员）
+	_ = os.Remove(filepath.Join(e.fake, "calls.log"))
+	e.reply("route", `{"memberId":"nobody","reason":"x"}`)
+	chain = e.send("随便")
+	e.waitIdle()
+	ms = find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
+	if len(find(ms, func(m cat.GroupMessage) bool { return m.Text == fallback })) != 1 || len(cardsOf(ms, e.mem["前端"].ID)) != 1 {
+		t.Fatalf("invalid fallback:\n%s", e.dump())
+	}
+	// 非 JSON
+	e.reply("route", "我觉得是后端")
+	chain = e.send("随便2")
+	e.waitIdle()
+	ms = find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
+	if len(find(ms, func(m cat.GroupMessage) bool { return m.Text == fallback })) != 1 {
+		t.Fatalf("non-json fallback:\n%s", e.dump())
+	}
+
+	// 自动派活关
+	_ = os.Remove(filepath.Join(e.fake, "calls.log"))
+	if _, err := e.svc.SetCatGroupAutoRoute(context.Background(), cat.SetGroupAutoRouteRequest{GroupID: e.g.ID, On: false}); err != nil {
+		t.Fatal(err)
+	}
+	chain = e.send("关了派活")
+	e.waitIdle()
+	ms = find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
+	if len(find(ms, func(m cat.GroupMessage) bool { return m.Text == "交给 前端：没开自动派活，交给排第一的成员" })) != 1 {
+		t.Fatalf("auto off copy:\n%s", e.dump())
+	}
+	if c := e.calls(); strings.Join(c, ",") != "前端" {
+		t.Fatalf("auto off must not call route: %v", c)
+	}
+}
+
+func TestGroupE2E_DispatchTimeout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("20s route timeout")
+	}
+	e := newGroupEnv(t, "前端", "后端")
+	e.reply("前端", report("前端做完", "", ""))
+	e.reply("route", `{"memberId":"x","reason":"y"}`)
+	e.file("route", "sleep", "250") // > 20s 派活超时
+	chain := e.send("慢慢想")
+	e.waitIdle()
+	ms := find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
+	if len(find(ms, func(m cat.GroupMessage) bool { return m.Text == "交给 前端：没判断出该谁接，先交给排第一的成员" })) != 1 || len(cardsOf(ms, e.mem["前端"].ID)) != 1 {
+		t.Fatalf("timeout fallback:\n%s", e.dump())
+	}
+}
+
+// 4. 回复里 @ 接力，6 次封顶 + 灰字；@ 自己忽略。
+func TestGroupE2E_RelayLimit(t *testing.T) {
+	e := newGroupEnv(t, "甲", "乙")
+	e.reply("甲", report("甲做完", "", "@乙 继续"))
+	e.reply("乙", report("乙做完", "", "@甲 继续，@乙 我自己也看看"))
+	chain := e.send("开始", "甲")
+	e.waitIdle()
+	ms := find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
+	cards := find(ms, func(m cat.GroupMessage) bool { return m.Kind == "member" })
+	if len(cards) != 6 {
+		t.Fatalf("cards %d:\n%s", len(cards), e.dump())
+	}
+	routes := find(ms, sys("route"))
+	if len(routes) != 5 || !strings.Contains(routes[4].Text, "（第 5/6 次）") {
+		t.Fatalf("routes:\n%s", e.dump())
+	}
+	lim := find(ms, sys("hop_limit"))
+	if len(lim) != 1 || lim[0].Text != "已连续转交 6 次，先停在这里。需要继续请 @ 对应成员。" {
+		t.Fatalf("limit:\n%s", e.dump())
+	}
+	for _, c := range cardsOf(ms, e.mem["乙"].ID) {
+		for _, mid := range c.Mentions {
+			if mid == e.mem["乙"].ID {
+				t.Fatalf("self mention kept: %+v", c.Mentions)
+			}
+		}
+	}
+	if n := len(e.calls()); n != 6 {
+		t.Fatalf("calls %v", e.calls())
+	}
+}
+
+// 5. 换人：停掉原成员，灰字「已换人」「交给 X：你指定的」，不算接力。
+func TestGroupE2E_Reassign(t *testing.T) {
+	e := newGroupEnv(t, "甲", "乙")
+	e.reply("甲", report("甲做完", "", ""))
+	e.file("甲", "sleep", "100")
+	e.reply("乙", report("乙做完", "", ""))
+	chain := e.send("做", "甲")
+	e.waitFor(func([]cat.GroupMessage) bool { return len(e.calls()) == 1 })
+	time.Sleep(100 * time.Millisecond)
+	if _, err := e.svc.ReassignCatGroupRoute(context.Background(), cat.ReassignGroupRouteRequest{GroupID: e.g.ID, ChainID: chain, ToMemberID: e.mem["乙"].ID}); err != nil {
+		t.Fatal(err)
+	}
+	e.waitIdle()
+	ms := find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
+	want := []string{"已换人：甲 → 乙", "交给 乙：你指定的", "甲 已停止（换人时停下的）"}
+	for _, w := range want {
+		if len(find(ms, func(m cat.GroupMessage) bool { return m.Kind == "system" && m.Text == w })) != 1 {
+			t.Fatalf("missing %q:\n%s", w, e.dump())
+		}
+	}
+	if len(cardsOf(ms, e.mem["甲"].ID)) != 0 {
+		t.Fatalf("甲 must not post a card:\n%s", e.dump())
+	}
+	c := cardsOf(ms, e.mem["乙"].ID)
+	if len(c) != 1 || c[0].Hop != 1 {
+		t.Fatalf("乙 card hop (reassign must not count):\n%s", e.dump())
+	}
+	if len(find(ms, func(m cat.GroupMessage) bool { return strings.HasPrefix(m.Text, "已转交给") })) != 0 {
+		t.Fatalf("reassign counted as relay:\n%s", e.dump())
+	}
+}
+
+// 6. 越界：标出来；撤销只在内容一致时恢复；之后又改过 → 报错；来源不明不能撤。
+func TestGroupE2E_Overreach(t *testing.T) {
+	e := newGroupEnv(t, "前端", "后端")
+	e.setDirs("前端", "frontend")
+	e.writeOnRun("前端", map[string]string{
+		"frontend/app.ts": "export const a = 1\n",
+		"backend/api.go":  "package api // 前端改的\n",
+		"README.md":       "被谁改了\n", // 不在工具调用里：来源不明
+	})
+	e.reply("前端", report("改了页面", "", ""), "frontend/app.ts", "backend/api.go")
+	chain := e.send("改页面", "前端")
+	e.waitIdle()
+	ms := find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
+	c := cardsOf(ms, e.mem["前端"].ID)
+	if len(c) != 1 {
+		t.Fatalf("card:\n%s", e.dump())
+	}
+	tags := map[string]string{}
+	for _, f := range c[0].Report.Files {
+		tags[f.Path] = f.Tag
+	}
+	if tags["frontend/app.ts"] != "" || tags["backend/api.go"] != "overreach" || tags["README.md"] != "unknown" {
+		t.Fatalf("tags %+v", c[0].Report.Files)
+	}
+	res, err := e.svc.RevertCatOverreach(context.Background(), cat.RevertOverreachRequest{MemberID: e.mem["前端"].ID, TurnID: c[0].TurnID, Files: []string{"backend/api.go", "README.md"}})
+	if len(res.Reverted) != 1 || res.Reverted[0] != "backend/api.go" {
+		t.Fatalf("revert %+v %v", res, err)
+	}
+	if len(res.Skipped) != 1 || res.Skipped[0].Path != "README.md" || res.Skipped[0].Reason != "来源不明，不能撤销" || err == nil {
+		t.Fatalf("unknown must be skipped: %+v %v", res, err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(e.root, "backend", "api.go")); string(b) != "package api\n" {
+		t.Fatalf("not restored: %q", b)
+	}
+
+	// 第二轮越界，之后有人又改了 → 不能自动撤销。
+	e.writeOnRun("前端", map[string]string{"backend/api.go": "package api // 又越界\n"})
+	e.reply("前端", report("又改了", "", ""), "backend/api.go")
+	chain = e.send("再改", "前端")
+	e.waitIdle()
+	c = cardsOf(find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain }), e.mem["前端"].ID)
+	if len(c) != 1 {
+		t.Fatalf("card2:\n%s", e.dump())
+	}
+	_ = os.WriteFile(filepath.Join(e.root, "backend", "api.go"), []byte("package api // 后端后来改的\n"), 0o644)
+	res, err = e.svc.RevertCatOverreach(context.Background(), cat.RevertOverreachRequest{MemberID: e.mem["前端"].ID, TurnID: c[0].TurnID, Files: []string{"backend/api.go"}})
+	if err == nil || len(res.Reverted) != 0 || len(res.Skipped) != 1 || !strings.Contains(res.Skipped[0].Reason, "之后又被改过") {
+		t.Fatalf("changed-after must fail: %+v %v", res, err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(e.root, "backend", "api.go")); string(b) != "package api // 后端后来改的\n" {
+		t.Fatalf("must not touch: %q", b)
+	}
+}
+
+// 7. 失败 / 停止：只发灰字，不发汇报、不接力；重试 hop 不加。
+func TestGroupE2E_FailStopRetry(t *testing.T) {
+	e := newGroupEnv(t, "甲", "乙")
+	e.reply("甲", report("甲做完", "", "@乙 接着"))
+	e.file("乙", "out", `{"type":"error","message":"额度用完了"}`+"\n")
+	e.file("乙", "exit", "1")
+	chain := e.send("做", "甲")
+	e.waitIdle()
+	ms := find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
+	f := find(ms, sys("failed"))
+	if len(f) != 1 || !strings.HasPrefix(f[0].Text, "乙 没完成：") || f[0].FailReason == "" || f[0].Hop != 1 {
+		t.Fatalf("failed:\n%s", e.dump())
+	}
+	if len(cardsOf(ms, e.mem["乙"].ID)) != 0 || len(find(ms, sys("no_handoff"))) != 0 {
+		t.Fatalf("failure must not post report:\n%s", e.dump())
+	}
+
+	// 重试：同一 hop 再跑一轮，卡 hop 跟原来一样（2），不再加。
+	_ = os.Remove(filepath.Join(e.fake, "乙.exit"))
+	e.reply("乙", report("乙重试做完", "", ""))
+	if err := e.svc.RetryCatGroupMemberTurn(context.Background(), cat.RetryGroupMemberTurnRequest{GroupID: e.g.ID, MemberID: e.mem["乙"].ID, ChainID: chain}); err != nil {
+		t.Fatal(err)
+	}
+	e.waitIdle()
+	ms = find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
+	c := cardsOf(ms, e.mem["乙"].ID)
+	if len(c) != 1 || c[0].Hop != 2 || c[0].Report.Did != "乙重试做完" {
+		t.Fatalf("retry card hop must equal original (2):\n%s", e.dump())
+	}
+
+	// 停止
+	e.file("甲", "sleep", "100")
+	chain = e.send("再做", "甲")
+	e.waitFor(func([]cat.GroupMessage) bool { return strings.Count(strings.Join(e.calls(), ","), "甲") == 2 })
+	time.Sleep(100 * time.Millisecond)
+	if err := e.svc.StopCatGroupMember(context.Background(), e.mem["甲"].ID); err != nil {
+		t.Fatal(err)
+	}
+	e.waitIdle()
+	ms = find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
+	if len(find(ms, func(m cat.GroupMessage) bool { return m.Kind == "system" && m.Text == "甲 已停止" })) != 1 ||
+		len(find(ms, func(m cat.GroupMessage) bool { return m.Kind == "member" })) != 0 ||
+		len(find(ms, sys("route"))) != 0 {
+		t.Fatalf("stop:\n%s", e.dump())
+	}
+}
+
+// 8. 没按汇报格式：整段当 did + systemKind=report_format 灰字。
+func TestGroupE2E_UnparsedReport(t *testing.T) {
+	e := newGroupEnv(t, "甲")
+	e.reply("甲", "我把按钮改成蓝色了，顺便调了间距。")
+	chain := e.send("改按钮", "甲")
+	e.waitIdle()
+	ms := find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
+	c := cardsOf(ms, e.mem["甲"].ID)
+	if len(c) != 1 || c[0].Report.Parsed || c[0].Report.Did != "我把按钮改成蓝色了，顺便调了间距。" {
+		t.Fatalf("card:\n%s", e.dump())
+	}
+	g := find(ms, sys("report_format"))
+	if len(g) != 1 || g[0].Text != "没按汇报格式写，只显示最后一段回复" {
+		t.Fatalf("gray:\n%s", e.dump())
 	}
 }
