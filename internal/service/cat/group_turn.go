@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"FFmpegFree/internal/catagent"
+	"FFmpegFree/internal/i18n"
 	"FFmpegFree/internal/id"
 	"FFmpegFree/internal/store"
 )
@@ -230,6 +231,12 @@ func (s *Service) startGroupMemberTurn(ctx context.Context, g store.CatGroup, m 
 		})
 		if err == nil {
 			s.emitGroupMessage(outMsg)
+			if !report.Parsed {
+				// 6.21.15 / 产品确认：解析失败时整段当 did，并发灰字提示
+				s.postSystem(context.Background(), g.ID, chainID, hop+1, "system",
+					i18n.T(i18n.KeyCatGroupReportUnparsed, nil), "report_format",
+					store.CatRouteInfo{Mode: "done", MemberID: m.ID, Reason: "unparsed"}, "", "")
+			}
 		}
 		_ = s.cfg.Store.UpdateCatGroupMemberLastSeen(context.Background(), m.ID, outMsg.Seq)
 
