@@ -1,10 +1,10 @@
 /**
  * 群聊走查假数据（浏览器预览，无 Wails 绑定时用；正式包有绑定不会走到这里）。
  * 地址带 ?cat_group_scene=<scene> 时按固定种子出静态画面（截图用，不跑定时器）：
- *   main / working / report / overstep / create / charter / failure / settings / narrow
+ *   与设计稿 18 个场景同名（list … narrow-single）
  * 不带 scene：普通交互模拟（发送后约 1.2s 出派活灰字、3s 出汇报）。
  */
-import type { CatGroup, CatGroupMember, CatGroupMessage, CatGroupMemberEvent, CatGroupRouteEvent, CatRouteDetail, RevertResult, CatCharter } from './catGroupChat'
+import type { CatGroup, CatGroupMember, CatGroupMessage, CatGroupMemberEvent, CatGroupRouteEvent, CatRouteDetail, RevertResult, CatCharter, CatGroupReport } from './catGroupChat'
 
 type L<T> = Set<(p: T) => void>
 const L = {
@@ -15,7 +15,7 @@ const L = {
 const on = <T,>(set: L<T>, cb: (p: T) => void) => { set.add(cb); return () => { set.delete(cb) } }
 const emit = <T,>(set: L<T>, p: T) => [...set].forEach((cb) => cb(p))
 
-export const GROUP_SCENES = ['main', 'working', 'report', 'overstep', 'create', 'charter', 'failure', 'settings', 'narrow'] as const
+export const GROUP_SCENES = ['list', 'create', 'rolegen', 'main', 'members', 'mention', 'working', 'report', 'error', 'dispatch', 'swap', 'overstep', 'overstep-undo', 'overstep-result', 'session', 'settings', 'narrow-drawer', 'narrow-single'] as const
 export type GroupScene = (typeof GROUP_SCENES)[number]
 export function groupScene(): GroupScene | null {
   if (typeof location === 'undefined' || (typeof window !== 'undefined' && (window as unknown as { go?: unknown }).go)) return null
@@ -23,7 +23,8 @@ export function groupScene(): GroupScene | null {
   return (GROUP_SCENES as readonly string[]).includes(s ?? '') ? (s as GroupScene) : null
 }
 
-const T0 = new Date(2026, 9, 17, 14, 0, 0).getTime() // 固定时间，截图稳定
+const T0 = new Date(2026, 9, 17, 0, 0, 0).getTime()
+const at = (hm: string) => { const [h, m] = hm.split(':').map(Number); return T0 + (h * 60 + m) * 60_000 }
 const PID = 'p3'
 let seq = 0
 let idn = 0
@@ -34,85 +35,121 @@ const members: CatGroupMember[] = []
 const messages: CatGroupMessage[] = []
 
 function charter(owns: string, notTouch: string, handoff: string, dirs: string[], status: CatCharter['status'] = 'ok', edited: string[] = []): CatCharter {
-  return { status, owns, notTouch, handoff, dirs, edited, updatedAt: T0 }
+  return { status, owns, notTouch, handoff, dirs, edited, updatedAt: T0 } as CatCharter
 }
-function push(m: Omit<CatGroupMessage, 'seq' | 'createdAt' | 'groupId'> & { groupId?: string }, at?: number): CatGroupMessage {
-  const full = { groupId: 'g1', ...m, seq: ++seq, createdAt: at ?? T0 + seq * 45_000 } as CatGroupMessage
+let lastAt = at('17:00')
+function push(m: Partial<CatGroupMessage> & { kind: string }, when?: number): CatGroupMessage {
+  lastAt = when ?? lastAt + 20_000
+  const full = { groupId: 'g1', text: '', chainId: 'c1', hop: 0, ...m, seq: ++seq, createdAt: lastAt } as CatGroupMessage
   messages.push(full)
   return full
 }
+const foot = (hm: string, out: number, rate: number) => ({ finishedAt: at(hm), outputTokens: out, tokensPerSec: rate, totalMs: Math.round((out / rate) * 1000) })
 
-function seed() {
-  if (groups.length) return
+/* 与设计原型 proto/cat-project-group/g.js 同一套示例数据（对照截图用） */
+function seedBase() {
   groups.push(
-    { id: 'g1', projectId: PID, name: '字幕改版', autoRoute: true, createdAt: T0, updatedAt: T0 },
-    { id: 'g2', projectId: PID, name: '发版检查', autoRoute: false, createdAt: T0, updatedAt: T0 },
+    { id: 'g1', projectId: PID, name: 'v0.55 群聊开发', autoRoute: true, createdAt: T0, updatedAt: T0 } as CatGroup,
+    { id: 'g2', projectId: PID, name: '发版检查', autoRoute: true, createdAt: T0, updatedAt: T0 } as CatGroup,
   )
+  const mem = (id: string, gid: string, name: string, title: string, agentKind: string, modelId: string, order: number, ch: CatCharter) =>
+    ({ id, groupId: gid, name, title, agentKind, modelId, order, charter: ch }) as CatGroupMember
   members.push(
-    { id: 'm1', groupId: 'g1', name: '小周', title: '产品经理', agentKind: 'claude_cli', modelId: 'claude-sonnet-4.5', order: 0,
-      charter: charter('拆需求、写验收标准、排优先级', '不改代码和配置', '需求定了交给 小林（前端）和 老陈（后端）', ['docs/'], 'ok', ['owns']) },
-    { id: 'm2', groupId: 'g1', name: '小林', title: '前端工程师', agentKind: 'cat_build', modelId: 'grok-code-fast-1', order: 1,
-      charter: charter('frontend/ 下的界面、样式、文案和前端测试', '不改 internal/ 和数据库迁移', '界面做完交给 阿杰（测试）', ['frontend/']) },
-    { id: 'm3', groupId: 'g1', name: '老陈', title: '后端工程师', agentKind: 'codex_cli', modelId: 'gpt-5.3-codex', order: 2,
-      charter: charter('internal/ 下的服务、绑定和迁移', '不碰 frontend/', '接口好了交给 小林（前端）', ['internal/', 'app/'], 'ok', ['notTouch', 'dirs']) },
-    { id: 'm4', groupId: 'g1', name: '阿杰', title: '测试工程师', agentKind: 'claude_cli', modelId: 'claude-haiku-4.5', order: 3,
-      charter: charter('写用例、跑回归、记录问题', '不改业务代码', '有问题交回对应的人', ['tests/']) },
+    mem('a', 'g1', '架构师', '架构师', 'claude_cli', 'Claude Opus 4.5', 0, charter('契约与技术方案，拆任务、定接口和验收口径', '不写业务代码，不改前端页面', '方案定了 → @后端工程师 @前端工程师', [])),
+    mem('b', 'g1', '后端工程师', '后端工程师', 'codex_cli', 'gpt-5.2-codex', 1, charter('Go 后端：群聊存储、派活、汇报解析、越界检查', '不改 frontend/ 和契约', '接口好了 → @前端工程师；要验证 → @测试', ['internal/catagent/', 'internal/store/', 'app_cat_*.go'], 'ok', ['dirs'])),
+    mem('f', 'g1', '前端工程师', '前端工程师', 'cat_build', 'grok-code-fast', 2, charter('Vue 页面：群消息流、汇报卡、干活条、查看过程', '不改 Go 代码和契约', '页面好了 → @测试', ['frontend/src/'])),
+    mem('q', 'g1', '测试', '测试工程师', 'claude_cli', 'Claude Sonnet 4.5', 3, charter('按 6.21.11 跑验收用例，报缺陷', '不改业务代码', '有缺陷 → 对应负责人', ['tests/'])),
+    mem('a2', 'g2', '架构师', '架构师', 'claude_cli', 'Claude Opus 4.5', 0, charter('发版前检查清单', '不改代码', '有问题 → @测试', [])),
+    mem('q2', 'g2', '测试', '测试工程师', 'claude_cli', 'Claude Sonnet 4.5', 1, charter('跑回归', '不改业务代码', '有缺陷 → 对应负责人', ['tests/'])),
   )
-  const c1 = 'c1'
-  push({ kind: 'user', text: '字幕面板要支持批量改时间轴，@小周 先把需求拆一下', mentions: ['m1'], chainId: c1, hop: 0 })
-  push({ kind: 'member', memberId: 'm1', chainId: c1, hop: 0, turnId: 't1', text: '',
-    report: { did: '把「批量改时间轴」拆成 3 条：多选字幕、整体平移、按比例拉伸；验收标准写进 docs/subtitle-batch.md。', give: '@小林 做多选和平移的界面；@老陈 加 ShiftCues 绑定', parsed: true,
-      files: [{ path: 'docs/subtitle-batch.md', added: 48 }], footer: { totalMs: 41_000, outputTokens: 1830 } } })
-  push({ kind: 'system', systemKind: 'route', chainId: c1, hop: 1, toMemberId: 'm2', route: { mode: 'handoff', memberId: 'm2' }, text: '' })
-  push({ kind: 'system', systemKind: 'route', chainId: c1, hop: 1, toMemberId: 'm3', route: { mode: 'handoff', memberId: 'm3' }, text: '' })
-  push({ kind: 'member', memberId: 'm3', chainId: c1, hop: 1, turnId: 't2', text: '',
-    report: { did: '加了 ShiftCues(convId, ids[], offsetMs) 绑定和单测，越界时间裁到 0。', attn: '比例拉伸要等产品确认锚点是首条还是选区中点，先没做。', give: '@小林 绑定已就绪，可以接', parsed: true,
-      files: [{ path: 'internal/subtitle/shift.go', added: 86, deleted: 4 }, { path: 'internal/subtitle/shift_test.go', added: 120 }, { path: 'app/subtitle_bindings.go', added: 22 }], footer: { totalMs: 128_000, outputTokens: 4210 } } })
+}
+const T1 = '群聊失败灰字旁边加「重试」：同一任务再跑一轮，hop 不加。先出方案，再分给前后端。'
+const rep = (memberId: string, hop: number, hm: string, r: Partial<CatGroupReport> & { did: string }, chainId = 'c1') =>
+  push({ kind: 'member', memberId, chainId, hop, turnId: `t-${memberId}-${seq}`, report: { files: [], parsed: true, ...r } }, at(hm))
+const rArch = (hm = '17:12', o: Partial<CatGroupReport> = {}, chainId = 'c1') => rep('a', 0, hm, {
+  did: '重试方案定了：新增绑定 `RetryCatGroupMemberTurn`，按同一 chainId 把该成员的任务再跑一轮，hop 不加；失败灰字旁加「重试」按钮。已写进契约 6.21.15。',
+  files: [{ path: 'docs/architecture/contract.md', added: 38, deleted: 2 }],
+  give: '@后端工程师 实现绑定和单测，失败/停止后才允许重试\n@前端工程师 失败灰字旁接「重试」按钮，点了乐观显示「正在安排…」', footer: foot(hm, 2100, 38), ...o }, chainId)
+const rBe = () => rep('b', 1, '17:19', {
+  did: '`RetryCatGroupMemberTurn` 做好了：校验该成员本链最后一轮是失败或停止，复用原任务再跑一轮，hop 不变。单测 9 个全过。',
+  files: [{ path: 'internal/catagent/group_retry.go', added: 86 }, { path: 'internal/catagent/group_retry_test.go', added: 124 }, { path: 'app_cat_group.go', added: 14, deleted: 2 }],
+  attn: '成员已被移出群时返回 `member_not_found`，前端按现有错误文案显示即可。', give: '@测试 跑 6.21.11 ④ 的重试用例，三家各一次', footer: foot('17:19', 4600, 52) })
+const user = (text: string, hm: string, chainId: string, mentions: string[] = []) => push({ kind: 'user', text, mentions, chainId, hop: 0 }, at(hm))
+const route = (to: string, chainId: string, hop: number, mode: string, reason = '') => push({ kind: 'system', systemKind: 'route', chainId, hop, toMemberId: to, route: { mode, memberId: to, reason: reason || undefined } })
+const sys = (kind: string, extra: Partial<CatGroupMessage>) => push({ kind: 'system', systemKind: kind, ...extra })
+const OV_FILES = [
+  { path: 'frontend/src/views/cat/GroupStream.vue', added: 64, deleted: 8 }, { path: 'frontend/src/views/cat/RetryButton.vue', added: 41 },
+  { path: 'internal/catagent/group_retry.go', added: 6, deleted: 2, tag: 'overreach' }, { path: 'app_cat_group.go', added: 3, deleted: 1, tag: 'overreach' },
+  { path: 'frontend/src/i18n/ja.json', added: 2, tag: 'unknown' },
+]
+const rFe = () => rep('f', 2, '17:24', {
+  did: '失败灰字旁的「重试」接上了：点了先显示「正在安排…」，成员状态回到正在干活；中英日文案都加了。', files: OV_FILES,
+  attn: '为了联调方便顺手改了两处后端文件（重试的错误码映射），不在我负责的目录里，请后端确认或撤销。', give: '@测试 前端好了，可以连同后端一起跑重试用例', footer: foot('17:24', 5800, 47) })
+
+function mainStream() {
+  user(T1, '17:08', 'c1')
+  route('a', 'c1', 0, 'ai', '先出方案再拆给前后端')
+  rArch()
+  route('b', 'c1', 1, 'handoff')
+  route('f', 'c1', 1, 'handoff')
+  rBe()
+  route('q', 'c1', 2, 'handoff')
 }
 
-function sceneSeed(s: GroupScene) {
-  seed()
-  const c2 = 'c2'
-  if (s === 'report' || s === 'overstep' || s === 'failure' || s === 'narrow') {
-    push({ kind: 'user', text: '时间轴面板顺手把快捷键也加上', chainId: c2, hop: 0 })
-    push({ kind: 'system', systemKind: 'route', chainId: c2, hop: 0, toMemberId: 'm2', route: { mode: 'ai', memberId: 'm2', reason: '快捷键属于前端界面' }, text: '' })
+/** 场景界面状态：正在干活的人 [id, elapsedMs, toolCount] 等 */
+export interface SceneUi { running: [string, number, number][]; scroll?: 'top' | 'bottom'; openRoute?: boolean; swapOpen?: boolean; revertDone?: boolean }
+let ui: SceneUi = { running: [] }
+function sceneSeed(s: GroupScene): SceneUi {
+  seedBase()
+  const W: [string, number, number][] = [['f', 133_000, 14], ['q', 38_000, 0]]
+  switch (s) {
+    case 'list': return { running: [] }
+    case 'main': case 'create': case 'rolegen': case 'mention': case 'settings':
+      mainStream()
+      if (s === 'rolegen') { members[2].charter = charter('', '', '', [], 'generating'); members[3].charter = charter('', '', '', [], 'failed') }
+      return { running: s === 'main' || s === 'create' ? [['q', 38_000, 3]] : [] }
+    case 'members': case 'working': case 'session': case 'narrow-drawer': case 'narrow-single':
+      mainStream()
+      return { running: W }
+    case 'report':
+      rArch(); route('b', 'c1', 1, 'handoff'); route('f', 'c1', 1, 'handoff'); rBe(); route('q', 'c1', 2, 'handoff')
+      rep('q', 2, '17:31', { parsed: false, footer: foot('17:31', 1900, 36),
+        did: '三家都跑了一遍重试：Claude 和 Codex 失败后点重试都能接着跑，hop 没变；Grok Build 登录过期那次重试仍然失败，报错文案正常。另外停止后重试也正常。用例记录我放在 tests/group/retry.md 了。' })
+      sys('no_handoff', { memberId: 'q', hop: 2 })
+      return { running: [] }
+    case 'error':
+      rBe(); route('f', 'c1', 2, 'handoff'); route('q', 'c1', 2, 'handoff')
+      sys('failed', { memberId: 'f', hop: 2, failReason: 'Grok Build 登录已过期，请到设置里重新登录' })
+      sys('stopped', { memberId: 'q', hop: 2 })
+      user('@架构师 把评审意见也加进契约，然后继续交下去', '17:40', 'c3', ['a'])
+      rArch('17:43', { did: '评审意见已补进契约 6.21.15。', files: [{ path: 'docs/architecture/contract.md', added: 6 }], give: '@后端工程师 照新口径复核一遍' }, 'c3')
+      route('b', 'c3', 6, 'handoff')
+      sys('hop_limit', { chainId: 'c3', hop: 6 })
+      return { running: [] }
+    case 'dispatch':
+      user(T1, '17:08', 'c1'); route('a', 'c1', 0, 'ai', '先出方案再拆给前后端'); rArch()
+      user('再改一下，按钮文案用「重试」两个字就行', '17:15', 'c4'); route('a', 'c4', 0, 'followup')
+      user('发版前把更新日志整理一下', '17:33', 'c5'); route('a', 'c5', 0, 'fallback')
+      user('顺便看下 Windows 打包脚本', '17:36', 'c6'); route('a', 'c6', 0, 'off')
+      return { running: [['a', 65_000, 6]], scroll: 'top', openRoute: true }
+    case 'swap':
+      user('重试按钮点了以后，成员卡片要回到「正在干活」状态', '17:46', 'c8'); route('b', 'c8', 0, 'ai', '涉及成员状态推送')
+      sys('reassign', { chainId: 'c8', fromMemberId: 'b', toMemberId: 'f' })
+      sys('stopped', { chainId: 'c8', memberId: 'b', fromMemberId: 'b', toMemberId: 'f' })
+      route('f', 'c8', 0, 'reassign')
+      return { running: [['f', 12_000, 1]], swapOpen: true }
+    case 'overstep': case 'overstep-undo': case 'overstep-result':
+      rBe(); route('f', 'c1', 2, 'handoff'); rFe(); route('q', 'c1', 3, 'handoff')
+      return { running: s === 'overstep-result' ? [] : [['q', 21_000, 2]], revertDone: s === 'overstep-result' }
   }
-  if (s === 'report' || s === 'narrow') {
-    push({ kind: 'member', memberId: 'm2', chainId: c2, hop: 0, turnId: 't3', text: '',
-      report: { did: '时间轴面板支持多选（Shift / Ctrl）和整体平移，快捷键 Alt+← / Alt+→ 每次 100ms。', attn: '平移后没自动保存，沿用现在的「未保存」提示。', give: '@阿杰 帮忙回归一下多选 + 撤销', parsed: true,
-        files: [{ path: 'frontend/src/components/subtitle/Timeline.vue', added: 132, deleted: 18 }, { path: 'frontend/src/locales/zh-CN.json', added: 6 }], footer: { totalMs: 96_000, outputTokens: 3120 } } })
-    push({ kind: 'system', systemKind: 'route', chainId: c2, hop: 1, toMemberId: 'm4', route: { mode: 'handoff', memberId: 'm4' }, text: '' })
-    push({ kind: 'member', memberId: 'm4', chainId: c2, hop: 1, turnId: 't4', text: '',
-      report: { did: '回归跑完了，多选和撤销都正常，Alt+→ 在最后一条会越过视频时长，已经记下来了。顺手看了下导出也没问题。', parsed: false, files: [], footer: { totalMs: 52_000, outputTokens: 980 } } })
-    push({ kind: 'system', systemKind: 'report_format', memberId: 'm4', chainId: c2, hop: 1, text: '' })
-    push({ kind: 'system', systemKind: 'no_handoff', memberId: 'm4', chainId: c2, hop: 1, text: '' })
-  }
-  if (s === 'overstep') {
-    push({ kind: 'member', memberId: 'm2', chainId: c2, hop: 0, turnId: 't3', text: '',
-      report: { did: '加了快捷键 Alt+← / Alt+→，顺手把后端的步长常量也改成了 100ms。', give: '@阿杰 回归快捷键', parsed: true,
-        files: [
-          { path: 'frontend/src/components/subtitle/Timeline.vue', added: 40, deleted: 3 },
-          { path: 'go.sum', tag: 'unknown', added: 2 },
-          { path: 'internal/subtitle/shift.go', tag: 'overreach', added: 2, deleted: 2 },
-          { path: 'internal/subtitle/const.go', tag: 'overreach', added: 1, deleted: 1 },
-          { path: 'app/subtitle_bindings.go', tag: 'overreach', added: 4 },
-          { path: 'internal/store/migrate.go', tag: 'overreach', added: 3 },
-        ], footer: { totalMs: 74_000, outputTokens: 2240 } } })
-  }
-  if (s === 'failure') {
-    push({ kind: 'system', systemKind: 'failed', memberId: 'm2', chainId: c2, hop: 0, failReason: '模型服务商返回 429（请求过多），稍后再试。', text: '' })
-    push({ kind: 'system', systemKind: 'stopped', memberId: 'm3', chainId: 'c1', hop: 1, text: '' })
-  }
-  if (s === 'charter') {
-    members.push({ id: 'm5', groupId: 'g1', name: '小吴', title: '设计师', agentKind: 'codex_cli', modelId: 'gpt-5.3-codex', order: 4, charter: charter('', '', '', [], 'generating') })
-    members[3].charter = charter('', '', '', [], 'failed')
-  }
+  return { running: [] }
 }
 
-function sceneRunning(s: GroupScene | null): CatGroupMemberEvent[] {
-  if (s !== 'working' && s !== 'narrow') return []
-  const r = (id: string, ms: number, tools: number): CatGroupMemberEvent => ({ groupId: 'g1', member: members.find((m) => m.id === id)!, running: { turnId: `tr-${id}`, startedAt: T0, toolCount: tools, elapsedMs: ms } })
-  return s === 'working' ? [r('m2', 83_000, 7), r('m3', 12_000, 0)] : [r('m2', 83_000, 7)]
+/** 查看过程抽屉的走查内容 */
+export const SESSION_DEMO = '先看一下现有的失败灰字组件和群消息流的事件订阅。\n\n[search] systemKind === \'failed\' in frontend/src\n[read] frontend/src/views/cat/GroupStream.vue\n[edit] frontend/src/views/cat/RetryButton.vue  +41\n+ const onRetry = () => RetryCatGroupMemberTurn({ groupId, memberId, chainId })\n[run] npm run typecheck\nvue-tsc --noEmit  ✓ 0 errors\n\n类型检查通过。接下来把中英日文案补上，然后写汇报'
+
+function sceneRunning(): CatGroupMemberEvent[] {
+  return ui.running.map(([id, ms, tools]) => ({ groupId: 'g1', member: members.find((m) => m.id === id)!, running: { turnId: `tr-${id}`, startedAt: T0, toolCount: tools, elapsedMs: ms } }))
 }
 
 const sc = groupScene()
@@ -120,8 +157,8 @@ let booted = false
 function boot() {
   if (booted) return
   booted = true
-  if (sc) sceneSeed(sc)
-  else seed()
+  if (sc) ui = sceneSeed(sc)
+  else { seedBase(); mainStream() }
 }
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v))
@@ -163,7 +200,7 @@ function fakeTurn(gid: string, mid: string, chainId: string, hop: number) {
     running.delete(mid)
     emit(L.mem, { groupId: gid, member: clone(m) })
     emit(L.msg, push({ groupId: gid, kind: 'member', memberId: mid, chainId, hop, turnId, text: '',
-      report: { did: `${m.name}处理完了这条任务（走查假数据）。`, parsed: true, files: [{ path: `${m.charter.dirs[0] ?? ''}README.md`, added: 3 }], footer: { totalMs: Date.now() - startedAt, outputTokens: 420 } } }, Date.now()))
+      report: { did: `${m.name}处理完了这条任务（走查假数据）。`, parsed: true, files: [{ path: `${m.charter.dirs[0] ?? ''}README.md`, added: 3 }], footer: { finishedAt: Date.now(), totalMs: Date.now() - startedAt, outputTokens: 420, tokensPerSec: 40 } } }, Date.now()))
     emit(L.msg, push({ groupId: gid, kind: 'system', systemKind: 'no_handoff', memberId: mid, chainId, hop, text: '' }, Date.now()))
   }, 3200)
 }
@@ -280,17 +317,17 @@ export const groupMock = {
     return { messages: clone(all.slice(-limit)), hasMore: all.length > limit }
   },
   async routeDetail(_groupId: string, seq: number) {
-    return routeDetails.get(seq) ?? { input: '【你】时间轴面板顺手把快捷键也加上\n成员：小周（产品经理）/ 小林（前端工程师）/ 老陈（后端工程师）/ 阿杰（测试工程师）', output: '{"memberId":"m2","reason":"快捷键属于前端界面"}', mode: 'ai', memberId: 'm2', reason: '快捷键属于前端界面' }
+    return routeDetails.get(seq) ?? { input: '这条任务 + 最近 10 条群消息 + 4 位成员的职责', output: '{\n  "memberId": "a",\n  "reason": "先出方案再拆给前后端"\n}', mode: 'ai', memberId: 'a', reason: '先出方案再拆给前后端' }
   },
   async revert(_memberId: string, _turnId: string, files: string[]): Promise<RevertResult> {
     await wait(sc ? 0 : 400)
-    const [conflict, ...rest] = files
-    return files.length > 2 ? { reverted: rest, skipped: [{ path: conflict, reason: 'changed_after' }] } : { reverted: files, skipped: [] }
+    return files.length >= 2 ? { reverted: files.slice(0, -1), skipped: [{ path: files[files.length - 1], reason: 'changed_after' }] } : { reverted: files, skipped: [] }
   },
   async retry(groupId: string, memberId: string, chainId: string) { fakeTurn(groupId, memberId, chainId, 0) },
   onMessage: (cb: (m: CatGroupMessage) => void) => on(L.msg, cb),
   onMember: (cb: (e: CatGroupMemberEvent) => void) => on(L.mem, cb),
   onRoute: (cb: (e: CatGroupRouteEvent) => void) => on(L.route, cb),
   /** 场景种子里「正在干活」的成员（store 打开群时读一次） */
-  sceneRunning: () => { boot(); return sceneRunning(sc) },
+  sceneRunning: () => { boot(); return sceneRunning() },
+  sceneUi: () => { boot(); return ui },
 }

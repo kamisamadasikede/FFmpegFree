@@ -116,17 +116,17 @@ html.dark,
 
 /* v0.55.5 项目群聊：成员头像色（循环 1…5，契约 6.21.16；替代原型 --gm-*） */
 :root {
-  --cat-member-1: #3b6fe0;
-  --cat-member-2: #0f9d76;
-  --cat-member-3: #b7791f;
+  --cat-member-1: #3370ff;
+  --cat-member-2: #0f9d6c;
+  --cat-member-3: #c2570c;
   --cat-member-4: #8b5cf6;
-  --cat-member-5: #d14d8a;
+  --cat-member-5: #0e9aa7;
 }
 html.dark,
 .ff-dark {
-  --cat-member-1: #6b95f0;
-  --cat-member-2: #34c79d;
-  --cat-member-3: #e0a43c;
+  --cat-member-1: #6b95ff;
+  --cat-member-2: #34c78f;
+  --cat-member-3: #fb923c;
   --cat-member-4: #a78bfa;
-  --cat-member-5: #e879b0;
+  --cat-member-5: #2dd4bf;
 }

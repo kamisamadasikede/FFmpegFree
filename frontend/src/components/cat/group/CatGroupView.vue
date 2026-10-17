@@ -384,14 +384,14 @@ const initialOpen = ref('')
 function applyScene() {
   const s = store.scene
   if (!s) return
-  if (s === 'overstep') revertMsg.value = store.messages.find((m) => overreach(m).length) ?? null
+  if (s === 'overstep-undo') revertMsg.value = store.messages.find((m) => overreach(m).length) ?? null
   if (s === 'settings') store.settingsOpen = true
-  if (s === 'charter') initialOpen.value = 'edit:m3,m4,m5'
-  if (s === 'narrow') {
-    catPane.side = 540 // 走查：把左栏拉宽，让群聊区域落到 <510，并打开成员抽屉
+  if (s === 'members' || s === 'narrow-drawer') store.membersOpen = true
+  if (s === 'session') store.drawerMemberId = 'f'
+  if (s === 'narrow-single') {
+    catPane.side = 540 // 走查：窗口最小 1024，把左栏拉宽，让群聊区域落到单栏宽度
     store.membersOpen = true
   }
-  
 }
 function onDeleted() {
   store.settingsOpen = false

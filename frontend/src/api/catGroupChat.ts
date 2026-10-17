@@ -49,6 +49,8 @@ export interface CatMessageFooterLite {
   totalMs?: number
   outputTokens?: number
   tokenTotal?: number
+  tokensPerSec?: number
+  finishedAt?: number
 }
 export interface CatGroupReport {
   did: string
