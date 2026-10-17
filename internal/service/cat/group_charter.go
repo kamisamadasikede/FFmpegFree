@@ -162,17 +162,12 @@ func (s *Service) refreshHandoffs(ctx context.Context, groupID string) {
 	}
 }
 
+// defaultHandoff：v0.56 / 6.21.19 — 默认多数时候只向老板汇报、不必交接；
+// 禁止「做完交给全员 / @ 所有其他人」。加人/减人/改名重算时也用这段。
 func defaultHandoff(self store.CatGroupMember, members []store.CatGroupMember) string {
-	var others []string
-	for _, m := range members {
-		if m.ID != self.ID {
-			others = append(others, "@"+m.Name+"（"+m.Title+"）")
-		}
-	}
-	if len(others) == 0 {
-		return "做完后在群里汇报，等待用户指示。"
-	}
-	return "做完后按职责 @ 下一位：" + strings.Join(others, "、")
+	_ = self
+	_ = members
+	return "多数时候只向老板汇报，不必交接。只有确实需要别人接着、或要并行专家时，才在「交给谁」里 @（可一次 @ 多人）。不要为了填栏目硬 @，禁止做完交给全员。"
 }
 
 func buildCharterPrompt(self store.CatGroupMember, members []store.CatGroupMember, projectPath string) string {
@@ -188,7 +183,8 @@ func buildCharterPrompt(self store.CatGroupMember, members []store.CatGroupMembe
 	}
 	b.WriteString("\n项目概况：\n")
 	b.WriteString(projectOverview(projectPath))
-	b.WriteString("\n只输出 JSON，字段 owns / notTouch / handoff / dirs。dirs 为相对项目根的目录前缀数组，可空。")
+	b.WriteString("\n只输出 JSON，字段 owns / notTouch / handoff / dirs。dirs 为相对项目根的目录前缀数组，可空。\n")
+	b.WriteString("handoff 字段写交接习惯说明即可：默认「多数时候只向老板汇报，不必交接」；不要列出 @所有其他成员，不要写「做完交给全员」。\n")
 	return b.String()
 }
 

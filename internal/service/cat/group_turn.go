@@ -320,26 +320,36 @@ func (s *Service) startGroupMemberTurn(ctx context.Context, g store.CatGroup, m 
 			// 撤销越界时按轮末内容判断「之后又被改过」（6.21.14 ⑥）。
 			s.persistEndHashes(context.Background(), t.turnID, projectRoot, report.Files)
 		}
-		mentions := matchMentionsInText(text, members, m.ID)
+		// v0.56 / 6.21.19：唤醒 @ 只解析「交给谁」(give)，不扫 did/attn/全文。
+		mentions := matchMentionsInText(report.Give, members, m.ID)
 
-		outMsg, err := s.cfg.Store.InsertCatGroupMessage(context.Background(), store.CatGroupMessage{
+		out := store.CatGroupMessage{
 			GroupID: g.ID, Kind: "member", MemberID: m.ID, Text: text, Mentions: mentions,
-			ChainID: chainID, Hop: hop + 1, TurnID: t.turnID, Report: &report,
-		})
+			ChainID: chainID, Hop: hop + 1, TurnID: t.turnID,
+		}
+		if report.Parsed {
+			// 正式交付 → 汇报卡
+			out.ReplyKind = "report"
+			out.Report = &report
+		} else {
+			// 招呼/澄清/无交付 → 短复气泡（FE：replyKind=short，或省略 report）
+			out.ReplyKind = "short"
+			out.ShortText = text
+			// 故意不挂 Report，避免 FE 把 parsed=false 当四段卡兜底。
+		}
+		outMsg, err := s.cfg.Store.InsertCatGroupMessage(context.Background(), out)
 		if err == nil {
+			// Insert 不落 replyKind；回写后仍带上，供本次 cat:group-message 事件使用。
+			outMsg.ReplyKind = out.ReplyKind
+			outMsg.ShortText = out.ShortText
 			s.emitGroupMessage(outMsg)
-			if !report.Parsed {
-				// 6.21.15 / 产品确认：解析失败时整段当 did，并发灰字提示
-				s.postSystem(context.Background(), g.ID, chainID, hop+1, "system",
-					i18n.T(i18n.KeyCatGroupReportUnparsed, nil), "report_format",
-					store.CatRouteInfo{Mode: "done", MemberID: m.ID, Reason: "unparsed"}, "", "")
-			}
 		}
 		_ = s.cfg.Store.UpdateCatGroupMemberLastSeen(context.Background(), m.ID, outMsg.Seq)
 
 		if len(mentions) == 0 {
+			// v0.56：弱灰字「{成员} 已完成」，去掉「没有交给下一位」内疚感文案。
 			s.postSystem(context.Background(), g.ID, chainID, hop+1, "system",
-				m.Name+" 已完成，没有交给下一位", "no_handoff",
+				m.Name+" 已完成", "no_handoff",
 				store.CatRouteInfo{Mode: "done", MemberID: m.ID}, "", "")
 			return
 		}
@@ -360,10 +370,11 @@ func (s *Service) startGroupMemberTurn(ctx context.Context, g store.CatGroup, m 
 					break
 				}
 			}
-			// 6.21.16：已转交给 {成员}（第 n/6 次）；n = 当前 hop
+			// v0.56 / 6.21.19：灰字「已请 {成员} 接着」；hop 仍内部累加，不对用户展示 n/6。
+			// Reason 留空，前端 systemLineText 对 mention + hop>0 + 无 reason 走 handedOff 文案。
 			s.postSystem(context.Background(), g.ID, chainID, nextHop, "system",
-				"已转交给 "+name+"（第 "+strconv.Itoa(nextHop)+"/6 次）", "route",
-				store.CatRouteInfo{Mode: "mention", MemberID: mid, Reason: "接力"}, "", mid)
+				"已请 "+name+" 接着", "route",
+				store.CatRouteInfo{Mode: "mention", MemberID: mid}, "", mid)
 			s.wakeMember(context.Background(), g, mid, chainID, nextHop, outMsg.Seq, false, "mention")
 		}
 	}()
@@ -394,7 +405,7 @@ func (s *Service) drainGroupQueue(g store.CatGroup, memberID string) {
 
 func (s *Service) buildMemberPrompt(ctx context.Context, g store.CatGroup, m store.CatGroupMember, members []store.CatGroupMember, afterSeq int64) string {
 	var b strings.Builder
-	b.WriteString("以下是群里你还没看过的新消息，请按职责处理并按汇报格式回复。\n\n")
+	b.WriteString("以下是群里你还没看过的新消息，请按职责处理。正式交付用汇报格式；招呼/澄清可用短回复。\n\n")
 	limit := 100
 	firstTime := m.LastSeenSeq == 0
 	if firstTime {

@@ -140,6 +140,10 @@ type CatGroupMessage struct {
 	ToMemberID   string          `json:"toMemberId,omitempty"`
 	FailReason   string          `json:"failReason,omitempty"`
 	Report       *CatGroupReport `json:"report,omitempty"`
+	// ReplyKind：v0.56 短复 vs 汇报卡（契约 6.21.19；FE #346）。
+	// "short" | "report"；短复亦可省略 Report。不落库——重载靠「无 report + 有 text」识别。
+	ReplyKind    string          `json:"replyKind,omitempty"`
+	ShortText    string          `json:"shortText,omitempty"`
 	CreatedAt    int64           `json:"createdAt"`
 }
 

@@ -394,7 +394,7 @@ func TestGroupE2E_MentionTwoParallelAndHop(t *testing.T) {
 		t.Fatal("甲 must not run")
 	}
 
-	// 甲 一条回复 @ 乙 和 丙：两句转交灰字都是「第 1/6 次」，乙丙的卡 hop=2。
+	// 甲 一条回复 @ 乙 和 丙：两句「已请 {成员} 接着」，乙丙的卡 hop=2。
 	_ = os.Remove(filepath.Join(e.fake, "calls.log"))
 	e.reply("甲", report("甲做完", "", "@乙 做接口，@丙 做页面"))
 	chain := e.send("开工", "甲")
@@ -405,8 +405,11 @@ func TestGroupE2E_MentionTwoParallelAndHop(t *testing.T) {
 		t.Fatalf("routes:\n%s", e.dump())
 	}
 	for _, r := range routes {
-		if !strings.Contains(r.Text, "（第 1/6 次）") || !strings.HasPrefix(r.Text, "已转交给 ") {
+		if r.Text != "已请 乙 接着" && r.Text != "已请 丙 接着" {
 			t.Fatalf("route copy %q", r.Text)
+		}
+		if r.Route != nil && r.Route.Reason != "" {
+			t.Fatalf("route reason must be empty for FE handedOff: %+v", r.Route)
 		}
 	}
 	for _, n := range []string{"乙", "丙"} {
@@ -539,7 +542,35 @@ func TestGroupE2E_DispatchTimeout(t *testing.T) {
 	}
 }
 
-// 4. 回复里 @ 接力，6 次封顶 + 灰字；@ 自己忽略。
+
+// v0.56：did/attn 里的 @ 不唤醒，只有「交给谁」里的 @ 才叫醒。
+func TestGroupE2E_MentionOnlyFromGive(t *testing.T) {
+	e := newGroupEnv(t, "甲", "乙", "丙")
+	e.reply("乙", report("乙做完", "", ""))
+	e.reply("丙", report("丙做完", "", ""))
+	// did/attn 提到 @乙 @丙，give 只 @丙
+	body := "## 完成了什么\n和 @乙 对过口径\n\n## 需要注意\n@乙 说过要注意\n\n## 交给谁\n@丙 接着做页面\n"
+	e.reply("甲", body)
+	chain := e.send("开工", "甲")
+	e.waitIdle()
+	ms := find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
+	if len(cardsOf(ms, e.mem["乙"].ID)) != 0 {
+		t.Fatalf("乙 must not wake from did/attn @:\n%s", e.dump())
+	}
+	if len(cardsOf(ms, e.mem["丙"].ID)) != 1 {
+		t.Fatalf("丙 must wake from give @:\n%s", e.dump())
+	}
+	routes := find(ms, sys("route"))
+	if len(routes) != 1 || routes[0].Text != "已请 丙 接着" {
+		t.Fatalf("routes:\n%s", e.dump())
+	}
+	c := cardsOf(ms, e.mem["甲"].ID)
+	if len(c) != 1 || len(c[0].Mentions) != 1 || c[0].Mentions[0] != e.mem["丙"].ID {
+		t.Fatalf("mentions on card: %+v\n%s", c[0].Mentions, e.dump())
+	}
+}
+
+// 4. 回复里 give @ 唤醒，6 次封顶 + 灰字；@ 自己忽略。
 func TestGroupE2E_RelayLimit(t *testing.T) {
 	e := newGroupEnv(t, "甲", "乙")
 	e.reply("甲", report("甲做完", "", "@乙 继续"))
@@ -552,8 +583,13 @@ func TestGroupE2E_RelayLimit(t *testing.T) {
 		t.Fatalf("cards %d:\n%s", len(cards), e.dump())
 	}
 	routes := find(ms, sys("route"))
-	if len(routes) != 5 || !strings.Contains(routes[4].Text, "（第 5/6 次）") {
+	if len(routes) != 5 {
 		t.Fatalf("routes:\n%s", e.dump())
+	}
+	for _, r := range routes {
+		if !strings.HasPrefix(r.Text, "已请 ") || !strings.HasSuffix(r.Text, " 接着") || strings.Contains(r.Text, "第 ") || strings.Contains(r.Text, "接力") {
+			t.Fatalf("route copy %q", r.Text)
+		}
 	}
 	lim := find(ms, sys("hop_limit"))
 	if len(lim) != 1 || lim[0].Text != "已连续转交 6 次，先停在这里。需要继续请 @ 对应成员。" {
@@ -571,7 +607,7 @@ func TestGroupE2E_RelayLimit(t *testing.T) {
 	}
 }
 
-// 5. 换人：停掉原成员，灰字「已换人」「交给 X：你指定的」，不算接力。
+// 5. 换人：停掉原成员，灰字「已换人」「交给 X：你指定的」，不算 give 唤醒跳数。
 func TestGroupE2E_Reassign(t *testing.T) {
 	e := newGroupEnv(t, "甲", "乙")
 	e.reply("甲", report("甲做完", "", ""))
@@ -598,8 +634,8 @@ func TestGroupE2E_Reassign(t *testing.T) {
 	if len(c) != 1 || c[0].Hop != 1 {
 		t.Fatalf("乙 card hop (reassign must not count):\n%s", e.dump())
 	}
-	if len(find(ms, func(m cat.GroupMessage) bool { return strings.HasPrefix(m.Text, "已转交给") })) != 0 {
-		t.Fatalf("reassign counted as relay:\n%s", e.dump())
+	if len(find(ms, func(m cat.GroupMessage) bool { return strings.HasPrefix(m.Text, "已请 ") })) != 0 {
+		t.Fatalf("reassign counted as handoff wake:\n%s", e.dump())
 	}
 }
 
@@ -657,7 +693,7 @@ func TestGroupE2E_Overreach(t *testing.T) {
 	}
 }
 
-// 7. 失败 / 停止：只发灰字，不发汇报、不接力；重试 hop 不加。
+// 7. 失败 / 停止：只发灰字，不发汇报、不唤醒；重试 hop 不加。
 func TestGroupE2E_FailStopRetry(t *testing.T) {
 	e := newGroupEnv(t, "甲", "乙")
 	e.reply("甲", report("甲做完", "", "@乙 接着"))
@@ -704,7 +740,7 @@ func TestGroupE2E_FailStopRetry(t *testing.T) {
 	}
 }
 
-// 8. 没按汇报格式：整段当 did + systemKind=report_format 灰字。
+// 8. 短复（无汇报小标题）：整段当 did、Parsed=false；v0.56 不再发 report_format 灰字。
 func TestGroupE2E_UnparsedReport(t *testing.T) {
 	e := newGroupEnv(t, "甲")
 	e.reply("甲", "我把按钮改成蓝色了，顺便调了间距。")
@@ -712,16 +748,22 @@ func TestGroupE2E_UnparsedReport(t *testing.T) {
 	e.waitIdle()
 	ms := find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
 	c := cardsOf(ms, e.mem["甲"].ID)
-	if len(c) != 1 || c[0].Report.Parsed || c[0].Report.Did != "我把按钮改成蓝色了，顺便调了间距。" {
+	if len(c) != 1 {
 		t.Fatalf("card:\n%s", e.dump())
 	}
-	g := find(ms, sys("report_format"))
-	if len(g) != 1 || g[0].Text != "没按汇报格式写，只显示最后一段回复" {
-		t.Fatalf("gray:\n%s", e.dump())
+	// replyKind 不落库；重载靠「无 report + 有 text」。实时事件里会带 replyKind=short。
+	if c[0].Report != nil || c[0].Text != "我把按钮改成蓝色了，顺便调了间距。" {
+		t.Fatalf("want short bubble without report: report=%v text=%q\n%s", c[0].Report, c[0].Text, e.dump())
+	}
+	if len(find(ms, sys("report_format"))) != 0 {
+		t.Fatalf("short reply must not nag report_format:\n%s", e.dump())
+	}
+	if len(find(ms, sys("no_handoff"))) != 1 || find(ms, sys("no_handoff"))[0].Text != "甲 已完成" {
+		t.Fatalf("no_handoff:\n%s", e.dump())
 	}
 }
 
-// 换人发生在接力中途：新成员沿用那一跳（不加、不归零）。
+// 换人发生在 give 唤醒中途：新成员沿用那一跳（不加、不归零）。
 func TestGroupE2E_ReassignMidChainKeepsHop(t *testing.T) {
 	e := newGroupEnv(t, "甲", "乙", "丙")
 	e.reply("甲", report("甲做完", "", "@乙 接着"))
@@ -742,7 +784,7 @@ func TestGroupE2E_ReassignMidChainKeepsHop(t *testing.T) {
 	if len(c) != 1 || c[0].Hop != 2 {
 		t.Fatalf("丙 should take 乙's hop (card hop 2):\n%s", e.dump())
 	}
-	if len(find(ms, func(m cat.GroupMessage) bool { return m.Text == "已转交给 甲（第 2/6 次）" })) != 1 {
+	if len(find(ms, func(m cat.GroupMessage) bool { return m.Text == "已请 甲 接着" })) != 1 {
 		t.Fatalf("丙's own handoff counts normally:\n%s", e.dump())
 	}
 }
