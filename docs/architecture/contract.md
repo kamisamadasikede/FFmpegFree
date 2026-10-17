@@ -6440,6 +6440,7 @@ ALTER TABLE cat_group_routes ADD COLUMN finished_at INTEGER NOT NULL DEFAULT 0;
 2. **事件**：`CatGroupMemberEvent` 增加 `queueLength int json:"queueLength"`（与 `member.queueLength` 相同，方便状态条直接用）。入队、出队开跑、停单人 / 停全部清队时**各推一次** `cat:group-member`（#329 入队时目前不推，需补）。
 3. **展示**：状态条该成员一行在「{成员} 正在干活 · 已用 {时长}」后续 ` · 排队 {n} 条`（`n = queueLength`，0 不显示）；成员栏状态点 `queued` 同 `running` 样式。
 4. **群里灰字（待产品确认文案）**：入队时发一条 `systemKind=route` 灰字，暂定「{成员} 还在忙，这条排在第 {n} 个，轮到会自动开始」（`n` = 入队后的 `queueLength`）。**产品确认前后端先不发此灰字**，只做 1～3。
+   - **轮到开跑时不再发灰字**：排队的任务出队开始时，群里不出任何「开始了 / 轮到了」之类的灰字；状态条出现该成员「正在干活」一行即表示已开始（只推 `cat:group-member`，`running` 非空）。
 5. 不变：排队不计 hop（hop 在入队时已定）；停单人 / 停全部清空其队列（6.21.6 ⑨）；队列在内存，**应用重启后丢失**，第一期接受，不做持久化；换人对排队中的条目不生效（只换正在跑 / 刚派的那条）。
 
 #### ⑤ 文案统一（产品 10-17）
