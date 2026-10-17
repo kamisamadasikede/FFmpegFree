@@ -1,4 +1,4 @@
-/* Cat 项目群聊 高保真原型 v0.2.1（对齐契约 6.21.12–6.21.16）
+/* Cat 项目群聊 高保真原型 v0.2.3（对齐契约 6.21.12–6.21.16；判断失败按产品 10-17 定 A）
    用法：index.html?s=<场景>&theme=dark[&shot=1]
    场景：list create rolegen main members mention working report error dispatch swap overstep overstep-undo overstep-result session settings narrow-drawer narrow-single */
 const Q = new URLSearchParams(location.search);
@@ -176,7 +176,7 @@ function right(o = {}) {
   });
   return `<aside class="right ${o.cls || ''}"><div class="tabs"><div class="tab on">成员<span class="cnt">${order.length}</span></div><div class="tab">文件<span class="cnt">7</span></div><span class="sp"></span><button class="ibtn" title="添加成员">${ic('plus', 's')}</button></div>
   <div class="rbody">${body}</div>
-  <div class="rfoot">${ic('info', 'xs')}<span>拖动调整顺序。排第一的成员负责兜底：没判断出该谁接、或关了自动派活时交给他。</span></div></aside>`;
+  <div class="rfoot">${ic('info', 'xs')}<span>拖动调整顺序。排第一的成员负责兜底：关了自动派活时交给他。</span></div></aside>`;
 }
 
 /* ---------- 弹窗 ---------- */
@@ -190,7 +190,7 @@ function createModal() {
   <div><div class="inp ${o.err ? 'err foc' : ''}"><span class="muted">@</span>${name}${o.err ? '<span class="caret"></span>' : ''}</div>${o.err ? `<div class="errmsg">群里已经有叫这个名字的成员了</div><div class="sugg">试试 <b>后端工程师 2</b></div>` : ''}</div>
   <button class="del">${ic('x', 's')}</button></div>`;
   const body = `<div class="lbl">群名</div><div class="inp" style="height:36px;font-size:13.5px">v0.55 群聊开发</div>
-  <div class="lbl" style="margin-top:16px">成员<span class="muted">· 拖动排序，排第一的成员负责兜底</span></div>
+  <div class="lbl" style="margin-top:16px">成员<span class="muted">· 拖动排序，排第一的成员 = 关自动派活时的兜底</span></div>
   <div class="mrows">
     <div class="mrow hd"><span></span><span></span><span>CLI</span><span>职位</span><span>模型（可选）</span><span>群里叫什么</span><span></span></div>
     ${row('a', 'c', '架构师', '架构师', 'Claude Opus 4.5')}
@@ -208,7 +208,7 @@ function rolegenModal() {
 }
 function settingsModal() {
   const body = `<div class="lbl">群名</div><div class="inp" style="height:36px">v0.55 群聊开发</div>
-  <div class="lbl" style="margin-top:16px">成员排序<span class="muted">· 排第一的成员负责兜底</span></div>
+  <div class="lbl" style="margin-top:16px">成员排序<span class="muted">· 排第一的成员 = 关自动派活时的兜底</span></div>
   ${ORDER.map((k, i) => `<div class="smem">${ic('grip', 's grip')}${av(k)}<span>${M[k].n}</span><span class="muted">${M[k].t} · ${CLI[M[k].cli][0]}</span><span class="sp"></span>${i === 0 ? '<span class="first">排第一</span>' : ''}</div>`).join('')}
   <div style="margin-top:12px">
   <div class="setrow"><div class="tx">没 @ 人时自动派活<small>开：Cat 用排第一成员的 CLI 判断一次该谁接（约 20 秒内）。关：直接交给排第一的成员。</small></div><span class="switch"></span></div>
@@ -291,7 +291,8 @@ SC.error = () => ({
   right: right({ st: { a: 'idle', b: 'idle', f: 'fail', q: 'stop' } }),
 });
 SC.dispatch = () => ({
-  scroll: 'top',
+  focus: '.gl',
+  focusIdx: 3,
   center: centerWrap(chead(), `<div class="daysep">今天</div>
     ${task(T1, '17:08')}
     ${gl('交给 架构师：先出方案再拆给前后端', { lk: 1, tmr: '· 4.2 秒', acts: [swapBtn()] })}
@@ -307,7 +308,7 @@ SC.dispatch = () => ({
     ${task('再改一下，按钮文案用「重试」两个字就行', '17:15')}
     ${gl('交给 架构师：接着上一条', { acts: [swapBtn()] })}
     ${task('发版前把更新日志整理一下', '17:33')}
-    ${gl('交给 架构师：没判断出该谁接，先交给排第一的成员', { lk: 1, acts: [swapBtn()] })}
+    ${gl('没判断出该谁接，请 @ 对应成员，或再说具体要做什么。', { lk: 1, icon: 'info', tmr: '· 判断用时 8 秒' })}
     ${task('顺便看下 Windows 打包脚本', '17:36', '<span class="muted">· 自动派活已关</span>')}
     ${gl('交给 架构师：没开自动派活，交给排第一的成员', { acts: [swapBtn()] })}
     ${task('README 里补一段群聊用法', '17:38')}
