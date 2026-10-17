@@ -55,34 +55,7 @@ func (a *BuildAdapter) runGrokACP(opts TurnOptions, exe string) (TurnResponse, e
 		return TurnResponse{}, e
 	}
 	rpc := newNativeRPCWithHandler(activityReader{r: stdout, w: idle}, stdin, true, func(msg codexRPCMessage) (any, error) {
-		if msg.Method != "session/request_permission" || opts.ToolEnv["FFC_TEAM_TOKEN"] == "" {
-			return nil, errors.New("不支持此原生请求")
-		}
-		var params struct {
-			ToolCall struct {
-				Title    string         `json:"title"`
-				RawInput map[string]any `json:"rawInput"`
-			} `json:"toolCall"`
-			Options []struct {
-				ID   string `json:"optionId"`
-				Kind string `json:"kind"`
-			} `json:"options"`
-		}
-		if e := json.Unmarshal(msg.Params, &params); e != nil {
-			return nil, e
-		}
-		if !isTeamNativePermission(params.ToolCall.RawInput) {
-			if opts.OnActivity != nil {
-				opts.OnActivity("permission", "permission", "此原生权限请求未获授权：仅支持本应用工具的内联参数调用", true)
-			}
-			return nil, errors.New("权限请求未关联本应用工具")
-		}
-		for _, option := range params.Options {
-			if option.Kind == "allow_once" {
-				return map[string]any{"outcome": map[string]string{"outcome": "selected", "optionId": option.ID}}, nil
-			}
-		}
-		return nil, errors.New("缺少单次授权选项")
+		return nil, errors.New("不支持此原生请求")
 	})
 	defer func() {
 		if opts.OnSteerReady != nil {
@@ -101,7 +74,7 @@ func (a *BuildAdapter) runGrokACP(opts TurnOptions, exe string) (TurnResponse, e
 	if e = rpc.call(initCtx, "initialize", map[string]any{"protocolVersion": 1, "clientInfo": map[string]string{"name": "ffc", "version": "1.0"}, "clientCapabilities": map[string]any{}}, &initResult); e != nil {
 		return TurnResponse{}, e
 	}
-	params := map[string]any{"cwd": cwd, "mcpServers": grokTeamMCP(opts), "_meta": map[string]any{"rules": opts.Rules}}
+	params := map[string]any{"cwd": cwd, "mcpServers": []any{}, "_meta": map[string]any{"rules": opts.Rules}}
 	mode := NormalizeMode(KindCatBuild, opts.PermissionMode)
 	if mode == ModeAuto {
 		params["_meta"].(map[string]any)["autoMode"] = true

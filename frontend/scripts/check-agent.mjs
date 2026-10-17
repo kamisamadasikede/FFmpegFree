@@ -24,7 +24,6 @@ try {
         import { catTypewriterChecks } from './src/components/cat/catTypewriter.check'
         import { catStreamChecks } from './src/api/catStream.check'
         import { catDetectChecks } from './src/api/catDetect.check'
-        import { teamStateChecks } from './src/views/team/teamState.check'
         export async function run() {
           const failures = []
           let count = 0
@@ -34,7 +33,6 @@ try {
           }
           await catThinkChecks(eq)
           catCommandsChecks(eq)
-          teamStateChecks(eq)
           catDraftsChecks(eq)
           await catCLIUpdatesChecks(eq)
           for (const check of [catFollowChecks, catPendingChecks, catStopChecks, catTypewriterChecks, catStreamChecks, catDetectChecks]) check(eq)

@@ -22,7 +22,6 @@ import (
 	"FFmpegFree/internal/service/system"
 	"FFmpegFree/internal/store"
 	"FFmpegFree/internal/task"
-	"FFmpegFree/internal/team"
 	"context"
 	"fmt"
 	"log"
@@ -67,7 +66,6 @@ type App struct {
 	officeSvc    atomic.Pointer[office.Service]
 	catReg       atomic.Pointer[catagent.Registry]
 	cat          atomic.Pointer[cat.Service]
-	team         atomic.Pointer[team.Service]
 	execution    *agentexec.Runtime
 	win          windowState
 	windowOps    *windowOps  // 测试替换窗口调用；nil = Wails runtime
@@ -112,8 +110,6 @@ func (a *App) officeService() *office.Service { return a.officeSvc.Load() }
 func (a *App) officeCanvasManager() *officecanvas.Manager { return a.officeCanvas.Load() }
 
 func (a *App) catService() *cat.Service { return a.cat.Load() }
-
-func (a *App) teamService() *team.Service { return a.team.Load() }
 
 func (a *App) catRegistry() *catagent.Registry { return a.catReg.Load() }
 
@@ -457,14 +453,6 @@ func (a *App) startCat() {
 	}
 	svc := cat.New(cfg)
 	a.cat.Store(svc)
-	if a.store != nil {
-		teams, err := team.New(a.rootCtx, team.Config{Repository: &team.Repository{DB: a.store.DB()}, Registry: reg, Execution: a.execution, Office: svc.TeamOffice(), DataRoot: root, Resolve: svc.TeamExecution, Emit: emit, Notify: a.sendTeamNotification, Logf: log.Printf})
-		if err != nil {
-			log.Printf("群聊服务初始化失败: %v", err)
-		} else {
-			a.team.Store(teams)
-		}
-	}
 	// v0.47.1：先发 cat.detect 的上次结果（stale），再后台实时检测所有已注册适配器。
 	svc.StartDetection()
 	if cfg.Store != nil {
@@ -586,9 +574,6 @@ func (a *App) initStore(ctx context.Context) error {
 func (a *App) shutdown(ctx context.Context) {
 	if a.rootCancel != nil {
 		a.rootCancel() // 先取消根 ctx：进行中的探测 / 缩略图立即结束 ffprobe / ffmpeg
-	}
-	if teams := a.teamService(); teams != nil {
-		teams.Close()
 	}
 	if a.execution != nil {
 		a.execution.Close()

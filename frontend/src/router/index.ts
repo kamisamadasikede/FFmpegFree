@@ -30,11 +30,6 @@ const routes: RouteRecordRaw[] = [
       return true
     },
   },
-  {
-    path: '/cat/team', name: 'Team', meta: { title: '协作群', layout: 'cat' },
-    component: () => import('../views/team/TeamPage.vue'),
-    beforeEnter: () => CAT_UI_ENABLED ? true : { path: '/', replace: true },
-  },
   // 剪辑功能已移除（老板决定，2026-10-08，应用只做转换）：旧的 #/edit 地址一律回到转换页
   { path: '/edit/:pathMatch(.*)*', redirect: '/' },
   {

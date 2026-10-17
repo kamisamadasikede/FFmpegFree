@@ -390,7 +390,6 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	}
 
 	args := a.buildTurnArgs(opts, prompt, cwd, sessionID, resume)
-	args = appendTeamArgsBeforePrompt(a.Kind(), args, opts)
 	var stdinText string
 	viaStdin := isShimExt(exe)
 	if viaStdin {
