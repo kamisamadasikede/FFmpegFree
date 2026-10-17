@@ -1704,7 +1704,7 @@
       "dirsPh": "输入目录后回车，例如 frontend/",
       "dirsEmpty": "没填目录，不做越界检查",
       "removeDir": "移除 {dir}",
-      "edited": "已手改",
+      "edited": "已手动修改",
       "editedTip": "你改过这段；只有点「重新生成」才会覆盖",
       "generating": "正在生成职责…",
       "generatingHint": "用 {name} 自己那家 CLI 生成，一般一分钟内好；成员现在就能用。",
@@ -1785,6 +1785,9 @@
       "nMembers": "{n} 位成员",
       "memberOrder": "成员排序",
       "deleteHint": "先停下群里所有人的活；成员自己的会话不会删除。",
+      "createOrderHint": "拖动排序，排第一的成员负责兜底",
+      "queued": "排队中 · 前面还有 {n} 个",
+      "routeQueued": "交给 {name}：正在干活，排在后面",
       "optional": "选填"
     }
   }

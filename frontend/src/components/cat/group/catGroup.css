@@ -348,3 +348,7 @@
 .av.more { --c: var(--cat-muted); }
 .cg-stack.sm .av { margin-left: -4px; box-shadow: 0 0 0 1.5px var(--cat-panel, var(--cat-bg)); }
 .cg-stack.sm .av:first-child { margin-left: 0; }
+
+/* ---- 设计走查 4da2d70 ---- */
+.cg-sys { color: var(--ff-text-2); }
+.cg-btn.dngf { border-color: var(--ff-danger); background: var(--ff-danger); color: #fff; }

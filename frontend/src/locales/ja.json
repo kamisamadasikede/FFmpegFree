@@ -1704,7 +1704,7 @@
       "dirsPh": "フォルダを入力して Enter（例 frontend/）",
       "dirsEmpty": "ディレクトリ未設定のため範囲チェックはしません",
       "removeDir": "{dir} を外す",
-      "edited": "手動編集",
+      "edited": "手動で編集済み",
       "editedTip": "手動で編集済み。「再生成」したときだけ上書きされます",
       "generating": "職務規範を作成中…",
       "generatingHint": "{name} 自身の CLI で作成中（通常 1 分以内）。メンバーはすでに使えます。",
@@ -1785,6 +1785,9 @@
       "nMembers": "メンバー {n} 人",
       "memberOrder": "メンバーの順番",
       "deleteHint": "先に全員の作業を停止します。各メンバーのセッションは削除されません。",
+      "createOrderHint": "ドラッグで並べ替え。先頭のメンバーが受け皿です",
+      "queued": "順番待ち · 前に {n} 件",
+      "routeQueued": "{name} へ：作業中のため順番待ち",
       "optional": "任意"
     }
   }

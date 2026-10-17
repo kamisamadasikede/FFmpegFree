@@ -157,7 +157,7 @@
         <div v-for="m in store.workingMembers" :key="m.id" class="cg-wrow">
           <span v-if="store.workingMembers.length === 1" class="cg-pulse" aria-hidden="true" />
           <span class="av sm" :style="{ '--c': memberColorVar(m.order) }">{{ initial(m.name) }}</span>
-          <span class="tx"><b>{{ m.name }}</b>{{ t('cat.groupChat.working', { name: '', time: formatElapsed(store.elapsedOf(m.id)) }) }}{{ t('cat.groupChat.workingTools', { n: store.live[m.id]?.toolCount ?? 0 }) }}</span>
+          <span class="tx"><b>{{ m.name }}</b>{{ t('cat.groupChat.working', { name: '', time: formatElapsed(store.elapsedOf(m.id)) }) }}<template v-if="(store.live[m.id]?.toolCount ?? 0) > 0">{{ t('cat.groupChat.workingTools', { n: store.live[m.id].toolCount }) }}</template></span>
           <button type="button" class="lkb" @click="openProcess(m.id)">{{ t('cat.groupChat.viewProcess') }}</button>
           <button type="button" class="lkb" @click="store.stop(m.id)">{{ t('cat.groupChat.stop') }}</button>
         </div>
@@ -232,7 +232,7 @@
         </ul>
         <div class="ft">
           <button type="button" class="cg-btn" @click="revertMsg = null">{{ t('cat.groupChat.cancel') }}</button>
-          <button type="button" class="cg-btn orgf" :disabled="reverting" data-testid="cat-group-revert-ok" @click="doRevert()">{{ t('cat.groupChat.revertOk') }}</button>
+          <button type="button" class="cg-btn dngf" :disabled="reverting" data-testid="cat-group-revert-ok" @click="doRevert()">{{ t('cat.groupChat.revertOk') }}</button>
         </div>
       </div>
     </div>

@@ -1641,7 +1641,7 @@
       "dragTip": "Drag to reorder",
       "moveUp": "Move up",
       "moveDown": "Move down",
-      "busy": "Working",
+      "busy": "Working now",
       "idle": "Idle",
       "emptyFeed": "No messages yet. {'@'} a member to assign work, or just say what you need and Cat will pick who takes it.",
       "composerPh": "Assign work to the group — {'@'} a member to give it to them, or leave it to auto-routing",
@@ -1704,7 +1704,7 @@
       "dirsPh": "Type a folder and press Enter, e.g. frontend/",
       "dirsEmpty": "No directories — scope is not checked",
       "removeDir": "Remove {dir}",
-      "edited": "Edited",
+      "edited": "Edited by hand",
       "editedTip": "You edited this; only Regenerate will overwrite it",
       "generating": "Drafting charter…",
       "generatingHint": "Drafted with {name}'s own CLI, usually under a minute. The member can already take work.",
@@ -1785,6 +1785,9 @@
       "nMembers": "{n} members",
       "memberOrder": "Member order",
       "deleteHint": "Stops everyone's work first. Members' own sessions are kept.",
+      "createOrderHint": "Drag to reorder. The first member is the fallback",
+      "queued": "Queued · {n} ahead",
+      "routeQueued": "To {name}: busy, queued behind current work",
       "optional": "optional"
     }
   }
