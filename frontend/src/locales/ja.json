@@ -1720,7 +1720,7 @@
       "delete": "削除",
       "openMembers": "メンバー",
       "processTitle": "{name} の経過",
-      "processEmpty": "詳しい経過は本人のセッションにあります（ツール呼び出し・思考・ストリーミング）。",
+      "processEmpty": "まだ経過がありません",
       "elapsedSec": "{s} 秒",
       "elapsedMin": "{m} 分 {s} 秒",
       "footerTime": "所要 {time}",
@@ -1791,7 +1791,8 @@
       "queuedState": "順番待ち",
       "fileMissing": "存在しません",
       "fileBy": "{name} · {n} 回変更",
-      "optional": "任意"
+      "optional": "任意",
+      "processLoading": "経過を読み込み中…"
     }
   }
 }

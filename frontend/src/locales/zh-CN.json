@@ -1720,7 +1720,7 @@
       "delete": "删除",
       "openMembers": "成员",
       "processTitle": "{name} 的过程",
-      "processEmpty": "完整过程在他自己的会话里：工具调用、思考和流式回复都在那。",
+      "processEmpty": "暂时没有过程",
       "elapsedSec": "{s} 秒",
       "elapsedMin": "{m} 分 {s} 秒",
       "footerTime": "用时 {time}",
@@ -1791,7 +1791,8 @@
       "queuedState": "排队中",
       "fileMissing": "已不存在",
       "fileBy": "{name} · 改过 {n} 次",
-      "optional": "选填"
+      "optional": "选填",
+      "processLoading": "正在加载过程…"
     }
   }
 }

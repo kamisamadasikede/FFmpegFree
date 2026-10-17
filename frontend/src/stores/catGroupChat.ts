@@ -6,7 +6,12 @@ import { defineStore } from 'pinia'
 import { computed, reactive, ref } from 'vue'
 import { groupApi, groupRealApi, normalizeMember, normalizeMessage, type CatGroup, type CatGroupMember, type CatGroupMessage, type CatGroupQueuedTask, type CatGroupFile, type CatGroupRunning, type CatRouteDetail, type RevertResult } from '@/api/catGroupChat'
 import { groupMock, groupScene } from '@/api/catGroupChatMock'
-import { onEvent } from '@/services/wails'
+import { getCatConversation, onCatMessage, onCatTurn } from '@/api/cat'
+import { applyStreamEvent, newStreamMsg, type CatStreamEvent, type CatStreamMsg } from '@/api/catStream'
+import { demoProcessBlocks, groupIdFromGroupConv, memberIdFromGroupConv, type ProcessBlock } from '@/stores/catGroupProcess'
+
+export type { ProcessBlock } from '@/stores/catGroupProcess'
+export { demoProcessBlocks } from '@/stores/catGroupProcess'
 
 export interface LiveRun extends CatGroupRunning { receivedAt: number }
 
@@ -21,6 +26,10 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
   const live = reactive<Record<string, LiveRun>>({})
   const routing = reactive<Record<string, boolean>>({})
   const drawerMemberId = ref('')
+  /** 成员本轮过程块（live 订阅 cat:message；打开抽屉时若空再拉 GetCatConversation） */
+  const processBlocks = reactive<Record<string, ProcessBlock[]>>({})
+  const processLoading = reactive<Record<string, boolean>>({})
+  /** @deprecated 保留给旧走查看板；新代码用 processBlocks */
   const processText = reactive<Record<string, string>>({})
   /** 本次会话里已撤销越界改动的汇报 seq（成员栏「越界待处理」用） */
   const revertedSeqs = reactive<number[]>([])
@@ -37,6 +46,10 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
   const now = ref(Date.now())
   let timer: ReturnType<typeof setInterval> | null = null
   let subscribed = false
+  /** messageId → 流式拼装（与单聊同一套 applyStreamEvent） */
+  const processStreams = new Map<string, CatStreamMsg>()
+  /** messageId → memberId，方便按成员清流 */
+  const processStreamOwner = new Map<string, string>()
 
   const membersSorted = computed(() => [...members.value].sort((a, b) => a.order - b.order))
   const memberById = (id?: string) => members.value.find((m) => m.id === id)
@@ -94,13 +107,95 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
       applyQueue(e.member.id, e.queue ?? e.member.queue ?? [], e.member.status)
       syncBriefs()
     })
-    // 「查看过程」：成员自己的会话流（convId=group:<g>:<m>），抽屉里只做文字预览
-    onEvent<{ convId?: string; text?: string; delta?: string }>('cat:message', (p) => {
-      const cid = p?.convId ?? ''
-      if (!cid.startsWith('group:')) return
-      const mid = cid.split(':')[2] ?? ''
-      processText[mid] = ((processText[mid] ?? '') + (p.delta ?? p.text ?? '')).slice(-6000)
+    // 「查看过程」：成员会话流（convId=group:<g>:<m>），与单聊同一套 cat:message / cat:turn
+    onCatMessage((e) => applyProcessMessage(e))
+    onCatTurn((e) => {
+      const mid = memberIdFromGroupConv(e.convId)
+      if (!mid) return
+      const gid = groupIdFromGroupConv(e.convId)
+      if (gid && activeId.value && gid !== activeId.value) return
+      if (e.status === 'running') clearProcess(mid)
     })
+  }
+
+  function clearProcess(mid: string) {
+    processBlocks[mid] = []
+    for (const [msgId, owner] of [...processStreamOwner.entries()]) {
+      if (owner === mid) {
+        processStreams.delete(msgId)
+        processStreamOwner.delete(msgId)
+      }
+    }
+  }
+
+  function applyProcessMessage(e: CatStreamEvent) {
+    const mid = memberIdFromGroupConv(e.convId)
+    if (!mid) return
+    const gid = groupIdFromGroupConv(e.convId)
+    if (gid && activeId.value && gid !== activeId.value) return
+    // 跳过单聊同口径的 status / error / retry 块：过程抽屉只展示思考、工具、正文
+    if (e.blockType === 'status' || e.blockType === 'error' || e.blockType === 'retry') return
+
+    let m = processStreams.get(e.messageId)
+    if (!m) {
+      m = newStreamMsg(e.messageId)
+      processStreams.set(e.messageId, m)
+      processStreamOwner.set(e.messageId, mid)
+    }
+    const changed = applyStreamEvent(m, e)
+    if (!changed) return
+
+    const kind: ProcessBlock['kind'] =
+      e.blockType === 'thought' ? 'think' : e.blockType === 'tool' ? 'tool' : 'text'
+    const list = (processBlocks[mid] ??= [])
+    let row = list.find((b) => b.id === e.messageId)
+    if (!row) {
+      if (!m.text && m.done) return
+      list.push({ id: e.messageId, kind, text: m.text, streaming: !m.done })
+    } else {
+      row.text = m.text
+      row.streaming = !m.done
+      if (kind !== 'text') row.kind = kind
+    }
+    if (m.done) {
+      processStreams.delete(e.messageId)
+      processStreamOwner.delete(e.messageId)
+    }
+  }
+
+  /** 打开「查看过程」：先展示已订阅到的 live 块；若空再拉成员 backing 会话的 CLI 记录 */
+  async function openProcess(memberId: string) {
+    if (!memberId) return
+    drawerMemberId.value = memberId
+    if ((processBlocks[memberId]?.length ?? 0) > 0) return
+    if (!groupRealApi()) return
+    processLoading[memberId] = true
+    try {
+      const detail = await getCatConversation(memberId)
+      if (drawerMemberId.value !== memberId) return
+      if ((processBlocks[memberId]?.length ?? 0) > 0) return
+      if (!detail?.messages?.length) return
+      const blocks: ProcessBlock[] = []
+      for (const msg of detail.messages) {
+        if (msg.role === 'user' || msg.role === 'system' || msg.role === 'status') continue
+        const text = (msg.content ?? '').trim()
+        if (!text) continue
+        const kind: ProcessBlock['kind'] =
+          msg.role === 'thought' ? 'think' : msg.role === 'tool' ? 'tool' : 'text'
+        blocks.push({ id: msg.id, kind, text: msg.content })
+      }
+      if (blocks.length) processBlocks[memberId] = blocks.slice(-80)
+    } catch {
+      /* 拉不到就保持空态「暂时没有过程」 */
+    } finally {
+      processLoading[memberId] = false
+    }
+  }
+
+  /** 走查：直接塞过程块并打开抽屉 */
+  function setProcessDemo(memberId: string, raw: string) {
+    processBlocks[memberId] = demoProcessBlocks(raw)
+    drawerMemberId.value = memberId
   }
 
   function applyQueue(id: string, q: CatGroupQueuedTask[], status?: string) {
@@ -142,6 +237,11 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
     activeId.value = groupId
     loading.value = true
     for (const key of Object.keys(live)) delete live[key]
+    for (const key of Object.keys(processBlocks)) delete processBlocks[key]
+    for (const key of Object.keys(processLoading)) delete processLoading[key]
+    processStreams.clear()
+    processStreamOwner.clear()
+    drawerMemberId.value = ''
     try {
       const api = groupApi()
       const [{ group: g, members: ms }, page] = await Promise.all([api.getGroup(groupId), api.listMessages(groupId, 0, 50)])
@@ -241,8 +341,8 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
 
   return {
     groupsByProject, activeId, group, members, membersSorted, messages, hasMore, loading, live, routing, routingNow,
-    drawerMemberId, processText, revertedSeqs, queued, memberStatus, files, loadFiles, settingsOpen, membersOpen, scene, sceneUi, workingMembers,
+    drawerMemberId, processBlocks, processLoading, processText, revertedSeqs, queued, memberStatus, files, loadFiles, settingsOpen, membersOpen, scene, sceneUi, workingMembers,
     memberById, nameOf, elapsedOf, loadGroups, open, loadOlder, createGroup, rename, setAutoRoute, deleteGroup,
-    addMember, updateMember, removeMember, reorder, regenerate, saveCharter, send, reassign, stop, stopAll, retryTurn, revert, routeDetail,
+    addMember, updateMember, removeMember, reorder, regenerate, saveCharter, send, reassign, stop, stopAll, retryTurn, revert, routeDetail, openProcess, setProcessDemo,
   }
 })
