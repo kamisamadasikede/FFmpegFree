@@ -292,6 +292,8 @@
 .cg-tool .v { font-weight: 600; margin-right: 8px; text-transform: capitalize; }
 .cg-tool code { font-family: ui-monospace, monospace; color: var(--cat-text-2); }
 .cg-tool pre { margin: 6px 0 0; font: 11px/1.5 ui-monospace, monospace; white-space: pre-wrap; color: var(--cat-muted); }
+.cg-think { font-size: 12px; color: var(--cat-muted); white-space: pre-wrap; line-height: 1.55; padding: 2px 0; }
+.cg-hint { font-size: 13px; color: var(--cat-muted); padding: 8px 0; }
 .cg-proc-ft { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--cat-divider); font-size: 12px; color: var(--cat-text-2); }
 .cg-proc-ft .sp { flex: 1; }
 
@@ -382,3 +384,19 @@
 .cg-mc-row .nm .s { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ff-text-2); margin-top: 1px; }
 .cg-pop .tt.busy { display: inline-flex; align-items: center; gap: 5px; }
 .cg-breath, .cg-mc-row .nm .s .cg-breath { width: 6px; height: 6px; border-radius: 50%; background: var(--cat-accent); animation: cg-breathe 1.6s ease-in-out infinite; flex: none; }
+
+/* 成员展开：改 CLI / 默认模型（与建群/添加同源 listCatModels） */
+.cg-medit {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 8px 12px 4px;
+}
+.cg-medit-fld {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--cat-text-2, var(--ff-text-2));
+}
+.cg-medit-fld .cg-sel { width: 100%; }

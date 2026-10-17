@@ -207,10 +207,15 @@
       </div>
       <div class="cg-proc-ban"><FIcon name="info" :size="12" />{{ t('cat.groupChat.sessionBanner') }}</div>
       <div class="bd">
-        <template v-if="store.processText[store.drawerMemberId]">
-          <template v-for="(b, i) in procBlocks(store.processText[store.drawerMemberId])" :key="i">
-            <div v-if="b.tool" class="cg-tool"><span class="v">{{ b.tool }}</span><code>{{ b.arg }}</code><pre v-if="b.out">{{ b.out }}</pre></div>
-            <p v-else>{{ b.text }}</p>
+        <div v-if="store.processLoading[store.drawerMemberId]" class="cg-hint">{{ t('cat.groupChat.processLoading') }}</div>
+        <template v-else-if="drawerRows.length">
+          <template v-for="row in drawerRows" :key="row.id">
+            <div v-if="row.kind === 'tool'" class="cg-tool" :aria-busy="row.streaming || undefined">
+              <span class="v">{{ row.name }}</span><code v-if="row.arg">{{ row.arg }}</code>
+              <pre v-if="row.out">{{ row.out }}</pre>
+            </div>
+            <div v-else-if="row.kind === 'think'" class="cg-think" :aria-busy="row.streaming || undefined">{{ row.text }}</div>
+            <p v-else>{{ row.text }}</p>
           </template>
         </template>
         <div v-else class="cg-hint">{{ t('cat.groupChat.processEmpty') }}</div>
@@ -299,22 +304,23 @@ const sysText = (m: CatGroupMessage) => systemLineText(m, store.nameOf)
 const overreach = (m: CatGroupMessage) => (m.report?.files ?? []).filter((f) => f.tag === 'overreach')
 
 const drawerHop = computed(() => [...store.messages].reverse().find((m) => m.memberId === store.drawerMemberId || m.toMemberId === store.drawerMemberId)?.hop ?? 0)
-function procBlocks(text: string) {
-  const out: { tool?: string; arg?: string; out?: string; text?: string }[] = []
-  for (const ln of text.split('\n')) {
-    const hit = /^\[(\w+)\] (.*)$/.exec(ln)
-    const last = out[out.length - 1]
-    if (hit) out.push({ tool: hit[1], arg: hit[2], out: '' })
-    else if (!ln.trim()) out.push({ text: '' })
-    else if (last?.tool) last.out = last.out ? `${last.out}\n${ln}` : ln
-    else if (last && !last.tool && last.text) last.text += `\n${ln}`
-    else out.push({ text: ln })
-  }
-  return out.filter((b) => b.tool || b.text)
+const drawerBlocks = computed(() => (store.drawerMemberId ? (store.processBlocks[store.drawerMemberId] ?? []) : []))
+function toolParts(text: string): { name: string; arg: string; out: string } {
+  const lines = text.split('\n')
+  const first = lines[0] ?? ''
+  const m = /^(\S+)\s*(.*)$/.exec(first)
+  return { name: m?.[1] ?? 'tool', arg: m?.[2] ?? '', out: lines.slice(1).join('\n') }
 }
+const drawerRows = computed(() =>
+  drawerBlocks.value.map((b) => {
+    if (b.kind !== 'tool') return { id: b.id, kind: b.kind, text: b.text, streaming: b.streaming, name: '', arg: '', out: '' }
+    const p = toolParts(b.text)
+    return { id: b.id, kind: b.kind, text: b.text, streaming: b.streaming, name: p.name, arg: p.arg, out: p.out }
+  }),
+)
 function openProcess(id?: string) {
-  store.drawerMemberId = id ?? ''
-  void id
+  if (!id) return
+  void store.openProcess(id)
 }
 
 /** 正文里的 @成员名 高亮（最长名优先；没匹配上的保持普通文字） */
@@ -336,7 +342,9 @@ function parts(text: string): { s: string; at: boolean }[] {
 // 换人：只给每条链最新一条派活灰字
 const reassignFor = ref(0)
 function canReassign(m: CatGroupMessage) {
+  // v0.55.9：undecided 不起成员、不出现「换人」
   if (m.systemKind !== 'route' || !m.chainId || store.members.length < 2) return false
+  if (m.route?.mode === 'undecided') return false
   const lastRoute = [...store.messages].reverse().find((x) => x.chainId === m.chainId && x.systemKind === 'route')
   return lastRoute?.seq === m.seq
 }
@@ -506,7 +514,7 @@ function applyScene() {
   if (s === 'members' || s === 'narrow-drawer') store.membersOpen = true
   if (s === 'members') initialOpen.value = 'b'
   if (s === 'rolegen') rolegenOpen.value = true
-  if (s === 'session') { store.processText.f = SESSION_DEMO; store.drawerMemberId = 'f' }
+  if (s === 'session') store.setProcessDemo('f', SESSION_DEMO)
   if (s === 'mention') { draft.value = AT; mentionOpen.value = true; mentionQuery.value = '' }
   if (s === 'narrow-single') catPane.side = 264 // 1024 窗口：左栏 264 + 中栏 760，右栏收成抽屉（设计走查 建议 9）
 }

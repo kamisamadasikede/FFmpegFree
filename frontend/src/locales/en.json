@@ -1679,6 +1679,7 @@
       "routeFollowup": "follow-up to the last reply",
       "routeFallback": "couldn't decide, so it goes to the first member",
       "routeOff": "auto-routing is off, so it goes to the first member",
+      "routeUndecided": "Couldn't tell who should take this — {'@'} a member, or say more specifically what you need.",
       "routeNamed": "your pick",
       "handedOff": "Handed to {name} ({n}/6)",
       "hopLimit": "Handed off 6 times in a row, stopping here. {'@'} a member to continue.",
@@ -1719,7 +1720,7 @@
       "delete": "Delete",
       "openMembers": "Members",
       "processTitle": "{name}'s process",
-      "processEmpty": "The full process lives in their own session: tool calls, thinking and streaming replies.",
+      "processEmpty": "No process yet",
       "elapsedSec": "{s}s",
       "elapsedMin": "{m}m {s}s",
       "footerTime": "{time}",
@@ -1790,7 +1791,8 @@
       "queuedState": "Queued",
       "fileMissing": "No longer exists",
       "fileBy": "{name} · changed {n}×",
-      "optional": "optional"
+      "optional": "optional",
+      "processLoading": "Loading process…"
     }
   }
 }

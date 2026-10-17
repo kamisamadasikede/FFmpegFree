@@ -1679,6 +1679,7 @@
       "routeFollowup": "接着上一条",
       "routeFallback": "没判断出该谁接，先交给排第一的成员",
       "routeOff": "没开自动派活，交给排第一的成员",
+      "routeUndecided": "没判断出该谁接，请 {'@'} 对应成员，或再说具体要做什么。",
       "routeNamed": "你指定的",
       "handedOff": "已转交给 {name}（第 {n}/6 次）",
       "hopLimit": "已连续转交 6 次，先停在这里。需要继续请 {'@'} 对应成员。",
@@ -1719,7 +1720,7 @@
       "delete": "删除",
       "openMembers": "成员",
       "processTitle": "{name} 的过程",
-      "processEmpty": "完整过程在他自己的会话里：工具调用、思考和流式回复都在那。",
+      "processEmpty": "暂时没有过程",
       "elapsedSec": "{s} 秒",
       "elapsedMin": "{m} 分 {s} 秒",
       "footerTime": "用时 {time}",
@@ -1790,7 +1791,8 @@
       "queuedState": "排队中",
       "fileMissing": "已不存在",
       "fileBy": "{name} · 改过 {n} 次",
-      "optional": "选填"
+      "optional": "选填",
+      "processLoading": "正在加载过程…"
     }
   }
 }
