@@ -1,4 +1,4 @@
-# FFmpegFree v2 接口契约（v0.55.6）
+# FFmpegFree v2 接口契约（v0.55.7）
 
 v0.55.6 变更（**群聊数据补全**，前端对照设计稿 `design/cat-project-group` 提出，10-17；见 **6.21.17**；新迁移 `0019_cat_group_route_timing.sql`：`cat_group_routes` 加 `started_at` / `finished_at`；新绑定 `ListCatGroupFiles`）：① 「文件」页签 `ListCatGroupFiles(groupId)`，从汇报文件标签聚合，点开复用老板现有文档预览组件。② `ListCatGroups` 返回的 `CatGroup.members[]` 带头像摘要（`avatarIndex` → `--cat-member-1…5`）。③ 派活判断补 `startedAt` / `finishedAt` / `durationMs`。④ 「排队中」：按 #329 现有每成员 FIFO 补 `status=queued`、`queueLength` 与每条排队任务的 `queuePosition`（事件同带）；右栏显示「排队中 · 前面还有 {n} 个」；入队灰字「交给 {成员}：正在干活，排在后面」（产品已确认），轮到开跑不发灰字。迁移编号：群聊建表改为 `0018_cat_groups.sql`（老板 `0016_teams` / `0017_team_artifacts` 保留），本版 `0019_cat_group_route_timing.sql`。另记：成员状态文案统一「正在干活」；职责卡不加交付物 / 完成标准；MCP 群工具、@ 我的收件箱 / 通知、本人身份、任务等待与恢复放第二期。
 
@@ -6188,7 +6188,7 @@ type CatGroupMessage struct {
 9. **停全部 / 停单人**：结束对应进程；排队中的任务一并取消；被停的那轮按现有取消规则带 `totalMs`。
 
 ### 6.21.7 派活判断的可见性
-`CatRouteInfo{mode: mention|followup|ai|fallback|off, memberId, reason, routeSeq}`；`GetCatRouteDetail` 返回这次判断的原样输入（截断到 8000 字）与原样输出，前端点灰字展开。判断用的 CLI 调用不建会话（Grok `-p`、Claude `-p --no-session-persistence` 若可用否则事后不记录、Codex `exec --ephemeral` 若可用）——**这三个“不留会话”参数后端实现前逐项拿 `--help` 核，核不到就照常建会话但不写入任何成员的 SessionID**。
+`CatRouteInfo{mode: mention|followup|ai|fallback|off|retry, memberId, reason, routeSeq}`；`GetCatRouteDetail` 返回这次判断的原样输入（截断到 8000 字）与原样输出，前端点灰字展开。判断用的 CLI 调用不建会话（Grok `-p`、Claude `-p --no-session-persistence` 若可用否则事后不记录、Codex `exec --ephemeral` 若可用）——**这三个“不留会话”参数后端实现前逐项拿 `--help` 核，核不到就照常建会话但不写入任何成员的 SessionID**。
 
 ### 6.21.8 越界检查与撤销
 1. **归属**：以该成员本轮工具调用里写过的文件路径为准（确定归属）。另在每轮开始 / 结束各对工作区拍一次 git 快照（`git stash create` 式临时对象 + 未跟踪文件哈希，不产生提交、不动索引）；快照多出来、又没有任何成员工具调用认领的文件 → 「来源不明」，挂在该时间段内所有在跑的成员下。非 git 项目：只做确定归属那部分。
@@ -6449,7 +6449,7 @@ type CatGroupQueuedTask struct {
 ```
    `queueLength = len(queue)`。队列变化（入队、出队开跑、停单人 / 停全部清队）时重推该成员的 `cat:group-member`，每条排队任务的 `queuePosition` 随之重算。
 4. **展示**：右栏成员状态里，排队中的任务：`queuePosition=0` 显示「排队中 · 下一个就轮到」，`≥1` 显示「排队中 · 前面还有 {n} 个」（`n` = 该任务的 `queuePosition`；产品 10-17 定）。行内挤时右侧只留「正在干活」，「职位 · CLI」省略号截断，排队文案完整显示（设计 10-17）。正在跑的那一轮仍按 6.21.15 ① 显示「{成员} 正在干活 · 已用 {时长}」（有工具时续 ` · {n} 个工具`），状态条**不加**排队后缀。成员栏状态点 `queued` 同 `running` 样式。
-5. **群里灰字（产品 10-17 已确认）**：任务入队时，后端发一条派活灰字（`systemKind=route`，`route.mode` 沿用本次派活的来源），文案「交给 {成员}：正在干活，排在后面」。**排队标记**：这条灰字的 `route` 带 `queued: true`（`CatGroupRoute.Queued bool json:"queued,omitempty"`，不落库也可、落库随 0019 加 `queued` 列，后端定）；前端见 `queued=true` 用本句文案，其余 `systemKind=route` 照旧。不新增 `systemKind`。
+5. **群里灰字（产品 10-17 已确认）**：任务入队时，后端发一条派活灰字（`systemKind=route`，`route.mode` 沿用本次派活的来源），文案「交给 {成员}：正在干活，排在后面」。**重试入队（v0.55.7）**：`RetryCatGroupMemberTurn` 碰到成员正忙同样入队并发此灰字，`route.mode=retry`（不计跳数，同 6.21.15）；`retry` 不跑判断，无耗时。**排队标记**：这条灰字的 `route` 带 `queued: true`（`CatGroupRoute.Queued bool json:"queued,omitempty"`，不落库也可、落库随 0019 加 `queued` 列，后端定）；前端见 `queued=true` 用本句文案，其余 `systemKind=route` 照旧。不新增 `systemKind`。
    - **轮到开跑时不再发灰字**：排队的任务出队开始时，群里不出任何「开始了 / 轮到了」之类的灰字；状态条出现该成员「正在干活」一行即表示已开始（只推 `cat:group-member`，`running` 非空）。
 6. 不变：排队不计 hop（hop 在入队时已定）；停单人 / 停全部清空其队列（6.21.6 ⑨）；队列在内存，**应用重启后丢失**，第一期接受，不做持久化；换人对排队中的条目不生效（只换正在跑 / 刚派的那条）。
 
