@@ -53,13 +53,14 @@ type CatGroupQueuedTask struct {
 
 // CatCharter is a member's role spec.
 type CatCharter struct {
-	Status    string   `json:"status"`
-	Owns      string   `json:"owns"`
-	NotTouch  string   `json:"notTouch"`
-	Handoff   string   `json:"handoff"`
-	Dirs      []string `json:"dirs"`
-	Edited    []string `json:"edited"`
-	UpdatedAt int64    `json:"updatedAt"`
+	Status     string   `json:"status"`
+	Owns       string   `json:"owns"`
+	NotTouch   string   `json:"notTouch"`
+	Handoff    string   `json:"handoff"`
+	Dirs       []string `json:"dirs"`
+	Edited     []string `json:"edited"`
+	FailReason string   `json:"failReason,omitempty"`
+	UpdatedAt  int64    `json:"updatedAt"`
 }
 
 // CatGroupMember is one employee in a group.

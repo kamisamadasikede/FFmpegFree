@@ -3,6 +3,7 @@ package cat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,7 +87,7 @@ func (s *Service) generateCharter(ctx context.Context, memberID string, full boo
 	prompt := buildCharterPrompt(m, members, projectPath)
 	a, err := s.adapter(m.AgentKind)
 	if err != nil {
-		s.failCharter(ctx, m, full)
+		s.failCharter(ctx, m, full, "CLI 未就绪或未安装")
 		return
 	}
 	turnCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
@@ -103,8 +104,12 @@ func (s *Service) generateCharter(ctx context.Context, memberID string, full boo
 	}
 	resp, runErr := a.RunTurn(opts)
 	body := strings.TrimSpace(resp.Message.Content)
-	if runErr != nil || body == "" {
-		s.failCharter(ctx, m, full)
+	if runErr != nil {
+		s.failCharter(ctx, m, full, charterFailReason(runErr, body))
+		return
+	}
+	if body == "" {
+		s.failCharter(ctx, m, full, "CLI 返回空正文（结构化输出未解出）")
 		return
 	}
 	var out struct {
@@ -114,7 +119,7 @@ func (s *Service) generateCharter(ctx context.Context, memberID string, full boo
 		Dirs     []string `json:"dirs"`
 	}
 	if err := json.Unmarshal([]byte(extractJSONObject(body)), &out); err != nil {
-		s.failCharter(ctx, m, full)
+		s.failCharter(ctx, m, full, "职责 JSON 解析失败")
 		return
 	}
 	c := m.Charter
@@ -132,15 +137,42 @@ func (s *Service) generateCharter(ctx context.Context, memberID string, full boo
 		c.Handoff = defaultHandoff(m, members)
 	}
 	c.Status = "ok"
+	c.FailReason = ""
 	c.UpdatedAt = time.Now().UnixMilli()
 	_ = s.cfg.Store.UpdateCatGroupMemberCharter(ctx, m.ID, c)
 	m.Charter = c
 	s.emitGroupMemberSnapshot(m)
 }
 
-func (s *Service) failCharter(ctx context.Context, m store.CatGroupMember, full bool) {
+func charterFailReason(runErr error, body string) string {
+	if runErr == nil {
+		if strings.TrimSpace(body) == "" {
+			return "CLI 返回空正文（结构化输出未解出）"
+		}
+		return "职责生成失败"
+	}
+	if errors.Is(runErr, context.DeadlineExceeded) || errors.Is(runErr, context.Canceled) {
+		return "职责生成超时"
+	}
+	msg := strings.TrimSpace(runErr.Error())
+	if msg == "" {
+		return "CLI 调用失败"
+	}
+	// keep short for UI gray text
+	if len([]rune(msg)) > 120 {
+		msg = string([]rune(msg)[:120]) + "…"
+	}
+	return msg
+}
+
+func (s *Service) failCharter(ctx context.Context, m store.CatGroupMember, full bool, reason string) {
+	_ = full
 	c := m.Charter
 	c.Status = "failed"
+	c.FailReason = strings.TrimSpace(reason)
+	if c.FailReason == "" {
+		c.FailReason = "职责生成失败"
+	}
 	c.UpdatedAt = time.Now().UnixMilli()
 	_ = s.cfg.Store.UpdateCatGroupMemberCharter(ctx, m.ID, c)
 	m.Charter = c
