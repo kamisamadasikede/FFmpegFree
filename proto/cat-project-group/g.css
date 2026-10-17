@@ -275,3 +275,8 @@ code{font-family:var(--ff-font-mono);font-size:12px;background:var(--cat-code-bg
 .flist{overflow:visible}
 .frow:first-child{border-radius:7px 7px 0 0}.frow:last-child{border-radius:0 0 7px 7px}.frow:only-child{border-radius:7px}
 .frow .tip{top:32px;right:0}
+/* v0.2.2：右栏排队文案较长，名字不折行；右栏职责卡头部允许按钮换到第二行 */
+.mem .l1{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mem .mst .st{white-space:nowrap}
+.right .ch-h{flex-wrap:wrap;row-gap:4px}
+.right .ch-h .nm,.right .ch-h .muted{white-space:nowrap}

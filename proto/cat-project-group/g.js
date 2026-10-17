@@ -139,12 +139,12 @@ function composer(o = {}) {
 const centerWrap = (head, body, bottom, extra = '') => `<main class="center">${head}<div class="stream"><div class="col">${body}</div></div>${bottom}${extra}</main>`;
 
 /* ---------- 右栏 ---------- */
-const ST = { idle: '<span class="st idle">空闲</span>', run: '<span class="st run"><span class="pulse"></span>正在干活</span>', q: '<span class="st q">排队中</span>', ov: '<span class="st ov">越界待处理</span>', stop: '<span class="st stop">已停止</span>', fail: '<span class="st fail">没完成</span>' };
+const ST = { idle: '<span class="st idle">空闲</span>', run: '<span class="st run"><span class="pulse"></span>正在干活</span>', q: '<span class="st q">排队中</span>', qn: '<span class="st q">排队中 · 前面还有 1 个</span>', ov: '<span class="st ov">越界待处理</span>', stop: '<span class="st stop">已停止</span>', fail: '<span class="st fail">没完成</span>' };
 function memRow(k, st, o = {}) {
   const m = M[k];
   return `<div class="mem ${o.sel ? 'sel' : ''} ${o.drag ? 'drag' : ''}">${ic('grip', 's grip')}<div class="av m${m.c}">${m.n[0]}${st === 'ov' ? '<span class="od"></span>' : ''}</div>
-  <div class="info"><div class="l1">${m.n}${o.first ? '<span class="first">排第一</span>' : ''}</div><div class="l2">${m.t} · ${CLI[m.cli][0]}</div></div>
-  <div class="mst">${ST[st]}${st === 'run' || st === 'q' ? `<button class="stopb" title="停止">${ic('stop', 'xs')}</button>` : ''}</div></div>`;
+  <div class="info"><div class="l1">${m.n}${o.first ? '<span class="first">排第一</span>' : ''}</div><div class="l2">${st === 'qn' ? ST.qn : `${m.t} · ${CLI[m.cli][0]}`}</div></div>
+  <div class="mst">${st === 'qn' ? '' : ST[st]}${st === 'run' || st === 'q' || st === 'qn' ? `<button class="stopb" title="停止">${ic('stop', 'xs')}</button>` : ''}</div></div>`;
 }
 function charter(k, o = {}) {
   const m = M[k];
@@ -253,7 +253,7 @@ SC.main = () => ({
 });
 SC.members = () => ({
   center: centerWrap(chead(), mainStream(), composer({ working: WORK })),
-  right: right({ st: { a: 'idle', b: 'idle', f: 'ov', q: 'run' }, order: ['a', 'f', 'b', 'q'], drag: 'f', dropAt: 1, sel: 'b', charter: 1 }),
+  right: right({ st: { a: 'idle', b: 'qn', f: 'ov', q: 'run' }, order: ['a', 'f', 'b', 'q'], drag: 'f', dropAt: 1, sel: 'b', charter: 1 }),
 });
 SC.mention = () => {
   const pop = `<div class="pop" style="left:60px;bottom:118px;width:300px"><div class="pop-t">@ 成员</div>
@@ -301,6 +301,8 @@ SC.dispatch = () => ({
   "memberId": "m_arch_01",
   "reason": "先出方案再拆给前后端"
 }</pre></div>
+    ${task('契约里把重试的错误码也补一句', '17:10')}
+    ${gl('交给 架构师：正在干活，排在后面', { acts: [swapBtn()] })}
     ${R_ARCH()}
     ${task('再改一下，按钮文案用「重试」两个字就行', '17:15')}
     ${gl('交给 架构师：接着上一条', { acts: [swapBtn()] })}
