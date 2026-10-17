@@ -63,6 +63,8 @@ export interface CatGroupMember {
   charter: CatCharter
   /** v0.55.6：运行时只读，不落库 */
   status?: string
+  /** 排队总数（不是 n；n 取 queue[].queuePosition） */
+  queueLength?: number
   queue?: CatGroupQueuedTask[]
 }
 export interface CatGroupFileTag {

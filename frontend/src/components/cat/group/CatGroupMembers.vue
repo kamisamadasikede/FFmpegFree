@@ -32,7 +32,6 @@
         <span v-else-if="f.overreach" class="cg-tag over">{{ t('cat.groupChat.tagOverreach') }}</span>
       </button>
     </div>
-    <CatPreviewDialog v-model:open="previewOn" :file="previewFile" />
     <div v-else class="cg-mem-list" role="list">
       <div
         v-for="(m, i) in store.membersSorted"
@@ -79,6 +78,7 @@
       <button type="button" class="cg-add" data-testid="cat-group-add-member" @click="emit('add')"><FIcon name="plus" :size="13" />{{ t('cat.groupChat.addMember') }}</button>
     </div>
     <div v-if="tab === 'm'" class="cg-mem-ft">{{ t('cat.groupChat.membersFoot') }}</div>
+    <CatPreviewDialog v-model:open="previewOn" :file="previewFile" />
   </aside>
 </template>
 
@@ -121,7 +121,8 @@ const toggle = (id: string) => {
   open.clear()
   if (!was) open.add(id)
 }
-const tab = ref<'m' | 'f'>('m')
+// 走查截图用：?cat_group_tab=f 直接停在文件页（真实环境无此参数）
+const tab = ref<'m' | 'f'>(new URLSearchParams(location.search).get('cat_group_tab') === 'f' ? 'f' : 'm')
 const CLI: Record<string, string> = { claude_cli: 'Claude', codex_cli: 'Codex', cat_build: 'Grok Build', gemini_cli: 'Gemini' }
 const cliName = (k: string) => CLI[k] ?? k
 /** 排队文案：n=0 与 n≥1 用两个 key，产品改口径时只换 key（6.21.17 ④-4） */
