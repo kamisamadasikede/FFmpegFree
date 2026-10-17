@@ -48,15 +48,9 @@
                 <span class="tm">{{ clock(m.createdAt) }}</span>
               </div>
               <div class="tx"><template v-for="(p, i) in parts(memberShortText(m))" :key="i"><span v-if="p.at" class="cg-at">{{ p.s }}</span><template v-else>{{ p.s }}</template></template></div>
-              <div v-if="m.report?.footer || m.turnId" class="ft">
-                <template v-if="m.report?.footer">
-                  <span v-if="m.report.footer.finishedAt">{{ t('cat.groupChat.footerDone', { time: clock(m.report.footer.finishedAt) }) }}</span>
-                  <span v-else-if="m.report.footer.totalMs">{{ t('cat.groupChat.footerTime', { time: formatElapsed(m.report.footer.totalMs) }) }}</span>
-                </template>
-                <template v-if="m.turnId || m.memberId">
-                  <span v-if="m.report?.footer">·</span>
-                  <button type="button" class="lk" @click="openProcess(m.memberId)"><FIcon name="eye" :size="12" />{{ t('cat.groupChat.viewFull') }}</button>
-                </template>
+              <!-- 短复轻于汇报卡：无 token/耗时页脚；仅保留「查看完整过程」 -->
+              <div v-if="m.turnId || m.memberId" class="ft">
+                <button type="button" class="lk" @click="openProcess(m.memberId)"><FIcon name="eye" :size="12" />{{ t('cat.groupChat.viewFull') }}</button>
               </div>
             </div>
 

@@ -221,7 +221,7 @@
 .cg-task .tm { margin-left: auto; font-size: 11px; color: var(--cat-muted); }
 .cg-task .tx { font-size: 14px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
 /* v0.56 短复气泡：不出四段汇报卡，像同事回话 */
-.cg-short { background: var(--cat-surface); border: 1px solid var(--cat-border); border-radius: 12px; padding: 12px 16px; box-shadow: var(--cat-shadow-sm); }
+.cg-short { background: var(--cat-surface); border: 1px solid var(--cat-border); border-radius: 12px; padding: 12px 16px; box-shadow: none; }
 .cg-short .hd { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 6px; }
 .cg-short .hd b { font-weight: 600; }
 .cg-short .hd .tt { color: var(--cat-muted); font-size: 12px; }
