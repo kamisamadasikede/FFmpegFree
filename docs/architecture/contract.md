@@ -1,5 +1,5 @@
 # FFmpegFree v2 接口契约（v0.56）
-v0.56 变更（**群聊工作方式对标 Grok Bot**，产品 10-17；见 **6.21.19**；无迁移 / 新绑定）：① 「交给谁」(`give`) 可空；空 = 干完结束，弱灰字或不显示「没有交给下一位」。② `give` 里写了 @ → **仍唤醒**（成员自主 @）；**只解析「交给谁」段**，不扫全文。多人 @ → 并行；同一人忙才排队。③ 灰字去掉「接力」「第 n/6 次」；改成「已请 {成员} 接着」；多人仍用「N 人在干活」。hop≤6 防死循环保留，但对用户弱化计数（灰字不显示 n/6）。④ 职责 / 群规 / `defaultHandoff` 重写：默认多数回合只向老板汇报、不必交接；只有真有依赖或要并行专家时才 @（可一次多人）；**禁止**「做完交给全员」。⑤ 正式交付才出汇报卡（完成了什么 / 改了哪些文件(Cat) / 需要注意 / 交给谁可空），像同事说话；招呼 / 澄清 / 无交付 → 短自然语言回复（不出完整四段卡）或 `undecided`。⑥ 过程仍只在「查看过程」抽屉。一期不做：give 只展示永不唤醒；等 A、B 都完成再交 C。自动派活本期仍单人 `memberId` + 提示词加强；闲聊走 `undecided`（6.21.18）；二期可扩展 `memberIds[]`。
+v0.56 变更（**群聊工作方式对标 Grok Bot**，产品 10-17；见 **6.21.19**；无迁移 / 新绑定）：① 「交给谁」(`give`) 可空；空 = 干完结束，弱灰字或不显示「没有交给下一位」。② `give` 里写了 @ → **仍唤醒**（成员自主 @）；**只解析「交给谁」段**，不扫全文。多人 @ → 并行；同一人忙才排队。③ 灰字去掉「接力」「第 n/6 次」；改成「已请 {成员} 接着」；多人仍用「N 人在干活」。hop≤6 防死循环保留，但对用户弱化计数（灰字不显示 n/6）。④ 职责 / 群规 / `defaultHandoff` 重写：默认多数回合只向老板汇报、不必交接；只有真有依赖或要并行专家时才 @（可一次多人）；**禁止**「做完交给全员」。⑤ 正式交付才出汇报卡（完成了什么 / 改了哪些文件(Cat) / 需要注意 / 交给谁可空），像同事说话；招呼 / 澄清 / 无交付 → 短自然语言回复（不出完整四段卡）或 `undecided`。⑥ 过程仍只在「查看过程」抽屉。一期不做：give 只展示永不唤醒；等 A、B 都完成再交 C。自动派活本期仍单人 `memberId` + 提示词加强；闲聊走 `undecided`（6.21.18）；二期可扩展 `memberIds[]`。⑦ 锁成员消息线字段 `replyKind`（`short`|`report`）/ `shortText`（短复 vs 汇报卡；判定归后端，见 **6.21.19** ⑨）。
 
 v0.55.9 变更（**派活判断失败不再兜底排第一**，产品 A 口径 10-17；见 **6.21.18**）：自动派活开着时，判断失败 / 超时 / 定不出该谁 → **不起成员、不交给排第一、不出现「换人」**；灰字「没判断出该谁接，请 @ 对应成员，或再说具体要做什么。」（可带「· 判断用时 n 秒」）；`route.mode=undecided`。自动派活关仍交给排第一（文案不变）。派活判断输出的 memberId 须为成员 id；若返回人名则按 name/title 唯一匹配回填。
 
@@ -6254,9 +6254,11 @@ type CatGroupFileTag struct {
 //   SystemKind string `json:"systemKind,omitempty"` // route | hop_limit | no_handoff | reassign | failed | stopped | charter
 //   FromMemberID / ToMemberID string `json:"fromMemberId,omitempty"` / `json:"toMemberId,omitempty"` // reassign
 //   FailReason string `json:"failReason,omitempty"` // failed 时给前端展示的原因（已本地化）
-//   Report *CatGroupReport `json:"report,omitempty"` // kind=member 且成功时必有
+//   Report *CatGroupReport `json:"report,omitempty"` // 正式交付必有；短复见 6.21.19 ⑨
+//   ReplyKind string `json:"replyKind,omitempty"` // "short"|"report"；见 6.21.19 ⑨
+//   ShortText string `json:"shortText,omitempty"` // 短气泡正文；省略用 text
 ```
-`kind=member` 且本轮成功 → 必带 `report`（即使 `parsed=false`）；失败 / 停止 → **不**发 `kind=member` 汇报，只发 `kind=system`。
+`kind=member` 且本轮成功 → **正式交付**必带 `report`（即使 `parsed=false`）；**短复**见 6.21.19 ⑨（`replyKind=short`，可不带 `report`）。失败 / 停止 → **不**发 `kind=member` 汇报，只发 `kind=system`。
 
 #### ③ 绑定补全（参数 / 返回）
 | 方法 | 请求 | 返回 |
@@ -6527,7 +6529,15 @@ type CatGroupQueuedTask struct {
 
 7. **正式交付**（改了文件 / 有结论要同步）：用汇报卡——完成了什么(`did`) / 改了哪些文件(`files[]`，Cat 生成) / 需要注意(`attn`) / 交给谁(`give`，**可空**)。内容像同事说话，**禁止**空洞套话四段。
 8. **招呼、澄清、无需交付：** 允许**短自然语言回复**，**不出**完整四段汇报卡；或走自动派活 `undecided` / 不起人（6.21.18）。
-9. **过程仍只在「查看过程」抽屉**（直播 `textDelta` + 事后 `GetCatConversation(成员id)`，见 #341）；群里可写要点，不要把群变成工单流水线。
+9. **线字段（成员消息，v0.56 锁死；产品 / FE 10-17）：**
+   - `replyKind?`：`"short"` | `"report"`（可选字符串）。
+     - **正式交付**（改了文件 / 有结论要同步）→ 后端**必须**挂 `report`（四段）；可设 `replyKind=report`，也可省略（有 `report` 即出汇报卡）。
+     - **招呼 / 澄清 / 无交付** → 后端**必须**设 `replyKind=short`，且**不得**挂空壳四段 `report`（省略 `report` / 不设）。
+   - `shortText?`：短气泡正文；省略时前端用 `text`。
+   - **前端判定：** `replyKind=short`，**或**（无 `report` 且正文非空）→ 短气泡；有 `report` → 汇报卡（`replyKind=report` 时同）。
+   - **走哪条路径由后端判定**（产品 10-17），前端不猜「算不算正式交付」。
+   - 无迁移、无新绑定、无新错误码。覆盖 6.21.14 ②「`kind=member` 且成功 → 必带 `report`」——短复路径可不带。
+10. **过程仍只在「查看过程」抽屉**（直播 `textDelta` + 事后 `GetCatConversation(成员id)`，见 #341）；群里可写要点，不要把群变成工单流水线。
 
 #### 一期明确不做
 
@@ -6538,8 +6548,8 @@ type CatGroupQueuedTask struct {
 
 | 角色 | 改什么 |
 |---|---|
-| 后端 | 重写 `defaultHandoff` / 群规常量；唤醒 @ **只解析 `give`**；灰字换「已请 {成员} 接着」、去掉 n/6；`give` 空时弱化 / 省略「没有交给下一位」；短复路径（无四段卡）与汇报卡分支 |
-| 前端 | 灰字与 i18n；`give` 空不渲染「交给谁」段；短复气泡 vs 汇报卡；不展示 hop 计数 |
+| 后端 | 重写 `defaultHandoff` / 群规常量；唤醒 @ **只解析 `give`**；灰字换「已请 {成员} 接着」、去掉 n/6；`give` 空时弱化 / 省略「没有交给下一位」；短复发 `replyKind=short` 且不挂空壳 `report`；正式交付挂 `report`（可省略 `replyKind`） |
+| 前端 | 灰字与 i18n；`give` 空不渲染「交给谁」段；按 `replyKind` / 有无 `report` 切短气泡 vs 汇报卡（可用 `shortText`）；不展示 hop 计数 |
 | 设计 | 文案按设计说明 v0.2.4+；不大改版式 |
 
 
