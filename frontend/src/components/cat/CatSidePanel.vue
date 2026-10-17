@@ -138,6 +138,7 @@
           </div>
           <div class="pj-kids">
             <div class="pj-in">
+              <CatGroupSection :project-id="p.id" :missing="p.missing" />
               <div v-if="!p.convs.length" class="pj-none">{{ PC.emptyConvs }}</div>
               <div
                 v-for="c in visibleConversations(p.convs, archivedView, convQuery)"
@@ -296,6 +297,7 @@
       @pointerdown="onSideResizeDown"
       @keydown="onSideResizeKey"
     />
+    <CatGroupCreateDialog v-if="catPanels.createGroupProjectId" mode="group" :project-id="catPanels.createGroupProjectId" @close="catPanels.createGroupProjectId = ''" />
   </section>
 </template>
 
@@ -312,6 +314,8 @@ import { railCollapsed } from '@/views/cat/catLayout'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
+import CatGroupSection from '@/components/cat/group/CatGroupSection.vue'
+import CatGroupCreateDialog from '@/components/cat/group/CatGroupCreateDialog.vue'
 import { catPanels, catSchedulesVisible, enabledScheduleCount, openView } from '@/views/cat/catPanels'
 import { CAT_CONV_COPY as CC, CAT_COPY } from '@/api/cat'
 import { CAT_PROJECT_COPY as PC, CAT_PROJECT_NAME_MAX } from '@/api/catProjects'

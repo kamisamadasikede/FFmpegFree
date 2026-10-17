@@ -22,22 +22,27 @@ import type { CatConvPref } from './catConvPrefs'
 import { FALLBACK_MODES, getCatAgentCapabilities, resolveModeId } from './catCapabilities'
 import { t } from '@/i18n'
 
-export type CatView = 'chat' | 'settings' | 'schedules'
+export type CatView = 'chat' | 'settings' | 'schedules' | 'group'
 export type CatSettingsTab = 'general' | 'instruction' | 'ext' | 'about'
 
 const preview = typeof window !== 'undefined' && !(window as unknown as { go?: unknown }).go
 const q = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams()
 const qView = preview ? q.get('cat_view') : null
 const qTab = preview ? q.get('cat_tab') : null
+/** 群聊走查：?cat_group_scene=… 直接打开示例群 g1（只在浏览器预览） */
+const qGroupScene = preview ? q.get('cat_group_scene') : null
 
 export const catPanels = reactive({
-  view: (qView === 'settings' || (qView === 'schedules' && catSchedulesVisible()) ? qView : 'chat') as CatView,
+  view: (qGroupScene ? 'group' : qView === 'settings' || (qView === 'schedules' && catSchedulesVisible()) ? qView : 'chat') as CatView,
   tab: (['general', 'instruction', 'ext', 'about'].includes(qTab ?? '') ? qTab : 'general') as CatSettingsTab,
   settings: normalizeSettings({}),
   settingsLoaded: false,
   schedules: [] as CatSchedule[],
   schedulesLoaded: false,
   /** 应用内浮提示（定时任务完成 / 失败），点了打开对话 */
+  /** v0.55 群聊：当前打开的群 / 正在建群的项目（空 = 没开建群弹窗） */
+  activeGroupId: (qGroupScene ? 'g1' : '') as string,
+  createGroupProjectId: (qGroupScene === 'create' ? 'p3' : '') as string,
   toast: null as { key: number; title: string; body: string; tone: 'ok' | 'bad'; convId?: string } | null,
 })
 
@@ -46,6 +51,15 @@ export function openView(v: CatView) {
   catPanels.view = v
   if (v === 'schedules') void refreshSchedules()
   if (v === 'settings') void loadSettings()
+}
+
+export function openGroup(groupId: string) {
+  catPanels.activeGroupId = groupId
+  catPanels.view = 'group'
+}
+
+export function openCreateGroup(projectId: string) {
+  catPanels.createGroupProjectId = projectId
 }
 
 export async function loadSettings() {
