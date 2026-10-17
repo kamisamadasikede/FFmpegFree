@@ -278,7 +278,7 @@
 .cg-comp .row textarea { flex: 1; min-width: 160px; }
 .cg-comp .cg-chip { background: var(--cat-accent-soft); color: var(--cat-accent); border-radius: 4px; padding: 0 4px; font-size: 13px; display: inline-flex; align-items: center; gap: 2px; }
 .cg-comp .cg-chip button { border: 0; background: none; color: inherit; padding: 0; cursor: pointer; display: inline-flex; }
-.cg-pop .tt.busy { color: var(--cat-success-text); }
+.cg-pop .tt.busy { color: var(--ff-text-2); }
 .cg-chint { font-size: 11px; color: var(--cat-muted); margin-bottom: 12px; padding-left: 4px; }
 .cg-scrim.on { position: absolute; inset: 0; z-index: 39; background: rgba(0, 0, 0, 0.18); }
 .cg-proc { width: min(480px, 100%); }
@@ -304,7 +304,7 @@
 .av.md { width: 32px; height: 32px; font-size: 13px; position: relative; }
 .av .odot { position: absolute; right: -1px; top: -1px; width: 9px; height: 9px; border-radius: 50%; background: var(--cat-orange); box-shadow: 0 0 0 2px var(--cat-surface); }
 .cg-st { flex: none; font-size: 11px; color: var(--cat-muted); display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
-.cg-st.busy { color: var(--cat-success-text); }
+.cg-st.busy { color: var(--ff-text-2); }
 .cg-st.over { color: var(--cat-orange); }
 .cg-st.failed { color: var(--cat-danger-text); }
 .cg-ib.sm { height: 20px; min-width: 20px; padding: 0; }
@@ -379,5 +379,6 @@
 .cg-files-tab { gap: 0; }
 .cg-st.queued { color: var(--cat-accent); }
 
-.cg-mc-row .nm .s { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--cat-success-text); margin-top: 1px; }
-.cg-mc-row .nm .s .cg-breath { width: 6px; height: 6px; border-radius: 50%; background: var(--cat-accent); animation: cg-breathe 1.6s ease-in-out infinite; flex: none; }
+.cg-mc-row .nm .s { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--ff-text-2); margin-top: 1px; }
+.cg-pop .tt.busy { display: inline-flex; align-items: center; gap: 5px; }
+.cg-breath, .cg-mc-row .nm .s .cg-breath { width: 6px; height: 6px; border-radius: 50%; background: var(--cat-accent); animation: cg-breathe 1.6s ease-in-out infinite; flex: none; }
