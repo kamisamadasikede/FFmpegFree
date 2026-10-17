@@ -94,12 +94,20 @@ export interface CatGroupReport {
 export interface CatRouteInfo {
   mode: string
   memberId?: string
+  /**
+   * ai 成功：判断理由短句。
+   * undecided（v0.56.1 / 6.21.18）：失败码 timeout|empty|parse_error|run_error|unknown_id，
+   * 或后端已映射的中文短句；灰字 · 后缀读此字段。
+   */
   reason?: string
   routeSeq?: number
   /** v0.55.6 6.21.17 ④-5：成员正在干活，这条进了他的队列 */
   queued?: boolean
   /** v0.55.6 / v0.55.9：ai / fallback / undecided 可有 */
   durationMs?: number
+  /** 防御字段：若 BE 另下发 failReason/detail，undecidedRouteReasonOf 会读 */
+  failReason?: string
+  detail?: string
 }
 export interface CatGroupMessage {
   seq: number
@@ -244,6 +252,45 @@ export function formatElapsed(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000))
   if (s < 60) return k('elapsedSec', { s })
   return k('elapsedMin', { m: Math.floor(s / 60), s: String(s % 60).padStart(2, '0') })
+}
+
+
+/** v0.56.1 / 6.21.18：undecided 机器码 → i18n 短句（与 BE undecidedReasonSuffix 对齐）。 */
+const UNDECIDED_REASON_I18N: Record<string, string> = {
+  timeout: 'routeUndecidedReasonTimeout',
+  empty: 'routeUndecidedReasonEmpty',
+  parse_error: 'routeUndecidedReasonParse',
+  run_error: 'routeUndecidedReasonRun',
+  unknown_id: 'routeUndecidedReasonUnknownId',
+}
+
+/**
+ * undecided 灰字 · 后原因展示。
+ * 优先 BE 原文（已是中文短句则原样）；机器码才映射。前端不另翻笼统句。
+ * 防御读取 reason / failReason / detail / error / message。
+ */
+export function undecidedRouteReasonOf(
+  route: Partial<CatRouteInfo> | Record<string, unknown> | undefined | null,
+): string {
+  if (!route || typeof route !== 'object') return ''
+  const r = route as Record<string, unknown>
+  if (typeof r.mode === 'string' && r.mode && r.mode !== 'undecided') return ''
+  let raw = ''
+  for (const key of ['reason', 'failReason', 'detail', 'error', 'message'] as const) {
+    const v = r[key]
+    if (typeof v === 'string' && v.trim()) {
+      raw = v.trim()
+      break
+    }
+  }
+  if (!raw) return ''
+  raw = raw.replace(/^[·•.\s]+/u, '').trim()
+  if (!raw) return ''
+  // 旧包曾把整句主文塞进 reason，不当作后缀
+  if (raw.includes('\u6ca1\u5224\u65ad\u51fa\u8be5\u8c01\u63a5') || /couldn.?t tell who/i.test(raw)) return ''
+  const i18nKey = UNDECIDED_REASON_I18N[raw]
+  if (i18nKey) return k(i18nKey)
+  return raw
 }
 
 /**

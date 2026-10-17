@@ -363,7 +363,8 @@
 .cg-stack.sm .av:first-child { margin-left: 0; }
 
 /* ---- 设计走查 4da2d70 ---- */
-.cg-sys { color: var(--ff-text-2); }
+.cg-sys { color: var(--ff-text-2); flex-wrap: wrap; }
+.cg-sys .took { color: var(--ff-text-2); }
 .cg-btn.dngf { border-color: var(--ff-danger); background: var(--ff-danger); color: #fff; }
 .cg-pulse { background: var(--cat-accent); animation: cg-breathe 1.6s ease-in-out infinite; }
 @keyframes cg-breathe { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--cat-accent) 45%, transparent); } 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--cat-accent) 0%, transparent); opacity: 0.7; } }
