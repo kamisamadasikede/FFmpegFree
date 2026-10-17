@@ -21,7 +21,7 @@
       <span style="display: inline-flex; color: var(--cat-warn-text); margin-top: 2px"><FIcon name="warn" :size="14" /></span>
       <div class="bx">
         <div class="t">{{ t('cat.groupChat.charterFailed') }}</div>
-        <div class="h">{{ t('cat.groupChat.charterFailedHint') }}</div>
+        <div class="h">{{ c.failReason || t('cat.groupChat.charterFailedHint') }}</div>
         <div class="row">
           <button type="button" class="cg-btn pri" data-testid="cat-group-charter-regen" @click="regen(true)"><FIcon name="refresh" :size="12" />{{ t('cat.groupChat.regenerate') }}</button>
           <button type="button" class="cg-btn" @click="startEdit()">{{ t('cat.groupChat.edit') }}</button>

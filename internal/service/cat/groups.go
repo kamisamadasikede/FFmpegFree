@@ -258,7 +258,7 @@ func (s *Service) AddCatGroupMember(ctx context.Context, req AddGroupMemberReque
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.generateCharter(context.Background(), m.ID, false)
+		s.generateCharter(context.Background(), m.ID, true) // §6.21.4 首次完整生成 owns/notTouch/dirs/handoff
 	}()
 	decorateGroupMember(&m)
 	return m, nil

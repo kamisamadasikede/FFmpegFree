@@ -53,13 +53,14 @@ type CatGroupQueuedTask struct {
 
 // CatCharter is a member's role spec.
 type CatCharter struct {
-	Status    string   `json:"status"`
-	Owns      string   `json:"owns"`
-	NotTouch  string   `json:"notTouch"`
-	Handoff   string   `json:"handoff"`
-	Dirs      []string `json:"dirs"`
-	Edited    []string `json:"edited"`
-	UpdatedAt int64    `json:"updatedAt"`
+	Status     string   `json:"status"`
+	Owns       string   `json:"owns"`
+	NotTouch   string   `json:"notTouch"`
+	Handoff    string   `json:"handoff"`
+	Dirs       []string `json:"dirs"`
+	Edited     []string `json:"edited"`
+	FailReason string   `json:"failReason,omitempty"` // 生成失败时给前端展示（契约待补；架构师锁字段名）
+	UpdatedAt  int64    `json:"updatedAt"`
 }
 
 // CatGroupMember is one employee in a group.
@@ -142,9 +143,9 @@ type CatGroupMessage struct {
 	Report       *CatGroupReport `json:"report,omitempty"`
 	// ReplyKind：v0.56 短复 vs 汇报卡（契约 6.21.19；FE #346）。
 	// "short" | "report"；短复亦可省略 Report。不落库——重载靠「无 report + 有 text」识别。
-	ReplyKind    string          `json:"replyKind,omitempty"`
-	ShortText    string          `json:"shortText,omitempty"`
-	CreatedAt    int64           `json:"createdAt"`
+	ReplyKind string `json:"replyKind,omitempty"`
+	ShortText string `json:"shortText,omitempty"`
+	CreatedAt int64  `json:"createdAt"`
 }
 
 // CatGroupRouteDetail is GetCatRouteDetail payload.

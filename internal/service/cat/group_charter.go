@@ -23,6 +23,7 @@ func (s *Service) RegenerateCatCharter(ctx context.Context, memberID string) (Gr
 		return GroupMember{}, apperr.New(apperr.InvalidArgument, "职责规范正在生成").WithDetail("reason=charter_generating")
 	}
 	m.Charter.Status = "generating"
+	m.Charter.FailReason = ""
 	_ = s.cfg.Store.UpdateCatGroupMemberCharter(ctx, m.ID, m.Charter)
 	s.emitGroupMemberSnapshot(m)
 	s.wg.Add(1)
@@ -60,6 +61,7 @@ func (s *Service) UpdateCatCharter(ctx context.Context, req UpdateCharterRequest
 		c.Edited = append(c.Edited, k)
 	}
 	c.Status = "ok"
+	c.FailReason = ""
 	c.UpdatedAt = time.Now().UnixMilli()
 	if err := s.cfg.Store.UpdateCatGroupMemberCharter(ctx, m.ID, c); err != nil {
 		return GroupMember{}, apperr.Wrap(apperr.IOError, "更新职责规范失败", err)
@@ -76,6 +78,7 @@ func (s *Service) generateCharter(ctx context.Context, memberID string, full boo
 	}
 	g, err := s.cfg.Store.GetCatGroup(ctx, m.GroupID)
 	if err != nil {
+		s.failCharter(ctx, m, "读不到所在群")
 		return
 	}
 	members, _ := s.cfg.Store.ListCatGroupMembers(ctx, m.GroupID)
@@ -86,7 +89,7 @@ func (s *Service) generateCharter(ctx context.Context, memberID string, full boo
 	prompt := buildCharterPrompt(m, members, projectPath)
 	a, err := s.adapter(m.AgentKind)
 	if err != nil {
-		s.failCharter(ctx, m, full)
+		s.failCharter(ctx, m, charterFailReason(err, "助手还没就绪"))
 		return
 	}
 	turnCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
@@ -103,9 +106,19 @@ func (s *Service) generateCharter(ctx context.Context, memberID string, full boo
 	}
 	resp, runErr := a.RunTurn(opts)
 	body := strings.TrimSpace(resp.Message.Content)
-	if runErr != nil || body == "" {
-		s.failCharter(ctx, m, full)
+	if runErr != nil {
+		s.failCharter(ctx, m, charterFailReason(runErr, "生成失败"))
 		return
+	}
+	if body == "" {
+		s.failCharter(ctx, m, "模型没有返回内容")
+		return
+	}
+	payload := catagent.ExtractStructuredJSONContent([]byte(body))
+	if payload == "" {
+		payload = extractJSONObject(body)
+	} else {
+		payload = extractJSONObject(payload)
 	}
 	var out struct {
 		Owns     string   `json:"owns"`
@@ -113,8 +126,8 @@ func (s *Service) generateCharter(ctx context.Context, memberID string, full boo
 		Handoff  string   `json:"handoff"`
 		Dirs     []string `json:"dirs"`
 	}
-	if err := json.Unmarshal([]byte(extractJSONObject(body)), &out); err != nil {
-		s.failCharter(ctx, m, full)
+	if err := json.Unmarshal([]byte(payload), &out); err != nil {
+		s.failCharter(ctx, m, "返回格式不对")
 		return
 	}
 	c := m.Charter
@@ -132,19 +145,55 @@ func (s *Service) generateCharter(ctx context.Context, memberID string, full boo
 		c.Handoff = defaultHandoff(m, members)
 	}
 	c.Status = "ok"
+	c.FailReason = ""
 	c.UpdatedAt = time.Now().UnixMilli()
 	_ = s.cfg.Store.UpdateCatGroupMemberCharter(ctx, m.ID, c)
 	m.Charter = c
 	s.emitGroupMemberSnapshot(m)
 }
 
-func (s *Service) failCharter(ctx context.Context, m store.CatGroupMember, full bool) {
+func (s *Service) failCharter(ctx context.Context, m store.CatGroupMember, reason string) {
 	c := m.Charter
 	c.Status = "failed"
+	c.FailReason = strings.TrimSpace(reason)
 	c.UpdatedAt = time.Now().UnixMilli()
 	_ = s.cfg.Store.UpdateCatGroupMemberCharter(ctx, m.ID, c)
 	m.Charter = c
 	s.emitGroupMemberSnapshot(m)
+}
+
+// charterFailReason prefers the Chinese AppError.Message; falls back to fallback.
+func charterFailReason(err error, fallback string) string {
+	if err == nil {
+		return fallback
+	}
+	if ae := apperr.From(err); ae != nil {
+		if msg := strings.TrimSpace(ae.Message); msg != "" {
+			// Avoid dumping JSON-looking Error() blobs into the UI.
+			if !strings.HasPrefix(msg, "{") {
+				return truncateRunes(msg, 120)
+			}
+		}
+		if d := strings.TrimSpace(ae.Detail); strings.HasPrefix(d, "reason=") {
+			switch {
+			case strings.Contains(d, "idle_timeout"), strings.Contains(d, "timeout"):
+				return "生成超时"
+			case strings.Contains(d, "empty_reply"):
+				return "模型没有返回内容"
+			case strings.Contains(d, "need_grok"), strings.Contains(d, "not_ready"):
+				return "助手还没就绪"
+			}
+		}
+	}
+	return fallback
+}
+
+func truncateRunes(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	r := []rune(s)
+	return string(r[:n])
 }
 
 func (s *Service) refreshHandoffs(ctx context.Context, groupID string) {

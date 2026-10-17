@@ -19,6 +19,8 @@ export interface CatCharter {
   handoff: string
   dirs: string[]
   edited: string[]
+  /** 生成失败时后端写入的原因（§6.21.4，架构师锁 failReason） */
+  failReason?: string
   updatedAt: number
 }
 export interface CatGroup {
@@ -179,6 +181,7 @@ export function normalizeCharter(c: Partial<CatCharter> | undefined | null): Cat
     handoff: c?.handoff ?? '',
     dirs: Array.isArray(c?.dirs) ? [...c!.dirs] : [],
     edited: Array.isArray(c?.edited) ? [...c!.edited] : [],
+    failReason: c?.failReason || undefined,
     updatedAt: c?.updatedAt ?? 0,
   }
 }
