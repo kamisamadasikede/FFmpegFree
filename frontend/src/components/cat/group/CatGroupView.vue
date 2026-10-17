@@ -8,7 +8,9 @@
         <span class="cg-stack" aria-hidden="true">
           <span v-for="m in store.membersSorted.slice(0, 5)" :key="m.id" class="av sm" :style="{ '--c': memberColorVar(m.order) }">{{ initial(m.name) }}</span>
         </span>
-        
+        <button v-if="layout !== 'wide'" type="button" class="cg-ib" :class="{ on: store.membersOpen }" data-testid="cat-group-members-toggle" @click="store.membersOpen = !store.membersOpen">
+          <FIcon name="list" :size="15" /><span v-if="layout === 'mid'">{{ t('cat.groupChat.openMembers') }}</span>
+        </button>
         
       </header>
 
@@ -149,7 +151,9 @@
       </div>
     </div>
 
-    
+    <div v-if="layout !== 'wide' && store.membersOpen" class="cg-scrim" @click="store.membersOpen = false" />
+    <CatGroupMembers :class="{ open: store.membersOpen }" :closable="layout !== 'wide'" :initial-open="initialOpen" @close="store.membersOpen = false" @add="addOpen = true" />
+    <CatGroupCreateDialog v-if="addOpen" mode="member" @close="addOpen = false" />
 
     <aside v-if="store.drawerMemberId" class="cg-proc" data-testid="cat-group-process">
       <div class="cg-mem-hd">
@@ -197,6 +201,8 @@ import FIcon from '@/components/icon/FIcon.vue'
 import { useCatGroupChat } from '@/stores/catGroupChat'
 import { formatElapsed, memberColorVar, systemLineText, type CatGroupMessage, type CatRouteDetail } from '@/api/catGroupChat'
 import { catPanels } from '@/views/cat/catPanels'
+import CatGroupMembers from './CatGroupMembers.vue'
+import CatGroupCreateDialog from './CatGroupCreateDialog.vue'
 import './catGroup.css'
 
 const { t } = useI18n()
