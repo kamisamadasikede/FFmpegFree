@@ -32,7 +32,35 @@
                   <h4 v-if="m.report.parsed">{{ t('cat.groupChat.did') }}</h4>
                   <p><template v-for="(p, i) in parts(m.report.did)" :key="i"><span v-if="p.at" class="cg-at">{{ p.s }}</span><template v-else>{{ p.s }}</template></template></p>
                 </div>
-                
+                <div v-if="normalFiles(m).length" class="cg-sec">
+                  <h4>{{ t('cat.groupChat.files') }}</h4>
+                  <ul class="cg-files">
+                    <li v-for="f in normalFiles(m)" :key="f.path">
+                      <span class="p">{{ f.path }}</span>
+                      <span v-if="f.added" class="ad">+{{ f.added }}</span><span v-if="f.deleted" class="dl">-{{ f.deleted }}</span>
+                      <span v-if="f.tag === 'unknown'" class="cg-tag unk" :title="t('cat.groupChat.unknownTip')">{{ t('cat.groupChat.tagUnknown') }}</span>
+                    </li>
+                  </ul>
+                </div>
+                <div v-if="overreach(m).length" class="cg-over" data-testid="cat-group-overreach">
+                  <div class="h">
+                    <FIcon name="warn" :size="13" />{{ t('cat.groupChat.overreachTitle', { n: overreach(m).length }) }}<span class="sp" />
+                    <button v-if="!reverted[m.seq]" type="button" class="cg-btn org" data-testid="cat-group-revert" @click="revertMsg = m">{{ t('cat.groupChat.revert') }}</button>
+                  </div>
+                  <ul class="cg-files" style="margin-top: 6px">
+                    <li v-for="f in expanded[m.seq] ? overreach(m) : overreach(m).slice(0, 3)" :key="f.path">
+                      <span class="p">{{ f.path }}</span>
+                      <span v-if="f.added" class="ad">+{{ f.added }}</span><span v-if="f.deleted" class="dl">-{{ f.deleted }}</span>
+                      <span class="cg-tag over">{{ t('cat.groupChat.tagOverreach') }}</span>
+                    </li>
+                  </ul>
+                  <button v-if="overreach(m).length > 3 && !expanded[m.seq]" type="button" class="more" @click="expanded[m.seq] = true">{{ t('cat.groupChat.moreFiles', { n: overreach(m).length - 3 }) }}</button>
+                  <div v-for="s in revertSkips[m.seq] ?? []" :key="s" class="cg-skip">{{ t('cat.groupChat.revertSkipped', { file: s }) }}</div>
+                </div>
+                <div v-if="m.report.attn" class="cg-sec">
+                  <h4>{{ t('cat.groupChat.attn') }}</h4>
+                  <p>{{ m.report.attn }}</p>
+                </div>
                 <div v-if="m.report.give" class="cg-sec">
                   <h4>{{ t('cat.groupChat.give') }}</h4>
                   <p><template v-for="(p, i) in parts(m.report.give)" :key="i"><span v-if="p.at" class="cg-at chip">{{ p.s }}</span><template v-else>{{ p.s }}</template></template></p>
@@ -115,7 +143,19 @@
       <div class="bd">{{ store.processText[store.drawerMemberId] || t('cat.groupChat.processEmpty') }}</div>
     </aside>
 
-    
+    <div v-if="revertMsg" class="cg-modal-bg" @click.self="revertMsg = null">
+      <div class="cg-modal" role="alertdialog" aria-modal="true" data-testid="cat-group-revert-confirm">
+        <h3>{{ t('cat.groupChat.revertTitle', { name: store.nameOf(revertMsg.memberId) }) }}</h3>
+        <div class="body">{{ t('cat.groupChat.revertBody', { n: overreach(revertMsg).length }) }}</div>
+        <ul class="cg-files" style="margin-top: 10px">
+          <li v-for="f in overreach(revertMsg)" :key="f.path"><span class="p">{{ f.path }}</span><span class="cg-tag over">{{ t('cat.groupChat.tagOverreach') }}</span></li>
+        </ul>
+        <div class="ft">
+          <button type="button" class="cg-btn" @click="revertMsg = null">{{ t('cat.groupChat.cancel') }}</button>
+          <button type="button" class="cg-btn orgf" :disabled="reverting" data-testid="cat-group-revert-ok" @click="doRevert()">{{ t('cat.groupChat.revertOk') }}</button>
+        </div>
+      </div>
+    </div>
 
     <div v-if="routeInfo" class="cg-modal-bg" @click.self="routeInfo = null">
       <div class="cg-modal wide" role="dialog" aria-modal="true">
@@ -160,6 +200,7 @@ const clock = (ms: number) => {
 }
 const sysText = (m: CatGroupMessage) => systemLineText(m, store.nameOf)
 const overreach = (m: CatGroupMessage) => (m.report?.files ?? []).filter((f) => f.tag === 'overreach')
+const normalFiles = (m: CatGroupMessage) => (m.report?.files ?? []).filter((f) => f.tag !== 'overreach')
 
 function openProcess(id?: string) {
   store.drawerMemberId = id ?? ''
@@ -204,6 +245,29 @@ async function openRoute(m: CatGroupMessage) {
     routeInfo.value = await store.routeDetail(m.route?.routeSeq || m.seq)
   } catch {
     /* 拿不到详情就不弹 */
+  }
+}
+
+// 越界撤销（仅确定归属的文件；来源不明不给撤销）
+const expanded = reactive<Record<number, boolean>>({})
+const reverted = reactive<Record<number, boolean>>({})
+const revertSkips = reactive<Record<number, string[]>>({})
+const revertMsg = ref<CatGroupMessage | null>(null)
+const reverting = ref(false)
+async function doRevert() {
+  const m = revertMsg.value
+  if (!m) return
+  reverting.value = true
+  try {
+    const r = await store.revert(m.memberId || '', m.turnId || '', overreach(m).map((f) => f.path))
+    reverted[m.seq] = true
+    revertSkips[m.seq] = r.skipped.map((s) => s.path)
+    if (r.reverted.length) ElMessage.success(t('cat.groupChat.revertDone', { n: r.reverted.length }))
+  } catch {
+    ElMessage.error(t('cat.groupChat.revertFailed'))
+  } finally {
+    reverting.value = false
+    revertMsg.value = null
   }
 }
 
@@ -278,6 +342,7 @@ const initialOpen = ref('')
 function applyScene() {
   const s = store.scene
   if (!s) return
+  if (s === 'overstep') revertMsg.value = store.messages.find((m) => overreach(m).length) ?? null
   
 }
 
