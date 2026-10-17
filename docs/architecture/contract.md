@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.55.5）
+# FFmpegFree v2 接口契约（v0.55.6）
+
+v0.55.6 变更（**群聊数据补全**，前端对照设计稿 `design/cat-project-group` 提出，10-17；见 **6.21.17**；新迁移：`cat_group_routes` 加 `started_at` / `finished_at`；新绑定 `ListCatGroupFiles`）：① 「文件」页签 `ListCatGroupFiles(groupId)`，从汇报文件标签聚合，点开复用老板现有文档预览组件。② `ListCatGroups` 返回的 `CatGroup.members[]` 带头像摘要（`avatarIndex` → `--cat-member-1…5`）。③ 派活判断补 `startedAt` / `finishedAt` / `durationMs`。④ 「排队中」：按 #329 现有每成员 FIFO 补 `status=queued` 与 `queueLength`（事件同带），入队灰字文案待产品确认。另记：成员状态文案统一「正在干活」；职责卡不加交付物 / 完成标准；MCP 群工具、@ 我的收件箱 / 通知、本人身份、任务等待与恢复放第二期。
 
 v0.55.5 变更（**派活灰字两句补全**，产品 PASS 设计说明 v0.2 后点名，10-17；见 **6.21.16**；无迁移 / 绑定变化）：补「已转交给 {成员}（第 n/6 次）」「交给 {新成员}：你指定的」（换人时，不是用户 @ 发送时）。另记产品不阻塞项：第一期拿掉「发给: 全体」；成员头像色用 `--cat-member-1…5`。
 
@@ -6363,6 +6365,90 @@ type CatGroupRouteEvent struct {
 **产品不阻塞、实现时顺带：**
 1. 输入框旁「发给: 全体」第一期不做（只靠 `@` 选人）。
 2. 成员头像色正式 token：`--cat-member-1`…`--cat-member-5`（循环），前端勿长期用原型 `--gm-*`。
+
+### 6.21.17 群聊数据补全（v0.55.6，前端 `fe/cat-groupchat-v055` 对照设计稿 `design/cat-project-group` 提出，10-17）
+
+只补前端缺的数据，不改既有规则；以 #329 现有实现为基线，能从现有表算出来的不加表。
+
+#### ① 「文件」页签：`ListCatGroupFiles`
+右栏「文件」页签列出本群所有汇报里出现过的文件。**不新建表**：后端扫本群 `cat_group_messages` 里 `kind=member` 的 `report_json.files`（即 6.21.15 由 Cat 用 `TurnChanges` 生成的 `CatGroupFileTag`），按 `path` 聚合。
+
+| 方法 | 请求 | 返回 |
+|---|---|---|
+| `ListCatGroupFiles(groupId string)` | — | `[]CatGroupFile`，按 `updatedAt` 降序；最多 500 条（超出丢最旧） |
+
+```go
+type CatGroupFile struct {
+  Path         string `json:"path"`         // 相对项目根（同 CatGroupFileTag.path）
+  LastMemberID string `json:"lastMemberId"` // 最后一次改它的成员
+  LastSeq      int64  `json:"lastSeq"`      // 最后一次出现它的汇报消息 seq（前端点「在群里定位」用）
+  LastTurnID   string `json:"lastTurnId"`   // 该汇报的 turnId
+  ChangeCount  int    `json:"changeCount"`  // 出现在多少条汇报里
+  Overreach    bool   `json:"overreach"`    // 任一次被标 overreach 即 true
+  Tag          string `json:"tag,omitempty"`// 最后一次的标签："" | "overreach" | "unknown"
+  Exists       bool   `json:"exists"`       // 调用时 os.Stat 项目根 + path；已删除的文件 false
+  UpdatedAt    int64  `json:"updatedAt"`    // 最后一次汇报的 createdAt（unix ms）
+}
+```
+- 成员已被删除时 `lastMemberId` 照返，前端显示「已移除的成员」（沿用成员栏现有兜底，不新增文案则用成员名缺省规则）。
+- **打开预览**：前端用 项目根 + `path` 调**老板现有的文档 / Office 预览组件**（复用，不出新稿）；该组件不支持的类型按组件现有行为处理；`exists=false` 不可点，灰显。
+- **刷新**：无新事件。前端收到 `cat:group-message` 且 `kind=member`、`report.files` 非空时重新拉一次。
+- 撤销仍只在汇报卡片上（6.21.8 ④），文件页签不放撤销。
+- 错误：群不存在 `group_not_found`。
+
+#### ② 侧栏头像：`ListCatGroups` 带成员摘要
+`ListCatGroups(projectId)` 返回值仍是 `[]CatGroup`，`CatGroup` 增加只读字段（`GetCatGroup` / `CreateCatGroup` 等返回的 `CatGroup` 同样带，新建群为空数组）：
+```go
+// CatGroup 在 6.21.2 基础上增加：
+//   Members []CatGroupMemberBrief `json:"members"` // 按 order 升序；不含 charter / session
+type CatGroupMemberBrief struct {
+  ID          string `json:"id"`
+  Name        string `json:"name"`
+  Title       string `json:"title"`
+  AgentKind   string `json:"agentKind"`
+  Order       int    `json:"order"`
+  AvatarIndex int    `json:"avatarIndex"` // (order % 5) + 1，对应 token --cat-member-{avatarIndex}
+}
+```
+- 头像色规则与前端现有 `catGroupChat.ts` 一致：`--cat-member-{(order % 5) + 1}`，拖动排序后颜色随序号变（第一期就这样，不另存颜色）。后端给 `avatarIndex` 只为非当前群不用再算，前端两处同一公式。
+- 一条 SQL 带出（`cat_group_members` 按 `group_id IN (...)`），不逐群查。
+- 成员增删 / 改名 / 排序后已有 `cat:group-member` 事件，侧栏据此本地更新，不新增事件。
+
+#### ③ 派活判断耗时：`cat_group_routes` 加时间
+**新迁移**（编号合入时按当时 v2 最大号顺延；内容固定）：
+```sql
+ALTER TABLE cat_group_routes ADD COLUMN started_at  INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE cat_group_routes ADD COLUMN finished_at INTEGER NOT NULL DEFAULT 0;
+```
+- `started_at` = 发出单轮派活判断前（发「正在安排谁来接…」时），`finished_at` = 拿到结果 / 超时 / 出错落兜底时；unix ms。`created_at` 不变。
+- `GetCatRouteDetail` 返回补三字段：`startedAt`、`finishedAt`、`durationMs`（= `finishedAt - startedAt`；任一为 0 时省略 `durationMs`，前端不显示耗时）。旧数据两列为 0 → 不显示。
+- `cat:group-route` 的 `state=routed` 载荷里 `route` 增加 `durationMs`（`CatRouteInfo.durationMs,omitempty`），前端灰字展开前就能显示。
+- 只有真跑了判断的 `mode=ai`、以及判断超时 / 出错落到的 `fallback` 有时间；`mention` / `followup` / `off` / `reassign` 不跑判断，没有记录也不显示耗时。
+- 成员干活耗时不在这里：仍是汇报卡片 `report.footer.totalMs`（6.21.14 ②）。
+
+#### ④ 「排队中」：`queueLength`（按 #329 现有行为写进契约）
+现状（6.21.6 ⑥ 已定，#329 已实现）：@ 到一个**正在跑**的成员 → 不打断，任务进该成员**内存 FIFO 队列**；他这一轮结束后按顺序取下一条开跑；不同成员互不影响。本节只补可见数据：
+
+1. `CatGroupMember` 增加运行时只读字段（不落库）：
+```go
+//   Status      string `json:"status"`      // idle | running | queued
+//   QueueLength int    `json:"queueLength"` // 该成员还在排队的任务数（不含正在跑的这一条）
+```
+   - `running`：有正在跑的一轮（同 `cat:group-member.running` 非空）；此时 `queueLength` 可 > 0。
+   - `queued`：没有在跑、但 `queueLength > 0`（上一轮刚结束、下一条还没起的瞬间；正常很短）。
+   - `idle`：都没有。
+2. **事件**：`CatGroupMemberEvent` 增加 `queueLength int json:"queueLength"`（与 `member.queueLength` 相同，方便状态条直接用）。入队、出队开跑、停单人 / 停全部清队时**各推一次** `cat:group-member`（#329 入队时目前不推，需补）。
+3. **展示**：状态条该成员一行在「{成员} 正在干活 · 已用 {时长}」后续 ` · 排队 {n} 条`（`n = queueLength`，0 不显示）；成员栏状态点 `queued` 同 `running` 样式。
+4. **群里灰字（待产品确认文案）**：入队时发一条 `systemKind=route` 灰字，暂定「{成员} 还在忙，这条排在第 {n} 个，轮到会自动开始」（`n` = 入队后的 `queueLength`）。**产品确认前后端先不发此灰字**，只做 1～3。
+5. 不变：排队不计 hop（hop 在入队时已定）；停单人 / 停全部清空其队列（6.21.6 ⑨）；队列在内存，**应用重启后丢失**，第一期接受，不做持久化；换人对排队中的条目不生效（只换正在跑 / 刚派的那条）。
+
+#### ⑤ 文案统一（产品 10-17）
+成员干活状态的文字一律用「正在干活」（与输入框上方状态条一致）；成员栏、头像悬停、侧栏等处**不用**「干活中」。6.21.13 ⑥ / 6.21.15 ① 里的「干活中」只是小节说明，不是界面文案。
+
+#### ⑥ 本轮明确不做
+- 职责卡**不加**「交付物」「完成标准」，仍是 负责什么 / 不碰什么 / 做完交给谁 / 负责目录（6.21.2 `CatCharter` 不变）。
+- 第二期再议：MCP 群工具（@ 一律由 Cat 居中转交，6.21 开头）、「@ 我的收件箱」与通知、本人身份、任务等待与恢复。
+- 群、换人、分派三个图标前端暂用现有图标，UI 出正式图标后替换（不涉及接口）。
 
 ## 7. 本地流服务（已取消）
 
