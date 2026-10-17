@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.55.2）
+# FFmpegFree v2 接口契约（v0.55.3）
+
+v0.55.3 变更（**群聊 API 补全 + 汇报字段统一**，前端 `fe/cat-groupchat-v055` 对照提出，产品 10-17 再定；见 **6.21.14**；无迁移）：① 汇报字段以产品最新为准：结论 / 做了什么（含结果）/ 改动文件（Cat 生成）/ 下一步；覆盖 6.21.13 的「完成了什么 / 需要注意 / 交给谁」。② 失败 / 停止文案、干活状态条、「查看过程」入口定稿。③ 补 `ListCatGroupMembers`、绑定参数与返回值、`CatGroupMessage` / 事件载荷缺字段、失败不发汇报卡、`toolCount` 统计口径。
 
 v0.55.2 变更（**汇报结构按产品定稿**，10-17；见 **6.21.13**，覆盖 6.21.12 ④⑤）：汇报字段改为 完成了什么 / 需要注意 / 交给谁；「改了哪些文件」由 Cat 用本轮改动文件数据生成，不靠模型写；失败 / 停止文案按产品。
 
@@ -6208,13 +6210,106 @@ type CatGroupMessage struct {
 6. 汇报卡片样式与四段的展示（是否给段落小标题、长汇报折叠）由 UI 定、产品过；@ 解析只在「下一步」段之外也照常生效（防止模型没按格式写时接力断掉）。
 
 
-### 6.21.13 汇报结构（v0.55.2，产品定稿，覆盖 6.21.12 ④⑤）
+### 6.21.13 汇报结构（v0.55.2；**已被 6.21.14 覆盖**）
 1. 群规要求最终回复用三个固定小标题：`## 完成了什么`（一两句）/ `## 需要注意`（没有就不写这段）/ `## 交给谁`（@ 下一位 + 要他做什么，没有就不写）。**不让模型写文件列表。**
 2. 后端解析成 `CatGroupReport{done, notes?, handoff?, files[], toolCount, parsed bool}` 挂在 `CatGroupMessage.report`；`text` 仍存最后一段原文。
 3. **「改了哪些文件」由 Cat 生成**：取本轮 `TurnChanges.files`（已有），加 6.21.8 的越界 / 来源不明标签；不用模型自述，保证准确。
 4. 没按格式写（缺 `完成了什么` 小标题）→ `parsed=false`，整段最后回复当「完成了什么」显示（产品定）。@ 解析对全文生效，不只「交给谁」段。
 5. 失败 / 停止：卡片显示「{成员} 没完成：{原因}」（原因按现有错误文案规则）/「{成员} 已停止」；不触发接力。
 6. 干活中状态：「{成员} 正在干活 · 已用 {时长}」，可带工具调用次数（`cat:group-member` 里 `running{startedAt, toolCount}`）；放在消息流里还是输入框上方，由 UI 与产品定，后端事件两种都够用。点开看完整过程 = 该成员会话（流式 + 工具调用）。
+
+
+### 6.21.14 群聊 API 补全与汇报字段统一（v0.55.3）
+
+#### ① 文案与字段以产品 10-17 最新为准（覆盖 6.21.12 ④⑤ / 6.21.13）
+| 位置 | 定稿 |
+|---|---|
+| 汇报四段 | **结论** / **做了什么**（「结果」如测试是否通过并进此段，不单列）/ **改动文件**（由 Cat 用 `TurnChanges` 生成，模型不写）/ **下一步**（@ 下一位 + 要他做什么；没有就不显示） |
+| 群规小标题 | `## 结论` / `## 做了什么` / `## 下一步`（无「改动文件」小标题） |
+| 没按格式 | `parsed=false`，整段最后回复当「结论」显示 |
+| 干活中 | 输入框上方状态条：「{成员} 正在干活 · 已用 {时长}」；可带「· {n} 次工具」；入口统一「查看过程」 |
+| 失败 | 不发汇报卡；system 灰字「{成员} 没完成：{原因}」（原因按现有错误文案）+「查看过程」；不接力 |
+| 停止 | 不发汇报卡；system 灰字「{成员} 已停止」；不接力 |
+
+#### ② `CatGroupReport` / `CatGroupMessage`（补字段）
+```go
+type CatGroupReport struct {
+  Conclusion string              `json:"conclusion"`          // 结论（parsed=false 时 = 整段原文）
+  Did        string              `json:"did,omitempty"`       // 做了什么
+  Next       string              `json:"next,omitempty"`      // 下一步（含 @ 原文）
+  Files      []CatGroupFileTag   `json:"files"`               // Cat 生成，可空
+  Parsed     bool                `json:"parsed"`              // 是否按小标题解析成功
+  Footer     CatMessageFooter    `json:"footer,omitempty"`    // 复用普通对话消息尾（totalMs / outputTokens / tokensPerSec / firstTokenMs…）
+}
+type CatGroupFileTag struct {
+  Path   string `json:"path"`             // 相对项目根
+  Tag    string `json:"tag,omitempty"`    // "" | "overreach" | "unknown"
+  Added  int    `json:"added,omitempty"`
+  Deleted int   `json:"deleted,omitempty"`
+}
+// CatGroupMessage 在 6.21.2 基础上增加：
+//   SystemKind string `json:"systemKind,omitempty"` // route | hop_limit | no_handoff | reassign | failed | stopped | charter
+//   FromMemberID / ToMemberID string `json:"fromMemberId,omitempty"` / `json:"toMemberId,omitempty"` // reassign
+//   FailReason string `json:"failReason,omitempty"` // failed 时给前端展示的原因（已本地化）
+//   Report *CatGroupReport `json:"report,omitempty"` // kind=member 且成功时必有
+```
+`kind=member` 且本轮成功 → 必带 `report`（即使 `parsed=false`）；失败 / 停止 → **不**发 `kind=member` 汇报，只发 `kind=system`。
+
+#### ③ 绑定补全（参数 / 返回）
+| 方法 | 请求 | 返回 |
+|---|---|---|
+| `ListCatGroups(projectId string)` | — | `[]CatGroup` |
+| `GetCatGroup(groupId string)` | — | `{group: CatGroup, members: []CatGroupMember}`（**取群顺带成员**） |
+| `ListCatGroupMembers(groupId string)` | — | `[]CatGroupMember`（按 `order` 升序） |
+| `CreateCatGroup(req{projectId,name})` | name 1–40 字 | `CatGroup`（`autoRoute=true`） |
+| `RenameCatGroup(req{groupId,name})` | 同上 | `CatGroup` |
+| `DeleteCatGroup(groupId)` | — | `null` |
+| `SetCatGroupAutoRoute(groupId, on bool)` | — | `CatGroup` |
+| `AddCatGroupMember(req{groupId,name,title,agentKind,modelId,thinkLevelId?})` | 群内名唯一 | `CatGroupMember`（`charter.status=generating`） |
+| `UpdateCatGroupMember(req{memberId, name?, title?, agentKind?, modelId?, thinkLevelId?})` | 改名查重 | `CatGroupMember`；改 `agentKind` → 新开 CLI 会话（旧 SessionID 废弃） |
+| `RemoveCatGroupMember(memberId)` | — | `null`；触发其他成员 handoff 重算 |
+| `ReorderCatGroupMembers(req{groupId, memberIds[]})` | 必须是该群全员 id 的排列 | `[]CatGroupMember` |
+| `RegenerateCatCharter(memberId)` / `UpdateCatCharter(req{memberId, owns?, notTouch?, dirs?})` | — | `CatGroupMember` |
+| `SendCatGroupMessage(req{groupId,text,mentions:[]string,files?})` | mentions 以 id 为准 | `{userMessage: CatGroupMessage, chainId}` |
+| `ReassignCatGroupRoute(req{groupId,chainId,toMemberId})` | — | `{system: CatGroupMessage}`（`systemKind=reassign`） |
+| `StopCatGroup` / `StopCatGroupMember` | — | `null` |
+| `ListCatGroupMessages(req{groupId,beforeSeq?,limit?})` | limit 默认 50，最大 100 | `{messages:[]CatGroupMessage, hasMore}` |
+| `GetCatRouteDetail(req{groupId,seq})` | — | `{input, output, mode, memberId, reason}` |
+| `RevertCatOverreach(req{memberId,turnId,files[]})` | — | `{reverted:[]string, skipped:[{path,reason}]}` |
+
+#### ④ 事件载荷
+```go
+// cat:group-message  — 新消息（user / member 汇报 / system 灰字）
+// 载荷 = CatGroupMessage（完整一条）
+
+// cat:group-member — 成员或规范或干活状态变化
+type CatGroupMemberEvent struct {
+  GroupID  string          `json:"groupId"`
+  Member   CatGroupMember  `json:"member"`              // 最新快照
+  Running  *CatGroupRunning `json:"running,omitempty"`  // 非空 = 正在干活；省略 = 已结束
+}
+type CatGroupRunning struct {
+  TurnID    string `json:"turnId"`
+  StartedAt int64  `json:"startedAt"`  // unix ms
+  ToolCount int    `json:"toolCount"`  // 见 ⑤
+  ElapsedMs int64  `json:"elapsedMs"`  // 推送时已用
+}
+
+// cat:group-route — 派活过程
+type CatGroupRouteEvent struct {
+  GroupID  string `json:"groupId"`
+  ChainID  string `json:"chainId"`
+  State    string `json:"state"`    // routing | routed
+  Route    CatRouteInfo `json:"route"`
+}
+```
+前端群消息流**只订** `cat:group-message` + `cat:group-route`；状态条订 `cat:group-member`；「查看过程」订 `cat:message` / `cat:turn`（`convId=group:<groupId>:<memberId>`）。
+
+#### ⑤ `toolCount` 统计口径
+对应该成员本轮 `cat:message` 里 `kind=tool` 且 **首次出现**（同 id 的 replace 不计）的块数；与 Grok 工具行同一套。无单独 `blockType` 枚举扩展。状态条「· {n} 次工具」用此数；`n=0` 时不显示工具段。
+
+#### ⑥ 失败 / 停止还发不发汇报卡
+**不发。** 只发 `kind=system`（`systemKind=failed|stopped`）。若模型在失败前已吐出半段汇报正文，丢弃不进群（仍留在成员自己的会话里可供「查看过程」）。
 
 ## 7. 本地流服务（已取消）
 
