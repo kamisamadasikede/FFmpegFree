@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.55.8）
+# FFmpegFree v2 接口契约（v0.55.9）
+v0.55.9 变更（**派活判断失败不再兜底排第一**，产品 A 口径 10-17；见 **6.21.18**）：自动派活开着时，判断失败 / 超时 / 定不出该谁 → **不起成员、不交给排第一、不出现「换人」**；灰字「没判断出该谁接，请 @ 对应成员，或再说具体要做什么。」（可带「· 判断用时 n 秒」）；`route.mode=undecided`。自动派活关仍交给排第一（文案不变）。派活判断输出的 memberId 须为成员 id；若返回人名则按 name/title 唯一匹配回填。
+
 
 v0.55.6 变更（**群聊数据补全**，前端对照设计稿 `design/cat-project-group` 提出，10-17；见 **6.21.17**；新迁移 `0019_cat_group_route_timing.sql`：`cat_group_routes` 加 `started_at` / `finished_at`；新绑定 `ListCatGroupFiles`）：① 「文件」页签 `ListCatGroupFiles(groupId)`，从汇报文件标签聚合，点开复用老板现有文档预览组件。② `ListCatGroups` 返回的 `CatGroup.members[]` 带头像摘要（`avatarIndex` → `--cat-member-1…5`）。③ 派活判断补 `startedAt` / `finishedAt` / `durationMs`。④ 「排队中」：按 #329 现有每成员 FIFO 补 `status=queued`、`queueLength` 与每条排队任务的 `queuePosition`（事件同带）；右栏显示「排队中 · 前面还有 {n} 个」；入队灰字「交给 {成员}：正在干活，排在后面」（产品已确认），轮到开跑不发灰字。迁移编号：群聊建表改为 `0018_cat_groups.sql`（老板 `0016_teams` / `0017_team_artifacts` 保留），本版 `0019_cat_group_route_timing.sql`。另记：成员状态文案统一「正在干活」；职责卡不加交付物 / 完成标准；MCP 群工具、@ 我的收件箱 / 通知、本人身份、任务等待与恢复放第二期。
 
@@ -6482,6 +6484,20 @@ type CatGroupQueuedTask struct {
 1. **Codex 不支持 Responses**：服务商没有 `/responses`（真机 codex 0.162.1 对假服务商返回 404 / 405，样本见 `internal/catagent/testdata/codex-provider-responses-{404,405}.txt`）时，这一轮报 `CAT_REPLY_FAILED`，`detail.reason=provider_responses_unsupported`，`retryable=false`；不新增错误码。匹配不上样本的照常报普通失败。前端在失败消息里显示 6.19.20.5 的 Codex 文案，样式同 `cli_outdated`，不显示重试。
 2. **重定向**：`ListCatProviderModels` 遇到重定向仍映射为 `unreachable`（不是 `bad_response`）。重定向多半是地址填错（少 `/v1`、https 写成 http），「请检查 API 地址」更对症；且不跟随重定向，防止 Key 被带到别处。
 3. **已知问题：Grok 自定义服务商对话报「Not signed in」**：grok 1.0.40 只在列模型时读环境变量里的 Key（`XAI_API_KEY`），发对话不读。本版**不**另设独立 `GROK_HOME`（会话和登录在用户自己的 Grok 目录，换目录会加载不到原会话），也**不**改写用户的 `config.toml`（如 `[model.<id>] env_key=...`）。C1 对话一轮仍为未确认；方案待核完 grok 1.0.40 的 help 和文档后在后续契约中单独规定。
+
+### 6.21.18 派活判断失败不兜底（v0.55.9，产品 A）
+
+取代 6.21.6 / 6.21.16 里「判断失败 → 交给排第一」的表述（该兜底**作废**）：
+
+1. **自动派活开着**（`autoRoute=true`）且用户消息**没有 @**：仍先发「正在安排谁来接…」，再跑单轮派活判断（20s、无工具、JSON Schema）。
+2. **判断成功**（`memberId` 能对应到现有成员）：照旧 `mode=ai`，灰字「交给 {成员}：{reason}」，可带「换人」与耗时。
+3. **判断失败**（超时、CLI 出错、空输出、JSON 解析失败、`memberId` 对不上任何人）：`mode=undecided`，**不起任何成员回合**，只发一条灰字：
+   - 文案原样：「没判断出该谁接，请 @ 对应成员，或再说具体要做什么。」
+   - 有耗时时续「 · 判断用时 {n} 秒」（与现有派活灰字同一套耗时字段）。
+   - **不出现**「先交给排第一的成员」，**不出现**「换人」。
+4. **自动派活关掉**：行为不变 → 直接交给排第一，灰字「交给 {成员}：没开自动派活，交给排第一的成员」。
+5. **memberId 解析**：模型必须输出成员列表里的 `id=`；若误用人名 / 职位，后端按 `name` 精确匹配，其次 `title` 精确且唯一，匹配成功视为判断成功（`mode=ai`）。
+
 
 ### 6.19.21 CLI 检测：每次 `cat:status` 带全量 agents[]、检测结果落库、Windows 兜底查找（v0.47.1，老板 t73u，架构师 10-14）
 
