@@ -227,9 +227,12 @@ import {
   collectExpanded,
   entriesToNodes,
   flattenCatFiles,
+  fileEntryStamp,
   listCatFiles,
+  mergeFileNodes,
   revealCatConversationFolder,
   searchCatFiles,
+  type CatFileEntry,
   type CatFileNode,
   type CatFileRow,
   type CatSearchHit,
@@ -243,7 +246,8 @@ import {
 } from '@/api/catGit'
 import { catSim, type CatSimFlag } from '@/views/cat/catDevSim'
 import { CAT_MERGE_CONFLICT_SIM_FILES } from '@/api/catBranches'
-import { catState, notify } from '@/views/cat/catState'
+import { catScratch } from '@/views/cat/catScratchFiles'
+import { catState, findConv, notify } from '@/views/cat/catState'
 import { railCollapsed } from '@/views/cat/catLayout'
 import { catGitUi, setCatGitUi } from './catGitUi'
 import {
@@ -329,6 +333,9 @@ let token = 0
 let gitToken = 0
 let searchToken = 0
 let searchTimer = 0
+let treeStamp = ''
+let syncing = false
+let treeTimer: ReturnType<typeof setInterval> | undefined
 
 function pageBox(): { total: number; side: number } {
   const page = rootEl.value?.closest('.ct') as HTMLElement | null
@@ -539,6 +546,7 @@ watch(
     // B1：换对话时先留着旧的树，新数据到了再整体淡入
     swapping = nodes.value != null
     if (!swapping) nodes.value = null
+    treeStamp = ''
     error.value = ''
     gitStatus.value = null
     gitError.value = ''
@@ -673,6 +681,50 @@ async function expandTo(rel: string, my: number) {
     if (my !== token) return
   }
 }
+
+async function syncTree() {
+  if (syncing || !live || props.missing || !props.convId || document.hidden || !catState.turns[props.convId] || nodes.value == null) return
+  syncing = true
+  const id = props.convId
+  const seen = token
+  try {
+    const root = await listCatFiles(id, '')
+    if (seen !== token || props.convId !== id) return
+    const layers: { rel: string; entries: CatFileEntry[]; truncated: boolean }[] = [{ rel: '', entries: root.entries, truncated: root.truncated }]
+    for (const rel of collectExpanded(nodes.value)) {
+      const res = await listCatFiles(id, rel)
+      if (seen !== token || props.convId !== id) return
+      layers.push({ rel, entries: res.entries, truncated: res.truncated })
+    }
+    const stamp = layers.map((layer) => `${layer.rel}\n${layer.truncated ? 1 : 0}\n${fileEntryStamp(layer.entries)}`).join('\n\n')
+    if (stamp === treeStamp) return
+    treeStamp = stamp
+    rootPath.value = root.root
+    rootTruncated.value = root.truncated
+    error.value = ''
+    nodes.value = mergeFileNodes(nodes.value, root.entries, 0)
+    for (const layer of layers) {
+      if (!layer.rel) continue
+      const dir = findNode(nodes.value, layer.rel)
+      if (!dir?.isDir) continue
+      dir.expanded = true
+      dir.truncated = layer.truncated
+      dir.children = mergeFileNodes(dir.children, layer.entries, dir.depth + 1)
+    }
+    if (root.entries.length && !findConv(id)?.project) catScratch.has[id] = true
+  } catch {
+    // A quiet refresh keeps the last tree. The refresh button still reports a failure.
+  } finally {
+    syncing = false
+  }
+}
+watch(() => !!catState.turns[props.convId], (on) => {
+  clearInterval(treeTimer)
+  treeTimer = undefined
+  if (!on) { treeStamp = ''; return }
+  void syncTree()
+  treeTimer = setInterval(() => void syncTree(), 1500)
+}, { immediate: true })
 
 async function loadRoot(keep: string[] = []) {
   if (!live || props.missing || !props.convId) return
@@ -862,6 +914,7 @@ onMounted(() => {
   onWindowResize()
 })
 onBeforeUnmount(() => {
+  clearInterval(treeTimer)
   window.removeEventListener('focus', refreshGitOnFocus)
   document.removeEventListener('visibilitychange', refreshGitOnFocus)
   clearInterval(gitRefreshTimer)

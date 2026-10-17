@@ -1,5 +1,5 @@
 // Cat 文件树摊平自检（api.check.ts 调用）：只过滤已加载的名字，截断行跟着已展开的目录。
-import { flattenCatFiles, mapFileList, mapSearchResult, type CatFileNode } from './catFiles'
+import { fileEntryStamp, flattenCatFiles, mapFileList, mapSearchResult, mergeFileNodes, type CatFileEntry, type CatFileNode } from './catFiles'
 
 type Eq = (name: string, got: unknown, want: unknown) => void
 
@@ -34,6 +34,14 @@ export function catFilesChecks(eq: Eq): void {
   const cut = [node({ name: 'src', relPath: 'src', isDir: true, expanded: true, truncated: true, children: [] })]
   eq('截断提示挂在已展开的目录下', flattenCatFiles(cut, '').map((r) => r.kind), ['entry', 'note'])
   eq('没展开的目录不显示截断行', flattenCatFiles([node({ name: 'src', relPath: 'src', isDir: true, truncated: true })], '').map((r) => r.kind), ['entry'])
+  const kept = [node({ name: 'src', relPath: 'src', isDir: true, expanded: true, children: [node({ name: 'a.go', relPath: 'src/a.go', isDir: false, depth: 1 })] })]
+  const merged = mergeFileNodes(kept, [
+    { name: 'src', relPath: 'src', isDir: true, size: 0, modTime: 1 },
+    { name: 'note.txt', relPath: 'note.txt', isDir: false, size: 4, modTime: 2 },
+  ] satisfies CatFileEntry[], 0)
+  eq('实时刷新保留已展开目录，并补上新文件', [merged[0] === kept[0], merged[0].children?.[0]?.name, merged.map((n) => n.name)], [true, 'a.go', ['src', 'note.txt']])
+  const same = { name: 'a', relPath: 'a', isDir: false, size: 1, modTime: 1 }
+  eq('文件改动会改变列表签名', fileEntryStamp([same]) === fileEntryStamp([{ ...same, modTime: 2 }]), false)
   eq('列表映射：空和缺字段', mapFileList(null), { root: '', entries: [], truncated: false })
   eq(
     '列表映射：只留有名字的条目',

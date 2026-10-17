@@ -338,7 +338,7 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	}
 	if a.kind == cliKindCodex && opts.LiveSteer {
 		// Explicit application gateways can select exec without starting a server.
-		if !opts.Provider.Enabled {
+		if !opts.Provider.Enabled || opts.Transport == "app-server" {
 			response, err := a.runCodexAppTurn(opts, exe)
 			if !errors.Is(err, errCodexExecTransport) {
 				return response, err
@@ -350,6 +350,9 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	}
 
 	prompt := lastUserContent(opts.Messages)
+	if a.kind == cliKindClaude && opts.LiveSteer && opts.Transport == "stream-json" {
+		return a.runClaudeInputStream(opts, exe)
+	}
 	cwd := strings.TrimSpace(opts.ProjectPath)
 	if cwd == "" {
 		var err error
@@ -373,6 +376,7 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	resume := sessionID != ""
 
 	args := a.buildTurnArgs(opts, prompt, cwd, sessionID, resume)
+	args = appendTeamArgsBeforePrompt(a.Kind(), args, opts)
 	var stdinText string
 	viaStdin := isShimExt(exe)
 	if viaStdin {

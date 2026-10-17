@@ -29,8 +29,9 @@ func TestLiveCLIGateway(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, kind := range []string{KindCodexCLI, KindCatBuild} {
-		t.Run(kind, func(t *testing.T) {
+	for _, scenario := range []struct{ kind, transport string }{{KindCodexCLI, ""}, {KindCodexCLI, "app-server"}, {KindCatBuild, ""}, {KindCatBuild, "stdio"}} {
+		kind := scenario.kind
+		t.Run(kind+"/"+scenario.transport, func(t *testing.T) {
 			name := "codex"
 			if kind == KindCatBuild {
 				name = "grok"
@@ -89,6 +90,8 @@ func TestLiveCLIGateway(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 			defer cancel()
 			opts := TurnOptions{Ctx: ctx, ConversationID: "local-gateway-conversation", ProjectPath: root, ModelID: "local-model", PermissionMode: ModeCodexReadOnly, Rules: "Reply briefly. Internal Office tools are available; do not call them for this test.", Provider: ProviderOverlay{Enabled: true, AgentKind: kind, ApiURL: server.URL + "/v1", ApiKey: "local-test-only"}, ToolEnv: map[string]string{"FFC_OFFICE_TOKEN": "local-bridge-token", "FFC_OFFICE_ENDPOINT": server.URL + "/office"}, Messages: []WireMessage{{Role: "user", Content: "Reply OK"}}}
+			opts.Transport = scenario.transport
+			opts.LiveSteer = true
 			var run func(TurnOptions) (TurnResponse, error)
 			if kind == KindCodexCLI {
 				a := NewCodexAdapter(CLIAgentConfig{DataRoot: home})

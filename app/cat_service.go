@@ -175,6 +175,15 @@ func (s *CatService) PreviewCatMedia(path string) (cat.MediaPreview, error) {
 	return c.PreviewCatMedia(s.rootCtx(), path)
 }
 
+// ReadCatMedia 读出本机图片内容，供输入框直接显示。
+func (s *CatService) ReadCatMedia(path string) (string, error) {
+	c, err := s.svc()
+	if err != nil {
+		return "", err
+	}
+	return c.ReadCatMedia(s.rootCtx(), path)
+}
+
 // ListLiveCatTurns 返回刷新后仍在回复的对话。
 func (s *CatService) ListLiveCatTurns() ([]cat.LiveTurn, error) {
 	c, err := s.svc()

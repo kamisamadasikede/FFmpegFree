@@ -1,33 +1,34 @@
 <template>
   <div class="mask" @mousedown.self="emit('close')">
     <div class="panel" role="dialog" :aria-label="t('cat.misc.s_92a62b4740')" data-testid="cat-conv-search-panel" @keydown.esc="emit('close')">
-      <div class="bar">
-        <label class="field">
-          <FIcon name="search" :size="16" />
-          <input
-            ref="inputEl"
-            v-model="query"
-            type="search"
-            :placeholder="t('cat.misc.s_960ee596d9')"
-            :aria-label="t('cat.misc.s_960ee596d9')"
-            data-testid="cat-conv-search-input"
-          />
-        </label>
+      <header class="head">
+        <h3>{{ t('cat.misc.s_92a62b4740') }}</h3>
         <span class="count">{{ hits.length }}条</span>
-      </div>
+        <button type="button" class="x" :aria-label="t('cat.misc.s_b15d91274e')" @click="emit('close')"><FIcon name="x" :size="16" /></button>
+      </header>
+      <label class="field">
+        <FIcon name="search" :size="15" />
+        <input
+          ref="inputEl"
+          v-model="query"
+          type="search"
+          :placeholder="t('cat.misc.s_960ee596d9')"
+          :aria-label="t('cat.misc.s_960ee596d9')"
+          data-testid="cat-conv-search-input"
+        />
+      </label>
       <div ref="listEl" class="list" @scroll.passive="onScroll">
         <p v-if="!hits.length" class="empty">{{ query.trim() ? t('cat.misc.s_d5fd2483cc') : t('cat.misc.s_ea62053dc3') }}</p>
         <button
-          v-for="(hit, i) in rows"
+          v-for="hit in rows"
           :key="hit.index"
           type="button"
           class="hit"
           data-testid="cat-conv-search-hit"
           @click="emit('pick', hit.index)"
         >
-          <span class="no">#{{ i + 1 }}</span>
-          <span v-if="hit.q" class="q"><b>Q：</b>{{ hit.q }}</span>
-          <span v-if="hit.a" class="a"><b>A：</b>{{ hit.a }}</span>
+          <b v-if="hit.q">{{ hit.q }}</b>
+          <span v-if="hit.a">{{ hit.a }}</span>
         </button>
       </div>
     </div>
@@ -75,37 +76,67 @@ onMounted(() => nextTick(() => inputEl.value?.focus()))
   position: absolute;
   z-index: 30;
   inset: 44px 0 0;
+  display: flex;
+  justify-content: center;
+  padding: 16px 16px 24px;
+  background: color-mix(in srgb, var(--cat-scrim) 55%, transparent);
 }
 .panel {
-  margin: 8px 48px 0;
-  max-height: min(72%, 640px);
+  width: min(980px, 100%);
+  max-height: min(100%, 640px);
   display: flex;
   flex-direction: column;
-  background: var(--ff-bg-surface, #fff);
-  border: 1px solid var(--ff-border);
-  border-radius: 16px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.14);
+  border-radius: var(--cat-radius-xl);
+  background: var(--cat-elevated);
+  border: 1px solid var(--cat-border);
+  box-shadow: var(--cat-shadow-lg);
+  color: var(--cat-text);
   overflow: hidden;
 }
-.bar {
+.head {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 14px 8px;
+  gap: 10px;
+  padding: 16px 16px 0 20px;
+}
+.head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.count {
+  color: var(--cat-muted);
+  font-size: 13px;
+}
+.x {
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--cat-radius-sm);
+  background: none;
+  color: var(--cat-muted);
+  cursor: pointer;
+}
+.x:hover {
+  background: var(--cat-hover);
+  color: var(--cat-text);
 }
 .field {
-  flex: 1;
-  min-width: 0;
+  flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 40px;
+  height: 36px;
+  margin: 12px 20px 0;
   padding: 0 12px;
-  border: 1px solid var(--ff-border);
-  border-radius: 12px;
-  background: var(--ff-bg-surface, #fff);
-  color: var(--ff-text-3);
+  border: 1px solid var(--cat-border);
+  border-radius: var(--cat-radius-md);
+  background: var(--cat-sunken);
+  color: var(--cat-muted);
 }
 .field input {
   flex: 1;
@@ -113,71 +144,60 @@ onMounted(() => nextTick(() => inputEl.value?.focus()))
   border: 0;
   outline: none;
   background: transparent;
-  color: var(--ff-text-1);
+  color: var(--cat-text);
   font: inherit;
   font-size: 14px;
 }
 .field input::-webkit-search-cancel-button {
   appearance: none;
 }
-.count {
-  flex: none;
-  color: var(--ff-text-3);
-  font-size: 13px;
-}
 .list {
   flex: 1;
   min-height: 0;
-  max-height: 520px;
+  margin-top: 12px;
   overflow-y: auto;
-  padding: 4px 12px 12px;
 }
 .empty {
-  margin: 28px 0;
+  margin: 28px 20px;
   text-align: center;
-  color: var(--ff-text-3);
+  color: var(--cat-muted);
   font-size: 13px;
 }
 .hit {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
+  gap: 2px;
   width: 100%;
-  margin: 0 0 8px;
-  padding: 12px 14px;
+  padding: 10px 20px;
   border: 0;
-  border-radius: 12px;
-  background: var(--ff-bg-hover);
-  color: var(--ff-text-1);
+  border-top: 1px solid var(--cat-divider);
+  background: transparent;
+  color: var(--cat-text);
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
 .hit:hover {
-  background: var(--ff-bg-active, var(--ff-bg-hover));
-  filter: brightness(0.98);
+  background: var(--cat-hover);
 }
-.no {
-  color: var(--ff-text-3);
-  font-size: 12px;
-}
-.q,
-.a {
+.hit b,
+.hit span {
   display: -webkit-box;
-  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
   white-space: pre-wrap;
   word-break: break-word;
-  line-height: 1.55;
-  font-size: 13.5px;
+  line-height: 1.45;
 }
-.a {
-  color: var(--ff-text-2);
+.hit b {
+  -webkit-line-clamp: 2;
+  font-size: 13px;
+  font-weight: 600;
 }
-.q b,
-.a b {
-  font-weight: 650;
+.hit span {
+  -webkit-line-clamp: 2;
+  font-size: 12px;
+  color: var(--cat-muted);
 }
 </style>

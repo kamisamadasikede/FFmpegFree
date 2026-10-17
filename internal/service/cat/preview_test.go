@@ -31,6 +31,22 @@ func TestPreviewCatMedia_Image(t *testing.T) {
 	}
 }
 
+func TestReadCatMedia(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "shot.png")
+	body := []byte{0x89, 0x50, 0x4e, 0x47}
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := New(Config{}).ReadCatMedia(context.Background(), path)
+	if err != nil || got == "" {
+		t.Fatal(err, got)
+	}
+	if _, err := New(Config{}).ReadCatMedia(context.Background(), filepath.Join(dir, "a.go")); err == nil {
+		t.Fatal("text file should not be read as an image")
+	}
+}
+
 func TestPreviewCatMedia_Rejects(t *testing.T) {
 	s := New(Config{Preview: localassets.New(localassets.Config{})})
 	if _, err := s.PreviewCatMedia(context.Background(), filepath.Join(t.TempDir(), "a.go")); err == nil || !strings.Contains(err.Error(), "不能在这里预览") {

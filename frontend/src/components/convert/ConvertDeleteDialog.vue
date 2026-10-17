@@ -74,7 +74,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey, true))
   <Teleport to="body">
     <MotionDialog>
     <div v-if="a" class="cv2 cv-layer" :class="{ w1024: narrow }">
-      <div class="cv-mask" @click.self="!busy && emit('close')">
+      <div class="cv-mask" @mousedown.self="!busy && emit('close')">
         <div ref="box" class="cv-dlg ff-panel" role="alertdialog" aria-modal="true" aria-labelledby="cv-del-t" aria-describedby="cv-del-d">
           <div class="big" :class="{ neutral: !danger }"><FIcon name="trash" /></div>
           <h3 id="cv-del-t">{{ a.title }}</h3>

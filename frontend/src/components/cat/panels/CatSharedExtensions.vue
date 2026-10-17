@@ -52,7 +52,7 @@
       <p v-else>{{ t('cat.shared.existingUnavailable') }}</p>
     </details>
     <p class="se-foot">{{ t('cat.shared.runtimeHint') }}</p>
-    <el-dialog v-model="editor" append-to-body :title="t('cat.shared.editMCP')" width="680px" class="se-mcp-dialog">
+    <el-dialog v-model="editor" append-to-body :title="t('cat.shared.editMCP')" width="680px" class="se-mcp-dialog" :close-on-click-modal="true">
       <p class="se-editor-hint">{{ t('cat.shared.editorHint') }}</p>
       <textarea v-model="json" spellcheck="false" :aria-label="t('cat.shared.editMCP')" class="se-json" />
       <details class="se-example"><summary>{{ t('cat.shared.example') }}</summary><pre>{{ example }}</pre></details>

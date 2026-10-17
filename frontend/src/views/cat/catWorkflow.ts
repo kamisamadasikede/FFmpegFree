@@ -2,6 +2,12 @@ import { reactive } from 'vue'
 import { getQueue, getChanges, type MessageQueue, type TurnChanges } from '@/api/catWorkflow'
 import { onTaskEvent } from '@/services/wails'
 export const catWorkflow = reactive({ queues: {} as Record<string, MessageQueue>, changes: {} as Record<string, TurnChanges[]>, opens: {} as Record<string, { relPath: string; name: string; serial: number }>, steering: {} as Record<string, { turnId: string; ready: boolean }> })
+export function liveSteerReady(convId: string, turnId?: string): boolean {
+  if (!turnId) return false
+  const native = catWorkflow.steering[convId]
+  if (native) return native.ready && native.turnId === turnId
+  return !!catWorkflow.queues[convId]?.canSteer
+}
 export function acceptQueue(q: MessageQueue) {
   if ((q.revision || 0) < (catWorkflow.queues[q.convId]?.revision || 0)) return
   catWorkflow.queues[q.convId] = q

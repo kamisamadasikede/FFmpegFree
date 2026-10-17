@@ -106,9 +106,50 @@ test('one page draws element by element before the call returns', async t => {
   const done = await pending
   assert.equal(partial, true)
   assert.equal(done.slideCount, 1)
+  assert.equal(done.agentSlide, 0, 'the page being drawn is the one the canvas selects')
   const final = JSON.stringify((await dispatch({ action: 'state', documentId: state.documentId, since: -1 })).slides ?? [])
   assert.ok(final.includes('ONE') && final.includes('TWO') && final.includes('THREE'))
   assert.equal((await dispatch(request)).revision, done.revision)
+})
+test('the canvas is told to select the page the agent is generating or editing', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ffc-follow-'))
+  t.after(async () => { await new Promise(r => setTimeout(r, 200)); await fs.rm(root, { recursive: true, force: true }) })
+  const file = path.join(root, 'follow.pptx')
+  let state = await dispatch({ action: 'open', root, path: file, create: true })
+  const documentId = state.documentId
+  state = await dispatch({ action: 'page', documentId, expectedRevision: state.revision, requestId: randomUUID(), page: page('ffc · 第一页') })
+  assert.equal(state.agentSlide, 0)
+  let followed = false
+  const second = dispatch({
+    action: 'page', documentId, expectedRevision: state.revision, requestId: randomUUID(), paintMs: 50,
+    page: page('ffc · 第二页'),
+  })
+  const deadline = Date.now() + 5000
+  while (Date.now() < deadline && !followed) {
+    const snap = await dispatch({ action: 'state', documentId, since: -1 })
+    if (snap.slideCount === 2) {
+      assert.equal(snap.agentSlide, 1, 'page 2 must be the selected page as soon as it exists')
+      followed = true
+    } else await new Promise(r => setTimeout(r, 15))
+  }
+  state = await second
+  assert.equal(followed, true)
+  assert.equal(state.agentSlide, 1)
+  assert.equal(state.slideCount, 2)
+  const deck = await dispatch({ action: 'read', documentId })
+  const heading = deck.slides[0].elements.find(el => el.text?.includes('第一页'))
+  state = await dispatch({
+    action: 'apply', documentId, expectedRevision: state.revision, requestId: randomUUID(),
+    ops: [{ op: 'setText', target: { slide: 0, el: heading.id }, paragraphs: [{ srcPara: 0, runs: [{ text: '第一页 · 已修改', srcPara: 0, srcRun: 0 }] }] }],
+  })
+  assert.equal(state.agentSlide, 0, 'an agent edit selects the page it changes')
+  const local = await dispatch({
+    action: 'editor', documentId, method: 'addElement', expectedRevision: state.revision, requestId: randomUUID(),
+    args: [{ slideIndex: 1, fitWidthPx: 1280, xPx: 80, yPx: 80, wPx: 400, hPx: 80, kind: 'textbox', text: '本地输入' }],
+  })
+  assert.equal(local.state.agentSlide, null, 'a local edit must not pull the canvas back to the agent page')
+  state = await dispatch({ action: 'undo', documentId, expectedRevision: local.state.revision, requestId: randomUUID() })
+  assert.equal(state.agentSlide, null)
 })
 test('rejects workspace escapes and invalid operation batches without changing the deck', async t => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ffc-path-'))

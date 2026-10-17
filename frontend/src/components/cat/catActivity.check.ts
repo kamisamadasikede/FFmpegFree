@@ -36,7 +36,7 @@ export function catActivityChecks(eq: Eq): void {
   const thought = foldAt([{ kind: 'think', id: 'h', text: '正在查看 runtime.go 里的启动顺序，确认窗口是怎么起来的。' }])
   eq('思考正文收在「思考」下', thought && { title: thought.title, open: thought.defaultOpen, body: thought.body, spin: thought.streaming }, {
     title: '思考',
-    open: false,
+    open: true,
     body: '正在查看 runtime.go 里的启动顺序，确认窗口是怎么起来的。',
     spin: false,
   })
@@ -108,4 +108,22 @@ export function catActivityChecks(eq: Eq): void {
     body: 'a.yml\n\n+name: nginx\n+ports:',
   })
   eq('对比行：新增绿色，删掉红色，原文和文件名不着色', ['+name: nginx', '-HTTP_PORT=8080', ' 不变', 'a.yml', '--- a.yml', '+++ a.yml'].map(diffLineKind), ['add', 'del', 'same', 'same', 'same', 'same'])
+
+  const silent = presentCatBlocks([
+    { kind: 'user', text: '问' },
+    { kind: 'run', text: 'Read: a.go' },
+    { kind: 'a', id: 'ans', text: '好', streaming: false },
+  ], true)
+  eq('没有思考链：运行中只补一行思考中', silent.filter((r) => r.kind === 'fold' && r.fold.tone === 'think').map((r) => r.kind === 'fold' ? `${r.fold.title}|${r.fold.body}|${r.fold.streaming}|${r.fold.defaultOpen}` : ''), ['思考中||true|false'])
+  const done = presentCatBlocks([
+    { kind: 'user', text: '问' },
+    { kind: 'a', id: 'ans', text: '好', streaming: false },
+  ])
+  eq('没有思考链：结束后改成思考完成', done.filter((r) => r.kind === 'fold').map((r) => r.kind === 'fold' ? r.fold.title : ''), ['思考完成'])
+  const traced = presentCatBlocks([
+    { kind: 'user', text: '问' },
+    { kind: 'think', id: 'h', text: '先看目录再回答。', streaming: true },
+    { kind: 'a', id: 'ans', text: '好', streaming: true },
+  ], true)
+  eq('有思考链就展开正文，不再补思考中', traced.filter((r) => r.kind === 'fold' && r.fold.tone === 'think').map((r) => r.kind === 'fold' ? `${r.fold.title}|${r.fold.body}|${r.fold.defaultOpen}` : ''), ['思考|先看目录再回答。|true'])
 }

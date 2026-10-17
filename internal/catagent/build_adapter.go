@@ -422,6 +422,9 @@ type TurnOptions struct {
 	// LiveSteer uses a bidirectional transport when the adapter supports it.
 	LiveSteer    bool
 	OnSteerReady func(SteerFunc)
+	// Empty preserves the existing gateway-compatible transport selection.
+	Transport   string
+	OnInputMode func(string)
 }
 
 // SteerFunc adds input to the active native turn. It must reject a stale turn.
@@ -438,6 +441,9 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	a.mu.Unlock()
 	if exe == "" {
 		return TurnResponse{}, apperr.New(apperr.CatNotReady, MsgNotReady)
+	}
+	if opts.LiveSteer && opts.Transport == "stdio" {
+		return a.runGrokACP(opts, exe)
 	}
 
 	prompt := lastUserContent(opts.Messages)

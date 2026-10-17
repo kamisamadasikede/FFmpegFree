@@ -2,6 +2,8 @@ package cat
 
 import (
 	"context"
+	"encoding/base64"
+	"os"
 
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/catagent"
@@ -32,4 +34,27 @@ func (s *Service) PreviewCatMedia(_ context.Context, path string) (MediaPreview,
 		mime = entry.Mime
 	}
 	return MediaPreview{URL: entry.URL, Mime: mime, Kind: kind, Name: name}, nil
+}
+
+// ReadCatMedia 读出一张本机图片的内容，给输入框在拿不到 /local 地址时直接显示。
+func (s *Service) ReadCatMedia(_ context.Context, path string) (string, error) {
+	kind, _, _, err := catagent.ClassifyPreviewPath(path)
+	if err != nil {
+		return "", err
+	}
+	if kind != "image" && kind != "svg" {
+		return "", apperr.New(apperr.InvalidArgument, "这个文件不能在这里预览")
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return "", apperr.New(apperr.NotFound, "找不到这个文件")
+	}
+	if fi.Size() > 12<<20 {
+		return "", apperr.New(apperr.InvalidArgument, "图片太大")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(raw), nil
 }

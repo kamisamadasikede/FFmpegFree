@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"FFmpegFree/internal/agentexec"
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/catagent"
 	"FFmpegFree/internal/genoffice"
@@ -24,10 +25,11 @@ import (
 
 // Config 依赖。
 type Config struct {
-	Store    *store.Store
-	Registry *catagent.Registry
-	Emit     func(event string, payload any)
-	Logf     func(format string, args ...any)
+	Execution *agentexec.Runtime
+	Store     *store.Store
+	Registry  *catagent.Registry
+	Emit      func(event string, payload any)
+	Logf      func(format string, args ...any)
 	// DefaultAgentKind 读取新建会话预填（优先 CatSettings.defaultAgentKind，再系统旧键，默认 cat_build）。
 	DefaultAgentKind func(ctx context.Context) string
 	// SystemDefaultAgentKind 读系统旧键 catDefaultAgentKind；GetCatSettings 在 cat.settings 缺 defaultAgentKind 时回落。
@@ -757,7 +759,6 @@ func (s *Service) startTurn(ctx context.Context, req SendMessageRequest, hook *t
 		defer s.wg.Done()
 		defer close(t.done)
 		defer s.afterWorkflowTurn(t)
-		s.syncSharingBeforeTurn(turnCtx, projectRoot)
 		stopWorkspace := s.watchTurnWorkspace(turnCtx, t, cwd, &opts)
 		s.runTurn(turnCtx, t, a, opts)
 		stopWorkspace()
@@ -787,7 +788,19 @@ func (s *Service) runTurn(ctx context.Context, t *turnState, a catagent.Adapter,
 		s.noteTurnError(ctx, t, msg)
 	}
 
-	resp, runErr := a.RunTurn(opts)
+	var resp catagent.TurnResponse
+	var runErr error
+	if s.cfg.Execution != nil {
+		if opts.ProjectPath == "" {
+			// The adapter used to recreate a removed plain-chat folder itself.
+			// Create it before the shared runtime resolves its physical lease.
+			s.ensureConvDir(t.convID)
+		}
+		resp, runErr = s.cfg.Execution.Run(a, agentexec.Scope{OwnerID: t.convID, Workspace: t.usageCwd, NativeConfigKey: projectConfigKey(opts.ProjectPath), Prepare: func(ctx context.Context) error { s.syncSharingBeforeTurn(ctx, opts.ProjectPath); return ctx.Err() }}, opts)
+	} else {
+		s.syncSharingBeforeTurn(ctx, opts.ProjectPath)
+		resp, runErr = a.RunTurn(opts)
+	}
 	s.noteTurnUsage(t, resp)
 	if runErr != nil {
 		if ctx.Err() != nil || apperr.Is(runErr, apperr.Canceled) {

@@ -73,7 +73,7 @@
       </div>
       <CatRawDetail v-if="brErr.raw && brErrOpen" :text="brErr.raw" testid="cat-ctx-branch-err" />
     </div>
-    <div ref="inEl" class="ct-in" :aria-disabled="missing || undefined" :aria-describedby="missing ? missId : undefined">
+    <div ref="inEl" class="ct-in" :class="{ over: dropOver }" :style="dropStyle" :aria-disabled="missing || undefined" :aria-describedby="missing ? missId : undefined" @dragenter.prevent="dropOver = true" @dragover.prevent="dropOver = true" @dragleave="onDragLeave" @drop.prevent="onDrop">
       <div v-if="shownFiles.length" class="ct-files" data-testid="cat-attach-row">
         <div v-for="f in shownFiles" :key="f.id" class="ct-card" :class="{ open: canPreview(f.kind), media: showsThumb(f.kind) }" data-testid="cat-attach-card">
           <button type="button" class="rm" :aria-label="t('cat.misc.s_d386271b3c')" :title="t('cat.misc.s_d386271b3c')" @click="removeFile(f.id)"><FIcon name="x" :size="11" /></button>
@@ -113,6 +113,7 @@
         @input="onDraftInput"
         @click="updateTrigger"
         @keyup="updateTrigger"
+        @paste="onPaste"
         @keydown="onDraftKey"
         :aria-expanded="!!suggestion"
         :aria-controls="suggestion ? suggestionId : undefined"
@@ -195,13 +196,13 @@
           type="button"
           class="ct-send"
           :class="{ blocked: notReady || checking || missing }"
-          :aria-label="t(running ? queueOff ? 'cat.workflow.steer' : 'cat.workflow.enqueue' : 'cat.misc.s_1535fcfa4c')"
+          :aria-label="t(running && canSteer ? 'cat.workflow.steer' : 'cat.misc.s_1535fcfa4c')"
           :aria-disabled="!canSend"
           :disabled="notReady || checking || missing"
-          :title="missing ? PC.missing : notReady ? CAT_COPY.notReady : running ? t(queueOff ? 'cat.workflow.steerHelp' : 'cat.workflow.enqueueHelp') : undefined"
+          :title="missing ? PC.missing : notReady ? CAT_COPY.notReady : running ? t(canSteer ? 'cat.workflow.steerHelp' : 'cat.workflow.enqueueHelp') : undefined"
           data-testid="cat-send"
           @click="send"
-        ><FIcon :name="running ? queueOff ? 'steer' : 'plus' : 'up'" :size="15" /></button>
+        ><FIcon :name="running && canSteer ? 'steer' : 'up'" :size="15" /></button>
       </div>
 
       <div v-if="menu" class="mn" :style="menuStyle" @click.stop>
@@ -343,7 +344,7 @@
 </template>
 
 <script setup lang="ts">
-import { draftTrigger, draftCommands, filterCommands, type DraftCommand, type DraftTrigger } from '@/views/cat/catCommands'
+import { draftTrigger, draftCommands, filterCommands, suggestionIndexAfterTrigger, type DraftCommand, type DraftTrigger } from '@/views/cat/catCommands'
 import { workspaceUI, openWorkspace, loadPromptLibrary, exportChat } from '@/views/cat/catWorkspace'
 import { searchContextFiles, type ContextFile } from '@/api/catWorkspace'
 import { catPanels } from '@/views/cat/catPanels'
@@ -372,13 +373,14 @@ import { CAT_PROJECT_COPY as PC } from '@/api/catProjects'
 import { CAT_MODE_MENU_TITLE, DEFAULT_MODEL_LABEL, followCliModelDesc, followsCliModel, modeMeta } from '@/views/cat/catCapabilities'
 import { CAT_PROVIDER_LABEL } from '@/api/catAgents'
 import { ackDanger, dangerAcked } from '@/views/cat/catDangerAck'
-import { pickFiles } from '@/api/system'
+import { clipboardFilePaths, clipboardImage, pickFiles, savePastedFile } from '@/api/system'
+import { onFilesDropped } from '@/api/fileDrop'
 import { toAppError } from '@/api/call'
 import { CAT_ATTACH_MAX, fileBaseName, splitAttach, type CatOutgoingFile } from '@/components/cat/catAttach'
 import { canPreview, previewKind, showsThumb, type CatPreviewKind, type CatShownFile } from '@/components/cat/catMedia'
 import CatThumb from '@/components/cat/CatThumb.vue'
 import { catDraftFor, catDraftKey } from '@/views/cat/catDrafts'
-import { catWorkflow } from '@/views/cat/catWorkflow'
+import { liveSteerReady } from '@/views/cat/catWorkflow'
 import CatPreviewDialog from '@/components/cat/CatPreviewDialog.vue'
 import { accessMeta, capsuleLabel, catState, chooseAccess, currentAgentKind, currentCaps, currentProject, chooseModel, chooseThink, customProviderOn, refreshModelsIfStale, THINK_DEFAULT_LABEL } from '@/views/cat/catState'
 import { CAT_PROVIDER_MODELS_COPY as PM, normalizeManualModelId, providerModelHint, providerModelHintTone, providerModelNeedsManual } from '@/api/catProviderModels'
@@ -413,7 +415,10 @@ const props = withDefaults(
 )
 /** props.placeholder 优先；未传时按当前语言回落（随 locale 响应） */
 const placeholderText = computed(() => props.placeholder || t('cat.misc.s_d52a943d7f'))
-const queueOff = computed(() => !!catWorkflow.queues[props.convId || catState.sel]?.queueingDisabled)
+const canSteer = computed(() => {
+  const id = props.convId || catState.sel
+  return props.running && liveSteerReady(id, catState.turns[id]?.turnId)
+})
 let missSeq = 0
 const missId = `ct-miss-${++missSeq}-${Math.random().toString(36).slice(2, 7)}`
 const emit = defineEmits<{ send: [payload: { text: string; files: CatOutgoingFile[]; own: string; notes: PickNote[]; draftKey: string }]; stop: []; blocked: []; search: [] }>()
@@ -760,19 +765,11 @@ function openPreview(f: CatShownFile) {
   previewFile.value = f
   previewOn.value = true
 }
-async function addFiles() {
-  if (props.missing || props.busy) return
+function attachPaths(paths: string[]) {
+  if (props.missing || props.busy || !paths.length) return
   const slot = draftSlot.value
-  let paths: string[] = []
-  try {
-    paths = await pickFiles({ name: t('cat.misc.s_b4632e719d'), patterns: ['*'] }, true)
-  } catch (e) {
-    ElMessage.warning(toAppError(e).message || t('cat.misc.s_fcc21b6e5a'))
-    return
-  }
-  if (!paths?.length) return
   const next = slot.files.map(toDraft)
-  const same = (a: string, b: string) => a.replace(/\//g, '\\').toLowerCase() === b.replace(/\//g, '\\').toLowerCase()
+  const same = (a: string, b: string) => a.replace(/[/\\]/g, '/').toLowerCase() === b.replace(/[/\\]/g, '/').toLowerCase()
   let capped = false
   for (const p of paths) {
     if (!p || next.some((f) => same(f.path, p))) continue
@@ -784,6 +781,90 @@ async function addFiles() {
   }
   slot.files = next.map(({ name, path }) => ({ name, path }))
   if (capped) ElMessage.warning(t('cat.misc.s_2345bc3f64'))
+}
+async function addFiles() {
+  if (props.missing || props.busy) return
+  let paths: string[] = []
+  try {
+    paths = await pickFiles({ name: t('cat.misc.s_b4632e719d'), patterns: ['*'] }, true)
+  } catch (e) {
+    ElMessage.warning(toAppError(e).message || t('cat.misc.s_fcc21b6e5a'))
+    return
+  }
+  attachPaths(paths)
+}
+const dropOver = ref(false)
+const dropStyle = { '--wails-drop-target': 'drop' } as Record<string, string>
+function onDragLeave(e: DragEvent) {
+  const next = e.relatedTarget
+  if (next instanceof Node && inEl.value?.contains(next)) return
+  dropOver.value = false
+}
+function pathsOf(list: FileList | null | undefined): string[] {
+  if (!list) return []
+  const paths: string[] = []
+  for (let i = 0; i < list.length; i++) {
+    const path = (list.item(i) as (File & { path?: string }) | null)?.path
+    if (path) paths.push(path)
+  }
+  return paths
+}
+function onDrop(e: DragEvent) {
+  dropOver.value = false
+  const paths = pathsOf(e.dataTransfer?.files)
+  if (paths.length) attachPaths(paths)
+}
+function filePathsOf(data: DataTransfer | null): string[] {
+  return pathsOf(data?.files)
+}
+function pastedImages(data: DataTransfer): File[] {
+  const out: File[] = []
+  const items = data.items as unknown as { length: number; [index: number]: { kind: string; type: string; getAsFile?: () => File | null } | undefined }
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    if (!item || item.kind !== 'file' || !item.type.startsWith('image/') || !item.getAsFile) continue
+    const file = item.getAsFile()
+    if (file && !(file as File & { path?: string }).path) out.push(file)
+  }
+  for (let i = 0; i < data.files.length; i++) {
+    const file = data.files.item(i)
+    if (!file || !file.type.startsWith('image/') || (file as File & { path?: string }).path) continue
+    if (!out.some((got) => got.size === file.size && got.type === file.type)) out.push(file)
+  }
+  return out
+}
+async function attachPastedImages(files: File[]): Promise<boolean> {
+  let added = false
+  for (const file of files) {
+    const ext = file.type === 'image/jpeg' ? '.jpg' : file.type === 'image/gif' ? '.gif' : file.type === 'image/webp' ? '.webp' : '.png'
+    const raw = new Uint8Array(await file.arrayBuffer())
+    const path = await savePastedFile(file.name || `paste${ext}`, raw)
+    if (!path) continue
+    attachPaths([path])
+    added = true
+  }
+  return added
+}
+async function onPaste(e: ClipboardEvent) {
+  if (props.missing || props.busy) return
+  const data = e.clipboardData
+  const direct = filePathsOf(data)
+  if (direct.length) {
+    e.preventDefault()
+    attachPaths(direct)
+    return
+  }
+  const images = data ? pastedImages(data) : []
+  if (data?.getData('text/plain') && !images.length) return
+  e.preventDefault()
+  if (images.length && await attachPastedImages(images)) return
+  const paths = await clipboardFilePaths()
+  if (paths.length) {
+    attachPaths(paths)
+    return
+  }
+  const image = await clipboardImage()
+  if (image) attachPaths([image])
 }
 function removeFile(id: number) {
   atts.value = atts.value.filter((f) => f.id !== id)
@@ -814,6 +895,8 @@ function onEnter(e: KeyboardEvent) {
   if (e.shiftKey || e.isComposing || e.keyCode === 229) return
   e.preventDefault()
   if (e.repeat) return
+  // An empty box must not stop or resend the turn that is already running.
+  if (!draft.value.trim() && !atts.value.length && !picks.value.length) return
   send()
 }
 
@@ -826,9 +909,12 @@ const suggestionRows = computed(() => suggestion.value?.kind === 'file'
   : filterCommands(draftCommands(workspaceUI.prompts), suggestion.value?.query ?? '').map(c => ({ ...c, file: undefined })))
 function updateTrigger(e?: Event) {
   if (e instanceof KeyboardEvent && e.isComposing) return
+  if (e instanceof KeyboardEvent && suggestion.value && ['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key)) return
   const token = draftTrigger(draft.value, ta.value?.selectionStart ?? draft.value.length)
   const stamp = JSON.stringify(token)
-  suggestion.value = stamp === dismissedToken ? null : token
+  if (stamp === dismissedToken) { suggestion.value = null; return }
+  if (stamp === JSON.stringify(suggestion.value)) return
+  suggestion.value = token
 }
 function onDraftInput(e: Event) {
   autosize()
@@ -836,9 +922,10 @@ function onDraftInput(e: Event) {
   if ((e as InputEvent).isComposing) { suggestion.value = null; return }
   updateTrigger()
 }
-watch(() => [suggestion.value?.kind, suggestion.value?.query, props.draftKey, props.convId, currentProject.value?.id] as const, ([kind, query]) => {
+watch(() => [suggestion.value?.kind, suggestion.value?.query, props.draftKey, props.convId, currentProject.value?.id] as const, ([kind, query], previous) => {
   const ticket = ++fileTicket
-  clearTimeout(fileTimer); contextFiles.value = []; filesTruncated.value = false; fileError.value = ''; suggestionIndex.value = 0
+  clearTimeout(fileTimer); contextFiles.value = []; filesTruncated.value = false; fileError.value = ''
+  suggestionIndex.value = suggestionIndexAfterTrigger(suggestionIndex.value, previous ? { kind: previous[0] || '', query: previous[1] || '' } : null, kind ? { kind, query: query || '' } : null)
   if (kind !== 'file') { fileLoading.value = false; return }
   fileLoading.value = true
   const conv = props.convId, project = currentProject.value?.id ?? ''
@@ -898,12 +985,13 @@ function onDraftKey(e: KeyboardEvent) {
 onMounted(() => { void loadPromptLibrary() })
 onBeforeUnmount(() => { ++fileTicket; clearTimeout(fileTimer) })
 
-function onDocClick(e: MouseEvent) {
+function onDocClick(e: Event) {
   const t = e.target
   if (!(t instanceof Node) || !root.value) return
-  if (suggestion.value && !inEl.value?.contains(t)) { dismissedToken = JSON.stringify(suggestion.value); suggestion.value = null }
-  if (menu.value && !root.value.querySelector('.mn')?.contains(t)) close()
-  if (extraOpen.value && !root.value.querySelector('.ct-more')?.contains(t) && !root.value.querySelector('.ct-extra')?.contains(t)) extraOpen.value = false
+  if (t instanceof Element && t.closest('.mn, .chip-access, .chip-model, .ct-more, .ct-extra, .draft-suggestions')) return
+  if (suggestion.value) { dismissedToken = JSON.stringify(suggestion.value); suggestion.value = null }
+  if (menu.value) close()
+  if (extraOpen.value) extraOpen.value = false
 }
 function onKey(e: KeyboardEvent) {
   if (!menu.value) return
@@ -926,14 +1014,17 @@ function onKey(e: KeyboardEvent) {
     items[n]?.focus()
   }
 }
+let offDrop = () => {}
 onMounted(() => {
   nextTick(autosize)
-  document.addEventListener('click', onDocClick)
+  document.addEventListener('pointerdown', onDocClick)
   document.addEventListener('keydown', onKey)
+  offDrop = onFilesDropped((paths) => { dropOver.value = false; attachPaths(paths) })
 })
 onBeforeUnmount(() => {
   clearTimeout(flashTimer)
-  document.removeEventListener('click', onDocClick)
+  offDrop()
+  document.removeEventListener('pointerdown', onDocClick)
   document.removeEventListener('keydown', onKey)
 })
 defineExpose({
@@ -960,7 +1051,7 @@ defineExpose({
 </script>
 
 <style scoped>
-.draft-suggestions { position:absolute; z-index:35; bottom:calc(100% + 6px); left:0; right:0; max-height:300px; overflow:auto; border:1px solid var(--ff-border); border-radius:12px; background:var(--ff-bg-surface); box-shadow:0 8px 30px #0002; padding:5px }.suggest-hd { display:flex; justify-content:space-between; padding:7px 9px; font-size:11px; color:var(--ff-text-3) }.draft-suggestions button { display:flex; align-items:center; width:100%; gap:8px; border:0; border-radius:7px; background:transparent; color:var(--ff-text-1); cursor:pointer; padding:9px; text-align:left }.draft-suggestions button.on,.draft-suggestions button:hover { background:var(--ff-bg-hover) }.draft-suggestions button b { font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:45% }.draft-suggestions button span { flex:1; min-width:0; font-size:11px; color:var(--ff-text-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis }.suggest-empty { padding:10px; font-size:12px; color:var(--ff-text-3) }
+.draft-suggestions { position:absolute; z-index:35; bottom:calc(100% + 6px); left:0; right:0; max-height:300px; overflow:auto; border:1px solid var(--ff-border); border-radius:12px; background:var(--ff-bg-surface); box-shadow:0 8px 30px #0002; padding:5px }.suggest-hd { display:flex; justify-content:space-between; padding:7px 9px; font-size:11px; color:var(--ff-text-3) }.draft-suggestions button { display:flex; align-items:center; width:100%; gap:8px; border:0; border-radius:7px; background:transparent; color:var(--ff-text-1); cursor:pointer; padding:9px; text-align:left }.draft-suggestions button:hover { background:var(--ff-bg-hover) }.draft-suggestions button.on { background:var(--ff-bg-hover); box-shadow:inset 3px 0 0 var(--cat-send, var(--ff-text-2)) }.draft-suggestions button b { font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:45% }.draft-suggestions button span { flex:1; min-width:0; font-size:11px; color:var(--ff-text-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis }.suggest-empty { padding:10px; font-size:12px; color:var(--ff-text-3) }
 .ct-comp.missing .ct-in {
   background: var(--cat-hover);
   box-shadow: none;
@@ -1164,6 +1255,11 @@ defineExpose({
 .ct-in:hover {
   border-color: var(--cat-border-strong);
 }
+.ct-in.over,
+.ct-in.wails-drop-target-active {
+  border-color: var(--cat-border-strong);
+  background: var(--cat-hover);
+}
 /* G3 聚焦：边框主色 50% + 3px 主色 14% 外环 */
 .ct-in:focus-within {
   border-color: color-mix(in srgb, var(--cat-accent) 50%, transparent);
@@ -1316,6 +1412,7 @@ defineExpose({
 }
 .ct-card .rm {
   position: absolute;
+  z-index: 2;
   top: 4px;
   right: 4px;
   width: 16px;

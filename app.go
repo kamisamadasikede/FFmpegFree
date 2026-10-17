@@ -3,6 +3,7 @@ package main
 import (
 	"FFmpegFree/app"
 	"FFmpegFree/internal/about"
+	"FFmpegFree/internal/agentexec"
 	"FFmpegFree/internal/catagent"
 	"FFmpegFree/internal/doccomp"
 	"FFmpegFree/internal/doceng"
@@ -21,6 +22,7 @@ import (
 	"FFmpegFree/internal/service/system"
 	"FFmpegFree/internal/store"
 	"FFmpegFree/internal/task"
+	"FFmpegFree/internal/team"
 	"context"
 	"fmt"
 	"log"
@@ -65,6 +67,8 @@ type App struct {
 	officeSvc    atomic.Pointer[office.Service]
 	catReg       atomic.Pointer[catagent.Registry]
 	cat          atomic.Pointer[cat.Service]
+	team         atomic.Pointer[team.Service]
+	execution    *agentexec.Runtime
 	win          windowState
 	windowOps    *windowOps  // 测试替换窗口调用；nil = Wails runtime
 	catNotifyOK  atomic.Bool // 系统通知已初始化（定时任务结束时用）
@@ -108,6 +112,8 @@ func (a *App) officeService() *office.Service { return a.officeSvc.Load() }
 func (a *App) officeCanvasManager() *officecanvas.Manager { return a.officeCanvas.Load() }
 
 func (a *App) catService() *cat.Service { return a.cat.Load() }
+
+func (a *App) teamService() *team.Service { return a.team.Load() }
 
 func (a *App) catRegistry() *catagent.Registry { return a.catReg.Load() }
 
@@ -373,6 +379,7 @@ func (a *App) startOfficeCanvas() {
 
 // startCat 创建 Cat 助手服务（契约 6.19）：v0.36 注册 cat_build + claude_cli/codex_cli 桩。
 func (a *App) startCat() {
+	a.execution = agentexec.New()
 	root := a.dirs.Root
 	if root == "" {
 		if d, err := paths.Resolve(""); err == nil {
@@ -417,6 +424,7 @@ func (a *App) startCat() {
 	a.catReg.Store(reg)
 
 	cfg := cat.Config{
+		Execution:              a.execution,
 		Registry:               reg,
 		Emit:                   emit,
 		Logf:                   log.Printf,
@@ -449,6 +457,14 @@ func (a *App) startCat() {
 	}
 	svc := cat.New(cfg)
 	a.cat.Store(svc)
+	if a.store != nil {
+		teams, err := team.New(a.rootCtx, team.Config{Repository: &team.Repository{DB: a.store.DB()}, Registry: reg, Execution: a.execution, Office: svc.TeamOffice(), DataRoot: root, Resolve: svc.TeamExecution, Emit: emit, Notify: a.sendTeamNotification, Logf: log.Printf})
+		if err != nil {
+			log.Printf("群聊服务初始化失败: %v", err)
+		} else {
+			a.team.Store(teams)
+		}
+	}
 	// v0.47.1：先发 cat.detect 的上次结果（stale），再后台实时检测所有已注册适配器。
 	svc.StartDetection()
 	if cfg.Store != nil {
@@ -571,8 +587,15 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.rootCancel != nil {
 		a.rootCancel() // 先取消根 ctx：进行中的探测 / 缩略图立即结束 ffprobe / ffmpeg
 	}
+	if teams := a.teamService(); teams != nil {
+		teams.Close()
+	}
+	if a.execution != nil {
+		a.execution.Close()
+	}
 	if c := a.catService(); c != nil {
 		c.CloseScheduler() // 停定时任务调度器：排队中的记已错过；运行中的下次启动收尾
+		c.Wait() // Shared execution has cancelled CLI turns; persist their final state before DB/Office shutdown.
 		c.ClosePptPreviews()
 	}
 	if l := a.liveService(); l != nil {

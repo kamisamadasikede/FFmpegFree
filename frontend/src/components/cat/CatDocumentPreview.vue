@@ -83,7 +83,7 @@ onBeforeUnmount(() => { alive = false; ticket++; clearInterval(timer); off(); re
     <PvPdf v-if="pdf" ref="pdfViewer" :url="current!.url!" :scale="scale" :initial-page="page" @pages="pages = $event" @page="page = $event" @scale="scale = $event" @failed="error = t('cat.preview.failed')" @gone="error = t('cat.preview.gone')" />
     <PvPptxHtml v-else-if="pptx" ref="pptxViewer" :html="current!.text || ''" :scale="scale" @pages="pages = $event" @page="page = $event" @scale="scale = $event" /><template v-else-if="current?.kind === 'raw'"><p class="basic">{{ t(pptx ? 'cat.preview.pptVisual' : 'cat.preview.basic') }}</p><PvRawDocx v-if="current.ext === 'docx'" :key="current.previewId" :url="current.url!" :size-bytes="current.sizeBytes" :scale="scale" @failed="error = t('cat.preview.failed')" /><PvRawXlsx v-else :key="current.previewId" :url="current.url!" :size-bytes="current.sizeBytes" :scale="scale" @failed="error = t('cat.preview.failed')" /></template>
     <template v-else-if="current?.kind === 'unavailable'"><div class="unavailable"><FIcon name="file" :size="28" /><p>{{ t('cat.preview.needsEngine') }}</p><button type="button" @click="engineDialog = true">{{ t('cat.preview.settings') }}</button></div></template>
-    <ElDialog v-model="engineDialog" :title="t('cat.preview.engineSettings')" width="min(640px, 92vw)" append-to-body @closed="refresh(true)"><DocComponentPanel /></ElDialog>
+    <ElDialog v-model="engineDialog" :title="t('cat.preview.engineSettings')" width="min(640px, 92vw)" append-to-body :close-on-click-modal="true" @closed="refresh(true)"><DocComponentPanel /></ElDialog>
     <div v-if="!current && !error" class="loading">{{ t(writing ? 'cat.preview.writing' : 'cat.preview.generating') }}</div>
   </div>
 </template>

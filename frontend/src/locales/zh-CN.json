@@ -1466,7 +1466,9 @@
       "copy": "复制",
       "copied": "已复制",
       "copyFailed": "复制失败，请选中文字后复制。",
-      "thinking": "正在思考…"
+      "thinking": "正在思考…",
+      "thinkingNow": "思考中",
+      "thinkingDone": "思考完成"
     },
     "shared": {
       "title": "共享技能与 MCP",
@@ -1519,6 +1521,7 @@
       "exportMarkdown": "导出 Markdown",
       "exportJson": "导出 JSON",
       "filter": "搜索对话标题",
+      "filterProjects": "搜索项目里的对话",
       "activeChats": "返回活跃对话",
       "archiveList": "已归档 · {n}",
       "saved": "已保存",

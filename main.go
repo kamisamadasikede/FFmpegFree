@@ -3,7 +3,10 @@ package main
 import (
 	"FFmpegFree/app"
 	"FFmpegFree/internal/service/system"
+	"FFmpegFree/internal/team"
 	"embed"
+	"fmt"
+	"os"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -18,6 +21,20 @@ var assets embed.FS
 var appIcon []byte
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "team-mcp" {
+		if err := team.RunMCP(os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "team-tool" {
+		if err := team.RunTool(os.Args[2:], os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	// Create an instance of the app structure
 
 	sysManager := system.NewManager()
@@ -32,6 +49,7 @@ func main() {
 	langService := app.NewLangService(mainApp.langService, mainApp.appContext)
 	officeCanvasService := app.NewOfficeCanvasService(mainApp.officeService, mainApp.appContext)
 	catService := app.NewCatService(mainApp.catService, mainApp.appContext)
+	teamService := app.NewTeamService(mainApp.teamService, mainApp.appContext)
 
 	// /local/<token> 本地文件预览（契约 6.13）：doc / convert 两张登记表，Handler 挂在 AssetServer 上。
 
@@ -55,6 +73,7 @@ func main() {
 		OnStartup:        mainApp.startup,
 		OnShutdown:       mainApp.shutdown,
 		Bind: []interface{}{
+			teamService,
 			mainApp,
 			jsonService,
 			systemService,

@@ -416,7 +416,7 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <MotionDialog>
     <div v-if="target" class="cv2 cv-layer" :class="{ w1024: narrow }">
-      <div class="cv-mask" @click.self="emit('close')">
+      <div class="cv-mask" @mousedown.self="emit('close')">
         <div ref="box" class="cv-pv ff-panel" :class="{ audio: kind === 'audio', gif: kind === 'gif' }" role="dialog" aria-modal="true" :aria-label="isRecord ? `预览转换结果 ${title}` : `预览 ${title}`" tabindex="-1">
           <div class="cv-pvh">
             <div class="tt">

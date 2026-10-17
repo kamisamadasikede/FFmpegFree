@@ -24,7 +24,7 @@
 
 <script lang="ts" setup>
 import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import AppSidebar from './layout/AppSidebar.vue'
 import AppTitlebar from './layout/AppTitlebar.vue'
 import FFmpegBanner from './components/ffmpeg/FFmpegBanner.vue'
@@ -39,12 +39,18 @@ onBeforeUnmount(stopWorkflow)
 import { ElMessage } from 'element-plus'
 import { convertV24On, takeInterruptedReconverts } from './api/convertRecords'
 import { interruptedReconvertsText } from './utils/convertV24Text'
+import { onEvent } from './services/wails'
 
 useTheme()
 useFFmpegStore().init()
 useTaskStore().init()
 
 const route = useRoute()
+const router = useRouter()
+const stopTeamOpen = onEvent<{ roomId: string; messageId: string }>('team:open', target => {
+  if (target.roomId) void router.push({ path: '/cat/team', query: { room: target.roomId, message: target.messageId } })
+})
+onBeforeUnmount(stopTeamOpen)
 const blankLayout = computed(() => route.meta.layout === 'blank')
 const catLayout = computed(() => route.meta.layout === 'cat')
 

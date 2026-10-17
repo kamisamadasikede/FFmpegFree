@@ -60,6 +60,21 @@ func (s *SystemService) CancelFFmpegInstall() error {
 	return s.mgr.CancelInstall()
 }
 
+// ClipboardFilePaths 返回剪贴板里复制的文件绝对路径。没有文件时返回空列表，不是错误。
+func (s *SystemService) ClipboardFilePaths() []string {
+	return system.ClipboardFilePaths()
+}
+
+// ClipboardImage 把剪贴板里的截图存成临时 PNG 并返回路径。没有图片时返回空字符串。
+func (s *SystemService) ClipboardImage() string {
+	return system.ClipboardImage()
+}
+
+// SavePastedFile 把粘贴的图片字节（base64）写成临时文件，返回绝对路径。
+func (s *SystemService) SavePastedFile(name, dataBase64 string) (string, error) {
+	return system.SavePastedFileBase64(name, dataBase64)
+}
+
 // RevealInFolder 在系统文件管理器里显示 path（Windows 选中文件，macOS `open -R`，Linux 打开所在文件夹）；
 // path 是文件夹时直接打开它。path 必须是绝对路径：空或相对路径返回 INVALID_ARGUMENT，不存在返回 NOT_FOUND，
 // 无法启动文件管理器返回 PROCESS_FAILED。命令启动后立即返回。

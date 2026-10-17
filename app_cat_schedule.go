@@ -1,9 +1,11 @@
 package main
 
 import (
+	"errors"
 	"log"
 
 	"FFmpegFree/internal/service/cat"
+	"FFmpegFree/internal/team"
 
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -32,10 +34,24 @@ func (a *App) initCatNotifications() {
 			return
 		}
 		info := res.Response.UserInfo
+		if kind, _ := info["kind"].(string); kind == "team_mention" {
+			roomID, _ := info["roomId"].(string)
+			messageID, _ := info["messageId"].(string)
+			a.showWindow()
+			wruntime.EventsEmit(a.ctx, "team:open", map[string]string{"roomId": roomID, "messageId": messageID})
+			return
+		}
 		convID, _ := info["convId"].(string)
 		schedID, _ := info["scheduleId"].(string)
 		a.onCatNotificationClick(schedID, convID)
 	})
+}
+
+func (a *App) sendTeamNotification(n team.Notification) error {
+	if a.ctx == nil || !a.catNotifyOK.Load() {
+		return errors.New("系统通知不可用")
+	}
+	return wruntime.SendNotification(a.ctx, wruntime.NotificationOptions{ID: n.ID, Title: n.Title, Body: n.Body, Data: map[string]interface{}{"kind": "team_mention", "version": 1, "roomId": n.RoomID, "messageId": n.MessageID, "taskId": n.TaskID}})
 }
 
 // onCatNotificationClick 点了系统通知：最小化或隐藏都先恢复并置前、清掉隐藏状态，再推 openConvId（v0.35.5 ②）。

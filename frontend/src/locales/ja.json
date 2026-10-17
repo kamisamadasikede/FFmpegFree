@@ -1466,7 +1466,9 @@
       "copy": "コピー",
       "copied": "コピーしました",
       "copyFailed": "コピーできませんでした。テキストを選択してコピーしてください。",
-      "thinking": "考え中…"
+      "thinking": "考え中…",
+      "thinkingNow": "考え中",
+      "thinkingDone": "考え終わり"
     },
     "shared": {
       "title": "共有スキルと MCP",
@@ -1519,6 +1521,7 @@
       "exportMarkdown": "Markdown をエクスポート",
       "exportJson": "JSON をエクスポート",
       "filter": "会話のタイトルを検索",
+      "filterProjects": "プロジェクト内の会話を検索",
       "activeChats": "通常の会話に戻る",
       "archiveList": "アーカイブ · {n}",
       "saved": "保存しました",

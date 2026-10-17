@@ -1,5 +1,5 @@
 <template>
-  <ElDialog :model-value="visible" :title="title" width="min(900px, calc(100vw - 40px))" class="git-diff-dialog" destroy-on-close @update:model-value="!$event && emit('close')">
+  <ElDialog :model-value="visible" :title="title" width="min(900px, calc(100vw - 40px))" class="git-diff-dialog" destroy-on-close :close-on-click-modal="true" @update:model-value="!$event && emit('close')">
     <p v-if="loading" class="muted" role="status">{{ t('cat.git.diffLoading') }}</p>
     <p v-else-if="error" class="error" role="alert">{{ error }}</p>
     <p v-else-if="diff?.binary" class="muted">{{ t('cat.git.diffBinary') }}</p>

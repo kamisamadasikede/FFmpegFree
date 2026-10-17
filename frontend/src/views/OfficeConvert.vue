@@ -89,7 +89,7 @@
       <button v-else type="button" class="btn pri" :disabled="!pendingCount || submitting" @click="start"><FIcon name="play" :size="15" />开始转换</button>
     </div>
 
-    <el-dialog v-model="logOpen" title="查看日志" width="560px" append-to-body>
+    <el-dialog v-model="logOpen" title="查看日志" width="560px" append-to-body :close-on-click-modal="true">
       <pre class="log selectable">{{ logText || '暂无日志' }}</pre>
     </el-dialog>
   </section>

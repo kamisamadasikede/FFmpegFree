@@ -93,7 +93,7 @@
         <button type="button" role="menuitem" :disabled="locked || commitBlocked || menu.c.parents.length > 1 || menu.c.isHead" @click="commitAction('cherry-pick')">{{ t('cat.gitWorkbench.cherryPick') }}</button>
         <button type="button" role="menuitem" :disabled="locked || commitBlocked || menu.c.parents.length > 1" @click="commitAction('revert')">{{ t('cat.gitWorkbench.revert') }}</button>
       </div>
-      <div v-if="dialog" class="ch-mask" @click.self="dialog = null">
+      <div v-if="dialog" class="ch-mask" @mousedown.self="dialog = null">
         <div class="ch-dlg" :class="{ wide: dialog.kind === 'diff' || dialog.kind === 'compare' }" role="dialog" aria-modal="true" data-testid="cat-commit-dialog">
           <template v-if="dialog.kind === 'checkout'">
             <h3>{{ C.checkoutTitle(dialog.c.shortSha) }}</h3>

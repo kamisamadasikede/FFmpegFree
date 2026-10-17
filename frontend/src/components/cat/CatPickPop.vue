@@ -84,12 +84,21 @@ function onKey(e: KeyboardEvent) {
 
 watch(() => [props.anchor.left, props.anchor.top, props.anchor.width, props.anchor.height], () => nextTick(layout))
 
+function onOutside(e: PointerEvent) {
+  const t = e.target
+  if (t instanceof Node && card.value?.contains(t)) return
+  emit('close')
+}
 onMounted(() => {
   layout()
   nextTick(() => ta.value?.focus())
   window.addEventListener('resize', layout)
+  document.addEventListener('pointerdown', onOutside)
 })
-onBeforeUnmount(() => window.removeEventListener('resize', layout))
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', layout)
+  document.removeEventListener('pointerdown', onOutside)
+})
 </script>
 
 <style scoped>
