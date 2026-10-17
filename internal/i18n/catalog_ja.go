@@ -17,4 +17,6 @@ var catalogJa = map[string]string{
 	KeyNotifyTurnDoneTitle:   "Agent · 会話が完了しました",
 	KeyNotifyTurnFailedTitle: "Agent · 返信に失敗しました",
 	KeyNotifyTurnNewConv:     "新しい会話",
+
+	KeyCatGroupReportUnparsed: "報告形式で書かれていないため、最後の返信のみ表示します。",
 }

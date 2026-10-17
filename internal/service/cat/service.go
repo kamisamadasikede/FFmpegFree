@@ -354,10 +354,16 @@ func (s *Service) ListCatConversations(ctx context.Context) ([]Conversation, err
 	if err != nil {
 		return nil, err
 	}
+	hidden, _ := s.cfg.Store.ListCatGroupMemberIDs(ctx)
+	out := make([]Conversation, 0, len(list))
 	for i := range list {
+		if hidden[list[i].ID] {
+			continue
+		}
 		s.applyCLITitle(ctx, &list[i])
+		out = append(out, list[i])
 	}
-	return list, nil
+	return out, nil
 }
 
 func (s *Service) GetCatConversation(ctx context.Context, convID string) (ConversationDetail, error) {
