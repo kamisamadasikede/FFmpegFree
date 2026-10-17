@@ -149,51 +149,78 @@
       </div>
 
       <div v-if="store.workingMembers.length" class="cg-work" data-testid="cat-group-working">
-        <div v-for="m in store.workingMembers" :key="m.id" class="cg-wrow">
-          <span class="cg-spin" aria-hidden="true" />
-          <span class="av sm" :style="{ '--c': memberColorVar(m.order) }">{{ initial(m.name) }}</span>
-          <span class="tx">{{ t('cat.groupChat.working', { name: m.name, time: formatElapsed(store.elapsedOf(m.id)) }) }}<template v-if="store.live[m.id]?.toolCount">{{ t('cat.groupChat.workingTools', { n: store.live[m.id].toolCount }) }}</template></span>
-          <button type="button" class="cg-btn ghost" @click="openProcess(m.id)">{{ t('cat.groupChat.viewProcess') }}</button>
-          <button type="button" class="cg-btn" @click="store.stop(m.id)"><FIcon name="stop" :size="11" />{{ t('cat.groupChat.stop') }}</button>
-        </div>
         <div v-if="store.workingMembers.length > 1" class="cg-wall">
-          <span>{{ t('cat.groupChat.nWorking', { n: store.workingMembers.length }) }}</span>
-          <button type="button" class="cg-btn ghost red" data-testid="cat-group-stop-all" @click="store.stopAll()">{{ t('cat.groupChat.stopAll') }}</button>
+          <span class="cg-pulse" aria-hidden="true" /><b>{{ t('cat.groupChat.nWorking', { n: store.workingMembers.length }) }}</b>
+          <span class="sp" />
+          <button type="button" class="lkb red" data-testid="cat-group-stop-all" @click="store.stopAll()">{{ t('cat.groupChat.stopAll') }}</button>
+        </div>
+        <div v-for="m in store.workingMembers" :key="m.id" class="cg-wrow">
+          <span v-if="store.workingMembers.length === 1" class="cg-pulse" aria-hidden="true" />
+          <span class="av sm" :style="{ '--c': memberColorVar(m.order) }">{{ initial(m.name) }}</span>
+          <span class="tx"><b>{{ m.name }}</b>{{ t('cat.groupChat.working', { name: '', time: formatElapsed(store.elapsedOf(m.id)) }) }}{{ t('cat.groupChat.workingTools', { n: store.live[m.id]?.toolCount ?? 0 }) }}</span>
+          <button type="button" class="lkb" @click="openProcess(m.id)">{{ t('cat.groupChat.viewProcess') }}</button>
+          <button type="button" class="lkb" @click="store.stop(m.id)">{{ t('cat.groupChat.stop') }}</button>
         </div>
       </div>
 
       <div class="cg-comp" data-testid="cat-group-composer">
         <div v-if="mentionOpen && mentionList.length" class="cg-pop" role="listbox" :aria-label="t('cat.groupChat.mentionList')">
+          <div class="ph">{{ AT }} {{ t('cat.groupChat.members') }}</div>
           <button v-for="(o, i) in mentionList" :key="o.id" type="button" class="it" :class="{ on: i === mentionIdx }" role="option" :aria-selected="i === mentionIdx" @mousedown.prevent="pickMention(o.id)">
             <span class="av sm" :style="{ '--c': memberColorVar(o.order) }">{{ initial(o.name) }}</span>{{ o.name }}<span class="tt">{{ o.title }}</span>
+            <span class="sp" /><span class="tt" :class="{ busy: store.live[o.id] }">{{ store.live[o.id] ? t('cat.groupChat.busy') : t('cat.groupChat.idle') }}</span>
           </button>
         </div>
-        <div v-if="chips.length" class="row">
+        <div class="row">
           <span v-for="id in chips" :key="id" class="cg-chip">
-            <span class="av sm" :style="{ '--c': colorOf(id) }">{{ initial(store.nameOf(id)) }}</span>{{ store.nameOf(id) }}
-            <button type="button" :aria-label="t('cat.groupChat.removeMention', { name: store.nameOf(id) })" @click="chips = chips.filter((x) => x !== id)"><FIcon name="x" :size="11" /></button>
+            {{ AT }}{{ store.nameOf(id) }}
+            <button type="button" :aria-label="t('cat.groupChat.removeMention', { name: store.nameOf(id) })" @click="chips = chips.filter((x) => x !== id)"><FIcon name="x" :size="10" /></button>
           </span>
+          <textarea ref="inputEl" v-model="draft" rows="2" :placeholder="chips.length ? '' : t('cat.groupChat.composerPh')" data-testid="cat-group-input" @input="onInput" @keydown="onKey" />
         </div>
-        <textarea ref="inputEl" v-model="draft" rows="2" :placeholder="t('cat.groupChat.composerPh')" data-testid="cat-group-input" @input="onInput" @keydown="onKey" />
         <div class="bar">
+          <button type="button" class="cg-ib" :aria-label="t('cat.groupChat.attach')" disabled><FIcon name="plus" :size="15" /></button>
           <button type="button" class="cg-ib" :aria-label="t('cat.groupChat.mentionList')" @click="openMention()">{{ AT }}</button>
           <span class="sp" />
           <button type="button" class="cg-send" :disabled="!canSend" :aria-label="t('cat.groupChat.send')" data-testid="cat-group-send" @click="send()"><FIcon name="send" :size="15" /></button>
         </div>
       </div>
+      <div class="cg-chint">{{ t('cat.groupChat.composerHint') }}</div>
     </div>
 
     <div v-if="layout !== 'wide' && store.membersOpen" class="cg-scrim" @click="store.membersOpen = false" />
     <CatGroupMembers :class="{ open: store.membersOpen }" :closable="layout !== 'wide'" :initial-open="initialOpen" @close="store.membersOpen = false" @add="addOpen = true" />
     <CatGroupCreateDialog v-if="addOpen" mode="member" @close="addOpen = false" />
 
-    <aside v-if="store.drawerMemberId" class="cg-proc" data-testid="cat-group-process">
-      <div class="cg-mem-hd">
-        <span class="av sm" :style="{ '--c': colorOf(store.drawerMemberId) }">{{ initial(store.nameOf(store.drawerMemberId)) }}</span>
-        {{ t('cat.groupChat.processTitle', { name: store.nameOf(store.drawerMemberId) }) }}<span class="sp" />
+    <div v-if="store.drawerMemberId" class="cg-scrim on" @click="store.drawerMemberId = ''" />
+    <aside v-if="store.drawerMemberId" class="cg-proc" role="dialog" :aria-label="t('cat.groupChat.viewProcess')" data-testid="cat-group-process">
+      <div class="cg-proc-hd">
+        <span class="av" :style="{ '--c': colorOf(store.drawerMemberId) }">{{ initial(store.nameOf(store.drawerMemberId)) }}</span>
+        <div class="tt">
+          <b>{{ store.nameOf(store.drawerMemberId) }} · {{ t('cat.groupChat.viewProcess') }}</b>
+          <span>{{ t('cat.groupChat.sessionSub', { cli: cliName(store.memberById(store.drawerMemberId)?.agentKind), model: store.memberById(store.drawerMemberId)?.modelId || t('cat.groupChat.defaultModel'), n: drawerHop + 1 }) }}</span>
+        </div>
         <button type="button" class="cg-ib" :aria-label="t('cat.groupChat.close')" @click="store.drawerMemberId = ''"><FIcon name="x" :size="14" /></button>
       </div>
-      <div class="bd">{{ store.processText[store.drawerMemberId] || t('cat.groupChat.processEmpty') }}</div>
+      <div class="cg-proc-ban"><FIcon name="info" :size="12" />{{ t('cat.groupChat.sessionBanner') }}</div>
+      <div class="bd">
+        <template v-if="store.processText[store.drawerMemberId]">
+          <template v-for="(b, i) in procBlocks(store.processText[store.drawerMemberId])" :key="i">
+            <div v-if="b.tool" class="cg-tool"><span class="v">{{ b.tool }}</span><code>{{ b.arg }}</code><pre v-if="b.out">{{ b.out }}</pre></div>
+            <p v-else>{{ b.text }}</p>
+          </template>
+        </template>
+        <div v-else class="cg-hint">{{ t('cat.groupChat.processEmpty') }}</div>
+      </div>
+      <div class="cg-proc-ft">
+        <template v-if="store.live[store.drawerMemberId]">
+          <span class="cg-pulse" aria-hidden="true" />
+          <span>{{ t('cat.groupChat.sessionRunning', { time: formatElapsed(store.elapsedOf(store.drawerMemberId)), n: store.live[store.drawerMemberId].toolCount }) }}</span>
+          <span class="sp" />
+          <button type="button" class="cg-btn" @click="store.stop(store.drawerMemberId)"><FIcon name="stop" :size="11" />{{ t('cat.groupChat.stop') }}</button>
+        </template>
+        <span v-else>{{ t('cat.groupChat.idle') }}</span>
+      </div>
     </aside>
 
     <div v-if="revertMsg" class="cg-modal-bg" @click.self="revertMsg = null">
@@ -221,6 +248,7 @@ import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import { useCatGroupChat } from '@/stores/catGroupChat'
 import { formatElapsed, memberColorVar, systemLineText, type CatGroupMessage, type CatRouteDetail } from '@/api/catGroupChat'
+import { SESSION_DEMO } from '@/api/catGroupChatMock'
 import { catPanels } from '@/views/cat/catPanels'
 import { catPane } from '@/components/cat/catPreviewWidth'
 
@@ -250,6 +278,20 @@ const clock = (ms: number) => {
 const sysText = (m: CatGroupMessage) => systemLineText(m, store.nameOf)
 const overreach = (m: CatGroupMessage) => (m.report?.files ?? []).filter((f) => f.tag === 'overreach')
 
+const drawerHop = computed(() => [...store.messages].reverse().find((m) => m.memberId === store.drawerMemberId || m.toMemberId === store.drawerMemberId)?.hop ?? 0)
+function procBlocks(text: string) {
+  const out: { tool?: string; arg?: string; out?: string; text?: string }[] = []
+  for (const ln of text.split('\n')) {
+    const hit = /^\[(\w+)\] (.*)$/.exec(ln)
+    const last = out[out.length - 1]
+    if (hit) out.push({ tool: hit[1], arg: hit[2], out: '' })
+    else if (!ln.trim()) out.push({ text: '' })
+    else if (last?.tool) last.out = last.out ? `${last.out}\n${ln}` : ln
+    else if (last && !last.tool && last.text) last.text += `\n${ln}`
+    else out.push({ text: ln })
+  }
+  return out.filter((b) => b.tool || b.text)
+}
 function openProcess(id?: string) {
   store.drawerMemberId = id ?? ''
   void id
@@ -437,7 +479,8 @@ function applyScene() {
   if (ui?.openRoute) { const m = store.messages.find((x) => x.route?.mode === 'ai'); if (m) void toggleRoute(m) }
   if (ui?.swapOpen) { const m = [...store.messages].reverse().find((x) => x.systemKind === 'route'); if (m) reassignFor.value = m.seq }
   if (s === 'members' || s === 'narrow-drawer') store.membersOpen = true
-  if (s === 'session') store.drawerMemberId = 'f'
+  if (s === 'session') { store.processText.f = SESSION_DEMO; store.drawerMemberId = 'f' }
+  if (s === 'mention') { draft.value = AT; mentionOpen.value = true; mentionQuery.value = '' }
   if (s === 'narrow-single') {
     catPane.side = 540 // 走查：窗口最小 1024，把左栏拉宽，让群聊区域落到单栏宽度
     store.membersOpen = true
