@@ -20,6 +20,8 @@ export interface CatCharter {
   dirs: string[]
   edited: string[]
   updatedAt: number
+  /** 生成失败原因（BE 可能给 failReason / error / message；normalize 里合并） */
+  failReason?: string
 }
 export interface CatGroup {
   id: string
@@ -171,7 +173,19 @@ export interface RevertResult {
   skipped: { path: string; reason: string }[]
 }
 
+/** BE 可能用 failReason / error / message 任一字段带回失败原因 */
+export function charterFailReasonOf(c: Partial<CatCharter> | Record<string, unknown> | undefined | null): string {
+  if (!c || typeof c !== 'object') return ''
+  const r = c as Record<string, unknown>
+  for (const k of ['failReason', 'error', 'message', 'reason', 'detail'] as const) {
+    const v = r[k]
+    if (typeof v === 'string' && v.trim()) return v.trim()
+  }
+  return ''
+}
+
 export function normalizeCharter(c: Partial<CatCharter> | undefined | null): CatCharter {
+  const failReason = charterFailReasonOf(c)
   return {
     status: (c?.status as CharterStatus) || 'none',
     owns: c?.owns ?? '',
@@ -180,6 +194,7 @@ export function normalizeCharter(c: Partial<CatCharter> | undefined | null): Cat
     dirs: Array.isArray(c?.dirs) ? [...c!.dirs] : [],
     edited: Array.isArray(c?.edited) ? [...c!.edited] : [],
     updatedAt: c?.updatedAt ?? 0,
+    ...(failReason ? { failReason } : {}),
   }
 }
 export function normalizeMember(m: Partial<CatGroupMember> & { id: string }): CatGroupMember {

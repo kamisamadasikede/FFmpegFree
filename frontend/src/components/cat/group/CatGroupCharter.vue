@@ -4,7 +4,7 @@
       <span class="av sm" :style="{ '--c': memberColorVar(member.order) }">{{ Array.from(member.name)[0] }}</span><b>{{ member.name }}</b>{{ t('cat.groupChat.charterHead') }}<span class="sp" />
       <template v-if="c.status === 'ok' && !editing">
         <button type="button" class="cg-btn ghost" data-testid="cat-group-charter-edit" @click="startEdit()"><FIcon name="edit" :size="12" />{{ t('cat.groupChat.edit') }}</button>
-        <button type="button" class="cg-btn ghost" data-testid="cat-group-charter-regen" @click="regen()"><FIcon name="refresh" :size="12" />{{ t('cat.groupChat.regenerate') }}</button>
+        <button type="button" class="cg-btn ghost" data-testid="cat-group-charter-regen" :disabled="regenBusy" @click="regen()"><FIcon name="refresh" :size="12" />{{ t('cat.groupChat.regenerate') }}</button>
       </template>
     </div>
 
@@ -22,8 +22,9 @@
       <div class="bx">
         <div class="t">{{ t('cat.groupChat.charterFailed') }}</div>
         <div class="h">{{ t('cat.groupChat.charterFailedHint') }}</div>
+        <div v-if="failReasonText" class="h cg-charter-fail-reason" data-testid="cat-group-charter-fail-reason">{{ failReasonText }}</div>
         <div class="row">
-          <button type="button" class="cg-btn pri" data-testid="cat-group-charter-regen" @click="regen(true)"><FIcon name="refresh" :size="12" />{{ t('cat.groupChat.regenerate') }}</button>
+          <button type="button" class="cg-btn pri" data-testid="cat-group-charter-regen" :disabled="regenBusy" @click="regen(true)"><FIcon name="refresh" :size="12" />{{ t('cat.groupChat.regenerate') }}</button>
           <button type="button" class="cg-btn" @click="startEdit()">{{ t('cat.groupChat.edit') }}</button>
         </div>
       </div>
@@ -79,6 +80,9 @@ const isEdited = (f: string) => c.value.edited.includes(f)
 
 const editing = ref(false)
 const saving = ref(false)
+const regenBusy = ref(false)
+/** BE 可能给 failReason / error / message；normalize 已收成 failReason */
+const failReasonText = computed(() => (c.value.failReason || '').trim())
 const form = reactive({ owns: '', notTouch: '', dirs: [] as string[] })
 const dirDraft = ref('')
 const dirEl = ref<HTMLInputElement | null>(null)
@@ -117,6 +121,7 @@ async function save() {
   }
 }
 async function regen(skipConfirm = false) {
+  if (regenBusy.value || c.value.status === 'generating') return
   if (!skipConfirm && c.value.edited.length) {
     try {
       await ElMessageBox.confirm(t('cat.groupChat.regenerateConfirm'), t('cat.groupChat.regenerate'), { confirmButtonText: t('cat.groupChat.regenerate'), cancelButtonText: t('cat.groupChat.cancel') })
@@ -124,12 +129,15 @@ async function regen(skipConfirm = false) {
       return
     }
   }
+  regenBusy.value = true
   try {
     editing.value = false
     await store.regenerate(props.member.id)
   } catch (e) {
     const d = String((e as { detail?: string })?.detail ?? (e as Error)?.message ?? '')
     ElMessage.warning(d.includes('charter_generating') ? t('cat.groupChat.regenerating') : t('cat.groupChat.saveFailed'))
+  } finally {
+    regenBusy.value = false
   }
 }
 </script>
