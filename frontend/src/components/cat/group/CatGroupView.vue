@@ -74,7 +74,24 @@
               </article>
             </div>
 
-            
+            <div v-else-if="m.systemKind === 'failed'" class="cg-fail" role="alert" data-testid="cat-group-failed">
+              <span class="av sm" :style="{ '--c': colorOf(m.memberId) }">{{ initial(store.nameOf(m.memberId)) }}</span>
+              <div class="tx">
+                <b>{{ t('cat.groupChat.failedHead', { name: store.nameOf(m.memberId) }) }}</b>
+                <div class="why">{{ m.failReason || m.text || t('cat.groupChat.unknownReason') }}</div>
+              </div>
+              <div class="acts">
+                <button type="button" class="cg-btn ghost" @click="openProcess(m.memberId)">{{ t('cat.groupChat.viewProcess') }}</button>
+                <button v-if="!retried[m.seq]" type="button" class="cg-btn pri" :title="t('cat.groupChat.retryTip')" data-testid="cat-group-retry" @click="retry(m)">
+                  <FIcon name="retry" :size="13" />{{ t('cat.groupChat.retry') }}
+                </button>
+                <span v-else class="cg-hint">{{ t('cat.groupChat.retrying') }}</span>
+              </div>
+            </div>
+
+            <div v-else-if="m.systemKind === 'stopped'" class="cg-stopline" data-testid="cat-group-stopped">
+              <FIcon name="stop" :size="11" />{{ sysText(m) }}
+            </div>
 
             <div v-else-if="m.systemKind === 'report_format'" class="cg-sys fmt" data-testid="cat-group-report-format">
               <FIcon name="info" :size="12" />{{ sysText(m) }}
@@ -268,6 +285,18 @@ async function doRevert() {
   } finally {
     reverting.value = false
     revertMsg.value = null
+  }
+}
+
+// 失败重试：同一任务再跑一轮，hop 不加（6.21.15 ①）
+const retried = reactive<Record<number, boolean>>({})
+async function retry(m: CatGroupMessage) {
+  retried[m.seq] = true
+  try {
+    await store.retryTurn(m.memberId || '', m.chainId)
+  } catch {
+    retried[m.seq] = false
+    ElMessage.error(t('cat.groupChat.retryFailed'))
   }
 }
 
