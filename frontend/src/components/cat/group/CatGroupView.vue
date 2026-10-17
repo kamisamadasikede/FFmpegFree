@@ -336,7 +336,9 @@ function parts(text: string): { s: string; at: boolean }[] {
 // 换人：只给每条链最新一条派活灰字
 const reassignFor = ref(0)
 function canReassign(m: CatGroupMessage) {
+  // v0.55.9：undecided 不起成员、不出现「换人」
   if (m.systemKind !== 'route' || !m.chainId || store.members.length < 2) return false
+  if (m.route?.mode === 'undecided') return false
   const lastRoute = [...store.messages].reverse().find((x) => x.chainId === m.chainId && x.systemKind === 'route')
   return lastRoute?.seq === m.seq
 }

@@ -1,5 +1,5 @@
 /**
- * 项目群聊（契约 §6.21 ~ §6.21.16，v0.55 → v0.55.5）。
+ * 项目群聊（契约 §6.21 ~ §6.21.18，v0.55 → v0.55.9）。
  * 有 Wails 绑定（CatService.ListCatGroups）走真后端，否则走 catGroupChatMock（浏览器预览 / 走查）。
  * 文案全部经 vue-i18n（cat.groupChat.*）。
  */
@@ -95,7 +95,7 @@ export interface CatRouteInfo {
   routeSeq?: number
   /** v0.55.6 6.21.17 ④-5：成员正在干活，这条进了他的队列 */
   queued?: boolean
-  /** v0.55.6 6.21.17 ③：只有 ai / fallback 有 */
+  /** v0.55.6 / v0.55.9：ai / fallback / undecided 可有 */
   durationMs?: number
 }
 export interface CatGroupMessage {
@@ -219,7 +219,7 @@ export function formatElapsed(ms: number): string {
 }
 
 /**
- * 灰字一行（契约 6.21.6 / 6.21.16 原文，经 i18n）。
+ * 灰字一行（契约 6.21.6 / 6.21.16 / 6.21.18 原文，经 i18n）。
  * 「已转交给 {成员}（第 n/6 次）」：route + hop>0 且 mode 为 handoff/mention、无理由；
  * 「交给 {新}：你指定的」：换人后的 route，mode=reassign|named（后端 mode 取值未在契约写死，两种都认）。
  */
@@ -232,6 +232,7 @@ export function systemLineText(m: CatGroupMessage, nameOf: (id?: string) => stri
       if (r && m.hop > 0 && (r.mode === 'handoff' || r.mode === 'mention') && !r.reason) return k('handedOff', { name: to, n: m.hop })
       if (r?.mode === 'named' || r?.mode === 'reassign') return k('routeTo', { name: to, reason: k('routeNamed') })
       if (r?.mode === 'followup') return k('routeTo', { name: to, reason: k('routeFollowup') })
+      if (r?.mode === 'undecided') return k('routeUndecided')
       if (r?.mode === 'fallback') return k('routeTo', { name: to, reason: k('routeFallback') })
       if (r?.mode === 'off') return k('routeTo', { name: to, reason: k('routeOff') })
       if (r?.reason) return k('routeTo', { name: to, reason: r.reason })
