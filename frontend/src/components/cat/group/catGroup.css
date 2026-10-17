@@ -323,3 +323,22 @@
 .cg-mem .cg-ch .hd .av, .cg-mem .cg-ch .hd b { display: none; }
 .cg-ch .hd { white-space: nowrap; }
 .cg-st { max-width: 76px; overflow: hidden; }
+
+/* ---- 设计 v0.2.1：新建群聊 / 设置 ---- */
+.cg-modal.wide { width: min(680px, 94vw); }
+.cg-fld1 { display: flex; flex-direction: column; gap: 6px; margin: 14px 0 16px; font-size: 12px; color: var(--cat-text-2); }
+.cg-fld1 .cg-in { height: 34px; }
+.cg-mrow { grid-template-columns: 16px 22px 104px 1fr 1fr 1fr 28px; }
+.cg-mrow.head { font-size: 11px; color: var(--cat-muted); margin-bottom: 4px; }
+.cg-mrow .grip { color: var(--cat-muted); display: inline-flex; cursor: grab; }
+.cg-alias { display: flex; align-items: center; height: 32px; border: 1px solid var(--cat-border); border-radius: var(--cat-radius-sm); padding: 0 8px; background: var(--cat-surface); }
+.cg-alias i { font-style: normal; color: var(--cat-muted); margin-right: 2px; }
+.cg-alias input { flex: 1; min-width: 0; border: 0; outline: none; background: none; color: var(--cat-text); font: inherit; font-size: 13px; }
+.cg-alias.bad { border-color: var(--cat-danger); }
+.cg-mrow-err { margin: -2px 0 6px 0; padding-left: calc(16px + 22px + 104px + 18px); display: flex; align-items: center; gap: 4px; }
+.cg-info { margin-top: 12px; display: flex; gap: 6px; align-items: flex-start; font-size: 12px; color: var(--cat-muted); line-height: 1.6; }
+.cg-info svg { margin-top: 3px; flex: none; }
+.cg-order { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.cg-order .it { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--cat-border); border-radius: 8px; font-size: 13px; background: var(--cat-surface); }
+.cg-order .it .grip { color: var(--cat-muted); cursor: grab; display: inline-flex; }
+.cg-order .it .tt { color: var(--cat-muted); font-size: 12px; }
