@@ -1,7 +1,7 @@
 <template>
   <div class="cg-ch" data-testid="cat-group-charter" :data-status="c.status">
     <div class="hd">
-      <FIcon name="doc" :size="12" />{{ t('cat.groupChat.charter') }}<span class="sp" />
+      <span class="av sm" :style="{ '--c': memberColorVar(member.order) }">{{ Array.from(member.name)[0] }}</span><b>{{ member.name }}</b>{{ t('cat.groupChat.charterHead') }}<span class="sp" />
       <template v-if="c.status === 'ok' && !editing">
         <button type="button" class="cg-btn ghost" data-testid="cat-group-charter-edit" @click="startEdit()"><FIcon name="edit" :size="12" />{{ t('cat.groupChat.edit') }}</button>
         <button type="button" class="cg-btn ghost" data-testid="cat-group-charter-regen" @click="regen()"><FIcon name="refresh" :size="12" />{{ t('cat.groupChat.regenerate') }}</button>
@@ -51,7 +51,7 @@
           <input ref="dirEl" v-model="dirDraft" :placeholder="form.dirs.length ? '' : t('cat.groupChat.dirsPh')" :aria-label="t('cat.groupChat.dirs')" @keydown.enter.prevent="addDir()" @keydown.backspace="onDirBack" @blur="addDir()">
         </div>
         <div v-else-if="c.dirs.length" class="cg-dirlist"><span v-for="d in c.dirs" :key="d" class="cg-dir">{{ d }}</span></div>
-        <div v-if="editing ? !form.dirs.length : !c.dirs.length" class="cg-hint">{{ t('cat.groupChat.dirsEmpty') }}</div>
+        <div v-if="editing ? !form.dirs.length : !c.dirs.length" class="cg-hint">{{ t('cat.groupChat.charterNoDirs') }}</div>
       </div>
       <div v-if="editing" class="acts">
         <button type="button" class="cg-btn" @click="editing = false">{{ t('cat.groupChat.cancel') }}</button>
@@ -62,6 +62,7 @@
 </template>
 
 <script setup lang="ts">
+import { memberColorVar } from '@/api/catGroupChat'
 import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'

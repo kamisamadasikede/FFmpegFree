@@ -22,6 +22,8 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
   const routing = reactive<Record<string, boolean>>({})
   const drawerMemberId = ref('')
   const processText = reactive<Record<string, string>>({})
+  /** 本次会话里已撤销越界改动的汇报 seq（成员栏「越界待处理」用） */
+  const revertedSeqs = reactive<number[]>([])
   const settingsOpen = ref(false)
   const membersOpen = ref(false)
   const scene = groupScene()
@@ -190,7 +192,7 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
 
   return {
     groupsByProject, activeId, group, members, membersSorted, messages, hasMore, loading, live, routing, routingNow,
-    drawerMemberId, processText, settingsOpen, membersOpen, scene, sceneUi, workingMembers,
+    drawerMemberId, processText, revertedSeqs, settingsOpen, membersOpen, scene, sceneUi, workingMembers,
     memberById, nameOf, elapsedOf, loadGroups, open, loadOlder, createGroup, rename, setAutoRoute, deleteGroup,
     addMember, updateMember, removeMember, reorder, regenerate, saveCharter, send, reassign, stop, stopAll, retryTurn, revert, routeDetail,
   }

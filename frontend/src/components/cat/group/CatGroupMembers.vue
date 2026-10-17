@@ -1,11 +1,16 @@
 <template>
   <aside class="cg-mem" :aria-label="t('cat.groupChat.members')" data-testid="cat-group-members">
     <div class="cg-mem-hd">
-      {{ t('cat.groupChat.membersCount', { n: store.members.length }) }}<span class="sp" />
+      <div class="cg-tabs" role="tablist">
+        <button type="button" role="tab" :aria-selected="tab === 'm'" :class="{ on: tab === 'm' }" @click="tab = 'm'">{{ t('cat.groupChat.members') }} · {{ store.members.length }}</button>
+        <button type="button" role="tab" :aria-selected="tab === 'f'" :class="{ on: tab === 'f' }" @click="tab = 'f'">{{ t('cat.groupChat.tabFiles') }}</button>
+      </div>
+      <span class="sp" />
       <button type="button" class="cg-ib" :title="t('cat.groupChat.addMember')" :aria-label="t('cat.groupChat.addMember')" @click="emit('add')"><FIcon name="plus" :size="15" /></button>
       <button v-if="closable" type="button" class="cg-ib" :aria-label="t('cat.groupChat.close')" @click="emit('close')"><FIcon name="x" :size="14" /></button>
     </div>
-    <div class="cg-mem-list" role="list">
+    <div v-if="tab === 'f'" class="cg-mem-list"><div class="cg-hint" style="padding: 12px">{{ t('cat.groupChat.filesTabEmpty') }}</div></div>
+    <div v-else class="cg-mem-list" role="list">
       <div
         v-for="(m, i) in store.membersSorted"
         :key="m.id"
@@ -18,17 +23,23 @@
       >
         <div class="cg-mc-row" role="button" tabindex="0" :aria-expanded="open.has(m.id)" @click="toggle(m.id)" @keydown.enter.self="toggle(m.id)">
           <span class="grip" draggable="true" :title="t('cat.groupChat.dragTip')" @dragstart="dragId = m.id" @dragend="dragId = overId = ''" @click.stop><FIcon name="grip" :size="14" /></span>
-          <span class="av" :style="{ '--c': memberColorVar(m.order) }">{{ initial(m.name) }}</span>
+          <span class="av md" :style="{ '--c': memberColorVar(m.order) }">{{ initial(m.name) }}<i v-if="stateOf(m.id) === 'over'" class="odot" /></span>
           <span class="nm">
             <span class="a">
               {{ m.name }}
-              <span v-if="i === 0" class="cg-badge acc" :title="t('cat.groupChat.firstTip')">{{ t('cat.groupChat.first') }}</span>
+              <span v-if="i === 0" class="cg-badge acc" :title="t('cat.groupChat.firstTip')">{{ t('cat.groupChat.firstBadge') }}</span>
               <span v-if="m.charter.status === 'generating'" class="cg-spin" style="width: 10px; height: 10px; border-width: 1.5px" :title="t('cat.groupChat.generating')" />
               <span v-else-if="m.charter.status === 'failed'" :title="t('cat.groupChat.charterFailed')" style="display: inline-flex; color: var(--cat-warn-text)"><FIcon name="warn" :size="11" /></span>
             </span>
-            <span class="b"><CatAgentMark :kind="normalizeProviderKind(m.agentKind)" :size="11" />{{ m.title }} · {{ m.modelId }}</span>
+            <span class="b">{{ m.title }} · <CatAgentMark :kind="normalizeProviderKind(m.agentKind)" :size="11" />{{ cliName(m.agentKind) }}</span>
           </span>
-          <span class="cg-state" :class="{ busy: !!store.live[m.id] }" :title="store.live[m.id] ? t('cat.groupChat.busy') : t('cat.groupChat.idle')" />
+          <span class="cg-st" :class="stateOf(m.id)">
+            <template v-if="stateOf(m.id) === 'busy'">● {{ t('cat.groupChat.busy') }}<button type="button" class="cg-ib sm" :aria-label="t('cat.groupChat.stop')" @click.stop="store.stop(m.id)"><FIcon name="stop" :size="10" /></button></template>
+            <template v-else-if="stateOf(m.id) === 'over'">{{ t('cat.groupChat.overPending') }}</template>
+            <template v-else-if="stateOf(m.id) === 'stopped'">{{ t('cat.groupChat.stoppedState') }}</template>
+            <template v-else-if="stateOf(m.id) === 'failed'">{{ t('cat.groupChat.runFailed') }}</template>
+            <template v-else>{{ t('cat.groupChat.idle') }}</template>
+          </span>
         </div>
         <template v-if="open.has(m.id)">
           <CatGroupCharter :member="m" :start-editing="editIds.has(m.id)" />
@@ -42,6 +53,7 @@
       </div>
       <button type="button" class="cg-add" data-testid="cat-group-add-member" @click="emit('add')"><FIcon name="plus" :size="13" />{{ t('cat.groupChat.addMember') }}</button>
     </div>
+    <div v-if="tab === 'm'" class="cg-mem-ft">{{ t('cat.groupChat.membersFoot') }}</div>
   </aside>
 </template>
 
@@ -76,7 +88,23 @@ watch(
   },
   { immediate: true },
 )
-const toggle = (id: string) => (open.has(id) ? open.delete(id) : open.add(id))
+const toggle = (id: string) => {
+  const was = open.has(id)
+  open.clear()
+  if (!was) open.add(id)
+}
+const tab = ref<'m' | 'f'>('m')
+const CLI: Record<string, string> = { claude_cli: 'Claude', codex_cli: 'Codex', cat_build: 'Grok Build', gemini_cli: 'Gemini' }
+const cliName = (k: string) => CLI[k] ?? k
+function stateOf(id: string) {
+  if (store.live[id]) return 'busy'
+  const last = [...store.messages].reverse().find((x) => x.memberId === id)
+  if (!last) return 'idle'
+  if (last.systemKind === 'failed') return 'failed'
+  if (last.systemKind === 'stopped') return 'stopped'
+  if (last.report?.files.some((f) => f.tag === 'overreach') && !store.revertedSeqs?.includes(last.seq)) return 'over'
+  return 'idle'
+}
 
 const dragId = ref('')
 const overId = ref('')

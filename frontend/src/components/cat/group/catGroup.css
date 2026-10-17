@@ -294,3 +294,32 @@
 .cg-tool pre { margin: 6px 0 0; font: 11px/1.5 ui-monospace, monospace; white-space: pre-wrap; color: var(--cat-muted); }
 .cg-proc-ft { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--cat-divider); font-size: 12px; color: var(--cat-text-2); }
 .cg-proc-ft .sp { flex: 1; }
+
+/* ---- 设计 v0.2.1：右栏 / 职责卡 ---- */
+.cg-tabs { display: flex; gap: 4px; height: 100%; }
+.cg-tabs button { border: 0; background: none; font: inherit; font-size: 13px; color: var(--cat-muted); padding: 0 8px; cursor: pointer; border-bottom: 2px solid transparent; }
+.cg-tabs button.on { color: var(--cat-text); font-weight: 600; border-bottom-color: var(--cat-accent); }
+.cg-mem-hd { padding-left: 8px; }
+.cg-mem-ft { flex: none; padding: 10px 14px; border-top: 1px solid var(--cat-divider); font-size: 11px; line-height: 1.6; color: var(--cat-muted); }
+.av.md { width: 32px; height: 32px; font-size: 13px; position: relative; }
+.av .odot { position: absolute; right: -1px; top: -1px; width: 9px; height: 9px; border-radius: 50%; background: var(--cat-orange); box-shadow: 0 0 0 2px var(--cat-surface); }
+.cg-st { flex: none; font-size: 11px; color: var(--cat-muted); display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
+.cg-st.busy { color: var(--cat-success-text); }
+.cg-st.over { color: var(--cat-orange); }
+.cg-st.failed { color: var(--cat-danger-text); }
+.cg-ib.sm { height: 20px; min-width: 20px; padding: 0; }
+.cg-mc.open .cg-mc-row { background: var(--cat-active); border-radius: var(--cat-radius-md) var(--cat-radius-md) 0 0; }
+.cg-ch .hd { color: var(--cat-text); font-weight: 500; }
+.cg-ch .hd b { font-weight: 600; }
+.cg-fld { display: grid; grid-template-columns: 64px 1fr; gap: 4px 10px; align-items: start; }
+.cg-fld > label, .cg-fld > .lb { padding-top: 4px; flex-wrap: wrap; }
+.cg-fld > .cg-hint { grid-column: 2; }
+.cg-ro { background: none; padding: 3px 0; color: var(--cat-text); }
+.cg-dir { border-radius: 4px; background: transparent; border: 1px solid var(--cat-orange-line); color: var(--cat-orange); }
+.cg-badge.ed { color: var(--cat-accent); background: var(--cat-accent-soft); }
+.cg-modal.rolegen { width: min(640px, 92vw); }
+.cg-rg-list { max-height: 60vh; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+.cg-rg-list .cg-ch { border: 1px solid var(--cat-border); border-radius: 10px; }
+.cg-mem .cg-ch .hd .av, .cg-mem .cg-ch .hd b { display: none; }
+.cg-ch .hd { white-space: nowrap; }
+.cg-st { max-width: 76px; overflow: hidden; }

@@ -237,6 +237,17 @@
       </div>
     </div>
 
+    <div v-if="rolegenOpen" class="cg-modal-bg" @click.self="rolegenOpen = false">
+      <div class="cg-modal wide rolegen" role="dialog" aria-modal="true" data-testid="cat-group-rolegen">
+        <h3>{{ t('cat.groupChat.charterHead') }}</h3>
+        <div class="cg-rg-list"><CatGroupCharter v-for="m in store.membersSorted" :key="m.id" :member="m" /></div>
+        <div class="ft">
+          <span class="cg-hint" style="margin-right: auto">{{ t('cat.groupChat.rolegenDone', { done: charterReady, n: store.members.length }) }}</span>
+          <button type="button" class="cg-btn pri" @click="rolegenOpen = false">{{ t('cat.groupChat.ok') }}</button>
+        </div>
+      </div>
+    </div>
+
     <CatGroupSettings v-if="store.settingsOpen" @close="store.settingsOpen = false" @deleted="onDeleted" />
   </section>
 </template>
@@ -255,6 +266,7 @@ import { catPane } from '@/components/cat/catPreviewWidth'
 import CatGroupMembers from './CatGroupMembers.vue'
 import CatGroupCreateDialog from './CatGroupCreateDialog.vue'
 import CatGroupSettings from './CatGroupSettings.vue'
+import CatGroupCharter from './CatGroupCharter.vue'
 import './catGroup.css'
 
 const { t } = useI18n()
@@ -367,6 +379,7 @@ async function doRevert() {
   try {
     const r = await store.revert(m.memberId || '', m.turnId || '', overreach(m).map((f) => f.path))
     reverted[m.seq] = true
+    store.revertedSeqs.push(m.seq)
     revDone[m.seq] = r.reverted
     revertSkips[m.seq] = r.skipped.map((s) => s.path)
     if (r.reverted.length) ElMessage.success(t('cat.groupChat.revertDone', { n: r.reverted.length }))
@@ -457,6 +470,8 @@ watch(() => store.messages.length, scrollEnd)
 
 // 走查场景（?cat_group_scene=…）：直接摆好对应面板 / 弹窗
 const addOpen = ref(false)
+const rolegenOpen = ref(false)
+const charterReady = computed(() => store.members.filter((m) => m.charter.status === 'ok').length)
 const initialOpen = ref('')
 function applyScene() {
   const s = store.scene
@@ -469,6 +484,7 @@ function applyScene() {
     if (m) {
       const files = overreach(m).map((f) => f.path)
       reverted[m.seq] = true
+      store.revertedSeqs.push(m.seq)
       revDone[m.seq] = files.slice(0, -1)
       revertSkips[m.seq] = files.slice(-1)
       expanded[m.seq] = true
@@ -479,6 +495,8 @@ function applyScene() {
   if (ui?.openRoute) { const m = store.messages.find((x) => x.route?.mode === 'ai'); if (m) void toggleRoute(m) }
   if (ui?.swapOpen) { const m = [...store.messages].reverse().find((x) => x.systemKind === 'route'); if (m) reassignFor.value = m.seq }
   if (s === 'members' || s === 'narrow-drawer') store.membersOpen = true
+  if (s === 'members') initialOpen.value = 'b'
+  if (s === 'rolegen') rolegenOpen.value = true
   if (s === 'session') { store.processText.f = SESSION_DEMO; store.drawerMemberId = 'f' }
   if (s === 'mention') { draft.value = AT; mentionOpen.value = true; mentionQuery.value = '' }
   if (s === 'narrow-single') {
