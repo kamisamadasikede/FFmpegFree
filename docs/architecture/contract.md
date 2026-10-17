@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.55.3）
+# FFmpegFree v2 接口契约（v0.55.4）
+
+v0.55.4 变更（**汇报段标题锁回 6.21.13 + 设计待对齐拍板**，产品 / UI 10-17；见 **6.21.15**）：① 废弃 6.21.14 ① 的「结论 / 做了什么 / 下一步」，段标题与字段名锁死为 完成了什么(`did`) / 需要注意(`attn`) / 交给谁(`give`)，「改了哪些文件」仍由 Cat 填。② 一条回复 @ 两人 hop+1（不算 2）。③ 派活判断 / 职责生成用哪家 CLI 写死。④ 补失败灰字旁「重试」。API 补全（6.21.14 ②～⑥）保留，仅字段名对齐。
 
 v0.55.3 变更（**群聊 API 补全 + 汇报字段统一**，前端 `fe/cat-groupchat-v055` 对照提出，产品 10-17 再定；见 **6.21.14**；无迁移）：① 汇报字段以产品最新为准：结论 / 做了什么（含结果）/ 改动文件（Cat 生成）/ 下一步；覆盖 6.21.13 的「完成了什么 / 需要注意 / 交给谁」。② 失败 / 停止文案、干活状态条、「查看过程」入口定稿。③ 补 `ListCatGroupMembers`、绑定参数与返回值、`CatGroupMessage` / 事件载荷缺字段、失败不发汇报卡、`toolCount` 统计口径。
 
@@ -6221,25 +6223,17 @@ type CatGroupMessage struct {
 
 ### 6.21.14 群聊 API 补全与汇报字段统一（v0.55.3）
 
-#### ① 文案与字段以产品 10-17 最新为准（覆盖 6.21.12 ④⑤ / 6.21.13）
-| 位置 | 定稿 |
-|---|---|
-| 汇报四段 | **结论** / **做了什么**（「结果」如测试是否通过并进此段，不单列）/ **改动文件**（由 Cat 用 `TurnChanges` 生成，模型不写）/ **下一步**（@ 下一位 + 要他做什么；没有就不显示） |
-| 群规小标题 | `## 结论` / `## 做了什么` / `## 下一步`（无「改动文件」小标题） |
-| 没按格式 | `parsed=false`，整段最后回复当「结论」显示 |
-| 干活中 | 输入框上方状态条：「{成员} 正在干活 · 已用 {时长}」；可带「· {n} 次工具」；入口统一「查看过程」 |
-| 失败 | 不发汇报卡；system 灰字「{成员} 没完成：{原因}」（原因按现有错误文案）+「查看过程」；不接力 |
-| 停止 | 不发汇报卡；system 灰字「{成员} 已停止」；不接力 |
+#### ① ~~文案（已被 6.21.15 覆盖）~~
 
 #### ② `CatGroupReport` / `CatGroupMessage`（补字段）
 ```go
 type CatGroupReport struct {
-  Conclusion string              `json:"conclusion"`          // 结论（parsed=false 时 = 整段原文）
-  Did        string              `json:"did,omitempty"`       // 做了什么
-  Next       string              `json:"next,omitempty"`      // 下一步（含 @ 原文）
-  Files      []CatGroupFileTag   `json:"files"`               // Cat 生成，可空
-  Parsed     bool                `json:"parsed"`              // 是否按小标题解析成功
-  Footer     CatMessageFooter    `json:"footer,omitempty"`    // 复用普通对话消息尾（totalMs / outputTokens / tokensPerSec / firstTokenMs…）
+  Did     string            `json:"did"`                 // 完成了什么（必有；parsed=false 时 = 整段原文）
+  Attn    string            `json:"attn,omitempty"`      // 需要注意；空则前端不显示整段
+  Give    string            `json:"give,omitempty"`      // 交给谁（含 @ 原文）；空则不显示
+  Files   []CatGroupFileTag `json:"files"`               // Cat 生成，可空
+  Parsed  bool              `json:"parsed"`
+  Footer  CatMessageFooter  `json:"footer,omitempty"`
 }
 type CatGroupFileTag struct {
   Path   string `json:"path"`             // 相对项目根
@@ -6310,6 +6304,45 @@ type CatGroupRouteEvent struct {
 
 #### ⑥ 失败 / 停止还发不发汇报卡
 **不发。** 只发 `kind=system`（`systemKind=failed|stopped`）。若模型在失败前已吐出半段汇报正文，丢弃不进群（仍留在成员自己的会话里可供「查看过程」）。
+
+
+### 6.21.15 汇报段标题锁死 + 设计待对齐拍板（v0.55.4）
+
+覆盖 6.21.14 ①；6.21.14 ②～⑥ 的 API / 事件 / toolCount / 失败不发汇报卡 **保留**，字段名按下表。
+
+#### ① 汇报段标题（产品 / UI 定死，与设计说明 v0.2 §5、契约 6.21.13 一致）
+| 段 | JSON | 来源 | 规则 |
+|---|---|---|---|
+| 完成了什么 | `did` | 成员 | 必有；一两句。群规小标题 `## 完成了什么` |
+| 改了哪些文件 | `files[]` | **Cat** | 本轮 `TurnChanges` + 越界 / 来源不明标签；模型不写 |
+| 需要注意 | `attn` | 成员 | 没有整段不显示；群规 `## 需要注意` |
+| 交给谁 | `give` | 成员 | 没有整段不显示；`## 交给谁`；@ 下一位 + 要做什么 |
+
+没按格式（缺 `## 完成了什么`）→ `parsed=false`，整段最后回复当 `did`；前端灰字「没按汇报格式写，只显示最后一段回复」。@ 解析对全文生效。
+
+干活中（输入框上方，每人一行可叠）：`{成员} 正在干活 · 已用 {时长}`；有工具时续 ` · {n} 个工具`；按钮「查看过程」「停止」；多人时下方「N 人在干活」+「全部停止」。
+
+失败：`{成员} 没完成：{原因}` +「重试」（`RetryCatGroupMemberTurn({groupId,memberId,chainId})`，把该成员本链同一任务再跑一轮，**hop 不加**）+「查看过程」。停止：`{成员} 已停止`（换人触发的可括注「换人时停下的」）。都不发汇报、不接力。
+
+#### ② 设计说明 §10 待对齐 — 拍板
+1. **派活判断用哪家 CLI**：排第一的成员那家 CLI + 该成员当前模型；超时 20s；无工具。**职责规范生成**：用**该新成员自己**那家 CLI + 其模型；超时 60s；JSON Schema。都不建 / 不写入成员 `SessionID`（「不留会话」参数实现前先核 `--help`，核不到就建临时会话但不落 SessionID）。
+2. **一条回复 @ 两人**：`hop + 1`（不算 2）。线框按 1，契约锁 1。两人并行开工，各自后续再 @ 才各自 +1。
+3. **汇报 JSON Schema 最终稿**（成员最终回复约束；拼参单测必盖）：
+```json
+{
+  "type": "object",
+  "required": ["did"],
+  "additionalProperties": false,
+  "properties": {
+    "did":  { "type": "string", "minLength": 1, "maxLength": 500 },
+    "attn": { "type": "string", "maxLength": 500 },
+    "give": { "type": "string", "maxLength": 500 }
+  }
+}
+```
+优先走三家 `--json-schema` / `--output-schema` 结构化输出；某家核不过时降级为群规小标题 + 后端正则解析（`parsed` 反映结果）。**文件列表永不进 schema。**
+4. **并行改同一文件的橙色提醒**：第一期不做。
+5. **老板未推送的群聊代码**：仍未进远端；推上来后架构师出差异清单，**以本节契约为准**，可复用的实现再收。
 
 ## 7. 本地流服务（已取消）
 
