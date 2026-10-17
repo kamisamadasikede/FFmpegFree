@@ -1,4 +1,4 @@
-/* Cat 项目群聊 高保真原型 v0.2.3（对齐契约 6.21.12–6.21.16；判断失败按产品 10-17 定 A）
+/* Cat 项目群聊 高保真原型 v0.2.4（对齐契约 6.21.12–6.21.16；判断失败按产品 10-17 定 A；并行/@自主/短复按产品 10-17 v0.56）
    用法：index.html?s=<场景>&theme=dark[&shot=1]
    场景：list create rolegen main members mention working report error dispatch swap overstep overstep-undo overstep-result session settings narrow-drawer narrow-single */
 const Q = new URLSearchParams(location.search);
@@ -200,7 +200,7 @@ function createModal() {
     <div class="addrow">${ic('plus', 's')}添加成员</div>
   </div>
   <div class="info-line">${ic('info', 'xs')}<span>所有成员共用项目文件夹 <span style="font-family:var(--ff-font-mono)">~/code/FFmpegFree</span>，不设默认协调者。创建后 Cat 会用每位成员自己的 CLI 生成职责规范，期间成员照样可以干活。</span></div>`;
-  return modal('新建群聊', '在「FFmpegFree」下建一个群，成员各用一家 CLI，Cat 负责转交消息。', body, `<span class="lft">4 位成员</span><button class="btn">取消</button><button class="btn pri dis">创建</button>`);
+  return modal('新建群聊', '在「FFmpegFree」下建一个群，成员各用一家 CLI，Cat 负责派活与汇总汇报。', body, `<span class="lft">4 位成员</span><button class="btn">取消</button><button class="btn pri dis">创建</button>`);
 }
 function rolegenModal() {
   const body = charter('a') + charter('b') + charter('f', { state: 'gen' }) + charter('q', { state: 'fail' });
@@ -221,10 +221,10 @@ const mainStream = (o = {}) => `<div class="daysep">今天</div>
   ${task(T1, '17:08')}
   ${gl('交给 架构师：先出方案再拆给前后端', { lk: 1, acts: [swapBtn()] })}
   ${R_ARCH(o.arch)}
-  ${gl('已转交给 后端工程师（第 1/6 次）', { icon: 'route' })}
-  ${gl('已转交给 前端工程师（第 1/6 次）', { icon: 'route' })}
+  ${gl('已请 后端工程师 接着', { icon: 'route' })}
+  ${gl('已请 前端工程师 接着', { icon: 'route' })}
   ${R_BE(o.be)}
-  ${gl('已转交给 测试（第 2/6 次）', { icon: 'route' })}
+  ${gl('已请 测试 接着', { icon: 'route' })}
   ${o.tail || ''}`;
 const WORK = [['f', '2 分 13 秒', 14], ['q', '38 秒', 0]];
 
@@ -242,7 +242,7 @@ const SC = {};
 SC.list = () => ({
   rail: { group: 'rel', plusHl: 1, relDot: '' },
   center: centerWrap(chead({ title: '发版检查', count: 2 }), `<div class="empty"><div class="ill">${ic('users')}</div><h3>群里还没有消息</h3><div>这里只显示成员的工作汇报，干活过程留在各自的会话里。</div>
-    <ul class="steps"><li><span class="n">1</span>@ 成员，直接交给他（@ 多人会同时开工）</li><li><span class="n">2</span>不 @ 人时，Cat 自动安排谁来接</li><li><span class="n">3</span>成员干完发一张汇报卡，需要的话 @ 下一位接着做</li></ul></div>`, composer()),
+    <ul class="steps"><li><span class="n">1</span>@ 成员，直接交给他（@ 多人会同时开工）</li><li><span class="n">2</span>不 @ 人时，Cat 自动安排谁来接</li><li><span class="n">3</span>正式交付发汇报卡；招呼用短回复。需要接着做时自己 @ 下一位</li></ul></div>`, composer()),
   right: right({ order: ['a', 'q'], st: { a: 'idle', q: 'idle' } }),
 });
 SC.create = () => ({ ...SC.main(), overlay: createModal() });
@@ -269,11 +269,11 @@ SC.report = () => ({
   focus: '.rep', focusIdx: 1,
   center: centerWrap(chead(), `<div class="daysep">今天</div>
     ${R_ARCH()}
-    ${gl('已转交给 后端工程师（第 1/6 次）')}${gl('已转交给 前端工程师（第 1/6 次）')}
+    ${gl('已请 后端工程师 接着')}${gl('已请 前端工程师 接着')}
     ${R_BE({ open: true })}
-    ${gl('已转交给 测试（第 2/6 次）')}
+    ${gl('已请 测试 接着')}
     ${report({ m: 'q', tm: '17:31', parsed: false, did: '三家都跑了一遍重试：Claude 和 Codex 失败后点重试都能接着跑，hop 没变；Grok Build 登录过期那次重试仍然失败，报错文案正常。另外停止后重试也正常。用例记录我放在 tests/group/retry.md 了。', foot: ['17:31', '1.9k', '36'] })}
-    ${gl('测试 已完成，没有交给下一位', { icon: 'check' })}`, composer()),
+    ${gl('测试 已完成', { icon: 'check', cls: 'weak' })}`, composer()),
   right: right({ st: { a: 'idle', b: 'idle', f: 'idle', q: 'idle' } }),
 });
 SC.error = () => ({
@@ -281,13 +281,13 @@ SC.error = () => ({
   rail: { devDot: 'red' },
   center: centerWrap(chead(), `<div class="daysep">今天</div>
     ${R_BE()}
-    ${gl('已转交给 前端工程师（第 2/6 次）')}${gl('已转交给 测试（第 2/6 次）')}
+    ${gl('已请 前端工程师 接着')}${gl('已请 测试 接着')}
     ${gl('前端工程师 没完成：Grok Build 登录已过期，请到设置里重新登录', { icon: 'x', cls: 'fail', acts: ['<span class="pipe">|</span><button class="act">' + ic('refresh', 'xs') + '重试</button>', '<button class="act">查看过程</button>'] })}
     ${gl('测试 已停止', { icon: 'stop' })}
     ${task(`${at('a')} 把评审意见也加进契约，然后继续交下去`, '17:40')}
     ${R_ARCH({ tm: '17:43', did: '评审意见已补进契约 6.21.15。', files: [{ p: 'docs/architecture/contract.md', a: 6 }], give: [['b', '照新口径复核一遍']] })}
-    ${gl('已转交给 后端工程师（第 6/6 次）')}
-    ${gl('已连续转交 6 次，先停在这里。需要继续请 @ 对应成员。', { icon: 'info' })}`, composer()),
+    ${gl('已请 后端工程师 接着')}
+    ${gl('已连续请人 6 次，先停在这里。需要继续请 @ 对应成员。', { icon: 'info' })}`, composer()),
   right: right({ st: { a: 'idle', b: 'idle', f: 'fail', q: 'stop' } }),
 });
 SC.dispatch = () => ({
@@ -318,7 +318,7 @@ SC.dispatch = () => ({
 SC.swap = () => {
   const pop = `<div class="pop" style="left:250px;top:24px;width:260px"><div class="pop-t">换给谁接这条</div>
     ${ORDER.map(k => `<div class="pop-i ${k === 'f' ? 'on' : ''} ${k === 'b' ? 'dis' : ''}">${av(k)}<span>${M[k].n}</span><span class="ttl">${M[k].t}</span><span class="st ${k === 'b' ? 'run' : 'idle'}" style="margin-left:auto">${k === 'b' ? '当前' : '空闲'}</span></div>`).join('')}
-    <div class="info-line" style="padding:2px 8px 4px">原来的人会先停下，换人不计入转交次数。</div></div>`;
+    <div class="info-line" style="padding:2px 8px 4px">原来的人会先停下，换人不计入请人次数（hop）。</div></div>`;
   return {
     scroll: 'top',
     center: centerWrap(chead(), `<div class="daysep">今天</div>
@@ -335,7 +335,7 @@ SC.swap = () => {
 SC.overstep = () => ({
   focus: '.rep.over',
   rail: { devDot: 'org' },
-  center: centerWrap(chead(), `<div class="daysep">今天</div>${R_BE()}${gl('已转交给 前端工程师（第 2/6 次）')}${feReport({ tip: 1 })}${gl('已转交给 测试（第 3/6 次）')}`, composer({ working: [['q', '21 秒', 2]] })),
+  center: centerWrap(chead(), `<div class="daysep">今天</div>${R_BE()}${gl('已请 前端工程师 接着')}${feReport({ tip: 1 })}${gl('已请 测试 接着')}`, composer({ working: [['q', '21 秒', 2]] })),
   right: right({ st: { a: 'idle', b: 'idle', f: 'ov', q: 'run' } }),
 });
 SC['overstep-undo'] = () => ({
@@ -345,7 +345,7 @@ SC['overstep-undo'] = () => ({
 SC['overstep-result'] = () => ({
   focus: '.rep.over',
   rail: { devDot: 'org' },
-  center: centerWrap(chead(), `<div class="daysep">今天</div>${R_BE()}${gl('已转交给 前端工程师（第 2/6 次）')}${feReport({ result: 1 })}${gl('已转交给 测试（第 3/6 次）')}`, composer(), `<div class="toast">${ic('check', 's')}已撤销 1 个文件的改动</div>`),
+  center: centerWrap(chead(), `<div class="daysep">今天</div>${R_BE()}${gl('已请 前端工程师 接着')}${feReport({ result: 1 })}${gl('已请 测试 接着')}`, composer(), `<div class="toast">${ic('check', 's')}已撤销 1 个文件的改动</div>`),
   right: right({ st: { a: 'idle', b: 'idle', f: 'ov', q: 'idle' } }),
 });
 function sessionDrawer() {

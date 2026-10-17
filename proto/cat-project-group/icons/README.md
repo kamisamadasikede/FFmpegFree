@@ -6,7 +6,7 @@
 |---|---|---|---|---|
 | `group.svg` | `group` | 多人（users） | `chat` | 左栏群项（`--cat-orange`，14–16px）、群空状态插画（30px）、群顶栏标题前 |
 | `swap.svg` | `swap` | 人像 + 循环箭头 = 换人 | `convert` | 派活灰字行尾「换人」按钮（12–14px，`--cat-accent`）、「已换人：{原} → {新}」行首 |
-| `dispatch.svg` | `dispatch` | 转交 / 分叉箭头 = 派活 | `branch` | 派活灰字行首（「交给 {成员}：…」「已转交给 {成员}（第 n/6 次）」，12–14px，继承 `--ff-text-2`） |
+| `dispatch.svg` | `dispatch` | 转交 / 分叉箭头 = 派活 | `branch` | 派活灰字行首（「交给 {成员}：…」「已请 {成员} 接着」，12–14px，继承 `--ff-text-2`） |
 
 ## 规格
 - `viewBox="0 0 24 24"`，`fill="none"`，`stroke="currentColor"`，`stroke-width="1.75"`，`stroke-linecap="round"`，`stroke-linejoin="round"`。
