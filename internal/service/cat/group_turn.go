@@ -2,6 +2,8 @@ package cat
 
 import (
 	"context"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -117,7 +119,7 @@ func (s *Service) startGroupMemberTurn(ctx context.Context, g store.CatGroup, m 
 				toolSeen[idv] = true
 				toolCount++
 			}
-			for _, p := range extractWritePathsFromTool(text) {
+			for _, p := range extractWritePathsFromTool(text, projectRoot) {
 				claimed = append(claimed, p)
 			}
 			tc := toolCount
@@ -375,34 +377,62 @@ func (s *Service) StopCatGroupMember(ctx context.Context, memberID string) error
 	return nil
 }
 
-func extractWritePathsFromTool(label string) []string {
-	// Heuristic from tool labels: lines with path-like tokens after apply_patch / Write / Edit
-	var out []string
-	lower := strings.ToLower(label)
-	if !(strings.Contains(lower, "apply_patch") || strings.Contains(lower, "write") ||
-		strings.Contains(lower, "edit") || strings.Contains(lower, "create") ||
-		strings.Contains(label, "\n")) {
-		// still try path-looking tokens
+var (
+	// 只认写入类工具；读文件 / 搜索 / 跑命令看过的文件不算「自己改的」，否则别人改的文件也能被撤销。
+	reWriteTool = regexp.MustCompile(`(?i)(?:^|[^a-z])(?:write|writes|writing|edit|edits|editing|multiedit|notebookedit|create|apply_patch|patch|str_replace|search_replace|update|delete|move|rename)(?:[^a-z]|$)`)
+	// Claude / MCP 的参数是 JSON（标签被截到 200 字时 JSON 可能不完整，所以用正则取）。
+	reToolPathArg = regexp.MustCompile(`"(?:file_path|filePath|path|notebook_path)"\s*:\s*"((?:[^"\\]|\\.)+)"`)
+)
+
+// extractWritePathsFromTool 从工具标签里取出写过的文件，转成相对项目根的路径。
+// 标签格式见 catagent：grok「标题\n路径…」、codex「apply_patch\nadd 路径」、claude「Write {json}」。
+func extractWritePathsFromTool(label, root string) []string {
+	header, rest, _ := strings.Cut(label, "\n")
+	if !reWriteTool.MatchString(header) {
+		return nil
 	}
-	for _, line := range strings.Split(label, "\n") {
-		line = strings.TrimSpace(line)
-		line = strings.TrimPrefix(line, "add ")
-		line = strings.TrimPrefix(line, "Add ")
-		line = strings.TrimPrefix(line, "delete ")
-		line = strings.TrimPrefix(line, "update ")
-		line = strings.TrimPrefix(line, "modified ")
-		line = strings.TrimSpace(line)
-		if line == "" || strings.Contains(line, " ") && !strings.Contains(line, "/") {
-			continue
+	var out []string
+	add := func(p string) {
+		p = strings.Trim(strings.TrimSpace(p), `"'`)
+		if p == "" {
+			return
 		}
-		// take first path-like token
+		if root != "" && filepath.IsAbs(p) {
+			if rel, err := filepath.Rel(root, p); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				p = filepath.ToSlash(rel)
+			}
+		}
+		out = append(out, p)
+	}
+	if strings.Contains(header, "{") {
+		for _, m := range reToolPathArg.FindAllStringSubmatch(header, -1) {
+			if v, err := strconv.Unquote(`"` + m[1] + `"`); err == nil {
+				add(v)
+			} else {
+				add(m[1])
+			}
+		}
+		header = ""
+	}
+	lines := strings.Split(rest, "\n")
+	if header != "" {
+		lines = append([]string{header}, lines...)
+	}
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			break // 空行之后是改动对比，不是路径
+		}
+		for _, pre := range []string{"add ", "Add ", "delete ", "update ", "modified "} {
+			line = strings.TrimPrefix(line, pre)
+		}
 		fields := strings.Fields(line)
+		if i == 0 && header != "" && len(fields) > 0 {
+			fields = fields[1:] // 标题第一个词是工具名
+		}
 		for _, f := range fields {
 			if strings.Contains(f, "/") || strings.Contains(f, ".") {
-				f = strings.Trim(f, `"'`)
-				if f != "" {
-					out = append(out, f)
-				}
+				add(f)
 				break
 			}
 		}
