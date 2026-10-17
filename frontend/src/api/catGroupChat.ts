@@ -94,6 +94,9 @@ export interface CatGroupMemberEvent {
   groupId: string
   member: CatGroupMember
   running?: CatGroupRunning
+  /** v0.55.6 6.21.17：status=queued 时带排队长度（前面还有几个） */
+  status?: string
+  queueLength?: number
   removed?: boolean
 }
 export interface CatGroupRouteEvent {

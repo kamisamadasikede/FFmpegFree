@@ -10,6 +10,7 @@
         <div v-if="nameBad" class="cg-err">{{ t('cat.groupChat.groupNameBad') }}</div>
       </div>
 
+      <div class="cg-hint" style="margin-bottom: 6px">{{ t('cat.groupChat.members') }} · {{ t('cat.groupChat.createOrderHint') }}</div>
       <div class="cg-mrow head">
         <span /><span /><span>{{ t('cat.groupChat.memberCli') }}</span><span>{{ t('cat.groupChat.memberTitle') }}</span><span>{{ t('cat.groupChat.memberModel') }}（{{ t('cat.groupChat.optional') }}）</span><span>{{ t('cat.groupChat.colAlias') }}</span><span />
       </div>

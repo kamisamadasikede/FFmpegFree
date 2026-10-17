@@ -352,3 +352,13 @@
 /* ---- 设计走查 4da2d70 ---- */
 .cg-sys { color: var(--ff-text-2); }
 .cg-btn.dngf { border-color: var(--ff-danger); background: var(--ff-danger); color: #fff; }
+.cg-pulse { background: var(--cat-accent); animation: cg-breathe 1.6s ease-in-out infinite; }
+@keyframes cg-breathe { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--cat-accent) 45%, transparent); } 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--cat-accent) 0%, transparent); opacity: 0.7; } }
+.cg-wall { border-bottom: 0; border-top: 1px solid var(--cat-divider); }
+.cg-st.busy { color: var(--cat-accent); }
+.cg-files.rows li { padding: 2px 6px; border-radius: 4px; }
+.cg-files.rows li.ov { background: var(--cat-orange-soft); }
+.cg-files.rows .fi { flex: none; color: var(--cat-muted); }
+.cg-files.rows .p { flex: 1; min-width: 0; }
+.cg-files.rows .nums { margin-left: auto; display: inline-flex; gap: 6px; flex: none; }
+.cg-mc-row .nm .q { display: block; font-size: 11px; color: var(--cat-accent); }

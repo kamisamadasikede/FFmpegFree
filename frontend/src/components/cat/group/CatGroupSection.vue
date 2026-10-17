@@ -14,7 +14,7 @@
       data-testid="cat-group-item"
       @click="openGroup(g.id)"
     >
-      <span class="ic"><FIcon name="chat" :size="14" /></span><span class="t">{{ g.name }}</span>
+      <span class="ic"><FIcon name="group" :size="14" /></span><span class="t">{{ g.name }}</span>
       <template v-if="g.id === store.group?.id">
         <i v-if="store.workingMembers.length" class="cgs-dot" :title="t('cat.groupChat.busy')" />
         <span class="cg-stack sm" aria-hidden="true">

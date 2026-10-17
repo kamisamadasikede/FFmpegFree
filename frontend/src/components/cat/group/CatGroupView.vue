@@ -20,7 +20,7 @@
         <div class="cg-feed-in">
           <button v-if="store.hasMore" type="button" class="cg-btn ghost" style="align-self: center" @click="store.loadOlder()">{{ t('cat.groupChat.loadOlder') }}</button>
           <div v-if="!store.loading && !store.messages.length" class="cg-empty" data-testid="cat-group-empty">
-            <div class="ill" aria-hidden="true"><FIcon name="chat" :size="30" /></div>
+            <div class="ill" aria-hidden="true"><FIcon name="group" :size="30" /></div>
             <h3>{{ store.members.length ? t('cat.groupChat.emptyTitle') : t('cat.groupChat.noMembersYet') }}</h3>
             <p>{{ t('cat.groupChat.emptySub') }}</p>
             <ol>
@@ -60,12 +60,13 @@
                   <span class="ad">+{{ sum(m, 'added') }}</span><span class="dl">−{{ sum(m, 'deleted') }}</span>
                   <span v-if="overreach(m).length" class="cg-tag over">{{ t('cat.groupChat.overN', { n: overreach(m).length }) }}</span>
                 </button>
-                <ul v-if="expanded[m.seq]" class="cg-files">
-                  <li v-for="f in m.report.files" :key="f.path">
+                <ul v-if="expanded[m.seq]" class="cg-files rows">
+                  <li v-for="f in m.report.files" :key="f.path" :class="{ ov: f.tag === 'overreach' }">
+                    <FIcon name="file" :size="12" class="fi" />
                     <span class="p"><span class="dir">{{ dirOf(f.path) }}</span>{{ baseOf(f.path) }}</span>
-                    <span v-if="f.added" class="ad">+{{ f.added }}</span><span v-if="f.deleted" class="dl">−{{ f.deleted }}</span>
                     <span v-if="f.tag === 'overreach'" class="cg-tag over">{{ t('cat.groupChat.tagOverreach') }}</span>
                     <span v-else-if="f.tag === 'unknown'" class="cg-tag unk" :title="t('cat.groupChat.unknownTip')">{{ t('cat.groupChat.tagUnknown') }}</span>
+                    <span class="nums"><span v-if="f.added" class="ad">+{{ f.added }}</span><span v-if="f.deleted" class="dl">−{{ f.deleted }}</span></span>
                   </li>
                 </ul>
               </div>
@@ -94,7 +95,7 @@
               <div v-if="m.report.footer" class="cg-foot">
                 <span v-if="m.report.footer.finishedAt">{{ t('cat.groupChat.footerDone', { time: clock(m.report.footer.finishedAt) }) }}</span>
                 <span v-else-if="m.report.footer.totalMs">{{ t('cat.groupChat.footerTime', { time: formatElapsed(m.report.footer.totalMs) }) }}</span>
-                <span v-if="m.report.footer.outputTokens">· {{ t('cat.groupChat.footerOut', { n: m.report.footer.outputTokens }) }}</span>
+                <span v-if="m.report.footer.outputTokens">· {{ t('cat.groupChat.footerOut', { n: kfmt(m.report.footer.outputTokens) }) }}</span>
                 <span v-if="m.report.footer.tokensPerSec">· {{ t('cat.groupChat.footerRate', { n: m.report.footer.tokensPerSec }) }}</span>
                 <span>·</span>
                 <button type="button" class="lk" @click="openProcess(m.memberId)"><FIcon name="eye" :size="12" />{{ t('cat.groupChat.viewFull') }}</button>
@@ -122,7 +123,7 @@
                 <button v-if="m.route && (m.route.mode === 'ai' || m.route.mode === 'fallback')" type="button" class="lk" @click="toggleRoute(m)">{{ sysText(m) }}</button>
                 <span v-else>{{ sysText(m) }}</span>
                 <span v-if="canReassign(m)" style="position: relative">
-                  <button type="button" class="act" data-testid="cat-group-reassign" @click="reassignFor = reassignFor === m.seq ? 0 : m.seq"><FIcon name="convert" :size="12" />{{ t('cat.groupChat.reassign') }}</button>
+                  <button type="button" class="act" data-testid="cat-group-reassign" @click="reassignFor = reassignFor === m.seq ? 0 : m.seq"><FIcon name="swap" :size="12" />{{ t('cat.groupChat.reassign') }}</button>
                   <div v-if="reassignFor === m.seq" class="cg-pop down swap" role="menu" :aria-label="t('cat.groupChat.swapTitle')">
                     <div class="ph">{{ t('cat.groupChat.swapTitle') }}</div>
                     <button v-for="o in store.membersSorted" :key="o.id" type="button" class="it" role="menuitem" :disabled="o.id === (m.toMemberId || m.route?.memberId)" @click="doReassign(m, o.id)">
@@ -149,17 +150,17 @@
       </div>
 
       <div v-if="store.workingMembers.length" class="cg-work" data-testid="cat-group-working">
-        <div v-if="store.workingMembers.length > 1" class="cg-wall">
-          <span class="cg-pulse" aria-hidden="true" /><b>{{ t('cat.groupChat.nWorking', { n: store.workingMembers.length }) }}</b>
-          <span class="sp" />
-          <button type="button" class="lkb red" data-testid="cat-group-stop-all" @click="store.stopAll()">{{ t('cat.groupChat.stopAll') }}</button>
-        </div>
         <div v-for="m in store.workingMembers" :key="m.id" class="cg-wrow">
           <span v-if="store.workingMembers.length === 1" class="cg-pulse" aria-hidden="true" />
           <span class="av sm" :style="{ '--c': memberColorVar(m.order) }">{{ initial(m.name) }}</span>
           <span class="tx"><b>{{ m.name }}</b>{{ t('cat.groupChat.working', { name: '', time: formatElapsed(store.elapsedOf(m.id)) }) }}<template v-if="(store.live[m.id]?.toolCount ?? 0) > 0">{{ t('cat.groupChat.workingTools', { n: store.live[m.id].toolCount }) }}</template></span>
           <button type="button" class="lkb" @click="openProcess(m.id)">{{ t('cat.groupChat.viewProcess') }}</button>
           <button type="button" class="lkb" @click="store.stop(m.id)">{{ t('cat.groupChat.stop') }}</button>
+        </div>
+        <div v-if="store.workingMembers.length > 1" class="cg-wall">
+          <span class="cg-pulse" aria-hidden="true" /><b>{{ t('cat.groupChat.nWorking', { n: store.workingMembers.length }) }}</b>
+          <span class="sp" />
+          <button type="button" class="lkb red" data-testid="cat-group-stop-all" @click="store.stopAll()">{{ t('cat.groupChat.stopAll') }}</button>
         </div>
       </div>
 
@@ -227,9 +228,14 @@
       <div class="cg-modal" role="alertdialog" aria-modal="true" data-testid="cat-group-revert-confirm">
         <h3>{{ t('cat.groupChat.revertTitle', { name: store.nameOf(revertMsg.memberId) }) }}</h3>
         <div class="body">{{ t('cat.groupChat.revertBody', { n: overreach(revertMsg).length }) }}</div>
-        <ul class="cg-files" style="margin-top: 10px">
-          <li v-for="f in overreach(revertMsg)" :key="f.path"><span class="p">{{ f.path }}</span><span class="cg-tag over">{{ t('cat.groupChat.tagOverreach') }}</span></li>
+        <ul class="cg-files rows" style="margin-top: 10px">
+          <li v-for="f in overreach(revertMsg)" :key="f.path" class="ov">
+            <FIcon name="file" :size="12" class="fi" /><span class="p"><span class="dir">{{ dirOf(f.path) }}</span>{{ baseOf(f.path) }}</span>
+            <span class="cg-tag over">{{ t('cat.groupChat.tagOverreach') }}</span>
+            <span class="nums"><span v-if="f.added" class="ad">+{{ f.added }}</span><span v-if="f.deleted" class="dl">−{{ f.deleted }}</span></span>
+          </li>
         </ul>
+        <div class="cg-hint" style="margin-top: 8px; color: var(--ff-text-2)">{{ t('cat.groupChat.revertUnknownNote') }}</div>
         <div class="ft">
           <button type="button" class="cg-btn" @click="revertMsg = null">{{ t('cat.groupChat.cancel') }}</button>
           <button type="button" class="cg-btn dngf" :disabled="reverting" data-testid="cat-group-revert-ok" @click="doRevert()">{{ t('cat.groupChat.revertOk') }}</button>
@@ -354,11 +360,12 @@ const CLI: Record<string, string> = { claude_cli: 'Claude', codex_cli: 'Codex', 
 const cliName = (k?: string) => CLI[k ?? ''] ?? k ?? ''
 const dirOf = (p: string) => p.slice(0, p.lastIndexOf('/') + 1)
 const baseOf = (p: string) => p.slice(p.lastIndexOf('/') + 1)
+const kfmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k` : String(n))
 const sum = (m: CatGroupMessage, k: 'added' | 'deleted') => (m.report?.files ?? []).reduce((n, f) => n + (f[k] ?? 0), 0)
 function sysIcon(m: CatGroupMessage) {
-  if (m.systemKind === 'reassign') return 'convert'
+  if (m.systemKind === 'reassign') return 'swap'
   if (m.systemKind === 'hop_limit' || m.systemKind === 'no_handoff') return 'info'
-  return 'branch'
+  return 'dispatch'
 }
 const revDone = reactive<Record<number, string[]>>({})
 function revState(m: CatGroupMessage, path: string) {
@@ -499,10 +506,7 @@ function applyScene() {
   if (s === 'rolegen') rolegenOpen.value = true
   if (s === 'session') { store.processText.f = SESSION_DEMO; store.drawerMemberId = 'f' }
   if (s === 'mention') { draft.value = AT; mentionOpen.value = true; mentionQuery.value = '' }
-  if (s === 'narrow-single') {
-    catPane.side = 540 // 走查：窗口最小 1024，把左栏拉宽，让群聊区域落到单栏宽度
-    store.membersOpen = true
-  }
+  if (s === 'narrow-single') catPane.side = 264 // 1024 窗口：左栏 264 + 中栏 760，右栏收成抽屉（设计走查 建议 9）
 }
 function onDeleted() {
   store.settingsOpen = false

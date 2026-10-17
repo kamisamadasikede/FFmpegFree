@@ -24,6 +24,8 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
   const processText = reactive<Record<string, string>>({})
   /** 本次会话里已撤销越界改动的汇报 seq（成员栏「越界待处理」用） */
   const revertedSeqs = reactive<number[]>([])
+  /** 成员排队长度（契约 v0.55.6：cat:group-member.queueLength） */
+  const queued = reactive<Record<string, number>>({})
   const settingsOpen = ref(false)
   const membersOpen = ref(false)
   const scene = groupScene()
@@ -77,6 +79,8 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
       else upsertMember(normalizeMember(e.member))
       if (e.running) live[e.member.id] = { ...e.running, receivedAt: Date.now() }
       else delete live[e.member.id]
+      if (e.queueLength && e.queueLength > 0) queued[e.member.id] = e.queueLength
+      else delete queued[e.member.id]
     })
     // 「查看过程」：成员自己的会话流（convId=group:<g>:<m>），抽屉里只做文字预览
     onEvent<{ convId?: string; text?: string; delta?: string }>('cat:message', (p) => {
@@ -110,7 +114,10 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
       members.value = ms.map(normalizeMember)
       messages.value = page.messages.map(normalizeMessage)
       hasMore.value = page.hasMore
-      if (!groupRealApi()) for (const e of groupMock.sceneRunning()) if (e.running) live[e.member.id] = { ...e.running, receivedAt: Date.now() }
+      if (!groupRealApi()) for (const e of groupMock.sceneRunning()) {
+        if (e.running) live[e.member.id] = { ...e.running, receivedAt: Date.now() }
+        if (e.queueLength) queued[e.member.id] = e.queueLength
+      }
     } finally {
       loading.value = false
     }
@@ -192,7 +199,7 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
 
   return {
     groupsByProject, activeId, group, members, membersSorted, messages, hasMore, loading, live, routing, routingNow,
-    drawerMemberId, processText, revertedSeqs, settingsOpen, membersOpen, scene, sceneUi, workingMembers,
+    drawerMemberId, processText, revertedSeqs, queued, settingsOpen, membersOpen, scene, sceneUi, workingMembers,
     memberById, nameOf, elapsedOf, loadGroups, open, loadOlder, createGroup, rename, setAutoRoute, deleteGroup,
     addMember, updateMember, removeMember, reorder, regenerate, saveCharter, send, reassign, stop, stopAll, retryTurn, revert, routeDetail,
   }

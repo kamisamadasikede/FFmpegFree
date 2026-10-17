@@ -31,6 +31,7 @@
               <span v-if="m.charter.status === 'generating'" class="cg-spin" style="width: 10px; height: 10px; border-width: 1.5px" :title="t('cat.groupChat.generating')" />
               <span v-else-if="m.charter.status === 'failed'" :title="t('cat.groupChat.charterFailed')" style="display: inline-flex; color: var(--cat-warn-text)"><FIcon name="warn" :size="11" /></span>
             </span>
+            <span v-if="store.queued[m.id]" class="q">{{ t('cat.groupChat.queued', { n: store.queued[m.id] }) }}</span>
             <span class="b">{{ m.title }} · <CatAgentMark :kind="normalizeProviderKind(m.agentKind)" :size="11" />{{ cliName(m.agentKind) }}</span>
           </span>
           <span class="cg-st" :class="stateOf(m.id)">
