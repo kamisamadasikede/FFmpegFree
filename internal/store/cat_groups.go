@@ -1,13 +1,13 @@
 package store
 
 import (
-	"sync"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"FFmpegFree/internal/id"
@@ -21,6 +21,34 @@ type CatGroup struct {
 	AutoRoute bool   `json:"autoRoute"`
 	CreatedAt int64  `json:"createdAt"`
 	UpdatedAt int64  `json:"updatedAt"`
+	// Members 只读成员摘要（契约 6.21.17 ②）：按 order 升序，不含 charter / session；新建群为空数组。
+	Members []CatGroupMemberBrief `json:"members"`
+}
+
+// CatGroupMemberBrief 是侧栏头像用的成员摘要（契约 6.21.17 ②）。
+type CatGroupMemberBrief struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Title       string `json:"title"`
+	AgentKind   string `json:"agentKind"`
+	Order       int    `json:"order"`
+	AvatarIndex int    `json:"avatarIndex"` // (order % 5) + 1 → --cat-member-{avatarIndex}
+}
+
+// CatMemberAvatarIndex 与前端 catGroupChat.ts 同一公式：(order % 5) + 1。
+func CatMemberAvatarIndex(order int) int {
+	if order < 0 {
+		order = -order
+	}
+	return order%5 + 1
+}
+
+// CatGroupQueuedTask 是成员排队中的一条任务（契约 6.21.17 ④，不落库）。
+type CatGroupQueuedTask struct {
+	ChainID       string `json:"chainId"`
+	Hop           int    `json:"hop"`
+	FromSeq       int64  `json:"fromSeq"`
+	QueuePosition int    `json:"queuePosition"`
 }
 
 // CatCharter is a member's role spec.
@@ -49,6 +77,10 @@ type CatGroupMember struct {
 	Charter     CatCharter `json:"charter"`
 	CreatedAt   int64      `json:"createdAt,omitempty"`
 	UpdatedAt   int64      `json:"updatedAt,omitempty"`
+	// 运行时只读（契约 6.21.17 ④，不落库）：由 service 层按内存队列填。
+	Status      string               `json:"status"`      // idle | running | queued
+	QueueLength int                  `json:"queueLength"` // 不含正在跑的这一条
+	Queue       []CatGroupQueuedTask `json:"queue"`
 }
 
 // CatRouteInfo is structured source for a system gray line.
@@ -57,6 +89,10 @@ type CatRouteInfo struct {
 	MemberID string `json:"memberId,omitempty"`
 	Reason   string `json:"reason,omitempty"`
 	RouteSeq int64  `json:"routeSeq,omitempty"`
+	// DurationMs 派活判断耗时（契约 6.21.17 ③）；只有 ai / 判断超时出错落的 fallback 有。
+	DurationMs int64 `json:"durationMs,omitempty"`
+	// Queued 入队灰字标记（契约 6.21.17 ④ 5）：「交给 {成员}：正在干活，排在后面」。
+	Queued bool `json:"queued,omitempty"`
 }
 
 // CatMessageFooter reuses ordinary conversation message-tail fields on a report card.
@@ -89,35 +125,37 @@ type CatGroupFileTag struct {
 
 // CatGroupMessage is one row in the group stream.
 type CatGroupMessage struct {
-	Seq           int64           `json:"seq"`
-	GroupID       string          `json:"groupId"`
-	Kind          string          `json:"kind"` // user|member|system
-	MemberID      string          `json:"memberId,omitempty"`
-	Text          string          `json:"text"`
-	Mentions      []string        `json:"mentions,omitempty"`
-	ChainID       string          `json:"chainId"`
-	Hop           int             `json:"hop"`
-	TurnID        string          `json:"turnId,omitempty"`
-	Route         *CatRouteInfo   `json:"route,omitempty"`
-	SystemKind    string          `json:"systemKind,omitempty"` // route|hop_limit|no_handoff|reassign|failed|stopped|charter
-	FromMemberID  string          `json:"fromMemberId,omitempty"`
-	ToMemberID    string          `json:"toMemberId,omitempty"`
-	FailReason    string          `json:"failReason,omitempty"`
-	Report        *CatGroupReport `json:"report,omitempty"`
-	CreatedAt     int64           `json:"createdAt"`
+	Seq          int64           `json:"seq"`
+	GroupID      string          `json:"groupId"`
+	Kind         string          `json:"kind"` // user|member|system
+	MemberID     string          `json:"memberId,omitempty"`
+	Text         string          `json:"text"`
+	Mentions     []string        `json:"mentions,omitempty"`
+	ChainID      string          `json:"chainId"`
+	Hop          int             `json:"hop"`
+	TurnID       string          `json:"turnId,omitempty"`
+	Route        *CatRouteInfo   `json:"route,omitempty"`
+	SystemKind   string          `json:"systemKind,omitempty"` // route|hop_limit|no_handoff|reassign|failed|stopped|charter
+	FromMemberID string          `json:"fromMemberId,omitempty"`
+	ToMemberID   string          `json:"toMemberId,omitempty"`
+	FailReason   string          `json:"failReason,omitempty"`
+	Report       *CatGroupReport `json:"report,omitempty"`
+	CreatedAt    int64           `json:"createdAt"`
 }
 
 // CatGroupRouteDetail is GetCatRouteDetail payload.
 type CatGroupRouteDetail struct {
-	RouteSeq    int64  `json:"routeSeq"`
-	GroupID     string `json:"groupId"`
-	ChainID     string `json:"chainId"`
-	Mode        string `json:"mode"`
-	MemberID    string `json:"memberId"`
-	Reason      string `json:"reason"`
-	InputText   string `json:"inputText"`
-	OutputText  string `json:"outputText"`
-	CreatedAt   int64  `json:"createdAt"`
+	RouteSeq   int64  `json:"routeSeq"`
+	GroupID    string `json:"groupId"`
+	ChainID    string `json:"chainId"`
+	Mode       string `json:"mode"`
+	MemberID   string `json:"memberId"`
+	Reason     string `json:"reason"`
+	InputText  string `json:"inputText"`
+	OutputText string `json:"outputText"`
+	CreatedAt  int64  `json:"createdAt"`
+	StartedAt  int64  `json:"startedAt"`  // 发「正在安排谁来接…」时（unix ms），旧数据 0
+	FinishedAt int64  `json:"finishedAt"` // 拿到结果 / 超时 / 出错时（unix ms），旧数据 0
 }
 
 // CatGroupTurnMeta persists overreach / snapshot state for a member turn.
@@ -227,6 +265,9 @@ func (s *Store) InsertCatGroup(ctx context.Context, g CatGroup) (CatGroup, error
 	if g.UpdatedAt == 0 {
 		g.UpdatedAt = g.CreatedAt
 	}
+	if g.Members == nil {
+		g.Members = []CatGroupMemberBrief{}
+	}
 	auto := 1
 	if !g.AutoRoute {
 		auto = 0
@@ -257,6 +298,7 @@ func (s *Store) ListCatGroups(ctx context.Context, projectID string) ([]CatGroup
 			return nil, err
 		}
 		g.AutoRoute = auto != 0
+		g.Members = []CatGroupMemberBrief{}
 		out = append(out, g)
 	}
 	return out, rows.Err()
@@ -275,6 +317,7 @@ func (s *Store) GetCatGroup(ctx context.Context, groupID string) (CatGroup, erro
 		return CatGroup{}, fmt.Errorf("读取群聊失败: %w", err)
 	}
 	g.AutoRoute = auto != 0
+	g.Members = []CatGroupMemberBrief{}
 	return g, nil
 }
 
@@ -400,6 +443,8 @@ func scanMember(r interface{ Scan(...any) error }) (CatGroupMember, error) {
 		return CatGroupMember{}, err
 	}
 	m.Charter = decodeCharter(charter)
+	m.Status = "idle"
+	m.Queue = []CatGroupQueuedTask{}
 	return m, nil
 }
 
@@ -699,9 +744,9 @@ func (s *Store) InsertCatGroupRoute(ctx context.Context, d CatGroupRouteDetail) 
 		d.CreatedAt = time.Now().UnixMilli()
 	}
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO cat_group_routes (group_id, chain_id, mode, member_id, reason, input_text, output_text, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		d.GroupID, d.ChainID, d.Mode, d.MemberID, d.Reason, d.InputText, d.OutputText, d.CreatedAt)
+		INSERT INTO cat_group_routes (group_id, chain_id, mode, member_id, reason, input_text, output_text, created_at, started_at, finished_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		d.GroupID, d.ChainID, d.Mode, d.MemberID, d.Reason, d.InputText, d.OutputText, d.CreatedAt, d.StartedAt, d.FinishedAt)
 	if err != nil {
 		return CatGroupRouteDetail{}, err
 	}
@@ -716,9 +761,10 @@ func (s *Store) InsertCatGroupRoute(ctx context.Context, d CatGroupRouteDetail) 
 func (s *Store) GetCatGroupRoute(ctx context.Context, routeSeq int64) (CatGroupRouteDetail, error) {
 	var d CatGroupRouteDetail
 	err := s.db.QueryRowContext(ctx, `
-		SELECT route_seq, group_id, chain_id, mode, member_id, reason, input_text, output_text, created_at
+		SELECT route_seq, group_id, chain_id, mode, member_id, reason, input_text, output_text, created_at, started_at, finished_at
 		FROM cat_group_routes WHERE route_seq = ?`, routeSeq).Scan(
-		&d.RouteSeq, &d.GroupID, &d.ChainID, &d.Mode, &d.MemberID, &d.Reason, &d.InputText, &d.OutputText, &d.CreatedAt)
+		&d.RouteSeq, &d.GroupID, &d.ChainID, &d.Mode, &d.MemberID, &d.Reason, &d.InputText, &d.OutputText, &d.CreatedAt,
+		&d.StartedAt, &d.FinishedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return CatGroupRouteDetail{}, err
 	}
@@ -796,6 +842,58 @@ func (s *Store) ListCatGroupMemberIDs(ctx context.Context) (map[string]bool, err
 			return nil, err
 		}
 		out[idv] = true
+	}
+	return out, rows.Err()
+}
+
+// ListCatGroupMemberBriefs 一条 SQL 带出多个群的成员摘要（契约 6.21.17 ②），按 order 升序。
+// 返回 map 里每个请求的 groupID 都有值（没成员为空数组）。
+func (s *Store) ListCatGroupMemberBriefs(ctx context.Context, groupIDs []string) (map[string][]CatGroupMemberBrief, error) {
+	out := make(map[string][]CatGroupMemberBrief, len(groupIDs))
+	if len(groupIDs) == 0 {
+		return out, nil
+	}
+	args := make([]any, 0, len(groupIDs))
+	for _, g := range groupIDs {
+		out[g] = []CatGroupMemberBrief{}
+		args = append(args, g)
+	}
+	q := `SELECT group_id, id, name, title, agent_kind, sort_order FROM cat_group_members
+		WHERE group_id IN (?` + strings.Repeat(",?", len(groupIDs)-1) + `)
+		ORDER BY group_id, sort_order ASC, created_at ASC, id ASC`
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("列出群成员失败: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var gid string
+		var b CatGroupMemberBrief
+		if err := rows.Scan(&gid, &b.ID, &b.Name, &b.Title, &b.AgentKind, &b.Order); err != nil {
+			return nil, err
+		}
+		b.AvatarIndex = CatMemberAvatarIndex(b.Order)
+		out[gid] = append(out[gid], b)
+	}
+	return out, rows.Err()
+}
+
+// ListCatGroupReportMessages 返回本群所有带汇报的 kind=member 消息（seq 升序），供「文件」页签聚合（契约 6.21.17 ①）。
+func (s *Store) ListCatGroupReportMessages(ctx context.Context, groupID string) ([]CatGroupMessage, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+msgCols+` FROM cat_group_messages
+		WHERE group_id = ? AND kind = 'member' AND report_json != '' ORDER BY seq ASC`, groupID)
+	if err != nil {
+		return nil, fmt.Errorf("列出群消息失败: %w", err)
+	}
+	defer rows.Close()
+	out := []CatGroupMessage{}
+	for rows.Next() {
+		m, err := scanGroupMessage(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
 	}
 	return out, rows.Err()
 }

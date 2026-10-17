@@ -19,4 +19,5 @@ var catalogEn = map[string]string{
 	KeyNotifyTurnNewConv:     "New conversation",
 
 	KeyCatGroupReportUnparsed: "Reply was not in report format; showing the last reply only.",
+	KeyCatGroupRouteQueued:    "Assigned to {name}: still working, added to the queue",
 }

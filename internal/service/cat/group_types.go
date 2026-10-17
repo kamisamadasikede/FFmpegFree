@@ -4,6 +4,8 @@ import "FFmpegFree/internal/store"
 
 type (
 	Group        = store.CatGroup
+	MemberBrief  = store.CatGroupMemberBrief
+	QueuedTask   = store.CatGroupQueuedTask
 	GroupMember  = store.CatGroupMember
 	GroupMessage = store.CatGroupMessage
 	GroupReport  = store.CatGroupReport
@@ -106,6 +108,23 @@ type GetRouteDetailResult struct {
 	Mode     string `json:"mode"`
 	MemberID string `json:"memberId"`
 	Reason   string `json:"reason"`
+	// 6.21.17 ③：派活判断耗时；旧数据两列 0；任一为 0 时省略 durationMs。
+	StartedAt  int64  `json:"startedAt"`
+	FinishedAt int64  `json:"finishedAt"`
+	DurationMs *int64 `json:"durationMs,omitempty"`
+}
+
+// GroupFile 是「文件」页签的一行（契约 6.21.17 ①）。
+type GroupFile struct {
+	Path         string `json:"path"`
+	LastMemberID string `json:"lastMemberId"`
+	LastSeq      int64  `json:"lastSeq"`
+	LastTurnID   string `json:"lastTurnId"`
+	ChangeCount  int    `json:"changeCount"`
+	Overreach    bool   `json:"overreach"`
+	Tag          string `json:"tag,omitempty"`
+	Exists       bool   `json:"exists"`
+	UpdatedAt    int64  `json:"updatedAt"`
 }
 
 type RevertOverreachRequest struct {
@@ -135,6 +154,9 @@ type GroupMemberEvent struct {
 	GroupID string        `json:"groupId"`
 	Member  GroupMember   `json:"member"`
 	Running *GroupRunning `json:"running,omitempty"`
+	// 6.21.17 ④：与 member.queueLength / member.queue 相同，方便状态条直接用。
+	QueueLength int          `json:"queueLength"`
+	Queue       []QueuedTask `json:"queue"`
 }
 
 type GroupRunning struct {

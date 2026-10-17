@@ -17,48 +17,136 @@ import (
 )
 
 type groupQueueItem struct {
-	chainID   string
-	hop       int
-	afterSeq  int64
-	reassign  bool
+	chainID  string
+	hop      int
+	afterSeq int64
+	reassign bool
+	fromSeq  int64
 }
 
-// groupQueues: memberID → pending wakes
-func (s *Service) ensureGroupQueues() {
-	// lazily stored on Service via sync.Map pattern using existing fields — use a dedicated map.
+// memberQueueState：每个成员的内存 FIFO（契约 6.21.6 ⑥ / 6.21.17 ④）。不落库，应用重启丢失（一期接受）。
+// active = 已叫起一轮（含启动中），同一成员第二个任务进 items 排队；不同成员互不影响（并行）。
+type memberQueueState struct {
+	active  bool
+	items   []groupQueueItem
+	running *GroupRunning // 最近一次推送的干活状态；nil = 没在干活
 }
 
 var (
 	groupQueueMu sync.Mutex
-	groupQueues  = map[string][]groupQueueItem{}
+	groupQueues  = map[string]*memberQueueState{}
 )
 
-func (s *Service) wakeMember(ctx context.Context, g store.CatGroup, memberID, chainID string, hop int, afterSeq int64, reassign bool) {
+func queueStateLocked(memberID string) *memberQueueState {
+	st := groupQueues[memberID]
+	if st == nil {
+		st = &memberQueueState{}
+		groupQueues[memberID] = st
+	}
+	return st
+}
+
+func queueTasksLocked(st *memberQueueState) []store.CatGroupQueuedTask {
+	out := make([]store.CatGroupQueuedTask, 0, len(st.items))
+	for i, it := range st.items {
+		out = append(out, store.CatGroupQueuedTask{ChainID: it.chainID, Hop: it.hop, FromSeq: it.fromSeq, QueuePosition: i})
+	}
+	return out
+}
+
+// decorateGroupMember 填运行时只读字段 status / queueLength / queue（契约 6.21.17 ④）。
+func decorateGroupMember(m *store.CatGroupMember) {
+	groupQueueMu.Lock()
+	defer groupQueueMu.Unlock()
+	st := groupQueues[m.ID]
+	m.Status, m.QueueLength, m.Queue = "idle", 0, []store.CatGroupQueuedTask{}
+	if st == nil {
+		return
+	}
+	m.Queue = queueTasksLocked(st)
+	m.QueueLength = len(m.Queue)
+	switch {
+	case st.running != nil:
+		m.Status = "running"
+	case m.QueueLength > 0:
+		m.Status = "queued"
+	}
+}
+
+func decorateGroupMembers(list []store.CatGroupMember) {
+	for i := range list {
+		decorateGroupMember(&list[i])
+	}
+}
+
+func groupRunningSnapshot(memberID string) *GroupRunning {
+	groupQueueMu.Lock()
+	defer groupQueueMu.Unlock()
+	if st := groupQueues[memberID]; st != nil && st.running != nil {
+		r := *st.running
+		if r.StartedAt > 0 {
+			r.ElapsedMs = time.Now().UnixMilli() - r.StartedAt
+		}
+		return &r
+	}
+	return nil
+}
+
+func (s *Service) wakeMember(ctx context.Context, g store.CatGroup, memberID, chainID string, hop int, afterSeq int64, reassign bool, mode string) {
 	m, err := s.cfg.Store.GetCatGroupMember(ctx, memberID)
 	if err != nil {
 		return
 	}
-	convID := groupConvID(g.ID, m.ID)
-	s.mu.Lock()
-	_, busy := s.turns[convID]
-	s.mu.Unlock()
-	if busy {
-		groupQueueMu.Lock()
-		groupQueues[m.ID] = append(groupQueues[m.ID], groupQueueItem{chainID, hop, afterSeq, reassign})
+	groupQueueMu.Lock()
+	st := queueStateLocked(m.ID)
+	if st.active {
+		fromSeq := afterSeq
+		if fromSeq == 0 {
+			fromSeq = s.chainOriginSeq(ctx, g.ID, chainID)
+		}
+		st.items = append(st.items, groupQueueItem{chainID: chainID, hop: hop, afterSeq: afterSeq, reassign: reassign, fromSeq: fromSeq})
 		groupQueueMu.Unlock()
+		// 入队灰字（契约 6.21.17 ④ 5）：systemKind=route，route.mode 沿用本次派活来源，queued=true。
+		s.postSystem(ctx, g.ID, chainID, hop, "system",
+			i18n.T(i18n.KeyCatGroupRouteQueued, map[string]string{"name": m.Name}), "route",
+			store.CatRouteInfo{Mode: mode, MemberID: m.ID, Queued: true}, "", m.ID)
+		s.emitGroupMemberSnapshot(m)
 		return
 	}
+	st.active = true
+	groupQueueMu.Unlock()
 	s.startGroupMemberTurn(ctx, g, m, chainID, hop, afterSeq, reassign)
+}
+
+// chainOriginSeq：换人 / 重试入队时没有 afterSeq，用本链用户消息的 seq 当 fromSeq。
+func (s *Service) chainOriginSeq(ctx context.Context, groupID, chainID string) int64 {
+	list, err := s.cfg.Store.ListCatGroupMessages(ctx, groupID, 0, 200)
+	if err != nil {
+		return 0
+	}
+	var last int64
+	for _, m := range list {
+		if m.ChainID != chainID {
+			continue
+		}
+		if m.Kind == "user" {
+			return m.Seq
+		}
+		last = m.Seq
+	}
+	return last
 }
 
 func (s *Service) startGroupMemberTurn(ctx context.Context, g store.CatGroup, m store.CatGroupMember, chainID string, hop int, afterSeq int64, reassign bool) {
 	a, err := s.adapter(m.AgentKind)
 	if err != nil {
 		s.postFail(ctx, g.ID, chainID, hop, m, "助手未就绪")
+		s.drainGroupQueue(g, m.ID)
 		return
 	}
 	if a.Status().State != catagent.StateReady {
 		s.postFail(ctx, g.ID, chainID, hop, m, "助手未就绪")
+		s.drainGroupQueue(g, m.ID)
 		return
 	}
 	projectRoot := ""
@@ -84,11 +172,11 @@ func (s *Service) startGroupMemberTurn(ctx context.Context, g store.CatGroup, m 
 	}
 	// track claimed tool write paths + tool ids for toolCount
 	var (
-		claimedMu   sync.Mutex
-		claimed     []string
-		toolSeen    = map[string]bool{}
-		toolCount   int
-		snapBefore  string
+		claimedMu  sync.Mutex
+		claimed    []string
+		toolSeen   = map[string]bool{}
+		toolCount  int
+		snapBefore string
 	)
 	if projectRoot != "" {
 		snapBefore = createGitSnapshot(turnCtx, projectRoot)
@@ -144,9 +232,10 @@ func (s *Service) startGroupMemberTurn(ctx context.Context, g store.CatGroup, m 
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
+		// 先 clearTurn 再取下一条：否则下一轮 setTurn 会把还没清掉的这一轮当旧轮去停。
+		defer s.drainGroupQueue(g, m.ID)
 		defer close(t.done)
 		defer s.clearTurn(t)
-		defer s.drainGroupQueue(g, m.ID)
 
 		stopWatch := s.watchTurnWorkspace(turnCtx, t, projectRoot, &opts)
 		s.syncSharingBeforeTurn(turnCtx, projectRoot)
@@ -275,26 +364,32 @@ func (s *Service) startGroupMemberTurn(ctx context.Context, g store.CatGroup, m 
 			s.postSystem(context.Background(), g.ID, chainID, nextHop, "system",
 				"已转交给 "+name+"（第 "+strconv.Itoa(nextHop)+"/6 次）", "route",
 				store.CatRouteInfo{Mode: "mention", MemberID: mid, Reason: "接力"}, "", mid)
-			s.wakeMember(context.Background(), g, mid, chainID, nextHop, outMsg.Seq, false)
+			s.wakeMember(context.Background(), g, mid, chainID, nextHop, outMsg.Seq, false, "mention")
 		}
 	}()
 }
 
+// drainGroupQueue：一轮结束（或没起来）后取下一条开跑；队列空则释放。轮到开跑不发灰字（6.21.17 ④ 5），
+// 只由 startGroupMemberTurn 推 running 非空的 cat:group-member（快照里队列已减一）。
 func (s *Service) drainGroupQueue(g store.CatGroup, memberID string) {
-	groupQueueMu.Lock()
-	q := groupQueues[memberID]
-	if len(q) == 0 {
+	for {
+		groupQueueMu.Lock()
+		st := queueStateLocked(memberID)
+		if len(st.items) == 0 {
+			delete(groupQueues, memberID)
+			groupQueueMu.Unlock()
+			return
+		}
+		item := st.items[0]
+		st.items = st.items[1:]
 		groupQueueMu.Unlock()
+		m, err := s.cfg.Store.GetCatGroupMember(context.Background(), memberID)
+		if err != nil {
+			continue // 成员已删：丢掉剩下的任务
+		}
+		s.startGroupMemberTurn(context.Background(), g, m, item.chainID, item.hop, item.afterSeq, item.reassign)
 		return
 	}
-	item := q[0]
-	groupQueues[memberID] = q[1:]
-	groupQueueMu.Unlock()
-	m, err := s.cfg.Store.GetCatGroupMember(context.Background(), memberID)
-	if err != nil {
-		return
-	}
-	s.startGroupMemberTurn(context.Background(), g, m, item.chainID, item.hop, item.afterSeq, item.reassign)
 }
 
 func (s *Service) buildMemberPrompt(ctx context.Context, g store.CatGroup, m store.CatGroupMember, members []store.CatGroupMember, afterSeq int64) string {
@@ -368,8 +463,15 @@ func (s *Service) StopCatGroupMember(ctx context.Context, memberID string) error
 		return err
 	}
 	groupQueueMu.Lock()
-	delete(groupQueues, m.ID)
+	cleared := false
+	if st := groupQueues[m.ID]; st != nil && len(st.items) > 0 {
+		st.items = nil
+		cleared = true
+	}
 	groupQueueMu.Unlock()
+	if cleared {
+		s.emitGroupMemberSnapshot(m) // 清队也推一次（6.21.17 ④ 2）
+	}
 	convID := groupConvID(m.GroupID, m.ID)
 	s.cancelTurn(convID, "")
 	// Also stop by member.ID conversation key used as ConversationID for CLI

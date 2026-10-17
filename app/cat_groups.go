@@ -149,3 +149,10 @@ func (s *CatService) RetryCatGroupMemberTurn(req cat.RetryGroupMemberTurnRequest
 	}
 	return c.RetryCatGroupMemberTurn(s.rootCtx(), req)
 }
+func (s *CatService) ListCatGroupFiles(groupId string) ([]cat.GroupFile, error) {
+	c, err := s.svc()
+	if err != nil {
+		return nil, err
+	}
+	return c.ListCatGroupFiles(s.rootCtx(), groupId)
+}

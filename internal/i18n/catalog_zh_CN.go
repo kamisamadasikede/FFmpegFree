@@ -19,4 +19,5 @@ var catalogZhCN = map[string]string{
 	KeyNotifyTurnNewConv:     "新对话",
 
 	KeyCatGroupReportUnparsed: "没按汇报格式写，只显示最后一段回复",
+	KeyCatGroupRouteQueued:    "交给 {name}：正在干活，排在后面",
 }
