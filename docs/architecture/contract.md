@@ -6390,7 +6390,7 @@ type CatGroupFile struct {
   UpdatedAt    int64  `json:"updatedAt"`    // 最后一次汇报的 createdAt（unix ms）
 }
 ```
-- 成员已被删除时 `lastMemberId` 照返，前端显示「已移除的成员」（沿用成员栏现有兜底，不新增文案则用成员名缺省规则）。
+- 成员已被删除时 `lastMemberId` 照返，前端按汇报卡片对已删成员的现有显示规则处理，不新增文案。
 - **打开预览**：前端用 项目根 + `path` 调**老板现有的文档 / Office 预览组件**（复用，不出新稿）；该组件不支持的类型按组件现有行为处理；`exists=false` 不可点，灰显。
 - **刷新**：无新事件。前端收到 `cat:group-message` 且 `kind=member`、`report.files` 非空时重新拉一次。
 - 撤销仍只在汇报卡片上（6.21.8 ④），文件页签不放撤销。
