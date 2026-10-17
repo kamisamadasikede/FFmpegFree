@@ -469,15 +469,18 @@ func TestGroupE2E_DispatchAI(t *testing.T) {
 		t.Fatalf("route turn must not keep a session: %s", argv)
 	}
 
-	undecided := "没判断出该谁接，请 @ 对应成员，或再说具体要做什么。"
+	undecidedBase := "没判断出该谁接，请 @ 对应成员，或再说具体要做什么。"
+	isUndecided := func(m cat.GroupMessage) bool {
+		return strings.HasPrefix(m.Text, undecidedBase) && m.Route != nil && m.Route.Mode == "undecided"
+	}
 	// 无效输出（不存在的成员）→ undecided，零成员卡
 	_ = os.Remove(filepath.Join(e.fake, "calls.log"))
 	e.reply("route", `{"memberId":"nobody","reason":"x"}`)
 	chain = e.send("随便")
 	e.waitIdle()
 	ms = find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
-	gl := find(ms, func(m cat.GroupMessage) bool { return m.Text == undecided })
-	if len(gl) != 1 || gl[0].Route == nil || gl[0].Route.Mode != "undecided" {
+	gl := find(ms, isUndecided)
+	if len(gl) != 1 || gl[0].Route.Reason != "unknown_id" || !strings.Contains(gl[0].Text, "·判断结果对不上成员") {
 		t.Fatalf("invalid undecided:\n%s", e.dump())
 	}
 	if len(find(ms, func(m cat.GroupMessage) bool { return m.Kind == "member" })) != 0 {
@@ -488,7 +491,8 @@ func TestGroupE2E_DispatchAI(t *testing.T) {
 	chain = e.send("随便2")
 	e.waitIdle()
 	ms = find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
-	if len(find(ms, func(m cat.GroupMessage) bool { return m.Text == undecided })) != 1 ||
+	gl = find(ms, isUndecided)
+	if len(gl) != 1 || gl[0].Route.Reason != "parse_error" || !strings.Contains(gl[0].Text, "·解析失败") ||
 		len(find(ms, func(m cat.GroupMessage) bool { return m.Kind == "member" })) != 0 {
 		t.Fatalf("non-json undecided:\n%s", e.dump())
 	}
@@ -525,18 +529,20 @@ func TestGroupE2E_DispatchAI(t *testing.T) {
 
 func TestGroupE2E_DispatchTimeout(t *testing.T) {
 	if testing.Short() {
-		t.Skip("20s route timeout")
+		t.Skip("45s route timeout")
 	}
 	e := newGroupEnv(t, "前端", "后端")
 	e.reply("前端", report("前端做完", "", ""))
 	e.reply("route", `{"memberId":"x","reason":"y"}`)
-	e.file("route", "sleep", "250") // > 20s 派活超时
+	e.file("route", "sleep", "500") // > 45s 派活超时（每单位 0.1s）
 	chain := e.send("慢慢想")
 	e.waitIdle()
 	ms := find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
-	undecided := "没判断出该谁接，请 @ 对应成员，或再说具体要做什么。"
-	gl := find(ms, func(m cat.GroupMessage) bool { return m.Text == undecided })
-	if len(gl) != 1 || gl[0].Route == nil || gl[0].Route.Mode != "undecided" ||
+	undecidedBase := "没判断出该谁接，请 @ 对应成员，或再说具体要做什么。"
+	gl := find(ms, func(m cat.GroupMessage) bool {
+		return strings.HasPrefix(m.Text, undecidedBase) && m.Route != nil && m.Route.Mode == "undecided"
+	})
+	if len(gl) != 1 || gl[0].Route.Reason != "timeout" || !strings.Contains(gl[0].Text, "·判断超时") ||
 		len(find(ms, func(m cat.GroupMessage) bool { return m.Kind == "member" })) != 0 {
 		t.Fatalf("timeout undecided:\n%s", e.dump())
 	}
