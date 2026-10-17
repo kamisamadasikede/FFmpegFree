@@ -27,4 +27,6 @@ const (
 
 	// Cat group chat (契约 6.21.15)
 	KeyCatGroupReportUnparsed = "cat.group.reportUnparsed"
+	// 契约 6.21.17 ④ 5：同一成员正在干活时入队的派活灰字（route.queued=true）。
+	KeyCatGroupRouteQueued = "cat.group.routeQueued"
 )

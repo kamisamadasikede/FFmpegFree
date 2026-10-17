@@ -76,6 +76,18 @@ func (s *Service) ListCatGroups(ctx context.Context, projectID string) ([]Group,
 	if err != nil {
 		return nil, apperr.Wrap(apperr.IOError, "列出群聊失败", err)
 	}
+	// 6.21.17 ②：一条 SQL 带出所有群的成员摘要。
+	ids := make([]string, 0, len(list))
+	for _, g := range list {
+		ids = append(ids, g.ID)
+	}
+	briefs, err := s.cfg.Store.ListCatGroupMemberBriefs(ctx, ids)
+	if err != nil {
+		return nil, apperr.Wrap(apperr.IOError, "列出群成员失败", err)
+	}
+	for i := range list {
+		list[i].Members = briefs[list[i].ID]
+	}
 	return list, nil
 }
 
@@ -128,6 +140,7 @@ func (s *Service) RenameCatGroup(ctx context.Context, req RenameGroupRequest) (G
 		return Group{}, apperr.Wrap(apperr.IOError, "重命名群聊失败", err)
 	}
 	g.Name = name
+	s.fillGroupMembers(ctx, &g)
 	return g, nil
 }
 
@@ -160,7 +173,27 @@ func (s *Service) SetCatGroupAutoRoute(ctx context.Context, req SetGroupAutoRout
 		return Group{}, apperr.Wrap(apperr.IOError, "更新派活开关失败", err)
 	}
 	g.AutoRoute = req.On
+	s.fillGroupMembers(ctx, &g)
 	return g, nil
+}
+
+// fillGroupMembers 给单个群带上成员摘要（GetCatGroup / Rename / SetAutoRoute 返回的 CatGroup 同样带，6.21.17 ②）。
+func (s *Service) fillGroupMembers(ctx context.Context, g *Group) {
+	g.Members = []store.CatGroupMemberBrief{}
+	if briefs, err := s.cfg.Store.ListCatGroupMemberBriefs(ctx, []string{g.ID}); err == nil {
+		g.Members = briefs[g.ID]
+	}
+}
+
+func memberBriefs(list []store.CatGroupMember) []store.CatGroupMemberBrief {
+	out := make([]store.CatGroupMemberBrief, 0, len(list))
+	for _, m := range list {
+		out = append(out, store.CatGroupMemberBrief{
+			ID: m.ID, Name: m.Name, Title: m.Title, AgentKind: m.AgentKind, Order: m.Order,
+			AvatarIndex: store.CatMemberAvatarIndex(m.Order),
+		})
+	}
+	return out
 }
 
 func (s *Service) ListCatGroupMembers(ctx context.Context, groupID string) ([]GroupMember, error) {
@@ -171,6 +204,7 @@ func (s *Service) ListCatGroupMembers(ctx context.Context, groupID string) ([]Gr
 	if err != nil {
 		return nil, apperr.Wrap(apperr.IOError, "列出群成员失败", err)
 	}
+	decorateGroupMembers(list)
 	return list, nil
 }
 
@@ -221,9 +255,9 @@ func (s *Service) AddCatGroupMember(ctx context.Context, req AddGroupMemberReque
 		defer s.wg.Done()
 		s.generateCharter(context.Background(), m.ID, false)
 	}()
+	decorateGroupMember(&m)
 	return m, nil
 }
-
 
 func (s *Service) GetCatGroup(ctx context.Context, groupID string) (GroupDetail, error) {
 	g, err := s.requireGroup(ctx, groupID)
@@ -234,6 +268,8 @@ func (s *Service) GetCatGroup(ctx context.Context, groupID string) (GroupDetail,
 	if err != nil {
 		return GroupDetail{}, apperr.Wrap(apperr.IOError, "列出群成员失败", err)
 	}
+	decorateGroupMembers(members)
+	g.Members = memberBriefs(members)
 	return GroupDetail{Group: g, Members: members}, nil
 }
 
@@ -283,7 +319,8 @@ func (s *Service) UpdateCatGroupMember(ctx context.Context, req UpdateGroupMembe
 	if req.Name != nil {
 		s.refreshHandoffs(ctx, m.GroupID)
 	}
-	s.emitGroupMember(m, nil)
+	s.emitGroupMemberSnapshot(m)
+	decorateGroupMember(&m)
 	return m, nil
 }
 
@@ -334,8 +371,30 @@ func (s *Service) ReorderCatGroupMembers(ctx context.Context, req ReorderGroupMe
 	return s.ListCatGroupMembers(ctx, req.GroupID)
 }
 
+// emitGroupMember 推 cat:group-member；running 非空 = 正在干活，nil = 这一轮结束（契约 6.21.14 ④）。
+// 同时带 status / queueLength / queue（6.21.17 ④）。
 func (s *Service) emitGroupMember(m GroupMember, running *GroupRunning) {
-	s.emit("cat:group-member", GroupMemberEvent{GroupID: m.GroupID, Member: m, Running: running})
+	groupQueueMu.Lock()
+	if st := groupQueues[m.ID]; st != nil {
+		if running != nil {
+			r := *running
+			st.running = &r
+		} else {
+			st.running = nil
+		}
+	}
+	groupQueueMu.Unlock()
+	s.publishGroupMember(m, running)
+}
+
+// emitGroupMemberSnapshot 推成员最新快照，干活状态沿用当前（入队 / 清队 / 规范变化时用，不把正在干活的人误报成结束）。
+func (s *Service) emitGroupMemberSnapshot(m GroupMember) {
+	s.publishGroupMember(m, groupRunningSnapshot(m.ID))
+}
+
+func (s *Service) publishGroupMember(m GroupMember, running *GroupRunning) {
+	decorateGroupMember(&m)
+	s.emit("cat:group-member", GroupMemberEvent{GroupID: m.GroupID, Member: m, Running: running, QueueLength: m.QueueLength, Queue: m.Queue})
 }
 
 func (s *Service) emitGroupMessage(m GroupMessage) {
@@ -390,5 +449,10 @@ func (s *Service) GetCatRouteDetail(ctx context.Context, req GetRouteDetailReque
 	if err != nil {
 		return GetRouteDetailResult{}, apperr.Wrap(apperr.IOError, "读取派活记录失败", err)
 	}
-	return GetRouteDetailResult{Input: d.InputText, Output: d.OutputText, Mode: d.Mode, MemberID: d.MemberID, Reason: d.Reason}, nil
+	res := GetRouteDetailResult{Input: d.InputText, Output: d.OutputText, Mode: d.Mode, MemberID: d.MemberID, Reason: d.Reason,
+		StartedAt: d.StartedAt, FinishedAt: d.FinishedAt}
+	if ms := routeDurationMs(d); ms > 0 {
+		res.DurationMs = &ms
+	}
+	return res, nil
 }

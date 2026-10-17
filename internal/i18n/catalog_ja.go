@@ -19,4 +19,5 @@ var catalogJa = map[string]string{
 	KeyNotifyTurnNewConv:     "新しい会話",
 
 	KeyCatGroupReportUnparsed: "報告形式で書かれていないため、最後の返信のみ表示します。",
+	KeyCatGroupRouteQueued:    "{name} に割り当て：作業中のため順番待ちに入りました",
 }
