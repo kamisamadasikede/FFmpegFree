@@ -141,6 +141,8 @@ type actRec struct {
 // turnState 是一轮进行中的回复。终态事件只发一次；终态后丢弃迟到增量。
 type turnState struct {
 	convID string
+	// leaseKey 非空 = 群聊成员回合：用独立执行范围（项目+groupId+memberId），不占项目目录锁。
+	leaseKey string
 	turnID string
 	cancel context.CancelFunc
 	done   chan struct{} // 后台 runTurn 返回后关闭（含已出文字落库）
@@ -354,10 +356,16 @@ func (s *Service) ListCatConversations(ctx context.Context) ([]Conversation, err
 	if err != nil {
 		return nil, err
 	}
+	hidden, _ := s.cfg.Store.ListCatGroupMemberIDs(ctx)
+	out := make([]Conversation, 0, len(list))
 	for i := range list {
+		if hidden[list[i].ID] {
+			continue
+		}
 		s.applyCLITitle(ctx, &list[i])
+		out = append(out, list[i])
 	}
-	return list, nil
+	return out, nil
 }
 
 func (s *Service) GetCatConversation(ctx context.Context, convID string) (ConversationDetail, error) {
@@ -777,9 +785,16 @@ func (s *Service) runTurn(ctx context.Context, t *turnState, a catagent.Adapter,
 		streamed = true
 		s.appendText(ctx, t, delta)
 	}
+	// 群聊成员回合（6.21.14）自带 OnActivity：记工具数和写过的文件（越界 / 撤销靠它），
+	// 这里只接住 retry，其余交回调用方的回调，不能覆盖掉。
+	prevActivity := opts.OnActivity
 	opts.OnActivity = func(kind, id, text string, replace bool) {
 		if kind == "retry" {
 			s.showRetry(ctx, t, text)
+			return
+		}
+		if prevActivity != nil {
+			prevActivity(kind, id, text, replace)
 			return
 		}
 		s.appendActivity(ctx, t, kind, id, text, replace)
@@ -796,7 +811,7 @@ func (s *Service) runTurn(ctx context.Context, t *turnState, a catagent.Adapter,
 			// Create it before the shared runtime resolves its physical lease.
 			s.ensureConvDir(t.convID)
 		}
-		resp, runErr = s.cfg.Execution.Run(a, agentexec.Scope{OwnerID: t.convID, Workspace: t.usageCwd, NativeConfigKey: projectConfigKey(opts.ProjectPath), Prepare: func(ctx context.Context) error { s.syncSharingBeforeTurn(ctx, opts.ProjectPath); return ctx.Err() }}, opts)
+		resp, runErr = s.cfg.Execution.Run(a, agentexec.Scope{OwnerID: t.convID, Workspace: t.usageCwd, NativeConfigKey: projectConfigKey(opts.ProjectPath), LeaseKey: t.leaseKey, Prepare: func(ctx context.Context) error { s.syncSharingBeforeTurn(ctx, opts.ProjectPath); return ctx.Err() }}, opts)
 	} else {
 		s.syncSharingBeforeTurn(ctx, opts.ProjectPath)
 		resp, runErr = a.RunTurn(opts)

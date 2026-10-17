@@ -17,4 +17,6 @@ var catalogZhCN = map[string]string{
 	KeyNotifyTurnDoneTitle:   "Agent · 对话已完成",
 	KeyNotifyTurnFailedTitle: "Agent · 回复失败",
 	KeyNotifyTurnNewConv:     "新对话",
+
+	KeyCatGroupReportUnparsed: "没按汇报格式写，只显示最后一段回复",
 }

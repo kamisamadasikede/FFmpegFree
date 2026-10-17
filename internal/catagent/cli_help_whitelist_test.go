@@ -76,6 +76,7 @@ var allEfforts = []string{"", "low", "xhigh", "max", "ultra"}
 // 真机 codex 0.162.1 exec 与 exec resume 均接受这组 -c，并向假网关发 POST /v1/responses（PR 描述有复现）。
 var codexConfigKeys = map[string]bool{
 	"sandbox_mode": true, "approval_policy": true, "model_reasoning_effort": true,
+	"developer_instructions":         true, // v0.55 群聊；binary 核到；help 只列 -c
 	"model_provider":                 true,
 	"model_providers.ffcat.name":     true,
 	"model_providers.ffcat.base_url": true,

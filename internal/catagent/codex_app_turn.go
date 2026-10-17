@@ -270,7 +270,6 @@ func (a *CLIAgentAdapter) runCodexAppTurn(opts TurnOptions, exe string) (TurnRes
 	// Headless turns must finish on exhausted retries, even when the user's TUI
 	// configuration enables indefinite reconnection.
 	args := append([]string{"app-server", "--listen", "stdio://", "-c", "features.unbounded_connection_retries=false"}, opts.Provider.ExtraArgs()...)
-	args = append(args, teamNativeArgs(KindCodexCLI, opts)...)
 	cmd := a.runCmd(runCtx, exe, args...)
 	cmd.WaitDelay = 2 * time.Second
 	cmd.Dir, cmd.Env = cwd, MergeToolEnv(MergeSkillsEnv(MergeProviderEnv(os.Environ(), opts.Provider), opts.Skills), opts.ToolEnv)

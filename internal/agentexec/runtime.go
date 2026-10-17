@@ -17,7 +17,12 @@ type Scope struct {
 	Workspace string
 	// NativeConfigKey identifies compatible native Skill/MCP configurations.
 	NativeConfigKey string
-	Prepare         func(context.Context) error
+	// LeaseKey, when set, replaces the physical-folder lease with an exclusive
+	// logical lease: runs with different LeaseKeys never block each other and
+	// do not take the folder lock held by plain (LeaseKey-less) runs.
+	// Project group-chat member turns use project+groupId+memberId.
+	LeaseKey string
+	Prepare  func(context.Context) error
 }
 
 type Runtime struct {
@@ -64,6 +69,10 @@ func overlaps(a, b string) bool {
 	return a == b || strings.HasPrefix(a, b+string(filepath.Separator)) || strings.HasPrefix(b, a+string(filepath.Separator))
 }
 
+const leasePrefix = "\x00lease:"
+
+func isLeaseKey(v string) bool { return strings.HasPrefix(v, leasePrefix) }
+
 func (r *Runtime) wakeLocked() { close(r.changed); r.changed = make(chan struct{}) }
 
 // WorkspaceBusy is only a scheduling hint; Run still performs the atomic lease.
@@ -75,7 +84,7 @@ func (r *Runtime) WorkspaceBusy(root string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, held := range r.roots {
-		if overlaps(root, held) {
+		if !isLeaseKey(held) && overlaps(root, held) {
 			return true
 		}
 	}
@@ -109,8 +118,16 @@ func (r *Runtime) Run(a catagent.Adapter, scope Scope, opts catagent.TurnOptions
 			return catagent.TurnResponse{}, errors.New("原生会话正在执行")
 		}
 		blocked := r.preparing || (r.configUsers > 0 && r.configKey != scope.NativeConfigKey)
+		lease := root
+		if scope.LeaseKey != "" {
+			lease = leasePrefix + scope.LeaseKey
+		}
 		for _, held := range r.roots {
-			blocked = blocked || overlaps(root, held)
+			if isLeaseKey(lease) || isLeaseKey(held) {
+				blocked = blocked || lease == held
+			} else {
+				blocked = blocked || overlaps(root, held)
+			}
 		}
 		if !blocked {
 			first := r.configUsers == 0
@@ -119,7 +136,7 @@ func (r *Runtime) Run(a catagent.Adapter, scope Scope, opts catagent.TurnOptions
 			}
 			r.configKey = scope.NativeConfigKey
 			r.configUsers++
-			r.active[key], r.roots[key] = cancel, root
+			r.active[key], r.roots[key] = cancel, lease
 			r.wg.Add(1)
 			r.mu.Unlock()
 			defer func() {

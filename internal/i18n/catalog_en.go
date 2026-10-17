@@ -17,4 +17,6 @@ var catalogEn = map[string]string{
 	KeyNotifyTurnDoneTitle:   "Agent · Conversation finished",
 	KeyNotifyTurnFailedTitle: "Agent · Reply failed",
 	KeyNotifyTurnNewConv:     "New conversation",
+
+	KeyCatGroupReportUnparsed: "Reply was not in report format; showing the last reply only.",
 }

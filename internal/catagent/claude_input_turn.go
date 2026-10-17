@@ -37,7 +37,6 @@ func (a *CLIAgentAdapter) runClaudeInputStream(opts TurnOptions, exe string) (Tu
 	args = args[2:]
 	args = append([]string{"-p"}, args...)
 	args = append(args, "--input-format", "stream-json", "--replay-user-messages")
-	args = append(args, teamNativeArgs(KindClaudeCLI, opts)...)
 	a.mu.Lock()
 	version := a.version
 	a.mu.Unlock()

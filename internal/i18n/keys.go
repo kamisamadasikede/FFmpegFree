@@ -24,4 +24,7 @@ const (
 	KeyNotifyTurnDoneTitle   = "notify.turn.doneTitle"
 	KeyNotifyTurnFailedTitle = "notify.turn.failedTitle"
 	KeyNotifyTurnNewConv     = "notify.turn.newConversation"
+
+	// Cat group chat (契约 6.21.15)
+	KeyCatGroupReportUnparsed = "cat.group.reportUnparsed"
 )

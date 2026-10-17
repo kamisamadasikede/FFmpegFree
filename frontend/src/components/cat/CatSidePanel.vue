@@ -15,7 +15,6 @@
       <div class="ct-mini-brand lg" :title="AGENT_NAME"><FIcon name="bot" :size="16" /></div>
       <button type="button" class="ib big" :class="{ on: catState.sel === NEW_CONV }" :title="t('cat.misc.s_1ac07a4bb2')" :aria-label="t('cat.misc.s_1ac07a4bb2')" @click="startNewConv()"><FIcon name="edit" :size="16" /></button>
       <span class="sp" />
-      <RouterLink to="/cat/team" class="ib big" title="协作群 · 数字员工" aria-label="协作群 · 数字员工"><FIcon name="users" :size="16" /></RouterLink>
       <button type="button" class="ib big" :title="t('cat.misc.s_11599d066f')" :aria-label="t('cat.misc.s_11599d066f')" data-testid="cat-rail-toolbox" @click="emit('back')"><FIcon name="toolbox" :size="16" /></button>
       <button type="button" class="ib big" :class="{ on: catPanels.view === 'settings' }" :title="t('cat.misc.s_e366ccf155')" :aria-label="t('cat.misc.s_e366ccf155')" data-testid="cat-rail-settings" @click="openView('settings')"><FIcon name="set" :size="16" /></button>
     </div>
@@ -41,7 +40,6 @@
     </button>
 
     <div ref="scrollEl" class="ct-scroll">
-      <RouterLink to="/cat/team" class="ct-it" data-testid="cat-nav-team"><FIcon name="users" :size="16" /><span class="t">协作群</span></RouterLink>
       <div class="ct-sec">
         <input v-if="projectSearchOn" ref="projectSearchEl" v-model="projectQuery" class="sec-search" :placeholder="t('cat.workspace.filterProjects')" :aria-label="t('cat.workspace.filterProjects')" data-testid="cat-project-search" @keydown.esc.prevent="closeProjectSearch" />
         <span v-else>项目</span>
