@@ -3,6 +3,7 @@ package cat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +16,12 @@ import (
 )
 
 const maxGroupHops = 6
+
+// aiRouteTimeout：派活判断硬超时。Grok 结构化偶发 >20s；产品/架构锁定 45s。
+const aiRouteTimeout = 45 * time.Second
+
+// undecidedRouteBase：产品/设计锁定的未定人灰字主句，后缀另拼，勿改主句。
+const undecidedRouteBase = "没判断出该谁接，请 @ 对应成员，或再说具体要做什么。"
 
 func (s *Service) SendCatGroupMessage(ctx context.Context, req SendGroupMessageRequest) (SendGroupMessageResult, error) {
 	g, err := s.requireGroup(ctx, req.GroupID)
@@ -101,9 +108,11 @@ func (s *Service) decideRoute(ctx context.Context, g store.CatGroup, members []s
 	memberID, reason, detail := s.runAIRoute(ctx, g, members, userMsg, startedAt)
 	if memberID == "" {
 		// v0.55.9 / 6.21.18：自动派活开着但判断不可用 → 不定人、不叫醒任何人（不再交给排第一）。
-		undecidedCopy := "没判断出该谁接，请 @ 对应成员，或再说具体要做什么。"
-		route := store.CatRouteInfo{Mode: "undecided", Reason: undecidedCopy, RouteSeq: detail.RouteSeq, DurationMs: routeDurationMs(detail)}
-		s.postSystem(ctx, g.ID, chainID, 0, "system", undecidedCopy, "route", route, "", "")
+		// detail.Reason 已是机器码（timeout/empty/parse_error/…）；灰字主句不动，后缀 ·判断超时 等给 FE 读。
+		failCode := detail.Reason
+		grey := undecidedGreyText(failCode)
+		route := store.CatRouteInfo{Mode: "undecided", Reason: failCode, RouteSeq: detail.RouteSeq, DurationMs: routeDurationMs(detail)}
+		s.postSystem(ctx, g.ID, chainID, 0, "system", grey, "route", route, "", "")
 		s.emitGroupRoute(GroupRouteEvent{GroupID: g.ID, ChainID: chainID, State: "routed", Route: route})
 		return nil, route
 	}
@@ -174,7 +183,7 @@ func (s *Service) runAIRoute(ctx context.Context, g store.CatGroup, members []st
 	if err != nil {
 		failReason = "run_error"
 	} else {
-		turnCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		turnCtx, cancel := context.WithTimeout(ctx, aiRouteTimeout)
 		defer cancel()
 		s.applyProviderOverlay(ctx, a, first.AgentKind)
 		opts := catagent.TurnOptions{
@@ -183,7 +192,7 @@ func (s *Service) runAIRoute(ctx context.Context, g store.CatGroup, members []st
 			Ephemeral: true, NoTools: true, JSONSchema: catagent.RouteSchema,
 			Messages: []catagent.WireMessage{{Role: "user", Content: input}},
 			Provider: s.providerOverlayFor(ctx, first.AgentKind),
-			Timeout:  20 * time.Second,
+			Timeout:  aiRouteTimeout,
 		}
 		if row, err := s.cfg.Store.GetCatProject(ctx, g.ProjectID); err == nil {
 			opts.ProjectPath = row.Path
@@ -192,31 +201,25 @@ func (s *Service) runAIRoute(ctx context.Context, g store.CatGroup, members []st
 		finishedAt = time.Now().UnixMilli() // 拿到结果 / 超时 / 出错
 		outText = strings.TrimSpace(resp.Message.Content)
 		if runErr != nil {
-			failReason = "run_error"
+			if isAIRouteTimeout(runErr) {
+				failReason = "timeout"
+				// 超时但已有部分正文时先试解析，能认出人就当成功。
+				if outText != "" {
+					if idv, why, ok := parseAIRouteOutput(members, outText); ok {
+						resolvedID, resolvedReason, failReason = idv, why, ""
+					}
+				}
+			} else {
+				failReason = "run_error"
+			}
 		} else if outText == "" {
 			failReason = "empty"
+		} else if idv, why, ok := parseAIRouteOutput(members, outText); ok {
+			resolvedID, resolvedReason = idv, why
 		} else {
-			var parsed struct {
-				MemberID string `json:"memberId"`
-				Reason   string `json:"reason"`
-			}
-			if json.Unmarshal([]byte(extractJSONObject(outText)), &parsed) != nil {
+			failReason = routeParseFailReason(members, outText)
+			if failReason == "" {
 				failReason = "parse_error"
-			} else {
-				parsed.MemberID = strings.TrimSpace(parsed.MemberID)
-				parsed.Reason = strings.TrimSpace(parsed.Reason)
-				if utf8.RuneCountInString(parsed.Reason) > 20 {
-					r := []rune(parsed.Reason)
-					parsed.Reason = string(r[:20])
-				}
-				if idv, ok := resolveRouteMemberID(members, parsed.MemberID); ok {
-					resolvedID = idv
-					resolvedReason = parsed.Reason
-				} else if parsed.MemberID == "" {
-					failReason = "empty"
-				} else {
-					failReason = "unknown_id"
-				}
 			}
 		}
 	}
@@ -232,6 +235,95 @@ func (s *Service) runAIRoute(ctx context.Context, g store.CatGroup, members []st
 		InputText: input, OutputText: outText, StartedAt: startedAt, FinishedAt: finishedAt,
 	})
 	return resolvedID, resolvedReason, detail
+}
+
+
+// isAIRouteTimeout：context 截止或 CLI 带回 reason=timeout / reason=idle_timeout。
+func isAIRouteTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var ae *apperr.AppError
+	if errors.As(err, &ae) {
+		d := ae.Detail + "\n" + ae.Message
+		if strings.Contains(d, "reason=timeout") || strings.Contains(d, "reason=idle_timeout") {
+			return true
+		}
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "reason=timeout") ||
+		strings.Contains(msg, "reason=idle_timeout") ||
+		strings.Contains(msg, "context deadline exceeded") ||
+		strings.Contains(msg, "DeadlineExceeded")
+}
+
+// undecidedReasonSuffix：机器码 → 灰字 · 后中文；空码不拼。
+func undecidedReasonSuffix(code string) string {
+	switch strings.TrimSpace(code) {
+	case "timeout":
+		return "判断超时"
+	case "empty":
+		return "输出为空"
+	case "parse_error":
+		return "解析失败"
+	case "run_error":
+		return "判断执行失败"
+	case "unknown_id":
+		return "判断结果对不上成员"
+	default:
+		return ""
+	}
+}
+
+// undecidedGreyText：主句锁定；有机器码时追加「·判断超时」等，不改主句。
+func undecidedGreyText(code string) string {
+	suf := undecidedReasonSuffix(code)
+	if suf == "" {
+		return undecidedRouteBase
+	}
+	return undecidedRouteBase + "·" + suf
+}
+
+func parseAIRouteOutput(members []store.CatGroupMember, outText string) (memberID, reason string, ok bool) {
+	var parsed struct {
+		MemberID string `json:"memberId"`
+		Reason   string `json:"reason"`
+	}
+	if json.Unmarshal([]byte(extractJSONObject(outText)), &parsed) != nil {
+		return "", "", false
+	}
+	parsed.MemberID = strings.TrimSpace(parsed.MemberID)
+	parsed.Reason = strings.TrimSpace(parsed.Reason)
+	if utf8.RuneCountInString(parsed.Reason) > 20 {
+		r := []rune(parsed.Reason)
+		parsed.Reason = string(r[:20])
+	}
+	if idv, found := resolveRouteMemberID(members, parsed.MemberID); found {
+		return idv, parsed.Reason, true
+	}
+	return "", "", false
+}
+
+// routeParseFailReason：解析失败时的机器码（empty / parse_error / unknown_id）。
+func routeParseFailReason(members []store.CatGroupMember, outText string) string {
+	var parsed struct {
+		MemberID string `json:"memberId"`
+		Reason   string `json:"reason"`
+	}
+	if json.Unmarshal([]byte(extractJSONObject(outText)), &parsed) != nil {
+		return "parse_error"
+	}
+	parsed.MemberID = strings.TrimSpace(parsed.MemberID)
+	if parsed.MemberID == "" {
+		return "empty"
+	}
+	if _, ok := resolveRouteMemberID(members, parsed.MemberID); !ok {
+		return "unknown_id"
+	}
+	return ""
 }
 
 // resolveRouteMemberID：先按 id= 精确匹配；否则用人名、再用职位名；同名或同职位不唯一则拒绝。
