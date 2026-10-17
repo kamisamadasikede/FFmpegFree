@@ -6449,7 +6449,7 @@ type CatGroupQueuedTask struct {
 ```
    `queueLength = len(queue)`。队列变化（入队、出队开跑、停单人 / 停全部清队）时重推该成员的 `cat:group-member`，每条排队任务的 `queuePosition` 随之重算。
 4. **展示**：右栏成员状态里，排队中的任务显示「排队中 · 前面还有 {n} 个」，`n` = 该任务的 `queuePosition`。正在跑的那一轮仍按 6.21.15 ① 显示「{成员} 正在干活 · 已用 {时长}」（有工具时续 ` · {n} 个工具`），状态条**不加**排队后缀。成员栏状态点 `queued` 同 `running` 样式。
-5. **群里灰字（产品 10-17 已确认）**：任务入队时，后端发一条派活灰字（`systemKind=route`，`route.mode` 沿用本次派活的来源），文案「交给 {成员}：正在干活，排在后面」。
+5. **群里灰字（产品 10-17 已确认）**：任务入队时，后端发一条派活灰字（`systemKind=route`，`route.mode` 沿用本次派活的来源），文案「交给 {成员}：正在干活，排在后面」。**排队标记**：这条灰字的 `route` 带 `queued: true`（`CatGroupRoute.Queued bool json:"queued,omitempty"`，不落库也可、落库随 0019 加 `queued` 列，后端定）；前端见 `queued=true` 用本句文案，其余 `systemKind=route` 照旧。不新增 `systemKind`。
    - **轮到开跑时不再发灰字**：排队的任务出队开始时，群里不出任何「开始了 / 轮到了」之类的灰字；状态条出现该成员「正在干活」一行即表示已开始（只推 `cat:group-member`，`running` 非空）。
 6. 不变：排队不计 hop（hop 在入队时已定）；停单人 / 停全部清空其队列（6.21.6 ⑨）；队列在内存，**应用重启后丢失**，第一期接受，不做持久化；换人对排队中的条目不生效（只换正在跑 / 刚派的那条）。
 
