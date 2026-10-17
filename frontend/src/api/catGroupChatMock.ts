@@ -133,7 +133,7 @@ function sceneSeed(s: GroupScene): SceneUi {
       user('顺便看下 Windows 打包脚本', '17:36', 'c6'); route('a', 'c6', 0, 'off')
       user('@架构师 顺手把 6.21.17 的排队口径也过一遍', '17:37', 'c7', ['a'])
       push({ kind: 'system', systemKind: 'route', chainId: 'c7', hop: 0, toMemberId: 'a', route: { mode: 'mention', memberId: 'a', queued: true } })
-      return { running: [['a', 65_000, 6]], openRoute: true }
+      return { running: [['a', 65_000, 6]], queued: { a: 1 }, openRoute: true }
     case 'swap':
       user('重试按钮点了以后，成员卡片要回到「正在干活」状态', '17:46', 'c8'); route('b', 'c8', 0, 'ai', '涉及成员状态推送')
       sys('reassign', { chainId: 'c8', fromMemberId: 'b', toMemberId: 'f' })
@@ -224,7 +224,11 @@ export const groupMock = {
         byPath.set(f.path, { path: f.path, lastMemberId: m.memberId ?? '', lastSeq: m.seq, lastTurnId: m.turnId ?? '', changeCount: (prev?.changeCount ?? 0) + 1, overreach: !!prev?.overreach || f.tag === 'overreach', tag: f.tag, exists: !f.path.endsWith('ja.json'), updatedAt: m.createdAt })
       }
     }
-    return [...byPath.values()].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 500)
+    const out = [...byPath.values()]
+    // 走查：成员/文件页补一条「已不存在」和一条越界，两种标记同屏可见
+    if (groupId === 'g1' && !out.some((f) => !f.exists)) out.push({ path: 'frontend/src/views/cat/group/legacy/OldRetryBanner.vue', lastMemberId: 'f', lastSeq: 1, lastTurnId: '', changeCount: 1, overreach: false, exists: false, updatedAt: T0 - 3_600_000 })
+    if (groupId === 'g1' && !out.some((f) => f.overreach)) out.push({ path: 'internal/catagent/store/group_queue_store.go', lastMemberId: 'f', lastSeq: 2, lastTurnId: '', changeCount: 1, overreach: true, tag: 'overreach', exists: true, updatedAt: T0 - 1_800_000 })
+    return out.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 500)
   },
   async getGroup(groupId: string) {
     boot()

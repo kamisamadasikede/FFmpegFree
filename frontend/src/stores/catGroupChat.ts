@@ -72,6 +72,13 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
       if (m.groupId !== activeId.value) return
       addMessage(m)
       if (m.chainId && m.systemKind === 'route') routing[m.chainId] = false
+      // 排队灰字先到、cat:group-member 晚到或丢了时，先按灰字记一条排队，避免右栏只显示「正在干活」；成员事件一到就整表覆盖
+      const qid = m.route?.memberId || m.toMemberId
+      if (m.systemKind === 'route' && m.route?.queued && qid && m.chainId && !(queued[qid] ?? []).some((x) => x.chainId === m.chainId)) {
+        const cur = queued[qid] ?? []
+        queued[qid] = [...cur, { chainId: m.chainId, hop: m.hop ?? 0, fromSeq: m.seq, queuePosition: cur.length }]
+        if (!live[qid] && memberStatus[qid] !== 'running') memberStatus[qid] = 'queued'
+      }
       if (m.kind === 'member' && m.report?.files.length) void loadFiles()
     })
     api.onRoute((e) => {
