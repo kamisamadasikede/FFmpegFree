@@ -76,7 +76,6 @@ func (s *Service) SendCatGroupMessage(ctx context.Context, req SendGroupMessageR
 }
 
 func (s *Service) decideRoute(ctx context.Context, g store.CatGroup, members []store.CatGroupMember, userMsg store.CatGroupMessage, chainID string) ([]string, store.CatRouteInfo) {
-	first := members[0]
 	// followup: last member reply on this chain within 10 min
 	if last, ok := s.lastMemberOnChain(ctx, g.ID, chainID); ok {
 		if time.Now().UnixMilli()-last.CreatedAt <= 10*60*1000 && isFollowupText(userMsg.Text) {
@@ -101,10 +100,12 @@ func (s *Service) decideRoute(ctx context.Context, g store.CatGroup, members []s
 
 	memberID, reason, detail := s.runAIRoute(ctx, g, members, userMsg, startedAt)
 	if memberID == "" {
-		route := store.CatRouteInfo{Mode: "fallback", MemberID: first.ID, Reason: "没判断出该谁接，先交给排第一的成员", RouteSeq: detail.RouteSeq, DurationMs: routeDurationMs(detail)}
-		s.postRouteSystem(ctx, g.ID, chainID, first, route, "交给 "+first.Name+"：没判断出该谁接，先交给排第一的成员")
+		// v0.55.9 / 6.21.18：自动派活开着但判断不可用 → 不定人、不叫醒任何人（不再交给排第一）。
+		undecidedCopy := "没判断出该谁接，请 @ 对应成员，或再说具体要做什么。"
+		route := store.CatRouteInfo{Mode: "undecided", Reason: undecidedCopy, RouteSeq: detail.RouteSeq, DurationMs: routeDurationMs(detail)}
+		s.postSystem(ctx, g.ID, chainID, 0, "system", undecidedCopy, "route", route, "", "")
 		s.emitGroupRoute(GroupRouteEvent{GroupID: g.ID, ChainID: chainID, State: "routed", Route: route})
-		return []string{first.ID}, route
+		return nil, route
 	}
 	var name string
 	for _, m := range members {
@@ -143,13 +144,11 @@ func routeDurationMs(d store.CatGroupRouteDetail) int64 {
 
 func (s *Service) runAIRoute(ctx context.Context, g store.CatGroup, members []store.CatGroupMember, userMsg store.CatGroupMessage, startedAt int64) (memberID, reason string, detail store.CatGroupRouteDetail) {
 	first := members[0]
-	a, err := s.adapter(first.AgentKind)
-	if err != nil {
-		return "", "", detail
-	}
 	recent, _ := s.cfg.Store.ListCatGroupMessages(ctx, g.ID, 0, 10)
 	var b strings.Builder
 	b.WriteString("根据用户消息和群成员职责，选出最合适的一个人。只输出 JSON。\n")
+	b.WriteString("硬性要求：memberId 必须是下面「成员」列表里 id= 后面的原样字符串（UUID），禁止用人名、职位名或其它别名。\n")
+	b.WriteString("输出格式：{\"memberId\":\"<id= 的值>\",\"reason\":\"≤20字理由\"}\n")
 	b.WriteString("用户消息：" + userMsg.Text + "\n")
 	b.WriteString("最近群消息：\n")
 	for _, m := range recent {
@@ -164,57 +163,110 @@ func (s *Service) runAIRoute(ctx context.Context, g store.CatGroup, members []st
 		r := []rune(input)
 		input = string(r[:8000])
 	}
-	turnCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-	s.applyProviderOverlay(ctx, a, first.AgentKind)
-	opts := catagent.TurnOptions{
-		Ctx: turnCtx, ConversationID: "group-route-" + g.ID + "-" + id.New(),
-		ModelID: first.ModelID, ThinkLevelID: s.effortForTurn(ctx, first.AgentKind, first.ModelID, first.ThinkLevel),
-		Ephemeral: true, NoTools: true, JSONSchema: catagent.RouteSchema,
-		Messages: []catagent.WireMessage{{Role: "user", Content: input}},
-		Provider: s.providerOverlayFor(ctx, first.AgentKind),
-		Timeout:  20 * time.Second,
-	}
-	if row, err := s.cfg.Store.GetCatProject(ctx, g.ProjectID); err == nil {
-		opts.ProjectPath = row.Path
-	}
-	resp, runErr := a.RunTurn(opts)
-	finishedAt := time.Now().UnixMilli() // 拿到结果 / 超时 / 出错
-	outText := strings.TrimSpace(resp.Message.Content)
-	detail, _ = s.cfg.Store.InsertCatGroupRoute(ctx, store.CatGroupRouteDetail{
-		GroupID: g.ID, ChainID: userMsg.ChainID, Mode: "ai", InputText: input, OutputText: outText,
-		StartedAt: startedAt, FinishedAt: finishedAt,
-	})
-	if runErr != nil || outText == "" {
-		return "", "", detail
-	}
-	var parsed struct {
-		MemberID string `json:"memberId"`
-		Reason   string `json:"reason"`
-	}
-	if json.Unmarshal([]byte(extractJSONObject(outText)), &parsed) != nil {
-		return "", "", detail
-	}
-	parsed.MemberID = strings.TrimSpace(parsed.MemberID)
-	parsed.Reason = strings.TrimSpace(parsed.Reason)
-	if utf8.RuneCountInString(parsed.Reason) > 20 {
-		r := []rune(parsed.Reason)
-		parsed.Reason = string(r[:20])
-	}
-	ok := false
-	for _, m := range members {
-		if m.ID == parsed.MemberID {
-			ok = true
-			break
+
+	outText := ""
+	failReason := ""
+	resolvedID := ""
+	resolvedReason := ""
+	finishedAt := time.Now().UnixMilli()
+
+	a, err := s.adapter(first.AgentKind)
+	if err != nil {
+		failReason = "run_error"
+	} else {
+		turnCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		defer cancel()
+		s.applyProviderOverlay(ctx, a, first.AgentKind)
+		opts := catagent.TurnOptions{
+			Ctx: turnCtx, ConversationID: "group-route-" + g.ID + "-" + id.New(),
+			ModelID: first.ModelID, ThinkLevelID: s.effortForTurn(ctx, first.AgentKind, first.ModelID, first.ThinkLevel),
+			Ephemeral: true, NoTools: true, JSONSchema: catagent.RouteSchema,
+			Messages: []catagent.WireMessage{{Role: "user", Content: input}},
+			Provider: s.providerOverlayFor(ctx, first.AgentKind),
+			Timeout:  20 * time.Second,
+		}
+		if row, err := s.cfg.Store.GetCatProject(ctx, g.ProjectID); err == nil {
+			opts.ProjectPath = row.Path
+		}
+		resp, runErr := a.RunTurn(opts)
+		finishedAt = time.Now().UnixMilli() // 拿到结果 / 超时 / 出错
+		outText = strings.TrimSpace(resp.Message.Content)
+		if runErr != nil {
+			failReason = "run_error"
+		} else if outText == "" {
+			failReason = "empty"
+		} else {
+			var parsed struct {
+				MemberID string `json:"memberId"`
+				Reason   string `json:"reason"`
+			}
+			if json.Unmarshal([]byte(extractJSONObject(outText)), &parsed) != nil {
+				failReason = "parse_error"
+			} else {
+				parsed.MemberID = strings.TrimSpace(parsed.MemberID)
+				parsed.Reason = strings.TrimSpace(parsed.Reason)
+				if utf8.RuneCountInString(parsed.Reason) > 20 {
+					r := []rune(parsed.Reason)
+					parsed.Reason = string(r[:20])
+				}
+				if idv, ok := resolveRouteMemberID(members, parsed.MemberID); ok {
+					resolvedID = idv
+					resolvedReason = parsed.Reason
+				} else if parsed.MemberID == "" {
+					failReason = "empty"
+				} else {
+					failReason = "unknown_id"
+				}
+			}
 		}
 	}
-	if !ok {
-		return "", "", detail
+
+	mode := "ai"
+	storeReason := resolvedReason
+	if resolvedID == "" {
+		mode = "undecided"
+		storeReason = failReason
 	}
-	detail.MemberID = parsed.MemberID
-	detail.Reason = parsed.Reason
-	_ = detail // already inserted; RouteSeq set
-	return parsed.MemberID, parsed.Reason, detail
+	detail, _ = s.cfg.Store.InsertCatGroupRoute(ctx, store.CatGroupRouteDetail{
+		GroupID: g.ID, ChainID: userMsg.ChainID, Mode: mode, MemberID: resolvedID, Reason: storeReason,
+		InputText: input, OutputText: outText, StartedAt: startedAt, FinishedAt: finishedAt,
+	})
+	return resolvedID, resolvedReason, detail
+}
+
+// resolveRouteMemberID：先按 id= 精确匹配；否则用人名、再用职位名；同名或同职位不唯一则拒绝。
+func resolveRouteMemberID(members []store.CatGroupMember, raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", false
+	}
+	for _, m := range members {
+		if m.ID == raw {
+			return m.ID, true
+		}
+	}
+	var byName []string
+	for _, m := range members {
+		if m.Name == raw {
+			byName = append(byName, m.ID)
+		}
+	}
+	if len(byName) == 1 {
+		return byName[0], true
+	}
+	if len(byName) > 1 {
+		return "", false
+	}
+	var byTitle []string
+	for _, m := range members {
+		if m.Title == raw {
+			byTitle = append(byTitle, m.ID)
+		}
+	}
+	if len(byTitle) == 1 {
+		return byTitle[0], true
+	}
+	return "", false
 }
 
 func (s *Service) postRouteSystem(ctx context.Context, groupID, chainID string, member store.CatGroupMember, route store.CatRouteInfo, text string) {

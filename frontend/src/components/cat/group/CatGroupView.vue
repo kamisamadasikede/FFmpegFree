@@ -120,7 +120,7 @@
             <div v-else class="cg-sysw">
               <div class="cg-sys" :data-kind="m.systemKind" data-testid="cat-group-system">
                 <FIcon :name="sysIcon(m)" :size="12" />
-                <button v-if="m.route && (m.route.mode === 'ai' || m.route.mode === 'fallback')" type="button" class="lk" @click="toggleRoute(m)">{{ sysText(m) }}</button>
+                <button v-if="m.route && (m.route.mode === 'ai' || m.route.mode === 'fallback' || m.route.mode === 'undecided')" type="button" class="lk" @click="toggleRoute(m)">{{ sysText(m) }}</button>
                 <span v-else>{{ sysText(m) }}</span>
                 <span v-if="m.route?.durationMs" class="took">· {{ t('cat.groupChat.routeTookInline', { time: formatElapsed(m.route.durationMs) }) }}</span>
                 <span v-if="canReassign(m)" style="position: relative">
