@@ -19,6 +19,7 @@
 
       <CatSettingsView v-if="catPanels.view === 'settings'" />
       <CatSchedulesView v-else-if="catPanels.view === 'schedules'" />
+      <CatGroupView v-else-if="catPanels.view === 'group'" />
       <section v-else class="ct-c" :aria-label="t('cat.page.s_85936242fc')">
         <CatCLIUpdateNotice :show-banner="true" />
         <!-- 中间顶部浮提示（设计 §07：重复文件夹等），2.4s 自动消失 -->
@@ -273,6 +274,7 @@ import CatAddProjectDialog from '@/components/cat/CatAddProjectDialog.vue'
 import CatSettingsView from '@/components/cat/panels/CatSettingsView.vue'
 import CatAgentMark from '@/components/cat/CatAgentMark.vue'
 import CatSchedulesView from '@/components/cat/panels/CatSchedulesView.vue'
+import CatGroupView from '@/components/cat/group/CatGroupView.vue'
 import CatScheduleToast from '@/components/cat/panels/CatScheduleToast.vue'
 import CatOfficeDownloadCard from '@/components/cat/CatOfficeDownloadCard.vue'
 import CatOfficeCanvasPanel from '@/components/cat/CatOfficeCanvasPanel.vue'
