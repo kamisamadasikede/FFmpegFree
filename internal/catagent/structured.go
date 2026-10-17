@@ -183,7 +183,7 @@ func unwrapStructuredValue(v any, depth int) string {
 		if looksLikeStructuredPayload(x) {
 			return mustCompactJSON(x)
 		}
-		for _, key := range []string{"result", "data", "content", "output", "message"} {
+		for _, key := range []string{"structured_output", "text", "result", "data", "content", "output", "message"} {
 			if raw, ok := x[key]; ok {
 				if got := unwrapStructuredValue(raw, depth+1); got != "" {
 					return got

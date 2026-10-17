@@ -22,6 +22,10 @@ func TestExtractStructuredJSONContent(t *testing.T) {
 		{"result string", `{"type":"result","result":"{\"memberId\":\"m1\",\"reason\":\"x\"}"}`, "", `"memberId":"m1"`},
 		{"streaming text wrap", "{\"type\":\"text\",\"data\":\"{\\\"memberId\\\":\\\"m1\\\",\\\"reason\\\":\\\"x\\\"}\"}\n{\"type\":\"end\"}\n", "", `"memberId":"m1"`},
 		{"charter owns", `{"owns":"前端","notTouch":"后端","handoff":"","dirs":["frontend/"]}`, "", `"owns":"前端"`},
+		{"grok structured_output only", `{"text":"hello","structured_output":{"owns":"前端","notTouch":"后端","handoff":"汇报","dirs":[]}}`, "", `"owns":"前端"`},
+		{"grok text JSON string", `{"text":"{\"memberId\":\"m1\",\"reason\":\"接口\"}"}`, "", `"memberId":"m1"`},
+		{"grok text object", `{"text":{"memberId":"m2","reason":"职责"}}`, "", `"memberId":"m2"`},
+		{"prefer structured_output over text", `{"text":{"memberId":"from-text","reason":"x"},"structured_output":{"memberId":"from-so","reason":"y"}}`, "", `"memberId":"from-so"`},
 		{"empty", `   `, "", ""},
 		{"plain prose", "我觉得是后端", "", ""},
 	}
