@@ -31,6 +31,12 @@ export function draftCommands(prompts: CatPrompt[]): DraftCommand[] {
     ...prompts.map((p, i) => ({ id: 'prompt:'+p.id, name: '/p'+(i+1), description: p.name, content: p.content })),
   ]
 }
+/** Keep the highlighted slash row when the trigger text did not change. */
+export function suggestionIndexAfterTrigger(index: number, previous: { kind: string; query: string } | null, next: { kind: string; query: string } | null): number {
+  if (!next) return 0
+  if (previous && previous.kind === next.kind && previous.query === next.query) return index
+  return 0
+}
 export function filterCommands(commands: DraftCommand[], query: string) {
   const q = query.trim().toLocaleLowerCase()
   return commands.filter(c => !q || c.name.toLocaleLowerCase().includes(q) || c.description.toLocaleLowerCase().includes(q)).slice(0, 30)

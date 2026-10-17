@@ -35,21 +35,33 @@ type codexRPCMessage struct {
 }
 
 type codexRPC struct {
-	writeMu sync.Mutex
-	writer  *json.Encoder
-	mu      sync.Mutex
-	next    int
-	pending map[string]chan codexRPCMessage
-	events  chan codexRPCMessage
-	eventMu sync.Mutex
-	queue   []codexRPCMessage
-	wake    chan struct{}
-	done    chan struct{}
-	readErr error
+	writeMu    sync.Mutex
+	writer     *json.Encoder
+	mu         sync.Mutex
+	next       int
+	pending    map[string]chan codexRPCMessage
+	events     chan codexRPCMessage
+	eventMu    sync.Mutex
+	queue      []codexRPCMessage
+	wake       chan struct{}
+	done       chan struct{}
+	readErr    error
+	jsonRPC    bool
+	queueBytes int
+	eventCount uint64
+	onRequest  func(codexRPCMessage) (any, error)
 }
 
 func newCodexRPC(reader io.Reader, writer io.Writer) *codexRPC {
+	return newNativeRPC(reader, writer, false)
+}
+func newNativeRPC(reader io.Reader, writer io.Writer, jsonRPC bool) *codexRPC {
+	return newNativeRPCWithHandler(reader, writer, jsonRPC, nil)
+}
+func newNativeRPCWithHandler(reader io.Reader, writer io.Writer, jsonRPC bool, handler func(codexRPCMessage) (any, error)) *codexRPC {
 	r := &codexRPC{writer: json.NewEncoder(writer), pending: map[string]chan codexRPCMessage{}, events: make(chan codexRPCMessage, 128), done: make(chan struct{}), wake: make(chan struct{}, 1)}
+	r.jsonRPC = jsonRPC
+	r.onRequest = handler
 	go r.pumpEvents()
 	go r.read(reader)
 	return r
@@ -58,6 +70,11 @@ func newCodexRPC(reader io.Reader, writer io.Writer) *codexRPC {
 func (r *codexRPC) write(value any) error {
 	r.writeMu.Lock()
 	defer r.writeMu.Unlock()
+	if r.jsonRPC {
+		if obj, ok := value.(map[string]any); ok {
+			obj["jsonrpc"] = "2.0"
+		}
+	}
 	return r.writer.Encode(value)
 }
 
@@ -81,11 +98,27 @@ func (r *codexRPC) read(reader io.Reader) {
 				}
 			}
 		} else if len(msg.ID) > 0 {
+			if r.onRequest != nil {
+				value, e := r.onRequest(msg)
+				if e == nil {
+					_ = r.write(map[string]any{"id": msg.ID, "result": value})
+					continue
+				}
+			}
 			// No manual approval surface here. Never silently grant a request.
 			_ = r.write(map[string]any{"id": msg.ID, "error": map[string]any{"code": -32601, "message": "This client does not support interactive approval requests"}})
 		} else if msg.Method != "" {
 			r.eventMu.Lock()
+			if r.queueBytes+len(sc.Bytes()) > 16<<20 {
+				r.eventMu.Unlock()
+				r.mu.Lock()
+				r.readErr = errors.New("原生事件积压超过上限")
+				r.mu.Unlock()
+				return
+			}
 			r.queue = append(r.queue, msg)
+			r.eventCount++
+			r.queueBytes += len(sc.Bytes())
 			r.eventMu.Unlock()
 			select {
 			case r.wake <- struct{}{}:
@@ -106,6 +139,7 @@ func (r *codexRPC) pumpEvents() {
 		r.eventMu.Lock()
 		batch := r.queue
 		r.queue = nil
+		r.queueBytes = 0
 		r.eventMu.Unlock()
 		for _, event := range batch {
 			r.events <- event
@@ -293,7 +327,7 @@ func (a *CLIAgentAdapter) runCodexAppTurn(opts TurnOptions, exe string) (TurnRes
 	if err = rpc.call(initCtx, method, threadParams, &threadResp); err != nil {
 		return TurnResponse{}, a.codexAppError(ctx, runCtx, err)
 	}
-	if provider := threadResp.ModelProvider; provider != "" && provider != "openai" {
+	if provider := threadResp.ModelProvider; provider != "" && provider != "openai" && opts.Transport != "app-server" {
 		a.cfg.Logf("cat Codex: using exec for configured provider %q", provider)
 		return TurnResponse{}, errCodexExecTransport
 	}
@@ -319,6 +353,9 @@ func (a *CLIAgentAdapter) runCodexAppTurn(opts TurnOptions, exe string) (TurnRes
 		return TurnResponse{}, apperr.New(apperr.CatReplyFailed, "Codex 未返回任务编号。")
 	}
 	initCancel()
+	if opts.OnInputMode != nil {
+		opts.OnInputMode("active_turn")
+	}
 	if opts.OnSteerReady != nil {
 		opts.OnSteerReady(func(steerCtx context.Context, text string, files []PromptFile) error {
 			input, err := codexAppInput(text, files)

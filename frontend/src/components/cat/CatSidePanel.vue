@@ -39,12 +39,12 @@
       <FIcon name="clock" :size="16" /><span class="t">定时任务</span><span v-if="enabledScheduleCount()" class="r cnt">{{ enabledScheduleCount() }}</span>
     </button>
 
-    <div class="conv-filter"><FIcon name="search" :size="13" /><input v-model="convQuery" :placeholder="t('cat.workspace.filter')" :aria-label="t('cat.workspace.filter')" data-testid="cat-sidebar-filter" /><button :class="{on: archivedView}" :title="t(archivedView ? 'cat.workspace.activeChats' : 'cat.workspace.archiveList', {n: archiveCount})" :aria-label="t(archivedView ? 'cat.workspace.activeChats' : 'cat.workspace.archiveList', {n: archiveCount})" :aria-pressed="archivedView" data-testid="cat-archive-toggle" @click="archivedView = !archivedView"><FIcon :name="archivedView ? 'chat' : 'folder'" :size="14" /><span v-if="archiveCount">{{ archiveCount }}</span></button></div>
-    <div ref="scrollEl" class="ct-scroll"><div v-if="archivedView" class="archive-caption">{{ t('cat.workspace.archiveList', {n: archiveCount}) }}</div>
+    <div ref="scrollEl" class="ct-scroll">
       <div class="ct-sec">
-        <span>项目</span>
+        <input v-if="projectSearchOn" ref="projectSearchEl" v-model="projectQuery" class="sec-search" :placeholder="t('cat.workspace.filterProjects')" :aria-label="t('cat.workspace.filterProjects')" data-testid="cat-project-search" @keydown.esc.prevent="closeProjectSearch" />
+        <span v-else>项目</span>
         <span class="acts">
-          <!-- 设计「项目状态 v0.1」§01：标题行只有这一个入口 -->
+          <button type="button" class="ib" :class="{ on: projectSearchOn }" :title="t('cat.workspace.filterProjects')" :aria-label="t('cat.workspace.filterProjects')" :aria-expanded="projectSearchOn" data-testid="cat-project-search-toggle" @click="toggleProjectSearch"><FIcon name="search" :size="14" /></button>
           <button
             ref="newBtn"
             type="button"
@@ -63,10 +63,10 @@
       </div>
       <div v-else class="pjs">
         <div
-          v-for="p in catState.projects"
+          v-for="p in shownProjects"
           :key="p.id"
           class="pj"
-          :class="{ open: p.open, missing: p.missing, hl: catState.highlight === p.id, menu: menuFor === p.id }"
+          :class="{ open: p.open || !!projectQuery.trim(), missing: p.missing, hl: catState.highlight === p.id, menu: menuFor === p.id }"
           :data-pid="p.id"
         >
           <div v-if="catState.renaming === p.id" class="pj-ren">
@@ -141,7 +141,7 @@
               <CatGroupSection :project-id="p.id" :missing="p.missing" />
               <div v-if="!p.convs.length" class="pj-none">{{ PC.emptyConvs }}</div>
               <div
-                v-for="c in visibleConversations(p.convs, archivedView, convQuery)"
+                v-for="c in visibleConversations(p.convs, false, projectQuery)"
                 :key="c.id"
                 class="pc"
                 :class="{ on: catPanels.view === 'chat' && c.id === catState.sel, menu: cmenuFor === c.id }"
@@ -179,10 +179,16 @@
           </div>
         </div>
       </div>
-      <div class="ct-sec"><span>对话</span></div>
+      <div class="ct-sec">
+        <input v-if="convSearchOn" ref="convSearchEl" v-model="convQuery" class="sec-search" :placeholder="t('cat.workspace.filter')" :aria-label="t('cat.workspace.filter')" data-testid="cat-sidebar-filter" @keydown.esc.prevent="closeConvSearch" />
+        <span v-else>对话</span>
+        <span class="acts">
+          <button type="button" class="ib" :class="{ on: convSearchOn }" :title="t('cat.workspace.filter')" :aria-label="t('cat.workspace.filter')" :aria-expanded="convSearchOn" data-testid="cat-conv-search-toggle" @click="toggleConvSearch"><FIcon name="search" :size="14" /></button>
+        </span>
+      </div>
       <!-- 普通对话行：里面要放「···」按钮，所以行本身不能是 <button> -->
       <div
-        v-for="c in visibleConversations(catState.plain, archivedView, convQuery)"
+        v-for="c in visibleConversations(catState.plain, false, convQuery)"
         :key="c.id"
         class="ct-it dc"
         :class="{ on: catPanels.view === 'chat' && c.id === catState.sel, menu: cmenuFor === c.id }"
@@ -344,8 +350,34 @@ function rowDotLabel(id: string, stored?: string) {
   return convDotLabel(rowDot(id, stored))
 }
 
-const convQuery = ref(''), archivedView = ref(false)
-const archiveCount = computed(() => [...catState.plain, ...catState.projects.flatMap(p => p.convs)].filter(c => c.archived).length)
+const convQuery = ref('')
+const projectQuery = ref('')
+const projectSearchOn = ref(false), convSearchOn = ref(false)
+const projectSearchEl = ref<HTMLInputElement>()
+const convSearchEl = ref<HTMLInputElement>()
+const shownProjects = computed(() => {
+  const q = projectQuery.value.trim().toLocaleLowerCase()
+  if (!q) return catState.projects
+  return catState.projects.filter((p) => p.convs.some((c) => !c.archived && c.title.toLocaleLowerCase().includes(q)))
+})
+function toggleProjectSearch() {
+  projectSearchOn.value = !projectSearchOn.value
+  if (!projectSearchOn.value) projectQuery.value = ''
+  else nextTick(() => projectSearchEl.value?.focus())
+}
+function closeProjectSearch() {
+  projectQuery.value = ''
+  projectSearchOn.value = false
+}
+function toggleConvSearch() {
+  convSearchOn.value = !convSearchOn.value
+  if (!convSearchOn.value) convQuery.value = ''
+  else nextTick(() => convSearchEl.value?.focus())
+}
+function closeConvSearch() {
+  convQuery.value = ''
+  convSearchOn.value = false
+}
 const menuConv = computed(() => findConv(cmenuFor.value)?.conv)
 function renameConv(id: string) { closeMenu(); workspaceUI.renameId = id }
 function convAction(action: 'pin' | 'archive') { const id = cmenuFor.value; const conv = menuConv.value; closeMenu(); if (conv) void changeConversation(id, action, '', !(action === 'pin' ? conv.pinned : conv.archived)) }
@@ -581,7 +613,9 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.conv-filter { display:flex; gap:6px; align-items:center; margin:8px 12px; padding:7px 8px; border:1px solid var(--ff-border); border-radius:8px; color:var(--ff-text-3) }.conv-filter input { flex:1; width:0; border:0; outline:0; background:transparent; color:var(--ff-text-1); font:inherit; font-size:12px }.conv-filter button { display:flex; align-items:center; gap:3px; background:transparent; border:0; color:var(--ff-text-3); cursor:pointer; font-size:10px }.conv-filter button.on { color:var(--ff-accent) }.archive-caption { padding:5px 16px; font-size:11px; color:var(--ff-text-3) }.conv-pin { margin-right:4px; vertical-align:middle }
+.conv-pin { margin-right:4px; vertical-align:middle }
+.sec-search { flex:1; min-width:0; height:22px; border:0; outline:none; background:transparent; color:var(--cat-text); font:inherit; font-size:12px }
+.ct-sec .acts .ib.on { background:var(--cat-hover); color:var(--cat-text) }
 .ct-l {
   position: relative;
   flex: none;
@@ -638,7 +672,7 @@ onBeforeUnmount(() => {
 .ct-l {
   display: flex;
   flex-direction: column;
-  background: var(--cat-rail);
+  background: var(--cat-bg);
   border-right: 1px solid var(--cat-border);
   padding: 10px 8px 12px;
   min-width: 0;
@@ -657,7 +691,7 @@ onBeforeUnmount(() => {
   padding: 0;
   border: 1px solid var(--cat-border);
   border-radius: 9px;
-  background: var(--cat-rail);
+  background: var(--cat-bg);
   color: var(--cat-muted);
   cursor: pointer;
   transform: translateY(-50%);
@@ -773,26 +807,15 @@ button.ct-it:hover,
 .pc:hover {
   background: var(--cat-hover);
 }
-/* B2 选中 = 主色 10% 底 + 主色文字 + 左侧 3px 指示条；hover = 中性 5% 底 */
+/* 选中和悬浮用同一块灰色，不再用主色底和左侧蓝条 */
 .ct-it.on,
 .ct-it.on:hover {
-  background: var(--cat-active);
-  color: var(--cat-active-text);
+  background: var(--cat-hover);
+  color: var(--cat-text);
   font-weight: 500;
 }
 .ct-it.on > :deep(svg) {
-  color: var(--cat-active-text);
-}
-.ct-it.on:not(.new)::before,
-.pc.on::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 7px;
-  bottom: 7px;
-  width: 3px;
-  border-radius: 0 2px 2px 0;
-  background: var(--cat-accent);
+  color: var(--cat-text-2);
 }
 .ct-it .t {
   overflow: hidden;
@@ -801,15 +824,8 @@ button.ct-it:hover,
   min-width: 0;
 }
 .ct-it.new {
-  border: 1px solid var(--cat-border);
-  background: var(--cat-surface);
   margin-bottom: 4px;
   font-weight: 500;
-}
-.ct-it.new.on {
-  background: var(--cat-surface);
-  border-color: var(--cat-accent);
-  color: var(--cat-active-text);
 }
 .ct-sec {
   display: flex;
@@ -822,6 +838,13 @@ button.ct-it:hover,
 .ct-sec .acts {
   display: flex;
   gap: 2px;
+  opacity: 0;
+  transition: opacity var(--ff-dur-quick);
+}
+.ct-sec:hover .acts,
+.ct-sec:focus-within .acts,
+.ct-sec:has(.sec-search) .acts {
+  opacity: 1;
 }
 .ct-scroll {
   flex: 1;
@@ -935,10 +958,10 @@ button.ct-it:hover,
 }
 .pc.on,
 .pc.on:hover {
-  background: var(--cat-active);
+  background: var(--cat-hover);
 }
 .pc.on .l1 {
-  color: var(--cat-active-text);
+  color: var(--cat-text);
 }
 .pc .l1 {
   display: flex;

@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"FFmpegFree/internal/agentexec"
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/catagent"
 	"FFmpegFree/internal/genoffice"
@@ -24,10 +25,11 @@ import (
 
 // Config 依赖。
 type Config struct {
-	Store    *store.Store
-	Registry *catagent.Registry
-	Emit     func(event string, payload any)
-	Logf     func(format string, args ...any)
+	Execution *agentexec.Runtime
+	Store     *store.Store
+	Registry  *catagent.Registry
+	Emit      func(event string, payload any)
+	Logf      func(format string, args ...any)
 	// DefaultAgentKind 读取新建会话预填（优先 CatSettings.defaultAgentKind，再系统旧键，默认 cat_build）。
 	DefaultAgentKind func(ctx context.Context) string
 	// SystemDefaultAgentKind 读系统旧键 catDefaultAgentKind；GetCatSettings 在 cat.settings 缺 defaultAgentKind 时回落。
@@ -139,6 +141,8 @@ type actRec struct {
 // turnState 是一轮进行中的回复。终态事件只发一次；终态后丢弃迟到增量。
 type turnState struct {
 	convID string
+	// leaseKey 非空 = 群聊成员回合：用独立执行范围（项目+groupId+memberId），不占项目目录锁。
+	leaseKey string
 	turnID string
 	cancel context.CancelFunc
 	done   chan struct{} // 后台 runTurn 返回后关闭（含已出文字落库）
@@ -763,7 +767,6 @@ func (s *Service) startTurn(ctx context.Context, req SendMessageRequest, hook *t
 		defer s.wg.Done()
 		defer close(t.done)
 		defer s.afterWorkflowTurn(t)
-		s.syncSharingBeforeTurn(turnCtx, projectRoot)
 		stopWorkspace := s.watchTurnWorkspace(turnCtx, t, cwd, &opts)
 		s.runTurn(turnCtx, t, a, opts)
 		stopWorkspace()
@@ -782,9 +785,16 @@ func (s *Service) runTurn(ctx context.Context, t *turnState, a catagent.Adapter,
 		streamed = true
 		s.appendText(ctx, t, delta)
 	}
+	// 群聊成员回合（6.21.14）自带 OnActivity：记工具数和写过的文件（越界 / 撤销靠它），
+	// 这里只接住 retry，其余交回调用方的回调，不能覆盖掉。
+	prevActivity := opts.OnActivity
 	opts.OnActivity = func(kind, id, text string, replace bool) {
 		if kind == "retry" {
 			s.showRetry(ctx, t, text)
+			return
+		}
+		if prevActivity != nil {
+			prevActivity(kind, id, text, replace)
 			return
 		}
 		s.appendActivity(ctx, t, kind, id, text, replace)
@@ -793,7 +803,19 @@ func (s *Service) runTurn(ctx context.Context, t *turnState, a catagent.Adapter,
 		s.noteTurnError(ctx, t, msg)
 	}
 
-	resp, runErr := a.RunTurn(opts)
+	var resp catagent.TurnResponse
+	var runErr error
+	if s.cfg.Execution != nil {
+		if opts.ProjectPath == "" {
+			// The adapter used to recreate a removed plain-chat folder itself.
+			// Create it before the shared runtime resolves its physical lease.
+			s.ensureConvDir(t.convID)
+		}
+		resp, runErr = s.cfg.Execution.Run(a, agentexec.Scope{OwnerID: t.convID, Workspace: t.usageCwd, NativeConfigKey: projectConfigKey(opts.ProjectPath), LeaseKey: t.leaseKey, Prepare: func(ctx context.Context) error { s.syncSharingBeforeTurn(ctx, opts.ProjectPath); return ctx.Err() }}, opts)
+	} else {
+		s.syncSharingBeforeTurn(ctx, opts.ProjectPath)
+		resp, runErr = a.RunTurn(opts)
+	}
 	s.noteTurnUsage(t, resp)
 	if runErr != nil {
 		if ctx.Err() != nil || apperr.Is(runErr, apperr.Canceled) {

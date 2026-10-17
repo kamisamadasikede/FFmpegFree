@@ -81,7 +81,7 @@ ffmpeg/              v1 遗留：随包的 ffmpeg（Windows），仅作为“程
 依赖：
 
 - Go（`go.mod` 声明 1.24）
-- Node.js（Vite 5，建议 18 及以上）与 npm
+- Node.js 22.12 及以上与 npm（Office 编辑组件需要）
 - [Wails CLI](https://wails.io/)：`go install github.com/wailsapp/wails/v2/cmd/wails@latest`
 
 常用命令：
@@ -117,8 +117,9 @@ npm run check:json            # JSON 工具文本处理自检
 npx vue-tsc --noEmit          # 类型检查
 ```
 
-> **注意**：根包用 `//go:embed all:frontend/dist` 嵌入前端产物，`frontend/dist` 不在版本库里。直接 `go build ./...`、`go vet ./...` 或 `go test ./...` 之前，需要先构建前端：
-> `cd frontend && npm ci && npx vite build`。`wails dev` / `wails build` 会自动构建前端。
+> **注意**：前端产物 `frontend/dist`、Wails 自动生成的 `frontend/wailsjs`、依赖指纹 `frontend/package.json.md5`，以及 `internal/genoffice/runtime` 下的 Office 编译产物不进入版本库。Office 源码保留在 `office/`，表格引擎 `xlsx-sidecar.exe` 仍随仓库提供。`wails dev` / `wails build` 会自动生成绑定、同步 Office 依赖并构建所需资源。首次直接执行 `go build ./...`、`go vet ./...` 或 `go test ./...` 之前，先运行一次 `wails build`；只需更新 Office 资源时运行 `npm --prefix frontend run prebuild`。
+
+开发程序位于本项目源码目录内时，默认输出和上传目录使用用户数据目录下的 `output` / `uploads`（Windows 为 `%AppData%\FFmpegFree`），不会在 `build/bin` 内创建这些目录。数据库、日志、Agent 会话和办公引擎缓存继续保存在用户数据目录；用户在设置中选择的自定义保存位置保持有效。构建目录、依赖目录和 `.gocache` 已由 Git 忽略，启动、热更新和重新编译不会产生待提交的生成文件。
 
 ## 接口契约文档
 

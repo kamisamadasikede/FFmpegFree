@@ -118,7 +118,7 @@ function thinkFold(b: Extract<CatBlock, { kind: 'think' }>, i: number): CatRow {
     title: status ? text : t('cat.misc.s_21d68b2de0'),
     body: status ? '' : text,
     streaming,
-    defaultOpen: false,
+    defaultOpen: !status && !!text,
   }
   return { kind: 'fold', key: fold.key, fold }
 }
@@ -175,7 +175,50 @@ function pushChangeGroup(rows: CatRow[], held: HeldTool[]) {
  * 连续的工具调用和搜索合成一组，连续的新增和编辑合成一组。
  * 中间插了正文或另一种操作，就另起一组。查找默认收起，文件改动默认展开。
  */
-export function presentCatBlocks(blocks: CatBlock[]): CatRow[] {
+function hasThoughtChain(blocks: CatBlock[], from: number, to: number): boolean {
+  for (let i = from; i < to; i++) {
+    const b = blocks[i]
+    if (b.kind === 'think' && (b.text.trim() || b.streaming)) return true
+  }
+  return false
+}
+
+function segmentReplied(blocks: CatBlock[], from: number, to: number): boolean {
+  for (let i = from; i < to; i++) {
+    const b = blocks[i]
+    if ((b.kind === 'a' || b.kind === 'run') && b.text.trim()) return true
+  }
+  return false
+}
+
+/** No reasoning trace came back: one “思考中” while the turn runs, then “思考完成”. */
+function fillMissingThoughts(blocks: CatBlock[], rows: CatRow[], running: boolean): CatRow[] {
+  const users: number[] = []
+  blocks.forEach((b, i) => { if (b.kind === 'user') users.push(i) })
+  if (!users.length) return rows
+  const out = rows.slice()
+  for (let s = users.length - 1; s >= 0; s--) {
+    const from = users[s] + 1
+    const to = s + 1 < users.length ? users[s + 1] : blocks.length
+    if (hasThoughtChain(blocks, from, to)) continue
+    const live = running && s === users.length - 1
+    if (!live && !segmentReplied(blocks, from, to)) continue
+    const key = `think-gap:${users[s]}`
+    const fold: CatFold = {
+      key,
+      tone: 'think',
+      title: live ? t('cat.chatUX.thinkingNow') : t('cat.chatUX.thinkingDone'),
+      body: '',
+      streaming: live,
+      defaultOpen: false,
+    }
+    const at = out.findIndex((r) => r.kind === 'block' && r.key === `user:${users[s]}`)
+    if (at >= 0) out.splice(at + 1, 0, { kind: 'fold', key, fold })
+  }
+  return out
+}
+
+export function presentCatBlocks(blocks: CatBlock[], running = false): CatRow[] {
   const rows: CatRow[] = []
   const tools: HeldTool[] = []
   const changes: HeldTool[] = []
@@ -205,7 +248,7 @@ export function presentCatBlocks(blocks: CatBlock[]): CatRow[] {
     } else rows.push({ kind: 'block', key: blockKey(b, i), block: b })
   })
   flush()
-  return rows
+  return fillMissingThoughts(blocks, rows, running)
 }
 
 export function foldIcon(fold: Pick<CatFold, 'tone' | 'title'>): IconName {

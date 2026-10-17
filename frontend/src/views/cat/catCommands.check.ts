@@ -1,4 +1,4 @@
-import { draftTrigger, visibleConversations, draftCommands, filterCommands } from './catCommands'
+import { draftTrigger, visibleConversations, draftCommands, filterCommands, suggestionIndexAfterTrigger } from './catCommands'
 import type { CatConv } from '@/api/catMock'
 export function catCommandsChecks(eq: (name: string, got: unknown, want: unknown) => void) {
   eq('slash begins at input start', draftTrigger('/re', 3)?.query, 're')
@@ -11,6 +11,8 @@ export function catCommandsChecks(eq: (name: string, got: unknown, want: unknown
   eq('mention before following text', draftTrigger('@src code', 4), { kind: 'file', query: 'src', start: 0, end: 4 })
   eq('mention at beginning', draftTrigger('@', 1)?.kind, 'file')
   eq('whitespace ends mention', draftTrigger('@src ', 5), null)
+  eq('slash highlight stays when the same command text is refreshed', suggestionIndexAfterTrigger(2, { kind: 'command', query: '' }, { kind: 'command', query: '' }), 2)
+  eq('slash highlight returns to the first row when the query changes', suggestionIndexAfterTrigger(2, { kind: 'command', query: '' }, { kind: 'command', query: 're' }), 0)
   const convs: CatConv[] = [{id:'a',title:'Active',agentKind:'codex_cli'}, {id:'b',title:'Pinned',agentKind:'codex_cli',pinned:true}, {id:'c',title:'Archived',agentKind:'codex_cli',archived:true}]
   eq('active pinned first', visibleConversations(convs, false, '').map(c=>c.id), ['b','a'])
   eq('archives preserved', visibleConversations(convs, true, '').map(c=>c.id), ['c'])

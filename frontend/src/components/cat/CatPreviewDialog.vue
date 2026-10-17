@@ -1,11 +1,11 @@
 <template>
   <teleport to="body">
-    <div v-if="open" class="mask" role="dialog" aria-modal="true" :aria-label="t('cat.misc.s_199cf9f0e4')" @click.self="close">
+    <div v-if="open" class="mask" role="dialog" aria-modal="true" :aria-label="t('cat.misc.s_199cf9f0e4')" @mousedown.self="close">
       <div class="frame" :class="{ hug }" @click.stop>
         <button ref="xBtn" type="button" class="x" :aria-label="t('cat.misc.s_b15d91274e')" :title="t('cat.misc.s_b15d91274e')" @click="close"><FIcon name="x" :size="16" /></button>
         <div class="sheet" :class="view || 'wait'" data-testid="cat-attach-preview">
           <p v-if="note" class="note">{{ note }}</p>
-          <img v-else-if="view === 'image' || view === 'svg'" :src="src" alt="" />
+          <img v-else-if="view === 'image' || view === 'svg'" :src="src" alt="" @error="onImgError" />
           <video v-else-if="view === 'video'" :src="src" controls autoplay playsinline />
           <audio v-else-if="view === 'audio'" :src="src" controls />
           <iframe v-else-if="view === 'pdf'" class="doc" :src="src" :title="t('cat.misc.s_199cf9f0e4')" />
@@ -27,7 +27,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
 import CatFileRich from './CatFileRich.vue'
 import { buildSrcdoc, renderMarkdown } from '@/utils/docSafeHtml'
-import { canPreview, catMediaBase64, catMediaText, catMediaURL, imageDataUrl, plainDocumentHtml, tableDocumentHtml, type CatPreviewKind, type CatShownFile } from './catMedia'
+import { canPreview, catMediaBase64, catMediaObjectURL, catMediaText, catMediaURL, imageDataUrl, plainDocumentHtml, tableDocumentHtml, type CatPreviewKind, type CatShownFile } from './catMedia'
 
 const props = defineProps<{ open: boolean; file: CatShownFile | null }>()
 const emit = defineEmits<{ 'update:open': [boolean] }>()
@@ -36,6 +36,12 @@ const xBtn = ref<HTMLButtonElement>()
 
 function close() {
   emit('update:open', false)
+}
+
+function onImgError() {
+  src.value = ''
+  view.value = ''
+  note.value = FAIL
 }
 
 function onKey(e: KeyboardEvent) {
@@ -106,6 +112,16 @@ async function load() {
   if (!file.path) {
     note.value = FAIL
     return
+  }
+  if (file.kind === 'image' || file.kind === 'svg') {
+    const obj = await catMediaObjectURL(file.path)
+    if (my !== token) return
+    if (obj) {
+      note.value = ''
+      view.value = file.kind
+      src.value = obj
+      return
+    }
   }
   if (file.kind === 'image' || file.kind === 'video' || file.kind === 'audio' || file.kind === 'pdf' || file.kind === 'svg') {
     const hit = await catMediaURL(file.path)

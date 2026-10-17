@@ -76,6 +76,25 @@ function mapFileEntry(raw: unknown): CatFileEntry {
   }
 }
 
+/** Identity of one directory listing. Size and mtime keep edits visible, not only new names. */
+export function fileEntryStamp(entries: CatFileEntry[]): string {
+  return entries.map((e) => `${e.relPath}\0${e.isDir ? 1 : 0}\0${e.size}\0${e.modTime}`).join('\n')
+}
+
+/** Replace a directory's rows without dropping folders the user already expanded. */
+export function mergeFileNodes(current: CatFileNode[] | null, entries: CatFileEntry[], depth: number): CatFileNode[] {
+  const prev = new Map((current ?? []).map((n) => [n.relPath, n]))
+  return entries.map((e) => {
+    const old = prev.get(e.relPath)
+    if (old && old.isDir === e.isDir) {
+      old.name = e.name
+      old.depth = depth
+      return old
+    }
+    return { name: e.name, relPath: e.relPath, isDir: e.isDir, depth, expanded: false, loading: false, truncated: false, children: null }
+  })
+}
+
 export function entriesToNodes(entries: CatFileEntry[], depth: number): CatFileNode[] {
   return entries.map((e) => ({
     name: e.name,

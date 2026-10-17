@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <MotionDialog>
-    <div v-if="ffmpeg.dialogVisible" class="mask">
+    <div v-if="ffmpeg.dialogVisible" class="mask" @mousedown.self="onMask">
       <div class="dlg ff-panel" role="dialog" aria-modal="true">
         <div class="big"><FIcon name="download" :size="24" /></div>
 
@@ -75,6 +75,10 @@ const safeDetail = (d?: string) => detailWithoutPaths(d)
 
 const ffmpeg = useFFmpegStore()
 const installing = computed(() => ffmpeg.status.state === 'installing')
+function onMask() {
+  if (installing.value) ffmpeg.dialogOpen = false
+  else void safe(ffmpeg.dismissPrompt)
+}
 const percent = computed(() => Math.round((ffmpeg.install?.progress ?? 0) * 100))
 const STAGES = { download: '正在下载', verify: '正在校验', extract: '正在解压', validate: '正在验证' }
 const stageText = computed(() => (ffmpeg.install ? STAGES[ffmpeg.install.stage] : '正在准备'))

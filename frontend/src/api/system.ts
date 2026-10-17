@@ -32,6 +32,41 @@ export function componentFolderErrorText(e: unknown): string {
   return toAppError(e).code === 'NOT_FOUND' ? COMPONENT_NOT_READY_TEXT : COMPONENT_FOLDER_FAILED_TEXT
 }
 
+/** 剪贴板里复制的文件绝对路径。没有文件、或当前环境读不到时返回空列表。 */
+export async function clipboardFilePaths(): Promise<string[]> {
+  if (!hasWailsBackend()) return []
+  try {
+    const paths = await call(SystemBinding.ClipboardFilePaths())
+    return (paths ?? []).filter((p) => !!p)
+  } catch {
+    return []
+  }
+}
+
+/** 剪贴板里的截图，已存成临时 PNG。没有图片时返回空字符串。 */
+export async function clipboardImage(): Promise<string> {
+  if (!hasWailsBackend()) return ''
+  try {
+    return (await call(SystemBinding.ClipboardImage())) || ''
+  } catch {
+    return ''
+  }
+}
+
+/** 把粘贴进来的图片字节写成临时文件。失败返回空字符串。 */
+export async function savePastedFile(name: string, data: Uint8Array): Promise<string> {
+  if (!hasWailsBackend() || !data.length) return ''
+  let bin = ''
+  for (let i = 0; i < data.length; i += 0x8000) {
+    bin += String.fromCharCode.apply(null, data.subarray(i, i + 0x8000) as unknown as number[])
+  }
+  try {
+    return (await call(SystemBinding.SavePastedFile(name, btoa(bin)))) || ''
+  } catch {
+    return ''
+  }
+}
+
 /** 系统选择文件夹对话框。用户取消返回 ""（不是错误） */
 export async function pickDirectory(title = ''): Promise<string> {
   return await call(SystemBinding.PickDirectory(title))

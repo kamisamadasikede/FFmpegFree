@@ -7,6 +7,9 @@ export async function catScratchFilesChecks(eq: Eq): Promise<void> {
   eq('未绑定 + 有文件 → 显示', shouldShowFilePanel(false, true), true)
   eq('未绑定 + 空 → 隐藏', shouldShowFilePanel(false, false), false)
   eq('未绑定 + 未知 → 隐藏', shouldShowFilePanel(false, undefined), false)
+  eq('未绑定 + 这一轮正在写临时文件夹 → 显示', shouldShowFilePanel(false, false, true), true)
+  eq('未绑定 + 没有这一轮 → 仍隐藏', shouldShowFilePanel(false, false, false), false)
+  eq('未绑定 + 打开过 → 这一轮结束后仍可展开', shouldShowFilePanel(false, false, false, true), true)
 
   const g = makeLatestGuard()
   const a = g.begin('c'), b = g.begin('c')

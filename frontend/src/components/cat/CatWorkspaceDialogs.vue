@@ -1,9 +1,9 @@
 <template>
-  <el-dialog v-model="renameOpen" :title="t('cat.workspace.rename')" width="420px" append-to-body :close-on-click-modal="false" @opened="renameInput?.focus()">
+  <el-dialog v-model="renameOpen" :title="t('cat.workspace.rename')" width="420px" append-to-body @opened="renameInput?.focus()">
     <el-input ref="renameInput" v-model="renameTitle" maxlength="120" show-word-limit :aria-label="t('cat.workspace.rename')" data-testid="cat-rename-title" @keydown.enter.prevent="rename" />
     <template #footer><el-button @click="renameOpen = false">{{ t('cat.workspace.cancel') }}</el-button><el-button type="primary" :disabled="!renameTitle.trim() || metadataBusy(workspaceUI.renameId, 'rename')" @click="rename">{{ t('cat.workspace.save') }}</el-button></template>
   </el-dialog>
-  <el-dialog v-model="workspaceUI.editor" :title="t('cat.workspace.title')" width="min(720px, 90vw)" append-to-body :close-on-click-modal="false" data-testid="cat-workspace-dialog">
+  <el-dialog v-model="workspaceUI.editor" :title="t('cat.workspace.title')" width="min(720px, 90vw)" append-to-body data-testid="cat-workspace-dialog">
     <div class="ws-tabs"><button :class="{on: workspaceUI.tab === 'prompts'}" @click="workspaceUI.tab = 'prompts'">{{ t('cat.workspace.prompts') }}</button><button :class="{on: workspaceUI.tab === 'rules'}" @click="workspaceUI.tab = 'rules'">{{ t('cat.workspace.rules') }}</button></div>
     <template v-if="workspaceUI.tab === 'rules'">
       <p class="hint">{{ t('cat.workspace.rulesHint') }}</p>

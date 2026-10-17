@@ -1466,7 +1466,9 @@
       "copy": "Copy",
       "copied": "Copied",
       "copyFailed": "Copy failed. Select the text and copy it.",
-      "thinking": "Thinking…"
+      "thinking": "Thinking…",
+      "thinkingNow": "Thinking",
+      "thinkingDone": "Finished thinking"
     },
     "shared": {
       "title": "Shared skills & MCP",
@@ -1519,6 +1521,7 @@
       "exportMarkdown": "Export Markdown",
       "exportJson": "Export JSON",
       "filter": "Search conversation titles",
+      "filterProjects": "Search chats in projects",
       "activeChats": "Return to active conversations",
       "archiveList": "Archived · {n}",
       "saved": "Saved",

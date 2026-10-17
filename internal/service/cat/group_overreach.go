@@ -23,6 +23,14 @@ func createGitSnapshot(ctx context.Context, root string) string {
 	if err != nil {
 		return ""
 	}
+	if snap := strings.TrimSpace(string(out)); snap != "" {
+		return snap
+	}
+	// 工作区干净时 stash create 什么都不输出：此时工作区就等于 HEAD，用 HEAD 当快照。
+	out, _, err = runGit(ctx, 5*time.Second, root, "rev-parse", "--verify", "HEAD")
+	if err != nil {
+		return ""
+	}
 	return strings.TrimSpace(string(out))
 }
 
@@ -143,16 +151,16 @@ func (s *Service) RevertCatOverreach(ctx context.Context, req RevertOverreachReq
 			continue
 		}
 		abs := filepath.Join(projectRoot, filepath.FromSlash(rel))
-		endHash := fileSHA256(abs)
-		// end-of-round hash: prefer stored; else compare to snapshot_after blob
-		wantEnd := ""
-		if meta.EndHashes != nil {
+		// 轮末内容：优先用轮末记下的 sha256；没有就和轮后快照里的 blob 比（同为 git blob 哈希，不能拿 sha256 去比）。
+		endHash, wantEnd := "", ""
+		if meta.EndHashes != nil && meta.EndHashes[rel] != "" {
 			wantEnd = meta.EndHashes[rel]
-		}
-		if wantEnd == "" && meta.SnapshotAfter != "" {
+			endHash = fileSHA256(abs)
+		} else if meta.SnapshotAfter != "" {
 			wantEnd = blobHashFromSnapshot(ctx, projectRoot, meta.SnapshotAfter, rel)
+			endHash = worktreeBlobHash(ctx, projectRoot, rel)
 		}
-		if wantEnd != "" && endHash != "" && endHash != wantEnd {
+		if wantEnd != "" && endHash != wantEnd {
 			skipped = append(skipped, RevertSkippedFile{Path: rel, Reason: "之后又被改过，不能自动撤销，请手动处理。"})
 			continue
 		}
@@ -184,6 +192,17 @@ func fileSHA256(path string) string {
 func blobHashFromSnapshot(ctx context.Context, root, snap, rel string) string {
 	// git rev-parse snap:path
 	out, _, err := runGit(ctx, 5*time.Second, root, "rev-parse", snap+":"+rel)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func worktreeBlobHash(ctx context.Context, root, rel string) string {
+	if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
+		return ""
+	}
+	out, _, err := runGit(ctx, 5*time.Second, root, "hash-object", "--", rel)
 	if err != nil {
 		return ""
 	}

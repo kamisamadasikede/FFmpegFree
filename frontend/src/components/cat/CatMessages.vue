@@ -109,13 +109,6 @@
         </div>
       </div>
     </template>
-    <div v-if="pending" class="ct-act think pend" role="status">
-      <div class="ct-fold static">
-        <span class="car" aria-hidden="true" />
-        <i class="ct-spin" aria-hidden="true" />
-        <span class="sum">{{ t('cat.chatUX.thinking') }}</span>
-      </div>
-    </div>
     <CatTurnSummary v-for="change in unattachedChanges" :key="change.turnId" :change="change" :timestamp="change.finished" />
     <CatPreviewDialog v-model:open="previewOn" :file="previewFile" />
   </div>
@@ -193,7 +186,7 @@ function changeFor(block: CatBlock): TurnChanges | undefined {
   return changes.value.find(c => c.finished && (c.messageId === block.id || (!!c.finishedAt && c.finishedAt === block.finishedAt)))
 }
 const unattachedChanges = computed(() => changes.value.filter(c => !props.blocks.some(b => changeFor(b)?.turnId === c.turnId)))
-const rows = computed(() => presentCatBlocks(props.blocks))
+const rows = computed(() => presentCatBlocks(props.blocks, !!props.pending))
 /** 只挂在最后一行、且是失败行（6.19.18.7 第 6 条：只能重试最后一轮） */
 const lastErrKey = computed(() => {
   const last = rows.value[rows.value.length - 1]

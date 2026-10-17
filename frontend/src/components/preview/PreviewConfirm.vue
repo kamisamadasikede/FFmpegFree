@@ -14,7 +14,7 @@ onMounted(() => void nextTick(() => el.value?.querySelector<HTMLElement>('.btn.p
 </script>
 
 <template>
-  <div ref="el" class="pvx-cf ff-in-mask" role="alertdialog" aria-modal="true" :aria-label="title || text" @keydown.esc.stop.prevent="emit('pick', 'cancel')">
+  <div ref="el" class="pvx-cf ff-in-mask" role="alertdialog" aria-modal="true" :aria-label="title || text" @mousedown.self="emit('pick', 'cancel')" @keydown.esc.stop.prevent="emit('pick', 'cancel')">
     <div class="box ff-in-pop">
       <h4 v-if="title">{{ title }}</h4>
       <p class="t">{{ text }}</p>

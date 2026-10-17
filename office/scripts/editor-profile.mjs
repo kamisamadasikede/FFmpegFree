@@ -40,6 +40,26 @@ export const editorProfile = {
         const commit = /(const updated = await window\.slidesApi\.editText\([\s\S]*?\}\)\n)(      if \(updated\))/
         if (!commit.test(contents.replaceAll('\r\n', '\n'))) throw new Error('Upstream text commit changed; review conflict handling')
         contents = contents.replaceAll('\r\n', '\n').replace(commit, '$1      if (!updated) return\n$2')
+        // The shared-session broadcast keeps the page the user is viewing. Agent
+        // generation has to follow the page it is drawing or editing instead.
+        const stay = `      window.slidesApi.onDeckChanged?.(({ slides: all }) => {
+        setSlides(all)
+        setCurrent((c) => Math.min(c, Math.max(0, all.length - 1)))`
+        if (!contents.includes(stay)) throw new Error('Upstream deck broadcast changed; review live page following')
+        contents = contents.replace(stay, `      window.slidesApi.onDeckChanged?.((payload) => {
+        const all = payload.slides
+        setSlides(all)
+        const focus = payload.agentSlide
+        const viewing = ctxRef.current
+        const agentPage = typeof focus === 'number' && focus >= 0 && focus < all.length ? Math.floor(focus) : -1
+        if (agentPage >= 0 && viewing && agentPage !== viewing.current && !viewing.editing && !viewing.editingCell) {
+          setCurrent(agentPage)
+          setSelectedSlides([agentPage])
+          setSelectedIds([])
+          setEditing(null)
+        } else {
+          setCurrent((c) => Math.min(c, Math.max(0, all.length - 1)))
+        }`)
       }
       return { contents, loader: path.endsWith('.tsx') ? 'tsx' : 'ts' }
     })

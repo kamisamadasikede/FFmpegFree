@@ -40,6 +40,9 @@ type Session = {
   sequence: number; disk: string; state: string; error: string; warnings: string[]; renders: any[]
   undo: Uint8Array[]; redo: Uint8Array[]; requests: Map<string, { fingerprint: string; result: any }>
   changedSlides: number[]; chain: Promise<any>; saveTimer?: ReturnType<typeof setTimeout>; autoSave?: boolean
+  // Slide the open canvas should select. Set only while an Agent page/apply is the
+  // change the viewer just received; local edits and undo clear it.
+  agentSlide: number | null
   paint?: { slide: number; elements: number; preview: boolean; clipTail: boolean }; paintTimer?: ReturnType<typeof setTimeout>
 }
 class OfficeError extends Error {
@@ -82,7 +85,7 @@ function changed(s: Session) { s.sequence++ }
 function summary(s: Session) {
   return { documentId: s.id, revision: s.revision, savedRevision: s.savedRevision, sequence: s.sequence,
     state: s.state, error: s.error, warnings: s.warnings, slideCount: s.opened?.deck.slides.length ?? 0,
-    changedSlides: s.changedSlides, canUndo: s.undo.length > 0, canRedo: s.redo.length > 0 }
+    changedSlides: s.changedSlides, agentSlide: s.agentSlide, canUndo: s.undo.length > 0, canRedo: s.redo.length > 0 }
 }
 // The canvas polls about every 200ms. Each painted step stays up longer than that,
 // so a shape is on screen before the next one is added. paintMs: 0 skips the wait.
@@ -101,15 +104,16 @@ function stepPaint(s: Session): boolean {
   if (!s.paint || !s.opened) return false
   const slides = s.opened.deck.slides
   const current = slides[s.paint.slide]
-  if (!current) { s.paint = undefined; s.revision++; return false }
+  if (!current) { s.paint = undefined; s.agentSlide = null; s.revision++; return false }
   if (s.paint.elements < current.elements.length) {
     const left = current.elements.length - s.paint.elements
     s.paint.elements += left > 30 ? Math.ceil(left / 30) : 1
   }
   const slideDone = s.paint.elements >= current.elements.length
   const last = !s.paint.clipTail || s.paint.slide >= slides.length - 1
-  if (slideDone && last) { s.paint = undefined; s.revision++; return false }
+  if (slideDone && last) { s.agentSlide = s.paint.slide; s.paint = undefined; s.revision++; return false }
   if (slideDone) { s.paint.slide++; s.paint.elements = 1 }
+  s.agentSlide = s.paint.slide
   s.revision++
   return true
 }
@@ -199,11 +203,12 @@ async function refresh(s: Session) {
     const had = s.opened
     const before = elementCount(had)
     s.opened = opened; s.disk = latest; s.revision++; s.savedRevision = s.revision
-    s.undo = []; s.redo = []; s.state = 'ready'; s.error = ''; s.warnings = []; render(s); changed(s)
+    s.undo = []; s.redo = []; s.agentSlide = null; s.state = 'ready'; s.error = ''; s.warnings = []; render(s); changed(s)
     const delay = paintDelay()
     if (had && delay > 0 && elementCount(opened) > before + 1) {
       stopPaint(s)
       s.paint = { slide: 0, elements: 1, preview: true, clipTail: true }
+      s.agentSlide = 0
       s.revision++; s.savedRevision = s.revision
       render(s); changed(s)
       kickPaint(s, delay)
@@ -298,6 +303,8 @@ async function apply(s: Session, req: any, ops: Op[]) {
     const index = s.opened!.deck.slides.findIndex(slide => slideDurableId(slide) === r.slideId)
     return index >= 0 ? index : typeof (r.after as any)?.index === 'number' ? (r.after as any).index : 0
   }))]
+  const follow = s.changedSlides[s.changedSlides.length - 1]
+  s.agentSlide = (req.action === 'page' || req.action === 'apply') && follow != null ? follow : null
   changed(s); scheduleSave(s)
   const response = { ...summary(s), records: result.records?.map(r => ({ op: r.op.op, created: r.created, after: r.after })) }
   remember(s, req, response)
@@ -347,6 +354,7 @@ async function streamPage(s: Session, req: any): Promise<any> {
     const result = await apply(s, { ...req, requestId: randomUUID() }, [{ op: 'insertSlidePptx', source, ...(at != null ? { at } : {}), replace }])
     s.warnings = [...new Set([...s.warnings, ...parsed.warnings, ...page.imageWarnings, ...page.imageFailures.map((item: string) => '图片未载入：' + item)])]
     const slideIndex = at != null ? at : s.opened!.deck.slides.length - 1
+    s.agentSlide = slideIndex
     const total = s.opened!.deck.slides[slideIndex]?.elements.length ?? 0
     if (delay > 0 && total > 1) {
       s.paint = { slide: slideIndex, elements: 1, preview: false, clipTail: false }
@@ -394,7 +402,7 @@ export async function dispatch(req: any): Promise<any> {
       if (req.create && !s.opened) { s.opened = await openPptx(await createBlankPptx()); render(s); s.state = 'ready'; s.error = ''; changed(s) }
       return summary(s)
     })
-    const s: Session = { id: randomUUID(), file, root, revision: 0, savedRevision: 0, sequence: 0, disk: '', state: 'waiting', error: '', warnings: [], renders: [], undo: [], redo: [], requests: new Map(), changedSlides: [], chain: Promise.resolve() }
+    const s: Session = { id: randomUUID(), file, root, revision: 0, savedRevision: 0, sequence: 0, disk: '', state: 'waiting', error: '', warnings: [], renders: [], undo: [], redo: [], requests: new Map(), changedSlides: [], agentSlide: null, chain: Promise.resolve() }
     sessions.set(s.id, s); paths.set(keyOf(file), s.id)
     try {
       return await queue(s, async () => {
@@ -438,7 +446,7 @@ export async function dispatch(req: any): Promise<any> {
             if (!from.length) return summary(s)
             const opened = await openPptx(from[from.length - 1])
             historyPush(to, await savePptx(s.opened!)); from.pop(); s.opened = opened; s.revision++
-            s.changedSlides = []; render(s); changed(s); scheduleSave(s)
+            s.changedSlides = []; s.agentSlide = null; render(s); changed(s); scheduleSave(s)
             return summary(s)
           },
         }, req.method, req.args ?? [])
@@ -472,7 +480,7 @@ export async function dispatch(req: any): Promise<any> {
         if (!from.length) return summary(s)
         const next = await openPptx(from[from.length - 1])
         historyPush(to, await savePptx(s.opened!)); from.pop(); s.opened = next; s.revision++
-        s.changedSlides = []; render(s); changed(s); scheduleSave(s)
+        s.changedSlides = []; s.agentSlide = null; render(s); changed(s); scheduleSave(s)
         const result = summary(s); remember(s, req, result); return result
       }
       default: fail('UNSUPPORTED', '未知办公操作')

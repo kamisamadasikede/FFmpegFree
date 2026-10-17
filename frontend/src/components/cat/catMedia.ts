@@ -189,6 +189,38 @@ export interface CatMediaURL {
 
 const urlCache = new Map<string, CatMediaURL>()
 
+const blobCache = new Map<string, string>()
+
+function mimeOf(path: string): string {
+  const name = path.replace(/\\/g, '/').split('/').pop() ?? ''
+  const kind = previewKind(name)
+  if (kind === 'svg') return 'image/svg+xml'
+  if (name.toLowerCase().endsWith('.jpg') || name.toLowerCase().endsWith('.jpeg')) return 'image/jpeg'
+  if (name.toLowerCase().endsWith('.gif')) return 'image/gif'
+  if (name.toLowerCase().endsWith('.webp')) return 'image/webp'
+  if (name.toLowerCase().endsWith('.bmp')) return 'image/bmp'
+  return 'image/png'
+}
+
+/** 直接读本机图片。开发服务不转发 /local 时，输入框用这个地址显示。 */
+export async function catMediaObjectURL(path: string): Promise<string> {
+  const key = normPath(path)
+  const cached = blobCache.get(key)
+  if (cached) return cached
+  try {
+    const b64 = await callService<string>('CatService', 'ReadCatMedia', path)
+    if (!b64) return ''
+    const bin = atob(b64)
+    const bytes = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+    const url = URL.createObjectURL(new Blob([bytes], { type: mimeOf(path) }))
+    blobCache.set(key, url)
+    return url
+  } catch {
+    return ''
+  }
+}
+
 /** 向本机要一个页面能加载的地址。同一次运行里同一路径复用。 */
 export async function catMediaURL(path: string): Promise<CatMediaURL | null> {
   const key = normPath(path)

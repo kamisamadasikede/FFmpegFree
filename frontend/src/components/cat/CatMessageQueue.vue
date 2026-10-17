@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import FIcon from '@/components/icon/FIcon.vue'
 import { updateQueue, type QueueAction, type QueuedMessage } from '@/api/catWorkflow'
-import { acceptQueue, catWorkflow } from '@/views/cat/catWorkflow'
+import { acceptQueue, catWorkflow, liveSteerReady } from '@/views/cat/catWorkflow'
 import { catState, notify, openQueuedMessageInNewChat } from '@/views/cat/catState'
 import { catDraftFor } from '@/views/cat/catDrafts'
 import { toAppError } from '@/api/call'
@@ -12,12 +12,8 @@ const { t } = useI18n()
 const q = computed(() => catWorkflow.queues[props.convId])
 const root = ref<HTMLElement>(), menu = ref<HTMLElement>()
 const running = computed(() => !!catState.turns[props.convId])
-const canSteer = computed(() => {
-  if (!running.value) return false
-  const native = catWorkflow.steering[props.convId]
-  return native ? native.ready && native.turnId === catState.turns[props.convId]?.turnId : !!q.value?.canSteer
-})
-const submitLabel = computed(() => t(canSteer.value ? 'cat.workflow.steer' : running.value ? 'cat.workflow.sendNext' : 'cat.workflow.sendNow'))
+const canSteer = computed(() => liveSteerReady(props.convId, catState.turns[props.convId]?.turnId))
+const submitLabel = computed(() => t(canSteer.value ? 'cat.workflow.steer' : running.value ? 'cat.workflow.guide' : 'cat.workflow.sendNow'))
 const editing = ref(''), menuId = ref(''), busy = ref(new Set<string>()), dragged = ref(''), dropId = ref('')
 const menuStyle = ref({ top: '0px', left: '0px' })
 let menuAnchor: HTMLElement | undefined
@@ -46,7 +42,9 @@ async function beginEdit(item: QueuedMessage) {
 }
 async function finishEdit(item: QueuedMessage, submit = false) {
   const key = editKey(item.id), convId = props.convId
-  if (await act(submit ? (canSteer.value ? 'edit-steer' : 'edit-send') : 'edit', item.id, editDraft(item.id).text)) {
+  const action = submit ? (canSteer.value ? 'edit-steer' : running.value ? 'edit' : 'edit-send') : 'edit'
+  if (await act(action, item.id, editDraft(item.id).text)) {
+    if (submit && running.value && !canSteer.value) await act('guide', item.id)
     catDraftFor(key).text = ''
     if (props.convId === convId) editing.value = ''
   }
@@ -61,7 +59,7 @@ function editKeys(event: KeyboardEvent, item: QueuedMessage) {
   if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void finishEdit(item, event.ctrlKey || event.metaKey) }
 }
 function resize(el: HTMLTextAreaElement) { el.style.height = 'auto'; el.style.height = `${Math.min(144, Math.max(40, el.scrollHeight))}px` }
-async function submit(item: QueuedMessage) { closeMenu(false); await act(canSteer.value ? 'steer' : 'send', item.id) }
+async function submit(item: QueuedMessage) { closeMenu(false); await act(canSteer.value ? 'steer' : running.value ? 'guide' : 'send', item.id) }
 async function remove(item: QueuedMessage) { closeMenu(false); const key = editKey(item.id); if (await act('delete', item.id)) catDraftFor(key).text = '' }
 async function newChat(item: QueuedMessage) { closeMenu(false); try { await openQueuedMessageInNewChat(item.request) } catch(e) { notify(toAppError(e).message, 'warn') } }
 async function toggleMenu(event: MouseEvent, item: QueuedMessage) {
@@ -109,7 +107,7 @@ async function move(item: QueuedMessage, offset: number) {
           <template v-if="editing === item.id"><textarea v-model="editDraft(item.id).text" rows="1" :aria-label="t('cat.workflow.edit')" @input="resize($event.target as HTMLTextAreaElement)" @keydown="editKeys($event, item)" /><div class="edit-actions"><small>{{ t('cat.workflow.editKeys') }}</small><button type="button" @click="cancelEdit(item)">{{ t('cat.workflow.cancel') }}</button><button type="button" @click="finishEdit(item)">{{ t('cat.workflow.save') }}</button><button type="button" class="submit" @click="finishEdit(item, true)"><FIcon name="send" :size="12" />{{ submitLabel }}</button></div></template>
           <template v-else><button type="button" class="message" :title="item.request.content" @dblclick="beginEdit(item)">{{ item.request.content || t('cat.workflow.attachments') }}</button><small v-if="item.request.attachments?.length" class="attachments">{{ item.request.attachments.map(f => f.name).join(' · ') }}</small><small v-if="item.held" class="held">{{ t('cat.workflow.editingHeld') }}</small></template>
         </div>
-        <div v-if="editing !== item.id" class="actions"><button type="button" class="quick" :aria-label="submitLabel" :title="t(canSteer ? 'cat.workflow.steerHelp' : 'cat.workflow.sendHelp')" data-testid="cat-queue-submit" @click="submit(item)"><FIcon :name="canSteer ? 'steer' : 'send'" :size="13" /><span>{{ submitLabel }}</span></button><button type="button" class="icon" :aria-label="t('cat.workflow.remove')" :title="t('cat.workflow.remove')" @click="remove(item)"><FIcon name="trash" :size="14" /></button><button type="button" class="icon" aria-haspopup="menu" :aria-expanded="menuId === item.id" :aria-label="t('cat.workflow.more')" :title="t('cat.workflow.more')" data-testid="cat-queue-more" @click="toggleMenu($event, item)"><FIcon name="more" :size="16" /></button></div>
+        <div v-if="editing !== item.id" class="actions"><button type="button" class="quick" :aria-label="submitLabel" :title="t(canSteer ? 'cat.workflow.steerHelp' : running ? 'cat.workflow.guideHelp' : 'cat.workflow.sendHelp')" data-testid="cat-queue-submit" @click="submit(item)"><FIcon :name="canSteer || running ? 'steer' : 'send'" :size="13" /><span>{{ submitLabel }}</span></button><button type="button" class="icon" :aria-label="t('cat.workflow.remove')" :title="t('cat.workflow.remove')" @click="remove(item)"><FIcon name="trash" :size="14" /></button><button type="button" class="icon" aria-haspopup="menu" :aria-expanded="menuId === item.id" :aria-label="t('cat.workflow.more')" :title="t('cat.workflow.more')" data-testid="cat-queue-more" @click="toggleMenu($event, item)"><FIcon name="more" :size="16" /></button></div>
       </div>
     </div>
     <span class="sr-only">{{ t('cat.workflow.waiting', { n: q.items.length }) }} · {{ t(q.paused ? 'cat.workflow.paused' : 'cat.workflow.autoSend') }}</span>

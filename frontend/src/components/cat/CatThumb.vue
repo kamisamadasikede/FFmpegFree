@@ -14,7 +14,7 @@ const { t } = useI18n()
 
 import { computed, onMounted, ref, watch } from 'vue'
 import FIcon from '@/components/icon/FIcon.vue'
-import { catMediaURL, imageDataUrl, showsThumb, type CatShownFile } from './catMedia'
+import { catMediaObjectURL, catMediaURL, imageDataUrl, showsThumb, type CatShownFile } from './catMedia'
 
 const props = defineProps<{ file: CatShownFile; mini?: boolean; tile?: boolean }>()
 const src = ref('')
@@ -37,6 +37,14 @@ async function load() {
   }
   src.value = ''
   if (!path || !showsThumb(kind)) return
+  if (kind === 'image') {
+    const obj = await catMediaObjectURL(path)
+    if (props.file.path !== path || props.file.kind !== kind) return
+    if (obj) {
+      src.value = obj
+      return
+    }
+  }
   const hit = await catMediaURL(path)
   if (props.file.path !== path || props.file.kind !== kind) return
   if (hit) src.value = hit.url

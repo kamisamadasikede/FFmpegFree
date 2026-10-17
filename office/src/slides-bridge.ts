@@ -4,7 +4,7 @@
 import { DEFAULT_AI_PANEL_PREFS } from '@genoffice/ui/ai-panel-prefs'
 import { showToast } from '../vendor/slides/renderer/components/toast-bus'
 
-type State = { revision: number; savedRevision: number; sequence: number; state: string; error: string; slides?: any[]; canUndo: boolean; canRedo: boolean }
+type State = { revision: number; savedRevision: number; sequence: number; state: string; error: string; slides?: any[]; agentSlide?: number | null; canUndo: boolean; canRedo: boolean }
 const listeners = new Map<string, Set<(value: any) => void>>()
 let capability: { id: string; token: string; locale?: string }, state: State
 let tail: Promise<unknown> = Promise.resolve(), disposed = false
@@ -23,7 +23,7 @@ async function request(action: string, args: any = {}) {
 }
 function publish(next: State) {
   const previous = state; state = next
-  if (next.slides && previous?.revision !== next.revision) emit('DeckChanged', { slides: next.slides })
+  if (next.slides && previous?.revision !== next.revision) emit('DeckChanged', { slides: next.slides, agentSlide: next.agentSlide ?? null })
   emit('HistoryChanged', { canUndo: next.canUndo, canRedo: next.canRedo })
   if (next.error && next.error !== previous?.error) showToast(next.error, 'error')
 }

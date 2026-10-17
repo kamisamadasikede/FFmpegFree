@@ -3,6 +3,7 @@ package main
 import (
 	"FFmpegFree/app"
 	"FFmpegFree/internal/about"
+	"FFmpegFree/internal/agentexec"
 	"FFmpegFree/internal/catagent"
 	"FFmpegFree/internal/doccomp"
 	"FFmpegFree/internal/doceng"
@@ -65,6 +66,7 @@ type App struct {
 	officeSvc    atomic.Pointer[office.Service]
 	catReg       atomic.Pointer[catagent.Registry]
 	cat          atomic.Pointer[cat.Service]
+	execution    *agentexec.Runtime
 	win          windowState
 	windowOps    *windowOps  // 测试替换窗口调用；nil = Wails runtime
 	catNotifyOK  atomic.Bool // 系统通知已初始化（定时任务结束时用）
@@ -373,6 +375,7 @@ func (a *App) startOfficeCanvas() {
 
 // startCat 创建 Cat 助手服务（契约 6.19）：v0.36 注册 cat_build + claude_cli/codex_cli 桩。
 func (a *App) startCat() {
+	a.execution = agentexec.New()
 	root := a.dirs.Root
 	if root == "" {
 		if d, err := paths.Resolve(""); err == nil {
@@ -417,6 +420,7 @@ func (a *App) startCat() {
 	a.catReg.Store(reg)
 
 	cfg := cat.Config{
+		Execution:              a.execution,
 		Registry:               reg,
 		Emit:                   emit,
 		Logf:                   log.Printf,
@@ -571,8 +575,12 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.rootCancel != nil {
 		a.rootCancel() // 先取消根 ctx：进行中的探测 / 缩略图立即结束 ffprobe / ffmpeg
 	}
+	if a.execution != nil {
+		a.execution.Close()
+	}
 	if c := a.catService(); c != nil {
 		c.CloseScheduler() // 停定时任务调度器：排队中的记已错过；运行中的下次启动收尾
+		c.Wait() // Shared execution has cancelled CLI turns; persist their final state before DB/Office shutdown.
 		c.ClosePptPreviews()
 	}
 	if l := a.liveService(); l != nil {

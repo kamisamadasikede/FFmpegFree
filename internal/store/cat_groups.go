@@ -1,6 +1,7 @@
 package store
 
 import (
+	"sync"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -548,7 +549,13 @@ func (s *Store) NextCatGroupMessageSeq(ctx context.Context, groupID string) (int
 	return n.Int64 + 1, nil
 }
 
+// groupMsgSeqMu 把「取下一个 seq + 插入」串起来：成员并行跑完同时写群消息时，
+// 两条拿到同一个 seq 会主键冲突，汇报卡被静默丢掉（e2e @ 两人并行复现）。
+var groupMsgSeqMu sync.Mutex
+
 func (s *Store) InsertCatGroupMessage(ctx context.Context, m CatGroupMessage) (CatGroupMessage, error) {
+	groupMsgSeqMu.Lock()
+	defer groupMsgSeqMu.Unlock()
 	if m.Seq == 0 {
 		seq, err := s.NextCatGroupMessageSeq(ctx, m.GroupID)
 		if err != nil {

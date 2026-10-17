@@ -384,7 +384,7 @@ onUnmounted(() => {
     <Teleport to="body">
       <MotionDialog>
       <div v-if="logId" class="cv2 cv-layer" :class="{ w1024: narrow }">
-        <div class="cv-mask" @click.self="closeLog" @keydown.esc="closeLog">
+        <div class="cv-mask" @mousedown.self="closeLog" @keydown.esc="closeLog">
           <div class="cv-dlg cv-log ff-panel" role="dialog" aria-modal="true" aria-label="转换日志">
             <div class="dfoot"><h3 style="flex: 1">转换日志</h3><button type="button" class="btn" @click="closeLog">关闭</button></div>
             <pre>{{ logLoading ? '正在读取日志…' : logText }}</pre>

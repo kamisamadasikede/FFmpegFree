@@ -26,6 +26,38 @@ func TestResolveStorageExeDirWritable(t *testing.T) {
 	}
 }
 
+func TestSourceWorkspaceStorageDoesNotWriteToSource(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"go.mod", "wails.json"} {
+		if err := os.WriteFile(filepath.Join(root, name), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exeDir := filepath.Join(root, "build", "bin")
+	if err := os.MkdirAll(exeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data := filepath.Join(t.TempDir(), "FFmpegFree")
+	st := resolveStorage(storageEnv{goos: runtime.GOOS, exe: filepath.Join(exeDir, "ffc-dev.exe"), dataDir: data,
+		probe: func(string) bool { t.Fatal("development storage must not probe the source workspace"); return false }})
+	if st.Base != data || st.BaseKind != BaseUserData || st.FellBack {
+		t.Fatalf("%+v", st)
+	}
+	for _, name := range []string{OutputDirName, UploadsDirName} {
+		if _, err := os.Stat(filepath.Join(exeDir, name)); !os.IsNotExist(err) {
+			t.Fatalf("development startup created %s in the workspace: %v", name, err)
+		}
+	}
+	// A Go module alone must retain normal portable application behavior.
+	if err := os.Remove(filepath.Join(root, "wails.json")); err != nil {
+		t.Fatal(err)
+	}
+	st = resolveStorage(storageEnv{goos: runtime.GOOS, exe: filepath.Join(exeDir, "ffc.exe"), dataDir: data, probe: probeWritable})
+	if st.Base != exeDir || st.BaseKind != BaseExeDir {
+		t.Fatalf("portable executable changed storage location: %+v", st)
+	}
+}
+
 // 一个不可写就两个一起回退，并删掉试写时新建的空文件夹。
 func TestResolveStorageFallbackTogether(t *testing.T) {
 	exeDir := t.TempDir()

@@ -241,7 +241,7 @@
     <!-- 删除 / 隐藏确认 -->
     <Teleport to="body">
       <MotionDialog>
-      <div v-if="confirm" class="mask" @click.self="confirm = null" @keydown.esc="confirm = null">
+      <div v-if="confirm" class="mask" @mousedown.self="confirm = null" @keydown.esc="confirm = null">
         <div class="dlg ff-panel" role="dialog" aria-modal="true" aria-labelledby="tc-dlg-title">
           <h3 id="tc-dlg-title">{{ confirm.title }}</h3>
           <p>{{ confirm.text }}</p>

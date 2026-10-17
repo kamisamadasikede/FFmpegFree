@@ -141,7 +141,7 @@
               <FIcon name="refresh" :size="16" />
             </button>
             <CatBranchCapsule />
-            <button type="button" class="hd-ib" :class="{ on: !rightCollapsed }" :title="rightCollapsed ? t('cat.page.s_f1f1ec2556') : t('cat.page.s_4ed8aa623c')" :aria-label="rightCollapsed ? t('cat.page.s_8fa248207b') : t('cat.page.s_74609dd7e9')" :aria-pressed="!rightCollapsed" data-testid="cat-right-toggle" @click="rightCollapsed = !rightCollapsed"><FIcon name="split" :size="16" /></button>
+            <button type="button" class="hd-ib" :class="{ on: rightOpen }" :title="rightOpen ? t('cat.page.s_4ed8aa623c') : t('cat.page.s_f1f1ec2556')" :aria-label="rightOpen ? t('cat.page.s_74609dd7e9') : t('cat.page.s_8fa248207b')" :aria-pressed="rightOpen" data-testid="cat-right-toggle" @click="toggleRight"><FIcon name="split" :size="16" /></button>
           </div>
           <CatConvSearch v-if="searchOn" :blocks="messages" @close="searchOn = false" @pick="jumpSearch" />
           <div v-if="projectMissing" class="ct-missing" role="status" data-testid="cat-project-missing-bar">
@@ -252,7 +252,7 @@ import { useI18n } from 'vue-i18n'
 const { t } = useI18n()
 
 import { catHistoryEmptyText } from '@/api/catHistoryStatus'
-import { catScratch, shouldShowFilePanel } from './catScratchFiles'
+import { catScratch, keepFilePanel, shouldShowFilePanel } from './catScratchFiles'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import FIcon from '@/components/icon/FIcon.vue'
@@ -263,7 +263,7 @@ import CatFilesPanel from '@/components/cat/CatFilesPanel.vue'
 import CatBranchCapsule from '@/components/cat/CatBranchCapsule.vue'
 import CatComposer from '@/components/cat/CatComposer.vue'
 import CatMessageQueue from '@/components/cat/CatMessageQueue.vue'
-import { acceptQueue, catWorkflow, loadWorkflow } from './catWorkflow'
+import { acceptQueue, catWorkflow, liveSteerReady, loadWorkflow } from './catWorkflow'
 import { queueMessage, steerMessage } from '@/api/catWorkflow'
 import { notify } from './catState'
 import { toAppError } from '@/api/call'
@@ -289,7 +289,6 @@ import { catReturnPath } from './catReturn'
 import { nearBottom, keepFollowing } from './catFollow'
 import { catDraftKey, restoreCatDraft } from './catDrafts'
 import { RAIL_TICK_PITCH, railThumb, railTickWindow, scrollTopForThumb, tickEdgeScales, tickStairWidths } from './catRail'
-import { awaitingTurnOutput } from './catPending'
 import { onLayoutKey, rightCollapsed } from './catLayout'
 import { catChecking, catNotReady, catState, changeWelcomeMode, currentProject, findConv, projectMissing, relocateProject, initCat, messagesOf, NEW_CONV, reapplyNewConvDefaults, refreshConvScratch, refreshCapabilities, recheckCatStatus, reloadConversation, selectConv, retryLastMessage, sendMessage, stopTurn, tipLater } from './catState'
 import { hasWailsBackend } from '@/services/wails'
@@ -325,8 +324,19 @@ const historyEmpty = computed(() => loadedEmpty.value && !!catState.histStatus[c
 const showWelcome = computed(() => isNew.value || (loadedEmpty.value && !catState.histStatus[catState.sel]))
 /** 右侧文件面板只看是否绑定项目（新对话也一样），不看有没有消息 */
 const showRight = computed(
-  () => catPanels.view === 'chat' && shouldShowFilePanel(!!currentProject.value, isNew.value ? false : catScratch.has[catState.sel]),
+  () => catPanels.view === 'chat' && shouldShowFilePanel(!!currentProject.value, isNew.value ? false : catScratch.has[catState.sel], !isNew.value && !!catState.turns[catState.sel], !isNew.value && catScratch.keep[catState.sel] === true),
 )
+const rightOpen = computed(() => showRight.value && !rightCollapsed.value)
+function toggleRight() {
+  if (rightOpen.value) {
+    rightCollapsed.value = true
+    return
+  }
+  if (!isNew.value) keepFilePanel(catState.sel)
+  rightCollapsed.value = false
+}
+watch(() => !isNew.value && !!catState.turns[catState.sel], (on) => { if (on) keepFilePanel(catState.sel) })
+watch(() => catScratch.has[catState.sel], (has) => { if (has) keepFilePanel(catState.sel) })
 watch(
   () => catState.sel,
   (id) => refreshConvScratch(id),
@@ -351,10 +361,18 @@ function onFilePick(note: PickNote) {
 async function onSend(payload: { text: string; files: { name: string; path: string }[]; own: string; notes: PickNote[]; draftKey: string }) {
   stick.value = true
   const convId = catState.sel
-  if (catState.turns[convId] || (catWorkflow.queues[convId]?.items.length && !catWorkflow.queues[convId]?.queueingDisabled)) {
+  const turn = catState.turns[convId]
+  const queued = catWorkflow.queues[convId]
+  if (turn || (queued?.items.length && !queued.queueingDisabled)) {
     const request = { conversationId: convId, content: payload.text, attachments: payload.files, modelId: catState.model, thinkLevelId: catState.think, permissionMode: catState.access }
-    try { acceptQueue(await (catState.turns[convId] && catWorkflow.queues[convId]?.queueingDisabled ? steerMessage(request) : queueMessage(request))) }
-    catch (e) { restoreCatDraft(payload.draftKey, { text: payload.own, files: payload.files, notes: payload.notes }); notify(toAppError(e).message, 'warn') }
+    const restore = () => restoreCatDraft(payload.draftKey, { text: payload.own, files: payload.files, notes: payload.notes })
+    try {
+      if (turn && liveSteerReady(convId, turn.turnId)) {
+        try { acceptQueue(await steerMessage(request)); return }
+        catch (e) { if (toAppError(e).code !== 'TASK_CONFLICT') throw e }
+      }
+      acceptQueue(await queueMessage(request))
+    } catch (e) { restore(); notify(toAppError(e).message, 'warn') }
     return
   }
   const back = await sendMessage(payload.text, payload.files)
@@ -364,10 +382,10 @@ async function onSend(payload: { text: string; files: { name: string; path: stri
 }
 /** 当前会话进行中的一轮 */
 const turn = computed(() => (isNew.value ? undefined : catState.turns[catState.sel]))
-/** 这一轮还没收到正文、思考或工具调用时马上显示「正在思考…」。上一轮的内容不算。 */
+/** 这一轮还在跑。没有思考链时消息列表补一行「思考中」，结束改成「思考完成」。 */
 const thinking = computed(() => {
-  if (!turn.value || turn.value.status !== 'running') return false
-  return awaitingTurnOutput(messages.value)
+  const status = turn.value?.status
+  return status === 'running' || status === 'stopping'
 })
 /** 点刷新后整页加载至少停这么久，转圈才看得到。 */
 const RELOAD_HOLD_MS = 500
@@ -638,6 +656,11 @@ if (typeof ResizeObserver !== 'undefined') {
 }
 /** 对话里划中的文字用 Ctrl/Cmd+C 写入剪贴板。输入框不在这块里，不拦它们自己的复制。 */
 function onCopyKey(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'j') {
+    e.preventDefault()
+    toggleRight()
+    return
+  }
   if (onLayoutKey(e)) return
   if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || (e.key !== 'c' && e.key !== 'C')) return
   const sel = window.getSelection()
@@ -959,7 +982,7 @@ function onModeClick(m: CatMode) {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background: var(--cat-rail);
+  background: var(--cat-bg);
   border-right: 1px solid var(--cat-border);
 }
 .sk-main {

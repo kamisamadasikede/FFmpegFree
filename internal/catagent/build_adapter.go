@@ -431,6 +431,9 @@ type TurnOptions struct {
 	// NoTools disables tool use for one-shot structured calls.
 	// Claude/Grok: --tools ""; Codex: read-only sandbox (no dedicated --tools flag).
 	NoTools bool
+	// Empty preserves the existing gateway-compatible transport selection.
+	Transport   string
+	OnInputMode func(string)
 }
 
 // SteerFunc adds input to the active native turn. It must reject a stale turn.
@@ -447,6 +450,9 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	a.mu.Unlock()
 	if exe == "" {
 		return TurnResponse{}, apperr.New(apperr.CatNotReady, MsgNotReady)
+	}
+	if opts.LiveSteer && opts.Transport == "stdio" {
+		return a.runGrokACP(opts, exe)
 	}
 
 	prompt := lastUserContent(opts.Messages)
