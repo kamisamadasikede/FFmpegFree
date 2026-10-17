@@ -386,7 +386,7 @@ function render() {
   document.title = `Cat 群聊 · ${S}`;
   const st = document.querySelector('.stream');
   if (st) {
-    if (sc.focus) { const el = st.querySelectorAll(sc.focus)[sc.focusIdx || 0]; if (el) st.scrollTop = el.offsetTop - st.offsetTop - 12; }
+    if (sc.focus) { const el = st.querySelectorAll(sc.focus)[sc.focusIdx || 0]; if (el) st.scrollTop = el.offsetTop - 12; }
     else if (sc.scroll !== 'top') st.scrollTop = st.scrollHeight;
   }
 }
