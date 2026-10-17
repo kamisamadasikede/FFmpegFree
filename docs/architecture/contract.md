@@ -1,4 +1,6 @@
-# FFmpegFree v2 接口契约（v0.54.1）
+# FFmpegFree v2 接口契约（v0.55）
+
+v0.55 变更（**项目群聊**，老板 10-17 群里提出，产品 / UI / 前后端定，架构师 10-17；规则见 **6.21**；新迁移 `cat_groups`；新事件 `cat:group-message` / `cat:group-member` / `cat:group-route`；新绑定见 6.21.3）：群聊挂在项目下，成员 = CLI + 职位 + 模型，职责规范创建后由 agent 生成并每轮注入；Cat 居中转交 @，用户 @ 直达，没 @ 才跑单轮派活判断（每群可关）；接力上限 6；换人；停全部 / 单人；越界检查（`--cat-orange`）+ 仅确定归属文件可撤销。
 
 v0.54.1 变更（**对话一轮改为无响应超时**，老板反馈长任务 10 分钟被掐断，10-14；见 **6.19.9.9**；无迁移 / 事件名 / settings 键 / 绑定变化）：普通对话不再有 10 分钟总时长上限，改为 CLI 连续 10 分钟无任何输出才停；新 reason `idle_timeout`（CAT_REPLY_FAILED，可重试）；失败事件 `error.detail` 带超时 reason；定时任务 30 分钟总时长不变。
 
@@ -6071,6 +6073,126 @@ en / ja 由开发起草，产品审语气；术语以本表为准，写进 `loca
 3. **英 / 日文审校**：由产品审。阶段 A 可以先带草稿出包；正式审完再进下一版包。
 4. **术语**：日文「推流 / 拉流」用「配信 / 受信」；「全部放开」用「すべて許可」。英文 Allow all 可以。已写入 6.20.6 术语表。
 5. **关于页**：做三语；**许可证正文保持原文，不做翻译**。
+
+## 6.21 项目群聊（v0.55；老板 10-17 提出，产品 / UI / 前后端群里定，架构师 10-17）
+
+一句话：群聊挂在**项目**下面，成员是一个个“员工”（每人选一家 CLI + 职位 + 模型），**Cat 程序居中转交消息**，CLI 之间从不直接对话。只有用户一个人都没 @ 时才跑一次单轮“派活判断”。员工各干各的，越界由 Cat 本地检查。
+
+老板的群聊原型代码未推到远端（v2 `ff7b9a9` 无此代码）；本节以 v2 为基线定稿，原型推上来后由架构师出差异清单，**以本节为准**。
+
+### 6.21.1 范围
+- **一期做**：项目下多个群；成员增删、拖动排序；职责规范自动生成 / 重新生成 / 手改；@ 直达与接力；没 @ 时派活判断（可关）；换人；停全部 / 停单人；每人卡片实时显示工具调用 + 消息尾；越界检查 + 撤销（仅可确定归属的文件）。
+- **一期不做**：成员私聊、跨项目群聊、定时自动开工、多人汇合后再转交（等 A、B 都完成再交 C）、独立 worktree、CLI 级硬锁写入（见 6.21.8 ③，能核过哪家先做哪家，不卡一期）。
+
+### 6.21.2 数据（SQLite，迁移 `cat_groups`）
+群聊记录不属于任何一家 CLI，**由 Cat 自己存**——这是 6.19「库内只留元数据、消息以 CLI 为准」的**唯一例外**。成员自己的会话正文仍以各自 CLI 会话文件为准。
+
+```go
+type CatGroup struct {
+  ID        string `json:"id"`
+  ProjectID string `json:"projectId"`   // 必填，挂在项目下
+  Name      string `json:"name"`
+  AutoRoute bool   `json:"autoRoute"`   // 「没 @ 人时自动派活」，默认 true
+  CreatedAt int64  `json:"createdAt"`
+  UpdatedAt int64  `json:"updatedAt"`
+}
+type CatGroupMember struct {
+  ID         string `json:"id"`
+  GroupID    string `json:"groupId"`
+  Name       string `json:"name"`       // 群内唯一（大小写不敏感、去首尾空格比较）；同职位第二个建议「后端工程师 2」
+  Title      string `json:"title"`      // 职位
+  AgentKind  string `json:"agentKind"`  // cat_build / claude_cli / codex_cli（走现有 Registry）
+  ModelID    string `json:"modelId"`
+  ThinkLevel string `json:"thinkLevelId,omitempty"`
+  Order      int    `json:"order"`      // 0 = 排第一（兜底接手人）
+  SessionID  string `json:"-"`          // 该成员自己的 CLI 会话 id，不回前端
+  LastSeenSeq int64 `json:"-"`          // 他已看过的群消息序号
+  Charter    CatCharter `json:"charter"`
+}
+type CatCharter struct {
+  Status    string   `json:"status"`    // ok / generating / failed / none
+  Owns      string   `json:"owns"`      // 负责什么
+  NotTouch  string   `json:"notTouch"`  // 不碰什么
+  Handoff   string   `json:"handoff"`   // 做完交给谁（自动维护段）
+  Dirs      []string `json:"dirs"`      // 负责的目录（相对项目根，前缀匹配；空 = 不做越界检查）
+  Edited    []string `json:"edited"`    // 用户手改过的段：owns / notTouch / dirs（handoff 永不进此列表的保护范围）
+  UpdatedAt int64    `json:"updatedAt"`
+}
+type CatGroupMessage struct {
+  Seq       int64    `json:"seq"`        // 群内自增
+  GroupID   string   `json:"groupId"`
+  Kind      string   `json:"kind"`       // user / member / system
+  MemberID  string   `json:"memberId,omitempty"`
+  Text      string   `json:"text"`       // member：只存最终回复正文；工具调用不进群记录
+  Mentions  []string `json:"mentions,omitempty"` // 解析后的成员 id
+  ChainID   string   `json:"chainId"`    // 同一条用户消息引出的整条接力
+  Hop       int      `json:"hop"`        // 0 = 用户消息
+  TurnID    string   `json:"turnId,omitempty"`   // member 消息对应的成员 turn（消息尾、改动文件挂在这）
+  Route     *CatRouteInfo `json:"route,omitempty"` // system 灰字的结构化来源
+  CreatedAt int64    `json:"createdAt"`
+}
+```
+
+### 6.21.3 绑定（Wails，均 `ctx` 首参省略）
+| 方法 | 说明 |
+|---|---|
+| `ListCatGroups(projectId)` / `CreateCatGroup({projectId,name})` / `RenameCatGroup` / `DeleteCatGroup(id)` | 删群：先停群内所有 turn，再删群记录；成员 CLI 会话文件不动 |
+| `SetCatGroupAutoRoute(groupId, on)` | 每群自己的开关 |
+| `AddCatGroupMember({groupId,name,title,agentKind,modelId,thinkLevelId})` | 保存即返回成员，`charter.status=generating`，后台生成（6.21.4） |
+| `UpdateCatGroupMember` / `RemoveCatGroupMember(id)` / `ReorderCatGroupMembers(groupId, ids[])` | 重名 → `INVALID_ARGUMENT` reason `member_name_taken` |
+| `RegenerateCatCharter(memberId)` / `UpdateCatCharter(memberId, patch)` | patch 改到的段进 `edited` |
+| `SendCatGroupMessage({groupId, text, mentions: memberId[], files?})` | **`mentions` 由输入框选人产生，以它为准，不再从正文猜** |
+| `ReassignCatGroupRoute({groupId, chainId, toMemberId})` | 「换人」（6.21.6） |
+| `StopCatGroup(groupId)` / `StopCatGroupMember(memberId)` | 停全部 / 停单人 = 结束对应子进程，复用现有停止 |
+| `ListCatGroupMessages({groupId, beforeSeq?, limit})` | 分页 |
+| `GetCatRouteDetail(messageSeq)` | 点灰字看派活判断原样输入 / 输出 |
+| `RevertCatOverreach({memberId, turnId, files[]})` | 越界撤销（6.21.8） |
+
+事件：`cat:group-message`（新消息 / system 灰字）、`cat:group-member`（成员或规范变化）、`cat:group-route`（`routing` / `routed`）；成员 turn 的流式内容复用现有 `cat:message` / `cat:turn`，`convId` 用 `group:<groupId>:<memberId>`。
+
+### 6.21.4 职责规范：创建后由 agent 生成
+1. 用户只填 职位 + CLI + 模型。保存立即建好成员，后台跑一次**单轮**生成：输入 = 职位、项目概况（README 前 200 行、顶层目录树两层、识别出的技术栈）、群内其他成员的 名称 / 职位；**不允许工具调用、不写文件**。
+2. 输出用 JSON Schema 卡死：`{owns, notTouch, handoff, dirs[]}`。参数：Grok `--json-schema`（隐含 `--output-format json`）、Claude `--json-schema`（配 `-p --output-format json`）、Codex `--output-schema <file>`（`exec`）。均已在 box 上 `--help` 核到；Codex 版本 `0.162.1`。拼参必须有单测。
+3. 用该成员自己那家 CLI 跑；超时 60s。失败 / 超时 / 返回不合 schema → `status=failed`，成员照样可用，卡片灰字「职责还没生成」+「重新生成」按钮（产品定）。
+4. **加人 / 减人 / 改名**：只重算所有成员的 `handoff` 段；`owns` / `notTouch` / `dirs` 若在 `edited` 里**一律不覆盖**；不在 `edited` 里也不覆盖（只有点「重新生成」才整段重写）。
+
+### 6.21.5 每轮注入（复用现有 `TurnOptions.Rules` 通道）
+注入文本 = 全局自定义指令（6.19.12.4）+ **群规** + 本成员职责规范。三家现有通道：Grok `--rules=<文本>`（`inspect.go rulesCLIArgs`），Claude `--append-system-prompt`（Windows 走 `--append-system-prompt-file`，`winlookup.go`），Codex app-server `developerInstructions`（`codex_app_turn.go`；`codex` 二进制内有 `developer_instructions` 配置键）。**每轮都带**，续聊也带。
+
+群规（中文原文，后端常量，B 期再多语言）要点：你是「{name}（{title}）」；群成员名单；只做职责内的事，不是你的活不要做、在回复里 @ 负责的人交出去；不清楚就停下来问；做完在回复**末尾**写交接：做了什么、改了哪些文件、下一位要做什么，再 @ 下一位；不要 @ 自己；不要改负责目录以外的文件。
+
+### 6.21.6 派活与接力（Cat 程序逻辑，不花 token；仅 ② 花一次）
+1. **用户消息有 `mentions`** → 直接叫醒这些人，并行；不跑判断。
+2. **没 @ 且 `autoRoute=true`**：
+   - 追问判定（本地规则，不走 AI）：本链上一条成员回复在 10 分钟内，且消息命中追问短句表（「再改一下」「这个不对」「继续」等，表放后端常量可扩）→ 交给上一位，灰字「交给 {成员}：接着上一条」。
+   - 否则单轮判断：输入 = 本条 + 最近 10 条群消息 + 成员名单与 `owns`；输出 schema `{memberId, reason}`（reason ≤ 20 字）；用排第一的成员那家 CLI；无工具；超时 20s。判断中灰字「正在安排谁来接…」，出结果「交给 {成员}：{理由}」。
+   - 超时 / 出错 / memberId 不在群里 → 交给排第一的成员，灰字「交给 {成员}：没判断出该谁接，先交给排第一的成员」。
+3. **没 @ 且 `autoRoute=false`** → 交给排第一的成员，不弹提示，灰字「交给 {成员}：没开自动派活，交给排第一的成员」。
+4. **交给员工时的输入** = 群里 `seq > LastSeenSeq` 的消息（格式 `【{name}（{title}）】{text}`，只含最终回复，不含工具过程）+ 本次任务；新入群成员首次只带最近 20 条且总长 ≤ 8000 字。轮完更新 `LastSeenSeq`。
+5. **员工回复后**：用群成员名单匹配正文里的 `@{name}`（最长名优先；群内名字唯一保证不歧义），去掉自己 → 新的 `mentions`，叫醒下一位，`hop+1`。前端把匹配上的 @ 用主题色高亮，没匹配的保持普通文字。
+6. **并行与排队**：不同成员并行；同一成员已在跑 → 排队按顺序。
+7. **停止条件**：回复没 @ 人 → 灰字「{成员} 已完成，没有交给下一位」，等用户；同一 `chainId` 的 `hop` 到 6 → 不再叫醒，灰字「已连续转交 6 次，先停在这里。需要继续请 @ 对应成员。」
+8. **换人**（`ReassignCatGroupRoute`）：原成员若在跑 → 先停其进程，其已输出内容只留在他自己的会话、**不进群记录**，卡片标「已停止」；把同一条消息交给新成员；**不计入** hop；灰字「已换人：{原成员} → {新成员}」。灰字行尾放「换人」按钮（UI）。
+9. **停全部 / 停单人**：结束对应进程；排队中的任务一并取消；被停的那轮按现有取消规则带 `totalMs`。
+
+### 6.21.7 派活判断的可见性
+`CatRouteInfo{mode: mention|followup|ai|fallback|off, memberId, reason, routeSeq}`；`GetCatRouteDetail` 返回这次判断的原样输入（截断到 8000 字）与原样输出，前端点灰字展开。判断用的 CLI 调用不建会话（Grok `-p`、Claude `-p --no-session-persistence` 若可用否则事后不记录、Codex `exec --ephemeral` 若可用）——**这三个“不留会话”参数后端实现前逐项拿 `--help` 核，核不到就照常建会话但不写入任何成员的 SessionID**。
+
+### 6.21.8 越界检查与撤销
+1. **归属**：以该成员本轮工具调用里写过的文件路径为准（确定归属）。另在每轮开始 / 结束各对工作区拍一次 git 快照（`git stash create` 式临时对象 + 未跟踪文件哈希，不产生提交、不动索引）；快照多出来、又没有任何成员工具调用认领的文件 → 「来源不明」，挂在该时间段内所有在跑的成员下。非 git 项目：只做确定归属那部分。
+2. **判定**：文件相对路径不以该成员任一 `dirs` 为前缀 → 越界；`dirs` 为空不检查。纯本地逻辑。
+3. **展示**（产品 / UI 定稿）：颜色 `--cat-orange`（提醒，不用红）；卡片「改了不属于自己的文件（{n} 个）」可展开，超过 3 个折叠「还有 N 个」；文件后小标签「越界」；来源不明为灰色小标签「来源不明」，悬停「这段时间有多人在干活，不确定是谁改的」；卡片左侧细橙条。
+4. **撤销**（一期做，仅确定归属的文件）：按钮「撤销这些改动」→ 确认框 标题「撤销 {成员} 的越界改动？」灰字「只撤销这 {n} 个文件在这一轮的改动，其他文件不受影响。」按钮「撤销」「取消」。后端逐个核对当前内容哈希 == 该轮结束时哈希，一致才从轮前快照还原（轮前不存在的文件则删除）；不一致的跳过并红字「{文件} 之后又被改过，不能自动撤销，请手动处理。」成功 toast「已撤销 {n} 个文件的改动」。来源不明的文件不给撤销。
+5. **硬锁（不卡一期）**：Claude `--disallowedTools` / `--settings` 权限、Codex `writable_roots`、Grok 沙箱配置，后端逐家核 `--help` + 官方文档后另开补丁。
+
+### 6.21.9 错误 reason（复用第 2 节码）
+`member_name_taken`、`group_not_found`、`member_not_found`（NOT_FOUND）、`charter_generating`（重复点重新生成）、`revert_conflict`（部分文件跳过，带文件列表，非整体失败）。CLI 失败照现有 `CAT_REPLY_FAILED`。
+
+### 6.21.10 前端（等 UI 线框 + 产品过）
+侧栏项目展开下加「群聊」分组；建群、成员栏（拖动排序、规范三段 + 目录可看可改可重新生成）、群消息流（头像 / 名字 / 职位）、每人「正在回复」卡片（点开看他完整会话）、灰字派活行 + 「换人」、停全部 / 停单人、输入框 @ 选人（成员 chip 整体删除）。全部文案走 vue-i18n（A 期 key，英日可带草稿）。
+
+### 6.21.11 验收（交付前真机跑通，不能只过单测）
+三家各建一名成员；① @ 单人、@ 两人并行；② 不 @ 走判断、关掉开关走排第一；③ 接力到第 6 次停下；④ 换人、停单人、停全部；⑤ 规范生成成功 / 失败重试 / 加人只改 handoff；⑥ 构造越界并撤销、撤销冲突提示；⑦ 三家拼参单测（规范生成 schema 参数、Rules 注入、判断调用）。
 
 ## 7. 本地流服务（已取消）
 
