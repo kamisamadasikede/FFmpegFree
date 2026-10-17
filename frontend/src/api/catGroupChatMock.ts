@@ -77,6 +77,9 @@ const rBe = () => rep('b', 1, '17:19', {
 const user = (text: string, hm: string, chainId: string, mentions: string[] = []) => push({ kind: 'user', text, mentions, chainId, hop: 0 }, at(hm))
 const route = (to: string, chainId: string, hop: number, mode: string, reason = '') => push({ kind: 'system', systemKind: 'route', chainId, hop, toMemberId: to, route: { mode, memberId: to, reason: reason || undefined, durationMs: mode === 'ai' ? 6_400 : mode === 'fallback' ? 20_000 : undefined } })
 const sys = (kind: string, extra: Partial<CatGroupMessage>) => push({ kind: 'system', systemKind: kind, ...extra })
+/** v0.56 短复：无四段卡；可显式 replyKind=short，或省略 report 仅带 text */
+const short = (memberId: string, hop: number, hm: string, text: string, chainId = 'c1', extra: Partial<CatGroupMessage> = {}) =>
+  push({ kind: 'member', memberId, chainId, hop, turnId: `t-${memberId}-short-${seq}`, replyKind: 'short', text, ...extra }, at(hm))
 const OV_FILES = [
   { path: 'frontend/src/views/cat/GroupStream.vue', added: 64, deleted: 8 }, { path: 'frontend/src/views/cat/RetryButton.vue', added: 41 },
   { path: 'internal/catagent/group_retry.go', added: 6, deleted: 2, tag: 'overreach' }, { path: 'app_cat_group.go', added: 3, deleted: 1, tag: 'overreach' },
@@ -87,6 +90,10 @@ const rFe = () => rep('f', 2, '17:24', {
   attn: '为了联调方便顺手改了两处后端文件（重试的错误码映射），不在我负责的目录里，请后端确认或撤销。', give: '@测试 前端好了，可以连同后端一起跑重试用例', footer: foot('17:24', 5800, 47) })
 
 function mainStream() {
+  user('大家好，今天继续推群聊', '17:04', 'c0')
+  route('a', 'c0', 0, 'ai', '开场招呼')
+  short('a', 0, '17:05', '收到。有具体活再 @ 我，闲聊不必硬派。', 'c0')
+  sys('no_handoff', { memberId: 'a', hop: 0, chainId: 'c0' })
   user(T1, '17:08', 'c1')
   route('a', 'c1', 0, 'ai', '先出方案再拆给前后端')
   rArch()
@@ -127,6 +134,9 @@ function sceneSeed(s: GroupScene): SceneUi {
       sys('hop_limit', { chainId: 'c3', hop: 6 })
       return { running: [] }
     case 'dispatch':
+      user('在吗？', '17:02', 'c0'); route('f', 'c0', 0, 'ai', '打招呼')
+      // 兜底形状：无 replyKind、无 report，仅 text（后端短复路径可能这样发）
+      push({ kind: 'member', memberId: 'f', chainId: 'c0', hop: 0, turnId: 't-f-hi', text: '在的，说下要改哪块就行。' }, at('17:03'))
       user(T1, '17:08', 'c1'); route('a', 'c1', 0, 'ai', '先出方案再拆给前后端'); rArch()
       user('再改一下，按钮文案用「重试」两个字就行', '17:15', 'c4'); route('a', 'c4', 0, 'followup')
       user('发版前把更新日志整理一下', '17:33', 'c5'); route('a', 'c5', 0, 'fallback')

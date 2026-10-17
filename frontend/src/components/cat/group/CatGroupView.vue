@@ -40,6 +40,26 @@
               <div class="tx"><template v-for="(p, i) in parts(m.text)" :key="i"><span v-if="p.at" class="cg-at">{{ p.s }}</span><template v-else>{{ p.s }}</template></template></div>
             </div>
 
+            <div v-else-if="m.kind === 'member' && isMemberShortReply(m)" class="cg-short" data-testid="cat-group-short">
+              <div class="hd">
+                <span class="av sm" :style="{ '--c': colorOf(m.memberId) }">{{ initial(store.nameOf(m.memberId)) }}</span>
+                <b>{{ store.nameOf(m.memberId) }}</b><span class="tt">{{ store.memberById(m.memberId)?.title }}</span>
+                <span class="cli">{{ cliName(store.memberById(m.memberId)?.agentKind) }}</span>
+                <span class="tm">{{ clock(m.createdAt) }}</span>
+              </div>
+              <div class="tx"><template v-for="(p, i) in parts(memberShortText(m))" :key="i"><span v-if="p.at" class="cg-at">{{ p.s }}</span><template v-else>{{ p.s }}</template></template></div>
+              <div v-if="m.report?.footer || m.turnId" class="ft">
+                <template v-if="m.report?.footer">
+                  <span v-if="m.report.footer.finishedAt">{{ t('cat.groupChat.footerDone', { time: clock(m.report.footer.finishedAt) }) }}</span>
+                  <span v-else-if="m.report.footer.totalMs">{{ t('cat.groupChat.footerTime', { time: formatElapsed(m.report.footer.totalMs) }) }}</span>
+                </template>
+                <template v-if="m.turnId || m.memberId">
+                  <span v-if="m.report?.footer">·</span>
+                  <button type="button" class="lk" @click="openProcess(m.memberId)"><FIcon name="eye" :size="12" />{{ t('cat.groupChat.viewFull') }}</button>
+                </template>
+              </div>
+            </div>
+
             <article v-else-if="m.kind === 'member' && m.report" class="cg-card" :class="{ over: overreach(m).length && !reverted[m.seq] }" data-testid="cat-group-report">
               <div class="cg-who">
                 <span class="av" :style="{ '--c': colorOf(m.memberId) }">{{ initial(store.nameOf(m.memberId)) }}</span>
@@ -271,7 +291,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import { useCatGroupChat } from '@/stores/catGroupChat'
-import { formatElapsed, memberColorVar, systemLineText, type CatGroupMessage, type CatRouteDetail } from '@/api/catGroupChat'
+import { formatElapsed, isMemberShortReply, memberColorVar, memberShortText, systemLineText, type CatGroupMessage, type CatRouteDetail } from '@/api/catGroupChat'
 import { SESSION_DEMO } from '@/api/catGroupChatMock'
 import { catPanels } from '@/views/cat/catPanels'
 import { catPane } from '@/components/cat/catPreviewWidth'
