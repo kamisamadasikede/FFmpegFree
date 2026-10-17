@@ -11,7 +11,9 @@
         <button v-if="layout !== 'wide'" type="button" class="cg-ib" :class="{ on: store.membersOpen }" data-testid="cat-group-members-toggle" @click="store.membersOpen = !store.membersOpen">
           <FIcon name="list" :size="15" /><span v-if="layout === 'mid'">{{ t('cat.groupChat.openMembers') }}</span>
         </button>
-        
+        <button type="button" class="cg-ib" :title="t('cat.groupChat.settings')" :aria-label="t('cat.groupChat.settings')" data-testid="cat-group-settings" @click="store.settingsOpen = true">
+          <FIcon name="set" :size="15" />
+        </button>
       </header>
 
       <div ref="feedEl" class="cg-feed" data-testid="cat-group-feed">
@@ -189,7 +191,7 @@
       </div>
     </div>
 
-    
+    <CatGroupSettings v-if="store.settingsOpen" @close="store.settingsOpen = false" @deleted="onDeleted" />
   </section>
 </template>
 
@@ -205,6 +207,7 @@ import { catPane } from '@/components/cat/catPreviewWidth'
 
 import CatGroupMembers from './CatGroupMembers.vue'
 import CatGroupCreateDialog from './CatGroupCreateDialog.vue'
+import CatGroupSettings from './CatGroupSettings.vue'
 import './catGroup.css'
 
 const { t } = useI18n()
@@ -382,12 +385,17 @@ function applyScene() {
   const s = store.scene
   if (!s) return
   if (s === 'overstep') revertMsg.value = store.messages.find((m) => overreach(m).length) ?? null
+  if (s === 'settings') store.settingsOpen = true
   if (s === 'charter') initialOpen.value = 'edit:m3,m4,m5'
   if (s === 'narrow') {
     catPane.side = 540 // 走查：把左栏拉宽，让群聊区域落到 <510，并打开成员抽屉
     store.membersOpen = true
   }
   
+}
+function onDeleted() {
+  store.settingsOpen = false
+  catPanels.view = 'chat'
 }
 
 watch(
