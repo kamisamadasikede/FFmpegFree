@@ -258,7 +258,7 @@ SC.members = () => ({
 SC.mention = () => {
   const pop = `<div class="pop" style="left:60px;bottom:118px;width:300px"><div class="pop-t">@ 成员</div>
     ${ORDER.map(k => `<div class="pop-i ${k === 'b' ? 'on' : ''}">${av(k)}<span>${M[k].n}</span><span class="ttl">${M[k].t}</span>${{ a: ST.idle, b: ST.idle, f: ST.idle, q: ST.run }[k]}</div>`).join('')}</div>`;
-  const text = `让 <span class="inchip">${av('f')}@前端工程师</span> 和 <span class="inchip">${av('q')}@测试</span> 一起把重试流程过一遍，<span class="at">@后</span><span class="caret"></span>`;
+  const text = `让 <span class="inchip">${av('f')}@前端工程师</span> 和 <span class="inchip">${av('q')}@测试</span> 一起把重试流程过一遍，<span class="at">@</span><span class="caret"></span>`;
   return { center: centerWrap(chead(), mainStream(), composer({ text, focus: 1, pop, atHl: 1, hint: '@ 多人会同时开工 · 已识别的 @ 会变成整体标签，退格整个删除' })), right: right({ st: { a: 'idle', b: 'idle', f: 'idle', q: 'run' } }) };
 };
 SC.working = () => ({
@@ -294,7 +294,6 @@ SC.dispatch = () => ({
   scroll: 'top',
   center: centerWrap(chead(), `<div class="daysep">今天</div>
     ${task(T1, '17:08')}
-    ${gl('正在安排谁来接…', { spin: 1, cls: 'faded' }).replace('class="gl faded"', 'class="gl" style="opacity:.55"')}
     ${gl('交给 架构师：先出方案再拆给前后端', { lk: 1, tmr: '· 4.2 秒', acts: [swapBtn()] })}
     <div class="rdet"><h5>派活判断</h5>
       <div class="kv"><span>用的 CLI</span><span>Claude · Claude Opus 4.5（排第一的成员）</span><span>耗时</span><span>4.2 秒 · 不留会话</span><span>看了什么</span><span>这条任务 + 最近 10 条群消息 + 4 位成员的职责</span></div>
@@ -322,7 +321,7 @@ SC.swap = () => {
     center: centerWrap(chead(), `<div class="daysep">今天</div>
       ${task('重试按钮点了以后，成员卡片要回到「正在干活」状态', '17:46')}
       ${gl('交给 后端工程师：涉及成员状态推送', { lk: 1, acts: [swapBtn(1)], after: pop })}
-      <div style="height:236px"></div>
+      <div style="height:150px"></div>
       ${task('前端工程师那边做过类似的，交给他吧', '17:47')}
       ${gl('已换人：后端工程师 → 前端工程师', { icon: 'swap' })}
       ${gl('后端工程师 已停止（换人时停下的）', { icon: 'stop' })}
@@ -363,8 +362,9 @@ function sessionDrawer() {
   <div class="dfoot"><span class="pulse"></span>正在干活 · 已用 2 分 13 秒 · 14 个工具<span class="sp"></span><button class="btn sm">${ic('stop', 'xs')}停止</button></div></div>`;
 }
 SC.session = () => ({
-  center: centerWrap(chead(), mainStream(), composer({ working: [['f', '2 分 13 秒', 14, 'view'], ['q', '38 秒', 0]] }), sessionDrawer()),
+  center: centerWrap(chead(), mainStream(), composer({ working: [['f', '2 分 13 秒', 14, 'view'], ['q', '38 秒', 0]] })),
   right: right({ st: { a: 'idle', b: 'idle', f: 'run', q: 'run' } }),
+  overlay: sessionDrawer(),
 });
 SC.settings = () => ({ center: centerWrap(chead({ setOn: 1 }), mainStream(), composer()), right: right({ st: { a: 'idle', b: 'idle', f: 'idle', q: 'idle' } }), overlay: settingsModal() });
 SC['narrow-drawer'] = () => ({

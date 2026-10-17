@@ -219,7 +219,7 @@ html.dark .av{color:#16171a}
 .sugg{font-size:12px;color:var(--cat-text-2);margin-top:2px}
 .sugg b{color:var(--cat-accent);font-weight:500}
 .mrows{border:1px solid var(--cat-border);border-radius:var(--cat-radius-md);overflow:hidden}
-.mrow{display:grid;grid-template-columns:14px 26px 128px 1fr 136px 1fr 24px;gap:8px;align-items:start;padding:10px;border-top:1px solid var(--cat-divider);background:var(--cat-surface)}
+.mrow{display:grid;grid-template-columns:14px 26px 124px 1fr 130px 1.25fr 24px;gap:8px;align-items:start;padding:10px;border-top:1px solid var(--cat-divider);background:var(--cat-surface)}
 .mrow:first-child{border-top:0}
 .mrow.hd{background:var(--cat-sunken);font-size:11.5px;color:var(--cat-muted);padding:6px 10px;align-items:center}
 .mrow .grip{color:var(--cat-muted);margin-top:8px}
