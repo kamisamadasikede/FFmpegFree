@@ -76,7 +76,6 @@ func (s *Service) SendCatGroupMessage(ctx context.Context, req SendGroupMessageR
 }
 
 func (s *Service) decideRoute(ctx context.Context, g store.CatGroup, members []store.CatGroupMember, userMsg store.CatGroupMessage, chainID string) ([]string, store.CatRouteInfo) {
-	first := members[0]
 	// followup: last member reply on this chain within 10 min
 	if last, ok := s.lastMemberOnChain(ctx, g.ID, chainID); ok {
 		if time.Now().UnixMilli()-last.CreatedAt <= 10*60*1000 && isFollowupText(userMsg.Text) {
@@ -101,10 +100,13 @@ func (s *Service) decideRoute(ctx context.Context, g store.CatGroup, members []s
 
 	memberID, reason, detail := s.runAIRoute(ctx, g, members, userMsg, startedAt)
 	if memberID == "" {
-		route := store.CatRouteInfo{Mode: "fallback", MemberID: first.ID, Reason: "没判断出该谁接，先交给排第一的成员", RouteSeq: detail.RouteSeq, DurationMs: routeDurationMs(detail)}
-		s.postRouteSystem(ctx, g.ID, chainID, first, route, "交给 "+first.Name+"：没判断出该谁接，先交给排第一的成员")
+		// v0.55.9 / 6.21.18：判断失败不起成员、不交给排第一、不出现「换人」。
+		dur := routeDurationMs(detail)
+		route := store.CatRouteInfo{Mode: "undecided", Reason: "没判断出该谁接", RouteSeq: detail.RouteSeq, DurationMs: dur}
+		text := "没判断出该谁接，请 @ 对应成员，或再说具体要做什么。"
+		s.postSystem(ctx, g.ID, chainID, 0, "system", text, "route", route, "", "")
 		s.emitGroupRoute(GroupRouteEvent{GroupID: g.ID, ChainID: chainID, State: "routed", Route: route})
-		return []string{first.ID}, route
+		return nil, route
 	}
 	var name string
 	for _, m := range members {
@@ -142,8 +144,8 @@ func routeDurationMs(d store.CatGroupRouteDetail) int64 {
 }
 
 func (s *Service) runAIRoute(ctx context.Context, g store.CatGroup, members []store.CatGroupMember, userMsg store.CatGroupMessage, startedAt int64) (memberID, reason string, detail store.CatGroupRouteDetail) {
-	first := members[0]
-	a, err := s.adapter(first.AgentKind)
+	judge := members[0]
+	a, err := s.adapter(judge.AgentKind)
 	if err != nil {
 		return "", "", detail
 	}
@@ -166,13 +168,13 @@ func (s *Service) runAIRoute(ctx context.Context, g store.CatGroup, members []st
 	}
 	turnCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	s.applyProviderOverlay(ctx, a, first.AgentKind)
+	s.applyProviderOverlay(ctx, a, judge.AgentKind)
 	opts := catagent.TurnOptions{
 		Ctx: turnCtx, ConversationID: "group-route-" + g.ID + "-" + id.New(),
-		ModelID: first.ModelID, ThinkLevelID: s.effortForTurn(ctx, first.AgentKind, first.ModelID, first.ThinkLevel),
+		ModelID: judge.ModelID, ThinkLevelID: s.effortForTurn(ctx, judge.AgentKind, judge.ModelID, judge.ThinkLevel),
 		Ephemeral: true, NoTools: true, JSONSchema: catagent.RouteSchema,
 		Messages: []catagent.WireMessage{{Role: "user", Content: input}},
-		Provider: s.providerOverlayFor(ctx, first.AgentKind),
+		Provider: s.providerOverlayFor(ctx, judge.AgentKind),
 		Timeout:  20 * time.Second,
 	}
 	if row, err := s.cfg.Store.GetCatProject(ctx, g.ProjectID); err == nil {
@@ -181,40 +183,85 @@ func (s *Service) runAIRoute(ctx context.Context, g store.CatGroup, members []st
 	resp, runErr := a.RunTurn(opts)
 	finishedAt := time.Now().UnixMilli() // 拿到结果 / 超时 / 出错
 	outText := strings.TrimSpace(resp.Message.Content)
+	if runErr != nil {
+		snippet := truncateRunErr(runErr.Error(), 400)
+		if outText == "" {
+			outText = snippet
+		} else if snippet != "" {
+			outText = outText + "\n" + snippet
+		}
+	}
 	detail, _ = s.cfg.Store.InsertCatGroupRoute(ctx, store.CatGroupRouteDetail{
 		GroupID: g.ID, ChainID: userMsg.ChainID, Mode: "ai", InputText: input, OutputText: outText,
 		StartedAt: startedAt, FinishedAt: finishedAt,
 	})
-	if runErr != nil || outText == "" {
+	if runErr != nil || strings.TrimSpace(resp.Message.Content) == "" {
 		return "", "", detail
 	}
 	var parsed struct {
 		MemberID string `json:"memberId"`
 		Reason   string `json:"reason"`
+		Name     string `json:"name"`
+		Title    string `json:"title"`
 	}
-	if json.Unmarshal([]byte(extractJSONObject(outText)), &parsed) != nil {
+	if json.Unmarshal([]byte(extractJSONObject(strings.TrimSpace(resp.Message.Content))), &parsed) != nil {
 		return "", "", detail
 	}
 	parsed.MemberID = strings.TrimSpace(parsed.MemberID)
 	parsed.Reason = strings.TrimSpace(parsed.Reason)
+	parsed.Name = strings.TrimSpace(parsed.Name)
+	parsed.Title = strings.TrimSpace(parsed.Title)
 	if utf8.RuneCountInString(parsed.Reason) > 20 {
 		r := []rune(parsed.Reason)
 		parsed.Reason = string(r[:20])
 	}
-	ok := false
-	for _, m := range members {
-		if m.ID == parsed.MemberID {
-			ok = true
-			break
-		}
-	}
-	if !ok {
+	resolved := resolveRouteMemberID(members, parsed.MemberID, parsed.Name, parsed.Title)
+	if resolved == "" {
 		return "", "", detail
 	}
-	detail.MemberID = parsed.MemberID
+	detail.MemberID = resolved
 	detail.Reason = parsed.Reason
 	_ = detail // already inserted; RouteSeq set
-	return parsed.MemberID, parsed.Reason, detail
+	return resolved, parsed.Reason, detail
+}
+
+func truncateRunErr(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if s == "" || len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
+
+// resolveRouteMemberID：先按 id；否则把 candidate / name / title 当人名或职位做精确唯一匹配（契约 6.21.18 ⑤）。
+func resolveRouteMemberID(members []store.CatGroupMember, candidate, name, title string) string {
+	for _, m := range members {
+		if m.ID == candidate {
+			return m.ID
+		}
+	}
+	for _, key := range []string{candidate, name, title} {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		var byName, byTitle []string
+		for _, m := range members {
+			if m.Name == key {
+				byName = append(byName, m.ID)
+			}
+			if m.Title == key {
+				byTitle = append(byTitle, m.ID)
+			}
+		}
+		if len(byName) == 1 {
+			return byName[0]
+		}
+		if len(byTitle) == 1 {
+			return byTitle[0]
+		}
+	}
+	return ""
 }
 
 func (s *Service) postRouteSystem(ctx context.Context, groupID, chainID string, member store.CatGroupMember, route store.CatRouteInfo, text string) {

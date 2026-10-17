@@ -604,18 +604,36 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 			}
 		}
 	}
+	structured := strings.TrimSpace(opts.JSONSchema) != ""
+	var scanErr error
 	stopFollow := make(chan struct{})
 	followDone := make(chan struct{})
 	go func() {
 		defer close(followDone)
-		followSessionUpdates(updatesPath, updatesOff, &followMode, stopFollow, emitPiece, noteErr)
-	}()
-	scanErr := scanStreamingJSON(activityReader{r: stdout, w: idle}, func(p streamPiece) {
-		if !claimFollow(&followMode, followStdout) {
+		if structured {
+			// Structured one-shots don't follow session files.
 			return
 		}
-		emitPiece(p)
-	}, noteErr)
+		followSessionUpdates(updatesPath, updatesOff, &followMode, stopFollow, emitPiece, noteErr)
+	}()
+	if structured {
+		raw, err := io.ReadAll(activityReader{r: stdout, w: idle})
+		if err != nil {
+			scanErr = err
+		} else if body := ExtractStructuredJSONContent(raw); body != "" {
+			acc.WriteString(body)
+			if opts.OnTextDelta != nil {
+				opts.OnTextDelta(body)
+			}
+		}
+	} else {
+		scanErr = scanStreamingJSON(activityReader{r: stdout, w: idle}, func(p streamPiece) {
+			if !claimFollow(&followMode, followStdout) {
+				return
+			}
+			emitPiece(p)
+		}, noteErr)
+	}
 
 	waitErr := cmd.Wait()
 	stderrTap.flush()

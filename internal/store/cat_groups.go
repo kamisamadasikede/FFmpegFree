@@ -85,11 +85,11 @@ type CatGroupMember struct {
 
 // CatRouteInfo is structured source for a system gray line.
 type CatRouteInfo struct {
-	Mode     string `json:"mode"` // mention|followup|ai|fallback|off|reassign|done|hop_limit|stopped|failed
+	Mode     string `json:"mode"` // mention|followup|ai|fallback|undecided|off|reassign|done|hop_limit|stopped|failed|retry
 	MemberID string `json:"memberId,omitempty"`
 	Reason   string `json:"reason,omitempty"`
 	RouteSeq int64  `json:"routeSeq,omitempty"`
-	// DurationMs 派活判断耗时（契约 6.21.17 ③）；只有 ai / 判断超时出错落的 fallback 有。
+	// DurationMs 派活判断耗时（契约 6.21.17 ③ / 6.21.18）；ai 成功与 undecided（判断失败）有。
 	DurationMs int64 `json:"durationMs,omitempty"`
 	// Queued 入队灰字标记（契约 6.21.17 ④ 5）：「交给 {成员}：正在干活，排在后面」。
 	Queued bool `json:"queued,omitempty"`

@@ -1,6 +1,8 @@
 package catagent
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"strings"
 )
@@ -107,3 +109,115 @@ const ReportSchema = `{
     "give": { "type": "string", "maxLength": 500 }
   }
 }`
+
+// ExtractStructuredJSONContent turns a CLI --output-format json (or mixed) stdout
+// blob into the structured payload string for Message.Content.
+//
+// Real Grok/Claude with --json-schema emit one JSON document (sometimes wrapped
+// in result / message). Fake e2e scripts still wrap the payload in streaming-json
+// text lines; both must yield the inner object so route/charter parsing works.
+func ExtractStructuredJSONContent(raw []byte) string {
+	s := strings.TrimSpace(string(raw))
+	if s == "" {
+		return ""
+	}
+	if body := unwrapStructuredJSON([]byte(s)); body != "" {
+		return body
+	}
+	// NDJSON / mixed: prefer streamed text deltas; else last structured object line.
+	var acc strings.Builder
+	var lastStruct string
+	tools := map[string]*toolSnap{}
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if u := unwrapStructuredJSON([]byte(line)); u != "" {
+			lastStruct = u
+		}
+		piece, _, isErr := parseStreamLine([]byte(line), tools)
+		if isErr || piece.Text == "" {
+			continue
+		}
+		if piece.Kind == "" || piece.Kind == "text" {
+			acc.WriteString(piece.Text)
+		}
+	}
+	if t := strings.TrimSpace(acc.String()); t != "" {
+		if u := unwrapStructuredJSON([]byte(t)); u != "" {
+			return u
+		}
+		return t
+	}
+	return lastStruct
+}
+
+func unwrapStructuredJSON(b []byte) string {
+	b = bytes.TrimSpace(b)
+	if len(b) == 0 || (b[0] != '{' && b[0] != '"' && b[0] != '[') {
+		return ""
+	}
+	var v any
+	if json.Unmarshal(b, &v) != nil {
+		return ""
+	}
+	return unwrapStructuredValue(v, 0)
+}
+
+func unwrapStructuredValue(v any, depth int) string {
+	if depth > 6 || v == nil {
+		return ""
+	}
+	switch x := v.(type) {
+	case string:
+		s := strings.TrimSpace(x)
+		if s == "" {
+			return ""
+		}
+		if inner := unwrapStructuredJSON([]byte(s)); inner != "" {
+			return inner
+		}
+		return ""
+	case map[string]any:
+		if looksLikeStructuredPayload(x) {
+			return mustCompactJSON(x)
+		}
+		for _, key := range []string{"result", "data", "content", "output", "message"} {
+			if raw, ok := x[key]; ok {
+				if got := unwrapStructuredValue(raw, depth+1); got != "" {
+					return got
+				}
+			}
+		}
+		if msg, ok := x["message"].(map[string]any); ok {
+			if got := unwrapStructuredValue(msg["content"], depth+1); got != "" {
+				return got
+			}
+		}
+		return ""
+	default:
+		return ""
+	}
+}
+
+func looksLikeStructuredPayload(m map[string]any) bool {
+	if _, ok := m["memberId"]; ok {
+		return true
+	}
+	if _, ok := m["owns"]; ok {
+		return true
+	}
+	if _, ok := m["did"]; ok {
+		return true
+	}
+	return false
+}
+
+func mustCompactJSON(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}

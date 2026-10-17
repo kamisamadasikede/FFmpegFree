@@ -249,19 +249,19 @@ func TestGroupV0556_DispatchTiming(t *testing.T) {
 		}
 	}
 
-	// 判断返回无效 → fallback 也有耗时
+	// 判断返回无效 → undecided 也有耗时，不起成员
 	e.file("route", "sleep", "1")
 	e.reply("route", `{"memberId":"nobody","reason":"x"}`)
 	chain = e.send("随便")
 	e.waitIdle()
 	fb := find(find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain }), func(m cat.GroupMessage) bool {
-		return m.Route != nil && m.Route.Mode == "fallback"
+		return m.Route != nil && m.Route.Mode == "undecided"
 	})
 	if len(fb) != 1 || fb[0].Route.DurationMs <= 0 {
-		t.Fatalf("fallback timing %+v", fb)
+		t.Fatalf("undecided timing %+v", fb)
 	}
 	if fd, err := e.svc.GetCatRouteDetail(ctx, cat.GetRouteDetailRequest{GroupID: e.g.ID, Seq: fb[0].Seq}); err != nil || fd.DurationMs == nil || fd.StartedAt == 0 {
-		t.Fatalf("fallback detail %+v %v", fd, err)
+		t.Fatalf("undecided detail %+v %v", fd, err)
 	}
 
 	// mention：不跑判断，没有耗时
