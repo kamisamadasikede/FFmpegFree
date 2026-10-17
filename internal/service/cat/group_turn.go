@@ -223,6 +223,10 @@ func (s *Service) startGroupMemberTurn(ctx context.Context, g store.CatGroup, m 
 		// files from turn changes + overreach tags
 		changes, _ := s.GetCatTurnChangeDetail(context.Background(), m.ID, t.turnID)
 		report.Files = s.tagReportFiles(context.Background(), g, m, claimedCopy, changes, members)
+		if projectRoot != "" {
+			// 撤销越界时按轮末内容判断「之后又被改过」（6.21.14 ⑥）。
+			s.persistEndHashes(context.Background(), t.turnID, projectRoot, report.Files)
+		}
 		mentions := matchMentionsInText(text, members, m.ID)
 
 		outMsg, err := s.cfg.Store.InsertCatGroupMessage(context.Background(), store.CatGroupMessage{
