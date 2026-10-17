@@ -219,9 +219,10 @@ export function formatElapsed(ms: number): string {
 }
 
 /**
- * 灰字一行（契约 6.21.6 / 6.21.16 / 6.21.18 原文，经 i18n）。
- * 「已转交给 {成员}（第 n/6 次）」：route + hop>0 且 mode 为 handoff/mention、无理由；
+ * 灰字一行（契约 6.21.6 / 6.21.16 / 6.21.18 原文，经 i18n；产品 v0.56 交接文案）。
+ * 「已请 {成员} 接着」：route + hop>0 且 mode 为 handoff/mention、无理由（消息流不写第 n/6；hop 仅过程抽屉）；
  * 「交给 {新}：你指定的」：换人后的 route，mode=reassign|named（后端 mode 取值未在契约写死，两种都认）。
+ * TODO(v0.56+): 短复 vs 完整汇报卡等契约字段落地后再接 UI，本期只改灰字/空交给谁文案。
  */
 export function systemLineText(m: CatGroupMessage, nameOf: (id?: string) => string): string {
   const to = nameOf(m.toMemberId || m.route?.memberId || m.memberId)
@@ -229,7 +230,7 @@ export function systemLineText(m: CatGroupMessage, nameOf: (id?: string) => stri
     case 'route': {
       if (m.route?.queued) return k('routeQueued', { name: to })
       const r = m.route
-      if (r && m.hop > 0 && (r.mode === 'handoff' || r.mode === 'mention') && !r.reason) return k('handedOff', { name: to, n: m.hop })
+      if (r && m.hop > 0 && (r.mode === 'handoff' || r.mode === 'mention') && !r.reason) return k('handedOff', { name: to })
       if (r?.mode === 'named' || r?.mode === 'reassign') return k('routeTo', { name: to, reason: k('routeNamed') })
       if (r?.mode === 'followup') return k('routeTo', { name: to, reason: k('routeFollowup') })
       if (r?.mode === 'undecided') return k('routeUndecided')
@@ -240,7 +241,7 @@ export function systemLineText(m: CatGroupMessage, nameOf: (id?: string) => stri
       return m.text || k('routePlain', { name: to })
     }
     case 'hop_limit': return k('hopLimit')
-    case 'no_handoff': return k('noHandoff', { name: nameOf(m.memberId) })
+    case 'no_handoff': return k('noHandoff', { name: nameOf(m.memberId) })  // 空「交给谁」：弱灰字「{成员} 已完成」，不写「没有交给下一位」
     case 'reassign': return k('reassigned', { from: nameOf(m.fromMemberId), to: nameOf(m.toMemberId) })
     case 'failed': return k('failed', { name: nameOf(m.memberId), reason: m.failReason || m.text || k('unknownReason') })
     case 'stopped': return k('stopped', { name: nameOf(m.memberId) })
