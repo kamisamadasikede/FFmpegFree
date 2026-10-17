@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -235,7 +236,11 @@ func (s *Service) ReassignCatGroupRoute(ctx context.Context, req ReassignGroupRo
 	}
 	// find original running or last routed member on chain
 	fromID, fromName := s.findChainActiveMember(ctx, g.ID, req.ChainID)
+	// 换人不计入 hop：新成员接着原成员所在的那一跳，不归零（否则能绕过 6 次上限）。
+	hop := 0
 	if fromID != "" {
+		hop = s.chainHopFor(ctx, g.ID, req.ChainID, fromID)
+		markReassignStop(groupConvID(g.ID, fromID))
 		_ = s.StopCatGroupMember(ctx, fromID)
 	}
 	sys := s.postSystem(ctx, g.ID, req.ChainID, 0, "system",
@@ -248,7 +253,7 @@ func (s *Service) ReassignCatGroupRoute(ctx context.Context, req ReassignGroupRo
 		store.CatRouteInfo{Mode: "reassign", MemberID: to.ID, Reason: "你指定的"},
 		fromID, to.ID)
 	// wake new member; hop not counted
-	s.wakeMember(ctx, g, to.ID, req.ChainID, 0, 0, true)
+	s.wakeMember(ctx, g, to.ID, req.ChainID, hop, 0, true)
 	return ReassignGroupRouteResult{System: sys}, nil
 }
 
@@ -286,8 +291,8 @@ func (s *Service) RetryCatGroupMemberTurn(ctx context.Context, req RetryGroupMem
 	if m.GroupID != g.ID {
 		return s.errMemberNotFound()
 	}
-	// hop does not increase
-	s.wakeMember(ctx, g, m.ID, req.ChainID, 0, 0, true)
+	// 重试：同一任务在原来那一跳再跑一轮，hop 不加（也不归零）。
+	s.wakeMember(ctx, g, m.ID, req.ChainID, s.chainHopFor(ctx, g.ID, req.ChainID, m.ID), 0, true)
 	return nil
 }
 
@@ -307,4 +312,43 @@ func uniqueIDs(ids []string) []string {
 
 func groupConvID(groupID, memberID string) string {
 	return "group:" + groupID + ":" + memberID
+}
+
+// chainHopFor 返回成员在这条链上最近一次被叫起时所在的 hop：
+// 转交给他的灰字（toMemberId）或他自己的失败 / 停止灰字；都没有（用户直接 @ / 派活）就是 0。
+func (s *Service) chainHopFor(ctx context.Context, groupID, chainID, memberID string) int {
+	list, err := s.cfg.Store.ListCatGroupMessages(ctx, groupID, 0, 200)
+	if err != nil {
+		return 0
+	}
+	for i := len(list) - 1; i >= 0; i-- {
+		m := list[i]
+		if m.ChainID != chainID || m.Kind != "system" {
+			continue
+		}
+		if (m.SystemKind == "route" && m.ToMemberID == memberID && m.Route != nil && m.Route.Mode == "mention") ||
+			((m.SystemKind == "failed" || m.SystemKind == "stopped") && m.MemberID == memberID) {
+			return m.Hop
+		}
+	}
+	return 0
+}
+
+var (
+	reassignStopMu sync.Mutex
+	reassignStops  = map[string]bool{}
+)
+
+func markReassignStop(convID string) {
+	reassignStopMu.Lock()
+	reassignStops[convID] = true
+	reassignStopMu.Unlock()
+}
+
+func takeReassignStop(convID string) bool {
+	reassignStopMu.Lock()
+	defer reassignStopMu.Unlock()
+	v := reassignStops[convID]
+	delete(reassignStops, convID)
+	return v
 }

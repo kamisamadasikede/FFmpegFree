@@ -195,9 +195,10 @@ func (s *Service) startGroupMemberTurn(ctx context.Context, g store.CatGroup, m 
 			}
 			s.lastMu.Unlock()
 		}
+		stoppedByReassign := takeReassignStop(convID)
 		if status == catagent.TurnCancelled {
 			note := m.Name + " 已停止"
-			if reassign {
+			if stoppedByReassign {
 				note = m.Name + " 已停止（换人时停下的）"
 			}
 			s.postSystem(context.Background(), g.ID, chainID, hop, "system", note, "stopped",
@@ -250,10 +251,8 @@ func (s *Service) startGroupMemberTurn(ctx context.Context, g store.CatGroup, m 
 				store.CatRouteInfo{Mode: "done", MemberID: m.ID}, "", "")
 			return
 		}
+		// 换人 / 重试叫起的这一轮已经沿用原来的 hop（不加），它自己再 @ 下一位照常 +1。
 		nextHop := hop + 1
-		if reassign {
-			nextHop = hop // reassign / retry: hop does not increase for the woken turn; but this is after completion
-		}
 		// Contract: one reply @ two people → hop += 1 only (already nextHop = hop+1 once)
 		if nextHop >= maxGroupHops {
 			s.postSystem(context.Background(), g.ID, chainID, nextHop, "system",
