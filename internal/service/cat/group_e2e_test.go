@@ -72,6 +72,12 @@ type groupEnv struct {
 
 func newGroupEnv(t *testing.T, names ...string) *groupEnv {
 	t.Helper()
+	return newGroupEnvKinds(t, nil, names...)
+}
+
+// newGroupEnvKinds：kinds 里写了的成员用对应 CLI（claude_cli / codex_cli 各有一个假可执行文件，输出各家真实 stream-json）。
+func newGroupEnvKinds(t *testing.T, kinds map[string]string, names ...string) *groupEnv {
+	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("unix script fake")
 	}
@@ -105,6 +111,36 @@ func newGroupEnv(t *testing.T, names ...string) *groupEnv {
 	})
 	reg.Register(build)
 	build.Start()
+	for _, k := range []string{"claude", "codex"} {
+		k := k
+		exe := filepath.Join(dir, k)
+		body := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '" + fdir + "/" + k + ".argv'\n" +
+			"if [ -f '" + fdir + "/" + k + ".pre' ]; then sh '" + fdir + "/" + k + ".pre'; fi\n" +
+			"cat '" + fdir + "/" + k + ".out' 2>/dev/null\n"
+		if err := os.WriteFile(exe, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		cfg := catagent.CLIAgentConfig{
+			DataRoot: dir, DataTemp: temp, ClaudeConfigDir: filepath.Join(dir, "claude-home"), CodexHome: filepath.Join(dir, "codex-home"),
+			LookPath: func(file string) (string, error) {
+				if strings.TrimSuffix(file, ".exe") == k {
+					return exe, nil
+				}
+				return "", exec.ErrNotFound
+			},
+			Exec: func(ctx context.Context, name string, args ...string) *exec.Cmd {
+				return exec.CommandContext(ctx, name, args...)
+			},
+		}
+		var a *catagent.CLIAgentAdapter
+		if k == "claude" {
+			a = catagent.NewClaudeAdapter(cfg)
+		} else {
+			a = catagent.NewCodexAdapter(cfg)
+		}
+		reg.Register(a)
+		a.Start()
+	}
 	e := &groupEnv{t: t, st: st, fake: fdir, mem: map[string]cat.GroupMember{}}
 	e.svc = cat.New(cat.Config{Store: st, Registry: reg, DataRoot: dir, Emit: func(name string, p any) {
 		e.mu.Lock()
@@ -148,7 +184,11 @@ func newGroupEnv(t *testing.T, names ...string) *groupEnv {
 		t.Fatal(err)
 	}
 	for _, n := range names {
-		m, err := e.svc.AddCatGroupMember(ctx, cat.AddGroupMemberRequest{GroupID: e.g.ID, Name: n, Title: n + "职位", AgentKind: catagent.KindCatBuild})
+		kind := catagent.KindCatBuild
+		if k := kinds[n]; k != "" {
+			kind = k
+		}
+		m, err := e.svc.AddCatGroupMember(ctx, cat.AddGroupMemberRequest{GroupID: e.g.ID, Name: n, Title: n + "职位", AgentKind: kind})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -628,5 +668,81 @@ func TestGroupE2E_UnparsedReport(t *testing.T) {
 	g := find(ms, sys("report_format"))
 	if len(g) != 1 || g[0].Text != "没按汇报格式写，只显示最后一段回复" {
 		t.Fatalf("gray:\n%s", e.dump())
+	}
+}
+
+// 换人发生在接力中途：新成员沿用那一跳（不加、不归零）。
+func TestGroupE2E_ReassignMidChainKeepsHop(t *testing.T) {
+	e := newGroupEnv(t, "甲", "乙", "丙")
+	e.reply("甲", report("甲做完", "", "@乙 接着"))
+	e.reply("乙", report("乙做完", "", ""))
+	e.file("乙", "sleep", "100")
+	e.reply("丙", report("丙做完", "", "@甲 看一下"))
+	e.file("甲", "pre", "") // 第二次甲直接收尾
+	chain := e.send("做", "甲")
+	e.waitFor(func([]cat.GroupMessage) bool { return strings.Contains(strings.Join(e.calls(), ","), "乙") })
+	time.Sleep(100 * time.Millisecond)
+	e.reply("甲", report("甲收尾", "", ""))
+	if _, err := e.svc.ReassignCatGroupRoute(context.Background(), cat.ReassignGroupRouteRequest{GroupID: e.g.ID, ChainID: chain, ToMemberID: e.mem["丙"].ID}); err != nil {
+		t.Fatal(err)
+	}
+	e.waitIdle()
+	ms := find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
+	c := cardsOf(ms, e.mem["丙"].ID)
+	if len(c) != 1 || c[0].Hop != 2 {
+		t.Fatalf("丙 should take 乙's hop (card hop 2):\n%s", e.dump())
+	}
+	if len(find(ms, func(m cat.GroupMessage) bool { return m.Text == "已转交给 甲（第 2/6 次）" })) != 1 {
+		t.Fatalf("丙's own handoff counts normally:\n%s", e.dump())
+	}
+}
+
+// 三家混编：claude / codex 成员也走同一套群聊流程，越界按各家真实的工具事件认出来。
+func TestGroupE2E_MixedCLIs(t *testing.T) {
+	e := newGroupEnvKinds(t, map[string]string{"克劳德": catagent.KindClaudeCLI, "扣德克斯": catagent.KindCodexCLI}, "克劳德", "扣德克斯")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		st, _ := e.svc.GetCatStatus(context.Background())
+		_ = st
+		break
+	}
+	e.svc.Wait()
+	e.setDirs("克劳德", "frontend")
+	e.setDirs("扣德克斯", "frontend")
+	jl := func(v any) string { raw, _ := json.Marshal(v); return string(raw) + "\n" }
+	crep := report("克劳德做完", "", "")
+	e.file("claude", "pre", "printf 'x' > backend/c.go\n")
+	e.file("claude", "out",
+		jl(map[string]any{"type": "system", "subtype": "init", "session_id": "cs1"})+
+			jl(map[string]any{"type": "assistant", "session_id": "cs1", "message": map[string]any{"id": "m1", "content": []any{
+				map[string]any{"type": "tool_use", "id": "tu1", "name": "Write", "input": map[string]any{"file_path": filepath.Join(e.root, "backend", "c.go"), "content": "x"}},
+			}}})+
+			jl(map[string]any{"type": "stream_event", "session_id": "cs1", "event": map[string]any{"delta": map[string]any{"type": "text_delta", "text": crep}}})+
+			jl(map[string]any{"type": "result", "session_id": "cs1", "result": crep}))
+	xrep := report("扣德克斯做完", "", "")
+	e.file("codex", "pre", "printf 'y' > backend/x.go\n")
+	e.file("codex", "out",
+		jl(map[string]any{"type": "thread.started", "thread_id": "thr-1"})+
+			jl(map[string]any{"type": "item.completed", "item": map[string]any{"id": "i0", "type": "file_change", "status": "completed",
+				"changes": []any{map[string]any{"path": filepath.Join(e.root, "backend", "x.go"), "kind": "add"}}}})+
+			jl(map[string]any{"type": "item.completed", "item": map[string]any{"id": "i1", "type": "agent_message", "text": xrep}})+
+			jl(map[string]any{"type": "turn.completed", "usage": map[string]any{"input_tokens": 1, "output_tokens": 1}}))
+	chain := e.send("各做各的", "克劳德", "扣德克斯")
+	e.waitIdle()
+	ms := find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
+	for n, f := range map[string]string{"克劳德": "backend/c.go", "扣德克斯": "backend/x.go"} {
+		c := cardsOf(ms, e.mem[n].ID)
+		if len(c) != 1 || !c[0].Report.Parsed || c[0].Hop != 1 {
+			t.Fatalf("%s card:\n%s", n, e.dump())
+		}
+		tag := "missing"
+		for _, ff := range c[0].Report.Files {
+			if ff.Path == f {
+				tag = ff.Tag
+			}
+		}
+		if tag != "overreach" {
+			t.Fatalf("%s %s tag=%q files=%+v", n, f, tag, c[0].Report.Files)
+		}
 	}
 }
