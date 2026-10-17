@@ -69,7 +69,19 @@
         </div>
       </div>
 
-      
+      <div v-if="store.workingMembers.length" class="cg-work" data-testid="cat-group-working">
+        <div v-for="m in store.workingMembers" :key="m.id" class="cg-wrow">
+          <span class="cg-spin" aria-hidden="true" />
+          <span class="av sm" :style="{ '--c': memberColorVar(m.order) }">{{ initial(m.name) }}</span>
+          <span class="tx">{{ t('cat.groupChat.working', { name: m.name, time: formatElapsed(store.elapsedOf(m.id)) }) }}<template v-if="store.live[m.id]?.toolCount">{{ t('cat.groupChat.workingTools', { n: store.live[m.id].toolCount }) }}</template></span>
+          <button type="button" class="cg-btn ghost" @click="openProcess(m.id)">{{ t('cat.groupChat.viewProcess') }}</button>
+          <button type="button" class="cg-btn" @click="store.stop(m.id)"><FIcon name="stop" :size="11" />{{ t('cat.groupChat.stop') }}</button>
+        </div>
+        <div v-if="store.workingMembers.length > 1" class="cg-wall">
+          <span>{{ t('cat.groupChat.nWorking', { n: store.workingMembers.length }) }}</span>
+          <button type="button" class="cg-btn ghost red" data-testid="cat-group-stop-all" @click="store.stopAll()">{{ t('cat.groupChat.stopAll') }}</button>
+        </div>
+      </div>
 
       <div class="cg-comp" data-testid="cat-group-composer">
         <div v-if="mentionOpen && mentionList.length" class="cg-pop" role="listbox" :aria-label="t('cat.groupChat.mentionList')">
@@ -94,7 +106,14 @@
 
     
 
-    
+    <aside v-if="store.drawerMemberId" class="cg-proc" data-testid="cat-group-process">
+      <div class="cg-mem-hd">
+        <span class="av sm" :style="{ '--c': colorOf(store.drawerMemberId) }">{{ initial(store.nameOf(store.drawerMemberId)) }}</span>
+        {{ t('cat.groupChat.processTitle', { name: store.nameOf(store.drawerMemberId) }) }}<span class="sp" />
+        <button type="button" class="cg-ib" :aria-label="t('cat.groupChat.close')" @click="store.drawerMemberId = ''"><FIcon name="x" :size="14" /></button>
+      </div>
+      <div class="bd">{{ store.processText[store.drawerMemberId] || t('cat.groupChat.processEmpty') }}</div>
+    </aside>
 
     
 
@@ -143,7 +162,7 @@ const sysText = (m: CatGroupMessage) => systemLineText(m, store.nameOf)
 const overreach = (m: CatGroupMessage) => (m.report?.files ?? []).filter((f) => f.tag === 'overreach')
 
 function openProcess(id?: string) {
-  
+  store.drawerMemberId = id ?? ''
   void id
 }
 
