@@ -1,5 +1,5 @@
 <template>
-  <section class="cg" :class="layout" :aria-label="g?.name || t('cat.groupChat.groupFallback')" data-testid="cat-group-view">
+  <section ref="rootEl" class="cg" :class="layout" :aria-label="g?.name || t('cat.groupChat.groupFallback')" data-testid="cat-group-view">
     <div class="cg-main">
       <header class="cg-hd">
         <span class="ttl" data-testid="cat-group-title">{{ g?.name }}</span>
@@ -201,6 +201,8 @@ import FIcon from '@/components/icon/FIcon.vue'
 import { useCatGroupChat } from '@/stores/catGroupChat'
 import { formatElapsed, memberColorVar, systemLineText, type CatGroupMessage, type CatRouteDetail } from '@/api/catGroupChat'
 import { catPanels } from '@/views/cat/catPanels'
+import { catPane } from '@/components/cat/catPreviewWidth'
+
 import CatGroupMembers from './CatGroupMembers.vue'
 import CatGroupCreateDialog from './CatGroupCreateDialog.vue'
 import './catGroup.css'
@@ -210,10 +212,12 @@ const store = useCatGroupChat()
 const g = computed(() => store.group)
 const AT = '@'
 
-// ≥1100 三栏；760–1099 成员栏变抽屉；<760 单栏
-const width = ref(typeof window !== 'undefined' ? window.innerWidth : 1280)
-const onResize = () => (width.value = window.innerWidth)
-const layout = computed(() => (width.value >= 1100 ? 'wide' : width.value >= 760 ? 'mid' : 'narrow'))
+// 布局按群聊区域自身宽度算（应用窗口最小 1024px，窗口宽度到不了 760）：
+// 设计 v0.2.1 的 ≥1100 / 760 是含左栏（约 250px）的窗口宽度，这里折算成区域宽度 ≥850 三栏、510–849 成员栏变抽屉、<510 单栏
+const rootEl = ref<HTMLElement | null>(null)
+const width = ref(1200)
+let ro: ResizeObserver | null = null
+const layout = computed(() => (width.value >= 850 ? 'wide' : width.value >= 510 ? 'mid' : 'narrow'))
 
 const initial = (n: string) => Array.from(n.trim())[0]?.toUpperCase() ?? ''
 const colorOf = (id?: string) => memberColorVar(store.memberById(id)?.order ?? 0)
@@ -378,6 +382,7 @@ function applyScene() {
   const s = store.scene
   if (!s) return
   if (s === 'overstep') revertMsg.value = store.messages.find((m) => overreach(m).length) ?? null
+  if (s === 'narrow') catPane.side = 540 // 走查：把左栏拉宽，让群聊区域落到 <510
   
 }
 
@@ -391,8 +396,13 @@ watch(
   },
   { immediate: true },
 )
-onMounted(() => window.addEventListener('resize', onResize))
-onBeforeUnmount(() => window.removeEventListener('resize', onResize))
+onMounted(() => {
+  if (!rootEl.value) return
+  width.value = rootEl.value.clientWidth
+  ro = new ResizeObserver(([e]) => (width.value = e.contentRect.width))
+  ro.observe(rootEl.value)
+})
+onBeforeUnmount(() => ro?.disconnect())
 void addOpen
 void initialOpen
 void layout
