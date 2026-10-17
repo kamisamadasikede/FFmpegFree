@@ -1720,7 +1720,7 @@
       "delete": "Delete",
       "openMembers": "Members",
       "processTitle": "{name}'s process",
-      "processEmpty": "The full process lives in their own session: tool calls, thinking and streaming replies.",
+      "processEmpty": "No process yet",
       "elapsedSec": "{s}s",
       "elapsedMin": "{m}m {s}s",
       "footerTime": "{time}",
@@ -1791,7 +1791,8 @@
       "queuedState": "Queued",
       "fileMissing": "No longer exists",
       "fileBy": "{name} · changed {n}×",
-      "optional": "optional"
+      "optional": "optional",
+      "processLoading": "Loading process…"
     }
   }
 }
