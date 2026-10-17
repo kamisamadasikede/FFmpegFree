@@ -471,47 +471,64 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	var gotSession string
 	var resultFallback string
 	var usageTokens, usageOut, claudeWindow int64
-	scanErr := a.scanCLIStream(activityReader{r: stdout, w: idle}, func(p streamPiece) {
-		if p.Done {
+	var scanErr error
+	// Claude --output-format json (with --json-schema) emits one JSON document, not stream-json lines.
+	// Codex keeps --json event stream even with --output-schema, so it stays on scanCLIStream.
+	if a.kind == cliKindClaude && strings.TrimSpace(opts.JSONSchema) != "" {
+		raw, err := io.ReadAll(activityReader{r: stdout, w: idle})
+		if err != nil {
+			scanErr = err
+		} else if body := ExtractStructuredJSONContent(raw); body != "" {
 			completed = true
-		}
-		switch p.Kind {
-		case "done":
-			return
-		case "thought", "tool", "retry":
-			if opts.OnActivity != nil && (p.Kind == "retry" || p.Text != "") {
-				opts.OnActivity(p.Kind, p.ID, p.Text, p.Replace)
-			}
-		case "ctxwin":
-			// v0.48.1：Claude result.modelUsage 的 contextWindow（ID 复用为数字）。
-			if n, err := parseInt64(p.ID); err == nil && n > 0 {
-				claudeWindow = n
-			}
-		case "result_text":
-			// Claude 最终 result 全文：仅作无增量时的兜底，不与 partial 叠加。
-			resultFallback = p.Text
-		case "usage":
-			// ID 复用为 tokenTotal，Text 复用为 outputTokens（v0.47）；Replace 无关。
-			if n, err := parseInt64(p.ID); err == nil && n > 0 {
-				usageTokens = n
-			}
-			if n, err := parseInt64(p.Text); err == nil && n > 0 {
-				usageOut = n
-			}
-		default:
-			if p.Text == "" {
-				return
-			}
-			acc.WriteString(p.Text)
+			acc.WriteString(body)
+			resultFallback = body
 			if opts.OnTextDelta != nil {
-				opts.OnTextDelta(p.Text)
+				opts.OnTextDelta(body)
 			}
 		}
-	}, noteErr, func(sid string) {
-		if strings.TrimSpace(sid) != "" {
-			gotSession = strings.TrimSpace(sid)
-		}
-	})
+	} else {
+		scanErr = a.scanCLIStream(activityReader{r: stdout, w: idle}, func(p streamPiece) {
+			if p.Done {
+				completed = true
+			}
+			switch p.Kind {
+			case "done":
+				return
+			case "thought", "tool", "retry":
+				if opts.OnActivity != nil && (p.Kind == "retry" || p.Text != "") {
+					opts.OnActivity(p.Kind, p.ID, p.Text, p.Replace)
+				}
+			case "ctxwin":
+				// v0.48.1：Claude result.modelUsage 的 contextWindow（ID 复用为数字）。
+				if n, err := parseInt64(p.ID); err == nil && n > 0 {
+					claudeWindow = n
+				}
+			case "result_text":
+				// Claude 最终 result 全文：仅作无增量时的兜底，不与 partial 叠加。
+				resultFallback = p.Text
+			case "usage":
+				// ID 复用为 tokenTotal，Text 复用为 outputTokens（v0.47）；Replace 无关。
+				if n, err := parseInt64(p.ID); err == nil && n > 0 {
+					usageTokens = n
+				}
+				if n, err := parseInt64(p.Text); err == nil && n > 0 {
+					usageOut = n
+				}
+			default:
+				if p.Text == "" {
+					return
+				}
+				acc.WriteString(p.Text)
+				if opts.OnTextDelta != nil {
+					opts.OnTextDelta(p.Text)
+				}
+			}
+		}, noteErr, func(sid string) {
+			if strings.TrimSpace(sid) != "" {
+				gotSession = strings.TrimSpace(sid)
+			}
+		})
+	}
 
 	waitErr := cmd.Wait()
 	stderrTap.flush()

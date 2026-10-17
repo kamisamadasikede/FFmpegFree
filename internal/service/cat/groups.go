@@ -226,6 +226,11 @@ func (s *Service) AddCatGroupMember(ctx context.Context, req AddGroupMemberReque
 	if !catagent.Phase1Creatable(kind) {
 		return GroupMember{}, apperr.New(apperr.InvalidArgument, "不支持这种助手模式")
 	}
+	modelID := strings.TrimSpace(req.ModelID)
+	think := strings.TrimSpace(req.ThinkLevelID)
+	if err := s.validateGroupMemberModel(ctx, kind, modelID, think); err != nil {
+		return GroupMember{}, err
+	}
 	order, err := s.cfg.Store.NextCatGroupMemberOrder(ctx, g.ID)
 	if err != nil {
 		return GroupMember{}, apperr.Wrap(apperr.IOError, "写入群成员失败", err)
@@ -239,7 +244,7 @@ func (s *Service) AddCatGroupMember(ctx context.Context, req AddGroupMemberReque
 	}
 	m, err := s.cfg.Store.InsertCatGroupMember(ctx, store.CatGroupMember{
 		ID: memberID, GroupID: g.ID, Name: name, Title: title, AgentKind: kind,
-		ModelID: strings.TrimSpace(req.ModelID), ThinkLevel: strings.TrimSpace(req.ThinkLevelID),
+		ModelID: modelID, ThinkLevel: think,
 		Order: order, Charter: store.CatCharter{Status: "generating", Dirs: []string{}, Edited: []string{}},
 	})
 	if err != nil {
@@ -301,6 +306,9 @@ func (s *Service) UpdateCatGroupMember(ctx context.Context, req UpdateGroupMembe
 	}
 	if req.ThinkLevelID != nil {
 		m.ThinkLevel = strings.TrimSpace(*req.ThinkLevelID)
+	}
+	if err := s.validateGroupMemberModel(ctx, m.AgentKind, m.ModelID, m.ThinkLevel); err != nil {
+		return GroupMember{}, err
 	}
 	if m.AgentKind != oldKind {
 		m.SessionID = ""
@@ -455,4 +463,27 @@ func (s *Service) GetCatRouteDetail(ctx context.Context, req GetRouteDetailReque
 		res.DurationMs = &ms
 	}
 	return res, nil
+}
+
+// validateGroupMemberModel：非空 modelId 必须在 ListCatModels(agentKind) 里（与设置页同源，含自定义服务商）。
+// 空 modelId = 跟随 CLI 默认，始终合法。非空 thinkLevel 须在该模型 efforts 内（列不出模型时只校格式）。
+func (s *Service) validateGroupMemberModel(ctx context.Context, agentKind, modelID, thinkLevel string) error {
+	modelID = strings.TrimSpace(modelID)
+	thinkLevel = strings.TrimSpace(thinkLevel)
+	if modelID != "" {
+		list, err := s.ListCatModels(ctx, agentKind)
+		if err != nil {
+			return err
+		}
+		if _, ok := catagent.FindModel(list, modelID); !ok {
+			return apperr.New(apperr.InvalidArgument, "这个模型当前不可用，请重选。").WithDetail("reason=model")
+		}
+	}
+	if thinkLevel == "" {
+		return nil
+	}
+	if !s.validEffortFor(ctx, agentKind, modelID, thinkLevel) {
+		return apperr.New(apperr.InvalidArgument, "这个思考强度当前不可用，请重选。").WithDetail("reason=think")
+	}
+	return nil
 }
