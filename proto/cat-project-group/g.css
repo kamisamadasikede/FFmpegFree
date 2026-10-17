@@ -269,3 +269,6 @@ html.dark .cli-g{background:#e8eaed;color:#16171a}
 .single .hamb{display:inline-flex}
 .slabel{position:fixed;left:8px;bottom:8px;z-index:99;font-size:11px;background:var(--cat-text);color:var(--cat-bg);padding:2px 8px;border-radius:4px;opacity:.6}
 .shot .slabel{display:none}
+code{font-family:var(--ff-font-mono);font-size:12px;background:var(--cat-code-bg);border:1px solid var(--cat-divider);border-radius:4px;padding:0 4px}
+.mst{display:flex;align-items:center;gap:6px;flex:none}
+.stream{position:relative}
