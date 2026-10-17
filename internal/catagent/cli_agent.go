@@ -370,7 +370,21 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	// 两家都以我们存下的会话 id 为准（Codex thread_id；Claude stream-json 的 session_id，v0.45 §6.19.19.1）：
 	// 有就续，否则开新会话。
 	sessionID := a.loadSessionID(opts.ConversationID)
-	resume := sessionID != ""
+	resume := sessionID != "" && !opts.Ephemeral
+	if opts.Ephemeral {
+		sessionID = ""
+	}
+	if a.kind == cliKindCodex {
+		var cleanSchema func()
+		var serr error
+		opts, cleanSchema, serr = materializeCodexOutputSchema(opts)
+		if serr != nil {
+			return TurnResponse{}, apperr.Wrap(apperr.CatReplyFailed, MsgReplyFailed, serr).WithDetail("reason=output_schema")
+		}
+		if cleanSchema != nil {
+			defer cleanSchema()
+		}
+	}
 
 	args := a.buildTurnArgs(opts, prompt, cwd, sessionID, resume)
 	var stdinText string
@@ -519,7 +533,7 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	if gone {
 		// v0.45：会话已被 CLI 清掉 → 清掉存下的 id，下一句开新会话；本轮不可重试。
 		a.clearSessionID(opts.ConversationID)
-	} else if gotSession != "" {
+	} else if gotSession != "" && !opts.Ephemeral {
 		a.saveSessionID(opts.ConversationID, gotSession)
 	}
 
@@ -647,6 +661,9 @@ func (a *CLIAgentAdapter) loadSessionID(convID string) string {
 	}
 	return strings.TrimSpace(string(b))
 }
+
+// ClearSession drops the stored CLI session id for this conversation (e.g. member agentKind change).
+func (a *CLIAgentAdapter) ClearSession(convID string) { a.clearSessionID(convID) }
 
 func (a *CLIAgentAdapter) clearSessionID(convID string) {
 	if strings.TrimSpace(convID) == "" {
@@ -842,31 +859,37 @@ func (a *CLIAgentAdapter) buildTurnArgs(opts TurnOptions, prompt, cwd, sessionID
 }
 
 func (a *CLIAgentAdapter) buildClaudeArgs(opts TurnOptions, prompt, sessionID string, resume bool) []string {
-	// GUESS B7：claude -p … --output-format stream-json --verbose --include-partial-messages
-	args := []string{
-		"-p", prompt,
-		"--output-format", "stream-json",
-		"--verbose",
-		"--include-partial-messages",
+	// H claude.txt 2.1.296：-p / --output-format / --json-schema / --no-session-persistence / --tools / --append-system-prompt
+	format := "stream-json"
+	if strings.TrimSpace(opts.JSONSchema) != "" {
+		format = "json"
+	}
+	args := []string{"-p", prompt, "--output-format", format}
+	if format == "stream-json" {
+		args = append(args, "--verbose", "--include-partial-messages")
 	}
 	a.mu.Lock()
 	ver := a.version
 	a.mu.Unlock()
 	args = append(args, claudePermissionArgs(opts.PermissionMode, ver)...)
 	if e := strings.TrimSpace(opts.ThinkLevelID); e != "" {
-		// H claude.txt `--effort <level>`；D https://code.claude.com/docs/en/model-config（6.19.18.4）
 		args = append(args, "--effort", e)
 	}
 	if rules := strings.TrimSpace(opts.Rules); rules != "" {
-		// GUESS A6：--append-system-prompt（官方文档有；真机确认前仍标 GUESS）
 		args = append(args, "--append-system-prompt", rules)
 	}
 	if mid := strings.TrimSpace(opts.ModelID); mid != "" && mid != "default" {
 		args = append(args, "--model", mid)
 	}
-	if resume && sessionID != "" {
-		// H testdata/help/claude.txt 2.1.296「-r, --resume [value]  Resume a conversation by session ID」；
-		// D https://code.claude.com/docs/en/sessions。真机：不存在的 id → 见 claudeSessionMissing。
+	if schema := strings.TrimSpace(opts.JSONSchema); schema != "" {
+		args = append(args, "--json-schema", schema)
+	}
+	if opts.NoTools {
+		args = append(args, "--tools", "")
+	}
+	if opts.Ephemeral {
+		args = append(args, "--no-session-persistence")
+	} else if resume && sessionID != "" {
 		args = append(args, "--resume", sessionID)
 	}
 	return args
@@ -883,15 +906,12 @@ func claudePermissionArgs(mode, ver string) []string {
 }
 
 func (a *CLIAgentAdapter) buildCodexArgs(opts TurnOptions, prompt, cwd, sessionID string, resume bool) []string {
-	// GUESS B8：codex exec --json …
-	// A6：无稳定「自定义指令」flag → 前缀拼进 prompt（契约允许；不捏造 flag 名）
+	// H codex-exec.txt 0.162.1：exec --json / --ephemeral / --output-schema / -c developer_instructions
 	if rules := strings.TrimSpace(opts.Rules); rules != "" {
+		// Prefer -c developer_instructions when available; prompt prefix remains as fallback for empty -c edge cases.
 		prompt = "<ffc_internal_instructions>\n" + rules + "\n</ffc_internal_instructions>\n\n" + prompt
 	}
-	// 真机 help 核对（codex-cli 0.162.1）：exec / exec resume 都不认 --ask-for-approval / -a；
-	// exec resume 也不认 --sandbox / -C（cwd 靠子进程工作目录）。
-	if resume && sessionID != "" {
-		// codex exec resume [OPTIONS] <SESSION_ID> [PROMPT]
+	if resume && sessionID != "" && !opts.Ephemeral {
 		args := []string{"exec", "resume", "--json", "--skip-git-repo-check"}
 		args = append(args, opts.Provider.ExtraArgs()...)
 		args = append(args, codexPermissionArgs(opts.PermissionMode, true)...)
@@ -902,16 +922,48 @@ func (a *CLIAgentAdapter) buildCodexArgs(opts TurnOptions, prompt, cwd, sessionI
 		return append(args, sessionID, prompt)
 	}
 	args := []string{"exec", "--json", "--skip-git-repo-check"}
+	if opts.Ephemeral {
+		args = append(args, "--ephemeral")
+	}
 	args = append(args, opts.Provider.ExtraArgs()...)
 	if cwd != "" {
 		args = append(args, "-C", cwd)
 	}
-	args = append(args, codexPermissionArgs(opts.PermissionMode, false)...)
+	if opts.NoTools {
+		// No --tools on codex exec; read-only sandbox blocks writes (H codex-exec.txt --sandbox).
+		args = append(args, "--sandbox", "read-only", "-c", `approval_policy="never"`)
+	} else {
+		args = append(args, codexPermissionArgs(opts.PermissionMode, false)...)
+	}
 	args = append(args, codexEffortArgs(opts.ThinkLevelID)...)
+	if opts.Ephemeral || strings.TrimSpace(opts.JSONSchema) != "" {
+		args = append(args, codexDeveloperInstructionArgs(opts.Rules)...)
+	}
 	if mid := strings.TrimSpace(opts.ModelID); mid != "" && mid != "default" {
 		args = append(args, "-m", mid)
 	}
+	if schema := strings.TrimSpace(opts.JSONSchema); schema != "" {
+		// Value must be a filesystem path (H: --output-schema <FILE>).
+		args = append(args, "--output-schema", schema)
+	}
 	return append(args, prompt)
+}
+
+// codexDeveloperInstructionArgs emits -c developer_instructions="…" when Rules is set.
+// Key verified in codex 0.162.1 binary (not listed in --help; config-reference + binary string).
+func codexDeveloperInstructionArgs(rules string) []string {
+	rules = strings.TrimSpace(rules)
+	if rules == "" {
+		return nil
+	}
+	return []string{"-c", "developer_instructions=" + tomlString(rules)}
+}
+
+func tomlString(s string) string {
+	// Minimal TOML string literal: escape \ and ".
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return `"` + s + `"`
 }
 
 // codexPermissionArgs：模式 id → codex 参数（契约 6.19.18.4；H codex-exec.txt / codex-exec-resume.txt 0.162.1；
