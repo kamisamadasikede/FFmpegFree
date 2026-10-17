@@ -1792,6 +1792,11 @@
       "queued": "順番待ち · 前に {n} 件",
       "queuedNext": "順番待ち · 次の番",
       "routeQueued": "{name} へ：作業中のため順番待ち",
+      "routePlain": "{name} へ",
+      "routeTookInline": "判断 {time}",
+      "queuedState": "順番待ち",
+      "fileMissing": "削除済み",
+      "fileBy": "{name} · {n} 回変更",
       "optional": "任意"
     }
   }

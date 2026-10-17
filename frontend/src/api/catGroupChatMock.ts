@@ -75,7 +75,7 @@ const rBe = () => rep('b', 1, '17:19', {
   files: [{ path: 'internal/catagent/group_retry.go', added: 86 }, { path: 'internal/catagent/group_retry_test.go', added: 124 }, { path: 'app_cat_group.go', added: 14, deleted: 2 }],
   attn: '成员已被移出群时返回 `member_not_found`，前端按现有错误文案显示即可。', give: '@测试 跑 6.21.11 ④ 的重试用例，三家各一次', footer: foot('17:19', 4600, 52) })
 const user = (text: string, hm: string, chainId: string, mentions: string[] = []) => push({ kind: 'user', text, mentions, chainId, hop: 0 }, at(hm))
-const route = (to: string, chainId: string, hop: number, mode: string, reason = '') => push({ kind: 'system', systemKind: 'route', chainId, hop, toMemberId: to, route: { mode, memberId: to, reason: reason || undefined } })
+const route = (to: string, chainId: string, hop: number, mode: string, reason = '') => push({ kind: 'system', systemKind: 'route', chainId, hop, toMemberId: to, route: { mode, memberId: to, reason: reason || undefined, durationMs: mode === 'ai' ? 6_400 : mode === 'fallback' ? 20_000 : undefined } })
 const sys = (kind: string, extra: Partial<CatGroupMessage>) => push({ kind: 'system', systemKind: kind, ...extra })
 const OV_FILES = [
   { path: 'frontend/src/views/cat/GroupStream.vue', added: 64, deleted: 8 }, { path: 'frontend/src/views/cat/RetryButton.vue', added: 41 },
@@ -151,7 +151,7 @@ function sceneSeed(s: GroupScene): SceneUi {
 export const SESSION_DEMO = '先看一下现有的失败灰字组件和群消息流的事件订阅。\n\n[search] systemKind === \'failed\' in frontend/src\n[read] frontend/src/views/cat/GroupStream.vue\n[edit] frontend/src/views/cat/RetryButton.vue  +41\n+ const onRetry = () => RetryCatGroupMemberTurn({ groupId, memberId, chainId })\n[run] npm run typecheck\nvue-tsc --noEmit  ✓ 0 errors\n\n类型检查通过。接下来把中英日文案补上，然后写汇报'
 
 function sceneRunning(): CatGroupMemberEvent[] {
-  return ui.running.map(([id, ms, tools]) => ({ groupId: 'g1', member: members.find((m) => m.id === id)!, running: { turnId: `tr-${id}`, startedAt: T0, toolCount: tools, elapsedMs: ms }, queue: Array.from({ length: ui.queued?.[id] ?? 0 }, (_, i) => ({ chainId: `cq${i}`, hop: 1, fromSeq: 0, queuePosition: i })) }))
+  return ui.running.map(([id, ms, tools]) => ({ groupId: 'g1', running: { turnId: `tr-${id}`, startedAt: T0, toolCount: tools, elapsedMs: ms }, member: { ...members.find((m) => m.id === id)!, status: 'running' }, queue: Array.from({ length: ui.queued?.[id] ?? 0 }, (_, i) => ({ chainId: `cq${i}`, hop: 1, fromSeq: 0, queuePosition: i })) }))
 }
 
 const sc = groupScene()
@@ -208,7 +208,24 @@ function fakeTurn(gid: string, mid: string, chainId: string, hop: number) {
 }
 
 export const groupMock = {
-  async listGroups(projectId: string) { boot(); return clone(groups.filter((g) => g.projectId === projectId)) },
+  async listGroups(projectId: string) {
+    boot()
+    // 6.21.17 ②：带成员摘要（avatarIndex = order % 5 + 1）
+    return clone(groups.filter((g) => g.projectId === projectId).map((g) => ({ ...g, members: byGroup(g.id).map((m) => ({ id: m.id, name: m.name, title: m.title, agentKind: m.agentKind, order: m.order, avatarIndex: (m.order % 5) + 1 })) })))
+  },
+  /** 6.21.17 ①：按 path 聚合汇报文件，updatedAt 降序，最多 500；走查里 ja.json 当作已删除 */
+  async listFiles(groupId: string) {
+    boot()
+    const byPath = new Map<string, { path: string; lastMemberId: string; lastSeq: number; lastTurnId: string; changeCount: number; overreach: boolean; tag?: string; exists: boolean; updatedAt: number }>()
+    for (const m of messages) {
+      if (m.groupId !== groupId || m.kind !== 'member' || !m.report) continue
+      for (const f of m.report.files) {
+        const prev = byPath.get(f.path)
+        byPath.set(f.path, { path: f.path, lastMemberId: m.memberId ?? '', lastSeq: m.seq, lastTurnId: m.turnId ?? '', changeCount: (prev?.changeCount ?? 0) + 1, overreach: !!prev?.overreach || f.tag === 'overreach', tag: f.tag, exists: !f.path.endsWith('ja.json'), updatedAt: m.createdAt })
+      }
+    }
+    return [...byPath.values()].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 500)
+  },
   async getGroup(groupId: string) {
     boot()
     const group = groups.find((g) => g.id === groupId)
@@ -319,7 +336,7 @@ export const groupMock = {
     return { messages: clone(all.slice(-limit)), hasMore: all.length > limit }
   },
   async routeDetail(_groupId: string, seq: number) {
-    return routeDetails.get(seq) ?? { input: '这条任务 + 最近 10 条群消息 + 4 位成员的职责', output: '{\n  "memberId": "a",\n  "reason": "先出方案再拆给前后端"\n}', mode: 'ai', memberId: 'a', reason: '先出方案再拆给前后端' }
+    return routeDetails.get(seq) ?? { input: '这条任务 + 最近 10 条群消息 + 4 位成员的职责', output: '{\n  "memberId": "a",\n  "reason": "先出方案再拆给前后端"\n}', mode: 'ai', memberId: 'a', reason: '先出方案再拆给前后端', startedAt: T0, finishedAt: T0 + 6_400, durationMs: 6_400 }
   },
   async revert(_memberId: string, _turnId: string, files: string[]): Promise<RevertResult> {
     await wait(sc ? 0 : 400)

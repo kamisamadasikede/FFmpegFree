@@ -27,6 +27,29 @@ export interface CatGroup {
   autoRoute: boolean
   createdAt: number
   updatedAt: number
+  /** v0.55.6 6.21.17 ②：成员摘要（按 order 升序，侧栏头像用） */
+  members?: CatGroupMemberBrief[]
+}
+export interface CatGroupMemberBrief {
+  id: string
+  name: string
+  title: string
+  agentKind: string
+  order: number
+  /** (order % 5) + 1 → --cat-member-{avatarIndex} */
+  avatarIndex: number
+}
+/** v0.55.6 6.21.17 ①：ListCatGroupFiles 一行 */
+export interface CatGroupFile {
+  path: string
+  lastMemberId: string
+  lastSeq: number
+  lastTurnId: string
+  changeCount: number
+  overreach: boolean
+  tag?: string
+  exists: boolean
+  updatedAt: number
 }
 export interface CatGroupMember {
   id: string
@@ -70,6 +93,8 @@ export interface CatRouteInfo {
   routeSeq?: number
   /** v0.55.6 6.21.17 ④-5：成员正在干活，这条进了他的队列 */
   queued?: boolean
+  /** v0.55.6 6.21.17 ③：只有 ai / fallback 有 */
+  durationMs?: number
 }
 export interface CatGroupMessage {
   seq: number
@@ -107,9 +132,8 @@ export interface CatGroupMemberEvent {
   groupId: string
   member: CatGroupMember
   running?: CatGroupRunning
-  /** v0.55.6 6.21.17 ④：idle | running | queued */
-  status?: string
-  /** 排队中的任务（按队列顺序，空队列为空数组） */
+  /** v0.55.6 6.21.17 ④：= member.queueLength / member.queue */
+  queueLength?: number
   queue?: CatGroupQueuedTask[]
   removed?: boolean
 }
@@ -125,6 +149,10 @@ export interface CatRouteDetail {
   mode: string
   memberId: string
   reason: string
+  /** v0.55.6 6.21.17 ③：unix ms；任一为 0 时没有 durationMs，不显示耗时 */
+  startedAt?: number
+  finishedAt?: number
+  durationMs?: number
 }
 export interface RevertResult {
   reverted: string[]
@@ -153,6 +181,9 @@ export function normalizeMember(m: Partial<CatGroupMember> & { id: string }): Ca
     thinkLevelId: m.thinkLevelId || undefined,
     order: m.order ?? 0,
     charter: normalizeCharter(m.charter),
+    status: m.status || undefined,
+    queueLength: m.queueLength ?? m.queue?.length ?? 0,
+    queue: Array.isArray(m.queue) ? m.queue.map((q) => ({ ...q })) : [],
   }
 }
 export function normalizeMessage(m: Partial<CatGroupMessage> & { seq: number }): CatGroupMessage {
@@ -201,7 +232,9 @@ export function systemLineText(m: CatGroupMessage, nameOf: (id?: string) => stri
       if (r?.mode === 'followup') return k('routeTo', { name: to, reason: k('routeFollowup') })
       if (r?.mode === 'fallback') return k('routeTo', { name: to, reason: k('routeFallback') })
       if (r?.mode === 'off') return k('routeTo', { name: to, reason: k('routeOff') })
-      return r?.reason ? k('routeTo', { name: to, reason: r.reason }) : m.text
+      if (r?.reason) return k('routeTo', { name: to, reason: r.reason })
+      // 契约外的 mode（如 #333 的 retry）：只说交给谁，不猜原因
+      return m.text || k('routePlain', { name: to })
     }
     case 'hop_limit': return k('hopLimit')
     case 'no_handoff': return k('noHandoff', { name: nameOf(m.memberId) })
@@ -270,6 +303,7 @@ const real = {
   listMessages: (groupId: string, beforeSeq = 0, limit = 50) =>
     callService<{ messages: CatGroupMessage[]; hasMore: boolean }>(S, 'ListCatGroupMessages', { groupId, beforeSeq, limit }),
   routeDetail: (groupId: string, seq: number) => callService<CatRouteDetail>(S, 'GetCatRouteDetail', { groupId, seq }),
+  listFiles: (groupId: string) => callService<CatGroupFile[]>(S, 'ListCatGroupFiles', groupId),
   revert: (memberId: string, turnId: string, files: string[]) => callService<RevertResult>(S, 'RevertCatOverreach', { memberId, turnId, files }),
   retry: (groupId: string, memberId: string, chainId: string) => callService<void>(S, 'RetryCatGroupMemberTurn', { groupId, memberId, chainId }),
   onMessage: (cb: (m: CatGroupMessage) => void) => onEvent<CatGroupMessage>('cat:group-message', cb),

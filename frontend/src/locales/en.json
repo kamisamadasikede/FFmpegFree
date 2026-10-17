@@ -1792,6 +1792,11 @@
       "queued": "Queued · {n} ahead",
       "queuedNext": "Queued · up next",
       "routeQueued": "To {name}: busy, queued behind current work",
+      "routePlain": "To {name}",
+      "routeTookInline": "decided in {time}",
+      "queuedState": "Queued",
+      "fileMissing": "Deleted",
+      "fileBy": "{name} · changed {n}×",
       "optional": "optional"
     }
   }

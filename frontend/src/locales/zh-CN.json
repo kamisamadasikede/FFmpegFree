@@ -1792,6 +1792,11 @@
       "queued": "排队中 · 前面还有 {n} 个",
       "queuedNext": "排队中 · 下一个就轮到",
       "routeQueued": "交给 {name}：正在干活，排在后面",
+      "routePlain": "交给 {name}",
+      "routeTookInline": "判断用时 {time}",
+      "queuedState": "排队中",
+      "fileMissing": "已删除",
+      "fileBy": "{name} · 改过 {n} 次",
       "optional": "选填"
     }
   }
