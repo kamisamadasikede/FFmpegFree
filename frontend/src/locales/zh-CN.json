@@ -1762,7 +1762,7 @@
       "emptySub": "派一个活试试，成员会各干各的，做完在群里发汇报。",
       "emptyStep1": "直接说要做什么，Cat 安排谁来接",
       "emptyStep2": "或者 {'@'} 成员，直接交给他",
-      "emptyStep3": "做完会发汇报卡，需要时自动 @ 下一位",
+      "emptyStep3": "做完会发汇报卡，需要时自动 {'@'} 下一位",
       "composerHint": "{'@'} 多人会同时开工 · 已识别的 {'@'} 会变成整体标签，退格整个删除",
       "attach": "添加",
       "runFailed": "没完成",
@@ -1792,6 +1792,12 @@
       "queued": "排队中 · 前面还有 {n} 个",
       "queuedNext": "排队中 · 下一个就轮到",
       "routeQueued": "交给 {name}：正在干活，排在后面",
+      "routePlain": "交给 {name}",
+      "routeTookInline": "判断用时 {time}",
+      "queuedBehind": "后面还有 {n} 个在排队",
+      "queuedState": "排队中",
+      "fileMissing": "已不存在",
+      "fileBy": "{name} · 改过 {n} 次",
       "optional": "选填"
     }
   }

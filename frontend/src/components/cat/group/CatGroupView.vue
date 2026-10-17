@@ -122,6 +122,7 @@
                 <FIcon :name="sysIcon(m)" :size="12" />
                 <button v-if="m.route && (m.route.mode === 'ai' || m.route.mode === 'fallback')" type="button" class="lk" @click="toggleRoute(m)">{{ sysText(m) }}</button>
                 <span v-else>{{ sysText(m) }}</span>
+                <span v-if="m.route?.durationMs" class="took">· {{ t('cat.groupChat.routeTookInline', { time: formatElapsed(m.route.durationMs) }) }}</span>
                 <span v-if="canReassign(m)" style="position: relative">
                   <button type="button" class="act" data-testid="cat-group-reassign" @click="reassignFor = reassignFor === m.seq ? 0 : m.seq"><FIcon name="swap" :size="12" />{{ t('cat.groupChat.reassign') }}</button>
                   <div v-if="reassignFor === m.seq" class="cg-pop down swap" role="menu" :aria-label="t('cat.groupChat.swapTitle')">
@@ -138,6 +139,7 @@
                 <h5>{{ t('cat.groupChat.routeJudge') }}</h5>
                 <dl>
                   <dt>{{ t('cat.groupChat.routeCli') }}</dt><dd>{{ cliName(store.membersSorted[0]?.agentKind) }}</dd>
+                  <template v-if="routeOpen[m.seq].durationMs"><dt>{{ t('cat.groupChat.routeTook') }}</dt><dd>{{ formatElapsed(routeOpen[m.seq].durationMs!) }}</dd></template>
                   <dt>{{ t('cat.groupChat.routeSaw') }}</dt><dd>{{ routeOpen[m.seq].input }}</dd>
                 </dl>
                 <h5>{{ t('cat.groupChat.routeRaw') }}</h5>

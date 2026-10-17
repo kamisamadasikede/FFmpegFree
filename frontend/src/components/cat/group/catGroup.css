@@ -364,3 +364,20 @@
 .cg-mc-row .nm .q { display: block; font-size: 11px; color: var(--cat-accent); }
 .cg-mc-row .nm .q { white-space: normal; overflow: visible; }
 .cg-st.busy { max-width: none; }
+
+/* ---- v0.55.6：文件页签 ---- */
+.cg-gf { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border: 0; border-radius: var(--cat-radius-sm); background: none; color: var(--cat-text); font: inherit; text-align: left; cursor: pointer; }
+.cg-gf:hover:not([disabled]) { background: var(--cat-hover); }
+.cg-gf .fi { flex: none; color: var(--cat-muted); }
+.cg-gf .tx { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.cg-gf .a { display: flex; min-width: 0; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
+.cg-gf .a .dir { color: var(--cat-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cg-gf .a .base { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.cg-gf .b { font-size: 11px; color: var(--cat-muted); }
+.cg-gf.gone { opacity: 0.5; cursor: not-allowed; }
+.cg-gf.gone .a { text-decoration: line-through; }
+.cg-files-tab { gap: 0; }
+.cg-st.queued { color: var(--cat-accent); }
+
+.cg-mc-row .nm .s { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--cat-success-text); margin-top: 1px; }
+.cg-mc-row .nm .s .cg-breath { width: 6px; height: 6px; border-radius: 50%; background: var(--cat-accent); animation: cg-breathe 1.6s ease-in-out infinite; flex: none; }

@@ -15,13 +15,11 @@
       @click="openGroup(g.id)"
     >
       <span class="ic"><FIcon name="group" :size="14" /></span><span class="t">{{ g.name }}</span>
-      <template v-if="g.id === store.group?.id">
-        <i v-if="store.workingMembers.length" class="cgs-dot" :title="t('cat.groupChat.busy')" />
-        <span class="cg-stack sm" aria-hidden="true">
-          <span v-for="m in store.membersSorted.slice(0, 3)" :key="m.id" class="av xs" :style="{ '--c': memberColorVar(m.order) }">{{ Array.from(m.name)[0] }}</span>
-          <span v-if="store.members.length > 3" class="av xs more">+{{ store.members.length - 3 }}</span>
-        </span>
-      </template>
+      <i v-if="g.id === store.group?.id && store.workingMembers.length" class="cgs-dot" :title="t('cat.groupChat.busy')" />
+      <span v-if="briefs(g).length" class="cg-stack sm" aria-hidden="true">
+        <span v-for="m in briefs(g).slice(0, 3)" :key="m.id" class="av xs" :style="{ '--c': `var(--cat-member-${m.avatarIndex || (m.order % 5) + 1})` }">{{ Array.from(m.name)[0] }}</span>
+        <span v-if="briefs(g).length > 3" class="av xs more">+{{ briefs(g).length - 3 }}</span>
+      </span>
     </button>
   </div>
 </template>
@@ -30,7 +28,7 @@
 import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import FIcon from '@/components/icon/FIcon.vue'
-import { memberColorVar } from '@/api/catGroupChat'
+import type { CatGroup, CatGroupMemberBrief } from '@/api/catGroupChat'
 import { useCatGroupChat } from '@/stores/catGroupChat'
 import { catPanels, openCreateGroup, openGroup } from '@/views/cat/catPanels'
 import './catGroup.css'
@@ -38,6 +36,8 @@ import './catGroup.css'
 const props = defineProps<{ projectId: string; missing?: boolean }>()
 const { t } = useI18n()
 const store = useCatGroupChat()
+/** 6.21.17 ②：每个群都用 ListCatGroups 带回的成员摘要 */
+const briefs = (g: CatGroup): CatGroupMemberBrief[] => g.members ?? []
 const groups = computed(() => store.groupsByProject[props.projectId] ?? [])
 onMounted(() => void store.loadGroups(props.projectId))
 </script>

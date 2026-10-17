@@ -1762,7 +1762,7 @@
       "emptySub": "Assign something — each member works on their own and posts a report here.",
       "emptyStep1": "Say what you need; Cat picks who takes it",
       "emptyStep2": "Or {'@'} a member to give it to them",
-      "emptyStep3": "They post a report card and @ the next person when needed",
+      "emptyStep3": "They post a report card and {'@'} the next person when needed",
       "composerHint": "{'@'} several people to start them together · recognised {'@'} tags delete as a whole",
       "attach": "Add",
       "runFailed": "Didn't finish",
@@ -1792,6 +1792,12 @@
       "queued": "Queued · {n} ahead",
       "queuedNext": "Queued · up next",
       "routeQueued": "To {name}: busy, queued behind current work",
+      "routePlain": "To {name}",
+      "routeTookInline": "decided in {time}",
+      "queuedBehind": "{n} more queued behind",
+      "queuedState": "Queued",
+      "fileMissing": "No longer exists",
+      "fileBy": "{name} · changed {n}×",
       "optional": "optional"
     }
   }
