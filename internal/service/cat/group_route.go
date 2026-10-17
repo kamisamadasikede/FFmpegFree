@@ -70,7 +70,7 @@ func (s *Service) SendCatGroupMessage(ctx context.Context, req SendGroupMessageR
 		targets, route = s.decideRoute(ctx, g, members, userMsg, chainID)
 	}
 	for _, mid := range targets {
-		s.wakeMember(ctx, g, mid, chainID, 0, userMsg.Seq, false)
+		s.wakeMember(ctx, g, mid, chainID, 0, userMsg.Seq, false, route.Mode)
 	}
 	return SendGroupMessageResult{UserMessage: userMsg, ChainID: chainID}, nil
 }
@@ -93,13 +93,15 @@ func (s *Service) decideRoute(ctx context.Context, g store.CatGroup, members []s
 		}
 	}
 	// also check recent member messages in group (any chain) for followup feel — contract says 本链
+	// 6.21.17 ③：started_at = 发「正在安排谁来接…」时。
+	startedAt := time.Now().UnixMilli()
 	routingMsg := s.postSystem(ctx, g.ID, chainID, 0, "system", "正在安排谁来接…", "route", store.CatRouteInfo{Mode: "ai"}, "", "")
 	_ = routingMsg
 	s.emitGroupRoute(GroupRouteEvent{GroupID: g.ID, ChainID: chainID, State: "routing", Route: store.CatRouteInfo{Mode: "ai"}})
 
-	memberID, reason, detail := s.runAIRoute(ctx, g, members, userMsg)
+	memberID, reason, detail := s.runAIRoute(ctx, g, members, userMsg, startedAt)
 	if memberID == "" {
-		route := store.CatRouteInfo{Mode: "fallback", MemberID: first.ID, Reason: "没判断出该谁接，先交给排第一的成员", RouteSeq: detail.RouteSeq}
+		route := store.CatRouteInfo{Mode: "fallback", MemberID: first.ID, Reason: "没判断出该谁接，先交给排第一的成员", RouteSeq: detail.RouteSeq, DurationMs: routeDurationMs(detail)}
 		s.postRouteSystem(ctx, g.ID, chainID, first, route, "交给 "+first.Name+"：没判断出该谁接，先交给排第一的成员")
 		s.emitGroupRoute(GroupRouteEvent{GroupID: g.ID, ChainID: chainID, State: "routed", Route: route})
 		return []string{first.ID}, route
@@ -111,7 +113,7 @@ func (s *Service) decideRoute(ctx context.Context, g store.CatGroup, members []s
 			break
 		}
 	}
-	route := store.CatRouteInfo{Mode: "ai", MemberID: memberID, Reason: reason, RouteSeq: detail.RouteSeq}
+	route := store.CatRouteInfo{Mode: "ai", MemberID: memberID, Reason: reason, RouteSeq: detail.RouteSeq, DurationMs: routeDurationMs(detail)}
 	s.postRouteSystem(ctx, g.ID, chainID, store.CatGroupMember{ID: memberID, Name: name}, route, "交给 "+name+"："+reason)
 	s.emitGroupRoute(GroupRouteEvent{GroupID: g.ID, ChainID: chainID, State: "routed", Route: route})
 	return []string{memberID}, route
@@ -131,7 +133,15 @@ func (s *Service) lastMemberOnChain(ctx context.Context, groupID, chainID string
 	return store.CatGroupMessage{}, false
 }
 
-func (s *Service) runAIRoute(ctx context.Context, g store.CatGroup, members []store.CatGroupMember, userMsg store.CatGroupMessage) (memberID, reason string, detail store.CatGroupRouteDetail) {
+// routeDurationMs = finishedAt - startedAt；任一为 0 → 0（json omitempty 省略，前端不显示耗时）。
+func routeDurationMs(d store.CatGroupRouteDetail) int64 {
+	if d.StartedAt == 0 || d.FinishedAt == 0 || d.FinishedAt < d.StartedAt {
+		return 0
+	}
+	return d.FinishedAt - d.StartedAt
+}
+
+func (s *Service) runAIRoute(ctx context.Context, g store.CatGroup, members []store.CatGroupMember, userMsg store.CatGroupMessage, startedAt int64) (memberID, reason string, detail store.CatGroupRouteDetail) {
 	first := members[0]
 	a, err := s.adapter(first.AgentKind)
 	if err != nil {
@@ -169,9 +179,11 @@ func (s *Service) runAIRoute(ctx context.Context, g store.CatGroup, members []st
 		opts.ProjectPath = row.Path
 	}
 	resp, runErr := a.RunTurn(opts)
+	finishedAt := time.Now().UnixMilli() // 拿到结果 / 超时 / 出错
 	outText := strings.TrimSpace(resp.Message.Content)
 	detail, _ = s.cfg.Store.InsertCatGroupRoute(ctx, store.CatGroupRouteDetail{
 		GroupID: g.ID, ChainID: userMsg.ChainID, Mode: "ai", InputText: input, OutputText: outText,
+		StartedAt: startedAt, FinishedAt: finishedAt,
 	})
 	if runErr != nil || outText == "" {
 		return "", "", detail
@@ -253,7 +265,7 @@ func (s *Service) ReassignCatGroupRoute(ctx context.Context, req ReassignGroupRo
 		store.CatRouteInfo{Mode: "reassign", MemberID: to.ID, Reason: "你指定的"},
 		fromID, to.ID)
 	// wake new member; hop not counted
-	s.wakeMember(ctx, g, to.ID, req.ChainID, hop, 0, true)
+	s.wakeMember(ctx, g, to.ID, req.ChainID, hop, 0, true, "reassign")
 	return ReassignGroupRouteResult{System: sys}, nil
 }
 
@@ -292,7 +304,7 @@ func (s *Service) RetryCatGroupMemberTurn(ctx context.Context, req RetryGroupMem
 		return s.errMemberNotFound()
 	}
 	// 重试：同一任务在原来那一跳再跑一轮，hop 不加（也不归零）。
-	s.wakeMember(ctx, g, m.ID, req.ChainID, s.chainHopFor(ctx, g.ID, req.ChainID, m.ID), 0, true)
+	s.wakeMember(ctx, g, m.ID, req.ChainID, s.chainHopFor(ctx, g.ID, req.ChainID, m.ID), 0, true, "retry")
 	return nil
 }
 

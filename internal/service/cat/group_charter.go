@@ -24,7 +24,7 @@ func (s *Service) RegenerateCatCharter(ctx context.Context, memberID string) (Gr
 	}
 	m.Charter.Status = "generating"
 	_ = s.cfg.Store.UpdateCatGroupMemberCharter(ctx, m.ID, m.Charter)
-	s.emitGroupMember(m, nil)
+	s.emitGroupMemberSnapshot(m)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -65,7 +65,7 @@ func (s *Service) UpdateCatCharter(ctx context.Context, req UpdateCharterRequest
 		return GroupMember{}, apperr.Wrap(apperr.IOError, "更新职责规范失败", err)
 	}
 	m.Charter = c
-	s.emitGroupMember(m, nil)
+	s.emitGroupMemberSnapshot(m)
 	return m, nil
 }
 
@@ -135,7 +135,7 @@ func (s *Service) generateCharter(ctx context.Context, memberID string, full boo
 	c.UpdatedAt = time.Now().UnixMilli()
 	_ = s.cfg.Store.UpdateCatGroupMemberCharter(ctx, m.ID, c)
 	m.Charter = c
-	s.emitGroupMember(m, nil)
+	s.emitGroupMemberSnapshot(m)
 }
 
 func (s *Service) failCharter(ctx context.Context, m store.CatGroupMember, full bool) {
@@ -144,7 +144,7 @@ func (s *Service) failCharter(ctx context.Context, m store.CatGroupMember, full 
 	c.UpdatedAt = time.Now().UnixMilli()
 	_ = s.cfg.Store.UpdateCatGroupMemberCharter(ctx, m.ID, c)
 	m.Charter = c
-	s.emitGroupMember(m, nil)
+	s.emitGroupMemberSnapshot(m)
 }
 
 func (s *Service) refreshHandoffs(ctx context.Context, groupID string) {
@@ -158,7 +158,7 @@ func (s *Service) refreshHandoffs(ctx context.Context, groupID string) {
 		c.UpdatedAt = time.Now().UnixMilli()
 		_ = s.cfg.Store.UpdateCatGroupMemberCharter(ctx, m.ID, c)
 		m.Charter = c
-		s.emitGroupMember(m, nil)
+		s.emitGroupMemberSnapshot(m)
 	}
 }
 
