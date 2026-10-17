@@ -1679,6 +1679,7 @@
       "routeFollowup": "接着上一条",
       "routeFallback": "没判断出该谁接，先交给排第一的成员",
       "routeOff": "没开自动派活，交给排第一的成员",
+      "routeUndecided": "没判断出该谁接，请 {'@'} 对应成员，或再说具体要做什么。",
       "routeNamed": "你指定的",
       "handedOff": "已转交给 {name}（第 {n}/6 次）",
       "hopLimit": "已连续转交 6 次，先停在这里。需要继续请 {'@'} 对应成员。",

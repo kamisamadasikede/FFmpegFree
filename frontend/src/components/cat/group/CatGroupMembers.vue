@@ -68,6 +68,33 @@
           </span>
         </div>
         <template v-if="open.has(m.id)">
+          <div class="cg-medit" @click.stop data-testid="cat-group-member-edit">
+            <label class="cg-medit-fld">
+              <span>{{ t('cat.groupChat.memberCli') }}</span>
+              <select
+                class="cg-sel"
+                :aria-label="t('cat.groupChat.memberCli')"
+                data-testid="cat-group-edit-cli"
+                :value="editDraft[m.id]?.agentKind ?? m.agentKind"
+                @change="onEditCli(m.id, selectVal($event))"
+              >
+                <option v-for="a in AGENTS" :key="a.kind" :value="a.kind">{{ a.label }}</option>
+              </select>
+            </label>
+            <label class="cg-medit-fld">
+              <span>{{ t('cat.groupChat.memberModel') }}</span>
+              <select
+                class="cg-sel"
+                :aria-label="t('cat.groupChat.memberModel')"
+                data-testid="cat-group-edit-model"
+                :value="editDraft[m.id]?.modelId ?? m.modelId"
+                @change="onEditModel(m.id, selectVal($event))"
+              >
+                <option value="">{{ t('cat.groupChat.defaultModel') }}</option>
+                <option v-for="mm in modelsOf(editDraft[m.id]?.agentKind ?? m.agentKind)" :key="mm.id" :value="mm.id">{{ mm.displayName }}</option>
+              </select>
+            </label>
+          </div>
           <CatGroupCharter :member="m" :start-editing="editIds.has(m.id)" />
           <div class="cg-mc-acts">
             <button type="button" class="cg-btn ghost" :disabled="i === 0" :aria-label="t('cat.groupChat.moveUp')" :title="t('cat.groupChat.moveUp')" @click="move(m.id, -1)"><FIcon name="up" :size="12" /></button>
@@ -85,24 +112,66 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import CatAgentMark from '@/components/cat/CatAgentMark.vue'
-import { normalizeProviderKind } from '@/api/catAgents'
+import { CAT_PROVIDER_LABEL, CAT_PROVIDER_ORDER, normalizeProviderKind } from '@/api/catAgents'
 import { memberColorVar } from '@/api/catGroupChat'
 import { useCatGroupChat } from '@/stores/catGroupChat'
 import CatGroupCharter from './CatGroupCharter.vue'
 import CatPreviewDialog from '@/components/cat/CatPreviewDialog.vue'
 import { previewKind, type CatShownFile } from '@/components/cat/catMedia'
 import { catState } from '@/views/cat/catState'
+import { defaultModelId, loadCliModels, modelsOf, preloadAllCliModels, refreshCliModels } from './catGroupCliModels'
 
 const props = defineProps<{ closable?: boolean; initialOpen?: string }>()
 const emit = defineEmits<{ close: []; add: [] }>()
 const { t } = useI18n()
 const store = useCatGroupChat()
 const initial = (n: string) => Array.from(n.trim())[0]?.toUpperCase() ?? ''
+const selectVal = (e: Event) => (e.target as HTMLSelectElement).value
+const AGENTS = CAT_PROVIDER_ORDER.map((kind) => ({ kind, label: CAT_PROVIDER_LABEL[kind] }))
+/** 展开编辑中的 CLI/模型草稿（与成员快照分开，改 CLI 时先刷列表再落库） */
+const editDraft = reactive<Record<string, { agentKind: string; modelId: string }>>({})
+
+onMounted(() => {
+  preloadAllCliModels(CAT_PROVIDER_ORDER)
+})
+
+function ensureEditDraft(id: string) {
+  const m = store.members.find((x) => x.id === id)
+  if (!m) return
+  if (!editDraft[id]) editDraft[id] = { agentKind: m.agentKind, modelId: m.modelId || '' }
+  void loadCliModels(editDraft[id].agentKind)
+}
+
+async function persistEdit(id: string) {
+  const d = editDraft[id]
+  if (!d) return
+  const m = store.members.find((x) => x.id === id)
+  if (!m) return
+  if (d.agentKind === m.agentKind && (d.modelId || '') === (m.modelId || '')) return
+  try {
+    await store.updateMember({ memberId: id, agentKind: d.agentKind, modelId: d.modelId })
+  } catch {
+    ElMessage.error(t('cat.groupChat.saveFailed'))
+    editDraft[id] = { agentKind: m.agentKind, modelId: m.modelId || '' }
+  }
+}
+
+async function onEditCli(id: string, agentKind: string) {
+  const list = await refreshCliModels(agentKind)
+  editDraft[id] = { agentKind, modelId: defaultModelId(agentKind, list) }
+  await persistEdit(id)
+}
+
+async function onEditModel(id: string, modelId: string) {
+  const cur = editDraft[id] ?? { agentKind: store.members.find((x) => x.id === id)?.agentKind ?? 'cat_build', modelId: '' }
+  editDraft[id] = { ...cur, modelId }
+  await persistEdit(id)
+}
 
 const open = reactive(new Set<string>())
 const editIds = reactive(new Set<string>())
@@ -113,6 +182,7 @@ watch(
     for (const raw of (v ?? '').split(',').filter(Boolean)) {
       const id = raw.replace(/^edit:/, '')
       open.add(id)
+      ensureEditDraft(id)
       if (raw.startsWith('edit:')) editIds.add(id)
     }
   },
@@ -121,12 +191,14 @@ watch(
 const toggle = (id: string) => {
   const was = open.has(id)
   open.clear()
-  if (!was) open.add(id)
+  if (!was) {
+    open.add(id)
+    ensureEditDraft(id)
+  }
 }
 // 走查截图用：?cat_group_tab=f 直接停在文件页（真实环境无此参数）
 const tab = ref<'m' | 'f'>(new URLSearchParams(location.search).get('cat_group_tab') === 'f' ? 'f' : 'm')
-const CLI: Record<string, string> = { claude_cli: 'Claude', codex_cli: 'Codex', cat_build: 'Grok Build', gemini_cli: 'Gemini' }
-const cliName = (k: string) => CLI[k] ?? k
+const cliName = (k: string) => (k in CAT_PROVIDER_LABEL ? CAT_PROVIDER_LABEL[k as keyof typeof CAT_PROVIDER_LABEL] : k)
 /** 排队文案：n=0 与 n≥1 用两个 key，产品改口径时只换 key（6.21.17 ④-4） */
 const queuedText = (n: number) => (n === 0 ? t('cat.groupChat.queuedNext') : t('cat.groupChat.queued', { n }))
 /** 排队总数：优先 queueLength（6.21.17），没有就数 queue[] */
