@@ -80,6 +80,7 @@ func (s *Service) startGroupMemberTurn(ctx context.Context, g store.CatGroup, m 
 	t := &turnState{
 		convID: convID, turnID: id.New(), cancel: cancel, msgID: id.New(), done: make(chan struct{}),
 		usageCwd: projectRoot, agentKind: m.AgentKind, startedAt: nowMs,
+		leaseKey: groupExecutionScope(projectRoot, g.ID, m.ID),
 	}
 	// track claimed tool write paths + tool ids for toolCount
 	var (

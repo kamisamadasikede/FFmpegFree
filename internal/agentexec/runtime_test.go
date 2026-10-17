@@ -60,3 +60,42 @@ func TestWorkspaceOverlapAndCancellation(t *testing.T) {
 	}
 	close(gate)
 }
+
+func TestLeaseKeyBypassesFolderLock(t *testing.T) {
+	r := New()
+	defer r.Close()
+	root := t.TempDir()
+	started := make(chan string, 4)
+	gate := make(chan struct{})
+	a := &fake{fn: func(o catagent.TurnOptions) (catagent.TurnResponse, error) {
+		started <- o.ConversationID
+		select {
+		case <-gate:
+		case <-o.Ctx.Done():
+		}
+		return catagent.TurnResponse{}, nil
+	}}
+	go r.Run(a, Scope{OwnerID: "plain", Workspace: root}, catagent.TurnOptions{ConversationID: "plain"})
+	go r.Run(a, Scope{OwnerID: "m1", Workspace: root, LeaseKey: "p|g|m1"}, catagent.TurnOptions{ConversationID: "m1"})
+	go r.Run(a, Scope{OwnerID: "m2", Workspace: root, LeaseKey: "p|g|m2"}, catagent.TurnOptions{ConversationID: "m2"})
+	for i := 0; i < 3; i++ {
+		select {
+		case <-started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("lease-keyed runs blocked on the folder lock")
+		}
+	}
+	// same LeaseKey stays exclusive
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if _, e := r.Run(a, Scope{OwnerID: "m1b", Workspace: root, LeaseKey: "p|g|m1"}, catagent.TurnOptions{Ctx: ctx, ConversationID: "m1b"}); e == nil {
+		t.Fatal("same lease key ran concurrently")
+	}
+	// a second plain run still waits for the folder
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel2()
+	if _, e := r.Run(a, Scope{OwnerID: "plain2", Workspace: root}, catagent.TurnOptions{Ctx: ctx2, ConversationID: "plain2"}); e == nil {
+		t.Fatal("plain runs on one folder ran concurrently")
+	}
+	close(gate)
+}

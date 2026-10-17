@@ -382,9 +382,7 @@ func TestGroupE2E_MentionTwoParallelAndHop(t *testing.T) {
 	start := time.Now()
 	e.send("一起做", "乙", "丙")
 	e.waitIdle()
-	// 注意：合进 v2 后成员回合走共享执行运行时（agentexec），同一项目目录同一时刻只放一个 CLI 进程，
-	// 所以「@ 两人」实际是排队先后跑，不是真并行（待架构师定：群聊是否绕过工作区租约）。
-	t.Logf("@ two members took %v (agentexec serializes one workspace)", time.Since(start))
+	t.Logf("@ two members took %v", time.Since(start))
 	ms := e.msgs()
 	for _, n := range []string{"乙", "丙"} {
 		c := cardsOf(ms, e.mem[n].ID)
@@ -415,6 +413,33 @@ func TestGroupE2E_MentionTwoParallelAndHop(t *testing.T) {
 		c := cardsOf(ms, e.mem[n].ID)
 		if len(c) != 1 || c[0].Hop != 2 {
 			t.Fatalf("%s hop:\n%s", n, e.dump())
+		}
+	}
+}
+
+// 群聊成员回合走独立执行范围（项目+groupId+memberId），不拿项目目录锁：
+// @ 两人时两个假 CLI 互相等对方先启动（屏障），串行就会卡住超时失败。
+func TestGroupE2E_MentionTwoRunConcurrently(t *testing.T) {
+	e := newGroupEnv(t, "甲", "乙", "丙")
+	e.reply("乙", report("乙做完", "", ""))
+	e.reply("丙", report("丙做完", "", ""))
+	barrier := func(me, other string) string {
+		mine, theirs := filepath.Join(e.fake, me+".started"), filepath.Join(e.fake, other+".started")
+		return "touch '" + mine + "'\ni=0\nwhile [ ! -f '" + theirs + "' ]; do i=$((i+1)); if [ $i -gt 100 ]; then touch '" + filepath.Join(e.fake, me+".timeout") + "'; break; fi; sleep 0.05; done\n"
+	}
+	e.file("乙", "pre", barrier("乙", "丙"))
+	e.file("丙", "pre", barrier("丙", "乙"))
+	e.send("一起做", "乙", "丙")
+	e.waitIdle()
+	for _, n := range []string{"乙", "丙"} {
+		if _, err := os.Stat(filepath.Join(e.fake, n+".timeout")); err == nil {
+			t.Fatalf("%s waited for the other member: group turns were serialized", n)
+		}
+		if _, err := os.Stat(filepath.Join(e.fake, n+".started")); err != nil {
+			t.Fatalf("%s never started:\n%s", n, e.dump())
+		}
+		if c := cardsOf(e.msgs(), e.mem[n].ID); len(c) != 1 {
+			t.Fatalf("%s cards:\n%s", n, e.dump())
 		}
 	}
 }

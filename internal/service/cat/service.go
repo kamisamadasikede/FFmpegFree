@@ -141,6 +141,8 @@ type actRec struct {
 // turnState 是一轮进行中的回复。终态事件只发一次；终态后丢弃迟到增量。
 type turnState struct {
 	convID string
+	// leaseKey 非空 = 群聊成员回合：用独立执行范围（项目+groupId+memberId），不占项目目录锁。
+	leaseKey string
 	turnID string
 	cancel context.CancelFunc
 	done   chan struct{} // 后台 runTurn 返回后关闭（含已出文字落库）
@@ -809,7 +811,7 @@ func (s *Service) runTurn(ctx context.Context, t *turnState, a catagent.Adapter,
 			// Create it before the shared runtime resolves its physical lease.
 			s.ensureConvDir(t.convID)
 		}
-		resp, runErr = s.cfg.Execution.Run(a, agentexec.Scope{OwnerID: t.convID, Workspace: t.usageCwd, NativeConfigKey: projectConfigKey(opts.ProjectPath), Prepare: func(ctx context.Context) error { s.syncSharingBeforeTurn(ctx, opts.ProjectPath); return ctx.Err() }}, opts)
+		resp, runErr = s.cfg.Execution.Run(a, agentexec.Scope{OwnerID: t.convID, Workspace: t.usageCwd, NativeConfigKey: projectConfigKey(opts.ProjectPath), LeaseKey: t.leaseKey, Prepare: func(ctx context.Context) error { s.syncSharingBeforeTurn(ctx, opts.ProjectPath); return ctx.Err() }}, opts)
 	} else {
 		s.syncSharingBeforeTurn(ctx, opts.ProjectPath)
 		resp, runErr = a.RunTurn(opts)
