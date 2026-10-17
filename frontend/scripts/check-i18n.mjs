@@ -172,6 +172,38 @@ for (const k of zk) {
 for (const k of ek) if (!zk.has(k)) fails.push(`zh-CN missing key present in en: ${k}`)
 for (const k of jk) if (!zk.has(k)) fails.push(`zh-CN missing key present in ja: ${k}`)
 
+/**
+ * 特殊字符守卫（#335 回归：emptyStep3 里裸 @ 让 vue-i18n 编译报 SyntaxError 10，整页白屏）。
+ * vue-i18n 消息语法里 @ 是链接、{ } 是插值、| 是复数分隔。三语所有字符串都要求：
+ *  - @ 只能写成 {'@'}；
+ *  - { } 只能组成 {name} / {0} / {'字面量'}；
+ *  - | 只出现在 i18n-allow.json 的 pluralKeys 里（真复数），其余写 {'|'}。
+ */
+const pluralKeys = new Set(allow.pluralKeys || [])
+function specialIssues(s) {
+  const bad = []
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]
+    if (c === '{') {
+      const m = /^\{(?:\s*[A-Za-z_]\w*\s*|\s*\d+\s*|'[^']*')\}/.exec(s.slice(i))
+      if (!m) { bad.push(`stray '{' at ${i}`); continue }
+      i += m[0].length - 1
+    } else if (c === '}') bad.push(`stray '}' at ${i}`)
+    else if (c === '@') bad.push(`bare '@' at ${i} (use {'@'})`)
+    else if (c === '|') bad.push(`'|' at ${i} (plural separator; use {'|'} or add key to pluralKeys)`)
+  }
+  return bad
+}
+for (const [name, dict] of [['zh-CN', zh], ['en', en], ['ja', ja]]) {
+  for (const [k, v] of Object.entries(dict)) {
+    if (typeof v !== 'string') continue
+    for (const b of specialIssues(v)) {
+      if (b.startsWith("'|'") && pluralKeys.has(k)) continue
+      fails.push(`${name} ${k}: ${b}: ${JSON.stringify(v.slice(0, 60))}`)
+    }
+  }
+}
+
 const tRe = /\bt\(\s*['"]([^'"]+)['"]/g
 for (const file of collectFiles()) {
   const rel = relative(root, file).replace(/\\/g, '/')
@@ -184,7 +216,7 @@ for (const file of collectFiles()) {
 }
 
 if (fails.length) {
-  console.error(fails.slice(0, 100).join('\n'))
+  console.error(fails.slice(0, Number(process.env.I18N_MAX || 100)).join('\n'))
   if (fails.length > 100) console.error(`… and ${fails.length - 100} more`)
   process.exitCode = 1
 } else {

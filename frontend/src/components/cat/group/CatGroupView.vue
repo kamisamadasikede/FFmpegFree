@@ -129,7 +129,7 @@
                     <div class="ph">{{ t('cat.groupChat.swapTitle') }}</div>
                     <button v-for="o in store.membersSorted" :key="o.id" type="button" class="it" role="menuitem" :disabled="o.id === (m.toMemberId || m.route?.memberId)" @click="doReassign(m, o.id)">
                       <span class="av sm" :style="{ '--c': memberColorVar(o.order) }">{{ initial(o.name) }}</span>{{ o.name }}
-                      <span class="sp" /><span class="tt">{{ o.id === (m.toMemberId || m.route?.memberId) ? t('cat.groupChat.current') : store.live[o.id] ? t('cat.groupChat.busy') : t('cat.groupChat.idle') }}</span>
+                      <span class="sp" /><span class="tt" :class="{ busy: store.live[o.id] && o.id !== (m.toMemberId || m.route?.memberId) }"><i v-if="store.live[o.id] && o.id !== (m.toMemberId || m.route?.memberId)" class="cg-breath" />{{ o.id === (m.toMemberId || m.route?.memberId) ? t('cat.groupChat.current') : store.live[o.id] ? t('cat.groupChat.busy') : t('cat.groupChat.idle') }}</span>
                     </button>
                     <div class="pn">{{ t('cat.groupChat.swapNote') }}</div>
                   </div>
@@ -171,7 +171,7 @@
           <div class="ph">{{ AT }} {{ t('cat.groupChat.members') }}</div>
           <button v-for="(o, i) in mentionList" :key="o.id" type="button" class="it" :class="{ on: i === mentionIdx }" role="option" :aria-selected="i === mentionIdx" @mousedown.prevent="pickMention(o.id)">
             <span class="av sm" :style="{ '--c': memberColorVar(o.order) }">{{ initial(o.name) }}</span>{{ o.name }}<span class="tt">{{ o.title }}</span>
-            <span class="sp" /><span class="tt" :class="{ busy: store.live[o.id] }">{{ store.live[o.id] ? t('cat.groupChat.busy') : t('cat.groupChat.idle') }}</span>
+            <span class="sp" /><span class="tt" :class="{ busy: store.live[o.id] }"><i v-if="store.live[o.id]" class="cg-breath" />{{ store.live[o.id] ? t('cat.groupChat.busy') : t('cat.groupChat.idle') }}</span>
           </button>
         </div>
         <div class="row">
