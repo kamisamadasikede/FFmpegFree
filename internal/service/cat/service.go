@@ -783,9 +783,16 @@ func (s *Service) runTurn(ctx context.Context, t *turnState, a catagent.Adapter,
 		streamed = true
 		s.appendText(ctx, t, delta)
 	}
+	// 群聊成员回合（6.21.14）自带 OnActivity：记工具数和写过的文件（越界 / 撤销靠它），
+	// 这里只接住 retry，其余交回调用方的回调，不能覆盖掉。
+	prevActivity := opts.OnActivity
 	opts.OnActivity = func(kind, id, text string, replace bool) {
 		if kind == "retry" {
 			s.showRetry(ctx, t, text)
+			return
+		}
+		if prevActivity != nil {
+			prevActivity(kind, id, text, replace)
 			return
 		}
 		s.appendActivity(ctx, t, kind, id, text, replace)
