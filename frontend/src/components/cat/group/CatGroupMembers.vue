@@ -31,7 +31,7 @@
           <span class="cg-state" :class="{ busy: !!store.live[m.id] }" :title="store.live[m.id] ? t('cat.groupChat.busy') : t('cat.groupChat.idle')" />
         </div>
         <template v-if="open.has(m.id)">
-          
+          <CatGroupCharter :member="m" :start-editing="editIds.has(m.id)" />
           <div class="cg-mc-acts">
             <button type="button" class="cg-btn ghost" :disabled="i === 0" :aria-label="t('cat.groupChat.moveUp')" :title="t('cat.groupChat.moveUp')" @click="move(m.id, -1)"><FIcon name="up" :size="12" /></button>
             <button type="button" class="cg-btn ghost" :disabled="i === store.members.length - 1" :aria-label="t('cat.groupChat.moveDown')" :title="t('cat.groupChat.moveDown')" @click="move(m.id, 1)"><FIcon name="down" :size="12" /></button>
@@ -54,6 +54,7 @@ import CatAgentMark from '@/components/cat/CatAgentMark.vue'
 import { normalizeProviderKind } from '@/api/catAgents'
 import { memberColorVar } from '@/api/catGroupChat'
 import { useCatGroupChat } from '@/stores/catGroupChat'
+import CatGroupCharter from './CatGroupCharter.vue'
 
 const props = defineProps<{ closable?: boolean; initialOpen?: string }>()
 const emit = defineEmits<{ close: []; add: [] }>()

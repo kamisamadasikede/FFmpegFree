@@ -382,7 +382,11 @@ function applyScene() {
   const s = store.scene
   if (!s) return
   if (s === 'overstep') revertMsg.value = store.messages.find((m) => overreach(m).length) ?? null
-  if (s === 'narrow') catPane.side = 540 // 走查：把左栏拉宽，让群聊区域落到 <510
+  if (s === 'charter') initialOpen.value = 'edit:m3,m4,m5'
+  if (s === 'narrow') {
+    catPane.side = 540 // 走查：把左栏拉宽，让群聊区域落到 <510，并打开成员抽屉
+    store.membersOpen = true
+  }
   
 }
 
