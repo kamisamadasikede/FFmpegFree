@@ -1,5 +1,5 @@
 /**
- * 项目群聊（契约 §6.21 ~ §6.21.18，v0.55 → v0.55.9）。
+ * 项目群聊（契约 §6.21 ~ §6.21.19，v0.55 → v0.56）。
  * 有 Wails 绑定（CatService.ListCatGroups）走真后端，否则走 catGroupChatMock（浏览器预览 / 走查）。
  * 文案全部经 vue-i18n（cat.groupChat.*）。
  */
@@ -7,6 +7,7 @@ import { callService, hasServiceBinding } from '@/api/call'
 import { onEvent } from '@/services/wails'
 import { t } from '@/i18n'
 import { groupMock } from './catGroupChatMock'
+export { isMemberShortReply, memberShortText } from './catGroupReply'
 
 export type CatAgentKind = 'cat_build' | 'claude_cli' | 'codex_cli' | string
 export type CharterStatus = 'ok' | 'generating' | 'failed' | 'none'
@@ -114,6 +115,15 @@ export interface CatGroupMessage {
   toMemberId?: string
   failReason?: string
   report?: CatGroupReport
+  /**
+   * v0.56 §6.21.19：短复 vs 汇报卡。
+   * - `short` → 群里出短气泡（招呼/澄清/无交付）
+   * - `report` → 四段汇报卡
+   * 契约未写死字段名；后端若暂未发，见 isMemberShortReply 的兜底形状。
+   */
+  replyKind?: 'short' | 'report' | string
+  /** 可选：短复正文；缺省用 text（或 report.did） */
+  shortText?: string
   createdAt: number
 }
 export interface CatGroupRunning {
@@ -206,9 +216,12 @@ export function normalizeMessage(m: Partial<CatGroupMessage> & { seq: number }):
     toMemberId: m.toMemberId || undefined,
     failReason: m.failReason || undefined,
     report: r ? { did: r.did ?? '', attn: r.attn || undefined, give: r.give || undefined, files: r.files ?? [], parsed: r.parsed !== false, footer: r.footer } : undefined,
+    replyKind: m.replyKind || undefined,
+    shortText: m.shortText || undefined,
     createdAt: m.createdAt ?? 0,
   }
 }
+
 
 const k = (key: string, p?: Record<string, unknown>) => (p ? t(`cat.groupChat.${key}`, p) : t(`cat.groupChat.${key}`))
 
