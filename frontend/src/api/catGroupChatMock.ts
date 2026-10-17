@@ -113,7 +113,7 @@ function sceneSeed(s: GroupScene): SceneUi {
     case 'list': return { running: [] }
     case 'main': case 'create': case 'rolegen': case 'mention': case 'settings':
       mainStream()
-      if (s === 'rolegen') { members[2].charter = charter('', '', '', [], 'generating'); members[3].charter = charter('', '', '', [], 'failed') }
+      if (s === 'rolegen') { members[2].charter = charter('', '', '', [], 'generating'); members[3].charter = { ...charter('', '', '', [], 'failed'), failReason: '超时：60 秒内没有返回职责 JSON' } }
       return { running: s === 'main' || s === 'create' ? [['q', 38_000, 3]] : [] }
     case 'members': case 'working': case 'session': case 'narrow-drawer': case 'narrow-single':
       mainStream()
@@ -189,7 +189,7 @@ function fail(reason: string): never {
 function genCharter(m: CatGroupMember, ok = true) {
   if (sc) return
   setTimeout(() => {
-    m.charter = ok ? charter(`${m.title}职责内的工作`, '不改其他成员负责的目录', '做完交给排第一的成员', [], 'ok') : { ...m.charter, status: 'failed' }
+    m.charter = ok ? charter(`${m.title}职责内的工作`, '不改其他成员负责的目录', '做完交给排第一的成员', [], 'ok') : { ...m.charter, status: 'failed', failReason: 'Grok Build 未登录或已过期，请到设置里重新登录' }
     emit(L.mem, { groupId: m.groupId, member: clone(m) })
   }, 2500)
 }

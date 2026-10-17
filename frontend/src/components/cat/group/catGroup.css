@@ -160,6 +160,7 @@
 .cg-gen .row { display: flex; gap: 6px; margin-top: 8px; }
 .cg-gen.bad { background: var(--cat-warn-soft); }
 .cg-gen.bad .t { color: var(--cat-warn-text); }
+.cg-gen.bad .cg-charter-fail-reason { margin-top: 6px; color: var(--cat-muted); word-break: break-word; }
 .cg-skel { display: block; height: 9px; border-radius: 5px; margin-top: 7px; background: linear-gradient(90deg, var(--cat-hover), var(--cat-pressed), var(--cat-hover)); background-size: 200% 100%; animation: cg-sh 1.4s linear infinite; }
 @keyframes cg-sh { to { background-position: -200% 0; } }
 

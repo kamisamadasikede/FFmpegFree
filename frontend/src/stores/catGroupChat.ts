@@ -319,7 +319,34 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
     }
   }
   async function regenerate(memberId: string) {
-    upsertMember(normalizeMember(await groupApi().regenerateCharter(memberId)))
+    const cur = memberById(memberId)
+    if (cur) {
+      // 点「重新生成」立刻出「正在生成职责…」，不等绑返回
+      upsertMember(
+        normalizeMember({
+          ...cur,
+          charter: { ...cur.charter, status: 'generating', failReason: undefined, updatedAt: Date.now() },
+        }),
+      )
+    }
+    try {
+      upsertMember(normalizeMember(await groupApi().regenerateCharter(memberId)))
+    } catch (e) {
+      // 同步失败（如已在生成 / 绑定错）：回到 failed，并尽量带上原因
+      const again = memberById(memberId)
+      if (again && again.charter.status === 'generating') {
+        const msg = String((e as { message?: string })?.message ?? (e as Error)?.message ?? '').trim()
+        const detail = String((e as { detail?: string })?.detail ?? '').trim()
+        const failReason = msg || detail || undefined
+        upsertMember(
+          normalizeMember({
+            ...again,
+            charter: { ...again.charter, status: 'failed', failReason, updatedAt: Date.now() },
+          }),
+        )
+      }
+      throw e
+    }
   }
   async function saveCharter(memberId: string, patch: { owns?: string; notTouch?: string; dirs: string[] }) {
     upsertMember(normalizeMember(await groupApi().updateCharter({ memberId, ...patch })))
