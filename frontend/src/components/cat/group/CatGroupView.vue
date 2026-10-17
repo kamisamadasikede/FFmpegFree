@@ -19,99 +19,129 @@
       <div ref="feedEl" class="cg-feed" data-testid="cat-group-feed">
         <div class="cg-feed-in">
           <button v-if="store.hasMore" type="button" class="cg-btn ghost" style="align-self: center" @click="store.loadOlder()">{{ t('cat.groupChat.loadOlder') }}</button>
-          <div v-if="!store.loading && !store.messages.length" class="cg-empty">{{ store.members.length ? t('cat.groupChat.emptyFeed') : t('cat.groupChat.noMembersYet') }}</div>
+          <div v-if="!store.loading && !store.messages.length" class="cg-empty" data-testid="cat-group-empty">
+            <div class="ill" aria-hidden="true"><FIcon name="chat" :size="30" /></div>
+            <h3>{{ store.members.length ? t('cat.groupChat.emptyTitle') : t('cat.groupChat.noMembersYet') }}</h3>
+            <p>{{ t('cat.groupChat.emptySub') }}</p>
+            <ol>
+              <li><span>1</span>{{ t('cat.groupChat.emptyStep1') }}</li>
+              <li><span>2</span>{{ t('cat.groupChat.emptyStep2') }}</li>
+              <li><span>3</span>{{ t('cat.groupChat.emptyStep3') }}</li>
+            </ol>
+          </div>
+          <div v-if="store.messages.length" class="cg-day"><span>{{ t('cat.groupChat.today') }}</span></div>
           <template v-for="m in store.messages" :key="m.seq">
-            <div v-if="m.kind === 'user'" class="cg-user" data-testid="cat-group-user-msg">
-              <template v-for="(p, i) in parts(m.text)" :key="i"><span v-if="p.at" class="cg-at">{{ p.s }}</span><template v-else>{{ p.s }}</template></template>
-            </div>
-
-            <div v-else-if="m.kind === 'member' && m.report" class="cg-rep" data-testid="cat-group-report">
-              <span class="av" :style="{ '--c': colorOf(m.memberId) }" :title="t('cat.groupChat.viewProcess')" @click="openProcess(m.memberId)">{{ initial(store.nameOf(m.memberId)) }}</span>
-              <article class="cg-card" :class="{ over: overreach(m).length }">
-                <div class="cg-who">
-                  <b>{{ store.nameOf(m.memberId) }}</b><span class="tt">{{ store.memberById(m.memberId)?.title }}</span>
-                  <span class="sp" /><span class="tm">{{ clock(m.createdAt) }}</span>
-                </div>
-                <div class="cg-sec" style="margin-top: 0">
-                  <h4 v-if="m.report.parsed">{{ t('cat.groupChat.did') }}</h4>
-                  <p><template v-for="(p, i) in parts(m.report.did)" :key="i"><span v-if="p.at" class="cg-at">{{ p.s }}</span><template v-else>{{ p.s }}</template></template></p>
-                </div>
-                <div v-if="normalFiles(m).length" class="cg-sec">
-                  <h4>{{ t('cat.groupChat.files') }}</h4>
-                  <ul class="cg-files">
-                    <li v-for="f in normalFiles(m)" :key="f.path">
-                      <span class="p">{{ f.path }}</span>
-                      <span v-if="f.added" class="ad">+{{ f.added }}</span><span v-if="f.deleted" class="dl">-{{ f.deleted }}</span>
-                      <span v-if="f.tag === 'unknown'" class="cg-tag unk" :title="t('cat.groupChat.unknownTip')">{{ t('cat.groupChat.tagUnknown') }}</span>
-                    </li>
-                  </ul>
-                </div>
-                <div v-if="overreach(m).length" class="cg-over" data-testid="cat-group-overreach">
-                  <div class="h">
-                    <FIcon name="warn" :size="13" />{{ t('cat.groupChat.overreachTitle', { n: overreach(m).length }) }}<span class="sp" />
-                    <button v-if="!reverted[m.seq]" type="button" class="cg-btn org" data-testid="cat-group-revert" @click="revertMsg = m">{{ t('cat.groupChat.revert') }}</button>
-                  </div>
-                  <ul class="cg-files" style="margin-top: 6px">
-                    <li v-for="f in expanded[m.seq] ? overreach(m) : overreach(m).slice(0, 3)" :key="f.path">
-                      <span class="p">{{ f.path }}</span>
-                      <span v-if="f.added" class="ad">+{{ f.added }}</span><span v-if="f.deleted" class="dl">-{{ f.deleted }}</span>
-                      <span class="cg-tag over">{{ t('cat.groupChat.tagOverreach') }}</span>
-                    </li>
-                  </ul>
-                  <button v-if="overreach(m).length > 3 && !expanded[m.seq]" type="button" class="more" @click="expanded[m.seq] = true">{{ t('cat.groupChat.moreFiles', { n: overreach(m).length - 3 }) }}</button>
-                  <div v-for="s in revertSkips[m.seq] ?? []" :key="s" class="cg-skip">{{ t('cat.groupChat.revertSkipped', { file: s }) }}</div>
-                </div>
-                <div v-if="m.report.attn" class="cg-sec">
-                  <h4>{{ t('cat.groupChat.attn') }}</h4>
-                  <p>{{ m.report.attn }}</p>
-                </div>
-                <div v-if="m.report.give" class="cg-sec">
-                  <h4>{{ t('cat.groupChat.give') }}</h4>
-                  <p><template v-for="(p, i) in parts(m.report.give)" :key="i"><span v-if="p.at" class="cg-at chip">{{ p.s }}</span><template v-else>{{ p.s }}</template></template></p>
-                </div>
-                <div v-if="m.report.footer?.totalMs" class="cg-foot">
-                  <span>{{ t('cat.groupChat.footerTime', { time: formatElapsed(m.report.footer.totalMs) }) }}</span>
-                  <span v-if="m.report.footer.outputTokens">{{ t('cat.groupChat.footerTokens', { n: m.report.footer.outputTokens }) }}</span>
-                  <span class="sp" />
-                  <button type="button" class="lk" @click="openProcess(m.memberId)">{{ t('cat.groupChat.viewProcess') }}</button>
-                </div>
-              </article>
-            </div>
-
-            <div v-else-if="m.systemKind === 'failed'" class="cg-fail" role="alert" data-testid="cat-group-failed">
-              <span class="av sm" :style="{ '--c': colorOf(m.memberId) }">{{ initial(store.nameOf(m.memberId)) }}</span>
-              <div class="tx">
-                <b>{{ t('cat.groupChat.failedHead', { name: store.nameOf(m.memberId) }) }}</b>
-                <div class="why">{{ m.failReason || m.text || t('cat.groupChat.unknownReason') }}</div>
+            <div v-if="m.kind === 'user'" class="cg-task" data-testid="cat-group-user-msg">
+              <div class="hd">
+                <span class="av sm me">{{ initial(t('cat.groupChat.you')) }}</span>
+                <b>{{ t('cat.groupChat.you') }}</b><span class="tag">{{ t('cat.groupChat.task') }}</span>
+                <span class="tm">{{ clock(m.createdAt) }}</span>
               </div>
-              <div class="acts">
-                <button type="button" class="cg-btn ghost" @click="openProcess(m.memberId)">{{ t('cat.groupChat.viewProcess') }}</button>
-                <button v-if="!retried[m.seq]" type="button" class="cg-btn pri" :title="t('cat.groupChat.retryTip')" data-testid="cat-group-retry" @click="retry(m)">
-                  <FIcon name="retry" :size="13" />{{ t('cat.groupChat.retry') }}
+              <div class="tx"><template v-for="(p, i) in parts(m.text)" :key="i"><span v-if="p.at" class="cg-at">{{ p.s }}</span><template v-else>{{ p.s }}</template></template></div>
+            </div>
+
+            <article v-else-if="m.kind === 'member' && m.report" class="cg-card" :class="{ over: overreach(m).length && !reverted[m.seq] }" data-testid="cat-group-report">
+              <div class="cg-who">
+                <span class="av" :style="{ '--c': colorOf(m.memberId) }">{{ initial(store.nameOf(m.memberId)) }}</span>
+                <b>{{ store.nameOf(m.memberId) }}</b><span class="tt">{{ store.memberById(m.memberId)?.title }}</span>
+                <span class="cli">{{ cliName(store.memberById(m.memberId)?.agentKind) }}</span>
+                <span class="sp" /><span class="tm">{{ clock(m.createdAt) }}</span>
+              </div>
+              <div class="cg-sec">
+                <h4>{{ t('cat.groupChat.did') }}</h4>
+                <p><template v-for="(p, i) in parts(m.report.did)" :key="i"><span v-if="p.at" class="cg-at">{{ p.s }}</span><template v-else>{{ p.s }}</template></template></p>
+                <div v-if="!m.report.parsed" class="cg-note" data-testid="cat-group-report-format"><FIcon name="info" :size="12" />{{ t('cat.groupChat.notFormatted') }}</div>
+              </div>
+              <div v-if="m.report.parsed && m.report.files.length" class="cg-sec">
+                <h4>{{ t('cat.groupChat.files') }}</h4>
+                <button type="button" class="cg-fsum" :aria-expanded="!!expanded[m.seq]" @click="expanded[m.seq] = !expanded[m.seq]">
+                  <FIcon name="right" :size="12" :class="{ rot: expanded[m.seq] }" />
+                  {{ t('cat.groupChat.filesN', { n: m.report.files.length }) }}
+                  <span class="ad">+{{ sum(m, 'added') }}</span><span class="dl">−{{ sum(m, 'deleted') }}</span>
+                  <span v-if="overreach(m).length" class="cg-tag over">{{ t('cat.groupChat.overN', { n: overreach(m).length }) }}</span>
                 </button>
-                <span v-else class="cg-hint">{{ t('cat.groupChat.retrying') }}</span>
+                <ul v-if="expanded[m.seq]" class="cg-files">
+                  <li v-for="f in m.report.files" :key="f.path">
+                    <span class="p"><span class="dir">{{ dirOf(f.path) }}</span>{{ baseOf(f.path) }}</span>
+                    <span v-if="f.added" class="ad">+{{ f.added }}</span><span v-if="f.deleted" class="dl">−{{ f.deleted }}</span>
+                    <span v-if="f.tag === 'overreach'" class="cg-tag over">{{ t('cat.groupChat.tagOverreach') }}</span>
+                    <span v-else-if="f.tag === 'unknown'" class="cg-tag unk" :title="t('cat.groupChat.unknownTip')">{{ t('cat.groupChat.tagUnknown') }}</span>
+                  </li>
+                </ul>
               </div>
-            </div>
-
-            <div v-else-if="m.systemKind === 'stopped'" class="cg-stopline" data-testid="cat-group-stopped">
-              <FIcon name="stop" :size="11" />{{ sysText(m) }}
-            </div>
-
-            <div v-else-if="m.systemKind === 'report_format'" class="cg-sys fmt" data-testid="cat-group-report-format">
-              <FIcon name="info" :size="12" />{{ sysText(m) }}
-            </div>
-
-            <div v-else class="cg-sys" :data-kind="m.systemKind" data-testid="cat-group-system">
-              <button v-if="m.route && (m.route.mode === 'ai' || m.route.mode === 'fallback')" type="button" class="lk" @click="openRoute(m)">{{ sysText(m) }}</button>
-              <span v-else>{{ sysText(m) }}</span>
-              <span v-if="canReassign(m)" style="position: relative">
-                <button type="button" class="act" data-testid="cat-group-reassign" @click="reassignFor = reassignFor === m.seq ? 0 : m.seq">{{ t('cat.groupChat.reassign') }}</button>
-                <div v-if="reassignFor === m.seq" class="cg-pop down" role="menu" :aria-label="t('cat.groupChat.reassignTo')">
-                  <button v-for="o in store.membersSorted.filter((x) => x.id !== (m.toMemberId || m.route?.memberId))" :key="o.id" type="button" class="it" role="menuitem" @click="doReassign(m, o.id)">
-                    <span class="av sm" :style="{ '--c': memberColorVar(o.order) }">{{ initial(o.name) }}</span>{{ o.name }}<span class="tt">{{ o.title }}</span>
-                  </button>
+              <div v-if="overreach(m).length" class="cg-over" data-testid="cat-group-overreach">
+                <div class="h">
+                  <FIcon name="warn" :size="13" />{{ t('cat.groupChat.overreachTitle', { n: overreach(m).length }) }}<span class="sp" />
+                  <button type="button" class="cg-btn org" :disabled="reverted[m.seq]" data-testid="cat-group-revert" @click="revertMsg = m">{{ t('cat.groupChat.undoThese') }}</button>
                 </div>
-              </span>
+                <ul class="cg-files">
+                  <li v-for="f in overreach(m)" :key="f.path" :class="revState(m, f.path)">
+                    <span class="p"><span class="dir">{{ dirOf(f.path) }}</span>{{ baseOf(f.path) }}</span>
+                    <span v-if="revState(m, f.path) === 'done'" class="st ok">{{ t('cat.groupChat.revertedTag') }}</span>
+                    <span v-else-if="revState(m, f.path) === 'skip'" class="st bad">{{ t('cat.groupChat.notReverted') }}</span>
+                  </li>
+                </ul>
+                <div v-for="s in revertSkips[m.seq] ?? []" :key="s" class="cg-skip">{{ t('cat.groupChat.revertSkipped', { file: s }) }}</div>
+              </div>
+              <div v-if="m.report.parsed && m.report.attn" class="cg-sec">
+                <h4><FIcon name="warn" :size="12" class="warn" />{{ t('cat.groupChat.attn') }}</h4>
+                <p><template v-for="(p, i) in parts(m.report.attn)" :key="i"><span v-if="p.at" class="cg-at">{{ p.s }}</span><template v-else>{{ p.s }}</template></template></p>
+              </div>
+              <div v-if="m.report.parsed && m.report.give" class="cg-sec">
+                <h4>{{ t('cat.groupChat.give') }}</h4>
+                <p v-for="(ln, li) in m.report.give.split('\n')" :key="li" class="give"><template v-for="(p, i) in parts(ln)" :key="i"><span v-if="p.at" class="cg-at chip">{{ p.s }}</span><template v-else>{{ p.s }}</template></template></p>
+              </div>
+              <div v-if="m.report.footer" class="cg-foot">
+                <span v-if="m.report.footer.finishedAt">{{ t('cat.groupChat.footerDone', { time: clock(m.report.footer.finishedAt) }) }}</span>
+                <span v-else-if="m.report.footer.totalMs">{{ t('cat.groupChat.footerTime', { time: formatElapsed(m.report.footer.totalMs) }) }}</span>
+                <span v-if="m.report.footer.outputTokens">· {{ t('cat.groupChat.footerOut', { n: m.report.footer.outputTokens }) }}</span>
+                <span v-if="m.report.footer.tokensPerSec">· {{ t('cat.groupChat.footerRate', { n: m.report.footer.tokensPerSec }) }}</span>
+                <span>·</span>
+                <button type="button" class="lk" @click="openProcess(m.memberId)"><FIcon name="eye" :size="12" />{{ t('cat.groupChat.viewFull') }}</button>
+              </div>
+            </article>
+
+            <div v-else-if="m.systemKind === 'failed'" class="cg-sys fail" role="alert" data-testid="cat-group-failed">
+              <FIcon name="warn" :size="12" />
+              <span>{{ t('cat.groupChat.failed', { name: store.nameOf(m.memberId), reason: m.failReason || m.text || t('cat.groupChat.unknownReason') }) }}</span>
+              <span class="bar" />
+              <button v-if="!retried[m.seq]" type="button" class="act" :title="t('cat.groupChat.retryTip')" data-testid="cat-group-retry" @click="retry(m)"><FIcon name="retry" :size="12" />{{ t('cat.groupChat.retry') }}</button>
+              <span v-else>{{ t('cat.groupChat.retrying') }}</span>
+              <button type="button" class="act" @click="openProcess(m.memberId)">{{ t('cat.groupChat.viewProcess') }}</button>
+            </div>
+
+            <div v-else-if="m.systemKind === 'stopped'" class="cg-sys" data-testid="cat-group-stopped">
+              <FIcon name="stop" :size="11" />{{ sysText(m) }}<template v-if="m.toMemberId">{{ t('cat.groupChat.stoppedBySwap') }}</template>
+            </div>
+
+            <template v-else-if="m.systemKind === 'report_format'" />
+
+            <div v-else class="cg-sysw">
+              <div class="cg-sys" :data-kind="m.systemKind" data-testid="cat-group-system">
+                <FIcon :name="sysIcon(m)" :size="12" />
+                <button v-if="m.route && (m.route.mode === 'ai' || m.route.mode === 'fallback')" type="button" class="lk" @click="toggleRoute(m)">{{ sysText(m) }}</button>
+                <span v-else>{{ sysText(m) }}</span>
+                <span v-if="canReassign(m)" style="position: relative">
+                  <button type="button" class="act" data-testid="cat-group-reassign" @click="reassignFor = reassignFor === m.seq ? 0 : m.seq"><FIcon name="convert" :size="12" />{{ t('cat.groupChat.reassign') }}</button>
+                  <div v-if="reassignFor === m.seq" class="cg-pop down swap" role="menu" :aria-label="t('cat.groupChat.swapTitle')">
+                    <div class="ph">{{ t('cat.groupChat.swapTitle') }}</div>
+                    <button v-for="o in store.membersSorted" :key="o.id" type="button" class="it" role="menuitem" :disabled="o.id === (m.toMemberId || m.route?.memberId)" @click="doReassign(m, o.id)">
+                      <span class="av sm" :style="{ '--c': memberColorVar(o.order) }">{{ initial(o.name) }}</span>{{ o.name }}
+                      <span class="sp" /><span class="tt">{{ o.id === (m.toMemberId || m.route?.memberId) ? t('cat.groupChat.current') : store.live[o.id] ? t('cat.groupChat.busy') : t('cat.groupChat.idle') }}</span>
+                    </button>
+                    <div class="pn">{{ t('cat.groupChat.swapNote') }}</div>
+                  </div>
+                </span>
+              </div>
+              <div v-if="routeOpen[m.seq]" class="cg-route" data-testid="cat-group-route-detail">
+                <h5>{{ t('cat.groupChat.routeJudge') }}</h5>
+                <dl>
+                  <dt>{{ t('cat.groupChat.routeCli') }}</dt><dd>{{ cliName(store.membersSorted[0]?.agentKind) }}</dd>
+                  <dt>{{ t('cat.groupChat.routeSaw') }}</dt><dd>{{ routeOpen[m.seq].input }}</dd>
+                </dl>
+                <h5>{{ t('cat.groupChat.routeRaw') }}</h5>
+                <pre class="cg-pre">{{ routeOpen[m.seq].output }}</pre>
+              </div>
             </div>
           </template>
           <div v-if="store.routingNow" class="cg-sys dot">{{ t('cat.groupChat.routing') }}</div>
@@ -180,17 +210,6 @@
       </div>
     </div>
 
-    <div v-if="routeInfo" class="cg-modal-bg" @click.self="routeInfo = null">
-      <div class="cg-modal wide" role="dialog" aria-modal="true">
-        <h3>{{ t('cat.groupChat.routeDetail') }}</h3>
-        <div class="cg-hint">{{ t('cat.groupChat.routeInput') }}</div>
-        <pre class="cg-pre">{{ routeInfo.input }}</pre>
-        <div class="cg-hint">{{ t('cat.groupChat.routeOutput') }}</div>
-        <pre class="cg-pre">{{ routeInfo.output }}</pre>
-        <div class="ft"><button type="button" class="cg-btn" @click="routeInfo = null">{{ t('cat.groupChat.close') }}</button></div>
-      </div>
-    </div>
-
     <CatGroupSettings v-if="store.settingsOpen" @close="store.settingsOpen = false" @deleted="onDeleted" />
   </section>
 </template>
@@ -230,7 +249,6 @@ const clock = (ms: number) => {
 }
 const sysText = (m: CatGroupMessage) => systemLineText(m, store.nameOf)
 const overreach = (m: CatGroupMessage) => (m.report?.files ?? []).filter((f) => f.tag === 'overreach')
-const normalFiles = (m: CatGroupMessage) => (m.report?.files ?? []).filter((f) => f.tag !== 'overreach')
 
 function openProcess(id?: string) {
   store.drawerMemberId = id ?? ''
@@ -269,13 +287,29 @@ async function doReassign(m: CatGroupMessage, to: string) {
   }
 }
 
-const routeInfo = ref<CatRouteDetail | null>(null)
-async function openRoute(m: CatGroupMessage) {
+const routeOpen = reactive<Record<number, CatRouteDetail>>({})
+async function toggleRoute(m: CatGroupMessage) {
+  if (routeOpen[m.seq]) { delete routeOpen[m.seq]; return }
   try {
-    routeInfo.value = await store.routeDetail(m.route?.routeSeq || m.seq)
+    routeOpen[m.seq] = await store.routeDetail(m.route?.routeSeq || m.seq)
   } catch {
-    /* 拿不到详情就不弹 */
+    /* 拿不到详情就不展开 */
   }
+}
+const CLI: Record<string, string> = { claude_cli: 'Claude', codex_cli: 'Codex', cat_build: 'Grok Build', gemini_cli: 'Gemini' }
+const cliName = (k?: string) => CLI[k ?? ''] ?? k ?? ''
+const dirOf = (p: string) => p.slice(0, p.lastIndexOf('/') + 1)
+const baseOf = (p: string) => p.slice(p.lastIndexOf('/') + 1)
+const sum = (m: CatGroupMessage, k: 'added' | 'deleted') => (m.report?.files ?? []).reduce((n, f) => n + (f[k] ?? 0), 0)
+function sysIcon(m: CatGroupMessage) {
+  if (m.systemKind === 'reassign') return 'convert'
+  if (m.systemKind === 'hop_limit' || m.systemKind === 'no_handoff') return 'info'
+  return 'branch'
+}
+const revDone = reactive<Record<number, string[]>>({})
+function revState(m: CatGroupMessage, path: string) {
+  if (!reverted[m.seq]) return ''
+  return (revDone[m.seq] ?? []).includes(path) ? 'done' : 'skip'
 }
 
 // 越界撤销（仅确定归属的文件；来源不明不给撤销）
@@ -291,6 +325,7 @@ async function doRevert() {
   try {
     const r = await store.revert(m.memberId || '', m.turnId || '', overreach(m).map((f) => f.path))
     reverted[m.seq] = true
+    revDone[m.seq] = r.reverted
     revertSkips[m.seq] = r.skipped.map((s) => s.path)
     if (r.reverted.length) ElMessage.success(t('cat.groupChat.revertDone', { n: r.reverted.length }))
   } catch {
@@ -386,6 +421,21 @@ function applyScene() {
   if (!s) return
   if (s === 'overstep-undo') revertMsg.value = store.messages.find((m) => overreach(m).length) ?? null
   if (s === 'settings') store.settingsOpen = true
+  const ui = store.sceneUi
+  if (ui?.revertDone) {
+    const m = store.messages.find((x) => overreach(x).length)
+    if (m) {
+      const files = overreach(m).map((f) => f.path)
+      reverted[m.seq] = true
+      revDone[m.seq] = files.slice(0, -1)
+      revertSkips[m.seq] = files.slice(-1)
+      expanded[m.seq] = true
+      ElMessage.success(t('cat.groupChat.revertDone', { n: files.length - 1 }))
+    }
+  }
+  if (s === 'overstep') { const m = store.messages.find((x) => overreach(x).length); if (m) expanded[m.seq] = true }
+  if (ui?.openRoute) { const m = store.messages.find((x) => x.route?.mode === 'ai'); if (m) void toggleRoute(m) }
+  if (ui?.swapOpen) { const m = [...store.messages].reverse().find((x) => x.systemKind === 'route'); if (m) reassignFor.value = m.seq }
   if (s === 'members' || s === 'narrow-drawer') store.membersOpen = true
   if (s === 'session') store.drawerMemberId = 'f'
   if (s === 'narrow-single') {
@@ -404,7 +454,8 @@ watch(
     if (!id) return
     await store.open(id)
     applyScene()
-    scrollEnd()
+    if (store.sceneUi?.scroll === 'top') void nextTick(() => feedEl.value && (feedEl.value.scrollTop = 0))
+    else scrollEnd()
   },
   { immediate: true },
 )

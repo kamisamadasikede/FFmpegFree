@@ -25,6 +25,7 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
   const settingsOpen = ref(false)
   const membersOpen = ref(false)
   const scene = groupScene()
+  const sceneUi = scene && !groupRealApi() ? groupMock.sceneUi() : null
   const now = ref(Date.now())
   let timer: ReturnType<typeof setInterval> | null = null
   let subscribed = false
@@ -189,7 +190,7 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
 
   return {
     groupsByProject, activeId, group, members, membersSorted, messages, hasMore, loading, live, routing, routingNow,
-    drawerMemberId, processText, settingsOpen, membersOpen, scene, workingMembers,
+    drawerMemberId, processText, settingsOpen, membersOpen, scene, sceneUi, workingMembers,
     memberById, nameOf, elapsedOf, loadGroups, open, loadOlder, createGroup, rename, setAutoRoute, deleteGroup,
     addMember, updateMember, removeMember, reorder, regenerate, saveCharter, send, reassign, stop, stopAll, retryTurn, revert, routeDetail,
   }
