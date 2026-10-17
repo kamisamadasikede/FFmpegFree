@@ -272,3 +272,6 @@ html.dark .cli-g{background:#e8eaed;color:#16171a}
 code{font-family:var(--ff-font-mono);font-size:12px;background:var(--cat-code-bg);border:1px solid var(--cat-divider);border-radius:4px;padding:0 4px}
 .mst{display:flex;align-items:center;gap:6px;flex:none}
 .stream{position:relative}
+.flist{overflow:visible}
+.frow:first-child{border-radius:7px 7px 0 0}.frow:last-child{border-radius:0 0 7px 7px}.frow:only-child{border-radius:7px}
+.frow .tip{top:32px;right:0}

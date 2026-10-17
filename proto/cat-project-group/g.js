@@ -266,7 +266,7 @@ SC.working = () => ({
   right: right({ st: { a: 'idle', b: 'idle', f: 'run', q: 'run' } }),
 });
 SC.report = () => ({
-  scroll: 'top',
+  focus: '.rep', focusIdx: 1,
   center: centerWrap(chead(), `<div class="daysep">今天</div>
     ${R_ARCH()}
     ${gl('已转交给 后端工程师（第 1/6 次）')}${gl('已转交给 前端工程师（第 1/6 次）')}
@@ -386,7 +386,7 @@ function render() {
   document.title = `Cat 群聊 · ${S}`;
   const st = document.querySelector('.stream');
   if (st) {
-    if (sc.focus) { const el = st.querySelector(sc.focus); if (el) st.scrollTop = el.offsetTop - st.offsetTop - 12; }
+    if (sc.focus) { const el = st.querySelectorAll(sc.focus)[sc.focusIdx || 0]; if (el) st.scrollTop = el.offsetTop - st.offsetTop - 12; }
     else if (sc.scroll !== 'top') st.scrollTop = st.scrollHeight;
   }
 }
