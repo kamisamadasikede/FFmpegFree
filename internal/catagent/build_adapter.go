@@ -422,6 +422,15 @@ type TurnOptions struct {
 	// LiveSteer uses a bidirectional transport when the adapter supports it.
 	LiveSteer    bool
 	OnSteerReady func(SteerFunc)
+	// JSONSchema, when non-empty, requests structured JSON output (契约 6.21.4 / 6.21.6).
+	// Grok/Claude: --json-schema; Codex: --output-schema <file>.
+	JSONSchema string
+	// Ephemeral skips session persistence when the CLI supports it (派活判断 / 规范生成).
+	// Claude: --no-session-persistence; Codex: --ephemeral; Grok: omit --session-id/--resume.
+	Ephemeral bool
+	// NoTools disables tool use for one-shot structured calls.
+	// Claude/Grok: --tools ""; Codex: read-only sandbox (no dedicated --tools flag).
+	NoTools bool
 }
 
 // SteerFunc adds input to the active native turn. It must reject a stale turn.
@@ -468,24 +477,27 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		defer spec.clean()
 	}
 
+	format := "streaming-json"
+	if strings.TrimSpace(opts.JSONSchema) != "" {
+		format = "json" // --json-schema implies json (H grok.txt)
+	}
 	args := []string{
 		spec.flag, spec.value,
-		"--output-format", "streaming-json",
+		"--output-format", format,
 		"--cwd", cwd,
-		// --no-auto-update 不在 grok 1.0.40 真机 --help 里（隐藏开关），按「以真机 help 为准」不再传。
 		"--no-alt-screen",
-		// 不传 --tools / --disallowed-tools / --deny / --no-subagents / --disable-web-search，
-		// 工具集用本机 grok 自己的完整集合。批准方式只带一个开关。
 	}
 	args = append(args, permissionCLIArgs(opts.PermissionMode)...)
 	usageSID := ""
-	if sid := strings.TrimSpace(opts.ConversationID); sid != "" {
-		uuid := sessionIDFromConv(sid)
-		usageSID = uuid
-		if opts.Resume || hasPriorAssistant(opts.Messages) {
-			args = append(args, "--resume", uuid)
-		} else {
-			args = append(args, "--session-id", uuid)
+	if !opts.Ephemeral {
+		if sid := strings.TrimSpace(opts.ConversationID); sid != "" {
+			uuid := sessionIDFromConv(sid)
+			usageSID = uuid
+			if opts.Resume || hasPriorAssistant(opts.Messages) {
+				args = append(args, "--resume", uuid)
+			} else {
+				args = append(args, "--session-id", uuid)
+			}
 		}
 	}
 	if mid := strings.TrimSpace(opts.ModelID); mid != "" && mid != "default" {
@@ -493,6 +505,12 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	}
 	if tl := strings.TrimSpace(opts.ThinkLevelID); tl != "" {
 		args = append(args, "--reasoning-effort", tl)
+	}
+	if schema := strings.TrimSpace(opts.JSONSchema); schema != "" {
+		args = append(args, "--json-schema", schema)
+	}
+	if opts.NoTools {
+		args = append(args, "--tools", "")
 	}
 	args = append(args, rulesCLIArgs(opts.Rules)...)
 

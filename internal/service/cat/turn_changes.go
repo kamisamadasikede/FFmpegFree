@@ -290,6 +290,7 @@ func (s *Service) saveTurnChanges(out TurnChanges) {
 	s.workflowMu.Lock()
 	defer s.workflowMu.Unlock()
 	ctx := context.Background()
+	out.ConvID = groupBackingConvID(out.ConvID)
 	if _, err := s.requireConv(ctx, out.ConvID); err != nil {
 		return
 	}

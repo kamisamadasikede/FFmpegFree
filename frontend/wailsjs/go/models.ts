@@ -23,6 +23,28 @@ export namespace apperr {
 
 export namespace cat {
 	
+	export class AddGroupMemberRequest {
+	    groupId: string;
+	    name: string;
+	    title: string;
+	    agentKind: string;
+	    modelId: string;
+	    thinkLevelId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AddGroupMemberRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.groupId = source["groupId"];
+	        this.name = source["name"];
+	        this.title = source["title"];
+	        this.agentKind = source["agentKind"];
+	        this.modelId = source["modelId"];
+	        this.thinkLevelId = source["thinkLevelId"];
+	    }
+	}
 	export class AgentDefaults {
 	    model: string;
 	    effort: string;
@@ -853,6 +875,20 @@ export namespace cat {
 	        this.projectId = source["projectId"];
 	    }
 	}
+	export class CreateGroupRequest {
+	    projectId: string;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CreateGroupRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.projectId = source["projectId"];
+	        this.name = source["name"];
+	    }
+	}
 	export class CreateProjectRequest {
 	    path: string;
 	    name?: string;
@@ -959,6 +995,40 @@ export namespace cat {
 	        this.revision = source["revision"];
 	        this.size = source["size"];
 	        this.stable = source["stable"];
+	    }
+	}
+	export class GetRouteDetailRequest {
+	    groupId: string;
+	    seq: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new GetRouteDetailRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.groupId = source["groupId"];
+	        this.seq = source["seq"];
+	    }
+	}
+	export class GetRouteDetailResult {
+	    input: string;
+	    output: string;
+	    mode: string;
+	    memberId: string;
+	    reason: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new GetRouteDetailResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.input = source["input"];
+	        this.output = source["output"];
+	        this.mode = source["mode"];
+	        this.memberId = source["memberId"];
+	        this.reason = source["reason"];
 	    }
 	}
 	export class GitAddRemoteRequest {
@@ -1407,6 +1477,38 @@ export namespace cat {
 	        this.message = source["message"];
 	    }
 	}
+	export class GroupDetail {
+	    group: store.CatGroup;
+	    members: store.CatGroupMember[];
+	
+	    static createFrom(source: any = {}) {
+	        return new GroupDetail(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.group = this.convertValues(source["group"], store.CatGroup);
+	        this.members = this.convertValues(source["members"], store.CatGroupMember);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class InspectRequest {
 	    projectId: string;
 	    agentKind?: string;
@@ -1485,6 +1587,54 @@ export namespace cat {
 	        this.root = source["root"];
 	        this.entries = this.convertValues(source["entries"], FileEntry);
 	        this.truncated = source["truncated"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ListGroupMessagesRequest {
+	    groupId: string;
+	    beforeSeq: number;
+	    limit: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ListGroupMessagesRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.groupId = source["groupId"];
+	        this.beforeSeq = source["beforeSeq"];
+	        this.limit = source["limit"];
+	    }
+	}
+	export class ListGroupMessagesResult {
+	    messages: store.CatGroupMessage[];
+	    hasMore: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ListGroupMessagesResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.messages = this.convertValues(source["messages"], store.CatGroupMessage);
+	        this.hasMore = source["hasMore"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1839,6 +1989,52 @@ export namespace cat {
 	        this.modTime = source["modTime"];
 	    }
 	}
+	export class ReassignGroupRouteRequest {
+	    groupId: string;
+	    chainId: string;
+	    toMemberId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReassignGroupRouteRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.groupId = source["groupId"];
+	        this.chainId = source["chainId"];
+	        this.toMemberId = source["toMemberId"];
+	    }
+	}
+	export class ReassignGroupRouteResult {
+	    system: store.CatGroupMessage;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReassignGroupRouteResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.system = this.convertValues(source["system"], store.CatGroupMessage);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class RelocateProjectRequest {
 	    id: string;
 	    path: string;
@@ -1851,6 +2047,20 @@ export namespace cat {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.path = source["path"];
+	    }
+	}
+	export class RenameGroupRequest {
+	    groupId: string;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RenameGroupRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.groupId = source["groupId"];
+	        this.name = source["name"];
 	    }
 	}
 	export class RenameProjectRequest {
@@ -1867,6 +2077,20 @@ export namespace cat {
 	        this.name = source["name"];
 	    }
 	}
+	export class ReorderGroupMembersRequest {
+	    groupId: string;
+	    memberIds: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ReorderGroupMembersRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.groupId = source["groupId"];
+	        this.memberIds = source["memberIds"];
+	    }
+	}
 	export class RetryCatTurnRequest {
 	    conversationId: string;
 	    turnId: string;
@@ -1879,6 +2103,22 @@ export namespace cat {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.conversationId = source["conversationId"];
 	        this.turnId = source["turnId"];
+	    }
+	}
+	export class RetryGroupMemberTurnRequest {
+	    groupId: string;
+	    memberId: string;
+	    chainId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RetryGroupMemberTurnRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.groupId = source["groupId"];
+	        this.memberId = source["memberId"];
+	        this.chainId = source["chainId"];
 	    }
 	}
 	export class RevealConversationFolderRequest {
@@ -1905,6 +2145,69 @@ export namespace cat {
 	        this.id = source["id"];
 	    }
 	}
+	export class RevertOverreachRequest {
+	    memberId: string;
+	    turnId: string;
+	    files: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RevertOverreachRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.memberId = source["memberId"];
+	        this.turnId = source["turnId"];
+	        this.files = source["files"];
+	    }
+	}
+	export class RevertSkippedFile {
+	    path: string;
+	    reason: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RevertSkippedFile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.reason = source["reason"];
+	    }
+	}
+	export class RevertOverreachResult {
+	    reverted: string[];
+	    skipped: RevertSkippedFile[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RevertOverreachResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.reverted = source["reverted"];
+	        this.skipped = this.convertValues(source["skipped"], RevertSkippedFile);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class SaveProviderKeyRequest {
 	    agentKind: string;
 	    apiKey: string;
@@ -2166,6 +2469,74 @@ export namespace cat {
 	}
 	
 	
+	export class SendGroupMessageRequest {
+	    groupId: string;
+	    text: string;
+	    mentions: string[];
+	    files?: SendAttachment[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SendGroupMessageRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.groupId = source["groupId"];
+	        this.text = source["text"];
+	        this.mentions = source["mentions"];
+	        this.files = this.convertValues(source["files"], SendAttachment);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SendGroupMessageResult {
+	    userMessage: store.CatGroupMessage;
+	    chainId: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SendGroupMessageResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.userMessage = this.convertValues(source["userMessage"], store.CatGroupMessage);
+	        this.chainId = source["chainId"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	
 	export class SendMessageResult {
 	    userMessage: store.CatMessage;
@@ -2569,6 +2940,46 @@ export namespace cat {
 		}
 	}
 	
+	export class UpdateCharterRequest {
+	    memberId: string;
+	    owns?: string;
+	    notTouch?: string;
+	    dirs: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateCharterRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.memberId = source["memberId"];
+	        this.owns = source["owns"];
+	        this.notTouch = source["notTouch"];
+	        this.dirs = source["dirs"];
+	    }
+	}
+	export class UpdateGroupMemberRequest {
+	    memberId: string;
+	    name?: string;
+	    title?: string;
+	    agentKind?: string;
+	    modelId?: string;
+	    thinkLevelId?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateGroupMemberRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.memberId = source["memberId"];
+	        this.name = source["name"];
+	        this.title = source["title"];
+	        this.agentKind = source["agentKind"];
+	        this.modelId = source["modelId"];
+	        this.thinkLevelId = source["thinkLevelId"];
+	    }
+	}
 	export class UpdateScheduleRequest {
 	    id: string;
 	    name: string;
@@ -4911,6 +5322,30 @@ export namespace officecanvas {
 
 export namespace store {
 	
+	export class CatCharter {
+	    status: string;
+	    owns: string;
+	    notTouch: string;
+	    handoff: string;
+	    dirs: string[];
+	    edited: string[];
+	    updatedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatCharter(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.status = source["status"];
+	        this.owns = source["owns"];
+	        this.notTouch = source["notTouch"];
+	        this.handoff = source["handoff"];
+	        this.dirs = source["dirs"];
+	        this.edited = source["edited"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	}
 	export class CatConversation {
 	    id: string;
 	    title: string;
@@ -4943,6 +5378,237 @@ export namespace store {
 	        this.archived = source["archived"];
 	    }
 	}
+	export class CatGroup {
+	    id: string;
+	    projectId: string;
+	    name: string;
+	    autoRoute: boolean;
+	    createdAt: number;
+	    updatedAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatGroup(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.projectId = source["projectId"];
+	        this.name = source["name"];
+	        this.autoRoute = source["autoRoute"];
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	}
+	export class CatGroupFileTag {
+	    path: string;
+	    tag?: string;
+	    added?: number;
+	    deleted?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatGroupFileTag(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.tag = source["tag"];
+	        this.added = source["added"];
+	        this.deleted = source["deleted"];
+	    }
+	}
+	export class CatGroupMember {
+	    id: string;
+	    groupId: string;
+	    name: string;
+	    title: string;
+	    agentKind: string;
+	    modelId: string;
+	    thinkLevelId?: string;
+	    order: number;
+	    charter: CatCharter;
+	    createdAt?: number;
+	    updatedAt?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatGroupMember(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.groupId = source["groupId"];
+	        this.name = source["name"];
+	        this.title = source["title"];
+	        this.agentKind = source["agentKind"];
+	        this.modelId = source["modelId"];
+	        this.thinkLevelId = source["thinkLevelId"];
+	        this.order = source["order"];
+	        this.charter = this.convertValues(source["charter"], CatCharter);
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CatMessageFooter {
+	    finishedAt?: number;
+	    firstTokenMs?: number;
+	    totalMs?: number;
+	    tokenTotal?: number;
+	    outputTokens?: number;
+	    tokensPerSec?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatMessageFooter(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.finishedAt = source["finishedAt"];
+	        this.firstTokenMs = source["firstTokenMs"];
+	        this.totalMs = source["totalMs"];
+	        this.tokenTotal = source["tokenTotal"];
+	        this.outputTokens = source["outputTokens"];
+	        this.tokensPerSec = source["tokensPerSec"];
+	    }
+	}
+	export class CatGroupReport {
+	    did: string;
+	    attn?: string;
+	    give?: string;
+	    files: CatGroupFileTag[];
+	    parsed: boolean;
+	    footer?: CatMessageFooter;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatGroupReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.did = source["did"];
+	        this.attn = source["attn"];
+	        this.give = source["give"];
+	        this.files = this.convertValues(source["files"], CatGroupFileTag);
+	        this.parsed = source["parsed"];
+	        this.footer = this.convertValues(source["footer"], CatMessageFooter);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CatRouteInfo {
+	    mode: string;
+	    memberId?: string;
+	    reason?: string;
+	    routeSeq?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatRouteInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mode = source["mode"];
+	        this.memberId = source["memberId"];
+	        this.reason = source["reason"];
+	        this.routeSeq = source["routeSeq"];
+	    }
+	}
+	export class CatGroupMessage {
+	    seq: number;
+	    groupId: string;
+	    kind: string;
+	    memberId?: string;
+	    text: string;
+	    mentions?: string[];
+	    chainId: string;
+	    hop: number;
+	    turnId?: string;
+	    route?: CatRouteInfo;
+	    systemKind?: string;
+	    fromMemberId?: string;
+	    toMemberId?: string;
+	    failReason?: string;
+	    report?: CatGroupReport;
+	    createdAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatGroupMessage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.seq = source["seq"];
+	        this.groupId = source["groupId"];
+	        this.kind = source["kind"];
+	        this.memberId = source["memberId"];
+	        this.text = source["text"];
+	        this.mentions = source["mentions"];
+	        this.chainId = source["chainId"];
+	        this.hop = source["hop"];
+	        this.turnId = source["turnId"];
+	        this.route = this.convertValues(source["route"], CatRouteInfo);
+	        this.systemKind = source["systemKind"];
+	        this.fromMemberId = source["fromMemberId"];
+	        this.toMemberId = source["toMemberId"];
+	        this.failReason = source["failReason"];
+	        this.report = this.convertValues(source["report"], CatGroupReport);
+	        this.createdAt = source["createdAt"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class CatMedia {
 	    kind: string;
 	    name: string;
@@ -5013,6 +5679,8 @@ export namespace store {
 		    return a;
 		}
 	}
+	
+	
 	export class StreamInfo {
 	    index: number;
 	    type: string;
