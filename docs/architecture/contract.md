@@ -1,6 +1,6 @@
 # FFmpegFree v2 接口契约（v0.55.6）
 
-v0.55.6 变更（**群聊数据补全**，前端对照设计稿 `design/cat-project-group` 提出，10-17；见 **6.21.17**；新迁移：`cat_group_routes` 加 `started_at` / `finished_at`；新绑定 `ListCatGroupFiles`）：① 「文件」页签 `ListCatGroupFiles(groupId)`，从汇报文件标签聚合，点开复用老板现有文档预览组件。② `ListCatGroups` 返回的 `CatGroup.members[]` 带头像摘要（`avatarIndex` → `--cat-member-1…5`）。③ 派活判断补 `startedAt` / `finishedAt` / `durationMs`。④ 「排队中」：按 #329 现有每成员 FIFO 补 `status=queued` 与 `queueLength`（事件同带），入队灰字文案待产品确认。另记：成员状态文案统一「正在干活」；职责卡不加交付物 / 完成标准；MCP 群工具、@ 我的收件箱 / 通知、本人身份、任务等待与恢复放第二期。
+v0.55.6 变更（**群聊数据补全**，前端对照设计稿 `design/cat-project-group` 提出，10-17；见 **6.21.17**；新迁移 `0019_cat_group_route_timing.sql`：`cat_group_routes` 加 `started_at` / `finished_at`；新绑定 `ListCatGroupFiles`）：① 「文件」页签 `ListCatGroupFiles(groupId)`，从汇报文件标签聚合，点开复用老板现有文档预览组件。② `ListCatGroups` 返回的 `CatGroup.members[]` 带头像摘要（`avatarIndex` → `--cat-member-1…5`）。③ 派活判断补 `startedAt` / `finishedAt` / `durationMs`。④ 「排队中」：按 #329 现有每成员 FIFO 补 `status=queued`、`queueLength` 与每条排队任务的 `queuePosition`（事件同带）；右栏显示「排队中 · 前面还有 {n} 个」；入队灰字「交给 {成员}：正在干活，排在后面」（产品已确认），轮到开跑不发灰字。迁移编号：群聊建表改为 `0018_cat_groups.sql`（老板 `0016_teams` / `0017_team_artifacts` 保留），本版 `0019_cat_group_route_timing.sql`。另记：成员状态文案统一「正在干活」；职责卡不加交付物 / 完成标准；MCP 群工具、@ 我的收件箱 / 通知、本人身份、任务等待与恢复放第二期。
 
 v0.55.5 变更（**派活灰字两句补全**，产品 PASS 设计说明 v0.2 后点名，10-17；见 **6.21.16**；无迁移 / 绑定变化）：补「已转交给 {成员}（第 n/6 次）」「交给 {新成员}：你指定的」（换人时，不是用户 @ 发送时）。另记产品不阻塞项：第一期拿掉「发给: 全体」；成员头像色用 `--cat-member-1…5`。
 
@@ -6415,7 +6415,7 @@ type CatGroupMemberBrief struct {
 - 成员增删 / 改名 / 排序后已有 `cat:group-member` 事件，侧栏据此本地更新，不新增事件。
 
 #### ③ 派活判断耗时：`cat_group_routes` 加时间
-**新迁移**（编号合入时按当时 v2 最大号顺延；内容固定）：
+**迁移编号（10-17 定）**：老板的 `0016_teams.sql`、`0017_team_artifacts.sql` 保留不动；群聊建表 `0016_cat_groups.sql`（#329）合入时改名为 **`0018_cat_groups.sql`**（内容不变）；本节新增 **`0019_cat_group_route_timing.sql`**：
 ```sql
 ALTER TABLE cat_group_routes ADD COLUMN started_at  INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE cat_group_routes ADD COLUMN finished_at INTEGER NOT NULL DEFAULT 0;
@@ -6438,10 +6438,20 @@ ALTER TABLE cat_group_routes ADD COLUMN finished_at INTEGER NOT NULL DEFAULT 0;
    - `queued`：没有在跑、但 `queueLength > 0`（上一轮刚结束、下一条还没起的瞬间；正常很短）。
    - `idle`：都没有。
 2. **事件**：`CatGroupMemberEvent` 增加 `queueLength int json:"queueLength"`（与 `member.queueLength` 相同，方便状态条直接用）。入队、出队开跑、停单人 / 停全部清队时**各推一次** `cat:group-member`（#329 入队时目前不推，需补）。
-3. **展示**：状态条该成员一行在「{成员} 正在干活 · 已用 {时长}」后续 ` · 排队 {n} 条`（`n = queueLength`，0 不显示）；成员栏状态点 `queued` 同 `running` 样式。
-4. **群里灰字（待产品确认文案）**：入队时发一条 `systemKind=route` 灰字，暂定「{成员} 还在忙，这条排在第 {n} 个，轮到会自动开始」（`n` = 入队后的 `queueLength`）。**产品确认前后端先不发此灰字**，只做 1～3。
+3. **每条排队任务的位置**（同 v0.35.4 `queuePosition` 口径）：`CatGroupMemberEvent` 与 `CatGroupMember` 增加 `queue []CatGroupQueuedTask`（按队列顺序；空队列为空数组），不落库：
+```go
+type CatGroupQueuedTask struct {
+  ChainID       string `json:"chainId"`
+  Hop           int    `json:"hop"`           // 入队时已定的 hop
+  FromSeq       int64  `json:"fromSeq"`       // 引出这条任务的群消息 seq
+  QueuePosition int    `json:"queuePosition"` // 排在它前面的排队任务数，从 0 起（不含正在跑的那一轮）
+}
+```
+   `queueLength = len(queue)`。队列变化（入队、出队开跑、停单人 / 停全部清队）时重推该成员的 `cat:group-member`，每条排队任务的 `queuePosition` 随之重算。
+4. **展示**：右栏成员状态里，排队中的任务显示「排队中 · 前面还有 {n} 个」，`n` = 该任务的 `queuePosition`。正在跑的那一轮仍按 6.21.15 ① 显示「{成员} 正在干活 · 已用 {时长}」（有工具时续 ` · {n} 个工具`），状态条**不加**排队后缀。成员栏状态点 `queued` 同 `running` 样式。
+5. **群里灰字（产品 10-17 已确认）**：任务入队时，后端发一条派活灰字（`systemKind=route`，`route.mode` 沿用本次派活的来源），文案「交给 {成员}：正在干活，排在后面」。
    - **轮到开跑时不再发灰字**：排队的任务出队开始时，群里不出任何「开始了 / 轮到了」之类的灰字；状态条出现该成员「正在干活」一行即表示已开始（只推 `cat:group-member`，`running` 非空）。
-5. 不变：排队不计 hop（hop 在入队时已定）；停单人 / 停全部清空其队列（6.21.6 ⑨）；队列在内存，**应用重启后丢失**，第一期接受，不做持久化；换人对排队中的条目不生效（只换正在跑 / 刚派的那条）。
+6. 不变：排队不计 hop（hop 在入队时已定）；停单人 / 停全部清空其队列（6.21.6 ⑨）；队列在内存，**应用重启后丢失**，第一期接受，不做持久化；换人对排队中的条目不生效（只换正在跑 / 刚派的那条）。
 
 #### ⑤ 文案统一（产品 10-17）
 成员干活状态的文字一律用「正在干活」（与输入框上方状态条一致）；成员栏、头像悬停、侧栏等处**不用**「干活中」。6.21.13 ⑥ / 6.21.15 ① 里的「干活中」只是小节说明，不是界面文案。
