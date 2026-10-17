@@ -137,6 +137,7 @@
                 <button v-if="m.route && (m.route.mode === 'ai' || m.route.mode === 'fallback' || m.route.mode === 'undecided')" type="button" class="lk" @click="toggleRoute(m)">{{ sysText(m) }}</button>
                 <span v-else>{{ sysText(m) }}</span>
                 <span v-if="m.route?.durationMs" class="took">· {{ t('cat.groupChat.routeTookInline', { time: formatElapsed(m.route.durationMs) }) }}</span>
+                <span v-if="undecidedReason(m)" class="took" data-testid="cat-group-undecided-reason">· {{ undecidedReason(m) }}</span>
                 <span v-if="canReassign(m)" style="position: relative">
                   <button type="button" class="act" data-testid="cat-group-reassign" @click="reassignFor = reassignFor === m.seq ? 0 : m.seq"><FIcon name="swap" :size="12" />{{ t('cat.groupChat.reassign') }}</button>
                   <div v-if="reassignFor === m.seq" class="cg-pop down swap" role="menu" :aria-label="t('cat.groupChat.swapTitle')">
@@ -285,7 +286,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import { useCatGroupChat } from '@/stores/catGroupChat'
-import { formatElapsed, isMemberShortReply, memberColorVar, memberShortText, systemLineText, type CatGroupMessage, type CatRouteDetail } from '@/api/catGroupChat'
+import { formatElapsed, isMemberShortReply, memberColorVar, memberShortText, systemLineText, undecidedRouteReasonOf, type CatGroupMessage, type CatRouteDetail } from '@/api/catGroupChat'
 import { SESSION_DEMO } from '@/api/catGroupChatMock'
 import { catPanels } from '@/views/cat/catPanels'
 import { catPane } from '@/components/cat/catPreviewWidth'
@@ -315,6 +316,8 @@ const clock = (ms: number) => {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 const sysText = (m: CatGroupMessage) => systemLineText(m, store.nameOf)
+/** v0.56.1：undecided 灰字 · 原因（读 route.reason 机器码或 BE 中文原文） */
+const undecidedReason = (m: CatGroupMessage) => (m.route?.mode === 'undecided' ? undecidedRouteReasonOf(m.route) : '')
 const overreach = (m: CatGroupMessage) => (m.report?.files ?? []).filter((f) => f.tag === 'overreach')
 
 const drawerHop = computed(() => [...store.messages].reverse().find((m) => m.memberId === store.drawerMemberId || m.toMemberId === store.drawerMemberId)?.hop ?? 0)
