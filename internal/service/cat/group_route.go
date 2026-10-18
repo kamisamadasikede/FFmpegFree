@@ -181,11 +181,11 @@ func (s *Service) runAIRoute(ctx context.Context, g store.CatGroup, members []st
 	if err != nil {
 		failReason = "run_error"
 	} else {
-		turnCtx, cancel := context.WithTimeout(ctx, aiRouteTimeout)
-		defer cancel()
+		// 只用 TurnOptions.Timeout 控 45s：勿再 WithTimeout 包一层 Ctx，否则截止会被
+		// BuildAdapter 判成「已取消」而非 reason=timeout（DispatchTimeout e2e）。
 		s.applyProviderOverlay(ctx, a, first.AgentKind)
 		opts := catagent.TurnOptions{
-			Ctx: turnCtx, ConversationID: "group-route-" + g.ID + "-" + id.New(),
+			Ctx: ctx, ConversationID: "group-route-" + g.ID + "-" + id.New(),
 			ModelID: first.ModelID, ThinkLevelID: s.effortForTurn(ctx, first.AgentKind, first.ModelID, first.ThinkLevel),
 			Ephemeral: true, NoTools: true, JSONSchema: catagent.RouteSchema,
 			Messages: []catagent.WireMessage{{Role: "user", Content: input}},

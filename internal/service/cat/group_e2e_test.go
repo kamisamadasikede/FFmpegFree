@@ -44,7 +44,7 @@ case "$ALL" in
     printf '%s\n' '{"type":"text","data":"{\"owns\":\"自己的活\",\"notTouch\":\"别人的活\",\"handoff\":\"\",\"dirs\":[]}"}'
     printf '%s\n' '{"type":"end","stopReason":"end_turn"}'
     exit 0 ;;
-  *选出最合适的一个人*) N=route ;;
+  *选出最合适的一个人*|*选出最合适的一个或多个成员*) N=route ;;
   *) N=$(printf '%s\n' "$ALL" | sed -n 's/.*你是「\([^（]*\)（.*/\1/p' | head -n 1) ;;
 esac
 printf '%s\n' "$N" >> "$F/calls.log"
@@ -457,9 +457,20 @@ func TestGroupE2E_DispatchAI(t *testing.T) {
 	chain := e.send("加个接口")
 	e.waitIdle()
 	ms := find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
-	if len(find(ms, func(m cat.GroupMessage) bool { return m.Kind == "system" && m.Text == "交给 后端：接口归后端" })) != 1 {
+	coord := find(ms, func(m cat.GroupMessage) bool {
+		return m.Kind == "system" && m.SystemKind == "coord" && m.Text == "接口归后端 @后端"
+	})
+	if len(coord) != 1 || coord[0].Route == nil || coord[0].Route.Mode != "ai" ||
+		coord[0].Route.MemberID != e.mem["后端"].ID ||
+		len(coord[0].Mentions) != 1 || coord[0].Mentions[0] != e.mem["后端"].ID {
 		argv, _ := os.ReadFile(filepath.Join(e.fake, "route.argv")); out, _ := os.ReadFile(filepath.Join(e.fake, "route.out")); t.Logf("calls=%v argv=%s out=%s", e.calls(), argv, out)
-		t.Fatalf("ai route copy:\n%s", e.dump())
+		t.Fatalf("ai coord bubble:\n%s", e.dump())
+	}
+	if len(find(ms, func(m cat.GroupMessage) bool { return m.Text == "正在安排谁来接…" })) != 0 {
+		t.Fatalf("loading grey must be replaced:\n%s", e.dump())
+	}
+	if len(find(ms, func(m cat.GroupMessage) bool { return strings.Contains(m.Text, "交给 后端：") })) != 0 {
+		t.Fatalf("silent 交给 must not appear on success:\n%s", e.dump())
 	}
 	if c := e.calls(); strings.Join(c, ",") != "route,后端" {
 		t.Fatalf("calls %v", c)
@@ -503,9 +514,12 @@ func TestGroupE2E_DispatchAI(t *testing.T) {
 	chain = e.send("你好呀")
 	e.waitIdle()
 	ms = find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
-	hit := find(ms, func(m cat.GroupMessage) bool { return m.Text == "交给 前端：开场招呼" })
-	if len(hit) != 1 || hit[0].Route == nil || hit[0].Route.Mode != "ai" || hit[0].Route.MemberID != e.mem["前端"].ID {
-		t.Fatalf("name resolve:\n%s", e.dump())
+	hit := find(ms, func(m cat.GroupMessage) bool {
+		return m.SystemKind == "coord" && m.Text == "开场招呼 @前端"
+	})
+	if len(hit) != 1 || hit[0].Route == nil || hit[0].Route.Mode != "ai" || hit[0].Route.MemberID != e.mem["前端"].ID ||
+		len(hit[0].Mentions) != 1 || hit[0].Mentions[0] != e.mem["前端"].ID {
+		t.Fatalf("name resolve coord:\n%s", e.dump())
 	}
 	if c := e.calls(); strings.Join(c, ",") != "route,前端" {
 		t.Fatalf("name resolve calls %v", c)
