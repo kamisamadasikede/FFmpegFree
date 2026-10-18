@@ -84,10 +84,14 @@ type CatGroupMember struct {
 	Queue       []CatGroupQueuedTask `json:"queue"`
 }
 
-// CatRouteInfo is structured source for a system gray line.
+// CatRouteInfo is structured source for a system gray line / 协调气泡 (v0.57).
 type CatRouteInfo struct {
-	Mode     string `json:"mode"` // mention|followup|ai|fallback|undecided|off|reassign|done|hop_limit|stopped|failed|retry
-	MemberID string `json:"memberId,omitempty"`
+	Mode     string `json:"mode"`               // mention|followup|ai|fallback|undecided|off|reassign|done|hop_limit|stopped|failed|retry
+	MemberID string `json:"memberId,omitempty"` // 兼容旧读；写入时优先 MemberIDs
+	// MemberIDs：v0.57 mode=ai 成功时的目标成员（1～N）；与协调气泡 mentions 一致。
+	MemberIDs []string `json:"memberIds,omitempty"`
+	// Everyone：判为 @全体 时为 true（后端已展开为全员 MemberIDs）。
+	Everyone bool   `json:"everyone,omitempty"`
 	Reason   string `json:"reason,omitempty"`
 	RouteSeq int64  `json:"routeSeq,omitempty"`
 	// DurationMs 派活判断耗时（契约 6.21.17 ③ / 6.21.18）；ai 成功与判断失败落的 undecided 有；旧 fallback 灰字也可能有。
@@ -136,16 +140,16 @@ type CatGroupMessage struct {
 	Hop          int             `json:"hop"`
 	TurnID       string          `json:"turnId,omitempty"`
 	Route        *CatRouteInfo   `json:"route,omitempty"`
-	SystemKind   string          `json:"systemKind,omitempty"` // route|hop_limit|no_handoff|reassign|failed|stopped|charter
+	SystemKind   string          `json:"systemKind,omitempty"` // route|hop_limit|no_handoff|reassign|failed|stopped|charter|coord
 	FromMemberID string          `json:"fromMemberId,omitempty"`
 	ToMemberID   string          `json:"toMemberId,omitempty"`
 	FailReason   string          `json:"failReason,omitempty"`
 	Report       *CatGroupReport `json:"report,omitempty"`
 	// ReplyKind：v0.56 短复 vs 汇报卡（契约 6.21.19；FE #346）。
 	// "short" | "report"；短复亦可省略 Report。不落库——重载靠「无 report + 有 text」识别。
-	ReplyKind    string          `json:"replyKind,omitempty"`
-	ShortText    string          `json:"shortText,omitempty"`
-	CreatedAt    int64           `json:"createdAt"`
+	ReplyKind string `json:"replyKind,omitempty"`
+	ShortText string `json:"shortText,omitempty"`
+	CreatedAt int64  `json:"createdAt"`
 }
 
 // CatGroupRouteDetail is GetCatRouteDetail payload.
@@ -238,6 +242,17 @@ func decodeRoute(raw string) *CatRouteInfo {
 	var r CatRouteInfo
 	if json.Unmarshal([]byte(raw), &r) != nil || r.Mode == "" {
 		return nil
+	}
+	// v0.57：旧单字段 memberId 兼容读入 → memberIds
+	if len(r.MemberIDs) == 0 && strings.TrimSpace(r.MemberID) != "" {
+		// mention 模式可能用逗号拼接多人；拆开
+		parts := strings.Split(r.MemberID, ",")
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				r.MemberIDs = append(r.MemberIDs, p)
+			}
+		}
 	}
 	return &r
 }
@@ -731,6 +746,39 @@ func (s *Store) GetCatGroupMessage(ctx context.Context, groupID string, seq int6
 	if err != nil {
 		return CatGroupMessage{}, err
 	}
+	return m, nil
+}
+
+// UpdateCatGroupMessage replaces text/systemKind/mentions/route on an existing row (same seq).
+// Used by v0.57 to replace loading grey「正在安排谁来接…」with 协调 bubble / undecided.
+func (s *Store) UpdateCatGroupMessage(ctx context.Context, m CatGroupMessage) (CatGroupMessage, error) {
+	if m.GroupID == "" || m.Seq == 0 {
+		return CatGroupMessage{}, fmt.Errorf("更新群消息失败: 缺少 groupId/seq")
+	}
+	mentions := marshalJSONString(m.Mentions)
+	if m.Mentions == nil {
+		mentions = "[]"
+	}
+	route := ""
+	if m.Route != nil {
+		route = marshalJSONString(m.Route)
+	}
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE cat_group_messages SET
+			kind = ?, member_id = ?, text = ?, mentions = ?, hop = ?,
+			route_json = ?, system_kind = ?, from_member_id = ?, to_member_id = ?, fail_reason = ?
+		WHERE group_id = ? AND seq = ?`,
+		m.Kind, m.MemberID, m.Text, mentions, m.Hop,
+		route, m.SystemKind, m.FromMemberID, m.ToMemberID, m.FailReason,
+		m.GroupID, m.Seq)
+	if err != nil {
+		return CatGroupMessage{}, fmt.Errorf("更新群消息失败: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return CatGroupMessage{}, fmt.Errorf("更新群消息失败: 找不到 seq=%d", m.Seq)
+	}
+	_ = s.TouchCatGroup(ctx, m.GroupID)
 	return m, nil
 }
 
