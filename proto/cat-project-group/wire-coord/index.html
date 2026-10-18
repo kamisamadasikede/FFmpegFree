@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>Cat · 协调短气泡线框 v0.2.5</title>
+<link rel="stylesheet" href="../../frontend/src/styles/tokens.css" />
+<link rel="stylesheet" href="../../frontend/src/styles/cat-tokens.css" />
+<style>
+  body{margin:0;padding:24px;background:var(--cat-bg,#f5f6f8);color:var(--cat-text,#1a1b1e);font:13px/1.55 var(--ff-font,system-ui);-webkit-font-smoothing:antialiased}
+  h1{font-size:15px;font-weight:600;margin:0 0 4px}
+  .sub{color:var(--ff-text-2,#6b7280);font-size:12px;margin:0 0 20px}
+  .grid{display:grid;gap:16px;grid-template-columns:1fr;max-width:760px}
+  .card{background:var(--cat-surface,#fff);border:1px solid var(--cat-border,#e5e7eb);border-radius:12px;padding:14px 16px}
+  .lab{font-size:11px;color:var(--ff-text-2,#6b7280);margin-bottom:10px}
+  .task{background:var(--cat-accent-soft,#eef2ff);border-radius:10px;padding:10px 12px;margin-bottom:10px}
+  .sys{color:var(--ff-text-2,#6b7280);font-size:12px;line-height:20px;margin:8px 0}
+  .coord{display:flex;gap:10px;align-items:flex-start;margin:10px 0}
+  .av{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;flex:none;background:#9ca3af;color:#fff;font-size:11px}
+  .av.m1{background:var(--cat-member-1,#3370ff)}
+  .av.m2{background:var(--cat-member-2,#0f9d6c)}
+  .av.m3{background:var(--cat-member-3,#c2570c)}
+  .meta{font-size:12px;color:var(--ff-text-2,#6b7280);margin-bottom:2px}
+  .meta b{color:var(--cat-text,#1a1b1e);font-weight:600;margin-right:6px}
+  .body{font-size:14px;color:var(--ff-text-1,#1a1b1e)}
+  .at{color:var(--ff-primary,#3370ff);font-weight:500}
+  .short{display:flex;gap:10px;margin-top:10px}
+  html.dark body{background:#121316;color:#e8e9eb}
+  html.dark .card{background:#1a1b1e;border-color:#2a2b30}
+  html.dark .task{background:#1e2436}
+  html.dark .av{background:#6b7280}
+</style>
+</head>
+<body>
+<h1>协调短气泡 · 线框 v0.2.5</h1>
+<p class="sub">没 @ → AI 分析 →「协调」可见 @ → 被 @ 成员并行短复。产品 10-18 锁。</p>
+<div class="grid">
+
+  <div class="card" data-scene="coord-loading">
+    <div class="lab">① 判断中</div>
+    <div class="task">你们好介绍下自己</div>
+    <div class="sys">正在安排谁来接…</div>
+  </div>
+
+  <div class="card" data-scene="coord-ok-1">
+    <div class="lab">② 成功 · 单人</div>
+    <div class="task">帮我看下登录页间距</div>
+    <div class="sys">正在安排谁来接…</div>
+    <div class="coord">
+      <div class="av" title="系统身份协调">协</div>
+      <div>
+        <div class="meta"><b>协调</b>14:20</div>
+        <div class="body"><span class="at">@ui设计工程师</span> 看登录页间距与规范</div>
+      </div>
+    </div>
+    <div class="short">
+      <div class="av m3">U</div>
+      <div>
+        <div class="meta"><b>ui设计工程师</b>14:20</div>
+        <div class="body">好，我先对一下现有 token 和登录页边距。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-scene="coord-ok-n">
+    <div class="lab">③ 成功 · 多人并行（介绍自己）</div>
+    <div class="task">你们好介绍下自己</div>
+    <div class="sys">正在安排谁来接…</div>
+    <div class="coord">
+      <div class="av">协</div>
+      <div>
+        <div class="meta"><b>协调</b>14:21</div>
+        <div class="body"><span class="at">@前端工程师</span> <span class="at">@后端工程师</span> <span class="at">@ui设计工程师</span> 开场介绍一下自己</div>
+      </div>
+    </div>
+    <div class="short">
+      <div class="av m1">前</div>
+      <div>
+        <div class="meta"><b>前端工程师</b>14:21</div>
+        <div class="body">我是前端，负责界面实现和走查落地。</div>
+      </div>
+    </div>
+    <div class="short">
+      <div class="av m2">后</div>
+      <div>
+        <div class="meta"><b>后端工程师</b>14:21</div>
+        <div class="body">我是后端，负责服务与契约实现。</div>
+      </div>
+    </div>
+    <div class="short">
+      <div class="av m3">U</div>
+      <div>
+        <div class="meta"><b>ui设计工程师</b>14:21</div>
+        <div class="body">我是 UI 设计，负责规范和可落地视觉。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-scene="coord-fail">
+    <div class="lab">④ 失败 · 产品 A（无协调气泡）</div>
+    <div class="task">你们好介绍下自己</div>
+    <div class="sys">没判断出该谁接，请 @ 对应成员，或再说具体要做什么。·判断用时 45 秒·判断超时</div>
+  </div>
+
+</div>
+<script>
+  const q = new URLSearchParams(location.search);
+  if (q.get('theme') === 'dark') document.documentElement.classList.add('dark');
+</script>
+</body>
+</html>

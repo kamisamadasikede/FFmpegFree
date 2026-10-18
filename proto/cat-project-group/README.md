@@ -9,3 +9,6 @@ v0.2.4（产品 10-17 v0.56，对标 Grok Bot）：并行默认；「交给谁�
 - 场景：list create rolegen main members mention working report error dispatch swap overstep overstep-undo overstep-result session settings narrow-drawer narrow-single
 - 截图：`node shot.mjs [场景...]`（需要 `playwright-core`，默认用 `/usr/bin/google-chrome`，可设 `CHROME=` / `PW_PATH=`），2x，浅暗两版输出到 `shots/<场景>-{light,dark}.png`
 - 窄窗：narrow-drawer 1000px（右栏变抽屉），narrow-single 720px（单栏）
+
+## wire-coord（v0.2.5）
+协调短气泡线框：`wire-coord/index.html`（浅暗 `?theme=dark`）。截图：`wire-coord/shots/coord-{light,dark}.png`。
