@@ -1,5 +1,5 @@
 /**
- * 项目群聊（契约 §6.21 ~ §6.21.19，v0.55 → v0.56）。
+ * 项目群聊（契约 §6.21 ~ §6.21.19，v0.55 → v0.57）。
  * 有 Wails 绑定（CatService.ListCatGroups）走真后端，否则走 catGroupChatMock（浏览器预览 / 走查）。
  * 文案全部经 vue-i18n（cat.groupChat.*）。
  */
@@ -93,9 +93,17 @@ export interface CatGroupReport {
 }
 export interface CatRouteInfo {
   mode: string
-  memberId?: string
   /**
-   * ai 成功：判断理由短句。
+   * v0.57：ai 成功时主键（1～N）；与协调气泡 mentions[] 一致。
+   * 旧单字段 memberId 仅兼容读入（见 routeMemberIdsOf）。
+   */
+  memberIds?: string[]
+  /** @deprecated 写入作废；仅兼容旧读 → 视作 memberIds=[memberId] */
+  memberId?: string
+  /** v0.57：判为 @全体 时为 true；后端展开全员 id 写入 memberIds / mentions[] */
+  everyone?: boolean
+  /**
+   * ai 成功：判断理由短句（≤40 字，进协调气泡）。
    * undecided（v0.56.1 / 6.21.18）：失败码 timeout|empty|parse_error|run_error|unknown_id，
    * 或后端已映射的中文短句；灰字 · 后缀读此字段。
    */
@@ -170,6 +178,9 @@ export interface CatRouteDetail {
   output: string
   mode: string
   memberId: string
+  /** v0.57 */
+  memberIds?: string[]
+  everyone?: boolean
   reason: string
   /** v0.55.6 6.21.17 ③：unix ms；任一为 0 时没有 durationMs，不显示耗时 */
   startedAt?: number
@@ -221,6 +232,62 @@ export function normalizeMember(m: Partial<CatGroupMember> & { id: string }): Ca
     queue: Array.isArray(m.queue) ? m.queue.map((q) => ({ ...q })) : [],
   }
 }
+
+/** v0.57：从 route 取 memberIds[]（兼容旧 memberId） */
+export function routeMemberIdsOf(route: Partial<CatRouteInfo> | Record<string, unknown> | undefined | null): string[] {
+  if (!route || typeof route !== 'object') return []
+  const r = route as Record<string, unknown>
+  const ids = r.memberIds
+  if (Array.isArray(ids) && ids.length) {
+    return ids.filter((x): x is string => typeof x === 'string' && !!x)
+  }
+  if (typeof r.memberId === 'string' && r.memberId) return [r.memberId]
+  return []
+}
+
+export function normalizeRoute(r: Partial<CatRouteInfo> | undefined | null): CatRouteInfo | undefined {
+  if (!r) return undefined
+  const memberIds = routeMemberIdsOf(r)
+  return {
+    mode: r.mode ?? '',
+    ...(memberIds.length ? { memberIds, memberId: memberIds[0] } : {}),
+    ...(r.everyone ? { everyone: true } : {}),
+    ...(r.reason ? { reason: r.reason } : {}),
+    ...(r.routeSeq != null ? { routeSeq: r.routeSeq } : {}),
+    ...(r.queued ? { queued: true } : {}),
+    ...(r.durationMs != null ? { durationMs: r.durationMs } : {}),
+    ...(r.failReason ? { failReason: r.failReason } : {}),
+    ...(r.detail ? { detail: r.detail } : {}),
+  }
+}
+
+/** v0.57：系统身份「协调」短气泡（非成员、非灰字） */
+export function isCoordMessage(m: Pick<CatGroupMessage, 'kind' | 'systemKind'>): boolean {
+  return m.kind === 'system' && m.systemKind === 'coord'
+}
+
+/**
+ * 协调气泡正文：优先 BE 已拼好的 text（v0.57 = 理由 + @成员…/@全体）；
+ * 缺 text 时本地按同序拼：reason + @…。everyoneLabel 由调用方传入 i18n「全体」。
+ */
+export function coordBodyText(
+  m: CatGroupMessage,
+  nameOf: (id?: string) => string,
+  everyoneLabel: string,
+): string {
+  if (m.text?.trim()) return m.text.trim()
+  const reason = (m.route?.reason ?? '').trim() || ''
+  let atPart = ''
+  if (m.route?.everyone) {
+    atPart = `@${everyoneLabel}`
+  } else {
+    const ids = (m.mentions?.length ? m.mentions : routeMemberIdsOf(m.route)).filter(Boolean)
+    atPart = ids.map((id) => `@${nameOf(id)}`).filter((s) => s.length > 1).join(' ')
+  }
+  if (reason && atPart) return `${reason} ${atPart}`
+  return reason || atPart
+}
+
 export function normalizeMessage(m: Partial<CatGroupMessage> & { seq: number }): CatGroupMessage {
   const r = m.report
   return {
@@ -233,7 +300,7 @@ export function normalizeMessage(m: Partial<CatGroupMessage> & { seq: number }):
     chainId: m.chainId ?? '',
     hop: m.hop ?? 0,
     turnId: m.turnId || undefined,
-    route: m.route ?? undefined,
+    route: normalizeRoute(m.route),
     systemKind: m.systemKind || undefined,
     fromMemberId: m.fromMemberId || undefined,
     toMemberId: m.toMemberId || undefined,
@@ -300,8 +367,12 @@ export function undecidedRouteReasonOf(
  * TODO(v0.56+): 短复 vs 完整汇报卡等契约字段落地后再接 UI，本期只改灰字/空交给谁文案。
  */
 export function systemLineText(m: CatGroupMessage, nameOf: (id?: string) => string): string {
-  const to = nameOf(m.toMemberId || m.route?.memberId || m.memberId)
+  const toId = m.toMemberId || routeMemberIdsOf(m.route)[0] || m.route?.memberId || m.memberId
+  const to = nameOf(toId)
   switch (m.systemKind) {
+    case 'coord':
+      // 协调气泡走专用短气泡 UI；灰字路径不应落到这里
+      return m.text || m.route?.reason || ''
     case 'route': {
       if (m.route?.queued) return k('routeQueued', { name: to })
       const r = m.route

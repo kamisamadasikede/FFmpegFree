@@ -231,6 +231,19 @@
 .cg-short .tx { font-size: 14px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; color: var(--cat-text); }
 .cg-short .ft { margin-top: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--cat-muted); }
 .cg-short .ft .lk { display: inline-flex; align-items: center; gap: 3px; }
+
+/* v0.57：系统身份「协调」短气泡（非成员头像色） */
+.cg-coordw { display: flex; flex-direction: column; gap: 8px; }
+.cg-coord { background: var(--cat-surface); border: 1px solid var(--cat-border); border-radius: 12px; padding: 12px 16px; box-shadow: none; }
+.cg-coord .hd { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 6px; }
+.cg-coord .hd b { font-weight: 600; }
+.cg-coord .hd .tm { margin-left: auto; font-size: 11px; color: var(--cat-muted); }
+.cg-coord .hd .name.lk { border: 0; background: none; padding: 0; color: inherit; font: inherit; font-weight: 600; font-size: 13px; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+.cg-coord .hd .name.lk:hover { color: var(--cat-accent); }
+.cg-coord .av.coord { background: #9ca3af; color: #fff; }
+html.dark .cg-coord .av.coord { background: #6b7280; }
+.cg-coord .tx { font-size: 14px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; color: var(--cat-text); }
+
 .av.me { --c: var(--cat-text-2); }
 .cg-sysw { display: flex; flex-direction: column; gap: 8px; }
 .cg-sys { align-self: flex-start; text-align: left; max-width: 100%; }

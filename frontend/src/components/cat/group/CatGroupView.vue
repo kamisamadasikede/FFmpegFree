@@ -116,6 +116,29 @@
               </div>
             </article>
 
+            <!-- v0.57：系统身份「协调」短气泡（可见 @ / @全体）；成功时替换「正在安排…」，不叠灰字 -->
+            <div v-else-if="m.systemKind === 'coord'" class="cg-coordw" data-testid="cat-group-coord">
+              <div class="cg-coord">
+                <div class="hd">
+                  <span class="av sm coord" aria-hidden="true">{{ coordAv }}</span>
+                  <button v-if="m.route" type="button" class="name lk" :title="t('cat.groupChat.routeDetail')" data-testid="cat-group-coord-detail" @click="toggleRoute(m)">{{ t('cat.groupChat.coordinator') }}</button>
+                  <b v-else>{{ t('cat.groupChat.coordinator') }}</b>
+                  <span class="tm">{{ clock(m.createdAt) }}</span>
+                </div>
+                <div class="tx"><template v-for="(p, i) in parts(coordText(m))" :key="i"><span v-if="p.at" class="cg-at chip">{{ p.s }}</span><template v-else>{{ p.s }}</template></template></div>
+              </div>
+              <div v-if="routeOpen[m.seq]" class="cg-route" data-testid="cat-group-route-detail">
+                <h5>{{ t('cat.groupChat.routeJudge') }}</h5>
+                <dl>
+                  <dt>{{ t('cat.groupChat.routeCli') }}</dt><dd>{{ cliName(store.membersSorted[0]?.agentKind) }}</dd>
+                  <template v-if="routeOpen[m.seq].durationMs"><dt>{{ t('cat.groupChat.routeTook') }}</dt><dd>{{ formatElapsed(routeOpen[m.seq].durationMs!) }}</dd></template>
+                  <dt>{{ t('cat.groupChat.routeSaw') }}</dt><dd>{{ routeOpen[m.seq].input }}</dd>
+                </dl>
+                <h5>{{ t('cat.groupChat.routeRaw') }}</h5>
+                <pre class="cg-pre">{{ routeOpen[m.seq].output }}</pre>
+              </div>
+            </div>
+
             <div v-else-if="m.systemKind === 'failed'" class="cg-sys fail" role="alert" data-testid="cat-group-failed">
               <FIcon name="warn" :size="12" />
               <span>{{ t('cat.groupChat.failed', { name: store.nameOf(m.memberId), reason: m.failReason || m.text || t('cat.groupChat.unknownReason') }) }}</span>
@@ -131,7 +154,8 @@
 
             <template v-else-if="m.systemKind === 'report_format'" />
 
-            <div v-else class="cg-sysw">
+            <!-- v0.57：旧静默「交给」灰字（ai 成功且已有成员）隐藏；加载「正在安排…」与 queued/followup/undecided 仍显示 -->
+            <div v-else-if="!isLegacySilentAiRoute(m)" class="cg-sysw">
               <div class="cg-sys" :data-kind="m.systemKind" data-testid="cat-group-system">
                 <FIcon :name="sysIcon(m)" :size="12" />
                 <button v-if="m.route && (m.route.mode === 'ai' || m.route.mode === 'fallback' || m.route.mode === 'undecided')" type="button" class="lk" @click="toggleRoute(m)">{{ sysText(m) }}</button>
@@ -286,7 +310,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import { useCatGroupChat } from '@/stores/catGroupChat'
-import { formatElapsed, isMemberShortReply, memberColorVar, memberShortText, systemLineText, undecidedRouteReasonOf, type CatGroupMessage, type CatRouteDetail } from '@/api/catGroupChat'
+import { coordBodyText, formatElapsed, isMemberShortReply, memberColorVar, memberShortText, routeMemberIdsOf, systemLineText, undecidedRouteReasonOf, type CatGroupMessage, type CatRouteDetail } from '@/api/catGroupChat'
 import { SESSION_DEMO } from '@/api/catGroupChatMock'
 import { catPanels } from '@/views/cat/catPanels'
 import { catPane } from '@/components/cat/catPreviewWidth'
@@ -318,6 +342,16 @@ const clock = (ms: number) => {
 const sysText = (m: CatGroupMessage) => systemLineText(m, store.nameOf)
 /** v0.56.1：undecided 灰字 · 原因（读 route.reason 机器码或 BE 中文原文） */
 const undecidedReason = (m: CatGroupMessage) => (m.route?.mode === 'undecided' ? undecidedRouteReasonOf(m.route) : '')
+/** v0.57：协调气泡正文；@全体 用 i18n */
+const everyoneLabel = computed(() => t('cat.groupChat.everyone'))
+const coordAv = computed(() => Array.from(t('cat.groupChat.coordinator').trim())[0] || 'C')
+const coordText = (m: CatGroupMessage) => coordBodyText(m, store.nameOf, everyoneLabel.value)
+/** 旧包 ai 成功静默「交给」灰字（已有 memberIds）；加载灰字（尚无成员）/ undecided 不在此列 */
+function isLegacySilentAiRoute(m: CatGroupMessage) {
+  if (m.systemKind !== 'route' || m.route?.mode !== 'ai' || m.route?.queued) return false
+  // 加载态：BE 发 mode=ai 且尚无 memberIds
+  return routeMemberIdsOf(m.route).length > 0
+}
 const overreach = (m: CatGroupMessage) => (m.report?.files ?? []).filter((f) => f.tag === 'overreach')
 
 const drawerHop = computed(() => [...store.messages].reverse().find((m) => m.memberId === store.drawerMemberId || m.toMemberId === store.drawerMemberId)?.hop ?? 0)
@@ -340,9 +374,12 @@ function openProcess(id?: string) {
   void store.openProcess(id)
 }
 
-/** 正文里的 @成员名 高亮（最长名优先；没匹配上的保持普通文字） */
+/** 正文里的 @成员名 / @全体 高亮（最长名优先；没匹配上的保持普通文字） */
 function parts(text: string): { s: string; at: boolean }[] {
-  const names = store.members.map((m) => m.name).filter(Boolean).sort((a, b) => b.length - a.length)
+  const names = [
+    ...store.members.map((m) => m.name).filter(Boolean),
+    everyoneLabel.value,
+  ].sort((a, b) => b.length - a.length)
   if (!names.length) return [{ s: text, at: false }]
   const re = new RegExp(`@(${names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'g')
   const out: { s: string; at: boolean }[] = []
@@ -526,7 +563,7 @@ function applyScene() {
     }
   }
   if (s === 'overstep') { const m = store.messages.find((x) => overreach(x).length); if (m) expanded[m.seq] = true }
-  if (ui?.openRoute) { const m = store.messages.find((x) => x.route?.mode === 'ai'); if (m) void toggleRoute(m) }
+  if (ui?.openRoute) { const m = store.messages.find((x) => x.systemKind === 'coord' || x.route?.mode === 'ai'); if (m) void toggleRoute(m) }
   if (ui?.swapOpen) { const m = [...store.messages].reverse().find((x) => x.systemKind === 'route'); if (m) reassignFor.value = m.seq }
   if (s === 'members' || s === 'narrow-drawer') store.membersOpen = true
   if (s === 'members') initialOpen.value = 'b'

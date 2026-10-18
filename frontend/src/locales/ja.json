@@ -1675,6 +1675,8 @@
       "retryFailed": "再試行できませんでした。しばらくしてからお試しください。",
       "stopped": "{name} は停止しました",
       "routing": "担当を決めています…",
+      "coordinator": "調整",
+      "everyone": "全員",
       "routeTo": "{name} へ：{reason}",
       "routeFollowup": "前の返信の続き",
       "routeFallback": "判断できなかったため先頭のメンバーへ",

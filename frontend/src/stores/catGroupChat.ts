@@ -73,7 +73,7 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
   function addMessage(m: CatGroupMessage) {
     const i = messages.value.findIndex((x) => x.seq === m.seq)
     if (i >= 0) {
-      // v0.57：加载灰字被协调气泡 / undecided 就地替换（同 seq）
+      // v0.57 / BE #358：加载灰字被协调气泡 / undecided 就地替换（同 seq）
       messages.value.splice(i, 1, m)
       return
     }
@@ -89,7 +89,7 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
       const m = normalizeMessage(raw)
       if (m.groupId !== activeId.value) return
       addMessage(m)
-      if (m.chainId && m.systemKind === 'route') routing[m.chainId] = false
+      if (m.chainId && (m.systemKind === 'route' || m.systemKind === 'coord')) routing[m.chainId] = false
       // 排队灰字先到、cat:group-member 晚到或丢了时，先按灰字记一条排队，避免右栏只显示「正在干活」；成员事件一到就整表覆盖
       const qid = m.route?.memberId || m.toMemberId
       if (m.systemKind === 'route' && m.route?.queued && qid && m.chainId && !(queued[qid] ?? []).some((x) => x.chainId === m.chainId)) {

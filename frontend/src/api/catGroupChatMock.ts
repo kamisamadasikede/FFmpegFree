@@ -15,7 +15,7 @@ const L = {
 const on = <T,>(set: L<T>, cb: (p: T) => void) => { set.add(cb); return () => { set.delete(cb) } }
 const emit = <T,>(set: L<T>, p: T) => [...set].forEach((cb) => cb(p))
 
-export const GROUP_SCENES = ['list', 'create', 'rolegen', 'main', 'members', 'mention', 'working', 'report', 'error', 'dispatch', 'swap', 'overstep', 'overstep-undo', 'overstep-result', 'session', 'settings', 'narrow-drawer', 'narrow-single'] as const
+export const GROUP_SCENES = ['list', 'create', 'rolegen', 'main', 'members', 'mention', 'working', 'report', 'error', 'dispatch', 'coord', 'swap', 'overstep', 'overstep-undo', 'overstep-result', 'session', 'settings', 'narrow-drawer', 'narrow-single'] as const
 export type GroupScene = (typeof GROUP_SCENES)[number]
 export function groupScene(): GroupScene | null {
   if (typeof location === 'undefined' || (typeof window !== 'undefined' && (window as unknown as { go?: unknown }).go)) return null
@@ -75,7 +75,22 @@ const rBe = () => rep('b', 1, '17:19', {
   files: [{ path: 'internal/catagent/group_retry.go', added: 86 }, { path: 'internal/catagent/group_retry_test.go', added: 124 }, { path: 'app_cat_group.go', added: 14, deleted: 2 }],
   attn: '成员已被移出群时返回 `member_not_found`，前端按现有错误文案显示即可。', give: '@测试 跑 6.21.11 ④ 的重试用例，三家各一次', footer: foot('17:19', 4600, 52) })
 const user = (text: string, hm: string, chainId: string, mentions: string[] = []) => push({ kind: 'user', text, mentions, chainId, hop: 0 }, at(hm))
-const route = (to: string, chainId: string, hop: number, mode: string, reason = '') => push({ kind: 'system', systemKind: 'route', chainId, hop, toMemberId: to, route: { mode, memberId: to, reason: reason || undefined, durationMs: mode === 'ai' ? 6_400 : mode === 'fallback' ? 20_000 : undefined } })
+const route = (to: string, chainId: string, hop: number, mode: string, reason = '') => push({ kind: 'system', systemKind: 'route', chainId, hop, toMemberId: to, route: { mode, memberId: to, memberIds: [to], reason: reason || undefined, durationMs: mode === 'ai' ? 6_400 : mode === 'fallback' ? 20_000 : undefined } })
+/** v0.57：系统身份「协调」短气泡；正文 = 理由 + @名…/@全体（与 BE formatCoordBubbleText 同序） */
+const coord = (ids: string[], chainId: string, reason: string, everyone = false) => {
+  const at = everyone
+    ? '@全体'
+    : ids.map((id) => `@${members.find((m) => m.id === id)?.name || id}`).join(' ')
+  const text = `${reason} ${at}`.trim()
+  return push({
+    kind: 'system', systemKind: 'coord', chainId, hop: 0, mentions: ids, text,
+    route: {
+      mode: 'ai', memberIds: ids, memberId: ids[0], reason,
+      ...(everyone ? { everyone: true } : {}),
+      durationMs: 6_400,
+    },
+  })
+}
 const sys = (kind: string, extra: Partial<CatGroupMessage>) => push({ kind: 'system', systemKind: kind, ...extra })
 /** v0.56 短复：无四段卡；可显式 replyKind=short，或省略 report 仅带 text */
 const short = (memberId: string, hop: number, hm: string, text: string, chainId = 'c1', extra: Partial<CatGroupMessage> = {}) =>
@@ -91,11 +106,11 @@ const rFe = () => rep('f', 2, '17:24', {
 
 function mainStream() {
   user('大家好，今天继续推群聊', '17:04', 'c0')
-  route('a', 'c0', 0, 'ai', '开场招呼')
+  coord(['a'], 'c0', '开场招呼')
   short('a', 0, '17:05', '收到。有具体活再 @ 我，闲聊不必硬派。', 'c0')
   sys('no_handoff', { memberId: 'a', hop: 0, chainId: 'c0' })
   user(T1, '17:08', 'c1')
-  route('a', 'c1', 0, 'ai', '先出方案再拆给前后端')
+  coord(['a'], 'c1', '先出方案再拆给前后端')
   rArch()
   route('b', 'c1', 1, 'handoff')
   route('f', 'c1', 1, 'handoff')
@@ -134,18 +149,30 @@ function sceneSeed(s: GroupScene): SceneUi {
       sys('hop_limit', { chainId: 'c3', hop: 6 })
       return { running: [] }
     case 'dispatch':
-      user('在吗？', '17:02', 'c0'); route('f', 'c0', 0, 'ai', '打招呼')
+      user('在吗？', '17:02', 'c0'); coord(['f'], 'c0', '打招呼')
       // 兜底形状：无 replyKind、无 report，仅 text（后端短复路径可能这样发）
       push({ kind: 'member', memberId: 'f', chainId: 'c0', hop: 0, turnId: 't-f-hi', text: '在的，说下要改哪块就行。' }, at('17:03'))
-      user(T1, '17:08', 'c1'); route('a', 'c1', 0, 'ai', '先出方案再拆给前后端'); rArch()
+      user(T1, '17:08', 'c1'); coord(['a'], 'c1', '先出方案再拆给前后端'); rArch()
       user('再改一下，按钮文案用「重试」两个字就行', '17:15', 'c4'); route('a', 'c4', 0, 'followup')
       user('发版前把更新日志整理一下', '17:33', 'c5'); route('a', 'c5', 0, 'fallback')
       user('顺便看下 Windows 打包脚本', '17:36', 'c6'); route('a', 'c6', 0, 'off')
       user('@架构师 顺手把 6.21.17 的排队口径也过一遍', '17:37', 'c7', ['a'])
-      push({ kind: 'system', systemKind: 'route', chainId: 'c7', hop: 0, toMemberId: 'a', route: { mode: 'mention', memberId: 'a', queued: true } })
+      push({ kind: 'system', systemKind: 'route', chainId: 'c7', hop: 0, toMemberId: 'a', route: { mode: 'mention', memberId: 'a', memberIds: ['a'], queued: true } })
       return { running: [['a', 65_000, 6]], queued: { a: 1 }, openRoute: true }
+    case 'coord':
+      // v0.57 四态示意：单人协调@ + @全体 招呼并行短复（成功不叠「正在安排…」）
+      user('帮我看下登录页间距', '14:18', 'c8')
+      coord(['f'], 'c8', '看登录页间距与规范')
+      short('f', 0, '14:19', '好，我先对一下现有 token 和登录页边距。', 'c8')
+      user('你们好介绍下自己', '14:20', 'c9')
+      coord(['a', 'b', 'f', 'q'], 'c9', '开场介绍一下自己', true)
+      short('a', 0, '14:21', '我是架构师，负责契约与方案。', 'c9')
+      short('b', 0, '14:21', '我是后端，负责服务与契约实现。', 'c9')
+      short('f', 0, '14:21', '我是前端，负责界面实现和走查落地。', 'c9')
+      short('q', 0, '14:21', '我是测试，负责按用例验收。', 'c9')
+      return { running: [] }
     case 'swap':
-      user('重试按钮点了以后，成员卡片要回到「正在干活」状态', '17:46', 'c8'); route('b', 'c8', 0, 'ai', '涉及成员状态推送')
+      user('重试按钮点了以后，成员卡片要回到「正在干活」状态', '17:46', 'c8'); coord(['b'], 'c8', '涉及成员状态推送')
       sys('reassign', { chainId: 'c8', fromMemberId: 'b', toMemberId: 'f' })
       sys('stopped', { chainId: 'c8', memberId: 'b', fromMemberId: 'b', toMemberId: 'f' })
       route('f', 'c8', 0, 'reassign')
@@ -307,18 +334,36 @@ export const groupMock = {
       mentions.forEach((mid) => fakeTurn(groupId, mid, chainId, 0))
     } else {
       void (async () => {
-        const first = byGroup(groupId)[0]
+        const all = byGroup(groupId)
+        const first = all[0]
         if (!first) return
         if (g.autoRoute) {
           emit(L.route, { groupId, chainId, state: 'routing', route: { mode: 'ai' } })
           await wait(1200)
+          // 招呼 / 介绍类 → @全体；其它单人（走查模拟）
+          const intro = /介绍|大家好|你们好|hello|hi\b/i.test(text)
+          const ids = intro ? all.map((m) => m.id) : [first.id]
+          const reason = intro ? '开场介绍一下自己' : '和需求相关'
+          const routeInfo = { mode: 'ai', memberIds: ids, memberId: ids[0], reason, ...(intro ? { everyone: true } : {}), durationMs: 1_200 }
+          const at = intro ? '@全体' : ids.map((id) => `@${all.find((m) => m.id === id)?.name || id}`).join(' ')
+          const sys = push({ groupId, kind: 'system', systemKind: 'coord', chainId, hop: 0, mentions: ids, route: routeInfo, text: `${reason} ${at}`.trim() }, Date.now())
+          routeDetails.set(sys.seq, {
+            input: `【你】${text}`,
+            output: JSON.stringify({ memberIds: ids, everyone: intro, reason }),
+            mode: 'ai', memberId: ids[0], memberIds: ids, everyone: intro, reason,
+            durationMs: 1_200,
+          })
+          emit(L.route, { groupId, chainId, state: 'routed', route: routeInfo })
+          emit(L.msg, sys)
+          ids.forEach((mid) => fakeTurn(groupId, mid, chainId, 0))
+        } else {
+          const routeInfo = { mode: 'off', memberId: first.id, memberIds: [first.id] }
+          const sys = push({ groupId, kind: 'system', systemKind: 'route', chainId, hop: 0, toMemberId: first.id, route: routeInfo, text: '' }, Date.now())
+          routeDetails.set(sys.seq, { input: `【你】${text}`, output: '', mode: 'off', memberId: first.id, reason: '' })
+          emit(L.route, { groupId, chainId, state: 'routed', route: routeInfo })
+          emit(L.msg, sys)
+          fakeTurn(groupId, first.id, chainId, 0)
         }
-        const route = g.autoRoute ? { mode: 'ai', memberId: first.id, reason: '和需求相关' } : { mode: 'off', memberId: first.id }
-        const sys = push({ groupId, kind: 'system', systemKind: 'route', chainId, hop: 0, toMemberId: first.id, route, text: '' }, Date.now())
-        routeDetails.set(sys.seq, { input: `【你】${text}`, output: JSON.stringify({ memberId: first.id, reason: route.reason ?? '' }), mode: route.mode, memberId: first.id, reason: route.reason ?? '' })
-        emit(L.route, { groupId, chainId, state: 'routed', route })
-        emit(L.msg, sys)
-        fakeTurn(groupId, first.id, chainId, 0)
       })()
     }
     return { userMessage: clone(userMessage), chainId }
@@ -350,7 +395,7 @@ export const groupMock = {
     return { messages: clone(all.slice(-limit)), hasMore: all.length > limit }
   },
   async routeDetail(_groupId: string, seq: number) {
-    return routeDetails.get(seq) ?? { input: '这条任务 + 最近 10 条群消息 + 4 位成员的职责', output: '{\n  "memberId": "a",\n  "reason": "先出方案再拆给前后端"\n}', mode: 'ai', memberId: 'a', reason: '先出方案再拆给前后端', startedAt: T0, finishedAt: T0 + 6_400, durationMs: 6_400 }
+    return routeDetails.get(seq) ?? { input: '这条任务 + 最近 10 条群消息 + 4 位成员的职责', output: '{\n  "memberIds": ["a"],\n  "reason": "先出方案再拆给前后端"\n}', mode: 'ai', memberId: 'a', memberIds: ['a'], reason: '先出方案再拆给前后端', startedAt: T0, finishedAt: T0 + 6_400, durationMs: 6_400 }
   },
   async revert(_memberId: string, _turnId: string, files: string[]): Promise<RevertResult> {
     await wait(sc ? 0 : 400)
