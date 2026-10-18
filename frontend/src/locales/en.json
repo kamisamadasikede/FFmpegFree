@@ -1675,6 +1675,8 @@
       "retryFailed": "Retry did not start. Please try again later.",
       "stopped": "{name} stopped",
       "routing": "Picking who takes this…",
+      "coordinator": "Coordinator",
+      "everyone": "everyone",
       "routeTo": "To {name}: {reason}",
       "routeFollowup": "follow-up to the last reply",
       "routeFallback": "couldn't decide, so it goes to the first member",

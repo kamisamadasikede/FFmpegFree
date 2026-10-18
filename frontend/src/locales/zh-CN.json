@@ -1675,6 +1675,8 @@
       "retryFailed": "重试没成功，请稍后再试。",
       "stopped": "{name} 已停止",
       "routing": "正在安排谁来接…",
+      "coordinator": "协调",
+      "everyone": "全体",
       "routeTo": "交给 {name}：{reason}",
       "routeFollowup": "接着上一条",
       "routeFallback": "没判断出该谁接，先交给排第一的成员",
