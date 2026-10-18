@@ -90,7 +90,7 @@ func TestRouteParseFailReason(t *testing.T) {
 	if got := routeParseFailReason(members, `{"memberId":"nobody","reason":"x"}`); got != "unknown_id" {
 		t.Fatalf("unknown_id: %q", got)
 	}
-	if id, why, ok := parseAIRouteOutput(members, `{"memberId":"前端","reason":"开场招呼"}`); !ok || id != members[0].ID || why != "开场招呼" {
-		t.Fatalf("parse ok: id=%q why=%q ok=%v", id, why, ok)
+	if ids, everyone, why, ok := parseAIRouteOutput(members, `{"memberId":"前端","reason":"开场招呼"}`); !ok || everyone || len(ids) != 1 || ids[0] != members[0].ID || why != "开场招呼" {
+		t.Fatalf("parse ok: ids=%v everyone=%v why=%q ok=%v", ids, everyone, why, ok)
 	}
 }

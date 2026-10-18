@@ -222,9 +222,16 @@ func TestGroupV0556_DispatchTiming(t *testing.T) {
 	e.waitIdle()
 	after := time.Now().UnixMilli()
 	ms := find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
-	gl := find(ms, func(m cat.GroupMessage) bool { return m.Text == "交给 后端：接口归后端" })
-	if len(gl) != 1 || gl[0].Route == nil || gl[0].Route.RouteSeq == 0 || gl[0].Route.DurationMs < 300 {
-		t.Fatalf("ai gray line route %+v:\n%s", gl, e.dump())
+	gl := find(ms, func(m cat.GroupMessage) bool {
+		return m.SystemKind == "coord" && m.Text == "接口归后端 @后端"
+	})
+	if len(gl) != 1 || gl[0].Route == nil || gl[0].Route.Mode != "ai" || gl[0].Route.RouteSeq == 0 ||
+		gl[0].Route.DurationMs < 300 || gl[0].Route.MemberID != e.mem["后端"].ID ||
+		len(gl[0].Mentions) != 1 || gl[0].Mentions[0] != e.mem["后端"].ID {
+		t.Fatalf("ai coord bubble route %+v:\n%s", gl, e.dump())
+	}
+	if len(find(ms, func(m cat.GroupMessage) bool { return m.Text == "正在安排谁来接…" })) != 0 {
+		t.Fatalf("loading grey must be replaced:\n%s", e.dump())
 	}
 	d, err := e.svc.GetCatRouteDetail(ctx, cat.GetRouteDetailRequest{GroupID: e.g.ID, Seq: gl[0].Seq})
 	if err != nil {
