@@ -71,7 +71,12 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
     else members.value.push(m)
   }
   function addMessage(m: CatGroupMessage) {
-    if (messages.value.some((x) => x.seq === m.seq)) return
+    const i = messages.value.findIndex((x) => x.seq === m.seq)
+    if (i >= 0) {
+      // v0.57：加载灰字被协调气泡 / undecided 就地替换（同 seq）
+      messages.value.splice(i, 1, m)
+      return
+    }
     messages.value.push(m)
     messages.value.sort((a, b) => a.seq - b.seq)
   }

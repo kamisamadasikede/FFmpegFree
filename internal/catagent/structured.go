@@ -20,14 +20,17 @@ const CharterSchema = `{
   "additionalProperties": false
 }`
 
-// RouteSchema is the JSON Schema for dispatch judgment (契约 6.21.6).
+// RouteSchema is the JSON Schema for dispatch judgment (契约 6.21.6 / v0.57).
+// memberIds 1～N；everyone=true 表示 @全体；旧单字段 memberId 仅兼容读入（additionalProperties 放开）。
 const RouteSchema = `{
   "type": "object",
   "properties": {
+    "memberIds": {"type": "array", "items": {"type": "string"}, "minItems": 1},
     "memberId": {"type": "string"},
-    "reason": {"type": "string", "maxLength": 20}
+    "everyone": {"type": "boolean"},
+    "reason": {"type": "string", "maxLength": 40}
   },
-  "required": ["memberId", "reason"],
+  "required": ["reason"],
   "additionalProperties": false
 }`
 
