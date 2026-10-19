@@ -123,6 +123,7 @@ export interface CatGroupMessage {
   kind: string
   memberId?: string
   text: string
+  files?: CatGroupAttachment[]
   mentions?: string[]
   chainId: string
   hop: number
@@ -144,11 +145,38 @@ export interface CatGroupMessage {
   shortText?: string
   createdAt: number
 }
+export interface CatGroupAttachment {
+  name: string
+  path: string
+}
 export interface CatGroupRunning {
   turnId: string
   startedAt: number
   toolCount: number
   elapsedMs: number
+}
+export interface CatGroupWorkTask {
+  id: string
+  title: string
+  memberId: string
+  instruction: string
+  dependsOn: string[]
+  kind: 'develop' | 'integrate' | 'verify'
+  status: 'pending' | 'queued' | 'running' | 'done' | 'blocked' | 'failed' | 'stopped'
+  attempts: number
+  result?: string
+  evidence?: string
+  turnId?: string
+}
+export interface CatGroupWorkflow {
+  revision: number
+  chainId: string
+  groupId: string
+  originSeq: number
+  request: string
+  status: 'running' | 'blocked' | 'completed' | 'stopped'
+  tasks: CatGroupWorkTask[]
+  updatedAt: number
 }
 /** v0.55.6 6.21.17 ④-3：成员内存 FIFO 里的一条排队任务 */
 export interface CatGroupQueuedTask {
@@ -296,6 +324,7 @@ export function normalizeMessage(m: Partial<CatGroupMessage> & { seq: number }):
     kind: m.kind ?? 'system',
     memberId: m.memberId || undefined,
     text: m.text ?? '',
+    files: m.files ?? [],
     mentions: m.mentions ?? [],
     chainId: m.chainId ?? '',
     hop: m.hop ?? 0,
@@ -431,7 +460,7 @@ export function groupRealApi(): boolean {
 const S = 'CatService'
 const real = {
   listGroups: (projectId: string) => callService<CatGroup[]>(S, 'ListCatGroups', projectId),
-  getGroup: (groupId: string) => callService<{ group: CatGroup; members: CatGroupMember[] }>(S, 'GetCatGroup', groupId),
+  getGroup: (groupId: string) => callService<{ group: CatGroup; members: CatGroupMember[]; workflows?: CatGroupWorkflow[] }>(S, 'GetCatGroup', groupId),
   createGroup: (projectId: string, name: string) => callService<CatGroup>(S, 'CreateCatGroup', { projectId, name }),
   renameGroup: (groupId: string, name: string) => callService<CatGroup>(S, 'RenameCatGroup', { groupId, name }),
   deleteGroup: (groupId: string) => callService<void>(S, 'DeleteCatGroup', groupId),
@@ -444,10 +473,10 @@ const real = {
   reorderMembers: (groupId: string, memberIds: string[]) => callService<CatGroupMember[]>(S, 'ReorderCatGroupMembers', { groupId, memberIds }),
   regenerateCharter: (memberId: string) => callService<CatGroupMember>(S, 'RegenerateCatCharter', memberId),
   updateCharter: (req: { memberId: string; owns?: string; notTouch?: string; dirs: string[] }) => callService<CatGroupMember>(S, 'UpdateCatCharter', req),
-  send: (groupId: string, text: string, mentions: string[]) =>
-    callService<{ userMessage: CatGroupMessage; chainId: string }>(S, 'SendCatGroupMessage', { groupId, text, mentions }),
-  reassign: (groupId: string, chainId: string, toMemberId: string) =>
-    callService<{ system: CatGroupMessage }>(S, 'ReassignCatGroupRoute', { groupId, chainId, toMemberId }),
+  send: (groupId: string, text: string, mentions: string[], files: CatGroupAttachment[] = []) =>
+    callService<{ userMessage: CatGroupMessage; chainId: string }>(S, 'SendCatGroupMessage', { groupId, text, mentions, files }),
+  reassign: (groupId: string, chainId: string, toMemberId: string, taskId?: string) =>
+    callService<{ system: CatGroupMessage }>(S, 'ReassignCatGroupRoute', { groupId, chainId, toMemberId, taskId }),
   stopGroup: (groupId: string) => callService<void>(S, 'StopCatGroup', groupId),
   stopMember: (memberId: string) => callService<void>(S, 'StopCatGroupMember', memberId),
   listMessages: (groupId: string, beforeSeq = 0, limit = 50) =>
@@ -455,10 +484,11 @@ const real = {
   routeDetail: (groupId: string, seq: number) => callService<CatRouteDetail>(S, 'GetCatRouteDetail', { groupId, seq }),
   listFiles: (groupId: string) => callService<CatGroupFile[]>(S, 'ListCatGroupFiles', groupId),
   revert: (memberId: string, turnId: string, files: string[]) => callService<RevertResult>(S, 'RevertCatOverreach', { memberId, turnId, files }),
-  retry: (groupId: string, memberId: string, chainId: string) => callService<void>(S, 'RetryCatGroupMemberTurn', { groupId, memberId, chainId }),
+  retry: (groupId: string, memberId: string, chainId: string, taskId?: string) => callService<void>(S, 'RetryCatGroupMemberTurn', { groupId, memberId, chainId, taskId }),
   onMessage: (cb: (m: CatGroupMessage) => void) => onEvent<CatGroupMessage>('cat:group-message', cb),
   onMember: (cb: (e: CatGroupMemberEvent) => void) => onEvent<CatGroupMemberEvent>('cat:group-member', cb),
   onRoute: (cb: (e: CatGroupRouteEvent) => void) => onEvent<CatGroupRouteEvent>('cat:group-route', cb),
+  onWorkflow: (cb: (e: CatGroupWorkflow) => void) => onEvent<CatGroupWorkflow>('cat:group-workflow', cb),
 }
 export type CatGroupApi = typeof real
 export function groupApi(): CatGroupApi {

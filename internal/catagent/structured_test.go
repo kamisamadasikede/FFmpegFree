@@ -1,11 +1,42 @@
 package catagent
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestRouteSchema_StrictOutputCompatibility(t *testing.T) {
+	// Codex rejects response schemas unless every property is required.
+	// Everyone routes still need to allow an empty target array.
+	var schema struct {
+		Properties map[string]struct {
+			MinItems int `json:"minItems"`
+		} `json:"properties"`
+		Required             []string `json:"required"`
+		AdditionalProperties bool     `json:"additionalProperties"`
+	}
+	if err := json.Unmarshal([]byte(RouteSchema), &schema); err != nil {
+		t.Fatal(err)
+	}
+	for key := range schema.Properties {
+		found := false
+		for _, required := range schema.Required {
+			found = found || required == key
+		}
+		if !found {
+			t.Errorf("strict structured output requires property %q in required", key)
+		}
+	}
+	if schema.AdditionalProperties {
+		t.Error("strict structured output must reject additional properties")
+	}
+	if schema.Properties["memberIds"].MinItems > 0 {
+		t.Error("everyone=true must allow memberIds=[]")
+	}
+}
 
 func TestStructuredArgs_Claude(t *testing.T) {
 	args := BuildStructuredClaudeArgs("生成职责", CharterSchema, true, true)

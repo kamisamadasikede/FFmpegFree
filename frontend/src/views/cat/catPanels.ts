@@ -2,7 +2,8 @@
  * Cat 设置页 / 定时任务页的状态（契约 v0.35.1~v0.40，设计 v0.4.1 + 克隆/通知 v0.1.1）。
  * 与 catState 分开放，避免和美化 PR 冲突；catState 只在新建对话时读这里的默认值。
  */
-import { reactive } from 'vue'
+import { reactive, watch } from 'vue'
+import { CAT_LAST_GROUP_KEY } from '@/api/catStorageKeys'
 import { normalizeProviderKind, type CatProviderKind } from '@/api/catAgents'
 import { type CatSettings, CAT_SETTINGS_COPY, saveErrorMessage, emptyDefaults, getCatSettings, normalizeSettings, saveCatSettings } from '@/api/catSettings'
 import {
@@ -31,9 +32,14 @@ const qView = preview ? q.get('cat_view') : null
 const qTab = preview ? q.get('cat_tab') : null
 /** 群聊走查：?cat_group_scene=… 直接打开示例群 g1（只在浏览器预览） */
 const qGroupScene = preview ? q.get('cat_group_scene') : null
+function readLastGroup(): string {
+  try { return globalThis.localStorage?.getItem(CAT_LAST_GROUP_KEY)?.trim() ?? '' }
+  catch { return '' }
+}
+const lastGroup = readLastGroup()
 
 export const catPanels = reactive({
-  view: (qGroupScene ? 'group' : qView === 'settings' || (qView === 'schedules' && catSchedulesVisible()) ? qView : 'chat') as CatView,
+  view: (qGroupScene ? 'group' : qView === 'settings' || (qView === 'schedules' && catSchedulesVisible()) ? qView : lastGroup ? 'group' : 'chat') as CatView,
   tab: (['general', 'instruction', 'ext', 'about'].includes(qTab ?? '') ? qTab : 'general') as CatSettingsTab,
   settings: normalizeSettings({}),
   settingsLoaded: false,
@@ -41,10 +47,19 @@ export const catPanels = reactive({
   schedulesLoaded: false,
   /** 应用内浮提示（定时任务完成 / 失败），点了打开对话 */
   /** v0.55 群聊：当前打开的群 / 正在建群的项目（空 = 没开建群弹窗） */
-  activeGroupId: (qGroupScene ? 'g1' : '') as string,
+  activeGroupId: (qGroupScene ? 'g1' : lastGroup) as string,
   createGroupProjectId: (qGroupScene === 'create' ? 'p3' : '') as string,
   toast: null as { key: number; title: string; body: string; tone: 'ok' | 'bad'; convId?: string } | null,
 })
+
+// Save synchronously so an immediate refresh keeps the selected chat. Settings
+// and schedules preserve the last chat, as they do for ordinary conversations.
+watch(() => [catPanels.view, catPanels.activeGroupId] as const, ([view, id]) => {
+  try {
+    if (view === 'group' && id) globalThis.localStorage?.setItem(CAT_LAST_GROUP_KEY, id)
+    else if (view === 'chat') globalThis.localStorage?.removeItem(CAT_LAST_GROUP_KEY)
+  } catch { /* Storage can be unavailable; navigation still works. */ }
+}, { flush: 'sync' })
 
 export function openView(v: CatView) {
   if (v === 'schedules' && !catSchedulesVisible()) return

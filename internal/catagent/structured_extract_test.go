@@ -18,6 +18,10 @@ func TestExtractStructuredJSONContent(t *testing.T) {
 		has  string
 	}{
 		{"bare route", `{"memberId":"m1","reason":"接口"}`, "", `{"memberId":"m1"`},
+		{"bare multi-member route", `{"memberIds":["m1","m2"],"reason":"一起介绍"}`, "", `"memberIds":["m1","m2"]`},
+		{"grok multi-member structured output", `{"text":"","structured_output":{"memberIds":["m1","m2"],"reason":"一起介绍"}}`, "", `"memberIds":["m1","m2"]`},
+		{"grok everyone structured output", `{"text":"","structured_output":{"everyone":true,"reason":"全员介绍"}}`, "", `"everyone":true`},
+		{"result string multi-member route", `{"result":"{\"memberIds\":[\"m1\"],\"reason\":\"接口\"}"}`, "", `"memberIds":["m1"]`},
 		{"grok result wrapper", `{"result":{"memberId":"m1","reason":"x"}}`, "", `"memberId":"m1"`},
 		{"result string", `{"type":"result","result":"{\"memberId\":\"m1\",\"reason\":\"x\"}"}`, "", `"memberId":"m1"`},
 		{"streaming text wrap", "{\"type\":\"text\",\"data\":\"{\\\"memberId\\\":\\\"m1\\\",\\\"reason\\\":\\\"x\\\"}\"}\n{\"type\":\"end\"}\n", "", `"memberId":"m1"`},

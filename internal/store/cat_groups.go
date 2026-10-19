@@ -129,22 +129,28 @@ type CatGroupFileTag struct {
 }
 
 // CatGroupMessage is one row in the group stream.
+type CatGroupAttachment struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
 type CatGroupMessage struct {
-	Seq          int64           `json:"seq"`
-	GroupID      string          `json:"groupId"`
-	Kind         string          `json:"kind"` // user|member|system
-	MemberID     string          `json:"memberId,omitempty"`
-	Text         string          `json:"text"`
-	Mentions     []string        `json:"mentions,omitempty"`
-	ChainID      string          `json:"chainId"`
-	Hop          int             `json:"hop"`
-	TurnID       string          `json:"turnId,omitempty"`
-	Route        *CatRouteInfo   `json:"route,omitempty"`
-	SystemKind   string          `json:"systemKind,omitempty"` // route|hop_limit|no_handoff|reassign|failed|stopped|charter|coord
-	FromMemberID string          `json:"fromMemberId,omitempty"`
-	ToMemberID   string          `json:"toMemberId,omitempty"`
-	FailReason   string          `json:"failReason,omitempty"`
-	Report       *CatGroupReport `json:"report,omitempty"`
+	Seq          int64                `json:"seq"`
+	GroupID      string               `json:"groupId"`
+	Kind         string               `json:"kind"` // user|member|system
+	MemberID     string               `json:"memberId,omitempty"`
+	Text         string               `json:"text"`
+	Files        []CatGroupAttachment `json:"files,omitempty"`
+	Mentions     []string             `json:"mentions,omitempty"`
+	ChainID      string               `json:"chainId"`
+	Hop          int                  `json:"hop"`
+	TurnID       string               `json:"turnId,omitempty"`
+	Route        *CatRouteInfo        `json:"route,omitempty"`
+	SystemKind   string               `json:"systemKind,omitempty"` // route|hop_limit|no_handoff|reassign|failed|stopped|charter|coord
+	FromMemberID string               `json:"fromMemberId,omitempty"`
+	ToMemberID   string               `json:"toMemberId,omitempty"`
+	FailReason   string               `json:"failReason,omitempty"`
+	Report       *CatGroupReport      `json:"report,omitempty"`
 	// ReplyKind：v0.56 短复 vs 汇报卡（契约 6.21.19；FE #346）。
 	// "short" | "report"；短复亦可省略 Report。不落库——重载靠「无 report + 有 text」识别。
 	ReplyKind string `json:"replyKind,omitempty"`
@@ -646,10 +652,10 @@ func (s *Store) InsertCatGroupMessage(ctx context.Context, m CatGroupMessage) (C
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO cat_group_messages (
 			group_id, seq, kind, member_id, text, mentions, chain_id, hop, turn_id, route_json, report_json,
-			system_kind, from_member_id, to_member_id, fail_reason, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			system_kind, from_member_id, to_member_id, fail_reason, created_at, files_json
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.GroupID, m.Seq, m.Kind, m.MemberID, m.Text, mentions, m.ChainID, m.Hop, m.TurnID, route, report,
-		m.SystemKind, m.FromMemberID, m.ToMemberID, m.FailReason, m.CreatedAt)
+		m.SystemKind, m.FromMemberID, m.ToMemberID, m.FailReason, m.CreatedAt, marshalJSONString(m.Files))
 	if err != nil {
 		return CatGroupMessage{}, fmt.Errorf("写入群消息失败: %w", err)
 	}
@@ -659,11 +665,11 @@ func (s *Store) InsertCatGroupMessage(ctx context.Context, m CatGroupMessage) (C
 
 func scanGroupMessage(r interface{ Scan(...any) error }) (CatGroupMessage, error) {
 	var m CatGroupMessage
-	var mentions, route, report string
+	var mentions, route, report, files string
 	err := r.Scan(
 		&m.GroupID, &m.Seq, &m.Kind, &m.MemberID, &m.Text, &mentions,
 		&m.ChainID, &m.Hop, &m.TurnID, &route, &report, &m.SystemKind,
-		&m.FromMemberID, &m.ToMemberID, &m.FailReason, &m.CreatedAt,
+		&m.FromMemberID, &m.ToMemberID, &m.FailReason, &m.CreatedAt, &files,
 	)
 	if err != nil {
 		return CatGroupMessage{}, err
@@ -671,10 +677,11 @@ func scanGroupMessage(r interface{ Scan(...any) error }) (CatGroupMessage, error
 	m.Mentions = decodeStringSlice(mentions)
 	m.Route = decodeRoute(route)
 	m.Report = decodeReport(report)
+	_ = json.Unmarshal([]byte(files), &m.Files)
 	return m, nil
 }
 
-const msgCols = `group_id, seq, kind, member_id, text, mentions, chain_id, hop, turn_id, route_json, report_json, system_kind, from_member_id, to_member_id, fail_reason, created_at`
+const msgCols = `group_id, seq, kind, member_id, text, mentions, chain_id, hop, turn_id, route_json, report_json, system_kind, from_member_id, to_member_id, fail_reason, created_at, files_json`
 
 func (s *Store) ListCatGroupMessages(ctx context.Context, groupID string, beforeSeq int64, limit int) ([]CatGroupMessage, error) {
 	if limit <= 0 {
@@ -747,6 +754,10 @@ func (s *Store) GetCatGroupMessage(ctx context.Context, groupID string, seq int6
 		return CatGroupMessage{}, err
 	}
 	return m, nil
+}
+
+func (s *Store) GetCatGroupChainOrigin(ctx context.Context, groupID, chainID string) (CatGroupMessage, error) {
+	return scanGroupMessage(s.db.QueryRowContext(ctx, `SELECT `+msgCols+` FROM cat_group_messages WHERE group_id=? AND chain_id=? AND kind='user' ORDER BY seq ASC LIMIT 1`, groupID, chainID))
 }
 
 // UpdateCatGroupMessage replaces text/systemKind/mentions/route on an existing row (same seq).

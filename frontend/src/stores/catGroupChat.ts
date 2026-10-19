@@ -4,7 +4,7 @@
  */
 import { defineStore } from 'pinia'
 import { computed, reactive, ref } from 'vue'
-import { groupApi, groupRealApi, normalizeMember, normalizeMessage, type CatGroup, type CatGroupMember, type CatGroupMessage, type CatGroupQueuedTask, type CatGroupFile, type CatGroupRunning, type CatRouteDetail, type RevertResult } from '@/api/catGroupChat'
+import { groupApi, groupRealApi, normalizeMember, normalizeMessage, type CatGroup, type CatGroupMember, type CatGroupMessage, type CatGroupQueuedTask, type CatGroupFile, type CatGroupRunning, type CatRouteDetail, type RevertResult, type CatGroupWorkflow } from '@/api/catGroupChat'
 import { groupMock, groupScene } from '@/api/catGroupChatMock'
 import { getCatConversation, onCatMessage, onCatTurn } from '@/api/cat'
 import { applyStreamEvent, newStreamMsg, type CatStreamEvent, type CatStreamMsg } from '@/api/catStream'
@@ -21,6 +21,7 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
   const group = ref<CatGroup | null>(null)
   const members = ref<CatGroupMember[]>([])
   const messages = ref<CatGroupMessage[]>([])
+  const workflows = ref<CatGroupWorkflow[]>([])
   const hasMore = ref(false)
   const loading = ref(false)
   const live = reactive<Record<string, LiveRun>>({})
@@ -81,6 +82,15 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
     messages.value.sort((a, b) => a.seq - b.seq)
   }
 
+  function applyWorkflow(w: CatGroupWorkflow) {
+    const i = workflows.value.findIndex((x) => x.chainId === w.chainId)
+    if (i >= 0) {
+      if ((workflows.value[i].revision ?? 0) > (w.revision ?? 0)) return
+      workflows.value.splice(i, 1, w)
+    } else workflows.value.push(w)
+    workflows.value.sort((a, b) => b.updatedAt - a.updatedAt || b.chainId.localeCompare(a.chainId))
+  }
+
   function subscribe() {
     if (subscribed) return
     subscribed = true
@@ -102,6 +112,10 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
     api.onRoute((e) => {
       if (e.groupId !== activeId.value) return
       routing[e.chainId] = e.state === 'routing'
+    })
+    api.onWorkflow?.((w) => {
+      if (w.groupId !== activeId.value) return
+      applyWorkflow(w)
     })
     api.onMember((e) => {
       if (e.groupId !== activeId.value) return
@@ -240,6 +254,12 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
     subscribe()
     ensureTicker()
     activeId.value = groupId
+    group.value = null
+    members.value = []
+    messages.value = []
+    files.value = []
+    hasMore.value = false
+    workflows.value = []
     loading.value = true
     for (const key of Object.keys(live)) delete live[key]
     for (const key of Object.keys(processBlocks)) delete processBlocks[key]
@@ -249,9 +269,10 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
     drawerMemberId.value = ''
     try {
       const api = groupApi()
-      const [{ group: g, members: ms }, page] = await Promise.all([api.getGroup(groupId), api.listMessages(groupId, 0, 50)])
+      const [{ group: g, members: ms, workflows: ws }, page] = await Promise.all([api.getGroup(groupId), api.listMessages(groupId, 0, 50)])
       if (activeId.value !== groupId) return
       group.value = g
+      for (const w of ws ?? []) applyWorkflow(w)
       members.value = ms.map(normalizeMember)
       for (const k of Object.keys(queued)) delete queued[k]
       for (const k of Object.keys(memberStatus)) delete memberStatus[k]
@@ -266,14 +287,16 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
         memberStatus[e.member.id] = e.member.status || 'running'
       }
     } finally {
-      loading.value = false
+      if (activeId.value === groupId) loading.value = false
     }
   }
 
-  async function loadOlder() {
+  async function loadOlder(limit = 50) {
     if (!hasMore.value || !messages.value.length) return
-    const page = await groupApi().listMessages(activeId.value, messages.value[0].seq, 50)
-    messages.value = [...page.messages.map(normalizeMessage), ...messages.value]
+    const id = activeId.value
+    const page = await groupApi().listMessages(id, messages.value[0].seq, limit)
+    if (activeId.value !== id) return
+    messages.value = [...new Map([...page.messages.map(normalizeMessage), ...messages.value].map((m) => [m.seq, m])).values()].sort((a, b) => a.seq - b.seq)
     hasMore.value = page.hasMore
   }
   async function createGroup(projectId: string, name: string) {
@@ -356,23 +379,25 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
   async function saveCharter(memberId: string, patch: { owns?: string; notTouch?: string; dirs: string[] }) {
     upsertMember(normalizeMember(await groupApi().updateCharter({ memberId, ...patch })))
   }
-  async function send(text: string, mentions: string[]) {
-    const r = await groupApi().send(activeId.value, text, mentions)
-    addMessage(normalizeMessage(r.userMessage))
+  async function send(text: string, mentions: string[], files: { name: string; path: string }[] = []) {
+    const groupId = activeId.value
+    const r = await groupApi().send(groupId, text, mentions, files)
+    if (activeId.value === groupId) addMessage(normalizeMessage(r.userMessage))
     return r.chainId
   }
-  async function reassign(chainId: string, toMemberId: string) {
-    const r = await groupApi().reassign(activeId.value, chainId, toMemberId)
-    addMessage(normalizeMessage(r.system))
+  async function reassign(chainId: string, toMemberId: string, taskId?: string) {
+    const groupId = activeId.value
+    const r = await groupApi().reassign(groupId, chainId, toMemberId, taskId)
+    if (activeId.value === groupId) addMessage(normalizeMessage(r.system))
   }
   const stop = (memberId: string) => groupApi().stopMember(memberId)
   const stopAll = () => groupApi().stopGroup(activeId.value)
-  const retryTurn = (memberId: string, chainId: string) => groupApi().retry(activeId.value, memberId, chainId)
+  const retryTurn = (memberId: string, chainId: string, taskId?: string) => groupApi().retry(activeId.value, memberId, chainId, taskId)
   const revert = (memberId: string, turnId: string, files: string[]): Promise<RevertResult> => groupApi().revert(memberId, turnId, files)
   const routeDetail = (seq: number): Promise<CatRouteDetail> => groupApi().routeDetail(activeId.value, seq)
 
   return {
-    groupsByProject, activeId, group, members, membersSorted, messages, hasMore, loading, live, routing, routingNow,
+    groupsByProject, activeId, group, members, membersSorted, messages, workflows, hasMore, loading, live, routing, routingNow,
     drawerMemberId, processBlocks, processLoading, processText, revertedSeqs, queued, memberStatus, files, loadFiles, settingsOpen, membersOpen, scene, sceneUi, workingMembers,
     memberById, nameOf, elapsedOf, loadGroups, open, loadOlder, createGroup, rename, setAutoRoute, deleteGroup,
     addMember, updateMember, removeMember, reorder, regenerate, saveCharter, send, reassign, stop, stopAll, retryTurn, revert, routeDetail, openProcess, setProcessDemo,

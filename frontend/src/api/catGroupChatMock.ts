@@ -326,9 +326,9 @@ export const groupMock = {
     c.updatedAt = Date.now()
     return clone(m)
   },
-  async send(groupId: string, text: string, mentions: string[]) {
+  async send(groupId: string, text: string, mentions: string[], files: { name: string; path: string }[] = []) {
     const chainId = nid('chain-')
-    const userMessage = push({ groupId, kind: 'user', text, mentions, chainId, hop: 0 }, Date.now())
+    const userMessage = push({ groupId, kind: 'user', text, mentions, files, chainId, hop: 0 }, Date.now())
     const g = groups.find((x) => x.id === groupId)!
     if (mentions.length) {
       mentions.forEach((mid) => fakeTurn(groupId, mid, chainId, 0))

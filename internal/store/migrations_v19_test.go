@@ -38,6 +38,9 @@ func TestMigrationsV19RouteTiming(t *testing.T) {
 	}
 
 	// 只跑到 18 的库（#330 合入后的开发库）：表里已有旧派活记录 → 再打开补 19，旧行两列为 0。
+	if _, err := s.DB().Exec(`DROP TABLE cat_group_workflows; DROP INDEX cat_group_messages_chain; ALTER TABLE cat_group_messages DROP COLUMN files_json`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.DB().Exec(`DROP TABLE cat_group_routes`); err != nil {
 		t.Fatal(err)
 	}

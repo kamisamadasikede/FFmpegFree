@@ -78,13 +78,13 @@ func (a *CLIAgentAdapter) runClaudeInputStream(opts TurnOptions, exe string) (Tu
 	closed := false
 	submitted, finished := 1, 0
 	writeInput := func(text string, files []PromptFile, key string) error {
-		parts := []map[string]any{{"type": "text", "text": text}}
-		if len(files) > 0 {
-			return apperr.New(apperr.Unsupported, "当前追加输入暂不支持附件，请发送文字或安排新任务")
+		input, err := claudeUserInput(text, files, key)
+		if err != nil {
+			return err
 		}
 		writeMu.Lock()
 		defer writeMu.Unlock()
-		return json.NewEncoder(stdin).Encode(map[string]any{"type": "user", "uuid": key, "message": map[string]any{"role": "user", "content": parts}})
+		return json.NewEncoder(stdin).Encode(input)
 	}
 	defer func() {
 		stateMu.Lock()

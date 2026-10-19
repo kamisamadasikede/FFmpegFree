@@ -104,16 +104,18 @@ type Service struct {
 	det detectState
 
 	// Only duplicate installers for the same CLI are excluded.
-	cliUpdateMu sync.Mutex
-	cliUpdating map[string]bool
-	sharingMu   sync.Mutex
-	workspaceMu sync.Mutex
-	workflowMu  sync.Mutex
-	launchMu    sync.Mutex
-	queueArmed  map[string]bool
-	deleting    map[string]bool
-	pptMu       sync.Mutex
-	ppt         *genoffice.Manager
+	cliUpdateMu        sync.Mutex
+	cliUpdating        map[string]bool
+	sharingMu          sync.Mutex
+	workspaceMu        sync.Mutex
+	workflowMu         sync.Mutex
+	groupWorkMu        sync.Mutex
+	groupWorkRecovered map[string]bool
+	launchMu           sync.Mutex
+	queueArmed         map[string]bool
+	deleting           map[string]bool
+	pptMu              sync.Mutex
+	ppt                *genoffice.Manager
 
 	// v0.51 分支树：fetch 节流状态与 cat.branchPrefs 读写锁
 	btree branchTreeState
@@ -143,9 +145,9 @@ type turnState struct {
 	convID string
 	// leaseKey 非空 = 群聊成员回合：用独立执行范围（项目+groupId+memberId），不占项目目录锁。
 	leaseKey string
-	turnID string
-	cancel context.CancelFunc
-	done   chan struct{} // 后台 runTurn 返回后关闭（含已出文字落库）
+	turnID   string
+	cancel   context.CancelFunc
+	done     chan struct{} // 后台 runTurn 返回后关闭（含已出文字落库）
 
 	mu            sync.Mutex
 	msgID         string          // 本轮助手正文 messageId（落库同 id）

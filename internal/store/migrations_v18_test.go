@@ -42,7 +42,7 @@ func TestMigrationsFreshAndFromTeams17(t *testing.T) {
 		}
 	}
 	// 老板本机库：已跑到 17、没有群聊表 → 再打开只补 18。
-	for _, tb := range []string{"cat_group_turn_meta", "cat_group_routes", "cat_group_messages", "cat_group_members", "cat_groups"} {
+	for _, tb := range []string{"cat_group_workflows", "cat_group_turn_meta", "cat_group_routes", "cat_group_messages", "cat_group_members", "cat_groups"} {
 		if _, err := s.DB().Exec(`DROP TABLE ` + tb); err != nil {
 			t.Fatal(err)
 		}

@@ -49,11 +49,10 @@
           <span class="nm">
             <span class="a">
               {{ m.name }}
-              <span v-if="i === 0" class="cg-badge acc" :title="t('cat.groupChat.firstTip')">{{ t('cat.groupChat.firstBadge') }}</span>
               <span v-if="m.charter.status === 'generating'" class="cg-spin" style="width: 10px; height: 10px; border-width: 1.5px" :title="t('cat.groupChat.generating')" />
               <span v-else-if="m.charter.status === 'failed'" :title="t('cat.groupChat.charterFailed')" style="display: inline-flex; color: var(--cat-warn-text)"><FIcon name="warn" :size="11" /></span>
             </span>
-            <span class="b">{{ m.title }} · <CatAgentMark :kind="normalizeProviderKind(m.agentKind)" :size="11" />{{ cliName(m.agentKind) }}</span>
+            <span v-if="m.title !== m.name" class="b">{{ m.title }}</span>
             <!-- 产品 10-17：正在干活时只出一行「后面还有 {queueLength} 个在排队」；没在干活、自己在排队才出「排队中 · …」 -->
             <span v-if="stateOf(m.id) === 'busy'" class="s busy"><i class="cg-breath" />{{ t('cat.groupChat.busy') }}<template v-if="queueCount(m.id)"> · {{ t('cat.groupChat.queuedBehind', { n: queueCount(m.id) }) }}</template></span>
             <span v-else-if="stateOf(m.id) === 'queued' && store.queued[m.id]?.length" class="q">{{ queuedText(Math.min(...store.queued[m.id].map((q) => q.queuePosition))) }}</span>
@@ -106,7 +105,6 @@
       </div>
       <button type="button" class="cg-add" data-testid="cat-group-add-member" @click="emit('add')"><FIcon name="plus" :size="13" />{{ t('cat.groupChat.addMember') }}</button>
     </div>
-    <div v-if="tab === 'm'" class="cg-mem-ft">{{ t('cat.groupChat.membersFoot') }}</div>
     <CatPreviewDialog v-model:open="previewOn" :file="previewFile" />
   </aside>
 </template>
@@ -116,8 +114,7 @@ import { onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
-import CatAgentMark from '@/components/cat/CatAgentMark.vue'
-import { CAT_PROVIDER_LABEL, CAT_PROVIDER_ORDER, normalizeProviderKind } from '@/api/catAgents'
+import { CAT_PROVIDER_LABEL, CAT_PROVIDER_ORDER } from '@/api/catAgents'
 import { memberColorVar } from '@/api/catGroupChat'
 import { useCatGroupChat } from '@/stores/catGroupChat'
 import CatGroupCharter from './CatGroupCharter.vue'

@@ -275,7 +275,12 @@ func (s *Service) GetCatGroup(ctx context.Context, groupID string) (GroupDetail,
 	}
 	decorateGroupMembers(members)
 	g.Members = memberBriefs(members)
-	return GroupDetail{Group: g, Members: members}, nil
+	s.recoverGroupWorkflows(ctx, g.ID)
+	workflows, err := s.cfg.Store.ListCatGroupWorkflows(ctx, g.ID)
+	if err != nil {
+		return GroupDetail{}, apperr.Wrap(apperr.IOError, "读取协作任务失败", err)
+	}
+	return GroupDetail{Group: g, Members: members, Workflows: workflows}, nil
 }
 
 func (s *Service) UpdateCatGroupMember(ctx context.Context, req UpdateGroupMemberRequest) (GroupMember, error) {

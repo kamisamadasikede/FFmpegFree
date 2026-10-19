@@ -25,8 +25,9 @@ type RenameGroupRequest struct {
 }
 
 type GroupDetail struct {
-	Group   Group         `json:"group"`
-	Members []GroupMember `json:"members"`
+	Group     Group                    `json:"group"`
+	Members   []GroupMember            `json:"members"`
+	Workflows []store.CatGroupWorkflow `json:"workflows"`
 }
 
 type SetGroupAutoRouteRequest struct {
@@ -77,6 +78,7 @@ type SendGroupMessageResult struct {
 }
 
 type ReassignGroupRouteRequest struct {
+	TaskID     string `json:"taskId,omitempty"`
 	GroupID    string `json:"groupId"`
 	ChainID    string `json:"chainId"`
 	ToMemberID string `json:"toMemberId"`
@@ -144,6 +146,7 @@ type RevertOverreachResult struct {
 }
 
 type RetryGroupMemberTurnRequest struct {
+	TaskID   string `json:"taskId,omitempty"`
 	GroupID  string `json:"groupId"`
 	MemberID string `json:"memberId"`
 	ChainID  string `json:"chainId"`

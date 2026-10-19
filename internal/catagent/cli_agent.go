@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"FFmpegFree/internal/apperr"
+	"FFmpegFree/internal/id"
 	"FFmpegFree/internal/paths"
 	"FFmpegFree/internal/proc"
 )
@@ -329,6 +330,11 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	if exe == "" {
 		return TurnResponse{}, apperr.New(apperr.CatNotReady, MsgNotReady)
 	}
+	files, fileErr := NormalizePromptFiles(opts.Files)
+	if fileErr != nil {
+		return TurnResponse{}, fileErr
+	}
+	opts.Files = files
 
 	a.mu.Lock()
 	curVer := a.version
@@ -392,7 +398,8 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	args := a.buildTurnArgs(opts, prompt, cwd, sessionID, resume)
 	var stdinText string
 	viaStdin := isShimExt(exe)
-	if viaStdin {
+	claudeImages := a.kind == cliKindClaude && len(opts.Files) > 0
+	if viaStdin || claudeImages {
 		// v0.47.1 6.19.21.4：.cmd / .ps1 包装不经命令行传提示词 / 规则。
 		var clean func()
 		var serr error
@@ -403,6 +410,18 @@ func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 		if clean != nil {
 			defer clean()
 		}
+	}
+	if claudeImages {
+		input, inputErr := claudeUserInput(prompt, opts.Files, id.New())
+		if inputErr != nil {
+			return TurnResponse{}, inputErr
+		}
+		raw, inputErr := json.Marshal(input)
+		if inputErr != nil {
+			return TurnResponse{}, inputErr
+		}
+		stdinText, viaStdin = string(raw)+"\n", true
+		args = append(args, "--input-format", "stream-json")
 	}
 	cmd := a.runCmd(runCtx, exe, args...)
 	cmd.Dir = cwd
@@ -881,7 +900,7 @@ func (a *CLIAgentAdapter) buildTurnArgs(opts TurnOptions, prompt, cwd, sessionID
 func (a *CLIAgentAdapter) buildClaudeArgs(opts TurnOptions, prompt, sessionID string, resume bool) []string {
 	// H claude.txt 2.1.296：-p / --output-format / --json-schema / --no-session-persistence / --tools / --append-system-prompt
 	format := "stream-json"
-	if strings.TrimSpace(opts.JSONSchema) != "" {
+	if strings.TrimSpace(opts.JSONSchema) != "" && len(opts.Files) == 0 {
 		format = "json"
 	}
 	args := []string{"-p", prompt, "--output-format", format}
@@ -926,6 +945,15 @@ func claudePermissionArgs(mode, ver string) []string {
 }
 
 func (a *CLIAgentAdapter) buildCodexArgs(opts TurnOptions, prompt, cwd, sessionID string, resume bool) []string {
+	var imageArgs, paths []string
+	for _, f := range opts.Files {
+		if _, image := imageMIME(f.Path); image {
+			imageArgs = append(imageArgs, "--image", f.Path)
+		} else {
+			paths = append(paths, f.Path)
+		}
+	}
+	prompt = joinPrompt(prompt, paths)
 	// H codex-exec.txt 0.162.1：exec --json / --ephemeral / --output-schema / -c developer_instructions
 	if rules := strings.TrimSpace(opts.Rules); rules != "" {
 		// Prefer -c developer_instructions when available; prompt prefix remains as fallback for empty -c edge cases.
@@ -938,6 +966,10 @@ func (a *CLIAgentAdapter) buildCodexArgs(opts TurnOptions, prompt, cwd, sessionI
 		args = append(args, codexEffortArgs(opts.ThinkLevelID)...)
 		if mid := strings.TrimSpace(opts.ModelID); mid != "" && mid != "default" {
 			args = append(args, "-m", mid)
+		}
+		args = append(args, imageArgs...)
+		if len(imageArgs) > 0 {
+			args = append(args, "--")
 		}
 		return append(args, sessionID, prompt)
 	}
@@ -965,6 +997,10 @@ func (a *CLIAgentAdapter) buildCodexArgs(opts TurnOptions, prompt, cwd, sessionI
 	if schema := strings.TrimSpace(opts.JSONSchema); schema != "" {
 		// Value must be a filesystem path (H: --output-schema <FILE>).
 		args = append(args, "--output-schema", schema)
+	}
+	args = append(args, imageArgs...)
+	if len(imageArgs) > 0 {
+		args = append(args, "--")
 	}
 	return append(args, prompt)
 }

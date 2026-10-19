@@ -21,16 +21,31 @@ const CharterSchema = `{
 }`
 
 // RouteSchema is the JSON Schema for dispatch judgment (契约 6.21.6 / v0.57).
-// memberIds 1～N；everyone=true 表示 @全体；旧单字段 memberId 仅兼容读入（additionalProperties 放开）。
+// All properties are required for Codex strict output. everyone=true permits
+// memberIds=[]; the route parser still accepts legacy memberId replies.
 const RouteSchema = `{
   "type": "object",
   "properties": {
-    "memberIds": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-    "memberId": {"type": "string"},
+    "memberIds": {"type": "array", "items": {"type": "string"}},
     "everyone": {"type": "boolean"},
-    "reason": {"type": "string", "maxLength": 40}
+    "reason": {"type": "string", "maxLength": 40},
+    "tasks": {
+      "type": "array", "maxItems": 12,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string"},
+          "title": {"type": "string"},
+          "memberId": {"type": "string"},
+          "instruction": {"type": "string"},
+          "dependsOn": {"type": "array", "items": {"type": "string"}},
+          "kind": {"type": "string", "enum": ["develop", "integrate", "verify"]}
+        },
+        "required": ["id", "title", "memberId", "instruction", "dependsOn", "kind"]
+      }
+    }
   },
-  "required": ["reason"],
+  "required": ["memberIds", "everyone", "reason", "tasks"],
   "additionalProperties": false
 }`
 
@@ -205,6 +220,13 @@ func unwrapStructuredValue(v any, depth int) string {
 }
 
 func looksLikeStructuredPayload(m map[string]any) bool {
+	// v0.57 routes use memberIds / everyone; keep memberId for older CLI replies.
+	if _, ok := m["memberIds"]; ok {
+		return true
+	}
+	if _, ok := m["everyone"]; ok {
+		return true
+	}
 	if _, ok := m["memberId"]; ok {
 		return true
 	}
