@@ -113,7 +113,7 @@ const props = defineProps<{ convId: string; relPath: string; name: string; live:
 const emit = defineEmits<{ close: []; pick: [note: PickNote]; 'conflict-saved': [] }>()
 
 const officeFile = computed(() => /\.(pdf|docx?|xlsx?|pptx?|odt|ods|odp)$/i.test(props.relPath))
-const genOffice = computed(() => /\.(pptx|docx|xlsx|pdf|html|htm|md|markdown)$/i.test(props.relPath))
+const genOffice = computed(() => /\.(pptx|docx|xlsx|pdf|md|markdown)$/i.test(props.relPath))
 const externalChanged = ref(false)
 const doc = ref<CatFileBody | null>(null)
 const draft = ref('')

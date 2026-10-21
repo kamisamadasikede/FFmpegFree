@@ -30,7 +30,7 @@ func (s *Service) GetCatPptTool(retry bool) genoffice.ToolState { return s.pptMa
 
 func previewOfficeExt(ext string) bool {
 	switch ext {
-	case ".pptx", ".docx", ".xlsx", ".pdf", ".html", ".htm", ".md", ".markdown":
+	case ".pptx", ".docx", ".xlsx", ".pdf", ".md", ".markdown":
 		return true
 	default:
 		return false

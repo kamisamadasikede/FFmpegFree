@@ -2,8 +2,10 @@ package agentexec
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -61,7 +63,7 @@ func TestWorkspaceOverlapAndCancellation(t *testing.T) {
 	close(gate)
 }
 
-func TestLeaseKeyBypassesFolderLock(t *testing.T) {
+func TestDifferentWorkspacesRunConcurrently(t *testing.T) {
 	r := New()
 	defer r.Close()
 	root := t.TempDir()
@@ -76,20 +78,14 @@ func TestLeaseKeyBypassesFolderLock(t *testing.T) {
 		return catagent.TurnResponse{}, nil
 	}}
 	go r.Run(a, Scope{OwnerID: "plain", Workspace: root}, catagent.TurnOptions{ConversationID: "plain"})
-	go r.Run(a, Scope{OwnerID: "m1", Workspace: root, LeaseKey: "p|g|m1"}, catagent.TurnOptions{ConversationID: "m1"})
-	go r.Run(a, Scope{OwnerID: "m2", Workspace: root, LeaseKey: "p|g|m2"}, catagent.TurnOptions{ConversationID: "m2"})
+	go r.Run(a, Scope{OwnerID: "m1", Workspace: t.TempDir()}, catagent.TurnOptions{ConversationID: "m1"})
+	go r.Run(a, Scope{OwnerID: "m2", Workspace: t.TempDir()}, catagent.TurnOptions{ConversationID: "m2"})
 	for i := 0; i < 3; i++ {
 		select {
 		case <-started:
 		case <-time.After(2 * time.Second):
-			t.Fatal("lease-keyed runs blocked on the folder lock")
+			t.Fatal("independent workspaces blocked each other")
 		}
-	}
-	// same LeaseKey stays exclusive
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-	if _, e := r.Run(a, Scope{OwnerID: "m1b", Workspace: root, LeaseKey: "p|g|m1"}, catagent.TurnOptions{Ctx: ctx, ConversationID: "m1b"}); e == nil {
-		t.Fatal("same lease key ran concurrently")
 	}
 	// a second plain run still waits for the folder
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -98,4 +94,93 @@ func TestLeaseKeyBypassesFolderLock(t *testing.T) {
 		t.Fatal("plain runs on one folder ran concurrently")
 	}
 	close(gate)
+}
+
+func TestWorkspaceRootOverlap(t *testing.T) {
+	child := t.TempDir()
+	root := filepath.VolumeName(child) + string(filepath.Separator)
+	if !overlaps(root, child) || !overlaps(child, root) {
+		t.Fatal("filesystem root did not overlap its child")
+	}
+	if overlaps(child, child+"-sibling") {
+		t.Fatal("sibling path was treated as nested")
+	}
+}
+
+func TestCancelledPreparationDoesNotStartAdapter(t *testing.T) {
+	r := New()
+	defer r.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a := &fake{fn: func(catagent.TurnOptions) (catagent.TurnResponse, error) {
+		t.Fatal("adapter started after preparation was cancelled")
+		return catagent.TurnResponse{}, nil
+	}}
+	_, err := r.Run(a, Scope{OwnerID: "prepare", Workspace: t.TempDir(), Prepare: func(context.Context) error {
+		cancel()
+		return nil
+	}}, catagent.TurnOptions{Ctx: ctx, ConversationID: "prepare"})
+	if err != context.Canceled {
+		t.Fatalf("got %v, want cancellation", err)
+	}
+}
+
+func TestSameSessionReplacementWaitsForCancelledCleanup(t *testing.T) {
+	r := New()
+	defer r.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	oldEntered, release := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(release) })
+	var calls atomic.Int32
+	a := &fake{fn: func(o catagent.TurnOptions) (catagent.TurnResponse, error) {
+		if calls.Add(1) == 1 {
+			close(oldEntered)
+			<-o.Ctx.Done()
+			<-release
+		}
+		return catagent.TurnResponse{}, o.Ctx.Err()
+	}}
+	root := t.TempDir()
+	oldDone := make(chan error, 1)
+	go func() {
+		_, err := r.Run(a, Scope{OwnerID: "same", Workspace: root}, catagent.TurnOptions{Ctx: ctx, ConversationID: "same"})
+		oldDone <- err
+	}()
+	<-oldEntered
+	cancel()
+	// Cancellation of a replacement waiting on the same session must be prompt.
+	waitingCtx, stopWait := context.WithTimeout(context.Background(), 40*time.Millisecond)
+	defer stopWait()
+	_, err := r.Run(a, Scope{OwnerID: "same", Workspace: root}, catagent.TurnOptions{Ctx: waitingCtx, ConversationID: "same"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("replacement did not wait cancellably: %v", err)
+	}
+	freshDone := make(chan error, 1)
+	go func() {
+		_, err := r.Run(a, Scope{OwnerID: "same", Workspace: root}, catagent.TurnOptions{ConversationID: "same"})
+		freshDone <- err
+	}()
+	select {
+	case err := <-freshDone:
+		t.Fatalf("replacement exited before cleanup: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if calls.Load() != 1 {
+		t.Fatal("native sessions overlapped")
+	}
+	releaseOnce.Do(func() { close(release) })
+	select {
+	case err := <-freshDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("replacement did not wake after cleanup")
+	}
+	<-oldDone
+	if calls.Load() != 2 {
+		t.Fatalf("calls=%d", calls.Load())
+	}
 }

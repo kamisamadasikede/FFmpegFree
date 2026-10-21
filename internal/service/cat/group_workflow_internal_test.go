@@ -43,9 +43,23 @@ func groupWorkTestService(t *testing.T, run func(catagent.TurnOptions) (catagent
 	}
 	reg := catagent.NewRegistry()
 	for _, kind := range catagent.CreatableKinds() {
-		reg.Register(&groupWorkAdapter{kind: kind, run: run})
+		reg.Register(&groupWorkAdapter{kind: kind, run: func(o catagent.TurnOptions) (catagent.TurnResponse, error) {
+			if o.JSONSchema == catagent.RouteSchema {
+				prompt := o.Messages[0].Content
+				_, tail, ok := strings.Cut(prompt, "本条消息关注成员ID：")
+				if ok {
+					line, _, _ := strings.Cut(tail, "\n")
+					if line != "" {
+						ids := strings.Split(line, ",")
+						raw, _ := json.Marshal(map[string]any{"memberIds": ids, "everyone": false, "reason": "按测试指定成员接话", "tasks": []any{}, "capability": "read_only"})
+						return catagent.TurnResponse{Message: catagent.WireMessage{Content: string(raw)}}, nil
+					}
+				}
+			}
+			return run(o)
+		}})
 	}
-	s := New(Config{Store: st, Registry: reg, DataRoot: t.TempDir(), CLIHome: t.TempDir()})
+	s := New(Config{Store: st, Registry: reg, DataRoot: t.TempDir(), CLIHome: t.TempDir(), GroupRetryDelay: time.Millisecond})
 	p, _, err := st.InsertOrGetCatProject(ctx, store.CatProjectRow{Path: root, PathKey: root, Name: "项目"})
 	if err != nil {
 		t.Fatal(err)
@@ -183,37 +197,56 @@ func TestGroupWorkflow_ServiceJoinRetryAndPermissions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for i := 0; i < 2; i++ {
-				select {
-				case id := <-started:
-					if id != "a" && id != "b" {
-						t.Fatalf("依赖提前启动 %s", id)
-					}
-				case <-time.After(8 * time.Second):
-					t.Fatal("独立任务未启动")
+			// Logical DAG siblings are ready together, but a shared worktree has
+			// only one native writer. Complete the first before the second starts.
+			var first, second string
+			select {
+			case first = <-started:
+				if first != "a" && first != "b" {
+					t.Fatalf("依赖提前启动 %s", first)
 				}
+			case <-time.After(8 * time.Second):
+				t.Fatal("独立任务未启动")
 			}
-			finishA <- struct{}{}
+			select {
+			case id := <-started:
+				t.Fatalf("共享目录并发执行 %s", id)
+			default:
+			}
+			if first == "a" {
+				finishA <- struct{}{}
+			} else {
+				finishB <- struct{}{}
+			}
+			select {
+			case second = <-started:
+				if (second != "a" && second != "b") || second == first {
+					t.Fatalf("依赖提前启动 %s", second)
+				}
+			case <-time.After(8 * time.Second):
+				t.Fatal("第二个独立任务未启动")
+			}
 			waitGroupWork(t, func() bool {
 				w, _ := s.cfg.Store.GetCatGroupWorkflow(ctx, res.ChainID)
-				return len(w.Tasks) > 0 && w.Tasks[0].Status == "done"
+				for _, task := range w.Tasks {
+					if task.ID == first {
+						return task.Status == "done" || (first == "b" && failB && (task.Status == "queued" || task.Attempts > 1))
+					}
+				}
+				return false
 			})
 			select {
 			case id := <-started:
 				t.Fatalf("另一人未完成时启动了 %s", id)
 			default:
 			}
-			finishB <- struct{}{}
+			if second == "a" {
+				finishA <- struct{}{}
+			} else {
+				finishB <- struct{}{}
+			}
+
 			if failB {
-				waitGroupWork(t, func() bool { w, _ := s.cfg.Store.GetCatGroupWorkflow(ctx, res.ChainID); return w.Status == "blocked" })
-				select {
-				case id := <-started:
-					t.Fatalf("失败依赖放行了 %s", id)
-				default:
-				}
-				if err := s.RetryCatGroupMemberTurn(ctx, RetryGroupMemberTurnRequest{GroupID: g.ID, MemberID: ms[1].ID, ChainID: res.ChainID}); err != nil {
-					t.Fatal(err)
-				}
 				select {
 				case id := <-started:
 					if id != "b" {
@@ -245,7 +278,7 @@ func TestGroupWorkflow_ServiceJoinRetryAndPermissions(t *testing.T) {
 						kind = m.AgentKind
 					}
 				}
-				if o.ProjectPath != root || o.PermissionMode != catagent.NormalizeMode(kind, "full") {
+				if projectConfigKey(o.ProjectPath) != projectConfigKey(root) || o.PermissionMode != catagent.DefaultModeID(kind) {
 					t.Fatalf("项目或权限不正确: %q %q kind=%s", o.ProjectPath, o.PermissionMode, kind)
 				}
 			}

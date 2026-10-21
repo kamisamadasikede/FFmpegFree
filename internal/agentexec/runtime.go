@@ -17,12 +17,7 @@ type Scope struct {
 	Workspace string
 	// NativeConfigKey identifies compatible native Skill/MCP configurations.
 	NativeConfigKey string
-	// LeaseKey, when set, replaces the physical-folder lease with an exclusive
-	// logical lease: runs with different LeaseKeys never block each other and
-	// do not take the folder lock held by plain (LeaseKey-less) runs.
-	// Project group-chat member turns use project+groupId+memberId.
-	LeaseKey string
-	Prepare  func(context.Context) error
+	Prepare         func(context.Context) error
 }
 
 type Runtime struct {
@@ -66,12 +61,14 @@ func overlaps(a, b string) bool {
 	if filepath.Separator == '\\' {
 		a, b = strings.ToLower(a), strings.ToLower(b)
 	}
-	return a == b || strings.HasPrefix(a, b+string(filepath.Separator)) || strings.HasPrefix(b, a+string(filepath.Separator))
+	withSep := func(p string) string {
+		if !strings.HasSuffix(p, string(filepath.Separator)) {
+			p += string(filepath.Separator)
+		}
+		return p
+	}
+	return a == b || strings.HasPrefix(a, withSep(b)) || strings.HasPrefix(b, withSep(a))
 }
-
-const leasePrefix = "\x00lease:"
-
-func isLeaseKey(v string) bool { return strings.HasPrefix(v, leasePrefix) }
 
 func (r *Runtime) wakeLocked() { close(r.changed); r.changed = make(chan struct{}) }
 
@@ -84,7 +81,7 @@ func (r *Runtime) WorkspaceBusy(root string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, held := range r.roots {
-		if !isLeaseKey(held) && overlaps(root, held) {
+		if overlaps(root, held) {
 			return true
 		}
 	}
@@ -108,27 +105,22 @@ func (r *Runtime) Run(a catagent.Adapter, scope Scope, opts catagent.TurnOptions
 	defer cancel()
 	key := a.Kind() + ":" + opts.ConversationID
 	for {
+		if err := ctx.Err(); err != nil {
+			return catagent.TurnResponse{}, err
+		}
 		r.mu.Lock()
 		if r.closed {
 			r.mu.Unlock()
 			return catagent.TurnResponse{}, context.Canceled
 		}
-		if _, exists := r.active[key]; exists {
-			r.mu.Unlock()
-			return catagent.TurnResponse{}, errors.New("原生会话正在执行")
-		}
-		blocked := r.preparing || (r.configUsers > 0 && r.configKey != scope.NativeConfigKey)
-		lease := root
-		if scope.LeaseKey != "" {
-			lease = leasePrefix + scope.LeaseKey
-		}
+		// A replacement turn waits for the cancelled process to release its lease.
+		// Never overlap native sessions, and do not fail a fresh request during cleanup.
+		_, sessionBusy := r.active[key]
+		blocked := sessionBusy || r.preparing || (r.configUsers > 0 && r.configKey != scope.NativeConfigKey)
 		for _, held := range r.roots {
-			if isLeaseKey(lease) || isLeaseKey(held) {
-				blocked = blocked || lease == held
-			} else {
-				blocked = blocked || overlaps(root, held)
-			}
+			blocked = blocked || overlaps(root, held)
 		}
+
 		if !blocked {
 			first := r.configUsers == 0
 			if first {
@@ -136,7 +128,7 @@ func (r *Runtime) Run(a catagent.Adapter, scope Scope, opts catagent.TurnOptions
 			}
 			r.configKey = scope.NativeConfigKey
 			r.configUsers++
-			r.active[key], r.roots[key] = cancel, lease
+			r.active[key], r.roots[key] = cancel, root
 			r.wg.Add(1)
 			r.mu.Unlock()
 			defer func() {
@@ -162,6 +154,9 @@ func (r *Runtime) Run(a catagent.Adapter, scope Scope, opts catagent.TurnOptions
 				if err != nil {
 					return catagent.TurnResponse{}, err
 				}
+			}
+			if err := ctx.Err(); err != nil {
+				return catagent.TurnResponse{}, err
 			}
 			opts.Ctx, opts.ProjectPath = ctx, root
 			return a.RunTurn(opts)

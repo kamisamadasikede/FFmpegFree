@@ -9,6 +9,17 @@ import { t } from '@/i18n'
 import { groupMock } from './catGroupChatMock'
 export { isMemberShortReply, memberShortText } from './catGroupReply'
 
+/** Correlation id only: tolerate WebViews without crypto.randomUUID. */
+export function newGroupMessageId(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID()
+  const bytes = new Uint8Array(16)
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes)
+    return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
+  }
+  return `group-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
+}
+
 export type CatAgentKind = 'cat_build' | 'claude_cli' | 'codex_cli' | string
 export type CharterStatus = 'ok' | 'generating' | 'failed' | 'none'
 
@@ -164,11 +175,13 @@ export interface CatGroupWorkTask {
   kind: 'develop' | 'integrate' | 'verify'
   status: 'pending' | 'queued' | 'running' | 'done' | 'blocked' | 'failed' | 'stopped'
   attempts: number
+  retryAt?: number
   result?: string
   evidence?: string
   turnId?: string
 }
 export interface CatGroupWorkflow {
+  dismissed?: boolean
   revision: number
   chainId: string
   groupId: string
@@ -473,8 +486,8 @@ const real = {
   reorderMembers: (groupId: string, memberIds: string[]) => callService<CatGroupMember[]>(S, 'ReorderCatGroupMembers', { groupId, memberIds }),
   regenerateCharter: (memberId: string) => callService<CatGroupMember>(S, 'RegenerateCatCharter', memberId),
   updateCharter: (req: { memberId: string; owns?: string; notTouch?: string; dirs: string[] }) => callService<CatGroupMember>(S, 'UpdateCatCharter', req),
-  send: (groupId: string, text: string, mentions: string[], files: CatGroupAttachment[] = []) =>
-    callService<{ userMessage: CatGroupMessage; chainId: string }>(S, 'SendCatGroupMessage', { groupId, text, mentions, files }),
+  send: (groupId: string, text: string, mentions: string[], files: CatGroupAttachment[] = [], clientMessageId = newGroupMessageId()) =>
+    callService<{ userMessage: CatGroupMessage; chainId: string }>(S, 'SendCatGroupMessage', { groupId, text, mentions, files, clientMessageId }),
   reassign: (groupId: string, chainId: string, toMemberId: string, taskId?: string) =>
     callService<{ system: CatGroupMessage }>(S, 'ReassignCatGroupRoute', { groupId, chainId, toMemberId, taskId }),
   stopGroup: (groupId: string) => callService<void>(S, 'StopCatGroup', groupId),
@@ -488,6 +501,8 @@ const real = {
   onMessage: (cb: (m: CatGroupMessage) => void) => onEvent<CatGroupMessage>('cat:group-message', cb),
   onMember: (cb: (e: CatGroupMemberEvent) => void) => onEvent<CatGroupMemberEvent>('cat:group-member', cb),
   onRoute: (cb: (e: CatGroupRouteEvent) => void) => onEvent<CatGroupRouteEvent>('cat:group-route', cb),
+  dismissWorkflow: (groupId: string, chainId: string) => callService<void>(S, 'DismissCatGroupWorkflow', { groupId, chainId }),
+  clearWorkflowHistory: (groupId: string) => callService<string[]>(S, 'ClearCatGroupWorkflowHistory', groupId),
   onWorkflow: (cb: (e: CatGroupWorkflow) => void) => onEvent<CatGroupWorkflow>('cat:group-workflow', cb),
 }
 export type CatGroupApi = typeof real

@@ -17,6 +17,7 @@ type CatGroupWorkflow struct {
 	Tasks     []CatGroupWorkTask `json:"tasks"`
 	UpdatedAt int64              `json:"updatedAt"`
 	Revision  int64              `json:"revision"`
+	Dismissed bool               `json:"dismissed,omitempty"`
 }
 
 type CatGroupWorkTask struct {
@@ -28,6 +29,7 @@ type CatGroupWorkTask struct {
 	Kind        string   `json:"kind"`   // develop | integrate | verify
 	Status      string   `json:"status"` // pending | queued | running | done | blocked | failed | stopped
 	Attempts    int      `json:"attempts"`
+	RetryAt     int64    `json:"retryAt,omitempty"`
 	Result      string   `json:"result,omitempty"`
 	Evidence    string   `json:"evidence,omitempty"`
 	TurnID      string   `json:"turnId,omitempty"`
@@ -56,10 +58,25 @@ func (s *Store) GetCatGroupWorkflow(ctx context.Context, chainID string) (CatGro
 }
 
 func (s *Store) ListCatGroupWorkflows(ctx context.Context, groupID string) ([]CatGroupWorkflow, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT data FROM cat_group_workflows WHERE group_id=? AND
+	return s.listCatGroupWorkflows(ctx, groupID, false)
+}
+
+// ListAllCatGroupWorkflows includes records outside the recent-history window.
+func (s *Store) ListAllCatGroupWorkflows(ctx context.Context, groupID string) ([]CatGroupWorkflow, error) {
+	return s.listCatGroupWorkflows(ctx, groupID, true)
+}
+
+func (s *Store) listCatGroupWorkflows(ctx context.Context, groupID string, all bool) ([]CatGroupWorkflow, error) {
+	query := `SELECT data FROM cat_group_workflows WHERE group_id=? AND COALESCE(json_extract(data,'$.dismissed'),0)=0 AND
 		(status NOT IN ('completed','stopped') OR chain_id IN
-		 (SELECT chain_id FROM cat_group_workflows WHERE group_id=? AND status IN ('completed','stopped') ORDER BY updated_at DESC LIMIT 10))
-		ORDER BY updated_at DESC`, groupID, groupID)
+		 (SELECT chain_id FROM cat_group_workflows WHERE group_id=? AND COALESCE(json_extract(data,'$.dismissed'),0)=0 AND status IN ('completed','stopped') ORDER BY updated_at DESC LIMIT 10))
+		ORDER BY updated_at DESC`
+	args := []any{groupID, groupID}
+	if all {
+		query = `SELECT data FROM cat_group_workflows WHERE group_id=? AND COALESCE(json_extract(data,'$.dismissed'),0)=0 ORDER BY updated_at DESC`
+		args = []any{groupID}
+	}
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

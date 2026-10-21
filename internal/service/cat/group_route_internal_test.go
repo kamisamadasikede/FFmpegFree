@@ -12,8 +12,8 @@ import (
 )
 
 func TestAIRouteTimeoutConstant(t *testing.T) {
-	if aiRouteTimeout != 45*time.Second {
-		t.Fatalf("aiRouteTimeout=%v want 45s", aiRouteTimeout)
+	if aiRouteTimeout != 2*time.Minute {
+		t.Fatalf("aiRouteTimeout=%v want 2m", aiRouteTimeout)
 	}
 }
 

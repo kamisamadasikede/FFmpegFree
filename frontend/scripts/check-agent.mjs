@@ -23,6 +23,8 @@ try {
         import { catStopChecks } from './src/views/cat/catStop.check'
         import { catTypewriterChecks } from './src/components/cat/catTypewriter.check'
         import { catStreamChecks } from './src/api/catStream.check'
+        import { catGroupStoreChecks } from './src/stores/catGroupChat.check'
+        import { groupWorkflowChecks } from './src/components/cat/group/groupWorkflowState.check'
         import { catDetectChecks } from './src/api/catDetect.check'
         export async function run() {
           const failures = []
@@ -35,7 +37,8 @@ try {
           catCommandsChecks(eq)
           catDraftsChecks(eq)
           await catCLIUpdatesChecks(eq)
-          for (const check of [catFollowChecks, catPendingChecks, catStopChecks, catTypewriterChecks, catStreamChecks, catDetectChecks]) check(eq)
+          await catGroupStoreChecks(eq)
+          for (const check of [catFollowChecks, catPendingChecks, catStopChecks, catTypewriterChecks, catStreamChecks, catDetectChecks, groupWorkflowChecks]) check(eq)
           return { failures, count }
         }`,
     },

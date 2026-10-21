@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"FFmpegFree/internal/agentexec"
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/catagent"
 	"FFmpegFree/internal/service/cat"
@@ -365,7 +366,8 @@ func TestSendCheckOrderAndSandboxRoot(t *testing.T) {
 		mu.Unlock()
 		return catagent.TurnResponse{Message: catagent.WireMessage{Role: "assistant", Content: "好"}}, nil
 	}}
-	svc, rec := newProjSvc(t, st, a, cat.Config{})
+	dataRoot := t.TempDir()
+	svc, rec := newProjSvc(t, st, a, cat.Config{DataRoot: dataRoot, CLIHome: t.TempDir()})
 	if _, err := svc.ListCatProjects(ctx); err != nil { // 先记录一次 missing=false
 		t.Fatal(err)
 	}
@@ -376,9 +378,19 @@ func TestSendCheckOrderAndSandboxRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc.Wait()
+	projectRoot, rootErr := agentexec.CanonicalRoot(dir)
+	if rootErr != nil {
+		t.Fatal(rootErr)
+	}
+	plainRoot, rootErr := agentexec.CanonicalRoot(catagent.TurnCwd(dataRoot, "", loose.ID))
+	if rootErr != nil {
+		t.Fatal(rootErr)
+	}
+	wantRoots := []string{projectRoot, plainRoot}
 	sort.Strings(roots)
-	if len(roots) != 2 || roots[0] != "" || roots[1] != dir {
-		t.Fatalf("沙箱根只来自所属项目（req.projectPath 忽略）: %q", roots)
+	sort.Strings(wantRoots)
+	if len(roots) != 2 || roots[0] != wantRoots[0] || roots[1] != wantRoots[1] {
+		t.Fatalf("sandbox roots = %q, want physical project/private roots %q (req.projectPath ignored)", roots, wantRoots)
 	}
 
 	_ = os.RemoveAll(dir)

@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>ffc 工具箱 · 原型 v1</title>
+<style>
+/* ── 设计变量：直接抄自 frontend/src/styles/tokens.css ───────────────── */
+:root, .ff-light {
+  color-scheme: light;
+  --ff-primary: #3b6ef5;
+  --ff-primary-hover: #2f5cd9;
+  --ff-primary-soft: #eaf0ff;
+  --ff-primary-text: #2f5cd9;
+  --ff-on-primary: #ffffff;
+  --ff-success: #16a34a;
+  --ff-warning: #d97706;
+  --ff-warning-text: #985006;
+  --ff-danger: #dc2626;
+  --ff-badge-bg: #2f5cd9;
+  --ff-bg-app: #f5f6f8;
+  --ff-bg-sidebar: #eef0f3;
+  --ff-bg-surface: #ffffff;
+  --ff-bg-elevated: #ffffff;
+  --ff-bg-hover: #f0f2f5;
+  --ff-border: #e3e6eb;
+  --ff-text-1: #1f2329;
+  --ff-text-2: #5c6370;
+  --ff-text-3: #9aa0a9;
+  --ff-space-1: 4px; --ff-space-2: 8px; --ff-space-3: 12px;
+  --ff-space-4: 16px; --ff-space-5: 20px; --ff-space-6: 24px;
+  --ff-radius-sm: 4px; --ff-radius-md: 6px; --ff-radius-lg: 10px; --ff-radius-xl: 12px;
+  --ff-font: -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+  --ff-font-mono: "JetBrains Mono", Consolas, Menlo, monospace;
+  --ff-fs-xs: 12px; --ff-fs-sm: 13px; --ff-fs-md: 14px; --ff-fs-lg: 16px; --ff-fs-xl: 20px;
+  --ff-shadow-1: 0 1px 2px rgba(0,0,0,.06);
+  --ff-ease: cubic-bezier(.2,0,0,1);
+  --ff-ease-out: cubic-bezier(.16,1,.3,1);
+  --ff-dur-quick: 120ms; --ff-dur-base: 200ms; --ff-dur-slow: 320ms;
+  --ff-sidebar-w: 200px;
+  --ff-titlebar-h: 40px;
+  /* 原型新增：抽屉专用 */
+  --ff-drawer-w: 760px;
+  --ff-drawer-glass: color-mix(in srgb, var(--ff-bg-elevated) 92%, transparent);
+  --ff-scrim: rgba(23, 26, 32, .28);
+  --ff-drawer-shadow: 0 24px 64px -12px rgba(16, 20, 28, .28), 0 2px 8px rgba(16, 20, 28, .06);
+  --ff-inset-hi: inset 0 1px 0 rgba(255,255,255,.7);
+}
+html.dark {
+  color-scheme: dark;
+  --ff-primary: #5b8cff;
+  --ff-primary-hover: #7aa2ff;
+  --ff-primary-soft: #1e2a4a;
+  --ff-primary-text: #7aa2ff;
+  --ff-on-primary: #0b0c0e;
+  --ff-success: #22c55e;
+  --ff-warning: #f59e0b;
+  --ff-warning-text: #f59e0b;
+  --ff-danger: #ef4444;
+  --ff-badge-bg: #5b8cff;
+  --ff-bg-app: #141518;
+  --ff-bg-sidebar: #1a1b1f;
+  --ff-bg-surface: #1f2025;
+  --ff-bg-elevated: #26282e;
+  --ff-bg-hover: #2a2c33;
+  --ff-border: #2e3037;
+  --ff-text-1: #e8eaed;
+  --ff-text-2: #a0a6b0;
+  --ff-text-3: #6b717b;
+  --ff-shadow-1: 0 1px 2px rgba(0,0,0,.4);
+  --ff-scrim: rgba(0, 0, 0, .52);
+  --ff-drawer-shadow: 0 24px 64px -8px rgba(0,0,0,.66), 0 0 0 1px rgba(255,255,255,.04);
+  --ff-inset-hi: inset 0 1px 0 rgba(255,255,255,.06);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  font-family: var(--ff-font);
+  font-size: var(--ff-fs-sm);
+  line-height: 1.5;
+  color: var(--ff-text-1);
+  background: var(--ff-bg-app);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+kbd {
+  font-family: var(--ff-font);
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 5px;
+  border: 1px solid var(--ff-border);
+  background: var(--ff-bg-surface);
+  color: var(--ff-text-3);
+}
+
+/* ── 1. 被压在下面的应用外壳（只为交代上下文，不是本次设计对象）────── */
+.shell { display: flex; height: 100vh; min-width: 1024px; }
+.sidebar {
+  width: var(--ff-sidebar-w); flex: none;
+  display: flex; flex-direction: column;
+  padding: 0 8px 12px;
+  background: var(--ff-bg-sidebar);
+  border-right: 1px solid var(--ff-border);
+}
+.brand { display: flex; align-items: center; gap: 10px; padding: 16px 10px; }
+.brand .logo {
+  width: 32px; height: 32px; flex: none; border-radius: 9px;
+  background: linear-gradient(150deg, var(--ff-primary), #7c5cff);
+  display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 13px;
+  box-shadow: var(--ff-shadow-1);
+}
+.brand-text { flex: 1; min-width: 0; }
+.brand-text b { display: block; font-size: var(--ff-fs-md); font-weight: 600; line-height: 1.3; }
+.brand-text small { display: block; font-size: 12px; color: var(--ff-text-3); line-height: 1.2; }
+
+/* ★ 本次新增的触发器：侧栏顶部「全部工具」 */
+.toolbox-trigger {
+  margin: 0 2px 10px;
+  height: 36px;
+  display: flex; align-items: center; gap: 9px;
+  padding: 0 9px;
+  border-radius: var(--ff-radius-md);
+  color: var(--ff-text-2);
+  border: 1px dashed var(--ff-border);
+  transition: background var(--ff-dur-quick) var(--ff-ease), color var(--ff-dur-quick) var(--ff-ease), border-color var(--ff-dur-quick) var(--ff-ease);
+}
+.toolbox-trigger:hover { background: var(--ff-bg-hover); color: var(--ff-text-1); border-color: var(--ff-primary); }
+.toolbox-trigger svg { width: 16px; height: 16px; flex: none; }
+.toolbox-trigger .lbl { flex: 1; text-align: left; font-size: var(--ff-fs-sm); }
+.toolbox-trigger kbd { flex: none; }
+
+.nav { display: flex; flex-direction: column; gap: 2px; }
+.nav-item {
+  height: 36px; display: flex; align-items: center; gap: 10px;
+  padding: 0 10px; border-radius: var(--ff-radius-md);
+  color: var(--ff-text-2); font-size: var(--ff-fs-sm); white-space: nowrap;
+}
+.nav-item svg { width: 16px; height: 16px; flex: none; }
+.nav-item.active { background: var(--ff-primary-soft); color: var(--ff-primary); font-weight: 500; }
+.nav-item .tag {
+  margin-left: auto; font-size: 10px; line-height: 16px; padding: 0 5px;
+  border-radius: 8px; background: var(--ff-primary-soft); color: var(--ff-primary-text); font-weight: 600;
+}
+.sep { height: 1px; background: var(--ff-border); margin: 8px 10px; }
+.grow { flex: 1; }
+.ff-card {
+  margin: 0 2px 10px; padding: 9px 10px; border-radius: var(--ff-radius-md);
+  background: var(--ff-bg-surface); border: 1px solid var(--ff-border);
+  display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ff-text-2);
+}
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ff-warning); flex: none; }
+
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.titlebar {
+  height: var(--ff-titlebar-h); flex: none;
+  display: flex; align-items: center; padding: 0 24px;
+  border-bottom: 1px solid var(--ff-border);
+  color: var(--ff-text-2); font-size: var(--ff-fs-sm);
+}
+.content { flex: 1; padding: 20px 24px; overflow: hidden; }
+.sk-title { font-size: var(--ff-fs-xl); font-weight: 600; margin: 0 0 4px; }
+.sk-sub { color: var(--ff-text-3); font-size: var(--ff-fs-sm); margin: 0 0 20px; }
+.sk-drop {
+  height: 132px; border: 1.5px dashed var(--ff-border); border-radius: var(--ff-radius-lg);
+  background: var(--ff-bg-surface); display: grid; place-items: center;
+  color: var(--ff-text-3); font-size: var(--ff-fs-sm); margin-bottom: 16px;
+}
+.sk-rows { display: flex; flex-direction: column; gap: 8px; }
+.sk-row {
+  height: 52px; border-radius: var(--ff-radius-md); background: var(--ff-bg-surface);
+  border: 1px solid var(--ff-border); display: flex; align-items: center; gap: 12px; padding: 0 14px;
+}
+.sk-thumb { width: 32px; height: 32px; border-radius: 6px; background: var(--ff-bg-hover); flex: none; }
+.sk-line { height: 8px; border-radius: 4px; background: var(--ff-bg-hover); }
+.sk-line.w1 { width: 38%; } .sk-line.w2 { width: 22%; }
+
+/* ── 2. 抽屉浮层（本次设计对象）──────────────────────────────────── */
+.scrim {
+  position: fixed; inset: 0;
+  background: var(--ff-scrim);
+  backdrop-filter: blur(7px) saturate(115%);
+  -webkit-backdrop-filter: blur(7px) saturate(115%);
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--ff-dur-base) var(--ff-ease);
+  z-index: 40;
+}
+.drawer {
+  position: fixed; z-index: 41;
+  top: 50%; left: calc(var(--ff-sidebar-w) + (100vw - var(--ff-sidebar-w)) / 2);
+  width: var(--ff-drawer-w); max-width: calc(100vw - var(--ff-sidebar-w) - 96px);
+  max-height: calc(100vh - 96px);
+  display: flex; flex-direction: column;
+  border-radius: 16px;
+  background: var(--ff-drawer-glass);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid color-mix(in srgb, var(--ff-border) 80%, transparent);
+  box-shadow: var(--ff-drawer-shadow), var(--ff-inset-hi);
+  /* 从侧栏按钮方向展开 */
+  transform: translate(-50%, -50%) scale(.96) translateY(-8px);
+  transform-origin: 12% 0%;
+  opacity: 0; pointer-events: none;
+  transition: opacity var(--ff-dur-base) var(--ff-ease-out), transform var(--ff-dur-slow) var(--ff-ease-out);
+  overflow: hidden;
+}
+body.open .scrim { opacity: 1; pointer-events: auto; }
+body.open .drawer { opacity: 1; pointer-events: auto; transform: translate(-50%, -50%) scale(1) translateY(0); }
+
+/* 2.1 抽屉头：搜索 + 关闭 */
+.d-head { padding: 16px 16px 10px; display: flex; align-items: center; gap: 10px; flex: none; }
+.search {
+  flex: 1; height: 44px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 12px 0 13px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--ff-bg-app) 70%, var(--ff-bg-surface));
+  border: 1px solid var(--ff-border);
+  transition: border-color var(--ff-dur-quick) var(--ff-ease), box-shadow var(--ff-dur-quick) var(--ff-ease);
+}
+.search:focus-within {
+  border-color: var(--ff-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ff-primary) 16%, transparent);
+}
+.search svg { width: 17px; height: 17px; color: var(--ff-text-3); flex: none; }
+.search input {
+  flex: 1; min-width: 0; border: 0; outline: 0; background: transparent;
+  font: inherit; font-size: var(--ff-fs-md); color: var(--ff-text-1);
+}
+.search input::placeholder { color: var(--ff-text-3); }
+.search .clear { color: var(--ff-text-3); display: grid; place-items: center; }
+.search .clear[hidden] { display: none; }
+.search .clear:hover { color: var(--ff-text-1); }
+.d-close {
+  width: 34px; height: 34px; flex: none; border-radius: 9px;
+  display: grid; place-items: center; color: var(--ff-text-3);
+}
+.d-close:hover { background: var(--ff-bg-hover); color: var(--ff-text-1); }
+
+/* 2.2 分类胶囊 */
+.chips { display: flex; gap: 6px; padding: 0 16px 12px; flex: none; flex-wrap: wrap; }
+.chip {
+  height: 26px; padding: 0 11px; border-radius: 13px;
+  font-size: var(--ff-fs-xs); color: var(--ff-text-2);
+  border: 1px solid transparent;
+  transition: background var(--ff-dur-quick) var(--ff-ease), color var(--ff-dur-quick) var(--ff-ease);
+}
+.chip:hover { background: var(--ff-bg-hover); color: var(--ff-text-1); }
+.chip.on { background: var(--ff-primary-soft); color: var(--ff-primary-text); font-weight: 600; }
+
+/* 2.3 滚动主体 */
+.d-body { flex: 1; min-height: 0; overflow: auto; padding: 0 16px 4px; }
+.d-body::-webkit-scrollbar { width: 6px; }
+.d-body::-webkit-scrollbar-thumb { background: transparent; border-radius: 3px; }
+.d-body:hover::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--ff-text-3) 60%, transparent); }
+
+.sec-label {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; font-weight: 600; letter-spacing: .04em;
+  color: var(--ff-text-3); text-transform: uppercase;
+  margin: 4px 2px 10px;
+}
+.sec-label[hidden] { display: none; }
+
+/* 最近使用 */
+.recent { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; }
+.recent-item {
+  height: 30px; padding: 0 10px 0 8px; border-radius: 8px;
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--ff-bg-app); border: 1px solid var(--ff-border);
+  font-size: var(--ff-fs-xs); color: var(--ff-text-2);
+}
+.recent-item:hover { border-color: var(--ff-primary); color: var(--ff-text-1); }
+.recent-item svg { width: 14px; height: 14px; color: var(--ff-text-3); }
+
+/* 工具网格 */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.tile {
+  position: relative;
+  display: flex; align-items: center; gap: 11px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  text-align: left;
+  transition: background var(--ff-dur-quick) var(--ff-ease), border-color var(--ff-dur-quick) var(--ff-ease), transform var(--ff-dur-quick) var(--ff-ease);
+}
+.tile:hover { background: var(--ff-bg-hover); border-color: var(--ff-border); transform: translateY(-1px); }
+.tile:focus-visible { outline: 2px solid var(--ff-primary); outline-offset: 1px; }
+.tile .ico {
+  width: 38px; height: 38px; border-radius: 10px; flex: none;
+  display: grid; place-items: center;
+  background: color-mix(in srgb, var(--ff-primary) 12%, transparent);
+  color: var(--ff-primary-text);
+  transition: background var(--ff-dur-quick) var(--ff-ease);
+}
+.tile:hover .ico { background: color-mix(in srgb, var(--ff-primary) 20%, transparent); }
+.tile .ico svg { width: 20px; height: 20px; }
+.tile.media .ico { background: color-mix(in srgb, var(--ff-primary) 12%, transparent); color: var(--ff-primary-text); }
+.tile.doc   .ico { background: color-mix(in srgb, #0f766e 13%, transparent); color: #0f766e; }
+.tile.live  .ico { background: color-mix(in srgb, var(--ff-danger) 13%, transparent); color: var(--ff-danger); }
+.tile.data  .ico { background: color-mix(in srgb, #7c3aed 13%, transparent); color: #7c3aed; }
+.tile.sys   .ico { background: color-mix(in srgb, var(--ff-text-3) 16%, transparent); color: var(--ff-text-2); }
+html.dark .tile.doc .ico { color: #2dd4bf; }
+html.dark .tile.data .ico { color: #a78bfa; }
+
+.tile .txt { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
+.tile .name { font-size: var(--ff-fs-md); font-weight: 500; line-height: 1.3; }
+.tile .desc { font-size: var(--ff-fs-xs); color: var(--ff-text-3); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 角标 */
+.badge {
+  flex: none;
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: var(--ff-badge-bg); color: var(--ff-on-primary);
+  font-size: 11px; font-weight: 600; display: grid; place-items: center;
+}
+.tag-new {
+  flex: none;
+  font-size: 10px; line-height: 16px; padding: 0 5px; border-radius: 8px;
+  background: var(--ff-primary-soft); color: var(--ff-primary-text); font-weight: 600;
+}
+
+/* 禁用态（ffmpeg 缺失）*/
+.tile.gated { opacity: .45; cursor: not-allowed; }
+.tile.gated:hover { background: transparent; border-color: transparent; transform: none; }
+.tile.gated .ico { background: color-mix(in srgb, var(--ff-text-3) 14%, transparent); color: var(--ff-text-3); }
+.gate-hint {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 10px; color: var(--ff-warning-text);
+  background: color-mix(in srgb, var(--ff-warning) 14%, transparent);
+  border-radius: 5px; padding: 0 4px; width: fit-content; margin-top: 1px;
+}
+
+/* 空结果 */
+.empty { padding: 44px 0 52px; text-align: center; color: var(--ff-text-3); }
+.empty svg { width: 28px; height: 28px; margin-bottom: 10px; opacity: .6; }
+.empty b { display: block; color: var(--ff-text-2); font-weight: 500; margin-bottom: 4px; }
+
+/* 2.4 抽屉底：键盘提示 */
+.d-foot {
+  flex: none; display: flex; align-items: center; gap: 14px;
+  padding: 10px 16px;
+  border-top: 1px solid color-mix(in srgb, var(--ff-border) 70%, transparent);
+  color: var(--ff-text-3); font-size: 11px;
+  background: color-mix(in srgb, var(--ff-bg-app) 45%, transparent);
+}
+.hint { display: inline-flex; align-items: center; gap: 5px; }
+.hint kbd { padding: 2px 4px; font-size: 10px; }
+.d-foot .right { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+
+/* ── 3. 原型工具条（真实产品里不存在）────────────────────────────── */
+.proto-bar {
+  position: fixed; right: 14px; top: 14px; z-index: 60;
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 8px; border-radius: 10px;
+  background: var(--ff-bg-elevated);
+  border: 1px solid var(--ff-border);
+  box-shadow: 0 8px 24px rgba(0,0,0,.14);
+  font-size: 12px; color: var(--ff-text-2);
+}
+.proto-bar span { color: var(--ff-text-3); padding: 0 4px; }
+.proto-bar button {
+  height: 26px; padding: 0 9px; border-radius: 7px;
+  border: 1px solid var(--ff-border); color: var(--ff-text-2);
+}
+.proto-bar button:hover { background: var(--ff-bg-hover); color: var(--ff-text-1); }
+.proto-bar button.on { background: var(--ff-primary-soft); color: var(--ff-primary-text); border-color: transparent; font-weight: 600; }
+</style>
+</head>
+<body class="open">
+
+<!-- ══ 背景：现有应用外壳 ══ -->
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">ffc</div>
+      <div class="brand-text"><b>ffc</b><small>v1.0.0</small></div>
+    </div>
+
+    <!-- ★ 触发器 -->
+    <button class="toolbox-trigger" id="trigger">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M3 12h18M8 11v3M16 11v3"/></svg>
+      <span class="lbl">全部工具</span>
+      <kbd>Ctrl K</kbd>
+    </button>
+
+    <nav class="nav">
+      <a class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h13l-3-3M20 17H7l3 3"/></svg><span>转换</span></a>
+      <a class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg><span>语音工具</span></a>
+      <a class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg><span>文档</span></a>
+      <a class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4M19 5a10 10 0 0 1 0 14M5 19A10 10 0 0 1 5 5"/></svg><span>直播</span></a>
+      <a class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m8 7-5 5 5 5M16 7l5 5-5 5"/></svg><span>JSON工具</span></a>
+      <div class="sep"></div>
+      <a class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17"/></svg><span>任务中心</span></a>
+    </nav>
+    <div class="grow"></div>
+    <nav class="nav">
+      <div class="ff-card"><i class="dot"></i><span>转换组件未就绪</span></div>
+      <a class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4v4M9 14h.01M15 14h.01"/></svg><span>Agent</span><span class="tag">新</span></a>
+      <a class="nav-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span>设置</span></a>
+    </nav>
+  </aside>
+
+  <div class="main">
+    <div class="titlebar">格式转换</div>
+    <div class="content">
+      <h1 class="sk-title">格式转换</h1>
+      <p class="sk-sub">视频 · 音频 · 转换记录</p>
+      <div class="sk-drop">把文件拖到这里，或点击选择</div>
+      <div class="sk-rows">
+        <div class="sk-row"><div class="sk-thumb"></div><div class="sk-line w1"></div></div>
+        <div class="sk-row"><div class="sk-thumb"></div><div class="sk-line w2"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 设计对象：全部工具抽屉 ══ -->
+<div class="scrim" id="scrim"></div>
+
+<div class="drawer" role="dialog" aria-modal="true" aria-label="全部工具">
+  <div class="d-head">
+    <label class="search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" type="text" placeholder="搜索工具、格式或命令…" autocomplete="off" />
+      <button class="clear" id="clear" hidden aria-label="清空">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </label>
+    <button class="d-close" id="close" aria-label="关闭">
+      <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+
+  <div class="chips" id="chips">
+    <button class="chip on" data-cat="all">全部</button>
+    <button class="chip" data-cat="media">媒体</button>
+    <button class="chip" data-cat="doc">文档</button>
+    <button class="chip" data-cat="live">直播</button>
+    <button class="chip" data-cat="data">数据</button>
+    <button class="chip" data-cat="sys">系统</button>
+  </div>
+
+  <div class="d-body">
+    <div id="recentWrap">
+      <div class="sec-label">最近使用</div>
+      <div class="recent">
+        <button class="recent-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h13l-3-3M20 17H7l3 3"/></svg>格式转换</button>
+        <button class="recent-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m8 7-5 5 5 5M16 7l5 5-5 5"/></svg>JSON工具</button>
+        <button class="recent-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>PDF 预览</button>
+      </div>
+    </div>
+
+    <div class="sec-label" id="gridLabel">全部工具 · 9</div>
+    <div class="grid" id="grid"></div>
+
+    <div class="empty" id="empty" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <b>没有找到匹配的工具</b>
+      试试「转码」「PDF」「推流」，或按 Esc 关闭
+    </div>
+  </div>
+
+  <div class="d-foot">
+    <span class="hint"><kbd>↑</kbd><kbd>↓</kbd> 选择</span>
+    <span class="hint"><kbd>Enter</kbd> 打开</span>
+    <span class="hint"><kbd>Esc</kbd> 关闭</span>
+    <span class="right">共 9 个工具<span style="color:var(--ff-border)">|</span>2 个需要转换组件</span>
+  </div>
+</div>
+
+<!-- ══ 原型控制（产品里没有）══ -->
+<div class="proto-bar">
+  <span>原型</span>
+  <button id="pToggle" class="on">抽屉</button>
+  <button id="pTheme">深色</button>
+  <button id="pGate" class="on">组件缺失</button>
+</div>
+
+<script>
+const I = {
+  convert: '<path d="M4 7h13l-3-3M20 17H7l3 3"/>',
+  mic: '<path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  doc: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>',
+  file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+  live: '<circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4M19 5a10 10 0 0 1 0 14M5 19A10 10 0 0 1 5 5"/>',
+  tool: '<path d="m8 7-5 5 5 5M16 7l5 5-5 5"/>',
+  task: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17"/>',
+  bot: '<rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 4v4M9 14h.01M15 14h.01"/>',
+  set: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  warn: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>'
+};
+
+const svg = (k, s = 21) =>
+  `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${I[k]}</svg>`;
+
+const TOOLS = [
+  { key: 'convert', name: '格式转换', desc: '视频 · 音频 · 转码', cat: 'media', icon: 'convert', gate: true, kw: '转码 转换 视频 音频 mp4 mkv 压缩' },
+  { key: 'voice',   name: '语音工具', desc: '转字幕 · 语音识别', cat: 'media', icon: 'mic', kw: '字幕 语音识别 asr 音频 文字' },
+  { key: 'docs',    name: '文档',     desc: '文档 · 表格 · 演示', cat: 'doc', icon: 'doc', kw: 'word excel ppt pdf 转换 office' },
+  { key: 'pdf',     name: 'PDF 预览', desc: '阅读 · 加密文档', cat: 'doc', icon: 'file', kw: 'pdf 预览 阅读' },
+  { key: 'live',    name: '直播',     desc: '推流 · 拉流 · 录屏', cat: 'live', icon: 'live', gate: true, kw: '推流 拉流 rtmp srt 录屏 直播' },
+  { key: 'json',    name: 'JSON 工具', desc: '格式化 · 校验', cat: 'data', icon: 'tool', kw: 'json 格式化 校验 压缩 对比' },
+  { key: 'tasks',   name: '任务中心', desc: '进度 · 历史 · 重试', cat: 'sys', icon: 'task', badge: 3, kw: '任务 进度 历史 队列' },
+  { key: 'cat',     name: 'Agent',    desc: '对话 · 项目 · 群聊', cat: 'sys', icon: 'bot', isNew: true, kw: 'ai 助手 对话 项目 群聊 agent' },
+  { key: 'settings',name: '设置',     desc: '外观 · 组件 · 存储', cat: 'sys', icon: 'set', kw: '设置 偏好 主题 组件 存储' }
+];
+
+const grid = document.getElementById('grid');
+const q = document.getElementById('q');
+const empty = document.getElementById('empty');
+const gridLabel = document.getElementById('gridLabel');
+const recentWrap = document.getElementById('recentWrap');
+let cat = 'all';
+let gated = true;
+
+function render() {
+  const term = q.value.trim().toLowerCase();
+  const list = TOOLS.filter(t => {
+    if (cat !== 'all' && t.cat !== cat) return false;
+    if (!term) return true;
+    return (t.name + ' ' + t.desc + ' ' + t.kw).toLowerCase().includes(term);
+  });
+
+  grid.innerHTML = list.map(t => {
+    const isGated = gated && t.gate;
+    return `<button class="tile ${t.cat} ${isGated ? 'gated' : ''}" ${isGated ? 'aria-disabled="true"' : ''}>
+      <span class="ico">${svg(t.icon)}</span>
+      <span class="txt">
+        <span class="name">${t.name}</span>
+        <span class="desc">${t.desc}</span>
+        ${isGated ? `<span class="gate-hint">${svg('warn', 10)} 需要转换组件</span>` : ''}
+      </span>
+      ${t.badge ? `<span class="badge">${t.badge}</span>` : ''}
+      ${t.isNew ? `<span class="tag-new">新</span>` : ''}
+    </button>`;
+  }).join('');
+
+  const nothing = list.length === 0;
+  empty.hidden = !nothing;
+  gridLabel.hidden = nothing;
+  recentWrap.hidden = !!term || cat !== 'all';
+  if (!nothing) {
+    gridLabel.textContent = `${cat === 'all' ? '全部工具' : document.querySelector(`.chip[data-cat="${cat}"]`).textContent} · ${list.length}`;
+  }
+}
+
+document.getElementById('chips').addEventListener('click', e => {
+  const b = e.target.closest('.chip');
+  if (!b) return;
+  cat = b.dataset.cat;
+  document.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c === b));
+  render();
+});
+q.addEventListener('input', () => {
+  document.getElementById('clear').hidden = !q.value;
+  render();
+});
+document.getElementById('clear').addEventListener('click', () => {
+  q.value = ''; document.getElementById('clear').hidden = true; render(); q.focus();
+});
+
+const setOpen = open => {
+  document.body.classList.toggle('open', open);
+  document.getElementById('pToggle').classList.toggle('on', open);
+  if (open) setTimeout(() => q.focus(), 60);
+};
+document.getElementById('trigger').addEventListener('click', () => setOpen(true));
+document.getElementById('close').addEventListener('click', () => setOpen(false));
+document.getElementById('scrim').addEventListener('click', () => setOpen(false));
+document.getElementById('pToggle').addEventListener('click', () => setOpen(!document.body.classList.contains('open')));
+
+document.getElementById('pTheme').addEventListener('click', e => {
+  const dark = document.documentElement.classList.toggle('dark');
+  e.target.textContent = dark ? '浅色' : '深色';
+});
+document.getElementById('pGate').addEventListener('click', e => {
+  gated = !gated;
+  e.target.classList.toggle('on', gated);
+  render();
+});
+
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setOpen(true); }
+  if (e.key === 'Escape') setOpen(false);
+});
+
+// 原型专用：URL 参数直接进某个状态，方便截图 / 走查
+const P = new URLSearchParams(location.search);
+if (P.get('theme') === 'dark') { document.documentElement.classList.add('dark'); document.getElementById('pTheme').textContent = '浅色'; }
+if (P.get('gate') === '0') { gated = false; document.getElementById('pGate').classList.remove('on'); }
+if (P.get('open') === '0') setOpen(false);
+if (P.get('q')) { q.value = P.get('q'); document.getElementById('clear').hidden = false; }
+if (P.get('cat')) {
+  const b = document.querySelector(`.chip[data-cat="${P.get('cat')}"]`);
+  if (b) { cat = P.get('cat'); document.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', c === b)); }
+}
+
+render();
+</script>
+</body>
+</html>

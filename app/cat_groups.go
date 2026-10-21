@@ -156,3 +156,19 @@ func (s *CatService) ListCatGroupFiles(groupId string) ([]cat.GroupFile, error) 
 	}
 	return c.ListCatGroupFiles(s.rootCtx(), groupId)
 }
+
+func (s *CatService) DismissCatGroupWorkflow(req cat.DismissGroupWorkflowRequest) error {
+	c, err := s.svc()
+	if err != nil {
+		return err
+	}
+	return c.DismissCatGroupWorkflow(s.rootCtx(), req)
+}
+
+func (s *CatService) ClearCatGroupWorkflowHistory(groupID string) ([]string, error) {
+	c, err := s.svc()
+	if err != nil {
+		return nil, err
+	}
+	return c.ClearCatGroupWorkflowHistory(s.rootCtx(), groupID)
+}

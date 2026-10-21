@@ -109,6 +109,8 @@ func (s *Service) emitGroupWorkflow(w store.CatGroupWorkflow) {
 // Reassignment changes a single graph node. Keep it reserved until its previous
 // execution exits, and leave this employee's unrelated work and queue intact.
 func (s *Service) reassignGroupWorkTask(ctx context.Context, g store.CatGroup, req ReassignGroupRouteRequest, to store.CatGroupMember) (bool, ReassignGroupRouteResult, error) {
+	s.groupStartMu.Lock()
+	defer s.groupStartMu.Unlock()
 	s.groupWorkMu.Lock()
 	w, err := s.cfg.Store.GetCatGroupWorkflow(ctx, req.ChainID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -133,7 +135,7 @@ func (s *Service) reassignGroupWorkTask(ctx context.Context, g store.CatGroup, r
 		}
 		index = i
 	}
-	if index < 0 || w.Status == "stopped" {
+	if index < 0 || w.Status == "stopped" || w.Dismissed {
 		s.groupWorkMu.Unlock()
 		return true, ReassignGroupRouteResult{}, apperr.New(apperr.TaskConflict, "任务已完成或整项协作已停止，请先重试再改派")
 	}
@@ -143,11 +145,30 @@ func (s *Service) reassignGroupWorkTask(ctx context.Context, g store.CatGroup, r
 		return true, ReassignGroupRouteResult{}, apperr.New(apperr.TaskConflict, "请选择其他成员接手这项任务")
 	}
 	fromID, oldTurn, taskID := task.MemberID, task.TurnID, task.ID
+	assignment, managed, err := s.assignmentFor(ctx, w.ChainID, fromID, taskID)
+	if err != nil {
+		s.groupWorkMu.Unlock()
+		return true, ReassignGroupRouteResult{}, err
+	}
+	if managed && assignment.Status == "held" {
+		s.groupWorkMu.Unlock()
+		return true, ReassignGroupRouteResult{}, apperr.New(apperr.TaskConflict, "这项任务正在移交，请等待原成员退出后再改派")
+	}
+	next := assignment
+	if managed {
+		next.ID, next.MemberID, next.TurnID = groupAssignmentID(w.ChainID, to.ID, taskID), to.ID, ""
+		next = s.materializeGroupDecision(ctx, store.CatGroupDecision{Assignments: []store.CatGroupAssignment{next}}).Assignments[0]
+	}
 	reservation := id.New()
 	task.MemberID, task.Status, task.TurnID = to.ID, "queued", reservation
 	task.Result = "正在移交给 " + to.Name
 	task.Evidence = ""
-	err = s.cfg.Store.SaveCatGroupWorkflow(ctx, &w)
+	task.RetryAt = 0
+	if managed {
+		err = s.cfg.Store.MoveCatGroupAssignment(ctx, assignment.ID, next, &w)
+	} else {
+		err = s.cfg.Store.SaveCatGroupWorkflow(ctx, &w)
+	}
 	s.groupWorkMu.Unlock()
 	if err != nil {
 		return true, ReassignGroupRouteResult{}, err
@@ -180,9 +201,14 @@ func (s *Service) reassignGroupWorkTask(ctx context.Context, g store.CatGroup, r
 		if previous != nil {
 			<-previous.done
 		}
+		s.groupDispatchMu.Lock()
+		defer s.groupDispatchMu.Unlock()
+		if groupContextStopped(ctx) {
+			return
+		}
 		s.groupWorkMu.Lock()
-		current, err := s.cfg.Store.GetCatGroupWorkflow(context.Background(), w.ChainID)
-		if err != nil || current.Status == "stopped" {
+		current, err := s.cfg.Store.GetCatGroupWorkflow(ctx, w.ChainID)
+		if err != nil || current.Status == "stopped" || current.Dismissed {
 			s.groupWorkMu.Unlock()
 			return
 		}
@@ -195,11 +221,18 @@ func (s *Service) reassignGroupWorkTask(ctx context.Context, g store.CatGroup, r
 			}
 		}
 		if changed {
-			err = s.cfg.Store.SaveCatGroupWorkflow(context.Background(), &current)
+			if managed {
+				changed, err = s.cfg.Store.ReleaseCatGroupAssignment(ctx, next.ID, &current)
+			} else {
+				err = s.cfg.Store.SaveCatGroupWorkflow(ctx, &current)
+			}
 		}
 		s.groupWorkMu.Unlock()
+		if err != nil {
+			s.cfg.Logf("group workflow handoff release: %v", err)
+		}
 		if changed && err == nil {
-			s.advanceGroupWorkflow(g, w.ChainID)
+			s.advanceGroupWorkflow(g, w.ChainID, ctx)
 		}
 	}()
 	return true, ReassignGroupRouteResult{System: sys}, nil
@@ -209,7 +242,7 @@ func (s *Service) currentGroupWorkExecution(chainID, taskID, turnID string) bool
 	s.groupWorkMu.Lock()
 	defer s.groupWorkMu.Unlock()
 	w, err := s.cfg.Store.GetCatGroupWorkflow(context.Background(), chainID)
-	if err != nil || w.Status == "stopped" {
+	if err != nil || w.Status == "stopped" || w.Dismissed {
 		return false
 	}
 	for _, t := range w.Tasks {
@@ -221,6 +254,10 @@ func (s *Service) currentGroupWorkExecution(chainID, taskID, turnID string) bool
 }
 
 func (s *Service) startGroupWorkflow(ctx context.Context, g store.CatGroup, msg store.CatGroupMessage, tasks []store.CatGroupWorkTask) error {
+	ctx = s.groupContext(ctx, g.ID)
+	if groupContextStopped(ctx) {
+		return context.Canceled
+	}
 	s.recoverGroupWorkflows(ctx, g.ID)
 	w := store.CatGroupWorkflow{ChainID: msg.ChainID, GroupID: g.ID, OriginSeq: msg.Seq, Request: msg.Text, Status: "running", Tasks: tasks, UpdatedAt: time.Now().UnixMilli()}
 	s.groupWorkMu.Lock()
@@ -233,13 +270,27 @@ func (s *Service) startGroupWorkflow(ctx context.Context, g store.CatGroup, msg 
 		s.groupWorkMu.Unlock()
 		return err
 	}
-	err = s.cfg.Store.SaveCatGroupWorkflow(ctx, &w)
+	if request, requestErr := s.cfg.Store.GetCatGroupRequest(ctx, w.ChainID); requestErr == nil {
+		detail, _ := s.cfg.Store.LatestCatGroupRouteForChain(ctx, w.GroupID, w.ChainID)
+		d := s.materializeGroupDecision(ctx, groupDecision(request.Message, nil, tasks, detail.OutputText))
+		err = s.cfg.Store.CommitCatGroupDecision(ctx, w.ChainID, d, &w)
+	} else if errors.Is(requestErr, sql.ErrNoRows) {
+		err = s.cfg.Store.SaveCatGroupWorkflow(ctx, &w)
+	} else {
+		err = requestErr
+	}
+	if err == nil {
+		if s.groupWorkContexts == nil {
+			s.groupWorkContexts = map[string]context.Context{}
+		}
+		s.groupWorkContexts[w.ChainID] = context.WithoutCancel(ctx)
+	}
 	s.groupWorkMu.Unlock()
 	if err != nil {
 		return err
 	}
 	s.emitGroupWorkflow(w)
-	s.advanceGroupWorkflow(g, w.ChainID)
+	s.advanceGroupWorkflow(g, w.ChainID, ctx)
 	return nil
 }
 
@@ -272,11 +323,29 @@ func readyGroupTasks(w *store.CatGroupWorkflow) []store.CatGroupWorkTask {
 	return ready
 }
 
-func (s *Service) advanceGroupWorkflow(g store.CatGroup, chainID string) {
+func (s *Service) advanceGroupWorkflow(g store.CatGroup, chainID string, contexts ...context.Context) {
 	ctx := context.Background()
+	if len(contexts) > 0 {
+		ctx = contexts[0]
+	}
+	// Active workflows already carry a lifetime. Read it before binding a new
+	// one: synchronous startup failures can advance while dispatchMu is held.
 	s.groupWorkMu.Lock()
+	if saved := s.groupWorkContexts[chainID]; saved != nil {
+		ctx = saved
+	}
+	s.groupWorkMu.Unlock()
+	ctx = s.groupContext(ctx, g.ID)
+	s.groupWorkMu.Lock()
+	if saved := s.groupWorkContexts[chainID]; saved != nil {
+		ctx = saved
+	}
+	if groupContextStopped(ctx) {
+		s.groupWorkMu.Unlock()
+		return
+	}
 	w, err := s.cfg.Store.GetCatGroupWorkflow(ctx, chainID)
-	if err != nil || w.GroupID != g.ID || w.Status == "completed" || w.Status == "stopped" {
+	if err != nil || w.GroupID != g.ID || w.Status == "completed" || w.Status == "stopped" || w.Dismissed {
 		s.groupWorkMu.Unlock()
 		return
 	}
@@ -296,6 +365,9 @@ func (s *Service) advanceGroupWorkflow(g store.CatGroup, chainID string) {
 	}
 	if done {
 		w.Status = "completed"
+	}
+	if done {
+		delete(s.groupWorkContexts, chainID)
 	}
 	err = s.cfg.Store.SaveCatGroupWorkflow(ctx, &w)
 	s.groupWorkMu.Unlock()
@@ -325,7 +397,7 @@ func (s *Service) beginGroupWorkTask(chainID, taskID string, ownerTurn ...string
 	s.groupWorkMu.Lock()
 	defer s.groupWorkMu.Unlock()
 	w, err := s.cfg.Store.GetCatGroupWorkflow(context.Background(), chainID)
-	if err != nil || w.Status == "stopped" {
+	if err != nil || w.Status == "stopped" || w.Dismissed {
 		return false
 	}
 	for i := range w.Tasks {
@@ -343,6 +415,8 @@ func (s *Service) beginGroupWorkTask(chainID, taskID string, ownerTurn ...string
 			t.TurnID = ownerTurn[1]
 		}
 		t.Status = "running"
+		t.RetryAt = 0
+		t.Result = ""
 		t.Attempts++
 		if err := s.cfg.Store.SaveCatGroupWorkflow(context.Background(), &w); err != nil {
 			return false
@@ -360,7 +434,7 @@ func (s *Service) finishGroupWorkTask(g store.CatGroup, chainID, taskID, status,
 	ctx := context.Background()
 	s.groupWorkMu.Lock()
 	w, err := s.cfg.Store.GetCatGroupWorkflow(ctx, chainID)
-	if err != nil || w.Status == "stopped" {
+	if err != nil || w.Status == "stopped" || w.Dismissed {
 		s.groupWorkMu.Unlock()
 		return
 	}
@@ -395,6 +469,11 @@ func (s *Service) finishGroupWorkTask(g store.CatGroup, chainID, taskID, status,
 	}
 	if task.Kind == "verify" && task.Status == "failed" && len(result) > 0 && len(result[0].Rework) > 0 {
 		if resetGroupRework(&w, task, result[0].Rework) {
+			if err := s.resetGroupWorkflowAssignments(ctx, w); err != nil {
+				s.groupWorkMu.Unlock()
+				s.cfg.Logf("group rework outbox reset: %v", err)
+				return
+			}
 			status = "pending"
 		}
 	}
@@ -526,6 +605,7 @@ func (s *Service) groupWorkTaskPrompt(chainID, taskID string) string {
 }
 
 func (s *Service) retryGroupWorkTask(ctx context.Context, g store.CatGroup, chainID, memberID string, taskIDs ...string) (bool, error) {
+	ctx = s.groupContext(ctx, g.ID)
 	s.groupWorkMu.Lock()
 	w, err := s.cfg.Store.GetCatGroupWorkflow(ctx, chainID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -540,6 +620,10 @@ func (s *Service) retryGroupWorkTask(ctx context.Context, g store.CatGroup, chai
 		s.groupWorkMu.Unlock()
 		return true, s.errGroupNotFound()
 	}
+	if w.Dismissed {
+		s.groupWorkMu.Unlock()
+		return true, apperr.New(apperr.TaskConflict, "该任务已从记录中移除，请发送新消息发起任务")
+	}
 	found := false
 	taskID := ""
 	if len(taskIDs) > 0 {
@@ -550,6 +634,8 @@ func (s *Service) retryGroupWorkTask(ctx context.Context, g store.CatGroup, chai
 		if t.MemberID == memberID && (taskID == "" || t.ID == taskID) && (t.Status == "blocked" || t.Status == "failed" || t.Status == "stopped") {
 			t.Status = "pending"
 			t.TurnID = ""
+			t.RetryAt = 0
+			t.Result, t.Evidence = "", ""
 			found = true
 			break
 		}
@@ -566,10 +652,18 @@ func (s *Service) retryGroupWorkTask(ctx context.Context, g store.CatGroup, chai
 		}
 	}
 	w.Status = "running"
+	if s.groupWorkContexts == nil {
+		s.groupWorkContexts = map[string]context.Context{}
+	}
+	s.groupWorkContexts[chainID] = context.WithoutCancel(ctx)
+	if err = s.resetGroupWorkflowAssignments(ctx, w); err != nil {
+		s.groupWorkMu.Unlock()
+		return true, err
+	}
 	err = s.cfg.Store.SaveCatGroupWorkflow(ctx, &w)
 	s.groupWorkMu.Unlock()
 	if err == nil {
-		s.advanceGroupWorkflow(g, chainID)
+		s.advanceGroupWorkflow(g, chainID, ctx)
 	}
 	return true, err
 }
@@ -582,7 +676,7 @@ func (s *Service) stopGroupWorkflows(ctx context.Context, groupID, memberID stri
 		return
 	}
 	for _, w := range list {
-		if w.Status == "completed" || w.Status == "stopped" {
+		if w.Status == "completed" || w.Status == "stopped" || w.Dismissed {
 			continue
 		}
 		changed := false
@@ -623,7 +717,7 @@ func (s *Service) recoverGroupWorkflows(ctx context.Context, groupID string) {
 		return
 	}
 	for _, w := range list {
-		if w.Status == "completed" || w.Status == "stopped" {
+		if w.Status == "completed" || w.Status == "stopped" || w.Dismissed {
 			continue
 		}
 		changed := false

@@ -326,7 +326,7 @@ export const groupMock = {
     c.updatedAt = Date.now()
     return clone(m)
   },
-  async send(groupId: string, text: string, mentions: string[], files: { name: string; path: string }[] = []) {
+  async send(groupId: string, text: string, mentions: string[], files: { name: string; path: string }[] = [], _clientMessageId?: string) {
     const chainId = nid('chain-')
     const userMessage = push({ groupId, kind: 'user', text, mentions, files, chainId, hop: 0 }, Date.now())
     const g = groups.find((x) => x.id === groupId)!
@@ -402,6 +402,8 @@ export const groupMock = {
     return files.length >= 2 ? { reverted: files.slice(0, -1), skipped: [{ path: files[files.length - 1], reason: 'changed_after' }] } : { reverted: files, skipped: [] }
   },
   async retry(groupId: string, memberId: string, chainId: string) { fakeTurn(groupId, memberId, chainId, 0) },
+  async dismissWorkflow(_groupId: string, _chainId: string) {},
+  async clearWorkflowHistory(_groupId: string): Promise<string[]> { return [] },
   onMessage: (cb: (m: CatGroupMessage) => void) => on(L.msg, cb),
   onMember: (cb: (e: CatGroupMemberEvent) => void) => on(L.mem, cb),
   onRoute: (cb: (e: CatGroupRouteEvent) => void) => on(L.route, cb),

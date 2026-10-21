@@ -320,6 +320,11 @@ func (a *CLIAgentAdapter) Inspect(context.Context, string) InspectResult {
 
 // RunTurn 调对应 CLI headless，流式进 OnTextDelta；取消杀进程树。
 func (a *CLIAgentAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
+	var capabilityErr error
+	opts, capabilityErr = normalizeTurnCapability(opts, a.Kind())
+	if capabilityErr != nil {
+		return TurnResponse{}, capabilityErr
+	}
 	st := a.Status()
 	if st.State != StateReady {
 		return TurnResponse{}, apperr.New(apperr.CatNotReady, MsgNotReady)
@@ -923,8 +928,10 @@ func (a *CLIAgentAdapter) buildClaudeArgs(opts TurnOptions, prompt, sessionID st
 	if schema := strings.TrimSpace(opts.JSONSchema); schema != "" {
 		args = append(args, "--json-schema", schema)
 	}
-	if opts.NoTools {
+	if opts.NoTools || opts.Capability == CapabilityChat {
 		args = append(args, "--tools", "")
+	} else if opts.Capability == CapabilityReadOnly {
+		args = append(args, "--tools", "Read,Glob,Grep", "--allowedTools", "Read,Glob,Grep")
 	}
 	if opts.Ephemeral {
 		args = append(args, "--no-session-persistence")
@@ -959,7 +966,7 @@ func (a *CLIAgentAdapter) buildCodexArgs(opts TurnOptions, prompt, cwd, sessionI
 		// Prefer -c developer_instructions when available; prompt prefix remains as fallback for empty -c edge cases.
 		prompt = "<ffc_internal_instructions>\n" + rules + "\n</ffc_internal_instructions>\n\n" + prompt
 	}
-	if resume && sessionID != "" && !opts.Ephemeral {
+	if resume && sessionID != "" && !opts.Ephemeral && !opts.NoTools && opts.Capability != CapabilityReadOnly && opts.Capability != CapabilityChat {
 		args := []string{"exec", "resume", "--json", "--skip-git-repo-check"}
 		args = append(args, opts.Provider.ExtraArgs()...)
 		args = append(args, codexPermissionArgs(opts.PermissionMode, true)...)
@@ -981,7 +988,7 @@ func (a *CLIAgentAdapter) buildCodexArgs(opts TurnOptions, prompt, cwd, sessionI
 	if cwd != "" {
 		args = append(args, "-C", cwd)
 	}
-	if opts.NoTools {
+	if opts.NoTools || opts.Capability == CapabilityReadOnly || opts.Capability == CapabilityChat {
 		// No --tools on codex exec; read-only sandbox blocks writes (H codex-exec.txt --sandbox).
 		args = append(args, "--sandbox", "read-only", "-c", `approval_policy="never"`)
 	} else {

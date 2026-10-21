@@ -8,6 +8,7 @@
         <button type="button" class="cg-ib" :class="{ on: store.membersOpen }" :aria-label="t('cat.groupChat.members')" :aria-expanded="store.membersOpen" data-testid="cat-group-members-toggle" @click="store.membersOpen = !store.membersOpen">
           <span class="cg-stack" aria-hidden="true"><span v-for="m in store.membersSorted.slice(0, 4)" :key="m.id" class="av sm" :style="{ '--c': memberColorVar(m.order) }">{{ initial(m.name) }}</span></span>
         </button>
+        <button type="button" class="cg-ib" :class="{ on: !rightCollapsed }" :title="rightCollapsed ? t('cat.page.s_f1f1ec2556') : t('cat.page.s_4ed8aa623c')" :aria-label="rightCollapsed ? t('cat.page.s_8fa248207b') : t('cat.page.s_74609dd7e9')" :aria-pressed="!rightCollapsed" data-testid="cat-group-right-toggle" @click="rightCollapsed = !rightCollapsed"><FIcon name="split" :size="15" /></button>
         <button type="button" class="cg-ib" :title="t('cat.groupChat.settings')" :aria-label="t('cat.groupChat.settings')" data-testid="cat-group-settings" @click="store.settingsOpen = true">
           <FIcon name="set" :size="15" />
         </button>
@@ -31,11 +32,11 @@
               </div>
             </div>
 
-            <div v-else-if="m.kind === 'member'" class="cg-chat" :data-message-seq="m.seq" :class="{ continued: consecutiveMessage(messageIndex) }" :style="{ '--speaker': colorOf(m.memberId) }">
+            <div v-else-if="m.kind === 'member' || m.systemKind === 'ack' || m.systemKind === 'retry'" class="cg-chat" :data-message-seq="m.seq" :class="{ continued: consecutiveMessage(messageIndex) }" :style="{ '--speaker': colorOf(m.memberId) }">
               <span class="av cg-chat-avatar" aria-hidden="true">{{ initial(store.nameOf(m.memberId)) }}</span>
               <div class="cg-chat-body">
                 <div v-if="!consecutiveMessage(messageIndex)" class="cg-chat-name">{{ store.nameOf(m.memberId) }}</div>
-                <div v-if="isMemberShortReply(m) || !m.report" class="cg-short" :title="clock(m.createdAt)" data-testid="cat-group-short">
+                <div v-if="m.systemKind === 'ack' || m.systemKind === 'retry' || isMemberShortReply(m) || !m.report" class="cg-short" :title="clock(m.createdAt)" :data-kind="m.systemKind" :data-testid="m.systemKind === 'ack' ? 'cat-group-ack' : m.systemKind === 'retry' ? 'cat-group-retry-status' : 'cat-group-short'" :role="m.systemKind === 'ack' || m.systemKind === 'retry' ? 'status' : undefined">
                   <div class="tx"><template v-for="(p, i) in parts(memberShortText(m))" :key="i"><span v-if="p.at" class="cg-at">{{ p.s }}</span><template v-else>{{ p.s }}</template></template></div>
                   <button type="button" class="cg-msg-more" :aria-label="t('cat.groupChat.viewProcess')" :title="t('cat.groupChat.viewProcess')" @click="openProcess(m.memberId)"><FIcon name="eye" :size="13" /></button>
                 </div>
@@ -191,7 +192,7 @@
         </div>
         <button type="button" class="cg-ib" :aria-label="t('cat.groupChat.close')" @click="store.drawerMemberId = ''"><FIcon name="x" :size="14" /></button>
       </div>
-      <div class="bd">
+      <div ref="procBody" class="bd" @scroll.passive="onProcScroll">
         <div v-if="store.processLoading[store.drawerMemberId]" class="cg-hint">{{ t('cat.groupChat.processLoading') }}</div>
         <template v-else-if="drawerRows.length">
           <template v-for="row in drawerRows" :key="row.id">
@@ -259,6 +260,7 @@ import { useCatGroupChat } from '@/stores/catGroupChat'
 import { formatElapsed, isMemberShortReply, memberColorVar, memberShortText, systemLineText, type CatGroupMessage } from '@/api/catGroupChat'
 import { SESSION_DEMO } from '@/api/catGroupChatMock'
 import { catPanels } from '@/views/cat/catPanels'
+import { rightCollapsed } from '@/views/cat/catLayout'
 import { catState } from '@/views/cat/catState'
 import { readGroupPosition, saveGroupPosition } from '@/views/cat/catGroupPosition'
 import { toAppError } from '@/api/call'
@@ -317,7 +319,9 @@ const clock = (ms: number) => {
 function consecutiveMessage(index: number) {
   const current = visibleMessages.value[index]
   const previous = visibleMessages.value[index - 1]
-  return !!previous && ['user', 'member'].includes(current.kind) && current.kind === previous.kind && current.memberId === previous.memberId && current.createdAt - previous.createdAt < 5 * 60_000
+  const currentKind = current.systemKind === 'ack' || current.systemKind === 'retry' ? 'member' : current.kind
+  const previousKind = previous?.systemKind === 'ack' || previous?.systemKind === 'retry' ? 'member' : previous?.kind
+  return !!previous && ['user', 'member'].includes(currentKind) && currentKind === previousKind && current.memberId === previous.memberId && current.createdAt - previous.createdAt < 5 * 60_000
 }
 const sysText = (m: CatGroupMessage) => systemLineText(m, store.nameOf)
 const overreach = (m: CatGroupMessage) => (m.report?.files ?? []).filter((f) => f.tag === 'overreach')
@@ -335,6 +339,38 @@ const drawerRows = computed(() =>
     const p = toolParts(b.text)
     return { id: b.id, kind: b.kind, text: b.text, streaming: b.streaming, name: p.name, arg: p.arg, out: p.out }
   }),
+)
+const procBody = ref<HTMLElement | null>(null)
+let stickProcess = true
+function onProcScroll() {
+  const el = procBody.value
+  if (!el) return
+  stickProcess = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+}
+function pinProcessBottom() {
+  const el = procBody.value
+  if (el) el.scrollTop = el.scrollHeight
+}
+watch(() => store.drawerMemberId, async (id) => {
+  if (!id) return
+  stickProcess = true
+  await nextTick()
+  pinProcessBottom()
+  requestAnimationFrame(pinProcessBottom)
+})
+watch(
+  () => {
+    const rows = drawerRows.value
+    const last = rows[rows.length - 1]
+    const loading = store.drawerMemberId ? store.processLoading[store.drawerMemberId] : false
+    return rows.length + ':' + (last ? last.text.length + last.out.length : 0) + (loading ? ':1' : ':0')
+  },
+  async () => {
+    if (!store.drawerMemberId || !stickProcess) return
+    await nextTick()
+    pinProcessBottom()
+    requestAnimationFrame(pinProcessBottom)
+  },
 )
 function openProcess(id?: string) {
   if (!id) return

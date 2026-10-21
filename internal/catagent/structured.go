@@ -26,6 +26,7 @@ const CharterSchema = `{
 const RouteSchema = `{
   "type": "object",
   "properties": {
+    "capability": {"type":"string", "enum":["chat","read_only","write"]},
     "memberIds": {"type": "array", "items": {"type": "string"}},
     "everyone": {"type": "boolean"},
     "reason": {"type": "string", "maxLength": 40},
@@ -45,7 +46,7 @@ const RouteSchema = `{
       }
     }
   },
-  "required": ["memberIds", "everyone", "reason", "tasks"],
+  "required": ["capability", "memberIds", "everyone", "reason", "tasks"],
   "additionalProperties": false
 }`
 

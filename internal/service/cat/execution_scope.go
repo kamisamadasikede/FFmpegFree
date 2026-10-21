@@ -18,9 +18,3 @@ func projectConfigKey(root string) string {
 	}
 	return strings.ToLower(p)
 }
-
-// groupExecutionScope 是群聊成员回合的执行范围：项目 + groupId + memberId。
-// 群成员各跑各的（@ 两人真并行），不拿普通对话用的项目目录锁；同一成员仍串行。
-func groupExecutionScope(root, groupID, memberID string) string {
-	return "group:" + projectConfigKey(root) + "|" + groupID + "|" + memberID
-}

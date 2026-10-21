@@ -300,7 +300,7 @@ func (e *groupEnv) dump() string {
 	return b.String()
 }
 
-func itoa(i int) string { return strings.TrimSpace(strings.Repeat(" ", 0) + jsonNum(i)) }
+func itoa(i int) string    { return strings.TrimSpace(strings.Repeat(" ", 0) + jsonNum(i)) }
 func jsonNum(i int) string { raw, _ := json.Marshal(i); return string(raw) }
 
 func (e *groupEnv) waitIdle() {
@@ -420,34 +420,28 @@ func TestGroupE2E_MentionTwoParallelAndHop(t *testing.T) {
 	}
 }
 
-// 群聊成员回合走独立执行范围（项目+groupId+memberId），不拿项目目录锁：
-// @ 两人时两个假 CLI 互相等对方先启动（屏障），串行就会卡住超时失败。
-func TestGroupE2E_MentionTwoRunConcurrently(t *testing.T) {
+// Shared worktrees permit multiple logical assignments, but only one CLI writer.
+func TestGroupE2E_MentionTwoSerializeSharedWorktree(t *testing.T) {
 	e := newGroupEnv(t, "甲", "乙", "丙")
 	e.reply("乙", report("乙做完", "", ""))
 	e.reply("丙", report("丙做完", "", ""))
-	barrier := func(me, other string) string {
-		mine, theirs := filepath.Join(e.fake, me+".started"), filepath.Join(e.fake, other+".started")
-		return "touch '" + mine + "'\ni=0\nwhile [ ! -f '" + theirs + "' ]; do i=$((i+1)); if [ $i -gt 100 ]; then touch '" + filepath.Join(e.fake, me+".timeout") + "'; break; fi; sleep 0.05; done\n"
+	marker := filepath.Join(e.fake, "writer.active")
+	for _, name := range []string{"乙", "丙"} {
+		e.file(name, "pre", "if ! mkdir '"+marker+"'; then touch '"+filepath.Join(e.fake, name+".overlap")+"'; fi\nsleep 0.2\nrmdir '"+marker+"'\n")
 	}
-	e.file("乙", "pre", barrier("乙", "丙"))
-	e.file("丙", "pre", barrier("丙", "乙"))
 	e.send("一起做", "乙", "丙")
 	e.waitIdle()
-	for _, n := range []string{"乙", "丙"} {
-		if _, err := os.Stat(filepath.Join(e.fake, n+".timeout")); err == nil {
-			t.Fatalf("%s waited for the other member: group turns were serialized", n)
+	for _, name := range []string{"乙", "丙"} {
+		if _, err := os.Stat(filepath.Join(e.fake, name+".overlap")); !os.IsNotExist(err) {
+			t.Fatalf("%s shared the worktree with another writer", name)
 		}
-		if _, err := os.Stat(filepath.Join(e.fake, n+".started")); err != nil {
-			t.Fatalf("%s never started:\n%s", n, e.dump())
-		}
-		if c := cardsOf(e.msgs(), e.mem[n].ID); len(c) != 1 {
-			t.Fatalf("%s cards:\n%s", n, e.dump())
+		if c := cardsOf(e.msgs(), e.mem[name].ID); len(c) != 1 {
+			t.Fatalf("%s cards:\n%s", name, e.dump())
 		}
 	}
 }
 
-// 3. 不 @：派活判断（一次性、不留会话）；超时 / 无效 → undecided 灰字、不叫醒任何人；人名可解析；自动派活关 → 第一位。
+// 3. 不 @：派活判断（一次性、不留会话）；超时 / 无效 → 兜底安排一位可用成员回复；人名可解析；自动派活关 → 第一位。
 func TestGroupE2E_DispatchAI(t *testing.T) {
 	e := newGroupEnv(t, "前端", "后端")
 	e.reply("前端", report("前端做完", "", ""))
@@ -463,7 +457,9 @@ func TestGroupE2E_DispatchAI(t *testing.T) {
 	if len(coord) != 1 || coord[0].Route == nil || coord[0].Route.Mode != "ai" ||
 		coord[0].Route.MemberID != e.mem["后端"].ID ||
 		len(coord[0].Mentions) != 1 || coord[0].Mentions[0] != e.mem["后端"].ID {
-		argv, _ := os.ReadFile(filepath.Join(e.fake, "route.argv")); out, _ := os.ReadFile(filepath.Join(e.fake, "route.out")); t.Logf("calls=%v argv=%s out=%s", e.calls(), argv, out)
+		argv, _ := os.ReadFile(filepath.Join(e.fake, "route.argv"))
+		out, _ := os.ReadFile(filepath.Join(e.fake, "route.out"))
+		t.Logf("calls=%v argv=%s out=%s", e.calls(), argv, out)
 		t.Fatalf("ai coord bubble:\n%s", e.dump())
 	}
 	if len(find(ms, func(m cat.GroupMessage) bool { return m.Text == "正在安排谁来接…" })) != 0 {
@@ -480,32 +476,31 @@ func TestGroupE2E_DispatchAI(t *testing.T) {
 		t.Fatalf("route turn must not keep a session: %s", argv)
 	}
 
-	undecidedBase := "没判断出该谁接，请 @ 对应成员，或再说具体要做什么。"
-	isUndecided := func(m cat.GroupMessage) bool {
-		return strings.HasPrefix(m.Text, undecidedBase) && m.Route != nil && m.Route.Mode == "undecided"
+	isFallback := func(m cat.GroupMessage) bool {
+		return m.SystemKind == "coord" && m.Route != nil && m.Route.Mode == "fallback"
 	}
-	// 无效输出（不存在的成员）→ undecided，零成员卡
+	// 无效输出也必须安排成员回复，并保留原始失败原因。
 	_ = os.Remove(filepath.Join(e.fake, "calls.log"))
 	e.reply("route", `{"memberId":"nobody","reason":"x"}`)
 	chain = e.send("随便")
 	e.waitIdle()
 	ms = find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
-	gl := find(ms, isUndecided)
-	if len(gl) != 1 || gl[0].Route.Reason != "unknown_id" || !strings.Contains(gl[0].Text, "·判断结果对不上成员") {
-		t.Fatalf("invalid undecided:\n%s", e.dump())
+	gl := find(ms, isFallback)
+	if len(gl) != 1 || gl[0].Route.Reason != "unknown_id" || gl[0].Route.MemberID != e.mem["前端"].ID {
+		t.Fatalf("invalid fallback:\n%s", e.dump())
 	}
-	if len(find(ms, func(m cat.GroupMessage) bool { return m.Kind == "member" })) != 0 {
-		t.Fatalf("invalid must not wake anyone:\n%s", e.dump())
+	if len(cardsOf(ms, e.mem["前端"].ID)) != 1 {
+		t.Fatalf("invalid route must still receive a reply:\n%s", e.dump())
 	}
-	// 非 JSON → undecided
+	// 非 JSON 同样兜底，不把用户留在无人接话的状态。
 	e.reply("route", "我觉得是后端")
 	chain = e.send("随便2")
 	e.waitIdle()
 	ms = find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
-	gl = find(ms, isUndecided)
-	if len(gl) != 1 || gl[0].Route.Reason != "parse_error" || !strings.Contains(gl[0].Text, "·解析失败") ||
-		len(find(ms, func(m cat.GroupMessage) bool { return m.Kind == "member" })) != 0 {
-		t.Fatalf("non-json undecided:\n%s", e.dump())
+	gl = find(ms, isFallback)
+	if len(gl) != 1 || gl[0].Route.Reason != "parse_error" ||
+		len(cardsOf(ms, e.mem["前端"].ID)) != 1 {
+		t.Fatalf("non-json fallback:\n%s", e.dump())
 	}
 
 	// 模型回了人名而不是 UUID → 按 Name 解析，mode=ai
@@ -533,7 +528,9 @@ func TestGroupE2E_DispatchAI(t *testing.T) {
 	chain = e.send("关了派活")
 	e.waitIdle()
 	ms = find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
-	if len(find(ms, func(m cat.GroupMessage) bool { return m.Text == "交给 前端：没开自动派活，交给排第一的成员" })) != 1 {
+	if len(find(ms, func(m cat.GroupMessage) bool {
+		return m.Text == "交给 前端：没开自动派活，交给排第一的成员"
+	})) != 1 {
 		t.Fatalf("auto off copy:\n%s", e.dump())
 	}
 	if c := e.calls(); strings.Join(c, ",") != "前端" {
@@ -543,25 +540,29 @@ func TestGroupE2E_DispatchAI(t *testing.T) {
 
 func TestGroupE2E_DispatchTimeout(t *testing.T) {
 	if testing.Short() {
-		t.Skip("45s route timeout")
+		t.Skip("2m route timeout")
 	}
 	e := newGroupEnv(t, "前端", "后端")
 	e.reply("前端", report("前端做完", "", ""))
 	e.reply("route", `{"memberId":"x","reason":"y"}`)
-	e.file("route", "sleep", "500") // > 45s 派活超时（每单位 0.1s）
+	e.file("route", "sleep", "1300") // > 2min 派活超时（每单位 0.1s）
 	chain := e.send("慢慢想")
-	e.waitIdle()
+	done := make(chan struct{})
+	go func() { e.svc.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(150 * time.Second):
+		t.Fatalf("group did not settle:\n%s", e.dump())
+	}
 	ms := find(e.msgs(), func(m cat.GroupMessage) bool { return m.ChainID == chain })
-	undecidedBase := "没判断出该谁接，请 @ 对应成员，或再说具体要做什么。"
 	gl := find(ms, func(m cat.GroupMessage) bool {
-		return strings.HasPrefix(m.Text, undecidedBase) && m.Route != nil && m.Route.Mode == "undecided"
+		return m.SystemKind == "coord" && m.Route != nil && m.Route.Mode == "fallback"
 	})
-	if len(gl) != 1 || gl[0].Route.Reason != "timeout" || !strings.Contains(gl[0].Text, "·判断超时") ||
-		len(find(ms, func(m cat.GroupMessage) bool { return m.Kind == "member" })) != 0 {
-		t.Fatalf("timeout undecided:\n%s", e.dump())
+	if len(gl) != 1 || gl[0].Route.Reason != "timeout" || gl[0].Route.MemberID != e.mem["前端"].ID ||
+		len(cardsOf(ms, e.mem["前端"].ID)) != 1 {
+		t.Fatalf("timeout fallback:\n%s", e.dump())
 	}
 }
-
 
 // v0.56：did/attn 里的 @ 不唤醒，只有「交给谁」里的 @ 才叫醒。
 func TestGroupE2E_MentionOnlyFromGive(t *testing.T) {

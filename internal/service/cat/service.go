@@ -34,6 +34,10 @@ type Config struct {
 	DefaultAgentKind func(ctx context.Context) string
 	// SystemDefaultAgentKind 读系统旧键 catDefaultAgentKind；GetCatSettings 在 cat.settings 缺 defaultAgentKind 时回落。
 	SystemDefaultAgentKind func(ctx context.Context) string
+	// GroupRetryDelay is the initial group retry backoff; zero uses two seconds.
+	GroupRetryDelay time.Duration
+	// GroupReplyWait is the first-answer reminder delay; zero uses two minutes.
+	GroupReplyWait time.Duration
 	// Stat 判断项目文件夹是否还在（6.19.10.4）；nil = os.Stat。测试可注入慢 / 失败的 stat。
 	Stat func(path string) (os.FileInfo, error)
 	// StatTimeout 是每个项目路径 stat 的最长等待；0 = DefaultProjectStatTimeout（2 秒）。
@@ -109,6 +113,10 @@ type Service struct {
 	sharingMu          sync.Mutex
 	workspaceMu        sync.Mutex
 	workflowMu         sync.Mutex
+	groupDispatchMu    sync.Mutex // routes commit their dispatch atomically with stop
+	groupStartMu       sync.Mutex // turn registration is atomic with stop
+	groupLifetimes     map[string]*groupLifetime
+	groupWorkContexts  map[string]context.Context
 	groupWorkMu        sync.Mutex
 	groupWorkRecovered map[string]bool
 	launchMu           sync.Mutex
@@ -142,33 +150,36 @@ type actRec struct {
 
 // turnState 是一轮进行中的回复。终态事件只发一次；终态后丢弃迟到增量。
 type turnState struct {
-	convID string
-	// leaseKey 非空 = 群聊成员回合：用独立执行范围（项目+groupId+memberId），不占项目目录锁。
-	leaseKey string
-	turnID   string
-	cancel   context.CancelFunc
-	done     chan struct{} // 后台 runTurn 返回后关闭（含已出文字落库）
+	convID       string
+	groupChainID string // group request ownership; empty for ordinary conversations
+	// Execution hooks run inside the physical workspace lease.
+	beforeExecution func(context.Context)
+	afterExecution  func()
+	turnID          string
+	cancel          context.CancelFunc
+	done            chan struct{} // 后台 runTurn 返回后关闭（含已出文字落库）
 
-	mu            sync.Mutex
-	msgID         string          // 本轮助手正文 messageId（落库同 id）
-	seq           int             // 同 messageId 内严格递增，从 1 起
-	text          strings.Builder // 已流出文字
-	acts          []*actRec       // 思考 / 工具，按出现顺序；不并入正文
-	actBy         map[string]*actRec
-	finished      bool
-	failMsg       string
-	failReason    string // v0.53.1：超时类失败的 reason 行（reason=idle_timeout / reason=timeout），随失败事件带给前端
-	errSeen       map[string]struct{}
-	retryID       string
-	retrySeq      int
-	retryText     string
-	usageCwd      string // 这一轮的工作目录，用来读上下文占用
-	agentKind     string // 这一轮的助手，按它取 SessionHistory.ReadContextUsage
-	contextUsed   int64
-	contextWindow int64
-	emittedUsed   int64
-	emittedWindow int64
-	hook          *turnHook // 定时任务的收尾回调；终态时调一次
+	mu             sync.Mutex
+	msgID          string          // 本轮助手正文 messageId（落库同 id）
+	seq            int             // 同 messageId 内严格递增，从 1 起
+	text           strings.Builder // 已流出文字
+	acts           []*actRec       // 思考 / 工具，按出现顺序；不并入正文
+	actBy          map[string]*actRec
+	finished       bool
+	failMsg        string
+	sessionMissing bool   // a retry can recover a lost native session without resume
+	failReason     string // v0.53.1：超时类失败的 reason 行（reason=idle_timeout / reason=timeout），随失败事件带给前端
+	errSeen        map[string]struct{}
+	retryID        string
+	retrySeq       int
+	retryText      string
+	usageCwd       string // 这一轮的工作目录，用来读上下文占用
+	agentKind      string // 这一轮的助手，按它取 SessionHistory.ReadContextUsage
+	contextUsed    int64
+	contextWindow  int64
+	emittedUsed    int64
+	emittedWindow  int64
+	hook           *turnHook // 定时任务的收尾回调；终态时调一次
 	// v0.37.1 消息尾
 	startedAt    int64 // 发 running / 启 turn 的墙钟（Unix 毫秒）
 	tokenTotal   int64 // CLI 上报合计；0 = 无 usage
@@ -187,6 +198,9 @@ func New(cfg Config) *Service {
 	if cfg.DefaultAgentKind == nil {
 		cfg.DefaultAgentKind = func(context.Context) string { return catagent.KindCatBuild }
 	}
+	if cfg.Execution == nil {
+		cfg.Execution = agentexec.New()
+	}
 	if cfg.Registry == nil {
 		cfg.Registry = catagent.NewRegistry()
 	}
@@ -194,7 +208,9 @@ func New(cfg Config) *Service {
 	if st <= 0 {
 		st = DefaultProjectStatTimeout
 	}
-	return &Service{cfg: cfg, turns: map[string]*turnState{}, statTimeout: st, projMissing: map[string]bool{}, lastTurns: map[string]*lastTurn{}}
+	s := &Service{cfg: cfg, turns: map[string]*turnState{}, statTimeout: st, projMissing: map[string]bool{}, lastTurns: map[string]*lastTurn{}}
+	s.recoverGroupRequests()
+	return s
 }
 
 func (s *Service) emit(event string, payload any) {
@@ -769,9 +785,7 @@ func (s *Service) startTurn(ctx context.Context, req SendMessageRequest, hook *t
 		defer s.wg.Done()
 		defer close(t.done)
 		defer s.afterWorkflowTurn(t)
-		stopWorkspace := s.watchTurnWorkspace(turnCtx, t, cwd, &opts)
 		s.runTurn(turnCtx, t, a, opts)
-		stopWorkspace()
 	}()
 	return SendMessageResult{UserMessage: userMsg, TurnID: t.turnID}, nil
 }
@@ -779,9 +793,67 @@ func (s *Service) startTurn(ctx context.Context, req SendMessageRequest, hook *t
 // streamChunkRunes 是整段回复拆 append 时每段的字数（CLI 真流式协议到位前使用）。
 const streamChunkRunes = 24
 
-// runTurn 在后台跑一轮并推送增量；终态只发一次。
+// runTurn holds the physical workspace lease across execution, change capture
+// and rollback metadata. Group members deliberately use the same lock as chats.
 func (s *Service) runTurn(ctx context.Context, t *turnState, a catagent.Adapter, opts catagent.TurnOptions) {
 	defer s.clearTurn(t)
+	s.runTurnExecution(ctx, t, a, opts)
+}
+
+// Group turns retain registration through retry backoff, so Stop can cancel it.
+func (s *Service) runTurnExecution(ctx context.Context, t *turnState, a catagent.Adapter, opts catagent.TurnOptions) {
+	if opts.ProjectPath == "" {
+		s.ensureConvDir(t.convID)
+	}
+	run := &workspaceExecutionAdapter{Adapter: a, run: func(o catagent.TurnOptions) (catagent.TurnResponse, error) {
+		if t.beforeExecution != nil {
+			t.beforeExecution(o.Ctx)
+		}
+		if err := o.Ctx.Err(); err != nil {
+			return catagent.TurnResponse{}, err
+		}
+		if t.afterExecution != nil {
+			defer t.afterExecution()
+		}
+		stopWorkspace := s.watchTurnWorkspace(o.Ctx, t, t.usageCwd, &o)
+		defer stopWorkspace()
+		if err := o.Ctx.Err(); err != nil {
+			return catagent.TurnResponse{}, err
+		}
+		s.executeTurn(o.Ctx, t, a, o)
+		return catagent.TurnResponse{}, nil
+	}}
+	_, err := s.cfg.Execution.Run(run, agentexec.Scope{OwnerID: t.convID, Workspace: t.usageCwd, NativeConfigKey: projectConfigKey(opts.ProjectPath), Prepare: func(ctx context.Context) error {
+		s.syncSharingBeforeTurn(ctx, opts.ProjectPath)
+		return ctx.Err()
+	}}, opts)
+	if err != nil {
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+			s.finishCancelled(t)
+		} else {
+			s.noteTurnError(ctx, t, apperr.From(err).Message)
+			s.finish(t, catagent.TurnFailed)
+		}
+	}
+}
+
+type workspaceExecutionAdapter struct {
+	catagent.Adapter
+	run func(catagent.TurnOptions) (catagent.TurnResponse, error)
+}
+
+func (a *workspaceExecutionAdapter) Kind() string {
+	if a.Adapter != nil {
+		return a.Adapter.Kind()
+	}
+	return "workspace-operation"
+}
+func (a *workspaceExecutionAdapter) RunTurn(o catagent.TurnOptions) (catagent.TurnResponse, error) {
+	return a.run(o)
+}
+
+// executeTurn 跑一轮并推送增量；终态只发一次。
+func (s *Service) executeTurn(ctx context.Context, t *turnState, a catagent.Adapter, opts catagent.TurnOptions) {
 	streamed := false
 	opts.OnTextDelta = func(delta string) {
 		streamed = true
@@ -805,19 +877,7 @@ func (s *Service) runTurn(ctx context.Context, t *turnState, a catagent.Adapter,
 		s.noteTurnError(ctx, t, msg)
 	}
 
-	var resp catagent.TurnResponse
-	var runErr error
-	if s.cfg.Execution != nil {
-		if opts.ProjectPath == "" {
-			// The adapter used to recreate a removed plain-chat folder itself.
-			// Create it before the shared runtime resolves its physical lease.
-			s.ensureConvDir(t.convID)
-		}
-		resp, runErr = s.cfg.Execution.Run(a, agentexec.Scope{OwnerID: t.convID, Workspace: t.usageCwd, NativeConfigKey: projectConfigKey(opts.ProjectPath), LeaseKey: t.leaseKey, Prepare: func(ctx context.Context) error { s.syncSharingBeforeTurn(ctx, opts.ProjectPath); return ctx.Err() }}, opts)
-	} else {
-		s.syncSharingBeforeTurn(ctx, opts.ProjectPath)
-		resp, runErr = a.RunTurn(opts)
-	}
+	resp, runErr := a.RunTurn(opts)
 	s.noteTurnUsage(t, resp)
 	if runErr != nil {
 		if ctx.Err() != nil || apperr.Is(runErr, apperr.Canceled) {
@@ -826,6 +886,11 @@ func (s *Service) runTurn(ctx context.Context, t *turnState, a catagent.Adapter,
 		}
 		s.cfg.Logf("cat turn failed: %v", runErr)
 		if ae := apperr.From(runErr); ae != nil {
+			if strings.Contains(ae.Detail, catagent.ReasonSessionNotFound) {
+				t.mu.Lock()
+				t.sessionMissing = true
+				t.mu.Unlock()
+			}
 			if strings.Contains(ae.Detail, catagent.ReasonSessionNotFound) || strings.Contains(ae.Detail, catagent.ReasonProviderNoResponses) {
 				s.markNoRetry(t.convID, t.turnID)
 			}

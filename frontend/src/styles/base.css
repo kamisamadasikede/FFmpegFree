@@ -61,15 +61,22 @@ a {
   user-select: text;
   -webkit-user-select: text;
 }
-/* 中间对话：外壳的 none 在 WebView2 里会挡住子孙划选，必须连里面的文字一起强制放开，Ctrl+C 才有选区。 */
+/* 中间对话和群聊：外壳的 none 在 WebView2 里会挡住子孙划选，必须连里面的文字一起强制放开，Ctrl+C 才有选区。 */
 .app-shell .ct-msgs,
-.app-shell .ct-msgs * {
+.app-shell .ct-msgs *,
+.app-shell .cg-feed,
+.app-shell .cg-feed * {
   -webkit-user-select: text !important;
   user-select: text !important;
   --wails-draggable: no-drag;
 }
-.app-shell .ct-msgs {
+.app-shell .ct-msgs,
+.app-shell .cg-feed {
   cursor: text;
+}
+.app-shell .cg-feed button,
+.app-shell .cg-feed .av {
+  cursor: pointer;
 }
 
 /* 细滚动条，悬停时显示 */

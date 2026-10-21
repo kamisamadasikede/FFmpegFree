@@ -4,35 +4,17 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"FFmpegFree/internal/agentexec"
 	"FFmpegFree/internal/apperr"
+	"FFmpegFree/internal/catagent"
+	"FFmpegFree/internal/id"
 	"FFmpegFree/internal/store"
 )
-
-func createGitSnapshot(ctx context.Context, root string) string {
-	if root == "" {
-		return ""
-	}
-	// git stash create → dangling commit object of working tree; does not touch index/HEAD.
-	out, _, err := runGit(ctx, 15*time.Second, root, "stash", "create")
-	if err != nil {
-		return ""
-	}
-	if snap := strings.TrimSpace(string(out)); snap != "" {
-		return snap
-	}
-	// 工作区干净时 stash create 什么都不输出：此时工作区就等于 HEAD，用 HEAD 当快照。
-	out, _, err = runGit(ctx, 5*time.Second, root, "rev-parse", "--verify", "HEAD")
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
-}
 
 func (s *Service) tagReportFiles(ctx context.Context, g store.CatGroup, m store.CatGroupMember, claimed []string, changes TurnChanges, members []store.CatGroupMember) []store.CatGroupFileTag {
 	claimedSet := map[string]bool{}
@@ -138,6 +120,18 @@ func (s *Service) RevertCatOverreach(ctx context.Context, req RevertOverreachReq
 	if projectRoot == "" || meta.SnapshotBefore == "" {
 		return RevertOverreachResult{}, apperr.New(apperr.InvalidArgument, "无法撤销：没有轮前快照")
 	}
+	var result RevertOverreachResult
+	op := &workspaceExecutionAdapter{run: func(o catagent.TurnOptions) (catagent.TurnResponse, error) {
+		var err error
+		result, err = s.revertGroupFiles(o.Ctx, projectRoot, meta, req)
+		return catagent.TurnResponse{}, err
+	}}
+	owner := "revert-" + id.New()
+	_, err = s.cfg.Execution.Run(op, agentexec.Scope{OwnerID: owner, Workspace: projectRoot, NativeConfigKey: projectConfigKey(projectRoot)}, catagent.TurnOptions{Ctx: ctx, ConversationID: owner})
+	return result, err
+}
+
+func (s *Service) revertGroupFiles(ctx context.Context, projectRoot string, meta store.CatGroupTurnMeta, req RevertOverreachRequest) (RevertOverreachResult, error) {
 	claimed := map[string]bool{}
 	for _, p := range meta.ClaimedFiles {
 		claimed[normalizeRel(p)] = true
@@ -150,17 +144,34 @@ func (s *Service) RevertCatOverreach(ctx context.Context, req RevertOverreachReq
 			skipped = append(skipped, RevertSkippedFile{Path: rel, Reason: "来源不明，不能撤销"})
 			continue
 		}
-		abs := filepath.Join(projectRoot, filepath.FromSlash(rel))
+		abs, err := safeRevertPath(projectRoot, rel)
+		if err != nil {
+			skipped = append(skipped, RevertSkippedFile{Path: rel, Reason: "这个路径不能撤销"})
+			continue
+		}
 		// 轮末内容：优先用轮末记下的 sha256；没有就和轮后快照里的 blob 比（同为 git blob 哈希，不能拿 sha256 去比）。
 		endHash, wantEnd := "", ""
 		if meta.EndHashes != nil && meta.EndHashes[rel] != "" {
 			wantEnd = meta.EndHashes[rel]
-			endHash = fileSHA256(abs)
+			endHash = revertFileState(abs)
 		} else if meta.SnapshotAfter != "" {
 			wantEnd = blobHashFromSnapshot(ctx, projectRoot, meta.SnapshotAfter, rel)
 			endHash = worktreeBlobHash(ctx, projectRoot, rel)
+			if snapshot, err := parseRevertSnapshot(meta.SnapshotAfter); err == nil {
+				if _, ok := snapshot.untrackedBlob(rel); ok {
+					out, _, err := runGit(ctx, 5*time.Second, projectRoot, "hash-object", "--no-filters", "--", rel)
+					endHash = ""
+					if err == nil {
+						endHash = strings.TrimSpace(string(out))
+					}
+				}
+			}
 		}
-		if wantEnd != "" && endHash != wantEnd {
+		if wantEnd == "" {
+			skipped = append(skipped, RevertSkippedFile{Path: rel, Reason: "缺少轮末内容记录，不能自动撤销"})
+			continue
+		}
+		if endHash != wantEnd {
 			skipped = append(skipped, RevertSkippedFile{Path: rel, Reason: "之后又被改过，不能自动撤销，请手动处理。"})
 			continue
 		}
@@ -190,8 +201,22 @@ func fileSHA256(path string) string {
 }
 
 func blobHashFromSnapshot(ctx context.Context, root, snap, rel string) string {
-	// git rev-parse snap:path
-	out, _, err := runGit(ctx, 5*time.Second, root, "rev-parse", snap+":"+rel)
+	snapshot, err := parseRevertSnapshot(snap)
+	if err != nil {
+		return ""
+	}
+	if b, ok := snapshot.untrackedBlob(rel); ok {
+		return b.ID
+	}
+	prefix := snapshot.Prefix
+	if snapshot.Version == 0 {
+		out, _, err := runGit(ctx, 5*time.Second, root, "rev-parse", "--show-prefix")
+		if err != nil {
+			return ""
+		}
+		prefix = strings.TrimSpace(string(out))
+	}
+	out, _, err := runGit(ctx, 5*time.Second, root, "rev-parse", "--verify", snapshot.Tracked+":"+prefix+rel)
 	if err != nil {
 		return ""
 	}
@@ -209,34 +234,14 @@ func worktreeBlobHash(ctx context.Context, root, rel string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func restoreFromSnapshot(ctx context.Context, root, snap, rel string) error {
-	// If file existed in snapshot, checkout; else remove.
-	_, _, err := runGit(ctx, 5*time.Second, root, "cat-file", "-e", snap+":"+rel)
-	abs := filepath.Join(root, filepath.FromSlash(rel))
-	if err != nil {
-		if removeErr := os.Remove(abs); removeErr != nil && !os.IsNotExist(removeErr) {
-			return removeErr
-		}
-		return nil
+// Missing is an explicit state, not a failed read or an empty file.
+func revertFileState(path string) string {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return "missing"
 	}
-	_, _, err = runGit(ctx, 10*time.Second, root, "checkout", snap, "--", rel)
-	return err
-}
-
-// persistEndHashes stores per-file hashes at end of round for revert checks.
-func (s *Service) persistEndHashes(ctx context.Context, turnID, root string, files []store.CatGroupFileTag) {
-	meta, err := s.cfg.Store.GetCatGroupTurnMeta(ctx, turnID)
-	if err != nil {
-		return
+	if err != nil || !info.Mode().IsRegular() {
+		return ""
 	}
-	meta.EndHashes = map[string]string{}
-	for _, f := range files {
-		abs := filepath.Join(root, filepath.FromSlash(f.Path))
-		if h := fileSHA256(abs); h != "" {
-			meta.EndHashes[f.Path] = h
-		}
-	}
-	raw, _ := json.Marshal(meta.EndHashes)
-	meta.OverreachJSON = string(raw)
-	_ = s.cfg.Store.SaveCatGroupTurnMeta(ctx, meta)
+	return fileSHA256(path)
 }

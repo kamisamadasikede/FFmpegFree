@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"FFmpegFree/internal/agentexec"
 	"FFmpegFree/internal/apperr"
 	"FFmpegFree/internal/catagent"
 	"FFmpegFree/internal/service/cat"
@@ -240,7 +241,11 @@ func TestScheduleRunsAtTimeWithRulesAndNotifies(t *testing.T) {
 	e.gate.mu.Lock()
 	o := e.gate.opts[0]
 	e.gate.mu.Unlock()
-	if o.Rules != "用中文" || o.PermissionMode != "default" || o.ModelID != "grok-4.6" || o.ThinkLevelID != "high" || o.ProjectPath != e.dir {
+	physical, err := agentexec.CanonicalRoot(e.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Rules != "用中文" || o.PermissionMode != "default" || o.ModelID != "grok-4.6" || o.ThinkLevelID != "high" || o.ProjectPath != physical {
 		t.Fatalf("%+v", o)
 	}
 	list, _ := e.svc.ListCatSchedules(ctx)
@@ -317,16 +322,20 @@ func TestScheduleSkipConcurrencyAndQueue(t *testing.T) {
 	if r, _ := e.svc.RunNowCatSchedule(ctx, cat.ScheduleIDRequest{ID: c.ID}); r.Status != cat.RunSkipped {
 		t.Fatalf("%+v", r)
 	}
-	// 运行记录在调用助手之前就写成 running（中间还要建对话），所以要等两轮真正进到助手里再数。
-	for i := 0; i < 2; i++ {
-		select {
-		case <-e.gate.entered:
-		case <-time.After(5 * time.Second):
-			t.Fatalf("only %d turns entered the adapter", i)
-		}
+	// The scheduler still reserves two logical slots, but these schedules share
+	// one worktree and therefore only one native writer may enter at a time.
+	select {
+	case <-e.gate.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first native turn did not start")
 	}
-	if n := e.gate.running.Load(); n != 2 {
-		t.Fatalf("running %d", n)
+	select {
+	case <-e.gate.entered:
+		t.Fatal("two scheduled writers entered the shared worktree")
+	case <-time.After(150 * time.Millisecond):
+	}
+	if n := e.gate.running.Load(); n != 1 {
+		t.Fatalf("native writers = %d, want 1", n)
 	}
 	close(e.gate.release)
 	waitRuns(t, e.svc, c.ID, func(r []cat.ScheduleRun) bool {
@@ -380,12 +389,29 @@ func TestScheduleStoppedAndTimeout(t *testing.T) {
 
 func TestScheduleNotifyRespectsSettingAndForeground(t *testing.T) {
 	fg := atomic.Bool{}
-	e := newSchedEnv(t, false, func(c *cat.Config) { c.Foreground = fg.Load })
+	foregroundChecked := make(chan bool, 2)
+	e := newSchedEnv(t, false, func(c *cat.Config) {
+		c.Foreground = func() bool {
+			value := fg.Load()
+			foregroundChecked <- value
+			return value
+		}
+	})
 	ctx := context.Background()
 	sc := e.create(t, cat.ScheduleInput{Frequency: "daily", Time: "09:00"})
 	fg.Store(true)
 	_, _ = e.svc.RunNowCatSchedule(ctx, cat.ScheduleIDRequest{ID: sc.ID})
 	waitRuns(t, e.svc, sc.ID, lastStatus(cat.RunSucceeded))
+	// A durable terminal status precedes notifyRun. Do not change foreground
+	// state until that run has actually made its notification decision.
+	select {
+	case foreground := <-foregroundChecked:
+		if !foreground {
+			t.Fatal("first run did not observe the foreground window")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("first notification decision did not finish")
+	}
 	fg.Store(false)
 	off := false
 	_, _ = e.svc.SaveCatSettings(ctx, cat.Settings{NotifyOnFinish: &off})

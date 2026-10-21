@@ -87,7 +87,7 @@ func TestGroupImages_RouteWorkerPersistenceAndValidation(t *testing.T) {
 			captured := append([]catagent.TurnOptions{}, calls...)
 			mu.Unlock()
 			want := 1
-			if mode == "auto" {
+			if mode != "mention" {
 				want = 2
 			}
 			if len(captured) != want {

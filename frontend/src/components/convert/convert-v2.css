@@ -338,6 +338,7 @@ html.reduce-motion .cv-kid.focus{animation-timing-function:steps(1,end)}
 .cv-ops{position:relative}
 .cv-vl{position:relative}
 .cv-vl-item{position:absolute;left:0;right:0;top:0;display:flow-root}
+.cv-vl-item:hover,.cv-vl-item:focus-within{z-index:5}
 .cv-vl-head{display:flow-root}
 /* 预览弹窗 */
 .cv-pv:focus{outline:none}
@@ -545,8 +546,9 @@ html.reduce-motion .cv-kid.focus{animation-timing-function:steps(1,end)}
 .cv-gowrap:hover .cv-gotip{display:flex}
 .cv-gowrap .cv-gotip{display:none}
 .cv-gowrap.hv .cv-gotip{display:flex}
-.cv-pmtip .cv-ptip{display:none}
+.cv-pmtip .cv-ptip{display:none;pointer-events:none}
 .cv-pmtip:hover .cv-ptip,.cv-pmtip.hv .cv-ptip{display:flex}
+.cv-src:hover,.cv-src:focus-within{position:relative;z-index:2}
 .cv-pmtip:hover .cv-op{color:var(--ff-text-2)}
 .cv-stag .cv-tip{display:none}
 .cv-stag:hover .cv-tip,.cv-stag:focus-visible .cv-tip,.cv-stag.hv .cv-tip{display:flex}

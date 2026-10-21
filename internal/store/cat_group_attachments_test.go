@@ -26,7 +26,7 @@ func TestCatGroupImagesUpgradeAndReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.DB().Exec(`ALTER TABLE cat_group_messages DROP COLUMN files_json; DELETE FROM schema_migrations WHERE version=21`); err != nil {
+	if _, err := s.DB().Exec(`DROP TABLE cat_group_assignments; DROP TABLE cat_group_requests; ALTER TABLE cat_group_messages DROP COLUMN files_json; DELETE FROM schema_migrations WHERE version>=21`); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()

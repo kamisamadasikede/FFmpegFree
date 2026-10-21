@@ -25,7 +25,7 @@ func TestCatGroupWorkflowsUpgradePersistenceAndCascade(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Simulate an existing v19 installation with group data already present.
-	if _, err = s.DB().Exec(`DROP TABLE cat_group_workflows; DROP INDEX cat_group_messages_chain; ALTER TABLE cat_group_messages DROP COLUMN files_json; DELETE FROM schema_migrations WHERE version>=20`); err != nil {
+	if _, err = s.DB().Exec(`DROP TABLE cat_group_assignments; DROP TABLE cat_group_requests; DROP TABLE cat_group_workflows; DROP INDEX cat_group_messages_chain; ALTER TABLE cat_group_messages DROP COLUMN files_json; DELETE FROM schema_migrations WHERE version>=20`); err != nil {
 		t.Fatal(err)
 	}
 	_ = s.Close()

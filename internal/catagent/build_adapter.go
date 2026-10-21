@@ -390,6 +390,8 @@ func (a *BuildAdapter) ListThinkLevels() ([]ThinkLevel, error) {
 
 // TurnOptions 是一轮对话调用参数。
 type TurnOptions struct {
+	// Capability is an enforced ceiling independent of approval preferences.
+	Capability     string
 	Ctx            context.Context
 	ConversationID string
 	TurnID         string
@@ -441,6 +443,11 @@ type SteerFunc func(context.Context, string, []PromptFile) error
 
 // RunTurn 调 PATH 上的 grok headless：streaming-json → OnTextDelta；取消杀进程树。
 func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
+	var capabilityErr error
+	opts, capabilityErr = normalizeTurnCapability(opts, KindCatBuild)
+	if capabilityErr != nil {
+		return TurnResponse{}, capabilityErr
+	}
 	st := a.Status()
 	if st.State != StateReady {
 		return TurnResponse{}, apperr.New(apperr.CatNotReady, MsgNotReady)
@@ -515,7 +522,7 @@ func (a *BuildAdapter) RunTurn(opts TurnOptions) (TurnResponse, error) {
 	if schema := strings.TrimSpace(opts.JSONSchema); schema != "" {
 		args = append(args, "--json-schema", schema)
 	}
-	if opts.NoTools {
+	if opts.NoTools || opts.Capability == CapabilityChat || opts.Capability == CapabilityReadOnly {
 		args = append(args, "--tools", "")
 	}
 	args = append(args, rulesCLIArgs(opts.Rules)...)

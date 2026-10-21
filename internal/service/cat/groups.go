@@ -386,8 +386,12 @@ func (s *Service) ReorderCatGroupMembers(ctx context.Context, req ReorderGroupMe
 
 // emitGroupMember 推 cat:group-member；running 非空 = 正在干活，nil = 这一轮结束（契约 6.21.14 ④）。
 // 同时带 status / queueLength / queue（6.21.17 ④）。
-func (s *Service) emitGroupMember(m GroupMember, running *GroupRunning) {
+func (s *Service) emitGroupMember(m GroupMember, running *GroupRunning, owners ...*memberQueueState) {
 	groupQueueMu.Lock()
+	if len(owners) > 0 && groupQueues[m.ID] != owners[0] {
+		groupQueueMu.Unlock()
+		return
+	}
 	if st := groupQueues[m.ID]; st != nil {
 		if running != nil {
 			r := *running
@@ -398,6 +402,14 @@ func (s *Service) emitGroupMember(m GroupMember, running *GroupRunning) {
 	}
 	groupQueueMu.Unlock()
 	s.publishGroupMember(m, running)
+}
+
+// Serialize asynchronous activity/completion events with stop and replacement
+// registration, so an old event cannot be published after the new running state.
+func (s *Service) emitGroupTurnMember(ctx context.Context, m GroupMember, running *GroupRunning) {
+	s.groupStartMu.Lock()
+	defer s.groupStartMu.Unlock()
+	s.emitGroupMember(m, running, groupQueueOwner(ctx))
 }
 
 // emitGroupMemberSnapshot 推成员最新快照，干活状态沿用当前（入队 / 清队 / 规范变化时用，不把正在干活的人误报成结束）。

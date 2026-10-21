@@ -36,13 +36,13 @@ func TestMigrationsFreshAndFromTeams17(t *testing.T) {
 	if v, _ := s.SchemaVersion(ctx); v != ms[len(ms)-1].version {
 		t.Fatalf("fresh version %d", v)
 	}
-	for _, tb := range []string{"team_rooms", "team_runs", "cat_groups", "cat_group_members", "cat_group_messages", "cat_group_routes", "cat_group_turn_meta"} {
+	for _, tb := range []string{"cat_group_requests", "cat_group_assignments", "team_rooms", "team_runs", "cat_groups", "cat_group_members", "cat_group_messages", "cat_group_routes", "cat_group_turn_meta"} {
 		if !hasTable(tb) {
 			t.Fatalf("missing %s", tb)
 		}
 	}
 	// 老板本机库：已跑到 17、没有群聊表 → 再打开只补 18。
-	for _, tb := range []string{"cat_group_workflows", "cat_group_turn_meta", "cat_group_routes", "cat_group_messages", "cat_group_members", "cat_groups"} {
+	for _, tb := range []string{"cat_group_assignments", "cat_group_requests", "cat_group_workflows", "cat_group_turn_meta", "cat_group_routes", "cat_group_messages", "cat_group_members", "cat_groups"} {
 		if _, err := s.DB().Exec(`DROP TABLE ` + tb); err != nil {
 			t.Fatal(err)
 		}

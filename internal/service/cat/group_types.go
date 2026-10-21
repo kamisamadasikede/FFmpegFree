@@ -66,10 +66,11 @@ type UpdateCharterRequest struct {
 }
 
 type SendGroupMessageRequest struct {
-	GroupID  string           `json:"groupId"`
-	Text     string           `json:"text"`
-	Mentions []string         `json:"mentions"`
-	Files    []SendAttachment `json:"files,omitempty"`
+	ClientMessageID string           `json:"clientMessageId,omitempty"`
+	GroupID         string           `json:"groupId"`
+	Text            string           `json:"text"`
+	Mentions        []string         `json:"mentions"`
+	Files           []SendAttachment `json:"files,omitempty"`
 }
 
 type SendGroupMessageResult struct {

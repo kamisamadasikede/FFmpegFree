@@ -235,9 +235,9 @@
       </section>
 
       <!-- 右栏收起时内容保留，不重新加载 -->
-      <div v-if="showRight" class="ct-r-wrap" :class="{ shut: rightCollapsed, canvas: showOfficeCanvas }" :aria-hidden="rightCollapsed || undefined">
-        <CatOfficeCanvasPanel v-if="showOfficeCanvas" @close="officeCanvasClosed = true" />
-        <CatFilesPanel v-else :conv-id="catState.sel" :missing="projectMissing" @pick="onFilePick" />
+      <div v-if="showRight" class="ct-r-wrap" :class="{ shut: rightCollapsed, canvas: chatOffice }" :aria-hidden="rightCollapsed || undefined">
+        <CatOfficeCanvasPanel v-if="chatOffice" @close="officeCanvasClosed = true" />
+        <CatFilesPanel v-else :key="fileConvId" :conv-id="fileConvId" :missing="fileMissing" @pick="onFilePick" />
       </div>
     </div>
     <CatProjectDeleteDialog />
@@ -281,6 +281,7 @@ import CatOfficeCanvasPanel from '@/components/cat/CatOfficeCanvasPanel.vue'
 import { useOfficeCanvasStore } from '@/stores/officeCanvas'
 import type { PickNote } from '@/components/cat/catPick'
 import { catPanels, initCatPanels } from './catPanels'
+import { useCatGroupChat } from '@/stores/catGroupChat'
 import { CAT_PROJECT_COPY as PC } from '@/api/catProjects'
 import { ElMessage } from 'element-plus'
 import { CAT_COPY } from '@/api/cat'
@@ -304,6 +305,20 @@ defineOptions({ name: 'CatPage' })
 const officeCanvas = useOfficeCanvasStore()
 const officeCanvasClosed = ref(false)
 const showOfficeCanvas = computed(() => officeCanvas.showPreviewShell && !officeCanvasClosed.value)
+const chatOffice = computed(() => catPanels.view === 'chat' && showOfficeCanvas.value)
+const groupChat = useCatGroupChat()
+// 群成员会话绑在项目上，文件、Git 和预览都走这条会话读项目目录。
+const fileConvId = computed(() => {
+  if (catPanels.view !== 'group') return catState.sel
+  const memberId = groupChat.membersSorted[0]?.id ?? ''
+  if (memberId) return memberId
+  const project = catState.projects.find((p) => p.id === groupChat.group?.projectId)
+  return project?.convs.find((c) => !!c.id)?.id ?? ''
+})
+const fileMissing = computed(() => {
+  if (catPanels.view !== 'group') return projectMissing.value
+  return !!catState.projects.find((p) => p.id === groupChat.group?.projectId)?.missing
+})
 
 const router = useRouter()
 const preview = typeof window !== 'undefined' && !(window as unknown as { go?: unknown }).go
@@ -324,7 +339,9 @@ const historyEmpty = computed(() => loadedEmpty.value && !!catState.histStatus[c
 const showWelcome = computed(() => isNew.value || (loadedEmpty.value && !catState.histStatus[catState.sel]))
 /** 右侧文件面板只看是否绑定项目（新对话也一样），不看有没有消息 */
 const showRight = computed(
-  () => catPanels.view === 'chat' && shouldShowFilePanel(!!currentProject.value, isNew.value ? false : catScratch.has[catState.sel], !isNew.value && !!catState.turns[catState.sel], !isNew.value && catScratch.keep[catState.sel] === true),
+  () => catPanels.view === 'group'
+    ? fileConvId.value !== ''
+    : catPanels.view === 'chat' && shouldShowFilePanel(!!currentProject.value, isNew.value ? false : catScratch.has[catState.sel], !isNew.value && !!catState.turns[catState.sel], !isNew.value && catScratch.keep[catState.sel] === true),
 )
 const rightOpen = computed(() => showRight.value && !rightCollapsed.value)
 function toggleRight() {

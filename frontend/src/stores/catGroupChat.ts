@@ -2,9 +2,9 @@
  * 项目群聊 store（契约 §6.21.12 / 6.21.14 ④）。
  * 群消息流只吃 cat:group-message + cat:group-route；输入框上方的「正在干活」条吃 cat:group-member。
  */
-import { defineStore } from 'pinia'
+import { defineStore, getActivePinia } from 'pinia'
 import { computed, reactive, ref } from 'vue'
-import { groupApi, groupRealApi, normalizeMember, normalizeMessage, type CatGroup, type CatGroupMember, type CatGroupMessage, type CatGroupQueuedTask, type CatGroupFile, type CatGroupRunning, type CatRouteDetail, type RevertResult, type CatGroupWorkflow } from '@/api/catGroupChat'
+import { groupApi, groupRealApi, newGroupMessageId, normalizeMember, normalizeMessage, type CatGroup, type CatGroupMember, type CatGroupMessage, type CatGroupQueuedTask, type CatGroupFile, type CatGroupRunning, type CatRouteDetail, type RevertResult, type CatGroupWorkflow } from '@/api/catGroupChat'
 import { groupMock, groupScene } from '@/api/catGroupChatMock'
 import { getCatConversation, onCatMessage, onCatTurn } from '@/api/cat'
 import { applyStreamEvent, newStreamMsg, type CatStreamEvent, type CatStreamMsg } from '@/api/catStream'
@@ -51,6 +51,9 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
   const processStreams = new Map<string, CatStreamMsg>()
   /** messageId → memberId，方便按成员清流 */
   const processStreamOwner = new Map<string, string>()
+  // Keep one uncertain send per group so retrying a lost bridge reply uses the
+  // same durable request id. A confirmed send clears it for intentional repeats.
+  const uncertainSends = new Map<string, { fingerprint: string; id: string }>()
 
   const membersSorted = computed(() => [...members.value].sort((a, b) => a.order - b.order))
   const memberById = (id?: string) => members.value.find((m) => m.id === id)
@@ -381,7 +384,12 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
   }
   async function send(text: string, mentions: string[], files: { name: string; path: string }[] = []) {
     const groupId = activeId.value
-    const r = await groupApi().send(groupId, text, mentions, files)
+    const fingerprint = JSON.stringify({ text, mentions, files })
+    const previous = uncertainSends.get(groupId)
+    const id = previous?.fingerprint === fingerprint ? previous.id : newGroupMessageId()
+    uncertainSends.set(groupId, { fingerprint, id })
+    const r = await groupApi().send(groupId, text, mentions, files, id)
+    if (uncertainSends.get(groupId)?.id === id) uncertainSends.delete(groupId)
     if (activeId.value === groupId) addMessage(normalizeMessage(r.userMessage))
     return r.chainId
   }
@@ -393,6 +401,21 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
   const stop = (memberId: string) => groupApi().stopMember(memberId)
   const stopAll = () => groupApi().stopGroup(activeId.value)
   const retryTurn = (memberId: string, chainId: string, taskId?: string) => groupApi().retry(activeId.value, memberId, chainId, taskId)
+  async function clearWorkflowHistory() {
+    const groupId = activeId.value
+    const ids = new Set(await groupApi().clearWorkflowHistory(groupId))
+    if (activeId.value === groupId) {
+      for (const w of workflows.value) if (ids.has(w.chainId)) w.dismissed = true
+    }
+  }
+  async function dismissWorkflow(chainId: string) {
+    const groupId = activeId.value
+    await groupApi().dismissWorkflow(groupId, chainId)
+    if (activeId.value === groupId) {
+      const w = workflows.value.find((x) => x.chainId === chainId)
+      if (w) w.dismissed = true
+    }
+  }
   const revert = (memberId: string, turnId: string, files: string[]): Promise<RevertResult> => groupApi().revert(memberId, turnId, files)
   const routeDetail = (seq: number): Promise<CatRouteDetail> => groupApi().routeDetail(activeId.value, seq)
 
@@ -400,6 +423,21 @@ export const useCatGroupChat = defineStore('catGroupChat', () => {
     groupsByProject, activeId, group, members, membersSorted, messages, workflows, hasMore, loading, live, routing, routingNow,
     drawerMemberId, processBlocks, processLoading, processText, revertedSeqs, queued, memberStatus, files, loadFiles, settingsOpen, membersOpen, scene, sceneUi, workingMembers,
     memberById, nameOf, elapsedOf, loadGroups, open, loadOlder, createGroup, rename, setAutoRoute, deleteGroup,
-    addMember, updateMember, removeMember, reorder, regenerate, saveCharter, send, reassign, stop, stopAll, retryTurn, revert, routeDetail, openProcess, setProcessDemo,
+    addMember, updateMember, removeMember, reorder, regenerate, saveCharter, send, reassign, stop, stopAll, retryTurn, dismissWorkflow, clearWorkflowHistory, revert, routeDetail, openProcess, setProcessDemo,
   }
 })
+
+// This store owns long-lived event subscriptions and a ticker. Recreate the
+// page on store edits so components, actions and listeners use one instance.
+if (import.meta.hot) {
+  import.meta.hot.accept(() => window.location.reload())
+  // Also recover clients already holding a store created before these actions
+  // existed: registering the new definition alone does not update that instance.
+  const pinia = getActivePinia()
+  if (pinia) {
+    const store = useCatGroupChat(pinia)
+    if (typeof store.clearWorkflowHistory !== 'function' || typeof store.dismissWorkflow !== 'function') {
+      window.location.reload()
+    }
+  }
+}
