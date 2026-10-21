@@ -3,7 +3,7 @@
     <nav class="seg" aria-label="文档工具">
       <RouterLink v-for="t in tabs" :key="t.to" :to="t.to" class="seg-item">{{ t.label }}</RouterLink>
     </nav>
-    <div class="row">
+    <div class="row" :class="{ 'with-recent': !isConvert }">
       <!-- KeepAlive：切换 Tab 保留各自状态（Office 列表和任务订阅、当前打开的 PDF 都不丢） -->
       <RouterView v-slot="{ Component }">
         <KeepAlive>
@@ -47,34 +47,39 @@ const tabs = [
   flex-direction: column;
   gap: 16px;
 }
+/* v0.58 对齐原型：页签改卡片式（选中卡片面 + 1px 描边），不再用深底段控 */
 .seg {
-  display: flex;
-  width: 240px;
-  height: 28px;
+  display: inline-flex;
+  gap: 4px;
   flex: none;
-  box-sizing: border-box;
-  background: var(--ff-bg-hover);
-  border-radius: 6px;
-  padding: 2px;
+  align-self: flex-start;
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
 }
 .seg-item {
-  flex: 1;
-  text-align: center;
-  height: 24px;
-  line-height: 24px;
-  border-radius: 4px;
+  height: 34px;
+  line-height: 34px;
+  padding: 0 14px;
+  border-radius: var(--ff-radius-md);
   color: var(--ff-text-2);
-  font-size: 12px;
-  transition: color var(--ff-dur-fast) var(--ff-ease), background var(--ff-dur-fast) var(--ff-ease);
+  font-size: var(--ff-fs-sm);
+  transition:
+    color var(--ff-dur-fast) var(--ff-ease),
+    background var(--ff-dur-fast) var(--ff-ease),
+    box-shadow var(--ff-dur-fast) var(--ff-ease);
 }
 .seg-item:hover {
   color: var(--ff-text-1);
+  background: var(--ff-bg-hover);
 }
 .seg-item.router-link-active {
   background: var(--ff-bg-surface);
   color: var(--ff-text-1);
-  font-weight: 500;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  font-weight: 600;
+  box-shadow: var(--ff-shadow-1);
+  border: 1px solid var(--ff-border);
+  line-height: 32px;
 }
 .seg-item:focus-visible {
   outline: 2px solid var(--ff-primary);
@@ -85,5 +90,46 @@ const tabs = [
   min-height: 0;
   display: flex;
   gap: 16px;
+}
+
+/* v0.58 自适应：PDF 预览页的「最近打开」右栏在窄窗口下压掉阅读区（≤1024 只剩 300 宽）。
+   ≤900 时右栏改到内容下方、横向铺满；文档转换页本来就不显示右栏，不受影响。 */
+@media (max-width: 1024px) {
+  .docs {
+    gap: 12px;
+  }
+  .row {
+    flex-direction: column;
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .row.with-recent > :first-child {
+    flex: 1 0 auto;
+    min-height: 320px;
+  }
+  .row :deep(.recent) {
+    width: auto;
+    flex: none;
+    max-height: 280px;
+    min-height: 160px;
+  }
+}
+
+@media (max-width: 720px) {
+  .seg-item {
+    height: 30px;
+    line-height: 30px;
+    padding: 0 10px;
+    font-size: 12.5px;
+  }
+  .seg-item.router-link-active {
+    line-height: 28px;
+  }
+  .row.with-recent > :first-child {
+    min-height: 260px;
+  }
+  .row :deep(.recent) {
+    max-height: 220px;
+  }
 }
 </style>

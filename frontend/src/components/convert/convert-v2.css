@@ -5,7 +5,7 @@
 /* ---- 基础类（原型 base.css / extra.css 的同名类，限定在 .cv2 里） ---- */
 .cv2{height:100%;min-height:0;display:flex;flex-direction:column}
 .cv2 button{font:inherit;cursor:pointer}
-.cv2 .panel{background:var(--ff-bg-surface);border:1px solid var(--ff-border);border-radius:10px}
+.cv2 .panel{background:var(--ff-bg-surface);border:1px solid var(--ff-border);border-radius:var(--ff-radius-lg)}
 .cv2 .bar{width:120px;height:4px;border-radius:2px;background:var(--ff-border);overflow:hidden;flex:none}
 .cv2 .bar i{display:block;height:100%;background:var(--ff-primary);border-radius:2px;transition:width var(--ff-dur-progress) linear}
 .cv2 .btn{height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--ff-border);background:var(--ff-bg-surface);color:var(--ff-text-1);display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:13px;white-space:nowrap;flex:none}
@@ -44,8 +44,8 @@
 .cv-right{width:300px;flex:none;display:flex;flex-direction:column;min-height:0}
 .cv2.w1024 .cv{gap:12px}
 .cv2.w1024 .cv-right{width:256px}
-.cv-ph{height:48px;flex:none;display:flex;align-items:center;gap:8px;padding:0 12px 0 16px;border-bottom:1px solid var(--ff-border)}
-.cv-ph h2{font-size:14px;font-weight:600;white-space:nowrap}
+.cv-ph{height:48px;flex:none;display:flex;align-items:center;gap:8px;padding:0 12px 0 20px;border-bottom:1px solid var(--ff-border)}
+.cv-ph h2{font-size:14px;font-weight:620;white-space:nowrap}
 .cv-ph .cnt{font-size:12px;color:var(--ff-text-2);white-space:nowrap}
 .cv-ph .sp{flex:1}
 .cv-search{width:200px;height:28px;border:1px solid var(--ff-border);border-radius:6px;display:flex;align-items:center;gap:6px;padding:0 8px;color:var(--ff-text-3);font-size:12px;background:var(--ff-bg-surface);white-space:nowrap;overflow:hidden}
@@ -640,3 +640,86 @@ html.reduce-motion .cv-cov.gen::after{animation:none;background:none}
 .cv-fstate p{margin:0}
 @media (prefers-reduced-motion:reduce){.cv-fxsk{animation:none}}
 html.reduce-motion .cv-fxsk{animation:none}
+
+/* ---- v0.58：应用内预览新增 图片 / PDF / 文本 三类（原只有 video / audio / gif） ---- */
+.cv2 .cv-still{width:100%;height:100%;object-fit:contain;background:#000;display:block}
+.cv2 .cv-pdf{width:100%;height:100%;border:0;background:#fff;display:block}
+.cv2 .cv-text{margin:0;width:100%;height:100%;overflow:auto;padding:16px 18px;box-sizing:border-box;
+  background:var(--ff-bg-surface);color:var(--ff-text-1);font-family:var(--ff-font-mono);font-size:12.5px;
+  line-height:1.65;white-space:pre-wrap;word-break:break-word;user-select:text;-webkit-user-select:text}
+.cv2 .cv-text-cap{display:inline-block;margin-top:10px;color:var(--ff-text-3);font-family:var(--ff-font);font-size:12px}
+
+/* ============================================================================
+   v0.58 自适应（三档：1240 / 1024 / 720，与 prototype 断点一致）
+   原来只有「1024 把右栏 300→256」一档，窗口再窄右栏仍占 256px，左栏被压到
+   200px 出头：文件名只剩省略号、失败原因竖排逐字换行、操作按钮全被裁掉。
+   这里按「单列 + 页面整体滚动」重排，而不是继续压缩两栏。
+   ============================================================================ */
+
+/* 1240：右栏 300→280，和原型 344→316 同一节奏 */
+@media (max-width: 1240px) {
+  .cv-right { width: 280px; }
+  .cv2.w1024 .cv-right { width: 244px; }
+}
+
+/* ≤900：两栏改单列。记录列表给上限高度（虚拟列表需要确定视口），右栏落到下面按内容排 */
+@media (max-width: 1024px) {
+  .cv2:not(.cv-layer) { margin: 0; height: 100%; }
+  .cv { flex-direction: column; gap: 12px; padding: 0; overflow-y: auto; overscroll-behavior: contain; }
+  /* 左栏不再吃满剩余高度：空态 / 引导卡按内容自然高，列表用 max-height 限高自己滚，
+     否则 .cv-left 定高 + 内容溢出会盖到下面的转换设置卡上 */
+  .cv-left { flex: none; min-height: 0; }
+  .cv-list { flex: none; max-height: min(58vh, 520px); min-height: 180px; }
+  .cv-list .cv-scroll { max-height: 100%; }
+  .cv-right,
+  .cv2.w1024 .cv-right { width: auto; flex: none; align-self: stretch; max-height: none; min-height: 0; }
+  /* 右栏在单列里不再自己滚：格式区 / 保存到 全部进页面流，由 .cv 统一滚动 */
+  .cv2 .cv-rp.dc-rp,
+  .cv-right .cv-rp { overflow: visible; height: auto; flex: none; min-height: 0; }
+  .cv-presets.cv-fxs { flex: none; max-height: none; overflow: visible; }
+  .cv-presets { flex: none; max-height: none; overflow: visible; }
+  .cv2.w1024 .cv-src.open .cv-sum { display: flex; }
+  .dc-dock { position: static; }
+  /* 空态 / 引导卡在单列下按内容撑高（父级 flex:none 时 flex:1 会塌成 0） */
+  .cv-hero { flex: none; min-height: 240px; }
+}
+
+/* ≤720：栏头折行（标题 + 计数一行，筛选 / 搜索 / 按钮第二行），列表行收边距 */
+@media (max-width: 720px) {
+  .cv-ph { height: auto; flex-wrap: wrap; row-gap: 6px; padding: 8px 10px 8px 12px; }
+  .cv-ph h2 { font-size: 13px; }
+  .cv-ph .cnt { font-size: 11px; }
+  .cv-ph .sp { display: none; }
+  .cv-ph .btn { height: 26px; padding: 0 9px; font-size: 12px; }
+  .cv2 .cv-search,
+  .cv2.w1024 .cv-search { width: 100%; order: 5; }
+  .cv-filter { order: 4; }
+  .cv-list { max-height: min(54vh, 440px); min-height: 160px; }
+  .cv-hero { min-height: 220px; padding: 20px 14px; }
+  .cv-hero h3 { font-size: 14px; }
+  .cv-hero p { font-size: 12.5px; }
+  .cv-scroll { padding: 4px 8px 8px; }
+  .cv-drop { height: auto; min-height: 38px; padding: 6px 10px; white-space: normal; }
+  .cv-drop .cv-ds { display: none; }
+  .cv-prow { gap: 8px; padding: 8px 4px; }
+  .cv-prow > .cv-chk { display: none; }
+  .cv-kids { margin-left: 40px; }
+  .cv2.w1024 .cv-kids { margin-left: 40px; }
+  .cv-kid { gap: 8px; padding: 8px 4px; }
+  .cv-kid .cv-th { width: 44px; height: 26px; }
+  .cv-th, .cv2.w1024 .cv-prow > .cv-th { width: 52px; height: 30px; }
+  .cv-th.sm { width: 44px; height: 26px; }
+  .cv-conf { margin-left: 44px; }
+  .cv2.w1024 .cv-conf { margin-left: 44px; }
+  .cv-err.cv-cperr { margin-left: 44px; }
+  .cv-total { white-space: normal; flex-wrap: wrap; row-gap: 6px; margin: 8px 8px 0; }
+  .cv-total .bar { min-width: 40px; }
+  .cv2 .cv-total .dc-tbar { width: 80px; }
+  .cv-presets .preset.cv-fx b { font-size: 12px; }
+  .cv-fxg { gap: 4px; }
+  .cv-cue, .lg-cue { grid-template-columns: 22px 1fr; }
+}
+
+/* 无时间轴 / 无控制条时，舞台铺满弹窗主体 */
+.cv2 .cv-pvbody.nobar{display:flex}
+.cv2 .cv-pvbody.nobar .ff-player{flex:1;min-height:0}

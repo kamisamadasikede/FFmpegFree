@@ -40,8 +40,10 @@ func main() {
 		Title:     "ffc",
 		Width:     1280,
 		Height:    800,
-		MinWidth:  1024, // ✅ 设置为 0 表示无最小宽度
-		MinHeight: 680,  // ✅ 设置为 0 表示无最小高度
+		// 自适应下限：与前端断点 720 对齐（侧栏在该宽度下收成 56px 图标轨，页面单列）。
+		// 之前是 1024×680，窗口根本拖不窄，前端写的三档响应式永远跑不到。
+		MinWidth:  720,
+		MinHeight: 560,
 		MaxWidth:  0,    // ✅ 0 表示无最大宽度
 		MaxHeight: 0,    // ✅ 0 表示无最大高度
 		Linux:     &linux.Options{Icon: appIcon, ProgramName: "ffc"},
@@ -53,7 +55,10 @@ func main() {
 		DragAndDrop:      &options.DragAndDrop{EnableFileDrop: true},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup:        mainApp.startup,
+		OnBeforeClose:    mainApp.beforeClose,
 		OnShutdown:       mainApp.shutdown,
+		// 第二个实例共享同一个 app.db；不锁会把第一个实例正在跑的任务标成「已中断」。
+		SingleInstanceLock: &options.SingleInstanceLock{UniqueId: "ffc-desktop"},
 		Bind: []interface{}{
 			mainApp,
 			jsonService,

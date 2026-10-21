@@ -80,33 +80,38 @@ async function go(item: Item) {
   gap: var(--ff-space-4);
 }
 .snav {
-  width: 180px;
+  width: 176px;
   flex: none;
-  padding: var(--ff-space-2);
+  padding: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
   position: sticky;
   top: 0;
+  background: transparent;
+  border: 0;
 }
 .snav-item {
-  height: 32px;
+  height: 34px;
   display: flex;
   align-items: center;
   padding: 0 10px;
   border-radius: var(--ff-radius-md);
   color: var(--ff-text-2);
   font-size: var(--ff-fs-sm);
-  transition: background var(--ff-dur-fast) var(--ff-ease), color var(--ff-dur-fast) var(--ff-ease);
+  transition:
+    background var(--ff-dur-fast) var(--ff-ease),
+    color var(--ff-dur-fast) var(--ff-ease);
 }
 .snav-item:hover {
   background: var(--ff-bg-hover);
   color: var(--ff-text-1);
 }
+/* 选中态：软底 + 主色文字（与原型 .subnav a.is-on 一致） */
 .snav-item.on {
-  background: var(--ff-bg-hover);
+  background: var(--ff-bg-active);
   color: var(--ff-text-1);
-  font-weight: 500;
+  font-weight: 600;
 }
 .snav-item:focus-visible {
   outline: 2px solid var(--ff-primary);
@@ -118,5 +123,52 @@ async function go(item: Item) {
   display: flex;
   flex-direction: column;
   gap: var(--ff-space-4);
+}
+
+/* ============================================================================
+   v0.58 自适应：设置子导航（176px 竖排）+ 内容
+   窄窗口下 176 固定宽 + 内容区被挤，表单行（说明 + 控件）叠在一起。
+   ≤900 子导航改成上方一行横向可滚动的胶囊，内容整宽落到下面。
+   ============================================================================ */
+@media (max-width: 1024px) {
+  .settings-layout {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .snav {
+    width: auto;
+    position: static;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 4px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+  .snav::-webkit-scrollbar {
+    display: none;
+  }
+  .snav-item {
+    flex: none;
+    height: 30px;
+    padding: 0 12px;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .snav-item.on {
+    border-color: var(--ff-border);
+    background: var(--ff-bg-surface);
+    box-shadow: var(--ff-shadow-1);
+  }
+}
+
+@media (max-width: 720px) {
+  .snav-item {
+    height: 28px;
+    padding: 0 10px;
+    font-size: 12.5px;
+  }
 }
 </style>

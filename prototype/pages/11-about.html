@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<script>/* 早于首次绘制应用 ?theme= 以免过渡色被冻结 */try{const t=new URLSearchParams(location.search).get("theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<title>关于 · ffc 原型</title>
+<link rel="stylesheet" href="../assets/design.css">
+<style>
+  .page { display: flex; justify-content: center; }
+  .wrap { width: 100%; max-width: 760px; display: grid; gap: 16px; align-content: start; }
+
+  /* 品牌区 */
+  .brandcard {
+    display: flex; align-items: center; gap: 18px;
+    padding: 22px 24px; border-radius: var(--r-md);
+    background:
+      radial-gradient(120% 160% at 0% 0%, rgba(79,140,255,.16), transparent 58%),
+      radial-gradient(90% 140% at 100% 0%, rgba(123,92,255,.14), transparent 60%),
+      var(--bg-card);
+    border: 1px solid var(--line);
+  }
+  .logo2 {
+    width: 56px; height: 56px; border-radius: 16px; flex: 0 0 auto;
+    background: linear-gradient(145deg, var(--brand), #7b5cff);
+    display: grid; place-items: center; color: #fff;
+    font-weight: 800; font-size: 17px; letter-spacing: -.5px;
+    box-shadow: 0 8px 24px rgba(79,140,255,.32);
+  }
+  .brandcard h2 { margin: 0; font-size: 20px; letter-spacing: -.015em; display: flex; align-items: center; gap: 9px; }
+  .brandcard h2 .ver2 { font-size: 11.5px; font-weight: 600; color: var(--fg-2);
+    background: var(--bg-card-2); border: 1px solid var(--line-strong); border-radius: 5px; padding: 2px 7px; letter-spacing: 0; }
+  .brandcard p { margin: 5px 0 0; font-size: 12.5px; color: var(--fg-3); }
+  .brandcard .right { margin-left: auto; display: flex; gap: 8px; }
+
+  /* 信息网格 */
+  .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
+  .infocard { padding: 15px 16px; border-radius: var(--r-md); background: var(--bg-card); border: 1px solid var(--line); }
+  .infocard .k { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-3); display: flex; align-items: center; gap: 6px; }
+  .infocard .k svg { width: 13px; height: 13px; }
+  .infocard .rows2 { margin-top: 10px; display: grid; gap: 7px; }
+  .infocard .r2 { display: flex; gap: 8px; font-size: 12px; }
+  .infocard .r2 span:first-child { color: var(--fg-3); min-width: 52px; }
+  .infocard .r2 span:last-child { color: var(--fg-1); font-family: var(--font-mono); font-size: 11.5px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* 许可 */
+  .lic { padding: 0; }
+  .licrow { display: flex; align-items: center; gap: 12px; padding: 11px 18px; border-bottom: 1px solid var(--line); }
+  .licrow:last-child { border-bottom: 0; }
+  .licrow .nm { font-size: 12.5px; font-weight: 550; min-width: 150px; }
+  .licrow .ver3 { font-family: var(--font-mono); font-size: 11px; color: var(--fg-3); }
+  .licrow .lic2 { margin-left: auto; font-size: 11.5px; color: var(--fg-2); }
+  .licrow a { color: var(--brand-hi); text-decoration: none; font-size: 11.5px; }
+  .foot { text-align: center; font-size: 11.5px; color: var(--fg-3); padding: 6px 0 2px; line-height: 1.7; }
+
+  /* ── 自适应：三卡并排 → 两列 → 单列 ── */
+  @media (max-width: 1024px) {
+    .grid3 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  }
+  @media (max-width: 720px) {
+    .grid3 { grid-template-columns: minmax(0,1fr); }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="side"></aside>
+  <main class="main">
+    <header class="topbar" id="top"></header>
+    <div class="page">
+      <div class="wrap">
+
+        <!-- 品牌 -->
+        <section class="brandcard">
+          <div class="logo2">ffc</div>
+          <div>
+            <h2>ffc <span class="ver2">v2.4.1 · 开发版</span></h2>
+            <p>本地音视频与文档工具箱 · 转换、直播、文档、语音，全部在本机完成</p>
+          </div>
+          <div class="right">
+            <button class="c-btn">反馈问题</button>
+            <button class="c-btn is-primary">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4.5V10h-5.5"/></svg>
+              检查更新
+            </button>
+          </div>
+        </section>
+
+        <!-- 运行信息 -->
+        <div class="grid3">
+          <div class="infocard">
+            <div class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m9 8-4 4 4 4M15 8l4 4-4 4"/></svg>运行环境</div>
+            <div class="rows2">
+              <div class="r2"><span>界面</span><span>Wails v2.16 · WebView2</span></div>
+              <div class="r2"><span>前端</span><span>Vue 3.5 · Vite 5</span></div>
+              <div class="r2"><span>后端</span><span>Go 1.27</span></div>
+            </div>
+          </div>
+          <div class="infocard">
+            <div class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M10 3v2.5M14 3v2.5M10 18.5V21M14 18.5V21M3 10h2.5M3 14h2.5M18.5 10H21M18.5 14H21"/></svg>引擎</div>
+            <div class="rows2">
+              <div class="r2"><span>ffmpeg</span><span>6.1 · 已就绪</span></div>
+              <div class="r2"><span>路径</span><span>D:\Tools\ffmpeg\bin</span></div>
+              <div class="r2"><span>硬件</span><span>NVENC H.264 / HEVC</span></div>
+            </div>
+          </div>
+          <div class="infocard">
+            <div class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2.5h8.5A1.5 1.5 0 0 1 21 10v7.5A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5Z"/></svg>数据目录</div>
+            <div class="rows2">
+              <div class="r2"><span>配置</span><span>%AppData%\FFmpegFree</span></div>
+              <div class="r2"><span>数据库</span><span>app.db · 2.4 MB</span></div>
+              <div class="r2"><span>日志</span><span>logs\app.log</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 许可 -->
+        <section class="c-card lic">
+          <div class="c-card-hd">
+            <h2>开源许可</h2>
+            <div class="right"><a href="#" style="font-size:11.5px;color:var(--brand-hi);text-decoration:none">查看许可证全文</a></div>
+          </div>
+          <div class="licrow">
+            <span class="nm">ffc 本体</span>
+            <span class="ver3">—</span>
+            <span class="lic2">木兰宽松许可证 第 2 版</span>
+          </div>
+          <div class="licrow">
+            <span class="nm">mpegts.js</span>
+            <span class="ver3">1.8.2</span>
+            <span class="lic2">Apache-2.0 · 直播预览播放</span>
+          </div>
+          <div class="licrow">
+            <span class="nm">Noto Sans SC（子集）</span>
+            <span class="ver3">—</span>
+            <span class="lic2">SIL OFL-1.1 · 文档转 PDF 内嵌字体</span>
+          </div>
+          <div class="licrow">
+            <span class="nm">Wails</span>
+            <span class="ver3">v2.16.0</span>
+            <span class="lic2">MIT</span>
+          </div>
+          <div class="licrow">
+            <span class="nm">Vue / Element Plus</span>
+            <span class="ver3">3.5 / 2.10</span>
+            <span class="lic2">MIT</span>
+          </div>
+          <div class="licrow">
+            <span class="nm">ffmpeg</span>
+            <span class="ver3">6.1</span>
+            <span class="lic2">随用户机器提供，不随安装包分发</span>
+          </div>
+        </section>
+
+        <div class="foot">
+          ffc 不收集任何使用数据。ffmpeg 由本机提供或经你确认后下载安装。<br>
+          © 2026 · 木兰宽松许可证第 2 版
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+<div class="proto-tag">原型 v1 · 关于</div>
+<script src="../assets/shell.js"></script>
+<script>
+  ffcShell({
+    active: 'settings',
+    title: '设置',
+    sub: '关于',
+    actions: ['theme'],
+    engine: { text: '就绪', path: '6.1' }
+  });
+</script>
+<script src="../assets/nav.js"></script>
+</body>
+</html>

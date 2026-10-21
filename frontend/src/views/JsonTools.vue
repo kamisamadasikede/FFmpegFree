@@ -604,6 +604,10 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: var(--ff-space-2);
   flex: none;
+  /* v0.58 对齐原型：工具条单独一条，底部 1px 分隔线 */
+  padding: 0 0 var(--ff-space-3);
+  border-bottom: 1px solid var(--ff-border);
+  margin-bottom: var(--ff-space-4);
 }
 .grow {
   flex: 1;
@@ -728,6 +732,7 @@ onBeforeUnmount(() => {
 .phead h2 {
   margin: 0;
   font-size: var(--ff-fs-md);
+  font-weight: 620;
   font-weight: 600;
 }
 .sp {
@@ -740,8 +745,9 @@ onBeforeUnmount(() => {
 .seg {
   display: flex;
   width: 120px;
-  background: var(--ff-bg-hover);
-  border-radius: var(--ff-radius-md);
+  background: var(--ff-bg-card-2);
+  border: 1px solid var(--ff-border);
+  border-radius: var(--ff-radius-sm);
   padding: 2px;
 }
 .seg button {
@@ -946,5 +952,62 @@ onBeforeUnmount(() => {
   text-decoration-thickness: 1px;
   text-underline-offset: 4px;
   text-decoration-skip-ink: none;
+}
+
+/* ============================================================================
+   v0.58 自适应：工具条 + 双栏编辑器
+   原来 ≤900 时工具条右侧 5 个按钮 + 开关固定不折行，溢出被裁（“去转义 / 复制”
+   直接看不到）；双栏各压到 ~300，Monaco 只剩十几列。
+   ≤900 双栏改上下两栏（各占一半高度），≤720 工具条折行、按钮收小。
+   ============================================================================ */
+@media (max-width: 900px) {
+  .hrow {
+    flex-direction: column;
+    gap: 10px;
+    min-height: 0;
+  }
+  .panel {
+    flex: 1 1 0;
+    width: auto;
+    min-height: 200px;
+  }
+  .tb {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .tb .grow {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .jt {
+    gap: 10px;
+  }
+  .tb {
+    padding: 0 0 10px;
+    margin-bottom: 10px;
+    gap: 6px;
+  }
+  .btn {
+    height: 26px;
+    padding: 0 9px;
+    font-size: 12px;
+  }
+  .phead {
+    height: 42px;
+    padding: 0 10px;
+    gap: 6px;
+  }
+  .sub {
+    display: none;
+  }
+  .seg {
+    width: 104px;
+  }
+  .sbar {
+    gap: 8px;
+    padding: 0 10px;
+  }
 }
 </style>

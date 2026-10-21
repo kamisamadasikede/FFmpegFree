@@ -130,3 +130,103 @@ html.dark,
   --cat-member-4: #a78bfa;
   --cat-member-5: #2dd4bf;
 }
+
+/* ============================================================================
+   Cat 页面视觉冻结（v0.58）
+   本轮只重做「除 Agent 外」的页面：tokens.css 的 --ff-* 取值变了，
+   而 Cat 的 --cat-* 大多引用 --ff-*，在 :root 上就已经解析完。
+   这里在 .cat-root 作用域内把 Cat 依赖的那批变量按**重做前的值**重新钉住，
+   保证 Cat 页面与已定稿原型逐像素一致，不受本轮改动影响。
+   以后要统一 Cat 视觉时，删掉本块即可。
+   ============================================================================ */
+.cat-root {
+  --ff-primary: #3b6ef5;
+  --ff-primary-hover: #2f5cd9;
+  --ff-primary-soft: #eaf0ff;
+  --ff-primary-text: #2f5cd9;
+  --ff-on-primary: #ffffff;
+  --ff-success: #16a34a;
+  --ff-success-text: #137535;
+  --ff-warning: #d97706;
+  --ff-warning-text: #985006;
+  --ff-warning-soft: #fff7e6;
+  --ff-danger: #dc2626;
+  --ff-danger-text: #b91c1c;
+  --ff-on-danger: #ffffff;
+  --ff-bg-app: #f5f6f8;
+  --ff-bg-sidebar: #eef0f3;
+  --ff-bg-surface: #ffffff;
+  --ff-bg-elevated: #ffffff;
+  --ff-bg-hover: #f0f2f5;
+  --ff-border: #e3e6eb;
+  --ff-text-1: #1f2329;
+  --ff-text-2: #5c6370;
+  --ff-text-3: #9aa0a9;
+
+  /* 由上面这些变量派生的 --cat-*，一并按旧值钉住（否则仍是 :root 的解析结果） */
+  --cat-bg: #ffffff;
+  --cat-rail: #eef0f3;
+  --cat-panel: #f9fafb;
+  --cat-border: #e3e6eb;
+  --cat-text: #1f2329;
+  --cat-text-2: #5c6370;
+  --cat-muted: #9aa0a9;
+  --cat-active: rgba(59, 110, 245, 0.1);
+  --cat-active-text: #2f5cd9;
+  --cat-accent: #3b6ef5;
+  --cat-accent-hover: #2f5cd9;
+  --cat-accent-soft: #eaf0ff;
+  --cat-on-accent: #ffffff;
+  --cat-danger: #dc2626;
+  --cat-danger-text: #b91c1c;
+  --cat-on-danger: #ffffff;
+  --cat-warn: #d97706;
+  --cat-warn-text: #985006;
+  --cat-success: #16a34a;
+  --cat-success-text: #137535;
+  --cat-lane-1: #3b6ef5;
+  --cat-lane-2: #16a34a;
+  --cat-lane-6: #dc2626;
+  --cat-focus: 0 0 0 2px #ffffff, 0 0 0 4px rgba(59, 110, 245, 0.55);
+}
+
+html.dark .cat-root,
+.ff-dark .cat-root {
+  --ff-primary: #5b8cff;
+  --ff-primary-hover: #7aa2ff;
+  --ff-primary-soft: #1e2a4a;
+  --ff-primary-text: #7aa2ff;
+  --ff-on-primary: #0b0c0e;
+  --ff-success: #22c55e;
+  --ff-success-text: #22c55e;
+  --ff-warning: #f59e0b;
+  --ff-warning-text: #f59e0b;
+  --ff-warning-soft: #3a2a10;
+  --ff-danger: #ef4444;
+  --ff-danger-text: #f87171;
+  --ff-on-danger: #0b0c0e;
+  --ff-bg-app: #141518;
+  --ff-bg-sidebar: #1a1b1f;
+  --ff-bg-surface: #1f2025;
+  --ff-bg-elevated: #26282e;
+  --ff-bg-hover: #2a2c33;
+  --ff-border: #2e3037;
+  --ff-text-1: #e8eaed;
+  --ff-text-2: #a0a6b0;
+  --ff-text-3: #6b717b;
+
+  --cat-text: #e8eaed;
+  --cat-text-2: #a0a6b0;
+  --cat-muted: #6b717b;
+  --cat-active: rgba(91, 140, 255, 0.16);
+  --cat-danger: #ef4444;
+  --cat-danger-text: #f87171;
+  --cat-warn: #f59e0b;
+  --cat-warn-text: #f59e0b;
+  --cat-success: #22c55e;
+  --cat-success-text: #22c55e;
+  --cat-lane-1: #5b8cff;
+  --cat-lane-2: #22c55e;
+  --cat-lane-6: #ef4444;
+  --cat-focus: 0 0 0 2px #1b1c20, 0 0 0 4px rgba(91, 140, 255, 0.55);
+}

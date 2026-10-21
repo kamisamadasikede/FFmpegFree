@@ -1,4 +1,5 @@
-/* 旧页面用到的变量先映射到新 token，逐页迁移完后删除这一段 */
+/* 基础样式 · v0.58 视觉重做（对齐 prototype/ 原型）
+   约定：外壳三层背景、统一 8px 栅格、细滚动条、焦点描边；旧类名映射保留，逐页迁移后删除 */
 :root,
 html.dark {
   --app-bg: var(--ff-bg-app);
@@ -44,6 +45,10 @@ a {
   text-decoration: none;
 }
 
+::selection {
+  background: var(--ff-primary-soft);
+}
+
 /* 外壳禁止整页选中。输入框、日志、代码、内嵌页面除外。
    iframe 必须写在元素自己身上：继承来的 none 会让 WebView2 拒绝在页面里拖选。 */
 .app-shell {
@@ -61,7 +66,7 @@ a {
   user-select: text;
   -webkit-user-select: text;
 }
-/* 中间对话和群聊：外壳的 none 在 WebView2 里会挡住子孙划选，必须连里面的文字一起强制放开，Ctrl+C 才有选区。 */
+/* 中间对话和群聊：外壳的 none 在 WebView2 里会挡住子孙划选 */
 .app-shell .ct-msgs,
 .app-shell .ct-msgs *,
 .app-shell .cg-feed,
@@ -79,28 +84,192 @@ a {
   cursor: pointer;
 }
 
-/* 细滚动条，悬停时显示 */
+/* 细滚动条：静止透明，悬停显现（原型一致） */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover {
+  scrollbar-color: color-mix(in srgb, var(--ff-text-3) 55%, transparent) transparent;
+}
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-thumb {
   background: transparent;
-  border-radius: 3px;
+  border: 3px solid transparent;
+  border-radius: 8px;
+  background-clip: padding-box;
 }
 *:hover::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--ff-text-3) 60%, transparent);
+  background: color-mix(in srgb, var(--ff-text-3) 55%, transparent);
+  background-clip: padding-box;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
-/* 旧页面通用类 */
+/* ---------- 通用内容卡 ---------- */
 .panel {
   background: var(--ff-bg-surface);
   border: 1px solid var(--ff-border);
   border-radius: var(--ff-radius-lg);
   padding: var(--ff-space-4);
+  min-width: 0;
+}
+
+/* 卡片头 / 体 / 脚（新页面统一用这三个） */
+.ff-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--ff-space-3);
+  padding: 14px var(--ff-space-5);
+  border-bottom: 1px solid var(--ff-border);
+}
+.ff-card-head h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 620;
+  letter-spacing: -0.005em;
+}
+.ff-card-head .count {
+  font-size: 12px;
+  color: var(--ff-text-3);
+  font-variant-numeric: tabular-nums;
+}
+.ff-card-head .right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 页面级块间距 */
+.ff-stack {
+  display: grid;
+  gap: var(--ff-space-4);
+}
+
+/* 状态药丸 */
+.ff-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 21px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--ff-bg-card-2);
+  color: var(--ff-text-2);
+}
+.ff-pill .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.ff-pill.is-ok {
+  background: color-mix(in srgb, var(--ff-success) 13%, transparent);
+  color: var(--ff-success-text);
+}
+.ff-pill.is-warn {
+  background: var(--ff-warning-soft);
+  color: var(--ff-warning-text);
+}
+.ff-pill.is-bad {
+  background: color-mix(in srgb, var(--ff-danger) 13%, transparent);
+  color: var(--ff-danger-text);
+}
+.ff-pill.is-brand {
+  background: var(--ff-primary-soft);
+  color: var(--ff-primary-text);
+}
+.ff-pill.is-ghost {
+  background: transparent;
+  border: 1px solid var(--ff-line-strong);
+  color: var(--ff-text-2);
+}
+
+/* 进度条 */
+.ff-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--ff-line-strong);
+  overflow: hidden;
+}
+.ff-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--ff-primary);
+  transition: width var(--ff-dur-progress) linear;
+}
+
+/* 提示条 */
+.ff-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 12px;
+  border-radius: var(--ff-radius-sm);
+  font-size: 12.5px;
+  line-height: 1.55;
+  background: var(--ff-bg-card-2);
+  color: var(--ff-text-2);
+  border: 1px solid var(--ff-border);
+}
+.ff-note > svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+.ff-note.is-warn {
+  background: var(--ff-warning-soft);
+  border-color: color-mix(in srgb, var(--ff-warning) 28%, transparent);
+  color: var(--ff-warning-text);
+}
+.ff-note.is-bad {
+  background: color-mix(in srgb, var(--ff-danger) 10%, transparent);
+  border-color: color-mix(in srgb, var(--ff-danger) 26%, transparent);
+  color: var(--ff-danger-text);
+}
+.ff-note.is-brand {
+  background: var(--ff-primary-soft);
+  border-color: color-mix(in srgb, var(--ff-primary) 28%, transparent);
+  color: var(--ff-primary-text);
+}
+
+/* 空态 */
+.ff-empty {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  padding: 54px 20px;
+  text-align: center;
+}
+.ff-empty .ic {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: var(--ff-bg-card-2);
+  border: 1px solid var(--ff-border);
+  color: var(--ff-text-3);
+}
+.ff-empty .t {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.ff-empty .d {
+  font-size: 12.5px;
+  color: var(--ff-text-3);
+  max-width: 360px;
+  line-height: 1.6;
 }
 
 .preview-video {
@@ -126,7 +295,6 @@ a {
     display: none;
   }
 }
-/* 设置里的「减少动效」开关会给 <html> 加 reduce-motion（设置页还没有该开关，钩子先留好），效果与上面一致 */
 html.reduce-motion * {
   animation-duration: 0.01ms !important;
   transition-duration: 0.01ms !important;
@@ -136,7 +304,7 @@ html.reduce-motion .bar i.run::after {
   display: none;
 }
 
-/* 键盘焦点：统一 2px 主色描边（图标按钮、按钮、页签、链接） */
+/* 键盘焦点：统一 2px 主色描边 */
 .iconbtn:focus-visible,
 .btn:focus-visible,
 [role='tab']:focus-visible,
@@ -157,7 +325,7 @@ a:focus-visible {
   border: 0;
 }
 
-/* 任务的设备一栏回退时的警告色短标“CPU（已回退）”（设计说明 v0.1.2 §2.5-13） */
+/* 任务的设备一栏回退时的警告色短标 */
 .dev-fb {
   display: inline-block;
   height: 18px;
@@ -171,4 +339,55 @@ a:focus-visible {
   background: color-mix(in srgb, var(--ff-warning) 14%, transparent);
   white-space: nowrap;
   vertical-align: middle;
+}
+
+/* ---------- 窄窗口自适应（与原型断点一致：1240 / 1024 / 720） ---------- */
+@media (max-width: 1240px) {
+  :root {
+    --ff-page-pad-x: 20px;
+    --ff-page-pad-y: 20px;
+    --ff-panel-w: 316px;
+  }
+}
+
+@media (max-width: 1024px) {
+  :root {
+    --ff-sidebar-w: 64px;
+    --ff-titlebar-h: 58px;
+    --ff-page-pad-x: 16px;
+    --ff-page-pad-y: 16px;
+    --ff-panel-w: 288px;
+  }
+}
+
+@media (max-width: 720px) {
+  :root {
+    --ff-sidebar-w: 56px;
+    --ff-titlebar-h: 54px;
+    --ff-page-pad-x: 12px;
+    --ff-page-pad-y: 12px;
+  }
+}
+
+
+/* ============================================================================
+   v0.58 统一卡片头：各页旧类名（.cv-ph / .phead / .panel-hd）无需改模板，
+   直接按原型的 14px/中性色/下分割线规样。只加底部分隔，不改布局。
+   ============================================================================ */
+.app-shell .phead,
+.app-shell .panel-hd {
+  padding: 14px var(--ff-space-5);
+  border-bottom: 1px solid var(--ff-border);
+}
+.app-shell .phead h2,
+.app-shell .panel-hd h2 {
+  font-size: 14px;
+  font-weight: 620;
+  letter-spacing: -0.005em;
+  margin: 0;
+}
+.app-shell .phead .sub,
+.app-shell .panel-hd .sub {
+  font-size: 12px;
+  color: var(--ff-text-3);
 }

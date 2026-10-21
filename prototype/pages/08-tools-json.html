@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<script>/* 早于首次绘制应用 ?theme= 以免过渡色被冻结 */try{const t=new URLSearchParams(location.search).get("theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<title>JSON 工具 · ffc 原型</title>
+<link rel="stylesheet" href="../assets/design.css">
+<style>
+  .page { padding: 0; display: flex; flex-direction: column; }
+  .bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 20px; border-bottom: 1px solid var(--line);
+    background: color-mix(in srgb, var(--bg-panel) 60%, transparent);
+  }
+  .bar .divider { width: 1px; height: 18px; background: var(--line-strong); margin: 0 3px; }
+  .bar .sp { flex: 1 1 auto; }
+  .bar .c-btn.is-on { background: var(--brand-soft); border-color: color-mix(in srgb, var(--brand) 40%, transparent); color: var(--brand-hi); }
+
+  .panes { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; }
+  .pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .pane + .pane { border-left: 1px solid var(--line); }
+  .pane .ph {
+    display: flex; align-items: center; gap: 8px;
+    padding: 7px 14px; border-bottom: 1px solid var(--line);
+    font-size: 11.5px; color: var(--fg-2); background: var(--bg-panel);
+  }
+  .pane .ph .badge2 { font-size: 10px; padding: 1px 6px; border-radius: 4px;
+    background: var(--bg-card-2); border: 1px solid var(--line); color: var(--fg-3); }
+  .pane .ph .sp { flex: 1 1 auto; }
+
+  .code {
+    flex: 1 1 auto; min-height: 0; overflow: auto;
+    font-family: var(--font-mono); font-size: 12.5px; line-height: 1.68;
+    padding: 12px 0 20px;
+    tab-size: 2;
+  }
+  .row { display: grid; grid-template-columns: 46px minmax(0,1fr); }
+  .row:hover { background: var(--bg-hover); }
+  .row .ln { text-align: right; padding-right: 12px; color: var(--code-line); user-select: none; font-size: 11.5px; }
+  .row .tx { white-space: pre; overflow-wrap: normal; padding-right: 16px; }
+
+  .k { color: var(--syn-key); } .s { color: var(--syn-str); }
+  .n { color: var(--syn-num); } .b { color: var(--syn-bool); }
+  .nu { color: var(--syn-null); } .p { color: var(--syn-punc); }
+
+  /* 状态栏 */
+  .status {
+    display: flex; align-items: center; gap: 14px;
+    padding: 6px 16px; border-top: 1px solid var(--line);
+    background: var(--bg-panel); font-size: 11.5px; color: var(--fg-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .status .ok { color: var(--ok); display: inline-flex; align-items: center; gap: 5px; }
+  .status .ok svg { width: 12px; height: 12px; }
+  .status .sp { flex: 1 1 auto; }
+
+  /* 错误示例（左下预览用不到，保留样式） */
+  .errbar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 14px; border-top: 1px solid color-mix(in srgb, var(--bad) 26%, transparent);
+    background: var(--bad-soft); color: var(--bad); font-size: 12px;
+  }
+  .errbar svg { width: 14px; height: 14px; }
+
+  /* ── 自适应：左右两栏编辑器，≤900 改上下两栏 ── */
+  @media (max-width: 900px) {
+    .panes {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: minmax(180px, 1fr) minmax(180px, 1fr);
+      gap: 12px;
+    }
+    .row { grid-template-columns: 38px minmax(0,1fr); }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="side"></aside>
+  <main class="main">
+    <header class="topbar" id="top"></header>
+    <div class="page">
+
+      <div class="bar">
+        <button class="c-btn is-on">格式化</button>
+        <button class="c-btn">压缩</button>
+        <button class="c-btn">校验</button>
+        <button class="c-btn">排序键</button>
+        <button class="c-btn">转义</button>
+        <span class="divider"></span>
+        <select class="c-select" style="width:112px"><option>缩进 2 空格</option><option>缩进 4 空格</option><option>Tab</option></select>
+        <span class="sp"></span>
+        <button class="c-btn is-ghost">示例</button>
+        <button class="c-btn">复制结果</button>
+        <button class="c-btn is-ghost">清空</button>
+      </div>
+
+      <div class="panes">
+        <!-- 输入 -->
+        <section class="pane">
+          <div class="ph">
+            <span>原始 JSON</span>
+            <span class="badge2">UTF-8</span>
+            <span class="sp"></span>
+            <span style="color:var(--fg-3)">只在本机处理，不上传</span>
+          </div>
+          <div class="code">
+            <div class="row"><div class="ln">1</div><div class="tx"><span class="p">{</span><span class="k">"name"</span><span class="p">:</span> <span class="s">"ffc"</span><span class="p">,</span></div></div>
+            <div class="row"><div class="ln">2</div><div class="tx">  <span class="k">"version"</span><span class="p">:</span> <span class="s">"2.4.1"</span><span class="p">,</span></div></div>
+            <div class="row"><div class="ln">3</div><div class="tx">  <span class="k">"features"</span><span class="p">:</span> <span class="p">[</span><span class="s">"convert"</span><span class="p">,</span> <span class="s">"live"</span><span class="p">,</span> <span class="s">"docs"</span><span class="p">,</span> <span class="s">"json"</span><span class="p">],</span></div></div>
+            <div class="row"><div class="ln">4</div><div class="tx">  <span class="k">"tasks"</span><span class="p">:</span> <span class="p">{</span><span class="k">"running"</span><span class="p">:</span> <span class="n">2</span><span class="p">,</span> <span class="k">"queued"</span><span class="p">:</span> <span class="n">1</span><span class="p">,</span> <span class="k">"failed"</span><span class="p">:</span> <span class="n">1</span><span class="p">},</span></div></div>
+            <div class="row"><div class="ln">5</div><div class="tx">  <span class="k">"ffmpeg"</span><span class="p">:</span> <span class="p">{</span><span class="k">"ready"</span><span class="p">:</span> <span class="b">true</span><span class="p">,</span> <span class="k">"version"</span><span class="p">:</span> <span class="s">"6.1"</span><span class="p">,</span> <span class="k">"path"</span><span class="p">:</span> <span class="s">"D:\\Tools\\ffmpeg\\bin"</span><span class="p">},</span></div></div>
+            <div class="row"><div class="ln">6</div><div class="tx">  <span class="k">"lastError"</span><span class="p">:</span> <span class="nu">null</span><span class="p">,</span></div></div>
+            <div class="row"><div class="ln">7</div><div class="tx">  <span class="k">"updatedAt"</span><span class="p">:</span> <span class="s">"2026-10-21T22:41:08+08:00"</span></div></div>
+            <div class="row"><div class="ln">8</div><div class="tx"><span class="p">}</span></div></div>
+          </div>
+        </section>
+
+        <!-- 输出 -->
+        <section class="pane">
+          <div class="ph">
+            <span>格式化结果</span>
+            <span class="badge2">2 空格</span>
+            <span class="sp"></span>
+            <span style="color:var(--fg-3)">127 行</span>
+          </div>
+          <div class="code">
+            <div class="row"><div class="ln">1</div><div class="tx"><span class="p">{</span></div></div>
+            <div class="row"><div class="ln">2</div><div class="tx">  <span class="k">"name"</span><span class="p">:</span> <span class="s">"ffc"</span><span class="p">,</span></div></div>
+            <div class="row"><div class="ln">3</div><div class="tx">  <span class="k">"version"</span><span class="p">:</span> <span class="s">"2.4.1"</span><span class="p">,</span></div></div>
+            <div class="row"><div class="ln">4</div><div class="tx">  <span class="k">"features"</span><span class="p">:</span> <span class="p">[</span></div></div>
+            <div class="row"><div class="ln">5</div><div class="tx">    <span class="s">"convert"</span><span class="p">,</span></div></div>
+            <div class="row"><div class="ln">6</div><div class="tx">    <span class="s">"live"</span><span class="p">,</span></div></div>
+            <div class="row"><div class="ln">7</div><div class="tx">    <span class="s">"docs"</span><span class="p">,</span></div></div>
+            <div class="row"><div class="ln">8</div><div class="tx">    <span class="s">"json"</span></div></div>
+            <div class="row"><div class="ln">9</div><div class="tx">  <span class="p">],</span></div></div>
+            <div class="row"><div class="ln">10</div><div class="tx">  <span class="k">"tasks"</span><span class="p">:</span> <span class="p">{</span></div></div>
+            <div class="row"><div class="ln">11</div><div class="tx">    <span class="k">"running"</span><span class="p">:</span> <span class="n">2</span><span class="p">,</span></div></div>
+            <div class="row"><div class="ln">12</div><div class="tx">    <span class="k">"queued"</span><span class="p">:</span> <span class="n">1</span><span class="p">,</span></div></div>
+            <div class="row"><div class="ln">13</div><div class="tx">    <span class="k">"failed"</span><span class="p">:</span> <span class="n">1</span></div></div>
+            <div class="row"><div class="ln">14</div><div class="tx">  <span class="p">},</span></div></div>
+            <div class="row"><div class="ln">15</div><div class="tx">  <span class="k">"ffmpeg"</span><span class="p">:</span> <span class="p">{</span></div></div>
+            <div class="row"><div class="ln">16</div><div class="tx">    <span class="k">"ready"</span><span class="p">:</span> <span class="b">true</span><span class="p">,</span></div></div>
+            <div class="row"><div class="ln">17</div><div class="tx">    <span class="k">"version"</span><span class="p">:</span> <span class="s">"6.1"</span><span class="p">,</span></div></div>
+            <div class="row"><div class="ln">18</div><div class="tx">    <span class="k">"path"</span><span class="p">:</span> <span class="s">"D:\\Tools\\ffmpeg\\bin"</span></div></div>
+            <div class="row"><div class="ln">19</div><div class="tx">  <span class="p">},</span></div></div>
+            <div class="row"><div class="ln">20</div><div class="tx">  <span class="k">"lastError"</span><span class="p">:</span> <span class="nu">null</span><span class="p">,</span></div></div>
+            <div class="row"><div class="ln">21</div><div class="tx">  <span class="k">"updatedAt"</span><span class="p">:</span> <span class="s">"2026-10-21T22:41:08+08:00"</span></div></div>
+            <div class="row"><div class="ln">22</div><div class="tx"><span class="p">}</span></div></div>
+          </div>
+        </section>
+      </div>
+
+      <div class="status">
+        <span class="ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="m5 12.5 4.5 4.5L19 7"/></svg>JSON 有效</span>
+        <span>行 8 → 22</span>
+        <span>3.2 KB → 4.1 KB</span>
+        <span class="sp"></span>
+        <span>格式化耗时 12 ms</span>
+        <span>Ctrl+Enter 快速格式化</span>
+      </div>
+    </div>
+  </main>
+</div>
+<div class="proto-tag">原型 v1 · JSON 工具</div>
+<script src="../assets/shell.js"></script>
+<script>
+  ffcShell({
+    active: 'json',
+    title: 'JSON 工具',
+    sub: '格式化 · 校验 · 压缩',
+    engine: { text: '就绪', path: '6.1' }
+  });
+</script>
+<script src="../assets/nav.js"></script>
+</body>
+</html>

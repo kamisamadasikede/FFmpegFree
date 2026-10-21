@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<script>/* 早于首次绘制应用 ?theme= 以免过渡色被冻结 */try{const t=new URLSearchParams(location.search).get("theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<title>文档转换 · ffc 原型</title>
+<link rel="stylesheet" href="../assets/design.css">
+<style>
+  .tabsrow { display: flex; align-items: center; gap: 4px; margin-bottom: 16px; }
+  .tabsrow .c-tabs { border-bottom: 0; padding: 0; }
+  .tabsrow .c-tabs button { height: 34px; border-radius: var(--r-sm); padding: 0 12px; }
+  .tabsrow .c-tabs button.is-on { background: var(--bg-card); box-shadow: var(--shadow-1); }
+  .tabsrow .c-tabs button.is-on::after { display: none; }
+  .tabsrow .spacer { flex: 1 1 auto; }
+
+  .work { display: grid; grid-template-columns: minmax(0,1fr) 344px; gap: 16px; align-items: start; }
+  .body { padding: 12px; }
+
+  .daylabel { display:flex; align-items:center; gap:10px; padding: 12px 6px 8px; font-size: 11.5px;
+    color: var(--fg-3); letter-spacing:.05em; text-transform: uppercase; font-weight: 600; }
+  .daylabel::after { content:""; flex:1 1 auto; height:1px; background: var(--line); }
+
+  /* 文档行 */
+  .drow { display: grid; grid-template-columns: 40px minmax(0,1fr) auto; gap: 11px; align-items: center;
+    padding: 9px 10px; border-radius: var(--r-sm); }
+  .drow:hover { background: var(--bg-hover); }
+  .drow .fi {
+    width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center;
+    font-size: 9px; font-weight: 700; letter-spacing: .02em;
+    background: var(--bg-card-2); border: 1px solid var(--line);
+  }
+  .drow .fi.docx { color: #7fb3ff; }
+  .drow .fi.xlsx { color: #7ddca8; }
+  .drow .fi.pptx { color: #ffb454; }
+  .drow .fi.pdf { color: #ff8080; }
+  .drow .n { font-size: 12.5px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .drow .m { font-size: 11px; color: var(--fg-3); margin-top: 2px; display:flex; gap:6px; align-items:center; }
+  .drow .m .p { font-family: var(--font-mono); font-size: 10.5px; opacity:.85; }
+  .drow .right { display: flex; align-items: center; gap: 4px; }
+
+  .arrowc { display: grid; place-items: center; color: var(--fg-3); }
+  .arrowc svg { width: 13px; height: 13px; }
+
+  /* 子记录 */
+  .kids { position: relative; margin: 2px 0 6px 30px; padding-left: 18px; }
+  .kids::before { content:""; position:absolute; left:6px; top:6px; bottom:10px; width:1px; background: var(--line-strong); }
+  .kid { position: relative; display: grid; grid-template-columns: 32px minmax(0,1fr) auto;
+    gap: 10px; align-items: center; padding: 8px 10px; border-radius: var(--r-sm); }
+  .kid::before { content:""; position:absolute; left:-12px; top:50%; width:11px; height:1px; background: var(--line-strong); }
+  .kid:hover { background: var(--bg-hover); }
+  .kid .fi { width: 26px; height: 26px; border-radius: 6px; }
+  .kid .acts { display:flex; gap:2px; opacity:.55; }
+  .kid:hover .acts { opacity: 1; }
+
+  .failbox { grid-column: 1 / -1; display:flex; align-items:center; gap:10px; margin-top:6px;
+    padding: 9px 12px; border-radius: var(--r-sm);
+    background: var(--bad-soft); border: 1px solid color-mix(in srgb, var(--bad) 24%, transparent);
+    font-size: 12px; color: var(--bad); }
+  .failbox svg { width:15px; height:15px; flex:0 0 auto; }
+  .failbox .why { color: var(--fg-2); }
+  .failbox .grow { flex: 1 1 auto; }
+
+  /* 右侧格式面板 */
+  .panel { position: sticky; top: 0; display:flex; flex-direction: column; max-height: calc(100vh - 64px - 48px - 50px); }
+  .pbody { padding: 14px 16px; overflow-y: auto; }
+  .fmt-label { font-size: 11px; font-weight: 600; letter-spacing:.06em; text-transform: uppercase;
+    color: var(--fg-3); margin: 16px 0 8px; display:flex; align-items:center; gap:6px; }
+  .fmt-label:first-child { margin-top: 0; }
+  .fmt-label .tag2 { font-size: 9.5px; letter-spacing: 0; text-transform: none;
+    color: var(--fg-3); background: var(--bg-card-2); border-radius: 4px; padding: 1px 5px; border:1px solid var(--line); }
+  .fmt-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 6px; }
+  .fmt { position: relative; padding: 8px 10px; border-radius: var(--r-sm);
+    border: 1px solid var(--line); background: var(--bg-card-2); text-align: left;
+    transition: border-color var(--dur), background var(--dur); }
+  .fmt:hover { border-color: var(--line-strong); }
+  .fmt b { display:block; font-size: 12.5px; font-weight: 620; }
+  .fmt span { display:block; font-size: 10.5px; color: var(--fg-3); margin-top: 1px; }
+  .fmt.is-on { border-color: var(--brand); background: var(--brand-soft); }
+  .fmt.is-on b { color: var(--brand-hi); }
+  .fmt.is-off { opacity: .4; }
+  .fmt .lock { position:absolute; right:7px; top:7px; width:11px; height:11px; color: var(--fg-3); }
+  .savebar { border-top: 1px solid var(--line); padding: 12px 16px 14px; }
+
+  /* ── 自适应：正文 + 344 右栏，≤1024 单列 ── */
+  @media (max-width: 1240px) {
+    .work { grid-template-columns: minmax(0,1fr) 316px; gap: 12px; }
+  }
+  @media (max-width: 1024px) {
+    .work { grid-template-columns: minmax(0,1fr); }
+    .panel { position: static; max-height: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="side"></aside>
+  <main class="main">
+    <header class="topbar" id="top"></header>
+    <div class="page">
+
+      <div class="tabsrow">
+        <div class="c-tabs">
+          <button class="is-on">文档转换</button>
+          <button>PDF 预览</button>
+        </div>
+        <div class="spacer"></div>
+        <span class="c-pill is-ghost">实验性 · 只提取文字</span>
+      </div>
+
+      <div class="work">
+        <!-- 记录 -->
+        <section class="c-card">
+          <div class="c-card-hd">
+            <h2>转换记录</h2>
+            <span class="count">3 个文件 · 4 条记录</span>
+            <div class="right">
+              <div class="c-seg"><button class="is-on">全部</button><button>进行中</button><button>失败 <span style="color:var(--bad)">1</span></button></div>
+              <div class="c-search" style="width:170px">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.8-4.8"/></svg>
+                <input class="c-input" placeholder="搜索文件名">
+              </div>
+              <button class="c-btn is-primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>添加文件</button>
+            </div>
+          </div>
+          <div class="body">
+            <div class="c-drop" style="margin-bottom:4px">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0L8 8m4-4 4 4"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+              <span>拖入文档、表格、演示或 PDF，或 <em>点击选择</em>；一次最多 50 个</span>
+            </div>
+
+            <div class="daylabel">今天</div>
+
+            <!-- 源 1：docx → pdf（完成） -->
+            <div class="drow">
+              <div class="fi docx">DOCX</div>
+              <div style="min-width:0">
+                <div class="n">合同-终稿.docx</div>
+                <div class="m">1.2 MB <span class="sep">·</span> 今天 11:42 <span class="p">D:\Docs\2026\合同-终稿.docx</span></div>
+              </div>
+              <div class="right">
+                <button class="c-icon-btn is-sm" title="打开"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2.5h8.5A1.5 1.5 0 0 1 21 10v7.5A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5Z"/></svg></button>
+                <button class="c-icon-btn is-sm" title="删除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4.5 7h15M9.5 7V5.5A1.5 1.5 0 0 1 11 4h2a1.5 1.5 0 0 1 1.5 1.5V7"/><path d="M6.5 7l.8 11.4A1.6 1.6 0 0 0 8.9 20h6.2a1.6 1.6 0 0 0 1.6-1.6L17.5 7"/></svg></button>
+              </div>
+            </div>
+            <div class="kids">
+              <div class="kid">
+                <div class="fi pdf" style="color:#ff8080">PDF</div>
+                <div class="arrowc" style="display:none"></div>
+                <div style="min-width:0">
+                  <div class="n" style="display:flex;align-items:center;gap:8px">合同-终稿.pdf <span class="c-pill is-ok">完成</span></div>
+                  <div class="m">386 KB <span class="sep">·</span> 12 页 <span class="sep">·</span> 耗时 1.8 s</div>
+                </div>
+                <div class="acts">
+                  <button class="c-btn is-sm">预览</button>
+                  <button class="c-icon-btn is-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2.5h8.5A1.5 1.5 0 0 1 21 10v7.5A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5Z"/></svg></button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 源 2：xlsx → csv（完成） -->
+            <div class="drow">
+              <div class="fi xlsx">XLSX</div>
+              <div style="min-width:0">
+                <div class="n">财务表-2026Q3.xlsx</div>
+                <div class="m">244 KB <span class="sep">·</span> 今天 11:20 <span class="p">D:\Docs\2026\财务表-2026Q3.xlsx</span></div>
+              </div>
+              <div class="right">
+                <button class="c-icon-btn is-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2.5h8.5A1.5 1.5 0 0 1 21 10v7.5A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5Z"/></svg></button>
+              </div>
+            </div>
+            <div class="kids">
+              <div class="kid">
+                <div class="fi" style="color:#7ddca8">CSV</div>
+                <div style="min-width:0">
+                  <div class="n" style="display:flex;align-items:center;gap:8px">财务表-2026Q3.csv <span class="c-pill is-ok">完成</span></div>
+                  <div class="m">62 KB <span class="sep">·</span> 3 个工作表 → 3 个文件 <span class="sep">·</span> 耗时 0.4 s</div>
+                </div>
+                <div class="acts">
+                  <button class="c-icon-btn is-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2.5h8.5A1.5 1.5 0 0 1 21 10v7.5A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5Z"/></svg></button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 源 3：pptx → pdf（失败） -->
+            <div class="drow">
+              <div class="fi pptx">PPTX</div>
+              <div style="min-width:0">
+                <div class="n">产品介绍-v3.pptx</div>
+                <div class="m">8.4 MB <span class="sep">·</span> 今天 10:58 <span class="p">D:\Docs\2026\产品介绍-v3.pptx</span></div>
+              </div>
+              <div class="right">
+                <button class="c-icon-btn is-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2.5h8.5A1.5 1.5 0 0 1 21 10v7.5A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5Z"/></svg></button>
+              </div>
+            </div>
+            <div class="kids">
+              <div class="kid">
+                <div class="fi pdf" style="color:#ff8080">PDF</div>
+                <div style="min-width:0">
+                  <div class="n" style="display:flex;align-items:center;gap:8px">产品介绍-v3.pdf <span class="c-pill is-bad"><span class="dot"></span>失败</span></div>
+                  <div class="m">停在 0 s</div>
+                </div>
+                <div class="acts"><button class="c-btn is-sm">日志</button></div>
+                <div class="failbox">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 4.5 21 19.5H3Z"/><path d="M12 10v4M12 16.8h.01"/></svg>
+                  <span class="why">这个演示文稿没有可提取的文字（全部是图片或形状），转换后会得到空白页，已停止。</span>
+                  <span class="grow"></span>
+                  <button class="c-btn is-sm">换用「文档组件」</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="c-card-ft" style="font-size:11.5px;color:var(--fg-3)">
+            实验性功能：只转文字，不保留排版、图片与表格样式；生僻字可能显示为方框。
+          </div>
+        </section>
+
+        <!-- 格式面板 -->
+        <section class="c-card panel">
+          <div class="c-card-hd">
+            <h2>转换设置</h2>
+            <div class="right"><span class="c-pill is-ghost">未选择文件</span></div>
+          </div>
+          <div class="pbody">
+            <div class="c-search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.8-4.8"/></svg>
+              <input class="c-input" placeholder="搜索格式，如 PDF、Word、表格">
+            </div>
+
+            <div class="fmt-label">PDF <span class="tag2">推荐</span></div>
+            <div class="fmt-grid">
+              <button class="fmt is-on" style="grid-column: span 2"><b>PDF · 简易转换</b><span>只保留文字，体积小</span></button>
+            </div>
+
+            <div class="fmt-label">文档</div>
+            <div class="fmt-grid">
+              <button class="fmt is-off"><b>DOCX</b><span>Word 旧版</span>
+                <svg class="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></button>
+              <button class="fmt"><b>TXT</b><span>纯文本</span></button>
+              <button class="fmt"><b>HTML</b><span>网页</span></button>
+              <button class="fmt"><b>MD</b><span>Markdown</span></button>
+            </div>
+
+            <div class="fmt-label">表格</div>
+            <div class="fmt-grid">
+              <button class="fmt is-off"><b>XLSX</b><span>Excel</span>
+                <svg class="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></button>
+              <button class="fmt"><b>CSV</b><span>逗号分隔</span></button>
+            </div>
+
+            <div class="fmt-label">演示</div>
+            <div class="fmt-grid">
+              <button class="fmt"><b>PPTX</b><span>PPT</span></button>
+              <button class="fmt is-off"><b>ODP</b><span>开放演示</span>
+                <svg class="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></button>
+            </div>
+
+            <div class="c-note" style="margin-top:16px">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.2M12 8.2h.01"/></svg>
+              <div class="grow">带锁的格式需要先安装「文档组件」（LibreOffice 内核）。</div>
+            </div>
+          </div>
+          <div class="savebar">
+            <div style="display:flex;align-items:center;justify-content:space-between;font-size:11.5px;color:var(--fg-3);margin-bottom:10px">
+              <span>默认保存到输出文件夹</span><a href="#" style="color:var(--brand-hi);text-decoration:none">更改</a>
+            </div>
+            <button class="c-btn is-primary is-block is-lg" disabled>开始转换</button>
+            <div style="text-align:center;font-size:11.5px;color:var(--fg-3);margin-top:8px">先添加文件</div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+<div class="proto-tag">原型 v1 · 文档转换</div>
+<script src="../assets/shell.js"></script>
+<script>
+  ffcShell({
+    active: 'docs',
+    title: '文档',
+    sub: '文档 · 表格 · 演示 · 转换记录',
+    engine: { text: '就绪', path: '6.1' }
+  });
+</script>
+<script src="../assets/nav.js"></script>
+</body>
+</html>

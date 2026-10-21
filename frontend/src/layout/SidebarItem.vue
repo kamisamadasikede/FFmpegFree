@@ -53,21 +53,37 @@ const isActive = computed(
   height: 36px;
   display: flex;
   align-items: center;
-  gap: 10px; /* 与原型 .nav a 一致（10px），不改成 4 的倍数以免侧栏与设计稿错位 */
+  gap: 10px;
   padding: 0 10px;
+  margin-bottom: 2px;
   border-radius: var(--ff-radius-md);
   color: var(--ff-text-2);
-  font-size: var(--ff-fs-sm);
+  font-size: 13.5px;
   white-space: nowrap;
-  transition: background var(--ff-dur-fast) var(--ff-ease), color var(--ff-dur-fast) var(--ff-ease);
+  transition:
+    background var(--ff-dur-fast) var(--ff-ease),
+    color var(--ff-dur-fast) var(--ff-ease);
 }
 .nav-item:hover {
   background: var(--ff-bg-hover);
+  color: var(--ff-text-1);
 }
+/* 选中态：软底 + 主色文字 + 左侧 3px 短条（原型 .nav-item.is-active） */
 .nav-item.active {
-  background: var(--ff-primary-soft);
-  color: var(--ff-primary);
-  font-weight: 500;
+  background: var(--ff-bg-active);
+  color: var(--ff-text-1);
+  font-weight: 600;
+}
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: -10px;
+  top: 50%;
+  width: 3px;
+  height: 18px;
+  transform: translateY(-50%);
+  border-radius: 0 3px 3px 0;
+  background: var(--ff-primary);
 }
 .nav-item.gated {
   color: var(--ff-text-3);
@@ -80,6 +96,9 @@ const isActive = computed(
   background: transparent; /* 置灰且是当前页：不高亮（原型 31/32） */
   font-weight: 400;
 }
+.nav-item.gated.active::before {
+  display: none;
+}
 .nav-item.gated:focus-visible {
   outline: 2px solid var(--ff-primary);
   outline-offset: -2px;
@@ -89,22 +108,40 @@ const isActive = computed(
   font-size: 10px;
   line-height: 16px;
   padding: 0 5px;
-  border-radius: 8px;
+  border-radius: 4px;
   background: var(--ff-primary-soft);
   color: var(--ff-primary-text);
-  font-weight: 600;
+  font-weight: 700;
 }
 .badge {
   margin-left: auto;
-  min-width: 18px;
+  min-width: 20px;
   height: 18px;
-  padding: 0 4px;
+  padding: 0 6px;
   border-radius: 9px;
-  background: var(--ff-badge-bg);
+  background: var(--ff-primary);
   color: var(--ff-on-primary);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
   display: grid;
   place-items: center;
+}
+
+/* ---------- 窄窗口：只留图标 ---------- */
+@media (max-width: 1024px) {
+  .nav-item {
+    justify-content: center;
+    height: 40px;
+    padding: 0;
+    gap: 0;
+  }
+  .nav-item.active::before {
+    display: none;
+  }
+  .nav-item .label,
+  .nav-item .tag,
+  .nav-item .badge {
+    display: none;
+  }
 }
 </style>

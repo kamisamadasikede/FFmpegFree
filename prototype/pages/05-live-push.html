@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<script>/* 早于首次绘制应用 ?theme= 以免过渡色被冻结 */try{const t=new URLSearchParams(location.search).get("theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<title>文件推流 · ffc 原型</title>
+<link rel="stylesheet" href="../assets/design.css">
+<style>
+  .tabsrow { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .tabsrow .c-tabs { border-bottom: 0; padding: 0; }
+  .tabsrow .c-tabs button { height: 34px; border-radius: var(--r-sm); padding: 0 13px; }
+  .tabsrow .c-tabs button.is-on { background: var(--bg-card); box-shadow: var(--shadow-1); }
+  .tabsrow .c-tabs button.is-on::after { display: none; }
+  .tabsrow .spacer { flex: 1 1 auto; }
+
+  .work { display: grid; grid-template-columns: minmax(0,1fr) 356px; gap: 16px; align-items: start; }
+
+  /* 播放器 */
+  .player { position: relative; aspect-ratio: 16/9; background: #07080a; overflow: hidden;
+    border-radius: 0 0 var(--r-md) var(--r-md); display: grid; place-items: center; }
+  .player .grid-bg {
+    position: absolute; inset: 0;
+    background-image: linear-gradient(rgba(255,255,255,.030) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(255,255,255,.030) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(ellipse at center, #000 20%, transparent 78%);
+  }
+  .player .center { position: relative; text-align: center; color: #6b7380; }
+  .player .center .ic {
+    width: 54px; height: 54px; margin: 0 auto 12px; border-radius: 16px;
+    display: grid; place-items: center; color: #8b93a1;
+    background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08);
+  }
+  .player .center .ic svg { width: 24px; height: 24px; }
+  .player .center .t { font-size: 13px; color: #9aa2b0; }
+  .player .center .d { font-size: 11.5px; color: #666e7b; margin-top: 5px; }
+
+  .overlay-tl { position: absolute; left: 12px; top: 12px; display: flex; gap: 6px; }
+  .ovchip {
+    display: inline-flex; align-items: center; gap: 5px;
+    height: 22px; padding: 0 9px; border-radius: 6px;
+    background: rgba(0,0,0,.55); backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,.10);
+    font-size: 11px; color: #cfd6e0;
+  }
+  .ovchip .d { width: 5px; height: 5px; border-radius: 50%; background: #6b7380; }
+  .ovchip.is-live .d { background: var(--bad); box-shadow: 0 0 0 3px rgba(255,107,107,.22); }
+
+  .pbar {
+    display: flex; align-items: center; gap: 14px;
+    padding: 8px 12px; border-top: 1px solid rgba(255,255,255,.07);
+    background: #0d1015; font-size: 11px; color: #7b8391;
+    font-variant-numeric: tabular-nums;
+  }
+  .pbar .sp { flex: 1 1 auto; }
+  .pbar b { color: #cfd6e0; font-weight: 600; }
+
+  /* 右侧设置 */
+  .panel { position: sticky; top: 0; display: flex; flex-direction: column; }
+  .pbody { padding: 14px 16px; display: grid; gap: 14px; }
+  .group { display: grid; gap: 10px; }
+  .group + .group { border-top: 1px solid var(--line); padding-top: 14px; }
+  .glabel { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-3); }
+  .pick {
+    display: flex; align-items: center; gap: 9px; width: 100%;
+    padding: 8px 10px; border-radius: var(--r-sm);
+    border: 1px solid var(--line-strong); background: var(--bg-app);
+    font-size: 12.5px; color: var(--fg-2);
+  }
+  .pick .ph { flex: 1 1 auto; text-align: left; color: var(--fg-3); }
+  .pick .pickv { flex: 1 1 auto; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 11.5px; color: var(--fg-1); }
+  .prow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .toggle {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 10px; border-radius: var(--r-sm); background: var(--bg-card-2);
+    border: 1px solid var(--line);
+  }
+  .toggle .t1 { font-size: 12.5px; font-weight: 550; }
+  .toggle .t2 { font-size: 11px; color: var(--fg-3); margin-top: 2px; }
+  .toggle .c-switch { margin-left: auto; }
+  .cta { border-top: 1px solid var(--line); padding: 12px 16px 14px; }
+
+  /* ── 自适应：预览 + 356 设置栏，≤1024 单列 ── */
+  @media (max-width: 1240px) {
+    .work { grid-template-columns: minmax(0,1fr) 320px; gap: 12px; }
+  }
+  @media (max-width: 1024px) {
+    .work { grid-template-columns: minmax(0,1fr); }
+    .panel { position: static; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="side"></aside>
+  <main class="main">
+    <header class="topbar" id="top"></header>
+    <div class="page">
+      <div class="tabsrow">
+        <div class="c-tabs">
+          <button class="is-on">文件推流</button>
+          <button>录屏推流</button>
+          <button>拉流播放</button>
+        </div>
+        <div class="spacer"></div>
+        <span class="c-pill is-warn"><span class="dot"></span>演示模式 · 未连接真实推流</span>
+      </div>
+
+      <div class="work">
+        <!-- 预览 -->
+        <section class="c-card" style="overflow:hidden">
+          <div class="c-card-hd">
+            <h2>预览</h2>
+            <span class="c-pill is-ghost">RTMP</span>
+            <div class="right" style="font-size:11.5px;color:var(--fg-3)">同一地址只允许 1 路</div>
+          </div>
+          <div class="player">
+            <div class="grid-bg"></div>
+            <div class="overlay-tl">
+              <span class="ovchip"><span class="d"></span>未开始</span>
+              <span class="ovchip">1920×1080 · 30fps</span>
+            </div>
+            <div class="center">
+              <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="2.5"/><path d="M7.5 7.5a6 6 0 0 0 0 9M16.5 7.5a6 6 0 0 1 0 9"/><path d="M4.5 4.5a11 11 0 0 0 0 15M19.5 4.5a11 11 0 0 1 0 15"/></svg></div>
+              <div class="t">还没有进行中的预览</div>
+              <div class="d">选择文件并开始推流后，这里显示实时画面</div>
+            </div>
+            <div class="pbar" style="position:absolute;left:0;right:0;bottom:0">
+              <span><b>0.0</b> fps</span>
+              <span><b>0</b> kbps</span>
+              <span>丢帧 <b>0</b></span>
+              <span class="sp"></span>
+              <span>00:00:00</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- 设置 -->
+        <section class="c-card panel">
+          <div class="c-card-hd"><h2>推流设置</h2></div>
+          <div class="pbody">
+            <div class="group">
+              <div class="glabel">源</div>
+              <button class="pick">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" style="width:15px;height:15px;color:var(--fg-3)"><path d="M13.5 3.5H7A1.5 1.5 0 0 0 5.5 5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8.5Z"/><path d="M13.5 3.5v5h5"/></svg>
+                <span class="ph">选择要推流的文件</span>
+                <span style="color:var(--brand-hi);font-weight:600">选择…</span>
+              </button>
+            </div>
+
+            <div class="group">
+              <div class="glabel">目标</div>
+              <div class="c-field">
+                <label>推流地址</label>
+                <input class="c-input is-mono" placeholder="rtmp://  rtmps://  或 srt://" value="rtmp://live.example.com/app">
+              </div>
+              <div class="c-field">
+                <label>推流码 / 口令</label>
+                <input class="c-input is-mono" type="password" value="••••••••••••">
+                <div class="hint">推流码会保留；页面重开仍显示为圆点。</div>
+              </div>
+            </div>
+
+            <div class="group">
+              <div class="glabel">编码</div>
+              <div class="prow">
+                <div class="c-field"><label>分辨率</label>
+                  <select class="c-select"><option>1920×1080</option><option>1280×720</option><option>跟随源</option></select></div>
+                <div class="c-field"><label>帧率</label>
+                  <select class="c-select"><option>30</option><option>60</option><option>25</option></select></div>
+              </div>
+              <div class="prow">
+                <div class="c-field"><label>视频码率</label>
+                  <select class="c-select"><option>6000 kbps</option><option>4500 kbps</option><option>3000 kbps</option></select></div>
+                <div class="c-field"><label>音频</label>
+                  <select class="c-select"><option>128 kbps AAC</option><option>96 kbps AAC</option></select></div>
+              </div>
+            </div>
+
+            <div class="group">
+              <div class="toggle">
+                <div>
+                  <div class="t1">开启预览</div>
+                  <div class="t2">多占用少量 CPU</div>
+                </div>
+                <div class="c-switch is-on"></div>
+              </div>
+            </div>
+          </div>
+          <div class="cta">
+            <button class="c-btn is-primary is-block is-lg">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5.5v13l11-6.5Z"/></svg>
+              开始推流
+            </button>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+<div class="proto-tag">原型 v1 · 文件推流</div>
+<script src="../assets/shell.js"></script>
+<script>
+  ffcShell({
+    active: 'live',
+    title: '直播',
+    sub: '文件推流 · 录屏推流 · 拉流播放',
+    engine: { text: '就绪', path: '6.1' }
+  });
+</script>
+<script src="../assets/nav.js"></script>
+</body>
+</html>

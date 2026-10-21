@@ -110,4 +110,15 @@ h2 {
     width: 304px;
   }
 }
+
+/* v0.58 自适应：单列（见 LiveTabFrame ≤900）下面板不再固定 320，改整宽 */
+@media (max-width: 1024px) {
+  .lpanel.form {
+    width: auto;
+    flex: none;
+  }
+  .pbody {
+    overflow: visible;
+  }
+}
 </style>

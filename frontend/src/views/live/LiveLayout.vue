@@ -48,10 +48,12 @@ const tabs = [
 
 <style scoped>
 .lv-root {
-  /* 原型 .page 内边距 16/24/20（提示条通栏 32px），外壳 .app-content 是 20/24/24：抵消外壳内边距，由 .body 按设计稿自己留白 */
-  margin: -20px -24px -24px;
-  height: calc(100% + 44px);
-  min-height: 600px;
+  /* 原型 .page 内边距 16/24/20（提示条通栏 32px）。外壳 .app-content 用的是
+     --ff-page-pad-x/y（1240/1024/720 三档会变小），这里按同一组变量抵消，
+     否则窄窗口下会多留一圈空白、内容被挤窄。由 .body 按设计稿自己留白。 */
+  margin: calc(-1 * var(--ff-page-pad-y)) calc(-1 * var(--ff-page-pad-x));
+  height: calc(100% + var(--ff-page-pad-y) * 2);
+  min-height: 560px;
   display: flex;
   flex-direction: column;
 }
@@ -61,7 +63,7 @@ const tabs = [
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 24px;
+  padding: 0 var(--ff-page-pad-x);
   background: color-mix(in srgb, var(--ff-warning) 10%, var(--ff-bg-app));
   border-bottom: 1px solid color-mix(in srgb, var(--ff-warning) 28%, transparent);
   font-size: var(--ff-fs-sm);
@@ -77,39 +79,89 @@ const tabs = [
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 16px 20px 20px;
+  padding: 16px var(--ff-page-pad-x) var(--ff-page-pad-y);
 }
 .top { display: flex; align-items: center; gap: 12px; flex: none; min-width: 0; }
 .top .sp { flex: 1; min-width: 0; }
+/* v0.58 与文档页同一套页签样式 */
 .seg {
-  display: flex;
-  width: 288px;
+  display: inline-flex;
+  gap: 4px;
   flex: none;
-  background: var(--ff-bg-hover);
-  border-radius: 6px;
-  padding: 2px;
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
 }
 .seg-item {
-  flex: 1;
-  text-align: center;
-  height: 24px;
-  line-height: 24px;
-  border-radius: 4px;
+  height: 34px;
+  line-height: 34px;
+  padding: 0 14px;
+  border-radius: var(--ff-radius-md);
   color: var(--ff-text-2);
-  font-size: var(--ff-fs-xs);
-  transition: color var(--ff-dur-fast) var(--ff-ease), background var(--ff-dur-fast) var(--ff-ease);
+  font-size: var(--ff-fs-sm);
+  transition:
+    color var(--ff-dur-fast) var(--ff-ease),
+    background var(--ff-dur-fast) var(--ff-ease),
+    box-shadow var(--ff-dur-fast) var(--ff-ease);
 }
 .seg-item:hover {
   color: var(--ff-text-1);
+  background: var(--ff-bg-hover);
 }
 .seg-item.router-link-active {
   background: var(--ff-bg-surface);
   color: var(--ff-text-1);
-  font-weight: 500;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  font-weight: 600;
+  box-shadow: var(--ff-shadow-1);
+  border: 1px solid var(--ff-border);
+  line-height: 32px;
 }
 .seg-item:focus-visible {
   outline: 2px solid var(--ff-primary);
   outline-offset: 1px;
+}
+
+/* v0.58 自适应：窄窗口 */
+@media (max-width: 1240px) {
+  .body {
+    gap: 12px;
+  }
+}
+
+@media (max-width: 1024px) {
+  /* 提示条文案较长，窄窗口允许换行（原来 nowrap 会被侧栏裁掉） */
+  .lv-demo {
+    height: auto;
+    min-height: 32px;
+    padding: 6px var(--ff-page-pad-x);
+    white-space: normal;
+    line-height: 1.45;
+    align-items: flex-start;
+  }
+  .lv-demo svg {
+    flex: none;
+    margin-top: 1px;
+    width: 14px;
+    height: 14px;
+  }
+}
+
+@media (max-width: 720px) {
+  .body {
+    gap: 10px;
+    padding-top: 12px;
+  }
+  .top {
+    gap: 8px;
+  }
+  .seg-item {
+    height: 30px;
+    line-height: 30px;
+    padding: 0 10px;
+    font-size: 12.5px;
+  }
+  .seg-item.router-link-active {
+    line-height: 28px;
+  }
 }
 </style>

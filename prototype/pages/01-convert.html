@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<script>/* 早于首次绘制应用 ?theme= 以免过渡色被冻结 */try{const t=new URLSearchParams(location.search).get("theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<title>转换 · ffc 原型</title>
+<link rel="stylesheet" href="../assets/design.css">
+<style>
+  .page { display: flex; flex-direction: column; }
+  .work { display: grid; grid-template-columns: minmax(0,1fr) 344px; gap: 16px; align-items: start; }
+
+  /* ── 记录列表 ── */
+  .records { display: flex; flex-direction: column; }
+  .records .body { padding: 12px 12px 16px; overflow-y: auto; max-height: calc(100vh - 64px - 48px - 62px); }
+  .daylabel {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 6px 8px; font-size: 11.5px; color: var(--fg-3);
+    letter-spacing: .05em; text-transform: uppercase; font-weight: 600;
+  }
+  .daylabel::after { content:""; flex:1 1 auto; height:1px; background: var(--line); }
+
+  .src {
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 10px; border-radius: var(--r-sm);
+    transition: background var(--dur);
+  }
+  .src:hover { background: var(--bg-hover); }
+  .src .caret { color: var(--fg-3); width: 16px; flex: 0 0 auto; }
+  .src .caret svg { width: 14px; height: 14px; }
+  .src .name { font-size: 13px; font-weight: 600; letter-spacing: -0.005em; }
+  .src .meta { font-size: 11.5px; color: var(--fg-3); margin-top: 2px; display:flex; align-items:center; gap:6px; flex-wrap: wrap; }
+  .src .meta .p { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-3); opacity: .85; }
+  .src .right { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+  .src .count { font-size: 11.5px; color: var(--fg-3); margin-right: 6px; white-space: nowrap; }
+
+  /* 子记录 */
+  .kids { position: relative; margin: 2px 0 6px 30px; padding-left: 18px; }
+  .kids::before {
+    content:""; position: absolute; left: 6px; top: 6px; bottom: 10px;
+    width: 1px; background: var(--line-strong);
+  }
+  .kid {
+    position: relative;
+    display: grid;
+    grid-template-columns: 46px minmax(0,1fr) auto;
+    gap: 11px;
+    align-items: center;
+    padding: 8px 10px 8px 8px;
+    border-radius: var(--r-sm);
+    transition: background var(--dur);
+  }
+  .kid::before {
+    content:""; position: absolute; left: -12px; top: 50%;
+    width: 11px; height: 1px; background: var(--line-strong);
+  }
+  .kid:hover { background: var(--bg-hover); }
+  .kid .t { width: 46px; height: 30px; font-size: 9px; }
+  .kid .l { min-width: 0; }
+  .kid .line1 { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .kid .fname {
+    font-size: 12.5px; font-weight: 550;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .kid .line2 {
+    margin-top: 3px; font-size: 11.5px; color: var(--fg-3);
+    display: flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums;
+  }
+  .kid .line2 .sep { width: 1px; height: 9px; background: var(--line-strong); }
+  .kid .prog { display: flex; align-items: center; gap: 10px; margin-top: 7px; }
+  .kid .prog .c-bar { flex: 1 1 auto; }
+  .kid .prog .pct { font-size: 11px; color: var(--fg-2); font-variant-numeric: tabular-nums; min-width: 34px; text-align: right; }
+  .kid .acts { display: flex; align-items: center; gap: 2px; opacity: .55; transition: opacity var(--dur); }
+  .kid:hover .acts { opacity: 1; }
+  .kid .new { font-size: 10px; font-weight: 700; color: var(--brand-hi); background: var(--brand-soft);
+    border-radius: 4px; padding: 1px 5px; }
+
+  /* 失败块 */
+  .failbox {
+    grid-column: 1 / -1;
+    margin: 6px 0 2px 0;
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px;
+    border-radius: var(--r-sm);
+    background: var(--bad-soft);
+    border: 1px solid color-mix(in srgb, var(--bad) 24%, transparent);
+    font-size: 12px; color: var(--bad);
+  }
+  .failbox svg { width: 15px; height: 15px; flex: 0 0 auto; }
+  .failbox .grow { flex: 1 1 auto; }
+  .failbox .why { color: var(--fg-2); }
+
+  /* ── 右侧设置面板 ── */
+  .panel { position: sticky; top: 0; display: flex; flex-direction: column;
+    max-height: calc(100vh - 64px - 48px); }
+  .panel .pbody { padding: 14px 16px; overflow-y: auto; }
+  .fmt-groups { display: grid; gap: 16px; margin-top: 14px; }
+  .fmt-label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-3); margin-bottom: 8px; }
+  .fmt-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 6px; }
+  .fmt {
+    position: relative;
+    padding: 8px 9px;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--line);
+    background: var(--bg-card-2);
+    text-align: left;
+    transition: border-color var(--dur), background var(--dur), transform var(--dur);
+  }
+  .fmt:hover { border-color: var(--line-strong); background: var(--bg-hover); }
+  .fmt b { display: block; font-size: 12.5px; font-weight: 620; letter-spacing: .01em; }
+  .fmt span { display: block; font-size: 10.5px; color: var(--fg-3); margin-top: 1px; }
+  .fmt.is-on {
+    border-color: var(--brand);
+    background: var(--brand-soft);
+  }
+  .fmt.is-on b { color: var(--brand-hi); }
+  .fmt.is-on::after {
+    content: ""; position: absolute; right: 6px; top: 6px;
+    width: 6px; height: 6px; border-radius: 50%; background: var(--brand);
+  }
+  .fmt.is-off { opacity: .38; }
+  .fmt.is-off b { text-decoration: line-through; text-decoration-thickness: 1px; }
+
+  .paramrow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .savebar { border-top: 1px solid var(--line); padding: 12px 16px 14px; }
+  .savepath {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11.5px; color: var(--fg-2);
+    font-family: var(--font-mono);
+    background: var(--bg-app); border: 1px solid var(--line);
+    border-radius: var(--r-xs); padding: 7px 9px;
+  }
+  .savepath svg { width: 14px; height: 14px; color: var(--fg-3); flex: 0 0 auto; }
+  .savepath span { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .savehint { display: flex; align-items: center; justify-content: space-between; margin: 8px 0 10px; font-size: 11.5px; color: var(--fg-3); }
+  .savehint a { color: var(--brand-hi); text-decoration: none; }
+  .selinfo {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+    font-size: 11.5px; color: var(--fg-2);
+  }
+
+  /* ── 窄屏自适应 ── */
+  @media (max-width: 1240px) {
+    .work { grid-template-columns: minmax(0,1fr) 316px; gap: 12px; }
+    .fmt-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  }
+  @media (max-width: 1024px) {
+    .work { grid-template-columns: minmax(0,1fr); }
+    .panel { position: static; max-height: none; }
+    .panel .pbody { max-height: none; }
+    .records .body { max-height: none; }
+    .kid .acts { opacity: 1; }
+  }
+  @media (max-width: 720px) {
+    .records .c-card-hd .right { width: 100%; }
+    .c-seg { flex: 1 1 auto; }
+    .c-seg button { padding: 0 8px; }
+    .c-search { width: 100% !important; }
+    .kid { grid-template-columns: 38px minmax(0,1fr); row-gap: 6px; }
+    .kid .acts { grid-column: 1 / -1; justify-content: flex-end; }
+    .kid .t { width: 38px; height: 26px; }
+    .kid .l .line2 { flex-wrap: wrap; }
+    .src { gap: 8px; }
+    .src .right .count { display: none; }
+    .src .meta .p { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="side"></aside>
+  <main class="main">
+    <header class="topbar" id="top"></header>
+    <div class="page">
+      <div class="work">
+
+        <!-- ── 左：转换记录 ── -->
+        <section class="c-card records">
+          <div class="c-card-hd">
+            <h2>转换记录</h2>
+            <span class="count">5 个文件 · 8 条记录</span>
+            <div class="right">
+              <div class="c-seg">
+                <button class="is-on">全部</button>
+                <button>进行中 <span style="color:var(--fg-3)">1</span></button>
+                <button>失败 <span style="color:var(--bad)">1</span></button>
+              </div>
+              <div class="c-search" style="width:180px">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.8-4.8"/></svg>
+                <input class="c-input" placeholder="搜索文件名">
+              </div>
+              <button class="c-btn is-primary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>添加文件</button>
+            </div>
+          </div>
+
+          <div class="body">
+            <div class="c-drop" style="margin-bottom:6px">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0L8 8m4-4 4 4"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+              <span>拖入更多文件，或 <em>点击选择</em>；支持常见视频、音频、图片格式</span>
+            </div>
+
+            <div class="daylabel">今天</div>
+
+            <!-- 源 1 -->
+            <div class="src">
+              <span class="caret"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m7 10 5 5 5-5"/></svg></span>
+              <div class="c-thumb is-lg"><span class="kind">MOV</span><span class="dur">02:14</span></div>
+              <div style="min-width:0">
+                <div class="name">launch-4k.mov</div>
+                <div class="meta">3840×2160 <span class="sep">·</span> H.265 <span class="sep">·</span> 02:14 <span class="sep">·</span> 3.8 GB
+                  <span class="p">D:\Footage\2026\launch-4k.mov</span></div>
+              </div>
+              <div class="right">
+                <span class="count">3 条记录</span>
+                <button class="c-icon-btn is-sm" title="预览"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12S18 17.5 12 17.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.6"/></svg></button>
+                <button class="c-icon-btn is-sm" title="在文件夹中显示"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2.5h8.5A1.5 1.5 0 0 1 21 10v7.5A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5Z"/></svg></button>
+              </div>
+            </div>
+
+            <div class="kids">
+              <!-- 失败 -->
+              <div class="kid">
+                <div class="c-thumb t">WEBM<span class="kind">音频</span></div>
+                <div class="l">
+                  <div class="line1">
+                    <span class="fname">launch-4k.webm</span>
+                    <span class="c-pill is-bad"><span class="dot"></span>失败</span>
+                    <span class="new" style="color:var(--fg-3);background:var(--bg-card-2)">WebM</span>
+                  </div>
+                  <div class="line2">今天 11:52 <span class="sep"></span> 停在 37%</div>
+                  <div class="prog">
+                    <div class="c-bar is-bad"><i style="width:37%"></i></div>
+                    <span class="pct">37%</span>
+                  </div>
+                </div>
+                <div class="acts">
+                  <button class="c-btn is-sm is-danger">重试</button>
+                  <button class="c-btn is-sm">日志</button>
+                  <button class="c-icon-btn is-sm" title="删除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4.5 7h15M9.5 7V5.5A1.5 1.5 0 0 1 11 4h2a1.5 1.5 0 0 1 1.5 1.5V7"/><path d="M6.5 7l.8 11.4A1.6 1.6 0 0 0 8.9 20h6.2a1.6 1.6 0 0 0 1.6-1.6L17.5 7"/></svg></button>
+                </div>
+                <div class="failbox">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 4.5 21 19.5H3Z"/><path d="M12 10v4M12 16.8h.01"/></svg>
+                  <span class="why">转换被意外中断，可以重试；反复出现请查看日志。</span>
+                  <span class="grow"></span>
+                  <button class="c-btn is-sm">查看日志</button>
+                  <button class="c-btn is-sm is-primary">重试</button>
+                </div>
+              </div>
+
+              <!-- 进行中 -->
+              <div class="kid" style="background:var(--brand-soft);box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 30%, transparent)">
+                <div class="c-thumb t" style="background:linear-gradient(135deg,#22304a,#2a3b59)">MP4<span class="kind">视频</span></div>
+                <div class="l">
+                  <div class="line1">
+                    <span class="fname">launch-4k (1).mp4</span>
+                    <span class="c-pill is-brand"><span class="dot"></span>转换中</span>
+                    <span style="font-size:11px;color:var(--fg-3)">MP4 1080p</span>
+                  </div>
+                  <div class="line2">今天 11:48 <span class="sep"></span> 2.1× 速度 <span class="sep"></span> 剩余 0:52</div>
+                  <div class="prog">
+                    <div class="c-bar"><i style="width:62%"></i></div>
+                    <span class="pct">62%</span>
+                  </div>
+                </div>
+                <div class="acts">
+                  <button class="c-icon-btn is-sm" title="预览"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12S18 17.5 12 17.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.6"/></svg></button>
+                  <button class="c-icon-btn is-sm" title="取消"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+                </div>
+              </div>
+
+              <!-- 完成 -->
+              <div class="kid">
+                <div class="c-thumb t" style="background:linear-gradient(135deg,#243b2f,#2b4a39)">MP4<span class="kind">视频</span></div>
+                <div class="l">
+                  <div class="line1">
+                    <span class="fname">launch-4k.mp4</span>
+                    <span class="c-pill is-ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="width:10px;height:10px"><path d="m5 12.5 4.5 4.5L19 7"/></svg>完成</span>
+                  </div>
+                  <div class="line2">412 MB <span class="sep"></span> 02:14 <span class="sep"></span> 3840×2160 <span class="sep"></span> 今天 11:20</div>
+                </div>
+                <div class="acts">
+                  <button class="c-icon-btn is-sm" title="预览"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12S18 17.5 12 17.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.6"/></svg></button>
+                  <button class="c-icon-btn is-sm" title="打开位置"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2.5h8.5A1.5 1.5 0 0 1 21 10v7.5A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5Z"/></svg></button>
+                  <button class="c-icon-btn is-sm" title="删除"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4.5 7h15M9.5 7V5.5A1.5 1.5 0 0 1 11 4h2a1.5 1.5 0 0 1 1.5 1.5V7"/><path d="M6.5 7l.8 11.4A1.6 1.6 0 0 0 8.9 20h6.2a1.6 1.6 0 0 0 1.6-1.6L17.5 7"/></svg></button>
+                  <button class="c-icon-btn is-sm" title="更多"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="6" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18" cy="12" r="1.4"/></svg></button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 源 2 -->
+            <div class="src">
+              <span class="caret"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m7 10 5 5 5-5"/></svg></span>
+              <div class="c-thumb is-lg" style="background:linear-gradient(135deg,#1f2e3a,#2b4150)"><span class="kind">MKV</span><span class="dur">18:40</span></div>
+              <div style="min-width:0">
+                <div class="name">采访-机位A.mkv</div>
+                <div class="meta">1920×1080 <span class="sep">·</span> H.264 <span class="sep">·</span> 18:40 <span class="sep">·</span> 2.1 GB
+                  <span class="p">D:\Footage\2026\采访\采访-机位A.mkv</span></div>
+              </div>
+              <div class="right">
+                <span class="count">2 条记录</span>
+                <button class="c-icon-btn is-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12S18 17.5 12 17.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.6"/></svg></button>
+                <button class="c-icon-btn is-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2.5h8.5A1.5 1.5 0 0 1 21 10v7.5A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5Z"/></svg></button>
+              </div>
+            </div>
+            <div class="kids">
+              <div class="kid">
+                <div class="c-thumb t" style="background:linear-gradient(135deg,#243b2f,#2b4a39)">MP4</div>
+                <div class="l">
+                  <div class="line1"><span class="fname">采访-机位A (1).mp4</span><span class="c-pill is-ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="width:10px;height:10px"><path d="m5 12.5 4.5 4.5L19 7"/></svg>完成</span></div>
+                  <div class="line2">286 MB <span class="sep"></span> 1280×720 <span class="sep"></span> 今天 11:30</div>
+                </div>
+                <div class="acts">
+                  <button class="c-icon-btn is-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12S18 17.5 12 17.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.6"/></svg></button>
+                  <button class="c-icon-btn is-sm"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="6" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18" cy="12" r="1.4"/></svg></button>
+                </div>
+              </div>
+              <div class="kid">
+                <div class="c-thumb t" style="background:linear-gradient(135deg,#243b2f,#2b4a39)">MP4</div>
+                <div class="l">
+                  <div class="line1"><span class="fname">采访-机位A.mp4</span><span class="c-pill is-ok"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="width:10px;height:10px"><path d="m5 12.5 4.5 4.5L19 7"/></svg>完成</span></div>
+                  <div class="line2">1.2 GB <span class="sep"></span> 1920×1080 · 8.0 Mbps <span class="sep"></span> 今天 10:05</div>
+                </div>
+                <div class="acts">
+                  <button class="c-icon-btn is-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12S18 17.5 12 17.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.6"/></svg></button>
+                  <button class="c-icon-btn is-sm"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="6" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18" cy="12" r="1.4"/></svg></button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 源 3 -->
+            <div class="src">
+              <span class="caret"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m7 10 5 5 5-5"/></svg></span>
+              <div class="c-thumb is-lg" style="background:linear-gradient(135deg,#2a2a3a,#3a3a52)"><span class="kind">录制</span></div>
+              <div style="min-width:0">
+                <div class="name">屏幕录制 2026-10-08.mp4</div>
+                <div class="meta">正在读取… <span class="p">D:\Videos\屏幕录制 2026-10-08.mp4</span></div>
+              </div>
+              <div class="right">
+                <span class="new" style="font-size:10px;font-weight:700;color:var(--brand-hi);background:var(--brand-soft);border-radius:4px;padding:1px 5px">新添加</span>
+                <button class="c-icon-btn is-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12S18 17.5 12 17.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.6"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── 右：转换设置 ── -->
+        <section class="c-card panel">
+          <div class="c-card-hd">
+            <h2>转换设置</h2>
+            <div class="right"><span class="c-pill is-ghost">未选择文件</span></div>
+          </div>
+
+          <div class="pbody">
+            <div class="c-search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.8-4.8"/></svg>
+              <input class="c-input" placeholder="搜索格式，如 MP4、铃声、动图">
+            </div>
+
+            <div class="c-seg" style="margin-top:12px;width:100%">
+              <button class="is-on" style="flex:1">视频</button>
+              <button style="flex:1">音频</button>
+              <button style="flex:1">图片</button>
+            </div>
+
+            <div class="fmt-groups">
+              <div>
+                <div class="fmt-label">常用</div>
+                <div class="fmt-grid">
+                  <button class="fmt is-on"><b>MP4</b><span>H.264</span></button>
+                  <button class="fmt"><b>MKV</b><span>H.265</span></button>
+                  <button class="fmt"><b>WebM</b><span>VP9</span></button>
+                  <button class="fmt"><b>MOV</b><span>ProRes</span></button>
+                  <button class="fmt"><b>AVI</b><span>Xvid</span></button>
+                  <button class="fmt"><b>GIF</b><span>动图</span></button>
+                </div>
+              </div>
+              <div>
+                <div class="fmt-label">设备与平台</div>
+                <div class="fmt-grid">
+                  <button class="fmt"><b>MP4</b><span>iPhone</span></button>
+                  <button class="fmt"><b>MP4</b><span>微信</span></button>
+                  <button class="fmt"><b>MP4</b><span>B 站</span></button>
+                  <button class="fmt is-off"><b>MP4</b><span>抖音 竖屏</span></button>
+                  <button class="fmt is-off"><b>M4V</b><span>iPad</span></button>
+                  <button class="fmt"><b>WebM</b><span>网页</span></button>
+                </div>
+              </div>
+              <div>
+                <div class="fmt-label">参数</div>
+                <div class="paramrow" style="margin-top:2px">
+                  <div class="c-field">
+                    <label>分辨率</label>
+                    <select class="c-select"><option>保持原始</option><option>1080p</option><option>720p</option></select>
+                  </div>
+                  <div class="c-field">
+                    <label>码率</label>
+                    <select class="c-select"><option>自动（推荐）</option><option>8 Mbps</option><option>4 Mbps</option></select>
+                  </div>
+                </div>
+                <div class="c-field" style="margin-top:10px">
+                  <label>编码器</label>
+                  <select class="c-select"><option>NVIDIA NVENC H.264（硬件）</option><option>x264（软件）</option></select>
+                  <div class="hint">硬件编码更快，画质略低；失败时自动回退软件编码。</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="savebar">
+            <div class="selinfo">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" style="width:14px;height:14px;color:var(--fg-3)"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2.5h8.5A1.5 1.5 0 0 1 21 10v7.5A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5Z"/></svg>
+              保存到
+            </div>
+            <div class="savepath">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2.5h8.5A1.5 1.5 0 0 1 21 10v7.5A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5Z"/></svg>
+              <span>D:\Tools\ffc\output</span>
+            </div>
+            <div class="savehint">
+              <span>同名文件自动加序号，不会覆盖</span>
+              <a href="#">更改</a>
+            </div>
+            <button class="c-btn is-primary is-block is-lg" disabled>开始转换</button>
+            <div style="text-align:center;font-size:11.5px;color:var(--fg-3);margin-top:8px">先选择 1 个文件，再选右侧格式</div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>
+<div class="proto-tag">原型 v1 · 转换</div>
+<script src="../assets/shell.js"></script>
+<script>
+  ffcShell({
+    active: 'convert',
+    title: '转换',
+    sub: '视频 · 音频 · 图片格式转换',
+    engine: { text: '就绪', path: '6.1' }
+  });
+</script>
+<script src="../assets/nav.js"></script>
+</body>
+</html>

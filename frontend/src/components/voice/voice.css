@@ -4,13 +4,13 @@
 .lg-side{width:320px;flex:none;display:flex;flex-direction:column;gap:12px}
 .lg.w1024 .lg-side,.cv2.w1024 .lg-side{width:280px}
 .lg-ph{display:flex;align-items:center;gap:8px;padding:0 4px 10px;border-bottom:1px solid var(--ff-border);margin-bottom:4px}
-.lg-ph h2{font-size:14px;font-weight:600;margin:0}
+.lg-ph h2{font-size:14px;font-weight:620;margin:0}
 .lg-ph .sp{flex:1}
 .lg-drop{flex:1;min-height:120px;border:1.5px dashed var(--ff-border);border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--ff-text-2);background:var(--ff-bg-app);padding:24px;text-align:center}
 .lg-drop .ic{width:48px;height:48px;border-radius:50%;background:var(--ff-primary-soft);color:var(--ff-primary-text);display:grid;place-items:center}
 .lg-drop h4{font-size:14px;font-weight:600;color:var(--ff-text-1);margin:0}
 .lg-drop p{font-size:12px;line-height:1.5;max-width:300px;margin:0}
-.lg-panel{background:var(--ff-bg-surface);border:1px solid var(--ff-border);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:12px;min-height:0}
+.lg-panel{background:var(--ff-bg-surface);border:1px solid var(--ff-border);border-radius:var(--ff-radius-lg);padding:14px 16px;display:flex;flex-direction:column;gap:12px;min-height:0}
 .lg-panel.grow{flex:1}
 .lg-side .lg-panel{flex:1}
 .lg-row{display:flex;flex-direction:column;gap:6px}
@@ -34,7 +34,7 @@
 .lg-guide .gb{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
 .lg-guide h3{font-size:14px;font-weight:600;margin:0}
 .lg-guide p{font-size:12px;line-height:1.5;color:var(--ff-text-2);margin:0}
-.lg-timeline{flex:none;height:160px;background:var(--ff-bg-surface);border:1px solid var(--ff-border);border-radius:10px;display:flex;flex-direction:column;overflow:hidden}
+.lg-timeline{flex:none;height:160px;background:var(--ff-bg-surface);border:1px solid var(--ff-border);border-radius:var(--ff-radius-lg);display:flex;flex-direction:column;overflow:hidden}
 .lg-timeline .th{height:36px;display:flex;align-items:center;gap:8px;padding:0 14px;border-bottom:1px solid var(--ff-border);font-size:13px;font-weight:500}
 .lg-timeline .th span{font-weight:400;color:var(--ff-text-2);font-size:12px}
 .lg-timeline .th .sp{flex:1}
@@ -66,3 +66,43 @@
 .lg-err .acts{display:flex;gap:8px;margin-top:8px}
 .lg-toast{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:8px;font-size:13px;background:var(--ff-bg-elevated);border:1px solid var(--ff-border);box-shadow:var(--ff-shadow-dialog);z-index:5;white-space:nowrap}
 .lg-toast.ok{color:var(--ff-text-1)}
+
+/* ============================================================================
+   v0.58 自适应：语音页是 主区 + 320 侧栏 两列。
+   原来窄窗口只把侧栏 320→280，主区被压到 300 出头：波形、字幕分段全挤成竖排。
+   ≤900 收成单列（设置面板落到下面整宽），≤720 再收内边距与分段行骨架。
+   ============================================================================ */
+@media (max-width: 1240px) {
+  .lg { padding: 10px 12px 14px; gap: 10px; }
+  .lg-side { width: 292px; }
+}
+
+@media (max-width: 1024px) {
+  .lg { flex-direction: column; height: auto; }
+  .lg-main { flex: none; }
+  .lg-side,
+  .lg.w1024 .lg-side { width: auto; flex: none; }
+  /* 单列下侧栏不再吃满剩余高度，按钮组跟着内容走 */
+  .lg-side .lg-panel { flex: none; }
+  .lg-foot { margin-top: 4px; }
+  .lg-drop { min-height: 160px; }
+}
+
+@media (max-width: 720px) {
+  .lg { padding: 8px 8px 12px; gap: 8px; }
+  .lg-panel { padding: 12px; }
+  .lg-ph { padding: 0 0 8px; }
+  .lg-drop { padding: 18px 12px; min-height: 140px; }
+  .lg-drop p { max-width: none; }
+  .lg-file { gap: 10px; padding: 10px; }
+  .lg-toast { left: 8px; right: 8px; transform: none; white-space: normal; justify-content: center; }
+  /* 分段行：编号 + 时间码上去一行，文本占满宽度 */
+  .lg-cue { grid-template-columns: 24px minmax(0, 1fr); gap: 6px 8px; padding: 8px; }
+  .lg-cue .n { text-align: left; padding-top: 6px; }
+  .lg-cue .tm { grid-column: 2; flex-direction: row; align-items: center; gap: 6px; }
+  .lg-cue .tm span { text-align: left; }
+  .lg-cue .tm input { width: auto; flex: 1; min-width: 0; }
+  .lg-cue textarea { grid-column: 1 / -1; }
+  .lg-timeline.edit { max-height: 340px; }
+}
+

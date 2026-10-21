@@ -1,66 +1,75 @@
-/* FFmpegFree v2 设计变量，来源：设计规范 v0.1 第 1-5 节。
-   .ff-light / .ff-dark 用于在同一页面里局部强制某个主题（开发预览页、截图），业务页面不需要 */
+/* FFmpegFree v2 璁捐鍙橀噺 路 v0.58 瑙嗚閲嶅仛锛堝榻?prototype/ 鍘熷瀷锛?   - 鍛藉悕淇濇寔 --ff-*锛屽彧璋冩暣鍙栧€煎苟琛ュ厖璇箟鍒悕锛岄伩鍏嶉€愰〉澶ф敼
+   - .ff-light / .ff-dark 鐢ㄤ簬鍦ㄥ悓涓€椤甸潰閲屽眬閮ㄥ己鍒舵煇涓富棰橈紙寮€鍙戦瑙堥〉銆佹埅鍥撅級 */
 :root,
 .ff-light {
   color-scheme: light;
 
-  --ff-primary: #3b6ef5;
-  --ff-primary-hover: #2f5cd9;
-  --ff-primary-soft: #eaf0ff;
-  --ff-success: #16a34a;
-  --ff-warning: #d97706;
-  --ff-warning-soft: #fff7e6;
-  --ff-danger: #dc2626;
-  --ff-interrupted: #8f5a1e; /* 已中断状态（任务中心） */
-  /* 状态标签文字色：浅色主题下在 14% 着色底上 ≥4.5:1（success/warning/danger 本色只有 2.8~3.9） */
-  --ff-success-text: #137535;
-  --ff-warning-text: #985006; /* 浅色横幅（warning 10% 混合底）上图标/文字 ≥3:1、正文 ≥4.5:1 */
-  --ff-danger-text: #b91c1c;
-  --ff-primary-text: #2f5cd9; /* 主色浅底（primary-soft）上的文字色，4.5:1 以上 */
-  --ff-on-primary: #ffffff; /* 主色底上的文字（主按钮等） */
-  --ff-badge-bg: #2f5cd9; /* 白字 4.44:1 不够，浅色主题角标用 primary-hover（≈5.0:1） */
-  --ff-on-danger: #ffffff; /* 危险色底上的文字（删除 / 清除按钮） */
-  --ff-switch-knob: #ffffff; /* 开关滑块，两个主题都是白色（--ff-on-primary 在暗色下是近黑） */
+  --ff-primary: #2f6bf0;
+  --ff-primary-hover: #1f57d8;
+  --ff-primary-soft: rgba(47, 107, 240, 0.1);
+  --ff-success: #0f9d63;
+  --ff-warning: #b26a00;
+  --ff-warning-soft: rgba(178, 106, 0, 0.1);
+  --ff-danger: #d93a3a;
+  --ff-interrupted: #8f5a1e; /* 宸蹭腑鏂姸鎬侊紙浠诲姟涓績锛?*/
+  /* 鐘舵€佹爣绛炬枃瀛楄壊锛氭祬鑹蹭富棰樹笅鍦?14% 鐫€鑹插簳涓?鈮?.5:1 */
+  --ff-success-text: #0b7a4d;
+  --ff-warning-text: #8a5200;
+  --ff-danger-text: #b02a2a;
+  --ff-primary-text: #1f57d8; /* 涓昏壊娴呭簳锛坧rimary-soft锛変笂鐨勬枃瀛楄壊 */
+  --ff-on-primary: #ffffff; /* 涓昏壊搴曚笂鐨勬枃瀛楋紙涓绘寜閽瓑锛?*/
+  --ff-badge-bg: #2f6bf0;
+  --ff-on-danger: #ffffff;
+  --ff-switch-knob: #ffffff;
 
-  /* 剪辑页语义色（设计规范第 10 节）。片段白字对比度：视频 7.9:1、音频 5.5:1；播放头是图形，非文字 */
+  /* 鍓緫椤佃涔夎壊锛堝巻鍙蹭繚鐣欙級 */
   --ff-clip-video: #4338ca;
   --ff-clip-audio: #0f766e;
   --ff-on-clip: #ffffff;
   --ff-playhead: #dc2626;
-  /* 预览区的黑色播放器外观：深色固定，两个主题相同（文字 ≥4.5:1） */
-  --ff-player-bg: #0b0c0e;
-  --ff-player-bar: #16171b;
+  /* 棰勮鍖虹殑榛戣壊鎾斁鍣ㄥ瑙傦細娣辫壊鍥哄畾锛屼袱涓富棰樼浉鍚?*/
+  --ff-player-bg: #07080a;
+  --ff-player-bar: #0d1015;
   --ff-player-fg: #e8eaed;
   --ff-player-fg-2: #a0a6b0;
-  --ff-player-line: #33363d;
-  --ff-player-scrim: rgba(11, 12, 14, 0.9); /* 预览失败态遮罩 */
+  --ff-player-line: rgba(255, 255, 255, 0.09);
+  --ff-player-scrim: rgba(7, 8, 10, 0.9);
 
-  /* 代码编辑器语法色。关键字、函数、类型、字符串、数字、注释分开。JSON 页继续用 --ff-syntax-*。 */
+  /* 浠ｇ爜缂栬緫鍣ㄨ娉曡壊 */
   --ff-code-keyword: #af00db;
   --ff-code-function: #795e26;
   --ff-code-type: #267f99;
   --ff-code-string: #a31515;
   --ff-code-number: #098658;
   --ff-code-comment: #6a737d;
-  --ff-syntax-key: var(--ff-primary-text);
-  --ff-syntax-string: #15803d;
-  --ff-syntax-number: #c2410c;
+  --ff-syntax-key: #1f57d8;
+  --ff-syntax-string: #0f7a4a;
+  --ff-syntax-number: #b45309;
   --ff-syntax-bool: #7c3aed;
   --ff-syntax-null: #0e7490;
   --ff-syntax-comment: #6a737d;
   --ff-syntax-keyword: #0550ae;
   --ff-syntax-type: #953800;
 
-  --ff-bg-app: #f5f6f8;
-  --ff-bg-sidebar: #eef0f3;
+  /* 涓夊眰鑳屾櫙锛歛pp(搴? 鈫?panel(渚ф爮/闈㈡澘) 鈫?surface(鍐呭鍗? 鈫?elevated(娴眰) */
+  --ff-bg-app: #f4f6f9;
+  --ff-bg-sidebar: #ffffff;
+  --ff-bg-panel: #ffffff;
   --ff-bg-surface: #ffffff;
   --ff-bg-elevated: #ffffff;
-  --ff-bg-hover: #f0f2f5;
-  --ff-border: #e3e6eb;
+  --ff-bg-card-2: #f7f9fc; /* 鍗″唴娆＄骇鍧楋紙鏍煎紡鍧椼€佽緭鍏ュ簳锛?*/
+  --ff-bg-hover: rgba(15, 23, 42, 0.04);
+  --ff-bg-active: rgba(47, 107, 240, 0.1);
 
-  --ff-text-1: #1f2329;
-  --ff-text-2: #5c6370;
-  --ff-text-3: #9aa0a9;
+  /* 鎻忚竟锛歭ine 涓洪粯璁ゅ垎闅旓紝line-strong 缁欐帶浠惰竟妗?*/
+  --ff-border: rgba(15, 23, 42, 0.09);
+  --ff-line: rgba(15, 23, 42, 0.09);
+  --ff-line-strong: rgba(15, 23, 42, 0.16);
+  --ff-border-strong: rgba(15, 23, 42, 0.16);
+
+  --ff-text-1: #0f172a;
+  --ff-text-2: #5a6472;
+  --ff-text-3: #949cab;
 
   --ff-space-1: 4px;
   --ff-space-2: 8px;
@@ -70,69 +79,72 @@
   --ff-space-6: 24px;
   --ff-space-8: 32px;
 
-  --ff-radius-sm: 4px;
-  --ff-radius-md: 6px;
-  --ff-radius-lg: 10px;
-  --ff-radius-xl: 12px;
+  --ff-radius-sm: 6px;
+  --ff-radius-md: 8px;
+  --ff-radius-lg: 12px;
+  --ff-radius-xl: 16px;
 
-  --ff-font: -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
-  --ff-font-mono: "JetBrains Mono", Consolas, Menlo, "Noto Sans Mono CJK SC", monospace;
+  --ff-font: "Inter", -apple-system, "Segoe UI", "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+  --ff-font-mono: "JetBrains Mono", "Cascadia Code", Consolas, Menlo, "Noto Sans Mono CJK SC", monospace;
   --ff-fs-xs: 12px;
   --ff-fs-sm: 13px;
   --ff-fs-md: 14px;
   --ff-fs-lg: 16px;
   --ff-fs-xl: 20px;
 
-  --ff-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --ff-shadow-dialog: 0 12px 32px rgba(0, 0, 0, 0.18);
-  --ff-ease: cubic-bezier(0.2, 0, 0, 1);
+  --ff-shadow-1: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --ff-shadow-2: 0 8px 24px rgba(15, 23, 42, 0.09);
+  --ff-shadow-dialog: 0 16px 48px rgba(15, 23, 42, 0.18);
+  --ff-ease: cubic-bezier(0.16, 1, 0.3, 1);
   --ff-dur-fast: 150ms;
   --ff-dur-base: 200ms;
-  /* 动效规范（前端动画审计 P0）：quick=按下/小反馈，base=出现，slow=强调（完成对勾、整块展开）；
-     出现用 ease-out（快进慢停），消失用 ease-in 且更短。系统「减少动效」时 base.css 把时长压成 0 */
   --ff-dur-quick: 120ms;
   --ff-dur-slow: 320ms;
   --ff-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ff-ease-in: cubic-bezier(0.4, 0, 1, 1);
-  /* 进度条只过渡真实数值：线性、不超过后端给的值（动画 P1） */
   --ff-dur-progress: 250ms;
+  --ff-dur-relayout: 200ms;
 
-  --ff-sidebar-w: 200px;
-  --ff-sidebar-w-collapsed: 56px;
-  --ff-titlebar-h: 40px;
+  /* 澶栧３灏哄锛氱獎绐楀彛涓嬬敱 media query 瑕嗙洊 */
+  --ff-sidebar-w: 236px;
+  --ff-sidebar-w-collapsed: 64px;
+  --ff-titlebar-h: 64px;
+  --ff-page-pad-x: 24px;
+  --ff-page-pad-y: 24px;
+  --ff-panel-w: 344px;
 }
 
 html.dark,
 .ff-dark {
   color-scheme: dark;
 
-  --ff-primary: #5b8cff;
-  --ff-primary-hover: #7aa2ff;
-  --ff-primary-soft: #1e2a4a;
-  --ff-success: #22c55e;
-  --ff-warning: #f59e0b;
-  --ff-warning-soft: #3a2a10;
-  --ff-danger: #ef4444;
+  --ff-primary: #4f8cff;
+  --ff-primary-hover: #6ea2ff;
+  --ff-primary-soft: rgba(79, 140, 255, 0.14);
+  --ff-success: #35d399;
+  --ff-warning: #ffb454;
+  --ff-warning-soft: rgba(255, 180, 84, 0.13);
+  --ff-danger: #ff6b6b;
   --ff-interrupted: #d9a05b;
-  --ff-success-text: #22c55e;
-  --ff-warning-text: #f59e0b;
-  --ff-danger-text: #f87171; /* #ef4444 在 14% 着色底上只有 3.75:1 */
+  --ff-success-text: #35d399;
+  --ff-warning-text: #ffb454;
+  --ff-danger-text: #ff8080;
   --ff-primary-text: #7aa2ff;
-  --ff-on-primary: #0b0c0e; /* 白字在 #5b8cff 上只有 3.16:1 */
-  --ff-badge-bg: #5b8cff; /* 配近黑字 6.2:1 */
-  --ff-on-danger: #0b0c0e; /* 白字在 #ef4444 上只有 3.76:1 */
+  --ff-on-primary: #06101f; /* 杩戦粦瀛楀湪 #4f8cff 涓?鈮?:1 */
+  --ff-badge-bg: #4f8cff;
+  --ff-on-danger: #0b0c0e;
   --ff-switch-knob: #ffffff;
 
   --ff-clip-video: #4f46e5;
   --ff-clip-audio: #0f766e;
   --ff-on-clip: #ffffff;
-  --ff-playhead: #ef4444;
-  --ff-player-bg: #0b0c0e;
-  --ff-player-bar: #16171b;
+  --ff-playhead: #ff6b6b;
+  --ff-player-bg: #07080a;
+  --ff-player-bar: #0d1015;
   --ff-player-fg: #e8eaed;
   --ff-player-fg-2: #a0a6b0;
-  --ff-player-line: #33363d;
-  --ff-player-scrim: rgba(11, 12, 14, 0.9);
+  --ff-player-line: rgba(255, 255, 255, 0.09);
+  --ff-player-scrim: rgba(7, 8, 10, 0.9);
 
   --ff-code-keyword: #c586c0;
   --ff-code-function: #dcdcaa;
@@ -140,25 +152,35 @@ html.dark,
   --ff-code-string: #ce9178;
   --ff-code-number: #b5cea8;
   --ff-code-comment: #6a9955;
-  --ff-syntax-key: var(--ff-primary-text);
-  --ff-syntax-string: #7ec699;
-  --ff-syntax-number: #f5a860;
+  --ff-syntax-key: #7fb3ff;
+  --ff-syntax-string: #7ddca8;
+  --ff-syntax-number: #ffb454;
   --ff-syntax-bool: #c792ea;
-  --ff-syntax-null: #56c2d6;
+  --ff-syntax-null: #63b3ff;
   --ff-syntax-comment: #8b949e;
   --ff-syntax-keyword: #79c0ff;
   --ff-syntax-type: #ffa657;
 
-  --ff-bg-app: #141518;
-  --ff-bg-sidebar: #1a1b1f;
-  --ff-bg-surface: #1f2025;
-  --ff-bg-elevated: #26282e;
-  --ff-bg-hover: #2a2c33;
-  --ff-border: #2e3037;
+  --ff-bg-app: #0c0f14;
+  --ff-bg-sidebar: #11151b;
+  --ff-bg-panel: #11151b;
+  --ff-bg-surface: #151a21;
+  --ff-bg-elevated: #1a2028;
+  --ff-bg-card-2: #1a2028;
+  --ff-bg-hover: rgba(255, 255, 255, 0.045);
+  --ff-bg-active: rgba(79, 140, 255, 0.13);
 
-  --ff-text-1: #e8eaed;
-  --ff-text-2: #a0a6b0;
-  --ff-text-3: #6b717b;
+  --ff-border: rgba(255, 255, 255, 0.07);
+  --ff-line: rgba(255, 255, 255, 0.07);
+  --ff-line-strong: rgba(255, 255, 255, 0.13);
+  --ff-border-strong: rgba(255, 255, 255, 0.13);
 
-  --ff-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --ff-text-1: #e8ecf3;
+  --ff-text-2: #98a2b1;
+  --ff-text-3: #656d7b;
+
+  --ff-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --ff-shadow-2: 0 8px 24px rgba(0, 0, 0, 0.42);
+  --ff-shadow-dialog: 0 16px 48px rgba(0, 0, 0, 0.55);
 }
+

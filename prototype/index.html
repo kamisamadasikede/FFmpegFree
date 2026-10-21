@@ -1,0 +1,130 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>ffc 页面重做 · 原型总览</title>
+<link rel="stylesheet" href="assets/design.css">
+<style>
+  body { overflow: auto; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 48px 24px 80px; }
+  .hero { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; }
+  .hero .mark { width: 44px; height: 44px; border-radius: 13px;
+    background: linear-gradient(145deg, var(--brand), #7b5cff); display: grid; place-items: center;
+    color: #fff; font-weight: 800; font-size: 14px; box-shadow: 0 8px 24px rgba(79,140,255,.3); }
+  h1 { margin: 0; font-size: 24px; letter-spacing: -.02em; }
+  .lede { color: var(--fg-2); font-size: 13.5px; line-height: 1.75; max-width: 720px; margin: 10px 0 28px; }
+  h2.sec { font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--fg-3); margin: 34px 0 12px; }
+
+  .cards { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
+  .pcard { display: block; text-decoration: none; color: inherit; padding: 15px 16px;
+    border-radius: var(--r-md); background: var(--bg-card); border: 1px solid var(--line);
+    transition: border-color 160ms, transform 160ms, background 160ms; }
+  .pcard:hover { border-color: color-mix(in srgb, var(--brand) 45%, transparent); transform: translateY(-1px); background: var(--bg-card-2); }
+  .pcard .num { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-3); }
+  .pcard .t { font-size: 13.5px; font-weight: 620; margin: 5px 0 4px; }
+  .pcard .d { font-size: 11.5px; color: var(--fg-3); line-height: 1.6; }
+
+  .rules { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .rule { padding: 14px 16px; border-radius: var(--r-md); background: var(--bg-panel); border: 1px solid var(--line); }
+  .rule .t { font-size: 12.5px; font-weight: 620; margin-bottom: 6px; display: flex; align-items: center; gap: 7px; }
+  .rule .t span { font-family: var(--font-mono); font-size: 10px; color: var(--brand-hi); background: var(--brand-soft);
+    border-radius: 4px; padding: 1px 5px; font-weight: 700; }
+  .rule p { margin: 0; font-size: 12px; color: var(--fg-3); line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <div class="mark">ffc</div>
+    <div>
+      <h1>ffc 页面重做 · 原型 v1</h1>
+      <div style="font-size:12.5px;color:var(--fg-3);margin-top:3px">除 Agent（Cat）外的全部页面 · 静态原型，未改动项目代码</div>
+    </div>
+  </div>
+
+  <p class="lede">
+    这一版把散落在各页的「卡片套卡片 + 边框堆叠」收成三层结构（应用底 / 面板 / 内容卡），
+    统一 8px 栅格与 12px 圆角，只保留一个强调色；所有列表行改成「缩略图 + 名称 + 元信息 + 状态 + 操作」的固定骨架，
+    失败态一律给出原因和可执行动作。深浅两套 token 同名，切主题不需要改组件。
+  </p>
+
+  <h2 class="sec">页面</h2>
+  <div class="cards">
+    <a class="pcard" href="pages/01-convert.html">
+      <div class="num">01</div><div class="t">转换</div>
+      <div class="d">源文件分组 + 子记录（完成/进行中/失败），右侧格式与编码面板</div>
+    </a>
+    <a class="pcard" href="pages/02-voice.html">
+      <div class="num">02</div><div class="t">语音工具</div>
+      <div class="d">待转写列表 + 波形 + 分段文稿，右侧识别设置与组件下载</div>
+    </a>
+    <a class="pcard" href="pages/03-docs-convert.html">
+      <div class="num">03</div><div class="t">文档 · 文档转换</div>
+      <div class="d">文档记录分组、失败原因说明，格式面板区分支持/需装组件</div>
+    </a>
+    <a class="pcard" href="pages/04-docs-pdf.html">
+      <div class="num">04</div><div class="t">文档 · PDF 预览</div>
+      <div class="d">最近列表 + 阅读区（页码/缩放/适应宽度）+ 文件信息与操作</div>
+    </a>
+    <a class="pcard" href="pages/05-live-push.html">
+      <div class="num">05</div><div class="t">直播 · 文件推流</div>
+      <div class="d">16:9 预览带状态浮层与实时指标，右侧目标/编码分组</div>
+    </a>
+    <a class="pcard" href="pages/06-live-record.html">
+      <div class="num">06</div><div class="t">直播 · 录屏推流</div>
+      <div class="d">屏幕源卡片选择 + 预览，本地存档（分片 mp4）与推流参数</div>
+    </a>
+    <a class="pcard" href="pages/07-live-pull.html">
+      <div class="num">07</div><div class="t">直播 · 拉流播放</div>
+      <div class="d">地址栏 + 播放器叠层指标 + 实时播放信息与最近地址</div>
+    </a>
+    <a class="pcard" href="pages/08-tools-json.html">
+      <div class="num">08</div><div class="t">JSON 工具</div>
+      <div class="d">工具条 + 双栏（带行号与语法色）+ 底部状态栏</div>
+    </a>
+    <a class="pcard" href="pages/09-tasks.html">
+      <div class="num">09</div><div class="t">任务中心</div>
+      <div class="d">四个统计卡 + 分段筛选 + 任务表格（进度/状态/用时/操作）</div>
+    </a>
+    <a class="pcard" href="pages/10-settings.html">
+      <div class="num">10</div><div class="t">设置</div>
+      <div class="d">左侧子导航 + 分组表单 + 组件状态行 + 吸底保存条</div>
+    </a>
+    <a class="pcard" href="pages/11-about.html">
+      <div class="num">11</div><div class="t">关于</div>
+      <div class="d">品牌块 + 运行环境/引擎/数据目录 + 开源许可清单</div>
+    </a>
+  </div>
+
+  <h2 class="sec">设计规则</h2>
+  <div class="rules">
+    <div class="rule">
+      <div class="t">三层背景 <span>--bg-app / --bg-panel / --bg-card</span></div>
+      <p>底色不再用纯黑，改用带蓝调的灰。层级靠背景差 + 1px 淡描边表达，阴影只留给浮层与弹窗。</p>
+    </div>
+    <div class="rule">
+      <div class="t">单一强调色 <span>--brand #4f8cff</span></div>
+      <p>蓝色只用于主操作、选中态和进度。成功/警告/失败三色只出现在状态位，不做装饰。</p>
+    </div>
+    <div class="rule">
+      <div class="t">行骨架统一 <span>缩略图 · 名称 · 元信息 · 状态 · 操作</span></div>
+      <p>转换、文档、任务、语音列表都套同一套行结构，用户在一处学会，处处可读。</p>
+    </div>
+    <div class="rule">
+      <div class="t">失败必须可行动 <span>原因 + 重试 + 日志</span></div>
+      <p>不再只写「转换失败」。红条给出人话原因，右侧直接给重试与日志入口。</p>
+    </div>
+    <div class="rule">
+      <div class="t">右栏固定宽度 <span>320 / 344 / 356</span></div>
+      <p>设置面板统一贴右、吸顶、底部固定主 CTA，主内容区随窗口伸缩。</p>
+    </div>
+    <div class="rule">
+      <div class="t">主题同名 token <span>data-theme="dark|light"</span></div>
+      <p>深浅两套只是变量表差异，组件零改动；右上角按钮可直接在原型里切换看效果。</p>
+    </div>
+  </div>
+</div>
+<script src="assets/nav.js"></script>
+</body>
+</html>

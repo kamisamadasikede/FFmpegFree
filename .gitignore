@@ -29,3 +29,12 @@ FFmpegFree/
 /app.db
 /app.db-shm
 /app.db-wal
+
+# Agent / 截图自检的本地产物：不必进仓库。
+# prototype/ 是设计原型页面（保留）；下面这些是跑截图与对照时的中间图。
+/.shots/
+/.dsh-ops/
+/.trae/
+prototype/shots/
+docs/redesign/*.png
+pelican-bike*

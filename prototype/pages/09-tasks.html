@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<script>/* 早于首次绘制应用 ?theme= 以免过渡色被冻结 */try{const t=new URLSearchParams(location.search).get("theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<title>任务中心 · ffc 原型</title>
+<link rel="stylesheet" href="../assets/design.css">
+<style>
+  .page { display: flex; flex-direction: column; gap: 16px; }
+
+  .kpis { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
+  .kpi2 {
+    position: relative; overflow: hidden;
+    padding: 15px 16px 14px; border-radius: var(--r-md);
+    background: var(--bg-card); border: 1px solid var(--line);
+  }
+  .kpi2 .k { font-size: 12px; color: var(--fg-3); display: flex; align-items: center; gap: 6px; }
+  .kpi2 .k svg { width: 13px; height: 13px; }
+  .kpi2 .v { margin-top: 6px; font-size: 28px; font-weight: 680; letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums; line-height: 1.05; }
+  .kpi2 .v small { font-size: 11.5px; font-weight: 500; color: var(--fg-3); margin-left: 5px; letter-spacing: 0; }
+  .kpi2 .sub2 { margin-top: 5px; font-size: 11px; color: var(--fg-3); }
+  .kpi2.is-brand { border-color: color-mix(in srgb, var(--brand) 34%, transparent);
+    background: linear-gradient(160deg, color-mix(in srgb, var(--brand) 12%, var(--bg-card)), var(--bg-card)); }
+  .kpi2.is-brand .v { color: var(--brand-hi); }
+  .kpi2.is-bad .v { color: var(--bad); }
+  .kpi2.is-ok .v { color: var(--ok); }
+  .kpi2 .spark { position: absolute; right: 12px; top: 14px; display: flex; align-items: flex-end; gap: 2px; height: 26px; opacity: .5; }
+  .kpi2 .spark i { width: 3px; background: var(--brand); border-radius: 1px; }
+
+  /* 列表卡 */
+  .listcard { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .head2 { display: flex; align-items: center; gap: 14px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+  .head2 .c-tabs { border-bottom: 0; padding: 0; }
+  .head2 .c-tabs button { height: 42px; }
+  .head2 .right { margin-left: auto; display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+  .switchrow { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--fg-2); }
+  .switchrow .c-switch { width: 30px; height: 17px; }
+  .switchrow .c-switch::after { width: 13px; height: 13px; }
+  .switchrow .c-switch.is-on::after { transform: translateX(13px); }
+
+  .tablewrap { flex: 1 1 auto; min-height: 0; overflow: auto; }
+  table.t { width: 100%; border-collapse: collapse; }
+  table.t th {
+    position: sticky; top: 0; z-index: 1;
+    text-align: left; font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--fg-3); padding: 9px 14px; background: var(--bg-card-2);
+    border-bottom: 1px solid var(--line); white-space: nowrap;
+  }
+  table.t td { padding: 11px 14px; border-bottom: 1px solid var(--line); font-size: 12.5px; vertical-align: middle; }
+  table.t tr:last-child td { border-bottom: 0; }
+  table.t tbody tr:hover { background: var(--bg-hover); }
+
+  .tname { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .tname .fi { width: 30px; height: 22px; border-radius: 4px; display: grid; place-items: center;
+    font-size: 8.5px; font-weight: 700; background: var(--bg-card-2); border: 1px solid var(--line); color: var(--fg-2); flex: 0 0 auto; }
+  .tname .n { font-size: 12.5px; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tname .m { font-size: 10.5px; color: var(--fg-3); margin-top: 1px; font-family: var(--font-mono); }
+  .prog { display: flex; align-items: center; gap: 8px; min-width: 128px; }
+  .prog .c-bar { flex: 1 1 auto; }
+  .prog .pct { font-size: 11px; color: var(--fg-2); font-variant-numeric: tabular-nums; min-width: 30px; text-align: right; }
+  .acts2 { display: flex; gap: 2px; opacity: .6; }
+  table.t tr:hover .acts2 { opacity: 1; }
+  .dur { font-variant-numeric: tabular-nums; color: var(--fg-2); }
+  .dur b { color: var(--fg-1); font-weight: 600; }
+
+  /* ── 自适应：表格固定列宽，窄窗口允许横向滚动（不把任务名挤没） ── */
+  @media (max-width: 1024px) {
+    .tablewrap { overflow-x: auto; }
+    .tablewrap table { min-width: 620px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="side"></aside>
+  <main class="main">
+    <header class="topbar" id="top"></header>
+    <div class="page">
+
+      <!-- KPI -->
+      <div class="kpis">
+        <div class="kpi2 is-brand">
+          <div class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6.5h9M4 12h13M4 17.5h7"/><path d="M17.5 6.5 19 8l2.5-3"/></svg>运行中</div>
+          <div class="v">2<small>个任务</small></div>
+          <div class="sub2">并发上限 3 · NVENC</div>
+          <div class="spark"><i style="height:9px"></i><i style="height:14px"></i><i style="height:11px"></i><i style="height:20px"></i><i style="height:26px"></i></div>
+        </div>
+        <div class="kpi2">
+          <div class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>排队中</div>
+          <div class="v">1<small>个任务</small></div>
+          <div class="sub2">最前等待 8 s</div>
+        </div>
+        <div class="kpi2 is-ok">
+          <div class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m5 12.5 4.5 4.5L19 7"/></svg>今日完成</div>
+          <div class="v">14<small>个任务</small></div>
+          <div class="sub2">平均耗时 1 分 12 秒</div>
+        </div>
+        <div class="kpi2 is-bad">
+          <div class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 4.5 21 19.5H3Z"/><path d="M12 10v4M12 16.8h.01"/></svg>失败</div>
+          <div class="v">1<small>个任务</small></div>
+          <div class="sub2">可重试 · 已保留临时文件</div>
+        </div>
+      </div>
+
+      <!-- 列表 -->
+      <section class="c-card listcard">
+        <div class="head2">
+          <div class="c-tabs">
+            <button class="is-on">全部 <span style="color:var(--fg-3)">4</span></button>
+            <button>进行中 <span style="color:var(--fg-3)">2</span></button>
+            <button>历史 <span style="color:var(--fg-3)">1</span></button>
+            <button>失败 <span style="color:var(--bad)">1</span></button>
+          </div>
+          <div class="right">
+            <select class="c-select" style="width:110px;height:30px"><option>全部类型</option><option>转换</option><option>直播</option><option>文档</option></select>
+            <div class="switchrow"><div class="c-switch"></div>显示已隐藏</div>
+            <div class="switchrow"><div class="c-switch is-on"></div>隐藏已结束</div>
+            <button class="c-btn is-sm">清空已结束</button>
+          </div>
+        </div>
+
+        <div class="tablewrap">
+          <table class="t">
+            <thead>
+              <tr>
+                <th style="width:34%">任务</th>
+                <th style="width:90px">类型</th>
+                <th style="width:170px">进度</th>
+                <th style="width:110px">状态</th>
+                <th style="width:120px">用时</th>
+                <th style="width:120px"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  <div class="tname">
+                    <span class="fi" style="color:#7fb3ff">MP4</span>
+                    <div style="min-width:0">
+                      <div class="n">launch-4k (1).mp4</div>
+                      <div class="m">D:\Footage\2026\launch-4k.mov</div>
+                    </div>
+                  </div>
+                </td>
+                <td><span class="c-pill">转换</span></td>
+                <td>
+                  <div class="prog"><div class="c-bar"><i style="width:62%"></i></div><span class="pct">62%</span></div>
+                  <div style="font-size:10.5px;color:var(--fg-3);margin-top:3px">2.1× · 剩余 0:52</div>
+                </td>
+                <td><span class="c-pill is-brand"><span class="dot"></span>转换中</span></td>
+                <td class="dur"><b>0:38</b> / 1:30</td>
+                <td>
+                  <div class="acts2">
+                    <button class="c-icon-btn is-sm" title="日志"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 4.5h9l5 5v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1Z"/><path d="M8 12h8M8 15.5h5"/></svg></button>
+                    <button class="c-icon-btn is-sm" title="取消"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+                  </div>
+                </td>
+              </tr>
+
+              <tr>
+                <td>
+                  <div class="tname">
+                    <span class="fi" style="color:#c792ea">LIVE</span>
+                    <div style="min-width:0">
+                      <div class="n">录屏推流 · 显示器 1</div>
+                      <div class="m">rtmp://live.example.com/app</div>
+                    </div>
+                  </div>
+                </td>
+                <td><span class="c-pill">直播</span></td>
+                <td>
+                  <div class="prog"><div class="c-bar"><i style="width:100%"></i></div><span class="pct">—</span></div>
+                  <div style="font-size:10.5px;color:var(--fg-3);margin-top:3px">持续推流 00:12:36</div>
+                </td>
+                <td><span class="c-pill is-brand"><span class="dot"></span>推流中</span></td>
+                <td class="dur"><b>12:36</b></td>
+                <td>
+                  <div class="acts2">
+                    <button class="c-icon-btn is-sm" title="停止"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="6.5" y="6.5" width="11" height="11" rx="1.6"/></svg></button>
+                  </div>
+                </td>
+              </tr>
+
+              <tr>
+                <td>
+                  <div class="tname">
+                    <span class="fi" style="color:#ffb454">PDF</span>
+                    <div style="min-width:0">
+                      <div class="n">产品介绍-v3.pdf</div>
+                      <div class="m">D:\Docs\2026\产品介绍-v3.pptx</div>
+                    </div>
+                  </div>
+                </td>
+                <td><span class="c-pill">文档转换</span></td>
+                <td>
+                  <div class="prog"><div class="c-bar is-bad"><i style="width:0%"></i></div><span class="pct">0%</span></div>
+                  <div style="font-size:10.5px;color:var(--bad);margin-top:3px">没有可提取的文字</div>
+                </td>
+                <td><span class="c-pill is-bad"><span class="dot"></span>失败</span></td>
+                <td class="dur"><b>0.2 s</b></td>
+                <td>
+                  <div class="acts2">
+                    <button class="c-btn is-sm">重试</button>
+                    <button class="c-icon-btn is-sm" title="日志"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 4.5h9l5 5v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1Z"/><path d="M8 12h8M8 15.5h5"/></svg></button>
+                  </div>
+                </td>
+              </tr>
+
+              <tr>
+                <td>
+                  <div class="tname">
+                    <span class="fi" style="color:#7ddca8">MP4</span>
+                    <div style="min-width:0">
+                      <div class="n">屏幕录制 2026-10-08.mp4</div>
+                      <div class="m">D:\Videos\屏幕录制 2026-10-08.mp4</div>
+                    </div>
+                  </div>
+                </td>
+                <td><span class="c-pill">转换</span></td>
+                <td>
+                  <div class="prog"><div class="c-bar" style="opacity:.35"><i style="width:0%"></i></div><span class="pct">—</span></div>
+                  <div style="font-size:10.5px;color:var(--fg-3);margin-top:3px">排队中 · 前面还有 0 个</div>
+                </td>
+                <td><span class="c-pill is-warn"><span class="dot"></span>等待中</span></td>
+                <td class="dur">—</td>
+                <td>
+                  <div class="acts2">
+                    <button class="c-icon-btn is-sm" title="取消"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+<div class="proto-tag">原型 v1 · 任务中心</div>
+<script src="../assets/shell.js"></script>
+<script>
+  ffcShell({
+    active: 'tasks',
+    title: '任务中心',
+    sub: '进度 · 历史 · 失败重试',
+    engine: { text: '就绪', path: '6.1' }
+  });
+</script>
+<script src="../assets/nav.js"></script>
+<script>
+  /* 任务中心：筛选页签可点（原型交互） */
+  (function () {
+    var tabs = [].slice.call(document.querySelectorAll('.head2 .c-tabs button'));
+    var rows = [].slice.call(document.querySelectorAll('table.t tbody tr'));
+    var states = ['run', 'run', 'fail', 'queued'];
+    tabs.forEach(function (tab, i) {
+      tab.style.cursor = 'pointer';
+      tab.addEventListener('click', function () {
+        tabs.forEach(function (t) { t.classList.toggle('is-on', t === tab); });
+        rows.forEach(function (r, idx) {
+          var s = states[idx] || 'run';
+          var show = i === 0
+            || (i === 1 && (s === 'run' || s === 'queued'))
+            || (i === 2 && s === 'done')
+            || (i === 3 && s === 'fail');
+          r.style.display = show ? '' : 'none';
+        });
+      });
+    });
+  })();
+</script>
+</body>
+</html>

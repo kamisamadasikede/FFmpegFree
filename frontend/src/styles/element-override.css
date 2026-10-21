@@ -1,4 +1,4 @@
-/* 把 Element Plus 变量映射到 --ff-*，浅色和暗色共用一份 */
+/* 把 Element Plus 变量映射到 --ff-*，浅色和暗色共用一份（v0.58 视觉重做） */
 :root,
 html.dark {
   --el-color-primary: var(--ff-primary);
@@ -25,12 +25,14 @@ html.dark {
   --el-text-color-placeholder: var(--ff-text-3);
   --el-text-color-disabled: var(--ff-text-3);
 
-  --el-border-color: var(--ff-border);
+  --el-border-color: var(--ff-line-strong);
   --el-border-color-light: var(--ff-border);
   --el-border-color-lighter: var(--ff-border);
+  --el-border-color-extra-light: var(--ff-border);
 
   --el-border-radius-base: var(--ff-radius-md);
   --el-border-radius-small: var(--ff-radius-sm);
+  --el-border-radius-round: 999px;
   --el-font-size-base: var(--ff-fs-sm);
   --el-font-family: var(--ff-font);
   --el-box-shadow-light: var(--ff-shadow-1);
@@ -38,9 +40,27 @@ html.dark {
   --el-transition-duration-fast: var(--ff-dur-fast);
 }
 
+/* 输入类控件统一到原型的描边 + 内凹底色 */
+.el-input__wrapper,
+.el-select__wrapper,
+.el-textarea__inner {
+  border-radius: var(--ff-radius-sm);
+  box-shadow: 0 0 0 1px var(--ff-line-strong) inset;
+  background-color: var(--ff-bg-app);
+}
+.el-input__wrapper:hover,
+.el-select__wrapper:hover {
+  box-shadow: 0 0 0 1px var(--ff-border-strong) inset;
+}
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--ff-primary) inset;
+}
+
 .el-dialog {
   --el-dialog-border-radius: var(--ff-radius-xl);
   box-shadow: var(--ff-shadow-dialog);
+  border: 1px solid var(--ff-border);
 }
 
 /* 去掉页面级大阴影，用描边分区 */
@@ -53,37 +73,52 @@ html.dark {
 .el-table {
   border-radius: var(--ff-radius-lg);
   overflow: hidden;
+  --el-table-border-color: var(--ff-border);
+  --el-table-bg-color: var(--ff-bg-surface);
+  --el-table-tr-bg-color: var(--ff-bg-surface);
+  --el-table-header-bg-color: var(--ff-bg-card-2);
+  --el-table-row-hover-bg-color: var(--ff-bg-hover);
 }
 
 .el-table th.el-table__cell {
-  background-color: var(--ff-bg-hover);
-  color: var(--ff-text-2);
-  font-weight: 500;
+  background-color: var(--ff-bg-card-2);
+  color: var(--ff-text-3);
+  font-weight: 600;
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-/* 主按钮 / 对话框主按钮：文字用 --ff-on-primary（暗色下白字只有 3.16:1）；
-   底色用 --ff-badge-bg（浅色 #2f5cd9 配白字 5.75:1，暗色 #5b8cff 配近黑字 6.19:1） */
+/* 主按钮：实心主色 + 近黑/白字，禁用态不再保留"可点"的错觉 */
 .el-button--primary:not(.is-link):not(.is-text) {
   --el-button-text-color: var(--ff-on-primary);
-  --el-button-bg-color: var(--ff-badge-bg);
-  --el-button-border-color: var(--ff-badge-bg);
+  --el-button-bg-color: var(--ff-primary);
+  --el-button-border-color: transparent;
   --el-button-outline-color: color-mix(in srgb, var(--ff-primary) 40%, transparent);
   --el-button-active-color: var(--ff-on-primary);
   --el-button-hover-text-color: var(--ff-on-primary);
   --el-button-hover-bg-color: var(--ff-primary-hover);
-  --el-button-hover-border-color: var(--ff-primary-hover);
+  --el-button-hover-border-color: transparent;
   --el-button-active-bg-color: var(--ff-primary-hover);
-  --el-button-active-border-color: var(--ff-primary-hover);
+  --el-button-active-border-color: transparent;
   --el-button-disabled-text-color: var(--ff-on-primary);
-  --el-button-disabled-bg-color: color-mix(in srgb, var(--ff-badge-bg) 50%, var(--ff-bg-surface));
+  --el-button-disabled-bg-color: color-mix(in srgb, var(--ff-primary) 45%, var(--ff-bg-surface));
   --el-button-disabled-border-color: transparent;
+  font-weight: 600;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.16) inset;
 }
-/* 浅色主题 hover 底色 --ff-primary-hover 与 --ff-badge-bg 同为 #2f5cd9，加深一点保留可见的悬停反馈 */
-:root:not(.dark) .el-button--primary:not(.is-link):not(.is-text):hover:not(.is-disabled) {
-  --el-button-hover-bg-color: color-mix(in srgb, var(--ff-primary-hover) 88%, #000);
-  --el-button-hover-border-color: color-mix(in srgb, var(--ff-primary-hover) 88%, #000);
+
+/* 默认按钮：与原型 .c-btn 一致（描边 + 卡面底） */
+.el-button:not(.el-button--primary):not(.is-text):not(.is-link) {
+  --el-button-bg-color: var(--ff-bg-surface);
+  --el-button-border-color: var(--ff-line-strong);
+  --el-button-text-color: var(--ff-text-1);
+  --el-button-hover-bg-color: var(--ff-bg-card-2);
+  --el-button-hover-border-color: var(--ff-border-strong);
+  --el-button-hover-text-color: var(--ff-text-1);
 }
-/* 链接型按钮：文字用 --ff-primary-text（浅色底上 ≥4.5:1） */
+
+/* 链接型按钮：文字用 --ff-primary-text */
 .el-button--primary.is-link,
 .el-button--primary.is-text {
   --el-button-text-color: var(--ff-primary-text);
@@ -95,7 +130,14 @@ html.dark {
   text-decoration: underline;
 }
 
-/* tooltip：浅色气泡（bg-elevated + 1px 边 + 阴影），两个主题通用 */
+/* tag：药丸化，与原型状态标一致 */
+.el-tag {
+  border-radius: 999px;
+  border-color: transparent;
+  font-weight: 600;
+}
+
+/* tooltip：浅色气泡（elevated + 1px 边 + 阴影），两个主题通用 */
 .el-popper.is-light {
   --el-popper-border-color: var(--ff-border);
   background: var(--ff-bg-elevated);
@@ -109,4 +151,13 @@ html.dark {
 .el-popper.is-light .el-popper__arrow::before {
   background: var(--ff-bg-elevated);
   border-color: var(--ff-border);
+}
+
+/* 下拉 / 弹层统一圆角与阴影 */
+.el-select-dropdown,
+.el-dropdown-menu,
+.el-popper.is-pure {
+  border-radius: var(--ff-radius-md);
+  border: 1px solid var(--ff-border);
+  box-shadow: var(--ff-shadow-2);
 }

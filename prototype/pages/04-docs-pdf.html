@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<script>/* 早于首次绘制应用 ?theme= 以免过渡色被冻结 */try{const t=new URLSearchParams(location.search).get("theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+<title>PDF 预览 · ffc 原型</title>
+<link rel="stylesheet" href="../assets/design.css">
+<style>
+  .page { padding: 0; display: flex; flex-direction: column; }
+  .tabsrow { display: flex; align-items: center; gap: 12px; padding: 12px 24px 0; }
+  .tabsrow .c-tabs { border-bottom: 0; padding: 0; }
+  .tabsrow .c-tabs button { height: 32px; border-radius: var(--r-sm); padding: 0 12px; }
+  .tabsrow .c-tabs button.is-on { background: var(--bg-card); box-shadow: var(--shadow-1); }
+  .tabsrow .c-tabs button.is-on::after { display: none; }
+
+  .work { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 232px minmax(0,1fr) 272px; gap: 0; }
+
+  /* 左栏 */
+  .rail { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; padding: 12px 10px; }
+  .rail .hd { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--fg-3); padding: 4px 8px 10px; }
+  .ritem { display: flex; gap: 9px; align-items: center; padding: 8px; border-radius: var(--r-sm); }
+  .ritem:hover { background: var(--bg-hover); }
+  .ritem.is-on { background: var(--bg-active); }
+  .ritem .pg { width: 26px; height: 32px; border-radius: 3px; background: var(--bg-card-2);
+    border: 1px solid var(--line); display: grid; place-items: center; font-size: 8px; color: #ff8080; font-weight: 700; }
+  .ritem .n { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ritem .m { font-size: 10.5px; color: var(--fg-3); margin-top: 1px; }
+
+  /* 阅读区 */
+  .reader { display: flex; flex-direction: column; min-width: 0; background: var(--bg-app); }
+  .rtool { display: flex; align-items: center; gap: 6px; padding: 9px 14px; border-bottom: 1px solid var(--line); }
+  .rtool .divider { width: 1px; height: 16px; background: var(--line-strong); margin: 0 3px; }
+  .pgbox { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--fg-2); font-variant-numeric: tabular-nums; }
+  .pgbox input { width: 38px; height: 26px; text-align: center; border-radius: var(--r-xs);
+    border: 1px solid var(--line-strong); background: var(--bg-app); font-size: 12px; }
+  .canvas { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 24px; display: grid; place-items: start center; }
+  .paper {
+    width: 560px; min-height: 760px; background: #fbfbfd; border-radius: 3px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 0, 0, 0.25);
+    padding: 56px 60px; color: #1d2430;
+  }
+  .paper h3 { margin: 0 0 6px; font-size: 19px; letter-spacing: -0.01em; }
+  .paper .meta2 { font-size: 11px; color: #7a8494; margin-bottom: 26px; display: flex; gap: 12px; }
+  .paper .ln { height: 9px; border-radius: 2px; background: #dde1e8; margin-bottom: 11px; }
+  .paper .ln.w60 { width: 60%; } .paper .ln.w80 { width: 80%; } .paper .ln.w90 { width: 90%; }
+  .paper .ln.title { height: 12px; background: #c8cfd9; width: 42%; margin-bottom: 16px; }
+  .paper .gap { height: 14px; }
+
+  /* 右栏信息 */
+  .info { border-left: 1px solid var(--line); padding: 16px; display: grid; gap: 16px; align-content: start; }
+
+  .pageind { position: absolute; right: 18px; bottom: 14px; font-size: 11px; color: var(--fg-3);
+    background: rgba(0,0,0,.5); padding: 3px 8px; border-radius: 999px; }
+  .canvaswrap { position: relative; flex: 1 1 auto; min-height: 0; display: flex; }
+
+  /* ── 自适应：232 缩略图 + 阅读区 + 272 文件信息 ── */
+  @media (max-width: 1240px) {
+    .work { grid-template-columns: 200px minmax(0,1fr) 236px; }
+  }
+  @media (max-width: 1024px) {
+    .work {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow-y: auto;
+    }
+    .rail {
+      flex-direction: row; align-items: center; gap: 10px;
+      border-right: 0; border-bottom: 1px solid var(--line);
+      padding: 10px 12px;
+      overflow-x: auto; overflow-y: hidden;
+    }
+    .rail > * { flex: none; }
+    .rail .hd { padding: 0 4px 0 0; white-space: nowrap; }
+    .reader { flex: none; min-height: 420px; }
+    .info {
+      border-left: 0;
+      border-top: 1px solid var(--line);
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="side"></aside>
+  <main class="main">
+    <header class="topbar" id="top"></header>
+    <div class="page">
+      <div class="tabsrow">
+        <div class="c-tabs">
+          <button>文档转换</button>
+          <button class="is-on">PDF 预览</button>
+        </div>
+        <span class="c-pill is-ghost">本地渲染 · 不上传</span>
+      </div>
+
+      <div class="work">
+        <!-- 最近 -->
+        <aside class="rail">
+          <div class="hd">最近打开</div>
+          <div class="ritem is-on">
+            <div class="pg">PDF</div>
+            <div style="min-width:0">
+              <div class="n">合同-终稿.pdf</div>
+              <div class="m">12 页 · 2 分钟前</div>
+            </div>
+          </div>
+          <div class="ritem">
+            <div class="pg">PDF</div>
+            <div style="min-width:0">
+              <div class="n">产品介绍-v3.pdf</div>
+              <div class="m">24 页 · 今天 10:58</div>
+            </div>
+          </div>
+          <div class="ritem">
+            <div class="pg">PDF</div>
+            <div style="min-width:0">
+              <div class="n">报价单-1010.pdf</div>
+              <div class="m">2 页 · 昨天</div>
+            </div>
+          </div>
+          <div class="ritem">
+            <div class="pg">PDF</div>
+            <div style="min-width:0">
+              <div class="n">画册-印刷版.pdf</div>
+              <div class="m">86 页 · 10-18</div>
+            </div>
+          </div>
+          <div style="flex:1 1 auto"></div>
+          <button class="c-btn is-block" style="margin-top:8px">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5H7A1.5 1.5 0 0 0 5.5 5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8.5Z"/><path d="M13.5 3.5v5h5"/></svg>
+            打开 PDF
+          </button>
+        </aside>
+
+        <!-- 阅读区 -->
+        <section class="reader">
+          <div class="rtool">
+            <button class="c-icon-btn is-sm" title="上一页"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m14 7-5 5 5 5"/></svg></button>
+            <div class="pgbox"><input value="3"> / 12</div>
+            <button class="c-icon-btn is-sm" title="下一页"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m10 7 5 5-5 5"/></svg></button>
+            <span class="divider"></span>
+            <button class="c-icon-btn is-sm" title="缩小">−</button>
+            <button class="c-btn is-sm" style="width:60px">100%</button>
+            <button class="c-icon-btn is-sm" title="放大">+</button>
+            <button class="c-btn is-sm">适应宽度</button>
+            <span class="divider"></span>
+            <button class="c-icon-btn is-sm" title="旋转"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4.5V10h-5.5"/></svg></button>
+            <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+              <span style="font-size:11.5px;color:var(--fg-3)">文档组件 · 已就绪</span>
+              <button class="c-icon-btn is-sm" title="更多"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="6" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18" cy="12" r="1.4"/></svg></button>
+            </div>
+          </div>
+
+          <div class="canvaswrap">
+            <div class="canvas">
+              <div class="paper">
+                <h3>合作协议（终稿）</h3>
+                <div class="meta2"><span>甲方：某某科技有限公司</span><span>乙方：某某设计工作室</span><span>2026-10-18</span></div>
+                <div class="ln title"></div>
+                <div class="ln w90"></div><div class="ln"></div><div class="ln w80"></div>
+                <div class="gap"></div>
+                <div class="ln title" style="width:30%"></div>
+                <div class="ln"></div><div class="ln w90"></div><div class="ln w60"></div>
+                <div class="gap"></div>
+                <div class="ln"></div><div class="ln w80"></div><div class="ln"></div><div class="ln w60"></div>
+                <div class="gap"></div>
+                <div class="ln title" style="width:26%"></div>
+                <div class="ln w90"></div><div class="ln"></div><div class="ln w90"></div><div class="ln w60"></div>
+                <div class="gap"></div>
+                <div class="ln"></div><div class="ln w80"></div>
+              </div>
+            </div>
+            <div class="pageind">第 3 页 · 共 12 页</div>
+          </div>
+        </section>
+
+        <!-- 信息 -->
+        <aside class="info">
+          <div>
+            <div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3);margin-bottom:10px">文件信息</div>
+            <dl class="c-kv">
+              <div class="row"><dt>文件名</dt><dd>合同-终稿.pdf</dd></div>
+              <div class="row"><dt>页数</dt><dd>12</dd></div>
+              <div class="row"><dt>大小</dt><dd>386 KB</dd></div>
+              <div class="row"><dt>修改</dt><dd>今天 11:44</dd></div>
+              <div class="row"><dt>生成</dt><dd>文档转换 · 1.8 s</dd></div>
+            </dl>
+          </div>
+
+          <div>
+            <div style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3);margin-bottom:8px">位置</div>
+            <div style="font-family:var(--font-mono);font-size:11px;color:var(--fg-2);line-height:1.6;word-break:break-all">D:\Tools\ffc\output\2026\合同-终稿.pdf</div>
+          </div>
+
+          <div style="display:grid;gap:8px">
+            <button class="c-btn is-block">在文件夹中显示</button>
+            <button class="c-btn is-block">用默认应用打开</button>
+            <button class="c-btn is-block">另存为…</button>
+          </div>
+
+          <div class="c-note">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.2M12 8.2h.01"/></svg>
+            <div class="grow">超过 64 MB 的 PDF 分段加载，不占内存。</div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </main>
+</div>
+<div class="proto-tag">原型 v1 · PDF 预览</div>
+<script src="../assets/shell.js"></script>
+<script>
+  ffcShell({
+    active: 'docs',
+    title: '文档',
+    sub: 'PDF 预览',
+    actions: ['theme', 'help'],
+    engine: { text: '就绪', path: '6.1' }
+  });
+</script>
+<script src="../assets/nav.js"></script>
+</body>
+</html>

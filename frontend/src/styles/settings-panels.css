@@ -8,19 +8,20 @@
   display: flex;
   align-items: center;
   gap: var(--ff-space-2);
-  padding: var(--ff-space-3) var(--ff-space-4);
+  padding: 14px var(--ff-space-5);
   border-bottom: 1px solid var(--ff-border);
 }
 .spanels .phead h2 {
   margin: 0;
   font-size: var(--ff-fs-md);
-  font-weight: 600;
+  font-weight: 620;
+  letter-spacing: -0.005em;
 }
 .spanels .srow {
   display: flex;
   align-items: center;
   gap: var(--ff-space-4);
-  padding: var(--ff-space-3) var(--ff-space-4);
+  padding: var(--ff-space-3) var(--ff-space-5);
   border-bottom: 1px solid var(--ff-border);
 }
 .spanels .srow.od {
@@ -36,22 +37,27 @@
 }
 .spanels .srow:not(.od) > .l b {
   display: block;
-  font-weight: 500;
+  font-size: 12.5px;
+  font-weight: 550;
 }
 .spanels .srow:not(.od) > .l small {
   display: block;
-  font-size: var(--ff-fs-xs);
-  color: var(--ff-text-2);
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ff-text-3);
 }
 
 /* 状态标签：文字色取 *-text token（14% 着色底上 ≥4.5:1） */
 .spanels .tag {
-  height: 20px;
-  padding: 0 7px;
-  border-radius: var(--ff-radius-sm);
-  font-size: var(--ff-fs-xs);
+  height: 21px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
   display: inline-flex;
   align-items: center;
+  gap: 5px;
 }
 .spanels .tag.ok {
   background: color-mix(in srgb, var(--ff-success) 14%, transparent);
@@ -76,10 +82,10 @@
 
 /* 按钮：与 OutputDirRow 同一套（28px 高，边框 / 文字色取 token） */
 .spanels .btn {
-  height: 28px;
+  height: 32px;
   padding: 0 12px;
-  border-radius: var(--ff-radius-md);
-  border: 1px solid var(--ff-border);
+  border-radius: var(--ff-radius-sm);
+  border: 1px solid var(--ff-line-strong);
   background: var(--ff-bg-surface);
   color: var(--ff-text-1);
   display: inline-flex;
@@ -123,13 +129,13 @@
 .spanels .pathbox {
   width: 360px;
   flex: none;
-  height: 28px;
+  height: 32px;
   display: flex;
   align-items: center;
-  padding: 0 12px;
-  border: 1px solid var(--ff-border);
-  border-radius: var(--ff-radius-md);
-  background: var(--ff-bg-surface);
+  padding: 0 10px;
+  border: 1px solid var(--ff-line-strong);
+  border-radius: var(--ff-radius-sm);
+  background: var(--ff-bg-app);
   font-family: var(--ff-font-mono); /* 设计说明：路径框等宽 12px（设置页共用） */
   font-size: var(--ff-fs-xs);
   color: var(--ff-text-1);
@@ -148,3 +154,43 @@
 .spanels .pathbox .t {
   flex: none;
 }
+
+/* ============================================================================
+   v0.58 自适应：设置行 / 关于页的窄窗口
+   .srow 是「说明（flex:1）+ 控件（路径框 360 / 按钮组）」的横向一行。
+   窄窗口下控件固定宽度会把说明挤成一列竖排字，甚至溢出被裁。
+   ≤900：允许折行，控件落到底部一行；路径框改整宽。
+   ============================================================================ */
+@media (max-width: 1024px) {
+  .spanels .srow {
+    flex-wrap: wrap;
+    row-gap: var(--ff-space-2);
+    padding: var(--ff-space-3) var(--ff-space-4);
+  }
+  .spanels .srow > .l {
+    flex: 1 1 100%;
+  }
+  .spanels .pathbox {
+    width: auto;
+    flex: 1 1 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .spanels .phead {
+    padding: 12px var(--ff-space-4);
+  }
+  .spanels .srow {
+    padding: 10px var(--ff-space-4);
+    gap: var(--ff-space-3);
+  }
+  .spanels .srow:not(.od) > .l b {
+    font-size: 12px;
+  }
+  .spanels .btn {
+    height: 30px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+}
+

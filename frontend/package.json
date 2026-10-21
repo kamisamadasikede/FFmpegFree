@@ -13,6 +13,7 @@
     "check:ffmpeg": "node scripts/check-ffmpeg.mjs",
     "check:copy": "node scripts/check-copy-words.mjs",
     "check:i18n": "node scripts/check-i18n.mjs",
+    "check:responsive": "node scripts/check-responsive.mjs",
     "check:agent": "node scripts/check-agent.mjs"
   },
   "dependencies": {

@@ -791,22 +791,35 @@ onMounted(async () => {
 }
 .stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
 }
+/* v0.58 对齐原型：数字 26px 紧排、卡面 + 1px 描边 */
 .stat {
-  padding: 14px 16px;
+  padding: 15px 16px 14px;
+  background: var(--ff-bg-surface);
+  border: 1px solid var(--ff-border);
+  border-radius: var(--ff-radius-lg);
 }
 .stat small {
   color: var(--ff-text-3);
   font-size: 12px;
+  display: block;
 }
 .stat b {
   display: block;
-  font-size: 20px;
-  font-weight: 600;
-  margin-top: 2px;
-  line-height: 1.5;
+  font-size: 26px;
+  font-weight: 680;
+  margin-top: 6px;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 1024px) {
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .stats { grid-template-columns: minmax(0, 1fr); }
 }
 .stat .note {
   display: block;
@@ -1370,5 +1383,52 @@ tr.hid .tc-dim {
 }
 .btn.sm.tc-unh {
   color: var(--ff-primary-text);
+}
+
+/* ============================================================================
+   v0.58 自适应：统计卡 + 筛选条 + 任务表格
+   原来只有 <=1024 统计卡 4→2 列、<=1100 收单元格内边距两档；
+   窗口再窄时筛选条（5 页签 + 类型下拉 + 开关 + 按钮）不折行直接溢出被裁，
+   固定列宽的任务表（类型/状态/进度/时间 + 操作）把任务名压到看不见。
+   表格横向滚动放在 ≤900（原型 09 在 1024 下仍是正常表格，这一档保持不动）。
+   ============================================================================ */
+@media (max-width: 900px) {
+  .tabbar {
+    flex-wrap: wrap;
+    row-gap: 8px;
+    padding: 0 12px;
+  }
+  .tabs {
+    gap: 14px;
+  }
+  /* 表格：横向滚动交给外层，表格自身保持最小可读宽度 */
+  .scroll {
+    overflow: auto;
+  }
+  .tbl {
+    min-width: 660px;
+  }
+  .c-type { width: 64px; }
+  .c-st { width: 84px; }
+  .c-when { width: 92px; }
+  .c-prog { width: 112px; }
+  .opsh { width: calc(var(--ops-w, 120px) + 12px); }
+  th, td { padding-left: 10px; padding-right: 10px; }
+  tr.errrow > td { padding-left: 10px; padding-right: 10px; }
+  .tc-hint { white-space: normal; }
+}
+
+@media (max-width: 720px) {
+  .tc { gap: 12px; }
+  .stats { gap: 8px; }
+  .stat { padding: 12px 12px 11px; }
+  .stat b { font-size: 22px; }
+  .tabbar { padding: 0 8px; column-gap: 12px; }
+  .tabs { gap: 12px; }
+  .tab { height: 36px; line-height: 36px; font-size: 12.5px; }
+  .filters { gap: 8px; padding: 8px 0; }
+  .type-select { width: 92px; }
+  .tbl { min-width: 620px; }
+  .c-when { width: 84px; }
 }
 </style>

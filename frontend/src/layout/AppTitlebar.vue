@@ -23,7 +23,7 @@ const { mode, isDark } = useTheme()
 
 const meta = computed(() => {
   const root = route.matched[0]?.meta ?? {}
-  // 子路由自己带 title 时用子路由的（v0.26 文档转换页：「文档转换 / 文档 · 表格 · 演示 · 转换记录」）
+  // 子路由自己带 title 时用子路由的（v0.26 文档转换页）
   const leaf = route.matched[route.matched.length - 1]?.meta ?? {}
   const top = leaf.title ? leaf : root
   return { title: (top.title as string) || APP_NAME, subtitle: top.subtitle as string | undefined }
@@ -45,26 +45,33 @@ function onSearch() {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 16px 0 24px;
+  gap: var(--ff-space-3);
+  padding: 0 var(--ff-space-6);
   border-bottom: 1px solid var(--ff-border);
+  background: var(--ff-bg-app);
   --wails-draggable: drag;
 }
 h1 {
   margin: 0;
-  font-size: var(--ff-fs-md);
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
 }
 .crumb {
   color: var(--ff-text-3);
-  font-size: var(--ff-fs-xs);
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 .sp {
   flex: 1;
 }
 .iconbtn {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border: none;
   background: transparent;
   border-radius: var(--ff-radius-md);
@@ -73,8 +80,37 @@ h1 {
   color: var(--ff-text-2);
   cursor: pointer;
   --wails-draggable: no-drag;
+  transition:
+    background var(--ff-dur-fast) var(--ff-ease),
+    color var(--ff-dur-fast) var(--ff-ease);
 }
 .iconbtn:hover {
   background: var(--ff-bg-hover);
+  color: var(--ff-text-1);
+}
+
+/* ---------- 窄窗口：标题收小、副标题让位 ---------- */
+@media (max-width: 1024px) {
+  .titlebar {
+    padding: 0 var(--ff-space-4);
+    gap: 10px;
+  }
+  h1 {
+    font-size: 15px;
+  }
+  .crumb {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .titlebar {
+    padding: 0 var(--ff-space-3);
+    gap: 8px;
+  }
+  .iconbtn {
+    width: 28px;
+    height: 28px;
+  }
 }
 </style>

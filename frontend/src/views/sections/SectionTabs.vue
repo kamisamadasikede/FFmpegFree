@@ -67,6 +67,7 @@ const tabs = computed(() => {
 .section-body {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }

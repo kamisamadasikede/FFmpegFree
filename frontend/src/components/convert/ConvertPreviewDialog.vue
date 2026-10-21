@@ -16,6 +16,7 @@ import { usedDeviceText, useEncoderDeviceList } from '@/api/encoderTask'
 import { channelText, sampleRateText, videoCodecText } from '@/utils/mediaText'
 import { formatRecordTime, isAudioContainer, isAudioOnly, isHevcCodec, recordLine, REVEAL_LABEL, unplayableHint } from '@/utils/convertText'
 import { fileBaseName, formatBytes, formatShortClock } from '@/utils/format'
+import { hasTimeline, previewKindOf, type PreviewKind } from '@/utils/mediaKind'
 import { PREVIEW_COPYING_TEXT } from '@/utils/convertSubmit'
 import { publicErrorText } from '@/errors/errorMessages'
 
@@ -78,14 +79,15 @@ const container = computed(() => {
   return (src.value?.name.split('.').pop() ?? '').toLowerCase()
 })
 const FMT = computed(() => container.value.toUpperCase())
-/** 媒体类型：先看接口给的 mime，没有就按格式猜 */
-const kind = computed<'video' | 'audio' | 'gif'>(() => {
+/** 媒体类型：先看接口给的 mime，没有就按格式猜（v0.58 起统一走 utils/mediaKind） */
+const kind = computed<PreviewKind>(() => {
   const m = url.value?.mime ?? ''
-  if (m === 'image/gif' || container.value === 'gif') return 'gif'
-  if (m.startsWith('audio/')) return 'audio'
-  if (m.startsWith('video/')) return 'video'
-  if (rec.value) return isAudioContainer(container.value) ? 'audio' : 'video'
-  return srcInfo.value && isAudioOnly(srcInfo.value) ? 'audio' : isAudioContainer(container.value) ? 'audio' : 'video'
+  return previewKindOf({
+    mime: m,
+    ext: container.value,
+    audioOnly: srcInfo.value ? isAudioOnly(srcInfo.value) : undefined,
+    hasVideo: srcInfo.value?.hasVideo,
+  })
 })
 const title = computed(() => (rec.value ? fileBaseName(rec.value.outputPath) : src.value?.name ?? ''))
 function srcFacts(withDur: boolean): string[] {
@@ -134,13 +136,61 @@ const hevc = computed(() => {
 const unplayableText = computed(() => unplayableHint(hevc.value))
 const isMock = computed(() => !!url.value && url.value.url.startsWith(MOCK_URL_PREFIX))
 const playable = computed(() => stage.value === 'ready')
-/** 放不了 / 文件不在 / 出错：舞台显示原因，控制条整条收起（走查 X5：失败时播放键、时间、音量仍可点） */
+/** 放不了 / 文件不在 / 出错：舞台显示原因，控制条整条收起 */
 const failed = computed(() => stage.value === 'unplayable' || stage.value === 'gone' || stage.value === 'error')
-const parts = computed(() =>
-  kind.value === 'gif' || failed.value ? { step: false, time: false, seek: false, mute: false, fullscreen: false } : { step: false, fullscreen: kind.value === 'video' },
-)
+/** 由 <video> 承载的类型（只有这些需要检查 videoWidth / 报错回退） */
+const hasVideoKind = computed(() => kind.value === 'video')
+/** 不跟时间轴的类型（图片 / PDF / 文本 / GIF）：整条控制条不渲染，避免出现没意义的播放键 */
+const noTimeline = computed(() => !hasTimeline(kind.value) && kind.value !== 'gif')
+const parts = computed(() => {
+  if (failed.value) return { step: false, time: false, seek: false, mute: false, fullscreen: false }
+  if (noTimeline.value) return { step: false, time: false, seek: false, mute: false, fullscreen: false }
+  if (kind.value === 'gif') return { step: false, time: false, seek: false, mute: false, fullscreen: false }
+  return { step: false, fullscreen: kind.value === 'video' }
+})
 /** 确定有画面的文件：结果是视频格式；源文件读到过宽度（没读到信息的不判断，避免把纯音频的 mp4 当成放不了） */
-const expectsVideo = computed(() => (rec.value ? !isAudioContainer(container.value) : !!srcInfo.value && !isAudioOnly(srcInfo.value)))
+const expectsVideo = computed(() =>
+  hasVideoKind.value &&
+  (rec.value ? !isAudioContainer(container.value) : !!srcInfo.value && !isAudioOnly(srcInfo.value)),
+)
+/** 图片 / GIF / PDF / 文本在读地址后立刻可用，不需要等元数据 */
+const isStill = computed(() => noTimeline.value)
+/** 文本预览正文（按扩展名读，超过 512 KB 只提示不读） */
+const textBody = ref('')
+const textCapped = ref(false)
+async function loadText(u: string) {
+  textBody.value = ''
+  textCapped.value = false
+  const CAP = 512 * 1024
+  try {
+    const r = await fetch(u)
+    if (!r.ok) throw new Error(String(r.status))
+    // 流式读，累计到 512 KB 就取消，避免把几 GB 的日志整份读进内存（之前先 r.text() 再截断）。
+    const reader = r.body?.getReader()
+    if (!reader) {
+      textBody.value = await r.text()
+      return
+    }
+    const dec = new TextDecoder()
+    let out = ''
+    let bytes = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      bytes += value.byteLength
+      out += dec.decode(value, { stream: true })
+      if (bytes >= CAP) {
+        textCapped.value = true
+        await reader.cancel()
+        break
+      }
+    }
+    out += dec.decode()
+    textBody.value = out
+  } catch {
+    stage.value = 'unplayable'
+  }
+}
 
 // ---- 取地址 ----
 let seq = 0
@@ -197,6 +247,7 @@ async function load() {
     duration.value = mockDuration()
     await nextTick()
     if (isMock.value) startMockPlay()
+    else if (kind.value === 'text' && u.url) await loadText(u.url)
   } catch (e) {
     if (my !== seq) return
     const r = errReason(e)
@@ -443,6 +494,10 @@ onBeforeUnmount(() => {
                 <template v-if="isMock">
                   <div v-if="kind !== 'audio'" class="cv-sample moving" :class="{ paused: !playing }"><div class="sun" /><div class="m1" /><div class="m2" /></div>
                 </template>
+                <!-- v0.58：图片 / PDF / 文本也走应用内预览，不再一律判定「无法播放」 -->
+                <img v-else-if="kind === 'image'" class="media cv-still" :src="url.url" :alt="title" @error="onMediaError" />
+                <iframe v-else-if="kind === 'pdf'" class="media cv-pdf" :src="url.url" :title="title" />
+                <pre v-else-if="kind === 'text'" class="media cv-text">{{ textBody }}<span v-if="textCapped" class="cv-text-cap">…（文件较大，只显示前 512 KB）</span></pre>
                 <video v-else-if="kind === 'video'" ref="mediaEl" class="media" :src="url.url" preload="metadata" playsinline @loadedmetadata="onMeta" @timeupdate="onTime" @ended="playing = false" @error="onMediaError" />
                 <template v-else-if="kind === 'gif'">
                   <img v-show="!gifFrozen" ref="gifEl" class="media" :src="url.url" alt="" @error="onMediaError" @load="playing = true" />
@@ -454,7 +509,7 @@ onBeforeUnmount(() => {
                 <div v-if="kind === 'audio' && stage === 'ready'" class="cv-astage solo" style="position: absolute; inset: 0">
                   <div class="cv-cover" :style="cover ? { background: `center / cover no-repeat url(${cover})` } : undefined"><FIcon v-if="!cover" name="music" :size="40" /></div>
                 </div>
-                <span v-if="isRecord && stage === 'ready' && kind !== 'audio'" class="cv-chip">结果 · {{ FMT }}</span>
+                <span v-if="isRecord && stage === 'ready' && kind !== 'audio' && kind !== 'pdf'" class="cv-chip">结果 · {{ FMT }}</span>
                 <div v-if="stage === 'loading'" class="cv-loading">正在加载…</div>
                 <div v-else-if="stage === 'unplayable'" class="cv-perr">
                   <div class="in">
@@ -475,7 +530,7 @@ onBeforeUnmount(() => {
                 </div>
               </template>
               <template #extra>
-                <button v-if="kind !== 'gif' && !failed" type="button" class="cv-vol" :style="{ '--v': (muted ? 0 : volume * 100) + '%' }" aria-label="音量" @click="setVolume"><i /></button>
+                <button v-if="(kind === 'video' || kind === 'audio') && !failed" type="button" class="cv-vol" :style="{ '--v': (muted ? 0 : volume * 100) + '%' }" aria-label="音量" @click="setVolume"><i /></button>
               </template>
             </PlayerShell>
           </div>

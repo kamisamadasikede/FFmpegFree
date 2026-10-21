@@ -522,6 +522,10 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   overflow-x: hidden;
 }
+/* 没有 PDF、也不在加载时缩略图栏是空的：不留 104px 空白（窄窗口下尤其浪费） */
+.th:empty {
+  display: none;
+}
 .slot {
   width: 100%;
   height: 116px;
@@ -853,5 +857,103 @@ onBeforeUnmount(() => {
 .btn.pri:hover:not(:disabled) {
   background: var(--ff-primary-hover);
   border-color: var(--ff-primary-hover);
+}
+
+/* ============================================================================
+   v0.58 自适应：阅读区工具栏 + 缩略图栏
+   ≤900：缩略图栏（104px）折到阅读区上方、横向滚动；工具栏折行，
+        中间的文件名独占一行，不再和缩放 / 按钮抢宽度。
+   ≤720：缩略图更小、工具条更紧。
+   ============================================================================ */
+@media (max-width: 1024px) {
+  .pv {
+    flex-direction: column;
+  }
+  .tb {
+    flex-wrap: wrap;
+    row-gap: 8px;
+    padding: 10px 12px;
+    min-height: 0;
+  }
+  /* 文件名那行独占整宽（它在 DOM 里排在图标后面） */
+  .tb .nm {
+    flex: 1 1 calc(100% - 26px);
+  }
+  .tb .sub {
+    display: none;
+  }
+  .th {
+    width: auto;
+    height: 92px;
+    flex: none;
+    border-right: 0;
+    border-bottom: 1px solid var(--ff-border);
+    flex-direction: row;
+    align-items: center;
+    gap: 0;
+    padding: 6px 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    box-sizing: border-box;
+  }
+  .thscroll {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    height: 100%;
+  }
+  .thscroll > div {
+    display: none; /* 上下占位块在横向排布里没意义 */
+  }
+  .slot {
+    width: auto;
+    height: 100%;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .tp {
+    width: 52px;
+    min-height: 62px;
+  }
+  .pgs {
+    padding: 12px 12px 72px;
+  }
+}
+
+@media (max-width: 720px) {
+  .tb {
+    gap: 6px;
+    padding: 8px 10px;
+  }
+  .zv {
+    width: 40px;
+  }
+  .th {
+    height: 82px;
+  }
+  .tp {
+    width: 46px;
+    min-height: 54px;
+  }
+  .pgs {
+    padding: 10px 8px 72px;
+  }
+  .pbar {
+    bottom: 10px;
+    height: 32px;
+    padding: 0 6px;
+  }
+  .demo {
+    flex-wrap: wrap;
+    line-height: 1.45;
+  }
+  .pw .card {
+    width: auto;
+    max-width: 340px;
+    margin: 0 12px;
+  }
 }
 </style>
