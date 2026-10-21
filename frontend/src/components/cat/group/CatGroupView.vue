@@ -108,6 +108,14 @@
 
             <template v-else-if="m.systemKind === 'report_format'" />
 
+            <!-- v0.57 协调短气泡：派给谁 + 为什么（isCoordMessage / coordBodyText 之前只有测试在用） -->
+            <div v-else-if="isCoordMessage(m)" class="cg-sysw" :data-message-seq="m.seq">
+              <div class="cg-coordline" data-kind="coord" data-testid="cat-group-coord">
+                <span class="cg-coordline-name">{{ t('cat.groupChat.coordinator') }}</span>
+                <span>{{ coordBodyText(m, store.nameOf, t('cat.groupChat.everyone')) }}</span>
+              </div>
+            </div>
+
             <!-- v0.57：旧静默「交给」灰字（ai 成功且已有成员）隐藏；加载「正在安排…」与 queued/followup/undecided 仍显示 -->
             <div v-else class="cg-sysw" :data-message-seq="m.seq">
               <div class="cg-sys" :data-kind="m.systemKind" data-testid="cat-group-system">
@@ -257,7 +265,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import FIcon from '@/components/icon/FIcon.vue'
 import { useCatGroupChat } from '@/stores/catGroupChat'
-import { formatElapsed, isMemberShortReply, memberColorVar, memberShortText, systemLineText, type CatGroupMessage } from '@/api/catGroupChat'
+import { coordBodyText, formatElapsed, isCoordMessage, isMemberShortReply, memberColorVar, memberShortText, systemLineText, type CatGroupMessage } from '@/api/catGroupChat'
 import { SESSION_DEMO } from '@/api/catGroupChatMock'
 import { catPanels } from '@/views/cat/catPanels'
 import { rightCollapsed } from '@/views/cat/catLayout'
@@ -293,8 +301,10 @@ const activeWorkflow = computed(() => store.workflows.some((w) => w.status === '
 const workflowChains = computed(() => new Set(store.workflows.map((w) => w.chainId)))
 const visibleMessages = computed(() => store.messages.filter((m) => {
   if (m.kind === 'user' || m.kind === 'member' || m.systemKind === 'workflow_summary') return true
-  if (['coord', 'report_format', 'no_handoff'].includes(m.systemKind ?? '')) return false
-  if (m.systemKind === 'route') return m.route?.mode === 'undecided'
+  // 协调气泡（coord）与排队灰字（route + queued）都是用户要看的信息，不再丢弃；
+  // 还没被替换掉的 route 占位（routing）不显示，避免和底部「正在安排…」重复。
+  if (['report_format', 'no_handoff'].includes(m.systemKind ?? '')) return false
+  if (m.systemKind === 'route') return !!m.route?.queued || m.route?.mode === 'undecided'
   if (workflowChains.value.has(m.chainId) && ['failed', 'stopped', 'reassign'].includes(m.systemKind ?? '')) return false
   return true
 }))

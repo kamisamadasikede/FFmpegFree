@@ -1,0 +1,20 @@
+# 换行统一：源码 / 文档 / SQL 用 LF，Windows 脚本保持 CRLF，二进制不转换。
+# 不加这一条时 core.autocrlf=true 会把 LF 变 CRLF，gofmt 误报、源码正则自检假失败，
+# 内嵌许可文本（fonts/OFL.txt）也会被改写字节导致 SHA-256 与 README 不符。
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.exe binary
+*.dll binary
+*.ico binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
+*.zip binary

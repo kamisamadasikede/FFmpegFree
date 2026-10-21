@@ -115,6 +115,14 @@ func (s *Service) decideRoute(ctx context.Context, g store.CatGroup, members []s
 		return nil, route
 	}
 
+	if detail.Mode == "store_failed" {
+		// 派活记录没落库：不猜 capability，也不起成员；给一条可见失败，用户可以重试。
+		route := store.CatRouteInfo{Mode: "failed"}
+		s.replaceRouteSystem(ctx, routingMsg, "派活记录没能保存，这条消息没有发出去，请重试。", "failed", route, nil)
+		s.emitGroupRoute(GroupRouteEvent{GroupID: g.ID, ChainID: chainID, State: "failed", Route: route})
+		return nil, route
+	}
+
 	if len(memberIDs) == 0 {
 		// 没有可用成员时保留失败提示；有可用成员的路由失败已兜底安排回复。
 		failCode := detail.Reason
@@ -318,10 +326,16 @@ func (s *Service) runAIRoute(ctx context.Context, g store.CatGroup, members []st
 	} else {
 		storeMemberID = resolvedIDs[0]
 	}
-	detail, _ = s.cfg.Store.InsertCatGroupRoute(ctx, store.CatGroupRouteDetail{
+	var insErr error
+	detail, insErr = s.cfg.Store.InsertCatGroupRoute(ctx, store.CatGroupRouteDetail{
 		GroupID: g.ID, ChainID: userMsg.ChainID, Mode: mode, MemberID: storeMemberID, Reason: storeReason,
 		InputText: input, OutputText: outText, StartedAt: startedAt, FinishedAt: finishedAt,
 	})
+	if insErr != nil {
+		// 不能吞：没有 route 记录，协调器取到的是空文本，capability 会静默落成 read_only（写任务变只读）。
+		s.cfg.Logf("group route insert: %v", insErr)
+		return nil, resolvedEveryone, resolvedReason, store.CatGroupRouteDetail{Mode: "store_failed", Reason: "route_store_failed"}
+	}
 	return resolvedIDs, resolvedEveryone, resolvedReason, detail
 }
 

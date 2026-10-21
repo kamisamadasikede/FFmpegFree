@@ -110,11 +110,16 @@ func (s *Service) wakeMember(ctx context.Context, g store.CatGroup, memberID, ch
 	assignment, managed, assignmentErr := s.assignmentFor(ctx, chainID, memberID, taskID)
 	if assignmentErr != nil {
 		s.cfg.Logf("assignment lookup: %v", assignmentErr)
+		s.blockUnwokenGroupTask(g, chainID, taskID, "找不到这条任务")
 		return
 	}
 	if managed {
 		claimed, err := s.cfg.Store.ClaimCatGroupAssignment(ctx, assignment.ID, "pending", "enqueued", "")
 		if err != nil || !claimed {
+			if err != nil {
+				s.cfg.Logf("claim assignment %s: %v", assignment.ID, err)
+			}
+			s.blockUnwokenGroupTask(g, chainID, taskID, "任务已被占用或状态已变化")
 			return
 		}
 	}
@@ -124,10 +129,8 @@ func (s *Service) wakeMember(ctx context.Context, g store.CatGroup, memberID, ch
 			_, _ = s.cfg.Store.ClaimCatGroupAssignment(context.Background(), assignment.ID, "enqueued", "running", "missing-member")
 			_ = s.cfg.Store.FinishCatGroupAssignment(context.Background(), assignment.ID, "missing-member", "failed")
 		}
-		turnID := id.New()
-		if taskID != "" && s.beginGroupWorkTask(chainID, taskID, memberID, turnID) {
-			s.finishGroupWorkTask(g, chainID, taskID, "failed", "任务负责人已被移除", "", turnID)
-		}
+		// 负责人不在群里：节点不能停在 queued（finishGroupWorkTask 只接受 running）。
+		s.blockUnwokenGroupTask(g, chainID, taskID, "任务负责人已被移除")
 		return
 	}
 	groupQueueMu.Lock()
@@ -180,6 +183,7 @@ func (s *Service) startGroupMemberTurn(ctx context.Context, g store.CatGroup, m 
 	turnID := id.New()
 	assignment, managed, assignmentErr := s.assignmentFor(ctx, chainID, m.ID, taskID)
 	if assignmentErr != nil {
+		s.blockUnwokenGroupTask(g, chainID, taskID, "找不到这条任务")
 		s.drainGroupQueue(ctx, g, m.ID)
 		return
 	}
@@ -190,6 +194,10 @@ func (s *Service) startGroupMemberTurn(ctx context.Context, g store.CatGroup, m 
 		}
 		claimed, err := s.cfg.Store.ClaimCatGroupAssignment(ctx, assignment.ID, from, "running", turnID)
 		if err != nil || !claimed {
+			if err != nil {
+				s.cfg.Logf("claim assignment %s: %v", assignment.ID, err)
+			}
+			s.blockUnwokenGroupTask(g, chainID, taskID, "任务已被占用或状态已变化")
 			s.drainGroupQueue(ctx, g, m.ID)
 			return
 		}
@@ -202,6 +210,7 @@ func (s *Service) startGroupMemberTurn(ctx context.Context, g store.CatGroup, m 
 	}()
 
 	if taskID != "" && !s.beginGroupWorkTask(chainID, taskID, m.ID, turnID) {
+		s.blockUnwokenGroupTask(g, chainID, taskID, "没能启动这个节点")
 		s.drainGroupQueue(ctx, g, m.ID)
 		return
 	}

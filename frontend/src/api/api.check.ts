@@ -80,9 +80,35 @@ import { catTypewriterChecks } from '@/components/cat/catTypewriter.check'
 import { catLiveChecks } from '@/views/cat/catLive.check'
 
 const fails: string[] = []
+// 键序无关的比较：JSON.stringify 对键序敏感，会让「内容一样、字段顺序不同」的断言假失败。
+// 递归排序对象键（数组保持顺序），再序列化。
+function canonical(v: unknown): string {
+  // 只把「当前递归路径上」的对象当循环；同一个对象在数组里出现两次仍然正常展开。
+  const stack = new Set<object>()
+  const walk = (x: unknown): unknown => {
+    if (Array.isArray(x)) {
+      if (stack.has(x)) return '[circular]'
+      stack.add(x)
+      const out = x.map(walk)
+      stack.delete(x)
+      return out
+    }
+    if (x && typeof x === 'object') {
+      if (stack.has(x)) return '[circular]'
+      stack.add(x)
+      const src = x as Record<string, unknown>
+      const out: Record<string, unknown> = {}
+      for (const k of Object.keys(src).sort()) out[k] = walk(src[k])
+      stack.delete(x)
+      return out
+    }
+    return x
+  }
+  return JSON.stringify(walk(v))
+}
 const eq = (name: string, got: unknown, want: unknown) => {
-  const a = JSON.stringify(got)
-  const b = JSON.stringify(want)
+  const a = canonical(got)
+  const b = canonical(want)
   if (a !== b) fails.push(`✗ ${name}: 得到 ${a}，期望 ${b}`)
 }
 async function rejects(p: Promise<unknown>): Promise<AppError | null> {
@@ -952,7 +978,8 @@ export async function runApiChecks(): Promise<string[]> {
       }
       eq('模板文字插值里没有编码器名，也不直接输出 encoder / encoderDevice 字段', tplHits, [])
       // ───────── 走查修订（设计师 PR69/70 走查 G1 / G6 / G11 / D2）─────────
-      const readSrc = (f: string) => fs.readFileSync(root + f, 'utf8')
+      // 统一换行：Windows checkout 是 CRLF，源码正则里写的是 \n，不归一会出现假失败。
+      const readSrc = (f: string) => fs.readFileSync(root + f, 'utf8').replace(/\r\n/g, '\n')
       // 减少动效：滚动 behavior
       const gw = globalThis as unknown as { window: Record<string, unknown>; document?: unknown }
       const oldMM = gw.window.matchMedia

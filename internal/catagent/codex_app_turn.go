@@ -333,7 +333,7 @@ func (a *CLIAgentAdapter) runCodexAppTurn(opts TurnOptions, exe string) (TurnRes
 	}
 	sid := threadResp.Thread.ID
 	if sid == "" {
-		return TurnResponse{}, apperr.New(apperr.CatReplyFailed, "Codex 未返回会话编号。")
+		return TurnResponse{}, apperr.New(apperr.CatReplyFailed, "助手未返回会话编号。")
 	}
 	a.saveSessionID(opts.ConversationID, sid)
 	turnParams := map[string]any{"threadId": sid, "input": input}
@@ -350,7 +350,7 @@ func (a *CLIAgentAdapter) runCodexAppTurn(opts TurnOptions, exe string) (TurnRes
 	}
 	tid := turnResp.Turn.ID
 	if tid == "" {
-		return TurnResponse{}, apperr.New(apperr.CatReplyFailed, "Codex 未返回任务编号。")
+		return TurnResponse{}, apperr.New(apperr.CatReplyFailed, "助手未返回任务编号。")
 	}
 	initCancel()
 	if opts.OnInputMode != nil {

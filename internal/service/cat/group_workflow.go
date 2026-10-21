@@ -427,6 +427,53 @@ func (s *Service) beginGroupWorkTask(chainID, taskID string, ownerTurn ...string
 	return false
 }
 
+// blockUnwokenGroupTask 把「已置为 queued 但没能唤醒 / 没启动」的节点改成 blocked 并写明原因。
+// 不做这一步，节点会永久停在排队中，依赖它的后续节点永远不跑（只有下次启动的
+// recoverGroupWorkflows 才会再看到它）。只处理 queued / pending，running 的节点不动。
+func (s *Service) blockUnwokenGroupTask(g store.CatGroup, chainID, taskID, reason string) {
+	if taskID == "" {
+		return
+	}
+	ctx := context.Background()
+	s.groupWorkMu.Lock()
+	w, err := s.cfg.Store.GetCatGroupWorkflow(ctx, chainID)
+	if err != nil || w.Status == "stopped" || w.Dismissed {
+		s.groupWorkMu.Unlock()
+		return
+	}
+	var memberID string
+	found := false
+	for i := range w.Tasks {
+		t := &w.Tasks[i]
+		if t.ID != taskID {
+			continue
+		}
+		if t.Status != "queued" && t.Status != "pending" {
+			s.groupWorkMu.Unlock()
+			return
+		}
+		t.Status = "blocked"
+		t.TurnID = ""
+		t.Result = reason
+		memberID = t.MemberID
+		found = true
+		break
+	}
+	if !found {
+		s.groupWorkMu.Unlock()
+		return
+	}
+	if err := s.cfg.Store.SaveCatGroupWorkflow(ctx, &w); err != nil {
+		s.groupWorkMu.Unlock()
+		s.cfg.Logf("block unwoken group task %s: %v", taskID, err)
+		return
+	}
+	s.groupWorkMu.Unlock()
+	s.emitGroupWorkflow(w)
+	s.postSystem(ctx, g.ID, chainID, 0, "system", "成员唤醒失败："+reason+"。这个节点已标记为阻塞，可以重试。", "failed", store.CatRouteInfo{Mode: "failed", MemberID: memberID}, "", "")
+	s.advanceGroupWorkflow(g, chainID)
+}
+
 func (s *Service) finishGroupWorkTask(g store.CatGroup, chainID, taskID, status, summary, evidence, turnID string, result ...groupTaskResult) {
 	if taskID == "" {
 		return

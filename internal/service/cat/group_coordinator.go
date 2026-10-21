@@ -132,7 +132,14 @@ func (s *Service) coordinateGroupRequest(ctx context.Context, r store.CatGroupRe
 		s.postSystem(routeCtx, g.ID, r.ID, 0, "system", "目前没有可用成员答复，请检查成员连接后重试。", "failed", store.CatRouteInfo{Mode: "failed"}, "", "")
 		return
 	}
-	detail, _ := s.cfg.Store.GetCatGroupRoute(routeCtx, route.RouteSeq)
+	detail, detailErr := s.cfg.Store.GetCatGroupRoute(routeCtx, route.RouteSeq)
+	if detailErr != nil || route.RouteSeq == 0 {
+		// 没有派活明细就无法判断 capability（会静默变成 read_only），按失败处理并让用户看见。
+		s.cfg.Logf("group route lookup seq=%d: %v", route.RouteSeq, detailErr)
+		_, _ = s.cfg.Store.FailCatGroupRequest(routeCtx, r.ID)
+		s.postSystem(routeCtx, g.ID, r.ID, 0, "system", "派活记录读取失败，这条消息没有发出去，请重试。", "failed", store.CatRouteInfo{Mode: "failed"}, "", "")
+		return
+	}
 	decision := s.materializeGroupDecision(routeCtx, groupDecision(r.Message, targets, nil, detail.OutputText))
 	if route.Mode == "fallback" {
 		for i := range decision.Assignments {

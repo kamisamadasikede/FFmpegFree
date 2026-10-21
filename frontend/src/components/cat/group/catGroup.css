@@ -249,6 +249,10 @@ html.dark .cg-coord .av.coord { background: #6b7280; }
 
 .av.me { --c: var(--cat-text-2); }
 .cg-sysw { display: flex; flex-direction: column; gap: 8px; }
+/* v0.57 协调短气泡：系统身份「协调」，不是成员、不是灰字 */
+.cg-coordline { align-self: flex-start; display: inline-flex; align-items: baseline; gap: 8px; max-width: 92%; padding: 6px 12px; border: 1px solid var(--cat-border); border-radius: 999px; background: var(--cat-surface); font-size: 12.5px; line-height: 1.55; color: var(--cat-text-2); }
+.cg-coordline-name { flex: none; font-weight: 600; color: var(--cat-text); }
+.cg-coordline-name::after { content: '·'; margin-left: 8px; color: var(--cat-muted); }
 .cg-sys { align-self: flex-start; text-align: left; max-width: 100%; }
 .cg-sys .act { display: inline-flex; align-items: center; gap: 3px; }
 .cg-sys.fail { color: var(--cat-text-2); }

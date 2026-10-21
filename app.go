@@ -29,6 +29,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -71,6 +72,12 @@ type App struct {
 	windowOps    *windowOps  // 测试替换窗口调用；nil = Wails runtime
 	catNotifyOK  atomic.Bool // 系统通知已初始化（定时任务结束时用）
 	memLang      string      // store 不可用时的语言设置（测试 / 降级）
+	// closing 表示已经收到关窗请求、正在收尾（beforeClose 用）；shutdownOnce 保证收尾只跑一次。
+	closing      atomic.Bool
+	shutdownOnce sync.Once
+	// emitFn / quitFn 是关窗收尾用的运行时调用（测试替换）；nil = Wails runtime。
+	emitFn func(ctx context.Context, event string, data ...any)
+	quitFn func(ctx context.Context)
 }
 
 // docAssets 返回文档的 /local/<token> 登记表（NewApp 时创建，永不为 nil）。小写，不会被 Wails 暴露。
@@ -570,8 +577,13 @@ func (a *App) initStore(ctx context.Context) error {
 	return nil
 }
 
-// shutdown 在窗口关闭时由 Wails 调用：取消根 ctx、停止所有任务（结束 ffmpeg 子进程）并关闭数据库。
+// shutdown 在窗口真正关闭时由 Wails 调用：取消根 ctx、停止所有任务（结束 ffmpeg 子进程）并关闭数据库。
+// 收尾只跑一次：beforeClose 可能已经先跑过（见 app_window.go），OnShutdown 再来时直接返回。
 func (a *App) shutdown(ctx context.Context) {
+	a.shutdownOnce.Do(func() { a.finishShutdown(ctx) })
+}
+
+func (a *App) finishShutdown(ctx context.Context) {
 	if a.rootCancel != nil {
 		a.rootCancel() // 先取消根 ctx：进行中的探测 / 缩略图立即结束 ffprobe / ffmpeg
 	}
@@ -580,7 +592,7 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 	if c := a.catService(); c != nil {
 		c.CloseScheduler() // 停定时任务调度器：排队中的记已错过；运行中的下次启动收尾
-		c.Wait() // Shared execution has cancelled CLI turns; persist their final state before DB/Office shutdown.
+		c.Wait()           // Shared execution has cancelled CLI turns; persist their final state before DB/Office shutdown.
 		c.ClosePptPreviews()
 	}
 	if l := a.liveService(); l != nil {

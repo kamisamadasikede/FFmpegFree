@@ -60,3 +60,41 @@ func (a *App) catWindowForeground() bool {
 	}
 	return !a.winOps().minimised(a.ctx)
 }
+
+// emitEvent 发应用级事件（测试可替换 emitFn）。
+func (a *App) emitEvent(ctx context.Context, event string, data ...any) {
+	if ctx == nil {
+		return
+	}
+	if a.emitFn != nil {
+		a.emitFn(ctx, event, data...)
+		return
+	}
+	wruntime.EventsEmit(ctx, event, data...)
+}
+
+// beforeClose 是 Wails 的关窗钩子。第一次关窗不立刻关窗口：先让前端显示「正在结束任务…」，
+// 后台做收尾（最长 16 秒：带存档的直播要写完存档尾），完成后再调 Quit 真正退出。
+// 返回 true = 阻止本次关闭；Quit 触发的第二次关窗会直接放行。
+func (a *App) beforeClose(ctx context.Context) bool {
+	if a.closing.Load() {
+		return false
+	}
+	a.closing.Store(true)
+	base := a.ctx
+	if base == nil {
+		base = ctx
+	}
+	a.emitEvent(base, "app:closing")
+	quit := a.quitFn
+	if quit == nil {
+		quit = wruntime.Quit
+	}
+	go func() {
+		a.shutdown(base)
+		if base != nil {
+			quit(base)
+		}
+	}()
+	return true
+}

@@ -89,7 +89,7 @@ func readShareEnabled(base string) (enabledState, error) {
 	}
 	st := enabledState{}
 	if len(b) > 0 && (json.Unmarshal(b, &st) != nil || st == nil) {
-		return nil, shareError("启用状态无法解析，请修复 enabled.json 后重试")
+		return nil, shareError("启用状态无法解析，请修复设置文件后重试")
 	}
 	return st, nil
 }
@@ -430,7 +430,7 @@ func (s *Service) SaveCatSharedMCP(ctx context.Context, req SharedMCPRequest) (S
 	}
 	if e = catagent.WriteShareFile(filepath.Join(base, "mcp.json"), raw); e != nil {
 		if rollback := catagent.WriteShareFile(filepath.Join(base, "enabled.json"), previousState); rollback != nil {
-			return SharedExtensions{}, apperr.Wrap(apperr.IOError, "保存失败，启用状态未恢复，请检查 enabled.json", rollback)
+			return SharedExtensions{}, apperr.Wrap(apperr.IOError, "保存失败，启用状态未恢复，请检查设置文件", rollback)
 		}
 		return SharedExtensions{}, e
 	}

@@ -45,7 +45,7 @@ func TestUserFacingTextHasNoFFmpeg(t *testing.T) {
 		}
 		if d.IsDir() {
 			switch d.Name() {
-			case "node_modules", "frontend", "build", ".git", "vendor":
+			case "node_modules", "frontend", "build", ".git", "vendor", ".gocache":
 				return filepath.SkipDir
 			}
 			return nil
@@ -115,6 +115,7 @@ func TestUserFacingMessageIsChinese(t *testing.T) {
 	allowed := map[string]bool{ // 产品名、格式名、平台名：界面上本来就这样写
 		"ffc": true, "PDF": true, "JSON": true, "Windows": true, "macOS": true, "X11": true, "Office": true, "ID": true,
 		"Word": true, "ODT": true, "TXT": true, "CSV": true, "Markdown": true, "MD": true, "HTML": true, "DOC": true, "DOCX": true,
+		"PNG": true, "JPEG": true, "GIF": true, "WebP": true, // 图片格式名：界面上本来就这样写
 		"XLS": true, "XLSX": true, "PPT": true, "PPTX": true, "ODS": true, "ODP": true, "RTF": true, "GB": true, "MiB": true, "UTF": true,
 		"Agent": true, "Git": true, "git": true, "GitHub": true, // 产品名与 Git 面板名称
 		"CLI": true,              // 契约 v0.43：「Claude/Codex/Grok Build CLI 版本过旧，请升级后重试。」产品锁定原句
@@ -173,7 +174,7 @@ func TestUserFacingMessageIsChinese(t *testing.T) {
 		}
 		if d.IsDir() {
 			switch d.Name() {
-			case "node_modules", "frontend", "build", ".git", "vendor":
+			case "node_modules", "frontend", "build", ".git", "vendor", ".gocache":
 				return filepath.SkipDir
 			}
 			return nil
